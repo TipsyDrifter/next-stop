@@ -1,0 +1,241 @@
+/* ─────────────────────────────────────────────────────
+ * ambience.css — 天空氛圍層（漸層天空／星點／大氣／天象）
+ * 視覺真相＝prototypes/m3-mood-c2-pastel.html（粉彩・全量）
+ *          ／prototypes/m3-mood-c1-galaxy.html（銀河・全量）
+ *          ／prototypes/m3-ext-routemap.html（兩主題・減量檔位）——CSS 值逐字移植
+ * 拍板依據＝決策記錄〈M3 · 發車〉決策 10（原生動態隨主題進、事件動態只在今日視圖）
+ *          ＋〈① 比稿拍板〉（延伸原型定稿）；密度數字見 ui/ambience/starfield.ts
+ *
+ * 原型變數 → 專案 token 對照（沿 sidebar.css／gnav.css 既有慣例）：
+ *   --sky-top／--sky-mid／--sky-bot／--sky-low／--sky-horizon／--starlight
+ *     ＝原型新語彙，正式 token 由 E1 定 → 本檔一律取 var(--color-sky-*, <原型逐字值>)，
+ *       E1 補上同名 token 即自動接手，未補則落回原型字面值（視覺結果相同）。
+ *   --ink→--color-ink（粉彩列車剪影色）。
+ *   原型主題選擇器 .theme-galaxy → 專案既有機制 <html data-theme="dark">；
+ *   本層再由 SkyLayer 依同一個屬性給 .sky--pastel／.sky--galaxy，CSS 不重複判斷主題。
+ *
+ * class 命名：原型的 .sky／.star／.halo／.train… 太通用，一律加 sky- 前綴namespace，
+ *   避免與 techo.css（E2）／stamps.css（E4）撞名；巢狀、尺寸、色值、時間全照原型。
+ *
+ * ⚠ 層級契約（掛載時必看）：.sky-layer ＝ position:fixed; z-index:0 的底層。
+ *   CSS 繪製順序中「z-index:0 的定位元素」排在「未定位兄弟節點的背景與行內內容」之後，
+ *   所以同層的書封／主欄／側板必須自帶 position:relative 且 z-index ≥ 1，否則會被天空蓋住
+ *   （原型就是這樣寫的：.cover z-index:2／3、.page 與 .sheet z-index:1）。
+ *
+ * 注入順序（鐵律 4）：M3 ② 收口後本檔改由 src/index.css 集中 @import（緊接 techo.css 之後）；
+ *   所有規則仍都以 .sky- 前綴自成一區，不靠載入順序，也不改 techo.css。
+ * ───────────────────────────────────────────────────── */
+
+/* ============ 共用：固定在最底層、不吃點擊 ============ */
+.sky-layer {
+  position: fixed; inset: 0;
+  z-index: 0; overflow: hidden; pointer-events: none;
+}
+
+/* ════════ 粉彩星空 Pastel：朧月的月台（霧藍→薰衣草→淡粉＋halo＋bokeh＋稀星） ════════ */
+.sky--pastel {
+  background:
+    /* 月光暖暈（月亮在書封腳） */
+    radial-gradient(560px 400px at 0% 96%, rgba(255, 240, 220, .62), transparent 66%),
+    /* 白霧帶 */
+    linear-gradient(180deg, transparent 34%, rgba(255, 255, 255, .16) 54%, transparent 76%),
+    linear-gradient(180deg,
+      var(--color-sky-top, #b4c1e0) 0%,
+      var(--color-sky-mid, #c8c0e4) 52%,
+      var(--color-sky-bot, #ecd2da) 100%);
+}
+
+/* 極淡彩虹光暈：七色帶 + 大 blur，只是霧裡被月光折出的一抹色（靜態） */
+.sky-halo {
+  position: absolute; left: 38%; top: 6%; width: 1180px; height: 150px;
+  transform: rotate(-16deg); transform-origin: 0 50%;
+  background: linear-gradient(90deg,
+    transparent 0%, rgba(255, 176, 176, .27) 14%, rgba(255, 220, 166, .24) 30%,
+    rgba(206, 240, 196, .21) 46%, rgba(176, 212, 255, .27) 62%, rgba(214, 186, 255, .27) 78%, transparent 100%);
+  filter: blur(22px); opacity: .9;
+}
+
+/* 光斑 bokeh：遠處燈火在霧裡失焦 —— 靜態（慢到看不見的位移就不該動） */
+.sky-bokeh {
+  position: absolute; border-radius: 50%; width: var(--s); height: var(--s);
+  background: radial-gradient(circle, var(--c) 0%, transparent 68%);
+}
+.sky-b1 { --s: 340px; --c: rgba(255, 255, 255, .30); left: 14%; top: 18%; }
+.sky-b2 { --s: 220px; --c: rgba(255, 214, 228, .34); left: 58%; top: 30%; }
+.sky-b3 { --s: 420px; --c: rgba(207, 224, 255, .30); left: 66%; top: -8%; }
+.sky-b4 { --s: 180px; --c: rgba(255, 240, 214, .30); left: 30%; top: 56%; }
+.sky-b5 { --s: 280px; --c: rgba(255, 222, 236, .26); left: 80%; top: 58%; }
+.sky-b6 { --s: 150px; --c: rgba(255, 255, 255, .34); left: 46%; top: 72%; }
+.sky-b7 { --s: 260px; --c: rgba(214, 226, 255, .28); left: 8%; top: 66%; }
+
+.sky--pastel .sky-star {
+  position: absolute; width: var(--s); height: var(--s); border-radius: 50%;
+  left: var(--x); top: var(--y);
+  background: #fff; opacity: var(--o);
+  animation: skyTwinkleP var(--d) ease-in-out var(--dl) infinite;
+}
+.sky--pastel .sky-star.is-glow { box-shadow: 0 0 6px 1px rgba(255, 255, 255, .75); }
+@keyframes skyTwinkleP {
+  0%, 100% { opacity: calc(var(--o) * .35); }
+  50%      { opacity: var(--o); }
+}
+
+/* ════════ 銀河鐵道 Galaxy：深靛天頂→地平線＋月牙＋銀河帶＋星塵 ════════ */
+.sky--galaxy {
+  background-color: var(--color-sky-mid, #111a30);
+  background-image:
+    /* 月光暈 */
+    radial-gradient(640px 480px at 95% 2%, rgba(226, 232, 250, .085), transparent 62%),
+    linear-gradient(180deg,
+      var(--color-sky-top, #0d1126) 0%,
+      var(--color-sky-mid, #111a30) 42%,
+      var(--color-sky-low, #17233e) 80%,
+      var(--color-sky-horizon, #1d2b4a) 100%);
+}
+/* 銀河：一道極淡的斜帶微光 */
+.sky--galaxy::before {
+  content: ""; position: absolute; left: -20%; top: -20%; width: 150%; height: 140%;
+  background:
+    radial-gradient(ellipse 42% 3.2% at 52% 48%, rgba(206, 214, 242, .05), transparent 70%),
+    radial-gradient(ellipse 56% 9% at 52% 48%, rgba(196, 206, 240, .075), rgba(196, 206, 240, .028) 48%, transparent 72%);
+  transform: rotate(22deg);
+}
+
+/* 月牙：凹面透明＝真的月牙。右緣 52px＝C1 原型（無側板）值 */
+.sky-moon {
+  position: absolute; top: 36px; right: 52px;
+  width: 22px; height: 22px; border-radius: 50%;
+  box-shadow: inset -6.5px 3px 0 0 rgba(232, 236, 246, .88);
+}
+/* 側板開啟＝月牙讓開，回到 routemap 原型的 calc(--panel-w + 52px)。
+   開關沿用 techo.css 已建立的同一組（DetailPanel 關閉時 .panel 不進 DOM；
+   .ns-panel-open 是給整合席／未來頁面掛在任一祖先上的等價開關）。 */
+.ns-panel-open .sky-moon,
+body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
+/* 月暈：一圈很淡的柔光（地照＋薄雲） */
+.sky-moon::before {
+  content: ""; position: absolute; inset: -34px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(226, 232, 250, .12), rgba(226, 232, 250, .04) 45%, transparent 70%);
+}
+
+.sky--galaxy .sky-dust,
+.sky--galaxy .sky-star {
+  position: absolute; border-radius: 50%;
+  background: rgb(var(--color-starlight, 230, 236, 255));
+}
+.sky--galaxy .sky-dust { opacity: var(--o, .35); }
+.sky--galaxy .sky-star {
+  opacity: var(--o1, .9);
+  animation: skyTwinkleG var(--dur, 8s) ease-in-out infinite alternate;
+  animation-delay: var(--delay, 0s);
+}
+.sky--galaxy .sky-star.is-warm { background: rgb(255, 232, 200); }
+.sky--galaxy .sky-star.is-bright { box-shadow: 0 0 4px 1px rgba(var(--color-starlight, 230, 236, 255), .35); }
+@keyframes skyTwinkleG {
+  from { opacity: var(--o0, .4); }
+  to   { opacity: var(--o1, .9); }
+}
+
+/* ════════ 流星（只在 density='full'＝今日視圖掛上） ════════ */
+/* 外層定角度／落點，內層沿自身 x 軸滑過——兩件原型同構 */
+.sky-meteor-wrap { position: absolute; }
+.sky-meteor { display: block; }
+
+/* 粉彩：角度固定 24deg、飛行時長由 --dur 帶（1.0–1.3s） */
+.sky--pastel .sky-meteor-wrap { transform: rotate(24deg); transform-origin: 0 50%; }
+.sky--pastel .sky-meteor {
+  width: 170px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .6) 60%, #fff);
+  box-shadow: 0 0 10px 1px rgba(255, 255, 255, .85);
+  animation: skyMeteorP var(--dur, 1.15s) cubic-bezier(.25, .1, .35, 1) forwards;
+}
+@keyframes skyMeteorP {
+  0%   { transform: translateX(0);     opacity: 0; }
+  12%  { opacity: 1; }
+  80%  { opacity: .9; }
+  100% { transform: translateX(440px); opacity: 0; }
+}
+
+/* 銀河：角度每次隨機 20–30deg，帶頭光點，飛行 1.15s */
+.sky--galaxy .sky-meteor-wrap { width: 0; height: 0; transform: rotate(var(--ang, 24deg)); }
+.sky--galaxy .sky-meteor {
+  position: absolute; left: 0; top: 0; width: 170px; height: 1.2px; border-radius: 1px;
+  background: linear-gradient(90deg,
+    rgba(var(--color-starlight, 230, 236, 255), 0),
+    rgba(var(--color-starlight, 230, 236, 255), .35) 55%,
+    rgba(var(--color-starlight, 230, 236, 255), .95));
+  animation: skyMeteorG 1.15s cubic-bezier(.25, .55, .45, 1) forwards;
+}
+.sky--galaxy .sky-meteor::after {
+  content: ""; position: absolute; right: -1px; top: -1px; width: 3px; height: 3px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 7px 1.5px rgba(var(--color-starlight, 230, 236, 255), .65);
+}
+@keyframes skyMeteorG {
+  0%   { transform: translateX(-40px); opacity: 0; }
+  12%  { opacity: 1; }
+  60%  { opacity: .85; }
+  100% { transform: translateX(380px); opacity: 0; }
+}
+
+/* ════════ 地平線帶與列車（只在 density='full'＝今日視圖掛上） ════════ */
+.sky-horizon {
+  position: fixed; left: var(--cover-w, 236px); right: 0;
+  overflow: hidden; pointer-events: none;
+}
+.sky-train { position: absolute; }
+
+/* 粉彩：頁面下緣 14px 處一條淡墨地平線，列車貼線行駛 20s */
+.sky-horizon--pastel { bottom: 14px; height: 26px; z-index: 0; }
+.sky-horizon--pastel::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(42, 43, 73, .16) 12%, rgba(42, 43, 73, .16) 88%, transparent);
+}
+.sky-horizon--pastel .sky-train {
+  left: 0; bottom: 0; width: 262px; height: 26px;
+  color: var(--color-ink, #2a2b49); opacity: .58;
+  transform: translateX(-300px);
+  animation: skyTrainP var(--dur, 20s) linear forwards;
+}
+@keyframes skyTrainP {
+  0%   { transform: translateX(-300px); }
+  100% { transform: translateX(110vw); }
+}
+
+/* 銀河：主欄下緣 32px 的帶子——軌道線＝地平線，下面是遠處的地面；列車行駛 15s */
+.sky-horizon--galaxy { bottom: 0; height: 32px; z-index: 1; }
+.sky-horizon--galaxy::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 8px;
+  border-top: 1px solid rgba(var(--color-starlight, 230, 236, 255), .13);
+  background: linear-gradient(180deg, rgba(3, 6, 13, .35), rgba(3, 6, 13, .7));
+}
+.sky-horizon--galaxy .sky-train {
+  left: 0; bottom: 8px; width: 188px; height: 18px;
+  color: #070a12;
+  transform: translateX(-200px);
+  animation: skyTrainG 15s linear forwards;
+}
+@keyframes skyTrainG {
+  from { transform: translateX(-200px); }
+  to   { transform: translateX(100vw); }
+}
+
+/* ════════ 減少動態：星星停在靜態、天象整組收掉 ════════
+ * JS 端（SkyLayer）已不排程流星與列車，本段是第二道保險；
+ * 粉彩收掉整條地平線帶（列車永遠不跑 → 地面帶沒有存在理由，C2 原型口徑），
+ * 銀河保留地面帶（它是版面的一部分，只是沒有車經過）。
+ * ⚠ 特異度：必須≥ .sky--*  .sky-star（0,2,0），否則被上面的 animation 簡寫蓋回去
+ *   （routemap 原型的 `.sky .star` 對上 `#sky-galaxy .star` 就是輸在這一點，
+ *    銀河場景的 reduced-motion 實際沒生效——本檔修正，不照抄那個 bug）。 */
+@media (prefers-reduced-motion: reduce) {
+  .sky--pastel .sky-star,
+  .sky--galaxy .sky-star { animation: none; opacity: .7; }
+  .sky-layer .sky-meteor-wrap { display: none; }
+  .sky-horizon.sky-horizon--pastel { display: none; }
+  .sky-horizon--galaxy .sky-train { display: none; }
+}
+
+/* ════════ 分頁隱藏：整層凍結（原型 .sky.paused／body.paused 的等價寫法） ════════
+ * ⚠ 必須放在檔尾：這是 animation-play-state 單屬性，而上面每條 animation 簡寫
+ *   都會把它重設回 running——同特異度時靠後者取勝，位置一挪就失效（實測踩過）。 */
+.sky-layer.is-paused *,
+.sky-horizon.is-paused * { animation-play-state: paused; }

@@ -1,0 +1,87 @@
+/* ─────────────────────────────────────────────────────
+ * monthjump.css — 月／年快速跳轉小卡（M3 ⑤-b 追加 1）專用補充。
+ *
+ * ⚠ 這張小卡**沒有原型**（件二 m3-ext-calendar.html 沒畫過這個控件）。處置同推遲小卡（defer.css:4-11）：
+ *   只拼既有語彙、一個新形狀都不發明——
+ *     紙卡／眉標／腳註 ＝ .techo-card／.techo-overline／.techo-foot（techo.css:531-574）
+ *     年份 ‹ ›／今日   ＝ .chev／.today-chip（calendar.css:78-90，頁首控制列那兩顆原件）
+ *     月份 chip       ＝ .opts ＋ .status 小方標（techo.css:336-339 ＋ panel.css:122-132 的互動狀態）
+ *     今天所在的月    ＝ .cell.today .dnum::before 的同一枚金菱形（calendar.css:171-175），尺寸收小
+ *   本檔只出「位置與間距」，顏色一律走 token。
+ *
+ * 注入順序（鐵律 4）：本檔由 MonthJump.tsx import ＝排在 index.css（含 techo.css）**之前**，
+ *   同權重會輸 → 凡與 techo／panel 既有 class 競爭者一律以 .ns-monthjump 前綴抬一級
+ *   （`.ns-monthjump button.status` ＝ 0,2,1 勝過 techo 的 `.status` ＝ 0,1,0）。
+ *   `.status` 的**基底**（字級／字距／內距／邊框）刻意留給 techo.css，本檔不重抄一份。
+ *
+ * `.opts`／`.status` 的互動狀態在 panel.css 是 `.panel` 作用域（`.panel button.status…`），
+ *   小卡不在側板裡 → 那幾條吃不到，本檔照抄同一組值（值相同、作用域不同；不是新增語彙）。
+ * ───────────────────────────────────────────────────── */
+
+/* 小卡本體：position:fixed，座標由元件量 anchor 後給（clamp 進視窗），與推遲小卡同層 z 60 */
+.ns-monthjump {
+  position: fixed;
+  z-index: 60;
+  /* 268px＝四欄月份小方標（「10月」最寬）＋ 腳註「←→ 選月・Enter 跳・Esc 關閉」都不折行的最小寬 */
+  width: 268px;
+  padding: 12px 0 0;
+}
+.ns-monthjump:focus { outline: none; }
+
+.ns-monthjump .ns-mj-head { padding: 0 14px 10px; }
+
+/* ═══ 第一列：‹ 2026 › ═══ */
+.ns-monthjump .ns-mj-year {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 0 14px 11px;
+}
+/* 年份欄＝透明底＋dash 底線（沿 .ns-defer-pick input／techo 的底線輸入語彙），不做新形狀 */
+.ns-monthjump .ns-mj-yin {
+  width: 76px; flex: none;
+  background: transparent; border: 0;
+  border-bottom: 1px solid var(--color-dash);
+  color: var(--color-ink);
+  font-family: var(--font-latin); font-weight: 600; font-size: 17px; letter-spacing: .08em;
+  text-align: center; padding: 2px 0; outline: none;
+  -moz-appearance: textfield;
+}
+.ns-monthjump .ns-mj-yin::-webkit-outer-spin-button,
+.ns-monthjump .ns-mj-yin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ns-monthjump .ns-mj-yin:focus { border-bottom-color: var(--color-gold); }
+.ns-monthjump .chev:disabled { opacity: .35; cursor: default; }
+.ns-monthjump .chev:disabled:hover { color: var(--ink-mid, var(--color-ink-soft)); border-color: var(--color-dash); }
+
+/* ═══ 第二區：十二個月份小方標（3 列 × 4 欄；欄數與 MonthJump.tsx 的 COLUMNS 同一個數字） ═══ */
+.ns-monthjump .ns-mj-months {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  padding: 0 14px 12px;
+}
+/* 互動狀態＝panel.css:125-130 同一組值（該檔限定在 .panel 作用域，小卡吃不到） */
+.ns-monthjump button.status {
+  background: transparent; cursor: pointer; font-family: inherit; line-height: 1.6;
+  /* 四欄等寬 → 收字距、置中、縮左右內距（＝ .opts.week 星期 chip 的同一招，panel.css:135-136） */
+  padding: 3px 4px; letter-spacing: .04em; text-align: center;
+  transition: color .15s, border-color .15s;
+}
+.ns-monthjump button.status:hover { color: var(--color-ink-soft); border-color: var(--color-dash); }
+.ns-monthjump button.status.on { color: var(--color-ink); border-color: var(--color-ink); }
+.ns-monthjump button.status:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+/* 今天所在的月＝金菱形小記（同月格今天的菱形；4px 收小一階，不搶 .on 的邊框） */
+.ns-monthjump button.status.has-today::before {
+  content: ""; display: inline-block; width: 4px; height: 4px;
+  background: var(--accent, var(--color-gold)); transform: rotate(45deg);
+  margin-right: 5px; vertical-align: 1.5px;
+}
+
+/* ═══ 第三列：今日 ═══ */
+.ns-monthjump .ns-mj-now {
+  display: flex; justify-content: center;
+  padding: 0 14px 12px;
+}
+
+.ns-monthjump .ns-mj-foot { padding: 6px 14px 8px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-monthjump button.status { transition: none; }
+}

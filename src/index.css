@@ -1,0 +1,54 @@
+/* ─────────────────────────────────────────────────────
+ * index.css — 共用樣式層的單一入口（main.tsx 唯一 import 的 css）
+ *
+ * 注入順序（移植規格 §0 鐵律 4）：main.tsx 先 import App（元件各自 import 自己的 css：
+ *   sidebar.css／panel.css／outline.css／overlay.css）再 import 本檔 →
+ *   **本檔整串排在元件層之後**，故本檔內的檔案要蓋過元件層舊視覺只需同特異度即可勝出。
+ *
+ * 檔內順序（後者勝出，同特異度時）：
+ *   1. tailwindcss   utilities（@layer，優先權低於下列 unlayered CSS）
+ *   2. theme.css     兩主題 token（粉彩星空／銀河鐵道）＋ Tailwind @theme
+ *   3. techo.css     共用視覺層（書封材質／紙頁／車票／印章底／側板紙面／覆蓋層）
+ *   4. ambience.css  天空氛圍層（.sky-* 具名空間，與上列零撞名）
+ *   5. stamps.css    印章家族（.ns-*）＋ 済章朱肉、側板乘務記錄——需蓋過 techo.css 的 .stamp／.seal
+ *   6. gnav.css      書封頂部全域導航——需蓋過 sidebar.css 的 .cover nav 家族
+ *   7. mobile.css    手機殼（v1.1.0）——**必須排最後**：它要蓋過上列所有桌機視覺
+ *                    （techo 的 body min-width／.page 書溝、Tailwind 的 Toast bottom-6…）。
+ *                    每一條規則都帶 `@media (max-width: 767px)` 或 `[data-shell="mobile"]`，
+ *                    所以排在最後也不影響桌機（鐵則：桌機行為零改變）。
+ *
+ * ⚠ ambience／stamps／gnav 三檔原本由各自元件 import（SkyLayer.tsx／stamps/index.ts／Sidebar.tsx），
+ *   M3 ② 收口時集中到本檔：一來每檔只注入一次（避免 build 重複輸出），二來三檔的「後於 techo.css」
+ *   位置變成宣告式的、不隨元件 import 次序漂移。三檔自身仍以高特異度選擇器書寫，不倚賴此順序。
+ * ───────────────────────────────────────────────────── */
+@import "tailwindcss";
+@import "./styles/theme.css";
+@import "./styles/techo.css";
+@import "./styles/ambience.css";
+@import "./styles/stamps.css";
+@import "./styles/gnav.css";
+@import "./styles/mobile.css";
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-family: var(--font-body);
+    color: var(--color-ink);
+    background-color: var(--color-paper);
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+}

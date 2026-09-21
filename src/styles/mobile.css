@@ -1,0 +1,1299 @@
+/* ─────────────────────────────────────────────────────
+ * mobile.css — 手機殼（v1.1.0「手機殼可用」）的樣式層
+ *
+ * 拍板依據：決策記錄〈v1.1 Plan 草案拍板〉D-1.1-2（底部 5 格 tab／書封色帶頁首／單欄滿版）
+ *   ＋《2026-09-16-v1.1.0-手機殼契約.md》§2.5（class 名即契約）。
+ *
+ * ── 鐵則（本檔每一條規則都必須守）──
+ *   1. **桌機行為零改變**：所有規則至少帶下列其一——`@media (max-width: 767px)` 或 `[data-shell="mobile"]`。
+ *      本檔唯一在全域生效的東西是 :root 的幾個 `--m-*` 變數宣告（只宣告、不消費，桌機看不見）。
+ *      斷點與 `src/ui/mobile/useShell.ts` 的 MOBILE_MEDIA_QUERY 同值——JS 與 CSS 吃同一把尺。
+ *   2. **只用 theme.css 既有 token**（--color-book／--color-book-ink／--color-gold／--color-paper*／
+ *      --color-ink*／--color-line／--font-*／--radius-card／--shadow-card…），不新增顏色字面值；
+ *      兩主題靠 token 自己換值，本檔不寫 `[data-theme="dark"]` 覆寫。要半透明書封色就用
+ *      `color-mix(in srgb, var(--color-book) 92%, transparent)`，不寫 rgba 字面值。
+ *   3. 觸控目標 ≥ 44px。
+ *
+ * ── 注入位置 ──
+ *   index.css 的 @import 串最後（gnav.css 之後）＝unlayered CSS 的最末，同特異度必勝；
+ *   Tailwind utilities 在 @layer 內、優先權更低，所以 `[data-shell="mobile"] .ns-card.fixed`
+ *   蓋得過 Toast 的 `bottom-6`。
+ *
+ * ── 三席共筆的紀律（契約 §1）──
+ *   本檔分區：WP0（本區，骨架＋變數＋殼件基礎樣式）／WP1（導航殼＋今日）／WP2（路線圖＋更多）。
+ *   WP1／WP2 **只在檔尾各自追加** `/* ── WPn ── *\/` 區塊，不碰別人的區塊；
+ *   要改共用變數＝改 WP0 區塊並通知整合席。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP0 ── 一、變數：safe area 與殼件尺寸
+ * ═══════════════════════════════════════════════════════ */
+
+:root {
+  /**
+   * 狀態列保底：Tauri 2 Android 沒有官方 safe-area API，WebView 是否 edge-to-edge 由 Activity 決定；
+   * spike 實證「狀態列壓標題」＝確實延伸到狀態列下，但 env() 在部分機型／WebView 版本會回 0。
+   * env() 的第二引數只在「不支援該變數」時生效，**回 0 不觸發 fallback** → 一律用 max() 保底（契約 §4.1）。
+   */
+  /**
+   * 2026-09-16 整合席實測小米 15T 後，保底由 24px 改為 48px：
+   *   `adb shell dumpsys window` → `InsetsSource type=statusBars frame=[0,0][1280,152]`；
+   *   螢幕密度 520dpi（＝3.25×）→ 狀態列高 152 ÷ 3.25 ≈ 46.8 CSS px。
+   *   同一支機子 `mDisplayCutout` 的 insets 全 0，而 Android WebView 的 env(safe-area-inset-*)
+   *   取的是**顯示屏挖孔**、不是狀態列 → 這支機子上 env() 會回 0，保底是唯一的擋牆；
+   *   24px 只擋得住一半，頁名會被狀態列圖示壓到（spike 的 v1.0 截圖已見內容延伸到狀態列下）。
+   *   48px ＝ 46.8 向上取到 4 的倍數。仍包在 max() 裡：挖孔／瀏海機若 env() 回得出更大的值，以大者為準。
+   */
+  --mobile-top-fallback: 48px;
+  --m-safe-top: max(env(safe-area-inset-top, 0px), var(--mobile-top-fallback));
+  /**
+   * 2026-09-16 修正席（評審 B1）：底部比照頂部加保底。
+   *   為什麼非加不可：`MainActivity.kt` 呼叫了 `enableEdgeToEdge()`，WebView 同時延伸到
+   *   **狀態列與導覽列之下**；上面那段已經論證「這支機子的 env() 取的是顯示屏挖孔、不是系統列」，
+   *   同一個推論對底部一字不改地成立——env(safe-area-inset-bottom) 會回 0，
+   *   tab 標籤與選中態的金菱形（`bottom: 4px`）就會落進手勢列的判定區。
+   *   驗收條目己-2「最後一張票／底部不被手勢列遮」直接押在這條上。
+   *
+   *   24px 的依據：機上是手勢導覽（整合席實測 `navigation_mode=2`／`force_fsg_nav_bar=1`），
+   *   AOSP 手勢模式的 navigationBars inset 是 **24dp**（三鍵模式才是 48dp）。
+   *   ⚠ 本輪**沒能親自量**：評審要求的 `dumpsys window | grep navigationBars` 需要連著機子，
+   *   而上一席收工時 USB 已斷（回報 §5），本席 `adb devices` 回空清單。
+   *   因此這 24px 是「規格值＋機上導覽模式已知」的推算，不是量測值；
+   *   仍包在 max() 裡 → 若該機 env() 其實回得出真 inset（或主人改用三鍵導覽而 WebView 願意報），以大者為準。
+   *   實機一看便知：底部若多出一條明顯空白＝24 太大（可降到 16）；標籤仍被壓＝env() 與規格值都不準，
+   *   要改走 MainActivity 的 `ViewCompat.setOnApplyWindowInsetsListener` 取真 inset（v1.1.x）。
+   */
+  --mobile-bottom-fallback: 24px;
+  --m-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--mobile-bottom-fallback));
+
+  --m-band-h: 52px;    /* 頂帶「內容」高（不含 safe-top） */
+  --m-tabbar-h: 60px;  /* 底部 tab「內容」高（不含 safe-bottom）；44 觸控目標 ＋ 圖示與字的行高 */
+  --m-gutter: 16px;    /* 單欄左右留白（取代桌機 .sheet 的 50px/56px） */
+  /**
+   * 建票輸入列的實際高度（評審 S1 要的常數）：內容 44（.m-nt-* 的觸控目標）＋ 上下 padding 7＋7
+   * ＋ border-top 1 ＝ 59px。Toast 在今日頁要再抬過這一列，否則「取消建立」被輸入列壓住。
+   * 它與 tab bar 一樣是 flex column 的固定段，高度不隨內容變，寫成常數比量測穩。
+   */
+  --m-newticket-h: 59px;
+}
+
+/* 斷點兩段式（與 useShell.ts 的 MOBILE_MEDIA_QUERY 同值）：直向靠寬度，橫向靠「粗指標＋短邊」——
+   2026-09-18 主人真機回報橫向變回桌機版且破版（橫向寬 853dp > 768）。*/
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* body 的桌機 min-width:1180px（techo.css）在橫向手機會重新命中；殼判定為手機時一律解除 */
+  html[data-shell="mobile"] body { min-width: 0; }
+
+  /* ═════════════════════════════════════════════════════
+   * ── WP0 ── 二、根版面：直欄、滿版、不外捲
+   * ═════════════════════════════════════════════════════ */
+
+  /**
+   * App 根 div（原 class `flex h-screen bg-paper text-ink overflow-hidden`）在手機改直欄。
+   * 100dvh 吃得到 Android WebView（Chromium ≥108）的動態視窗高；先寫 100vh 當老 WebView 的退路。
+   * 若實測鍵盤彈出造成 dvh 跳動，把下面那行 dvh 註解掉即可（.m-page 內捲仍在）。
+   *
+   * 2026-09-16 修正席（評審 B2）第三行 `var(--m-vvh, 100dvh)`＝軟鍵盤的退路。
+   *   Android 這一側的組態是「鍵盤蓋住畫面」的已知模式：`enableEdgeToEdge()` 之下
+   *   windowSoftInputMode 的 adjustResize 不會縮 WebView，IME 直接疊上來 → 100dvh 不變、
+   *   建票輸入列（flex column 第三段）被蓋住，主人看不到自己打的字。
+   *   `useVisualViewportHeight`（src/ui/mobile/useViewportHeight.ts）只在**視覺視窗確實矮下去**時
+   *   才寫入 --m-vvh；WebView 若根本不回報，這個變數不存在 → 回落 100dvh，等於沒改。
+   *   兩層保險彼此獨立：manifest 的 adjustResize 管「窗會縮」的機型，--m-vvh 管「窗不縮但
+   *   Chromium 知道鍵盤在」的機型；都不成立時的最終退路是 MainActivity 取 IME inset（見回報〈評審與修正〉）。
+   */
+  [data-shell="mobile"] {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    height: var(--m-vvh, 100dvh);
+    overflow: hidden;
+    /* 桌機 techo.css 的 body{min-width:1180px} 已改成 ≥768 才生效，這裡不需要再解除；
+       但根 div 若被 Tailwind 或元件給了固定寬，仍以 100% 為準。 */
+    width: 100%;
+    min-width: 0;
+    /* iOS/Android 點擊時的灰色閃塊——票面材質自己有 :active 態，不需要系統高亮 */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /** MobileShell 若用一層自己的 wrapper（而非 Fragment），掛這個 class 就能把直欄接下去 */
+  [data-shell="mobile"] .m-shell {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ═════════════════════════════════════════════════════
+   * ── WP0 ── 三、桌機專屬件在手機一律不顯示
+   *
+   * App.tsx 在 mobile 殼本來就不渲染它們（兩殼互斥，見 useShell.ts 檔頭）；
+   * 這一段是**保險不是功能**：任何一支桌機元件被誰不小心掛進手機殼，也不會炸版面。
+   * 用選擇器隱藏、不改元件——桌機零改動的最短路徑。
+   * ═════════════════════════════════════════════════════ */
+
+  [data-shell="mobile"] .cover,      /* 書封側欄（Sidebar；含 gnav） */
+  [data-shell="mobile"] .panel,      /* 詳情側板（DetailPanel） */
+  [data-shell="mobile"] .ns-hkg {    /* 快捷鍵指引（HotkeyGuide） */
+    display: none !important;
+  }
+
+  /**
+   * 桌機主欄的 `.page` 有 ::before 書溝陰影（position:fixed、緊貼側欄右緣）——手機沒有側欄，
+   * 那道陰影會變成畫面左緣一條莫名的暗帶。手機頁面根一律用 .m-page，不用 .page；
+   * 這裡只把書溝關掉，萬一有人沿用 .page 也不會露餡。
+   */
+  [data-shell="mobile"] .page::before { display: none; }
+
+  /* ═════════════════════════════════════════════════════
+   * ── WP0 ── 四、三段骨架：頂帶 ／ 內容 ／ 底部 tab
+   * ═════════════════════════════════════════════════════ */
+
+  /* 四-1　頂帶（MobileTopBand，WP1）：一條書封色帶，放頁名＋日付印 */
+  [data-shell="mobile"] .m-band {
+    flex: none;
+    position: relative;
+    z-index: 3;                       /* 與桌機 .cover 同層——蓋在天空（z-index:0）與內容之上 */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-sizing: border-box;
+    padding: 0 var(--m-gutter);
+    padding-top: var(--m-safe-top);   /* 狀態列由頂帶自己吃掉 */
+    min-height: calc(var(--m-band-h) + var(--m-safe-top));
+    background: var(--color-book);
+    color: var(--color-book-ink);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);
+  }
+
+  /* 頁名（中文）＋拉丁小字；字級與字距沿 gnav 的書封語彙 */
+  [data-shell="mobile"] .m-band-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    letter-spacing: .14em;
+    text-indent: .14em;
+    line-height: 1.3;
+  }
+  [data-shell="mobile"] .m-band-latin {
+    font-family: var(--font-latin);
+    font-size: 10px;
+    letter-spacing: .26em;
+    text-indent: .26em;
+    color: var(--color-gold);
+  }
+  /* 頂帶右側的件（日付印）靠右 */
+  [data-shell="mobile"] .m-band-end { margin-left: auto; display: flex; align-items: center; }
+  /**
+   * 日付印在深底：印章家族的 text/circle/line 全走 currentColor（stamps.css :61-62），
+   * 所以只要換一次 color，整枚跟著走書封字色。朱肉 filter 在深底照樣可用。
+   * （WP1 不必再寫一條——契約 §5-6 說的就是這一條。）
+   */
+  [data-shell="mobile"] .m-band .ns-date-seal { color: var(--color-book-ink); }
+
+  /* 四-2　內容區（單欄滿版、唯一的捲動容器） */
+  [data-shell="mobile"] .m-page {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+    z-index: 1;                       /* 與桌機 .page 同層 */
+    overflow-y: auto;
+    overflow-x: hidden;               /* SkyLayer 的銀河帶寬 1180px：這裡與根 div 兩道保險擋橫捲 */
+    overscroll-behavior-y: contain;   /* 捲到底不要把整個 WebView 一起往下拉 */
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+    padding: 14px var(--m-gutter) 18px;
+  }
+
+  /* 四-3　底部 tab（MobileTabBar，WP1）：5 等分格 */
+  [data-shell="mobile"] .m-tabbar {
+    flex: none;
+    position: relative;
+    z-index: 3;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    align-items: stretch;
+    padding-bottom: var(--m-safe-bottom);   /* 手勢列由 tab bar 自己吃掉 */
+    min-height: calc(var(--m-tabbar-h) + var(--m-safe-bottom));
+    background: var(--color-book);
+    color: var(--color-book-ink);
+    border-top: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);
+  }
+
+  [data-shell="mobile"] .m-tab {
+    position: relative;               /* .is-active::after 的金菱形靠絕對定位貼底 */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 44px;                 /* 觸控目標下限（鐵則 3）；實際高度由 --m-tabbar-h 撐開 */
+    padding: 6px 2px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: .16em;
+    text-indent: .16em;               /* letter-spacing 會在字串尾多一格，補回來才置中 */
+    color: var(--book-muted);          /* theme.css 既有別名＝書封上的次級字色 */
+    transition: color .15s, background .15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-tab svg { opacity: .85; display: block; }
+  [data-shell="mobile"] .m-tab:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+  /* 選中態＝書封上金菱形（逐字沿 gnav .gnav-item.active::after 的語言，只改成絕對定位貼底） */
+  [data-shell="mobile"] .m-tab.is-active { color: var(--color-book-ink); }
+  [data-shell="mobile"] .m-tab.is-active svg { opacity: 1; }
+  [data-shell="mobile"] .m-tab.is-active::after {
+    content: "";
+    position: absolute;
+    bottom: 4px;
+    width: 5px;
+    height: 5px;
+    background: var(--color-gold);
+    transform: rotate(45deg);
+  }
+
+  /**
+   * 未通車格（status: 'planned'）：灰顯 .42——沿桌機 gnav 第二欄 .gnav-off 的「未通車」語感
+   * （.55 是「施工中」，兩種語義不可混用）。**仍可點**：點了切頁顯示 <ComingSoon/> 一行
+   * 「次期開業予定」，不是 disabled 不可點（拍板原話是「點了只顯示一行」）。
+   */
+  [data-shell="mobile"] .m-tab.is-planned { opacity: .42; }
+  [data-shell="mobile"] .m-tab.is-planned.is-active { opacity: .58; }
+
+  /* ═════════════════════════════════════════════════════
+   * ── WP0 ── 五、兩殼共用覆蓋層在手機的落點
+   * ═════════════════════════════════════════════════════ */
+
+  /**
+   * Toast 掛在 App 根 div 內、class 是 `ns-card fixed bottom-6 left-1/2 …`（Tailwind utilities 在 @layer，
+   * 本檔 unlayered 必勝）。手機要讓它浮在 tab bar **之上**，否則收件匣那張票的「取消建立」按不到。
+   * 只調 bottom 與寬度，其餘（紙卡材質、置中位移）不動。
+   */
+  [data-shell="mobile"] .ns-card.fixed {
+    bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + 12px);
+    max-width: calc(100vw - 2 * var(--m-gutter));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP2 ── 路線圖唯讀（MobileRouteMap）＋「更多」（MobileMore）
+ *
+ * 拍板依據：D-1.1-2「路線圖手機版唯讀／『更多』收設定（主題）」＋契約 §2.8／§2.9。
+ * 命名：一律 `m2-` 前綴（WP0 的骨架是 `m-`、WP1 的今日件另有前綴）——三席零撞名。
+ * 顏色一律 token（--color-paper*／--color-ink*／--color-line／--color-dash／--color-gold*／
+ *   --color-seal／--route-preset-*），沒有一個色字面值；兩主題靠 token 自己換值。
+ * 觸控目標：可點的東西一律 ≥44px（caret／徽章／票列／路線列／主題三選）。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /**
+   * 頁根：MobileRouteMap／MobileMore 的根元素自己就是 `.m-page`（骨架三段之一，
+   * 契約 §2.5「手機頁面根用 .m-page」；WP0 給 WP1 的說明也是「三段當根的直接子節點」）。
+   * 萬一 MobileShell 改成在外層再包一層 .m-page，這條保險會把內層那層的捲動與 gutter 取消，
+   * 不會變成雙重內距／雙層捲軸。
+   */
+  [data-shell="mobile"] .m-page .m-page {
+    flex: none;
+    overflow: visible;
+    padding: 0;
+  }
+
+  /* 兩頁共用的小字注記（載入中／空狀態補述／唯讀提醒） */
+  [data-shell="mobile"] .m2-note {
+    font-size: 11px;
+    line-height: 1.7;
+    letter-spacing: .08em;
+    color: var(--color-ink-faint);
+  }
+
+  /* 空狀態：不畫插圖，一句標題一句補述（沿大綱 EmptyBlock 的語感） */
+  [data-shell="mobile"] .m2-empty { padding: 34px 2px; text-align: center; }
+  [data-shell="mobile"] .m2-empty-title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    letter-spacing: .1em;
+    color: var(--color-ink-soft);
+  }
+  [data-shell="mobile"] .m2-empty-body {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--color-ink-faint);
+  }
+
+  /* ─────────────────────────────────────────────
+   * WP2-A　路線圖 第一層：我的路線
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m2-lines section + section { margin-top: 20px; }
+
+  /* 幹線小標（沿書封 .trunk 的字級語彙，只是改壓在紙上） */
+  [data-shell="mobile"] .m2-trunk {
+    font-size: 10px;
+    letter-spacing: .28em;
+    text-indent: .28em;
+    color: var(--color-ink-faint);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  [data-shell="mobile"] .m2-route-list { list-style: none; margin: 0; padding: 0; }
+
+  [data-shell="mobile"] .m2-route {
+    width: 100%;
+    min-height: 52px;                 /* 觸控目標（鐵則 3） */
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 2px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-line);
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font-family: inherit;
+  }
+  [data-shell="mobile"] .m2-route:active { background: var(--color-paper-used); }
+  [data-shell="mobile"] .m2-route:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+  /* 色帶＝路線色（inline style 帶 var(--route-preset-N) 或自訂 #hex，本檔不寫色值） */
+  [data-shell="mobile"] .m2-band {
+    flex: none;
+    width: 4px;
+    align-self: stretch;
+    min-height: 34px;
+    border-radius: 2px;
+  }
+
+  [data-shell="mobile"] .m2-route-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    letter-spacing: .04em;
+    color: var(--color-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-shell="mobile"] .m2-route-go { flex: none; color: var(--color-ink-faint); display: flex; }
+
+  /* ─────────────────────────────────────────────
+   * WP2-B　路線圖 第二層：麵包屑・抬頭・樹
+   * ───────────────────────────────────────────── */
+
+  /**
+   * 麵包屑：sticky 釘在內容區頂端。Android 返回鍵 v1.1.0 不攔（契約 §5-9），
+   * zoom 進子樹之後這排字是唯一的回頭路——捲到樹深處也不能讓它離開畫面。
+   * 負邊距是為了讓底色鋪滿 .m-page 的 gutter，捲動的內容不會從左右縫隙透出來。
+   */
+  [data-shell="mobile"] .m2-crumbs {
+    position: sticky;
+    /**
+     * -14px ＝抵銷 `.m-page` 的 `padding-top: 14px`（WP0 四-2）。
+     * sticky 的約束矩形是捲動容器的 **content box**（Chromium 實測：top:0 會卡在 padding 之下 14px），
+     * 於是頂帶與麵包屑之間會露出一條 14px 的縫，捲動中的票列從那條縫穿過去。
+     * 負的 top 把它拉回捲動視窗的最上緣；左右的負 margin 則是讓底色鋪滿 gutter，兩側同理不露縫。
+     */
+    top: -14px;
+    z-index: 2;
+    margin: -14px calc(-1 * var(--m-gutter)) 10px;
+    padding: 9px var(--m-gutter);
+    background: var(--color-paper);
+    border-bottom: 1px solid var(--color-line);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 2px;
+  }
+  [data-shell="mobile"] .m2-crumb-item { display: inline-flex; align-items: center; min-width: 0; }
+  [data-shell="mobile"] .m2-crumb-sep { padding: 0 5px; color: var(--color-ink-faint); font-size: 11px; }
+  [data-shell="mobile"] .m2-crumb {
+    max-width: 42vw;
+    padding: 6px 2px;                 /* 麵包屑是文字鏈，靠行高與間距拉開，不撐成方塊 */
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: .06em;
+    color: var(--color-ink-soft);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-shell="mobile"] .m2-crumb.is-here { color: var(--color-ink); cursor: default; }
+  [data-shell="mobile"] .m2-crumb:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+
+  [data-shell="mobile"] .m2-head { padding: 2px 0 12px; }
+  [data-shell="mobile"] .m2-head-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 19px;
+    letter-spacing: .05em;
+    line-height: 1.4;
+    color: var(--color-ink);
+  }
+  [data-shell="mobile"] .m2-head-sub {
+    margin-top: 3px;
+    font-size: 10px;
+    letter-spacing: .22em;
+    color: var(--color-ink-faint);
+  }
+
+  [data-shell="mobile"] .m2-tree { list-style: none; margin: 0; padding: 0; }
+  [data-shell="mobile"] .m2-item { border-bottom: 1px solid var(--color-line); }
+
+  [data-shell="mobile"] .m2-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 46px;
+  }
+  [data-shell="mobile"] .m2-row.is-done .m2-name { color: var(--color-ink-faint); }
+  [data-shell="mobile"] .m2-row.is-suspended .m2-name { color: var(--color-ink-soft); }
+
+  /* caret：44×44 的觸控目標，圖示本身只有 12px（鐵則 3：目標大、墨跡小） */
+  [data-shell="mobile"] .m2-caret {
+    flex: none;
+    width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--color-ink-faint);
+    cursor: pointer;
+  }
+  [data-shell="mobile"] .m2-caret.is-empty { cursor: default; }
+  [data-shell="mobile"] .m2-caret:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -4px; }
+
+  /**
+   * 票根徽章：沿 techo.css 既有的 `.badge`／`.badge.dashed`（虛線圈＝容器、實線圈＝車票／車站），
+   * 只把 31px 的桌機尺寸縮到 26px，並把可點的那顆撐成 44px 高的觸控目標（＝zoom-in）。
+   */
+  [data-shell="mobile"] .m2-badge.badge {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-width: 1.3px;
+    font-size: 11px;
+    color: var(--color-ink-soft);
+    background: transparent;
+    padding: 0;
+  }
+  /**
+   * 觸控目標撐在**外層** .m2-zoom（40×44）上，不是撐在圓圈上：`.badge` 是 border-radius:50%，
+   * 在它身上加 padding 會把圓撐成橢圓（mock 實測）。可點與不可點的列都包同一顆 .m2-zoom，
+   * 兩種列的徽章才會對齊在同一欄。
+   */
+  [data-shell="mobile"] .m2-zoom {
+    flex: none;
+    width: 40px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+  [data-shell="mobile"] button.m2-zoom { cursor: pointer; }
+  [data-shell="mobile"] button.m2-zoom:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -4px; }
+
+  [data-shell="mobile"] .m2-row-body {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 4px 6px 8px;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    font-family: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  [data-shell="mobile"] .m2-row-body:active { background: var(--color-paper-used); }
+  [data-shell="mobile"] .m2-row-body:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+  [data-shell="mobile"] .m2-name {
+    font-size: 14px;
+    line-height: 1.4;
+    letter-spacing: .02em;
+    color: var(--color-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-shell="mobile"] .m2-meta {
+    font-size: 10px;
+    letter-spacing: .14em;
+    color: var(--color-ink-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 済／運休：右緣一枚小角印（済＝朱、運休＝墨，語彙同大綱的 .seal／SealSuspended） */
+  [data-shell="mobile"] .m2-seal {
+    flex: none;
+    margin-right: 2px;
+    padding: 2px 5px;
+    border: 1.2px solid currentColor;
+    border-radius: 2px;
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-indent: .18em;
+    line-height: 1.4;
+    color: var(--color-seal);
+    opacity: .92;
+    transform: rotate(-6deg);
+  }
+  [data-shell="mobile"] .m2-seal.is-suspended { color: var(--color-ink-soft); }
+
+  /* ─────────────────────────────────────────────
+   * WP2-C　列下方的唯讀詳情（手機無側板，點票就在原地攤開）
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m2-detail {
+    margin: 0 0 12px 46px;            /* 左緣對齊 caret 之後，視覺上掛在那一列底下 */
+    padding: 10px 12px;
+    background: var(--color-paper-used);
+    border-left: 2px solid color-mix(in srgb, var(--color-gold) 44%, transparent);
+    border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  }
+  [data-shell="mobile"] .m2-fields { margin: 0; }
+  [data-shell="mobile"] .m2-field {
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    align-items: baseline;
+    gap: 8px;
+    padding: 3px 0;
+  }
+  [data-shell="mobile"] .m2-field.is-wrap { align-items: start; }
+  [data-shell="mobile"] .m2-field-label {
+    font-size: 10px;
+    letter-spacing: .2em;
+    color: var(--color-ink-faint);
+  }
+  [data-shell="mobile"] .m2-field-value {
+    margin: 0;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  [data-shell="mobile"] .m2-field.is-wrap .m2-field-value { white-space: pre-line; }
+  [data-shell="mobile"] .m2-field-value.is-latin { font-family: var(--font-latin); letter-spacing: .06em; }
+  [data-shell="mobile"] .m2-detail .m2-note { margin-top: 6px; }
+
+  /* v1.1.2：競合（同步衝突的敗方值）——一道虛線把它與上面的欄位分開；
+     字級同欄位值、時刻走拉丁淡字（沿桌機側板 `.log .tm` 的語彙）。 */
+  [data-shell="mobile"] .m2-detail-conflicts {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-dash);
+  }
+  [data-shell="mobile"] .m2-conflict-list {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+  }
+  [data-shell="mobile"] .m2-conflict-list li {
+    display: flex;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  [data-shell="mobile"] .m2-conflict-tm {
+    flex: none;
+    font-family: var(--font-latin);
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    color: var(--color-ink-faint);
+    padding-top: 3px;
+  }
+
+  /* ─────────────────────────────────────────────
+   * WP2-D　「更多」頁
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m2-sec + .m2-sec { margin-top: 26px; }
+  [data-shell="mobile"] .m2-sec-title {
+    font-size: 10px;
+    letter-spacing: .28em;
+    text-indent: .28em;
+    color: var(--color-ink-faint);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  [data-shell="mobile"] .m2-block { padding: 14px 2px 4px; }
+  [data-shell="mobile"] .m2-block-label {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 10px;
+    letter-spacing: .28em;
+    color: var(--color-ink-soft);
+  }
+
+  [data-shell="mobile"] .m2-choices { display: flex; flex-direction: column; gap: 8px; }
+
+  /**
+   * 主題三選：語彙沿設定紙卡的 `.ns-choice`（細框小字、選中＝燙金邊與深金字），
+   * 但手機改成整列可點（≥44px）並把副註（原本只在 title 屬性裡）攤到第二行——
+   * 觸控沒有 hover，藏在 title 裡的字等於不存在。
+   */
+  [data-shell="mobile"] .m2-choice {
+    width: 100%;
+    min-height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px solid var(--color-dash);
+    border-radius: var(--radius-card);
+    text-align: left;
+    font-family: inherit;
+    color: var(--color-ink-soft);
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  [data-shell="mobile"] .m2-choice.is-on { border-color: var(--color-gold); color: var(--color-gold-ink); }
+  [data-shell="mobile"] .m2-choice:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+  [data-shell="mobile"] .m2-choice-label { font-size: 14px; letter-spacing: .1em; }
+  [data-shell="mobile"] .m2-choice-note { font-size: 10px; letter-spacing: .14em; color: var(--color-ink-faint); }
+
+  /* 未通車一列（售票口）：灰度沿 tab 的 .is-planned（.42＝「未通車」；.55 是「施工中」，語義不可混用） */
+  [data-shell="mobile"] .m2-row-planned {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 46px;
+    padding: 10px 2px;
+    margin-top: 10px;
+    border-top: 1px dashed var(--color-dash);
+    opacity: .42;
+  }
+  [data-shell="mobile"] .m2-planned-name { font-size: 14px; letter-spacing: .06em; color: var(--color-ink); }
+  [data-shell="mobile"] .m2-planned-note {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: .2em;
+    color: var(--color-ink-soft);
+  }
+
+  [data-shell="mobile"] .m2-about { padding: 16px 2px 4px; }
+  [data-shell="mobile"] .m2-about-name {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: .3em;
+    text-indent: .3em;
+    color: var(--color-ink);
+  }
+  [data-shell="mobile"] .m2-about-latin {
+    margin-top: 4px;
+    font-family: var(--font-latin);
+    font-style: italic;
+    font-size: 12px;
+    letter-spacing: .22em;
+    color: var(--color-ink-soft);
+  }
+  [data-shell="mobile"] .m2-about-version {
+    margin-top: 10px;
+    font-family: var(--font-latin);
+    font-size: 11px;
+    letter-spacing: .16em;
+    color: var(--color-ink-faint);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP1 ── 導航殼補件 ＋ 今日視圖手機版
+ *
+ * 拍板依據：D-1.1-2（底部 5 格／書封色帶頁首／單欄滿版／最小操作＝看今日・蓋済・推遲・開臨時票）
+ *   ＋《2026-09-16-v1.1.0-手機殼契約.md》§2.3／§2.7。
+ * 本區只追加 WP0 沒有的 class，**不改 WP0 區塊任何一條**；共用變數（--m-band-h／--m-tabbar-h／
+ *   --m-gutter／--m-safe-*）一律沿用，沒有新增變數。顏色全部 token，無字面值。
+ * 每一條都在 `@media (max-width: 767px)` 之內＋帶 `[data-shell="mobile"]` 前綴（鐵則 1 的雙保險）。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+
+  /* ─────────────────────────────────────────────
+   * WP1-A　頂帶與 tab 的補件（骨架在 WP0 四節）
+   * ───────────────────────────────────────────── */
+
+  /* 頁名那一疊（中文＋拉丁小字）：min-width:0 讓長頁名可以截斷而不是把日付印擠出畫面 */
+  [data-shell="mobile"] .m-band-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  [data-shell="mobile"] .m-band-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* tab 下方的中文字：WP0 的 .m-tab 已給字級／字距／色，這裡只管不換行 */
+  [data-shell="mobile"] .m-tab-label { white-space: nowrap; }
+
+  /* ─────────────────────────────────────────────
+   * WP1-B　未通車頁（ComingSoon）：單欄置中一行
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m-coming {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; text-align: center;
+  }
+  [data-shell="mobile"] .m-coming-name {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: 19px; letter-spacing: .22em; text-indent: .22em;
+    color: var(--color-ink-soft);
+  }
+  [data-shell="mobile"] .m-coming-latin {
+    font-family: var(--font-latin); font-size: 10px; letter-spacing: .3em; text-indent: .3em;
+    color: var(--color-ink-faint);
+  }
+  /**
+   * 「次期開業予定」：色**不覆寫**，一律吃 .techo-overline 自己的兩主題定值——
+   * 粉彩＝靛（--accent-sky）、銀河＝金（--color-gold）。theme.css 檔頭契約 5 寫得很清楚：
+   * 「紙面上的強調色，粉彩請用靛，--gold 只留給書封燙金」；實測在粉彩的淡紫紙上強寫金會糊掉。
+   * 於是「燙金小字」這件事只在銀河成立，粉彩由靛承擔——與設定／dialog 的眉標完全同一套。
+   */
+  [data-shell="mobile"] .m-coming-text { margin-top: 6px; }
+
+  /* ─────────────────────────────────────────────
+   * WP1-C　今日頁：區段標題與統計
+   *   .sec／.sec.late（techo.css :206-221）在手機沿用同一份 DOM 與樣式，只收緊留白與字級——
+   *   34px 的段距在 853dp 的畫面上一段就吃掉 4% 高度。
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m-today .sec { margin: 18px 0 8px; gap: 9px; }
+  [data-shell="mobile"] .m-today .sec:first-child { margin-top: 4px; }
+  [data-shell="mobile"] .m-today .sec h3 { font-size: 14px; letter-spacing: .18em; text-indent: .18em; }
+  [data-shell="mobile"] .m-today .sec .note { font-size: 10px; letter-spacing: .14em; }
+
+  [data-shell="mobile"] .m-today-stats {
+    font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft);
+  }
+  [data-shell="mobile"] .m-today-stats b { font-weight: 700; color: var(--color-ink); }
+  [data-shell="mobile"] .m-today-left { color: var(--color-ink-faint); }
+
+  /* 空狀態／全完成慶祝（桌機 .empty 的手機版；文案逐字同桌機）
+     ⚠ 選擇器要含 .m-today 才壓得過上面那條 `.m-today .sec:first-child{margin-top:4px}`——
+     空狀態的 .sec 正好也是 .m-empty 的第一個子節點，(0,4,0) 會贏過 (0,3,0)。 */
+  [data-shell="mobile"] .m-today .m-empty .sec { margin-top: 12vh; }
+  [data-shell="mobile"] .m-today .m-empty.is-cheer .sec { margin-top: 26px; }
+  [data-shell="mobile"] .m-empty-body {
+    font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft);
+  }
+
+  /* ─────────────────────────────────────────────
+   * WP1-D　車票列（MobileTicket）
+   *   桌機 .ticket 是三欄票券（票根 84／票面／検印欄 76）＋霧面玻璃材質＋真打孔；
+   *   手機重排成四欄格：票根色帶 28 ／ 兩行文字 ／ 検印 48 ／ ⋯ 44，總固定寬 120px，
+   *   375px 螢幕扣掉 gutter 還剩 223px 給標題——夠放 11 個中文字而不斷行。
+   *   材質沿票紙 token（--color-paper-high／--color-line／--radius-card／--shadow-card），
+   *   但**不搬 backdrop-filter 打孔那一整套**：一頁十幾張票各自 blur 在中階手機上會掉幀。
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m-tk-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  [data-shell="mobile"] .m-tk-li { list-style: none; }
+
+  [data-shell="mobile"] .m-tk {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 48px 44px;  /* 後兩欄＝觸控目標（鐵則 3） */
+    align-items: stretch;
+    min-height: 58px;
+    background: var(--color-paper-high);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;                 /* 票根色塊跟著圓角收邊 */
+    transition: background .15s, border-color .15s, opacity .15s;
+  }
+
+  /* 票根＝一條路線色帶（顏色由 inline style 的 color 給，這裡只用 currentColor 取值） */
+  [data-shell="mobile"] .m-tk-stub {
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, currentColor 13%, transparent);
+    border-right: 1px dashed var(--color-dash);
+  }
+  [data-shell="mobile"] .m-tk-badge {
+    font-family: var(--font-latin); font-weight: 600; font-size: 11px;
+    line-height: 1; color: currentColor;
+  }
+  [data-shell="mobile"] .m-tk-badge.is-dashed {
+    font-family: var(--font-body); font-size: 10px;
+    border: 1px dashed currentColor; border-radius: 2px; padding: 1px 3px;
+  }
+
+  [data-shell="mobile"] .m-tk-body { min-width: 0; padding: 9px 8px 9px 10px; align-self: center; }
+  [data-shell="mobile"] .m-tk-title {
+    font-size: 14.5px; line-height: 1.45; color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  [data-shell="mobile"] .m-tk-meta {
+    margin-top: 3px;
+    display: flex; flex-wrap: wrap; align-items: center;
+    font-size: 10.5px; line-height: 1.7; letter-spacing: .04em;
+    color: var(--color-ink-faint);
+  }
+  [data-shell="mobile"] .m-tk-mi { display: inline-flex; align-items: center; }
+  [data-shell="mobile"] .m-tk-sep { margin: 0 4px; opacity: .6; }
+  [data-shell="mobile"] .m-tk-line { color: var(--color-ink-soft); }
+  [data-shell="mobile"] .m-tk-serial { font-family: var(--font-latin); letter-spacing: .06em; }
+
+  /* 締切／原定 chip（沿桌機 .chip／.chip.late 的語彙：赭＝時刻注意） */
+  [data-shell="mobile"] .m-tk-chip {
+    border: 1px solid var(--color-dash); border-radius: 2px;
+    padding: 0 4px; font-size: 10px; letter-spacing: .06em;
+  }
+  [data-shell="mobile"] .m-tk-chip.is-late {
+    border-color: color-mix(in srgb, var(--color-late) 55%, transparent);
+    color: var(--color-late);
+  }
+  [data-shell="mobile"] .m-tk-late-note { color: var(--color-late); }
+
+  /* 繰越角印縮到 meta 行內（形制沿 .ns-imp.ns-rect，只收字級與內距；(0,3,0) 蓋得過 (0,2,0)） */
+  [data-shell="mobile"] .m-tk .m-tk-seal-inline {
+    font-size: 9.5px; letter-spacing: .18em; text-indent: .18em;
+    padding: 2px 5px 1px 7px; border-width: 1.2px;
+    margin-left: 2px;
+  }
+
+  /* 検印區（単擊＝済／取消済／取消運休） */
+  [data-shell="mobile"] .m-tk-stamp {
+    display: grid; place-items: center;
+    min-height: 44px; padding: 0;
+    background: transparent; border: 0; border-left: 1px dashed var(--color-dash);
+    cursor: pointer; font-family: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-tk-stamp:active { background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
+  [data-shell="mobile"] .m-tk-stamp:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m-tk-hint {
+    font-size: 9px; letter-spacing: .1em; text-indent: .1em;
+    color: var(--color-ink-faint);
+  }
+  /* 運休角印在 48px 欄裡要比欄寬窄一點才不貼邊（済章 SealDone small＝34px 本來就放得下） */
+  [data-shell="mobile"] .m-tk .m-tk-seal-zone.ns-rect {
+    font-size: 10px; letter-spacing: .12em; text-indent: .12em; padding: 3px 5px 2px 7px;
+  }
+
+  /* ⋯＝底部 action sheet 入口 */
+  [data-shell="mobile"] .m-tk-more {
+    display: grid; place-items: center;
+    min-height: 44px; padding: 0;
+    background: transparent; border: 0;
+    color: var(--color-ink-faint); font-size: 19px; line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-tk-more:active { color: var(--color-ink); }
+  [data-shell="mobile"] .m-tk-more:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+  /* 狀態：誤點（暖框）／済（票紙退一階）／運休（整張轉淡）／暫停 */
+  [data-shell="mobile"] .m-tk.is-late-t {
+    border-color: color-mix(in srgb, var(--color-late) 42%, var(--color-line));
+  }
+  [data-shell="mobile"] .m-tk.is-done { background: var(--color-paper-used); }
+  [data-shell="mobile"] .m-tk.is-done .m-tk-title { color: var(--color-ink-soft); }
+  /* 結局上前、來歷退後：済蓋下後繰越印淡到 .38（沿桌機 .ticket.done .carry-seal） */
+  [data-shell="mobile"] .m-tk.is-done .m-tk-seal-inline { opacity: .38; }
+  [data-shell="mobile"] .m-tk.is-suspended { opacity: .68; }
+  [data-shell="mobile"] .m-tk.is-paused .m-tk-title { color: var(--color-ink-soft); }
+
+  /* ─────────────────────────────────────────────
+   * WP1-E　建票輸入列——固定在 tab bar 之上
+   *   它是根 div（flex column）的第三段：.m-band ／ .m-page ／ **.m-newticket** ／ .m-tabbar，
+   *   所以不必 position:fixed，也就不會被 Android 軟鍵盤的 visualViewport 位移弄丟。
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m-newticket {
+    flex: none;
+    position: relative; z-index: 2;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px var(--m-gutter);
+    background: var(--color-paper-high);
+    border-top: 1px solid var(--color-line);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
+  }
+
+  /* 「無日期」＝常駐切換鈕（開＝建收件匣種子票）；關態沿 .status 小標語彙、開態燙金 */
+  [data-shell="mobile"] .m-nt-toggle {
+    min-height: 44px; padding: 0 9px;
+    background: transparent; border: 1px dashed var(--color-dash); border-radius: 2px;
+    font-family: inherit; font-size: 10.5px; letter-spacing: .12em; text-indent: .12em;
+    color: var(--color-ink-faint); cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-nt-toggle.is-on {
+    border-style: solid; border-color: var(--color-gold);
+    color: var(--color-gold-ink);
+    background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  }
+  [data-shell="mobile"] .m-nt-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+  /* 底線輸入（沿 .techo-input 的語彙）；font-size 16px＝行動瀏覽器聚焦時不自動放大頁面 */
+  [data-shell="mobile"] .m-nt-input {
+    min-width: 0; min-height: 44px;
+    padding: 4px 2px;
+    background: transparent; border: 0; border-bottom: 1px solid var(--color-dash);
+    font-family: var(--font-body); font-size: 16px; line-height: 1.4;
+    color: var(--color-ink); outline: none;
+  }
+  [data-shell="mobile"] .m-nt-input:focus { border-bottom-color: var(--color-gold); }
+  [data-shell="mobile"] .m-nt-input::placeholder { color: var(--color-ink-faint); }
+
+  /* 「発券」＝朱印主鈕（.ns-btn.btn-seal 的尺寸在這裡撐到 44px 觸控目標） */
+  [data-shell="mobile"] .m-nt-go {
+    min-height: 44px; padding: 0 14px;
+    font-size: 13px; letter-spacing: .12em; text-indent: .12em;
+  }
+  [data-shell="mobile"] .m-nt-go:disabled { opacity: .4; cursor: default; }
+
+  /* ─────────────────────────────────────────────
+   * WP1-F　底部 action sheet（⋯ 的唯一用途）
+   *   z-index 45＝在 tab bar（3）與 Toast／ConfirmDialog（50）之間：
+   *   sheet 要蓋住 tab bar，但「連同 N 個子項一起完成？」的確認窗要蓋得住 sheet。
+   * ───────────────────────────────────────────── */
+
+  [data-shell="mobile"] .m-sheet-veil {
+    position: fixed; inset: 0; z-index: 45;
+    display: flex; align-items: flex-end;
+  }
+  [data-shell="mobile"] .m-sheet {
+    box-sizing: border-box;
+    width: 100%;
+    border-width: 1px 0 0;
+    border-radius: 10px 10px 0 0;
+    padding: 6px 0 calc(var(--m-safe-bottom) + 8px);
+  }
+  [data-shell="mobile"] .m-sheet-title {
+    padding: 10px var(--m-gutter) 8px;
+    font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-bottom: 1px dashed var(--color-dash);
+  }
+  [data-shell="mobile"] .m-sheet-item {
+    display: block; width: 100%;
+    min-height: 52px; padding: 0 var(--m-gutter);
+    background: transparent; border: 0; border-bottom: 1px solid var(--color-line);
+    font-family: inherit; font-size: 15px; letter-spacing: .08em; text-align: left;
+    color: var(--color-ink); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-sheet-item:active { background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+  [data-shell="mobile"] .m-sheet-item.is-cancel {
+  [data-shell="mobile"] .m-sheet-item.is-disabled { color: var(--color-ink-faint); cursor: default; }
+    border-bottom: 0; color: var(--color-ink-faint); font-size: 14px;
+  }
+
+  /* ─────────────────────────────────────────────
+   * WP1-G　Toast 的寬度（驗收時量到的，補 WP0 五節）
+   *
+   * `.ns-card.fixed` 是 `position:fixed; left:50%` 而**沒有 right**——這種 shrink-to-fit 盒的
+   * 「可用寬度」是從 left:50% 到視窗右緣，桌機 1280px 有 640px 綽綽有餘，375px 卻只剩 187px，
+   * 於是 `truncate` 把「已推到 9/17（週三）」截成「已推到 9/17（週…」。
+   * WP0 已把它抬到 tab bar 之上並限了 max-width；這裡補上左右定位讓它真的用滿那個寬度。
+   * ⚠ 這條動到的是 WP0 擁有的選擇器，寫在 WP1 區是因為問題在 WP1 驗收才量到——
+   *   已知會整合席：日後要收斂請併進 WP0 五節那一條，本區同時刪掉。
+   * ───────────────────────────────────────────── */
+  [data-shell="mobile"] .ns-card.fixed {
+    /* 只給寬度、不碰 left/translate：Tailwind v4 的 `-translate-x-1/2` 是 **translate 屬性**
+       （不是 transform，寫 `transform:none` 蓋不掉），而它同時也是 Toast 進場位移的載體——
+       改成「置中不動、寬度寫死」既修好截斷，也保住 starting:translate-y-2 的滑入。 */
+    width: calc(100vw - 2 * var(--m-gutter));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ── 評審修正（2026-09-16 修正席）──
+ *
+ * product-reviewer 評審後補的兩條版面修正。獨立成區塊是為了讓「哪些是評審改出來的」一眼可查；
+ * 日後收斂時 S1 那條併回 WP0 五節（它動的是 WP0 擁有的 .ns-card.fixed，和 WP1-G 同一顆），
+ * S2 那條併進 WP1-C（誤點區段標題）。
+ * 紀律照舊：每條都帶 [data-shell="mobile"]，都在 @media (max-width:767px) 內，顏色全用既有 token。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* ─────────────────────────────────────────────
+   * S1　Toast 要抬過建票輸入列（今日頁）
+   *
+   * WP0 只把 Toast 抬到 tab bar 之上；今日頁的 tab bar 上面還壓著一條 59px 的 .m-newticket，
+   * 於是收件匣票的「已放進收件匣／取消建立」收據正好落在輸入列上——主人連打第二張時
+   * 既看不到收據也按不到「取消建立」（useMobileToday 的 INBOX_TOAST 是那張票唯一的收據）。
+   * Toast 與 .m-newticket 都是 App 根 div 的直接子節點且 Toast 在後（App.tsx 的共用覆蓋層區），
+   * 用一般兄弟選擇器就能「只有今日頁抬高、其他三頁維持原位」——不必讓 Toast 知道自己在哪一頁。
+   * 特異度 (0,4,0) > WP0 那條 (0,3,0)，同一個 @media 內後寫，兩邊都贏。
+   * ───────────────────────────────────────────── */
+  [data-shell="mobile"] .m-newticket ~ .ns-card.fixed {
+    bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-newticket-h) + 12px);
+  }
+
+  /* ─────────────────────────────────────────────
+   * S2　誤點區可摺疊（本地 state，不碰 uiStore.lateCollapsed）
+   *
+   * 為什麼原本不做、現在做：不共用桌機 `uiStore.lateCollapsed` 的理由成立（那是桌機鍵盤流的記憶，
+   * 共用會讓手機收起來的狀態跟著回桌機），但結論不該是「不摺」——誤點 5 件時
+   * 「今天的列車」第一張票要到 615dp 才出現，394×853 的首屏只露一張半，主任務被推出畫面。
+   * 改成 MobileToday 的本地 useState（同 WP2 的 zoom 作法），預設展開、計數保留。
+   *
+   * 樣式不新發明：桌機 .fold／.caret 的定義在 today.css 但被 `.ns-today` 圈住（手機根是 .m-today），
+   * 所以這裡把同一組語彙逐字抄成手機版——▾ 收起、展開時 rotate(-90deg)，色與過場照舊。
+   * 觸控目標：按鈕撐到 44px 高、負 margin 抵銷，所以 .sec 那一列的視覺高度一點都沒變（鐵則 3 與版面兩全）。
+   * ───────────────────────────────────────────── */
+  [data-shell="mobile"] .m-today .sec .fold {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-block: -12px;              /* 把 44px 的觸控目標「藏」回原本 20px 的行高裡，段距不變 */
+    padding: 0 0 0 8px;               /* 左側多咬 8px 給拇指，右緣貼齊 .sec 末端 */
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+    color: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-today .sec .fold:focus-visible {
+    outline: 1px solid var(--color-gold);
+    outline-offset: 2px;
+  }
+  [data-shell="mobile"] .m-today .sec .fold .caret {
+    display: inline-block;
+    margin-left: .5em;
+    transition: transform .15s;
+  }
+  [data-shell="mobile"] .m-today .sec .fold[aria-expanded="false"] .caret {
+    transform: rotate(-90deg);
+  }
+}
+
+@media ((max-width: 767px) or ((pointer: coarse) and (max-height: 767px))) and (prefers-reduced-motion: reduce) {
+  /* 桌機 today.css:208 同一條規則的手機對位——收合箭頭不轉 */
+  [data-shell="mobile"] .m-today .sec .fold .caret { transition: none; }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP8 ──　同步（v1.1.1）：「更多」的同步一列＋子頁 MobileSync
+ *
+ * 拍板依據：契約 §9.2／§9.3。形狀零發明——列沿 `.m2-row-planned`、選擇沿 `.m2-choice`、
+ * 說明沿 `.m2-note`、輸入沿今日頁那條 `.m-nt-input` 的底線輸入（16px＝聚焦時不放大整頁）、
+ * 按鈕沿 `.ns-btn`＋`.btn-seal`／`.btn-ghost`，只把觸控目標撐到 ≥44px。
+ * 狀態點（`.m-band-sync-dot`）的色與形狀在 styles/sync.css（兩殼共用，不在這裡重寫一份）。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* 小字級的赭：與桌機設定紙卡同一條推導（settings.css 的 `--ns-warn-text`），手機頁自己也要有一份 */
+  [data-shell="mobile"] .m2-page {
+    --ns-warn-text: color-mix(in srgb, var(--color-late) 74%, var(--color-ink));
+  }
+  [data-shell="mobile"] .m2-note.is-fail { color: var(--ns-warn-text); }
+
+  /* 「更多」裡可點的一列（同步）：排版與下面那列未通車的售票口完全相同，
+     差別只在它不吃 .42 的灰度、而且是個真的按鈕（48px 觸控目標）。 */
+  [data-shell="mobile"] .m2-row-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 2px;
+    margin-top: 10px;
+    background: transparent;
+    border: 0;
+    border-top: 1px dashed var(--color-dash);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m2-row-link:active { background: var(--color-paper-used); }
+  [data-shell="mobile"] .m2-row-link:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+  /* 子頁頂部「← 更多」：同一套 44px 觸控目標，負 margin 讓它不把內容往下推太多 */
+  [data-shell="mobile"] .m2-back {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin: -10px 0 2px -8px;
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: .14em;
+    color: var(--color-ink-soft);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m2-back:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+  /* 狀態那一行：字級比本文大一階（這頁唯一的主詞），停車中轉赭 */
+  [data-shell="mobile"] .m2-sy-phase {
+    font-size: 17px;
+    letter-spacing: .12em;
+    color: var(--color-ink);
+  }
+  [data-shell="mobile"] .m2-sy-phase.is-fail { color: var(--ns-warn-text); }
+
+  /* 底線輸入（沿 `.m-nt-input`）：16px 才不會在聚焦時被行動瀏覽器放大整頁 */
+  [data-shell="mobile"] .m2-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 2px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-dash);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.45;
+    color: var(--color-ink);
+    outline: none;
+  }
+  [data-shell="mobile"] .m2-input:focus { border-bottom-color: var(--color-gold); }
+  [data-shell="mobile"] .m2-input::placeholder { color: var(--color-ink-faint); }
+  /* 配對碼是一長串 base64url：等寬感、逐字換行，不橫向捲 */
+  [data-shell="mobile"] .m2-sy-code {
+    resize: none;
+    font-family: var(--font-latin);
+    font-size: 13px;
+    letter-spacing: .02em;
+    word-break: break-all;
+  }
+
+  [data-shell="mobile"] .m2-sy-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  [data-shell="mobile"] .m2-sy-go {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+    letter-spacing: .12em;
+    text-indent: .12em;
+  }
+  [data-shell="mobile"] .m2-sy-go:disabled { opacity: .4; cursor: default; }
+
+  /* 單向提示（評審 B2）：常駐一句，語氣同其他 note，但與狀態那兩行隔開一點 */
+  [data-shell="mobile"] .m2-sy-oneway { margin-top: 8px; }
+
+  /* 上次重置另存的未同步修改（產品評審 B1）：常駐一行；路徑很長，一定要折得下來 */
+  [data-shell="mobile"] .m2-sy-orphans { margin-top: 6px; overflow-wrap: anywhere; }
+  [data-shell="mobile"] .m2-sy-orphans-path { opacity: 0.8; }
+
+  /* 重設自成一塊，擺在頁尾（評審 S5；沿桌機 `.ns-bk-danger` 的結構：說明在上、鈕在下） */
+  [data-shell="mobile"] .m2-sy-danger {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 1px solid var(--color-dash);
+  }
+  [data-shell="mobile"] .m2-sy-danger .m2-sy-actions { margin-top: 10px; }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP10b ──　v1.1.2：掃描配對碼的疊層＋改正待ち一塊
+ *
+ * 拍板依據：D-1.1-6 甲（QR 掃描，掃不到退回貼上）＋契約 §6／§9.1。
+ *
+ * 為什麼要把整頁背景弄透明：tauri-plugin-barcode-scanner 是把系統相機的預覽畫在 **WebView 後面**，
+ * WebView 自己有底色時，主人只會看到一片紙色而不是鏡頭。`html[data-scanning]` 由 MobileSync 在
+ * 掃描期間掛上、finally 一定拆掉（元件卸載時也再拆一次，免得整個 App 留著透明底）。
+ * 疊層只畫四角取景框與底部取消鈕——**中央不放任何東西**，那裡要讓相機看得見。
+ * ═══════════════════════════════════════════════════════ */
+
+html[data-scanning],
+html[data-scanning] body,
+html[data-scanning] #root {
+  background: transparent !important;
+}
+/* 掃描期間頁面本體讓位（只留疊層）：不 display:none，否則 React 的 state 與捲動位置都要重來 */
+html[data-scanning] .m2-page > .m2-sec { visibility: hidden; }
+/* 主人真機驗收（2026-09-20）：掃描頁沒有鏡頭畫面——只把 html／body／#root 弄透明還不夠，
+   相機被下列四層擋住：App 根 div 的 bg-paper、position:fixed 的星空層（自帶漸層底）、
+   .m-shell／.m-page 的紙色、頂帶與 tab bar 的書封色。星空直接不畫（它是 fixed 且鋪滿），其餘透明或讓位。 */
+html[data-scanning] .sky-layer { display: none !important; }
+html[data-scanning] #root > div,
+html[data-scanning] .m-shell,
+html[data-scanning] .m-page,
+html[data-scanning] .m2-page { background: transparent !important; }
+html[data-scanning] .m-band,
+html[data-scanning] .m-tabbar { visibility: hidden; }
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  [data-shell="mobile"] .m2-scan-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    background: transparent;
+  }
+  [data-shell="mobile"] .m2-scan-tip {
+    margin: 0;
+    padding: 6px 12px;
+    border-radius: 2px;
+    /* 底色是相機畫面（什麼顏色都可能），所以這兩行字自己帶一塊暗底才讀得到 */
+    background: rgb(0 0 0 / .55);
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: .12em;
+  }
+  /* 四角取景框：四個 <i> 各畫一個角，中央完全空著 */
+  [data-shell="mobile"] .m2-scan-frame {
+    position: relative;
+    width: min(70vw, 260px);
+    aspect-ratio: 1;
+  }
+  [data-shell="mobile"] .m2-scan-frame i {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--color-gold);
+  }
+  [data-shell="mobile"] .m2-scan-frame i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+  [data-shell="mobile"] .m2-scan-frame i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+  [data-shell="mobile"] .m2-scan-frame i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+  [data-shell="mobile"] .m2-scan-frame i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+  /* 取消：44px 觸控目標、自帶暗底（同 tip，理由一樣） */
+  [data-shell="mobile"] .m2-scan-cancel {
+    background: rgb(0 0 0 / .55);
+    border-color: rgb(255 255 255 / .5);
+    color: #fff;
+  }
+
+  /* 掃描鈕那一列：與下面的 textarea 隔開一點 */
+  [data-shell="mobile"] .m2-sy-scan-row { margin-bottom: 10px; }
+
+  /* 改正待ち一塊：語氣是「要人處理」，用一道朱色左緣把它從其他 block 裡拎出來 */
+  [data-shell="mobile"] .m2-sy-epoch {
+    border-left: 2px solid var(--color-seal);
+    padding-left: 10px;
+  }
+  [data-shell="mobile"] .m2-sy-epoch .m2-sy-actions { margin-top: 10px; }
+}

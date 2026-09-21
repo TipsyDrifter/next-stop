@@ -1,0 +1,225 @@
+/* ─────────────────────────────────────────────────────
+ * panel.css — 詳情側板 ＝ 原型 .sheet 的延伸紙頁（prototypes/m1-c-techo.html；暗色 m1-c3-sleeper.html 只差變數）
+ * 原型沒有側板，這裡只用原型既有的語彙拼：.panel-head（.panel-kind／.date-line .d／.day-stats）、.sec、.status、.badge、
+ * .meta、.cars、.stamp／.seal、.late-seal 形制——這些 class 的定義在 src/styles/techo.css（原型逐字移植段），本檔不重抄；
+ * 本檔只放：紙頁底（原型 body 紙纖維）、版面、輸入（透明底＋ .dash 底線）、原型沒有的控件（hover 才現身）。
+ * 數值一律照原型；顏色走 theme.css tokens，暗色自動跟隨。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 紙頁 ═══
+   寬度改吃 --panel-w（件一 340px；theme.css 定值）——ambience.css 的月牙讓位、techo.css 的
+   .sheet 收緊都以「側板 340」為前提，寬度散在兩處會對不上版。 */
+.panel { width: var(--panel-w, 340px); flex: none; height: 100%; position: relative; overflow: hidden; outline: none; }
+.panel-sheet {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  /* 原型 body：字級／行高／字距／紙纖維 */
+  font-family: var(--font-body); font-size: 14px; line-height: 1.6; letter-spacing: .02em;
+  color: var(--color-ink); font-variant-numeric: tabular-nums;
+  background-color: var(--color-paper);
+  background-image:
+    repeating-linear-gradient(105deg, rgba(120, 100, 70, .03) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(15deg, rgba(90, 75, 55, .02) 0 3px, transparent 3px 9px);
+  border-left: 1px solid var(--color-line);
+  transition: transform .2s ease-out;
+}
+[data-theme="dark"] .panel-sheet {
+  background-image:
+    repeating-linear-gradient(45deg, rgba(232, 214, 175, .014) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(-32deg, rgba(0, 0, 0, .07) 0 3px, transparent 3px 9px);
+}
+@starting-style { .panel-sheet { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .panel-sheet { transition: none; } }
+
+.panel-scroll { flex: 1; overflow-y: auto; padding: 38px 26px 40px; }
+.panel-scroll::-webkit-scrollbar { width: 10px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 5px; }
+.panel-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* 關閉叉：件一 .panel-close 定稿（26×26、top/right 14、常駐 ink-faint）——
+   M2 時代它是「原型沒有的控件」故 hover 才現身；件一把它畫進票頭了，② 換裝改常駐。
+   ⚠ 前綴 .panel 是必要的：techo.css 的霧面顆粒層寫了 `.panel-sheet > *{position:relative}`，
+     特異度同為 (0,1,0)、且注入在本檔之後——不抬一級這枚叉會退回相對定位、被擠到票頭左外側（實測 x=1247）。 */
+.panel .panel-close {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border: 0; border-radius: 2px; background: transparent;
+  color: var(--color-ink-faint); cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.panel .panel-close:hover { color: var(--color-ink); background: rgba(42, 43, 73, .06); }
+[data-theme="dark"] .panel .panel-close:hover { background: rgba(230, 236, 255, .06); }
+.panel .panel-close:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+/* ═══ 票頭（件一 .panel-head／.panel-kind 逐字）＝「攤開的一張大票」的票頭 ═══ */
+.panel .panel-head {
+  position: relative;
+  padding-bottom: 16px; margin-bottom: 14px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+/* .fare-class 在 techo.css 是絕對定位在票的右上角；票頭版讓開右上角的關閉叉 */
+.panel .panel-head .fare-class { top: 2px; right: 34px; }
+.panel .panel-kind {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 9px;
+  color: var(--color-ink-mid, var(--ink-mid, var(--color-ink-soft)));
+}
+.panel .panel-kind .badge { width: 27px; height: 27px; font-size: 12px; flex: none; }
+.panel .panel-kind .line-name { font-size: 10px; letter-spacing: .24em; color: currentColor; }
+
+/* ═══ 票頭內的襯線標題列（.date-line 語彙；NodePanel／RoutePanel 共用） ═══
+   M2 的 header.day 版標題區已在 ③ 全面退場（RoutePanel 也換成上面的 .panel-head，一字題② 拍板），
+   .date-line／.d 這組仍是標題輸入框的版位，故留著；前綴 .panel 是 techo.css `.panel-sheet > *` 的特異度坑，
+   理由見本檔 .panel-close 那段的 ⚠。 */
+.panel .date-line { align-items: center; gap: 12px; }
+.panel .date-line .d {
+  flex: 1; min-width: 0; display: block; width: 100%;
+  font-size: 24px; line-height: 1.3;
+  padding: 0; border-bottom-color: transparent; resize: none; overflow: hidden; field-sizing: content;
+}
+.panel .date-line .d:hover { border-bottom-color: var(--color-dash); }
+.panel .date-line .d:focus { border-bottom-color: var(--color-gold); }
+.panel .date-line .d.done { color: var(--color-ink-faint); text-decoration: line-through color-mix(in srgb, var(--color-ink) 35%, transparent) 1px; }
+.panel .date-line .badge { flex: none; }
+.panel .day-stats { margin-top: 10px; }
+
+/* ═══ 欄位：左＝小標（.overline 字型；無下邊距）、右＝控制項 ═══ */
+.fields { display: flex; flex-direction: column; gap: 10px; }
+.field { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 26px; }
+.field.top { align-items: start; }
+.field.top .lbl { padding-top: 6px; }
+.lbl { font-size: 10px; letter-spacing: .4em; color: var(--color-gold); font-weight: 500; }
+.panel .serial { font-family: var(--font-latin); font-size: 8.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+
+/* ═══ 輸入：透明底＋ .dash 底線；焦點轉金（原型 .stamp:hover／focus 的金） ═══ */
+.panel input, .panel textarea {
+  font: inherit; letter-spacing: inherit; color: var(--color-ink);
+  background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0;
+  outline: none; padding: 2px 0 3px; width: 100%; min-width: 0; display: block;
+}
+.panel input:focus, .panel textarea:focus { border-bottom-color: var(--color-gold); }
+.panel input::placeholder, .panel textarea::placeholder { color: var(--color-ink-faint); }
+.panel textarea { resize: none; line-height: 1.6; field-sizing: content; }
+.panel input[type="date"] { width: 8.4em; }
+.panel input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0; cursor: pointer; transition: opacity .15s; }
+.panel .field:hover input[type="date"]::-webkit-calendar-picker-indicator,
+.panel .st:hover input[type="date"]::-webkit-calendar-picker-indicator,
+.panel input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity: .55; }
+.panel input[type="number"] { width: 4.5em; appearance: textfield; -moz-appearance: textfield; }
+.panel input[type="number"]::-webkit-inner-spin-button, .panel input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.panel .num { display: flex; align-items: baseline; gap: 6px; }
+.panel .num .meta { margin-top: 0; }
+.panel .date { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.panel .code { font-family: var(--font-latin); letter-spacing: .12em; width: 6em; }
+
+/* 小叉（清除日期／刪除車站）：原型沒有，列 hover 才現身 */
+.panel .x {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--color-ink-faint); cursor: pointer;
+  opacity: 0; transition: opacity .15s, color .15s;
+}
+.panel .field:hover .x, .panel .st:hover .x, .panel .x:focus-visible { opacity: 1; }
+.panel .x:hover { color: var(--color-late); }
+
+/* ═══ 選項：原型 .status 小方標；未選＝idle、選中＝ink 邊 ═══ */
+.opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.opts.grid2 { display: grid; grid-template-columns: repeat(2, max-content); }
+.panel button.status { background: transparent; cursor: pointer; font-family: inherit; line-height: 1.6; transition: color .15s, border-color .15s; }
+.panel button.status:hover { color: var(--color-ink-soft); border-color: var(--color-dash); }
+.panel button.status.on { color: var(--color-ink); border-color: var(--color-ink); }
+.panel button.status.late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 40%, transparent); }
+.panel button.status.late:hover { color: var(--color-late); border-color: var(--color-late); }
+.panel button.status:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.panel button.status:disabled { opacity: .5; cursor: default; }
+
+/* 星期 chip（M3 ④ WP3）：七顆要在 220px 的控制項欄排成一列 → 收字距、給等寬底
+   （原型沒有這個控件，形制沿用 .status 小方標，只動間距不動顏色） */
+.panel .opts.week { gap: 5px; }
+.panel .opts.week button.status { min-width: 22px; padding: 1px 4px; letter-spacing: 0; text-align: center; }
+
+/* 票根徽章當按鈕（無代碼的路線：空章點了去填代碼） */
+.panel button.badge { background: transparent; cursor: pointer; padding: 0; }
+
+/* ═══ 心情三燈：三個 .badge 小圓（color 由元件給：松葉／燙金／朱） ═══ */
+.mood { display: flex; align-items: center; gap: 8px; }
+.mood .badge {
+  background: transparent; cursor: pointer; padding: 0;
+  font-family: var(--font-display); font-size: 13px;
+  opacity: .4; transition: opacity .15s, background .15s;
+}
+.mood .badge:hover { opacity: .75; }
+.mood .badge.on { opacity: 1; background: currentColor; }
+.mood .badge.on > span { color: var(--color-paper-high); }
+.mood .badge:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+
+/* ═══ 路線色：原型 .roundel 小圓盤；選中＝ink 邊；自訂＝虛線空盤（color picker 藏在裡面） ═══ */
+.swatches { display: flex; align-items: center; gap: 8px; }
+.swatches .roundel { border: 0; cursor: pointer; padding: 0; position: relative; overflow: hidden; transition: box-shadow .15s; }
+.swatches .roundel.on { box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 3px var(--color-ink); }
+.swatches .roundel.custom { background: transparent; border: 1.6px dashed var(--color-dash); color: var(--color-ink-faint); font-size: 12px; }
+.swatches .roundel.custom.on { border: 0; }
+.swatches .roundel.custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.swatches .roundel:focus-within { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+/* ═══ 車票検印：沿原型 .stamp／.seal；done／fresh 對應 .ticket.done／.ticket.fresh ═══ */
+.panel .stamp-row { display: flex; align-items: center; gap: 16px; }
+.panel .stamp-row .meta { margin-top: 0; display: block; }
+.panel .stamped .stamp { border-color: transparent; }
+.panel .stamped .stamp .hint { opacity: 0; }
+.panel .stamped .seal { opacity: .92; }
+.panel .fresh .seal { animation: stampIn .4s cubic-bezier(.2, 1.5, .4, 1); }
+/* 定期券的「運休」鈕靠右（M3 ④ WP3）：検印欄左邊是章、中間是一句話 */
+.panel .stamp-row .susp { margin-left: auto; flex: none; }
+
+/* ═══ 工作日誌 ═══
+   M3 ② 換裝後日誌列＝乘務記錄樣式（時刻戳＋三欄條目），版式全在 src/styles/stamps.css；
+   本檔只留清單容器與空狀態（原本的 .log .latin／.log p 隨舊 markup 一併刪除）。 */
+.log { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.log li { min-width: 0; }
+.panel .latin { font-family: var(--font-latin); font-style: italic; font-size: 13px; color: var(--color-ink-faint); letter-spacing: .14em; }
+.panel .empty { margin-top: 6px; font-size: 12px; color: var(--color-ink-faint); letter-spacing: .05em; }
+
+/* ═══ 車站：每站一列＝名稱（原型 .title）＋ .meta（預定日）＋ 到站章（.late-seal 形制、seal 色、寫「着」） ═══ */
+.stations { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.st { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; grid-template-rows: auto auto; column-gap: 8px; align-items: center; }
+.st .title { grid-column: 1; grid-row: 1; }
+.st .arr-seal { grid-column: 2; grid-row: 1; }
+.st .x { grid-column: 3; grid-row: 1; }
+.st .meta { grid-column: 1 / -1; grid-row: 2; }
+.st .title { font-size: 15px; font-weight: 500; letter-spacing: .04em; padding: 0; border-bottom-color: transparent; }
+.st .title:hover { border-bottom-color: var(--color-dash); }
+.st .title:focus { border-bottom-color: var(--color-gold); }
+.st.arrived .title { color: var(--color-ink-faint); }
+.st .meta { margin-top: 2px; }
+.st .meta input[type="date"] { font-size: 12px; padding: 0 0 1px; }
+.st .arr-note { color: var(--color-seal); letter-spacing: .12em; white-space: nowrap; }
+.arr-seal {
+  border: 1.6px solid var(--color-seal); color: var(--color-seal); background: transparent; cursor: pointer;
+  font-family: var(--font-display); font-weight: 600; font-size: 12.5px;
+  letter-spacing: .3em; text-indent: .3em;
+  padding: 3px 8px; transform: rotate(-6deg); opacity: .78;
+  border-radius: 2px;
+  transition: opacity .15s, color .15s, border-color .15s;
+}
+/* 未到站：章不可見；列 hover 才以虛線空章現身（＝検印欄的虛線語彙） */
+.st:not(.arrived) .arr-seal { opacity: 0; border-style: dashed; border-color: var(--color-dash); color: var(--color-ink-faint); }
+.st:not(.arrived):hover .arr-seal, .st:not(.arrived) .arr-seal:focus-visible { opacity: .7; }
+.st:not(.arrived) .arr-seal:hover { border-color: var(--color-gold); color: var(--color-gold); }
+.st.arrived .arr-seal:hover { opacity: 1; }
+.arr-seal:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+.st.fresh .arr-seal { animation: arrIn .4s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes arrIn {
+  0%   { transform: scale(1.75) rotate(-24deg); opacity: 0; }
+  55%  { transform: scale(.9)   rotate(-4deg);  opacity: .96; }
+  100% { transform: scale(1)    rotate(-6deg);  opacity: .78; }
+}
+
+/* ═══ 操作列：上接撕線（.sec .rule 的虛線），鈕＝.status 式次鈕 ═══ */
+.actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 34px; padding-top: 14px; border-top: 1px dashed var(--color-dash);
+}
+.actions > div { display: flex; align-items: center; gap: 6px; }
+
+/* ═══ 未選節點 ═══ */
+.panel .blank { height: 100%; display: grid; place-items: center; text-align: center; }
+.panel .blank h3 { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: .22em; color: var(--color-ink-soft); }
+.panel .blank p { margin-top: 8px; font-size: 13px; color: var(--color-ink-soft); letter-spacing: .06em; }

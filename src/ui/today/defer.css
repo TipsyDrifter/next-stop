@@ -1,0 +1,72 @@
+/* ─────────────────────────────────────────────────────
+ * defer.css — 推遲小卡（M3 ③ WP3；D-③-6 乙）專用補充。
+ *
+ * ⚠ 這張小卡**沒有原型**（① 比稿與 C1／C2 都沒畫過 popover）。移植規格 §0 鐵律「原型沒有的元素
+ *   一律不可見／不自創新視覺元素」的處置＝**只拼 techo.css 既有語彙**，一個新形狀都不發明：
+ *     紙卡      ＝ .techo-card（覆蓋層共用件，techo.css:531-547「一張浮起的票」）
+ *     眉標      ＝ .techo-overline（同上 :555-566）
+ *     腳註      ＝ .techo-foot（同上 :568-574）
+ *     項目      ＝ .status 小方標的邊框語彙（--color-dash 虛線分隔、hover 轉燙金）
+ *     清除執行日 ＝ 赭（--color-late），與誤點／締切同一色階，不新增顏色
+ *   本檔只出「位置與間距」，顏色一律走 token。
+ *
+ * 注入順序（鐵律 4）：本檔由 DeferPopover.tsx import ＝排在 index.css（含 techo.css）之前，
+ *   凡與 techo 既有 class 同名屬性競爭者一律以 .ns-defer 前綴抬一級（比照 outline.css／today.css）。
+ * ───────────────────────────────────────────────────── */
+
+/* 小卡本體：position:fixed，座標由元件量 anchor 後給（clamp 進視窗） */
+.ns-defer {
+  position: fixed;
+  z-index: 60;
+  /* 232px＝腳註「↑↓ 移動・Enter 選・Esc 關閉」在 .techo-foot 的 10px/.28em 下剛好不折行的最小寬 */
+  width: 232px;
+  padding: 12px 0 0;
+  /* 形制與材質全部來自 .techo-card；這裡只補圓角以外的尺寸 */
+}
+.ns-defer:focus { outline: none; }
+
+.ns-defer .ns-defer-head { padding: 0 14px 8px; }
+
+.ns-defer .ns-defer-list { list-style: none; margin: 0; padding: 0; }
+
+/* 項目＝一行文字鈕：左＝動作、右＝那一天是幾號（淡字）。邊框留給分隔線，不做塊狀底色。 */
+.ns-defer .ns-defer-item {
+  width: 100%;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 8px 14px;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; letter-spacing: .08em; text-align: left;
+  color: var(--color-ink);
+  transition: color .15s, background .15s;
+}
+.ns-defer .ns-defer-item:hover { color: var(--color-gold); background: var(--color-paper-used); }
+.ns-defer .ns-defer-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-defer .ns-defer-item:disabled { color: var(--color-ink-faint); cursor: default; background: transparent; }
+.ns-defer .ns-defer-item .when {
+  font-family: var(--font-latin); font-size: 11px; letter-spacing: .12em;
+  color: var(--color-ink-faint); flex: none;
+}
+
+/* 分隔＝手帳的虛線撕線（沿 .sec .rule 的 --color-dash） */
+.ns-defer .ns-defer-list li + li.cut { border-top: 1px dashed var(--color-dash); margin-top: 4px; padding-top: 4px; }
+
+/* 清除執行日＝赭（票離開今日、流入收件匣；與誤點／締切同一色階） */
+.ns-defer .ns-defer-item.warn { color: var(--color-late); }
+.ns-defer .ns-defer-item.warn:hover { color: var(--color-late); background: var(--color-paper-used); }
+
+/* 選日期…展開的原生 date：沿 techo.css 的底線輸入語彙（.techo-input），不做新形狀 */
+.ns-defer .ns-defer-pick { padding: 4px 14px 10px; }
+.ns-defer .ns-defer-pick input {
+  width: 100%; background: transparent; border: 0;
+  border-bottom: 1px solid var(--color-dash);
+  color: var(--color-ink); font-family: inherit; font-size: 12.5px; letter-spacing: .06em;
+  padding: 4px 0; outline: none;
+}
+.ns-defer .ns-defer-pick input:focus { border-bottom-color: var(--color-gold); }
+[data-theme="dark"] .ns-defer .ns-defer-pick input::-webkit-calendar-picker-indicator { filter: invert(1) opacity(.6); }
+
+.ns-defer .ns-defer-foot { margin-top: 4px; padding: 6px 14px 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-defer .ns-defer-item { transition: none; }
+}

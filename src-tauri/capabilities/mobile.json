@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Capability for the main window on Android／iOS (v1.1.0 D-1.1-1 甲：不含 dialog——手機不做備份，lib.rs 也沒掛 dialog plugin；權限指到未註冊的 plugin 會讓 build 直接失敗。v1.1.2 D-1.1-6：加 barcode-scanner 五項給掃 QR 配對；plugin 只掛在 mobile target，platforms 已限手機所以桌機 build 不會看到這幾條)",
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "sql:default",
+    "sql:allow-execute",
+    "barcode-scanner:allow-scan",
+    "barcode-scanner:allow-cancel",
+    "barcode-scanner:allow-check-permissions",
+    "barcode-scanner:allow-request-permissions",
+    "barcode-scanner:allow-open-app-settings"
+  ]
+}

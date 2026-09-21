@@ -1,0 +1,70 @@
+[package]
+name = "next-stop"
+version = "1.1.2"
+description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
+authors = ["主人 & 小紗"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "next_stop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# M3 ⑥ 備份三件套：
+#  * sqlx ─ 備份快照用 `VACUUM INTO` 另開唯讀連線；還原時要拿 plugin-sql 的 `Pool<Sqlite>` 來 close()。
+#           版本／features 必須與 tauri-plugin-sql 2.4.0 的 `sqlite` feature 一致（sqlx 0.8 + runtime-tokio），
+#           否則會編出兩份 sqlx 型別。**不用 rusqlite**：它與 sqlx 各帶 libsqlite3-sys（`links = "sqlite3"` 只能有一份）。
+#  * tauri-plugin-dialog ─ 第二備份位置選資料夾、「從檔案還原…」選 .db。
+#  * chrono ─ 備份檔名要本地時間、created_at 要 UTC ISO；已在 Cargo.lock 內（serde_with 傳遞依賴），只是升為直接依賴。
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+tauri-plugin-dialog = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# v1.1.1 ⑦ 同步地基（契約 §5.4；**版本與契約草稿略有出入，理由都寫在這裡**）：
+#  * object_store ─ Cloudflare R2 的 S3 API 客戶端（SigV4／分頁 list／重試都內建）。
+#      **鎖 0.12 不升 0.14**：0.14 的 `aws` feature 硬綁 `aws-lc-rs`，而 `aws-lc-sys` 的 build.rs 要 cmake＋nasm，
+#      本機兩樣都沒有、Android NDK 也編不過（實測 panic「NASM command not found」）。0.12 的 `cloud` 用 `ring`，
+#      桌機與 aarch64-linux-android 都一次編過。`tls-webpki-roots`＝把根憑證編進來，不去讀系統憑證庫
+#      （Android 的根憑證在 Java 那側，rustls-native-certs 讀不到）。代價＝多一份 reqwest 0.12 樹（tauri 用的是 0.13）。
+#  * chacha20poly1305／argon2 ─ E2EE 的兩半：XChaCha20-Poly1305 封裝＋argon2id 派生（P2）。
+#      0.11／0.6 是現行穩定版；API 換成 `hybrid-array`，建 cipher 走 `new_from_slice`（見 crypto.rs）。
+#  * zstd ─ oplog 物件先壓再加密。帶 C（zstd-sys），**實測 NDK 28 的 clang 編得過**，所以不啟用 flate2 退路。
+#  * base64 ─ 配對碼／金鑰／鹽的 base64url（無 padding）。釘 0.22＝lock 裡已有的版本，不多一份。
+#  * getrandom ─ nonce 與 salt。**不用 `rand`**：rand 0.9／0.10 與 rand_core 正在換代，跟 chacha20poly1305 綁的
+#      版本混起來會出現「兩份 OsRng 互不相容」的型別錯；我們只需要「填滿一段位元組」。
+#  * uuid ─ device_id（v4）。v5 是 TS 端算 occurrences.id 用的，Rust 這輪不需要，就不開那個 feature。
+#  * futures-util ─ object_store 的 list 回 `BoxStream`，要 `StreamExt::next()`。
+object_store = { version = "0.12", features = ["aws", "tls-webpki-roots"] }
+chacha20poly1305 = "0.11"
+argon2 = "0.6"
+zstd = "0.14"
+base64 = "0.22"
+getrandom = "0.3"
+uuid = { version = "1", features = ["v4"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+# keyring 只在桌機：Android／iOS 沒有 OS 憑證庫後端，走 app 私有檔（sync/credstore.rs 的 cfg 兩分支）。
+# **鎖 3 不升 4**：keyring 4 把各家後端拆成獨立 crate，`windows-native` 這個 feature 名字已經不存在。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
+
+
+# v1.1.2 QR 掃描（D-1.1-6 甲：手機掃桌機的 QR；契約席 2026-09-19 加、WP10a 接線）。
+# 只掛在手機 target：桌機沒有相機、也不掃碼；掛上去桌機 build 只會多一份沒人叫的 plugin。
+# Android 端會拉 ML Kit barcode-scanning（gradle 由 `tauri android build` 自動接 `:tauri-plugin-barcode-scanner`），
+# 相機權限在 gen/android 的 AndroidManifest（CAMERA）＋ capabilities/mobile.json（barcode-scanner:allow-*）。
+# 版本釘 2.4（與 npm `@tauri-apps/plugin-barcode-scanner` 2.4.x 同代）；3.0.0-alpha 是 tauri 3 用的，不上。
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "2.4"

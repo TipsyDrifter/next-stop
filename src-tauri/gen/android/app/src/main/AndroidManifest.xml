@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- v1.1.2 D-1.1-6 甲：掃桌機 QR 配對（tauri-plugin-barcode-scanner）。plugin 自己的 manifest 也宣告了 CAMERA，
+         這裡再寫一次是保險（manifest merge 會合併同名權限），且讓「這個 App 要相機」在正本 manifest 一眼看得到。
+         ⚠ 本檔在 gen/android 下：`tauri android init` 會重生，改動要記得回填。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- AndroidTV support -->
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <application
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.next_stop"
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!--
+          windowSoftInputMode=adjustResize（2026-09-16 修正席，評審 B2）：
+          未指定時系統走 adjustUnspecified，在 enableEdgeToEdge() 之下很容易解成「IME 直接疊在畫面上」
+          ——建票輸入列（貼在 tab bar 上方那一列）會被鍵盤整條蓋住，主人看不到自己打的字。
+          明寫 adjustResize 讓「窗會縮」的機型照縮；縮不了的機型由前端 useVisualViewportHeight 接手
+          （src/ui/mobile/useViewportHeight.ts），兩層彼此獨立。
+          ⚠ 本檔在 gen/android 下：`tauri android init` 會重生，改動要記得回填（已記在回報〈評審與修正〉）。
+        -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- AndroidTV support -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+          android:name="androidx.core.content.FileProvider"
+          android:authorities="${applicationId}.fileprovider"
+          android:exported="false"
+          android:grantUriPermissions="true">
+          <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

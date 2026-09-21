@@ -1,0 +1,139 @@
+/* ─────────────────────────────────────────────────────
+ * sidebar.css — 書封側欄的**版面**（寬、padding、品牌、路線清單、書封腳骨架）
+ * 視覺真相：M3 ② 換裝後＝prototypes/m3-ext-routemap.html 的 .cover 段；
+ *   書封「材質」（底色／星點柄／壓紋／內陰影／圓牌字色）改由 src/styles/techo.css 出，
+ *   全域導航（gnav 兩欄／搜尋鈕／設定入口）由 src/styles/gnav.css 出——兩者注入順序都在本檔之後。
+ * 規則：class 名／巢狀／尺寸／字級／字距／邊框／陰影全部照原型；原型變數換成 theme.css tokens
+ *   --paper→--color-paper  --cover→--color-book  --cover-ink→--color-book-ink  --cover-muted→--book-muted
+ *   --cover-hover→--color-book-hover
+ *   --gold→--color-gold  --gold-soft→--color-gold-soft  字體 'Noto Serif TC'→--font-display  'Fraunces'→--font-latin
+ * 原型沒有的控件（✎ 編輯、＋路線／＋幹線）一律 hover 才現身，不另造視覺元素。
+ * 注意：main.tsx 先 import App 再 import index.css → 本檔排在 techo.css／gnav.css 之前；所有規則都以 .cover 為
+ *       前綴抬高特異度，不靠載入順序（同名的 .roundel／.foil-rule 才會被 .cover .roundel／.cover .foil-rule 蓋過）。
+ * ───────────────────────────────────────────────────── */
+
+/* ============ 左欄：布面書封 ============ */
+.cover {
+  width: 236px; flex: none; height: 100vh;
+  display: flex; flex-direction: column;
+  padding: 30px 22px 24px;
+  background-color: var(--color-book);
+  background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, .016) 0 2px, transparent 2px 5px);
+  color: var(--color-book-ink);
+  box-shadow: inset -10px 0 18px rgba(0, 0, 0, .22);
+  font-size: 14px; line-height: 1.6; letter-spacing: .02em;
+  user-select: none;
+}
+.cover .brand h1 {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 21px; letter-spacing: .34em; text-indent: .34em;
+  color: var(--color-gold-soft); text-align: center;
+}
+.cover .brand .latin {
+  display: block; text-align: center; margin-top: 5px;
+  font-family: var(--font-latin); font-style: italic; font-weight: 400;
+  font-size: 11px; letter-spacing: .42em; text-indent: .42em;
+  color: var(--color-gold); text-transform: uppercase;
+}
+.cover .foil-rule {
+  height: 1px; margin: 18px 6px 0;
+  background: linear-gradient(90deg, transparent, var(--color-gold) 18%, var(--color-gold) 82%, transparent);
+  opacity: .55;
+}
+
+/* M3 ② 換裝：舊的 .cover nav 六列文字項（.nav-item 家族）已由 gnav 兩欄取代，規則整段刪除
+   （Sidebar.tsx 不再渲染 .nav-item；形制／hover／active 金菱形全在 styles/gnav.css）。 */
+
+/* 路線清單可捲（原型不捲；捲軸隱形，視覺同原型） */
+.cover .lines-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.cover .lines-scroll::-webkit-scrollbar { display: none; }
+
+/* 件一 .lines：整份路線清單一個容器，h2 是「我的路線 MY LINES」總標（不是幹線名）；
+   幹線名走 .trunk 小字分組，路線列底下接 .station-note 車站注記。 */
+.cover .lines { margin-top: 22px; }
+.cover .lines h2 {
+  font-size: 10px; font-weight: 500; letter-spacing: .34em;
+  color: var(--book-muted); padding: 0 10px 8px;
+  border-bottom: 1px dashed rgba(228, 227, 243, .18); margin-bottom: 2px;
+  font-family: inherit; line-height: 1.6;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cover .trunk {
+  margin-top: 12px; padding: 0 10px 3px;
+  font-size: 9.5px; letter-spacing: .3em; color: var(--book-muted);
+  line-height: 1.6;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 車站注記：雙圈駅記號＋下一站名＋預定月份（縮排對齊 roundel 之後） */
+.cover .station-note {
+  display: flex; align-items: center; gap: 7px;
+  padding: 1px 10px 5px 44px;
+  font-size: 11px; letter-spacing: .06em; color: var(--book-muted);
+}
+.cover .station-note svg { flex: none; opacity: .8; }
+.cover .line-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px 10px; border-radius: 2px; cursor: pointer;
+  font-size: 13.5px; letter-spacing: .1em; color: var(--color-book-ink);
+  transition: background .15s;
+  width: 100%; text-align: left; font-family: inherit; line-height: 1.6;
+}
+.cover .line-item:hover, .cover .line-item:focus-visible { background: var(--color-book-hover); outline: none; }
+/* 目前開啟的路線：借 nav-item.active 的金菱記號（原型唯一的「現在在這」語彙） */
+.cover .line-item.active::before {
+  content: ""; width: 5px; height: 5px; flex: none;
+  background: var(--color-gold); transform: rotate(45deg); margin-right: -4px;
+}
+.cover .line-item .line-name { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cover .roundel {
+  width: 23px; height: 23px; flex: none; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--font-latin); font-weight: 600; font-size: 10.5px;
+  color: var(--color-book-ink); letter-spacing: 0;
+}
+.cover .roundel .dot { display: block; width: 9px; height: 9px; border-radius: 50%; }
+
+/* hover 才現身的 ✎（幹線 h2 列／路線列共用；原型沒有，靜態不可見） */
+.cover .line-row { position: relative; }
+.cover .line-edit {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; display: grid; place-items: center;
+  border-radius: 2px; cursor: pointer;
+  font-size: 12px; line-height: 1; color: var(--book-muted); opacity: 0;
+  transition: opacity .15s, color .15s, background .15s;
+}
+.cover .line-row--trunk .line-edit { top: -3px; transform: none; right: 2px; }
+.cover .line-row:hover .line-edit, .cover .line-edit:focus-visible { opacity: 1; outline: none; }
+.cover .line-edit:hover { color: var(--color-book-ink); background: rgba(255, 255, 255, .07); }
+
+/* ＋路線／＋幹線：.nav-item.muted 風格小字（可點；hover 才轉實） */
+.cover .line-add {
+  display: flex; align-items: center; gap: 11px;
+  padding: 6px 10px; border-radius: 2px; cursor: pointer;
+  font-size: 11px; letter-spacing: .2em; color: var(--book-muted); opacity: .42;
+  width: 100%; text-align: left; font-family: inherit; line-height: 1.6;
+  transition: opacity .15s, color .15s, background .15s;
+}
+.cover .line-add:hover, .cover .line-add:focus-visible { opacity: 1; color: var(--color-book-ink); background: var(--color-book-hover); outline: none; }
+.cover .line-add--line { margin-top: 6px; }
+
+/* 書封腳（件一 .cover-foot 逐字）：設定入口 → 月亮 → 燙金細線 → 主題名（銀河才顯示） */
+.cover .cover-foot { margin-top: auto; text-align: center; padding-top: 16px; }
+/* 粉彩：月亮掛在書封腳＝頁面那片霧的光源；銀河的月亮在天上（SkyLayer），此枚隱藏 */
+.cover .cover-moon { display: block; margin: 0 auto 6px; }
+[data-theme="dark"] .cover .cover-moon { display: none; }
+.cover .theme-name {
+  display: none; margin-top: 14px;
+  font-family: var(--font-hand);   /* 原型 'Iansui','Noto Sans TC'；--font-hand 即這條堆疊 */
+  font-size: 13px; letter-spacing: .32em; text-indent: .32em;
+  color: var(--color-gold); opacity: .85;
+}
+[data-theme="dark"] .cover .theme-name { display: block; }
+
+/* ============ 暗色：銀河鐵道（版面差異；書封「材質」＝ techo.css 的 .cover 段） ============
+   M3 ② 換裝後書封的底色／星點柄／壓紋／內陰影都由 techo.css 出（注入順序在本檔之後），
+   本檔暗色區只留「版面與元件狀態」的差異；夜行寝台的車窓與腳註（.carriage-window／
+   .window-caption／.foot-dark／.foot-light）與 .nav-item 家族已隨 DOM 一併刪除。 */
+/* hover 底改吃 --color-book-hover（＝件一 --cover-hover），兩主題各自給值 → 這裡不用再覆寫 */
+[data-theme="dark"] .cover .line-edit:hover { background: rgba(230, 236, 255, .07); }
+[data-theme="dark"] .cover .lines h2 { border-bottom-color: rgba(216, 219, 227, .16); }

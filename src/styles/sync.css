@@ -1,0 +1,61 @@
+/* ─────────────────────────────────────────────────────
+ * sync.css — 同步狀態點（v1.1.1 WP8）
+ *
+ * 為什麼獨立一檔：這顆點兩殼共用（桌機書封的 gnav 註記行、手機頂帶），
+ *   規則寫兩份會漂移；契約 §1 允許 WP8 新增 `styles/sync.css`，故色與形狀只寫一次，
+ *   由 `ui/common/SyncDot.tsx` 自己 import（元件層 css，同 settings.css 的慣例）。
+ *   分頁本體的排版仍照契約分家：桌機在 `ui/settings/settings.css` 檔尾、手機在 `styles/mobile.css` 檔尾。
+ *
+ * 視覺真相＝契約 §9.3：5px 圓點、沿註記行的淡度；色一律 token，不寫死色值。
+ *   運行中＝金（現在作用中，沿書封 nav active 的金菱形語言）
+ *   停車中＝赭（四色墨的「誤點」，全站唯一的警示色）
+ *   信号待ち＝朱（印色＝「要人處理」的語彙；版本不一致得有人去更新那一台）
+ * `phase === 'off'` 的情況根本不渲染（見 SyncDot.tsx），所以本檔沒有 off 的規則。
+ * ───────────────────────────────────────────────────── */
+
+.ns-sync-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-left: .6em;
+  opacity: .85;
+  background: var(--color-gold);
+}
+
+.ns-sync-dot[data-phase="stopped"] { background: var(--color-late); }
+.ns-sync-dot[data-phase="gated"] { background: var(--color-seal); }
+/* 改正待ち（v1.1.2）＝朱，同信号待ち：兩者都是「停在這裡、等人處理」，不該用兩種語彙說同一件事 */
+.ns-sync-dot[data-phase="epoch_changed"] { background: var(--color-seal); }
+/* 已關閉（設定還在、總開關關著）：同一顆金點壓到很淡——「在這裡，但沒在動」 */
+.ns-sync-dot[data-phase="paused"] { opacity: .3; }
+
+/* 有動作在飛＝慢閃（只動 opacity，不動大小——那一行的基線不能跳） */
+.ns-sync-dot[data-busy="1"] { animation: ns-sync-breathe 1.6s ease-in-out infinite; }
+
+@keyframes ns-sync-breathe {
+  0%, 100% { opacity: .85; }
+  50% { opacity: .3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-sync-dot[data-busy="1"] { animation: none; }
+}
+
+/* ── 位置：桌機書封的註記行（「CTRL 1 · 2 · 3　? 指引」末尾） ── */
+.cover .gnav-kbd .ns-sync-dot { margin-left: .7em; }
+
+/* ── 位置：手機頂帶（書封色帶）右側，日付印之前 ──
+   頂帶是深底、字級也大一階，點放到 6px 才看得見；色仍走同一組 token。
+   放在 `.m-band-end`（它自己 margin-left:auto）之內：契約 §9.3 寫的是「`.m-band-name` 之後、
+   `.m-band-end` 之前」，但那個位置會被 `.m-band-end` 的 auto 推成「緊貼頁名」而不是「頂帶右側」——
+   語義（右側）優先於字面，故改掛進 `.m-band-end` 的第一個子節點（今日頁在日付印左邊）。 */
+[data-shell="mobile"] .m-band-sync-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: 0;
+  flex: none;
+}
+/* 後面還有日付印時才要那道間距（其他頁 `.m-band-end` 裡只有這顆點） */
+[data-shell="mobile"] .m-band-sync-dot:not(:last-child) { margin-right: 10px; }

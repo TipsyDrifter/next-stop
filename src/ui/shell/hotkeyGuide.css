@@ -1,0 +1,82 @@
+/**
+ * 「?」快捷鍵情境卡（M3 ⑦ WP2）——**只放排版**。
+ * 形狀全借既有語彙：紙卡＝DialogShell、鍵帽＝overlay.css 的 `.ns-kbd`／`.ns-kbd-seq`／`.ns-kbd-plus`、
+ * 段標＝`.techo-label`、情境註＝`.ns-note`、分段＝`.ns-tear` 同一條 1px dashed（--color-dash）。
+ * 顏色一律 token，不寫死色值；一個新形狀都不發明。
+ */
+
+/* 密度：情境卡要「一眼掃完」，1280×800（規格書預設視窗）路線圖 21 列也得收進本文不捲——
+   段距 10、段內 4、列 padding 1px（設定籤的全表另有自己的密度，那邊要有線、這邊要密） */
+.ns-hkg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 每一段：情境註一行，底下鍵表 */
+.ns-hkg-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 「全域」段上方的撕線（原型 .stub 的 1px dashed，同 .ns-tear） */
+.ns-hkg-section--tear {
+  border-top: 1px dashed var(--color-dash);
+  padding-top: 12px;
+}
+.ns-hkg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ns-hkg-scene { margin: 0; }
+
+/* 鍵表：一列＝標籤（左，可換行）＋鍵帽（右，不換行） */
+.ns-hkg-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ns-hkg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+  padding: 1px 0;
+}
+.ns-hkg-label {
+  font-size: 13px;
+  line-height: 20px;
+  letter-spacing: .03em;
+  color: var(--color-ink);
+  min-width: 0;
+}
+/* 列內的小註（「句點」「逗點」）：緊跟標籤，小一級、注記墨 */
+.ns-hkg-rownote { margin-left: 8px; }
+.ns-hkg-keys {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ns-hkg-path { display: inline-flex; align-items: center; gap: 6px; }
+/* 多條路徑之間的「／」：小字、注記墨 */
+.ns-hkg-or {
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-ink-soft);
+}
+
+/* 底列：一句去處＋一顆次鈕，撕線隔開 */
+.ns-hkg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px dashed var(--color-dash);
+  padding-top: 12px;
+}

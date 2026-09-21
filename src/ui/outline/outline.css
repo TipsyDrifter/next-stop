@@ -1,0 +1,144 @@
+/* ─────────────────────────────────────────────────────
+ * outline.css — 大綱（主欄）專用補充；視覺本體＝styles/techo.css 第一段（prototypes/m1-c-techo.html 逐字移植）。
+ * 這裡只放原型沒有、而 App 才需要的「不可見／hover 才現身」控件與狀態：
+ * 巢狀縮排、選中票、草稿票虛線邊、.title 位置的輸入框、票根徽章／票種小字當按鈕、空日期入口、隱藏已完成。
+ * 注意：techo.css 與本檔都是 unlayered CSS；本檔在 index.css 之前注入，同權重會輸給 techo.css，
+ *       所以凡與原型 class 同名屬性競爭的規則一律加 .ns-outline 前綴抬高特異度。顏色一律 tokens。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 票的巢狀排列（縮排由 inline style 給：每層 28px） ═══ */
+.ns-outline .ticket-list > li { list-style: none; }
+
+/* ═══ 選中票：邊框燙金（打孔圈跟著） ═══ */
+.ns-outline .ticket-list .ticket.selected,
+.ns-outline .ticket-list .ticket.selected::before,
+.ns-outline .ticket-list .ticket.selected::after { border-color: var(--color-gold); }
+/* 大綱容器沒焦點時燙金退淡（鍵盤流不在這裡的提示） */
+.ns-outline:not(:focus-within) .ticket-list .ticket.selected,
+.ns-outline:not(:focus-within) .ticket-list .ticket.selected::before,
+.ns-outline:not(:focus-within) .ticket-list .ticket.selected::after {
+  border-color: color-mix(in srgb, var(--color-gold) 55%, var(--color-line));
+}
+
+/* ═══ 票根徽章當按鈕（點擊聚焦；hover 轉金提示） ═══ */
+.ns-outline .stub button.badge {
+  padding: 0; background: transparent; color: inherit; cursor: pointer;
+  transition: color .15s;
+}
+.ns-outline .stub button.badge:hover { color: var(--color-gold); }
+.ns-outline .stub button.badge:focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
+
+/* ═══ 票種小字當按鈕（點擊開詳情側板；hover 轉金） ═══ */
+.ns-outline button.fare-class {
+  padding: 0; background: transparent; border: 0; cursor: pointer; line-height: inherit;
+  transition: color .15s;
+}
+.ns-outline button.fare-class:hover { color: var(--color-gold); }
+
+/* ═══ .title 位置的輸入框（新增草稿／改名）：同款字、透明無邊 ═══ */
+.ns-outline .ticket input.title {
+  display: block; width: 100%; min-width: 160px;
+  margin: 0; background: transparent; border: 0; outline: none; border-radius: 0;
+  color: var(--color-ink); line-height: inherit;
+}
+.ns-outline .ticket input.title::placeholder { color: var(--color-ink-faint); }
+
+/* ═══ meta 內的項目群組與日期小字 ═══ */
+.ns-outline .meta .mi { display: contents; }
+.ns-outline .meta .date {
+  padding: 0; background: transparent; border: 0; cursor: pointer;
+  font: inherit; letter-spacing: inherit; color: inherit; line-height: inherit;
+  transition: color .15s;
+}
+/* 帶框 chip（件一 .chip）：上面那條是「＋執行日」空入口用的按鈕重置，會連框一起清掉，
+   所以有值的 chip 另拉一級特異度把件一的形制補回來（border／padding／字級字距一律照原型）。 */
+.ns-outline .meta .date.chip {
+  font-size: 11px; letter-spacing: .08em; padding: 1px 7px;
+  border: 1px solid var(--color-line); color: var(--color-ink-soft);
+}
+.ns-outline .meta .date.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); }
+[data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: rgba(209, 155, 114, .38); }
+.ns-outline .meta .date:hover { color: var(--color-gold); }
+.ns-outline .meta .date.chip:hover { color: var(--color-gold); border-color: var(--color-gold); }
+/* 定期券的執行日唯讀（M3 ④ D-④-3）：班次由規則排定，不開日期輸入——不給「可改」的 hover 暗示 */
+.ns-outline .meta .date.locked { cursor: default; }
+.ns-outline .meta .date.locked:hover { color: var(--color-ink-soft); border-color: var(--color-line); }
+.ns-outline .meta .date.locked.late:hover { color: var(--color-late); border-color: rgba(152, 80, 48, .4); }
+[data-theme="dark"] .ns-outline .meta .date.locked.late:hover { border-color: rgba(209, 155, 114, .38); }
+.ns-outline .meta .fold-note { color: var(--color-ink-faint); }
+/* 原型沒有的控件：空日期入口 hover／選中才現身 */
+.ns-outline .meta .meta-hover { display: inline-flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .15s; }
+.ns-outline .meta .meta-hover .date.empty { color: var(--color-ink-faint); }
+.ns-outline .meta .meta-hover .date.empty:hover { color: var(--color-gold); }
+.ns-outline .ticket:hover .meta-hover,
+.ns-outline .ticket.selected .meta-hover,
+.ns-outline .meta-hover:focus-within { opacity: 1; }
+/* 日期直改：原生 date 輸入披手帳底線（原型無此控件，最小化） */
+.ns-outline .techo-input.date-input { font-size: 11px; height: 20px; padding: 0 2px; font-family: var(--font-latin); }
+
+/* ═══ 草稿票（新增中）：同款票、虛線邊 ═══ */
+.ns-outline .ticket.draft,
+.ns-outline .ticket.draft::before,
+.ns-outline .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
+.ns-outline .ticket.draft .stamp { cursor: default; pointer-events: none; }
+
+/* ═══ 誤點區的票：可點（在大綱裡選到它） ═══ */
+.ns-outline .ticket.late-t { cursor: pointer; }
+
+/* ═══ 運休（M3 ④ WP4）：定期券「本班停駛」——與今日列同一套語彙（today.css 的大綱版）
+   視覺真相＝prototypes/m3-mood-a-stamps.html :546-568（paper-used 底、検印圈的虛線與
+   「検印」提示一起收掉、標題轉淡、狀態字換「今日停駛」＝A :920 的 `.lbl-susp`）。
+   角印本體＝SealSuspended（墨・-7°），蓋在檢印位的定位槽。
+   運休不留痕：取消運休＝occurrence soft delete，class 一撤票面就回原樣（沒有第四種 status）。
+
+   ⚠ 與今日列同步的刻意偏離（M3 ④ 評審 should-3）：A 的 `opacity:.68` 讓標題／角印對比跌破 3:1，
+   故只淡紙不淡字——整張的 .68 拿掉、標題改 ink-soft，退後感交給 paper-used＋停駛角印＋「今日停駛」。 ═══ */
+.ns-outline .stamp-zone { position: relative; }
+.ns-outline .stopover-slot { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.ns-outline .ticket.is-suspended::before { background: var(--color-paper-used); }
+.ns-outline .ticket.is-suspended .stamp { border-color: transparent; }
+.ns-outline .ticket.is-suspended .stamp .hint { opacity: 0; }
+.ns-outline .ticket.is-suspended .title { color: var(--color-ink-soft); }
+.ns-outline .ticket.is-suspended .status { display: none; }
+.ns-outline .susp-label { display: none; align-items: center; color: var(--color-ink-soft); }
+.ns-outline .ticket.is-suspended .susp-label { display: inline-flex; }
+
+/* ═══ 頁首：麵包屑（.overline 位置）與「隱藏已完成」（hover 才現身；開啟中常駐） ═══ */
+.ns-outline .overline.crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .6em; min-height: 16px; }
+.ns-outline .overline.crumbs .crumb { display: inline-flex; align-items: baseline; gap: 0 .6em; min-width: 0; }
+.ns-outline .overline.crumbs button {
+  padding: 0; background: transparent; border: 0; cursor: pointer;
+  font: inherit; letter-spacing: inherit; color: inherit;
+  text-decoration: underline dotted transparent; text-underline-offset: 3px;
+  transition: text-decoration-color .15s;
+}
+.ns-outline .overline.crumbs button:hover { text-decoration-color: currentColor; }
+.ns-outline .day-stats .dot { color: var(--color-ink-faint); }
+.ns-outline .day-stats .hide-done {
+  margin-left: 14px; padding: 0; background: transparent; border: 0; cursor: pointer;
+  font: inherit; letter-spacing: inherit; color: var(--color-ink-faint);
+  opacity: 0; transition: opacity .15s, color .15s;
+}
+.ns-outline header.day:hover .hide-done,
+.ns-outline .hide-done:focus-visible,
+.ns-outline .hide-done[aria-pressed="true"] { opacity: 1; }
+.ns-outline .hide-done:hover,
+.ns-outline .hide-done[aria-pressed="true"] { color: var(--color-gold); }
+
+/* ═══ 空狀態：原型 .sec 語彙＋一句話＋文字入口 ═══ */
+.ns-outline .empty { max-width: 520px; }
+.ns-outline .empty .sec { margin-top: 8vh; }
+.ns-outline .empty-body { font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft); }
+.ns-outline .empty-action {
+  margin-top: 16px; padding: 0; background: transparent; border: 0; cursor: pointer;
+  font-size: 12px; letter-spacing: .14em; color: var(--color-gold);
+  text-decoration: underline dotted transparent; text-underline-offset: 4px;
+  transition: text-decoration-color .15s;
+}
+.ns-outline .empty-action:hover { text-decoration-color: currentColor; }
+
+/* ═══ 動效 ═══ */
+@media (prefers-reduced-motion: reduce) {
+  .ns-outline .ticket.fresh .seal { animation: none; }
+  .ns-outline .ticket, .ns-outline .ticket:hover { transform: none; }
+}

@@ -1,0 +1,65 @@
+/* ─────────────────────────────────────────────────────
+ * duetip.css — 格角〆 的 hover 明細（M3 ⑤ WP5）。視覺真相＝prototypes/m3-ext-calendar.html：
+ *   `.tip`（:700-729）＋ `.noexec`（:692-697，原型放在浮層段共用；WP3 還沒落地，這裡在
+ *   `.tip` 作用域內自帶一份，不跨檔相依）。
+ *
+ * ⚠ 注入順序（鐵律 4）：本檔由 DueTip.tsx import ＝排在 index.css（含 techo.css）**之前**
+ *   → 一律加 `.ns-calendar` 前綴抬一級（比照 calendar.css／today.css:15）。顏色全走 token。
+ *
+ * 定位在 JS（原型 :1173-1176 的 clamp）：`position:fixed` ＋ 右對齊錨點、夾在視窗內 8px。
+ * `pointer-events:none`＝滑鼠永遠摸不到小卡本身，不會擋住底下的〆／格（原型 :703）。
+ * ───────────────────────────────────────────────────── */
+
+.ns-calendar .tip {
+  position: fixed;
+  z-index: 70;
+  max-width: 252px;
+  border-radius: var(--radius-card);
+  padding: 10px 14px 11px;
+  display: none;
+  pointer-events: none;
+}
+.ns-calendar .tip.on { display: block; }
+
+/* 粉彩：霧面玻璃小卡（與月卡同材質，但不是第二塊深面） */
+.ns-calendar .tip {
+  background: var(--card);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, .78);
+  box-shadow:
+    0 0 0 1px rgba(60, 60, 120, .10),
+    0 6px 16px rgba(50, 45, 100, .16);
+}
+/* 銀河：月光票紙 */
+[data-theme="dark"] .ns-calendar .tip {
+  background: var(--paper-high);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: 1px solid var(--color-line);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--starlight), .09),
+    0 4px 14px rgba(3, 6, 14, .55);
+}
+
+.ns-calendar .tip h5 {
+  font-size: 9.5px; font-weight: 500; letter-spacing: .3em;
+  color: var(--color-late); margin-bottom: 5px;
+}
+.ns-calendar .tip .trow {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; padding: 2px 0;
+  color: var(--color-ink-soft);
+}
+.ns-calendar .tip .trow .rl {
+  flex: none; font-family: var(--font-latin); font-size: 9px; font-weight: 600;
+  letter-spacing: .06em;
+}
+.ns-calendar .tip .trow .tt {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 無執行日的票：只在締切日浮出，格內清單看不到它 → 小卡要講明（原型 :692-697、:729） */
+.ns-calendar .tip .noexec {
+  flex: none; font-size: 8.5px; letter-spacing: .16em;
+  border: 1px solid var(--color-dash); color: var(--color-ink-faint);
+  padding: 1px 4px 1px 6px;
+}

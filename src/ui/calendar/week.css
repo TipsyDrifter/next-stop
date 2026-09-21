@@ -1,0 +1,83 @@
+/* ─────────────────────────────────────────────────────
+ * week.css — 週視圖（M3 ⑤ WP4）。
+ *
+ * 週沒有像素定稿（原型只有線框 :731-765／:925-940，自述「欄寬、時間軸與互動細節於 M3 實作時
+ * 依月視圖定稿」:940）→ 規則是 D-⑤-1 甲：**週＝月格元件換排列，禁止另畫**。
+ * 所以本檔**只寫三條差異**，其餘（月卡材質、cell／ch／dnum／cnt／items／it／dot／sime 的字級與顏色、
+ * today 菱形與細環、hover、focus 環）一律繼承 calendar.css 的月格規則，一個值都不重寫：
+ *
+ *   ① 格高不設 96px 下限 → `min-height:0`，自然撐開
+ *   ② 清單不截斷不出「＋N」→ 由 `WeekGrid` 的 `truncate={false}` 出（CSS 無事）
+ *   ③ `wk-head` 換成欄頭「一 10」（線框 `.wd` :735-741），〆 錨到日付標籤旁（線框 `.wsime` :755-760）
+ *
+ * ③ 兩件事都在不動 `DayCell`（非本席 own）的前提下完成：
+ *   星期字＝`.ch::before` 的 `content: var(--wd-N)`，變數由 WeekGrid 從 `WEEKDAY_LABEL` 寫進
+ *     `.wk-row` 的 inline style（CSS 不抄第二份星期字）；變數沒給＝`content` 無效＝不長出任何東西。
+ *   〆位置＝`.cell` 轉 `grid-template-areas`，`.sime` 由 absolute 改 static 進第一列第二欄。
+ *
+ * ⚠ 注入順序：本檔由 WeekGrid.tsx import（在 CalendarView import calendar.css 之前）→ 同權重會輸，
+ *   所以每條都比月格多一級（`.ns-calendar .wk-row …` ＝ 3 類 vs 月格的 2 類），不靠順序取勝。
+ * ───────────────────────────────────────────────────── */
+
+/* 七欄一列。欄線沿用月格的 `border-right`（直線通到底＝同一張紙），最後一欄與下緣去邊。 */
+.ns-calendar .wk-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.ns-calendar .wk-row .cell {
+  /* ① 自然撐開：同列七欄由 grid 拉齊到最高的那一欄，欄線才通到底 */
+  min-height: 0;
+  /* 沒有 wk-head 那一列了→上緣的呼吸由格自己補（月：wk-head 11+9 ＋格 8；週：13／16） */
+  padding: 13px 10px 16px;
+  border-bottom: 0; /* 單列＝最後一列（月格由 .grid .cell:nth-last-child(-n+7) 去邊，週不吃那條） */
+
+  /* ③ 〆錨在日付標籤旁：DOM 是 .ch → .items → .sime，位置改由格區指派（DOM 順序不動） */
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "hd sime"
+    "items items";
+  align-content: start; /* 欄被拉高時內容仍貼齊上緣，不被 stretch 撐散 */
+}
+.ns-calendar .wk-row .cell:nth-child(7) { border-right: 0; }
+
+.ns-calendar .wk-row .ch {
+  grid-area: hd;
+  align-self: baseline;
+  padding-right: 0; /* 月格右端留 16px 給格角〆；週的〆不在角上 */
+}
+.ns-calendar .wk-row .items { grid-area: items; }
+
+/* ③ 欄頭「一 10」：星期字的字級／字距沿線框 .wd（9.5px／.14em），數字仍是月格的 .dnum（不另訂） */
+.ns-calendar .wk-row .ch::before {
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  margin-right: 3px; /* 線框 .wd b 的 margin-left:3px */
+  color: var(--color-ink-soft);
+}
+.ns-calendar .wk-row .cell:nth-child(1) .ch::before { content: var(--wd-1); }
+.ns-calendar .wk-row .cell:nth-child(2) .ch::before { content: var(--wd-2); }
+.ns-calendar .wk-row .cell:nth-child(3) .ch::before { content: var(--wd-3); }
+.ns-calendar .wk-row .cell:nth-child(4) .ch::before { content: var(--wd-4); }
+.ns-calendar .wk-row .cell:nth-child(5) .ch::before { content: var(--wd-5); }
+.ns-calendar .wk-row .cell:nth-child(6) .ch::before { content: var(--wd-6); }
+.ns-calendar .wk-row .cell:nth-child(7) .ch::before { content: var(--wd-7); }
+/* 週末淡（＝月格 wk-head 的 .we，第 6／7 欄＝六・日，序同 WEEKDAY_ORDER） */
+.ns-calendar .wk-row .cell:nth-child(6) .ch::before,
+.ns-calendar .wk-row .cell:nth-child(7) .ch::before { color: var(--color-ink-faint); }
+
+/* ③ 〆：離開格角、貼到日付標籤旁（線框 .wsime :755-760 的字級／傾角／透明度） */
+.ns-calendar .wk-row .sime {
+  grid-area: sime;
+  position: static;
+  justify-self: start;
+  align-self: baseline;
+  margin-left: 5px;
+  padding: 0;
+  font-size: 11px;
+  opacity: .8;
+  transform: rotate(-6deg);
+}
+/* 相鄰錯開是「格角」才需要的（兩枚角標一左一右會歧義）；貼著標籤就一律 -6°（線框兩枚同角） */
+.ns-calendar .wk-row .sime.alt { transform: rotate(-6deg); }

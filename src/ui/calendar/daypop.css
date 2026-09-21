@@ -1,0 +1,210 @@
+/* ─────────────────────────────────────────────────────
+ * daypop.css — 當日清單浮層（M3 ⑤ WP3）。視覺真相＝prototypes/m3-ext-calendar.html :577-698
+ * （`.pop／.pop-head／.pop-sec／.prow／.roundel-s／.defer／.stamp-s／.seal-s／.sime-g／.noexec／
+ *   .due-tag／.empty-note`），數值逐字、不演繹。
+ *
+ * ⚠ 注入順序（鐵律 4）：本檔由 DayPopover.tsx import ＝排在 index.css（含 techo.css）**之前**
+ *   → 一律加 `.ns-daypop` 前綴抬一級（比照 calendar.css／duetip.css／today.css:15）。
+ *
+ * token 對照（原型語彙 → 本專案 token；原型自己的語義別名不進全域）：
+ *   --rad→--radius-card　--dash→--color-dash　--line→--color-line　--ink-soft／-faint→--color-ink-*
+ *   --seal→--color-seal（朱肉 filter #inkbleed 同 techo.css:407）　--late→--color-late
+ *   --hovac→--accent（粉彩紫／銀河金，主題各自定義）　--today-mk→--accent　--hw→手寫體
+ *   --seal-halo→color-mix(--color-seal 12%／夜 14%)（同 techo.css:405-410 的配方）
+ *   --roundel-fg→#1d1f3a／夜 #0f1218（同 techo.css:86-95 的 .roundel 亮盤深字）
+ * 原型的 `.r-e1／--route-e1-l` 假 token 不搬（雷區 9）：圓牌底色走 roundelStyle() 的 inline style。
+ * ───────────────────────────────────────────────────── */
+
+.ns-daypop {
+  position: fixed;
+  width: 332px;
+  z-index: 60;
+  border-radius: var(--radius-card);
+  display: none;
+  /* 一天十幾班（主人真的會）時原型那套定位會讓卡長到頂天立地、底下的列走得到看不到——
+     夾在視窗內並讓卡自己捲。React 17+ 的 onScroll 不冒泡，卡內捲動不會觸發 CalendarView 的「捲動即關」。 */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ns-daypop.on { display: block; animation: nsPopIn .18s ease-out; }
+.ns-daypop:focus { outline: none; }
+@keyframes nsPopIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 粉彩：霧面玻璃＋顆粒（與月卡同材質；深面紀律＝不開第二塊書封級深面） */
+.ns-daypop {
+  background: var(--card);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, .78);
+  box-shadow:
+    0 0 0 1px rgba(60, 60, 120, .10),
+    0 6px 16px rgba(50, 45, 100, .14), 0 18px 44px rgba(60, 50, 120, .22);
+}
+.ns-daypop::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; border-radius: var(--radius-card);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .055; mix-blend-mode: multiply; pointer-events: none;
+}
+/* 銀河：月光票紙（無霧面、無顆粒） */
+[data-theme="dark"] .ns-daypop {
+  background: var(--paper-high);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: 1px solid var(--color-line);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--starlight), .09),
+    0 2px 6px rgba(3, 6, 14, .5), 0 18px 44px rgba(3, 6, 14, .55);
+}
+[data-theme="dark"] .ns-daypop::after { content: none; }
+.ns-daypop > * { position: relative; z-index: 1; }
+
+/* ═══ 頭：日期／星期／關閉 ═══ */
+.ns-daypop .pop-head {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 13px 16px 10px; border-bottom: 1px dashed var(--color-dash);
+}
+.ns-daypop .pop-head .pd { font-family: var(--font-display); font-weight: 700; font-size: 15.5px; }
+.ns-daypop .pop-head .pw { font-family: var(--font-display); font-weight: 600; font-size: 12px; color: var(--color-ink-soft); }
+/* 今天＝菱形（同格內 .cell.today .dnum、書封 nav 的同一個語言） */
+.ns-daypop .pop-head .pd.today::before {
+  content: ""; display: inline-block; width: 5px; height: 5px;
+  background: var(--accent); transform: rotate(45deg);
+  margin-right: 7px; vertical-align: 2px;
+}
+.ns-daypop .pop-x {
+  margin-left: auto; border: 0; background: transparent; cursor: pointer;
+  color: var(--color-ink-faint); font-size: 13px; line-height: 1; padding: 2px 4px;
+  font-family: inherit; transition: color .15s;
+}
+.ns-daypop .pop-x:hover { color: var(--color-ink); }
+.ns-daypop .pop-x:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+/* ═══ 段（班次／締切） ═══ */
+.ns-daypop .pop-sec { padding: 10px 16px 6px; }
+.ns-daypop .pop-sec:last-child { padding-bottom: 13px; }
+.ns-daypop .pop-sec h4 {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 10px; font-weight: 500; letter-spacing: .3em;
+  color: var(--ink-mid, var(--color-ink-soft));
+}
+.ns-daypop .pop-sec h4 .rule { flex: 1; border-top: 1px dashed var(--color-dash); }
+.ns-daypop .pop-sec.due h4 { color: var(--color-late); }
+.ns-daypop .pop-sec.due h4 .rule { border-top-color: var(--color-late); opacity: .4; }
+
+/* ═══ 一列 ═══ */
+.ns-daypop .prow { display: flex; align-items: center; gap: 9px; padding: 7px 0; }
+/* 原型沒有「選中列」的視覺：只在鍵盤流現身（同 DayCell 的處置） */
+.ns-daypop .prow:focus { outline: none; }
+.ns-daypop .prow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+
+.ns-daypop .roundel-s {
+  width: 19px; height: 19px; flex: none; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--font-latin); font-weight: 600; font-size: 8.5px;
+  color: #1d1f3a; letter-spacing: 0;
+}
+[data-theme="dark"] .ns-daypop .roundel-s { color: #0f1218; }
+/* 無路線＝襯線「臨」（承臨時車票的由來） */
+.ns-daypop .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; }
+
+.ns-daypop .prow .t {
+  flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-decoration: line-through transparent 1px;
+  transition: color .25s, text-decoration-color .25s;
+}
+/* 臨時券＝手寫（承 C2「補充券」由來；銀河版沒有這一手） */
+.ns-daypop .prow.rin .t { font-family: var(--hw, var(--font-hand)); font-size: 14px; }
+[data-theme="dark"] .ns-daypop .prow.rin .t { font-family: inherit; font-size: 13px; }
+.ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: rgba(42, 43, 73, .35); }
+[data-theme="dark"] .ns-daypop .prow.done .t { text-decoration-color: rgba(228, 232, 243, .35); }
+/* 運休＝**不刪除線**、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12：「運休票標題維持 ink-soft
+   ——運休是中性資訊，不該比済更退後；済有刪除線承擔語義、運休沒有」）。這一列有運休章承擔語義，
+   與今日頁同一張定期券要同一個深淺；格內 `.it.skipped` 沒有章、另有一套（見 calendar.css:189）。 */
+.ns-daypop .prow.skipped .t { color: var(--color-ink-soft); }
+.ns-daypop .prow.late .t { color: var(--color-late); }
+
+/* 重複班次圖示；目前班次那一列是按鈕（叫出小卡定期券版） */
+.ns-daypop .prow .rep { flex: none; color: var(--color-ink-faint); display: grid; place-items: center; }
+.ns-daypop .prow .rep-btn {
+  border: 0; background: transparent; padding: 0; cursor: pointer;
+  transition: color .15s;
+}
+.ns-daypop .prow .rep-btn:hover { color: var(--accent); }
+.ns-daypop .prow .rep-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.ns-daypop .defer {
+  flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: 2px;
+  color: var(--ink-mid, var(--color-ink-soft)); font-size: 10px; letter-spacing: .14em;
+  padding: 3px 7px 3px 9px; cursor: pointer; font-family: inherit;
+  transition: color .15s, border-color .15s;
+}
+.ns-daypop .defer:hover { color: var(--accent); border-color: var(--accent); }
+.ns-daypop .defer:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-daypop .prow.done .defer { display: none; }
+
+/* ═══ 迷你検印欄（＝今日票検印圈的縮小版） ═══ */
+.ns-daypop .stamp-s {
+  width: 32px; height: 32px; flex: none; border-radius: 50%;
+  border: 1.5px dashed var(--color-dash); background: transparent;
+  display: grid; place-items: center; cursor: pointer;
+  color: var(--color-ink-faint); position: relative; padding: 0;
+  transition: border-color .18s, transform .18s;
+}
+.ns-daypop .stamp-s:hover { border-color: var(--accent); transform: rotate(-5deg); }
+.ns-daypop .stamp-s:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 不可點的空欄（未來／歷史班次）：形還在，但不邀請你按 */
+.ns-daypop .stamp-s.locked { cursor: default; }
+.ns-daypop .stamp-s.locked:hover { border-color: var(--color-dash); transform: none; }
+
+.ns-daypop .seal-s {
+  position: absolute; inset: -1px; border-radius: 50%;
+  border: 2px solid var(--color-seal); color: var(--color-seal);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 12%, transparent), transparent 62%);
+  transform: rotate(-8deg); opacity: 0; pointer-events: none;
+  filter: url(#inkbleed);
+}
+[data-theme="dark"] .ns-daypop .seal-s {
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 14%, transparent), transparent 62%);
+}
+.ns-daypop .prow.done .seal-s { opacity: .94; }
+.ns-daypop .prow.done .stamp-s { border-color: transparent; }
+.ns-daypop .prow.fresh .seal-s { animation: stampIn .4s cubic-bezier(.2, 1.5, .4, 1); }
+
+/* 運休章：既有的墨色角印（SealSuspended）壓在 32px 検印欄上，不另畫一枚小號角印。
+   zoom .8 ＝**可讀優先**：.6 時字高只剩 7.5px，粉彩／銀河截圖裡只看得到一枚灰標籤、認不出「運休」。
+   角印比圓欄寬（約 47px vs 32px）＝**刻意出格**，與今日票的運休角印同一個做法（章壓在検印位上）；
+   slot 是 pointer-events:none 的覆蓋層，出格不影響左邊 rep／推遲鈕的點擊。 */
+/* `unsafe center`＝章比欄寬時**真的置中**（溢出兩側）。預設的 center 在溢出時會退回 start
+   （瀏覽器的 safe 行為），章就整枚偏右、右緣還會捅出卡外——實測 impRight 1199.5 > 卡右 1196。 */
+.ns-daypop .susp-slot {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: unsafe center;
+}
+.ns-daypop .susp-slot .ns-imp { --ns-zoom: .8; }
+.ns-daypop .prow.skipped .stamp-s { border-color: transparent; }
+
+/* ═══ 締切列 ═══ */
+.ns-daypop .prow .sime-g {
+  flex: none; font-family: var(--font-display); font-weight: 600; font-size: 13px;
+  color: var(--color-late); transform: rotate(-6deg); line-height: 1;
+}
+.ns-daypop .noexec {
+  flex: none; font-size: 9px; letter-spacing: .16em;
+  border: 1px solid var(--color-dash); color: var(--color-ink-faint);
+  padding: 1px 4px 1px 6px;
+}
+.ns-daypop .due-tag { flex: none; font-size: 10px; letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
+.ns-daypop .empty-note { font-size: 12px; color: var(--color-ink-faint); letter-spacing: .08em; padding: 8px 0 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-daypop.on { animation: none; }
+  .ns-daypop .prow.fresh .seal-s { animation: none; }
+  .ns-daypop .stamp-s, .ns-daypop .prow .t { transition: none; }
+  .ns-daypop .stamp-s:hover { transform: none; }
+}

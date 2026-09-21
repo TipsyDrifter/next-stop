@@ -1,0 +1,241 @@
+/* ─────────────────────────────────────────────────────
+ * today.css — 今日視圖（M3 ③ WP2）專用補充；視覺本體＝styles/techo.css（原型逐字移植的共用層）。
+ *
+ * 視覺真相來源（四檔對號，數值逐字、勿演繹）：
+ *   頁首／清單／誤點區／空狀態 ＝ prototypes/m3-mood-c2-pastel.html（頁首 :661-690、清單 :691-809、誤點 :811-836）
+ *   頁首手寫統計（銀河）      ＝ prototypes/m3-mood-c1-galaxy.html（:313-322 樣式、:589-593 結構）
+ *   頁首日付印位置            ＝ prototypes/m3-mood-a-stamps.html（:470-471 `.date-line .date-seal`）
+ *   繰越角印位置              ＝ prototypes/m3-mood-a-stamps.html（:541-544 `.carry-seal`）
+ *   誤點票補済「結局上前、來歷退後」＝ techo.css :464-475（已有，不重寫）
+ *
+ * 兩主題共用同一份 DOM（移植規格 §0 鐵律）：文案差異（Today／今天 — TODAY、完成 n/N／蓋了 n 張）
+ *   一律「兩份都畫、CSS 依主題只顯示一份」，沿 techo.css `.late-hw`／`.late-plain` 的既有先例。
+ *
+ * ⚠ 注入順序（鐵律 4）：本檔由 TodayView.tsx import ＝排在 index.css（含 techo.css）**之前**，
+ *   同權重會輸給 techo.css → 凡與原型 class 同名屬性競爭的規則一律加 `.ns-today` 前綴抬一級，
+ *   比照 outline.css 的做法。顏色一律走 token（--stamp-ink／--late／--color-*），不寫死。
+ *
+ * 原型沒有的控件（鐵律「原型沒有的元素一律不可見」的例外處置，全部做成 hover／選中才現身）：
+ *   誤點區摺疊開關（r1 拍板要求）、當日執行日 chip（＝推遲入口，日期與頁首重複故預設隱形）、
+ *   票種小字當側板入口（沿大綱既有語彙）。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 主題二選一：同一份 DOM，只顯示屬於當前主題的那一份文案 ═══ */
+.ns-today .theme-pastel-only { display: inline; }
+.ns-today .theme-galaxy-only { display: none; }
+[data-theme="dark"] .ns-today .theme-pastel-only { display: none; }
+[data-theme="dark"] .ns-today .theme-galaxy-only { display: inline; }
+
+/* ═══ 頁首 ═══ */
+.ns-today .day-head { min-width: 0; }
+
+/* 頁邊手寫「還有 N 張」（C2 :321-327 逐字）——銀河沒有這一處手寫（C1 手寫只在統計行與主題名） */
+.ns-today .margin-note {
+  font-family: var(--hw, var(--font-hand)); font-size: 19px; line-height: 1;
+  color: var(--accent-sky, var(--color-accent-sky, var(--color-ink-soft)));
+  margin-left: 10px;
+  transform: rotate(-2deg); display: inline-block;
+  letter-spacing: .04em;
+  transition: opacity .25s;
+}
+[data-theme="dark"] .ns-today .margin-note { display: none; }
+
+/* 頁首日付印：蓋在日期行右側、微微壓線（A :470-471 逐字；尺寸 92px＝① 比稿 Q8 頁首檔位） */
+.ns-today .date-line .ns-date-seal { align-self: center; margin-left: 14px; translate: 0 -3px; }
+
+/* 統計行：粉彩＝排印（techo.css 已給）／銀河＝手寫（C1 :313-322 逐字） */
+.ns-today .day-stats .sep { color: var(--color-ink-faint); margin: 0 2px; }
+[data-theme="dark"] .ns-today .day-stats {
+  font-family: var(--hw, var(--font-hand));
+  font-size: 15.5px; letter-spacing: .05em;
+}
+[data-theme="dark"] .ns-today .day-stats b { font-weight: 400; font-size: 17.5px; }
+
+/* ═══ 區段標題：誤點區的摺疊開關（原型 .note 的位置換成按鈕；r1「誤點 N 件」可摺疊、記憶） ═══ */
+.ns-today .sec .fold {
+  padding: 0; background: transparent; border: 0; cursor: pointer;
+  font-family: inherit; color: inherit;
+  transition: color .15s;
+}
+.ns-today .sec .fold:hover { color: var(--color-gold); }
+.ns-today .sec .fold:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+.ns-today .sec .fold .caret { display: inline-block; margin-left: .5em; transition: transform .15s; }
+.ns-today .sec .fold[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+
+/* ═══ 車票列 ═══ */
+.ns-today .ticket-list > li { list-style: none; }
+
+/* 選中票＝燙金邊（打孔圈跟著）；容器沒焦點時退淡——鍵盤流不在這裡的提示 */
+.ns-today .ticket-list .ticket.selected,
+.ns-today .ticket-list .ticket.selected::before,
+.ns-today .ticket-list .ticket.selected::after { border-color: var(--color-gold); }
+.ns-today:not(:focus-within) .ticket-list .ticket.selected,
+.ns-today:not(:focus-within) .ticket-list .ticket.selected::before,
+.ns-today:not(:focus-within) .ticket-list .ticket.selected::after {
+  border-color: color-mix(in srgb, var(--color-gold) 55%, var(--color-line));
+}
+
+/* 票根：鋏痕（入鋏）的定位錨——stamps.css 的 .ns-punch 是 position:absolute（left:-1px／top:26px） */
+.ns-today .stub { position: relative; }
+
+/* 臨時券標題＝手寫（C2 :428 逐字，補充券本來就是手寫的）；銀河沒有這一處手寫 → 退回排印 */
+.ns-today .ticket .title.hw {
+  font-family: var(--hw, var(--font-hand));
+  font-weight: 400; font-size: 16.5px; letter-spacing: .06em;
+}
+[data-theme="dark"] .ns-today .ticket .title.hw {
+  font-family: var(--font-body);
+  font-weight: 500; font-size: 15px; letter-spacing: .04em;
+}
+
+/* 票種小字當按鈕（點擊開詳情側板；沿大綱既有語彙） */
+.ns-today button.fare-class {
+  padding: 0; background: transparent; border: 0; cursor: pointer; line-height: inherit;
+  font-family: inherit;
+  transition: color .15s;
+}
+.ns-today button.fare-class:hover { color: var(--color-gold); }
+
+/* meta 群組與 chip（沿 outline.css 的處理：.mi 只做語義分組、不進版面） */
+.ns-today .meta .mi { display: contents; }
+/* 日期 chip 當按鈕（＝推遲 popover 入口，取代原生 date input；形制仍由 techo.css 的 .chip 出） */
+.ns-today .meta .chip-btn { background: transparent; cursor: pointer; font-family: inherit; }
+.ns-today .meta .chip-btn:hover { color: var(--color-gold); border-color: var(--color-gold); }
+/* 原型沒有的控件：與頁首重複的「執行 M/D」只在 hover／選中現身 */
+.ns-today .meta .meta-hover { display: inline-flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .15s; }
+.ns-today .ticket:hover .meta-hover,
+.ns-today .ticket.selected .meta-hover,
+.ns-today .meta-hover:focus-within { opacity: 1; }
+
+/* 検印欄：paused ＝「途中下車」角印蓋在検印位（A 規範；済蓋下時由 .ticket.done 接管） */
+.ns-today .stamp-zone { position: relative; }
+.ns-today .stopover-slot { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.ns-today .ticket.is-paused .stamp { border-color: transparent; }
+.ns-today .ticket.is-paused .stamp .hint { opacity: 0; }
+
+/* ═══ 運休（M3 ④ WP2）：定期券「本班停駛」——墨色角印蓋在検印位、紙換成用過的紙 ═══
+   視覺真相＝prototypes/m3-mood-a-stamps.html :546-568（`.ticket.suspended`：paper-used 底、
+   検印圈的虛線與「検印」提示一起收掉、標題轉淡、狀態字換 `.lbl-susp`「今日停駛」＝A :920）。
+   角印本體＝SealSuspended（Stamps.tsx :95-102，墨・-7°），沿用 paused 的 `.stopover-slot` 定位槽。
+   運休不留痕（A :60-66）：取消運休＝occurrence soft delete，class 一撤票面就回到原樣，沒有第四種 status。
+
+   ⚠ 刻意偏離原型一處（M3 ④ 評審 should-3，下次移植別再搬回來）：A 的 `.ticket.suspended{opacity:.68}`
+   是三態並排比稿件的畫法，套到本專案的 token 上，標題（ink-faint × .68）對比只剩 2.61（粉彩）／3.06（銀河），
+   運休角印 2.69／2.61，雙雙跌破 3:1。這裡只淡紙不淡字：整張的 .68 拿掉、標題改 ink-soft，
+   「結局退後」交給 paper-used 底＋停駛角印＋「今日停駛」字去說——與 `.ticket.done` 同一套辦法
+   （techo.css :423-429，済票標題 4.6／5.1 就是這樣留住的）。繰越／延着角印的 .38 因此與 done 版逐字一致。 */
+.ns-today .ticket.is-suspended::before { background: var(--color-paper-used); }
+.ns-today .ticket.is-suspended .stamp { border-color: transparent; }
+.ns-today .ticket.is-suspended .stamp .hint { opacity: 0; }
+.ns-today .ticket.is-suspended .title { color: var(--color-ink-soft); }
+.ns-today .ticket.is-suspended .status { display: none; }
+.ns-today .susp-label { display: none; align-items: center; color: var(--color-ink-soft); }
+.ns-today .ticket.is-suspended .susp-label { display: inline-flex; }
+/* 運休也是「結局」：繰越與延着照 done 那一套退後（techo.css :466-475 的座標，換 class 再寫一份） */
+.ns-today .ticket.is-suspended .carry-seal { opacity: .38; }
+.ns-today .ticket.is-suspended .late-seal {
+  position: absolute; right: 114px; bottom: 9px;
+  align-self: auto; margin-right: 0;
+  border-width: 1.4px;
+  font-size: 10px; letter-spacing: .24em; text-indent: .24em;
+  padding: 2px 5px;
+  opacity: .38; pointer-events: none;
+}
+
+/* 繰越角印：票面右下（A :541-544；本專案 .body 不是定位錨——見 techo.css §五註——故 right 以票右緣起算，
+   114px＝検印欄 100px ＋ 14px，與 techo.css 的「延着退後」同一組座標） */
+.ns-today .ticket .carry-seal {
+  position: absolute; right: 114px; top: calc(50% + 5px); translate: 0 -50%;
+  transition: opacity .25s;
+}
+/* 誤點票的延着角印還佔著那個位置時，繰越再往左讓一格 */
+.ns-today .ticket.late-t:not(.done) .carry-seal { right: 190px; }
+/* 済 蓋下後：結局上前、來歷退後——不讓朱與赭兩枚暖紅章並排（A :543-544 逐字） */
+.ns-today .ticket.done .carry-seal { opacity: .38; }
+
+/* ═══ 誤點區的票（C2 :489-496 逐字；techo.css 已給底色／陰影／延着章形制） ═══ */
+.ns-today .ticket.late-t .stub,
+.ns-today .ticket.late-t .body { padding-top: 10px; padding-bottom: 10px; }
+.ns-today .ticket.late-t .title { font-size: 14px; }
+
+/* ═══ 草稿票（臨時車票輸入中）：同款票、虛線邊（沿 outline.css 語彙） ═══ */
+.ns-today .ticket.draft,
+.ns-today .ticket.draft::before,
+.ns-today .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
+.ns-today .ticket.draft .stamp { cursor: default; pointer-events: none; }
+.ns-today .ticket input.title {
+  display: block; width: 100%; min-width: 160px;
+  margin: 0; background: transparent; border: 0; outline: none; border-radius: 0;
+  color: var(--color-ink); line-height: inherit;
+}
+.ns-today .ticket input.title::placeholder { color: var(--color-ink-faint); }
+
+/* ═══ 行內乘務記錄（`L`）：列下方滑出的單行輸入 ═══ */
+.ns-today .log-row {
+  list-style: none; margin-top: -5px;
+  display: flex; align-items: center; gap: 10px;
+  padding-left: 130px; padding-right: 100px;
+}
+.ns-today .log-row .lbl { font-size: 10px; letter-spacing: .28em; color: var(--color-ink-faint); flex: none; }
+/* 主人筆跡例外（① 比稿 Q5）：行內記的那句話＝側板乘務記錄 `.log .what.hw` 的同一套手寫字 */
+.ns-today .log-row input,
+.ns-today .log-row .logged {
+  flex: 1; min-width: 0;
+  font-family: var(--font-hand); font-size: 14px; letter-spacing: .05em;
+}
+/* Enter 記下後的短暫回饋（0.9s）：輸入框原地換成一枚手寫「記了」 */
+.ns-today .log-row .logged { color: var(--color-ink-soft); animation: nsLoggedIn .18s ease-out; }
+@keyframes nsLoggedIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ns-today .log-row .logged { animation: none; } }
+
+/* ═══ 空狀態（1.0c 無班次／1.0d 全完成慶祝）：原型 .sec 語彙＋一句話＋文字入口 ═══ */
+.ns-today .empty { max-width: 520px; }
+.ns-today .empty .sec { margin-top: 8vh; }
+.ns-today .empty.cheer .sec { margin-top: 34px; }
+.ns-today .empty-body { font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft); }
+.ns-today .empty-action {
+  margin-top: 16px; padding: 0; background: transparent; border: 0; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .14em; color: var(--color-gold);
+  text-decoration: underline dotted transparent; text-underline-offset: 4px;
+  transition: text-decoration-color .15s;
+}
+.ns-today .empty-action:hover { text-decoration-color: currentColor; }
+
+/* ═══ 動效（減量時只關動畫，不動版面） ═══ */
+@media (prefers-reduced-motion: reduce) {
+  .ns-today .ticket.fresh .seal { animation: none; }
+  .ns-today .ticket, .ns-today .ticket:hover { transform: none; }
+  .ns-today .sec .fold .caret { transition: none; }
+}
+
+/* ═══ 拖曳排序（WP5）：落點指示只動 transform／opacity（情境 6；M2_設計生產線.md:191） ═══
+   線常駐（平時 opacity:0）→ 亮起時不動版面、不觸發 layout；
+   語彙＝ .sec .rule 那條 1px dashed var(--color-dash) 的撕線，落點時換成燙金（＝選中票的同一枚金）。
+   誤點列的 draggable 由 useTodayDnd 在 effect 裡補上（拖起來當場取消＋toast），視覺上不畫任何線。 */
+.ns-today .ticket-list > li { position: relative; }
+.ns-today .ticket-li[draggable="true"]::before,
+.ns-today .ticket-li[draggable="true"]::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 0;
+  border-top: 1.5px dashed var(--color-gold);
+  opacity: 0; transform: scaleX(.94); transform-origin: left center;
+  transition: opacity .12s ease-out, transform .12s ease-out;
+  pointer-events: none;
+}
+/* 兩列之間的縫＝ .ticket-list 的 gap 13px，線壓在縫的中線上 */
+.ns-today .ticket-li[draggable="true"]::before { top: -6.5px; }
+.ns-today .ticket-li[draggable="true"]::after { bottom: -6.5px; }
+.ns-today .ticket-li[data-dnd-drop="before"]::before,
+.ns-today .ticket-li[data-dnd-drop="after"]::after { opacity: 1; transform: scaleX(1); }
+
+/* 拖曳要拿得起來 → 票面本體不再 preventDefault（見 useTodayDnd 檔頭），選字改由這裡擋，
+   行為與原本 TodayRow 那句 preventDefault 一致；列內按鈕／輸入框不受影響。 */
+.ns-today .ticket-li[draggable="true"] { -webkit-user-select: none; user-select: none; }
+
+/* 拖曳中的那張票：退到半透明（＝「來歷退後」的同一個 .38 檔位），位置感留給落點線 */
+.ns-today .ticket-li[data-dnd-drag] .ticket { opacity: .38; transition: opacity .12s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-today .ticket-li[draggable="true"]::before,
+  .ns-today .ticket-li[draggable="true"]::after,
+  .ns-today .ticket-li[data-dnd-drag] .ticket { transition: none; transform: none; }
+}

@@ -1,0 +1,136 @@
+/* ─────────────────────────────────────────────────────
+ * theme-library.css — 主題商店庫存
+ * ─────────────────────────────────────────────────────
+ * 這裡是**倉庫，不是貨架**：本檔刻意不被任何地方 import，
+ * 也不接到主題選單上。M3 ② 主題換裝把正式主題換成
+ * 「粉彩星空／銀河鐵道」（決策記錄〈M3 · 發車〉決策 12・r3），
+ * 原本的三套主題 tokens 原封搬來這裡保存——
+ * **主題商店開張時回歸**（主人知情同意的過渡安排）。
+ *
+ * 庫存三套：
+ *   1. 旅の手帖  Techo        亮 · 暖米紙   （M1 制服設計定案 2026-08-06）
+ *   2. 夜行寝台  Night Sleeper 暗 · 車廂暖墨（M1 定裝，commit bdf6bb5）
+ *   3. 月白      Moonlight     暗 · 棕綠冷墨（2026-08-22 主人選定，commit a6d08a0）
+ *
+ * 出處（原型比稿過程見 prototypes/README.md）：
+ *   - 旅の手帖 ＝ prototypes/m1-c-techo.html（C 原版）
+ *   - 夜行寝台 ＝ prototypes/m1-c3-sleeper.html
+ *   - 月白     ＝ prototypes/m1-dark-c-moon.html
+ * 主人定案理由存檔：C 原版的高級感來自「側欄書封 × 主畫面紙色」的
+ * 對比（C2 抽掉即失）；奢華靠材質與工藝細節，不靠燙金堆疊（C1 教訓）。
+ *
+ * 【回歸時怎麼用】
+ * 三套的 token 名與現行 theme.css 的 --color-* 完全同名，換主題＝換值。
+ * 但現行主題另有一批**原型原生語彙**（--sky-*／--card／--accent／
+ * --starlight／--stamp-ink／--arc…）是這三套沒有的——商店開張時，
+ * 每套舊主題要補齊那批值（尤其天空層與四色墨），否則氛圍層會裸奔。
+ * 亮色套用 :root、暗色套用 [data-theme="dark"]；選擇器留白待商店的
+ * 主題機制（多值 data-theme）定案再接。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══════════════════════════════════════════════════
+ * 1. 旅の手帖 · Techo（亮）
+ * ═══════════════════════════════════════════════════ */
+.theme-techo {
+  /* ─── 紙（底色階） ─── */
+  --color-paper: #f4eee2;        /* 頁面暖米紙 */
+  --color-paper-high: #fbf7ec;   /* 票券用紙（略白） */
+  --color-paper-used: #efe7d5;   /* 已完成的票（微沉） */
+
+  /* ─── 墨（文字階） ─── */
+  --color-ink: #362f26;          /* 墨棕本文 */
+  --color-ink-soft: #6f675a;     /* 注記 */
+  --color-ink-faint: #a89c88;    /* 極淡注記 */
+
+  /* ─── 書封（側欄） ─── */
+  --color-book: #2e4036;         /* 墨綠布面 */
+  --color-book-ink: #ede5d3;     /* 書封上的米字 */
+
+  /* ─── 金與朱 ─── */
+  --color-gold: #b08d57;         /* 燙金 */
+  --color-gold-soft: #c9b085;
+  --color-seal: #b44c3b;         /* 朱肉「済」印（完成章） */
+  --color-late: #a8503f;         /* 誤點（延着）警示 */
+  --color-on-seal: #fbf7ec;      /* 朱印／主鈕上的字：深淺主題同值（對比保險） */
+
+  /* ─── 線 ─── */
+  --color-line: #d9cdb8;         /* 硬線 */
+  --color-dash: #c6b89e;         /* 撕線／虛線 */
+
+  /* ─── 圓角與陰影（手帖式克制） ─── */
+  --radius-card: 6px;
+  --radius-pill: 9999px;
+  --shadow-card: 0 1px 3px rgba(54, 47, 38, 0.08);
+
+  /* 半透明與紋理 */
+  --book-muted: rgba(237, 229, 211, 0.45);
+  --grid-dot: rgba(70, 60, 40, 0.07);
+
+  /* 路線色預設盤（和色・沉穩版）——新路線建立時的取色候選 */
+  --route-preset-1: #4e6e8e;   /* 藍鼠 */
+  --route-preset-2: #b85c46;   /* 洗朱 */
+  --route-preset-3: #5f7a5c;   /* 松葉 */
+  --route-preset-4: #9a907e;   /* 利休鼠（中性／無路線） */
+}
+
+/* ═══════════════════════════════════════════════════
+ * 2. 夜行寝台 · Night Sleeper（暗）
+ * 文字對比已逐色驗過 WCAG AA
+ * ═══════════════════════════════════════════════════ */
+.theme-sleeper {
+  --color-paper: #1e1913;        /* 車廂暖墨底 */
+  --color-paper-high: #2a2318;   /* 票券面（燈照到的一階亮） */
+  --color-paper-used: #231e14;
+  --color-ink: #e8dfc9;
+  --color-ink-soft: #a99e88;
+  --color-ink-faint: #8e8470;
+  --color-book: #141b16;         /* 墨綠絨布・熄燈後 */
+  --color-book-ink: #dcd3bc;
+  --color-gold: #c9a366;         /* 燈下的金 */
+  --color-gold-soft: #d8bc8a;
+  --color-seal: #d96a52;         /* 朱印（暗底提亮版） */
+  --color-late: #c9825a;         /* 誤點・燈色暖橙（棄亮黃） */
+  --color-on-seal: #1e1913;      /* 暗色：朱印主鈕改「亮盤深字」，對比 5.0:1 */
+  --color-line: #3b3427;
+  --color-dash: #4c4433;
+
+  --book-muted: rgba(220, 211, 188, 0.5);
+  --grid-dot: rgba(232, 214, 175, 0.05);
+
+  /* 路線色・夜間燈色版 */
+  --route-preset-1: #8fa9c4;   /* 月夜藍鼠 */
+  --route-preset-2: #d08a6e;   /* 燈下洗朱 */
+  --route-preset-3: #93ae83;   /* 夜霧松葉 */
+  --route-preset-4: #a19783;
+}
+
+/* ═══════════════════════════════════════════════════
+ * 3. 月白 · Moonlight（暗）
+ * 文字對比已逐色驗過 WCAG AA
+ * ═══════════════════════════════════════════════════ */
+.theme-moonlight {
+  --color-paper: #23262b;        /* 車廂暖墨底（棕綠底蘊） */
+  --color-paper-high: #2a2318;   /* 票券面（燈照到的一階亮） */
+  --color-paper-used: #231e14;
+  --color-ink: #e3e1d9;
+  --color-ink-soft: #a99e88;
+  --color-ink-faint: #8e8470;
+  --color-book: #1b2420;         /* 墨綠絨布・熄燈後 */
+  --color-book-ink: #dcd3bc;
+  --color-gold: #bfa77a;         /* 燈下的金 */
+  --color-gold-soft: #d8bc8a;
+  --color-seal: #d96a52;         /* 朱印（暗底提亮版） */
+  --color-late: #c9825a;         /* 誤點・燈色暖橙（棄亮黃） */
+  --color-on-seal: #23262b;      /* 暗色：朱印主鈕改「亮盤深字」，對比 5.0:1 */
+  --color-line: #3a3f46;
+  --color-dash: #4c4433;
+
+  --book-muted: rgba(220, 211, 188, 0.5);
+  --grid-dot: rgba(232, 214, 175, 0.05);
+
+  /* 路線色・夜間燈色版 */
+  --route-preset-1: #8faac6;   /* 月夜藍鼠 */
+  --route-preset-2: #d08a6e;   /* 燈下洗朱 */
+  --route-preset-3: #93ae83;   /* 夜霧松葉 */
+  --route-preset-4: #a19783;
+}

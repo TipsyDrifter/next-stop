@@ -1,0 +1,380 @@
+/**
+ * 設定頁籤列（M3 ⑥ WP0）——**只放排版**。
+ * 語彙全借 overlay.css 既有的 `.ns-choice`（原型 .status 式小字標籤，選中＝燙金邊與字），
+ * 一個新形狀都不發明（c13：原型沒有的控件只拼既有語彙）；顏色一律 token，不寫死色值。
+ */
+
+.ns-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+
+/* 還在施工的籤（⑥ 時「快捷鍵」掛過；⑦ 通車後三籤全開，規則留給日後的新籤）——淡出並讓游標說明它現在按不動 */
+.ns-tabs .ns-choice:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.ns-tabs .ns-choice:disabled:hover {
+  color: var(--color-ink-soft);
+}
+
+/* 分頁內容：各籤高度不同，換籤時不讓 dialog 上緣跳動（最小高度＝一般籤的量體） */
+.ns-tabpanel {
+  min-height: 172px;
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 備份與還原分頁（M3 ⑥ WP3）——**只放排版**，顏色一律 token。
+ * 無原型（c13）：形狀全借既有語彙——小字標籤＝techo.css 的 `.status`（來源 chip）、
+ * 按鈕＝`.btn-seal`／`.btn-ghost`＋overlay.css 的 `.ns-btn` 尺寸、select＝`.ns-select-wrap`、
+ * 說明小字＝`.ns-note`、分隔＝原型票根的 1px dashed。新形狀零發明。
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-bk {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+
+  /* 高度不由本籤管（M3 ⑥ 修正席）：原本 max-height: calc(82vh - 200px) 是在猜殼的標題列＋籤列＋頁腳，
+     少估約 15px，1280×800 預設視窗下紙卡下緣直接溢出視窗；改由 DialogShell 的 `.ns-dialog`／
+     `.ns-dialog-body` 統一管（overlay.css），本籤只排版、要捲時整張紙卡的本文一起捲（單層捲軸）。 */
+
+  /* 小字級的赭：四色墨的赭（--color-late）壓在設定紙卡上只有 3.9:1，
+     12px 上下的字級過不了 AA。混一點本文墨把它壓深到 ~4.9:1——
+     值仍由 token 推導（沿 overlay.css `.ns-btn-danger` 的 color-mix 慣例），
+     兩主題各自算各自的，沒有寫死色值，也沒有新增第五種墨。 */
+  --ns-warn-text: color-mix(in srgb, var(--color-late) 74%, var(--color-ink));
+}
+
+/* 每一段都不准被壓縮（M3 ⑥ 修正席）：flex 子項預設 flex-shrink:1，只要外層高度受限，
+   內容就會被壓到比自己矮——狀態列寫了 min-height:44px（它同時蓋掉 min-height:auto 的保護），
+   於是失敗態的三行內容（標籤＋時刻＋原因）以 align-items:center 上下溢出，
+   上緣 7px 落在可捲範圍之外、怎麼捲都捲不到，偏偏只在最慌張的失敗態發作。 */
+.ns-bk > section { flex: none; }
+
+/* ── ① 狀態列：左＝上次成功備份的時刻，右＝領収章（失敗時不蓋） ── */
+.ns-bk-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 44px;
+}
+.ns-bk-when {
+  font-family: var(--font-latin);
+  font-size: 18px;
+  letter-spacing: .06em;
+  line-height: 1.35;
+  color: var(--color-ink);
+}
+/* 失敗：時刻轉赭，章不蓋 */
+.ns-bk-when.is-fail { color: var(--ns-warn-text); }
+/* 還沒有任何備份：不是時刻，回本文字體與注記墨階 */
+.ns-bk-when.is-none {
+  font-family: var(--font-body);
+  font-size: 13px;
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+}
+.ns-bk-err {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 18px;
+  letter-spacing: .04em;
+  color: var(--ns-warn-text);
+}
+.ns-bk-seal { flex: none; }
+
+/* ── ③ 第二位置：路徑一行（拉丁等寬感，過長截斷、title 給全文） ── */
+.ns-bk-path {
+  font-family: var(--font-latin);
+  font-size: 12px;
+  letter-spacing: .02em;
+  line-height: 20px;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ns-bk-path.is-empty {
+  font-family: var(--font-body);
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+}
+/* 鏡射失敗＝赭字小註（第二位置失敗不算主備份失敗，故只在這裡說一聲） */
+.ns-bk .ns-note.is-fail { color: var(--ns-warn-text); }
+
+/* ── ④ 清單：一列＝一個實體檔（時間・大小・來源 chip・還原） ── */
+/* 清單不自己開一條捲軸（M3 ⑥ 沙盒真機第 8 條）：原本 max-height:136px + overflow-y:auto
+   讓 560 寬的卡上同時出現兩條並排捲軸（殼一條、清單一條），而且清單一旦滿格，
+   下面的動作列與危險區就被擠出可視範圍、怎麼捲都到不了。改成整張紙卡的本文一起捲
+   （`.ns-dialog-body`，overlay.css）——全站 dialog 只有一條捲軸的規矩，備份分頁也照辦。 */
+.ns-bk-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.ns-bk-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 2px;
+  border-bottom: 1px dashed var(--color-line);
+  min-width: 0;
+}
+.ns-bk-list li:last-child { border-bottom: 0; }
+.ns-bk-time {
+  flex: none;
+  min-width: 74px;
+  font-family: var(--font-latin);
+  font-size: 12.5px;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+}
+/* 同分鐘第 N 份的標記：借 `.ns-note` 的注記墨階，不新增顏色也不新增形狀 */
+.ns-bk-seq {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--color-ink-faint);
+}
+.ns-bk-size {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: var(--color-ink-soft);
+}
+.ns-bk-chips {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.ns-bk-chips .status { white-space: nowrap; }
+/* 第二位置＝虛線邊（同原型 .badge.dashed 的「臨時／別處」語義），不新增顏色 */
+.ns-bk-chips .status.is-secondary { border-style: dashed; }
+
+/* 「還原到此份」＝原型沒有的元素：hover／鍵盤聚焦才現身（c13）。
+   用 opacity 不用 display——列高不跳、Tab 走得到。 */
+.ns-bk-restore {
+  flex: none;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.ns-bk-list li:hover .ns-bk-restore,
+.ns-bk-list li:focus-within .ns-bk-restore { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-bk-restore { transition: none; }
+}
+
+/* ── ⑤ 動作列／各處的並排小鈕 ── */
+.ns-bk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── ⑥ 危險區（DEV 限定）：一道撕線隔開 ── */
+.ns-bk-danger {
+  padding-top: 14px;
+  border-top: 1px dashed var(--color-dash);
+}
+/* 共用的 `.ns-btn-danger`（overlay.css）字色＝純赭，在設定紙卡上是 3.9:1；
+   只在本分頁內壓深到同一顆 --ns-warn-text，不動共用類別（RouteDialog 的刪除鈕照舊）。 */
+.ns-bk-danger .btn-ghost.ns-btn-danger { color: var(--ns-warn-text); }
+.ns-bk-danger .btn-ghost.ns-btn-danger:hover { color: var(--ns-warn-text); }
+
+/* ═══════════════════════════════════════════════════════
+ * 快捷鍵分頁（M3 ⑦ WP3；D-⑦-2 甲）——**只放排版**，顏色一律 token。
+ * 無原型（c13）：形狀全借既有語彙——小標＝`.techo-label`、說明小字＝`.ns-note`、
+ * 鍵帽＝overlay.css 的 `.ns-kbd`／`.ns-kbd-seq`／`.ns-kbd-plus`（側板 .log-hint kbd 放大一級）、
+ * 分隔＝原型票根的 1px dashed（同上面備份分頁危險區那道）。新形狀零發明。
+ * 高度不由本籤管：撐不下時整張紙卡的本文一起捲（DialogShell `.ns-dialog-body`），本籤不設 max-height。
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-hk {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* 每一段都不准被壓縮（沿 .ns-bk > section 的教訓：外層高度受限時 flex 子項會被壓到比自己矮） */
+.ns-hk > section { flex: none; }
+
+/* ── ⓪ 籤頂：導航／編輯雙模式三句；下緣一道撕線隔開七組表 ── */
+.ns-hk-intro {
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+.ns-hk-intro-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* 三句各起一行、句首一顆小圓點懸掛在字的左邊（純排版，不是新形狀） */
+.ns-hk-intro-list li {
+  position: relative;
+  padding-left: 12px;
+}
+.ns-hk-intro-list li::before {
+  content: "・";
+  position: absolute;
+  left: 0;
+}
+
+/* ── ①–⑦ 七組：組與組之間一道撕線 ── */
+.ns-hk-scene + .ns-hk-scene {
+  padding-top: 14px;
+  border-top: 1px dashed var(--color-dash);
+}
+/* 情境註緊貼組名 */
+.ns-hk-when { margin-top: 1px; }
+
+/* 列表：一列＝一個動作（左）＋鍵帽（右）；列間 1px dashed line（同備份清單） */
+.ns-hk-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.ns-hk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 2px;
+  border-bottom: 1px dashed var(--color-line);
+  min-width: 0;
+}
+.ns-hk-row:last-child { border-bottom: 0; }
+.ns-hk-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  letter-spacing: .04em;
+  color: var(--color-ink);
+}
+/* 列的小註（「句點」「月視圖＝換月，週視圖＝換週」）：接在動作名後面，借 .ns-note 的字級與墨階 */
+.ns-hk-note { margin-left: 8px; }
+/* 鍵帽靠右；多條路（↑／↓、Enter／Space）之間一個「／」 */
+.ns-hk-keys {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.ns-hk-or {
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--color-ink-soft);
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 同步分頁（v1.1.1 WP8）——**只放排版**，顏色一律 token。
+ * 無原型（c13）：形狀全借既有語彙——狀態列與錯誤字＝備份分頁的 `.ns-bk-status`／`.ns-bk-when`／
+ * `.ns-bk-err`（同一套「上次成功了嗎」的說法）、小標＝`.techo-label`、說明＝`.ns-note`、
+ * 按鈕＝`.btn-seal`／`.btn-ghost`＋`.ns-btn`、輸入＝`.techo-input`、chip＝techo.css 的 `.status`、
+ * 兩枚開／關＝overlay.css 的 `.ns-choice`（與主題三選、籤列同一顆）。新形狀零發明。
+ * 高度不由本籤管：撐不下時整張紙卡的本文一起捲（DialogShell `.ns-dialog-body`）。
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+
+  /* 小字級的赭：與備份分頁同一條推導（見 `.ns-bk` 的說明），兩籤的赭字才會是同一階 */
+  --ns-warn-text: color-mix(in srgb, var(--color-late) 74%, var(--color-ink));
+}
+/* 每一段都不准被壓縮（沿 `.ns-bk > section` 的教訓） */
+.ns-sync > section { flex: none; }
+.ns-sync .ns-note.is-fail { color: var(--ns-warn-text); }
+.ns-sync .ns-bk-err { color: var(--ns-warn-text); }
+
+/* 狀態列第二行「上次同步 9/18 03:12」：緊貼狀態字，不用段距 */
+.ns-sy-when { margin-top: 3px; }
+/* 待上傳筆數＝一枚 chip（與備份清單的來源 chip 同一顆 `.status`） */
+.ns-sy-pending { flex: none; white-space: nowrap; }
+/* 上次重置另存的未同步修改（產品評審 B1）：路徑可能很長，一定要能折行 */
+.ns-sy-orphans { margin-top: 4px; overflow-wrap: anywhere; }
+
+/* ── ② 啟用表單：兩欄格線，窄了自動掉成一欄 ── */
+.ns-sy-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px 16px;
+}
+.ns-sy-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ns-sy-field-label {
+  font-size: 10px;
+  letter-spacing: .2em;
+  color: var(--color-ink-faint);
+  font-family: var(--font-latin);
+}
+.ns-sy-input {
+  width: 100%;
+  font-family: var(--font-latin);
+  font-size: 12.5px;
+  letter-spacing: .04em;
+}
+
+/* ── ③ 配對碼：QR 與文字並排（窄了掉成上下） ── */
+.ns-sy-pair { padding-top: 14px; border-top: 1px dashed var(--color-dash); }
+.ns-sy-pair-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+/* QR（v1.1.2 放回來：手機端接上掃描器了）：定寬 188px、不參與伸縮——SVG 本身是正方形，
+   讓 flex 壓它會把模組壓成長方形而掃不出來。白底是 qrcode 產的 SVG 自帶（暗色主題下也要保持高對比）。 */
+.ns-sy-qr {
+  flex: none;
+  width: 188px;
+  line-height: 0;
+}
+.ns-sy-qr svg { width: 100%; height: auto; display: block; }
+.ns-sy-pair-text { flex: 1 1 240px; min-width: 0; }
+/* 配對碼本文：拉丁等寬感、可換行（一段 base64url 很長，不讓它把卡撐寬） */
+.ns-sy-code {
+  width: 100%;
+  resize: none;
+  font-family: var(--font-latin);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: .02em;
+  word-break: break-all;
+}
+
+/* ── v1.1.2 ──────────────────────────────────────────
+ * 表單抬頭一列（小標＋「從精靈匯入」）、四欄說明、改正待ち一塊。
+ * 形狀照舊零發明：說明＝`.ns-note`、鈕＝`.btn-ghost.ns-btn.ns-btn--sm`、
+ * 改正待ち＝沿 `.ns-sy-pair` 的「虛線分隔的一塊」。
+ * ─────────────────────────────────────────────────── */
+
+/* 小標與「從精靈匯入」同一列：鈕靠右，窄了自己換行 */
+.ns-sy-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+/* 精靈那句：段距比欄位說明大一階（它講的是整段的前置作業，不是某一欄） */
+.ns-sy-wizard { margin-bottom: 10px; }
+.ns-sy-wizard code,
+.ns-sy-hint code {
+  font-family: var(--font-latin);
+  font-size: .95em;
+  letter-spacing: .02em;
+}
+/* 欄位說明：貼著該欄底下（住在 label 裡，所以要自己 display:block） */
+.ns-sy-hint { display: block; margin-top: 3px; }
+
+/* 改正待ち：與配對碼同一種「虛線分隔的一塊」，但語氣是要人處理（鈕用朱印 .btn-seal） */
+.ns-sy-epoch { padding-top: 14px; border-top: 1px dashed var(--color-dash); }

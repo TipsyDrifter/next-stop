@@ -1,0 +1,287 @@
+/* ─────────────────────────────────────────────────────
+ * 私鐵手帳 · Next Stop — 正式主題 tokens（M3 ② 主題換裝）
+ *   亮（預設）＝「粉彩星空 Pastel Starry」朧月的月台
+ *   暗          ＝「銀河鐵道 Galaxy Platform」深夜月台，抬頭是星河
+ * ─────────────────────────────────────────────────────
+ * 【定案出處】
+ * - 拍板：docs/決策記錄.md〈M3 · 發車〉決策 10／12(r3)＋〈① 延伸原型比稿拍板〉1–4
+ * - 移植規格：docs/research/2026-08-28-主題換裝移植規格.md §1 Token 契約
+ * - 值逐字取自原型 :root：
+ *     亮 ＝ prototypes/m3-mood-c2-pastel.html
+ *     暗 ＝ prototypes/m3-mood-c1-galaxy.html
+ *   兩主題合併後的結構／新增別名參照 prototypes/m3-ext-routemap.html
+ *   （:root ＝ 粉彩、.theme-galaxy ＝ 銀河）；-l 淺色階參照 m3-ext-calendar.html。
+ * - 四色墨（--seal／--stamp-ink／--late／--arc）＝色票卡實機拍板值，
+ *   **蓋過原型現值**（朱由 #c4503e／#e37b60 沉一階為 #AD3D2B／#D96547；
+ *   墨的銀河版由 --ink-soft #aeb6c9 改 --ink-mid #9AA3B8）。
+ * - 舊主題（旅の手帖／夜行寝台／月白）token 已搬到 styles/theme-library.css
+ *   保存（不 import、不可選）——主題商店開張再回歸。
+ *
+ * 【契約：其他席位請照這條讀】
+ * 1. 不改名原則：既有被消費的 --color-* ／ --font-* ／ --radius-* ／ --shadow-card
+ *    名稱一律保留（Tailwind utilities bg-paper／text-ink／font-display… 直接吃），
+ *    本次只換「值」。
+ * 2. 原型原生語彙（--sky-*／--card／--ink／--cover／--seal／--accent／--starlight…）
+ *    一併定義在下方 :root，讓 techo.css／ambience.css／stamps.css／gnav.css
+ *    可以把原型 CSS **逐字**搬過來、不必改變數名。同一個顏色只有一份定值，
+ *    另一個名字是 var() 別名——改值只要改一處。
+ * 3. 主題切換機制不變：<html data-theme="light|dark">。
+ *    銀河鐵道 ＝ [data-theme="dark"]（原型的 .theme-galaxy 對應到它）。
+ *    偏好值（uiStore.ThemePref）是 pastel／galaxy／system，DOM 屬性仍是 light／dark。
+ * 4. @theme 走 Tailwind 的 theme layer（會被無層級規則蓋過），故暗色覆寫一律
+ *    寫在下方無層級的 [data-theme="dark"] 區塊；@theme 內不用 var()，值全部寫死。
+ *    ⚠ 實測（2026-08-28，tailwindcss 4.3.0）：@theme 裡沒被引用的變數會被摘掉，
+ *    而 shadow-* 的 utility 是**編譯期把值烤進去**、不會跟著主題換。所以
+ *    --radius-card／--radius-pill／--shadow-card 另在下方 :root 再定義一份給
+ *    手寫 CSS 的 var() 用；要換主題的陰影請寫 var(--shadow-card)，
+ *    **不要用 .shadow-card utility**（它永遠是粉彩那組值）。
+ * 5. 紙面上的「作用中／強調」色，粉彩星空請用 --accent／--accent-sky（靛），
+ *    --gold 只留給書封燙金；銀河鐵道兩者同為金，不衝突。
+ * ───────────────────────────────────────────────────── */
+
+@theme {
+  /* ─── 紙（底色階）───
+   * paper      ＝ 頁面底色。兩主題的頁面實體是天空漸層（SkyLayer），
+   *               這裡放天空中段色當「天沒鋪上去時」的保險底。
+   * paper-high ＝ 票券面。粉彩＝霧面玻璃卡（半透白，洞裡看得見天）；
+   *               銀河＝月光下的票紙（不透）。原型別名 --card。
+   * paper-used ＝ 已完成的票（再退一階）。原型別名 --card-used。 */
+  --color-paper: #c8c0e4;
+  --color-paper-high: rgba(255, 255, 255, 0.64);
+  --color-paper-used: rgba(255, 255, 255, 0.46);
+
+  /* ─── 墨（文字階）─── */
+  --color-ink: #2a2b49;          /* 本文 */
+  --color-ink-soft: #474667;     /* 注記 */
+  --color-ink-faint: #5f5e84;    /* 極淡注記 */
+
+  /* ─── 書封（側欄）─── */
+  --color-book: #2c3059;         /* 夜藍絨布（唯一深色面——「對比分層」紀律） */
+  --color-book-ink: #e4e3f3;
+
+  /* ─── 金與朱 ─── */
+  --color-gold: #d6bd8e;         /* 書封燙金 */
+  --color-gold-soft: #e3cfa6;
+  --color-gold-ink: #6e5220;     /* 燙金當「字」用時的深金（紙上選中籤）：對票紙實測色 5.0:1，AA；邊線仍走 --color-gold */
+  --color-seal: #AD3D2B;         /* 朱肉「済」印＝四色墨・朱（拍板乙） */
+  --color-late: #985030;         /* 誤點／繰越／〆締切＝四色墨・赭（拍板甲） */
+  --color-on-seal: #e4e3f3;      /* 朱印主鈕上的字（對 #AD3D2B ＝ 4.8:1，AA） */
+
+  /* ─── 線 ─── */
+  --color-line: rgba(42, 43, 73, 0.18);
+  --color-dash: rgba(42, 43, 73, 0.28);
+
+  /* ─── 字體 ─── */
+  --font-display: "Noto Serif TC", "Source Han Serif TC", serif;   /* 側板標題・文件級襯線 */
+  --font-body: "Noto Sans TC", "Source Han Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-latin: "Fraunces", "Noto Serif TC", serif;                /* 票號／拉丁點綴 */
+  --font-hand: "Iansui", "LXGW WenKai TC", "Noto Sans TC", sans-serif; /* 手寫（原型別名 --hw） */
+
+  /* ─── 圓角與陰影（＝原型 .ticket 定值）─── */
+  --radius-card: 4px;
+  --radius-pill: 9999px;
+  --shadow-card:
+    0 0 0 1px rgba(60, 60, 120, 0.1),
+    0 1px 2px rgba(50, 45, 100, 0.08),
+    0 8px 22px rgba(60, 50, 120, 0.12);
+}
+
+/* ═══════════════════════════════════════════════════
+ * 粉彩星空 · Pastel Starry（亮／預設）
+ * 原型原生語彙＋半透明、紋理、路線色盤（元件直接取用，非 utility）
+ * ═══════════════════════════════════════════════════ */
+:root {
+  /* ─── 天空（天頂→地平線）───
+   * 粉彩只有三段；--sky-low／--sky-horizon 是銀河才有的下兩段，
+   * 這裡指回 --sky-bot，讓共用的天空 CSS 兩主題都能跑。 */
+  --sky-top: #b4c1e0;
+  --sky-mid: #c8c0e4;
+  --sky-bot: #ecd2da;
+  --sky-low: var(--sky-bot);
+  --sky-horizon: var(--sky-bot);
+  --horizon-h: 32px;             /* 地面帶高（銀河用；粉彩無地面帶） */
+  --starlight: 255, 255, 255;    /* 星光 rgb 三元組；各處自配 alpha */
+
+  /* --color-* 家族的同義名（ambience.css 消費中）。只定義在這裡，
+   * 值指回上面的 --sky-*／--starlight，暗色覆寫那邊就自動跟著換。 */
+  --color-sky-top: var(--sky-top);
+  --color-sky-mid: var(--sky-mid);
+  --color-sky-bot: var(--sky-bot);
+  --color-sky-low: var(--sky-low);
+  --color-sky-horizon: var(--sky-horizon);
+  --color-starlight: var(--starlight);
+
+  /* ─── 票紙（＝ --color-paper-high／-used 的原型別名）───
+   * 粉彩叫 --card（霧面玻璃）、銀河叫 --paper-high（月光票紙）；
+   * 兩個名字都給，原型 CSS 兩邊都能逐字搬。 */
+  --card: var(--color-paper-high);
+  --card-used: var(--color-paper-used);
+  --paper-high: var(--color-paper-high);
+  --paper-used: var(--color-paper-used);
+
+  /* ─── 墨 ─── */
+  --ink: var(--color-ink);
+  --ink-soft: var(--color-ink-soft);
+  --ink-mid: #565579;            /* 原型有、舊 token 沒有的中間階 */
+  --ink-faint: var(--color-ink-faint);
+
+  /* ─── 強調（紙面上的「作用中」；粉彩＝靛，不用金）─── */
+  --accent: #524d9c;
+  --accent-sky: #4a4692;         /* overline／小標的靛（銀河版＝月光灰，見暗色區） */
+
+  /* ─── 書封 ─── */
+  --cover: var(--color-book);
+  --cover-ink: var(--color-book-ink);
+  --cover-muted: rgba(228, 227, 243, 0.56);
+  --book-muted: var(--cover-muted);   /* 舊名（sidebar.css 消費中） */
+  --cover-hover: rgba(228, 227, 243, 0.06);
+  --color-book-hover: var(--cover-hover);  /* --color-book 家族的同義名（gnav.css 消費中） */
+  --cover-w: 236px;              /* 書封寬（版面常數） */
+  --panel-w: 340px;              /* 詳情側板寬；開闔由 JS 改寫此值 */
+
+  /* ─── 金 ─── */
+  --gold: var(--color-gold);
+  --gold-soft: var(--color-gold-soft);
+
+  /* ─── 四色墨（兩主題同名；定值＝色票卡拍板，蓋過原型現值）───
+   *   朱 --seal      済・領収
+   *   墨 --stamp-ink 日付印・受付・途中下車・運休・無効・時刻戳
+   *   赭 --late      延着・繰越・〆締切標記
+   *   金 --arc       紀念章進度弧（金不做狀態色） */
+  --seal: var(--color-seal);
+  --stamp-ink: #474667;
+  --late: var(--color-late);
+  --arc: #A8803F;
+
+  /* ─── 線 ─── */
+  --line: var(--color-line);
+  --dash: var(--color-dash);
+  --grid-dot: rgba(42, 43, 73, 0.07);
+
+  /* ─── 手寫 ─── */
+  --hw: var(--font-hand);
+
+  /* ─── 舊名的原型別名（同時是「別被 Tailwind 摘掉」的保命繩）───
+   * 實測（2026-08-28，tailwindcss 4.3.0 compile API）：@theme 裡沒被任何
+   * utility 或 CSS 引用到的變數會被**整條摘掉**。上面每個 --color-* 都至少
+   * 被這區塊的別名引用一次，就不會發生「亮色定值消失、只剩暗色覆寫」的歪斜。 */
+  --paper: var(--color-paper);
+  --on-seal: var(--color-on-seal);
+
+  /* ─── 圓角與陰影（手寫 CSS 用這一份）───
+   * 同名 token 在 @theme 也有一份，但那份只餵 Tailwind utilities：
+   * rounded-card／rounded-pill 目前無人使用會被摘掉，shadow-card 更是
+   * **編譯期就把值烤進 utility**（為了塞 --tw-shadow-color），換主題不會變。
+   * 所以真正給 var() 消費的定值寫在這裡、暗色也在下面覆寫——兩主題都保證有值。 */
+  --radius-card: 4px;
+  --radius-pill: 9999px;
+  --shadow-card:
+    0 0 0 1px rgba(60, 60, 120, 0.1),
+    0 1px 2px rgba(50, 45, 100, 0.08),
+    0 8px 22px rgba(60, 50, 120, 0.12);
+
+  /* ─── 陰影補位（原型 .ticket:hover）─── */
+  --shadow-card-hover:
+    0 0 0 1px rgba(60, 60, 120, 0.14),
+    0 2px 4px rgba(50, 45, 100, 0.1),
+    0 12px 28px rgba(60, 50, 120, 0.16);
+
+  /* ─── 路線色預設盤（星空版）───
+   * DB 存的是 "var(--route-preset-N)" 字串，換主題自動跟著換色（RoutePanel 契約）。
+   * 值＝原型的四支路線色（E1／J／L2／無路線）。 */
+  --route-preset-1: #4757a6;   /* 藍（原型 E1） */
+  --route-preset-2: #964468;   /* 梅紫（原型 J） */
+  --route-preset-3: #326b4b;   /* 松葉（原型 L2） */
+  --route-preset-4: #5c5b7d;   /* 中性／無路線（原型 none） */
+
+  /* 原型的路線色名（逐字移植用別名） */
+  --route-e1: var(--route-preset-1);
+  --route-j: var(--route-preset-2);
+  --route-l2: var(--route-preset-3);
+  --route-none: var(--route-preset-4);
+
+  /* 淺色階：深底上的 roundel／日曆小圓盤（銀河版＝與本色同值，見暗色區） */
+  --route-e1-l: #aab9ea;
+  --route-j-l: #f0b3bd;
+  --route-l2-l: #a9d2b6;
+  --route-none-l: #c9c8d8;
+
+  --roundel-e1: var(--route-e1-l);
+  --roundel-j: var(--route-j-l);
+  --roundel-l2: var(--route-l2-l);
+  --roundel-none: var(--route-none-l);
+
+  /* 預設盤的「圓牌版」（M3 ② 收口補）：填色圓牌一律走淺色階＝原型的「亮盤深字」。
+   * 只定義在 :root——右邊四個名字在暗色區被改寫，var() 是使用時才代入，所以兩主題都自動跟著換。
+   * 消費者：書封路線清單與快速跳轉的 .roundel（見 src/ui/common/roundel.ts）。
+   * 實測依據：不走這一階時粉彩的圓牌是 #1d1f3a 深字壓在 #4757a6／#964468／#326b4b 上，
+   *          對比只有 2.4–2.6:1（headless computed style 量測），代碼近乎看不見。 */
+  --roundel-preset-1: var(--roundel-e1);
+  --roundel-preset-2: var(--roundel-j);
+  --roundel-preset-3: var(--roundel-l2);
+  --roundel-preset-4: var(--roundel-none);
+}
+
+/* ═══════════════════════════════════════════════════
+ * 銀河鐵道 · Galaxy Platform（暗）
+ * 掛在 <html data-theme="dark"> 生效（＝原型的 .theme-galaxy）
+ * 文字對比逐色驗過 WCAG AA
+ * ═══════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  /* ─── 既有 --color-* 覆寫（名稱不動、只換值）─── */
+  --color-paper: #111a30;              /* 夜空中段＝天沒鋪上去時的保險底 */
+  --color-paper-high: #212a40;         /* 月光下的票紙 */
+  --color-paper-used: #1b2335;
+  --color-ink: #e4e8f3;
+  --color-ink-soft: #aeb6c9;
+  --color-ink-faint: #8993a8;
+  --color-book: #101217;               /* 月台・熄燈後 */
+  --color-book-ink: #d8dbe3;
+  --color-gold: #cdb783;
+  --color-gold-soft: #dccb9c;
+  --color-gold-ink: #cdb783;           /* 暗色紙上燙金本身就 7.3:1，字與邊同值 */
+  --color-seal: #D96547;               /* 四色墨・朱（拍板乙） */
+  --color-late: #D19B72;               /* 四色墨・赭（拍板甲） */
+  --color-on-seal: #101217;            /* 暗色＝亮盤深字（對 #D96547 ＝ 5.3:1，AA） */
+  --color-line: rgba(222, 230, 250, 0.14);
+  --color-dash: rgba(222, 230, 250, 0.24);
+  --radius-card: 3px;
+  --shadow-card: 0 1px 2px rgba(3, 6, 14, 0.4), 0 8px 22px rgba(3, 6, 14, 0.38);
+
+  /* ─── 天空：四段（天頂→地平線）＋星光 ─── */
+  --sky-top: #0d1126;
+  --sky-mid: #111a30;
+  --sky-low: #17233e;
+  --sky-horizon: #1d2b4a;
+  --sky-bot: var(--sky-horizon);   /* 銀河沒有「bot」這一段；共用 CSS 讀到時指回地平線，不要留粉彩的粉色 */
+  --starlight: 230, 236, 255;
+
+  /* ─── 中間墨階／強調 ─── */
+  --ink-mid: #9aa3b8;
+  --accent: #cdb783;                   /* 銀河的作用中＝金 */
+  --accent-sky: #aeb6c9;               /* 對帳定值：唯一值（件一 #cdb783 作廢） */
+
+  /* ─── 書封 ─── */
+  --cover-muted: rgba(216, 219, 227, 0.5);
+  --cover-hover: rgba(230, 236, 255, 0.045);
+
+  /* ─── 四色墨（同名、換值）─── */
+  --stamp-ink: #9AA3B8;                /* 墨＝拍板丁（--ink-mid 那一階） */
+  --arc: #CDB783;                      /* 金＝拍板甲 */
+
+  /* ─── 紋理／陰影 ─── */
+  --grid-dot: rgba(230, 236, 255, 0.05);
+  --shadow-card-hover: 0 2px 4px rgba(3, 6, 14, 0.46), 0 12px 28px rgba(3, 6, 14, 0.44);
+
+  /* ─── 路線色・星光版 ─── */
+  --route-preset-1: #a9c0ea;
+  --route-preset-2: #e6a88a;
+  --route-preset-3: #a6c9ad;
+  --route-preset-4: #a3a9b8;
+
+  /* 深底上不需要再提亮：淺色階＝本色（同 m3-ext-calendar 銀河版） */
+  --route-e1-l: var(--route-e1);
+  --route-j-l: var(--route-j);
+  --route-l2-l: var(--route-l2);
+  --route-none-l: var(--route-none);
+}

@@ -1,0 +1,135 @@
+/* ─────────────────────────────────────────────────────
+ * gnav.css — 書封頂部全域導航（兩欄）＋搜尋鈕＋設定入口
+ * 視覺真相＝prototypes/m3-ext-routemap.html 的 .gnav / .gnav-closed / .gnav-search / .foot-set 段（逐字移植）
+ * 拍板依據＝決策記錄〈① 比稿拍板〉Q3（未通車佔位保留、統一成小圖示第二欄）＋Q7（全域三件每頁常駐）
+ *
+ * 原型變數 → 專案 token 對照（沿 sidebar.css 既有對照表）：
+ *   --cover→--color-book  --cover-ink→--color-book-ink  --cover-muted→--book-muted  --gold→--color-gold
+ *   'Fraunces'→--font-latin
+ *   --cover-hover ＝原型新語彙、正式 token 由 E1 決定 → 本檔取 var(--color-book-hover, <原型逐字值>)，
+ *   E1 補上同名 token 即自動接手，未補則落回原型兩主題的字面值（視覺結果相同）。
+ *   原型主題選擇器 .theme-galaxy → 專案既有機制 [data-theme="dark"]。
+ *
+ * 注入順序（鐵律 4）：M3 ② 收口後本檔由 src/index.css 集中 @import（排在 techo.css 之後，
+ *   仍晚於元件層的 sidebar.css）→ 本檔所有規則一律以 .cover 前綴抬高特異度，
+ *   不靠載入順序，也不改 techo.css。
+ * ───────────────────────────────────────────────────── */
+
+.cover {
+  --gnav-hover: var(--color-book-hover, rgba(228, 227, 243, .06));
+}
+[data-theme="dark"] .cover {
+  --gnav-hover: var(--color-book-hover, rgba(230, 236, 255, .045));
+}
+
+/* ============ 第一欄：已通車（今日／路線圖／日曆）＋當前頁金菱形＋Ctrl 1・2・3 註記 ============ */
+.cover .gnav { margin-top: 20px; }
+.cover .gnav-row { display: flex; justify-content: center; gap: 6px; }
+.cover .gnav-item {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  width: 58px; padding: 8px 4px 7px; border-radius: 2px;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: inherit; font-size: 10px; letter-spacing: .18em; text-indent: .18em;
+  color: var(--book-muted);
+  transition: background .15s, color .15s;
+}
+.cover .gnav-item svg { opacity: .85; }
+.cover .gnav-item:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
+.cover .gnav-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .gnav-item.active { color: var(--color-book-ink); }
+.cover .gnav-item.active::after { /* 書封上金＝現在作用中（沿 nav active 的金菱形語言） */
+  content: ""; width: 5px; height: 5px;
+  background: var(--color-gold); transform: rotate(45deg); margin-top: 2px;
+}
+/* ② 過渡態：今日／日曆頁尚未實作（移植規格 §2）——不是「未通車」，是「施工中」，
+   故不用第二欄的 .42，用一階淺的 .55 區隔兩種語義；頁面通車即拿掉屬性回原型現樣。 */
+.cover .gnav-item[aria-disabled="true"] { opacity: .55; cursor: default; }
+.cover .gnav-item[aria-disabled="true"]:hover { background: transparent; color: var(--book-muted); }
+.cover .gnav-kbd {
+  margin-top: 7px; text-align: center;
+  font-family: var(--font-latin); font-size: 9px; letter-spacing: .3em; text-indent: .3em;
+  color: var(--book-muted);
+}
+/* 「CTRL 1 · 2 · 3」純註記那段：淡度（.8）原本掛在整行 <p>，⑦ 修正席搬到這一段——
+   子元素的 opacity 壓不過父層，「? 指引」變成可點控制項後對比要過 4.5，淡度得只留給註記本身。
+   註記的合成結果與原型定稿逐值相同（--book-muted × .8），鐵道意象的「淡淡站牌小字」不動。 */
+.cover .gnav-kbd-note { opacity: .8; }
+/* ⑦「? 指引」可點片段（D-⑦-3 甲）：住在 .gnav-kbd 同一行、同字級，只加可點的排版；
+   字色走 book-ink（對書封 9.9／13.5）再壓 .85 仍 >7、視覺上不比註記跳太多；
+   hover 沿本檔既有的 --gnav-hover＋book-ink（與 gnav-item／foot-set 同一套），零新形狀 */
+.cover .gnav-kbd-guide {
+  display: inline-block; margin-left: .5em; padding: 1px 5px 1px 4px; border-radius: 2px;
+  white-space: nowrap; cursor: pointer;
+  color: var(--color-book-ink); opacity: .85;
+  transition: background .15s, color .15s;
+}
+.cover .gnav-kbd-guide:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
+
+/* ============ 第二欄：未通車佔位（旅客筆記／時刻表／售票口；Q3 拍板 2026-08-28） ============
+   灰階低調（.42＝line-add 常駐同量級）、cursor:default；hover／focus 浮出 tooltip「頁名＋次期開業予定」；
+   通車時該圖示自第二欄升入第一欄（一頁一枚）。 */
+.cover .gnav-closed { display: flex; justify-content: center; gap: 18px; margin: 12px 0 2px; }
+.cover .gnav-off {
+  position: relative; display: grid; place-items: center;
+  width: 30px; height: 26px; border-radius: 2px;
+  color: var(--book-muted); opacity: .42; cursor: default;
+  transition: opacity .15s, background .15s;
+}
+.cover .gnav-off svg { display: block; }
+.cover .gnav-off:hover, .cover .gnav-off:focus-visible { opacity: .8; background: var(--gnav-hover); }
+.cover .gnav-off:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .tip-closed {
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  display: none; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 11px 7px; border-radius: 2px; white-space: nowrap; z-index: 5;
+  background-color: var(--color-book);
+  background-image: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .05));
+  border: 1px solid rgba(214, 189, 142, .4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+}
+[data-theme="dark"] .cover .tip-closed { border-color: rgba(205, 183, 131, .38); }
+.cover .gnav-off:hover .tip-closed, .cover .gnav-off:focus-visible .tip-closed { display: flex; }
+.cover .tip-closed .tn { font-size: 10px; letter-spacing: .22em; text-indent: .22em; color: var(--color-book-ink); }
+.cover .tip-closed .ts { font-size: 8.5px; letter-spacing: .24em; text-indent: .24em; color: var(--color-gold); opacity: .9; }
+
+/* ============ D5 頂部搜尋鈕（滑鼠入口；鍵盤走 Ctrl+P） ============ */
+.cover .gnav-search {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; margin-top: 10px; padding: 7px 10px;
+  border: 1px solid rgba(228, 227, 243, .2); border-radius: 2px;
+  background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: .22em;
+  color: var(--book-muted);
+  transition: background .15s, color .15s, border-color .15s;
+}
+[data-theme="dark"] .cover .gnav-search { border-color: rgba(216, 219, 227, .18); }
+.cover .gnav-search svg { flex: none; opacity: .85; }
+.cover .gnav-search .kbd {
+  margin-left: auto; font-family: var(--font-latin); font-size: 8.5px;
+  letter-spacing: .2em; opacity: .75;
+}
+.cover .gnav-search:hover { background: var(--gnav-hover); color: var(--color-book-ink); border-color: rgba(228, 227, 243, .34); }
+[data-theme="dark"] .cover .gnav-search:hover { border-color: rgba(216, 219, 227, .3); }
+.cover .gnav-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+/* ============ 設定入口（常駐；M2 現況位置＝cover-foot） ============ */
+.cover .foot-set {
+  display: inline-flex; align-items: center; gap: 9px;
+  margin-bottom: 10px; padding: 6px 12px; border: 0; border-radius: 2px;
+  background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: .22em; text-indent: .1em;
+  color: var(--book-muted);
+  transition: background .15s, color .15s;
+}
+.cover .foot-set svg { flex: none; opacity: .85; }
+.cover .foot-set:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
+.cover .foot-set:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+/* ============ reduced-motion：關掉過場（原型同款） ============ */
+@media (prefers-reduced-motion: reduce) {
+  .cover .gnav-item,
+  .cover .gnav-off,
+  .cover .gnav-kbd-guide,
+  .cover .gnav-search,
+  .cover .foot-set { transition: none; }
+}

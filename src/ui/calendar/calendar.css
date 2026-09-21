@@ -1,0 +1,240 @@
+/* ─────────────────────────────────────────────────────
+ * calendar.css — 日曆視圖（M3 ⑤ WP2）專用補充；視覺本體＝styles/techo.css（.page／.sheet／header.day／
+ * .overline／.date-line／.page-foot 已在那裡）。
+ *
+ * 視覺真相來源＝prototypes/m3-ext-calendar.html，逐字對號（數值勿演繹）：
+ *   頁首 cal-ctl／chev／today-chip／seg ＝ :465-483　　日付印位置 ＝ :485
+ *   頁邊手寫／月統計                   ＝ :446-463
+ *   月卡（粉彩霧面玻璃＋顆粒／銀河月光票紙）＝ :487-513
+ *   wk-head／grid／cell／items／more     ＝ :515-565
+ *   格角〆（締切標記層）                ＝ :567-575
+ *   日期行字級（34/17）                 ＝ :433-445（techo 的 30/15 是今日頁檔位，這裡抬到日曆檔位）
+ *
+ * ⚠ 注入順序（鐵律 4）：本檔由 CalendarView.tsx import ＝排在 index.css（含 techo.css）**之前**，
+ *   同權重會輸給 techo.css → 凡與 techo 同名 class 競爭的規則一律加 `.ns-calendar` 前綴抬一級
+ *   （比照 today.css:15）。顏色一律走 token，不寫死。
+ *
+ * 原型的 `--seg-on／--cellhover／--out-ink／--today-ring／--today-bg／--hovac` 是**原型自己的語義別名**
+ * （:80-86、:104-110），theme.css 沒有這一組 → 在 `.ns-calendar` 作用域內原值落地（不污染全域 token）。
+ * 原型的 `--route-e1／.r-e1` 假 token 不搬（雷區 9）：路線色點吃 `routes[].color` 的 inline style。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 主題二選一：同一份 DOM，只顯示屬於當前主題的那一份文案 ═══ */
+.ns-calendar .theme-pastel-only { display: inline; }
+.ns-calendar .theme-galaxy-only { display: none; }
+[data-theme="dark"] .ns-calendar .theme-pastel-only { display: none; }
+[data-theme="dark"] .ns-calendar .theme-galaxy-only { display: inline; }
+
+/* ═══ 原型的語義別名（:80-86／:104-110 逐字） ═══ */
+.ns-calendar {
+  --cal-today-ring: rgba(82, 77, 156, .5);
+  --cal-today-bg: rgba(255, 255, 255, .32);
+  --cal-seg-on: rgba(82, 77, 156, .10);
+  --cal-cellhover: rgba(42, 43, 73, .035);
+  --cal-out-ink: rgba(42, 43, 73, .34);
+}
+[data-theme="dark"] .ns-calendar {
+  --cal-today-ring: rgba(205, 183, 131, .45);
+  --cal-today-bg: rgba(230, 236, 255, .045);
+  --cal-seg-on: rgba(205, 183, 131, .12);
+  --cal-cellhover: rgba(230, 236, 255, .035);
+  --cal-out-ink: rgba(228, 232, 243, .30);
+}
+
+/* ═══ 版心：日曆是唯一流動寬度的頁（M3 ⑤-b 追加 2） ═══
+ * techo.css:127 的 `.sheet{max-width:880px}` 是**清單頁的閱讀寬**——日曆是格子，大螢幕下擠在
+ * 左上角只是浪費，格子放大才看得見班次。所以只有這一頁放寬：
+ *   上限 1200px（派工給 1280 並允許 1100–1280 自決；實測 1440/1920/2560 下 1280 的格子偏扁、
+ *   一格寬 >150px 時「N 班」與路線色點之間空得發虛 → 收到 1200，見回報寬度表）
+ *   下限＝主欄減留白：`.sheet` 有 `margin-left:24px`，不扣掉的話 `100%` 會多出 24px 橫向捲軸
+ *   （`.page` 是 `overflow-y:auto` → overflow-x 依規範算成 auto，會真的長出捲軸）。
+ * 側板開啟時 `.panel` 是 flex 兄弟（App.tsx:66-71 `main` 與 `DetailPanel` 並排）→ `.page` 自己縮，
+ *   `calc(100%-24px)` 跟著縮，不必另寫規則；techo.css:135 的 padding 收緊照舊生效。
+ * **字級、留白 token、格高下限一律不縮**——放大的只有格寬（`.grid` 的 1fr 自然吃掉多的寬度）。 */
+.ns-calendar .sheet { max-width: min(1200px, calc(100% - 24px)); }
+
+/* ═══ 頁首 ═══ */
+/* 日曆頁首有四行（眉標／日期／統計／控制列）→ 日付印靠上對齊（原型 :413） */
+.ns-calendar header.day { align-items: flex-start; }
+.ns-calendar .day-head { min-width: 0; }
+.ns-calendar .date-line { flex-wrap: wrap; column-gap: 14px; row-gap: 0; }
+/* 週視圖的大字是日期區間（「4月26日 – 5月2日」），比月視圖的「9月」長一截——
+   字級／字距沿用同一組 token，只多一條 nowrap：區間中間的 en dash 兩側有空白，
+   不釘死的話窄視窗會從那裡斷成兩行，日期行的 baseline 就歪了（換行交給 `.date-line` 的 flex-wrap 整段換）。 */
+.ns-calendar .date-line .d { font-size: 34px; white-space: nowrap; }
+.ns-calendar .date-line .w { font-size: 17px; white-space: nowrap; }
+
+/* 月份大字＝月／年跳轉入口（⑤-b 追加 1）。無邊框、hover 才現底。
+   底色走 ::before（負 inset 外擴），按鈕本身零 padding 零邊框 → 大字的位置與改鈕之前完全一樣，
+   `.date-line` 的 baseline 對齊與 14px 欄距都不受影響。 */
+.ns-calendar .mj-trigger {
+  position: relative;
+  display: inline-flex; align-items: baseline; gap: 14px;
+  padding: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; letter-spacing: inherit; cursor: pointer;
+}
+.ns-calendar .mj-trigger::before {
+  content: ""; position: absolute; inset: -4px -8px -3px;
+  border-radius: 2px; background: transparent; transition: background .15s;
+}
+.ns-calendar .mj-trigger:hover::before { background: var(--cal-cellhover); }
+.ns-calendar .mj-trigger > * { position: relative; }
+.ns-calendar .mj-trigger:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-calendar .mj-trigger::before { transition: none; }
+}
+
+/* 頁邊手寫（粉彩）：最近的締切（:446-453；內容＝WP5） */
+.ns-calendar .margin-note {
+  font-family: var(--hw, var(--font-hand)); font-size: 18px; line-height: 1;
+  color: var(--accent-sky, var(--color-ink-soft));
+  margin-left: 10px;
+  transform: rotate(-2deg); display: inline-block;
+  letter-spacing: .04em;
+}
+[data-theme="dark"] .ns-calendar .margin-note { display: none; }
+
+/* 月統計（:454-463）；掛在 .date-line 裡，靠 flex-basis 換行到日期行下方 */
+.ns-calendar .month-stats {
+  flex-basis: 100%;
+  margin-top: 10px; letter-spacing: .06em;
+  font-size: 13px; color: var(--color-ink-soft);
+}
+.ns-calendar .month-stats b { font-weight: 500; color: var(--color-ink); }
+.ns-calendar .month-stats .sep { color: var(--color-ink-faint); margin: 0 2px; }
+[data-theme="dark"] .ns-calendar .month-stats { /* 銀河：日期下面隨手記的一筆 */
+  font-family: var(--hw, var(--font-hand));
+  font-size: 15.5px; letter-spacing: .05em;
+}
+[data-theme="dark"] .ns-calendar .month-stats b { font-weight: 400; font-size: 17.5px; }
+
+/* 控制列（:465-483） */
+.ns-calendar .cal-ctl { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.ns-calendar .chev,
+.ns-calendar .today-chip {
+  border: 1px solid var(--color-dash); background: transparent; color: var(--ink-mid, var(--color-ink-soft));
+  border-radius: 2px; cursor: pointer; font-family: inherit;
+  transition: color .15s, border-color .15s;
+}
+.ns-calendar .chev { width: 24px; height: 24px; font-size: 12px; line-height: 1; padding: 0; }
+.ns-calendar .today-chip { padding: 2px 10px 2px 12px; font-size: 11px; letter-spacing: .18em; }
+.ns-calendar .chev:hover,
+.ns-calendar .today-chip:hover { color: var(--accent); border-color: var(--accent); }
+.ns-calendar .chev:focus-visible,
+.ns-calendar .today-chip:focus-visible,
+.ns-calendar .seg button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-calendar .cal-ctl .gap { width: 8px; }
+.ns-calendar .seg { display: inline-flex; border: 1px solid var(--color-dash); border-radius: 2px; overflow: hidden; }
+.ns-calendar .seg button {
+  padding: 3px 13px 3px 15px; font-size: 11px; letter-spacing: .18em;
+  background: transparent; color: var(--ink-mid, var(--color-ink-soft)); border: 0; cursor: pointer;
+  font-family: inherit; transition: color .15s, background .15s;
+}
+.ns-calendar .seg button.on { background: var(--cal-seg-on); color: var(--accent); }
+.ns-calendar .seg button:not(.on):hover { color: var(--color-ink); }
+
+/* 頁首日付印一枚（92px＝Q8；-6° 由 DateSeal 的 rotate prop 出，這裡只給位置；:485） */
+.ns-calendar .date-stamp { flex: none; margin: 2px 6px 0 0; }
+
+/* ═══ 月間頁：一張紙，不是 42 張卡（:487-513） ═══ */
+.ns-calendar .month-card {
+  position: relative; border-radius: var(--radius-card);
+  background: var(--card);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, .78);
+  box-shadow:
+    0 0 0 1px rgba(60, 60, 120, .10),
+    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12);
+}
+.ns-calendar .month-card::after { /* 霧面顆粒（C2 配方） */
+  content: ""; position: absolute; inset: 0; z-index: 0; border-radius: var(--radius-card);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .055; mix-blend-mode: multiply; pointer-events: none;
+}
+[data-theme="dark"] .ns-calendar .month-card {
+  background: var(--paper-high);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: 1px solid var(--color-line);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--starlight), .09),
+    inset -1px 0 0 rgba(var(--starlight), .035),
+    0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38);
+}
+[data-theme="dark"] .ns-calendar .month-card::after { content: none; }
+.ns-calendar .month-card > * { position: relative; z-index: 1; }
+
+.ns-calendar .wk-head {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  padding: 11px 0 9px; border-bottom: 1px solid var(--color-line);
+  font-size: 10px; letter-spacing: .3em; text-indent: .3em; text-align: center;
+  color: var(--color-ink-soft);
+}
+.ns-calendar .wk-head .we { color: var(--color-ink-faint); }
+
+/* ═══ 格（:523-565） ═══ */
+.ns-calendar .grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.ns-calendar .cell {
+  position: relative;
+  min-width: 0; /* 1fr 軌的 min-content 陷阱：不設 0，nowrap 長標題會把欄撐出卡外（原型 :525／雷區 4） */
+  min-height: 96px; padding: 8px 10px 7px;
+  border-right: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line);
+  transition: background .15s;
+}
+.ns-calendar .grid .cell:nth-child(7n) { border-right: 0; }
+.ns-calendar .grid .cell:nth-last-child(-n + 7) { border-bottom: 0; } /* ＝原型的 .lastrow */
+.ns-calendar .cell.in { cursor: pointer; }
+.ns-calendar .cell.in:hover { background: var(--cal-cellhover); }
+/* 原型沒有的控件：鍵盤焦點環（只在鍵盤流現身，滑鼠點不會出現） */
+.ns-calendar .cell.in:focus-visible {
+  background: var(--cal-cellhover);
+  outline: 1px solid var(--accent); outline-offset: -2px;
+}
+.ns-calendar .cell.out .dnum { color: var(--cal-out-ink); }
+.ns-calendar .ch { display: flex; align-items: baseline; padding-right: 16px; } /* 右端留給格角〆 */
+.ns-calendar .dnum {
+  font-family: var(--font-latin); font-weight: 600; font-size: 13.5px;
+  color: var(--color-ink-soft); letter-spacing: .02em;
+}
+.ns-calendar .cnt { font-size: 9.5px; color: var(--color-ink-faint); letter-spacing: .1em; margin-left: 7px; }
+
+.ns-calendar .cell.today {
+  background: var(--cal-today-bg);
+  box-shadow: inset 0 0 0 1.5px var(--cal-today-ring);
+}
+.ns-calendar .cell.today .dnum { color: var(--color-ink); font-weight: 700; }
+.ns-calendar .cell.today .dnum::before { /* 作用中＝菱形：同書封 nav 語言 */
+  content: ""; display: inline-block; width: 5px; height: 5px;
+  background: var(--accent); transform: rotate(45deg);
+  margin-right: 6px; vertical-align: 2px;
+}
+
+.ns-calendar .items { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
+.ns-calendar .it {
+  font-size: 11px; line-height: 1.45; color: var(--color-ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ns-calendar .it .dot {
+  display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 1px;
+}
+.ns-calendar .it.done { color: var(--color-ink-faint); text-decoration: line-through 1px; }
+.ns-calendar .it.done .dot { opacity: .45; }
+/* 運休＝淡化**不刪除線**（技術自決；④「運休只淡紙不淡字」的同構） */
+.ns-calendar .it.skipped { color: var(--color-ink-faint); }
+.ns-calendar .it.skipped .dot { opacity: .45; }
+.ns-calendar .it.late { color: var(--color-late); }
+.ns-calendar .more {
+  font-size: 10px; color: var(--color-ink-faint); letter-spacing: .12em;
+  margin-top: 1px; padding-left: 11px;
+}
+
+/* ═══ 締切標記層：格角赭色〆（死線層，與格內清單分讀；:567-575） ═══ */
+.ns-calendar .sime {
+  position: absolute; top: 4px; right: 6px;
+  font-family: var(--font-display); font-weight: 600; font-size: 13px;
+  color: var(--color-late); transform: rotate(-6deg); opacity: .92;
+  padding: 2px 4px; cursor: pointer; line-height: 1;
+}
+.ns-calendar .sime.alt { transform: rotate(-8.5deg); } /* 相鄰錯開 */
+.ns-calendar .sime .n { font-size: 8.5px; font-family: var(--font-latin); vertical-align: 3px; margin-left: 1px; }
