@@ -9,6 +9,8 @@
  *               失敗＝時刻轉赭字＋下一行寫原因，**不蓋章**（D-⑥-7）。
  *   ② 保留份數 ＝ 3／7／14／30（`BACKUP_KEEP_OPTIONS`）；保險份另計 3 份不佔配額（D-⑥-2）。
  *   ③ 第二位置 ＝ 路徑一行＋「選擇資料夾…」「清除」＋鏡射狀態小字（D-⑥-4：鏡射失敗不算主備份失敗）。
+ *   ③ʹ 還原方式 ＝（v1.1.3，加入了同步才問）「回到過去」／「接上現在」二選一＋後果句；
+ *               沒加入同步＝不問，只留一行「還原不會影響其他裝置」。下面兩個還原入口都吃這個選擇。
  *   ④ 清單     ＝ 時間・大小・來源 chip（自動／手動／保險 ＋ 主位置／第二位置）；
  *               「還原到此份」照「原型沒有的元素 hover／聚焦才現身」（c13）。
  *   ⑤ 動作列   ＝「立即備份」「開啟備份資料夾」「從檔案還原…」（D-⑥-5）。
@@ -25,14 +27,33 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useBackupStore } from "../../store/backupStore";
+import { useSyncStore } from "../../store/syncStore";
 import { useUiStore } from "../../store/uiStore";
 import { BACKUP_KEEP_OPTIONS, BACKUP_SAFETY_KEEP } from "../../data";
-import type { BackupKind, BackupLocation } from "../../data";
+import type { BackupKind, BackupLocation, RestoreChoice } from "../../data";
 import { SealReceipt } from "../stamps/Stamps";
 import "./settings.css";
 
 const KIND_LABEL: Record<BackupKind, string> = { auto: "自動", manual: "手動", safety: "保險" };
 const LOCATION_LABEL: Record<BackupLocation, string> = { primary: "主位置", secondary: "第二位置" };
+
+/**
+ * 還原方式二選一（v1.1.3 契約 §8.3；提案規則②）——**後果要在按下去之前講**。
+ * 同一句話也會再出現在確認窗的 body（`backupStore.restore` 依主人選的那枚組），兩處一字不差是刻意的：
+ * 頁上這句是「我等一下要做什麼」，窗裡那句是「我現在就要做了」，講法一變主人就會以為是兩件事。
+ * 沒選到的那一句掛在 `title`（桌機有 hover）——兩句都常駐會把這一籤塞成字牆，
+ * 沿本籤「保留份數」那顆 select 的慣例：長句版走 title。
+ */
+const RESTORE_CONSEQUENCE: Record<RestoreChoice, string> = {
+  past: "所有裝置都改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。",
+  // 產品評審 S3：舊句「等於只找回沒人動過的部分」會被讀成「沒人編輯過的部分」，
+  // 但**刪除也算動過**——誤刪的票只要那筆刪除已經送上雲，這條路一張都救不回來。
+  present: "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。",
+};
+const RESTORE_CHOICES: { value: RestoreChoice; label: string; consequence: string }[] = [
+  { value: "past", label: "回到過去", consequence: RESTORE_CONSEQUENCE.past },
+  { value: "present", label: "接上現在", consequence: RESTORE_CONSEQUENCE.present },
+];
 
 /** 顯示用時刻：同年＝`9/14 03:12`，跨年補年份。備份照本地時間，**不套日界線**（草案 §5-11）。 */
 function fmtStamp(iso: string | null | undefined): string {
@@ -102,11 +123,22 @@ export function BackupTab() {
   // 還原的 danger 確認在 store；DEV 重置沒有，這裡自己攔一道（清空是不可逆的）
   const askConfirm = useUiStore((s) => s.askConfirm);
   const keepId = useId();
+  /**
+   * v1.1.3 契約 §8.3：這台加入了同步 ⇒ 還原前先在頁上選「回到過去」（預設）／「接上現在」，
+   * 確認窗的後果句依選項而定；沒加入 ⇒ 不問（還原不牽動任何裝置）。
+   */
+  const syncJoined = useSyncStore((s) => !!s.status?.configured);
+  const refreshSyncStatus = useSyncStore((s) => s.refreshStatus);
+  const [restoreChoice, setRestoreChoice] = useState<RestoreChoice>("past");
 
-  // 開分頁就重讀一次清單（純讀、可重入；StrictMode 雙掛載只是多列一次）
+  // 開分頁就重讀一次清單（純讀、可重入；StrictMode 雙掛載只是多列一次）。
+  // 產品評審 S-4：**同步狀態也要重問一次**。這一籤讀的是快取的 `syncStore.status`；
+  // 從沒開過〈同步〉籤的那次啟動它可能還是 null ⇒「還原方式」整段不出現 ⇒ 不落選擇檔 ⇒
+  // 收尾時走預設值，而不是主人以為的那一個。
   useEffect(() => {
     void refreshList();
-  }, [refreshList]);
+    void refreshSyncStatus();
+  }, [refreshList, refreshSyncStatus]);
 
   // 領収章：備份成功「當下」才跑 stampIn 回彈；進畫面時既有的那枚是靜的
   const [freshSeal, setFreshSeal] = useState(false);
@@ -232,6 +264,38 @@ export function BackupTab() {
         )}
       </section>
 
+      {/* ③ʹ 還原方式（v1.1.3 契約 §8.3；加入了同步才問）——下面每一顆「還原到此份」與「從檔案還原…」都吃這個選擇 */}
+      {syncJoined ? (
+        <section>
+          <span className="techo-label block mb-2.5">還原方式</span>
+          <div role="radiogroup" aria-label="還原方式" className="ns-bk-restore-choice">
+            {RESTORE_CHOICES.map(({ value, label, consequence }) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={restoreChoice === value}
+                disabled={busy}
+                title={consequence}
+                onClick={() => setRestoreChoice(value)}
+                className={`ns-choice${restoreChoice === value ? " is-on" : ""}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="ns-note mt-2">{RESTORE_CONSEQUENCE[restoreChoice]}</p>
+        </section>
+      ) : (
+        /* 產品評審 B3：舊句「想讓其他裝置也改用這份，先加入同步再還原」會把「舊電腦壞了、只剩備份」
+           那位主人帶進最糟的一條路——先加入（拉下手機現況）再還原「回到過去」＝手機這週的修改全變孤兒。
+           正解剛好相反：**先還原（這台還沒加入，零影響）再加入**，加入時選「兩邊都保留」就併起來了。 */
+        <p className="ns-note">
+          這台還沒加入同步，還原只動這一台。之後加入同步時若兩邊都有資料會問你要不要合併——
+          舊電腦壞了、想把這份備份併進手機現況，就<b>先還原、再加入同步</b>，加入時選「兩邊都保留」。
+        </p>
+      )}
+
       {/* ④ 清單——主位置＋第二位置合併列（D-⑥-5 甲） */}
       <section>
         <span className="techo-label block mb-1">備份清單</span>
@@ -260,7 +324,7 @@ export function BackupTab() {
                 {/* 確認窗在 store（askConfirm danger）；這裡只把路徑遞過去 */}
                 <button
                   type="button"
-                  onClick={() => restore(e.path, e.file_name)}
+                  onClick={() => restore(e.path, e.file_name, restoreChoice)}
                   disabled={busy}
                   title={e.path}
                   className="btn-ghost ns-btn ns-btn--sm ns-bk-restore"
@@ -281,7 +345,7 @@ export function BackupTab() {
         <button type="button" onClick={() => void revealBackupsDir()} className="btn-ghost ns-btn">
           開啟備份資料夾
         </button>
-        <button type="button" onClick={() => void restoreFromFile()} disabled={busy} className="btn-ghost ns-btn">
+        <button type="button" onClick={() => void restoreFromFile(restoreChoice)} disabled={busy} className="btn-ghost ns-btn">
           從檔案還原…
         </button>
       </section>

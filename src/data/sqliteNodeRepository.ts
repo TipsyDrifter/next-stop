@@ -362,16 +362,21 @@ export class SqliteNodeRepository implements NodeRepository {
     }
     // 子樹的 line_id／route_id 是反正規化快取：SQL 照舊寫，但**不進 oplog**——
     // 對面那台 apply 完會自己整表重算（契約 §7.3），同步它只是把推導物推來推去。
+    //
+    // v1.1.3 工程評審 S-8：**這兩句也不碰 `updated_at`**。理由是合併：沒同步過的列，合併時的時間戳
+    // 是從 `updated_at` 派生的（契約 §5.1 的列級近似）；搬一棵樹會把整棵子樹的 `updated_at` 推到「現在」，
+    // 於是那些列在下一次合併裡會贏過另一台更早、但真正改到內容的編輯。快取重算不是內容修改，
+    // 不該當成「這一列最後被改的時刻」。（這兩句本來就不進 oplog，所以對已同步過的列毫無影響。）
     if (lineId !== node.line_id) {
       b.stmts.push({
-        sql: `UPDATE nodes SET line_id = $1, updated_at = $2 WHERE id IN (${placeholders(sub.length, 3)})`,
-        args: [lineId, now, ...sub],
+        sql: `UPDATE nodes SET line_id = $1 WHERE id IN (${placeholders(sub.length, 2)})`,
+        args: [lineId, ...sub],
       });
     }
     if (node.kind !== "route" && routeId !== node.route_id) {
       b.stmts.push({
-        sql: `UPDATE nodes SET route_id = $1, updated_at = $2 WHERE id IN (${placeholders(sub.length, 3)})`,
-        args: [routeId, now, ...sub],
+        sql: `UPDATE nodes SET route_id = $1 WHERE id IN (${placeholders(sub.length, 2)})`,
+        args: [routeId, ...sub],
       });
     }
 

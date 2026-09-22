@@ -7,20 +7,24 @@
 //!
 //! 模組分工（一支一件事，方便 v1.1.2 只換 engine 不動其餘）：
 //!   * `hlc`       ─ HLC 字串的產生／驗證／比較（與 TS `src/data/syncRepository.ts` 同一格式）
-//!   * `crypto`    ─ argon2id 派生金鑰、XChaCha20-Poly1305 封裝／拆封（AAD＝物件 key）、zstd
-//!   * `credstore` ─ 憑證與派生金鑰的存放：桌機 keyring（Windows Credential Manager）／Android app 私有檔
+//!   * `crypto`    ─ argon2id 派生金鑰、XChaCha20-Poly1305 封裝／拆封（AAD＝物件 key）、zstd；
+//!                   v1.1.3 另含**兩層鑰匙**（`random_data_key`／`wrap_data_key`／`unwrap_data_key`）
+//!   * `credstore` ─ 憑證＋**資料鑰匙**＋血統鹽＋**身分**的存放：桌機 keyring（Windows Credential Manager）／
+//!                   Android app 私有檔。沒鑰匙圈＝新的一台（v1.1.3 §3.1）
 //!   * `r2`        ─ Cloudflare R2（S3 API）的 put／get／list-after／delete，`object_store` 後端
-//!   * `engine`    ─ 快照→outbox、outbox→物件→push、list→拆封→apply（逐欄 LWW＋衝突留痕）→重算快取；
-//!                   v1.1.2 另含還原紀元（`begin_new_epoch`／`adopt_epoch`）與精靈匯入（`read_wizard_env`）
-//!   * `commands`  ─ 十一支 `#[tauri::command]`（invoke 名稱與 JSON 形狀是契約，TS 照著編譯）
+//!   * `engine`    ─ 補戳格子→快照→outbox、outbox→物件→push、list→拆封→apply（逐欄 LWW＋衝突留痕）→重算快取；
+//!                   v1.1.3 另含單一入口 `join`、改密語 `change_passphrase`、還原二選一 `finish_restore`、
+//!                   換紀元 `adopt_epoch` 與精靈匯入（`read_wizard_env`）
+//!   * `commands`  ─ 十三支 `#[tauri::command]`（invoke 名稱與 JSON 形狀是契約，TS 照著編譯）
 //!
 //! 掛載（在 `lib.rs`）：`.plugin(sync::init())`（排在 sql plugin 之後）＋兩份 `generate_handler!`
-//!   （桌機那份＝backup 七支＋sync 十一支，手機那份＝sync 十一支——`generate_handler!` 不吃 `#[cfg]`，
+//!   （桌機那份＝backup 七支＋sync 十三支，手機那份＝sync 十三支——`generate_handler!` 不吃 `#[cfg]`，
 //!   只能整句用 `#[cfg]` 分兩份；`invoke_handler` 又只能叫一次）。
 //!   command 是**應用層**的（跟 backup 一樣註冊在 app 的 invoke_handler，不是 plugin 的），
 //!   所以 `capabilities/*.json` 一個字都不必動。
 //!
-//! 鐵則：憑證絕不印進 log（`Debug` 一律自訂或不 derive）；絕不碰主人正本（驗證走沙盒 identifier）。
+//! 鐵則：憑證絕不印進 log（`Debug` 一律自訂或不 derive）；絕不碰主人正本（驗證走沙盒 identifier
+//!   ＋沙盒**桶內根** `v1-sb-<run>/`，與正本的 `v1/` 平級、互相 list 不到）。
 #![allow(dead_code)]
 
 pub mod commands;

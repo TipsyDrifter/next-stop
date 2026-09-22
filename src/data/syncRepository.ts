@@ -1,28 +1,36 @@
 /**
- * syncRepository——v1.1.1 同步地基的 TS 端契約層（契約席立；**WP5 填 outbox 接線、WP8 只認這裡的型別**）。
+ * syncRepository——同步的 TS 端契約層（契約席立；store／UI 只認這裡的型別）。
  *
- * 拍板依據：`docs/決策記錄.md`〈v1.1 Plan 草案拍板〉D-1.1-3（只搬主人資料）／D-1.1-5（欄位級 LWW＋HLC）／
- *           D-1.1-6（配對碼）＋《2026-09-18-v1.1.1-同步地基契約.md》§2–§6。
+ * 拍板依據：`docs/決策記錄.md`〈v1.1 Plan 草案拍板〉D-1.1-3（只搬主人資料）／D-1.1-5（欄位級 LWW＋HLC）
+ *           ＋〈同步與備份規則重整拍板＝v1.1.3 開工〉（三條規則、密語可改）
+ *           ＋《2026-09-21-v1.1.3-同步規則重整契約.md》§4（command）、§3.2（閘門鍵）。
+ *
+ * v1.1.3 改了什麼（契約 §4.1 對照表）：
+ *   * `configure`／`applyPairingCode`／`beginNewEpoch` 退場 → `join`（單一入口）／`decodePairingCode`（只解碼填表）／
+ *     `finishRestore`（讀標記檔的 choice：回到過去／接上現在）。
+ *   * 新增 `changePassphrase`（兩層鑰匙：只重包雲端上的 KEY）、`restoreChoice`（還原對話框的選擇先落檔）。
+ *   * `SyncStatus` 拿掉 `role`（正本／副本退場），多 `root／pending_span／restore_choice／pending_epoch_info／locked／
+ *     key_sealed／last_export`；`SyncPhase` 多 `locked`（鍵違い）。
+ *   * 閘門鍵 `role` → `joined`（`JOINED_GATE`）：Rust `status()` 會把舊 DB 的 `role` 一次性補成 `joined='1'`。
  *
  * 本檔三件事：
  *   ① 型別與 invoke 名稱（與 Rust `src-tauri/src/sync/{engine,commands}.rs` 的 serde 型別同名同形，snake_case）。
  *   ② `TauriSyncRepository`／`MemorySyncRepository`（`?mock=1`）——UI／store 一律經 `syncRepo`，不直接 invoke。
  *   ③ 寫入層的純函式：`nextHlc()`（HLC 字串）、`occurrenceId()`（uuid v5）、`syncSideStatements()`（一筆 op →
  *      outbox＋cells 兩句 INSERT）、`runWriteBatch()`（把「資料語句＋同步語句」包成 **一次 execute** 的
- *      `BEGIN IMMEDIATE … COMMIT`）。WP5 在 `SqliteNodeRepository`／`SqliteSettingsRepository` 的每個寫入點
- *      改呼叫 `runWriteBatch`，不再各自 `db.execute`。
+ *      `BEGIN IMMEDIATE … COMMIT`）。
  *
  * 為什麼「一次 execute」：tauri-plugin-sql 的 pool 預設 10 條連線，分開呼叫 `execute("BEGIN")`／`execute(...)`
  *   會落在不同連線上——交易根本不成立。sqlx-sqlite 允許一個 query 字串含多句、逐句執行在**同一條**連線
  *   （已讀原始碼確認：`connection/execute.rs` 的 `ExecuteIter` 逐句 `prepare_next`），且 `$N` 是**整批絕對編號**
  *   （`arguments.rs` 直接用 N 索引 values），所以本檔負責把各句的 `$1..$k` 重新編成全域號。
- *   代價（契約 §2.6）：批次中途失敗時那條連線會留著未收的交易——`runWriteBatch` 失敗後執行
+ *   代價（v1.1.1 契約 §2.6）：批次中途失敗時那條連線會留著未收的交易——`runWriteBatch` 失敗後執行
  *   `recoverOpenTransaction()`：連續 `ROLLBACK` 最多 10 次（pool 上限），idle 佇列是 FIFO、逐次輪到每一條，
  *   直到某次 ROLLBACK 成功（＝找到那條）為止。
  *
- * 閘門（`CONFIGURED_GATE`）：outbox／cells 兩句都是 `INSERT … SELECT … WHERE EXISTS(...)`，SQL 層自己判斷、
- *   TS 不留狀態。**看的是 `sync_meta.role`（＝這台設定過同步沒有），不是總開關 `enabled`**（評審 B1 改判）：
- *   總開關關著只該停網路，不該讓那段時間的變更永遠傳不過去。沒設定過同步的桌機＝一列都不會多寫，
+ * 閘門（`JOINED_GATE`）：outbox／cells 兩句都是 `INSERT … SELECT … WHERE EXISTS(...)`，SQL 層自己判斷、
+ *   TS 不留狀態。**看的是 `sync_meta.joined`（＝這台加入過同步沒有），不是總開關 `enabled`**：
+ *   總開關關著只該停網路，不該讓那段時間的變更永遠傳不過去。沒加入過同步的桌機＝一列都不會多寫，
  *   既有路徑除了多包一層交易之外行為不變。
  */
 
@@ -33,58 +41,132 @@ import { invoke } from "@tauri-apps/api/core";
    型別（與 Rust serde 同名同形）
    ═══════════════════════════════════════════════════════════════════════ */
 
-export type SyncRole = "primary" | "replica";
-
 /**
- * off＝從沒設定過／paused＝設定好但總開關關著／running＝運行中／
+ * off＝從沒加入過／paused＝加入了但總開關關著／running＝運行中／
  * stopped＝停車中（憑證缺或上次失敗）／gated＝信号待ち（對方版本較新）／
- * epoch_changed＝改正待ち（v1.1.2：桌機還原並開了新紀元，這台等主人確認「以桌機版本重置」；只有 replica 會有）
- *
- * 評審 S1：`off` 以前同時代表「從沒設定」與「開關關著」，主人在畫面上分不出來
- * （顯示「未啟用」，下面卻同時有總開關與「立即同步」）。四態擴成五態。
+ * epoch_changed＝改正待ち（另一台從備份「回到過去」開了新紀元，這台等主人確認「改用那份」）／
+ * locked＝鍵違い（v1.1.3：雲端上有這台的密語打不開的東西——血統被別的密語重建；出路是重新加入）
  */
-export type SyncPhase = "off" | "paused" | "running" | "stopped" | "gated" | "epoch_changed";
+export type SyncPhase = "off" | "paused" | "running" | "stopped" | "gated" | "epoch_changed" | "locked";
+
+/** 還原對話框的二選一（契約 §6；提案規則②） */
+export type RestoreChoice = "past" | "present";
+
+/** `<root>/<epoch>/EPOCH.bin` 的內容（契約 §2.2；v1 的 primary_device_id 由 Rust alias 成 opener） */
+export interface EpochInfo {
+  version: number;
+  epoch: string;
+  opener_device_id: string;
+  created_at: string;
+  /** first／restore／backfill */
+  reason: string;
+  /** 還原時的備份檔名；first／backfill 為 null */
+  label: string | null;
+}
 
 export interface SyncStatus {
   enabled: boolean;
-  role: SyncRole | null;
+  /** credstore 為準的身分；沒鑰匙圈時給 sync_meta 的快取 */
   device_id: string;
   epoch: string | null;
-  /** credstore 有憑證 */
+  /** 鑰匙圈有資料鑰匙＝這台加入了（正本／副本退場後唯一的判準） */
   configured: boolean;
+  /**
+   * 這顆 DB 記得自己加入過（`sync_meta.joined='1'`）。v1.1.3 修正席（工程評審 B-1）：
+   * `joined && !configured && last_error` ＝**憑證庫讀不到**（不是「沒加入」）——
+   * UI 此時不准露出「加入同步」表單，露了主人一按就變成新的一台、整包資料再推一份。
+   */
+  joined: boolean;
+  /** 桶內根前綴（沙盒對帳用） */
+  root: string | null;
   phase: SyncPhase;
   busy: boolean;
   /** UTC ISO；null＝還沒成功過 */
   last_sync_at: string | null;
   last_error: string | null;
-  /** outbox 待上傳筆數（primary）；replica 恆 0 */
+  /** outbox 待上傳筆數（兩端照實回報） */
   pending_ops: number;
+  /** outbox 最早／最晚 op 的時刻（改正待ち文案：「這 N 筆是幾點到幾點之間改的」） */
+  pending_span: { from: string; to: string } | null;
   schema: number;
   remote_schema: number | null;
-  /** v1.1.2：還原剛完成、尚未開新紀元（Rust 看 app 資料目錄的標記檔）；primary 端 boot 看到就 `beginNewEpoch()` */
+  /** 還原剛完成、尚未收尾（標記檔在且這台有鑰匙圈）；boot 看到就 `finishRestore()` */
   restore_pending: boolean;
-  /** v1.1.2：replica 偵測到的新紀元號；非 null ⇒ phase='epoch_changed' */
+  /** 標記檔裡主人選的還原方式；restore_pending 為 true 時非 null */
+  restore_choice: RestoreChoice | null;
+  /** 偵測到的新紀元號；非 null ⇒ phase='epoch_changed' */
   pending_epoch: string | null;
-  /**
-   * v1.1.2 產品評審 B1：上一次「改用桌機的版本」另存了幾筆未送出的修改、存在哪、什麼時候。
-   * 同步頁常駐一行——這件事以前只在一聲 10 秒的 toast 裡講過，錯過就再也查不到。
-   */
+  /** 那個紀元的 EPOCH.bin（誰開的、何時、哪份備份）——文案用 */
+  pending_epoch_info: EpochInfo | null;
+  /** 'salt'（桶裡的 SALT 與這台不同）或紀元號（更大的紀元、拆不開）；非 null ⇒ phase='locked' */
+  locked: string | null;
+  /** 桶裡有沒有 KEY（改密語頁提示用）；null＝還沒查過 */
+  key_sealed: boolean | null;
+  /** 上一次「改用那份」另存了幾筆未送出的修改、存在哪、什麼時候（同步頁常駐一行） */
   last_orphans: { count: number; path: string; at: string } | null;
+  /** 手機「改用另一台的」之前匯出的全量 JSON（桌機是拍 manual 備份，這欄為 null） */
+  last_export: { path: string; at: string } | null;
 }
 
-export interface SyncConfigureInput {
+/** 兩邊都有資料時主人的選擇（契約 §4.2；按鈕字＝「兩邊都保留」／「改用另一台的」） */
+export type JoinMode = "merge" | "adopt_remote";
+
+export type JoinOutcome = "first" | "pulled" | "needs_choice" | "merged" | "adopted" | "reconnected";
+
+/** `sync_join` 的參數（契約 §4.2） */
+export interface JoinInput {
   endpoint: string;
   bucket: string;
   access_key_id: string;
   secret_access_key: string;
+  /** 第一台＝設定它；其餘＝用它拆 KEY */
   passphrase: string;
-  /** base64url 16B；primary 省略＝新生 */
-  salt?: string;
-  /** 13 位毫秒字串；primary 省略＝新生 */
-  epoch?: string;
-  role: SyncRole;
-  /** replica 必填（配對碼帶來） */
-  primary_device_id?: string;
+  /** 省略＝"v1"；沙盒用 "v1-sb-<run>"（DEV 版表單才露出） */
+  root?: string;
+  /** 兩邊都有料且第一次呼叫沒帶 ⇒ 回 needs_choice；UI 問完再帶回來 */
+  mode?: JoinMode;
+}
+
+export interface JoinReport {
+  outcome: JoinOutcome;
+  /** 本機活節點數（needs_choice 文案） */
+  local_alive: number;
+  /** 雲端目前紀元（first＝新開的那個） */
+  remote_epoch: string | null;
+  /** 目前紀元底下的裝置目錄數（needs_choice 文案） */
+  remote_devices: number;
+  /** first／merged：進 outbox 的 op 數（呼叫端接著 push） */
+  snapshot_ops: number;
+  /** pulled／merged／adopted：join 內部已拉下來套用的報告（呼叫端據此 refreshAfterPull） */
+  pull: PullReport | null;
+  /** adopted 且手機：全量 JSON 落點；桌機＝null */
+  export_path: string | null;
+  message: string;
+}
+
+/** `sync_change_passphrase`（契約 §4.4） */
+export interface PassphraseReport {
+  /** 之前桶裡沒有 KEY（舊血統升級後第一次）⇒ 這次是「封存」不是「更改」 */
+  sealed_first_time: boolean;
+  message: string;
+}
+
+/** `sync_finish_restore`（契約 §4.5）：renewed＝回到過去開了新紀元（接著 push）／resumed＝接上現在只清了游標／not_joined＝零動作 */
+export interface RestoreReport {
+  outcome: "renewed" | "resumed" | "not_joined";
+  epoch: string | null;
+  snapshot_ops: number;
+  message: string;
+}
+
+/** `sync_decode_pairing_code`（契約 §4.6）：只用來填表，不存、不 log */
+export interface PairingFields {
+  endpoint: string;
+  bucket: string;
+  access_key_id: string;
+  secret_access_key: string;
+  root: string;
+  epoch: string | null;
 }
 
 export interface PushReport {
@@ -103,28 +185,22 @@ export interface PullReport {
   changed_tables: string[];
   /** 另一趟正在飛、這趟什麼都沒做 */
   busy: boolean;
-  /** v1.1.2：這趟記了幾筆 conflict 事件（乘務記錄） */
+  /** 這趟記了幾筆 conflict 事件（乘務記錄） */
   conflicts: number;
-  /** v1.1.2：這趟收到的最大 hlc（餵 `seedHlc`；null＝沒收到東西） */
+  /** 這趟收到的最大 hlc（餵 `seedHlc`；null＝沒收到東西） */
   max_hlc: string | null;
 }
 
-/** v1.1.2 `sync_begin_new_epoch`（primary）：renewed＝開了新紀元、快照已進 outbox；reenable＝還原的備份早於啟用同步，已清本機設定 */
-export interface EpochReport {
-  outcome: "renewed" | "reenable";
-  epoch: string | null;
-  snapshot_ops: number;
-  message: string;
-}
-
-/** v1.1.2 `sync_adopt_epoch`（replica）：未推的 op 匯出到 `orphans_path`（0 筆＝null） */
+/** `sync_adopt_epoch`（改正待ち→「改用那份」）：未推的 op 匯出到 `orphans_path`（0 筆＝null） */
 export interface AdoptReport {
   orphan_ops: number;
   orphans_path: string | null;
   epoch: string;
+  /** 手機換掉整顆庫之前匯出的全量 JSON（桌機是 TS 先拍 manual 備份，這欄為 null）——產品評審 S2 */
+  export_path: string | null;
 }
 
-/** v1.1.2 `sync_read_wizard_env`：精靈寫的四欄（只用來填表，不存、不 log） */
+/** `sync_read_wizard_env`：精靈寫的四欄（只用來填表，不存、不 log） */
 export interface WizardEnv {
   endpoint: string;
   bucket: string;
@@ -132,52 +208,45 @@ export interface WizardEnv {
   secret_access_key: string;
 }
 
-/** 配對碼解 base64url 後的 JSON（契約 §6）；TS 只在 mock 用得到，真機由 Rust 解 */
-export interface PairingPayload {
-  v: 1;
-  endpoint: string;
-  bucket: string;
-  ak: string;
-  sk: string;
-  salt: string;
-  epoch: string;
-  primary_device_id: string;
-}
-
-/** invoke 名稱（Rust `#[tauri::command]` 函式名）——store／UI 不得手抄字串 */
-/** 與 Rust engine.rs 的 NEEDS_WIPE_MARK 同值：非空庫配對被擋、要主人確認 */
-export const NEEDS_WIPE_MARK = "NEEDS_WIPE:";
-
+/** invoke 名稱（Rust `#[tauri::command]` 函式名）——store／UI 不得手抄字串（契約 §4.1） */
 export const SYNC_COMMANDS = {
   status: "sync_status",
-  configure: "sync_configure",
+  join: "sync_join",
+  changePassphrase: "sync_change_passphrase",
+  restoreChoice: "sync_restore_choice",
+  finishRestore: "sync_finish_restore",
   setEnabled: "sync_set_enabled",
   push: "sync_push",
   pull: "sync_pull",
   resetLocal: "sync_reset_local",
   makePairingCode: "sync_make_pairing_code",
-  applyPairingCode: "sync_apply_pairing_code",
-  // v1.1.2
-  beginNewEpoch: "sync_begin_new_epoch",
+  decodePairingCode: "sync_decode_pairing_code",
   adoptEpoch: "sync_adopt_epoch",
   readWizardEnv: "sync_read_wizard_env",
 } as const;
 
 export interface SyncRepository {
   status(): Promise<SyncStatus>;
-  configure(input: SyncConfigureInput): Promise<SyncStatus>;
+  /** 單一入口「加入同步」：回 needs_choice 時本機零改變，帶 mode 再叫一次 */
+  join(input: JoinInput): Promise<JoinReport>;
+  /** 改密語：只重包雲端上的 KEY，資料不重傳 */
+  changePassphrase(current: string, next: string): Promise<PassphraseReport>;
+  /** 還原對話框的選擇先落檔；null＝清掉。未加入 ⇒ 拒絕（人話） */
+  restoreChoice(choice: RestoreChoice | null, label?: string): Promise<void>;
+  /** 重啟後的還原收尾（past＝開新紀元，不 push；呼叫端接著 push） */
+  finishRestore(): Promise<RestoreReport>;
   setEnabled(enabled: boolean): Promise<SyncStatus>;
   push(): Promise<PushReport>;
   pull(): Promise<PullReport>;
+  /** 重設＝清鑰匙圈（含身分）、同步表；資料與雲端不動 */
   resetLocal(): Promise<SyncStatus>;
+  /** 任何已加入裝置都能產（v2：憑證＋root＋epoch，不含鹽與身分） */
   makePairingCode(): Promise<string>;
-  /** wipe＝主人已確認非空庫改用桌機版本（Rust 回 NEEDS_WIPE: 前綴的錯時才帶 true） */
-  applyPairingCode(code: string, passphrase: string, wipe?: boolean): Promise<SyncStatus>;
-  /** v1.1.2 primary：還原後開新紀元（不 push；呼叫端接著 push） */
-  beginNewEpoch(): Promise<EpochReport>;
-  /** v1.1.2 replica：以桌機版本重置（不 pull；呼叫端接著 pull） */
+  /** 解配對碼回四欄（無副作用） */
+  decodePairingCode(code: string): Promise<PairingFields>;
+  /** 改正待ち→「改用那份」（不 pull；呼叫端接著 pull） */
   adoptEpoch(): Promise<AdoptReport>;
-  /** v1.1.2 桌機：讀精靈的 r2.env 填表 */
+  /** 桌機：讀精靈的 r2.env 填表 */
   readWizardEnv(): Promise<WizardEnv>;
 }
 
@@ -189,8 +258,20 @@ export class TauriSyncRepository implements SyncRepository {
   status(): Promise<SyncStatus> {
     return invoke<SyncStatus>(SYNC_COMMANDS.status, {});
   }
-  configure(input: SyncConfigureInput): Promise<SyncStatus> {
-    return invoke<SyncStatus>(SYNC_COMMANDS.configure, { input });
+  async join(input: JoinInput): Promise<JoinReport> {
+    const report = await invoke<JoinReport>(SYNC_COMMANDS.join, { input });
+    // join 內部若拉了東西（pulled／merged／adopted），遠端 hlc 已戳進 cells——同 `pull()` 的理由，這裡也要餵種子
+    if (report.pull) seedHlc(report.pull.max_hlc);
+    return report;
+  }
+  changePassphrase(current: string, next: string): Promise<PassphraseReport> {
+    return invoke<PassphraseReport>(SYNC_COMMANDS.changePassphrase, { current, next });
+  }
+  restoreChoice(choice: RestoreChoice | null, label?: string): Promise<void> {
+    return invoke<void>(SYNC_COMMANDS.restoreChoice, { choice, label: label ?? null });
+  }
+  finishRestore(): Promise<RestoreReport> {
+    return invoke<RestoreReport>(SYNC_COMMANDS.finishRestore, {});
   }
   setEnabled(enabled: boolean): Promise<SyncStatus> {
     return invoke<SyncStatus>(SYNC_COMMANDS.setEnabled, { enabled });
@@ -212,11 +293,8 @@ export class TauriSyncRepository implements SyncRepository {
   makePairingCode(): Promise<string> {
     return invoke<string>(SYNC_COMMANDS.makePairingCode, {});
   }
-  applyPairingCode(code: string, passphrase: string, wipe = false): Promise<SyncStatus> {
-    return invoke<SyncStatus>(SYNC_COMMANDS.applyPairingCode, { code, passphrase, wipe });
-  }
-  beginNewEpoch(): Promise<EpochReport> {
-    return invoke<EpochReport>(SYNC_COMMANDS.beginNewEpoch, {});
+  decodePairingCode(code: string): Promise<PairingFields> {
+    return invoke<PairingFields>(SYNC_COMMANDS.decodePairingCode, { code });
   }
   adoptEpoch(): Promise<AdoptReport> {
     return invoke<AdoptReport>(SYNC_COMMANDS.adoptEpoch, {});
@@ -227,29 +305,64 @@ export class TauriSyncRepository implements SyncRepository {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   實作二：記憶體（`?mock=1`；WP8 靠這個跑 UI 與截圖——狀態機在記憶體裡走一遍，不碰網路）
+   實作二：記憶體（`?mock=1`；WP-C 靠這個跑 UI 與截圖——狀態機在記憶體裡走一遍，不碰網路）
    ═══════════════════════════════════════════════════════════════════════ */
 
 const MOCK_DEVICE_ID = "3f9c2b1e-0000-4000-8000-000000000000";
 
 /**
- * `?mock=1&sync=primary|replica|gated|stopped`（WP8 加在 mock 區塊）——示範狀態端點，只給評審／截圖用。
- * 不帶參數＝未啟用（`off`），也就是主人第一次打開「同步」分頁看到的樣子。
- *   primary → 桌機已啟用（運行中，有待上傳筆數）
- *   replica → 手機已配對（運行中）
- *   gated   → 信号待ち（對方版本較新）
- *   stopped → 停車中＋一句人話的錯誤
- *   paused  → 已設定、總開關關著（評審 S1 的新狀態；待上傳筆數會繼續長，那是正確回饋）
- *   epoch_changed → v1.1.2：手機偵測到桌機開了新紀元（改正待ち），拍「以桌機版本重置」的提示
+ * `?mock=1&sync=joined|gated|stopped|paused|epoch_changed|locked|needs_choice|restore_past|restore_present`
+ * ——示範狀態端點，只給評審／截圖用。
+ * 不帶參數＝未加入（`off`），也就是主人第一次打開「同步」分頁看到的樣子。
+ *   joined          → 已加入（運行中，有待上傳筆數）
+ *   gated           → 信号待ち（對方版本較新）
+ *   stopped         → 停車中＋一句人話的錯誤
+ *   paused          → 已加入、總開關關著（待上傳筆數會繼續長，那是正確回饋）
+ *   epoch_changed   → 改正待ち：另一台「回到過去」開了新紀元，等主人按「改用那份」
+ *   locked          → 鍵違い：雲端血統被別的密語重建
+ *   needs_choice    → 未加入，但按「加入同步」會回「兩邊都有資料」讓頁面問一次
+ *   restore_past    → 剛從備份還原（選「回到過去」）重啟：boot 會叫 `finishRestore()` ⇒ renewed ⇒ 重新上傳
+ *   restore_present → 剛從備份還原（選「接上現在」）重啟：boot 會叫 `finishRestore()` ⇒ resumed ⇒ 只清游標
+ * （舊端點 primary／replica 仍接受＝joined，免得書籤失效。）
+ *
+ * 為什麼要有 restore_* 兩個端點：還原的收尾發生在**重啟後的第一趟 boot**，真機要備份＋重啟才走得到；
+ * 把它做成 mock 端點，WP-B／WP-C／評審不必動真 DB 就能把兩條路各走一遍（契約 §6 步驟 4–5）。
  */
-type SyncMockMode = "primary" | "replica" | "gated" | "stopped" | "paused" | "epoch_changed" | null;
+type SyncMockMode =
+  | "joined"
+  | "gated"
+  | "stopped"
+  | "paused"
+  | "epoch_changed"
+  | "locked"
+  | "needs_choice"
+  | "restore_past"
+  | "restore_present"
+  /** v1.1.3 修正席（工程評審 B-1）：加入過、卻讀不到鑰匙圈——UI 此時不准露出加入表單 */
+  | "cred_unreadable"
+  /** v1.1.3 修正席（產品評審 S1）：複製整個資料夾（DB 的 enabled 跟來、鑰匙圈沒跟）＝未加入，不是停車中 */
+  | "copied_folder"
+  | null;
 
-const SYNC_MOCK_MODES = ["primary", "replica", "gated", "stopped", "paused", "epoch_changed"] as const;
+const SYNC_MOCK_MODES = [
+  "joined",
+  "gated",
+  "stopped",
+  "paused",
+  "epoch_changed",
+  "locked",
+  "needs_choice",
+  "restore_past",
+  "restore_present",
+  "cred_unreadable",
+  "copied_folder",
+] as const;
 
 function detectSyncMock(): SyncMockMode {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("sync");
+    if (v === "primary" || v === "replica") return "joined";
     return (SYNC_MOCK_MODES as readonly string[]).includes(v ?? "") ? (v as SyncMockMode) : null;
   } catch {
     return null;
@@ -258,101 +371,190 @@ function detectSyncMock(): SyncMockMode {
 
 const OFF_STATE: SyncStatus = {
   enabled: false,
-  role: null,
   device_id: MOCK_DEVICE_ID,
   epoch: null,
   configured: false,
+  joined: false,
+  root: null,
   phase: "off",
   busy: false,
   last_sync_at: null,
   last_error: null,
   pending_ops: 0,
+  pending_span: null,
   schema: 4,
   remote_schema: null,
   restore_pending: false,
+  restore_choice: null,
   pending_epoch: null,
+  pending_epoch_info: null,
+  locked: null,
+  key_sealed: null,
   last_orphans: null,
+  last_export: null,
 };
 
 /** 示範狀態（同一顆 SyncStatus 的幾個切片；真機的 phase 一律由 Rust 算） */
 function seedState(mode: SyncMockMode): SyncStatus {
-  if (!mode) return { ...OFF_STATE };
+  if (!mode || mode === "needs_choice") return { ...OFF_STATE };
   const base: SyncStatus = {
     ...OFF_STATE,
     enabled: true,
     configured: true,
-    role: mode === "replica" ? "replica" : "primary",
+    joined: true,
+    root: "v1",
     epoch: "1758153600000",
     phase: "running",
     last_sync_at: new Date(Date.now() - 7 * 60_000).toISOString(),
-    pending_ops: mode === "primary" ? 3 : 0,
+    pending_ops: 3,
+    pending_span: { from: new Date(Date.now() - 50 * 60_000).toISOString(), to: new Date(Date.now() - 7 * 60_000).toISOString() },
+    key_sealed: true,
   };
   if (mode === "gated") return { ...base, phase: "gated", remote_schema: 5 };
   if (mode === "epoch_changed") {
-    return { ...base, role: "replica", phase: "epoch_changed", pending_epoch: "1758240000000", pending_ops: 2 };
+    return {
+      ...base,
+      phase: "epoch_changed",
+      pending_epoch: "1758240000000",
+      pending_epoch_info: {
+        version: 2,
+        epoch: "1758240000000",
+        opener_device_id: "edcf0000-0000-4000-8000-000000000000",
+        created_at: new Date(Date.now() - 20 * 60_000).toISOString(),
+        reason: "restore",
+        label: "next-stop-v2_2026-09-20_0312_manual.db",
+      },
+      pending_ops: 2,
+    };
+  }
+  if (mode === "locked") return { ...base, phase: "locked", locked: "salt", pending_ops: 0, pending_span: null };
+  if (mode === "restore_past" || mode === "restore_present") {
+    // 還原剛完成、標記檔還在：phase 照常（Rust 不因標記改 phase），由 boot 的 `finishRestore()` 收尾
+    return {
+      ...base,
+      restore_pending: true,
+      restore_choice: mode === "restore_past" ? "past" : "present",
+      pending_ops: mode === "restore_past" ? 0 : 2,
+      pending_span: mode === "restore_past" ? null : base.pending_span,
+    };
   }
   if (mode === "paused") return { ...base, enabled: false, phase: "paused", pending_ops: 12 };
   if (mode === "stopped") {
     return { ...base, phase: "stopped", last_error: "連不上 R2（網路不通或憑證過期）", pending_ops: 8 };
   }
-  return base;
+  // 工程評審 B-1：讀不到鑰匙圈。`configured=false` 但 `joined=true`＋有原因 ⇒ 顯示人話、不給加入表單
+  if (mode === "cred_unreadable") {
+    return { ...base, configured: false, phase: "stopped", last_error: "讀取系統憑證庫失敗。", root: null, key_sealed: null };
+  }
+  // 產品評審 S1：複製資料夾＝沒鑰匙圈也沒有錯誤 ⇒ `off`（朱點與「停車中」都不該出現）
+  if (mode === "copied_folder") {
+    return { ...base, configured: false, phase: "off", root: null, key_sealed: null, pending_ops: 2 };
+  }
+  // joined：舊血統升級後 KEY 尚未封存，改密語頁會多一行提示
+  return { ...base, key_sealed: false };
 }
 
+const EMPTY_PULL: PullReport = {
+  objects: 0,
+  applied_ops: 0,
+  skipped_ops: 0,
+  gated: false,
+  changed_tables: [],
+  busy: false,
+  conflicts: 0,
+  max_hlc: null,
+};
+
 export class MemorySyncRepository implements SyncRepository {
-  private state: SyncStatus = seedState(detectSyncMock());
+  private mode: SyncMockMode = detectSyncMock();
+  private state: SyncStatus = seedState(this.mode);
 
   async status(): Promise<SyncStatus> {
     return { ...this.state };
   }
-  async configure(input: SyncConfigureInput): Promise<SyncStatus> {
-    this.state = {
-      ...this.state,
-      enabled: true,
-      role: input.role,
-      epoch: input.epoch ?? String(Date.now()),
-      configured: true,
-      phase: "running",
-      pending_ops: input.role === "primary" ? 12 : 0,
-    };
-    return this.status();
+  async join(input: JoinInput): Promise<JoinReport> {
+    if (!input.endpoint.trim() || !input.bucket.trim()) throw new Error("雲端置物櫃的四個欄位都要填。");
+    if (input.passphrase.trim().length < 8) throw new Error("密語至少 8 個字。");
+    const root = input.root?.trim() || "v1";
+    // 已加入且同一份資料 ⇒ 只更新憑證（換 token／重填四欄）
+    if (this.state.configured) {
+      this.state = { ...this.state, root };
+      return { outcome: "reconnected", local_alive: 12, remote_epoch: this.state.epoch, remote_devices: 2, snapshot_ops: 0, pull: null, export_path: null, message: "憑證已更新，資料照舊" };
+    }
+    // `?sync=needs_choice`：兩邊都有料 ⇒ 第一次問、帶 mode 才做
+    if (this.mode === "needs_choice" && !input.mode) {
+      return { outcome: "needs_choice", local_alive: 12, remote_epoch: "1758153600000", remote_devices: 2, snapshot_ops: 0, pull: null, export_path: null, message: "" };
+    }
+    const epoch = this.mode === "needs_choice" ? "1758153600000" : String(Date.now());
+    this.state = { ...seedState("joined"), enabled: true, configured: true, joined: true, root, epoch, key_sealed: true, pending_ops: input.mode === "adopt_remote" ? 0 : 12 };
+    if (input.mode === "merge") {
+      return { outcome: "merged", local_alive: 12, remote_epoch: epoch, remote_devices: 2, snapshot_ops: 12, pull: { ...EMPTY_PULL, objects: 3, applied_ops: 40, changed_tables: ["nodes"] }, export_path: null, message: "已加入——兩邊的資料已合併，較晚改的為準" };
+    }
+    if (input.mode === "adopt_remote") {
+      const path = "<download>/NextStop/nextstop-export-mock.json";
+      this.state = { ...this.state, last_export: { path, at: new Date().toISOString() } };
+      return { outcome: "adopted", local_alive: 12, remote_epoch: epoch, remote_devices: 2, snapshot_ops: 0, pull: { ...EMPTY_PULL, objects: 3, applied_ops: 40, changed_tables: ["nodes"] }, export_path: path, message: "已改用另一台的資料" };
+    }
+    return { outcome: "first", local_alive: 12, remote_epoch: epoch, remote_devices: 1, snapshot_ops: 12, pull: null, export_path: null, message: "已加入——這台是第一台，資料正在上傳" };
+  }
+  async changePassphrase(_current: string, next: string): Promise<PassphraseReport> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步。");
+    // 產品評審 B4：現密語可留白（鑰匙圈裡就有資料鑰匙，重包 KEY 用不到舊密語）
+    if (next.trim().length < 8) throw new Error("新密語至少 8 個字。");
+    const first = this.state.key_sealed === false;
+    this.state = { ...this.state, key_sealed: true };
+    return { sealed_first_time: first, message: first ? "密語已封存到雲端" : "密語已更改" };
+  }
+  async restoreChoice(choice: RestoreChoice | null, _label?: string): Promise<void> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步——還原不會影響其他裝置。");
+    this.state = { ...this.state, restore_choice: choice };
+  }
+  async finishRestore(): Promise<RestoreReport> {
+    if (!this.state.configured) return { outcome: "not_joined", epoch: null, snapshot_ops: 0, message: "這台還沒加入同步，還原不影響其他裝置。" };
+    if (this.state.restore_choice === "present") {
+      this.state = { ...this.state, restore_pending: false, restore_choice: null };
+      return { outcome: "resumed", epoch: this.state.epoch, snapshot_ops: 0, message: "已接上現在——雲端比備份新的修改會在下一趟蓋回來" };
+    }
+    const epoch = String(Date.now());
+    this.state = { ...this.state, epoch, restore_pending: false, restore_choice: null, pending_ops: 12 };
+    return { outcome: "renewed", epoch, snapshot_ops: 12, message: "已回到過去——這台正把整份資料重新上傳，其他裝置下次同步會被要求改用這份" };
   }
   async setEnabled(enabled: boolean): Promise<SyncStatus> {
-    // 關掉＝paused（設定還在），不是 off（從沒設定）——評審 S1
+    // 關掉＝paused（設定還在），不是 off（從沒加入）
     this.state = { ...this.state, enabled, phase: enabled ? "running" : "paused" };
     return this.status();
   }
   async push(): Promise<PushReport> {
     const n = this.state.pending_ops;
-    this.state = { ...this.state, pending_ops: 0, last_sync_at: new Date().toISOString() };
-    return { pushed_ops: n, object_key: n ? `v1/${this.state.epoch}/${MOCK_DEVICE_ID}/mock.bin` : null, busy: false };
+    this.state = { ...this.state, pending_ops: 0, pending_span: null, last_sync_at: new Date().toISOString() };
+    return { pushed_ops: n, object_key: n ? `${this.state.root ?? "v1"}/${this.state.epoch}/${MOCK_DEVICE_ID}/mock.bin` : null, busy: false };
   }
   async pull(): Promise<PullReport> {
     this.state = { ...this.state, last_sync_at: new Date().toISOString() };
-    const report: PullReport = { objects: 0, applied_ops: 0, skipped_ops: 0, gated: false, changed_tables: [], busy: false, conflicts: 0, max_hlc: null };
+    const report: PullReport = { ...EMPTY_PULL };
     seedHlc(report.max_hlc); // 與真機同一條路徑（mock 也不該有第二種行為）
     return report;
   }
   async resetLocal(): Promise<SyncStatus> {
-    this.state = { ...this.state, enabled: false, role: null, epoch: null, configured: false, phase: "off", pending_ops: 0, last_error: null };
+    this.state = { ...OFF_STATE };
     return this.status();
   }
   async makePairingCode(): Promise<string> {
-    const payload: PairingPayload = {
-      v: 1, endpoint: "https://example.r2.cloudflarestorage.com", bucket: "mock", ak: "AK", sk: "SK",
-      salt: "AAAAAAAAAAAAAAAAAAAAAA", epoch: this.state.epoch ?? "0", primary_device_id: MOCK_DEVICE_ID,
+    const payload = {
+      v: 2, endpoint: "https://example.r2.cloudflarestorage.com", bucket: "mock", ak: "AK", sk: "SK",
+      root: this.state.root ?? "v1", epoch: this.state.epoch,
     };
     return base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   }
-  async applyPairingCode(code: string, _passphrase: string, _wipe = false): Promise<SyncStatus> {
-    if (!code.trim()) throw new Error("配對碼是空的");
-    return this.configure({ endpoint: "", bucket: "", access_key_id: "", secret_access_key: "", passphrase: "", role: "replica" });
-  }
-  // ── v1.1.2（mock：狀態機走一遍，不碰網路）──
-  async beginNewEpoch(): Promise<EpochReport> {
-    if (this.state.role !== "primary") throw new Error("只有正本（桌機）能開新紀元");
-    const epoch = String(Date.now());
-    this.state = { ...this.state, epoch, restore_pending: false, pending_ops: 12 };
-    return { outcome: "renewed", epoch, snapshot_ops: 12, message: "還原完成——同步已重設為新紀元，正在重新上傳" };
+  async decodePairingCode(code: string): Promise<PairingFields> {
+    try {
+      const raw = JSON.parse(new TextDecoder().decode(base64UrlDecode(code.trim()))) as Record<string, unknown>;
+      const s = (k: string) => (typeof raw[k] === "string" ? (raw[k] as string) : "");
+      if (!s("endpoint") || !s("bucket") || !s("ak") || !s("sk")) throw new Error("bad");
+      return { endpoint: s("endpoint"), bucket: s("bucket"), access_key_id: s("ak"), secret_access_key: s("sk"), root: s("root") || "v1", epoch: s("epoch") || null };
+    } catch {
+      throw new Error("配對碼看起來不完整，請重新複製一次。");
+    }
   }
   async adoptEpoch(): Promise<AdoptReport> {
     const epoch = this.state.pending_epoch;
@@ -363,11 +565,14 @@ export class MemorySyncRepository implements SyncRepository {
       ...this.state,
       epoch,
       pending_epoch: null,
+      pending_epoch_info: null,
       phase: "running",
       pending_ops: 0,
+      pending_span: null,
       last_orphans: orphans && path ? { count: orphans, path, at: new Date().toISOString() } : null,
     };
-    return { orphan_ops: orphans, orphans_path: path, epoch };
+    // 產品評審 S2：真機在手機上會先匯出全量 JSON；mock 兩殼共用，這裡照樣給路徑（桌機殼不讀它）
+    return { orphan_ops: orphans, orphans_path: path, epoch, export_path: null };
   }
   async readWizardEnv(): Promise<WizardEnv> {
     return { endpoint: "https://example.r2.cloudflarestorage.com", bucket: "mock-bucket", access_key_id: "AK-mock", secret_access_key: "SK-mock" };
@@ -416,7 +621,7 @@ export function newWriteBatch(): WriteBatch {
 }
 
 /**
- * 寫入後通知（primary 端 syncStore 去抖 2 秒 push；Plan §6）。
+ * 寫入後通知（syncStore 去抖 2 秒跑一趟；Plan §6）。
  * `window.dispatchEvent(new CustomEvent(SYNC_WRITE_EVENT))`——資料層不知道 store 存在，只丟事件。
  */
 export const SYNC_WRITE_EVENT = "ns:sync-write";
@@ -429,7 +634,7 @@ let hlcLastCount = 0;
 /**
  * 產生 HLC 的**前 17 碼**（`<13位毫秒><4位hex計數>`）；device 尾碼由 SQL 端補
  * （`printf('%s-%s', $hlc, substr((SELECT value FROM sync_meta WHERE key='device_id'),1,8))`），
- * 這樣 TS 不必快取 device_id、啟用同步的瞬間就對。程序內單調：同毫秒計數 +1；跨程序靠物理時鐘。
+ * 這樣 TS 不必快取 device_id、加入同步的瞬間就對。程序內單調：同毫秒計數 +1；跨程序靠物理時鐘。
  * 啟動後第一次寫入前，WP5 應以 `seedHlc(MAX(hlc) FROM sync_outbox)` 餵一次種子（沒有列＝不餵）。
  */
 export function nextHlc(nowMs: number = Date.now()): string {
@@ -489,15 +694,16 @@ export async function occurrenceId(nodeId: string, dueOn: string): Promise<strin
 /* ── 一筆 op → outbox＋cells 兩句 ── */
 
 /**
- * 只在「這台已經設定過同步」時才真的插列（SQL 端判斷；TS 不留狀態）。
+ * 只在「這台已經加入過同步」時才真的插列（SQL 端判斷；TS 不留狀態）。
  *
- * 為什麼看 `role` 而不是 `enabled`（評審 B1 改判）：舊版看總開關，於是主人把開關關一下、
+ * 為什麼看 `joined` 而不是 `enabled`（v1.1.1 評審 B1 改判）：舊版看總開關，於是主人把開關關一下、
  * 改了十張票、再打開——那十張票在手機上永遠是舊的（狀態列卻寫「運行中」），而且副本會收到
  * 「父列從未建立」的子列 op，FK 在 COMMIT 時爆掉、游標卡死，之後什麼都拉不到。
- * 改看 `role` 之後：關著＝只停網路，變更照記、開回來補送；`sync_reset_local` 清掉 meta（含 role）
- * 之後閘門自然關上，從沒設定過同步的桌機一列都不會多寫（鐵則「桌機既有行為零改變」照舊成立）。
+ * 改看加入與否之後：關著＝只停網路，變更照記、開回來補送；`sync_reset_local` 清掉整張 sync_meta
+ * 之後閘門自然關上，從沒加入過同步的桌機一列都不會多寫（鐵則「桌機既有行為零改變」照舊成立）。
+ * v1.1.3：鍵名 `role` → `joined`（正本／副本退場；Rust `status()` 把舊 DB 的 `role` 一次性補成 `joined='1'`）。
  */
-const CONFIGURED_GATE = `EXISTS (SELECT 1 FROM sync_meta WHERE key = 'role' AND value IN ('primary','replica'))`;
+const JOINED_GATE = `EXISTS (SELECT 1 FROM sync_meta WHERE key = 'joined' AND value = '1')`;
 const DEVICE_SUFFIX = `substr((SELECT value FROM sync_meta WHERE key = 'device_id'), 1, 8)`;
 
 /**
@@ -512,7 +718,7 @@ export function syncSideStatements(op: OutboxOp, hlc17: string): WriteStmt[] {
   const outbox: WriteStmt = {
     sql:
       `INSERT INTO sync_outbox (hlc, tbl, row_id, op, payload) ` +
-      `SELECT ${hlcExpr(1)}, $2, $3, $4, $5 WHERE ${CONFIGURED_GATE}`,
+      `SELECT ${hlcExpr(1)}, $2, $3, $4, $5 WHERE ${JOINED_GATE}`,
     args: [hlc17, op.tbl, op.row_id, op.op, JSON.stringify(op.cols)],
   };
   const cols = Object.keys(op.cols);
@@ -523,7 +729,7 @@ export function syncSideStatements(op: OutboxOp, hlc17: string): WriteStmt[] {
     sql:
       `INSERT INTO sync_cells (tbl, row_id, col, hlc, device_id) ` +
       `SELECT column1, column2, column3, printf('%s-%s', column4, ${DEVICE_SUFFIX}), (SELECT value FROM sync_meta WHERE key = 'device_id') ` +
-      `FROM (VALUES ${rows}) WHERE ${CONFIGURED_GATE} ` +
+      `FROM (VALUES ${rows}) WHERE ${JOINED_GATE} ` +
       `ON CONFLICT(tbl, row_id, col) DO UPDATE SET hlc = excluded.hlc, device_id = excluded.device_id WHERE excluded.hlc > sync_cells.hlc`,
     args: [op.tbl, op.row_id, hlc17, ...cols],
   };
@@ -608,7 +814,7 @@ export interface OutboxRow {
   created_at: string;
 }
 
-/** 取一批待上傳 op（seq 遞增＝hlc 遞增；LIMIT 與 Rust push 同為 2000） */
+/** 取一批待上傳 op（seq 遞增；LIMIT 與 Rust push 同為 2000） */
 export function takeOutbox(db: Database, limit = 2000): Promise<OutboxRow[]> {
   return db.select<OutboxRow[]>(
     `SELECT seq, hlc, tbl, row_id, op, payload, created_at FROM sync_outbox ORDER BY seq ASC LIMIT $1`,
@@ -653,7 +859,7 @@ export function composeBatch(stmts: WriteStmt[]): WriteStmt {
  */
 export async function runWriteBatch(db: Database, stmts: WriteStmt[], ops: OutboxOp[]): Promise<void> {
   if (!stmts.length && !ops.length) return;
-  // 缺表（舊 DB／還原中途）＝當作沒有 op；有表才產同步語句，總開關由 SQL 端的 WHERE EXISTS 再判一次
+  // 缺表（舊 DB／還原中途）＝當作沒有 op；有表才產同步語句，加入與否由 SQL 端的 WHERE EXISTS 再判一次
   const withSync = ops.length ? await ensureSyncTables(db) : false;
   if (!stmts.length && !withSync) return;
   const hlc17 = withSync ? nextHlc() : "";

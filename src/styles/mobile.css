@@ -1297,3 +1297,29 @@ html[data-scanning] .m-tabbar { visibility: hidden; }
   }
   [data-shell="mobile"] .m2-sy-epoch .m2-sy-actions { margin-top: 10px; }
 }
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP-C ──　v1.1.3：單一入口「加入同步」＋手機也出示配對碼
+ *
+ * 拍板依據：提案三條規則（①加入 ②還原 ③重新加入）＋契約 §8。
+ * 形狀零發明：QR 沿桌機 `.ns-sy-qr` 的「定寬、不參與伸縮」（壓扁就掃不出來），
+ * 其餘全是既有的 `.m2-block`／`.m2-note`／`.m2-input`／`.m2-sy-go`。
+ * ═══════════════════════════════════════════════════════ */
+
+/* 掃描疊層要留在畫面上：上面那條 `html[data-scanning] .m2-page > .m2-sec { visibility: hidden }`
+   會連同疊層一起吃掉（疊層住在 `.m2-sec` 裡），結果取景框與「取消」鈕看不見也按不到。
+   visibility 可以在子孫翻回來——翻這一層就好，讓位的仍是頁面本體。 */
+html[data-scanning] .m2-scan-overlay { visibility: visible; }
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* 問「兩邊都有資料」時整張加入表藏起來但**不拆掉**（掃到的四欄要留到主人按「取消」為止） */
+  [data-shell="mobile"] .m2-join[hidden] { display: none; }
+
+  /* 配對碼 QR：定寬、置中；SVG 自帶白底（暗色主題下也要維持高對比才掃得到） */
+  [data-shell="mobile"] .m2-sy-qr {
+    width: min(74vw, 220px);
+    margin: 4px auto 10px;
+    line-height: 0;
+  }
+  [data-shell="mobile"] .m2-sy-qr svg { width: 100%; height: auto; display: block; }
+}

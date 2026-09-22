@@ -186,16 +186,24 @@ export {
   parseKeep,
 } from "./backupRepository";
 
-// v1.1.1 同步地基契約層（契約席）
+// v1.1.1 同步地基契約層（契約席）；v1.1.3 換成單一入口／兩層鑰匙的型別（`SyncRole`／`SyncConfigureInput`／`PairingPayload` 退場）
 export type {
   SyncRepository,
   SyncStatus,
-  SyncRole,
   SyncPhase,
-  SyncConfigureInput,
+  RestoreChoice,
+  EpochInfo,
+  JoinMode,
+  JoinOutcome,
+  JoinInput,
+  JoinReport,
+  PassphraseReport,
+  RestoreReport,
+  PairingFields,
+  AdoptReport,
+  WizardEnv,
   PushReport,
   PullReport,
-  PairingPayload,
   OutboxOp,
   WriteStmt,
   SyncTable,

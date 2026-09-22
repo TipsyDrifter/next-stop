@@ -95,7 +95,7 @@ if [[ $DO_RELEASE -eq 1 ]]; then
   if gh release view "$TAG" -R "$MIRROR_REPO" >/dev/null 2>&1; then
     run gh release upload "$TAG" "${ASSETS[@]}" -R "$MIRROR_REPO" --clobber
   else
-    run gh release create "$TAG" "${ASSETS[@]}" -R "$MIRROR_REPO" --title "$TAG" ${NOTES:+--notes-file "$NOTES"}
+    run gh release create "$TAG" "${ASSETS[@]}" -R "$MIRROR_REPO" --title "$TAG" --latest ${NOTES:+--notes-file "$NOTES"}
   fi
 fi
 echo "✓ 鏡像已更新：https://github.com/$MIRROR_REPO"

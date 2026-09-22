@@ -86,31 +86,37 @@ pub fn run() {
             backup::backup_validate_file,
             backup::backup_restore,
             backup::reset_database_keep_settings,
+            // v1.1.3 契約 §4.1：configure／apply_pairing_code／begin_new_epoch 退場，
+            // 換成 join／decode_pairing_code／finish_restore，另加 change_passphrase／restore_choice。
             sync::commands::sync_status,
-            sync::commands::sync_configure,
+            sync::commands::sync_join,
+            sync::commands::sync_change_passphrase,
+            sync::commands::sync_restore_choice,
+            sync::commands::sync_finish_restore,
             sync::commands::sync_set_enabled,
             sync::commands::sync_push,
             sync::commands::sync_pull,
             sync::commands::sync_reset_local,
             sync::commands::sync_make_pairing_code,
-            sync::commands::sync_apply_pairing_code,
-            sync::commands::sync_begin_new_epoch,
+            sync::commands::sync_decode_pairing_code,
             sync::commands::sync_adopt_epoch,
             sync::commands::sync_read_wizard_env,
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步八支＋v1.1.2 三支。
+    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步十三支（清單與桌機那份逐字相同）。
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         sync::commands::sync_status,
-        sync::commands::sync_configure,
+        sync::commands::sync_join,
+        sync::commands::sync_change_passphrase,
+        sync::commands::sync_restore_choice,
+        sync::commands::sync_finish_restore,
         sync::commands::sync_set_enabled,
         sync::commands::sync_push,
         sync::commands::sync_pull,
         sync::commands::sync_reset_local,
         sync::commands::sync_make_pairing_code,
-        sync::commands::sync_apply_pairing_code,
-        sync::commands::sync_begin_new_epoch,
+        sync::commands::sync_decode_pairing_code,
         sync::commands::sync_adopt_epoch,
         sync::commands::sync_read_wizard_env,
     ]);

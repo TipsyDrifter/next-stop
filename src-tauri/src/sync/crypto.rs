@@ -34,6 +34,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use base64::Engine as _;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use serde::{Deserialize, Serialize};
 
 /// 建 cipher。`KeyInit::new_from_slice` 走 `Result`，比 `Array::from_slice` 少一次 panic 風險
 /// （chacha20poly1305 0.11 的 Key 是 `hybrid-array` 的 `Array`，不再有 `from_slice`）。
@@ -137,6 +138,102 @@ pub fn key_from_b64(s: &str) -> Result<[u8; KEY_LEN], String> {
     Ok(key)
 }
 
+// ─────────────────────────────────────────────────────────────
+// v1.1.3 兩層鑰匙（契約 §2.1；決策記錄〈同步與備份規則重整拍板〉第 4 條「密語可改」）
+//
+// 為什麼兩層：雲端物件全用一把隨機的**資料鑰匙**加密；密語只派生出**包裝鑰匙**，把資料鑰匙封成
+// `<root>/KEY` 一顆物件。改密語＝只重寫這一顆（新 kdf 鹽＋新 nonce＋新密語），資料一個位元都不重傳，
+// 其他裝置鑰匙圈裡存的是資料鑰匙、完全不受影響。1Password／Bitwarden／Standard Notes 同構。
+// 為什麼 KEY 自帶 kdf 鹽而不共用 `<root>/SALT`：舊血統（v1.1.2 升上來）的資料鑰匙本身＝argon2id(密語, SALT)，
+// 包裝鑰匙若也用 SALT 派生就等於「用鑰匙包自己」；分開之後新舊血統走同一條路。
+// ─────────────────────────────────────────────────────────────
+
+/// `<root>/KEY` 物件的格式版本
+pub const KEY_OBJECT_VERSION: u32 = 1;
+
+/// `<root>/KEY` 的 JSON 形狀（明文欄位＋密文；`ct`＝32B 資料鑰匙＋16B tag）。沒有 secret 可漏（都是密文或參數）。
+#[derive(Clone, Serialize, Deserialize)]
+pub struct WrappedKey {
+    pub v: u32,
+    pub kdf: String,
+    pub m: u32,
+    pub t: u32,
+    pub p: u32,
+    /// 包裝鑰匙的 kdf 鹽 16B，base64url
+    pub salt: String,
+    /// 24B，base64url
+    pub nonce: String,
+    /// 密文，base64url
+    pub ct: String,
+}
+
+/// 隨機 32B 資料鑰匙（第一台加入時產一次）
+pub fn random_data_key() -> Result<[u8; KEY_LEN], String> {
+    let mut key = [0u8; KEY_LEN];
+    fill_random(&mut key)?;
+    Ok(key)
+}
+
+/// 解 `<root>/KEY` 的 JSON（先看鹽與參數，才派生包裝鑰匙）
+pub fn parse_wrapped_key(bytes: &[u8]) -> Result<WrappedKey, String> {
+    let wk: WrappedKey = serde_json::from_slice(bytes).map_err(|_| "雲端上的鑰匙物件格式看不懂。".to_string())?;
+    if wk.v > KEY_OBJECT_VERSION {
+        return Err("雲端上的鑰匙物件是較新版本產生的，請先更新這一台。".into());
+    }
+    if wk.kdf != "argon2id" || wk.m != ARGON2_M_KIB || wk.t != ARGON2_T || wk.p != ARGON2_P {
+        return Err("雲端上的鑰匙物件用了不認得的派生參數。".into());
+    }
+    Ok(wk)
+}
+
+/// 用包裝鑰匙把資料鑰匙封成 `<root>/KEY` 的位元組（JSON）。`aad`＝該物件的 key 字串（`<root>/KEY`）；
+/// `kdf_salt`＝派生 `wrap_key` 時用的鹽（要一起寫進物件，讀方才算得出同一把包裝鑰匙）。**不 zstd**。
+pub fn wrap_data_key(
+    wrap_key: &[u8; KEY_LEN],
+    aad: &str,
+    data_key: &[u8; KEY_LEN],
+    kdf_salt: &[u8],
+) -> Result<Vec<u8>, String> {
+    if kdf_salt.len() != SALT_LEN {
+        return Err("包裝鑰匙的鹽長度不對。".into());
+    }
+    let cipher = cipher_of(wrap_key)?;
+    let mut nonce = [0u8; NONCE_LEN];
+    fill_random(&mut nonce)?;
+    let ct = cipher
+        .encrypt(&nonce_of(&nonce)?, Payload { msg: data_key, aad: aad.as_bytes() })
+        .map_err(|_| "封裝資料鑰匙失敗。".to_string())?;
+    let wk = WrappedKey {
+        v: KEY_OBJECT_VERSION,
+        kdf: "argon2id".into(),
+        m: ARGON2_M_KIB,
+        t: ARGON2_T,
+        p: ARGON2_P,
+        salt: b64_encode(kdf_salt),
+        nonce: b64_encode(&nonce),
+        ct: b64_encode(&ct),
+    };
+    serde_json::to_vec(&wk).map_err(|_| "產生鑰匙物件失敗。".to_string())
+}
+
+/// 用包裝鑰匙拆 `<root>/KEY` → 資料鑰匙。密語不對／被改過都回同一句人話。
+pub fn unwrap_data_key(wrap_key: &[u8; KEY_LEN], aad: &str, bytes: &[u8]) -> Result<[u8; KEY_LEN], String> {
+    const BAD: &str = "密語不對（與雲端那份資料的密語不同）。";
+    let wk = parse_wrapped_key(bytes)?;
+    let nonce = b64_decode(&wk.nonce)?;
+    let ct = b64_decode(&wk.ct)?;
+    let cipher = cipher_of(wrap_key)?;
+    let plain = cipher
+        .decrypt(&nonce_of(&nonce)?, Payload { msg: &ct, aad: aad.as_bytes() })
+        .map_err(|_| BAD.to_string())?;
+    if plain.len() != KEY_LEN {
+        return Err(BAD.into());
+    }
+    let mut key = [0u8; KEY_LEN];
+    key.copy_from_slice(&plain);
+    Ok(key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +290,67 @@ mod tests {
         let a = seal(&key, "k", b"same").unwrap();
         let b = seal(&key, "k", b"same").unwrap();
         assert_ne!(a[..NONCE_LEN], b[..NONCE_LEN]);
+    }
+
+    // ── v1.1.3 兩層鑰匙（契約 §2.1）──
+
+    #[test]
+    fn 資料鑰匙封裝往返_改密語只換包裝() {
+        let data_key = random_data_key().unwrap();
+        let salt_a = [5u8; SALT_LEN];
+        let wrap_a = derive_key("月見坂 3 番線", &salt_a).unwrap();
+        let obj_a = wrap_data_key(&wrap_a, "v1/KEY", &data_key, &salt_a).unwrap();
+        assert_eq!(unwrap_data_key(&wrap_a, "v1/KEY", &obj_a).unwrap(), data_key);
+
+        // 改密語＝用新密語、新鹽重包**同一把**資料鑰匙；資料鑰匙一個位元都沒變
+        let salt_b = [6u8; SALT_LEN];
+        let wrap_b = derive_key("ひかり号", &salt_b).unwrap();
+        let obj_b = wrap_data_key(&wrap_b, "v1/KEY", &data_key, &salt_b).unwrap();
+        assert_eq!(unwrap_data_key(&wrap_b, "v1/KEY", &obj_b).unwrap(), data_key);
+        assert!(unwrap_data_key(&wrap_a, "v1/KEY", &obj_b).is_err(), "舊密語打不開新的 KEY");
+    }
+
+    #[test]
+    fn 鑰匙物件的形狀與鹽() {
+        let data_key = [9u8; KEY_LEN];
+        let salt = [1u8; SALT_LEN];
+        let wrap = derive_key("こだま号", &salt).unwrap();
+        let bytes = wrap_data_key(&wrap, "v1/KEY", &data_key, &salt).unwrap();
+        let wk = parse_wrapped_key(&bytes).unwrap();
+        assert_eq!(wk.v, KEY_OBJECT_VERSION);
+        assert_eq!(wk.kdf, "argon2id");
+        assert_eq!((wk.m, wk.t, wk.p), (ARGON2_M_KIB, ARGON2_T, ARGON2_P));
+        assert_eq!(b64_decode(&wk.salt).unwrap(), salt.to_vec(), "讀方要拿得到 kdf 鹽才算得出包裝鑰匙");
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(!text.contains(&b64_encode(&data_key)), "資料鑰匙不可明文出現在物件裡");
+    }
+
+    #[test]
+    fn 鑰匙物件_換_aad_或被改過都拆不開() {
+        let data_key = [7u8; KEY_LEN];
+        let salt = [2u8; SALT_LEN];
+        let wrap = derive_key("密語", &salt).unwrap();
+        let bytes = wrap_data_key(&wrap, "v1/KEY", &data_key, &salt).unwrap();
+        assert!(unwrap_data_key(&wrap, "v1-sb-x/KEY", &bytes).is_err(), "AAD 綁物件 key：搬到別的根底下要失敗");
+        let mut wk = parse_wrapped_key(&bytes).unwrap();
+        let mut ct = b64_decode(&wk.ct).unwrap();
+        let last = ct.len() - 1;
+        ct[last] ^= 0xff;
+        wk.ct = b64_encode(&ct);
+        let tampered = serde_json::to_vec(&wk).unwrap();
+        assert!(unwrap_data_key(&wrap, "v1/KEY", &tampered).is_err(), "被改過要失敗");
+    }
+
+    #[test]
+    fn 鑰匙物件_較新版本或不認得的參數要擋() {
+        let mut wk = parse_wrapped_key(
+            &wrap_data_key(&[1u8; KEY_LEN], "v1/KEY", &[2u8; KEY_LEN], &[3u8; SALT_LEN]).unwrap(),
+        )
+        .unwrap();
+        wk.v = KEY_OBJECT_VERSION + 1;
+        assert!(parse_wrapped_key(&serde_json::to_vec(&wk).unwrap()).is_err());
+        wk.v = KEY_OBJECT_VERSION;
+        wk.m = 1;
+        assert!(parse_wrapped_key(&serde_json::to_vec(&wk).unwrap()).is_err());
     }
 }

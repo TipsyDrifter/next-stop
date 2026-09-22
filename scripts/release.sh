@@ -163,6 +163,14 @@ if [[ "$SKIP_APK" == "1" ]]; then
 else
   step "⑤ 手機 APK → ${APK_DST}"
   APK_SRC="src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+  # v1.1.3 工程評審 N-12：AndroidManifest 在 gen/android 底下，`tauri android init` 會把它重生成模板版
+  # ——`allowBackup="false"` 一旦被洗掉，系統備份就會把同步身分搬到另一支手機（兩支頂同一個身分互推）。
+  # 這是「安靜地壞掉」的那種，所以在發版前硬擋一次。
+  MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+  if [[ -f "$MANIFEST" ]]; then
+    grep -q 'android:allowBackup="false"' "$MANIFEST" \
+      || die "AndroidManifest 少了 android:allowBackup=\"false\"（多半是 tauri android init 重生過）——回填後再發。"
+  fi
   if [[ "$DRY_RUN" == "0" ]]; then
     # shellcheck source=android-env.sh
     source scripts/android-env.sh

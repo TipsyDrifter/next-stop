@@ -9,10 +9,14 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- v1.1.3 契約 §0／提案第三節（N3）：allowBackup 關掉。同步身分（device_id）與 R2 憑證存在 app 私有檔，
+         系統備份／換機轉移若把它搬到另一支手機，兩支就會頂著同一個身分互推——「複製資料夾＝新的一台」的機制
+         在 Android 靠這一行撐住。⚠ 本檔在 gen/android 下：`tauri android init` 會重生，改動要記得回填。 -->
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.next_stop"
+        android:allowBackup="false"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <!--
           windowSoftInputMode=adjustResize（2026-09-16 修正席，評審 B2）：

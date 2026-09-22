@@ -22,6 +22,7 @@ import {
   type BackupEntry,
   type BackupReport,
   type PolicyReport,
+  type RestoreChoice,
 } from "../data";
 import { useSyncStore } from "./syncStore";
 import { useUiStore } from "./uiStore";
@@ -129,8 +130,11 @@ interface BackupStore {
   boot: () => Promise<void>;
   /** 設定頁「立即備份」：備一份 manual＋輪替鏡射，然後重列清單。 */
   backupNow: () => Promise<void>;
-  /** 還原到某一份：danger 確認 → repo.restore（成功不會回來，App 重啟）。 */
-  restore: (path: string, fileName?: string) => void;
+  /**
+   * 還原到某一份：danger 確認 → （已加入同步）把主人選的方式落檔 → repo.restore（成功不會回來，App 重啟）。
+   * `choice` 省略＝「回到過去」（v1.1.3 契約 §6；已加入的桌機預設回到過去）。
+   */
+  restore: (path: string, fileName?: string, choice?: RestoreChoice) => void;
   /** 改保留份數；會刪到現有備份時先走 askConfirm(danger)，取消＝連設定都不動。 */
   setKeep: (keep: number) => Promise<void>;
   /** 選第二備份位置（dialog）；取消＝不動。 */
@@ -140,7 +144,7 @@ interface BackupStore {
   /** 在檔案總管開啟備份資料夾。 */
   revealBackupsDir: () => Promise<void>;
   /** 「從檔案還原…」：選任意 `.db` → 驗檔 → 走同一條 restore 確認流程。 */
-  restoreFromFile: () => Promise<void>;
+  restoreFromFile: (choice?: RestoreChoice) => Promise<void>;
   /** ⑧ 清場步驟二（DEV 限定）：清空資料但保留 settings。 */
   resetDatabaseKeepSettings: () => Promise<void>;
 }
@@ -236,32 +240,51 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
     }
   },
 
-  restore(path, fileName) {
+  restore(path, fileName, choice) {
     const label = fileName ?? path.split(/[\\/]/).pop() ?? path;
     /**
-     * v1.1.2（D-1.1-4 甲「還原＝新紀元」；契約 §4.1）：這台設定過同步的話，還原不只換回舊資料——
-     * 重啟後會自動開一個新紀元、把整庫重新上傳，手機下次同步時會被要求改用桌機的版本。
-     * 這是還原最貴的一個副作用，**要在按下去之前講**，不能只在事後補一聲 toast。
-     * （動作本身不在這裡：`backup_restore` 換檔後 App 立刻重啟，這個進程回不來——Rust 在換檔成功時
-     *   留一個標記檔，重啟後由 `syncStore.boot()` 接手開紀元。）
+     * v1.1.3（契約 §6／§8.3；提案規則②）：這台加入了同步的話，還原有兩種後果，主人在頁上選好才按到這裡——
+     *   回到過去（預設）＝所有裝置改用這份；接上現在＝只有這台換成備份、雲端較新的修改會蓋回來。
+     * 後果**要在按下去之前講**，不能只在事後補一聲 toast。
+     * 動作本身不在這裡：`backup_restore` 換檔後 App 立刻重啟，這個進程回不來——所以先把選擇落檔
+     * （`syncStore.prepareRestore` → Rust `sync/restore-choice`），Rust 在換檔成功時併進標記檔，
+     * 重啟後由 `syncStore.boot()` → `finishRestore()` 接手。沒加入同步的機器：不問、不落檔、零同步動作。
      */
-    const syncing = !!useSyncStore.getState().status?.configured;
+    const joined = !!useSyncStore.getState().status?.configured;
+    const pick: RestoreChoice = choice ?? "past";
+    const consequence = !joined
+      ? "這台還沒加入同步，還原只動這一台。之後加入同步時若兩邊都有資料會問你要不要合併。"
+      : pick === "past"
+        ? "所有裝置都會改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。"
+        // 產品評審 S3：「沒人動過」會被讀成「沒人編輯過」，但**刪除也算動過**——
+        // 誤刪的票只要那個刪除已經送上雲，這條路一張都救不回來，那才是主人最常撞上的落差。
+        : "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。";
     useUiStore.getState().askConfirm({
       title: "要還原到這一份備份嗎？",
-      body:
-        `${label}：會先把現在的資料另存保險備份，然後重新啟動。` +
-        // 產品評審 S2：原句寫「同步會重設為新紀元」——「紀元」是內部語彙，主人讀不出會發生什麼。
-        // 改成講具體後果（重新上傳、手機要改用桌機版、手機未送出的修改會先存檔）。
-        (syncing
-          ? "還原後這台會把整份資料重新上傳；手機下次同步會被要求改用桌機的版本，手機上還沒送出的修改會先存檔。"
-          : ""),
+      body: `${label}：會先把現在的資料另存保險備份，然後重新啟動。${consequence}`,
       confirmLabel: "還原並重新啟動",
       danger: true,
       onConfirm: () => {
         set({ status: "restoring" });
         // 成功不會回來（App 重啟）；只有失敗才走到 catch
-        void backupRepo.restore(path).catch((e: unknown) => {
+        void (async () => {
+          if (joined) {
+            const prep = await useSyncStore.getState().prepareRestore(pick, label);
+            // 寫不進選擇檔 ⇒ 標記檔會缺 choice ⇒ 收尾時走的是預設值，而不是主人剛按的那一個。
+            // 產品評審 S-4：**兩種選擇都要停手**（舊碼只擋「接上現在」）。做成另一個不是「保守一點」，
+            // 是「做了主人沒選的事」——「回到過去」會把所有裝置一起拉走，「接上現在」會讓別台以為沒事發生。
+            // （`not-joined` 照常還原：本來就不牽動別台。）
+            if (prep === "failed") {
+              throw new Error(
+                "你選的還原方式沒有存下來，為了不做成另一種後果，這次先不還原——請再試一次。",
+              );
+            }
+          }
+          await backupRepo.restore(path);
+        })().catch((e: unknown) => {
           const message = messageOf(e);
+          // 工程評審 S-5：還原沒做成就把選擇檔收掉，免得它留到下一次別的還原、被當成那一次的選擇。
+          void useSyncStore.getState().clearRestoreChoice();
           // pool 已關之後才失敗＝這個進程沒有資料庫連線了：10 秒的 toast 撐不住這種狀態，
           // 改成整頁鎖住＋主畫面常駐橫幅，別讓主人繼續操作一個寫不進去的 App（DB 檔沒被動過）。
           const needsRestart = message.includes(RESTART_MARKER);
@@ -341,7 +364,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
     }
   },
 
-  async restoreFromFile() {
+  async restoreFromFile(choice) {
     const path = await backupRepo.pickDbFile().catch((e: unknown) => {
       useUiStore.getState().showToast({ message: `選不到檔案：${messageOf(e)}` });
       return null;
@@ -353,7 +376,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
       useUiStore.getState().showToast({ message: `這個檔不能用來還原：${messageOf(e)}` });
       return;
     }
-    get().restore(path);
+    get().restore(path, undefined, choice);
   },
 
   async resetDatabaseKeepSettings() {

@@ -19,8 +19,9 @@
 //!   * 鏡射：第二位置補齊「主位置 auto／manual 在 keep 配額內的全部份數」＋同 `keep` 輪替（冪等）；
 //!     失敗只回 `SecondaryReport::err`，不影響主備份。
 //!   * 還原：validate →保險快照→**先** copy 到 `next-stop-v2.db.tmp` →讀 `backup_*` 設定→關 pool
-//!     →清 `-wal`／`-shm`→rename→設 WAL＋寫回設定→`app.restart()`。
+//!     →清 `-wal`／`-shm`→rename→（已加入同步才）留還原標記→設 WAL＋寫回設定→`app.restart()`。
 //!     先 copy 再關 pool 是為了把「關了 pool 卻換檔失敗」的窗口壓到只剩 rename。
+//!     v1.1.3（契約 §6）：標記檔帶主人選的還原方式（回到過去／接上現在），沒加入同步就不寫；鑰匙圈不動。
 //!
 //! ⑥ 沙盒真機情境鏈的七件修正（`docs/決策記錄.md`〈⑥ 沙盒真機情境鏈結論〉第 1–6、8 條）都在本檔與
 //! `settings.css`／`BackupTab.tsx`：還原後補 WAL（第 1）、首開補備份（第 2，落在 `order_probe`）、
@@ -845,10 +846,35 @@ pub async fn backup_restore(app: AppHandle, path: String) -> Result<(), String> 
         format!("{} {POST_CLOSE_HINT}", io_msg("換上備份檔", &db, &e))
     })?;
 
-    // ⑥-a v1.1.2 D-1.1-4：還原＝開新紀元。DB 已換、寫 DB 沒意義，改在 app 資料目錄留一個標記檔，
-    //     下次啟動由 sync 引擎（`sync_status().restore_pending` → `sync_begin_new_epoch`）收尾。失敗只 log。
-    if let Err(e) = crate::sync::engine::mark_restore_pending(&app) {
-        eprintln!("[backup] 還原後留同步標記失敗（若有啟用同步，請到設定→同步重設後重新啟用）：{e}");
+    // ⑥-a 還原之後的同步收尾（v1.1.3 契約 §6；D-1.1-4 的後繼）。
+    //
+    //     為什麼是標記檔：DB 整顆被換掉了，任何寫進 DB 的旗標都會跟著備份一起回到過去；app 資料目錄不會。
+    //     下次啟動由 sync 引擎收（`sync_status().restore_pending` → `sync_finish_restore`）。
+    //
+    //     v1.1.3 起還原有兩種後果，主人在對話框裡選（契約 §8.3）：「回到過去」＝所有裝置改用這份（開新紀元）／
+    //     「接上現在」＝只有這台換成備份（只清游標）。那個選擇在按下確認、換檔**之前**就由前端寫進
+    //     `sync/restore-choice`；`mark_restore_pending` 在這裡把它併進標記檔並刪掉選擇檔
+    //     （沒有選擇檔＝回到過去，與 v1.1.2 的唯一行為一致）。簽名一個字沒動。
+    //
+    //     **沒加入同步就不寫**（契約 §6 步驟 5／§4.3；評審 S2「從沒啟用過同步的桌機還原零動作」的一般化）：
+    //     正本／副本退場後判準只剩「鑰匙圈裡有沒有東西」。兩個理由：①還原本來就不牽動任何裝置，留了標記
+    //     也只是讓下次啟動多繞一趟 Rust；②鐵則「同步關著時桌機零改變」——沒加入過的桌機不該只因為還原
+    //     就在 `%APPDATA%` 長出一個 `sync/` 資料夾（`mark_restore_pending` 會 `create_dir_all`）。
+    //     `status()` 那邊還有第二道保險：看到標記卻沒鑰匙圈就順手刪掉。
+    //
+    //     **鑰匙圈一個字都不碰**：身分（device_id）與資料鑰匙住在鑰匙圈／Android 私有檔，不在 DB 裡——
+    //     換檔動不到它們，所以「還原不換身分」是自然成立的（契約 §3.1）。還原後要清的只有游標／seen／
+    //     inflight，那是 `sync_finish_restore` 的事，這裡不做。
+    //
+    //     失敗只 log，不擋重啟（資料已經換好了，這裡回錯只會讓主人以為還原失敗）。
+    //     工程評審 B-1：鑰匙圈**讀取失敗**時要當成「有加入」（`Err ⇒ true`）。判成「沒加入」就不寫標記，
+    //     主人剛選的「回到過去」會在重啟後消失＝靜默降級；多寫一個標記的代價只是下次啟動多繞一趟 Rust，
+    //     而且 `finish_restore` 那邊還會再確認一次鑰匙圈（真的沒加入就回 NotJoined 並清掉標記）。
+    let joined = !matches!(crate::sync::credstore::load(&app), Ok(None));
+    if joined {
+        if let Err(e) = crate::sync::engine::mark_restore_pending(&app) {
+            eprintln!("[backup] 還原後留同步標記失敗（重啟後請到設定→同步看一眼狀態）：{e}");
+        }
     }
 
     // ⑥-b 換檔之後、重啟之前的收尾：WAL 模式＋把 backup_* 設定寫回去（同一條連線）。

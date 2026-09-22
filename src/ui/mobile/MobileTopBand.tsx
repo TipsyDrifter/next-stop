@@ -45,7 +45,7 @@ export function MobileTopBand({ tab }: { tab: MobileTab }) {
         <div className="m-band-latin">{tab.latin}</div>
       </div>
       {/* v1.1.1 WP8：同步狀態點掛在頂帶右端（今日頁在日付印左邊）。
-          未啟用同步時 `SyncDot` 整顆不渲染，`.m-band-end` 就是個空的 flex 容器——
+          沒加入同步時（v1.1.3 的說法；舊稱「未啟用」）`SyncDot` 整顆不渲染，`.m-band-end` 就是個空的 flex 容器——
           v1.1.0 的版面（頁名＋日付印）逐像素不變。 */}
       <div className="m-band-end">
         <SyncDot className="m-band-sync-dot" />

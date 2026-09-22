@@ -80,6 +80,34 @@ impl R2Client {
             .map_err(|e| friendly(&e, "上傳同步資料失敗"))
     }
 
+    /// 條件寫：**只有這顆 key 還不存在時才寫**（S3 的 `If-None-Match: *`）。
+    /// 回 `Ok(true)`＝這次真的寫進去了；`Ok(false)`＝已經有人先寫了（一個位元都沒覆蓋）。
+    ///
+    /// 為什麼需要（v1.1.3 工程評審 S-3）：`<root>/SALT` 是一整份資料的血統來源，兩台同時當「第一台」時
+    /// 無條件 PUT 會讓後寫者贏——先寫的那台鑰匙圈裡留著另一個鹽，下一趟就 `locked='salt'`（鍵違い）。
+    /// 條件寫讓「誰先誰就是這份資料」變成原子的，輸的那台當場知道自己該走「加入既有的那份」。
+    ///
+    /// `object_store` 0.12 的 `S3ConditionalPut` 預設就是 `ETagMatch`（文件明寫支援 Cloudflare R2）。
+    /// R2 對既有物件回 412 ⇒ `Error::Precondition`；有些實作回 409 ⇒ `Error::AlreadyExists`，兩個都當「已存在」。
+    /// 萬一某天端點不支援（`NotSupported`）就退回無條件 PUT——退化回舊行為，不會讓加入同步整個壞掉。
+    pub async fn put_if_absent(&self, key: &str, bytes: Vec<u8>) -> Result<bool, String> {
+        use object_store::{Error as OsError, PutMode, PutOptions};
+        let path = ObjPath::from(key);
+        match self
+            .store
+            .put_opts(&path, PutPayload::from(bytes.clone()), PutOptions::from(PutMode::Create))
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(OsError::AlreadyExists { .. }) | Err(OsError::Precondition { .. }) => Ok(false),
+            Err(OsError::NotSupported { .. }) => {
+                self.put(key, bytes).await?;
+                Ok(true)
+            }
+            Err(e) => Err(friendly(&e, "上傳同步資料失敗")),
+        }
+    }
+
     pub async fn get(&self, key: &str) -> Result<Vec<u8>, String> {
         let got = self
             .store
@@ -280,6 +308,44 @@ mod tests {
         assert!(left.is_empty(), "收工要把沙盒物件刪乾淨");
     }
 
+    /// v1.1.3 工程評審 S-3：`put_if_absent` 對**真的** R2 要真的是條件寫。
+    ///
+    /// 驗三件事：① 不存在時寫得進去（回 true）；② 已存在時回 false；
+    /// ③ **內容一個位元都沒被覆蓋**（這是整個 S-3 的重點——輸的那台不該把贏家的 SALT 蓋掉）。
+    /// 跑法同上；物件一律 `sandbox/` 前綴、測完刪除。
+    #[test]
+    #[ignore = "需要 R2 憑證：source %LOCALAPPDATA%/NextStop/r2.env 後加 --ignored"]
+    fn 條件寫只有第一次寫得進去() {
+        let client = R2Client::new(R2Config {
+            endpoint: std::env::var("R2_ENDPOINT").expect("缺 R2_ENDPOINT（請先 source r2.env）"),
+            bucket: std::env::var("R2_BUCKET").expect("缺 R2_BUCKET"),
+            access_key_id: std::env::var("R2_ACCESS_KEY_ID").expect("缺 R2_ACCESS_KEY_ID"),
+            secret_access_key: std::env::var("R2_SECRET_ACCESS_KEY").expect("缺 R2_SECRET_ACCESS_KEY"),
+        })
+        .expect("建 client 失敗");
+
+        let mut stamp = [0u8; 8];
+        crypto::fill_random(&mut stamp).unwrap();
+        let run = crypto::b64_encode(&stamp);
+        let key = format!("sandbox/{run}/SALT");
+
+        let result = tauri::async_runtime::block_on(async {
+            let first = client.put_if_absent(&key, b"first-writer".to_vec()).await?;
+            let second = client.put_if_absent(&key, b"second-writer".to_vec()).await?;
+            let body = client.get(&key).await?;
+            client.delete(&key).await?; // 收工在 assert 之前
+            let left = client.list_after(&format!("sandbox/{run}/"), "").await?;
+            Ok::<_, String>((first, second, body, left))
+        })
+        .expect("條件寫測試失敗");
+
+        let (first, second, body, left) = result;
+        assert!(first, "不存在時條件寫要成功");
+        assert!(!second, "已存在時條件寫要回 false（不是 Err、也不是覆蓋）");
+        assert_eq!(body, b"first-writer".to_vec(), "內容必須還是第一個寫進去的");
+        assert!(left.is_empty(), "收工要把沙盒物件刪乾淨");
+    }
+
     /// v1.1.2 §2.5：`list_prefixes` 要看得到「兩台各自的目錄」，`get_opt` 對不存在的 key 回 None。
     ///
     /// 跑法同上；物件一律 `sandbox/` 前綴、測完刪除。
@@ -363,6 +429,48 @@ mod tests {
         })
         .expect("清理沙盒紀元失敗");
         assert_eq!(left, 0, "沙盒紀元底下還留著 {left} 個物件");
+    }
+
+    /// 收工：把**沙盒根**（`v1-sb-…/`，v1.1.3 契約 §0 鐵則 4）底下的物件全刪掉，並確認清乾淨。
+    ///
+    /// 為什麼安全：判準是「頂層目錄名以 `v1-sb-` 開頭」——主人正本的根是 `v1/`，
+    /// 這支連看都看不到它；`v1/SALT` 與 `v1/KEY` 是**物件**不是目錄，更不會出現在 common prefixes 裡。
+    /// 測試中途 panic 會跳過測試自己的收工步驟，所以留一支專門的掃地工。
+    #[test]
+    #[ignore = "需要 R2 憑證：source %LOCALAPPDATA%/NextStop/r2.env 後加 --ignored"]
+    fn 沙盒根已清空() {
+        let client = R2Client::new(R2Config {
+            endpoint: std::env::var("R2_ENDPOINT").expect("缺 R2_ENDPOINT"),
+            bucket: std::env::var("R2_BUCKET").expect("缺 R2_BUCKET"),
+            access_key_id: std::env::var("R2_ACCESS_KEY_ID").expect("缺 R2_ACCESS_KEY_ID"),
+            secret_access_key: std::env::var("R2_SECRET_ACCESS_KEY").expect("缺 R2_SECRET_ACCESS_KEY"),
+        })
+        .expect("建 client 失敗");
+
+        let left = tauri::async_runtime::block_on(async {
+            let mut removed = 0usize;
+            let mut left = 0usize;
+            let tops = client.list_prefixes("").await?;
+            // 掃到 0 個頂層目錄＝`list_prefixes("")` 沒回東西＝這支其實什麼都沒掃（假的綠燈）
+            assert!(!tops.is_empty(), "頂層一個目錄都看不到，掃地工等於沒跑");
+            let mut sandbox_roots = 0usize;
+            for dir in tops {
+                let seg = dir.trim_end_matches('/').rsplit('/').next().unwrap_or("");
+                if !seg.starts_with("v1-sb-") {
+                    continue; // 只認沙盒根；主人正本的 `v1/` 一律不碰
+                }
+                sandbox_roots += 1;
+                for k in client.list_after(&format!("{dir}/"), "").await? {
+                    client.delete(&k).await?;
+                    removed += 1;
+                }
+                left += client.list_after(&format!("{dir}/"), "").await?.len();
+            }
+            println!("沙盒根：掃到 {sandbox_roots} 個沙盒根、刪掉 {removed} 個物件");
+            Ok::<_, String>(left)
+        })
+        .expect("清理沙盒根失敗");
+        assert_eq!(left, 0, "沙盒根底下還留著 {left} 個物件");
     }
 
     /// 收工檢查：整個 `sandbox/` 前綴是空的（測試沒留垃圾在主人的 bucket 裡）。
