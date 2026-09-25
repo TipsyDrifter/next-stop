@@ -168,6 +168,21 @@ impl R2Client {
         Ok(v)
     }
 
+    /// v1.1.4（契約 §4 `sync_cloud_snapshot_list`）：`prefix` 底下全部物件的 (key, size)，已依 key 排序。
+    /// 為什麼不沿用 `list_after`：快照列表要顯示大小（「38 KB」），而 `ObjectMeta.size` 本來就在 list 回應裡——
+    /// 多一支回大小的版本，就不必為了一個數字逐顆 HEAD。
+    pub async fn list_objects(&self, prefix: &str) -> Result<Vec<(String, u64)>, String> {
+        let p = ObjPath::from(prefix.trim_end_matches('/'));
+        let mut out: Vec<(String, u64)> = Vec::new();
+        let mut stream = self.store.list(Some(&p));
+        while let Some(item) = stream.next().await {
+            let meta = item.map_err(|e| friendly(&e, "列出同步資料失敗"))?;
+            out.push((meta.location.to_string(), meta.size as u64));
+        }
+        out.sort();
+        Ok(out)
+    }
+
     /// `get`，但「雲端沒有這個 key」回 `Ok(None)` 而不是 Err。
     ///
     /// 為什麼：`v1/<epoch>/EPOCH.bin`（紀元標記，契約 §4.2）本來就可能不存在——

@@ -13,6 +13,8 @@
  *               沒加入同步＝不問，只留一行「還原不會影響其他裝置」。下面兩個還原入口都吃這個選擇。
  *   ④ 清單     ＝ 時間・大小・來源 chip（自動／手動／保險 ＋ 主位置／第二位置）；
  *               「還原到此份」照「原型沒有的元素 hover／聚焦才現身」（c13）。
+ *   ④ʹ 雲端     ＝（v1.1.4 D-2，加入了同步才出現）`CloudSnapshots`：上次上傳、「立即備份到雲端」、快照列表、
+ *               點一份 → 同一個「回到過去／接上現在」確認窗（兩殼共用元件；WP-C 落版面）。
  *   ⑤ 動作列   ＝「立即備份」「開啟備份資料夾」「從檔案還原…」（D-⑥-5）。
  *   ⑥ 危險區   ＝ `import.meta.env.DEV` 才渲染的「重置空庫（保留設定）」（D-⑥-8，正式版無此入口）。
  *
@@ -32,28 +34,12 @@ import { useUiStore } from "../../store/uiStore";
 import { BACKUP_KEEP_OPTIONS, BACKUP_SAFETY_KEEP } from "../../data";
 import type { BackupKind, BackupLocation, RestoreChoice } from "../../data";
 import { SealReceipt } from "../stamps/Stamps";
+// v1.1.4（契約 §7）：二選一的字搬到兩殼共用的 `CloudSnapshots`——雲端還原與本機還原要同一套字
+import { CloudSnapshots, CLOUD_TEXT, RESTORE_CHOICES, RESTORE_CONSEQUENCE } from "../common/CloudSnapshots";
 import "./settings.css";
 
 const KIND_LABEL: Record<BackupKind, string> = { auto: "自動", manual: "手動", safety: "保險" };
 const LOCATION_LABEL: Record<BackupLocation, string> = { primary: "主位置", secondary: "第二位置" };
-
-/**
- * 還原方式二選一（v1.1.3 契約 §8.3；提案規則②）——**後果要在按下去之前講**。
- * 同一句話也會再出現在確認窗的 body（`backupStore.restore` 依主人選的那枚組），兩處一字不差是刻意的：
- * 頁上這句是「我等一下要做什麼」，窗裡那句是「我現在就要做了」，講法一變主人就會以為是兩件事。
- * 沒選到的那一句掛在 `title`（桌機有 hover）——兩句都常駐會把這一籤塞成字牆，
- * 沿本籤「保留份數」那顆 select 的慣例：長句版走 title。
- */
-const RESTORE_CONSEQUENCE: Record<RestoreChoice, string> = {
-  past: "所有裝置都改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。",
-  // 產品評審 S3：舊句「等於只找回沒人動過的部分」會被讀成「沒人編輯過的部分」，
-  // 但**刪除也算動過**——誤刪的票只要那筆刪除已經送上雲，這條路一張都救不回來。
-  present: "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。",
-};
-const RESTORE_CHOICES: { value: RestoreChoice; label: string; consequence: string }[] = [
-  { value: "past", label: "回到過去", consequence: RESTORE_CONSEQUENCE.past },
-  { value: "present", label: "接上現在", consequence: RESTORE_CONSEQUENCE.present },
-];
 
 /** 顯示用時刻：同年＝`9/14 03:12`，跨年補年份。備份照本地時間，**不套日界線**（草案 §5-11）。 */
 function fmtStamp(iso: string | null | undefined): string {
@@ -329,7 +315,9 @@ export function BackupTab() {
                   title={e.path}
                   className="btn-ghost ns-btn ns-btn--sm ns-bk-restore"
                 >
-                  還原到此份
+                  {/* v1.1.4 修正席（產品評審 S1）：與雲端列表那顆同一個字。
+                      兩個清單長得一樣、鈕卻一個寫「此份」一個寫「這份」，只會讓人以為是兩種動作。 */}
+                  {CLOUD_TEXT.restore}
                 </button>
               </li>
             ))}
@@ -337,7 +325,11 @@ export function BackupTab() {
         )}
       </section>
 
-      {/* ⑤ 動作列 */}
+      {/* ⑤ 動作列——**v1.1.4 修正席（產品評審 S1）搬到雲端區之前**。
+          舊版把雲端區插在「備份清單」與這一列之間，於是「立即備份／開啟備份資料夾／從檔案還原…」
+          這三顆（它們講的是**本機**那一套）在視覺上黏到雲端區底下，看起來像是雲端的鈕；
+          而雲端列表一長（階梯是全域算的，兩台就有 ~50 列）還會把它們推到整頁最底。
+          現在的順序是「本機清單 → 本機動作 → 雲端區」，每一塊的鈕都緊跟在自己的清單後面。 */}
       <section className="ns-bk-actions">
         <button type="button" onClick={() => void backupNow()} disabled={busy} className="btn-seal ns-btn">
           立即備份
@@ -349,6 +341,11 @@ export function BackupTab() {
           從檔案還原…
         </button>
       </section>
+
+      {/* ④ʹ 雲端（v1.1.4 D-2）。「還原方式」把上面 ③ʹ 那顆 state 傳下去共用——本機還原與雲端還原是
+          同一個選擇（D-2），同一籤擺兩組同名 radio 等於兩份真相：上面選「接上現在」、下面按雲端
+          還原卻跑「回到過去」。沒加入同步時它只留一句「加入同步後這裡會列出雲端快照」（產品評審 Nice）。 */}
+      <CloudSnapshots shell="desktop" choice={restoreChoice} onChoiceChange={setRestoreChoice} />
 
       {/* ⑥ 危險區——DEV 限定（D-⑥-8：正式版沒有這個入口） */}
       {import.meta.env.DEV && (

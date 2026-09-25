@@ -16,6 +16,10 @@
 //!   `device_id`（**身分從 sync_meta 搬到這裡**：複製資料夾＝沒鑰匙圈＝新的一台；還原不換身分）。
 //!   `key_b64` 改名 `data_key_b64`（兩層鑰匙：它是「資料鑰匙」，密語只負責把它包成桶裡的 `KEY`）。
 //!   舊 JSON 以 serde alias／default 照讀，主人升級不重配（契約 §7 ①②）。
+//!
+//! **v1.1.4（契約 §5.3，契約席 2026-09-22）**：多一欄 `data_key_next_b64`——換鑰匙期間暫存的下一把資料鑰匙 K2。
+//!   只在標記檔 `sync/rotation-pending` 在時有值；步驟 7 搬進 `data_key_b64` 後清掉。None 時**不序列化**
+//!   （`skip_serializing_if`），所以沒在換鑰匙的鑰匙圈 JSON 與 1.1.3 逐字相同。
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -59,6 +63,11 @@ pub struct SyncCredentials {
     /// 這台的身分（uuid v4）。缺＝`status()` 從 `sync_meta.device_id` 搬；搬完存回鑰匙圈。
     #[serde(default)]
     pub device_id: Option<String>,
+    /// v1.1.4（契約 §5）：換鑰匙期間的**下一把**資料鑰匙 K2（32B base64url）。
+    /// 提交點（PUT KEY）之前斷掉＝回滾時丟掉；步驟 7 搬進 `data_key_b64` 後清成 None。
+    /// `data_key_b64` 在整個輪替期間**仍是 K1**（步驟 5 重加密快照要用它拆舊物件），所以兩把同時在。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_key_next_b64: Option<String>,
 }
 
 /// 這台實際使用的 keyring service 名＝app identifier（沙盒 exe 天然隔離）

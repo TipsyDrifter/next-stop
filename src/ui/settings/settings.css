@@ -401,3 +401,45 @@
    兩句都常駐會把備份籤塞成一堵字牆——沒選到的那一句掛在 title 上（桌機有 hover，
    沿本檔 `保留份數` 的「長句版改掛 title」慣例）。 */
 .ns-bk-restore-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ── v1.1.4（WP-C）──────────────────────────────────
+ * 備份籤的「④ʹ 雲端」一段（`ui/common/CloudSnapshots.tsx` 的桌機分支）＋同步籤的換鑰匙兩處。
+ *
+ * 形狀照舊零發明（c13）：整段＝`.ns-sy-pair`／`.ns-bk-danger` 那種「一道撕線隔開的一塊」、
+ * 列＝備份清單的 `.ns-bk-list`（連「還原」鈕 hover 才現身的規矩一起沿用，兩份清單在同一籤裡
+ * 不該有兩種行為）、種類 chip＝`.status`、說明＝`.ns-note`。這裡只補五條排版規則。
+ * ─────────────────────────────────────────────────── */
+
+.ns-bk-cloud { padding-top: 14px; border-top: 1px dashed var(--color-dash); }
+/* 「上次上傳 9/22 14:03」：緊貼上面那句規則說明，不用段距（同 `.ns-sy-when` 的處理） */
+.ns-cl-last { margin-top: 3px; }
+.ns-cl-err { margin-top: 6px; }
+/* 「還原方式沿用上面選的…」：與上下兩塊都隔開一點——它是這段與備份籤 ③ʹ 之間的那條線索 */
+.ns-cl-how { margin-top: 10px; }
+/* 列裡的「這台／另一台 A1B2」：借 `.ns-bk-seq` 的注記墨階（同一種「這一列的附註」），不新增顏色 */
+.ns-cl-who {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--color-ink-faint);
+}
+
+/* 換鑰匙中那一行（狀態列）：金色左緣＝「這台自己在忙」，與朱（等人處理）、赭（故障）都分開 */
+.ns-sy-rotating {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-gold);
+}
+
+/* 「同時換掉資料鑰匙」那一格：方框與字對齊在同一條基線上，字長了換行也不會跑到方框底下 */
+.ns-sy-rotate {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.ns-sy-rotate input { margin-top: 2px; flex: none; accent-color: var(--color-gold); }
+.ns-sy-rotate input:disabled { cursor: default; }
+/* 警告文（勾了才出現）：與勾選那一列黏在一起——它講的是那一格的後果，不是獨立的一段 */
+.ns-sy-rotate-warn { margin-top: 4px; }

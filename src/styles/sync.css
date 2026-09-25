@@ -30,6 +30,8 @@
 .ns-sync-dot[data-phase="epoch_changed"] { background: var(--color-seal); }
 /* v1.1.3 契約 §8.5：鍵違い＝雲端血統被別的密語重建，要人處理 ⇒ 朱，同信号待ち */
 .ns-sync-dot[data-phase="locked"] { background: var(--color-seal); }
+/* v1.1.4 契約 §7：換鑰匙中＝這台自己在忙、不是等人處理 ⇒ 金點慢閃（同 busy），不用朱 */
+.ns-sync-dot[data-phase="rotating"] { background: var(--color-gold); animation: ns-sync-breathe 1.6s ease-in-out infinite; }
 /* 已關閉（設定還在、總開關關著）：同一顆金點壓到很淡——「在這裡，但沒在動」 */
 .ns-sync-dot[data-phase="paused"] { opacity: .3; }
 
@@ -42,7 +44,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ns-sync-dot[data-busy="1"] { animation: none; }
+  /* v1.1.4（WP-C）：換鑰匙中那顆也要關——它跟 busy 是同一條 `ns-sync-breathe`，
+     只列 `[data-busy]` 的話，換鑰匙期間（可能好幾分鐘）會有一顆點在偏好關閉動畫的機器上一直閃。 */
+  .ns-sync-dot[data-busy="1"],
+  .ns-sync-dot[data-phase="rotating"] { animation: none; }
 }
 
 /* ── 位置：桌機書封的註記行（「CTRL 1 · 2 · 3　? 指引」末尾） ── */

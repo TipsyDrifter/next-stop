@@ -56,6 +56,18 @@
 //!       這趟剛塞進去的孤兒列；最後重算 line_id／route_id；更新 last_pull_key）。
 //!   * apply 不觸發任何業務邏輯（不寫 issued／punched／done 事件、不跑 syncRepeats）；缺 NOT NULL 欄的 INSERT 跳過並記數。
 //!
+//! **v1.1.4 雲端備份＋真撤銷密語**（契約席 2026-09-22 立骨架；規格＝
+//! `docs/research/2026-09-22-v1.1.4-雲端備份與真撤銷契約.md`；拍板＝決策記錄〈v1.1.4 開工拍板〉D-1／D-2／D-3）：
+//!   * **雲端快照**的機制（上傳／列表／階梯清理／JSON 匯入／雲端還原）拆到新模組 `snapshot.rs`（WP-B），
+//!     本檔只提供零件：`build_full_json`（純字串）、`write_export_file`、`keyed_client`（取鑰匙＋client＋圍籬）、
+//!     `switch_epoch_local`（`finish_restore(Past)` 抽出來的「切紀元」共用段）、`sweep_old_epochs`（掃地工）。
+//!   * **真撤銷密語**＝`change_passphrase(…, rotate=true)` → `rotate_data_key`（七步，契約 §5）：產 K2 → 鎖 E2 →
+//!     PUT KEY（提交點）→ 本機切 E2／K2 → 重加密快照 → 刪舊紀元 → 清標記。標記檔 `sync/rotation-pending`
+//!     帶階段，boot 看到就 `finish_rotation` 續跑；提交點之前斷掉＝回滾（新密語沒存、不能續）。
+//!   * 別台看到拆不開的新紀元＝既有 `locked=<E2>`；`<root>/<E2>/ROTATED` 旗標在 ⇒ `locked_reason=rotated`（文案分流）。
+//!   * `skipped_missing`：必填欄不齊的新列另計，累進 `sync_meta.skipped_missing_total`。
+//!   * `sync_meta.role`／`primary_device_id` 一次 DELETE（從此不能退回 1.1.2，拍板接受）。
+//!
 //! 狀態機（`phase`，契約 §4.3 的判定順序）：off（從沒加入）／paused（加入了但總開關關著）／
 //!   epoch_changed（改正待ち）／locked（鍵違い）／gated（信号待ち）／stopped（停車中：憑證缺或上次失敗）／
 //!   running（運行中）。
@@ -188,6 +200,18 @@ pub enum Phase {
     /// （桶裡的 SALT 與這台不同＝血統已被別的密語重建）或紀元號（更大的紀元、EPOCH.bin 拆不開）。
     /// 朱點，同信号待ち；出路是「重新加入」並輸入新密語。
     Locked,
+    /// v1.1.4（契約 §5）：這台正在換資料鑰匙（`sync/rotation-pending` 標記檔在）。push／pull 都擋；
+    /// boot 看到就 `finish_rotation` 續跑。文案「換鑰匙中」。
+    Rotating,
+}
+
+/// v1.1.4（契約 §4）：`locked=<紀元>` 的原因——`rotated`＝那個紀元有 `<root>/<E>/ROTATED` 旗標（另一台換過鑰匙，
+/// 出路是用新密語重新加入）；`stale`＝沒旗標（殘留或竄改，沿 v1.1.3 的舊文案）。`locked='salt'` 時為 None。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LockedReason {
+    Rotated,
+    Stale,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,6 +309,14 @@ pub struct SyncStatus {
     pub last_orphans: Option<LastOrphans>,
     /// v1.1.3：手機「改用另一台的」之前匯出的全量 JSON（桌機是拍 manual 備份，這欄為 null）
     pub last_export: Option<LastExport>,
+    /// v1.1.4：`locked` 是紀元號時的原因（`rotated`／`stale`）；`locked` 為 null 或 `salt` 時為 null
+    pub locked_reason: Option<LockedReason>,
+    /// v1.1.4：累計「必填欄不齊而跳過的新列」（`sync_meta.skipped_missing_total`）；UI >0 才顯示一行
+    pub skipped_missing_total: u64,
+    /// v1.1.4：上一次雲端快照上傳成功的時刻（`sync_meta.last_cloud_snapshot_at`，UTC ISO）
+    pub last_cloud_snapshot_at: Option<String>,
+    /// v1.1.4：換鑰匙進行到哪一步（標記檔 `sync/rotation-pending` 的 `stage`）；非 null ⇒ phase=rotating
+    pub rotation_stage: Option<String>,
 }
 
 /// 上一次重置時另存的未同步修改（見 `SyncStatus::last_orphans`）
@@ -333,6 +365,8 @@ pub struct PullReport {
     pub conflicts: u64,
     /// v1.1.2：這趟收到的最大 hlc（TS 端 `seedHlc` 用；None＝沒收到東西）
     pub max_hlc: Option<String>,
+    /// v1.1.4：這趟「必填欄不齊而跳過的新列」（已含在 `skipped_ops` 裡；另計是為了讓 UI 講得出原因）
+    pub skipped_missing: u64,
 }
 
 /// managed state。
@@ -355,6 +389,10 @@ pub struct Runtime {
     pub gated_remote_schema: Option<u32>,
     /// v1.1.3 §4.7：這個進程已經對過桶裡的 `SALT`／`KEY`／`EPOCH.bin` 了（每台每個進程一次）
     pub bucket_meta_checked: bool,
+    /// v1.1.4 §4.5：掃地工在這個進程「已經對哪個紀元掃過了」。
+    /// 為什麼記紀元而不是一個 bool：換紀元（還原／改用那份／換鑰匙）之後舊紀元才真的變成垃圾，
+    /// 那時要再掃一次；記 bool 就得等主人重開 App。
+    pub swept_epoch: Option<String>,
 }
 
 impl SyncState {
@@ -382,13 +420,33 @@ impl SyncState {
             r.bucket_meta_checked = false;
         }
     }
+    /// v1.1.4 §4.5：這個紀元還沒掃過就佔位（回 true＝這趟由我掃）。鎖內不跨 await。
+    fn claim_sweep(&self, epoch: &str) -> bool {
+        match self.inner.lock() {
+            Ok(mut r) => {
+                if r.swept_epoch.as_deref() == Some(epoch) {
+                    false
+                } else {
+                    r.swept_epoch = Some(epoch.to_string());
+                    true
+                }
+            }
+            Err(_) => false,
+        }
+    }
+    /// 掃地工失敗時把佔位還回去（下一趟再試；失敗不影響這趟 pull 的回報）
+    fn release_sweep(&self) {
+        if let Ok(mut r) = self.inner.lock() {
+            r.swept_epoch = None;
+        }
+    }
 }
 
 /// in-flight 守衛：push／pull 同時只跑一趟（契約 §5.2；搶不到就回空報告，UI 不必特判）
-struct BusyGuard<'a>(&'a AtomicBool);
+pub(crate) struct BusyGuard<'a>(&'a AtomicBool);
 
 impl<'a> BusyGuard<'a> {
-    fn acquire(flag: &'a AtomicBool) -> Option<Self> {
+    pub(crate) fn acquire(flag: &'a AtomicBool) -> Option<Self> {
         flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
             .map(|_| BusyGuard(flag))
@@ -415,11 +473,11 @@ pub async fn pool(app: &AppHandle) -> Result<Pool<Sqlite>, String> {
     Ok(pool.clone())
 }
 
-fn db_err(e: sqlx::Error) -> String {
+pub(crate) fn db_err(e: sqlx::Error) -> String {
     format!("同步的資料庫操作失敗：{e}")
 }
 
-fn now_iso() -> String {
+pub(crate) fn now_iso() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
@@ -427,7 +485,7 @@ fn now_iso() -> String {
 // sync_meta 小工具
 // ─────────────────────────────────────────────────────────────
 
-async fn meta_all<'e, E>(ex: E) -> Result<HashMap<String, String>, String>
+pub(crate) async fn meta_all<'e, E>(ex: E) -> Result<HashMap<String, String>, String>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
@@ -444,7 +502,7 @@ where
     Ok(map)
 }
 
-async fn meta_set<'e, E>(ex: E, key: &str, value: &str) -> Result<(), String>
+pub(crate) async fn meta_set<'e, E>(ex: E, key: &str, value: &str) -> Result<(), String>
 where
     E: sqlx::Executor<'e, Database = Sqlite>,
 {
@@ -465,7 +523,7 @@ where
 /// 為什麼要這一層：`sync_status()` 每 60 秒被問一次，而 `schema_gate`／`last_error` 絕大多數時候
 /// 根本沒變；每次都 INSERT…ON CONFLICT 等於每分鐘開一次寫入交易、讓 WAL 白白長大。
 /// 同步關著的桌機更不該因為「被問了狀態」就動到資料庫（鐵則：既有行為零改變）。
-async fn meta_set_if_changed(
+pub(crate) async fn meta_set_if_changed(
     pool: &Pool<Sqlite>,
     current: Option<&String>,
     key: &str,
@@ -479,7 +537,7 @@ async fn meta_set_if_changed(
 
 /// device_id 的**唯一誕生點**（契約 §3）：首次呼叫 `sync_status()` 時 INSERT OR IGNORE。
 /// `sync_reset_local` 保留它——重設之後還是同一台車。
-async fn ensure_device_id(pool: &Pool<Sqlite>) -> Result<String, String> {
+pub(crate) async fn ensure_device_id(pool: &Pool<Sqlite>) -> Result<String, String> {
     if let Some(row) = sqlx::query("SELECT value FROM sync_meta WHERE key = 'device_id'")
         .fetch_optional(pool)
         .await
@@ -522,17 +580,17 @@ async fn clear_inflight(pool: &Pool<Sqlite>) -> Result<(), String> {
 }
 
 /// 失敗時把人話寫進 `sync_meta.last_error`（重啟後 UI 還看得到「停車中」的理由）
-async fn record_error(pool: &Pool<Sqlite>, msg: &str) {
+pub(crate) async fn record_error(pool: &Pool<Sqlite>, msg: &str) {
     let _ = meta_set(pool, "last_error", msg).await;
 }
 
-async fn record_success(pool: &Pool<Sqlite>) -> Result<(), String> {
+pub(crate) async fn record_success(pool: &Pool<Sqlite>) -> Result<(), String> {
     meta_set(pool, "last_sync_at", &now_iso()).await?;
     clear_error(pool).await
 }
 
 /// 清掉上次的錯誤（本來就是空的就什麼都不做——見 `meta_set_if_changed` 的理由）
-async fn clear_error(pool: &Pool<Sqlite>) -> Result<(), String> {
+pub(crate) async fn clear_error(pool: &Pool<Sqlite>) -> Result<(), String> {
     let current = sqlx::query("SELECT value FROM sync_meta WHERE key = 'last_error'")
         .fetch_optional(pool)
         .await
@@ -650,6 +708,16 @@ pub async fn status(app: &AppHandle) -> Result<SyncStatus, String> {
         }
         meta = meta_all(&pool).await?;
     }
+    // v1.1.4（契約 §3；決策記錄〈v1.1.4 開工拍板〉自決）：`role` 這一列**真的清掉**。它是 1.1.2 的閘門鍵，
+    // 留著是「退回 1.1.2 同步還活著」的退路——v1.1.3 真機驗收已過，拍板接受「從此不能退回 1.1.2」。
+    // 只在 `joined` 已補好之後刪（上面那段先跑），所以不會刪掉還沒遷移的閘門。
+    if meta.contains_key("role") && meta.get("joined").map(String::as_str) == Some("1") {
+        sqlx::query("DELETE FROM sync_meta WHERE key = 'role'")
+            .execute(&pool)
+            .await
+            .map_err(db_err)?;
+        meta.remove("role");
+    }
 
     let pending_ops: i64 = sqlx::query("SELECT COUNT(*) AS n FROM sync_outbox")
         .fetch_one(&pool)
@@ -673,6 +741,12 @@ pub async fn status(app: &AppHandle) -> Result<SyncStatus, String> {
     let nonempty = |s: &&String| !s.is_empty();
     let pending_epoch = meta.get("pending_epoch").filter(nonempty).cloned();
     let locked = meta.get("locked").filter(nonempty).cloned();
+    // v1.1.4：換鑰匙的標記檔（契約 §5）。有鑰匙圈才算數——沒鑰匙圈的機器（複製資料夾）連紀元都不是它的
+    let rotation_stage = if configured {
+        rotation_marker(app).map(|m| m.stage.as_str().to_string())
+    } else {
+        None
+    };
 
     // 七態（契約 §4.3）：off／paused／epoch_changed（改正待ち）／locked（鍵違い）／gated（信号待ち）／stopped／running。
     // 改正待ち排在鍵違い前面：前者有動作可按（「改用那份」），後者只能重新加入。
@@ -687,6 +761,10 @@ pub async fn status(app: &AppHandle) -> Result<SyncStatus, String> {
         } else {
             Phase::Off
         }
+    } else if rotation_stage.is_some() {
+        // v1.1.4（契約 §5）：換鑰匙中排在總開關之前——這是主人剛按下的一次性決定，關著的總開關擋不住它，
+        // 而且 push／pull 這段期間本來就要擋（舊鑰匙推出去的物件下一步就會被刪）。
+        Phase::Rotating
     } else if !enabled {
         Phase::Paused
     } else if pending_epoch.is_some() {
@@ -755,6 +833,23 @@ pub async fn status(app: &AppHandle) -> Result<SyncStatus, String> {
                 path: path.clone(),
                 at: meta.get("last_export_at").cloned().unwrap_or_default(),
             }),
+        // v1.1.4：`locked` 是紀元號時才有原因；`sync_meta.locked_reason` 由紀元掃描寫（`rotated`／`stale`）
+        locked_reason: meta
+            .get("locked")
+            .filter(nonempty)
+            .filter(|l| l.as_str() != "salt")
+            .and_then(|_| meta.get("locked_reason"))
+            .and_then(|r| match r.as_str() {
+                "rotated" => Some(LockedReason::Rotated),
+                "stale" => Some(LockedReason::Stale),
+                _ => None,
+            }),
+        skipped_missing_total: meta
+            .get("skipped_missing_total")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0),
+        last_cloud_snapshot_at: meta.get("last_cloud_snapshot_at").filter(nonempty).cloned(),
+        rotation_stage,
     })
 }
 
@@ -799,6 +894,8 @@ pub async fn set_enabled(app: &AppHandle, enabled: bool) -> Result<SyncStatus, S
 /// 重設本機（③重新加入的「拿掉」）：清憑證（**含身分**）／outbox／cells／整張 meta，總開關關閉。
 /// **不碰資料列、不碰雲端**。放回去＝再按「加入同步」＝新的一台（契約 §3.1）。
 pub async fn reset_local(app: &AppHandle) -> Result<SyncStatus, String> {
+    // 工程評審 B-4：換鑰匙沒做完時「重新加入」＝清掉鑰匙圈裡唯一的那把 K2（桶裡的 KEY 已經是它包的）
+    guard_not_rotating(app)?;
     // 評審 S3：同 configure——pull／push 在飛時重設會留下孤兒 meta
     let Some(st) = app.try_state::<SyncState>() else {
         return Err("同步模組還沒初始化。".into());
@@ -961,7 +1058,7 @@ fn derived_hlc_sql(alias: &str) -> String {
 /// 既有格子一律不動（`INSERT OR IGNORE`）——它們才是真正的最後修改時刻。
 ///
 /// 回傳補了幾格（診斷用）。
-async fn stamp_missing_cells(tx: &mut sqlx::Transaction<'_, Sqlite>, me: &str) -> Result<u64, String> {
+pub(crate) async fn stamp_missing_cells(tx: &mut sqlx::Transaction<'_, Sqlite>, me: &str) -> Result<u64, String> {
     let dev8 = dev8_of(me);
     let mut total: u64 = 0;
 
@@ -1284,6 +1381,11 @@ async fn push_inner(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<PushReport, 
     if meta.get("joined").map(String::as_str) != Some("1") {
         return Ok(empty);
     }
+    // v1.1.4（契約 §5.5）：換鑰匙中不推不拉。TS 的 `runCycle` 在 `phase=rotating` 時本來就不叫，
+    // 這一行是**手動同步與競態**的保險：用舊鑰匙推上去的物件下一步就會被步驟 6 整顆刪掉。
+    if rotation_marker(app).is_some() {
+        return Ok(empty);
+    }
     // 改正待ち（契約 §4.3）：另一台開了新紀元、這台還盯著舊的。推上去只會把 op 丟進一個
     // 沒人會再讀的舊紀元目錄；那些修改的正確去處是 `adopt_epoch` 的孤兒 JSON。
     // （TS 的 `runCycle` 也不會叫，這裡是手動同步與競態的保險。）
@@ -1318,7 +1420,14 @@ async fn push_inner(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<PushReport, 
     // 檔案也沒有——D-1.1-4「未同步修改先存本機 JSON」在這個窗口（還原到手機下次前景，可能數小時）
     // 完全失守，而且零痕跡。所以副本推之前先看一眼雲端有沒有更新的紀元（一次 Class B list）。
     // v1.1.3 §5.6：**所有裝置都偵測**（沒有 replica 限定了），判準是「拆得開即承認」。
-    if record_epoch_scan(pool, scan_new_epoch(&client, &key, &root, &epoch).await?).await? {
+    if record_epoch_scan(
+        pool,
+        &client,
+        &root,
+        scan_new_epoch(&client, &key, &root, &epoch).await?,
+    )
+    .await?
+    {
         clear_error(pool).await?;
         return Ok(empty);
     }
@@ -1344,6 +1453,21 @@ async fn push_inner(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<PushReport, 
             .execute(pool)
             .await
             .map_err(db_err)?;
+    }
+
+    // v1.1.4 修正席（工程評審 S-11）：推之前先確認**這個紀元還在**。
+    // 輪替步驟 6 會把舊紀元整顆刪掉；在那之後、這台掃到 E2 之前的那一小段窗口裡，
+    // 這台會把物件 PUT 進一個已經不存在的目錄（R2 會默默把目錄建回來，掃地工下次再刪），
+    // 而本機的 outbox 已經清空＝它以為送出去了，其實沒有人會讀到。停手比較誠實：
+    // 下一趟 pull 的紀元偵測會把它帶進鍵違い，出路是重新加入並「兩邊都保留」。
+    // 代價＝每趟 push 多一次 Class B GET（只在真的有東西要推時）。
+    if client
+        .get_opt(&epoch_marker_key(&root, &epoch))
+        .await?
+        .is_none()
+    {
+        eprintln!("[sync:push] 目前紀元的標記不在了，這趟不推：{}", epoch_marker_key(&root, &epoch));
+        return Ok(empty);
     }
 
     push_loop(pool, &client, &key, &root, &epoch, &device_id).await
@@ -1546,6 +1670,7 @@ pub async fn pull(app: &AppHandle) -> Result<PullReport, String> {
         busy: false,
         conflicts: 0,
         max_hlc: None,
+        skipped_missing: 0,
     };
     let Some(st) = app.try_state::<SyncState>() else {
         return Err("同步模組還沒初始化。".into());
@@ -1573,6 +1698,7 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
         busy: false,
         conflicts: 0,
         max_hlc: None,
+        skipped_missing: 0,
     };
     let meta = meta_all(pool).await?;
     if meta.get("enabled").map(String::as_str) != Some("1") {
@@ -1580,6 +1706,10 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
     }
     // v1.1.3（契約 §3.2）：閘門鍵 `role` → `joined`。兩端都拉（正本／副本退場）。
     if meta.get("joined").map(String::as_str) != Some("1") {
+        return Ok(empty);
+    }
+    // v1.1.4（契約 §5.5）：換鑰匙中不推不拉（理由同 `push_inner`）
+    if rotation_marker(app).is_some() {
         return Ok(empty);
     }
     let incomplete = || "同步設定不完整，請重設後重新加入。".to_string();
@@ -1601,7 +1731,14 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
 
     // ② 紀元偵測（契約 §5.6，**所有裝置都做**、拆得開即承認）。偵測到就不再拉舊紀元的東西，
     //    等主人在改正待ち按「改用那份」。
-    if record_epoch_scan(pool, scan_new_epoch(&client, &key, &root, &epoch).await?).await? {
+    if record_epoch_scan(
+        pool,
+        &client,
+        &root,
+        scan_new_epoch(&client, &key, &root, &epoch).await?,
+    )
+    .await?
+    {
         st.set_gate(None);
         clear_error(pool).await?;
         return Ok(empty);
@@ -1613,6 +1750,26 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
         record_success(pool).await?;
     } else if !report.gated {
         clear_error(pool).await?;
+    }
+
+    // ③ v1.1.4（契約 §4.5）掃地工：拉成功、而且這台真的在 running（沒有改正待ち／鍵違い／加入沒做完）
+    //    ⇒ 順手把「比目前紀元小、且不在最近兩個」的舊紀元整顆刪掉。**每個進程每個紀元一次**。
+    //
+    //    為什麼掛在 pull 尾巴而不是另起排程：這裡是唯一「已經確定自己看得到目前紀元、而且沒有待處理狀態」
+    //    的地方；別的裝置若還停在舊紀元（改正待ち），它 adopt 時只拉**最新**紀元，被刪的那些它本來就不讀。
+    //    為什麼 `!gated`：信号待ち代表別台的 schema 比我新——那是「我該更新」，不是「我該掃別人的地」。
+    if !report.gated {
+        let m = meta_all(pool).await?;
+        let idle = !m.contains_key("pending_epoch")
+            && m.get("locked").is_none_or(|v| v.is_empty())
+            && m.get("join_pending").is_none_or(|v| v.is_empty());
+        if idle && st.claim_sweep(&epoch) {
+            if let Err(e) = sweep_old_epochs(&client, &root, &epoch, SWEEP_KEEP_DEFAULT).await {
+                // 失敗只 log、不影響這趟 pull 的回報（契約 §4.5）
+                eprintln!("[sync:sweep] {e}");
+                st.release_sweep();
+            }
+        }
     }
     Ok(report)
 }
@@ -1640,6 +1797,7 @@ pub(crate) async fn pull_core(
         busy: false,
         conflicts: 0,
         max_hlc: None,
+        skipped_missing: 0,
     };
     let meta = meta_all(pool).await?;
 
@@ -1727,6 +1885,7 @@ pub(crate) async fn pull_core(
         report.objects += 1;
         report.applied_ops += outcome.applied;
         report.skipped_ops += outcome.skipped;
+        report.skipped_missing += outcome.skipped_missing;
         report.conflicts += outcome.conflicts;
         tables.extend(outcome.changed);
         // §5：把這趟收到的最大 hlc 回報給 TS 當種子（時鐘偏差防護）
@@ -1739,6 +1898,15 @@ pub(crate) async fn pull_core(
         if let Some(st) = st {
             st.set_gate(None);
         }
+    }
+    // v1.1.4（契約 §4）：必填欄不齊的新列累進 `skipped_missing_total`——這種列永遠不會再來一次
+    //（對方的建立 op 早就過去了），只靠一趟 PullReport 講一次主人根本看不到。
+    if report.skipped_missing > 0 {
+        let prev = meta
+            .get("skipped_missing_total")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        meta_set(pool, "skipped_missing_total", &(prev + report.skipped_missing).to_string()).await?;
     }
     report.changed_tables = tables.into_iter().collect();
     Ok(report)
@@ -1826,8 +1994,11 @@ pub(crate) enum EpochScan {
     None,
     /// 有一個比我新、而且**拆得開**的紀元＝同一把資料鑰匙＝是我這份資料的事 ⇒ 改正待ち
     Found(String, EpochInfo),
-    /// 有比我新的紀元，但拆不開＝別的密語建的 ⇒ 鍵違い（可見狀態，出路是「重新加入」）
-    Locked(String),
+    /// 有比我新的紀元，但拆不開＝別的密語建的 ⇒ 鍵違い（可見狀態，出路是「重新加入」）。
+    /// v1.1.4 修正席（工程評審 S-3）：帶**全部**拆不開的紀元（由大到小），不只最大那一個——
+    /// 文案要分「換過鑰匙」與「殘留」，而換鑰匙開的 E2 上面可能還疊著別人「回到過去」開的 E3。
+    /// 第 0 個是寫進 `sync_meta.locked` 的那一個（維持「承認最大的」語義）。
+    Locked(Vec<String>),
 }
 
 /// 雲端上有沒有「比我新的紀元」（契約 §5.6；**所有裝置都做**）。
@@ -1853,7 +2024,7 @@ pub(crate) async fn scan_new_epoch(
     // 由大到小：承認最大的那一個（後做的為準）
     let newer = newer_epochs_of(dirs.iter().map(String::as_str), my_epoch);
 
-    let mut first_unopenable: Option<String> = None;
+    let mut unopenable: Vec<String> = Vec::new();
     for n in newer {
         let e = n.to_string();
         // 沒有標記＝對方可能正在寫（EPOCH.bin 在快照 push 之前就寫上去，下一趟就看得到）
@@ -1870,16 +2041,13 @@ pub(crate) async fn scan_new_epoch(
         }
         match epoch_marker_verdict(root, &e, key, &blob) {
             Some(info) => return Ok(EpochScan::Found(e, info)),
-            None => {
-                if first_unopenable.is_none() {
-                    first_unopenable = Some(e);
-                }
-            }
+            None => unopenable.push(e),
         }
     }
-    Ok(match first_unopenable {
-        Some(e) => EpochScan::Locked(e),
-        None => EpochScan::None,
+    Ok(if unopenable.is_empty() {
+        EpochScan::None
+    } else {
+        EpochScan::Locked(unopenable)
     })
 }
 
@@ -1887,8 +2055,26 @@ pub(crate) async fn scan_new_epoch(
 ///
 /// `locked` 這把鍵由兩個人寫：`ensure_bucket_meta` 負責 `'salt'`（血統被別的密語重建），
 /// 這裡負責紀元號。兩者不互相踩——走到這裡代表 SALT 是對的。
-async fn record_epoch_scan(pool: &Pool<Sqlite>, scan: EpochScan) -> Result<bool, String> {
+///
+/// **v1.1.4（契約 §4.3／§5.5）**：鍵違い還要分「另一台換過鑰匙」與「殘留」。判準是那個紀元底下有沒有
+/// `<root>/<E>/ROTATED` 這顆明文旗標（只有輪替開的紀元會寫）。為什麼要分：兩種的出路文案完全不同——
+/// 換過鑰匙要主人「用**新密語**重新加入」（還會提醒未送出的修改會一起併進來），殘留只是「重新加入」。
+/// 猜錯的代價是主人拿舊密語一直試。多一次 `get_opt`（Class B，只在 locked 這個少見分支）換文案正確。
+async fn record_epoch_scan(
+    pool: &Pool<Sqlite>,
+    client: &R2Client,
+    root: &str,
+    scan: EpochScan,
+) -> Result<bool, String> {
     let meta = meta_all(pool).await?;
+    /// `locked` 被清掉時 `locked_reason` 一起清（它是那把鍵的形容詞，沒有主詞就不該留）
+    async fn clear_locked(pool: &Pool<Sqlite>) -> Result<(), String> {
+        sqlx::query("DELETE FROM sync_meta WHERE key IN ('locked','locked_reason')")
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
     match scan {
         EpochScan::Found(e, info) => {
             meta_set(pool, "pending_epoch", &e).await?;
@@ -1896,28 +2082,63 @@ async fn record_epoch_scan(pool: &Pool<Sqlite>, scan: EpochScan) -> Result<bool,
             meta_set(pool, "pending_epoch_info", &json).await?;
             // 改正待ち優先於鍵違い（前者有動作可按，後者只能重新加入）
             if meta.get("locked").is_some_and(|v| v != "salt") {
-                sqlx::query("DELETE FROM sync_meta WHERE key = 'locked'")
-                    .execute(pool)
-                    .await
-                    .map_err(db_err)?;
+                clear_locked(pool).await?;
             }
             Ok(true)
         }
-        EpochScan::Locked(e) => {
-            meta_set_if_changed(pool, meta.get("locked"), "locked", &e).await?;
+        EpochScan::Locked(epochs) => {
+            let Some(top) = epochs.first() else { return Ok(false) };
+            meta_set_if_changed(pool, meta.get("locked"), "locked", top).await?;
+            // v1.1.4 修正席（工程評審 S-3）：**逐一**問旗標，任何一個在就是「換過鑰匙」。
+            // 只看最大那一個會這樣出錯：A 換鑰匙開 E2（有旗標）→ 有人用新鑰匙「回到過去」開 E3（沒旗標）
+            // → 還握著舊鑰匙的 B 兩個都拆不開，卻被判成「殘留」，文案叫主人去 Cloudflare 後台刪目錄。
+            // 旗標讀失敗（網路）不該讓整趟 pull 變停車中：讀不到就維持上次的判斷、下一趟再問。
+            let mut rotated = false;
+            let mut all_read = true;
+            for e in &epochs {
+                match client.get_opt(&rotated_flag_key(root, e)).await {
+                    Ok(Some(_)) => {
+                        rotated = true;
+                        break;
+                    }
+                    Ok(None) => {}
+                    Err(_) => all_read = false,
+                }
+            }
+            if rotated || all_read {
+                let reason = if rotated { "rotated" } else { "stale" };
+                meta_set_if_changed(pool, meta.get("locked_reason"), "locked_reason", reason).await?;
+            }
             Ok(true)
         }
         EpochScan::None => {
             // 之前記過的紀元鍵違い已經不成立（對方把 EPOCH.bin 補好了、或紀元被清掉）⇒ 清掉
             if meta.get("locked").is_some_and(|v| v != "salt") {
-                sqlx::query("DELETE FROM sync_meta WHERE key = 'locked'")
-                    .execute(pool)
-                    .await
-                    .map_err(db_err)?;
+                clear_locked(pool).await?;
             }
             Ok(false)
         }
     }
+}
+
+/// `<root>/<E>/ROTATED` 的內容（契約 §2：小 JSON `{device_id, at}`）。
+///
+/// 讀的一方**要容忍空物件與壞 JSON**——拍板原本寫的是「明文空物件」，契約席才改成帶誰／何時；
+/// 別台或舊版寫的空旗標一樣算旗標（只是不知道是誰寫的，回滾時就不敢刪它）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotatedFlag {
+    #[serde(default)]
+    pub device_id: String,
+    #[serde(default)]
+    pub at: String,
+}
+
+/// 旗標 bytes → `RotatedFlag`；空物件／壞 JSON ⇒ 欄位皆空的 flag（「旗標在，但不知道是誰」）
+pub(crate) fn parse_rotated_flag(bytes: &[u8]) -> RotatedFlag {
+    serde_json::from_slice::<RotatedFlag>(bytes).unwrap_or(RotatedFlag {
+        device_id: String::new(),
+        at: String::new(),
+    })
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1991,6 +2212,8 @@ pub struct ApplyOutcome {
     pub conflicts: u64,
     /// 有被改到的表
     pub changed: Vec<String>,
+    /// v1.1.4：`skipped` 裡「新列缺 NOT NULL 欄」那一種的筆數（契約 §4；只計新列，其餘四種跳過不算）
+    pub skipped_missing: u64,
 }
 
 /// 一格 `sync_cells` 的戳記
@@ -2308,6 +2531,7 @@ pub async fn apply_object(
                 .iter()
                 .any(|need| !taken.iter().any(|(c, _, v)| c == need && !v.is_null()));
             if missing {
+                out.skipped_missing += 1;
                 false
             } else {
                 let names = std::iter::once(pk.to_string())
@@ -2612,6 +2836,12 @@ fn parse_restore_marker(text: &str) -> (RestoreChoice, Option<String>) {
 /// 看到 `configured=false` 就判成「這台沒加入、照常還原」。讀不到卻照常還原＝主人選的「回到過去」
 /// 靜默變成「接上現在」，所以這條路必須與「真的沒加入」分得開（`status()` 此時 `joined=1`、`last_error` 非空）。
 pub fn restore_choice(app: &AppHandle, choice: Option<RestoreChoice>, label: Option<String>) -> Result<(), String> {
+    // 工程評審 B-4：還原會換掉整顆 DB 並重啟，boot 的 `finish_restore` 會先開一個 K1 的新紀元
+    //（> E2）再輪到 `finish_rotation` 把這台切回 E2 ⇒ 自己開的紀元變成自己的「殘留」。
+    // 清選擇（`None`）不動任何東西，放行。
+    if choice.is_some() {
+        guard_not_rotating(app)?;
+    }
     match credstore::load(app) {
         Ok(Some(_)) => {}
         Ok(None) => return Err("這台還沒加入同步——還原不會影響其他裝置。".into()),
@@ -2711,8 +2941,11 @@ pub struct WizardEnv {
 /// `join_pending` 也在此列（工程評審 B-2）：換紀元的三條路（加入／回到過去／改用那份）都會
 /// 自己重新快照或整批換掉資料，上一次沒做完的那次快照已經沒有意義了。
 /// **順序要注意**：`join` 的落地交易是「先跑這句、再視結局重新立旗」。
-const EPOCH_SCOPED_META: &str = "DELETE FROM sync_meta WHERE key LIKE 'last_pull_key%' OR key LIKE 'seen:%' \
-     OR key IN ('last_push_hlc','last_object_stamp','inflight_key','inflight_max_seq','pending_epoch','pending_epoch_info','locked','join_pending')";
+/// v1.1.4（契約 §4.3）：`locked_reason` 跟著 `locked` 一起清——它是「那個鍵違い的原因」，
+/// 紀元一換就沒有主詞了；留著會讓下一次真的殘留（`stale`）被上一次的「換過鑰匙」文案蓋掉。
+/// `last_cloud_snapshot_*`／`skipped_missing_total` **不在此列**（它們跨紀元累計）。
+pub(crate) const EPOCH_SCOPED_META: &str = "DELETE FROM sync_meta WHERE key LIKE 'last_pull_key%' OR key LIKE 'seen:%' \
+     OR key IN ('last_push_hlc','last_object_stamp','inflight_key','inflight_max_seq','pending_epoch','pending_epoch_info','locked','locked_reason','join_pending')";
 
 /// 清空「這台的主人資料＋同步進度」（`adopt_epoch` 的 ② ；**settings 不動**）。
 ///
@@ -2725,7 +2958,7 @@ const EPOCH_SCOPED_META: &str = "DELETE FROM sync_meta WHERE key LIKE 'last_pull
 ///      這個 pragma 是**交易內**的，COMMIT 之後自動復原，不影響別的連線。
 /// **settings 不動**：白名單只有 `day_start_hour`（快照會蓋回來），其餘十把鑰匙（主題、書封……）
 /// 是這台自己的偏好，不該被別台的還原抹掉。
-async fn wipe_local_data(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), String> {
+pub(crate) async fn wipe_local_data(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), String> {
     for sql in [
         "PRAGMA defer_foreign_keys = ON",
         "DELETE FROM occurrences",
@@ -2742,7 +2975,7 @@ async fn wipe_local_data(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), S
 /// 把還沒送出去的 outbox 匯出成人看得懂的 JSON（D-1.1-4「未同步修改先存本機」）。
 /// 回 (筆數, 檔案路徑)；沒有孤兒＝(0, None)。adopt_epoch 與「非空庫配對」共用——
 /// 兩者都是「這台要改用正本的版本」，差別只在觸發原因。
-async fn export_outbox_orphans(
+pub(crate) async fn export_outbox_orphans(
     app: &AppHandle,
     pool: &Pool<Sqlite>,
     device_id: &str,
@@ -2815,9 +3048,34 @@ async fn export_outbox_orphans(
     Ok((orphan_ops, orphans_path))
 }
 
+/// v1.1.4（契約 §6）：「把本機資料整批換掉」之前的雲端留底——用**鑰匙圈當下那把**鑰匙拍一份 manual 快照。
+/// 只給 `adopt_epoch` 用（`join` 那條路手上已經有剛解出來的鑰匙與根，直接叫 `put_cloud_snapshot`）。
+async fn cloud_backup_before_switch(
+    app: &AppHandle,
+    pool: &Pool<Sqlite>,
+    device_id: &str,
+) -> Result<(), String> {
+    let creds = credstore::load(app)?.ok_or_else(|| "這台還沒加入同步。".to_string())?;
+    guard_sandbox_root(app, &creds.root)?;
+    let key = crypto::key_from_b64(&creds.data_key_b64)?;
+    let client = client_of(&creds)?;
+    put_cloud_snapshot(
+        pool,
+        &client,
+        &key,
+        &creds.root,
+        device_id,
+        super::snapshot::SnapshotKind::Safety,
+    )
+    .await?;
+    Ok(())
+}
+
 /// replica 專用：把未推的 outbox 匯出成 JSON → 清 nodes／work_logs／occurrences ＋ outbox／cells／游標 →
 /// epoch＝pending_epoch → 清 pending_epoch。**不 pull**（TS 端接著叫 `sync_pull` 拉全量）。規格見契約 §4.4。
 pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
+    // 工程評審 B-4：換鑰匙沒做完時切紀元會與步驟 4 打架
+    guard_not_rotating(app)?;
     let Some(st) = app.try_state::<SyncState>() else {
         return Err("同步模組還沒初始化。".into());
     };
@@ -2836,11 +3094,19 @@ pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
     // 舊碼只匯出 outbox 孤兒（未送出的那幾筆），這台原有的整份資料是靜默丟掉的。
     // 提案第三節本來就寫「手機匯出全量 JSON 到下載目錄」，加入時的「改用另一台的」也已經這麼做了，
     // 只有這條（改正待ち→改用那份）漏了。
-    let export_path = if cfg!(mobile) {
-        Some(export_full_json(app, &pool).await?)
-    } else {
-        None
-    };
+    //
+    // **v1.1.4（契約 §6）**：手機的留底改成「先拍一份 manual 雲端快照」。理由是查證結果——
+    // Android 的 `download_dir()` 回的是 app 專屬目錄（`Android/data/<pkg>/files/Download`），
+    // 主人在檔案管理員看不到、移除 App 就一起消失＝那份「留底」其實留不住。雲端那份任何裝置都還原得回來。
+    // 雲端拍不成（沒網路／桶壞了）才退回既有的 JSON 落檔，路徑照舊回報。
+    let mut export_path: Option<String> = None;
+    if cfg!(mobile) {
+        // 成功＝`last_cloud_snapshot_*` 已經寫好（`put_cloud_snapshot` 自己記），`export_path` 留 None
+        if let Err(e) = cloud_backup_before_switch(app, &pool, &device_id).await {
+            eprintln!("[sync:adopt] cloud safety snapshot failed: {e}");
+            export_path = Some(export_full_json(app, &pool).await?);
+        }
+    }
     let (orphan_ops, orphans_path) =
         export_outbox_orphans(app, &pool, &device_id, &old_epoch, &new_epoch).await?;
 
@@ -2997,11 +3263,17 @@ pub struct JoinReport {
     pub message: String,
 }
 
-/// `sync_change_passphrase` 的回傳（契約 §4.4）
+/// `sync_change_passphrase` 的回傳（契約 §4.4；v1.1.4 契約 §4 加三欄）
 #[derive(Debug, Clone, Serialize)]
 pub struct PassphraseReport {
     /// 之前桶裡沒有 KEY（舊血統升級後第一次）⇒ 這次是「封存」不是「更改」
     pub sealed_first_time: bool,
+    /// v1.1.4：這次有沒有連資料鑰匙一起換（勾了「同時換掉資料鑰匙」）
+    pub rotated: bool,
+    /// v1.1.4：輪替步驟 5 重加密了幾顆雲端快照（沒輪替＝0）
+    pub reencrypted_snapshots: u64,
+    /// v1.1.4：輪替步驟 6 刪掉幾個舊紀元目錄（沒輪替＝0）
+    pub deleted_epochs: u64,
     pub message: String,
 }
 
@@ -3031,12 +3303,12 @@ pub struct RestoreReport {
 
 /// `<root>/SALT`：16B 鹽的 base64url，**明文**。它是「血統識別」——兩台的 SALT 一樣才是同一份資料。
 /// 舊血統（v1.1.2 升上來）另外還是資料鑰匙的派生鹽（§7 ⑤）。
-fn salt_object_key(root: &str) -> String {
+pub(crate) fn salt_object_key(root: &str) -> String {
     format!("{root}/SALT")
 }
 
 /// `<root>/KEY`：資料鑰匙被「密語派生的包裝鑰匙」封起來的那一顆（`crypto::wrap_data_key`）。
-fn key_object_key(root: &str) -> String {
+pub(crate) fn key_object_key(root: &str) -> String {
     format!("{root}/KEY")
 }
 
@@ -3046,7 +3318,7 @@ fn key_object_key(root: &str) -> String {
 /// `v1/KEY` 寫進正本根目錄——主人的桌機從此在改密語頁看到「現在的密語不對」。
 /// 判準是 **app identifier**：正本是 `app.shitetsu.nextstop`，沙盒與 dev 一律帶尾碼
 ///（`…​.sandbox-<run>`／`…​.dev`）。帶尾碼的建置只准用帶尾碼的根。
-fn guard_sandbox_root(app: &AppHandle, root: &str) -> Result<(), String> {
+pub(crate) fn guard_sandbox_root(app: &AppHandle, root: &str) -> Result<(), String> {
     let id = app.config().identifier.trim().to_string();
     let is_release_identity = id.is_empty() || id == credstore::SERVICE;
     if !is_release_identity && root == credstore::DEFAULT_ROOT {
@@ -3058,8 +3330,61 @@ fn guard_sandbox_root(app: &AppHandle, root: &str) -> Result<(), String> {
 }
 
 /// `<root>/<epoch>/EPOCH.bin`
-fn epoch_marker_key(root: &str, epoch: &str) -> String {
+pub(crate) fn epoch_marker_key(root: &str, epoch: &str) -> String {
     format!("{root}/{epoch}/EPOCH.bin")
+}
+
+/// v1.1.4（契約 §2）：`<root>/<epoch>/ROTATED`——**明文**旗標，換鑰匙開的紀元才有。
+/// 別台看到「拆不開的新紀元＋這顆旗標」＝另一台換過鑰匙（不是殘留），文案走「用新密語重新加入」。
+/// 內容是小 JSON `{"device_id","at"}`（誰、何時開始換；讀的一方也要容忍空物件）。
+pub(crate) fn rotated_flag_key(root: &str, epoch: &str) -> String {
+    format!("{root}/{epoch}/ROTATED")
+}
+
+/// v1.1.4（工程評審 B-1／B-2／S-7 的共用守門）：**別台是不是已經把資料鑰匙換掉了？**
+///
+/// 判準（兩條都要成立才算）：桶裡有一個紀元 `> my_epoch`（`None`＝不比、全掃）、它帶著明文 `ROTATED` 旗標、
+/// 而且它的 `EPOCH.bin` 用**我手上這把鑰匙拆不開**。回那個紀元號（由大到小第一個），沒有就是 `None`。
+///
+/// 為什麼要抽成一支：三條路都會在「這台的 K1 其實已經作廢」時做出毀滅性的事——
+///   * `change_passphrase`（不勾換鑰匙）會把桶裡的 `KEY` 從 K2 蓋回 K1 ⇒ K2 從世上消失、真撤銷變真斷線；
+///   * `join` ④ 的舊血統自癒（`Err(_)` 分支）在主人正本那種舊血統桶裡同樣會把 KEY 蓋回 K1；
+///   * `finish_restore(Past)` 會用 K1 開一個比 E2 還大的紀元 ⇒ 兩個血統永久分裂。
+/// 三處各寫一次掃描太容易走岔，所以一支到底；成本是「只有在真的有更新紀元時」才多兩次 Class B GET。
+///
+/// 注意 `EPOCH.bin` **拆得開**就不算（那是我自己的紀元，或同血統的新紀元），旗標是必要條件不是充分條件——
+/// 輪替完成後自己那台再看自己的 E2 也有旗標，但它拆得開，不該把自己擋住。
+pub(crate) async fn rotated_elsewhere(
+    client: &R2Client,
+    root: &str,
+    key: &[u8; crypto::KEY_LEN],
+    my_epoch: Option<&str>,
+) -> Result<Option<String>, String> {
+    let mine = my_epoch.and_then(|e| e.parse::<u64>().ok());
+    for n in list_epochs(client, root).await? {
+        if let Some(mine) = mine {
+            if n <= mine {
+                continue;
+            }
+        }
+        let e = n.to_string();
+        if client.get_opt(&rotated_flag_key(root, &e)).await?.is_none() {
+            continue;
+        }
+        let openable = match client.get_opt(&epoch_marker_key(root, &e)).await? {
+            Some(blob) => epoch_marker_verdict(root, &e, key, &blob).is_some(),
+            None => false,
+        };
+        if !openable {
+            return Ok(Some(e));
+        }
+    }
+    Ok(None)
+}
+
+/// v1.1.4（契約 §2）：雲端快照的目錄前綴 `<root>/snapshots/`（物件鍵格式見 `snapshot::snapshot_key`）
+pub(crate) fn snapshots_prefix(root: &str) -> String {
+    format!("{root}/snapshots/")
 }
 
 /// 物件 key → 檔名去掉 `.bin`（＝推送戳記；重推 in-flight 時要拿回它）
@@ -3072,7 +3397,7 @@ fn stamp_of_object_key(object_key: &str) -> Option<String> {
 }
 
 /// 憑證 → R2 client（四欄都要 clone，`R2Config` 是 by-value）
-fn client_of(creds: &SyncCredentials) -> Result<R2Client, String> {
+pub(crate) fn client_of(creds: &SyncCredentials) -> Result<R2Client, String> {
     R2Client::new(R2Config {
         endpoint: creds.endpoint.clone(),
         bucket: creds.bucket.clone(),
@@ -3083,7 +3408,7 @@ fn client_of(creds: &SyncCredentials) -> Result<R2Client, String> {
 
 /// argon2id 是 CPU 密集的同步工作（19 MiB／數百 ms），直接跑在 tokio worker 上會卡住整個 runtime
 /// （手機低階機最明顯）⇒ 一律 `spawn_blocking`（評審 S7）。
-async fn derive_blocking(passphrase: &str, salt: &[u8]) -> Result<[u8; crypto::KEY_LEN], String> {
+pub(crate) async fn derive_blocking(passphrase: &str, salt: &[u8]) -> Result<[u8; crypto::KEY_LEN], String> {
     let passphrase = passphrase.to_string();
     let salt = salt.to_vec();
     tauri::async_runtime::spawn_blocking(move || crypto::derive_key(&passphrase, &salt))
@@ -3092,7 +3417,7 @@ async fn derive_blocking(passphrase: &str, salt: &[u8]) -> Result<[u8; crypto::K
 }
 
 /// `<root>/` 底下的數字紀元，**由大到小**
-async fn list_epochs(client: &R2Client, root: &str) -> Result<Vec<u64>, String> {
+pub(crate) async fn list_epochs(client: &R2Client, root: &str) -> Result<Vec<u64>, String> {
     let dirs = client.list_prefixes(&format!("{root}/")).await?;
     let mut v: Vec<u64> = dirs
         .iter()
@@ -3110,7 +3435,7 @@ async fn list_epochs(client: &R2Client, root: &str) -> Result<Vec<u64>, String> 
 /// 判準有兩條退路：① `EPOCH.bin` 拆得開（v1.1.3 之後開的紀元都有）
 /// ② 沒有 `EPOCH.bin`（v1.1.1／v1.1.2 開的）但第一個裝置目錄的第一顆物件拆得開。
 /// 兩條都不成立就換下一個更小的紀元；全部都不成立 ⇒ None（＝這把資料鑰匙在這個桶裡沒有資料）。
-async fn resolve_current_epoch(
+pub(crate) async fn resolve_current_epoch(
     client: &R2Client,
     key: &[u8; crypto::KEY_LEN],
     root: &str,
@@ -3141,7 +3466,7 @@ async fn resolve_current_epoch(
 /// 而且裡面的 `epoch` 與目錄名相符 ⇒ 承認。拆不開＝別的密語建的，不是我的事（呼叫端記成鍵違い）。
 ///
 /// v1.1.2 還有第三道關卡「`primary_device_id` 等於我認得的正本」，隨正本／副本一起退場（評審 S1）。
-fn epoch_marker_verdict(
+pub(crate) fn epoch_marker_verdict(
     root: &str,
     epoch: &str,
     key: &[u8; crypto::KEY_LEN],
@@ -3154,7 +3479,7 @@ fn epoch_marker_verdict(
 }
 
 /// 寫 `<root>/<epoch>/EPOCH.bin`（`reason`＝`first`／`restore`／`backfill`）
-async fn put_epoch_marker(
+pub(crate) async fn put_epoch_marker(
     client: &R2Client,
     key: &[u8; crypto::KEY_LEN],
     root: &str,
@@ -3178,7 +3503,7 @@ async fn put_epoch_marker(
 }
 
 /// 用密語把資料鑰匙封成 `<root>/KEY` 並 PUT（新的 kdf 鹽）。改密語＝重跑這一支（契約 §2.1）。
-async fn seal_key_object(
+pub(crate) async fn seal_key_object(
     client: &R2Client,
     root: &str,
     passphrase: &str,
@@ -3203,7 +3528,7 @@ async fn seal_key_object_if_absent(
 }
 
 /// `<root>/KEY` 的 key 與封好的位元組（新的 kdf 鹽、新的 nonce）
-async fn wrapped_key_bytes(
+pub(crate) async fn wrapped_key_bytes(
     root: &str,
     passphrase: &str,
     data_key: &[u8; crypto::KEY_LEN],
@@ -3216,7 +3541,7 @@ async fn wrapped_key_bytes(
 }
 
 /// 拆 `<root>/KEY`：先讀物件自帶的 kdf 鹽派生包裝鑰匙，再拆出資料鑰匙。
-async fn unseal_key_object(
+pub(crate) async fn unseal_key_object(
     root: &str,
     passphrase: &str,
     bytes: &[u8],
@@ -3317,8 +3642,21 @@ async fn ensure_bucket_meta(
 /// 「改用另一台的」會把這台現有的東西全部換掉——不留一份就是靜默丟資料（評審 S2）。
 /// 落點先試「下載／NextStop」（主人用檔案管理員讀得到），寫不進去才退回 app 私有目錄。
 ///
-/// 也是 v1.1.4「雲端備份」的零件：同一份 JSON 之後會加密丟到 `<root>/snapshots/`。
+/// **v1.1.4**：拆成 `build_full_json`（純字串；雲端快照也封這一份）＋ `write_export_file`（原本的落檔行為）。
+/// 這支保留給既有呼叫者（`adopt_epoch`／`join(adopt_remote)` 的手機退路）；v1.1.4 起手機的自動留底改走
+/// 「先拍一份 manual 雲端快照」（`snapshot::upload`），只有雲端拍不成才退回這裡（契約 §6-6）。
 pub async fn export_full_json(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<String, String> {
+    let text = build_full_json(pool, super::snapshot::SnapshotKind::Manual).await?;
+    write_export_file(app, &text)
+}
+
+/// v1.1.4（契約 §2.3）：整顆庫 → 全量 JSON 字串。三表**全欄**（不是白名單：這是存底，不是 op）＋settings 白名單，
+/// 頂層欄位固定＝`schema`／`snapshot_kind`／`exported_at`／`device_id`／`epoch`／`nodes`／`work_logs`／`occurrences`／`settings`。
+/// 雲端快照＝這份字串 `crypto::seal(資料鑰匙, aad=物件鍵)` 後 PUT；匯入端（`snapshot::import_full_json`）照契約 §3 逐欄對齊。
+pub(crate) async fn build_full_json(
+    pool: &Pool<Sqlite>,
+    kind: super::snapshot::SnapshotKind,
+) -> Result<String, String> {
     use sqlx::Column;
 
     /// 一列 → JSON 物件（**全欄**，不是白名單：這是給主人看的存底，不是 op）
@@ -3341,6 +3679,8 @@ pub async fn export_full_json(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<St
 
     let meta = meta_all(pool).await?;
     let mut doc = Map::new();
+    doc.insert("schema".into(), Value::from(SCHEMA_VERSION));
+    doc.insert("snapshot_kind".into(), Value::from(kind.as_str()));
     doc.insert("exported_at".into(), Value::from(now_iso()));
     doc.insert(
         "device_id".into(),
@@ -3380,8 +3720,57 @@ pub async fn export_full_json(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<St
     }
     doc.insert("settings".into(), Value::Object(settings));
 
-    let text = serde_json::to_string_pretty(&Value::Object(doc))
-        .map_err(|_| "匯出資料失敗。".to_string())?;
+    serde_json::to_string_pretty(&Value::Object(doc)).map_err(|_| "匯出資料失敗。".to_string())
+}
+
+/// v1.1.4：把整顆庫拍成一顆雲端快照 PUT 上去——**鑰匙、client、root、身分全部由呼叫端給**。
+///
+/// 為什麼 engine 這邊也要一支（而不是一律叫 `snapshot::upload`）：engine 的三個呼叫點
+///（輪替步驟 0.5、`join(adopt_remote)`、`adopt_epoch`）都**已經握著 `BusyGuard`**，而 `snapshot::upload`
+/// 的入口是 `keyed_client`＋`BusyGuard`（它自己去拿）——從這三處呼叫必定撞自己的鎖。
+/// 而且這三處手上的鑰匙／根未必等於鑰匙圈當下那一份：`join` 還沒存鑰匙圈，輪替期間鑰匙圈有兩把。
+/// 所以「組鍵 → `build_full_json` → seal → PUT → 記 `last_cloud_snapshot_*`」這段做成共用核心，
+/// `snapshot::upload` 只要在外層補 `keyed_client`＋`BusyGuard`＋`prune` 就是同一件事（差異記回報）。
+pub(crate) async fn put_cloud_snapshot(
+    pool: &Pool<Sqlite>,
+    client: &R2Client,
+    data_key: &[u8; crypto::KEY_LEN],
+    root: &str,
+    device_id: &str,
+    kind: super::snapshot::SnapshotKind,
+) -> Result<super::snapshot::SnapshotEntry, String> {
+    let at = chrono::Utc::now();
+    let key = super::snapshot::snapshot_key(root, at, device_id, kind);
+    let text = build_full_json(pool, kind).await?;
+    let blob = crypto::seal(data_key, &key, text.as_bytes())?;
+    let size = blob.len() as u64;
+    client.put(&key, blob).await?;
+    // 鍵名的戳記只到秒，`at` 也記到秒——列表是從鍵名反推的，兩邊不該差一個小數點
+    let at_iso = at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    meta_set(pool, "last_cloud_snapshot_at", &at_iso).await?;
+    // 「當日」與備份三件套同義＝**本地**日曆日（主人眼裡的今天），不是 UTC 日
+    meta_set(
+        pool,
+        "last_cloud_snapshot_day",
+        &chrono::Local::now().format("%Y-%m-%d").to_string(),
+    )
+    .await?;
+    Ok(super::snapshot::SnapshotEntry {
+        key,
+        at: at_iso,
+        device_id: device_id.to_string(),
+        kind,
+        size,
+    })
+}
+
+/// 全量 JSON 落成檔案（`export_full_json` 原本的後半）：`download_dir()/NextStop/nextstop-export-<ts>.json`，
+/// 寫不進去退回 app 資料目錄；回完整路徑。
+///
+/// **已知（v1.1.4 查證 `…-Android下載目錄寫入查證.md`）**：Android 的 `download_dir()` 回的是 app 專屬外部目錄
+/// `Android/data/<pkg>/files/Download`——主人在檔案管理員看不到、移除 App 就消失。所以這支在手機上只當
+/// **退路**（雲端拍不成、或 SAF 選擇器用不了時）；主動「匯出到手機」走 `snapshot::export_to_file`（SAF）。
+pub(crate) fn write_export_file(app: &AppHandle, text: &str) -> Result<String, String> {
     let name = format!(
         "nextstop-export-{}.json",
         chrono::Local::now().format("%Y%m%d-%H%M%S")
@@ -3400,11 +3789,751 @@ pub async fn export_full_json(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<St
             continue;
         }
         let path = dir.join(&name);
-        if std::fs::write(&path, &text).is_ok() {
+        if std::fs::write(&path, text).is_ok() {
             return Ok(path.to_string_lossy().to_string());
         }
     }
     Err("寫入匯出檔失敗。".into())
+}
+
+/// v1.1.4：鑰匙圈＋資料鑰匙＋client＋圍籬一次取齊（`snapshot.rs` 的每支入口都從這裡開始，WP-B 不必碰鑰匙圈）。
+///
+/// 回 Err 的三種：沒鑰匙圈（「這台還沒加入同步」）、鑰匙圈讀不到（原句）、沙盒用了正本的根（`guard_sandbox_root`）。
+/// `epoch`＝`sync_meta.epoch`（可能是 None：還原到加入之前的備份）。
+pub(crate) struct KeyedClient {
+    pub client: R2Client,
+    pub data_key: [u8; crypto::KEY_LEN],
+    pub root: String,
+    pub device_id: String,
+    pub epoch: Option<String>,
+    pub creds: SyncCredentials,
+}
+
+pub(crate) async fn keyed_client(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<KeyedClient, String> {
+    let creds = credstore::load(app)?.ok_or_else(|| "這台還沒加入同步。".to_string())?;
+    let root = creds.root.clone();
+    guard_sandbox_root(app, &root)?;
+    let data_key = crypto::key_from_b64(&creds.data_key_b64)?;
+    let client = client_of(&creds)?;
+    let meta = meta_all(pool).await?;
+    let device_id = match creds.device_id.clone().filter(|d| !d.is_empty()) {
+        Some(d) => d,
+        None => ensure_device_id(pool).await?,
+    };
+    Ok(KeyedClient {
+        client,
+        data_key,
+        root,
+        device_id,
+        epoch: meta.get("epoch").filter(|e| !e.is_empty()).cloned(),
+        creds,
+    })
+}
+
+/// v1.1.4：「切紀元」共用段——`finish_restore(Past)` 的那個交易抽出來給鑰匙輪替（契約 §5 步驟 4）共用。
+///
+/// 做的事（一個交易）：`DELETE FROM sync_outbox`、清 `EPOCH_SCOPED_META`、`epoch=new_epoch`、
+/// 強制 `joined/enabled='1'`、`salt/root/device_id` 回寫、`sync_cells.device_id` 舊身分→鑰匙圈身分、
+/// `stamp_missing_cells`。**cells 不清**（原始時間戳的來源）。回補了幾格。
+/// 不做的事：`put_epoch_marker`、`snapshot_into_outbox`、push——呼叫端自己排（順序各有不同）。
+pub(crate) async fn switch_epoch_local(
+    pool: &Pool<Sqlite>,
+    creds: &SyncCredentials,
+    device_id: &str,
+    old_device_id: &str,
+    new_epoch: &str,
+) -> Result<u64, String> {
+    let root = creds.root.as_str();
+    let mut tx = pool.begin().await.map_err(db_err)?;
+    sqlx::query("DELETE FROM sync_outbox")
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+    sqlx::query(EPOCH_SCOPED_META)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+    meta_set(&mut *tx, "epoch", new_epoch).await?;
+    // 還原的備份若早於「加入同步」那一刻，這顆 DB 裡沒有 joined／salt／root——
+    // 鑰匙圈還在（它不在 DB 裡），所以照樣接得回去（v1.1.2 的 Reenable 分支退場）。
+    meta_set(&mut *tx, "joined", "1").await?;
+    if let Some(s) = creds.salt_b64.as_deref().filter(|s| !s.is_empty()) {
+        meta_set(&mut *tx, "salt", s).await?;
+    }
+    meta_set(&mut *tx, "root", root).await?;
+    meta_set(&mut *tx, "device_id", device_id).await?;
+    // 產品評審 B2：**總開關一定要打開**。還原到「同步關著那段期間拍的備份」（或加入同步之前拍的）
+    // 會把 `enabled='0'` 一起還原回來 ⇒ 這台不推、別台卻已經看到新紀元 ⇒ 別台「改用那份」之後
+    // 拉到 0 顆物件＝**手機整個變空**，而這台的 toast 還寫著「正把整份資料重新上傳」。
+    // 邏輯與總開關的語義一致：關的是日常節奏，不是主人剛按下的這個一次性決定。
+    meta_set(&mut *tx, "enabled", "1").await?;
+    // 工程評審 S-6 的對稱面：身分是鑰匙圈的，備份裡的格子可能掛著**別台**的 device_id
+    //（換電腦還原舊機備份）。不改的話 seen 判定會把自己寫的格子當成別台寫的、多記競合。
+    sqlx::query("UPDATE sync_cells SET device_id = ? WHERE device_id = ?")
+        .bind(device_id)
+        .bind(old_device_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+    // **cells 不清**（契約 §6）：它們帶著備份時刻的原始戳記，正是快照要用的時間
+    let stamped = stamp_missing_cells(&mut tx, device_id).await?;
+    tx.commit().await.map_err(db_err)?;
+    Ok(stamped)
+}
+
+// ─────────────────────────────────────────────────────────────
+// v1.1.4 掃地工與鑰匙輪替（WP-A 填；契約 §5）——本段只有簽名、型別與標記檔的讀寫
+// ─────────────────────────────────────────────────────────────
+
+/// 掃地工的預設保留數（契約 §5.6）：目前紀元＋前一個；輪替用 1（只留 E2）
+pub const SWEEP_KEEP_DEFAULT: usize = 2;
+
+/// v1.1.4（契約 §5.6）：刪掉 `<root>/` 底下「數字小於 `my_epoch`、且不在最近 `keep` 個」的紀元目錄（整顆目錄逐鍵刪）。
+///
+/// 呼叫點：`pull_inner` 拉成功且 phase=running 之後（每個進程一次，`Runtime.swept_epoch`）；輪替步驟 6（`keep=1`）。
+/// 鐵則：刪之前先 `list_after` 把鍵列齊、逐顆 `delete`、log **只印鍵名**；只刪自己 `root` 底下的鍵；
+/// 呼叫端已過 `guard_sandbox_root`。回刪掉的紀元數。
+///
+/// 三道自保（刪除碼的鐵則；`guard_sandbox_root` 在呼叫端，這裡是第二道）：
+///   ① `my_epoch` 不是數字 ⇒ 一顆都不刪（保守：算不出「小於我」就不該動手）。
+///   ② 只看 `list_epochs` 認得的**數字**目錄 ⇒ `snapshots/`、`SALT`、`KEY` 與任何非數字前綴天然不在名單裡。
+///   ③ 每一把要刪的鍵都必須以 `<root>/<e>/` 開頭（`list_after` 理論上保證，但刪除不留退路，值得再確認一次）。
+pub(crate) async fn sweep_old_epochs(
+    client: &R2Client,
+    root: &str,
+    my_epoch: &str,
+    keep: usize,
+) -> Result<u64, String> {
+    let Ok(mine) = my_epoch.parse::<u64>() else {
+        return Ok(0);
+    };
+    let epochs = list_epochs(client, root).await?; // 由大到小
+    let victims = sweep_victims(&epochs, mine, keep);
+    let mut deleted = 0u64;
+    for e in victims {
+        let prefix = format!("{root}/{e}/");
+        // 先列齊再逐顆刪（鐵則：log 只印鍵名）
+        let keys = client.list_after(&prefix, "").await?;
+        let mut any = false;
+        for k in keys {
+            if !k.starts_with(&prefix) {
+                // 不可能發生；真的發生就跳過，絕不刪自己 root 以外的東西
+                eprintln!("[sync:sweep] skip out-of-root {k}");
+                continue;
+            }
+            eprintln!("[sync:sweep] delete {k}");
+            client.delete(&k).await?;
+            any = true;
+        }
+        if any {
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
+/// 掃地工的「該刪哪幾個紀元」純函式（單測直接餵清單，不必打網路）。
+///
+/// `epochs` 由大到小、`mine`＝目前紀元、`keep`＝最近幾個一律保護。回要刪的紀元（由大到小）。
+/// 規則：**前 `keep` 個保護** ∧ `< mine` ——所以「比我大的別台新紀元」與「我自己」永遠不刪。
+pub(crate) fn sweep_victims(epochs: &[u64], mine: u64, keep: usize) -> Vec<u64> {
+    epochs
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(i, e)| *i >= keep && *e < mine)
+        .map(|(_, e)| e)
+        .collect()
+}
+
+/// 換鑰匙的階段（契約 §5 狀態表；標記檔 `sync/rotation-pending` 的 `stage`）。
+/// 提交點＝`committed`：之前斷掉一律**回滾**（新密語沒存下來、續不了），之後斷掉一律**續跑**（4–7 冪等）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RotationStage {
+    /// 步驟 1 完成：K2 已存鑰匙圈 `data_key_next_b64`、標記檔已寫
+    Prepared,
+    /// 步驟 2 完成：`<root>/E2/ROTATED`＋`<root>/E2/EPOCH.bin` 都寫上去了（鎖到手）
+    Locked,
+    /// **步驟 3 進行中**（v1.1.4 修正席／工程評審 B-3）：KEY 的位元組已經封好、指紋已經寫進標記，
+    /// 但那一發 PUT 的結果還不知道。續跑時 GET 回來比指紋：一樣 ⇒ 當成 `Committed` 往下走；
+    /// 不一樣或不存在 ⇒ 回滾。**沒有這一階段的話**「PUT 成功、標記沒寫成」就會被判成
+    /// 「提交點之前」而回滾——鑰匙圈的 K2 被丟掉，桶裡的 KEY 卻已經是 K2，K2 於是從世上消失。
+    Committing,
+    /// 步驟 3 完成：`<root>/KEY`＝K2 用新密語包（**提交點**）
+    Committed,
+    /// 步驟 4 完成：本機已切到 E2／K2、全量快照已推上去
+    Switched,
+    /// 步驟 5 完成：`snapshots/` 全部 K2 拆得開
+    Reencrypted,
+    /// 步驟 6 完成：`<root>/` 底下只剩 E2 一個數字紀元
+    Swept,
+}
+
+impl RotationStage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RotationStage::Prepared => "prepared",
+            RotationStage::Locked => "locked",
+            RotationStage::Committing => "committing",
+            RotationStage::Committed => "committed",
+            RotationStage::Switched => "switched",
+            RotationStage::Reencrypted => "reencrypted",
+            RotationStage::Swept => "swept",
+        }
+    }
+    /// 階段的序（續跑時「做完第 n 步了沒」全部用它比，不用 match 疊 match）。
+    /// `Committed` 是**提交點**：`rank < rank(Committed)` ⇒ 回滾，`>=` ⇒ 續跑。
+    pub fn rank(self) -> u8 {
+        match self {
+            RotationStage::Prepared => 1,
+            RotationStage::Locked => 2,
+            RotationStage::Committing => 3,
+            RotationStage::Committed => 4,
+            RotationStage::Switched => 5,
+            RotationStage::Reencrypted => 6,
+            RotationStage::Swept => 7,
+        }
+    }
+    /// 提交點之前＝新密語還沒存進桶裡，續跑也拆不開 ⇒ 只能回滾（契約 §5.4）。
+    /// `Committing` **不算**在內：它要先用指紋去問桶裡那顆 KEY 才知道該回滾還是該續跑（工程評審 B-3）。
+    pub fn before_commit(self) -> bool {
+        self.rank() < RotationStage::Committing.rank()
+    }
+}
+
+/// 標記檔 `app_data_dir/sync/rotation-pending` 的內容（契約 §5.3）。**用檔不用 sync_meta**：步驟 4 會清紀元範圍 meta、
+/// 步驟 6 之後也可能還原——app 資料目錄不會跟著回到過去。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationMarker {
+    /// UTC ISO：開始換鑰匙的時刻
+    pub at: String,
+    /// 舊紀元（E1；步驟 6 要刪它）
+    pub old_epoch: String,
+    /// 新紀元（E2＝桶裡最大數字紀元＋1，**不是** now_ms——兩台同時換鑰匙才會撞同一把鎖）
+    pub new_epoch: String,
+    pub stage: RotationStage,
+    /// v1.1.4 修正席（工程評審 B-3）：`stage=committing` 時，那一發要 PUT 的 `<root>/KEY` 位元組（base64）。
+    /// 續跑時 GET 回來逐位元組比對——**這是唯一不需要新密語就做得出的判準**（沒有密語就拆不開 KEY，
+    /// 也就無從得知桶裡那顆是不是自己寫的）。舊版標記沒有這一欄 ⇒ `serde(default)` ⇒ None ⇒ 保守回滾。
+    ///
+    /// 不是祕密：一模一樣的位元組下一秒就要公開放進桶裡，而且它是「K2 被新密語 argon2id 包起來」的結果。
+    /// 步驟 7 清標記時一起消失。
+    #[serde(default)]
+    pub key_object_b64: Option<String>,
+}
+
+fn rotation_marker_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "找不到 app 資料目錄。".to_string())?
+        .join("sync")
+        .join("rotation-pending"))
+}
+
+/// 讀換鑰匙標記：None＝沒有在換
+pub(crate) fn rotation_marker(app: &AppHandle) -> Option<RotationMarker> {
+    let p = rotation_marker_path(app).ok()?;
+    let text = std::fs::read_to_string(&p).ok()?;
+    serde_json::from_str::<RotationMarker>(text.trim()).ok()
+}
+
+/// v1.1.4 修正席（工程評審 B-4）：**換鑰匙沒做完之前，任何會動到鑰匙圈／紀元／整顆庫的入口都要停手。**
+///
+/// 提交點之後（stage ≥ committed）K2 只存在於這台的鑰匙圈 `data_key_next_b64` 裡，而桶裡的 KEY 已經是 K2。
+/// 這時主人若不耐煩按下「重新加入」（`reset_local` 清整個鑰匙圈）、「加入同步」（`join` 寫 `data_key_next_b64: None`）
+/// 或雲端還原（`cloud_restore` 用 K1 灌庫再重啟、boot 先開一個 K1 的新紀元），K2 就消失或紀元被切亂
+/// ——輪替續跑再也接不回去。擋住幾秒鐘，比救不回來好。
+///
+/// 呼叫點：`join`／`reset_local`／`adopt_epoch`／`restore_choice`／`snapshot::upload`／`snapshot::cloud_restore`。
+/// **不含** `rotate_data_key`／`finish_rotation`（它們就是那條路本身；前者另有「已經有一場」的守門）。
+pub(crate) fn guard_not_rotating(app: &AppHandle) -> Result<(), String> {
+    if rotation_marker(app).is_some() {
+        return Err("換鑰匙還沒做完——請先讓它接著做完（打開 App 稍等一下就好）。".into());
+    }
+    Ok(())
+}
+
+/// 寫換鑰匙標記（每完成一步就改 `stage` 重寫一次；先寫 `.tmp` 再 rename，半個檔會讓 boot 誤判成「沒在換」）
+pub(crate) fn write_rotation_marker(app: &AppHandle, marker: &RotationMarker) -> Result<(), String> {
+    let p = rotation_marker_path(app)?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|_| "建立同步目錄失敗。".to_string())?;
+    }
+    let tmp = p.with_extension("tmp");
+    let text = serde_json::to_string(marker).map_err(|_| "寫入換鑰匙標記失敗。".to_string())?;
+    std::fs::write(&tmp, text).map_err(|_| "寫入換鑰匙標記失敗。".to_string())?;
+    std::fs::rename(&tmp, &p).map_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+        "寫入換鑰匙標記失敗。".to_string()
+    })
+}
+
+pub(crate) fn clear_rotation_marker(app: &AppHandle) {
+    if let Ok(p) = rotation_marker_path(app) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
+/// `sync_finish_rotation`／`rotate_data_key` 的回傳（契約 §4）
+#[derive(Debug, Clone, Serialize)]
+pub struct RotationReport {
+    /// finished＝七步走完／rolled_back＝提交點之前斷掉、已回滾／none＝沒有在換（boot 空跑）
+    pub outcome: RotationOutcome,
+    /// 新紀元 E2（rolled_back／none 為 None）
+    pub epoch: Option<String>,
+    pub reencrypted_snapshots: u64,
+    pub deleted_epochs: u64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RotationOutcome {
+    Finished,
+    RolledBack,
+    None,
+}
+
+/// v1.1.4（契約 §5）：真撤銷密語＝換資料鑰匙 K1→K2 開新紀元的七步。`change_passphrase(rotate=true)` 走這裡。
+///
+/// 前置：鑰匙圈在、phase=running（沒有改正待ち／鍵違い／還原待收尾／另一場輪替）、outbox 已推空、
+/// `current` **必填且驗得過**（拆得開 KEY 或舊血統法）、`next` ≥ 8 字。任何前置不過＝Err、本機零改變。
+/// 步驟 0.5：先拍一份 manual 雲端快照（K1 封；步驟 5 會重加密）。
+///
+/// 死鎖判定門檻（契約 §5.5 的「可視為死鎖」）：`ROTATED` 的 `at` 比現在早這麼多小時，
+/// 就允許接手那把鎖。沒有這一條，一台在步驟 2 之後永遠不回來的裝置會讓**所有**裝置再也換不了鑰匙。
+pub const ROTATION_LOCK_STALE_HOURS: i64 = 24;
+
+pub async fn rotate_data_key(app: &AppHandle, current: &str, next: &str) -> Result<RotationReport, String> {
+    let Some(st) = app.try_state::<SyncState>() else {
+        return Err("同步模組還沒初始化。".into());
+    };
+    // 與 join／還原收尾同一把：輪替期間絕不能有 push／pull 在飛（它們會用 K1 推進正要被刪的紀元）
+    let Some(_busy) = BusyGuard::acquire(&st.busy) else {
+        return Err("同步正在進行中，請稍候再試。".into());
+    };
+
+    // ── 前置（契約 §5.1；任何一條不過＝Err、本機零改變）──
+    let creds = credstore::load(app)?.ok_or_else(|| "這台還沒加入同步。".to_string())?;
+    let root = creds.root.clone();
+    guard_sandbox_root(app, &root)?;
+    let next = next.trim();
+    if next.chars().count() < 8 {
+        return Err("新密語至少 8 個字。".into());
+    }
+    let current = current.trim();
+    if current.is_empty() {
+        // 2026-09-25 主人問「忘了密語怎麼辦」：舊文案指向「重新加入」是錯的（那條路也要密語）。
+        // 救援＝先不勾換鑰匙、現密語留白設新密語（鑰匙圈有資料鑰匙），再用新密語回來換鑰匙。
+        return Err("要換鑰匙得先打現在的密語。忘了？先把這格勾掉、現密語留白設一個新密語，再用新密語回來勾「換鑰匙」。".into());
+    }
+    if rotation_marker(app).is_some() {
+        // 已經有一場沒做完的（boot 會自己續跑）——再開一場會把 K2 蓋掉、續不回去
+        return Err("先處理同步頁上的狀態再換鑰匙。".into());
+    }
+    if is_restore_pending(app) {
+        return Err("先處理同步頁上的狀態再換鑰匙。".into());
+    }
+    let pool = pool(app).await?;
+    let meta = meta_all(&pool).await?;
+    if meta.get("joined").map(String::as_str) != Some("1") {
+        return Err("這台還沒加入同步。".into());
+    }
+    let busy_state = |k: &str| meta.get(k).is_some_and(|v| !v.is_empty());
+    if busy_state("pending_epoch") || busy_state("locked") || busy_state("join_pending") {
+        return Err("先處理同步頁上的狀態再換鑰匙。".into());
+    }
+    let e1 = meta
+        .get("epoch")
+        .filter(|e| !e.is_empty())
+        .cloned()
+        .ok_or_else(|| "同步設定不完整，請重設後重新加入。".to_string())?;
+    // outbox 必須是空的：步驟 4 會 `DELETE FROM sync_outbox`，沒推出去的修改會**永遠消失**
+    //（換紀元那條路有孤兒 JSON 兜底，這條沒有——因為它不該發生）
+    let pending: i64 = sqlx::query("SELECT COUNT(*) AS n FROM sync_outbox")
+        .fetch_one(&pool)
+        .await
+        .map_err(db_err)?
+        .try_get("n")
+        .map_err(db_err)?;
+    if pending > 0 {
+        return Err("還有沒送出的修改，先同步完再換鑰匙。".into());
+    }
+
+    let k1 = crypto::key_from_b64(&creds.data_key_b64)?;
+    let client = client_of(&creds)?;
+    let me = creds
+        .device_id
+        .clone()
+        .filter(|d| !d.is_empty())
+        .unwrap_or(ensure_device_id(&pool).await?);
+
+    // 現密語**必驗**：桶裡有 KEY ⇒ 拆得開且等於鑰匙圈那把；沒 KEY（舊血統）⇒ argon2id(密語, SALT) == K1
+    let wrong = || "現在的密語不對。".to_string();
+    match client.get_opt(&key_object_key(&root)).await? {
+        Some(bytes) => match unseal_key_object(&root, current, &bytes).await {
+            Ok(k) if k == k1 => {}
+            _ => return Err(wrong()),
+        },
+        None => {
+            let salt_b64 = creds
+                .salt_b64
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(wrong)?;
+            let salt = crypto::b64_decode(salt_b64)?;
+            if derive_blocking(current, &salt).await? != k1 {
+                return Err(wrong());
+            }
+        }
+    }
+
+    // ── 步驟 0.5：換鑰匙前先拍一份 manual 雲端快照（K1 封；步驟 5 會把它重加密成 K2）──
+    // 為什麼一定要：步驟 6 會把 E1 整顆刪掉。這份快照是「輪替做壞了還救得回來」的唯一一條線。
+    if let Err(e) = put_cloud_snapshot(
+        &pool,
+        &client,
+        &k1,
+        &root,
+        &me,
+        super::snapshot::SnapshotKind::Safety,
+    )
+    .await
+    {
+        return Err(format!("換鑰匙前的雲端備份沒拍成：{e}"));
+    }
+
+    // ── 步驟 1：產 K2、存進鑰匙圈的 `data_key_next_b64`、寫標記（`data_key_b64` **仍是 K1**）──
+    let k2 = crypto::random_data_key()?;
+    // E2＝`max(桶內數字紀元, E1) + 1`（**不是** now_ms）：兩台同時換鑰匙要算出同一個 E2 才會撞同一把鎖
+    let e2 = list_epochs(&client, &root)
+        .await?
+        .first()
+        .copied()
+        .unwrap_or(0)
+        .max(e1.parse::<u64>().unwrap_or(0))
+        .saturating_add(1)
+        .to_string();
+    let mut creds_next = creds.clone();
+    creds_next.data_key_next_b64 = Some(crypto::b64_encode(&k2));
+    credstore::save(app, &creds_next)?;
+    let marker = RotationMarker {
+        at: now_iso(),
+        old_epoch: e1,
+        new_epoch: e2,
+        stage: RotationStage::Prepared,
+        key_object_b64: None,
+    };
+    write_rotation_marker(app, &marker)?;
+
+    run_rotation(app, &pool, &st, marker, creds_next, k1, k2, Some(next), &me).await
+}
+
+/// v1.1.4（契約 §5）：boot 看到 `status.rotation_stage` 就叫——從標記記錄的階段續跑。
+/// `prepared`／`locked` ⇒ 回滾（刪 E2 的 ROTATED／EPOCH.bin、鑰匙圈丟 K2、清標記）；
+/// `committed`…`swept` ⇒ 從下一步續到 7。沒有標記 ⇒ `outcome=none`。
+pub async fn finish_rotation(app: &AppHandle) -> Result<RotationReport, String> {
+    let Some(marker) = rotation_marker(app) else {
+        return Ok(RotationReport {
+            outcome: RotationOutcome::None,
+            epoch: None,
+            reencrypted_snapshots: 0,
+            deleted_epochs: 0,
+            message: "沒有在換鑰匙。".into(),
+        });
+    };
+    let Some(st) = app.try_state::<SyncState>() else {
+        return Err("同步模組還沒初始化。".into());
+    };
+    let Some(_busy) = BusyGuard::acquire(&st.busy) else {
+        return Err("同步正在進行中，請稍候再試。".into());
+    };
+    // 鑰匙圈不見了（主人手動清了憑證庫）＝續不了也回滾不了；把標記收掉，不然 phase 永遠卡在「換鑰匙中」。
+    //
+    // 工程評審 B-4：**這句話要看階段**。提交點之前（K2 還沒進過桶）確實是「密語沒有變」；
+    // 提交點之後桶裡的 KEY 已經是新密語包的 K2，而 K2 只存在於剛剛被清掉的那個鑰匙圈裡
+    // ——這台再也拆不開自己的資料，唯一的出路是用**新**密語重新加入（桶裡的 KEY 拆得出 K2）。
+    // 說成「密語沒有變」會讓主人拿舊密語一直試。
+    let Some(creds) = credstore::load(app)? else {
+        let after_commit = !marker.stage.before_commit() && marker.stage != RotationStage::Committing;
+        clear_rotation_marker(app);
+        return Ok(RotationReport {
+            outcome: RotationOutcome::RolledBack,
+            epoch: None,
+            reencrypted_snapshots: 0,
+            deleted_epochs: 0,
+            message: if after_commit {
+                "上次換鑰匙做到一半，這台的同步身分卻被清掉了——新鑰匙找不回來。請改用新密語「重新加入同步」。"
+                    .into()
+            } else {
+                "上次換鑰匙沒做完，已取消；密語沒有變，請再試一次。".into()
+            },
+        });
+    };
+    guard_sandbox_root(app, &creds.root)?;
+    let pool = pool(app).await?;
+    let k1 = crypto::key_from_b64(&creds.data_key_b64)?;
+    // 步驟 7 只做了一半（鑰匙圈已搬、標記沒刪）＝ `data_key_next_b64` 是 None 而 `data_key_b64` 已經是 K2。
+    // 這時把 K1 也當成 K2：步驟 5 的「K2 拆得開就跳過」會讓重加密整段空跑，6、7 照樣冪等。
+    let k2 = match creds.data_key_next_b64.as_deref() {
+        Some(b) => crypto::key_from_b64(b)?,
+        None => k1,
+    };
+    let me = creds
+        .device_id
+        .clone()
+        .filter(|d| !d.is_empty())
+        .unwrap_or(ensure_device_id(&pool).await?);
+    run_rotation(app, &pool, &st, marker, creds, k1, k2, None, &me).await
+}
+
+/// 七步的共用跑者：`rotate_data_key`（從步驟 1 之後開跑）與 `finish_rotation`（從標記的階段續跑）都走這裡。
+///
+/// `next_passphrase`＝`Some` 只有第一次呼叫才有（步驟 3 要用它包 KEY）。續跑時是 `None`——
+/// **提交點之前**沒有新密語就接不下去（新密語沒存在任何地方），所以一律回滾；提交點之後根本不需要它。
+#[allow(clippy::too_many_arguments)]
+async fn run_rotation(
+    app: &AppHandle,
+    pool: &Pool<Sqlite>,
+    st: &SyncState,
+    mut marker: RotationMarker,
+    creds: SyncCredentials,
+    k1: [u8; crypto::KEY_LEN],
+    k2: [u8; crypto::KEY_LEN],
+    next_passphrase: Option<&str>,
+    me: &str,
+) -> Result<RotationReport, String> {
+    let root = creds.root.clone();
+    let client = client_of(&creds)?;
+    let e2 = marker.new_epoch.clone();
+    let mut reencrypted = 0u64;
+    let mut deleted_epochs = 0u64;
+
+    // 提交點之前、又沒有新密語 ⇒ 回滾（契約 §5.4）
+    if marker.stage.before_commit() && next_passphrase.is_none() {
+        rollback_rotation(app, &client, &root, me, &e2).await;
+        return Ok(RotationReport {
+            outcome: RotationOutcome::RolledBack,
+            epoch: None,
+            reencrypted_snapshots: 0,
+            deleted_epochs: 0,
+            message: "上次換鑰匙沒做完，已取消；密語沒有變，請再試一次。".into(),
+        });
+    }
+
+    // ── 步驟 2：`put_if_absent <root>/E2/ROTATED` 當鎖，拿到才寫 EPOCH.bin（K2 封、reason="rotate"）──
+    if marker.stage.rank() < RotationStage::Locked.rank() {
+        let flag_key = rotated_flag_key(&root, &e2);
+        let body = serde_json::json!({ "device_id": me, "at": marker.at }).to_string();
+        let won = client.put_if_absent(&flag_key, body.into_bytes()).await?;
+        if !won {
+            // 已經有旗標：是自己上一趟寫的（重試）⇒ 當作拿到。
+            //
+            // v1.1.4 修正席（工程評審 S-8）：**別台的旗標在這裡幾乎撞不到**——`list_epochs` 走的是
+            // `list_prefixes`，而 `<root>/E2/ROTATED` 這顆鍵本身就讓 E2 成為一個 common prefix，
+            // 所以第二台算出來的 E2 一定是 `max+1`＝E2+1，兩台不會撞同一把鎖。真正撞得到的只有
+            // 「兩台都在對方寫旗標之前 list 完」的毫秒級競態——那時對方的 `at` 必定新鮮，一律讓它。
+            // 「死在提交點之後、那台永遠不回來」造成的死鎖不是靠這裡解，而是 `join` 的守門放行接手（見那裡）。
+            let existing = client.get_opt(&flag_key).await?.map(|b| parse_rotated_flag(&b));
+            let mine = existing.as_ref().is_some_and(|f| f.device_id == me);
+            if !mine {
+                rollback_rotation(app, &client, &root, me, &e2).await;
+                return Err("另一台正在換鑰匙，請稍後再試。".into());
+            }
+        }
+        // 提交點之前的任何失敗都要回滾（工程評審 B-3 後半）：讓「回了 Err」永遠等於「已經清乾淨」，
+        // 不必倚賴「下次開機會補回滾」——主人可能當場就再按一次。
+        if let Err(e) = put_epoch_marker(&client, &k2, &root, &e2, me, "rotate", None).await {
+            rollback_rotation(app, &client, &root, me, &e2).await;
+            return Err(e);
+        }
+        marker.stage = RotationStage::Locked;
+        if let Err(e) = write_rotation_marker(app, &marker) {
+            rollback_rotation(app, &client, &root, me, &e2).await;
+            return Err(e);
+        }
+    }
+
+    // ── 步驟 3：PUT `<root>/KEY`＝K2 用**新密語**包。**提交點**（這之後不可逆）──
+    //
+    // v1.1.4 修正席（工程評審 B-3）：順序是「先寫 `committing`＋指紋 → PUT → 再寫 `committed`」。
+    // 舊順序（PUT → 寫標記）在「PUT 成功、寫標記失敗／中間斷電」時會留下一個 `locked` 的標記，
+    // 下次啟動判成「提交點之前」⇒ 回滾 ⇒ 鑰匙圈丟掉 K2，而桶裡的 KEY 已經是 K2 包的——
+    // K2 於是在世上任何地方都不存在了（新裝置用新密語加入會拆出 K2 卻找不到任何拆得開的紀元）。
+    if marker.stage.rank() < RotationStage::Committing.rank() {
+        let Some(next) = next_passphrase else {
+            // 理論上走不到（上面已經擋過）；保守回滾勝過留下半套
+            rollback_rotation(app, &client, &root, me, &e2).await;
+            return Err("換鑰匙沒有完成，已取消；請再試一次。".into());
+        };
+        let (obj, bytes) = wrapped_key_bytes(&root, next, &k2).await?;
+        marker.stage = RotationStage::Committing;
+        marker.key_object_b64 = Some(crypto::b64_encode(&bytes));
+        // 指紋寫不下去就不要 PUT：寧可停在「什麼都沒做」，也不要 PUT 完之後沒有任何憑據判斷
+        if let Err(e) = write_rotation_marker(app, &marker) {
+            rollback_rotation(app, &client, &root, me, &e2).await;
+            return Err(e);
+        }
+        if let Err(e) = client.put(&obj, bytes).await {
+            // S-10：PUT 的回應掉了但其實寫成功了。用新密語重 GET 試拆，拆得出 K2 就當成功。
+            let recovered = match client.get_opt(&obj).await {
+                Ok(Some(b)) => matches!(unseal_key_object(&root, next, &b).await, Ok(k) if k == k2),
+                _ => false,
+            };
+            if !recovered {
+                rollback_rotation(app, &client, &root, me, &e2).await;
+                return Err(e);
+            }
+        }
+        marker.stage = RotationStage::Committed;
+        marker.key_object_b64 = None;
+        write_rotation_marker(app, &marker)?;
+    } else if marker.stage == RotationStage::Committing {
+        // 續跑：上一趟死在「指紋已寫、PUT 生死未卜」。**不需要新密語**就判得出來——
+        // 桶裡那顆 KEY 與指紋逐位元組相同 ⇒ 那一發 PUT 成功過 ⇒ 已經提交，往下續跑；
+        // 不同（別台改過密語）或不存在 ⇒ 沒提交 ⇒ 回滾（K2 沒進過桶，丟掉它是安全的）。
+        let committed = match (&marker.key_object_b64, client.get_opt(&key_object_key(&root)).await) {
+            (Some(fp), Ok(Some(bytes))) => crypto::b64_encode(&bytes) == *fp,
+            _ => false,
+        };
+        if !committed {
+            rollback_rotation(app, &client, &root, me, &e2).await;
+            return Ok(RotationReport {
+                outcome: RotationOutcome::RolledBack,
+                epoch: None,
+                reencrypted_snapshots: 0,
+                deleted_epochs: 0,
+                message: "上次換鑰匙沒做完，已取消；密語沒有變，請再試一次。".into(),
+            });
+        }
+        marker.stage = RotationStage::Committed;
+        marker.key_object_b64 = None;
+        write_rotation_marker(app, &marker)?;
+    }
+
+    // ── 步驟 4：本機切到 E2／K2 → 全量快照進 outbox → 用 K2 推到 E2 推空 ──
+    if marker.stage.rank() < RotationStage::Switched.rank() {
+        let meta = meta_all(pool).await?;
+        let done = meta.get("epoch").map(String::as_str) == Some(e2.as_str())
+            && sqlx::query("SELECT COUNT(*) AS n FROM sync_outbox")
+                .fetch_one(pool)
+                .await
+                .map_err(db_err)?
+                .try_get::<i64, _>("n")
+                .map_err(db_err)?
+                == 0;
+        if !done {
+            switch_epoch_local(
+                pool,
+                &creds,
+                me,
+                meta.get("device_id").map(String::as_str).unwrap_or(""),
+                &e2,
+            )
+            .await?;
+            snapshot_into_outbox(pool, me).await?;
+            push_loop(pool, &client, &k2, &root, &e2, me).await?;
+        }
+        marker.stage = RotationStage::Switched;
+        write_rotation_marker(app, &marker)?;
+        // 紀元換了：桶內標記的進程旗標要重對一次（工程評審 S-9 的同一個理由）
+        st.clear_bucket_meta_done();
+    }
+
+    // ── 步驟 5：重加密 `snapshots/`（K2 拆得開的跳過＝冪等）──
+    if marker.stage.rank() < RotationStage::Reencrypted.rank() {
+        reencrypted = super::snapshot::reencrypt_all(&client, &root, &k1, &k2).await?;
+        marker.stage = RotationStage::Reencrypted;
+        write_rotation_marker(app, &marker)?;
+    }
+
+    // ── 步驟 6：刪掉 `<root>/` 底下所有 ≠E2 的數字紀元（含 E1）──
+    if marker.stage.rank() < RotationStage::Swept.rank() {
+        deleted_epochs = sweep_old_epochs(&client, &root, &e2, 1).await?;
+        marker.stage = RotationStage::Swept;
+        write_rotation_marker(app, &marker)?;
+    }
+
+    // ── 步驟 7：鑰匙圈 K2 上位、清標記 ──
+    let mut done = creds.clone();
+    if done.data_key_next_b64.is_some() {
+        done.data_key_b64 = crypto::b64_encode(&k2);
+        done.data_key_next_b64 = None;
+        credstore::save(app, &done)?;
+    }
+    meta_set(pool, "key_sealed", "1").await?;
+    clear_error(pool).await?;
+    clear_rotation_marker(app);
+    st.set_gate(None);
+
+    Ok(RotationReport {
+        outcome: RotationOutcome::Finished,
+        epoch: Some(e2),
+        reencrypted_snapshots: reencrypted,
+        deleted_epochs,
+        message: format!(
+            "密語已更改，資料鑰匙也換新了——其他裝置要用新密語重新加入。重加密 {reencrypted} 顆雲端快照、清掉 {deleted_epochs} 個舊紀元。"
+        ),
+    })
+}
+
+/// 回滾（契約 §5.4）：只刪**自己寫的**那兩顆物件，鑰匙圈丟掉 K2，標記清掉。密語沒有變。
+///
+/// 為什麼判 device_id 才刪：E2 這個號碼兩台會算出同一個，旗標若是別台的，刪掉就等於把它的鎖撬開。
+/// 旗標是空物件／壞 JSON（拍板原本的「空物件」寫法）時 `device_id` 是空字串 ⇒ 不是自己的 ⇒ 不刪。
+async fn rollback_rotation(app: &AppHandle, client: &R2Client, root: &str, me: &str, e2: &str) {
+    let flag_key = rotated_flag_key(root, e2);
+    let mine = match client.get_opt(&flag_key).await {
+        Ok(Some(b)) => parse_rotated_flag(&b).device_id == me,
+        _ => false,
+    };
+    if mine {
+        for k in [epoch_marker_key(root, e2), flag_key] {
+            eprintln!("[sync:rotate] rollback delete {k}");
+            let _ = client.delete(&k).await;
+        }
+    }
+    if let Ok(Some(mut creds)) = credstore::load(app) {
+        if creds.data_key_next_b64.is_some() {
+            creds.data_key_next_b64 = None;
+            let _ = credstore::save(app, &creds);
+        }
+    }
+    clear_rotation_marker(app);
+}
+
+/// v1.1.4 修正席（產品評審 B1）：**用新密語重新加入**——四欄沿用鑰匙圈裡現成的那組，只問密語。
+///
+/// 為什麼要有這一支：別台勾了「同時換掉資料鑰匙」之後，這台進「鍵違い」，狀態列叫主人
+/// 「用新密語『重新加入同步』」。但畫面上那顆「重新加入同步」按下去是 `reset_local`——它連身分與
+/// 憑證一起清掉，於是表單四欄空白，主人得回桌機開配對碼重掃一次；而旁邊那顆「更新憑證…」的表單
+/// 又寫著「密語打**現在這一句**……資料、身分與紀元都不會動」，照字打舊密語只會得到「密語不對」。
+/// 文案指的路與畫面給的鈕互相打架——這是 v1.1.4 要挑掉的那個矛盾。
+///
+/// 實際做的事**就是既有的 `join`**（不新增第三條規則、不新增狀態）：憑證從鑰匙圈原樣拿出來，
+/// 密語換成主人剛打的新的。`join` 的 ④ 會發現「拆得開但不是我那把＋有 ROTATED 旗標」而跳過重接，
+/// 落到 ⑤ 解 KEY 得 K2 → ⑥ 找到 E2 → 兩邊有料 → 回 `needs_choice` → 主人選「兩邊都保留」
+/// ⇒ merged（這台還沒送出的修改靠格子的原始時間戳併回去）。**身分也不必換**（鑰匙圈還在）。
+///
+/// 沒有鑰匙圈（真的沒加入過）＝這支沒有意義，Err 請主人走正常的「加入同步」。
+pub async fn rejoin(app: &AppHandle, passphrase: &str, mode: Option<JoinMode>) -> Result<JoinReport, String> {
+    let creds = credstore::load(app)?
+        .ok_or_else(|| "這台還沒加入同步——請用下面的「加入同步」填四欄。".to_string())?;
+    join(
+        app,
+        JoinArgs {
+            endpoint: creds.endpoint,
+            bucket: creds.bucket,
+            access_key_id: creds.access_key_id,
+            secret_access_key: creds.secret_access_key,
+            passphrase: passphrase.trim().to_string(),
+            root: Some(creds.root),
+            mode,
+        },
+    )
+    .await
 }
 
 /// 單一入口「加入同步」（契約 §4.2 的九步）。
@@ -3416,6 +4545,8 @@ pub async fn export_full_json(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<St
 ///
 /// 「存 credstore」之前的任何失敗都保證**本機零改變**（可以直接重按）。
 pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String> {
+    // 工程評審 B-4：`save_creds` 寫死 `data_key_next_b64: None`——換鑰匙沒做完時走這條會把 K2 抹掉
+    guard_not_rotating(app)?;
     let Some(st) = app.try_state::<SyncState>() else {
         return Err("同步模組還沒初始化。".into());
     };
@@ -3515,6 +4646,8 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                 data_key_b64: crypto::b64_encode(data_key),
                 salt_b64: Some(salt_b64.to_string()),
                 device_id: Some(device_id.clone()),
+                // v1.1.4：加入／重接時不可能在換鑰匙（前置擋掉），K2 一律空
+                data_key_next_b64: None,
             },
         )
     };
@@ -3533,23 +4666,49 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                         // 工程評審 S-1：拆得開還不夠，**拆出來的要與鑰匙圈裡那把一樣**。
                         // 不比對的話，桶裡若有一顆包著別把鑰匙的 KEY（09-21 就有），
                         // 用那顆的密語重接會把這台的資料鑰匙覆蓋成錯的、自己的舊物件從此拆不開。
-                        Ok(k) if k == stored => k,
+                        Ok(k) if k == stored => Some(k),
                         Ok(_) => {
-                            return Err(
-                                "雲端上那顆鑰匙與這台的資料對不起來——請到〈密語〉頁重新設一次密語（現密語可留白）。"
-                                    .into(),
-                            )
+                            // v1.1.4（整合席沙盒 癸5 抓到）：拆出來的不是鑰匙圈那把，還有**第二種**成因——
+                            // 別台勾了「同時換掉資料鑰匙」，桶裡的 KEY 已經是 K2、這台鑰匙圈裡還是 K1。
+                            // 那不是「鑰匙壞了」而是「鑰匙換了」，出路正是 `describeLocked(rotated)` 叫主人做的
+                            // 「用新密語重新加入同步」。S-1 那句 Err 會把這條唯一的出路整個擋死，
+                            // 所以看到任何紀元帶著 `ROTATED` 旗標時就跳過重接分支，落到 ⑤ 走正規 join
+                            //（紀元不一致 → 解 KEY 得 K2 → 找到 E2 → 兩邊有料 → 二選一 → merged）。
+                            // 沒有旗標＝真的是壞掉的 KEY，維持原本的 Err。
+                            // v1.1.4 修正席（工程評審 B-2）：掃描換成共用的 `rotated_elsewhere`
+                            //（「比我新 ∧ 有旗標 ∧ 我拆不開」三條），與下面 `Err(_)` 那半用同一把尺。
+                            if rotated_elsewhere(&client, &root, &stored, meta.get("epoch").map(String::as_str))
+                                .await?
+                                .is_none()
+                            {
+                                return Err(
+                                    "雲端上那顆鑰匙與這台的資料對不起來——請到〈密語〉頁重新設一次密語（現密語可留白）。"
+                                        .into(),
+                                );
+                            }
+                            None
                         }
                         // 工程評審 B-3 自癒：拆不開、但舊血統法 `argon2id(密語, SALT)` 等於鑰匙圈那把
                         // ⇒ 這顆 KEY 必定是別人寫壞的（同一個 SALT 不可能包出不同資料鑰匙）⇒ 重封蓋掉。
                         Err(_) => {
+                            // v1.1.4 修正席（工程評審 B-2）：**舊血統桶**（主人正本就是這種）踩得到的死路——
+                            // 別台換過鑰匙之後，這台照著鍵違い文案來「重新加入」卻打了**舊**密語：
+                            // K2 包的 KEY 拆不開 ⇒ 落到這個自癒分支 ⇒ `argon2id(舊密語, SALT) == K1` 成立
+                            // ⇒ 把 KEY 蓋回 K1、還回一句「憑證已更新，資料照舊」。K2 就這樣沒了（同 B-1 的後果）。
+                            // 所以自癒之前先問一次「是不是別台換過鑰匙」——是的話這只是打錯密語。
+                            if rotated_elsewhere(&client, &root, &stored, meta.get("epoch").map(String::as_str))
+                                .await?
+                                .is_some()
+                            {
+                                return Err("密語不對（這份資料已在另一台換過鑰匙，請改用新密語）。".into());
+                            }
                             let salt = crypto::b64_decode(theirs)?;
                             let derived = derive_blocking(&passphrase, &salt).await?;
                             if derived != stored {
                                 return Err("密語不對。".into());
                             }
                             seal_key_object(&client, &root, &passphrase, &derived).await?;
-                            derived
+                            Some(derived)
                         }
                     },
                     None => {
@@ -3562,35 +4721,38 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                         // 順手封 KEY（遷移 §7 ⑤）——之後改密語就不必再走舊血統法。
                         // 自動封存用條件寫（工程評審 S-3(b)）
                         seal_key_object_if_absent(&client, &root, &passphrase, &derived).await?;
-                        derived
+                        Some(derived)
                     }
                 };
-                save_creds(&data_key, theirs)?;
-                meta_set(&pool, "root", &root).await?;
-                meta_set(&pool, "salt", theirs).await?;
-                meta_set(&pool, "key_sealed", "1").await?;
-                meta_set(&pool, "last_error", "").await?;
-                st.set_gate(None);
-                st.clear_bucket_meta_done(); // 工程評審 S-9
-                drop(_busy);
-                // 工程評審 B-2：上一次加入在「存鑰匙圈之後、快照之前」斷掉時會留下 `join_pending`。
-                // 重接分支不補做（它刻意不動資料），但也**不能把旗標吃掉**——下一趟 push 會先補一次
-                // 完整拉取＋補戳＋快照。文案照實講，免得主人以為已經結束了。
-                let pending_snapshot = meta.get("join_pending").is_some_and(|v| !v.is_empty());
-                return Ok(JoinReport {
-                    outcome: JoinOutcome::Reconnected,
-                    local_alive,
-                    remote_epoch: meta.get("epoch").cloned(),
-                    remote_devices: 0,
-                    snapshot_ops: 0,
-                    pull: None,
-                    export_path: None,
-                    message: if pending_snapshot {
-                        "憑證已更新——上次加入沒做完的那一半會在下一趟同步補上。".into()
-                    } else {
-                        "憑證已更新，資料照舊。".into()
-                    },
-                });
+                // None＝「別台換過鑰匙」，重接不適用：什麼都不寫，落到 ⑤ 走正規 join
+                if let Some(data_key) = data_key {
+                    save_creds(&data_key, theirs)?;
+                    meta_set(&pool, "root", &root).await?;
+                    meta_set(&pool, "salt", theirs).await?;
+                    meta_set(&pool, "key_sealed", "1").await?;
+                    meta_set(&pool, "last_error", "").await?;
+                    st.set_gate(None);
+                    st.clear_bucket_meta_done(); // 工程評審 S-9
+                    drop(_busy);
+                    // 工程評審 B-2：上一次加入在「存鑰匙圈之後、快照之前」斷掉時會留下 `join_pending`。
+                    // 重接分支不補做（它刻意不動資料），但也**不能把旗標吃掉**——下一趟 push 會先補一次
+                    // 完整拉取＋補戳＋快照。文案照實講，免得主人以為已經結束了。
+                    let pending_snapshot = meta.get("join_pending").is_some_and(|v| !v.is_empty());
+                    return Ok(JoinReport {
+                        outcome: JoinOutcome::Reconnected,
+                        local_alive,
+                        remote_epoch: meta.get("epoch").cloned(),
+                        remote_devices: 0,
+                        snapshot_ops: 0,
+                        pull: None,
+                        export_path: None,
+                        message: if pending_snapshot {
+                            "憑證已更新——上次加入沒做完的那一半會在下一趟同步補上。".into()
+                        } else {
+                            "憑證已更新，資料照舊。".into()
+                        },
+                    });
+                }
             }
         }
     }
@@ -3666,6 +4828,37 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         None => (0, false),
     };
 
+    // v1.1.4（契約 §5.5 的 join 新守門）：目前紀元有 `ROTATED`、底下卻一個裝置目錄都沒有
+    // ＝另一台正卡在輪替的步驟 3～4 之間（KEY 已經是新密語、E2 還沒推東西上去）。
+    // 不擋的話這台會判成「雲端沒資料」⇒ 開出**第三個**紀元，把正在換鑰匙那台推進改正待ち，
+    // 它下一步的「切到 E2 再推全量」就變成往一個沒人看的目錄推。等它做完（幾秒）再加入就好。
+    //
+    // v1.1.4 修正席（工程評審 S-8）：守門要有**時效**。那台若死在提交點之後永遠不回來，桶裡就永遠是
+    // 「KEY＝K2、E2 沒有任何裝置目錄」——沒有時效的話所有新裝置都會被這句話擋到天荒地老，
+    // 而舊裝置（K1）又換不了鑰匙（現密語已經不是 KEY 的密語了）＝整份資料再也加不進新裝置。
+    // 旗標的 `at` 超過 `ROTATION_LOCK_STALE_HOURS` ⇒ 這台**接手收尾**：它手上就是 K2，
+    // 直接把 E2 當成自己的紀元推上去即可（`opening_new_epoch=false`）。原本那台回來續跑步驟 4 時
+    // `switch_epoch_local` 是冪等的，步驟 6 也只刪 < E2，不會打架。
+    let mut adopt_stale_rotation = false;
+    if let Some(e) = current_epoch.as_deref() {
+        if !remote_has_data {
+            if let Some(flag) = client.get_opt(&rotated_flag_key(&root, e)).await? {
+                let f = parse_rotated_flag(&flag);
+                let stale = chrono::DateTime::parse_from_rfc3339(&f.at)
+                    .map(|t| {
+                        (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_hours()
+                            >= ROTATION_LOCK_STALE_HOURS
+                    })
+                    .unwrap_or(false);
+                if !stale {
+                    drop(_busy);
+                    return Err("另一台正在換鑰匙，請稍後再加入。".into());
+                }
+                adopt_stale_rotation = true;
+            }
+        }
+    }
+
     // ⑦ 兩邊都有料而 UI 還沒問 ⇒ 什麼都不寫（密語已驗過，主人按完鈕再呼叫一次）
     if remote_has_data && local_alive > 0 && args.mode.is_none() {
         drop(_busy);
@@ -3689,7 +4882,8 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     }
 
     // ⑧ 定案：紀元（沿用或新開）與模式
-    let opening_new_epoch = !remote_has_data;
+    // 接手死掉的輪替（S-8）＝沿用 E2，不另開紀元（EPOCH.bin 已經是那台用 K2 寫好的）
+    let opening_new_epoch = !remote_has_data && !adopt_stale_rotation;
     let epoch = match (&current_epoch, opening_new_epoch) {
         (Some(e), false) => e.clone(),
         _ => {
@@ -3724,12 +4918,26 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         put_epoch_marker(&client, &data_key, &root, &epoch, &device_id, "first", None).await?;
     }
 
-    // 手機「改用另一台的」：換掉之前先把整顆庫匯出（桌機是 TS 先拍 manual 備份）
-    let export_path = if args.mode == Some(JoinMode::AdoptRemote) && cfg!(mobile) {
-        Some(export_full_json(app, &pool).await?)
-    } else {
-        None
-    };
+    // 手機「改用另一台的」：換掉之前先留底（桌機是 TS 先拍 manual 備份）。
+    // **v1.1.4（契約 §6）**：留底改成「先拍一份 manual 雲端快照」，用的就是這條路上剛解出來的
+    // `data_key`／`root`（鑰匙圈這時還沒存，所以不能走 `keyed_client`）。雲端拍不成才退回 JSON 落檔——
+    // 手機的 `download_dir()` 是 app 專屬目錄，主人看不到也帶不走（查證：Android 下載目錄寫入）。
+    let mut export_path: Option<String> = None;
+    if args.mode == Some(JoinMode::AdoptRemote) && cfg!(mobile) {
+        if let Err(e) = put_cloud_snapshot(
+            &pool,
+            &client,
+            &data_key,
+            &root,
+            &device_id,
+            super::snapshot::SnapshotKind::Safety,
+        )
+        .await
+        {
+            eprintln!("[sync:join] cloud safety snapshot failed: {e}");
+            export_path = Some(export_full_json(app, &pool).await?);
+        }
+    }
     // 未推出去的 outbox 另存（改用那份時才有意義）
     let orphans = if args.mode == Some(JoinMode::AdoptRemote) {
         export_outbox_orphans(
@@ -3889,7 +5097,20 @@ pub async fn change_passphrase(
     app: &AppHandle,
     current: &str,
     next: &str,
+    rotate: bool,
 ) -> Result<PassphraseReport, String> {
+    // v1.1.4（契約 §5；D-3）：勾了「同時換掉資料鑰匙」⇒ 走七步輪替，不走下面的「只重包 KEY」。
+    // `current` 在這條路上**必填**（自決 4：忘密語走「重新加入」不走輪替）——輪替裡驗。
+    if rotate {
+        let r = rotate_data_key(app, current, next).await?;
+        return Ok(PassphraseReport {
+            sealed_first_time: false,
+            rotated: true,
+            reencrypted_snapshots: r.reencrypted_snapshots,
+            deleted_epochs: r.deleted_epochs,
+            message: r.message,
+        });
+    }
     let creds = credstore::load(app)?.ok_or_else(|| "這台還沒加入同步。".to_string())?;
     let next = next.trim();
     if next.chars().count() < 8 {
@@ -3899,6 +5120,46 @@ pub async fn change_passphrase(
     let root = creds.root.clone();
     let data_key = crypto::key_from_b64(&creds.data_key_b64)?;
     let client = client_of(&creds)?;
+
+    // ── 工程評審 B-1（v1.1.4 修正席）：**這台的鑰匙還是現役的嗎？** ──
+    //
+    // 「只重包 KEY」這條路會無條件把 `<root>/KEY` 寫成「新密語包著**這台鑰匙圈裡那把**」。
+    // 在 v1.1.3 那是安全的（全桶只有一把資料鑰匙）；v1.1.4 有了輪替就不是了：
+    // 別台勾過「同時換掉資料鑰匙」之後，桶裡的 KEY 是 K2，而這台手上還是 K1——
+    // 這時改密語會把 KEY 蓋回 K1，**K2 從世上消失**（它只在那台的鑰匙圈裡），
+    // 之後任何用新密語加入的裝置都會拆出 K1、找不到 E2、開出第三個紀元＝兩個血統永久分裂。
+    // 「真撤銷」於是變成「真斷線」。三條子路（留白不驗／打新密語判成殘留／舊血統法驗得過）全都會踩到，
+    // 所以守門放在最前面、在碰 KEY 之前。出路與 `describeLocked(rotated)` 同一句話。
+    let rotated_note = || {
+        "這份資料已在另一台換過鑰匙——這台的鑰匙已經不算數了，改密語會把別台的新鑰匙蓋掉。\
+         請用新密語「重新加入同步」。"
+            .to_string()
+    };
+    if rotation_marker(app).is_some() {
+        return Err("換鑰匙還沒做完——請先讓它接著做完（打開 App 稍等即可）。".into());
+    }
+    // 守門不准被靜默跳過（它擋的是「資料再也接不回來」），所以 pool 拿不到就整支失敗
+    let pass_pool = pool(app).await?;
+    let pass_meta = meta_all(&pass_pool).await?;
+    // `locked` 是紀元號、而且原因是「換過鑰匙」＝這台已經被雲端的新紀元擋下來了，先處理那個
+    if pass_meta.get("locked").is_some_and(|v| !v.is_empty() && v != "salt")
+        && pass_meta.get("locked_reason").map(String::as_str) == Some("rotated")
+    {
+        return Err(rotated_note());
+    }
+    // 還沒掃到（這台離線期間別台換的）也要擋——掃描是每趟 pull 才做，改密語不會等它
+    if rotated_elsewhere(
+        &client,
+        &root,
+        &data_key,
+        pass_meta.get("epoch").filter(|e| !e.is_empty()).map(String::as_str),
+    )
+    .await?
+    .is_some()
+    {
+        return Err(rotated_note());
+    }
+
     let wrong = || "現在的密語不對。留白也可以——這台的鑰匙還在，可以直接設一個新的。".to_string();
     /// 舊血統法：`argon2id(密語, 血統鹽)` 是不是就是這台的資料鑰匙
     async fn is_old_lineage(
@@ -3963,6 +5224,9 @@ pub async fn change_passphrase(
     }
     Ok(PassphraseReport {
         sealed_first_time,
+        rotated: false,
+        reencrypted_snapshots: 0,
+        deleted_epochs: 0,
         message: if healed {
             "密語已更改——雲端上那顆鑰匙與這份資料對不起來（多半是殘留），已重新封存。".into()
         } else if sealed_first_time {
@@ -4023,6 +5287,27 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
 
     match choice {
         RestoreChoice::Past => {
+            // v1.1.4 修正席（工程評審 S-7）：**別台已經換過鑰匙、這台還沒掃到**時不准開新紀元。
+            // 這台手上是 K1，開出來的紀元號一定 > E2、卻只有 K1 拆得開 ⇒ 換過鑰匙那台掃到它會判成
+            //「殘留」（locked=stale，文案叫主人去 Cloudflare 後台刪目錄），而這台自己看不到任何比它新的
+            // 紀元、永遠 running ⇒ 兩邊互不承認、只剩手動刪桶目錄一條路。
+            // 正解：還原後的資料**留在這台**，走既有的鍵違い出路（用新密語重新加入、選「兩邊都保留」）。
+            if let Some(e) =
+                rotated_elsewhere(&client, &root, &data_key, old_epoch.as_deref()).await?
+            {
+                clear_restore_pending(app);
+                meta_set(&pool, "locked", &e).await?;
+                meta_set(&pool, "locked_reason", "rotated").await?;
+                st.set_gate(None);
+                return Ok(RestoreReport {
+                    outcome: RestoreOutcome::Resumed,
+                    epoch: old_epoch,
+                    snapshot_ops: 0,
+                    message: "這份資料已在另一台換過鑰匙——還原後的資料留在這台，\
+                              請用新密語「重新加入同步」並選「兩邊都保留」。"
+                        .into(),
+                });
+            }
             // 新紀元號一定要大於「舊的」與「桶裡既有的全部」——別台的偵測是「比我大才提示」，
             // 小了就永遠不會觸發（時鐘被撥回也一樣）。
             let floor = list_epochs(&client, &root)
@@ -4034,40 +5319,15 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 .saturating_add(1);
             let new_epoch = hlc::now_ms().max(floor).to_string();
 
-            let mut tx = pool.begin().await.map_err(db_err)?;
-            sqlx::query("DELETE FROM sync_outbox")
-                .execute(&mut *tx)
-                .await
-                .map_err(db_err)?;
-            sqlx::query(EPOCH_SCOPED_META)
-                .execute(&mut *tx)
-                .await
-                .map_err(db_err)?;
-            meta_set(&mut *tx, "epoch", &new_epoch).await?;
-            // 還原的備份若早於「加入同步」那一刻，這顆 DB 裡沒有 joined／salt／root——
-            // 鑰匙圈還在（它不在 DB 裡），所以照樣接得回去（v1.1.2 的 Reenable 分支退場）。
-            meta_set(&mut *tx, "joined", "1").await?;
-            if let Some(s) = creds.salt_b64.as_deref().filter(|s| !s.is_empty()) {
-                meta_set(&mut *tx, "salt", s).await?;
-            }
-            meta_set(&mut *tx, "root", &root).await?;
-            meta_set(&mut *tx, "device_id", &device_id).await?;
-            // 產品評審 B2：**總開關一定要打開**。還原到「同步關著那段期間拍的備份」（或加入同步之前拍的）
-            // 會把 `enabled='0'` 一起還原回來 ⇒ 這台不推、別台卻已經看到新紀元 ⇒ 別台「改用那份」之後
-            // 拉到 0 顆物件＝**手機整個變空**，而這台的 toast 還寫著「正把整份資料重新上傳」。
-            // 邏輯與總開關的語義一致：關的是日常節奏，不是主人剛按下的這個一次性決定。
-            meta_set(&mut *tx, "enabled", "1").await?;
-            // 工程評審 S-6 的對稱面：身分是鑰匙圈的，備份裡的格子可能掛著**別台**的 device_id
-            //（換電腦還原舊機備份）。不改的話 seen 判定會把自己寫的格子當成別台寫的、多記競合。
-            sqlx::query("UPDATE sync_cells SET device_id = ? WHERE device_id = ?")
-                .bind(&device_id)
-                .bind(meta.get("device_id").map(String::as_str).unwrap_or(""))
-                .execute(&mut *tx)
-                .await
-                .map_err(db_err)?;
-            // **cells 不清**（契約 §6）：它們帶著備份時刻的原始戳記，正是快照要用的時間
-            stamp_missing_cells(&mut tx, &device_id).await?;
-            tx.commit().await.map_err(db_err)?;
+            // v1.1.4：交易段抽成 `switch_epoch_local`（鑰匙輪替步驟 4 共用），內容一字未動
+            switch_epoch_local(
+                &pool,
+                &creds,
+                &device_id,
+                meta.get("device_id").map(String::as_str).unwrap_or(""),
+                &new_epoch,
+            )
+            .await?;
 
             // 紀元標記。網路失敗就回 Err——標記檔**留著**，下次啟動再試（紀元號已換也無妨：再換一次就是）
             if let Err(e) =
@@ -5042,7 +6302,7 @@ mod tests {
             assert!(
                 matches!(
                     scan_new_epoch(&client, &key, &root, &e_mine).await.unwrap(),
-                    EpochScan::Locked(ref e) if e == &e_alien
+                    EpochScan::Locked(ref v) if v.first().map(String::as_str) == Some(e_alien.as_str())
                 ),
                 "最大的那個拆不開 ⇒ 鍵違い"
             );
@@ -6286,5 +7546,512 @@ mod tests {
         );
         let head: OplogHead = serde_json::from_slice(&bytes).expect("前兩個版號要解得出來");
         assert!(head.schema > SCHEMA_VERSION, "才擋得住");
+    }
+    // ─────────────────────────────────────────────────────────
+    // v1.1.4 掃地工與鑰匙輪替（契約 §4.5／§5；沙盒癸4／癸6／癸7／癸8／癸10 的引擎面）
+    // ─────────────────────────────────────────────────────────
+
+    /// 契約 §4.5：只刪「數字 < 目前紀元」而且「不在最近 keep 個」的紀元。
+    /// 比我大的（別台剛開的新紀元）與我自己**永遠**不刪——刪了等於把還沒收斂的那台的資料清掉。
+    #[test]
+    fn 掃地工_只刪比我小且不在保護區的紀元() {
+        // 由大到小，就是 `list_epochs` 的輸出形狀
+        let epochs = [50u64, 40, 30, 20, 10];
+        // 目前紀元＝50、keep=2 ⇒ 保護 50／40，其餘三個都比我小 ⇒ 刪
+        assert_eq!(sweep_victims(&epochs, 50, SWEEP_KEEP_DEFAULT), vec![30, 20, 10]);
+        // 輪替用 keep=1 ⇒ 只保護 E2，連前一個都刪（契約 §5 步驟 6）
+        assert_eq!(sweep_victims(&epochs, 50, 1), vec![40, 30, 20, 10]);
+        // 我還停在 30（改正待ち沒按）：40／50 比我大 ⇒ 一顆都不動
+        assert_eq!(sweep_victims(&epochs, 30, 2), vec![20, 10]);
+        // 我停在最小那個 ⇒ 沒有比我更小的可刪
+        assert!(sweep_victims(&epochs, 10, 2).is_empty());
+        // keep 大於總數 ⇒ 全保護
+        assert!(sweep_victims(&epochs, 50, 9).is_empty());
+        // 冪等：掃完之後再跑一次＝空
+        assert!(sweep_victims(&[50u64, 40], 50, SWEEP_KEEP_DEFAULT).is_empty());
+    }
+
+    /// 契約 §5.3／§5.4：標記檔 JSON 往返，而「回滾還是續跑」的判準就是階段序（提交點＝`committed`）。
+    #[test]
+    fn 輪替標記檔_json往返_且提交點之前才回滾() {
+        let m = RotationMarker {
+            at: "2026-09-22T05:00:00.000Z".into(),
+            old_epoch: "1758153600000".into(),
+            new_epoch: "1758153600001".into(),
+            stage: RotationStage::Committed,
+            key_object_b64: None,
+        };
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(s.contains("\"stage\":\"committed\""), "階段是 snake_case 字面值：{s}");
+        let back: RotationMarker = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.old_epoch, "1758153600000");
+        assert_eq!(back.new_epoch, "1758153600001");
+        assert_eq!(back.stage, RotationStage::Committed);
+        assert_eq!(back.stage.as_str(), "committed");
+
+        // 提交點之前＝新密語還沒存進桶裡，續跑也拆不開 ⇒ 一律回滾
+        for st in [RotationStage::Prepared, RotationStage::Locked] {
+            assert!(st.before_commit(), "{} 要回滾", st.as_str());
+        }
+        // 提交點之後＝新密語已經在桶裡（不再需要它）⇒ 4–7 冪等續跑
+        for st in [
+            RotationStage::Committed,
+            RotationStage::Switched,
+            RotationStage::Reencrypted,
+            RotationStage::Swept,
+        ] {
+            assert!(!st.before_commit(), "{} 要續跑", st.as_str());
+        }
+        // v1.1.4 修正席（工程評審 B-3）：`committing`＝「指紋已寫、PUT 生死未卜」，
+        // 它**不算**提交點之前（要拿指紋去問桶裡那顆 KEY 才知道該回滾還是續跑），也不算已提交。
+        assert!(!RotationStage::Committing.before_commit());
+        assert_eq!(RotationStage::Committing.as_str(), "committing");
+        let committing = RotationMarker {
+            at: "2026-09-22T05:00:00.000Z".into(),
+            old_epoch: "1758153600000".into(),
+            new_epoch: "1758153600001".into(),
+            stage: RotationStage::Committing,
+            key_object_b64: Some("Zm9vYmFy".into()),
+        };
+        let s2 = serde_json::to_string(&committing).unwrap();
+        let back2: RotationMarker = serde_json::from_str(&s2).unwrap();
+        assert_eq!(back2.key_object_b64.as_deref(), Some("Zm9vYmFy"));
+        // 舊版標記（沒有那一欄）讀得回來、指紋是 None ⇒ 保守回滾
+        let legacy: RotationMarker = serde_json::from_str(
+            r#"{"at":"2026-09-22T05:00:00.000Z","old_epoch":"1","new_epoch":"2","stage":"committing"}"#,
+        )
+        .unwrap();
+        assert!(legacy.key_object_b64.is_none());
+
+        // 續跑的「跳過已完成的步」靠階段序遞增
+        let order = [
+            RotationStage::Prepared,
+            RotationStage::Locked,
+            RotationStage::Committing,
+            RotationStage::Committed,
+            RotationStage::Switched,
+            RotationStage::Reencrypted,
+            RotationStage::Swept,
+        ];
+        for w in order.windows(2) {
+            assert!(w[0].rank() < w[1].rank(), "{} 要排在 {} 前面", w[0].as_str(), w[1].as_str());
+        }
+        // 解不開的標記（舊版／寫到一半）＝當成「沒在換」，phase 不會卡在換鑰匙中
+        assert!(serde_json::from_str::<RotationMarker>("{\"stage\":\"nope\"}").is_err());
+        assert!(serde_json::from_str::<RotationMarker>("{\"at\":\"t\"").is_err());
+    }
+
+    /// 契約 §2／§5.4：`ROTATED` 要容忍空物件與壞 JSON（拍板原句是「明文空物件」），
+    /// 但**回滾只刪自己寫的那一顆**——不知道是誰寫的就不敢刪（E2 這個號碼兩台會算出同一個）。
+    #[test]
+    fn rotated旗標_空物件與壞json也算旗標_但不算是自己的() {
+        assert_eq!(
+            rotated_flag_key("v1-sb-test", "1758153600001"),
+            "v1-sb-test/1758153600001/ROTATED"
+        );
+        let mine = parse_rotated_flag(br#"{"device_id":"dev-a","at":"2026-09-22T05:00:00.000Z"}"#);
+        assert_eq!(mine.device_id, "dev-a");
+        assert_eq!(mine.at, "2026-09-22T05:00:00.000Z");
+        for raw in [&b""[..], b"{}", b"not json at all", b"{\"device_id\":123}"] {
+            let f = parse_rotated_flag(raw);
+            assert!(f.device_id.is_empty(), "解不出來＝不是自己的 ⇒ 回滾不刪它");
+            assert!(f.at.is_empty());
+        }
+    }
+
+    /// 契約 §4.3：`locked_reason` 跟著 `locked` 一起被「紀元範圍清除句」清掉；
+    /// 而 `skipped_missing_total`／`last_cloud_snapshot_*` 是跨紀元累計的，**不能**跟著清。
+    #[test]
+    fn 紀元範圍meta_連locked_reason一起清_但累計值留著() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("epoch-meta").await;
+            for (k, v) in [
+                ("locked", "1758153600002"),
+                ("locked_reason", "rotated"),
+                ("last_pull_key:dev-a", "x"),
+                ("skipped_missing_total", "3"),
+                ("last_cloud_snapshot_at", "2026-09-22T05:00:00Z"),
+                ("last_cloud_snapshot_day", "2026-09-22"),
+                ("epoch", "1758153600001"),
+            ] {
+                meta_set(&pool, k, v).await.unwrap();
+            }
+            sqlx::query(EPOCH_SCOPED_META).execute(&pool).await.unwrap();
+            let meta = meta_all(&pool).await.unwrap();
+            assert!(!meta.contains_key("locked"));
+            assert!(!meta.contains_key("locked_reason"), "沒有主詞的原因不該留著");
+            assert!(!meta.contains_key("last_pull_key:dev-a"));
+            assert_eq!(meta.get("skipped_missing_total").map(String::as_str), Some("3"));
+            assert_eq!(
+                meta.get("last_cloud_snapshot_at").map(String::as_str),
+                Some("2026-09-22T05:00:00Z")
+            );
+            assert_eq!(meta.get("last_cloud_snapshot_day").map(String::as_str), Some("2026-09-22"));
+            assert_eq!(meta.get("epoch").map(String::as_str), Some("1758153600001"));
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// 契約 §4.2（沙盒癸10 的引擎面）：必填欄不齊的**新列**另計 `skipped_missing`。
+    /// 為什麼要跟一般的 `skipped` 分開：游標推過去之後這種列永遠不會再來一次，
+    /// 跟「較舊的 op 被 LWW 判掉」是完全不同的事——前者是靜默掉資料，主人有權知道。
+    #[test]
+    fn skipped_missing_必填欄不齊的新列另計() {
+        tauri::async_runtime::block_on(async {
+            let (dst, path) = make_pool("skip-missing").await;
+            let ops = vec![
+                // nodes 缺 `name`
+                mk_op(
+                    "17581536000000010-aaaaaaaa",
+                    "nodes",
+                    "BAD",
+                    OpKind::Upsert,
+                    &[("kind", "train".into())],
+                ),
+                // work_logs 缺 `body`
+                mk_op(
+                    "17581536000000011-aaaaaaaa",
+                    "work_logs",
+                    "W",
+                    OpKind::Upsert,
+                    &[
+                        ("node_id", "OK".into()),
+                        ("logged_at", "2026-09-18T00:00:00.000Z".into()),
+                    ],
+                ),
+                // 齊的那一筆照建
+                mk_op(
+                    "17581536000000012-aaaaaaaa",
+                    "nodes",
+                    "OK",
+                    OpKind::Upsert,
+                    &[("kind", "train".into()), ("name", "好的".into())],
+                ),
+            ];
+            let r = apply(&dst, &make_obj("dev-a", ops), "k1").await;
+            assert_eq!(r.skipped_missing, 2, "兩筆缺必填欄");
+            assert_eq!(r.applied, 1);
+            assert_eq!(r.skipped, 2, "它們同時也算一般的跳過（`skipped_ops` 照舊）");
+            assert_eq!(count(&dst, "SELECT COUNT(*) FROM nodes").await, 1);
+            assert_eq!(count(&dst, "SELECT COUNT(*) FROM work_logs").await, 0);
+            drop_pool(dst, path).await;
+        });
+    }
+
+    /// 契約 §5：輪替之後**舊鑰匙拆不開任何新東西**（純密碼學面，不打網路；沙盒癸4／癸6 的核心斷言）。
+    #[test]
+    fn 輪替後_舊鑰匙拆不開新紀元與重包的key與重加密的快照() {
+        let root = "v1-sb-test";
+        let k1 = crypto::random_data_key().unwrap();
+        let k2 = crypto::random_data_key().unwrap();
+        let (old_pass, new_pass) = ("月見坂 3 番線", "ひかり号 1 番線");
+        let key_obj = key_object_key(root);
+
+        // 輪替前：KEY＝舊密語包 K1
+        let salt_a = crypto::random_salt().unwrap();
+        let wrap_a = crypto::derive_key(old_pass, &salt_a).unwrap();
+        let sealed_a = crypto::wrap_data_key(&wrap_a, &key_obj, &k1, &salt_a).unwrap();
+        assert_eq!(crypto::unwrap_data_key(&wrap_a, &key_obj, &sealed_a).unwrap(), k1);
+
+        // 步驟 3（提交點）：同一顆 KEY 覆蓋成「**新**密語包 K2」
+        let salt_b = crypto::random_salt().unwrap();
+        let wrap_b = crypto::derive_key(new_pass, &salt_b).unwrap();
+        let sealed_b = crypto::wrap_data_key(&wrap_b, &key_obj, &k2, &salt_b).unwrap();
+        assert_eq!(crypto::unwrap_data_key(&wrap_b, &key_obj, &sealed_b).unwrap(), k2);
+        assert!(
+            crypto::unwrap_data_key(&wrap_a, &key_obj, &sealed_b).is_err(),
+            "癸6：舊密語打不開新的 KEY ⇒ 第三台加不進來"
+        );
+
+        // 步驟 2：E2 的 EPOCH.bin 用 K2 封 ⇒ 還拿著 K1 的那台「拆不開」＝鍵違い
+        let e2 = "1758153600002";
+        let marker = epoch_marker_key(root, e2);
+        let info = EpochInfo {
+            version: EPOCH_INFO_VERSION,
+            epoch: e2.into(),
+            opener_device_id: "dev-a".into(),
+            created_at: "2026-09-22T05:00:00.000Z".into(),
+            reason: "rotate".into(),
+            label: None,
+        };
+        let blob = crypto::seal(&k2, &marker, &serde_json::to_vec(&info).unwrap()).unwrap();
+        assert!(epoch_marker_verdict(root, e2, &k2, &blob).is_some());
+        assert!(
+            epoch_marker_verdict(root, e2, &k1, &blob).is_none(),
+            "舊鑰匙拆不開＝locked（旗標在就分流成 locked_reason=rotated）"
+        );
+
+        // 步驟 5：快照重加密（同一把鍵、K1 拆 → K2 封）⇒ K1 再也拆不開＝真撤銷
+        let snap_key = crate::sync::snapshot::snapshot_key(
+            root,
+            chrono::Utc::now(),
+            "dev-a",
+            crate::sync::snapshot::SnapshotKind::Manual,
+        );
+        let plain = br#"{"schema":4,"nodes":[]}"#;
+        let old_blob = crypto::seal(&k1, &snap_key, plain).unwrap();
+        let reopened = crypto::open(&k1, &snap_key, &old_blob).unwrap();
+        let new_blob = crypto::seal(&k2, &snap_key, &reopened).unwrap();
+        assert_eq!(crypto::open(&k2, &snap_key, &new_blob).unwrap(), plain.to_vec());
+        assert!(
+            crypto::open(&k1, &snap_key, &new_blob).is_err(),
+            "重加密之後舊鑰匙拆不開"
+        );
+        // 冪等：已經是 K2 封的，再跑一次會先用 K2 試拆 ⇒ 跳過（不會被 K1 誤拆成壞資料）
+        assert!(crypto::open(&k2, &snap_key, &new_blob).is_ok());
+    }
+
+    /// 輪替的沙盒根：`v1-sb-0922a-<亂數>`（契約 §0 鐵則 2——只碰 `v1-sb-0922*`，與主人正本的 `v1/` 平級）
+    fn rotation_sandbox_root() -> String {
+        let mut stamp = [0u8; 6];
+        crypto::fill_random(&mut stamp).unwrap();
+        format!("v1-sb-0922a-{}", crypto::b64_encode(&stamp))
+    }
+
+    /// v1.1.4 沙盒癸4／癸5／癸6／癸8 的**桶面**整合測（打真的 R2）：
+    /// 兩台同紀元 → A 走輪替七步的桶面動作 → B（還拿著 K1）＝`locked_reason=rotated`
+    /// → 舊密語拆不開 KEY（第三台加不進來）→ 桶裡除了 SALT／KEY／ROTATED，K1 一顆都拆不開 → 舊紀元清光。
+    ///
+    /// 跑法（Git Bash）：
+    /// ```text
+    /// set -a && source "$LOCALAPPDATA/NextStop/r2.env" && set +a
+    /// cargo test --lib sync::engine::tests::輪替七步 -- --ignored --nocapture
+    /// ```
+    /// 鐵則：全部物件都在**自己的沙盒根** `v1-sb-0922a-<亂數>/` 底下（與主人正本的 `v1/` 平級、
+    /// 互相 list 不到），收工逐一刪光；憑證一個字都不印。
+    /// `rotate_data_key()` 本身要 `AppHandle`＋鑰匙圈（單元測試裡拿不到），這支走的是它內部的同一組零件
+    ///（`put_if_absent`／`put_epoch_marker`／`seal_key_object`／`switch_epoch_local`／`push_loop`／
+    /// `record_epoch_scan`／`sweep_old_epochs`）——`AppHandle` 那一層歸沙盒席的癸4–癸7。
+    #[test]
+    #[ignore = "需要 R2 憑證：source %LOCALAPPDATA%/NextStop/r2.env 後加 --ignored"]
+    fn 輪替七步_桶面_舊鑰匙全拆不開_舊紀元清光() {
+        tauri::async_runtime::block_on(async {
+            let client = sandbox_client();
+            let root = rotation_sandbox_root();
+            let (old_pass, new_pass) = ("月見坂 3 番線 2026", "ひかり号 1 番線 2026");
+            let (dev_a, dev_b) = ("dev-rot-a", "dev-rot-b");
+
+            // ── 前置：A、B 同一個紀元 E1，各推一批 ──
+            let k1 = crypto::random_data_key().unwrap();
+            let salt_b64 = crypto::b64_encode(&crypto::random_salt().unwrap());
+            client
+                .put(&salt_object_key(&root), salt_b64.as_bytes().to_vec())
+                .await
+                .unwrap();
+            seal_key_object(&client, &root, old_pass, &k1).await.unwrap();
+            let e1 = hlc::now_ms().to_string();
+            put_epoch_marker(&client, &k1, &root, &e1, dev_a, "first", None)
+                .await
+                .unwrap();
+
+            let (pool_a, path_a) = make_pool("rot-a").await;
+            let (pool_b, path_b) = make_pool("rot-b").await;
+            for (pool, dev) in [(&pool_a, dev_a), (&pool_b, dev_b)] {
+                seed_tree(pool).await;
+                meta_set(pool, "epoch", &e1).await.unwrap();
+                meta_set(pool, "device_id", dev).await.unwrap();
+                meta_set(pool, "joined", "1").await.unwrap();
+                stamp_all(pool, dev).await;
+                snapshot_into_outbox(pool, dev).await.unwrap();
+                push_loop(pool, &client, &k1, &root, &e1, dev).await.unwrap();
+            }
+
+            // ── 步驟 0.5：A 先拍一份 K1 封的雲端快照（輪替前留底；步驟 5 會把它重加密）──
+            let snap = put_cloud_snapshot(
+                &pool_a,
+                &client,
+                &k1,
+                &root,
+                dev_a,
+                crate::sync::snapshot::SnapshotKind::Manual,
+            )
+            .await
+            .unwrap();
+            assert!(snap.key.starts_with(&snapshots_prefix(&root)), "{}", snap.key);
+            assert!(
+                crypto::open(&k1, &snap.key, &client.get(&snap.key).await.unwrap()).is_ok(),
+                "這時還是 K1 封的"
+            );
+
+            // B 事前留一筆沒送出的修改（癸5：重新加入時要一起併進來）
+            local_op(
+                &pool_b,
+                dev_b,
+                "T1",
+                "name",
+                "還沒送出的改名",
+                &format!("{}0000-bbbbbbbb", hlc::now_ms()),
+            )
+            .await;
+
+            // ── 步驟 1–2：E2＝max+1；`put_if_absent ROTATED` 當鎖；EPOCH.bin 用 K2 封 ──
+            let k2 = crypto::random_data_key().unwrap();
+            let e2 = list_epochs(&client, &root)
+                .await
+                .unwrap()
+                .first()
+                .copied()
+                .unwrap()
+                .saturating_add(1)
+                .to_string();
+            let flag = rotated_flag_key(&root, &e2);
+            let body = serde_json::json!({ "device_id": dev_a, "at": now_iso() }).to_string();
+            assert!(
+                client.put_if_absent(&flag, body.into_bytes()).await.unwrap(),
+                "第一台拿得到鎖"
+            );
+            assert!(
+                !client.put_if_absent(&flag, b"{}".to_vec()).await.unwrap(),
+                "第二台撞鎖＝「另一台正在換鑰匙」"
+            );
+            assert_eq!(
+                parse_rotated_flag(&client.get(&flag).await.unwrap()).device_id,
+                dev_a,
+                "旗標還是第一台寫的那份（條件寫沒被蓋掉）"
+            );
+            put_epoch_marker(&client, &k2, &root, &e2, dev_a, "rotate", None)
+                .await
+                .unwrap();
+
+            // 這時 E2 底下還沒有裝置目錄 ⇒ 別台的掃描要「當成還在寫、跳過」（既有規則 S-3(c)）
+            assert!(matches!(
+                scan_new_epoch(&client, &k1, &root, &e1).await.unwrap(),
+                EpochScan::None
+            ));
+            // v1.1.4 修正席（工程評審 B-1／B-2／S-7 的共用守門）：**鎖一掛上去，舊鑰匙就不算數了**。
+            // `scan_new_epoch` 這時還刻意看不到 E2（它沒有裝置目錄），但 `rotated_elsewhere` 看得到——
+            // 三條毀滅性的路（改密語重包 KEY／join 的舊血統自癒／還原「回到過去」開新紀元）
+            // 正是在這個窗口裡最容易把 K2 蓋掉，所以它的判準只有「旗標在 ∧ 我拆不開」，不看裝置目錄。
+            assert_eq!(
+                rotated_elsewhere(&client, &root, &k1, Some(&e1)).await.unwrap().as_deref(),
+                Some(e2.as_str()),
+                "舊鑰匙看得到「別台換過鑰匙」"
+            );
+            assert!(
+                rotated_elsewhere(&client, &root, &k2, Some(&e1)).await.unwrap().is_none(),
+                "新鑰匙拆得開 E2 ⇒ 不該把換鑰匙的那台自己擋住"
+            );
+
+            // ── 步驟 3：PUT KEY＝新密語包 K2（提交點）──
+            seal_key_object(&client, &root, new_pass, &k2).await.unwrap();
+            let key_bytes = client.get(&key_object_key(&root)).await.unwrap();
+            assert_eq!(
+                unseal_key_object(&root, new_pass, &key_bytes).await.unwrap(),
+                k2,
+                "新密語拆得出 K2"
+            );
+            assert!(
+                unseal_key_object(&root, old_pass, &key_bytes).await.is_err(),
+                "癸6：舊密語打不開＝第三台用舊密語加不進來"
+            );
+
+            // ── 步驟 4：A 本機切到 E2／K2，全量快照用 K2 推到 E2 ──
+            let creds = SyncCredentials {
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key_id: String::new(),
+                secret_access_key: String::new(),
+                root: root.clone(),
+                data_key_b64: crypto::b64_encode(&k1),
+                salt_b64: Some(salt_b64.clone()),
+                device_id: Some(dev_a.to_string()),
+                data_key_next_b64: Some(crypto::b64_encode(&k2)),
+            };
+            switch_epoch_local(&pool_a, &creds, dev_a, dev_a, &e2).await.unwrap();
+            snapshot_into_outbox(&pool_a, dev_a).await.unwrap();
+            assert!(
+                push_loop(&pool_a, &client, &k2, &root, &e2, dev_a)
+                    .await
+                    .unwrap()
+                    .pushed_ops
+                    > 0
+            );
+            assert_eq!(
+                text(&pool_a, "SELECT value FROM sync_meta WHERE key='epoch'").await.as_deref(),
+                Some(e2.as_str())
+            );
+
+            // ── 別台（B，還拿著 K1）：拆不開的新紀元＋ROTATED ⇒ `locked_reason=rotated` ──
+            let scan = scan_new_epoch(&client, &k1, &root, &e1).await.unwrap();
+            assert!(matches!(&scan, EpochScan::Locked(v) if v.first().map(String::as_str) == Some(e2.as_str())), "{scan:?}");
+            assert!(record_epoch_scan(&pool_b, &client, &root, scan).await.unwrap());
+            let meta_b = meta_all(&pool_b).await.unwrap();
+            assert_eq!(meta_b.get("locked").map(String::as_str), Some(e2.as_str()));
+            assert_eq!(
+                meta_b.get("locked_reason").map(String::as_str),
+                Some("rotated"),
+                "有 ROTATED ⇒ 文案走「已在另一台換過鑰匙」"
+            );
+
+            // ── 步驟 5：重加密 `snapshots/`（正式路徑委託 `snapshot::reencrypt_all`；
+            //    WP-B 還沒落地時用本地替身跑同一套語義，好讓這支測試自己站得住）──
+            let reencrypted = match crate::sync::snapshot::reencrypt_all(&client, &root, &k1, &k2).await {
+                Ok(n) => n,
+                Err(_) => {
+                    let mut n = 0u64;
+                    for (k, _) in client.list_objects(&snapshots_prefix(&root)).await.unwrap() {
+                        let blob = client.get(&k).await.unwrap();
+                        if crypto::open(&k2, &k, &blob).is_ok() {
+                            continue; // 已經是新鑰匙封的＝冪等跳過
+                        }
+                        let plain = crypto::open(&k1, &k, &blob).unwrap();
+                        client.put(&k, crypto::seal(&k2, &k, &plain).unwrap()).await.unwrap();
+                        n += 1;
+                    }
+                    n
+                }
+            };
+            assert_eq!(reencrypted, 1, "只有步驟 0.5 那一顆");
+
+            // ── 步驟 6：掃地工 keep=1 ⇒ E1 整顆不見、E2 留著；再跑一次＝0（冪等）──
+            assert_eq!(sweep_old_epochs(&client, &root, &e2, 1).await.unwrap(), 1);
+            assert!(
+                client.list_after(&format!("{root}/{e1}/"), "").await.unwrap().is_empty(),
+                "E1 一顆都不剩"
+            );
+            assert_eq!(
+                list_epochs(&client, &root).await.unwrap(),
+                vec![e2.parse::<u64>().unwrap()]
+            );
+            assert_eq!(sweep_old_epochs(&client, &root, &e2, 1).await.unwrap(), 0);
+
+            // ── 驗收：桶裡除了 SALT／KEY／ROTATED（都是明文），K1 一顆都拆不開 ──
+            let mut checked = 0;
+            for k in client.list_after(&format!("{root}/"), "").await.unwrap() {
+                if k == salt_object_key(&root) || k == key_object_key(&root) || k.ends_with("/ROTATED") {
+                    continue;
+                }
+                let blob = client.get(&k).await.unwrap();
+                assert!(crypto::open(&k1, &k, &blob).is_err(), "舊鑰匙還拆得開：{k}");
+                assert!(crypto::open(&k2, &k, &blob).is_ok(), "新鑰匙要拆得開：{k}");
+                checked += 1;
+            }
+            assert!(checked >= 3, "至少 EPOCH.bin＋一顆 oplog 物件＋一顆快照，實際 {checked}");
+
+            // ── 癸5 的機械面：B 用**新**密語重新加入＝解 KEY 得 K2、目前紀元＝E2、那筆沒送出的還在 ──
+            let reopened = unseal_key_object(&root, new_pass, &client.get(&key_object_key(&root)).await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(reopened, k2);
+            assert_eq!(
+                resolve_current_epoch(&client, &reopened, &root).await.unwrap().as_deref(),
+                Some(e2.as_str())
+            );
+            assert_eq!(
+                count(&pool_b, "SELECT COUNT(*) FROM sync_outbox").await,
+                1,
+                "B 那一筆還沒送出的修改還在（重新加入選「兩邊都保留」會併進去）"
+            );
+
+            // ── 收工：沙盒根刪光（鐵則：先列鍵再逐顆刪、只印鍵名；圍籬再確認一次）──
+            for k in client.list_after(&format!("{root}/"), "").await.unwrap() {
+                assert!(k.starts_with("v1-sb-0922"), "只刪自己的沙盒根：{k}");
+                eprintln!("[test:cleanup] delete {k}");
+                client.delete(&k).await.unwrap();
+            }
+            assert!(client.list_after(&format!("{root}/"), "").await.unwrap().is_empty());
+            drop_pool(pool_a, path_a).await;
+            drop_pool(pool_b, path_b).await;
+        });
     }
 }

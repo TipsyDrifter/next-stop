@@ -18,6 +18,15 @@
  *   * 「改用另一台的」／「改用那份」在**桌機**先拍一份 manual 備份，拍不成就不做（提案第三節）。
  *   * `role` 沒了：所有判斷改看 `status.configured`（＝鑰匙圈有資料鑰匙）。
  *
+ * v1.1.4 改了什麼（契約席 2026-09-22 立骨架、WP-B 填；契約 §4／§6／§7）：
+ *   * 雲端備份：`cloudSnapshots` 列表＋`refreshCloudSnapshots()`／`cloudSnapshotNow()`／`cloudRestore(entry, choice)`
+ *     （確認窗在 store，字與桌機本機還原同一套＋一句「來源：雲端快照 <時刻>」）；`runCycle` 成功後順手
+ *     `cloudSnapshotAuto()`（引擎判當日；不另起 timer）。
+ *   * `changePassphrase(current, next, rotate)`：勾了「同時換掉資料鑰匙」就帶 `rotate=true`。
+ *   * `finishRotation()`：boot 看到 `status.rotation_stage` 就叫；`runCycle` 在 `rotating` 時每 60 秒補一次。
+ *   * `exportToFile()`：手機先 `plugin-dialog` `save()`（SAF）拿位置，再交給 Rust 寫；桌機／退路不帶 target。
+ *   * `describeLocked` 分「換過鑰匙」（`locked_reason='rotated'`）與「殘留」；`SYNC_PHASE_LABEL.rotating`＝「換鑰匙中」。
+ *
  * 節奏（`boot(shell)` 掛、`stop()` 拆；兩端對稱）：
  *   * 一趟＝**先 push 再 pull**；`SYNC_WRITE_EVENT` 去抖 2 秒、每 60 秒（僅前景）、`visibilitychange`、window focus、手動。
  *   * in-flight 去重；未加入／總開關關著／改正待ち／鍵違い時什麼都不跑。
@@ -25,6 +34,7 @@
 import { create } from "zustand";
 import { syncRepo } from "../data";
 import type {
+  ExportReport,
   JoinInput,
   JoinMode,
   JoinOutcome,
@@ -33,6 +43,7 @@ import type {
   PullReport,
   PushReport,
   RestoreChoice,
+  SnapshotEntry,
   SyncStatus,
   WizardEnv,
 } from "../data/syncRepository";
@@ -58,7 +69,81 @@ export const SYNC_PHASE_LABEL = {
   gated: "信号待ち",
   /** v1.1.3：雲端血統被別的密語重建，這台的密語打不開——出路是重新加入 */
   locked: "鍵違い",
+  /** v1.1.4：這台正在換資料鑰匙（七步；boot 會續跑），push／pull 都停 */
+  rotating: "換鑰匙中",
 } as const;
+
+/**
+ * v1.1.4 改密語表單的勾選（契約 §7；D-3 Bitwarden 式）——兩殼同一份字。
+ * 預設不勾＝現行「只重包 KEY」（毫秒級、其他裝置不受影響）；勾了＝換資料鑰匙開新紀元＝真撤銷。
+ */
+export const PASSPHRASE_ROTATE = {
+  label: "同時換掉資料鑰匙（讓舊密語真的失效）",
+  // v1.1.4 修正席（產品評審 B1(c)／S-6）：多兩句。
+  //   ① 「四欄不用重填」——別台的出路是狀態列那顆「用新密語重新加入」，它用的是那台鑰匙圈裡現成的憑證；
+  //      不講的話主人會以為要回桌機開配對碼重掃一次（舊版真的要）。
+  //   ② 「在不會離手的那台做」——換鑰匙做到一半的裝置若從此不回來，舊鑰匙的密文要等它回來才刪得掉，
+  //      「真撤銷」就沒做完。拿手機做這件事再把手機弄丟，正好是最該避免的組合。
+  warning:
+    "其他裝置會停在「鍵違い」，要用新密語「重新加入同步」——它們還沒送出的修改會在加入時一起併進來（選「兩邊都保留」）。" +
+    "那些裝置只要打新密語，雲端的四個欄位不用重填。換鑰匙前請先讓所有裝置同步完，並且在不會離手的那一台做。",
+  /** 勾了卻沒打現密語（自決 4：換鑰匙必須證明你有現密語）。
+   *  2026-09-25 主人真機驗收問「忘了密語怎麼辦」：舊文案叫人走「重新加入」是錯的（重新加入也要密語）。
+   *  正確的救援＝兩步：先不勾、現密語留白設一個新密語（這台鑰匙圈有資料鑰匙，用不到舊密語），
+   *  再用新密語當現密語回來勾換鑰匙。 */
+  needCurrent:
+    "要換鑰匙得先打現在的密語。忘了？先把這格勾掉、現密語留白設一個新密語，再用新密語回來勾「換鑰匙」。",
+  /** 換鑰匙中的狀態列下一行 */
+  inProgress: "正在換資料鑰匙——這段期間不推不拉，做完會自動接回。中途關掉 App 也沒關係，下次打開會接著做完。",
+} as const;
+
+/**
+ * v1.1.4 修正席（產品評審 B1）：鍵違い（`locked_reason='rotated'`）那一塊的字——**兩殼同一份**。
+ *
+ * 為什麼要獨立一塊而不是叫主人去按頁尾的「重新加入同步」：那顆按下去是 `reset_local`，
+ * 會把憑證與身分一起清掉（四欄空白、要回另一台開配對碼重掃）；而旁邊那顆「更新憑證…」的表單
+ * 寫著「密語打**現在這一句**……資料、身分與紀元都不會動」——照字打舊密語只會得到「密語不對」。
+ * 這一塊給的是第三條、也是唯一對的路：四欄沿用、只換密語，走的仍是既有的 ③ 加入（不是新規則）。
+ */
+export const REJOIN_ROTATED = {
+  title: "用新密語重新加入",
+  note: "四個欄位不用改（用的是這台已經存好的那組）——只要打另一台換好的新密語。接著會問要不要合併，選「兩邊都保留」，這台還沒送出的修改會一起併進來。",
+  placeholder: "新密語",
+  submit: "用新密語重新加入",
+  /** 鍵違い時「更新憑證…」那顆改的字（它的表單是「四欄換新、密語打現在這一句」，在這一態會把人帶錯路） */
+  credsHint: "只是換 Cloudflare 的 API token 才用「更新憑證…」；現在該走上面那一條。",
+} as const;
+
+/**
+ * v1.1.4 修正席（產品評審 S4）：「兩邊都有資料」二選一與「改用那份」確認窗的字——**兩殼同一份**。
+ *
+ * v1.1.3 各自寫了一份，於是分岔成三處：桌機「N 個裝置目錄」／手機「N 台裝置在用」（產品評審 N2 只修了桌機）；
+ * 「改用」的留底小字桌機講「會先自動備份一份」、手機沒講；改正待ち的確認窗也只有桌機講留底。
+ * 兩殼真的各走各的留底（桌機＝本機 manual 備份／手機＝雲端 manual 快照），所以字要**分殼但同源**。
+ */
+export const JOIN_CHOICE_TEXT = {
+  // `remote_devices` 數的是雲端的裝置目錄，每次「重新加入」都留下一個死身分 ⇒ 不講「N 台裝置在用」（N2）
+  lead: (devices: number, alive: number) =>
+    `雲端上已有一份（${devices} 個裝置目錄），這台也有 ${alive} 張活著的票。要怎麼做？`,
+  merge: "兩邊都保留",
+  mergeNote: "兩邊的資料合併，同一格以後改的為準。",
+  adopt: "改用另一台的",
+  /** 留底講法分殼：桌機拍本機備份、手機拍雲端快照（v1.1.4 契約 §6-6） */
+  adoptNote: (shell: SyncShell) =>
+    shell === "mobile"
+      ? "這台現有的會先拍一份到雲端，再換成雲端那份。"
+      : "會先自動備份一份到這台的備份資料夾，再換成雲端那份。",
+  /** 改正待ち的確認窗 body（「改用那份」）；留底那半同樣分殼 */
+  adoptEpochBody: (shell: SyncShell) =>
+    "這台現有的車票與記錄會被那份取代；" +
+    (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
+    "還沒送出的修改另存成檔、不會自動併回。",
+} as const;
+
+/** v1.1.4 契約 §7：跳過筆數那一行（`skipped_missing_total > 0` 才顯示） */
+export function describeSkipped(n: number): string {
+  return `有 ${n} 筆從其他裝置來的資料因欄位不齊而略過（多半是較舊版本或損壞的同步資料）；重新加入時選「兩邊都保留」可以補回。`;
+}
 
 /** 加入成功的 toast（Rust 的 `message` 為空時退回這份；契約 §8.1） */
 const JOIN_TOAST: Record<Exclude<JoinOutcome, "needs_choice">, string> = {
@@ -94,6 +179,10 @@ export interface SyncStore {
   formError: string | null;
   /** 加入時回了「兩邊都有資料」：頁面據此顯示二選一區塊（契約 §8.2）；null＝沒有待答 */
   pendingChoice: JoinReport | null;
+  /** v1.1.4：雲端快照列表（新到舊）；null＝還沒讀過或沒加入 */
+  cloudSnapshots: SnapshotEntry[] | null;
+  /** v1.1.4：列表讀取失敗的人話（留在雲端備份區塊旁） */
+  cloudError: string | null;
 
   /** 啟動鉤子（App.tsx 在 loadSettings 之後叫；可重入）。shell 決定重載哪個畫面與「改用」前拍不拍備份。 */
   boot: (shell: SyncShell) => Promise<void>;
@@ -104,10 +193,15 @@ export interface SyncStore {
   join: (input: JoinInput) => Promise<void>;
   /** 頁面問完「兩邊都保留」／「改用另一台的」再帶 mode 回來；桌機選改用前先拍 manual 備份 */
   joinWith: (mode: JoinMode) => Promise<void>;
+  /**
+   * v1.1.4 修正席（產品評審 B1）：**用新密語重新加入**——四欄沿用這台鑰匙圈現成那組，只問密語。
+   * 鍵違い（`locked_reason='rotated'`）唯一走得通的那條路；回 `needs_choice` 時同樣交給 `joinWith`。
+   */
+  rejoin: (passphrase: string) => Promise<void>;
   /** 收起二選一，什麼都沒動 */
   cancelChoice: () => void;
-  /** 改密語：成功回 true（toast）、失敗回 false（人話在 formError） */
-  changePassphrase: (current: string, next: string) => Promise<boolean>;
+  /** 改密語：成功回 true（toast）、失敗回 false（人話在 formError）。v1.1.4：`rotate=true`＝連資料鑰匙一起換 */
+  changePassphrase: (current: string, next: string, rotate?: boolean) => Promise<boolean>;
   /** 還原對話框的選擇先落檔（backupStore 在換檔前叫）；回傳三態見 `RestorePrep` */
   prepareRestore: (choice: RestoreChoice, label?: string) => Promise<RestorePrep>;
   /** 還原沒做成時把選擇檔收掉（工程評審 S-5）；失敗不吭聲——它只是個殘留檔 */
@@ -131,6 +225,17 @@ export interface SyncStore {
   importWizardEnv: () => Promise<WizardEnv | null>;
   /** 清掉表單旁的錯誤（使用者重打時） */
   clearFormError: () => void;
+  /* ── v1.1.4 雲端備份（契約 §4／§6）── */
+  /** 重讀雲端快照列表（開雲端備份區塊時叫；沒加入＝清成 null） */
+  refreshCloudSnapshots: () => Promise<void>;
+  /** 「立即備份到雲端」：拍一份 manual → 重讀列表 → toast */
+  cloudSnapshotNow: () => Promise<void>;
+  /** 點列表一份 → 確認窗（二選一的後果句＋「來源：雲端快照 <時刻>」）→ `cloudRestore`（成功不會回來） */
+  cloudRestore: (entry: SnapshotEntry, choice: RestoreChoice) => void;
+  /** 手機「匯出到手機」：SAF 選位置 → Rust 寫；桌機／退路不帶 target。null＝主人取消 */
+  exportToFile: () => Promise<ExportReport | null>;
+  /** 換鑰匙續跑（boot／runCycle 看到 `rotation_stage` 就叫） */
+  finishRotation: () => Promise<void>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -150,6 +255,8 @@ let inflight = false;
 let rerun = false;
 /** 還原收尾失敗後的重試時刻（至多每 `SYNC_INTERVAL_MS` 一次；v1.1.2 評審 S1） */
 let lastRestoreRetryAt = 0;
+/** v1.1.4：換鑰匙續跑失敗後的重試時刻（同上的節流） */
+let lastRotationRetryAt = 0;
 /** StrictMode 雙掛載／重複 boot 共用同一趟首次狀態查詢（沿 backupStore.boot） */
 let bootInflight: Promise<void> | null = null;
 /**
@@ -157,6 +264,12 @@ let bootInflight: Promise<void> | null = null;
  * `joinWith`／`cancelChoice` 一定清掉。不進 zustand state（devtools／log 都不該看到它）。
  */
 let pendingJoinInput: JoinInput | null = null;
+/**
+ * v1.1.4 修正席（產品評審 B1）：`rejoin` 回了 needs_choice 的那句密語——同 `pendingJoinInput` 的規矩
+ *（只活在記憶體、不進 zustand state、`joinWith`／`cancelChoice` 一定清掉）。
+ * 非 null ⇒ `joinWith` 要走 `rejoin(pass, mode)` 而不是 `join({...})`。
+ */
+let pendingRejoinPass: string | null = null;
 
 function detachSchedule(): void {
   rerun = false;
@@ -247,6 +360,13 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     }
     return null;
   }
+  // v1.1.4（契約 §5）：換鑰匙到一半（多半是中途關掉 App）——不推不拉，每 60 秒補一次續跑
+  if (status.phase === "rotating") {
+    if (!inflight && !useSyncStore.getState().working && Date.now() - lastRotationRetryAt >= SYNC_INTERVAL_MS) {
+      await useSyncStore.getState().finishRotation();
+    }
+    return null;
+  }
   if (!status.enabled) return null; // 總開關關著＝什麼都不跑（手動鈕在 UI 也是 disabled）
   // 改正待ち／鍵違い＝停在原地等主人處理，不推不拉
   if (status.phase === "epoch_changed" || status.phase === "locked") return null;
@@ -275,6 +395,9 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
         useUiStore.getState().showToast({ message: "兩台的版本不一致，同步先停在這裡" });
       }
     }
+    // v1.1.4（契約 §6 排程）：一趟成功之後順手問引擎「今天拍過雲端快照沒」——引擎判當日、這裡不另起 timer。
+    // 失敗不打擾（背景動作；狀態列的「上次上傳」會停在舊時刻，主人翻雲端備份區就看得到）。
+    if (!pushed.busy && !pulled.busy && !pulled.gated) void autoCloudSnapshot();
     return pulled;
   } catch (e) {
     const message = messageOf(e);
@@ -293,6 +416,19 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
       rerun = false;
       void runCycle();
     }
+  }
+}
+
+/** v1.1.4：每日一份雲端快照（引擎判當日；拍了就更新狀態列與列表，沒拍＝零動作） */
+async function autoCloudSnapshot(): Promise<void> {
+  try {
+    const entry = await syncRepo.cloudSnapshotAuto();
+    if (!entry) return;
+    await refreshStatusInner();
+    const list = useSyncStore.getState().cloudSnapshots;
+    if (list) useSyncStore.setState({ cloudSnapshots: [entry, ...list] });
+  } catch (e) {
+    console.warn("[next-stop] 今日雲端快照沒拍成：", messageOf(e));
   }
 }
 
@@ -388,6 +524,8 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
   bridgeError: null,
   formError: null,
   pendingChoice: null,
+  cloudSnapshots: null,
+  cloudError: null,
 
   async boot(nextShell) {
     shell = nextShell;
@@ -409,6 +547,10 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     if (finishing) {
       await get().finishRestore();
     }
+    // v1.1.4（契約 §5）：換鑰匙到一半重啟——先把七步走完（或提交點之前＝回滾），再掛節奏
+    if (get().status?.rotation_stage) {
+      await get().finishRotation();
+    }
     attachSchedule();
     // 收尾那一趟已經自己推（renewed）或自己起跑一趟（resumed），這裡再 `runCycle()` 只會撞成 `rerun`＝
     // 白跑一次 push＋pull（冪等但多兩趟網路）。沒有還原要收時才由 boot 起跑開機那一趟。
@@ -427,6 +569,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     if (get().working) return;
     set({ working: true, formError: null, pendingChoice: null });
     pendingJoinInput = null;
+    pendingRejoinPass = null;
     try {
       const report = await syncRepo.join(input);
       if (report.outcome === "needs_choice") {
@@ -444,14 +587,44 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     }
   },
 
+  async rejoin(passphrase) {
+    if (get().working) return;
+    if (!passphrase.trim()) {
+      set({ formError: "密語不能是空的。" });
+      return;
+    }
+    set({ working: true, formError: null, pendingChoice: null });
+    pendingJoinInput = null;
+    pendingRejoinPass = null;
+    try {
+      const report = await syncRepo.rejoin(passphrase);
+      if (report.outcome === "needs_choice") {
+        // 本機零改變；密語留在記憶體，等頁面問完帶 mode 回來（同 `join` 的規矩）
+        pendingRejoinPass = passphrase;
+        set({ pendingChoice: report });
+        return;
+      }
+      await settleJoin(report);
+    } catch (e) {
+      set({ formError: messageOf(e) });
+      await refreshStatusInner();
+    } finally {
+      set({ working: false });
+    }
+  },
+
   async joinWith(mode) {
+    // v1.1.4 修正席（產品評審 B1）：二選一有兩個來源——正規 join（四欄都在手上）與
+    // 「用新密語重新加入」（只有密語，四欄由 Rust 從鑰匙圈拿）。哪個 pending 非空就走哪條。
     const base = pendingJoinInput;
-    if (!base || get().working) return;
+    const pass = pendingRejoinPass;
+    if ((!base && !pass) || get().working) return;
     set({ working: true, formError: null });
     try {
       if (mode === "adopt_remote" && !(await backupBeforeAdopt())) return;
-      const report = await syncRepo.join({ ...base, mode });
+      const report = pass ? await syncRepo.rejoin(pass, mode) : await syncRepo.join({ ...base!, mode });
       pendingJoinInput = null;
+      pendingRejoinPass = null;
       set({ pendingChoice: null });
       await settleJoin(report);
     } catch (e) {
@@ -464,15 +637,26 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
 
   cancelChoice() {
     pendingJoinInput = null;
+    pendingRejoinPass = null;
     set({ pendingChoice: null, formError: null });
   },
 
-  async changePassphrase(current, next) {
+  async changePassphrase(current, next, rotate = false) {
     if (get().working) return false;
+    // v1.1.4 自決 4：換鑰匙必填現密語——Rust 也會擋，這裡先擋是為了把人話留在表單旁、不多跑一趟 argon2
+    if (rotate && !current.trim()) {
+      set({ formError: PASSPHRASE_ROTATE.needCurrent });
+      return false;
+    }
     set({ working: true, formError: null });
     try {
-      const report = await syncRepo.changePassphrase(current, next);
+      const report = await syncRepo.changePassphrase(current, next, rotate);
       await refreshStatusInner();
+      if (report.rotated) {
+        resetSyncTablesProbe(); // 切了紀元、重拍了快照：下一次寫入重吃 hlc 種子
+        attachSchedule();
+        void get().refreshCloudSnapshots();
+      }
       useUiStore.getState().showToast({ message: report.message || (report.sealed_first_time ? "密語已封存到雲端" : "密語已更改") });
       return true;
     } catch (e) {
@@ -601,6 +785,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         void (async () => {
           set({ working: true, formError: null, pendingChoice: null });
           pendingJoinInput = null;
+          pendingRejoinPass = null;
           try {
             const status = await syncRepo.resetLocal();
             set({ status, pairingCode: null, bridgeError: null });
@@ -656,6 +841,134 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
   clearFormError() {
     if (get().formError) set({ formError: null });
   },
+
+  /* ── v1.1.4 雲端備份（契約席骨架；WP-B 填細節、WP-C 用）── */
+
+  async refreshCloudSnapshots() {
+    if (!get().status?.configured) {
+      set({ cloudSnapshots: null, cloudError: null });
+      return;
+    }
+    try {
+      set({ cloudSnapshots: await syncRepo.cloudSnapshotList(), cloudError: null });
+    } catch (e) {
+      set({ cloudError: messageOf(e) });
+    }
+  },
+
+  async cloudSnapshotNow() {
+    if (get().working) return;
+    set({ working: true, cloudError: null });
+    try {
+      const entry = await syncRepo.cloudSnapshotNow("manual");
+      await refreshStatusInner();
+      set({ cloudSnapshots: [entry, ...(get().cloudSnapshots ?? []).filter((s) => s.key !== entry.key)] });
+      useUiStore.getState().showToast({ message: "已備份到雲端" });
+      // 上傳者順手做了階梯清理——列表要重讀才看得到被清掉的
+      void get().refreshCloudSnapshots();
+    } catch (e) {
+      set({ cloudError: messageOf(e) });
+      useUiStore.getState().showToast({ message: `雲端備份沒拍成：${messageOf(e)}` });
+    } finally {
+      set({ working: false });
+    }
+  },
+
+  cloudRestore(entry, choice) {
+    /**
+     * 契約 §7：與桌機本機還原**同一個確認窗、同一套字**（title／後果句／confirmLabel 逐字沿 backupStore.restore），
+     * 只多一句「來源：雲端快照 <時刻>」。留底（桌機 safety 備份／手機先拍一份 manual 雲端快照）在 Rust 裡做，
+     * 這裡的 body 也要講出來。成功不會回來（Rust `app.restart()`）；重啟後 boot 走既有 `finishRestore()`。
+     */
+    const when = fmtSyncStamp(entry.at);
+    const label = `雲端快照 ${when}`;
+    const consequence =
+      choice === "past"
+        ? "所有裝置都會改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。"
+        : "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。";
+    const keepCopy = shell === "desktop" ? "會先把現在的資料另存保險備份" : "會先把現在的資料拍一份到雲端";
+    // v1.1.4 修正席（工程評審 S-6）：**Android 的 `app.restart()` 實際上只是 `exit(0)`**
+    //（tauri 2.11 `process.rs`：在 Android 拿不到自己的執行檔，spawn 必定失敗，只寫一行 log 就結束行程）。
+    // 資料是安全的——還原標記已經落地，主人重開 App 時 boot 的 `finishRestore()` 會收尾——
+    // 但他眼裡看到的是「App 閃退」。所以手機講「App 會關閉，請重新打開」，不講「會重新啟動」。
+    const restartWord = shell === "desktop" ? "然後重新啟動" : "然後 App 會關閉，請重新打開它";
+    useUiStore.getState().askConfirm({
+      title: "要還原到這一份備份嗎？",
+      body: `來源：${label}。${keepCopy}，${restartWord}。${consequence}`,
+      confirmLabel: shell === "desktop" ? "還原並重新啟動" : "還原並關閉 App",
+      danger: true,
+      onConfirm: () => {
+        set({ working: true, cloudError: null });
+        void syncRepo.cloudRestore(entry.key, choice, label).catch((e: unknown) => {
+          set({ working: false, cloudError: messageOf(e) });
+          useUiStore.getState().showToast({ message: `還原沒有完成：${messageOf(e)}` });
+        });
+      },
+    });
+  },
+
+  async exportToFile() {
+    if (get().working) return null;
+    set({ working: true });
+    try {
+      let target: string | null = null;
+      if (shell === "mobile") {
+        // 查證（…-Android下載目錄寫入查證.md）：`download_dir()` 在 Android 是 app 專屬目錄、主人看不到 ⇒
+        // 走 SAF：`plugin-dialog` 的 `save()` 讓主人自己選位置（可選「下載」），回 `content://` URI 交給 Rust 寫。
+        // 選擇器開不了（沒有檔案 provider）就退回 Rust 的預設落點，並把路徑講出來。
+        try {
+          const { save } = await import("@tauri-apps/plugin-dialog");
+          const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+          const picked = await save({
+            title: "匯出到手機",
+            defaultPath: `nextstop-export-${stamp}.json`,
+            filters: [{ name: "JSON", extensions: ["json"] }],
+          });
+          if (picked === null) return null; // 主人取消＝零動作、不吵
+          target = picked;
+        } catch (e) {
+          console.warn("[next-stop] 檔案選擇器開不了，改用 App 私有目錄：", messageOf(e));
+        }
+      }
+      const report = await syncRepo.exportToFile(target);
+      // 工程評審 S-9：SAF 已經先把文件建好了，寫入才失敗 ⇒ Rust 退回 app 私有目錄並回 `picked=false`。
+      // 這時主人選的那個位置會留下一顆 0 byte 的空檔，得講出來，不然他會去開那個空檔。
+      const fellBack = !!target && !report.picked;
+      useUiStore.getState().showToast({
+        message: report.picked
+          ? "已匯出到你選的位置"
+          : fellBack
+            ? `寫不進你選的位置，已改存到 ${report.path}（App 私有目錄；你選的位置可能留下一個空檔，可以刪掉）`
+            : `已匯出到 ${report.path}（App 私有目錄；移除 App 會一起消失）`,
+      });
+      return report;
+    } catch (e) {
+      useUiStore.getState().showToast({ message: `匯出沒有完成：${messageOf(e)}` });
+      return null;
+    } finally {
+      set({ working: false });
+    }
+  },
+
+  async finishRotation() {
+    if (get().working) return;
+    lastRotationRetryAt = Date.now();
+    set({ working: true, formError: null });
+    try {
+      const report = await syncRepo.finishRotation();
+      resetSyncTablesProbe();
+      await refreshStatusInner();
+      attachSchedule();
+      if (report.message) useUiStore.getState().showToast({ message: report.message });
+      if (report.outcome === "finished") void get().refreshCloudSnapshots();
+    } catch (e) {
+      // 多半是網路：標記檔留著，`runCycle` 每 60 秒補一次
+      useUiStore.getState().showToast({ message: `換鑰匙沒做完：${messageOf(e)}` });
+      await refreshStatusInner();
+    } finally {
+      set({ working: false });
+    }
+  },
 }));
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -704,10 +1017,18 @@ export function describeEpochChange(status: SyncStatus): string {
   );
 }
 
-/** 鍵違い的說明句（契約 §8.5） */
+/** 鍵違い的說明句（契約 §8.5；v1.1.4 契約 §7 加「換過鑰匙」那一種） */
 export function describeLocked(status: SyncStatus): string {
   if (status.locked === "salt") {
     return "雲端上的這份資料已用別的密語重新建立，這台的密語打不開它。請「重新加入同步」並輸入新密語（這台的資料不會被動，加入時會問要不要合併）。";
+  }
+  // v1.1.4（D-3）：那個拆不開的新紀元帶著 `ROTATED` 旗標＝另一台勾了「同時換掉資料鑰匙」。出路是既有的 join：
+  // 紀元不一致 → 解 KEY 得新鑰匙 → 找到新紀元 → 兩邊有料 →「兩邊都保留」把這台還沒送出的併進去。
+  if (status.locked_reason === "rotated") {
+    return (
+      "這份資料已在另一台換過鑰匙。請用下面的「用新密語重新加入」——四欄不用改，只要打新密語；" +
+      "加入時會問要不要合併，選「兩邊都保留」，這台還沒送出的修改就會一起併進來。"
+    );
   }
   // 產品評審 N4：這一態是「雲端多了一個這台打不開的紀元目錄」，實務上只由殘留或竄改造成。
   // 舊文案寫「重新加入並輸入新密語」走不通——join 會回到自己那個拆得開的紀元，下一趟又鎖回來。

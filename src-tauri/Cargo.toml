@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.1.3"
+version = "1.1.4"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -31,6 +31,12 @@ tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 #  * chrono ─ 備份檔名要本地時間、created_at 要 UTC ISO；已在 Cargo.lock 內（serde_with 傳遞依賴），只是升為直接依賴。
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 tauri-plugin-dialog = "2"
+# v1.1.4（契約 §6；WP-B）：Android「匯出到手機」走 SAF——JS 用 plugin-dialog 的 `save()` 讓主人自己選位置，
+# 回來的是 `content://` URI，**`std::fs` 開不了**。plugin-fs 的 `Fs::open` 在 Android 會呼叫 ContentResolver
+# 拿到 fd（`android.rs::resolve_content_uri`），桌機則直接走 `std::fs::OpenOptions`——同一支程式碼兩殼都寫得了。
+# 已經是 tauri-plugin-dialog 的傳遞依賴（Cargo.lock 2.5.2），這裡只是升為直接依賴，不多一份樹。
+# 只用 Rust 端的 `FsExt`，JS 那十幾支 fs command 一支都沒開（capabilities 不給 `fs:*` 權限）。
+tauri-plugin-fs = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # v1.1.1 ⑦ 同步地基（契約 §5.4；**版本與契約草稿略有出入，理由都寫在這裡**）：
 #  * object_store ─ Cloudflare R2 的 S3 API 客戶端（SigV4／分頁 list／重試都內建）。

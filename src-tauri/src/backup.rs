@@ -1006,6 +1006,22 @@ async fn restore_prepare(db: &Path, safety: &Path, src: &Path) -> Result<PathBuf
     Ok(tmp)
 }
 
+/// v1.1.4（契約 §4 `sync_cloud_restore` 步驟 2）：雲端還原之前的**保險份**（桌機）。
+/// 與 `restore_prepare` 的第二步同一件事，抽出來給 `sync::snapshot::cloud_restore` 用——那條路不換檔、
+/// 只灌 JSON，所以只需要「先留一份」這半段。回保險份的完整路徑；DB 檔不存在＝Err（沒東西可留）。
+#[allow(dead_code)] // WP-B 在 snapshot::cloud_restore 接線後拿掉
+pub(crate) async fn safety_snapshot(app: &AppHandle) -> Result<String, String> {
+    let db = db_path(app)?;
+    if !db.exists() {
+        return Err(format!("找不到資料庫檔 {}。", db.display()));
+    }
+    let sdir = safety_dir(app)?;
+    let dest = next_free(&sdir, BackupKind::Safety, Local::now())?;
+    snapshot(&db, &dest).await?;
+    let _ = rotate(&sdir, SAFETY_KEEP, None);
+    Ok(dest.to_string_lossy().to_string())
+}
+
 /// ⑧ 清場步驟二：清空 nodes／occurrences／work_logs 但保留 settings。
 /// **DEV 限定**——`tauri::generate_handler!` 不吃 `#[cfg]`，故 command 恆註冊、以 `cfg!` 在 body 擋下；
 /// 正式打包時呼叫會拿到錯誤，且設定頁的那顆鈕本來就只在 DEV 出現。

@@ -13,6 +13,16 @@
  *     key_sealed／last_export`；`SyncPhase` 多 `locked`（鍵違い）。
  *   * 閘門鍵 `role` → `joined`（`JOINED_GATE`）：Rust `status()` 會把舊 DB 的 `role` 一次性補成 `joined='1'`。
  *
+ * v1.1.4 改了什麼（契約席 2026-09-22；《2026-09-22-v1.1.4-雲端備份與真撤銷契約.md》§4）：
+ *   * `changePassphrase(current, next, rotate)`：`rotate=true`＝連資料鑰匙一起換（真撤銷；`current` 必填）；
+ *     `PassphraseReport` 多 `rotated／reencrypted_snapshots／deleted_epochs`。
+ *   * 雲端備份四支：`cloudSnapshotNow(kind)`／`cloudSnapshotAuto()`（今天拍過回 null）／`cloudSnapshotList()`／
+ *     `cloudRestore(key, choice, label)`（成功不會回來：Rust `app.restart()`）。
+ *   * `exportToFile(target)`：Android 帶 SAF `save()` 回傳的 `content://` URI；桌機／退路不帶。
+ *   * `finishRotation()`：boot 看到 `status.rotation_stage` 就叫（換鑰匙續跑）。
+ *   * `SyncStatus` 多 `locked_reason／skipped_missing_total／last_cloud_snapshot_at／rotation_stage`；`SyncPhase` 多 `rotating`；
+ *     `PullReport` 多 `skipped_missing`。既有 invoke 名稱一個都不改。
+ *
  * 本檔三件事：
  *   ① 型別與 invoke 名稱（與 Rust `src-tauri/src/sync/{engine,commands}.rs` 的 serde 型別同名同形，snake_case）。
  *   ② `TauriSyncRepository`／`MemorySyncRepository`（`?mock=1`）——UI／store 一律經 `syncRepo`，不直接 invoke。
@@ -47,7 +57,48 @@ import { invoke } from "@tauri-apps/api/core";
  * epoch_changed＝改正待ち（另一台從備份「回到過去」開了新紀元，這台等主人確認「改用那份」）／
  * locked＝鍵違い（v1.1.3：雲端上有這台的密語打不開的東西——血統被別的密語重建；出路是重新加入）
  */
-export type SyncPhase = "off" | "paused" | "running" | "stopped" | "gated" | "epoch_changed" | "locked";
+export type SyncPhase = "off" | "paused" | "running" | "stopped" | "gated" | "epoch_changed" | "locked" | "rotating";
+
+/** v1.1.4：`locked` 是紀元號時的原因——rotated＝另一台換過鑰匙（有 `<root>/<E>/ROTATED` 旗標）／stale＝殘留或竄改 */
+export type LockedReason = "rotated" | "stale";
+
+/** v1.1.4：雲端快照的種類（鍵名最後一段） */
+/**
+ * v1.1.4 修正席（產品評審 S2）加 `safety`：還原前／改用另一台之前／換鑰匙之前那三份是程式自己拍的留底。
+ * 全部寫成 `manual` 的話，主人還原完回來看列表會多一顆「這台・手動」卻認不出它是什麼——
+ * 桌機本機備份清單早就有「保險」這個 chip，雲端只是補上同一個字。舊桶裡的 `manual` 鍵照樣解得開。
+ */
+export type SnapshotKind = "auto" | "manual" | "safety";
+
+/** v1.1.4：雲端快照列表一列（從鍵名解析，不下載；契約 §4） */
+export interface SnapshotEntry {
+  /** 完整物件鍵 `<root>/snapshots/<UTC戳>_<device_id>_<auto|manual>.bin`（還原時原樣帶回） */
+  key: string;
+  /** UTC ISO */
+  at: string;
+  device_id: string;
+  kind: SnapshotKind;
+  /** 密文大小（bytes） */
+  size: number;
+}
+
+/** v1.1.4：`sync_export_to_file` 的回傳 */
+export interface ExportReport {
+  /** 桌機＝檔案路徑；Android＝`content://` URI（主人自選）；退路＝app 私有目錄路徑 */
+  path: string;
+  /** true＝寫到主人自選的位置（SAF）；false＝退路 */
+  picked: boolean;
+}
+
+/** v1.1.4：換鑰匙的續跑報告（`sync_finish_rotation`） */
+export interface RotationReport {
+  /** finished＝七步走完／rolled_back＝提交點之前斷掉、已回滾／none＝沒有在換 */
+  outcome: "finished" | "rolled_back" | "none";
+  epoch: string | null;
+  reencrypted_snapshots: number;
+  deleted_epochs: number;
+  message: string;
+}
 
 /** 還原對話框的二選一（契約 §6；提案規則②） */
 export type RestoreChoice = "past" | "present";
@@ -106,6 +157,14 @@ export interface SyncStatus {
   last_orphans: { count: number; path: string; at: string } | null;
   /** 手機「改用另一台的」之前匯出的全量 JSON（桌機是拍 manual 備份，這欄為 null） */
   last_export: { path: string; at: string } | null;
+  /** v1.1.4：`locked` 是紀元號時的原因；`locked` 為 null 或 'salt' 時為 null */
+  locked_reason: LockedReason | null;
+  /** v1.1.4：累計「必填欄不齊而跳過的新列」；>0 才顯示一行 */
+  skipped_missing_total: number;
+  /** v1.1.4：上一次雲端快照上傳成功的時刻（UTC ISO）；null＝還沒拍過 */
+  last_cloud_snapshot_at: string | null;
+  /** v1.1.4：換鑰匙進行到哪一步（prepared｜locked｜committed｜switched｜reencrypted｜swept）；非 null ⇒ phase='rotating' */
+  rotation_stage: string | null;
 }
 
 /** 兩邊都有資料時主人的選擇（契約 §4.2；按鈕字＝「兩邊都保留」／「改用另一台的」） */
@@ -144,10 +203,16 @@ export interface JoinReport {
   message: string;
 }
 
-/** `sync_change_passphrase`（契約 §4.4） */
+/** `sync_change_passphrase`（契約 §4.4；v1.1.4 加三欄） */
 export interface PassphraseReport {
   /** 之前桶裡沒有 KEY（舊血統升級後第一次）⇒ 這次是「封存」不是「更改」 */
   sealed_first_time: boolean;
+  /** v1.1.4：這次有沒有連資料鑰匙一起換 */
+  rotated: boolean;
+  /** v1.1.4：重加密了幾顆雲端快照（沒輪替＝0） */
+  reencrypted_snapshots: number;
+  /** v1.1.4：刪掉幾個舊紀元目錄（沒輪替＝0） */
+  deleted_epochs: number;
   message: string;
 }
 
@@ -189,6 +254,8 @@ export interface PullReport {
   conflicts: number;
   /** 這趟收到的最大 hlc（餵 `seedHlc`；null＝沒收到東西） */
   max_hlc: string | null;
+  /** v1.1.4：這趟「必填欄不齊而跳過的新列」（已含在 skipped_ops 裡） */
+  skipped_missing: number;
 }
 
 /** `sync_adopt_epoch`（改正待ち→「改用那份」）：未推的 op 匯出到 `orphans_path`（0 筆＝null） */
@@ -212,6 +279,7 @@ export interface WizardEnv {
 export const SYNC_COMMANDS = {
   status: "sync_status",
   join: "sync_join",
+  rejoin: "sync_rejoin",
   changePassphrase: "sync_change_passphrase",
   restoreChoice: "sync_restore_choice",
   finishRestore: "sync_finish_restore",
@@ -223,14 +291,27 @@ export const SYNC_COMMANDS = {
   decodePairingCode: "sync_decode_pairing_code",
   adoptEpoch: "sync_adopt_epoch",
   readWizardEnv: "sync_read_wizard_env",
+  // v1.1.4（契約 §4）
+  cloudSnapshotNow: "sync_cloud_snapshot_now",
+  cloudSnapshotAuto: "sync_cloud_snapshot_auto",
+  cloudSnapshotList: "sync_cloud_snapshot_list",
+  cloudRestore: "sync_cloud_restore",
+  exportToFile: "sync_export_to_file",
+  finishRotation: "sync_finish_rotation",
 } as const;
 
 export interface SyncRepository {
   status(): Promise<SyncStatus>;
   /** 單一入口「加入同步」：回 needs_choice 時本機零改變，帶 mode 再叫一次 */
   join(input: JoinInput): Promise<JoinReport>;
-  /** 改密語：只重包雲端上的 KEY，資料不重傳 */
-  changePassphrase(current: string, next: string): Promise<PassphraseReport>;
+  /**
+   * v1.1.4 修正席（產品評審 B1）：**用新密語重新加入**——四欄沿用鑰匙圈現成那組，只帶密語。
+   * 走的就是 `sync_join`（別台換過鑰匙之後，這條會落到「解 KEY 得新鑰匙 → 找到新紀元 → 兩邊有料」），
+   * 所以一樣可能回 `needs_choice`，一樣要帶 `mode` 再叫一次。
+   */
+  rejoin(passphrase: string, mode?: JoinMode): Promise<JoinReport>;
+  /** 改密語：只重包雲端上的 KEY，資料不重傳。v1.1.4：`rotate=true`＝連資料鑰匙一起換（七步輪替；`current` 必填） */
+  changePassphrase(current: string, next: string, rotate?: boolean): Promise<PassphraseReport>;
   /** 還原對話框的選擇先落檔；null＝清掉。未加入 ⇒ 拒絕（人話） */
   restoreChoice(choice: RestoreChoice | null, label?: string): Promise<void>;
   /** 重啟後的還原收尾（past＝開新紀元，不 push；呼叫端接著 push） */
@@ -248,6 +329,19 @@ export interface SyncRepository {
   adoptEpoch(): Promise<AdoptReport>;
   /** 桌機：讀精靈的 r2.env 填表 */
   readWizardEnv(): Promise<WizardEnv>;
+  /* ── v1.1.4 雲端備份（契約 §4） ── */
+  /** 立即拍一份快照上雲（省略＝manual）；上傳成功後 Rust 順手做階梯清理 */
+  cloudSnapshotNow(kind?: SnapshotKind): Promise<SnapshotEntry>;
+  /** 每日一份：今天拍過（或 phase 非 running）回 null；`runCycle` 成功後叫 */
+  cloudSnapshotAuto(): Promise<SnapshotEntry | null>;
+  /** 列出 `<root>/snapshots/`（新到舊；只 list 不下載） */
+  cloudSnapshotList(): Promise<SnapshotEntry[]>;
+  /** 從雲端快照還原：留底 → 匯入 → 寫還原標記 → 重啟。成功不會回來；只會 reject 或永遠 pending */
+  cloudRestore(key: string, choice: RestoreChoice, label?: string): Promise<never>;
+  /** 匯出全量 JSON：Android 帶 SAF `save()` 回傳的 `content://` URI；桌機／退路帶 null */
+  exportToFile(target?: string | null): Promise<ExportReport>;
+  /** 換鑰匙續跑（boot 看到 `status.rotation_stage` 就叫） */
+  finishRotation(): Promise<RotationReport>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -264,8 +358,13 @@ export class TauriSyncRepository implements SyncRepository {
     if (report.pull) seedHlc(report.pull.max_hlc);
     return report;
   }
-  changePassphrase(current: string, next: string): Promise<PassphraseReport> {
-    return invoke<PassphraseReport>(SYNC_COMMANDS.changePassphrase, { current, next });
+  async rejoin(passphrase: string, mode?: JoinMode): Promise<JoinReport> {
+    const report = await invoke<JoinReport>(SYNC_COMMANDS.rejoin, { passphrase, mode: mode ?? null });
+    if (report.pull) seedHlc(report.pull.max_hlc);
+    return report;
+  }
+  changePassphrase(current: string, next: string, rotate = false): Promise<PassphraseReport> {
+    return invoke<PassphraseReport>(SYNC_COMMANDS.changePassphrase, { current, next, rotate });
   }
   restoreChoice(choice: RestoreChoice | null, label?: string): Promise<void> {
     return invoke<void>(SYNC_COMMANDS.restoreChoice, { choice, label: label ?? null });
@@ -302,6 +401,27 @@ export class TauriSyncRepository implements SyncRepository {
   readWizardEnv(): Promise<WizardEnv> {
     return invoke<WizardEnv>(SYNC_COMMANDS.readWizardEnv, {});
   }
+  /* ── v1.1.4 ── */
+  cloudSnapshotNow(kind: SnapshotKind = "manual"): Promise<SnapshotEntry> {
+    return invoke<SnapshotEntry>(SYNC_COMMANDS.cloudSnapshotNow, { kind });
+  }
+  cloudSnapshotAuto(): Promise<SnapshotEntry | null> {
+    return invoke<SnapshotEntry | null>(SYNC_COMMANDS.cloudSnapshotAuto, {});
+  }
+  cloudSnapshotList(): Promise<SnapshotEntry[]> {
+    return invoke<SnapshotEntry[]>(SYNC_COMMANDS.cloudSnapshotList, {});
+  }
+  /** 成功不會回來（Rust 端 `app.restart()`）；沿 `backupRepo.restore` 的手法，回來了就當失敗 */
+  async cloudRestore(key: string, choice: RestoreChoice, label?: string): Promise<never> {
+    await invoke<void>(SYNC_COMMANDS.cloudRestore, { input: { key, choice, label: label ?? null } });
+    throw new Error("還原指令回來了但 App 沒有重新啟動，請手動重開私鐵手帳確認資料。");
+  }
+  exportToFile(target?: string | null): Promise<ExportReport> {
+    return invoke<ExportReport>(SYNC_COMMANDS.exportToFile, { input: { target: target ?? null } });
+  }
+  finishRotation(): Promise<RotationReport> {
+    return invoke<RotationReport>(SYNC_COMMANDS.finishRotation, {});
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -323,6 +443,9 @@ const MOCK_DEVICE_ID = "3f9c2b1e-0000-4000-8000-000000000000";
  *   needs_choice    → 未加入，但按「加入同步」會回「兩邊都有資料」讓頁面問一次
  *   restore_past    → 剛從備份還原（選「回到過去」）重啟：boot 會叫 `finishRestore()` ⇒ renewed ⇒ 重新上傳
  *   restore_present → 剛從備份還原（選「接上現在」）重啟：boot 會叫 `finishRestore()` ⇒ resumed ⇒ 只清游標
+ *   locked_rotated  → v1.1.4：鍵違い、但原因是「另一台換過鑰匙」（文案改「用新密語重新加入」）
+ *   rotating        → v1.1.4：這台換鑰匙到一半重啟（stage=switched）：boot 會叫 `finishRotation()` ⇒ finished
+ *   skipped_missing → v1.1.4：運行中、累計 3 筆欄位不齊的列被略過（同步頁多一行）
  * （舊端點 primary／replica 仍接受＝joined，免得書籤失效。）
  *
  * 為什麼要有 restore_* 兩個端點：還原的收尾發生在**重啟後的第一趟 boot**，真機要備份＋重啟才走得到；
@@ -342,6 +465,10 @@ type SyncMockMode =
   | "cred_unreadable"
   /** v1.1.3 修正席（產品評審 S1）：複製整個資料夾（DB 的 enabled 跟來、鑰匙圈沒跟）＝未加入，不是停車中 */
   | "copied_folder"
+  /** v1.1.4 */
+  | "locked_rotated"
+  | "rotating"
+  | "skipped_missing"
   | null;
 
 const SYNC_MOCK_MODES = [
@@ -356,6 +483,9 @@ const SYNC_MOCK_MODES = [
   "restore_present",
   "cred_unreadable",
   "copied_folder",
+  "locked_rotated",
+  "rotating",
+  "skipped_missing",
 ] as const;
 
 function detectSyncMock(): SyncMockMode {
@@ -392,6 +522,10 @@ const OFF_STATE: SyncStatus = {
   key_sealed: null,
   last_orphans: null,
   last_export: null,
+  locked_reason: null,
+  skipped_missing_total: 0,
+  last_cloud_snapshot_at: null,
+  rotation_stage: null,
 };
 
 /** 示範狀態（同一顆 SyncStatus 的幾個切片；真機的 phase 一律由 Rust 算） */
@@ -409,7 +543,14 @@ function seedState(mode: SyncMockMode): SyncStatus {
     pending_ops: 3,
     pending_span: { from: new Date(Date.now() - 50 * 60_000).toISOString(), to: new Date(Date.now() - 7 * 60_000).toISOString() },
     key_sealed: true,
+    last_cloud_snapshot_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   };
+  // v1.1.4
+  if (mode === "locked_rotated") {
+    return { ...base, phase: "locked", locked: "1758300000000", locked_reason: "rotated", pending_ops: 1 };
+  }
+  if (mode === "rotating") return { ...base, phase: "rotating", rotation_stage: "switched", pending_ops: 0, pending_span: null };
+  if (mode === "skipped_missing") return { ...base, skipped_missing_total: 3 };
   if (mode === "gated") return { ...base, phase: "gated", remote_schema: 5 };
   if (mode === "epoch_changed") {
     return {
@@ -427,7 +568,7 @@ function seedState(mode: SyncMockMode): SyncStatus {
       pending_ops: 2,
     };
   }
-  if (mode === "locked") return { ...base, phase: "locked", locked: "salt", pending_ops: 0, pending_span: null };
+  if (mode === "locked") return { ...base, phase: "locked", locked: "salt", locked_reason: null, pending_ops: 0, pending_span: null };
   if (mode === "restore_past" || mode === "restore_present") {
     // 還原剛完成、標記檔還在：phase 照常（Rust 不因標記改 phase），由 boot 的 `finishRestore()` 收尾
     return {
@@ -463,11 +604,31 @@ const EMPTY_PULL: PullReport = {
   busy: false,
   conflicts: 0,
   max_hlc: null,
+  skipped_missing: 0,
 };
+
+/** v1.1.4 mock：假的雲端快照三顆（今天這台自動、昨天另一台手動、三天前這台自動），大小照真機量級（zstd 後幾十 KB） */
+const MOCK_OTHER_DEVICE_ID = "edcf0000-0000-4000-8000-000000000000";
+function mockSnapshot(hoursAgo: number, device: string, kind: SnapshotKind, size: number): SnapshotEntry {
+  const at = new Date(Date.now() - hoursAgo * 3_600_000);
+  const stamp = at.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  return { key: `v1/snapshots/${stamp}_${device}_${kind}.bin`, at: at.toISOString(), device_id: device, kind, size };
+}
 
 export class MemorySyncRepository implements SyncRepository {
   private mode: SyncMockMode = detectSyncMock();
   private state: SyncStatus = seedState(this.mode);
+  /**
+   * v1.1.4 修正席：多兩顆才看得到新東西——一顆 `safety`（產品評審 S2 的「保險」chip），
+   * 一顆落在 14 天之外（產品評審 S3 的「更早的…」摺疊；14 天內 3 顆、之外 2 顆）。
+   */
+  private snapshots: SnapshotEntry[] = [
+    mockSnapshot(2, MOCK_DEVICE_ID, "auto", 38_912),
+    mockSnapshot(5, MOCK_DEVICE_ID, "safety", 38_880),
+    mockSnapshot(27, MOCK_OTHER_DEVICE_ID, "manual", 37_400),
+    mockSnapshot(24 * 20, MOCK_OTHER_DEVICE_ID, "auto", 36_900),
+    mockSnapshot(24 * 74, MOCK_DEVICE_ID, "auto", 36_100),
+  ];
 
   async status(): Promise<SyncStatus> {
     return { ...this.state };
@@ -497,13 +658,42 @@ export class MemorySyncRepository implements SyncRepository {
     }
     return { outcome: "first", local_alive: 12, remote_epoch: epoch, remote_devices: 1, snapshot_ops: 12, pull: null, export_path: null, message: "已加入——這台是第一台，資料正在上傳" };
   }
-  async changePassphrase(_current: string, next: string): Promise<PassphraseReport> {
+  /**
+   * mock 的「用新密語重新加入」（產品評審 B1）：`?sync=locked_rotated` 下第一次回 `needs_choice`
+   *（畫面才看得到那組二選一），帶 mode 回來就落成 merged／adopted。
+   */
+  async rejoin(passphrase: string, mode?: JoinMode): Promise<JoinReport> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步——請用下面的「加入同步」填四欄。");
+    if (!passphrase.trim()) throw new Error("密語不能是空的。");
+    if (!mode) {
+      return { outcome: "needs_choice", local_alive: 12, remote_epoch: "1758300000000", remote_devices: 1, snapshot_ops: 0, pull: null, export_path: null, message: "雲端上已經有一份資料，這台也有資料——請選一種做法。" };
+    }
+    const epoch = "1758300000000";
+    this.state = { ...this.state, phase: "running", locked: null, locked_reason: null, epoch, pending_ops: mode === "merge" ? 12 : 0 };
+    return mode === "merge"
+      ? { outcome: "merged", local_alive: 12, remote_epoch: epoch, remote_devices: 1, snapshot_ops: 12, pull: { ...EMPTY_PULL, objects: 3, applied_ops: 40, changed_tables: ["nodes"] }, export_path: null, message: "已加入——兩邊的資料已合併，較晚改的為準" }
+      : { outcome: "adopted", local_alive: 12, remote_epoch: epoch, remote_devices: 1, snapshot_ops: 0, pull: { ...EMPTY_PULL, objects: 3, applied_ops: 40, changed_tables: ["nodes"] }, export_path: null, message: "已改用另一台的資料" };
+  }
+  async changePassphrase(current: string, next: string, rotate = false): Promise<PassphraseReport> {
     if (!this.state.configured) throw new Error("這台還沒加入同步。");
     // 產品評審 B4：現密語可留白（鑰匙圈裡就有資料鑰匙，重包 KEY 用不到舊密語）
     if (next.trim().length < 8) throw new Error("新密語至少 8 個字。");
+    // v1.1.4 自決 4：換鑰匙必填現密語（忘密語走「重新加入」不走輪替）
+    if (rotate && !current.trim()) throw new Error("要換鑰匙得先打現在的密語。忘了？先把這格勾掉、現密語留白設一個新密語，再用新密語回來勾「換鑰匙」。");
+    if (rotate && this.state.phase !== "running") throw new Error("先同步完再換鑰匙（現在不是運行中）。");
+    if (rotate && this.state.pending_ops > 0) throw new Error("還有沒送出的修改，先同步完再換鑰匙。");
     const first = this.state.key_sealed === false;
-    this.state = { ...this.state, key_sealed: true };
-    return { sealed_first_time: first, message: first ? "密語已封存到雲端" : "密語已更改" };
+    this.state = { ...this.state, key_sealed: true, ...(rotate ? { epoch: String(Date.now()) } : {}) };
+    if (rotate) {
+      return {
+        sealed_first_time: false,
+        rotated: true,
+        reencrypted_snapshots: this.snapshots.length,
+        deleted_epochs: 1,
+        message: `密語已更改，資料鑰匙也換新了——其他裝置要用新密語重新加入。重加密 ${this.snapshots.length} 顆雲端快照、清掉 1 個舊紀元。`,
+      };
+    }
+    return { sealed_first_time: first, rotated: false, reencrypted_snapshots: 0, deleted_epochs: 0, message: first ? "密語已封存到雲端" : "密語已更改" };
   }
   async restoreChoice(choice: RestoreChoice | null, _label?: string): Promise<void> {
     if (!this.state.configured) throw new Error("這台還沒加入同步——還原不會影響其他裝置。");
@@ -576,6 +766,36 @@ export class MemorySyncRepository implements SyncRepository {
   }
   async readWizardEnv(): Promise<WizardEnv> {
     return { endpoint: "https://example.r2.cloudflarestorage.com", bucket: "mock-bucket", access_key_id: "AK-mock", secret_access_key: "SK-mock" };
+  }
+  /* ── v1.1.4 雲端備份（記憶體：拍一份＝陣列多一列；還原＝同備份 mock，瀏覽器做不到重啟） ── */
+  async cloudSnapshotNow(kind: SnapshotKind = "manual"): Promise<SnapshotEntry> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步。");
+    const entry = mockSnapshot(0, MOCK_DEVICE_ID, kind, 38_912 + Math.floor(Math.random() * 500));
+    this.snapshots = [entry, ...this.snapshots];
+    this.state = { ...this.state, last_cloud_snapshot_at: entry.at };
+    return entry;
+  }
+  async cloudSnapshotAuto(): Promise<SnapshotEntry | null> {
+    if (!this.state.configured || this.state.phase !== "running") return null;
+    const today = new Date().toDateString();
+    const done = this.snapshots.some((s) => s.device_id === MOCK_DEVICE_ID && s.kind === "auto" && new Date(s.at).toDateString() === today);
+    return done ? null : this.cloudSnapshotNow("auto");
+  }
+  async cloudSnapshotList(): Promise<SnapshotEntry[]> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步。");
+    return [...this.snapshots].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  }
+  async cloudRestore(_key: string, _choice: RestoreChoice, _label?: string): Promise<never> {
+    throw new Error("（假資料模式）雲端還原要灌回資料＋重啟 App，瀏覽器預覽做不到——請在真機驗收。");
+  }
+  async exportToFile(target?: string | null): Promise<ExportReport> {
+    return target ? { path: target, picked: true } : { path: "<app-data>/nextstop-export-mock.json", picked: false };
+  }
+  async finishRotation(): Promise<RotationReport> {
+    if (!this.state.rotation_stage) return { outcome: "none", epoch: null, reencrypted_snapshots: 0, deleted_epochs: 0, message: "" };
+    const epoch = String(Date.now());
+    this.state = { ...this.state, rotation_stage: null, phase: "running", epoch };
+    return { outcome: "finished", epoch, reencrypted_snapshots: this.snapshots.length, deleted_epochs: 1, message: "換鑰匙完成——其他裝置要用新密語重新加入。" };
   }
 }
 

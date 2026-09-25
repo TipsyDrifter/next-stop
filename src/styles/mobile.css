@@ -1323,3 +1323,75 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   }
   [data-shell="mobile"] .m2-sy-qr svg { width: 100%; height: auto; display: block; }
 }
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP-C ──　v1.1.4：手機的「雲端備份」區＋「同時換掉資料鑰匙」那一格
+ *
+ * 拍板依據：決策記錄〈v1.1.4 開工拍板〉D-2（兩殼同一套：`ui/common/CloudSnapshots.tsx` 的手機分支）
+ *   ／D-3（改密語加勾選）＋《2026-09-22-v1.1.4-雲端備份與真撤銷契約.md》§7。
+ *
+ * 形狀零發明：整塊＝既有的 `.m2-block`、說明＝`.m2-note`、二選一＝`.m2-choice`（與總開關、主題三選同一顆）、
+ * 鈕＝`.ns-btn`＋`.m2-sy-go`（44px 觸控目標）。這裡只補列表那幾行與勾選那一列的排版。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* 「上次上傳 …」緊貼規則說明；「還原方式」小標與上面的鈕列隔開一段 */
+  [data-shell="mobile"] .m2-cl-last { margin-top: 4px; }
+  [data-shell="mobile"] .m2-cl-sub { display: block; margin-top: 16px; }
+
+  /* 快照列表：一列＝上面兩行字、下面一顆鈕。
+     手機沒有 hover，所以「還原到這份」**常駐**（不吃桌機那條 hover 才現身的規矩）——
+     這是手機上唯一的還原入口，藏起來就等於沒有。 */
+  [data-shell="mobile"] .m2-cl-list {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+  }
+  [data-shell="mobile"] .m2-cl-list li {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 0;
+    border-top: 1px dashed var(--color-line);
+  }
+  [data-shell="mobile"] .m2-cl-meta { flex: 1 1 150px; min-width: 0; }
+  [data-shell="mobile"] .m2-cl-when {
+    display: block;
+    font-family: var(--font-latin);
+    font-size: 15px;
+    letter-spacing: .06em;
+    color: var(--color-ink);
+  }
+  [data-shell="mobile"] .m2-cl-who {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    letter-spacing: .08em;
+    color: var(--color-ink-faint);
+  }
+  [data-shell="mobile"] .m2-cl-restore { flex: none; }
+
+  /* 「同時換掉資料鑰匙」：可點的是**整行字**（44px），不是那顆方框 */
+  [data-shell="mobile"] .m2-sy-rotate {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    margin-top: 6px;
+    cursor: pointer;
+  }
+  [data-shell="mobile"] .m2-sy-rotate input {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    accent-color: var(--color-gold);
+  }
+
+  /* 換鑰匙中那一行：金色左緣＝「這台自己在忙」（同桌機 `.ns-sy-rotating`），不吃赭也不吃朱 */
+  [data-shell="mobile"] .m2-sy-rotating {
+    margin-top: 6px;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-gold);
+  }
+}

@@ -12,6 +12,14 @@
  *   ② 未加入 ＝ 加入表單：四欄（＋從精靈匯入、貼上配對碼填欄）＋密語兩次＋（DEV 才露出的）root → 「加入同步」。
  *   ③ 已加入 ＝ 總開關、「立即同步」、「顯示配對碼」、密語（改密語／升級後第一次封存）、「重新加入同步」。
  *
+ * v1.1.4（WP-C；契約 §7）加了三處，都掛在既有的形狀上、沒有新版面：
+ *   ① 狀態列多兩行——「換鑰匙中」的說明（`PASSPHRASE_ROTATE.inProgress`，金色左緣＝這台自己在忙，
+ *      不是等人處理）與「跳過筆數」（`describeSkipped`；`skipped_missing_total > 0` 才出現）；
+ *      鍵違い那一行由 `describeLocked` 分流成「另一台換過鑰匙」／「殘留」兩種字。
+ *   ③ 密語多一格勾選「同時換掉資料鑰匙」（D-3）：勾了＝真撤銷，現密語從「可留白」變必填、
+ *      鈕字改「改密語並換鑰匙」、警告文長出來；換鑰匙進行中（phase=rotating）整段鎖住。
+ *   雲端備份區不在本籤——它住〈備份與還原〉籤的「④ʹ 雲端」（D-2 兩殼同一個 `CloudSnapshots`）。
+ *
  * 為什麼問二選一時表單只是 `hidden` 而不是不渲染（WP-C）：主人按「取消」要回到剛才那張填好的表——
  *   元件被拆掉的話四欄與密語全部清空，等於逼他重打一次憑證。`hidden` 讓 React 保住 local state。
  *
@@ -24,9 +32,13 @@ import type { JoinInput, JoinReport, PairingFields, SyncStatus, WizardEnv } from
 import {
   useSyncStore,
   SYNC_PHASE_LABEL,
+  PASSPHRASE_ROTATE,
+  REJOIN_ROTATED,
+  JOIN_CHOICE_TEXT,
   fmtSyncStamp,
   describeEpochChange,
   describeLocked,
+  describeSkipped,
 } from "../../store/syncStore";
 import { useUiStore } from "../../store/uiStore";
 import "./settings.css";
@@ -45,6 +57,7 @@ export function SyncTab() {
   const syncNow = useSyncStore((s) => s.syncNow);
   const setEnabled = useSyncStore((s) => s.setEnabled);
   const reset = useSyncStore((s) => s.reset);
+  const rejoin = useSyncStore((s) => s.rejoin);
   const showPairingCode = useSyncStore((s) => s.showPairingCode);
   const hidePairingCode = useSyncStore((s) => s.hidePairingCode);
   const refreshStatus = useSyncStore((s) => s.refreshStatus);
@@ -101,6 +114,11 @@ export function SyncTab() {
             </p>
           )}
           {phase === "locked" && status && <p className="ns-bk-err">{describeLocked(status)}</p>}
+          {/* v1.1.4 契約 §7：換鑰匙中（boot／每 60 秒續跑）與跳過筆數那一行（>0 才出現）。
+              換鑰匙不是故障也不是等人處理（狀態點是金的慢閃，不是朱），所以這行是 `.ns-note` 不是 `.ns-bk-err`；
+              只多一道金色左緣把「這台正在忙」與旁邊的常駐小字分開。 */}
+          {phase === "rotating" && <p className="ns-note ns-sy-rotating">{PASSPHRASE_ROTATE.inProgress}</p>}
+          {!!status?.skipped_missing_total && <p className="ns-note ns-sy-orphans">{describeSkipped(status.skipped_missing_total)}</p>}
           {status?.last_orphans && (
             <p className="ns-note ns-sy-orphans">
               上次改用另一份時另存 {status.last_orphans.count} 筆未送出的修改
@@ -122,6 +140,12 @@ export function SyncTab() {
         )}
       </section>
 
+      {/* ①ᵃ v1.1.4 修正席（產品評審 B1）：鍵違い（rotated）唯一走得通的那條路，就放在講那句話的正下方。
+          形狀沿改正待ち那一塊（說明＋一顆主鈕），差別只在多一格密語。 */}
+      {phase === "locked" && status?.locked_reason === "rotated" && !pendingChoice && (
+        <RejoinRotatedSection working={working} error={formError} onSubmit={rejoin} />
+      )}
+
       {/* ①ʹ 改正待ち（契約 §8.4）：另一台「回到過去」，這台停在原地等主人點頭 */}
       {phase === "epoch_changed" && status && (
         <section className="ns-sy-epoch">
@@ -135,7 +159,7 @@ export function SyncTab() {
               onClick={() =>
                 askConfirm({
                   title: "要改用那份嗎？",
-                  body: "這台現有的車票與記錄會被那份取代；會先自動備份一份，還沒送出的修改另存成檔、不會自動併回。",
+                  body: JOIN_CHOICE_TEXT.adoptEpochBody("desktop"),
                   confirmLabel: "改用那份",
                   danger: true,
                   onConfirm: () => void adoptEpoch(),
@@ -535,11 +559,8 @@ function ChoiceBlock({
   return (
     <section className="ns-sy-epoch">
       <span className="techo-label block mb-1">兩邊都有資料</span>
-      {/* 產品評審 N2：`remote_devices` 數的是雲端的裝置目錄，每次「重新加入」都會留下一個死身分，
-          講「N 台裝置在用」會越數越多、越講越不準。改講它真正是什麼。 */}
-      <p className="ns-note mb-2">
-        雲端上已有一份（{report.remote_devices} 個裝置目錄），這台也有 {report.local_alive} 張活著的票。要怎麼做？
-      </p>
+      {/* v1.1.4 修正席（產品評審 S4）：這三句與手機同源（`JOIN_CHOICE_TEXT`），不再各寫一份 */}
+      <p className="ns-note mb-2">{JOIN_CHOICE_TEXT.lead(report.remote_devices, report.local_alive)}</p>
       {error && (
         <p className="ns-bk-err" role="alert">
           {error}
@@ -547,20 +568,78 @@ function ChoiceBlock({
       )}
       <div className="ns-bk-actions">
         <button type="button" className="btn-seal ns-btn" disabled={working} onClick={onMerge}>
-          {working ? "處理中…" : "兩邊都保留"}
+          {working ? "處理中…" : JOIN_CHOICE_TEXT.merge}
         </button>
         <span className="ns-note">同一張票以較晚改的為準，被蓋掉的值記進該車票的乘務記錄。</span>
       </div>
       <div className="ns-bk-actions mt-2">
         <button type="button" className="btn-ghost ns-btn ns-btn-danger" disabled={working} onClick={onAdopt}>
-          改用另一台的
+          {JOIN_CHOICE_TEXT.adopt}
         </button>
-        <span className="ns-note">會先自動備份一份，再換成雲端那份。</span>
+        <span className="ns-note">{JOIN_CHOICE_TEXT.adoptNote("desktop")}</span>
       </div>
       <div className="ns-bk-actions mt-2">
         <button type="button" className="btn-ghost ns-btn ns-btn--sm" disabled={working} onClick={onCancel}>
           取消
         </button>
+      </div>
+    </section>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ①ᵃ 鍵違い（rotated）：用新密語重新加入（v1.1.4 修正席／產品評審 B1；字在 `REJOIN_ROTATED`，兩殼同一份）
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function RejoinRotatedSection({
+  working,
+  error,
+  onSubmit,
+}: {
+  working: boolean;
+  error: string | null;
+  onSubmit: (passphrase: string) => Promise<void>;
+}) {
+  const [pass, setPass] = useState("");
+  const ready = pass.trim().length > 0 && !working;
+  return (
+    <section className="ns-sy-epoch">
+      <span className="techo-label block mb-1">{REJOIN_ROTATED.title}</span>
+      <p className="ns-note mb-2">{REJOIN_ROTATED.note}</p>
+      <input
+        type="password"
+        className="techo-input ns-sy-input mb-2"
+        autoComplete="off"
+        placeholder={REJOIN_ROTATED.placeholder}
+        value={pass}
+        onChange={(e) => setPass(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && ready) {
+            const p = pass;
+            setPass("");
+            void onSubmit(p);
+          }
+        }}
+      />
+      {error && (
+        <p className="ns-bk-err" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="ns-bk-actions">
+        <button
+          type="button"
+          className="btn-seal ns-btn"
+          disabled={!ready}
+          onClick={() => {
+            const p = pass;
+            setPass("");
+            void onSubmit(p);
+          }}
+        >
+          {working ? "處理中…" : REJOIN_ROTATED.submit}
+        </button>
+        <span className="ns-note">{REJOIN_ROTATED.credsHint}</span>
       </div>
     </section>
   );
@@ -594,13 +673,14 @@ function EnabledSection({
   onSyncNow: () => void;
   onShowCode: () => void;
   onHideCode: () => void;
-  onChangePassphrase: (current: string, next: string) => Promise<boolean>;
+  onChangePassphrase: (current: string, next: string, rotate?: boolean) => Promise<boolean>;
   onUpdateCredentials: () => void;
   onReset: () => void;
 }) {
   const enabled = !!status?.enabled;
   const phase = status?.phase ?? "off";
-  const blocked = phase === "epoch_changed" || phase === "locked";
+  const blocked = phase === "epoch_changed" || phase === "locked" || phase === "rotating";
+  const rotatedLocked = phase === "locked" && status?.locked_reason === "rotated";
   return (
     <>
       <section>
@@ -638,21 +718,33 @@ function EnabledSection({
         <button type="button" className="btn-ghost ns-btn" onClick={() => (pairingCode ? onHideCode() : onShowCode())}>
           {pairingCode ? "收起配對碼" : "顯示配對碼"}
         </button>
-        {/* 產品評審 B1：換 token／撤銷 token 之後唯一到得了的路。原因是金鑰被拒時升為主鈕 */}
-        <button
-          type="button"
-          className={`${credsRejected ? "btn-seal" : "btn-ghost"} ns-btn`}
-          disabled={working}
-          title="在 Cloudflare 換了新 token 就用這個換掉四欄；資料與身分不動，不必重新加入"
-          onClick={onUpdateCredentials}
-        >
-          更新憑證…
-        </button>
+        {/* 產品評審 B1：換 token／撤銷 token 之後唯一到得了的路。原因是金鑰被拒時升為主鈕。
+            v1.1.4 修正席：**鍵違い（rotated）時收起來**——它的表單寫「密語打現在這一句、資料身分紀元
+            都不會動」，在那一態打舊密語會「密語不對」、打新密語卻跳出「兩邊都有資料」問合併，自相矛盾。
+            那一態該走的是狀態列下面那一塊「用新密語重新加入」。 */}
+        {!rotatedLocked && (
+          <button
+            type="button"
+            className={`${credsRejected ? "btn-seal" : "btn-ghost"} ns-btn`}
+            disabled={working}
+            title="在 Cloudflare 換了新 token 就用這個換掉四欄；資料與身分不動，不必重新加入"
+            onClick={onUpdateCredentials}
+          >
+            更新憑證…
+          </button>
+        )}
       </section>
 
       {pairingCode && <PairingCodeBlock code={pairingCode} />}
 
-      <PassphraseSection keySealed={status?.key_sealed ?? null} working={working} error={formError} onSubmit={onChangePassphrase} />
+      <PassphraseSection
+        keySealed={status?.key_sealed ?? null}
+        working={working}
+        /** 換鑰匙中＝七步還沒走完（boot／每 60 秒續跑）：這時再送一次改密語只會被 Rust 擋，先在這裡就鎖住 */
+        rotating={phase === "rotating"}
+        error={formError}
+        onSubmit={onChangePassphrase}
+      />
 
       {/* ③ 重新加入（提案規則③）＝把這台拿掉再放回去。按下去只做「拿掉」那一半，
           表單當場長回來、主人填完就是「放回去」——所以鈕上的字寫整件事，不寫半件。 */}
@@ -673,35 +765,48 @@ function EnabledSection({
 }
 
 /**
- * 密語（契約 §8.6）：改密語只重包雲端上的鑰匙，資料不重傳；舊血統升級後第一次要先打現密語一次（封存）。
+ * 密語（契約 §8.6；v1.1.4 契約 §7.3 加「同時換掉資料鑰匙」）。
+ * 不勾＝現行「只重包雲端上那顆鑰匙」（毫秒級、其他裝置不受影響）；
+ * 勾了＝換一把資料鑰匙、開新紀元、重加密雲端快照、刪掉舊紀元＝**舊密語真的失效**（D-3）。
  */
 function PassphraseSection({
   keySealed,
   working,
+  rotating,
   error,
   onSubmit,
 }: {
   keySealed: boolean | null;
   working: boolean;
+  /** phase='rotating'：上一次換鑰匙還沒走完，整段鎖住（Rust 也會擋，這裡先擋是為了不讓主人白打一次密語） */
+  rotating: boolean;
   error: string | null;
-  onSubmit: (current: string, next: string) => Promise<boolean>;
+  onSubmit: (current: string, next: string, rotate?: boolean) => Promise<boolean>;
 }) {
   const id = useId();
   const [current, setCurrent] = useState("");
   const [next1, setNext1] = useState("");
   const [next2, setNext2] = useState("");
+  // v1.1.4 D-3（Bitwarden 式）：預設不勾＝現行只重包 KEY；勾了＝換資料鑰匙開新紀元（真撤銷），現密語變必填
+  const [rotate, setRotate] = useState(false);
+  /** 「現在的密語」那一格碰過了沒（產品評審 Nice：紅字等 blur 再出現） */
+  const [curTouched, setCurTouched] = useState(false);
   const matched = next1.length >= 8 && next1 === next2;
   // 產品評審 B4：**現密語可留白**。資料鑰匙本來就在這台的鑰匙圈裡，重包雲端那顆 KEY 用不到舊密語；
   // 舊碼那道檢查擋不住任何能解鎖這台桌機的人（他早就能匯出整顆 DB），卻讓「忘了密語」在 App 內零出口。
-  const ready = matched && !working;
+  // 勾了換鑰匙就不一樣了：那是把舊密語作廢，得先證明你手上有它（自決 4；忘了就走「重新加入同步」）。
+  const ready = matched && !working && !rotating && (!rotate || current.trim().length > 0);
 
   const submit = async () => {
+    setCurTouched(true);
     if (!ready) return;
-    const ok = await onSubmit(current, next1);
+    const ok = await onSubmit(current, next1, rotate);
     if (ok) {
       setCurrent("");
       setNext1("");
       setNext2("");
+      setRotate(false);
+      setCurTouched(false);
     }
   };
 
@@ -709,19 +814,23 @@ function PassphraseSection({
     <section className="ns-sy-pair">
       <span className="techo-label block mb-1">密語</span>
       <p className="ns-note mb-2">
-        改密語只重包雲端上的鑰匙，資料不重傳；其他已加入的裝置不受影響，之後新加入的裝置要用新密語。
+        不勾下面那格時，改密語<b>只重包</b>雲端上的鑰匙：資料不重傳，其他已加入的裝置不受影響，之後新加入的裝置要用新密語。
       </p>
       {keySealed === false && (
         <p className="ns-note mb-2">升級後第一次：這次會把鑰匙封存到雲端（新密語可以與現在相同）。</p>
       )}
-      {/* 產品評審 N1：這一段已經是字牆了，這句只補「留白也行」那一件事，不重複上面講過的後果 */}
-      <p className="ns-note mb-2">
-        忘了現在的密語也沒關係——這台的鑰匙還在，<b>現在的密語可以留白</b>，直接設一個新的。
-      </p>
+      {/* 產品評審 N1：這一段已經是字牆了，這句只補「留白也行」那一件事，不重複上面講過的後果。
+          v1.1.4：勾了換鑰匙就不能留白（那是作廢舊密語，得先證明你有它），所以這句只在沒勾時說。 */}
+      {!rotate && (
+        <p className="ns-note mb-2">
+          忘了現在的密語也沒關係——這台的鑰匙還在，<b>現在的密語可以留白</b>，直接設一個新的。
+        </p>
+      )}
+      {rotating && <p className="ns-note is-fail mb-2">{PASSPHRASE_ROTATE.inProgress}</p>}
       <div className="ns-sy-form">
         <label className="ns-sy-field">
-          <span className="ns-sy-field-label">現在的密語（可留白）</span>
-          <input id={`${id}-cur`} className="techo-input ns-sy-input" type="password" value={current} autoComplete="current-password" onChange={(e) => setCurrent(e.target.value)} />
+          <span className="ns-sy-field-label">{rotate ? "現在的密語（必填）" : "現在的密語（可留白）"}</span>
+          <input id={`${id}-cur`} className="techo-input ns-sy-input" type="password" value={current} autoComplete="current-password" onChange={(e) => setCurrent(e.target.value)} onBlur={() => setCurTouched(true)} />
         </label>
         <label className="ns-sy-field">
           <span className="ns-sy-field-label">新密語</span>
@@ -734,6 +843,28 @@ function PassphraseSection({
       </div>
       {next1.length > 0 && next1.length < 8 && <p className="ns-note is-fail">新密語至少 8 個字。</p>}
       {next2.length > 0 && next1 !== next2 && <p className="ns-note is-fail">兩次打的新密語不一樣。</p>}
+      {/* v1.1.4 契約 §7.3：勾選＋警告文（字在 PASSPHRASE_ROTATE，兩殼同一份）。
+          警告只在勾了才長出來（D-3 預設不勾）——沒要換鑰匙的人不該先讀一段「其他裝置會停在鍵違い」。 */}
+      <label className="ns-note ns-sy-rotate" htmlFor={`${id}-rot`}>
+        <input
+          id={`${id}-rot`}
+          type="checkbox"
+          checked={rotate}
+          disabled={working || rotating}
+          onChange={(e) => setRotate(e.target.checked)}
+        />
+        <span>{PASSPHRASE_ROTATE.label}</span>
+      </label>
+      {rotate && (
+        <p className="ns-note is-fail ns-sy-rotate-warn" role="status">
+          {PASSPHRASE_ROTATE.warning}
+        </p>
+      )}
+      {/* 產品評審（Nice）：勾完還沒動手就先亮紅字，會與上面那段警告疊成兩段紅。
+          欄位標籤已經寫「必填」了，這句等主人真的碰過那一格（blur）再說。 */}
+      {rotate && curTouched && current.trim().length === 0 && (
+        <p className="ns-note is-fail">{PASSPHRASE_ROTATE.needCurrent}</p>
+      )}
       {error && (
         <p className="ns-bk-err" role="alert">
           {error}
@@ -741,7 +872,7 @@ function PassphraseSection({
       )}
       <div className="ns-bk-actions mt-2">
         <button type="button" className="btn-ghost ns-btn ns-btn--sm" disabled={!ready} onClick={() => void submit()}>
-          {working ? "處理中…" : keySealed === false ? "封存密語" : "改密語"}
+          {working ? "處理中…" : rotate ? "改密語並換鑰匙" : keySealed === false ? "封存密語" : "改密語"}
         </button>
       </div>
     </section>

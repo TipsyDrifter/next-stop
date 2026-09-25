@@ -67,15 +67,25 @@ pub fn run() {
     // 但 engine 取 pool 走的是 sql plugin 的 `DbInstances`，順序排後面語意才對（實際不依賴初始化順序）。
     let builder = builder.plugin(sync::init());
 
+    // v1.1.4（契約 §6；WP-B）：檔案系統 plugin，**兩殼都掛**。
+    // 唯一的用途是 Rust 端的 `FsExt::open`——手機「匯出到手機」拿到 SAF 的 `content://` URI 之後，
+    // 只有這個 plugin 的 Android 實作能把它換成一個可寫的 fd（`std::fs` 打不開 content URI）。
+    // JS 那十幾支 fs command 沒有給權限（capabilities 不含 `fs:*`），所以前端還是碰不到檔案系統。
+    let builder = builder.plugin(tauri_plugin_fs::init());
+
+    // v1.1.4：dialog plugin 從「只有桌機」改成**兩殼都掛**——手機要用它的 `save()`（Android 走 SAF 的
+    // CreateDocument，主人自己挑「下載」之類看得到的位置）。查證：`download_dir()` 在 Android 回的是
+    // app 專屬目錄，主人在檔案管理員看不到（docs/research/2026-09-22-v1.1.4-Android下載目錄寫入查證.md）。
+    // 桌機這一行原本在下面的 `#[cfg(not(mobile))]` 區塊裡，搬上來兩殼共用；桌機的用法（選資料夾、選 .db）不變。
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+
     #[cfg(not(mobile))]
     let builder = builder
         // 順序實證＋回歸護欄：這支空 plugin 排在 sql 之後，setup 時 `DbInstances` 必已就緒；
         // 與 backup::init() 那一行 log 對照，就能證明 plugin 是照註冊順序初始化的（不憑「應該是這樣」）。
         .plugin(backup::order_probe())
-        // dialog 只有備份在用（第二位置選資料夾／「從檔案還原…」選 .db）；Android 沒有 folder picker，
-        // v1.1.0 手機零使用 → 不掛。配套：capabilities/default.json 要限 platforms 到桌機三家，
-        // 否則 Android build 會因 `dialog:allow-open` 指到未註冊的 plugin 而報錯。
-        .plugin(tauri_plugin_dialog::init())
+        // （v1.1.4 起 `tauri_plugin_dialog::init()` 搬到上面兩殼共用：桌機用它選資料夾／選 .db，
+        //   手機用它的 `save()` 走 SAF 匯出。桌機這邊的行為一個字都沒變。）
         // `generate_handler!` 吃不下 `#[cfg]`（它要在編譯期把整份清單展開成一個 match），
         // 所以桌機／手機只能整句各寫一份；`invoke_handler` 又只能叫一次、後叫的會蓋掉先叫的。
         .invoke_handler(tauri::generate_handler![
@@ -90,6 +100,7 @@ pub fn run() {
             // 換成 join／decode_pairing_code／finish_restore，另加 change_passphrase／restore_choice。
             sync::commands::sync_status,
             sync::commands::sync_join,
+            sync::commands::sync_rejoin,
             sync::commands::sync_change_passphrase,
             sync::commands::sync_restore_choice,
             sync::commands::sync_finish_restore,
@@ -101,13 +112,21 @@ pub fn run() {
             sync::commands::sync_decode_pairing_code,
             sync::commands::sync_adopt_epoch,
             sync::commands::sync_read_wizard_env,
+            // v1.1.4 契約 §4：雲端備份四支＋SAF 匯出＋換鑰匙續跑（兩殼都掛）
+            sync::commands::sync_cloud_snapshot_now,
+            sync::commands::sync_cloud_snapshot_auto,
+            sync::commands::sync_cloud_snapshot_list,
+            sync::commands::sync_cloud_restore,
+            sync::commands::sync_export_to_file,
+            sync::commands::sync_finish_rotation,
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步十三支（清單與桌機那份逐字相同）。
+    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步十九支（清單與桌機那份逐字相同）。
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         sync::commands::sync_status,
         sync::commands::sync_join,
+        sync::commands::sync_rejoin,
         sync::commands::sync_change_passphrase,
         sync::commands::sync_restore_choice,
         sync::commands::sync_finish_restore,
@@ -119,6 +138,12 @@ pub fn run() {
         sync::commands::sync_decode_pairing_code,
         sync::commands::sync_adopt_epoch,
         sync::commands::sync_read_wizard_env,
+        sync::commands::sync_cloud_snapshot_now,
+        sync::commands::sync_cloud_snapshot_auto,
+        sync::commands::sync_cloud_snapshot_list,
+        sync::commands::sync_cloud_restore,
+        sync::commands::sync_export_to_file,
+        sync::commands::sync_finish_rotation,
     ]);
 
     // v1.1.2 D-1.1-6 甲：手機掃桌機的 QR（配對碼）。plugin 只在手機 target 有（Cargo 的 target 段），

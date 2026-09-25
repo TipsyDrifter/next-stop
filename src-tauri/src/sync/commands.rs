@@ -7,6 +7,11 @@
 //!   * 新增 `sync_change_passphrase`（兩層鑰匙：重包 `<root>/KEY`）、`sync_restore_choice`（對話框的選擇先落檔）。
 //!   * 其餘（status／set_enabled／push／pull／reset_local／make_pairing_code／adopt_epoch／read_wizard_env）同名。
 //!
+//! **v1.1.4（契約席 2026-09-22；契約 §4）**：`sync_change_passphrase` 多一個 `rotate: bool`（勾了「同時換掉資料鑰匙」
+//!   走七步輪替）；新增六支——`sync_cloud_snapshot_now`／`sync_cloud_snapshot_auto`／`sync_cloud_snapshot_list`／
+//!   `sync_cloud_restore`（雲端備份，殼在這裡、機制在 `snapshot.rs`）、`sync_export_to_file`（Android SAF 匯出）、
+//!   `sync_finish_rotation`（boot 續跑換鑰匙）。既有 command 名一個都不改。
+//!
 //! 全部回 `Result<T, String>`，Err 一律**人話**（沿 backup.rs 的口吻），且**不夾帶憑證與密語**。
 //! 兩端（桌機／Android）都註冊（`lib.rs` 兩份 `generate_handler!`）。
 //!
@@ -18,8 +23,9 @@ use tauri::AppHandle;
 
 use super::engine::{
     self, AdoptReport, JoinArgs, JoinMode, JoinReport, PairingFields, PassphraseReport, PullReport, PushReport,
-    RestoreChoice, RestoreReport, SyncStatus, WizardEnv,
+    RestoreChoice, RestoreReport, RotationReport, SyncStatus, WizardEnv,
 };
+use super::snapshot::{self, ExportReport, SnapshotEntry, SnapshotKind};
 
 /// `sync_join` 的參數（JS：`invoke("sync_join", { input: {...} })`；契約 §4.2）。**不 derive Debug**。
 #[derive(Deserialize)]
@@ -62,14 +68,93 @@ pub async fn sync_join(app: AppHandle, input: JoinInput) -> Result<JoinReport, S
     engine::join(&app, input.into()).await
 }
 
+/// v1.1.4 修正席（產品評審 B1）：**用新密語重新加入**——四欄沿用鑰匙圈現成那組，只帶密語。
+/// 走的就是 `sync_join`（回 `needs_choice` 時同樣要帶 `mode` 再呼叫一次），所以回傳型別一樣。
+#[tauri::command]
+pub async fn sync_rejoin(
+    app: AppHandle,
+    passphrase: String,
+    mode: Option<JoinMode>,
+) -> Result<JoinReport, String> {
+    engine::rejoin(&app, &passphrase, mode).await
+}
+
 /// 改密語（契約 §4.4）：只重包 `<root>/KEY`，資料不重傳；舊血統升級後第一次＝封存（`sealed_first_time`）。
+/// v1.1.4：`rotate=true`（JS 可省略＝false）⇒ 連資料鑰匙一起換（七步輪替，契約 §5）；此時 `current` 必填。
 #[tauri::command]
 pub async fn sync_change_passphrase(
     app: AppHandle,
     current: String,
     next: String,
+    rotate: Option<bool>,
 ) -> Result<PassphraseReport, String> {
-    engine::change_passphrase(&app, &current, &next).await
+    engine::change_passphrase(&app, &current, &next, rotate.unwrap_or(false)).await
+}
+
+/* ── v1.1.4 雲端備份（契約 §4；機制在 snapshot.rs） ── */
+
+/// 立即拍一份快照上雲。`kind` 省略＝`manual`（JS：`invoke("sync_cloud_snapshot_now", { kind: "manual" })`）。
+#[tauri::command]
+pub async fn sync_cloud_snapshot_now(app: AppHandle, kind: Option<String>) -> Result<SnapshotEntry, String> {
+    let kind = kind
+        .as_deref()
+        .map(|k| SnapshotKind::parse(k).ok_or_else(|| "快照種類只能是 auto／manual／safety。".to_string()))
+        .transpose()?
+        .unwrap_or(SnapshotKind::Manual);
+    let pool = engine::pool(&app).await?;
+    snapshot::upload(&app, &pool, kind).await
+}
+
+/// 每日一份（TS `runCycle` 成功後叫；引擎判「今天拍過就回 null」）。
+#[tauri::command]
+pub async fn sync_cloud_snapshot_auto(app: AppHandle) -> Result<Option<SnapshotEntry>, String> {
+    let pool = engine::pool(&app).await?;
+    snapshot::upload_auto(&app, &pool).await
+}
+
+/// 列出 `<root>/snapshots/`（只 list 不下載；新到舊）。
+#[tauri::command]
+pub async fn sync_cloud_snapshot_list(app: AppHandle) -> Result<Vec<SnapshotEntry>, String> {
+    let pool = engine::pool(&app).await?;
+    snapshot::list(&app, &pool).await
+}
+
+/// `sync_cloud_restore` 的參數（JS：`invoke("sync_cloud_restore", { input: { key, choice, label } })`）
+#[derive(Deserialize)]
+pub struct CloudRestoreInput {
+    /// 列表回來的完整物件鍵
+    pub key: String,
+    /// 回到過去／接上現在——與桌機本機還原同義（契約 §6）
+    pub choice: RestoreChoice,
+    /// 給 EPOCH.bin 的 `label` 與改正待ち文案（UI 組「雲端快照 9/22 14:03」）
+    pub label: Option<String>,
+}
+
+/// 從雲端快照還原：留底 → 匯入 → 寫既有還原標記 → `app.restart()`。成功**不會回來**；失敗＝本機零改變或已留底。
+#[tauri::command]
+pub async fn sync_cloud_restore(app: AppHandle, input: CloudRestoreInput) -> Result<(), String> {
+    snapshot::cloud_restore(&app, &input.key, input.choice, input.label).await
+}
+
+/// `sync_export_to_file` 的參數（JS：`invoke("sync_export_to_file", { input: { target } })`；`input` 可整個省略）
+#[derive(Deserialize, Default)]
+pub struct ExportInput {
+    /// Android：`plugin-dialog` `save()` 回傳的 `content://` URI；桌機／退路：省略
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+/// 匯出全量 JSON 到檔案（手機「匯出到手機」；桌機沿用下載夾）。**不看**鑰匙圈。
+#[tauri::command]
+pub async fn sync_export_to_file(app: AppHandle, input: Option<ExportInput>) -> Result<ExportReport, String> {
+    let pool = engine::pool(&app).await?;
+    snapshot::export_to_file(&app, &pool, input.unwrap_or_default().target).await
+}
+
+/// boot 看到 `status.rotation_stage` 就叫：從標記記錄的階段續跑換鑰匙（提交點之前＝回滾）。
+#[tauri::command]
+pub async fn sync_finish_rotation(app: AppHandle) -> Result<RotationReport, String> {
+    engine::finish_rotation(&app).await
 }
 
 /// 還原對話框的選擇先落檔（契約 §4.5／§6 步驟 2）；`choice` 為 null ⇒ 清掉。鑰匙圈缺 ⇒ Err（UI 據此不問）。

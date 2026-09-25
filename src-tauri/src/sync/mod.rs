@@ -15,7 +15,9 @@
 //!   * `engine`    ─ 補戳格子→快照→outbox、outbox→物件→push、list→拆封→apply（逐欄 LWW＋衝突留痕）→重算快取；
 //!                   v1.1.3 另含單一入口 `join`、改密語 `change_passphrase`、還原二選一 `finish_restore`、
 //!                   換紀元 `adopt_epoch` 與精靈匯入（`read_wizard_env`）
-//!   * `commands`  ─ 十三支 `#[tauri::command]`（invoke 名稱與 JSON 形狀是契約，TS 照著編譯）
+//!   * `snapshot`  ─ **v1.1.4** 雲端快照：上傳／列表／階梯清理／JSON 匯入／雲端還原／SAF 匯出（兩殼共用；
+//!                   手機沒有 backup.rs，所以不掛在那裡）
+//!   * `commands`  ─ 十九支 `#[tauri::command]`（v1.1.3 十三支＋v1.1.4 六支；invoke 名稱與 JSON 形狀是契約，TS 照著編譯）
 //!
 //! 掛載（在 `lib.rs`）：`.plugin(sync::init())`（排在 sql plugin 之後）＋兩份 `generate_handler!`
 //!   （桌機那份＝backup 七支＋sync 十三支，手機那份＝sync 十三支——`generate_handler!` 不吃 `#[cfg]`，
@@ -33,6 +35,7 @@ pub mod crypto;
 pub mod engine;
 pub mod hlc;
 pub mod r2;
+pub mod snapshot;
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
