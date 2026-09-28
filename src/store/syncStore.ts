@@ -49,6 +49,7 @@ import type {
 } from "../data/syncRepository";
 import { SYNC_WRITE_EVENT, resetSyncTablesProbe } from "../data/syncRepository";
 import { todayKey } from "../lib/date";
+import { askNotificationPermissionOnce, notifyOnce, rearmNotify } from "../lib/notify";
 import { useBackupStore } from "./backupStore";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
@@ -56,6 +57,14 @@ import { useUiStore } from "./uiStore";
 /** 拉取／推送節奏（P4）；去抖秒數見 Plan §6 */
 export const SYNC_INTERVAL_MS = 60_000;
 export const SYNC_PUSH_DEBOUNCE_MS = 2_000;
+/**
+ * v1.1.5 修正席（產品評審 B2）：一趟失敗之後，自動觸發的冷卻時間。比 60 秒那一拍短一點——
+ * 失敗後的下一拍（≥45 秒後）照跑；只擋「改動後 2 秒／focus／visibilitychange」這類密集觸發。
+ * ⇒ 連三趟失敗至少要兩個多分鐘（通常三分鐘），「停車中」才會叫。「立即同步」不受限。
+ */
+export const SYNC_FAIL_BACKOFF_MS = 45_000;
+/** 離線時按「立即同步」的字（自動趟離線不打擾） */
+export const SYNC_OFFLINE_TOAST = "目前沒有網路——修改先在這台排隊，連上之後會自動補一趟。";
 
 /** 狀態文案（契約 §8；桌機分頁與手機頁共用同一份字） */
 export const SYNC_PHASE_LABEL = {
@@ -107,7 +116,7 @@ export const PASSPHRASE_ROTATE = {
  */
 export const REJOIN_ROTATED = {
   title: "用新密語重新加入",
-  note: "四個欄位不用改（用的是這台已經存好的那組）——只要打另一台換好的新密語。接著會問要不要合併，選「兩邊都保留」，這台還沒送出的修改會一起併進來。",
+  note: "四個欄位不用改（用的是這台已經存好的那組）——只要打另一台換好的新密語。接著會問要不要合併，選「兩邊都保留」，這台還沒送出的修改會一起併進來。忘了新密語？按下面的「重新加入同步」（四欄要重填），在加入表單改用復原碼。",
   placeholder: "新密語",
   submit: "用新密語重新加入",
   /** 鍵違い時「更新憑證…」那顆改的字（它的表單是「四欄換新、密語打現在這一句」，在這一態會把人帶錯路） */
@@ -138,6 +147,200 @@ export const JOIN_CHOICE_TEXT = {
     "這台現有的車票與記錄會被那份取代；" +
     (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
     "還沒送出的修改另存成檔、不會自動併回。",
+} as const;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v1.1.5 告警模型（契約 §2；契約席立、WP-B 填偵測、WP-C 讀文案）
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 橫幅／通知的六種告警（拍板 D-1.1.5-1：轉入改正待ち／鍵違い／停車中（連續 3 趟）／信号待ち 四態告警；
+ * `needs_passphrase` 是復原碼救援後的「請設新密語」，沿用同一套機制）。**paused（主人自己關）不告警。**
+ * `locked` 依 `locked_reason` 分兩種字：`rotated`＝另一台換過鑰匙（出路：用新密語重新加入）；
+ * 其餘（`stale`／`locked='salt'`）＝雲端有這台打不開的東西（出路：看同步頁）。
+ */
+export type SyncAlertKind =
+  | "epoch_changed"
+  | "locked_rotated"
+  | "locked_stale"
+  | "stopped"
+  | "gated"
+  | "needs_passphrase";
+
+/**
+ * 一次性事件（toast＋一則通知）：換鑰匙完成／還原完成（回到過去或接上現在）。
+ * v1.1.5 修正席（產品評審 S4）：拿掉 `adopt_done`——「改用那份」是主人自己按、毫秒完成、toast 已講，再彈一則系統通知是噪音。
+ * 換鑰匙（耗時、人可能走開）與還原（重啟之後）才有理由多一則。
+ */
+export type SyncEventKind = "rotation_done" | "restore_done";
+
+/** 停車中的告警門檻：`fail_streak ≥ 3` 才叫（網路抖一下不叫；契約 §2.3） */
+export const SYNC_STOPPED_ALERT_STREAK = 3;
+
+/**
+ * 六種告警的字——**兩殼同一份、不含票名**（Plan 技術自決：通知只講狀態＋一句出路）。
+ * `banner`＝主畫面橫幅一行；`cta`＝主鈕字（一律「前往同步」，出路的細節寫在同步頁）；`notifTitle`／`notifBody`＝OS 通知。
+ */
+export const SYNC_ALERT_TEXT: Record<SyncAlertKind, { banner: string; cta: string; notifTitle: string; notifBody: string }> = {
+  epoch_changed: {
+    banner: "改正待ち：另一台裝置換上了一份新的資料，這台要改用那份才會繼續同步。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・同步停在改正待ち",
+    notifBody: "另一台裝置換上了一份新的資料。打開同步頁按「改用那份」。",
+  },
+  locked_rotated: {
+    banner: "鍵違い：這份資料已在另一台換過鑰匙，這台要用新密語重新加入。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・同步停在鍵違い",
+    notifBody: "另一台換過鑰匙了。打開同步頁，用新密語重新加入。",
+  },
+  locked_stale: {
+    banner: "鍵違い：雲端上有這台的密語打不開的東西，同步先停在這裡。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・同步停在鍵違い",
+    notifBody: "雲端上有這台打不開的東西。打開同步頁看出路。",
+  },
+  stopped: {
+    banner: "停車中：同步已經連續三趟沒成功，修改先在這台排隊。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・同步連續失敗",
+    notifBody: "已經連續三趟沒同步成功。打開同步頁看原因。",
+  },
+  gated: {
+    banner: "信号待ち：兩台的版本不一致，請先更新較舊的那一台。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・同步停在信号待ち",
+    notifBody: "兩台的版本不一致。更新較舊的那一台後會自動接回。",
+  },
+  needs_passphrase: {
+    banner: "這台是用復原碼加入的，請設一個新密語（其他裝置之後要用它加入）。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・請設一個新密語",
+    notifBody: "這台是用復原碼加入的。到同步頁的〈密語〉設一個新密語。",
+  },
+};
+
+/** 橫幅「先收起」鈕的字（D-1.1.5-2：可關、下次啟動再出） */
+export const SYNC_BANNER_DISMISS = "先收起";
+
+/** 一次性事件的字（toast 沿用 Rust 回的 `message`，這裡只放通知；`toast` 是 Rust 沒給字時的退路） */
+export const SYNC_EVENT_TEXT: Record<SyncEventKind, { toast: string; notifTitle: string; notifBody: string }> = {
+  rotation_done: {
+    toast: "換鑰匙完成——其他裝置要用新密語重新加入。",
+    notifTitle: "私鐵手帳・換鑰匙完成",
+    notifBody: "資料鑰匙已換新。其他裝置要用新密語重新加入。",
+  },
+  restore_done: {
+    toast: "還原後的同步收尾完成。",
+    notifTitle: "私鐵手帳・還原完成",
+    notifBody: "還原後的同步已接回。",
+  },
+};
+
+/**
+ * 狀態 → 該出哪一種告警（null＝沒有）。**純函式**，phase 仍是 Rust 算的，這裡只做映射不推導。
+ * 順序＝phase 的優先序（改正待ち＞鍵違い＞信号待ち＞停車中）；四態都沒有時才看 `needs_passphrase`。
+ * `stopped` 要 `fail_streak ≥ 3`；`paused`／`rotating`／`off`／`running` 一律 null。
+ * `stoppedArmed=false`（v1.1.5 修正席／產品評審 B2 ②）：本進程還沒自己跑完一趟 ⇒ 持久化的 `fail_streak` 可能是昨晚斷網留下的，
+ * 先不算停車中（其餘告警照算）。預設 true，純函式的語意不變。
+ */
+export function alertKindOf(status: SyncStatus | null, stoppedArmed = true): SyncAlertKind | null {
+  if (!status || !status.configured) return null;
+  switch (status.phase) {
+    case "epoch_changed":
+      return "epoch_changed";
+    case "locked":
+      return status.locked_reason === "rotated" ? "locked_rotated" : "locked_stale";
+    case "gated":
+      return "gated";
+    case "stopped":
+      return stoppedArmed && status.fail_streak >= SYNC_STOPPED_ALERT_STREAK
+        ? "stopped"
+        : status.needs_passphrase
+          ? "needs_passphrase"
+          : null;
+    case "running":
+      return status.needs_passphrase ? "needs_passphrase" : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * 上一次算出來的告警種類（模組層；只活在本次啟動）。boot 的第一趟 status 也算「轉入」——
+ * 拍板 D-1.1.5-2 說橫幅「下次啟動再出」，通知跟著同一條規則：狀態未解除，每次啟動一則（不是每 60 秒一則）。
+ */
+let lastAlertKind: SyncAlertKind | null = null;
+
+/**
+ * 轉變偵測（契約 §2.4）：每次拿到新狀態就比對——轉入告警態 ⇒ 橫幅＋一則通知；離開 ⇒ 橫幅消失；同態不重發。
+ * 呼叫點＝所有「拿到一份新 status」的地方：`refreshStatusInner`（runCycle 成敗／boot／join／rejoin／adoptEpoch／
+ * finishRestore／finishRotation／changePassphrase 之後都經過它），加上直接收 Rust 回傳 status 的 `setEnabled`／`reset`
+ * （不補這兩處，關總開關後橫幅要等下一個 60 秒才消失——而關著時根本不會有下一趟）。
+ *
+ * 離開某種告警時 `rearmNotify(舊 kind)`：下一次**再轉入**同一種是新的一次、該再響一則（拍板「轉入時一則」；
+ * 契約 §7 甲4「關總開關再開回改正待ち ⇒ 再一筆」靠這個）。停留在同一態＝`kind === lastAlertKind` 直接 return，不會重發。
+ */
+function evaluateAlerts(status: SyncStatus | null): void {
+  const kind = alertKindOf(status, cycleRanThisProcess);
+  if (kind === lastAlertKind) return;
+  if (lastAlertKind) rearmNotify(lastAlertKind);
+  lastAlertKind = kind;
+  useUiStore.getState().setSyncBanner(kind);
+  if (kind) {
+    const t = SYNC_ALERT_TEXT[kind];
+    void notifyOnce(kind, { title: t.notifTitle, body: t.notifBody }, false, shell);
+  }
+}
+
+/** 一次性事件：一則通知（toast 由各 action 自己出，沿用 Rust 的 message） */
+function fireSyncEvent(kind: SyncEventKind): void {
+  const t = SYNC_EVENT_TEXT[kind];
+  void notifyOnce(kind, { title: t.notifTitle, body: t.notifBody }, true, shell);
+}
+
+/**
+ * v1.1.5 復原碼的字（契約 §6.3；兩殼同一份）。
+ * 設定頁一區「復原碼」：未設＝一句說明＋「產生復原碼」；已設＝「已設定」＋「重新產生（舊碼作廢）」。
+ * 一次性對話框：碼＋「複製」＋勾選「我已抄下」才能關；三句提醒。
+ */
+export const RECOVERY_TEXT = {
+  title: "復原碼",
+  intro: "忘了密語時的最後一條路：任何一台還沒加入同步的裝置都能用這組碼加入、拿回資料，然後設一個新密語。",
+  unset: "未設定",
+  set: "已設定",
+  generate: "產生復原碼",
+  regenerate: "重新產生（舊碼作廢）",
+  clear: "作廢復原碼",
+  /** 重新產生前的確認窗 */
+  regenerateConfirmTitle: "要重新產生復原碼嗎？",
+  regenerateConfirmBody: "現在這組碼會立刻作廢，之後只有新的那組能用。新碼一樣只顯示一次。",
+  regenerateConfirmLabel: "重新產生",
+  clearConfirmTitle: "要作廢復原碼嗎？",
+  clearConfirmBody: "作廢之後忘了密語就沒有這條路了（隨時可以再產生一組新的）。",
+  clearConfirmLabel: "作廢",
+  /** 一次性顯示對話框 */
+  dialogTitle: "你的復原碼",
+  dialogOverline: "只顯示這一次",
+  dialogLead: "抄下來、收在密語以外的地方（紙上、密碼管理器）。關掉這個視窗之後就再也看不到它了。",
+  copy: "複製",
+  copied: "已複製",
+  ack: "我已抄下這組碼",
+  close: "我已抄下，關閉",
+  notes: [
+    "換鑰匙時在這一台做，這組碼仍有效；在別台換鑰匙或重新產生，舊碼就作廢（App 會提醒）。",
+    "它只在還沒加入同步的裝置「加入同步」時使用（這台本來有資料也行，會問要不要合併）；已加入的裝置改密語不需要它（現密語留白即可）。",
+    "任何拿到這組碼、又拿得到你雲端置物櫃的人都能讀你的資料——請當成密語一樣保管。",
+  ],
+  /** 加入表單的切換（契約 §6.4） */
+  joinToggle: "忘記密語？用復原碼",
+  joinToggleBack: "改回用密語",
+  joinLabel: "復原碼",
+  joinPlaceholder: "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XX",
+  joinNote: "27 個字，連字號與大小寫都可以不管。加入成功後會請你設一個新密語。",
+  joinSubmit: "用復原碼加入",
+  /** 換鑰匙後這台沒有 W、RECOVERY 被作廢時的 toast 尾句（Rust `RotationReport.message` 已含；這裡是退路） */
+  invalidatedByRotation: "復原碼已作廢，請到〈同步〉重新產生一組。",
 } as const;
 
 /** v1.1.4 契約 §7：跳過筆數那一行（`skipped_missing_total > 0` 才顯示） */
@@ -183,6 +386,11 @@ export interface SyncStore {
   cloudSnapshots: SnapshotEntry[] | null;
   /** v1.1.4：列表讀取失敗的人話（留在雲端備份區塊旁） */
   cloudError: string | null;
+  /**
+   * v1.1.5：剛產生的復原碼（顯示形）——**只活在這個對話框開著的期間**；`closeRecoveryDialog` 一定清掉。
+   * 它不在 Rust 的任何回傳裡第二次出現，也不寫 log／settings。
+   */
+  recoveryDisplay: string | null;
 
   /** 啟動鉤子（App.tsx 在 loadSettings 之後叫；可重入）。shell 決定重載哪個畫面與「改用」前拍不拍備份。 */
   boot: (shell: SyncShell) => Promise<void>;
@@ -236,6 +444,13 @@ export interface SyncStore {
   exportToFile: () => Promise<ExportReport | null>;
   /** 換鑰匙續跑（boot／runCycle 看到 `rotation_stage` 就叫） */
   finishRotation: () => Promise<void>;
+  /* ── v1.1.5 復原碼（契約 §4／§6）── */
+  /** 「產生復原碼」／「重新產生」：成功 ⇒ `recoveryDisplay` 有值、UI 開一次性對話框；失敗 ⇒ formError */
+  generateRecoveryCode: () => Promise<void>;
+  /** 對話框關閉（勾了「我已抄下」才能按）：清 `recoveryDisplay` */
+  closeRecoveryDialog: () => void;
+  /** 「作廢復原碼」：askConfirm → `recoveryClear()` → 重讀狀態 */
+  clearRecoveryCode: () => void;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -249,6 +464,23 @@ let writeHandler: (() => void) | null = null;
 let visibilityHandler: (() => void) | null = null;
 let focusHandler: (() => void) | null = null;
 let focusTimer: number | null = null;
+/** v1.1.5 修正席（產品評審 B2）：網路回來那一刻補一趟（離線時 runCycle 整趟不跑，見 runCycle 開頭） */
+let onlineHandler: (() => void) | null = null;
+/**
+ * v1.1.5 修正席（產品評審 B2）：上一趟**失敗**的時刻。失敗之後，自動觸發（改動後 2 秒／focus／visibilitychange／
+ * 網路回來／rerun）在 `SYNC_FAIL_BACKOFF_MS` 內一律不跑，只剩 60 秒那一拍與「立即同步」——
+ * 否則離線改三張票就是三趟失敗、`fail_streak` 兩分鐘內到 3 叫出「停車中」，違反「網路斷一下不該叫」。
+ * 成功一趟就歸零。
+ */
+let lastFailAt = 0;
+/**
+ * v1.1.5 修正席（產品評審 B2 ②）：這個進程有沒有**真的跑完過一趟** push／pull（成敗不論）。
+ * `fail_streak` 是持久化的——闔上筆電前 Wi-Fi 先斷、累到 3，隔天開機第一份 status 就會叫「停車中」、一分鐘後自己解。
+ * 所以 `stopped` 要等本進程自己跑過一趟之後才評估：真的還壞（憑證過期）⇒ 開機那一趟跑完就叫；只是昨晚斷網 ⇒ 不叫。
+ */
+let cycleRanThisProcess = false;
+/** 通知權限詢問進行中（boot 與 settleJoin 可能撞在一起；只問一次） */
+let notifAskInflight = false;
 /** 同時只跑一趟（Rust 端也有一道；前端先擋一次，省掉來回） */
 let inflight = false;
 /** 撞到 in-flight 的那一趟不丟掉：記旗標，當前那趟收尾時補跑（v1.1.2 評審 S5） */
@@ -293,6 +525,10 @@ function detachSchedule(): void {
     window.removeEventListener("focus", focusHandler);
     focusHandler = null;
   }
+  if (onlineHandler) {
+    window.removeEventListener("online", onlineHandler);
+    onlineHandler = null;
+  }
   if (focusTimer !== null) {
     clearTimeout(focusTimer);
     focusTimer = null;
@@ -328,6 +564,12 @@ function attachSchedule(): void {
   };
   window.addEventListener("focus", focusHandler);
 
+  // v1.1.5 修正席（產品評審 B2）：離線那段一趟都不跑；網路回來那一刻補一趟（不必等下一個 60 秒）
+  onlineHandler = () => {
+    if (document.visibilityState === "visible") void runCycle();
+  };
+  window.addEventListener("online", onlineHandler);
+
   // 資料層每次「有 op 的寫入」丟一顆 SYNC_WRITE_EVENT，去抖 2 秒合成一趟（兩端都掛）
   writeHandler = () => {
     if (debounceTimer !== null) clearTimeout(debounceTimer);
@@ -353,6 +595,13 @@ function messageOf(e: unknown): string {
 async function runCycle(manual = false): Promise<PushReport | PullReport | null> {
   const status = useSyncStore.getState().status;
   if (!status || !status.configured) return null;
+  // v1.1.5 修正席（產品評審 B2 ①）：作業系統說沒網路＝整趟不跑（不推不拉、不補收尾、`fail_streak` 不加）。
+  // 捷運裡改票不該累積失敗；修改照樣在 outbox 排隊，網路回來由 `online` 事件補一趟。
+  // 只擋 `onLine === false`（確定離線）；true 不代表真的連得上，那種情況交給下面的失敗退避。
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (manual) useUiStore.getState().showToast({ message: SYNC_OFFLINE_TOAST });
+    return null;
+  }
   // 還原收尾（契約 §6 步驟 4）：網路失敗時標記留著，這裡每 60 秒補一次；成功了下一趟就走正常路
   if (status.restore_pending) {
     if (!inflight && !useSyncStore.getState().working && Date.now() - lastRestoreRetryAt >= SYNC_INTERVAL_MS) {
@@ -370,6 +619,8 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
   if (!status.enabled) return null; // 總開關關著＝什麼都不跑（手動鈕在 UI 也是 disabled）
   // 改正待ち／鍵違い＝停在原地等主人處理，不推不拉
   if (status.phase === "epoch_changed" || status.phase === "locked") return null;
+  // v1.1.5 修正席（產品評審 B2）：上一趟失敗後，自動觸發在退避期內不跑——讓「三趟失敗」回到約三分鐘的意思
+  if (!manual && lastFailAt > 0 && Date.now() - lastFailAt < SYNC_FAIL_BACKOFF_MS) return null;
   if (inflight) {
     rerun = true;
     return null;
@@ -380,6 +631,8 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
   try {
     const pushed = await syncRepo.push();
     const pulled = await syncRepo.pull();
+    cycleRanThisProcess = true;
+    lastFailAt = 0;
     await refreshStatusInner();
     if (pulled.changed_tables.length > 0) await refreshAfterPull(pulled);
     // 同時改到同一格＝敗方已被 Rust 記進那張票的乘務記錄。自動趟也講（衝突本來就罕見，不會變成噪音）。
@@ -401,6 +654,8 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     return pulled;
   } catch (e) {
     const message = messageOf(e);
+    cycleRanThisProcess = true;
+    lastFailAt = Date.now();
     // pull 是「一個物件一個交易」，中途 Err 時前幾顆的遠端 hlc 已經戳進 sync_cells，但 `seedHlc(max_hlc)`
     // 拿不到回報——忘掉探測快取，下一次寫入會重新 `seedHlc(MAX(hlc))`（v1.1.2 評審 S6）。
     resetSyncTablesProbe();
@@ -408,6 +663,9 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
       status: s.status ? { ...s.status, last_error: message, phase: "stopped" } : s.status,
     }));
     if (manual) useUiStore.getState().showToast({ message: `同步沒有完成：${message}` });
+    // v1.1.5（契約 §2.3）：`fail_streak` 是 Rust 記的（`record_error` +1），本機那份 status 沒有它——
+    // 失敗這趟也要重問一次，第 3 趟的橫幅與通知才會準時出現（不等下一個 60 秒）。
+    await refreshStatusInner();
     return null;
   } finally {
     inflight = false;
@@ -442,9 +700,12 @@ async function refreshStatusInner(): Promise<SyncStatus | null> {
   try {
     const status = await syncRepo.status();
     useSyncStore.setState({ status, bridgeError: null });
+    evaluateAlerts(status); // v1.1.5 契約 §2.4：所有 status 都經過這裡 ⇒ 轉變偵測只寫一次
     return status;
   } catch (e) {
     useSyncStore.setState({ status: null, bridgeError: messageOf(e) });
+    // 刻意**不**評估：橋接一時不通＝不知道狀態，不是「告警解除」。若在這裡當成 null，
+    // 橋接抖一下就會「解除→再轉入」＝同一個告警多響一則；橫幅維持上一個已知狀態，等下一份 status 再說。
     return null;
   }
 }
@@ -496,11 +757,36 @@ async function backupBeforeAdopt(): Promise<boolean> {
   return true;
 }
 
+/**
+ * 通知權限「一輩子問一次」（v1.1.5 契約 §3.4；D-1.1.5 技術自決）：已加入、`notif_asked` 沒設才問。
+ * 問完（granted／denied）落 `notif_asked`，拒絕就只用橫幅、不再問。桌機 `request_permission` 恆 Granted（不會跳任何東西）。
+ * `reset_local` 清整張 sync_meta ⇒ 重新加入後再問一次（那是「新的一台」）。失敗全吞：通知只是加分。
+ *
+ * 呼叫點兩個：
+ *   ① `settleJoin`＝加入同步成功之後（原設計）；
+ *   ② `boot`＝**已加入、但從沒問過**的裝置（v1.1.5 修正席／產品評審 B1：v1.1.4 原地升級上來的手機「已加入不重配」，
+ *      `settleJoin` 永遠不會跑 ⇒ Android 13+ 永遠沒權限、通知全啞）。一台一輩子一次，之後旗標就擋住了。
+ * 工程評審 S-2：外掛一時叫不動（回 `skipped`）**不記**「問過了」——下次啟動再問，不然一次瞬斷就永遠不送。
+ */
+async function askNotificationIfNeeded(status: SyncStatus | null): Promise<void> {
+  if (!status?.configured || status.notif_asked || notifAskInflight) return;
+  notifAskInflight = true;
+  try {
+    const answer = await askNotificationPermissionOnce();
+    if (answer === "skipped") return;
+    await syncRepo.markNotifAsked().catch((e) => console.warn("[sync:notify] notif_asked 寫不進去：", messageOf(e)));
+    await refreshStatusInner();
+  } finally {
+    notifAskInflight = false;
+  }
+}
+
 /** join 成功後的收尾（first／pulled／merged／adopted／reconnected 共用） */
 async function settleJoin(report: JoinReport): Promise<void> {
   // 快照與 join 內部拉下來的 hlc 都是 Rust 產的，TS 這邊的記憶體計數看不到——忘掉探測快取，下次寫入重吃種子
   resetSyncTablesProbe();
-  await refreshStatusInner();
+  const joined = await refreshStatusInner();
+  await askNotificationIfNeeded(joined);
   attachSchedule();
   if (report.pull && report.pull.changed_tables.length > 0) await refreshAfterPull(report.pull);
   if (report.outcome === "first" || report.outcome === "merged") {
@@ -526,6 +812,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
   pendingChoice: null,
   cloudSnapshots: null,
   cloudError: null,
+  recoveryDisplay: null,
 
   async boot(nextShell) {
     shell = nextShell;
@@ -555,6 +842,9 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     // 收尾那一趟已經自己推（renewed）或自己起跑一趟（resumed），這裡再 `runCycle()` 只會撞成 `rerun`＝
     // 白跑一次 push＋pull（冪等但多兩趟網路）。沒有還原要收時才由 boot 起跑開機那一趟。
     if (!finishing) void runCycle();
+    // v1.1.5 修正席（產品評審 B1）：已加入但從沒問過通知權限（v1.1.4 原地升級）⇒ 開機問這一次。
+    // 不 await：Android 的系統詢問要等主人答，不該擋住開機那一趟同步。
+    void askNotificationIfNeeded(get().status);
   },
 
   stop() {
@@ -656,6 +946,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         resetSyncTablesProbe(); // 切了紀元、重拍了快照：下一次寫入重吃 hlc 種子
         attachSchedule();
         void get().refreshCloudSnapshots();
+        fireSyncEvent("rotation_done"); // v1.1.5 契約 §2.6：一次性事件＝toast（下面那句）＋一則通知
       }
       useUiStore.getState().showToast({ message: report.message || (report.sealed_first_time ? "密語已封存到雲端" : "密語已更改") });
       return true;
@@ -710,6 +1001,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         detachSchedule(); // not_joined：Rust 已清掉標記，這台不該有背景動作
       }
       if (report.message) useUiStore.getState().showToast({ message: report.message });
+      if (report.outcome !== "not_joined") fireSyncEvent("restore_done"); // v1.1.5 契約 §2.6
     } catch (e) {
       // 多半是網路：標記檔留著，`runCycle` 每 60 秒補一次（契約 §6 步驟 4）
       useUiStore.getState().showToast({ message: `還原後的同步收尾沒做完：${messageOf(e)}` });
@@ -743,6 +1035,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       useUiStore.getState().showToast({
         message: saved.length ? `已改用那份；${saved.join("；")}` : "已改用那份",
       });
+      // v1.1.5 修正席（產品評審 S4）：只 toast、不發系統通知（主人就在畫面前按的）
     } catch (e) {
       set({ formError: messageOf(e) });
       await refreshStatusInner();
@@ -761,6 +1054,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     try {
       const status = await syncRepo.setEnabled(enabled);
       set({ status, bridgeError: null });
+      evaluateAlerts(status); // v1.1.5：關總開關＝paused＝不告警，橫幅當場收掉（開回來若仍在告警態＝再轉入一次）
       attachSchedule();
     } catch (e) {
       useUiStore.getState().showToast({ message: `總開關切不動：${messageOf(e)}` });
@@ -789,6 +1083,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
           try {
             const status = await syncRepo.resetLocal();
             set({ status, pairingCode: null, bridgeError: null });
+            evaluateAlerts(status); // v1.1.5：拿掉同步＝沒鑰匙圈＝不告警，橫幅當場收掉
             detachSchedule();
             // 鈕上寫的是「重新加入同步」，但按下去只做「拿掉」那一半——表單當場長回來，
             // 主人接著自己填。toast 因此講「已拿掉」而不是「已重新加入」，免得看起來已經接回去了。
@@ -959,8 +1254,17 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       resetSyncTablesProbe();
       await refreshStatusInner();
       attachSchedule();
-      if (report.message) useUiStore.getState().showToast({ message: report.message });
-      if (report.outcome === "finished") void get().refreshCloudSnapshots();
+      // v1.1.5 整合席（WP-A 接縫）：續跑到步驟 3.5 時這台若沒有包裝鑰匙 W，RECOVERY 會被刪（作廢）。
+      // Rust 的 message 尾巴已含那句；這裡只在它沒帶到時補上，免得主人不知道復原碼要重生。
+      let rotationMsg = report.message;
+      if (report.recovery === "invalidated" && !rotationMsg.includes("復原碼已作廢")) {
+        rotationMsg = rotationMsg ? `${rotationMsg}${RECOVERY_TEXT.invalidatedByRotation}` : RECOVERY_TEXT.invalidatedByRotation;
+      }
+      if (rotationMsg) useUiStore.getState().showToast({ message: rotationMsg });
+      if (report.outcome === "finished") {
+        void get().refreshCloudSnapshots();
+        fireSyncEvent("rotation_done"); // v1.1.5 契約 §2.6（續跑走完也算「換鑰匙完成」）
+      }
     } catch (e) {
       // 多半是網路：標記檔留著，`runCycle` 每 60 秒補一次
       useUiStore.getState().showToast({ message: `換鑰匙沒做完：${messageOf(e)}` });
@@ -968,6 +1272,50 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     } finally {
       set({ working: false });
     }
+  },
+
+  /* ── v1.1.5 復原碼（契約席骨架；WP-B 校對、WP-C 用）── */
+
+  async generateRecoveryCode() {
+    if (get().working) return;
+    set({ working: true, formError: null });
+    try {
+      const report = await syncRepo.recoveryGenerate();
+      // 碼只進這一格 state（對話框讀），不進 toast、不進 log
+      set({ recoveryDisplay: report.code_display });
+      await refreshStatusInner();
+    } catch (e) {
+      set({ formError: messageOf(e) });
+    } finally {
+      set({ working: false });
+    }
+  },
+
+  closeRecoveryDialog() {
+    set({ recoveryDisplay: null });
+  },
+
+  clearRecoveryCode() {
+    useUiStore.getState().askConfirm({
+      title: RECOVERY_TEXT.clearConfirmTitle,
+      body: RECOVERY_TEXT.clearConfirmBody,
+      confirmLabel: RECOVERY_TEXT.clearConfirmLabel,
+      danger: true,
+      onConfirm: () => {
+        void (async () => {
+          set({ working: true, formError: null });
+          try {
+            await syncRepo.recoveryClear();
+            await refreshStatusInner();
+            useUiStore.getState().showToast({ message: "復原碼已作廢" });
+          } catch (e) {
+            set({ formError: messageOf(e) });
+          } finally {
+            set({ working: false });
+          }
+        })();
+      },
+    });
   },
 }));
 

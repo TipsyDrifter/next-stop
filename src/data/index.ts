@@ -209,6 +209,7 @@ export type {
   SnapshotEntry,
   ExportReport,
   RotationReport,
+  RecoveryReport,
   OutboxOp,
   WriteStmt,
   SyncTable,

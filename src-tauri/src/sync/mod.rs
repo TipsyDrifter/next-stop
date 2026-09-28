@@ -17,7 +17,9 @@
 //!                   換紀元 `adopt_epoch` 與精靈匯入（`read_wizard_env`）
 //!   * `snapshot`  ─ **v1.1.4** 雲端快照：上傳／列表／階梯清理／JSON 匯入／雲端還原／SAF 匯出（兩殼共用；
 //!                   手機沒有 backup.rs，所以不掛在那裡）
-//!   * `commands`  ─ 十九支 `#[tauri::command]`（v1.1.3 十三支＋v1.1.4 六支；invoke 名稱與 JSON 形狀是契約，TS 照著編譯）
+//!   * `recovery`  ─ **v1.1.5** 復原碼：Base32＋校驗碼的純函式、`<root>/RECOVERY`（第二把包裝，與 KEY 同格式）
+//!                   的封／拆／重包；用碼加入＝`join` 的另一種密語輸入（三條規則不增加）
+//!   * `commands`  ─ 二十一支 `#[tauri::command]`（v1.1.3 十三支＋v1.1.4 六支＋v1.1.5 兩支；invoke 名稱與 JSON 形狀是契約，TS 照著編譯）
 //!
 //! 掛載（在 `lib.rs`）：`.plugin(sync::init())`（排在 sql plugin 之後）＋兩份 `generate_handler!`
 //!   （桌機那份＝backup 七支＋sync 十三支，手機那份＝sync 十三支——`generate_handler!` 不吃 `#[cfg]`，
@@ -35,6 +37,7 @@ pub mod crypto;
 pub mod engine;
 pub mod hlc;
 pub mod r2;
+pub mod recovery;
 pub mod snapshot;
 
 use tauri::{

@@ -23,17 +23,27 @@
  *   §7.6 另寫「常駐句 `last_export` 那行改讀 `last_cloud_snapshot_at`」——WP-C 的落法是：
  *   `last_export` 那行**留著只當退路**（Rust 拍雲端快照失敗才會有值、那時主人真的需要那個路徑），
  *   「上次上傳 …」則由正下方「雲端備份」區的第一行講。同一件事在同一頁寫兩遍只會互相打架。
+ * v1.1.5（WP-C；《2026-09-25-v1.1.5-同步告警與復原碼契約.md》§6.2／§6.4／§6.5）——與桌機 SyncTab 同三處、同一份字：
+ *   ① 狀態多一行「這台是用復原碼加入的——請設新密語」（`needs_passphrase`；朱色左緣）。
+ *   ② 加入表單的密語那一塊下面一行 44px 文字鈕「忘記密語？用復原碼」⇄「改回用密語」；
+ *      用碼時密語兩格換成一格復原碼（即時大寫＋5 字一組、拉丁字距），送出 `passphrase=""`＋`recovery_code`。
+ *      更新憑證那張表不露出。手機是最可能「整台換新、忘了密語」的那一台——這條路在手機上一樣完整。
+ *   ③ 已加入區、密語之後一塊「復原碼」（未設＝產生；已設＝重新產生（先確認）＋作廢）；碼由 App 層共用的
+ *      `RecoveryCodeDialog` 顯示一次。〈密語〉在 `needs_passphrase` 時頂上一句、現密語格鎖住留白、換鑰匙那格鎖住。
+ *   `formError` 共用一格：記住最後按的是密語還是復原碼，錯誤只紅在那一塊。
+ *   橫幅的「前往同步」會經 MobileMore 直接落到本頁（`uiStore.mobileMoreRequest`）。
  * 手機沒有備份三件套（本機檔案那一套仍是桌機的事），其餘與桌機同一套字。
  * 觸控與輸入（鐵則）：可點目標 ≥44px（mobile.css 的 WP8 區塊）；輸入框 font-size 16px。
  * 資料流：不碰 repository，全走 `syncStore`；密語只活在本檔的 local state，送出後即清空。
  * 掃描：barcode-scanner 把相機畫在 WebView **後面**，掃描中整頁背景要透明（`html[data-scanning]`）。
  */
 import { useEffect, useRef, useState } from "react";
-import type { JoinReport, PairingFields, SyncStatus } from "../../data/syncRepository";
+import type { JoinInput, JoinReport, PairingFields, SyncStatus } from "../../data/syncRepository";
 import {
   useSyncStore,
   SYNC_PHASE_LABEL,
   PASSPHRASE_ROTATE,
+  RECOVERY_TEXT,
   REJOIN_ROTATED,
   JOIN_CHOICE_TEXT,
   fmtSyncStamp,
@@ -44,6 +54,8 @@ import {
 import { CLOUD_TEXT } from "../common/CloudSnapshots";
 import { useUiStore } from "../../store/uiStore";
 import { CloudSnapshots } from "../common/CloudSnapshots";
+import { NEEDS_PASSPHRASE_TEXT } from "../common/SyncBanner";
+import { RECOVERY_CODE_LEN, formatRecoveryInput } from "../common/RecoveryCodeDialog";
 
 export default function MobileSync({ onBack }: { onBack: () => void }) {
   const status = useSyncStore((s) => s.status);
@@ -90,6 +102,8 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
   const credsRejected = phase === "stopped" && !!status?.last_error?.includes("拒絕了這組金鑰");
   /** 產品評審 B1：鍵違い且原因是「另一台換過鑰匙」——出路只有一條，畫面就只給那一條 */
   const rotatedLocked = phase === "locked" && status?.locked_reason === "rotated";
+  /** v1.1.5：`formError` 是 store 共用的一格——記住最後按的是密語還是復原碼，錯誤只紅在那一塊 */
+  const [errOwner, setErrOwner] = useState<"passphrase" | "recovery">("passphrase");
 
   return (
     <div className="m-page m2-page" aria-label="同步">
@@ -123,6 +137,8 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
               換鑰匙＝這台自己在忙（頂帶的點是金的慢閃），不是故障也不是等人處理 ⇒ 不吃 `.is-fail` 的赭，
               只用一道金色左緣把它與旁邊的常駐小字分開（同桌機 `.ns-sy-rotating`）。 */}
           {phase === "rotating" && <p className="m2-note m2-sy-rotating">{PASSPHRASE_ROTATE.inProgress}</p>}
+          {/* v1.1.5 契約 §6.5：用復原碼加入、還沒設新密語（朱色左緣＝要主人去做一件事） */}
+          {configured && status?.needs_passphrase && <p className="m2-note m2-recovery-need">{NEEDS_PASSPHRASE_TEXT.status}</p>}
           {!!status?.skipped_missing_total && <p className="m2-note">{describeSkipped(status.skipped_missing_total)}</p>}
           {bridgeError && <p className="m2-note is-fail">這個版本的手機端還沒接上同步（{bridgeError}）。</p>}
           {!!status?.pending_ops && <p className="m2-note">待上傳 {status.pending_ops} 筆</p>}
@@ -277,8 +293,20 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
               status={status}
               working={working}
               rotating={phase === "rotating"}
-              error={formError}
-              onSubmit={changePassphrase}
+              error={errOwner === "passphrase" ? formError : null}
+              onSubmit={(cur, next, rotate) => {
+                setErrOwner("passphrase");
+                return changePassphrase(cur, next, rotate);
+              }}
+            />
+
+            {/* v1.1.5 契約 §6.2：復原碼（密語之後；碼由 App 層共用的 RecoveryCodeDialog 顯示一次） */}
+            <RecoveryBlock
+              recoverySet={!!status?.recovery_set}
+              working={working}
+              lockedReason={phase === "rotating" ? "rotating" : rotatedLocked ? "rotated" : null}
+              error={errOwner === "recovery" ? formError : null}
+              onTouch={() => setErrOwner("recovery")}
             />
 
             {/* ③ 重新加入（提案規則③）＝拿掉再放回去；按下去只做「拿掉」，表單當場長回來 */}
@@ -370,14 +398,7 @@ function JoinForm({
   working: boolean;
   disabled: boolean;
   error: string | null;
-  onSubmit: (input: {
-    endpoint: string;
-    bucket: string;
-    access_key_id: string;
-    secret_access_key: string;
-    passphrase: string;
-    root?: string;
-  }) => Promise<void>;
+  onSubmit: (input: JoinInput) => Promise<void>;
   onDecode: (code: string) => Promise<PairingFields | null>;
   /** `credentials` 才有：收起表單回到已加入的樣子 */
   onCancel?: () => void;
@@ -393,14 +414,23 @@ function JoinForm({
   const [showFields, setShowFields] = useState(true);
   const [pass1, setPass1] = useState("");
   const [pass2, setPass2] = useState("");
+  /**
+   * v1.1.5 契約 §6.4：「忘記密語？用復原碼」——密語兩格換成一格復原碼（只有 `join` 露出）。
+   * 與密語同規矩：只活在本地 state、送出即清；切換時把另一邊清掉（兩種只能填一種）。
+   */
+  const [useCode, setUseCode] = useState(false);
+  const [rcode, setRcode] = useState("");
+  const rlen = formatRecoveryInput(rcode).length;
   const [scanning, setScanning] = useState(false);
   const [scanHint, setScanHint] = useState<string | null>(null);
   const passRef = useRef<HTMLInputElement | null>(null);
 
   // 更新憑證時那句密語是**現有的**（不是新設的）：只打一次、不套 8 字下限
   const passOk = updating ? pass1.length > 0 : pass1.length >= 8;
-  const filled = endpoint.trim() && bucket.trim() && ak.trim() && sk.trim() && passOk;
-  const matched = updating || (pass1.length > 0 && pass1 === pass2);
+  const coding = useCode && !updating;
+  const fourFilled = !!(endpoint.trim() && bucket.trim() && ak.trim() && sk.trim());
+  const filled = fourFilled && (coding ? rlen === RECOVERY_CODE_LEN : passOk);
+  const matched = coding || updating || (pass1.length > 0 && pass1 === pass2);
   const ready = !!filled && matched && !working && !disabled;
 
   const applyFields = (f: PairingFields) => {
@@ -459,11 +489,21 @@ function JoinForm({
       bucket: bucket.trim(),
       access_key_id: ak.trim(),
       secret_access_key: sk,
-      passphrase: pass1,
+      // 契約 §4.6：兩種只能填一種——用碼時密語一定是空字串
+      passphrase: coding ? "" : pass1,
+      recovery_code: coding ? rcode : undefined,
       root: root.trim() || undefined,
     });
     setPass1("");
     setPass2("");
+    setRcode("");
+  };
+
+  const toggleCode = () => {
+    setPass1("");
+    setPass2("");
+    setRcode("");
+    setUseCode((v) => !v);
   };
 
   return (
@@ -553,35 +593,65 @@ function JoinForm({
       </div>
 
       <div className="m2-block">
-        <span className="m2-block-label">密語</span>
-        <input
-          ref={passRef}
-          className="m2-input"
-          type="password"
-          value={pass1}
-          autoComplete="new-password"
-          placeholder={updating ? "現在的密語" : "密語（至少 8 字）"}
-          onChange={(e) => setPass1(e.target.value)}
-          aria-label={updating ? "現在的密語" : "密語"}
-        />
-        {!updating && (
-          <input
-            className="m2-input"
-            type="password"
-            value={pass2}
-            autoComplete="new-password"
-            placeholder="再打一次"
-            onChange={(e) => setPass2(e.target.value)}
-            aria-label="再打一次密語"
-          />
+        <span className="m2-block-label">{coding ? RECOVERY_TEXT.joinLabel : "密語"}</span>
+        {coding ? (
+          <>
+            <input
+              className="m2-input m2-recovery-input"
+              value={rcode}
+              autoComplete="off"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder={RECOVERY_TEXT.joinPlaceholder}
+              onChange={(e) => setRcode(formatRecoveryInput(e.target.value).display)}
+              aria-label={RECOVERY_TEXT.joinLabel}
+            />
+            <p className="m2-note">{RECOVERY_TEXT.joinNote}</p>
+            {rlen > 0 && rlen !== RECOVERY_CODE_LEN && (
+              <p className="m2-note">
+                {rlen < RECOVERY_CODE_LEN ? `還差 ${RECOVERY_CODE_LEN - rlen} 個字。` : `多了 ${rlen - RECOVERY_CODE_LEN} 個字。`}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <input
+              ref={passRef}
+              className="m2-input"
+              type="password"
+              value={pass1}
+              autoComplete="new-password"
+              placeholder={updating ? "現在的密語" : "密語（至少 8 字）"}
+              onChange={(e) => setPass1(e.target.value)}
+              aria-label={updating ? "現在的密語" : "密語"}
+            />
+            {!updating && (
+              <input
+                className="m2-input"
+                type="password"
+                value={pass2}
+                autoComplete="new-password"
+                placeholder="再打一次"
+                onChange={(e) => setPass2(e.target.value)}
+                aria-label="再打一次密語"
+              />
+            )}
+            <p className="m2-note">
+              {updating
+                ? "密語沒有換、也不會上雲——這裡打它只是用來打開雲端上那把鑰匙。"
+                : "第一台加入時這句就是密語；其他裝置加入要打同一句。密語不會上雲，之後可以改，改了也不用重傳資料。"}
+            </p>
+            {!updating && pass1.length > 0 && pass1.length < 8 && <p className="m2-note is-fail">密語至少 8 個字。</p>}
+            {!updating && pass2.length > 0 && !matched && <p className="m2-note is-fail">兩次打的密語不一樣。</p>}
+          </>
         )}
-        <p className="m2-note">
-          {updating
-            ? "密語沒有換、也不會上雲——這裡打它只是用來打開雲端上那把鑰匙。"
-            : "第一台加入時這句就是密語；其他裝置加入要打同一句。密語不會上雲，之後可以改，改了也不用重傳資料。"}
-        </p>
-        {!updating && pass1.length > 0 && pass1.length < 8 && <p className="m2-note is-fail">密語至少 8 個字。</p>}
-        {!updating && pass2.length > 0 && !matched && <p className="m2-note is-fail">兩次打的密語不一樣。</p>}
+        {/* v1.1.5 契約 §6.4：一整行 44px 的文字鈕；更新憑證不露出 */}
+        {!updating && (
+          <button type="button" className="m2-recovery-toggle" disabled={working} onClick={toggleCode}>
+            <span>{coding ? RECOVERY_TEXT.joinToggleBack : RECOVERY_TEXT.joinToggle}</span>
+          </button>
+        )}
       </div>
       {error && (
         <p className="m2-note is-fail" role="alert">
@@ -590,7 +660,7 @@ function JoinForm({
       )}
       <div className="m2-block m2-sy-actions">
         <button type="button" className="ns-btn btn-seal m2-sy-go" disabled={!ready} onClick={() => void submit()}>
-          {working ? (updating ? "更新中…" : "加入中…") : updating ? "更新憑證" : "加入同步"}
+          {working ? (updating ? "更新中…" : "加入中…") : updating ? "更新憑證" : coding ? RECOVERY_TEXT.joinSubmit : "加入同步"}
         </button>
         {updating && onCancel && (
           <button type="button" className="ns-btn btn-ghost m2-sy-go" disabled={working} onClick={onCancel}>
@@ -600,10 +670,15 @@ function JoinForm({
       </div>
       {!ready && !working && (
         <p className="m2-note">
-          {updating ? "四欄與現在的密語都填好才能更新。" : "四欄與密語（兩次相同、至少 8 字）都填好才能加入。"}
+          {updating
+            ? "四欄與現在的密語都填好才能更新。"
+            : coding
+              ? `四欄與復原碼（${RECOVERY_CODE_LEN} 個字）都填好才能加入。`
+              : "四欄與密語（兩次相同、至少 8 字）都填好才能加入。"}
         </p>
       )}
-      {!updating && (
+      {/* 用碼加入時雲端一定有資料（空的雲端沒有復原碼可用），這句三分法只對密語那條路成立 */}
+      {!updating && !coding && (
         <p className="m2-note">雲端是空的→這台成為第一台；雲端有資料而這台是空的→直接拉下來；兩邊都有資料→會問你一次。</p>
       )}
     </div>
@@ -770,6 +845,101 @@ function PairingCodeBlock({ code }: { code: string }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   ③ 復原碼（v1.1.5 契約 §6.2；字在 `RECOVERY_TEXT`，與桌機 SyncTab.RecoverySection 同一份）
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 未設＝「產生復原碼」；已設＝「重新產生（舊碼作廢）」（先確認）＋「作廢復原碼」（store 自己問確認）。
+ * 鎖住：rotated（另一台換過鑰匙，這台的資料鑰匙已作廢）／rotating（換鑰匙還沒走完）——Rust 也擋，這裡先擋。
+ * 碼不經過本元件：store 拿到就交給 App 層的 `RecoveryCodeDialog`。
+ */
+function RecoveryBlock({
+  recoverySet,
+  working,
+  lockedReason,
+  error,
+  onTouch,
+}: {
+  recoverySet: boolean;
+  working: boolean;
+  lockedReason: "rotated" | "rotating" | null;
+  error: string | null;
+  onTouch: () => void;
+}) {
+  const generate = useSyncStore((s) => s.generateRecoveryCode);
+  const clear = useSyncStore((s) => s.clearRecoveryCode);
+  const askConfirm = useUiStore((s) => s.askConfirm);
+  const locked = lockedReason !== null;
+
+  return (
+    <div className="m2-block m2-recovery">
+      <div className="m2-recovery-head">
+        <span className="m2-block-label">{RECOVERY_TEXT.title}</span>
+        <span className={`m2-recovery-state${recoverySet ? " is-set" : ""}`}>
+          {recoverySet ? RECOVERY_TEXT.set : RECOVERY_TEXT.unset}
+        </span>
+      </div>
+      <p className="m2-note">{RECOVERY_TEXT.intro}</p>
+      {lockedReason === "rotated" && (
+        <p className="m2-note">這份資料已在另一台換過鑰匙——先用新密語重新加入，才能在這台產生復原碼。</p>
+      )}
+      {lockedReason === "rotating" && <p className="m2-note">換鑰匙還沒走完，等它做完再來產生。</p>}
+      {error && (
+        <p className="m2-note is-fail" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="m2-sy-actions">
+        {recoverySet ? (
+          <>
+            <button
+              type="button"
+              className="ns-btn btn-ghost m2-sy-go"
+              disabled={working || locked}
+              onClick={() => {
+                onTouch();
+                askConfirm({
+                  title: RECOVERY_TEXT.regenerateConfirmTitle,
+                  body: RECOVERY_TEXT.regenerateConfirmBody,
+                  confirmLabel: RECOVERY_TEXT.regenerateConfirmLabel,
+                  danger: true,
+                  onConfirm: () => void generate(),
+                });
+              }}
+            >
+              {RECOVERY_TEXT.regenerate}
+            </button>
+            <button
+              type="button"
+              className="ns-btn btn-ghost ns-btn-danger m2-sy-go"
+              disabled={working || locked}
+              onClick={() => {
+                onTouch();
+                clear();
+              }}
+            >
+              {RECOVERY_TEXT.clear}
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="ns-btn btn-ghost m2-sy-go"
+            disabled={working || locked}
+            onClick={() => {
+              onTouch();
+              void generate();
+            }}
+          >
+            {working ? "處理中…" : RECOVERY_TEXT.generate}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    ③ 密語（契約 §8.6）
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -795,14 +965,27 @@ function PassphraseBlock({
   /** 「現在的密語」那一格碰過了沒（產品評審 Nice：紅字等 blur 再出現） */
   const [curTouched, setCurTouched] = useState(false);
   const keySealed = status?.key_sealed ?? null;
+  /**
+   * v1.1.5 契約 §6.5：用復原碼加入、還沒設新密語——這台沒有「現在的密語」：那一格鎖住留白、換鑰匙那格也鎖
+   * （換鑰匙要證明你有現密語，得先設一個）。Rust 在改密語成功時清旗標，這一塊就回到平常的樣子。
+   */
+  const needsPassphrase = !!status?.needs_passphrase;
   // 產品評審 B4：現密語可留白（資料鑰匙在這台的私有檔裡，重包雲端那顆 KEY 用不到舊密語）；
   // 勾了換鑰匙則必填——那是作廢舊密語，得先證明你手上有它（自決 4）。
-  const ready = next1.length >= 8 && next1 === next2 && !working && !rotating && (!rotate || current.trim().length > 0);
+  const ready =
+    next1.length >= 8 && next1 === next2 && !working && !rotating && (!rotate || current.trim().length > 0) && !(needsPassphrase && rotate);
+
+  // 旗標亮起時把可能殘留的輸入與勾選收掉
+  useEffect(() => {
+    if (!needsPassphrase) return;
+    setCurrent("");
+    setRotate(false);
+  }, [needsPassphrase]);
 
   const submit = async () => {
     setCurTouched(true);
     if (!ready) return;
-    const ok = await onSubmit(current, next1, rotate);
+    const ok = await onSubmit(needsPassphrase ? "" : current, next1, rotate);
     if (ok) {
       setCurrent("");
       setNext1("");
@@ -818,19 +1001,21 @@ function PassphraseBlock({
       <p className="m2-note">
         不勾下面那格時，改密語只重包雲端上的鑰匙：資料不重傳，其他已加入的裝置不受影響，之後新加入的裝置要用新密語。
       </p>
+      {needsPassphrase && <p className="m2-note m2-recovery-need">{NEEDS_PASSPHRASE_TEXT.passphrase}</p>}
       {keySealed === false && <p className="m2-note">升級後第一次：這次會把鑰匙封存到雲端（新密語可以與現在相同）。</p>}
       {/* 勾了換鑰匙就不能留白（那是作廢舊密語，得先證明你有它）——所以這句只在沒勾時說，同桌機 */}
-      {!rotate && <p className="m2-note">忘了現在的密語也沒關係——這台的鑰匙還在，現在的密語可以留白，直接設一個新的就好。</p>}
+      {!rotate && !needsPassphrase && <p className="m2-note">忘了現在的密語也沒關係——這台的鑰匙還在，現在的密語可以留白，直接設一個新的就好。</p>}
       {rotating && <p className="m2-note is-fail">{PASSPHRASE_ROTATE.inProgress}</p>}
       <input
         className="m2-input"
         type="password"
-        value={current}
+        value={needsPassphrase ? "" : current}
+        disabled={needsPassphrase}
         autoComplete="current-password"
-        placeholder={rotate ? "現在的密語（必填）" : "現在的密語（可留白）"}
+        placeholder={needsPassphrase ? NEEDS_PASSPHRASE_TEXT.currentLocked : rotate ? "現在的密語（必填）" : "現在的密語（可留白）"}
         onChange={(e) => setCurrent(e.target.value)}
         onBlur={() => setCurTouched(true)}
-        aria-label={rotate ? "現在的密語（必填）" : "現在的密語（可留白）"}
+        aria-label={needsPassphrase ? "現在的密語（留白）" : rotate ? "現在的密語（必填）" : "現在的密語（可留白）"}
       />
       <input className="m2-input" type="password" value={next1} autoComplete="new-password" placeholder="新密語（至少 8 字）" onChange={(e) => setNext1(e.target.value)} aria-label="新密語" />
       <input className="m2-input" type="password" value={next2} autoComplete="new-password" placeholder="再打一次" onChange={(e) => setNext2(e.target.value)} aria-label="再打一次新密語" />
@@ -839,7 +1024,7 @@ function PassphraseBlock({
       {/* v1.1.4 契約 §7.3：勾選＋警告文（字在 PASSPHRASE_ROTATE，與桌機同一份）。
           整列 44px 觸控目標（鐵則）——手指點得到的是整行字，不是那顆 16px 的方框。 */}
       <label className="m2-note m2-sy-rotate">
-        <input type="checkbox" checked={rotate} disabled={working || rotating} onChange={(e) => setRotate(e.target.checked)} />
+        <input type="checkbox" checked={rotate} disabled={working || rotating || needsPassphrase} onChange={(e) => setRotate(e.target.checked)} />
         <span>{PASSPHRASE_ROTATE.label}</span>
       </label>
       {rotate && (

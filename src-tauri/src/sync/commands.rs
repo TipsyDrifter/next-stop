@@ -12,7 +12,11 @@
 //!   `sync_cloud_restore`（雲端備份，殼在這裡、機制在 `snapshot.rs`）、`sync_export_to_file`（Android SAF 匯出）、
 //!   `sync_finish_rotation`（boot 續跑換鑰匙）。既有 command 名一個都不改。
 //!
-//! 全部回 `Result<T, String>`，Err 一律**人話**（沿 backup.rs 的口吻），且**不夾帶憑證與密語**。
+//! **v1.1.5（契約席 2026-09-25；契約 §5）**：`sync_join` 的 `input` 多 `recovery_code`（與密語二選一）；新增兩支——
+//!   `sync_recovery_generate`（只回一次碼）／`sync_recovery_clear`。`SyncStatus` 多 `fail_streak`／`recovery_set`／
+//!   `needs_passphrase`／`notif_asked`。既有 command 名一個都不改；通知不經 command（JS 直接叫外掛）。
+//!
+//! 全部回 `Result<T, String>`，Err 一律**人話**（沿 backup.rs 的口吻），且**不夾帶憑證、密語與復原碼**。
 //! 兩端（桌機／Android）都註冊（`lib.rs` 兩份 `generate_handler!`）。
 //!
 //! 這一層只做三件事：把 JS 的 args 轉成 engine 的型別、呼叫 engine、把結果原樣回去。
@@ -25,6 +29,7 @@ use super::engine::{
     self, AdoptReport, JoinArgs, JoinMode, JoinReport, PairingFields, PassphraseReport, PullReport, PushReport,
     RestoreChoice, RestoreReport, RotationReport, SyncStatus, WizardEnv,
 };
+use super::recovery::{self, RecoveryReport};
 use super::snapshot::{self, ExportReport, SnapshotEntry, SnapshotKind};
 
 /// `sync_join` 的參數（JS：`invoke("sync_join", { input: {...} })`；契約 §4.2）。**不 derive Debug**。
@@ -40,6 +45,11 @@ pub struct JoinInput {
     pub root: Option<String>,
     /// 兩邊都有料且第一次呼叫沒帶 ⇒ 回 `needs_choice`；UI 問完再帶回來
     pub mode: Option<JoinMode>,
+    /// **v1.1.5（契約 §4.6）**：「忘記密語？用復原碼」——與 `passphrase` **二選一**（帶了碼就把密語留白）。
+    /// 引擎先 `recovery::normalize`（校驗碼、不打網路），再用碼拆 `<root>/RECOVERY` 取資料鑰匙，其餘同正規 join；
+    /// 成功後 `sync_meta.needs_passphrase='1'`（UI 導去〈密語〉頁設新密語）。省略／空字串＝正規路。
+    #[serde(default)]
+    pub recovery_code: Option<String>,
 }
 
 impl From<JoinInput> for JoinArgs {
@@ -52,6 +62,7 @@ impl From<JoinInput> for JoinArgs {
             passphrase: i.passphrase,
             root: i.root,
             mode: i.mode,
+            recovery_code: i.recovery_code.filter(|c| !c.trim().is_empty()),
         }
     }
 }
@@ -155,6 +166,21 @@ pub async fn sync_export_to_file(app: AppHandle, input: Option<ExportInput>) -> 
 #[tauri::command]
 pub async fn sync_finish_rotation(app: AppHandle) -> Result<RotationReport, String> {
     engine::finish_rotation(&app).await
+}
+
+/* ── v1.1.5 復原碼（契約 §5；機制在 recovery.rs） ── */
+
+/// 產生（或重新產生＝舊碼作廢）復原碼：PUT `<root>/RECOVERY`、`sync_meta.recovery_set='1'`。
+/// **碼只在這一次回傳裡出現**（不存本機、不進 log）；之後 `sync_status` 只回 `recovery_set`。
+#[tauri::command]
+pub async fn sync_recovery_generate(app: AppHandle) -> Result<RecoveryReport, String> {
+    recovery::set_recovery(&app).await
+}
+
+/// 作廢復原碼：DELETE `<root>/RECOVERY`、`sync_meta.recovery_set='0'`。桶裡本來就沒有＝成功（冪等）。
+#[tauri::command]
+pub async fn sync_recovery_clear(app: AppHandle) -> Result<(), String> {
+    recovery::clear_recovery(&app).await
 }
 
 /// 還原對話框的選擇先落檔（契約 §4.5／§6 步驟 2）；`choice` 為 null ⇒ 清掉。鑰匙圈缺 ⇒ Err（UI 據此不問）。

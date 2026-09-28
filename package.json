@@ -1,7 +1,7 @@
 {
   "name": "next-stop",
   "private": true,
-  "version": "1.1.4",
+  "version": "1.1.5",
   "type": "module",
   "description": "私鐵手帳 · Next Stop — 把人生當成一條私鐵來經營的個人生產力 App（Tauri 2 + React + SQLite，E2EE 同步）",
   "scripts": {
@@ -16,6 +16,7 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-barcode-scanner": "^2.4.6",
     "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-notification": "~2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-sql": "~2.4.0",
     "qrcode": "^1.5.4",

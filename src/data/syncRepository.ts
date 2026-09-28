@@ -46,6 +46,7 @@
 
 import type Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
+import { getDb } from "../lib/db";
 
 /* ═══════════════════════════════════════════════════════════════════════
    型別（與 Rust serde 同名同形）
@@ -98,6 +99,12 @@ export interface RotationReport {
   reencrypted_snapshots: number;
   deleted_epochs: number;
   message: string;
+  /**
+   * v1.1.5（契約 §4.5；WP-A 在 Rust 加、整合席補 TS）：步驟 3.5 對 `<root>/RECOVERY` 做了什麼——
+   * `rewrapped`＝這台是產碼那台、同一組碼照樣有效／`invalidated`＝已刪、要重新產生（`message` 尾巴也講）／
+   * `none`＝桶裡沒有，或這一趟沒走到 3.5。UI 目前不讀它（作廢的提醒走 `message`），留給對帳與之後的畫面。
+   */
+  recovery: "rewrapped" | "invalidated" | "none";
 }
 
 /** 還原對話框的二選一（契約 §6；提案規則②） */
@@ -165,6 +172,20 @@ export interface SyncStatus {
   last_cloud_snapshot_at: string | null;
   /** v1.1.4：換鑰匙進行到哪一步（prepared｜locked｜committed｜switched｜reencrypted｜swept）；非 null ⇒ phase='rotating' */
   rotation_stage: string | null;
+  /** v1.1.5（契約 §2.3）：連續失敗趟數（Rust `record_error` +1、成功歸零）；`≥ SYNC_STOPPED_ALERT_STREAK` 才把停車中當告警 */
+  fail_streak: number;
+  /** v1.1.5（契約 §4.7）：桶裡有沒有 `<root>/RECOVERY`；null＝還沒對過（設定頁顯示「復原碼：未設定／已設定」） */
+  recovery_set: boolean | null;
+  /** v1.1.5（契約 §4.6）：用復原碼加入的、還沒設新密語 ⇒ 橫幅 `needs_passphrase`；改密語成功即清 */
+  needs_passphrase: boolean;
+  /** v1.1.5（契約 §3.4）：通知權限問過了沒（加入成功後問一次；`markNotifAsked()` 寫入） */
+  notif_asked: boolean;
+}
+
+/** v1.1.5：`sync_recovery_generate` 的回傳——**碼只在這裡出現一次**（不存本機、不進 log、不進 zustand devtools） */
+export interface RecoveryReport {
+  /** 顯示形：`XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XX`（27 字＋連字號、全大寫） */
+  code_display: string;
 }
 
 /** 兩邊都有資料時主人的選擇（契約 §4.2；按鈕字＝「兩邊都保留」／「改用另一台的」） */
@@ -184,6 +205,11 @@ export interface JoinInput {
   root?: string;
   /** 兩邊都有料且第一次呼叫沒帶 ⇒ 回 needs_choice；UI 問完再帶回來 */
   mode?: JoinMode;
+  /**
+   * v1.1.5（契約 §4.6）：「忘記密語？用復原碼」——與 `passphrase` **二選一**（帶碼時 `passphrase` 傳空字串）。
+   * 任何寫法都行（連字號／空白／大小寫 Rust 會正規化）；校驗碼在 Rust 端、打網路之前就擋。
+   */
+  recovery_code?: string;
 }
 
 export interface JoinReport {
@@ -298,6 +324,9 @@ export const SYNC_COMMANDS = {
   cloudRestore: "sync_cloud_restore",
   exportToFile: "sync_export_to_file",
   finishRotation: "sync_finish_rotation",
+  // v1.1.5（契約 §5）
+  recoveryGenerate: "sync_recovery_generate",
+  recoveryClear: "sync_recovery_clear",
 } as const;
 
 export interface SyncRepository {
@@ -342,6 +371,13 @@ export interface SyncRepository {
   exportToFile(target?: string | null): Promise<ExportReport>;
   /** 換鑰匙續跑（boot 看到 `status.rotation_stage` 就叫） */
   finishRotation(): Promise<RotationReport>;
+  /* ── v1.1.5 復原碼＋通知（契約 §5） ── */
+  /** 產生（或重新產生＝舊碼作廢）復原碼；**碼只回這一次** */
+  recoveryGenerate(): Promise<RecoveryReport>;
+  /** 作廢復原碼（桶裡沒有也算成功） */
+  recoveryClear(): Promise<void>;
+  /** 通知權限「問過了」落 `sync_meta.notif_asked='1'`（TS 端直接寫 sync_meta，不經 command） */
+  markNotifAsked(): Promise<void>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -422,6 +458,18 @@ export class TauriSyncRepository implements SyncRepository {
   finishRotation(): Promise<RotationReport> {
     return invoke<RotationReport>(SYNC_COMMANDS.finishRotation, {});
   }
+  /* ── v1.1.5 ── */
+  recoveryGenerate(): Promise<RecoveryReport> {
+    return invoke<RecoveryReport>(SYNC_COMMANDS.recoveryGenerate, {});
+  }
+  recoveryClear(): Promise<void> {
+    return invoke<void>(SYNC_COMMANDS.recoveryClear, {});
+  }
+  async markNotifAsked(): Promise<void> {
+    // 不另開 command：`sync_meta` 的讀寫 TS 端本來就有（`writeSyncMeta`），Rust `status()` 只讀它回 `notif_asked`。
+    // `sync_reset_local` 清整張 sync_meta 時它跟著消失＝重新加入後再問一次（對：那是「新的一台」）。
+    await writeSyncMeta(await getDb(), "notif_asked", "1");
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -446,7 +494,12 @@ const MOCK_DEVICE_ID = "3f9c2b1e-0000-4000-8000-000000000000";
  *   locked_rotated  → v1.1.4：鍵違い、但原因是「另一台換過鑰匙」（文案改「用新密語重新加入」）
  *   rotating        → v1.1.4：這台換鑰匙到一半重啟（stage=switched）：boot 會叫 `finishRotation()` ⇒ finished
  *   skipped_missing → v1.1.4：運行中、累計 3 筆欄位不齊的列被略過（同步頁多一行）
- * （舊端點 primary／replica 仍接受＝joined，免得書籤失效。）
+ *   stopped_streak  → v1.1.5：停車中且 `fail_streak=3`＝剛踩到告警門檻（橫幅「停車中」＋一則通知）；`stopped` 仍是 streak 1、不告警
+ *   needs_passphrase→ v1.1.5：剛用復原碼加入、還沒設新密語（橫幅「請設一個新密語」；改密語成功後消失）
+ *   recovery_set    → v1.1.5：運行中、復原碼已設定（設定頁顯示「已設定・重新產生」）
+ *   failing         → v1.1.5（WP-B）：運行中、但之後每一趟 push 都失敗——`fail_streak` 每趟 +1、phase 轉停車中，
+ *                     第 3 趟才出「停車中」橫幅＋一則通知（沙盒 甲3 的 mock 版；按「立即同步」三次就走得到）
+ * （舊端點 primary／replica／running 仍接受＝joined，免得書籤失效；`running` 是 v1.1.5 對帳單上的寫法。）
  *
  * 為什麼要有 restore_* 兩個端點：還原的收尾發生在**重啟後的第一趟 boot**，真機要備份＋重啟才走得到；
  * 把它做成 mock 端點，WP-B／WP-C／評審不必動真 DB 就能把兩條路各走一遍（契約 §6 步驟 4–5）。
@@ -469,6 +522,11 @@ type SyncMockMode =
   | "locked_rotated"
   | "rotating"
   | "skipped_missing"
+  /** v1.1.5 */
+  | "stopped_streak"
+  | "needs_passphrase"
+  | "recovery_set"
+  | "failing"
   | null;
 
 const SYNC_MOCK_MODES = [
@@ -486,13 +544,17 @@ const SYNC_MOCK_MODES = [
   "locked_rotated",
   "rotating",
   "skipped_missing",
+  "stopped_streak",
+  "needs_passphrase",
+  "recovery_set",
+  "failing",
 ] as const;
 
 function detectSyncMock(): SyncMockMode {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("sync");
-    if (v === "primary" || v === "replica") return "joined";
+    if (v === "primary" || v === "replica" || v === "running") return "joined";
     return (SYNC_MOCK_MODES as readonly string[]).includes(v ?? "") ? (v as SyncMockMode) : null;
   } catch {
     return null;
@@ -526,6 +588,10 @@ const OFF_STATE: SyncStatus = {
   skipped_missing_total: 0,
   last_cloud_snapshot_at: null,
   rotation_stage: null,
+  fail_streak: 0,
+  recovery_set: null,
+  needs_passphrase: false,
+  notif_asked: false,
 };
 
 /** 示範狀態（同一顆 SyncStatus 的幾個切片；真機的 phase 一律由 Rust 算） */
@@ -544,6 +610,8 @@ function seedState(mode: SyncMockMode): SyncStatus {
     pending_span: { from: new Date(Date.now() - 50 * 60_000).toISOString(), to: new Date(Date.now() - 7 * 60_000).toISOString() },
     key_sealed: true,
     last_cloud_snapshot_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+    // v1.1.5（契約 §9-9）：已加入的示範狀態都「問過通知權限了」——mock 本來就不碰外掛，這只是讓狀態與真機同形
+    notif_asked: true,
   };
   // v1.1.4
   if (mode === "locked_rotated") {
@@ -551,6 +619,12 @@ function seedState(mode: SyncMockMode): SyncStatus {
   }
   if (mode === "rotating") return { ...base, phase: "rotating", rotation_stage: "switched", pending_ops: 0, pending_span: null };
   if (mode === "skipped_missing") return { ...base, skipped_missing_total: 3 };
+  // v1.1.5
+  if (mode === "stopped_streak") {
+    return { ...base, phase: "stopped", last_error: "連不上 R2（網路不通或憑證過期）", pending_ops: 8, fail_streak: 3, notif_asked: true };
+  }
+  if (mode === "needs_passphrase") return { ...base, needs_passphrase: true, recovery_set: true, key_sealed: true, notif_asked: true };
+  if (mode === "recovery_set") return { ...base, recovery_set: true, key_sealed: true, notif_asked: true };
   if (mode === "gated") return { ...base, phase: "gated", remote_schema: 5 };
   if (mode === "epoch_changed") {
     return {
@@ -581,7 +655,8 @@ function seedState(mode: SyncMockMode): SyncStatus {
   }
   if (mode === "paused") return { ...base, enabled: false, phase: "paused", pending_ops: 12 };
   if (mode === "stopped") {
-    return { ...base, phase: "stopped", last_error: "連不上 R2（網路不通或憑證過期）", pending_ops: 8 };
+    // v1.1.5：streak 1＝只在狀態列講，**不**出橫幅、不發通知（門檻 3；`stopped_streak` 才踩到）
+    return { ...base, phase: "stopped", last_error: "連不上 R2（網路不通或憑證過期）", pending_ops: 8, fail_streak: 1 };
   }
   // 工程評審 B-1：讀不到鑰匙圈。`configured=false` 但 `joined=true`＋有原因 ⇒ 顯示人話、不給加入表單
   if (mode === "cred_unreadable") {
@@ -635,7 +710,17 @@ export class MemorySyncRepository implements SyncRepository {
   }
   async join(input: JoinInput): Promise<JoinReport> {
     if (!input.endpoint.trim() || !input.bucket.trim()) throw new Error("雲端置物櫃的四個欄位都要填。");
-    if (input.passphrase.trim().length < 8) throw new Error("密語至少 8 個字。");
+    // v1.1.5（契約 §4.6）：用復原碼＝密語留白；mock 只驗長度與字集（真機的校驗碼在 Rust `recovery::normalize`）
+    const code = input.recovery_code?.replace(/[\s\-_]/g, "").toUpperCase() ?? "";
+    if (code) {
+      if (input.passphrase.trim()) throw new Error("密語與復原碼只能填一種。");
+      if (code.length !== 27) throw new Error(`復原碼要 27 個字（不含連字號），現在是 ${code.length} 個。`);
+      if (!/^[A-Z2-7]+$/.test(code)) throw new Error("復原碼只會有英文字母與 2～7 的數字（沒有 0、1、8、9）。");
+      if (this.state.configured) throw new Error("這台已經加入過，不需要復原碼——到〈密語〉頁把現密語留白就能設新密語。");
+      if (code.endsWith("Z")) throw new Error("復原碼好像抄錯了一個字（校驗碼對不上），請再對一次。"); // 假的校驗失敗端點（字＝Rust `recovery::TYPO`）
+      if (code.startsWith("NONE")) throw new Error("這份資料還沒設定復原碼——請用密語加入，或先在已加入的裝置產生一組。"); // ＝Rust `recovery::NOT_SET`
+      if (code.startsWith("OLD")) throw new Error("復原碼不對——可能抄錯了一個字，或這組已作廢（重新產生過或換過鑰匙）。請再對一次，或用最新的那一組。"); // ＝Rust `recovery::REVOKED`
+    } else if (input.passphrase.trim().length < 8) throw new Error("密語至少 8 個字。");
     const root = input.root?.trim() || "v1";
     // 已加入且同一份資料 ⇒ 只更新憑證（換 token／重填四欄）
     if (this.state.configured) {
@@ -648,6 +733,8 @@ export class MemorySyncRepository implements SyncRepository {
     }
     const epoch = this.mode === "needs_choice" ? "1758153600000" : String(Date.now());
     this.state = { ...seedState("joined"), enabled: true, configured: true, joined: true, root, epoch, key_sealed: true, pending_ops: input.mode === "adopt_remote" ? 0 : 12 };
+    // 用碼加入：桶裡必然有 RECOVERY（`recovery_set=true`）、這台還沒有密語 ⇒ `needs_passphrase`（設好即清，見 changePassphrase）
+    if (code) this.state = { ...this.state, needs_passphrase: true, recovery_set: true, pending_ops: 0 };
     if (input.mode === "merge") {
       return { outcome: "merged", local_alive: 12, remote_epoch: epoch, remote_devices: 2, snapshot_ops: 12, pull: { ...EMPTY_PULL, objects: 3, applied_ops: 40, changed_tables: ["nodes"] }, export_path: null, message: "已加入——兩邊的資料已合併，較晚改的為準" };
     }
@@ -683,7 +770,8 @@ export class MemorySyncRepository implements SyncRepository {
     if (rotate && this.state.phase !== "running") throw new Error("先同步完再換鑰匙（現在不是運行中）。");
     if (rotate && this.state.pending_ops > 0) throw new Error("還有沒送出的修改，先同步完再換鑰匙。");
     const first = this.state.key_sealed === false;
-    this.state = { ...this.state, key_sealed: true, ...(rotate ? { epoch: String(Date.now()) } : {}) };
+    // v1.1.5：改密語成功即清 `needs_passphrase`（契約 §4.6）；換鑰匙在「產生碼的這一台」＝RECOVERY 重包、碼照舊
+    this.state = { ...this.state, key_sealed: true, needs_passphrase: false, ...(rotate ? { epoch: String(Date.now()) } : {}) };
     if (rotate) {
       return {
         sealed_first_time: false,
@@ -715,6 +803,11 @@ export class MemorySyncRepository implements SyncRepository {
     return this.status();
   }
   async push(): Promise<PushReport> {
+    // v1.1.5 `?sync=failing`：模擬 Rust `record_error`——每趟 +1、轉停車中，錯誤照常往上拋（runCycle 走 catch）
+    if (this.mode === "failing") {
+      this.state = { ...this.state, phase: "stopped", fail_streak: this.state.fail_streak + 1, last_error: "連不上 R2（網路不通或憑證過期）" };
+      throw new Error("連不上 R2（網路不通或憑證過期）");
+    }
     const n = this.state.pending_ops;
     this.state = { ...this.state, pending_ops: 0, pending_span: null, last_sync_at: new Date().toISOString() };
     return { pushed_ops: n, object_key: n ? `${this.state.root ?? "v1"}/${this.state.epoch}/${MOCK_DEVICE_ID}/mock.bin` : null, busy: false };
@@ -792,10 +885,27 @@ export class MemorySyncRepository implements SyncRepository {
     return target ? { path: target, picked: true } : { path: "<app-data>/nextstop-export-mock.json", picked: false };
   }
   async finishRotation(): Promise<RotationReport> {
-    if (!this.state.rotation_stage) return { outcome: "none", epoch: null, reencrypted_snapshots: 0, deleted_epochs: 0, message: "" };
+    if (!this.state.rotation_stage) return { outcome: "none", epoch: null, reencrypted_snapshots: 0, deleted_epochs: 0, message: "", recovery: "none" };
     const epoch = String(Date.now());
     this.state = { ...this.state, rotation_stage: null, phase: "running", epoch };
-    return { outcome: "finished", epoch, reencrypted_snapshots: this.snapshots.length, deleted_epochs: 1, message: "換鑰匙完成——其他裝置要用新密語重新加入。" };
+    return { outcome: "finished", epoch, reencrypted_snapshots: this.snapshots.length, deleted_epochs: 1, message: "換鑰匙完成——其他裝置要用新密語重新加入。", recovery: this.state.recovery_set ? "rewrapped" : "none" };
+  }
+  /* ── v1.1.5 復原碼（記憶體：假碼固定一組，格式與真機同形；不做校驗碼） ── */
+  async recoveryGenerate(): Promise<RecoveryReport> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步。");
+    if (this.state.phase === "rotating") throw new Error("換鑰匙還沒做完——請先讓它接著做完（打開 App 稍等一下就好）。");
+    if (this.state.phase === "locked" && this.state.locked_reason === "rotated") {
+      throw new Error("這份資料已在另一台換過鑰匙——這台的鑰匙已經不算數了，現在產生的復原碼會是廢的。請先用新密語「重新加入同步」，再產生復原碼。"); // ＝Rust `recovery::ROTATED_ELSEWHERE`
+    }
+    this.state = { ...this.state, recovery_set: true };
+    return { code_display: "MOCK7-ABCDE-FGHIJ-KLMNO-PQRST-UV" };
+  }
+  async recoveryClear(): Promise<void> {
+    if (!this.state.configured) throw new Error("這台還沒加入同步。");
+    this.state = { ...this.state, recovery_set: false };
+  }
+  async markNotifAsked(): Promise<void> {
+    this.state = { ...this.state, notif_asked: true };
   }
 }
 

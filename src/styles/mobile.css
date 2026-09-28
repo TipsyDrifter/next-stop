@@ -1395,3 +1395,120 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
     border-left: 2px solid var(--color-gold);
   }
 }
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP-C ──　v1.1.5：同步告警橫幅（頂帶之下）＋復原碼（同步頁一段、加入表單切換、一次性對話框）
+ *
+ * 拍板依據：決策記錄〈v1.1.5 Plan 拍板〉D-1.1.5-1／D-1.1.5-2＋《2026-09-25-v1.1.5-同步告警與復原碼契約.md》§6。
+ *
+ * 形狀零發明：
+ *   橫幅＝`.m2-sy-epoch` 的「左緣一道色線」＋`.m2-note` 字級＋`.m2-sy-go` 的 44px 鈕；
+ *     底色是半透紙（`--color-paper-high`，與票面同一張紙），不是新的警示色塊——色只在左緣與字上。
+ *   同步頁「復原碼」一段＝`.m2-block`＋`.m2-note`＋`.m2-sy-go`；狀態字沿 `.m2-planned-note` 的淡度。
+ *   「用復原碼」切換＝一行 44px 的文字鈕（觸控目標鐵則），不是第三種按鈕外觀。
+ *   對話框（`ui/common/RecoveryCodeDialog.tsx`，兩殼共用、樣式本體在 styles/sync.css）：手機只把兩顆鈕撐到 44px、
+ *     勾選那一列整行可點、碼的字級收一號（394px 寬要一行放得下兩組以上）。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* 橫幅：頂帶（z3）之下、頁面（z1）之上；flex:none ⇒ 擠的是 `.m-page` 的捲動區，頂帶與 tab 不動 */
+  [data-shell="mobile"] .m-sync-banner {
+    flex: none;
+    position: relative;
+    z-index: 2;
+    box-sizing: border-box;
+    padding: 10px var(--m-gutter) 10px calc(var(--m-gutter) - 2px);
+    background: var(--color-paper-high);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
+    border-left: 3px solid currentColor;
+    border-bottom: 1px dashed var(--color-dash);
+  }
+  [data-theme="dark"] [data-shell="mobile"] .m-sync-banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  /* 字：色由 tone（text-seal／text-late）給，小字級再往墨色拉一點才讀得清（同 `--ns-warn-text` 的推導） */
+  [data-shell="mobile"] .m-sync-banner-text {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    letter-spacing: .04em;
+    color: color-mix(in srgb, currentColor 80%, var(--color-ink));
+  }
+  [data-shell="mobile"] .m-sync-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  [data-shell="mobile"] .m-sync-banner-go {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+    letter-spacing: .12em;
+    text-indent: .12em;
+  }
+
+  /* 同步頁「復原碼」一段：小標與狀態字同一列（狀態字靠右，同「更多」那列的右側狀態） */
+  [data-shell="mobile"] .m2-recovery-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  [data-shell="mobile"] .m2-recovery-state {
+    font-size: 12px;
+    letter-spacing: .12em;
+    color: var(--color-ink-faint);
+  }
+  [data-shell="mobile"] .m2-recovery-state.is-set { color: var(--color-gold); }
+  [data-shell="mobile"] .m2-recovery .m2-sy-actions { margin-top: 10px; }
+
+  /* 用復原碼加入、還沒設新密語：朱色左緣（狀態那行與〈密語〉頂那句共用；同桌機 `.ns-recovery-need`） */
+  [data-shell="mobile"] .m2-recovery-need {
+    margin-top: 6px;
+    padding-left: 8px;
+    border-left: 2px solid var(--color-seal);
+  }
+
+  /* 鎖住的「現在的密語」：看得出是鎖著的，不是空著等人填 */
+  [data-shell="mobile"] .m2-input:disabled { opacity: .55; }
+
+  /* 「忘記密語？用復原碼」：一整行 44px 可點的字（虛線底只畫在字下，不畫滿整行） */
+  [data-shell="mobile"] .m2-recovery-toggle {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    margin-top: 4px;
+    padding: 0 2px;
+    background: transparent;
+    border: 0;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: .06em;
+    color: var(--color-ink-soft);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m2-recovery-toggle span {
+    border-bottom: 1px dashed color-mix(in srgb, var(--color-gold) 60%, transparent);
+  }
+  [data-shell="mobile"] .m2-recovery-toggle:disabled { opacity: .4; }
+  [data-shell="mobile"] .m2-recovery-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+  /* 復原碼輸入：底線輸入、拉丁字、即時大寫。
+     v1.1.5 修正席（產品評審 S2）：原本 17px＋.1em 字距，32 字（含連字號）在 375 寬超出右緣、看不到最後一組——
+     主人要能目視逐組核對。縮到 15px、字距收緊，一行放得下。（16px 門檻是 iOS Safari 聚焦放大；本 App 手機殼只有 Android WebView） */
+  [data-shell="mobile"] .m2-recovery-input {
+    font-family: var(--font-latin);
+    font-size: 15px;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+  }
+  [data-shell="mobile"] .m2-recovery-input::placeholder { font-size: 15px; letter-spacing: .04em; }
+
+  /* 一次性對話框（兩殼共用）：手機寬度下的三處調整 */
+  [data-shell="mobile"] .ns-recovery-veil { padding-top: calc(var(--m-safe-top) + 24px); }
+  [data-shell="mobile"] .ns-recovery-code { font-size: 17px; letter-spacing: .1em; padding: 12px 8px; }
+  [data-shell="mobile"] .ns-recovery-copy .ns-btn,
+  [data-shell="mobile"] .ns-recovery-close {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+  }
+  [data-shell="mobile"] .ns-recovery-ack { min-height: 44px; font-size: 14px; }
+  [data-shell="mobile"] .ns-recovery-ack input { width: 20px; height: 20px; }
+}

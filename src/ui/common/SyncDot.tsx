@@ -16,6 +16,9 @@
  *   **換鑰匙中（v1.1.4）＝金點慢閃**，不是朱：七步是這台自己在跑（中途關掉 App 也會自己接著做完），
  *   沒有任何事要主人做——朱是「等人處理」的語彙，借來說「我在忙」會把人叫到同步籤去找不存在的按鈕。
  *   有動作在飛時慢閃（`prefers-reduced-motion` 一律關掉動畫，換鑰匙那顆也是）。
+ * **v1.1.5 同步告警（WP-C）：本點不新增顏色、也不新增狀態。** 告警的聲音是主畫面的 `SyncBanner`（＋一則通知），
+ *   點照舊只說 phase：停車中 streak 1、2 仍是赭點（橫幅第 3 趟才出）；`needs_passphrase` 的 phase 是 running ⇒ 金點——
+ *   「這台在同步、只是還欠一個密語」，要人做的事由橫幅與同步頁那一行講，不借朱點說。
  * 位置由呼叫端給 class（側欄 `gnav-sync-dot`／手機頂帶 `m-band-sync-dot`），本檔只管語義與色。
  */
 import { useSyncStore, syncTitle } from "../../store/syncStore";

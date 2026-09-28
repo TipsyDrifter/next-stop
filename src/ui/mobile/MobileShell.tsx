@@ -14,6 +14,11 @@
  *   日後 notes／timetable 通車只要改 registry 的 status 並在 switch 補一行（契約 §2.2）。
  *
  * 覆蓋層（<Toast/>／<ConfirmDialog/>）由 App 層兩殼共用掛載，本檔**不**再掛一份（契約 §2.3、§3）。
+ *
+ * v1.1.5（WP-C；契約 §6.1）：頂帶與頁面之間多一條 `<SyncBanner shell="mobile"/>`（同步告警）。
+ *   同樣是 Fragment 的直接子節點、自己 `flex: none`——橫幅出現時擠的是 `.m-page` 的捲動區，頂帶與底部 tab 不動。
+ *   放在頂帶**之後**而不是頁面裡：告警跟著 App 走、不跟著頁走，在哪一格 tab 都看得到；
+ *   沒加入同步 ⇒ 元件回 null、DOM 零節點。復原碼對話框兩殼共用一份，掛在 App 層（不在這裡）。
  */
 import { useUiStore } from "../../store/uiStore";
 import { mobileTabByKey, type MobileTabKey } from "./tabs";
@@ -23,6 +28,7 @@ import { ComingSoon } from "./ComingSoon";
 import MobileToday from "./MobileToday";
 import MobileRouteMap from "./MobileRouteMap";
 import MobileMore from "./MobileMore";
+import { SyncBanner } from "../common/SyncBanner";
 
 function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
   const tab = mobileTabByKey(tabKey);
@@ -45,6 +51,7 @@ export default function MobileShell() {
   return (
     <>
       <MobileTopBand tab={tab} />
+      <SyncBanner shell="mobile" />
       <MobilePage tabKey={tabKey} />
       <MobileTabBar />
     </>

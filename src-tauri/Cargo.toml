@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.1.4"
+version = "1.1.5"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -60,6 +60,13 @@ base64 = "0.22"
 getrandom = "0.3"
 uuid = { version = "1", features = ["v4"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# v1.1.5（契約 §4；契約席）：復原碼的 1 字元校驗碼＝SHA-256(原始 16B) 前 5 bits。
+#   0.10.9 早已在 Cargo.lock（object_store／argon2 的傳遞依賴），這裡只是升為直接依賴，不多一份樹。
+sha2 = "0.10"
+# v1.1.5（契約 §3；WP-B）：OS 通知。只用 `notify` 一支（桌機點通知不回 App、Android 外掛 open issue 多，
+#   橫幅才是主力）。lib.rs 兩殼都掛 `tauri_plugin_notification::init()`、capabilities 只給三／四條（不用 `:default` 的全開）。
+#   **鎖 2.3**：npm 端 `@tauri-apps/plugin-notification` 同鎖 `~2.3.3`——tauri-cli 會擋 crate 與 npm 的 minor 不一致。
+tauri-plugin-notification = "~2.3.3"
 
 # keyring 只在桌機：Android／iOS 沒有 OS 憑證庫後端，走 app 私有檔（sync/credstore.rs 的 cfg 兩分支）。
 # **鎖 3 不升 4**：keyring 4 把各家後端拆成獨立 crate，`windows-native` 這個 feature 名字已經不存在。

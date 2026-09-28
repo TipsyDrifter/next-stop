@@ -143,6 +143,22 @@ interface UiStore {
   lateCollapsed: boolean;
   /** 日曆視圖：月／週（持久化 settings key calendar_view；M3 ⑤ D-⑤-1） */
   calendarView: CalendarView;
+  /**
+   * v1.1.5（契約 §2）：主畫面同步橫幅要顯示哪一種告警；null＝沒有。**由 syncStore 的轉變偵測寫**（`evaluateAlerts`），
+   * 值＝`SyncAlertKind`（型別住 syncStore，這裡用 string 免得 store 互相 import 型別以外的東西）。
+   * 狀態解除（syncStore 算出 null）就自動消失。
+   */
+  syncBanner: string | null;
+  /**
+   * v1.1.5 D-1.1.5-2（主人拍板「可以關、下次啟動再出」）：主人按了「先收起」的那一種告警。
+   * **只活在本次啟動**（不寫 settings）；同種告警不再出、換一種就再出；重開 App 狀態未解除就重出。
+   */
+  syncBannerDismissed: string | null;
+  /**
+   * v1.1.5：手機殼「前往同步」的深連結——橫幅在任何 tab 都可能出現，要能一鍵落到「更多 › 同步」。
+   * MobileMore 掛載／看到它非 null 就切到 `MobileSync` 並清掉（消費一次）。桌機用 `openSettings("sync")`，不走這個。
+   */
+  mobileMoreRequest: "sync" | null;
 
   setPage: (page: PageId) => void;
   setMobileTab: (tab: MobileTabKey) => void;
@@ -173,6 +189,15 @@ interface UiStore {
   setLateCollapsed: (collapsed: boolean) => Promise<void>;
   setCalendarView: (view: CalendarView) => Promise<void>;
   loadSettings: () => Promise<void>;
+  /* ── v1.1.5 同步橫幅（契約 §2.5；WP-B 寫、WP-C 讀） ── */
+  /** 由 syncStore 叫：告警種類變了就換、null＝解除（清 dismissed）；換成別種告警也清 dismissed（那是新的一次） */
+  setSyncBanner: (kind: string | null) => void;
+  /** 「先收起」：記住這一種，本次啟動不再出 */
+  dismissSyncBanner: () => void;
+  /** 「前往同步」：桌機開設定落在同步籤；手機切到「更多」並請 MobileMore 進同步子頁 */
+  openSyncPage: (shell: "desktop" | "mobile") => void;
+  /** MobileMore 消費掉深連結 */
+  consumeMobileMoreRequest: () => void;
 }
 
 export const useUiStore = create<UiStore>((set, get) => ({
@@ -197,6 +222,9 @@ export const useUiStore = create<UiStore>((set, get) => ({
   dayStartHour: 3,
   lateCollapsed: false,
   calendarView: DEV_FLAGS.view ?? "month",
+  syncBanner: null,
+  syncBannerDismissed: null,
+  mobileMoreRequest: null,
 
   setPage: (page) => set({ page }),
   // 切頁順手收掉桌機專屬疊層：手機殼本來就不掛它們，這是保險不是功能（藍牙鍵盤按到 ? 或 Ctrl+P 時）
@@ -249,6 +277,26 @@ export const useUiStore = create<UiStore>((set, get) => ({
   setCompleteCardFor: (id) => set({ completeCardFor: id }),
   openRouteDialog: (state) => set({ routeDialog: state }),
   closeRouteDialog: () => set({ routeDialog: null }),
+
+  /* ── v1.1.5 同步橫幅 ── */
+  // 解除（null）時順手清 dismissed：下一次同一種告警再來是「新的一次」，該再出（拍板：狀態解除自動消失）
+  // v1.1.5 修正席（工程評審 S-1）：換成**別種**告警也清 dismissed——否則 stopped（收起）→ locked → stopped 那「新的一次」
+  // stopped 會被舊的收起吃掉，只剩通知沒有橫幅（違反「橫幅是主力」）。同種告警一直沒離開＝不會叫到這裡（syncStore 同態直接 return）。
+  setSyncBanner: (kind) =>
+    set((s) => ({
+      syncBanner: kind,
+      syncBannerDismissed: kind === null || kind !== s.syncBannerDismissed ? null : s.syncBannerDismissed,
+    })),
+  dismissSyncBanner: () => set((s) => ({ syncBannerDismissed: s.syncBanner })),
+  // v1.1.5 真機驗收（主人 2026-09-28）：按「前往同步」＝主人已經看到了，橫幅隨即收起（與「先收起」同一個機制：
+  // 本次啟動有效、狀態解除自動清、重開 App 若還沒解除會再出）。不收的話同步頁上方還疊著橫幅、像沒點到。
+  openSyncPage: (shell) =>
+    set((s) =>
+      shell === "mobile"
+        ? { mobileTab: "more", mobileMoreRequest: "sync", hotkeyGuideOpen: false, quickJumpOpen: false, syncBannerDismissed: s.syncBanner }
+        : { settingsOpen: true, settingsTab: "sync", hotkeyGuideOpen: false, syncBannerDismissed: s.syncBanner },
+    ),
+  consumeMobileMoreRequest: () => set({ mobileMoreRequest: null }),
 
   async setTheme(pref) {
     applyTheme(pref);

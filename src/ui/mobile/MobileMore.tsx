@@ -16,6 +16,11 @@
  * v1.1.1（WP8）補上②：設定區在主題之後多一列「同步・運行中／未啟用…」，點了切到子頁 `MobileSync`。
  *   子頁用**本地 state**（`view`）而不進 uiStore：這是同一個 tab 之內的往返，底部 tab 仍停在「更多」，
  *   離開再回來回到清單是對的（沿 MobileRouteMap 的 zoom 也是本地 state 的作法）。
+ *
+ * v1.1.5（WP-C；契約 §2.5）：同步告警橫幅的「前往同步」要從**任何一格 tab** 直接落到同步子頁。
+ *   子頁仍是本地 state（上面那條理由不變），外面只能「請求」：`uiStore.openSyncPage("mobile")` 把 tab 切到「更多」
+ *   並留一張 `mobileMoreRequest="sync"`，本頁看到就切子頁、當場消費掉（一次性，不會卡在同步頁回不來）。
+ *   初值也吃這張請求：從別的 tab 跳過來時直接畫同步頁，不先閃一下「更多」清單。
  */
 import { useEffect, useState } from "react";
 import { COMING_SOON_TEXT } from "./tabs";
@@ -38,7 +43,16 @@ export default function MobileMore() {
   const setTheme = useUiStore((s) => s.setTheme);
   const syncPhase = useSyncStore((s) => s.status?.phase ?? "off");
   const refreshSyncStatus = useSyncStore((s) => s.refreshStatus);
-  const [view, setView] = useState<"more" | "sync">("more");
+  const moreRequest = useUiStore((s) => s.mobileMoreRequest);
+  const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
+  const [view, setView] = useState<"more" | "sync">(() => (moreRequest === "sync" ? "sync" : "more"));
+
+  // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
+  useEffect(() => {
+    if (moreRequest !== "sync") return;
+    setView("sync");
+    consumeMoreRequest();
+  }, [moreRequest, consumeMoreRequest]);
 
   // 這一列右邊寫的是現在的同步狀態——進頁問一次（純讀、可重入；同桌機 SyncTab 的作法）。
   // App.tsx 的 `boot()` 也會問，重複一次只是多一趟 invoke，換來「整合席還沒接線時這列也不說謊」。

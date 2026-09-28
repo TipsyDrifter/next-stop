@@ -68,6 +68,16 @@ pub struct SyncCredentials {
     /// `data_key_b64` 在整個輪替期間**仍是 K1**（步驟 5 重加密快照要用它拆舊物件），所以兩把同時在。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data_key_next_b64: Option<String>,
+    /// **v1.1.5（契約 §4.4，契約席 2026-09-25）**：復原碼派生出來的**包裝鑰匙 W**（32B base64url）。
+    /// 只有「產生復原碼的那一台」有；碼本身不存。用途只有一個——換鑰匙步驟 3 之後不靠碼就能把
+    /// `<root>/RECOVERY` 重包成 K2（契約 §4.5）。W **從不上桶**：上了桶，拿舊資料鑰匙的人就能解出新鑰匙，真撤銷破功。
+    /// None 時不序列化 ⇒ 沒產過碼的鑰匙圈 JSON 與 1.1.4 逐字相同。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_wrap_b64: Option<String>,
+    /// v1.1.5：W 的 kdf 鹽（16B base64url）＝桶裡 RECOVERY 物件的 `salt`。重包前先比對：不同＝別台重生過碼、
+    /// 這台的 W 已經是舊的，不准用它重包（會把主人手上那組新碼弄失效）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_salt_b64: Option<String>,
 }
 
 /// 這台實際使用的 keyring service 名＝app identifier（沙盒 exe 天然隔離）

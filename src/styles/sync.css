@@ -66,3 +66,70 @@
 }
 /* 後面還有日付印時才要那道間距（其他頁 `.m-band-end` 裡只有這顆點） */
 [data-shell="mobile"] .m-band-sync-dot:not(:last-child) { margin-right: 10px; }
+
+/* ─────────────────────────────────────────────────────
+ * v1.1.5（WP-C）：同步告警橫幅（桌機）＋復原碼一次性對話框（兩殼共用）
+ *
+ * 拍板依據：決策記錄〈v1.1.5 Plan 拍板〉D-1.1.5-1／D-1.1.5-2＋《2026-09-25-v1.1.5-同步告警與復原碼契約.md》§6.1／§6.3。
+ * 為什麼住這一檔：兩顆都在 `ui/common/`、兩殼共用（同 SyncDot 的理由）；手機的差異另寫在 mobile.css 檔尾
+ *   （`[data-shell="mobile"]` 選擇器，特異度自然蓋過這裡）。
+ * 形狀零發明：橫幅＝`<BackupBanner/>` 那一列（Tailwind 工具類已在元件上，這裡只補一條）；
+ *   對話框＝DialogShell 的紙卡（`.ns-card.ns-dialog`＋`.ns-tear`）；碼＝配對碼 `.ns-sy-code` 的拉丁等寬感放大一號。
+ * 色一律 token：碼走墨色（它不是警告，是一段要抄的字）；「我已抄下」的勾選沿換鑰匙那格的金色 accent。
+ * ───────────────────────────────────────────────────── */
+
+/* 桌機橫幅：與 BackupBanner 疊在一起時兩列別黏成一團（BackupBanner 也是 pt-3，這裡不必再加） */
+.ns-sync-banner { flex: none; }
+
+/* 對話框：碼本體——大字、拉丁等寬感、整段一鍵選取；組與組之間才准折行 */
+.ns-recovery-code {
+  margin: 14px 0 10px;
+  padding: 12px 14px;
+  border: 1px dashed var(--color-dash);
+  border-radius: 2px;
+  background: var(--color-paper-used);
+  font-family: var(--font-latin);
+  font-size: 18px;
+  line-height: 1.6;
+  letter-spacing: .1em;
+  color: var(--color-ink);
+  text-align: center;
+  user-select: all;
+  -webkit-user-select: all;
+}
+.ns-recovery-group { display: inline-block; white-space: nowrap; }
+.ns-recovery-dash { color: var(--color-ink-faint); }
+
+.ns-recovery-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ns-recovery-copy .ns-note.is-fail { color: color-mix(in srgb, var(--color-late) 74%, var(--color-ink)); }
+
+/* 三句提醒：一句一行、行首一枚小點（沿 `.ns-note` 字級，不另開字級） */
+.ns-recovery-notes {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ns-recovery-notes li { position: relative; padding-left: 12px; }
+.ns-recovery-notes li::before {
+  content: "・";
+  position: absolute;
+  left: -2px;
+  color: var(--color-ink-faint);
+}
+
+/* 「我已抄下這組碼」：方框與字對齊同一基線（沿 `.ns-sy-rotate`） */
+.ns-recovery-ack {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-dash);
+  font-size: 13px;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.ns-recovery-ack input { flex: none; accent-color: var(--color-gold); }
+.ns-recovery-foot { display: flex; justify-content: flex-end; margin-top: 12px; }

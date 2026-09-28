@@ -1,1 +1,3 @@
 *.sh text eol=lf
+# migration SQL 由 include_str! 嵌進 exe，sqlx 用原始位元組算 checksum——CRLF checkout 會讓所有既有 DB 拒開（v1.1.5 真機踩到）
+*.sql text eol=lf

@@ -31,6 +31,12 @@
  *     與設定、快速跳轉互斥（都是 DialogShell，兩層同開會互搶 window 層的 Esc）——互斥寫在 uiStore 的 setter，
  *     不靠這裡的掛載順序。當日清單／推遲小卡／月年跳轉三個本地 state 的浮層各自把 `?` 擋在自己的 onKeyDown。
  *
+ * v1.1.5 同步告警＋復原碼（WP-C；契約 §6.1／§6.3）：
+ *   - `<SyncBanner shell="desktop"/>` 掛在 `<BackupBanner/>` 正下方——同一個位置、同一套語彙（主欄頂一行＋兩顆鈕）；
+ *     手機那一份掛在 MobileShell 頂帶之後。沒加入同步 ⇒ `uiStore.syncBanner` 恆 null ⇒ 零節點（桌機零改變）。
+ *   - `<RecoveryCodeDialog/>` 兩殼共用一份、掛在覆蓋層區：它只讀 `syncStore.recoveryDisplay`，位置無關；
+ *     排在 ConfirmDialog 之前，萬一兩者同開，確認窗仍在最上層。
+ *
  * v1.1.1 ⑧ 同步地基（整合席接線）：
  *   - `loadSettings()` 之後 `useSyncStore.getState().boot(shell)`，effect cleanup `stop()`（契約 §9.4）。
  *     排在 loadSettings 之後的理由與備份同源——同步的節奏與 pull 後的 `loadSettings()` 回讀都預設
@@ -60,6 +66,8 @@ import { QuickJump } from "./ui/common/QuickJump";
 import { SettingsPanel } from "./ui/settings/SettingsPanel";
 import { HotkeyGuide } from "./ui/shell/HotkeyGuide";
 import { Toast } from "./ui/common/Toast";
+import { SyncBanner } from "./ui/common/SyncBanner";
+import { RecoveryCodeDialog } from "./ui/common/RecoveryCodeDialog";
 import { useShell } from "./ui/mobile/useShell";
 import { useVisualViewportHeight } from "./ui/mobile/useViewportHeight";
 import MobileShell from "./ui/mobile/MobileShell";
@@ -128,6 +136,7 @@ export default function App() {
           <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
             {error && <div className="px-8 pt-3 text-sm text-late">⚠ {error}</div>}
             <BackupBanner />
+            <SyncBanner shell="desktop" />
             {page === "calendar" ? <CalendarView /> : today ? <TodayView /> : <Outline />}
             {/* 完成卡留在桌機樹：它是 `absolute bottom-6`、定位脈絡就是這顆 <main>，
                 搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
@@ -141,6 +150,7 @@ export default function App() {
         </>
       )}
       {/* 兩殼共用的覆蓋層：MobileShell 不再各掛一份（契約 §2.3、§3） */}
+      <RecoveryCodeDialog />
       <ConfirmDialog />
       <Toast />
     </div>

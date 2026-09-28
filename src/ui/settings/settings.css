@@ -443,3 +443,53 @@
 .ns-sy-rotate input:disabled { cursor: default; }
 /* 警告文（勾了才出現）：與勾選那一列黏在一起——它講的是那一格的後果，不是獨立的一段 */
 .ns-sy-rotate-warn { margin-top: 4px; }
+
+/* ── v1.1.5（WP-C）──────────────────────────────────
+ * 同步籤的復原碼三處：狀態列那一行（needs_passphrase）、加入表單的「用復原碼」切換、已加入區的「復原碼」一段。
+ * 拍板依據：《2026-09-25-v1.1.5-同步告警與復原碼契約.md》§6.2／§6.4／§6.5。
+ *
+ * 形狀照舊零發明（c13）：一段＝`.ns-sy-pair` 的撕線隔開、狀態＝`.status` chip、說明＝`.ns-note`；
+ * 「請設新密語」那一行＝`.ns-sy-rotating` 的左緣一道線，只把金換成朱（等人處理，同橫幅與 SyncDot 的朱）。
+ * 這裡只補四條規則。
+ * ─────────────────────────────────────────────────── */
+
+/* 用復原碼加入、還沒設新密語：朱色左緣（狀態列那行與〈密語〉頂那句共用） */
+.ns-recovery-need {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--color-seal);
+}
+
+/* 「忘記密語？用復原碼」⇄「改回用密語」：一顆文字鈕——不搶「加入同步」主鈕的戲，
+   但要一眼認得出能按（淡金底線；hover 轉墨） */
+.ns-recovery-toggle {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-gold) 60%, transparent);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.ns-recovery-toggle:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
+.ns-recovery-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-recovery-toggle:disabled { opacity: .4; cursor: default; }
+
+/* 復原碼那一欄：與對話框同一個長相（拉丁等寬感、放大一號、字距拉開），打起來就是抄在紙上的樣子 */
+.ns-recovery-input {
+  font-size: 15px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.ns-recovery-input::placeholder { letter-spacing: .08em; color: var(--color-ink-faint); }
+
+/* 已設定的 chip：借 SyncDot 運行中的金（「在、而且有效」），未設定維持 `.status` 原樣 */
+/* 鎖住的「現在的密語」（用復原碼加入、還沒設新密語）：看得出是鎖著的，不是空著等人填 */
+.ns-sync .ns-sy-input:disabled { opacity: .55; cursor: not-allowed; }
+
+.ns-recovery-state.is-set { color: var(--color-gold); border-color: color-mix(in srgb, var(--color-gold) 55%, transparent); }

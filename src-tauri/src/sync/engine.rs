@@ -94,6 +94,7 @@ use super::credstore::{self, SyncCredentials};
 use super::crypto;
 use super::hlc;
 use super::r2::{R2Client, R2Config};
+use super::recovery::{self, RecoveryRewrap};
 use super::SCHEMA_VERSION;
 
 // ─────────────────────────────────────────────────────────────
@@ -317,6 +318,17 @@ pub struct SyncStatus {
     pub last_cloud_snapshot_at: Option<String>,
     /// v1.1.4：換鑰匙進行到哪一步（標記檔 `sync/rotation-pending` 的 `stage`）；非 null ⇒ phase=rotating
     pub rotation_stage: Option<String>,
+    /// v1.1.5（契約 §2.3）：連續失敗趟數（`sync_meta.fail_streak`；`record_error` +1、`clear_error`／`record_success` 歸零）。
+    /// TS 端 `≥ 3` 才把「停車中」當告警（網路抖一下不叫）。
+    pub fail_streak: u32,
+    /// v1.1.5（契約 §4.7）：桶裡有沒有 `<root>/RECOVERY`（`sync_meta.recovery_set`：'1'／'0'）；null＝還沒對過
+    /// （`ensure_bucket_meta` 每個進程對一次、`join`／`set_recovery`／`clear_recovery` 也會寫）。**status 本身不打網路。**
+    pub recovery_set: Option<bool>,
+    /// v1.1.5（契約 §4.6）：這台是用復原碼加入的、還沒設新密語（`sync_meta.needs_passphrase='1'`）；
+    /// `change_passphrase` 成功即清。UI 出橫幅「請設一個新密語」。
+    pub needs_passphrase: bool,
+    /// v1.1.5（契約 §3.4）：通知權限問過了沒（`sync_meta.notif_asked='1'`；TS 在加入成功後問一次並寫入）
+    pub notif_asked: bool,
 }
 
 /// 上一次重置時另存的未同步修改（見 `SyncStatus::last_orphans`）
@@ -579,18 +591,39 @@ async fn clear_inflight(pool: &Pool<Sqlite>) -> Result<(), String> {
     Ok(())
 }
 
-/// 失敗時把人話寫進 `sync_meta.last_error`（重啟後 UI 還看得到「停車中」的理由）
+/// 失敗時把人話寫進 `sync_meta.last_error`（重啟後 UI 還看得到「停車中」的理由）。
+///
+/// v1.1.5（契約 §2.3；WP-A）：同時 `fail_streak += 1`（一句 UPSERT，缺＝從 0 起算）。TS 端 `≥ 3` 才把停車中當告警。
+/// 一趟＝先 push 後 pull，push 失敗就不 pull ⇒ 一趟最多 +1。
 pub(crate) async fn record_error(pool: &Pool<Sqlite>, msg: &str) {
     let _ = meta_set(pool, "last_error", msg).await;
+    let _ = sqlx::query(
+        "INSERT INTO sync_meta (key, value) VALUES ('fail_streak', '1') \
+         ON CONFLICT(key) DO UPDATE SET value = CAST(COALESCE(CAST(value AS INTEGER), 0) + 1 AS TEXT)",
+    )
+    .execute(pool)
+    .await;
 }
 
+/// 成功一趟：記時刻、清錯、`fail_streak` 歸零
 pub(crate) async fn record_success(pool: &Pool<Sqlite>) -> Result<(), String> {
     meta_set(pool, "last_sync_at", &now_iso()).await?;
     clear_error(pool).await
 }
 
-/// 清掉上次的錯誤（本來就是空的就什麼都不做——見 `meta_set_if_changed` 的理由）
+/// 清掉上次的錯誤**並把 `fail_streak` 歸零**（本來就是空的就什麼都不做——見 `meta_set_if_changed` 的理由）。
+/// 呼叫點：pull 成功、輪替做完、還原收尾、紀元偵測——都是「這一趟走完了」的意思。
 pub(crate) async fn clear_error(pool: &Pool<Sqlite>) -> Result<(), String> {
+    clear_last_error(pool).await?;
+    reset_fail_streak(pool).await
+}
+
+/// 只清 `last_error`、**不動 `fail_streak`**——push 成功專用（WP-A 自決，與契約 §2.3 的小差異）。
+///
+/// 為什麼 push 不歸零：一趟是「push 成功 → pull 失敗」時，若 push 就歸零，每趟都是 0→1，
+/// **pull 一直壞（例：某顆物件拆不開、apply 出錯）永遠到不了 3**，停車中就永遠不告警。
+/// 改成「整趟走完（pull 成功）才歸零」：push 壞＝+1、push 好 pull 壞＝+1、兩個都好＝0，一趟恰好一格。
+async fn clear_last_error(pool: &Pool<Sqlite>) -> Result<(), String> {
     let current = sqlx::query("SELECT value FROM sync_meta WHERE key = 'last_error'")
         .fetch_optional(pool)
         .await
@@ -599,6 +632,24 @@ pub(crate) async fn clear_error(pool: &Pool<Sqlite>) -> Result<(), String> {
         .transpose()
         .map_err(db_err)?;
     meta_set_if_changed(pool, current.as_ref(), "last_error", "").await
+}
+
+/// `fail_streak` 歸零（本來就沒有／是 0 就不寫——`status()` 每 60 秒會被問，不為它開寫入交易）
+async fn reset_fail_streak(pool: &Pool<Sqlite>) -> Result<(), String> {
+    sqlx::query("DELETE FROM sync_meta WHERE key = 'fail_streak' AND value <> '0'")
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+    Ok(())
+}
+
+/// v1.1.5（契約 §4.6）：`needs_passphrase` 清掉（改密語成功、用密語加入／重接）。本來沒有就是空操作。
+pub(crate) async fn clear_needs_passphrase(pool: &Pool<Sqlite>) -> Result<(), String> {
+    sqlx::query("DELETE FROM sync_meta WHERE key = 'needs_passphrase'")
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -850,6 +901,14 @@ pub async fn status(app: &AppHandle) -> Result<SyncStatus, String> {
             .unwrap_or(0),
         last_cloud_snapshot_at: meta.get("last_cloud_snapshot_at").filter(nonempty).cloned(),
         rotation_stage,
+        // v1.1.5（契約 §5.3）：四個新欄全部只讀 sync_meta——status 一樣不打網路、值沒變就不寫
+        fail_streak: meta
+            .get("fail_streak")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0),
+        recovery_set: meta.get("recovery_set").map(|v| v == "1"),
+        needs_passphrase: meta.get("needs_passphrase").map(String::as_str) == Some("1"),
+        notif_asked: meta.get("notif_asked").map(String::as_str) == Some("1"),
     })
 }
 
@@ -1644,11 +1703,11 @@ pub(crate) async fn push_loop(
         }
     }
 
+    // v1.1.5：push 成功只清 `last_error`、不歸零 `fail_streak`（整趟走完才歸零，見 `clear_last_error`）
     if pushed > 0 {
-        record_success(pool).await?;
-    } else {
-        clear_error(pool).await?;
+        meta_set(pool, "last_sync_at", &now_iso()).await?;
     }
+    clear_last_error(pool).await?;
     Ok(PushReport {
         pushed_ops: pushed,
         object_key: last_key,
@@ -3241,6 +3300,9 @@ pub struct JoinArgs {
     /// 省略＝`credstore::DEFAULT_ROOT`
     pub root: Option<String>,
     pub mode: Option<JoinMode>,
+    /// v1.1.5（契約 §4.6）：復原碼（已由 commands 層去掉空字串）。Some ⇒ `passphrase` 必須留白；
+    /// 引擎先 `recovery::normalize`（不打網路）再用碼拆 `<root>/RECOVERY`；成功後 `sync_meta.needs_passphrase='1'`。
+    pub recovery_code: Option<String>,
 }
 
 /// `sync_join` 的回傳（契約 §4.2）
@@ -3622,6 +3684,20 @@ async fn ensure_bucket_meta(
     let sealed = client.get_opt(&key_object_key(root)).await?.is_some();
     meta_set_if_changed(pool, meta.get("key_sealed"), "key_sealed", if sealed { "1" } else { "0" })
         .await?;
+
+    // ②′ v1.1.5（契約 §4.7）：桶裡有沒有 `<root>/RECOVERY` ⇒ `sync_meta.recovery_set` 快取
+    // （`status()` 永不打網路，設定頁的「已設定／未設定」讀這把）。別台重生／作廢過也在這裡對齊。
+    // 失敗只記一行：這是顯示用的快取，不值得讓整趟同步停車。
+    match super::recovery::has_recovery(client, root).await {
+        Ok(has) => {
+            if let Err(e) =
+                meta_set_if_changed(pool, meta.get("recovery_set"), "recovery_set", if has { "1" } else { "0" }).await
+            {
+                eprintln!("[sync:recovery] cache recovery_set failed: {e}");
+            }
+        }
+        Err(e) => eprintln!("[sync:recovery] check RECOVERY failed: {e}"),
+    }
 
     // ③ 目前紀元缺 EPOCH.bin（v1.1.1／v1.1.2 開的紀元都沒有）⇒ 補寫，之後別台的偵測才有依據
     if !epoch.is_empty() && client.get_opt(&epoch_marker_key(root, epoch)).await?.is_none() {
@@ -4021,6 +4097,14 @@ pub struct RotationMarker {
     /// 步驟 7 清標記時一起消失。
     #[serde(default)]
     pub key_object_b64: Option<String>,
+    /// v1.1.5 修正席（工程評審 S-5）：步驟 3.5 已經把 `<root>/RECOVERY` **作廢**（DELETE 成功、`recovery_set='0'`）。
+    ///
+    /// 為什麼要記：3.5 之後若步驟 4–6 失敗，續跑時 3.5 要嘛重做一次（GET 已經是 None ⇒ 回 `None`），要嘛整個跳過
+    /// （stage ≥ switched）——兩條都不知道「這一輪換鑰匙作廢過復原碼」，於是完成訊息少了「復原碼已作廢」那一句，
+    /// 主人只看到「換鑰匙完成」。記在標記檔裡，步驟 7 收尾時照樣講出來。
+    /// 相容：`serde(default)`＋只在 true 時寫出；v1.1.4 讀標記檔會忽略未知欄位。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recovery_invalidated: bool,
 }
 
 fn rotation_marker_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -4086,6 +4170,10 @@ pub struct RotationReport {
     pub reencrypted_snapshots: u64,
     pub deleted_epochs: u64,
     pub message: String,
+    /// v1.1.5（契約 §4.5；WP-A 加）：步驟 3.5 對 `<root>/RECOVERY` 做了什麼——
+    /// `rewrapped`（這台是產碼那台，同一組碼照樣有效）／`invalidated`（已刪，要重新產生；message 尾巴也講）／
+    /// `none`（桶裡沒有，或這一趟不是走到 3.5 的那一趟）。TS：`recovery: "rewrapped" | "invalidated" | "none"`。
+    pub recovery: RecoveryRewrap,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -4225,6 +4313,7 @@ pub async fn rotate_data_key(app: &AppHandle, current: &str, next: &str) -> Resu
         new_epoch: e2,
         stage: RotationStage::Prepared,
         key_object_b64: None,
+        recovery_invalidated: false,
     };
     write_rotation_marker(app, &marker)?;
 
@@ -4241,6 +4330,7 @@ pub async fn finish_rotation(app: &AppHandle) -> Result<RotationReport, String> 
             epoch: None,
             reencrypted_snapshots: 0,
             deleted_epochs: 0,
+            recovery: RecoveryRewrap::None,
             message: "沒有在換鑰匙。".into(),
         });
     };
@@ -4264,6 +4354,7 @@ pub async fn finish_rotation(app: &AppHandle) -> Result<RotationReport, String> 
             epoch: None,
             reencrypted_snapshots: 0,
             deleted_epochs: 0,
+            recovery: RecoveryRewrap::None,
             message: if after_commit {
                 "上次換鑰匙做到一半，這台的同步身分卻被清掉了——新鑰匙找不回來。請改用新密語「重新加入同步」。"
                     .into()
@@ -4299,7 +4390,7 @@ async fn run_rotation(
     pool: &Pool<Sqlite>,
     st: &SyncState,
     mut marker: RotationMarker,
-    creds: SyncCredentials,
+    mut creds: SyncCredentials,
     k1: [u8; crypto::KEY_LEN],
     k2: [u8; crypto::KEY_LEN],
     next_passphrase: Option<&str>,
@@ -4319,6 +4410,7 @@ async fn run_rotation(
             epoch: None,
             reencrypted_snapshots: 0,
             deleted_epochs: 0,
+            recovery: RecoveryRewrap::None,
             message: "上次換鑰匙沒做完，已取消；密語沒有變，請再試一次。".into(),
         });
     }
@@ -4405,12 +4497,56 @@ async fn run_rotation(
                 epoch: None,
                 reencrypted_snapshots: 0,
                 deleted_epochs: 0,
+                recovery: RecoveryRewrap::None,
                 message: "上次換鑰匙沒做完，已取消；密語沒有變，請再試一次。".into(),
             });
         }
         marker.stage = RotationStage::Committed;
         marker.key_object_b64 = None;
         write_rotation_marker(app, &marker)?;
+    }
+
+    // ── 步驟 3.5（v1.1.5 契約 §4.5；WP-A）：處理 `<root>/RECOVERY`——這台有 W 就重包成 K2，沒有就作廢 ──
+    //
+    // 為什麼放在提交點之後、切紀元之前：KEY 一換成 K2，RECOVERY 裡的 K1 就是廢鑰匙了；越早處理，
+    // 「舊碼拆出 K1」的窗口越短（那個窗口裡用碼加入會被 `recovery::ensure_rescue_current` 擋下）。
+    // **不新增 `RotationStage`**（WP-A 自決，與契約 §4.5 的小差異）：這一步本身冪等（GET→比鹽→PUT／DELETE），
+    // 掛在「還沒 Switched」底下續跑時重做一次就好；新增 stage 會讓 v1.1.4 讀不懂標記檔 ⇒ 誤判「沒在換」。
+    // 失敗＝Err、標記停在 committed，boot／runCycle 續跑再做一次。
+    let mut recovery_outcome = RecoveryRewrap::None;
+    if marker.stage.rank() < RotationStage::Switched.rank() {
+        recovery_outcome = recovery::rewrap_after_rotation(
+            &client,
+            &root,
+            creds.recovery_wrap_b64.as_deref(),
+            creds.recovery_salt_b64.as_deref(),
+            &k1,
+            &k2,
+        )
+        .await?;
+        match recovery_outcome {
+            RecoveryRewrap::Rewrapped => meta_set(pool, "recovery_set", "1").await?,
+            RecoveryRewrap::Invalidated => {
+                // 這台的 W 若是舊的（別台重生過碼）也一起丟掉；步驟 7 拿的是這份 `creds`，不會把它存回去
+                if creds.recovery_wrap_b64.is_some() || creds.recovery_salt_b64.is_some() {
+                    creds.recovery_wrap_b64 = None;
+                    creds.recovery_salt_b64 = None;
+                    credstore::save(app, &creds)?;
+                }
+                meta_set(pool, "recovery_set", "0").await?;
+                // 工程評審 S-5：記進標記檔，續跑也講得出「復原碼已作廢」（寫不進去不擋——那只是少一句提醒）
+                if !marker.recovery_invalidated {
+                    marker.recovery_invalidated = true;
+                    if let Err(e) = write_rotation_marker(app, &marker) {
+                        eprintln!("[sync:rotate] 記「復原碼已作廢」旗標失敗（只影響續跑時的提醒）：{e}");
+                    }
+                }
+            }
+            RecoveryRewrap::None => {
+                let meta = meta_all(pool).await?;
+                meta_set_if_changed(pool, meta.get("recovery_set"), "recovery_set", "0").await?;
+            }
+        }
     }
 
     // ── 步驟 4：本機切到 E2／K2 → 全量快照進 outbox → 用 K2 推到 E2 推空 ──
@@ -4468,14 +4604,24 @@ async fn run_rotation(
     clear_rotation_marker(app);
     st.set_gate(None);
 
+    // 工程評審 S-5：續跑那一趟 3.5 回 None（或整個跳過），但這一輪換鑰匙其實作廢過復原碼 ⇒ 仍照實回報
+    if recovery_outcome == RecoveryRewrap::None && marker.recovery_invalidated {
+        recovery_outcome = RecoveryRewrap::Invalidated;
+    }
+    let mut message = format!(
+        "密語已更改，資料鑰匙也換新了——其他裝置要用新密語重新加入。重加密 {reencrypted} 顆雲端快照、清掉 {deleted_epochs} 個舊紀元。"
+    );
+    if recovery_outcome == RecoveryRewrap::Invalidated {
+        // 與 TS `RECOVERY_TEXT.invalidatedByRotation` 同一句（契約 §4.5）
+        message.push_str("復原碼已作廢，請到〈同步〉重新產生一組。");
+    }
     Ok(RotationReport {
         outcome: RotationOutcome::Finished,
         epoch: Some(e2),
         reencrypted_snapshots: reencrypted,
         deleted_epochs,
-        message: format!(
-            "密語已更改，資料鑰匙也換新了——其他裝置要用新密語重新加入。重加密 {reencrypted} 顆雲端快照、清掉 {deleted_epochs} 個舊紀元。"
-        ),
+        message,
+        recovery: recovery_outcome,
     })
 }
 
@@ -4531,6 +4677,8 @@ pub async fn rejoin(app: &AppHandle, passphrase: &str, mode: Option<JoinMode>) -
             passphrase: passphrase.trim().to_string(),
             root: Some(creds.root),
             mode,
+            // 鍵違い的出路只問新密語；忘了新密語的裝置走頁尾「重新加入」→ 表單的「用復原碼」（契約 §4.6）
+            recovery_code: None,
         },
     )
     .await
@@ -4566,9 +4714,22 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         return Err("雲端置物櫃的四個欄位都要填。".into());
     }
     let passphrase = args.passphrase.trim().to_string();
-    if passphrase.is_empty() {
-        return Err("密語不能是空的。".into());
-    }
+    // v1.1.5（契約 §4.6 ①）：「忘記密語？用復原碼」＝密語的另一種輸入，**二選一**。
+    // 碼在打網路**之前**就過 `normalize`（長度／字集／填充位／校驗碼）——抄錯一個字不花任何一次 R2 請求（沙盒 甲6(a)）。
+    let rescue_code = match args.recovery_code.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+        Some(code) => {
+            if !passphrase.is_empty() {
+                return Err(recovery::BOTH_GIVEN.into());
+            }
+            Some(recovery::normalize(code)?)
+        }
+        None => {
+            if passphrase.is_empty() {
+                return Err("密語不能是空的。".into());
+            }
+            None
+        }
+    };
     let root = args
         .root
         .as_deref()
@@ -4606,6 +4767,17 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         .filter(|s| !s.is_empty());
     let key_object = client.get_opt(&key_object_key(&root)).await?;
     let epochs = list_epochs(&client, &root).await?;
+    // v1.1.5（契約 §4.6 ③／§4.7）：RECOVERY 多列一顆——用碼路要拆它；兩條路都拿它寫 `recovery_set` 快取
+    let recovery_object = client.get_opt(&recovery::recovery_object_key(&root)).await?;
+    let cloud_empty = remote_salt.is_none() && epochs.is_empty();
+    // 用碼路：資料鑰匙從 RECOVERY 來（桶空／沒設過／碼作廢各一句人話）。拆得出來還要等 ⑥ 解出紀元後
+    // 再過 `ensure_rescue_current`（RECOVERY 可能還包著換鑰匙前的舊鑰匙）。
+    let rescued_key = match rescue_code.as_deref() {
+        Some(code) => Some(
+            recovery::rescue_data_key(&root, code, cloud_empty, recovery_object.as_deref()).await?,
+        ),
+        None => None,
+    };
 
     let meta = meta_all(&pool).await?;
     // 工程評審 B-1：讀取失敗**不准**折成「沒有鑰匙圈」。折了就會現生一個新身分、把這台當新的一台
@@ -4648,6 +4820,11 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                 device_id: Some(device_id.clone()),
                 // v1.1.4：加入／重接時不可能在換鑰匙（前置擋掉），K2 一律空
                 data_key_next_b64: None,
+                // v1.1.5：復原碼的 W 只在「產生它的那一台」有；加入／重接（兩條路都經過這裡）沿用鑰匙圈既有的，
+                // 沒有就 None——否則換 token 一次就丟掉「這台換鑰匙時能重包 RECOVERY」的資格。
+                // **用碼加入的那一台也不另存 W**（WP-A 自決，理由見 recovery.rs 檔頭：W 住越多台，真撤銷越破功）。
+                recovery_wrap_b64: existing.as_ref().and_then(|c| c.recovery_wrap_b64.clone()),
+                recovery_salt_b64: existing.as_ref().and_then(|c| c.recovery_salt_b64.clone()),
             },
         )
     };
@@ -4661,7 +4838,12 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
             let mine = c.salt_b64.as_deref().filter(|s| !s.is_empty());
             if mine == Some(theirs) && !c.data_key_b64.is_empty() {
                 let stored = crypto::key_from_b64(&c.data_key_b64)?;
-                let data_key = match key_object.as_deref() {
+                let data_key = if let Some(k) = rescued_key {
+                    // v1.1.5（契約 §4.6 ④）：用碼路**跳過密語驗證**。拆出來的就是鑰匙圈那把 ⇒ 同一份資料，
+                    // 只換憑證；不是 ⇒ 不在這裡判（多半是別台換過鑰匙），落到 ⑤ 走正規 join。
+                    (k == stored).then_some(k)
+                } else {
+                    match key_object.as_deref() {
                     Some(bytes) => match unseal_key_object(&root, &passphrase, bytes).await {
                         // 工程評審 S-1：拆得開還不夠，**拆出來的要與鑰匙圈裡那把一樣**。
                         // 不比對的話，桶裡若有一顆包著別把鑰匙的 KEY（09-21 就有），
@@ -4723,14 +4905,25 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                         seal_key_object_if_absent(&client, &root, &passphrase, &derived).await?;
                         Some(derived)
                     }
+                    }
                 };
                 // None＝「別台換過鑰匙」，重接不適用：什麼都不寫，落到 ⑤ 走正規 join
                 if let Some(data_key) = data_key {
                     save_creds(&data_key, theirs)?;
                     meta_set(&pool, "root", &root).await?;
                     meta_set(&pool, "salt", theirs).await?;
-                    meta_set(&pool, "key_sealed", "1").await?;
+                    // 用碼重接＝這台的密語不一定還對得上 KEY：`key_sealed` 照實記（桶裡有沒有 KEY）
+                    meta_set(&pool, "key_sealed", if key_object.is_some() || rescued_key.is_none() { "1" } else { "0" })
+                        .await?;
                     meta_set(&pool, "last_error", "").await?;
+                    // v1.1.5：重接＝重新開始，連敗歸零；用碼重接立 `needs_passphrase`（契約 §4.6-6），用密語重接降下
+                    reset_fail_streak(&pool).await?;
+                    if rescued_key.is_some() {
+                        meta_set(&pool, "needs_passphrase", "1").await?;
+                    } else {
+                        clear_needs_passphrase(&pool).await?;
+                    }
+                    meta_set(&pool, "recovery_set", if recovery_object.is_some() { "1" } else { "0" }).await?;
                     st.set_gate(None);
                     st.clear_bucket_meta_done(); // 工程評審 S-9
                     drop(_busy);
@@ -4746,10 +4939,17 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
                         snapshot_ops: 0,
                         pull: None,
                         export_path: None,
-                        message: if pending_snapshot {
-                            "憑證已更新——上次加入沒做完的那一半會在下一趟同步補上。".into()
-                        } else {
-                            "憑證已更新，資料照舊。".into()
+                        message: {
+                            let base = if pending_snapshot {
+                                "憑證已更新——上次加入沒做完的那一半會在下一趟同步補上。"
+                            } else {
+                                "憑證已更新，資料照舊。"
+                            };
+                            if rescued_key.is_some() {
+                                format!("{base}{}", recovery::RESCUE_NEXT_STEP)
+                            } else {
+                                base.to_string()
+                            }
                         },
                     });
                 }
@@ -4758,9 +4958,19 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     }
 
     // ⑤ 解出資料鑰匙（兩層鑰匙，契約 §2.1）
-    let cloud_empty = remote_salt.is_none() && epochs.is_empty();
     let wrong_pass = || "密語不對（與雲端那份資料的密語不同）。".to_string();
-    let (data_key, salt_b64, need_put_salt, need_seal_key) = if cloud_empty {
+    let (data_key, salt_b64, need_put_salt, need_seal_key) = if let Some(dk) = rescued_key {
+        // v1.1.5（契約 §4.6 ⑤）：用碼路的資料鑰匙已經從 RECOVERY 拆出來了（桶空已在 ③ 擋掉）。
+        // SALT 缺了不自造（同下面 S-2 的理由）；桶裡沒 KEY（舊血統）也**不封**——沒有密語封不了，
+        // 留給 needs_passphrase 之後主人在〈密語〉頁設新密語（`change_passphrase` 的「第一次封存」路）。
+        let Some(salt) = remote_salt.clone() else {
+            return Err(
+                "雲端上這份資料的鹽不見了——請先讓任何一台已加入的裝置連一次線（它會自動補回去），再用這台加入。"
+                    .into(),
+            );
+        };
+        (dk, salt, false, false)
+    } else if cloud_empty {
         // 第一台：資料鑰匙隨機產（不由密語決定），密語只負責把它包成 KEY
         (
             crypto::random_data_key()?,
@@ -4813,7 +5023,11 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     } else {
         let e = resolve_current_epoch(&client, &data_key, &root).await?;
         // 舊血統又一個紀元都拆不開＝密語真的錯了（新血統的 KEY 已經驗過，不必再判）
-        if e.is_none() && key_object.is_none() && !epochs.is_empty() {
+        if rescued_key.is_some() {
+            // v1.1.5（WP-A）：用碼拆出來的可能是換鑰匙前的舊鑰匙（v1.1.4 的輪替不認得 RECOVERY、
+            // 或輪替步驟 3.5 還沒跑到）。不擋就會「一個紀元都拆不開 ⇒ 當成雲端沒資料 ⇒ 用舊鑰匙開第三個紀元」。
+            recovery::ensure_rescue_current(&client, &root, &data_key, e.as_deref(), !epochs.is_empty()).await?;
+        } else if e.is_none() && key_object.is_none() && !epochs.is_empty() {
             return Err(wrong_pass());
         }
         e
@@ -4992,8 +5206,25 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     meta_set(&mut *tx, "salt", &salt_b64).await?;
     meta_set(&mut *tx, "root", &root).await?;
     meta_set(&mut *tx, "device_id", &device_id).await?;
-    meta_set(&mut *tx, "key_sealed", "1").await?;
+    // 用碼路在舊血統桶（沒有 KEY）不封 KEY ⇒ 照實記 0（〈密語〉頁據此走「第一次封存」）
+    meta_set(&mut *tx, "key_sealed", if rescued_key.is_some() && key_object.is_none() { "0" } else { "1" })
+        .await?;
     meta_set(&mut *tx, "last_error", "").await?;
+    // v1.1.5（契約 §2.3／§4.6-6／§4.7）：加入＝重新開始（連敗歸零）；用碼加入立 `needs_passphrase`、
+    // 用密語加入降下；`recovery_set` 照 ③ 看到的桶面寫。四把都不在 `EPOCH_SCOPED_META`，這裡明寫。
+    sqlx::query("DELETE FROM sync_meta WHERE key = 'fail_streak'")
+        .execute(&mut *tx)
+        .await
+        .map_err(db_err)?;
+    if rescued_key.is_some() {
+        meta_set(&mut *tx, "needs_passphrase", "1").await?;
+    } else {
+        sqlx::query("DELETE FROM sync_meta WHERE key = 'needs_passphrase'")
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+    }
+    meta_set(&mut *tx, "recovery_set", if recovery_object.is_some() { "1" } else { "0" }).await?;
     // 工程評審 S-6：`role` 留到 v1.1.4 再清（1.1.3 不讀它，但退回 1.1.2 時它就是同步的閘門）
     sqlx::query("DELETE FROM sync_meta WHERE key = 'primary_device_id'")
         .execute(&mut *tx)
@@ -5062,6 +5293,11 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         JoinOutcome::Adopted => "已改用另一台的資料。",
         _ => "已加入同步。",
     };
+    let message = if rescued_key.is_some() {
+        format!("{message}{}", recovery::RESCUE_NEXT_STEP)
+    } else {
+        message.to_string()
+    };
     Ok(JoinReport {
         outcome,
         local_alive,
@@ -5070,7 +5306,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         snapshot_ops,
         pull: pull_report,
         export_path,
-        message: message.into(),
+        message,
     })
 }
 
@@ -5103,6 +5339,13 @@ pub async fn change_passphrase(
     // `current` 在這條路上**必填**（自決 4：忘密語走「重新加入」不走輪替）——輪替裡驗。
     if rotate {
         let r = rotate_data_key(app, current, next).await?;
+        // v1.1.5（契約 §4.6-7）：兩條路都算「設好新密語了」——用碼加入的那一台的提示到此為止。
+        // 只在真的做完時清（回滾＝密語沒變）
+        if r.outcome == RotationOutcome::Finished {
+            if let Ok(pool) = pool(app).await {
+                let _ = clear_needs_passphrase(&pool).await;
+            }
+        }
         return Ok(PassphraseReport {
             sealed_first_time: false,
             rotated: true,
@@ -5219,8 +5462,12 @@ pub async fn change_passphrase(
             return Err(e);
         }
     }
-    if let Ok(pool) = pool(app).await {
-        let _ = meta_set(&pool, "key_sealed", "1").await;
+    // KEY 已經用新密語封好了（上面那一發 PUT 成功或補救成功）⇒ 這台用復原碼加入時立的
+    // `needs_passphrase` 可以降下（契約 §4.6-7）。寫不進去不回 Err：密語確實改好了，最壞是橫幅多掛一趟。
+    // 用 `pass_pool`（上面守門時拿到的同一個）——不再多借一次
+    let _ = meta_set(&pass_pool, "key_sealed", "1").await;
+    if let Err(e) = clear_needs_passphrase(&pass_pool).await {
+        eprintln!("[sync:passphrase] clear needs_passphrase failed: {e}");
     }
     Ok(PassphraseReport {
         sealed_first_time,
@@ -7580,8 +7827,10 @@ mod tests {
             new_epoch: "1758153600001".into(),
             stage: RotationStage::Committed,
             key_object_b64: None,
+            recovery_invalidated: false,
         };
         let s = serde_json::to_string(&m).unwrap();
+        assert!(!s.contains("recovery_invalidated"), "false 時不寫出（標記檔與 v1.1.4 逐字相同）：{s}");
         assert!(s.contains("\"stage\":\"committed\""), "階段是 snake_case 字面值：{s}");
         let back: RotationMarker = serde_json::from_str(&s).unwrap();
         assert_eq!(back.old_epoch, "1758153600000");
@@ -7612,16 +7861,20 @@ mod tests {
             new_epoch: "1758153600001".into(),
             stage: RotationStage::Committing,
             key_object_b64: Some("Zm9vYmFy".into()),
+            recovery_invalidated: true,
         };
         let s2 = serde_json::to_string(&committing).unwrap();
         let back2: RotationMarker = serde_json::from_str(&s2).unwrap();
         assert_eq!(back2.key_object_b64.as_deref(), Some("Zm9vYmFy"));
+        // v1.1.5 修正席（工程評審 S-5）：「復原碼已作廢」旗標往返；舊版標記沒有這欄 ⇒ false
+        assert!(back2.recovery_invalidated);
         // 舊版標記（沒有那一欄）讀得回來、指紋是 None ⇒ 保守回滾
         let legacy: RotationMarker = serde_json::from_str(
             r#"{"at":"2026-09-22T05:00:00.000Z","old_epoch":"1","new_epoch":"2","stage":"committing"}"#,
         )
         .unwrap();
         assert!(legacy.key_object_b64.is_none());
+        assert!(!legacy.recovery_invalidated);
 
         // 續跑的「跳過已完成的步」靠階段序遞增
         let order = [
@@ -7688,6 +7941,68 @@ mod tests {
             );
             assert_eq!(meta.get("last_cloud_snapshot_day").map(String::as_str), Some("2026-09-22"));
             assert_eq!(meta.get("epoch").map(String::as_str), Some("1758153600001"));
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// v1.1.5（契約 §2.3；WP-A）：`fail_streak` 累加與歸零。
+    /// `record_error` +1（缺＝從 0 起算）；push 成功（`clear_last_error`）只清錯**不歸零**；
+    /// pull 成功（`clear_error`／`record_success`）歸零；它不在 `EPOCH_SCOPED_META`（換紀元不清）。
+    #[test]
+    fn 連敗趟數_錯一次加一_push成功不歸零_整趟成功才歸零() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("fail-streak").await;
+            let streak = |p: Pool<Sqlite>| async move {
+                meta_all(&p).await.unwrap().get("fail_streak").and_then(|s| s.parse::<u32>().ok()).unwrap_or(0)
+            };
+            assert_eq!(streak(pool.clone()).await, 0, "缺＝0");
+            record_error(&pool, "連不上 R2").await;
+            record_error(&pool, "連不上 R2").await;
+            assert_eq!(streak(pool.clone()).await, 2);
+            // 一趟「push 成功、pull 又失敗」：push 不歸零 ⇒ 這趟仍然記到 3（pull 一直壞也會告警）
+            clear_last_error(&pool).await.unwrap();
+            assert_eq!(
+                meta_all(&pool).await.unwrap().get("last_error").map(String::as_str),
+                Some(""),
+                "push 成功照樣清錯（狀態列回到運行中）"
+            );
+            assert_eq!(streak(pool.clone()).await, 2, "push 成功不歸零");
+            record_error(&pool, "拉取失敗").await;
+            assert_eq!(streak(pool.clone()).await, 3, "第 3 趟＝告警門檻");
+            // 換紀元不清連敗（它不是紀元範圍的）
+            sqlx::query(EPOCH_SCOPED_META).execute(&pool).await.unwrap();
+            assert_eq!(streak(pool.clone()).await, 3);
+            // 整趟成功（pull）⇒ 歸零、錯也清
+            clear_error(&pool).await.unwrap();
+            assert_eq!(streak(pool.clone()).await, 0);
+            assert!(!meta_all(&pool).await.unwrap().contains_key("fail_streak"), "歸零＝刪掉那一列");
+            record_error(&pool, "x").await;
+            record_success(&pool).await.unwrap();
+            assert_eq!(streak(pool.clone()).await, 0, "record_success 也歸零");
+            assert!(meta_all(&pool).await.unwrap().contains_key("last_sync_at"));
+            // 值被寫壞（非數字）也不會卡住：當成 0 再 +1
+            meta_set(&pool, "fail_streak", "壞掉").await.unwrap();
+            record_error(&pool, "x").await;
+            assert_eq!(streak(pool.clone()).await, 1);
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// v1.1.5（契約 §4.6-7）：`needs_passphrase` 清掉是冪等的，而且不在 `EPOCH_SCOPED_META`
+    ///（用碼加入之後的「還原／改用那份」換紀元，提示不該自己消失——密語仍然沒設）。
+    #[test]
+    fn 用碼加入的提示_換紀元不清_設好密語才清() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("needs-pass").await;
+            meta_set(&pool, "needs_passphrase", "1").await.unwrap();
+            meta_set(&pool, "recovery_set", "1").await.unwrap();
+            sqlx::query(EPOCH_SCOPED_META).execute(&pool).await.unwrap();
+            let meta = meta_all(&pool).await.unwrap();
+            assert_eq!(meta.get("needs_passphrase").map(String::as_str), Some("1"));
+            assert_eq!(meta.get("recovery_set").map(String::as_str), Some("1"), "桶級快取不是紀元級");
+            clear_needs_passphrase(&pool).await.unwrap();
+            clear_needs_passphrase(&pool).await.unwrap();
+            assert!(!meta_all(&pool).await.unwrap().contains_key("needs_passphrase"));
             drop_pool(pool, path).await;
         });
     }
@@ -7956,6 +8271,8 @@ mod tests {
                 salt_b64: Some(salt_b64.clone()),
                 device_id: Some(dev_a.to_string()),
                 data_key_next_b64: Some(crypto::b64_encode(&k2)),
+                recovery_wrap_b64: None,
+                recovery_salt_b64: None,
             };
             switch_epoch_local(&pool_a, &creds, dev_a, dev_a, &e2).await.unwrap();
             snapshot_into_outbox(&pool_a, dev_a).await.unwrap();
@@ -8052,6 +8369,235 @@ mod tests {
             assert!(client.list_after(&format!("{root}/"), "").await.unwrap().is_empty());
             drop_pool(pool_a, path_a).await;
             drop_pool(pool_b, path_b).await;
+        });
+    }
+
+    /// v1.1.5 復原碼的沙盒根：`v1-sb-0925a-wpa-<亂數>`（任務單：只碰 `v1-sb-0925*`，與主人正本的 `v1/` 平級；
+    /// 多一段 `wpa-<亂數>` 是為了不和整合席同時跑的 `v1-sb-0925a/` 撞在一起——收工各刪各的）
+    fn recovery_sandbox_root() -> String {
+        let mut stamp = [0u8; 6];
+        crypto::fill_random(&mut stamp).unwrap();
+        format!("v1-sb-0925a-wpa-{}", crypto::b64_encode(&stamp))
+    }
+
+    /// v1.1.5 復原碼的**桶面**整合測（打真的 R2；契約 §4／沙盒 甲5–甲7′ 的引擎面）：
+    /// A 設復原碼 → C 空庫用碼加入（pulled＋needs_passphrase）→ C 設新密語後清 →
+    /// A（產碼那台、握有 W）換鑰匙 ⇒ RECOVERY 重包、**同一組碼照樣有效**（3.5 之前的窗口舊鑰匙被擋）→
+    /// B（沒有 W）換鑰匙 ⇒ RECOVERY 作廢、舊碼失敗 → A 重生 ⇒ 舊碼「不對」、新碼成功。
+    ///
+    /// 跑法（Git Bash）：
+    /// ```text
+    /// set -a && source "$LOCALAPPDATA/NextStop/r2.env" && set +a
+    /// cargo test --lib sync::engine::tests::復原碼 -- --ignored --nocapture
+    /// ```
+    /// 鐵則：全部物件都在自己的沙盒根底下、收工逐顆刪光；憑證與復原碼**一個字都不印**。
+    /// `join()`／`set_recovery()`／`run_rotation()` 本身要 `AppHandle`＋鑰匙圈，這支走它們內部的同一組零件
+    ///（`recovery::{issue_recovery, normalize, rescue_data_key, ensure_rescue_current, rewrap_after_rotation}`＋
+    /// `resolve_current_epoch`／`pull_all`／`seal_key_object`／`clear_needs_passphrase`）——AppHandle 那一層歸整合席的 甲5–甲7′。
+    #[test]
+    #[ignore = "需要 R2 憑證：source %LOCALAPPDATA%/NextStop/r2.env 後加 --ignored"]
+    fn 復原碼_產碼_空庫用碼加入_設新密語_換鑰匙_作廢_重生() {
+        tauri::async_runtime::block_on(async {
+            let client = sandbox_client();
+            let root = recovery_sandbox_root();
+            let (pass1, pass_c, pass2, pass3) = (
+                "月見坂 復原碼 第一版 2026",
+                "C 台的新密語 2026",
+                "A 換鑰匙的密語 2026",
+                "B 換鑰匙的密語 2026",
+            );
+            let (dev_a, dev_b, dev_c) = ("dev-rc-a", "dev-rc-b", "dev-rc-c");
+            let rec_obj = recovery::recovery_object_key(&root);
+
+            // ── 前置：A＝第一台，推一批 ──
+            let k1 = crypto::random_data_key().unwrap();
+            let salt_b64 = crypto::b64_encode(&crypto::random_salt().unwrap());
+            client
+                .put(&salt_object_key(&root), salt_b64.as_bytes().to_vec())
+                .await
+                .unwrap();
+            seal_key_object(&client, &root, pass1, &k1).await.unwrap();
+            let e1 = hlc::now_ms().to_string();
+            put_epoch_marker(&client, &k1, &root, &e1, dev_a, "first", None).await.unwrap();
+            let (pool_a, path_a) = make_pool("rc-a").await;
+            seed_tree(&pool_a).await;
+            meta_set(&pool_a, "epoch", &e1).await.unwrap();
+            meta_set(&pool_a, "device_id", dev_a).await.unwrap();
+            meta_set(&pool_a, "joined", "1").await.unwrap();
+            stamp_all(&pool_a, dev_a).await;
+            snapshot_into_outbox(&pool_a, dev_a).await.unwrap();
+            push_loop(&pool_a, &client, &k1, &root, &e1, dev_a).await.unwrap();
+
+            // ── 甲5①：A 產生復原碼（`set_recovery` 的桶面）──
+            assert!(!recovery::has_recovery(&client, &root).await.unwrap());
+            let issued = recovery::issue_recovery(&client, &root, &k1).await.unwrap();
+            let (w_b64, ws_b64) = (crypto::b64_encode(&issued.wrap), crypto::b64_encode(&issued.salt));
+            assert!(recovery::has_recovery(&client, &root).await.unwrap());
+            let wk = crypto::parse_wrapped_key(&client.get(&rec_obj).await.unwrap()).unwrap();
+            assert_eq!(wk.v, crypto::KEY_OBJECT_VERSION, "與 KEY 同一個 WrappedKey v1");
+            assert_eq!(crypto::b64_decode(&wk.ct).unwrap().len(), 32 + 16, "ct＝32B 資料鑰匙＋16B tag");
+            assert_eq!(wk.salt, ws_b64, "鑰匙圈存的鹽＝物件的鹽");
+            let shown = recovery::format_for_display(&issued.code);
+
+            // ── 甲6(a)：抄錯一字在 normalize 就擋下（不打網路）──
+            let mut typo = issued.code.clone().into_bytes();
+            let last = typo.len() - 1;
+            typo[last] = if typo[last] == b'A' { b'B' } else { b'A' };
+            let e = recovery::normalize(&String::from_utf8(typo).unwrap()).unwrap_err();
+            assert!(e.contains("校驗碼") && e.contains("抄錯"), "{e}");
+            assert!(!e.contains(&issued.code[..5]), "錯誤訊息不帶碼值");
+
+            // ── 甲5②：C 空庫、用**顯示形＋小寫**的碼加入（join ①③⑤⑥ 的零件）──
+            let code = recovery::normalize(&shown.to_lowercase()).unwrap();
+            assert_eq!(code, issued.code);
+            let remote_salt = client.get_opt(&salt_object_key(&root)).await.unwrap();
+            let epochs = list_epochs(&client, &root).await.unwrap();
+            let cloud_empty = remote_salt.is_none() && epochs.is_empty();
+            assert!(!cloud_empty);
+            let recovery_object = client.get_opt(&rec_obj).await.unwrap();
+            let kc = recovery::rescue_data_key(&root, &code, cloud_empty, recovery_object.as_deref())
+                .await
+                .unwrap();
+            assert_eq!(kc, k1, "碼拆出 A 的資料鑰匙");
+            let cur = resolve_current_epoch(&client, &kc, &root).await.unwrap();
+            assert_eq!(cur.as_deref(), Some(e1.as_str()));
+            recovery::ensure_rescue_current(&client, &root, &kc, cur.as_deref(), !epochs.is_empty())
+                .await
+                .unwrap();
+            // ⑩ 的落地（用碼路那幾把）＋⑪ 拉：C 是空庫 ⇒ pulled
+            let (pool_c, path_c) = make_pool("rc-c").await;
+            meta_set(&pool_c, "epoch", &e1).await.unwrap();
+            meta_set(&pool_c, "device_id", dev_c).await.unwrap();
+            meta_set(&pool_c, "joined", "1").await.unwrap();
+            meta_set(&pool_c, "needs_passphrase", "1").await.unwrap();
+            meta_set(&pool_c, "recovery_set", "1").await.unwrap();
+            let got = pull_all(&pool_c, &client, &kc, &root, &e1, dev_c).await;
+            assert!(got.applied > 0, "拉到東西了");
+            let alive = "SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL";
+            assert_eq!(count(&pool_c, alive).await, count(&pool_a, alive).await, "C＝A");
+            assert_eq!(
+                meta_all(&pool_c).await.unwrap().get("needs_passphrase").map(String::as_str),
+                Some("1")
+            );
+
+            // ── 甲5③：C 設新密語（現密語留白＝只重封 KEY）⇒ needs_passphrase 清掉 ──
+            seal_key_object(&client, &root, pass_c, &kc).await.unwrap();
+            clear_needs_passphrase(&pool_c).await.unwrap();
+            assert!(!meta_all(&pool_c).await.unwrap().contains_key("needs_passphrase"));
+            let key_bytes = client.get(&key_object_key(&root)).await.unwrap();
+            assert_eq!(unseal_key_object(&root, pass_c, &key_bytes).await.unwrap(), k1, "新密語拆得出同一把");
+            assert!(unseal_key_object(&root, pass1, &key_bytes).await.is_err(), "舊密語打不開了");
+
+            // ── 甲7：A（握有 W）換鑰匙：步驟 1–3 的桶面 ──
+            let k2 = crypto::random_data_key().unwrap();
+            let e2 = list_epochs(&client, &root).await.unwrap()[0].saturating_add(1).to_string();
+            let body = serde_json::json!({ "device_id": dev_a, "at": now_iso() }).to_string();
+            assert!(client.put_if_absent(&rotated_flag_key(&root, &e2), body.into_bytes()).await.unwrap());
+            put_epoch_marker(&client, &k2, &root, &e2, dev_a, "rotate", None).await.unwrap();
+            seal_key_object(&client, &root, pass2, &k2).await.unwrap();
+            // 3.5 之前的窗口：舊碼仍拆出 K1，但「現役」檢查擋下（v1.1.4 的輪替不認得 RECOVERY 時也是這條）
+            let stale = recovery::rescue_data_key(&root, &code, false, client.get_opt(&rec_obj).await.unwrap().as_deref())
+                .await
+                .unwrap();
+            assert_eq!(stale, k1);
+            let cur = resolve_current_epoch(&client, &stale, &root).await.unwrap();
+            let e = recovery::ensure_rescue_current(&client, &root, &stale, cur.as_deref(), true)
+                .await
+                .unwrap_err();
+            assert!(e.contains("已作廢") && e.contains("復原碼不對"), "{e}");
+            // 步驟 3.5：A 有 W、鹽對得上 ⇒ 重包；鹽不變、nonce 變；再跑一次仍是重包（冪等）
+            let before = crypto::parse_wrapped_key(&client.get(&rec_obj).await.unwrap()).unwrap();
+            assert_eq!(
+                recovery::rewrap_after_rotation(&client, &root, Some(&w_b64), Some(&ws_b64), &k1, &k2)
+                    .await
+                    .unwrap(),
+                RecoveryRewrap::Rewrapped
+            );
+            let after = crypto::parse_wrapped_key(&client.get(&rec_obj).await.unwrap()).unwrap();
+            assert_eq!(after.salt, before.salt, "鹽不變");
+            assert_ne!(after.nonce, before.nonce, "nonce 換新");
+            assert_eq!(
+                recovery::rewrap_after_rotation(&client, &root, Some(&w_b64), Some(&ws_b64), &k1, &k2)
+                    .await
+                    .unwrap(),
+                RecoveryRewrap::Rewrapped,
+                "續跑再做一次無害"
+            );
+            // 同一組碼照樣有效：拆出 K2、目前紀元＝E2、現役檢查過
+            let k_again = recovery::rescue_data_key(&root, &code, false, client.get_opt(&rec_obj).await.unwrap().as_deref())
+                .await
+                .unwrap();
+            assert_eq!(k_again, k2, "產碼那台換鑰匙 ⇒ 碼照舊");
+            let cur = resolve_current_epoch(&client, &k_again, &root).await.unwrap();
+            assert_eq!(cur.as_deref(), Some(e2.as_str()));
+            recovery::ensure_rescue_current(&client, &root, &k_again, cur.as_deref(), true)
+                .await
+                .unwrap();
+
+            // ── 甲7′：B（沒有 W）換鑰匙 ⇒ RECOVERY 作廢 ⇒ C 用舊碼失敗（任務單的「A 換鑰匙→舊碼失敗」在這條成立）──
+            let k3 = crypto::random_data_key().unwrap();
+            let e3 = list_epochs(&client, &root).await.unwrap()[0].saturating_add(1).to_string();
+            let body = serde_json::json!({ "device_id": dev_b, "at": now_iso() }).to_string();
+            assert!(client.put_if_absent(&rotated_flag_key(&root, &e3), body.into_bytes()).await.unwrap());
+            put_epoch_marker(&client, &k3, &root, &e3, dev_b, "rotate", None).await.unwrap();
+            seal_key_object(&client, &root, pass3, &k3).await.unwrap();
+            assert_eq!(
+                recovery::rewrap_after_rotation(&client, &root, None, None, &k2, &k3).await.unwrap(),
+                RecoveryRewrap::Invalidated
+            );
+            assert!(!recovery::has_recovery(&client, &root).await.unwrap(), "RECOVERY 消失");
+            assert_eq!(
+                recovery::rewrap_after_rotation(&client, &root, None, None, &k2, &k3).await.unwrap(),
+                RecoveryRewrap::None,
+                "續跑：已經刪了＝跳過"
+            );
+            let e = recovery::rescue_data_key(&root, &code, false, client.get_opt(&rec_obj).await.unwrap().as_deref())
+                .await
+                .unwrap_err();
+            assert!(e.contains("還沒設定復原碼"), "{e}");
+
+            // ── A 重生（A 已用新密語重新加入、手上是 K3）⇒ 舊碼「不對」、新碼成功 ──
+            let issued2 = recovery::issue_recovery(&client, &root, &k3).await.unwrap();
+            let recovery_object = client.get_opt(&rec_obj).await.unwrap();
+            assert_ne!(
+                crypto::parse_wrapped_key(recovery_object.as_deref().unwrap()).unwrap().salt,
+                ws_b64,
+                "重生＝新鹽（舊 W 再也對不上）"
+            );
+            let e = recovery::rescue_data_key(&root, &code, false, recovery_object.as_deref())
+                .await
+                .unwrap_err();
+            assert!(e.contains("復原碼不對") && e.contains("已作廢"), "{e}");
+            let new_code = recovery::normalize(&recovery::format_for_display(&issued2.code)).unwrap();
+            let k_new = recovery::rescue_data_key(&root, &new_code, false, recovery_object.as_deref())
+                .await
+                .unwrap();
+            assert_eq!(k_new, k3);
+            let cur = resolve_current_epoch(&client, &k_new, &root).await.unwrap();
+            assert_eq!(cur.as_deref(), Some(e3.as_str()));
+            recovery::ensure_rescue_current(&client, &root, &k_new, cur.as_deref(), true)
+                .await
+                .unwrap();
+            // 舊 W（第一組碼的）拿去重包新的那顆 ⇒ 判成「鹽不同」⇒ 作廢而不是重包（別台重生過的情境）
+            assert!(recovery::usable_wrap(
+                &root,
+                recovery_object.as_deref().unwrap(),
+                Some(&w_b64),
+                Some(&ws_b64),
+                &k3,
+                &k3
+            )
+            .is_none());
+
+            // ── 收工：沙盒根刪光（先列鍵再逐顆刪、只印鍵名；圍籬再確認一次）──
+            for k in client.list_after(&format!("{root}/"), "").await.unwrap() {
+                assert!(k.starts_with("v1-sb-0925a-wpa-"), "只刪自己的沙盒根：{k}");
+                eprintln!("[test:cleanup] delete {k}");
+                client.delete(&k).await.unwrap();
+            }
+            assert!(client.list_after(&format!("{root}/"), "").await.unwrap().is_empty());
+            drop_pool(pool_a, path_a).await;
+            drop_pool(pool_c, path_c).await;
         });
     }
 }

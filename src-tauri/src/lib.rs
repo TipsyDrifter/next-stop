@@ -12,6 +12,19 @@ mod sync;
 
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+/// migration SQL 進 sqlx 之前一律換成 LF。
+/// 為什麼（v1.1.5 真機，2026-09-28）：sqlx 的 checksum 算的是 SQL 的**原始位元組**；這台 git `autocrlf=true`，
+/// 在 worktree 新 checkout 時四支 .sql 全變 CRLF，`include_str!` 就把 CRLF 嵌進 exe——主人桌機與手機的
+/// `_sqlx_migrations` 記的是 LF 版 checksum，比對不上 ⇒ `Database.load` 直接拒開、整個 App 讀不到資料庫。
+/// 沙盒抓不到，因為沙盒 DB 是同一顆 exe 新建的。`.gitattributes` 已鎖 `*.sql eol=lf`，這裡再擋一道。
+fn lf(sql: &'static str) -> &'static str {
+    if sql.contains('\r') {
+        Box::leak(sql.replace("\r\n", "\n").replace('\r', "\n").into_boxed_str())
+    } else {
+        sql
+    }
+}
+
 /// 私鐵手帳 · Next Stop — Tauri 入口
 /// DB：sqlite:next-stop-v2.db（v2 彈性樹 schema；v0.1 的 next-stop.db 原地保留不讀）
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,19 +35,19 @@ pub fn run() {
         Migration {
             version: 1,
             description: "v2 baseline: flexible rail tree (nodes) + work_logs + settings",
-            sql: include_str!("../migrations/0001_baseline.sql"),
+            sql: lf(include_str!("../migrations/0001_baseline.sql")),
             kind: MigrationKind::Up,
         },
         Migration {
             version: 2,
             description: "today view: nodes.today_position/carried_from + work_logs.event (backfill issued)",
-            sql: include_str!("../migrations/0002_today.sql"),
+            sql: lf(include_str!("../migrations/0002_today.sql")),
             kind: MigrationKind::Up,
         },
         Migration {
             version: 3,
             description: "repeat engine: occurrences table + legacy free-text repeat_rule migration",
-            sql: include_str!("../migrations/0003_repeat.sql"),
+            sql: lf(include_str!("../migrations/0003_repeat.sql")),
             kind: MigrationKind::Up,
         },
         // v1.1.1：純 DDL 三張表（sync_meta／sync_outbox／sync_cells），不生資料列（U8）。
@@ -42,7 +55,7 @@ pub fn run() {
         Migration {
             version: 4,
             description: "sync foundation: sync_meta + sync_outbox + sync_cells (no data rows)",
-            sql: include_str!("../migrations/0004_sync.sql"),
+            sql: lf(include_str!("../migrations/0004_sync.sql")),
             kind: MigrationKind::Up,
         },
     ];
@@ -78,6 +91,12 @@ pub fn run() {
     // app 專屬目錄，主人在檔案管理員看不到（docs/research/2026-09-22-v1.1.4-Android下載目錄寫入查證.md）。
     // 桌機這一行原本在下面的 `#[cfg(not(mobile))]` 區塊裡，搬上來兩殼共用；桌機的用法（選資料夾、選 .db）不變。
     let builder = builder.plugin(tauri_plugin_dialog::init());
+
+    // v1.1.5（契約 §3；WP-B）：OS 通知，**兩殼都掛**。capabilities/default.json 只給 notify／is-permission-granted／
+    // request-permission 三條、mobile.json 另加 create-channel（外掛 init 腳本覆寫 `window.Notification` 時會叫前兩支，
+    // 所以一定要給）。只有 JS 端 `src/lib/notify.ts` 用它，Rust 端不叫；橫幅才是主力，通知失敗靜默。
+    // 桌機零改變：沒加入同步就不會有告警，`notify.ts` 的外掛 import 是動態的、永不載入（init 腳本照常注入，無副作用）。
+    let builder = builder.plugin(tauri_plugin_notification::init());
 
     #[cfg(not(mobile))]
     let builder = builder
@@ -119,9 +138,12 @@ pub fn run() {
             sync::commands::sync_cloud_restore,
             sync::commands::sync_export_to_file,
             sync::commands::sync_finish_rotation,
+            // v1.1.5 契約 §5：復原碼兩支（WP-A 填 recovery.rs；殼與註冊由契約席先立好）
+            sync::commands::sync_recovery_generate,
+            sync::commands::sync_recovery_clear,
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步十九支（清單與桌機那份逐字相同）。
+    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十一支（清單與桌機那份逐字相同）。
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         sync::commands::sync_status,
@@ -144,6 +166,8 @@ pub fn run() {
         sync::commands::sync_cloud_restore,
         sync::commands::sync_export_to_file,
         sync::commands::sync_finish_rotation,
+        sync::commands::sync_recovery_generate,
+        sync::commands::sync_recovery_clear,
     ]);
 
     // v1.1.2 D-1.1-6 甲：手機掃桌機的 QR（配對碼）。plugin 只在手機 target 有（Cargo 的 target 段），
@@ -157,4 +181,28 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod migration_eol_tests {
+    /// 守門：任何一支 migration 在 checkout 裡不得帶 CR（否則 checksum 與所有既有 DB 不符）。
+    /// 失敗＝這份 checkout 的行尾被 autocrlf 改寫，先修 .gitattributes／重新 checkout 再 build。
+    #[test]
+    fn migrations_are_lf_in_checkout() {
+        for (name, sql) in [
+            ("0001_baseline", include_str!("../migrations/0001_baseline.sql")),
+            ("0002_today", include_str!("../migrations/0002_today.sql")),
+            ("0003_repeat", include_str!("../migrations/0003_repeat.sql")),
+            ("0004_sync", include_str!("../migrations/0004_sync.sql")),
+        ] {
+            assert!(!sql.contains('\r'), "{name}.sql 帶 CR：這份 checkout 被 autocrlf 改寫了");
+        }
+    }
+
+    #[test]
+    fn lf_normalizes_crlf_and_leaves_lf_alone() {
+        assert_eq!(super::lf("a\r\nb\r\n"), "a\nb\n");
+        let s: &'static str = "a\nb\n";
+        assert!(std::ptr::eq(super::lf(s), s));
+    }
 }
