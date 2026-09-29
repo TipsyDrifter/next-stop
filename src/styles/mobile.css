@@ -1512,3 +1512,27 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   [data-shell="mobile"] .ns-recovery-ack { min-height: 44px; font-size: 14px; }
   [data-shell="mobile"] .ns-recovery-ack input { width: 20px; height: 20px; }
 }
+
+/* ═══════════════════════════════════════════════════════
+ * ── WP-B ──　v1.1.6：「更多」頁尾危險區（重新開始）＋加入表單四欄說明
+ *
+ * 拍板依據：決策記錄〈回饋兩題拍板：荷札（標籤）與重新開始（清空資料庫）〉＋《2026-09-28-v1.1.6-重新開始契約.md》§6.2／§6.3。
+ *
+ * 形狀零發明：
+ *   危險區＝既有 `.m2-sec`／`.m2-sec-title`／`.m2-block`／`.m2-note`；鈕＝`.ns-btn.btn-ghost.ns-btn-danger.m2-sy-go`
+ *   （44px 觸控目標、赭字赭框＝overlay.css 共用的危險鈕）。外框沿 `.m2-sy-danger` 的「一道虛線隔開、說明在上、鈕在下」，
+ *   另立 `.m2-danger` 只因為它住在「更多」而不是同步頁（`.m2-sec + .m2-sec` 已給 26px 間距，這裡只補那道虛線）。
+ *   鈕下那一行說明＝桌機掛在 title 的字（觸控沒有 hover，藏在 title 裡等於不存在——沿主題三選的同一條理由）。
+ *   顏色一律 token（`--color-dash`），本檔不寫字面色值。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  [data-shell="mobile"] .m2-danger .m2-sec-title { border-bottom-style: dashed; border-bottom-color: var(--color-dash); }
+  [data-shell="mobile"] .m2-danger-item { margin-top: 14px; }
+  [data-shell="mobile"] .m2-danger-item .m2-note { margin-top: 6px; }
+  /* 危險區在頁尾最後一段：底下多留一點，免得最後一行貼著 tab bar */
+  [data-shell="mobile"] .m2-danger { padding-bottom: 12px; }
+
+  /* 加入表單「雲端（Cloudflare R2）」那塊的第一行（`JOIN_FIELDS_HINT`）：與下面的輸入框隔一點 */
+  [data-shell="mobile"] .m2-sy-fields-hint { margin-bottom: 8px; }
+}

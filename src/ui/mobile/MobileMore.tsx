@@ -21,11 +21,18 @@
  *   子頁仍是本地 state（上面那條理由不變），外面只能「請求」：`uiStore.openSyncPage("mobile")` 把 tab 切到「更多」
  *   並留一張 `mobileMoreRequest="sync"`，本頁看到就切子頁、當場消費掉（一次性，不會卡在同步頁回不來）。
  *   初值也吃這張請求：從別的 tab 跳過來時直接畫同步頁，不先閃一下「更多」清單。
+ *
+ * v1.1.6（WP-B；拍板〈回饋兩題拍板〉重新開始＋《2026-09-28-v1.1.6-重新開始契約.md》§6.2／§9-1）：「關於」之後一段「危險區」。
+ *   為什麼在這裡：拍板把入口定在〈備份與還原〉、且**不放同步頁**——手機沒有〈備份與還原〉這一頁，
+ *   「更多」頁尾是最接近的位置（契約席自決 §9-1；手機是「整台換新、要清乾淨」最常見的那一台）。
+ *   形狀零發明：`.m2-sec`＋`.m2-sec-title`＋`.m2-note`＋`.ns-btn.btn-ghost.ns-btn-danger.m2-sy-go`（44px），
+ *   外框沿 `.m2-sy-danger`（說明在上、鈕在下）另立 `.m2-danger`。觸控沒有 hover，桌機掛在 title 的鈕說明這裡攤成鈕下一行。
+ *   確認窗（打字「清空」）與留底全在 `syncStore.startOver`，畫窗的是 App 層共用的 ConfirmDialog。
  */
 import { useEffect, useState } from "react";
 import { COMING_SOON_TEXT } from "./tabs";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
-import { useSyncStore, SYNC_PHASE_LABEL } from "../../store/syncStore";
+import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
 // 版本號取 package.json 的 version（tsconfig resolveJsonModule 已開）——發版只改一處，這頁自動跟。
 // ⚠ 發版時 package.json 的 version 要與 tauri.conf.json 一起改成 1.1.0（WP3／整合席）。
@@ -43,6 +50,10 @@ export default function MobileMore() {
   const setTheme = useUiStore((s) => s.setTheme);
   const syncPhase = useSyncStore((s) => s.status?.phase ?? "off");
   const refreshSyncStatus = useSyncStore((s) => s.refreshStatus);
+  // v1.1.6 危險區：未加入時「所有裝置一起」disabled；同步有動作在飛時兩顆一起鎖
+  const syncJoined = useSyncStore((s) => !!s.status?.configured);
+  const syncWorking = useSyncStore((s) => s.working);
+  const startOver = useSyncStore((s) => s.startOver);
   const moreRequest = useUiStore((s) => s.mobileMoreRequest);
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
   const [view, setView] = useState<"more" | "sync">(() => (moreRequest === "sync" ? "sync" : "more"));
@@ -114,6 +125,38 @@ export default function MobileMore() {
           <p className="m2-about-name">私鐵手帳</p>
           <p className="m2-about-latin">Next Stop</p>
           <p className="m2-about-version">v{APP_VERSION}</p>
+        </div>
+      </section>
+
+      {/* v1.1.6 危險區（契約 §6.2）：頁尾、關於之後——要滑到底才看得到，不跟日常設定擠在一起 */}
+      <section className="m2-sec m2-danger" aria-labelledby="m2-sec-danger">
+        <h2 id="m2-sec-danger" className="m2-sec-title">
+          {START_OVER_TEXT.sectionTitle}
+        </h2>
+        <div className="m2-block">
+          <p className="m2-note">{START_OVER_TEXT.lead}</p>
+          <div className="m2-danger-item">
+            <button
+              type="button"
+              className="ns-btn btn-ghost ns-btn-danger m2-sy-go"
+              disabled={syncWorking}
+              onClick={() => startOver("this_device")}
+            >
+              {START_OVER_TEXT.thisDevice.label}
+            </button>
+            <p className="m2-note">{startOverThisNote(syncJoined)}</p>
+          </div>
+          <div className="m2-danger-item">
+            <button
+              type="button"
+              className="ns-btn btn-ghost ns-btn-danger m2-sy-go"
+              disabled={syncWorking || !syncJoined}
+              onClick={() => startOver("all_devices")}
+            >
+              {START_OVER_TEXT.allDevices.label}
+            </button>
+            <p className="m2-note">{syncJoined ? START_OVER_TEXT.allDevices.note : START_OVER_TEXT.allDevices.disabledTitle}</p>
+          </div>
         </div>
       </section>
     </div>

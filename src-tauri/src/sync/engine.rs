@@ -68,6 +68,13 @@
 //!   * `skipped_missing`：必填欄不齊的新列另計，累進 `sync_meta.skipped_missing_total`。
 //!   * `sync_meta.role`／`primary_device_id` 一次 DELETE（從此不能退回 1.1.2，拍板接受）。
 //!
+//! **v1.1.6 重新開始**（規格＝`docs/research/2026-09-28-v1.1.6-重新開始契約.md` §2／§3；拍板＝決策記錄
+//! 〈回饋兩題拍板：荷札（標籤）與重新開始（清空資料庫）〉）：
+//!   * `start_over(ThisDevice)`＝留底 → 拿掉同步（`credstore::clear`＋整張 sync_meta）→ 清資料 → 重啟。
+//!   * `start_over(AllDevices)`＝留底 → 還原標記 `choice=past, reason=reset` → 清資料 → 重啟 → 既有
+//!     `finish_restore(Past)` 開空紀元（`EPOCH.bin.reason="reset"`）。**不新增第四種同步流程**、phase 不增加、
+//!     `SyncStatus` 不加欄；`RestoreMarker`／`RestoreReport` 各多一欄 `reason`。
+//!
 //! 狀態機（`phase`，契約 §4.3 的判定順序）：off（從沒加入）／paused（加入了但總開關關著）／
 //!   epoch_changed（改正待ち）／locked（鍵違い）／gated（信号待ち）／stopped（停車中：憑證缺或上次失敗）／
 //!   running（運行中）。
@@ -965,27 +972,27 @@ pub async fn reset_local(app: &AppHandle) -> Result<SyncStatus, String> {
     let pool = pool(app).await?;
     credstore::clear(app)?;
     let mut tx = pool.begin().await.map_err(db_err)?;
-    sqlx::query("DELETE FROM sync_outbox")
-        .execute(&mut *tx)
-        .await
-        .map_err(db_err)?;
-    sqlx::query("DELETE FROM sync_cells")
-        .execute(&mut *tx)
-        .await
-        .map_err(db_err)?;
-    // v1.1.3 §3.1：**整張** sync_meta（含 device_id）。credstore 也已經連身分一起清掉——
-    // 「拿掉再放回」＝③重新加入＝**新的一台**（新身分、新游標），舊身分在雲端留下的物件
-    // 照樣會被新身分拉回來（LWW 冪等）。
-    sqlx::query("DELETE FROM sync_meta")
-        .execute(&mut *tx)
-        .await
-        .map_err(db_err)?;
-    meta_set(&mut *tx, "enabled", "0").await?;
+    forget_sync_in_tx(&mut tx).await?;
     tx.commit().await.map_err(db_err)?;
     st.set_gate(None);
     st.clear_bucket_meta_done(); // 工程評審 S-9
     drop(_busy);
     status(app).await
+}
+
+/// 「拿掉這台的同步」的 DB 那一半（`reset_local` 與 v1.1.6 `start_over(ThisDevice)` 共用；呼叫端自己先
+/// `credstore::clear`、自己開交易與 commit）：清 sync_outbox／sync_cells／**整張** sync_meta、`enabled='0'`。
+///
+/// v1.1.3 §3.1：**整張** sync_meta（含 device_id）。credstore 也已經連身分一起清掉——
+/// 「拿掉再放回」＝③重新加入＝**新的一台**（新身分、新游標），舊身分在雲端留下的物件
+/// 照樣會被新身分拉回來（LWW 冪等）。
+/// v1.1.6 抽出來的理由：重新開始要把「清資料」與「拿掉同步」放在**同一個交易**（任一步失敗就整個回滾），
+/// 所以共用的是交易內這幾句，而不是 `reset_local` 整支（它自己開交易、還會回 status）。
+async fn forget_sync_in_tx(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), String> {
+    for sql in ["DELETE FROM sync_outbox", "DELETE FROM sync_cells", "DELETE FROM sync_meta"] {
+        sqlx::query(sql).execute(&mut **tx).await.map_err(db_err)?;
+    }
+    meta_set(&mut **tx, "enabled", "0").await
 }
 
 /// 配對碼的內容。**不 derive Debug**：裡面有 R2 的 access key／secret。
@@ -2015,7 +2022,7 @@ pub struct EpochInfo {
     #[serde(alias = "primary_device_id")]
     pub opener_device_id: String,
     pub created_at: String,
-    /// `first`／`restore`／`backfill`
+    /// `first`／`restore`／`backfill`／`reset`（v1.1.6：所有裝置一起重新開始；結構不變，只多一個值）
     pub reason: String,
     /// 還原時的備份檔名；`first`／`backfill` 為 None
     #[serde(default)]
@@ -2095,10 +2102,18 @@ pub(crate) async fn scan_new_epoch(
         // 別台若先問到，會把主人推進「改用那份」→ wipe → pull 到 0 顆物件＝**畫面整個空掉**。
         // 副作用：兩台同時當第一台時，輸的那個空紀元也不會再把人鎖在 `locked=<紀元>` 出不來。
         // 代價：把「還原到一顆空庫」推給別台這件事會晚一趟才問（那份備份本來就沒有東西可拉）。
-        if client.list_prefixes(&format!("{root}/{e}/")).await?.is_empty() {
+        //
+        // v1.1.6 整合席（重新開始契約 §2.1／§8 乙3 的接縫）：「所有裝置一起重新開始」開的紀元**生來就是空的**
+        // （`snapshot_ops=0`，永遠不會有「快照 push 完」那一刻），上面那道「還在寫」的判斷會讓別台**一直看不到**它——
+        // 沙盒乙3 實證：B 照常 running、繼續往舊紀元推，直到 A 寫下第一筆才被問。所以 `reason="reset"` 的標記
+        // 不必等裝置目錄（標記就是它的最終狀態）；其餘 reason 的空紀元照舊跳過。
+        let verdict = epoch_marker_verdict(root, &e, key, &blob);
+        if client.list_prefixes(&format!("{root}/{e}/")).await?.is_empty()
+            && !verdict.as_ref().is_some_and(epoch_complete_when_empty)
+        {
             continue;
         }
-        match epoch_marker_verdict(root, &e, key, &blob) {
+        match verdict {
             Some(info) => return Ok(EpochScan::Found(e, info)),
             None => unopenable.push(e),
         }
@@ -2108,6 +2123,12 @@ pub(crate) async fn scan_new_epoch(
     } else {
         EpochScan::Locked(unopenable)
     })
+}
+
+/// v1.1.6 整合席：一個「還沒有任何裝置目錄」的紀元能不能直接承認——只有 `reason="reset"`
+///（所有裝置一起重新開始：空的就是它的完成態）。`first`／`restore`／`backfill` 的空紀元＝對方還在寫，照舊跳過。
+fn epoch_complete_when_empty(info: &EpochInfo) -> bool {
+    info.reason == "reset"
 }
 
 /// 把掃描結果落進 sync_meta（契約 §3.2）。回 `true`＝這趟不要再 push／pull（改正待ち或鍵違い）。
@@ -2846,13 +2867,32 @@ pub enum RestoreChoice {
 }
 
 /// 標記檔（`sync/epoch-pending`）與選擇檔（`sync/restore-choice`）共用的 JSON 形狀
+///
+/// **v1.1.6（重新開始契約 §3.3）**：多一欄 `reason`——「所有裝置一起重新開始」不新增第四種同步流程，
+/// 而是清空這台之後寫一張 `choice=past, reason="reset"` 的還原標記、重啟、交給既有 `finish_restore(Past)`
+/// 開新紀元；`reason` 只決定 `EPOCH.bin.reason` 與收尾那句話。`None`＝`"restore"`
+/// （v1.1.3–v1.1.5 寫的標記檔沒有這欄，`#[serde(default)]` 照舊解得開）。
 #[derive(Serialize, Deserialize)]
-struct RestoreMarker {
-    at: String,
-    choice: RestoreChoice,
+pub(crate) struct RestoreMarker {
+    pub(crate) at: String,
+    pub(crate) choice: RestoreChoice,
     /// 還原的備份檔名（給 EPOCH.bin 的 `label` 與改正待ち文案）
     #[serde(default)]
-    label: Option<String>,
+    pub(crate) label: Option<String>,
+    /// v1.1.6：`restore`（預設）／`reset`（重新開始）。沒寫就不序列化，既有兩條路寫出的檔與以前逐字相同。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+}
+
+impl RestoreMarker {
+    /// `EPOCH.bin.reason` 與 `RestoreReport.reason` 用的值：空／缺＝`restore`
+    pub(crate) fn reason_or_default(&self) -> &str {
+        self.reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .unwrap_or("restore")
+    }
 }
 
 /// 還原剛完成的標記檔：`backup_restore` 換檔成功後寫、`finish_restore` 收尾時刪。
@@ -2883,10 +2923,56 @@ fn restore_choice_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 
 /// 解標記檔內容：JSON（v1.1.3）或純 ISO 字串（v1.1.2 舊格式＝回到過去）。純函式，單測用。
 fn parse_restore_marker(text: &str) -> (RestoreChoice, Option<String>) {
+    let m = parse_restore_marker_full(text);
+    (m.choice, m.label)
+}
+
+/// v1.1.6：同 `parse_restore_marker`，但整份帶回（含 `reason`）。解不開的（v1.1.2 純 ISO 字串）＝
+/// `choice=Past, reason=None`——與 v1.1.2 的唯一行為一致。空 `label` 當沒有。純函式，單測用。
+fn parse_restore_marker_full(text: &str) -> RestoreMarker {
     match serde_json::from_str::<RestoreMarker>(text.trim()) {
-        Ok(m) => (m.choice, m.label.filter(|l| !l.is_empty())),
-        Err(_) => (RestoreChoice::Past, None),
+        Ok(mut m) => {
+            m.label = m.label.filter(|l| !l.is_empty());
+            m
+        }
+        Err(_) => RestoreMarker {
+            at: text.trim().to_string(),
+            choice: RestoreChoice::Past,
+            label: None,
+            reason: None,
+        },
     }
+}
+
+/// v1.1.6：標記檔的內容字串（`mark_restore_with` 寫的就是這一份；拆出來讓單測不必有 AppHandle）
+fn restore_marker_doc(choice: RestoreChoice, label: Option<String>, reason: &str) -> Result<String, String> {
+    let doc = RestoreMarker {
+        at: now_iso(),
+        choice,
+        label: label.filter(|l| !l.trim().is_empty()),
+        reason: Some(reason.trim().to_string()).filter(|r| !r.is_empty()),
+    };
+    serde_json::to_string(&doc).map_err(|_| "寫入還原標記失敗。".to_string())
+}
+
+/// v1.1.6（重新開始契約 §3.3）：**直接**寫標記檔（不經 `restore-choice` 選擇檔）。
+///
+/// 為什麼不沿用 `restore_choice`＋`mark_restore_pending`：那條路是為「還原對話框按下去 → 換檔 → 重啟」設計的
+/// （選擇檔要撐過換檔失敗；沒選擇檔時退到「接上現在」）。重新開始的 choice 是寫死的，中間多落一個檔只多一個
+/// 失敗點。既有兩支的簽名與行為一字不動。
+/// 目錄在這裡才建（同 `mark_restore_pending`：沒加入同步的桌機不該只因為被問狀態就長出 `sync/`）。
+pub(crate) fn mark_restore_with(
+    app: &AppHandle,
+    choice: RestoreChoice,
+    label: Option<String>,
+    reason: &str,
+) -> Result<(), String> {
+    let p = restore_marker_path(app)?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir).map_err(|_| "建立同步目錄失敗。".to_string())?;
+    }
+    let text = restore_marker_doc(choice, label, reason)?;
+    std::fs::write(&p, text).map_err(|_| "寫入還原標記失敗。".to_string())
 }
 
 /// `sync_restore_choice`（契約 §4.5）：鑰匙圈缺 ⇒ Err（UI 據此不問、直接還原）；`None` ⇒ 清掉選擇檔。
@@ -2920,6 +3006,7 @@ pub fn restore_choice(app: &AppHandle, choice: Option<RestoreChoice>, label: Opt
                 at: now_iso(),
                 choice: c,
                 label: label.filter(|l| !l.trim().is_empty()),
+                reason: None,
             };
             let text = serde_json::to_string(&doc).map_err(|_| "寫入還原選擇失敗。".to_string())?;
             std::fs::write(&p, text).map_err(|_| "寫入還原選擇失敗。".to_string())
@@ -2947,7 +3034,7 @@ pub fn mark_restore_pending(app: &AppHandle) -> Result<(), String> {
         // 走到這裡而沒有選擇檔＝前端沒問成或沒寫成，此時該選的是後果最小的那一個。
         //（正常路徑一定有選擇檔：加入了同步才問，問完才落檔、落檔失敗前端就不還原。）
         .unwrap_or((RestoreChoice::Present, None));
-    let doc = RestoreMarker { at: now_iso(), choice, label };
+    let doc = RestoreMarker { at: now_iso(), choice, label, reason: None };
     let text = serde_json::to_string(&doc).map_err(|_| "寫入還原標記失敗。".to_string())?;
     std::fs::write(&p, text).map_err(|_| "寫入還原標記失敗。".to_string())?;
     if let Some(cp) = choice_path.as_ref() {
@@ -2958,9 +3045,14 @@ pub fn mark_restore_pending(app: &AppHandle) -> Result<(), String> {
 
 /// 讀標記檔：None＝沒有還原待收尾；Some((choice, label))
 pub fn restore_marker(app: &AppHandle) -> Option<(RestoreChoice, Option<String>)> {
+    restore_marker_full(app).map(|m| (m.choice, m.label))
+}
+
+/// v1.1.6：讀整張標記（含 `reason`）；`finish_restore` 用這支決定 `EPOCH.bin.reason` 與收尾那句話。
+pub(crate) fn restore_marker_full(app: &AppHandle) -> Option<RestoreMarker> {
     let p = restore_marker_path(app).ok()?;
     let text = std::fs::read_to_string(&p).ok()?;
-    Some(parse_restore_marker(&text))
+    Some(parse_restore_marker_full(&text))
 }
 
 pub fn is_restore_pending(app: &AppHandle) -> bool {
@@ -3359,6 +3451,9 @@ pub struct RestoreReport {
     /// renewed：進 outbox 的 op 數
     pub snapshot_ops: u64,
     pub message: String,
+    /// v1.1.6（重新開始契約 §3.4）：標記檔的 `reason`——`restore`（一般還原）／`reset`（所有裝置一起重新開始）。
+    /// 三種 outcome 都帶，TS 用它挑 toast 與通知（`restore_done`／`reset_done`）。
+    pub reason: String,
 }
 
 // ── 桶內佈局與小工具（契約 §2）──
@@ -3540,7 +3635,7 @@ pub(crate) fn epoch_marker_verdict(
         .filter(|info| info.epoch == epoch)
 }
 
-/// 寫 `<root>/<epoch>/EPOCH.bin`（`reason`＝`first`／`restore`／`backfill`）
+/// 寫 `<root>/<epoch>/EPOCH.bin`（`reason`＝`first`／`restore`／`backfill`／**v1.1.6** `reset`）
 pub(crate) async fn put_epoch_marker(
     client: &R2Client,
     key: &[u8; crypto::KEY_LEN],
@@ -5042,6 +5137,24 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         None => (0, false),
     };
 
+    // v1.1.6 修正席（工程評審 S-1）：目前紀元是另一台「所有裝置一起重新開始」開的**空紀元**（`EPOCH.bin.reason="reset"`、
+    // 沒有任何裝置目錄）＝雲端「有一份」，只是那份是空的。以前這裡判 `remote_has_data=false` ⇒ 開第三個紀元（reason=first）
+    // 並把本機舊資料推上去——別台只看到一般版「改用那份」，按下去重新開始就被舊資料蓋回，之後 sweep（keep=2）
+    // 還會把重新開始之前那個紀元的目錄刪掉。改成：沿用這個紀元；本機有資料 ⇒ 照「雲端有一份」問二選一
+    //（「改用另一台的」＝這台也清空、「兩邊都保留」＝主人明說要把這台的票送上去）；本機空 ⇒ 當成拉下來（0 顆）。
+    // 判準與 `scan_new_epoch` 放行 reset 空紀元的那道同一支（`epoch_complete_when_empty`）。
+    let reset_empty = match current_epoch.as_deref() {
+        Some(e) if !remote_has_data => match client.get_opt(&epoch_marker_key(&root, e)).await? {
+            Some(blob) => epoch_marker_verdict(&root, e, &data_key, &blob)
+                .as_ref()
+                .is_some_and(epoch_complete_when_empty),
+            None => false,
+        },
+        _ => false,
+    };
+    // 「雲端有一份」（要沿用紀元、要問二選一）；`remote_has_data` 仍只表示「有東西可拉」
+    let remote_occupied = remote_has_data || reset_empty;
+
     // v1.1.4（契約 §5.5 的 join 新守門）：目前紀元有 `ROTATED`、底下卻一個裝置目錄都沒有
     // ＝另一台正卡在輪替的步驟 3～4 之間（KEY 已經是新密語、E2 還沒推東西上去）。
     // 不擋的話這台會判成「雲端沒資料」⇒ 開出**第三個**紀元，把正在換鑰匙那台推進改正待ち，
@@ -5074,7 +5187,8 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     }
 
     // ⑦ 兩邊都有料而 UI 還沒問 ⇒ 什麼都不寫（密語已驗過，主人按完鈕再呼叫一次）
-    if remote_has_data && local_alive > 0 && args.mode.is_none() {
+    //   v1.1.6 修正席：雲端是 reset 空紀元也問（`remote_devices=0`，TS 據此換成 reset 版的說明句）
+    if remote_occupied && local_alive > 0 && args.mode.is_none() {
         drop(_busy);
         return Ok(JoinReport {
             outcome: JoinOutcome::NeedsChoice,
@@ -5084,20 +5198,26 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
             snapshot_ops: 0,
             pull: None,
             export_path: None,
-            message: "雲端上已經有一份資料，這台也有資料——請選一種做法。".into(),
+            message: if reset_empty {
+                "雲端上是另一台「重新開始」之後的空的一份，這台還有資料——請選一種做法。".into()
+            } else {
+                "雲端上已經有一份資料，這台也有資料——請選一種做法。".into()
+            },
         });
     }
 
     // 工程評審 S-4：「改用另一台的」而雲端其實沒資料 ⇒ 停手。`wipe_local_data` 只看 mode，不看
     // `remote_has_data`——問二選一與按下鈕之間雲端被清掉／換成別的血統，就會把本機清空換來一片空白。
-    if args.mode == Some(JoinMode::AdoptRemote) && !remote_has_data {
+    //   v1.1.6 修正席（工程評審 S-1）：reset 空紀元放行——那份「空」就是另一台主人要的結果，改用它＝這台也清空。
+    if args.mode == Some(JoinMode::AdoptRemote) && !remote_occupied {
         drop(_busy);
         return Err("雲端上已經沒有資料可以改用了——請重新按一次「加入同步」重看一次現況。".into());
     }
 
     // ⑧ 定案：紀元（沿用或新開）與模式
     // 接手死掉的輪替（S-8）＝沿用 E2，不另開紀元（EPOCH.bin 已經是那台用 K2 寫好的）
-    let opening_new_epoch = !remote_has_data && !adopt_stale_rotation;
+    //   v1.1.6 修正席：reset 空紀元＝沿用（不另開第三個紀元）
+    let opening_new_epoch = !remote_occupied && !adopt_stale_rotation;
     let epoch = match (&current_epoch, opening_new_epoch) {
         (Some(e), false) => e.clone(),
         _ => {
@@ -5167,7 +5287,8 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     };
 
     // 結局先定下來：⑩ 的交易要據此留 `join_pending`（工程評審 B-2），⑪ 只是照著做
-    let outcome = match (args.mode, remote_has_data, local_alive) {
+    // v1.1.6 修正席：reset 空紀元＋本機空＝Pulled（沿用那個紀元、拉 0 顆），不是「這台是第一台」
+    let outcome = match (args.mode, remote_occupied, local_alive) {
         (Some(JoinMode::AdoptRemote), _, _) => JoinOutcome::Adopted,
         (Some(JoinMode::Merge), _, _) => JoinOutcome::Merged,
         (None, true, _) => JoinOutcome::Pulled,
@@ -5495,9 +5616,14 @@ pub async fn change_passphrase(
 /// 為什麼用檔不用 sync_meta：還原會把整顆 DB 換掉，DB 裡的任何旗標都跟著回到過去；app 資料目錄不會。
 /// 為什麼不在 BackupTab 的還原流程末尾直接做：`backup_restore` 換檔之後會 `app.restart()`，進程不會回來。
 pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
-    let Some((choice, label)) = restore_marker(app) else {
+    let Some(marker) = restore_marker_full(app) else {
         return Err("沒有待處理的還原。".into());
     };
+    // v1.1.6（重新開始契約 §3.4）：`reason=reset`＝「所有裝置一起重新開始」寫的標記（這台已清空）。
+    // 流程與「回到過去」逐步相同，只換 `EPOCH.bin.reason` 與兩句 message。
+    let reason = marker.reason_or_default().to_string();
+    let is_reset = reason == "reset";
+    let (choice, label) = (marker.choice, marker.label);
     // 工程評審 B-1：只有「讀得到、而且裡面沒東西」才是 NotJoined（＝清標記、零動作）。
     // 讀取失敗一律回 Err、**標記留著**——`runCycle` 每 60 秒會再叫一次，主人重啟之後就收得掉。
     let creds = match credstore::load(app) {
@@ -5509,6 +5635,7 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 epoch: None,
                 snapshot_ops: 0,
                 message: "這台還沒加入同步，還原不影響其他裝置。".into(),
+                reason,
             });
         }
         Err(e) => return Err(format!("{e}還原後的同步收尾先停在這裡——請重新啟動後再試。")),
@@ -5546,13 +5673,19 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 meta_set(&pool, "locked", &e).await?;
                 meta_set(&pool, "locked_reason", "rotated").await?;
                 st.set_gate(None);
+                // v1.1.6：重新開始在清空之前已擋過一次（`start_over` 步驟 3），這裡是「重啟之後才被換鑰匙」的殘餘機率
+                let message = if is_reset {
+                    "這份資料已在另一台換過鑰匙——這台已清空但沒有動到雲端，請用新密語「重新加入同步」。"
+                } else {
+                    "這份資料已在另一台換過鑰匙——還原後的資料留在這台，\
+                     請用新密語「重新加入同步」並選「兩邊都保留」。"
+                };
                 return Ok(RestoreReport {
                     outcome: RestoreOutcome::Resumed,
                     epoch: old_epoch,
                     snapshot_ops: 0,
-                    message: "這份資料已在另一台換過鑰匙——還原後的資料留在這台，\
-                              請用新密語「重新加入同步」並選「兩邊都保留」。"
-                        .into(),
+                    message: message.into(),
+                    reason,
                 });
             }
             // 新紀元號一定要大於「舊的」與「桶裡既有的全部」——別台的偵測是「比我大才提示」，
@@ -5578,7 +5711,7 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
 
             // 紀元標記。網路失敗就回 Err——標記檔**留著**，下次啟動再試（紀元號已換也無妨：再換一次就是）
             if let Err(e) =
-                put_epoch_marker(&client, &data_key, &root, &new_epoch, &device_id, "restore", label)
+                put_epoch_marker(&client, &data_key, &root, &new_epoch, &device_id, &reason, label)
                     .await
             {
                 record_error(&pool, &e).await;
@@ -5594,7 +5727,12 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 epoch: Some(new_epoch),
                 snapshot_ops,
                 // 產品評審 S2：toast 不用「紀元」這個內部語彙，講主人看得見的後果
-                message: "還原完成——這台正把整份資料重新上傳；其他裝置下次同步會被問要不要改用這份。".into(),
+                message: if is_reset {
+                    "已重新開始——雲端換上了空的一份；其他裝置下次同步會被問要不要一起清空。".into()
+                } else {
+                    "還原完成——這台正把整份資料重新上傳；其他裝置下次同步會被問要不要改用這份。".into()
+                },
+                reason,
             })
         }
         RestoreChoice::Present => {
@@ -5640,7 +5778,185 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 epoch,
                 snapshot_ops: 0,
                 message: "已接上現在——其他裝置比這份備份新的修改，下一趟同步會再蓋回來。".into(),
+                reason,
             })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// v1.1.6 重新開始（規格＝`docs/research/2026-09-28-v1.1.6-重新開始契約.md` §2／§3；
+// 拍板＝決策記錄〈回饋兩題拍板：荷札（標籤）與重新開始（清空資料庫）〉）
+// ─────────────────────────────────────────────────────────────
+
+/// 〈備份與還原〉危險區的兩個選項（JS：`"this_device"`／`"all_devices"`；commands 層 re-export）
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StartOverScope {
+    /// 只清這台：先拿掉同步（身分＋憑證＋整張 sync_meta），再清資料；雲端與別台都不動
+    ThisDevice,
+    /// 所有裝置一起：清這台＋還原標記（choice=past, reason=reset）→ 重啟 → 既有 `finish_restore(Past)` 開空紀元
+    AllDevices,
+}
+
+/// 「所有裝置一起重新開始」寫進 `EPOCH.bin.label` 的字（改正待ち文案用 reason 挑字，label 只是資訊）
+pub(crate) const START_OVER_LABEL: &str = "重新開始";
+
+/// §2.2 表的人話（WP-B／整合席對字用；改字要兩邊一起改）
+pub(crate) const START_OVER_ERR_RESTORE_PENDING: &str =
+    "先讓上一次的還原收尾完成（重新啟動 App 就會自動做）。";
+pub(crate) const START_OVER_ERR_NOT_JOINED: &str = "這台還沒加入同步——只能清這台。";
+pub(crate) const START_OVER_ERR_UNSETTLED_THIS: &str = "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，或先「重新加入同步」拿掉這台的同步，再重新開始。";
+pub(crate) const START_OVER_ERR_UNSETTLED_ALL: &str =
+    "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，再重新開始。";
+pub(crate) const START_OVER_ERR_ROTATED: &str = "這份資料已在另一台換過鑰匙——請先用新密語重新加入，再重新開始。";
+
+/// 已加入的裝置「狀態還沒處理完」＝改正待ち（`pending_epoch`）或鍵違い（`locked`）。
+/// 換鑰匙中（標記檔）由呼叫端另查——它不在 sync_meta 裡。
+fn start_over_unsettled(meta: &HashMap<String, String>) -> bool {
+    let set = |k: &str| meta.get(k).is_some_and(|v| !v.is_empty());
+    set("locked") || set("pending_epoch")
+}
+
+/// 重新開始的**本機 DB 那一段**（一個交易；`start_over` 的步驟 3／6，拆出來讓單測不必有 AppHandle）。
+///   * 兩個 scope 都 `wipe_local_data`（三表＋outbox／cells；**settings 不動**）。
+///   * `ThisDevice` 另外 `forget_sync_in_tx`（整張 sync_meta、`enabled='0'`）；手機未加入的匯出路徑記回
+///     `last_export_path／last_export_at`（sync_meta 剛被清空，所以要在同一個交易裡**之後**才寫）。
+///   * `AllDevices` 的紀元、joined、enabled、salt、root、device_id **都不動**——重啟後 `finish_restore(Past)` 一次換。
+/// 交易失敗＝整個回滾（Err），這台的資料一列都沒少。`VACUUM` 在交易外、失敗只 log（空間回收不是正確性）。
+pub(crate) async fn start_over_local(
+    pool: &Pool<Sqlite>,
+    scope: StartOverScope,
+    export_path: Option<&str>,
+) -> Result<(), String> {
+    let mut tx = pool.begin().await.map_err(db_err)?;
+    wipe_local_data(&mut tx).await?;
+    if scope == StartOverScope::ThisDevice {
+        forget_sync_in_tx(&mut tx).await?;
+        if let Some(p) = export_path {
+            meta_set(&mut *tx, "last_export_path", p).await?;
+            meta_set(&mut *tx, "last_export_at", &now_iso()).await?;
+        }
+    }
+    tx.commit().await.map_err(db_err)?;
+    if let Err(e) = sqlx::query("VACUUM").execute(pool).await {
+        eprintln!("[sync:start_over] VACUUM 沒做成（資料已清，只是檔案沒縮）：{e}");
+    }
+    Ok(())
+}
+
+/// 重新開始（契約 §2.3；`sync_start_over`）。成功**不會回來**（`app.restart()`；Android＝`exit(0)`）。
+///
+/// 失敗語意（契約 §0）：留底沒成功 ⇒ Err、**這台一個字都沒動**；清資料的交易失敗 ⇒ 回滾、Err
+/// （此時只多了一份留底）。任何一步都不會留下「資料清了、卻沒有任何一份備份」的狀態。
+///
+/// 兩條路：
+///   * **只清這台**：已加入 ⇒ 雲端 Safety 快照 → `credstore::clear`（先拿掉身分：沒拿掉就清資料，下一趟 pull
+///     會把雲端整份拉回來＝拍板的坑）→ 一個交易清資料＋整張 sync_meta → 重啟。
+///     未加入 ⇒ 桌機零網路（本機 manual 備份是 TS 先拍的）；手機把整份匯出成檔（app 目錄退路）當留底。
+///   * **所有裝置一起**：守門（未加入／狀態未處理／別台換過鑰匙）→ 雲端 Safety 快照 → **先寫**還原標記
+///     （reason=reset；沿 `cloud_restore` S-2：標記寫不進去就不清）→ 清資料（失敗收回標記）→ 重啟 →
+///     boot 的 `finish_restore(Past)` 開新紀元（空的、`snapshot_ops=0`）、`EPOCH.bin.reason="reset"`。
+///     不新增第四種同步流程：別台看到的是既有改正待ち，「一起清空」走既有 `adopt_epoch`。
+///
+/// 與契約 §2.3 的一處順序差（WP-A 自決）：`guard_not_rotating` 不在第 0 步單獨叫——已加入時「換鑰匙中」
+/// 要回 §2.2 表那句（含出路），所以改成讀完鑰匙圈再依加入與否分流；未加入時才回 `guard_not_rotating` 原句。
+/// `enabled='0'`（paused）**不擋**（主人剛按下的一次性決定，同還原）。
+pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), String> {
+    // 0. 共同前置
+    let Some(st) = app.try_state::<SyncState>() else {
+        return Err("同步模組還沒初始化。".into());
+    };
+    let Some(_busy) = BusyGuard::acquire(&st.busy) else {
+        return Err("同步正在進行中，請稍候再試。".into());
+    };
+    if is_restore_pending(app) {
+        return Err(START_OVER_ERR_RESTORE_PENDING.into());
+    }
+    let pool = pool(app).await?;
+    let creds = credstore::load(app).map_err(|e| format!("{e}讀不到這台的同步身分——請重新啟動後再試。"))?;
+    let rotating = rotation_marker(app).is_some();
+
+    match scope {
+        StartOverScope::ThisDevice => {
+            // 1. 留底（Err ⇒ 零改變）
+            let mut export_path: Option<String> = None;
+            if let Some(c) = creds.as_ref() {
+                let meta = meta_all(&pool).await?;
+                if rotating || start_over_unsettled(&meta) {
+                    return Err(START_OVER_ERR_UNSETTLED_THIS.into());
+                }
+                guard_sandbox_root(app, &c.root)?;
+                super::snapshot::upload_held(app, &pool, super::snapshot::SnapshotKind::Safety)
+                    .await
+                    .map_err(|e| format!("重新開始前的雲端備份沒拍成：{e}（這台一個字都沒動）"))?;
+            } else {
+                guard_not_rotating(app)?;
+                // 手機沒有備份三件套：未加入時唯一的留底＝整份匯出成檔（下載夾不行就 app 目錄）。
+                // 桌機的留底是 TS 先拍的 manual 本機備份（契約 §2.1），這裡不打網路、不落檔。
+                if cfg!(mobile) {
+                    export_path = Some(
+                        export_full_json(app, &pool)
+                            .await
+                            .map_err(|e| format!("重新開始前的匯出沒成功：{e}（這台一個字都沒動）"))?,
+                    );
+                }
+            }
+            // 2. 先拿掉身分（沿 `reset_local` 的順序：clear 失敗 ⇒ 資料與 sync_meta 都還在）
+            if creds.is_some() {
+                credstore::clear(app)?;
+            }
+            // 3. 清資料＋整張 sync_meta（一個交易）
+            // 修正席（工程評審 S-3）：已加入時身分在步驟 2 已拿掉——交易失敗（回滾、資料與 sync_meta 都還在）的 Err
+            // 要照實講，TS 前面那句「重新開始沒有執行」不然會讓人以為同步還在；再按一次會走未加入那條路、留底照拍。
+            start_over_local(&pool, StartOverScope::ThisDevice, export_path.as_deref())
+                .await
+                .map_err(|e| {
+                    if creds.is_some() {
+                        format!("{e}（同步設定已拿掉、資料都還在——再按一次「只清這台」即可）")
+                    } else {
+                        e
+                    }
+                })?;
+            // 4. 進程旗標（工程評審 S-9：不清的話重新加入之後 `ensure_bucket_meta` 會短路）
+            st.set_gate(None);
+            st.clear_bucket_meta_done();
+            // 5. 重啟（不回來）
+            app.restart()
+        }
+        StartOverScope::AllDevices => {
+            // 1. 守門
+            if creds.is_none() {
+                return Err(START_OVER_ERR_NOT_JOINED.into());
+            }
+            let meta = meta_all(&pool).await?;
+            if rotating || start_over_unsettled(&meta) {
+                return Err(START_OVER_ERR_UNSETTLED_ALL.into());
+            }
+            // 2. 鑰匙＋client（含 `guard_sandbox_root`）
+            let k = keyed_client(app, &pool).await?;
+            // 3. 別台已經換過鑰匙 ⇒ 這台的 K1 開出來的空紀元別台拆不開（會被判成殘留），先擋
+            let rotated = rotated_elsewhere(&k.client, &k.root, &k.data_key, k.epoch.as_deref())
+                .await
+                .map_err(|e| format!("重新開始前的雲端檢查沒成功：{e}（這台一個字都沒動）"))?;
+            if rotated.is_some() {
+                return Err(START_OVER_ERR_ROTATED.into());
+            }
+            // 4. 留底（Err ⇒ 零改變）
+            super::snapshot::upload_held(app, &pool, super::snapshot::SnapshotKind::Safety)
+                .await
+                .map_err(|e| format!("重新開始前的雲端備份沒拍成：{e}（這台一個字都沒動）"))?;
+            // 5. **先寫**還原標記再清（沿 `cloud_restore` S-2：庫清了卻沒有收尾標記＝靜默分歧）
+            mark_restore_with(app, RestoreChoice::Past, Some(START_OVER_LABEL.to_string()), "reset")?;
+            // 6. 清資料（失敗 ⇒ 收回標記）。紀元、joined、enabled、salt、root、device_id 都不動
+            if let Err(e) = start_over_local(&pool, StartOverScope::AllDevices, None).await {
+                clear_restore_pending(app);
+                return Err(e);
+            }
+            // 7. 進程旗標
+            st.set_gate(None);
+            // 8. 重啟（不回來）；重啟後 `runCycle` 在 restore_pending 時不推不拉，boot 的 `finishRestore` 收尾
+            app.restart()
         }
     }
 }
@@ -7713,6 +8029,182 @@ mod tests {
         let (c, l) = parse_restore_marker(r#"{"at":"x","choice":"past","label":""}"#);
         assert_eq!(c, RestoreChoice::Past);
         assert!(l.is_none(), "空 label 當沒有");
+    }
+
+    // ── v1.1.6 重新開始（契約 §3.5）──
+
+    /// 「只清這台」的 DB 段：三表＋outbox／cells 清空、settings 一列不少、sync_meta 只剩 `enabled='0'`（＋手機匯出路徑）。
+    /// 順便守「所有裝置一起」的 DB 段：資料清掉，但紀元與身分（sync_meta）**一個鍵都不動**（重啟後 finish_restore 才換）。
+    #[test]
+    fn start_over_this_device_wipes_data_keeps_settings() {
+        tauri::async_runtime::block_on(async {
+            async fn seed_joined(pool: &Pool<Sqlite>) {
+                seed_tree(pool).await;
+                assert!(stamp_all(pool, "dev-me").await > 0, "先有格子，才驗得到 cells 被清");
+                sqlx::query("INSERT INTO sync_outbox (hlc, tbl, row_id, op, payload) VALUES ('h','nodes','L1','upsert','{}')")
+                    .execute(pool)
+                    .await
+                    .unwrap();
+                for (k, v) in [
+                    ("joined", "1"),
+                    ("enabled", "1"),
+                    ("epoch", "1758153600000"),
+                    ("device_id", "dev-me"),
+                    ("root", "v1-sb-test"),
+                    ("last_pull_key:dev-b", "v1-sb-test/1758153600000/dev-b/x.bin"),
+                ] {
+                    meta_set(pool, k, v).await.unwrap();
+                }
+            }
+            const DATA: [&str; 5] = [
+                "SELECT COUNT(*) FROM nodes",
+                "SELECT COUNT(*) FROM work_logs",
+                "SELECT COUNT(*) FROM occurrences",
+                "SELECT COUNT(*) FROM sync_outbox",
+                "SELECT COUNT(*) FROM sync_cells",
+            ];
+
+            // ── 只清這台（手機未加入那條會帶匯出路徑）──
+            let (pool, path) = make_pool("startover-this").await;
+            seed_joined(&pool).await;
+            let settings_before = count(&pool, "SELECT COUNT(*) FROM settings").await;
+            assert!(settings_before >= 2);
+            start_over_local(&pool, StartOverScope::ThisDevice, Some("C:/sb/nextstop-export.json"))
+                .await
+                .expect("清空要一次過（自我參照外鍵、FK 開著）");
+            for sql in DATA {
+                assert_eq!(count(&pool, sql).await, 0, "{sql}");
+            }
+            assert_eq!(
+                count(&pool, "SELECT COUNT(*) FROM settings").await,
+                settings_before,
+                "settings 一列不少（主題、日界線、書封都是這台自己的）"
+            );
+            assert_eq!(text(&pool, "SELECT value FROM settings WHERE key='theme'").await.as_deref(), Some("sepia"));
+            let keys: Vec<String> = sqlx::query("SELECT key FROM sync_meta ORDER BY key")
+                .fetch_all(&pool)
+                .await
+                .unwrap()
+                .iter()
+                .map(|r| r.get::<String, _>(0))
+                .collect();
+            assert_eq!(keys, ["enabled", "last_export_at", "last_export_path"], "整張 sync_meta 清掉，只留總開關與匯出路徑");
+            assert_eq!(text(&pool, "SELECT value FROM sync_meta WHERE key='enabled'").await.as_deref(), Some("0"));
+            assert_eq!(
+                text(&pool, "SELECT value FROM sync_meta WHERE key='last_export_path'").await.as_deref(),
+                Some("C:/sb/nextstop-export.json")
+            );
+            drop_pool(pool, path).await;
+
+            // ── 只清這台（桌機：沒有匯出路徑）⇒ sync_meta 只剩 enabled='0' ──
+            let (pool, path) = make_pool("startover-this-desk").await;
+            seed_joined(&pool).await;
+            start_over_local(&pool, StartOverScope::ThisDevice, None).await.unwrap();
+            assert_eq!(count(&pool, "SELECT COUNT(*) FROM sync_meta").await, 1);
+            assert_eq!(text(&pool, "SELECT value FROM sync_meta WHERE key='enabled'").await.as_deref(), Some("0"));
+            drop_pool(pool, path).await;
+
+            // ── 所有裝置一起：資料清掉，sync_meta 原封不動（紀元／身分由重啟後的 finish_restore(Past) 一次換）──
+            let (pool, path) = make_pool("startover-all").await;
+            seed_joined(&pool).await;
+            let meta_before = meta_all(&pool).await.unwrap();
+            let settings_before = count(&pool, "SELECT COUNT(*) FROM settings").await;
+            start_over_local(&pool, StartOverScope::AllDevices, None).await.unwrap();
+            for sql in DATA {
+                assert_eq!(count(&pool, sql).await, 0, "{sql}");
+            }
+            assert_eq!(count(&pool, "SELECT COUNT(*) FROM settings").await, settings_before);
+            assert_eq!(meta_all(&pool).await.unwrap(), meta_before, "AllDevices 不碰 sync_meta");
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// 還原標記多一欄 `reason`：reset 寫得進、讀得回；舊格式（無 reason 的 JSON／v1.1.2 純 ISO）讀成 restore。
+    #[test]
+    fn restore_marker_reason_roundtrip() {
+        let doc = restore_marker_doc(RestoreChoice::Past, Some(START_OVER_LABEL.to_string()), "reset").unwrap();
+        let m = parse_restore_marker_full(&doc);
+        assert_eq!(m.choice, RestoreChoice::Past);
+        assert_eq!(m.label.as_deref(), Some("重新開始"));
+        assert_eq!(m.reason.as_deref(), Some("reset"));
+        assert_eq!(m.reason_or_default(), "reset");
+        // 既有的 (choice, label) 讀法照舊（status() 用它）
+        assert_eq!(parse_restore_marker(&doc), (RestoreChoice::Past, Some("重新開始".to_string())));
+
+        // v1.1.3–v1.1.5 的標記檔：沒有 reason ⇒ restore
+        let m = parse_restore_marker_full(r#"{"at":"2026-09-21T00:00:00.000Z","choice":"present","label":"a.db"}"#);
+        assert_eq!(m.choice, RestoreChoice::Present);
+        assert!(m.reason.is_none());
+        assert_eq!(m.reason_or_default(), "restore");
+        // v1.1.2 純 ISO 字串 ⇒ 回到過去＋restore
+        let m = parse_restore_marker_full("2026-09-20T01:02:03.000Z");
+        assert_eq!(m.choice, RestoreChoice::Past);
+        assert!(m.label.is_none());
+        assert_eq!(m.reason_or_default(), "restore");
+        // 空 reason ＝ 沒寫：不序列化這個鍵（既有兩條路寫出的檔與 v1.1.5 逐字同形）
+        let doc = restore_marker_doc(RestoreChoice::Present, None, " ").unwrap();
+        assert!(!doc.contains("reason"), "{doc}");
+        assert_eq!(parse_restore_marker_full(&doc).reason_or_default(), "restore");
+        let legacy = serde_json::to_string(&RestoreMarker {
+            at: "t".into(),
+            choice: RestoreChoice::Past,
+            label: None,
+            reason: None,
+        })
+        .unwrap();
+        assert!(!legacy.contains("reason"), "{legacy}");
+    }
+
+    /// `EPOCH.bin.reason="reset"`：結構不變、serde 往返（別台的 `pending_epoch_info.reason` 靠它挑 reset 文案）
+    #[test]
+    fn epoch_info_reason_reset_parses() {
+        let info = EpochInfo {
+            version: EPOCH_INFO_VERSION,
+            epoch: "1759000000000".into(),
+            opener_device_id: "dev-a".into(),
+            created_at: "2026-09-28T00:00:00.000Z".into(),
+            reason: "reset".into(),
+            label: Some(START_OVER_LABEL.into()),
+        };
+        let s = serde_json::to_string(&info).unwrap();
+        assert!(s.contains(r#""reason":"reset""#), "{s}");
+        let back: EpochInfo = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.reason, "reset");
+        assert_eq!(back.label.as_deref(), Some("重新開始"));
+        assert_eq!(back.epoch, info.epoch);
+        assert_eq!(back.opener_device_id, "dev-a");
+    }
+
+    /// v1.1.6 整合席（沙盒乙3 抓到的接縫）：空紀元只有 reset 能直接承認；其餘 reason 的空紀元＝對方還在寫
+    #[test]
+    fn 空紀元_只有_reset_直接承認() {
+        let mk = |reason: &str| EpochInfo {
+            version: EPOCH_INFO_VERSION,
+            epoch: "1759000000000".into(),
+            opener_device_id: "dev-a".into(),
+            created_at: "2026-09-28T00:00:00.000Z".into(),
+            reason: reason.into(),
+            label: None,
+        };
+        assert!(epoch_complete_when_empty(&mk("reset")));
+        for r in ["first", "restore", "backfill", ""] {
+            assert!(!epoch_complete_when_empty(&mk(r)), "{r}");
+        }
+    }
+
+    /// 守門的純判斷：改正待ち／鍵違い都算「還沒處理完」，空字串不算
+    #[test]
+    fn 重新開始_狀態未處理完的判斷() {
+        let mut m = HashMap::new();
+        assert!(!start_over_unsettled(&m));
+        m.insert("locked".to_string(), String::new());
+        m.insert("pending_epoch".to_string(), String::new());
+        assert!(!start_over_unsettled(&m), "清空後的空字串不算");
+        m.insert("pending_epoch".to_string(), "1759000000000".to_string());
+        assert!(start_over_unsettled(&m));
+        m.insert("pending_epoch".to_string(), String::new());
+        m.insert("locked".to_string(), "1759000000000".to_string());
+        assert!(start_over_unsettled(&m));
     }
 
     #[test]

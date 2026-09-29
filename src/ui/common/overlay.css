@@ -157,3 +157,13 @@
 /* 一條路徑的多顆鍵帽橫排（Ctrl ＋ Enter）：鍵帽間 3px，中間的「+」是小字、ink-soft */
 .ns-kbd-seq { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .ns-kbd-plus { font-size: 11px; line-height: 18px; color: var(--color-ink-soft); }
+
+/* 打字確認（v1.1.6 重新開始契約 §5；ConfirmDialog 的 `typeToConfirm`）：
+   形狀零發明——一句 `.ns-note`＋一條 `.techo-input` 底線輸入，疊在確認窗的 body 與鈕列之間；
+   確認鈕沿用 `.btn-seal`，不相符時只借 `.ns-btn:disabled` 的同一個淡度（.4＋not-allowed），不另畫一種「灰鈕」。
+   手機殼 16px：Android WebView 對 <16px 的輸入框聚焦時會放大整頁（沿 mobile.css `.m2-input` 的同一條理由）。 */
+.ns-confirm-type { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+.ns-confirm-type-input { width: 100%; font-size: 14px; line-height: 1.5; letter-spacing: .12em; }
+.ns-confirm-type-input[aria-invalid="true"] { border-bottom-color: color-mix(in srgb, var(--color-late) 60%, var(--color-dash)); }
+.btn-seal.ns-confirm-type-ok:disabled { opacity: .4; cursor: not-allowed; filter: none; }
+[data-shell="mobile"] .ns-confirm-type-input { font-size: 16px; }

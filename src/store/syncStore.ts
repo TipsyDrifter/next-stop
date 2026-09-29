@@ -27,6 +27,15 @@
  *   * `exportToFile()`：手機先 `plugin-dialog` `save()`（SAF）拿位置，再交給 Rust 寫；桌機／退路不帶 target。
  *   * `describeLocked` 分「換過鑰匙」（`locked_reason='rotated'`）與「殘留」；`SYNC_PHASE_LABEL.rotating`＝「換鑰匙中」。
  *
+ * v1.1.6 改了什麼（WP-B；《2026-09-28-v1.1.6-重新開始契約.md》§4／§7；拍板〈回饋兩題拍板〉重新開始＝清空資料庫）：
+ *   * `startOver(scope)`：〈備份與還原〉危險區（手機＝「更多」頁尾）兩顆鈕共用的 action。三層保護＝
+ *     ①留底（桌機 TS 先拍 manual 本機備份；雲端 Safety 快照／手機匯出由 Rust 拍）→ ②打字確認「清空」
+ *     （`ConfirmState.typeToConfirm`）→ ③確認窗講白後果（`START_OVER_TEXT.confirm` 三段拼）。成功不會回來（重啟）。
+ *   * `backupBeforeAdopt` 改名 `backupBeforeWipe`：「改用另一台的／改用那份」與「重新開始」三處共用同一道留底。
+ *   * 「所有裝置一起」**不新增第四種同步流程**：重啟後走既有 `finishRestore`，`report.reason==="reset"` 只換 toast 與事件
+ *     （`reset_done`）；別台走既有改正待ち，`pending_epoch_info.reason==="reset"` 只換字（`describeEpochChange`／`JOIN_CHOICE_TEXT`）。
+ *   * `JOIN_FIELDS_HINT`：加入表單四欄上方一句（點子簿 2026-09-28；四欄＝桶的門牌與鑰匙、密語＝打不打得開資料）。
+ *
  * 節奏（`boot(shell)` 掛、`stop()` 拆；兩端對稱）：
  *   * 一趟＝**先 push 再 pull**；`SYNC_WRITE_EVENT` 去抖 2 秒、每 60 秒（僅前景）、`visibilitychange`、window focus、手動。
  *   * in-flight 去重；未加入／總開關關著／改正待ち／鍵違い時什麼都不跑。
@@ -44,6 +53,7 @@ import type {
   PushReport,
   RestoreChoice,
   SnapshotEntry,
+  StartOverScope,
   SyncStatus,
   WizardEnv,
 } from "../data/syncRepository";
@@ -132,8 +142,12 @@ export const REJOIN_ROTATED = {
  */
 export const JOIN_CHOICE_TEXT = {
   // `remote_devices` 數的是雲端的裝置目錄，每次「重新加入」都留下一個死身分 ⇒ 不講「N 台裝置在用」（N2）
+  // v1.1.6 修正席（工程評審 S-1）：雲端目前那份是另一台「所有裝置一起重新開始」開的空紀元時，Rust 也會問二選一
+  //（不再另開第三個紀元）——此時裝置目錄恆為 0（有目錄＝有資料＝一般那句），用它挑字，不為此多加回報欄位。
   lead: (devices: number, alive: number) =>
-    `雲端上已有一份（${devices} 個裝置目錄），這台也有 ${alive} 張活著的票。要怎麼做？`,
+    devices === 0
+      ? `雲端上是另一台「重新開始」之後的空的一份，這台還有 ${alive} 張活著的票。要怎麼做？（「改用另一台的」＝這台也一起清空；「兩邊都保留」＝把這台的票送上去給所有裝置）`
+      : `雲端上已有一份（${devices} 個裝置目錄），這台也有 ${alive} 張活著的票。要怎麼做？`,
   merge: "兩邊都保留",
   mergeNote: "兩邊的資料合併，同一格以後改的為準。",
   adopt: "改用另一台的",
@@ -142,12 +156,133 @@ export const JOIN_CHOICE_TEXT = {
     shell === "mobile"
       ? "這台現有的會先拍一份到雲端，再換成雲端那份。"
       : "會先自動備份一份到這台的備份資料夾，再換成雲端那份。",
-  /** 改正待ち的確認窗 body（「改用那份」）；留底那半同樣分殼 */
-  adoptEpochBody: (shell: SyncShell) =>
-    "這台現有的車票與記錄會被那份取代；" +
-    (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
-    "還沒送出的修改另存成檔、不會自動併回。",
+  /**
+   * 改正待ち的確認窗 body（「改用那份」）；留底那半同樣分殼。
+   * v1.1.6（重新開始契約 §6.4／§7）：`reason==="reset"`（另一台按了「所有裝置一起重新開始」）換成「一起清空」的講法；
+   * 其餘 reason 一字不改（省略 reason＝v1.1.5 的呼叫法，同樣走原句）。
+   */
+  adoptEpochBody: (shell: SyncShell, reason?: string) =>
+    reason === "reset"
+      ? "這台的車票與記錄會全部清空；" +
+        (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
+        "還沒送出的修改另存成檔、不會自動併回。"
+      : "這台現有的車票與記錄會被那份取代；" +
+        (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
+        "還沒送出的修改另存成檔、不會自動併回。",
+  /** v1.1.6：改正待ち主鈕（與確認窗的確認鈕）的字——reset＝「一起清空」，其餘照舊「改用那份」 */
+  adoptLabel: (reason?: string) => (reason === "reset" ? "一起清空" : "改用那份"),
+  /**
+   * v1.1.6（WP-B 自決：契約 §6.4 只定了區塊標題與鈕字，確認窗標題沒寫）：改正待ち那一塊的標題與確認窗標題。
+   * reset 的確認窗若照舊問「要改用那份嗎？」，按鈕卻寫「一起清空」＝同一個窗兩種講法。
+   */
+  epochHeading: (reason?: string) => (reason === "reset" ? "另一台重新開始了" : "另一台裝置從備份還原了"),
+  adoptEpochTitle: (reason?: string) => (reason === "reset" ? "要一起清空嗎？" : "要改用那份嗎？"),
 } as const;
+
+/**
+ * v1.1.6（重新開始契約 §7，**逐字**）：危險區「重新開始」的字——兩殼同一份。
+ * 確認窗 body＝留底句（分殼、分加入與否）＋動作句＋收尾句，由 `startOver` 拼（`startOverBody`）。
+ */
+export const START_OVER_TEXT = {
+  sectionTitle: "危險區",
+  lead: "重新開始＝把這台的車票、班次與乘務記錄全部清掉，只留主題等設定。清掉之前會先留一份備份。",
+  thisDevice: {
+    label: "只清這台",
+    noteJoined: "先拿掉這台的同步設定，再清資料——其他裝置與雲端上的資料都不動；之後想再同步就按「加入同步」，會把雲端那份拉回來。",
+    noteAlone: "只清這台的資料，設定保留。",
+  },
+  allDevices: {
+    label: "所有裝置一起重新開始",
+    note: "雲端換上一份空的；其他裝置下次同步會被問要不要一起清空（各自會先留一份）。同步身分與密語都保留。",
+    disabledTitle: "這台還沒加入同步，只能清這台。",
+  },
+  confirm: {
+    typeWord: "清空",
+    typeHint: "輸入「清空」兩個字才能按下去",
+    confirmLabel: "清空",
+    titleThis: "把這台清空？",
+    titleAll: "所有裝置一起重新開始？",
+    // body 由三段拼：留底句（分殼、分加入與否）＋動作句＋收尾句
+    keepDesktopAlone: "會先在這台備份一份，",
+    keepDesktopJoined: "會先在這台備份一份、再上傳一份到雲端保險用，",
+    keepMobileJoined: "會先拍一份到雲端保險用，",
+    // 修正席（工程評審 S-5）：手機未加入時先走 SAF 讓主人自己選位置（例如「下載」）——Rust 的預設落點
+    // `download_dir()` 在 Android 是 App 私有目錄，主人看不到、移除 App 就消失。
+    keepMobileAlone: "會先請你選一個位置（例如「下載」）把整份資料匯出成一個檔，",
+    // 修正席（產品評審 #2）：已加入版補一句「雲端與別台都還在」——主人想「整個清乾淨」時會先按這顆較溫和的鈕，
+    // 清完再加入又全拉回來；桌機這句原本只在 hover 的 title 裡。
+    actThisJoined: "然後拿掉這台的同步設定、清空所有車票與記錄。設定會留下。雲端與其他裝置的資料都還在，之後加入同步會拉回來。",
+    actThisAlone: "然後清空所有車票與記錄。設定會留下。",
+    actAll: "然後清空這台、讓雲端換上空的一份。其他裝置下次同步會被問要不要一起清空。",
+    // 修正席（工程評審 S-4）：留底會過期，講白。本機 manual 與每日 auto 共用保留份數（重新開始後每天拍的是空庫）；
+    // 雲端階梯清理 14 天內全留、之後每週只留最新一份（那週之後的每日空庫快照會取代那顆保險）。
+    regretDesktopAlone: "後悔要趁早：這台那份會隨之後每天的自動備份輪替掉（保留幾份就約幾天）。",
+    regretDesktopJoined: "後悔要趁早：這台那份會隨之後每天的自動備份輪替掉（保留幾份就約幾天），雲端那份兩週內一定救得回。",
+    regretMobileJoined: "後悔要趁早：雲端那份兩週內一定救得回。",
+    regretMobileAlone: "那個檔只能人工翻閱（App 目前不能匯入）。",
+    endDesktop: "完成後 App 會重新啟動。",
+    endMobile: "完成後 App 會關閉，請重新打開。",
+  },
+  /**
+   * 修正席（產品評審 #3／工程評審 S-7）：開窗前就擋得下的情況，**逐字**用 Rust `START_OVER_ERR_*` 那幾句
+   *（Rust 仍是最後一道；TS 先擋只是為了不讓主人打完「清空」、桌機白拍一份 manual 才被擋）。
+   */
+  blockedRestorePending: "先讓上一次的還原收尾完成（重新啟動 App 就會自動做）。",
+  blockedUnsettledThis:
+    "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，或先「重新加入同步」拿掉這台的同步，再重新開始。",
+  blockedUnsettledAll: "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，再重新開始。",
+  /** 修正席（工程評審 S-6）：按下「清空」時背景那一趟還在飛、等了一陣仍沒完（與 Rust BusyGuard 的句子同） */
+  busy: "同步正在進行中，請稍候再試。",
+  /** 修正席（工程評審 S-5）：手機未加入、SAF 選位置時按了取消／寫不進去 */
+  exportCancelled: "沒有選匯出的位置（這台一個字都沒動）。",
+  exportFellBack: (path: string) =>
+    `寫不進你選的位置（這台一個字都沒動；另存了一份在 ${path}，你選的位置可能留下一個空檔，可以刪掉）。`,
+  failed: (e: string) => `重新開始沒有執行：${e}`,
+} as const;
+
+/**
+ * 修正席（產品評審 #3／工程評審 S-7）：目前狀態下「重新開始」會不會被 Rust 擋——會就回那一句（null＝放行）。
+ * 條件與 Rust `start_over` 同：還原沒收尾；已加入且改正待ち（`pending_epoch`）／鍵違い（`locked`）／換鑰匙中（`phase==="rotating"`）。
+ * 未加入按「所有裝置一起」由呼叫端另擋（沿 WP-B 那句）。純函式，方便沙盒與 mock 對字。
+ */
+export function startOverBlockedBy(scope: StartOverScope, status: SyncStatus | null): string | null {
+  if (!status) return null;
+  if (status.restore_pending) return START_OVER_TEXT.blockedRestorePending;
+  if (status.configured && (!!status.locked || !!status.pending_epoch || status.phase === "rotating")) {
+    return scope === "all_devices" ? START_OVER_TEXT.blockedUnsettledAll : START_OVER_TEXT.blockedUnsettledThis;
+  }
+  return null;
+}
+
+/** v1.1.6：「只清這台」鈕的說明（title／手機攤在鈕下）——已加入與否兩種講法 */
+export function startOverThisNote(joined: boolean): string {
+  return joined ? START_OVER_TEXT.thisDevice.noteJoined : START_OVER_TEXT.thisDevice.noteAlone;
+}
+
+/** v1.1.6：確認窗 body＝留底句＋動作句＋收尾句（契約 §7 的拼法；「所有裝置一起」必然已加入） */
+export function startOverBody(scope: StartOverScope, shellName: SyncShell, joined: boolean): string {
+  const c = START_OVER_TEXT.confirm;
+  const j = scope === "all_devices" || joined;
+  const keep =
+    shellName === "desktop" ? (j ? c.keepDesktopJoined : c.keepDesktopAlone) : j ? c.keepMobileJoined : c.keepMobileAlone;
+  const act = scope === "all_devices" ? c.actAll : j ? c.actThisJoined : c.actThisAlone;
+  const regret =
+    shellName === "desktop" ? (j ? c.regretDesktopJoined : c.regretDesktopAlone) : j ? c.regretMobileJoined : c.regretMobileAlone;
+  return keep + act + regret + (shellName === "desktop" ? c.endDesktop : c.endMobile);
+}
+
+/**
+ * v1.1.6（點子簿 2026-09-28「加入表單四欄說明」；契約 §6.3／§7 逐字）：加入表單四欄上方一句。
+ * 主人真機驗收時分不清「四欄」與「密語」各管什麼——一個是去哪個桶找，一個是打不打得開。
+ */
+export const JOIN_FIELDS_HINT =
+  "這四行是 R2 桶的門牌與鑰匙（去哪個桶找資料）；密語是另一回事（打不打得開資料）。用另一台的配對碼或精靈就會自動填好。";
+
+/**
+ * 修正席（產品評審 #5）：手機版——手機沒有精靈，而「配對碼（省手打）」那段正上方已經講了「配對碼只含雲端憑證，
+ * 密語要親手打」，這裡只留「四欄與密語各管什麼」那半句，不重疊。
+ */
+export const JOIN_FIELDS_HINT_MOBILE = "這四行是 R2 桶的門牌與鑰匙（去哪個桶找資料）；密語是另一回事（打不打得開資料）。";
 
 /* ═══════════════════════════════════════════════════════════════════════
    v1.1.5 告警模型（契約 §2；契約席立、WP-B 填偵測、WP-C 讀文案）
@@ -161,6 +296,8 @@ export const JOIN_CHOICE_TEXT = {
  */
 export type SyncAlertKind =
   | "epoch_changed"
+  /** v1.1.6 修正席（產品評審 #1／工程評審 S-2）：改正待ち、而那個新紀元是另一台按「所有裝置一起重新開始」開的 */
+  | "epoch_reset"
   | "locked_rotated"
   | "locked_stale"
   | "stopped"
@@ -172,7 +309,7 @@ export type SyncAlertKind =
  * v1.1.5 修正席（產品評審 S4）：拿掉 `adopt_done`——「改用那份」是主人自己按、毫秒完成、toast 已講，再彈一則系統通知是噪音。
  * 換鑰匙（耗時、人可能走開）與還原（重啟之後）才有理由多一則。
  */
-export type SyncEventKind = "rotation_done" | "restore_done";
+export type SyncEventKind = "rotation_done" | "restore_done" | "reset_done";
 
 /** 停車中的告警門檻：`fail_streak ≥ 3` 才叫（網路抖一下不叫；契約 §2.3） */
 export const SYNC_STOPPED_ALERT_STREAK = 3;
@@ -187,6 +324,13 @@ export const SYNC_ALERT_TEXT: Record<SyncAlertKind, { banner: string; cta: strin
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步停在改正待ち",
     notifBody: "另一台裝置換上了一份新的資料。打開同步頁按「改用那份」。",
+  },
+  // v1.1.6 修正席：reset 版——同步頁的鈕叫「一起清空」，通知與橫幅不能叫主人去按一顆不存在的「改用那份」
+  epoch_reset: {
+    banner: "改正待ち：另一台按了重新開始，這台要一起清空才會繼續同步。",
+    cta: "前往同步",
+    notifTitle: "私鐵手帳・同步停在改正待ち",
+    notifBody: "另一台按了重新開始。打開同步頁按「一起清空」。",
   },
   locked_rotated: {
     banner: "鍵違い：這份資料已在另一台換過鑰匙，這台要用新密語重新加入。",
@@ -235,6 +379,12 @@ export const SYNC_EVENT_TEXT: Record<SyncEventKind, { toast: string; notifTitle:
     notifTitle: "私鐵手帳・還原完成",
     notifBody: "還原後的同步已接回。",
   },
+  /** v1.1.6（重新開始契約 §7 逐字）：「所有裝置一起重新開始」重啟後的收尾（`finishRestore` 的 `reason==="reset"`） */
+  reset_done: {
+    toast: "已重新開始——雲端換上了空的一份；其他裝置下次同步會被問要不要一起清空。",
+    notifTitle: "私鐵手帳・重新開始完成",
+    notifBody: "雲端已換上空的一份，其他裝置下次同步會被問要不要一起清空。",
+  },
 };
 
 /**
@@ -248,7 +398,7 @@ export function alertKindOf(status: SyncStatus | null, stoppedArmed = true): Syn
   if (!status || !status.configured) return null;
   switch (status.phase) {
     case "epoch_changed":
-      return "epoch_changed";
+      return status.pending_epoch_info?.reason === "reset" ? "epoch_reset" : "epoch_changed";
     case "locked":
       return status.locked_reason === "rotated" ? "locked_rotated" : "locked_stale";
     case "gated":
@@ -451,6 +601,12 @@ export interface SyncStore {
   closeRecoveryDialog: () => void;
   /** 「作廢復原碼」：askConfirm → `recoveryClear()` → 重讀狀態 */
   clearRecoveryCode: () => void;
+  /* ── v1.1.6 重新開始（契約 §4.2）── */
+  /**
+   * 危險區兩顆鈕：開確認窗（打字「清空」）→ onConfirm 才跑：桌機先拍 manual 本機備份（拍不成就停）→
+   * `syncRepo.startOver(scope)`（成功不會回來）→ 失敗 toast `重新開始沒有執行：…`。桌機未加入也走這條。
+   */
+  startOver: (scope: StartOverScope) => void;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -714,7 +870,7 @@ async function refreshStatusInner(): Promise<SyncStatus | null> {
  * 拉到東西之後重載畫面。`loadSettings()` 只在 settings 真的被改到時才叫（它每次都會多掛一顆 matchMedia
  * listener，而白名單只有 `day_start_hour`）。
  */
-async function refreshAfterPull(report: PullReport): Promise<void> {
+async function refreshAfterPull(report: Pick<PullReport, "changed_tables">): Promise<void> {
   const ui = useUiStore.getState();
   if (report.changed_tables.includes("settings")) {
     await ui.loadSettings().catch(() => undefined);
@@ -742,11 +898,80 @@ async function refreshAfterPull(report: PullReport): Promise<void> {
 }
 
 /**
- * 桌機「改用另一台的」／「改用那份」之前先拍一份 manual 備份（提案第三節：任何非空裝置選改用另一台之前）。
- * 拍不成就回 false（人話放 formError）——拍不成不做，沿 v1.1.1 評審 S3「備份沒拍成就不啟用」的硬度。
- * 手機沒有備份三件套：由 Rust 匯出全量 JSON（契約 §4.7），這裡直接放行。
+ * v1.1.6 修正席（工程評審 B-1）：本機資料被**整批換掉**之後（改正待ち「改用那份／一起清空」、加入時「改用另一台的」）的重載。
+ * `refreshAfterPull` 只看 pull 回報的 `changed_tables`——「一起清空」拉到 0 顆 ⇒ 空陣列 ⇒ 什麼都不重載，
+ * DB 已空、畫面上的票卻還在（桌機要重啟才消失、手機側欄一直是舊的），主人再對舊票蓋章就會產生殘缺的 upsert op。
+ * v1.1.5 以前空紀元一律被跳過走不到這裡；整合席放行 reset 空紀元之後才第一次走得到。
+ * 所以：三張資料表無條件重載，再把指著已不存在節點的畫面狀態收掉（沿 RouteDialog 刪路線的收法：
+ * 換到剩下的第一條路線、zoom 與選取清空）。
  */
-async function backupBeforeAdopt(): Promise<boolean> {
+async function refreshAfterWipe(pulled: Pick<PullReport, "changed_tables"> | null): Promise<void> {
+  const tables = new Set([...(pulled?.changed_tables ?? []), "nodes", "occurrences", "work_logs"]);
+  await refreshAfterPull({ changed_tables: [...tables] });
+  const node = useNodeStore.getState();
+  const ui = useUiStore.getState();
+  ui.select(null);
+  ui.setZoom(null);
+  if (node.routeId && !node.routes.some((r) => r.id === node.routeId)) {
+    await node.openRoute(node.routes[0]?.id ?? null).catch(() => undefined);
+  }
+}
+
+/**
+ * v1.1.6 修正席（工程評審 S-6）：等背景那一趟（`working`）跑完，最多 `ms` 毫秒；等到回 true。
+ * 回來之後呼叫端要**同步地**（不 await）接著設 `working=true`——promise 的續行是 microtask，排在下一個計時器之前，
+ * 中間不會再插進新的一趟。Rust 的 BusyGuard 仍是最後一道。
+ */
+function waitSyncIdle(ms: number): Promise<boolean> {
+  if (!useSyncStore.getState().working) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      unsub();
+      resolve(!useSyncStore.getState().working);
+    }, ms);
+    const unsub = useSyncStore.subscribe((s) => {
+      if (!s.working) {
+        clearTimeout(timer);
+        unsub();
+        resolve(true);
+      }
+    });
+  });
+}
+
+/** 按下「清空」時最多等背景那一趟多久（一趟 push＋pull 通常數秒；網路很差時寧可明講「稍候再試」） */
+const START_OVER_WAIT_MS = 30_000;
+
+/**
+ * 手機匯出的 SAF 選位置（v1.1.4 查證：`download_dir()` 在 Android 是 app 專屬目錄、主人看不到）。
+ * 回 `content://` URI＝選好了；`null`＝主人取消；`undefined`＝選擇器開不了（沒有檔案 provider）⇒ 呼叫端退回 Rust 預設落點。
+ * v1.1.6 修正席由 `exportToFile` 抽出，讓「重新開始」手機未加入的留底共用同一條（工程評審 S-5）。
+ */
+async function pickExportTarget(title: string): Promise<string | null | undefined> {
+  try {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+    const picked = await save({
+      title,
+      defaultPath: `nextstop-export-${stamp}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    return picked ?? null;
+  } catch (e) {
+    console.warn("[next-stop] 檔案選擇器開不了，改用 App 私有目錄：", messageOf(e));
+    return undefined;
+  }
+}
+
+/**
+ * 桌機「改用另一台的」／「改用那份」／（v1.1.6）「重新開始」之前先拍一份 manual 備份
+ *（提案第三節：任何非空裝置選改用另一台之前；重新開始契約 §9-5：用 manual 不用 safety——主人在備份清單看得到「手動」那份、
+ * 保留份數由自己的配額管，保險份只留 3 份，重新開始那份不該三次還原就被輪掉）。
+ * 拍不成就回 false（人話放 formError）——拍不成不做，沿 v1.1.1 評審 S3「備份沒拍成就不啟用」的硬度。
+ * 手機沒有備份三件套：由 Rust 匯出全量 JSON／拍雲端快照（契約 §4.7），這裡直接放行。
+ * v1.1.6 由 `backupBeforeAdopt` 改名（三處共用，名字不該只講其中一處）。
+ */
+async function backupBeforeWipe(): Promise<boolean> {
   if (shell !== "desktop") return true;
   await useBackupStore.getState().backupNow().catch(() => undefined);
   const backup = useBackupStore.getState();
@@ -788,7 +1013,9 @@ async function settleJoin(report: JoinReport): Promise<void> {
   const joined = await refreshStatusInner();
   await askNotificationIfNeeded(joined);
   attachSchedule();
-  if (report.pull && report.pull.changed_tables.length > 0) await refreshAfterPull(report.pull);
+  // 修正席（工程評審 B-1）：「改用另一台的」＝本機整批換掉——不論拉到幾顆都全重載（雲端是 reset 空紀元時拉 0 顆）
+  if (report.outcome === "adopted") await refreshAfterWipe(report.pull);
+  else if (report.pull && report.pull.changed_tables.length > 0) await refreshAfterPull(report.pull);
   if (report.outcome === "first" || report.outcome === "merged") {
     // 快照已在 outbox 裡，當下就推上去
     await syncRepo.push();
@@ -911,7 +1138,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     if ((!base && !pass) || get().working) return;
     set({ working: true, formError: null });
     try {
-      if (mode === "adopt_remote" && !(await backupBeforeAdopt())) return;
+      if (mode === "adopt_remote" && !(await backupBeforeWipe())) return;
       const report = pass ? await syncRepo.rejoin(pass, mode) : await syncRepo.join({ ...base!, mode });
       pendingJoinInput = null;
       pendingRejoinPass = null;
@@ -1000,8 +1227,12 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       } else {
         detachSchedule(); // not_joined：Rust 已清掉標記，這台不該有背景動作
       }
-      if (report.message) useUiStore.getState().showToast({ message: report.message });
-      if (report.outcome !== "not_joined") fireSyncEvent("restore_done"); // v1.1.5 契約 §2.6
+      // v1.1.6（重新開始契約 §4.4）：「所有裝置一起重新開始」走的是同一條還原收尾，只換字與事件。
+      // Rust 的 message 已是 reset 句；空的才退回常數（舊版 Rust 沒帶 reason ⇒ undefined ⇒ 照一般還原）。
+      const isReset = report.reason === "reset";
+      const toast = report.message || (isReset ? SYNC_EVENT_TEXT.reset_done.toast : "");
+      if (toast) useUiStore.getState().showToast({ message: toast });
+      if (report.outcome !== "not_joined") fireSyncEvent(isReset ? "reset_done" : "restore_done"); // v1.1.5 契約 §2.6
     } catch (e) {
       // 多半是網路：標記檔留著，`runCycle` 每 60 秒補一次（契約 §6 步驟 4）
       useUiStore.getState().showToast({ message: `還原後的同步收尾沒做完：${messageOf(e)}` });
@@ -1014,16 +1245,19 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
 
   async adoptEpoch() {
     if (get().working) return;
+    // 修正席（產品評審 #4）：按之前先記下是哪一種——按完 status 就換成新紀元、`pending_epoch_info` 清掉了
+    const isReset = get().status?.pending_epoch_info?.reason === "reset";
     set({ working: true, formError: null });
     try {
-      if (!(await backupBeforeAdopt())) return;
+      if (!(await backupBeforeWipe())) return;
       const report = await syncRepo.adoptEpoch();
       resetSyncTablesProbe(); // 表清空、cells 清空：下一次寫入重新吃 hlc 種子
       await refreshStatusInner();
       attachSchedule();
       const pulled = await syncRepo.pull();
       await refreshStatusInner();
-      if (pulled.changed_tables.length > 0) await refreshAfterPull(pulled);
+      // 修正席（工程評審 B-1）：本機已整批清掉——不論拉到幾顆都全重載（「一起清空」拉 0 顆，舊碼什麼都不重載）
+      await refreshAfterWipe(pulled);
       // 產品評審 S2：手機沒有備份三件套，改用那份之前 Rust 會先匯出整顆庫——路徑要講出來，
       // 不然「我的東西去哪了」在手機上完全無跡可循（桌機是 TS 拍的 manual 備份，列在備份籤裡）。
       const saved = [
@@ -1032,8 +1266,9 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
           ? `還沒送出的 ${report.orphan_ops} 筆修改另存在 ${report.orphans_path ?? "本機"}`
           : null,
       ].filter(Boolean);
+      const done = isReset ? "已一起清空——這台現在是空的" : "已改用那份";
       useUiStore.getState().showToast({
-        message: saved.length ? `已改用那份；${saved.join("；")}` : "已改用那份",
+        message: saved.length ? `${done}；${saved.join("；")}` : done,
       });
       // v1.1.5 修正席（產品評審 S4）：只 toast、不發系統通知（主人就在畫面前按的）
     } catch (e) {
@@ -1211,19 +1446,9 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         // 查證（…-Android下載目錄寫入查證.md）：`download_dir()` 在 Android 是 app 專屬目錄、主人看不到 ⇒
         // 走 SAF：`plugin-dialog` 的 `save()` 讓主人自己選位置（可選「下載」），回 `content://` URI 交給 Rust 寫。
         // 選擇器開不了（沒有檔案 provider）就退回 Rust 的預設落點，並把路徑講出來。
-        try {
-          const { save } = await import("@tauri-apps/plugin-dialog");
-          const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
-          const picked = await save({
-            title: "匯出到手機",
-            defaultPath: `nextstop-export-${stamp}.json`,
-            filters: [{ name: "JSON", extensions: ["json"] }],
-          });
-          if (picked === null) return null; // 主人取消＝零動作、不吵
-          target = picked;
-        } catch (e) {
-          console.warn("[next-stop] 檔案選擇器開不了，改用 App 私有目錄：", messageOf(e));
-        }
+        const picked = await pickExportTarget("匯出到手機");
+        if (picked === null) return null; // 主人取消＝零動作、不吵
+        target = picked ?? null;
       }
       const report = await syncRepo.exportToFile(target);
       // 工程評審 S-9：SAF 已經先把文件建好了，寫入才失敗 ⇒ Rust 退回 app 私有目錄並回 `picked=false`。
@@ -1317,6 +1542,92 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       },
     });
   },
+
+  /* ── v1.1.6 重新開始（契約 §4.2；WP-B）── */
+
+  startOver(scope) {
+    const joined = !!get().status?.configured;
+    // 「所有裝置一起」在未加入時鈕是 disabled 的；這裡再擋一次（直呼 store 的沙盒腳本也吃同一句人話）
+    if (scope === "all_devices" && !joined) {
+      useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.allDevices.disabledTitle) });
+      return;
+    }
+    // 修正席（產品評審 #3／工程評審 S-7）：開窗前先看狀態——擋得下的當場講、不開窗。以前要等主人打完「清空」
+    // 才被 Rust 擋，桌機卻已先拍了一份 manual（每按一次多一份、擠掉配額內較舊的歷史點）。Rust 仍是最後一道。
+    const blocked = startOverBlockedBy(scope, get().status);
+    if (blocked) {
+      useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(blocked) });
+      return;
+    }
+    const c = START_OVER_TEXT.confirm;
+    useUiStore.getState().askConfirm({
+      title: scope === "all_devices" ? c.titleAll : c.titleThis,
+      body: startOverBody(scope, shell, joined),
+      confirmLabel: c.confirmLabel,
+      danger: true,
+      typeToConfirm: c.typeWord,
+      typeHint: c.typeHint,
+      onConfirm: () => {
+        void (async () => {
+          // 修正席（工程評審 S-6）：打字那幾秒背景那一趟可能起跑了（60 秒計時／focus／寫入事件）。以前這裡
+          // `if (working) return` 靜默結束＝窗關了、沒清、也沒 toast。改成等它跑完（上限 30 秒），等不到就明講。
+          if (!(await waitSyncIdle(START_OVER_WAIT_MS))) {
+            useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.busy) });
+            return;
+          }
+          // 等到了再看一次（那一趟可能剛把這台推進改正待ち）——這段到 `set` 都是同步的，中間插不進新的一趟
+          const again = startOverBlockedBy(scope, get().status);
+          if (again) {
+            useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(again) });
+            return;
+          }
+          const joinedNow = !!get().status?.configured;
+          set({ working: true, formError: null, pendingChoice: null });
+          pendingJoinInput = null;
+          pendingRejoinPass = null;
+          // 清之前先把背景節奏拆掉：Rust 端有 BusyGuard，撞到在飛的那一趟會回「同步正在進行中」；
+          // 拆掉之後這段期間不會再起跑新的一趟。失敗（這台一個字都沒動）時接回去。
+          detachSchedule();
+          try {
+            // ① 留底（桌機）：manual 本機備份——**未加入的桌機這是唯一一份**；拍不成就停（人話在 formError）
+            if (!(await backupBeforeWipe())) {
+              const why = get().formError ?? "備份沒拍成";
+              useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(why) });
+              attachSchedule();
+              return;
+            }
+            // ①' 留底（手機未加入；工程評審 S-5）：先讓主人用 SAF 選位置匯出一份看得到、帶得走的檔。
+            // 取消或寫不進選的位置 ⇒ 停（零改變）；選擇器開不了 ⇒ 退回 Rust 那份（App 私有目錄）。
+            if (shell === "mobile" && scope === "this_device" && !joinedNow) {
+              const target = await pickExportTarget("重新開始前先匯出一份");
+              if (target === null) {
+                useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.exportCancelled) });
+                attachSchedule();
+                return;
+              }
+              if (target !== undefined) {
+                const rep = await syncRepo.exportToFile(target);
+                if (!rep.picked) {
+                  useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.exportFellBack(rep.path)) });
+                  attachSchedule();
+                  return;
+                }
+              }
+            }
+            // ② Rust：雲端 Safety 快照（已加入）／手機匯出（未加入）→ 清 → 重啟。成功不會回來。
+            await syncRepo.startOver(scope);
+          } catch (e) {
+            // Rust 的人話已含「這台一個字都沒動」，這裡不再包第二層解釋（契約 §7 末句）
+            useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(messageOf(e)) });
+            await refreshStatusInner();
+            attachSchedule();
+          } finally {
+            set({ working: false });
+          }
+        })();
+      },
+    });
+  },
 }));
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1352,7 +1663,11 @@ export function describeEpochChange(status: SyncStatus): string {
     info && info.reason !== "restore"
       ? "另一台裝置換上了一份新的資料"
       : `另一台裝置回到了${info?.label ? `「${info.label}」` : "一份備份"}的狀態`;
-  const head = `${when ? `${when}，` : ""}${what}。這台要改用那份`;
+  // v1.1.6（重新開始契約 §7 逐字）：reset＝另一台按了「所有裝置一起重新開始」；後半句（pending_ops）一字不改
+  const head =
+    info?.reason === "reset"
+      ? `${when ? `${when}，` : ""}另一台裝置按了「所有裝置一起重新開始」，雲端現在是空的。這台一起清空之後會變成空的（這台現有的會先留一份）`
+      : `${when ? `${when}，` : ""}${what}。這台要改用那份`;
   if (!status.pending_ops) return `${head}。`;
   const span = status.pending_span
     ? `（${fmtSyncStamp(status.pending_span.from)}～${fmtSyncStamp(status.pending_span.to)} 之間改的）`

@@ -44,6 +44,14 @@ export interface ConfirmState {
   confirmLabel?: string;
   danger?: boolean;
   onConfirm: () => void;
+  /**
+   * v1.1.6（重新開始契約 §5）：要主人逐字打出這個詞才能按確認（危險區用「清空」）。
+   * 有值時確認鈕 disabled 直到 `輸入.trim() === typeToConfirm`；Enter 在不相符時不確認、不關窗。
+   * 沒帶＝與 v1.1.5 以前逐字相同的兩鍵確認窗（F1／F3／還原／重新加入都不受影響）。
+   */
+  typeToConfirm?: string;
+  /** 輸入框上方那一句（預設 `輸入「{typeToConfirm}」才能按下去`） */
+  typeHint?: string;
 }
 
 export interface RouteDialogState {

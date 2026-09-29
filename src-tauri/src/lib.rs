@@ -141,9 +141,11 @@ pub fn run() {
             // v1.1.5 契約 §5：復原碼兩支（WP-A 填 recovery.rs；殼與註冊由契約席先立好）
             sync::commands::sync_recovery_generate,
             sync::commands::sync_recovery_clear,
+            // v1.1.6 重新開始契約 §3.1：危險區「重新開始」（桌機沒加入也要能「只清這台」）
+            sync::commands::sync_start_over,
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十一支（清單與桌機那份逐字相同）。
+    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十二支（清單與桌機那份逐字相同）。
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         sync::commands::sync_status,
@@ -168,6 +170,7 @@ pub fn run() {
         sync::commands::sync_finish_rotation,
         sync::commands::sync_recovery_generate,
         sync::commands::sync_recovery_clear,
+        sync::commands::sync_start_over,
     ]);
 
     // v1.1.2 D-1.1-6 甲：手機掃桌機的 QR（配對碼）。plugin 只在手機 target 有（Cargo 的 target 段），

@@ -16,7 +16,10 @@
  *   ④ʹ 雲端     ＝（v1.1.4 D-2，加入了同步才出現）`CloudSnapshots`：上次上傳、「立即備份到雲端」、快照列表、
  *               點一份 → 同一個「回到過去／接上現在」確認窗（兩殼共用元件；WP-C 落版面）。
  *   ⑤ 動作列   ＝「立即備份」「開啟備份資料夾」「從檔案還原…」（D-⑥-5）。
- *   ⑥ 危險區   ＝ `import.meta.env.DEV` 才渲染的「重置空庫（保留設定）」（D-⑥-8，正式版無此入口）。
+ *   ⑥ 危險區   ＝（v1.1.6 正式版；拍板〈回饋兩題拍板〉重新開始＋《2026-09-28-v1.1.6-重新開始契約.md》§6.1）
+ *               一句 lead＋「只清這台」「所有裝置一起重新開始」兩顆鈕（未加入時第二顆 disabled）；
+ *               確認窗（打字「清空」）與留底都在 `syncStore.startOver`。舊的 DEV「重置空庫（保留設定）」鈕移除
+ *              （`reset_database_keep_settings` command 留給沙盒腳本清場；本檔不再讀 `resetDatabaseKeepSettings`）。
  *
  * 視覺紀律（c13：無原型，一個新形狀都不發明）：
  *   紙卡／籤／按鈕／select／小字標籤全借既有語彙（DialogShell、`.ns-choice`、`.btn-seal`／`.btn-ghost`、
@@ -29,8 +32,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useBackupStore } from "../../store/backupStore";
-import { useSyncStore } from "../../store/syncStore";
-import { useUiStore } from "../../store/uiStore";
+import { START_OVER_TEXT, startOverThisNote, useSyncStore } from "../../store/syncStore";
 import { BACKUP_KEEP_OPTIONS, BACKUP_SAFETY_KEEP } from "../../data";
 import type { BackupKind, BackupLocation, RestoreChoice } from "../../data";
 import { SealReceipt } from "../stamps/Stamps";
@@ -79,7 +81,6 @@ export function BackupTab() {
     refreshList,
     revealBackupsDir,
     restoreFromFile,
-    resetDatabaseKeepSettings,
   } = useBackupStore(
     // zustand 5 的物件 selector 一定要 useShallow，否則每次 render 都是新物件＝無限重繪
     useShallow((s) => ({
@@ -102,12 +103,9 @@ export function BackupTab() {
       refreshList: s.refreshList,
       revealBackupsDir: s.revealBackupsDir,
       restoreFromFile: s.restoreFromFile,
-      resetDatabaseKeepSettings: s.resetDatabaseKeepSettings,
     })),
   );
 
-  // 還原的 danger 確認在 store；DEV 重置沒有，這裡自己攔一道（清空是不可逆的）
-  const askConfirm = useUiStore((s) => s.askConfirm);
   const keepId = useId();
   /**
    * v1.1.3 契約 §8.3：這台加入了同步 ⇒ 還原前先在頁上選「回到過去」（預設）／「接上現在」，
@@ -115,6 +113,9 @@ export function BackupTab() {
    */
   const syncJoined = useSyncStore((s) => !!s.status?.configured);
   const refreshSyncStatus = useSyncStore((s) => s.refreshStatus);
+  // v1.1.6 ⑥ 危險區：確認窗與留底都在 store；同步有動作在飛（一趟 push／pull、加入…）時兩顆鈕一起鎖
+  const startOver = useSyncStore((s) => s.startOver);
+  const syncWorking = useSyncStore((s) => s.working);
   const [restoreChoice, setRestoreChoice] = useState<RestoreChoice>("past");
 
   // 開分頁就重讀一次清單（純讀、可重入；StrictMode 雙掛載只是多列一次）。
@@ -147,15 +148,6 @@ export function BackupTab() {
 
   const okText = fmtStamp(lastOkAt);
   const failed = !!lastError;
-
-  const askReset = () =>
-    askConfirm({
-      title: "重置成空庫（保留設定）？",
-      body: "清空所有幹線、路線、班次與乘務記錄，只留下設定。這是開發模式限定的清場步驟，正式版沒有這個入口——清空前請先按「立即備份」存一份。",
-      confirmLabel: "清空",
-      danger: true,
-      onConfirm: () => void resetDatabaseKeepSettings(),
-    });
 
   return (
     <div className="ns-bk">
@@ -347,23 +339,34 @@ export function BackupTab() {
           還原卻跑「回到過去」。沒加入同步時它只留一句「加入同步後這裡會列出雲端快照」（產品評審 Nice）。 */}
       <CloudSnapshots shell="desktop" choice={restoreChoice} onChoiceChange={setRestoreChoice} />
 
-      {/* ⑥ 危險區——DEV 限定（D-⑥-8：正式版沒有這個入口） */}
-      {import.meta.env.DEV && (
-        <section className="ns-bk-danger">
-          <span className="techo-label block mb-1">危險區（僅開發模式）</span>
-          <div className="ns-bk-actions">
-            <button
-              type="button"
-              onClick={askReset}
-              disabled={busy}
-              title="⑧ 清場步驟二：清空資料、保留主題與日界線等設定。清空前請先「立即備份」。"
-              className="btn-ghost ns-btn ns-btn-danger"
-            >
-              重置空庫（保留設定）
-            </button>
-          </div>
-        </section>
-      )}
+      {/* ⑥ 危險區（v1.1.6 正式版，重新開始契約 §6.1）：整籤最底、撕線隔開。
+          兩顆鈕的長說明掛 title（桌機有 hover；沿本籤「長句版改掛 title」的慣例），常駐的只有 lead 一句。 */}
+      <section className="ns-bk-danger" aria-labelledby={`${keepId}-danger`}>
+        <span id={`${keepId}-danger`} className="techo-label block mb-1">
+          {START_OVER_TEXT.sectionTitle}
+        </span>
+        <p className="ns-note mb-2">{START_OVER_TEXT.lead}</p>
+        <div className="ns-bk-actions">
+          <button
+            type="button"
+            onClick={() => startOver("this_device")}
+            disabled={busy || syncWorking}
+            title={startOverThisNote(syncJoined)}
+            className="btn-ghost ns-btn ns-btn-danger"
+          >
+            {START_OVER_TEXT.thisDevice.label}
+          </button>
+          <button
+            type="button"
+            onClick={() => startOver("all_devices")}
+            disabled={busy || syncWorking || !syncJoined}
+            title={syncJoined ? START_OVER_TEXT.allDevices.note : START_OVER_TEXT.allDevices.disabledTitle}
+            className="btn-ghost ns-btn ns-btn-danger"
+          >
+            {START_OVER_TEXT.allDevices.label}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

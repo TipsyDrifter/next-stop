@@ -33,6 +33,12 @@
  *      〈密語〉在 `needs_passphrase` 時頂上多一句、現密語欄鎖住留白、換鑰匙那格也鎖住（得先有密語才能證明你有它）。
  *   `formError` 是整個 store 共用的一格：已加入區記住「最後按的是密語還是復原碼」，錯誤只出現在那一段，不兩處同時紅。
  *
+ * v1.1.6（WP-B；《2026-09-28-v1.1.6-重新開始契約.md》§6.3／§6.4）——兩處只換字、不加形狀：
+ *   ② 加入表單四欄之前一句 `JOIN_FIELDS_HINT`（四欄＝桶的門牌與鑰匙、密語＝打不打得開資料；更新憑證那張表也講，同一組四欄）。
+ *   ①ʹ 改正待ち的 reset 版：另一台按了「所有裝置一起重新開始」（`pending_epoch_info.reason==="reset"`）⇒
+ *      標題「另一台重新開始了」、主鈕「一起清空」、確認窗 body 走 `adoptEpochBody(shell,"reset")`；動作仍是既有 `adoptEpoch`。
+ *   「重新開始」的入口**不在本籤**（拍板：不放同步頁）——在〈備份與還原〉籤最底的危險區。
+ *
  * 退場的字（契約 §8.7）：「啟用同步（這台是正本）」「要改用桌機的版本嗎？」「桌機已還原並重設同步」「手機要重新配對」。
  * 視覺紀律（c13）：語彙全借 BackupTab 與覆蓋層，本籤自己的排版在 settings.css 檔尾的 WP8 區塊。
  * 資料流：本檔不碰 repository，全走 `syncStore`；密語只活在這支的 local state，送出後即清空（不存、不上傳）。
@@ -46,6 +52,7 @@ import {
   RECOVERY_TEXT,
   REJOIN_ROTATED,
   JOIN_CHOICE_TEXT,
+  JOIN_FIELDS_HINT,
   fmtSyncStamp,
   describeEpochChange,
   describeLocked,
@@ -143,7 +150,8 @@ export function SyncTab() {
           )}
           {status?.last_export && (
             <p className="ns-note ns-sy-orphans">
-              上次改用另一台之前，這台的全部資料另存於 {status.last_export.path}
+              {/* 修正席（產品評審 #6）：與手機殼同一句（v1.1.6 起「只清這台」也可能記這一行） */}
+              上次清空／改用另一份之前，這台的全部資料另存於 {status.last_export.path}
               {status.last_export.at ? `（${fmtSyncStamp(status.last_export.at)}）` : ""}
             </p>
           )}
@@ -164,7 +172,8 @@ export function SyncTab() {
       {/* ①ʹ 改正待ち（契約 §8.4）：另一台「回到過去」，這台停在原地等主人點頭 */}
       {phase === "epoch_changed" && status && (
         <section className="ns-sy-epoch">
-          <span className="techo-label block mb-1">另一台裝置從備份還原了</span>
+          {/* v1.1.6：reset（另一台「所有裝置一起重新開始」）只換標題／鈕字／確認窗字，其餘 reason 一字不改 */}
+          <span className="techo-label block mb-1">{JOIN_CHOICE_TEXT.epochHeading(status.pending_epoch_info?.reason)}</span>
           <p className="ns-note mb-2">{describeEpochChange(status)}</p>
           <div className="ns-bk-actions">
             <button
@@ -173,15 +182,15 @@ export function SyncTab() {
               disabled={working}
               onClick={() =>
                 askConfirm({
-                  title: "要改用那份嗎？",
-                  body: JOIN_CHOICE_TEXT.adoptEpochBody("desktop"),
-                  confirmLabel: "改用那份",
+                  title: JOIN_CHOICE_TEXT.adoptEpochTitle(status.pending_epoch_info?.reason),
+                  body: JOIN_CHOICE_TEXT.adoptEpochBody("desktop", status.pending_epoch_info?.reason),
+                  confirmLabel: JOIN_CHOICE_TEXT.adoptLabel(status.pending_epoch_info?.reason),
                   danger: true,
                   onConfirm: () => void adoptEpoch(),
                 })
               }
             >
-              改用那份
+              {JOIN_CHOICE_TEXT.adoptLabel(status.pending_epoch_info?.reason)}
             </button>
           </div>
         </section>
@@ -438,6 +447,8 @@ function JoinForm({
         </p>
       )}
 
+      {/* v1.1.6（契約 §6.3）：四欄之前一句——四欄與密語各管什麼。每欄自己的 hint 不動 */}
+      <p className="ns-note ns-sy-fields-hint">{JOIN_FIELDS_HINT}</p>
       <div className="ns-sy-form">
         <label className="ns-sy-field">
           <span className="ns-sy-field-label">endpoint</span>

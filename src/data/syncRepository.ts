@@ -23,6 +23,13 @@
  *   * `SyncStatus` 多 `locked_reason／skipped_missing_total／last_cloud_snapshot_at／rotation_stage`；`SyncPhase` 多 `rotating`；
  *     `PullReport` 多 `skipped_missing`。既有 invoke 名稱一個都不改。
  *
+ * v1.1.6 改了什麼（WP-B；《2026-09-28-v1.1.6-重新開始契約.md》§4.1）：
+ *   * `startOver(scope)`＝〈備份與還原〉危險區「重新開始」（`sync_start_over`）：`this_device`＝先拿掉同步再清這台／
+ *     `all_devices`＝留底 → 清空 → 走既有還原標記（reason=reset）→ 重啟後 `finishRestore` 開空紀元。成功不會回來。
+ *   * `RestoreReport.reason`（restore｜reset）：TS 用它挑 toast 與一次性事件；`EpochInfo.reason` 多一種 `reset`。
+ *   * 為什麼不新增 `SyncStatus` 欄位：拍板「不新增第四種同步流程」——別台看到的仍是既有的改正待ち，
+ *     只靠 `pending_epoch_info.reason === "reset"` 換字。
+ *
  * 本檔三件事：
  *   ① 型別與 invoke 名稱（與 Rust `src-tauri/src/sync/{engine,commands}.rs` 的 serde 型別同名同形，snake_case）。
  *   ② `TauriSyncRepository`／`MemorySyncRepository`（`?mock=1`）——UI／store 一律經 `syncRepo`，不直接 invoke。
@@ -116,7 +123,7 @@ export interface EpochInfo {
   epoch: string;
   opener_device_id: string;
   created_at: string;
-  /** first／restore／backfill */
+  /** first／restore／backfill／reset（v1.1.6：另一台按了「所有裝置一起重新開始」——改正待ち換 reset 版的字） */
   reason: string;
   /** 還原時的備份檔名；first／backfill 為 null */
   label: string | null;
@@ -248,7 +255,19 @@ export interface RestoreReport {
   epoch: string | null;
   snapshot_ops: number;
   message: string;
+  /**
+   * v1.1.6（契約 §3.4）：這次收尾的是哪一種標記——`restore`＝一般還原／`reset`＝「所有裝置一起重新開始」。
+   * 三種 outcome 都帶；TS 據此挑事件（`reset_done` vs `restore_done`）。舊標記檔（v1.1.3–v1.1.5）讀成 restore。
+   */
+  reason: "restore" | "reset";
 }
+
+/**
+ * v1.1.6（契約 §2.1）：危險區「重新開始」的兩個選項。
+ *   this_device＝只清這台（已加入就先拿掉同步身分與憑證，其他裝置與雲端不動）；
+ *   all_devices＝所有裝置一起（雲端換上空的一份，別台下次同步走既有的改正待ち）。
+ */
+export type StartOverScope = "this_device" | "all_devices";
 
 /** `sync_decode_pairing_code`（契約 §4.6）：只用來填表，不存、不 log */
 export interface PairingFields {
@@ -327,6 +346,8 @@ export const SYNC_COMMANDS = {
   // v1.1.5（契約 §5）
   recoveryGenerate: "sync_recovery_generate",
   recoveryClear: "sync_recovery_clear",
+  // v1.1.6（契約 §3.1）
+  startOver: "sync_start_over",
 } as const;
 
 export interface SyncRepository {
@@ -378,6 +399,12 @@ export interface SyncRepository {
   recoveryClear(): Promise<void>;
   /** 通知權限「問過了」落 `sync_meta.notif_asked='1'`（TS 端直接寫 sync_meta，不經 command） */
   markNotifAsked(): Promise<void>;
+  /* ── v1.1.6 重新開始（契約 §4.1） ── */
+  /**
+   * 危險區「重新開始」：Rust 先留底（雲端 Safety 快照／手機未加入＝匯出 JSON）再清；成功 `app.restart()` **不會回來**。
+   * 桌機的本機 manual 備份由 store 在呼叫前拍（這支不拍）。Err＝這台一個字都沒動（Rust 人話已含那句）。
+   */
+  startOver(scope: StartOverScope): Promise<never>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -470,6 +497,12 @@ export class TauriSyncRepository implements SyncRepository {
     // `sync_reset_local` 清整張 sync_meta 時它跟著消失＝重新加入後再問一次（對：那是「新的一台」）。
     await writeSyncMeta(await getDb(), "notif_asked", "1");
   }
+  /* ── v1.1.6 ── */
+  /** 成功不會回來（Rust `app.restart()`；Android＝`exit(0)`）；沿 `cloudRestore` 的手法，回來了就當失敗 */
+  async startOver(scope: StartOverScope): Promise<never> {
+    await invoke<void>(SYNC_COMMANDS.startOver, { scope });
+    throw new Error("重新開始的指令回來了但 App 沒有重新啟動，請手動重開私鐵手帳確認資料。");
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -499,6 +532,12 @@ const MOCK_DEVICE_ID = "3f9c2b1e-0000-4000-8000-000000000000";
  *   recovery_set    → v1.1.5：運行中、復原碼已設定（設定頁顯示「已設定・重新產生」）
  *   failing         → v1.1.5（WP-B）：運行中、但之後每一趟 push 都失敗——`fail_streak` 每趟 +1、phase 轉停車中，
  *                     第 3 趟才出「停車中」橫幅＋一則通知（沙盒 甲3 的 mock 版；按「立即同步」三次就走得到）
+ *   reset_pending   → v1.1.6：改正待ち、但那個新紀元是另一台按「所有裝置一起重新開始」開的（`pending_epoch_info.reason="reset"`）
+ *                     ——同步頁標題「另一台重新開始了」、鈕「一起清空」
+ *   restore_reset   → v1.1.6：這台剛按完「所有裝置一起重新開始」重啟（標記 choice=past、reason=reset）：
+ *                     boot 叫 `finishRestore()` ⇒ renewed（空紀元、0 op）＋ reset 版 toast＋`reset_done` 通知。
+ *                     mock 的 `startOver("all_devices")` 就是 reload 到這一態。
+ * v1.1.6 另一個端點（`data/index.ts` 讀）：`&wiped=1`＝示範資料不種（＝清空後的樣子）；mock 的 `startOver` 兩條都帶它 reload。
  * （舊端點 primary／replica／running 仍接受＝joined，免得書籤失效；`running` 是 v1.1.5 對帳單上的寫法。）
  *
  * 為什麼要有 restore_* 兩個端點：還原的收尾發生在**重啟後的第一趟 boot**，真機要備份＋重啟才走得到；
@@ -527,6 +566,9 @@ type SyncMockMode =
   | "needs_passphrase"
   | "recovery_set"
   | "failing"
+  /** v1.1.6 */
+  | "reset_pending"
+  | "restore_reset"
   | null;
 
 const SYNC_MOCK_MODES = [
@@ -548,6 +590,8 @@ const SYNC_MOCK_MODES = [
   "needs_passphrase",
   "recovery_set",
   "failing",
+  "reset_pending",
+  "restore_reset",
 ] as const;
 
 function detectSyncMock(): SyncMockMode {
@@ -643,6 +687,27 @@ function seedState(mode: SyncMockMode): SyncStatus {
     };
   }
   if (mode === "locked") return { ...base, phase: "locked", locked: "salt", locked_reason: null, pending_ops: 0, pending_span: null };
+  // v1.1.6：另一台「所有裝置一起重新開始」——同一個改正待ち，只換 EPOCH.bin 的 reason（沒有 label：沒有「哪份備份」）
+  if (mode === "reset_pending") {
+    return {
+      ...base,
+      phase: "epoch_changed",
+      pending_epoch: "1759050000000",
+      pending_epoch_info: {
+        version: 2,
+        epoch: "1759050000000",
+        opener_device_id: "edcf0000-0000-4000-8000-000000000000",
+        created_at: new Date(Date.now() - 12 * 60_000).toISOString(),
+        reason: "reset",
+        label: "重新開始",
+      },
+      pending_ops: 2,
+    };
+  }
+  // v1.1.6：這台剛「所有裝置一起重新開始」重啟：標記在（past）、資料已清（outbox 0）
+  if (mode === "restore_reset") {
+    return { ...base, restore_pending: true, restore_choice: "past", pending_ops: 0, pending_span: null };
+  }
   if (mode === "restore_past" || mode === "restore_present") {
     // 還原剛完成、標記檔還在：phase 照常（Rust 不因標記改 phase），由 boot 的 `finishRestore()` 收尾
     return {
@@ -788,14 +853,21 @@ export class MemorySyncRepository implements SyncRepository {
     this.state = { ...this.state, restore_choice: choice };
   }
   async finishRestore(): Promise<RestoreReport> {
-    if (!this.state.configured) return { outcome: "not_joined", epoch: null, snapshot_ops: 0, message: "這台還沒加入同步，還原不影響其他裝置。" };
+    // v1.1.6：`reason` 三種 outcome 都帶（Rust 契約 §3.4）；mock 只有 `?sync=restore_reset` 是 reset
+    const reason: RestoreReport["reason"] = this.mode === "restore_reset" ? "reset" : "restore";
+    if (!this.state.configured) return { outcome: "not_joined", epoch: null, snapshot_ops: 0, message: "這台還沒加入同步，還原不影響其他裝置。", reason };
     if (this.state.restore_choice === "present") {
       this.state = { ...this.state, restore_pending: false, restore_choice: null };
-      return { outcome: "resumed", epoch: this.state.epoch, snapshot_ops: 0, message: "已接上現在——雲端比備份新的修改會在下一趟蓋回來" };
+      return { outcome: "resumed", epoch: this.state.epoch, snapshot_ops: 0, message: "已接上現在——雲端比備份新的修改會在下一趟蓋回來", reason };
     }
     const epoch = String(Date.now());
+    if (reason === "reset") {
+      // 空庫開新紀元：snapshot_ops=0（字＝Rust `finish_restore(Past)` reason=reset 那句，契約 §3.4）
+      this.state = { ...this.state, epoch, restore_pending: false, restore_choice: null, pending_ops: 0, pending_span: null };
+      return { outcome: "renewed", epoch, snapshot_ops: 0, message: "已重新開始——雲端換上了空的一份；其他裝置下次同步會被問要不要一起清空。", reason };
+    }
     this.state = { ...this.state, epoch, restore_pending: false, restore_choice: null, pending_ops: 12 };
-    return { outcome: "renewed", epoch, snapshot_ops: 12, message: "已回到過去——這台正把整份資料重新上傳，其他裝置下次同步會被要求改用這份" };
+    return { outcome: "renewed", epoch, snapshot_ops: 12, message: "已回到過去——這台正把整份資料重新上傳，其他裝置下次同步會被要求改用這份", reason };
   }
   async setEnabled(enabled: boolean): Promise<SyncStatus> {
     // 關掉＝paused（設定還在），不是 off（從沒加入）
@@ -906,6 +978,34 @@ export class MemorySyncRepository implements SyncRepository {
   }
   async markNotifAsked(): Promise<void> {
     this.state = { ...this.state, notif_asked: true };
+  }
+  /**
+   * v1.1.6 mock 的「重新開始」：前置條件照 Rust 的人話擋（契約 §2.2，逐字），通過就**換網址 reload**——
+   * 真機是 `app.restart()`，記憶體 repository 撐不過 reload，所以把「重啟後的樣子」寫進 URL：
+   *   this_device → 拿掉 `sync`（＝未加入）＋`wiped=1`（示範資料不種）；
+   *   all_devices → `sync=restore_reset`＋`wiped=1`（boot 走 `finishRestore` ⇒ reset 版 toast＋`reset_done`）。
+   * 本機 manual 備份（桌機）由 store 在呼叫前拍——mock 的 backupRepo 也會多一列，reload 後才一起消失。
+   */
+  async startOver(scope: StartOverScope): Promise<never> {
+    const s = this.state;
+    const stuck = !!s.locked || !!s.pending_epoch || s.phase === "rotating";
+    if (scope === "all_devices") {
+      if (!s.configured) throw new Error("這台還沒加入同步——只能清這台。");
+      if (stuck) throw new Error("這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，再重新開始。");
+    } else if (s.configured && stuck) {
+      throw new Error(
+        "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，或先「重新加入同步」拿掉這台的同步，再重新開始。",
+      );
+    }
+    if (s.restore_pending) throw new Error("先讓上一次的還原收尾完成（重新啟動 App 就會自動做）。");
+    const url = new URL(window.location.href);
+    url.searchParams.set("wiped", "1");
+    if (scope === "all_devices") url.searchParams.set("sync", "restore_reset");
+    else url.searchParams.delete("sync");
+    // 讓確認窗先關、toast 有一拍時間（真機的 restart 也不是瞬間）
+    await new Promise((r) => setTimeout(r, 400));
+    window.location.replace(url.toString());
+    return new Promise<never>(() => undefined); // 永遠 pending＝跟真機「不會回來」同形
   }
 }
 

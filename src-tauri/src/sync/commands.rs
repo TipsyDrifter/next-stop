@@ -16,6 +16,10 @@
 //!   `sync_recovery_generate`（只回一次碼）／`sync_recovery_clear`。`SyncStatus` 多 `fail_streak`／`recovery_set`／
 //!   `needs_passphrase`／`notif_asked`。既有 command 名一個都不改；通知不經 command（JS 直接叫外掛）。
 //!
+//! **v1.1.6（契約席 2026-09-28；重新開始契約 §3.1）**：新增一支 `sync_start_over`（〈備份與還原〉危險區的
+//!   「只清這台」／「所有裝置一起重新開始」；機制在 `engine::start_over`）。`sync_finish_restore` 的回傳多 `reason`
+//!   （restore／reset）。`SyncStatus` 不加欄、既有 command 名一個都不改。共二十二支。
+//!
 //! 全部回 `Result<T, String>`，Err 一律**人話**（沿 backup.rs 的口吻），且**不夾帶憑證、密語與復原碼**。
 //! 兩端（桌機／Android）都註冊（`lib.rs` 兩份 `generate_handler!`）。
 //!
@@ -29,6 +33,8 @@ use super::engine::{
     self, AdoptReport, JoinArgs, JoinMode, JoinReport, PairingFields, PassphraseReport, PullReport, PushReport,
     RestoreChoice, RestoreReport, RotationReport, SyncStatus, WizardEnv,
 };
+/// v1.1.6：型別定義在 engine（`start_over` 的參數），這裡 re-export 讓 command 的簽名自己讀得懂
+pub use super::engine::StartOverScope;
 use super::recovery::{self, RecoveryReport};
 use super::snapshot::{self, ExportReport, SnapshotEntry, SnapshotKind};
 
@@ -220,6 +226,15 @@ pub async fn sync_pull(app: AppHandle) -> Result<PullReport, String> {
 #[tauri::command]
 pub async fn sync_reset_local(app: AppHandle) -> Result<SyncStatus, String> {
     engine::reset_local(&app).await
+}
+
+/// v1.1.6：〈備份與還原〉危險區「重新開始」（契約 §2）。
+/// JS：`invoke("sync_start_over", { scope: "this_device" | "all_devices" })`。
+/// 成功**不會回來**（`app.restart()`；Android＝`exit(0)`）；Err＝零改變（或只多了一份留底），字串是人話、TS 不再包一層。
+/// 兩殼都註冊——桌機沒加入也要能「只清這台」（此時純本機、不打網路）。
+#[tauri::command]
+pub async fn sync_start_over(app: AppHandle, scope: StartOverScope) -> Result<(), String> {
+    engine::start_over(&app, scope).await
 }
 
 /// 任何已加入的裝置都能產配對碼（契約 §4.6；payload v2：憑證＋root＋epoch，不含鹽與身分）。

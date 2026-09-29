@@ -396,6 +396,10 @@
 .ns-sy-field--wide { grid-column: 1 / -1; }
 /* 配對碼那一組與四欄那一組是兩張格線，之間要有段距，不然「填入四欄」會貼在 endpoint 的標籤上 */
 .ns-sy-form + .ns-sy-form { margin-top: 14px; }
+/* v1.1.6（重新開始契約 §6.3）：四欄之前那一句 `JOIN_FIELDS_HINT`——它夾在兩組 `.ns-sy-form` 之間，
+   上面那條相鄰規則就接不上了；由它自己接手同一個 14px，下緣照 `.ns-sy-filled` 的 8px。 */
+.ns-sy-fields-hint { margin-top: 14px; margin-bottom: 8px; }
+.ns-sy-filled + .ns-sy-fields-hint { margin-top: 0; }
 
 /* 還原方式（備份籤；契約 §8.3）：兩枚 `.ns-choice` 一列，後果句跟在下面一行。
    兩句都常駐會把備份籤塞成一堵字牆——沒選到的那一句掛在 title 上（桌機有 hover，

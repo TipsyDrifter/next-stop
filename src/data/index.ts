@@ -57,6 +57,12 @@ function todayMode(): "empty" | "alldone" | null {
 const TODAY_MODE = todayMode();
 
 /**
+ * v1.1.6（WP-B）：`?mock=1&wiped=1`＝示範資料一顆都不種，給「重新開始」之後的畫面用。
+ * mock 的 `syncRepo.startOver` 會帶著它 reload（記憶體 repository 撐不過 reload，只能把「清空之後」寫進網址）。
+ */
+const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
+
+/**
  * dev／mock 專用的起始狀態端點（M3 ⑤ WP1；草案 §6-10「`?page=` 目前不存在，WP1 新增」）。
  * **只在 `?mock=1` 或 vite DEV 生效**，正式打包三個欄位恆 null（沿 `uiStore` 的 THEME_OVERRIDE 模式）。
  *
@@ -102,6 +108,7 @@ export const DEV_FLAGS: DevFlags = detectDevFlags();
 function makeNodeRepo(): NodeRepository {
   if (!MOCK_MODE) return new SqliteNodeRepository();
   const repo = new MemoryNodeRepository();
+  if (WIPED_MODE) return repo; // v1.1.6：重新開始之後＝空庫（設定照舊）
   repo.seedDemo({ many: MANY_MODE, empty: TODAY_MODE === "empty", allDone: TODAY_MODE === "alldone" });
   return repo;
 }
@@ -117,7 +124,7 @@ function makeBackupRepo(): BackupRepository {
 
 if (MOCK_MODE) {
   console.info(
-    `[next-stop] 假資料模式：記憶體 repository，重新整理即重置${MANY_MODE ? "（many=1：今日加量）" : ""}`,
+    `[next-stop] 假資料模式：記憶體 repository，重新整理即重置${MANY_MODE ? "（many=1：今日加量）" : ""}${WIPED_MODE ? "（wiped=1：空庫）" : ""}`,
   );
 }
 
@@ -210,6 +217,7 @@ export type {
   ExportReport,
   RotationReport,
   RecoveryReport,
+  StartOverScope,
   OutboxOp,
   WriteStmt,
   SyncTable,

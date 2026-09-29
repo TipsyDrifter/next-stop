@@ -32,6 +32,10 @@
  *      `RecoveryCodeDialog` 顯示一次。〈密語〉在 `needs_passphrase` 時頂上一句、現密語格鎖住留白、換鑰匙那格鎖住。
  *   `formError` 共用一格：記住最後按的是密語還是復原碼，錯誤只紅在那一塊。
  *   橫幅的「前往同步」會經 MobileMore 直接落到本頁（`uiStore.mobileMoreRequest`）。
+ * v1.1.6（WP-B；《2026-09-28-v1.1.6-重新開始契約.md》§6.3／§6.4）——與桌機 SyncTab 同兩處、同一份字：
+ *   ② 加入表單「雲端（Cloudflare R2）」那塊第一行 `JOIN_FIELDS_HINT`（展開／收合兩態都看得到）。
+ *   ①ʹ 改正待ち的 reset 版（`pending_epoch_info.reason==="reset"`）：標題「另一台重新開始了」、鈕「一起清空」。
+ *   「重新開始」的入口**不在本頁**（拍板：不放同步頁）——在「更多」頁尾的危險區（MobileMore）。
  * 手機沒有備份三件套（本機檔案那一套仍是桌機的事），其餘與桌機同一套字。
  * 觸控與輸入（鐵則）：可點目標 ≥44px（mobile.css 的 WP8 區塊）；輸入框 font-size 16px。
  * 資料流：不碰 repository，全走 `syncStore`；密語只活在本檔的 local state，送出後即清空。
@@ -46,6 +50,7 @@ import {
   RECOVERY_TEXT,
   REJOIN_ROTATED,
   JOIN_CHOICE_TEXT,
+  JOIN_FIELDS_HINT_MOBILE,
   fmtSyncStamp,
   describeEpochChange,
   describeLocked,
@@ -152,7 +157,8 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
           )}
           {status?.last_export && (
             <p className="m2-note m2-sy-orphans">
-              上次改用另一台之前，這台的全部資料另存於
+              {/* 修正席（產品評審 #6）：v1.1.6 起「只清這台」（未加入）也會記這一行，不再只是「改用另一台」 */}
+              上次清空／改用另一份之前，這台的全部資料另存於
               {status.last_export.at ? `（${fmtSyncStamp(status.last_export.at)}）` : ""}
               <br />
               <span className="m2-sy-orphans-path">{status.last_export.path}</span>
@@ -174,7 +180,8 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
         {/* ①ʹ 改正待ち（契約 §8.4） */}
         {phase === "epoch_changed" && status && (
           <div className="m2-block m2-sy-epoch">
-            <span className="m2-block-label">另一台裝置從備份還原了</span>
+            {/* v1.1.6：reset（另一台「所有裝置一起重新開始」）只換標題／鈕字／確認窗字，其餘 reason 一字不改 */}
+            <span className="m2-block-label">{JOIN_CHOICE_TEXT.epochHeading(status.pending_epoch_info?.reason)}</span>
             <p className="m2-note">{describeEpochChange(status)}</p>
             <div className="m2-sy-actions">
               <button
@@ -183,15 +190,15 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
                 disabled={working}
                 onClick={() =>
                   askConfirm({
-                    title: "要改用那份嗎？",
-                    body: JOIN_CHOICE_TEXT.adoptEpochBody("mobile"),
-                    confirmLabel: "改用那份",
+                    title: JOIN_CHOICE_TEXT.adoptEpochTitle(status.pending_epoch_info?.reason),
+                    body: JOIN_CHOICE_TEXT.adoptEpochBody("mobile", status.pending_epoch_info?.reason),
+                    confirmLabel: JOIN_CHOICE_TEXT.adoptLabel(status.pending_epoch_info?.reason),
                     danger: true,
                     onConfirm: () => void adoptEpoch(),
                   })
                 }
               >
-                改用那份
+                {JOIN_CHOICE_TEXT.adoptLabel(status.pending_epoch_info?.reason)}
               </button>
             </div>
           </div>
@@ -570,6 +577,9 @@ function JoinForm({
 
       <div className="m2-block">
         <span className="m2-block-label">雲端（Cloudflare R2）</span>
+        {/* v1.1.6（契約 §6.3）：第一行講四欄與密語各管什麼——收合（已從配對碼填入）與展開兩態都在 */}
+        {/* 修正席（產品評審 #5）：手機版不提精靈、不重複上面「配對碼只含雲端憑證，密語要親手打」那句 */}
+        <p className="m2-note m2-sy-fields-hint">{JOIN_FIELDS_HINT_MOBILE}</p>
         {!showFields && endpoint ? (
           <>
             <p className="m2-note">已從配對碼填入：{bucket}（{endpoint}）</p>
