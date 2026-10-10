@@ -1,7 +1,7 @@
 {
   "name": "next-stop",
   "private": true,
-  "version": "1.1.6",
+  "version": "1.2.0",
   "type": "module",
   "description": "私鐵手帳 · Next Stop — 把人生當成一條私鐵來經營的個人生產力 App（Tauri 2 + React + SQLite，E2EE 同步）",
   "scripts": {
@@ -9,8 +9,11 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "probe:hotkeys": "node scripts/probes/hotkeys-registry.ts && node scripts/probes/hotkeys-rows.ts",
+    "probe:registry": "node scripts/probes/registry.ts && node scripts/probes/dev-quota.ts",
+    "probe:golden": "node scripts/probes/foundation-golden.ts",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev -c src-tauri/tauri.dev.conf.json"
+    "tauri:dev": "node scripts/dev.ts tauri",
+    "dev:which": "node scripts/dev.ts print"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

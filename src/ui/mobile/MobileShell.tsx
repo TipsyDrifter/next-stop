@@ -10,8 +10,13 @@
  * 回 Fragment 不包 wrapper：三段要當根 div 的**直接**子節點，flex column 才分得到高度
  *   （WP0 備了 `.m-shell` 可選 wrapper，這裡用不到就不多一層 DOM）。
  *
- * 頁面對照的順序刻意是「先判 status、再 switch key」：registry 裡的 planned 筆不需要各自的元件檔，
- *   日後 notes／timetable 通車只要改 registry 的 status 並在 switch 補一行（契約 §2.2）。
+ * 頁面對照的順序刻意是「先判 status、再查表」：registry 裡的 planned 筆不需要各自的元件檔。
+ *   並行地基（契約 2026-09-29 §7 M-2）起 switch 換成對照表 `MOBILE_VIEWS`：旅客筆記／時刻表兩格取各線
+ *   `src/lines/<line>.mount.tsx` 的 `mobileView`，通車只改各線自己的登記檔（status 在 manifest、元件在 mount），本檔不必碰。
+ *   取不到元件就落到今日（＝地基之前 switch 的 default）。
+ *
+ * 三條功能線的手機全域浮層／浮動鈕（增補 2026-10-05 增補二）：`lineOverlays("mobile")` 依三線固定順序掛在最後，
+ *   只有手機入口通車（mobile.status＝open）且有填的線才掛——三線都沒登記時是空陣列，零 DOM 節點。
  *
  * 覆蓋層（<Toast/>／<ConfirmDialog/>）由 App 層兩殼共用掛載，本檔**不**再掛一份（契約 §2.3、§3）。
  *
@@ -20,6 +25,7 @@
  *   放在頂帶**之後**而不是頁面裡：告警跟著 App 走、不跟著頁走，在哪一格 tab 都看得到；
  *   沒加入同步 ⇒ 元件回 null、DOM 零節點。復原碼對話框兩殼共用一份，掛在 App 層（不在這裡）。
  */
+import type { ComponentType } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { mobileTabByKey, type MobileTabKey } from "./tabs";
 import { MobileTopBand } from "./MobileTopBand";
@@ -29,19 +35,23 @@ import MobileToday from "./MobileToday";
 import MobileRouteMap from "./MobileRouteMap";
 import MobileMore from "./MobileMore";
 import { SyncBanner } from "../common/SyncBanner";
+import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
+
+/** tab → 頁面元件（planned 的格子先被 ComingSoon 攔下，走不到這裡） */
+const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
+  today: MobileToday,
+  routemap: MobileRouteMap,
+  more: MobileMore,
+  notes: LINE_MOUNTS.notes.mobileView,
+  timetable: LINE_MOUNTS.timetable.mobileView,
+};
 
 function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
   const tab = mobileTabByKey(tabKey);
   // 未通車的格子一律走 ComingSoon（先判 status，才不必為 planned 筆各開一支空元件）
   if (tab.status === "planned") return <ComingSoon tab={tab} />;
-  switch (tab.key) {
-    case "routemap":
-      return <MobileRouteMap />;
-    case "more":
-      return <MobileMore />;
-    default:
-      return <MobileToday />;
-  }
+  const View = MOBILE_VIEWS[tab.key] ?? MobileToday;
+  return <View />;
 }
 
 export default function MobileShell() {
@@ -54,6 +64,9 @@ export default function MobileShell() {
       <SyncBanner shell="mobile" />
       <MobilePage tabKey={tabKey} />
       <MobileTabBar />
+      {lineOverlays("mobile").map(({ id, Overlay }) => (
+        <Overlay key={id} />
+      ))}
     </>
   );
 }

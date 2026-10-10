@@ -1,0 +1,5 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "app.shitetsu.nextstop.dev.notes",
+  "build": { "devUrl": "http://localhost:1435" }
+}

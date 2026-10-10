@@ -19,12 +19,12 @@
 //!                   手機沒有 backup.rs，所以不掛在那裡）
 //!   * `recovery`  ─ **v1.1.5** 復原碼：Base32＋校驗碼的純函式、`<root>/RECOVERY`（第二把包裝，與 KEY 同格式）
 //!                   的封／拆／重包；用碼加入＝`join` 的另一種密語輸入（三條規則不增加）
-//!   * `commands`  ─ 二十二支 `#[tauri::command]`（v1.1.3 十三支＋v1.1.4 六支＋v1.1.5 兩支＋v1.1.6 一支；
+//!   * `commands`  ─ 二十三支 `#[tauri::command]`（v1.1.3 十四支＋v1.1.4 六支＋v1.1.5 兩支＋v1.1.6 一支；
 //!                   invoke 名稱與 JSON 形狀是契約，TS 照著編譯）。v1.1.6 的 `sync_start_over`＝〈備份與還原〉危險區
 //!                   「重新開始」（只清這台／所有裝置一起；後者走既有還原標記＋`finish_restore`，不新增同步流程）
 //!
 //! 掛載（在 `lib.rs`）：`.plugin(sync::init())`（排在 sql plugin 之後）＋兩份 `generate_handler!`
-//!   （桌機那份＝backup 七支＋sync 二十二支，手機那份＝sync 二十二支——`generate_handler!` 不吃 `#[cfg]`，
+//!   （桌機那份＝backup 七支＋sync 二十三支，手機那份＝sync 二十三支——`generate_handler!` 不吃 `#[cfg]`，
 //!   只能整句用 `#[cfg]` 分兩份；`invoke_handler` 又只能叫一次）。
 //!   command 是**應用層**的（跟 backup 一樣註冊在 app 的 invoke_handler，不是 plugin 的），
 //!   所以 `capabilities/*.json` 一個字都不必動。
@@ -41,14 +41,17 @@ pub mod hlc;
 pub mod r2;
 pub mod recovery;
 pub mod snapshot;
+// 並行地基 甲2（契約 §3）：同步表登記表——core 四張＋三線各自的登記檔
+pub mod tables;
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
     Wry,
 };
 
-/// 本機引擎支援的 schema 版本＝migration 版本數（0001–0004）。oplog 物件的 `schema` 與此不等＝信号待ち。
-pub const SCHEMA_VERSION: u32 = 4;
+/// 本機引擎支援的 schema 版本＝migration 總數（由 `crate::migrations::MIGRATIONS` 導出，不手寫；
+/// 並行地基 甲1）。oplog 物件的 `schema` 比它大＝信号待ち。
+pub const SCHEMA_VERSION: u32 = crate::migrations::MIGRATIONS.len() as u32;
 
 /// 前端 `src/lib/db.ts` 用的連線字串＝`DbInstances` map 的鍵（與 backup.rs 同值；不共用是為了 mobile 不編 backup）
 pub const DB_URL: &str = "sqlite:next-stop-v2.db";

@@ -14,6 +14,17 @@
  *   第二欄 .gnav-closed＝未通車三枚 .gnav-off（旅客筆記／時刻表／售票口），灰階不可點、hover／focus 浮出
  *     .tip-closed tooltip「頁名＋次期開業予定」；通車時該枚升入第一欄。
  *   .gnav-search＝D5 搜尋鈕（開 QuickJump，鍵盤走 Ctrl+P）；設定入口 .foot-set 常駐 cover-foot（Q7 全域三件）。
+ *   搜尋鈕外包一層 div.gnav-tools（側欄工具插槽，旅客筆記車次① 0-1 甲）：通車的線在 mount 填的 `sidebarTool`
+ *   依 `lineSidebarTools()` 順序渲染在搜尋鈕左側；地基不寫 `.gnav-tools` 的 CSS，三線零登記＝只多一層 div、視覺相同。
+ *
+ * 並行地基（契約 2026-09-29 §6.2 C-8～C-11；增補 2026-10-05 增補一取代 C-11）：兩欄都改由頁面登記表（ui/shell/pages.ts）畫。
+ *   - 上排＝`corePages()`（核心三頁，固定順序）；鍵帽註記＝`openPages()` 的數字串（通車的線自動多一個數字）。
+ *   - 下排＝`linePages()`（三條功能線，固定順序旅客筆記／時刻表／售票口，不論通車與否）。主人拍板維持現在的排法：
+ *     **哪條線通車，就把它那一枚的反灰復原，位置不搬到上排**（上面「通車時該枚升入第一欄」的舊說法作廢）。
+ *     planned ＝與地基之前逐字相同的 `GnavOff`；open ＝一顆可按的 `button.gnav-line`（屬性比照上排、圖示 15px）。
+ *     `.gnav-line` 地基不寫 CSS（鐵則：CSS 一律不動）——第一條通車的線在自己的 CSS 補上樣式。
+ *     「次期開業予定」群組名只要還有任何一枚 planned 就照舊；三線全通車才拿掉（容器與按鈕仍在）。
+ *   - 六枚頁面圖示搬到 `gnavIcons.tsx`（`GNAV_ICONS[id](size)`，形狀逐字）。
  *
  * 原型沒有的控件：✎ 編輯 hover 才現身；＋路線／＋幹線借 .line-add 小字。
  * 邏輯：openRoute＋setZoom(null)＋select(null)、openRouteDialog、setQuickJumpOpen、setSettingsOpen；
@@ -28,6 +39,12 @@ import { roundelStyle } from "../common/roundel";
 import { MOD_KBD, formatChord, hotkeyById } from "../shell/hotkeys";
 // v1.1.1 WP8：同步狀態點（未啟用時整顆不渲染——桌機沒開同步就與 v1.1.0 逐像素相同）
 import { SyncDot } from "../common/SyncDot";
+// 頁面登記表與 gnav 圖示（並行地基・契約 §6）
+import { corePages, linePages, openPages } from "../shell/pages";
+import { GNAV_ICONS, svgProps } from "./gnavIcons";
+// 側欄工具插槽（通車的線的 mount `sidebarTool`）：查 `lines/runtime`、不 import `lines/mounts`——
+// 本元件在 App 的 import 清單裡排在 pageViews 之前，import mounts 會把線的元件樹與 CSS 提早求值（理由見 runtime.ts 檔頭）
+import { lineSidebarTools } from "../../lines/runtime";
 import "./sidebar.css";
 // gnav 樣式（styles/gnav.css）由 src/index.css 集中 import——見該檔檔頭的注入順序說明
 
@@ -58,67 +75,7 @@ function RouteRoundel({ route }: { route: NodeRow }) {
   );
 }
 
-/* ── 原型 gnav 圖示（1.3px 細線幾何 inline SVG，逐字照抄；viewBox 恆為 16，只換 width/height）
-      尺寸依原型：第一欄 17px、第二欄 15px、搜尋／齒輪 13px ── */
-function svgProps(size: number) {
-  return {
-    width: size, height: size, viewBox: "0 0 16 16",
-    fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" as const,
-    "aria-hidden": true,
-  };
-}
-
-function IconToday() {
-  return (
-    <svg {...svgProps(17)}>
-      <rect x="1.7" y="3.7" width="12.6" height="8.6" rx="1" />
-      <path d="M10.2 3.7v8.6" strokeDasharray="1.6 2" />
-    </svg>
-  );
-}
-function IconRouteMap() {
-  return (
-    <svg {...svgProps(17)}>
-      <path d="M3.5 12.5V9.2c0-1.2.8-2 2-2h5c1.2 0 2-.8 2-2V3.8" />
-      <circle cx="3.5" cy="13" r="1.4" />
-      <circle cx="12.5" cy="3.2" r="1.4" />
-    </svg>
-  );
-}
-function IconCalendar() {
-  return (
-    <svg {...svgProps(17)}>
-      <rect x="2.3" y="3.2" width="11.4" height="10.2" rx="1" />
-      <path d="M5.2 1.8v2.6M10.8 1.8v2.6" />
-      <path d="M2.3 6.6h11.4" />
-    </svg>
-  );
-}
-function IconNotes() {
-  return (
-    <svg {...svgProps(15)}>
-      <rect x="3" y="2.3" width="10" height="11.4" rx="1" />
-      <path d="M6 2.3v11.4" />
-    </svg>
-  );
-}
-function IconTimetable() {
-  return (
-    <svg {...svgProps(15)}>
-      <circle cx="8" cy="8" r="5.7" />
-      <path d="M8 4.8V8l2.2 1.6" />
-    </svg>
-  );
-}
-function IconTicketOffice() {
-  return (
-    <svg {...svgProps(15)}>
-      <path d="M2.6 13.4V8.2a5.4 5.4 0 0 1 10.8 0v5.2" />
-      <path d="M5.4 10.6h5.2" />
-      <path d="M8 10.6v2.8" />
-    </svg>
-  );
-}
+/* ── 搜尋／齒輪圖示（原型 1.3px 細線幾何，逐字；13px）。六枚頁面圖示在 gnavIcons.tsx ── */
 function IconSearch() {
   return (
     <svg {...svgProps(13)}>
@@ -220,6 +177,9 @@ export function Sidebar() {
     return map;
   }, [stations]);
 
+  // 下排還有任何一枚未通車 ⇒ 「次期開業予定」群組名照舊（增補一）
+  const anyPlanned = linePages().some((p) => p.status === "planned");
+
   const onOpenRoute = (id: string) => {
     setPage("routemap");
     void openRoute(id);
@@ -236,44 +196,28 @@ export function Sidebar() {
       </div>
 
       <nav className="gnav" aria-label="全域導航">
-        {/* 第一欄：已通車三頁。⑤ 起今日／路線圖／日曆三枚都真的換頁（active＋aria-current 同一套） */}
+        {/* 第一欄：核心三頁（今日／路線圖／日曆）。⑤ 起三枚都真的換頁（active＋aria-current 同一套） */}
         <div className="gnav-row">
-          <button
-            type="button"
-            className={`gnav-item${page === "today" ? " active" : ""}`}
-            aria-current={page === "today" ? "page" : undefined}
-            title={`今日（${capsOf("global.nav.today")}）`}
-            onClick={() => setPage("today")}
-          >
-            <IconToday />
-            今日
-          </button>
-          <button
-            type="button"
-            className={`gnav-item${page === "routemap" ? " active" : ""}`}
-            aria-current={page === "routemap" ? "page" : undefined}
-            title={`路線圖（${capsOf("global.nav.routemap")}）`}
-            onClick={() => setPage("routemap")}
-          >
-            <IconRouteMap />
-            路線圖
-          </button>
-          <button
-            type="button"
-            className={`gnav-item${page === "calendar" ? " active" : ""}`}
-            aria-current={page === "calendar" ? "page" : undefined}
-            title={`日曆（${capsOf("global.nav.calendar")}）`}
-            onClick={() => setPage("calendar")}
-          >
-            <IconCalendar />
-            日曆
-          </button>
+          {corePages().map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`gnav-item${page === p.id ? " active" : ""}`}
+              aria-current={page === p.id ? "page" : undefined}
+              title={`${p.label}（${capsOf(p.navHotkeyId)}）`}
+              onClick={() => setPage(p.id)}
+            >
+              {GNAV_ICONS[p.id](17)}
+              {p.label}
+            </button>
+          ))}
         </div>
         {/* 鍵盤註記＋ ⑦「? 指引」滑鼠入口（D-⑦-3 甲）：同一行同字級；註記與入口各包一個 span（讀屏有邊界、
             淡度只落在註記）；純滑鼠入口所以不掛 role=button（掛了又不能 Enter／Space 對讀屏是「按不下去的鈕」），
             mousedown 不搶焦點，點了只切 hotkeyGuideOpen（互斥由 uiStore 保證）；鍵盤走 ?（導航模式）／Ctrl+/（IME 備援） */}
         <p className="gnav-kbd">
-          <span className="gnav-kbd-note">{MOD_KBD} 1 · 2 · 3</span>{" "}
+          {/* 前導空白併進數字那一段：維持「MOD_KBD｜ 1 · 2 · 3」兩個文字節點，與重構前同切法（三節點會差次像素） */}
+          <span className="gnav-kbd-note">{MOD_KBD}{` ${openPages().map((p) => p.navDigit).join(" · ")}`}</span>{" "}
           <span
             className="gnav-kbd-guide"
             title={`快捷鍵指引（${capsOf("global.guide")}）`}
@@ -285,25 +229,44 @@ export function Sidebar() {
           <SyncDot className="gnav-sync-dot" />
         </p>
 
-        {/* 第二欄：未通車佔位（Q3 拍板 2026-08-28）——灰階小圖示、hover「次期開業予定」 */}
-        <div className="gnav-closed" role="group" aria-label="次期開業予定（未通車）">
-          <GnavOff name="旅客筆記">
-            <IconNotes />
-          </GnavOff>
-          <GnavOff name="時刻表">
-            <IconTimetable />
-          </GnavOff>
-          <GnavOff name="售票口">
-            <IconTicketOffice />
-          </GnavOff>
+        {/* 第二欄：三條功能線（Q3 拍板 2026-08-28；增補一：位置固定，通車只把那一枚的反灰復原）——
+            未通車＝灰階小圖示、hover「次期開業予定」；通車＝可按的 .gnav-line（樣式由該線自己的 CSS 補） */}
+        <div
+          className="gnav-closed"
+          {...(anyPlanned ? { role: "group", "aria-label": "次期開業予定（未通車）" } : {})}
+        >
+          {linePages().map((p) =>
+            p.status === "planned" ? (
+              <GnavOff key={p.id} name={p.label}>
+                {GNAV_ICONS[p.id](15)}
+              </GnavOff>
+            ) : (
+              <button
+                key={p.id}
+                type="button"
+                className={`gnav-line${page === p.id ? " active" : ""}`}
+                aria-current={page === p.id ? "page" : undefined}
+                title={`${p.label}（${capsOf(p.navHotkeyId)}）`}
+                onClick={() => setPage(p.id)}
+              >
+                {GNAV_ICONS[p.id](15)}
+                {p.label}
+              </button>
+            ),
+          )}
         </div>
 
-        {/* D5 頂部搜尋鈕（滑鼠入口；鍵盤走 Ctrl+P） */}
-        <button type="button" className="gnav-search" onClick={() => setQuickJumpOpen(true)} title={`搜尋・跳轉（${capsOf("global.quickjump")}）`}>
-          <IconSearch />
-          搜尋
-          <span className="kbd">{MOD_KBD} P</span>
-        </button>
+        {/* 側欄工具列：通車的線的 sidebarTool（搜尋鈕左側）＋ D5 頂部搜尋鈕（滑鼠入口；鍵盤走 Ctrl+P） */}
+        <div className="gnav-tools">
+          {lineSidebarTools().map(({ id, Tool }) => (
+            <Tool key={id} />
+          ))}
+          <button type="button" className="gnav-search" onClick={() => setQuickJumpOpen(true)} title={`搜尋・跳轉（${capsOf("global.quickjump")}）`}>
+            <IconSearch />
+            搜尋
+            <span className="kbd">{MOD_KBD} P</span>
+          </button>
+        </div>
       </nav>
 
       {/* 我的路線（件一 .lines）：h2 一枚總標＋每條幹線一段 .trunk「幹線・○○」＋路線列＋車站注記 */}

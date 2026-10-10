@@ -18,24 +18,13 @@
  *   hotkeyGuide.css 只放排版，顏色一律 token。
  */
 import { useEffect, useRef } from "react";
-import { useUiStore, type PageId } from "../../store/uiStore";
+import { useUiStore } from "../../store/uiStore";
 import { DialogShell } from "../common/DialogShell";
 import { formatChord } from "./hotkeys";
 import { pageScope, rowPaths, rowsFor, sceneOf, type HotkeyRow } from "./hotkeyRows";
+import { pageById } from "./pages";
 import "../common/overlay.css";
 import "./hotkeyGuide.css";
-
-/** 卡的大標：講「這一頁」的話，不用 registry 的組名（那是設定籤的分組名，帶括號說明） */
-function pageTitle(page: PageId): string {
-  switch (page) {
-    case "today":
-      return "今日視圖的快捷鍵";
-    case "routemap":
-      return "路線圖的快捷鍵";
-    case "calendar":
-      return "日曆的快捷鍵";
-  }
-}
 
 export function HotkeyGuide() {
   const open = useUiStore((s) => s.hotkeyGuideOpen);
@@ -70,7 +59,8 @@ function HotkeyGuideCard() {
 
   return (
     <DialogShell
-      title={pageTitle(page)}
+      /* 卡的大標：講「這一頁」的話（頁面登記表的 guideTitle），不用 registry 的組名（那是設定籤的分組名，帶括號說明） */
+      title={pageById(page).guideTitle}
       overline="快捷鍵 — SHORTCUTS"
       onClose={close}
       width={480}

@@ -1040,19 +1040,24 @@ pub async fn reset_database_keep_settings(app: AppHandle) -> Result<(), String> 
         .ok_or_else(|| format!("找不到已連線的資料庫 {DB_URL}。"))?;
     let DbPool::Sqlite(pool) = pool;
 
-    // 順序：子表先清（occurrences／work_logs 指向 nodes），settings 完全不動
-    for sql in [
-        "DELETE FROM occurrences",
-        "DELETE FROM work_logs",
-        "DELETE FROM nodes",
-        "VACUUM",
-    ] {
-        sqlx::query(sql)
+    for sql in reset_statements() {
+        sqlx::query(&sql)
             .execute(pool)
             .await
             .map_err(|e| format!("清場失敗（{sql}）：{e}"))?;
     }
     Ok(())
+}
+
+/// 清場要跑的 SQL（並行地基 B-1）：同步表登記表的 Rows 表**子先父後**（occurrences／work_logs 指向 nodes），
+/// 最後 `VACUUM`；settings 完全不動。**不清** `sync_outbox`／`sync_cells`——與 `wipe_local_data` 的差異是原本就有的，保留。
+pub(crate) fn reset_statements() -> Vec<String> {
+    let mut v: Vec<String> = crate::sync::tables::Registry::production()
+        .rows_rev()
+        .map(|(t, _)| format!("DELETE FROM {}", t.name))
+        .collect();
+    v.push("VACUUM".to_string());
+    v
 }
 
 /// 關掉並移除前端那條 pool（還原專用；移除後 plugin-sql 的 Exit handler 不會 double close）

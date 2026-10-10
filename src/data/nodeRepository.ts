@@ -244,6 +244,11 @@ export interface NodeRepository {
   reschedule(id: string, nextDate: string | null, todayDateKey: string): Promise<void>;
   /** 名稱模糊搜尋（含臨時車票，不含幹線） */
   search(query: string, limit?: number): Promise<NodeRow[]>;
+  /**
+   * 收件匣的車票（旅客筆記 D-筆-17；車次①契約 0-7 甲案）：根層 ticket、無執行日、無路線標籤、
+   * 未完成、未刪；created_at DESC。唯讀。
+   */
+  listInboxTickets(): Promise<NodeRow[]>;
   addWorkLog(nodeId: string, body: string): Promise<WorkLog>;
   listWorkLogs(nodeId: string): Promise<WorkLog[]>;
 

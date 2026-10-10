@@ -14,6 +14,8 @@ import type { BackupRepository, BackupMockMode } from "./backupRepository";
 import { MemoryBackupRepository, TauriBackupRepository } from "./backupRepository";
 import type { SyncRepository } from "./syncRepository";
 import { MemorySyncRepository, TauriSyncRepository } from "./syncRepository";
+// `?page=` 只接受已通車的頁（並行地基・契約 §6.2 C-5）；pages.ts 是純資料，不會繞回 store
+import { isOpenPageId, type PageId } from "../ui/shell/pages";
 
 function detectMockMode(): boolean {
   if (import.meta.env.VITE_MOCK === "1") return true;
@@ -59,14 +61,15 @@ const TODAY_MODE = todayMode();
 /**
  * v1.1.6（WP-B）：`?mock=1&wiped=1`＝示範資料一顆都不種，給「重新開始」之後的畫面用。
  * mock 的 `syncRepo.startOver` 會帶著它 reload（記憶體 repository 撐不過 reload，只能把「清空之後」寫進網址）。
+ * 並行地基起 export：三條功能線的 mock repository 也要遵守它（公約 §六；契約 §6.2 C-6）。
  */
-const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
+export const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
 
 /**
  * dev／mock 專用的起始狀態端點（M3 ⑤ WP1；草案 §6-10「`?page=` 目前不存在，WP1 新增」）。
  * **只在 `?mock=1` 或 vite DEV 生效**，正式打包三個欄位恆 null（沿 `uiStore` 的 THEME_OVERRIDE 模式）。
  *
- *   `?page=today|routemap|calendar`  起始頁 → `uiStore.page` 的初值
+ *   `?page=today|routemap|calendar`  起始頁 → `uiStore.page` 的初值（pages.ts 裡已通車的頁才收；未通車的落回今日）
  *   `&view=month|week`               日曆視圖 → `uiStore.calendarView` 的初值（蓋過 settings，**不寫回**）
  *   `&day=YYYY-MM-DD`                直開該日的當日清單浮層（＝原型的 `?open=14`）→ WP3 自己讀
  *   `&backup=fail|streak3`           備份端點（M3 ⑥ WP0）→ `MemoryBackupRepository` 吃這個：
@@ -76,7 +79,7 @@ const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
  * 讀法：`import { DEV_FLAGS } from "../../data";` → `DEV_FLAGS.day` 等；null＝沒帶這個參數。
  */
 export interface DevFlags {
-  page: "today" | "routemap" | "calendar" | null;
+  page: PageId | null;
   view: "month" | "week" | null;
   day: string | null;
   backup: BackupMockMode;
@@ -93,7 +96,7 @@ function detectDevFlags(): DevFlags {
     const day = q.get("day");
     const backup = q.get("backup");
     return {
-      page: page === "today" || page === "routemap" || page === "calendar" ? page : null,
+      page: isOpenPageId(page) ? page : null,
       view: view === "month" || view === "week" ? view : null,
       day: day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null,
       backup: backup === "fail" || backup === "streak3" ? backup : null,

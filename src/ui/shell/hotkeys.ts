@@ -27,9 +27,17 @@
  *   3. 全域組另加 `"alt"`——`useGlobalHotkeys` 只看 `ctrlKey || metaKey`，Ctrl+Alt+1 現在也會換頁。
  * 同一顆鍵有兩筆匹配時（例如 Enter 與 Ctrl+Enter）由 `resolveHotkey` 挑「放寬最少」的那筆，
  * 不靠登錄順序；順序只決定顯示與同放寬度時的先來後到。
+ *
+ * ── 並行地基（契約 2026-09-29 §8）──
+ * Ctrl+數字的換頁鍵不再手寫：由 `pages.ts` 的頁面登記表產生（`navHotkeys()`，只產已通車的頁）。
+ * 三條功能線的快捷鍵寫在各線的 `src/lines/<line>.manifest.ts`，接在 `HOTKEYS` 最後；scope 名也由登記檔導出。
+ * 本檔是 probe 直接載入的純資料：新增的值 import 一律含 `.ts`。
  */
+import type { LineHotkeyScope } from "../../lines/index.ts";
+import { LINE_MANIFESTS } from "../../lines/index.ts";
+import { openPages } from "./pages.ts";
 
-export type HotkeyScope =
+export type CoreHotkeyScope =
   | "global"
   | "today"
   | "outline"
@@ -37,6 +45,9 @@ export type HotkeyScope =
   | "daylist"
   | "common"
   | "edit";
+
+/** 核心七組＋三線登記檔宣告的 scope */
+export type HotkeyScope = CoreHotkeyScope | LineHotkeyScope;
 
 /** 可被放寬（不精確比對）的修飾鍵名 */
 export type ModifierName = "ctrl" | "shift" | "alt";
@@ -92,32 +103,25 @@ const ALL_LOOSE: ModifierName[] = ["ctrl", "shift", "alt"];
 /** 全域表只看 Ctrl／Cmd，Shift／Alt 都沒檢查 */
 const GLOBAL_LOOSE: ModifierName[] = ["shift", "alt"];
 
+/**
+ * Ctrl+數字換頁鍵：對已通車的頁（`openPages()`，PAGES 順序）逐頁產一筆。
+ * 欄位與順序和地基之前手寫的三筆逐欄相同（沒有 `note`；`ignoreMods` 是 GLOBAL_LOOSE）。
+ * 未通車的頁不產（契約決策 7：Ctrl+4／5／6 在該線通車前沒有人攔）。
+ */
+function navHotkeys(): Hotkey[] {
+  return openPages().map((p) => ({
+    id: p.navHotkeyId,
+    scope: "global",
+    chords: [{ key: p.navDigit, ctrl: true }],
+    label: p.label,
+    wired: true,
+    ignoreMods: GLOBAL_LOOSE,
+  }));
+}
+
 export const HOTKEYS: Hotkey[] = [
   /* ── 全域（useGlobalHotkeys；App 層 window listener，輸入框裡也吃） ── */
-  {
-    id: "global.nav.today",
-    scope: "global",
-    chords: [{ key: "1", ctrl: true }],
-    label: "今日",
-    wired: true,
-    ignoreMods: GLOBAL_LOOSE,
-  },
-  {
-    id: "global.nav.routemap",
-    scope: "global",
-    chords: [{ key: "2", ctrl: true }],
-    label: "路線圖",
-    wired: true,
-    ignoreMods: GLOBAL_LOOSE,
-  },
-  {
-    id: "global.nav.calendar",
-    scope: "global",
-    chords: [{ key: "3", ctrl: true }],
-    label: "日曆",
-    wired: true,
-    ignoreMods: GLOBAL_LOOSE,
-  },
+  ...navHotkeys(),
   {
     id: "global.quickjump",
     scope: "global",
@@ -669,6 +673,9 @@ export const HOTKEYS: Hotkey[] = [
     label: "多行輸入存檔",
     wired: false,
   },
+
+  /* ── 三條功能線（各線的 manifest；接在最後，不影響既有行為：resolveHotkey 只在同 scope 內比先後） ── */
+  ...LINE_MANIFESTS.flatMap((m) => m.hotkeys),
 ];
 
 const BY_ID = new Map(HOTKEYS.map((h) => [h.id, h]));

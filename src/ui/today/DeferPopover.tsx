@@ -319,7 +319,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
             type="button"
             data-defer-item
             disabled={!row.scheduled_on}
-            title={row.scheduled_on ? "票會離開今日，流入收件匣（M4 開張）" : "這張票本來就沒有執行日"}
+            title={row.scheduled_on ? "票會離開今日，流入旅客筆記的收件匣" : "這張票本來就沒有執行日"}
             className="ns-defer-item warn"
             onClick={clearDate}
           >

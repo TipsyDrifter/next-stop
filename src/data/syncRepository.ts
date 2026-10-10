@@ -54,6 +54,7 @@
 import type Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "../lib/db";
+import type { SyncTable } from "./syncTables";
 
 /* ═══════════════════════════════════════════════════════════════════════
    型別（與 Rust serde 同名同形）
@@ -1013,11 +1014,12 @@ export class MemorySyncRepository implements SyncRepository {
    寫入層純函式（WP5 用）
    ═══════════════════════════════════════════════════════════════════════ */
 
-/** 會進 oplog 的四張表（settings 只有白名單 key） */
-export type SyncTable = "nodes" | "work_logs" | "occurrences" | "settings";
-
-/** settings 白名單（D-1.1-3：只同步日界線；其餘 10 key 是裝置本地） */
-export const SYNC_SETTINGS_KEYS: readonly string[] = ["day_start_hour"];
+/**
+ * 會進 oplog 的表（settings 只有白名單 key）與 settings 白名單（D-1.1-3：核心只同步日界線）。
+ * 並行地基起真相搬到 `./syncTables`（核心四張＋三線登記檔），這裡只轉出口，既有 import 路徑不必改。
+ */
+export type { SyncTable } from "./syncTables";
+export { SYNC_SETTINGS_KEYS } from "./syncTables";
 
 /**
  * 一筆待寫的 op（＝sync_outbox 一列）。cols 只放「主人資料」欄（契約 §7.4 白名單），

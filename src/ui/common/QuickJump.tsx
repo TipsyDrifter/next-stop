@@ -1,6 +1,6 @@
 /**
  * QuickJump——UI Flow 2.4 快速跳轉（Ctrl+P／側欄搜尋鈕；讀 uiStore.quickJumpOpen）：置頂紙卡，150ms debounce 搜尋節點與臨時車票，
- * ↑↓ 移動、Enter 選取、Esc 關閉、點擊選取。選取：路線→開路線；樹內節點→開所屬路線後展開祖先並選中；臨時車票→有執行日就切到今日頁選中、沒有就提示它還在收件匣（M3 ③ WP3）。
+ * ↑↓ 移動、Enter 選取、Esc 關閉、點擊選取。選取：路線→開路線；樹內節點→開所屬路線後展開祖先並選中；臨時車票→有執行日就切到今日頁選中；沒執行日、沒路線、未完成的是收件匣票→切到旅客筆記選中（車次①）；掛了路線的→該路線大綱頂層；済票不導向（調度 10-08）。
  * 視覺：票面紙卡 .ns-card（paper-high、1px line、3px radius、原型陰影）＋燙金 overline ＋ 大號底線輸入 ＋ 結果列（路線＝roundel、
  *       其餘＝原型 .badge 小號版類型徽章）＋襯線名稱＋淡字路線名；選中列燙金左邊線＋已使用票色。
  * 取捨：車站不在大綱樹裡——選取＝只開所屬路線；結果上限由 repository 決定（50）；組字中不處理任何快捷鍵。
@@ -46,10 +46,18 @@ async function jumpTo(node: NodeRow) {
   }
   // 臨時車票（parent_id 為 null）不在任何一棵路線樹裡 → 它的家是今日視圖（M3 ③ WP3）。
   //   有執行日 → 切到今日頁並選中（排在未來的那幾張今天看不到，補一句 toast 說它排在哪天）
-  //   沒有執行日 → 還在收件匣資料態（UI 留 M4），只吐一句提示，不做無效跳轉
-  if (node.kind === "ticket" && !node.parent_id) {
+  //   沒有執行日、沒掛路線標籤 → 家是旅客筆記的收件匣：切過去並選中（旅客筆記頁讀 selectedId 接手；車次①契約 0-2 甲）
+  //   沒有執行日、掛了路線標籤 → 不算收件匣（D-筆-17），家在該路線大綱頂層（D-筆-26）：落到下面「開所屬路線」那段
+  //   沒有執行日、沒路線、但已蓋済 → 收件匣濾掉 done，它的家是日後的 Logbook：不導向旅客筆記，走改前原路（調度 10-08 裁示）
+  if (
+    node.kind === "ticket" &&
+    !node.parent_id &&
+    !(node.route_id && !node.scheduled_on) &&
+    !(node.status === "done" && !node.scheduled_on)
+  ) {
     if (!node.scheduled_on) {
-      ui.showToast({ message: `『${node.name}』還沒有執行日，先待在收件匣（M4 開張）` });
+      ui.setPage("notes");
+      ui.select(node.id);
       return;
     }
     ui.setPage("today");

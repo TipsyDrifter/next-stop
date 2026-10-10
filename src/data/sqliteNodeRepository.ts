@@ -687,6 +687,15 @@ export class SqliteNodeRepository implements NodeRepository {
     );
   }
 
+  async listInboxTickets(): Promise<NodeRow[]> {
+    const db = await getDb();
+    return db.select<NodeRow[]>(
+      `SELECT * FROM nodes WHERE ${ALIVE} AND kind = 'ticket' AND parent_id IS NULL
+         AND scheduled_on IS NULL AND route_id IS NULL AND status != 'done'
+       ORDER BY created_at DESC`,
+    );
+  }
+
   async addWorkLog(nodeId: string, body: string): Promise<WorkLog> {
     const db = await getDb();
     const now = nowUtcIso();

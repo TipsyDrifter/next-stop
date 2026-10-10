@@ -10,6 +10,8 @@ import { create } from "zustand";
 import { settingsRepo, DEV_FLAGS, MOCK_MODE } from "../data";
 // type-only import：不產生執行期依賴，store 不會因此被拉進 ui 層（registry 的真相仍在 tabs.ts）
 import type { MobileTabKey } from "../ui/mobile/tabs";
+// 頁面登記表（並行地基・契約 §6）：純資料模組，不拉 React／DOM
+import { DEFAULT_PAGE, pageById, type PageId } from "../ui/shell/pages";
 
 export type ThemePref = "pastel" | "galaxy" | "system";
 
@@ -18,8 +20,10 @@ export type ThemePref = "pastel" | "galaxy" | "system";
  * M3 ⑤ 起三頁全通車（gnav 三枚都可點、Ctrl+1/2/3 直接換頁）。
  * 啟動落點＝today（決策 #12「首頁＝今日視圖」）；dev／mock 可用 `?page=` 換落點（DEV_FLAGS）。
  * 頁務件隨頁：側欄「我的路線」點路線＝切 routemap 並開該路線。
+ * 並行地基（契約 §6）：頁的清單搬到 `ui/shell/pages.ts`（核心三頁＋三條功能線）；型別含六個 id，
+ * 執行期只有已通車（open）的頁能被 `setPage` 與 `?page=` 接受（契約決策 8）。
  */
-export type PageId = "today" | "routemap" | "calendar";
+export type { PageId } from "../ui/shell/pages";
 
 /** 日曆視圖形態（D-⑤-1 甲：月／週同一套格語彙，週＝一列七欄放大版）；預設月、切換記憶 */
 export type CalendarView = "month" | "week";
@@ -210,7 +214,7 @@ interface UiStore {
 
 export const useUiStore = create<UiStore>((set, get) => ({
   // 起始頁＝today（決策 #12）；`?page=` 只在 dev／mock 生效（DEV_FLAGS，見 data/index.ts）
-  page: DEV_FLAGS.page ?? "today",
+  page: DEV_FLAGS.page ?? DEFAULT_PAGE,
   // ＝tabs.ts 的 DEFAULT_MOBILE_TAB；這裡寫字面值而不 import 常數，是為了讓 store 只吃 type-only import
   mobileTab: "today",
   selectedId: null,
@@ -234,7 +238,11 @@ export const useUiStore = create<UiStore>((set, get) => ({
   syncBannerDismissed: null,
   mobileMoreRequest: null,
 
-  setPage: (page) => set({ page }),
+  // 未通車的頁不動作（對既有三頁行為相同；契約 §6.2 C-3）
+  setPage: (page) => {
+    if (pageById(page).status !== "open") return;
+    set({ page });
+  },
   // 切頁順手收掉桌機專屬疊層：手機殼本來就不掛它們，這是保險不是功能（藍牙鍵盤按到 ? 或 Ctrl+P 時）
   setMobileTab: (tab) => set({ mobileTab: tab, hotkeyGuideOpen: false, quickJumpOpen: false }),
   select: (id) => set({ selectedId: id }),

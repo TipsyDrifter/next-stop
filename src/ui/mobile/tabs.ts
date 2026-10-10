@@ -19,6 +19,8 @@
  *   而售票口**不**佔第五格（與桌機 gnav 第二欄「旅客筆記／時刻表／售票口」三枚不同，手機只有五格）。
  */
 import { createElement, type ReactElement } from "react";
+// 並行地基（契約 §7 M-1）：旅客筆記／時刻表兩格的文字與狀態改讀各線登記檔（純資料；probe 會載入本檔，值 import 含 .ts）
+import { lineById } from "../../lines/index.ts";
 
 export type MobileTabKey = "today" | "routemap" | "notes" | "timetable" | "more";
 
@@ -70,12 +72,21 @@ const ICON_MORE: MobileTabIcon = [
   { tag: "circle", attrs: { cx: 12.8, cy: 8, r: 1.3 } },
 ];
 
-/** 底部 tab 的唯一真相；順序＝拍板順序（D-1.1-2） */
+const NOTES_MOBILE = lineById("notes").mobile;
+const TIMETABLE_MOBILE = lineById("timetable").mobile;
+
+/** 底部 tab 的唯一真相；順序＝拍板順序（D-1.1-2）。旅客筆記／時刻表兩格的 label／latin／status 來自各線登記檔 */
 export const MOBILE_TABS: readonly MobileTab[] = [
   { key: "today", label: "今日", latin: "TODAY", status: "open", icon: ICON_TODAY },
   { key: "routemap", label: "路線圖", latin: "ROUTE MAP", status: "open", icon: ICON_ROUTEMAP },
-  { key: "notes", label: "旅客筆記", latin: "NOTES", status: "planned", icon: ICON_NOTES },
-  { key: "timetable", label: "時刻表", latin: "TIMETABLE", status: "planned", icon: ICON_TIMETABLE },
+  { key: "notes", label: NOTES_MOBILE.label, latin: NOTES_MOBILE.latin, status: NOTES_MOBILE.status, icon: ICON_NOTES },
+  {
+    key: "timetable",
+    label: TIMETABLE_MOBILE.label,
+    latin: TIMETABLE_MOBILE.latin,
+    status: TIMETABLE_MOBILE.status,
+    icon: ICON_TIMETABLE,
+  },
   { key: "more", label: "更多", latin: "MORE", status: "open", icon: ICON_MORE },
 ];
 

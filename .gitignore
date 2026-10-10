@@ -54,3 +54,11 @@ key.properties
 
 # 簽章私鑰與密碼備份（主人本機保管；私鑰進 repo＝任何拿到 repo 的人都能簽假更新）
 files/secrets/
+
+# ─── 主人的私人匯出檔（flomo 日記、時間日誌備份與安裝包；只供各線盲探分析，不進版控） ───
+files/flomo*.zip
+files/*.bak
+files/*.xapk
+
+# 財務管家備份（個人財務資料，供售票口線盲探解析格式）
+files/*.mmbak

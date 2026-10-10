@@ -4,12 +4,11 @@
  * 除了 `?` 之外只處理 Ctrl／Cmd 組合鍵——單鍵導航快捷鍵歸各視圖容器（導航／編輯雙模式在那裡處理）。
  * IME 護欄：組字中一律不攔。
  *
- * Ctrl+1/2/3＝gnav 第一欄三頁（今日／路線圖／日曆；決策記錄 r5、移植規格 §2）。
- * M3 ⑤ 起三頁全通車：
- *   Ctrl+1 → uiStore.setPage("today")
- *   Ctrl+2 → uiStore.setPage("routemap")
- *   Ctrl+3 → uiStore.setPage("calendar")
- * （③–④ 期間 Ctrl+3 與 gnav 日曆枚共用的 `UNBUILT_PAGE_HINT`「M3 施工中」兩個消費點都已拿掉，常數隨之刪除。）
+ * Ctrl+數字由頁面登記表決定（並行地基・契約 §8.4）：`pages.ts` 裡已通車的頁各有一顆 `global.nav.<頁>`
+ *   （今日 1／路線圖 2／日曆 3；三條功能線預配 4／5／6，該線通車才生效），這裡用 `pageOfNavHotkey()` 一次查完
+ *   再 `uiStore.setPage`，不再逐頁寫 case。未通車的頁不在 registry 裡 ⇒ Ctrl+4／5／6 現在沒有人攔。
+ * 三條功能線的全域快捷鍵（不限頁面）：各線在 `src/lines/<line>.mount.tsx` 的 `globalHotkeyHandlers` 登記，
+ *   這裡在既有 switch 之前用 `lineGlobalHotkeyHandler()` 查（增補 2026-10-05 增補二；未通車的線不生效）。
  *
  * M3 ⑦（決策記錄 :136／:190）：鍵位改查 registry（`./hotkeys`，單一真相來源），並接上指引頁兩條路——
  *   `?`      導航模式限定：輸入框裡不攔（那是在打字）、已經有別的疊層開著也不攔（Esc 會打架，草案 §0-6）。
@@ -19,6 +18,10 @@
 import { useEffect } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { isEditableTarget, resolveHotkey } from "./hotkeys";
+import { pageOfNavHotkey } from "./pages";
+// 查 `lines/runtime`、不 import `lines/mounts`：本 hook 在 App 的 import 清單裡排在核心元件之前，
+// 直接 import mounts 會把各線的元件樹提早求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）
+import { lineGlobalHotkeyHandler } from "../../lines/runtime";
 
 /**
  * @param enabled 掛不掛這組鍵。預設 true＝桌機呼叫端一字不改、行為零差異（鐵則 1）；
@@ -33,6 +36,20 @@ export function useGlobalHotkeys(enabled = true) {
       const hit = resolveHotkey("global", e);
       if (!hit) return;
       const ui = useUiStore.getState();
+      // Ctrl+數字換頁：頁面登記表裡已通車的頁（契約 §8.4）
+      const navPage = pageOfNavHotkey(hit.id);
+      if (navPage) {
+        e.preventDefault();
+        ui.setPage(navPage);
+        return;
+      }
+      // 三條功能線登記的全域快捷鍵（增補二）：三線都沒登記時恆 null ⇒ 不攔任何鍵
+      const lineHandler = lineGlobalHotkeyHandler(hit.id);
+      if (lineHandler) {
+        e.preventDefault();
+        lineHandler();
+        return;
+      }
       switch (hit.id) {
         case "global.quickjump":
           e.preventDefault();
@@ -45,18 +62,6 @@ export function useGlobalHotkeys(enabled = true) {
         case "global.settings":
           e.preventDefault();
           ui.setSettingsOpen(!ui.settingsOpen);
-          break;
-        case "global.nav.today":
-          e.preventDefault();
-          ui.setPage("today");
-          break;
-        case "global.nav.routemap":
-          e.preventDefault();
-          ui.setPage("routemap");
-          break;
-        case "global.nav.calendar":
-          e.preventDefault();
-          ui.setPage("calendar");
           break;
         case "global.guide": {
           if (e.ctrlKey || e.metaKey) {

@@ -36,12 +36,13 @@ use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Pool, Row, Sqlite};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use tauri::{AppHandle, Manager};
 
 use super::crypto;
 use super::engine::{self, BusyGuard, RestoreChoice, SyncState};
 use super::r2::R2Client;
+use super::tables::Registry;
 use super::SCHEMA_VERSION;
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -118,6 +119,9 @@ pub struct ImportReport {
     pub skipped_rows: u64,
     /// `stamp_missing_cells` 補了幾格
     pub stamped_cells: u64,
+    /// 三線新同步表的灌入筆數（表名 → 筆數；並行地基 S-1）。空的時候不序列化——核心四表時序列化結果與搬家前相同
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub others: BTreeMap<String, u64>,
 }
 
 /// `sync_export_to_file` 的回傳（契約 §4）
@@ -432,7 +436,32 @@ pub async fn reencrypt_all(
 ///   ⑧ COMMIT
 /// outbox 由呼叫端先 `export_outbox_orphans` 再清（見 `cloud_restore`）。
 pub async fn import_full_json(pool: &Pool<Sqlite>, json: &str, me: &str) -> Result<ImportReport, String> {
-    let doc = validate_full_json(json)?;
+    import_full_json_with(Registry::production(), pool, json, me).await
+}
+
+/// ③ 匯入前清格子的 SQL（並行地基 S-2）：表名清單由登記表的 Rows 表產生（單引號包、`,` 相接、不加空白），
+/// 核心四表時與搬家前逐字相同。
+pub(crate) fn import_delete_cells_sql(reg: &Registry) -> String {
+    let tables_in = reg.rows().map(|(t, _)| format!("'{}'", t.name)).collect::<Vec<_>>().join(",");
+    let settings_in = reg.settings_keys().map(|k| format!("'{k}'")).collect::<Vec<_>>().join(",");
+    format!(
+        "DELETE FROM sync_cells WHERE tbl IN ({tables_in}) \
+         OR (tbl = 'settings' AND row_id IN ({settings_in}))"
+    )
+}
+
+/// ④ 匯入前刪表的 SQL（並行地基 S-3）：子先父後
+pub(crate) fn import_delete_tables_sql(reg: &Registry) -> Vec<String> {
+    reg.rows_rev().map(|(t, _)| format!("DELETE FROM {}", t.name)).collect()
+}
+
+pub(crate) async fn import_full_json_with(
+    reg: &Registry,
+    pool: &Pool<Sqlite>,
+    json: &str,
+    me: &str,
+) -> Result<ImportReport, String> {
+    let doc = validate_full_json_with(reg, json)?;
     // settings 的 `updated_at` 用快照那一刻（契約 §3.3-5），不是「現在」
     let exported_at = doc
         .get("exported_at")
@@ -450,32 +479,27 @@ pub async fn import_full_json(pool: &Pool<Sqlite>, json: &str, me: &str) -> Resu
         .await
         .map_err(engine::db_err)?;
 
-    // ③ 格子：三表全清＋settings 白名單那幾把（其餘 settings 的格子是這台本地的偏好，不在快照裡、不能清）
-    let settings_in = engine::SYNC_SETTINGS_KEYS
-        .iter()
-        .map(|k| format!("'{k}'"))
-        .collect::<Vec<_>>()
-        .join(",");
-    sqlx::query(&format!(
-        "DELETE FROM sync_cells WHERE tbl IN ('nodes','work_logs','occurrences') \
-         OR (tbl = 'settings' AND row_id IN ({settings_in}))"
-    ))
-    .execute(&mut *tx)
-    .await
-    .map_err(engine::db_err)?;
+    // ③ 格子：同步表全清＋settings 白名單那幾把（其餘 settings 的格子是這台本地的偏好，不在快照裡、不能清）
+    sqlx::query(&import_delete_cells_sql(reg))
+        .execute(&mut *tx)
+        .await
+        .map_err(engine::db_err)?;
 
-    // ④ 子表先（occurrences／work_logs 都指向 nodes）
-    for tbl in ["occurrences", "work_logs", "nodes"] {
-        sqlx::query(&format!("DELETE FROM {tbl}"))
+    // ④ 子表先（occurrences／work_logs 都指向 nodes；登記表反序）
+    for sql in import_delete_tables_sql(reg) {
+        sqlx::query(&sql)
             .execute(&mut *tx)
             .await
             .map_err(engine::db_err)?;
     }
 
-    // ⑤ 灌三表（父通常先於子：快照是 created_at 序；`defer_foreign_keys` 保底）
-    for tbl in ["nodes", "work_logs", "occurrences"] {
+    // ⑤ 灌表（登記順序＝父先子後；快照是 created_at 序；`defer_foreign_keys` 保底）。
+    // 陣列不存在只可能是 `since` 有值、且快照比那支 migration 舊的新表（已驗過）⇒ 當空陣列。
+    let no_rows: Vec<Value> = Vec::new();
+    for (spec, _) in reg.rows() {
+        let tbl = spec.name;
         let cols = table_cols(&mut tx, tbl).await?;
-        let rows = doc.get(tbl).and_then(Value::as_array).expect("已驗過是陣列");
+        let rows = doc.get(tbl).and_then(Value::as_array).unwrap_or(&no_rows);
         let mut inserted = 0u64;
         for row in rows {
             let Some(obj) = row.as_object() else {
@@ -490,7 +514,10 @@ pub async fn import_full_json(pool: &Pool<Sqlite>, json: &str, me: &str) -> Resu
         match tbl {
             "nodes" => report.nodes = inserted,
             "work_logs" => report.work_logs = inserted,
-            _ => report.occurrences = inserted,
+            "occurrences" => report.occurrences = inserted,
+            _ => {
+                report.others.insert(tbl.to_string(), inserted);
+            }
         }
     }
 
@@ -502,13 +529,13 @@ pub async fn import_full_json(pool: &Pool<Sqlite>, json: &str, me: &str) -> Resu
     //    手法沿 `apply_object` 的 `prune_fk_violations`：`PRAGMA foreign_key_check` 逐輪撤，
     //    撤掉的列一起計進 `skipped_rows`（帳目對得起來：報告說跳過 N 列，庫裡就少 N 列）。
     if report.skipped_rows > 0 {
-        report.skipped_rows += prune_orphans(&mut tx).await?;
+        report.skipped_rows += prune_orphans(reg, &mut tx).await?;
     }
 
     // ⑥ settings 白名單 upsert（其餘鍵——主題、書封、backup_*——一個字都不動）
     let settings = doc.get("settings").and_then(Value::as_object);
-    for key in engine::SYNC_SETTINGS_KEYS {
-        let Some(value) = settings.and_then(|s| s.get(*key)).and_then(json_text) else {
+    for key in reg.settings_keys() {
+        let Some(value) = settings.and_then(|s| s.get(key)).and_then(json_text) else {
             continue;
         };
         sqlx::query(
@@ -525,7 +552,7 @@ pub async fn import_full_json(pool: &Pool<Sqlite>, json: &str, me: &str) -> Resu
     }
 
     // ⑦ 補戳格子：hlc 由每一列的 `updated_at` 派生 ⇒「接上現在」比的是**備份那一刻**，不是「匯入這一刻」
-    report.stamped_cells = engine::stamp_missing_cells(&mut tx, me).await?;
+    report.stamped_cells = engine::stamp_missing_cells_with(reg, &mut tx, me).await?;
 
     tx.commit().await.map_err(engine::db_err)?;
     Ok(report)
@@ -534,6 +561,10 @@ pub async fn import_full_json(pool: &Pool<Sqlite>, json: &str, me: &str) -> Resu
 /// 匯入前的驗證（契約 §3.1）——**動本機之前**就要判得出來，所以與灌庫分開：
 /// `cloud_restore` 在留底之前先叫這支，壞檔時本機零改變。回解析好的頂層物件（`import_full_json` 直接用）。
 pub fn validate_full_json(json: &str) -> Result<Map<String, Value>, String> {
+    validate_full_json_with(Registry::production(), json)
+}
+
+pub(crate) fn validate_full_json_with(reg: &Registry, json: &str) -> Result<Map<String, Value>, String> {
     let incomplete = || "這份備份的內容不完整。".to_string();
     let doc: Value = serde_json::from_str(json).map_err(|_| incomplete())?;
     let Value::Object(doc) = doc else {
@@ -544,8 +575,14 @@ pub fn validate_full_json(json: &str) -> Result<Map<String, Value>, String> {
     if schema > SCHEMA_VERSION as u64 {
         return Err("這份備份來自較新的版本，請先更新 App。".into());
     }
-    for tbl in ["nodes", "work_logs", "occurrences"] {
-        if !doc.get(tbl).map(Value::is_array).unwrap_or(false) {
+    // 並行地基 S-5：`since` 為 None 的表（核心三表）照舊一定要在（含「缺 schema 視為 0」）；
+    // `since` 有值的新表，只有快照的 schema 已經含那支 migration 才要求。key 查不到就保守地當成必須在。
+    for (spec, rows_spec) in reg.rows() {
+        let must = match rows_spec.since {
+            None => true,
+            Some(key) => crate::migrations::version_of(key).map_or(true, |v| schema >= v as u64),
+        };
+        if must && !doc.get(spec.name).map(Value::is_array).unwrap_or(false) {
             return Err(incomplete());
         }
     }
@@ -561,7 +598,9 @@ pub fn validate_full_json(json: &str) -> Result<Map<String, Value>, String> {
 /// COMMIT 撞 FK、整趟失敗，而且錯誤訊息不是人話。改成「跑到一輪零命中為止」，上限只是防無窮迴圈。
 const PRUNE_ORPHAN_ROUNDS: usize = 32;
 
-async fn prune_orphans(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<u64, String> {
+async fn prune_orphans(reg: &Registry, tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<u64, String> {
+    // 檢查清單＝登記表裡 `fk_checked` 的 Rows 表，順序不變（並行地基 S-7）
+    let checked: Vec<&'static str> = reg.rows().filter(|(_, r)| r.fk_checked).map(|(t, _)| t.name).collect();
     let mut pruned = 0u64;
     let mut rounds = 0usize;
     loop {
@@ -570,7 +609,7 @@ async fn prune_orphans(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<u64, St
             return Err("這份備份裡有太多互相依賴的壞資料，沒辦法安全地還原。".into());
         }
         let mut hit = false;
-        for tbl in ["nodes", "work_logs", "occurrences"] {
+        for tbl in &checked {
             // pragma 的欄：0=表名 1=rowid 2=父表 3=fkid（表名是自家常數，不是外來字串）
             let rows = sqlx::query(&format!("PRAGMA foreign_key_check({tbl})"))
                 .fetch_all(&mut **tx)
@@ -978,13 +1017,9 @@ mod tests {
             )
             .await
             .unwrap();
-        for sql in [
-            include_str!("../../migrations/0001_baseline.sql"),
-            include_str!("../../migrations/0002_today.sql"),
-            include_str!("../../migrations/0003_repeat.sql"),
-            include_str!("../../migrations/0004_sync.sql"),
-        ] {
-            sqlx::raw_sql(sql).execute(&pool).await.unwrap();
+        // 並行地基 A-17／S-8：走訪 migration 唯一來源（`m.sql` 未經 `lf()`，與搬家前相同）
+        for m in crate::migrations::MIGRATIONS {
+            sqlx::raw_sql(m.sql).execute(&pool).await.unwrap();
         }
         (pool, path)
     }

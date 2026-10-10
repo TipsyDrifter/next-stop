@@ -10,20 +10,13 @@ mod backup;
 // 不是「手機沒有 push 這支」；v1.1.2 開雙向時 TS 一行都不必改。
 mod sync;
 
-use tauri_plugin_sql::{Migration, MigrationKind};
+// 並行地基 甲1（契約 2026-09-29 §4）：migration 清單的唯一來源（含 `lf()` 與守門測試）。
+// pub：清單與 `version_of` 是給 sync（`SCHEMA_VERSION`、同步表 spec 的 `since`）與 probe 讀的介面。
+pub mod migrations;
 
-/// migration SQL 進 sqlx 之前一律換成 LF。
-/// 為什麼（v1.1.5 真機，2026-09-28）：sqlx 的 checksum 算的是 SQL 的**原始位元組**；這台 git `autocrlf=true`，
-/// 在 worktree 新 checkout 時四支 .sql 全變 CRLF，`include_str!` 就把 CRLF 嵌進 exe——主人桌機與手機的
-/// `_sqlx_migrations` 記的是 LF 版 checksum，比對不上 ⇒ `Database.load` 直接拒開、整個 App 讀不到資料庫。
-/// 沙盒抓不到，因為沙盒 DB 是同一顆 exe 新建的。`.gitattributes` 已鎖 `*.sql eol=lf`，這裡再擋一道。
-fn lf(sql: &'static str) -> &'static str {
-    if sql.contains('\r') {
-        Box::leak(sql.replace("\r\n", "\n").replace('\r', "\n").into_boxed_str())
-    } else {
-        sql
-    }
-}
+// G0 金樣（`sync/foundation_golden.rs`，凍結）以 `crate::lf` 呼叫——`lf()` 搬家後在原位置留一個別名。
+#[cfg(test)]
+use migrations::lf;
 
 /// 私鐵手帳 · Next Stop — Tauri 入口
 /// DB：sqlite:next-stop-v2.db（v2 彈性樹 schema；v0.1 的 next-stop.db 原地保留不讀）
@@ -31,34 +24,8 @@ fn lf(sql: &'static str) -> &'static str {
 pub fn run() {
     // sqlx Migrator：只跑 _sqlx_migrations 裡沒有的版本，已跑過的只驗 checksum
     // → 既有版本的 SQL 一個字都不能改（改了舊 DB 會啟動失敗），新東西一律新開一支。
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "v2 baseline: flexible rail tree (nodes) + work_logs + settings",
-            sql: lf(include_str!("../migrations/0001_baseline.sql")),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "today view: nodes.today_position/carried_from + work_logs.event (backfill issued)",
-            sql: lf(include_str!("../migrations/0002_today.sql")),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "repeat engine: occurrences table + legacy free-text repeat_rule migration",
-            sql: lf(include_str!("../migrations/0003_repeat.sql")),
-            kind: MigrationKind::Up,
-        },
-        // v1.1.1：純 DDL 三張表（sync_meta／sync_outbox／sync_cells），不生資料列（U8）。
-        // 同步總開關沒開之前三張表全空、既有路徑零改變；backup plugin 排在 sql 之前，升級前照樣先有快照。
-        Migration {
-            version: 4,
-            description: "sync foundation: sync_meta + sync_outbox + sync_cells (no data rows)",
-            sql: lf(include_str!("../migrations/0004_sync.sql")),
-            kind: MigrationKind::Up,
-        },
-    ];
+    // 清單本體在 `migrations.rs`（唯一來源；新增＝尾端加一行）。
+    let migrations = migrations::plugin_migrations();
 
     // 為什麼拆成 let 重綁而不是一路 `.plugin(...)` 串下去：`#[cfg]` 是「項目／陳述式」層級的屬性，
     // 貼不到鏈式呼叫的中間那一段（`.plugin(x)` 不是一個項目）。重綁同名 `builder` 是 Rust 裡
@@ -143,9 +110,12 @@ pub fn run() {
             sync::commands::sync_recovery_clear,
             // v1.1.6 重新開始契約 §3.1：危險區「重新開始」（桌機沒加入也要能「只清這台」）
             sync::commands::sync_start_over,
+            // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
+            // ── 時刻表線插槽 ──
+            // ── 售票口線插槽 ──
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十二支（清單與桌機那份逐字相同）。
+    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十三支（清單與桌機那份逐字相同）。
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         sync::commands::sync_status,
@@ -171,6 +141,9 @@ pub fn run() {
         sync::commands::sync_recovery_generate,
         sync::commands::sync_recovery_clear,
         sync::commands::sync_start_over,
+        // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
+        // ── 時刻表線插槽 ──
+        // ── 售票口線插槽 ──
     ]);
 
     // v1.1.2 D-1.1-6 甲：手機掃桌機的 QR（配對碼）。plugin 只在手機 target 有（Cargo 的 target 段），
@@ -184,28 +157,4 @@ pub fn run() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[cfg(test)]
-mod migration_eol_tests {
-    /// 守門：任何一支 migration 在 checkout 裡不得帶 CR（否則 checksum 與所有既有 DB 不符）。
-    /// 失敗＝這份 checkout 的行尾被 autocrlf 改寫，先修 .gitattributes／重新 checkout 再 build。
-    #[test]
-    fn migrations_are_lf_in_checkout() {
-        for (name, sql) in [
-            ("0001_baseline", include_str!("../migrations/0001_baseline.sql")),
-            ("0002_today", include_str!("../migrations/0002_today.sql")),
-            ("0003_repeat", include_str!("../migrations/0003_repeat.sql")),
-            ("0004_sync", include_str!("../migrations/0004_sync.sql")),
-        ] {
-            assert!(!sql.contains('\r'), "{name}.sql 帶 CR：這份 checkout 被 autocrlf 改寫了");
-        }
-    }
-
-    #[test]
-    fn lf_normalizes_crlf_and_leaves_lf_alone() {
-        assert_eq!(super::lf("a\r\nb\r\n"), "a\nb\n");
-        let s: &'static str = "a\nb\n";
-        assert!(std::ptr::eq(super::lf(s), s));
-    }
 }

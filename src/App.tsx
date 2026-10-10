@@ -45,6 +45,12 @@
  *     會被 `if (mobile) return` 提早斷鏈、同步永遠 boot 不起來。
  *   - 同步總開關預設關（`sync_meta.enabled` 無列＝'0'）⇒ boot 只問一次 `sync_status()`（順手寫
  *     device_id／schema_gate 兩列，值沒變就不寫）就停手，桌機既有行為零改變（鐵則 1）。
+ *
+ * 並行地基（契約 2026-09-29 §6.2 C-7；增補 2026-10-05 增補二）：
+ *   - 主欄的頁改查 `PAGE_VIEWS[page]`（ui/shell/pageViews.tsx；核心三頁靜態 import、三線取各線 mount 檔）。
+ *     `?? Outline` 保留地基之前三元式的落底（對任何非 today／calendar 的值都畫路線圖）。
+ *   - 三條功能線的桌機全域浮層：`lineOverlays("desktop")` 依三線固定順序掛在桌機覆蓋層區的最後；
+ *     只有通車且有填的線才掛——三線都沒登記時是空陣列，零 DOM 節點。
  */
 import { useEffect, useState } from "react";
 import { useNodeStore } from "./store/nodeStore";
@@ -57,8 +63,8 @@ import { ensureStampDefs } from "./ui/stamps";
 import { Sidebar } from "./ui/sidebar/Sidebar";
 import { RouteDialog } from "./ui/sidebar/RouteDialog";
 import { Outline } from "./ui/outline/Outline";
-import { TodayView } from "./ui/today/TodayView";
-import { CalendarView } from "./ui/calendar/CalendarView";
+import { PAGE_VIEWS } from "./ui/shell/pageViews";
+import { lineOverlays } from "./lines/mounts";
 import { DetailPanel } from "./ui/panel/DetailPanel";
 import { CompleteCard } from "./ui/complete/CompleteCard";
 import { ConfirmDialog } from "./ui/common/ConfirmDialog";
@@ -83,6 +89,7 @@ export default function App() {
   const loadSettings = useUiStore((s) => s.loadSettings);
   const page = useUiStore((s) => s.page);
   const today = page === "today";
+  const View = PAGE_VIEWS[page] ?? Outline;
   // v1.1.0 手機殼：判準是「視窗寬度 <768」不是平台（useShell.ts 檔頭有理由）。
   // 桌機視窗 minWidth 960（tauri.conf.json）永遠落不進 <768 → 桌機走的仍是原本那一支分支，行為零改變。
   const shell = useShell();
@@ -137,7 +144,7 @@ export default function App() {
             {error && <div className="px-8 pt-3 text-sm text-late">⚠ {error}</div>}
             <BackupBanner />
             <SyncBanner shell="desktop" />
-            {page === "calendar" ? <CalendarView /> : today ? <TodayView /> : <Outline />}
+            <View />
             {/* 完成卡留在桌機樹：它是 `absolute bottom-6`、定位脈絡就是這顆 <main>，
                 搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
             <CompleteCard />
@@ -147,6 +154,9 @@ export default function App() {
           <SettingsPanel />
           <HotkeyGuide />
           <RouteDialog />
+          {lineOverlays("desktop").map(({ id, Overlay }) => (
+            <Overlay key={id} />
+          ))}
         </>
       )}
       {/* 兩殼共用的覆蓋層：MobileShell 不再各掛一份（契約 §2.3、§3） */}

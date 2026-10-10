@@ -87,8 +87,11 @@ pub const OPLOG_VERSION: u32 = 1;
 /// 一個物件最多帶幾筆 op（契約 §7.4）。太大就分多個物件，失敗重推的成本才有上限。
 pub const PUSH_BATCH: i64 = 2000;
 
-/// settings 只同步這幾把鑰匙（契約 §2.2／D-1.1-3）
-pub const SYNC_SETTINGS_KEYS: &[&str] = &["day_start_hour"];
+// settings 同步白名單搬到同步表登記表（並行地基 A-1）：生產碼一律 `Registry::production().settings_keys()`。
+// 這裡只留一個**測試專用**別名給凍結的 G0 金樣（`foundation_golden.rs` 的 T-甲1 以這個名字斷言），
+// 指向 `tables::core::SETTINGS_KEYS`，不是第二份真相。
+#[cfg(test)]
+pub(crate) const SYNC_SETTINGS_KEYS: &[&str] = super::tables::core::SETTINGS_KEYS;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -102,6 +105,7 @@ use super::crypto;
 use super::hlc;
 use super::r2::{R2Client, R2Config};
 use super::recovery::{self, RecoveryRewrap};
+use super::tables::{ConflictAnchor, OutboxQuery, Registry};
 use super::SCHEMA_VERSION;
 
 // ─────────────────────────────────────────────────────────────
@@ -109,86 +113,24 @@ use super::SCHEMA_VERSION;
 // ─────────────────────────────────────────────────────────────
 
 /// 「主人資料」欄白名單。第二個欄位＝是不是整數欄（apply 時走 i64，其餘走文字或 NULL）。
+/// 機制表（`sync_meta` 等）與不認得的表名回 None。
 ///
-/// 為什麼要有白名單：快取（`line_id`）與推導（有 repeat_rule 的 `scheduled_on`、lazy `today_position`）
-/// 各台自算，搬過去只會互相打架；`account_id／device_id／synced_at` 這輪不用。
-/// `route_id` 在表裡是快取，**只有根層臨時車票**那一筆是資料（路線標籤）——這個例外在快照端過濾（§2.2）。
+/// 並行地基 A-2：值搬到同步表登記表（`tables/core.rs` 與三線登記檔），這裡保留原名原簽章當薄殼。
 pub fn columns_of(tbl: &str) -> Option<&'static [(&'static str, bool)]> {
-    const NODES: &[(&str, bool)] = &[
-        ("kind", false),
-        ("parent_id", false),
-        ("name", false),
-        ("description", false),
-        ("position", true),
-        ("color", false),
-        ("code", false),
-        ("status", false),
-        ("scheduled_on", false),
-        ("due_on", false),
-        ("priority", false),
-        ("estimate_min", true),
-        ("progress", true),
-        ("time_spent_min", true),
-        ("mood", false),
-        ("repeat_rule", false),
-        ("completed_at", false),
-        ("expected_on", false),
-        ("arrived_on", false),
-        ("today_position", true),
-        ("carried_from", false),
-        ("route_id", false),
-        ("created_at", false),
-        ("updated_at", false),
-        ("deleted_at", false),
-    ];
-    const WORK_LOGS: &[(&str, bool)] = &[
-        ("node_id", false),
-        ("body", false),
-        ("logged_at", false),
-        ("event", false),
-        ("created_at", false),
-        ("updated_at", false),
-        ("deleted_at", false),
-    ];
-    const OCCURRENCES: &[(&str, bool)] = &[
-        ("node_id", false),
-        ("due_on", false),
-        ("status", false),
-        ("completed_at", false),
-        ("mood", false),
-        ("created_at", false),
-        ("updated_at", false),
-        ("deleted_at", false),
-    ];
-    const SETTINGS: &[(&str, bool)] = &[("value", false)];
-    match tbl {
-        "nodes" => Some(NODES),
-        "work_logs" => Some(WORK_LOGS),
-        "occurrences" => Some(OCCURRENCES),
-        "settings" => Some(SETTINGS),
-        _ => None,
-    }
+    Registry::production().find(tbl).map(|s| s.columns)
 }
 
 /// INSERT 時非有不可的欄（NOT NULL 且沒有 DEFAULT）。缺了就跳過整筆並計數（契約 §7.4）——
 /// 這種情形只會出現在「replica 先收到子孫的 op、卻永遠收不到那一列的建立 op」的破碎狀態，
 /// 硬塞會撞 NOT NULL 讓整個交易爆掉，寧可跳過一筆、其餘照收。
+/// 並行地基 A-3：查登記表；查不到回空（與搬家前的 `_ => &[]` 相同）。
 fn required_of(tbl: &str) -> &'static [&'static str] {
-    match tbl {
-        "nodes" => &["kind", "name"],
-        "work_logs" => &["node_id", "body", "logged_at"],
-        "occurrences" => &["node_id", "due_on", "status"],
-        _ => &[],
-    }
+    Registry::production().find(tbl).map(|s| s.required).unwrap_or(&[])
 }
 
-/// 主鍵欄名（settings 用 key，其餘用 id）
+/// 主鍵欄名（settings 用 key，其餘用 id）。並行地基 A-4：查登記表；查不到回 "id"。
 fn pk_of(tbl: &str) -> &'static str {
-    if tbl == "settings" {
-        "key"
-    } else {
-        "id"
-    }
+    Registry::production().find(tbl).map(|s| s.pk).unwrap_or("id")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1125,32 +1067,37 @@ fn derived_hlc_sql(alias: &str) -> String {
 ///
 /// 回傳補了幾格（診斷用）。
 pub(crate) async fn stamp_missing_cells(tx: &mut sqlx::Transaction<'_, Sqlite>, me: &str) -> Result<u64, String> {
+    stamp_missing_cells_with(Registry::production(), tx, me).await
+}
+
+/// Rows 表的補戳 SQL（並行地基 A-5：樣板一字不動，表與 filter 來自登記表）。
+/// 欄清單由白名單產生，排成 `SELECT 'kind' AS col UNION ALL SELECT 'parent_id' …`。
+/// filter 例：nodes 的 `route_id` 只有「根層臨時車票」那一列是資料；work_logs 的競合日誌永不進同步（見 `tables/core.rs`）。
+pub(crate) fn stamp_rows_sql(tbl: &str, columns: &[(&'static str, bool)], filter: &str) -> String {
+    let cols_sql = columns
+        .iter()
+        .map(|(c, _)| format!("SELECT '{c}' AS col"))
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ");
+    format!(
+        "INSERT OR IGNORE INTO sync_cells (tbl, row_id, col, hlc, device_id) \
+         SELECT '{tbl}', n.id, c.col, {stamp}, ?2 \
+         FROM {tbl} n CROSS JOIN ({cols_sql}) c {filter}",
+        stamp = derived_hlc_sql("n")
+    )
+}
+
+pub(crate) async fn stamp_missing_cells_with(
+    reg: &Registry,
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    me: &str,
+) -> Result<u64, String> {
     let dev8 = dev8_of(me);
     let mut total: u64 = 0;
 
-    // 三張表：欄清單由白名單產生，排成 `SELECT 'kind' AS col UNION ALL SELECT 'parent_id' …`
-    for (tbl, filter) in [
-        // nodes：`route_id` 只有「根層臨時車票」那一列是資料（路線標籤），其餘是快取、不進同步（契約 §2.2）
-        (
-            "nodes",
-            "WHERE NOT (c.col = 'route_id' AND NOT (n.parent_id IS NULL AND n.kind = 'ticket'))",
-        ),
-        // work_logs：競合日誌是各台自己記的「我這版被誰蓋掉了」，永不進同步
-        ("work_logs", "WHERE n.event IS NULL OR n.event <> 'conflict'"),
-        ("occurrences", ""),
-    ] {
-        let spec = columns_of(tbl).expect("表在白名單裡");
-        let cols_sql = spec
-            .iter()
-            .map(|(c, _)| format!("SELECT '{c}' AS col"))
-            .collect::<Vec<_>>()
-            .join(" UNION ALL ");
-        let sql = format!(
-            "INSERT OR IGNORE INTO sync_cells (tbl, row_id, col, hlc, device_id) \
-             SELECT '{tbl}', n.id, c.col, {stamp}, ?2 \
-             FROM {tbl} n CROSS JOIN ({cols_sql}) c {filter}",
-            stamp = derived_hlc_sql("n")
-        );
+    // Rows 表（登記順序＝父先子後）
+    for (spec, rows) in reg.rows() {
+        let sql = stamp_rows_sql(spec.name, spec.columns, rows.stamp_filter);
         let r = sqlx::query(&sql)
             .bind(&dev8)
             .bind(me)
@@ -1161,7 +1108,7 @@ pub(crate) async fn stamp_missing_cells(tx: &mut sqlx::Transaction<'_, Sqlite>, 
     }
 
     // settings 只有白名單那幾把鑰匙（`value` 一欄）
-    for key in SYNC_SETTINGS_KEYS {
+    for key in reg.settings_keys() {
         let sql = format!(
             "INSERT OR IGNORE INTO sync_cells (tbl, row_id, col, hlc, device_id) \
              SELECT 'settings', n.key, 'value', {stamp}, ?2 FROM settings n WHERE n.key = ?3",
@@ -1219,6 +1166,22 @@ fn row_to_cols(
 /// 為什麼不再「每筆各自一個新 hlc」（v1.1.2 的作法）：那等於把整份快照都戳成「現在」，
 /// 合併時會整包蓋掉對方（評審 B1）。物件撞名的問題改由 push 端的**推送戳記**解決（§5.4）。
 pub async fn snapshot_into_outbox(pool: &Pool<Sqlite>, device_id: &str) -> Result<u64, String> {
+    snapshot_into_outbox_with(Registry::production(), pool, device_id).await
+}
+
+/// 快照查詢的 SQL（並行地基 A-6）：`Plain` 組成 `SELECT * FROM {name}{filter} ORDER BY {order_by}`，`Custom` 整句自帶。
+pub(crate) fn outbox_query_sql(name: &str, q: &OutboxQuery) -> String {
+    match q {
+        OutboxQuery::Plain { order_by, filter } => format!("SELECT * FROM {name}{filter} ORDER BY {order_by}"),
+        OutboxQuery::Custom(sql) => (*sql).to_string(),
+    }
+}
+
+pub(crate) async fn snapshot_into_outbox_with(
+    reg: &Registry,
+    pool: &Pool<Sqlite>,
+    device_id: &str,
+) -> Result<u64, String> {
     let dev8 = dev8_of(device_id);
 
     // 一次撈完所有格子：`tbl → row_id → col → hlc`
@@ -1253,7 +1216,10 @@ pub async fn snapshot_into_outbox(pool: &Pool<Sqlite>, device_id: &str) -> Resul
         // 補到最大的那一筆反而會**高報戳記**——收到方若有一個介於兩筆之間、更新的 `name`，
         // 就會被這個借來的大 hlc 蓋掉。補在最小的那筆則是低報，同一個物件裡後面那筆真正的
         // `name` op 會把值與 hlc 一起蓋回正確的，收到方已有更新格子時也照樣被逐欄 LWW 擋掉。
-        let required: Vec<(String, Value)> = required_of(tbl)
+        let required: Vec<(String, Value)> = reg
+            .find(tbl)
+            .map(|t| t.required)
+            .unwrap_or(&[])
             .iter()
             .filter_map(|c| cols.get(*c).map(|v| ((*c).to_string(), v.clone())))
             .collect();
@@ -1286,64 +1252,32 @@ pub async fn snapshot_into_outbox(pool: &Pool<Sqlite>, device_id: &str) -> Resul
 
     let mut ops: Vec<Op> = Vec::new();
 
-    // nodes：父先子後（遞迴 CTE；孤兒列＝父不存在的，也當根層收進來，不漏）
-    let node_spec = columns_of("nodes").expect("nodes 在白名單裡");
-    let rows = sqlx::query(
-        "WITH RECURSIVE tree(id, depth) AS ( \
-            SELECT id, 0 FROM nodes WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM nodes) \
-            UNION ALL \
-            SELECT n.id, t.depth + 1 FROM nodes n JOIN tree t ON n.parent_id = t.id WHERE t.depth < 50 \
-         ) \
-         SELECT n.*, t.depth AS _depth FROM nodes n JOIN tree t ON t.id = n.id ORDER BY t.depth, n.position",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(db_err)?;
-    for row in &rows {
-        let id: String = row.try_get("id").map_err(db_err)?;
-        let mut cols = row_to_cols(row, node_spec)?;
-        // route_id 只有「根層臨時車票」那一筆是資料；其餘是快取，對方自己重算（契約 §2.2）
-        let is_root_ticket = row
-            .try_get::<Option<String>, _>("parent_id")
-            .map_err(db_err)?
-            .is_none()
-            && row.try_get::<String, _>("kind").map_err(db_err)? == "ticket";
-        if !is_root_ticket {
-            cols.remove("route_id");
-        }
-        let fallback = derived_hlc(
-            row.try_get::<Option<String>, _>("updated_at").map_err(db_err)?.as_deref(),
-            row.try_get::<Option<String>, _>("created_at").map_err(db_err)?.as_deref(),
-            &dev8,
-        );
-        ops.extend(group("nodes", &id, cols, &fallback));
-    }
-
-    // work_logs 排除 `event='conflict'`（v1.1.2 契約 §3.4）：衝突日誌是**各台自己**在 apply 時記的
-    // 「我這一版被誰蓋掉了」，本來就不進 outbox；快照若把它們一起搬走，另一台就會長出一堆不屬於它的競合紀錄。
-    for (tbl, order, filter) in [
-        ("work_logs", "logged_at", " WHERE event IS NULL OR event <> 'conflict'"),
-        ("occurrences", "due_on", ""),
-    ] {
-        let spec = columns_of(tbl).expect("表在白名單裡");
-        let rows = sqlx::query(&format!("SELECT * FROM {tbl}{filter} ORDER BY {order}"))
+    // Rows 表依登記順序（nodes 全部 → work_logs 全部 → occurrences 全部 → 三線的表），op 產生順序與搬家前相同。
+    //   * nodes：父先子後（遞迴 CTE；孤兒列＝父不存在的，也當根層收進來，不漏）；`route_id` 由 `outbox_row_fix` 濾
+    //   * work_logs 排除 `event='conflict'`（v1.1.2 契約 §3.4）：衝突日誌是**各台自己**在 apply 時記的
+    //     「我這一版被誰蓋掉了」，本來就不進 outbox；快照若把它們一起搬走，另一台就會長出一堆不屬於它的競合紀錄。
+    for (spec, rows_spec) in reg.rows() {
+        let rows = sqlx::query(&outbox_query_sql(spec.name, &rows_spec.outbox))
             .fetch_all(pool)
             .await
             .map_err(db_err)?;
         for row in &rows {
             let id: String = row.try_get("id").map_err(db_err)?;
-            let cols = row_to_cols(row, spec)?;
+            let mut cols = row_to_cols(row, spec.columns)?;
+            if let Some(fix) = rows_spec.outbox_row_fix {
+                fix(row, &mut cols)?;
+            }
             let fallback = derived_hlc(
                 row.try_get::<Option<String>, _>("updated_at").map_err(db_err)?.as_deref(),
                 row.try_get::<Option<String>, _>("created_at").map_err(db_err)?.as_deref(),
                 &dev8,
             );
-            ops.extend(group(tbl, &id, cols, &fallback));
+            ops.extend(group(spec.name, &id, cols, &fallback));
         }
     }
 
     // settings 只搬白名單（day_start_hour）
-    for key in SYNC_SETTINGS_KEYS {
+    for key in reg.settings_keys() {
         let row = sqlx::query("SELECT value, updated_at FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(pool)
@@ -2367,6 +2301,18 @@ pub async fn apply_object(
     object_key: &str,
     my_device_id: &str,
 ) -> Result<ApplyOutcome, String> {
+    apply_object_with(Registry::production(), pool, obj, object_key, my_device_id).await
+}
+
+/// `apply_object` 的本體（並行地基：白名單／主鍵／必填／settings 鍵／競合掛點／外鍵檢查清單一律查 `reg`；
+/// 生產路徑傳 `Registry::production()`，結果與 `columns_of`／`pk_of`／`required_of` 薄殼完全相同）。
+pub(crate) async fn apply_object_with(
+    reg: &Registry,
+    pool: &Pool<Sqlite>,
+    obj: &OplogObject,
+    object_key: &str,
+    my_device_id: &str,
+) -> Result<ApplyOutcome, String> {
     // 「復活」用的本機戳記種子（§3.3／§5）：取 max(本機已知最大 hlc, 這個物件的 hlc_to)，
     // 保證戳出來的 hlc 比本機與這批遠端資料都新，stamp_cell 才吃得下。
     let mut local_stamp: Option<String> = max_hlc(pool).await?;
@@ -2401,11 +2347,12 @@ pub async fn apply_object(
             out.skipped += 1;
             continue;
         }
-        let Some(spec) = columns_of(&op.tbl) else {
+        let Some(table) = reg.find(&op.tbl) else {
             out.skipped += 1;
             continue;
         };
-        if op.tbl == "settings" && !SYNC_SETTINGS_KEYS.contains(&op.row_id.as_str()) {
+        let spec = table.columns;
+        if op.tbl == "settings" && !reg.settings_keys().any(|k| k == op.row_id) {
             out.skipped += 1;
             continue;
         }
@@ -2418,7 +2365,7 @@ pub async fn apply_object(
 
         // 這一列目前的格子與目前的值（一次各查一次，取代 v1.1.1 的「逐欄查格子＋查存在」）
         let cells = load_cells(&mut tx, &op.tbl, &op.row_id).await?;
-        let pk = pk_of(&op.tbl);
+        let pk = table.pk;
         let existing: Option<Map<String, Value>> = if op.tbl == "settings" {
             None
         } else {
@@ -2607,7 +2554,8 @@ pub async fn apply_object(
             true
         } else {
             // 新列：NOT NULL 又沒有 DEFAULT 的欄一定要有，缺了就跳過整筆（不中斷整個交易）
-            let missing = required_of(&op.tbl)
+            let missing = table
+                .required
                 .iter()
                 .any(|need| !taken.iter().any(|(c, _, v)| c == need && !v.is_null()));
             if missing {
@@ -2657,18 +2605,18 @@ pub async fn apply_object(
 
         // ⑥ 競合留痕（§3.4）：Rust 直寫 work_logs，天然不進 outbox（TS 的閘門不在這條路上）
         for pc in &pending {
-            let node_id: Option<String> = match op.tbl.as_str() {
-                "nodes" => Some(op.row_id.clone()),
-                "work_logs" | "occurrences" => existing
-                    .as_ref()
-                    .and_then(|r| r.get("node_id"))
-                    .and_then(|v| v.as_str().map(str::to_string))
-                    .or_else(|| {
-                        op.cols
-                            .get("node_id")
-                            .and_then(|v| v.as_str().map(str::to_string))
-                    }),
-                _ => None, // settings 沒有節點可掛，不記
+            // 掛在哪個節點上由登記表的 `conflict_anchor` 決定（並行地基 A-10）；settings（KeyValue）沒有節點可掛，不記
+            let node_id: Option<String> = match &table.kind {
+                super::tables::Kind::Rows(r) => match r.conflict_anchor {
+                    ConflictAnchor::SelfId => Some(op.row_id.clone()),
+                    ConflictAnchor::Column(c) => existing
+                        .as_ref()
+                        .and_then(|r| r.get(c))
+                        .and_then(|v| v.as_str().map(str::to_string))
+                        .or_else(|| op.cols.get(c).and_then(|v| v.as_str().map(str::to_string))),
+                    ConflictAnchor::None => None,
+                },
+                super::tables::Kind::KeyValue => None,
             };
             let Some(node_id) = node_id else { continue };
             let body = serde_json::json!({
@@ -2715,7 +2663,7 @@ pub async fn apply_object(
     // 卻沒有父列」的那幾筆撤掉（連同它們的格子，讓日後補到父列時還能重收），其餘照收。
     if !inserted.is_empty() || !conflict_rows.is_empty() {
         let (pruned_ops, pruned_conflicts) =
-            prune_fk_violations(&mut tx, &inserted, &conflict_rows).await?;
+            prune_fk_violations(reg, &mut tx, &inserted, &conflict_rows).await?;
         out.applied = out.applied.saturating_sub(pruned_ops);
         out.skipped += pruned_ops;
         out.conflicts = out.conflicts.saturating_sub(pruned_conflicts);
@@ -2747,16 +2695,19 @@ pub async fn apply_object(
 /// 為什麼競合日誌也要進名單（v1.1.2）：它掛在某個 node 上，而那個 node 有可能正是這一趟被撤掉的孤兒；
 /// 兩份名單分開回報，是因為競合日誌不是 op，不該去動 `applied`／`skipped` 的帳。
 async fn prune_fk_violations(
+    reg: &Registry,
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     inserted: &BTreeSet<(String, String)>,
     conflict_rows: &BTreeSet<(String, String)>,
 ) -> Result<(u64, u64), String> {
-    const CHECKED: &[&str] = &["nodes", "work_logs", "occurrences"];
+    // 檢查清單＝登記表裡 `fk_checked` 的 Rows 表，順序不變（並行地基 A-11）
+    let checked: Vec<&'static str> = reg.rows().filter(|(_, r)| r.fk_checked).map(|(t, _)| t.name).collect();
+    let checked = checked.as_slice();
     let mut pruned: u64 = 0;
     let mut pruned_conflicts: u64 = 0;
     for _ in 0..5 {
         let mut hit = false;
-        for tbl in CHECKED {
+        for tbl in checked {
             if !inserted.iter().any(|(t, _)| t == tbl)
                 && !conflict_rows.iter().any(|(t, _)| t == tbl)
             {
@@ -3110,15 +3061,25 @@ pub(crate) const EPOCH_SCOPED_META: &str = "DELETE FROM sync_meta WHERE key LIKE
 /// **settings 不動**：白名單只有 `day_start_hour`（快照會蓋回來），其餘十把鑰匙（主題、書封……）
 /// 是這台自己的偏好，不該被別台的還原抹掉。
 pub(crate) async fn wipe_local_data(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), String> {
-    for sql in [
-        "PRAGMA defer_foreign_keys = ON",
-        "DELETE FROM occurrences",
-        "DELETE FROM work_logs",
-        "DELETE FROM nodes",
-        "DELETE FROM sync_outbox",
-        "DELETE FROM sync_cells",
-    ] {
-        sqlx::query(sql).execute(&mut **tx).await.map_err(db_err)?;
+    wipe_local_data_with(Registry::production(), tx).await
+}
+
+/// 清空的整串 SQL（並行地基 A-13）：延後外鍵 → Rows 表子先父後 → outbox → 格子。
+/// 核心四張表時產出的六句與順序與搬家前逐字相同。
+pub(crate) fn wipe_statements(reg: &Registry) -> Vec<String> {
+    let mut v = vec!["PRAGMA defer_foreign_keys = ON".to_string()];
+    v.extend(reg.rows_rev().map(|(t, _)| format!("DELETE FROM {}", t.name)));
+    v.push("DELETE FROM sync_outbox".to_string());
+    v.push("DELETE FROM sync_cells".to_string());
+    v
+}
+
+pub(crate) async fn wipe_local_data_with(
+    reg: &Registry,
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    for sql in wipe_statements(reg) {
+        sqlx::query(&sql).execute(&mut **tx).await.map_err(db_err)?;
     }
     Ok(())
 }
@@ -3709,13 +3670,27 @@ pub(crate) async fn unseal_key_object(
     crypto::unwrap_data_key(&wrap, &key_object_key(root), bytes)
 }
 
-/// 本機活著的節點數（契約 §2.3 的「空」）。設定、日誌、墓碑都不算。
+/// 本機活著的資料筆數（契約 §2.3 的「空」）。設定、日誌、墓碑都不算。
+/// 並行地基 A-12：對登記表裡每張 `alive_filter` 為 Some 的表各數一次後加總；核心只有 nodes 一張
+/// ⇒ 與搬家前同一句 SQL、同一個數字。新同步表一律填 `alive_filter`（2026-10-05 拍板，見 `tables/mod.rs`）。
 async fn local_alive_count(pool: &Pool<Sqlite>) -> Result<u64, String> {
-    let row = sqlx::query("SELECT COUNT(*) AS n FROM nodes WHERE deleted_at IS NULL")
-        .fetch_one(pool)
-        .await
-        .map_err(db_err)?;
-    Ok(row.try_get::<i64, _>("n").map_err(db_err)?.max(0) as u64)
+    local_alive_count_with(Registry::production(), pool).await
+}
+
+/// `local_alive_count` 要跑的每一句（一張表一句）
+pub(crate) fn alive_count_sqls(reg: &Registry) -> Vec<String> {
+    reg.rows()
+        .filter_map(|(t, r)| r.alive_filter.map(|f| format!("SELECT COUNT(*) AS n FROM {} WHERE {f}", t.name)))
+        .collect()
+}
+
+pub(crate) async fn local_alive_count_with(reg: &Registry, pool: &Pool<Sqlite>) -> Result<u64, String> {
+    let mut total: u64 = 0;
+    for sql in alive_count_sqls(reg) {
+        let row = sqlx::query(&sql).fetch_one(pool).await.map_err(db_err)?;
+        total += row.try_get::<i64, _>("n").map_err(db_err)?.max(0) as u64;
+    }
+    Ok(total)
 }
 
 /// 每台每個進程一次：確認桶裡有 `<root>/SALT`（缺就補）、記下有沒有 `KEY`、目前紀元缺 `EPOCH.bin` 就補寫。
@@ -3828,6 +3803,19 @@ pub(crate) async fn build_full_json(
     pool: &Pool<Sqlite>,
     kind: super::snapshot::SnapshotKind,
 ) -> Result<String, String> {
+    build_full_json_with(Registry::production(), pool, kind).await
+}
+
+/// 全量 JSON 一張 Rows 表的查詢（並行地基 A-14）
+pub(crate) fn full_json_sql(name: &str, order: &str) -> String {
+    format!("SELECT * FROM {name} ORDER BY {order}")
+}
+
+pub(crate) async fn build_full_json_with(
+    reg: &Registry,
+    pool: &Pool<Sqlite>,
+    kind: super::snapshot::SnapshotKind,
+) -> Result<String, String> {
     use sqlx::Column;
 
     /// 一列 → JSON 物件（**全欄**，不是白名單：這是給主人看的存底，不是 op）
@@ -3861,22 +3849,19 @@ pub(crate) async fn build_full_json(
         "epoch".into(),
         Value::from(meta.get("epoch").cloned().unwrap_or_default()),
     );
-    for (tbl, order) in [
-        ("nodes", "created_at"),
-        ("work_logs", "logged_at"),
-        ("occurrences", "due_on"),
-    ] {
-        let rows = sqlx::query(&format!("SELECT * FROM {tbl} ORDER BY {order}"))
+    // Rows 表依登記順序（頂層鍵順序＝schema→…→epoch→各表→settings，與搬家前相同）
+    for (spec, rows_spec) in reg.rows() {
+        let rows = sqlx::query(&full_json_sql(spec.name, rows_spec.full_json_order))
             .fetch_all(pool)
             .await
             .map_err(db_err)?;
         doc.insert(
-            tbl.into(),
+            spec.name.into(),
             Value::Array(rows.iter().map(|r| Value::Object(row_json(r))).collect()),
         );
     }
     let mut settings = Map::new();
-    for key in SYNC_SETTINGS_KEYS {
+    for key in reg.settings_keys() {
         if let Some(row) = sqlx::query("SELECT value FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(pool)
@@ -3884,7 +3869,7 @@ pub(crate) async fn build_full_json(
             .map_err(db_err)?
         {
             settings.insert(
-                (*key).to_string(),
+                key.to_string(),
                 Value::from(row.try_get::<String, _>("value").map_err(db_err)?),
             );
         }
@@ -5988,13 +5973,9 @@ mod tests {
             )
             .await
             .unwrap();
-        for sql in [
-            include_str!("../../migrations/0001_baseline.sql"),
-            include_str!("../../migrations/0002_today.sql"),
-            include_str!("../../migrations/0003_repeat.sql"),
-            include_str!("../../migrations/0004_sync.sql"),
-        ] {
-            sqlx::raw_sql(sql).execute(&pool).await.unwrap();
+        // 並行地基 A-17／S-8：走訪 migration 唯一來源（`m.sql` 未經 `lf()`，與搬家前相同）
+        for m in crate::migrations::MIGRATIONS {
+            sqlx::raw_sql(m.sql).execute(&pool).await.unwrap();
         }
         (pool, path)
     }
@@ -7578,7 +7559,9 @@ mod tests {
             ops: vec![],
         };
         let s = serde_json::to_string(&obj).unwrap();
-        for needle in ["\"version\":1", "\"schema\":4", "\"hlc_from\"", "\"device_id\""] {
+        // schema 跟著 migration 數走（三線加 migration 不該讓這支紅）；2026-10-05 調度核准改這一處
+        let schema = format!("\"schema\":{SCHEMA_VERSION}");
+        for needle in ["\"version\":1", schema.as_str(), "\"hlc_from\"", "\"device_id\""] {
             assert!(s.contains(needle), "{needle} 不見了：{s}");
         }
     }
@@ -9093,3 +9076,15 @@ mod tests {
         });
     }
 }
+
+// 並行地基・金樣（契約 2026-09-29 §3.3 A-18、§11；階段 甲0）：掛在 engine 底下才讀得到私有函式。
+// pub(crate)：之後 T-甲10（假表走一遍）要沿用同一份種子與傾印。
+#[cfg(test)]
+#[path = "foundation_golden.rs"]
+pub(crate) mod foundation_golden;
+
+// 並行地基・重構後的牙齒（契約 2026-09-29 §11.3 T-甲8 純函式逐字、T-甲10 假表走一遍；增補三）：
+// 金樣檔凍結，甲2 新增的檢查另開一支，同樣掛在 engine 底下才讀得到私有函式。
+#[cfg(test)]
+#[path = "foundation_checks.rs"]
+mod foundation_checks;

@@ -22,8 +22,11 @@
 import type { PageId } from "../../store/uiStore";
 import type { Chord, Hotkey, HotkeyScope } from "./hotkeys";
 import { byScope, formatChord, hotkeyById } from "./hotkeys";
+// 並行地基（契約 §8.3／§6.2 C-13）：三線的分組來自各線登記檔；頁 → scope 查頁面登記表。probe 會載入本檔，值 import 含 .ts
+import { LINE_MANIFESTS } from "../../lines/index.ts";
+import { pageById } from "./pages.ts";
 
-/* ───────── 七組（顯示順序＝這個陣列的順序） ───────── */
+/* ───────── 七組＋三線（顯示順序＝這個陣列的順序） ───────── */
 
 export interface Scene {
   scope: HotkeyScope;
@@ -59,6 +62,8 @@ export const SCENES: readonly Scene[] = [
     title: "日曆・當日清單",
     note: "在日曆點開某一天的清單浮層之後。",
   },
+  // 三條功能線的分組（各線 manifest 的 scenes）：插在頁面類之後、通用兩組之前。未通車的線是空的 ⇒ 仍是七組
+  ...LINE_MANIFESTS.flatMap((m) => m.scenes),
   {
     scope: "common",
     title: "側板與覆蓋層通用",
@@ -94,14 +99,8 @@ export const DUAL_MODE_NOTE: readonly string[] = [
 /* ───────── 頁 → scope（`?` 情境卡用） ───────── */
 
 export function pageScope(page: PageId): HotkeyScope {
-  switch (page) {
-    case "today":
-      return "today";
-    case "routemap":
-      return "outline";
-    case "calendar":
-      return "calendar";
-  }
+  // 今日→today、路線圖→outline、日曆→calendar；三線＝各自 manifest 的第一個 scope（pages.ts）
+  return pageById(page).hotkeyScope;
 }
 
 /* ───────── 顯示列 ───────── */

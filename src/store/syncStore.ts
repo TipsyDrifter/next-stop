@@ -63,6 +63,11 @@ import { askNotificationPermissionOnce, notifyOnce, rearmNotify } from "../lib/n
 import { useBackupStore } from "./backupStore";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
+// 並行地基（契約 §5.3 T-4／T-5）：三條功能線的同步後重載掛點與同步表名。
+// 重載掛點查 `lines/runtime`、**不 import `lines/mounts`**——後者會把各線的元件樹拉進 store 層、
+// 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
+import { LINE_MANIFESTS } from "../lines";
+import { lineReloads } from "../lines/runtime";
 
 /** 拉取／推送節奏（P4）；去抖秒數見 Plan §6 */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -869,8 +874,15 @@ async function refreshStatusInner(): Promise<SyncStatus | null> {
 /**
  * 拉到東西之後重載畫面。`loadSettings()` 只在 settings 真的被改到時才叫（它每次都會多掛一顆 matchMedia
  * listener，而白名單只有 `day_start_hour`）。
+ *
+ * 並行地基（契約 §5.3 T-4）：核心重載之後，走訪三條功能線的 `reload`（各線 mount 檔；null＝沒登記、跳過）。
+ * 一條線重載失敗不拖累別條。`wiped` 只由 `refreshAfterWipe` 傳 true（本機資料被整批換掉）。
+ * 三線都沒登記時零次額外 await。
  */
-async function refreshAfterPull(report: Pick<PullReport, "changed_tables">): Promise<void> {
+async function refreshAfterPull(
+  report: Pick<PullReport, "changed_tables">,
+  wiped = false,
+): Promise<void> {
   const ui = useUiStore.getState();
   if (report.changed_tables.includes("settings")) {
     await ui.loadSettings().catch(() => undefined);
@@ -893,6 +905,13 @@ async function refreshAfterPull(report: Pick<PullReport, "changed_tables">): Pro
   } catch (e) {
     console.warn("[next-stop] 同步後重載失敗：", messageOf(e));
   }
+  for (const { id, reload } of lineReloads()) {
+    try {
+      await reload({ changed: report.changed_tables, wiped, shell });
+    } catch (e) {
+      console.warn(`[next-stop] 同步後重載失敗（${id}）：`, messageOf(e));
+    }
+  }
   // 遠端 hlc 已戳進 sync_cells，忘掉探測快取 ⇒ 下一次寫入重讀 MAX(hlc) 當種子（契約 §5 的雙保險）
   resetSyncTablesProbe();
 }
@@ -906,8 +925,15 @@ async function refreshAfterPull(report: Pick<PullReport, "changed_tables">): Pro
  * 換到剩下的第一條路線、zoom 與選取清空）。
  */
 async function refreshAfterWipe(pulled: Pick<PullReport, "changed_tables"> | null): Promise<void> {
-  const tables = new Set([...(pulled?.changed_tables ?? []), "nodes", "occurrences", "work_logs"]);
-  await refreshAfterPull({ changed_tables: [...tables] });
+  // 三線的表也一併當成「有變動」（並行地基 T-5；地基階段三線沒有表 ⇒ 與之前相同）
+  const tables = new Set([
+    ...(pulled?.changed_tables ?? []),
+    "nodes",
+    "occurrences",
+    "work_logs",
+    ...LINE_MANIFESTS.flatMap((m) => m.syncTables),
+  ]);
+  await refreshAfterPull({ changed_tables: [...tables] }, true);
   const node = useNodeStore.getState();
   const ui = useUiStore.getState();
   ui.select(null);

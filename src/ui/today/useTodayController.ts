@@ -53,7 +53,7 @@ export interface DeferTarget {
  * 種子動線兩條（M3-6）共用的同一句話：`Shift+Enter` 建無日期票、推遲小卡「清除執行日」。
  * DeferPopover 也 import 這一份，兩條路吐出來的字保證一模一樣。
  */
-export const INBOX_TOAST = "已放進收件匣（M4 開張）——Ctrl+P 找得到";
+export const INBOX_TOAST = "已放進收件匣——到旅客筆記整理";
 
 const WEEK_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 

@@ -1005,8 +1005,8 @@
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m-sheet-item:active { background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
-  [data-shell="mobile"] .m-sheet-item.is-cancel {
   [data-shell="mobile"] .m-sheet-item.is-disabled { color: var(--color-ink-faint); cursor: default; }
+  [data-shell="mobile"] .m-sheet-item.is-cancel {
     border-bottom: 0; color: var(--color-ink-faint); font-size: 14px;
   }
 

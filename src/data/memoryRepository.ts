@@ -289,6 +289,13 @@ export class MemoryNodeRepository implements NodeRepository {
       .map(clone);
   }
 
+  async listInboxTickets(): Promise<NodeRow[]> {
+    return this.alive()
+      .filter((n) => n.kind === "ticket" && !n.parent_id && !n.scheduled_on && !n.route_id && n.status !== "done")
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map(clone);
+  }
+
   async addWorkLog(nodeId: string, body: string): Promise<WorkLog> {
     return clone(this.log(nodeId, body));
   }
