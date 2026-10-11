@@ -46,4 +46,4 @@ pub const TABLES: &[SyncTableSpec] = &[SyncTableSpec {
 }];
 
 /// 旅客筆記線要同步的 settings 鍵（車次①沒有）。
-pub const SETTINGS_KEYS: &[&str] = &[];
+pub const SETTINGS_KEYS: &[&str] = &["week_start"];

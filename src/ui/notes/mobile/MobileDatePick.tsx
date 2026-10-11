@@ -1,5 +1,6 @@
 /**
  * MobileDatePick——手機的「挑一天」底部面板（車次①契約 §5.3；桌機的對應是乙席 DatePop）。
+ * 車次② D-筆-30 起本體搬到共用的 `src/ui/common/MobileDatePicker.tsx`，這裡是轉呼叫的薄殼（下面的說明仍是它的行為）。
  *
  * 兩個用處：
  *   1. 收件匣車票「排某天」——快捷 chip（明天／後天／下週一）＋原生日期欄（min＝今天），不給清除。
@@ -15,8 +16,8 @@
  * 也放了手機各元件共用的幾支日期小工具（`shortDay`／`nextMonday`／`shiftIsoToDay`）——
  * 契約 §2.3 沒有另開 util 檔的位子，放在最貼近日期的這一支。
  */
-import { createPortal } from "react-dom";
 import { addDays } from "../../../lib/date";
+import { MobileDatePicker, type DateQuick } from "../../common/MobileDatePicker";
 
 /** "2026-10-05" → "10/5" */
 export function shortDay(key: string): string {
@@ -48,10 +49,7 @@ export function shiftIsoToDay(iso: string, fromDay: string, toDay: string): stri
   return d.toISOString();
 }
 
-export interface DateQuick {
-  label: string;
-  day: string;
-}
+export type { DateQuick } from "../../common/MobileDatePicker";
 
 export interface MobileDatePickProps {
   title: string;
@@ -64,57 +62,7 @@ export interface MobileDatePickProps {
   onClose(): void;
 }
 
-export function MobileDatePick({ title, value, min, max, quick, onPick, onClose }: MobileDatePickProps) {
-  const custom = value !== null && !quick.some((q) => q.day === value);
-  return createPortal(
-    <div className="ns-notes-mveil is-top" role="presentation" onClick={onClose}>
-      <div
-        className="ns-notes-mpick"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="ns-notes-grip" aria-hidden />
-        <p className="ns-notes-mpick-title">{title}</p>
-        <div className="ns-notes-mpick-body">
-          <div className="ns-notes-mchiprow">
-            {quick.map((q) => (
-              <button
-                key={q.label}
-                type="button"
-                className={"ns-notes-mchip2" + (value === q.day ? " on" : "")}
-                aria-pressed={value === q.day}
-                onClick={() => onPick(q.day)}
-              >
-                {q.label}
-                <span className="sub">{shortDay(q.day)}</span>
-              </button>
-            ))}
-          </div>
-          <label className="ns-notes-mdatefield">
-            <span className="lab">指定日期</span>
-            <input
-              type="date"
-              className={"ns-notes-mdate" + (custom ? " on" : "")}
-              value={custom && value ? value : ""}
-              min={min}
-              max={max}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) return;
-                if (min && v < min) return;
-                if (max && v > max) return;
-                onPick(v);
-              }}
-            />
-          </label>
-        </div>
-        <button type="button" className="ns-notes-mpick-cancel" onClick={onClose}>
-          取消
-        </button>
-      </div>
-    </div>,
-    document.body,
-  );
+/** 車次② D-筆-30 起是薄殼：本體在共用的 `src/ui/common/MobileDatePicker.tsx`；props 與車次①相同（凍結介面） */
+export function MobileDatePick(props: MobileDatePickProps) {
+  return <MobileDatePicker {...props} />;
 }

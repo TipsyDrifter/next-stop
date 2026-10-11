@@ -116,9 +116,6 @@
   text-decoration: line-through transparent 1px;
   transition: color .25s, text-decoration-color .25s;
 }
-/* 臨時券＝手寫（承 C2「補充券」由來；銀河版沒有這一手） */
-.ns-daypop .prow.rin .t { font-family: var(--hw, var(--font-hand)); font-size: 14px; }
-[data-theme="dark"] .ns-daypop .prow.rin .t { font-family: inherit; font-size: 13px; }
 .ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: rgba(42, 43, 73, .35); }
 [data-theme="dark"] .ns-daypop .prow.done .t { text-decoration-color: rgba(228, 232, 243, .35); }
 /* 運休＝**不刪除線**、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12：「運休票標題維持 ink-soft

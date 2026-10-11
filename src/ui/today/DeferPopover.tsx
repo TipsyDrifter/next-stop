@@ -28,13 +28,14 @@
  *   ↑↓ 在項目間移動・Enter／Space 由按鈕自己啟動・Tab 在卡內循環・Esc 關閉（自己攔並 stopPropagation，
  *   免得冒泡上去被 useTodayKeyboard 的 Esc 護欄再關一次）。點卡外＝關閉；點回原本那枚 chip 讓 chip 自己 toggle。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { describeRule, parseRule, type NodeRow } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { isEditableTarget } from "../shell/hotkeys";
+import { DatePicker } from "../common/DatePicker";
 import { INBOX_TOAST, showRescheduleToast } from "./useTodayController";
 import "./defer.css";
 
@@ -107,6 +108,12 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [picking, setPicking] = useState(false);
+  /** 挑選器收起（Esc／點卡內別處）：焦點交回「選日期…」那一項，卡的鍵盤（↑↓／Esc）才接得上 */
+  const closePicker = useCallback(() => {
+    setPicking(false);
+    const el = ref.current;
+    if (el && el.contains(document.activeElement)) el.querySelector<HTMLElement>("button[aria-expanded]")?.focus();
+  }, []);
 
   /* ── 定位：量完 anchor 與自身尺寸再落座，clamp 進視窗（沒有 anchor＝鍵盤觸發 → 靠上置中） ── */
   useLayoutEffect(() => {
@@ -331,24 +338,15 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
 
       {!rule && picking && (
         <div className="ns-defer-pick">
-          <input
-            type="date"
-            autoFocus
-            aria-label="選擇執行日"
-            defaultValue={row.scheduled_on ?? dateKey}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.stopPropagation();
-                const v = (e.target as HTMLInputElement).value;
-                if (isSaneDateKey(v)) applyDate(v);
-              }
-            }}
-            onChange={(e) => {
-              const v = e.target.value;
+          {/* 共用挑選器（D-筆-30）：沒有快選（明天／下週一已在上面）；開啟時焦點落在日期欄；
+              Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡 */}
+          <DatePicker
+            label="選擇執行日"
+            value={row.scheduled_on ?? dateKey}
+            onPick={(v) => {
               if (isSaneDateKey(v)) applyDate(v);
             }}
+            onClose={closePicker}
           />
         </div>
       )}

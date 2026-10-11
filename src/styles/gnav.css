@@ -22,10 +22,13 @@
   --gnav-hover: var(--color-book-hover, rgba(230, 236, 255, .045));
 }
 
-/* ============ 第一欄：已通車（今日／路線圖／日曆）＋當前頁金菱形＋Ctrl 1・2・3 註記 ============ */
+/* ============ 第一欄：已通車（今日／路線圖／日曆）＋當前頁金菱形＋Ctrl 1・2・3 註記 ============
+   第二欄裡「通車的那一枚」（.gnav-line；旅客筆記 D-筆-35）長相與 .gnav-item 一致——大圖示＋字＋作用中金菱形，
+   位置仍留在第二欄（地基增補一：兩排、位置固定；未通車的 .gnav-off 照舊灰階小圖示）。三線共用這一份。 */
 .cover .gnav { margin-top: 20px; }
 .cover .gnav-row { display: flex; justify-content: center; gap: 6px; }
-.cover .gnav-item {
+.cover .gnav-item,
+.cover .gnav-line {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
   width: 58px; padding: 8px 4px 7px; border-radius: 2px;
   background: transparent; border: 0; cursor: pointer;
@@ -33,11 +36,17 @@
   color: var(--book-muted);
   transition: background .15s, color .15s;
 }
-.cover .gnav-item svg { opacity: .85; }
-.cover .gnav-item:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
-.cover .gnav-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-.cover .gnav-item.active { color: var(--color-book-ink); }
-.cover .gnav-item.active::after { /* 書封上金＝現在作用中（沿 nav active 的金菱形語言） */
+.cover .gnav-item svg,
+.cover .gnav-line svg { opacity: .85; }
+.cover .gnav-item:hover,
+.cover .gnav-line:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
+.cover .gnav-item:focus-visible,
+.cover .gnav-line:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .gnav-item.active,
+.cover .gnav-line.active { color: var(--color-book-ink); }
+/* .gnav-line.active 同一枚 */
+.cover .gnav-item.active::after,
+.cover .gnav-line.active::after { /* 書封上金＝現在作用中（沿 nav active 的金菱形語言） */
   content: ""; width: 5px; height: 5px;
   background: var(--color-gold); transform: rotate(45deg); margin-top: 2px;
 }
@@ -128,6 +137,7 @@
 /* ============ reduced-motion：關掉過場（原型同款） ============ */
 @media (prefers-reduced-motion: reduce) {
   .cover .gnav-item,
+  .cover .gnav-line,
   .cover .gnav-off,
   .cover .gnav-kbd-guide,
   .cover .gnav-search,

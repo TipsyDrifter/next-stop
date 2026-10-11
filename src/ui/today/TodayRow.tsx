@@ -304,8 +304,8 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
             {fare.label}
           </button>
 
-          {/* 臨時車票的標題走手寫（C2：真實鐵道的補充券就是手寫的）；銀河主題由 CSS 退回排印 */}
-          <p className={"title" + (row.parent_id === null ? " hw" : "")}>{row.name}</p>
+          {/* 標題一律黑體（D-筆-32：臨時券標題全 App 黑體，不再走手寫） */}
+          <p className="title">{row.name}</p>
 
           <div className="meta">
             <MetaItems items={metaItems} />

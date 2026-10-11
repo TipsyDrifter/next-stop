@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────
- * notes.css — 旅客筆記・桌機（車次①；契約 §5.1、§5.2、§5.4、§5.5、§5.7）
+ * notes.css — 旅客筆記・桌機（車次①；契約 §5.1、§5.2、§5.4、§5.5、§5.7｜車次②日記與當天足跡：檔尾「車次②」一節）
  *
  * 視覺真相＝prototypes/旅客筆記-src/styles.css 第三～七節（桌機部分）；class 一律 .ns-notes-*。
  * 由 NotesView.tsx import（CaptureButton／NotesDesktopOverlay 也 import 一次保險，Vite 去重）。
@@ -17,28 +17,11 @@
  *     --ns-float   浮層票面     粉彩＝rgba(var(--starlight), .84)（原型施工決定 9 的 84% 白）；銀河＝--color-paper-high
  *       （契約 §5.4 寫 color-mix(paper-high 84%, transparent)，但那會比 .64 更透、與「比票卡再實一點」相反；
  *        §8-12 要求兩主題重現原型值，故改用 starlight 三元組，見回報 deviations）
- * 紀律：書封是唯一深色面；本線所有面都是「頁」的材質家族。受付章是墨（--stamp-ink）；朱紅只給済章，本檔不出現 --seal。
+ * 紀律：書封是唯一深色面；本線所有面都是「頁」的材質家族。受付章是墨（--stamp-ink）；朱紅只給済章——本檔的 --seal
+ *   只出現在車次②足跡欄的 .ns-notes-sumi（済章縮小版）。
  * ───────────────────────────────────────────────────── */
 
-/* ═══ gnav 下排・通車那一枚（並行地基 §13〈新增一個頁面〉第 6 點；第一條通車的線補，三線共用） ═══
-   視覺真相＝prototypes/旅客筆記-src/styles.css:245-250（.gnav-off.open）；token 對照同 gnav.css 檔頭。
-   button 裡有文字節點（Sidebar.tsx:248），下排是圖示列 ⇒ 文字以 font-size:0 隱藏（無障礙名稱仍由文字提供，tooltip 由 title 提供）。 */
-.cover .gnav-line {
-  position: relative; display: grid; place-items: center;
-  width: 30px; height: 26px; border-radius: 2px; padding: 0; border: 0;
-  background: transparent; cursor: pointer; font-size: 0;
-  color: var(--book-muted); opacity: 1;
-  transition: background .15s, color .15s;
-}
-.cover .gnav-line svg { display: block; }
-.cover .gnav-line:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
-.cover .gnav-line:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-.cover .gnav-line.active { color: var(--color-book-ink); }
-.cover .gnav-line.active::after {           /* 與上排 .gnav-item.active::after 同一枚金菱形（gnav.css:40-43） */
-  content: ""; position: absolute; bottom: -5px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px;
-  background: var(--color-gold); transform: rotate(45deg);
-}
-@media (prefers-reduced-motion: reduce) { .cover .gnav-line { transition: none; } }
+/* gnav 第二欄・通車那一枚（.gnav-line）的樣式已搬到 src/styles/gnav.css，與第一欄 .gnav-item 同一份（D-筆-35，旅客筆記車次②）。 */
 
 /* ═══ 側欄捕捉鈕（CaptureButton 掛進 sidebarTool 插槽；原型 styles.css:266-283） ═══
    插槽 div.gnav-tools 地基不寫 CSS；有本線的鈕時才排成一列（:has 只選到有捕捉鈕的那一列，其他線零影響）。 */
@@ -375,9 +358,10 @@
 }
 .ns-notes-uke::before { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; border: .8px solid currentColor; }
 .ns-notes-uke small { font-family: var(--font-latin); font-weight: 500; font-size: 7.5px; letter-spacing: .12em; text-indent: 0; border-top: .8px solid currentColor; padding: 2px 3px 0; }
-.ns-notes-uke.mini { width: 26px; height: 26px; font-size: 7px; border-width: 1.1px; letter-spacing: .06em; text-indent: .06em; row-gap: 0; }
-.ns-notes-uke.mini::before { inset: 1.6px; border-width: .6px; }
-.ns-notes-uke.mini small { font-size: 5px; padding: 1px 1px 0; border-top-width: .6px; }
+/* mini＝42px（車次② D-筆-31：車次①的 26px 讀不出字；原型手機版就是 42／10.5px） */
+.ns-notes-uke.mini { width: 42px; height: 42px; font-size: 10.5px; border-width: 1.4px; letter-spacing: .1em; text-indent: .1em; row-gap: 1px; }
+.ns-notes-uke.mini::before { inset: 2.2px; border-width: .7px; }
+.ns-notes-uke.mini small { font-size: 6.5px; padding: 1.5px 2px 0; border-top-width: .7px; }
 .ns-notes-uke.ghost { --ns-imp: .2; filter: none; width: 88px; height: 88px; font-size: 20px; border-width: 2px; }
 .ns-notes-uke.ghost::before { inset: 4px; border-width: 1px; }
 .ns-notes-uke.ghost small { font-size: 11px; border-top-width: 1px; padding-top: 3px; }
@@ -457,6 +441,18 @@
   color: var(--color-ink-faint);
 }
 .ns-notes-capwrap .ns-notes-routestub .x:hover { background: var(--ns-hover); color: var(--color-ink); }
+/* 車次②：票根不掛路線（日記）時的淡化版「●路線名・日記不掛路線」——沒有 ×，虛線框、淡墨 */
+.ns-notes-capwrap .ns-notes-routestub.muted {
+  padding: 6px 10px; border-style: dashed; border-color: var(--color-dash);
+  background: transparent; color: var(--color-ink-faint); font-size: 12px;
+}
+.ns-notes-routestub.muted .ns-notes-dot { opacity: .5; }
+/* 四枚票根後只剩約 130px：排兩行——「●路線名」／「日記不掛路線」（路線名太長才截斷，理由整句不截） */
+.ns-notes-capwrap .ns-notes-routestub.muted {
+  display: inline-grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; row-gap: 1px; align-items: center;
+}
+.ns-notes-routestub.muted .nm { max-width: none; }
+.ns-notes-routestub.muted .why { grid-column: 2; font-size: 10px; letter-spacing: .06em; white-space: nowrap; }
 .ns-notes-capdest { padding: 0 22px 10px; font-size: 12px; color: var(--color-ink-soft); letter-spacing: .06em; min-height: 28px; display: flex; align-items: center; gap: 4px; }
 .ns-notes-capdest .ns-notes-dot { margin: 0 1px 0 2px; }
 .ns-notes-caphint { display: flex; gap: 14px; align-items: center; padding: 8px 22px 11px; border-top: 1px solid var(--color-line); font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
@@ -505,6 +501,210 @@
 .ns-notes-headtag { font-size: 9px; letter-spacing: .2em; padding: 0 5px; border: 1px solid var(--color-line); color: var(--color-ink-faint); border-radius: 2px; margin-left: 4px; }
 .ns-notes-prevfoot { display: flex; align-items: center; gap: 8px; padding: 12px 20px 14px; border-top: 1px solid var(--color-line); }
 .ns-notes-prevfoot .hint { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); margin-right: auto; }
+
+/* ═══════════ 車次②：日記子畫面（契約 §5.1、§5.4、§5.5；原型 styles.css:321-347、479-488、681-742） ═══════════
+   token 對照同檔頭；原型 --route-3→--route-preset-3、--sel-wash→--ns-sel、--hw→--hw（theme.css 別名＝--font-hand）。
+   原型的月曆畫在書封（--cover-*）；本線頁務件是「頁」材質 ⇒ 換 --color-ink-*／--ns-hover／--ns-sel。 */
+
+/* —— 頁務件月曆 —— */
+.ns-notes-calwrap { margin-top: 0; }
+.ns-notes-cal { padding: 4px 0 0; }
+.ns-notes-calhead { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 8px; }
+.ns-notes-calhead .m { font-family: var(--font-display); font-weight: 600; font-size: 12.5px; letter-spacing: .14em; color: var(--color-ink); }
+.ns-notes .ns-notes-calnav {
+  width: 24px; height: 24px; border-radius: 2px; display: grid; place-items: center; padding: 0;
+  border: 0; background: transparent; cursor: pointer; color: var(--color-ink-faint);
+  transition: background .15s, color .15s;
+}
+.ns-notes .ns-notes-calnav:hover:not([disabled]) { background: var(--ns-hover); color: var(--color-ink); }
+.ns-notes .ns-notes-calnav:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-notes .ns-notes-calnav[disabled] { opacity: .3; cursor: default; }
+.ns-notes-calgrid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.ns-notes-calgrid .wd { text-align: center; font-size: 9px; letter-spacing: .1em; color: var(--color-ink-faint); opacity: .8; padding-bottom: 4px; }
+.ns-notes .ns-notes-calday {
+  position: relative; height: 27px; border-radius: 2px; padding: 4px 0 0; border: 0; background: transparent; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  font-family: var(--font-latin); font-size: 11px; line-height: 1.2; color: var(--color-ink-faint);
+  transition: background .15s, color .15s;
+}
+.ns-notes .ns-notes-calday:hover:not([disabled]) { background: var(--ns-hover); color: var(--color-ink); }
+.ns-notes .ns-notes-calday:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.ns-notes .ns-notes-calday[disabled] { opacity: .3; cursor: default; }
+.ns-notes .ns-notes-calday.has { color: var(--color-ink); }
+.ns-notes-calday .dot { position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; }
+/* 實心點：銀河用原型的淡金；粉彩的淡金在白紙上幾乎看不見，退一階用燙金（同一家族） */
+.ns-notes-calday.diary .dot { background: var(--color-gold); }
+[data-theme="dark"] .ns-notes-calday.diary .dot { background: var(--color-gold-soft); }
+.ns-notes-calday.fp .dot { border: 1px solid var(--color-ink-faint); width: 5px; height: 5px; margin-left: -2.5px; bottom: 3.5px; }
+.ns-notes-calday.today::before { content: ""; position: absolute; inset: 1px 3px; border: 1px solid var(--color-dash); border-radius: 2px; pointer-events: none; }
+.ns-notes .ns-notes-calday.sel { background: var(--ns-sel); color: var(--color-ink); }
+.ns-notes-calday.sel::after { content: ""; position: absolute; top: -3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; background: var(--color-gold); transform: rotate(45deg); }
+.ns-notes-callegend { display: flex; gap: 12px; padding: 10px 2px 0; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-notes-callegend i { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.ns-notes-callegend .a { background: var(--color-gold); }
+[data-theme="dark"] .ns-notes-callegend .a { background: var(--color-gold-soft); }
+.ns-notes-callegend .b { border: 1px solid var(--color-ink-faint); }
+
+/* —— 本文欄 —— */
+.ns-notes-diarycol { flex: 1; min-width: 0; container-type: inline-size; }
+.ns-notes-diarycol .ns-notes-sheetwrap { padding: 34px 32px 56px 48px; }
+.ns-notes-dhead {
+  position: relative; display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding-bottom: 18px; margin-bottom: 22px; border-bottom: 1px solid var(--color-line);
+}
+.ns-notes-dhead::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; border-bottom: 1px solid var(--color-line); opacity: .5; }
+.ns-notes-dleft { min-width: 0; }
+.ns-notes-dhead .ns-notes-overline { margin-bottom: 8px; }
+.ns-notes-dateline { position: relative; display: flex; align-items: center; gap: 10px; }
+.ns-notes .ns-notes-bigdate {
+  border: 0; background: transparent; cursor: pointer; padding: 2px 8px; margin: 0 -4px; border-radius: 3px;
+  font-family: var(--font-display); font-weight: 700; font-size: 30px; letter-spacing: .06em; line-height: 1.15; white-space: nowrap;
+  color: var(--color-ink); transition: background .15s;
+}
+.ns-notes .ns-notes-bigdate:hover, .ns-notes .ns-notes-bigdate[aria-expanded="true"] { background: var(--ns-hover); }
+.ns-notes .ns-notes-bigdate:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes-bigdate .w { font-weight: 600; font-size: 17px; color: var(--color-ink-soft); margin-left: .3em; }
+.ns-notes .ns-notes-arrow {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; padding: 0;
+  background: transparent; cursor: pointer; color: var(--color-ink-soft); border: 1px solid transparent;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ns-notes .ns-notes-arrow:hover:not([disabled]) { border-color: var(--color-dash); color: var(--color-ink); }
+.ns-notes .ns-notes-arrow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-notes .ns-notes-arrow[disabled] { opacity: .3; cursor: default; }
+.ns-notes .ns-notes-arrow.sm { width: 24px; height: 24px; }
+.ns-notes .ns-notes-todaybtn {
+  flex: none; white-space: nowrap;
+  margin-left: 6px; padding: 2px 10px; border: 1px solid var(--color-line); border-radius: 2px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 11.5px; letter-spacing: .14em; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s;
+}
+.ns-notes .ns-notes-todaybtn:hover:not([disabled]) { border-color: var(--accent); color: var(--color-ink); }
+.ns-notes .ns-notes-todaybtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes .ns-notes-todaybtn[disabled] { opacity: .4; cursor: default; }
+.ns-notes .ns-notes-daypop { left: 36px; top: calc(100% + 8px); width: 316px; }
+.ns-notes-dsearch { margin-top: 14px; max-width: 260px; }
+.ns-notes-dateseal { flex: none; color: var(--stamp-ink); opacity: .88; filter: url(#inkbleed-fine); margin: -10px 0 -14px; }
+/* 視窗窄時（本文欄寬度分三段）：先收左右留白（1280 寬的視窗本文欄約 500px，日付印仍放得下）；
+   再窄，日付印是裝飾、讓位給大日期列；最窄把大日期縮一號 */
+@container (max-width: 600px) {
+  .ns-notes-diarycol .ns-notes-sheetwrap { padding-left: 30px; padding-right: 22px; }
+  .ns-notes-dhead { gap: 10px; }
+  .ns-notes-dateline { gap: 4px; }
+  .ns-notes .ns-notes-todaybtn { margin-left: 4px; }
+  .ns-notes .ns-notes-bigdate { font-size: 27px; }
+  .ns-notes-bigdate .w { font-size: 15px; }
+}
+@container (max-width: 470px) {
+  .ns-notes-dateseal { display: none; }
+}
+@container (max-width: 400px) {
+  .ns-notes .ns-notes-bigdate { font-size: 24px; }
+  .ns-notes-bigdate .w { font-size: 14px; }
+}
+
+/* 一天的頁：各篇往下接，篇與篇之間一條虛線 */
+.ns-notes .ns-notes-dpage { min-height: 0; padding-bottom: 34px; }
+.ns-notes-entry { position: relative; }
+.ns-notes-entry + .ns-notes-entry { margin-top: 30px; padding-top: 26px; border-top: 1px dashed var(--color-dash); }
+.ns-notes-entry.is-sel::before { /* 選中（鍵盤 ↑↓ 的目標）＝左緣一道燙金 */
+  content: ""; position: absolute; left: -22px; top: 2px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--color-gold);
+}
+.ns-notes-entry + .ns-notes-entry.is-sel::before { top: 28px; }
+.ns-notes-entrymeta { position: relative; display: flex; align-items: center; gap: 10px; min-height: 22px; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); margin-bottom: 4px; }
+.ns-notes-entrymeta .ns-notes-metabtn { margin-left: auto; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); opacity: 0; transition: opacity .15s, background .15s, color .15s; }
+.ns-notes-entry:hover .ns-notes-metabtn, .ns-notes-entry.is-sel .ns-notes-metabtn,
+.ns-notes-entrymeta .ns-notes-metabtn:focus-visible, .ns-notes-entrymeta .ns-notes-metabtn[aria-expanded="true"] { opacity: 1; }
+.ns-notes-tagslot:empty { display: none; }
+.ns-notes .ns-notes-dpop { right: 0; top: 26px; width: 300px; }
+/* 篇底只留字數與刪除（篇與篇之間已有虛線；再一道實線會變成兩條橫線夾一行字） */
+.ns-notes-entry .ns-notes-actions { margin-top: 14px; padding-top: 0; border-top: 0; }
+/* 沒寫標題的舊篇：「標題（可不寫）」只在選中／滑過／聚焦時清楚，平常退到很淡（一天好幾篇時不搶內文） */
+.ns-notes-entry:not(.is-draft):not(.is-sel):not(:hover) .ns-notes-titlein:not(:focus)::placeholder { opacity: .28; }
+.ns-notes-entry .ns-notes-act.quiet { margin-left: 4px; padding: 3px 8px; font-size: 11.5px; }
+.ns-notes-entry.is-draft .ns-notes-entrymeta { color: var(--accent); }
+.ns-notes-nodiary { padding: 54px 0 30px; display: grid; justify-items: start; gap: 14px; color: var(--color-ink-faint); font-size: 14px; letter-spacing: .12em; }
+.ns-notes-nodiary p { margin: 0; }
+.ns-notes-draftbar { display: flex; gap: 8px; align-items: center; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-line); }
+.ns-notes-draftbar .hint { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-notes-draftbar .hint.warn { color: var(--color-ink); }
+.ns-notes-page .ns-notes-more { margin-top: 26px; padding: 0; font-size: inherit; }
+.ns-notes-nodiary .ns-notes-kbd, .ns-notes-more .ns-notes-kbd { margin-left: 2px; }
+
+/* 頁內搜尋結果（跨日） */
+.ns-notes .ns-notes-hitpage { padding: 22px 30px 26px; }
+.ns-notes-dhitcount { margin: 0 0 10px; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-notes-dhits { list-style: none; margin: 0; padding: 0; }
+.ns-notes-dhits.empty { padding: 40px 4px; font-size: 13px; letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-notes-dhit + .ns-notes-dhit { border-top: 1px dashed var(--color-line); }
+.ns-notes .ns-notes-dhit > button {
+  display: grid; grid-template-columns: 92px 1fr; column-gap: 14px; row-gap: 3px; width: 100%; text-align: left;
+  padding: 12px 12px 11px; border: 0; border-radius: 2px; background: transparent; cursor: pointer;
+  font-family: inherit; color: var(--color-ink); transition: background .12s;
+}
+.ns-notes .ns-notes-dhit > button:hover { background: var(--ns-hover); }
+.ns-notes .ns-notes-dhit > button:focus-visible { outline: none; background: var(--ns-sel); box-shadow: inset 2px 0 0 var(--color-gold); }
+.ns-notes-dhit .d { grid-row: span 2; display: flex; flex-direction: column; gap: 2px; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .06em; }
+.ns-notes-dhit .d .bf { font-family: var(--font-body); font-weight: 400; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-notes-dhit .d .y { font-family: var(--font-latin); font-weight: 400; font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-notes-dhit .t { font-size: 14px; font-weight: 500; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-notes-dhit .x { font-size: 12.5px; line-height: 1.6; color: var(--color-ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* —— 當天足跡欄（「頁」材質再退一階：paper-used＋霧面；不是第二塊深色面） —— */
+.ns-notes-fpcol {
+  width: 34%; max-width: 340px; min-width: 280px; flex: none; height: 100%; min-height: 0;
+  display: flex; flex-direction: column;
+  background: var(--color-paper-used);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05); backdrop-filter: blur(18px) saturate(1.05);
+  border-left: 1px solid var(--color-line);
+}
+[data-theme="dark"] .ns-notes-fpcol { -webkit-backdrop-filter: none; backdrop-filter: none; background: color-mix(in srgb, var(--color-paper-used) 80%, transparent); }
+.ns-notes-fphead { padding: 30px 22px 14px; border-bottom: 1px dashed var(--color-dash); }
+.ns-notes-fphead h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .26em; color: var(--color-ink); }
+.ns-notes-fpnav { display: flex; align-items: center; gap: 4px; margin-top: 10px; min-height: 26px; }
+.ns-notes-fpnav .d { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .08em; min-width: 82px; text-align: center; color: var(--color-ink); }
+.ns-notes .ns-notes-fpback {
+  margin-left: auto; padding: 2px 8px; border-radius: 2px; background: transparent; cursor: pointer; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  font-family: inherit; font-size: 11px; letter-spacing: .08em; color: var(--accent);
+  transition: background .15s;
+}
+.ns-notes .ns-notes-fpback:hover { background: var(--ns-sel); }
+.ns-notes .ns-notes-fpback:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes-fpbody { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 22px 20px; }
+.ns-notes-fpsec { margin-top: 16px; }
+.ns-notes-fpsec h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; font-size: 10.5px; font-weight: 500; letter-spacing: .26em; color: var(--ink-mid); }
+.ns-notes-fpsec h4 .n { font-family: var(--font-latin); letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-notes-fpsec h4 .rule { flex: 1; border-top: 1px dashed var(--color-line); }
+.ns-notes-fplist { list-style: none; margin: 0; padding: 0; }
+.ns-notes-fplist li { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; letter-spacing: .03em; color: var(--color-ink); }
+.ns-notes-fplist li + li { border-top: 1px dashed var(--color-line); }
+.ns-notes-fplist .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ns-notes-fplog li { display: grid; grid-template-columns: 38px 1fr; align-items: baseline; gap: 4px 8px; }
+.ns-notes-fplog .tm { font-family: var(--font-latin); font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .06em; }
+.ns-notes-fplog .hw { font-family: var(--hw); font-size: 15px; line-height: 1.55; letter-spacing: .04em; color: var(--color-ink); white-space: pre-line; overflow-wrap: anywhere; }
+.ns-notes-fplog .of { grid-column: 2; font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .06em; margin-top: -2px; }
+.ns-notes-fplog .of.gone { font-style: italic; opacity: .8; }
+.ns-notes-moods { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+.ns-notes-mood { width: 11px; height: 11px; border-radius: 50%; border: 1.4px solid currentColor; background: color-mix(in srgb, currentColor 30%, transparent); }
+.ns-notes-mood.green { color: var(--route-preset-3); }
+.ns-notes-mood.yellow { color: var(--arc); }          /* 粉彩＝金 #A8803F、銀河＝金 #CDB783（--arc 兩主題就是原型的黃） */
+.ns-notes-mood.red { color: var(--late); }            /* 赭，不用朱——朱只給済章 */
+.ns-notes-fpempty { padding: 26px 0; font-size: 12.5px; color: var(--color-ink-faint); letter-spacing: .12em; }
+.ns-notes-fpfoot { padding: 12px 22px 18px; font-size: 10px; letter-spacing: .12em; color: var(--color-ink-faint); opacity: .85; border-top: 1px dashed var(--color-line); }
+.ns-notes-fpfoot:empty { display: none; }
+
+/* 済章（迷你，足跡用；原型 styles.css:479-488）——朱只給這一枚 */
+.ns-notes-sumi {
+  --ns-rot: -8deg;
+  display: inline-grid; place-items: center; flex: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1.6px solid var(--seal); color: var(--seal);
+  font-family: var(--font-display); font-weight: 700; font-size: 11px; line-height: 1;
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--seal) 12%, transparent), transparent 62%);
+  transform: rotate(var(--ns-rot)); opacity: .92; filter: url(#inkbleed);
+}
+.ns-notes-sumi.alt { --ns-rot: -4deg; }
 
 /* ═══ 減量動態 ═══ */
 @media (prefers-reduced-motion: reduce) {

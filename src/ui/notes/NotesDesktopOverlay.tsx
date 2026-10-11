@@ -3,7 +3,7 @@
  *
  * 捕捉框（CaptureOverlay）與變待辦預覽（TodoPreviewDialog）互斥：preview 優先（store 也保證兩者不同時存在）。
  * 兩者皆 null 時回 null——唯一例外是 toast「已放進收件匣」那一刻：Toast 元件不能插元件，
- * 所以同時在畫面右下短暫蓋一枚 mini fresh 受付章（契約 §5.8 第 1 條），1.6 秒後收掉。
+ * 所以同時在畫面右下短暫蓋一枚 mini fresh 受付章（契約 §5.8 第 1 條；車次② D-筆-31 放大成 42px），1.6 秒後收掉。
  * 本元件不判 shell：`lineOverlays("desktop")` 只在桌機樹掛（App.tsx）。
  */
 import { useEffect, useState } from "react";
@@ -36,7 +36,7 @@ export function NotesDesktopOverlay() {
 
   const seal = flash ? (
     <div key={flash} className="ns-notes-sealflash" aria-hidden>
-      <UketsukeSeal day={todayKey(dayStartHour)} size={26} fresh />
+      <UketsukeSeal day={todayKey(dayStartHour)} size={42} fresh />
     </div>
   ) : null;
 

@@ -79,4 +79,60 @@ export interface LineMount {
    * （`.gnav-search`）的左側，三線固定順序；樣式由該線自己的 CSS 寫。未通車即使填了也不掛。
    */
   sidebarTool?: ComponentType;
+  /**
+   * 日曆格內記號插槽（旅客筆記車次② 0-2 乙）：該線 `page.status === "open"` 時，日曆頁換區間就呼叫
+   * `(from, to)`（YYYY-MM-DD，含兩端），回「要畫記號的日 key」；格標頭列 `.ch` 末尾畫 `i.mark.mark-<line>`，
+   * 三線固定順序；底色由 `calendar.css` 的 `.mark` 出（各線可用 `.mark-<line>` 自己改）。未通車即使填了也不畫。
+   */
+  calendarDayMarks?: (from: string, to: string) => Promise<readonly string[]>;
+  /**
+   * 捕捉目的地（旅客筆記車次② D-筆-36）：該線登記的捕捉框票根，排在旅客筆記內建四枚之後、三線固定順序。
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才出現（`lineCaptureTargets(shell)`）；未通車即使填了也不出。
+   */
+  captureTargets?: readonly CaptureTargetSpec[];
+}
+
+/** 捕捉框落點列與存檔要的路線（＝捕捉框目前認到的路線前綴；主人按 × 取消過的不算） */
+export interface CaptureRouteRef {
+  id: string;
+  name: string;
+}
+
+/** `CaptureTargetSpec.save` 的輸入 */
+export interface CaptureSaveInput {
+  /** 原文（含路線前綴；已去尾端空白） */
+  text: string;
+  /** 內文：`acceptsRoute` 且認到前綴 ⇒ 去掉前綴（與冒號後空白）；否則＝`text`。保證非空白 */
+  body: string;
+  /** `acceptsRoute` 且認到前綴 ⇒ 該路線 id；否則 null */
+  routeId: string | null;
+  /** 存檔當下的日界線今天（`todayKey(useUiStore.dayStartHour)`），YYYY-MM-DD */
+  dayKey: string;
+}
+
+/** `CaptureTargetSpec.save` 的結果：null＝當作沒內容（框留著、不 toast） */
+export interface CaptureSaveResult {
+  /** 存檔成功的 toast 全文 */
+  toast: string;
+  /** 有給就在 toast 帶「復原」鈕；復原失敗由旅客筆記統一吐失敗 toast */
+  undo?: () => Promise<void>;
+}
+
+/**
+ * 一枚別線登記的捕捉票根（旅客筆記車次② D-筆-36）。旅客筆記的捕捉框（桌機 CaptureOverlay／手機 MobileCaptureSheet）
+ * 把它畫在內建四枚（收件匣／待辦／筆記／日記）之後，Tab 輪替一起輪；存檔時呼叫 `save`。
+ * `save` throw ⇒ 框不關、吐失敗 toast（錯誤訊息有內容就吐它）；回 null ⇒ 當空內容。
+ */
+export interface CaptureTargetSpec {
+  /** `<line>.<name>`（例 "timetable.time"）；不得與內建四枚 id 相同，三線之間也不得重複 */
+  id: `${LineId}.${string}`;
+  /** 票根大字（例「時間」） */
+  label: string;
+  /** 票根小字（例「記一段時間」） */
+  hint: string;
+  /** 落點列「→」後面的字；`route`＝目前認到的路線前綴（`acceptsRoute` 為 false 時也照傳，給它決定要不要提） */
+  destLabel(route: CaptureRouteRef | null): string;
+  /** true＝吃路線前綴（save 拿到 routeId、body 去掉前綴）；false＝原文照留、routeId 恆 null（同日記） */
+  acceptsRoute: boolean;
+  save(input: CaptureSaveInput): Promise<CaptureSaveResult | null>;
 }

@@ -78,16 +78,6 @@
 /* 票根：鋏痕（入鋏）的定位錨——stamps.css 的 .ns-punch 是 position:absolute（left:-1px／top:26px） */
 .ns-today .stub { position: relative; }
 
-/* 臨時券標題＝手寫（C2 :428 逐字，補充券本來就是手寫的）；銀河沒有這一處手寫 → 退回排印 */
-.ns-today .ticket .title.hw {
-  font-family: var(--hw, var(--font-hand));
-  font-weight: 400; font-size: 16.5px; letter-spacing: .06em;
-}
-[data-theme="dark"] .ns-today .ticket .title.hw {
-  font-family: var(--font-body);
-  font-weight: 500; font-size: 15px; letter-spacing: .04em;
-}
-
 /* 票種小字當按鈕（點擊開詳情側板；沿大綱既有語彙） */
 .ns-today button.fare-class {
   padding: 0; background: transparent; border: 0; cursor: pointer; line-height: inherit;

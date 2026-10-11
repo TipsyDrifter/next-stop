@@ -6,6 +6,7 @@
  *   ・沒日期、沒 parent、沒路線標籤的臨時車票＝臨時券（沿 .ticket>.stub/.body/.stamp-zone；標題用黑體不加 .hw——原型施工決定 6）
  * 選中（鍵盤 ↑↓ 或滑鼠停留）那一則滑出去處列；按鈕上的鍵帽字查 registry。
  * 「排某天／掛進列車／掛上路線」各開一個內嵌小浮層（DatePop／AttachPicker）。
+ * 車次②：筆記的去處列多一顆「記成日記」（D；契約 §5.2），歸屬日＝筆記寫下那天。
  *
  * 狀態與動作都由 NotesView 給（選取、離場動畫、小浮層開關都要跟鍵盤表共用）。
  */
@@ -35,7 +36,7 @@ export function inboxItemsOf(notes: readonly NoteListItem[], tickets: readonly N
 
 export const refOf = (it: InboxItem): InboxRef => ({ kind: it.kind, id: it.id });
 
-export type InboxOp = "todo" | "keep" | "del" | "today" | "tomorrow" | "someday" | "attach" | "route";
+export type InboxOp = "todo" | "keep" | "diary" | "del" | "today" | "tomorrow" | "someday" | "attach" | "route";
 export type InboxPopKind = "someday" | "attach" | "route";
 
 export interface NotesInboxProps {
@@ -149,6 +150,7 @@ function InboxRow({
             <>
               {act("todo", "變待辦", "notes.inbox.todo")}
               {act("keep", "留作筆記", "notes.inbox.keep")}
+              {act("diary", "記成日記", "notes.inbox.diary")}
               {act("del", "刪除", "notes.delete", true)}
             </>
           ) : (

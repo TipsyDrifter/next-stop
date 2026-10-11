@@ -7,13 +7,31 @@
  *
  * 種子：第一次任何方法被呼叫時 lazy 跑（要先問 nodeRepo 拿路線與列車 id）；`seed=false`
  * （`?wiped=1`，公約 §六）一顆都不種。內容**全部虛構**，不用主人的真實資料。
+ *
+ * 車次②：日記三支＝同義過濾；足跡不另種，用 NodeRepository 公開方法拼核心三表（memoryRepository 的示範資料
+ * 已有已完成節點、定期券班次與 event=null 的手記），過濾語義走 domain 的 footprintSeals／footprintLogs。
  */
 import { nowUtcIso, uuid } from "../lib/db";
-import { todayKey } from "../lib/date";
-import type { NodeRow } from "../domain";
-import { matchesQuery, type NoteRow } from "../domain/notes";
+import { dayKeyOf, dayWindow, toDateKey, todayKey } from "../lib/date";
+import type { NodeRow, Occurrence, WorkLog } from "../domain";
+import {
+  footprintDayKeys,
+  footprintLogs,
+  footprintSeals,
+  groupFootprints,
+  matchesQuery,
+  type FootprintDay,
+  type NoteRow,
+} from "../domain/notes";
 import type { NodeRepository } from "./nodeRepository";
-import type { CreateNoteInput, NoteListItem, NotePatch, NoteRepository, NotesQuery } from "./noteRepository";
+import type {
+  CreateNoteInput,
+  DiarySearchQuery,
+  NoteListItem,
+  NotePatch,
+  NoteRepository,
+  NotesQuery,
+} from "./noteRepository";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
 
@@ -26,10 +44,22 @@ function normTitle(t: string | null | undefined): string | null {
   return t && t.trim() ? t : null;
 }
 
+/**
+ * 種子的「今天」。資料層不依賴 store、種子時不知道主人的日界線設定 ⇒ 固定用 03:00 口徑；
+ * 這是 mock 種子專用、車次②契約 §3.5 准許的唯一一處日界線字面值（正式路徑一律讀 uiStore.dayStartHour）。
+ */
+const seedToday = (): string => todayKey(3);
+
 /** 本地日 key 往前 n 天、h:m 的 UTC ISO（種子用；固定偏移，重整不變） */
 function isoDaysAgo(n: number, h: number, m: number): string {
-  const [y, mo, d] = todayKey().split("-").map(Number);
+  const [y, mo, d] = seedToday().split("-").map(Number);
   return new Date(y, mo - 1, d - n, h, m).toISOString();
+}
+
+/** 本地日 key 往前 n 天（日記種子的 entry_date） */
+function keyDaysAgo(n: number): string {
+  const [y, mo, d] = seedToday().split("-").map(Number);
+  return toDateKey(new Date(y, mo - 1, d - n));
 }
 
 /* ───────── 種子內文（虛構） ───────── */
@@ -125,7 +155,11 @@ export class MemoryNoteRepository implements NoteRepository {
     if (patch.noted_at !== undefined) next.noted_at = patch.noted_at;
     if (patch.node_id !== undefined) next.node_id = patch.node_id;
     if (patch.inbox !== undefined) next.inbox = patch.inbox ? 1 : 0;
-    const touched = (["title", "body", "noted_at", "node_id", "inbox"] as const).some((k) => patch[k] !== undefined);
+    if (patch.kind !== undefined) next.kind = patch.kind;
+    if (patch.entry_date !== undefined) next.entry_date = patch.entry_date;
+    const touched = (["title", "body", "noted_at", "node_id", "inbox", "kind", "entry_date"] as const).some(
+      (k) => patch[k] !== undefined,
+    );
     if (!touched) return;
     next.updated_at = nowUtcIso();
     this.notes.set(id, next);
@@ -146,6 +180,84 @@ export class MemoryNoteRepository implements NoteRepository {
       const n = this.notes.get(id);
       if (n) this.notes.set(id, { ...n, deleted_at: null, updated_at: now });
     }
+  }
+
+  // ───────────── 車次②・日記（＝sqlite 版 §3.4 的同義過濾） ─────────────
+
+  async listDiary(day: string): Promise<NoteListItem[]> {
+    await this.ensureSeed();
+    const rows = this.alive()
+      .filter((n) => n.kind === "diary" && n.entry_date === day)
+      .sort((a, b) => a.noted_at.localeCompare(b.noted_at) || a.created_at.localeCompare(b.created_at));
+    return this.toItems(rows);
+  }
+
+  async searchDiary(q: DiarySearchQuery): Promise<NoteListItem[]> {
+    await this.ensureSeed();
+    const query = q.query.trim();
+    if (!query) return [];
+    const rows = this.alive()
+      .filter((n) => n.kind === "diary" && matchesQuery(n, query))
+      .sort((a, b) => (b.entry_date ?? "").localeCompare(a.entry_date ?? "") || b.noted_at.localeCompare(a.noted_at));
+    const offset = q.offset ?? 0;
+    return this.toItems(rows.slice(offset, offset + (q.limit ?? 100)));
+  }
+
+  async listDiaryMarks(from: string, to: string): Promise<Record<string, number>> {
+    await this.ensureSeed();
+    const out: Record<string, number> = {};
+    for (const n of this.alive()) {
+      if (n.kind !== "diary" || !n.entry_date || n.entry_date < from || n.entry_date > to) continue;
+      out[n.entry_date] = (out[n.entry_date] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  async listDiaryDays(from: string, to: string): Promise<string[]> {
+    return Object.keys(await this.listDiaryMarks(from, to)).sort();
+  }
+
+  // ───────────── 車次②・當天足跡（用 NodeRepository 的公開方法拼，§3.5；0-3 甲） ─────────────
+  // 過濾語義與 SQLite 版 §3.4 同一份：domain 的 footprintSeals／footprintLogs（單元測試鎖住）。
+  // 已知近似：沒路線、沒 parent 的臨時票不在任何路線樹裡 ⇒ 它的済章與手記在 mock 足跡看不到（真機 SQL 看得到）。
+
+  async listFootprints(day: string, dayStartHour: number): Promise<FootprintDay> {
+    const w = dayWindow(day, dayStartHour);
+    const src = await this.footprintSources();
+    return groupFootprints(day, footprintSeals(w, src.nodes, src.occurrences), footprintLogs(w, src.logs, src.nodes), null);
+  }
+
+  async listFootprintDays(from: string, to: string, dayStartHour: number): Promise<string[]> {
+    if (from > to) return [];
+    const w = { start: dayWindow(from, dayStartHour).start, end: dayWindow(to, dayStartHour).end };
+    const src = await this.footprintSources();
+    const isos = [
+      ...footprintSeals(w, src.nodes, src.occurrences).map((s) => s.at),
+      ...footprintLogs(w, src.logs, src.nodes).map((l) => l.at),
+    ];
+    return footprintDayKeys(isos, (iso) => dayKeyOf(iso, dayStartHour));
+  }
+
+  /**
+   * 核心三表的 mock 近似：側欄的幹線／路線／車站＋每條路線的整棵樹（存活節點）；
+   * 班次逐節點 listOccurrences（不帶班次日區間——補済的班次 completed_at 可能不在 due_on 那天，交給 TS 以完成時刻篩）；
+   * 手記逐節點 listWorkLogs。記憶體、N 次無妨。
+   */
+  private async footprintSources(): Promise<{ nodes: NodeRow[]; occurrences: Occurrence[]; logs: WorkLog[] }> {
+    const side = await this.nodeRepo.listSidebar();
+    const byId = new Map<string, NodeRow>();
+    for (const n of [...side.lines, ...side.routes, ...side.stations]) byId.set(n.id, n);
+    for (const r of side.routes) for (const n of await this.nodeRepo.listRouteTree(r.id)) byId.set(n.id, n);
+    const nodes = [...byId.values()];
+    const occurrences: Occurrence[] = [];
+    const logs: WorkLog[] = [];
+    for (const n of nodes) {
+      if (n.kind === "train" || n.kind === "car" || n.kind === "ticket") {
+        occurrences.push(...(await this.nodeRepo.listOccurrences(n.id)));
+      }
+      logs.push(...(await this.nodeRepo.listWorkLogs(n.id)));
+    }
+    return { nodes, occurrences, logs };
   }
 
   // ───────────── 內部 ─────────────
@@ -176,12 +288,14 @@ export class MemoryNoteRepository implements NoteRepository {
   }
 
   private insert(input: CreateNoteInput, now: string, createdAt?: string): NoteRow {
+    // 與 sqlite 版同：日記必填 entryDate（缺 ⇒ RangeError），筆記恆 NULL
+    if (input.kind === "diary" && !input.entryDate) throw new RangeError("日記要有日期");
     const row: NoteRow = {
       id: uuid(),
       kind: input.kind,
       title: normTitle(input.title),
       body: input.body,
-      entry_date: null,
+      entry_date: input.kind === "diary" ? (input.entryDate ?? null) : null,
       noted_at: input.notedAt ?? now,
       node_id: input.nodeId ?? null,
       inbox: input.inbox ? 1 : 0,
@@ -198,7 +312,7 @@ export class MemoryNoteRepository implements NoteRepository {
     return this.ready;
   }
 
-  /** 收件匣 4 則＋筆記 6 則（契約 §3.5）；noted_at 分佈在最近 100 天內（固定偏移） */
+  /** 收件匣 4 則＋筆記 6 則（車次① §3.5）＋日記 6 篇（車次② §3.5）；noted_at 分佈在最近 100 天內（固定偏移） */
   private async seedDemo(): Promise<void> {
     let routeId: string | null = null;
     let trainId: string | null = null;
@@ -234,5 +348,32 @@ export class MemoryNoteRepository implements NoteRepository {
     // 300 字條列整理（有標題）、1,000 字長文（有標題）
     put(26, 23, 15, { title: "讀書節奏的做法", body: LIST_300, inbox: false });
     put(88, 16, 30, { title: "河堤散步想到的幾件事", body: LONG_1000, inbox: false });
+
+    // 日記 6 篇（車次② §3.5）：散在最近五週；一天兩篇（4 天前）；一篇補記（16 天前的日記、13 天後才寫）；
+    // 今天沒有日記（看「今天還沒有寫日記」空狀態）。時刻都在白天到深夜之間，03:00／06:00 兩種日界線都不會誤判成補記。
+    const diary = (entryDaysAgo: number, notedDaysAgo: number, h: number, m: number, body: string, title?: string) => {
+      const at = isoDaysAgo(notedDaysAgo, h, m);
+      this.insert({ kind: "diary", body, title: title ?? null, inbox: false, notedAt: at, entryDate: keyDaysAgo(entryDaysAgo) }, at, at);
+    };
+    diary(1, 1, 22, 10, "下午下了一陣大雨，躲在圖書館把上週的筆記整理完。\n回家路上雨停了，空氣很乾淨。");
+    diary(4, 4, 8, 40, "早上提早半小時起床，先把今天要做的三件事寫下來再出門。");
+    diary(
+      4,
+      4,
+      21,
+      15,
+      "晚上和社團的人吃飯，聊到下學期想辦的讀書會。\n\n大家都說好，但沒人想當召集人。我說我可以先整理一份書單。",
+      "讀書會的雛形",
+    );
+    diary(9, 9, 23, 5, "今天什麼都沒做成，只把房間打掃了一遍。\n算了，乾淨的房間也是一種進度。");
+    diary(16, 13, 20, 30, "那天第一次自己煮了一鍋咖哩，份量抓太多，吃了三天。");
+    diary(
+      30,
+      30,
+      21,
+      0,
+      "跑完今年第一次五公里，比想像中輕鬆。\n\n下次試試看不停下來走路。",
+      "第一次五公里",
+    );
   }
 }

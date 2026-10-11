@@ -197,6 +197,8 @@
   color: var(--color-ink-soft); letter-spacing: .02em;
 }
 .ns-calendar .cnt { font-size: 9.5px; color: var(--color-ink-faint); letter-spacing: .1em; margin-left: 7px; }
+/* 三線格內記號（lineCalendarMarks，旅客筆記車次② 0-2 乙）；各線要換色就寫 .mark-<line> */
+.ns-calendar .ch .mark { width: 4px; height: 4px; border-radius: 50%; margin-left: 5px; background: var(--color-gold-soft); }
 
 .ns-calendar .cell.today {
   background: var(--cal-today-bg);

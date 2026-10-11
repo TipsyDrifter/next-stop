@@ -11,23 +11,24 @@
  *
  * 三條差異全部在 week.css 出——`DayCell` 的 DOM 一個字都沒改（它不是本席 own 的檔）：
  *   ③ 的星期字＝ `.ch::before` 的 `content: var(--wd-N)`，N＝欄序；變數由本檔從 `WEEKDAY_LABEL`
- *     寫進 `.wk-row` 的 inline style（CSS 不另抄一份「一二三四五六日」，星期序仍是 `WEEKDAY_ORDER`），
+ *     寫進 `.wk-row` 的 inline style（CSS 不另抄一份「一二三四五六日」，星期序＝控制器的 `weekOrder`；
+ *     週末淡的欄位依 `data-week-start` 換，見 week.css），
  *   ③ 的〆位置＝把 `.cell` 轉成 `grid-template-areas`（`.ch`／`.sime` 同一列、`.items` 第二列），
  *     `.sime` 由 absolute 改 static——DOM 順序不變，位置由格區換。
  *
  * 其餘（點欄開當日清單、〆 hover tip、鍵盤、浮層、‹ ›／今日／PageUp-Down）全部沿用月視圖那一套：
  * 游標／區間／格由 `useCalendarController` 依 `view` 算好（`go` 走 ±7 天、`movePage` 同），本檔不重算。
  */
-import type { CSSProperties } from "react";
-import { WEEKDAY_LABEL, WEEKDAY_ORDER } from "../../domain";
+import { useMemo, type CSSProperties } from "react";
+import { WEEKDAY_LABEL } from "../../domain";
 import { DayCell } from "./DayCell";
 import { useCalendar } from "./useCalendarController";
 import "./week.css";
 
 export interface WeekGridProps {
-  /** 該週的週一（YYYY-MM-DD） */
+  /** 該週的第一天（週首依設定；YYYY-MM-DD） */
   weekStart: string;
-  /** 一～日七天 */
+  /** 從週首起的七天 */
   days: string[];
 }
 
@@ -37,17 +38,20 @@ const EMPTY_ENTRIES: never[] = [];
 type CssVars = CSSProperties & Record<`--${string}`, string>;
 
 /**
- * 欄頭星期字：`--wd-1`…`--wd-7` ＝「一」…「日」（含引號，直接餵 CSS `content`）。
- * 順序＝ `WEEKDAY_ORDER`（一…六・日），與 `wk-head` 同序，不各算各的。
+ * 欄頭星期字：`--wd-1`…`--wd-7`（含引號，直接餵 CSS `content`）。
+ * 順序＝控制器的 `weekOrder`（依設定的週首排；預設一…六・日），與 `wk-head` 同序，不各算各的。
  */
-const WD_VARS: CssVars = WEEKDAY_ORDER.reduce<CssVars>((vars, dow, i) => {
-  vars[`--wd-${i + 1}`] = `"${WEEKDAY_LABEL[dow] ?? ""}"`;
-  return vars;
-}, {});
+function wdVars(order: readonly number[]): CssVars {
+  return order.reduce<CssVars>((vars, dow, i) => {
+    vars[`--wd-${i + 1}`] = `"${WEEKDAY_LABEL[dow] ?? ""}"`;
+    return vars;
+  }, {});
+}
 
 export function WeekGrid({ weekStart, days }: WeekGridProps) {
   const c = useCalendar();
-  // 鍵盤焦點的落點：選取格 →（本週的）今天 → 週一（與 MonthGrid 同一套）
+  const WD_VARS = useMemo(() => wdVars(c.weekOrder), [c.weekOrder]);
+  // 鍵盤焦點的落點：選取格 →（本週的）今天 → 週首那天（與 MonthGrid 同一套）
   const focusDay =
     c.selectedDay && c.selectedDay >= c.range.from && c.selectedDay <= c.range.to
       ? c.selectedDay
@@ -62,6 +66,7 @@ export function WeekGrid({ weekStart, days }: WeekGridProps) {
         role="grid"
         aria-label={`${Number(weekStart.slice(5, 7))}月${Number(weekStart.slice(8, 10))}日起的一週`}
         style={WD_VARS}
+        data-week-start={c.weekOrder[0]}
       >
         {days.map((day) => {
           const inRange = day >= c.range.from && day <= c.range.to;

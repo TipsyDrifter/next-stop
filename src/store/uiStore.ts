@@ -71,6 +71,13 @@ const KEY_DAY_START = "day_start_hour";
 const KEY_LATE_COLLAPSED = "today_late_collapsed";
 /** 日曆視圖形態（r4「預設月視圖＋記憶切換」，D-⑤-1）；"week"＝週，其餘一律月 */
 const KEY_CALENDAR_VIEW = "calendar_view";
+/** 每週從星期幾開始（旅客筆記車次② D-筆-29）：JS getDay() 數字字串，"1"＝一、"0"＝日 */
+const KEY_WEEK_START = "week_start";
+
+/** settings 字串 → 週首：只認 "0"（週日），其餘（沒寫、舊值、亂值）一律 1＝週一 */
+function normalizeWeekStart(raw: string | null): 0 | 1 {
+  return raw === "0" ? 0 : 1;
+}
 
 function applyTheme(pref: ThemePref) {
   const root = document.documentElement;
@@ -156,6 +163,11 @@ interface UiStore {
   /** 日曆視圖：月／週（持久化 settings key calendar_view；M3 ⑤ D-⑤-1） */
   calendarView: CalendarView;
   /**
+   * 每週從星期幾開始（持久化 settings key week_start；旅客筆記車次② D-筆-29）：JS `getDay()` 的值，
+   * 1＝週一（預設）、0＝週日。讀的人：旅客筆記月曆（純函式吃這個參數）、日曆視圖的欄序（整合席接）。
+   */
+  weekStart: 0 | 1;
+  /**
    * v1.1.5（契約 §2）：主畫面同步橫幅要顯示哪一種告警；null＝沒有。**由 syncStore 的轉變偵測寫**（`evaluateAlerts`），
    * 值＝`SyncAlertKind`（型別住 syncStore，這裡用 string 免得 store 互相 import 型別以外的東西）。
    * 狀態解除（syncStore 算出 null）就自動消失。
@@ -200,6 +212,8 @@ interface UiStore {
   setDayStartHour: (hour: number) => Promise<void>;
   setLateCollapsed: (collapsed: boolean) => Promise<void>;
   setCalendarView: (view: CalendarView) => Promise<void>;
+  /** 0＝週日、1＝週一；其他數字一律當 1 */
+  setWeekStart: (day: number) => Promise<void>;
   loadSettings: () => Promise<void>;
   /* ── v1.1.5 同步橫幅（契約 §2.5；WP-B 寫、WP-C 讀） ── */
   /** 由 syncStore 叫：告警種類變了就換、null＝解除（清 dismissed）；換成別種告警也清 dismissed（那是新的一次） */
@@ -234,6 +248,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   dayStartHour: 3,
   lateCollapsed: false,
   calendarView: DEV_FLAGS.view ?? "month",
+  weekStart: 1,
   syncBanner: null,
   syncBannerDismissed: null,
   mobileMoreRequest: null,
@@ -335,6 +350,12 @@ export const useUiStore = create<UiStore>((set, get) => ({
     await settingsRepo.set(KEY_CALENDAR_VIEW, view);
   },
 
+  async setWeekStart(day) {
+    const weekStart = normalizeWeekStart(String(day));
+    set({ weekStart });
+    await settingsRepo.set(KEY_WEEK_START, String(weekStart));
+  },
+
   async loadSettings() {
     // 先套預設主題，再讀設定（讀不到——例如非 Tauri 環境預覽——也不讓畫面裸奔）
     applyTheme(get().theme);
@@ -342,11 +363,12 @@ export const useUiStore = create<UiStore>((set, get) => ({
       if (get().theme === "system") applyTheme("system");
     });
     try {
-      const [theme, dayStart, lateCollapsed, calendarView] = await Promise.all([
+      const [theme, dayStart, lateCollapsed, calendarView, weekStart] = await Promise.all([
         settingsRepo.get(KEY_THEME),
         settingsRepo.get(KEY_DAY_START),
         settingsRepo.get(KEY_LATE_COLLAPSED),
         settingsRepo.get(KEY_CALENDAR_VIEW),
+        settingsRepo.get(KEY_WEEK_START),
       ]);
       const pref: ThemePref = THEME_OVERRIDE ?? normalizeTheme(theme);
       applyTheme(pref);
@@ -356,6 +378,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
         lateCollapsed: lateCollapsed === "1",
         // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）
         calendarView: DEV_FLAGS.view ?? (calendarView === "week" ? "week" : "month"),
+        weekStart: normalizeWeekStart(weekStart),
       });
     } catch {
       // 設定讀取失敗不致命：維持預設（跟隨系統、03:00）

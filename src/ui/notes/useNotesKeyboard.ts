@@ -39,6 +39,28 @@ export interface NotesKeyActions {
   search(): void;
   /** Esc：收起小浮層／編輯回閱讀；回傳有沒有處理（沒處理就不吃掉這顆鍵） */
   escape(): boolean;
+  /* ── 車次②（契約 §5.6）：選填；沒給＝這顆鍵放行不吃（NotesView 依子畫面給：D 只在收件匣、其餘只在日記頁） ── */
+  /** D：收件匣筆記＝記成日記 */
+  toDiary?(): void;
+  /** ←／→：日記頁翻日 */
+  stepDay?(dir: 1 | -1): void;
+  /** Shift+←／Shift+→：足跡欄獨立翻日 */
+  stepFp?(dir: 1 | -1): void;
+  /** Home：日記回到今天 */
+  today?(): void;
+  /** B：足跡回到本文那天 */
+  fpBack?(): void;
+  /** G：開大日期的挑選器 */
+  pick?(): void;
+  /** W：寫日記／補記／再寫一篇（草稿已開＝焦點到內文框） */
+  write?(): void;
+}
+
+/** 選填動作：有給才吃掉這顆鍵 */
+function run(e: KeyboardEvent<HTMLElement>, fn: (() => void) | undefined): void {
+  if (!fn) return;
+  e.preventDefault();
+  fn();
 }
 
 export function useNotesKeyboard(a: NotesKeyActions, disabled = false) {
@@ -102,6 +124,33 @@ export function useNotesKeyboard(a: NotesKeyActions, disabled = false) {
           e.preventDefault();
           e.stopPropagation();
         }
+        break;
+      case "notes.inbox.diary":
+        run(e, a.toDiary);
+        break;
+      case "notes.diary.prev":
+        run(e, a.stepDay && (() => a.stepDay!(-1)));
+        break;
+      case "notes.diary.next":
+        run(e, a.stepDay && (() => a.stepDay!(1)));
+        break;
+      case "notes.diary.fp.prev":
+        run(e, a.stepFp && (() => a.stepFp!(-1)));
+        break;
+      case "notes.diary.fp.next":
+        run(e, a.stepFp && (() => a.stepFp!(1)));
+        break;
+      case "notes.diary.today":
+        run(e, a.today);
+        break;
+      case "notes.diary.fp.back":
+        run(e, a.fpBack);
+        break;
+      case "notes.diary.pick":
+        run(e, a.pick);
+        break;
+      case "notes.diary.write":
+        run(e, a.write);
         break;
     }
   };

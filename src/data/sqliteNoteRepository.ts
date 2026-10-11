@@ -9,16 +9,34 @@
  * 沒有 Rust command、不碰 invoke。
  */
 import { getDb, nowUtcIso, uuid } from "../lib/db";
-import type { NodeRow } from "../domain";
-import { escapeLike, type NoteKind, type NoteRow } from "../domain/notes";
-import type { CreateNoteInput, NoteListItem, NotePatch, NoteRepository, NotesQuery } from "./noteRepository";
+import { dayKeyOf, dayWindow } from "../lib/date";
+import type { Mood, NodeRow } from "../domain";
+import {
+  MISSING_NODE_NAME,
+  escapeLike,
+  footprintDayKeys,
+  groupFootprints,
+  type FootprintDay,
+  type FootprintLog,
+  type FootprintSeal,
+  type NoteKind,
+  type NoteRow,
+} from "../domain/notes";
+import type {
+  CreateNoteInput,
+  DiarySearchQuery,
+  NoteListItem,
+  NotePatch,
+  NoteRepository,
+  NotesQuery,
+} from "./noteRepository";
 import { nodeRepo } from "./index";
 import { newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
 
 const ALIVE = "n.deleted_at IS NULL";
 
-/** update 收得到的欄（NotePatch 的五欄）；其餘鍵一律忽略 */
-const PATCHABLE = new Set<string>(["title", "body", "noted_at", "node_id", "inbox"]);
+/** update 收得到的欄（NotePatch 的七欄；車次②加 kind／entry_date）；其餘鍵一律忽略 */
+const PATCHABLE = new Set<string>(["title", "body", "noted_at", "node_id", "inbox", "kind", "entry_date"]);
 
 /** 列表三支共用的 SELECT（契約 §3.4）；WHERE 由呼叫端接 */
 const SELECT_ITEM = `SELECT n.*,
@@ -115,11 +133,12 @@ export class SqliteNoteRepository implements NoteRepository {
     const notedAt = input.notedAt ?? now;
     const nodeId = input.nodeId ?? null;
     const inbox = input.inbox ? 1 : 0;
+    const entryDate = entryDateOf(input);
     const b = newWriteBatch();
     b.stmts.push({
       sql: `INSERT INTO notes (id, kind, title, body, entry_date, noted_at, node_id, inbox, created_at, updated_at)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      args: [id, kind, title, input.body, null, notedAt, nodeId, inbox, now, now],
+      args: [id, kind, title, input.body, entryDate, notedAt, nodeId, inbox, now, now],
     });
     // 首筆 op 帶白名單十欄全部（含 required 的 kind／noted_at，以及 deleted_at: null）——
     // 對面 apply_object 的新列分支缺 required 欄會整列跳過（契約 §3.3）
@@ -127,7 +146,7 @@ export class SqliteNoteRepository implements NoteRepository {
       kind,
       title,
       body: input.body,
-      entry_date: null,
+      entry_date: entryDate,
       noted_at: notedAt,
       node_id: nodeId,
       inbox,
@@ -141,7 +160,7 @@ export class SqliteNoteRepository implements NoteRepository {
       kind,
       title,
       body: input.body,
-      entry_date: null,
+      entry_date: entryDate,
       noted_at: notedAt,
       node_id: nodeId,
       inbox,
@@ -197,4 +216,162 @@ export class SqliteNoteRepository implements NoteRepository {
     for (const x of ids) addOp(b, "notes", x, "upsert", { deleted_at: null, updated_at: now });
     await runWriteBatch(db, b.stmts, b.ops);
   }
+
+  /* ───────── 車次②・日記（§3.4） ───────── */
+
+  async listDiary(day: string): Promise<NoteListItem[]> {
+    const db = await getDb();
+    const rows = await db.select<RawItem[]>(
+      `${SELECT_ITEM}
+       WHERE ${ALIVE} AND n.kind = 'diary' AND n.entry_date = $1
+       ORDER BY n.noted_at ASC, n.created_at ASC`,
+      [day],
+    );
+    return rows.map(toItem);
+  }
+
+  async searchDiary(q: DiarySearchQuery): Promise<NoteListItem[]> {
+    const query = q.query.trim();
+    if (!query) return [];
+    const db = await getDb();
+    const rows = await db.select<RawItem[]>(
+      `${SELECT_ITEM}
+       WHERE ${ALIVE} AND n.kind = 'diary'
+         AND (n.title LIKE $1 ESCAPE '\\' OR n.body LIKE $1 ESCAPE '\\')
+       ORDER BY n.entry_date DESC, n.noted_at DESC
+       LIMIT $2 OFFSET $3`,
+      [`%${escapeLike(query)}%`, q.limit ?? 100, q.offset ?? 0],
+    );
+    return rows.map(toItem);
+  }
+
+  async listDiaryMarks(from: string, to: string): Promise<Record<string, number>> {
+    const db = await getDb();
+    const rows = await db.select<{ day: string; c: number }[]>(
+      `SELECT entry_date AS day, COUNT(*) AS c FROM notes
+       WHERE deleted_at IS NULL AND kind = 'diary' AND entry_date BETWEEN $1 AND $2
+       GROUP BY entry_date`,
+      [from, to],
+    );
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.day] = Number(r.c);
+    return out;
+  }
+
+  async listDiaryDays(from: string, to: string): Promise<string[]> {
+    return Object.keys(await this.listDiaryMarks(from, to)).sort();
+  }
+
+  /* ───────── 車次②・當天足跡（唯讀查核心三表；§3.4） ─────────
+   * 時間視窗＝日界線日的 [start, end)（lib/date dayWindow），三句各自 SELECT、在 TS 端合成（groupFootprints）。
+   * (c) 手記的節點條件：子樹 soft delete 只標 nodes、不連帶標 work_logs（sqliteNodeRepository.softDelete 讀過，
+   * 契約 §8-2）⇒ 加 `n.id IS NULL OR n.deleted_at IS NULL`：節點已刪的手記跟著它的済章一起不列；
+   * 節點根本不在（還沒同步到）的才顯示「（原車票已刪除）」。 */
+
+  async listFootprints(day: string, dayStartHour: number): Promise<FootprintDay> {
+    const db = await getDb();
+    const { start, end } = dayWindow(day, dayStartHour);
+    const [nodeSeals, occSeals, logs] = await Promise.all([
+      // (a) 済章・單發票／列車／車廂／退役定期券（含 cascade 蓋章的子項——cascade 分支也寫 completed_at）
+      db.select<SealRow[]>(
+        `SELECT n.id, n.id AS node_id, n.name, n.kind, n.route_id, n.completed_at AS at, n.mood, NULL AS due_on
+         FROM nodes n
+         WHERE n.deleted_at IS NULL AND n.kind IN ('train','car','ticket') AND n.status = 'done'
+           AND n.completed_at IS NOT NULL AND n.completed_at >= $1 AND n.completed_at < $2`,
+        [start, end],
+      ),
+      // (b) 済章・定期券班次（運休不列）
+      db.select<SealRow[]>(
+        `SELECT o.id, o.node_id, n.name, n.kind, n.route_id, o.completed_at AS at, o.mood, o.due_on
+         FROM occurrences o JOIN nodes n ON n.id = o.node_id
+         WHERE o.deleted_at IS NULL AND n.deleted_at IS NULL AND o.status = 'done'
+           AND o.completed_at IS NOT NULL AND o.completed_at >= $1 AND o.completed_at < $2`,
+        [start, end],
+      ),
+      // (c) 手記（event IS NULL；発券／入鋏／済／conflict 都不列，D-筆-22）
+      db.select<LogRow[]>(
+        `SELECT w.id, w.node_id, w.body, w.logged_at AS at, n.name AS node_name
+         FROM work_logs w LEFT JOIN nodes n ON n.id = w.node_id
+         WHERE w.deleted_at IS NULL AND w.event IS NULL AND w.body != ''
+           AND w.logged_at >= $1 AND w.logged_at < $2
+           AND (n.id IS NULL OR n.deleted_at IS NULL)`,
+        [start, end],
+      ),
+    ]);
+    const seals: FootprintSeal[] = [...nodeSeals, ...occSeals].map((r) => ({
+      id: r.id,
+      nodeId: r.node_id,
+      name: r.name,
+      kind: r.kind,
+      routeId: r.route_id,
+      at: r.at,
+      mood: r.mood,
+      dueOn: r.due_on,
+    }));
+    const footLogs: FootprintLog[] = logs.map((r) => ({
+      id: r.id,
+      nodeId: r.node_id,
+      nodeName: r.node_name ?? MISSING_NODE_NAME,
+      body: r.body,
+      at: r.at,
+      nodeMissing: r.node_name === null,
+    }));
+    // blocks 一律 null：時間塊由 store 經 footprintBlocks 插槽補（repository 不碰插槽，§3.4）
+    return groupFootprints(day, seals, footLogs, null);
+  }
+
+  async listFootprintDays(from: string, to: string, dayStartHour: number): Promise<string[]> {
+    if (from > to) return [];
+    const db = await getDb();
+    const start = dayWindow(from, dayStartHour).start;
+    const end = dayWindow(to, dayStartHour).end;
+    // 只撈時間戳；本地時區與日界線在 SQL 裡算不乾淨 ⇒ TS 端 dayKeyOf 分桶（一個月最多幾百列）
+    const rows = await db.select<{ at: string }[]>(
+      `SELECT completed_at AS at FROM nodes
+       WHERE deleted_at IS NULL AND kind IN ('train','car','ticket') AND status = 'done'
+         AND completed_at IS NOT NULL AND completed_at >= $1 AND completed_at < $2
+       UNION ALL
+       SELECT o.completed_at AS at FROM occurrences o JOIN nodes n ON n.id = o.node_id
+       WHERE o.deleted_at IS NULL AND n.deleted_at IS NULL AND o.status = 'done'
+         AND o.completed_at IS NOT NULL AND o.completed_at >= $1 AND o.completed_at < $2
+       UNION ALL
+       SELECT w.logged_at AS at FROM work_logs w LEFT JOIN nodes n ON n.id = w.node_id
+       WHERE w.deleted_at IS NULL AND w.event IS NULL AND w.body != ''
+         AND w.logged_at >= $1 AND w.logged_at < $2
+         AND (n.id IS NULL OR n.deleted_at IS NULL)`,
+      [start, end],
+    );
+    return footprintDayKeys(
+      rows.map((r) => r.at),
+      (iso) => dayKeyOf(iso, dayStartHour),
+    );
+  }
+}
+
+/** (a)／(b) 回來的一列 */
+interface SealRow {
+  id: string;
+  node_id: string;
+  name: string;
+  kind: FootprintSeal["kind"];
+  route_id: string | null;
+  at: string;
+  mood: Mood | null;
+  due_on: string | null;
+}
+
+/** (c) 回來的一列；node_name 為 NULL＝LEFT JOIN 沒對到節點 */
+interface LogRow {
+  id: string;
+  node_id: string;
+  body: string;
+  at: string;
+  node_name: string | null;
+}
+
+/** create 的 entry_date：日記必填（缺 ⇒ RangeError），筆記恆 NULL（契約 §3.3） */
+function entryDateOf(input: CreateNoteInput): string | null {
+  if (input.kind !== "diary") return null;
+  if (!input.entryDate) throw new RangeError("日記要有日期");
+  return input.entryDate;
 }

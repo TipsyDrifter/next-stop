@@ -8,19 +8,24 @@
  *   Enter 存檔・Shift+Enter 換行・Tab／Shift+Tab 切票根・Esc 關（有內容先問一次）
  *   游標在最前面且有路線票根時 Backspace ＝ 取消路線（不刪字）
  * 暗幕上按下滑鼠＝Esc（escapeCapture）。關掉後焦點還給開框前的元素。
+ *
+ * 車次②：票根列＝內建四枚（收件匣／待辦／筆記／日記）＋別線登記的捕捉目的地（`captureStubList("desktop")`，D-筆-36）。
+ *   內建的顯示 STUB_LABEL／STUB_HINT；登記的顯示 spec.label／spec.hint、落點列＝spec.destLabel(route)；存檔一律 saveCapture()。
+ *   日記票根：落點「→ 今天的日記」；認到路線前綴時路線票根淡化成「●路線名・日記不掛路線」（沒有 ×；前綴照原文存進內文）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { captureRouteOf, useNotesStore } from "../../store/notesStore";
+import { captureRouteOf, captureStubList, captureTargetOf, useNotesStore } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import {
-  CAPTURE_STUBS,
   STUB_HINT,
   STUB_LABEL,
+  isBuiltinStub,
   needsPreview,
   resolveDestination,
   splitTodoLines,
+  type CaptureStub,
 } from "../../domain/notes";
 import { matches } from "../shell/hotkeys";
 import { IconX, Kbd, RouteDot, capsOf, fmtTime, handOffReturnFocus, restoreFocus } from "./notesBits";
@@ -73,11 +78,28 @@ export function CaptureOverlay() {
   const st = useNotesStore.getState;
   const p = captureRouteOf(capture, routes);
   const route = p ? (routes.find((r) => r.id === p.routeId) ?? null) : null;
-  const dest = resolveDestination(capture.stub, !!p);
+  const stubs = captureStubList("desktop");
+  // 別線登記的票根（D-筆-36）：不走本線的去處表，落點與存檔都看它的 spec
+  const spec = isBuiltinStub(capture.stub) ? null : captureTargetOf(capture.stub);
+  const dest = resolveDestination(isBuiltinStub(capture.stub) ? capture.stub : "inbox", !!p);
   const body = dest.consumePrefix && p ? p.body : capture.text;
+  /** 路線前綴認到了、但這枚票根不掛路線（日記；登記的票根 acceptsRoute=false）⇒ 路線票根淡化 */
+  const routeIgnored = isBuiltinStub(capture.stub) ? capture.stub === "diary" : !spec?.acceptsRoute;
+  const ignoredBy = isBuiltinStub(capture.stub) ? STUB_LABEL[capture.stub] : (spec?.label ?? "");
+
+  const stubText = (k: CaptureStub): { label: string; hint: string } => {
+    if (isBuiltinStub(k)) return { label: STUB_LABEL[k], hint: STUB_HINT[k] };
+    const s = captureTargetOf(k);
+    return { label: s?.label ?? k, hint: s?.hint ?? "" };
+  };
 
   let destLine;
-  if (needsPreview(capture.stub, body)) {
+  if (!isBuiltinStub(capture.stub)) {
+    const label = spec ? spec.destLabel(spec.acceptsRoute && p ? { id: p.route.id, name: p.route.name } : null) : "";
+    destLine = label ? <>{label.startsWith("→") ? label : `→ ${label}`}</> : null;
+  } else if (dest.target === "diary") {
+    destLine = <>→ 今天的日記</>;
+  } else if (needsPreview(capture.stub, body)) {
     destLine = <>→ 先預覽：拆成 {splitTodoLines(body).filter((l) => l.checked).length} 張車票</>;
   } else if (dest.target === "inbox") {
     destLine = <>→ 收件匣</>;
@@ -163,22 +185,36 @@ export function CaptureOverlay() {
             </div>
             <div className="ns-notes-tear" />
             <div className="ns-notes-capstubs">
-              {CAPTURE_STUBS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  className={`ns-notes-stub${capture.stub === k ? " on" : ""}`}
-                  aria-pressed={capture.stub === k}
-                  onClick={() => {
-                    st().setCaptureStub(k);
-                    refocus();
-                  }}
+              {stubs.map((k) => {
+                const t = stubText(k);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    className={`ns-notes-stub${capture.stub === k ? " on" : ""}`}
+                    aria-pressed={capture.stub === k}
+                    onClick={() => {
+                      st().setCaptureStub(k);
+                      refocus();
+                    }}
+                  >
+                    <span className="l">{t.label}</span>
+                    <span className="h">{t.hint}</span>
+                  </button>
+                );
+              })}
+              {p && routeIgnored && (
+                <span
+                  key={`${p.routeId}-muted`}
+                  className="ns-notes-routestub muted"
+                  title={`認到路線前綴「${p.matched.trim()}」——${ignoredBy}不掛路線，前綴照原文留著`}
                 >
-                  <span className="l">{STUB_LABEL[k]}</span>
-                  <span className="h">{STUB_HINT[k]}</span>
-                </button>
-              ))}
-              {p && (
+                  <RouteDot route={route} />
+                  <span className="nm">{p.route.name}</span>
+                  <span className="why">{ignoredBy}不掛路線</span>
+                </span>
+              )}
+              {p && !routeIgnored && (
                 <span
                   key={p.routeId}
                   className="ns-notes-routestub"

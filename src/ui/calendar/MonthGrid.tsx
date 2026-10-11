@@ -5,9 +5,9 @@
  * 材質（粉彩霧面玻璃＋顆粒／銀河月光票紙）全在 calendar.css，本檔只負責結構與資料。
  * 深面紀律（規格 §6）：月卡用「頁」材質，不開第二塊書封級深面。
  *
- * 星期列用 `WEEKDAY_ORDER`＋`WEEKDAY_LABEL`（一…六・日；六日＝`.we` 淡），不各算各的（約束表「週起始日」）。
+ * 星期列用控制器的 `weekOrder`（依設定的週首排；預設一…六・日）＋`WEEKDAY_LABEL`（六日＝`.we` 淡），不各算各的（約束表「週起始日」）。
  */
-import { WEEKDAY_LABEL, WEEKDAY_ORDER } from "../../domain";
+import { WEEKDAY_LABEL } from "../../domain";
 import { DayCell } from "./DayCell";
 import { useCalendar } from "./useCalendarController";
 
@@ -26,7 +26,7 @@ export function MonthGrid() {
   return (
     <div className="month-card">
       <div className="wk-head" aria-hidden>
-        {WEEKDAY_ORDER.map((d) => (
+        {c.weekOrder.map((d) => (
           <span key={d} className={d === 0 || d === 6 ? "we" : undefined}>
             {WEEKDAY_LABEL[d]}
           </span>

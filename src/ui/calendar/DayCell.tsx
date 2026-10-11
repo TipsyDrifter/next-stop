@@ -26,6 +26,7 @@
  */
 import type { NodeRow } from "../../domain";
 import type { DateCount, DueEntry, ScheduleEntry } from "../../data";
+import { useCalendar } from "./useCalendarController";
 
 export interface DayCellProps {
   /** YYYY-MM-DD */
@@ -74,6 +75,8 @@ export function DayCell({
   onTip,
 }: DayCellProps) {
   const dnum = Number(day.slice(8, 10));
+  // 三線格內記號（0-2 乙插槽）：直接取控制器 context，免得 MonthGrid／WeekGrid 為一個欄位各改一次；三線零登記＝undefined
+  const marks = useCalendar().marks[day];
 
   if (!inRange) {
     return (
@@ -107,6 +110,7 @@ export function DayCell({
       <div className="ch">
         <span className="dnum">{dnum}</span>
         {total > 0 && <span className="cnt">{total} 班</span>}
+        {marks?.map((id) => <i key={id} className={`mark mark-${id}`} aria-hidden />)}
       </div>
 
       {shown.length > 0 && (

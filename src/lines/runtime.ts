@@ -18,7 +18,7 @@
  */
 import { LINE_MANIFESTS } from "./index.ts";
 import type { ComponentType } from "react";
-import type { LineId, LineMount, LineReloadContext } from "./types";
+import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext } from "./types";
 
 let installed: Readonly<Record<LineId, LineMount>> | null = null;
 
@@ -59,6 +59,33 @@ export function lineSidebarTools(): { id: LineId; Tool: ComponentType }[] {
   for (const m of LINE_MANIFESTS) {
     const Tool = installed[m.id].sidebarTool;
     if (m.page.status === "open" && Tool) out.push({ id: m.id, Tool });
+  }
+  return out;
+}
+
+type DayMarksFn = (from: string, to: string) => Promise<readonly string[]>;
+/** 日曆格內記號的提供者（旅客筆記車次② 0-2 乙），比照 `lineSidebarTools()`：只看 `page.status`；`open` 且有填才算。地基階段恆為空陣列。 */
+export function lineCalendarMarks(): { id: LineId; marks: DayMarksFn }[] {
+  const out: { id: LineId; marks: DayMarksFn }[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const marks = installed[m.id].calendarDayMarks;
+    if (m.page.status === "open" && marks) out.push({ id: m.id, marks });
+  }
+  return out;
+}
+
+/**
+ * 捕捉框的別線票根（旅客筆記車次② D-筆-36），比照 `lineSidebarTools()`：三線固定順序 notes → timetable → ticket、
+ * 各線內照登記順序；桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineCaptureTargets(shell: "desktop" | "mobile"): CaptureTargetSpec[] {
+  const out: CaptureTargetSpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const specs = installed[m.id].captureTargets;
+    if (status === "open" && specs) out.push(...specs);
   }
   return out;
 }

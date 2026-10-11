@@ -8,7 +8,7 @@
  * 建車票不經這裡：一律走既有 `nodeRepo.create`／`move`（D-筆-18）。
  */
 import type { NodeKind, NodeRow } from "../domain";
-import type { NoteKind, NoteRow } from "../domain/notes";
+import type { FootprintDay, NoteKind, NoteRow } from "../domain/notes";
 
 /** 列表用的一列：NoteRow ＋ 由 node_id JOIN nodes 推出來的欄（不存表） */
 export interface NoteListItem extends NoteRow {
@@ -21,7 +21,7 @@ export interface NoteListItem extends NoteRow {
 }
 
 export interface CreateNoteInput {
-  /** 車次①一律 "note" */
+  /** "note"＝筆記；"diary"＝日記（車次②；要帶 entryDate） */
   kind: NoteKind;
   /** 已去尾端空白；可為空字串（新筆記草稿不經這裡，見 store） */
   body: string;
@@ -31,10 +31,25 @@ export interface CreateNoteInput {
   inbox: boolean;
   /** 省略＝now */
   notedAt?: string;
+  /**
+   * 車次②：kind==="diary" 時必填（YYYY-MM-DD 日界線日，呼叫端用 todayKey／dayKeyOf 算好；缺 ⇒ RangeError「日記要有日期」）；
+   * kind==="note" 時忽略（筆記的 entry_date 恆 NULL）
+   */
+  entryDate?: string | null;
 }
 
-/** 可改的欄；undefined＝不動，null＝清空 */
-export type NotePatch = Partial<Pick<NoteRow, "title" | "body" | "noted_at" | "node_id" | "inbox">>;
+/** 可改的欄；undefined＝不動，null＝清空。車次②加 kind／entry_date（0-10「記成日記」就地改 kind、0-5 改日記日期） */
+export type NotePatch = Partial<Pick<NoteRow, "title" | "body" | "noted_at" | "node_id" | "inbox" | "kind" | "entry_date">>;
+
+/** 日記頁內搜尋（車次② §3.3） */
+export interface DiarySearchQuery {
+  /** 比對 title 與 body（LIKE，與筆記同）；空白＝回空陣列（日記沒有「全部清單」） */
+  query: string;
+  /** 預設 100 */
+  limit?: number;
+  /** 預設 0 */
+  offset?: number;
+}
 
 export interface NotesQuery {
   /** undefined＝不篩；"none"＝沒掛節點的；字串＝該路線（含掛在其支線／列車／車廂上的） */
@@ -63,4 +78,20 @@ export interface NoteRepository {
   update(id: string, patch: NotePatch): Promise<void>;
   softDelete(id: string): Promise<void>;
   restore(ids: string[]): Promise<void>;
+
+  /* ── 車次②・日記（§3.3；只加） ── */
+  /** 某一天的日記：kind='diary' AND entry_date=$day AND alive；noted_at ASC, created_at ASC（0-4） */
+  listDiary(day: string): Promise<NoteListItem[]>;
+  /** 頁內搜尋：kind='diary' AND alive AND (title LIKE OR body LIKE)；entry_date DESC, noted_at DESC；空白＝[] */
+  searchDiary(q: DiarySearchQuery): Promise<NoteListItem[]>;
+  /** 區間（含兩端）內有日記的日子：{ [day]: 篇數 } */
+  listDiaryMarks(from: string, to: string): Promise<Record<string, number>>;
+  /** ＝Object.keys(listDiaryMarks(from, to))，升冪；給 mount 的 calendarDayMarks 一行接上 */
+  listDiaryDays(from: string, to: string): Promise<string[]>;
+
+  /* ── 車次②・當天足跡（唯讀查核心三表；0-3 甲）。dayStartHour 必填、沒有預設值 ── */
+  /** 那天（日界線日）的済章與手記；`blocks` 恆 null（時間塊由 store 經 footprintBlocks 插槽補） */
+  listFootprints(day: string, dayStartHour: number): Promise<FootprintDay>;
+  /** 區間（含兩端）內「有足跡」的日子，升冪（頁務件月曆的空心點、手機月份條） */
+  listFootprintDays(from: string, to: string, dayStartHour: number): Promise<string[]>;
 }

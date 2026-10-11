@@ -7,17 +7,8 @@
          刻意不加 maximum-scale／user-scalable=no——無障礙縮放要留著。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>私鐵手帳 · Next Stop</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!--
-      字體（M3 ② 主題換裝，家族與軸向逐字對齊 prototypes/m3-ext-routemap.html）：
-        Noto Serif TC  側板標題・文件級襯線（--font-display）
-        Noto Sans TC   本文（--font-body）
-        Fraunces       票號／拉丁點綴（--font-latin）；改吃可變軸 opsz 9..144、wght 400..700
-        Iansui         手寫（--font-hand／原型 --hw）——誤點註記與工作日誌那一筆
-      2026-08-28 以 curl -sI 實測：整串 URL 回 200，且回傳 CSS 內四個 font-family 都在。
-    -->
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Iansui&family=Noto+Sans+TC:wght@300;400;500;700&family=Noto+Serif+TC:wght@400;600;700&display=swap" rel="stylesheet" />
+    <!-- 字型自帶在 src/assets/fonts（D-筆-34：不連 Google Fonts，離線也是同一套字）；@font-face 在 src/styles/theme.css。
+         Noto Serif TC＝--font-display、Noto Sans TC＝--font-body、Fraunces＝--font-latin、Iansui（芫荽）＝--font-hand。 -->
   </head>
 
   <body>

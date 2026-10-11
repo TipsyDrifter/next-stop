@@ -3,11 +3,9 @@
  *
  * 視覺真相＝prototypes/m3-mood-c2-pastel.html **:783-808（4・無路線 臨時車票）逐字**：
  *   .ticket > .stub（.badge.dashed「臨」／.line-name「無路線」／.serial）
- *          ＋ .body（.fare-class「臨時券」／`.title.hw` **手寫**標題／.meta）
+ *          ＋ .body（.fare-class「臨時券」／`.title` 標題／.meta）
  *          ＋ .stamp-zone（.stamp > .hint 検印）
- *   「補充券本來就是手寫的」——所以標題輸入框帶 `title hw` 兩個 class，打字當下就是手寫體
- *   （手寫字級由 today.css `.ns-today .ticket .title.hw` 出，那條 (0,4,0) 蓋得過同檔的 input 規則 (0,3,1)，
- *    銀河主題那條 [data-theme="dark"] 覆寫會把它退回排印——與已建立的臨時券一致，不另寫 CSS）。
+ *   標題輸入框只帶 `title`：臨時券標題全 App 黑體（D-筆-32，原本 C2 的手寫 `.hw` 已拿掉），與已建立的臨時券一致。
  *
  * 與已建立的票唯一的差別（原型沒有草稿態）：
  *   - .ticket.draft 虛線邊（沿大綱 DraftRow 語彙，today.css 已有）
@@ -51,12 +49,12 @@ export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today" }: 
             臨時券
           </span>
 
-          {/* 標題＝手寫（.title.hw，C2 :792 逐字） */}
+          {/* 標題＝黑體（.title；D-筆-32） */}
           <InlineInput
             placeholder={inbox ? "放進收件匣的一件事…" : "臨時想到的一件事…"}
             ariaLabel={inbox ? "輸入收件匣車票的名稱" : "輸入臨時車票的名稱"}
             focusKey={`${kind}:${afterId ?? "$end"}`}
-            className="title hw"
+            className="title"
             onCommit={(text) => void onCommit(text)}
             onCancel={onCancel}
             onTab={() => onCancel()}

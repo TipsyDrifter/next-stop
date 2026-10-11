@@ -6,27 +6,33 @@
  *
  *   ・子畫面切換：「收件匣 N」（未整理數＝筆記＋車票）「筆記 N」（筆記總數）——button、aria-pressed
  *   ・section==="notes" 時：路線篩選「全部」「無路線」＋每條路線（roundel 走 roundelStyle，與 Sidebar 同法）
+ *   ・車次②：第三顆「日記 N」（N＝月曆那個月的篇數＝Σ diaryMarks；沒資料不顯示，契約 §5.7）；
+ *     section==="diary" 時下方畫頁務件月曆（SideCalendar）
  *
  * 「筆記 N」的 N：store 的 notes 是套了篩選／搜尋的結果，總數只在「沒有任何篩選」時算得出來；
  * 有篩選時沿用最後一次無篩選載入的數字（不另開查詢、不改 store）。
  */
 import { useRef, type ReactNode } from "react";
-import { useNotesStore } from "../../store/notesStore";
+import { useNotesStore, type NotesSection } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { Roundel } from "./notesBits";
+import { SideCalendar } from "./SideCalendar";
 
 export interface NotesSideProps {
   /** 換子畫面前先把內容欄沒存的字存掉（NotesView 給） */
-  onSection(s: "inbox" | "notes"): void;
+  onSection(s: NotesSection): void;
   onFilter(routeId: string | "none" | undefined): void;
+  /** 月曆點某一天（NotesView 先存正在打的字再換日） */
+  onPickDay(day: string): void;
 }
 
-export function NotesSide({ onSection, onFilter }: NotesSideProps) {
+export function NotesSide({ onSection, onFilter, onPickDay }: NotesSideProps) {
   const section = useNotesStore((s) => s.section);
   const inboxCount = useNotesStore((s) => s.inboxNotes.length + s.inboxTickets.length);
   const notes = useNotesStore((s) => s.notes);
   const q = useNotesStore((s) => s.notesQuery);
   const routes = useNodeStore((s) => s.routes);
+  const diaryCount = useNotesStore((s) => Object.values(s.diaryMarks).reduce((a, b) => a + b, 0));
 
   const unfiltered = !q.routeId && !(q.query ?? "").trim();
   const totalRef = useRef<number | null>(null);
@@ -67,6 +73,17 @@ export function NotesSide({ onSection, onFilter }: NotesSideProps) {
         <span className="nm">筆記</span>
         {notesCount !== null && <span className="n">{notesCount}</span>}
       </button>
+      <button
+        type="button"
+        className="ns-notes-sideitem"
+        aria-pressed={section === "diary"}
+        title={diaryCount > 0 ? `月曆這個月寫了 ${diaryCount} 篇` : undefined}
+        onClick={() => onSection("diary")}
+      >
+        <span className="mk" />
+        <span className="nm">日記</span>
+        {diaryCount > 0 && <span className="n">{diaryCount}</span>}
+      </button>
 
       {section === "notes" && (
         <div className="ns-notes-routes" role="group" aria-label="依路線篩選">
@@ -74,6 +91,13 @@ export function NotesSide({ onSection, onFilter }: NotesSideProps) {
           {filterBtn("$all", undefined, "全部", <span aria-hidden className="roundel ns-notes-rd" style={{ visibility: "hidden" }} />)}
           {filterBtn("$none", "none", "無路線", <Roundel route={null} />)}
           {routes.map((r) => filterBtn(r.id, r.id, r.name, <Roundel route={r} />))}
+        </div>
+      )}
+
+      {section === "diary" && (
+        <div className="ns-notes-calwrap" role="group" aria-label="日記月曆">
+          <h2 className="sub">月曆 CALENDAR</h2>
+          <SideCalendar onPickDay={onPickDay} />
         </div>
       )}
     </aside>

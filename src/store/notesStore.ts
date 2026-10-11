@@ -10,6 +10,9 @@
  * 狀態形狀與動作名在 Stage 0 定稿（契約 §2.5 第 3 點：之後只加不改）。甲席 §2.1 之後另加的：
  * `freshNoteId`（剛捕捉進收件匣那一則，受付章 fresh 用）、`notesHasMore`＋`loadMoreNotes`（列表分頁）。
  *
+ * 車次②（契約 §3.6；Stage 0 定稿、只加不改）：`section` 加 "diary"、日記／足跡／月份記號三組狀態與動作、
+ * 捕捉框的日記票根真的落庫、別線登記的捕捉目的地（`captureStubList`／`captureTargetOf`，D-筆-36）。
+ *
  * 建車票一律經既有 `nodeRepo.create`／`nodeStore` 的動作（D-筆-18）；變待辦不是單一交易（契約 0-9）：
  * 中途失敗＝已建的票留著、筆記不刪、toast 說明＋復原鈕刪掉已建的。
  */
@@ -18,12 +21,21 @@ import { nodeRepo } from "../data";
 import { noteRepo } from "../data/noteRepo";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
-import { todayKey } from "../lib/date";
-import type { LineReloadContext } from "../lines/types";
+import { addDays, dayKeyOf, todayKey } from "../lib/date";
+import { dayBlocksProvider } from "../ui/notes/footprintBlocks";
+import type { CaptureSaveResult, CaptureTargetSpec, LineReloadContext } from "../lines/types";
+import { lineCaptureTargets } from "../lines/runtime";
 import type { NodeRow } from "../domain";
 import {
+  CAPTURE_STUBS,
   captureToast,
+  clampDay,
+  diaryToast,
+  isBuiltinStub,
   fmtMonthDay,
+  monthDays,
+  monthKey,
+  type FootprintDay,
   lineCount,
   nextStub,
   needsPreview,
@@ -43,7 +55,7 @@ export type InboxRef = { kind: "note"; id: string } | { kind: "ticket"; id: stri
 
 export interface CaptureState {
   text: string;
-  /** 車次①值域 "inbox" | "todo" | "note"（"diary" 型別保留、UI 不顯示） */
+  /** 內建票根或別線登記的捕捉目的地 id（車次② D-筆-36；清單見 `captureStubList(shell)`） */
   stub: CaptureStub;
   /** 主人按 × 或在開頭 Backspace 取消過的前綴字串（＝parseRoutePrefix().matched）；文字一變就重新判 */
   dismissedPrefix: string | null;
@@ -67,9 +79,12 @@ export interface PreviewState {
   scheduledOn: string | null;
 }
 
+/** 旅客筆記的子畫面（車次②加 "diary"） */
+export type NotesSection = "inbox" | "notes" | "diary";
+
 export interface NotesStore {
   /* ── 子畫面與列表 ── */
-  section: "inbox" | "notes";
+  section: NotesSection;
   inboxNotes: NoteListItem[];
   inboxTickets: NodeRow[];
   inboxSelected: InboxRef | null;
@@ -91,8 +106,37 @@ export interface NotesStore {
   /** 筆記列表還有下一頁（上一次載入剛好滿一頁） */
   notesHasMore: boolean;
 
+  /* ── 車次②・日記（子畫面＝一天；契約 §3.6） ── */
+  /** 本文的日；初值＝建立當下的 todayKey(dayStartHour)，第一次進日記子畫面時以當下設定重算 */
+  diaryDay: string;
+  /** listDiary(diaryDay)；noted_at ASC, created_at ASC */
+  diaryEntries: NoteListItem[];
+  /** 鍵盤 ↑↓／Enter／Delete 的目標篇 */
+  diarySelectedId: string | null;
+  /** 讀寫兩態：正在打字的那一篇（D-筆-24）；null＝全部閱讀態 */
+  diaryEditingId: string | null;
+  /** 「寫日記／補記／再寫一篇」草稿開著（內容在 UI 本地，不落庫；空的離開＝丟棄） */
+  diaryDraftOpen: boolean;
+  /** 頁內搜尋字；空＝日視圖 */
+  diaryQuery: string;
+  /** searchDiary 結果（diaryQuery 非空時） */
+  diaryHits: NoteListItem[];
+  diaryLoading: boolean;
+  /* ── 車次②・當天足跡 ── */
+  /** 足跡欄的日；setDiaryDay 時跟著設；可獨立翻 */
+  fpDay: string;
+  /** listFootprints(fpDay)＋時間塊插槽；null＝還沒載 */
+  footprint: FootprintDay | null;
+  /* ── 車次②・月份記號（頁務件月曆／手機月份條） ── */
+  /** YYYY-MM；初值＝diaryDay 的月 */
+  marksMonth: string;
+  /** listDiaryMarks(月首, 月底)：{ [day]: 篇數 } */
+  diaryMarks: Record<string, number>;
+  /** listFootprintDays(月首, 月底, h) */
+  footprintDays: string[];
+
   /* ── 載入 ── */
-  setSection(s: "inbox" | "notes"): void;
+  setSection(s: NotesSection): void;
   /** Promise.all([noteRepo.listInbox(), noteRepo.listInboxTickets()]) */
   loadInbox(): Promise<void>;
   /** noteRepo.listNotes(notesQuery) */
@@ -141,7 +185,7 @@ export interface NotesStore {
   /** 文字變了就把 confirmEsc 清掉；若 parseRoutePrefix().matched !== dismissedPrefix ⇒ dismissedPrefix=null */
   setCaptureText(text: string): void;
   setCaptureStub(stub: CaptureStub): void;
-  /** nextStub（車次①在 ["inbox","todo","note"] 三枚間輪） */
+  /** nextStub 在 captureStubList("desktop") 間輪（內建四枚＋別線登記的；車次② D-筆-36） */
   cycleStub(dir: 1 | -1): void;
   /** dismissedPrefix = parseRoutePrefix(text).matched */
   dismissRoute(): void;
@@ -156,9 +200,66 @@ export interface NotesStore {
   setPreviewDate(d: string | null): void;
   cancelPreview(): void;
   confirmPreview(): Promise<void>;
+
+  /* ── 車次②・日記動作 ── */
+  /** 夾到 today；同時 fpDay=day、清編輯／草稿／選取、marksMonth=day 的月；然後 loadDiary＋loadFootprint（月變了再 loadMarks） */
+  setDiaryDay(day: string): void;
+  /** dir=1 且已在今天 ⇒ 不動 */
+  stepDiaryDay(dir: 1 | -1): void;
+  goDiaryToday(): void;
+  loadDiary(): Promise<void>;
+  selectDiaryEntry(id: string | null): void;
+  setDiaryEditing(id: string | null): void;
+  /** diaryDraftOpen=true、diaryEditingId=null（一次只編一處） */
+  openDiaryDraft(): void;
+  cancelDiaryDraft(): void;
+  /** 草稿存檔：title 與 body 都空白 ⇒ 關草稿、不建不 toast、回 null；否則建在 diaryDay → toast 19；回新 id */
+  saveDiaryDraft(input: { title: string; body: string }): Promise<string | null>;
+  /** 既有篇的自動存檔（UI 去抖 500ms＋blur／Esc 立即）；只改 title／body，就地合併不整份重載 */
+  saveDiaryEntry(id: string, patch: Pick<NotePatch, "title" | "body">): Promise<void>;
+  /** 改歸屬日（0-5，只改 entry_date）→ toast 21（復原＝改回來） */
+  setDiaryEntryDate(id: string, day: string): Promise<void>;
+  /** softDelete → toast 20（復原＝restore） */
+  deleteDiaryEntry(id: string): Promise<void>;
+  /** 設完就 searchDiary（UI 去抖 150ms 再叫）；空字串 ⇒ diaryHits=[] */
+  setDiaryQuery(q: string): Promise<void>;
+  /** 搜尋結果點一則：跳到那天並選中那篇；diaryQuery 保留（Esc 才清） */
+  openDiaryHit(id: string, day: string): void;
+  /** 收件匣／筆記頁「記成日記」（0-10 就地改 kind；歸屬日＝dayKeyOf(noted_at, h)）→ toast 18（復原＝反向 patch） */
+  noteToDiary(id: string): Promise<void>;
+  /** 外部入口：setSection("diary")＋setDiaryDay(day) */
+  openDiaryAt(day: string): void;
+  /* ── 車次②・足跡動作 ── */
+  /** 夾到 today；loadFootprint */
+  setFpDay(day: string): void;
+  /** dir=1 且已在今天 ⇒ 不動 */
+  stepFpDay(dir: 1 | -1): void;
+  /** fpDay = diaryDay */
+  fpBackToDiaryDay(): void;
+  /** listFootprints(fpDay, h)；blocks＝footprintBlocks 插槽（本車次恆 null） */
+  loadFootprint(): Promise<void>;
+  /* ── 車次②・記號 ── */
+  /** 不可晚於今天的月；loadMarks */
+  setMarksMonth(month: string): Promise<void>;
+  /** listDiaryMarks＋listFootprintDays（marksMonth 的月首～月底） */
+  loadMarks(): Promise<void>;
 }
 
 /* ───────── 純輔助（UI 也可用：捕捉框的路線票根與落點要即時顯示） ───────── */
+
+/**
+ * 捕捉框該畫的票根列（車次② D-筆-36）：內建（`CAPTURE_STUBS`）＋該殼通車的線登記的捕捉目的地 id。
+ * 桌機 CaptureOverlay 傳 "desktop"、手機 MobileCaptureSheet 傳 "mobile"；Tab 輪替（`cycleStub`）用桌機這份。
+ */
+export function captureStubList(shell: "desktop" | "mobile"): CaptureStub[] {
+  return [...CAPTURE_STUBS, ...lineCaptureTargets(shell).map((t) => t.id)];
+}
+
+/** 登記的票根 id → 它的 spec（內建票根或該線已不通車＝null）。兩殼都找：票根是哪一殼選的，store 不必知道 */
+export function captureTargetOf(stub: CaptureStub): CaptureTargetSpec | null {
+  if (isBuiltinStub(stub)) return null;
+  return [...lineCaptureTargets("desktop"), ...lineCaptureTargets("mobile")].find((t) => t.id === stub) ?? null;
+}
 
 /** 捕捉框目前認到的路線前綴；主人取消過的（dismissedPrefix）不算 */
 export function captureRouteOf(c: CaptureState, routes: readonly RouteLike[]): RoutePrefix | null {
@@ -209,6 +310,18 @@ function safeUndo(fn: () => Promise<void>): () => Promise<void> {
 let draftCreating: Promise<string> | null = null;
 /** confirmPreview 不可重入（Ctrl+Enter 連按） */
 let confirming = false;
+/** saveDiaryDraft 不可重入（Ctrl+Enter 連按會建兩篇） */
+let draftSaving = false;
+/** 進過日記子畫面沒有（沒進過就不在同步重載時白查日記與足跡） */
+let diaryTouched = false;
+
+const dayStartNow = (): number => useUiStore.getState().dayStartHour;
+
+/** YYYY-MM → [月首, 月底] */
+function monthRange(month: string): [string, string] {
+  const days = monthDays(month);
+  return [days[0], days[days.length - 1]];
+}
 
 export const useNotesStore = create<NotesStore>((set, get) => {
   /**
@@ -241,8 +354,66 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     await Promise.all([get().loadInbox(), get().loadNotes()]);
   }
 
+  /** 日記寫入後的重載：當天清單＋月份記號＋（有搜尋字時）搜尋結果 */
+  async function reloadDiary(): Promise<void> {
+    const q = get().diaryQuery;
+    await Promise.all([get().loadDiary(), get().loadMarks(), q.trim() ? get().setDiaryQuery(q) : Promise.resolve()]);
+  }
+
+  /**
+   * 寫入／撤回一篇日記之後：月份記號一律重載（側欄「日記 N」要跟著變，契約 §3.6、§5.1）；
+   * 進過日記子畫面才連當天清單與搜尋結果一起重載。沒進過日記時 marksMonth 先對齊今天的月。
+   */
+  async function refreshAfterDiaryWrite(): Promise<void> {
+    if (diaryTouched) {
+      await reloadDiary();
+      return;
+    }
+    set({ marksMonth: monthKey(todayNow()) });
+    await get().loadMarks();
+  }
+
+  /**
+   * 別線登記的票根存檔（D-筆-36）：找不到 spec（該線已不通車）或內容空白 ⇒ "empty"、框留著；
+   * `save` throw ⇒ 框留著＋失敗 toast；回 null ⇒ 當空內容；成功 ⇒ 關框＋spec 給的 toast（有 undo 就帶復原）。
+   */
+  async function saveToTarget(c: CaptureState, p: RoutePrefix | null): Promise<"empty" | "saved"> {
+    const spec = captureTargetOf(c.stub);
+    if (!spec) return "empty";
+    const text = c.text.replace(/\s+$/, "");
+    const useRoute = spec.acceptsRoute && p !== null;
+    const body = (useRoute ? p.body : text).replace(/\s+$/, "");
+    if (!body.trim()) return "empty";
+    let res: CaptureSaveResult | null;
+    try {
+      res = await spec.save({ text, body, routeId: useRoute ? p.route.id : null, dayKey: todayNow() });
+    } catch (e) {
+      failToast(e);
+      return "empty";
+    }
+    if (!res) return "empty";
+    set({ capture: null });
+    toast(res.toast, res.undo ? safeUndo(res.undo) : undefined);
+    return "saved";
+  }
+
+  const day0 = todayNow();
+
   return {
     section: "inbox",
+    diaryDay: day0,
+    diaryEntries: [],
+    diarySelectedId: null,
+    diaryEditingId: null,
+    diaryDraftOpen: false,
+    diaryQuery: "",
+    diaryHits: [],
+    diaryLoading: false,
+    fpDay: day0,
+    footprint: null,
+    marksMonth: monthKey(day0),
+    diaryMarks: {},
+    footprintDays: [],
     inboxNotes: [],
     inboxTickets: [],
     inboxSelected: null,
@@ -259,7 +430,15 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     notesHasMore: false,
 
     /* ── 載入 ── */
-    setSection: (s) => set({ section: s }),
+    setSection(s) {
+      set({ section: s });
+      // 第一次進日記：以「當下」的日界線設定重算今天再載（store 建立時 loadSettings 可能還沒回來）
+      if (s === "diary" && !diaryTouched) {
+        diaryTouched = true;
+        get().goDiaryToday();
+        void get().loadMarks();
+      }
+    },
     async loadInbox() {
       set({ loading: true });
       try {
@@ -308,7 +487,9 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       }
     },
     async reload(ctx) {
+      const has = (t: string) => ctx.wiped || ctx.changed.includes(t);
       if (ctx.wiped) {
+        const today = todayNow();
         set({
           inboxSelected: null,
           selectedNoteId: null,
@@ -317,12 +498,28 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           capture: null,
           preview: null,
           freshNoteId: null,
+          diarySelectedId: null,
+          diaryEditingId: null,
+          diaryDraftOpen: false,
+          diaryQuery: "",
+          diaryHits: [],
+          diaryDay: today,
+          fpDay: today,
+          marksMonth: monthKey(today),
         });
-      } else if (!ctx.changed.includes("notes") && !ctx.changed.includes("nodes")) {
-        return; // 車票區與 JOIN 都依賴 nodes；兩者都沒動就不重載
       }
+      // 車票區與 JOIN 都依賴 nodes；足跡另看 work_logs／occurrences（車次② §3.6）
+      const lists = has("notes") || has("nodes");
+      const diary = diaryTouched && has("notes");
+      const fp = diaryTouched && (has("nodes") || has("work_logs") || has("occurrences"));
+      if (!lists && !diary && !fp) return;
       try {
-        await reloadLists();
+        await Promise.all([
+          lists ? reloadLists() : Promise.resolve(),
+          diary ? reloadDiary() : Promise.resolve(),
+          fp ? get().loadFootprint() : Promise.resolve(),
+          fp && !diary ? get().loadMarks() : Promise.resolve(),
+        ]);
       } catch (e) {
         console.warn("notesStore.reload 失敗", e);
       }
@@ -563,7 +760,8 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     },
     cycleStub(dir) {
       const c = get().capture;
-      if (c) set({ capture: { ...c, stub: nextStub(c.stub, dir) } });
+      // 只有桌機有 Tab；手機直接點票根（setCaptureStub）
+      if (c) set({ capture: { ...c, stub: nextStub(c.stub, dir, captureStubList("desktop")) } });
     },
     dismissRoute() {
       const c = get().capture;
@@ -580,6 +778,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       const c = get().capture;
       if (!c) return "empty";
       const p = captureRouteOf(c, routesNow());
+      if (!isBuiltinStub(c.stub)) return saveToTarget(c, p);
       const dest = resolveDestination(c.stub, !!p);
       const body = (dest.consumePrefix && p ? p.body : c.text).replace(/\s+$/, "");
       if (!body.trim()) return "empty";
@@ -598,11 +797,24 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         });
         return "preview";
       }
-      // 車次①捕捉框不顯示日記票根（CAPTURE_STUBS 只有三枚）；萬一進來，當作沒存、框留著
-      if (dest.target === "diary") return "empty";
       const route = dest.withRoute && p ? p.route : null;
       const text = captureToast(c.stub, dest, route?.name ?? "").text;
       try {
+        if (dest.target === "diary") {
+          // 車次② §3.6：存檔當下才算今天（不是開框時）；原文照留（consumePrefix=false，前綴也進內文）、不掛路線
+          const day = todayNow();
+          const row = await noteRepo.create({ kind: "diary", body, inbox: false, entryDate: day });
+          set({ capture: null });
+          await refreshAfterDiaryWrite();
+          toast(
+            diaryToast("capture", day, day),
+            safeUndo(async () => {
+              await noteRepo.softDelete(row.id);
+              await refreshAfterDiaryWrite();
+            }),
+          );
+          return "saved";
+        }
         if (dest.target === "today") {
           const row = await nodeRepo.create({
             kind: "ticket",
@@ -728,6 +940,262 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         );
       } finally {
         confirming = false;
+      }
+    },
+
+    /* ── 車次②・日記 ── */
+    setDiaryDay(day) {
+      diaryTouched = true;
+      const d = clampDay(day, todayNow());
+      const monthChanged = monthKey(d) !== get().marksMonth;
+      set({
+        diaryDay: d,
+        fpDay: d,
+        diaryEditingId: null,
+        diaryDraftOpen: false,
+        diarySelectedId: null,
+        marksMonth: monthKey(d),
+      });
+      void get().loadDiary();
+      void get().loadFootprint();
+      if (monthChanged) void get().loadMarks();
+    },
+    stepDiaryDay(dir) {
+      const { diaryDay } = get();
+      if (dir === 1 && diaryDay >= todayNow()) return;
+      get().setDiaryDay(addDays(diaryDay, dir));
+    },
+    goDiaryToday() {
+      get().setDiaryDay(todayNow());
+    },
+    async loadDiary() {
+      const day = get().diaryDay;
+      set({ diaryLoading: true });
+      try {
+        const fresh = await noteRepo.listDiary(day);
+        if (get().diaryDay !== day) return; // 途中換了日：以後到的那一趟為準
+        const sel = get().diarySelectedId;
+        const editing = get().diaryEditingId;
+        // 正在打字的那篇被別台刪掉或搬走：先留在畫面上（契約 7.4-8「沒在打字時才跟上」），
+        // 離開編輯時 setDiaryEditing(null) 會重載一次，那時才消失
+        const orphan =
+          editing && !fresh.some((n) => n.id === editing) ? get().diaryEntries.find((n) => n.id === editing) : undefined;
+        const diaryEntries = orphan
+          ? [...fresh, orphan].sort((a, b) => a.noted_at.localeCompare(b.noted_at) || a.created_at.localeCompare(b.created_at))
+          : fresh;
+        set({
+          diaryEntries,
+          diaryLoading: false,
+          error: null,
+          // 選中的那篇已不在這天（被刪、改日期、別台改掉）⇒ 清掉，免得鍵盤動作落在不存在的列上
+          ...(sel && sel !== editing && !diaryEntries.some((n) => n.id === sel) ? { diarySelectedId: null } : {}),
+          ...(editing && !diaryEntries.some((n) => n.id === editing) ? { diaryEditingId: null } : {}),
+        });
+      } catch (e) {
+        console.warn("notesStore.loadDiary 失敗", e);
+        set({ diaryLoading: false, error: message(e) });
+      }
+    },
+    selectDiaryEntry: (id) => set({ diarySelectedId: id }),
+    setDiaryEditing(id) {
+      const prev = get().diaryEditingId;
+      set({ diaryEditingId: id });
+      // 離開編輯：若那篇在打字期間被別台刪掉／搬走，loadDiary 曾把它留著，這裡重載讓它照實消失
+      if (prev && prev !== id && !id) void get().loadDiary();
+    },
+    openDiaryDraft: () => set({ diaryDraftOpen: true, diaryEditingId: null }),
+    cancelDiaryDraft: () => set({ diaryDraftOpen: false }),
+    async saveDiaryDraft(input) {
+      const body = input.body.replace(/\s+$/, "");
+      const title = input.title;
+      if (!body.trim() && !title.trim()) {
+        set({ diaryDraftOpen: false }); // 空草稿＝丟棄，不建不 toast（原型施工決定 14）
+        return null;
+      }
+      if (draftSaving) return null;
+      draftSaving = true;
+      const day = get().diaryDay;
+      try {
+        const row = await noteRepo.create({ kind: "diary", body, title, inbox: false, entryDate: day });
+        set({ diaryDraftOpen: false, diarySelectedId: row.id });
+        await reloadDiary();
+        toast(
+          diaryToast("draft", day, todayNow()),
+          safeUndo(async () => {
+            await noteRepo.softDelete(row.id);
+            await reloadDiary();
+          }),
+        );
+        return row.id;
+      } catch (e) {
+        failToast(e); // 草稿留著（內容在 UI 本地），主人可以再按一次
+        return null;
+      } finally {
+        draftSaving = false;
+      }
+    },
+    async saveDiaryEntry(id, patch) {
+      try {
+        await noteRepo.update(id, patch);
+      } catch (e) {
+        failToast(e);
+        return;
+      }
+      // 只改標題／內文：就地合併（去抖存檔每 500ms 一次，整份換掉會閃；與 saveNote 同法）
+      const now = new Date().toISOString();
+      const merge = (n: NoteListItem): NoteListItem =>
+        n.id !== id
+          ? n
+          : {
+              ...n,
+              ...(patch.body !== undefined ? { body: patch.body } : {}),
+              ...(patch.title !== undefined ? { title: patch.title && patch.title.trim() ? patch.title : null } : {}),
+              updated_at: now,
+            };
+      set({ diaryEntries: get().diaryEntries.map(merge), diaryHits: get().diaryHits.map(merge) });
+    },
+    async setDiaryEntryDate(id, day) {
+      const d = clampDay(day, todayNow());
+      const orig =
+        get().diaryEntries.find((n) => n.id === id)?.entry_date ?? (await noteRepo.getNote(id))?.entry_date ?? null;
+      if (!orig || orig === d) return;
+      // 自己改日期＝那篇本來就該從這天離開，不走「編輯中先留著」
+      if (get().diaryEditingId === id) set({ diaryEditingId: null });
+      try {
+        await noteRepo.update(id, { entry_date: d });
+      } catch (e) {
+        failToast(e);
+        return;
+      }
+      await reloadDiary();
+      toast(
+        `已改到 ${fmtMonthDay(d)}`,
+        safeUndo(async () => {
+          await noteRepo.update(id, { entry_date: orig });
+          await reloadDiary();
+        }),
+      );
+    },
+    async deleteDiaryEntry(id) {
+      try {
+        await noteRepo.softDelete(id);
+      } catch (e) {
+        failToast(e);
+        return;
+      }
+      const s = get();
+      if (s.diarySelectedId === id || s.diaryEditingId === id) {
+        set({
+          ...(s.diarySelectedId === id ? { diarySelectedId: null } : {}),
+          ...(s.diaryEditingId === id ? { diaryEditingId: null } : {}),
+        });
+      }
+      await reloadDiary();
+      toast(
+        "已刪除日記",
+        safeUndo(async () => {
+          await noteRepo.restore([id]);
+          await reloadDiary();
+        }),
+      );
+    },
+    async setDiaryQuery(q) {
+      set({ diaryQuery: q });
+      if (!q.trim()) {
+        set({ diaryHits: [] });
+        return;
+      }
+      try {
+        const hits = await noteRepo.searchDiary({ query: q });
+        if (get().diaryQuery !== q) return; // 打字途中又變了：以後到的那一趟為準
+        set({ diaryHits: hits });
+      } catch (e) {
+        console.warn("notesStore.setDiaryQuery 失敗", e);
+        set({ error: message(e) });
+      }
+    },
+    openDiaryHit(id, day) {
+      get().setDiaryDay(day);
+      set({ diarySelectedId: id }); // setDiaryDay 會清選取；loadDiary 回來時那篇在清單裡，選取保留
+    },
+    async noteToDiary(id) {
+      const s = get();
+      const n =
+        s.inboxNotes.find((x) => x.id === id) ?? s.notes.find((x) => x.id === id) ?? (await noteRepo.getNote(id));
+      if (!n || n.kind !== "note") return;
+      const day = dayKeyOf(n.noted_at, dayStartNow());
+      const orig = { inbox: n.inbox, node_id: n.node_id };
+      try {
+        // 0-10：就地改 kind（id 不變、歷史不變）；日記不掛節點（D-筆-22）、不在收件匣
+        await noteRepo.update(id, { kind: "diary", entry_date: day, inbox: 0, node_id: null });
+      } catch (e) {
+        failToast(e);
+        return;
+      }
+      if (get().selectedNoteId === id) set({ selectedNoteId: null, editing: false });
+      if (get().inboxSelected?.id === id) set({ inboxSelected: null });
+      await Promise.all([reloadLists(), refreshAfterDiaryWrite()]);
+      toast(
+        diaryToast("convert", day, todayNow()),
+        safeUndo(async () => {
+          await noteRepo.update(id, { kind: "note", entry_date: null, inbox: orig.inbox, node_id: orig.node_id });
+          await Promise.all([reloadLists(), refreshAfterDiaryWrite()]);
+        }),
+      );
+    },
+    openDiaryAt(day) {
+      diaryTouched = true;
+      set({ section: "diary" });
+      get().setDiaryDay(day);
+      void get().loadMarks();
+    },
+
+    /* ── 車次②・足跡 ── */
+    setFpDay(day) {
+      set({ fpDay: clampDay(day, todayNow()) });
+      void get().loadFootprint();
+    },
+    stepFpDay(dir) {
+      const { fpDay } = get();
+      if (dir === 1 && fpDay >= todayNow()) return;
+      get().setFpDay(addDays(fpDay, dir));
+    },
+    fpBackToDiaryDay() {
+      get().setFpDay(get().diaryDay);
+    },
+    async loadFootprint() {
+      const day = get().fpDay;
+      const h = dayStartNow();
+      try {
+        const f = await noteRepo.listFootprints(day, h);
+        const blocks = dayBlocksProvider ? await dayBlocksProvider(day, h) : null;
+        if (get().fpDay !== day) return;
+        set({ footprint: { ...f, blocks } });
+      } catch (e) {
+        console.warn("notesStore.loadFootprint 失敗", e);
+        set({ error: message(e) });
+      }
+    },
+
+    /* ── 車次②・記號 ── */
+    async setMarksMonth(month) {
+      const cap = monthKey(todayNow());
+      set({ marksMonth: month > cap ? cap : month });
+      await get().loadMarks();
+    },
+    async loadMarks() {
+      const month = get().marksMonth;
+      const [from, to] = monthRange(month);
+      try {
+        const [diaryMarks, footprintDays] = await Promise.all([
+          noteRepo.listDiaryMarks(from, to),
+          noteRepo.listFootprintDays(from, to, dayStartNow()),
+        ]);
+        if (get().marksMonth !== month) return;
+        set({ diaryMarks, footprintDays });
+      } catch (e) {
+        console.warn("notesStore.loadMarks 失敗", e);
+        set({ error: message(e) });
       }
     },
   };

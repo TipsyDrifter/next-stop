@@ -63,9 +63,11 @@
 .ns-calendar .wk-row .cell:nth-child(5) .ch::before { content: var(--wd-5); }
 .ns-calendar .wk-row .cell:nth-child(6) .ch::before { content: var(--wd-6); }
 .ns-calendar .wk-row .cell:nth-child(7) .ch::before { content: var(--wd-7); }
-/* 週末淡（＝月格 wk-head 的 .we，第 6／7 欄＝六・日，序同 WEEKDAY_ORDER） */
-.ns-calendar .wk-row .cell:nth-child(6) .ch::before,
-.ns-calendar .wk-row .cell:nth-child(7) .ch::before { color: var(--color-ink-faint); }
+/* 週末淡（＝月格 wk-head 的 .we）：週首週一＝第 6／7 欄是六・日；週首週日（data-week-start="0"）＝第 1／7 欄 */
+.ns-calendar .wk-row:not([data-week-start="0"]) .cell:nth-child(6) .ch::before,
+.ns-calendar .wk-row:not([data-week-start="0"]) .cell:nth-child(7) .ch::before,
+.ns-calendar .wk-row[data-week-start="0"] .cell:nth-child(1) .ch::before,
+.ns-calendar .wk-row[data-week-start="0"] .cell:nth-child(7) .ch::before { color: var(--color-ink-faint); }
 
 /* ③ 〆：離開格角、貼到日付標籤旁（線框 .wsime :755-760 的字級／傾角／透明度） */
 .ns-calendar .wk-row .sime {

@@ -7,9 +7,10 @@
  * 受付章印內日期＝進收件匣那天（筆記 noted_at、車票 created_at 的本地日，依日界線換算）。
  *
  * 點一則＝選中並展開去處列（再點一次收起）；去處按鈕 ≥44px、三欄可兩排：
- *   筆記：變待辦（開全螢幕預覽）／留作筆記／刪除
+ *   筆記：變待辦（開全螢幕預覽）／留作筆記／記成日記（車次②：歸屬日＝筆記寫下那天）／刪除
  *   車票：排今天／排明天／排某天（日期面板）／掛進列車（挑選器：只列車與車廂可選）／掛上路線（挑選器：只路線）／刪除
  * 寫入與 toast（含「復原」）都在 notesStore 的動作裡（契約 §3.6／§5.8）；本元件只轉呼叫。
+ * 受付章 42px（D-筆-31，車次②；原 26px 太小讀不出日期）。「排某天」用共用的手機日期面板（D-筆-30）。
  */
 import { useState } from "react";
 import { useUiStore } from "../../../store/uiStore";
@@ -20,7 +21,8 @@ import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { UketsukeSeal } from "../UketsukeSeal";
 import { MobileAttachPicker } from "./MobileAttachPicker";
-import { MobileDatePick, nextMonday, shortDay } from "./MobileDatePick";
+import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { nextMonday, shortDay } from "./MobileDatePick";
 
 type Item = { kind: "note"; id: string; at: string; note: NoteListItem } | { kind: "ticket"; id: string; at: string; ticket: NodeRow };
 
@@ -95,13 +97,14 @@ function NoteCard({ n, day, sel, onToggle }: { n: NoteListItem; day: string; sel
   const keepNote = useNotesStore((s) => s.keepNote);
   const deleteNote = useNotesStore((s) => s.deleteNote);
   const openPreviewFromNote = useNotesStore((s) => s.openPreviewFromNote);
+  const noteToDiary = useNotesStore((s) => s.noteToDiary);
   const lines = lineCount(n.body);
   const text = n.body.trim() ? n.body : (n.title ?? "");
   return (
     <li className={"ns-notes-mitem" + (sel ? " is-sel" : "")}>
       <div className="ns-notes-mslip">
         <button type="button" className="ns-notes-mslip-body" aria-expanded={sel} onClick={onToggle}>
-          <UketsukeSeal day={day} size={26} />
+          <UketsukeSeal day={day} size={42} />
           <span className="ns-notes-mslip-text">{text}</span>
           <span className="ns-notes-mmeta">
             <span className="ns-notes-mkind">未整理的筆記</span>
@@ -118,12 +121,15 @@ function NoteCard({ n, day, sel, onToggle }: { n: NoteListItem; day: string; sel
           </span>
         </button>
         {sel && (
-          <div className="ns-notes-mdest" role="group" aria-label="去處">
+          <div className="ns-notes-mdest is-four" role="group" aria-label="去處">
             <button type="button" className="ns-notes-mact" onClick={() => openPreviewFromNote(n.id)}>
               變待辦
             </button>
             <button type="button" className="ns-notes-mact" onClick={() => void keepNote(n.id)}>
               留作筆記
+            </button>
+            <button type="button" className="ns-notes-mact" onClick={() => void noteToDiary(n.id)}>
+              記成日記
             </button>
             <button type="button" className="ns-notes-mact quiet" onClick={() => void deleteNote(n.id)}>
               刪除
@@ -171,7 +177,7 @@ function TicketCard({
             </span>
           </span>
           <span className="ns-notes-mtk-stamp">
-            <UketsukeSeal day={day} size={26} />
+            <UketsukeSeal day={day} size={42} />
           </span>
         </button>
         {sel && (
@@ -212,7 +218,7 @@ function TicketPop({ pop, onClose }: { pop: NonNullable<Pop>; onClose(): void })
 
   if (pop.kind === "someday") {
     return (
-      <MobileDatePick
+      <MobileDatePicker
         title="排到哪一天"
         value={null}
         min={today}

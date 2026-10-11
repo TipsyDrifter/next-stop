@@ -2,7 +2,9 @@
  * MobileNotePage——手機的筆記整頁（車次①契約 §5.3；D-筆-1／6／24；原型 app.js mobNotePage＋noteEditor 的 mob 分支）。
  *
  * 由上而下：左上「‹ 筆記」返回 → metaline（掛在哪・日期，各開一個底部面板）→ 標題（選填）
- *   → 內文讀寫兩態 → 底部「變待辦」「刪除」＋字數。
+ *   → 內文讀寫兩態 → 底部「變待辦」「記成日記」「刪除」＋字數。
+ * 「記成日記」（車次② 0-10）：先送出去抖中的字，再回列表、store.noteToDiary（就地改 kind；歸屬日＝筆記寫下那天）
+ *   ——與刪除同法先關頁：那則已不是筆記，留在整頁上只會變成看得到、改不到的空殼。
  *
  * 讀寫兩態（D-筆-24）：閱讀態＝plainParagraphs 排的段落（Markdown 在車次④）；點一下進打字框；
  *   打字框失焦（點外面）或按返回＝回閱讀並存檔。
@@ -23,7 +25,8 @@ import { dayKeyOf, todayKey, addDays } from "../../../lib/date";
 import { fmtMonthDay, plainParagraphs } from "../../../domain/notes";
 import type { NoteListItem, NotePatch } from "../../../data/noteRepository";
 import { MobileAttachPicker, RouteRoundel } from "./MobileAttachPicker";
-import { MobileDatePick, shiftIsoToDay } from "./MobileDatePick";
+import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { shiftIsoToDay } from "./MobileDatePick";
 
 const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
 function weekday(key: string): string {
@@ -47,6 +50,7 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
   const setNoteDate = useNotesStore((s) => s.setNoteDate);
   const setNoteAttach = useNotesStore((s) => s.setNoteAttach);
   const deleteNote = useNotesStore((s) => s.deleteNote);
+  const noteToDiary = useNotesStore((s) => s.noteToDiary);
   const openPreviewFromNotePage = useNotesStore((s) => s.openPreviewFromNotePage);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -164,6 +168,20 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
     setEditing(false);
     fromPreview.current = id;
     openPreviewFromNotePage(id);
+  };
+
+  const toDiary = async () => {
+    leaving.current = true;
+    await enqueueSave();
+    const id = useNotesStore.getState().selectedNoteId;
+    if (!id) {
+      leaving.current = false; // 空草稿：沒有東西可記
+      return;
+    }
+    setEditing(false);
+    selectNote(null);
+    onBack();
+    void noteToDiary(id);
   };
 
   const remove = async () => {
@@ -320,6 +338,9 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
           <button type="button" className="ns-notes-mbtn" onClick={() => void toTodo()} disabled={!body.trim() && !title.trim()}>
             變待辦
           </button>
+          <button type="button" className="ns-notes-mbtn" onClick={() => void toDiary()} disabled={!body.trim() && !title.trim()}>
+            記成日記
+          </button>
           <button type="button" className="ns-notes-mbtn" onClick={() => void remove()}>
             刪除
           </button>
@@ -353,7 +374,7 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
         />
       )}
       {pop === "date" && note && (
-        <MobileDatePick
+        <MobileDatePicker
           title="改日期"
           value={day}
           max={today}

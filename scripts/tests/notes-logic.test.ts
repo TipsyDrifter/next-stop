@@ -16,6 +16,7 @@ import {
   firstLine,
   fmtMonthDay,
   fmtMonthHeader,
+  isBuiltinStub,
   isInboxTicket,
   lineCount,
   matchesQuery,
@@ -29,10 +30,39 @@ import {
   resolveDestination,
   splitTodoLines,
   stripBullet,
+  addMonths,
+  clampDay,
+  dayMark,
+  diaryDraftMeta,
+  diaryEmptyText,
+  diaryPlaceholder,
+  diaryToast,
+  entryWrittenLabel,
+  fmtShortDay,
+  footprintDayKeys,
+  footprintSummary,
+  groupFootprints,
+  hasFootprint,
+  isBackfilled,
+  monthDays,
+  monthLeadBlanks,
+  toDiaryHit,
+  weekdayHeads,
+  weekdayOrder,
+  weekdayZh,
+  footprintLogs,
+  footprintSeals,
+  MISSING_NODE_NAME,
   type CaptureStub,
+  type FootprintDay,
+  type FootprintLog,
+  type FootprintLogSrc,
+  type FootprintNodeSrc,
+  type FootprintOccSrc,
+  type FootprintSeal,
   type RouteLike,
 } from "../../src/domain/notes.ts";
-import { addDays } from "../../src/lib/date.ts";
+import { addDays, dayWindow } from "../../src/lib/date.ts";
 
 const routes: RouteLike[] = [
   { id: "r1", code: "CUM", name: "用量監控" },
@@ -369,26 +399,48 @@ test("isInboxTicket：不是車票（列車）不算", () => {
   assert.equal(isInboxTicket({ ...ticket, kind: "train" }), false);
 });
 
-/* ── 票根：車次①三枚 ── */
-test("CAPTURE_STUBS：車次①只有三枚（日記在車次②）", () => {
-  assert.deepEqual([...CAPTURE_STUBS], ["inbox", "todo", "note"]);
+/* ── 票根：車次②四枚（0-11 加入日記） ── */
+test("CAPTURE_STUBS：車次②四枚（含日記）", () => {
+  assert.deepEqual([...CAPTURE_STUBS], ["inbox", "todo", "note", "diary"]);
+  assert.equal(CAPTURE_STUBS.length, 4);
 });
-test("nextStub：預設三枚，正向輪替頭尾相接", () => {
+test("nextStub：預設四枚，正向輪替頭尾相接", () => {
   assert.equal(nextStub("inbox", 1), "todo");
   assert.equal(nextStub("todo", 1), "note");
-  assert.equal(nextStub("note", 1), "inbox");
+  assert.equal(nextStub("note", 1), "diary");
+  assert.equal(nextStub("diary", 1), "inbox");
 });
-test("nextStub：預設三枚，反向輪替頭尾相接", () => {
-  assert.equal(nextStub("inbox", -1), "note");
+test("nextStub：預設四枚，反向輪替頭尾相接", () => {
+  assert.equal(nextStub("inbox", -1), "diary");
+  assert.equal(nextStub("diary", -1), "note");
   assert.equal(nextStub("note", -1), "todo");
 });
-test("nextStub：不在清單裡的票根（diary）從第一枚起算", () => {
-  assert.equal(nextStub("diary", 1), "todo");
+test("nextStub：不在清單裡的票根（已不通車的登記 id）從第一枚起算", () => {
+  assert.equal(nextStub("ticket.gone", 1), "todo");
+});
+test("resolveDestination：日記票根不吃路線前綴（原文照留、不掛路線）", () => {
+  assert.deepEqual(resolveDestination("diary", true), { target: "diary", withRoute: false, consumePrefix: false });
+  assert.equal(STUB_LABEL.diary, "日記");
+  assert.equal(STUB_HINT.diary, "記在今天");
 });
 test("票根文字：標籤與小字", () => {
   assert.equal(STUB_LABEL.inbox, "收件匣");
   assert.equal(STUB_HINT.todo, "排進今天");
   assert.equal(STUB_HINT.note, "存進筆記");
+});
+
+/* ── 票根：車次② 捕捉目的地註冊點（D-筆-36；假登記一枚） ── */
+test("nextStub：內建四枚＋一枚登記的＝五枚輪替，頭尾相接", () => {
+  const five: readonly CaptureStub[] = [...STUBS4, "timetable.time"];
+  assert.equal(nextStub("diary", 1, five), "timetable.time");
+  assert.equal(nextStub("timetable.time", 1, five), "inbox");
+  assert.equal(nextStub("inbox", -1, five), "timetable.time");
+  assert.equal(nextStub("timetable.time", -1, five), "diary");
+});
+test("isBuiltinStub：內建四枚是、登記的 id 不是", () => {
+  for (const s of STUBS4) assert.equal(isBuiltinStub(s), true);
+  assert.equal(isBuiltinStub("timetable.time"), false);
+  assert.equal(isBuiltinStub(""), false);
 });
 
 /* ── 捕捉存檔的組合（store.saveCapture 用的同一條路） ── */
@@ -430,4 +482,290 @@ test("fmtMonthHeader：吃 YYYY-MM-DD 與 YYYY-MM 結果相同", () => {
 });
 test("fmtMonthDay：月日不補零", () => {
   assert.equal(fmtMonthDay("2026-01-09"), "1 月 9 日");
+});
+
+/* ═══ 車次②：日記與當天足跡（契約 §4.4） ═══ */
+
+const seal = (o: Partial<FootprintSeal>): FootprintSeal => ({
+  id: "s",
+  nodeId: "n",
+  name: "票",
+  kind: "ticket",
+  routeId: null,
+  at: "2026-10-08T01:00:00.000Z",
+  mood: null,
+  dueOn: null,
+  ...o,
+});
+const flog = (o: Partial<FootprintLog>): FootprintLog => ({
+  id: "w",
+  nodeId: "n",
+  nodeName: "票",
+  body: "手記",
+  at: "2026-10-08T01:00:00.000Z",
+  nodeMissing: false,
+  ...o,
+});
+const fday = (o: Partial<FootprintDay>): FootprintDay => ({ day: "2026-10-08", seals: [], logs: [], moods: [], blocks: null, ...o });
+
+test("clampDay：未來夾到今天、今天與過去不動", () => {
+  assert.equal(clampDay("2026-10-11", "2026-10-10"), "2026-10-10");
+  assert.equal(clampDay("2026-10-10", "2026-10-10"), "2026-10-10");
+  assert.equal(clampDay("2026-09-30", "2026-10-10"), "2026-09-30");
+});
+test("isBackfilled：同日 false、不同日 true", () => {
+  assert.equal(isBackfilled("2026-10-08", "2026-10-08"), false);
+  assert.equal(isBackfilled("2026-10-05", "2026-10-08"), true);
+});
+test("entryWrittenLabel：當天寫＝寫於 HH:MM；補記＝寫於 M/D HH:MM（補記）", () => {
+  assert.equal(entryWrittenLabel("2026-10-08", "2026-10-08", "09:12", "10/8"), "寫於 09:12");
+  assert.equal(entryWrittenLabel("2026-10-02", "2026-10-05", "23:40", "10/5"), "寫於 10/5 23:40（補記）");
+});
+test("diaryEmptyText：今天／其他天", () => {
+  assert.deepEqual(diaryEmptyText(true), { text: "今天還沒有寫日記", button: "寫日記" });
+  assert.deepEqual(diaryEmptyText(false), { text: "這天沒有寫日記", button: "補記" });
+});
+test("diaryPlaceholder：今天／其他天", () => {
+  assert.equal(diaryPlaceholder(true), "今天過得怎麼樣…");
+  assert.equal(diaryPlaceholder(false), "那天發生了什麼…（旁邊的足跡可以翻）");
+});
+test("diaryDraftMeta：今天的日記／補記 M 月 D 日", () => {
+  assert.equal(diaryDraftMeta(true, "2026-10-10"), "今天的日記");
+  assert.equal(diaryDraftMeta(false, "2026-10-02"), "補記 10 月 2 日");
+});
+test("diaryToast：三種 × 今天", () => {
+  for (const k of ["capture", "convert", "draft"] as const) assert.equal(diaryToast(k, "2026-10-10", "2026-10-10"), "已記在今天的日記");
+});
+test("diaryToast：三種 × 非今天", () => {
+  assert.equal(diaryToast("capture", "2026-10-05", "2026-10-10"), "已記成 10 月 5 日的日記");
+  assert.equal(diaryToast("convert", "2026-10-05", "2026-10-10"), "已記成 10 月 5 日的日記");
+  assert.equal(diaryToast("draft", "2026-10-05", "2026-10-10"), "已補記在 10 月 5 日");
+});
+test("groupFootprints：seals／logs 依 at 升冪", () => {
+  const f = groupFootprints(
+    "2026-10-08",
+    [seal({ id: "b", nodeId: "b", at: "2026-10-08T05:00:00.000Z" }), seal({ id: "a", nodeId: "a", at: "2026-10-08T02:00:00.000Z" })],
+    [flog({ id: "y", at: "2026-10-08T09:00:00.000Z" }), flog({ id: "x", at: "2026-10-08T03:00:00.000Z" })],
+    null,
+  );
+  assert.deepEqual(f.seals.map((s) => s.id), ["a", "b"]);
+  assert.deepEqual(f.logs.map((l) => l.id), ["x", "y"]);
+  assert.equal(f.blocks, null);
+});
+test("groupFootprints：同 nodeId＋at 去重（退役定期券的邊角）", () => {
+  const at = "2026-10-08T04:00:00.000Z";
+  const f = groupFootprints("2026-10-08", [seal({ id: "n1", nodeId: "n1", at }), seal({ id: "o1", nodeId: "n1", at })], [], null);
+  assert.equal(f.seals.length, 1);
+});
+test("groupFootprints：moods 只取非 null、依完成時刻", () => {
+  const f = groupFootprints(
+    "2026-10-08",
+    [
+      seal({ id: "c", nodeId: "c", at: "2026-10-08T06:00:00.000Z", mood: "red" }),
+      seal({ id: "a", nodeId: "a", at: "2026-10-08T01:00:00.000Z", mood: "green" }),
+      seal({ id: "b", nodeId: "b", at: "2026-10-08T03:00:00.000Z", mood: null }),
+    ],
+    [],
+    null,
+  );
+  assert.deepEqual(f.moods, ["green", "red"]);
+});
+test("groupFootprints：不改輸入陣列", () => {
+  const seals = [seal({ id: "b", nodeId: "b", at: "2026-10-08T05:00:00.000Z" }), seal({ id: "a", nodeId: "a", at: "2026-10-08T02:00:00.000Z" })];
+  const before = seals.map((s) => s.id).join();
+  groupFootprints("2026-10-08", seals, [], []);
+  assert.equal(seals.map((s) => s.id).join(), before);
+});
+test("hasFootprint：null／全空 false；済章、手記、心情任一 true", () => {
+  assert.equal(hasFootprint(null), false);
+  assert.equal(hasFootprint(fday({})), false);
+  assert.equal(hasFootprint(fday({ seals: [seal({})] })), true);
+  assert.equal(hasFootprint(fday({ logs: [flog({})] })), true);
+  assert.equal(hasFootprint(fday({ moods: ["yellow"] })), true);
+});
+test("hasFootprint：只有時間塊不算有足跡", () => {
+  const block = { id: "b", label: "讀書", glyph: null, colorIdx: 0, from: "x", to: "y", running: false };
+  assert.equal(hasFootprint(fday({ blocks: [block] })), false);
+});
+test("footprintSummary：済章＋手記／只有済章／沒有足跡", () => {
+  assert.equal(footprintSummary(fday({ seals: [seal({}), seal({ id: "2", nodeId: "2" })], logs: [flog({})] })), "2 枚済章・1 則手記");
+  assert.equal(footprintSummary(fday({ seals: [seal({})] })), "1 枚済章");
+  assert.equal(footprintSummary(fday({})), "沒有足跡");
+  assert.equal(footprintSummary(null), "沒有足跡");
+});
+test("footprintDayKeys：以 dayOf 模擬 06:00 日界線分桶、去重、升冪", () => {
+  // UTC+8 的日界線 06:00：本地 10/9 05:30（＝UTC 10/8 21:30）仍算 10/8
+  const dayOf = (iso: string) => {
+    const local = new Date(Date.parse(iso) + 8 * 3600_000 - 6 * 3600_000);
+    return local.toISOString().slice(0, 10);
+  };
+  const keys = footprintDayKeys(
+    ["2026-10-08T21:30:00Z", "2026-10-08T23:00:00Z", "2026-10-07T03:00:00Z", "2026-10-08T21:31:00Z"],
+    dayOf,
+  );
+  assert.deepEqual(keys, ["2026-10-07", "2026-10-08", "2026-10-09"]);
+});
+test("dayMark：有日記＞只有足跡＞空", () => {
+  assert.equal(dayMark(2, true), "diary");
+  assert.equal(dayMark(0, true), "fp");
+  assert.equal(dayMark(0, false), "");
+});
+test("monthDays：閏年 2 月 29 天、31 天月", () => {
+  const feb = monthDays("2028-02");
+  assert.equal(feb.length, 29);
+  assert.equal(feb[28], "2028-02-29");
+  assert.equal(monthDays("2026-10").length, 31);
+  assert.equal(monthDays("2026-10")[0], "2026-10-01");
+});
+test("addMonths：跨年前後", () => {
+  assert.equal(addMonths("2026-12", 1), "2027-01");
+  assert.equal(addMonths("2026-01", -1), "2025-12");
+});
+test("monthLeadBlanks：吃 weekStart（2026-10-01 是週四）", () => {
+  assert.equal(monthLeadBlanks("2026-10", 1), 3); // 一二三 空
+  assert.equal(monthLeadBlanks("2026-10", 0), 4); // 日一二三 空
+  assert.equal(monthLeadBlanks("2026-11", 0), 0); // 11/1 是週日
+  assert.equal(monthLeadBlanks("2026-06", 1), 0); // 6/1 是週一
+});
+test("weekdayHeads／weekdayOrder：週一起與週日起", () => {
+  assert.equal(weekdayHeads(1).join(""), "一二三四五六日");
+  assert.equal(weekdayHeads(0).join(""), "日一二三四五六");
+  assert.deepEqual(weekdayOrder(1), [1, 2, 3, 4, 5, 6, 0]);
+});
+test("weekdayZh／fmtShortDay", () => {
+  assert.equal(weekdayZh("2026-10-08"), "四");
+  assert.equal(fmtShortDay("2026-10-05"), "10/5");
+});
+test("toDiaryHit：標題或第一行＋摘要", () => {
+  const h = toDiaryHit({ id: "d1", entry_date: "2026-10-05", title: null, body: "第一行\n第二行" }, 20);
+  assert.deepEqual(h, { id: "d1", day: "2026-10-05", title: "第一行", excerpt: "第二行" });
+});
+
+/* ═══ 車次②・足跡來源過濾（footprintSeals／footprintLogs＝SQLite §3.4 (a)(b)(c) 的同義過濾；mock 走這兩支） ═══ */
+
+const W = { start: "2026-10-07T22:00:00.000Z", end: "2026-10-08T22:00:00.000Z" };
+const node = (o: Partial<FootprintNodeSrc>): FootprintNodeSrc => ({
+  id: "n1",
+  name: "票",
+  kind: "ticket",
+  route_id: "r1",
+  status: "done",
+  completed_at: "2026-10-08T03:00:00.000Z",
+  mood: null,
+  deleted_at: null,
+  ...o,
+});
+const occ = (o: Partial<FootprintOccSrc>): FootprintOccSrc => ({
+  id: "o1",
+  node_id: "n1",
+  due_on: "2026-10-08",
+  status: "done",
+  completed_at: "2026-10-08T04:00:00.000Z",
+  mood: null,
+  deleted_at: null,
+  ...o,
+});
+const wlog = (o: Partial<FootprintLogSrc>): FootprintLogSrc => ({
+  id: "w1",
+  node_id: "n1",
+  body: "手記",
+  logged_at: "2026-10-08T05:00:00.000Z",
+  event: null,
+  deleted_at: null,
+  ...o,
+});
+
+test("footprintSeals (a)：只收 train／car／ticket、done、存活、完成時刻在視窗內", () => {
+  const nodes = [
+    node({ id: "t", kind: "train" }),
+    node({ id: "c", kind: "car" }),
+    node({ id: "k", kind: "ticket" }),
+    node({ id: "r", kind: "route" }),
+    node({ id: "s", kind: "station" }),
+    node({ id: "todo", status: "todo", completed_at: null }),
+    node({ id: "del", deleted_at: "2026-10-08T06:00:00.000Z" }),
+  ];
+  assert.deepEqual(footprintSeals(W, nodes, []).map((s) => s.id), ["t", "c", "k"]);
+});
+test("footprintSeals (a)：視窗是 [start, end)——start 算、end 不算", () => {
+  const nodes = [node({ id: "a", completed_at: W.start }), node({ id: "b", completed_at: W.end })];
+  assert.deepEqual(footprintSeals(W, nodes, []).map((s) => s.id), ["a"]);
+});
+test("footprintSeals (a)：欄位對應（nodeId＝自己、dueOn null、mood 讀 nodes.mood）", () => {
+  const [s] = footprintSeals(W, [node({ id: "k", name: "寄信", route_id: "r9", mood: "yellow" })], []);
+  assert.deepEqual(s, {
+    id: "k",
+    nodeId: "k",
+    name: "寄信",
+    kind: "ticket",
+    routeId: "r9",
+    at: "2026-10-08T03:00:00.000Z",
+    mood: "yellow",
+    dueOn: null,
+  });
+});
+test("footprintSeals (b)：定期券班次 done 才算（運休不列）、mood 讀 occurrences.mood、帶 dueOn", () => {
+  const rep = node({ id: "rep", status: "todo", completed_at: null, name: "背單字" });
+  const seals = footprintSeals(W, [rep], [
+    occ({ id: "o1", node_id: "rep", mood: "green" }),
+    occ({ id: "o2", node_id: "rep", status: "skipped", completed_at: null }),
+  ]);
+  assert.equal(seals.length, 1);
+  assert.deepEqual(
+    [seals[0].id, seals[0].nodeId, seals[0].name, seals[0].mood, seals[0].dueOn],
+    ["o1", "rep", "背單字", "green", "2026-10-08"],
+  );
+});
+test("footprintSeals (b)：班次已刪、節點已刪、節點不在、補済落在別天 ⇒ 都不列", () => {
+  const rep = node({ id: "rep", status: "todo", completed_at: null });
+  const gone = node({ id: "gone", status: "todo", completed_at: null, deleted_at: "2026-10-08T06:00:00.000Z" });
+  const seals = footprintSeals(W, [rep, gone], [
+    occ({ id: "x1", node_id: "rep", deleted_at: "2026-10-08T07:00:00.000Z" }),
+    occ({ id: "x2", node_id: "gone" }),
+    occ({ id: "x3", node_id: "nowhere" }),
+    occ({ id: "x4", node_id: "rep", due_on: "2026-10-08", completed_at: "2026-10-09T01:00:00.000Z" }),
+  ]);
+  assert.equal(seals.length, 0);
+});
+test("footprintSeals＋groupFootprints：退役定期券同時走 (a)(b) 且同一時刻 ⇒ 只留一枚（§8-4）", () => {
+  const at = "2026-10-08T08:00:00.000Z";
+  const retired = node({ id: "rep", status: "done", completed_at: at });
+  const raw = footprintSeals(W, [retired], [occ({ id: "o9", node_id: "rep", completed_at: at })]);
+  assert.equal(raw.length, 2);
+  assert.equal(groupFootprints("2026-10-08", raw, [], null).seals.length, 1);
+});
+test("footprintLogs：只收手記（event null）、body 非空、存活、在視窗內", () => {
+  const logs = [
+    wlog({ id: "ok" }),
+    wlog({ id: "ev1", event: "issued", body: "" }),
+    wlog({ id: "ev2", event: "done", body: "" }),
+    wlog({ id: "ev3", event: "conflict", body: "{}" }),
+    wlog({ id: "empty", body: "" }),
+    wlog({ id: "del", deleted_at: "2026-10-08T09:00:00.000Z" }),
+    wlog({ id: "out", logged_at: W.end }),
+  ];
+  assert.deepEqual(footprintLogs(W, logs, [node({})]).map((l) => l.id), ["ok"]);
+});
+test("footprintLogs：節點已 soft delete ⇒ 不列；節點不在 ⇒ 列出且標「（原車票已刪除）」", () => {
+  const nodes = [node({ id: "alive", name: "整理筆記" }), node({ id: "dead", deleted_at: "2026-10-08T06:00:00.000Z" })];
+  const out = footprintLogs(
+    W,
+    [wlog({ id: "a", node_id: "alive" }), wlog({ id: "d", node_id: "dead" }), wlog({ id: "m", node_id: "missing" })],
+    nodes,
+  );
+  assert.deepEqual(
+    out.map((l) => [l.id, l.nodeName, l.nodeMissing]),
+    [
+      ["a", "整理筆記", false],
+      ["m", MISSING_NODE_NAME, true],
+    ],
+  );
+  assert.equal(MISSING_NODE_NAME, "（原車票已刪除）");
+});
+test("footprintSeals：以 dayWindow 模擬 06:00 日界線——本地 05:30 完成的算前一天", () => {
+  const h = 6;
+  const at = new Date(2026, 9, 9, 5, 30).toISOString(); // 本地 10/9 05:30
+  const n = [node({ id: "late", completed_at: at })];
+  assert.equal(footprintSeals(dayWindow("2026-10-08", h), n, []).length, 1);
+  assert.equal(footprintSeals(dayWindow("2026-10-09", h), n, []).length, 0);
 });

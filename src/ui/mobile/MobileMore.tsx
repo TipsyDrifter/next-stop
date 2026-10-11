@@ -29,6 +29,8 @@
  *   外框沿 `.m2-sy-danger`（說明在上、鈕在下）另立 `.m2-danger`。觸控沒有 hover，桌機掛在 title 的鈕說明這裡攤成鈕下一行。
  *   確認窗（打字「清空」）與留底全在 `syncStore.startOver`，畫窗的是 App 層共用的 ConfirmDialog。
  *
+ * 旅客筆記車次②（D-筆-29）：設定區主題之後加「每週從星期幾開始」（星期一／星期日；uiStore.setWeekStart）。
+ *
  * 並行地基（契約 2026-09-29 §7 M-3／M-4）：售票口那一列的資料改讀售票口線的登記檔（`lineById("ticket").mobile`）。
  *   planned ＝與地基之前逐字相同的灰顯列；open ＝一列可點的 `.m2-row-link`（形狀沿同步那一列），點了進本地子頁
  *   `view="ticket"`，畫售票口線 mount 檔的 `mobileView` 並傳 `onBack`。售票口不佔底部 tab（D-1.1-2 的五格順序拍板過）。
@@ -51,9 +53,17 @@ const THEMES: { value: ThemePref; label: string; note: string }[] = [
   { value: "system", label: "跟隨系統", note: "依作業系統" },
 ];
 
+/** 週首（uiStore.weekStart＝JS getDay() 的值；settings 鍵 week_start）——字同 SettingsPanel.tsx 的 WEEK_STARTS */
+const WEEK_STARTS: { value: 0 | 1; label: string; note: string }[] = [
+  { value: 1, label: "星期一", note: "月曆一…六・日" },
+  { value: 0, label: "星期日", note: "月曆日・一…六" },
+];
+
 export default function MobileMore() {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
+  const weekStart = useUiStore((s) => s.weekStart);
+  const setWeekStart = useUiStore((s) => s.setWeekStart);
   const syncPhase = useSyncStore((s) => s.status?.phase ?? "off");
   const refreshSyncStatus = useSyncStore((s) => s.refreshStatus);
   // v1.1.6 危險區：未加入時「所有裝置一起」disabled；同步有動作在飛時兩顆一起鎖
@@ -106,6 +116,29 @@ export default function MobileMore() {
                 >
                   <span className="m2-choice-label">{t.label}</span>
                   <span className="m2-choice-note">{t.note}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 旅客筆記車次②（D-筆-29）：週首——與桌機設定頁同一列同一份字；形狀沿主題那組 `.m2-choice` */}
+        <div className="m2-block">
+          <span className="m2-block-label">每週從星期幾開始</span>
+          <div role="radiogroup" aria-label="每週從星期幾開始" className="m2-choices">
+            {WEEK_STARTS.map((w) => {
+              const checked = weekStart === w.value;
+              return (
+                <button
+                  key={w.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={checked}
+                  onClick={() => void setWeekStart(w.value)}
+                  className={"m2-choice" + (checked ? " is-on" : "")}
+                >
+                  <span className="m2-choice-label">{w.label}</span>
+                  <span className="m2-choice-note">{w.note}</span>
                 </button>
               );
             })}

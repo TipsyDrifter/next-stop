@@ -1,0 +1,123 @@
+/* ─────────────────────────────────────────────────────
+ * datepicker.css — 共用日期挑選器（DatePicker 桌機小浮層／MobileDatePicker 手機底部面板；旅客筆記車次② D-筆-30）
+ *
+ * 視覺＝旅客筆記車次①的 DatePop（notes.css「小浮層」一節）與 MobileDatePick（notes-mobile.css 第十節「日期面板」），
+ * 原樣搬過來換成本檔自己的 class：`.ns-datepick*`（桌機）、`.ns-mdatepick*`（手機，每條掛 `[data-shell="mobile"]`）。
+ * 不依賴任何一條線的 class 與區域變數：旅客筆記的 --ns-sel／--ns-float／--ns-glass／--ns-hi 在這裡以 theme.css token 就地重現。
+ * 顏色只用 theme.css token；唯一的主題覆寫是霧面在銀河關掉、原生日期欄的 color-scheme（token 管不到）。
+ *
+ * 內嵌模式（非 float）**刻意不設 margin**：外距由呼叫端的 class 給（例：旅客筆記的 `.ns-notes-pop`），
+ * 免得與呼叫端同特異度的規則比載入順序。
+ * 由 DatePicker.tsx／MobileDatePicker.tsx import（Vite 去重）；注入在 index.css 之前，選擇器自帶 class，不靠順序。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 桌機：小浮層 ═══ */
+.ns-datepick {
+  position: relative; z-index: 6;
+  padding: 10px 12px 12px;
+  background: var(--color-paper-used); border: 1px solid var(--color-line); border-radius: 3px;
+}
+.ns-datepick.float {
+  position: absolute; margin: 0; width: 300px; z-index: 30;
+  background: rgba(var(--starlight), .84);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid rgba(var(--starlight), .78);
+  box-shadow: var(--shadow-card-hover);
+}
+[data-theme="dark"] .ns-datepick.float {
+  background: var(--color-paper-high);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-color: var(--color-line);
+  box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09);
+}
+.ns-datepick-label { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); margin-bottom: 8px; }
+.ns-datepick-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ns-datepick-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: transparent;
+  padding: 3px 10px; border: 1px solid var(--color-line); border-radius: 2px;
+  font-family: inherit; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ns-datepick-chip:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-datepick-chip.on { border-color: var(--accent); color: var(--color-ink); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.ns-datepick-chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-datepick-chip .sub { opacity: .6; }
+.ns-datepick-date {
+  background: transparent; border: 1px solid var(--color-line); border-radius: 2px; padding: 2px 6px;
+  font-family: inherit; font-size: 12px; color: var(--color-ink-soft); color-scheme: light;
+}
+[data-theme="dark"] .ns-datepick-date { color-scheme: dark; }
+@media (prefers-reduced-motion: reduce) { .ns-datepick-chip { transition: none; } }
+
+/* ═══ 手機：底部面板（z-index 48＝疊在捕捉面板 45／全螢幕預覽 46 之上、Toast 50 之下） ═══ */
+[data-shell="mobile"] .ns-mdatepick-veil {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 48;
+  height: 100vh;
+  height: 100dvh;
+  height: var(--m-vvh, 100dvh);
+  display: flex; flex-direction: column; justify-content: flex-end;
+  background: color-mix(in srgb, var(--color-book) 35%, transparent);
+  animation: nsDatePickFade .18s ease-out;
+}
+@keyframes nsDatePickFade { from { opacity: 0; } }
+@keyframes nsDatePickUp { from { transform: translateY(100%); } }
+[data-shell="mobile"] .ns-mdatepick {
+  box-sizing: border-box; width: 100%;
+  max-height: calc(100% - var(--m-safe-top) - 8px);
+  display: flex; flex-direction: column;
+  padding: 8px 0 calc(var(--m-safe-bottom) + 6px);
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+  border-top: 1px solid var(--color-line);
+  box-shadow: var(--shadow-card-hover);
+  animation: nsDatePickUp .22s cubic-bezier(.2, .9, .3, 1.04);
+}
+[data-shell="mobile"] .ns-mdatepick-grip {
+  width: 36px; height: 4px; border-radius: 2px;
+  margin: 0 auto 10px;
+  background: var(--color-dash);
+}
+[data-shell="mobile"] .ns-mdatepick-title {
+  flex: none; min-width: 0; margin: 0; padding: 4px var(--m-gutter) 10px;
+  border-bottom: 1px dashed var(--color-dash);
+  font-size: 12px; letter-spacing: .14em; color: var(--color-ink-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[data-shell="mobile"] .ns-mdatepick-body { padding: 14px var(--m-gutter) 4px; display: grid; gap: 14px; }
+[data-shell="mobile"] .ns-mdatepick-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+[data-shell="mobile"] .ns-mdatepick-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 0 14px;
+  background: transparent;
+  border: 1px solid var(--color-line); border-radius: 2px;
+  font-family: inherit; font-size: 13.5px; letter-spacing: .08em;
+  color: var(--color-ink-soft); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-mdatepick-chip .sub { font-family: var(--font-latin); font-size: 11.5px; opacity: .65; letter-spacing: .04em; }
+[data-shell="mobile"] .ns-mdatepick-chip.on {
+  border-color: var(--accent); color: var(--color-ink);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+[data-shell="mobile"] .ns-mdatepick-field { display: flex; align-items: center; gap: 12px; }
+[data-shell="mobile"] .ns-mdatepick-field .lab { font-size: 10.5px; letter-spacing: .28em; color: var(--ink-mid); }
+/* 原生日期欄（font-size 16px＝行動瀏覽器聚焦時不自動放大頁面） */
+[data-shell="mobile"] .ns-mdatepick-date {
+  min-height: 44px; padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--color-line); border-radius: 2px;
+  font-family: inherit; font-size: 16px; color: var(--color-ink-soft);
+  color-scheme: light;
+}
+[data-shell="mobile"] .ns-mdatepick-date.on { border-color: var(--accent); color: var(--color-ink); }
+[data-theme="dark"] [data-shell="mobile"] .ns-mdatepick-date { color-scheme: dark; }
+[data-shell="mobile"] .ns-mdatepick-cancel {
+  display: block; width: 100%; min-height: 52px; margin-top: 8px;
+  background: transparent; border: 0; border-top: 1px solid var(--color-line);
+  font-family: inherit; font-size: 14px; letter-spacing: .08em; color: var(--color-ink-faint);
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .ns-mdatepick-veil,
+  [data-shell="mobile"] .ns-mdatepick { animation: none; }
+}

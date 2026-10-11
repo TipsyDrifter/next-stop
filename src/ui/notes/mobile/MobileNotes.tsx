@@ -2,8 +2,9 @@
  * MobileNotes——旅客筆記手機分頁（底部第三格；車次①契約 §5.3；D-筆-13／20：手機與桌機同一車次、功能對等）。
  *
  * 頁根照手機殼契約：`.m-page`（唯一的捲動容器；MobileShell.tsx 檔頭）＋本線 `.ns-notes-m`。
- *   頂部兩段切換「收件匣 N／筆記 N」（日記等車次②）→ 收件匣卡片（MobileNoteInbox）或筆記列表（MobileNoteList）；
- *   點進一則筆記＝整頁（MobileNotePage，左上「‹ 筆記」返回）。
+ *   頂部三段切換「收件匣 N／筆記 N／日記」→ 收件匣卡片（MobileNoteInbox）、筆記列表（MobileNoteList）
+ *   或日記（MobileDiary，車次②）；點進一則筆記＝整頁（MobileNotePage，左上「‹ 筆記」返回）。
+ *   日記不帶數字（日記以日為單位，沒有「全部日記」的總數；契約 §5.3）。
  * 捕捉面板與變待辦預覽不在這裡：它們是全域浮層（NotesMobileOverlay），每個 tab 都叫得出來。
  *
  * 狀態：子畫面（section）與選取共用 notesStore（桌機同一份）。「整頁開著」是本頁的 useState，不進 store——
@@ -16,6 +17,7 @@ import { useNotesStore } from "../../../store/notesStore";
 import { MobileNoteInbox } from "./MobileNoteInbox";
 import { MobileNoteList } from "./MobileNoteList";
 import { MobileNotePage } from "./MobileNotePage";
+import { MobileDiary } from "./MobileDiary";
 import "../notes-mobile.css";
 
 export function MobileNotes() {
@@ -72,7 +74,7 @@ export function MobileNotes() {
         <MobileNotePage onBack={() => setPageOpen(false)} />
       ) : (
         <>
-          <div className="ns-notes-mtabs" role="group" aria-label="收件匣・筆記">
+          <div className="ns-notes-mtabs" role="group" aria-label="收件匣・筆記・日記">
             <div className="in">
               <button
                 type="button"
@@ -90,10 +92,20 @@ export function MobileNotes() {
               >
                 筆記{notesTotal !== null && <span className="n">{notesTotal}</span>}
               </button>
+              <button
+                type="button"
+                className={section === "diary" ? "on" : ""}
+                aria-pressed={section === "diary"}
+                onClick={() => setSection("diary")}
+              >
+                日記
+              </button>
             </div>
           </div>
           {section === "inbox" ? (
             <MobileNoteInbox />
+          ) : section === "diary" ? (
+            <MobileDiary />
           ) : (
             <MobileNoteList onOpen={(id) => openPage(id)} onNew={() => openPage(null)} />
           )}

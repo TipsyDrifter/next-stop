@@ -2,6 +2,7 @@
  * SettingsPanel——UI Flow 4.0 設定（讀 uiStore.settingsOpen）。
  * M3 ⑥（D-⑥-7）分頁化：籤列三枚〔一般｜備份與還原｜快捷鍵〕、卡寬 400→560；
  *   4.0a 一般     ＝主題三選（粉彩星空／銀河鐵道／跟隨系統）＋一天的開始時間（0–6 點）——原封搬入
+ *                  ＋每週從星期幾開始（星期一／星期日；旅客筆記車次② D-筆-29）
  *   4.0b 備份與還原＝`BackupTab`（⑥ WP3 填）
  *   4.0c 快捷鍵   ＝⑦ 通車：`HotkeysTab`（D-⑦-2 甲：籤頂雙模式說明＋按場景七組，全部切 registry 不手抄）
  * 籤列鍵盤（M3 ⑦ 併收 ⑥ 遺留 D-⑦-5）：焦點在籤鈕上 ←→ 切相鄰籤（首尾相接）、Home／End 首尾；
@@ -27,6 +28,12 @@ const THEMES: { value: ThemePref; label: string; note: string }[] = [
 ];
 
 const HOURS = [0, 1, 2, 3, 4, 5, 6];
+
+/** 週首（uiStore.weekStart＝JS getDay() 的值；settings 鍵 week_start；旅客筆記車次② D-筆-29） */
+const WEEK_STARTS: { value: 0 | 1; label: string }[] = [
+  { value: 1, label: "星期一" },
+  { value: 0, label: "星期日" },
+];
 
 /** `note`／`disabled` 留給日後還在施工的籤（⑥ 的「快捷鍵 ⑦ 施工中」就是這樣掛的）；目前三籤全通車 */
 const TABS: { value: SettingsTab; label: string; note?: string; disabled?: boolean }[] = [
@@ -145,6 +152,8 @@ function GeneralTab() {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const setTheme = useUiStore((s) => s.setTheme);
   const setDayStartHour = useUiStore((s) => s.setDayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
+  const setWeekStart = useUiStore((s) => s.setWeekStart);
   const selectId = useId();
 
   return (
@@ -190,6 +199,28 @@ function GeneralTab() {
           </select>
         </span>
         <p className="ns-note mt-2">熬夜到這個時間前都算同一天——今日視圖的聚合與誤點判定都依此計算。</p>
+      </div>
+
+      <div>
+        <span className="techo-label block mb-2.5">每週從星期幾開始</span>
+        <div role="radiogroup" aria-label="每週從星期幾開始" className="flex flex-wrap items-center gap-2">
+          {WEEK_STARTS.map((w) => {
+            const checked = weekStart === w.value;
+            return (
+              <button
+                key={w.value}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                onClick={() => void setWeekStart(w.value)}
+                className={`ns-choice${checked ? " is-on" : ""}`}
+              >
+                {w.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="ns-note mt-2">日曆與旅客筆記的月曆都照這個排。</p>
       </div>
     </div>
   );

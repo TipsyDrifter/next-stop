@@ -6,7 +6,7 @@
  *   標題（選填）＋內文讀寫兩態（D-筆-24）：
  *     閱讀＝plainParagraphs 排成段落與換行（Markdown 在車次④）；點一下或 Enter（頁面按鍵表 notes.open）進編輯
  *     編輯＝textarea 自動長高；Esc／blur 回閱讀並立即存檔；Tab 不攔
- *   底部：變待辦・刪除・字數
+ *   底部：變待辦・記成日記（車次②）・刪除・字數
  *
  * 存檔：標題與內文各自去抖 500ms 累積成一個 NotePatch，blur／Esc／換選取前立即送出（flush）。
  * `saveNote(patch)` 寫的是 store 當下的 selectedNoteId，所以**換選取之前一定要先 flush**——
@@ -36,13 +36,24 @@ export interface NoteContentProps {
   onDelete(id: string): void;
   /** 變待辦（NotesView 先 flush 再開預覽） */
   onTodo(id: string): void;
+  /** 記成日記（車次②；NotesView 先 flush、把選取交給下一則再轉） */
+  onToDiary(id: string): void;
   /** 回到清單焦點（標題欄 Esc） */
   onBackToList(): void;
 }
 
 const DRAFT = "$draft";
 
-export function NoteContent({ flushRef, pop, setPop, readRef, onDelete, onTodo, onBackToList }: NoteContentProps) {
+export function NoteContent({
+  flushRef,
+  pop,
+  setPop,
+  readRef,
+  onDelete,
+  onTodo,
+  onToDiary,
+  onBackToList,
+}: NoteContentProps) {
   const selectedId = useNotesStore((s) => s.selectedNoteId);
   const draftNew = useNotesStore((s) => s.draftNew);
   const editing = useNotesStore((s) => s.editing);
@@ -317,7 +328,7 @@ export function NoteContent({ flushRef, pop, setPop, readRef, onDelete, onTodo, 
                     tabIndex={0}
                     role="textbox"
                     aria-readonly="true"
-                    aria-label="內文（按 Enter 編輯）"
+                    aria-label={`內文（按 ${capsOf("notes.open")} 編輯）`}
                     onClick={() => useNotesStore.getState().setEditing(true)}
                   >
                     {paras.length ? (
@@ -345,6 +356,15 @@ export function NoteContent({ flushRef, pop, setPop, readRef, onDelete, onTodo, 
             <div className="ns-notes-actions">
               <button type="button" className="ns-notes-btn" disabled={!id} onClick={() => id && onTodo(id)}>
                 變待辦
+              </button>
+              <button
+                type="button"
+                className="ns-notes-btn"
+                disabled={!id}
+                title="搬進寫下那天的日記"
+                onClick={() => id && onToDiary(id)}
+              >
+                記成日記
               </button>
               <button
                 type="button"

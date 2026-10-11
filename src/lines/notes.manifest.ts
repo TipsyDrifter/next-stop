@@ -7,6 +7,8 @@
  *
  * 車次①（2026-10-06，契約 docs/research/2026-10-06-旅客筆記-車次①捕捉收件匣筆記-契約.md §6.1）：桌機與手機同時通車；
  * 本檔是最終版，Stage 0 寫入後凍結，之後只有整合席能改。
+ * 車次②（2026-10-10，契約 docs/research/2026-10-08-旅客筆記-車次②日記與當天足跡-契約.md §2.0、§5.6）：Stage 0 加日記頁十筆鍵、
+ * scenes 的 notes 那筆改字；整合席把 week_start 加進 syncSettingsKeys（與 notes.rs 的 SETTINGS_KEYS 同步）。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -30,6 +32,17 @@ const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.delete", scope: "notes", chords: [{ key: "Delete" }], label: "刪除（可復原）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.search", scope: "notes", chords: [{ key: "/" }], label: "搜尋筆記", wired: true },
   { id: "notes.escape", scope: "notes", chords: [{ key: "Escape" }], label: "回閱讀／收起浮層", wired: true, ignoreMods: [...ALL_LOOSE] },
+  // 車次②（契約 §5.6）：收件匣「記成日記」＋日記頁。←→ 與 Shift+←→ 同鍵不同修飾並存，所以 prev/next 不放寬 shift
+  { id: "notes.inbox.diary", scope: "notes", chords: [{ key: "d" }], label: "記成日記（筆記）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.prev", scope: "notes", chords: [{ key: "ArrowLeft" }], label: "前一天", wired: true },
+  { id: "notes.diary.next", scope: "notes", chords: [{ key: "ArrowRight" }], label: "後一天", wired: true },
+  { id: "notes.diary.fp.prev", scope: "notes", chords: [{ key: "ArrowLeft", shift: true }], label: "足跡翻日 前一天", wired: true },
+  { id: "notes.diary.fp.next", scope: "notes", chords: [{ key: "ArrowRight", shift: true }], label: "足跡翻日 後一天", wired: true },
+  { id: "notes.diary.today", scope: "notes", chords: [{ key: "Home" }], label: "回到今天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.fp.back", scope: "notes", chords: [{ key: "b" }], label: "足跡回到本文那天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.pick", scope: "notes", chords: [{ key: "g" }], label: "跳到某一天（挑選器）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.write", scope: "notes", chords: [{ key: "w" }], label: "寫日記／補記／再寫一篇", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.save", scope: "notes", chords: [{ key: "Enter", ctrl: true }], label: "日記草稿存檔", wired: false },
   { id: "notes-capture.save", scope: "notes-capture", chords: [{ key: "Enter" }], label: "存檔", wired: false },
   { id: "notes-capture.newline", scope: "notes-capture", chords: [{ key: "Enter", shift: true }], label: "換行", wired: false },
   { id: "notes-capture.stub.next", scope: "notes-capture", chords: [{ key: "Tab" }], label: "下一枚票根", wired: false },
@@ -40,7 +53,7 @@ const NOTES_HOTKEYS: Hotkey[] = [
 
 /** 設定「快捷鍵」籤與「?」情境卡的分組 */
 const NOTES_SCENES: Scene[] = [
-  { scope: "notes", title: "旅客筆記", note: "旅客筆記頁選中一則、游標不在字裡的時候。" },
+  { scope: "notes", title: "旅客筆記", note: "旅客筆記頁選中一則或停在日記頁、游標不在字裡的時候。" },
   { scope: "notes-capture", title: "捕捉框（記一句）", note: "捕捉框或變待辦預覽開著的時候；鍵由輸入框自理。" },
 ];
 
@@ -59,5 +72,5 @@ export const NOTES = {
   scenes: NOTES_SCENES,
   hotkeyFiles: { notes: "ui/notes/useNotesKeyboard.ts", global: "lines/notes.mount.tsx" },
   syncTables: ["notes"],
-  syncSettingsKeys: [],
+  syncSettingsKeys: ["week_start"],
 } as const satisfies LineManifest;

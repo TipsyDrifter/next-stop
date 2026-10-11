@@ -13,7 +13,7 @@
  * 幾條刻意的設計：
  *   - **游標存的是「錨點日」`anchor`（YYYY-MM-DD），不是月份字串**：切月／週視圖時同一個錨點日
  *     自動落到「那一天所在的月／週」，不必為兩種視圖各存一份游標。
- *   - 區間＝月視圖當月 1 日～月底、週視圖該週一～日（技術自決，草案 §1 末段）；**前後月的 `.out`
+ *   - 區間＝月視圖當月 1 日～月底、週視圖該週七天（週首讀 uiStore.weekStart；技術自決，草案 §1 末段）；**前後月的 `.out`
  *     格不進區間**（原型 :1027-1028 只畫日數）。
  *   - 「今天」＝`todayKey(dayStartHour)`（D9 日界線 03:00），沿 ③ 的每分鐘 timer（雷區 8）：
  *     key 變了才 setState，不變完全不動。
@@ -30,12 +30,13 @@ import {
   type RefObject,
 } from "react";
 import type { NodeRow } from "../../domain";
-import { WEEKDAY_ORDER } from "../../domain";
 import type { DateCount, DueEntry, ScheduleEntry } from "../../data";
 import { countByDate, DEV_FLAGS } from "../../data";
 import { addDays, todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { lineCalendarMarks } from "../../lines/runtime";
+import type { LineId } from "../../lines/types";
 import type { CalendarKeyActions } from "./useCalendarKeyboard";
 
 export type CalendarViewMode = "month" | "week";
@@ -80,7 +81,7 @@ export interface CalendarControllerApi {
   view: CalendarViewMode;
   setView(view: CalendarViewMode): void;
 
-  /** 月視圖＝該月 1 日 key；週視圖＝該週一 key */
+  /** 月視圖＝該月 1 日 key；週視圖＝該週第一天（週首＝uiStore.weekStart）key */
   cursor: string;
   /** ±1 月（月視圖）／±1 週（週視圖） */
   go(delta: number): void;
@@ -123,6 +124,10 @@ export interface CalendarControllerApi {
   routeOf(nodeId: string): NodeRow | undefined;
 
   stats: CalendarStats;
+  /** 三線的格內記號（`lineCalendarMarks()`，0-2 乙插槽）：日 key → 有記號的線（固定順序）；三線零登記＝恆空物件 */
+  marks: Readonly<Record<string, readonly LineId[]>>;
+  /** 欄序（`getDay()` 值，長度 7）：依 `uiStore.weekStart` 排；MonthGrid 的 wk-head、WeekGrid 的欄頭都讀這一份 */
+  weekOrder: readonly number[];
   /** 覆蓋層開著＝格層鍵盤表停用（只留 Esc） */
   blocked: boolean;
   keys: CalendarKeyActions;
@@ -160,14 +165,23 @@ export function addMonths(key: string, n: number): string {
   return keyOf(new Date(d.getFullYear(), d.getMonth() + n, 1));
 }
 
-/** 該週的週一（週起始＝WEEKDAY_ORDER[0]＝一，與 wk-head 同序） */
-export function weekStart(key: string): string {
-  return addDays(key, -columnOf(key));
+/**
+ * 依週首排出的星期序（`getDay()` 值）：firstDow=1 ⇒ [1,2,3,4,5,6,0]（一…六・日）；0 ⇒ [0,1,…,6]（日…六）。
+ * 週首讀 `uiStore.weekStart`（settings 鍵 week_start；旅客筆記車次② D-筆-29）。
+ * 定期券 chip 的排序仍用 domain 的固定 `WEEKDAY_ORDER`（那是「規則的寫法」，不跟著週首變）。
+ */
+export function weekdayOrderOf(firstDow: number): readonly number[] {
+  return Array.from({ length: 7 }, (_, i) => (firstDow + i) % 7);
 }
 
-/** 這一天在 wk-head 的第幾欄（0＝一 … 6＝日） */
-export function columnOf(key: string): number {
-  return WEEKDAY_ORDER.indexOf(dateOf(key).getDay());
+/** 該週的第一天（週首＝firstDow，與 wk-head 同序） */
+export function weekStart(key: string, firstDow: number): string {
+  return addDays(key, -columnOf(key, firstDow));
+}
+
+/** 這一天在 wk-head 的第幾欄（0＝週首那天 … 6） */
+export function columnOf(key: string, firstDow: number): number {
+  return (dateOf(key).getDay() - firstDow + 7) % 7;
 }
 
 /* ═══════════ context（一頁一份 api，子元件不再各自建 state） ═══════════ */
@@ -192,6 +206,7 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const view = useUiStore((s) => s.calendarView);
   const setCalendarView = useUiStore((s) => s.setCalendarView);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const firstDow = useUiStore((s) => s.weekStart);
 
   const [today, setToday] = useState(() => todayKey(dayStartHour));
   // 游標＝錨點日；月／週由 view 推。`?day=YYYY-MM-DD`（dev／mock 專用）＝直接落在那一天所在的月／週
@@ -216,7 +231,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   }, []);
 
   /* ───────── 游標 → 區間與格 ───────── */
-  const cursor = view === "month" ? monthStart(anchor) : weekStart(anchor);
+  const cursor = view === "month" ? monthStart(anchor) : weekStart(anchor, firstDow);
+  const weekOrder = useMemo(() => weekdayOrderOf(firstDow), [firstDow]);
   const range = useMemo(
     () => (view === "month" ? { from: cursor, to: monthEnd(cursor) } : { from: cursor, to: addDays(cursor, 6) }),
     [view, cursor],
@@ -225,16 +241,32 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const days = useMemo(() => {
     if (view === "week") return Array.from({ length: 7 }, (_, i) => addDays(cursor, i));
     // 月：前置 lead 格（上個月）＋當月＋補滿整列（原型 :997-999 同一套算法）
-    const lead = columnOf(cursor);
+    const lead = columnOf(cursor, firstDow);
     const daysInMonth = dateOf(monthEnd(cursor)).getDate();
     const total = Math.ceil((lead + daysInMonth) / 7) * 7;
     return Array.from({ length: total }, (_, i) => addDays(cursor, i - lead));
-  }, [view, cursor]);
+  }, [view, cursor, firstDow]);
 
   /* ───────── 載入（同區間去重由 store 負責；today 變了也要重撈 is_late） ───────── */
   useEffect(() => {
     void loadCalendar(range.from, range.to);
   }, [loadCalendar, range.from, range.to, today, dayStartHour]);
+
+  // 三線格內記號（0-2 乙）：沒有線登記就直接返回——不查、不 setState，DOM 與地基前相同
+  const [marks, setMarks] = useState<Record<string, LineId[]>>({});
+  useEffect(() => {
+    const ps = lineCalendarMarks();
+    if (!ps.length) return;
+    let alive = true;
+    void Promise.all(ps.map((p) => p.marks(range.from, range.to).catch(() => [] as readonly string[]))).then((lists) => {
+      const next: Record<string, LineId[]> = {};
+      lists.forEach((days, i) => days.forEach((d) => (next[d] ??= []).push(ps[i].id)));
+      if (alive) setMarks(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [range.from, range.to, today]);
 
   /* ───────── 依日期分組 ───────── */
   const byDate = useMemo<CalendarByDate>(() => {
@@ -472,6 +504,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     routes,
     routeOf,
     stats,
+    marks,
+    weekOrder,
     // 覆蓋層開著＝格層鍵盤表整張停用只留 Esc（當日浮層／月年跳轉小卡各自吃自己的鍵）
     blocked: popTarget !== null || jump !== null,
     keys,

@@ -6,10 +6,11 @@
  *
  * 鍵帽字一律查 registry（契約 §1-6：顯示端不手抄鍵位字面）。
  */
-import { useEffect, type ReactNode, type RefObject } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import type { AttachTarget } from "../../domain/notes";
-import { dayKeyOf } from "../../lib/date";
+import { dayKeyOf, todayKey } from "../../lib/date";
+import { useUiStore } from "../../store/uiStore";
 import { formatChord, hotkeyById } from "../shell/hotkeys";
 import { roundelStyle } from "../common/roundel";
 import { svgProps } from "../sidebar/gnavIcons";
@@ -43,6 +44,22 @@ export function IconX({ size = 12 }: { size?: number }) {
   return (
     <svg {...svgProps(size)}>
       <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
+  );
+}
+
+/** 左／右箭頭（翻日、翻月；原型 app.js I.left／I.right） */
+export function IconLeft({ size = 15 }: { size?: number }) {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M10 3.5 5.5 8l4.5 4.5" />
+    </svg>
+  );
+}
+export function IconRight({ size = 15 }: { size?: number }) {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M6 3.5 10.5 8 6 12.5" />
     </svg>
   );
 }
@@ -85,6 +102,31 @@ export function Kbd({ id }: { id: string }) {
 /** 時刻戳的「日界線日」YYYY-MM-DD（受付章、列表日期、月份分隔都用這個口徑，與今日頁一致） */
 export function dayOf(iso: string, dayStartHour: number): string {
   return dayKeyOf(iso, dayStartHour);
+}
+
+/**
+ * 「今天」的日界線日 key（車次②契約 0-6：與今日頁、日曆頁同一把尺）。
+ * 設定的 dayStartHour 一變立刻重算；每分鐘看一次，key 沒變就不 setState（跨過日界線時「今天」鈕亮起、→ 可按）。
+ */
+export function useTodayKey(): string {
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const [key, setKey] = useState(() => todayKey(dayStartHour));
+  useEffect(() => {
+    const tick = () => {
+      const k = todayKey(dayStartHour);
+      setKey((cur) => (cur === k ? cur : k));
+    };
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, [dayStartHour]);
+  return key;
+}
+
+/** YYYY-MM-DD → 本地 Date（不經 Date.parse，免得 date-only 被當 UTC；給 DateSeal 用，契約 §8-13） */
+export function dateOfKey(key: string): Date {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
 }
 
 /** "2026-10-05" → "10/5" */

@@ -230,7 +230,7 @@ export function Sidebar() {
         </p>
 
         {/* 第二欄：三條功能線（Q3 拍板 2026-08-28；增補一：位置固定，通車只把那一枚的反灰復原）——
-            未通車＝灰階小圖示、hover「次期開業予定」；通車＝可按的 .gnav-line（樣式由該線自己的 CSS 補） */}
+            未通車＝灰階小圖示、hover「次期開業予定」；通車＝可按的 .gnav-line，長相同第一欄大圖示（gnav.css；旅客筆記 D-筆-35） */}
         <div
           className="gnav-closed"
           {...(anyPlanned ? { role: "group", "aria-label": "次期開業予定（未通車）" } : {})}
@@ -249,7 +249,7 @@ export function Sidebar() {
                 title={`${p.label}（${capsOf(p.navHotkeyId)}）`}
                 onClick={() => setPage(p.id)}
               >
-                {GNAV_ICONS[p.id](15)}
+                {GNAV_ICONS[p.id](17)}
                 {p.label}
               </button>
             ),

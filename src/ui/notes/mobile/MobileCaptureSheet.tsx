@@ -13,24 +13,38 @@
  * 焦點：票根／取消路線鈕的 mousedown 先 preventDefault，按了不會把焦點從打字區搶走
  *   ——否則 Android 軟鍵盤會收下去又彈上來，打字被打斷。
  *
+ * 票根（車次② D-筆-36）：內建四枚（收件匣／待辦／筆記／日記）＋手機入口通車的線登記的捕捉目的地
+ *   （store.captureStubList("mobile")）。內建的字取 STUB_LABEL／STUB_HINT；登記的取 spec.label／hint、落點取 spec.destLabel。
+ *   375px 寬四枚一排；多於四枚（別線登記）時橫捲，不擠扁；≤360px 收掉小字（契約 §8-7）。
+ *   不吃路線前綴的票根（日記、acceptsRoute=false 的登記票根）認到前綴時，路線票根改畫淡化版「●路線名・日記不掛路線」
+ *   （沒有 ×；游標在開頭按退格仍可取消，主人可能想順手把前綴字刪掉）。存檔一律 store.saveCapture（它會分派）。
+ *
  * IME：唯一攔的鍵是「游標在開頭時 Backspace＝取消路線票根」與實體鍵盤的 Esc，
  *   一律先判 isComposing／keyCode 229，再加 composition 旗標（Android 部分 IME 兩者都不帶；MobileToday 同法）。
  */
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { useNodeStore } from "../../../store/nodeStore";
-import { captureRouteOf, useNotesStore } from "../../../store/notesStore";
+import { captureRouteOf, captureStubList, captureTargetOf, useNotesStore } from "../../../store/notesStore";
 import {
-  CAPTURE_STUBS,
   STUB_HINT,
   STUB_LABEL,
+  isBuiltinStub,
   needsPreview,
   resolveDestination,
   splitTodoLines,
+  type CaptureStub,
 } from "../../../domain/notes";
 import { RouteDot } from "./MobileAttachPicker";
 
 /** 打字區最高長到幾 px（超過就內捲；面板其餘部分仍看得見） */
 const TA_MAX = 220;
+
+/** 票根的大字／小字：內建查表、登記的查 spec（該線已不通車＝null，不畫） */
+function stubText(k: CaptureStub): { label: string; hint: string } | null {
+  if (isBuiltinStub(k)) return { label: STUB_LABEL[k], hint: STUB_HINT[k] };
+  const spec = captureTargetOf(k);
+  return spec ? { label: spec.label, hint: spec.hint } : null;
+}
 
 export function MobileCaptureSheet() {
   const capture = useNotesStore((s) => s.capture);
@@ -56,19 +70,35 @@ export function MobileCaptureSheet() {
 
   const p = captureRouteOf(capture, routes);
   const route = p ? (routes.find((r) => r.id === p.routeId) ?? null) : null;
-  const dest = resolveDestination(capture.stub, !!p);
-  const body = dest.consumePrefix && p ? p.body : capture.text;
-  const empty = !body.trim();
+  const stubs = captureStubList("mobile");
+  const spec = isBuiltinStub(capture.stub) ? null : captureTargetOf(capture.stub);
 
+  let body: string;
   let destText: string;
-  if (needsPreview(capture.stub, body)) {
-    destText = `→ 先預覽：拆成 ${splitTodoLines(body).filter((l) => l.checked).length} 張車票`;
-  } else if (dest.target === "inbox") destText = "→ 收件匣";
-  else if (dest.target === "today") destText = "→ 今日";
-  else if (dest.target === "diary") destText = "→ 今天的日記";
-  else destText = "→ 筆記";
-  const showRoute = dest.withRoute && route;
-  const noInboxNote = dest.target === "note" && capture.stub === "inbox" && dest.withRoute;
+  let showRoute: boolean;
+  let noInboxNote = false;
+  /** 認到前綴、但這枚票根不吃路線 ⇒ 路線票根淡化 */
+  let routeMuted: string | null = null;
+  if (isBuiltinStub(capture.stub)) {
+    const dest = resolveDestination(capture.stub, !!p);
+    body = dest.consumePrefix && p ? p.body : capture.text;
+    if (needsPreview(capture.stub, body)) {
+      destText = `→ 先預覽：拆成 ${splitTodoLines(body).filter((l) => l.checked).length} 張車票`;
+    } else if (dest.target === "inbox") destText = "→ 收件匣";
+    else if (dest.target === "today") destText = "→ 今日";
+    else if (dest.target === "diary") destText = "→ 今天的日記";
+    else destText = "→ 筆記";
+    showRoute = dest.withRoute && !!route;
+    noInboxNote = dest.target === "note" && capture.stub === "inbox" && dest.withRoute;
+    if (dest.target === "diary") routeMuted = "日記不掛路線";
+  } else {
+    const useRoute = !!spec?.acceptsRoute && !!p;
+    body = useRoute && p ? p.body : capture.text;
+    destText = "→ " + (spec ? spec.destLabel(p ? { id: p.route.id, name: p.route.name } : null) : "（這個去處目前不能用）");
+    showRoute = false; // 路線怎麼寫由 spec.destLabel 決定
+    if (spec && !spec.acceptsRoute) routeMuted = `${spec.label}不掛路線`;
+  }
+  const empty = !body.trim();
 
   const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();
 
@@ -131,22 +161,36 @@ export function MobileCaptureSheet() {
         <div className="ns-notes-mtear" aria-hidden />
 
         <div className="ns-notes-mstubs" role="group" aria-label="票根">
-          {CAPTURE_STUBS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={"ns-notes-mstub" + (capture.stub === k ? " on" : "")}
-              aria-pressed={capture.stub === k}
-              onMouseDown={keepFocus}
-              onClick={() => setCaptureStub(k)}
-            >
-              <span className="l">{STUB_LABEL[k]}</span>
-              <span className="h">{STUB_HINT[k]}</span>
-            </button>
-          ))}
+          {stubs.map((k) => {
+            const t = stubText(k);
+            if (!t) return null;
+            return (
+              <button
+                key={k}
+                type="button"
+                className={"ns-notes-mstub" + (capture.stub === k ? " on" : "")}
+                aria-pressed={capture.stub === k}
+                onMouseDown={keepFocus}
+                onClick={() => setCaptureStub(k)}
+              >
+                <span className="l">{t.label}</span>
+                <span className="h">{t.hint}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {p && route && (
+        {p && route && routeMuted && (
+          <div className="ns-notes-mroute">
+            <span className="ns-notes-mroutestub muted" title={`認到路線前綴「${p.matched.trim()}」——這一枚票根不掛路線，原文照留`}>
+              <RouteDot route={route} />
+              <span className="nm">{route.name}</span>
+              <span className="why">・{routeMuted}</span>
+            </span>
+          </div>
+        )}
+
+        {p && route && !routeMuted && (
           <div className="ns-notes-mroute">
             <span className="ns-notes-mroutestub" title={`認到路線前綴「${p.matched.trim()}」`}>
               <span className="arr" aria-hidden>
@@ -174,7 +218,7 @@ export function MobileCaptureSheet() {
         <div className="ns-notes-msave">
           <span className="dest">
             {destText}
-            {showRoute && (
+            {showRoute && route && (
               <>
                 {" · "}
                 <RouteDot route={route} />

@@ -39,6 +39,46 @@
  *    --gold 只留給書封燙金；銀河鐵道兩者同為金，不衝突。
  * ───────────────────────────────────────────────────── */
 
+/* ─── 字型全部內建（D-筆-34，旅客筆記車次②）───
+ * 檔案在 src/assets/fonts/（google/fonts 的 OFL 原檔，不轉檔、不子集化；各家授權附 OFL-*.txt）。
+ * family 名照原名，下方 --font-* token 不必改；可變字重寫 font-weight 範圍，Fraunces 正斜兩支。
+ * 以前走 Google Fonts（index.html 的 <link>），斷網就退回系統字；現在離線也是芫荽與 Fraunces。 */
+@font-face {
+  font-family: "Noto Sans TC";
+  src: url("../assets/fonts/NotoSansTC-VF.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Serif TC";
+  src: url("../assets/fonts/NotoSerifTC-VF.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iansui";
+  src: url("../assets/fonts/Iansui-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("../assets/fonts/Fraunces-VF.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("../assets/fonts/Fraunces-Italic-VF.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
 @theme {
   /* ─── 紙（底色階）───
    * paper      ＝ 頁面底色。兩主題的頁面實體是天空漸層（SkyLayer），
