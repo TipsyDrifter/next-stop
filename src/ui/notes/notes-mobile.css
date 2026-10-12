@@ -32,7 +32,7 @@
 [data-shell="mobile"] .ns-notes-fab {
   position: fixed;
   right: var(--m-gutter);
-  bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + 14px);
+  bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + var(--m-page-dock-h, 0px) + 14px);
   z-index: 4;
   width: 56px; height: 56px; padding: 0;
   display: grid; place-items: center;
@@ -55,17 +55,16 @@
 }
 [data-shell="mobile"] .ns-notes-fab:active { transform: scale(.94); }
 [data-shell="mobile"] .ns-notes-fab:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
-/* 今日頁：再抬一條建票輸入列（不壓「無日期」開關與輸入框） */
-[data-shell="mobile"] .ns-notes-fab.is-today {
-  bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + var(--m-newticket-h) + 14px);
-}
+/* 底部列避讓（各線通用約定）：哪一頁在 tab bar 上方還有一條固定的底部列，就由那條線在自己的 CSS
+   對 [data-shell="mobile"] 宣告 `--m-page-dock-h: <列高>`（例：時刻表的運行列，timetable.css §E），鈕自動抬到它之上。
+   不在這裡點名別線的 class——新的底部列只要宣告變數，不必再回來加規則。
+   今日頁的建票輸入列是同一件事；鈕本身就知道自己在今日頁（.is-today），直接在鈕上宣告，行為與原本相同。 */
+[data-shell="mobile"] .ns-notes-fab.is-today { --m-page-dock-h: var(--m-newticket-h); }
 /* Toast（App 層 .ns-card.fixed，唯一一個；z-index 50 在鈕之上）出現時鈕往上讓一個 toast 的高：
-   toast 的「復原」「×」正好落在鈕的位置，粉彩主題的 toast 又是半透明票紙，不讓開會疊成一團（實測）。 */
+   toast 的「復原」「×」正好落在鈕的位置，粉彩主題的 toast 又是半透明票紙，不讓開會疊成一團（實測）。
+   toast 自己也會抬到底部列之上，所以這裡同樣加上 --m-page-dock-h。 */
 [data-shell="mobile"]:has(.ns-card.fixed) .ns-notes-fab {
-  bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + 64px);
-}
-[data-shell="mobile"]:has(.ns-card.fixed) .ns-notes-fab.is-today {
-  bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + var(--m-newticket-h) + 64px);
+  bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + var(--m-page-dock-h, 0px) + 64px);
 }
 /* 面板開著（鈕留在 DOM 只為了下面那條留白不抽動）／任何輸入框聚焦（軟鍵盤多半彈著）＝先收起 */
 [data-shell="mobile"] .ns-notes-fab.is-hidden,

@@ -63,6 +63,19 @@ export function lineSidebarTools(): { id: LineId; Tool: ComponentType }[] {
   return out;
 }
 
+/**
+ * 書封頁務件（接縫 #50），比照 `lineSidebarTools()`：當前頁 `page` 是某條線、該線 `page.status === "open"`
+ * 且有填 `sidebarAux` 才回元件；否則 null（書封照舊畫「我的路線」）。地基階段恆為 null。
+ */
+export function lineSidebarAux(page: string): ComponentType | null {
+  if (!installed) return null;
+  for (const m of LINE_MANIFESTS) {
+    if (m.id !== page || m.page.status !== "open") continue;
+    return installed[m.id].sidebarAux ?? null;
+  }
+  return null;
+}
+
 type DayMarksFn = (from: string, to: string) => Promise<readonly string[]>;
 /** 日曆格內記號的提供者（旅客筆記車次② 0-2 乙），比照 `lineSidebarTools()`：只看 `page.status`；`open` 且有填才算。地基階段恆為空陣列。 */
 export function lineCalendarMarks(): { id: LineId; marks: DayMarksFn }[] {

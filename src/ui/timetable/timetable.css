@@ -1,0 +1,656 @@
+/*
+ * timetable.css——時刻表線的全部樣式（車次①a 契約 §5.6）。
+ *
+ * - class 一律 `.ns-tt-*`；由 `TimetableView.tsx` 與 `mobile/MobileTimetable.tsx` 兩邊都 import（vite 只注入一次）。
+ * - 手機規則一律掛 `[data-shell="mobile"]`，不往 `mobile.css` 追加。
+ * - 注入順序：元件 import 的 css 排在 `index.css`（含 techo.css／mobile.css）**之前**⇒ 與既有選擇器同名屬性競爭的規則
+ *   一律抬一級特異度（例 `[data-shell="mobile"] .ns-tt-m`），不靠載入順序。
+ * - 顏色只用 `theme.css` token 與 §A 的分類色；**§A 之外不得出現色碼字面值**。
+ * - 分區錨點：每席只在自己的分區內加規則；分區之間空一行＋錨點註解，合併時才不撞。
+ */
+
+/* ═══ §A 分類色盤 token（甲・Stage 0；D-時-16：每個主題一組八色；值＝prototypes/時刻表-src/shared.css 的 --cat-1..8）═══ */
+:root {
+  --ns-tt-cat-1: #4757a6; --ns-tt-cat-2: #964468; --ns-tt-cat-3: #326b4b; --ns-tt-cat-4: #8a5a2b;
+  --ns-tt-cat-5: #2f6f86; --ns-tt-cat-6: #6b4aa0; --ns-tt-cat-7: #a0503f; --ns-tt-cat-8: #5c5b7d;
+}
+[data-theme="dark"] {
+  --ns-tt-cat-1: #a9c0ea; --ns-tt-cat-2: #e6a8c0; --ns-tt-cat-3: #a6c9ad; --ns-tt-cat-4: #d9b98a;
+  --ns-tt-cat-5: #95c6d6; --ns-tt-cat-6: #c2aee6; --ns-tt-cat-7: #e6a88a; --ns-tt-cat-8: #a3a9b8;
+}
+
+/* ═══ §B gnav 下排通車那一枚（乙・見契約 §5.6：main 上已有 .gnav-line 樣式就留空）═══
+ * 留空：旅客筆記線 v1.2.0 已在 src/ui/notes/notes.css 帶進 .cover .gnav-line（全域載入），各線共用那一份。 */
+
+/* ═══ §C 共用顯示件：badge／grid／dock／board／day／axis（乙）═══
+ * 兩殼共用 DOM，差異只在 CSS；本區＝兩殼共同的底樣（值照原型 shared.css／v-a.css／v-c.css／v-d.css），手機微調在 §E。
+ * 原型變數 → 專案 token：--paper-high→--color-paper-high  --ink*→--color-ink*  --line/--dash→--color-line/--color-dash
+ *   --gold→--color-gold  --seal→--color-seal  --late→--color-late  --paper-solid→--color-paper-high  --cat-n→--ns-tt-cat-n */
+
+/* 拉丁數字（原型 .num） */
+.ns-tt-num { font-family: var(--font-latin); font-feature-settings: "tnum" 1, "lnum" 1; letter-spacing: .02em; }
+
+/* 運行中的脈動點（原型 .live-dot） */
+.ns-tt-live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--color-seal); flex: none;
+  animation: ns-tt-live-pulse 2.2s ease-in-out infinite;
+}
+@keyframes ns-tt-live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-seal) 50%, transparent); }
+  50% { opacity: .55; box-shadow: 0 0 0 5px transparent; }
+}
+
+/* chip（原型 .chip；is-late＝赭） */
+.ns-tt-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px dashed var(--color-dash); border-radius: 2px; padding: 1px 6px;
+  font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .06em; white-space: nowrap;
+  background: transparent; font-family: inherit; line-height: 1.5;
+}
+.ns-tt-chip.is-late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 46%, transparent); }
+button.ns-tt-chip { cursor: pointer; }
+button.ns-tt-chip:hover { border-style: solid; }
+button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+
+/* 鍵帽（桌機運行列與切換鈕；字由 formatChord 產） */
+.ns-tt-kbd {
+  display: inline-block; margin-left: 7px; padding: 0 4px; border: 1px solid var(--color-dash); border-radius: 2px;
+  font-family: var(--font-latin); font-size: 10px; letter-spacing: .1em; line-height: 15px;
+  color: var(--color-ink-faint); vertical-align: 1px;
+}
+.btn-seal .ns-tt-kbd { color: var(--color-on-seal); border-color: color-mix(in srgb, var(--color-on-seal) 45%, transparent); opacity: .85; }
+
+/* ── 分類圓牌（原型 .badge；CategoryBadge.tsx 甲席、樣式歸本區）── */
+.ns-tt-badge {
+  --c: var(--ns-tt-cat-8);
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; line-height: 1;
+  color: var(--c);
+  border: 1.5px solid color-mix(in srgb, var(--c) 70%, transparent);
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+}
+.ns-tt-badge.is-sm { width: 24px; height: 24px; font-size: 11px; border-width: 1px; }
+.ns-tt-badge.is-lg { width: 46px; height: 46px; font-size: 18px; }
+.ns-tt-badge.is-missing { --c: var(--color-ink-faint); border-style: dashed; font-weight: 500; }
+
+/* ── 分類格（原型 .bs-group／.bs-cats／.bs-cat＋丁案 .tile）── */
+.ns-tt-group { margin: 10px 0 2px; }
+.ns-tt-group-name {
+  display: block; font-family: var(--font-display); font-size: 11px; letter-spacing: .22em; color: var(--color-ink-faint);
+}
+.ns-tt-cats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 6px 0 8px; }
+.ns-tt-cat {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 12px 4px 9px; min-height: 86px;
+  background: var(--color-paper-high); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+  color: var(--color-ink-soft); font-family: inherit; cursor: pointer;
+  transition: box-shadow .15s, border-color .15s, background .15s;
+}
+.ns-tt-cat:hover { border-color: color-mix(in srgb, var(--color-gold) 60%, var(--color-line)); }
+.ns-tt-cat:active { background: var(--color-paper-used); }
+.ns-tt-cat:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-cat-name { font-size: 13px; letter-spacing: .1em; color: var(--color-ink); line-height: 1.3; }
+.ns-tt-cat-sum { font-size: 11px; color: var(--color-ink-faint); min-height: 16px; line-height: 16px; }
+.ns-tt-cat.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 12%, transparent); color: var(--color-ink); }
+.ns-tt-cat.is-live { box-shadow: var(--shadow-card), inset 0 0 0 1.5px color-mix(in srgb, var(--color-seal) 70%, transparent); }
+.ns-tt-cat.is-live .ns-tt-live-dot { position: absolute; right: 8px; top: 8px; }
+/* 面板裡的緊湊版（原型 .bs-cats.is-compact）：六欄、無卡片 */
+.ns-tt-cats.is-compact { grid-template-columns: repeat(6, 1fr); gap: 2px; margin: 4px 0 6px; }
+.ns-tt-cats.is-compact .ns-tt-cat {
+  min-height: 0; padding: 4px 0; gap: 4px;
+  background: transparent; border: 1px solid transparent; box-shadow: none; border-radius: 4px;
+}
+.ns-tt-cats.is-compact .ns-tt-cat.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
+.ns-tt-cats.is-compact .ns-tt-cat.is-live { box-shadow: none; }
+.ns-tt-cats.is-compact .ns-tt-cat-name { font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
+.ns-tt-cats.is-compact .ns-tt-badge { width: 28px; height: 28px; font-size: 12px; }
+
+/* ── 運行列（原型 .dock-run／.m-dock；D-時-22 甲案）── */
+.ns-tt-dock { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+.ns-tt-dock > .ns-btn { padding: 0 14px; flex: none; min-height: 40px; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.ns-tt-dock-go { padding: 0 26px !important; }
+.ns-tt-dock-main { flex: 1 1 140px; min-width: 0; }
+.ns-tt-dock-name {
+  font-size: 14.5px; letter-spacing: .08em; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  color: var(--color-ink); line-height: 1.35;
+}
+.ns-tt-dock-cat { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-dock-name .ns-tt-chip { font-size: 10px; }
+.ns-tt-dock-meta {
+  font-size: 11px; color: var(--color-ink-faint); letter-spacing: .06em;
+  display: flex; align-items: center; gap: 7px; margin-top: 1px; flex-wrap: wrap; white-space: nowrap;
+}
+.ns-tt-dock-meta b.ns-tt-dock-el { font-size: 15px; font-weight: 500; color: var(--color-ink); letter-spacing: .03em; }
+.ns-tt-dock-start {
+  font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; cursor: pointer;
+  border-bottom: 1px dashed var(--color-dash); padding: 0; min-height: 0; border-radius: 0;
+}
+.ns-tt-dock-start:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
+.ns-tt-dock-start:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-dock.is-idle .ns-tt-dock-name { color: var(--color-ink-soft); }
+/* 長時間運行未確認＝整列赭（原型 .m-dock.is-long） */
+.ns-tt-dock.is-long { box-shadow: inset 3px 0 0 var(--color-late); }
+.ns-tt-dock.is-long .ns-tt-dock-el { color: var(--color-late); }
+.ns-tt-dock.is-long .ns-tt-live-dot { background: var(--color-late); animation: none; }
+
+/* ── 發車台（原型 .sec＋丁案 .board-group）── */
+.ns-tt-board { display: block; }
+.ns-tt-board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 4px 0 2px; }
+.ns-tt-board-title { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .22em; margin: 0; color: var(--color-ink); }
+.ns-tt-edit {
+  background: none; border: 1px solid var(--color-dash); border-radius: 2px; padding: 2px 10px; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: .18em; color: var(--color-ink-soft);
+  transition: color .15s, border-color .15s;
+}
+.ns-tt-edit:hover { color: var(--color-ink); border-color: var(--color-gold); }
+.ns-tt-edit:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+
+/* ── 軸頂端：日期列 ── */
+.ns-tt-axis-nav { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+.ns-tt-axis-arrow, .ns-tt-axis-today {
+  background: none; border: 1px solid var(--color-dash); border-radius: 2px; cursor: pointer; font-family: inherit;
+  color: var(--color-ink-soft); transition: color .15s, border-color .15s;
+}
+.ns-tt-axis-arrow { width: 30px; height: 28px; font-size: 18px; line-height: 1; padding: 0 0 2px; }
+.ns-tt-axis-today { height: 28px; padding: 0 10px; font-size: 11px; letter-spacing: .18em; margin-left: auto; }
+.ns-tt-axis-arrow:hover, .ns-tt-axis-today:hover { color: var(--color-ink); border-color: var(--color-gold); }
+.ns-tt-axis-arrow:disabled, .ns-tt-axis-today:disabled { opacity: .4; cursor: default; }
+.ns-tt-axis-arrow:disabled:hover, .ns-tt-axis-today:disabled:hover { color: var(--color-ink-soft); border-color: var(--color-dash); }
+.ns-tt-axis-arrow:focus-visible, .ns-tt-axis-today:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-axis-date { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .14em; color: var(--color-ink); }
+
+/* ── 本日合計卡（原型 .card.day／.consist／.day-week）── */
+.ns-tt-day {
+  padding: 12px 14px; margin-bottom: 6px;
+  background: var(--color-paper-high); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+}
+.ns-tt-day-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.ns-tt-day-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.ns-tt-day-big { font-size: 22px; font-weight: 500; color: var(--color-ink); line-height: 1.2; }
+.ns-tt-day-lbl { font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .16em; }
+.ns-tt-day-gap { color: var(--color-late); font-size: 11px; letter-spacing: .08em; }
+.ns-tt-yday {
+  background: none; border: 1px solid var(--color-dash); border-radius: 2px; padding: 1px 8px; cursor: pointer;
+  font-family: inherit; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-soft);
+}
+.ns-tt-yday:hover { color: var(--color-ink); border-color: var(--color-gold); }
+.ns-tt-consist { display: flex; height: 8px; margin-top: 10px; border-radius: 1px; overflow: hidden; gap: 1px; }
+.ns-tt-consist i { display: block; min-width: 2px; background: var(--c, var(--color-dash)); opacity: .78; }
+.ns-tt-consist i.is-gap {
+  background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--color-late) 50%, transparent) 3px 4px);
+  opacity: 1;
+}
+.ns-tt-day-cats { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 10px; font-size: 11.5px; color: var(--color-ink-soft); }
+.ns-tt-day-cat { display: inline-flex; align-items: center; gap: 5px; }
+.ns-tt-day-cat .ns-tt-num { font-size: 12px; color: var(--color-ink); }
+.ns-tt-day-week {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
+  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--color-dash); font-size: 11px;
+}
+.ns-tt-day-week .ns-tt-num { font-size: 13px; color: var(--color-ink); margin-left: 3px; }
+.ns-tt-day-week .ns-tt-day-lbl.is-end { margin-left: auto; }
+
+/* ── 區段標題（原型 .sec）── */
+.ns-tt-sec { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 10px; }
+.ns-tt-sec h3 { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .22em; margin: 0; color: var(--color-ink); }
+.ns-tt-sec-rule { flex: 1; border-top: 1px dashed var(--color-dash); }
+.ns-tt-sec-note { font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .14em; }
+
+/* ── 運行圖：左＝時刻、中＝線與站點、右＝時間塊（原型 v-a.css .seg）── */
+.ns-tt-seg { display: grid; grid-template-columns: 44px 18px 1fr; align-items: stretch; }
+.ns-tt-seg-time { font-size: 11.5px; color: var(--color-ink-soft); padding-top: 1px; text-align: right; }
+.ns-tt-seg-rail { position: relative; }
+.ns-tt-seg-rail::before {
+  content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-50%);
+  background: var(--c, var(--color-dash)); opacity: .7;
+}
+.ns-tt-seg-rail::after {
+  content: ""; position: absolute; left: 50%; top: 4px; width: 8px; height: 8px; border-radius: 50%;
+  transform: translateX(-50%); background: var(--color-paper-high); border: 2px solid var(--c, var(--color-ink-faint));
+}
+.ns-tt-seg.is-gap .ns-tt-seg-rail::before {
+  background: none; width: 0; border-left: 2px dotted color-mix(in srgb, var(--color-late) 60%, transparent); opacity: 1;
+}
+.ns-tt-seg.is-gap .ns-tt-seg-rail::after { border: 1.5px dashed var(--color-late); }
+.ns-tt-seg-body { padding: 0 0 8px 8px; min-width: 0; }
+
+/* 時間塊（原型 .card.blk） */
+.ns-tt-blk {
+  width: 100%; height: 100%; text-align: left; cursor: pointer; font-family: inherit;
+  display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px 9px 10px;
+  background: var(--color-paper-high); border: 1px solid var(--color-line);
+  border-left: 3px solid var(--c, var(--color-dash));
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+  color: var(--color-ink);
+  transition: border-color .15s, box-shadow .15s;
+}
+.ns-tt-blk:hover { border-color: color-mix(in srgb, var(--color-gold) 60%, var(--color-line)); border-left-color: var(--c, var(--color-dash)); }
+.ns-tt-blk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-blk-main { flex: 1; min-width: 0; display: block; }
+.ns-tt-blk-name { display: block; font-size: 14.5px; letter-spacing: .06em; line-height: 1.35; }
+.ns-tt-blk-sub {
+  font-size: 11px; color: var(--color-ink-faint); letter-spacing: .04em; margin-top: 2px;
+  display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center;
+}
+.ns-tt-blk-sub .ns-tt-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-blk-dur { font-size: 13px; color: var(--color-ink-soft); flex: none; }
+.ns-tt-blk.is-live { border-left-color: var(--color-seal); }
+.ns-tt-blk.is-live .ns-tt-blk-dur { color: var(--color-ink); font-size: 15px; }
+.ns-tt-blk.is-long { border-left-color: var(--color-late); }
+.ns-tt-blk.is-long .ns-tt-blk-dur { color: var(--color-late); }
+/* 零長度＝一條赭色細線（契約 0-7） */
+.ns-tt-blk.is-zero { padding-top: 5px; padding-bottom: 5px; align-items: center; border-left-color: var(--color-late); border-top: 1px solid color-mix(in srgb, var(--color-late) 55%, transparent); }
+.ns-tt-blk.is-zero .ns-tt-blk-dur { color: var(--color-late); }
+
+/* 未記錄：不是卡片，是線上的一個缺口（原型 .hole） */
+.ns-tt-hole {
+  width: 100%; height: 100%; min-height: 44px; text-align: left; cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  border: 1px dashed color-mix(in srgb, var(--color-late) 55%, transparent); border-radius: var(--radius-card);
+  color: var(--color-late); font-size: 12px; letter-spacing: .1em;
+  background: color-mix(in srgb, var(--color-late) 6%, transparent);
+  transition: background .15s, border-color .15s;
+}
+.ns-tt-hole:hover { background: color-mix(in srgb, var(--color-late) 11%, transparent); border-color: var(--color-late); }
+.ns-tt-hole:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-hole .ns-tt-num { font-size: 13px; }
+.ns-tt-hole-go { margin-left: auto; font-size: 11px; letter-spacing: .16em; opacity: .85; white-space: nowrap; }
+
+/* 現在線（原型 .nowline） */
+.ns-tt-nowline { display: grid; grid-template-columns: 44px 18px 1fr; align-items: center; margin-top: 2px; }
+.ns-tt-nowline-t { font-size: 11.5px; color: var(--color-seal); text-align: right; }
+.ns-tt-nowline-d { justify-self: center; width: 7px; height: 7px; background: var(--color-seal); transform: rotate(45deg); }
+.ns-tt-nowline-r { border-top: 1px solid color-mix(in srgb, var(--color-seal) 55%, transparent); margin-left: 8px; position: relative; }
+.ns-tt-nowline-r span {
+  position: absolute; right: 0; top: -15px;
+  font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .24em; color: var(--color-seal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-live-dot { animation: none; }
+  .ns-tt-cat, .ns-tt-blk, .ns-tt-hole, .ns-tt-edit, .ns-tt-chip { transition: none; }
+}
+
+/* ═══ §D 桌機頁（乙）═══
+ * 根 .page.ns-tt：techo.css 的 .page 是「整頁捲動」；兩欄版面改成直欄 flex、各欄自己捲（.page.ns-tt 兩個 class 的特異度壓過 .page）。
+ * 單欄退化（data-layout="narrow"）：恢復整頁捲動、三段依序疊。 */
+.page.ns-tt { display: flex; flex-direction: column; overflow: hidden; }
+.page.ns-tt[data-layout="narrow"] { overflow-y: auto; }
+
+.ns-tt-head {
+  flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  padding: 40px 40px 14px 48px;
+}
+.ns-tt-head-main { min-width: 0; }
+.ns-tt-head .techo-overline { margin: 0 0 4px; }
+.ns-tt-head .techo-title { font-size: 26px; margin: 0; }
+.ns-tt-switch { display: flex; align-items: center; gap: 0; border: 1px solid var(--color-dash); border-radius: 3px; overflow: hidden; }
+.ns-tt-switch button {
+  min-height: 32px; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: .18em; color: var(--color-ink-faint);
+  transition: background .15s, color .15s;
+}
+.ns-tt-switch button + button { border-left: 1px solid var(--color-dash); }
+.ns-tt-switch button[aria-pressed="true"] { background: color-mix(in srgb, var(--color-gold) 16%, transparent); color: var(--color-ink); }
+.ns-tt-switch button:hover { color: var(--color-ink); }
+.ns-tt-switch button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-tt-switch .ns-tt-kbd { margin: 0 8px 0 6px; }
+
+.ns-tt-error { flex: none; margin: 0; padding: 0 40px 10px 48px; font-size: 13px; color: var(--color-late); }
+
+/* 兩欄：左 380px（運行列＋發車台）、右軸；各欄自己捲 */
+.ns-tt-cols {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 26px;
+  padding: 0 40px 24px 48px;
+}
+.page.ns-tt[data-view="axis"] .ns-tt-cols { grid-template-columns: minmax(0, 1fr); }
+.ns-tt-col { min-height: 0; display: flex; flex-direction: column; }
+.ns-tt-col.is-left { overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.ns-tt-col.is-right { min-height: 0; }
+.ns-tt-col.is-full { max-width: 880px; }
+.ns-tt-axis.is-self { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.ns-tt-col.is-left::-webkit-scrollbar, .ns-tt-axis.is-self::-webkit-scrollbar { width: 8px; }
+.ns-tt-col.is-left::-webkit-scrollbar-thumb, .ns-tt-axis.is-self::-webkit-scrollbar-thumb { background: var(--color-dash); border-radius: 4px; }
+
+/* 桌機運行列＝一張卡（原型 .vt-deskdock），左欄頂端；axis 視圖在軸上方 */
+.page.ns-tt .ns-tt-dock.is-desktop {
+  flex: none; padding: 12px 14px; margin-bottom: 14px;
+  background: var(--color-paper-high); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+}
+.page.ns-tt .ns-tt-dock.is-desktop.is-long { box-shadow: var(--shadow-card), inset 3px 0 0 var(--color-late); }
+/* 左欄只有 380px：擠不下時兩顆鈕掉到第二列（圓牌＋名稱＋跳秒永遠在第一列） */
+.page.ns-tt .ns-tt-col.is-left .ns-tt-dock { flex-wrap: wrap; row-gap: 8px; }
+.page.ns-tt .ns-tt-col.is-left .ns-tt-dock-main { flex: 1 1 200px; }
+.page.ns-tt .ns-tt-col.is-left .ns-tt-dock > .ns-btn { flex: 1 1 calc(50% - 5px); justify-content: center; }
+.page.ns-tt .ns-tt-col.is-left .ns-tt-dock.is-idle > .ns-btn { flex: 0 0 auto; }
+.page.ns-tt .ns-tt-board { flex: none; }
+.page.ns-tt .ns-tt-cats { grid-template-columns: repeat(5, 1fr); }
+
+/* 單欄退化：三段依序疊、整頁捲動 */
+.page.ns-tt[data-layout="narrow"] .ns-tt-cols { display: flex; flex-direction: column; gap: 14px; padding-bottom: 32px; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-col { overflow: visible; max-width: none; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-axis { overflow: visible; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-cats { grid-template-columns: repeat(4, 1fr); }
+
+/* 桌機面板（DialogShell 內）：面板本體的排版歸 §F，這裡只給宿主一個最小寬度錨 */
+.ns-tt-sheet-body { min-width: 0; }
+/* longRun 面板標題前置 live dot（契約 §5.4）：DialogShell.title 只收字串、且是集中檔 ⇒ 用 :has 從宿主的 data-kind 往上找標題
+ * （WebView2／Chromium 105+ 支援 :has；不支援的環境只是少一顆點） */
+.ns-dialog:has(.ns-tt-sheet-body[data-kind="longRun"]) .techo-title::before {
+  content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-seal); margin-right: 8px; vertical-align: middle;
+  animation: ns-tt-live-pulse 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ns-dialog:has(.ns-tt-sheet-body[data-kind="longRun"]) .techo-title::before { animation: none; }
+}
+
+/* ═══ §E 手機頁：[data-shell="mobile"]（丙）═══ */
+/*
+ * 三段直欄（MobileShell 根 flex column 的直接子節點）：.m-page.ns-tt-m ／ .ns-tt-mdock（運行列，D-時-22）／ .m-tabbar。
+ * 運行列的高度先給一個變數：Toast 要抬到它之上（同 mobile.css S1 對 .m-newticket 的做法——Toast 與運行列
+ * 都是 App 根 div 的直接子節點、Toast 在後，一般兄弟選擇器就夠；本線只在自己的 css 寫、不碰 mobile.css）。
+ */
+[data-shell="mobile"] { --ns-tt-mdock-h: 76px; }
+/* 底部列避讓約定（notes-mobile.css〈一、浮動鈕〉）：運行列在的時候宣告 --m-page-dock-h，旅客筆記的浮動鈕
+ * 「記一句」自動抬到運行列之上（沒有它時鈕整顆蓋住「発車／到着」，真機驗收 2026-10-12 抓到）。 */
+[data-shell="mobile"]:has(.ns-tt-mdock) { --m-page-dock-h: var(--ns-tt-mdock-h); }
+
+/* .m-page.ns-tt-m（0,3,0）：mobile.css 的 `[data-shell="mobile"] .m-page { padding: 14px … }`（0,2,0）排在本檔之後，
+ * 只寫 `.ns-tt-m` 會被它蓋掉 ⇒ sticky 切換列上方多 14px 紙色空帶 */
+[data-shell="mobile"] .m-page.ns-tt-m { padding-top: 0; }
+
+/* 頂端 sticky：視圖切換鈕（發車台｜軸） */
+[data-shell="mobile"] .ns-tt-mtop {
+  position: sticky; top: 0; z-index: 3;
+  margin: 0 calc(var(--m-gutter) * -1) 10px;
+  padding: 10px var(--m-gutter) 8px;
+  background: color-mix(in srgb, var(--color-paper) 82%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch {
+  display: flex; gap: 0;
+  border: 1px solid var(--color-dash); border-radius: 3px; overflow: hidden;
+}
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch button {
+  flex: 1; min-height: 44px; padding: 0;
+  background: transparent; border: 0;
+  font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .18em;
+  color: var(--color-ink-faint); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch button + button { border-left: 1px solid var(--color-dash); }
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-gold) 16%, transparent);
+  color: var(--color-ink);
+}
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+[data-shell="mobile"] .ns-tt-m-error { margin: 0 0 10px; font-size: 12px; letter-spacing: .06em; color: var(--color-late); }
+
+/* 發車台在手機是 4 欄（桌機 5 欄在 §D） */
+[data-shell="mobile"] .ns-tt-m .ns-tt-board .ns-tt-cats:not(.is-compact) { grid-template-columns: repeat(4, 1fr); }
+
+/* 運行列：固定在頁面與 tab bar 之間，不跟著捲走；拇指按得到「換車」「到着」 */
+[data-shell="mobile"] .ns-tt-mdock {
+  flex: none;
+  position: relative; z-index: 2;
+  box-sizing: border-box;
+  min-height: var(--ns-tt-mdock-h);
+  padding: 8px var(--m-gutter);
+  background: var(--color-paper-high);
+  border-top: 1px solid var(--color-line);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock { margin: 0; border: 0; padding: 0; background: transparent; box-shadow: none; }
+[data-shell="mobile"] .ns-tt-mdock .ns-btn { min-height: 44px; }
+
+/* Toast 抬到運行列之上（特異度 (0,4,0)，贏過 mobile.css WP0 那條 (0,3,0)；今日頁的 S1 規則在這一頁不會命中） */
+[data-shell="mobile"] .ns-tt-mdock ~ .ns-card.fixed {
+  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-mdock-h) + 12px);
+}
+
+/* 面板殼：沿用 .m-sheet 骨架，本體自己捲 */
+[data-shell="mobile"] .m-sheet.ns-tt-sheet {
+  max-height: 88%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 4px 0 calc(var(--m-safe-bottom) + 12px);
+}
+[data-shell="mobile"] .m-sheet.ns-tt-sheet::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tt-sheet-head {
+  display: flex; align-items: center; gap: 8px;
+  padding-right: 10px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+[data-shell="mobile"] .ns-tt-sheet-head .m-sheet-title {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  border-bottom: 0;
+  font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: .14em;
+  color: var(--color-ink);
+}
+[data-shell="mobile"] .ns-tt-sheet-body { padding: 8px var(--m-gutter) 0; }
+[data-shell="mobile"] .ns-tt-sheet-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-seal);
+  animation: ns-tt-live 2.2s ease-in-out infinite;
+}
+@keyframes ns-tt-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .ns-tt-sheet-dot { animation: none; }
+}
+
+/* 面板在手機的觸控目標 ≥44px；輸入框 16px（行動瀏覽器不自動放大） */
+[data-shell="mobile"] .ns-tt-panel .ns-btn { min-height: 44px; }
+[data-shell="mobile"] .ns-tt-panel .ns-btn.ns-btn--sm { min-height: 36px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-step { width: 44px; height: 44px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-opt { min-height: 36px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-input { font-size: 16px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-select { min-height: 36px; font-size: 14px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-mgr-move { width: 36px; height: 36px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-swatch { width: 30px; height: 30px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-row-k { width: 42px; }
+
+/* ═══ §F 面板：兩殼共用表單（丙；桌機微調寫在 §D、手機微調寫在 §E）═══ */
+.ns-tt-panel {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 14px; letter-spacing: .06em; color: var(--color-ink);
+}
+.ns-tt-panel-sub {
+  margin: 2px 0 6px;
+  font-size: 11.5px; letter-spacing: .08em; line-height: 1.5;
+  color: var(--color-ink-faint);
+}
+.ns-tt-panel-sub.is-warn { color: var(--color-late); }
+.ns-tt-panel-sub.is-num {
+  font-family: var(--font-latin); font-feature-settings: "tnum" 1, "lnum" 1;
+  font-size: 12.5px; letter-spacing: .04em;
+}
+.ns-tt-panel-sub-aside { margin-left: 6px; }
+
+/* 一列：左欄標籤＋右欄內容 */
+.ns-tt-row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 52px; padding: 4px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-tt-row.is-top { align-items: flex-start; padding: 10px 0; }
+.ns-tt-row:last-child { border-bottom: 0; }
+.ns-tt-row-k { flex: none; width: 48px; font-size: 11px; letter-spacing: .16em; color: var(--color-ink-faint); }
+.ns-tt-row.is-top .ns-tt-row-k { padding-top: 7px; }
+.ns-tt-row-v { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+/* 時刻 stepper */
+.ns-tt-stepper { display: inline-flex; align-items: center; gap: 2px; }
+.ns-tt-step {
+  width: 40px; height: 40px; padding: 0;
+  background: transparent; border: 1px solid var(--color-dash); border-radius: 3px;
+  font-family: var(--font-latin); font-size: 12px; color: var(--color-ink-soft);
+  cursor: pointer;
+}
+.ns-tt-step:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-step:disabled { opacity: .35; cursor: default; }
+.ns-tt-step:disabled:hover { border-color: var(--color-dash); color: var(--color-ink-soft); }
+.ns-tt-step:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-val {
+  min-width: 74px; text-align: center;
+  font-family: var(--font-latin); font-size: 20px; font-feature-settings: "tnum" 1, "lnum" 1;
+  color: var(--color-ink);
+}
+
+/* 選項 chip（出發幾分前／之後怎麼辦／接上一塊） */
+.ns-tt-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ns-tt-opt {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 30px; padding: 2px 9px;
+  background: transparent; border: 1px dashed var(--color-dash); border-radius: 2px;
+  font-family: inherit; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-soft);
+  white-space: nowrap; cursor: pointer;
+}
+.ns-tt-opt.is-solid { border-style: solid; }
+.ns-tt-opt.is-on {
+  border-style: solid; border-color: var(--color-gold);
+  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  color: var(--color-ink);
+}
+.ns-tt-opt.is-num { font-family: var(--font-latin); font-feature-settings: "tnum" 1, "lnum" 1; }
+.ns-tt-opt.is-static { border-color: transparent; color: var(--color-ink); cursor: default; }
+.ns-tt-opt:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+
+/* 底部動作列 */
+.ns-tt-actions { display: flex; gap: 10px; margin-top: 14px; }
+.ns-tt-actions .ns-btn { flex: 1; }
+.ns-tt-actions .ns-btn.is-aux { flex: 0 0 auto; }
+
+/* 輸入框／下拉 */
+.ns-tt-input {
+  box-sizing: border-box; width: 100%; min-width: 0;
+  padding: 6px 2px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--color-line);
+  font-family: inherit; font-size: 15px; letter-spacing: .06em; color: var(--color-ink);
+}
+.ns-tt-input:focus { outline: none; border-bottom-color: var(--color-gold); }
+.ns-tt-input::placeholder { color: var(--color-ink-faint); opacity: .7; }
+.ns-tt-select {
+  appearance: none; -webkit-appearance: none;
+  min-height: 32px; padding: 4px 22px 4px 8px;
+  background: transparent; border: 1px solid var(--color-dash); border-radius: 3px;
+  font-family: inherit; font-size: 13px; color: var(--color-ink);
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-ink-faint) 50%),
+    linear-gradient(135deg, var(--color-ink-faint) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 55%, calc(100% - 8px) 55%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.ns-tt-select:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+
+/* 分類與設定 */
+.ns-tt-mgr-group + .ns-tt-mgr-group { margin-top: 14px; }
+.ns-tt-mgr-group-head {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 40px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+.ns-tt-mgr-name {
+  flex: 1; min-width: 0;
+  padding: 4px 2px;
+  background: transparent; border: 0; border-bottom: 1px solid transparent;
+  font-family: inherit; font-size: 14px; letter-spacing: .06em; color: var(--color-ink);
+  text-align: left; cursor: text;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ns-tt-mgr-name:hover { border-bottom-color: var(--color-dash); }
+.ns-tt-mgr-name:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-mgr-name.is-group,
+.ns-tt-mgr-name-input.is-group {
+  font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .22em;
+  color: var(--color-ink-soft);
+}
+.ns-tt-mgr-name-input { flex: 1; }
+.ns-tt-mgr-moves { display: inline-flex; gap: 2px; flex: none; }
+.ns-tt-mgr-move {
+  width: 32px; height: 32px; padding: 0;
+  background: transparent; border: 1px solid var(--color-dash); border-radius: 3px;
+  font-size: 13px; color: var(--color-ink-soft); cursor: pointer;
+}
+.ns-tt-mgr-move:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-mgr-move:disabled { opacity: .3; cursor: default; }
+.ns-tt-mgr-move:disabled:hover { border-color: var(--color-dash); color: var(--color-ink-soft); }
+.ns-tt-mgr-move:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-mgr-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: 6px 8px; padding: 8px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-tt-mgr-tools {
+  grid-column: 1 / -1;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+}
+.ns-tt-mgr-def { display: inline-flex; align-items: center; gap: 6px; }
+.ns-tt-mgr-def-k { font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-tt-swatches { display: inline-flex; gap: 4px; }
+.ns-tt-swatch {
+  width: 26px; height: 26px; padding: 0;
+  border-radius: 50%; border: 2px solid transparent;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 18%, transparent);
+  cursor: pointer;
+}
+.ns-tt-swatch.is-on { border-color: var(--color-paper); box-shadow: 0 0 0 2px var(--color-gold); }
+.ns-tt-swatch:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+.ns-tt-mgr-add { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.ns-tt-mgr-addgroup { margin-top: 12px; align-self: flex-start; }
+.ns-tt-mgr-settings { margin-top: 20px; padding-top: 10px; border-top: 1px dashed var(--color-dash); }
+.ns-tt-mgr-sec {
+  margin: 0 0 6px;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .22em;
+  color: var(--color-ink-faint);
+}
+.ns-tt-setting { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+.ns-tt-setting.is-hint { min-height: 36px; }
+.ns-tt-setting-k { font-size: 13px; letter-spacing: .06em; color: var(--color-ink); }
+.ns-tt-setting-k.is-warn { color: var(--color-late); }
+
+/* 開關（通知欄顯示運行中） */
+.ns-tt-toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 32px; padding: 0 4px;
+  background: transparent; border: 0;
+  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-faint);
+  cursor: pointer;
+}
+.ns-tt-toggle-knob {
+  position: relative; width: 36px; height: 20px;
+  border-radius: 10px; border: 1px solid var(--color-dash);
+  background: transparent;
+  transition: background .15s, border-color .15s;
+}
+.ns-tt-toggle-knob::after {
+  content: "";
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--color-ink-faint);
+  transition: transform .15s, background .15s;
+}
+.ns-tt-toggle.is-on { color: var(--color-ink); }
+.ns-tt-toggle.is-on .ns-tt-toggle-knob {
+  border-color: var(--color-gold);
+  background: color-mix(in srgb, var(--color-gold) 22%, transparent);
+}
+.ns-tt-toggle.is-on .ns-tt-toggle-knob::after { transform: translateX(16px); background: var(--color-gold); }
+.ns-tt-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-toggle-knob, .ns-tt-toggle-knob::after { transition: none; }
+}

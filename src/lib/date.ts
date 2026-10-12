@@ -1,6 +1,7 @@
 /**
  * 日期工具——執行日／締切日一律用「本地日期 key」YYYY-MM-DD（date-only，不帶時區）。
- * 日界線（決策 D9）：一天的開始預設 03:00，現在本地時間尚未過日界線 → 算前一天。
+ * 日界線（決策 D9；D-時-21 起 App 預設 06:00，來源 `uiStore.ts` 的 `DEFAULT_DAY_START_HOUR`）：現在本地時間尚未過日界線 → 算前一天。
+ * 呼叫端應傳入設定值；`todayKey()` 不帶參數時仍以舊值 03:00 計（mock 與兩處 repository 的預設參數還在用，見時刻表 ①a 契約 §10-6）。
  */
 export function toDateKey(d: Date): string {
   const y = d.getFullYear();

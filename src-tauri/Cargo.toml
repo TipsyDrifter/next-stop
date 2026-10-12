@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.3.0"
+version = "1.4.0"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -18,7 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `tray-icon`：時刻表 ①a 補充契約（D-時-24／25）桌機系統匣。tauri 只在桌機 target 拉 tray-icon crate，Android 開了也不多編東西。
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -72,6 +73,10 @@ tauri-plugin-notification = "~2.3.3"
 # **鎖 3 不升 4**：keyring 4 把各家後端拆成獨立 crate，`windows-native` 這個 feature 名字已經不存在。
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
+# 時刻表 ①a 補充契約 §2-7：按 ✕ 改成縮到系統匣之後，主人從開始選單再開一次不能多開一個（兩個行程搶同一顆 DB）。
+# 外掛本身只支援桌機（README 平台表 Android／iOS ✗、lib.rs 整支 `#![cfg(not(any(android, ios)))]`），所以只在這段拉。
+# 沒有 npm 對應套件（純 Rust 端），不受 tauri-cli 的 crate／npm minor 一致檢查影響。
+tauri-plugin-single-instance = "2"
 
 
 # v1.1.2 QR 掃描（D-1.1-6 甲：手機掃桌機的 QR；契約席 2026-09-19 加、WP10a 接線）。

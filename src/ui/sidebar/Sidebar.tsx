@@ -42,9 +42,9 @@ import { SyncDot } from "../common/SyncDot";
 // 頁面登記表與 gnav 圖示（並行地基・契約 §6）
 import { corePages, linePages, openPages } from "../shell/pages";
 import { GNAV_ICONS, svgProps } from "./gnavIcons";
-// 側欄工具插槽（通車的線的 mount `sidebarTool`）：查 `lines/runtime`、不 import `lines/mounts`——
+// 側欄工具插槽（通車的線的 mount `sidebarTool`）與頁務件插槽（`sidebarAux`，接縫 #50）：查 `lines/runtime`、不 import `lines/mounts`——
 // 本元件在 App 的 import 清單裡排在 pageViews 之前，import mounts 會把線的元件樹與 CSS 提早求值（理由見 runtime.ts 檔頭）
-import { lineSidebarTools } from "../../lines/runtime";
+import { lineSidebarAux, lineSidebarTools } from "../../lines/runtime";
 import "./sidebar.css";
 // gnav 樣式（styles/gnav.css）由 src/index.css 集中 import——見該檔檔頭的注入順序說明
 
@@ -149,6 +149,7 @@ export function Sidebar() {
   const openRoute = useNodeStore((s) => s.openRoute);
 
   const page = useUiStore((s) => s.page);
+  const Aux = lineSidebarAux(page);
   const setPage = useUiStore((s) => s.setPage);
   const setZoom = useUiStore((s) => s.setZoom);
   const select = useUiStore((s) => s.select);
@@ -269,74 +270,79 @@ export function Sidebar() {
         </div>
       </nav>
 
-      {/* 我的路線（件一 .lines）：h2 一枚總標＋每條幹線一段 .trunk「幹線・○○」＋路線列＋車站注記 */}
-      <div className="lines-scroll">
-        <div className="lines">
-          <h2>我的路線 MY LINES</h2>
-          {lines.map((line) => {
-            const lineRoutes = routes.filter((r) => r.line_id === line.id);
-            return (
-              <section key={line.id} aria-label={`幹線 ${line.name}`}>
-                <div className="line-row line-row--trunk">
-                  <div className="trunk">幹線・{line.name}</div>
-                  <button
-                    type="button"
-                    className="line-edit"
-                    onClick={() => openRouteDialog({ lineId: null, editId: line.id })}
-                    aria-label={`編輯幹線 ${line.name}`}
-                  >
-                    ✎
-                  </button>
-                </div>
-                {lineRoutes.map((route) => {
-                  const current = route.id === routeId;
-                  const note = stationNote[route.id];
-                  return (
-                    <div key={route.id}>
-                      <div className="line-row">
-                        <button
-                          type="button"
-                          className={`line-item${current ? " active" : ""}`}
-                          onClick={() => onOpenRoute(route.id)}
-                          aria-current={current ? "page" : undefined}
-                          title={note ? `${route.name}・下一站 ${note}` : route.name}
-                        >
-                          <RouteRoundel route={route} />
-                          <span className="line-name">{route.name}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="line-edit"
-                          onClick={() => openRouteDialog({ lineId: route.line_id, editId: route.id })}
-                          aria-label={`編輯路線 ${route.name}`}
-                        >
-                          ✎
-                        </button>
+      {/* 頁務件插槽（接縫 #50）：當前頁是通車的線、且它填了 sidebarAux → 整段換成該線的頁務件；否則照舊畫我的路線 */}
+      {Aux ? (
+        <Aux />
+      ) : (
+        <div className="lines-scroll">
+          {/* 我的路線（件一 .lines）：h2 一枚總標＋每條幹線一段 .trunk「幹線・○○」＋路線列＋車站注記 */}
+          <div className="lines">
+            <h2>我的路線 MY LINES</h2>
+            {lines.map((line) => {
+              const lineRoutes = routes.filter((r) => r.line_id === line.id);
+              return (
+                <section key={line.id} aria-label={`幹線 ${line.name}`}>
+                  <div className="line-row line-row--trunk">
+                    <div className="trunk">幹線・{line.name}</div>
+                    <button
+                      type="button"
+                      className="line-edit"
+                      onClick={() => openRouteDialog({ lineId: null, editId: line.id })}
+                      aria-label={`編輯幹線 ${line.name}`}
+                    >
+                      ✎
+                    </button>
+                  </div>
+                  {lineRoutes.map((route) => {
+                    const current = route.id === routeId;
+                    const note = stationNote[route.id];
+                    return (
+                      <div key={route.id}>
+                        <div className="line-row">
+                          <button
+                            type="button"
+                            className={`line-item${current ? " active" : ""}`}
+                            onClick={() => onOpenRoute(route.id)}
+                            aria-current={current ? "page" : undefined}
+                            title={note ? `${route.name}・下一站 ${note}` : route.name}
+                          >
+                            <RouteRoundel route={route} />
+                            <span className="line-name">{route.name}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="line-edit"
+                            onClick={() => openRouteDialog({ lineId: route.line_id, editId: route.id })}
+                            aria-label={`編輯路線 ${route.name}`}
+                          >
+                            ✎
+                          </button>
+                        </div>
+                        {note && (
+                          <p className="station-note" aria-label={`下一站 ${note}`}>
+                            <IconStationMark />
+                            {note}
+                          </p>
+                        )}
                       </div>
-                      {note && (
-                        <p className="station-note" aria-label={`下一站 ${note}`}>
-                          <IconStationMark />
-                          {note}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-                <button type="button" className="line-add" onClick={() => openRouteDialog({ lineId: line.id, editId: null })}>
-                  ＋ 路線
-                </button>
-              </section>
-            );
-          })}
-          <button
-            type="button"
-            className={`line-add${lines.length ? " line-add--line" : ""}`}
-            onClick={() => openRouteDialog({ lineId: null, editId: null })}
-          >
-            ＋ 幹線
-          </button>
+                    );
+                  })}
+                  <button type="button" className="line-add" onClick={() => openRouteDialog({ lineId: line.id, editId: null })}>
+                    ＋ 路線
+                  </button>
+                </section>
+              );
+            })}
+            <button
+              type="button"
+              className={`line-add${lines.length ? " line-add--line" : ""}`}
+              onClick={() => openRouteDialog({ lineId: null, editId: null })}
+            >
+              ＋ 幹線
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="cover-foot">
         <button type="button" className="foot-set" onClick={() => setSettingsOpen(true)} title={`設定（${capsOf("global.settings")}）`}>

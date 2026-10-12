@@ -1,0 +1,102 @@
+/**
+ * LongRunPanel——「其實到幾點」面板（車次①a 契約 §5.4、§5.5；丙席；＝原型 `shared.js` openOverdueSheet）。
+ * 副標「平常大約 {門檻}。其實到幾點？」（門檻來自全域時：「已經超過 {門檻} 的保險上限。其實到幾點？」）；
+ * 「到着」stepper −30／−5／HH:MM／+5／+30（夾 [開始+1 分, 上限−1 分]，預設 `longRunDefaultEnd`）；
+ * 「之後」三 chips：「沒記到，留白」「其實在做別的…」「還在{分類}，別問了」（已結束的塊第三項改「沒錯，就是這麼久」）；
+ * 選「其實在做別的」時展開分類格；底部說明 L1–L3；主鈕「就這樣」（keep 時「知道了」）。
+ *
+ * 確認走 `store.resolveLongRun`——它成功後自己收 sheet、依 `then` 接續；**不**先叫 onDone（那會被當成「略過」）。
+ * 標題由 host 給：「{分類}已經跑了 {fmtDur}」（前置 live dot）。
+ */
+import { useState } from "react";
+import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, longRunThreshold, msOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
+import { useTimetableStore } from "../../../store/timetableStore";
+import { CategoryGrid } from "../parts/CategoryGrid";
+import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, useBlock, useNowOnce, type PanelProps } from "./controls";
+
+export function LongRunPanel({ onDone }: PanelProps) {
+  const now = useNowOnce();
+  const sheet = useTimetableStore((s) => s.sheet);
+  const blockId = sheet?.kind === "longRun" ? sheet.blockId : "";
+  const block = useBlock(blockId);
+  const catById = useTimetableStore((s) => s.catById);
+  const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
+  const resolveLongRun = useTimetableStore((s) => s.resolveLongRun);
+
+  const cat = block ? (catById[block.category_id] ?? null) : null;
+  const span = block ? toSpan(block) : null;
+  const ownThreshold = cat?.default_min ?? null;
+  const threshold = longRunThreshold(cat, longRunMaxMin);
+  const ended = block !== null && block.ended_at !== null;
+  const cap = block ? (block.ended_at !== null ? msOf(block.ended_at) : now) : now;
+  const lo = span ? span.start + MIN : 0;
+  const hi = Math.max(lo, cap - MIN);
+
+  const [end, setEnd] = useState<number>(() =>
+    span ? clamp(threshold !== null ? longRunDefaultEnd(span, threshold, now) : Math.round((span.start + cap) / 2 / MIN) * MIN, lo, hi) : 0,
+  );
+  const [after, setAfter] = useState<LongRunChoice>("gap");
+  const [cat2, setCat2] = useState<string | null>(null);
+
+  if (!block || !span) {
+    return (
+      <div className="ns-tt-panel">
+        <Sub>這一班已經不在了</Sub>
+        <Actions>
+          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
+            關閉
+          </button>
+        </Actions>
+      </div>
+    );
+  }
+
+  const name = cat?.name ?? "？";
+  const untilText = ended ? fmtClock(cap) : "現在";
+  const note =
+    after === "gap"
+      ? `${fmtClock(end)} 到${untilText}會標成未記錄，之後隨時可以補。`
+      : after === "cat"
+        ? `${fmtClock(end)} 起算成那個分類，一直到${untilText}。`
+        : "這一班照跑；軸上會留一個『長時間運行』的記號。";
+
+  const confirm = (): void => {
+    void resolveLongRun(block.id, end, after, after === "cat" ? (cat2 ?? undefined) : undefined);
+  };
+
+  return (
+    <div className="ns-tt-panel ns-tt-panel-longrun">
+      <Sub>
+        {threshold === null
+          ? "其實到幾點？"
+          : ownThreshold !== null && ownThreshold > 0
+            ? `平常大約 ${fmtDur(threshold * MIN)}。其實到幾點？`
+            : `已經超過 ${fmtDur(threshold * MIN)} 的保險上限。其實到幾點？`}
+        <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>
+      </Sub>
+      <Row k="到着">
+        <Stepper value={end} steps={[-30, -5, 5, 30]} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" />
+      </Row>
+      <Row k="之後" top>
+        <Opts>
+          <Opt on={after === "gap"} onClick={() => setAfter("gap")}>
+            沒記到，留白
+          </Opt>
+          <Opt on={after === "cat"} onClick={() => setAfter("cat")}>
+            其實在做別的…
+          </Opt>
+          <Opt on={after === "keep"} onClick={() => setAfter("keep")}>
+            {ended ? "沒錯，就是這麼久" : `還在${name}，別問了`}
+          </Opt>
+        </Opts>
+      </Row>
+      {after === "cat" && <CategoryGrid selected={cat2} onPick={setCat2} compact />}
+      <Sub>{note}</Sub>
+      <Actions>
+        <button type="button" className="ns-btn btn-seal" onClick={confirm}>
+          {after === "keep" ? "知道了" : "就這樣"}
+        </button>
+      </Actions>
+    </div>
+  );
+}

@@ -55,6 +55,7 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     // 同步總開關沒開之前三張表全空、既有路徑零改變；backup plugin 排在 sql 之前，升級前照樣先有快照。
     mig!(4, "0004_sync", "sync foundation: sync_meta + sync_outbox + sync_cells (no data rows)"),
     mig!(5, "0005_notes_notes", "notes: notes table (capture / inbox / notes; diary columns reserved)"),
+    mig!(6, "0006_timetable_blocks", "timetable: time_categories + time_blocks (starter categories are seeded by the app, not here)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -122,6 +123,11 @@ mod tests {
             5,
             "0005_notes_notes",
             "020fbe62464d1c72d15f97322ad9737c5fc2d7f9a837bf5c04379cbc470104dee6e640f07c2b3f41e2e0ff8fb2aac698",
+        ),
+        (
+            6,
+            "0006_timetable_blocks",
+            "6a37993883d8807ff91e3c3f0759a45276e12d9d664dee50ce7008f5f3a63a29f1fd292c9271c4ba28da63267f02d0da",
         ),
     ];
 

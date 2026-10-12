@@ -67,6 +67,11 @@ export interface RouteDialogState {
 
 const KEY_THEME = "theme";
 const KEY_DAY_START = "day_start_hour";
+/**
+ * 日界線預設 06:00（主人 2026-10-06 拍板 D-時-21；由時刻表線①a 順帶改，契約 §6.2-3）。
+ * 之前是 03:00；`src/lib/date.ts` 等處的 `dayStartHour = 3` 參數預設值不動（呼叫端都有傳）。
+ */
+export const DEFAULT_DAY_START_HOUR = 6;
 /** 今日視圖誤點區的摺疊狀態（r1「誤點 N 件」可摺疊、**記憶狀態**）；"1"＝收起 */
 const KEY_LATE_COLLAPSED = "today_late_collapsed";
 /** 日曆視圖形態（r4「預設月視圖＋記憶切換」，D-⑤-1）；"week"＝週，其餘一律月 */
@@ -245,7 +250,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   completeCardFor: null,
   routeDialog: null,
   theme: THEME_OVERRIDE ?? "system",
-  dayStartHour: 3,
+  dayStartHour: DEFAULT_DAY_START_HOUR,
   lateCollapsed: false,
   calendarView: DEV_FLAGS.view ?? "month",
   weekStart: 1,
@@ -374,14 +379,18 @@ export const useUiStore = create<UiStore>((set, get) => ({
       applyTheme(pref);
       set({
         theme: pref,
-        dayStartHour: dayStart ? Number(dayStart) || 3 : 3,
+        // 設定值 "0"（午夜）也是合法值：以前的 `Number(x) || 3` 會把它吃成預設（既有 bug，契約 §6.2-3 順帶修）
+        dayStartHour:
+          dayStart !== null && dayStart !== "" && Number.isFinite(Number(dayStart))
+            ? Number(dayStart)
+            : DEFAULT_DAY_START_HOUR,
         lateCollapsed: lateCollapsed === "1",
         // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）
         calendarView: DEV_FLAGS.view ?? (calendarView === "week" ? "week" : "month"),
         weekStart: normalizeWeekStart(weekStart),
       });
     } catch {
-      // 設定讀取失敗不致命：維持預設（跟隨系統、03:00）
+      // 設定讀取失敗不致命：維持預設（跟隨系統、06:00）
     }
   },
 }));

@@ -14,6 +14,11 @@ mod sync;
 // pub：清單與 `version_of` 是給 sync（`SCHEMA_VERSION`、同步表 spec 的 `since`）與 probe 讀的介面。
 pub mod migrations;
 
+// 時刻表 ①a 補充契約（D-時-24／25）：桌機系統匣＋按 ✕ 縮到系統匣。全 App 的殼層行為，時刻表只透過
+// `tray_set_status` 告訴它顯示什麼。手機沒有系統匣，整支不編（`desktop` cfg 由 tauri-build 設，與 `mobile` 互斥）。
+#[cfg(desktop)]
+mod tray;
+
 // G0 金樣（`sync/foundation_golden.rs`，凍結）以 `crate::lf` 呼叫——`lf()` 搬家後在原位置留一個別名。
 #[cfg(test)]
 use migrations::lf;
@@ -31,6 +36,43 @@ pub fn run() {
     // 貼不到鏈式呼叫的中間那一段（`.plugin(x)` 不是一個項目）。重綁同名 `builder` 是 Rust 裡
     // 做條件式 builder 的標準寫法，桌機編出來的鏈與 v1.0 逐字相同——桌機行為零改變。
     let builder = tauri::Builder::default();
+
+    // 時刻表 ①a 補充契約 §2-7：單一執行個體，**必須是第一個 `.plugin`**（外掛 README：plugin 照加入順序跑，
+    // 要確定它排第一）。原因看 2.4.5 原始碼 `platform_impl/windows.rs`：第二個執行個體是在**這支 plugin 的 setup** 裡
+    // 發 WM_COPYDATA 給第一個、然後 `std::process::exit(0)`——排在後面的話，backup 的開機快照（VACUUM INTO）與
+    // sql 的 migration 會先在第二個行程裡跑一次。鍵＝bundle identifier（mutex 名 `{identifier}-sim`），所以正式版、
+    // 各線 dev（`.dev.timetable` 等）、沙盒（`sandbox.a`／`sandbox.b`）互不干擾。手機沒有這支（Cargo 只在桌機 target 拉）。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        // 第二次啟動＝叫出原本的視窗（可能正藏在系統匣），不開第二個
+        tray::show_main_window(app);
+    }));
+
+    // 時刻表 ①a 補充契約 §2-1、§2-6：桌機系統匣＋按 ✕ 縮到系統匣。
+    //  * setup 建圖示；建不起來只記 log、App 照開（系統匣不是開 App 的前提）。
+    //  * 只攔 label `main` 的 CloseRequested：先 hide 成功才 prevent_close——hide 失敗或系統匣根本沒建起來時
+    //    放行舊的關閉（不然按 ✕ 視窗不動、又沒有系統匣可以「結束」，主人只剩工作管理員）。
+    //  * 真的結束走系統匣「結束」→ `app.exit(0)`（tray.rs），收尾與舊的 ✕ 同一段（RunEvent::Exit → 各外掛 on_event）。
+    #[cfg(desktop)]
+    let builder = builder
+        .setup(|app| {
+            if let Err(e) = tray::init(app.handle()) {
+                eprintln!("[tray] 系統匣建立失敗（按 ✕ 會照舊直接關）：{e}");
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                use tauri::Manager;
+                if window.label() != tray::MAIN_WINDOW || window.app_handle().tray_by_id(tray::TRAY_ID).is_none() {
+                    return;
+                }
+                match window.hide() {
+                    Ok(()) => api.prevent_close(),
+                    Err(e) => eprintln!("[tray] 縮到系統匣失敗，照舊關閉：{e}"),
+                }
+            }
+        });
 
     // M3 ⑥：備份 plugin 必須排在 sql plugin **之前**——PluginStore 是 Vec、依註冊順序
     // initialize_all，所以只有排在前面才能在 migration 跑之前拍到前一版 schema 的快照。
@@ -112,6 +154,8 @@ pub fn run() {
             sync::commands::sync_start_over,
             // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
             // ── 時刻表線插槽 ──
+            // ①a 補充契約 §2-8：系統匣顯示運行中（桌機限定；手機那份不加——手機沒有系統匣、tray mod 不編）
+            tray::tray_set_status,
             // ── 售票口線插槽 ──
         ]);
 

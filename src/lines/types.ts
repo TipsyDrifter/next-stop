@@ -80,6 +80,13 @@ export interface LineMount {
    */
   sidebarTool?: ComponentType;
   /**
+   * 桌機書封的頁務件插槽（接縫 #50；旅客筆記③與售票口①共用）：該線 `page.status === "open"` 且當前頁＝該線時，
+   * 取代書封的 `.lines-scroll`（「我的路線」）整段；全域三件（gnav、工具列、cover-foot）不動。
+   * 元件自己負責 `flex:1; min-height:0; overflow:auto` 的捲動與 h2 總標（沿用 `.lines h2` 的樣式：中文＋拉丁字），
+   * 樣式寫在該線自己的 CSS、class 用自己的前綴。未通車即使填了也不掛。
+   */
+  sidebarAux?: ComponentType;
+  /**
    * 日曆格內記號插槽（旅客筆記車次② 0-2 乙）：該線 `page.status === "open"` 時，日曆頁換區間就呼叫
    * `(from, to)`（YYYY-MM-DD，含兩端），回「要畫記號的日 key」；格標頭列 `.ch` 末尾畫 `i.mark.mark-<line>`，
    * 三線固定順序；底色由 `calendar.css` 的 `.mark` 出（各線可用 `.mark-<line>` 自己改）。未通車即使填了也不畫。
