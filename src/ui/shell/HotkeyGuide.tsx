@@ -34,6 +34,7 @@ export function HotkeyGuide() {
 
 function HotkeyGuideCard() {
   const page = useUiStore((s) => s.page);
+  const calendarView = useUiStore((s) => s.calendarView);
   const setOpen = useUiStore((s) => s.setHotkeyGuideOpen);
   const openSettings = useUiStore((s) => s.openSettings);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -53,7 +54,8 @@ function HotkeyGuideCard() {
     };
   }, []);
 
-  const scope = pageScope(page);
+  // 行程表切到「串流」排列時，格層表只剩 Esc；實際在用的是 daylist 那張（StreamView 自己查表，主線車次① ☎3）
+  const scope = page === "calendar" && calendarView === "stream" ? "daylist" : pageScope(page);
   const here = sceneOf(scope);
   const global = sceneOf("global");
 

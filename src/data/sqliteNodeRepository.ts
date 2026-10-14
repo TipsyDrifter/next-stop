@@ -46,6 +46,7 @@ import type {
   NodeRepository,
   RouteProgress,
   RouteProgressSeed,
+  ScheduleBounds,
   ScheduleEntry,
   SidebarData,
   TodayRow,
@@ -54,6 +55,7 @@ import {
   buildCalendar,
   buildRouteProgress,
   buildSchedule,
+  buildScheduleBounds,
   buildSerialMap,
   compareTodayRows,
   pickTodayOccurrence,
@@ -859,6 +861,17 @@ export class SqliteNodeRepository implements NodeRepository {
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
     const occByNode = await this.occurrencesByNode(db, repeatIds);
     return buildCalendar(nodes, occByNode, from, to, today, dayStartHour);
+  }
+
+  async scheduleBounds(): Promise<ScheduleBounds> {
+    const db = await getDb();
+    // 與 listCalendar 同一句、同一趟（主線車次① P5）：邊界只看會進日曆的那批列
+    const nodes = await db.select<NodeRow[]>(
+      `SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`,
+    );
+    const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
+    const occByNode = await this.occurrencesByNode(db, repeatIds);
+    return buildScheduleBounds(nodes, occByNode);
   }
 
   async routeProgress(routeId: string): Promise<RouteProgress> {

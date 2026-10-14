@@ -893,6 +893,9 @@ async function refreshAfterPull(
       await node.loadSidebar();
       await node.loadToday(todayKey(useUiStore.getState().dayStartHour));
       if (node.routeId) await node.reloadRoute();
+      // 接縫 #54：refreshAfterPull 手機分支各線各加一段，待收成登記式插槽（地基小修）
+      const cal = useNodeStore.getState().calendar;
+      if (cal.from && cal.to) await node.loadCalendar(cal.from, cal.to);
     } else {
       await node.refresh();
     }

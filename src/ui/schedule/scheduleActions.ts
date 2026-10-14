@@ -1,0 +1,255 @@
+/**
+ * scheduleActions——行程表串流對一列／一張卡的動作（主線車次①；契約 §3.6）。
+ *
+ * 核心是 `makeScheduleActions(shell)`：純物件、不是 hook——桌機鍵盤在容器層對「選中的那一列」動作，
+ * 不能每列掛一個 hook。讀 store 一律 `getState()`（最新值，不吃舊 closure）。
+ * `useScheduleActions(nodeId, date)` 是 Plan 原名、包一張卡的 hook（手機串流卡用）：從 calendar 切片取
+ * entry／node、算 `dayRowModel`（日曆同一把尺），回綁好的動作。
+ *
+ * 守門與收據全部沿既有：
+ *   済／取消済／取消運休 ＝ DayPopover.tsx:198-225 同款（`canStampRow` 守門、擋下時同一句 toast）
+ *   運休             ＝ DayPopover.tsx:228-240（非定期券 REPEAT_ONLY_MSG）
+ *   T／Shift+T        ＝ DayPopover.tsx:243-258（定期券 REPEAT_RESCHEDULE_MSG；離開這天出 showRescheduleToast）
+ *   改期／清除執行日   ＝ DeferPopover.tsx:174-191（INBOX_TOAST＋復原）；已交代 SETTLED_DEFER_MSG（useMobileToday.ts:31）
+ *   建票             ＝ useMobileToday.createTicket 同款（busy 重入鎖、失敗 toast）
+ * 資料一律經 nodeStore（元件不碰 repository）。今天＝`todayKey(dayStartHour)`，每次呼叫當下算。
+ */
+import { useMemo } from "react";
+import { isTaskKind, parseRule, type NodeRow } from "../../domain";
+import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
+import { useNodeStore } from "../../store/nodeStore";
+import { useUiStore } from "../../store/uiStore";
+import { addDays, todayKey } from "../../lib/date";
+import { canStampRow, dayRowModel, mmdd, type DayRowModel } from "../calendar/DayRow";
+import { INBOX_TOAST, showRescheduleToast } from "../today/useTodayController";
+import { SETTLED_DEFER_MSG } from "../mobile/useMobileToday";
+
+/** 一個動作目標：班次列（日曆同一把尺）或「只在締切日浮出來」的票（手機卡用，§0-1 第 14 條） */
+export type ScheduleTarget = { kind: "entry"; row: DayRowModel } | { kind: "due"; node: NodeRow };
+
+export interface ScheduleActions {
+  /** 済／取消済／取消運休。entry：canStampRow 守門，擋下時 toast 與 DayPopover.tsx:202-208 同一句；
+   *  定期券運休中＝skipOccurrence(id, false, entry.date)；其餘 setCompleted(id, !done)。
+   *  桌機：蓋下去且 isTaskKind ⇒ setCompleteCardFor（DayPopover.tsx:224 同款）。
+   *  手機：不開完成卡；目標在今日切片（today.byId[id]）且有未完成直屬子項 ⇒ 先 askConfirm（useMobileToday.ts:136-145 同一句）。
+   *  回傳是否真的蓋下去（給呼叫端播 fresh 動畫）。 */
+  stamp(t: ScheduleTarget): boolean;
+  /** U／定期券版 sheet：skipOccurrence(id, !skipped, row.entry.date)；非定期券 ⇒ toast REPEAT_ONLY_MSG；失敗吐 reason */
+  suspend(row: DayRowModel): void;
+  /** T／Shift+T（桌機）：DayPopover.tsx:243-258 同款（定期券擋 REPEAT_RESCHEDULE_MSG；離開這天就出 showRescheduleToast） */
+  scheduleRelative(row: DayRowModel, offset: 0 | 1): void;
+  /** 改期（手機 sheet、桌機以外的入口）。null＝清除執行日：INBOX_TOAST＋復原（DeferPopover.tsx:182-191 同款）；
+   *  已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ REPEAT_RESCHEDULE_MSG；day < today ⇒ 不動（P10／驗收 13 的最後守門）；
+   *  其餘 reschedule(id, day)＋（day !== today）showRescheduleToast */
+  defer(t: ScheduleTarget, day: string | null): void;
+  /** 草稿列建票：day < today ⇒ false；busy 重入鎖；createNode({ kind:"ticket", name, parentId:null, scheduledOn: day })；
+   *  失敗 toast「新增失敗——請再試一次」 */
+  createOn(day: string, name: string): Promise<boolean>;
+  /** 桌機 `.`：select(id)＋setPanelOpen(true) */
+  openPanel(nodeId: string): void;
+}
+
+/** DayPopover.tsx:64 的同一句（該檔沒 export；字面照抄） */
+const HISTORY_MSG = "歷史班次唯讀——只能交代目前班次";
+
+const nodeOf = (t: ScheduleTarget): NodeRow | undefined => (t.kind === "entry" ? t.row.node : t.node);
+
+export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleActions {
+  const ns = () => useNodeStore.getState();
+  const ui = () => useUiStore.getState();
+  const today = () => todayKey(ui().dayStartHour);
+  const toast = (message?: string) => {
+    if (message) ui().showToast({ message }, 3600);
+  };
+  let busy = false;
+
+  /**
+   * 蓋済的共用尾段：手機對今日切片裡有未完成直屬子項的票先問（useMobileToday.ts:136-145 同一句）；
+   * 桌機列車／車廂蓋章＋完成卡（a6／D4）。回傳是否「立刻」蓋下去（進確認窗＝還沒蓋，不播 fresh）。
+   */
+  const complete = (node: NodeRow): boolean => {
+    const finish = (cascade: boolean) => {
+      void ns().setCompleted(node.id, true, cascade ? true : undefined);
+      if (shell === "desktop" && isTaskKind(node.kind)) ui().setCompleteCardFor(node.id);
+    };
+    if (shell === "mobile") {
+      const tr = ns().today.byId[node.id];
+      const open = tr ? tr.child_total - tr.child_done : 0;
+      if (open > 0) {
+        ui().askConfirm({
+          title: `連同 ${open} 個未完成子項一起完成？`,
+          body: `「${node.name}」底下未完成的子項會一併蓋上済章。`,
+          confirmLabel: "一起完成",
+          onConfirm: () => finish(true),
+        });
+        return false;
+      }
+    }
+    finish(false);
+    return true;
+  };
+
+  return {
+    stamp(t) {
+      const node = nodeOf(t);
+      if (!node) return false;
+      if (t.kind === "due") {
+        // 締切浮出來的單發票：済蓋在票本身（status），沒有班次層的鎖
+        if (node.status === "done") {
+          void ns().setCompleted(node.id, false);
+          return false;
+        }
+        return complete(node);
+      }
+      const row = t.row;
+      // 鍵盤／手機卡都走同一支 canStampRow，不繞過視覺上的鎖（DayPopover.tsx:202-208 同一句）
+      if (!canStampRow(row)) {
+        toast(
+          row.isRepeat && (row.ahead || row.isFuture)
+            ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
+            : HISTORY_MSG,
+        );
+        return false;
+      }
+      if (row.skipped) {
+        // 運休中點在章上＝取消運休（検印輪替「…→運休→空欄」最後一步）
+        void ns()
+          .skipOccurrence(node.id, false, row.entry.date)
+          .then((r) => {
+            if (!r.ok && r.reason) toast(r.reason);
+          });
+        return false;
+      }
+      if (row.done) {
+        void ns().setCompleted(node.id, false);
+        return false;
+      }
+      return complete(node);
+    },
+
+    suspend(row) {
+      const node = row.node;
+      if (!node) return;
+      if (!row.isRepeat) {
+        toast(REPEAT_ONLY_MSG);
+        return;
+      }
+      void ns()
+        .skipOccurrence(node.id, !row.skipped, row.entry.date)
+        .then((r) => {
+          if (!r.ok && r.reason) toast(r.reason);
+        });
+    },
+
+    scheduleRelative(row, offset) {
+      const node = row.node;
+      if (!node) return;
+      if (row.isRepeat) {
+        toast(REPEAT_RESCHEDULE_MSG);
+        return;
+      }
+      const t = today();
+      const next = offset ? addDays(t, 1) : t;
+      const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
+      void ns().reschedule(node.id, next);
+      // 票離開這一天＝這一列當場消失 → 補一張可反悔的收據（同推遲小卡）
+      if (next !== row.entry.date) showRescheduleToast(node.id, prev, next);
+    },
+
+    defer(t, day) {
+      const node = nodeOf(t);
+      if (!node) return;
+      const settled = t.kind === "entry" ? t.row.done || t.row.skipped : node.status === "done";
+      if (settled) {
+        toast(SETTLED_DEFER_MSG);
+        return;
+      }
+      const isRepeat = t.kind === "entry" ? t.row.isRepeat : parseRule(node.repeat_rule) !== null;
+      if (isRepeat) {
+        toast(REPEAT_RESCHEDULE_MSG);
+        return;
+      }
+      if (day === null) {
+        // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去
+        const prev = node.scheduled_on;
+        void ns().reschedule(node.id, null);
+        ui().showToast({
+          message: INBOX_TOAST,
+          actionLabel: "復原",
+          onAction: () => void ns().reschedule(node.id, prev),
+        });
+        return;
+      }
+      const t0 = today();
+      if (day < t0) return; // P10／驗收 13 的最後守門
+      const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
+      void ns().reschedule(node.id, day);
+      if (day !== t0) showRescheduleToast(node.id, prev, day);
+    },
+
+    async createOn(day, raw) {
+      const name = raw.trim();
+      if (!name || busy) return false;
+      if (day < today()) return false;
+      busy = true;
+      try {
+        const row = await ns().createNode({ kind: "ticket", name, parentId: null, scheduledOn: day });
+        if (!row) {
+          toast("新增失敗——請再試一次");
+          return false;
+        }
+        return true;
+      } finally {
+        busy = false;
+      }
+    },
+
+    openPanel(nodeId) {
+      ui().select(nodeId);
+      ui().setPanelOpen(true);
+    },
+  };
+}
+
+/**
+ * Plan 原名：一張卡用（手機串流卡）。從 calendar 切片取 entry／node、算 dayRowModel，回綁好的動作。
+ * entry 不在切片裡（視窗剛換、資料還沒到）⇒ row 為 null，動作全部 no-op。
+ */
+export function useScheduleActions(
+  nodeId: string,
+  date: string,
+): {
+  row: DayRowModel | null;
+  stamp(): boolean;
+  suspend(): void;
+  defer(day: string | null): void;
+} {
+  const calendar = useNodeStore((s) => s.calendar);
+  const routes = useNodeStore((s) => s.routes);
+  const currentOccurrences = useNodeStore((s) => s.currentOccurrences);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+
+  const row = useMemo<DayRowModel | null>(() => {
+    const entry = calendar.entries.find((e) => e.date === date && e.node_id === nodeId);
+    if (!entry) return null;
+    const node = calendar.nodes[nodeId];
+    const route = node?.route_id ? routes.find((r) => r.id === node.route_id) : undefined;
+    return dayRowModel(entry, node, route, currentOccurrences[nodeId]?.due_on ?? null, todayKey(dayStartHour));
+  }, [calendar, routes, currentOccurrences, dayStartHour, nodeId, date]);
+
+  const actions = useMemo(() => makeScheduleActions("mobile"), []);
+
+  return useMemo(
+    () => ({
+      row,
+      stamp: () => (row ? actions.stamp({ kind: "entry", row }) : false),
+      suspend: () => {
+        if (row) actions.suspend(row);
+      },
+      defer: (day) => {
+        if (row) actions.defer({ kind: "entry", row }, day);
+      },
+    }),
+    [row, actions],
+  );
+}

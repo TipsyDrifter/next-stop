@@ -1,0 +1,278 @@
+/* ─────────────────────────────────────────────────────
+ * schedule.css — 行程表「串流」排列（主線車次①，桌機；契約 §4.1 的表）。
+ *
+ * 視覺真相：
+ *   版面／段標題／區間列／誤點列／締切小段／cheer ＝ prototypes/主線-行程表-手機.html（.sec :353-392、.late-jump :395-413、
+ *     .day.is-empty :426-434、.run-head :436-451、.subhead :454-458、.cheer :541-546），數值逐字；桌機版去掉 gutter 的負邊距
+ *   一列（.prow 一族）＝ ../calendar/daypop.css:98-200 逐條抄過來、前綴 `.ns-daypop` 換 `.ns-sch`（契約 §0-1 第 3 條：
+ *     那一套全部掛在 `position:fixed; display:none` 的 `.ns-daypop` 底下，借不到殼）
+ *   草稿票的虛線邊＝ ../today/today.css:152-161 抄過來、前綴換 `.ns-sch`（§0-1 第 4 條；`.ticket` 本體在全域 techo.css）
+ *   `.sec` 本體是全域（techo.css:206-217），這裡只寫串流專用覆寫（sticky、收緊間距）
+ *
+ * 注入順序（鐵律 4）：本檔由 StreamView.tsx import ＝排在 index.css（含 techo.css）之前 → 一律加 `.ns-sch` 前綴抬一級；
+ *   版面兩條用 `.ns-calendar.is-stream`（CalendarView 在串流時掛的 class）。
+ *
+ * 顏色只用 theme.css 的 token（含 color-mix）。紙面上的作用中／強調＝`--accent`（粉彩靛、銀河金）——原型的金
+ * （今日菱形、focus 環）一律換 `--accent`（theme.css 契約 5）；赭＝`--color-late`；朱只給済章。
+ * daypop 的圓牌深字 #1d1f3a／#0f1218 換 `--color-ink`／銀河 `--color-on-seal`（同是「亮盤深字」那一階）。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 版面：串流時頁面本身不捲，捲的是 .ns-sch-scroll ═══ */
+.ns-calendar.is-stream { overflow: hidden; display: flex; flex-direction: column; }
+.ns-calendar.is-stream .sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ns-calendar.is-stream header.day { flex: none; }
+.ns-sch { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ns-sch-scroll {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; overflow-anchor: none; outline: none;
+  padding: 0 2px 24px;
+}
+/* 手帳式捲軸（techo.css:125-128 同款，前綴換這裡） */
+.ns-sch-scroll::-webkit-scrollbar { width: 10px; }
+.ns-sch-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 22%, transparent); border-radius: 5px; }
+.ns-sch-scroll::-webkit-scrollbar-track { background: transparent; }
+[data-theme="dark"] .ns-sch-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 16%, transparent); }
+
+/* ═══ 一天 ═══ */
+.ns-sch-day { position: relative; padding-bottom: 6px; }
+.ns-sch-day.is-empty { padding-bottom: 0; }
+.ns-sch-rows { padding: 0 4px; }
+
+/* ═══ 段標題（.sec 語彙；串流裡 sticky＝推擠式，各段標題只黏在自己那一段內；原型 :353-366） ═══ */
+.ns-sch .sec {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: baseline; gap: 9px;
+  margin: 0 0 6px; padding: 12px 4px 8px;
+  background-color: color-mix(in srgb, color-mix(in srgb, var(--sky-top) 45%, var(--sky-mid)) 78%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(12px) saturate(1.1);
+}
+.ns-sch .sec h3 {
+  margin: 0; white-space: nowrap;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .18em; color: var(--color-ink);
+}
+.ns-sch .sec h3 .dt { font-family: var(--font-body); font-weight: 500; font-size: 13px; letter-spacing: .06em; }
+.ns-sch .sec h3 .rel + .dt { margin-left: .7em; color: var(--color-ink-soft); }
+.ns-sch .sec .rule { flex: 1; min-width: 12px; border-top: 1px dashed var(--color-dash); align-self: center; }
+.ns-sch .sec .note { font-size: 10px; letter-spacing: .14em; color: var(--color-ink-soft); white-space: nowrap; }
+.ns-sch .sec .note b { font-weight: 700; color: var(--color-ink); font-size: 11px; }
+.ns-sch .sec .note .left { color: var(--color-ink-faint); }
+.ns-sch .sec .note .late-n { color: var(--color-late); }
+/* 今天＝菱形（原型 :388-392 是金 ⇒ 換 --accent） */
+.ns-sch .sec.is-today h3 .rel { color: var(--color-ink); }
+.ns-sch .sec.is-today h3 .rel::before {
+  content: ""; display: inline-block; width: 6px; height: 6px;
+  background: var(--accent); transform: rotate(45deg) translateY(-1px);
+  margin-right: 8px;
+}
+.ns-sch .sec.is-past h3 { color: var(--color-ink-soft); }
+/* 可點開草稿的標題列（今天與未來；D-主-8） */
+.ns-sch .sec.is-clickable { cursor: pointer; transition: background-image .15s; }
+.ns-sch .sec.is-clickable:hover {
+  background-image: linear-gradient(color-mix(in srgb, var(--accent) 5%, transparent), color-mix(in srgb, var(--accent) 5%, transparent));
+}
+.ns-sch .sec:focus { outline: none; }
+.ns-sch .sec:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+/* 空白日／區間列／邊界行＝一行（不 sticky、無底色、不留大片空白；原型 :426-434） */
+.ns-sch-day.is-empty .sec,
+.ns-sch-run > .sec,
+.ns-sch .ns-sch-edge {
+  position: relative; background: transparent;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  margin-bottom: 0; padding: 7px 4px; min-height: 34px; align-items: center;
+}
+.ns-sch-day.is-empty .sec h3,
+.ns-sch-run > .sec h3,
+.ns-sch .ns-sch-edge h3 { color: var(--color-ink-faint); font-weight: 600; font-size: 13px; }
+.ns-sch-day.is-empty .sec h3 .dt,
+.ns-sch-run > .sec h3 .dt,
+.ns-sch .ns-sch-edge h3 .dt { font-size: 12.5px; color: var(--color-ink-faint); }
+.ns-sch-day.is-empty .sec .note,
+.ns-sch-run > .sec .note,
+.ns-sch .ns-sch-edge .note { color: var(--color-ink-faint); letter-spacing: .1em; }
+.ns-sch-day.is-empty .sec .rule,
+.ns-sch-run > .sec .rule,
+.ns-sch .ns-sch-edge .rule { border-top-color: var(--color-line); }
+.ns-sch .ns-sch-edge { cursor: default; }
+
+/* ═══ 區間列（連續空白 ≥2 天／「以後」邊界）：按鈕一行，點了逐日攤開，再點收回（原型 :436-451） ═══ */
+.ns-sch-run-head {
+  width: 100%; border: 0; text-align: left;
+  font: inherit; color: inherit; cursor: pointer;
+  transition: background-color .15s;
+}
+.ns-sch-run-head:hover { background-color: color-mix(in srgb, var(--color-paper-high) 40%, transparent); }
+.ns-sch-run-head:hover h3 .dt { color: var(--color-ink-soft); }
+.ns-sch-run-head:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-sch-run-head .caret { display: inline-block; margin-left: .55em; transition: transform .2s ease-out; }
+.ns-sch-run.is-open > .ns-sch-run-head .caret { transform: rotate(90deg); }
+.ns-sch-run.is-open > .ns-sch-run-head .note { color: var(--color-ink-soft); }
+/* 攤開的逐日行：左縮 14px、h3 前一道細短線＝「屬於上面那個區間」 */
+.ns-sch-run.is-open > .ns-sch-day .sec { padding-left: 18px; }
+.ns-sch-run.is-open > .ns-sch-day .sec h3::before {
+  content: ""; display: inline-block; width: 7px; margin-right: 7px; vertical-align: middle;
+  border-top: 1px solid var(--color-dash);
+}
+.ns-sch-run.is-open > .ns-sch-day .sec.is-today h3::before { content: none; }
+
+/* 剛攤開的逐日行淡入（原型 barIn :340、:452） */
+@keyframes nsSchIn { from { opacity: 0; transform: translateY(-6px); } }
+.ns-sch-day.is-unfold { animation: nsSchIn .24s ease-out; }
+
+/* ═══ 誤點列（今日段標題正上方；一整列都是按鈕，不 sticky，點了捲到最早的誤點日；原型 :395-413） ═══ */
+.ns-sch-latejump {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; min-height: 44px;
+  margin: 0; padding: 8px 4px 2px;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  font: inherit; color: var(--color-late);
+}
+.ns-sch-latejump .lj-t { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .18em; white-space: nowrap; }
+.ns-sch-latejump .lj-t::before {
+  content: ""; display: inline-block; width: 6px; height: 6px;
+  background: var(--color-late); transform: rotate(45deg) translateY(-1px);
+  margin-right: 9px; opacity: .85;
+}
+.ns-sch-latejump .rule { flex: 1; min-width: 12px; border-top: 1px dashed color-mix(in srgb, var(--color-late) 40%, transparent); }
+.ns-sch-latejump .lj-n { font-size: 10px; letter-spacing: .14em; white-space: nowrap; }
+.ns-sch-latejump .caret { display: inline-block; margin-left: .5em; transition: transform .2s ease-out; }
+.ns-sch-latejump:hover .lj-t {
+  text-decoration: underline dashed color-mix(in srgb, var(--color-late) 45%, transparent);
+  text-underline-offset: 4px;
+}
+.ns-sch-latejump:hover .caret { transform: translateY(-2px); }
+.ns-sch-latejump:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+/* ═══ 締切小段（原型 .subhead :454-458） ═══ */
+.ns-sch-subhead {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 4px 6px; font-size: 10.5px; letter-spacing: .2em; color: var(--color-late);
+}
+.ns-sch-subhead::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--color-late) 35%, transparent); }
+
+/* ═══ 今日全交代（原型 .cheer :541-546） ═══ */
+.ns-sch-cheer {
+  display: flex; align-items: center; gap: 9px; margin: 12px 4px 2px;
+  font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-soft);
+  animation: nsSchIn .4s ease-out;
+}
+.ns-sch-cheer::after { content: ""; flex: 1; border-top: 1px dashed var(--color-dash); }
+
+/* ═══ 草稿列（點日期標題列在那天底下開；同款票、虛線邊＝today.css:152-161 抄過來） ═══ */
+.ns-sch .ns-sch-draft { margin: 8px 4px 4px; }
+.ns-sch .ticket.draft,
+.ns-sch .ticket.draft::before,
+.ns-sch .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
+.ns-sch .ticket.draft .stamp { cursor: default; pointer-events: none; }
+.ns-sch .ticket input.title {
+  display: block; width: 100%; min-width: 160px;
+  margin: 0; background: transparent; border: 0; outline: none; border-radius: 0;
+  color: var(--color-ink); line-height: inherit;
+}
+.ns-sch .ticket input.title::placeholder { color: var(--color-ink-faint); }
+
+/* ═══ 一列（daypop.css:98-200 逐條、前綴 .ns-daypop → .ns-sch） ═══ */
+.ns-sch .prow { display: flex; align-items: center; gap: 9px; padding: 7px 0; }
+/* 原型沒有「選中列」的視覺：只在鍵盤流現身（同 DayCell 的處置） */
+.ns-sch .prow:focus { outline: none; }
+.ns-sch .prow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+
+.ns-sch .roundel-s {
+  width: 19px; height: 19px; flex: none; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--font-latin); font-weight: 600; font-size: 8.5px;
+  color: var(--color-ink); letter-spacing: 0;
+}
+[data-theme="dark"] .ns-sch .roundel-s { color: var(--color-on-seal); }
+/* 無路線＝襯線「臨」（承臨時車票的由來） */
+.ns-sch .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; }
+
+.ns-sch .prow .t {
+  flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-decoration: line-through transparent 1px;
+  transition: color .25s, text-decoration-color .25s;
+}
+.ns-sch .prow.done .t { color: var(--color-ink-faint); text-decoration-color: color-mix(in srgb, var(--color-ink) 35%, transparent); }
+/* 運休＝不刪除線、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12；與浮層同一套） */
+.ns-sch .prow.skipped .t { color: var(--color-ink-soft); }
+.ns-sch .prow.late .t { color: var(--color-late); }
+
+/* 重複班次圖示；目前／未來班次那一列是按鈕（叫出小卡定期券版） */
+.ns-sch .prow .rep { flex: none; color: var(--color-ink-faint); display: grid; place-items: center; }
+.ns-sch .prow .rep-btn {
+  border: 0; background: transparent; padding: 0; cursor: pointer;
+  transition: color .15s;
+}
+.ns-sch .prow .rep-btn:hover { color: var(--accent); }
+.ns-sch .prow .rep-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
+.ns-sch .defer {
+  flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: 2px;
+  color: var(--ink-mid, var(--color-ink-soft)); font-size: 10px; letter-spacing: .14em;
+  padding: 3px 7px 3px 9px; cursor: pointer; font-family: inherit;
+  transition: color .15s, border-color .15s;
+}
+.ns-sch .defer:hover { color: var(--accent); border-color: var(--accent); }
+.ns-sch .defer:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-sch .prow.done .defer { display: none; }
+
+/* 迷你検印欄（＝今日票検印圈的縮小版） */
+.ns-sch .stamp-s {
+  width: 32px; height: 32px; flex: none; border-radius: 50%;
+  border: 1.5px dashed var(--color-dash); background: transparent;
+  display: grid; place-items: center; cursor: pointer;
+  color: var(--color-ink-faint); position: relative; padding: 0;
+  transition: border-color .18s, transform .18s;
+}
+.ns-sch .stamp-s:hover { border-color: var(--accent); transform: rotate(-5deg); }
+.ns-sch .stamp-s:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 不可點的空欄（未來／歷史班次）：形還在，但不邀請你按 */
+.ns-sch .stamp-s.locked { cursor: default; }
+.ns-sch .stamp-s.locked:hover { border-color: var(--color-dash); transform: none; }
+
+.ns-sch .seal-s {
+  position: absolute; inset: -1px; border-radius: 50%;
+  border: 2px solid var(--color-seal); color: var(--color-seal);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 12%, transparent), transparent 62%);
+  transform: rotate(-8deg); opacity: 0; pointer-events: none;
+  filter: url(#inkbleed);
+}
+[data-theme="dark"] .ns-sch .seal-s {
+  background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 14%, transparent), transparent 62%);
+}
+.ns-sch .prow.done .seal-s { opacity: .94; }
+.ns-sch .prow.done .stamp-s { border-color: transparent; }
+.ns-sch .prow.fresh .seal-s { animation: stampIn .4s cubic-bezier(.2, 1.5, .4, 1); }
+
+/* 運休章：既有的墨色角印（SealSuspended）壓在 32px 検印欄上（zoom .8＝可讀優先，刻意出格；daypop.css:176-187） */
+.ns-sch .susp-slot {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: unsafe center;
+}
+.ns-sch .susp-slot .ns-imp { --ns-zoom: .8; }
+.ns-sch .prow.skipped .stamp-s { border-color: transparent; }
+
+/* 締切列 */
+.ns-sch .prow .sime-g {
+  flex: none; font-family: var(--font-display); font-weight: 600; font-size: 13px;
+  color: var(--color-late); transform: rotate(-6deg); line-height: 1;
+}
+.ns-sch .noexec {
+  flex: none; font-size: 9px; letter-spacing: .16em;
+  border: 1px solid var(--color-dash); color: var(--color-ink-faint);
+  padding: 1px 4px 1px 6px;
+}
+.ns-sch .due-tag { flex: none; font-size: 10px; letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
+
+/* ═══ 減量動態：只關動畫與過場，不動版面；程式捲動的 behavior 由 useStream 讀同一個 media query 改 auto ═══ */
+@media (prefers-reduced-motion: reduce) {
+  .ns-sch-day.is-unfold, .ns-sch-cheer { animation: none; }
+  .ns-sch .prow.fresh .seal-s { animation: none; }
+  .ns-sch .stamp-s, .ns-sch .prow .t, .ns-sch .sec.is-clickable, .ns-sch-run-head,
+  .ns-sch-run-head .caret, .ns-sch-latejump .caret, .ns-sch .defer, .ns-sch .prow .rep-btn { transition: none; }
+  .ns-sch .stamp-s:hover, .ns-sch-latejump:hover .caret { transform: none; }
+}

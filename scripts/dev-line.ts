@@ -8,8 +8,8 @@
  *   - scripts/probes/dev-quota.ts 對帳
  *
  * 解析順序（決策 10）：
- *   1. NS_DEV_LINE（去頭尾空白、轉小寫）。四個合法值之一就用它；有值但不合法＝丟錯、不啟動
- *   2. 沒設 ⇒ 看分支名：`feat/(notes|timetable|ticket)-…` ⇒ 該線
+ *   1. NS_DEV_LINE（去頭尾空白、轉小寫）。五個合法值之一就用它；有值但不合法＝丟錯、不啟動
+ *   2. 沒設 ⇒ 看分支名：`feat/(notes|timetable|ticket|core)-…` ⇒ 該線
  *   3. 其餘（main、feat/foundation、detached HEAD、不在 git 裡）⇒ main（主桌配額）
  * 為什麼要看分支名：agent 的 shell 環境變數不跨指令保留，漏設就會靜默用 1425／.dev 撞主桌。
  *
@@ -17,9 +17,10 @@
  */
 import { execFileSync } from "node:child_process";
 
-export type DevLine = "main" | "notes" | "timetable" | "ticket";
+export type DevLine = "main" | "notes" | "timetable" | "ticket" | "core";
 
-export const DEV_LINES: readonly DevLine[] = ["main", "notes", "timetable", "ticket"];
+/** 第五席 core＝主線小車次（調度派的核心功能車次：今日串流、車票預定時刻；公約 §八 2026-10-10 加） */
+export const DEV_LINES: readonly DevLine[] = ["main", "notes", "timetable", "ticket", "core"];
 
 /** HMR port 一律是 `port + 1`（只在 TAURI_DEV_HOST 有設時用到）。main 的設定檔就是現行那份，一個字都不動 */
 export const DEV_QUOTA: Record<DevLine, { port: number; identifier: string; conf: string }> = {
@@ -31,9 +32,10 @@ export const DEV_QUOTA: Record<DevLine, { port: number; identifier: string; conf
     conf: "src-tauri/tauri.dev.timetable.conf.json",
   },
   ticket: { port: 1455, identifier: "app.shitetsu.nextstop.dev.ticket", conf: "src-tauri/tauri.dev.ticket.conf.json" },
+  core: { port: 1465, identifier: "app.shitetsu.nextstop.dev.core", conf: "src-tauri/tauri.dev.core.conf.json" },
 };
 
-const BRANCH_RE = /^feat\/(notes|timetable|ticket)-/;
+const BRANCH_RE = /^feat\/(notes|timetable|ticket|core)-/;
 
 function isDevLine(v: string): v is DevLine {
   return (DEV_LINES as readonly string[]).includes(v);

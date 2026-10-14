@@ -51,12 +51,12 @@ const CORE_PAGES: readonly PageDef[] = [
   },
   {
     id: "calendar",
-    label: "日曆",
+    label: "行程表",
     status: "open",
     navDigit: "3",
     navHotkeyId: "global.nav.calendar",
     hotkeyScope: "calendar",
-    guideTitle: "日曆的快捷鍵",
+    guideTitle: "行程表的快捷鍵",
   },
 ];
 

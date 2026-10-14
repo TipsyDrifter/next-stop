@@ -1,13 +1,21 @@
 /**
- * MobileToday——今日視圖手機版（v1.1.0；WP1）＝副平台的落地頁。
+ * MobileToday——今日 tab 的手機頁（v1.1.0；WP1）＝副平台的落地頁。
  *
  * 拍板依據：D-1.1-2「副平台最小操作＝看今日、蓋済、推遲到明天、開臨時車票」＋契約 §2.7 的呼叫表。
- * 狀態機在 `useMobileToday.ts`（載入／蓋済／推遲／建票），本檔只負責畫與三個覆蓋層以外的本地互動：
- *   ⋯ 開的底部 action sheet（本地 useState；不進 uiStore——它只活在這一頁，關頁就該消失）。
+ * 狀態機在 `useMobileToday.ts`（載入／蓋済／改期／建票），本檔只負責畫與覆蓋層以外的本地互動：
+ *   ⋯ 開的底部 sheet（本地 useState；不進 uiStore——它只活在這一頁，關頁就該消失）。
+ *
+ * **主線車次①（D-主-5、契約 §2.3-1）**：今日 tab 內分成「今日｜行程表」兩個子頁——根 Fragment 變成
+ *   `<MobileSegmentedBar/>` ＋（子頁）`<TodaySub/>` 或 `<MobileSchedule/>`；子頁在 `scheduleUiStore.mobileSub`
+ *   （P4：同一次開啟期間記住、冷啟動回「今日」）。`useMobileToday()` 在**根**呼叫一次：今日切片兩個子頁都要
+ *   （行程表的「誤點 N 件」沿今日切片算，§3.4），結果以參數傳給 TodaySub。
+ *   `TodaySub` ＝ v1.1.0 的整段版面原封搬進來、結構不動，只有三處改：MobileTicket 改吃票卡模型（§3.7）、
+ *   ⋯ sheet 換成兩子頁共用的 MobileTicketSheet（四項＋定期券運休，P11）、全済文案「到路線圖」→「到行程表」（P6）。
  *
  * 版面（由上而下，單欄滿版）：
- *   .m-page  統計一行 → 誤點區（**置頂**＝r1 拍板）→「今天的列車」清單／空狀態
- *   .m-newticket  固定在 tab bar 之上的建票輸入列（不在 .m-page 內＝不跟著捲走）
+ *   .m-sch-seg  兩段切換
+ *   .m-page.m-today  統計一行 → 誤點區（**置頂**＝r1 拍板）→「今天的列車」清單／空狀態
+ *   .m-newticket  固定在 tab bar 之上的建票輸入列（不在 .m-page 內＝不跟著捲走；只有今日子頁有，D-主-8）
  *
  * 與桌機今日視圖刻意不同的四處（都在契約的「不做」清單裡，記在這裡免得日後被當成遺漏）：
  *   1. 沒有頁首日期與日付印——日付印在頂帶（MobileTopBand），同一個畫面不蓋兩枚。
@@ -25,23 +33,43 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { useNodeStore } from "../../store/nodeStore";
 import { MobileTicket } from "./MobileTicket";
-import { useMobileToday } from "./useMobileToday";
-import { isSettledRow } from "../today/useTodayController";
+import { MobileTicketSheet } from "./MobileTicketSheet";
+import { MobileSegmentedBar, useSubSwipe } from "./MobileSegmentedBar";
+import { MobileSchedule } from "./MobileSchedule";
+import { useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { useScheduleUiStore } from "../schedule/scheduleUiStore";
+import { cardFromTodayRow } from "../schedule/ticketCard";
 
 export default function MobileToday() {
   const c = useMobileToday();
-  /** ⋯ 開的 action sheet 指向哪一列（null＝關著） */
+  const sub = useScheduleUiStore((s) => s.mobileSub);
+  return (
+    <>
+      <MobileSegmentedBar />
+      {sub === "today" ? <TodaySub c={c} /> : <MobileSchedule />}
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+ * 今日子頁（v1.1.0 的整段版面原封搬進來）
+ * ═══════════════════════════════════════════════════════ */
+
+function TodaySub({ c }: { c: MobileTodayApi }) {
+  /** ⋯ 開的 sheet 指向哪一列（null＝關著） */
   const [sheetId, setSheetId] = useState<string | null>(null);
   /** 誤點區展開與否（本地 state，預設展開；不進 uiStore＝不污染桌機的 lateCollapsed，見檔頭 3） */
   const [lateOpen, setLateOpen] = useState(true);
   const sheetRow = useNodeStore((s) => (sheetId ? (s.today.byId[sheetId] ?? null) : null));
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  useSubSwipe(pageRef, "today");
 
   const { total, done, left } = c.stats;
   const allSettled = !c.empty && left === 0 && c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
 
   return (
     <>
-      <div className="m-page m-today">
+      <div className="m-page m-today" ref={pageRef}>
         {total > 0 && (
           <p className="m-today-stats">
             完成 <b>{done}</b>/<b>{total}</b>
@@ -75,12 +103,12 @@ export default function MobileToday() {
                 {c.lateRows.map((r) => (
                   <MobileTicket
                     key={r.id}
-                    row={r}
+                    card={cardFromTodayRow(r, c.dateKey)}
                     route={c.routeOf(r)}
-                    dateKey={c.dateKey}
+                    today={c.dateKey}
                     fresh={c.freshId === r.id}
-                    onComplete={c.complete}
-                    onMore={setSheetId}
+                    onComplete={(card) => c.complete(card.nodeId)}
+                    onMore={(card) => setSheetId(card.nodeId)}
                   />
                 ))}
               </ul>
@@ -110,12 +138,12 @@ export default function MobileToday() {
                   {c.todayRows.map((r) => (
                     <MobileTicket
                       key={r.id}
-                      row={r}
+                      card={cardFromTodayRow(r, c.dateKey)}
                       route={c.routeOf(r)}
-                      dateKey={c.dateKey}
+                      today={c.dateKey}
                       fresh={c.freshId === r.id}
-                      onComplete={c.complete}
-                      onMore={setSheetId}
+                      onComplete={(card) => c.complete(card.nodeId)}
+                      onMore={(card) => setSheetId(card.nodeId)}
                     />
                   ))}
                 </ul>
@@ -129,7 +157,7 @@ export default function MobileToday() {
                   <h3>今天的班次都到站了</h3>
                   <span className="rule" />
                 </div>
-                <p className="m-empty-body">剩下的時間是你的。明天要跑的，可以到路線圖先排好。</p>
+                <p className="m-empty-body">剩下的時間是你的。明天要跑的，可以到行程表先排好。</p>
               </div>
             )}
           </>
@@ -139,13 +167,11 @@ export default function MobileToday() {
       <MobileNewTicket onCreate={c.createTicket} />
 
       {sheetRow && (
-        <MobileActionSheet
-          name={sheetRow.name}
-          settled={isSettledRow(sheetRow)}
-          onDefer={() => {
-            c.deferTomorrow(sheetRow.id);
-            setSheetId(null);
-          }}
+        <MobileTicketSheet
+          card={cardFromTodayRow(sheetRow, c.dateKey)}
+          today={c.dateKey}
+          onDefer={(d) => c.defer(sheetRow.id, d)}
+          onSkip={(s) => c.skip(sheetRow.id, s)}
           onClose={() => setSheetId(null)}
         />
       )}
@@ -225,53 +251,6 @@ function MobileNewTicket({ onCreate }: { onCreate(name: string, inbox: boolean):
       >
         発券
       </button>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════
- * 底部 action sheet——⋯ 的唯一用途（v1.1.0 只有「推遲到明天」）
- * ═══════════════════════════════════════════════════════ */
-
-/**
- * 為什麼是底部 sheet 而不是桌機那張 DeferPopover：小卡是 anchor 定位＋日期選擇＋定期券分支的完整浮層，
- *   手機版 v1.1.0 只做「推遲到明天」一項（契約 §2.7），一張錨在票旁的小卡反而遮住列。
- *   底部 sheet 的好處是拇指按得到、暗幕點哪都關得掉。
- * 「取消」是清清楚楚的一格，不只依賴點暗幕——觸控裝置上暗幕關閉是隱性知識。
- */
-function MobileActionSheet({
-  name,
-  settled,
-  onDefer,
-  onClose,
-}: {
-  name: string;
-  /** 已蓋済／運休：推遲項改成一行說明、不可點（與桌機「settled 列不出＋執行日」同款） */
-  settled: boolean;
-  onDefer(): void;
-  onClose(): void;
-}) {
-  return (
-    <div className="m-sheet-veil techo-veil" role="presentation" onClick={onClose}>
-      <div
-        className="m-sheet ns-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`車票動作——${name}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="m-sheet-title">{name}</p>
-        {settled ? (
-          <p className="m-sheet-item is-disabled">已蓋済——先取消済章才能推遲</p>
-        ) : (
-          <button type="button" onClick={onDefer} className="m-sheet-item">
-            推遲到明天
-          </button>
-        )}
-        <button type="button" onClick={onClose} className="m-sheet-item is-cancel">
-          取消
-        </button>
-      </div>
     </div>
   );
 }

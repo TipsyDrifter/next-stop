@@ -16,6 +16,9 @@
  *   外圈「私鐵手帳／NEXT STOP」細字退成裝飾，中央的月.日仍清楚）。要改回 76 只要動這一個常數。
  * 深底配色不必在這裡處理——WP0 已寫 `.m-band .ns-date-seal { color: var(--color-book-ink) }`（契約 §5-6）。
  *
+ * 主線階段①（P3）：今日 tab 停在「行程表」子頁時，標題換「行程表／SCHEDULE」；日付印的條件不變（仍是今日 tab 就蓋）。
+ *   子頁讀 `scheduleUiStore.mobileSub`；`tabs.ts` 是集中檔不動，所以字寫在這裡而不是登記表。
+ *
  * 售票口線車次①（D-票-20；《2026-10-11-售票口-車次①帳本-契約.md》§2.6 #7、0-28）：第五格讓給售票口後，
  *   「更多」的入口改成 `.m-band-end` 最右的 ⋯ 鈕（`.m-band-more`，樣式在 mobile.css）。每一頁都有、排在日付印之後；
  *   在「更多」頁時 `aria-pressed="true"`（底部五格此時都不亮），點任一格 tab 離開——不記上一格、不加返回鈕。
@@ -25,6 +28,7 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { DateSeal } from "../stamps";
 import { SyncDot } from "../common/SyncDot";
+import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { ICON_MORE, renderTabIcon, type MobileTab } from "./tabs";
 
 /** 頂帶日付印的尺寸（見檔頭「尺寸自決」） */
@@ -39,15 +43,17 @@ function dateOf(key: string): Date {
 export function MobileTopBand({ tab }: { tab: MobileTab }) {
   const storedKey = useNodeStore((s) => s.today.dateKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const sub = useScheduleUiStore((s) => s.mobileSub);
   const setMobileTab = useUiStore((s) => s.setMobileTab);
   const today = tab.key === "today";
   const dateKey = storedKey ?? todayKey(dayStartHour);
+  const schedule = today && sub === "schedule";
 
   return (
     <header className="m-band">
       <div className="m-band-name">
-        <div className="m-band-title">{tab.label}</div>
-        <div className="m-band-latin">{tab.latin}</div>
+        <div className="m-band-title">{schedule ? "行程表" : tab.label}</div>
+        <div className="m-band-latin">{schedule ? "SCHEDULE" : tab.latin}</div>
       </div>
       {/* v1.1.1 WP8：同步狀態點掛在頂帶右端（今日頁在日付印左邊）。
           沒加入同步時（v1.1.3 的說法；舊稱「未啟用」）`SyncDot` 整顆不渲染，`.m-band-end` 就是個空的 flex 容器——

@@ -54,13 +54,13 @@ export const SCENES: readonly Scene[] = [
   },
   {
     scope: "calendar",
-    title: "日曆（格層）",
-    note: "日曆的月格或週格裡，焦點停在某一天的時候。",
+    title: "行程表（月格／週格）",
+    note: "行程表的月格或週格裡，焦點停在某一天的時候。",
   },
   {
     scope: "daylist",
-    title: "日曆・當日清單",
-    note: "在日曆點開某一天的清單浮層之後。",
+    title: "行程表・當日清單與串流",
+    note: "在行程表點開某一天的清單浮層，或切到「串流」排列的時候。",
   },
   // 三條功能線的分組（各線 manifest 的 scenes）：插在頁面類之後、通用兩組之前。未通車的線是空的 ⇒ 仍是七組
   ...LINE_MANIFESTS.flatMap((m) => m.scenes),

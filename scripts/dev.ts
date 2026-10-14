@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import { DEV_QUOTA, devCommand, parseDevLine, resolveDevLine } from "./dev-line.ts";
 import type { DevLine } from "./dev-line.ts";
 
-const USAGE = "用法：node scripts/dev.ts <print|tauri|vite> [--line <main|notes|timetable|ticket>]";
+const USAGE = "用法：node scripts/dev.ts <print|tauri|vite> [--line <main|notes|timetable|ticket|core>]";
 
 function fail(msg: string): never {
   console.error(`[dev] ${msg}`);

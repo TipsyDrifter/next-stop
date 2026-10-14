@@ -296,7 +296,7 @@ export function TodayView() {
           <EmptyBlock
             cheer
             title="今天的班次都到站了"
-            body="剩下的時間是你的。明天要跑的，可以到路線圖先排好。"
+            body="剩下的時間是你的。明天要跑的，可以到行程表先排好。"
           />
         )}
 

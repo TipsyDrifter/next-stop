@@ -32,6 +32,7 @@ import type {
   NodePatch,
   NodeRepository,
   RouteProgress,
+  ScheduleBounds,
   ScheduleEntry,
   SidebarData,
   TodayRow,
@@ -40,6 +41,7 @@ import {
   buildCalendar,
   buildRouteProgress,
   buildSchedule,
+  buildScheduleBounds,
   buildSerialMap,
   compareTodayRows,
   pickTodayOccurrence,
@@ -392,6 +394,15 @@ export class MemoryNodeRepository implements NodeRepository {
       if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
     }
     return buildCalendar(this.alive(), byNode, from, to, today, h);
+  }
+
+  async scheduleBounds(): Promise<ScheduleBounds> {
+    // 與 listCalendar 同一批資料（主線車次① P5）：存活節點＋存活班次記錄，語義全在 buildScheduleBounds
+    const byNode: Record<string, Occurrence[]> = {};
+    for (const o of this.occ.values()) {
+      if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
+    }
+    return buildScheduleBounds(this.alive(), byNode);
   }
 
   async routeProgress(routeId: string): Promise<RouteProgress> {

@@ -4,7 +4,7 @@
  * 將來手機端換儲存、或接同步服務，只換實作不動上層。
  */
 import type { NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, RepeatRule, WorkLog } from "../domain";
-import { currentDue, firstFixedDate, parseRule, projectAfter, projectFixed } from "../domain";
+import { currentDue, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed } from "../domain";
 import { isInDay } from "../lib/date";
 
 export interface CreateNodeInput {
@@ -165,6 +165,19 @@ export interface CalendarData {
   entries: ScheduleEntry[];
   dues: DueEntry[];
   nodes: Record<string, NodeRow>;
+}
+
+/**
+ * 串流的邊界（主線車次① P5）：`listCalendar` 在任何區間可能吐出東西的最早／最晚一天。
+ * 行程表串流補到這兩端就停、出「以前／以後」邊界行；語義＝純函式 `buildScheduleBounds`（§3.2）。
+ */
+export interface ScheduleBounds {
+  /** null＝庫裡沒有任何會出現在行程表的東西 */
+  earliest: string | null;
+  /** null＝同上；openEndedRepeat 為 true 時這個值只代表「非無界部分」的最晚日 */
+  latest: string | null;
+  /** 有未退役（status != 'done'）、固定排程、until 為 null 的定期券 ⇒ 未來無界，串流不出「以後」邊界 */
+  openEndedRepeat: boolean;
 }
 
 export interface SidebarData {
@@ -328,6 +341,11 @@ export interface NodeRepository {
    * 不存在／不是路線的 id 回四個 0（呼叫端不必先查存在）。
    */
   routeProgress(routeId: string): Promise<RouteProgress>;
+  /**
+   * 串流邊界（主線車次① P5）。唯讀；語義＝純函式 `buildScheduleBounds`，
+   * 兩種實作只負責撈資料（與 `listCalendar` 同一趟 SELECT＋occurrences）。
+   */
+  scheduleBounds(): Promise<ScheduleBounds>;
 }
 
 // ───────────── 兩種實作共用的純函式（語義單一真相，SQLite／Memory 都吃這裡）─────────────
@@ -590,6 +608,51 @@ export function buildCalendar(
   for (const e of entries) if (byId[e.node_id]) table[e.node_id] = byId[e.node_id];
   for (const e of dues) if (byId[e.node_id]) table[e.node_id] = byId[e.node_id];
   return { entries, dues, nodes: table };
+}
+
+/**
+ * `scheduleBounds` 的共用核心（主線車次① P5；兩種實作只負責把 nodes／occurrences 撈出來餵進來）。
+ * 過濾與 `buildCalendar` 同一把尺（存活、kind ∈ {train, car, ticket}）。候選日：
+ *   無規則（單發票，含 legacy 自由文字）｜`scheduled_on`（任何 status）；`due_on`（只在未完成——締切層只收未完成）
+ *   有規則、任何 status　　　　　　　　　｜所有存活 occurrence 的 `due_on`（班次結局＝歷史，退役也留）
+ *   有規則、未退役　　　　　　　　　　　｜`due_on`（系列死線）；fixed：`firstFixedDate(rule, rule.start)`（投影從 start 起，
+ *     `buildSchedule` 對過去沒結局的每一班都標 is_late，所以起點要算進來，契約 §0-1 第 7 條），
+ *     `until` 非 null 另加 `lastFixedDate(rule, rule.until)`、為 null ⇒ `openEndedRepeat`；after：`scheduled_on`（只投目前一班）
+ * `earliest`／`latest`＝候選日 min／max；沒有候選 ⇒ 兩個都 null。
+ */
+export function buildScheduleBounds(
+  nodes: readonly NodeRow[],
+  occByNode: Record<string, Occurrence[]>,
+): ScheduleBounds {
+  let earliest: string | null = null;
+  let latest: string | null = null;
+  let openEndedRepeat = false;
+  const add = (d: string | null | undefined) => {
+    if (!d) return;
+    if (earliest === null || d < earliest) earliest = d;
+    if (latest === null || d > latest) latest = d;
+  };
+  for (const node of nodes) {
+    if (node.deleted_at !== null) continue;
+    if (node.kind !== "train" && node.kind !== "car" && node.kind !== "ticket") continue;
+    const rule = parseRule(node.repeat_rule);
+    if (!rule) {
+      add(node.scheduled_on);
+      if (node.status !== "done") add(node.due_on);
+      continue;
+    }
+    for (const o of occByNode[node.id] ?? []) add(o.due_on);
+    if (node.status === "done") continue;
+    add(node.due_on);
+    if (rule.mode === "fixed") {
+      add(firstFixedDate(rule, rule.start));
+      if (rule.until !== null) add(lastFixedDate(rule, rule.until));
+      else openEndedRepeat = true;
+    } else {
+      add(node.scheduled_on);
+    }
+  }
+  return { earliest, latest, openEndedRepeat };
 }
 
 /**

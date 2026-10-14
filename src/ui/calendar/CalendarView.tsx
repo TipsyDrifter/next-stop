@@ -18,11 +18,16 @@
  *   `WeekGrid`（WP4）＝週視圖，`view==="week"` 時掛載
  *   `DueTip`／`MonthHeaderNotes`（WP5）＝〆 hover 明細／頁邊手寫＋統計列
  *   `MonthJump`（⑤-b 追加 1）＝月／年快速跳轉小卡，`jumpOpen` 時掛載；入口＝date-line 的月份大字鈕
+ *   `StreamView`（主線車次①）＝「串流」排列，`view==="stream"` 時掛載：頁面本身不捲（`.is-stream`），
+ *     串流自己捲、頁尾也畫在捲動內容裡；頁首的 ‹ ›／今日／月份字改走 scroll-spy（控制器 §2.2-1）
  * 資料一律經 `useCalendar()`（＝`useCalendarController` 的 context），不各自查 store。
+ *
+ * 使用者可見的頁名「行程表」（D-主-2／P2）：`PageId`／scope／settings key 仍叫 calendar，只改字。
  */
 import { useRef } from "react";
 import { addDays } from "../../lib/date";
 import { DateSeal } from "../stamps";
+import { StreamView } from "../schedule/StreamView";
 import { DayPopover } from "./DayPopover";
 import { DueTip } from "./DueTip";
 import { MonthGrid } from "./MonthGrid";
@@ -76,12 +81,14 @@ export function weekHeading(weekStartKey: string): { d: string; w: string; latin
 export function CalendarView() {
   const containerRef = useRef<HTMLElement>(null);
   const c = useCalendarController(containerRef);
-  const onKeyDown = useCalendarKeyboard(c.keys, c.blocked);
+  const stream = c.view === "stream";
+  // 串流時格層表只剩 Esc（StreamView 自己吃 daylist 那張表）
+  const onKeyDown = useCalendarKeyboard(c.keys, c.blocked || stream);
 
   const cur = dateOf(c.cursor);
   const monthEn = MONTH_EN[cur.getMonth()];
   // 頁首三段：月視圖＝月／年／英文月名；週視圖＝日期區間／年／latin 區間（大字仍是 MonthJump 的觸發鈕，
-  // 小卡的「目前月」照舊由 cursor（週視圖＝該週週一）決定，契約不動）
+  // 小卡的「目前月」照舊由 cursor（週視圖＝該週週一；串流＝focusDay 的月）決定，契約不動）
   const week = c.view === "week" ? weekHeading(c.cursor) : null;
 
   return (
@@ -94,8 +101,8 @@ export function CalendarView() {
         if (c.popTarget) c.closeDay();
         if (c.tipTarget) c.hideTip();
       }}
-      aria-label="日曆"
-      className="page ns-calendar"
+      aria-label="行程表"
+      className={stream ? "page ns-calendar is-stream" : "page ns-calendar"}
     >
       <CalendarProvider value={c}>
         <div className="sheet">
@@ -103,8 +110,8 @@ export function CalendarView() {
           <header className="day">
             <div className="day-head">
               <p className="overline">
-                <span className="theme-pastel-only">Calendar</span>
-                <span className="theme-galaxy-only">日曆 — CALENDAR</span>
+                <span className="theme-pastel-only">Schedule</span>
+                <span className="theme-galaxy-only">行程表 — SCHEDULE</span>
               </p>
               <div className="date-line">
                 {/* 月份大字＝月／年快速跳轉的入口（⑤-b 追加 1）。無邊框、hover 才現底，
@@ -122,8 +129,8 @@ export function CalendarView() {
                   <span className="w">{week ? week.w : `${cur.getFullYear()}年`}</span>
                 </button>
                 <span className="latin">{week ? week.latin : monthEn}</span>
-                {/* 頁邊手寫＋統計列（WP5 覆蓋；.month-stats 由 CSS 換到下一行） */}
-                <MonthHeaderNotes range={c.range} today={c.today} />
+                {/* 頁邊手寫＋統計列（WP5 覆蓋；.month-stats 由 CSS 換到下一行）。串流沒有「本區間」可統計 ⇒ 不畫 */}
+                {!stream && <MonthHeaderNotes range={c.range} today={c.today} />}
               </div>
 
               <div className="cal-ctl">
@@ -148,7 +155,7 @@ export function CalendarView() {
                 <button
                   type="button"
                   className="today-chip"
-                  title="跳回今天所在的月份（Home）"
+                  title={stream ? "捲回今天（Home）" : "跳回今天所在的月份（Home）"}
                   onClick={c.goToday}
                 >
                   今日
@@ -173,6 +180,15 @@ export function CalendarView() {
                   >
                     週
                   </button>
+                  <button
+                    type="button"
+                    className={stream ? "on" : undefined}
+                    aria-pressed={stream}
+                    title="串流：從今天往上下捲"
+                    onClick={() => c.setView("stream")}
+                  >
+                    串流
+                  </button>
                 </div>
               </div>
             </div>
@@ -187,15 +203,18 @@ export function CalendarView() {
             />
           </header>
 
-          {/* ═══ 月間頁／週視圖 ═══ */}
-          {c.view === "week" ? <WeekGrid weekStart={c.cursor} days={c.days} /> : <MonthGrid />}
+          {/* ═══ 月間頁／週視圖／串流 ═══ */}
+          {stream ? <StreamView /> : c.view === "week" ? <WeekGrid weekStart={c.cursor} days={c.days} /> : <MonthGrid />}
 
-          <footer className="page-foot">
-            <span>私鐵手帳・日曆</span>
-            <span className="fr">
-              {monthEn} {cur.getFullYear()}
-            </span>
-          </footer>
+          {/* 串流的頁尾畫在捲動內容的最後（StreamView），這裡不畫 */}
+          {!stream && (
+            <footer className="page-foot">
+              <span>私鐵手帳・行程表</span>
+              <span className="fr">
+                {monthEn} {cur.getFullYear()}
+              </span>
+            </footer>
+          )}
         </div>
 
         {/* 當日清單浮層（WP3 填內容；WP2 是空殼，事件已接） */}

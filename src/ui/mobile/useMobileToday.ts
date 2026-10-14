@@ -7,10 +7,13 @@
  *   **判準函式不重寫**：isDoneRow／isSettledRow／showRescheduleToast／INBOX_TOAST 一律 import 桌機那一份，
  *   兩殼吃同一把尺（M3 ④ 定期券口徑：活著的定期券看班次結局、其餘看 nodes.status）。
  *
- * 資料唯一入口仍是 nodeStore（元件不碰 repository），四個動作逐條對應契約 §2.7 的表：
+ * 資料唯一入口仍是 nodeStore（元件不碰 repository），動作逐條對應契約 §2.7 的表：
  *   蓋済／取消済／取消運休 → setCompleted／skipOccurrence（含「連同 N 個未完成子項」確認窗）
- *   推遲到明天            → reschedule(addDays(dateKey,1)) ＋ showRescheduleToast（帶「復原」）
+ *   改期（主線車次① P11）  → `defer(id, target)`：reschedule(target) ＋ showRescheduleToast（帶「復原」）；
+ *                            target=null＝清除執行日：INBOX_TOAST＋「復原」放回原執行日（DeferPopover.tsx 同款）
+ *   本班運休／取消運休     → `skip(id, skip)`：skipOccurrence(id, skip)（不帶 dueOn＝今日頁口徑）
  *   臨時車票／無日期票     → createNode({ scheduledOn: dateKey | null })，後者附 INBOX_TOAST 的「取消建立」
+ *   v1.1.0 的 `deferTomorrow` 已併進 `defer`（⋯ sheet 從一項補成四項＋運休，P11）。
  *
  * 三條重載時機（手機比桌機多一條）：
  *   ① 進頁與日界線設定變動  → loadToday(todayKey(dayStartHour))
@@ -24,7 +27,7 @@ import { parseRule, type NodeRow } from "../../domain";
 import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-import { addDays, todayKey } from "../../lib/date";
+import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
@@ -45,8 +48,10 @@ export interface MobileTodayApi {
 
   /** 済／取消済／取消運休——票右側印章區単擊 */
   complete(id: string): void;
-  /** 推遲到明天（定期券擋下並吐 REPEAT_RESCHEDULE_MSG） */
-  deferTomorrow(id: string): void;
+  /** 改期；null＝清除執行日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ REPEAT_RESCHEDULE_MSG） */
+  defer(id: string, target: string | null): void;
+  /** 定期券：本班運休（true）／取消運休（false）——今日頁口徑：不帶 dueOn */
+  skip(id: string, skip: boolean): void;
   /** 建票；inbox=true＝無日期票（收件匣）。回傳有沒有建成功（成功才清輸入框） */
   createTicket(name: string, inbox: boolean): Promise<boolean>;
 
@@ -148,31 +153,49 @@ export function useMobileToday(): MobileTodayApi {
     void run();
   }, []);
 
-  /* ───────── 推遲到明天（桌機 Shift+T 同一條路；誤點區的票也能推）───────── */
+  /* ───────── 改期（⋯ sheet 四項的共同出口；誤點區的票也能推）───────── */
 
-  const deferTomorrow = useCallback(
-    (id: string) => {
-      const row = ns().today.byId[id];
-      if (!row) return;
-      // 已蓋済／運休的票不能推遲（與桌機同款：TodayRow 對 settled 列不出「＋執行日」）——
-      // 2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，UI 隱藏之外這裡再守一道
-      if (isSettledRow(row)) {
-        toast(SETTLED_DEFER_MSG);
-        return;
-      }
-      // 定期券的班次由規則排定（D-④-3）——擋在 UI 這一層，不讓 store throw
-      if (parseRule(row.repeat_rule)) {
-        toast(REPEAT_RESCHEDULE_MSG);
-        return;
-      }
-      const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
-      const next = addDays(ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour), 1);
-      void ns().reschedule(id, next);
-      // 票一改期就離開今日清單，今天唯一的回饋是這張可反悔的收據（與桌機同款）
-      showRescheduleToast(id, prev, next);
-    },
-    [],
-  );
+  const defer = useCallback((id: string, target: string | null) => {
+    const row = ns().today.byId[id];
+    if (!row) return;
+    // 已蓋済／運休的票不能推遲（與桌機同款：TodayRow 對 settled 列不出「＋執行日」）——
+    // 2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，UI 隱藏之外這裡再守一道
+    if (isSettledRow(row)) {
+      toast(SETTLED_DEFER_MSG);
+      return;
+    }
+    // 定期券的班次由規則排定（D-④-3）——擋在 UI 這一層，不讓 store throw
+    if (parseRule(row.repeat_rule)) {
+      toast(REPEAT_RESCHEDULE_MSG);
+      return;
+    }
+    if (target === null) {
+      // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去（DeferPopover.tsx 同款）
+      const prevDay = row.scheduled_on;
+      void ns().reschedule(id, null);
+      ui().showToast({
+        message: INBOX_TOAST,
+        actionLabel: "復原",
+        onAction: () => void ns().reschedule(id, prevDay),
+      });
+      return;
+    }
+    const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
+    void ns().reschedule(id, target);
+    // 票一改期就離開今日清單，今天唯一的回饋是這張可反悔的收據（與桌機同款）；排回今天不出收據
+    const key = ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour);
+    if (target !== key) showRescheduleToast(id, prev, target);
+  }, []);
+
+  /* ───────── 本班運休／取消運休（定期券版 sheet；今日頁口徑不帶 dueOn）───────── */
+
+  const skip = useCallback((id: string, skipIt: boolean) => {
+    void ns()
+      .skipOccurrence(id, skipIt)
+      .then((r) => {
+        if (!r.ok) toast(r.reason);
+      });
+  }, []);
 
   /* ───────── 建票（臨時券排今天／無日期票進收件匣）───────── */
 
@@ -218,7 +241,8 @@ export function useMobileToday(): MobileTodayApi {
       left: todayRows.length - todayRows.filter(isSettledRow).length,
     },
     complete,
-    deferTomorrow,
+    defer,
+    skip,
     createTicket,
     freshId,
   };

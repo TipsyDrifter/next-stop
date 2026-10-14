@@ -26,7 +26,7 @@ export type ThemePref = "pastel" | "galaxy" | "system";
 export type { PageId } from "../ui/shell/pages";
 
 /** 日曆視圖形態（D-⑤-1 甲：月／週同一套格語彙，週＝一列七欄放大版）；預設月、切換記憶 */
-export type CalendarView = "month" | "week";
+export type CalendarView = "month" | "week" | "stream";
 
 /**
  * 設定頁的分頁（D-⑥-7 三籤；SettingsPanel 的 TABS 照這個型別）。
@@ -74,7 +74,7 @@ const KEY_DAY_START = "day_start_hour";
 export const DEFAULT_DAY_START_HOUR = 6;
 /** 今日視圖誤點區的摺疊狀態（r1「誤點 N 件」可摺疊、**記憶狀態**）；"1"＝收起 */
 const KEY_LATE_COLLAPSED = "today_late_collapsed";
-/** 日曆視圖形態（r4「預設月視圖＋記憶切換」，D-⑤-1）；"week"＝週，其餘一律月 */
+/** 日曆視圖形態（r4「預設月視圖＋記憶切換」，D-⑤-1）；"week"＝週／"stream"＝串流，其餘一律月 */
 const KEY_CALENDAR_VIEW = "calendar_view";
 /** 每週從星期幾開始（旅客筆記車次② D-筆-29）：JS getDay() 數字字串，"1"＝一、"0"＝日 */
 const KEY_WEEK_START = "week_start";
@@ -165,7 +165,7 @@ interface UiStore {
   dayStartHour: number;
   /** 今日視圖：誤點區是否收起（持久化 settings key today_late_collapsed；M3 ③ r1） */
   lateCollapsed: boolean;
-  /** 日曆視圖：月／週（持久化 settings key calendar_view；M3 ⑤ D-⑤-1） */
+  /** 日曆視圖：月／週／stream＝串流（持久化 settings key calendar_view；M3 ⑤ D-⑤-1、主線車次①） */
   calendarView: CalendarView;
   /**
    * 每週從星期幾開始（持久化 settings key week_start；旅客筆記車次② D-筆-29）：JS `getDay()` 的值，
@@ -386,7 +386,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
             : DEFAULT_DAY_START_HOUR,
         lateCollapsed: lateCollapsed === "1",
         // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）
-        calendarView: DEV_FLAGS.view ?? (calendarView === "week" ? "week" : "month"),
+        calendarView: DEV_FLAGS.view ?? (calendarView === "week" || calendarView === "stream" ? calendarView : "month"),
         weekStart: normalizeWeekStart(weekStart),
       });
     } catch {

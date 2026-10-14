@@ -220,7 +220,7 @@ function GeneralTab() {
             );
           })}
         </div>
-        <p className="ns-note mt-2">日曆與旅客筆記的月曆都照這個排。</p>
+        <p className="ns-note mt-2">行程表與旅客筆記的月曆都照這個排。</p>
       </div>
     </div>
   );

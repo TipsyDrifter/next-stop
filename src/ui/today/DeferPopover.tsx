@@ -232,8 +232,15 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     }
   };
 
-  const tomorrow = addDays(dateKey, 1);
-  const monday = nextMonday(dateKey);
+  /**
+   * 改期兩項的基準日（主線車次① ☎4）：票的執行日在未來（行程表串流／日曆浮層的未來列）時，
+   * 「明天」會把票往前拉——改成「往後推一天」＝執行日＋1，「下週一」也以執行日為基準（與手機 sheet 同一把尺）。
+   * 今日頁的列不會有未來執行日 ⇒ 今日頁行為不變。
+   */
+  const future = row.scheduled_on !== null && row.scheduled_on > dateKey;
+  const base = future ? (row.scheduled_on as string) : dateKey;
+  const tomorrow = addDays(base, 1);
+  const monday = nextMonday(base);
 
   /* ── 定期券版（見檔頭）：規則 parse 得出來就換一套內容 ── */
   const rule = parseRule(row.repeat_rule);
@@ -299,7 +306,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       <ul className="ns-defer-list">
         <li>
           <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(tomorrow)}>
-            <span>明天</span>
+            <span>{future ? "往後推一天" : "明天"}</span>
             <span className="when">{whenLabel(tomorrow)}</span>
           </button>
         </li>
@@ -339,10 +346,12 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       {!rule && picking && (
         <div className="ns-defer-pick">
           {/* 共用挑選器（D-筆-30）：沒有快選（明天／下週一已在上面）；開啟時焦點落在日期欄；
-              Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡 */}
+              Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡。
+              min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4） */}
           <DatePicker
             label="選擇執行日"
             value={row.scheduled_on ?? dateKey}
+            min={dateKey}
             onPick={(v) => {
               if (isSaneDateKey(v)) applyDate(v);
             }}

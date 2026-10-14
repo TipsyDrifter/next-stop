@@ -37,9 +37,15 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { lineCalendarMarks } from "../../lines/runtime";
 import type { LineId } from "../../lines/types";
+import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import type { CalendarKeyActions } from "./useCalendarKeyboard";
 
-export type CalendarViewMode = "month" | "week";
+/**
+ * 三種排列（主線車次① D-主-2）：月格／週格／串流。
+ * `stream`＝StreamView 自己管視窗與載入（useStream）；本控制器在串流時**不載入、不算格**，
+ * 頁首的月份字吃 scroll-spy 的 `focusDay`，‹ ›／今日／MonthJump 都改成發捲動請求（契約 §2.2-1）。
+ */
+export type CalendarViewMode = "month" | "week" | "stream";
 
 /**
  * 跳轉可及的年份範圍（⑤-b 追加 1 派工指定 1970–2100）。
@@ -203,10 +209,13 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const calendar = useNodeStore((s) => s.calendar);
   const routes = useNodeStore((s) => s.routes);
   const loadCalendar = useNodeStore((s) => s.loadCalendar);
-  const view = useUiStore((s) => s.calendarView);
+  // uiStore 的 CalendarView 型別由整合席在集中檔放寬（契約 §5.1-3）；這裡先以三值讀，分支補齊才過 tsc
+  const view = useUiStore((s) => s.calendarView) as CalendarViewMode;
   const setCalendarView = useUiStore((s) => s.setCalendarView);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const firstDow = useUiStore((s) => s.weekStart);
+  // 串流的 scroll-spy：頁首月份與 MonthJump 的「目前月」吃它（StreamView 沒掛時為 null）
+  const focusDay = useScheduleUiStore((s) => s.focusDay);
 
   const [today, setToday] = useState(() => todayKey(dayStartHour));
   // 游標＝錨點日；月／週由 view 推。`?day=YYYY-MM-DD`（dev／mock 專用）＝直接落在那一天所在的月／週
@@ -231,14 +240,21 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   }, []);
 
   /* ───────── 游標 → 區間與格 ───────── */
-  const cursor = view === "month" ? monthStart(anchor) : weekStart(anchor, firstDow);
+  const cursor =
+    view === "stream"
+      ? monthStart(focusDay ?? today)
+      : view === "month"
+        ? monthStart(anchor)
+        : weekStart(anchor, firstDow);
   const weekOrder = useMemo(() => weekdayOrderOf(firstDow), [firstDow]);
+  // 串流的 range 只給頁首用（不載入；視窗由 useStream 管）
   const range = useMemo(
-    () => (view === "month" ? { from: cursor, to: monthEnd(cursor) } : { from: cursor, to: addDays(cursor, 6) }),
+    () => (view === "week" ? { from: cursor, to: addDays(cursor, 6) } : { from: cursor, to: monthEnd(cursor) }),
     [view, cursor],
   );
 
   const days = useMemo(() => {
+    if (view === "stream") return [];
     if (view === "week") return Array.from({ length: 7 }, (_, i) => addDays(cursor, i));
     // 月：前置 lead 格（上個月）＋當月＋補滿整列（原型 :997-999 同一套算法）
     const lead = columnOf(cursor, firstDow);
@@ -248,13 +264,16 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   }, [view, cursor, firstDow]);
 
   /* ───────── 載入（同區間去重由 store 負責；today 變了也要重撈 is_late） ───────── */
+  // 串流時不載：nodeStore.calendar 只有一個切片、loadCalendar 整段取代，月／週的 range 會蓋掉串流視窗（契約 §0-1 第 5 條）
   useEffect(() => {
+    if (view === "stream") return;
     void loadCalendar(range.from, range.to);
-  }, [loadCalendar, range.from, range.to, today, dayStartHour]);
+  }, [view, loadCalendar, range.from, range.to, today, dayStartHour]);
 
   // 三線格內記號（0-2 乙）：沒有線登記就直接返回——不查、不 setState，DOM 與地基前相同
   const [marks, setMarks] = useState<Record<string, LineId[]>>({});
   useEffect(() => {
+    if (view === "stream") return;
     const ps = lineCalendarMarks();
     if (!ps.length) return;
     let alive = true;
@@ -266,7 +285,7 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     return () => {
       alive = false;
     };
-  }, [range.from, range.to, today]);
+  }, [view, range.from, range.to, today]);
 
   /* ───────── 依日期分組 ───────── */
   const byDate = useMemo<CalendarByDate>(() => {
@@ -333,21 +352,29 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const setView = useCallback(
     (next: CalendarViewMode) => {
       if (next === view) return;
-      void setCalendarView(next); // 記憶＝settings key calendar_view（r4）
+      // 記憶＝settings key calendar_view（r4）；`stream` 也記（P2）。型別斷言：uiStore 的 CalendarView 等整合席放寬（§5.1-3）
+      void setCalendarView(next as Parameters<typeof setCalendarView>[0]);
       setPopTarget(null);
       setTipTarget(null);
     },
     [view, setCalendarView],
   );
 
+  /** 串流時頁首鈕不動 anchor，改發捲動請求（useStream 訂閱 scrollReq） */
+  const requestScroll = (day: string) => useScheduleUiStore.getState().requestScroll(day);
+
   const go = useCallback(
     (delta: number) => {
       setPopTarget(null);
       setTipTarget(null);
+      if (view === "stream") {
+        requestScroll(addDays(focusDay ?? today, 7 * delta)); // ‹ › ＝ ±7 天
+        return;
+      }
       setAnchor((prev) => (view === "month" ? addMonths(prev, delta) : addDays(prev, delta * 7)));
       setSelectedDay(null); // 換月＝焦點回格層起點，由 moveDay 重新落點
     },
-    [view],
+    [view, focusDay, today],
   );
 
   /**
@@ -359,9 +386,14 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     const m = clamp(Math.round(month), 1, 12);
     setPopTarget(null);
     setTipTarget(null);
-    setAnchor(`${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-01`);
+    const first = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-01`;
+    if (view === "stream") {
+      requestScroll(first);
+      return;
+    }
+    setAnchor(first);
     setSelectedDay(null); // 與 go 同：換月＝焦點回格層起點，由 moveDay 重新落點
-  }, []);
+  }, [view]);
 
   /**
    * Ctrl+←→（±1 月）／Ctrl+↑↓（±1 年）——**月／年為單位，兩個視圖同語義**（拍板文字）。
@@ -372,6 +404,12 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     (months: number) => {
       setPopTarget(null);
       setTipTarget(null);
+      if (view === "stream") {
+        const next = addMonths(monthStart(focusDay ?? today), months);
+        const y = Number(next.slice(0, 4));
+        if (y >= YEAR_MIN && y <= YEAR_MAX) requestScroll(next);
+        return;
+      }
       setAnchor((prev) => {
         const next = addMonths(prev, months);
         const y = Number(next.slice(0, 4));
@@ -380,15 +418,19 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
       });
       setSelectedDay(null);
     },
-    [],
+    [view, focusDay, today],
   );
 
   const goToday = useCallback(() => {
     setPopTarget(null);
     setTipTarget(null);
+    if (view === "stream") {
+      requestScroll(today); // 捲回今天（不動 anchor、不選格）
+      return;
+    }
     setAnchor(today);
     setSelectedDay(today);
-  }, [today]);
+  }, [view, today]);
 
   /** 鍵盤移動的落點：選取格 → 今天（若在區間內）→ 區間第一天 */
   const cursorDay = useCallback((): string => {
