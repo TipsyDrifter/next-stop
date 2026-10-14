@@ -24,6 +24,9 @@
  *   同樣是 Fragment 的直接子節點、自己 `flex: none`——橫幅出現時擠的是 `.m-page` 的捲動區，頂帶與底部 tab 不動。
  *   放在頂帶**之後**而不是頁面裡：告警跟著 App 走、不跟著頁走，在哪一格 tab 都看得到；
  *   沒加入同步 ⇒ 元件回 null、DOM 零節點。復原碼對話框兩殼共用一份，掛在 App 層（不在這裡）。
+ *
+ * 售票口線車次①（D-票-20；契約 §2.6 #6）：第五格改售票口，`MOBILE_VIEWS` 多一筆 `ticket`（取售票口線 mount 檔的 `mobileView`）。
+ *   `more: MobileMore` 留著——「更多」不在 tab bar 上了，但仍是合法的頁 key，由頂帶右上的 ⋯ 與 `openSyncPage("mobile")` 進。
  */
 import type { ComponentType } from "react";
 import { useUiStore } from "../../store/uiStore";
@@ -44,6 +47,7 @@ const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
   more: MobileMore,
   notes: LINE_MOUNTS.notes.mobileView,
   timetable: LINE_MOUNTS.timetable.mobileView,
+  ticket: LINE_MOUNTS.ticket.mobileView,
 };
 
 function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {

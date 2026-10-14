@@ -110,7 +110,7 @@ for d in "${WHITELIST_DIRS[@]}"; do
 done
 for x in "${EXCLUDE_INSIDE[@]}"; do rm -rf "$STAGE/$x"; done
 # 安全網：鏡像裡的 markdown 不得連到私有文件（r2.env／keystore.properties 只是路徑說明，不算；那兩個檔本來就不在白名單）
-if grep -rIl -E "決策記錄\.md|心得與雷區|點子與意見簿|專案進度表|開發路線圖|docs/research/" "$STAGE" --include='*.md' 2>/dev/null; then
+if grep -rIl -E "決策記錄\.md|心得與雷區|經驗筆記|點子與意見簿|點子清單|主人進度一頁|進度摘要|專案進度表|開發路線圖|docs/research/" "$STAGE" --include='*.md' 2>/dev/null; then
   echo "✗ 白名單內出現私有文件的引用，先清掉再發。" >&2; exit 1
 fi
 say "匯出 $(find "$STAGE" -type f | wc -l) 個檔案"

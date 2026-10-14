@@ -15,13 +15,17 @@
  *   394×853dp 的畫面會被殼件吃掉 20%。故取 `MOBILE_SEAL_SIZE = 46`（印章是向量，縮放不失真；
  *   外圈「私鐵手帳／NEXT STOP」細字退成裝飾，中央的月.日仍清楚）。要改回 76 只要動這一個常數。
  * 深底配色不必在這裡處理——WP0 已寫 `.m-band .ns-date-seal { color: var(--color-book-ink) }`（契約 §5-6）。
+ *
+ * 售票口線車次①（D-票-20；《2026-10-11-售票口-車次①帳本-契約.md》§2.6 #7、0-28）：第五格讓給售票口後，
+ *   「更多」的入口改成 `.m-band-end` 最右的 ⋯ 鈕（`.m-band-more`，樣式在 mobile.css）。每一頁都有、排在日付印之後；
+ *   在「更多」頁時 `aria-pressed="true"`（底部五格此時都不亮），點任一格 tab 離開——不記上一格、不加返回鈕。
  */
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { DateSeal } from "../stamps";
 import { SyncDot } from "../common/SyncDot";
-import type { MobileTab } from "./tabs";
+import { ICON_MORE, renderTabIcon, type MobileTab } from "./tabs";
 
 /** 頂帶日付印的尺寸（見檔頭「尺寸自決」） */
 const MOBILE_SEAL_SIZE = 46;
@@ -35,6 +39,7 @@ function dateOf(key: string): Date {
 export function MobileTopBand({ tab }: { tab: MobileTab }) {
   const storedKey = useNodeStore((s) => s.today.dateKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const setMobileTab = useUiStore((s) => s.setMobileTab);
   const today = tab.key === "today";
   const dateKey = storedKey ?? todayKey(dayStartHour);
 
@@ -50,6 +55,16 @@ export function MobileTopBand({ tab }: { tab: MobileTab }) {
       <div className="m-band-end">
         <SyncDot className="m-band-sync-dot" />
         {today && <DateSeal date={dateOf(dateKey)} size={MOBILE_SEAL_SIZE} title={`日付印 ${dateKey}`} />}
+        {/* 售票口線車次①（D-票-20、0-28）：「更多」的全域入口；在「更多」頁時呈按下狀態，點任一格 tab 離開 */}
+        <button
+          type="button"
+          className="m-band-more"
+          aria-label="更多"
+          aria-pressed={tab.key === "more"}
+          onClick={() => setMobileTab("more")}
+        >
+          {renderTabIcon(ICON_MORE, 20)}
+        </button>
       </div>
     </header>
   );

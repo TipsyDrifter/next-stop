@@ -17,12 +17,19 @@
  *
  * 「更多」收：設定（主題）；日後日曆（v1.1.x）、售票口（記帳，桌機主）都進這一格——所以它是 'open'，
  *   而售票口**不**佔第五格（與桌機 gnav 第二欄「旅客筆記／時刻表／售票口」三枚不同，手機只有五格）。
+ *
+ * 售票口線車次①（D-票-20；《2026-10-11-售票口-車次①帳本-契約.md》§2.6 #5、0-27、0-28）：第五格「更多」→「售票口」。
+ *   label／latin／status 同旅客筆記、時刻表兩格，改讀售票口線的登記檔；圖示逐字取 gnavIcons.tsx 的 IconTicketOffice。
+ *   「更多」移出 `MOBILE_TABS`、改成 `MORE_PAGE`：`"more"` 仍是合法的頁 key（uiStore.mobileTab／openSyncPage 照舊），
+ *   只是不在 tab bar 上——入口改成頂帶右上的「⋯」（MobileTopBand.tsx 的 `.m-band-more`）；在「更多」時底部五格都不亮，
+ *   點任一格就離開（0-28：不記上一格、不加返回鈕）。`MORE_PAGE` 的完整內容由 foundation-golden.ts 一併鎖進金樣。
  */
 import { createElement, type ReactElement } from "react";
 // 並行地基（契約 §7 M-1）：旅客筆記／時刻表兩格的文字與狀態改讀各線登記檔（純資料；probe 會載入本檔，值 import 含 .ts）
 import { lineById } from "../../lines/index.ts";
 
-export type MobileTabKey = "today" | "routemap" | "notes" | "timetable" | "more";
+/** "more" 不在 tab bar 上（MORE_PAGE），但仍是合法的頁 key */
+export type MobileTabKey = "today" | "routemap" | "notes" | "timetable" | "ticket" | "more";
 
 export type MobileTabStatus = "open" | "planned";
 
@@ -65,8 +72,15 @@ const ICON_TIMETABLE: MobileTabIcon = [
   { tag: "path", attrs: { d: "M8 4.8V8l2.2 1.6" } },
 ];
 
-/** 「更多」＝水平三點（同 1.3px 筆觸、r 與 gnav 路線圖端點同量級） */
-const ICON_MORE: MobileTabIcon = [
+/** 售票口（gnavIcons.tsx IconTicketOffice 逐字：窗口拱＋台面＋支柱） */
+const ICON_TICKET: MobileTabIcon = [
+  { tag: "path", attrs: { d: "M2.6 13.4V8.2a5.4 5.4 0 0 1 10.8 0v5.2" } },
+  { tag: "path", attrs: { d: "M5.4 10.6h5.2" } },
+  { tag: "path", attrs: { d: "M8 10.6v2.8" } },
+];
+
+/** 「更多」＝水平三點（同 1.3px 筆觸、r 與 gnav 路線圖端點同量級）；車次①起畫在頂帶右上的 ⋯ 鈕 */
+export const ICON_MORE: MobileTabIcon = [
   { tag: "circle", attrs: { cx: 3.2, cy: 8, r: 1.3 } },
   { tag: "circle", attrs: { cx: 8, cy: 8, r: 1.3 } },
   { tag: "circle", attrs: { cx: 12.8, cy: 8, r: 1.3 } },
@@ -74,8 +88,9 @@ const ICON_MORE: MobileTabIcon = [
 
 const NOTES_MOBILE = lineById("notes").mobile;
 const TIMETABLE_MOBILE = lineById("timetable").mobile;
+const TICKET_MOBILE = lineById("ticket").mobile;
 
-/** 底部 tab 的唯一真相；順序＝拍板順序（D-1.1-2）。旅客筆記／時刻表兩格的 label／latin／status 來自各線登記檔 */
+/** 底部 tab 的唯一真相；順序＝拍板順序（D-1.1-2；第五格 D-票-20）。旅客筆記／時刻表／售票口三格的 label／latin／status 來自各線登記檔 */
 export const MOBILE_TABS: readonly MobileTab[] = [
   { key: "today", label: "今日", latin: "TODAY", status: "open", icon: ICON_TODAY },
   { key: "routemap", label: "路線圖", latin: "ROUTE MAP", status: "open", icon: ICON_ROUTEMAP },
@@ -87,8 +102,11 @@ export const MOBILE_TABS: readonly MobileTab[] = [
     status: TIMETABLE_MOBILE.status,
     icon: ICON_TIMETABLE,
   },
-  { key: "more", label: "更多", latin: "MORE", status: "open", icon: ICON_MORE },
+  { key: "ticket", label: TICKET_MOBILE.label, latin: TICKET_MOBILE.latin, status: TICKET_MOBILE.status, icon: ICON_TICKET },
 ];
+
+/** 「更多」頁：不在 tab bar 上（頂帶右上 ⋯ 進），頂帶的頁名與拉丁字仍讀這一筆（0-28） */
+export const MORE_PAGE: MobileTab = { key: "more", label: "更多", latin: "MORE", status: "open", icon: ICON_MORE };
 
 /** 未通車格點了顯示的那一行（與桌機 gnav 第二欄 tooltip 同一句；決策 :197 語感一致） */
 export const COMING_SOON_TEXT = "次期開業予定";
@@ -97,8 +115,8 @@ export const COMING_SOON_TEXT = "次期開業予定";
 export const DEFAULT_MOBILE_TAB: MobileTabKey = "today";
 
 export function mobileTabByKey(key: MobileTabKey): MobileTab {
-  // registry 五筆是 const、key 是封閉聯集，找不到只會是程式錯誤——用 ! 不做 fallback，錯就要看得見
-  return MOBILE_TABS.find((t) => t.key === key)!;
+  // registry 五筆＋MORE_PAGE 是 const、key 是封閉聯集，找不到只會是程式錯誤——用 ! 不做 fallback，錯就要看得見
+  return key === MORE_PAGE.key ? MORE_PAGE : MOBILE_TABS.find((t) => t.key === key)!;
 }
 
 /**

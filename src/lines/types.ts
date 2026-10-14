@@ -12,6 +12,7 @@
 import type { ComponentType } from "react";
 import type { Hotkey } from "../ui/shell/hotkeys";
 import type { Scene } from "../ui/shell/hotkeyRows";
+import type { NodeKind, NodeRow } from "../domain";
 
 export type LineId = "notes" | "timetable" | "ticket";
 export type LineStatus = "planned" | "open";
@@ -97,6 +98,72 @@ export interface LineMount {
    * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才出現（`lineCaptureTargets(shell)`）；未通車即使填了也不出。
    */
   captureTargets?: readonly CaptureTargetSpec[];
+  /**
+   * 節點詳情的欄位列（接縫 #56；旅客筆記車次③ 0-2／0-4）：桌機任務側板（`TaskFields.tsx` 的列車／車廂、臨時車票、
+   * 樹內車票三處）渲染 `Desktop`、手機路線圖唯讀詳情（`MobileRouteMap.tsx` 的 `RowDetail`）渲染 `Mobile`；
+   * 只在 `kinds` 含該節點 kind 時出現。桌機看 `page.status`、手機看 `mobile.status`，`open` 才出（`lineNodeFields(shell)`）；
+   * 三線固定順序、各線內照登記順序。未通車即使填了也不出。
+   */
+  nodeFields?: readonly NodeFieldSpec[];
+  /**
+   * Ctrl+P 快速跳轉的結果提供者（接縫 #56；旅客筆記車次③ 0-5）：該線 `page.status === "open"` 時生效
+   * （`lineQuickJumpProviders()`）。打的字以 `prefix` 開頭 ⇒ 只問這一個（去掉前綴後的字傳進 `search`）；
+   * 否則節點結果之後，每個提供者 `search(term, 4)` 的結果各成一組（組名＝`group`，空組不畫）。未通車即使填了也不出。
+   */
+  quickJump?: QuickJumpProviderSpec;
+  /**
+   * 導航上的線標記（接縫 #58；時刻表車次①b 0-1 甲）：畫在桌機書封該線 `.gnav-line` 按鈕的最後一個子節點、
+   * 手機底部 tab 那一格的圖示之後（`shell` 告訴元件畫在哪一殼）。元件自己訂閱自己線的 store、沒東西要畫就回 null；
+   * 位置與長相由該線自己的 CSS 寫（class 用自己的前綴）。桌機看 `page.status`、手機看 `mobile.status`，`open` 才畫
+   * （`lineNavBadge(id, shell)`）。未通車即使填了也不畫。
+   */
+  navBadge?: ComponentType<{ shell: "desktop" | "mobile" }>;
+  /**
+   * 桌機書封 tooltip 的尾巴（接縫 #58）：**純函式、不訂閱**；Sidebar 只在該線按鈕 `onMouseEnter`／`onFocus` 時呼叫，
+   * 回字串 ⇒ title 改成「原 title＋`・`＋hint」，回 null ⇒ 原 title。只看 `page.status`；未通車即使填了也不叫。
+   */
+  navHint?: () => string | null;
+}
+
+/** 節點詳情欄位列（`LineMount.nodeFields` 的一筆） */
+export interface NodeFieldSpec {
+  /** `<line>.<name>`，例 "notes.tags" */
+  id: `${LineId}.${string}`;
+  /** 欄位標籤（桌機＝`FieldRow` 的 `label`；手機由 `Mobile` 自己畫 `dt`） */
+  label: string;
+  /** 哪些節點 kind 出這一列（例 `["ticket","train","car"]`） */
+  kinds: readonly NodeKind[];
+  /** 桌機任務側板的欄位內容（渲染在 `FieldRow` 裡） */
+  Desktop: ComponentType<{ node: NodeRow }>;
+  /** 手機路線圖唯讀詳情的一列（自己畫 `dt`／`dd`）；不給＝手機不出 */
+  Mobile?: ComponentType<{ node: NodeRow }>;
+}
+
+/** Ctrl+P 的一列結果（`QuickJumpProviderSpec.search` 回傳） */
+export interface QuickJumpHit {
+  /** 組內唯一（React key） */
+  id: string;
+  label: string;
+  /** 右側淡字（例「12 處」） */
+  aside?: string;
+  /** 左側徽章（借核心 `.ns-kind-badge`；`dashed` ＝虛線框） */
+  glyph?: { text: string; dashed?: boolean };
+  /** 縮排層數（樹狀列用；0／不給＝不縮） */
+  indent?: number;
+  /** 選中（Enter／點擊）：QuickJump 先關掉自己再呼叫 */
+  go(): void | Promise<void>;
+}
+
+/** Ctrl+P 的結果提供者（`LineMount.quickJump`） */
+export interface QuickJumpProviderSpec {
+  /** `<line>.<name>`，例 "notes.tags" */
+  id: `${LineId}.${string}`;
+  /** 組名（附加組模式的小標） */
+  group: string;
+  /** 前綴（例 "#"）：打的字以它開頭 ⇒ 只查這個提供者；不給＝只在附加組出現 */
+  prefix?: string;
+  /** `term`：前綴模式已去掉前綴（只打前綴＝空字串，提供者自己決定列什麼）；`limit`：附加組模式給 4 */
+  search(term: string, limit: number): Promise<QuickJumpHit[]>;
 }
 
 /** 捕捉框落點列與存檔要的路線（＝捕捉框目前認到的路線前綴；主人按 × 取消過的不算） */

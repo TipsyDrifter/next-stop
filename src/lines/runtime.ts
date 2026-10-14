@@ -18,7 +18,7 @@
  */
 import { LINE_MANIFESTS } from "./index.ts";
 import type { ComponentType } from "react";
-import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext } from "./types";
+import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext, NodeFieldSpec, QuickJumpProviderSpec } from "./types";
 
 let installed: Readonly<Record<LineId, LineMount>> | null = null;
 
@@ -76,6 +76,25 @@ export function lineSidebarAux(page: string): ComponentType | null {
   return null;
 }
 
+type NavShell = "desktop" | "mobile";
+/**
+ * 導航上的線標記（接縫 #58）：桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填 `navBadge` 或 `navHint` 才回；
+ * 否則 null（按鈕與 tab 照舊，DOM 與沒有插槽時逐字相同）。`hint` 只在桌機回（手機沒有 tooltip）。沒裝＝null。
+ */
+export function lineNavBadge(
+  id: LineId,
+  shell: NavShell,
+): { Badge: ComponentType<{ shell: NavShell }> | null; hint: (() => string | null) | null } | null {
+  if (!installed) return null;
+  const m = LINE_MANIFESTS.find((x) => x.id === id);
+  if (!m) return null;
+  const status = shell === "desktop" ? m.page.status : m.mobile.status;
+  if (status !== "open") return null;
+  const Badge = installed[id].navBadge ?? null;
+  const hint = shell === "desktop" ? installed[id].navHint ?? null : null;
+  return Badge || hint ? { Badge, hint } : null;
+}
+
 type DayMarksFn = (from: string, to: string) => Promise<readonly string[]>;
 /** 日曆格內記號的提供者（旅客筆記車次② 0-2 乙），比照 `lineSidebarTools()`：只看 `page.status`；`open` 且有填才算。地基階段恆為空陣列。 */
 export function lineCalendarMarks(): { id: LineId; marks: DayMarksFn }[] {
@@ -99,6 +118,32 @@ export function lineCaptureTargets(shell: "desktop" | "mobile"): CaptureTargetSp
     const status = shell === "desktop" ? m.page.status : m.mobile.status;
     const specs = installed[m.id].captureTargets;
     if (status === "open" && specs) out.push(...specs);
+  }
+  return out;
+}
+
+/**
+ * 節點詳情欄位列（接縫 #56），比照 `lineCaptureTargets(shell)`：三線固定順序、各線內照登記順序；
+ * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。呼叫端再依 `kinds` 過濾。沒裝＝空陣列。
+ */
+export function lineNodeFields(shell: "desktop" | "mobile"): NodeFieldSpec[] {
+  const out: NodeFieldSpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const specs = installed[m.id].nodeFields;
+    if (status === "open" && specs) out.push(...specs);
+  }
+  return out;
+}
+
+/** Ctrl+P 的結果提供者（接縫 #56），比照 `lineSidebarTools()`：三線固定順序、只看 `page.status`；`open` 且有填才算。沒裝＝空陣列。 */
+export function lineQuickJumpProviders(): QuickJumpProviderSpec[] {
+  const out: QuickJumpProviderSpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const spec = installed[m.id].quickJump;
+    if (m.page.status === "open" && spec) out.push(spec);
   }
   return out;
 }

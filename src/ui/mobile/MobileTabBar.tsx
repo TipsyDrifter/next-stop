@@ -12,6 +12,7 @@
  * a11y：`role="tablist"`／每格 `role="tab"`＋`aria-selected`；planned 格的 `aria-label` 補上
  *   「——次期開業予定」，讀螢幕的人不必先點進去才知道。切頁走 `uiStore.setMobileTab`（順手收桌機疊層）。
  */
+import { lineNavBadge } from "../../lines/runtime";
 import { useUiStore } from "../../store/uiStore";
 import { COMING_SOON_TEXT, MOBILE_TABS, renderTabIcon } from "./tabs";
 
@@ -24,6 +25,8 @@ export function MobileTabBar() {
       {MOBILE_TABS.map((tab) => {
         const active = tab.key === current;
         const planned = tab.status === "planned";
+        // 導航上的線標記（接縫 #58）：只有功能線那兩格查；沒通車或沒填＝null ⇒ 這一格與沒有插槽時逐字相同
+        const Badge = tab.key === "notes" || tab.key === "timetable" ? lineNavBadge(tab.key, "mobile")?.Badge ?? null : null;
         return (
           <button
             key={tab.key}
@@ -36,6 +39,7 @@ export function MobileTabBar() {
             className={"m-tab" + (active ? " is-active" : "") + (planned ? " is-planned" : "")}
           >
             {renderTabIcon(tab.icon)}
+            {Badge && <Badge shell="mobile" />}
             <span className="m-tab-label">{tab.label}</span>
           </button>
         );

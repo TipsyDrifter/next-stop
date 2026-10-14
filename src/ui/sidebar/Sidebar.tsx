@@ -44,7 +44,8 @@ import { corePages, linePages, openPages } from "../shell/pages";
 import { GNAV_ICONS, svgProps } from "./gnavIcons";
 // 側欄工具插槽（通車的線的 mount `sidebarTool`）與頁務件插槽（`sidebarAux`，接縫 #50）：查 `lines/runtime`、不 import `lines/mounts`——
 // 本元件在 App 的 import 清單裡排在 pageViews 之前，import mounts 會把線的元件樹與 CSS 提早求值（理由見 runtime.ts 檔頭）
-import { lineSidebarAux, lineSidebarTools } from "../../lines/runtime";
+import { lineNavBadge, lineSidebarAux, lineSidebarTools } from "../../lines/runtime";
+import type { LineId } from "../../lines/types";
 import "./sidebar.css";
 // gnav 樣式（styles/gnav.css）由 src/index.css 集中 import——見該檔檔頭的注入順序說明
 
@@ -236,25 +237,42 @@ export function Sidebar() {
           className="gnav-closed"
           {...(anyPlanned ? { role: "group", "aria-label": "次期開業予定（未通車）" } : {})}
         >
-          {linePages().map((p) =>
-            p.status === "planned" ? (
-              <GnavOff key={p.id} name={p.label}>
-                {GNAV_ICONS[p.id](15)}
-              </GnavOff>
-            ) : (
+          {linePages().map((p) => {
+            if (p.status === "planned") {
+              return (
+                <GnavOff key={p.id} name={p.label}>
+                  {GNAV_ICONS[p.id](15)}
+                </GnavOff>
+              );
+            }
+            const base = `${p.label}（${capsOf(p.navHotkeyId)}）`;
+            // 導航上的線標記（接縫 #58）：沒通車或沒填＝null ⇒ 按鈕與沒有插槽時逐字相同
+            const nb = lineNavBadge(p.id as LineId, "desktop"); // linePages() 只回三條功能線
+            const hint = nb?.hint ?? null;
+            // hint 是純函式：滑過／聚焦當下才算，title 改成「原 title・hint」；React 下一次 render 會蓋回 base（無害）
+            const showHint = hint
+              ? (e: { currentTarget: HTMLButtonElement }) => {
+                  const h = hint();
+                  e.currentTarget.title = h ? `${base}・${h}` : base;
+                }
+              : undefined;
+            return (
               <button
                 key={p.id}
                 type="button"
                 className={`gnav-line${page === p.id ? " active" : ""}`}
                 aria-current={page === p.id ? "page" : undefined}
-                title={`${p.label}（${capsOf(p.navHotkeyId)}）`}
+                title={base}
                 onClick={() => setPage(p.id)}
+                onMouseEnter={showHint}
+                onFocus={showHint}
               >
                 {GNAV_ICONS[p.id](17)}
                 {p.label}
+                {nb?.Badge && <nb.Badge shell="desktop" />}
               </button>
-            ),
-          )}
+            );
+          })}
         </div>
 
         {/* 側欄工具列：通車的線的 sidebarTool（搜尋鈕左側）＋ D5 頂部搜尋鈕（滑鼠入口；鍵盤走 Ctrl+P） */}

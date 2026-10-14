@@ -10,6 +10,9 @@ mod backup;
 // 不是「手機沒有 push 這支」；v1.1.2 開雙向時 TS 一行都不必改。
 mod sync;
 
+// 售票口線：唯讀讀出財務管家備份（車次①契約 §3.6）。兩殼都編（接縫 #55）。
+mod ticket;
+
 // 並行地基 甲1（契約 2026-09-29 §4）：migration 清單的唯一來源（含 `lf()` 與守門測試）。
 // pub：清單與 `version_of` 是給 sync（`SCHEMA_VERSION`、同步表 spec 的 `since`）與 probe 讀的介面。
 pub mod migrations;
@@ -157,6 +160,7 @@ pub fn run() {
             // ①a 補充契約 §2-8：系統匣顯示運行中（桌機限定；手機那份不加——手機沒有系統匣、tray mod 不編）
             tray::tray_set_status,
             // ── 售票口線插槽 ──
+            ticket::ticket_import_read,
         ]);
 
     // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十三支（清單與桌機那份逐字相同）。
@@ -188,6 +192,7 @@ pub fn run() {
         // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
         // ── 時刻表線插槽 ──
         // ── 售票口線插槽 ──
+        ticket::ticket_import_read,
     ]);
 
     // v1.1.2 D-1.1-6 甲：手機掃桌機的 QR（配對碼）。plugin 只在手機 target 有（Cargo 的 target 段），

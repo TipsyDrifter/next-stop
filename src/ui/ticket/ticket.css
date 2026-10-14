@@ -1,0 +1,649 @@
+/**
+ * 售票口線・桌機樣式（車次①契約 §2.7、§5.5）。一律 `.ns-tk-*`；色只用 theme.css token 與 §A 推導的區域變數，
+ * 不得出現色碼字面值；主題切換靠 token。由 TicketView／TicketSide／mobile/MobileTicketOffice 各自 import（vite 只注入一次）。
+ * 注入順序：本檔排在 index.css 之前——與既有選擇器同名屬性競爭的規則一律抬特異度（`.page.ns-tk`），不靠載入順序。
+ * 每席只在自己的分區內加規則（§2.7）。
+ */
+
+/* ═══ §A 區域變數（甲・Stage 0；token 推導，同 notes.css:50-64 的做法）═══ */
+.ns-tk,
+.ns-tk-m,
+.ns-tk-side,
+.ns-tk-dialog {
+  --ns-tk-hover: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  --ns-tk-sel: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+/* ═══ §B 共用小件：金額、角印 .ns-tk-kakuin、分類標籤（乙）═══ */
+/* 乙席的玻璃與浮層變數（同 notes.css 的 --ns-glass／--ns-float／--ns-hi；粉彩＝星光白、銀河＝票紙＋上緣月光）。
+   §A 是甲席的分區，本席補的變數寫在這裡。 */
+.ns-tk,
+.ns-tk-side,
+.ns-tk-dialog {
+  --ns-tk-glass: rgba(var(--starlight), .78);
+  --ns-tk-float: rgba(var(--starlight), .84);
+  --ns-tk-hi: 0 0 0 0 transparent; /* 不能寫 none：會讓陰影清單整條失效 */
+  --ns-tk-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+[data-theme="dark"] :is(.ns-tk, .ns-tk-side, .ns-tk-dialog) {
+  --ns-tk-glass: var(--color-line);
+  --ns-tk-float: var(--color-paper-high);
+  --ns-tk-hi: inset 0 1px 0 rgba(var(--starlight), .09);
+}
+
+/* 金額：文件級襯線、等寬數字；幣別碼小字（0-2） */
+.ns-tk-money { font-family: var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ns-tk-money .ns-tk-code {
+  margin-left: 3px; font-family: var(--font-latin); font-size: .7em; letter-spacing: .08em; opacity: .8;
+}
+
+/* 鍵帽 */
+.ns-tk-kbd {
+  font-family: var(--font-latin); font-style: normal; font-size: 9.5px; letter-spacing: .06em; line-height: 1;
+  padding: 2px 4px 1px; border: 1px solid var(--color-line); border-radius: 2px; color: var(--color-ink-faint);
+}
+
+/* 路線圓牌（小號；亮盤深字的字色由 techo.css .roundel 給） */
+.roundel.ns-tk-rd { width: 17px; height: 17px; font-size: 7.5px; }
+.roundel.ns-tk-rd.empty { background: transparent; border: 1px dashed currentColor; opacity: .7; }
+
+/* 角印 .ns-tk-kakuin：橫長方、1.4px 墨框、11px Noto Serif TC、.2em、固定 -6°、--stamp-ink；朱肉 filter 不套（0-3、§5.5） */
+.ns-tk-kakuin {
+  --ns-rot: -6deg; --ns-imp-o: .88; --ns-zoom: 1;
+  display: inline-block; padding: 4px 7px 3px 9px; border: 1.4px solid currentColor; border-radius: 2px;
+  font-family: var(--font-display); font-weight: 700; font-size: 11px; line-height: 1.1; letter-spacing: .2em;
+  color: var(--stamp-ink); opacity: var(--ns-imp-o); transform: rotate(var(--ns-rot));
+  pointer-events: none; user-select: none; white-space: nowrap;
+}
+.ns-tk-kakuin.is-fresh { animation: nsStampIn .4s cubic-bezier(.2, 1.5, .4, 1); } /* keyframes 在 stamps.css（全家共用） */
+/* 空検印欄（支出）：52px 虛線圓（原型 P-5） */
+.ns-tk-blankseal {
+  display: grid; place-items: center; border-radius: 50%; border: 1.3px dashed var(--color-dash); opacity: .8;
+}
+
+/* 紙面按鈕 */
+.ns-tk-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 4px 12px;
+  border: 1px solid var(--color-dash); border-radius: 2px; background: transparent;
+  font-size: 12.5px; letter-spacing: .1em; color: var(--color-ink-soft); white-space: nowrap; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ns-tk-btn:hover:not([disabled]) { border-color: var(--accent); color: var(--color-ink); }
+.ns-tk-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-tk-btn[disabled] { opacity: .45; cursor: default; }
+.ns-tk-btn.primary { border-color: var(--accent); color: var(--accent); background: var(--ns-tk-sel); }
+[data-theme="dark"] .ns-tk-btn.primary { color: var(--color-gold); }
+.ns-tk-btn.primary:hover:not([disabled]) { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--color-ink); }
+.ns-tk-btn.quiet { border-color: transparent; color: var(--color-ink-faint); padding-left: 6px; padding-right: 6px; }
+.ns-tk-btn.quiet:hover:not([disabled]) { border-color: var(--color-dash); color: var(--color-ink-soft); }
+.ns-tk-btn.quiet[aria-pressed="true"] { color: var(--color-ink); }
+.ns-tk-btn.danger:hover:not([disabled]) { border-color: var(--color-late); color: var(--color-late); }
+.ns-tk-btn .ns-tk-kbd { margin-left: 2px; }
+
+/* 小浮層 .ns-tk-pop（帳戶／分類／路線／幣別／管理選單） */
+.ns-tk-pop {
+  position: absolute; z-index: 30; min-width: 200px; max-width: 280px; max-height: 320px; overflow-y: auto; padding: 6px;
+  background: var(--ns-tk-float); -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--ns-tk-glass); border-radius: 3px; box-shadow: var(--ns-tk-hi), var(--shadow-card-hover);
+  color: var(--color-ink); font-family: var(--font-body); letter-spacing: .04em; text-align: left;
+  scrollbar-width: thin;
+  animation: nsTkPop .14s cubic-bezier(.2, .9, .3, 1.1);
+}
+[data-theme="dark"] .ns-tk-pop { -webkit-backdrop-filter: none; backdrop-filter: none; }
+@keyframes nsTkPop { from { opacity: 0; transform: translateY(-3px); } }
+.ns-tk-pop .hd { padding: 6px 8px 4px; font-size: 9.5px; letter-spacing: .3em; color: var(--color-ink-faint); }
+.ns-tk-pop .opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 2px; text-align: left;
+  font-size: 13px; letter-spacing: .04em; color: var(--color-ink); background: transparent; cursor: pointer; outline: none;
+}
+.ns-tk-pop .opt:hover, .ns-tk-pop .opt:focus-visible, .ns-tk-pop .opt.kb { background: var(--ns-tk-sel); }
+.ns-tk-pop .opt .r { margin-left: auto; padding-left: 10px; font-family: var(--font-display); font-size: 11.5px; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-pop .opt .r small { font-family: var(--font-latin); font-size: 9px; letter-spacing: .06em; }
+.ns-tk-pop .opt .path { color: var(--color-ink-faint); font-size: 11.5px; }
+.ns-tk-pop .opt .code { font-family: var(--font-latin); letter-spacing: .08em; }
+.ns-tk-pop .opt.on::after { content: ""; width: 5px; height: 5px; margin-left: 6px; background: var(--accent); transform: rotate(45deg); flex: none; }
+.ns-tk-pop .opt.is-add, .ns-tk-pop .opt.is-quiet { color: var(--color-ink-soft); font-size: 12.5px; }
+.ns-tk-pop .sep { height: 0; margin: 4px 6px; border-top: 1px dashed var(--color-line); }
+.ns-tk-pop .search { display: flex; align-items: center; gap: 6px; margin: 2px 4px 6px; color: var(--color-ink-faint); }
+@media (prefers-reduced-motion: reduce) { .ns-tk-pop, .ns-tk-kakuin.is-fresh { animation: none; } }
+
+/* ═══ §C 書封頁務件 TicketSide（乙）═══ */
+/* 書封內（D-票-22；原型第二版 10-12 精修）：密度照書封的路線清單（sidebar.css 的 .lines h2／.trunk／.line-item／.line-add）。
+   合計小卡三行一格 → 「全部帳戶」→ 群組＝幹線小字 → 帳戶列＝路線列 → 封存折疊 → 底部「＋ 帳戶」＋滑桿鈕。
+   清單自己捲（捲軸隱形、上下緣淡出）；cover-foot 固定在底。顏色走 --sd-* 區域變數（書封色系）。 */
+.cover .ns-tk-side {
+  --sd-ink: var(--color-book-ink);
+  --sd-muted: var(--book-muted);
+  --sd-hover: var(--color-book-hover);
+  --sd-sel: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  --sd-line: color-mix(in srgb, var(--color-book-ink) 18%, transparent);
+  --sd-mark: var(--color-gold);
+  flex: 1 1 auto; min-height: 0; margin-top: 12px;
+  display: flex; flex-direction: column;
+}
+.cover .ns-tk-side h2 {
+  font-family: inherit; font-size: 10px; font-weight: 500; letter-spacing: .34em; line-height: 1.6;
+  color: var(--sd-muted); padding: 0 10px 8px; margin-bottom: 8px; border-bottom: 1px dashed var(--sd-line);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cover .ns-tk-total {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: baseline;
+  padding: 5px 20px 6px 10px; margin: 0 0 4px; border: 1px solid color-mix(in srgb, var(--color-gold) 32%, transparent); border-radius: 2px;
+  font-size: 10px; letter-spacing: .26em; line-height: 1.6; color: var(--sd-muted);
+}
+.cover .ns-tk-total b { justify-self: end; font-weight: 600; font-size: 12px; letter-spacing: .02em; color: var(--sd-muted); }
+.cover .ns-tk-total .sum { color: var(--sd-ink); }
+.cover .ns-tk-total b.sum { font-weight: 700; font-size: 13px; }
+.cover .ns-tk-sidescroll {
+  flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; margin: 0 -4px; padding: 8px 4px 10px;
+  -webkit-mask-image: linear-gradient(180deg, transparent, var(--color-ink) 8px, var(--color-ink) calc(100% - 22px), transparent);
+  mask-image: linear-gradient(180deg, transparent, var(--color-ink) 8px, var(--color-ink) calc(100% - 22px), transparent);
+}
+.cover .ns-tk-sidescroll::-webkit-scrollbar { display: none; }
+.cover .ns-tk-sideitem {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 21px 6px 10px; margin-bottom: 2px;
+  border-bottom: 1px dashed var(--sd-line); text-align: left; cursor: pointer; background: none;
+  font-family: inherit; font-size: 10px; font-weight: 500; letter-spacing: .34em; line-height: 1.6; color: var(--sd-muted);
+  transition: color .15s;
+}
+.cover .ns-tk-sideitem:hover, .cover .ns-tk-sideitem[aria-pressed="true"] { color: var(--sd-ink); }
+.cover .ns-tk-sideitem:focus-visible { outline: 1px solid var(--sd-mark); outline-offset: 1px; }
+.cover .ns-tk-sideitem .cnt { margin-left: auto; font-family: var(--font-latin); font-size: 11px; letter-spacing: .04em; opacity: .75; }
+.cover .ns-tk-side .mk { width: 5px; height: 5px; flex: none; margin-right: -3px; }
+.cover .ns-tk-side [aria-pressed="true"] > .mk { background: var(--sd-mark); transform: rotate(45deg); }
+.cover .ns-tk-group h3 {
+  margin: 12px 0 0; padding: 0 21px 3px 10px; display: flex; align-items: baseline;
+  font-size: 9.5px; font-weight: 500; letter-spacing: .3em; line-height: 1.6; color: var(--sd-muted);
+}
+.cover .ns-tk-group h3 .lia { margin-left: auto; letter-spacing: .2em; opacity: .85; }
+.cover .ns-tk-group.is-archived h3 { margin-top: 14px; }
+.cover .ns-tk-group.is-archived h3 button {
+  padding: 2px 0; font: inherit; letter-spacing: inherit; color: inherit; background: none; cursor: pointer; opacity: .7; transition: opacity .15s, color .15s;
+}
+.cover .ns-tk-group.is-archived h3 button:hover { opacity: 1; color: var(--sd-ink); }
+.cover .ns-tk-acct { position: relative; display: flex; align-items: center; border-radius: 2px; transition: background .15s; }
+.cover .ns-tk-acct:hover { background: var(--sd-hover); }
+.cover .ns-tk-acct.is-card { box-shadow: inset 2px 0 0 var(--sd-mark); }
+.cover .ns-tk-acctbtn {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px; padding: 8px 2px 8px 10px; text-align: left;
+  background: none; cursor: pointer; font-family: inherit; font-size: 13.5px; letter-spacing: .1em; line-height: 1.6; color: var(--sd-ink);
+  border-radius: 2px;
+}
+.cover .ns-tk-acctbtn:focus-visible { outline: 1px solid var(--sd-mark); outline-offset: -1px; }
+.cover .ns-tk-acctbtn[aria-pressed="true"] { background: var(--sd-sel); }
+.cover .ns-tk-acctbtn .mk { margin-right: -7px; }
+.cover .ns-tk-acct .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cover .ns-tk-acct .b { margin-left: auto; font-size: 12px; letter-spacing: .01em; color: var(--sd-muted); white-space: nowrap; }
+.cover .ns-tk-acctbtn[aria-pressed="true"] .b { color: var(--sd-ink); }
+.cover .ns-tk-acct.is-zero .b { opacity: .6; }
+.cover .ns-tk-group.is-archived .ns-tk-acctbtn { color: var(--sd-muted); }
+/* › ＝詳情板切帳戶版；hover 才現、佔位不跳（餘額右緣對齊合計小卡的數字：兩邊都離右緣約 21px） */
+.cover .ns-tk-acct .go {
+  width: 18px; height: 22px; margin-right: 1px; flex: none; display: grid; place-items: center; border-radius: 2px;
+  background: none; cursor: pointer; color: var(--sd-muted); opacity: 0; transition: opacity .12s, background .12s, color .12s;
+}
+.cover .ns-tk-acct:hover .go, .cover .ns-tk-acct .go:focus-visible, .cover .ns-tk-acct.is-card .go { opacity: 1; }
+.cover .ns-tk-acct .go:hover { background: var(--sd-hover); color: var(--sd-ink); }
+.cover .ns-tk-acct .go:focus-visible { outline: 1px solid var(--sd-mark); }
+.cover .ns-tk-sideempty { padding: 10px; font-size: 11px; letter-spacing: .2em; color: var(--sd-muted); opacity: .7; }
+.cover .ns-tk-sidefoot {
+  position: relative; display: flex; align-items: center; gap: 2px; padding-top: 6px; margin-top: 4px; border-top: 1px dashed var(--sd-line);
+}
+.cover .ns-tk-sidefoot > button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 2px; background: none; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: .2em; color: var(--sd-muted); opacity: .75;
+  transition: opacity .15s, color .15s, background .15s;
+}
+.cover .ns-tk-sidefoot > button:hover, .cover .ns-tk-sidefoot > button:focus-visible, .cover .ns-tk-sidefoot > button[aria-expanded="true"] {
+  opacity: 1; color: var(--sd-ink); background: var(--sd-hover); outline: none;
+}
+.cover .ns-tk-sidefoot .ns-tk-manage { margin-left: auto; padding: 5px 8px; }
+.cover .ns-tk-sidefoot .ns-tk-menu { left: -4px; right: -4px; bottom: calc(100% + 6px); width: auto; max-width: none; }
+
+/* ═══ §D 帳簿 TicketLedger：頁首、日分組、帳簿行、空狀態（乙）═══ */
+/* 頁根：三欄 flex、各欄自己捲（.page 本來整頁捲動；抬特異度蓋過 techo.css 的 .page） */
+.page.ns-tk { display: flex; overflow: hidden; height: 100%; }
+.ns-tk-ledger { flex: 1; min-width: 0; height: 100%; overflow-y: auto; padding: 38px 28px 40px 32px; }
+.ns-tk-ledger > * { max-width: 820px; }
+
+.ns-tk-head { position: relative; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px solid var(--color-line); }
+.ns-tk-head::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; border-bottom: 1px solid var(--color-line); opacity: .5; }
+.ns-tk-headrow { display: flex; align-items: center; gap: 10px; }
+.ns-tk-headrow.is-month { margin-top: 6px; flex-wrap: wrap; row-gap: 4px; }
+.ns-tk-overline { font-family: var(--font-latin); font-style: italic; font-size: 11px; letter-spacing: .32em; color: var(--accent-sky); }
+[data-theme="dark"] .ns-tk-overline { font-family: var(--font-body); font-style: normal; font-weight: 500; font-size: 10px; letter-spacing: .4em; color: var(--color-gold); }
+.ns-tk-head h1 { font-size: 28px; line-height: 1.2; white-space: nowrap; }
+.ns-tk-mnav {
+  width: 28px; height: 28px; display: grid; place-items: center; border-radius: 2px; background: none; cursor: pointer;
+  color: var(--color-ink-faint); transition: background .15s, color .15s;
+}
+.ns-tk-mnav:hover:not([disabled]) { background: var(--ns-tk-hover); color: var(--color-ink); }
+.ns-tk-mnav:focus-visible { outline: 1px solid var(--accent); }
+.ns-tk-mnav[disabled] { opacity: .3; cursor: default; }
+.ns-tk-monthsum { margin-left: auto; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-monthsum b { font-family: var(--font-display); font-weight: 600; font-size: 13px; color: var(--color-ink-soft); letter-spacing: .02em; }
+.ns-tk-monthsum .pos { color: var(--color-gold-ink); }
+.ns-tk-newbtn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px 3px 10px; background: none; cursor: pointer;
+  border: 1px solid var(--color-dash); border-radius: 2px; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ns-tk-newbtn:hover { border-color: var(--accent); color: var(--color-ink); background: var(--ns-tk-sel); }
+.ns-tk-newbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-tk-filterchip { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-soft); }
+.ns-tk-filterchip button { display: grid; place-items: center; color: var(--color-ink-faint); padding: 2px 4px; border-radius: 2px; background: none; cursor: pointer; }
+.ns-tk-filterchip button:hover { color: var(--color-ink); background: var(--ns-tk-hover); }
+
+/* 帳簿頁：一張霧面紙（不打孔；帳簿行不是票卡——0-1、原型 P-4） */
+.ns-tk-book {
+  position: relative; border-radius: 4px; background: var(--color-paper-high);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--ns-tk-glass); box-shadow: var(--ns-tk-hi), var(--shadow-card);
+}
+[data-theme="dark"] .ns-tk-book { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.ns-tk-book::after {
+  content: ""; position: absolute; inset: 0; border-radius: 4px; background: var(--ns-tk-noise);
+  opacity: .045; mix-blend-mode: multiply; pointer-events: none;
+}
+[data-theme="dark"] .ns-tk-book::after { display: none; }
+.ns-tk-list { position: relative; z-index: 1; margin: 0; padding: 2px 0 4px; list-style: none; outline: none; }
+.ns-tk-list:focus-visible { box-shadow: inset 0 0 0 1px var(--color-dash); border-radius: 4px; }
+
+/* 日分組頭：日付小字＋週名＋今天＋右側當日小計淡字（0-4：不蓋日付印） */
+.ns-tk-day { display: flex; align-items: baseline; gap: 8px; padding: 12px 18px 5px; border-bottom: 1px solid var(--color-line); }
+.ns-tk-day .d { font-family: var(--font-latin); font-size: 13px; font-weight: 500; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-tk-day .w { font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-tk-day .today { margin-left: 2px; font-size: 9.5px; letter-spacing: .3em; color: var(--accent); }
+[data-theme="dark"] .ns-tk-day .today { color: var(--color-gold); }
+.ns-tk-day .s { margin-left: auto; font-family: var(--font-display); font-size: 12px; letter-spacing: .02em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; }
+.ns-tk-day .s .pos { color: var(--color-gold-ink); }
+.ns-tk-monthrule { padding: 22px 18px 2px; font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: .24em; color: var(--color-ink-faint); }
+
+/* 帳簿行：sign｜主文（分類＋備註）｜路線｜金額；緊湊＝一行到底、折算額收進 title（D-票-21、P-3） */
+.ns-tk-row {
+  position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto auto; column-gap: 10px; align-items: center;
+  min-height: 36px; padding: 0 18px; cursor: pointer; transition: background .12s;
+}
+.ns-tk-row > .rule { position: absolute; left: 18px; right: 18px; bottom: 0; border-bottom: 1px dashed var(--color-line); pointer-events: none; }
+.ns-tk-row:hover { background: var(--ns-tk-hover); }
+.ns-tk-row[aria-selected="true"] { background: var(--ns-tk-hover); }
+.ns-tk-row.is-active { background: var(--ns-tk-sel); box-shadow: inset 2px 0 0 var(--color-gold); }
+.ns-tk-list:focus-visible .ns-tk-row[aria-selected="true"]:not(.is-active) { box-shadow: inset 2px 0 0 var(--color-dash); }
+.ns-tk-sign { font-family: var(--font-display); font-weight: 600; font-size: 13px; text-align: center; line-height: 1; color: var(--color-ink-faint); }
+.ns-tk-row[data-kind="income"] .ns-tk-sign { color: var(--color-gold-ink); }
+.ns-tk-main { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.ns-tk-cat {
+  flex: none; max-width: 62%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13.5px; letter-spacing: .03em; color: var(--color-ink);
+}
+.ns-tk-cat .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+.ns-tk-cat .arr { margin: 0 .35em; color: var(--color-ink-faint); font-family: var(--font-latin); }
+.ns-tk-cat .seikan { margin-right: .5em; font-family: var(--font-display); font-weight: 700; font-size: 11px; letter-spacing: .2em; color: var(--stamp-ink); }
+.ns-tk-cat .unc { color: var(--color-ink-faint); }
+.ns-tk-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-route { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-latin); font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tk-amt { text-align: right; white-space: nowrap; line-height: 1.25; }
+.ns-tk-amt b { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; letter-spacing: .01em; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.ns-tk-amt .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
+
+.ns-tk-loadmore { border-top: 1px dashed var(--color-line); }
+.ns-tk-loadmore button {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px 0 10px; background: none; cursor: pointer;
+  font-size: 12px; letter-spacing: .16em; color: var(--color-ink-faint); transition: color .15s;
+}
+.ns-tk-loadmore button:hover { color: var(--color-ink); }
+
+/* 空狀態 */
+.ns-tk-empty { display: grid; justify-items: center; gap: 12px; padding: 56px 0 48px; font-size: 13.5px; letter-spacing: .14em; color: var(--color-ink-faint); text-align: center; }
+.ns-tk-empty.is-month { padding: 44px 0 36px; }
+.ns-tk-empty small { font-size: 11.5px; letter-spacing: .08em; }
+.ns-tk-empty.is-book { padding: 72px 0 64px; }
+.ns-tk-empty.is-book p { font-family: var(--font-display); font-size: 16px; letter-spacing: .2em; color: var(--color-ink-soft); }
+.ns-tk-emptylink { font-size: 12px; letter-spacing: .1em; color: var(--color-ink-faint); background: none; cursor: pointer; border-bottom: 1px dashed var(--color-dash); }
+.ns-tk-emptylink:hover { color: var(--color-ink); border-bottom-color: var(--accent); }
+.ns-tk-error { display: grid; justify-items: start; gap: 10px; padding: 16px 18px; border: 1px dashed color-mix(in srgb, var(--color-late) 45%, transparent); border-radius: 3px; font-size: 13px; color: var(--color-late); }
+
+/* ═══ §E 詳情板：大票（.ns-tk-bigticket::before 抄 techo.css:231-300 的 .ticket::before 配方）、帳戶版（乙）═══ */
+.ns-tk-panel { position: relative; width: 360px; flex: none; height: 100%; overflow-y: auto; padding: 30px 22px 30px 4px; }
+.ns-tk-panelx {
+  position: absolute; top: 6px; right: 14px; z-index: 3; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 2px;
+  background: none; cursor: pointer; color: var(--color-ink-faint); transition: color .15s, background .15s;
+}
+.ns-tk-panelx:hover { color: var(--color-ink); background: var(--ns-tk-hover); }
+.ns-tk-panelx:focus-visible { outline: 1px solid var(--accent); }
+
+/* 攤開的大票：材質＝ .ticket::before 配方（霧面玻璃＋噪點），打孔＝票根撕線兩端（原型 P-4）；銀河＝月光下的票紙 */
+.ns-tk-bigticket, .ns-tk-acctcard {
+  --tear: 62px;
+  position: relative; z-index: 0; border-radius: 4px;
+  box-shadow: var(--shadow-card);
+  animation: nsTkRise .22s cubic-bezier(.2, .9, .3, 1.08);
+}
+@keyframes nsTkRise { from { opacity: 0; transform: translateY(6px); } }
+.ns-tk-bigticket::before, .ns-tk-acctcard::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 4px;
+  background: var(--color-paper-high);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid var(--ns-tk-glass);
+  -webkit-mask-image:
+    radial-gradient(circle 6.5px at 0 var(--tear), transparent 97%, var(--color-ink) 100%),
+    radial-gradient(circle 6.5px at 100% var(--tear), transparent 97%, var(--color-ink) 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    radial-gradient(circle 6.5px at 0 var(--tear), transparent 97%, var(--color-ink) 100%),
+    radial-gradient(circle 6.5px at 100% var(--tear), transparent 97%, var(--color-ink) 100%);
+  mask-composite: intersect;
+  transition: background .3s, border-color .2s;
+}
+[data-theme="dark"] :is(.ns-tk-bigticket, .ns-tk-acctcard)::before {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: var(--ns-tk-hi), inset -1px 0 0 rgba(var(--starlight), .035);
+}
+.ns-tk-bigticket::after, .ns-tk-acctcard::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 4px; background: var(--ns-tk-noise);
+  opacity: .055; mix-blend-mode: multiply; pointer-events: none;
+  -webkit-mask-image:
+    radial-gradient(circle 6.5px at 0 var(--tear), transparent 97%, var(--color-ink) 100%),
+    radial-gradient(circle 6.5px at 100% var(--tear), transparent 97%, var(--color-ink) 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    radial-gradient(circle 6.5px at 0 var(--tear), transparent 97%, var(--color-ink) 100%),
+    radial-gradient(circle 6.5px at 100% var(--tear), transparent 97%, var(--color-ink) 100%);
+  mask-composite: intersect;
+}
+[data-theme="dark"] :is(.ns-tk-bigticket, .ns-tk-acctcard)::after { display: none; }
+.ns-tk-bigticket.is-new::before { border-color: var(--color-gold); }
+
+/* 票根（上）：類型 segmented ＋ 票號 */
+.ns-tk-bt-stub { height: var(--tear); display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px dashed var(--color-dash); }
+.ns-tk-kind { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--color-line); border-radius: 2px; overflow: hidden; }
+.ns-tk-kind button {
+  min-width: 50px; height: 28px; padding: 0 10px; background: none; cursor: pointer;
+  font-size: 12.5px; letter-spacing: .14em; text-indent: .14em; color: var(--color-ink-faint); transition: background .15s, color .15s;
+}
+.ns-tk-kind button + button { border-left: 1px dashed var(--color-line); }
+.ns-tk-kind button:hover { color: var(--color-ink); background: var(--ns-tk-hover); }
+.ns-tk-kind button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-tk-kind button[aria-pressed="true"] { color: var(--color-ink); background: var(--ns-tk-sel); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+.ns-tk-kind.is-locked { padding: 4px 12px; font-family: var(--font-display); font-weight: 600; font-size: 12.5px; letter-spacing: .3em; color: var(--stamp-ink); border-style: dashed; }
+.ns-tk-serial { margin-left: auto; font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .16em; color: var(--color-ink-faint); white-space: nowrap; }
+
+/* 票面 */
+.ns-tk-bt-face { position: relative; padding: 18px 20px 16px; }
+.ns-tk-bt-amt { display: flex; align-items: baseline; gap: 6px; padding-right: 76px; }
+.ns-tk-bt-amt .sg { flex: none; width: .9em; text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 22px; color: var(--color-ink-faint); }
+.ns-tk-bigticket[data-kind="income"] .ns-tk-bt-amt .sg { color: var(--color-gold-ink); }
+.ns-tk-amtin {
+  flex: 1; min-width: 0; width: 100%; background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none; padding: 0 0 2px;
+  font-family: var(--font-display); font-weight: 600; font-size: 28px; line-height: 1.25; letter-spacing: .01em; color: var(--color-ink);
+  font-variant-numeric: tabular-nums; transition: border-color .15s;
+}
+.ns-tk-amtin:hover { border-bottom-color: var(--color-dash); }
+.ns-tk-amtin:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-amtin::placeholder { color: var(--color-ink-faint); opacity: .55; }
+.ns-tk-curwrap { position: relative; flex: none; align-self: center; }
+.ns-tk-curchip {
+  padding: 2px 7px 1px; border: 1px solid var(--color-line); border-radius: 2px; background: none; cursor: pointer;
+  font-family: var(--font-latin); font-size: 10.5px; letter-spacing: .1em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
+}
+.ns-tk-curchip:hover:not([disabled]), .ns-tk-curchip[aria-expanded="true"] { border-color: var(--accent); color: var(--color-ink); }
+.ns-tk-curchip:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-tk-curchip[disabled] { cursor: default; border-style: dashed; opacity: .75; }
+.ns-tk-curwrap .ns-tk-pop.is-cur { right: 0; top: calc(100% + 4px); }
+.ns-tk-conv { margin: 4px 0 0 calc(.9em + 6px); font-size: 12px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-conv b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); }
+.ns-tk-conv button { background: none; cursor: pointer; color: inherit; border-bottom: 1px dashed var(--color-dash); }
+.ns-tk-conv button:hover { color: var(--color-ink); }
+.ns-tk-conv .ns-tk-convreset { margin-left: 8px; font-size: 11px; }
+.ns-tk-convin {
+  width: 96px; background: transparent; border: 0; border-bottom: 1px solid var(--color-gold); outline: none; padding: 0 0 1px;
+  font-family: var(--font-display); font-weight: 600; font-size: 12px; color: var(--color-ink);
+}
+
+/* 検印位（右上）：支出＝虛線空欄；收入＝領収（朱圓）；轉帳＝振替、校正＝精算（墨角印） */
+.ns-tk-bt-seal { position: absolute; top: 12px; right: 18px; width: 62px; height: 62px; display: grid; place-items: center; pointer-events: none; }
+.ns-tk-bt-seal .ns-tk-kakuin { font-size: 13px; padding: 5px 8px 4px 11px; letter-spacing: .3em; }
+
+/* 欄位列（panel.css .field／.lbl 同值；本線自己寫一份，不靠 panel.css 的載入） */
+.ns-tk-fields { display: flex; flex-direction: column; gap: 9px; margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--color-line); }
+.ns-tk-fields .field { position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 28px; }
+.ns-tk-fields .field.top { align-items: start; }
+.ns-tk-fields .field.top .lbl { padding-top: 5px; }
+.ns-tk-fields .lbl { font-size: 10px; letter-spacing: .4em; color: var(--color-gold-ink); font-weight: 500; white-space: nowrap; }
+[data-theme="dark"] .ns-tk-fields .lbl { color: var(--color-gold); }
+.ns-tk-pick {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 2px 0 3px; background: none; cursor: pointer;
+  border-bottom: 1px solid var(--color-dash); font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); text-align: left;
+  transition: border-color .15s;
+}
+.ns-tk-pick:hover, .ns-tk-pick[aria-expanded="true"] { border-bottom-color: var(--color-gold); }
+.ns-tk-pick:focus-visible { outline: none; border-bottom-color: var(--color-gold); box-shadow: 0 1px 0 var(--color-gold); }
+.ns-tk-pick .sub { font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-pick.is-empty { color: var(--color-ink-faint); }
+.ns-tk-fields .field > div > .ns-tk-pop,
+.ns-tk-fields .field .ns-tk-catwrap > .ns-tk-pop { left: 0; top: calc(100% + 2px); }
+.ns-tk-fields .field > div { position: relative; }
+.ns-tk-catwrap { position: relative; }
+.ns-tk-catin, .ns-tk-textin, .ns-tk-notewrap textarea {
+  width: 100%; min-width: 0; display: block; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); outline: none;
+  padding: 2px 0 3px; font: inherit; font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); border-radius: 0;
+}
+.ns-tk-catin:focus, .ns-tk-textin:focus, .ns-tk-notewrap textarea:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-catin::placeholder, .ns-tk-textin::placeholder, .ns-tk-notewrap textarea::placeholder { color: var(--color-ink-faint); }
+textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6; field-sizing: content; min-height: 1.6em; max-height: 9.6em; }
+.ns-tk-date { display: flex; align-items: center; gap: 10px; }
+.ns-tk-datechip {
+  padding: 1px 9px; border: 1px solid var(--color-line); border-radius: 2px; background: none; cursor: pointer;
+  font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
+}
+.ns-tk-datechip:hover, .ns-tk-datechip[aria-expanded="true"] { border-color: var(--accent); color: var(--color-ink); }
+.ns-tk-datechip:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-tk-time {
+  background: none; cursor: pointer; font-family: var(--font-latin); font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint);
+  border-bottom: 1px dashed transparent;
+}
+.ns-tk-time:hover, .ns-tk-time:focus-visible { color: var(--color-ink); border-bottom-color: var(--color-dash); outline: none; }
+.ns-tk-timein {
+  width: 52px; background: transparent; border: 0; border-bottom: 1px solid var(--color-gold); outline: none; padding: 0;
+  font-family: var(--font-latin); font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink);
+}
+.ns-tk-datepop { left: 0; top: calc(100% + 4px); }
+.ns-tk-toamt { display: flex; align-items: baseline; gap: 6px; }
+.ns-tk-toamt small { font-family: var(--font-latin); font-size: 10px; letter-spacing: .08em; color: var(--color-ink-soft); }
+
+.ns-tk-bt-foot { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 22px; padding-top: 13px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-bt-foot .ns-tk-btn { padding: 4px 8px; gap: 5px; letter-spacing: .06em; } /* 存檔／存並再記／Esc 放棄 一行放得下（票寬 334） */
+.ns-tk-saved { margin-left: auto; font-size: 11px; letter-spacing: .2em; color: var(--color-ink-faint); transition: color .3s; }
+.ns-tk-saved.flash { color: var(--accent); }
+[data-theme="dark"] .ns-tk-saved.flash { color: var(--color-gold); }
+.ns-tk-esc { margin-left: auto; font-size: 11px; letter-spacing: .06em; white-space: nowrap; color: var(--color-ink-faint); }
+
+/* 帳戶版 */
+.ns-tk-acctcard { --tear: 0px; padding: 20px 22px 18px; }
+.ns-tk-acctcard::before, .ns-tk-acctcard::after { -webkit-mask-image: none; mask-image: none; }
+.ns-tk-ac-over { font-size: 9.5px; letter-spacing: .34em; color: var(--color-ink-faint); }
+.ns-tk-acctcard .ns-tk-ac-name {
+  width: 100%; margin-top: 4px; background: transparent; border: 0; border-bottom: 1px dashed transparent; outline: none; padding: 0 0 4px;
+  font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: .06em; color: var(--color-ink);
+}
+.ns-tk-acctcard .ns-tk-ac-name:hover { border-bottom-color: var(--color-dash); }
+.ns-tk-acctcard .ns-tk-ac-name:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-fields.is-acct { margin-top: 10px; }
+.ns-tk-select {
+  appearance: none; -webkit-appearance: none; max-width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0;
+  padding: 2px 18px 3px 0; font: inherit; font-size: 13.5px; color: var(--color-ink); outline: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 7px) 55%, calc(100% - 3px) 55%; background-size: 4px 4px; background-repeat: no-repeat;
+}
+.ns-tk-select:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-select[disabled] { color: var(--color-ink-soft); cursor: default; border-bottom-style: dashed; background-image: none; padding-right: 0; }
+.ns-tk-select option { color: var(--color-ink); background: var(--color-paper); }
+.ns-tk-lock { display: block; margin-top: 3px; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-balance { margin-top: 18px; padding: 16px 0 6px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-balance .lbl { font-size: 10px; letter-spacing: .4em; color: var(--color-ink-faint); }
+.ns-tk-balance .v { margin-top: 2px; font-weight: 600; font-size: 32px; line-height: 1.2; letter-spacing: .01em; color: var(--color-ink); }
+.ns-tk-balance .v small { margin-left: 6px; font-family: var(--font-latin); font-size: 12px; font-weight: 400; color: var(--color-ink-soft); }
+.ns-tk-adj { margin-top: 12px; }
+.ns-tk-adjrow { display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; }
+.ns-tk-adjrow label { flex: 1; display: grid; gap: 3px; font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+.ns-tk-adjrow input { font-family: var(--font-display); font-size: 16px; }
+.ns-tk-adjhint { margin-top: 6px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-adjhint b { font-family: var(--font-display); color: var(--color-ink-soft); }
+.ns-tk-acctfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 20px; padding-top: 12px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-acctfoot .note { margin-left: auto; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+
+@media (prefers-reduced-motion: reduce) { .ns-tk-bigticket, .ns-tk-acctcard { animation: none; } }
+
+/* ═══ §F 對話框本體：新增帳戶／分類管理／幣別與匯率——桌機外觀（丙）═══ */
+/* 三個本體兩殼共用：桌機包在 DialogShell（.ns-dialog-body 內捲）、手機包在 MobileSheetHost 的底部面板；
+   這裡是兩殼共同的長相，手機的觸控尺寸在 ticket-mobile.css 末段。按鈕沿 overlay.css 的 .ns-btn＋.btn-ghost／.btn-gold
+   （不用 .btn-seal：朱紅只給領収，鐵則 5）。 */
+.ns-tk-dialog { font-size: 14px; line-height: 1.6; letter-spacing: .02em; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.ns-tk-dialog .lbl { font-size: 10px; letter-spacing: .28em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-dfield { display: grid; grid-template-columns: 64px minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 40px; border-bottom: 1px dashed var(--color-line); }
+.ns-tk-din { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 14.5px; }
+.ns-tk-din.is-num { font-family: var(--font-display); font-weight: 600; }
+.ns-tk-din.is-code { font-family: var(--font-latin); letter-spacing: .12em; text-transform: uppercase; }
+.ns-tk-dselect {
+  width: 100%; min-width: 0; min-height: 32px; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash);
+  outline: none; font: inherit; font-size: 14px; color: var(--color-ink); color-scheme: light dark; cursor: pointer;
+}
+.ns-tk-dselect:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-dhint { margin: 10px 0 0; font-size: 11.5px; line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-dfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.ns-tk-dbtn { white-space: nowrap; }
+
+/* 分類管理：支出｜收入兩籤＋兩層樹 */
+.ns-tk-dtabs { display: inline-grid; grid-auto-flow: column; margin-bottom: 10px; border: 1px solid var(--color-line); border-radius: 2px; overflow: hidden; }
+.ns-tk-dtabs button { min-width: 64px; height: 30px; padding: 0 12px; font-size: 12.5px; letter-spacing: .14em; text-indent: .14em; color: var(--color-ink-faint); transition: background .15s, color .15s; }
+.ns-tk-dtabs button + button { border-left: 1px dashed var(--color-line); }
+.ns-tk-dtabs button:hover { color: var(--color-ink); background: var(--ns-tk-hover); }
+.ns-tk-dtabs button[aria-selected="true"] { color: var(--color-ink); background: var(--ns-tk-sel); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+.ns-tk-dtree, .ns-tk-dsubs, .ns-tk-darch ul { list-style: none; margin: 0; padding: 0; }
+.ns-tk-dtree { border-top: 1px solid var(--color-line); }
+.ns-tk-dmain { border-bottom: 1px solid var(--color-line); }
+.ns-tk-dsubs { margin-left: 18px; border-left: 1px dashed var(--color-dash); padding-left: 8px; padding-bottom: 4px; }
+.ns-tk-drow { display: flex; align-items: center; gap: 4px; min-height: 36px; }
+.ns-tk-drow.is-sub .ns-tk-dname { font-size: 13.5px; color: var(--color-ink-soft); }
+.ns-tk-drow.is-fixed { padding-left: 2px; color: var(--color-ink-faint); }
+.ns-tk-drow.is-fixed .nm { flex: 1; }
+.ns-tk-drow small { font-size: 10.5px; letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-tk-drow.is-archived { padding-left: 2px; color: var(--color-ink-faint); }
+.ns-tk-drow.is-archived .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tk-dname {
+  flex: 1; min-width: 0; padding: 4px 2px; background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none;
+  font: inherit; font-size: 14px; color: var(--color-ink);
+}
+.ns-tk-dname:hover { border-bottom-color: var(--color-dash); }
+.ns-tk-dname:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-dname.is-num { font-family: var(--font-display); font-weight: 600; }
+.ns-tk-dmini {
+  flex: none; min-height: 26px; padding: 0 7px; border: 1px solid transparent; border-radius: 2px;
+  font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; transition: border-color .15s, color .15s, background .15s;
+}
+.ns-tk-dmini.sq { min-width: 26px; padding: 0; font-family: var(--font-latin); }
+.ns-tk-dmini:hover, .ns-tk-dmini[aria-expanded="true"] { border-color: var(--color-dash); color: var(--color-ink); }
+.ns-tk-dmini:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-tk-dadd { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.ns-tk-dsubs .ns-tk-dadd { margin: 2px 0 4px; }
+.ns-tk-darch { margin-top: 14px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-darch-tog { min-height: 32px; padding: 0 2px; font-size: 12px; letter-spacing: .16em; color: var(--color-ink-faint); }
+.ns-tk-darch-tog:hover { color: var(--color-ink); }
+.ns-tk-darch-tog::after { content: " ›"; display: inline-block; transition: transform .2s cubic-bezier(.2, .9, .3, 1.04); }
+.ns-tk-darch-tog[aria-expanded="true"]::after { transform: rotate(90deg); }
+
+/* 幣別與匯率：小表＋新增一列 */
+.ns-tk-dcurlist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--color-line); }
+.ns-tk-dcurrow {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 64px minmax(0, 1.4fr); column-gap: 10px; align-items: center;
+  min-height: 40px; border-bottom: 1px dashed var(--color-line);
+}
+.ns-tk-dcurrow .code { font-family: var(--font-latin); font-weight: 600; font-size: 12.5px; letter-spacing: .1em; color: var(--color-ink); }
+.ns-tk-dcurrow .dec { font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-dcurrow .rate { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-dcurrow .rate .ns-tk-dname { width: 0; }
+.ns-tk-dcurrow .rate.is-main { font-size: 11px; letter-spacing: .2em; }
+.ns-tk-dcuradd { display: grid; grid-template-columns: 64px minmax(0, 1fr) 96px; gap: 8px 10px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-drate { grid-column: 1 / 3; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tk-drate .ns-tk-din { flex: 1; }
+.ns-tk-dcuradd > .ns-tk-dbtn { grid-column: 3; }
+
+/* ═══ §G 匯入票四態（乙；手機單欄的微調寫在 ticket-mobile.css）═══ */
+/* 卡殼＝DialogShell（.ns-card，寬 620）；本體 .ns-tk-import 只排內容。 */
+.ns-tk-import { font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); }
+.ns-tk-im-wait { padding: 26px 0 22px; text-align: center; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-faint); }
+.ns-tk-im-unknown, .ns-tk-im-error { padding: 14px 0 6px; font-size: 14px; line-height: 1.7; letter-spacing: .06em; }
+.ns-tk-im-error { color: var(--color-late); }
+.ns-tk-im-head { padding-bottom: 12px; border-bottom: 1px dashed var(--color-dash); }
+.ns-tk-im-head .file { font-family: var(--font-latin); font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); word-break: break-all; }
+.ns-tk-im-sum { margin-top: 6px; font-size: 13px; letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-tk-im-sum b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
+.ns-tk-im-rows { margin-top: 4px; }
+.ns-tk-im-row {
+  display: grid; grid-template-columns: 20px 1fr auto; align-items: baseline; column-gap: 8px; padding: 9px 0;
+  border-bottom: 1px dashed var(--color-line); font-size: 13.5px; letter-spacing: .05em;
+}
+.ns-tk-im-row.is-faint { color: var(--color-ink-soft); }
+.ns-tk-im-row .ic { font-family: var(--font-display); font-weight: 600; text-align: center; color: var(--color-ink-faint); }
+.ns-tk-im-row .n { font-family: var(--font-display); font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums; }
+.ns-tk-im-row .hint { grid-column: 2 / 4; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-im-row .tog { margin-left: 8px; font-size: 11.5px; color: var(--color-ink-faint); background: none; cursor: pointer; border-bottom: 1px dashed var(--color-dash); }
+.ns-tk-im-row .tog:hover { color: var(--color-ink); }
+.ns-tk-im-mods { grid-column: 2 / 4; margin-top: 6px; max-height: 240px; overflow-y: auto; }
+.ns-tk-im-mod {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 7px 10px; margin-top: 4px;
+  border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 60%, transparent); font-size: 12px;
+}
+.ns-tk-im-mod .t { color: var(--color-ink); font-family: var(--font-display); }
+.ns-tk-im-mod .t small { margin-right: 6px; font-family: var(--font-latin); color: var(--color-ink-faint); }
+.ns-tk-im-mod .t em { margin-left: 8px; font-family: var(--font-body); font-style: normal; font-size: 11px; color: var(--color-ink-faint); }
+.ns-tk-im-mod .diff { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-faint); }
+.ns-tk-im-mod .diff s { opacity: .8; }
+.ns-tk-im-mod .ns-tk-kind { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+.ns-tk-im-mod .ns-tk-kind button { min-width: 0; height: 24px; font-size: 11px; letter-spacing: .06em; text-indent: 0; }
+.ns-tk-im-sec { margin-top: 18px; display: flex; align-items: baseline; gap: 10px; }
+.ns-tk-im-sec h3 { font-family: var(--font-display); font-size: 13.5px; font-weight: 700; letter-spacing: .16em; }
+.ns-tk-im-sec .rule { flex: 1; border-top: 1px dashed var(--color-dash); transform: translateY(-4px); }
+.ns-tk-im-desc { margin-top: 6px; font-size: 12px; line-height: 1.7; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-tk-recon { display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 2px; margin-top: 8px; }
+.ns-tk-recon label {
+  display: grid; grid-template-columns: minmax(0, 1fr) 112px 14px; align-items: center; gap: 8px; min-height: 34px;
+  font-size: 13px; letter-spacing: .05em; border-bottom: 1px dashed var(--color-line);
+}
+.ns-tk-recon .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tk-recon .nm small { margin-left: 4px; font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-recon input {
+  width: 100%; text-align: right; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); outline: none; padding: 2px 0;
+  font-family: var(--font-display); font-size: 14px; color: var(--color-ink); font-variant-numeric: tabular-nums;
+}
+.ns-tk-recon input:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-recon input::placeholder { color: var(--color-ink-faint); opacity: .6; font-family: var(--font-body); font-size: 11.5px; }
+.ns-tk-recon .ck { font-size: 11px; text-align: center; color: var(--color-ink-soft); }
+.ns-tk-recon .ck.bad { color: var(--color-late); }
+.ns-tk-verdict {
+  margin-top: 12px; padding: 8px 12px; border: 1px dashed var(--color-dash); border-radius: 2px;
+  font-size: 12.5px; letter-spacing: .05em; color: var(--color-ink-soft);
+}
+.ns-tk-verdict b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
+.ns-tk-verdict.ok { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.ns-tk-verdict.bad { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 45%, transparent); }
+.ns-tk-im-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--color-dash); }
+.ns-tk-im-foot .note { margin-right: auto; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-im-writing { display: grid; gap: 10px; padding: 18px 0 8px; }
+.ns-tk-im-writing p { font-family: var(--font-display); font-size: 15px; letter-spacing: .1em; font-variant-numeric: tabular-nums; }
+.ns-tk-im-writing small { font-size: 11px; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-tk-im-bar { height: 3px; border-radius: 2px; background: var(--color-line); overflow: hidden; }
+.ns-tk-im-bar i { display: block; height: 100%; background: var(--accent); transition: width .3s cubic-bezier(.2, .9, .3, 1); }
+.ns-tk-im-donehead { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; padding-right: 64px; }
+.ns-tk-im-result { font-family: var(--font-display); font-weight: 600; font-size: 16px; letter-spacing: .06em; }
+.ns-tk-im-seal { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+.ns-tk-im-table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; letter-spacing: .04em; }
+.ns-tk-im-table th, .ns-tk-im-table td { padding: 6px 4px; border-bottom: 1px dashed var(--color-line); text-align: right; font-weight: 400; }
+.ns-tk-im-table thead th { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+.ns-tk-im-table th[scope="row"], .ns-tk-im-table thead th:first-child { text-align: left; }
+.ns-tk-im-table th small { margin-left: 4px; font-size: 10.5px; color: var(--color-ink-faint); }
+.ns-tk-im-table td { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+.ns-tk-im-table td.ck { width: 24px; text-align: center; font-family: var(--font-body); font-size: 11px; color: var(--color-ink-soft); }
+.ns-tk-im-table tr.is-bad td { color: var(--color-late); }
+.ns-tk-im-note { margin-top: 10px; font-size: 12px; line-height: 1.7; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-tk-im-note.is-bad { color: var(--color-late); }

@@ -185,6 +185,39 @@
   /* 頂帶右側的件（日付印）靠右 */
   [data-shell="mobile"] .m-band-end { margin-left: auto; display: flex; align-items: center; }
   /**
+   * 售票口線車次①（D-票-20、0-28；契約 §2.6 #8）：頂帶最右的「⋯ 更多」鈕（MobileTopBand.tsx）。
+   * 44×44 觸控目標、圖示 20px；右邊用負邊距吃掉 (44−20)/2，三點的右緣才對齊頁邊距（觸控範圍不縮）。
+   * 按下態（在「更多」頁）＝圖示貼底一顆金菱形，逐字沿底部 tab 的 .m-tab.is-active::after——同一條書封的選中語彙。
+   */
+  [data-shell="mobile"] .m-band-more {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-right: -12px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    color: var(--color-book-ink);
+    -webkit-tap-highlight-color: transparent;
+  }
+  [data-shell="mobile"] .m-band-more svg { opacity: .85; display: block; }
+  [data-shell="mobile"] .m-band-more:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m-band-more[aria-pressed="true"] svg { opacity: 1; }
+  [data-shell="mobile"] .m-band-more[aria-pressed="true"]::after {
+    content: "";
+    position: absolute;
+    bottom: 6px;
+    width: 5px;
+    height: 5px;
+    background: var(--color-gold);
+    transform: rotate(45deg);
+  }
+  /**
    * 日付印在深底：印章家族的 text/circle/line 全走 currentColor（stamps.css :61-62），
    * 所以只要換一次 color，整枚跟著走書封字色。朱肉 filter 在深底照樣可用。
    * （WP1 不必再寫一條——契約 §5-6 說的就是這一條。）

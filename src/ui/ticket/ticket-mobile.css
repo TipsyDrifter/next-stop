@@ -1,0 +1,358 @@
+/**
+ * 售票口線・手機樣式（車次①契約 §2.7、§5.3、§5.5；丙席擁有全檔）。
+ * 只由 mobile/MobileTicketOffice.tsx import；**每條規則前綴 `[data-shell="mobile"]`**（§8 牙齒），手機專用 class `.ns-tk-m*`。
+ * 色只用 theme.css token 與 ticket.css §A 的區域變數，不得出現色碼字面值。
+ * 長相照原型 `prototypes/售票口-src/styles.css` 手機段（表單 A 現行版 D-票-23、合計帶右端滑桿 D-票-24），
+ *   原型裡的 rgba 字面值一律換成 token 的 color-mix；暗色只在 token 蓋不到的地方（霧面玻璃關掉、玻璃邊）寫 [data-theme="dark"]。
+ * 層級（mobile.css 既有序列）：tab bar 3 ＜ sheet 45 ＜ 全螢幕表單／帳戶頁 46 ＜ 表單上的 sheet 47 ＜ MobileDatePicker 48 ＜ Toast／確認窗 50。
+ * portal 出去的根（表單、帳戶頁、sheet）不在 `.ns-tk-m` 底下，§A 的區域變數在這裡補一份。
+ */
+
+/* ═══ 區域變數（portal 根也要一份）═══ */
+[data-shell="mobile"] :is(.ns-tk-m, .ns-tk-mform, .ns-tk-macct, .ns-tk-msheet) {
+  --ns-tk-hover: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  --ns-tk-sel: color-mix(in srgb, var(--accent) 9%, transparent);
+  --ns-tk-mglass: color-mix(in srgb, rgb(var(--starlight)) 78%, transparent);
+  --ns-tk-mhi: 0 0 0 0 transparent;
+  --ns-tk-mgoldring: 0 0 0 1px color-mix(in srgb, var(--color-gold) 26%, transparent);
+  --ns-tk-mpaper: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+}
+[data-theme="dark"] [data-shell="mobile"] :is(.ns-tk-m, .ns-tk-mform, .ns-tk-macct, .ns-tk-msheet),
+[data-theme="dark"][data-shell="mobile"] :is(.ns-tk-m, .ns-tk-mform, .ns-tk-macct, .ns-tk-msheet) {
+  --ns-tk-mglass: var(--color-line);
+  --ns-tk-mhi: inset 0 1px 0 color-mix(in srgb, rgb(var(--starlight)) 9%, transparent);
+}
+
+/* ═══ 手機頁 MobileTicketOffice：合計帶、帳戶卡、月份列、清單（丙）═══ */
+
+[data-shell="mobile"] .ns-tk-m { font-variant-numeric: tabular-nums; }
+
+/* 載入／錯誤 */
+[data-shell="mobile"] .ns-tk-mstate { min-height: 60%; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; color: var(--color-ink-faint); font-size: 13px; letter-spacing: .2em; }
+[data-shell="mobile"] .ns-tk-mstate p { margin: 0; }
+[data-shell="mobile"] .ns-tk-mstate small { font-size: 11.5px; letter-spacing: .04em; max-width: 30ch; overflow-wrap: anywhere; }
+
+/* 合計帶＋滑桿管理鈕（D-票-24） */
+[data-shell="mobile"] .ns-tk-mtotal {
+  display: flex; align-items: center; gap: 4px; margin: 0 0 12px; padding: 6px 4px 6px 14px; min-height: 56px; box-sizing: border-box;
+  background: var(--color-paper-used); border: 1px solid var(--ns-tk-mglass); border-radius: 3px; box-shadow: var(--ns-tk-mhi);
+}
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat { flex: 1; min-width: 0; display: grid; }
+[data-shell="mobile"] .ns-tk-mstat + .ns-tk-mstat { padding-left: 12px; border-left: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat span { font-size: 10px; letter-spacing: .26em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat b { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; line-height: 1.3; letter-spacing: .01em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat.sum b { font-weight: 700; font-size: 16px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mmanage { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 2px; color: var(--color-ink-soft); transition: background .15s; }
+[data-shell="mobile"] .ns-tk-mmanage:active, [data-shell="mobile"] .ns-tk-mmanage[aria-expanded="true"] { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mmanage:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+/* 帳戶卡橫捲（頁材質，不是第二塊深面——0-5） */
+[data-shell="mobile"] .ns-tk-mcards {
+  display: flex; gap: 8px; margin: 0 calc(-1 * var(--m-gutter)) 14px; padding: 2px var(--m-gutter) 6px;
+  overflow-x: auto; scroll-snap-type: x proximity; scroll-padding-inline: var(--m-gutter); scrollbar-width: none; overscroll-behavior-x: contain;
+}
+[data-shell="mobile"] .ns-tk-mcards::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tk-mcard {
+  position: relative; flex: none; width: 116px; min-height: 66px; scroll-snap-align: start; box-sizing: border-box;
+  background: var(--color-paper-high); -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid var(--ns-tk-mglass); border-radius: 3px;
+  box-shadow: var(--ns-tk-mhi), 0 1px 2px color-mix(in srgb, var(--color-book) 8%, transparent);
+  transition: border-color .15s, box-shadow .15s;
+}
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mcard, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcard { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: var(--ns-tk-mhi); }
+[data-shell="mobile"] .ns-tk-mcard .hit {
+  width: 100%; height: 100%; min-height: 64px; box-sizing: border-box; padding: 9px 12px 8px; text-align: left;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 1px;
+  -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
+}
+[data-shell="mobile"] .ns-tk-mcard .n { font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
+[data-shell="mobile"] .ns-tk-mcard .g { font-size: 9.5px; letter-spacing: .2em; color: var(--color-ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-shell="mobile"] .ns-tk-mcard .b { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; }
+[data-shell="mobile"] .ns-tk-mcard .b small { margin-left: 3px; font-family: var(--font-latin); font-weight: 500; font-size: 9px; letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mcard .go { position: absolute; top: 0; right: 0; width: 34px; height: 34px; display: grid; place-items: center; color: var(--color-ink-faint); border-radius: 2px; }
+[data-shell="mobile"] .ns-tk-mcard .go:active { background: var(--ns-tk-hover); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mcard.on { border-color: var(--color-gold); box-shadow: var(--ns-tk-mgoldring), var(--ns-tk-mhi); }
+[data-shell="mobile"] .ns-tk-mcard.on .n { color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mcard.is-zero .b { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcard.all { width: 84px; }
+[data-shell="mobile"] .ns-tk-mcard.all .n { padding-right: 0; color: var(--color-ink); font-weight: 500; }
+[data-shell="mobile"] .ns-tk-mcard.arch { width: 76px; background: transparent; box-shadow: none; border-style: dashed; border-color: var(--color-dash); -webkit-backdrop-filter: none; backdrop-filter: none; }
+[data-shell="mobile"] .ns-tk-mcard.arch .n { padding-right: 0; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcard.add { width: 56px; background: transparent; box-shadow: none; border-style: dashed; border-color: var(--color-dash); color: var(--color-ink-faint); -webkit-backdrop-filter: none; backdrop-filter: none; }
+[data-shell="mobile"] .ns-tk-mcard.add .hit { align-items: center; justify-content: center; }
+[data-shell="mobile"] .ns-tk-mcard :is(.hit, .go):focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+/* 月份列＋「＋ 記一筆」 */
+[data-shell="mobile"] .ns-tk-mmonth { display: flex; align-items: center; gap: 2px; margin: 0 0 10px; }
+[data-shell="mobile"] .ns-tk-mmonth h2 { margin: 0; font-size: 18px; letter-spacing: .06em; white-space: nowrap; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mnav { width: 40px; height: 44px; display: grid; place-items: center; border-radius: 2px; color: var(--color-ink-faint); transition: background .15s, color .15s; }
+[data-shell="mobile"] .ns-tk-mnav:active:not([disabled]) { background: var(--ns-tk-hover); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mnav[disabled] { opacity: .3; cursor: default; }
+[data-shell="mobile"] .ns-tk-madd {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--accent); border-radius: 2px; background: var(--ns-tk-sel); color: var(--accent);
+  font-size: 13.5px; letter-spacing: .12em; white-space: nowrap; transition: background .15s;
+}
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-madd, [data-theme="dark"][data-shell="mobile"] .ns-tk-madd { color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-madd:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+[data-shell="mobile"] .ns-tk-mmsum { margin: -4px 0 10px 6px; font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mmsum b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mmsum .pos { color: var(--color-gold-ink); }
+
+/* 帳簿：一張霧面紙（不打孔；帳簿行不是票卡——0-1） */
+[data-shell="mobile"] .ns-tk-mbook {
+  position: relative; margin: 0 -4px; border-radius: 4px; background: var(--color-paper-high);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--ns-tk-mglass); box-shadow: var(--ns-tk-mhi), var(--shadow-card);
+}
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mbook, [data-theme="dark"][data-shell="mobile"] .ns-tk-mbook { -webkit-backdrop-filter: none; backdrop-filter: none; }
+[data-shell="mobile"] .ns-tk-mlist { list-style: none; margin: 0; padding: 2px 0 4px; }
+[data-shell="mobile"] .ns-tk-mlist > li { list-style: none; }
+[data-shell="mobile"] .ns-tk-mmonthrule { padding: 22px 14px 2px; font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: .24em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mday { display: flex; align-items: baseline; gap: 8px; padding: 13px 14px 5px; border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mday .d { font-family: var(--font-latin); font-size: 13px; font-weight: 500; letter-spacing: .04em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mday .w { font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mday .today { font-size: 9.5px; letter-spacing: .3em; color: var(--accent); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mday .today, [data-theme="dark"][data-shell="mobile"] .ns-tk-mday .today { color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mday .s { margin-left: auto; font-family: var(--font-display); font-size: 12px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mday .s .pos { color: var(--color-gold-ink); }
+
+/* 帳簿行：符號｜分類＋備註｜金額 */
+[data-shell="mobile"] .ns-tk-mrow {
+  position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 9px; align-items: center;
+  width: 100%; min-height: 56px; box-sizing: border-box; padding: 7px 14px; text-align: left;
+}
+[data-shell="mobile"] .ns-tk-mrow::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; border-bottom: 1px dashed var(--color-line); pointer-events: none; }
+[data-shell="mobile"] .ns-tk-mlist > li:last-of-type .ns-tk-mrow::after { display: none; }
+[data-shell="mobile"] .ns-tk-mrow:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mrow:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mrow.is-last { background: var(--ns-tk-sel); box-shadow: inset 2px 0 0 var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mrow .sg { font-family: var(--font-display); font-weight: 600; font-size: 13px; line-height: 1; text-align: center; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow[data-kind="income"] .sg { color: var(--color-gold-ink); }
+[data-shell="mobile"] .ns-tk-mrow .main { min-width: 0; }
+[data-shell="mobile"] .ns-tk-mrow .c { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; letter-spacing: .03em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mrow .c .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow .c .arr { margin: 0 .35em; color: var(--color-ink-faint); font-family: var(--font-latin); }
+[data-shell="mobile"] .ns-tk-mrow .c .seikan { margin-right: .5em; font-family: var(--font-display); font-weight: 700; font-size: 11px; letter-spacing: .2em; color: var(--stamp-ink); }
+[data-shell="mobile"] .ns-tk-mrow .c .unc { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow .nt { display: flex; align-items: center; gap: 6px; margin-top: 1px; min-width: 0; font-size: 12px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow .nt .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mrow .nt .roundel { width: 16px; height: 16px; font-size: 8px; }
+[data-shell="mobile"] .ns-tk-mrow .a { text-align: right; white-space: nowrap; line-height: 1.25; }
+[data-shell="mobile"] .ns-tk-mrow .a b { font-family: var(--font-display); font-weight: 600; font-size: 16px; letter-spacing: .01em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mrow .a .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrow .a .conv { display: block; font-family: var(--font-display); font-size: 11px; letter-spacing: .02em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mnone { padding: 40px 14px 24px; text-align: center; font-size: 13px; letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mloadmore button { display: block; width: 100%; min-height: 48px; border-top: 1px dashed var(--color-line); font-size: 12px; letter-spacing: .14em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mloadmore button:active { color: var(--color-ink); background: var(--ns-tk-hover); }
+
+/* 空帳本 */
+[data-shell="mobile"] .ns-tk-mempty { display: grid; justify-items: center; gap: 12px; padding: 56px 0 48px; text-align: center; font-size: 13.5px; letter-spacing: .14em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mempty p { margin: 0; }
+[data-shell="mobile"] .ns-tk-mlink { min-height: 44px; padding: 0 10px; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-faint); text-decoration: underline dashed; text-underline-offset: 4px; }
+
+/* 紙面按鈕（頁內、表單、帳戶頁共用） */
+[data-shell="mobile"] .ns-tk-mbtn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 16px; box-sizing: border-box;
+  border: 1px solid var(--color-dash); border-radius: 2px; background: transparent;
+  font-family: inherit; font-size: 14px; letter-spacing: .1em; color: var(--color-ink-soft); white-space: nowrap; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: border-color .15s, color .15s, background .15s;
+}
+[data-shell="mobile"] .ns-tk-mbtn:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+[data-shell="mobile"] .ns-tk-mbtn[disabled] { opacity: .4; cursor: default; }
+[data-shell="mobile"] .ns-tk-mbtn.primary { border-color: var(--accent); color: var(--accent); background: var(--ns-tk-sel); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mbtn.primary, [data-theme="dark"][data-shell="mobile"] .ns-tk-mbtn.primary { color: var(--color-gold); border-color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mbtn.primary:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+[data-shell="mobile"] .ns-tk-mbtn.quiet { border-color: transparent; color: var(--color-ink-faint); padding: 0 10px; }
+[data-shell="mobile"] .ns-tk-mbtn.danger { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 45%, transparent); }
+[data-shell="mobile"] .ns-tk-mbtn.danger:active { background: color-mix(in srgb, var(--color-late) 8%, transparent); }
+
+/* ═══ 底部面板（MSheet；沿 mobile.css .m-sheet-veil／.m-sheet 骨架）═══ */
+/* 高度吃視覺視窗：軟鍵盤彈出時面板底緣停在鍵盤上方（同 .ns-notes-mfull 的作法） */
+[data-shell="mobile"] .m-sheet-veil.ns-tk-mveil { bottom: auto; height: 100vh; height: 100dvh; height: var(--m-vvh, 100dvh); animation: nsTkMFade .18s ease-out; }
+[data-shell="mobile"] .ns-tk-mveil.is-over { z-index: 47; }
+[data-shell="mobile"] .m-sheet.ns-tk-msheet {
+  display: flex; flex-direction: column; box-sizing: border-box;
+  max-height: calc(var(--m-vvh, 100dvh) - var(--m-safe-top) - 12px);
+  background: var(--ns-tk-mpaper); border-color: var(--ns-tk-mglass);
+  animation: nsTkMSheetUp .26s cubic-bezier(.2, .9, .3, 1.02);
+}
+[data-shell="mobile"] .ns-tk-msheet-grip { flex: none; width: 36px; height: 4px; margin: 4px auto 2px; border-radius: 2px; background: var(--color-dash); }
+[data-shell="mobile"] .ns-tk-msheet .m-sheet-title { flex: none; }
+[data-shell="mobile"] .ns-tk-msheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
+[data-shell="mobile"] .m-sheet-item.ns-tk-msheet-row { display: flex; align-items: center; gap: 10px; }
+[data-shell="mobile"] .ns-tk-msheet-row small { margin-left: auto; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-shell="mobile"] .ns-tk-msheet-row.is-on { color: var(--color-ink); font-weight: 600; box-shadow: inset 2px 0 0 var(--color-gold); }
+[data-shell="mobile"] .ns-tk-msheet.is-dialog .ns-tk-msheet-body { padding: 4px var(--m-gutter) 0; }
+@keyframes nsTkMSheetUp { from { transform: translateY(100%); } }
+@keyframes nsTkMFade { from { opacity: 0; } }
+
+/* ═══ 手機記一筆表單 MobileEntryForm（丙）═══ */
+
+[data-shell="mobile"] .ns-tk-mform,
+[data-shell="mobile"] .ns-tk-macct {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 46;
+  height: 100vh; height: 100dvh; height: var(--m-vvh, 100dvh);
+  display: flex; flex-direction: column; box-sizing: border-box; padding-top: var(--m-safe-top);
+  background: var(--ns-tk-mpaper); color: var(--color-ink);
+  font-size: 14px; line-height: 1.6; letter-spacing: .02em; font-variant-numeric: tabular-nums;
+  animation: nsTkMSheetUp .26s cubic-bezier(.2, .9, .3, 1.02);
+}
+[data-shell="mobile"] .ns-tk-mf-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px 8px; border-bottom: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mf-top .ns-tk-mbtn { min-height: 40px; }
+
+/* 類型三選（與桌機 .ns-tk-kind 同語彙，手機尺寸） */
+[data-shell="mobile"] .ns-tk-mkind { margin: 0 auto; display: inline-grid; grid-auto-flow: column; border: 1px solid var(--color-line); border-radius: 2px; overflow: hidden; }
+[data-shell="mobile"] .ns-tk-mkind button { min-width: 56px; height: 38px; padding: 0 10px; font-size: 13.5px; letter-spacing: .14em; text-indent: .14em; color: var(--color-ink-faint); transition: background .15s, color .15s; }
+[data-shell="mobile"] .ns-tk-mkind button + button { border-left: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mkind button[aria-pressed="true"] { color: var(--color-ink); background: var(--ns-tk-sel); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
+[data-shell="mobile"] .ns-tk-mkind.is-locked { padding: 6px 14px; font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .3em; color: var(--stamp-ink); border-style: dashed; }
+
+[data-shell="mobile"] .ns-tk-mf-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; }
+[data-shell="mobile"] .ns-tk-mf-scroll::-webkit-scrollbar { width: 0; }
+[data-shell="mobile"] .ns-tk-mf-pad { height: 14px; }
+
+/* 金額大字＋幣別 chip */
+[data-shell="mobile"] .ns-tk-mf-amt { display: flex; align-items: baseline; gap: 8px; padding: 16px 18px 6px; }
+[data-shell="mobile"] .ns-tk-mf-amt .sg { flex: none; width: 1em; text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 24px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mform:focus { outline: none; } /* 舊票開啟時焦點落在對話框根（tabIndex=-1），不畫外框 */
+[data-shell="mobile"] .ns-tk-mform[data-kind="income"] .ns-tk-mf-amt .sg { color: var(--color-gold-ink); }
+[data-shell="mobile"] .ns-tk-mform[data-kind="adjust"] .ns-tk-mf-amt .sg { color: var(--stamp-ink); }
+[data-shell="mobile"] .ns-tk-mamtin {
+  flex: 1; min-width: 0; width: 100%; padding: 0 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 34px; line-height: 1.25; letter-spacing: .01em; color: var(--color-ink); font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-mamtin:focus { border-bottom-color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mamtin::placeholder { color: var(--color-ink-faint); opacity: .55; }
+[data-shell="mobile"] .ns-tk-mcurchip { flex: none; align-self: center; min-height: 36px; min-width: 52px; padding: 0 10px; border: 1px solid var(--color-line); border-radius: 2px; font-family: var(--font-latin); font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mcurchip:active:not([disabled]) { border-color: var(--accent); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mcurchip[disabled] { opacity: .55; cursor: default; }
+[data-shell="mobile"] .ns-tk-mf-conv { display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; padding: 0 18px 2px calc(18px + 24px + 8px); font-size: 12px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-conv > button { min-height: 32px; padding: 0; border-bottom: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mf-conv b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mf-conv label { display: inline-flex; align-items: center; gap: 6px; }
+[data-shell="mobile"] .ns-tk-mf-convin { width: 9em; min-height: 32px; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-gold); outline: none; font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--color-ink); }
+
+/* 小標（帳戶／最近／分類） */
+[data-shell="mobile"] .ns-tk-mf-lbl { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 12px 18px 6px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-lbl em { font-style: normal; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-soft); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 帳戶 chips 橫捲 */
+[data-shell="mobile"] .ns-tk-mf-accts { display: flex; gap: 6px; padding: 0 18px 4px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+[data-shell="mobile"] .ns-tk-mf-accts::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tk-mf-accts.in-field { padding: 4px 0; }
+[data-shell="mobile"] .ns-tk-mchip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 13px; box-sizing: border-box;
+  border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  font-size: 13.5px; letter-spacing: .06em; color: var(--color-ink-soft); white-space: nowrap;
+}
+[data-shell="mobile"] .ns-tk-mchip small { font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mchip .roundel { width: 18px; height: 18px; font-size: 8.5px; }
+[data-shell="mobile"] .ns-tk-mchip.on { border-color: var(--color-gold); color: var(--color-ink); background: var(--ns-tk-sel); box-shadow: var(--ns-tk-mgoldring); }
+[data-shell="mobile"] .ns-tk-mchip[disabled] { cursor: default; }
+[data-shell="mobile"] .ns-tk-mf-none { align-self: center; padding: 8px 0; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-toamt { display: flex; align-items: center; gap: 10px; margin: 8px 18px 0; padding: 4px 0; border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mf-toamt span { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mf-toamt input { flex: 1; min-width: 0; min-height: 40px; background: transparent; border: 0; outline: none; font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mf-toamt small { font-family: var(--font-latin); font-size: 11px; letter-spacing: .08em; color: var(--color-ink-soft); }
+
+/* 分類格子：最近 8 格＋完整兩層（主分類一格一格、展開的子分類插在那一列下方） */
+[data-shell="mobile"] .ns-tk-mf-cats { padding: 0 14px; }
+[data-shell="mobile"] .ns-tk-mgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+[data-shell="mobile"] .ns-tk-mcell {
+  min-height: 44px; padding: 4px; box-sizing: border-box; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.25;
+  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink); overflow-wrap: anywhere;
+}
+[data-shell="mobile"] .ns-tk-mcell small { display: block; font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcell.on { border-color: var(--color-gold); background: var(--ns-tk-sel); box-shadow: var(--ns-tk-mgoldring); font-weight: 500; }
+[data-shell="mobile"] .ns-tk-mcell.open { border-color: var(--color-dash); background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mcell:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-msubs { grid-column: 1 / -1; padding: 8px; border: 1px dashed var(--color-dash); border-radius: 3px; animation: nsTkMFade .16s ease-out; }
+[data-shell="mobile"] .ns-tk-msubs .hd { padding: 0 2px 6px; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-msubs .ns-tk-mcell { min-height: 40px; }
+
+/* 更多欄位（折疊） */
+[data-shell="mobile"] .ns-tk-mf-more { margin: 14px 18px 0; border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mf-moretog { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; font-size: 13.5px; letter-spacing: .12em; color: var(--color-ink-soft); text-align: left; }
+[data-shell="mobile"] .ns-tk-mf-moretog .sum { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-moretog svg { flex: none; transition: transform .2s cubic-bezier(.2, .9, .3, 1.04); }
+[data-shell="mobile"] .ns-tk-mf-moretog[aria-expanded="true"] svg { transform: rotate(180deg); }
+[data-shell="mobile"] .ns-tk-mf-field { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 48px; border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mf-field:last-child { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mf-field.top { align-items: start; }
+[data-shell="mobile"] .ns-tk-mf-field .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); }
+[data-shell="mobile"] .ns-tk-mf-field.top .lbl { padding-top: 14px; }
+[data-shell="mobile"] .ns-tk-mf-field > .ns-tk-mf-accts, [data-shell="mobile"] .ns-tk-mf-field > textarea { grid-column: 2 / -1; }
+[data-shell="mobile"] .ns-tk-mf-pick { justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px 0 12px; border: 1px solid var(--color-line); border-radius: 2px; font-size: 14px; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mf-time { min-height: 40px; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px dashed var(--color-dash); outline: none; font-family: var(--font-latin); font-size: 15px; color: var(--color-ink-soft); color-scheme: light dark; }
+[data-shell="mobile"] .ns-tk-mf-note { width: 100%; box-sizing: border-box; padding: 11px 0 8px; background: transparent; border: 0; outline: none; resize: none; font-family: var(--font-body); font-size: 16px; line-height: 1.6; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mf-note::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-foot { flex: none; display: flex; gap: 8px; padding: 10px 14px calc(var(--m-safe-bottom) + 10px); border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mf-foot .ns-tk-mbtn { flex: 1; min-height: 46px; font-size: 14.5px; }
+
+/* ═══ 手機帳戶頁 MobileAccountPage（丙）═══ */
+
+[data-shell="mobile"] .ns-tk-macct-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; border-bottom: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mback { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 8px; font-size: 14px; letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-macct-tag { margin-left: auto; margin-right: 8px; padding: 1px 8px; border: 1px dashed var(--color-dash); border-radius: 2px; font-size: 11px; letter-spacing: .2em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-macct-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 14px 18px calc(var(--m-safe-bottom) + 20px); }
+[data-shell="mobile"] .ns-tk-macct-name {
+  display: block; width: 100%; box-sizing: border-box; padding: 4px 0; background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none;
+  font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: .06em; color: var(--color-ink);
+}
+[data-shell="mobile"] .ns-tk-macct-name:focus { border-bottom-color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-macct-fields { margin-top: 8px; border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-macct-fields .ns-tk-mf-field { grid-template-columns: 44px minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-mselect { min-height: 44px; width: 100%; padding: 0 2px; background: transparent; border: 0; outline: none; font-family: inherit; font-size: 15px; color: var(--color-ink); color-scheme: light dark; }
+[data-shell="mobile"] .ns-tk-mselect[disabled] { color: var(--color-ink-faint); opacity: 1; }
+[data-shell="mobile"] .ns-tk-macct-note { grid-column: 2; margin-top: -8px; padding-bottom: 8px; font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-macct-balance { display: grid; justify-items: start; gap: 6px; margin: 18px 0 0; padding: 14px 16px 16px; border: 1px solid var(--ns-tk-mglass); border-radius: 3px; background: var(--color-paper-used); box-shadow: var(--ns-tk-mhi); }
+[data-shell="mobile"] .ns-tk-macct-balance .lbl { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-macct-balance > b { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.2; letter-spacing: .01em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-macct-balance > b small { margin-left: 6px; font-family: var(--font-latin); font-weight: 500; font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-macct-adj { display: flex; align-items: flex-end; gap: 6px; width: 100%; }
+[data-shell="mobile"] .ns-tk-macct-adj label { flex: 1; min-width: 0; display: grid; }
+[data-shell="mobile"] .ns-tk-macct-adj label .lbl { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-macct-adj input { min-height: 44px; width: 100%; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-gold); outline: none; font-family: var(--font-display); font-weight: 600; font-size: 20px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-macct-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+[data-shell="mobile"] .ns-tk-macct-links .ns-tk-mbtn { flex: 1 1 auto; }
+[data-shell="mobile"] .ns-tk-macct-foot { display: grid; justify-items: start; gap: 6px; margin-top: 26px; padding-top: 14px; border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-macct-foot small { font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+
+/* ═══ 匯入票與對話框的手機單欄微調（丙）═══ */
+/* 對話框本體的長相在 ticket.css §F（兩殼共用），這裡只把觸控目標撐到 44px、字級 16px（iOS／部分 Android 小於 16px 聚焦會放大） */
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dialog { padding-bottom: 4px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dfield { min-height: 48px; }
+[data-shell="mobile"] .ns-tk-msheet :is(.ns-tk-din, .ns-tk-dname, .ns-tk-dselect) { min-height: 44px; font-size: 16px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dbtn { min-height: 44px; padding: 0 18px; font-size: 14px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dfoot { position: sticky; bottom: 0; margin: 12px calc(-1 * var(--m-gutter)) 0; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom) + 6px); background: var(--ns-tk-mpaper); border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dfoot .ns-tk-dbtn { flex: 1; }
+[data-shell="mobile"] .ns-tk-msheet.is-dialog { padding-bottom: 0; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dtabs button { min-height: 44px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dmini { min-height: 44px; min-width: 44px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-drow { min-height: 48px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-darch-tog { min-height: 44px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcurrow { grid-template-columns: 40px minmax(0, 1fr) auto; row-gap: 0; padding: 6px 0; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcurrow .rate { grid-column: 2 / -1; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcuradd { grid-template-columns: 76px minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcuradd :is(.ns-tk-dselect, .ns-tk-drate, .ns-tk-dbtn) { grid-column: 1 / -1; }
+/* 匯入票（乙席的 ImportCard 本體，§G）：單欄、寬度吃滿；餘額對帳七列直排（§5.3）；底部鈕列黏在面板底、觸控 44px */
+[data-shell="mobile"] .ns-tk-msheet.is-import .ns-tk-msheet-body > * { max-width: 100%; box-sizing: border-box; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-recon { grid-template-columns: minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-recon label { grid-template-columns: minmax(0, 1fr) 132px 16px; min-height: 48px; font-size: 14px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-recon input { min-height: 40px; font-size: 16px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-foot { position: sticky; bottom: 0; margin: 16px calc(-1 * var(--m-gutter)) 0; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom) + 6px); background: var(--ns-tk-mpaper); }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-foot :is(button, .ns-btn) { min-height: 44px; padding-left: 18px; padding-right: 18px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod { grid-template-columns: minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod .ns-tk-kind { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 4px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod .ns-tk-kind button { height: 36px; padding: 0 12px; font-size: 12px; }
+[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-table { font-size: 12.5px; }
+
+/* ═══ 減量動態 ═══ */
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msheet, .ns-tk-mveil, .ns-tk-msubs) { animation: none; }
+  [data-shell="mobile"] .ns-tk-mf-moretog svg { transition: none; }
+}

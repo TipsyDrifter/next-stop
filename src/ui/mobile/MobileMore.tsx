@@ -6,8 +6,8 @@
  *
  * v1.1.0 只有三件：
  *   ① 設定 → 主題三選（uiStore.theme／setTheme；文案與順序逐字沿 SettingsPanel.tsx 的 `THEMES`）
- *   ② 售票口（記帳）一列灰顯「次期開業予定」——與底部 tab 的 planned 格同一套語彙（tabs.ts 的
- *      COMING_SOON_TEXT），手機只有五格、售票口不佔格，所以它掛在這裡當「看得到的預告」
+ *   ② 售票口（記帳）一列灰顯「次期開業予定」——手機只有五格、售票口不佔格，所以它掛在這裡當「看得到的預告」
+ *      （售票口線車次①起拿掉，見檔尾）
  *   ③ 關於：App 名／拉丁名／版本號（版本自 package.json，發版時不必改這支的字）
  *
  * **不出現**（契約 §2.9）：備份與還原（D-1.1-1 甲：Android 整組關閉）、快捷鍵、? 指引、
@@ -31,14 +31,12 @@
  *
  * 旅客筆記車次②（D-筆-29）：設定區主題之後加「每週從星期幾開始」（星期一／星期日；uiStore.setWeekStart）。
  *
- * 並行地基（契約 2026-09-29 §7 M-3／M-4）：售票口那一列的資料改讀售票口線的登記檔（`lineById("ticket").mobile`）。
- *   planned ＝與地基之前逐字相同的灰顯列；open ＝一列可點的 `.m2-row-link`（形狀沿同步那一列），點了進本地子頁
- *   `view="ticket"`，畫售票口線 mount 檔的 `mobileView` 並傳 `onBack`。售票口不佔底部 tab（D-1.1-2 的五格順序拍板過）。
+ * 售票口線車次①（D-票-20；《2026-10-11-售票口-車次①帳本-契約.md》§2.6 #9、0-28）：底部第五格改成售票口，
+ *   本頁不再是 tab——入口是頂帶右上的 ⋯（MobileTopBand.tsx），點任一格 tab 離開。
+ *   並行地基（M-3／M-4）時期掛在這裡的售票口那一列（planned＝灰顯預告、open＝進本地子頁 `view="ticket"`）連同子頁一起拿掉，
+ *   `view` 回到 "more" | "sync"。深連結 `openSyncPage("mobile")` 不受影響（"more" 仍是合法的頁 key）。
  */
 import { useEffect, useState } from "react";
-import { COMING_SOON_TEXT } from "./tabs";
-import { lineById } from "../../lines";
-import { LINE_MOUNTS } from "../../lines/mounts";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
@@ -72,7 +70,7 @@ export default function MobileMore() {
   const startOver = useSyncStore((s) => s.startOver);
   const moreRequest = useUiStore((s) => s.mobileMoreRequest);
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
-  const [view, setView] = useState<"more" | "sync" | "ticket">(() => (moreRequest === "sync" ? "sync" : "more"));
+  const [view, setView] = useState<"more" | "sync">(() => (moreRequest === "sync" ? "sync" : "more"));
 
   // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
   useEffect(() => {
@@ -88,10 +86,6 @@ export default function MobileMore() {
   }, [refreshSyncStatus]);
 
   if (view === "sync") return <MobileSync onBack={() => setView("more")} />;
-  // 售票口線的手機子頁（通車且有填 mobileView 才走得到；地基階段走不到）
-  const TicketView = LINE_MOUNTS.ticket.mobileView;
-  if (view === "ticket" && TicketView) return <TicketView onBack={() => setView("more")} />;
-  const ticket = lineById("ticket").mobile;
 
   return (
     <div className="m-page m2-page" aria-label="更多">
@@ -146,25 +140,12 @@ export default function MobileMore() {
         </div>
 
         {/* v1.1.1（WP8）：同步一列——右側直接寫現在的狀態（觸控沒有 hover，狀態得攤在字面上）。
-            形狀沿下面那列「售票口」的 `.m2-row-planned`，只是這一列可點：故另立 `.m2-row-link`
+            形狀沿當年下面那列「售票口」的 `.m2-row-planned`（車次①已拿掉），只是這一列可點：故另立 `.m2-row-link`
             （同樣的排版、不吃 .42 的灰度、撐到 48px 觸控目標）。 */}
         <button type="button" className="m2-row-link" onClick={() => setView("sync")}>
           <span className="m2-planned-name">同步</span>
           <span className="m2-planned-note">{SYNC_PHASE_LABEL[syncPhase]}</span>
         </button>
-
-        {/* 售票口（記帳）：未通車＝點不動，只是一行預告——與 tab 的 planned 格同一套語彙與灰度。
-            通車＝可點的一列，進售票口線的子頁（形狀沿上面同步那一列；並行地基 M-3）。 */}
-        {ticket.status === "planned" ? (
-          <div className="m2-row-planned" aria-disabled="true">
-            <span className="m2-planned-name">{ticket.label}</span>
-            <span className="m2-planned-note">{COMING_SOON_TEXT}</span>
-          </div>
-        ) : (
-          <button type="button" className="m2-row-link" onClick={() => setView("ticket")}>
-            <span className="m2-planned-name">{ticket.label}</span>
-          </button>
-        )}
       </section>
 
       <section className="m2-sec" aria-labelledby="m2-sec-about">

@@ -56,6 +56,7 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(4, "0004_sync", "sync foundation: sync_meta + sync_outbox + sync_cells (no data rows)"),
     mig!(5, "0005_notes_notes", "notes: notes table (capture / inbox / notes; diary columns reserved)"),
     mig!(6, "0006_timetable_blocks", "timetable: time_categories + time_blocks (starter categories are seeded by the app, not here)"),
+    mig!(7, "0007_ticket_ledger", "ticket: tk_currencies + tk_accounts + tk_categories + tk_entries (TWD and the two uncategorized rows are seeded by the app, not here)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -128,6 +129,11 @@ mod tests {
             6,
             "0006_timetable_blocks",
             "6a37993883d8807ff91e3c3f0759a45276e12d9d664dee50ce7008f5f3a63a29f1fd292c9271c4ba28da63267f02d0da",
+        ),
+        (
+            7,
+            "0007_ticket_ledger",
+            "8145de556b1d8984b89704756094825627506d28f4882fe7569580ec987fe808aa388598d8d585c37776572d5ada88db",
         ),
     ];
 
