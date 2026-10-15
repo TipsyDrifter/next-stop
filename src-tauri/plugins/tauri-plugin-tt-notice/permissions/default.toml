@@ -1,0 +1,13 @@
+[default]
+description = "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽"
+permissions = [
+  "allow-post",
+  "allow-remove",
+  "allow-take-pending",
+  "allow-ack-pending",
+  "allow-schedule-reminder",
+  "allow-cancel-reminder",
+  "allow-status",
+  "allow-register-listener",
+  "allow-remove-listener",
+]

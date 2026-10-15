@@ -8,9 +8,16 @@
  *   ＋ button.ns-btn.btn-ghost「換車」＋ button.ns-btn.btn-seal「到着」。
  * 停車中：分類圓牌位置空、「目前沒有列車在跑」／「沒記到的時間，之後可以在軸上補」＋ button.btn-seal「発車」。
  * 桌機鈕上加 kbd.ns-tt-kbd（N／Enter）——鍵帽字一律 `formatChord(hotkeyById(id)!.chords[0])`（契約 §1-9，不手抄）。
+ *
+ * 車次①b（①b①c 契約 §5.5；長相＝原型 `v-e.js` dockHtml）：記號一律看 `blockMarker`（門檻＝預估 → 分類預設 → 保險上限）。
+ * - 整列赭 `.is-long`＝待確認（kind ≠ none 且 pending）。
+ * - 名稱列：長時間運行待確認 ⇒「⚠ 其實到幾點？」；已確認、而且**真的還超過門檻** ⇒「長時間運行」（F3：取代 ①a「ack 就畫」）。
+ * - 時刻列「HH:MM 発」之後一顆 button.ns-tt-dock-est：誤點 ⇒ `.is-late`「誤點 +X」（待確認點了問「其實到幾點」，已確認點了改預估）；
+ *   有預估 ⇒「預估 1h」；沒有 ⇒ `.is-empty`「＋預估」。後兩者點了開預估面板。
+ *   誤點時名稱列不另畫「⚠ 其實到幾點？」（＝原型：同一件事只放一顆赭 chip）。
  */
 import { fmtClock, fmtHMS, msOf } from "../../../domain/timetable";
-import { blockIsLongRun, useTimetableStore } from "../../../store/timetableStore";
+import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { CategoryBadge } from "../CategoryBadge";
 import { useNow } from "../useNow";
@@ -56,9 +63,12 @@ export function RunDock({ variant }: RunDockProps) {
 
   const cat = catById[running.category_id] ?? null;
   const start = msOf(running.started_at);
-  const acked = running.long_run_ack === 1;
-  const long = !acked && blockIsLongRun(running, catById, longRunMaxMin, now);
+  const marker = blockMarker(running, catById, longRunMaxMin, now);
+  const long = marker.kind !== "none" && marker.pending;
   const blockId = running.id;
+  const est = running.estimate_min;
+  const askLongRun = (): void => openSheet({ kind: "longRun", blockId, then: null });
+  const openEstimate = (): void => openSheet({ kind: "estimate", blockId });
 
   return (
     <div className={"ns-tt-dock is-" + variant + (long ? " is-long" : "")}>
@@ -66,16 +76,12 @@ export function RunDock({ variant }: RunDockProps) {
       <div className="ns-tt-dock-main">
         <div className="ns-tt-dock-name">
           <span className="ns-tt-dock-cat">{cat?.name ?? "？"}</span>
-          {long && (
-            <button
-              type="button"
-              className="ns-tt-chip is-late"
-              onClick={() => openSheet({ kind: "longRun", blockId, then: null })}
-            >
+          {marker.kind === "long" && marker.pending && (
+            <button type="button" className="ns-tt-chip is-late" onClick={askLongRun}>
               ⚠ 其實到幾點？
             </button>
           )}
-          {acked && <span className="ns-tt-chip">長時間運行</span>}
+          {marker.kind === "long" && !marker.pending && <span className="ns-tt-chip">長時間運行</span>}
         </div>
         <div className="ns-tt-dock-meta ns-tt-num">
           <span className="ns-tt-live-dot" aria-hidden="true" />
@@ -87,6 +93,24 @@ export function RunDock({ variant }: RunDockProps) {
           >
             {fmtClock(start)} 発
           </button>
+          {marker.kind === "late" ? (
+            <button
+              type="button"
+              className="ns-tt-chip ns-tt-dock-est is-late"
+              title={marker.pending ? "其實到幾點？" : "改這一班的預估"}
+              onClick={marker.pending ? askLongRun : openEstimate}
+            >
+              {TT_TEXT.late(marker.overMs)}
+            </button>
+          ) : est !== null ? (
+            <button type="button" className="ns-tt-chip ns-tt-dock-est" title="改這一班的預估" onClick={openEstimate}>
+              {TT_TEXT.estimateChip(est)}
+            </button>
+          ) : (
+            <button type="button" className="ns-tt-chip ns-tt-dock-est is-empty" onClick={openEstimate}>
+              {TT_TEXT.estimateAdd}
+            </button>
+          )}
           <b className="ns-tt-dock-el">{fmtHMS(now - start)}</b>
         </div>
       </div>

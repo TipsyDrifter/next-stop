@@ -8,6 +8,11 @@
  * 「現在」以**點下分類那一刻**為準（契約 §5.4；原型 openDepartSheet 每次 draw() 重算 now）：面板開著停幾分鐘再點，
  * 「現在」仍是現在，store.depart 的「出發＝現在 ⇒ 帶『改 10 分前』」判定才對。畫面上的「＝ HH:MM」與 W1 預演用
  * 分鐘級的 now（每秒跟著跳、但一分鐘才換一次值，避免每秒重問 previewCover）。
+ *
+ * 車次①b（①b①c 契約 §5.3；乙席；長相＝原型 `v-e.js` 情境 5 departBody）：「出發」那一列之後放「預估」，預設收起：
+ *   收起＝button.ns-tt-opt.ns-tt-est-open「＋預估」＋一行小字；
+ *   展開＝Row k="預估"：30 分｜1h｜1h30｜2h｜3h（單選、再點一次＝取消）＋「收起」（選了之後叫「不預估」，按了清掉並收起）。
+ * 選了預估時「＝ HH:MM」後面多「預計 HH:MM 到着」。點分類＝`depart(id, at, estimateMin)`；收起／沒選＝null；面板關掉不記住。
  */
 import { useState } from "react";
 import { MIN, fmtClock, msOf } from "../../../domain/timetable";
@@ -15,7 +20,7 @@ import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { useNow } from "../useNow";
-import { Opt, Opts, Row, Sub, useCoverWarn, type PanelProps } from "./controls";
+import { ESTIMATE_OPTIONS, Expand, Opt, Opts, Row, Sub, useCoverWarn, type PanelProps } from "./controls";
 
 export type { PanelProps } from "./controls";
 
@@ -35,6 +40,8 @@ export function DepartPanel({ onDone }: PanelProps) {
   const todayBlocks = useTimetableStore((s) => s.todayBlocks);
   const depart = useTimetableStore((s) => s.depart);
   const [back, setBack] = useState<Back>(0);
+  const [estOpen, setEstOpen] = useState(false);
+  const [est, setEst] = useState<number | null>(null);
 
   // 上一塊的尾巴（停車中的「接上一塊」）：今天已結束的塊裡結束最晚的那一塊
   let prevEnd: number | null = null;
@@ -60,8 +67,9 @@ export function DepartPanel({ onDone }: PanelProps) {
     }
     const atNow = atOf(Date.now()); // 以點下的這一刻為準
     onDone();
-    void depart(id, atNow);
+    void depart(id, atNow, estOpen ? est : null);
   };
+  const estOn = estOpen && est !== null;
 
   return (
     <div className="ns-tt-panel ns-tt-panel-depart">
@@ -80,9 +88,43 @@ export function DepartPanel({ onDone }: PanelProps) {
           )}
           <span className="ns-tt-opt is-solid is-num is-static" aria-live="polite">
             ＝ {fmtClock(at)}
+            {estOn && <span className="ns-tt-est-eta">　預計 {fmtClock(at + (est as number) * MIN)} 到着</span>}
           </span>
         </Opts>
       </Row>
+      {estOpen ? (
+        <Expand className="ns-tt-est-wrap">
+          <Row k="預估" top>
+            <Opts>
+              {ESTIMATE_OPTIONS.map(([v, t]) => (
+                <Opt key={v} on={est === v} onClick={() => setEst(est === v ? null : v)}>
+                  {t}
+                </Opt>
+              ))}
+              <button
+                type="button"
+                className="ns-tt-opt is-link"
+                onClick={() => {
+                  setEst(null);
+                  setEstOpen(false);
+                }}
+              >
+                {est !== null ? "不預估" : "收起"}
+              </button>
+            </Opts>
+          </Row>
+        </Expand>
+      ) : (
+        <div className="ns-tt-row is-fold">
+          <span className="ns-tt-row-k" />
+          <span className="ns-tt-row-v">
+            <button type="button" className="ns-tt-opt ns-tt-est-open" onClick={() => setEstOpen(true)}>
+              ＋預估
+            </button>
+            <span className="ns-tt-est-hint">想給這一班一個長度再點；超過了會提醒</span>
+          </span>
+        </div>
+      )}
       {warn && <Sub warn>{warn}</Sub>}
       <CategoryGrid selected={null} onPick={pick} compact runningId={running?.category_id ?? null} />
     </div>

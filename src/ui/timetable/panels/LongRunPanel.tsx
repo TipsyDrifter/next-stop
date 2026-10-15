@@ -7,9 +7,12 @@
  *
  * 確認走 `store.resolveLongRun`——它成功後自己收 sheet、依 `then` 接續；**不**先叫 onDone（那會被當成「略過」）。
  * 標題由 host 給：「{分類}已經跑了 {fmtDur}」（前置 live dot）。
+ *
+ * 車次①b（①b①c 契約 §5.5）：門檻改成 `thresholdOf(這一班的預估, 分類, 保險上限)`；門檻來自預估時副標改寫
+ * 「預估 {門檻}，已經誤點 {超過}。其實到幾點？」、「別問了」的說明改成留『誤點』記號。
  */
 import { useState } from "react";
-import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, longRunThreshold, msOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
+import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, msOf, thresholdOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, useBlock, useNowOnce, type PanelProps } from "./controls";
@@ -25,8 +28,8 @@ export function LongRunPanel({ onDone }: PanelProps) {
 
   const cat = block ? (catById[block.category_id] ?? null) : null;
   const span = block ? toSpan(block) : null;
-  const ownThreshold = cat?.default_min ?? null;
-  const threshold = longRunThreshold(cat, longRunMaxMin);
+  const th = block ? thresholdOf(block.estimate_min, cat, longRunMaxMin) : null;
+  const threshold = th?.min ?? null;
   const ended = block !== null && block.ended_at !== null;
   const cap = block ? (block.ended_at !== null ? msOf(block.ended_at) : now) : now;
   const lo = span ? span.start + MIN : 0;
@@ -58,7 +61,9 @@ export function LongRunPanel({ onDone }: PanelProps) {
       ? `${fmtClock(end)} 到${untilText}會標成未記錄，之後隨時可以補。`
       : after === "cat"
         ? `${fmtClock(end)} 起算成那個分類，一直到${untilText}。`
-        : "這一班照跑；軸上會留一個『長時間運行』的記號。";
+        : th?.source === "estimate"
+          ? "這一班照跑；軸上會留一個『誤點』的記號。"
+          : "這一班照跑；軸上會留一個『長時間運行』的記號。";
 
   const confirm = (): void => {
     void resolveLongRun(block.id, end, after, after === "cat" ? (cat2 ?? undefined) : undefined);
@@ -67,11 +72,13 @@ export function LongRunPanel({ onDone }: PanelProps) {
   return (
     <div className="ns-tt-panel ns-tt-panel-longrun">
       <Sub>
-        {threshold === null
+        {th === null
           ? "其實到幾點？"
-          : ownThreshold !== null && ownThreshold > 0
-            ? `平常大約 ${fmtDur(threshold * MIN)}。其實到幾點？`
-            : `已經超過 ${fmtDur(threshold * MIN)} 的保險上限。其實到幾點？`}
+          : th.source === "estimate"
+            ? `預估 ${fmtDur(th.min * MIN)}，已經誤點 ${fmtDur(Math.max(0, durOf(span, now) - th.min * MIN))}。其實到幾點？`
+            : th.source === "category"
+              ? `平常大約 ${fmtDur(th.min * MIN)}。其實到幾點？`
+              : `已經超過 ${fmtDur(th.min * MIN)} 的保險上限。其實到幾點？`}
         <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>
       </Sub>
       <Row k="到着">

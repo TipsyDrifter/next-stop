@@ -17,12 +17,14 @@
  * - 起手分類（§3.5-5、契約 0-3）：表完全沒有列（含墓碑）才種 19 列＋19 筆完整 upsert op，父列排在子列前。
  *   「同步先拉一趟再種」的閘門在 store（§3.7.1），本檔只管冪等地種。
  * - 設定讀寫不在這裡（store 直接用 `settingsRepo`）。
+ * - 車次①b①c（契約 §3.3）：預估、多切點、合併、分類的搬組／封存／換圓牌字；①c 預留的佇列発車／到着與 `blockExists`。
+ *   全部照同一套寫法（純函式 → applyPlan → 一個 WriteBatch）；`updateCategory` 的驗證規則與訊息與 memory 版逐字相同。
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow } from "../lib/date";
 import { ensureSyncTables, newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
-import type { TimetableRepository, CreateCategoryInput, CategoryPatch } from "./timetableRepository";
+import type { TimetableRepository, CreateCategoryInput, CategoryPatch, DepartOptions, MergePreview } from "./timetableRepository";
 import {
   MIN,
   STARTER_CATEGORIES,
@@ -32,14 +34,19 @@ import {
   isoOf,
   msOf,
   planArrive,
+  planArriveBefore,
   planCover,
   planDepart,
+  planDepartPending,
   planEdit,
   planFill,
+  planMerge,
   planReconcile,
   planResolveLongRun,
   planRestart,
+  planSetEstimate,
   planSplit,
+  planSplitMulti,
   reconcileWindowStart,
   reconcileWriteKey,
   segmentsOfDay,
@@ -174,6 +181,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
       if (p.end !== undefined) put("ended_at", p.end === null ? null : isoOf(p.end));
       if (p.categoryId !== undefined) put("category_id", p.categoryId);
       if (p.ack !== undefined) put("long_run_ack", p.ack ? 1 : 0);
+      if (p.estimateMin !== undefined) put("estimate_min", p.estimateMin);
       if (!sets.length) continue;
       args.push(nowIso);
       sets.push(`updated_at = $${args.length}`);
@@ -185,13 +193,14 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
     const ids: string[] = [];
     for (const i of plan.inserts) {
-      const id = i.key ? await pieceId(i.key) : uuid();
+      const id = i.fixedId ?? (i.key ? await pieceId(i.key) : uuid());
       const from = i.inherit && i.fromId ? rowsById[i.fromId] : undefined;
       const row = {
         category_id: i.categoryId,
         started_at: isoOf(i.start),
         ended_at: i.end === null ? null : isoOf(i.end),
-        estimate_min: from?.estimate_min ?? null,
+        // ①b：insert 明寫的預估蓋過 inherit 抄來的（undefined＝照 inherit 規則）
+        estimate_min: i.estimateMin !== undefined ? i.estimateMin : (from?.estimate_min ?? null),
         node_id: from?.node_id ?? null,
         route_id: from?.route_id ?? null,
         long_run_ack: i.ack ? 1 : 0,
@@ -316,6 +325,23 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const db = await getDb();
     const c = await this.getCategory(db, id);
     if (!c || c.deleted_at !== null) throw new RangeError("找不到這個分類");
+    // 先全部驗證、再組成一句 UPDATE（一個 batch；規則與訊息＝memory 版，①b①c 契約 §3.3-3）
+    const name = patch.name !== undefined ? patch.name.trim() : undefined;
+    if (name !== undefined && !name) throw new RangeError("分類名稱不能是空的");
+    let target: TimeCategoryRow | null = null;
+    if (patch.parentId !== undefined) {
+      if (c.parent_id === null) throw new RangeError("分組不能搬");
+      const t = await this.getCategory(db, patch.parentId);
+      if (!t || t.deleted_at !== null || t.parent_id !== null) throw new RangeError("找不到這個分組");
+      target = t;
+    }
+    if (patch.archived !== undefined && c.parent_id === null) throw new RangeError("分組不能封存");
+    const glyph = patch.glyph !== undefined ? patch.glyph.trim() : undefined;
+    if (glyph !== undefined) {
+      if (c.parent_id === null) throw new RangeError("分組沒有圓牌字");
+      if (Array.from(glyph).length !== 1) throw new RangeError("圓牌字只能一個字");
+    }
+    const now = nowUtcIso();
     const sets: string[] = [];
     const args: unknown[] = [];
     const cols: Record<string, unknown> = {};
@@ -324,16 +350,31 @@ export class SqliteTimetableRepository implements TimetableRepository {
       sets.push(`${col} = $${args.length}`);
       cols[col] = v;
     };
-    if (patch.name !== undefined) {
-      const name = patch.name.trim();
-      if (!name) throw new RangeError("分類名稱不能是空的");
+    if (name !== undefined) {
       put("name", name);
-      if (c.parent_id !== null) put("glyph", Array.from(name)[0] ?? null);
+      // 圓牌字只在「還是自動的」（＝舊名第一字或 null）時跟著換；主人換過的不動（取代 ①a 的無條件覆寫）。
+      // 同一次也明寫了圓牌字 ⇒ 交給下面的 glyph 分支（一句 UPDATE 裡同一欄只出現一次）
+      if (glyph === undefined && c.parent_id !== null && (c.glyph === null || c.glyph === Array.from(c.name)[0])) {
+        const auto = Array.from(name)[0] ?? null;
+        if (auto !== c.glyph) put("glyph", auto);
+      }
     }
     if (patch.colorIdx !== undefined) put("color_idx", patch.colorIdx);
     if (patch.defaultMin !== undefined) put("default_min", patch.defaultMin);
+    if (target && target.id !== c.parent_id) {
+      const max = await db.select<{ m: number | null }[]>(
+        `SELECT MAX(position) AS m FROM time_categories WHERE parent_id = $1 AND ${ALIVE}`,
+        [target.id],
+      );
+      put("parent_id", target.id);
+      put("position", (max[0]?.m ?? -1) + 1);
+    }
+    // 值沒變的不送（逐欄 LWW：封存兩次不重戳封存時刻、還原已在的不送 op）
+    if (patch.archived === true && c.archived_at === null) put("archived_at", now);
+    else if (patch.archived === false && c.archived_at !== null) put("archived_at", null);
+    if (glyph !== undefined && glyph !== c.glyph) put("glyph", glyph);
     if (!sets.length) return;
-    put("updated_at", nowUtcIso());
+    put("updated_at", now);
     args.push(id);
     const b = newWriteBatch();
     b.stmts.push({ sql: `UPDATE time_categories SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
@@ -391,12 +432,12 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   /* ───────── 時間塊：寫 ───────── */
 
-  async depart(categoryId: string, atIso: string): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
+  async depart(categoryId: string, atIso: string, opts?: DepartOptions): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     const db = await getDb();
     const now = Date.now();
     const at = Math.min(msOf(atIso), now);
     const snap = await this.loadSnapshot(db, isoOf(at));
-    const plan = planDepart(snap.spans, { categoryId, at, now });
+    const plan = planDepart(snap.spans, { categoryId, at, now, estimateMin: opts?.estimateMin ?? null });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -550,6 +591,117 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const snap = await this.loadSnapshot(db, startIso);
     const plan = planCover(snap.spans, { start: msOf(startIso), end: endIso === null ? null : msOf(endIso) }, exceptId);
     return summarizeCover(plan, exceptId);
+  }
+
+  /* ───────── ①b（①b①c 契約 §3.3-4～7） ───────── */
+
+  /**
+   * 運行中那一班的預估。planSetEstimate 只需要「那一列」⇒ 只讀那一列（＝契約「loadSnapshot 只為找那列」的同語義，
+   * 不掃全表）；已刪除的當作找不到。值沒變 ⇒ applyPlan 整筆跳過、不送 op。
+   */
+  async setEstimate(id: string, estimateMin: number | null): Promise<void> {
+    const db = await getDb();
+    const r = await this.getBlock(db, id);
+    if (!r || r.deleted_at !== null) throw new RangeError("找不到這一塊");
+    const plan = planSetEstimate([toSpan(r)], { id, estimateMin });
+    const b = newWriteBatch();
+    await this.applyPlan(b, plan, { [id]: r }, nowUtcIso());
+    await this.commit(db, b);
+  }
+
+  async splitMulti(id: string, cutsIso: readonly string[], categoryIds: readonly string[]): Promise<TimeBlockRow[]> {
+    const db = await getDb();
+    const now = Date.now();
+    const snap = await this.loadSnapshot(db, null);
+    const plan = planSplitMulti(snap.spans, {
+      id,
+      cuts: cutsIso.map(msOf),
+      categoryIds,
+      now,
+      // Span 不帶預估 ⇒ 由列上給（契約 0-14 的「原值」）
+      estimateMin: snap.rowsById[id]?.estimate_min ?? null,
+    });
+    const b = newWriteBatch();
+    const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
+    await this.commit(db, b);
+    const out: TimeBlockRow[] = [];
+    for (const x of [id, ...ids]) {
+      const r = await this.getBlock(db, x);
+      if (r) out.push(r);
+    }
+    return out;
+  }
+
+  async previewMerge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
+    const db = await getDb();
+    const snap = await this.loadSnapshot(db, null);
+    const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now: Date.now() });
+    return out ? { ...out.preview } : null;
+  }
+
+  async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
+    const db = await getDb();
+    const now = Date.now();
+    const snap = await this.loadSnapshot(db, null);
+    const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now });
+    if (!out) return null;
+    const b = newWriteBatch();
+    await this.applyPlan(b, out.plan, snap.rowsById, isoOf(now));
+    await this.commit(db, b);
+    return { ...out.preview };
+  }
+
+  /** store.refresh() 每次都讀它；`idx_tb_started` 覆蓋 started_at 範圍 */
+  async listRecentCategoryIds(sinceIso: string, limit: number): Promise<string[]> {
+    const db = await getDb();
+    const rows = await db.select<{ category_id: string; m: string }[]>(
+      `SELECT category_id, MAX(started_at) AS m FROM time_blocks
+       WHERE ${ALIVE} AND started_at >= $1 GROUP BY category_id ORDER BY m DESC LIMIT $2`,
+      [sinceIso, limit],
+    );
+    return rows.map((r) => r.category_id);
+  }
+
+  /** 含已刪除（佇列冪等用，契約 0-6） */
+  async blockExists(id: string): Promise<boolean> {
+    const db = await getDb();
+    const rows = await db.select<{ x: number }[]>(`SELECT 1 AS x FROM time_blocks WHERE id = $1`, [id]);
+    return rows.length > 0;
+  }
+
+  /**
+   * 佇列発車（契約 0-5 乙案、0-6）：要看得到 at 之後的塊（untilNext 找下一班）⇒ 全部讀。
+   * 新塊 id＝opts.fixedId（applyPlan 的 insert 優先用它）；plan 為 null ⇒ 不寫、回 null。
+   */
+  async departPending(categoryId: string, atIso: string, opts: { fixedId: string; untilNext: boolean }): Promise<TimeBlockRow | null> {
+    const db = await getDb();
+    const now = Date.now();
+    const snap = await this.loadSnapshot(db, null);
+    const plan = planDepartPending(snap.spans, { categoryId, at: msOf(atIso), now, fixedId: opts.fixedId, untilNext: opts.untilNext });
+    if (!plan) return null;
+    const b = newWriteBatch();
+    await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
+    await this.commit(db, b);
+    return this.getBlock(db, opts.fixedId);
+  }
+
+  /** 佇列到着：只結束開始早於 at 的運行中（planArriveBefore）；回被結束的列 */
+  async arrivePending(atIso: string): Promise<TimeBlockRow[]> {
+    const db = await getDb();
+    const now = Date.now();
+    const rows = await this.listRunning();
+    const plan = planArriveBefore(rows.map(toSpan), { at: msOf(atIso), now });
+    const rowsById: Record<string, TimeBlockRow> = {};
+    for (const r of rows) rowsById[r.id] = r;
+    const b = newWriteBatch();
+    await this.applyPlan(b, plan, rowsById, isoOf(now));
+    await this.commit(db, b);
+    const out: TimeBlockRow[] = [];
+    for (const p of plan.patches) {
+      const r = await this.getBlock(db, p.id);
+      if (r) out.push(r);
+    }
+    return out;
   }
 
   /* ───────── 同步後整理 ───────── */

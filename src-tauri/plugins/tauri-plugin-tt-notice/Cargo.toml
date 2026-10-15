@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-tt-notice"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Next Stop 時刻表 ①c：Android 常駐通知、待處理動作佇列、跑太久提醒（本地 plugin；桌機空殼）"
+# tauri-plugin 的 build 要求 links＝套件名（tauri-plugin 2.6.2 src/build/mod.rs:107-108）
+links = "tauri-plugin-tt-notice"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }

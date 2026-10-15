@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 時刻表 ①c（①b①c 契約 §5.10.2）：plugin 自己的 manifest，由 manifest merger 併入；gen/android 不動。
+         POST_NOTIFICATIONS／RECEIVE_BOOT_COMPLETED 在 tauri-plugin-notification 2.3.3 已宣告，這裡再宣告只為自足（merger 去重）。
+         精準鬧鐘：API 33+ 走 USE_EXACT_ALARM（安裝即授予）；API 31–32 走 SCHEDULE_EXACT_ALARM（預設授予）；≤30 不需權限（契約 0-4）。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <application>
+        <receiver android:name="app.shitetsu.nextstop.ttnotice.TtActionReceiver" android:exported="false" />
+        <receiver android:name="app.shitetsu.nextstop.ttnotice.TtReminderReceiver" android:exported="false" />
+        <!-- exported="false" 收開機廣播的寫法同 notification 2.3.3 的 LocalNotificationRestoreReceiver。
+             不收 LOCKED_BOOT_COMPLETED：SharedPreferences 在解鎖前讀不到。 -->
+        <receiver android:name="app.shitetsu.nextstop.ttnotice.TtSystemReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

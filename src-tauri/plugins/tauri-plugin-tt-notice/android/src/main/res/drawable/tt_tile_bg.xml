@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 展開版的格子底（原型 .ve-nt-cell：圓角 14、淡底）＋按下去的水波紋。 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/tt_ripple">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="14dp" />
+            <solid android:color="@color/tt_cell" />
+        </shape>
+    </item>
+</ripple>

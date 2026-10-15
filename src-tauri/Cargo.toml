@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.7.0"
+version = "1.8.0"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -68,6 +68,10 @@ sha2 = "0.10"
 #   橫幅才是主力）。lib.rs 兩殼都掛 `tauri_plugin_notification::init()`、capabilities 只給三／四條（不用 `:default` 的全開）。
 #   **鎖 2.3**：npm 端 `@tauri-apps/plugin-notification` 同鎖 `~2.3.3`——tauri-cli 會擋 crate 與 npm 的 minor 不一致。
 tauri-plugin-notification = "~2.3.3"
+# 時刻表 ①c（接縫 #23，調度 2026-10-13 放行）：本地 plugin——Android 常駐通知的常用分類格、通知上換車／到着的待處理佇列、
+#   跑太久提醒（自己的 AlarmManager＋開機重建）。Kotlin 只碰通知／鬧鐘／自己的 SharedPreferences，不寫 SQLite。
+#   兩殼都掛；桌機是空殼（不註冊 Android 類別、沒有命令）。契約：docs/research/2026-10-13-時刻表-車次①b①c-契約.md §5.10。
+tauri-plugin-tt-notice = { path = "plugins/tauri-plugin-tt-notice" }
 
 # keyring 只在桌機：Android／iOS 沒有 OS 憑證庫後端，走 app 私有檔（sync/credstore.rs 的 cfg 兩分支）。
 # **鎖 3 不升 4**：keyring 4 把各家後端拆成獨立 crate，`windows-native` 這個 feature 名字已經不存在。

@@ -110,6 +110,10 @@ pub fn run() {
     // 桌機零改變：沒加入同步就不會有告警，`notify.ts` 的外掛 import 是動態的、永不載入（init 腳本照常注入，無副作用）。
     let builder = builder.plugin(tauri_plugin_notification::init());
 
+    // 時刻表 ①c（接縫 #23）：本地 plugin tt-notice，**兩殼都掛**；桌機是空殼。Android 的 Kotlin 命令由 tauri 轉發
+    // （Rust 端沒有 handler），所以 `invoke_handler` 不加項；ACL 在 capabilities/mobile.json 的 `tt-notice:default`。
+    let builder = builder.plugin(tauri_plugin_tt_notice::init());
+
     #[cfg(not(mobile))]
     let builder = builder
         // 順序實證＋回歸護欄：這支空 plugin 排在 sql 之後，setup 時 `DbInstances` 必已就緒；

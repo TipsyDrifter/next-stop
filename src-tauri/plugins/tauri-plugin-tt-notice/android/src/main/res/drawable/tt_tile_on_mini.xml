@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 收合版運行中那一格的亮底（膠囊）；上色方式同 tt_tile_on。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="18dp" />
+    <solid android:color="#33FFFFFF" />
+    <stroke android:width="1.5dp" android:color="#BFFFFFFF" />
+</shape>

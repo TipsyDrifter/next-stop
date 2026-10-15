@@ -11,6 +11,11 @@
  *
  * 點擊語義（契約 §5.1）：gap ⇒ fill；已結束的塊（含零長度）⇒ 長時間運行未確認時 longRun，否則 edit；
  * 運行中的塊 ⇒ 長時間運行未確認時 longRun，否則 toast 13。
+ *
+ * 車次①b（①b①c 契約 §5.5）：「待確認」與 chip 一律看 `blockMarker`（門檻＝預估 → 分類預設 → 保險上限）。
+ * chip：零長度「時刻待確認」；誤點「誤點 +X」（待確認加「・待確認」）；長時間運行（待確認加「・待確認」）；
+ * none 不畫（F3：選了留白／其實在做別的、被切到門檻以下的塊不再掛記號）。運行中那一班有預估、還沒超過 ⇒「預估 1h」（＝原型）。
+ * 合併預覽時（BlockPanel 的二次確認開著）那兩塊 `.is-mhl` 描金邊（D-時-33）。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
@@ -24,10 +29,11 @@ import {
   type AxisItem,
   type TimeBlockRow,
 } from "../../../domain/timetable";
-import { TT_TEXT, blockIsLongRun, useTimetableStore } from "../../../store/timetableStore";
+import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, dayWindow } from "../../../lib/date";
 import { CategoryBadge } from "../CategoryBadge";
+import { useMergeMarks } from "../panels/controls";
 import { DaySummary } from "./DaySummary";
 import { useNow } from "../useNow";
 
@@ -68,6 +74,7 @@ export function Axis({ scroller }: AxisProps) {
   const openSheet = useTimetableStore((s) => s.openSheet);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const now = useNow(1000);
+  const mergeMarks = useMergeMarks();
 
   const isToday = dayKey === todayKey;
   const w = useMemo(() => {
@@ -111,7 +118,8 @@ export function Axis({ scroller }: AxisProps) {
   /* ── 點擊 ── */
   const onBlock = (it: Extract<AxisItem, { kind: "block" }>): void => {
     const row = rowsById[it.span.id];
-    const long = !!row && row.long_run_ack !== 1 && blockIsLongRun(row, catById, longRunMaxMin, now);
+    const m = row ? blockMarker(row, catById, longRunMaxMin, now) : null;
+    const long = !!m && m.kind !== "none" && m.pending;
     if (long) {
       openSheet({ kind: "longRun", blockId: it.span.id, then: null });
       return;
@@ -171,10 +179,16 @@ export function Axis({ scroller }: AxisProps) {
         }
         const row = rowsById[it.span.id];
         const cat = catById[it.span.categoryId] ?? null;
-        const acked = !!row && row.long_run_ack === 1;
-        const long = !!row && !acked && blockIsLongRun(row, catById, longRunMaxMin, now);
+        const m = row ? blockMarker(row, catById, longRunMaxMin, now) : ({ kind: "none" } as const);
+        const long = m.kind !== "none" && m.pending;
+        const est = it.running && row ? row.estimate_min : null;
         const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`, minHeight: axisRowHeight(dur) } as CSSProperties;
-        const cls = "ns-tt-blk" + (it.running ? " is-live" : "") + (long ? " is-long" : "") + (it.zero ? " is-zero" : "");
+        const cls =
+          "ns-tt-blk" +
+          (it.running ? " is-live" : "") +
+          (long ? " is-long" : "") +
+          (it.zero ? " is-zero" : "") +
+          (mergeMarks.includes(it.span.id) ? " is-mhl" : "");
         return (
           <div className="ns-tt-seg" key={it.span.id + ":" + it.from} style={style}>
             <div className="ns-tt-seg-time ns-tt-num">{fmtClock(it.from)}</div>
@@ -199,10 +213,12 @@ export function Axis({ scroller }: AxisProps) {
                     )}
                     {it.zero ? (
                       <span className="ns-tt-chip is-late">時刻待確認</span>
-                    ) : long ? (
-                      <span className="ns-tt-chip is-late">長時間運行・待確認</span>
-                    ) : acked ? (
-                      <span className="ns-tt-chip">長時間運行</span>
+                    ) : m.kind === "late" ? (
+                      <span className="ns-tt-chip is-late">{m.pending ? TT_TEXT.latePending(m.overMs) : TT_TEXT.late(m.overMs)}</span>
+                    ) : m.kind === "long" ? (
+                      <span className={"ns-tt-chip" + (m.pending ? " is-late" : "")}>{m.pending ? "長時間運行・待確認" : "長時間運行"}</span>
+                    ) : est !== null ? (
+                      <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
                     ) : null}
                   </span>
                 </span>

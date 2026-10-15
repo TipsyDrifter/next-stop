@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 時刻表 ①c：Kotlin 在 JS 沒跑時也要用到的固定字（頻道名、state 缺欄時的退路）。
+     平常顯示的字以 JS 送來的 NoticeState.text 為準（src/domain/timetableNotice.ts 的 TT_NOTICE_TEXT）。 -->
+<resources>
+    <string name="tt_channel_running">時刻表・運行中</string>
+    <string name="tt_channel_long_run">時刻表・跑太久提醒</string>
+    <string name="tt_idle_title">目前沒有列車在跑</string>
+    <string name="tt_idle_short">停車中</string>
+    <string name="tt_idle_hint">點下面一格就発車</string>
+    <string name="tt_arrive">到着</string>
+    <string name="tt_public_running">時刻表・運行中</string>
+    <string name="tt_public_idle">時刻表・停車中</string>
+</resources>

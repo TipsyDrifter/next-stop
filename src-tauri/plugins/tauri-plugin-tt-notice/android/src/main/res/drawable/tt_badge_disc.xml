@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 分類圓牌（＝App 的 CategoryBadge／原型 .badge）：白色、填 12%、外圈 70%。
+     ImageView.setColorFilter(分類色)（預設 SRC_ATOP，保留透明度）⇒ 分類色的淡底＋分類色外圈。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#1FFFFFFF" />
+    <stroke android:width="1dp" android:color="#B3FFFFFF" />
+</shape>

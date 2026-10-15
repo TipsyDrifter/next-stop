@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 運行中那一格的亮底（原型 .ve-nt-cell.is-on：分類色 20% 底＋75% 內框）。白色畫，setColorFilter(分類色) 上色。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="14dp" />
+    <solid android:color="#33FFFFFF" />
+    <stroke android:width="1.5dp" android:color="#BFFFFFFF" />
+</shape>

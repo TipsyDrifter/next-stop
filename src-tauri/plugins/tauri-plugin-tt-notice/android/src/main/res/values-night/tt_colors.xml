@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 時刻表 ①c：通知上的固定色（暗色系統）。見 values/tt_colors.xml。 -->
+<resources>
+    <color name="tt_cell">#1FE6E0E9</color>
+    <color name="tt_ripple">#40E6E0E9</color>
+    <color name="tt_seal">#FFD96547</color>
+    <color name="tt_on_seal">#FF101217</color>
+    <color name="tt_placeholder">#80CAC4D0</color>
+</resources>

@@ -22,7 +22,8 @@ export function RestartPanel({ onDone }: PanelProps) {
   const [at, setAt] = useState<number>(() => clamp(start, lo, hi));
   const warn = useCoverWarn(at, null, blockId || null, block !== null && at < start);
 
-  if (!block) {
+  // 面板開著時這一班到站了（別台換車／到着、系統匣換車，同步拉到）⇒ 已經不是運行中那一班，不再給改（沙盒 S9）
+  if (!block || block.ended_at !== null) {
     return (
       <div className="ns-tt-panel">
         <Sub>這一班已經不在了</Sub>

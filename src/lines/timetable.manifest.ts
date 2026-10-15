@@ -6,6 +6,7 @@
  * 純資料：不得 import React／store／Tauri API；型別一律 `import type`（probe 在 node 直接載入本檔）。
  *
  * 車次①a（契約 §6.1）：通車、三個頁內鍵（N／Enter／V）、兩張同步表、一把同步 settings 鍵。此後凍結，只有整合席能改。
+ * 車次①b（①b①c 契約 §5.9）：頁內鍵加七個（←／→／T／R／E／S／F）；①b①c 的新設定鍵全部本地、不進 syncSettingsKeys。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -21,6 +22,14 @@ const TIMETABLE_HOTKEYS: Hotkey[] = [
   { id: "timetable.depart", scope: "timetable", chords: [{ key: "n" }], label: "発車／換車", wired: true },
   { id: "timetable.arrive", scope: "timetable", chords: [{ key: "Enter" }], label: "到着（運行中才有效）", wired: true },
   { id: "timetable.view", scope: "timetable", chords: [{ key: "v" }], label: "切換視圖", wired: true },
+  // 車次①b（①b①c 契約 §5.9；Stage 0-B 寫最終版，之後凍結）：無修飾鍵、不加 ignoreMods（Shift+T 等不吃）
+  { id: "timetable.day.prev", scope: "timetable", chords: [{ key: "ArrowLeft" }], label: "前一天", wired: true },
+  { id: "timetable.day.next", scope: "timetable", chords: [{ key: "ArrowRight" }], label: "後一天", wired: true },
+  { id: "timetable.day.today", scope: "timetable", chords: [{ key: "t" }], label: "回今天", wired: true },
+  { id: "timetable.restart", scope: "timetable", chords: [{ key: "r" }], label: "改出發時間（運行中才有效）", wired: true },
+  { id: "timetable.settings", scope: "timetable", chords: [{ key: "e" }], label: "分類與設定", wired: true },
+  { id: "timetable.split", scope: "timetable", chords: [{ key: "s" }], label: "切開運行中那一班", wired: true },
+  { id: "timetable.fill", scope: "timetable", chords: [{ key: "f" }], label: "補記最近的一段未記錄", wired: true },
 ];
 
 const TIMETABLE_SCENES: Scene[] = [

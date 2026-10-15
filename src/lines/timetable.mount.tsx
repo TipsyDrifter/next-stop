@@ -9,11 +9,13 @@
  * 車次①a（契約 §6.1）：填 desktopView／mobileView／reload／mobileOverlay；不填 globalHotkeyHandlers。
  * ①a 補充契約（系統匣，2026-10-10）：加填 desktopOverlay＝TimetableDesktopAgent（回 null；App 一開就把運行中送到系統匣，
  * 不必先進時刻表頁——原 §6.1「不填 desktopOverlay」由此改寫）。
+ * 車次①b（契約 §6.1 #1f）：加填 navBadge／navHint（運行中標記；插槽＝接縫 #58）。
  * `desktopView`／`mobileView` 的欄位與值寫同一行（probe 牙齒 9 讀值）。此後凍結，只有整合席能改。
  */
 import type { LineMount } from "./types";
 import { TimetableDesktopAgent, TimetableView } from "../ui/timetable/desktop";
 import { MobileTimetable, TimetableMobileAgent } from "../ui/timetable/mobile";
+import { NavBadge, timetableNavHint } from "../ui/timetable/NavBadge";
 import { useTimetableStore } from "../store/timetableStore";
 
 export const TIMETABLE_MOUNT: LineMount = {
@@ -24,4 +26,7 @@ export const TIMETABLE_MOUNT: LineMount = {
   desktopOverlay: TimetableDesktopAgent,
   // 手機全域代理：回前景重貼常駐通知、重排試驗提醒、記下待問（回 null、零 DOM）
   mobileOverlay: TimetableMobileAgent,
+  // ①b 運行中標記（接縫 #58）：書封「時刻表」與手機 tab 右上的分類小圓牌；桌機 tooltip 尾巴「・創作 14:35 発」
+  navBadge: NavBadge,
+  navHint: timetableNavHint,
 };

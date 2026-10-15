@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 運行那一列的大圓牌（外圈 1.5dp）；上色方式同 tt_badge_disc。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#1FFFFFFF" />
+    <stroke android:width="1.5dp" android:color="#B3FFFFFF" />
+</shape>

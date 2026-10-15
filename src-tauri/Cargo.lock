@@ -2608,7 +2608,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "next-stop"
-version = "1.7.0"
+version = "1.8.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -2631,6 +2631,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-sql",
+ "tauri-plugin-tt-notice",
  "uuid",
  "zstd",
 ]
@@ -5054,6 +5055,15 @@ dependencies = [
  "time",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "tauri-plugin-tt-notice"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

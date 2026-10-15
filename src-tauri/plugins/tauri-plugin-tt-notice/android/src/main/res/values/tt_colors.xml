@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 時刻表 ①c：通知上的固定色（亮色系統；暗色在 values-night）。分類色不在這裡：由 JS 送來、依深淺色挑（TtNoticeRenderer）。
+     對照原型 prototypes/時刻表-src/v-e.css 的 .ve-and（Android 通知卡）與 shared.css 的 seal／on-seal 兩個變數。
+     （XML 註解裡不能有兩個連續的減號，所以變數名不寫前綴。） -->
+<resources>
+    <!-- 格子底（原型 a-cell，對通知卡底色約 7% 墨色） -->
+    <color name="tt_cell">#121D1B20</color>
+    <color name="tt_ripple">#331D1B20</color>
+    <!-- 到着鈕、運行中那格的亮點（＝seal） -->
+    <color name="tt_seal">#FFAD3D2B</color>
+    <color name="tt_on_seal">#FFE4E3F3</color>
+    <!-- 停車中的虛線圓（原型 .ve-nt-ph） -->
+    <color name="tt_placeholder">#8049454F</color>
+</resources>

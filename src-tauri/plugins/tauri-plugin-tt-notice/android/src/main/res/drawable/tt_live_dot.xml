@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 運行中那一格右上角的小點（原型 .ve-nt-dot＝seal 色）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/tt_seal" />
+</shape>

@@ -11,6 +11,7 @@
  * - 進頁：`init("desktop")` → `autoAsk("enter", true)`；`useTimetableForeground({ ask: true })`（回前景重讀＋問，丙席實作）。
  * - 寬度不足 960px（ResizeObserver 量 .ns-tt）時 split 自動退成單欄（運行列＋發車台＋軸依序疊、整頁捲動），不改寫 view 設定。
  * - 視圖兩殼各記各的（settings key `timetable_view`，契約 0-6）；`V` 與頂端切換鈕都走 `store.toggleView／setView`。
+ * - 車次①b：鍵盤表十個鍵全部接上（KEY_ACTIONS）；F2 的 body 後援監聽（①b①c 契約 0-13）。
  */
 import { useEffect, useRef, useState } from "react";
 import { useTimetableStore, type TimetableView as TimetableViewMode } from "../../store/timetableStore";
@@ -19,8 +20,10 @@ import { RunDock } from "./parts/RunDock";
 import { DepartBoard } from "./parts/DepartBoard";
 import { Axis } from "./parts/Axis";
 import { DesktopSheetHost } from "./DesktopSheetHost";
-import { useTimetableKeyboard } from "./useTimetableKeyboard";
+import { handleTimetableKey, useTimetableKeyboard, type TimetableKeyActions } from "./useTimetableKeyboard";
 import { useTimetableForeground } from "./useTimetableForeground";
+import { MIN, msOf } from "../../domain/timetable";
+import { addDays } from "../../lib/date";
 import "./timetable.css";
 
 /** 兩欄撐不開的門檻（契約 §5.2） */
@@ -30,6 +33,54 @@ const VIEW_OPTIONS: { v: TimetableViewMode; label: string }[] = [
   { v: "split", label: "兩欄" },
   { v: "axis", label: "只看軸" },
 ];
+
+/** S：運行中那一班至少跑了這麼久才切得開（＝SplitPanel 的「不到兩分鐘切不開」） */
+const SPLIT_MIN_MS = 2 * MIN;
+
+/**
+ * 鍵盤表的接線（①a 三鍵＋①b 七鍵，契約 §5.9）：一律在按下當下讀 store（不吃 render 時的快照）。
+ * 回 false＝放行（不 preventDefault）。
+ */
+const KEY_ACTIONS: TimetableKeyActions = {
+  depart: () => useTimetableStore.getState().requestDepart(),
+  arrive: () => {
+    const s = useTimetableStore.getState();
+    if (!s.running) return false;
+    s.requestArrive();
+    return true;
+  },
+  toggleView: () => useTimetableStore.getState().toggleView("desktop"),
+  dayPrev: () => {
+    const s = useTimetableStore.getState();
+    void s.setDayKey(addDays(s.dayKey, -1));
+  },
+  dayNext: () => {
+    const s = useTimetableStore.getState();
+    if (s.dayKey === s.todayKey) return false;
+    void s.setDayKey(addDays(s.dayKey, 1));
+    return true;
+  },
+  dayToday: () => {
+    const s = useTimetableStore.getState();
+    if (s.dayKey === s.todayKey) return false;
+    void s.setDayKey(s.todayKey);
+    return true;
+  },
+  restart: () => {
+    const s = useTimetableStore.getState();
+    if (!s.running) return false;
+    s.openSheet({ kind: "restart", blockId: s.running.id });
+    return true;
+  },
+  settings: () => useTimetableStore.getState().openSheet({ kind: "categories" }),
+  split: () => {
+    const s = useTimetableStore.getState();
+    if (!s.running || Date.now() - msOf(s.running.started_at) < SPLIT_MIN_MS) return false;
+    s.openSheet({ kind: "split", blockId: s.running.id });
+    return true;
+  },
+  fill: () => useTimetableStore.getState().requestFillLatestGap(),
+};
 
 export function TimetableView() {
   const view = useTimetableStore((s) => s.view);
@@ -77,19 +128,21 @@ export function TimetableView() {
     if (el && (document.activeElement === document.body || document.activeElement === null)) el.focus();
   }, [sheet, running]);
 
-  const onKeyDown = useTimetableKeyboard(
-    {
-      depart: () => useTimetableStore.getState().requestDepart(),
-      arrive: () => {
-        const s = useTimetableStore.getState();
-        if (!s.running) return false;
-        s.requestArrive();
-        return true;
-      },
-      toggleView: () => useTimetableStore.getState().toggleView("desktop"),
-    },
-    sheet !== null,
-  );
+  const onKeyDown = useTimetableKeyboard(KEY_ACTIONS, sheet !== null);
+
+  // F2（①b①c 契約 0-13）：全域疊層（設定、Ctrl+P、`?`、旅客筆記的捕捉框…）關掉後焦點落在 body，body 上的 keydown
+  // 不經過 .page ⇒ 在 window 掛後援，只在 target 是 body、沒有任何對話框開著、時刻表沒有面板開著時交給同一支 handler。
+  // 焦點本來就在 .page 裡時 target 不是 body，不會重複觸發。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.target !== document.body) return;
+      if (document.querySelector('[aria-modal="true"], .ns-dialog') !== null) return;
+      if (useTimetableStore.getState().sheet !== null) return;
+      handleTimetableKey(e, KEY_ACTIONS, false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const viewKey = hotkeyById("timetable.view");
   const split = view !== "axis";

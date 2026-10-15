@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 收合版的格子底（原型 .ve-nt-grid.is-inline .ve-nt-cell.is-mini：36dp 高的膠囊）＋水波紋。 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/tt_ripple">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="18dp" />
+            <solid android:color="@color/tt_cell" />
+        </shape>
+    </item>
+</ripple>

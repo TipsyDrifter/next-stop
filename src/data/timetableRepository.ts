@@ -15,6 +15,7 @@ import type {
   CoverSummary,
   LongRunChoice,
   DayBlockSegment,
+  MergePreview,
 } from "../domain/timetable";
 import { MOCK_MODE, WIPED_MODE } from "./index";
 import { SqliteTimetableRepository } from "./sqliteTimetableRepository";
@@ -30,11 +31,25 @@ export interface CreateCategoryInput {
   defaultMin: number | null;
 }
 
-/** ①a 只開放這三欄（搬組／封存／換圓牌字在 ①b） */
+/** ①a 三欄＋①b 三欄（搬組／封存／換圓牌字） */
 export interface CategoryPatch {
+  /** 改名：圓牌字只在「還是自動的」（＝舊名第一字或 null）時跟著換（①b①c 契約 §3.3-3） */
   name?: string;
   colorIdx?: number;
   defaultMin?: number | null;
+  /** 搬到另一個頂層組（只對子分類；目標必須是未刪除的頂層組，否則 RangeError「找不到這個分組」） */
+  parentId?: string;
+  /** true＝封存（archived_at = now）、false＝還原（null）。只對子分類（頂層組 ⇒ RangeError「分組不能封存」） */
+  archived?: boolean;
+  /** 一個字（Array.from(trim).length === 1，否則 RangeError「圓牌字只能一個字」）。只對子分類 */
+  glyph?: string;
+}
+
+/** 合併預演的結果（型別定義在 domain，這裡轉出） */
+export type { MergePreview };
+
+export interface DepartOptions {
+  estimateMin?: number | null;
 }
 
 export interface TimetableRepository {
@@ -60,8 +75,8 @@ export interface TimetableRepository {
   listDaySegments(dateKey: string, dayStartHour: number): Promise<DayBlockSegment[]>;
 
   /* ── 時間塊：寫（每支＝讀現況 → 純函式算 WritePlan → 一個 WriteBatch 落） ── */
-  /** 發車／換車：[at, 運行中) 蓋掉既有紀錄（§4.3 planDepart）。at 晚於現在會被夾成現在 */
-  depart(categoryId: string, atIso: string): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
+  /** 發車／換車：[at, 運行中) 蓋掉既有紀錄（§4.3 planDepart）。at 晚於現在會被夾成現在。①b：opts.estimateMin＝這一班的預估 */
+  depart(categoryId: string, atIso: string, opts?: DepartOptions): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
   /** 到站：所有運行中的塊結束於 at（夾在 [自己的開始, 現在]）；回被結束的列 */
   arrive(atIso?: string): Promise<TimeBlockRow[]>;
   /** 撤回到站：沒有別的運行中、也沒有開始於它結束之後的塊，才把 ended_at 改回 NULL；回成功與否 */
@@ -81,6 +96,26 @@ export interface TimetableRepository {
   restore(id: string): Promise<CoverSummary>;
   /** 預演：這段時間寫下去會蓋掉幾塊（UI 先告知用；不寫入） */
   previewCover(startIso: string, endIso: string | null, exceptId: string | null): Promise<CoverSummary>;
+
+  /* ── ①b（①b①c 契約 §3.2；只加不改） ── */
+  /** 運行中那班的預估；不是運行中 ⇒ RangeError「只能改運行中那一班的預估」 */
+  setEstimate(id: string, estimateMin: number | null): Promise<void>;
+  /** 多切點（§4.3 planSplitMulti）；回切完之後的各段（依時間：原 id 在前） */
+  splitMulti(id: string, cutsIso: readonly string[], categoryIds: readonly string[]): Promise<TimeBlockRow[]>;
+  /** 合併預演；沒有可合併的鄰居回 null。boundIso＝畫面上那一側的界線（上：看的那天的起點；下：min(那天的終點, 現在)） */
+  previewMerge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null>;
+  /** 合併（§4.4 planMerge）；回 null＝沒得併 */
+  merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null>;
+  /** 給 ①c 的通知格：最近用過的分類 id，依最後一次開始時刻遞減（started_at >= sinceIso、未刪除；最多 limit 個） */
+  listRecentCategoryIds(sinceIso: string, limit: number): Promise<string[]>;
+
+  /* ── ①c 預留（甲寫、丙用） ── */
+  /** 這個 id 的列在不在（含已刪除） */
+  blockExists(id: string): Promise<boolean>;
+  /** 佇列発車（§4.5 planDepartPending）。回 null＝被後來的紀錄整段蓋住、沒寫 */
+  departPending(categoryId: string, atIso: string, opts: { fixedId: string; untilNext: boolean }): Promise<TimeBlockRow | null>;
+  /** 佇列到着（§4.5 planArriveBefore）。回被結束的列；[]＝沒有開始早於 at 的運行中 */
+  arrivePending(atIso: string): Promise<TimeBlockRow[]>;
 
   /* ── 同步後整理 ── */
   /** 全部未刪除的塊跑一次 planReconcile；回寫了幾筆（0＝本來就乾淨） */

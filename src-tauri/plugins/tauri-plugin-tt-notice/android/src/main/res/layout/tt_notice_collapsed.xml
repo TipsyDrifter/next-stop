@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 時刻表 ①c：常駐通知的收合版（DecoratedCustomViewStyle 的自訂內容區；Android 12 起約 48dp 高，未確認、契約 §9-1）。
+     D-時-31：收合＝左邊縮小的跳秒＋分類名、右邊一排常用分類格（運行中那格亮），沒有到着（到着在展開版）。
+     長相照原型 prototypes/時刻表-①b①c.html 情境 1「收合・格子那一排」（v-e.css 的 .ve-nt-fold）。
+     格子關掉（tilesEnabled=false）時改畫 tt_c_top（運行那一列＋到着；＝原型格子關掉時的收合）。
+     RemoteViews 只准用 FrameLayout／LinearLayout／ImageView／TextView／Chronometer 這些類別（不用 View）。 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tt_c_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <!-- 格子那一排 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/tt_c_run"
+            android:layout_width="58dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:orientation="vertical">
+
+            <Chronometer
+                android:id="@+id/tt_c_chrono"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/tt_c_runname"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Compat.Notification"
+                android:textSize="10.5sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tt_c_tiles"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/tt_c_tile_0"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:layout_weight="1"
+                android:background="@drawable/tt_tile_bg_mini">
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_on_0"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_tile_on_mini"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center">
+
+                    <ImageView
+                        android:id="@+id/tt_c_tile_bg_0"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:importantForAccessibility="no"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/tt_badge_disc" />
+
+                    <TextView
+                        android:id="@+id/tt_c_tile_glyph_0"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_dot_0"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginEnd="7dp"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_live_dot"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/tt_c_tile_1"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:layout_weight="1"
+                android:background="@drawable/tt_tile_bg_mini">
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_on_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_tile_on_mini"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center">
+
+                    <ImageView
+                        android:id="@+id/tt_c_tile_bg_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:importantForAccessibility="no"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/tt_badge_disc" />
+
+                    <TextView
+                        android:id="@+id/tt_c_tile_glyph_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_dot_1"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginEnd="7dp"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_live_dot"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/tt_c_tile_2"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:layout_weight="1"
+                android:background="@drawable/tt_tile_bg_mini">
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_on_2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_tile_on_mini"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center">
+
+                    <ImageView
+                        android:id="@+id/tt_c_tile_bg_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:importantForAccessibility="no"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/tt_badge_disc" />
+
+                    <TextView
+                        android:id="@+id/tt_c_tile_glyph_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_dot_2"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginEnd="7dp"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_live_dot"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/tt_c_tile_3"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:layout_weight="1"
+                android:background="@drawable/tt_tile_bg_mini">
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_on_3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_tile_on_mini"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center">
+
+                    <ImageView
+                        android:id="@+id/tt_c_tile_bg_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:importantForAccessibility="no"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/tt_badge_disc" />
+
+                    <TextView
+                        android:id="@+id/tt_c_tile_glyph_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_dot_3"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginEnd="7dp"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_live_dot"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/tt_c_tile_4"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:layout_weight="1"
+                android:background="@drawable/tt_tile_bg_mini">
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_on_4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_tile_on_mini"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_gravity="center">
+
+                    <ImageView
+                        android:id="@+id/tt_c_tile_bg_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:importantForAccessibility="no"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/tt_badge_disc" />
+
+                    <TextView
+                        android:id="@+id/tt_c_tile_glyph_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:importantForAccessibility="no"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </FrameLayout>
+
+                <ImageView
+                    android:id="@+id/tt_c_tile_dot_4"
+                    android:layout_width="5dp"
+                    android:layout_height="5dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginEnd="7dp"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/tt_live_dot"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 格子關掉時：運行那一列（原型 .ve-nt-top.is-c48） -->
+    <LinearLayout
+        android:id="@+id/tt_c_top"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:layout_width="30dp"
+            android:layout_height="30dp">
+
+            <ImageView
+                android:id="@+id/tt_c_top_badge_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/tt_badge_disc_lg" />
+
+            <TextView
+                android:id="@+id/tt_c_top_glyph"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:importantForAccessibility="no"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tt_c_top_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/tt_c_top_started"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Compat.Notification"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <Chronometer
+            android:id="@+id/tt_c_top_chrono"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:fontFeatureSettings="tnum"
+            android:maxLines="1"
+            android:textAppearance="@style/TextAppearance.Compat.Notification.Title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tt_c_top_arrive"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/tt_arrive_bg"
+            android:gravity="center"
+            android:maxLines="1"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/tt_arrive"
+            android:textColor="@color/tt_on_seal"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>

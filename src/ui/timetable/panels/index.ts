@@ -9,12 +9,13 @@ import type { TimetableSheet, TimetableStore } from "../../../store/timetableSto
 import { BlockPanel } from "./BlockPanel";
 import { CategoryManagerPanel } from "./CategoryManagerPanel";
 import { DepartPanel } from "./DepartPanel";
+import { EstimatePanel } from "./EstimatePanel";
 import { LongRunPanel } from "./LongRunPanel";
 import { RestartPanel } from "./RestartPanel";
 import { SplitPanel } from "./SplitPanel";
 
 export type { PanelProps } from "./controls";
-export { BlockPanel, CategoryManagerPanel, DepartPanel, LongRunPanel, RestartPanel, SplitPanel };
+export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LongRunPanel, RestartPanel, SplitPanel };
 
 type TitleState = Pick<TimetableStore, "running" | "catById" | "dayBlocks" | "todayBlocks" | "weekBlocks">;
 
@@ -44,6 +45,8 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       return "切開這一塊";
     case "categories":
       return "分類與設定";
+    case "estimate":
+      return "這一班的預估";
     default:
       return "";
   }
@@ -65,6 +68,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(SplitPanel, { onDone });
     case "categories":
       return createElement(CategoryManagerPanel, { onDone });
+    case "estimate":
+      return createElement(EstimatePanel, { onDone });
     default:
       return createElement(DepartPanel, { onDone });
   }

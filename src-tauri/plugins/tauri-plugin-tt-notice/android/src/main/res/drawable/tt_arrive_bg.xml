@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 到着鈕（原型 .ve-nt-arr：seal 色膠囊）＋水波紋。 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#40FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="18dp" />
+            <solid android:color="@color/tt_seal" />
+        </shape>
+    </item>
+</ripple>

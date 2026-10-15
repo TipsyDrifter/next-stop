@@ -6,6 +6,7 @@
  * 時區：測資一律用 `new Date(y, m-1, d, h, mi).getTime()` 造本地時刻，不寫 UTC 字面值。
  *
  * Stage 0（甲席）：A 區 1–12、B 區 13–22 的骨架都在；標 `todo` 的在 Stage 1 補實作與斷言。
+ * 車次①b①c：C 區 25–44（①b①c 契約 §4.6.1；甲席）。
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -19,7 +20,19 @@ import {
   RECONCILE_WINDOW_DAYS,
   STARTER_CATEGORIES,
   TIMETABLE_ID_NAMESPACE,
+  addCut,
   canUndoArrive,
+  defaultCuts,
+  durOf,
+  latestGap,
+  planArriveBefore,
+  planDepartPending,
+  planMerge,
+  planSetEstimate,
+  planSplitMulti,
+  runMarker,
+  thresholdOf,
+  type Threshold,
   colorSlot,
   currentRunning,
   fmtClock,
@@ -72,7 +85,7 @@ function apply(spans: readonly Span[], plan: WritePlan): Span[] {
     if (p.ack !== undefined) s.ack = p.ack;
   }
   plan.inserts.forEach((i, n) => {
-    const id = i.key ?? `ins-${n}`;
+    const id = i.fixedId ?? i.key ?? `ins-${n}`;
     map.set(id, { id, categoryId: i.categoryId, start: i.start, end: i.end, ack: i.ack });
   });
   for (const d of plan.deletes) map.delete(d);
@@ -656,5 +669,385 @@ describe("B. 缺口補測", () => {
     // 對照：不限窗口時舊塊會被整理（證明窗口確實擋掉了東西）
     const full = planReconcile(all);
     assert.ok(full.patches.some((p) => p.id === "oldA"), "全表整理會動到 oldA");
+  });
+});
+
+/* ───────── C. 車次①b①c（①b①c 契約 §4.6.1；甲席）───────── */
+
+/*
+ * 門檻、記號、預估、多切點、合併、F 鍵與切點工具，以及 ①c 預留的佇列発車／到着。
+ */
+describe("C. 車次①b①c", () => {
+  const rangeErr = (message: string) => ({ name: "RangeError", message });
+  /** 固定種子的亂數（mulberry32） */
+  const rng = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const shape = (spans: readonly Span[]) => spans.map((s) => [s.id, s.categoryId, s.start, s.end]);
+
+  test("25. thresholdOf：預估優先；預估 null／0 退分類；分類 null 退全域；全域 0 ⇒ null", () => {
+    const cat = { default_min: 60 };
+    assert.deepEqual(thresholdOf(30, cat, 240), { min: 30, source: "estimate" });
+    assert.deepEqual(thresholdOf(30, null, 0), { min: 30, source: "estimate" }, "預估在全域 0 時照樣有效");
+    assert.deepEqual(thresholdOf(null, cat, 240), { min: 60, source: "category" });
+    assert.deepEqual(thresholdOf(0, cat, 240), { min: 60, source: "category" });
+    assert.deepEqual(thresholdOf(null, { default_min: null }, 240), { min: 240, source: "global" });
+    assert.deepEqual(thresholdOf(null, { default_min: 0 }, 240), { min: 240, source: "global" });
+    assert.deepEqual(thresholdOf(null, null, 240), { min: 240, source: "global" });
+    assert.equal(thresholdOf(null, { default_min: null }, 0), null);
+    assert.equal(thresholdOf(0, null, 0), null);
+  });
+
+  test("26. runMarker F3：洗漱（門檻 60）06:30–07:30、ack=1 ⇒ none；06:30–09:00、ack=1 ⇒ long, pending:false；ack=0 ⇒ pending:true", () => {
+    const th = thresholdOf(null, { default_min: 60 }, 240);
+    assert.deepEqual(th, { min: 60, source: "category" });
+    // 選了「留白」：結束改到 07:30（剛好＝門檻，不算超過）
+    assert.deepEqual(runMarker(mk("w", "wash", T(6, 30), T(7, 30), true), th, NOW), { kind: "none" });
+    // 選了「別問了」：仍超過門檻 ⇒ 照畫記號、不待確認
+    assert.deepEqual(runMarker(mk("w", "wash", T(6, 30), T(9, 0), true), th, NOW), { kind: "long", pending: false });
+    assert.deepEqual(runMarker(mk("w", "wash", T(6, 30), T(9, 0), false), th, NOW), { kind: "long", pending: true });
+    // 運行中也一樣（跑到 NOW）
+    assert.deepEqual(runMarker(mk("w", "wash", T(6, 30), null, false), th, NOW), { kind: "long", pending: true });
+    // 全域門檻也是「長時間運行」
+    assert.deepEqual(runMarker(mk("w", "wash", T(6, 30), T(9, 0)), thresholdOf(null, null, 60), NOW), { kind: "long", pending: true });
+    assert.deepEqual(runMarker(mk("w", "wash", T(6, 30), T(9, 0)), null, NOW), { kind: "none" });
+  });
+
+  test("27. runMarker 與 isLongRun 等價：隨機 50 組（固定種子）pending ⇔ isLongRun(s, th.min, now)", () => {
+    const r = rng(20261013);
+    const sources: Threshold["source"][] = ["estimate", "category", "global"];
+    let hits = 0;
+    for (let n = 0; n < 50; n++) {
+      const start = T(3, 0) + Math.floor(r() * 600) * MIN;
+      const running = r() < 0.4;
+      const end = running ? null : start + Math.floor(r() * 300) * MIN;
+      const now = Math.max(start, end ?? start) + Math.floor(r() * 120) * MIN;
+      const s = mk(`s${n}`, "x", start, end, r() < 0.5);
+      const th: Threshold | null = r() < 0.15 ? null : { min: 1 + Math.floor(r() * 240), source: sources[Math.floor(r() * 3)] };
+      const m = runMarker(s, th, now);
+      const pending = m.kind !== "none" && m.pending;
+      assert.equal(pending, isLongRun(s, th ? th.min : null, now), `第 ${n} 組`);
+      // 記號只在真的超過門檻時畫
+      assert.equal(m.kind !== "none", th !== null && durOf(s, now) > th.min * MIN, `第 ${n} 組 kind`);
+      if (m.kind === "late") assert.equal(th!.source, "estimate");
+      if (m.kind === "long") assert.notEqual(th!.source, "estimate");
+      if (pending) hits++;
+    }
+    assert.ok(hits > 0 && hits < 50, `測資要兩種都有（待確認 ${hits} 組）`);
+  });
+
+  test("28. 預估 30 分、已跑 50 分 ⇒ late, overMs = 20 分；文案「誤點 +20m」", () => {
+    const s = mk("c", "create", NOW - 50 * MIN, null);
+    const th = thresholdOf(30, { default_min: 120 }, 240);
+    const m = runMarker(s, th, NOW);
+    assert.deepEqual(m, { kind: "late", overMs: 20 * MIN, pending: true });
+    assert.equal("誤點 +" + fmtDur(m.kind === "late" ? m.overMs : 0), "誤點 +20m");
+    // store 的 TT_TEXT.late 也是同一個格式（字串對帳，不 import store）
+    const src = readFileSync(path.join(ROOT, "src/store/timetableStore.ts"), "utf8");
+    assert.match(src, /late: \(overMs: number\) => `誤點 \+\$\{fmtDur\(overMs\)\}`/);
+  });
+
+  test("29. planDepart 帶 estimateMin: 60 ⇒ 新 insert estimateMin === 60；不帶 ⇒ null", () => {
+    const withEst = planDepart(demo(), { categoryId: "study", at: T(15, 0), now: NOW, estimateMin: 60 });
+    assert.equal(withEst.inserts[withEst.inserts.length - 1].estimateMin, 60);
+    const without = planDepart(demo(), { categoryId: "study", at: T(15, 0), now: NOW });
+    assert.equal(without.inserts[without.inserts.length - 1].estimateMin, null);
+    // ①a 的行為不變：上一班被切短
+    assert.deepEqual(without.patches, [{ id: "b9", end: T(15, 0) }]);
+  });
+
+  test("30. planSplit ≡ planSplitMulti 單切點（套用後 start／end／category 相同）", () => {
+    const cases: { id: string; at: number; cat2: string }[] = [
+      { id: "b3", at: T(9, 30), cat2: "study" }, // 已結束、換分類
+      { id: "b3", at: T(9, 30), cat2: "class" }, // 已結束、同分類
+      { id: "b9", at: T(15, 0), cat2: "rest" }, // 運行中
+      { id: "b9", at: T(15, 0), cat2: "create" },
+    ];
+    for (const c of cases) {
+      const s = demo().find((x) => x.id === c.id)!;
+      const one = planSplit(demo(), { id: c.id, at: c.at, categoryId2: c.cat2, now: NOW })!;
+      const multi = planSplitMulti(demo(), { id: c.id, cuts: [c.at], categoryIds: [s.categoryId, c.cat2], now: NOW });
+      assert.deepEqual(shape(apply(demo(), multi)), shape(apply(demo(), one)), `${c.id} 切 ${fmtClock(c.at)} → ${c.cat2}`);
+      assert.equal(multi.inserts[0].inherit, one.inserts[0].inherit);
+    }
+  });
+
+  test("31. planSplitMulti 三段：上課 08:40–10:30 切 09:20、10:00 ⇒ 首尾相接、第二段 inherit:false、第三段 inherit:true", () => {
+    const plan = planSplitMulti(demo(), { id: "b3", cuts: [T(9, 20), T(10, 0)], categoryIds: ["class", "study", "class"], now: NOW });
+    assert.deepEqual(plan.patches, [{ id: "b3", end: T(9, 20) }]);
+    assert.equal(plan.inserts.length, 2);
+    assert.deepEqual(
+      plan.inserts.map((i) => [i.categoryId, i.start, i.end, i.inherit, i.fromId, i.ack, i.estimateMin]),
+      [
+        ["study", T(9, 20), T(10, 0), false, "b3", false, null],
+        ["class", T(10, 0), T(10, 30), true, "b3", false, null],
+      ],
+    );
+    assert.deepEqual(plan.deletes, []);
+    const after = apply(demo(), plan);
+    const three = after.filter((s) => s.start >= T(8, 40) && s.start < T(10, 30));
+    assert.deepEqual(three.map((s) => [s.categoryId, fmtClock(s.start), fmtClock(s.end!)]), [
+      ["class", "08:40", "09:20"],
+      ["study", "09:20", "10:00"],
+      ["class", "10:00", "10:30"],
+    ]);
+    assertNoOverlap(after);
+  });
+
+  test("32. 驗證：切點越界、未遞增、某段 < 1 分、分類數不對 ⇒ 各自的 RangeError 訊息", () => {
+    const run = (cuts: number[], cats?: string[]) => () =>
+      planSplitMulti(demo(), { id: "b3", cuts, categoryIds: cats ?? cuts.map(() => "class").concat("class"), now: NOW });
+    const OUT = rangeErr("切點要在這一塊的開頭與尾端之間");
+    assert.throws(run([]), OUT);
+    assert.throws(run([T(8, 40)]), OUT, "切在開頭");
+    assert.throws(run([T(10, 30)]), OUT, "切在尾端");
+    assert.throws(run([T(8, 0)]), OUT, "切在塊外");
+    assert.throws(run([T(10, 0), T(9, 20)]), OUT, "未遞增");
+    assert.throws(run([T(9, 20), T(9, 20)]), OUT, "重複的切點");
+    const SHORT = rangeErr("每段至少 1 分");
+    assert.throws(run([T(8, 40) + 30_000]), SHORT, "第一段 30 秒");
+    assert.throws(run([T(9, 20), T(9, 20) + 30_000]), SHORT, "中間一段 30 秒");
+    assert.throws(run([T(10, 30) - 30_000]), SHORT, "最後一段 30 秒");
+    assert.throws(run([T(9, 20)], ["class"]), rangeErr("每一段都要有分類"));
+    assert.throws(run([T(9, 20)], ["class", "study", "class"]), rangeErr("每一段都要有分類"));
+    // 剛好 1 分可以
+    assert.doesNotThrow(run([T(8, 41), T(10, 29)]));
+    // 運行中的塊：尾端＝now
+    assert.throws(() => planSplitMulti(demo(), { id: "b9", cuts: [NOW], categoryIds: ["create", "rest"], now: NOW }), OUT);
+  });
+
+  test("33. 運行中的塊多切點：最後一段 end:null；預估跟著最後一段（0-14）；第一段 patch estimateMin:null", () => {
+    const plan = planSplitMulti(demo(), {
+      id: "b9",
+      cuts: [T(15, 0), T(15, 20)],
+      categoryIds: ["create", "study", "create"],
+      now: NOW,
+      estimateMin: 45,
+    });
+    assert.deepEqual(plan.patches, [{ id: "b9", end: T(15, 0), estimateMin: null }]);
+    assert.deepEqual(
+      plan.inserts.map((i) => [i.categoryId, i.start, i.end, i.inherit, i.estimateMin]),
+      [
+        ["study", T(15, 0), T(15, 20), false, null],
+        ["create", T(15, 20), null, true, 45],
+      ],
+    );
+    const after = apply(demo(), plan);
+    assert.equal(runningCount(after), 1);
+    assert.equal(after.find((s) => s.end === null)!.start, T(15, 20));
+    assertNoOverlap(after);
+    // 原值 null ⇒ 第一段不帶 estimateMin
+    const noEst = planSplitMulti(demo(), { id: "b9", cuts: [T(15, 0)], categoryIds: ["create", "create"], now: NOW });
+    assert.ok(!("estimateMin" in noEst.patches[0]));
+    assert.equal(noEst.inserts[0].estimateMin, null);
+    // 已結束的塊：預估留在原 id（第一段不動）、新段一律 null
+    const ended = planSplitMulti(demo(), { id: "b3", cuts: [T(9, 20), T(10, 0)], categoryIds: ["class", "class", "class"], now: NOW, estimateMin: 30 });
+    assert.ok(!("estimateMin" in ended.patches[0]));
+    assert.deepEqual(ended.inserts.map((i) => i.estimateMin), [null, null]);
+  });
+
+  test("34. 第一段換分類 ⇒ patch 帶 categoryId 與 ack:false", () => {
+    const spans = demo().map((s) => (s.id === "b3" ? { ...s, ack: true } : s));
+    const plan = planSplitMulti(spans, { id: "b3", cuts: [T(9, 20)], categoryIds: ["study", "class"], now: NOW });
+    assert.deepEqual(plan.patches, [{ id: "b3", end: T(9, 20), categoryId: "study", ack: false }]);
+    assert.equal(plan.inserts[0].inherit, true);
+    assert.equal(plan.inserts[0].ack, false);
+  });
+
+  test("34b. 切運行中那班：仍在跑的最後一段沿用原本的 ack（別問了不重問）；中間段 false；已結束的塊新段照舊 false", () => {
+    const acked = demo().map((s) => (s.id === "b9" ? { ...s, ack: true } : s));
+    const plan = planSplitMulti(acked, { id: "b9", cuts: [T(15, 0), T(15, 20)], categoryIds: ["create", "study", "rest"], now: NOW });
+    assert.deepEqual(plan.inserts.map((i) => [i.categoryId, i.end, i.ack]), [
+      ["study", T(15, 20), false],
+      ["rest", null, true], // 換了分類也照帶：主人說的是「這一班別問了」
+    ]);
+    const after = apply(acked, plan);
+    assert.equal(after.find((s) => s.end === null)!.ack, true);
+    // 原本沒確認 ⇒ 最後一段也是 false
+    const fresh = planSplitMulti(demo(), { id: "b9", cuts: [T(15, 0)], categoryIds: ["create", "create"], now: NOW });
+    assert.equal(fresh.inserts[0].ack, false);
+    // 已結束的塊（ack:true）切開 ⇒ 新段照舊 false
+    const endedAcked = demo().map((s) => (s.id === "b3" ? { ...s, ack: true } : s));
+    const ended = planSplitMulti(endedAcked, { id: "b3", cuts: [T(9, 20), T(10, 0)], categoryIds: ["class", "class", "class"], now: NOW });
+    assert.deepEqual(ended.inserts.map((i) => i.ack), [false, false]);
+  });
+
+  test("35. planMerge prev 併進塊：上課 08:40–10:30、休息 10:30–10:50 ⇒ 上課 08:40–10:50、休息 delete；preview 一致", () => {
+    const out = planMerge(demo(), { id: "b4", dir: "prev", bound: DAY.start, now: NOW })!;
+    assert.ok(out);
+    assert.deepEqual(out.preview, { keepId: "b3", categoryId: "class", start: T(8, 40), end: T(10, 50), gapMs: 0 });
+    assert.ok(out.plan.deletes.includes("b4"));
+    assert.ok(out.plan.patches.some((p) => p.id === "b3" && p.end === T(10, 50)));
+    assert.ok(!out.plan.patches.some((p) => p.id === "b3" && (p.categoryId !== undefined || p.ack !== undefined)), "留鄰居的分類與 ack");
+    const after = apply(demo(), out.plan);
+    assert.equal(after.find((s) => s.id === "b4"), undefined);
+    const b3 = after.find((s) => s.id === "b3")!;
+    assert.deepEqual([b3.categoryId, b3.start, b3.end], [out.preview.categoryId, out.preview.start, out.preview.end]);
+    assertNoOverlap(after);
+  });
+
+  test("36. planMerge 中間隔著 < 1 分的縫（10:30:20）⇒ 照樣併進塊", () => {
+    const spans = [mk("b3", "class", T(8, 40), T(10, 30)), mk("b4", "rest", T(10, 30) + 20_000, T(10, 50))];
+    const prev = planMerge(spans, { id: "b4", dir: "prev", bound: DAY.start, now: NOW })!;
+    assert.deepEqual(prev.preview, { keepId: "b3", categoryId: "class", start: T(8, 40), end: T(10, 50), gapMs: 0 });
+    assert.deepEqual(shape(apply(spans, prev.plan)), [["b3", "class", T(8, 40), T(10, 50)]]);
+    // 反方向：上課併進下一塊休息 ⇒ 休息往前延到 08:40、上課刪掉
+    const next = planMerge(spans, { id: "b3", dir: "next", bound: DAY.end, now: NOW })!;
+    assert.deepEqual(next.preview, { keepId: "b4", categoryId: "rest", start: T(8, 40), end: T(10, 50), gapMs: 0 });
+    assert.deepEqual(shape(apply(spans, next.plan)), [["b4", "rest", T(8, 40), T(10, 50)]]);
+  });
+
+  test("37. planMerge 鄰居是未記錄：休息 10:50–11:10 前面空白到 10:30 ⇒ 休息 start=10:30、gapMs=20 分；一側沒有塊時用 bound", () => {
+    const spans = [mk("b3", "class", T(8, 40), T(10, 30)), mk("r", "rest", T(10, 50), T(11, 10))];
+    const out = planMerge(spans, { id: "r", dir: "prev", bound: DAY.start, now: NOW })!;
+    assert.deepEqual(out.plan, { patches: [{ id: "r", start: T(10, 30) }], inserts: [], deletes: [] });
+    assert.deepEqual(out.preview, { keepId: "r", categoryId: "rest", start: T(10, 30), end: T(11, 10), gapMs: 20 * MIN });
+    // 前面沒有塊 ⇒ 延到 bound（看的那天的起點）
+    const alone = [mk("r", "rest", T(10, 50), T(11, 10))];
+    const toBound = planMerge(alone, { id: "r", dir: "prev", bound: T(9, 0), now: NOW })!;
+    assert.deepEqual(toBound.preview, { keepId: "r", categoryId: "rest", start: T(9, 0), end: T(11, 10), gapMs: 110 * MIN });
+    // 上一塊在 bound 之前（昨天）⇒ 只蓋到 bound，不蓋畫面上看不到的那段空白
+    const yday = [mk("y", "class", T(22, 0, -1), T(23, 0, -1)), mk("r", "rest", T(4, 0), T(5, 0))];
+    assert.equal(planMerge(yday, { id: "r", dir: "prev", bound: DAY.start, now: NOW })!.preview.start, DAY.start);
+    // 後面沒有塊 ⇒ 延到 min(bound, now)
+    assert.equal(planMerge(alone, { id: "r", dir: "next", bound: T(12, 0), now: NOW })!.preview.end, T(12, 0));
+    const toNow = planMerge(alone, { id: "r", dir: "next", bound: DAY.end, now: NOW })!;
+    assert.deepEqual(toNow.preview, { keepId: "r", categoryId: "rest", start: T(10, 50), end: NOW, gapMs: NOW - T(11, 10) });
+    // 後面有塊、中間空白 ⇒ 延到那塊的開始
+    const nextGap = planMerge(spans, { id: "b3", dir: "next", bound: DAY.end, now: NOW })!;
+    assert.deepEqual(nextGap.plan.patches, [{ id: "b3", end: T(10, 50) }]);
+    assert.equal(nextGap.preview.gapMs, 20 * MIN);
+  });
+
+  test("38. planMerge next 併進運行中那班 ⇒ 運行中那班 start 往前、仍運行中、preview.end=null", () => {
+    const out = planMerge(demo(), { id: "b8", dir: "next", bound: DAY.end, now: NOW })!;
+    assert.deepEqual(out.preview, { keepId: "b9", categoryId: "create", start: T(14, 20), end: null, gapMs: 0 });
+    const after = apply(demo(), out.plan);
+    assert.equal(after.find((s) => s.id === "b8"), undefined);
+    const b9 = after.find((s) => s.id === "b9")!;
+    assert.deepEqual([b9.start, b9.end], [T(14, 20), null]);
+    assert.equal(runningCount(after), 1);
+    assertNoOverlap(after);
+  });
+
+  test("39. planMerge 對運行中的 s ⇒ RangeError；界線上沒有空白 ⇒ null", () => {
+    assert.throws(() => planMerge(demo(), { id: "b9", dir: "prev", bound: DAY.start, now: NOW }), rangeErr("運行中的這一班，用運行列換車或到着"));
+    // 第一塊貼著日界線 ⇒ 往前沒得併
+    assert.equal(planMerge(demo(), { id: "b1", dir: "prev", bound: DAY.start, now: NOW }), null);
+    // 不足 1 分的空白也不算
+    const near = [mk("a", "x", DAY.start + 30_000, T(4, 0))];
+    assert.equal(planMerge(near, { id: "a", dir: "prev", bound: DAY.start, now: NOW }), null);
+    // 往後：結束離 now 不到 1 分
+    const tail = [mk("a", "x", T(15, 0), NOW - 30_000)];
+    assert.equal(planMerge(tail, { id: "a", dir: "next", bound: DAY.end, now: NOW }), null);
+  });
+
+  test("40. 合併後全表無重疊（apply＋assertNoOverlap）", () => {
+    const base = [...demo(), mk("z", "meal", T(13, 0), T(13, 0)), mk("tiny", "rest", T(7, 40) + 20_000, T(7, 55))];
+    let tried = 0;
+    for (const s of base) {
+      if (s.end === null) continue;
+      for (const dir of ["prev", "next"] as const) {
+        const out = planMerge(base, { id: s.id, dir, bound: dir === "prev" ? DAY.start : Math.min(DAY.end, NOW), now: NOW });
+        if (!out) continue;
+        tried++;
+        const after = apply(base, out.plan);
+        assertNoOverlap(after);
+        assert.equal(runningCount(after), 1, `${s.id} ${dir}`);
+        const kept = after.find((x) => x.id === out.preview.keepId)!;
+        assert.deepEqual([kept.categoryId, kept.start, kept.end], [out.preview.categoryId, out.preview.start, out.preview.end], `${s.id} ${dir} preview`);
+        // 零長度的 s 併進鄰居時被吞掉
+        if (s.id === "z" && out.preview.keepId !== "z") assert.equal(after.find((x) => x.id === "z"), undefined);
+      }
+    }
+    assert.ok(tried >= 10, `至少試了 10 種（${tried}）`);
+  });
+
+  test("41. planSetEstimate：已結束 ⇒ RangeError；0／1441 ⇒ RangeError；null ⇒ patch null", () => {
+    assert.throws(() => planSetEstimate(demo(), { id: "b3", estimateMin: 30 }), rangeErr("只能改運行中那一班的預估"));
+    for (const bad of [0, 1441, -5, 1.5, NaN]) {
+      assert.throws(() => planSetEstimate(demo(), { id: "b9", estimateMin: bad }), rangeErr("預估不對"), String(bad));
+    }
+    assert.deepEqual(planSetEstimate(demo(), { id: "b9", estimateMin: null }), { patches: [{ id: "b9", estimateMin: null }], inserts: [], deletes: [] });
+    assert.deepEqual(planSetEstimate(demo(), { id: "b9", estimateMin: 1 }).patches, [{ id: "b9", estimateMin: 1 }]);
+    assert.deepEqual(planSetEstimate(demo(), { id: "b9", estimateMin: 1440 }).patches, [{ id: "b9", estimateMin: 1440 }]);
+    assert.throws(() => planSetEstimate(demo(), { id: "nope", estimateMin: 30 }), rangeErr("找不到這一塊"));
+  });
+
+  test("42. latestGap／defaultCuts／addCut：對半＝中點；最長段中點；太短不加", () => {
+    assert.deepEqual(latestGap(segmentsOfDay(demo(), DAY, NOW)), { from: T(13, 0), to: T(13, 30) });
+    assert.equal(latestGap(segmentsOfDay([mk("a", "x", DAY.start, null)], DAY, NOW)), null);
+    // 對半＝中點（取整到分）
+    assert.deepEqual(defaultCuts(T(8, 40), T(10, 30), 1), [T(9, 35)]);
+    assert.deepEqual(defaultCuts(T(8, 40), T(10, 30), 2), [T(9, 17), T(9, 53)]);
+    assert.deepEqual(defaultCuts(T(9, 0), T(9, 2), 1), [T(9, 1)]);
+    assert.deepEqual(defaultCuts(T(9, 0), T(9, 3), 5), [T(9, 1), T(9, 2)], "去重、夾在頭尾 1 分之內");
+    assert.deepEqual(defaultCuts(T(9, 0), T(9, 0) + 90_000, 1), [], "不到 2 分切不了");
+    // 加切點：最長段的中點
+    assert.deepEqual(addCut([], T(8, 40), T(10, 30)), [T(9, 35)]);
+    assert.deepEqual(addCut([T(9, 20)], T(8, 40), T(10, 30)), [T(9, 20), T(9, 55)]);
+    assert.deepEqual(addCut([T(10, 0)], T(8, 40), T(10, 30)), [T(9, 20), T(10, 0)]);
+    const short = [T(9, 1)];
+    const same = addCut(short, T(9, 0), T(9, 2));
+    assert.deepEqual(same, short, "最長段 < 2 分 ⇒ 不加");
+    assert.notEqual(same, short, "回新陣列");
+    // 加出來的切點仍能直接拿去切
+    const cuts = addCut(addCut([], T(8, 40), T(10, 30)), T(8, 40), T(10, 30));
+    assert.doesNotThrow(() => planSplitMulti(demo(), { id: "b3", cuts, categoryIds: ["class", "class", "class"], now: NOW }));
+  });
+
+  test("43. planDepartPending：untilNext=false ⇒ 與 planDepart 相同＋fixedId；untilNext=true 且 10:05 有別台的塊 ⇒ 新塊 10:00–10:05；nx − at < 1 分 ⇒ null", () => {
+    const now = T(11, 0);
+    // untilNext=false ⇒ 與 planDepart 相同，新一班帶 fixedId
+    const ref = planDepart(demo(), { categoryId: "study", at: T(15, 0), now: NOW });
+    const same = planDepartPending(demo(), { categoryId: "study", at: T(15, 0), now: NOW, fixedId: "fx", untilNext: false })!;
+    assert.deepEqual(same.patches, ref.patches);
+    assert.deepEqual(same.deletes, ref.deletes);
+    assert.deepEqual(same.inserts, ref.inserts.map((i, n) => (n === ref.inserts.length - 1 ? { ...i, fixedId: "fx" } : i)));
+    // 0-5 反例：手機 10:00 工作（離線），電腦 10:05 吃飯
+    const other = [mk("w0", "study", T(9, 0), T(10, 5)), mk("eat", "meal", T(10, 5), null)];
+    const plan = planDepartPending(other, { categoryId: "work", at: T(10, 0), now, fixedId: "fx", untilNext: true })!;
+    const after = apply(other, plan);
+    assert.deepEqual(shape(after), [
+      ["w0", "study", T(9, 0), T(10, 0)],
+      ["fx", "work", T(10, 0), T(10, 5)],
+      ["eat", "meal", T(10, 5), null],
+    ]);
+    const ins = plan.inserts[plan.inserts.length - 1];
+    assert.deepEqual([ins.fixedId, ins.inherit, ins.fromId, ins.ack, ins.estimateMin], ["fx", false, null, false, null]);
+    // 甲案（原文）：吃飯被收掉
+    const orig = apply(other, planDepartPending(other, { categoryId: "work", at: T(10, 0), now, fixedId: "fx", untilNext: false })!);
+    assert.deepEqual(shape(orig), [
+      ["w0", "study", T(9, 0), T(10, 0)],
+      ["fx", "work", T(10, 0), null],
+    ]);
+    // 下一班距 at 不到 1 分 ⇒ 整段被蓋住、不寫
+    const tight = [mk("eat", "meal", T(10, 0) + 30_000, null)];
+    assert.equal(planDepartPending(tight, { categoryId: "work", at: T(10, 0), now, fixedId: "fx", untilNext: true }), null);
+    // 零長度的塊不算「下一班」
+    const zero = [mk("z", "meal", T(10, 3), T(10, 3))];
+    const zp = planDepartPending(zero, { categoryId: "work", at: T(10, 0), now, fixedId: "fx", untilNext: true })!;
+    assert.equal(zp.inserts[zp.inserts.length - 1].end, null);
+    // at 晚於 now ⇒ 夾 now（之後沒有塊 ⇒ 照 planDepart）
+    const late = planDepartPending(other, { categoryId: "work", at: T(12, 0), now, fixedId: "fx", untilNext: true })!;
+    assert.deepEqual(shape(apply(other, late)).slice(-2), [
+      ["eat", "meal", T(10, 5), now],
+      ["fx", "work", now, null],
+    ]);
+  });
+
+  test("44. planArriveBefore：運行中開始於 at 之後 ⇒ 空 plan；開始於 at 之前 ⇒ end=at；at > now 夾 now", () => {
+    const now = T(11, 0);
+    const spans = [mk("done", "study", T(9, 0), T(10, 30)), mk("r", "create", T(10, 30), null)];
+    assert.deepEqual(planArriveBefore(spans, { at: T(10, 0), now }), { patches: [], inserts: [], deletes: [] });
+    assert.deepEqual(planArriveBefore(spans, { at: T(10, 30), now }).patches, [], "開始＝at 不算早於");
+    assert.deepEqual(planArriveBefore(spans, { at: T(10, 45), now }).patches, [{ id: "r", end: T(10, 45) }]);
+    assert.deepEqual(planArriveBefore(spans, { at: T(12, 0), now }).patches, [{ id: "r", end: now }]);
+    // 冪等：套過一次之後已不在運行，第二次是空動作
+    const once = apply(spans, planArriveBefore(spans, { at: T(10, 45), now }));
+    assert.deepEqual(planArriveBefore(once, { at: T(10, 45), now }).patches, []);
   });
 });

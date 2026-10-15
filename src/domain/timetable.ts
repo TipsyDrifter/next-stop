@@ -12,6 +12,9 @@
  *   §4.3 寫入計畫 `plan*`（每支都不改輸入、回新的 `WritePlan`；`now` 一律由呼叫端給）
  *   §4.4 `planReconcile`（兩台同步後的整理；決定性、冪等）
  *   §4.5 顯示用（軸的分段、合計、列高）
+ *
+ * 車次①b（①b①c 契約 §3.1、§4；只加不改）：門檻 `thresholdOf`／記號 `runMarker`、`planSetEstimate`、
+ * `planSplitMulti`、`planMerge`、①c 預留的 `planDepartPending`／`planArriveBefore`、`latestGap`／`defaultCuts`／`addCut`。
  */
 
 export const MIN = 60_000;
@@ -73,6 +76,8 @@ export interface SpanPatch {
   end?: number | null;
   categoryId?: string;
   ack?: boolean;
+  /** ①b：這一班的預估（分）；null＝清掉；undefined＝不動 */
+  estimateMin?: number | null;
 }
 
 export interface SpanInsert {
@@ -85,6 +90,10 @@ export interface SpanInsert {
   start: number;
   end: number | null;
   ack: boolean;
+  /** ①b：明寫預估；給了就**蓋過** inherit 抄來的 estimate_min（undefined＝照 inherit 規則） */
+  estimateMin?: number | null;
+  /** ①c 預留：確定性 id（佇列発車，①b①c 契約 0-6）；給了就優先於 key／uuid */
+  fixedId?: string;
 }
 
 export interface WritePlan {
@@ -380,10 +389,13 @@ export function planCover(
   return plan;
 }
 
-/** 發車／換車：`[at, 運行中)` 蓋掉既有紀錄；上一班自動到站＝被 planCover 切短（契約 0-11） */
+/**
+ * 發車／換車：`[at, 運行中)` 蓋掉既有紀錄；上一班自動到站＝被 planCover 切短（契約 0-11）。
+ * ①b：新一班 insert 多帶 `estimateMin`（不給＝null）。新一班一定是 inserts 的**最後一筆**（planDepartPending 倚賴）。
+ */
 export function planDepart(
   spans: readonly Span[],
-  input: { categoryId: string; at: number; now: number },
+  input: { categoryId: string; at: number; now: number; estimateMin?: number | null },
 ): WritePlan {
   const at = Math.min(input.at, input.now);
   const plan = planCover(spans, { start: at, end: null }, null);
@@ -395,6 +407,7 @@ export function planDepart(
     start: at,
     end: null,
     ack: false,
+    estimateMin: input.estimateMin ?? null,
   });
   return plan;
 }
@@ -514,6 +527,48 @@ export function isLongRun(s: Span, thresholdMin: number | null, now: number): bo
   return !s.ack && thresholdMin !== null && durOf(s, now) > thresholdMin * MIN;
 }
 
+/* ── ①b：門檻與記號（①b①c 契約 §4.2） ── */
+
+export type ThresholdSource = "estimate" | "category" | "global";
+export interface Threshold {
+  min: number;
+  source: ThresholdSource;
+}
+
+/**
+ * 〈開工決定〉二-4 的門檻順序：這一班的預估 → 分類預設長度 → 全域保險上限；都沒有（全域 0）回 null。
+ * `longRunThreshold`（不看預估的 ①a 舊版）保留不動。
+ */
+export function thresholdOf(
+  estimateMin: number | null,
+  cat: { default_min: number | null } | null,
+  globalMaxMin: number,
+): Threshold | null {
+  if (estimateMin !== null && estimateMin > 0) return { min: estimateMin, source: "estimate" };
+  const own = cat?.default_min ?? null;
+  if (own !== null && own > 0) return { min: own, source: "category" };
+  return globalMaxMin > 0 ? { min: globalMaxMin, source: "global" } : null;
+}
+
+export type RunMarker =
+  | { kind: "none" }
+  /** 門檻來自預估：「誤點 +X」 */
+  | { kind: "late"; overMs: number; pending: boolean }
+  /** 門檻來自分類或全域：「長時間運行」 */
+  | { kind: "long"; pending: boolean };
+
+/**
+ * F3：只在**真的還超過門檻**時畫記號；pending＝!ack（＝待確認）。
+ * 「待確認」＝`kind !== "none" && pending`，與 `isLongRun(s, th.min, now)` 等價。
+ */
+export function runMarker(s: Span, th: Threshold | null, now: number): RunMarker {
+  if (th === null) return { kind: "none" };
+  const dur = durOf(s, now);
+  if (dur <= th.min * MIN) return { kind: "none" };
+  if (th.source === "estimate") return { kind: "late", overMs: dur - th.min * MIN, pending: !s.ack };
+  return { kind: "long", pending: !s.ack };
+}
+
 /** 「其實到幾點」的預設建議值：開始＋門檻，夾在 [開始+1 分, 上限−1 分]（＝原型） */
 export function longRunDefaultEnd(s: Span, thresholdMin: number, now: number): number {
   const cap = s.end ?? now;
@@ -538,6 +593,191 @@ export function planResolveLongRun(
     return mergePlans(split ?? emptyPlan(), ackPlan);
   }
   return ackPlan;
+}
+
+/* ── ①b：預估、多切點、合併（①b①c 契約 §4.3、§4.4） ── */
+
+/** 改運行中那一班的預估：null＝清掉；整數 1–1440 分 */
+export function planSetEstimate(spans: readonly Span[], input: { id: string; estimateMin: number | null }): WritePlan {
+  const s = findSpan(spans, input.id);
+  if (s.end !== null) throw new RangeError("只能改運行中那一班的預估");
+  const v = input.estimateMin;
+  if (v !== null && !(Number.isInteger(v) && v >= 1 && v <= 1440)) throw new RangeError("預估不對");
+  return { patches: [{ id: s.id, estimateMin: v }], inserts: [], deletes: [] };
+}
+
+/**
+ * 多切點：`cuts` 嚴格遞增、都在 `(開始, 結束或現在)` 之內；`categoryIds` 每段一個（＝cuts.length + 1）；每段 ≥ 1 分。
+ * 第一段留原 id（分類換了才帶 categoryId＋ack:false）；其餘各段 insert（同原分類 ⇒ inherit）。運行中的塊切開後**最後一段**仍運行中，
+ * 而且**沿用原本那班的 ack**（「長時間運行・別問了」切完不會又被問）；已結束的塊切出來的新段一律 ack:false。
+ *
+ * 預估（契約 0-14）：已結束的塊 ⇒ 新段一律 `estimateMin: null`（預估留在原 id）；運行中的塊 ⇒ 預估搬到最後一段、
+ * 其餘新段 null、第一段 patch 多帶 `estimateMin: null`（原值為 null 時不帶）。
+ * `estimateMin`＝這一塊目前的預估（Span 不帶預估欄，由 repository 從列上給；不給＝當作 null）。
+ */
+export function planSplitMulti(
+  spans: readonly Span[],
+  input: { id: string; cuts: readonly number[]; categoryIds: readonly string[]; now: number; estimateMin?: number | null },
+): WritePlan {
+  const s = findSpan(spans, input.id);
+  const e = s.end ?? input.now;
+  const cuts = input.cuts;
+  if (!cuts.length) throw new RangeError("切點要在這一塊的開頭與尾端之間");
+  for (let i = 0; i < cuts.length; i++) {
+    const c = cuts[i];
+    if (!Number.isFinite(c) || c <= s.start || c >= e || (i > 0 && c <= cuts[i - 1])) {
+      throw new RangeError("切點要在這一塊的開頭與尾端之間");
+    }
+  }
+  if (input.categoryIds.length !== cuts.length + 1) throw new RangeError("每一段都要有分類");
+  const bounds = [s.start, ...cuts, e];
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    if (bounds[i + 1] - bounds[i] < MIN) throw new RangeError("每段至少 1 分");
+  }
+  const running = s.end === null;
+  const est = input.estimateMin ?? null;
+  const plan = emptyPlan();
+  const first: SpanPatch = { id: s.id, end: cuts[0] };
+  if (input.categoryIds[0] !== s.categoryId) {
+    first.categoryId = input.categoryIds[0];
+    first.ack = false;
+  }
+  if (running && est !== null) first.estimateMin = null;
+  plan.patches.push(first);
+  for (let k = 1; k <= cuts.length; k++) {
+    const last = k === cuts.length;
+    plan.inserts.push({
+      key: null,
+      fromId: s.id,
+      inherit: input.categoryIds[k] === s.categoryId,
+      categoryId: input.categoryIds[k],
+      start: cuts[k - 1],
+      end: last ? s.end : cuts[k],
+      // 運行中的塊：仍在跑的最後一段沿用原本那班的 ack（主人已選「別問了」的，切完不再被問）；其餘新段 false
+      ack: running && last ? s.ack : false,
+      estimateMin: running && last ? est : null,
+    });
+  }
+  return plan;
+}
+
+export interface MergePreview {
+  /** 合併後留下的那一列（併進鄰居＝鄰居的 id；鄰居是未記錄＝自己的 id） */
+  keepId: string;
+  categoryId: string;
+  start: number;
+  /** null＝運行中（併進的是運行中那班） */
+  end: number | null;
+  /** 鄰居是未記錄時＝蓋掉的空白長度（毫秒）；鄰居是塊＝0 */
+  gapMs: number;
+}
+
+export interface MergeOutcome {
+  plan: WritePlan;
+  preview: MergePreview;
+}
+
+/**
+ * 合併（〈開工決定〉二-2；①b①c 契約 §4.4）。`s` 必須已結束（零長度的也可以，它就是被吞掉）。
+ * 鄰居只看非零長度、不是 s 的塊：prev＝`end <= s.start` 之中 end 最大（同值取 start 大、再 id 大）；
+ * next＝`start >= s.end` 之中 start 最小（含運行中；同值取 id 小）。
+ *   - 鄰居與 s 之間的空白 < 1 分（畫面上沒有「未記錄」那一列）⇒ **併進鄰居**：鄰居延長蓋過 s（s 刪除），分類／ack 留鄰居的。
+ *   - 否則鄰居是「未記錄」⇒ s 自己延長到空白的另一端。空白的另一端＝鄰居那一端與 `bound`（畫面上那一側的界線）
+ *     取較近者；next 側再夾 now。界線上已經沒有 ≥ 1 分的空白 ⇒ null。
+ */
+export function planMerge(
+  spans: readonly Span[],
+  input: { id: string; dir: "prev" | "next"; bound: number; now: number },
+): MergeOutcome | null {
+  const s = findSpan(spans, input.id);
+  if (s.end === null) throw new RangeError("運行中的這一班，用運行列換車或到着");
+  const sEnd = s.end;
+  const others = spans.filter((x) => x.id !== s.id && !isZero(x));
+  const swallow: WritePlan = { patches: [], inserts: [], deletes: [s.id] }; // planCover 跳過零長度 ⇒ s 明寫刪除
+
+  if (input.dir === "prev") {
+    let P: Span | null = null;
+    for (const x of others) {
+      if (x.end === null || x.end > s.start) continue;
+      if (!P || x.end > P.end! || (x.end === P.end && (x.start > P.start || (x.start === P.start && x.id > P.id)))) P = x;
+    }
+    if (P && s.start - P.end! < MIN) {
+      const plan = mergePlans(planCover(spans, { start: P.end!, end: sEnd }, P.id), { patches: [{ id: P.id, end: sEnd }], inserts: [], deletes: [] }, swallow);
+      return { plan, preview: { keepId: P.id, categoryId: P.categoryId, start: P.start, end: sEnd, gapMs: 0 } };
+    }
+    const gapStart = P ? Math.max(P.end!, input.bound) : input.bound;
+    if (s.start - gapStart < MIN) return null;
+    return {
+      plan: { patches: [{ id: s.id, start: gapStart }], inserts: [], deletes: [] },
+      preview: { keepId: s.id, categoryId: s.categoryId, start: gapStart, end: sEnd, gapMs: s.start - gapStart },
+    };
+  }
+
+  let N: Span | null = null;
+  for (const x of others) {
+    if (x.start < sEnd) continue;
+    if (!N || x.start < N.start || (x.start === N.start && x.id < N.id)) N = x;
+  }
+  if (N && N.start - sEnd < MIN) {
+    const plan = mergePlans(planCover(spans, { start: s.start, end: N.start }, N.id), { patches: [{ id: N.id, start: s.start }], inserts: [], deletes: [] }, swallow);
+    return { plan, preview: { keepId: N.id, categoryId: N.categoryId, start: s.start, end: N.end, gapMs: 0 } };
+  }
+  const gapEnd = Math.min(N ? N.start : Infinity, input.bound, input.now);
+  if (gapEnd - sEnd < MIN) return null;
+  return {
+    plan: { patches: [{ id: s.id, end: gapEnd }], inserts: [], deletes: [] },
+    preview: { keepId: s.id, categoryId: s.categoryId, start: s.start, end: gapEnd, gapMs: gapEnd - sEnd },
+  };
+}
+
+/* ── ①c 預留（甲寫、丙用；①b①c 契約 §4.5） ── */
+
+/**
+ * 佇列発車。`untilNext=false` ⇒ 等同 planDepart（新一班帶 fixedId）；
+ * `true`（契約 0-5 乙案「蓋到下一班為止」）⇒ 落庫當下若有非零長度的塊開始於 at 之後：新塊只寫成 `[at, 下一班的開始)`
+ * （已結束、不運行）；下一班開始距 at 不足 1 分 ⇒ null（被後來的紀錄整段蓋住、不寫）。沒有更晚的塊就照 planDepart。
+ */
+export function planDepartPending(
+  spans: readonly Span[],
+  input: { categoryId: string; at: number; now: number; fixedId: string; untilNext: boolean },
+): WritePlan | null {
+  const at = Math.min(input.at, input.now);
+  if (input.untilNext) {
+    let nx = Infinity;
+    for (const x of spans) {
+      if (isZero(x)) continue;
+      if (x.start > at && x.start < nx) nx = x.start;
+    }
+    if (nx !== Infinity) {
+      if (nx - at < MIN) return null;
+      const plan = planCover(spans, { start: at, end: nx }, null);
+      plan.inserts.push({
+        key: null,
+        fromId: null,
+        inherit: false,
+        categoryId: input.categoryId,
+        start: at,
+        end: nx,
+        ack: false,
+        estimateMin: null,
+        fixedId: input.fixedId,
+      });
+      return plan;
+    }
+  }
+  const plan = planDepart(spans, { categoryId: input.categoryId, at, now: input.now });
+  plan.inserts[plan.inserts.length - 1].fixedId = input.fixedId;
+  return plan;
+}
+
+/** 佇列到着：只結束 `start < at` 的運行中塊（end＝at 夾在 [自己的開始, now]）；其餘運行中不動 */
+export function planArriveBefore(spans: readonly Span[], input: { at: number; now: number }): WritePlan {
+  const plan = emptyPlan();
+  for (const s of spans) {
+    if (s.end !== null || !(s.start < input.at)) continue;
+    plan.patches.push({ id: s.id, end: clamp(input.at, s.start, input.now) });
+  }
+  return plan;
 }
 
 /* ───────────────────────── §4.4 整理 ───────────────────────── */
@@ -840,6 +1080,59 @@ export function recordedTotal(items: readonly AxisItem[]): number {
   let t = 0;
   for (const i of items) if (i.kind === "block") t += i.to - i.from;
   return t;
+}
+
+/* ── ①b：顯示用增補（①b①c 契約 §4.6） ── */
+
+/** F 鍵：最後一段未記錄（items 依時間排好，＝segmentsOfDay 的輸出）；沒有回 null */
+export function latestGap(items: readonly AxisItem[]): { from: number; to: number } | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === "gap") return { from: it.from, to: it.to };
+  }
+  return null;
+}
+
+const roundToMin = (ms: number): number => Math.round(ms / MIN) * MIN;
+
+/**
+ * 切開面板的預設切點：n 刀等分、取整到分、夾在 `[start+1 分, end−1 分]`、去重（嚴格遞增）。
+ * 「對半」＝n=1（中點）。整塊不到 2 分 ⇒ []。
+ */
+export function defaultCuts(start: number, end: number, n: number): number[] {
+  const lo = start + MIN;
+  const hi = end - MIN;
+  if (n < 1 || hi < lo) return [];
+  const out: number[] = [];
+  for (let k = 1; k <= n; k++) {
+    const c = clamp(roundToMin(start + ((end - start) * k) / (n + 1)), lo, hi);
+    if (!out.length || c > out[out.length - 1]) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * 「＋ 加切點」：在**最長的一段**中點加一刀（取整到分、夾在那一段的 `[頭+1 分, 尾−1 分]`）；
+ * 最長段 < 2 分 ⇒ 原樣回（新陣列）。cuts 須已嚴格遞增、在 (start, end) 之內。
+ */
+export function addCut(cuts: readonly number[], start: number, end: number): number[] {
+  const bounds = [start, ...cuts, end];
+  let best = -1;
+  let bestLen = -1;
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const len = bounds[i + 1] - bounds[i];
+    if (len > bestLen) {
+      bestLen = len;
+      best = i;
+    }
+  }
+  if (best < 0 || bestLen < 2 * MIN) return cuts.slice();
+  const a = bounds[best];
+  const b = bounds[best + 1];
+  const c = clamp(roundToMin((a + b) / 2), a + MIN, b - MIN);
+  const out = cuts.slice();
+  out.splice(best, 0, c);
+  return out;
 }
 
 /** 列高＝時長的壓縮映射（＝原型 v-a.js） */

@@ -7,7 +7,7 @@
  * - W1（蓋到既有紀錄的赭字）由 `useCoverWarn` 經 store.previewCover 預演，不寫入。
  * - 面板只讀 store、只叫 store 的動作（契約 §2.6-3）。
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { MIN, fmtClock, type TimeBlockRow } from "../../../domain/timetable";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 
@@ -142,4 +142,50 @@ export function Opts({ children }: { children: ReactNode }) {
 /** 底部動作列 */
 export function Actions({ children }: { children: ReactNode }) {
   return <div className="ns-tt-actions">{children}</div>;
+}
+
+/* ── 車次①b（①b①c 契約 §5.1–§5.6；乙席） ── */
+
+/** 預估的五個選項（發車面板、預估面板共用；分） */
+export const ESTIMATE_OPTIONS: readonly (readonly [number, string])[] = [
+  [30, "30 分"],
+  [60, "1h"],
+  [90, "1h30"],
+  [120, "2h"],
+  [180, "3h"],
+];
+
+/**
+ * 展開段（＝原型 `.ve-merge／.ve-seggrid／.ve-mgr-x` 的 grid 0fr→1fr）：掛上那一刻播一次展開（高度補間＋內容淡入），
+ * 收起＝直接拿掉（React 不留退場節點；原型同樣只播展開）。樣式在 §F `.ns-tt-expand`。
+ */
+export function Expand({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={"ns-tt-expand" + (className ? " " + className : "")}>
+      <div className="ns-tt-expand-in">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * 合併預覽時軸上要描金邊的塊（D-時-33：「軸上那兩塊描金邊」）。只是畫面提示，不進 store：
+ * BlockPanel 的二次確認行開著時寫入、關掉／unmount 時清空；Axis 訂閱它畫 `.is-mhl`。
+ */
+let mergeMarks: readonly string[] = [];
+const mergeMarkSubs = new Set<() => void>();
+export function setMergeMarks(ids: readonly string[]): void {
+  if (ids.length === mergeMarks.length && ids.every((x, i) => x === mergeMarks[i])) return;
+  mergeMarks = ids.slice();
+  mergeMarkSubs.forEach((f) => f());
+}
+export function useMergeMarks(): readonly string[] {
+  return useSyncExternalStore(
+    (cb) => {
+      mergeMarkSubs.add(cb);
+      return () => {
+        mergeMarkSubs.delete(cb);
+      };
+    },
+    () => mergeMarks,
+  );
 }
