@@ -1,9 +1,12 @@
 /**
  * NotesView——旅客筆記桌機頁根（車次①契約 §5.1；原型 prototypes/旅客筆記-src/ app.js deskMain／deskInbox／deskNotes）。
  *
- * 版面：`div.page.ns-notes`（頁殼契約同今日頁；天空由 App 掛、本頁不碰）三欄 flex、各欄自己捲：
- *   NotesSide（本線頁務件：收件匣・筆記・日記切換＋路線篩選／月曆）｜ 收件匣 NotesInbox  或  NotesList ＋ NoteContent
- *   或（車次②）日記 NotesDiary（本文欄＋當天足跡欄）
+ * 版面：`div.page.ns-notes`（頁殼契約同今日頁；天空由 App 掛、本頁不碰）flex、各欄自己捲：
+ *   收件匣 NotesInbox  或  NotesList ＋ NoteContent  或（車次②）日記 NotesDiary（本文欄＋當天足跡欄）
+ *   或（車次③）荷札 NotesTags
+ *   頁務件（子畫面切換＋路線篩選／近 12 週方格／荷札樹）車次③起住進書封（NotesCoverAux，插槽 sidebarAux；0-17）——
+ *   書封拿不到本檔的 flushRef，所以本檔把 flush 放進模組級橋 `notesFlush.fn`（進頁登記、卸載清空）。
+ *   進頁順手 `tagStore.ensureBackfill()`（0-9／0-10：每台第一次進旅客筆記頁補掛既有內文的 #荷札）。
  *
  * 本檔是桌機的「控制器」：選取、離場動畫、小浮層開關、存檔 flush、鍵盤表的動作分派都在這裡，
  * 子元件只畫與轉發。資料一律經 notesStore 的動作（UI 不碰 repository）。
@@ -18,7 +21,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNotesStore, type NotesSection } from "../../store/notesStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
-import { NotesSide } from "./NotesSide";
 import {
   NotesInbox,
   inboxItemsOf,
@@ -30,9 +32,14 @@ import {
 import { NotesList } from "./NotesList";
 import { NoteContent, type NotePopKind } from "./NoteContent";
 import { DIARY_DAY_POP, NotesDiary, type DiaryApi, type DiaryPopKind } from "./NotesDiary";
+import { NotesTags, type NotesTagsApi } from "./NotesTags";
+import { notesFlush } from "./notesFlush";
+import { treeFilterRef } from "./tags/TagTree";
+import { useTagStore } from "../../store/tagStore";
 import { useNotesKeyboard } from "./useNotesKeyboard";
 import { reducedMotion } from "./notesBits";
 import "./notes.css";
+import "./notes-tags.css";
 
 type Pop = { id: string; kind: InboxPopKind | NotePopKind | DiaryPopKind };
 
@@ -50,6 +57,7 @@ export function NotesView() {
   const searchRef = useRef<HTMLInputElement>(null);
   const diarySearchRef = useRef<HTMLInputElement>(null);
   const diaryApiRef = useRef<DiaryApi | null>(null);
+  const tagsApiRef = useRef<NotesTagsApi | null>(null);
   const readRef = useRef<HTMLDivElement>(null);
   const flushRef = useRef<(() => Promise<void>) | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -62,11 +70,21 @@ export function NotesView() {
     void st.loadInbox();
     void st.loadNotes();
     void st.loadMarks(); // 側欄「日記 N」＝本月篇數：進頁就載，不等第一次進日記（契約 §5.1）
+    void useTagStore.getState().ensureBackfill(); // 車次③ 0-9：通車補掛（每台一次；之後只載 index）
+  }, []);
+
+  /* ── flush 橋（0-17）：書封頁務件、tagStore 換子畫面／批次改寫內文之前都經它存完正在打的字 ── */
+  useEffect(() => {
+    const fn = () => flushRef.current?.() ?? Promise.resolve();
+    notesFlush.fn = fn;
+    return () => {
+      if (notesFlush.fn === fn) notesFlush.fn = null;
+    };
   }, []);
 
   const focusList = useCallback((which?: NotesSection) => {
     const s = which ?? useNotesStore.getState().section;
-    // 日記子畫面沒有清單：給頁根（鍵盤表掛在頁根）
+    // 日記、荷札子畫面沒有清單：給頁根（鍵盤表掛在頁根）
     const ref = s === "inbox" ? inboxListRef : s === "notes" ? notesListRef : rootRef;
     // 清單已在畫面上就直接給；還沒畫出來（剛換子畫面）就等下一輪；清單空了（沒有 ul）就給頁根，
     // 鍵盤表才不會斷線。不用 rAF：視窗在背景時 rAF 不跑
@@ -114,16 +132,6 @@ export function NotesView() {
     await flushRef.current?.();
     fn();
   }, []);
-
-  const changeSection = (s: NotesSection) =>
-    void flushThen(() => {
-      useNotesStore.getState().setSection(s);
-    });
-  const changeFilter = (routeId: string | "none" | undefined) =>
-    void flushThen(() => {
-      const cur = useNotesStore.getState().notesQuery;
-      void useNotesStore.getState().setNotesQuery({ ...cur, routeId });
-    });
 
   /* ═══ 收件匣動作 ═══ */
   const selectedItem = (): InboxItem | null => {
@@ -250,6 +258,10 @@ export function NotesView() {
     {
       move(delta) {
         const st = useNotesStore.getState();
+        if (st.section === "tags") {
+          tagsApiRef.current?.move(delta);
+          return;
+        }
         if (st.section === "diary") {
           if (diaryApiRef.current?.moveInHits(delta)) return;
           const list = st.diaryEntries.filter((n) => n.entry_date === st.diaryDay);
@@ -275,6 +287,10 @@ export function NotesView() {
       },
       open() {
         const st = useNotesStore.getState();
+        if (st.section === "tags") {
+          tagsApiRef.current?.open();
+          return;
+        }
         if (st.section === "diary") {
           const sel = st.diarySelectedId;
           if (sel && st.diaryEntries.some((n) => n.id === sel)) st.setDiaryEditing(sel);
@@ -322,6 +338,10 @@ export function NotesView() {
       },
       del() {
         const st = useNotesStore.getState();
+        if (st.section === "tags") {
+          tagsApiRef.current?.del();
+          return;
+        }
         if (st.section === "inbox") {
           const it = selectedItem();
           if (it) inboxOp(it, "del");
@@ -336,6 +356,11 @@ export function NotesView() {
       },
       search() {
         const sec = useNotesStore.getState().section;
+        if (sec === "tags") {
+          treeFilterRef.current?.focus();
+          treeFilterRef.current?.select();
+          return;
+        }
         const ref = sec === "notes" ? searchRef : sec === "diary" ? diarySearchRef : null;
         ref?.current?.focus();
         ref?.current?.select();
@@ -353,6 +378,7 @@ export function NotesView() {
           return true;
         }
         if (st.section === "diary") return diaryApiRef.current?.escape() ?? false;
+        if (st.section === "tags") return tagsApiRef.current?.escape() ?? false;
         return false;
       },
       /* ── 車次②：只在適用的子畫面給（沒給＝這顆鍵放行不吃） ── */
@@ -376,6 +402,17 @@ export function NotesView() {
             else st.openDiaryDraft();
           }
         : undefined,
+      /* ── 車次③：只在荷札子畫面給（契約 §5.6） ── */
+      rename: section === "tags" ? () => tagsApiRef.current?.rename() : undefined,
+      merge: section === "tags" ? () => tagsApiRef.current?.merge() : undefined,
+      tagBack:
+        section === "tags"
+          ? () => {
+              if (!useTagStore.getState().back) return false;
+              useTagStore.getState().goBack();
+              return true;
+            }
+          : undefined,
     },
     pop !== null,
   );
@@ -388,12 +425,9 @@ export function NotesView() {
 
   return (
     <div ref={rootRef} className="page ns-notes" tabIndex={-1} onKeyDown={onKeyDown}>
-      <NotesSide
-        onSection={changeSection}
-        onFilter={changeFilter}
-        onPickDay={(d) => diaryGo(() => useNotesStore.getState().setDiaryDay(d))}
-      />
-      {section === "diary" ? (
+      {section === "tags" ? (
+        <NotesTags apiRef={tagsApiRef} />
+      ) : section === "diary" ? (
         <NotesDiary
           flushRef={flushRef}
           apiRef={diaryApiRef}

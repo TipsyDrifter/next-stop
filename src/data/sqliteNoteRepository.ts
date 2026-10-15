@@ -31,7 +31,14 @@ import type {
   NotesQuery,
 } from "./noteRepository";
 import { nodeRepo } from "./index";
-import { newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
+import {
+  newWriteBatch,
+  runWriteBatch,
+  type OutboxOp,
+  type SyncTable,
+  type WriteBatch,
+  type WriteStmt,
+} from "./syncRepository";
 
 const ALIVE = "n.deleted_at IS NULL";
 
@@ -74,6 +81,17 @@ function addOp(
 /** 標題正規化：空字串（含純空白）存 NULL＝列表用內文第一行 */
 function normTitle(t: string | null | undefined): string | null {
   return t && t.trim() ? t : null;
+}
+
+/**
+ * 只改內文的一句 UPDATE＋它的 op（車次③契約 §3.5）：荷札改名／刪除的批次改寫內文走這條，
+ * 與 `update(id, { body })` 的語句形狀逐字相同（任務書「走既有 notes 寫入路徑」），由 tagRepo 組進自己的批次。
+ */
+export function noteBodyUpdate(id: string, body: string, now: string): { stmt: WriteStmt; op: OutboxOp } {
+  return {
+    stmt: { sql: `UPDATE notes SET body = $1, updated_at = $2 WHERE id = $3`, args: [body, now, id] },
+    op: { tbl: "notes", row_id: id, op: "upsert", cols: { body, updated_at: now } },
+  };
 }
 
 export class SqliteNoteRepository implements NoteRepository {

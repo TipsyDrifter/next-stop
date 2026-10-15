@@ -37,6 +37,7 @@ import {
 import { RepeatSection, TeikiStampRow } from "./RepeatRuleEditor";
 import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
+import { lineNodeFields } from "../../lines/runtime";
 
 const STATUS_OPTIONS: { value: NodeStatus; label: string }[] = [
   { value: "todo", label: "未開始" },
@@ -139,6 +140,23 @@ function NameBlock({
  * 要改班次就改規則（上面的「重複」區段）或按 U 跳過本班。
  * 版位沿用 panel.css 的 `.date`（flex 一列）與 `.latin`／`.empty`，不新增 class。
  */
+/** 別線登記的節點欄位列（插槽 `nodeFields`，接縫 #56）：依 kind 過濾；三線都沒登記＝空陣列、DOM 零變 */
+function lineFieldsFor(node: NodeRow) {
+  return lineNodeFields("desktop").filter((f) => f.kinds.includes(node.kind));
+}
+
+function LineRows({ node }: { node: NodeRow }) {
+  return (
+    <>
+      {lineFieldsFor(node).map((f) => (
+        <FieldRow key={f.id} label={f.label}>
+          <f.Desktop node={node} />
+        </FieldRow>
+      ))}
+    </>
+  );
+}
+
 function LockedDate({ value }: { value: string | null }) {
   return (
     <div className="date">
@@ -292,6 +310,8 @@ function TaskPanel({ node }: { node: NodeRow }) {
             ariaLabel="優先級"
           />
         </FieldRow>
+
+        <LineRows node={node} />
 
         <FieldRow label="心情">
           <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
@@ -510,8 +530,16 @@ function TicketPanel({ node }: { node: NodeRow }) {
                 ariaLabel="路線標籤"
               />
             </FieldRow>
+            <LineRows node={node} />
           </div>
         </>
+      )}
+
+      {/* 樹內車票：別線欄位列在票頭下自成一塊、不另起段名 */}
+      {!isTemp && lineFieldsFor(node).length > 0 && (
+        <div className="fields">
+          <LineRows node={node} />
+        </div>
       )}
 
       <SectionRule title="時刻" />

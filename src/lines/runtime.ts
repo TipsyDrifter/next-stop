@@ -18,7 +18,7 @@
  */
 import { LINE_MANIFESTS } from "./index.ts";
 import type { ComponentType } from "react";
-import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext, NodeFieldSpec, QuickJumpProviderSpec } from "./types";
+import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext, NodeFieldSpec, QuickJumpProviderSpec, TicketSheetItemSpec } from "./types";
 
 let installed: Readonly<Record<LineId, LineMount>> | null = null;
 
@@ -133,6 +133,17 @@ export function lineNodeFields(shell: "desktop" | "mobile"): NodeFieldSpec[] {
     const status = shell === "desktop" ? m.page.status : m.mobile.status;
     const specs = installed[m.id].nodeFields;
     if (status === "open" && specs) out.push(...specs);
+  }
+  return out;
+}
+
+/** 手機票卡 ⋯ sheet 的附加項（接縫 #56 後半），比照 `lineNodeFields("mobile")`：三線固定順序、只看 `mobile.status`；`open` 且有填才算。沒裝＝空陣列。 */
+export function lineTicketSheetItems(): TicketSheetItemSpec[] {
+  const out: TicketSheetItemSpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const specs = installed[m.id].ticketSheetItems;
+    if (m.mobile.status === "open" && specs) out.push(...specs);
   }
   return out;
 }

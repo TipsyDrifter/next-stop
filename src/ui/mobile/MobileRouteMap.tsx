@@ -16,6 +16,8 @@
  *   本檔一支 mutation 都不 import——只呼叫 `openRoute`（載入用，不改資料）。
  *   v1.1.2 補一段：唯讀詳情底下印該票的**競合**列（同步衝突的敗方值；D-1.1-5）——手機沒有側板，
  *   這裡是這張票唯一看得到事件簿的地方。只讀不寫，鐵則不破。
+ *   接縫 #56：詳情欄位表之後渲染別線登記的 `nodeFields` 的 `Mobile` 列（旅客筆記的「荷札」可掛可摘，D-筆-42）；
+ *   寫入在線自己的元件裡，本檔仍不 import mutation；沒有任何一線登記＝DOM 與文案照舊。
  *   點車票也不開側板（手機 v1.1.0 無側板），改在該列下方展開一段**唯讀詳情**
  *   （票種／票號／現況／執行日／締切日／重複／預計／概要，欄位與稱謂沿 panel 的 format）。
  *
@@ -47,6 +49,7 @@ import {
   type TreeIndex,
 } from "../../store/nodeStore";
 import { roundelStyle } from "../common/roundel";
+import { lineNodeFields } from "../../lines/runtime";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
 
@@ -247,6 +250,9 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
     ...(node.estimate_min ? [{ label: "預計", value: `${node.estimate_min} 分` }] : []),
     { label: "概要", value: node.description?.trim() || "—", wrap: true },
   ];
+  // 別線登記的可寫欄位（例：旅客筆記的「荷札」，D-筆-42）；沒有任何一線登記＝空、文案與 DOM 照舊
+  const lineFields = lineNodeFields("mobile").filter((f) => f.Mobile && f.kinds.includes(node.kind));
+  const editable = lineFields.map((f) => f.label);
 
   return (
     <div className="m2-detail">
@@ -258,6 +264,8 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
           </div>
         ))}
       </dl>
+      {/* 別線登記的欄位列（插槽 `nodeFields` 的 `Mobile`，接縫 #56；本檔仍零 mutation import，寫入在線的元件裡） */}
+      {lineFields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}
       {/* 定期券的執行日由規則排定（D-④-3）——桌機側板印「由規則排定」，手機沿同一句話 */}
       {rule && <p className="m2-note">執行日由規則排定</p>}
       {conflicts.length > 0 && (
@@ -273,7 +281,11 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
           </ul>
         </div>
       )}
-      <p className="m2-note">路線圖手機版為唯讀——要修改請到桌機版。</p>
+      <p className="m2-note">
+        {editable.length > 0
+          ? `路線圖手機版為唯讀（${editable.join("、")}除外）——要修改其他欄位請到桌機版。`
+          : "路線圖手機版為唯讀——要修改請到桌機版。"}
+      </p>
     </div>
   );
 }

@@ -5,7 +5,10 @@
  *             ・日期「10 月 5 日」（點開 DatePop 改 noted_at，保留原時刻）
  *   標題（選填）＋內文讀寫兩態（D-筆-24）：
  *     閱讀＝plainParagraphs 排成段落與換行（Markdown 在車次④）；點一下或 Enter（頁面按鍵表 notes.open）進編輯
+ *           車次③：內文的 #荷札 畫成行內小牌（InlineBody；點＝荷札頁，「‹ 回到剛才 <標題>」回這則）
  *     編輯＝textarea 自動長高；Esc／blur 回閱讀並立即存檔；Tab 不攔
+ *           車次③：游標處打 # 出荷札建議（useInlineTagSuggest；建議開著時 Esc 只收建議）；
+ *           離開編輯、存檔鏈 flush 之後 `tagStore.syncNoteTags`（契約 0-13：不是每次去抖存檔都解析）
  *   底部：變待辦・記成日記（車次②）・刪除・字數
  *
  * 存檔：標題與內文各自去抖 500ms 累積成一個 NotePatch，blur／Esc／換選取前立即送出（flush）。
@@ -19,11 +22,15 @@ import { useNotesStore } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
-import { fmtMonthDay, plainParagraphs } from "../../domain/notes";
+import { fmtMonthDay, noteTitle } from "../../domain/notes";
+import { useTagStore } from "../../store/tagStore";
 import { AttachPicker } from "./AttachPicker";
 import { CaptureButton } from "./CaptureButton";
 import { DatePop } from "./DatePop";
 import { Roundel, capsOf, dayOf, isoWithDay } from "./notesBits";
+import { InlineBody } from "./tags/InlineBody";
+import { useInlineTagSuggest } from "./tags/useInlineTagSuggest";
+import { noteBackRef } from "./tags/backRefs";
 
 export type NotePopKind = "where" | "date";
 
@@ -149,8 +156,20 @@ export function NoteContent({
     }
   }, [editing, readRef]);
 
+  const tagSug = useInlineTagSuggest(taRef, (next) => {
+    setBody(next);
+    queue({ body: next });
+  });
+
   const leaveEditing = (focusRead: boolean) => {
-    void flush();
+    tagSug.close();
+    const text = body;
+    const known = useNotesStore.getState().selectedNoteId;
+    // 存檔鏈落地之後才解析（草稿的第一次存檔由 store 建檔，id 要等它回來才有）
+    void flush().then(() => {
+      const nid = known ?? useNotesStore.getState().selectedNoteId;
+      if (nid) void useTagStore.getState().syncNoteTags(nid, text);
+    });
     focusReadNext.current = focusRead;
     useNotesStore.getState().setEditing(false);
   };
@@ -201,7 +220,6 @@ export function NoteContent({
     onBackToList();
   };
 
-  const paras = plainParagraphs(body);
   const words = body.replace(/\s/g, "").length;
 
   return (
@@ -299,6 +317,7 @@ export function NoteContent({
             />
 
             <div className="ns-notes-bodywrap">
+              {tagSug.popup}
               {editing ? (
                 <textarea
                   ref={taRef}
@@ -310,8 +329,10 @@ export function NoteContent({
                     setBody(e.target.value);
                     queue({ body: e.target.value });
                   }}
+                  {...tagSug.bind}
                   onBlur={() => leaveEditing(false)}
                   onKeyDown={(e) => {
+                    if (tagSug.onKeyDown(e)) return;
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (e.key === "Escape") {
                       e.preventDefault();
@@ -331,20 +352,7 @@ export function NoteContent({
                     aria-label={`內文（按 ${capsOf("notes.open")} 編輯）`}
                     onClick={() => useNotesStore.getState().setEditing(true)}
                   >
-                    {paras.length ? (
-                      paras.map((lines, i) => (
-                        <p key={i}>
-                          {lines.map((l, j) => (
-                            <span key={j}>
-                              {j > 0 && <br />}
-                              {l}
-                            </span>
-                          ))}
-                        </p>
-                      ))
-                    ) : (
-                      <p className="ph">（空白，點一下開始寫）</p>
-                    )}
+                    <InlineBody body={body} backRef={() => noteBackRef(id ?? "", note ? noteTitle({ title, body }) : "筆記")} />
                   </div>
                   <div className="ns-notes-readhint">
                     點一下或按 {capsOf("notes.open")} 編輯・{capsOf("notes.escape")} 或點外面回到閱讀

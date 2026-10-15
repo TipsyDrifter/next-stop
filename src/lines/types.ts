@@ -123,6 +123,19 @@ export interface LineMount {
    * 回字串 ⇒ title 改成「原 title＋`・`＋hint」，回 null ⇒ 原 title。只看 `page.status`；未通車即使填了也不叫。
    */
   navHint?: () => string | null;
+  /**
+   * 手機票卡 ⋯ sheet 的附加項（接縫 #56 後半；旅客筆記車次③ 0-3）：`MobileTicketSheet` 在「取消」之前、
+   * 卡片不是唯讀（`!card.readOnly`）時依序渲染各線的 `Item`；三線固定順序、各線內照登記順序。
+   * 只看 `mobile.status`，`open` 才出（`lineTicketSheetItems()`）。未通車即使填了也不出。
+   */
+  ticketSheetItems?: readonly TicketSheetItemSpec[];
+}
+
+/** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */
+export interface TicketSheetItemSpec {
+  /** `<line>.<name>`，例 "notes.tags" */
+  id: `${LineId}.${string}`;
+  Item: ComponentType<{ nodeId: string; name: string; close(): void }>;
 }
 
 /** 節點詳情欄位列（`LineMount.nodeFields` 的一筆） */

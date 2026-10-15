@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore, type InboxRef } from "../../../store/notesStore";
+import { useTagStore } from "../../../store/tagStore";
 import { addDays, dayKeyOf, todayKey } from "../../../lib/date";
 import { lineCount } from "../../../domain/notes";
 import type { NodeRow } from "../../../domain";
@@ -158,6 +159,7 @@ function TicketCard({
 }) {
   const scheduleTicket = useNotesStore((s) => s.scheduleTicket);
   const deleteTicket = useNotesStore((s) => s.deleteTicket);
+  const openPicker = useTagStore((s) => s.openPicker);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
   return (
@@ -196,6 +198,14 @@ function TicketCard({
             </button>
             <button type="button" className="ns-notes-mact" onClick={() => onPop("route")}>
               掛上路線
+            </button>
+            {/* 掛荷札（D-筆-48）：手機上沒日期沒路線的臨時票唯一的入口——與桌機側板的荷札欄對等 */}
+            <button
+              type="button"
+              className="ns-notes-mact"
+              onClick={() => openPicker({ mode: "entity", entityType: "node", entityId: t.id, name: t.name })}
+            >
+              荷札…
             </button>
             <button type="button" className="ns-notes-mact quiet" onClick={() => void deleteTicket(t.id)}>
               刪除

@@ -5,6 +5,7 @@
  * 原樣搬過來換成本檔自己的 class：`.ns-datepick*`（桌機）、`.ns-mdatepick*`（手機，每條掛 `[data-shell="mobile"]`）。
  * 不依賴任何一條線的 class 與區域變數：旅客筆記的 --ns-sel／--ns-float／--ns-glass／--ns-hi 在這裡以 theme.css token 就地重現。
  * 顏色只用 theme.css token；唯一的主題覆寫是霧面在銀河關掉、原生日期欄的 color-scheme（token 管不到）。
+ * 呼叫端給了 marks 時，原生日期欄換成自畫月格（DayGrid.tsx；桌機 `.ns-datepick-grid*`／`-days`、手機 `.ns-mdatepick-grid*`／`-days`）。
  *
  * 內嵌模式（非 float）**刻意不設 margin**：外距由呼叫端的 class 給（例：旅客筆記的 `.ns-notes-pop`），
  * 免得與呼叫端同特異度的規則比載入順序。
@@ -48,6 +49,44 @@
 }
 [data-theme="dark"] .ns-datepick-date { color-scheme: dark; }
 @media (prefers-reduced-motion: reduce) { .ns-datepick-chip { transition: none; } }
+
+/* ── 桌機・自畫月格（呼叫端給了 marks 才畫，取代原生日期欄；旅客筆記車次③ 0-6 甲、D-筆-46 修訂） ──
+ * 記號＝數字下方一枚朱點（--color-seal）；今天＝細框；選中（value）＝靛／金的淡底；min／max 外反灰。
+ * 6 列固定（換月不跳高）。hover／選中的淡底就地以 color-mix 重現旅客筆記的 --ns-hover／--ns-sel（不依賴線的變數）。 */
+.ns-datepick-chips:empty { display: none; }
+.ns-datepick-grid { margin-top: 10px; }
+.ns-datepick-chips:empty + .ns-datepick-grid { margin-top: 0; }
+.ns-datepick-gridhead { display: flex; align-items: center; justify-content: space-between; padding: 0 0 6px; }
+.ns-datepick-gridmonth { font-family: var(--font-display); font-weight: 600; font-size: 12.5px; letter-spacing: .14em; color: var(--color-ink); }
+.ns-datepick-gridnav {
+  display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  background: transparent; border: 0; border-radius: 2px; color: var(--color-ink-soft); cursor: pointer;
+}
+.ns-datepick-gridnav:hover:not([disabled]) { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
+.ns-datepick-gridnav:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-datepick-gridnav[disabled] { opacity: .3; cursor: default; }
+.ns-datepick-days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.ns-datepick-days .wd { text-align: center; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
+.ns-datepick-days .blank { height: 30px; }
+.ns-datepick-days .day {
+  position: relative; height: 30px; padding: 0 0 5px; margin: 0;
+  background: transparent; border: 0; border-radius: 2px;
+  font-family: var(--font-latin); font-size: 12.5px; font-variant-numeric: tabular-nums; line-height: 1;
+  color: var(--color-ink-soft); cursor: pointer;
+}
+.ns-datepick-days .day:hover:not([disabled]) { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
+.ns-datepick-days .day:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.ns-datepick-days .day[disabled] { opacity: .3; cursor: default; }
+.ns-datepick-days .day.mk { color: var(--color-ink); }
+.ns-datepick-days .day.today::before {
+  content: ""; position: absolute; inset: 1px 3px; pointer-events: none;
+  border: 1px solid var(--color-ink-faint); border-radius: 3px;
+}
+.ns-datepick-days .day.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--color-ink); font-weight: 600; }
+.ns-datepick-days .day .dot,
+.ns-datepick-gridlegend .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--color-seal); }
+.ns-datepick-days .day .dot { position: absolute; bottom: 4px; left: 50%; margin-left: -2px; }
+.ns-datepick-gridlegend { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); }
 
 /* ═══ 手機：底部面板（z-index 48＝疊在捕捉面板 45／全螢幕預覽 46 之上、Toast 50 之下） ═══ */
 [data-shell="mobile"] .ns-mdatepick-veil {
@@ -111,6 +150,37 @@
 }
 [data-shell="mobile"] .ns-mdatepick-date.on { border-color: var(--accent); color: var(--color-ink); }
 [data-theme="dark"] [data-shell="mobile"] .ns-mdatepick-date { color-scheme: dark; }
+/* ── 手機・自畫月格（同桌機那段；格高 44px＝拇指按得到） ── */
+[data-shell="mobile"] .ns-mdatepick-gridhead { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 4px; }
+[data-shell="mobile"] .ns-mdatepick-gridmonth { font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: .14em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-mdatepick-gridnav {
+  display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  background: transparent; border: 0; border-radius: 2px; color: var(--color-ink-soft); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-mdatepick-gridnav svg { width: 15px; height: 15px; }
+[data-shell="mobile"] .ns-mdatepick-gridnav[disabled] { opacity: .3; cursor: default; }
+[data-shell="mobile"] .ns-mdatepick-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+[data-shell="mobile"] .ns-mdatepick-days .wd { text-align: center; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
+[data-shell="mobile"] .ns-mdatepick-days .blank { height: 44px; }
+[data-shell="mobile"] .ns-mdatepick-days .day {
+  position: relative; height: 44px; padding: 0 0 7px; margin: 0; min-width: 0;
+  background: transparent; border: 0; border-radius: 2px;
+  font-family: var(--font-latin); font-size: 15px; font-variant-numeric: tabular-nums; line-height: 1;
+  color: var(--color-ink-soft); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-mdatepick-days .day[disabled] { opacity: .3; cursor: default; }
+[data-shell="mobile"] .ns-mdatepick-days .day.mk { color: var(--color-ink); }
+[data-shell="mobile"] .ns-mdatepick-days .day.today::before {
+  content: ""; position: absolute; inset: 3px 4px; pointer-events: none;
+  border: 1px solid var(--color-ink-faint); border-radius: 4px;
+}
+[data-shell="mobile"] .ns-mdatepick-days .day.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--color-ink); font-weight: 600; }
+[data-shell="mobile"] .ns-mdatepick-days .day .dot,
+[data-shell="mobile"] .ns-mdatepick-gridlegend .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-seal); }
+[data-shell="mobile"] .ns-mdatepick-days .day .dot { position: absolute; bottom: 7px; left: 50%; margin-left: -2.5px; }
+[data-shell="mobile"] .ns-mdatepick-gridlegend { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-mdatepick-cancel {
   display: block; width: 100%; min-height: 52px; margin-top: 8px;
   background: transparent; border: 0; border-top: 1px solid var(--color-line);

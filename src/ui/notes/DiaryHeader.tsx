@@ -2,7 +2,8 @@
  * DiaryHeader——日記子畫面的頁首（桌機；車次②契約 §5.1；D-筆-27／30；原型 app.js deskDiary 的 header）。
  *
  *   眉標「日記 — DIARY · 2026」
- *   大日期列：‹（前一天）  大日期「10 月 5 日 · 日」（點開共用 DatePicker：快選 今天／昨天／前天＋日期欄，max＝今天）
+ *   大日期列：‹（前一天）  大日期「10 月 5 日 · 日」（點開共用 DatePicker：快選 今天／昨天／前天＋自畫月格，max＝今天；
+ *             寫過日記的日子下方朱點——車次③ 0-6 甲、D-筆-46 修訂，記號由 useDiaryPickMarks 給）
  *             ›（已在今天＝反灰）  「今天」（已在今天＝反灰）
  *   頁內搜尋框（`/` 聚焦；有字＝本文區換成跨日結果列）
  *   右側日付印（核心 DateSeal，80px／-4°）
@@ -14,6 +15,7 @@ import { useNotesStore } from "../../store/notesStore";
 import { addDays } from "../../lib/date";
 import { fmtMonthDay, weekdayZh } from "../../domain/notes";
 import { DatePicker } from "../common/DatePicker";
+import { useDiaryPickMarks } from "./useDiaryPickMarks";
 import { DateSeal } from "../stamps";
 import { IconLeft, IconRight, IconSearch, dateOfKey } from "./notesBits";
 
@@ -71,6 +73,7 @@ export function DiaryHeader({
   }, [storeQuery]); // 只看 store 那邊的變化
 
   const atToday = day >= today;
+  const pickMarks = useDiaryPickMarks();
 
   return (
     <header className="ns-notes-dhead">
@@ -112,12 +115,14 @@ export function DiaryHeader({
               label="跳到哪一天"
               value={day}
               max={today}
+              today={today}
               markValue
               quick={[
                 { label: "今天", day: today },
                 { label: "昨天", day: addDays(today, -1) },
                 { label: "前天", day: addDays(today, -2) },
               ]}
+              {...pickMarks}
               onPick={onPick}
               onClose={onClosePick}
             />

@@ -4,15 +4,20 @@
  * 視覺：票面紙卡 .ns-card（paper-high、1px line、3px radius、原型陰影）＋燙金 overline ＋ 大號底線輸入 ＋ 結果列（路線＝roundel、
  *       其餘＝原型 .badge 小號版類型徽章）＋襯線名稱＋淡字路線名；選中列燙金左邊線＋已使用票色。
  * 取捨：車站不在大綱樹裡——選取＝只開所屬路線；結果上限由 repository 決定（50）；組字中不處理任何快捷鍵。
+ * 接縫 #56（旅客筆記車次③ 0-5／0-7）：別線以 `LineMount.quickJump` 登記結果提供者。打的字以某個提供者的 `prefix` 開頭 ⇒ 只問它
+ *   （去掉前綴後的字；只打前綴＝空字串），節點不查；否則節點結果之後每個提供者 `search(term, 4)` 各成一組（組名＝`group`，空組不畫）。
+ *   鍵盤環與點擊走同一份合併後的列。沒有任何一線登記＝畫面與行為照舊。`jumpToNode` export 給線用（邊界規則只有這一份）。
  * M3 ④：結果列的済看 `currentOccurrences`（定期券的済蓋在班次上，nodes.status 一路是 todo）；
  *        定期券的 scheduled_on ＝引擎排出來的下一班，跳轉提示因此講「下一班 M/D」。
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { KIND_LABEL, parseRule, type NodeKind, type NodeRow } from "../../domain";
 import { ancestorsOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
+import { lineQuickJumpProviders } from "../../lines/runtime";
+import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
 import "./overlay.css";
 
 /** 類型徽章上的單字（票根 badge 風格；臨時車票另用「臨」） */
@@ -32,7 +37,29 @@ export function QuickJump() {
   return <QuickJumpPanel />;
 }
 
-async function jumpTo(node: NodeRow) {
+/** 結果列：節點，或別線提供者的一列（`group` 只有組內第一列帶，畫組名小標用） */
+type Row =
+  | { type: "node"; key: string; node: NodeRow }
+  | { type: "hit"; key: string; hit: QuickJumpHit; group?: string };
+
+/** 附加組模式每個提供者給幾列；前綴模式的上限 */
+const EXTRA_LIMIT = 4;
+const PREFIX_LIMIT = 50;
+
+async function askProvider(p: QuickJumpProviderSpec, term: string, limit: number): Promise<QuickJumpHit[]> {
+  try {
+    return await p.search(term, limit);
+  } catch {
+    return [];
+  }
+}
+
+function hitRows(p: QuickJumpProviderSpec, hits: QuickJumpHit[], withGroup: boolean): Row[] {
+  return hits.map((hit, i) => ({ type: "hit", key: `${p.id}:${hit.id}`, hit, group: withGroup && i === 0 ? p.group : undefined }));
+}
+
+/** 跳到一個節點（Ctrl+P 選中、別線清單點車票共用；車次①偏差記錄的邊界全在這一支） */
+export async function jumpToNode(node: NodeRow) {
   const ui = useUiStore.getState();
   const ns = useNodeStore.getState();
   ui.setQuickJumpOpen(false);
@@ -122,7 +149,7 @@ function QuickJumpPanel() {
   const close = useUiStore((s) => s.setQuickJumpOpen);
 
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<NodeRow[]>([]);
+  const [results, setResults] = useState<Row[]>([]);
   const [active, setActive] = useState(0);
   const [pending, setPending] = useState(false);
   const reqRef = useRef(0);
@@ -130,6 +157,9 @@ function QuickJumpPanel() {
   const listId = useId();
 
   const term = q.trim();
+  /** 已登記的提供者（通車狀態在開啟期間不變） */
+  const providers = useMemo(() => lineQuickJumpProviders(), []);
+  const prefixed = providers.filter((p) => p.prefix);
 
   useEffect(() => {
     if (!term) {
@@ -140,23 +170,40 @@ function QuickJumpPanel() {
     setPending(true);
     const id = ++reqRef.current;
     const timer = setTimeout(() => {
-      void useNodeStore
-        .getState()
-        .searchNodes(term)
-        .then((rows) => {
-          if (id !== reqRef.current) return; // 過期的回應
-          setResults(rows);
-          setActive(0);
-          setPending(false);
-        });
+      const only = providers.find((p) => p.prefix && term.startsWith(p.prefix));
+      const work: Promise<Row[]> = only
+        ? // 前綴模式：只問那一個提供者，節點不查
+          askProvider(only, term.slice(only.prefix!.length).trim(), PREFIX_LIMIT).then((hits) => hitRows(only, hits, false))
+        : Promise.all([
+            useNodeStore.getState().searchNodes(term),
+            ...providers.map((p) => askProvider(p, term, EXTRA_LIMIT)),
+          ]).then(([nodes, ...groups]) => [
+            ...(nodes as NodeRow[]).map((node): Row => ({ type: "node", key: node.id, node })),
+            ...groups.flatMap((hits, i) => hitRows(providers[i], hits as QuickJumpHit[], true)),
+          ]);
+      void work.then((rows) => {
+        if (id !== reqRef.current) return; // 過期的回應
+        setResults(rows);
+        setActive(0);
+        setPending(false);
+      });
     }, 150);
     return () => clearTimeout(timer);
-  }, [term]);
+  }, [term, providers]);
 
   useEffect(() => {
-    const el = listRef.current?.children[active] as HTMLElement | undefined;
-    el?.scrollIntoView({ block: "nearest" });
-  }, [active, results]);
+    const r = results[active];
+    if (r) document.getElementById(`${listId}-${r.key}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, results, listId]);
+
+  const choose = (r: Row) => {
+    if (r.type === "node") {
+      void jumpToNode(r.node);
+      return;
+    }
+    close(false);
+    void r.hit.go();
+  };
 
   const contextOf = (node: NodeRow): string => {
     if (node.kind === "route") return lines.find((l) => l.id === node.line_id)?.name ?? "";
@@ -180,12 +227,12 @@ function QuickJumpPanel() {
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const n = results[active];
-      if (n) void jumpTo(n);
+      const r = results[active];
+      if (r) choose(r);
     }
   };
 
-  const activeId = results[active] ? `${listId}-${results[active].id}` : undefined;
+  const activeId = results[active] ? `${listId}-${results[active].key}` : undefined;
 
   return (
     <div
@@ -206,20 +253,40 @@ function QuickJumpPanel() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="跳到路線、列車、車廂、車票…"
+          placeholder={`跳到路線、列車、車廂、車票…${prefixed.map((p) => `（打 ${p.prefix} 找${p.group}）`).join("")}`}
           spellCheck={false}
           className="techo-input ns-qj-input font-display"
         />
 
         <div className="techo-scroll max-h-[52vh] overflow-y-auto">
           {!term ? (
-            <p className="px-5 py-4 text-[12px] leading-6 text-ink-soft">輸入名稱，跳到路線、支線、列車、車廂或車票（含臨時車票）。</p>
+            <p className="px-5 py-4 text-[12px] leading-6 text-ink-soft">
+              輸入名稱，跳到路線、支線、列車、車廂或車票（含臨時車票）。
+              {prefixed.map((p) => (
+                <span key={p.id}>
+                  <br />
+                  第一個字打 {p.prefix} 只找{p.group}。
+                </span>
+              ))}
+            </p>
           ) : results.length === 0 ? (
             <p className="px-5 py-4 text-[12.5px] text-ink-soft">{pending ? "搜尋中…" : `找不到『${term}』`}</p>
           ) : (
             <ul ref={listRef} id={listId} role="listbox" aria-label="搜尋結果" className="py-1.5">
-              {results.map((node, i) => {
+              {results.map((r, i) => {
                 const isActive = i === active;
+                if (r.type === "hit")
+                  return (
+                    <HitRow
+                      key={r.key}
+                      row={r}
+                      id={`${listId}-${r.key}`}
+                      active={isActive}
+                      onHover={() => setActive(i)}
+                      onPick={() => choose(r)}
+                    />
+                  );
+                const node = r.node;
                 const occ = currentOccurrences[node.id];
                 const done = occ ? occ.status === "done" : node.status === "done";
                 const ctx = contextOf(node);
@@ -230,7 +297,7 @@ function QuickJumpPanel() {
                     role="option"
                     aria-selected={isActive}
                     onMouseEnter={() => setActive(i)}
-                    onClick={() => void jumpTo(node)}
+                    onClick={() => choose(r)}
                     className={`ns-qj-row flex items-center gap-3 pl-4 pr-5 py-[7px] cursor-pointer${isActive ? " is-active" : ""}`}
                   >
                     <ResultBadge node={node} done={done} />
@@ -261,5 +328,48 @@ function QuickJumpPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 別線提供者的一列（組的第一列前面畫組名小標；徽章借 `.ns-kind-badge`、縮排用 padding-left） */
+function HitRow({
+  row,
+  id,
+  active,
+  onHover,
+  onPick,
+}: {
+  row: Extract<Row, { type: "hit" }>;
+  id: string;
+  active: boolean;
+  onHover(): void;
+  onPick(): void;
+}) {
+  const { hit, group } = row;
+  return (
+    <>
+      {group && (
+        <li role="presentation" className="px-5 pt-2.5 pb-1 text-[11px] tracking-[0.12em] text-ink-faint">
+          {group}
+        </li>
+      )}
+      <li
+        id={id}
+        role="option"
+        aria-selected={active}
+        onMouseEnter={onHover}
+        onClick={onPick}
+        style={hit.indent ? { paddingLeft: 16 + hit.indent * 14 } : undefined}
+        className={`ns-qj-row flex items-center gap-3 pl-4 pr-5 py-[7px] cursor-pointer${active ? " is-active" : ""}`}
+      >
+        {hit.glyph && (
+          <span aria-hidden className={`ns-kind-badge${hit.glyph.dashed ? " is-dashed" : ""}`}>
+            {hit.glyph.text}
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate font-display text-[14px] tracking-[0.02em]">{hit.label}</span>
+        {hit.aside && <span className="shrink-0 max-w-[38%] truncate text-[11px] tracking-[0.06em] text-ink-faint">{hit.aside}</span>}
+      </li>
+    </>
   );
 }

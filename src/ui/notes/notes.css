@@ -23,6 +23,9 @@
 
 /* gnav 第二欄・通車那一枚（.gnav-line）的樣式已搬到 src/styles/gnav.css，與第一欄 .gnav-item 同一份（D-筆-35，旅客筆記車次②）。 */
 
+/* 旅客筆記頁收起粉彩書封腳的月亮（車次③ D-筆-40、0-17：頁務件住進書封後高度不夠；Sidebar.tsx／sidebar.css 不動、其他頁照舊） */
+.cover:has(.ns-notes-aux) .cover-moon { display: none; }
+
 /* ═══ 側欄捕捉鈕（CaptureButton 掛進 sidebarTool 插槽；原型 styles.css:266-283） ═══
    插槽 div.gnav-tools 地基不寫 CSS；有本線的鈕時才排成一列（:has 只選到有捕捉鈕的那一列，其他線零影響）。 */
 .cover .gnav-tools:has(.ns-notes-capbtn) { display: flex; gap: 6px; margin-top: 10px; }
@@ -79,31 +82,7 @@
 .ns-notes .roundel.ns-notes-rd.empty { background: transparent; border: 1px dashed currentColor; opacity: .7; }
 .ns-notes-mark { background: color-mix(in srgb, var(--color-gold) 38%, transparent); color: inherit; border-radius: 1px; }
 
-/* ═══ 本線頁務件（主欄最左一欄；不是書封——「頁」材質，只有一條虛線分欄） ═══ */
-.ns-notes-side {
-  width: 196px; flex: none; padding: 46px 12px 24px 30px;
-  border-right: 1px dashed var(--color-line);
-}
-.ns-notes-side h2 {
-  font-size: 10px; font-weight: 500; letter-spacing: .34em;
-  color: var(--color-ink-faint); padding: 0 8px 8px;
-  border-bottom: 1px dashed var(--color-line); margin-bottom: 4px;
-}
-.ns-notes-side h2.sub { margin-top: 22px; }
-.ns-notes .ns-notes-sideitem {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 7px 8px; border-radius: 2px; text-align: left; border: 0; background: transparent; cursor: pointer;
-  font-family: inherit; font-size: 13px; letter-spacing: .1em; color: var(--color-ink-soft);
-  transition: background .15s, color .15s;
-}
-.ns-notes .ns-notes-sideitem:hover { background: var(--ns-hover); color: var(--color-ink); }
-.ns-notes .ns-notes-sideitem:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.ns-notes .ns-notes-sideitem[aria-pressed="true"] { color: var(--color-ink); background: var(--ns-sel); }
-.ns-notes-sideitem .mk { width: 5px; height: 5px; flex: none; margin-right: -2px; }
-.ns-notes-sideitem[aria-pressed="true"] .mk { background: var(--accent); transform: rotate(45deg); }
-.ns-notes-sideitem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ns-notes-sideitem .n { margin-left: auto; font-family: var(--font-latin); font-size: 11px; letter-spacing: .04em; opacity: .75; }
-.ns-notes-routes .ns-notes-sideitem { font-size: 12.5px; letter-spacing: .06em; padding: 6px 8px; }
+/* ═══ 本線頁務件：車次③起住進書封（NotesCoverAux／notes-tags.css；0-17）——原本主欄最左 196px 那一欄的樣式已刪 ═══ */
 
 /* ═══ 頁首（收件匣） ═══ */
 .ns-notes-sheet { max-width: 820px; padding: 46px 48px 64px 44px; }
@@ -504,46 +483,7 @@
 
 /* ═══════════ 車次②：日記子畫面（契約 §5.1、§5.4、§5.5；原型 styles.css:321-347、479-488、681-742） ═══════════
    token 對照同檔頭；原型 --route-3→--route-preset-3、--sel-wash→--ns-sel、--hw→--hw（theme.css 別名＝--font-hand）。
-   原型的月曆畫在書封（--cover-*）；本線頁務件是「頁」材質 ⇒ 換 --color-ink-*／--ns-hover／--ns-sel。 */
-
-/* —— 頁務件月曆 —— */
-.ns-notes-calwrap { margin-top: 0; }
-.ns-notes-cal { padding: 4px 0 0; }
-.ns-notes-calhead { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 8px; }
-.ns-notes-calhead .m { font-family: var(--font-display); font-weight: 600; font-size: 12.5px; letter-spacing: .14em; color: var(--color-ink); }
-.ns-notes .ns-notes-calnav {
-  width: 24px; height: 24px; border-radius: 2px; display: grid; place-items: center; padding: 0;
-  border: 0; background: transparent; cursor: pointer; color: var(--color-ink-faint);
-  transition: background .15s, color .15s;
-}
-.ns-notes .ns-notes-calnav:hover:not([disabled]) { background: var(--ns-hover); color: var(--color-ink); }
-.ns-notes .ns-notes-calnav:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.ns-notes .ns-notes-calnav[disabled] { opacity: .3; cursor: default; }
-.ns-notes-calgrid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
-.ns-notes-calgrid .wd { text-align: center; font-size: 9px; letter-spacing: .1em; color: var(--color-ink-faint); opacity: .8; padding-bottom: 4px; }
-.ns-notes .ns-notes-calday {
-  position: relative; height: 27px; border-radius: 2px; padding: 4px 0 0; border: 0; background: transparent; cursor: pointer;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-  font-family: var(--font-latin); font-size: 11px; line-height: 1.2; color: var(--color-ink-faint);
-  transition: background .15s, color .15s;
-}
-.ns-notes .ns-notes-calday:hover:not([disabled]) { background: var(--ns-hover); color: var(--color-ink); }
-.ns-notes .ns-notes-calday:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.ns-notes .ns-notes-calday[disabled] { opacity: .3; cursor: default; }
-.ns-notes .ns-notes-calday.has { color: var(--color-ink); }
-.ns-notes-calday .dot { position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; }
-/* 實心點：銀河用原型的淡金；粉彩的淡金在白紙上幾乎看不見，退一階用燙金（同一家族） */
-.ns-notes-calday.diary .dot { background: var(--color-gold); }
-[data-theme="dark"] .ns-notes-calday.diary .dot { background: var(--color-gold-soft); }
-.ns-notes-calday.fp .dot { border: 1px solid var(--color-ink-faint); width: 5px; height: 5px; margin-left: -2.5px; bottom: 3.5px; }
-.ns-notes-calday.today::before { content: ""; position: absolute; inset: 1px 3px; border: 1px solid var(--color-dash); border-radius: 2px; pointer-events: none; }
-.ns-notes .ns-notes-calday.sel { background: var(--ns-sel); color: var(--color-ink); }
-.ns-notes-calday.sel::after { content: ""; position: absolute; top: -3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; background: var(--color-gold); transform: rotate(45deg); }
-.ns-notes-callegend { display: flex; gap: 12px; padding: 10px 2px 0; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
-.ns-notes-callegend i { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
-.ns-notes-callegend .a { background: var(--color-gold); }
-[data-theme="dark"] .ns-notes-callegend .a { background: var(--color-gold-soft); }
-.ns-notes-callegend .b { border: 1px solid var(--color-ink-faint); }
+   頁務件月曆（.ns-notes-cal*）車次③起換成書封裡的近 12 週方格（SideWeeks；notes-tags.css），本檔那一段已刪。 */
 
 /* —— 本文欄 —— */
 .ns-notes-diarycol { flex: 1; min-width: 0; container-type: inline-size; }
@@ -615,7 +555,6 @@
 .ns-notes-entrymeta .ns-notes-metabtn { margin-left: auto; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); opacity: 0; transition: opacity .15s, background .15s, color .15s; }
 .ns-notes-entry:hover .ns-notes-metabtn, .ns-notes-entry.is-sel .ns-notes-metabtn,
 .ns-notes-entrymeta .ns-notes-metabtn:focus-visible, .ns-notes-entrymeta .ns-notes-metabtn[aria-expanded="true"] { opacity: 1; }
-.ns-notes-tagslot:empty { display: none; }
 .ns-notes .ns-notes-dpop { right: 0; top: 26px; width: 300px; }
 /* 篇底只留字數與刪除（篇與篇之間已有虛線；再一道實線會變成兩條橫線夾一行字） */
 .ns-notes-entry .ns-notes-actions { margin-top: 14px; padding-top: 0; border-top: 0; }

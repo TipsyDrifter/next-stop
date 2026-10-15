@@ -16,17 +16,28 @@
  * 顯示用的那一則：store.notes 裡找；找不到時沿用上一次看到的（例：路線篩選開著、把它換掛到別條路線後，
  *   重載的列表裡就沒有它了——頁面不該因此自己關掉）。真正要關頁的兩種情況由本頁自己判：
  *   刪除（按鈕）與變待辦確定（預覽關掉時那則已不在）。
+ *
+ * 車次③（契約 §5.5、0-13）：
+ *   - 閱讀態＝MobileInlineBody（`#荷札` 變行內小牌，點了＝荷札清單頁，「回到剛才」回這一則）。
+ *   - 編輯中底部一條 MobileTagToolbar：「#」開點選器（插入模式，插在按下時的游標處）；直接打 `#` 也有游標處建議。
+ *     點選器開著時打字框失焦不算離開編輯（插完把焦點與游標放回來）。
+ *   - 離開編輯（返回／記成日記／打字框失焦）＝存檔鏈送完後 `tagStore.syncNoteTags(id, body)`：內文是正本，
+ *     解析一次掛多的、摘少的（不是每一次去抖存檔都解析——打到一半的 `#難` 不建）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore } from "../../../store/notesStore";
+import { useTagStore } from "../../../store/tagStore";
 import { dayKeyOf, todayKey, addDays } from "../../../lib/date";
-import { fmtMonthDay, plainParagraphs } from "../../../domain/notes";
+import { fmtMonthDay } from "../../../domain/notes";
 import type { NoteListItem, NotePatch } from "../../../data/noteRepository";
 import { MobileAttachPicker, RouteRoundel } from "./MobileAttachPicker";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { shiftIsoToDay } from "./MobileDatePick";
+import { MobileInlineBody } from "./MobileInlineBody";
+import { MobileTagToolbar } from "./MobileTagToolbar";
+import { insertTagsAt } from "./mobileTagBits";
 
 const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
 function weekday(key: string): string {
@@ -39,7 +50,13 @@ function charCount(s: string): number {
   return s.replace(/\s/g, "").length;
 }
 
-export function MobileNotePage({ onBack }: { onBack(): void }) {
+export interface MobileNotePageProps {
+  onBack(): void;
+  /** 閱讀態的行內小牌：進荷札清單頁（MobileNotes 負責「回到剛才」把整頁再打開）；noteId＝這一則（草稿還沒存＝null） */
+  onOpenTag(key: string, noteId: string | null): void;
+}
+
+export function MobileNotePage({ onBack, onOpenTag }: MobileNotePageProps) {
   const selectedNoteId = useNotesStore((s) => s.selectedNoteId);
   const draftNew = useNotesStore((s) => s.draftNew);
   const editing = useNotesStore((s) => s.editing);
@@ -113,6 +130,38 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
     timer.current = window.setTimeout(() => void enqueueSave(), 500);
   };
 
+  /** 上一次解析荷札時的內文（同一份不重送；契約 0-13） */
+  const syncedBody = useRef<string | null>(note?.body ?? null);
+  /** 離開編輯：存檔鏈送完後解析內文的 #荷札（新筆記第一次存檔後才有 id，所以在鏈尾讀） */
+  const syncTags = () => {
+    const id = useNotesStore.getState().selectedNoteId;
+    const b = latest.current.body;
+    if (!id || b === syncedBody.current) return;
+    syncedBody.current = b;
+    void useTagStore.getState().syncNoteTags(id, b);
+  };
+  /** 插入荷札後要放回去的游標（下一次 render 後設） */
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const ta = taRef.current;
+    const c = pendingCaret.current;
+    if (!ta || c === null) return;
+    pendingCaret.current = null;
+    ta.setSelectionRange(c, c);
+  }, [body]);
+  /** 工具列／點選器改了內文：更新、排存檔、焦點與游標放回打字框 */
+  const applyEdit = (next: { text: string; caret: number }) => {
+    setBody(next.text);
+    latest.current = { ...latest.current, body: next.text };
+    scheduleSave();
+    pendingCaret.current = next.caret;
+    const ta = taRef.current;
+    if (ta) {
+      ta.focus();
+      if (ta.value === next.text) ta.setSelectionRange(next.caret, next.caret);
+    } else setEditing(true);
+  };
+
   // 卸載（切到別的 tab）＝立即送出還在去抖的那一筆
   useEffect(
     () => () => {
@@ -156,6 +205,7 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
   const back = async () => {
     leaving.current = true;
     await enqueueSave();
+    syncTags();
     setEditing(false);
     selectNote(null); // 草稿還空著＝丟棄（store.selectNote 的規則）
     onBack();
@@ -178,6 +228,7 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
       leaving.current = false; // 空草稿：沒有東西可記
       return;
     }
+    syncTags(); // 記成日記不換 id（就地改 kind）；荷札跟著那一則走
     setEditing(false);
     selectNote(null);
     onBack();
@@ -202,7 +253,6 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
   const day = note ? dayKeyOf(note.noted_at, dayStartHour) : today;
   const route = note?.route_id ? (routes.find((r) => r.id === note.route_id) ?? null) : null;
   const nodeLabel = note && note.node_kind && note.node_kind !== "route" ? note.node_name : null;
-  const paras = plainParagraphs(body);
   const canMeta = !!note;
 
   return (
@@ -290,7 +340,12 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
                 scheduleSave();
               }}
               onBlur={() => {
-                void enqueueSave();
+                // 點選器（插入模式）開著：打字框失焦是因為點了點選器裡的東西，不算離開編輯（插完會把焦點放回來）
+                if (useTagStore.getState().picker?.mode === "insert") {
+                  void enqueueSave();
+                  return;
+                }
+                void enqueueSave().then(syncTags);
                 setEditing(false);
               }}
               onCompositionStart={() => {
@@ -316,20 +371,11 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
                 setEditing(true);
               }}
             >
-              {paras.length === 0 ? (
-                <p className="ph">（空白，點一下開始寫）</p>
-              ) : (
-                paras.map((lines, i) => (
-                  <p key={i}>
-                    {lines.map((l, k) => (
-                      <span key={k}>
-                        {k > 0 && <br />}
-                        {l}
-                      </span>
-                    ))}
-                  </p>
-                ))
-              )}
+              <MobileInlineBody
+                body={body}
+                placeholder="（空白，點一下開始寫）"
+                onOpenTag={(key) => onOpenTag(key, useNotesStore.getState().selectedNoteId)}
+              />
             </div>
           )}
         </div>
@@ -347,6 +393,15 @@ export function MobileNotePage({ onBack }: { onBack(): void }) {
           <span className="ns-notes-mwordcount">{charCount(body).toLocaleString()} 字</span>
         </div>
       </article>
+
+      {editing && (
+        <MobileTagToolbar
+          taRef={taRef}
+          value={body}
+          onReplace={applyEdit}
+          onInsertTags={(names, caret) => applyEdit(insertTagsAt(latest.current.body, caret, names))}
+        />
+      )}
 
       {pop === "attach" && note && (
         <MobileAttachPicker

@@ -8,6 +8,8 @@
  *   Enter 存檔・Shift+Enter 換行・Tab／Shift+Tab 切票根・Esc 關（有內容先問一次）
  *   游標在最前面且有路線票根時 Backspace ＝ 取消路線（不刪字）
  * 暗幕上按下滑鼠＝Esc（escapeCapture）。關掉後焦點還給開框前的元素。
+ * 車次③：打字區游標處打 # 出荷札建議（useInlineTagSuggest；清單開著時 ↑↓／Enter／Tab／Esc 歸它，關著才是上面那套）；
+ *   存檔後的 syncNoteTags 由 store 做（契約 0-13、§5.3）。
  *
  * 車次②：票根列＝內建四枚（收件匣／待辦／筆記／日記）＋別線登記的捕捉目的地（`captureStubList("desktop")`，D-筆-36）。
  *   內建的顯示 STUB_LABEL／STUB_HINT；登記的顯示 spec.label／spec.hint、落點列＝spec.destLabel(route)；存檔一律 saveCapture()。
@@ -28,6 +30,7 @@ import {
   type CaptureStub,
 } from "../../domain/notes";
 import { matches } from "../shell/hotkeys";
+import { useInlineTagSuggest } from "./tags/useInlineTagSuggest";
 import { IconX, Kbd, RouteDot, capsOf, fmtTime, handOffReturnFocus, restoreFocus } from "./notesBits";
 
 export function CaptureOverlay() {
@@ -72,6 +75,8 @@ export function CaptureOverlay() {
     }
     if (topRef.current && inRef.current) inRef.current.style.setProperty("--ns-tear", `${topRef.current.offsetHeight}px`);
   }, [text]);
+
+  const tagSug = useInlineTagSuggest(taRef, (next) => useNotesStore.getState().setCaptureText(next));
 
   if (!capture) return null;
 
@@ -135,6 +140,7 @@ export function CaptureOverlay() {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (tagSug.onKeyDown(e)) return;
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (matches(e, "notes-capture.save")) {
       e.preventDefault();
@@ -180,8 +186,11 @@ export function CaptureOverlay() {
                 aria-label="記一句"
                 value={capture.text}
                 onChange={(e) => st().setCaptureText(e.target.value)}
+                {...tagSug.bind}
+                onBlur={tagSug.close}
                 onKeyDown={onKeyDown}
               />
+              {tagSug.popup}
             </div>
             <div className="ns-notes-tear" />
             <div className="ns-notes-capstubs">

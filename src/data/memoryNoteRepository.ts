@@ -95,6 +95,16 @@ const LONG_1000 = [
   "寫到這裡大概就是這樣。下次散步的時候再看看有沒有新的想法，到時候再補在後面。",
 ].join("\n");
 
+/** 車次③種子：一則混著各種井號的筆記（荷札解析的評審樣本；全部虛構） */
+const HASH_NOTE = [
+  "整理一下筆記裡井號的幾種用法，免得以後搞混。",
+  "",
+  "想到什麼先記一句，加上 #靈感 之後再回頭找。不確定的事寫完標記一下。#待查",
+  "顏色照設計稿用 #AD3D2B，這不是荷札；網址 https://x.com/#top 裡的井號也不算。",
+  "程式碼裡的 `#define` 原樣留著；#2026 只有數字，也不算。",
+  "搬家的事另外記：#專案/搬家/打包 先處理書櫃。",
+].join("\n");
+
 export class MemoryNoteRepository implements NoteRepository {
   private readonly notes = new Map<string, NoteRow>();
   private ready: Promise<void> | null = null;
@@ -260,6 +270,24 @@ export class MemoryNoteRepository implements NoteRepository {
     return { nodes, occurrences, logs };
   }
 
+  // ───────────── 車次③・荷札用（不在 NoteRepository 介面；只給 MemoryTagRepository） ─────────────
+
+  /** 改名／刪除批次改寫內文（＝sqlite 版 `noteBodyUpdate` 的 memory 對應；契約 §3.5）：只改 body 與 updated_at */
+  setBodyRaw(id: string, body: string, now: string): void {
+    const n = this.notes.get(id);
+    if (!n) return;
+    this.notes.set(id, { ...n, body, updated_at: now });
+  }
+
+  /** 存活的筆記與日記（含收件匣）裡內文有 `#` 的：{ id, body }（＝sqlite `body LIKE '%#%'`，created_at 升冪） */
+  async bodiesWithHash(): Promise<{ id: string; body: string }[]> {
+    await this.ensureSeed();
+    return this.alive()
+      .filter((n) => n.body.includes("#"))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((n) => ({ id: n.id, body: n.body }));
+  }
+
   // ───────────── 內部 ─────────────
 
   private alive(): NoteRow[] {
@@ -341,13 +369,15 @@ export class MemoryNoteRepository implements NoteRepository {
     put(3, 18, 30, { body: "買電池", inbox: true });
 
     // 筆記的家：一句話 4（2 則掛路線、1 則掛列車——沒有列車就掛路線、1 則沒掛）
-    put(2, 9, 20, { body: "例句要自己造才記得住，抄書的效果很有限", inbox: false, nodeId: routeId });
+    put(2, 9, 20, { body: "例句要自己造才記得住，抄書的效果很有限 #讀書/日文", inbox: false, nodeId: routeId });
     put(9, 22, 10, { body: "複習的時候先遮住答案，想三秒再翻開", inbox: false, nodeId: routeId });
-    put(17, 7, 45, { body: "這一段卡關的地方可以拆成兩小步，明天先做前半", inbox: false, nodeId: trainId ?? routeId });
+    put(17, 7, 45, { body: "這一段卡關的地方可以拆成兩小步，明天先做前半 #難度/高", inbox: false, nodeId: trainId ?? routeId });
     put(41, 20, 0, { body: "雨天的公車比平常晚十分鐘，早點出門", inbox: false });
     // 300 字條列整理（有標題）、1,000 字長文（有標題）
     put(26, 23, 15, { title: "讀書節奏的做法", body: LIST_300, inbox: false });
     put(88, 16, 30, { title: "河堤散步想到的幾件事", body: LONG_1000, inbox: false });
+    // 車次③（契約 §3.5）：井號的幾種寫法——荷札、全形標點後的荷札（D-筆-44）、色碼、網址、行內程式碼、純數字
+    put(5, 21, 40, { title: "井號的幾種寫法", body: HASH_NOTE, inbox: false });
 
     // 日記 6 篇（車次② §3.5）：散在最近五週；一天兩篇（4 天前）；一篇補記（16 天前的日記、13 天後才寫）；
     // 今天沒有日記（看「今天還沒有寫日記」空狀態）。時刻都在白天到深夜之間，03:00／06:00 兩種日界線都不會誤判成補記。
@@ -355,7 +385,7 @@ export class MemoryNoteRepository implements NoteRepository {
       const at = isoDaysAgo(notedDaysAgo, h, m);
       this.insert({ kind: "diary", body, title: title ?? null, inbox: false, notedAt: at, entryDate: keyDaysAgo(entryDaysAgo) }, at, at);
     };
-    diary(1, 1, 22, 10, "下午下了一陣大雨，躲在圖書館把上週的筆記整理完。\n回家路上雨停了，空氣很乾淨。");
+    diary(1, 1, 22, 10, "下午下了一陣大雨，躲在圖書館把上週的筆記整理完。 #讀書/日文\n回家路上雨停了，空氣很乾淨。");
     diary(4, 4, 8, 40, "早上提早半小時起床，先把今天要做的三件事寫下來再出門。");
     diary(
       4,

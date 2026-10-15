@@ -14,45 +14,64 @@
  *   「取消」有內容時先亮一行提示，再按一次才放棄（與捕捉面板同一句）。Enter 是換行（手機鍵盤沒有 Ctrl+Enter），存檔靠按鈕。
  *   草稿內容另存在模組層（draftMemo）：切到別的 tab 再回來（元件卸載重掛）時同一天的草稿原樣還在。
  *   鍵盤彈出時把草稿捲進視野：打字框聚焦、視覺視窗變矮（軟鍵盤升起）時各捲一次，存檔鈕跟著打字框露出來。
+ *
+ * 車次③（契約 §5.5、0-13、0-6 甲）：
+ *   - 閱讀態＝MobileInlineBody（行內小牌；點了＝荷札清單頁，「回到剛才」＝回這一天、選中這一篇）。
+ *   - 編輯中（既有篇與草稿）底部一條 MobileTagToolbar（「#」插入、游標處建議）；點選器開著時失焦不算離開編輯。
+ *   - 既有篇離開編輯（失焦）＝存檔鏈送完後 `tagStore.syncNoteTags`；草稿的解析由 store 的 saveDiaryDraft 做。
+ *   - 「改日期」的挑選器傳 `useDiaryPickMarks()`：自畫月格上寫過日記的日子有記號（D-筆-46 修訂）。
+ *   - metaline 原本留給荷札的空位拿掉：內文就是正本，不另列一排（原型 7；桌機 DiaryEntry 同）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
 import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore } from "../../../store/notesStore";
+import { useTagStore } from "../../../store/tagStore";
 import { addDays, dayKeyOf } from "../../../lib/date";
-import {
-  diaryDraftMeta,
-  diaryPlaceholder,
-  entryWrittenLabel,
-  fmtShortDay,
-  plainParagraphs,
-} from "../../../domain/notes";
+import { diaryDraftMeta, diaryPlaceholder, entryWrittenLabel, fmtMonthDay, fmtShortDay } from "../../../domain/notes";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { charCount, hhmm } from "./mobileDiaryBits";
+import { MobileInlineBody } from "./MobileInlineBody";
+import { MobileTagToolbar } from "./MobileTagToolbar";
+import { insertTagsAt } from "./mobileTagBits";
 
 /** IME 護欄：組字中（含 Android 部分 IME 只送 229、不帶 isComposing）一律不攔鍵 */
 function imeBusy(e: KeyboardEvent, composing: MutableRefObject<boolean>): boolean {
   return e.nativeEvent.isComposing || e.keyCode === 229 || composing.current;
 }
 
-/** 讀態段落 */
-function Paragraphs({ body, placeholder }: { body: string; placeholder: string }) {
-  const paras = plainParagraphs(body);
-  if (paras.length === 0) return <p className="ph">{placeholder}</p>;
-  return (
-    <>
-      {paras.map((lines, i) => (
-        <p key={i}>
-          {lines.map((l, k) => (
-            <span key={k}>
-              {k > 0 && <br />}
-              {l}
-            </span>
-          ))}
-        </p>
-      ))}
-    </>
-  );
+/** 點選器（插入模式）開著：打字框失焦是點了點選器，不算離開編輯 */
+function pickerInserting(): boolean {
+  return useTagStore.getState().picker?.mode === "insert";
+}
+
+/**
+ * 工具列／點選器改了內文之後：焦點與游標放回打字框（setBody 之後下一次 render 才是新字，游標在 layout effect 設）。
+ * 回傳 `apply(next)` 給呼叫端；`setText` 是呼叫端的 setBody＋排存檔。
+ */
+function useTagEdit(
+  taRef: MutableRefObject<HTMLTextAreaElement | null>,
+  body: string,
+  setText: (text: string) => void,
+): (next: { text: string; caret: number }) => void {
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const ta = taRef.current;
+    const c = pendingCaret.current;
+    if (!ta || c === null) return;
+    pendingCaret.current = null;
+    ta.setSelectionRange(c, c);
+  }, [taRef, body]);
+  return (next) => {
+    setText(next.text);
+    pendingCaret.current = next.caret;
+    const ta = taRef.current;
+    if (ta) {
+      ta.focus();
+      if (ta.value === next.text) ta.setSelectionRange(next.caret, next.caret);
+    }
+  };
 }
 
 /** 打字框自動長高 */
@@ -134,6 +153,21 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
     timer.current = window.setTimeout(() => void enqueueSave(), 500);
   };
 
+  /** 上一次解析荷札時的內文（同一份不重送；契約 0-13） */
+  const syncedBody = useRef(n.body);
+  const syncTags = () => {
+    const b = latest.current.body;
+    if (b === syncedBody.current) return;
+    syncedBody.current = b;
+    void useTagStore.getState().syncNoteTags(n.id, b);
+  };
+  const applyTagEdit = useTagEdit(taRef, body, (text) => {
+    setBody(text);
+    latest.current = { ...latest.current, body: text };
+    scheduleSave();
+  });
+  const pickMarks = useDiaryPickMarks();
+
   // 卸載（翻日、切 tab）＝立即送出還在去抖的那一筆
   useEffect(
     () => () => {
@@ -183,7 +217,6 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
     <div className={"ns-notes-mentry" + (selected ? " is-sel" : "")} data-entry-id={n.id}>
       <div className="ns-notes-mentrymeta">
         <span className="w">{meta}</span>
-        <span className="ns-notes-mtagslot" />
         <span className="sp" />
         <button type="button" className="ns-notes-mmetabtn" aria-label="改日期（改這篇歸屬的日子）" onClick={() => setPickDate(true)}>
           改日期
@@ -237,7 +270,11 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
               scheduleSave();
             }}
             onBlur={() => {
-              void enqueueSave();
+              if (pickerInserting()) {
+                void enqueueSave();
+                return;
+              }
+              void enqueueSave().then(syncTags);
               // 失焦時若 store 已換成別篇（點了另一篇的內文）就不清——那一篇的 setDiaryEditing 已經接手
               if (useNotesStore.getState().diaryEditingId === n.id) setDiaryEditing(null);
             }}
@@ -268,17 +305,40 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
               setDiaryEditing(n.id);
             }}
           >
-            <Paragraphs body={body} placeholder="（空白，點一下開始寫）" />
+            <MobileInlineBody
+              body={body}
+              placeholder="（空白，點一下開始寫）"
+              onOpenTag={(key) =>
+                void useTagStore.getState().openTagPage(key, {
+                  label: `${fmtMonthDay(entryDate)}的日記`,
+                  restore: () => {
+                    const st = useNotesStore.getState();
+                    st.openDiaryAt(entryDate);
+                    st.selectDiaryEntry(n.id);
+                  },
+                })
+              }
+            />
           </div>
         )}
       </div>
       <p className="ns-notes-mentrywc">{charCount(body).toLocaleString()} 字</p>
+      {editing && (
+        <MobileTagToolbar
+          taRef={taRef}
+          value={body}
+          onReplace={applyTagEdit}
+          onInsertTags={(names, caret) => applyTagEdit(insertTagsAt(latest.current.body, caret, names))}
+        />
+      )}
 
       {pickDate && (
         <MobileDatePicker
           title="改到哪一天"
           value={entryDate}
           max={today}
+          today={today}
+          {...pickMarks}
           quick={[
             { label: "今天", day: today },
             { label: "昨天", day: addDays(today, -1) },
@@ -367,6 +427,13 @@ export function MobileDiaryDraft({ day, today, handle }: MobileDiaryDraftProps) 
   const onType = () => {
     if (confirmCancel) setConfirmCancel(false);
   };
+  const bodyNow = useRef(body);
+  bodyNow.current = body;
+  const applyTagEdit = useTagEdit(taRef, body, (text) => {
+    setBody(text);
+    bodyNow.current = text;
+    onType();
+  });
 
   return (
     <div className="ns-notes-mentry is-draft" ref={wrapRef}>
@@ -419,6 +486,14 @@ export function MobileDiaryDraft({ day, today, handle }: MobileDiaryDraftProps) 
           spellCheck={false}
         />
       </div>
+      {focused && (
+        <MobileTagToolbar
+          taRef={taRef}
+          value={body}
+          onReplace={applyTagEdit}
+          onInsertTags={(names, caret) => applyTagEdit(insertTagsAt(bodyNow.current, caret, names))}
+        />
+      )}
       {confirmCancel && <p className="ns-notes-mwarn">還有內容沒存——再按一次取消就放棄</p>}
       <div className="ns-notes-mdraftbar">
         <button

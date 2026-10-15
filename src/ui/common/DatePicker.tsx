@@ -2,7 +2,9 @@
  * DatePicker——挑一天的小浮層（桌機；旅客筆記車次② D-筆-30 抽出的共用元件）。
  *
  * 長相＝快選 chip 一排＋原生日期欄（`<input type="date">`），上面一行小標；底子是旅客筆記車次①的 DatePop。
- * 用處：旅客筆記（收件匣「排某天」、筆記「改日期」、日記「跳到哪一天／改日期」）、今日頁推遲小卡的「選日期…」。
+ * 給了 `marks`（旅客筆記車次③ 0-6 甲、D-筆-46 修訂）⇒ 原生日期欄換成自畫月格 `DayGrid`（可換月、有記號的日子下方朱點、今天外框）；
+ * 沒給＝原生欄照舊（今日頁推遲小卡不傳，行為零變）。
+ * 用處：旅客筆記（收件匣「排某天」、筆記「改日期」、日記「跳到哪一天／改日期」——日記兩處傳 marks）、今日頁推遲小卡的「選日期…」。
  * 手機版是同目錄的 `MobileDatePicker`（底部面板）。
  *
  * 行為：
@@ -15,6 +17,9 @@
  * 樣式在 `./datepicker.css`（`.ns-datepick*`，不依賴任何一條線的 class）；呼叫端用 `className` 調位置。
  */
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
+import { useUiStore } from "../../store/uiStore";
+import { todayKey } from "../../lib/date";
+import { DayGrid } from "./DayGrid";
 import "./datepicker.css";
 
 /** 一顆快選 chip */
@@ -43,6 +48,14 @@ export interface DatePickerProps {
   markValue?: boolean;
   /** 加在根節點上的 class（呼叫端調 margin／top／left 用） */
   className?: string;
+  /** 有記號的日子（YYYY-MM-DD）；**有給才畫自製月格**取代原生日期欄（D-筆-46 修訂） */
+  marks?: ReadonlySet<string>;
+  /** 月格掛上時一次、之後每次換月：YYYY-MM（呼叫端補查那個月的記號；沒給就只有呼叫端原本給的那些） */
+  onMonthChange?(month: string): void;
+  /** 記號的意思（月格下的圖例與讀屏字，例「寫過日記」） */
+  marksLabel?: string;
+  /** 今天（月格的外框）；省略＝依 uiStore.dayStartHour 算的今天 */
+  today?: string;
 }
 
 /** "2026-10-05" → "10/5"（chip 小字；不經 Date.parse） */
@@ -83,7 +96,12 @@ export function DatePicker({
   float = false,
   markValue = false,
   className,
+  marks,
+  onMonthChange,
+  marksLabel,
+  today,
 }: DatePickerProps) {
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
   const rootRef = useRef<HTMLDivElement>(null);
   useOutsideDismiss(rootRef, onClose);
 
@@ -110,7 +128,7 @@ export function DatePicker({
       role="dialog"
       aria-label={label}
       onKeyDown={onKeyDown}
-      style={float && !quick ? { width: 240 } : undefined}
+      style={float && !quick && !marks ? { width: 240 } : undefined}
     >
       <div className="ns-datepick-label">{label}</div>
       <div className="ns-datepick-chips">
@@ -129,28 +147,43 @@ export function DatePicker({
             </button>
           );
         })}
-        <input
-          type="date"
-          className="ns-datepick-date"
-          defaultValue={value ?? ""}
+        {!marks && (
+          <input
+            type="date"
+            className="ns-datepick-date"
+            defaultValue={value ?? ""}
+            min={min}
+            max={max}
+            aria-label="挑日期"
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                const v = e.currentTarget.value;
+                if (isPickableDay(v, min, max)) onPick(v);
+              }
+            }}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (isPickableDay(v, min, max) && v !== (value ?? "")) onPick(v);
+            }}
+          />
+        )}
+      </div>
+      {marks && (
+        <DayGrid
+          variant="desk"
+          value={value}
+          today={today ?? todayKey(dayStartHour)}
           min={min}
           max={max}
-          aria-label="挑日期"
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-            if (e.key === "Enter") {
-              e.preventDefault();
-              e.stopPropagation();
-              const v = e.currentTarget.value;
-              if (isPickableDay(v, min, max)) onPick(v);
-            }
-          }}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (isPickableDay(v, min, max) && v !== (value ?? "")) onPick(v);
-          }}
+          marks={marks}
+          marksLabel={marksLabel}
+          onMonthChange={onMonthChange}
+          onPick={onPick}
         />
-      </div>
+      )}
     </div>
   );
 }

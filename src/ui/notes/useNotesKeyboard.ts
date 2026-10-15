@@ -54,6 +54,13 @@ export interface NotesKeyActions {
   pick?(): void;
   /** W：寫日記／補記／再寫一篇（草稿已開＝焦點到內文框） */
   write?(): void;
+  /* ── 車次③（契約 §5.6）：選填；NotesView 只在荷札子畫面（section==="tags"）給 ── */
+  /** F2：改名目前的荷札 */
+  rename?(): void;
+  /** M：併入…（開併入挑選） */
+  merge?(): void;
+  /** Backspace：有「回到剛才」就回去並回 true；沒有回 false＝放行不吃 */
+  tagBack?(): boolean;
 }
 
 /** 選填動作：有給才吃掉這顆鍵 */
@@ -151,6 +158,15 @@ export function useNotesKeyboard(a: NotesKeyActions, disabled = false) {
         break;
       case "notes.diary.write":
         run(e, a.write);
+        break;
+      case "notes.tags.rename":
+        run(e, a.rename);
+        break;
+      case "notes.tags.merge":
+        run(e, a.merge);
+        break;
+      case "notes.tags.back":
+        if (a.tagBack && a.tagBack()) e.preventDefault();
         break;
     }
   };

@@ -43,6 +43,11 @@ const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.diary.pick", scope: "notes", chords: [{ key: "g" }], label: "跳到某一天（挑選器）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.write", scope: "notes", chords: [{ key: "w" }], label: "寫日記／補記／再寫一篇", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.save", scope: "notes", chords: [{ key: "Enter", ctrl: true }], label: "日記草稿存檔", wired: false },
+  // 車次③（契約 §5.6）：荷札頁。只在荷札子畫面導航模式有效（NotesView 只在 section==="tags" 給這三個選填動作）；
+  // Backspace 在沒有「回到剛才」時放行不吃
+  { id: "notes.tags.rename", scope: "notes", chords: [{ key: "F2" }], label: "改名（荷札）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.tags.merge", scope: "notes", chords: [{ key: "m" }], label: "併入…（荷札）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.tags.back", scope: "notes", chords: [{ key: "Backspace" }], label: "回到剛才", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes-capture.save", scope: "notes-capture", chords: [{ key: "Enter" }], label: "存檔", wired: false },
   { id: "notes-capture.newline", scope: "notes-capture", chords: [{ key: "Enter", shift: true }], label: "換行", wired: false },
   { id: "notes-capture.stub.next", scope: "notes-capture", chords: [{ key: "Tab" }], label: "下一枚票根", wired: false },
@@ -53,7 +58,7 @@ const NOTES_HOTKEYS: Hotkey[] = [
 
 /** 設定「快捷鍵」籤與「?」情境卡的分組 */
 const NOTES_SCENES: Scene[] = [
-  { scope: "notes", title: "旅客筆記", note: "旅客筆記頁選中一則或停在日記頁、游標不在字裡的時候。" },
+  { scope: "notes", title: "旅客筆記", note: "旅客筆記頁選中一則、停在日記頁或荷札頁、游標不在字裡的時候。" },
   { scope: "notes-capture", title: "捕捉框（記一句）", note: "捕捉框或變待辦預覽開著的時候；鍵由輸入框自理。" },
 ];
 
@@ -71,6 +76,6 @@ export const NOTES = {
   hotkeys: NOTES_HOTKEYS,
   scenes: NOTES_SCENES,
   hotkeyFiles: { notes: "ui/notes/useNotesKeyboard.ts", global: "lines/notes.mount.tsx" },
-  syncTables: ["notes"],
+  syncTables: ["notes", "tags", "taggings"],
   syncSettingsKeys: ["week_start"],
 } as const satisfies LineManifest;

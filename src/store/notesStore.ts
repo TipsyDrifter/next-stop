@@ -25,6 +25,7 @@ import { addDays, dayKeyOf, todayKey } from "../lib/date";
 import { dayBlocksProvider } from "../ui/notes/footprintBlocks";
 import type { CaptureSaveResult, CaptureTargetSpec, LineReloadContext } from "../lines/types";
 import { lineCaptureTargets } from "../lines/runtime";
+import { useTagStore } from "./tagStore";
 import type { NodeRow } from "../domain";
 import {
   CAPTURE_STUBS,
@@ -79,8 +80,8 @@ export interface PreviewState {
   scheduledOn: string | null;
 }
 
-/** 旅客筆記的子畫面（車次②加 "diary"） */
-export type NotesSection = "inbox" | "notes" | "diary";
+/** 旅客筆記的子畫面（車次②加 "diary"；車次③加 "tags"） */
+export type NotesSection = "inbox" | "notes" | "diary" | "tags";
 
 export interface NotesStore {
   /* ── 子畫面與列表 ── */
@@ -134,6 +135,9 @@ export interface NotesStore {
   diaryMarks: Record<string, number>;
   /** listFootprintDays(月首, 月底, h) */
   footprintDays: string[];
+  /* ── 車次③・近 12 週方格（D-筆-45；契約 §5.7） ── */
+  /** listDiaryMarks(本週末日往前 83 天, 本週末日)：{ [day]: 篇數 }（週首照 uiStore.weekStart） */
+  weekMarks: Record<string, number>;
 
   /* ── 載入 ── */
   setSection(s: NotesSection): void;
@@ -243,6 +247,11 @@ export interface NotesStore {
   setMarksMonth(month: string): Promise<void>;
   /** listDiaryMarks＋listFootprintDays（marksMonth 的月首～月底） */
   loadMarks(): Promise<void>;
+  /* ── 車次③ ── */
+  /** 近 12 週方格的資料（契約 §5.7）；日記寫入後、進日記子畫面、同步重載時都會叫 */
+  loadWeekMarks(): Promise<void>;
+  /** 日期挑選器自畫月格的記號（0-6 甲、D-筆-46 修訂）：month（YYYY-MM）裡有日記的日子，升冪；失敗＝[]。不動 store 狀態 */
+  diaryDaysOf(month: string): Promise<string[]>;
 }
 
 /* ───────── 純輔助（UI 也可用：捕捉框的路線票根與落點要即時顯示） ───────── */
@@ -317,6 +326,16 @@ let diaryTouched = false;
 
 const dayStartNow = (): number => useUiStore.getState().dayStartHour;
 
+/**
+ * 近 12 週方格的區間（契約 §5.7）：以 weekStart（0＝週日、1＝週一）對齊的「本週末日」往前 83 天（共 84 天＝12 週）。
+ */
+function weekGridRange(today: string, weekStart: number): [string, string] {
+  const [y, m, d] = today.split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay();
+  const end = addDays(today, 6 - ((dow - weekStart + 7) % 7));
+  return [addDays(end, -83), end];
+}
+
 /** YYYY-MM → [月首, 月底] */
 function monthRange(month: string): [string, string] {
   const days = monthDays(month);
@@ -357,7 +376,12 @@ export const useNotesStore = create<NotesStore>((set, get) => {
   /** 日記寫入後的重載：當天清單＋月份記號＋（有搜尋字時）搜尋結果 */
   async function reloadDiary(): Promise<void> {
     const q = get().diaryQuery;
-    await Promise.all([get().loadDiary(), get().loadMarks(), q.trim() ? get().setDiaryQuery(q) : Promise.resolve()]);
+    await Promise.all([
+      get().loadDiary(),
+      get().loadMarks(),
+      get().loadWeekMarks(),
+      q.trim() ? get().setDiaryQuery(q) : Promise.resolve(),
+    ]);
   }
 
   /**
@@ -370,7 +394,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       return;
     }
     set({ marksMonth: monthKey(todayNow()) });
-    await get().loadMarks();
+    await Promise.all([get().loadMarks(), get().loadWeekMarks()]);
   }
 
   /**
@@ -414,6 +438,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     marksMonth: monthKey(day0),
     diaryMarks: {},
     footprintDays: [],
+    weekMarks: {},
     inboxNotes: [],
     inboxTickets: [],
     inboxSelected: null,
@@ -438,6 +463,12 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         get().goDiaryToday();
         void get().loadMarks();
       }
+      if (s === "diary") void get().loadWeekMarks();
+      // 車次③：主人自己切子畫面＝「回到剛才」失效（0-16）；第一次進荷札載 index（補掛由頁根 effect 的 ensureBackfill 做）
+      const tags = useTagStore.getState();
+      if (s !== "tags" && tags.back) useTagStore.setState({ back: null });
+      // 每次進荷札都重載（不只第一次）：本機刪車票／筆記不會通知 tagStore，數量要在進頁時對上（真機代驗 10-15）
+      if (s === "tags") void tags.loadIndex();
     },
     async loadInbox() {
       set({ loading: true });
@@ -512,17 +543,20 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       const lists = has("notes") || has("nodes");
       const diary = diaryTouched && has("notes");
       const fp = diaryTouched && (has("nodes") || has("work_logs") || has("occurrences"));
-      if (!lists && !diary && !fp) return;
-      try {
-        await Promise.all([
-          lists ? reloadLists() : Promise.resolve(),
-          diary ? reloadDiary() : Promise.resolve(),
-          fp ? get().loadFootprint() : Promise.resolve(),
-          fp && !diary ? get().loadMarks() : Promise.resolve(),
-        ]);
-      } catch (e) {
-        console.warn("notesStore.reload 失敗", e);
+      if (lists || diary || fp) {
+        try {
+          await Promise.all([
+            lists ? reloadLists() : Promise.resolve(),
+            diary ? reloadDiary() : Promise.resolve(),
+            fp ? get().loadFootprint() : Promise.resolve(),
+            fp && !diary ? get().loadMarks() : Promise.resolve(),
+          ]);
+        } catch (e) {
+          console.warn("notesStore.reload 失敗", e);
+        }
       }
+      // 車次③（契約 §3.6）：荷札的 index 與頁面狀態
+      await useTagStore.getState().reload(ctx);
     },
 
     /* ── 收件匣 ── */
@@ -805,7 +839,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           const day = todayNow();
           const row = await noteRepo.create({ kind: "diary", body, inbox: false, entryDate: day });
           set({ capture: null });
-          await refreshAfterDiaryWrite();
+          await Promise.all([refreshAfterDiaryWrite(), useTagStore.getState().syncNoteTags(row.id, body)]);
           toast(
             diaryToast("capture", day, day),
             safeUndo(async () => {
@@ -837,7 +871,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         const inbox = dest.target === "inbox";
         const row = await noteRepo.create({ kind: "note", body, inbox, nodeId: route?.id ?? null });
         set({ capture: null, ...(inbox ? { freshNoteId: row.id } : {}) });
-        await (inbox ? get().loadInbox() : get().loadNotes());
+        await Promise.all([inbox ? get().loadInbox() : get().loadNotes(), useTagStore.getState().syncNoteTags(row.id, body)]);
         toast(
           text,
           safeUndo(async () => {
@@ -1018,7 +1052,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       try {
         const row = await noteRepo.create({ kind: "diary", body, title, inbox: false, entryDate: day });
         set({ diaryDraftOpen: false, diarySelectedId: row.id });
-        await reloadDiary();
+        await Promise.all([reloadDiary(), useTagStore.getState().syncNoteTags(row.id, body)]);
         toast(
           diaryToast("draft", day, todayNow()),
           safeUndo(async () => {
@@ -1196,6 +1230,26 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       } catch (e) {
         console.warn("notesStore.loadMarks 失敗", e);
         set({ error: message(e) });
+      }
+    },
+
+    /* ── 車次③・近 12 週方格 ── */
+    async loadWeekMarks() {
+      const [from, to] = weekGridRange(todayNow(), useUiStore.getState().weekStart);
+      try {
+        const weekMarks = await noteRepo.listDiaryMarks(from, to);
+        set({ weekMarks });
+      } catch (e) {
+        console.warn("notesStore.loadWeekMarks 失敗", e);
+      }
+    },
+    async diaryDaysOf(month) {
+      const [from, to] = monthRange(month);
+      try {
+        return await noteRepo.listDiaryDays(from, to);
+      } catch (e) {
+        console.warn("notesStore.diaryDaysOf 失敗", e);
+        return [];
       }
     },
   };

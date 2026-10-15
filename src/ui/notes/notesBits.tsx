@@ -1,5 +1,5 @@
 /**
- * notesBits——旅客筆記桌機 UI 的共用小件（乙席；車次①契約 §5.1／§5.2）。
+ * notesBits——旅客筆記桌機 UI 的共用小件（乙席；車次①契約 §5.1／§5.2；車次③加荷札牌形、⋯、展開箭頭三枚圖示）。
  *
  * 只放「好幾個桌機元件都要用、又不屬於任何一個元件」的東西：線稿圖示、路線圓牌／色點、鍵帽字、
  * 日期換算、「掛到哪」的節點名快取、小浮層的點外面關閉。手機（丙席）不依賴本檔。
@@ -60,6 +60,32 @@ export function IconRight({ size = 15 }: { size?: number }) {
   return (
     <svg {...svgProps(size)}>
       <path d="M6 3.5 10.5 8 6 12.5" />
+    </svg>
+  );
+}
+
+/* 車次③荷札：牌形小圖示（真的荷札＝實線牌、虛資料夾＝虛線空心牌；原型 app.js I.tag／I.tagHollow）、⋯、展開箭頭 */
+export function IconTag({ size = 14, hollow = false }: { size?: number; hollow?: boolean }) {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M5.6 3.6h7.2a.9.9 0 0 1 .9.9v7a.9.9 0 0 1-.9.9H5.6L2.3 8z" strokeDasharray={hollow ? "1.6 1.5" : undefined} />
+      {!hollow && <circle cx="5.6" cy="8" r="1" />}
+    </svg>
+  );
+}
+export function IconDots({ size = 16 }: { size?: number }) {
+  return (
+    <svg {...svgProps(size)}>
+      <circle cx="3.2" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+export function IconCaret({ size = 10 }: { size?: number }) {
+  return (
+    <svg {...svgProps(size)}>
+      <path d="M6 4l4 4-4 4" />
     </svg>
   );
 }

@@ -30,6 +30,7 @@ import {
   weekdayZh,
 } from "../../../domain/notes";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { MobileDiaryStrip } from "./MobileDiaryStrip";
 import { MobileDiaryDraft, MobileDiaryEntry, type DraftHandle } from "./MobileDiaryEntry";
 import { MobileFootprints } from "./MobileFootprints";
@@ -60,6 +61,8 @@ export function MobileDiary() {
 
   const [fpOpen, setFpOpen] = useState(true);
   const [pickDay, setPickDay] = useState(false);
+  /** 日期面板的自畫月格記號（車次③ 0-6 甲、D-筆-46 修訂「手機版同一套」） */
+  const pickMarks = useDiaryPickMarks();
   const [q, setQ] = useState(diaryQuery);
   /** 搜尋字還在、但主人點了某一則跳過去了 ⇒ 先看日視圖 */
   const [hitsHidden, setHitsHidden] = useState(false);
@@ -275,6 +278,8 @@ export function MobileDiary() {
           title="跳到哪一天"
           value={diaryDay}
           max={today}
+          today={today}
+          {...pickMarks}
           quick={[
             { label: "今天", day: today },
             { label: "昨天", day: addDays(today, -1) },

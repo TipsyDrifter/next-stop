@@ -3,8 +3,11 @@
  *
  * 一篇（DiaryEntry）：
  *   篇頭「寫於 09:12」／「寫於 10/2 23:40（補記）」（0-5：補記＝寫下那天的日界線日 ≠ 歸屬日）
- *        ＋荷札掛牌位置（空；③ 填）＋「改日期」（共用 DatePicker，max＝今天；只改 entry_date）
+ *        ＋「改日期」（共用 DatePicker，max＝今天；只改 entry_date；車次③起傳 marks＝自畫月格、寫過的日子打點）
  *   標題（選填）＋內文讀寫兩態：閱讀＝plainParagraphs；點一下或（選中後）Enter 進打字框；Esc／blur 回閱讀並立即存檔
+ *   車次③：篇頭不另列荷札（內文就是正本，原型 7）；閱讀態內文的 #荷札 畫成行內小牌（InlineBody；「‹ 回到剛才 M 月 D 日的日記」）；
+ *     打字框游標處打 # 出荷札建議（useInlineTagSuggest）；離開編輯、存檔鏈 flush 之後 `tagStore.syncNoteTags`（契約 0-13）。
+ *     草稿的解析由 store 在 saveDiaryDraft 建檔之後做。
  *   底部：字數・刪除
  * 存檔：標題與內文各自去抖 500ms 累積成一個 patch，blur／Esc 立即送出；每篇一條自己的存檔鏈，
  *   flush 函式經 `register` 交給 NotesDiary，換日／換子畫面／搜尋跳轉前先 await（與 NoteContent 同法）。
@@ -16,33 +19,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { NoteListItem } from "../../data/noteRepository";
 import { useNotesStore } from "../../store/notesStore";
-import { entryWrittenLabel, plainParagraphs } from "../../domain/notes";
+import { entryWrittenLabel } from "../../domain/notes";
+import { useTagStore } from "../../store/tagStore";
 import { DatePicker } from "../common/DatePicker";
 import { addDays } from "../../lib/date";
 import { matches } from "../shell/hotkeys";
 import { Kbd, capsOf, dayOf, fmtShort, fmtTime } from "./notesBits";
+import { InlineBody } from "./tags/InlineBody";
+import { useInlineTagSuggest } from "./tags/useInlineTagSuggest";
+import { diaryBackRef } from "./tags/backRefs";
+import { useDiaryPickMarks } from "./useDiaryPickMarks";
 
 type Patch = { title?: string; body?: string };
-
-/** 閱讀態的段落（與 NoteContent 同一種排法） */
-function Paragraphs({ body }: { body: string }) {
-  const paras = plainParagraphs(body);
-  if (!paras.length) return <p className="ph">（空白，點一下開始寫）</p>;
-  return (
-    <>
-      {paras.map((lines, i) => (
-        <p key={i}>
-          {lines.map((l, j) => (
-            <span key={j}>
-              {j > 0 && <br />}
-              {l}
-            </span>
-          ))}
-        </p>
-      ))}
-    </>
-  );
-}
 
 const countChars = (s: string) => s.replace(/\s/g, "").length;
 
@@ -148,12 +136,19 @@ export function DiaryEntry({
   }, [editing]);
 
   const st = useNotesStore.getState;
+  const pickMarks = useDiaryPickMarks();
+  const tagSug = useInlineTagSuggest(taRef, (next) => {
+    setBody(next);
+    queue({ body: next });
+  });
   const startEditing = () => {
     st().selectDiaryEntry(id);
     st().setDiaryEditing(id);
   };
   const leaveEditing = (focusRead: boolean) => {
-    void flush();
+    tagSug.close();
+    const text = body;
+    void flush().then(() => useTagStore.getState().syncNoteTags(id, text));
     focusReadNext.current = focusRead;
     if (st().diaryEditingId === id) st().setDiaryEditing(null);
     else if (focusRead) readRef.current?.focus({ preventScroll: true });
@@ -173,7 +168,6 @@ export function DiaryEntry({
     >
       <div className="ns-notes-entrymeta">
         <span className="w">{meta}</span>
-        <span className="ns-notes-tagslot" />
         <button
           type="button"
           className="ns-notes-metabtn"
@@ -191,12 +185,14 @@ export function DiaryEntry({
             label="改到哪一天"
             value={entryDay}
             max={today}
+            today={today}
             markValue
             quick={[
               { label: "今天", day: today },
               { label: "昨天", day: addDays(today, -1) },
               { label: "前天", day: addDays(today, -2) },
             ]}
+            {...pickMarks}
             onPick={onPickDate}
             onClose={onCloseDatePop}
           />
@@ -232,6 +228,7 @@ export function DiaryEntry({
       />
 
       <div className="ns-notes-bodywrap">
+        {tagSug.popup}
         {editing ? (
           <textarea
             ref={taRef}
@@ -243,8 +240,10 @@ export function DiaryEntry({
               setBody(e.target.value);
               queue({ body: e.target.value });
             }}
+            {...tagSug.bind}
             onBlur={() => leaveEditing(false)}
             onKeyDown={(e) => {
+              if (tagSug.onKeyDown(e)) return;
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (e.key === "Escape") {
                 e.preventDefault();
@@ -265,7 +264,7 @@ export function DiaryEntry({
               onFocus={() => st().selectDiaryEntry(id)}
               onClick={startEditing}
             >
-              <Paragraphs body={body} />
+              <InlineBody body={body} backRef={() => diaryBackRef(id, entryDay)} />
             </div>
             <div className="ns-notes-readhint">
               點一下或按 {capsOf("notes.open")} 編輯・{capsOf("notes.escape")} 或點外面回到閱讀
@@ -305,6 +304,7 @@ export interface DiaryDraftProps {
 
 export function DiaryDraft({ label, placeholder, title, body, onChange, onSave, onCancel, confirmEsc, onEscape }: DiaryDraftProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const tagSug = useInlineTagSuggest(taRef, (next) => onChange({ title, body: next }));
   useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -350,6 +350,7 @@ export function DiaryDraft({ label, placeholder, title, body, onChange, onSave, 
         }}
       />
       <div className="ns-notes-bodywrap">
+        {tagSug.popup}
         <textarea
           ref={taRef}
           className="ns-notes-ta"
@@ -357,7 +358,12 @@ export function DiaryDraft({ label, placeholder, title, body, onChange, onSave, 
           placeholder={placeholder}
           aria-label="日記內文"
           onChange={(e) => onChange({ title, body: e.target.value })}
-          onKeyDown={onKeyDown}
+          {...tagSug.bind}
+          onBlur={tagSug.close}
+          onKeyDown={(e) => {
+            if (tagSug.onKeyDown(e)) return;
+            onKeyDown(e);
+          }}
         />
       </div>
       <div className="ns-notes-draftbar">

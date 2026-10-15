@@ -19,6 +19,8 @@ import { useState } from "react";
 import { MobileDatePicker } from "../common/MobileDatePicker";
 import { mdw, sheetDeferItems } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
+// 各線附加項：查 `lines/runtime`、不 import `lines/mounts`（理由見 runtime.ts 檔頭）
+import { lineTicketSheetItems } from "../../lines/runtime";
 
 /** M/D（aside 的「回到締切 M/D」） */
 function md(key: string): string {
@@ -108,6 +110,9 @@ export function MobileTicketSheet({ card, today, onDefer, onSkip, onClose }: Mob
       >
         <p className="m-sheet-title">{card.name}</p>
         {items}
+        {/* 各線附加項（接縫 #56 後半；旅客筆記：荷札…）——唯讀的卡（定期券歷史班次）不出 */}
+        {!card.readOnly &&
+          lineTicketSheetItems().map(({ id, Item }) => <Item key={id} nodeId={card.nodeId} name={card.name} close={onClose} />)}
         <button type="button" onClick={onClose} className="m-sheet-item is-cancel">
           取消
         </button>

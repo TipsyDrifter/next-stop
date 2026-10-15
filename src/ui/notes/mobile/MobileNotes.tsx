@@ -11,17 +11,29 @@
  *   它只活在這一格 tab：切走再回來回到列表，與 MobileToday 的 action sheet 同一套理由；
  *   也免得桌機選中的那則在視窗縮成手機時直接把整頁蓋上來。
  * 載入：進頁載一次收件匣與筆記（store 的 loadInbox／loadNotes）；之後由各動作自己重載、同步由 mount.reload 重載。
+ *
+ * 車次③：第四段「荷札」（契約 §5.5）——荷札樹（MobileTags）；樹裡點一個（`tagStore.selectedKey` 非 null）＝清單整頁
+ *   （MobileTagPage，左上「‹ 荷札」返回），與筆記整頁同法取代頂部分段。進頁跑一次通車補掛（`ensureBackfill`，契約 0-9／0-10）。
+ *   從別處進荷札（行內小牌、路線圖詳情）＝section 換成 "tags" ⇒ 筆記整頁關掉（契約 §3.6 末）；
+ *   筆記整頁裡的小牌給的「回到剛才」會把整頁再打開（`openTagFromNote`）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNotesStore } from "../../../store/notesStore";
+import { useTagStore } from "../../../store/tagStore";
+import { noteTitle } from "../../../domain/notes";
 import { MobileNoteInbox } from "./MobileNoteInbox";
 import { MobileNoteList } from "./MobileNoteList";
 import { MobileNotePage } from "./MobileNotePage";
 import { MobileDiary } from "./MobileDiary";
+import { MobileTags } from "./MobileTags";
+import { MobileTagPage } from "./MobileTagPage";
 import "../notes-mobile.css";
 
 export function MobileNotes() {
   const section = useNotesStore((s) => s.section);
+  const tagKey = useTagStore((s) => s.selectedKey);
+  // 真荷札數（虛資料夾不算）——與桌機書封頁務件同口徑（NotesCoverAux）
+  const tagCount = useTagStore((s) => (s.index ? Object.values(s.index.byKey).filter((x) => x.real).length : null));
   const setSection = useNotesStore((s) => s.setSection);
   const inboxCount = useNotesStore((s) => s.inboxNotes.length + s.inboxTickets.length);
   const notes = useNotesStore((s) => s.notes);
@@ -46,6 +58,36 @@ export function MobileNotes() {
     if (!notesQuery.routeId && !(notesQuery.query ?? "").trim()) setNotesTotal(notes.length);
   }, [notes, notesQuery]);
 
+  // 通車補掛（每台一次；守門在 store）＝進旅客筆記頁就跑，不等第一次點「荷札」
+  useEffect(() => {
+    void useTagStore.getState().ensureBackfill();
+  }, []);
+
+  // 換到荷札段（含從別處 openTagPage 進來）＝筆記整頁關掉
+  useEffect(() => {
+    if (section === "tags") setPageOpen(false);
+  }, [section]);
+
+  /** 筆記整頁內文的行內小牌：進荷札清單頁，「回到剛才」＝回這一則的整頁（契約 0-16） */
+  const openTagFromNote = (key: string, noteId: string | null) => {
+    const st = useNotesStore.getState();
+    const n = noteId ? st.notes.find((x) => x.id === noteId) : undefined;
+    void useTagStore.getState().openTagPage(
+      key,
+      noteId
+        ? {
+            label: n ? noteTitle(n) : "筆記",
+            restore: () => {
+              const s = useNotesStore.getState();
+              s.setSection("notes");
+              s.selectNote(noteId);
+              setPageOpen(true);
+            },
+          }
+        : undefined,
+    );
+  };
+
   // 進整頁捲到頂；回列表捲回原位
   useLayoutEffect(() => {
     const el = pageRef.current;
@@ -67,14 +109,17 @@ export function MobileNotes() {
   };
 
   const showPage = section === "notes" && pageOpen;
+  const showTagPage = section === "tags" && tagKey !== null;
 
   return (
     <div className="m-page ns-notes-m" ref={pageRef}>
       {showPage ? (
-        <MobileNotePage onBack={() => setPageOpen(false)} />
+        <MobileNotePage onBack={() => setPageOpen(false)} onOpenTag={openTagFromNote} />
+      ) : showTagPage ? (
+        <MobileTagPage onOpenNote={(id) => openPage(id)} />
       ) : (
         <>
-          <div className="ns-notes-mtabs" role="group" aria-label="收件匣・筆記・日記">
+          <div className="ns-notes-mtabs" role="group" aria-label="收件匣・筆記・日記・荷札">
             <div className="in">
               <button
                 type="button"
@@ -100,12 +145,22 @@ export function MobileNotes() {
               >
                 日記
               </button>
+              <button
+                type="button"
+                className={section === "tags" ? "on" : ""}
+                aria-pressed={section === "tags"}
+                onClick={() => setSection("tags")}
+              >
+                荷札{tagCount !== null && <span className="n">{tagCount}</span>}
+              </button>
             </div>
           </div>
           {section === "inbox" ? (
             <MobileNoteInbox />
           ) : section === "diary" ? (
             <MobileDiary />
+          ) : section === "tags" ? (
+            <MobileTags />
           ) : (
             <MobileNoteList onOpen={(id) => openPage(id)} onNew={() => openPage(null)} />
           )}

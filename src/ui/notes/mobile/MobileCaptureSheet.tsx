@@ -21,8 +21,13 @@
  *
  * IME：唯一攔的鍵是「游標在開頭時 Backspace＝取消路線票根」與實體鍵盤的 Esc，
  *   一律先判 isComposing／keyCode 229，再加 composition 旗標（Android 部分 IME 兩者都不帶；MobileToday 同法）。
+ *
+ * 車次③（契約 §5.5、7.2-7）：打字區游標處打 `#` ⇒ 打字區下方出荷札建議（MobileTagSuggest；組字中不出）；
+ *   點一列＝把 `#q` 換成 `#名稱 `、游標放回去。存檔後的解析與掛上由 store 的 saveCapture 做（§2.1）。
  */
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { MobileTagSuggest } from "./MobileTagToolbar";
+import { replaceAtCaret, useCaretTag } from "./mobileTagBits";
 import { useNodeStore } from "../../../store/nodeStore";
 import { captureRouteOf, captureStubList, captureTargetOf, useNotesStore } from "../../../store/notesStore";
 import {
@@ -64,6 +69,17 @@ export function MobileCaptureSheet() {
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, TA_MAX) + "px";
+  }, [capture?.text]);
+
+  /* 荷札建議：游標處的 #…；選了之後游標在下一次 render 放回 */
+  const { at: tagAt, dismiss: dismissTag } = useCaretTag(taRef, capture !== null);
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const ta = taRef.current;
+    const c = pendingCaret.current;
+    if (!ta || c === null) return;
+    pendingCaret.current = null;
+    ta.setSelectionRange(c, c);
   }, [capture?.text]);
 
   if (!capture) return null;
@@ -158,6 +174,19 @@ export function MobileCaptureSheet() {
           spellCheck={false}
           autoComplete="off"
         />
+        {tagAt && (
+          <div className="ns-notes-mcapsug">
+            <MobileTagSuggest
+              q={tagAt.q}
+              onPick={(name) => {
+                const r = replaceAtCaret(capture.text, tagAt.start, tagAt.caret, name);
+                pendingCaret.current = r.caret;
+                setCaptureText(r.text);
+              }}
+              onDismiss={dismissTag}
+            />
+          </div>
+        )}
         <div className="ns-notes-mtear" aria-hidden />
 
         <div className="ns-notes-mstubs" role="group" aria-label="票根">
