@@ -21,6 +21,7 @@ import {
   groupFootprints,
   matchesQuery,
   type FootprintDay,
+  type NoteKind,
   type NoteRow,
 } from "../domain/notes";
 import type { NodeRepository } from "./nodeRepository";
@@ -105,6 +106,50 @@ const HASH_NOTE = [
   "搬家的事另外記：#專案/搬家/打包 先處理書櫃。",
 ].join("\n");
 
+/**
+ * 車次④種子：一則把閱讀排版用得到的 Markdown 語法都放進去的筆記（排版評審樣本；全部虛構）。
+ * 圍欄裡的 `#不是荷札`／`**不是粗體**` 要原樣；`- [ ]` 只是文字；唯一的真荷札是最後一行的 #讀書/日文。
+ */
+const MD_NOTE = [
+  "# 這學期的讀書安排",
+  "",
+  "先把目標寫下來，再看每週怎麼分配。**粗體**是要記住的、*斜體*是旁白、`行內程式碼`原樣留著。",
+  "",
+  "## 每週分配",
+  "",
+  "- 平日",
+  "  - 早上：單字音檔",
+  "  - 晚上：抄三行摘要",
+  "- 週末",
+  "  - 挑一個看不懂的地方查資料",
+  "- [ ] 只是文字，不是核取框",
+  "",
+  "## 步驟",
+  "",
+  "1. 先遮住答案",
+  "2. 想三秒再翻開",
+  "3. 錯的寫進錯題本",
+  "",
+  "### 錯題本的格式",
+  "",
+  "```",
+  "#不是荷札 這裡是程式碼區塊",
+  "",
+  "**不是粗體**，上一行是空行，也要原樣",
+  "```",
+  "",
+  "> 先求不中斷，再求量。",
+  "",
+  "---",
+  "",
+  "延伸閱讀：[Next Stop 範例](https://example.com/x)，網址也可以直接貼 https://example.com/#top 。",
+  "",
+  "#讀書/日文",
+].join("\n");
+
+/** 車次④種子：掛在車廂上的短筆記（側板「含底下」會看到「› 車廂名」） */
+const MD_CAR_NOTE = ["下一站要帶的東西：", "", "- 單字卡", "- **水壺**（上次忘了）", "- 充電線"].join("\n");
+
 export class MemoryNoteRepository implements NoteRepository {
   private readonly notes = new Map<string, NoteRow>();
   private ready: Promise<void> | null = null;
@@ -131,7 +176,11 @@ export class MemoryNoteRepository implements NoteRepository {
       .filter((n) => matchesQuery(n, q.query ?? ""))
       .sort(byNotedDesc);
     let items = await this.toItems(rows);
-    if (q.routeId === "none") items = items.filter((n) => n.node_id === null);
+    if (q.underNode) {
+      // 車次④ P5：掛在這個節點與它底下的（與 routeId 互斥，underNode 優先）
+      const ids = new Set([q.underNode.id, ...q.underNode.ids]);
+      items = items.filter((n) => n.node_id !== null && ids.has(n.node_id));
+    } else if (q.routeId === "none") items = items.filter((n) => n.node_id === null);
     else if (q.routeId) items = items.filter((n) => n.route_id === q.routeId);
     const offset = q.offset ?? 0;
     return items.slice(offset, offset + (q.limit ?? 200));
@@ -190,6 +239,44 @@ export class MemoryNoteRepository implements NoteRepository {
       const n = this.notes.get(id);
       if (n) this.notes.set(id, { ...n, deleted_at: null, updated_at: now });
     }
+  }
+
+  // ───────────── 階段④・掛樹查詢（＝sqlite 版 §3.2 的同義過濾） ─────────────
+
+  async listByNodes(nodeIds: readonly string[], here: string, limit = 50): Promise<NoteListItem[]> {
+    await this.ensureSeed();
+    if (!nodeIds.length) return [];
+    const ids = new Set(nodeIds);
+    const rows = this.alive()
+      .filter((n) => n.kind === "note" && n.inbox === 0 && n.node_id !== null && ids.has(n.node_id))
+      // P4：直接掛在 here 的在前，其餘 noted_at DESC, created_at DESC
+      .sort((a, b) => Number(b.node_id === here) - Number(a.node_id === here) || byNotedDesc(a, b));
+    return this.toItems(rows.slice(0, limit));
+  }
+
+  async countByNodes(nodeIds: readonly string[]): Promise<number> {
+    await this.ensureSeed();
+    if (!nodeIds.length) return 0;
+    const ids = new Set(nodeIds);
+    return this.alive().filter((n) => n.kind === "note" && n.inbox === 0 && n.node_id !== null && ids.has(n.node_id)).length;
+  }
+
+  async countNotes(): Promise<number> {
+    await this.ensureSeed();
+    return this.alive().filter((n) => n.kind === "note" && n.inbox === 0).length;
+  }
+
+  async searchQuick(kind: NoteKind, query: string, limit: number): Promise<NoteListItem[]> {
+    await this.ensureSeed();
+    if (!query.trim()) return [];
+    const rows = this.alive()
+      .filter((n) => n.kind === kind && matchesQuery(n, query))
+      .sort((a, b) =>
+        kind === "diary"
+          ? (b.entry_date ?? "").localeCompare(a.entry_date ?? "") || b.created_at.localeCompare(a.created_at)
+          : byNotedDesc(a, b),
+      );
+    return this.toItems(rows.slice(0, limit));
   }
 
   // ───────────── 車次②・日記（＝sqlite 版 §3.4 的同義過濾） ─────────────
@@ -344,12 +431,14 @@ export class MemoryNoteRepository implements NoteRepository {
   private async seedDemo(): Promise<void> {
     let routeId: string | null = null;
     let trainId: string | null = null;
+    let carId: string | null = null;
     try {
       const { routes } = await this.nodeRepo.listSidebar();
       routeId = routes[0]?.id ?? null;
       if (routeId) {
         const tree = await this.nodeRepo.listRouteTree(routeId);
         trainId = tree.find((n) => n.kind === "train")?.id ?? null;
+        carId = tree.find((n) => n.kind === "car")?.id ?? null;
       }
     } catch (e) {
       console.warn("MemoryNoteRepository：讀路線失敗，種子筆記全部不掛路線", e);
@@ -378,6 +467,9 @@ export class MemoryNoteRepository implements NoteRepository {
     put(88, 16, 30, { title: "河堤散步想到的幾件事", body: LONG_1000, inbox: false });
     // 車次③（契約 §3.5）：井號的幾種寫法——荷札、全形標點後的荷札（D-筆-44）、色碼、網址、行內程式碼、純數字
     put(5, 21, 40, { title: "井號的幾種寫法", body: HASH_NOTE, inbox: false });
+    // 車次④（契約 §3.4）：Markdown 排版樣本掛在列車上；一則短的掛在車廂上（沒有車廂就掛列車、再沒有就掛路線）
+    put(1, 12, 30, { title: "讀書節奏（排版測試）", body: MD_NOTE, inbox: false, nodeId: trainId ?? routeId });
+    put(6, 19, 20, { body: MD_CAR_NOTE, inbox: false, nodeId: carId ?? trainId ?? routeId });
 
     // 日記 6 篇（車次② §3.5）：散在最近五週；一天兩篇（4 天前）；一篇補記（16 天前的日記、13 天後才寫）；
     // 今天沒有日記（看「今天還沒有寫日記」空狀態）。時刻都在白天到深夜之間，03:00／06:00 兩種日界線都不會誤判成補記。
@@ -386,7 +478,7 @@ export class MemoryNoteRepository implements NoteRepository {
       this.insert({ kind: "diary", body, title: title ?? null, inbox: false, notedAt: at, entryDate: keyDaysAgo(entryDaysAgo) }, at, at);
     };
     diary(1, 1, 22, 10, "下午下了一陣大雨，躲在圖書館把上週的筆記整理完。 #讀書/日文\n回家路上雨停了，空氣很乾淨。");
-    diary(4, 4, 8, 40, "早上提早半小時起床，先把今天要做的三件事寫下來再出門。");
+    diary(4, 4, 8, 40, "## 今天\n\n早上提早半小時起床，先把今天要做的三件事寫下來再出門：\n\n- 回信給社團\n- 讀完一節課本\n- **十點前**睡覺");
     diary(
       4,
       4,

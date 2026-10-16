@@ -109,7 +109,12 @@ export class SqliteNoteRepository implements NoteRepository {
     const db = await getDb();
     const where: string[] = [ALIVE, `n.kind = 'note'`, `n.inbox = 0`];
     const args: unknown[] = [];
-    if (q.routeId === "none") {
+    if (q.underNode) {
+      // 車次④ P5：掛在這個節點與它底下的（與 routeId 互斥，underNode 優先）
+      const ids = Array.from(new Set([q.underNode.id, ...q.underNode.ids]));
+      where.push(`n.node_id IN (${placeholders(ids.length, args.length + 1)})`);
+      args.push(...ids);
+    } else if (q.routeId === "none") {
       where.push(`n.node_id IS NULL`);
     } else if (q.routeId) {
       args.push(q.routeId);
@@ -233,6 +238,54 @@ export class SqliteNoteRepository implements NoteRepository {
     });
     for (const x of ids) addOp(b, "notes", x, "upsert", { deleted_at: null, updated_at: now });
     await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  /* ───────── 階段④・掛樹查詢（契約 §3.2＋§0-0 P4；全部唯讀、不進 outbox） ───────── */
+
+  async listByNodes(nodeIds: readonly string[], here: string, limit = 50): Promise<NoteListItem[]> {
+    if (!nodeIds.length) return [];
+    const db = await getDb();
+    const rows = await db.select<RawItem[]>(
+      `${SELECT_ITEM}
+       WHERE ${ALIVE} AND n.kind = 'note' AND n.inbox = 0 AND n.node_id IN (${placeholders(nodeIds.length, 3)})
+       ORDER BY (n.node_id = $1) DESC, n.noted_at DESC, n.created_at DESC
+       LIMIT $2`,
+      [here, limit, ...nodeIds],
+    );
+    return rows.map(toItem);
+  }
+
+  async countByNodes(nodeIds: readonly string[]): Promise<number> {
+    if (!nodeIds.length) return 0;
+    const db = await getDb();
+    const rows = await db.select<{ c: number }[]>(
+      `SELECT COUNT(*) AS c FROM notes n
+       WHERE n.deleted_at IS NULL AND n.kind = 'note' AND n.inbox = 0 AND n.node_id IN (${placeholders(nodeIds.length, 1)})`,
+      [...nodeIds],
+    );
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async countNotes(): Promise<number> {
+    const db = await getDb();
+    const rows = await db.select<{ c: number }[]>(
+      `SELECT COUNT(*) AS c FROM notes n WHERE n.deleted_at IS NULL AND n.kind = 'note' AND n.inbox = 0`,
+    );
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  async searchQuick(kind: NoteKind, query: string, limit: number): Promise<NoteListItem[]> {
+    const q = query.trim();
+    if (!q) return [];
+    const db = await getDb();
+    const rows = await db.select<RawItem[]>(
+      `${SELECT_ITEM}
+       WHERE ${ALIVE} AND n.kind = $1 AND (n.title LIKE $2 ESCAPE '\\' OR n.body LIKE $2 ESCAPE '\\')
+       ORDER BY CASE WHEN $1 = 'diary' THEN n.entry_date ELSE n.noted_at END DESC, n.created_at DESC
+       LIMIT $3`,
+      [kind, `%${escapeLike(q)}%`, limit],
+    );
+    return rows.map(toItem);
   }
 
   /* ───────── 車次②・日記（§3.4） ───────── */

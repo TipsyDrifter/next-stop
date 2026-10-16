@@ -10,6 +10,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore, type RouteDialogState } from "../../store/uiStore";
+import { collectDeleteHints, withDeleteHints } from "../../lines/deleteHints";
 import { DialogShell } from "../common/DialogShell";
 import "../common/overlay.css";
 
@@ -99,7 +100,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
   }
 
   /** 刪除（連同子樹；repository soft delete，10 秒內可由 toast 復原） */
-  function requestDelete() {
+  async function requestDelete() {
     if (!editing) return;
     const target = editing;
     const label = kindLabel;
@@ -114,9 +115,11 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
           ? `底下的 ${childRouteCount} 條路線，連同其下所有支線、列車、車廂、車票會一起刪除；10 秒內可復原。`
           : "會連同其下所有內容一起刪除；10 秒內可復原。"
         : "這條路線底下的支線、列車、車廂、車票會一起刪除；10 秒內可復原。";
+    // 別線的附加句（接縫 #62）：這裡沒載底下的樹 ⇒ descendantIds 傳 []，由該線自己補查；沒有線填＝空字串、框的字不變
+    const hints = await collectDeleteHints(target, []);
     askConfirm({
       title: `刪除${label}「${target.name}」？`,
-      body,
+      body: withDeleteHints(body, hints),
       confirmLabel: "刪除",
       danger: true,
       onConfirm: () => void performDelete(target.id, target.name, label, affectsCurrent),

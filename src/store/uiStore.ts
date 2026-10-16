@@ -188,6 +188,12 @@ interface UiStore {
    * MobileMore 掛載／看到它非 null 就切到 `MobileSync` 並清掉（消費一次）。桌機用 `openSettings("sync")`，不走這個。
    */
   mobileMoreRequest: "sync" | null;
+  /**
+   * 日曆格內記號的「請重查」計數（接縫 #62；旅客筆記車次④ 0-14）：`useCalendarController` 的記號 effect 把它列進依賴；
+   * 線在日記資料變了（同步拉到、本機寫了日記）時呼叫 `bumpCalendarMarks()` ⇒ 目前這個區間的記號重查一次。
+   * 沒有線登記記號時 effect 一開頭就返回，所以沒人 bump 或沒有線填值都零成本。
+   */
+  calendarMarksTick: number;
 
   setPage: (page: PageId) => void;
   setMobileTab: (tab: MobileTabKey) => void;
@@ -229,6 +235,8 @@ interface UiStore {
   openSyncPage: (shell: "desktop" | "mobile") => void;
   /** MobileMore 消費掉深連結 */
   consumeMobileMoreRequest: () => void;
+  /** 日曆格內記號請重查（見 `calendarMarksTick`） */
+  bumpCalendarMarks: () => void;
 }
 
 export const useUiStore = create<UiStore>((set, get) => ({
@@ -257,6 +265,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   syncBanner: null,
   syncBannerDismissed: null,
   mobileMoreRequest: null,
+  calendarMarksTick: 0,
 
   // 未通車的頁不動作（對既有三頁行為相同；契約 §6.2 C-3）
   setPage: (page) => {
@@ -333,6 +342,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
         : { settingsOpen: true, settingsTab: "sync", hotkeyGuideOpen: false, syncBannerDismissed: s.syncBanner },
     ),
   consumeMobileMoreRequest: () => set({ mobileMoreRequest: null }),
+  bumpCalendarMarks: () => set((s) => ({ calendarMarksTick: s.calendarMarksTick + 1 })),
 
   async setTheme(pref) {
     applyTheme(pref);

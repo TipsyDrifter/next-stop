@@ -11,6 +11,7 @@ import { useRef } from "react";
 import type { NodeRow } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { collectDeleteHints, withDeleteHints } from "../../lines/deleteHints";
 import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, SectionRule, useDebouncedCommit } from "./fields";
 import { StationList } from "./StationList";
 import { LineRows } from "./TaskFields";
@@ -55,10 +56,15 @@ export function RoutePanel({ route }: { route: NodeRow }) {
   const color = route.color ?? "var(--route-preset-4)";
   const codeRef = useRef<HTMLDivElement>(null);
 
-  const removeRoute = () => {
+  const removeRoute = async () => {
+    // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
+    const hints = await collectDeleteHints(
+      route,
+      Object.keys(useNodeStore.getState().tree.byId).filter((id) => id !== route.id),
+    );
     askConfirm({
       title: `刪除路線「${route.name}」？`,
-      body: "底下的支線、列車、車票與車站會一起移除；刪除後 10 秒內可從提示列復原。",
+      body: withDeleteHints("底下的支線、列車、車票與車站會一起移除；刪除後 10 秒內可從提示列復原。", hints),
       confirmLabel: "刪除路線",
       danger: true,
       onConfirm: () =>

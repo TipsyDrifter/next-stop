@@ -153,6 +153,22 @@ export interface LineMount {
    * 沒有任何線填值＝DOM 與地基完全相同。
    */
   routeListAside?: ComponentType<{ route: NodeRow }>;
+  /**
+   * 刪除確認框的附加句（接縫 #62；旅客筆記車次④ 0-13）：桌機四個刪除入口（路線面板、路線／幹線對話框、任務側板的子項刪除、
+   * 大綱的刪除流）在 `askConfirm` 之前呼叫核心的 `collectDeleteHints(node, descendantIds)`，逐線問一次：
+   * 回字串 ⇒ 接在原 `body` 後面（以一個空白隔開）、回 null／空字串 ⇒ 原句一字不動。
+   * `descendantIds`＝呼叫端已知的底下節點 id（不含 node 自己）；呼叫端沒載到底下的樹（例：路線／幹線對話框）傳 `[]`，該線自己補查。
+   * 只看 `page.status`（四個入口都在桌機），`open` 才叫（`lineNodeDeleteHints()`）；未通車即使填了也不叫；三線固定順序。
+   * 一條線丟錯當作沒有句子、不擋刪除。沒有任何線填值＝確認框文字與地基完全相同。
+   */
+  nodeDeleteHints?: (node: NodeRow, descendantIds: readonly string[]) => Promise<string | null>;
+  /**
+   * 日曆當日清單浮層底部的一段（接縫 #62；旅客筆記車次④ 0-14、D-筆-28）：`DayPopover` 在締切段之後依序渲染各線的元件，
+   * 收 `day`（YYYY-MM-DD）與 `close`（關掉浮層）；元件自己畫一個 `.pop-sec`（借核心 class）、沒東西要畫就回 null。
+   * 只看 `page.status`，`open` 才畫（`lineCalendarDayAux()`）；未通車即使填了也不畫；三線固定順序。
+   * 沒有任何線填值＝DOM 與地基完全相同。
+   */
+  calendarDayAux?: ComponentType<{ day: string; close(): void }>;
 }
 
 /** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */
@@ -174,6 +190,11 @@ export interface NodeFieldSpec {
   Desktop: ComponentType<{ node: NodeRow }>;
   /** 手機路線圖唯讀詳情的一列（自己畫 `dt`／`dd`）；不給＝手機不出 */
   Mobile?: ComponentType<{ node: NodeRow }>;
+  /**
+   * 內容是多行的欄位（例：旅客筆記的筆記區）⇒ 桌機 `FieldRow` 的標籤靠上對齊，不垂直置中（接縫 #62；0-18）。
+   * 預設 false；不填＝既有欄位位置不動。
+   */
+  top?: boolean;
 }
 
 /** Ctrl+P 的一列結果（`QuickJumpProviderSpec.search` 回傳） */

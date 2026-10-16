@@ -11,3 +11,11 @@ export { MobileNotes } from "./mobile/MobileNotes";
 export { NotesMobileOverlay } from "./mobile/NotesMobileOverlay";
 export { MobileTagRow } from "./mobile/MobileTagRow";
 export { MobileTagSheetItem } from "./mobile/MobileTagSheetItem";
+/*
+ * 車次④（契約 §2.3、§5.5）：
+ *   - `MobileNoteField`：`nodeFields` 一筆（`notes.notes`）的 `Mobile`——支線／列車／車廂在路線圖唯讀詳情畫「筆記」列；
+ *     路線（kind route）在路線抬頭下的渲染點畫可收合的筆記區（內部交給 `MobileRouteNotes`）。mount 只要填 `Mobile: MobileNoteField`。
+ *   - `MobileRouteNotes`：路線筆記區的外框（收合「筆記 N ›」）；export 只為了讓整合席／評審看得到這個元件，mount 不必直接用它。
+ */
+export { MobileNoteField } from "./mobile/MobileNoteField";
+export { MobileRouteNotes } from "./mobile/MobileRouteNotes";

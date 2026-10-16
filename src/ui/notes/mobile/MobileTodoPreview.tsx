@@ -23,6 +23,8 @@ export function MobileTodoPreview() {
   const cancelPreview = useNotesStore((s) => s.cancelPreview);
   const confirmPreview = useNotesStore((s) => s.confirmPreview);
   const routes = useNodeStore((s) => s.routes);
+  // 來源字三分（階段④ 0-16；同桌機 TodoPreviewDialog）：捕捉框／收件匣的筆記／筆記
+  const fromInbox = useNotesStore((s) => !!s.preview?.noteId && s.inboxNotes.some((x) => x.id === s.preview?.noteId));
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [picking, setPicking] = useState(false);
   const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
@@ -72,7 +74,7 @@ export function MobileTodoPreview() {
         <p className="ns-notes-mfullsrc">
           {single
             ? `「${firstText}」`
-            : `${preview.source === "note" ? "來自收件匣的筆記" : "來自捕捉框"}・勾掉不要的`}
+            : `${preview.source === "capture" ? "來自捕捉框" : fromInbox ? "來自收件匣的筆記" : "來自筆記"}・勾掉不要的`}
         </p>
 
         <dl className="ns-notes-mfields">

@@ -54,6 +54,12 @@ export interface DiarySearchQuery {
 export interface NotesQuery {
   /** undefined＝不篩；"none"＝沒掛節點的；字串＝該路線（含掛在其支線／列車／車廂上的） */
   routeId?: string | "none";
+  /**
+   * 車次④ P5：只列掛在這個節點與它底下的筆記（支線／列車／車廂；側板「還有 N 則 → 到旅客筆記看」點下去的篩選）。
+   * 與 `routeId` 互斥（同時給時 underNode 優先）；路線的側板照舊用 `routeId`。
+   * `ids`＝要比對的節點 id（呼叫端給 `[node.id, ...descendantIds]`；實作會自己補上 `id`）；`label`＝篩選列顯示的「› {label}」。
+   */
+  underNode?: { id: string; ids: string[]; label: string };
   /** 比對 title 與 body（LIKE，大小寫依 SQLite 預設：ASCII 不分、中文逐字）；空白＝不篩 */
   query?: string;
   /** 預設 200 */
@@ -94,4 +100,18 @@ export interface NoteRepository {
   listFootprints(day: string, dayStartHour: number): Promise<FootprintDay>;
   /** 區間（含兩端）內「有足跡」的日子，升冪（頁務件月曆的空心點、手機月份條） */
   listFootprintDays(from: string, to: string, dayStartHour: number): Promise<string[]>;
+
+  /* ── 階段④（契約 §3.1＋§0-0 P4；只加） ── */
+  /**
+   * 掛在這些節點上的筆記（側板筆記區）：kind='note' AND inbox=0 AND alive AND node_id IN (ids)。
+   * 排序＝直接掛在 `here` 的在前，其餘 noted_at DESC, created_at DESC（P4：底下有很多較新的也不擠掉直接掛的）；
+   * ids 空＝[]；limit 預設 50。收件匣的筆記不算——側板與「還有 N 則」點進去的清單（listNotes 只列 inbox=0）要對得上（評審 nice）。
+   */
+  listByNodes(nodeIds: readonly string[], here: string, limit?: number): Promise<NoteListItem[]>;
+  /** 同上的筆數（側板「還有 N 則」、刪除確認句）；ids 空＝0 */
+  countByNodes(nodeIds: readonly string[]): Promise<number>;
+  /** 筆記的家的總數：kind='note' AND inbox=0 AND alive（書封「筆記 N」、手機「筆記 N」；0-16） */
+  countNotes(): Promise<number>;
+  /** Ctrl+P：kind 由參數挑、alive、title／body LIKE；筆記＝noted_at DESC、日記＝entry_date DESC；空字＝[]；limit 必填；收件匣的也算 */
+  searchQuick(kind: NoteKind, query: string, limit: number): Promise<NoteListItem[]>;
 }

@@ -214,6 +214,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const setCalendarView = useUiStore((s) => s.setCalendarView);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const firstDow = useUiStore((s) => s.weekStart);
+  // 線通知「記號資料變了」（接縫 #62）：只當記號 effect 的重查依賴
+  const marksTick = useUiStore((s) => s.calendarMarksTick);
   // 串流的 scroll-spy：頁首月份與 MonthJump 的「目前月」吃它（StreamView 沒掛時為 null）
   const focusDay = useScheduleUiStore((s) => s.focusDay);
 
@@ -285,7 +287,7 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     return () => {
       alive = false;
     };
-  }, [view, range.from, range.to, today]);
+  }, [view, range.from, range.to, today, marksTick]);
 
   /* ───────── 依日期分組 ───────── */
   const byDate = useMemo<CalendarByDate>(() => {

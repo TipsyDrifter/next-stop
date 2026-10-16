@@ -419,6 +419,13 @@ export default function MobileRouteMap() {
         </header>
       )}
 
+      {/* 別線登記的「路線」欄位列（插槽 `nodeFields`，kinds 含 route；接縫 #62）：路線在手機沒有 RowDetail，放在抬頭之下、樹之上；沒有線填＝什麼都不畫 */}
+      {!zoom &&
+        route &&
+        lineNodeFields("mobile")
+          .filter((f) => f.Mobile && f.kinds.includes("route"))
+          .map((f) => (f.Mobile ? <f.Mobile key={f.id} node={route} /> : null))}
+
       {!treeReady ? (
         showLoading ? (
           <p className="m2-note">載入中……</p>

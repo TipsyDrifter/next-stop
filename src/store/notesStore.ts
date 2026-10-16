@@ -43,9 +43,13 @@ import {
   parseRoutePrefix,
   previewDestination,
   resolveDestination,
+  applyCapturePreset,
+  exclusiveNodeFilter,
   splitTodoLines,
   type AttachTarget,
   type CaptureStub,
+  type Destination,
+  type NodeNotesSummary,
   type RouteLike,
   type RoutePrefix,
   type TodoLine,
@@ -80,6 +84,16 @@ export interface PreviewState {
   scheduledOn: string | null;
 }
 
+/** 捕捉框的預掛節點（階段④ 0-2 甲：側板「＋ 在這裡記一則」）；落點列顯示「→ 筆記 · 路線 › 節點」 */
+export interface CapturePreset {
+  /** 筆記存檔時的 node_id（路線／支線／列車／車廂） */
+  nodeId: string;
+  /** 該節點所屬路線（節點本身是路線＝它自己）；路線已不在＝null */
+  routeId: string | null;
+  /** 落點列用的字，例「私鐵手帳 › 第三列車」 */
+  label: string;
+}
+
 /** 旅客筆記的子畫面（車次②加 "diary"；車次③加 "tags"） */
 export type NotesSection = "inbox" | "notes" | "diary" | "tags";
 
@@ -106,6 +120,16 @@ export interface NotesStore {
   freshNoteId: string | null;
   /** 筆記列表還有下一頁（上一次載入剛好滿一頁） */
   notesHasMore: boolean;
+
+  /* ── 階段④・筆記掛樹（契約 §3.3；Stage 0 定稿、只加不改） ── */
+  /** 側板筆記區的快取：key＝節點 id；value＝{ items（≤5，直接掛的在前）, total（含底下的總數） }。`reloadLists`／`reload` 會清空，元件看到快取消失就重載 */
+  nodeNotes: Record<string, NodeNotesSummary<NoteListItem>>;
+  /** 筆記的家的總數（countNotes；書封「筆記 N」、手機「筆記 N」）；null＝還沒載。loadNotes／reloadLists／saveCapture 之後一併更新 */
+  notesTotal: number | null;
+  /** 手機：請 MobileNotes 開這一則的整頁（0-12）；MobileNotes 接手後清回 null */
+  mobileOpenNoteId: string | null;
+  /** 捕捉框的預掛節點（0-2 甲）；`openCapture` 第二參數帶進來，存檔時 nodeId＝它；框關掉後不再有意義（下一次 openCapture 會覆寫） */
+  capturePreset: CapturePreset | null;
 
   /* ── 車次②・日記（子畫面＝一天；契約 §3.6） ── */
   /** 本文的日；初值＝建立當下的 todayKey(dayStartHour)，第一次進日記子畫面時以當下設定重算 */
@@ -145,12 +169,22 @@ export interface NotesStore {
   loadInbox(): Promise<void>;
   /** noteRepo.listNotes(notesQuery) */
   loadNotes(): Promise<void>;
-  /** 設完立刻 loadNotes（搜尋由 UI 去抖 150ms 再叫） */
+  /**
+   * 設完立刻 loadNotes（搜尋由 UI 去抖 150ms 再叫）。
+   * 階段④ P5：`routeId` 與 `underNode` 互斥——兩個同時有值時，與目前篩選不同的那個（剛設的）勝出、另一個清掉
+   */
   setNotesQuery(q: NotesQuery): Promise<void>;
   /** 捲到底：同一個 notesQuery 再載下一頁（offset＝目前筆數），接在尾端 */
   loadMoreNotes(): Promise<void>;
   /** mount 檔的 reload 指到這裡（契約 §3.7） */
   reload(ctx: LineReloadContext): Promise<void>;
+  /**
+   * 載某節點（含子孫）的筆記，寫入 `nodeNotes[nodeId]`（items ≤ 5、直接掛的在前；total＝含底下的總數）。
+   * `descendantIds` 由呼叫端給（`domain/notes.descendantIds`）；失敗＝console.warn、快取不寫（元件顯示空）
+   */
+  loadNodeNotes(nodeId: string, descendantIds: readonly string[]): Promise<void>;
+  /** 手機：請 MobileNotes 開這一則的整頁（0-12）；`mobileOpenNoteId` 設成 id，MobileNotes 的 effect 接手後清回 null */
+  requestMobileOpenNote(id: string): void;
 
   /* ── 收件匣 ── */
   selectInbox(ref: InboxRef | null): void;
@@ -174,7 +208,8 @@ export interface NotesStore {
   startNewNote(): void;
   setEditing(on: boolean): void;
   /** 內文／標題自動存檔入口（UI 去抖 500ms＋blur／Esc 立即）：draftNew 且內容非空 ⇒ create 後 selectedNoteId=新 id */
-  saveNote(patch: NotePatch): Promise<void>;
+  /** 回傳＝這一筆有沒有寫成功（失敗時已 toast；呼叫端用它記「有字沒存出去」，離開編輯時才不會被 store 的舊值蓋掉本地的字） */
+  saveNote(patch: NotePatch): Promise<boolean>;
   /** update {noted_at} */
   setNoteDate(id: string, notedAt: string): Promise<void>;
   /** update {node_id}（null＝摘掉） */
@@ -183,8 +218,12 @@ export interface NotesStore {
   openPreviewFromNotePage(id: string): void;
 
   /* ── 捕捉 ── */
-  /** 互斥規則見契約 §5.2；preview 開著時不開 */
-  openCapture(stub?: CaptureStub): void;
+  /**
+   * 互斥規則見契約 §5.2；preview 開著時不開。
+   * 階段④：第二參數＝預掛節點（0-2 甲）——帶了就票根預選「筆記」（沒指定 stub 時）、落點「→ 筆記 · 路線 › 節點」、存檔時 node_id＝它；
+   * 沒帶＝清掉上一次的預掛
+   */
+  openCapture(stub?: CaptureStub, preset?: CapturePreset): void;
   closeCapture(): void;
   /** 文字變了就把 confirmEsc 清掉；若 parseRoutePrefix().matched !== dismissedPrefix ⇒ dismissedPrefix=null */
   setCaptureText(text: string): void;
@@ -220,7 +259,8 @@ export interface NotesStore {
   /** 草稿存檔：title 與 body 都空白 ⇒ 關草稿、不建不 toast、回 null；否則建在 diaryDay → toast 19；回新 id */
   saveDiaryDraft(input: { title: string; body: string }): Promise<string | null>;
   /** 既有篇的自動存檔（UI 去抖 500ms＋blur／Esc 立即）；只改 title／body，就地合併不整份重載 */
-  saveDiaryEntry(id: string, patch: Pick<NotePatch, "title" | "body">): Promise<void>;
+  /** 回傳＝有沒有寫成功（同 saveNote） */
+  saveDiaryEntry(id: string, patch: Pick<NotePatch, "title" | "body">): Promise<boolean>;
   /** 改歸屬日（0-5，只改 entry_date）→ toast 21（復原＝改回來） */
   setDiaryEntryDate(id: string, day: string): Promise<void>;
   /** softDelete → toast 20（復原＝restore） */
@@ -323,6 +363,8 @@ let confirming = false;
 let draftSaving = false;
 /** 進過日記子畫面沒有（沒進過就不在同步重載時白查日記與足跡） */
 let diaryTouched = false;
+/** 側板筆記區快取的世代：快取被清（reloadLists／存檔／wiped）就加一；飛行中的 loadNodeNotes 回來發現世代變了就丟掉結果，免得舊資料回寫 */
+let nodeNotesGen = 0;
 
 const dayStartNow = (): number => useUiStore.getState().dayStartHour;
 
@@ -369,8 +411,25 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     return true;
   }
 
+  /** 清空側板筆記區快取並換世代（見 `nodeNotesGen`） */
+  function clearNodeNotes(): void {
+    nodeNotesGen++;
+    set({ nodeNotes: {} });
+  }
+
+  /** 筆記的家的總數（書封／手機的「筆記 N」）；失敗＝留著舊值 */
+  async function refreshNotesTotal(): Promise<void> {
+    try {
+      set({ notesTotal: await noteRepo.countNotes() });
+    } catch (e) {
+      console.warn("notesStore.countNotes 失敗", e);
+    }
+  }
+
   async function reloadLists(): Promise<void> {
     await Promise.all([get().loadInbox(), get().loadNotes()]);
+    // 階段④：側板筆記區的快取跟著失效（本機刪筆記／改掛不會通知側板）；元件看到快取消失就重載
+    clearNodeNotes();
   }
 
   /** 日記寫入後的重載：當天清單＋月份記號＋（有搜尋字時）搜尋結果 */
@@ -382,6 +441,8 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       get().loadWeekMarks(),
       q.trim() ? get().setDiaryQuery(q) : Promise.resolve(),
     ]);
+    // 階段④ 0-14：日記寫入（含同步拉到）後，桌機日曆格內的日記記號請它重查一次（`calendarMarksTick`）
+    useUiStore.getState().bumpCalendarMarks();
   }
 
   /**
@@ -395,6 +456,8 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     }
     set({ marksMonth: monthKey(todayNow()) });
     await Promise.all([get().loadMarks(), get().loadWeekMarks()]);
+    // 階段④ 0-14：桌機日曆格內的日記記號只在換月才重查 ⇒ 日記寫完請它重查一次
+    useUiStore.getState().bumpCalendarMarks();
   }
 
   /**
@@ -416,7 +479,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       return "empty";
     }
     if (!res) return "empty";
-    set({ capture: null });
+    set({ capture: null, capturePreset: null });
     toast(res.toast, res.undo ? safeUndo(res.undo) : undefined);
     return "saved";
   }
@@ -453,6 +516,10 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     preview: null,
     freshNoteId: null,
     notesHasMore: false,
+    nodeNotes: {},
+    notesTotal: null,
+    mobileOpenNoteId: null,
+    capturePreset: null,
 
     /* ── 載入 ── */
     setSection(s) {
@@ -496,9 +563,13 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       } catch (e) {
         console.warn("notesStore.loadNotes 失敗", e);
         set({ loading: false, error: message(e) });
+        return;
       }
+      await refreshNotesTotal();
     },
     async setNotesQuery(q) {
+      // P5：routeId 與 underNode 互斥——兩個都有時，與目前篩選不同的（剛設的）勝出
+      q = exclusiveNodeFilter(get().notesQuery, q);
       set({ notesQuery: q });
       await get().loadNotes();
     },
@@ -521,6 +592,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       const has = (t: string) => ctx.wiped || ctx.changed.includes(t);
       if (ctx.wiped) {
         const today = todayNow();
+        nodeNotesGen++;
         set({
           inboxSelected: null,
           selectedNoteId: null,
@@ -529,6 +601,10 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           capture: null,
           preview: null,
           freshNoteId: null,
+          nodeNotes: {},
+          notesTotal: null,
+          mobileOpenNoteId: null,
+          capturePreset: null,
           diarySelectedId: null,
           diaryEditingId: null,
           diaryDraftOpen: false,
@@ -555,9 +631,24 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           console.warn("notesStore.reload 失敗", e);
         }
       }
+      // 階段④ 0-14：同步拉到別台的筆記／日記 ⇒ 日曆格內的日記記號請它重查一次（`calendarMarksTick`）
+      if (has("notes") && !diary) useUiStore.getState().bumpCalendarMarks();
       // 車次③（契約 §3.6）：荷札的 index 與頁面狀態
       await useTagStore.getState().reload(ctx);
     },
+
+    async loadNodeNotes(nodeId, descendantIds) {
+      const ids = [nodeId, ...descendantIds.filter((x) => x !== nodeId)];
+      const gen = nodeNotesGen;
+      try {
+        const [items, total] = await Promise.all([noteRepo.listByNodes(ids, nodeId, 5), noteRepo.countByNodes(ids)]);
+        if (gen !== nodeNotesGen) return; // 查的途中快取被清（有人寫了筆記）：丟掉這趟，元件看到快取消失會重載
+        set({ nodeNotes: { ...get().nodeNotes, [nodeId]: { items, total } } });
+      } catch (e) {
+        console.warn("notesStore.loadNodeNotes 失敗", e);
+      }
+    },
+    requestMobileOpenNote: (id) => set({ mobileOpenNoteId: id }),
 
     /* ── 收件匣 ── */
     selectInbox: (ref) => set({ inboxSelected: ref }),
@@ -697,11 +788,11 @@ export const useNotesStore = create<NotesStore>((set, get) => {
             const createdId = await draftCreating;
             await noteRepo.update(createdId, patch);
             await get().loadNotes();
-            return;
+            return true;
           }
           const body = (patch.body ?? "").replace(/\s+$/, "");
           const title = patch.title ?? null;
-          if (!body.trim() && !(title ?? "").trim()) return; // 空筆記不建、不吐 toast
+          if (!body.trim() && !(title ?? "").trim()) return true; // 空筆記不建、不吐 toast（沒有字，不算失敗）
           // 正在依路線篩選時新建＝掛那條路線（不然一建好就從目前的列表消失；照原型 newNote）
           const filter = s.notesQuery.routeId;
           const nodeId = patch.node_id ?? (filter && filter !== "none" ? filter : null);
@@ -716,14 +807,14 @@ export const useNotesStore = create<NotesStore>((set, get) => {
             draftCreating = null;
           }
           await get().loadNotes();
-          return;
+          return true;
         }
         const id = s.selectedNoteId;
-        if (!id) return;
+        if (!id) return true; // 沒有選取（頁面已離開）：沒有地方可寫，維持原樣不當成失敗
         await noteRepo.update(id, patch);
         if (patch.noted_at !== undefined || patch.node_id !== undefined || patch.inbox !== undefined) {
           await reloadLists(); // 排序／JOIN／歸屬會變：整份重載
-          return;
+          return true;
         }
         // 只改標題／內文：就地補進列表（不重載——去抖存檔每 500ms 一次，整份換掉會閃）
         const now = new Date().toISOString();
@@ -737,8 +828,10 @@ export const useNotesStore = create<NotesStore>((set, get) => {
                 updated_at: now,
               };
         set({ notes: get().notes.map(merge), inboxNotes: get().inboxNotes.map(merge) });
+        return true;
       } catch (e) {
         failToast(e);
+        return false;
       }
     },
     async setNoteDate(id, notedAt) {
@@ -758,17 +851,23 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         return;
       }
       await reloadLists();
+      // 0-16：換掛到別處後，那則不在目前的路線／節點篩選裡 ⇒ 清掉篩選（選取保留——主人剛搬它，要看得到它；內容欄才不會殘留舊字）
+      const q = get().notesQuery;
+      if ((q.routeId || q.underNode) && get().selectedNoteId === id && !get().notes.some((n) => n.id === id)) {
+        await get().setNotesQuery({ ...q, routeId: undefined, underNode: undefined });
+      }
     },
     openPreviewFromNotePage(id) {
       get().openPreviewFromNote(id);
     },
 
     /* ── 捕捉 ── */
-    openCapture(stub) {
+    openCapture(stub, preset) {
       const s = get();
       if (s.preview) return;
       if (s.capture) {
         if (stub) set({ capture: { ...s.capture, stub } });
+        if (preset) set({ capturePreset: preset });
         return;
       }
       // 互斥（契約 §5.2）：有輸入或決定的卡片開著就不開（Esc 會打架）；指引疊層與快速跳轉先關再開
@@ -776,9 +875,12 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       if (ui.confirm || ui.routeDialog || ui.completeCardFor || ui.settingsOpen) return;
       if (ui.quickJumpOpen) ui.setQuickJumpOpen(false);
       if (ui.hotkeyGuideOpen) ui.setHotkeyGuideOpen(false);
-      set({ capture: { text: "", stub: stub ?? "inbox", dismissedPrefix: null, confirmEsc: false } });
+      set({
+        capture: { text: "", stub: stub ?? (preset ? "note" : "inbox"), dismissedPrefix: null, confirmEsc: false },
+        capturePreset: preset ?? null,
+      });
     },
-    closeCapture: () => set({ capture: null }),
+    closeCapture: () => set({ capture: null, capturePreset: null }),
     setCaptureText(text) {
       const c = get().capture;
       if (!c) return;
@@ -806,19 +908,28 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       const c = get().capture;
       if (!c) return;
       if (c.text.trim() && !c.confirmEsc) set({ capture: { ...c, confirmEsc: true } });
-      else set({ capture: null });
+      else set({ capture: null, capturePreset: null });
     },
     async saveCapture() {
       const c = get().capture;
       if (!c) return "empty";
-      const p = captureRouteOf(c, routesNow());
+      const rawPrefix = captureRouteOf(c, routesNow());
+      // 階段④ 0-2：有預掛節點時以它為準——前綴認到的路線與預掛節點的路線不同＝前綴當一般文字；
+      // 只對「筆記」與「收件匣」票根生效（收件匣票根＋預掛節點＝直接存進筆記）；待辦／日記／別線票根照舊
+      // 預掛節點（側板「＋ 在這裡記一則」）：筆記／收件匣票根掛在它身上；待辦票根不建進樹，只拿它的路線當路線標籤（§5.1）
+      const preset = get().capturePreset;
+      const { prefix: p, nodeId: presetNodeId } = applyCapturePreset(c.stub, rawPrefix, c.text, preset, routesNow());
       if (!isBuiltinStub(c.stub)) return saveToTarget(c, p);
-      const dest = resolveDestination(c.stub, !!p);
+      const dest: Destination =
+        presetNodeId !== null
+          ? { target: "note", withRoute: !!p, consumePrefix: !!p }
+          : resolveDestination(c.stub, !!p);
       const body = (dest.consumePrefix && p ? p.body : c.text).replace(/\s+$/, "");
       if (!body.trim()) return "empty";
       if (needsPreview(c.stub, body)) {
         set({
           capture: null,
+          capturePreset: null,
           preview: {
             source: "capture",
             noteId: null,
@@ -832,13 +943,16 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         return "preview";
       }
       const route = dest.withRoute && p ? p.route : null;
-      const text = captureToast(c.stub, dest, route?.name ?? "").text;
+      const text =
+        presetNodeId !== null && preset
+          ? "已存進筆記 · " + preset.label
+          : captureToast(c.stub, dest, route?.name ?? "").text;
       try {
         if (dest.target === "diary") {
           // 車次② §3.6：存檔當下才算今天（不是開框時）；原文照留（consumePrefix=false，前綴也進內文）、不掛路線
           const day = todayNow();
           const row = await noteRepo.create({ kind: "diary", body, inbox: false, entryDate: day });
-          set({ capture: null });
+          set({ capture: null, capturePreset: null });
           await Promise.all([refreshAfterDiaryWrite(), useTagStore.getState().syncNoteTags(row.id, body)]);
           toast(
             diaryToast("capture", day, day),
@@ -857,7 +971,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
             routeTagId: route?.id ?? null,
             scheduledOn: todayNow(),
           });
-          set({ capture: null });
+          set({ capture: null, capturePreset: null });
           await useNodeStore.getState().refresh();
           toast(
             text,
@@ -869,8 +983,14 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           return "saved";
         }
         const inbox = dest.target === "inbox";
-        const row = await noteRepo.create({ kind: "note", body, inbox, nodeId: route?.id ?? null });
-        set({ capture: null, ...(inbox ? { freshNoteId: row.id } : {}) });
+        const row = await noteRepo.create({
+          kind: "note",
+          body,
+          inbox,
+          nodeId: presetNodeId ?? route?.id ?? null,
+        });
+        nodeNotesGen++;
+        set({ capture: null, capturePreset: null, nodeNotes: {}, ...(inbox ? { freshNoteId: row.id } : {}) });
         await Promise.all([inbox ? get().loadInbox() : get().loadNotes(), useTagStore.getState().syncNoteTags(row.id, body)]);
         toast(
           text,
@@ -1073,7 +1193,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         await noteRepo.update(id, patch);
       } catch (e) {
         failToast(e);
-        return;
+        return false;
       }
       // 只改標題／內文：就地合併（去抖存檔每 500ms 一次，整份換掉會閃；與 saveNote 同法）
       const now = new Date().toISOString();
@@ -1087,6 +1207,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
               updated_at: now,
             };
       set({ diaryEntries: get().diaryEntries.map(merge), diaryHits: get().diaryHits.map(merge) });
+      return true;
     },
     async setDiaryEntryDate(id, day) {
       const d = clampDay(day, todayNow());

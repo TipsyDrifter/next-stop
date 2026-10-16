@@ -93,8 +93,10 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
   };
 
   const filter = notesQuery.routeId;
+  /** 階段④ P5：從路線圖「還有 N 則 →」來的節點篩選（支線／列車／車廂＋底下）；與路線篩選互斥 */
+  const underNode = notesQuery.underNode;
   const setFilter = (routeId: string | "none" | undefined) => {
-    void setNotesQuery({ ...useNotesStore.getState().notesQuery, routeId });
+    void setNotesQuery({ ...useNotesStore.getState().notesQuery, routeId, underNode: undefined });
   };
 
   const activeQ = (notesQuery.query ?? "").trim();
@@ -120,6 +122,7 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
   let empty: ReactNode = null;
   if (notes.length === 0) {
     if (activeQ) empty = <p>找不到『{activeQ}』</p>;
+    else if (underNode) empty = <p>這裡還沒有筆記</p>;
     else if (filter) empty = <p>這條路線還沒有筆記</p>;
     else
       empty = (
@@ -171,10 +174,23 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
       </div>
 
       <div className="ns-notes-mroutes" role="group" aria-label="路線篩選">
+        {underNode && (
+          <button
+            type="button"
+            className="ns-notes-mchip on ns-notes-mchipnode"
+            aria-label={`取消篩選：${underNode.label}和底下的筆記`}
+            onClick={() => setFilter(undefined)}
+          >
+            <span className="nm">› {underNode.label}</span>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
-          className={"ns-notes-mchip" + (filter === undefined ? " on" : "")}
-          aria-pressed={filter === undefined}
+          className={"ns-notes-mchip" + (filter === undefined && !underNode ? " on" : "")}
+          aria-pressed={filter === undefined && !underNode}
           onClick={() => setFilter(undefined)}
         >
           全部

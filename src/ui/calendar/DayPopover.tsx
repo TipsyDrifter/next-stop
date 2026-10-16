@@ -40,6 +40,7 @@ import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
 import { addDays } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { lineCalendarDayAux } from "../../lines/runtime";
 import { isEditableTarget } from "../shell/hotkeys";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
 import { showRescheduleToast } from "../today/useTodayController";
@@ -438,6 +439,11 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
             })}
           </div>
         )}
+
+        {/* ═══ 別線的附加段（插槽 `calendarDayAux`，接縫 #62；沒有線填＝什麼都不畫） ═══ */}
+        {lineCalendarDayAux().map(({ id, Aux }) => (
+          <Aux key={id} day={day} close={onClose} />
+        ))}
       </div>
 
       {/* 推遲小卡（單發票四項／定期券兩項，DeferPopover 內建）。

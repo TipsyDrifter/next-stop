@@ -5,7 +5,8 @@
  *             ・日期「10 月 5 日」（點開 DatePop 改 noted_at，保留原時刻）
  *   標題（選填）＋內文讀寫兩態（D-筆-24）：
  *     閱讀＝plainParagraphs 排成段落與換行（Markdown 在車次④）；點一下或 Enter（頁面按鍵表 notes.open）進編輯
- *           車次③：內文的 #荷札 畫成行內小牌（InlineBody；點＝荷札頁，「‹ 回到剛才 <標題>」回這則）
+ *           車次③：內文的 #荷札 畫成行內小牌（點＝荷札頁，「‹ 回到剛才 <標題>」回這則）
+ *           車次④：閱讀態換成 Markdown 排版（MdBody；InlineBody 刪檔），連結外開、點它不進編輯
  *     編輯＝textarea 自動長高；Esc／blur 回閱讀並立即存檔；Tab 不攔
  *           車次③：游標處打 # 出荷札建議（useInlineTagSuggest；建議開著時 Esc 只收建議）；
  *           離開編輯、存檔鏈 flush 之後 `tagStore.syncNoteTags`（契約 0-13：不是每次去抖存檔都解析）
@@ -28,7 +29,8 @@ import { AttachPicker } from "./AttachPicker";
 import { CaptureButton } from "./CaptureButton";
 import { DatePop } from "./DatePop";
 import { Roundel, capsOf, dayOf, isoWithDay } from "./notesBits";
-import { InlineBody } from "./tags/InlineBody";
+import { MdBody } from "./md/MdBody";
+import { resolveLeaveNote } from "./leaveSync";
 import { useInlineTagSuggest } from "./tags/useInlineTagSuggest";
 import { noteBackRef } from "./tags/backRefs";
 
@@ -95,6 +97,8 @@ export function NoteContent({
   const pending = useRef<NotePatch>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chain = useRef<Promise<void>>(Promise.resolve());
+  /** 這一則有字沒存成功（saveNote 回 false）：離開編輯時以本地為準，別讓 store 的舊值把本地的字換掉。換一則才清 */
+  const saveFailed = useRef(false);
   const flush = useCallback((): Promise<void> => {
     if (timer.current) {
       clearTimeout(timer.current);
@@ -104,7 +108,9 @@ export function NoteContent({
     if (!Object.keys(patch).length) return chain.current;
     pending.current = {};
     chain.current = chain.current
-      .then(() => useNotesStore.getState().saveNote(patch))
+      .then(async () => {
+        if (!(await useNotesStore.getState().saveNote(patch))) saveFailed.current = true;
+      })
       .catch((e: unknown) => console.warn("NoteContent：存檔失敗", e));
     return chain.current;
   }, []);
@@ -120,6 +126,10 @@ export function NoteContent({
       flushRef.current = null;
     };
   }, [flush, flushRef]);
+
+  useEffect(() => {
+    saveFailed.current = false;
+  }, [key]);
 
   // 別台同步／別處改了這一則（沒有在打字、也沒有沒送出的字）⇒ 跟上 store
   const noteStamp = note?.updated_at;
@@ -163,12 +173,21 @@ export function NoteContent({
 
   const leaveEditing = (focusRead: boolean) => {
     tagSug.close();
-    const text = body;
+    const local = { title, body };
     const known = useNotesStore.getState().selectedNoteId;
     // 存檔鏈落地之後才解析（草稿的第一次存檔由 store 建檔，id 要等它回來才有）
     void flush().then(() => {
       const nid = known ?? useNotesStore.getState().selectedNoteId;
-      if (nid) void useTagStore.getState().syncNoteTags(nid, text);
+      if (!nid) return;
+      // 編輯期間別台後寫贏了（store 的字和本地不同、本地又沒有沒送出的字）⇒ 本地換成 store 的、荷札依 store 的內文（leaveSync）
+      const r = resolveLeaveNote(nid, local, Object.keys(pending.current).length > 0 || saveFailed.current);
+      if (r.remote && useNotesStore.getState().selectedNoteId === nid) {
+        setBody(r.body);
+        if (!(document.activeElement instanceof HTMLInputElement && document.activeElement.classList.contains("ns-notes-titlein"))) {
+          setTitle(r.title);
+        }
+      }
+      void useTagStore.getState().syncNoteTags(nid, r.body);
     });
     focusReadNext.current = focusRead;
     useNotesStore.getState().setEditing(false);
@@ -345,14 +364,14 @@ export function NoteContent({
                 <>
                   <div
                     ref={readRef}
-                    className="ns-notes-read"
+                    className="ns-notes-read ns-notes-md"
                     tabIndex={0}
                     role="textbox"
                     aria-readonly="true"
                     aria-label={`內文（按 ${capsOf("notes.open")} 編輯）`}
                     onClick={() => useNotesStore.getState().setEditing(true)}
                   >
-                    <InlineBody body={body} backRef={() => noteBackRef(id ?? "", note ? noteTitle({ title, body }) : "筆記")} />
+                    <MdBody body={body} backRef={() => noteBackRef(id ?? "", note ? noteTitle({ title, body }) : "筆記")} />
                   </div>
                   <div className="ns-notes-readhint">
                     點一下或按 {capsOf("notes.open")} 編輯・{capsOf("notes.escape")} 或點外面回到閱讀

@@ -21,6 +21,8 @@ import type { ComponentType } from "react";
 import type { NodeRow } from "../domain";
 import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext, NodeFieldSpec, QuickJumpProviderSpec, TicketSheetItemSpec } from "./types";
 
+type NodeDeleteHintFn = NonNullable<LineMount["nodeDeleteHints"]>;
+
 let installed: Readonly<Record<LineId, LineMount>> | null = null;
 
 /** 只給 `./mounts` 呼叫 */
@@ -174,6 +176,31 @@ export function lineRouteListAsides(): ComponentType<{ route: NodeRow }>[] {
   for (const m of LINE_MANIFESTS) {
     const aside = installed[m.id].routeListAside;
     if (m.mobile.status === "open" && aside) out.push(aside);
+  }
+  return out;
+}
+
+/**
+ * 刪除確認框的附加句提供者（接縫 #62），比照 `lineQuickJumpProviders()`：三線固定順序、只看 `page.status`；`open` 且有填才算。
+ * 沒裝＝空陣列。呼叫端不直接用——一律走 `./deleteHints` 的 `collectDeleteHints`。
+ */
+export function lineNodeDeleteHints(): NodeDeleteHintFn[] {
+  const out: NodeDeleteHintFn[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const fn = installed[m.id].nodeDeleteHints;
+    if (m.page.status === "open" && fn) out.push(fn);
+  }
+  return out;
+}
+
+/** 日曆當日清單浮層底部的一段（接縫 #62），比照 `lineCalendarMarks()`：三線固定順序、只看 `page.status`；`open` 且有填才算。沒裝＝空陣列。 */
+export function lineCalendarDayAux(): { id: LineId; Aux: ComponentType<{ day: string; close(): void }> }[] {
+  const out: { id: LineId; Aux: ComponentType<{ day: string; close(): void }> }[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const Aux = installed[m.id].calendarDayAux;
+    if (m.page.status === "open" && Aux) out.push({ id: m.id, Aux });
   }
   return out;
 }

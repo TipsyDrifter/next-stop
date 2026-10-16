@@ -21,7 +21,7 @@ import { lineCount } from "../../domain/notes";
 import { UketsukeSeal } from "./UketsukeSeal";
 import { AttachPicker } from "./AttachPicker";
 import { DatePop } from "./DatePop";
-import { Kbd, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
+import { Kbd, capsOf, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
 
 export type InboxItem =
   | { kind: "note"; id: string; at: string; note: NoteListItem }
@@ -96,7 +96,10 @@ export function NotesInbox(p: NotesInboxProps) {
                 <InboxRow key={it.id} it={it} today={today} dayStartHour={dayStartHour} {...p} />
               ))}
             </ul>
-            <p className="ns-notes-foothint">↑↓ 選一則・按鍵直接送走・滑鼠停在一則上也會展開</p>
+            <p className="ns-notes-foothint">
+              {capsOf("notes.move.up")}
+              {capsOf("notes.move.down")} 選一則・按鍵直接送走・滑鼠停在一則上也會展開
+            </p>
           </>
         ) : (
           <div className="ns-notes-empty">

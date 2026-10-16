@@ -28,7 +28,9 @@ export async function goNote(id: string): Promise<void> {
     return;
   }
   const q = st.notesQuery;
-  if (q.routeId || (q.query ?? "").trim()) await st.setNotesQuery({ ...q, routeId: undefined, query: "" });
+  // 車次④ P5：節點篩選（underNode）也要清，否則要跳的那則可能不在清單裡
+  if (q.routeId || q.underNode || (q.query ?? "").trim())
+    await st.setNotesQuery({ ...q, routeId: undefined, underNode: undefined, query: "" });
   else if (!st.notes.length) await st.loadNotes();
   // 分頁：還沒載到那一則就往下載（最多 20 頁）
   for (let i = 0; i < 20; i++) {

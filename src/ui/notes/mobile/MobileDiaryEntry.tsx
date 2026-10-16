@@ -16,7 +16,7 @@
  *   鍵盤彈出時把草稿捲進視野：打字框聚焦、視覺視窗變矮（軟鍵盤升起）時各捲一次，存檔鈕跟著打字框露出來。
  *
  * 車次③（契約 §5.5、0-13、0-6 甲）：
- *   - 閱讀態＝MobileInlineBody（行內小牌；點了＝荷札清單頁，「回到剛才」＝回這一天、選中這一篇）。
+ *   - 閱讀態＝MobileMdBody（車次④：Markdown 排版，與桌機同一支；行內小牌；點了＝荷札清單頁，「回到剛才」＝回這一天、選中這一篇）。
  *   - 編輯中（既有篇與草稿）底部一條 MobileTagToolbar（「#」插入、游標處建議）；點選器開著時失焦不算離開編輯。
  *   - 既有篇離開編輯（失焦）＝存檔鏈送完後 `tagStore.syncNoteTags`；草稿的解析由 store 的 saveDiaryDraft 做。
  *   - 「改日期」的挑選器傳 `useDiaryPickMarks()`：自畫月格上寫過日記的日子有記號（D-筆-46 修訂）。
@@ -32,8 +32,9 @@ import type { NoteListItem } from "../../../data/noteRepository";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { charCount, hhmm } from "./mobileDiaryBits";
-import { MobileInlineBody } from "./MobileInlineBody";
+import { MobileMdBody } from "./MobileMdBody";
 import { MobileTagToolbar } from "./MobileTagToolbar";
+import { resolveLeaveDiary } from "../leaveSync";
 import { insertTagsAt } from "./mobileTagBits";
 
 /** IME 護欄：組字中（含 Android 部分 IME 只送 229、不帶 isComposing）一律不攔鍵 */
@@ -124,6 +125,8 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
   latest.current = { title, body };
   const saved = useRef({ title: n.title ?? "", body: n.body });
   const chain = useRef<Promise<void>>(Promise.resolve());
+  /** 有字沒存成功（saveDiaryEntry 回 false）：離開編輯時以本地為準，別讓 store 的舊值把本地的字換掉（leaveSync） */
+  const saveFailed = useRef(false);
   const timer = useRef<number | undefined>(undefined);
   const pending = useRef(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -142,7 +145,7 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
         if (cur.body !== saved.current.body) patch.body = cur.body;
         if (patch.title === undefined && patch.body === undefined) return;
         saved.current = { ...cur };
-        await saveDiaryEntry(n.id, patch);
+        if (!(await saveDiaryEntry(n.id, patch))) saveFailed.current = true;
       })
       .catch((e) => console.warn("MobileDiaryEntry 存檔失敗", e));
     return chain.current;
@@ -156,7 +159,18 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
   /** 上一次解析荷札時的內文（同一份不重送；契約 0-13） */
   const syncedBody = useRef(n.body);
   const syncTags = () => {
-    const b = latest.current.body;
+    // 編輯期間別台後寫贏了（store 的字和本地不同、本地又沒有沒送出的字）⇒ 本地換成 store 的、荷札依 store 的內文（leaveSync）
+    const unsent =
+      saveFailed.current || latest.current.title !== saved.current.title || latest.current.body !== saved.current.body;
+    const r = resolveLeaveDiary(n.id, latest.current, unsent);
+    if (r.remote) {
+      const next = { title: titleFocused.current ? latest.current.title : r.title, body: r.body };
+      latest.current = next;
+      saved.current = { ...next };
+      setTitle(next.title);
+      setBody(next.body);
+    }
+    const b = r.body;
     if (b === syncedBody.current) return;
     syncedBody.current = b;
     void useTagStore.getState().syncNoteTags(n.id, b);
@@ -181,9 +195,10 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
   useEffect(() => {
     const incoming = { title: n.title ?? "", body: n.body };
     if (incoming.title === saved.current.title && incoming.body === saved.current.body) return;
-    if (editing || titleFocused.current || pending.current) return;
+    if (editing || titleFocused.current || pending.current || saveFailed.current) return; // 存檔失敗過：本地的字還沒進 DB，不讓 store 的舊值蓋掉
     if (latest.current.title !== saved.current.title || latest.current.body !== saved.current.body) return;
     saved.current = incoming;
+    latest.current = { ...incoming }; // render 之前就要讓 syncTags 看到對齊後的字（離開編輯的同一拍，這個 effect 先於存檔鏈收尾）
     setTitle(incoming.title);
     setBody(incoming.body);
   }, [n.title, n.body, editing]);
@@ -290,7 +305,7 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
           />
         ) : (
           <div
-            className="ns-notes-mread"
+            className="ns-notes-mread ns-notes-mmd"
             role="button"
             tabIndex={0}
             aria-label="日記內文（點一下編輯）"
@@ -305,7 +320,7 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
               setDiaryEditing(n.id);
             }}
           >
-            <MobileInlineBody
+            <MobileMdBody
               body={body}
               placeholder="（空白，點一下開始寫）"
               onOpenTag={(key) =>

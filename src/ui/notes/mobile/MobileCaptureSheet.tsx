@@ -24,6 +24,11 @@
  *
  * 車次③（契約 §5.5、7.2-7）：打字區游標處打 `#` ⇒ 打字區下方出荷札建議（MobileTagSuggest；組字中不出）；
  *   點一列＝把 `#q` 換成 `#名稱 `、游標放回去。存檔後的解析與掛上由 store 的 saveCapture 做（§2.1）。
+ *
+ * 車次④（契約 0-2 甲、§5.5-1、§5.7-5）：從路線圖「＋ 記一則」開的面板帶預掛節點（`store.capturePreset`）：
+ *   票根預選「筆記」，落點一行＝「→ 筆記 · 路線 › 節點」；「收件匣」票根＋預掛＝同樣直接進筆記。
+ *   路線前綴認到同一條路線＝照常吃掉（路線票根照畫、可取消）；認到別條路線＝前綴當一般文字（以預掛為準）。
+ *   規則與 store.saveCapture 同一條；待辦／日記／別線票根不吃預掛、照舊。
  */
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { MobileTagSuggest } from "./MobileTagToolbar";
@@ -32,6 +37,7 @@ import { useNodeStore } from "../../../store/nodeStore";
 import { captureRouteOf, captureStubList, captureTargetOf, useNotesStore } from "../../../store/notesStore";
 import {
   STUB_HINT,
+  applyCapturePreset,
   STUB_LABEL,
   isBuiltinStub,
   needsPreview,
@@ -53,6 +59,7 @@ function stubText(k: CaptureStub): { label: string; hint: string } | null {
 
 export function MobileCaptureSheet() {
   const capture = useNotesStore((s) => s.capture);
+  const preset = useNotesStore((s) => s.capturePreset);
   const routes = useNodeStore((s) => s.routes);
   const setCaptureText = useNotesStore((s) => s.setCaptureText);
   const setCaptureStub = useNotesStore((s) => s.setCaptureStub);
@@ -84,8 +91,16 @@ export function MobileCaptureSheet() {
 
   if (!capture) return null;
 
-  const p = captureRouteOf(capture, routes);
+  const rawP = captureRouteOf(capture, routes);
+  // 階段④ 0-2：預掛節點——與 store.saveCapture 同一支純函式（domain applyCapturePreset）：
+  //   筆記／收件匣票根＝掛在預掛節點（收件匣＋預掛＝直接進筆記），前綴認到別條路線＝前綴當一般文字；
+  //   待辦票根＝不建進樹，只借預掛節點的路線當路線標籤（合成的前綴 matched＝""，沒有字可取消）
+  const { prefix: p, nodeId: presetNodeId } = applyCapturePreset(capture.stub, rawP, capture.text, preset, routes);
+  const usePreset = preset !== null && presetNodeId !== null;
   const route = p ? (routes.find((r) => r.id === p.routeId) ?? null) : null;
+  const rawRoute = rawP ? (routes.find((r) => r.id === rawP.routeId) ?? null) : null;
+  /** 合成的前綴（待辦＋預掛）：畫在落點一行就好，不畫可取消的路線票根 */
+  const typedPrefix = !!p && p.matched !== "";
   const stubs = captureStubList("mobile");
   const spec = isBuiltinStub(capture.stub) ? null : captureTargetOf(capture.stub);
 
@@ -95,7 +110,13 @@ export function MobileCaptureSheet() {
   let noInboxNote = false;
   /** 認到前綴、但這枚票根不吃路線 ⇒ 路線票根淡化 */
   let routeMuted: string | null = null;
-  if (isBuiltinStub(capture.stub)) {
+  if (usePreset) {
+    // 「→ 筆記 · 路線 › 節點」（§5.7-5）；同路線的前綴照樣被吃掉（路線票根照畫、可取消），落點仍以預掛節點為準
+    body = p ? p.body : capture.text;
+    destText = "→ 筆記 · " + preset.label;
+    showRoute = false;
+    if (rawP && !p) routeMuted = "已掛在這裡";
+  } else if (isBuiltinStub(capture.stub)) {
     const dest = resolveDestination(capture.stub, !!p);
     body = dest.consumePrefix && p ? p.body : capture.text;
     if (needsPreview(capture.stub, body)) {
@@ -125,7 +146,7 @@ export function MobileCaptureSheet() {
       escapeCapture();
       return;
     }
-    if (e.key === "Backspace" && p) {
+    if (e.key === "Backspace" && rawP) {
       const ta = e.currentTarget;
       if (ta.selectionStart === 0 && ta.selectionEnd === 0) {
         e.preventDefault();
@@ -209,17 +230,17 @@ export function MobileCaptureSheet() {
           })}
         </div>
 
-        {p && route && routeMuted && (
+        {rawP && rawRoute && routeMuted && (
           <div className="ns-notes-mroute">
-            <span className="ns-notes-mroutestub muted" title={`認到路線前綴「${p.matched.trim()}」——這一枚票根不掛路線，原文照留`}>
-              <RouteDot route={route} />
-              <span className="nm">{route.name}</span>
+            <span className="ns-notes-mroutestub muted" title={`認到路線前綴「${rawP.matched.trim()}」——${usePreset ? `已掛在「${preset?.label ?? ""}」` : "這一枚票根不掛路線"}，原文照留`}>
+              <RouteDot route={rawRoute} />
+              <span className="nm">{rawRoute.name}</span>
               <span className="why">・{routeMuted}</span>
             </span>
           </div>
         )}
 
-        {p && route && !routeMuted && (
+        {typedPrefix && p && route && !routeMuted && (
           <div className="ns-notes-mroute">
             <span className="ns-notes-mroutestub" title={`認到路線前綴「${p.matched.trim()}」`}>
               <span className="arr" aria-hidden>

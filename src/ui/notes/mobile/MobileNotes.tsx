@@ -16,6 +16,9 @@
  *   （MobileTagPage，左上「‹ 荷札」返回），與筆記整頁同法取代頂部分段。進頁跑一次通車補掛（`ensureBackfill`，契約 0-9／0-10）。
  *   從別處進荷札（行內小牌、路線圖詳情）＝section 換成 "tags" ⇒ 筆記整頁關掉（契約 §3.6 末）；
  *   筆記整頁裡的小牌給的「回到剛才」會把整頁再打開（`openTagFromNote`）。
+ *
+ * 車次④：別處（路線圖詳情的筆記列）要開一則的整頁＝`notesStore.requestMobileOpenNote(id)`（0-12）；本頁的 effect 接手
+ *   （清篩選→找到那則→開整頁），請求清回 null——「整頁開著」仍是本頁的 state。「筆記 N」改讀 store 的 `notesTotal`（0-16）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNotesStore } from "../../../store/notesStore";
@@ -36,16 +39,15 @@ export function MobileNotes() {
   const tagCount = useTagStore((s) => (s.index ? Object.values(s.index.byKey).filter((x) => x.real).length : null));
   const setSection = useNotesStore((s) => s.setSection);
   const inboxCount = useNotesStore((s) => s.inboxNotes.length + s.inboxTickets.length);
-  const notes = useNotesStore((s) => s.notes);
-  const notesQuery = useNotesStore((s) => s.notesQuery);
+  // 「筆記 N」＝筆記總數（store 的 countNotes；階段④ 0-16——不再數已載入的頁）
+  const notesTotal = useNotesStore((s) => s.notesTotal);
+  const mobileOpenNoteId = useNotesStore((s) => s.mobileOpenNoteId);
   const loadInbox = useNotesStore((s) => s.loadInbox);
   const loadNotes = useNotesStore((s) => s.loadNotes);
   const selectNote = useNotesStore((s) => s.selectNote);
   const startNewNote = useNotesStore((s) => s.startNewNote);
   const setNotesQuery = useNotesStore((s) => s.setNotesQuery);
   const [pageOpen, setPageOpen] = useState(false);
-  /** 「筆記 N」的 N＝筆記總數：只在沒有篩選、沒有搜尋時更新（篩選中的列表長度不是總數） */
-  const [notesTotal, setNotesTotal] = useState<number | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
 
@@ -53,10 +55,6 @@ export function MobileNotes() {
     void loadInbox();
     void loadNotes();
   }, [loadInbox, loadNotes]);
-
-  useEffect(() => {
-    if (!notesQuery.routeId && !(notesQuery.query ?? "").trim()) setNotesTotal(notes.length);
-  }, [notes, notesQuery]);
 
   // 通車補掛（每台一次；守門在 store）＝進旅客筆記頁就跑，不等第一次點「荷札」
   useEffect(() => {
@@ -107,6 +105,44 @@ export function MobileNotes() {
     }
     setPageOpen(true);
   };
+
+  /**
+   * 從別處開一則筆記的整頁（階段④ 0-12：路線圖詳情的筆記列 → `requestMobileOpenNote`）。
+   * 先清掉路線／節點篩選與搜尋（不然列表裡可能沒有它，整頁拿不到它的掛在哪／日期；同 MobileTagPage 的 goNote）、
+   * 還沒載到就往下翻頁；在收件匣的＝收件匣段選中；找不到（已刪）＝停在筆記段列表。接手後把請求清回 null。
+   */
+  const openPageRef = useRef(openPage);
+  openPageRef.current = openPage;
+  useEffect(() => {
+    if (!mobileOpenNoteId) return;
+    const id = mobileOpenNoteId;
+    useNotesStore.setState({ mobileOpenNoteId: null });
+    void (async () => {
+      const ns = useNotesStore.getState();
+      const q = ns.notesQuery;
+      // 沒篩選也重載一次：剛掛上的那則可能還不在手上的列表裡（進頁那一趟載入還在路上）
+      if (q.routeId || q.underNode || (q.query ?? "").trim()) await ns.setNotesQuery({});
+      else await ns.loadNotes();
+      for (let i = 0; i < 20; i++) {
+        const s = useNotesStore.getState();
+        if (s.notes.some((n) => n.id === id) || !s.notesHasMore) break;
+        await s.loadMoreNotes();
+      }
+      const st = useNotesStore.getState();
+      if (st.notes.some((n) => n.id === id)) {
+        st.setSection("notes");
+        openPageRef.current(id);
+        return;
+      }
+      await st.loadInbox();
+      if (useNotesStore.getState().inboxNotes.some((n) => n.id === id)) {
+        st.setSection("inbox");
+        st.selectInbox({ kind: "note", id });
+        return;
+      }
+      st.setSection("notes");
+    })();
+  }, [mobileOpenNoteId]);
 
   const showPage = section === "notes" && pageOpen;
   const showTagPage = section === "tags" && tagKey !== null;

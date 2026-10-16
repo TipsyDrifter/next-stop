@@ -15,7 +15,7 @@
  * 車次②「日記・當天足跡」（docs/research/2026-10-08-旅客筆記-車次②日記與當天足跡-契約.md §4）：檔尾加足跡型別與日記純函式；
  * 票根放寬為「內建四枚 ∪ 別線登記的捕捉目的地 id」（D-筆-36）。月曆的週首一律由呼叫端傳 `weekStart`（uiStore.weekStart），本檔不寫死。
  */
-import type { Mood, NodeRow } from "./node";
+import type { Mood, NodeKind, NodeRow } from "./node";
 
 /* ═══ 型別（契約 §4.1） ═══ */
 
@@ -274,25 +274,44 @@ export function isInboxTicket(
 }
 
 /* ═══ 筆記的標題與摘要（=logic.js:175-202） ═══
- * stripMdLine 只去 `#`、`>`、條列符號、`**`——不是 Markdown 渲染。 */
+ * 車次④（契約 0-10）：stripMdLine 去 `#`、`>`、條列符號、`**`、`*斜體*`、行內程式碼的反引號、`[字](網址)` 的網址；
+ * 分隔線與圍欄標記行整行丟掉（圍欄內的行照留）。不是 Markdown 渲染——列表不畫粗體或程式碼（D-筆-23）。 */
 
-function stripMdLine(s: string): string {
+const RE_MD_FENCE = /^ {0,3}(`{3,}|~{3,})/;
+const RE_MD_HR = /^[-*_]{3,}\s*$/;
+
+/** 一行去掉 Markdown 符號（摘要、標題行用）；分隔線、圍欄標記行＝空字串 */
+export function stripMdLine(s: string): string {
+  if (RE_MD_FENCE.test(s) || RE_MD_HR.test(s.trim())) return "";
   return s
     .replace(RE_HASH_HEAD, "")
     .replace(/^>[ \t]?/, "")
     .replace(RE_BULLET_SPACED, "")
     .replace(RE_BULLET_GLYPH, "")
+    .replace(/\[([^\]]+)\]\([^)\s]+\)/g, "$1")
     .replace(/\*\*/g, "")
+    .replace(/\*(\S[^*]*?)\*/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
     .trim();
 }
 
-export function firstLine(body: string): string {
-  const lines = String(body || "").split("\n");
-  for (const l of lines) {
-    const t = stripMdLine(l);
-    if (t) return t;
+/** 內文逐行去符號、丟掉空行；圍欄裡的行只去頭尾空白（不當標題／條列剝）、圍欄標記行不出現 */
+function summaryLines(body: string): string[] {
+  const out: string[] = [];
+  let inFence = false;
+  for (const l of String(body || "").split("\n")) {
+    if (RE_MD_FENCE.test(l)) {
+      inFence = !inFence;
+      continue;
+    }
+    const t = inFence ? l.trim() : stripMdLine(l);
+    if (t) out.push(t);
   }
-  return "";
+  return out;
+}
+
+export function firstLine(body: string): string {
+  return summaryLines(body)[0] ?? "";
 }
 
 /** 列表標題：有標題用標題，沒有用內文第一行，都沒有＝「（空白）」 */
@@ -303,10 +322,7 @@ export function noteTitle(n: Pick<NoteRow, "title" | "body">): string {
 
 /** 摘要：有標題時從內文開頭取；沒標題時跳過已當成標題的第一行 */
 export function excerpt(n: Pick<NoteRow, "title" | "body">, max: number): string {
-  let lines = String(n.body || "")
-    .split("\n")
-    .map(stripMdLine)
-    .filter(Boolean);
+  let lines = summaryLines(n.body);
   if (!(n.title || "").trim()) lines = lines.slice(1);
   const s = lines.join(" ");
   return s.length > max ? s.slice(0, max) + "…" : s;
@@ -462,7 +478,7 @@ export function diaryEmptyText(isToday: boolean): { text: string; button: string
 
 /** 草稿內文的 placeholder（=app.js:378） */
 export function diaryPlaceholder(isToday: boolean): string {
-  return isToday ? "今天過得怎麼樣…" : "那天發生了什麼…（旁邊的足跡可以翻）";
+  return isToday ? "今天過得怎麼樣…" : "那天發生了什麼…（翻翻足跡）";
 }
 
 /** 草稿眉標：「今天的日記」／「補記 10 月 2 日」（=app.js:376） */
@@ -704,4 +720,157 @@ export function weekdayZh(day: string): string {
 export function fmtShortDay(day: string): string {
   const [, m, d] = partsOf(day);
   return m + "/" + d;
+}
+
+/* ═══ 車次④・筆記掛樹（契約 §4.3；Stage 0 定稿、之後只加不改） ═══ */
+
+/** 側板筆記區的 kinds（`AttachTarget.nodeKind` 的同一組；車票不含，D-筆-6） */
+export const NOTE_NODE_KINDS: readonly NodeKind[] = ["route", "branch", "train", "car"];
+
+/**
+ * 某節點底下所有子孫的 id（深度優先、前序；不含自己）。`childrenOf`＝parent id → 子節點 id 陣列（nodeStore.tree 的 childrenOf）。
+ * 防環：走過的不再走，自己也不會出現在結果裡（同 flattenAttachTree 的 seen）。
+ */
+export function descendantIds(childrenOf: Readonly<Record<string, readonly string[]>>, id: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([id]);
+  const walk = (cur: string): void => {
+    for (const c of childrenOf[cur] ?? []) {
+      if (seen.has(c)) continue;
+      seen.add(c);
+      out.push(c);
+      walk(c);
+    }
+  };
+  walk(id);
+  return out;
+}
+
+/** 側板筆記區的快取值（`notesStore.nodeNotes[nodeId]`）：items＝最多 5 則（直接掛的在前）、total＝含底下的總數 */
+export interface NodeNotesSummary<T extends NoteRow = NoteRow> {
+  items: T[];
+  total: number;
+}
+
+/** 列表列需要的欄（`NoteListItem` 結構上滿足；domain 不 import data 層） */
+export interface NoteItemLike extends NoteRow {
+  route_id: string | null;
+  node_name: string | null;
+  node_kind: NodeKind | null;
+}
+
+/**
+ * 側板的一列：`noteTitle`、`excerpt(n, 40)`；`where`＝掛在子孫上時「› 節點名」（`node_id !== here`），直接掛的＝null。
+ * `here`＝側板目前這個節點的 id；沒有（null）＝一律當直接掛的。
+ */
+export function nodeNotesLine(
+  item: NoteItemLike,
+  here: string | null,
+): { title: string; excerpt: string; where: string | null } {
+  const sub = here !== null && item.node_id !== here && !!item.node_name;
+  return { title: noteTitle(item), excerpt: excerpt(item, 40), where: sub ? "› " + item.node_name : null };
+}
+
+/**
+ * Ctrl+P 的一列：
+ *   筆記＝label 是 `noteTitle`、aside 是「M/D・路線名」（沒掛路線只有「M/D」）
+ *   日記＝label 是「M/D（週X）」、aside 是 `excerpt(n, 24)`
+ * 日期要日界線日：呼叫端傳 `opts.dayOf`（＝`iso => dayKeyOf(iso, dayStartHour)`）；沒傳就取 ISO 前十碼。
+ * 路線名：節點本身是路線＝`node_name`；其餘由 `opts.routeName(route_id)` 查（沒傳或查不到＝改用 `node_name`）。
+ */
+export function quickHitLabel(
+  item: NoteItemLike,
+  opts: { dayOf?: (iso: string) => string; routeName?: (routeId: string) => string | null | undefined } = {},
+): { label: string; aside: string } {
+  if (item.kind === "diary") {
+    const day = item.entry_date ?? "";
+    return {
+      label: day ? fmtShortDay(day) + "（週" + weekdayZh(day) + "）" : "（無日期）",
+      aside: excerpt(item, 24),
+    };
+  }
+  const day = opts.dayOf ? opts.dayOf(item.noted_at) : item.noted_at.slice(0, 10);
+  const when = fmtShortDay(day);
+  const where =
+    item.node_kind === "route"
+      ? item.node_name
+      : ((item.route_id && opts.routeName ? opts.routeName(item.route_id) : null) ?? item.node_name);
+  return { label: noteTitle(item), aside: where ? when + "・" + where : when };
+}
+
+/* ─── 捕捉框的預掛節點（契約 0-2 甲、§3.3、§5.1；store 的 saveCapture 與測試共用這一份） ─── */
+
+/** 捕捉框的預掛節點（側板「＋ 在這裡記一則」帶進來） */
+export interface CapturePresetLike {
+  /** 筆記存檔時的 node_id（路線／支線／列車／車廂） */
+  nodeId: string;
+  /** 該節點所屬路線（節點本身是路線＝它自己）；路線已不在＝null */
+  routeId: string | null;
+  /** 落點列用的字，例「私鐵手帳 › 第三列車」 */
+  label: string;
+}
+
+/**
+ * 預掛節點對存檔的影響（只在 `preset` 有值時動；沒有＝原樣回傳、`nodeId`＝null）：
+ *   - 票根＝筆記／收件匣：存成筆記、掛在預掛節點（收件匣票根＋預掛節點＝直接進筆記，不進收件匣）；路線前綴認到的路線與預掛節點的
+ *     路線不同＝前綴當一般文字（`prefix`＝null）；相同＝照舊吃掉前綴。回傳 `nodeId`＝預掛節點 id
+ *   - 票根＝待辦：不建進樹，只拿預掛節點所屬的路線當路線標籤（落點「→ 今日 · 路線名」）——前綴規則同上；沒打前綴就合成一個
+ *     （`matched`＝""；內文＝原字）。預掛節點的路線已不在 `routes` 裡＝不動。`nodeId`＝null
+ *   - 日記與別線登記的票根：照舊（預掛節點不影響）
+ */
+export function applyCapturePreset(
+  stub: CaptureStub,
+  rawPrefix: RoutePrefix | null,
+  text: string,
+  preset: CapturePresetLike | null,
+  routes: readonly RouteLike[],
+): { prefix: RoutePrefix | null; nodeId: string | null } {
+  if (!preset) return { prefix: rawPrefix, nodeId: null };
+  if (stub === "note" || stub === "inbox") {
+    const same = !rawPrefix || rawPrefix.route.id === preset.routeId;
+    return { prefix: same ? rawPrefix : null, nodeId: preset.nodeId };
+  }
+  if (stub === "todo" && preset.routeId) {
+    const route = routes.find((r) => r.id === preset.routeId);
+    if (!route) return { prefix: rawPrefix, nodeId: null };
+    if (rawPrefix && rawPrefix.route.id === route.id) return { prefix: rawPrefix, nodeId: null };
+    return {
+      prefix: { route, routeId: route.id, prefixLen: 0, matched: "", body: text.replace(/^[ \t　]+/, "") },
+      nodeId: null,
+    };
+  }
+  return { prefix: rawPrefix, nodeId: null };
+}
+
+/**
+ * 筆記清單的篩選互斥（契約 §0-0 P5）：`routeId`（整條路線）與 `underNode`（某節點底下）只能有一個。
+ * 兩個同時有值時，與 `prev` 不同的那個（剛設的）勝出、另一個清掉；其餘原樣回傳。
+ */
+export function exclusiveNodeFilter<Q extends { routeId?: string; underNode?: unknown }>(prev: Q, next: Q): Q {
+  if (!next.underNode || !next.routeId) return next;
+  return next.underNode !== prev.underNode ? { ...next, routeId: undefined } : { ...next, underNode: undefined };
+}
+
+/**
+ * 離開編輯那一刻，荷札與閱讀態「該用哪份字」（兩台同時編輯、LWW 後寫贏的收尾）。
+ *
+ * 情境：B 在編輯態，別台（A）後寫整份改掉並同步拉到 B；B 之後沒再打字就離開。
+ * B 的本地 state 還是自己舊打的字，DB／store 裡卻是 A 的版本——拿本地字解析荷札會掛上 DB 內文根本沒有的荷札（孤兒 tagging）。
+ *
+ * 呼叫時機：存檔鏈 flush 完成之後。自己剛存出去的字，store 會就地換成同一份，所以「store≠本地」只可能是別處改的：
+ *   - hasUnsent＝true（還有沒送出的字，例：送出失敗後又打字）⇒ 本地為準；
+ *   - 讀不到 store 那一則（被刪、換了篩選）⇒ 本地為準；
+ *   - 其餘：比對時忽略內文尾端空白（草稿建檔會 trim 尾端）與空標題（空／空白＝null），不同 ⇒ 遠端贏、用 store 的。
+ * 打字途中不套用（會讓游標跳）——只在離開編輯那一刻對齊。
+ */
+export function resolveLeaveText(
+  local: { title: string; body: string },
+  stored: { title: string | null; body: string } | null | undefined,
+  hasUnsent: boolean,
+): { remote: boolean; title: string; body: string } {
+  if (hasUnsent || !stored) return { remote: false, ...local };
+  const normTitle = (t: string | null | undefined) => (t && t.trim() ? t : "");
+  const same = stored.body.trimEnd() === local.body.trimEnd() && normTitle(stored.title) === normTitle(local.title);
+  if (same) return { remote: false, ...local };
+  return { remote: true, title: stored.title ?? "", body: stored.body };
 }

@@ -25,6 +25,7 @@ import {
   type TreeIndex,
 } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { addDays, todayKey } from "../../lib/date";
 import type { CommitVia } from "./InlineInput";
 import type { OutlineKeyActions } from "./useOutlineKeyboard";
@@ -364,13 +365,16 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       });
     };
     if (count >= 5) {
-      ui().askConfirm({
-        title: `連同 ${count} 個子項一起刪除？`,
-        body: `『${n.name}』底下的 ${count} 個節點會一起移除；10 秒內可從底部提示復原。`,
-        confirmLabel: "刪除",
-        danger: true,
-        onConfirm: () => void run(),
-      });
+      // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
+      void collectDeleteHints(n, descendantIdsOf(t, id)).then((hints) =>
+        ui().askConfirm({
+          title: `連同 ${count} 個子項一起刪除？`,
+          body: withDeleteHints(`『${n.name}』底下的 ${count} 個節點會一起移除；10 秒內可從底部提示復原。`, hints),
+          confirmLabel: "刪除",
+          danger: true,
+          onConfirm: () => void run(),
+        }),
+      );
     } else {
       void run();
     }

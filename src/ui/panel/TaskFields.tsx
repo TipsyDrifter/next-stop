@@ -38,6 +38,7 @@ import { RepeatSection, TeikiStampRow } from "./RepeatRuleEditor";
 import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
 import { lineNodeFields } from "../../lines/runtime";
+import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 
 const STATUS_OPTIONS: { value: NodeStatus; label: string }[] = [
   { value: "todo", label: "未開始" },
@@ -150,7 +151,7 @@ export function LineRows({ node }: { node: NodeRow }) {
   return (
     <>
       {lineFieldsFor(node).map((f) => (
-        <FieldRow key={f.id} label={f.label}>
+        <FieldRow key={f.id} label={f.label} top={f.top}>
           <f.Desktop node={node} />
         </FieldRow>
       ))}
@@ -196,13 +197,16 @@ function useNodeActions() {
       });
     };
     if (n >= 5) {
-      askConfirm({
-        title: `將連同 ${n} 個子項一起刪除？`,
-        body: `「${node.name}」底下的 ${n} 個節點會一起移除；刪除後 10 秒內可從提示列復原。`,
-        confirmLabel: "一起刪除",
-        danger: true,
-        onConfirm: () => void run(),
-      });
+      // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
+      void collectDeleteHints(node, descendantIdsOf(tree, node.id)).then((hints) =>
+        askConfirm({
+          title: `將連同 ${n} 個子項一起刪除？`,
+          body: withDeleteHints(`「${node.name}」底下的 ${n} 個節點會一起移除；刪除後 10 秒內可從提示列復原。`, hints),
+          confirmLabel: "一起刪除",
+          danger: true,
+          onConfirm: () => void run(),
+        }),
+      );
     } else {
       void run();
     }

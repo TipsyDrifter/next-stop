@@ -6,10 +6,23 @@
  *   - `NotesCoverAux`：書封頁務件（mount 的 `sidebarAux`，0-17）
  *   - `TagField`：任務側板「荷札」欄的桌機元件（`nodeFields` 一筆的 `Desktop`；手機的 `Mobile` 在 mobile.ts，整合席組成一筆 spec）
  *   - `NOTES_QUICK_JUMP`：Ctrl+P 的荷札提供者（mount 的 `quickJump`，0-5；整合席接 QuickJump 後填）
+ * 車次④（契約 §2.2、§6.1；整合席填 mount）：
+ *   - `NoteField`：任務側板「筆記」區（`nodeFields` 第二筆的 `Desktop`；kinds＝`NOTE_NODE_KINDS`、`top: true`）
+ *   - `CalendarDiaryAux`：日曆當日清單浮層底部的「日記」列（mount 的 `calendarDayAux`）
+ *   - `NOTES_QUICK_JUMPS`：Ctrl+P 三組提供者［荷札、筆記、日記］（mount 的 `quickJump` 改填這個陣列；§5.2、0-3 甲）
  */
+import type { QuickJumpProviderSpec } from "../../lines/types";
+import { NOTES_QUICK_JUMP } from "./tags/quickJump";
+import { NOTES_QJ_DIARY, NOTES_QJ_NOTES } from "./quickJumpNotes";
+
 export { NotesView } from "./NotesView";
 export { NotesDesktopOverlay } from "./NotesDesktopOverlay";
 export { CaptureButton } from "./CaptureButton";
 export { NotesCoverAux } from "./NotesCoverAux";
 export { TagField } from "./tags/TagField";
 export { NOTES_QUICK_JUMP } from "./tags/quickJump";
+export { NoteField } from "./NoteField";
+export { CalendarDiaryAux } from "./CalendarDiaryAux";
+export { NOTES_QJ_NOTES, NOTES_QJ_DIARY };
+/** Ctrl+P 的三組（順序＝畫面上的組序：荷札、筆記、日記） */
+export const NOTES_QUICK_JUMPS: readonly QuickJumpProviderSpec[] = [NOTES_QUICK_JUMP, NOTES_QJ_NOTES, NOTES_QJ_DIARY];

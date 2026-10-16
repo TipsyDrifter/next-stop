@@ -53,6 +53,16 @@ import {
   footprintLogs,
   footprintSeals,
   MISSING_NODE_NAME,
+  NOTE_NODE_KINDS,
+  descendantIds,
+  nodeNotesLine,
+  quickHitLabel,
+  stripMdLine,
+  resolveLeaveText,
+  applyCapturePreset,
+  exclusiveNodeFilter,
+  type NoteItemLike,
+  type RoutePrefix,
   type CaptureStub,
   type FootprintDay,
   type FootprintLog,
@@ -527,7 +537,7 @@ test("diaryEmptyText：今天／其他天", () => {
 });
 test("diaryPlaceholder：今天／其他天", () => {
   assert.equal(diaryPlaceholder(true), "今天過得怎麼樣…");
-  assert.equal(diaryPlaceholder(false), "那天發生了什麼…（旁邊的足跡可以翻）");
+  assert.equal(diaryPlaceholder(false), "那天發生了什麼…（翻翻足跡）");
 });
 test("diaryDraftMeta：今天的日記／補記 M 月 D 日", () => {
   assert.equal(diaryDraftMeta(true, "2026-10-10"), "今天的日記");
@@ -768,4 +778,226 @@ test("footprintSeals：以 dayWindow 模擬 06:00 日界線——本地 05:30 �
   const n = [node({ id: "late", completed_at: at })];
   assert.equal(footprintSeals(dayWindow("2026-10-08", h), n, []).length, 1);
   assert.equal(footprintSeals(dayWindow("2026-10-09", h), n, []).length, 0);
+});
+
+/* ═══ 車次④：摘要去符號、子孫 id、側板列、Ctrl+P 列（契約 §4.3／§4.4） ═══ */
+
+test("stripMdLine：標題與引用、條列、粗體照舊", () => {
+  assert.equal(stripMdLine("## 今天"), "今天");
+  assert.equal(stripMdLine("> 引一句"), "引一句");
+  assert.equal(stripMdLine("- **重點**"), "重點");
+});
+
+test("stripMdLine：*斜體*、行內程式碼、連結只留字", () => {
+  assert.equal(stripMdLine("這是 *重要* 的"), "這是 重要 的");
+  assert.equal(stripMdLine("跑 `pnpm dev` 看看"), "跑 pnpm dev 看看");
+  assert.equal(stripMdLine("看 [說明](https://x.com/a) 吧"), "看 說明 吧");
+});
+
+test("stripMdLine：分隔線與圍欄標記行整行丟掉；星號落單與條列不受影響", () => {
+  assert.equal(stripMdLine("---"), "");
+  assert.equal(stripMdLine("***"), "");
+  assert.equal(stripMdLine("```js"), "");
+  assert.equal(stripMdLine("~~~"), "");
+  assert.equal(stripMdLine("a * b * c"), "a * b * c");
+});
+
+test("excerpt／noteTitle：圍欄內的行照留、圍欄標記行不出現", () => {
+  const body = "前言\n```\n# 註解\nlet a = 1\n```\n---\n後記";
+  assert.equal(excerpt({ title: "T", body }, 99), "前言 # 註解 let a = 1 後記");
+  assert.equal(noteTitle({ title: null, body: "```\n# 註解\n```" }), "# 註解");
+});
+
+test("NOTE_NODE_KINDS：路線／支線／列車／車廂，沒有車票", () => {
+  assert.deepEqual([...NOTE_NODE_KINDS], ["route", "branch", "train", "car"]);
+});
+
+test("descendantIds：深度優先前序、不含自己、沒有子孫＝空", () => {
+  const ch = { r: ["a", "b"], a: ["a1", "a2"], b: ["b1"] };
+  assert.deepEqual(descendantIds(ch, "r"), ["a", "a1", "a2", "b", "b1"]);
+  assert.deepEqual(descendantIds(ch, "a"), ["a1", "a2"]);
+  assert.deepEqual(descendantIds(ch, "zzz"), []);
+});
+
+test("descendantIds：有環也不無限迴圈、自己不會出現在結果裡", () => {
+  const ch = { a: ["b"], b: ["c"], c: ["a", "b"] };
+  assert.deepEqual(descendantIds(ch, "a"), ["b", "c"]);
+});
+
+const noteItem = (over: Partial<NoteItemLike>): NoteItemLike => ({
+  id: "n1", kind: "note", title: null, body: "標題行\n第二行內容", entry_date: null,
+  noted_at: "2026-10-05T04:00:00.000Z", node_id: null, inbox: 0,
+  created_at: "2026-10-05T04:00:00.000Z", updated_at: "2026-10-05T04:00:00.000Z", deleted_at: null,
+  route_id: null, node_name: null, node_kind: null, ...over,
+});
+
+test("nodeNotesLine：直接掛的 where＝null；掛在底下的「› 節點名」", () => {
+  const direct = nodeNotesLine(noteItem({ node_id: "t1", node_name: "第三列車", node_kind: "train" }), "t1");
+  assert.deepEqual(direct, { title: "標題行", excerpt: "第二行內容", where: null });
+  const sub = nodeNotesLine(noteItem({ node_id: "c1", node_name: "車廂甲", node_kind: "car" }), "t1");
+  assert.equal(sub.where, "› 車廂甲");
+});
+
+test("nodeNotesLine：摘要最多 40 字加「…」；沒有 here 一律當直接掛的", () => {
+  const long = noteItem({ title: "T", body: "字".repeat(60), node_id: "c1", node_name: "車廂甲" });
+  const l = nodeNotesLine(long, null);
+  assert.equal(l.excerpt, "字".repeat(40) + "…");
+  assert.equal(l.where, null);
+});
+
+test("quickHitLabel：筆記＝標題＋「M/D・路線名」；掛在路線上用節點名、掛在底下用 routeName；沒掛只有日期", () => {
+  const dayOf = (iso: string) => iso.slice(0, 10);
+  const onRoute = quickHitLabel(noteItem({ title: "讀書", node_id: "r1", node_name: "日文", node_kind: "route", route_id: "r1" }), { dayOf });
+  assert.deepEqual(onRoute, { label: "讀書", aside: "10/5・日文" });
+  const onCar = quickHitLabel(noteItem({ title: "讀書", node_id: "c1", node_name: "車廂甲", node_kind: "car", route_id: "r1" }), {
+    dayOf,
+    routeName: (id) => (id === "r1" ? "日文" : null),
+  });
+  assert.equal(onCar.aside, "10/5・日文");
+  assert.equal(quickHitLabel(noteItem({ title: "讀書" }), { dayOf }).aside, "10/5");
+});
+
+test("quickHitLabel：日記＝「M/D（週X）」＋摘要 24 字", () => {
+  const d = noteItem({ kind: "diary", entry_date: "2026-10-05", title: null, body: "第一行\n" + "字".repeat(30) });
+  const r = quickHitLabel(d);
+  assert.equal(r.label, "10/5（週" + weekdayZh("2026-10-05") + "）");
+  assert.equal(r.aside, "字".repeat(24) + "…");
+});
+
+/* ─── 車次④（資料層增補）：摘要去符號的邊角、預掛節點、篩選互斥 ─── */
+
+test("stripMdLine：有序編號保留（摘要裡「1.」本來就是內容）；全形條列、引用裡的粗體一起去", () => {
+  assert.equal(stripMdLine("1. 第一步"), "1. 第一步");
+  assert.equal(stripMdLine("・ 項目"), "項目");
+  assert.equal(stripMdLine("> **重點**在這"), "重點在這");
+  assert.equal(stripMdLine("### 小標 #靈感"), "小標 #靈感");
+});
+
+test("stripMdLine：#荷札（沒空白）不當標題剝；空字串與空白行＝空", () => {
+  assert.equal(stripMdLine("#靈感 先記下來"), "#靈感 先記下來");
+  assert.equal(stripMdLine(""), "");
+  assert.equal(stripMdLine("   "), "");
+});
+
+test("stripMdLine：連結的字帶星號、程式碼裡的星號與乘號各自的處理", () => {
+  assert.equal(stripMdLine("[**字**](https://x.com)"), "字");
+  assert.equal(stripMdLine("算式 3 * 4 * 5"), "算式 3 * 4 * 5");
+  assert.equal(stripMdLine("`a * b`"), "a * b");
+});
+
+test("firstLine：跳過圍欄標記行與分隔線，取第一行有字的", () => {
+  assert.equal(firstLine("---\n\n```\n## 註解\n```\n正文"), "## 註解");
+  assert.equal(firstLine("***\n   \n- 第一項"), "第一項");
+});
+
+const REL_ROUTES = [
+  { id: "r1", code: "A", name: "私鐵手帳" },
+  { id: "r2", code: "B", name: "日文" },
+];
+const PRESET = { nodeId: "t1", routeId: "r1", label: "私鐵手帳 › 第三列車" };
+const prefixOf = (routeId: string, body: string): RoutePrefix => {
+  const route = REL_ROUTES.find((r) => r.id === routeId)!;
+  return { route, routeId, prefixLen: 3, matched: route.name + "：", body };
+};
+
+test("applyCapturePreset：沒有預掛節點＝原樣", () => {
+  const p = prefixOf("r1", "內文");
+  assert.deepEqual(applyCapturePreset("note", p, "私鐵手帳：內文", null, REL_ROUTES), { prefix: p, nodeId: null });
+  assert.deepEqual(applyCapturePreset("todo", null, "買牛奶", null, REL_ROUTES), { prefix: null, nodeId: null });
+});
+
+test("applyCapturePreset：筆記／收件匣票根掛在預掛節點；同路線的前綴照吃", () => {
+  const same = prefixOf("r1", "內文");
+  for (const stub of ["note", "inbox"]) {
+    const r = applyCapturePreset(stub, same, "私鐵手帳：內文", PRESET, REL_ROUTES);
+    assert.equal(r.nodeId, "t1", stub);
+    assert.equal(r.prefix, same, stub);
+  }
+  assert.deepEqual(applyCapturePreset("note", null, "沒前綴", PRESET, REL_ROUTES), { prefix: null, nodeId: "t1" });
+});
+
+test("applyCapturePreset：別條路線的前綴當一般文字（prefix＝null）、仍掛預掛節點", () => {
+  const other = prefixOf("r2", "內文");
+  assert.deepEqual(applyCapturePreset("note", other, "日文：內文", PRESET, REL_ROUTES), { prefix: null, nodeId: "t1" });
+  assert.deepEqual(applyCapturePreset("inbox", other, "日文：內文", PRESET, REL_ROUTES), { prefix: null, nodeId: "t1" });
+});
+
+test("applyCapturePreset：待辦票根不建進樹——只借預掛節點的路線當標籤（合成前綴、內文＝原字）", () => {
+  const r = applyCapturePreset("todo", null, "  買牛奶", PRESET, REL_ROUTES);
+  assert.equal(r.nodeId, null);
+  assert.equal(r.prefix?.route.id, "r1");
+  assert.equal(r.prefix?.routeId, "r1");
+  assert.equal(r.prefix?.matched, "");
+  assert.equal(r.prefix?.body, "買牛奶");
+  // 同路線的前綴照吃；別條路線的前綴也被預掛的路線取代
+  const same = prefixOf("r1", "內文");
+  assert.equal(applyCapturePreset("todo", same, "x", PRESET, REL_ROUTES).prefix, same);
+  assert.equal(applyCapturePreset("todo", prefixOf("r2", "內文"), "x", PRESET, REL_ROUTES).prefix?.route.id, "r1");
+});
+
+test("applyCapturePreset：預掛節點沒有路線或路線已不在＝待辦照舊；日記與別線票根不受影響", () => {
+  assert.deepEqual(applyCapturePreset("todo", null, "x", { ...PRESET, routeId: null }, REL_ROUTES), { prefix: null, nodeId: null });
+  assert.deepEqual(applyCapturePreset("todo", null, "x", { ...PRESET, routeId: "gone" }, REL_ROUTES), { prefix: null, nodeId: null });
+  const p = prefixOf("r2", "內文");
+  assert.deepEqual(applyCapturePreset("diary", p, "x", PRESET, REL_ROUTES), { prefix: p, nodeId: null });
+  assert.deepEqual(applyCapturePreset("tt.some", p, "x", PRESET, REL_ROUTES), { prefix: p, nodeId: null });
+});
+
+test("exclusiveNodeFilter：只有一個＝原樣；兩個同時有，剛設的那個勝出（P5）", () => {
+  const U1 = { id: "t1", ids: ["c1"], label: "第三列車" };
+  const U2 = { id: "t2", ids: [], label: "第四列車" };
+  const none = {} as { routeId?: string; underNode?: typeof U1 };
+  // 單一條件：不動
+  assert.deepEqual(exclusiveNodeFilter(none, { routeId: "r1" }), { routeId: "r1" });
+  assert.deepEqual(exclusiveNodeFilter(none, { underNode: U1 }), { underNode: U1 });
+  // 目前是 routeId，新設 underNode（兩個都有）⇒ underNode 勝、routeId 清掉
+  assert.deepEqual(exclusiveNodeFilter({ routeId: "r1" }, { routeId: "r1", underNode: U1 }), { routeId: undefined, underNode: U1 });
+  // 目前是 underNode，新設 routeId ⇒ routeId 勝、underNode 清掉
+  assert.deepEqual(exclusiveNodeFilter({ underNode: U1 }, { underNode: U1, routeId: "r2" }), { underNode: undefined, routeId: "r2" });
+  // 換一個 underNode（同時帶著舊 routeId）⇒ 新的 underNode 勝
+  assert.deepEqual(exclusiveNodeFilter({ underNode: U1 }, { underNode: U2, routeId: "r1" }), { underNode: U2, routeId: undefined });
+});
+
+test("exclusiveNodeFilter：不丟掉其他欄位（搜尋字、分頁）", () => {
+  const U = { id: "t1", ids: [], label: "x" };
+  const r = exclusiveNodeFilter(
+    { routeId: "r1", query: "a" } as { routeId?: string; underNode?: typeof U; query?: string },
+    { routeId: "r1", underNode: U, query: "a" },
+  );
+  assert.equal(r.query, "a");
+  assert.equal(r.routeId, undefined);
+});
+
+test("resolveLeaveText：store 與本地相同（自己剛存出去的字）⇒ 用本地", () => {
+  const r = resolveLeaveText({ title: "t", body: "我的字 #a" }, { title: "t", body: "我的字 #a" }, false);
+  assert.equal(r.remote, false);
+  assert.equal(r.body, "我的字 #a");
+});
+
+test("resolveLeaveText：store 內文不同、沒有未送出的字 ⇒ 遠端贏（標題內文都換成 store 的）", () => {
+  const r = resolveLeaveText({ title: "舊題", body: "B 的字 #b" }, { title: "新題", body: "A 的整份 #a" }, false);
+  assert.deepEqual(r, { remote: true, title: "新題", body: "A 的整份 #a" });
+  assert.equal(resolveLeaveText({ title: "x", body: "b" }, { title: null, body: "a" }, false).title, "");
+});
+
+test("resolveLeaveText：還有未送出的字 ⇒ 本地為準（即使 store 不同）", () => {
+  const r = resolveLeaveText({ title: "", body: "本地" }, { title: null, body: "遠端" }, true);
+  assert.equal(r.remote, false);
+  assert.equal(r.body, "本地");
+});
+
+test("resolveLeaveText：讀不到 store 那一則 ⇒ 本地為準", () => {
+  assert.equal(resolveLeaveText({ title: "", body: "x" }, undefined, false).remote, false);
+  assert.equal(resolveLeaveText({ title: "", body: "x" }, null, false).body, "x");
+});
+
+test("resolveLeaveText：尾端空白與空標題不算不同（草稿建檔會 trim、空標題存 null）", () => {
+  assert.equal(resolveLeaveText({ title: "  ", body: "abc \n\n" }, { title: null, body: "abc" }, false).remote, false);
+  assert.equal(resolveLeaveText({ title: "", body: "abc" }, { title: "", body: "abc" }, false).remote, false);
+});
+
+test("resolveLeaveText：存檔失敗時 store 還是舊值（呼叫端把失敗記成 hasUnsent）⇒ 本地的字不被舊值換掉", () => {
+  const r = resolveLeaveText({ title: "", body: "我剛打的字 #新荷札" }, { title: null, body: "舊內文" }, true);
+  assert.equal(r.remote, false);
+  assert.equal(r.body, "我剛打的字 #新荷札");
 });

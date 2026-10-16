@@ -98,6 +98,7 @@ export function NotesList({ listRef, searchRef, onSelect, onNew }: NotesListProp
   let empty: ReactNode = null;
   if (!notes.length) {
     if (query) empty = <p>找不到『{query}』</p>;
+    else if (q.underNode) empty = <p>這裡還沒有筆記</p>;
     else if (q.routeId) empty = <p>這條路線還沒有筆記</p>;
     else
       empty = (
