@@ -179,6 +179,7 @@ export function mockImportDump(variant: "base" | "import2"): MmbakDump {
       tx_uid_trans: t.tx_uid_trans ?? null,
       ctg_uid: t.ctg_uid ?? null,
       zmoney: t.zmoney,
+      in_zmoney: t.in_zmoney === undefined ? t.zmoney : t.in_zmoney,
       currency_uid: t.currency_uid ?? "mm-c1",
       wdate: t.wdate,
       zdate: t.zdate ?? zdate(t.wdate, 12),
@@ -222,8 +223,9 @@ export function mockImportDump(variant: "base" | "import2"): MmbakDump {
   // 孤兒、被指到的已刪分類、USD、CNY、一筆已刪
   push({ do_type: "1", wdate: day(12), zmoney: "99", asset_uid: "mm-a1", ctg_uid: "mm-cmissing", content: "分類被硬刪的那筆" });
   push({ do_type: "1", wdate: day(14), zmoney: "450", asset_uid: "mm-a2", ctg_uid: "mm-cdel1", content: "舊遊戲" });
-  push({ do_type: "1", wdate: day(16), zmoney: "10", asset_uid: "mm-a2", ctg_uid: expenseLeaves[40], currency_uid: "mm-c2", content: "App Store" });
-  push({ do_type: "1", wdate: day(18), zmoney: "35", asset_uid: "mm-a1", ctg_uid: expenseLeaves[1], currency_uid: "mm-c3", content: "上海午餐" });
+  // 外幣列：zmoney＝帳戶幣別（TWD）額、in_zmoney＝原幣額
+  push({ do_type: "1", wdate: day(16), zmoney: "315.5", in_zmoney: "10", asset_uid: "mm-a2", ctg_uid: expenseLeaves[40], currency_uid: "mm-c2", content: "App Store" });
+  push({ do_type: "1", wdate: day(18), zmoney: "152.25", in_zmoney: "35", asset_uid: "mm-a1", ctg_uid: expenseLeaves[1], currency_uid: "mm-c3", content: "上海午餐" });
   push({ do_type: "1", wdate: day(19), zmoney: "60", asset_uid: "mm-a1", ctg_uid: expenseLeaves[0], is_del: true });
 
   if (variant === "import2") {

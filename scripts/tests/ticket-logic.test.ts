@@ -681,7 +681,7 @@ function fixtureDump(): MmbakDump {
   const txs: MmTx[] = [];
   const T = (uid: string, do_type: string, asset: string, money: string, day: number, extra: Partial<MmTx> = {}) =>
     txs.push({
-      uid, do_type, asset_uid: asset, to_asset_uid: null, tx_uid_trans: null, ctg_uid: null, zmoney: money, currency_uid: "c1",
+      uid, do_type, asset_uid: asset, to_asset_uid: null, tx_uid_trans: null, ctg_uid: null, zmoney: money, in_zmoney: money, currency_uid: "c1",
       wdate: `2026-09-${String(day).padStart(2, "0")}`, zdate: String(new Date(2026, 8, day, 12, 30).getTime()), content: "",
       utime: 1759276800000, is_del: false, ...extra,
     });
@@ -694,7 +694,8 @@ function fixtureDump(): MmbakDump {
   ];
   ex.forEach(([a, m, d, c], i) => T(`e${i + 1}`, "1", a, m, d, { ctg_uid: c, content: i === 0 ? "便當" : "" }));
   T("o1", "1", "a1", "99", 17, { ctg_uid: "cmissing" });
-  T("u1", "1", "a2", "10", 18, { ctg_uid: "ce1b", currency_uid: "c2" });
+  // 財務管家語意：ZMONEY＝帳戶幣別（TWD）額、IN_ZMONEY＝原幣（USD）額；ZMONEY / IN_ZMONEY ＝ 備份匯率
+  T("u1", "1", "a2", "315.5", 18, { ctg_uid: "ce1b", currency_uid: "c2", in_zmoney: "10" });
   const tr = (key: string, from: string, to: string, money: string, day: number) => {
     T(`${key}-3`, "3", from, money, day, { to_asset_uid: to, tx_uid_trans: key, content: "儲值" });
     T(`${key}-4`, "4", to, money, day, { to_asset_uid: from, tx_uid_trans: key });
@@ -806,6 +807,46 @@ describe("J. 匯入", () => {
     assert.deepEqual([u1.currency, u1.amount_minor, u1.main_minor, u1.account_minor], ["USD", 1000, 31550, 31550]);
     assert.ok(!p.currencies.some((c) => c.code === "USD")); // 本機已有 ⇒ 不新建
     assert.ok(p.currencies.some((c) => c.code === "CNY"));
+  });
+
+  test("44a. 外幣列：ZMONEY 已是帳戶幣別額、IN_ZMONEY 才是原幣額——不再把 ZMONEY 換算第二次（回歸）", () => {
+    const mk = (uid: string, money: string, inMoney: string | null, cur = "c2", day = 19): MmTx => ({
+      uid, do_type: "1", asset_uid: "a2", to_asset_uid: null, tx_uid_trans: null, ctg_uid: "ce1a", zmoney: money, in_zmoney: inMoney,
+      currency_uid: cur, wdate: `2026-09-${day}`, zdate: String(new Date(2026, 8, day, 9, 0).getTime()), content: "",
+      utime: 1759276800000, is_del: false,
+    });
+    const before = balancesOf(plan0().entries.inserts)[mmId("a2")];
+    const balAfter = (d: MmbakDump) => balancesOf(plan0(undefined, {}, d).entries.inserts)[mmId("a2")];
+
+    // 100 USD 花在 TWD 帳戶：備份 ZMONEY＝3155.0（TWD）、IN_ZMONEY＝100.0（USD）、匯率 31.55
+    const d1 = fixtureDump();
+    d1.currencies.find((c) => c.uid === "c2")!.rate = "31.55";
+    d1.transactions.push(mk("fx1", "3155.0", "100.0"));
+    const e1 = plan0(undefined, {}, d1).entries.inserts.find((e) => e.import_id === "fx1")!;
+    assert.deepEqual(
+      [e1.currency, e1.amount_minor, e1.account_minor, e1.main_minor],
+      ["USD", 10000, 315500, 315500],
+    );
+    assert.equal(balAfter(d1) - before, -315500); // 舊程式會多換算一次、約 −99,540 元
+
+    // TWD 列不變（IN_ZMONEY＝ZMONEY；同幣別不看 IN_ZMONEY，連它是 null 也一樣）
+    const d2 = fixtureDump();
+    d2.transactions.push(mk("tw1", "250.5", "250.5", "c1"), mk("tw2", "10", null, "c1", 20));
+    const p2 = plan0(undefined, {}, d2);
+    const tw1 = p2.entries.inserts.find((e) => e.import_id === "tw1")!;
+    assert.deepEqual([tw1.currency, tw1.amount_minor, tw1.account_minor, tw1.main_minor], ["TWD", 25050, 25050, 25050]);
+    const tw2 = p2.entries.inserts.find((e) => e.import_id === "tw2")!;
+    assert.deepEqual([tw2.currency, tw2.amount_minor, tw2.account_minor, tw2.main_minor], ["TWD", 1000, 1000, 1000]);
+
+    // IN_ZMONEY 缺（null／空字串／看不懂／0）的外幣列 ⇒ 保守退回記成帳戶幣別，餘額照樣對
+    for (const bad of [null, "", "abc", "0"]) {
+      const d3 = fixtureDump();
+      d3.currencies.find((c) => c.uid === "c2")!.rate = "31.55";
+      d3.transactions.push(mk("fx2", "3155.0", bad));
+      const e3 = plan0(undefined, {}, d3).entries.inserts.find((e) => e.import_id === "fx2")!;
+      assert.deepEqual([e3.currency, e3.amount_minor, e3.account_minor, e3.main_minor], ["TWD", 315500, 315500, 315500], `in_zmoney=${bad}`);
+      assert.equal(balAfter(d3) - before, -315500);
+    }
   });
 
   test("45. 差別：A／B／solved／default（解不出 ok:false、都沒填 ok:null）；plus／minus", () => {
@@ -925,9 +966,9 @@ describe("J. 匯入", () => {
     const d = fixtureDump();
     d.accounts.push({ uid: "a8", name: "美金帳", group_uid: "g2", currency_uid: "c2", is_del: false });
     d.transactions.push(
-      { uid: "x-3", do_type: "3", asset_uid: "a2", to_asset_uid: "a8", tx_uid_trans: "trx", ctg_uid: null, zmoney: "10", currency_uid: "c2",
+      { uid: "x-3", do_type: "3", asset_uid: "a2", to_asset_uid: "a8", tx_uid_trans: "trx", ctg_uid: null, zmoney: "10", in_zmoney: "10", currency_uid: "c2",
         wdate: "2026-09-19", zdate: String(new Date(2026, 8, 19, 9, 0).getTime()), content: "換匯", utime: 1759276800000, is_del: false },
-      { uid: "x-4", do_type: "4", asset_uid: "a8", to_asset_uid: "a2", tx_uid_trans: "trx", ctg_uid: null, zmoney: "10", currency_uid: "c2",
+      { uid: "x-4", do_type: "4", asset_uid: "a8", to_asset_uid: "a2", tx_uid_trans: "trx", ctg_uid: null, zmoney: "10", in_zmoney: "10", currency_uid: "c2",
         wdate: "2026-09-19", zdate: String(new Date(2026, 8, 19, 9, 0).getTime()), content: "", utime: 1759276800000, is_del: false },
     );
     const p = plan0(undefined, {}, d);
@@ -955,7 +996,7 @@ describe("J. 匯入", () => {
     d.currencies.push({ uid: "c4", iso: "JPY", is_main: false, rate: "0.210526315789474", decimals: 0 });
     d.accounts.push({ uid: "a9", name: "日圓錢包", group_uid: "g1", currency_uid: "c4", is_del: false });
     d.transactions.push({
-      uid: "j1", do_type: "1", asset_uid: "a9", to_asset_uid: null, tx_uid_trans: null, ctg_uid: "ce1a", zmoney: "500", currency_uid: null,
+      uid: "j1", do_type: "1", asset_uid: "a9", to_asset_uid: null, tx_uid_trans: null, ctg_uid: "ce1a", zmoney: "500", in_zmoney: "500", currency_uid: null,
       wdate: "2026-09-19", zdate: String(new Date(2026, 8, 19, 9, 0).getTime()), content: "", utime: 1759276800000, is_del: false,
     });
     const p = plan0(undefined, {}, d);

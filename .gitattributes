@@ -4,3 +4,5 @@
 # 並行地基金樣（契約 2026-09-29 §11.1）：逐位元組比對，autocrlf 改寫會全紅
 src-tauri/src/sync/golden/** text eol=lf
 scripts/probes/golden/** text eol=lf
+# tt-notice 外掛的 permissions 由 tauri build 重寫（內容不變、行尾 LF）；鎖 LF 避免 autocrlf 讓 index 與工作樹 stat-dirty
+src-tauri/plugins/tauri-plugin-tt-notice/permissions/** text eol=lf

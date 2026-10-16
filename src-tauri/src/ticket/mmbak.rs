@@ -1,7 +1,10 @@
 //! 財務管家備份（`.mmbak`）的唯讀讀取（車次①契約 §3.6、0-25）。
 //!
 //! **只讀，不解讀**：DO_TYPE 的意義、轉帳配對、金額換算一律在 TS（`src/domain/ticket.ts`）；
-//! 這裡不丟任何一列（含 `IS_DEL=1`，由 TS 判）。`IN_ZMONEY`、`AMOUNT_ACCOUNT` 不讀（D-票-19）。
+//! 這裡不丟任何一列（含 `IS_DEL=1`，由 TS 判）。
+//! 金額兩欄的語意（實證於主人備份的聚合查詢）：`ZMONEY`＝**帳戶幣別**的金額、`IN_ZMONEY`＝**交易幣別（`currencyUid`）原幣**的金額
+//! （外幣列 `ZMONEY / IN_ZMONEY = CURRENCY.RATE`、台幣列兩者相等）。所以 `IN_ZMONEY` 現在要讀（選填欄，備份沒這欄就是 None）；
+//! `AMOUNT_ACCOUNT` 仍不讀。早期（D-票-19）曾當 `ZMONEY` 是原幣、`IN_ZMONEY` 不讀——那是錯的，外幣支出會被換算兩次。
 //!
 //! 型別欄名 snake_case，與 `src/domain/ticket.ts` 的 `MmbakReadResult`／`MmbakDump`／`Mm*` 逐字相同。
 //! 欄名：甲席 10-12 在主人樣本的**複本**上只跑 `PRAGMA table_info`＋計數聚合實證（契約 §3.6 表格同步回寫）。
@@ -85,6 +88,7 @@ pub struct MmTx {
     pub tx_uid_trans: Option<String>,
     pub ctg_uid: Option<String>,
     /// VARCHAR，但 SQLite 動態型別下仍可能存成 REAL ⇒ 一律 CAST 成字串
+    /// **帳戶幣別**的金額（不是原幣！外幣列的原幣額在 `in_zmoney`）
     pub zmoney: String,
     pub currency_uid: Option<String>,
     /// 本地日 YYYY-MM-DD
@@ -95,6 +99,8 @@ pub struct MmTx {
     /// 修改時間（毫秒）
     pub utime: i64,
     pub is_del: bool,
+    /// 交易幣別（`currency_uid`）原幣的金額；備份沒有 `IN_ZMONEY` 欄、或這列是 NULL ⇒ None
+    pub in_zmoney: Option<String>,
 }
 
 /// 備份檔頭（前 16 bytes）
@@ -159,6 +165,8 @@ pub const REQUIRED_COLUMNS: &[(&str, &str)] = &[
 /// - `ASSETS.currencyUid` 沒有 ⇒ None（TS 當主幣別）
 /// - `ASSETS.IS_DEL` 樣本**沒有**這欄（帳戶沒有刪除旗標）⇒ 一律 false；別的版本有就照讀
 /// - 各表排序欄沒有 ⇒ 用 rowid
+/// - `INOUTCOME.IN_ZMONEY` 沒有 ⇒ None（TS 外幣列退回記成帳戶幣別）
+const COL_TX_IN_ZMONEY: (&str, &str) = ("INOUTCOME", "IN_ZMONEY");
 const COL_ASSET_CURRENCY: (&str, &str) = ("ASSETS", "currencyUid");
 const COL_ASSET_DEL: (&str, &str) = ("ASSETS", "IS_DEL");
 const COL_ASSET_ORDER: (&str, &str) = ("ASSETS", "ORDERSEQ");
@@ -431,7 +439,7 @@ async fn read_with(conn: &mut SqliteConnection, file_name: &str) -> Result<Mmbak
     }
 
     let sql = format!(
-        "SELECT {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} <> 0 FROM {} ORDER BY rowid",
+        "SELECT {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} <> 0, {} FROM {} ORDER BY rowid",
         text("uid"),
         text("DO_TYPE"),
         opt_text("assetUid"),
@@ -445,6 +453,7 @@ async fn read_with(conn: &mut SqliteConnection, file_name: &str) -> Result<Mmbak
         text("ZCONTENT"),
         int("UTIME"),
         int("IS_DEL"),
+        if has(COL_TX_IN_ZMONEY) { format!("NULLIF({}, '')", num_text("IN_ZMONEY")) } else { "NULL".to_string() },
         tbl("INOUTCOME"),
     );
     let mut transactions = Vec::new();
@@ -463,6 +472,7 @@ async fn read_with(conn: &mut SqliteConnection, file_name: &str) -> Result<Mmbak
             content: r.try_get(10).map_err(read_err)?,
             utime: r.try_get(11).map_err(read_err)?,
             is_del: r.try_get(12).map_err(read_err)?,
+            in_zmoney: r.try_get(13).map_err(read_err)?,
         });
     }
 
@@ -580,18 +590,21 @@ mod tests {
         }
         if has("INOUTCOME") {
             let tx_col = if skip_col == Some(("INOUTCOME", "txUidTrans")) { "" } else { ", txUidTrans" };
+            let skip_in = skip_col == Some(("INOUTCOME", "IN_ZMONEY"));
+            let in_col = if skip_in { "" } else { ", IN_ZMONEY" };
             let tx_val = |v: &str| if tx_col.is_empty() { String::new() } else { format!(", {v}") };
-            for (uid, do_type, asset, to, trans, ctg, money, del) in [
-                ("t1", "1", "a-cash", "NULL", "NULL", "'k-lunch'", "'120'", 0),
-                ("t2", "3", "a-cash", "'a-card'", "'x1'", "NULL", "'500'", 0),
-                ("t3", "1", "a-cash", "NULL", "NULL", "'k-food'", "'80'", 1),
-                ("t4", "0", "a-cash", "NULL", "NULL", "'k-old'", "120.0", 0),
+            for (uid, do_type, asset, to, trans, ctg, money, in_money, del) in [
+                ("t1", "1", "a-cash", "NULL", "NULL", "'k-lunch'", "'120'", "'4'", 0),
+                ("t2", "3", "a-cash", "'a-card'", "'x1'", "NULL", "'500'", "'500'", 0),
+                ("t3", "1", "a-cash", "NULL", "NULL", "'k-food'", "'80'", "NULL", 1),
+                ("t4", "0", "a-cash", "NULL", "NULL", "'k-old'", "120.0", "120.0", 0),
             ] {
                 sqlx::query(&format!(
-                    "INSERT INTO INOUTCOME (uid, DO_TYPE, assetUid, toAssetUid{tx_col}, ctgUid, ZMONEY, currencyUid, \
+                    "INSERT INTO INOUTCOME (uid, DO_TYPE, assetUid, toAssetUid{tx_col}, ctgUid, ZMONEY{in_col}, currencyUid, \
                      WDATE, ZDATE, ZCONTENT, UTIME, IS_DEL) VALUES ('{uid}', '{do_type}', '{asset}', {to}{}, {ctg}, \
-                     {money}, 'c-twd', '2026-10-08', '1791000000000', '備註', 1791000000001, {del})",
-                    tx_val(trans)
+                     {money}{}, 'c-twd', '2026-10-08', '1791000000000', '備註', 1791000000001, {del})",
+                    tx_val(trans),
+                    if skip_in { String::new() } else { format!(", {in_money}") }
                 ))
                 .execute(&mut c)
                 .await
@@ -648,6 +661,8 @@ mod tests {
         assert_eq!(t1.uid, "t1");
         assert_eq!(t1.do_type, "1");
         assert_eq!(t1.zmoney, "120");
+        assert_eq!(t1.in_zmoney.as_deref(), Some("4")); // 原幣額與 ZMONEY 不同時照讀（外幣列）
+        assert_eq!(d.transactions[2].in_zmoney, None); // NULL ⇒ None
         assert_eq!(t1.wdate, "2026-10-08");
         assert_eq!(t1.zdate, "1791000000000");
         assert_eq!(t1.content, "備註");
@@ -696,6 +711,17 @@ mod tests {
         let d = read(&p).dump.unwrap();
         let t4 = d.transactions.iter().find(|t| t.uid == "t4").unwrap();
         assert_eq!(t4.zmoney, "120.0");
+        assert_eq!(t4.in_zmoney.as_deref(), Some("120.0"));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn e2_沒有_in_zmoney_欄_讀得下去_回_none() {
+        let p = temp_db("noinzm");
+        tauri::async_runtime::block_on(make(&p, None, None, Some(("INOUTCOME", "IN_ZMONEY"))));
+        let r = read(&p);
+        assert!(r.missing.is_empty(), "{:?}", r.missing);
+        assert!(r.dump.unwrap().transactions.iter().all(|t| t.in_zmoney.is_none()));
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

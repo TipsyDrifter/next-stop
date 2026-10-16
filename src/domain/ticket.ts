@@ -252,6 +252,7 @@ export interface MmTx {
   to_asset_uid: string | null;
   tx_uid_trans: string | null;
   ctg_uid: string | null;
+  /** **帳戶幣別**的金額（不是原幣）；外幣列 `zmoney / in_zmoney ＝ 備份匯率`，台幣列兩者相等 */
   zmoney: string;
   currency_uid: string | null;
   wdate: string;
@@ -259,6 +260,8 @@ export interface MmTx {
   content: string;
   utime: number;
   is_del: boolean;
+  /** 交易幣別（`currency_uid`）**原幣**的金額；備份沒有 `IN_ZMONEY` 欄或這列為 NULL ⇒ null */
+  in_zmoney: string | null;
 }
 /** 四張表含墓碑的全部列（planImport 的 local） */
 export interface ImportLocal {
@@ -1756,6 +1759,8 @@ export function planImport(
       continue;
     }
     try {
+      // 外幣轉帳（腿的幣別 ≠ 帳戶幣別）沒有備份樣本可驗證 ZMONEY／IN_ZMONEY 的語意（單幣別資料裡轉帳全是 TWD），
+      // 這段維持原本的算法；有樣本再對照一般交易的「ZMONEY＝帳戶幣別額」改。
       const amount = minorFromDecimal(l3.zmoney, convCur[cur3].decimals, "round");
       const fromCur = accCurOf[fromId];
       const toCur = accCurOf[toId];
@@ -1810,11 +1815,30 @@ export function planImport(
       invalid.push({ uid: t.uid, reason: "幣別看不懂" });
       continue;
     }
+    // 財務管家的 ZMONEY 已經是**帳戶幣別**的金額（外幣列 ZMONEY / IN_ZMONEY ＝ 備份匯率），不能再換算第二次；
+    // IN_ZMONEY 才是交易幣別（currencyUid）的原幣額。帳戶額直接用 ZMONEY，主幣別額由帳戶額折算。
+    const accCode = accCurOf[accId];
     let amount: number;
+    let entryCur = cur;
     let conv: { main: number; account: number };
     try {
-      amount = minorFromDecimal(t.zmoney, convCur[cur].decimals, "round");
-      conv = convAmounts(amount, cur, accCurOf[accId], convCur);
+      const accountMinor = minorFromDecimal(t.zmoney, convCur[accCode].decimals, "round");
+      conv = convAmounts(accountMinor, accCode, accCode, convCur);
+      amount = accountMinor;
+      if (cur !== accCode) {
+        // 外幣列：原幣額取 IN_ZMONEY；缺、空、看不懂、或原幣是 0 而帳戶額不是 0 ⇒ 保守退回記成帳戶幣別（餘額不受影響）
+        let orig: number | null = null;
+        if (t.in_zmoney != null && t.in_zmoney.trim() !== "") {
+          try {
+            orig = minorFromDecimal(t.in_zmoney, convCur[cur].decimals, "round");
+          } catch {
+            orig = null;
+          }
+        }
+        if (orig !== null && !(orig === 0 && accountMinor !== 0)) {
+          amount = orig;
+        } else entryCur = accCode;
+      }
     } catch {
       invalid.push({ uid: t.uid, reason: "金額看不懂" });
       continue;
@@ -1833,7 +1857,7 @@ export function planImport(
       to_account_id: null,
       category_id: categoryId,
       amount_minor: amount,
-      currency: cur,
+      currency: entryCur,
       main_minor: conv.main,
       account_minor: conv.account,
       to_amount_minor: null,

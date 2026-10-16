@@ -157,7 +157,7 @@ function QuickJumpPanel() {
   const listId = useId();
 
   const term = q.trim();
-  /** 已登記的提供者（通車狀態在開啟期間不變） */
+  /** 已登記的提供者（已攤平：一條線可有多組；通車狀態在開啟期間不變） */
   const providers = useMemo(() => lineQuickJumpProviders(), []);
   const prefixed = providers.filter((p) => p.prefix);
 

@@ -67,7 +67,7 @@ import { useUiStore } from "./uiStore";
 // 重載掛點查 `lines/runtime`、**不 import `lines/mounts`**——後者會把各線的元件樹拉進 store 層、
 // 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
 import { LINE_MANIFESTS } from "../lines";
-import { lineReloads } from "../lines/runtime";
+import { lineAfterPulls, lineReloads } from "../lines/runtime";
 
 /** 拉取／推送節奏（P4）；去抖秒數見 Plan §6 */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -913,6 +913,15 @@ async function refreshAfterPull(
       await reload({ changed: report.changed_tables, wiped, shell });
     } catch (e) {
       console.warn(`[next-stop] 同步後重載失敗（${id}）：`, messageOf(e));
+    }
+  }
+  // 接縫 #54：核心與各線重載都完成後，通知已通車、有填 afterPull 的線（沒線填＝零次呼叫）
+  for (const { id, afterPull } of lineAfterPulls(shell)) {
+    try {
+      // 非同步丟錯也接住（型別是 () => void，但線可能填 async 函式）
+      void Promise.resolve(afterPull()).catch((e) => console.warn(`[next-stop] afterPull 失敗（${id}）：`, messageOf(e)));
+    } catch (e) {
+      console.warn(`[next-stop] afterPull 失敗（${id}）：`, messageOf(e));
     }
   }
   // 遠端 hlc 已戳進 sync_cells，忘掉探測快取 ⇒ 下一次寫入重讀 MAX(hlc) 當種子（契約 §5 的雙保險）

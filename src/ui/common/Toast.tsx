@@ -2,6 +2,7 @@
  * Toast——底部居中的小條通知（F1／F3 的 undo toast、擋下提示等；唯一來源＝uiStore.toast，TTL 10 秒由 store 管）。
  * 視覺：票面紙卡小條（.ns-card：paper-high、1px line、3px radius、原型陰影）＋墨色訊息＋金邊動作鈕（.btn-gold）＋× 關閉；
  * 進場淡入用 @starting-style，換訊息時以 key 重播。
+ * 訊息最多兩行（窄幅會換行、超過才省略；#59）。w-max 必要：fixed＋left-1/2 的可用寬度只剩半個視窗，不加的話 390px 寬只有約 195px。
  * 取捨：不做淡出（卸載即消失）——為了退場動畫多留一份 toast 狀態不划算。
  */
 import { useUiStore } from "../../store/uiStore";
@@ -17,9 +18,9 @@ export function Toast() {
       key={toast.message}
       role="status"
       aria-live="polite"
-      className="ns-card fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-[min(92vw,560px)] flex items-center gap-3 pl-4 pr-1.5 py-1.5 text-[13px] tracking-[0.03em] transition duration-200 ease-out starting:opacity-0 starting:translate-y-2"
+      className="ns-card fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-max max-w-[min(92vw,560px)] flex items-center gap-3 pl-4 pr-1.5 py-1.5 text-[13px] tracking-[0.03em] transition duration-200 ease-out starting:opacity-0 starting:translate-y-2"
     >
-      <span className="min-w-0 truncate">{toast.message}</span>
+      <span className="min-w-0 break-words line-clamp-2">{toast.message}</span>
       {toast.actionLabel && (
         <button
           type="button"

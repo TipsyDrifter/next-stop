@@ -18,6 +18,8 @@
  *   這裡是這張票唯一看得到事件簿的地方。只讀不寫，鐵則不破。
  *   接縫 #56：詳情欄位表之後渲染別線登記的 `nodeFields` 的 `Mobile` 列（旅客筆記的「荷札」可掛可摘，D-筆-42）；
  *   寫入在線自己的元件裡，本檔仍不 import mutation；沒有任何一線登記＝DOM 與文案照舊。
+ *   接縫 #63：第一層每條路線列尾（`.m2-route-name` 之後、`.m2-route-go` 之前）渲染別線登記的 `routeListAside`（小字）；
+ *   元件在 `button` 裡面，只能回 span／純文字、不得放可點的東西；沒有任何一線登記＝DOM 照舊。
  *   點車票也不開側板（手機 v1.1.0 無側板），改在該列下方展開一段**唯讀詳情**
  *   （票種／票號／現況／執行日／締切日／重複／預計／概要，欄位與稱謂沿 panel 的 format）。
  *
@@ -49,7 +51,7 @@ import {
   type TreeIndex,
 } from "../../store/nodeStore";
 import { roundelStyle } from "../common/roundel";
-import { lineNodeFields } from "../../lines/runtime";
+import { lineNodeFields, lineRouteListAsides } from "../../lines/runtime";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
 
@@ -150,6 +152,8 @@ function RouteRoundel({ route }: { route: NodeRow }) {
 function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
+  // 接縫 #63：路線列尾的別線小字；沒有任何線填值＝空陣列＝DOM 不變
+  const asides = lineRouteListAsides();
 
   if (!lines.length) {
     return (
@@ -177,6 +181,9 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
                       <span aria-hidden className="m2-band" style={{ background: route.color ?? "var(--route-preset-4)" }} />
                       <RouteRoundel route={route} />
                       <span className="m2-route-name">{route.name}</span>
+                      {asides.map((A, i) => (
+                        <A key={i} route={route} />
+                      ))}
                       <span aria-hidden className="m2-route-go">
                         <CaretRight />
                       </span>

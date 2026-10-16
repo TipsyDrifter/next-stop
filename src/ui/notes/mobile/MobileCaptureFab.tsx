@@ -10,9 +10,12 @@
  */
 import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore } from "../../../store/notesStore";
+import { useScheduleUiStore } from "../../schedule/scheduleUiStore";
 
 export function MobileCaptureFab({ hidden = false }: { hidden?: boolean }) {
-  const onToday = useUiStore((s) => s.mobileTab === "today");
+  const onTodayTab = useUiStore((s) => s.mobileTab === "today");
+  const onTodaySub = useScheduleUiStore((s) => s.mobileSub === "today");
+  const onToday = onTodayTab && onTodaySub;
   const openCapture = useNotesStore((s) => s.openCapture);
   return (
     <button

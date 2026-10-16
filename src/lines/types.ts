@@ -58,10 +58,24 @@ export interface LineReloadContext {
 
 export interface LineMount {
   desktopView: ComponentType | null;
-  /** tab 格的頁，或「更多」的子頁（後者會收到 onBack） */
+  /**
+   * 手機頁（MobileShell 的 `MOBILE_VIEWS` 取用，底部 tab 格的頁）。
+   * 「更多」已不是 tab、也不再收子頁——入口是每頁頂帶右上的 ⋯（MobileTopBand）；
+   * 目前沒有任何線的 mobileView 會收到 `onBack`，簽名保留 `onBack?` 只為相容。
+   */
   mobileView: ComponentType<{ onBack?: () => void }> | null;
   /** 同步拉到東西／本機被整批換掉之後，重載這條線的畫面狀態 */
   reload: ((ctx: LineReloadContext) => Promise<void>) | null;
+  /**
+   * 同步 pull 套用完之後的「通知一聲」插槽（接縫 #54）：給那些畫面狀態之外、還有副作用要跟著新資料走的線——
+   * 例如依拉下來的資料重排提醒／通知排程、重算只活在記憶體裡的衍生快取。**不是**重載畫面（畫面狀態用 `reload`，
+   * 它有 `changed`／`wiped`／`shell` 可看）；這個插槽刻意不帶參數：要知道哪些表變了就用 `reload`，
+   * 這裡只回答「剛拉完，現在資料是新的了」。
+   * 時機：`refreshAfterPull` 在核心重載與各線 `reload` 都跑完之後逐線呼叫（含「本機資料被整批換掉」那一路）；
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才呼叫（`lineAfterPulls(shell)`），三線固定順序；
+   * 未通車即使填了也不呼叫。一條線丟錯（同步或非同步）只 warn、不拖累別條，也不等它。
+   */
+  afterPull?: () => void;
   /**
    * 桌機全域浮層（增補二）：該線 `page.status === "open"` 時常駐掛在 App 覆蓋層區的最後，自己決定何時顯示。
    * 未通車即使填了也不掛。
@@ -100,7 +114,7 @@ export interface LineMount {
   captureTargets?: readonly CaptureTargetSpec[];
   /**
    * 節點詳情的欄位列（接縫 #56；旅客筆記車次③ 0-2／0-4）：桌機任務側板（`TaskFields.tsx` 的列車／車廂、臨時車票、
-   * 樹內車票三處）渲染 `Desktop`、手機路線圖唯讀詳情（`MobileRouteMap.tsx` 的 `RowDetail`）渲染 `Mobile`；
+   * 樹內車票、支線四處，加 `RoutePanel.tsx` 概要尾端）渲染 `Desktop`、手機路線圖唯讀詳情（`MobileRouteMap.tsx` 的 `RowDetail`）渲染 `Mobile`；
    * 只在 `kinds` 含該節點 kind 時出現。桌機看 `page.status`、手機看 `mobile.status`，`open` 才出（`lineNodeFields(shell)`）；
    * 三線固定順序、各線內照登記順序。未通車即使填了也不出。
    */
@@ -109,8 +123,10 @@ export interface LineMount {
    * Ctrl+P 快速跳轉的結果提供者（接縫 #56；旅客筆記車次③ 0-5）：該線 `page.status === "open"` 時生效
    * （`lineQuickJumpProviders()`）。打的字以 `prefix` 開頭 ⇒ 只問這一個（去掉前綴後的字傳進 `search`）；
    * 否則節點結果之後，每個提供者 `search(term, 4)` 的結果各成一組（組名＝`group`，空組不畫）。未通車即使填了也不出。
+   * 單值或陣列皆可（一條線要多組結果就給陣列，`lineQuickJumpProviders()` 統一攤平）；陣列內各提供者的 `id` 不可重複
+   * （QuickJump 用 `<id>:<hit.id>` 當列 key）。前綴模式先到先得：兩個提供者用同一個 `prefix` 時只問陣列裡排前面的。
    */
-  quickJump?: QuickJumpProviderSpec;
+  quickJump?: QuickJumpProviderSpec | readonly QuickJumpProviderSpec[];
   /**
    * 導航上的線標記（接縫 #58；時刻表車次①b 0-1 甲）：畫在桌機書封該線 `.gnav-line` 按鈕的最後一個子節點、
    * 手機底部 tab 那一格的圖示之後（`shell` 告訴元件畫在哪一殼）。元件自己訂閱自己線的 store、沒東西要畫就回 null；
@@ -129,6 +145,14 @@ export interface LineMount {
    * 只看 `mobile.status`，`open` 才出（`lineTicketSheetItems()`）。未通車即使填了也不出。
    */
   ticketSheetItems?: readonly TicketSheetItemSpec[];
+  /**
+   * 手機路線圖第一層每條路線列尾的小字（接縫 #63；第一個用的是售票口②的「本月花費」）：`RouteList`（`MobileRouteMap.tsx`）
+   * 在每條路線的 `.m2-route-name` 之後、`.m2-route-go` 之前依序渲染各線的元件，收 `route`（該列的路線節點）。
+   * 只看 `mobile.status`，`open` 才畫（`lineRouteListAsides()`）；未通車／planned 即使填了也不生效；三線固定順序。
+   * **元件只能回 `span`／純文字，不得放任何可點的東西——它渲染在一顆 `button`（`.m2-route`）裡面**；沒東西要畫就回 null。
+   * 沒有任何線填值＝DOM 與地基完全相同。
+   */
+  routeListAside?: ComponentType<{ route: NodeRow }>;
 }
 
 /** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */

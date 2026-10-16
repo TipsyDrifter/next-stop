@@ -18,6 +18,7 @@
  */
 import { LINE_MANIFESTS } from "./index.ts";
 import type { ComponentType } from "react";
+import type { NodeRow } from "../domain";
 import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext, NodeFieldSpec, QuickJumpProviderSpec, TicketSheetItemSpec } from "./types";
 
 let installed: Readonly<Record<LineId, LineMount>> | null = null;
@@ -34,6 +35,21 @@ export function lineReloads(): { id: LineId; reload: (ctx: LineReloadContext) =>
   for (const m of LINE_MANIFESTS) {
     const reload = installed[m.id].reload;
     if (reload) out.push({ id: m.id, reload });
+  }
+  return out;
+}
+
+/**
+ * 同步 pull 套用完之後要通知的線（接縫 #54），比照 `lineNodeFields(shell)`：三線固定順序；
+ * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineAfterPulls(shell: "desktop" | "mobile"): { id: LineId; afterPull: () => void }[] {
+  const out: { id: LineId; afterPull: () => void }[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const afterPull = installed[m.id].afterPull;
+    if (status === "open" && afterPull) out.push({ id: m.id, afterPull });
   }
   return out;
 }
@@ -148,13 +164,30 @@ export function lineTicketSheetItems(): TicketSheetItemSpec[] {
   return out;
 }
 
+/**
+ * 手機路線圖第一層每條路線列尾的小字（接縫 #63），比照 `lineTicketSheetItems()`：三線固定順序、只看 `mobile.status`；
+ * `open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineRouteListAsides(): ComponentType<{ route: NodeRow }>[] {
+  const out: ComponentType<{ route: NodeRow }>[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const aside = installed[m.id].routeListAside;
+    if (m.mobile.status === "open" && aside) out.push(aside);
+  }
+  return out;
+}
+
 /** Ctrl+P 的結果提供者（接縫 #56），比照 `lineSidebarTools()`：三線固定順序、只看 `page.status`；`open` 且有填才算。沒裝＝空陣列。 */
 export function lineQuickJumpProviders(): QuickJumpProviderSpec[] {
   const out: QuickJumpProviderSpec[] = [];
   if (!installed) return out;
   for (const m of LINE_MANIFESTS) {
     const spec = installed[m.id].quickJump;
-    if (m.page.status === "open" && spec) out.push(spec);
+    if (m.page.status !== "open" || !spec) continue;
+    // 單值（舊寫法）與陣列都收，統一攤平成陣列
+    if (Array.isArray(spec)) out.push(...spec);
+    else out.push(spec as QuickJumpProviderSpec);
   }
   return out;
 }

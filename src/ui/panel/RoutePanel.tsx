@@ -13,6 +13,7 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, SectionRule, useDebouncedCommit } from "./fields";
 import { StationList } from "./StationList";
+import { LineRows } from "./TaskFields";
 
 /* 預設盤的和色名跟著 theme.css 的 --route-preset-N 走（M3 ② 換裝：值＝件一的四支路線色 E1／J／L2／無）。
    第 2 格粉彩星空版是 #964468（梅紫）而非舊的洗朱，名字一併改正——標籤是給主人認色用的，對不上就沒用。 */
@@ -181,6 +182,9 @@ export function RoutePanel({ route }: { route: NodeRow }) {
             placeholder="這條路線通往哪裡……"
           />
         </FieldRow>
+
+        {/* 別線登記的路線欄位列（插槽 nodeFields，kinds 含 route 才出）；沒有就零 DOM */}
+        <LineRows node={route} />
       </div>
 
       <StationList routeId={route.id} />

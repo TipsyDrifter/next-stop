@@ -145,7 +145,8 @@ function lineFieldsFor(node: NodeRow) {
   return lineNodeFields("desktop").filter((f) => f.kinds.includes(node.kind));
 }
 
-function LineRows({ node }: { node: NodeRow }) {
+/** 也給 RoutePanel 用（路線面板的 `.fields` 尾端渲染點，同一個插槽） */
+export function LineRows({ node }: { node: NodeRow }) {
   return (
     <>
       {lineFieldsFor(node).map((f) => (
@@ -638,6 +639,13 @@ function BranchPanel({ node }: { node: NodeRow }) {
         ariaLabel="支線描述"
         placeholder="這條支線負責什麼……"
       />
+
+      {/* 別線欄位列（插槽 nodeFields）：概要下自成一塊；沒有線登記支線欄位＝不出 DOM */}
+      {lineFieldsFor(node).length > 0 && (
+        <div className="fields">
+          <LineRows node={node} />
+        </div>
+      )}
 
       <ActionsRow
         left={
