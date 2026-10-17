@@ -8,11 +8,16 @@
  *     有封存的帳戶時多一張「封存 N」卡開清單——封存卡本身不列，但手機也要找得回來「取消封存」；最後一張「＋」新增帳戶）
  *   → 月份列 `.ns-tk-mmonth`（‹ 2026 年 10 月 ›＋「＋ 記一筆」）＋本月合計一行（篩選＝全部時）
  *   → 帳簿 `ul.ns-tk-mlist`（日分組、單欄；點一筆＝MobileEntryForm 編輯態；捲到底自動接前一個月）
+ * 第②階段（②契約 §5.3、0-15、0-16）：
+ *   合計帶右端多一顆放大鏡（開 MobileSearchSheet；有篩選時亮一顆點）；帳戶卡下面是視圖列 MobileViewBar；
+ *   月份列在統計「年」模式改成「‹ 2026 年 ›」（‹ › 切年）；搜尋模式（清單＋有條件）時月份列換成篩選 chips 列＋「找到 N 筆…」、
+ *   清單畫 resultDays（跨月印月份分隔、300 筆一頁）；月曆點格跳回來（pendingDay）⇒ 捲到那天的日分組頭、閃一下；
+ *   那天沒帳 ⇒ 淡字「10/8 沒有紀錄」3 秒（dayNotice）。清單容器與月曆／統計一樣掛左右滑換視圖（useViewSwipe）。
  * 全螢幕表單／帳戶頁／對話框 sheet 都由 store 的 `panel`／`dialog` 決定畫不畫（兩殼共用一份 store，永不同時渲染）。
  *
  * UI 只讀 store、只叫 store 的動作；金額顯示走 domain 的純函式（moneyText／rowAmount…），不經浮點。
  */
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -40,6 +45,21 @@ import { MobileEntryForm } from "./MobileEntryForm";
 import { MobileAccountPage } from "./MobileAccountPage";
 import { MobileSheetHost } from "./MobileSheetHost";
 import { IconLeft, IconPlus, IconRight, IconSliders, MSheet, splitDayLabel } from "./mobileBits";
+// 第②階段（②契約 §5.3）：視圖列＋月曆／統計視圖＋搜尋 sheet（掛在合計帶的放大鏡上）
+import { MobileViewBar, useViewSwipe } from "./MobileViewBar";
+import { MobileTicketCalendar } from "./MobileTicketCalendar";
+import { MobileTicketStats } from "./MobileTicketStats";
+import { IconSearch, MobileSearchSheet } from "./MobileSearchSheet";
+import {
+  RESULT_PAGE,
+  VIEW_TEXT,
+  filterChips,
+  isFilterActive,
+  pageResults,
+  periodTitle,
+  resultSummary,
+  routeCtx,
+} from "../../../domain/ticketView";
 import "../ticket.css";
 import "../ticket-mobile.css";
 
@@ -50,6 +70,7 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
   const error = useTicketStore((s) => s.error);
   const init = useTicketStore((s) => s.init);
   const panel = useTicketStore((s) => s.panel);
+  const page = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // 失敗已寫進 store.error（畫面顯示＋重試）；這裡只吞掉 rejection
@@ -57,9 +78,9 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
   }, [init]);
 
   return (
-    <div className="m-page ns-tk-m">
+    <div className="m-page ns-tk-m" ref={page}>
       {ready ? (
-        <OfficeBody />
+        <OfficeBody page={page} />
       ) : error ? (
         <div className="ns-tk-mstate" role="alert">
           <p>帳本打不開</p>
@@ -82,7 +103,7 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
 
 /* ═══════════ 本體（ready 之後） ═══════════ */
 
-function OfficeBody() {
+function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const totals = useTicketStore((s) => s.totals);
   const curByCode = useTicketStore((s) => s.curByCode);
   const accounts = useTicketStore((s) => s.accounts);
@@ -100,21 +121,47 @@ function OfficeBody() {
   const openAccount = useTicketStore((s) => s.openAccount);
   const openDialog = useTicketStore((s) => s.openDialog);
   const startImport = useTicketStore((s) => s.startImport);
+  const view = useTicketStore((s) => s.view);
+  const span = useTicketStore((s) => s.span);
+  const period = useTicketStore((s) => s.period);
+  const searchOpen = useTicketStore((s) => s.searchOpen);
+  const filter = useTicketStore((s) => s.filter);
+  const dayNotice = useTicketStore((s) => s.dayNotice);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
   const [sheet, setSheet] = useState<"manage" | "archived" | null>(null);
+  const [searchSheet, setSearchSheet] = useState(false);
+
+  // 0-16：月曆點到沒帳的日 ⇒ 淡字 3 秒
+  useEffect(() => {
+    if (dayNotice === null) return;
+    const t = setTimeout(() => useTicketStore.getState().clearDayNotice(), 3000);
+    return () => clearTimeout(t);
+  }, [dayNotice]);
 
   const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
   const live = groupAccounts(accounts);
   const liveCount = live.reduce((n, g) => n + g.accounts.length, 0);
   const archived = archivedAccounts(accounts);
   const thisMonth = monthOf(todayKey(dayStartHour));
+  const yearMode = view === "stats" && span === "year";
+  const filterOn = isFilterActive(filter);
+  const searching = view === "list" && searchOpen && filterOn;
 
   /** 「＋ 記一筆」：一個帳戶都沒有時先開新增帳戶（記帳一定要落在某個帳戶上） */
   const add = () => {
     if (liveCount === 0) openDialog({ kind: "newAccount" });
     else openNew();
   };
+
+  // 進入搜尋模式（統計下鑽 drillToList、搜尋 sheet 帶條件關上）⇒ 捲回頂端，讓 chips 列與「清除 ×」露出來
+  // （原型 drill() 也是 mpage.scrollTop = 0）。不然 .m-page 會留著統計／帳簿原本捲到的位置，條件列在畫面外。
+  // layout effect：在換成結果清單的那一幀畫出來之前就歸零，不會先閃一下舊位置。
+  const wasSearching = useRef(searching);
+  useLayoutEffect(() => {
+    if (searching && !wasSearching.current && page.current) page.current.scrollTop = 0;
+    wasSearching.current = searching;
+  }, [searching, page]);
 
   const catCount = (kind: "income" | "expense") =>
     categoryTree(categories, kind, { includeArchived: false }).filter((t) => t.parent.id !== UNCAT_INCOME_ID && t.parent.id !== UNCAT_EXPENSE_ID)
@@ -135,6 +182,17 @@ function OfficeBody() {
           <span>合計</span>
           <b>{moneyText(totals.net, mainDec)}</b>
         </div>
+        <button
+          type="button"
+          className="ns-tk-mmanage ns-tk-msearch"
+          aria-label={filterOn ? "搜尋與篩選（有條件）" : "搜尋與篩選"}
+          aria-haspopup="dialog"
+          aria-expanded={searchSheet}
+          onClick={() => setSearchSheet(true)}
+        >
+          <IconSearch />
+          {filterOn && <i className="dot" aria-hidden />}
+        </button>
         <button
           type="button"
           className="ns-tk-mmanage"
@@ -187,32 +245,54 @@ function OfficeBody() {
         </div>
       </div>
 
-      <div className="ns-tk-mmonth">
-        <button type="button" className="ns-tk-mnav" aria-label="上一個月" onClick={() => void stepMonth(-1)}>
-          <IconLeft />
-        </button>
-        <h2 className="techo-title">{monthTitle(month)}</h2>
-        <button
-          type="button"
-          className="ns-tk-mnav"
-          aria-label="下一個月"
-          disabled={month >= thisMonth}
-          onClick={() => void stepMonth(1)}
-        >
-          <IconRight />
-        </button>
-        <button type="button" className="ns-tk-madd" onClick={add}>
-          <IconPlus />
-          記一筆
-        </button>
-      </div>
-      {monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
+      <MobileViewBar />
+
+      {searching ? (
+        <SearchRow onEdit={() => setSearchSheet(true)} />
+      ) : (
+        <div className="ns-tk-mmonth">
+          <button
+            type="button"
+            className="ns-tk-mnav"
+            aria-label={yearMode ? "上一年" : "上一個月"}
+            onClick={() => void stepMonth(-1)}
+          >
+            <IconLeft />
+          </button>
+          <h2 className="techo-title">{yearMode ? periodTitle(period) : monthTitle(month)}</h2>
+          <button
+            type="button"
+            className="ns-tk-mnav"
+            aria-label={yearMode ? "下一年" : "下一個月"}
+            disabled={yearMode ? period.key >= thisMonth.slice(0, 4) : month >= thisMonth}
+            onClick={() => void stepMonth(1)}
+          >
+            <IconRight />
+          </button>
+          <button type="button" className="ns-tk-madd" onClick={add}>
+            <IconPlus />
+            記一筆
+          </button>
+        </div>
+      )}
+      {view === "list" && !searching && monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
         <p className="ns-tk-mmsum">
           收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出 <b>{moneyText(monthSum.expense, mainDec)}</b>
         </p>
       )}
+      {view === "list" && dayNotice && (
+        <p className="ns-tk-mnotice" role="status">
+          {dayNotice}
+        </p>
+      )}
 
-      {hasAny ? (
+      {view === "calendar" ? (
+        <MobileTicketCalendar />
+      ) : view === "stats" ? (
+        <MobileTicketStats />
+      ) : searching ? (
+        <Results />
+      ) : hasAny ? (
         <Ledger days={days} />
       ) : (
         <div className="ns-tk-mempty">
@@ -225,6 +305,8 @@ function OfficeBody() {
           </button>
         </div>
       )}
+
+      {searchSheet && <MobileSearchSheet onClose={() => setSearchSheet(false)} />}
 
       {sheet === "manage" && (
         <MSheet title="售票口 · 管理" onClose={() => setSheet(null)}>
@@ -396,9 +478,37 @@ function Ledger({ days }: { days: DayGroup[] }) {
     return () => io.disconnect();
   }, []);
 
+  const book = useRef<HTMLDivElement | null>(null);
+  useViewSwipe(book);
+  const flash = usePendingDayScroll(book);
+
+  const items = dayItems(days, month, today, mainDec, flash);
+
+  return (
+    <div className="ns-tk-mbook" ref={book}>
+      <ul className="ns-tk-mlist" aria-label="帳簿">
+        {days.length === 0 && <li className="ns-tk-mnone">這個月還沒有紀錄</li>}
+        {items}
+        <li ref={sentinel} className="ns-tk-mloadmore">
+          <button type="button" onClick={() => void loadOlderMonth()}>
+            接著看 {olderTitle}
+          </button>
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * 日分組 → li 列表（月份分隔＋日分組頭＋各筆）。`firstMonth`＝第一組之前「已經印在頁首」的月——
+ * 清單＝頁首那個月（不重印）；搜尋結果傳 null ⇒ 跨月時每個月都印分隔（0-14：日分組頭多印年月）。
+ */
+function dayItems(days: readonly DayGroup[], firstMonth: string | null, today: string, mainDec: number, flash: string | null, limit = Infinity): ReactElement[] {
   const items: ReactElement[] = [];
-  let prevMonth = month;
+  let prevMonth = firstMonth;
+  let left = limit;
   for (const g of days) {
+    if (left <= 0) break;
     const m = monthOf(g.dayKey);
     if (m !== prevMonth) {
       items.push(
@@ -410,7 +520,7 @@ function Ledger({ days }: { days: DayGroup[] }) {
     }
     const [d, w] = splitDayLabel(g.label);
     items.push(
-      <li key={"d-" + g.dayKey} className="ns-tk-mday">
+      <li key={"d-" + g.dayKey} className={"ns-tk-mday" + (flash === g.dayKey ? " is-flash" : "")} data-day={g.dayKey}>
         <span className="d">{d}</span>
         <span className="w">{w}</span>
         {g.dayKey === today && <span className="today">今天</span>}
@@ -421,19 +531,116 @@ function Ledger({ days }: { days: DayGroup[] }) {
         </span>
       </li>,
     );
-    for (const e of g.entries) items.push(<Row key={e.id} e={e} />);
+    for (const e of g.entries) {
+      if (left-- <= 0) break;
+      items.push(<Row key={e.id} e={e} />);
+    }
   }
+  return items;
+}
+
+/**
+ * 0-16：store 的 pendingDay（月曆點格、quickJump）⇒ 捲到那天的日分組頭、閃一下，然後 consumePendingDay。
+ * 回傳正在閃的日 key（1.6 秒後清掉）。
+ */
+function usePendingDayScroll(root: RefObject<HTMLElement | null>): string | null {
+  const pendingDay = useTicketStore((s) => s.pendingDay);
+  const days = useTicketStore((s) => s.days);
+  const [flash, setFlash] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingDay === null) return;
+    const el = root.current?.querySelector<HTMLElement>(`[data-day="${pendingDay}"]`);
+    if (!el) return; // 那天的列還沒畫出來：等 days 更新再試
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    setFlash(pendingDay);
+    useTicketStore.getState().consumePendingDay();
+  }, [pendingDay, days, root]);
+  useEffect(() => {
+    if (flash === null) return;
+    const t = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(t);
+  }, [flash]);
+  return flash;
+}
+
+/* ═══════════ 搜尋模式（0-14、0-15）：篩選 chips 列＋結果 ═══════════ */
+
+/** 月份列的替身：條件 chips 橫捲（點＝回 sheet 改）＋「清除」＋「找到 N 筆 · 支出 X · 收入 Y」 */
+function SearchRow({ onEdit }: { onEdit(): void }) {
+  const filter = useTicketStore((s) => s.filter);
+  const results = useTicketStore((s) => s.results);
+  const accById = useTicketStore((s) => s.accById);
+  const catById = useTicketStore((s) => s.catById);
+  const curByCode = useTicketStore((s) => s.curByCode);
+  const closeSearch = useTicketStore((s) => s.closeSearch);
+  const routes = useNodeStore((s) => s.routes);
+  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
+  const chips = filterChips(filter, { accById, catById, curByCode, ...routeCtx(routes) });
+  const text = filter.text.trim();
 
   return (
-    <div className="ns-tk-mbook">
-      <ul className="ns-tk-mlist" aria-label="帳簿">
-        {days.length === 0 && <li className="ns-tk-mnone">這個月還沒有紀錄</li>}
-        {items}
-        <li ref={sentinel} className="ns-tk-mloadmore">
-          <button type="button" onClick={() => void loadOlderMonth()}>
-            接著看 {olderTitle}
+    <>
+      <div className="ns-tk-mfilters" role="group" aria-label="搜尋條件">
+        {text !== "" && (
+          <button type="button" className="ns-tk-mfchip is-on" onClick={onEdit}>
+            「{text}」
           </button>
-        </li>
+        )}
+        {chips.map((c) => (
+          <button key={c.key} type="button" className="ns-tk-mfchip is-on" onClick={onEdit}>
+            {c.label}
+          </button>
+        ))}
+        <button type="button" className="ns-tk-mfchip is-clear" onClick={closeSearch}>
+          清除 <span aria-hidden>×</span>
+        </button>
+      </div>
+      <p className="ns-tk-mmsum ns-tk-mfound" role="status">
+        {results === null ? "正在找…" : resultSummary(results, mainDec)}
+      </p>
+    </>
+  );
+}
+
+function Results() {
+  const results = useTicketStore((s) => s.results);
+  const resultDays = useTicketStore((s) => s.resultDays);
+  const curByCode = useTicketStore((s) => s.curByCode);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const today = todayKey(dayStartHour);
+  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
+  const [page, setPage] = useState(1);
+  // 條件一變（results 換一份）就回第一頁
+  useEffect(() => setPage(1), [results]);
+
+  const book = useRef<HTMLDivElement | null>(null);
+  useViewSwipe(book);
+  const flash = usePendingDayScroll(book);
+
+  const all = results ?? [];
+  const shown = pageResults(all, page).length;
+  const months = new Set(resultDays.map((g) => monthOf(g.dayKey)));
+  // 只有一個月 ⇒ 那個月印一次在最上面；跨月 ⇒ 每個月一條分隔（firstMonth＝null）
+  const items = dayItems(resultDays, null, today, mainDec, flash, shown);
+
+  return (
+    <div className="ns-tk-mbook is-results" ref={book}>
+      <ul className="ns-tk-mlist" aria-label={`搜尋結果${months.size > 1 ? `，跨 ${months.size} 個月` : ""}`}>
+        {results !== null && all.length === 0 && (
+          <li className="ns-tk-mnone">
+            {VIEW_TEXT.emptyResults}
+            <small>換個字、或把篩選放寬一點</small>
+          </li>
+        )}
+        {items}
+        {all.length > shown && (
+          <li className="ns-tk-mloadmore">
+            <button type="button" onClick={() => setPage(page + 1)}>
+              {VIEW_TEXT.more(Math.min(RESULT_PAGE, all.length - shown))}
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );

@@ -222,14 +222,30 @@ pub fn copy_to_cache(app: &tauri::AppHandle, path: &str) -> Result<PathBuf, Stri
     Ok(tmp)
 }
 
+/// 預覽卡顯示的檔名，優先用系統回報的真檔名。
+/// Android 的 content URI 最後一段是文件編號（如 `msf:1093`）而不是檔名，真檔名要問 ContentResolver
+/// （`app.path().file_name(&path)`，tauri 2.11 內建，查 OpenableColumns.DISPLAY_NAME）；
+/// 桌機一般路徑那邊拿到的就是最後一段。`real` 為 None／空白（查不到）⇒ 退回 `display_name(path)`。
+pub fn pick_display_name(real: Option<String>, path: &str) -> String {
+    match real.map(|s| s.trim().to_string()) {
+        Some(s) if !s.is_empty() => s,
+        _ => display_name(path),
+    }
+}
+
 /// 給預覽卡顯示的檔名＝路徑最後一段（`/` 或 `\` 之後；content URI 先 percent-decode）；取不到＝「備份檔」。
+/// content URI 的最後一段若不像檔名（沒有 `.mmbak` 副檔名，不分大小寫；例如 SAF 文件編號 `msf:1093`）
+/// ⇒ 回固定字串「財務管家備份」，免得預覽卡顯示一串數字。一般路徑照舊顯示真檔名。
 pub fn display_name(path: &str) -> String {
-    let decoded = if path.starts_with("content://") { percent_decode(path) } else { path.to_string() };
+    let is_content = path.starts_with("content://");
+    let decoded = if is_content { percent_decode(path) } else { path.to_string() };
     let last = decoded.rsplit(['/', '\\']).next().unwrap_or("").trim();
     // SAF 的 document id 形如 `primary:Download/x.mmbak`——斜線已切掉；只剩 `primary:x` 時取冒號後
     let last = last.rsplit(':').next().unwrap_or("").trim();
     if last.is_empty() {
         "備份檔".into()
+    } else if is_content && !last.to_ascii_lowercase().ends_with(".mmbak") {
+        "財務管家備份".into()
     } else {
         last.to_string()
     }
@@ -755,6 +771,36 @@ mod tests {
         );
         assert_eq!(display_name(""), "備份檔");
         assert_eq!(display_name("C:/dir/"), "備份檔");
+    }
+
+    #[test]
+    fn 顯示檔名_content_uri_文件編號不當檔名() {
+        // 實測 bug：Android 選檔器回 `.../document/msf%3A1093`，最後一段是文件編號
+        assert_eq!(
+            display_name("content://com.android.providers.downloads.documents/document/msf%3A1093"),
+            "財務管家備份"
+        );
+        assert_eq!(display_name("content://com.android.providers.downloads.documents/document/1093"), "財務管家備份");
+        // 帶 .mmbak 的最後一段照舊顯示（含大寫副檔名）
+        assert_eq!(
+            display_name("content://com.android.providers.downloads.documents/document/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2FMM-copy.mmbak"),
+            "MM-copy.mmbak"
+        );
+        assert_eq!(display_name("content://media/external/file/MM.MMBAK"), "MM.MMBAK");
+        // 桌機路徑不受影響（大寫副檔名、非 .mmbak 副檔名都照顯示）
+        assert_eq!(display_name(r"C:\Users\x\MM-copy.MMBAK"), "MM-copy.MMBAK");
+        assert_eq!(display_name(r"C:\Users\x\backup.bin"), "backup.bin");
+    }
+
+    #[test]
+    fn 顯示檔名_優先用系統回報的真檔名() {
+        let uri = "content://com.android.providers.downloads.documents/document/msf%3A1093";
+        assert_eq!(pick_display_name(Some("MM-copy.mmbak".into()), uri), "MM-copy.mmbak");
+        assert_eq!(pick_display_name(Some("  MM(1).mmbak ".into()), uri), "MM(1).mmbak");
+        // 查不到／空白 ⇒ 退回 display_name
+        assert_eq!(pick_display_name(None, uri), "財務管家備份");
+        assert_eq!(pick_display_name(Some("  ".into()), uri), "財務管家備份");
+        assert_eq!(pick_display_name(None, r"C:\x\MM.mmbak"), "MM.mmbak");
     }
 
     #[test]

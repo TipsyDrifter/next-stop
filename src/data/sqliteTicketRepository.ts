@@ -46,9 +46,11 @@ import {
   type MmbakReadResult,
   type NewEntryInput,
 } from "../domain/ticket";
+import { matchesQuery } from "../domain/ticketView";
 import type {
   AccountPatch,
   CurrencyPatch,
+  EntryQuery,
   NewAccountInput,
   NewCategoryInput,
   NewCurrencyInput,
@@ -56,6 +58,8 @@ import type {
 } from "./ticketRepository";
 
 const ALIVE = "deleted_at IS NULL";
+/** `queryEntries` 的 `category_id IN (…)` 最多拼幾個參數（SQLite 預設上限 999，留餘裕給其他條件）；超過就改在 TS 補篩 */
+const IN_LIMIT = 500;
 
 /** §3.2 白名單（同步的「主人資料」欄；device_id／synced_at 不同步）。新列的 op 送這些欄的完整值。 */
 const CUR_COLS = ["code", "name", "decimals", "rate_to_main", "is_main", "position", "created_at", "updated_at", "deleted_at"] as const;
@@ -288,6 +292,54 @@ export class SqliteTicketRepository implements TicketRepository {
        ORDER BY occurred_on DESC, occurred_at DESC, created_at DESC, id DESC`,
       args,
     );
+  }
+
+  /* ── 第②階段「看帳」的讀（②契約 §3.2；純讀，不寫 op） ── */
+
+  /**
+   * 結構條件查詢（0-14）：條件為空的子句不拼；ORDER BY 同 `listEntries`（＝`newestFirst`）。
+   * `IN (…)` 的參數個數隨陣列長度拼；`category_id` 超過 `IN_LIMIT` 個就不拼那一句、改在 TS 用 `matchesQuery`
+   * 補篩（結果與 SQL 版同義，ticket-view-logic 測試 24 鎖兩條路同結果）。關鍵字不在這裡（`matchesKeyword`）。
+   */
+  async queryEntries(q: EntryQuery): Promise<EntryRow[]> {
+    const db = await getDb();
+    const args: unknown[] = [];
+    const arg = (v: unknown): string => {
+      args.push(v);
+      return `$${args.length}`;
+    };
+    const where: string[] = [ALIVE];
+    if (q.from !== null) where.push(`occurred_on >= ${arg(q.from)}`);
+    if (q.toExcl !== null) where.push(`occurred_on < ${arg(q.toExcl)}`);
+    if (q.accountId !== null) {
+      const p = arg(q.accountId);
+      where.push(`(account_id = ${p} OR to_account_id = ${p})`);
+    }
+    const catInSql = q.categoryIds.length > 0 && q.categoryIds.length <= IN_LIMIT;
+    if (catInSql) where.push(`category_id IN (${q.categoryIds.map(arg).join(", ")})`);
+    if (q.kinds.length > 0) where.push(`kind IN (${q.kinds.map(arg).join(", ")})`);
+    if (q.routeId === "none") where.push(`route_id IS NULL`);
+    else if (q.routeId !== null) where.push(`route_id = ${arg(q.routeId)}`);
+    const rows = await db.select<EntryRow[]>(
+      `SELECT * FROM tk_entries WHERE ${where.join(" AND ")}
+       ORDER BY occurred_on DESC, occurred_at DESC, created_at DESC, id DESC`,
+      args,
+    );
+    return q.categoryIds.length > IN_LIMIT ? rows.filter((e) => matchesQuery(e, q)) : rows;
+  }
+
+  /** 路線花費（0-11）：直掛該路線的 expense `main_minor` 淨額；期間內與全部。SQL 聚合，沒有帳＝ 0／0 */
+  async routeSpend(routeId: string, from: string, toExcl: string): Promise<{ inRange: number; allTime: number }> {
+    const db = await getDb();
+    const rows = await db.select<{ in_range: number | null; all_time: number | null }[]>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN occurred_on >= $2 AND occurred_on < $3 THEN main_minor END), 0) AS in_range,
+         COALESCE(SUM(main_minor), 0) AS all_time
+       FROM tk_entries
+       WHERE ${ALIVE} AND kind = 'expense' AND route_id = $1`,
+      [routeId, from, toExcl],
+    );
+    return { inRange: Number(rows[0]?.in_range ?? 0), allTime: Number(rows[0]?.all_time ?? 0) };
   }
 
   async getEntry(id: string): Promise<EntryRow | null> {

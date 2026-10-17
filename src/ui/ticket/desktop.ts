@@ -5,3 +5,6 @@
  */
 export { TicketView } from "./TicketView";
 export { TicketSide } from "./TicketSide";
+// 第②階段（②契約 §2.1、0-12、0-19）：路線側板「花費」列、Ctrl+P「帳目」組——mount 由整合席填
+export { RouteSpendField } from "./view/RouteSpendField";
+export { TICKET_QUICK_JUMP } from "./quickJump";

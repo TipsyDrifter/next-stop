@@ -156,13 +156,15 @@ export function TicketPanel({ freshId, onBackToList }: TicketPanelProps) {
   const panel = useTicketStore((s) => s.panel);
   const draft = useTicketStore((s) => s.draft);
   const entries = useTicketStore((s) => s.entries);
+  const results = useTicketStore((s) => s.results);
   const accById = useTicketStore((s) => s.accById);
 
   if (panel.kind === "none") return null;
   let body: ReactNode = null;
   if (panel.kind === "new" && draft) body = <BigTicket key="new" row={null} fresh={false} onBackToList={onBackToList} />;
   else if (panel.kind === "entry") {
-    const row = entries.find((e) => e.id === panel.id);
+    // 第②階段：搜尋結果跨月（②契約 0-15），選中的那筆可能不在已載的月份裡 ⇒ 也從 results 找
+    const row = entries.find((e) => e.id === panel.id) ?? results?.find((e) => e.id === panel.id);
     if (row) body = <BigTicket key={row.id} row={row} fresh={freshId === row.id} onBackToList={onBackToList} />;
   } else if (panel.kind === "account") {
     const acc = accById[panel.id];

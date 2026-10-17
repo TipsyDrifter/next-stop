@@ -4,3 +4,5 @@
  * 全螢幕表單、帳戶頁、對話框 sheet 都由 MobileTicketOffice 依 store 的 `panel`／`dialog` 自己掛，不另經 mount。
  */
 export { MobileTicketOffice } from "./mobile/MobileTicketOffice";
+// 第②階段（②契約 0-13）：手機路線圖第一層列尾小字（接縫 #63 routeListAside）——mount 由整合席填
+export { RouteSpendAside } from "./mobile/RouteSpendAside";

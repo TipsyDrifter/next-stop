@@ -351,8 +351,290 @@
 [data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod .ns-tk-kind button { height: 36px; padding: 0 12px; font-size: 12px; }
 [data-shell="mobile"] .ns-tk-msheet .ns-tk-im-table { font-size: 12.5px; }
 
+/* ─────────── 第②階段「看帳」（②契約 §2.7；丙）：每條規則前綴 [data-shell="mobile"] ─────────── */
+
+/* ═══ 手機視圖列 MobileViewBar .ns-tk-mviews*（丙）═══ */
+/* 照 MobileSegmentedBar：三等分 tablist＋一條滑動底線（彈性曲線）；底線位置由元件的 inline translateX(idx×100%) 決定 */
+[data-shell="mobile"] .ns-tk-mviews { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: -2px 0 10px; border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mview {
+  height: 44px; padding: 0; font-family: inherit; font-size: 13.5px; letter-spacing: .3em; text-indent: .3em;
+  color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent; transition: color .15s;
+}
+[data-shell="mobile"] .ns-tk-mview.is-on { color: var(--color-ink); font-weight: 500; }
+[data-shell="mobile"] .ns-tk-mview:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mview:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+[data-shell="mobile"] .ns-tk-mviews-ink {
+  position: absolute; left: 0; bottom: -1px; width: calc(100% / 3); height: 2px; display: flex; justify-content: center; pointer-events: none;
+  transition: transform .32s cubic-bezier(.3, 1.35, .5, 1);
+}
+[data-shell="mobile"] .ns-tk-mviews-ink::before { content: ""; width: 40px; height: 2px; border-radius: 1px; background: var(--accent); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mviews-ink::before, [data-theme="dark"][data-shell="mobile"] .ns-tk-mviews-ink::before { background: var(--color-gold); }
+/* 左右滑換視圖的三個容器：直向捲動交給瀏覽器、橫向手勢交給 useViewSwipe */
+[data-shell="mobile"] :is(.ns-tk-mbook, .ns-tk-mcal, .ns-tk-mstats) { touch-action: pan-y; }
+
+/* ═══ 手機月曆 .ns-tk-mcal*（丙）═══ */
+/* 7 欄（375 寬每格約 50px）、格高 ≥ 56：日號左上；有收入的天先一行「＋N」（gold-ink），支出一個數在右下（D-票-28，不用金點） */
+[data-shell="mobile"] .ns-tk-mcal-sheet {
+  position: relative; margin: 0 -4px; border-radius: 4px; overflow: hidden; background: var(--color-paper-high);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--ns-tk-mglass); box-shadow: var(--ns-tk-mhi), var(--shadow-card);
+}
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mcal-sheet, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcal-sheet { -webkit-backdrop-filter: none; backdrop-filter: none; }
+[data-shell="mobile"] .ns-tk-mcal-heads { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mcal-heads span { padding: 6px 0 5px; text-align: center; font-size: 10.5px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcal-heads span.we { color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mcal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+[data-shell="mobile"] .ns-tk-mcal-cell {
+  position: relative; min-width: 0; min-height: 58px; box-sizing: border-box; padding: 4px 3px 5px;
+  display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; text-align: left;
+  background: transparent; border: 0; border-right: 1px dashed var(--color-line); border-bottom: 1px dashed var(--color-line);
+  font-family: inherit; color: inherit; -webkit-tap-highlight-color: transparent; transition: background .12s;
+}
+[data-shell="mobile"] .ns-tk-mcal-cell:last-child { border-right: 0; }
+[data-shell="mobile"] .ns-tk-mcal-week:last-child .ns-tk-mcal-cell { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mcal-cell:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mcal-cell:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+[data-shell="mobile"] .ns-tk-mcal-cell .d { padding-left: 2px; font-family: var(--font-latin); font-size: 11px; font-weight: 500; line-height: 1.2; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mcal-cell .vals { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
+[data-shell="mobile"] .ns-tk-mcal-cell .x { max-width: 100%; overflow: hidden; font-family: var(--font-display); font-weight: 600; font-size: 11px; line-height: 1.2; letter-spacing: -.01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mcal-cell .i { max-width: 100%; overflow: hidden; font-family: var(--font-display); font-size: 9.5px; line-height: 1.2; letter-spacing: -.02em; color: var(--color-gold-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mcal-cell.is-out { opacity: .38; }
+[data-shell="mobile"] .ns-tk-mcal-cell.is-future .d { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcal-cell.is-today { box-shadow: inset 0 2px 0 var(--accent); }
+[data-shell="mobile"] .ns-tk-mcal-cell.is-today .d { color: var(--accent); font-weight: 600; }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mcal-cell.is-today, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcal-cell.is-today { box-shadow: inset 0 2px 0 var(--color-gold); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mcal-cell.is-today .d, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcal-cell.is-today .d { color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mcal-wait { margin: 0; padding: 40px 0; text-align: center; font-size: 12.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcal-hint { margin: 8px 4px 0; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+/* 從月曆跳回清單：那天的日分組頭閃一下；「10/8 沒有紀錄」淡字 */
+[data-shell="mobile"] .ns-tk-mday { scroll-margin-top: 8px; }
+[data-shell="mobile"] .ns-tk-mday.is-flash { animation: nsTkMFlash 1.6s ease-out; }
+@keyframes nsTkMFlash { 0%, 30% { background: color-mix(in srgb, var(--color-gold) 26%, transparent); } 100% { background: transparent; } }
+/* 清單已捲到最接近的那天、月份列在畫面外 ⇒ 淡字浮在 tab bar 上方置中（同原型的 toast 位置），3 秒後消失 */
+[data-shell="mobile"] .ns-tk-mnotice {
+  position: fixed; left: 50%; bottom: calc(var(--m-tabbar-h, 60px) + var(--m-safe-bottom) + 18px); z-index: 4; transform: translateX(-50%);
+  margin: 0; padding: 8px 16px; border: 1px solid var(--ns-tk-mglass); border-radius: 2px; background: var(--color-paper-high);
+  box-shadow: var(--ns-tk-mhi), var(--shadow-card); font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap;
+  pointer-events: none; animation: nsTkMFade .2s ease-out;
+}
+
+/* ═══ 手機統計 .ns-tk-mstats*（丙）═══ */
+/* 單欄：三數卡 → 月｜年＋圖例 → 趨勢 12 根（SVG 寬＝實際像素）→ 切面 → 占比列（名稱｜金額｜%，條在下一行；觸控 ≥ 44）→ 淨退回 */
+[data-shell="mobile"] .ns-tk-mstats { padding-bottom: 6px; }
+[data-shell="mobile"] .ns-tk-mst-over {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; padding: 8px 4px 7px;
+  background: var(--color-paper-used); border: 1px solid var(--ns-tk-mglass); border-radius: 3px; box-shadow: var(--ns-tk-mhi);
+}
+[data-shell="mobile"] .ns-tk-mst-over .num { display: grid; min-width: 0; padding: 0 6px 0 10px; }
+[data-shell="mobile"] .ns-tk-mst-over .num + .num { border-left: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mst-over .num span { font-size: 9.5px; letter-spacing: .26em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-over .num b { font-family: var(--font-display); font-weight: 600; font-size: 16px; line-height: 1.3; letter-spacing: .01em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-shell="mobile"] .ns-tk-mst-over .num.inc b { color: var(--color-gold-ink); }
+[data-shell="mobile"] .ns-tk-mst-over .num.net b { color: var(--color-ink); font-weight: 700; }
+[data-shell="mobile"] .ns-tk-mst-over .cnt { grid-column: 1 / -1; padding: 3px 10px 0; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+
+/* 小切換（月｜年、分類｜帳戶｜路線、支出｜收入）：細框、選中 accent 底線（同桌機 .ns-tk-kind 語彙） */
+/* 外觀 36 高；觸控 44：每顆鈕的 ::after 上下各外擴 4px（透明）。所以框不能 overflow:hidden，圓角改由頭尾鈕自己帶 */
+[data-shell="mobile"] .ns-tk-mseg { display: inline-grid; grid-auto-flow: column; flex: none; border: 1px solid var(--color-line); border-radius: 2px; }
+[data-shell="mobile"] .ns-tk-mseg button:first-child { border-radius: 1px 0 0 1px; }
+[data-shell="mobile"] .ns-tk-mseg button:last-child { border-radius: 0 1px 1px 0; }
+[data-shell="mobile"] .ns-tk-mseg button::after { content: ""; position: absolute; inset: -4px 0; }
+[data-shell="mobile"] .ns-tk-mseg button {
+  position: relative; height: 36px; padding: 0 13px; font-family: inherit; font-size: 13px; letter-spacing: .14em; text-indent: .14em;
+  color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent;
+  transition: background .15s, color .15s, box-shadow .2s;
+}
+[data-shell="mobile"] .ns-tk-mseg button + button { border-left: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mseg button:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"] { color: var(--color-ink); font-weight: 500; background: var(--ns-tk-sel); box-shadow: inset 0 -2px 0 var(--accent); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"], [data-theme="dark"][data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mseg button:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+
+[data-shell="mobile"] .ns-tk-mst-span { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0 0; }
+[data-shell="mobile"] .ns-tk-mst-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-legend .sw { width: 10px; height: 10px; border-radius: 1px; }
+[data-shell="mobile"] .ns-tk-mst-legend .sw.inc { margin-left: 8px; background: color-mix(in srgb, var(--color-gold-ink) 80%, transparent); }
+[data-shell="mobile"] .ns-tk-mst-legend .sw.exp { background: color-mix(in srgb, var(--color-ink) 50%, transparent); }
+
+[data-shell="mobile"] .ns-tk-mst-card {
+  position: relative; margin-top: 8px; padding: 10px 12px; border-radius: 4px; background: var(--color-paper-high);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid var(--ns-tk-mglass); box-shadow: var(--ns-tk-mhi), var(--shadow-card);
+}
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-card, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-card { -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* 趨勢 SVG：支出墨、收入金、選中月 accent（暗色：墨）；條頂 compactMoney 8.5px */
+[data-shell="mobile"] .ns-tk-mst-trendbox { width: 100%; min-width: 0; }
+[data-shell="mobile"] .ns-tk-mst-trend { display: block; overflow: visible; -webkit-tap-highlight-color: transparent; }
+[data-shell="mobile"] .ns-tk-mst-trend .base { stroke: var(--color-line); stroke-width: 1; }
+[data-shell="mobile"] .ns-tk-mst-trend .g { cursor: pointer; outline: none; }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-future { cursor: default; }
+[data-shell="mobile"] .ns-tk-mst-trend .hit { fill: transparent; transition: fill .15s; }
+[data-shell="mobile"] .ns-tk-mst-trend .g:not(.is-future):active .hit { fill: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .hit { fill: var(--ns-tk-sel); }
+[data-shell="mobile"] .ns-tk-mst-trend .g:focus-visible .hit { stroke: var(--accent); stroke-width: 1; }
+[data-shell="mobile"] .ns-tk-mst-trend .exp { fill: color-mix(in srgb, var(--color-ink) 50%, transparent); transition: fill .15s; }
+[data-shell="mobile"] .ns-tk-mst-trend .inc { fill: color-mix(in srgb, var(--color-gold-ink) 75%, transparent); }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .exp { fill: var(--accent); }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .inc { fill: var(--color-gold-ink); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .exp, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .exp { fill: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mst-trend .m { font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .04em; fill: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m { fill: var(--accent); font-weight: 600; }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m { fill: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-future .m { opacity: .45; }
+[data-shell="mobile"] .ns-tk-mst-trend .yr { font-family: var(--font-latin); font-size: 8px; letter-spacing: .04em; fill: var(--color-ink-faint); opacity: .8; }
+/* 條頂數字比條寬：壓到隔壁較高的條上時，紙色描邊墊底才讀得到 */
+[data-shell="mobile"] .ns-tk-mst-trend .v { font-family: var(--font-display); font-size: 8.5px; letter-spacing: -.02em; fill: var(--color-ink-soft); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--color-paper-high); stroke-width: 3px; stroke-linejoin: round; }
+[data-shell="mobile"] .ns-tk-mst-trend .v.is-inc { fill: var(--color-gold-ink); }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .v { fill: var(--color-ink); font-weight: 600; }
+[data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .v.is-inc { fill: var(--color-gold-ink); }
+
+[data-shell="mobile"] .ns-tk-mst-facets { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 0; }
+
+/* 占比列 */
+[data-shell="mobile"] .ns-tk-mst-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mst-rows > li { list-style: none; }
+[data-shell="mobile"] .ns-tk-mst-rows .row > button {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 38px; grid-template-areas: "c n v p" ". bar bar bar";
+  align-items: center; row-gap: 3px; column-gap: 8px; width: 100%; min-height: 46px; box-sizing: border-box; padding: 7px 2px 8px 0;
+  text-align: left; font-family: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px dashed var(--color-line);
+  -webkit-tap-highlight-color: transparent; transition: background .12s;
+}
+[data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mst-rows .row > button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mst-rows .row > button[disabled] { cursor: default; }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-open > button { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+[data-shell="mobile"] .ns-tk-mst-rows .c { grid-area: c; display: grid; place-items: center; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-rows .c svg { transition: transform .22s cubic-bezier(.3, 1.4, .5, 1); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-open .c svg { transform: rotate(90deg); }
+[data-shell="mobile"] .ns-tk-mst-rows .n { grid-area: n; display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 14px; letter-spacing: .04em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mst-rows .n .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mst-rows .n .t.is-faint { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-rows .n .roundel { width: 18px; height: 18px; font-size: 8.5px; }
+[data-shell="mobile"] .ns-tk-mst-rows .n .roundel.is-empty { box-sizing: border-box; border: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mst-rows .v { grid-area: v; text-align: right; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mst-rows .p { grid-area: p; text-align: right; font-family: var(--font-latin); font-size: 11.5px; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mst-rows .bar { grid-area: bar; position: relative; height: 4px; border-radius: 1px; background: color-mix(in srgb, var(--color-ink) 5%, transparent); overflow: hidden; }
+[data-shell="mobile"] .ns-tk-mst-rows .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: color-mix(in srgb, var(--color-ink) 55%, transparent); transition: background .15s, width .35s cubic-bezier(.3, 1.1, .5, 1); }
+[data-shell="mobile"] .ns-tk-mst-rows.is-income .bar i { background: color-mix(in srgb, var(--color-gold-ink) 75%, transparent); }
+[data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i { background: var(--accent); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i { background: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child > button { min-height: 44px; animation: nsTkMRise .2s cubic-bezier(.2, .9, .3, 1.08); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .n { padding-left: 14px; font-size: 13px; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .bar { height: 3px; }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .bar i { background: color-mix(in srgb, var(--color-ink) 35%, transparent); }
+[data-shell="mobile"] .ns-tk-mst-rows.is-income .row.is-child .bar i { background: color-mix(in srgb, var(--color-gold-ink) 50%, transparent); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .v { font-size: 12.5px; font-weight: 500; color: var(--color-ink-soft); }
+@keyframes nsTkMRise { from { opacity: 0; transform: translateY(-4px); } }
+[data-shell="mobile"] .ns-tk-mst-refunds { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 10px; font-size: 12px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-refunds .hd { font-size: 10px; letter-spacing: .32em; }
+[data-shell="mobile"] .ns-tk-mst-refunds .it { letter-spacing: .04em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mst-refunds .it b { font-family: var(--font-display); font-weight: 600; }
+[data-shell="mobile"] .ns-tk-mst-empty { margin: 0; padding: 28px 0 22px; text-align: center; font-size: 13px; letter-spacing: .16em; color: var(--color-ink-faint); }
+
+/* ═══ 搜尋 sheet MobileSearchSheet .ns-tk-msearch*（丙）═══ */
+/* 合計帶的放大鏡（沿 .ns-tk-mmanage 的 44×44）；有條件時右上一顆點 */
+[data-shell="mobile"] .ns-tk-mmanage.ns-tk-msearch { position: relative; }
+/* 合計帶多了一顆鈕：兩顆 40 寬、三數依內容分寬（負債常是 0，讓位給資產與合計），不再被截成「23,35…」 */
+/* 觸控目標 44×44，但版面只吃 40：左右各 -2px 外距吃掉兩鈕之間的 4px gap 與帶子右內距，三數的寬度預算不變（合計不被截） */
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mmanage { width: 44px; margin: 0 -2px; }
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat { flex: 1 1 auto; }
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat + .ns-tk-mstat { padding-left: 10px; }
+[data-shell="mobile"] .ns-tk-msearch .dot { position: absolute; top: 9px; right: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-msearch .dot, [data-theme="dark"][data-shell="mobile"] .ns-tk-msearch .dot { background: var(--color-gold); }
+
+/* 搜尋模式：月份列換成條件 chips 橫捲＋「找到 N 筆…」 */
+[data-shell="mobile"] .ns-tk-mfilters {
+  display: flex; align-items: center; gap: 6px; margin: 0 calc(-1 * var(--m-gutter)) 8px; padding: 2px var(--m-gutter);
+  overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+[data-shell="mobile"] .ns-tk-mfilters::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tk-mfchip {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 11px; box-sizing: border-box;
+  border: 1px solid var(--color-line); border-radius: 2px; background: transparent; font-family: inherit;
+  font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mfchip.is-on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--ns-tk-sel); color: var(--color-ink); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mfchip.is-on, [data-theme="dark"][data-shell="mobile"] .ns-tk-mfchip.is-on { border-color: color-mix(in srgb, var(--color-gold) 55%, transparent); }
+[data-shell="mobile"] .ns-tk-mfchip.is-clear { border-style: dashed; border-color: var(--color-dash); }
+[data-shell="mobile"] .ns-tk-mfchip:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mfchip:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+[data-shell="mobile"] .ns-tk-mfound { margin-top: 0; }
+[data-shell="mobile"] .ns-tk-mbook.is-results .ns-tk-mmonthrule:first-child { padding-top: 12px; }
+[data-shell="mobile"] .ns-tk-mnone small { display: block; margin-top: 6px; font-size: 11.5px; letter-spacing: .06em; }
+
+/* sheet 本體：頂（搜尋框＋完成）／中（五段，自己捲）／底（清除全部・看結果） */
+[data-shell="mobile"] .m-sheet.ns-tk-msearch-sheet { padding-bottom: 0; }
+[data-shell="mobile"] .ns-tk-ms-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px 6px var(--m-gutter); }
+[data-shell="mobile"] .ns-tk-ms-field {
+  flex: 1; min-width: 0; height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 11px;
+  border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  color: var(--color-ink-faint); transition: border-color .15s;
+}
+[data-shell="mobile"] .ns-tk-ms-field:focus-within { border-color: var(--color-gold); color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-ms-field input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; background: transparent; border: 0; outline: none; -webkit-appearance: none; appearance: none;
+  font-family: inherit; font-size: 16px; letter-spacing: .03em; color: var(--color-ink);
+}
+[data-shell="mobile"] .ns-tk-ms-field input::placeholder { color: var(--color-ink-faint); font-size: 14px; }
+[data-shell="mobile"] .ns-tk-ms-field input::-webkit-search-cancel-button { display: none; }
+[data-shell="mobile"] .ns-tk-ms-field .clr { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 2px; font-size: 18px; line-height: 1; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-field .clr:active { background: var(--ns-tk-hover); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-ms-top .ns-tk-mbtn { flex: none; }
+[data-shell="mobile"] .ns-tk-ms-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; padding: 0 var(--m-gutter) 12px; }
+[data-shell="mobile"] .ns-tk-ms-body::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tk-ms-sec + .ns-tk-ms-sec { border-top: 1px dashed var(--color-line); margin-top: 6px; }
+[data-shell="mobile"] .ns-tk-ms-lbl { margin: 0; padding: 12px 2px 7px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-sub { margin: 0; padding: 2px 2px 5px; font-size: 11px; letter-spacing: .2em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-sub ~ .ns-tk-ms-sub { padding-top: 10px; }
+[data-shell="mobile"] .ns-tk-mchips { display: flex; flex-wrap: wrap; gap: 6px; }
+[data-shell="mobile"] .ns-tk-mchips.is-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; margin: 0 calc(-1 * var(--m-gutter)); padding: 0 var(--m-gutter) 2px; }
+[data-shell="mobile"] .ns-tk-mchips.is-scroll::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tk-ms-sep { flex: none; align-self: center; margin: 0 2px 0 6px; padding-left: 10px; border-left: 1px dashed var(--color-dash); font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mchip .is-arch { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mchip.on .is-arch { color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-ms-range { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+[data-shell="mobile"] .ns-tk-ms-date {
+  flex: 1; min-width: 0; min-height: 46px; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  padding: 3px 11px; border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  font-family: var(--font-display); font-weight: 600; font-size: 14px; color: var(--color-ink); text-align: left;
+}
+[data-shell="mobile"] .ns-tk-ms-date small { font-family: var(--font-body); font-weight: 400; font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-date:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-ms-range .dash { color: var(--color-ink-faint); }
+/* 分類：三欄格子；主分類格＝整勾（含子分類），格右 › 展開子分類單勾 */
+[data-shell="mobile"] .ns-tk-ms-cats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+[data-shell="mobile"] .ns-tk-msc {
+  display: flex; min-width: 0; min-height: 48px; box-sizing: border-box; overflow: hidden;
+  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  transition: border-color .15s, background .15s;
+}
+[data-shell="mobile"] .ns-tk-msc .pick {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px;
+  text-align: center; line-height: 1.25; font-family: inherit; color: var(--color-ink); background: transparent; border: 0;
+}
+[data-shell="mobile"] .ns-tk-msc .nm { max-width: 100%; font-size: 13px; letter-spacing: .02em; overflow-wrap: anywhere; }
+[data-shell="mobile"] .ns-tk-msc .pick small { font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-msc .more { flex: none; width: 26px; display: grid; place-items: center; border: 0; border-left: 1px dashed var(--color-line); background: transparent; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-msc .more svg { transition: transform .22s cubic-bezier(.3, 1.4, .5, 1); }
+[data-shell="mobile"] .ns-tk-msc.open .more { background: var(--ns-tk-hover); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-msc.open .more svg { transform: rotate(90deg); }
+[data-shell="mobile"] .ns-tk-msc :is(.pick, .more):active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-msc :is(.pick, .more):focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-msc.on { border-color: var(--color-gold); background: var(--ns-tk-sel); box-shadow: var(--ns-tk-mgoldring); }
+[data-shell="mobile"] .ns-tk-msc.on .nm { font-weight: 500; }
+[data-shell="mobile"] .ns-tk-msearch-sheet .ns-tk-mgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-shell="mobile"] .ns-tk-ms-foot { flex: none; display: flex; gap: 8px; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom) + 10px); border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-ms-foot .ns-tk-mbtn { flex: 1; min-height: 46px; font-size: 14.5px; }
+[data-shell="mobile"] .ns-tk-ms-foot .ns-tk-mbtn:first-child { flex: 0 0 auto; padding: 0 16px; }
+
+/* ═══ 路線列尾小字 .ns-tk-maside（丙；掛在主線的 .m2-route 裡：[data-shell="mobile"] .m2-route .ns-tk-maside）═══ */
+/* 在 .m2-route-name（flex:1）之後、.m2-route-go 之前；名字長時名字先省略，小字不縮 */
+[data-shell="mobile"] .m2-route .ns-tk-maside { flex: none; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 /* ═══ 減量動態 ═══ */
 @media (prefers-reduced-motion: reduce) {
-  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msheet, .ns-tk-mveil, .ns-tk-msubs) { animation: none; }
+  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msheet, .ns-tk-mveil, .ns-tk-msubs, .ns-tk-mday, .ns-tk-mnotice, .ns-tk-mst-rows .row > button) { animation: none; }
+  [data-shell="mobile"] :is(.ns-tk-mviews-ink, .ns-tk-mst-rows .bar i, .ns-tk-mst-rows .c svg, .ns-tk-msc .more svg) { transition: none; }
   [data-shell="mobile"] .ns-tk-mf-moretog svg { transition: none; }
 }

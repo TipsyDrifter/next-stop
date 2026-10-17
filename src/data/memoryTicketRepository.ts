@@ -12,6 +12,11 @@
  *     `&tk=noaccount` 只有起手三列（捕捉框報「還沒有帳戶」）
  *     `&tk=badschema` `readImport` 回 `{ missing: ["ASSETS"], dump: null }`
  *     `&tk=import2`   同一頁第二次起的 `readImport` 回「其中 2 筆 UTIME＋1、備註改字」的版本（驗「已修改 2」）
+ *     `&tk=routes`    （②契約 §3.3）mock 路線 id 對齊主線 mock 路線——本檔**預設就對齊**，這個值只是明寫出來（同預設）
+ * - 第②階段（②契約 §3.3）：示範支出約三成掛路線（另一顆固定種子的 PRNG 挑，不動 ①示範帳的亂數序列）＋一筆掛「已刪除的路線」；
+ *   掛的是三個固定假 id，第一次讀帳時去問主線的 mock `nodeRepo.listSidebar()`、依側欄順序換成真的路線 id
+ *   （主線 mock 路線 id 是 uuid() 隨機產生，`memoryRepository.ts` 不改；對不上＝顯示「（路線已刪除）」，不算錯）。
+ *   `queryEntries`／`routeSpend` 用 `ticketView.ts` 的純函式算（`matchesQuery`／`routeSpendOf`），與 SQL 同義、測試互證。
  * - 匯入：`pickImportFile` 回 `"mock.mmbak"`；`readImport` 回 fixture dump（`mockImportDump`；與示範資料同一棵樹）。
  */
 import { nowUtcIso, uuid } from "../lib/db";
@@ -50,6 +55,7 @@ import {
   type MmTx,
   type NewEntryInput,
 } from "../domain/ticket";
+import { matchesQuery, newestFirst, routeSpendOf, type EntryQuery } from "../domain/ticketView";
 import type {
   AccountPatch,
   CurrencyPatch,
@@ -67,14 +73,14 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const recency = (a: EntryRow, b: EntryRow): number =>
   cmp(a.created_at, b.created_at) || cmp(a.occurred_on, b.occurred_on) || cmp(a.occurred_at, b.occurred_at) || cmp(a.id, b.id);
 
-type TkMode = "empty" | "noaccount" | "badschema" | "import2" | null;
+type TkMode = "empty" | "noaccount" | "badschema" | "import2" | "routes" | null;
 
-/** 評審端點：`&tk=empty|noaccount|badschema|import2` */
+/** 評審端點：`&tk=empty|noaccount|badschema|import2|routes` */
 function tkMode(): TkMode {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("tk");
-    return v === "empty" || v === "noaccount" || v === "badschema" || v === "import2" ? v : null;
+    return v === "empty" || v === "noaccount" || v === "badschema" || v === "import2" || v === "routes" ? v : null;
   } catch {
     return null;
   }
@@ -121,6 +127,11 @@ const DEMO_EXPENSE: { name: string; children: string[] }[] = [
 ];
 
 const DEMO_NOTES = ["", "", "", "便當", "全家", "學餐", "7-11", "和同學", "", "早上那班"];
+
+/** 第②階段：示範支出掛的三條路線（固定假 id；alignRoutes 依主線 mock 側欄順序換成真 id：J 日文、E1 全端開發、L2 體能） */
+export const MOCK_ROUTE_IDS = ["mock-route-1", "mock-route-2", "mock-route-3"] as const;
+/** 一筆掛在「已刪除的路線」上的帳（占比出「（路線已刪除）」一列） */
+export const MOCK_ROUTE_GONE = "mock-route-gone";
 
 /* ───────── 匯入 fixture（與示範資料同一棵樹；~120 筆；UTIME 固定） ───────── */
 
@@ -322,6 +333,8 @@ export class MemoryTicketRepository implements TicketRepository {
 
     // 帳：今天往前 62 天
     const rnd = prng(20261012);
+    const rr = prng(20261016); // 第②階段掛路線用（另一條序列：不動上面 rnd 的抽法，①的示範帳逐筆不變）
+    const pickRoute = (): string | null => (rr() < 0.3 ? MOCK_ROUTE_IDS[Math.floor(rr() * MOCK_ROUTE_IDS.length)] : null);
     const today = todayKey(3);
     const ctx = this.ctx();
     const add = (input: NewEntryInput) => {
@@ -347,7 +360,14 @@ export class MemoryTicketRepository implements TicketRepository {
           occurredOn: dayKey,
           occurredAt: at(dayKey, 8 + Math.floor(rnd() * 14)),
           note: DEMO_NOTES[Math.floor(rnd() * DEMO_NOTES.length)],
-          routeId: null,
+          routeId: pickRoute(),
+        });
+      }
+      if (back === 12) {
+        const [y, m, d] = dayKey.split("-").map((s) => parseInt(s, 10));
+        add({
+          kind: "expense", amountMinor: 18000, currency: "TWD", accountId: accId.cash, toAccountId: null, categoryId: leafIds[30],
+          occurredOn: dayKey, occurredAt: new Date(y, m - 1, d, 13, 5).toISOString(), note: "舊路線的帳", routeId: MOCK_ROUTE_GONE,
         });
       }
       if (back % 7 === 3) {
@@ -382,6 +402,33 @@ export class MemoryTicketRepository implements TicketRepository {
         this.ent.set(row.id, row);
       }
     }
+  }
+
+  /**
+   * 第②階段：把示範帳的三個固定路線 id 換成主線 mock 路線的真 id（只做一次；第一次讀帳時）。
+   * 主線的 `nodeRepo` 用動態 import 取（本檔被 node 測試直接載入，靜態 import `./index` 會在 node 碰到 import.meta.env）。
+   */
+  private routesAligned: Promise<void> | null = null;
+  private alignRoutes(): Promise<void> {
+    this.ensureDemo();
+    if (!this.routesAligned) {
+      this.routesAligned = (async () => {
+        if (typeof window === "undefined" || !this.seedDemo) return;
+        try {
+          const { nodeRepo } = await import("./index");
+          const sb = await nodeRepo.listSidebar();
+          const map: Record<string, string> = {};
+          MOCK_ROUTE_IDS.forEach((id, i) => {
+            const r = sb.routes[i];
+            if (r) map[id] = r.id;
+          });
+          for (const e of this.ent.values()) if (e.route_id && map[e.route_id]) e.route_id = map[e.route_id];
+        } catch {
+          // 對不上就顯示「（路線已刪除）」，不算錯（②契約 §3.3）
+        }
+      })();
+    }
+    return this.routesAligned;
   }
 
   private ctx(): EntryCtx {
@@ -472,7 +519,7 @@ export class MemoryTicketRepository implements TicketRepository {
   }
 
   async listEntries(fromDay: string, toDayExcl: string, accountId: string | null): Promise<EntryRow[]> {
-    this.ensureDemo();
+    await this.alignRoutes();
     return Array.from(this.ent.values())
       .filter(
         (e) =>
@@ -488,8 +535,21 @@ export class MemoryTicketRepository implements TicketRepository {
       .map(clone);
   }
 
+  async queryEntries(q: EntryQuery): Promise<EntryRow[]> {
+    await this.alignRoutes();
+    return Array.from(this.ent.values())
+      .filter((e) => matchesQuery(e, q))
+      .sort(newestFirst)
+      .map(clone);
+  }
+
+  async routeSpend(routeId: string, from: string, toExcl: string): Promise<{ inRange: number; allTime: number }> {
+    await this.alignRoutes();
+    return routeSpendOf(Array.from(this.ent.values()), routeId, { from, toExcl });
+  }
+
   async getEntry(id: string): Promise<EntryRow | null> {
-    this.ensureDemo();
+    await this.alignRoutes();
     const e = this.ent.get(id);
     return e && isAlive(e) ? clone(e) : null;
   }

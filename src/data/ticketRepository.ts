@@ -24,11 +24,14 @@ import type {
   ImportChoice,
   ImportOutcome,
 } from "../domain/ticket";
+import type { EntryQuery } from "../domain/ticketView";
 import { MOCK_MODE, WIPED_MODE } from "./index";
 import { SqliteTicketRepository } from "./sqliteTicketRepository";
 import { MemoryTicketRepository } from "./memoryTicketRepository";
 
 export type { NewEntryInput, EntryPatch } from "../domain/ticket";
+/** 型別定義在 domain（`filterToQuery` 產生它；domain 不能反過來 import data 層） */
+export type { EntryQuery } from "../domain/ticketView";
 
 export interface NewAccountInput {
   name: string; // trim 後非空，否則 RangeError（§4.3）
@@ -81,6 +84,16 @@ export interface TicketRepository {
   lastUsedAccountId(): Promise<string | null>;
   /** 該 kind 最近用過的分類 id（依該分類最近一筆的 created_at 遞減；排除未分類與已封存／已刪的分類） */
   recentCategoryIds(kind: CategoryKind, limit: number): Promise<string[]>;
+
+  /* ── 讀・第②階段「看帳」（②契約 §3.2；純讀、不經 serial） ── */
+  /**
+   * 結構條件的查詢（0-14）；關鍵字不在這裡（純函式 `matchesKeyword`）。全部條件為空＝全部未刪的帳。
+   * 新到舊（同 listEntries 的 ORDER BY）。`categoryIds` 呼叫端已用 `categoryIdsIncluding` 展開成含子分類。
+   */
+  queryEntries(q: EntryQuery): Promise<EntryRow[]>;
+  /** 一條路線的支出淨額（0-11 口徑：未刪、expense、route_id 直掛；退款抵回）：期間 [from, toExcl) 內與全部期間。沒有帳＝{ inRange: 0, allTime: 0 } */
+  routeSpend(routeId: string, from: string, toExcl: string): Promise<{ inRange: number; allTime: number }>;
+  // listEntryDays：0-3 定案選 (a)（主線日曆不填 calendarDayMarks，D-票-29）⇒ 契約 §3.2「選 (a) 就不加這個方法」，不加。
 
   /* ── 寫（每支＝一個 WriteBatch；匯入除外） ── */
   createEntry(input: NewEntryInput): Promise<EntryRow>;

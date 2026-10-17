@@ -9,7 +9,7 @@ import { useTicketStore } from "../../store/ticketStore";
 export const TICKET_CAPTURE: CaptureTargetSpec = {
   id: "ticket.record",
   label: "記一筆",
-  hint: "80 午餐 @現金",
+  hint: "80 午餐", // ②契約 0-20（N1）：手機票根小字放不下「@現金」
   acceptsRoute: true,
   destLabel: (route) => useTicketStore.getState().quickDestLabel(route),
   save: (input) => useTicketStore.getState().addQuickEntry(input),

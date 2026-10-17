@@ -12,10 +12,16 @@
  * 只讀 store、只叫 store 的動作（§2.5）；domain 的純函式直接用（moneyText／rowAmount／monthTitle…）。
  * 本檔另外 export 桌機三個元件共用的小件：`TkIcon`（1.3px 細線圖示）、`acctLabel`（同名帳戶加群組）、`TkRoundel`。
  *
+ * 第②階段（②契約 §5.1、0-15、0-16；長相照原型 deskMain()）：
+ *   頁首第一列多了 SearchBar；第二列＝‹ 月份 ›（統計年模式「‹ 2026 年 ›」）＋本月合計（只在清單）＋ ViewSwitch（最右）；
+ *   搜尋作用中（清單＋有條件）⇒ 第二列換成「搜尋結果 ‹ 回 2026 年 10 月」、清單畫 resultDays（跨月、日分組頭印年、每頁 300 筆）；
+ *   第三列 FilterChips（搜尋開著才出）。main 依 view 換成 TicketCalendar／TicketStats。
+ *   月曆跳回來（jumpToDay）⇒ store.pendingDay：捲到那一天的日分組頭、閃一下；那天沒帳 ⇒ 捲到最接近的日、帳簿頂端貼一行淡字「10/8 沒有紀錄」3 秒（sticky：頁首此時已捲出畫面）。
+ *
  * 往前接月份的停點：store 沒有「最早一筆在哪個月」，所以連續 3 個月都空就停止自動接、改成手按「繼續往前」
  * （不然沒有更早的帳時會一路往前載空月）。見回報 needs。
  */
-import { useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
@@ -39,6 +45,13 @@ import {
   type EntryRow,
 } from "../../domain/ticket";
 import type { NodeRow } from "../../domain/node";
+import { RESULT_PAGE, VIEW_TEXT, isFilterActive, pageResults } from "../../domain/ticketView";
+// 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖——Stage 0 掛樁，乙席接手
+import { ViewSwitch } from "./view/ViewSwitch";
+import { SearchBar } from "./view/SearchBar";
+import { FilterChips } from "./view/FilterChips";
+import { TicketCalendar } from "./view/TicketCalendar";
+import { TicketStats } from "./view/TicketStats";
 
 /* ───────── 共用小件（桌機三個元件共用） ───────── */
 
@@ -180,6 +193,15 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const curByCode = useTicketStore((s) => s.curByCode);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const routes = useNodeStore((s) => s.routes);
+  const view = useTicketStore((s) => s.view);
+  const span = useTicketStore((s) => s.span);
+  const period = useTicketStore((s) => s.period);
+  const searchOpen = useTicketStore((s) => s.searchOpen);
+  const filter = useTicketStore((s) => s.filter);
+  const results = useTicketStore((s) => s.results);
+  const resultDays = useTicketStore((s) => s.resultDays);
+  const pendingDay = useTicketStore((s) => s.pendingDay);
+  const dayNotice = useTicketStore((s) => s.dayNotice);
 
   const today = todayKey(dayStartHour);
   const thisMonth = monthOf(today);
@@ -222,11 +244,172 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [autoLoad, loadedMonths]);
+  }, [autoLoad, loadedMonths, view]); // view：切回清單時哨兵是新的 DOM，要重掛
 
   const store = useTicketStore.getState;
   const filterAcc = filterAccountId ? accById[filterAccountId] : undefined;
   const panelOpen = panel.kind === "entry";
+  const searching = view === "list" && searchOpen && isFilterActive(filter); // 0-15：清單畫搜尋結果
+  const yearMode = view === "stats" && span === "year";
+
+  /* 搜尋結果分頁（0-14：先畫 300 筆）；結果換了就回第一頁 */
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [results]);
+
+  /* 切視圖／搜尋收起時焦點若掉到 body（清單、chip、「回 N 月」鈕卸載了）⇒ 還給清單／頁根，鍵盤表才接得到。
+     一支 effect 收全部入口（1／2／3、點分頁、Esc、點「回 N 月」、篩選鈕），不在每條路各自補 focus */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const a = document.activeElement;
+      if (a !== null && a !== document.body) return;
+      const root = document.querySelector<HTMLElement>(".page.ns-tk");
+      (root?.querySelector<HTMLElement>(".ns-tk-list") ?? root)?.focus({ preventScroll: true });
+    });
+    return () => clearTimeout(t);
+  }, [view, searchOpen]);
+
+  /* 切視圖 ⇒ main 捲回頂：不然清單捲深處切統計／日曆，舊 scrollTop 被夾成新內容的高度，頁首捲出畫面。
+     layout effect＝畫出新視圖前就歸零（不閃一下中段）；月曆 Enter 跳回清單的捲到那天在下面 setTimeout 裡，晚於這裡 */
+  const mainRef = useRef<HTMLElement>(null);
+  const lastView = useRef(view);
+  useLayoutEffect(() => {
+    if (lastView.current === view) return;
+    lastView.current = view;
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }, [view]);
+
+  /* 月曆跳回清單（0-16）／Ctrl+P 跳到一筆：捲到那一天、閃一下 */
+  const [flashDay, setFlashDay] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingDay || view !== "list") return;
+    const t = setTimeout(() => {
+      const list = listRef.current;
+      const head = list?.querySelector<HTMLElement>(`li.ns-tk-day[data-day="${pendingDay}"]`);
+      if (!list || !head) return; // 還沒載到（setMonth 的 refresh 還沒回來）：days 變了會再試
+      head.scrollIntoView({ block: "start" }); // 不用 smooth：切月後往前接月份會改版面，平滑捲動會被打斷
+      // 那天沒帳（dayNotice）＝捲到最接近的日但不閃：閃的是「你點的那一天」（原型同）
+      if (useTicketStore.getState().dayNotice === null) setFlashDay(pendingDay);
+      useTicketStore.getState().consumePendingDay();
+    });
+    return () => clearTimeout(t);
+  }, [pendingDay, view, days, listRef]);
+  useEffect(() => {
+    if (!flashDay) return;
+    const t = setTimeout(() => setFlashDay(null), 1600);
+    return () => clearTimeout(t);
+  }, [flashDay]);
+  useEffect(() => {
+    if (!dayNotice) return;
+    const t = setTimeout(() => useTicketStore.getState().clearDayNotice(), 3000);
+    return () => clearTimeout(t);
+  }, [dayNotice]);
+
+  /* 一筆帳簿行（月份清單與搜尋結果共用） */
+  const rowOf = (e: EntryRow): ReactNode => {
+    const active = panelOpen && selectedId === e.id;
+    const amt = rowAmount(e, filterAccountId, accById);
+    const cur = curByCode[amt.currency];
+    const foreign = amt.currency !== MAIN_CURRENCY;
+    const route = e.route_id ? routeById[e.route_id] : undefined;
+    return (
+      <li
+        key={e.id}
+        id={`tk-row-${e.id}`}
+        role="option"
+        aria-selected={selectedId === e.id}
+        className={`ns-tk-row${active ? " is-active" : ""}`}
+        data-kind={e.kind}
+        onMouseDown={(ev) => ev.preventDefault() /* 焦點留在清單（鍵盤表接得到） */}
+        onClick={() => {
+          store().select(e.id);
+          listRef.current?.focus({ preventScroll: true });
+        }}
+        onDoubleClick={() => onOpen(e.id)}
+      >
+        <span className="ns-tk-sign" aria-hidden>
+          {amt.prefix}
+        </span>
+        <span className="ns-tk-main">
+          <span className="ns-tk-cat">
+            <EntryCat e={e} />
+          </span>
+          {e.note && <span className="ns-tk-note">{e.note}</span>}
+        </span>
+        <span className="ns-tk-route">
+          {route && (
+            <>
+              <TkRoundel route={route} />
+              {route.code}
+            </>
+          )}
+        </span>
+        <span
+          className="ns-tk-amt"
+          title={foreign && amt.convMain !== null ? `≈ ${MAIN_SYMBOL} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
+        >
+          <b>{moneyText(amt.minor, cur?.decimals ?? 2)}</b>
+          {foreign && <span className="cur">{amt.currency}</span>}
+        </span>
+        <i className="rule" aria-hidden />
+      </li>
+    );
+  };
+
+  /* 一天：分組頭（日付小字＋當日小計）＋帳簿行；withYear＝搜尋結果跨月時印年 */
+  const pushDay = (out: ReactNode[], g: DayGroup, withYear: boolean) => {
+    const [d, w] = g.label.split(" ");
+    out.push(
+      <li key={`d-${g.dayKey}`} className={"ns-tk-day" + (flashDay === g.dayKey ? " is-flash" : "")} role="presentation" data-day={g.dayKey}>
+        <span className="d">{withYear ? `${g.dayKey.slice(0, 4)}/${d}` : d}</span>
+        <span className="w">{w}</span>
+        {g.dayKey === today && <span className="today">今天</span>}
+        <span className="s">
+          {g.expense !== 0 && moneyText(g.expense, mainDec)}
+          {g.expense !== 0 && g.income !== 0 && " · "}
+          {g.income !== 0 && <span className="pos">{moneyText(g.income, mainDec, { prefix: "＋" })}</span>}
+        </span>
+      </li>,
+    );
+    for (const e of g.entries) out.push(rowOf(e));
+  };
+
+  /* 搜尋結果（0-14）：不分月、新到舊、日分組（日小計＝整天的結果，分頁切在日中間也照整天算） */
+  const resultItems: ReactNode[] = [];
+  if (searching) {
+    if (results === null) {
+      resultItems.push(
+        <li key="finding" className="ns-tk-empty is-month" role="presentation">
+          正在找…
+        </li>,
+      );
+    } else if (!results.length) {
+      resultItems.push(
+        <li key="none" className="ns-tk-empty" role="presentation">
+          {VIEW_TEXT.emptyResults}
+          <small>換個字、或把篩選放寬一點</small>
+        </li>,
+      );
+    } else {
+      const shown = pageResults(results, page);
+      const shownIds = new Set(shown.map((e) => e.id));
+      const spanMonths = new Set(results.map((e) => monthOf(e.occurred_on))).size > 1;
+      for (const g of resultDays) {
+        const ents = g.entries.filter((e) => shownIds.has(e.id));
+        if (!ents.length) break;
+        pushDay(resultItems, ents.length === g.entries.length ? g : { ...g, entries: ents }, spanMonths);
+      }
+      if (results.length > shown.length) {
+        resultItems.push(
+          <li key="more" className="ns-tk-loadmore" role="presentation">
+            <button type="button" onMouseDown={(ev) => ev.preventDefault()} onClick={() => setPage(page + 1)}>
+              {VIEW_TEXT.more(Math.min(RESULT_PAGE, results.length - shown.length))}
+              <TkIcon name="caret" size={11} />
+            </button>
+          </li>,
+        );
+      }
+    }
+  }
 
   /* 清單：月份分隔＋日分組＋帳簿行 */
   const items: ReactNode[] = [];
@@ -250,108 +433,66 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         </li>,
       );
     }
-    const [d, w] = g.label.split(" ");
-    items.push(
-      <li key={`d-${g.dayKey}`} className="ns-tk-day" role="presentation">
-        <span className="d">{d}</span>
-        <span className="w">{w}</span>
-        {g.dayKey === today && <span className="today">今天</span>}
-        <span className="s">
-          {g.expense !== 0 && moneyText(g.expense, mainDec)}
-          {g.expense !== 0 && g.income !== 0 && " · "}
-          {g.income !== 0 && <span className="pos">{moneyText(g.income, mainDec, { prefix: "＋" })}</span>}
-        </span>
-      </li>,
-    );
-    for (const e of g.entries) {
-      const active = panelOpen && selectedId === e.id;
-      const amt = rowAmount(e, filterAccountId, accById);
-      const cur = curByCode[amt.currency];
-      const foreign = amt.currency !== MAIN_CURRENCY;
-      const route = e.route_id ? routeById[e.route_id] : undefined;
-      items.push(
-        <li
-          key={e.id}
-          id={`tk-row-${e.id}`}
-          role="option"
-          aria-selected={selectedId === e.id}
-          className={`ns-tk-row${active ? " is-active" : ""}`}
-          data-kind={e.kind}
-          onMouseDown={(ev) => ev.preventDefault() /* 焦點留在清單（鍵盤表接得到） */}
-          onClick={() => {
-            store().select(e.id);
-            listRef.current?.focus({ preventScroll: true });
-          }}
-          onDoubleClick={() => onOpen(e.id)}
-        >
-          <span className="ns-tk-sign" aria-hidden>
-            {amt.prefix}
-          </span>
-          <span className="ns-tk-main">
-            <span className="ns-tk-cat">
-              <EntryCat e={e} />
-            </span>
-            {e.note && <span className="ns-tk-note">{e.note}</span>}
-          </span>
-          <span className="ns-tk-route">
-            {route && (
-              <>
-                <TkRoundel route={route} />
-                {route.code}
-              </>
-            )}
-          </span>
-          <span
-            className="ns-tk-amt"
-            title={foreign && amt.convMain !== null ? `≈ ${MAIN_SYMBOL} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
-          >
-            <b>{moneyText(amt.minor, cur?.decimals ?? 2)}</b>
-            {foreign && <span className="cur">{amt.currency}</span>}
-          </span>
-          <i className="rule" aria-hidden />
-        </li>,
-      );
-    }
+    pushDay(items, g, false);
   });
 
   return (
-    <main className="ns-tk-ledger techo-scroll is-compact" aria-label="帳簿">
+    <main ref={mainRef} className="ns-tk-ledger techo-scroll is-compact" aria-label="帳簿" data-view={view}>
       <header className="ns-tk-head">
         <div className="ns-tk-headrow">
           <span className="ns-tk-overline">售票口 — TICKET OFFICE</span>
+          <SearchBar />
           <button type="button" className="ns-tk-newbtn" onClick={() => store().openNew()} title="記一筆">
             <TkIcon name="plus" size={11} />
             記一筆
             <kbd className="ns-tk-kbd">{capsOf("ticket.new")}</kbd>
           </button>
         </div>
-        <div className="ns-tk-headrow is-month">
-          <button
-            type="button"
-            className="ns-tk-mnav"
-            aria-label={`上一個月（${capsOf("ticket.month.prev")}）`}
-            title={`上一個月（${capsOf("ticket.month.prev")}）`}
-            onClick={() => void store().stepMonth(-1)}
-          >
-            <TkIcon name="left" />
-          </button>
-          <h1 className="techo-title">{monthTitle(month)}</h1>
-          <button
-            type="button"
-            className="ns-tk-mnav"
-            aria-label={`下一個月（${capsOf("ticket.month.next")}）`}
-            title={`下一個月（${capsOf("ticket.month.next")}）`}
-            disabled={month >= thisMonth}
-            onClick={() => void store().stepMonth(1)}
-          >
-            <TkIcon name="right" />
-          </button>
-          {monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) && (
+        <div className="ns-tk-headrow is-month is-views">
+          {searching ? (
+            <h1 className="techo-title is-search">
+              搜尋結果
+              <button
+                type="button"
+                className="ns-tk-btn quiet"
+                title={`回到月份清單（${capsOf("ticket.escape")}）`}
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={() => store().closeSearch()}
+              >
+                <TkIcon name="left" size={11} />回 {monthTitle(month)}
+              </button>
+            </h1>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="ns-tk-mnav"
+                aria-label={`${yearMode ? "上一年" : "上一個月"}（${capsOf("ticket.month.prev")}）`}
+                title={`${yearMode ? "上一年" : "上一個月"}（${capsOf("ticket.month.prev")}）`}
+                onClick={() => void store().stepMonth(-1)}
+              >
+                <TkIcon name="left" />
+              </button>
+              <h1 className="techo-title">{yearMode ? `${period.key} 年` : monthTitle(month)}</h1>
+              <button
+                type="button"
+                className="ns-tk-mnav"
+                aria-label={`${yearMode ? "下一年" : "下一個月"}（${capsOf("ticket.month.next")}）`}
+                title={`${yearMode ? "下一年" : "下一個月"}（${capsOf("ticket.month.next")}）`}
+                disabled={yearMode ? period.key >= thisMonth.slice(0, 4) : month >= thisMonth}
+                onClick={() => void store().stepMonth(1)}
+              >
+                <TkIcon name="right" />
+              </button>
+            </>
+          )}
+          {view === "list" && !searching && monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) && (
             <span className="ns-tk-monthsum">
               收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出{" "}
               <b>{moneyText(monthSum.expense, mainDec)}</b>
             </span>
           )}
+          <ViewSwitch />
         </div>
         {filterAcc && (
           <div className="ns-tk-filterchip">
@@ -361,6 +502,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
             </button>
           </div>
         )}
+        <FilterChips />
       </header>
 
       {error && !ready ? (
@@ -370,7 +512,11 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
             再試一次
           </button>
         </div>
-      ) : ready && !hasAny ? (
+      ) : view === "calendar" ? (
+        <TicketCalendar />
+      ) : view === "stats" ? (
+        <TicketStats />
+      ) : ready && !hasAny && !searching ? (
         <div className="ns-tk-book is-empty">
           <div className="ns-tk-empty is-book">
             <p>這本帳還是空的</p>
@@ -384,6 +530,12 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         </div>
       ) : (
         <div className="ns-tk-book">
+          {dayNotice && (
+            // 0-16：「10/8 沒有紀錄」——捲動後頁首已出畫面，所以貼在帳簿頂端（sticky），3 秒後收
+            <div className="ns-tk-daynote" role="status">
+              <span>{dayNotice}</span>
+            </div>
+          )}
           <ul
             ref={listRef}
             className="ns-tk-list"
@@ -392,8 +544,8 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
             aria-label="帳簿"
             aria-activedescendant={selectedId ? `tk-row-${selectedId}` : undefined}
           >
-            {items}
-            {ready && hasAny && (
+            {searching ? resultItems : items}
+            {ready && hasAny && !searching && (
               <li ref={sentinelRef} className="ns-tk-loadmore" role="presentation">
                 <button
                   type="button"

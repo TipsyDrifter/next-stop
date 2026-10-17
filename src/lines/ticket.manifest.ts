@@ -6,6 +6,8 @@
  * 純資料：不得 import React／store／Tauri API；型別一律 `import type`（probe 在 node 直接載入本檔）。
  *
  * 車次①（契約 §3.11）：通車、九個頁內鍵＋五個欄位內鍵（只登錄）、四張同步表；此後凍結，只有整合席能改。
+ * 第②階段（②契約 §3.5、0-24 解凍）：加搜尋、三視圖、月曆方向鍵共 6 鍵（Stage 0 由甲席寫入，之後凍結）；
+ * ticket.move.up／down 標籤補月曆的意思；scene note 補一句。hotkeyScopes／syncTables／hotkeyFiles 不動。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -17,13 +19,19 @@ const ALL_LOOSE = ["ctrl", "shift", "alt"] as const;
 /** 另外宣告、有型別註記（地基契約 §13 標準寫法；同 timetable.manifest.ts:14-24 的理由） */
 const TICKET_HOTKEYS: Hotkey[] = [
   { id: "ticket.new", scope: "ticket", chords: [{ key: "n" }], label: "記一筆", wired: true, ignoreMods: [...SHIFT_LOOSE] },
-  { id: "ticket.move.up", scope: "ticket", chords: [{ key: "ArrowUp" }], label: "上一筆", wired: true, ignoreMods: [...SHIFT_LOOSE] },
-  { id: "ticket.move.down", scope: "ticket", chords: [{ key: "ArrowDown" }], label: "下一筆", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "ticket.move.up", scope: "ticket", chords: [{ key: "ArrowUp" }], label: "上一筆（月曆：上一週）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "ticket.move.down", scope: "ticket", chords: [{ key: "ArrowDown" }], label: "下一筆（月曆：下一週）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "ticket.open", scope: "ticket", chords: [{ key: "Enter" }], label: "開這一筆", wired: true },
   { id: "ticket.delete", scope: "ticket", chords: [{ key: "Delete" }], label: "刪除（可復原）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "ticket.month.prev", scope: "ticket", chords: [{ key: "[" }], label: "上一個月", wired: true },
   { id: "ticket.month.next", scope: "ticket", chords: [{ key: "]" }], label: "下一個月", wired: true },
   { id: "ticket.account.next", scope: "ticket", chords: [{ key: "Tab" }], label: "下一個帳戶篩選", wired: true },
+  { id: "ticket.search", scope: "ticket", chords: [{ key: "/" }], label: "搜尋與篩選", wired: true },
+  { id: "ticket.view.list", scope: "ticket", chords: [{ key: "1" }], label: "清單視圖", wired: true },
+  { id: "ticket.view.calendar", scope: "ticket", chords: [{ key: "2" }], label: "月曆視圖", wired: true },
+  { id: "ticket.view.stats", scope: "ticket", chords: [{ key: "3" }], label: "統計視圖", wired: true },
+  { id: "ticket.day.left", scope: "ticket", chords: [{ key: "ArrowLeft" }], label: "月曆：前一天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "ticket.day.right", scope: "ticket", chords: [{ key: "ArrowRight" }], label: "月曆：後一天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "ticket.escape", scope: "ticket", chords: [{ key: "Escape" }], label: "收起", wired: true, ignoreMods: [...ALL_LOOSE] },
   { id: "ticket-entry.save", scope: "ticket-entry", chords: [{ key: "Enter" }], label: "存檔（新票）", wired: false },
   { id: "ticket-entry.again", scope: "ticket-entry", chords: [{ key: "Enter", ctrl: true }], label: "存並再記", wired: false },
@@ -33,7 +41,7 @@ const TICKET_HOTKEYS: Hotkey[] = [
 ];
 
 const TICKET_SCENES: Scene[] = [
-  { scope: "ticket", title: "售票口", note: "售票口頁選中一筆、游標不在字裡的時候。" },
+  { scope: "ticket", title: "售票口", note: "售票口頁選中一筆、游標不在字裡的時候；月曆視圖時方向鍵在格子間移動。" },
   { scope: "ticket-entry", title: "記一筆（大票）", note: "詳情板的票開著、游標在欄位裡的時候；鍵由輸入欄自理。" },
 ];
 
