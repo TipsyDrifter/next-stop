@@ -47,6 +47,7 @@ import {
   type StreamGapSection,
   type StreamSection,
 } from "./streamModel";
+import { useMinuteTick } from "./useMinuteTick";
 import { useStream } from "./useStream";
 import "./schedule.css";
 
@@ -694,11 +695,14 @@ const StreamRow = memo(function StreamRow({
   onDefer(row: DayRowModel, anchor: HTMLElement): void;
   onFreshEnd(key: string): void;
 }) {
+  // 現在（主線②）：時刻已過的赭色要每分鐘自己變——節拍掛在列上，換分只重畫列、不動整條串流
+  const now = useMinuteTick();
   return (
     <DayRow
       row={row}
       selected={selected}
       fresh={fresh}
+      now={now}
       onFreshEnd={() => onFreshEnd(row.key)}
       onSelect={() => onSelect(rowKey(row.entry.date, row.entry.node_id))}
       onStamp={() => onStamp(row)}

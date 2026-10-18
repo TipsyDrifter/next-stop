@@ -58,6 +58,7 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(6, "0006_timetable_blocks", "timetable: time_categories + time_blocks (starter categories are seeded by the app, not here)"),
     mig!(7, "0007_ticket_ledger", "ticket: tk_currencies + tk_accounts + tk_categories + tk_entries (TWD and the two uncategorized rows are seeded by the app, not here)"),
     mig!(8, "0008_notes_tags", "notes: tags + taggings (deterministic ids; nested by name)"),
+    mig!(9, "0009_ticket_time", "ticket time: nodes.scheduled_time (business-day HH:MM) + nodes.time_overrides (per-run JSON)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。

@@ -57,6 +57,16 @@ export interface NodeRow extends SyncFields {
   today_position: number | null;
   /** 繰越來源＝被推遲前的執行日 YYYY-MM-DD（M3 ③）；NULL＝沒被推遲過 */
   carried_from: string | null;
+  /**
+   * 預定時刻（主線階段②）：營業日表記 'HH:MM'，小時可 ≥ 24（日界線 06:00 時 '25:00'＝隔天 01:00）；存的字就是看到的字。
+   * 單發票＝這張票的時刻；定期券＝每班的時刻（每一班繼承）；NULL＝不排時刻。讀取一律經 `effectiveTime`（domain/scheduledTime.ts）。
+   */
+  scheduled_time: string | null;
+  /**
+   * 定期券逐班覆寫（主線階段②）：JSON `{'YYYY-MM-DD': 'HH:MM' | null}`（null＝這一班不排時刻）；只有定期券會有值。
+   * 讀寫只經 domain/scheduledTime.ts 與 repository 的 setRunTime／clearRunTime（UI 不准讀改寫 JSON）；整欄 LWW。
+   */
+  time_overrides: string | null;
 }
 
 export interface WorkLog extends SyncFields {
@@ -167,6 +177,8 @@ export const CONFLICT_COL_LABEL: Record<string, string> = {
   deleted_at: "刪除",
   body: "內文",
   value: "設定",
+  scheduled_time: "時刻",
+  time_overrides: "本班時刻",
 };
 
 /** 值 → 一段短字：null／空白＝「（空）」；太長截到 40 字（一列塞得下，細節看另一台） */

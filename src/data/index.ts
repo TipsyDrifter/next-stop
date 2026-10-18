@@ -70,7 +70,7 @@ export const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
  * **只在 `?mock=1` 或 vite DEV 生效**，正式打包三個欄位恆 null（沿 `uiStore` 的 THEME_OVERRIDE 模式）。
  *
  *   `?page=today|routemap|calendar`  起始頁 → `uiStore.page` 的初值（pages.ts 裡已通車的頁才收；未通車的落回今日）
- *   `&view=month|week|stream`        日曆視圖 → `uiStore.calendarView` 的初值（蓋過 settings，**不寫回**）
+ *   `&view=month|week|time|stream`   日曆視圖 → `uiStore.calendarView` 的初值（蓋過 settings，**不寫回**）
  *   `&day=YYYY-MM-DD`                直開該日的當日清單浮層（＝原型的 `?open=14`）→ WP3 自己讀
  *   `&backup=fail|streak3`           備份端點（M3 ⑥ WP0）→ `MemoryBackupRepository` 吃這個：
  *                                      fail    → 啟動 report 回 error，拍失敗 toast
@@ -80,7 +80,7 @@ export const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
  */
 export interface DevFlags {
   page: PageId | null;
-  view: "month" | "week" | "stream" | null;
+  view: "month" | "week" | "time" | "stream" | null;
   day: string | null;
   backup: BackupMockMode;
 }
@@ -97,7 +97,7 @@ function detectDevFlags(): DevFlags {
     const backup = q.get("backup");
     return {
       page: isOpenPageId(page) ? page : null,
-      view: view === "month" || view === "week" || view === "stream" ? view : null,
+      view: view === "month" || view === "week" || view === "time" || view === "stream" ? view : null,
       day: day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null,
       backup: backup === "fail" || backup === "streak3" ? backup : null,
     };

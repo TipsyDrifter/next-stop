@@ -37,6 +37,7 @@ const entry = (date: string, node_id = `n-${date}`): ScheduleEntry => ({
   is_late: date < TODAY,
   is_done: false,
   is_assumed: false,
+  time: null,
 });
 const due = (date: string, node_id = `d-${date}`): DueEntry => ({ date, node_id });
 

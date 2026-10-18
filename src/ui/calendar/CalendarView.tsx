@@ -20,6 +20,8 @@
  *   `MonthJump`（⑤-b 追加 1）＝月／年快速跳轉小卡，`jumpOpen` 時掛載；入口＝date-line 的月份大字鈕
  *   `StreamView`（主線車次①）＝「串流」排列，`view==="stream"` 時掛載：頁面本身不捲（`.is-stream`），
  *     串流自己捲、頁尾也畫在捲動內容裡；頁首的 ‹ ›／今日／月份字改走 scroll-spy（控制器 §2.2-1）
+ *   `WeekTimeGrid`（主線②）＝「時段」排列（週的另一種排法，D-主-13 第四段），`view==="time"` 時掛載：
+ *     頁面本身不捲（`.is-time`），畫布自己捲；頁首、‹ ›、鍵盤全照週
  * 資料一律經 `useCalendar()`（＝`useCalendarController` 的 context），不各自查 store。
  *
  * 使用者可見的頁名「行程表」（D-主-2／P2）：`PageId`／scope／settings key 仍叫 calendar，只改字。
@@ -28,6 +30,7 @@ import { useRef } from "react";
 import { addDays } from "../../lib/date";
 import { DateSeal } from "../stamps";
 import { StreamView } from "../schedule/StreamView";
+import { WeekTimeGrid } from "../schedule/WeekTimeGrid";
 import { DayPopover } from "./DayPopover";
 import { DueTip } from "./DueTip";
 import { MonthGrid } from "./MonthGrid";
@@ -82,6 +85,8 @@ export function CalendarView() {
   const containerRef = useRef<HTMLElement>(null);
   const c = useCalendarController(containerRef);
   const stream = c.view === "stream";
+  /** 時段（主線②）：週的另一種排法——頁首／‹ ›／統計全照週 */
+  const timeView = c.view === "time";
   // 串流時格層表只剩 Esc（StreamView 自己吃 daylist 那張表）
   const onKeyDown = useCalendarKeyboard(c.keys, c.blocked || stream);
 
@@ -89,7 +94,7 @@ export function CalendarView() {
   const monthEn = MONTH_EN[cur.getMonth()];
   // 頁首三段：月視圖＝月／年／英文月名；週視圖＝日期區間／年／latin 區間（大字仍是 MonthJump 的觸發鈕，
   // 小卡的「目前月」照舊由 cursor（週視圖＝該週週一；串流＝focusDay 的月）決定，契約不動）
-  const week = c.view === "week" ? weekHeading(c.cursor) : null;
+  const week = c.view === "week" || timeView ? weekHeading(c.cursor) : null;
 
   return (
     <section
@@ -102,7 +107,7 @@ export function CalendarView() {
         if (c.tipTarget) c.hideTip();
       }}
       aria-label="行程表"
-      className={stream ? "page ns-calendar is-stream" : "page ns-calendar"}
+      className={stream ? "page ns-calendar is-stream" : timeView ? "page ns-calendar is-time" : "page ns-calendar"}
     >
       <CalendarProvider value={c}>
         <div className="sheet">
@@ -182,6 +187,15 @@ export function CalendarView() {
                   </button>
                   <button
                     type="button"
+                    className={timeView ? "on" : undefined}
+                    aria-pressed={timeView}
+                    title="時段：一週七天照幾點排"
+                    onClick={() => c.setView("time")}
+                  >
+                    時段
+                  </button>
+                  <button
+                    type="button"
                     className={stream ? "on" : undefined}
                     aria-pressed={stream}
                     title="串流：從今天往上下捲"
@@ -203,8 +217,16 @@ export function CalendarView() {
             />
           </header>
 
-          {/* ═══ 月間頁／週視圖／串流 ═══ */}
-          {stream ? <StreamView /> : c.view === "week" ? <WeekGrid weekStart={c.cursor} days={c.days} /> : <MonthGrid />}
+          {/* ═══ 月間頁／週視圖／時段／串流 ═══ */}
+          {stream ? (
+            <StreamView />
+          ) : timeView ? (
+            <WeekTimeGrid />
+          ) : c.view === "week" ? (
+            <WeekGrid weekStart={c.cursor} days={c.days} />
+          ) : (
+            <MonthGrid />
+          )}
 
           {/* 串流的頁尾畫在捲動內容的最後（StreamView），這裡不畫 */}
           {!stream && (

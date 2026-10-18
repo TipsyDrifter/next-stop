@@ -1,0 +1,284 @@
+/* ─────────────────────────────────────────────────────
+ * timegrid.css — 時段畫布 `TimeGrid.tsx`（主線階段②；契約 §4.7）。桌機值在本檔；
+ * 手機覆寫由丙寫在 schedule-mobile.css，每條以 `[data-shell="mobile"]` 開頭（例：
+ * `[data-shell="mobile"] .ns-tg { --H: 54px; --gw: 40px; --headH: 40px }`）。
+ *
+ * 視覺真相＝prototypes/主線-預定時刻.html :454-540（.tg-*／.blk）。對照：.tg-* → .ns-tg-*、.blk → .ns-tg-blk、
+ * .blk.sel → .is-sel、.blk.over → .over。原型寫死的色（#eeedf6 欄頭底、--night、--cal-today-bg、陰影 rgba）
+ * 一律改成 theme token 的 color-mix（契約 §1-8）；兩主題的差異只放在下面的 --ns-tg-* 變數，
+ * 元素規則不寫 [data-theme] 分支——手機覆寫只要特異度 ≥ 本檔就贏，不必管載入順序。
+ *
+ * 變數（掛在 :root／[data-theme="dark"]，週條「清單｜時段」小分段等畫布外的元件也讀得到）：
+ *   --ns-tg-night      24:00 以後的夜色帶
+ *   --ns-tg-today-bg   今天那欄／籤帶的底（桌機在 .ns-calendar 內會吃 calendar.css 的 --cal-today-bg）
+ *   --ns-tg-seg-on     分段鈕選中底（時段入口用）
+ *   --ns-tg-head-bg／--ns-tg-band-bg／--ns-tg-gut-bg   三條 sticky 帶的不透明底（捲動時要蓋住塊）
+ *   --ns-tg-blk-paper／--ns-tg-blk-rc   塊底的紙色與路線色比例（--ns-tg-blk-bg 在 .ns-tg-blk 上合成：
+ *                      自訂屬性在宣告處就代入 var()，--rc 是塊的 inline 值，:root 上合不出來）
+ *   --ns-tg-on-accent  現在時刻牌（靛底／銀河金底）上的字
+ *   --ns-tg-shadow     塊的淡影
+ * 版面變數（在 .ns-tg 上；手機覆寫）：--H 每小時高、--gw 刻度欄寬、--headH 欄頭高。
+ * ───────────────────────────────────────────────────── */
+
+:root {
+  --ns-tg-night: color-mix(in srgb, var(--color-book) 5.5%, transparent);
+  --ns-tg-today-bg-base: color-mix(in srgb, white 32%, transparent);
+  --ns-tg-seg-on: color-mix(in srgb, var(--accent) 10%, transparent);
+  --ns-tg-head-bg: color-mix(in srgb, var(--color-paper) 30%, white);
+  --ns-tg-band-bg: color-mix(in srgb, var(--color-paper) 42%, white);
+  --ns-tg-gut-bg: color-mix(in srgb, var(--color-paper) 34%, white);
+  --ns-tg-blk-paper: color-mix(in srgb, var(--color-paper-high) 92%, white);
+  --ns-tg-blk-rc: 13%;
+  --ns-tg-on-accent: var(--color-book-ink);
+  --ns-tg-shadow: color-mix(in srgb, var(--color-book) 8%, transparent);
+  --ns-tg-shadow-lift: color-mix(in srgb, var(--color-book) 16%, transparent);
+}
+[data-theme="dark"] {
+  --ns-tg-night: color-mix(in srgb, black 16%, transparent);
+  --ns-tg-today-bg-base: color-mix(in srgb, var(--accent-sky) 4.5%, transparent);
+  --ns-tg-seg-on: color-mix(in srgb, var(--accent) 12%, transparent);
+  --ns-tg-head-bg: color-mix(in srgb, var(--color-paper-high) 88%, var(--color-paper));
+  --ns-tg-band-bg: color-mix(in srgb, var(--color-paper-high) 65%, var(--color-paper));
+  --ns-tg-gut-bg: color-mix(in srgb, var(--color-paper-high) 50%, var(--color-paper));
+  --ns-tg-blk-paper: var(--color-paper-used);
+  --ns-tg-blk-rc: 16%;
+  --ns-tg-on-accent: var(--color-book);
+  --ns-tg-shadow: color-mix(in srgb, black 40%, transparent);
+  --ns-tg-shadow-lift: color-mix(in srgb, black 50%, transparent);
+}
+
+/* ═══ 外框與捲動 ═══ */
+.ns-tg {
+  --H: 44px; --gw: 54px; --headH: 46px;
+  /* 今天的底：在日曆頁內沿用 calendar.css 的值，其他地方（手機）用本檔的 */
+  --ns-tg-today-bg: var(--cal-today-bg, var(--ns-tg-today-bg-base));
+  position: relative; flex: 1; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ns-tg-scroll {
+  flex: 1; min-height: 0; overflow: auto; position: relative;
+  scrollbar-width: thin; overscroll-behavior: contain;
+}
+.ns-tg-scroll::-webkit-scrollbar { width: 10px; height: 8px; }
+.ns-tg-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 20%, transparent); border-radius: 5px; }
+.ns-tg-grid { position: relative; }
+
+.ns-tg-row { display: grid; grid-template-columns: var(--gw) repeat(var(--n), minmax(0, 1fr)); }
+/* 固定欄寬（手機 3 天頁）：欄寬＝--cw、整列可橫捲；每頁第一欄（.ns-tg-col.is-snap）當 snap 錨。
+ * scroll-padding-left＝刻度欄寬：sticky 刻度欄蓋住視口左邊 --gw，停點＝欄起點 − --gw（＝TimeGrid.scrollToDay 的算法）。
+ * 錨必須是全高的欄：Chromium 單軸 snap 只認另一軸（縱向）和視口相交的 snap area，縱向捲離頂端的小錨點會被忽略。
+ * align 寫兩值（block none、inline start）：只在橫向對齊，縱向不受影響。 */
+.ns-tg.is-fixed .ns-tg-row { grid-template-columns: var(--gw) repeat(var(--n), var(--cw)); width: max-content; }
+.ns-tg.is-fixed .ns-tg-scroll { scroll-snap-type: x mandatory; scroll-padding-left: var(--gw); }
+.ns-tg.is-fixed .ns-tg-col.is-snap { scroll-snap-align: none start; }
+/* 欄寬 floor((容器寬 − --gw) / 3) 有 0–2px 餘數：補 2px 尾巴讓最後一頁的錨捲得到（不補就被夾在最大 scrollLeft、差 1–2px） */
+.ns-tg.is-fixed .ns-tg-grid { width: max-content; padding-right: 2px; }
+
+/* ═══ 欄頭（sticky） ═══ */
+.ns-tg-head {
+  position: sticky; top: 0; z-index: 6; height: var(--headH);
+  background: var(--ns-tg-head-bg); border-bottom: 1px solid var(--color-line);
+}
+.ns-tg-corner {
+  position: sticky; left: 0; z-index: 2; background: inherit;
+  display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 8px 6px 0;
+  font-size: 9px; letter-spacing: .14em; color: var(--color-ink-faint);
+}
+.ns-tg-dh {
+  position: relative; min-width: 0; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  border-left: 1px solid var(--color-line); padding: 4px 2px;
+}
+.ns-tg-dh:hover { background: color-mix(in srgb, var(--color-ink) 3.5%, transparent); }
+.ns-tg-dh .wd { font-size: 10px; letter-spacing: .2em; color: var(--color-ink-soft); }
+.ns-tg-dh .dn { position: relative; font-family: var(--font-latin); font-weight: 600; font-size: 15px; line-height: 1.2; color: var(--color-ink-soft); }
+.ns-tg-dh .cnt { font-size: 9px; letter-spacing: .1em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tg-dh.is-past .dn, .ns-tg-dh.is-past .wd { color: var(--color-ink-faint); }
+.ns-tg-dh.is-today .dn, .ns-tg-dh.is-today .wd { color: var(--accent); }
+.ns-tg-dh.is-today .dn::before { /* 作用中＝菱形：同 calendar.css .cell.today .dnum::before */
+  content: ""; display: inline-block; width: 5px; height: 5px; background: var(--accent);
+  transform: rotate(45deg); margin-right: 5px; vertical-align: 3px;
+}
+/* 鍵盤落點那一天：欄頭底一條靛線（原型沒有這個狀態；與週格 roving focus 同義） */
+.ns-tg-dh.is-sel { box-shadow: inset 0 -2px 0 var(--accent); }
+/* 締切〆：照 calendar.css .sime 的語彙（赭、斜 -6°，相鄰錯開） */
+.ns-tg-dh .sime {
+  position: absolute; top: 3px; right: 5px;
+  font-family: var(--font-display); font-weight: 600; font-size: 12px; line-height: 1;
+  color: var(--color-late); transform: rotate(-6deg); opacity: .92; pointer-events: none;
+}
+.ns-tg-dh .sime.alt { transform: rotate(-8.5deg); }
+.ns-tg-dh .sime .n { font-size: 8px; font-family: var(--font-latin); vertical-align: 3px; margin-left: 1px; }
+
+/* ═══ 未定時帶（sticky，黏在欄頭下） ═══ */
+.ns-tg-band {
+  position: sticky; top: var(--headH); z-index: 5;
+  background: var(--ns-tg-band-bg); border-bottom: 1px solid var(--color-dash);
+}
+.ns-tg-band .ns-tg-corner { align-items: center; padding: 6px 6px 6px 0; line-height: 1.3; text-align: right; }
+.ns-tg-bc {
+  min-width: 0; min-height: 30px; padding: 5px 4px 6px;
+  display: flex; flex-direction: column; gap: 3px;
+  border-left: 1px solid var(--color-line); cursor: pointer;
+}
+.ns-tg-bc.is-today { background: var(--ns-tg-today-bg); }
+.ns-tg-chip {
+  display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 20px; margin: 0; padding: 0 5px;
+  border-radius: 2px; border: 1px dashed var(--color-dash); background: transparent;
+  font: inherit; font-size: 10.5px; line-height: 1.3; color: var(--color-ink-soft); text-align: left; cursor: pointer;
+}
+.ns-tg-chip .dot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
+.ns-tg-chip .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-tg-chip:hover, .ns-tg-chip.is-sel { border-color: var(--accent); }
+.ns-tg-chip:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.ns-tg-chip.done { color: var(--color-ink-faint); }
+.ns-tg-chip.done .nm { text-decoration: line-through 1px; }
+.ns-tg-chip.done .dot, .ns-tg-chip.skipped .dot { opacity: .45; }
+.ns-tg-chip.skipped { color: var(--color-ink-faint); } /* 運休＝淡化不刪除線（同 DayCell） */
+.ns-tg-chip.late { color: var(--color-late); }
+/* 軸外（改日界線前存的時刻）：票名後一個小註 */
+.ns-tg-chip .oob-t {
+  flex: none; margin-left: auto; padding-left: 3px;
+  font-family: var(--font-latin); font-size: 9px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap;
+}
+.ns-tg-more { font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-left: 4px; }
+
+/* ═══ 時間軸本體 ═══ */
+.ns-tg-body { position: relative; border-bottom: 1px solid var(--color-dash); }
+.ns-tg-gut { position: sticky; left: 0; z-index: 4; height: calc(24 * var(--H)); background: var(--ns-tg-gut-bg); }
+.ns-tg-gut .hl {
+  position: absolute; right: 7px; transform: translateY(-50%);
+  font-family: var(--font-latin); font-size: 10px; letter-spacing: .02em; line-height: 1;
+  color: var(--color-ink-faint); white-space: nowrap; text-align: right;
+}
+.ns-tg-gut .hl.nite { color: var(--color-ink-soft); }
+.ns-tg-gut .hl small {
+  display: block; margin-top: 2px;
+  font-family: var(--font-body); font-size: 8px; letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.ns-tg-gut .nowpill {
+  position: absolute; right: 3px; z-index: 2; transform: translateY(-50%);
+  padding: 1px 5px; border-radius: 2px; background: var(--accent); color: var(--ns-tg-on-accent);
+  font-family: var(--font-latin); font-size: 10px; font-weight: 600; letter-spacing: .03em; line-height: 1.35;
+}
+.ns-tg-col {
+  position: relative; min-width: 0; height: calc(24 * var(--H)); border-left: 1px solid var(--color-line); cursor: pointer;
+  background-image:
+    repeating-linear-gradient(to bottom, var(--color-line) 0 1px, transparent 1px var(--H)),
+    repeating-linear-gradient(to bottom,
+      transparent 0 calc(var(--H) / 2),
+      color-mix(in srgb, var(--color-line) 45%, transparent) calc(var(--H) / 2) calc(var(--H) / 2 + 1px),
+      transparent calc(var(--H) / 2 + 1px) var(--H));
+}
+.ns-tg-col.is-today { background-color: var(--ns-tg-today-bg); }
+/* 夜色帶與 24:00 虛線：top／height 由元件依日界線給（日界線 06 ⇒ 18H 起 6H 高） */
+.ns-tg-night { position: absolute; left: 0; right: 0; background: var(--ns-tg-night); pointer-events: none; }
+.ns-tg-midnight { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--color-dash); pointer-events: none; }
+.ns-tg-now { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--accent); z-index: 3; pointer-events: none; transform: translateY(-1px); }
+.ns-tg-now::before { content: ""; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.ns-tg-now.ghost { border-top: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); transform: none; }
+.ns-tg-now.ghost::before { display: none; }
+
+/* ═══ 塊 ═══ */
+.ns-tg-blk {
+  --ns-tg-blk-bg: color-mix(in srgb, var(--rc) var(--ns-tg-blk-rc), var(--ns-tg-blk-paper));
+  position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 0; overflow: hidden;
+  margin: 0; padding: 3px 5px 2px 7px; box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-left: 3px solid var(--rc); border-radius: 3px;
+  background: var(--ns-tg-blk-bg); box-shadow: 0 1px 2px var(--ns-tg-shadow);
+  font: inherit; font-size: 11px; line-height: 1.3; color: var(--color-ink); text-align: left; cursor: pointer;
+  transition: box-shadow .15s var(--ease-out, ease-out);
+}
+.ns-tg-blk:hover { z-index: 3; box-shadow: 0 0 0 1px var(--accent), 0 4px 10px var(--ns-tg-shadow-lift); }
+.ns-tg-blk.is-sel { z-index: 3; box-shadow: 0 0 0 1.5px var(--accent), 0 4px 10px var(--ns-tg-shadow-lift); }
+.ns-tg-blk:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.ns-tg-blk .bt {
+  font-family: var(--font-latin); font-weight: 600; font-size: 10.5px; letter-spacing: .02em;
+  color: var(--color-ink-soft); white-space: nowrap;
+}
+.ns-tg-blk .bt .nx { margin-left: 3px; font-family: var(--font-body); font-weight: 400; font-size: 9px; color: var(--color-ink-faint); }
+.ns-tg-blk .bn {
+  font-weight: 500; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: var(--lc, 3); -webkit-box-orient: vertical;
+}
+.ns-tg-blk.short { flex-direction: row; align-items: center; gap: 5px; padding-top: 0; padding-bottom: 0; }
+.ns-tg-blk.short .bn { display: block; -webkit-line-clamp: 1; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+/* 已過發車時刻、還沒入鋏也沒蓋済 ⇒ 時刻字赭（今日頁同一條規則） */
+.ns-tg-blk.past .bt { color: var(--color-late); }
+.ns-tg-blk.doing { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), 0 1px 2px var(--ns-tg-shadow); }
+.ns-tg-blk.doing .bt::after {
+  content: "進行中"; margin-left: 5px;
+  font-family: var(--font-body); font-weight: 500; font-size: 8.5px; letter-spacing: .14em; color: var(--accent);
+}
+.ns-tg-blk.done {
+  background: color-mix(in srgb, var(--rc) 5%, var(--color-paper-used));
+  border-color: var(--color-line); border-left-color: color-mix(in srgb, var(--rc) 45%, transparent);
+}
+.ns-tg-blk.done .bt { color: var(--color-ink-faint); }
+.ns-tg-blk.done .bn { color: var(--color-ink-faint); text-decoration: line-through 1px color-mix(in srgb, var(--color-ink) 30%, transparent); }
+/* 運休＝淡化不刪除線（同 DayCell 的處置） */
+.ns-tg-blk.skipped {
+  background: color-mix(in srgb, var(--rc) 4%, var(--color-paper-used));
+  border-color: var(--color-line); border-left-color: color-mix(in srgb, var(--rc) 40%, transparent);
+}
+.ns-tg-blk.skipped .bt, .ns-tg-blk.skipped .bn { color: var(--color-ink-faint); }
+.ns-tg-blk .mini-seal { /* 済＝朱（印章家族唯一用朱的地方） */
+  position: absolute; right: 3px; top: 3px; width: 15px; height: 15px; box-sizing: border-box;
+  display: grid; place-items: center; border-radius: 50%; border: 1.3px solid var(--color-seal);
+  font-family: var(--font-display); font-weight: 700; font-size: 9px; line-height: 1; color: var(--color-seal);
+  transform: rotate(-8deg); opacity: .85;
+}
+.ns-tg-blk.short .mini-seal { top: 50%; margin-top: -7.5px; }
+/* 沒填預計（D-主-15）：固定 45 分高、底邊虛線淡出＝「沒說要多久」 */
+.ns-tg-blk.noest {
+  border-bottom: 0; box-shadow: none;
+  background: linear-gradient(180deg, var(--ns-tg-blk-bg) 55%, transparent);
+}
+.ns-tg-blk.noest::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  border-bottom: 1.5px dashed color-mix(in srgb, var(--rc) 55%, transparent);
+}
+.ns-tg-blk.noest .bt::after {
+  content: "長度未定"; margin-left: 5px;
+  font-family: var(--font-body); font-weight: 400; font-size: 8.5px; letter-spacing: .1em; color: var(--color-ink-faint);
+}
+.ns-tg-blk.noest.doing { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.ns-tg-blk.noest.doing .bt::after { content: "進行中・長度未定"; font-weight: 500; letter-spacing: .14em; color: var(--accent); }
+.ns-tg-blk.noest:hover { box-shadow: 0 0 0 1px var(--accent); }
+.ns-tg-blk.noest.is-sel { box-shadow: 0 0 0 1.5px var(--accent); }
+.ns-tg-blk.late-day { border-color: color-mix(in srgb, var(--color-late) 45%, transparent); border-left-color: var(--rc); }
+.ns-tg-blk.over::before { content: "續→"; position: absolute; right: 4px; bottom: 1px; font-size: 8.5px; color: var(--color-ink-faint); }
+
+/* ═══ 窄塊（兩端共用；第二輪 §7-1） ═══
+ * 塊寬＝欄寬 ÷ lane 數：手機 3 天頁兩條 lane 只剩約 51px、桌機週時段約 61px，時刻字後面的「長度未定／進行中」被截成一兩個字、
+ * 済章蓋在字上。塊自己當 container 量寬，放不下就收：時刻永遠留整，狀態改由塊本身的樣子表達
+ * （長度未定＝底邊虛線淡出、進行中＝靛色內框、已入鋏＝淡字刪除線＋済章）。
+ * container 量的是**內容盒**（塊寬 − 左框 3 − 左距〔桌機 7／手機 5〕− 右距 5）⇒ 已入鋏塊不再用右距 20px 讓章
+ * （同寬的塊會量出不同寬），改成只讓票名讓位（.bn margin-right）；寬塊的長相不變。
+ * 門檻（實量，字型照本檔）：「HH:MM」≈31px；＋「長度未定」≈73px；＋「進行中・長度未定」≈113px；＋「隔天 H:MM」≈71px；
+ * 済章佔內容盒右緣往左約 10px 起 ⇒ 已入鋏＋長度未定要 ≥87px 才不撞章。
+ * 收字用 display:none（上面只寫 content，不搶同一個屬性）；改字用 content，特異度 (0,4,1) 照載入順序蓋過 .noest.doing。 */
+.ns-tg-blk { container: ns-tg-blk / inline-size; }
+.ns-tg-blk.done .bn { margin-right: 14px; }
+@container ns-tg-blk (max-width: 113px) {
+  .ns-tg-blk.noest.doing .bt::after { content: "進行中"; }
+}
+@container ns-tg-blk (max-width: 86px) {
+  .ns-tg-blk.done .bt::after { display: none; }
+}
+@container ns-tg-blk (max-width: 73px) {
+  /* 兩條 lane 起：時刻後面一個字都不加；章挪到右下（票名已讓位），單行短塊放不下章就不蓋 */
+  .ns-tg-blk .bt::after, .ns-tg-blk .bt .nx { display: none; }
+  .ns-tg-blk:not(.short) .mini-seal { top: auto; bottom: 3px; }
+  .ns-tg-blk.short .mini-seal { display: none; }
+}
+@container ns-tg-blk (max-width: 26px) {
+  /* 三條 lane 起：時刻縮到 8.5px（≈24px）往左借 2px；章不蓋、票名不再讓位（點開仍看得到全文） */
+  .ns-tg-blk .bt { margin-left: -2px; font-size: 8.5px; letter-spacing: 0; }
+  .ns-tg-blk .mini-seal { display: none; }
+  .ns-tg-blk.done .bn { margin-right: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tg-blk { transition: none; }
+}

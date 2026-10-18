@@ -41,11 +41,15 @@ import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import type { CalendarKeyActions } from "./useCalendarKeyboard";
 
 /**
- * 三種排列（主線車次① D-主-2）：月格／週格／串流。
+ * 四種排列（主線車次① D-主-2＋主線② D-主-13）：月格／週格／時段／串流。
  * `stream`＝StreamView 自己管視窗與載入（useStream）；本控制器在串流時**不載入、不算格**，
  * 頁首的月份字吃 scroll-spy 的 `focusDay`，‹ ›／今日／MonthJump 都改成發捲動請求（契約 §2.2-1）。
+ * `time`＝**週的另一種排法**（WeekTimeGrid：七天照幾點排）：游標、區間、格、‹ ›、PageUp/Down 全部走週的分支。
  */
-export type CalendarViewMode = "month" | "week" | "stream";
+export type CalendarViewMode = "month" | "week" | "time" | "stream";
+
+/** 週那一族（週格與時段）：游標／區間／格／換頁一律以週為單位 */
+const isWeekish = (v: CalendarViewMode): boolean => v === "week" || v === "time";
 
 /**
  * 跳轉可及的年份範圍（⑤-b 追加 1 派工指定 1970–2100）。
@@ -209,8 +213,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const calendar = useNodeStore((s) => s.calendar);
   const routes = useNodeStore((s) => s.routes);
   const loadCalendar = useNodeStore((s) => s.loadCalendar);
-  // uiStore 的 CalendarView 型別由整合席在集中檔放寬（契約 §5.1-3）；這裡先以三值讀，分支補齊才過 tsc
-  const view = useUiStore((s) => s.calendarView) as CalendarViewMode;
+  // 月／週／時段／串流四種都記在 settings key calendar_view（☎3；`?view=` 在 dev／mock 蓋過、不寫回）
+  const view: CalendarViewMode = useUiStore((s) => s.calendarView);
   const setCalendarView = useUiStore((s) => s.setCalendarView);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const firstDow = useUiStore((s) => s.weekStart);
@@ -247,17 +251,17 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
       ? monthStart(focusDay ?? today)
       : view === "month"
         ? monthStart(anchor)
-        : weekStart(anchor, firstDow);
+        : weekStart(anchor, firstDow); // week／time
   const weekOrder = useMemo(() => weekdayOrderOf(firstDow), [firstDow]);
   // 串流的 range 只給頁首用（不載入；視窗由 useStream 管）
   const range = useMemo(
-    () => (view === "week" ? { from: cursor, to: addDays(cursor, 6) } : { from: cursor, to: monthEnd(cursor) }),
+    () => (isWeekish(view) ? { from: cursor, to: addDays(cursor, 6) } : { from: cursor, to: monthEnd(cursor) }),
     [view, cursor],
   );
 
   const days = useMemo(() => {
     if (view === "stream") return [];
-    if (view === "week") return Array.from({ length: 7 }, (_, i) => addDays(cursor, i));
+    if (isWeekish(view)) return Array.from({ length: 7 }, (_, i) => addDays(cursor, i));
     // 月：前置 lead 格（上個月）＋當月＋補滿整列（原型 :997-999 同一套算法）
     const lead = columnOf(cursor, firstDow);
     const daysInMonth = dateOf(monthEnd(cursor)).getDate();
@@ -354,8 +358,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const setView = useCallback(
     (next: CalendarViewMode) => {
       if (next === view) return;
-      // 記憶＝settings key calendar_view（r4）；`stream` 也記（P2）。型別斷言：uiStore 的 CalendarView 等整合席放寬（§5.1-3）
-      void setCalendarView(next as Parameters<typeof setCalendarView>[0]);
+      // 記憶＝settings key calendar_view（r4）；`stream`、`time` 也記
+      void setCalendarView(next);
       setPopTarget(null);
       setTipTarget(null);
     },

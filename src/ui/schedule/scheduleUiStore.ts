@@ -6,6 +6,7 @@
  *   scrollReq   跳轉請求（nonce 遞增；useStream 訂閱）——桌機頁首鈕、月曆覆蓋層、週條都經這裡
  *   expanded    攤開的空白日（評審 C4：捲遠再回來還是攤開的；活到 App 關掉）
  *   draftDay    草稿列開在哪一天（一次一張；D-主-8 點日期標題列建票）
+ *   mobileLayout  手機行程表子頁「清單｜時段」（主線②；session 記憶，與 mobileSub 同款）
  *
  * 為什麼不進 uiStore：那是集中檔（並行地基契約 §13），本班不能動；而這幾格只有行程表讀寫。
  * 視窗（from／to）**不在這裡**——住 useStream 的本地 state（D-主-6：進頁起點永遠是今天）。
@@ -16,6 +17,8 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 
 export type MobileSub = "today" | "schedule";
+/** 手機行程表子頁的版面：串流（清單）或 3 天時段（主線② D-主-11） */
+export type MobileLayout = "stream" | "time";
 
 export interface ScheduleUiState {
   /** 手機今日 tab 的子頁（P4：同一次開啟期間記住；冷啟動＝"today"） */
@@ -35,6 +38,9 @@ export interface ScheduleUiState {
   /** 草稿列開在哪一天（一次一張；null＝沒有） */
   draftDay: string | null;
   setDraftDay(day: string | null): void;
+  /** 手機行程表子頁：串流（清單）或 3 天時段（D-主-11；session 記憶，與 mobileSub 同款）。初值 "stream"；dev／mock：`?layout=time` */
+  mobileLayout: MobileLayout;
+  setMobileLayout(v: MobileLayout): void;
 }
 
 /**
@@ -48,6 +54,17 @@ function detectInitialSub(): MobileSub {
     return new URLSearchParams(window.location.search).get("sub") === "schedule" ? "schedule" : "today";
   } catch {
     return "today";
+  }
+}
+
+/** dev／mock 專用：`?layout=time` 讓手機行程表直接落在 3 天時段（與 `?sub=` 同款自讀；正式打包不生效） */
+function detectInitialLayout(): MobileLayout {
+  if (!import.meta.env.DEV && !MOCK_MODE) return "stream";
+  if (typeof window === "undefined") return "stream";
+  try {
+    return new URLSearchParams(window.location.search).get("layout") === "time" ? "time" : "stream";
+  } catch {
+    return "stream";
   }
 }
 
@@ -89,4 +106,7 @@ export const useScheduleUiStore: UseBoundStore<StoreApi<ScheduleUiState>> = crea
     if (day !== null && day < todayKey(useUiStore.getState().dayStartHour)) return;
     set({ draftDay: day });
   },
+
+  mobileLayout: detectInitialLayout(),
+  setMobileLayout: (v) => set({ mobileLayout: v }),
 }));

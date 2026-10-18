@@ -2,10 +2,11 @@
 //!
 //! **定位**：鎖住核心四張表（nodes／work_logs／occurrences／settings）的補戳、快照進 outbox、全量 JSON
 //! 匯出與匯入、清空、套用，逐位元組比對 `golden/**`。地基重構驗收完之後解凍（2026-10-05），改成只鎖核心：
-//!   * 臨時庫只跑**已發行的前四支** migration（`golden_pool`），登記表用 `Registry::core_only()`（`core_reg`）；
+//!   * 臨時庫只跑**已發行的前四支** migration ＋核心自己的 0009（`golden_pool`），登記表用 `Registry::core_only()`（`core_reg`）；
 //!   * 全量 JSON 的 `schema` 在比對前固定成 `GOLDEN_SCHEMA`（＝4），不隨 migration 總數變動。
 //!
 //! 所以三條線照契約 §13 加 migration、在自己的登記檔加同步表，這組測試都不會紅；紅了就是核心行為變了。
+//! **例外：核心自己加欄**（主線② 0009 `nodes.scheduled_time`／`time_overrides`）會讓這組紅——`GOLDEN_NODES_COLS`、`SQL_STAMP_NODES`、`golden_pool` 的 include 清單與 `golden/**` 資料檔要跟著改（重產須經調度同意）。
 //!
 //! **資料檔**（`golden/` 底下的 .json／.jsonl／.txt）由 2026-10-05 之前**未經重構**的舊碼產生
 //! （`NS_GOLDEN=write cargo test foundation_golden` 寫檔，其餘時候逐位元組比對；執行期讀檔，檔不在也編得過）。
@@ -85,6 +86,8 @@ pub(crate) const GOLDEN_NODES_COLS: &[(&str, bool)] = &[
     ("arrived_on", false),
     ("today_position", true),
     ("carried_from", false),
+    ("scheduled_time", false),
+    ("time_overrides", false),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),
@@ -151,6 +154,7 @@ pub(crate) const SQL_STAMP_NODES: &str = concat!(
     "SELECT 'progress' AS col UNION ALL SELECT 'time_spent_min' AS col UNION ALL SELECT 'mood' AS col UNION ALL ",
     "SELECT 'repeat_rule' AS col UNION ALL SELECT 'completed_at' AS col UNION ALL SELECT 'expected_on' AS col UNION ALL ",
     "SELECT 'arrived_on' AS col UNION ALL SELECT 'today_position' AS col UNION ALL SELECT 'carried_from' AS col UNION ALL ",
+    "SELECT 'scheduled_time' AS col UNION ALL SELECT 'time_overrides' AS col UNION ALL ",
     "SELECT 'route_id' AS col UNION ALL SELECT 'created_at' AS col UNION ALL SELECT 'updated_at' AS col UNION ALL ",
     "SELECT 'deleted_at' AS col",
     ") c WHERE NOT (c.col = 'route_id' AND NOT (n.parent_id IS NULL AND n.kind = 'ticket'))"
@@ -332,7 +336,7 @@ pub(crate) fn check_golden(name: &str, actual: &str) {
 static GSEQ: AtomicU32 = AtomicU32::new(0);
 
 /// 跑完 0001–0004 的臨時 DB（系統暫存目錄、測完就刪；FK 開著，與既有測試的 `make_pool` 同設定）。
-/// **只跑已發行的前四支、寫死在這裡**，不跟著 `MIGRATIONS` 走：三線加的 migration 不進這顆庫。
+/// **只跑已發行的前四支＋核心自己的 0009、寫死在這裡**，不跟著 `MIGRATIONS` 走：三線加的 migration 不進這顆庫。
 pub(crate) async fn golden_pool(tag: &str) -> (Pool<Sqlite>, std::path::PathBuf) {
     let n = GSEQ.fetch_add(1, Ordering::SeqCst);
     let path = std::env::temp_dir().join(format!(
@@ -355,6 +359,7 @@ pub(crate) async fn golden_pool(tag: &str) -> (Pool<Sqlite>, std::path::PathBuf)
         include_str!("../../migrations/0002_today.sql"),
         include_str!("../../migrations/0003_repeat.sql"),
         include_str!("../../migrations/0004_sync.sql"),
+        include_str!("../../migrations/0009_ticket_time.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }

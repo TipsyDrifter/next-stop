@@ -16,7 +16,7 @@ import { addDays } from "../../lib/date.ts";
 
 export type { ScheduleBounds } from "../../data/nodeRepository";
 
-/** 串流一列（班次層）。time 是車次②的預留欄位：本班恆 undefined，②只填值不改結構 */
+/** 串流一列（班次層）。time＝這一班的有效時刻（車次②；建列時取 `entry.time`，沒填＝undefined，結構沒改） */
 export interface StreamRow {
   entry: ScheduleEntry;
   time?: string;
@@ -106,8 +106,9 @@ export function streamModel(input: StreamInput): StreamSection[] {
   for (const e of entries) {
     if (e.date < from || e.date > to) continue;
     const list = rowsByDate.get(e.date);
-    if (list) list.push({ entry: e });
-    else rowsByDate.set(e.date, [{ entry: e }]);
+    const row: StreamRow = { entry: e, time: e.time ?? undefined };
+    if (list) list.push(row);
+    else rowsByDate.set(e.date, [row]);
   }
   const duesByDate = new Map<string, DueEntry[]>();
   for (const d of dues) {

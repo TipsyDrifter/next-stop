@@ -4,6 +4,7 @@
 //! 沿用 `foundation_golden.rs` 的種子、傾印、常數與 `golden/**` 資料檔；與它同樣**只鎖核心**（2026-10-05 解凍後）：
 //! 臨時庫只跑已發行的前四支 migration，登記表用 `core_reg()`／`Registry::with_extra`（核心＋假表），
 //! 不碰生產登記表，所以三線加 migration、加同步表不會讓這裡紅。資料檔要改須先經調度同意。
+//! 核心自己加欄是例外（主線② 0009）——`SQL_STAMP_NODES` 等手抄常數要跟著改，這裡的 t8 才會綠。
 //!   * T-甲8 `t8_純函式產出與手抄_sql_逐字相同`：重構後抽出的純函式（補戳／快照／匯出／匯入前清格子與刪表／
 //!     清空／`reset_statements`／`local_alive_count`）產出的 SQL，與金樣裡手抄的 `SQL_*` 字面值逐字相同
 //!   * T-甲10 `t10_*`：假表 `zz_probe` 經 `Registry::with_extra` 注入，走一遍補戳→快照→套用→匯出→匯入→清空，

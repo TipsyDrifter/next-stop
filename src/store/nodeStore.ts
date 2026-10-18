@@ -23,6 +23,7 @@ import {
   type ScheduleEntry,
   type TodayRow,
 } from "../data";
+import { TIME_FIXED_ORDER_MSG, manualOrderIds } from "../domain/scheduledTime";
 import { todayKey } from "../lib/date";
 import { useUiStore } from "./uiStore";
 
@@ -218,7 +219,11 @@ interface NodeStore {
    * 再一趟 `listCalendar`。換月／換週／進頁都叫這支；同區間同時被叫兩次只會撈一趟。
    */
   loadCalendar: (from: string, to: string) => Promise<void>;
-  /** 今日手動序：把 id 挪到 today 分區的第 index 位（拖曳與 Alt+↑↓ 的唯一入口） */
+  /**
+   * 今日手動序：把 id 挪到「手排座標」的第 index 位（拖曳與 Alt+↑↓ 的唯一入口）。
+   * 主線②（D-主-10）：座標系＝`manualOrderIds(today.rows)`（只算沒時刻的 today 列）；
+   * 有時刻的票照時刻排、不能手排 ⇒ `TIME_FIXED_ORDER_MSG`；誤點區／締切區的票照舊一句指路。
+   */
   moveToday: (id: string, index: number) => Promise<ActionResult>;
   /** 臨時車票掛／卸路線標籤（同步寫 line_id） */
   setRouteTag: (ticketId: string, routeId: string | null) => Promise<ActionResult>;
@@ -250,6 +255,14 @@ interface NodeStore {
    * 班次日不合法會被 repository 擋下（`REPEAT_FUTURE_ONLY_MSG`／`REPEAT_DONE_MSG`），照原句走 ActionResult。
    */
   skipOccurrence: (id: string, skip: boolean, dueOn?: string | null) => Promise<ActionResult>;
+  /**
+   * 定期券逐班時刻（主線②）：給 dueOn 這一班設時刻（time=null＝「本班無時刻」）。
+   * 失敗（不是定期券／格式不對…）走 toast＋ActionResult，不寫 error 欄位（紅字橫幅常駐，同 updateNode 的 scheduled_on 寫法）。
+   * 單發票與定期券的「每班時刻」走 updateNode(id, { scheduled_time })。
+   */
+  setRunTime: (id: string, dueOn: string, time: string | null) => Promise<ActionResult>;
+  /** 改回每班時刻＝拿掉 dueOn 那一班的覆寫 */
+  clearRunTime: (id: string, dueOn: string) => Promise<ActionResult>;
   searchNodes: (query: string) => Promise<NodeRow[]>;
   loadWorkLogs: (nodeId: string) => Promise<void>;
   addWorkLog: (nodeId: string, body: string) => Promise<void>;
@@ -353,8 +366,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   async moveToday(id, index) {
     const { today } = get();
-    const ids = today.rows.filter((r) => r.bucket === "today").map((r) => r.id);
-    if (!ids.includes(id)) return { ok: false, reason: "誤點區的票不能拖——要排上今天請按 T" };
+    const ids = manualOrderIds(today.rows);
+    if (!ids.includes(id)) {
+      // 在 today 分區卻不在手排座標＝有時刻的票（照時刻排）；其餘是誤點區／締切區
+      const row = today.byId[id];
+      if (row && row.bucket === "today") return { ok: false, reason: TIME_FIXED_ORDER_MSG };
+      return { ok: false, reason: "誤點區的票不能拖——要排上今天請按 T" };
+    }
     try {
       await nodeRepo.assignTodayPositions(reorderIds(ids, id, index));
       await get().loadToday(today.dateKey ?? undefined);
@@ -443,6 +461,12 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       return { ok: true };
     } catch (e) {
       const reason = message(e);
+      if ("scheduled_time" in patch) {
+        // 「幾點」被 repository 擋下（TIME_FORMAT_MSG 等）：一句指路，toast 就夠，不寫常駐的 error 橫幅（同 scheduled_on）
+        useUiStore.getState().showToast({ message: reason }, 4000);
+        await get().refresh(); // 畫面退回庫裡的真相
+        return { ok: false, reason };
+      }
       set({ error: reason });
       return { ok: false, reason };
     }
@@ -561,6 +585,30 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       return { ok: true };
     } catch (e) {
       return { ok: false, reason: message(e) };
+    }
+  },
+
+  async setRunTime(id, dueOn, time) {
+    try {
+      await nodeRepo.setRunTime(id, dueOn, time, currentDateKey(), dayStart());
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      const reason = message(e);
+      useUiStore.getState().showToast({ message: reason }, 4000);
+      return { ok: false, reason };
+    }
+  },
+
+  async clearRunTime(id, dueOn) {
+    try {
+      await nodeRepo.clearRunTime(id, dueOn, currentDateKey());
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      const reason = message(e);
+      useUiStore.getState().showToast({ message: reason }, 4000);
+      return { ok: false, reason };
     }
   },
 

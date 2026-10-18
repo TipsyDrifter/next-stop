@@ -42,6 +42,7 @@ import {
   type NodeStatus,
 } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
+import { effectiveTime, isTimeOverridden } from "../../domain/scheduledTime";
 import {
   ancestorsOf,
   descendantCount,
@@ -230,6 +231,7 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
     [logs],
   );
   const fare = fareClass(node);
+  const runDate = occurrence?.due_on ?? node.scheduled_on;
   const fields: { label: string; value: string; latin?: boolean; wrap?: boolean }[] = [
     { label: "票種", value: fare.label },
     ...(serial ? [{ label: "票號", value: `No.${serial}`, latin: true }] : []),
@@ -253,6 +255,21 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
       latin: true,
     },
     { label: "締切日", value: node.due_on ?? "—", latin: true },
+    /**
+     * 主線②（契約 §4.6）：預定時刻（D-主-12 寫法「14:00 発・90 分」）；定期券這一列是「每班」的時刻。
+     * 本班有逐班覆寫時再多一列「本班幾點」。班次日＝`occurrence?.due_on ?? scheduled_on`（桌機 TeikiStampRow
+     * 的 railDate 同一把尺）——`currentOccurrences` 只收有結局的班，沒交代的目前班次要退到 scheduled_on 才找得到。
+     */
+    {
+      label: "幾點",
+      value: node.scheduled_time
+        ? `${node.scheduled_time} 発${node.estimate_min ? `・${node.estimate_min} 分` : ""}`
+        : "—",
+      latin: true,
+    },
+    ...(rule && runDate && isTimeOverridden(node, runDate)
+      ? [{ label: "本班幾點", value: effectiveTime(node, runDate) ?? "不排時刻", latin: true }]
+      : []),
     ...(rule ? [{ label: "重複", value: describeRule(rule) }] : []),
     ...(node.estimate_min ? [{ label: "預計", value: `${node.estimate_min} 分` }] : []),
     { label: "概要", value: node.description?.trim() || "—", wrap: true },

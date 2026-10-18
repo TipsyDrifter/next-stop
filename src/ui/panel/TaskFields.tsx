@@ -35,6 +35,7 @@ import {
   Segmented,
 } from "./fields";
 import { RepeatSection, TeikiStampRow } from "./RepeatRuleEditor";
+import { ArrivalNote, TimeField } from "./TimeField";
 import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
 import { lineNodeFields } from "../../lines/runtime";
@@ -231,6 +232,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
     (s) => s.workLogs[node.id]?.filter((l) => l.event === null).length ?? 0,
   );
   const { updateNode, remove, convert } = useNodeActions();
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
 
   const done = node.status === "done";
   /**
@@ -338,6 +340,17 @@ function TaskPanel({ node }: { node: NodeRow }) {
         <FieldRow label="締切日">
           <DateField value={node.due_on} onCommit={(v) => void updateNode(node.id, { due_on: v })} ariaLabel="締切日" />
         </FieldRow>
+
+        {/* 預定時刻（主線②）：定期券也可編＝每班時刻（lockedDate 只鎖執行日）；逐班改在下面検印段的「本班」 */}
+        <FieldRow label="幾點">
+          <TimeField
+            value={node.scheduled_time}
+            onCommit={(v) => void updateNode(node.id, { scheduled_time: v })}
+            dayStartHour={dayStartHour}
+            ariaLabel="預定時刻"
+            prefix={lockedDate ? "每班" : undefined}
+          />
+        </FieldRow>
       </div>
 
       {/* 重複＝獨立區段（M3 ④ WP3）；舊的自由文字 CommitInput 退場 */}
@@ -354,13 +367,16 @@ function TaskPanel({ node }: { node: NodeRow }) {
       <SectionRule title="分量" />
       <div className="fields">
         <FieldRow label="預計">
-          <NumberField
-            value={node.estimate_min}
-            onCommit={(v) => void updateNode(node.id, { estimate_min: v })}
-            ariaLabel="預計時間（分）"
-            unit="分"
-            placeholder="—"
-          />
+          <div className="est-row">
+            <NumberField
+              value={node.estimate_min}
+              onCommit={(v) => void updateNode(node.id, { estimate_min: v })}
+              ariaLabel="預計時間（分）"
+              unit="分"
+              placeholder="—"
+            />
+            <ArrivalNote time={node.scheduled_time} estimateMin={node.estimate_min} />
+          </div>
         </FieldRow>
 
         <FieldRow label="花費">
@@ -470,6 +486,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
   );
   const showToast = useUiStore((s) => s.showToast);
   const { updateNode, remove } = useNodeActions();
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
   const done = node.status === "done";
   /**
    * 定期券只認 parseRule（legacy 自由文字票＝乘車券）；検印區換成「本班：済／運休」。
@@ -557,6 +574,30 @@ function TicketPanel({ node }: { node: NodeRow }) {
               ariaLabel="執行日"
             />
           )}
+        </FieldRow>
+
+        {/* 預定時刻與預計（主線② D-主-12）：車票側板從此也有「預計」；定期券＝每班時刻，逐班改在検印段的「本班」 */}
+        <FieldRow label="幾點">
+          <TimeField
+            value={node.scheduled_time}
+            onCommit={(v) => void updateNode(node.id, { scheduled_time: v })}
+            dayStartHour={dayStartHour}
+            ariaLabel="預定時刻"
+            prefix={lockedDate ? "每班" : undefined}
+          />
+        </FieldRow>
+
+        <FieldRow label="預計">
+          <div className="est-row">
+            <NumberField
+              value={node.estimate_min}
+              onCommit={(v) => void updateNode(node.id, { estimate_min: v })}
+              ariaLabel="預計時間（分）"
+              unit="分"
+              placeholder="—"
+            />
+            <ArrivalNote time={node.scheduled_time} estimateMin={node.estimate_min} />
+          </div>
         </FieldRow>
       </div>
 

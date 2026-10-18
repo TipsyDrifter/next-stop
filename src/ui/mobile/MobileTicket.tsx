@@ -22,9 +22,15 @@
  *     - `card.late === "inday"`（串流原日的誤點票）畫「誤點中」chip＋「延誤 N 天」（原型 ticketEl :1016-1018）
  *     - `card.readOnly`（定期券歷史班次）⇒ 根 `.is-ro`、検印鈕 disabled（有章畫章、沒章畫「—」）、⋯ disabled
  *     - `!card.stampable && !card.readOnly` ⇒ 検印鈕仍可按，按了由 actions 吐 `card.stampHint`（toast）
+ *
+ * **主線②（契約 §4.5-1、D-主-12）**：meta 第一格是預定時刻 `span.tm`——`14:00 発・90 分`（沒填預計＝`14:00 発`）、
+ *   跨日加緊湊小字「隔天01:00」、逐班覆寫加靛字「本班」。已過時刻、沒入鋏也沒蓋済（運休也算交代）⇒ `.tm.past` 轉赭
+ *   （只換字色；誤點卡照印原時刻、多半就是赭，§0-1 第 19 條）。`now` 由呼叫端的 `useMinuteTick()` 給——一頁一個節拍，
+ *   不每張卡各掛計時器。有時刻就不另印「預計 N 分」（併進 `.hz`）；本元件原本就不印預計，所以沒有要拿掉的項。
  */
 import type { ReactNode } from "react";
 import type { NodeRow } from "../../domain";
+import { isClockPast, nextDayNote } from "../../lib/date";
 import { SealCarryOver, SealDone, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
 
@@ -52,9 +58,37 @@ export interface MobileTicketProps {
   onComplete(card: TicketCardModel): void;
   /** ⋯＝開底部 sheet */
   onMore(card: TicketCardModel): void;
+  /** useMinuteTick() 的現在（已過時刻轉赭用；主線② 契約 §3.7） */
+  now: number;
 }
 
-export function MobileTicket({ card, route, today, fresh, onComplete, onMore }: MobileTicketProps) {
+/**
+ * 票面時刻（D-主-12；結構同桌機 §4.3 的 `.tm`）。`card.time === null` ⇒ 不畫。
+ * 赭的條件（自決）：沒交代（済／運休）、沒入鋏、`now ≥ 執行日＋時刻`。執行日＝`card.railDate`（誤點卡＝原定那天）。
+ */
+export function TicketTime({ card, today, now }: { card: TicketCardModel; today: string; now: number }) {
+  const t = card.time;
+  if (t === null) return null;
+  const settled = card.done || card.suspended;
+  const past = !settled && !card.doing && isClockPast(card.railDate ?? today, t, now);
+  const nx = nextDayNote(t);
+  const est = card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null;
+  return (
+    <span className={"tm" + (past ? " past" : "")} title={past ? "已過發車時刻、還沒入鋏也沒蓋済" : "預定時刻"}>
+      <span className="hm">{t}</span>
+      <span className="hz">発{est !== null && `・${est} 分`}</span>
+      {/* 手機用緊湊寫法「隔天01:00」（原型 timeHTML compactNx） */}
+      {nx && <span className="nx">{nx.replace(" ", "")}</span>}
+      {card.timeOverridden && (
+        <span className="once" title="只改了這一班的時刻">
+          本班
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function MobileTicket({ card, route, today, fresh, onComplete, onMore, now }: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
   const settled = done || suspended;
 
@@ -63,7 +97,9 @@ export function MobileTicket({ card, route, today, fresh, onComplete, onMore }: 
   const lineName = route?.name ?? "無路線";
 
   /* meta 第二行：路線名 ・ 票號 ・（誤點語彙／規則／子項）；用陣列串「・」，空項不留分隔 */
-  const meta: ReactNode[] = [<span className="m-tk-line">{lineName}</span>];
+  const meta: ReactNode[] = [];
+  if (card.time !== null) meta.push(<TicketTime card={card} today={today} now={now} />);
+  meta.push(<span className="m-tk-line">{lineName}</span>);
   if (card.serial !== null) meta.push(<span className="m-tk-serial">No.{card.serial}</span>);
   meta.push(<span>{card.fare}</span>);
   if (late === "carry" && railDate) {

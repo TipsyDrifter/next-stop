@@ -27,18 +27,29 @@
  *      主任務被推出畫面。折衷＝預設展開（一開啟仍看得見）、計數常駐、可收起。
  *   4. 不做拖曳排序、不開詳情側板、不開完成卡（契約 §2.7 的「不呼叫」清單）。
  *
+ * **主線②（契約 §4.5-2、D-主-10）**：「今天的列車」有時刻的照幾點排在前（排序在 compareTodayRows，本檔只畫）——
+ *   兩群之間插小標 `li.subgrp`「未定時・照手排」（兩群都有才畫）；有時刻那群插現在線 `li.nowline`「現在 15:10」
+ *   （在最後一張「時刻 ≤ 現在」的列之後；全在未來＝畫在第一張之前；今天沒有有時刻的列＝不畫）；
+ *   統計列追加「　下一班 16:30」（today 分區第一張沒交代、時刻還沒到的）。`now` 由 `useMinuteTick()` 一頁一個，傳進每張卡（赭色）。
+ *
  * 空狀態文案沿桌機（TodayView 的 1.0c／1.0d 兩塊逐字）；只有操作提示那一句改寫成觸控說法
  *   （桌機原句是「按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）…按 T 排上今天」——手機沒有這些鍵）。
  */
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useNodeStore } from "../../store/nodeStore";
+import { useUiStore } from "../../store/uiStore";
+import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
+import { timeOfRow } from "../../domain/scheduledTime";
+import type { TodayRow } from "../../data";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
 import { MobileSegmentedBar, useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
 import { useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { isSettledRow } from "../today/useTodayController";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
+import { useMinuteTick } from "../schedule/useMinuteTick";
 
 export default function MobileToday() {
   const c = useMobileToday();
@@ -63,9 +74,63 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const sheetRow = useNodeStore((s) => (sheetId ? (s.today.byId[sheetId] ?? null) : null));
   const pageRef = useRef<HTMLDivElement | null>(null);
   useSubSwipe(pageRef, "today");
+  const now = useMinuteTick();
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
 
   const { total, done, left } = c.stats;
   const allSettled = !c.empty && left === 0 && c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
+
+  /* ───────── 時刻（主線②）：分群、現在線、下一班 ───────── */
+  const railOf = (r: TodayRow) => r.occurrence?.due_on ?? r.scheduled_on ?? c.dateKey;
+  const timed = c.todayRows.filter((r) => timeOfRow(r) !== null);
+  const hasUntimed = timed.length < c.todayRows.length;
+  const nowMin = nowClockMinutes(c.dateKey, dayStartHour, now);
+  /** 現在線插在 timed 的第幾張之前（timed.length＝最後一張之後）；null＝不畫 */
+  let nowAt: number | null = null;
+  if (timed.length > 0 && nowMin !== null) {
+    let lastPast = -1;
+    timed.forEach((r, i) => {
+      if (isClockPast(railOf(r), timeOfRow(r), now)) lastPast = i;
+    });
+    nowAt = lastPast + 1;
+  }
+  const next = timed.find((r) => !isSettledRow(r) && !isClockPast(railOf(r), timeOfRow(r), now));
+
+  const ticket = (r: TodayRow) => (
+    <MobileTicket
+      key={r.id}
+      card={cardFromTodayRow(r, c.dateKey)}
+      route={c.routeOf(r)}
+      today={c.dateKey}
+      fresh={c.freshId === r.id}
+      now={now}
+      onComplete={(card) => c.complete(card.nodeId)}
+      onMore={(card) => setSheetId(card.nodeId)}
+    />
+  );
+  const nowLine = (
+    <li key="__now" className="nowline" aria-label={`現在 ${clockText(nowMin ?? 0) ?? ""}`}>
+      <span>
+        <small>現在</small> {clockText(nowMin ?? 0)}
+      </span>
+    </li>
+  );
+  const todayItems: ReactNode[] = [];
+  timed.forEach((r, i) => {
+    if (nowAt === i) todayItems.push(nowLine);
+    todayItems.push(ticket(r));
+  });
+  if (nowAt === timed.length) todayItems.push(nowLine);
+  if (hasUntimed) {
+    if (timed.length > 0) {
+      todayItems.push(
+        <li key="__subgrp" className="subgrp">
+          未定時・照手排
+        </li>,
+      );
+    }
+    for (const r of c.todayRows) if (timeOfRow(r) === null) todayItems.push(ticket(r));
+  }
 
   return (
     <>
@@ -74,6 +139,11 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           <p className="m-today-stats">
             完成 <b>{done}</b>/<b>{total}</b>
             {left > 0 && <span className="m-today-left">・還有 {left} 張</span>}
+            {next && (
+              <span className="m-today-next">
+                {"　"}下一班 <b className="tmx">{timeOfRow(next)}</b>
+              </span>
+            )}
           </p>
         )}
 
@@ -100,17 +170,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
             </div>
             {lateOpen && (
               <ul className="m-tk-list" aria-label="誤點">
-                {c.lateRows.map((r) => (
-                  <MobileTicket
-                    key={r.id}
-                    card={cardFromTodayRow(r, c.dateKey)}
-                    route={c.routeOf(r)}
-                    today={c.dateKey}
-                    fresh={c.freshId === r.id}
-                    onComplete={(card) => c.complete(card.nodeId)}
-                    onMore={(card) => setSheetId(card.nodeId)}
-                  />
-                ))}
+                {c.lateRows.map(ticket)}
               </ul>
             )}
           </>
@@ -135,17 +195,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
                   <span className="note">{total} 張</span>
                 </div>
                 <ul className="m-tk-list" aria-label="今天的列車">
-                  {c.todayRows.map((r) => (
-                    <MobileTicket
-                      key={r.id}
-                      card={cardFromTodayRow(r, c.dateKey)}
-                      route={c.routeOf(r)}
-                      today={c.dateKey}
-                      fresh={c.freshId === r.id}
-                      onComplete={(card) => c.complete(card.nodeId)}
-                      onMore={(card) => setSheetId(card.nodeId)}
-                    />
-                  ))}
+                  {todayItems}
                 </ul>
               </>
             )}
@@ -172,6 +222,9 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           today={c.dateKey}
           onDefer={(d) => c.defer(sheetRow.id, d)}
           onSkip={(s) => c.skip(sheetRow.id, s)}
+          onSetTime={(t, est) => c.setTime(sheetRow.id, t, est)}
+          onSetRunTime={(t) => c.setRunTime(sheetRow.id, t)}
+          onClearRunTime={() => c.clearRunTime(sheetRow.id)}
           onClose={() => setSheetId(null)}
         />
       )}

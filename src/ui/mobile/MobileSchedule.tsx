@@ -18,6 +18,15 @@
  * 週條與月曆的點／〆從 `nodeStore.calendar`（串流視窗）自己算，不登記 calendarDayMarks（契約 §5.3）；
  *   停週／開月曆／翻月 ⇒ `ensureLoaded`（視窗補到那一週／月，點才畫得出來；不捲動）。
  * 票號：`nodeStore.serials` 在手機多半是空的 ⇒ serial 為 null、卡上不畫票號（§0-1 第 12 條，已接受）。
+ *
+ * **主線②（D-主-11、契約 §4.8）**：週條頂列「清單｜時段」（`scheduleUiStore.mobileLayout`，session 記憶）。
+ *   時段＝`MobileTimeDays`（3 天一頁、從今天對齊、左右換頁）**疊在**串流上面（`.m-sch-tg` absolute 蓋住 `.m-sch-stream`）；
+ *   串流不卸載、只 `visibility:hidden`＋`inert`——useStream 的捲動監聽、錨點、ResizeObserver 都綁在那個容器上，卸掉再掛回來
+ *   會綁在死掉的節點上；藏著它也保住清單的捲動位置。（契約寫「取代」，這是等價且不拆 useStream 的做法。）
+ *   時段排法下，週條的選中日／月份字／月曆的 focus 改吃「時段那一頁的第一天」（`tgPage`），不吃 store 的 focusDay——
+ *   藏著的串流在資料刷新時仍會 spy 寫 focusDay，跟著它會讓週條跳週。週條點日、月曆點日、「今日」在時段排法下改走
+ *   MobileTimeDays 的 goToDay／goToday；切回「清單」時，若在時段裡換過頁，才把串流瞬移到那一頁的第一天。
+ *   卡上的時刻與赭色吃 `useMinuteTick()`（一頁一個節拍，傳進每張卡）。⋯ sheet 的時刻項接 scheduleActions 的三個動作。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { NodeRow } from "../../domain";
@@ -33,6 +42,8 @@ import { mdw, type StreamDaySection, type StreamEdgeSection, type StreamGapSecti
 import { cardFromDayRow, cardFromDue, type TicketCardModel } from "../schedule/ticketCard";
 import { makeScheduleActions, type ScheduleTarget } from "../schedule/scheduleActions";
 import { WeekStrip, type DayMark } from "../schedule/WeekStrip";
+import { useMinuteTick } from "../schedule/useMinuteTick";
+import { MobileTimeDays, pageStartOf, type MobileTimeDaysHandle } from "./MobileTimeDays";
 import { MonthOverlay } from "../schedule/MonthOverlay";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
@@ -84,7 +95,20 @@ export function MobileSchedule() {
   const serials = useNodeStore((s) => s.serials);
   const currentOccurrences = useNodeStore((s) => s.currentOccurrences);
   const firstDow = useUiStore((s) => s.weekStart);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
   const draftDay = useScheduleUiStore((s) => s.draftDay);
+  const layout = useScheduleUiStore((s) => s.mobileLayout);
+  const now = useMinuteTick();
+
+  /* ───────── 時段排法（主線②）：頁、切換、對齊串流 ───────── */
+  const timeRef = useRef<MobileTimeDaysHandle | null>(null);
+  /** 時段那一頁的第一天（從今天對齊）；切進時段時由串流的 focusDay 換算 */
+  const [tgPage, setTgPage] = useState(() => pageStartOf(useScheduleUiStore.getState().focusDay ?? today, today));
+  /** 在時段裡換過頁 ⇒ 切回清單時要把串流對齊過去 */
+  const tgMovedRef = useRef(false);
+  const isTime = layout === "time";
+  /** 週條／月曆的「目前這天」：時段排法吃頁首、清單吃 scroll-spy */
+  const shownFocus = isTime ? tgPage : focusDay;
 
   const actions = useMemo(() => makeScheduleActions("mobile"), []);
   const [freshKey, setFreshKey] = useState<string | null>(null);
@@ -144,17 +168,17 @@ export function MobileSchedule() {
 
   /* ───────── 月份字：月曆關著跟串流（focusDay）走、停到別週時用那週；開著跟月曆走 ───────── */
   useEffect(() => {
-    if (!calOpen) setLabel(ymOf(focusDay));
-  }, [focusDay, calOpen]);
+    if (!calOpen) setLabel(ymOf(shownFocus));
+  }, [shownFocus, calOpen]);
 
   const onWeekSettle = useCallback(
     (first: string) => {
       const last = addDays(first, 6);
-      const focus = useScheduleUiStore.getState().focusDay ?? today;
+      const focus = isTime ? tgPage : (useScheduleUiStore.getState().focusDay ?? today);
       if (!calOpen && (focus < first || focus > last)) setLabel(ymOf(addDays(first, 3)));
       ensureLoaded(first, last);
     },
-    [calOpen, ensureLoaded, today],
+    [calOpen, ensureLoaded, today, isTime, tgPage],
   );
 
   const showMonth = useCallback(
@@ -167,12 +191,12 @@ export function MobileSchedule() {
   );
   const openCal = useCallback(() => {
     setCalOpen(true);
-    showMonth(ymOf(useScheduleUiStore.getState().focusDay ?? today));
-  }, [showMonth, today]);
+    showMonth(ymOf(isTime ? tgPage : (useScheduleUiStore.getState().focusDay ?? today)));
+  }, [showMonth, today, isTime, tgPage]);
   const closeCal = useCallback(() => {
     setCalOpen(false);
-    setLabel(ymOf(useScheduleUiStore.getState().focusDay ?? today));
-  }, [today]);
+    setLabel(ymOf(isTime ? tgPage : (useScheduleUiStore.getState().focusDay ?? today)));
+  }, [today, isTime, tgPage]);
   const toggleCal = useCallback(() => (calOpen ? closeCal() : openCal()), [calOpen, closeCal, openCal]);
   const shiftMonth = useCallback(
     (n: 1 | -1) => {
@@ -181,17 +205,68 @@ export function MobileSchedule() {
     },
     [label, showMonth],
   );
+  /** 跳到某天：清單＝串流 goTo；時段＝捲到含那天的頁 */
+  const goDay = useCallback(
+    (day: string) => {
+      if (useScheduleUiStore.getState().mobileLayout === "time") {
+        // 時段排法也夾到資料下界（同 jump）：週條往回捲很遠時不落在沒有資料的空白頁，兩種排法落點一致
+        const b = api.bounds;
+        tgMovedRef.current = true;
+        timeRef.current?.goToDay(b && b.earliest !== null && day < b.earliest ? b.earliest : day);
+      } else jump(day);
+    },
+    [jump, api.bounds],
+  );
   const pickFromCal = useCallback(
     (day: string) => {
       closeCal();
-      window.setTimeout(() => jump(day), CAL_PICK_DELAY_MS);
+      window.setTimeout(() => goDay(day), CAL_PICK_DELAY_MS);
     },
-    [closeCal, jump],
+    [closeCal, goDay],
   );
   const onToday = useCallback(() => {
     if (calOpen) closeCal();
-    goToday();
+    if (useScheduleUiStore.getState().mobileLayout === "time") {
+      tgMovedRef.current = true;
+      timeRef.current?.goToday();
+    } else goToday();
   }, [calOpen, closeCal, goToday]);
+
+  /** 切回清單時要把串流對齊到的那一天（null＝不動） */
+  const streamAlignRef = useRef<string | null>(null);
+  const onLayout = useCallback(
+    (v: "stream" | "time") => {
+      const ui = useScheduleUiStore.getState();
+      if (v === ui.mobileLayout) return;
+      if (v === "time") {
+        // 進時段：落在含串流目前那天的頁（從今天對齊）
+        tgMovedRef.current = false;
+        setTgPage(pageStartOf(ui.focusDay ?? today, today));
+      } else if (tgMovedRef.current) {
+        // 回清單：在時段裡換過頁才把串流對齊過去（沒動就留在原本的位置）；等串流露出來（下面的 effect）再捲
+        streamAlignRef.current = tgPage;
+      }
+      ui.setMobileLayout(v);
+    },
+    [today, tgPage],
+  );
+  useEffect(() => {
+    if (layout !== "stream" || !streamAlignRef.current) return;
+    const day = streamAlignRef.current;
+    streamAlignRef.current = null;
+    jump(day, false);
+  }, [layout, jump]);
+  /** 時段畫布籤帶的「＋N」：切回清單並把串流對齊到那一天（未定時的票只有清單看得全） */
+  const onTgMore = useCallback((day: string) => {
+    streamAlignRef.current = day;
+    useScheduleUiStore.getState().setMobileLayout("stream");
+  }, []);
+  const onTgPage = useCallback((first: string) => {
+    tgMovedRef.current = true;
+    setTgPage(first);
+    useScheduleUiStore.getState().setFocusDay(first);
+  }, []);
+  const tgVisible = useMemo(() => [tgPage, addDays(tgPage, 1), addDays(tgPage, 2)], [tgPage]);
 
   /* ───────── 卡的動作（守門在 scheduleActions） ───────── */
   const stamp = useCallback(
@@ -203,6 +278,24 @@ export function MobileSchedule() {
     [actions],
   );
   const openSheet = useCallback((ref: SheetRef) => setSheet(ref), []);
+  const pickBlock = useCallback(
+    (date: string, nodeId: string) => {
+      // 定期券的歷史班次唯讀（§6.1 #11）：不開 ⋯ sheet（單發票那組推遲／幾點…對它不成立），吐一句 toast 就好
+      const { calendar: cal, currentOccurrences: occ } = useNodeStore.getState();
+      const node = cal.nodes[nodeId];
+      const entry = cal.entries.find((e) => e.date === date && e.node_id === nodeId);
+      if (node && entry) {
+        const row = dayRowModel(entry, node, routeOf(node), occ[nodeId]?.due_on ?? null, today);
+        if (row.isHistory) {
+          const hint = cardFromDayRow(row, null, today).stampHint ?? "歷史班次唯讀";
+          useUiStore.getState().showToast({ message: hint }, 3000);
+          return;
+        }
+      }
+      setSheet({ kind: "entry", nodeId, date });
+    },
+    [routeOf, today],
+  );
   const closeSheet = useCallback(() => setSheet(null), []);
 
   // sheet 指的那張票，用最新切片重算（票搬走／改期後找不到 ⇒ 關）
@@ -233,24 +326,29 @@ export function MobileSchedule() {
     <div className="m-sch">
       <WeekStrip
         today={today}
-        focusDay={focusDay}
+        focusDay={shownFocus}
         firstDow={firstDow}
         marks={marks}
         label={label}
         calOpen={calOpen}
         onToggleCal={toggleCal}
         onShiftMonth={shiftMonth}
-        onPickDay={jump}
+        onPickDay={goDay}
         onToday={onToday}
         onWeekSettle={onWeekSettle}
+        layout={layout}
+        onLayout={onLayout}
+        visibleDays={isTime ? tgVisible : null}
       />
       <div className="m-sch-main">
         <div
-          className="m-sch-stream"
+          className={"m-sch-stream" + (isTime ? " is-under" : "")}
           ref={streamRef}
           onScroll={onScroll}
           tabIndex={-1}
           aria-label="行程表串流"
+          aria-hidden={isTime || undefined}
+          inert={isTime || undefined}
         >
           {sections.map((sec) => {
             if (sec.kind === "edge" && sec.side === "before") {
@@ -277,6 +375,7 @@ export function MobileSchedule() {
                 currentOccurrences={currentOccurrences}
                 routeOf={routeOf}
                 freshKey={freshKey}
+                now={now}
                 draft={draftDay === sec.date}
                 lateCount={sec.rel === "today" ? late.count : 0}
                 lateEarliest={late.earliest}
@@ -293,12 +392,30 @@ export function MobileSchedule() {
             ・・・
           </div>
         </div>
+        {isTime && (
+          <MobileTimeDays
+            handleRef={timeRef}
+            today={today}
+            dayStartHour={dayStartHour}
+            now={now}
+            entries={calendar.entries}
+            dues={calendar.dues}
+            nodes={calendar.nodes}
+            routes={routes}
+            initialDay={tgPage}
+            selectedKey={sheet && sheet.kind === "entry" ? `${sheet.date}-${sheet.nodeId}` : null}
+            ensureLoaded={ensureLoaded}
+            onPage={onTgPage}
+            onPick={pickBlock}
+            onMore={onTgMore}
+          />
+        )}
         <MonthOverlay
           open={calOpen}
           year={label.y}
           month={label.m}
           today={today}
-          focusDay={focusDay}
+          focusDay={shownFocus}
           firstDow={firstDow}
           marks={marks}
           onPick={pickFromCal}
@@ -314,6 +431,13 @@ export function MobileSchedule() {
           onDefer={(d) => actions.defer(sheetView.target, d)}
           onSkip={() => {
             if (sheetView.target.kind === "entry") actions.suspend(sheetView.target.row);
+          }}
+          onSetTime={(t, est) => actions.setTime(sheetView.card.nodeId, t, est)}
+          onSetRunTime={(t) => {
+            if (sheetView.card.railDate) actions.setRunTime(sheetView.card.nodeId, sheetView.card.railDate, t);
+          }}
+          onClearRunTime={() => {
+            if (sheetView.card.railDate) actions.clearRunTime(sheetView.card.nodeId, sheetView.card.railDate);
           }}
           onClose={closeSheet}
         />
@@ -375,6 +499,8 @@ interface DaySectionProps {
   currentOccurrences: Record<string, { due_on: string }>;
   routeOf(node: NodeRow | undefined): NodeRow | undefined;
   freshKey: string | null;
+  /** useMinuteTick() 的現在（卡上時刻轉赭） */
+  now: number;
   /** 草稿列開在這天 */
   draft: boolean;
   /** 只有今日段非 0：誤點列（P8） */
@@ -416,6 +542,7 @@ const DaySection = memo(function DaySection({
   currentOccurrences,
   routeOf,
   freshKey,
+  now,
   draft,
   lateCount,
   lateEarliest,
@@ -536,6 +663,7 @@ const DaySection = memo(function DaySection({
               route={route}
               today={today}
               fresh={freshKey === card.key}
+              now={now}
               onComplete={() => onStamp({ kind: "entry", row }, card)}
               onMore={() => onMore({ kind: "entry", nodeId: card.nodeId, date })}
             />
@@ -556,6 +684,7 @@ const DaySection = memo(function DaySection({
                     route={x.route}
                     today={today}
                     fresh={freshKey === x.card.key}
+                    now={now}
                     onComplete={() => onStamp({ kind: "due", node: x.node }, x.card)}
                     onMore={() => onMore({ kind: "due", nodeId: x.node.id, date })}
                   />

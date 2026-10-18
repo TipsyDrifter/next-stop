@@ -335,10 +335,8 @@ export function matchesQuery(n: Pick<NoteRow, "title" | "body">, q: string): boo
   return ((n.title || "") + "\n" + (n.body || "")).toLowerCase().indexOf(k) >= 0;
 }
 
-/** LIKE 用的跳脫（配 `ESCAPE '\'`）：`\`→`\\`、`%`→`\%`、`_`→`\_`（契約 §3.4） */
-export function escapeLike(q: string): string {
-  return q.replace(/[\\%_]/g, (c) => "\\" + c);
-}
+/** LIKE 用的跳脫（配 `ESCAPE '\'`；契約 §3.4）——實作只留一份在 lib/sql.ts，這裡 re-export 給既有呼叫端 */
+export { escapeLike } from "../lib/sql.ts";
 
 /**
  * 閱讀態用：以空行（含只有空白的行）切段、段內以 `\n` 切行；不處理任何標記（Markdown 在車次④）。

@@ -268,6 +268,85 @@
 }
 .ns-sch .due-tag { flex: none; font-size: 10px; letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
 
+/* ═════════════════════════════════════════════════════
+ * 主線階段②「車票預定時刻」（契約 §4.3、§4.4、§4.7 乙；原型 prototypes/主線-預定時刻.html :243-250、:324-335）
+ *   本段管三處（today.css／daypop.css／calendar.css 本班不准碰，樣式集中寫在這裡）：
+ *     ① 票面時刻 .tm：今日頁 `.ns-today .ticket`、串流列 `.ns-sch .prow`、當日清單浮層 `.ns-daypop .prow`
+ *        （浮層本體在 daypop.css；DayRow.tsx 也 import 本檔，浮層單獨出現時一樣吃得到）
+ *     ② 今日頁的「未定時・照手排」小標、現在線、頁首「下一班」（TodayView.tsx import 本檔）
+ *     ③ 行程表第四段「時段」的版面（頁面不捲、畫布撐滿；畫布本體在 timegrid.css）
+ *   前綴一律抬一級（.ns-today／.ns-sch／.ns-daypop／.ns-calendar）：techo.css 的 .meta 一族注入在本檔之後。
+ * ═════════════════════════════════════════════════════ */
+
+/* ① 票面時刻（D-主-12「14:00 発・90 分」）：票號那套 latin 數字、比 meta 大半號、墨色——一路往下看是一條時刻欄。
+   已過發車時刻、沒入鋏也沒蓋済＝赭（只換字色，不加框不加章）；済票淡掉。 */
+.ns-today .ticket .tm,
+.ns-sch .prow .tm,
+.ns-daypop .prow .tm { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; color: var(--color-ink); }
+.ns-today .ticket .tm .hm,
+.ns-sch .prow .tm .hm,
+.ns-daypop .prow .tm .hm { font-family: var(--font-latin); font-weight: 500; letter-spacing: .03em; }
+.ns-today .ticket .tm .hz,
+.ns-sch .prow .tm .hz,
+.ns-daypop .prow .tm .hz { letter-spacing: .1em; color: var(--color-ink-soft); }
+.ns-today .ticket .tm .nx,
+.ns-sch .prow .tm .nx,
+.ns-daypop .prow .tm .nx { letter-spacing: .06em; color: var(--color-ink-faint); margin-left: 2px; }
+.ns-today .ticket .tm .once,
+.ns-sch .prow .tm .once,
+.ns-daypop .prow .tm .once { letter-spacing: .14em; color: var(--accent); border-bottom: 1px dotted currentColor; margin-left: 3px; }
+.ns-today .ticket .tm .oob,
+.ns-sch .prow .tm .oob,
+.ns-daypop .prow .tm .oob { letter-spacing: .1em; color: var(--color-ink-faint); border: 1px dashed var(--color-dash); border-radius: 2px; padding: 0 3px; margin-left: 3px; font-size: 9.5px; }
+.ns-today .ticket .tm.past, .ns-today .ticket .tm.past .hz,
+.ns-sch .prow .tm.past, .ns-sch .prow .tm.past .hz,
+.ns-daypop .prow .tm.past, .ns-daypop .prow .tm.past .hz { color: var(--color-late); }
+.ns-today .ticket.done .tm, .ns-today .ticket.done .tm .hz,
+.ns-sch .prow.done .tm, .ns-sch .prow.done .tm .hz,
+.ns-daypop .prow.done .tm, .ns-daypop .prow.done .tm .hz { color: var(--color-ink-faint); }
+/* 今日票（原型字級）：13.5／10.5／10／9.5 */
+.ns-today .ticket .tm .hm { font-size: 13.5px; }
+.ns-today .ticket .tm .hz { font-size: 10.5px; }
+.ns-today .ticket .tm .nx { font-size: 10px; }
+.ns-today .ticket .tm .once { font-size: 9.5px; }
+/* 串流列／浮層列（13px 票名那一列）：時刻在圓牌與票名之間，收小一號 */
+.ns-sch .prow .tm, .ns-daypop .prow .tm { flex: none; }
+.ns-sch .prow .tm .hm, .ns-daypop .prow .tm .hm { font-size: 12.5px; }
+.ns-sch .prow .tm .hz, .ns-daypop .prow .tm .hz { font-size: 10px; }
+.ns-sch .prow .tm .nx, .ns-daypop .prow .tm .nx { font-size: 9.5px; }
+.ns-sch .prow .tm .once, .ns-daypop .prow .tm .once { font-size: 9px; }
+
+/* ② 今日頁：「未定時・照手排」小標（右側點線延伸）與現在線（靛：左端圓點＋實線＋「現在 15:10」） */
+.ns-today .ticket-list > .subgrp {
+  list-style: none; display: flex; align-items: center; gap: 10px; margin: 6px 0 -2px;
+  font-size: 10.5px; letter-spacing: .24em; color: var(--color-ink-faint);
+}
+.ns-today .ticket-list > .subgrp::after { content: ""; flex: 1; border-top: 1px dotted var(--color-dash); }
+.ns-today .ticket-list > .nowline {
+  list-style: none; position: relative; display: flex; align-items: center; gap: 8px;
+  margin: -4px 0; height: 6px; color: var(--accent); pointer-events: none;
+}
+.ns-today .ticket-list > .nowline::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-left: -3px; flex: none;
+}
+.ns-today .ticket-list > .nowline::after { content: ""; flex: 1; border-top: 1.5px solid currentColor; opacity: .75; }
+.ns-today .ticket-list > .nowline span {
+  order: 2; font-family: var(--font-latin); font-size: 11px; letter-spacing: .1em; font-weight: 500;
+}
+.ns-today .ticket-list > .nowline span::before { content: "現在 "; font-family: var(--font-body); font-size: 10px; letter-spacing: .2em; }
+/* 頁首「・下一班 16:30　票名」 */
+.ns-today .day-stats .next-run .tmx { font-family: var(--font-latin); font-weight: 600; color: var(--color-ink); letter-spacing: .03em; }
+
+/* ③ 行程表第四段「時段」：頁面不捲（同串流），畫布 .ns-tg 在月卡裡撐滿、自己捲 */
+.ns-calendar.is-time { overflow: hidden; display: flex; flex-direction: column; }
+.ns-calendar.is-time .sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ns-calendar.is-time header.day,
+.ns-calendar.is-time .page-foot { flex: none; }
+.ns-calendar .ns-sch-wtg {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
 /* ═══ 減量動態：只關動畫與過場，不動版面；程式捲動的 behavior 由 useStream 讀同一個 media query 改 auto ═══ */
 @media (prefers-reduced-motion: reduce) {
   .ns-sch-day.is-unfold, .ns-sch-cheer { animation: none; }

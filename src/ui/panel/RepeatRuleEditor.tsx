@@ -33,6 +33,7 @@ import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { DateField, FieldRow, NumberField, SectionRule, Segmented, useDebouncedCommit } from "./fields";
+import { RunTimeRow } from "./TimeField";
 
 /* ───────────── 草稿模型 ───────────── */
 
@@ -386,6 +387,8 @@ export function TeikiStampRow({ node }: { node: NodeRow }) {
           {suspended ? "取消運休" : "運休"}
         </button>
       </div>
+      {/* 本班時刻（主線②）：只改這一班／改回每班；railDate 拿不到（沒有班次）就不畫 */}
+      {railDate && <RunTimeRow node={node} date={railDate} />}
     </>
   );
 }

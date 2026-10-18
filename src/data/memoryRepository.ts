@@ -9,6 +9,16 @@
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, dayWindow, todayKey } from "../lib/date";
 import {
+  TIME_REPEAT_ONLY_MSG,
+  assertClockWritable,
+  dropFutureOverrides,
+  hasRepeatRule,
+  manualOrderIds,
+  parseTimeOverrides,
+  pruneTimeOverrides,
+  serializeTimeOverrides,
+} from "../domain/scheduledTime";
+import {
   KIND_LABEL,
   allowedChildKinds,
   afterRule,
@@ -59,7 +69,7 @@ import type { SettingsRepository } from "./settingsRepository";
 const PATCHABLE = new Set<string>([
   "name", "description", "color", "code", "status", "scheduled_on", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
-  "carried_from", "route_id",
+  "carried_from", "route_id", "scheduled_time",
 ]);
 
 const isAlive = (n: { deleted_at: string | null }): boolean => n.deleted_at === null;
@@ -117,6 +127,8 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async update(id: string, patch: NodePatch, opts?: { dateKey?: string; dayStartHour?: number }): Promise<void> {
+    // 主線②：時刻驗格式＋範圍，且不拿 `?? 3` 的預設當範圍（與 SQLite 版同一句）
+    if ("scheduled_time" in patch) assertClockWritable(patch.scheduled_time ?? null, opts?.dayStartHour);
     const dayStartHour = opts?.dayStartHour ?? 3;
     this.patch(id, patch, opts?.dateKey ?? todayKey(dayStartHour), dayStartHour);
   }
@@ -252,7 +264,8 @@ export class MemoryNodeRepository implements NodeRepository {
 
   async moveToday(id: string, index: number, dateKey: string, dayStartHour = 3): Promise<void> {
     const rows = await this.listToday(dateKey, dayStartHour);
-    const ids = rows.filter((r) => r.bucket === "today").map((r) => r.id);
+    // 主線②：座標系＝手排座標（只算沒時刻的 today 列）。store 不經此路（直接用 assignTodayPositions），這支只給測試
+    const ids = manualOrderIds(rows);
     if (!ids.includes(id)) throw new Error("這張票不在今天的清單裡");
     await this.assignTodayPositions(reorderIds(ids, id, index));
   }
@@ -282,6 +295,7 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async search(query: string, limit = 50): Promise<NodeRow[]> {
+    // includes 是字面比對、沒有萬用字元，不必像 SQLite 版做 LIKE 跳脫（接縫 #67）
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return this.alive()
@@ -418,6 +432,44 @@ export class MemoryNodeRepository implements NodeRepository {
     return [...this.occ.values()].filter((o) => o.node_id === nodeId && isAlive(o));
   }
 
+  async setRunTime(
+    id: string,
+    dueOn: string,
+    time: string | null,
+    todayDateKey: string,
+    dayStartHour: number,
+  ): Promise<void> {
+    this.writeRunTime(id, dueOn, todayDateKey, (o) => {
+      assertClockWritable(time, dayStartHour);
+      o[dueOn] = time;
+    });
+  }
+
+  async clearRunTime(id: string, dueOn: string, todayDateKey: string): Promise<void> {
+    this.writeRunTime(id, dueOn, todayDateKey, (o) => {
+      delete o[dueOn];
+    });
+  }
+
+  /** setRunTime／clearRunTime 的同步核心：驗身分與日期 → prune（班次日 < 今天且有結局）→ 套用 → 寫回（與 SQLite 版同一套規則） */
+  private writeRunTime(
+    id: string,
+    dueOn: string,
+    todayDateKey: string,
+    apply: (o: Record<string, string | null>) => void,
+  ): void {
+    const node = this.nodes.get(id);
+    if (!node || !isAlive(node)) throw new Error("節點不存在");
+    if (!parseRule(node.repeat_rule)) throw new Error(TIME_REPEAT_ONLY_MSG);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) throw new Error("班次日格式不正確");
+    const settledDates = new Set(this.occurrencesOf(id).map((o) => o.due_on));
+    const next = pruneTimeOverrides(parseTimeOverrides(node.time_overrides), todayDateKey, (d) => settledDates.has(d));
+    apply(next);
+    const now = this.now();
+    const json = serializeTimeOverrides(next);
+    this.mutate(id, (n) => ({ ...n, time_overrides: json, updated_at: now }));
+  }
+
   /** 掛／清規則的同步核心（驗證訊息與 SQLite 版逐字對齊） */
   private applyRule(id: string, rule: RepeatRule | null, dateKey: string, dayStartHour: number): void {
     const node = this.nodes.get(id);
@@ -430,7 +482,16 @@ export class MemoryNodeRepository implements NodeRepository {
       if (!parseRule(serializeRule(rule))) throw new Error("重複規則格式不正確");
     }
     const now = this.now();
-    this.mutate(id, (n) => ({ ...n, repeat_rule: rule ? serializeRule(rule) : null, updated_at: now }));
+    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清（票變回乘車券）；掛／換規則＝清班次日 ≥ 今天的覆寫（過去的留當歷史）。scheduled_time 兩種都留著
+    const overrides = rule
+      ? serializeTimeOverrides(dropFutureOverrides(parseTimeOverrides(node.time_overrides), dateKey))
+      : null;
+    this.mutate(id, (n) => ({
+      ...n,
+      repeat_rule: rule ? serializeRule(rule) : null,
+      time_overrides: overrides,
+      updated_at: now,
+    }));
     // 掛規則＝立刻算目前班次日；清規則＝scheduled_on 留現值（票變回乘車券，occurrences 留作歷史）
     if (rule) this.syncNode(id, dateKey, dayStartHour);
   }
@@ -632,6 +693,8 @@ export class MemoryNodeRepository implements NodeRepository {
       arrived_on: null,
       today_position: null,
       carried_from: null,
+      scheduled_time: null,
+      time_overrides: null,
       account_id: null,
       device_id: null,
       created_at: now,
@@ -644,7 +707,7 @@ export class MemoryNodeRepository implements NodeRepository {
     return row;
   }
 
-  private patch(id: string, patch: NodePatch, dateKey: string = todayKey(), dayStartHour = 3): void {
+  private patch(id: string, patch: NodePatch, dateKey: string, dayStartHour: number): void {
     // repeat_rule 改道 setRepeatRule（與 SQLite 版同一道門：驗證＋寫完立刻同步班次只留一份）
     if ("repeat_rule" in patch) {
       const raw = patch.repeat_rule ?? null;
@@ -657,6 +720,12 @@ export class MemoryNodeRepository implements NodeRepository {
       if (PATCHABLE.has(k)) picked[k] = v === undefined ? null : v;
     }
     if (!Object.keys(picked).length) return;
+
+    // B1 封口：寫 scheduled_time 時，沒有規則的票順手清掉殘留的 time_overrides（跨機並發「清規則」vs「設本班時刻」的遺跡）
+    if ("scheduled_time" in picked) {
+      const cur = this.nodes.get(id);
+      if (cur && !hasRepeatRule(cur.repeat_rule) && cur.time_overrides !== null) picked.time_overrides = null;
+    }
 
     // route_id＝臨時車票的路線標籤：驗身分＋同步 line_id（與 SQLite 版同一套規則）
     if ("route_id" in picked) {
@@ -687,8 +756,8 @@ export class MemoryNodeRepository implements NodeRepository {
     id: string,
     done: boolean,
     cascade: boolean,
-    dateKey: string = todayKey(),
-    dayStartHour = 3,
+    dateKey: string,
+    dayStartHour: number,
   ): string[] {
     const now = this.now();
     const node = this.nodes.get(id) ?? null;
@@ -788,7 +857,11 @@ export class MemoryNodeRepository implements NodeRepository {
    *   opts.allDone＝`?mock=1&today=alldone`——把今天該出現的票全部蓋上済 → 拍 1.0d「今天的班次都到站了」。
    */
   seedDemo(opts: { many?: boolean; empty?: boolean; allDone?: boolean } = {}): void {
-    const today = todayKey();
+    // mock 種子不能 import uiStore（data/ → store/ 循環），日界線用檔內常數；值對齊 `uiStore.DEFAULT_DAY_START_HOUR`（主線②契約 §0-1 第 7 條）
+    const SEED_DAY_START_HOUR = 6;
+    const today = todayKey(SEED_DAY_START_HOUR);
+    const P = (id: string, p: NodePatch) => this.patch(id, p, today, SEED_DAY_START_HOUR);
+    const C = (id: string, d: boolean, c: boolean, k = today) => this.complete(id, d, c, k, SEED_DAY_START_HOUR);
     const year = today.slice(0, 4);
     this.seedClock = Date.now() - 7 * 86_400_000; // 一週前起算，每筆 +1s
     const preset = (n: number) => `var(--route-preset-${n})`;
@@ -803,25 +876,25 @@ export class MemoryNodeRepository implements NodeRepository {
     // ── J 日文 ──
     const jp = add("route", "日文", study.id, { code: "J", color: preset(2) });
     const n5Grammar = add("train", "N5 文法", jp.id, { scheduledOn: today });
-    this.patch(n5Grammar.id, { due_on: `${year}-12-01`, estimate_min: 90, description: "週一三五晚上各一小時" });
+    P(n5Grammar.id, { due_on: `${year}-12-01`, estimate_min: 90, description: "週一三五晚上各一小時" });
     const teForm = add("car", "て形變化", n5Grammar.id);
     const rules = add("ticket", "整理變化規則表", teForm.id, { scheduledOn: addDays(today, -1) });
-    this.complete(rules.id, true, false); // 昨天排、昨天完成＝今日視圖看不到（時間窗外）
+    C(rules.id, true, false); // 昨天排、昨天完成＝今日視圖看不到（時間窗外）
     add("ticket", "做 20 題練習", teForm.id, { scheduledOn: addDays(today, -2) }); // 刻意誤點：看「延着」章
     // 昨天排、今天才補済＝留在誤點區，済進検印欄、延着退右下（r2／件一補済樣張）；済的時刻在收尾補
     const fixWrong = add("ticket", "訂正昨天的錯題", teForm.id, { scheduledOn: addDays(today, -1) });
     // 只有締切、沒排執行日，且締切已過＝浮進誤點區尾段（D-③-7，赭 chip、不蓋延着）
     const n4Signup = add("train", "N4 報名", jp.id);
-    this.patch(n4Signup.id, { due_on: addDays(today, -1) });
+    P(n4Signup.id, { due_on: addDays(today, -1) });
     const particles = add("car", "助詞總複習", n5Grammar.id);
     const wagaCar = add("car", "は/が 辨析", particles.id);
-    add("ticket", "讀文法書 §3 做筆記", wagaCar.id, { scheduledOn: today });
+    const readGrammar = add("ticket", "讀文法書 §3 做筆記", wagaCar.id, { scheduledOn: today });
     add("ticket", "寫 10 句例句", wagaCar.id);
     const n5Vocab = add("train", "N5 單字", jp.id);
-    this.patch(n5Vocab.id, { due_on: `${year}-11-15`, estimate_min: 120 });
-    this.complete(n5Vocab.id, true, true);
+    P(n5Vocab.id, { due_on: `${year}-11-15`, estimate_min: 120 });
+    C(n5Vocab.id, true, true);
     const n5Exam = add("station", "考過 N5", jp.id);
-    this.patch(n5Exam.id, { expected_on: `${year}-12-06` });
+    P(n5Exam.id, { expected_on: `${year}-12-06` });
     this.log(n5Grammar.id, "て形的規則表整理完了，不規則動詞另外背");
     this.log(n5Grammar.id, "今天只做了 10 題，明天補");
     /**
@@ -855,25 +928,25 @@ export class MemoryNodeRepository implements NodeRepository {
     const dev = add("route", "全端開發", study.id, { code: "E1", color: preset(1) });
     const nextStop = add("branch", "Next Stop 開發", dev.id);
     const m2 = add("train", "M2 鋪軌", nextStop.id, { scheduledOn: today });
-    this.patch(m2.id, { status: "doing", priority: "high", estimate_min: 480 });
+    P(m2.id, { status: "doing", priority: "high", estimate_min: 480 });
     const schema = add("car", "schema v2", m2.id, { scheduledOn: today }); // 今日的「車廂」樣本（車廂格 3 格）
     add("ticket", "單表彈性樹 DDL", schema.id);
     add("ticket", "NodeRepository 介面", schema.id);
     add("ticket", "store 接線與冒煙測試", schema.id);
     const m1 = add("train", "M1 制服設計", nextStop.id);
-    this.complete(m1.id, true, true);
+    C(m1.id, true, true);
     const launch = add("station", "v0.2 發車", dev.id);
-    this.patch(launch.id, { expected_on: addDays(today, 21) });
+    P(launch.id, { expected_on: addDays(today, 21) });
     this.log(m2.id, "schema v2 落地，repository 介面補齊");
 
     // ── L2 體能 ──
     const fitness = add("route", "體能", life.id, { code: "L2", color: preset(3) });
     const running = add("train", "跑步習慣", fitness.id);
     const run3 = add("ticket", "本週跑 3 次", running.id, { scheduledOn: today });
-    this.patch(run3.id, { carried_from: addDays(today, -3) }); // 繰越角印「自 M/D 繰越」樣本
+    P(run3.id, { carried_from: addDays(today, -3) }); // 繰越角印「自 M/D 繰越」樣本
 
     // 臨時車票（parent null）
-    add("ticket", "回覆房東訊息", null, { scheduledOn: today }); // 無路線＝虛線「臨」票根
+    const landlord = add("ticket", "回覆房東訊息", null, { scheduledOn: today }); // 無路線＝虛線「臨」票根
     add("ticket", "查一個單字的用法", null, { scheduledOn: today, routeTagId: jp.id }); // 掛路線標籤＝票根換 J 色
     add("ticket", "想一下生日要送什麼", null); // 無日期＝收件匣，今日看不到（Ctrl+P 找得到）
     const inbox = add("ticket", "晨間快掃信箱", null, { scheduledOn: today });
@@ -886,21 +959,21 @@ export class MemoryNodeRepository implements NodeRepository {
     };
     // ①「每日」：今天的班次待會兒會蓋済（留原位樣本）
     const dailyVocab = add("ticket", "背 N5 單字", teForm.id);
-    this.applyRule(dailyVocab.id, fixedRule("daily", addDays(today, -14)), today, 3);
+    this.applyRule(dailyVocab.id, fixedRule("daily", addDays(today, -14)), today, SEED_DAY_START_HOUR);
     // ②「每週三天」且今天不是規則日 → 最新一班在兩天前、沒人蓋 → 誤點區帶延着「原定 M/D」（D-④-4）
     const jog = add("ticket", "跑步 3 公里", running.id);
     this.applyRule(
       jog.id,
       fixedRule("weekly", addDays(today, -21), { byweekday: [dow(-2), dow(1), dow(3)] }),
       today,
-      3,
+      SEED_DAY_START_HOUR,
     );
     // ③「完成後 3 天」：起算日＝今天 → 今天到期（間隔模型的當班樣本）
     const water = add("ticket", "澆花", null, { routeTagId: fitness.id });
-    this.applyRule(water.id, afterRule(3, today), today, 3);
+    this.applyRule(water.id, afterRule(3, today), today, SEED_DAY_START_HOUR);
     // ④「每週某天」＝今天：待會兒蓋運休（運休角印＋整張轉淡樣本）
     const weekly = add("ticket", "寫週報", null);
-    this.applyRule(weekly.id, fixedRule("weekly", addDays(today, -14), { byweekday: [dow(0)] }), today, 3);
+    this.applyRule(weekly.id, fixedRule("weekly", addDays(today, -14), { byweekday: [dow(0)] }), today, SEED_DAY_START_HOUR);
     // ⑤ legacy 自由文字規則（0003 migration 在真機會把它搬進 description；記憶體版沒有 migration，
     //    直接留著驗 parseRule 容錯＝「壞字串→視為沒有規則」，這張票就是一般乘車券、不會被引擎碰到）
     const legacy = add("ticket", "量體重記錄", running.id, { scheduledOn: today });
@@ -916,19 +989,19 @@ export class MemoryNodeRepository implements NodeRepository {
 
     // 本月分散的單發票五張：一張已済（過去）、一張過期未済（赭）、三張在未來
     const calDone = add("ticket", "把書架整理一遍", null, { scheduledOn: inMonth(addDays(today, -5)) });
-    this.complete(calDone.id, true, false); // 假時鐘還開著＝完成時刻在一週前，不會混進今日視窗
+    C(calDone.id, true, false); // 假時鐘還開著＝完成時刻在一週前，不會混進今日視窗
     add("ticket", "寄回借的書", null, { scheduledOn: inMonth(addDays(today, -8)) }); // 過期未済＝赭
-    add("ticket", "換季衣物收納", null, { scheduledOn: inMonth(addDays(today, 2)) });
+    const closet = add("ticket", "換季衣物收納", null, { scheduledOn: inMonth(addDays(today, 2)) });
     add("ticket", "寫明信片給朋友", null, { scheduledOn: inMonth(addDays(today, 6)), routeTagId: jp.id });
     add("ticket", "校正單字表", teForm.id, { scheduledOn: inMonth(addDays(today, 11)) });
 
     // 締切三樣本（決策 11＋D-⑤-5-2）：有執行日／無執行日（只在締切日浮出）／執行＝締切同日
     const dueA = add("ticket", "報稅資料整理", null, { scheduledOn: inMonth(addDays(today, 4)) });
-    this.patch(dueA.id, { due_on: inMonth(addDays(today, 6)) });
+    P(dueA.id, { due_on: inMonth(addDays(today, 6)) });
     const dueB = add("train", "續約健身房", fitness.id); // 沒排執行日，只有締切
-    this.patch(dueB.id, { due_on: inMonth(addDays(today, 8)) });
+    P(dueB.id, { due_on: inMonth(addDays(today, 8)) });
     const dueC = add("ticket", "繳信用卡帳單", null, { scheduledOn: inMonth(addDays(today, 17)) });
-    this.patch(dueC.id, { due_on: inMonth(addDays(today, 17)) }); // 執行＝締切同日
+    P(dueC.id, { due_on: inMonth(addDays(today, 17)) }); // 執行＝締切同日
 
     // 月底一張＋下個月一張（驗換月、驗 `.out` 格不畫內容）
     add("ticket", "月結對帳", null, { scheduledOn: lastOfMonth });
@@ -945,21 +1018,41 @@ export class MemoryNodeRepository implements NodeRepository {
       chores.forEach((n, i) => add("ticket", n, i % 3 === 0 ? null : running.id, { scheduledOn: today }));
     }
 
+    // ── 預定時刻樣本（主線② 契約 §6.4；營業日表記，日界線 06:00）──
+    // 今日頁：有時刻的照幾點排在前、沒時刻的接在後維持手排；已過 ⇒ 赭、入鋏／済不赭、25:00 排最後
+    P(landlord.id, { scheduled_time: "09:00" }); // 排序；已過 ⇒ 赭
+    P(inbox.id, { scheduled_time: "08:30" }); // 下面收尾會蓋済：已済不赭、留在時刻位
+    P(readGrammar.id, { scheduled_time: "16:30", estimate_min: 60, status: "doing" }); // 入鋏不赭；「下一班」；「16:30 発・60 分」
+    const nightReport = add("ticket", "夜班回報", null, { scheduledOn: today });
+    P(nightReport.id, { scheduled_time: "25:00", estimate_min: 30 }); // 25:00 排最後；「隔天 01:00」
+    // 定期券：每班 07:00，今天這班覆寫成 09:30（繼承＋本班覆寫＋「本班」字）
+    P(dailyVocab.id, { scheduled_time: "07:00" });
+    this.mutate(dailyVocab.id, (n) => ({ ...n, time_overrides: serializeTimeOverrides({ [today]: "09:30" }) }));
+    P(jog.id, { scheduled_time: "06:30" }); // 漏班兩天：誤點區照樣印原時刻（赭）
+    // 時段視圖：長度、「長度未定」、同時刻並排
+    P(closet.id, { scheduled_time: "14:00", estimate_min: 90 });
+    const backup = add("ticket", "補眠前備份", null, { scheduledOn: addDays(today, 1) });
+    P(backup.id, { scheduled_time: "14:00" }); // 無預計＝45 分高、底邊虛線
+    const sameA = add("ticket", "整理發票", null, { scheduledOn: addDays(today, 3) });
+    P(sameA.id, { scheduled_time: "10:00", estimate_min: 45 });
+    const sameB = add("ticket", "取包裹", null, { scheduledOn: addDays(today, 3) });
+    P(sameB.id, { scheduled_time: "10:00" }); // 同時刻、一張有預計一張沒有 ⇒ 並排兩 lane
+
     this.seedClock = null;
 
     // 收尾：這兩張的「済」要蓋在真實的今天（落在日界線視窗內），才驗得到
     // r2「當日完成留原位」與誤點票補済——所以刻意放在假時鐘關掉之後才完成。
-    this.complete(fixWrong.id, true, false); // 昨天排、今天補済＝誤點區留原位
-    this.complete(inbox.id, true, false); // 今天排、今天完成＝留原位淡化
+    C(fixWrong.id, true, false); // 昨天排、今天補済＝誤點區留原位
+    C(inbox.id, true, false); // 今天排、今天完成＝留原位淡化
 
     // 定期券的兩個「今天已經交代過」樣本（結局的時刻戳要落在真實的今日視窗內，才驗得到第五條 OR）
-    this.complete(dailyVocab.id, true, false, today); // 每日：今天已済、留原位；scheduled_on 推到明天
+    C(dailyVocab.id, true, false, today); // 每日：今天已済、留原位；scheduled_on 推到明天
     {
       // 每週（今天）：本班運休——與 skipOccurrence 同一條路徑（stamp + 重跑同步）
       const w = this.nodes.get(weekly.id);
       if (w?.scheduled_on) {
         this.stampOccurrence(weekly.id, w.scheduled_on, "skipped", null);
-        this.syncNode(weekly.id, today, 3);
+        this.syncNode(weekly.id, today, SEED_DAY_START_HOUR);
       }
     }
 
@@ -971,6 +1064,7 @@ export class MemoryNodeRepository implements NodeRepository {
         this.mutate(n.id, (x) => ({
           ...x,
           scheduled_on: null, due_on: null, completed_at: null, today_position: null, repeat_rule: null,
+          time_overrides: null, // 不變式：沒有規則就沒有覆寫表（§0-1 第 13 條）
         }));
       });
       for (const o of this.occ.values()) this.dropOccurrence(o.id);
@@ -988,7 +1082,7 @@ export class MemoryNodeRepository implements NodeRepository {
         )
         .map((n) => n.id)
         .forEach((id) => {
-          if (this.nodes.get(id)?.status !== "done") this.complete(id, true, true);
+          if (this.nodes.get(id)?.status !== "done") C(id, true, true);
         });
     }
   }

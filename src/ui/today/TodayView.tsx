@@ -20,9 +20,14 @@
  * 頁面殼契約（WP0）：根節點帶 .page（z-index 蓋過 SkyLayer）與 .ns-today（CSS 前綴）；
  *   天空由 App.tsx 統一掛（density full／train false），本檔不碰。側欄「我的路線」在今日頁保留（Sidebar 負責）。
  */
-import { Fragment, useRef } from "react";
+import { Fragment, useRef, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
+import type { TodayRow as TodayRowData } from "../../data";
+import { timeOfRow } from "../../domain/scheduledTime";
+import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
+import { useUiStore } from "../../store/uiStore";
+import { useMinuteTick } from "../schedule/useMinuteTick";
 import { DateSeal, StationStamp } from "../stamps";
 import { TodayRow } from "./TodayRow";
 import { TicketDraftRow } from "./TicketDraftRow";
@@ -32,6 +37,8 @@ import { useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
 import { useTodayDnd } from "./useTodayDnd";
 import "./today.css";
+// 票面時刻（.tm）、「未定時・照手排」小標、現在線、頁首「下一班」的樣式寫在 schedule.css（today.css 本班不准碰）
+import "../schedule/schedule.css";
 
 const WEEK_ZH = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const MONTH_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -61,6 +68,42 @@ function dayOfYear(d: Date): { day: number; total: number } {
   const end = new Date(d.getFullYear() + 1, 0, 1);
   const day = Math.floor((d.getTime() - start.getTime()) / 86_400_000) + 1;
   return { day, total: Math.round((end.getTime() - start.getTime()) / 86_400_000) };
+}
+
+/** 這一列交代了沒（済或運休；定期券看班次結局）——與 TodayRow 的口徑同一條 */
+function isSettled(r: TodayRowData): boolean {
+  return r.occurrence ? r.occurrence.status === "done" || r.occurrence.status === "skipped" : r.status === "done";
+}
+
+/**
+ * 今天分區的時刻資訊（主線② D-主-10；原型 :985-1000 deskTodayHTML）：
+ *   subgrpAt  「未定時・照手排」小標插在第幾列之前（有時刻與沒時刻的都有才畫；否則 -1）
+ *   nowAt     現在線插在第幾列之前：最後一張「時刻 ≤ 現在」的有時刻列之後；全在未來＝第一張之前；今天沒有有時刻列＝-1
+ *   next      下一班＝第一張還沒交代、時刻還沒到的列
+ * 排序由 repository 負責（有時刻的在前、照時刻），這裡只讀，不重排。
+ */
+function timeline(rows: TodayRowData[], dateKey: string, now: number) {
+  let lastTimed = -1;
+  let lastPast = -1;
+  let firstUntimed = -1;
+  let next: { row: TodayRowData; time: string } | null = null;
+  rows.forEach((r, i) => {
+    const t = timeOfRow(r);
+    if (t === null) {
+      if (firstUntimed < 0) firstUntimed = i;
+      return;
+    }
+    lastTimed = i;
+    const day = r.occurrence?.due_on ?? r.scheduled_on ?? dateKey;
+    if (isClockPast(day, t, now)) lastPast = i;
+    else if (!next && !isSettled(r)) next = { row: r, time: t };
+  });
+  const timedIdx = rows.map((r, i) => (timeOfRow(r) !== null ? i : -1)).filter((i) => i >= 0);
+  return {
+    subgrpAt: lastTimed >= 0 && firstUntimed >= 0 ? firstUntimed : -1,
+    nowAt: timedIdx.length === 0 ? -1 : lastPast < 0 ? timedIdx[0] : lastPast + 1,
+    next: next as { row: TodayRowData; time: string } | null,
+  };
 }
 
 /** 空狀態：原型 .sec 語彙（襯線標題＋虛線延伸）＋一句手帳口吻＋文字入口 */
@@ -93,6 +136,15 @@ function EmptyBlock({
   );
 }
 
+/** 現在線（原型 :246-250 .nowline）：靛色圓點＋實線＋「現在 15:10」 */
+function NowLine({ text }: { text: string }): ReactNode {
+  return (
+    <li role="presentation" aria-hidden className="nowline">
+      <span>{text}</span>
+    </li>
+  );
+}
+
 export function TodayView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useTodayController(containerRef);
@@ -102,6 +154,15 @@ export function TodayView() {
   const routes = useNodeStore((s) => s.routes);
   // 推遲小卡的那一列：⑤ 起由呼叫端注入（小卡不再自己查 today.byId，才共用得了日曆浮層）
   const deferRow = useNodeStore((s) => (c.deferTarget ? (s.today.byId[c.deferTarget.id] ?? null) : null));
+  // 現在（主線②）：赭色、現在線、「下一班」每分鐘自己更新
+  const now = useMinuteTick();
+  const tl = timeline(c.todayRows, c.dateKey, now);
+  // 現在線的字與手機今日子頁、時段畫布同一把尺：營業日表記（日界線 06:00、現在 01:30 ⇒「25:30」），
+  // 現在不在 dateKey 這個營業日上（nowClockMinutes＝null）就不畫線
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const nowMin = nowClockMinutes(c.dateKey, dayStartHour, now);
+  const nowText = nowMin === null ? null : clockText(nowMin);
+  const nowAt = nowText === null ? -1 : tl.nowAt;
 
   const day = dateOf(c.dateKey);
   const doy = dayOfYear(day);
@@ -180,6 +241,21 @@ export function TodayView() {
                   專注 <b>{fmtMinutes(focusMin)}</b>
                 </>
               )}
+              {/* 下一班（主線②；原型 :999）：今天分區第一張還沒交代、時刻還沒到的票 */}
+              {total > 0 && (
+                <>
+                  <span className="sep">・</span>
+                  <span className="next-run">
+                    {tl.next ? (
+                      <>
+                        下一班 <b className="tmx">{tl.next.time}</b>　{tl.next.row.name}
+                      </>
+                    ) : (
+                      "今天沒有下一班了"
+                    )}
+                  </span>
+                </>
+              )}
             </p>
           </div>
 
@@ -231,6 +307,7 @@ export function TodayView() {
                       dateKey={c.dateKey}
                       actions={c.row}
                       onFreshEnd={c.clearFresh}
+                      now={now}
                     />
                     {c.logTarget === r.id && (
                       <li role="presentation" className="log-row">
@@ -262,6 +339,13 @@ export function TodayView() {
             <ul role="listbox" aria-label="今天的列車" className="ticket-list">
               {c.todayRows.map((r, i) => (
                 <Fragment key={r.id}>
+                  {/* 現在線與「未定時・照手排」小標（主線② D-主-10）：裝飾列，不是選項、不收落點 */}
+                  {i === nowAt && nowText !== null && <NowLine text={nowText} />}
+                  {i === tl.subgrpAt && (
+                    <li role="presentation" className="subgrp">
+                      未定時・照手排
+                    </li>
+                  )}
                   <TodayRow
                     row={r}
                     route={c.routeOf(r)}
@@ -271,6 +355,7 @@ export function TodayView() {
                     actions={c.row}
                     onFreshEnd={c.clearFresh}
                     dndProps={dnd.rowProps(r.id, i)}
+                    now={now}
                   />
                   {c.logTarget === r.id && (
                     <li role="presentation" className="log-row">
@@ -279,6 +364,8 @@ export function TodayView() {
                   )}
                 </Fragment>
               ))}
+              {/* 有時刻的票全都過了、而且後面沒有未定時的票 ⇒ 現在線畫在最後 */}
+              {nowAt === c.todayRows.length && nowText !== null && <NowLine text={nowText} />}
               {c.draft && (
                 <TicketDraftRow
                   afterId={c.draft.afterId}

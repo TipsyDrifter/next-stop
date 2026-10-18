@@ -35,6 +35,8 @@ const NODES_COLS: &[(&str, bool)] = &[
     ("arrived_on", false),
     ("today_position", true),
     ("carried_from", false),
+    ("scheduled_time", false),
+    ("time_overrides", false),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),

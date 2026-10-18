@@ -5,7 +5,10 @@
  */
 import type { NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, RepeatRule, WorkLog } from "../domain";
 import { currentDue, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed } from "../domain";
-import { isInDay } from "../lib/date";
+import { compareClock, isInDay } from "../lib/date";
+// 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
+// UI 取這些值一律經 data/index.ts 的明列 export，不直接 import 本檔的值（主線②契約 §0-1 第 10 條）
+import { effectiveTime, timeOfRow } from "../domain/scheduledTime";
 
 export interface CreateNodeInput {
   kind: NodeKind;
@@ -40,6 +43,12 @@ export type NodePatch = Partial<
     | "repeat_rule"
     | "expected_on"
     | "arrived_on"
+    /**
+     * 預定時刻（主線②；營業日表記 'HH:MM'，null＝清除）。單發票＝這張票的時刻、定期券＝每班時刻。
+     * 寫入驗格式＋範圍（update() 的 opts.dayStartHour 必帶，見 NodeRepository.update）。
+     * 注意：`time_overrides` **不在這裡**——UI 不准讀改寫那串 JSON，唯一入口是 setRunTime／clearRunTime。
+     */
+    | "scheduled_time"
     /** 繰越來源日；一般走 reschedule 自動寫，這裡開放給修正／清除 */
     | "carried_from"
     /**
@@ -109,6 +118,8 @@ export interface ScheduleEntry {
   is_done: boolean;
   /** 假想班次：間隔模型在 `projectAfter` 開啟時往後推的第二班起（第一班＝目前班次，恆 false） */
   is_assumed: boolean;
+  /** 這一班的有效時刻（effectiveTime(node, date)；主線②）；null＝沒填 */
+  time: string | null;
 }
 
 /**
@@ -202,6 +213,9 @@ export interface NodeRepository {
    * 欄位補丁。`mood` 會鏡射到定期券的「目前班次」（D-④-2），故與 setCompleted 同款帶日界線參數：
    * opts.dateKey／dayStartHour 省略＝依系統預設日界線的今天（呼叫端應一律帶 store 的設定值，
    * 否則日界線改成 0／5 的使用者在凌晨填心情會鏡到隔壁班或靜默不寫）。
+   *
+   * 主線②：`"scheduled_time" in patch` 且值非 null ⇒ opts.dayStartHour 必須有值（沒有 ⇒ throw TIME_FORMAT_MSG，
+   * 不走 `?? 3` 預設去當範圍）且 isClockInRange(v, opts.dayStartHour)，否則 throw TIME_FORMAT_MSG；null＝清除。兩種實作同一句。
    */
   update(id: string, patch: NodePatch, opts?: { dateKey?: string; dayStartHour?: number }): Promise<void>;
   /**
@@ -243,7 +257,11 @@ export interface NodeRepository {
   listToday(dateKey: string, dayStartHour?: number): Promise<TodayRow[]>;
   /** 依給定順序把 today_position 重寫成 0..n-1（今日手動序的唯一寫入點） */
   assignTodayPositions(ids: string[]): Promise<void>;
-  /** 把 id 挪到今日清單（today 分區）的第 index 位；index 以該分區的可見順序計 */
+  /**
+   * 把 id 挪到今日清單（today 分區）的第 index 位。
+   * 主線②（D-主-10）：index 的座標系＝**手排座標** `manualOrderIds(listToday(…))`（只算沒時刻的 today 列）；
+   * 有時刻的列不在這個座標系裡。⚠ store 不經此路（直接用 assignTodayPositions），這支只給測試。
+   */
   moveToday(id: string, index: number, dateKey: string, dayStartHour?: number): Promise<void>;
   /** 臨時車票掛／卸路線標籤（同步寫 line_id）；只允許 parent_id IS NULL 的 ticket */
   setRouteTag(ticketId: string, routeId: string | null): Promise<void>;
@@ -255,7 +273,11 @@ export interface NodeRepository {
    * todayDateKey＝呼叫端當下的日界線今天。
    */
   reschedule(id: string, nextDate: string | null, todayDateKey: string): Promise<void>;
-  /** 名稱模糊搜尋（含臨時車票，不含幹線） */
+  /**
+   * 名稱模糊搜尋（含臨時車票，不含幹線）。
+   * 主線②（接縫 #67）：query 是字面字串、不是 LIKE 樣式——SQL 實作要 `escapeLike`（lib/sql.ts）＋ `ESCAPE '\'`（反斜線當跳脫字元），
+   * 否則打 `%` 或 `_` 會列出全部；記憶體實作用 includes，本來就沒有萬用字元。
+   */
   search(query: string, limit?: number): Promise<NodeRow[]>;
   /**
    * 收件匣的車票（旅客筆記 D-筆-17；車次①契約 0-7 甲案）：根層 ticket、無執行日、無路線標籤、
@@ -275,6 +297,17 @@ export interface NodeRepository {
    * `scheduled_on` 留在現值、occurrences 保留成歷史（D-④-5）。
    */
   setRepeatRule(id: string, rule: RepeatRule | null, dateKey: string, dayStartHour?: number): Promise<void>;
+  /**
+   * 定期券逐班時刻（主線②）：給 dueOn 這一班設時刻；time=null＝「本班無時刻」。
+   * 驗：節點存活；parseRule 非 null（否則 throw TIME_REPEAT_ONLY_MSG）；dueOn 合 YYYY-MM-DD；time 非 null 時 isClockInRange。
+   * 寫法：parseTimeOverrides(現值) → pruneTimeOverrides(·, todayDateKey, settled) → 設 [dueOn] → serialize
+   *       → 一句 UPDATE（time_overrides, updated_at）＋一筆 op（同兩欄）。settled(d)＝該節點存活 occurrences 裡有 due_on === d 的列
+   *       （沒有結局的過去班次＝誤點中，保留）。
+   * 不驗 dueOn 是不是規則日（對未來任何一天、或已運休的班寫都允許；那天沒班就沒人讀它）。
+   */
+  setRunTime(id: string, dueOn: string, time: string | null, todayDateKey: string, dayStartHour: number): Promise<void>;
+  /** 改回每班時刻＝刪掉 [dueOn] 那一項（沒有＝仍 prune＋寫回）。驗同上（不驗 time） */
+  clearRunTime(id: string, dueOn: string, todayDateKey: string): Promise<void>;
   /**
    * lazy 同步（D-④-7）：對所有存活、未退役、有規則的節點重算目前班次日，
    * 變了才寫回 `scheduled_on`；回傳這一輪真的變動的 id。同一個 dateKey 跑兩次結果相同（冪等）。
@@ -464,6 +497,7 @@ export function buildSchedule(
           is_late: d < todayDateKey && node.status !== "done",
           is_done: node.status === "done",
           is_assumed: false,
+          time: effectiveTime(node, d),
         });
       }
       continue;
@@ -501,6 +535,7 @@ export function buildSchedule(
         is_late: d < todayDateKey && !o,
         is_done: o?.status === "done",
         is_assumed: dates.get(d) === true,
+        time: effectiveTime(node, d),
       });
     }
   }
@@ -508,7 +543,7 @@ export function buildSchedule(
 }
 
 /**
- * 同一天內的班次／締切順序（M3 ⑤ 修正席 should 3）——**日期 → 建立時刻 → 同層 position → id**。
+ * 同一天內的班次／締切順序（M3 ⑤ 修正席 should 3）——**日期 → 〔主線②：時刻，有的在前〕→ 建立時刻 → 同層 position → id**。
  *
  * 原本只有 `node_id.localeCompare`＝UUID 字串序，等於亂數：格內露出的「前 2 筆」與「＋N」藏了什麼、
  * 浮層十幾列的排法，都取決於 UUID 長相（mock 每次重整還會換一套）。改用今日清單收尾比較的**同一把尺**
@@ -519,7 +554,7 @@ export function buildSchedule(
  * **済／運休沉底沒有做**（留給主人：日曆是「那天發生了什麼」的紀錄，把已交代的沉到最後會讓
  * 格內前兩筆永遠是未完成的票——要不要這樣，是一句話的事）。
  */
-function sortByDateThenNode<T extends { date: string; node_id: string }>(
+function sortByDateThenNode<T extends { date: string; node_id: string; time?: string | null }>(
   rows: T[],
   nodes: readonly NodeRow[],
 ): T[] {
@@ -528,6 +563,9 @@ function sortByDateThenNode<T extends { date: string; node_id: string }>(
   return rows.sort((a, b) => {
     const byDate = a.date.localeCompare(b.date);
     if (byDate !== 0) return byDate;
+    // 主線②（D-主-10）：有時刻的在前、照時刻；dues 沒有 time ⇒ 兩邊都當 null，順序不變
+    const byTime = compareClock(a.time, b.time);
+    if (byTime !== 0) return byTime;
     const ma = meta[a.node_id];
     const mb = meta[b.node_id];
     if (ma && mb) {
@@ -712,7 +750,7 @@ export function buildRouteProgress(routeId: string, candidates: readonly RoutePr
 
 const BUCKET_RANK: Record<TodayBucket, number> = { late: 0, due: 1, today: 2 };
 
-/** 今日清單排序：誤點（依原執行日）→ 締切（依締切日）→ 今天（依今日序，未指派的排後面） */
+/** 今日清單排序：誤點（依原執行日）→ 締切（依締切日）→ 今天（有時刻的照時刻在前，其餘依今日序，未指派的排後面） */
 export function compareTodayRows(a: TodayRow, b: TodayRow): number {
   const rank = BUCKET_RANK[a.bucket] - BUCKET_RANK[b.bucket];
   if (rank !== 0) return rank;
@@ -726,9 +764,15 @@ export function compareTodayRows(a: TodayRow, b: TodayRow): number {
     const byDue = (a.due_on ?? "").localeCompare(b.due_on ?? "");
     if (byDue !== 0) return byDue;
   } else {
-    const ap = a.today_position ?? Number.MAX_SAFE_INTEGER;
-    const bp = b.today_position ?? Number.MAX_SAFE_INTEGER;
-    if (ap !== bp) return ap - bp;
+    // 主線②（D-主-10）：有時刻的照幾點排在前，沒時刻的接在後維持 today_position；兩個同時刻落到收尾比較
+    const ta = timeOfRow(a);
+    const byTime = compareClock(ta, timeOfRow(b));
+    if (byTime !== 0) return byTime;
+    if (ta === null) {
+      const ap = a.today_position ?? Number.MAX_SAFE_INTEGER;
+      const bp = b.today_position ?? Number.MAX_SAFE_INTEGER;
+      if (ap !== bp) return ap - bp;
+    }
   }
   // 同日／同序時的收尾比較：建立時刻→同層 position→id，讓同毫秒建立的票也有穩定順序
   return a.created_at.localeCompare(b.created_at) || a.position - b.position || a.id.localeCompare(b.id);

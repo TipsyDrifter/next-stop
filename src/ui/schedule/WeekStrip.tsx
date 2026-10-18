@@ -10,6 +10,12 @@
  * 互動（都往上丟、本檔不碰 store）：點日 ⇒ onPickDay；停在某週 90ms ⇒ onWeekSettle（父層更新月份字＋ ensureLoaded）；
  *   focusDay 變 ⇒ 該週捲進視野；滑鼠拖曳換週（觸控走原生 scroll-snap）；寬度變 ⇒ 用 ResizeObserver 把「應該停的那週」擺回。
  * 週條區不接子頁切換手勢（自己會橫捲；useSubSwipe 只掛在串流容器）。
+ *
+ * **主線②（契約 §4.8）**：頭一列在月份鈕與「今日」之間加「清單｜時段」小分段（`.m-sch-wk-mode`，視覺 32px、
+ *   `::after` 把觸控區撐到 44px；選中＝靛字＋`--ns-tg-seg-on` 底）⇒ `onLayout`。月曆開著時藏起來（‹ › 要那個位置，
+ *   375px 放不下四組；月曆蓋著時排法也沒有意義）。
+ *   `layout === "time"` 時，`visibleDays`（3 天時段那一頁）在週格底下畫 3px 靛圓角條 `.m-sch-wk-range`；
+ *   一頁跨兩週時兩週各畫自己那一段。left／width 依那幾天在 7 格中的位置，.25s 過渡。
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
@@ -73,6 +79,11 @@ export interface WeekStripProps {
   onToday(): void;
   /** 停在某一週（first＝該週週首） */
   onWeekSettle(first: string): void;
+  /** 行程表排法：清單（串流）／時段（3 天）；主線② */
+  layout: "stream" | "time";
+  onLayout(v: "stream" | "time"): void;
+  /** 時段那一頁的幾天（畫週格底線）；null＝不畫 */
+  visibleDays: readonly string[] | null;
 }
 
 const WeekRow = memo(function WeekRow({
@@ -81,6 +92,7 @@ const WeekRow = memo(function WeekRow({
   sel,
   marks,
   onPickDay,
+  range,
 }: {
   first: string;
   today: string;
@@ -88,6 +100,8 @@ const WeekRow = memo(function WeekRow({
   sel: string | null;
   marks: ReadonlyMap<string, DayMark>;
   onPickDay(day: string): void;
+  /** 3 天時段落在本週的那一段（起始格、格數）；null＝不畫 */
+  range: { from: number; n: number } | null;
 }) {
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(first, i)), [first]);
   return (
@@ -113,6 +127,16 @@ const WeekRow = memo(function WeekRow({
           </button>
         );
       })}
+      {range && (
+        <span
+          className="m-sch-wk-range"
+          aria-hidden
+          style={{
+            left: `calc(6px + (100% - 12px) * ${range.from} / 7 + 6px)`,
+            width: `calc((100% - 12px) * ${range.n} / 7 - 12px)`,
+          }}
+        />
+      )}
     </div>
   );
 });
@@ -129,6 +153,9 @@ export function WeekStrip({
   onPickDay,
   onToday,
   onWeekSettle,
+  layout,
+  onLayout,
+  visibleDays,
 }: WeekStripProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   /** 週條「應該」停在第幾週（寬度變動時用它重新對齊；原型 stripWant） */
@@ -256,6 +283,14 @@ export function WeekStrip({
 
   const selWeek = weekStart(focusDay, firstDow);
 
+  /** 一週的 3 天底線那一段（只有時段排法；那幾天不在這週＝null） */
+  const rangeOf = (first: string): { from: number; n: number } | null => {
+    if (layout !== "time" || !visibleDays || visibleDays.length === 0) return null;
+    const idx = visibleDays.map((d) => diffDays(d, first)).filter((k) => k >= 0 && k < 7);
+    if (idx.length === 0) return null;
+    return { from: Math.min(...idx), n: idx.length };
+  };
+
   return (
     <nav className={"m-sch-wk" + (calOpen ? " is-cal" : "")} aria-label="週條">
       <div className="m-sch-wk-head">
@@ -280,6 +315,24 @@ export function WeekStrip({
             ›
           </button>
         </span>
+        <span className="m-sch-wk-mode" role="group" aria-label="行程表排法">
+          <button
+            type="button"
+            className={layout === "stream" ? "on" : undefined}
+            aria-pressed={layout === "stream"}
+            onClick={() => onLayout("stream")}
+          >
+            清單
+          </button>
+          <button
+            type="button"
+            className={layout === "time" ? "on" : undefined}
+            aria-pressed={layout === "time"}
+            onClick={() => onLayout("time")}
+          >
+            時段
+          </button>
+        </span>
         <button
           type="button"
           className={"m-sch-wk-today" + (focusDay === today ? " is-here" : "")}
@@ -299,6 +352,7 @@ export function WeekStrip({
               sel={first === selWeek ? focusDay : null}
               marks={marks}
               onPickDay={onPickDay}
+              range={rangeOf(first)}
             />
           ))}
         </div>

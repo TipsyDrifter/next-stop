@@ -31,6 +31,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { describeRule, parseRule, type NodeRow, type NodeStatus } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
+import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
+import { isClockPast } from "../../lib/date";
+import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
 
 /** MMDD-NN 之外的 M/D 顯示（票面 chip 用） */
@@ -149,9 +152,11 @@ export interface TodayRowProps {
   onFreshEnd(): void;
   /** WP5 拖曳：useTodayDnd 的 rowProps（WP2 是空物件） */
   dndProps?: Record<string, unknown>;
+  /** 現在（useMinuteTick；主線②）：時刻已過、沒入鋏也沒蓋済 ⇒ 時刻字轉赭 */
+  now: number;
 }
 
-export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFreshEnd, dndProps }: TodayRowProps) {
+export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFreshEnd, dndProps, now }: TodayRowProps) {
   const ref = useRef<HTMLLIElement>(null);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／臨時券 */
   const rule = parseRule(row.repeat_rule);
@@ -182,6 +187,23 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
   const dueLate = !!row.due_on && row.due_on <= dateKey;
   /** 執行日 chip 印的日子＝這一列在講的那一天（定期券吃班次日，其餘吃 scheduled_on） */
   const chipDate = rule ? railDate : row.scheduled_on;
+
+  /**
+   * 預定時刻（主線② D-主-12）＝meta 第一格，三個分區都印（誤點區照印原時刻、多半是赭；契約 §0-1 第 19 條）。
+   * 赭＝已過、還沒有結局、也沒入鋏（自決）；締切段沒有執行日 ⇒ 以今天判。有時刻就不另印「預計 N 分」（併進「発・90 分」）。
+   */
+  const time = timeOfRow(row);
+  /** 入鋏只算目前那一班（同 DayRow／TimeGrid）：定期券誤點班次（railDate ≠ scheduled_on）不因 status=doing 擋住赭色 */
+  const punchedRun = row.status === "doing" && (!rule || railDate === row.scheduled_on);
+  const timeItem =
+    time !== null ? (
+      <TicketTime
+        time={time}
+        estimateMin={row.estimate_min}
+        overridden={isTimeOverridden(row, railDate)}
+        past={!settled && !punchedRun && isClockPast(railDate ?? dateKey, time, now)}
+      />
+    ) : null;
 
   /** 執行日 chip＝推遲入口（原型沒有的控件；與頁首日期重複的那一枚只在 hover／選中現身） */
   const deferChip = (label: string, warn: boolean) => (
@@ -216,9 +238,10 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
       ? // 補済態（件一 :1192-1208 逐字＝ `.ticket.done.late-done`）：來歷退後——
         // 暖光底（.late-t）與手寫「晚了 N 天」隨結局收掉，只留「已完成 ✓ ・ 赭 chip 原定 M/D」
         // （運休走同一條：運休也是結局，延着一樣退到右下）
-        [statusItem, <span className="chip late">原定 {railDate ? mmdd(railDate) : "—"}</span>]
+        [timeItem, statusItem, <span className="chip late">原定 {railDate ? mmdd(railDate) : "—"}</span>]
       : [
           // 誤點票（C2 :826-832 逐字）：赭「原定 M/D」＋誤點註記
+          timeItem,
           <span className="late-note">原定 {railDate ? mmdd(railDate) : "—"}</span>,
           railDate ? <LateNote days={diffDays(dateKey, railDate)} /> : null,
         ]
@@ -226,9 +249,10 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
       ? // D-③-7：沒排執行日、締切已到／已過 → 誤點區尾段，赭 chip「締切 M/D」、不蓋延着。
         // 「＋執行日」是原型沒有的控件 → 收進下方 .meta-hover（hover／選中才現身），有結局時不畫。
         settled
-        ? [statusItem, <span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
-        : [<span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
+        ? [timeItem, statusItem, <span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
+        : [timeItem, <span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
       : [
+          timeItem,
           statusItem,
           // 定期券的一句話規則（C2 :745「每日重複」那一格）——印 describeRule，不印 JSON
           rule ? (
@@ -238,7 +262,7 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
             </span>
           ) : null,
           row.child_total > 0 ? <Cars total={row.child_total} done={row.child_done} label={carsLabel(row.kind)} /> : null,
-          row.estimate_min ? <span>預計 {row.estimate_min} 分</span> : null,
+          row.estimate_min && time === null ? <span>預計 {row.estimate_min} 分</span> : null,
           row.parent_id === null ? <span>臨時車票</span> : null,
           // 執行日不是「今天」時（例：昨天排、今天補済留原位）常駐顯示，否則收進 hover 群組。
           // 定期券吃 railDate：蓋済／運休留原位的那一列講的是今天，不是引擎推到的下一班。

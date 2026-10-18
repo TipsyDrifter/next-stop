@@ -12,6 +12,8 @@
  *   T／Shift+T        ＝ DayPopover.tsx:243-258（定期券 REPEAT_RESCHEDULE_MSG；離開這天出 showRescheduleToast）
  *   改期／清除執行日   ＝ DeferPopover.tsx:174-191（INBOX_TOAST＋復原）；已交代 SETTLED_DEFER_MSG（useMobileToday.ts:31）
  *   建票             ＝ useMobileToday.createTicket 同款（busy 重入鎖、失敗 toast）
+ *   時刻（主線② §3.10）＝ setTime：updateNode(id, { scheduled_time, estimate_min? })；setRunTime／clearRunTime：nodeStore 同名入口
+ *                       （非定期券 ⇒ TIME_REPEAT_ONLY_MSG）；成功出收據 toast（文案見 timeReceipt），失敗由 store 吐 reason
  * 資料一律經 nodeStore（元件不碰 repository）。今天＝`todayKey(dayStartHour)`，每次呼叫當下算。
  */
 import { useMemo } from "react";
@@ -23,6 +25,8 @@ import { addDays, todayKey } from "../../lib/date";
 import { canStampRow, dayRowModel, mmdd, type DayRowModel } from "../calendar/DayRow";
 import { INBOX_TOAST, showRescheduleToast } from "../today/useTodayController";
 import { SETTLED_DEFER_MSG } from "../mobile/useMobileToday";
+import { TIME_REPEAT_ONLY_MSG } from "../../domain/scheduledTime";
+import { timeReceipt } from "../mobile/MobileTimeSheet";
 
 /** 一個動作目標：班次列（日曆同一把尺）或「只在締切日浮出來」的票（手機卡用，§0-1 第 14 條） */
 export type ScheduleTarget = { kind: "entry"; row: DayRowModel } | { kind: "due"; node: NodeRow };
@@ -47,6 +51,12 @@ export interface ScheduleActions {
   createOn(day: string, name: string): Promise<boolean>;
   /** 桌機 `.`：select(id)＋setPanelOpen(true) */
   openPanel(nodeId: string): void;
+  /** 每班／單發票時刻（＋預計）：updateNode(id, { scheduled_time, estimate_min? })；estimateMin 為 undefined＝不送（主線② §3.10） */
+  setTime(nodeId: string, time: string | null, estimateMin?: number | null): void;
+  /** 定期券本班：setRunTime(nodeId, railDate, time)；非定期券 ⇒ toast TIME_REPEAT_ONLY_MSG */
+  setRunTime(nodeId: string, railDate: string, time: string | null): void;
+  /** 定期券本班改回每班時刻 */
+  clearRunTime(nodeId: string, railDate: string): void;
 }
 
 /** DayPopover.tsx:64 的同一句（該檔沒 export；字面照抄） */
@@ -62,6 +72,8 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
     if (message) ui().showToast({ message }, 3600);
   };
   let busy = false;
+  /** 時刻動作只拿到 id：從行程表切片或今日切片找節點（判定期券用；找不到就交給 store 驗） */
+  const nodeOfId = (id: string): NodeRow | undefined => ns().calendar.nodes[id] ?? ns().today.byId[id];
 
   /**
    * 蓋済的共用尾段：手機對今日切片裡有未完成直屬子項的票先問（useMobileToday.ts:136-145 同一句）；
@@ -207,6 +219,43 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
     openPanel(nodeId) {
       ui().select(nodeId);
       ui().setPanelOpen(true);
+    },
+
+    setTime(nodeId, time, estimateMin) {
+      const patch: { scheduled_time: string | null; estimate_min?: number | null } = { scheduled_time: time };
+      if (estimateMin !== undefined) patch.estimate_min = estimateMin;
+      void ns()
+        .updateNode(nodeId, patch)
+        .then((r) => {
+          if (r.ok) toast(timeReceipt("rule", time));
+        });
+    },
+
+    setRunTime(nodeId, railDate, time) {
+      const node = nodeOfId(nodeId);
+      if (node && !parseRule(node.repeat_rule)) {
+        toast(TIME_REPEAT_ONLY_MSG);
+        return;
+      }
+      // 失敗時 store 已 showToast(reason)；這裡只補成功的收據
+      void ns()
+        .setRunTime(nodeId, railDate, time)
+        .then((r) => {
+          if (r.ok) toast(timeReceipt("run", time));
+        });
+    },
+
+    clearRunTime(nodeId, railDate) {
+      const node = nodeOfId(nodeId);
+      if (node && !parseRule(node.repeat_rule)) {
+        toast(TIME_REPEAT_ONLY_MSG);
+        return;
+      }
+      void ns()
+        .clearRunTime(nodeId, railDate)
+        .then((r) => {
+          if (r.ok) toast(timeReceipt("reset", null));
+        });
     },
   };
 }

@@ -14,6 +14,9 @@
  *   本班運休／取消運休     → `skip(id, skip)`：skipOccurrence(id, skip)（不帶 dueOn＝今日頁口徑）
  *   臨時車票／無日期票     → createNode({ scheduledOn: dateKey | null })，後者附 INBOX_TOAST 的「取消建立」
  *   v1.1.0 的 `deferTomorrow` 已併進 `defer`（⋯ sheet 從一項補成四項＋運休，P11）。
+ *   時刻（主線② §3.10）    → `setTime(id, time, est?)`＝updateNode({ scheduled_time, estimate_min? })；
+ *                            `setRunTime(id, time)`／`clearRunTime(id)`＝nodeStore 同名入口，班次日＝`occurrence?.due_on ?? scheduled_on`
+ *                            （timeOfRow 的 railDate 同一把尺）；成功出收據（timeReceipt），失敗由 store 吐 reason
  *
  * 三條重載時機（手機比桌機多一條）：
  *   ① 進頁與日界線設定變動  → loadToday(todayKey(dayStartHour))
@@ -29,6 +32,8 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
+import { TIME_REPEAT_ONLY_MSG } from "../../domain/scheduledTime";
+import { timeReceipt } from "./MobileTimeSheet";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
 export const SETTLED_DEFER_MSG = "這張票已經蓋済了——先取消済章才能推遲";
@@ -54,6 +59,12 @@ export interface MobileTodayApi {
   skip(id: string, skip: boolean): void;
   /** 建票；inbox=true＝無日期票（收件匣）。回傳有沒有建成功（成功才清輸入框） */
   createTicket(name: string, inbox: boolean): Promise<boolean>;
+  /** 每班／單發票時刻（＋預計；estimateMin 為 undefined＝不送）。null＝不排時刻（主線②） */
+  setTime(id: string, time: string | null, estimateMin?: number | null): void;
+  /** 定期券這一班（今日列的班次日）的時刻；null＝本班不排時刻 */
+  setRunTime(id: string, time: string | null): void;
+  /** 定期券這一班改回每班時刻 */
+  clearRunTime(id: string): void;
 
   /** 剛蓋章的那一列（播 stampIn） */
   freshId: string | null;
@@ -197,6 +208,49 @@ export function useMobileToday(): MobileTodayApi {
       });
   }, []);
 
+  /* ───────── 時刻（主線②；⋯ sheet → 時刻 sheet 的出口）───────── */
+
+  const setTime = useCallback((id: string, time: string | null, estimateMin?: number | null) => {
+    const patch: { scheduled_time: string | null; estimate_min?: number | null } = { scheduled_time: time };
+    if (estimateMin !== undefined) patch.estimate_min = estimateMin;
+    void ns()
+      .updateNode(id, patch)
+      .then((r) => {
+        if (r.ok) toast(timeReceipt("rule", time));
+      });
+  }, []);
+
+  /** 今日列的班次日（timeOfRow 同一把尺）；不是定期券 ⇒ toast 並回 null */
+  const runDateOf = (id: string): string | null => {
+    const row = ns().today.byId[id];
+    if (!row) return null;
+    if (!parseRule(row.repeat_rule)) {
+      toast(TIME_REPEAT_ONLY_MSG);
+      return null;
+    }
+    return row.occurrence?.due_on ?? row.scheduled_on;
+  };
+
+  const setRunTime = useCallback((id: string, time: string | null) => {
+    const day = runDateOf(id);
+    if (!day) return;
+    void ns()
+      .setRunTime(id, day, time)
+      .then((r) => {
+        if (r.ok) toast(timeReceipt("run", time));
+      });
+  }, []);
+
+  const clearRunTime = useCallback((id: string) => {
+    const day = runDateOf(id);
+    if (!day) return;
+    void ns()
+      .clearRunTime(id, day)
+      .then((r) => {
+        if (r.ok) toast(timeReceipt("reset", null));
+      });
+  }, []);
+
   /* ───────── 建票（臨時券排今天／無日期票進收件匣）───────── */
 
   const createTicket = useCallback(async (raw: string, inbox: boolean): Promise<boolean> => {
@@ -244,6 +298,9 @@ export function useMobileToday(): MobileTodayApi {
     defer,
     skip,
     createTicket,
+    setTime,
+    setRunTime,
+    clearRunTime,
     freshId,
   };
 }

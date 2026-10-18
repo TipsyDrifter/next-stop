@@ -29,6 +29,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
+import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -431,7 +432,12 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         toast("誤點區的票不能排序——要排上今天請按 T");
         return;
       }
-      const ids = ns().today.rows.filter((r) => r.bucket === "today").map((r) => r.id);
+      // 主線②（D-主-10）：有時刻的票照時刻排、不能手排；手排座標＝沒時刻的 today 列
+      if (timeOfRow(row) !== null) {
+        toast(TIME_FIXED_ORDER_MSG);
+        return;
+      }
+      const ids = manualOrderIds(ns().today.rows);
       const i = ids.indexOf(row.id);
       const j = i + delta;
       if (i < 0) return;

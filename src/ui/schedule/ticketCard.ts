@@ -10,6 +10,7 @@
  */
 import { describeRule, parseRule, type NodeKind, type NodeRow } from "../../domain";
 import type { TodayRow } from "../../data";
+import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
 import { canStampRow, mmdd, type DayRowModel } from "../calendar/DayRow";
 
 export interface TicketCardModel {
@@ -45,6 +46,16 @@ export interface TicketCardModel {
   stampHint: string | null;
   /** 定期券歷史班次（row.isHistory） */
   readOnly: boolean;
+  /** 這張卡講的那一班的有效時刻（主線②）；null＝沒填。誤點卡也填（契約 §0-1 第 19 條）；締切卡講的是締切日不是班次 ⇒ null */
+  time: string | null;
+  /** 來自逐班覆寫（卡上「本班」靛字） */
+  timeOverridden: boolean;
+  /** 每班／單發票的時刻（node.scheduled_time；sheet aside 用） */
+  ruleTime: string | null;
+  /** 預計（D-主-12「・90 分」） */
+  estimateMin: number | null;
+  /** 入鋏中（status === "doing"）：已過時刻也不轉赭（§4.5-1） */
+  doing: boolean;
 }
 
 /** MobileTicket.tsx:68 同一條：定期券＞臨時券（根層車票）＞乘車券 */
@@ -84,6 +95,12 @@ export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel
     stampable: true,
     stampHint: null,
     readOnly: false,
+    time: timeOfRow(row),
+    timeOverridden: isTimeOverridden(row, row.occurrence?.due_on ?? row.scheduled_on),
+    ruleTime: row.scheduled_time,
+    estimateMin: row.estimate_min,
+    // 入鋏只算目前那一班：定期券的誤點班次（occurrence.due_on ≠ scheduled_on）不算
+    doing: row.status === "doing" && (rule === null || (row.occurrence?.due_on ?? row.scheduled_on) === row.scheduled_on),
   };
 }
 
@@ -127,6 +144,12 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
     stampable: canStampRow(row),
     stampHint: stampHintOf(row),
     readOnly: row.isHistory,
+    time: row.entry.time,
+    timeOverridden: node ? isTimeOverridden(node, row.entry.date) : false,
+    ruleTime: node?.scheduled_time ?? null,
+    estimateMin: node?.estimate_min ?? null,
+    // 入鋏只算目前那一班（同 DayRow／TimeGrid）：定期券 status=doing 時，別的誤點班次照轉赭
+    doing: node?.status === "doing" && (!row.isRepeat || node.scheduled_on === row.entry.date),
   };
 }
 
@@ -159,5 +182,11 @@ export function cardFromDue(node: NodeRow, date: string, serial: string | null, 
     stampable: true,
     stampHint: null,
     readOnly: false,
+    // 締切卡講的是締切日、不是某一班 ⇒ 不印時刻（契約 §3.7）；ruleTime／estimateMin 留給 sheet 用
+    time: null,
+    timeOverridden: false,
+    ruleTime: node.scheduled_time,
+    estimateMin: node.estimate_min,
+    doing: node.status === "doing" && (rule === null || node.scheduled_on === date),
   };
 }

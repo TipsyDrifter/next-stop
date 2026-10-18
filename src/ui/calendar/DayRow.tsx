@@ -24,8 +24,13 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import type { NodeRow } from "../../domain";
 import { parseRule } from "../../domain";
 import type { DueEntry, ScheduleEntry } from "../../data";
+import { isTimeOverridden } from "../../domain/scheduledTime";
+import { clockMinutes, isClockPast, nextDayNote } from "../../lib/date";
+import { useUiStore } from "../../store/uiStore";
 import { roundelStyle } from "../common/roundel";
 import { SealSuspended } from "../stamps";
+// 時刻字（.tm）的樣式在 schedule.css（串流 .ns-sch 與當日清單浮層 .ns-daypop 兩個前綴都寫在那裡）
+import "../schedule/schedule.css";
 
 const cx = (...parts: Array<string | false | undefined>) => parts.filter(Boolean).join(" ");
 
@@ -139,12 +144,65 @@ export interface DayRowProps {
   onStamp(): void;
   /** 推遲鈕（單發票）／rep 圖示（定期券目前班次）——都是開 DeferPopover，錨＝被點的那顆 */
   onDefer(anchor: HTMLElement): void;
+  /**
+   * 現在（useMinuteTick；主線②）：時刻已過、沒入鋏也沒蓋済 ⇒ 時刻字轉赭。
+   * 選填——當日清單浮層（DayPopover，不准碰）不傳，就只印時刻、不判已過。
+   */
+  now?: number;
 }
 
-export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer }: DayRowProps) {
+/**
+ * 票面上的時刻（主線② D-主-12；原型 `:930-940` timeHTML 的 A 寫法）：
+ *   span.tm[.past] ＝ span.hm「14:00」＋ span.hz「発」／「発・90 分」＋（跨日）span.nx「隔天 01:00」＋（覆寫）span.once「本班」
+ * 今日頁（TodayRow）、串流列與當日清單列（DayRow）共用這一份 DOM；字級由各自的 CSS 前綴給（schedule.css）。
+ */
+export function TicketTime({
+  time,
+  estimateMin,
+  overridden,
+  past,
+  outOfAxis = false,
+}: {
+  time: string;
+  estimateMin: number | null | undefined;
+  overridden: boolean;
+  past: boolean;
+  /** 改日界線之後落到時段軸之外的時刻（03:30 遇上日界線 06）；時段視圖標「軸外」，列表也補一個同字的小註 */
+  outOfAxis?: boolean;
+}) {
+  const nx = nextDayNote(time);
+  return (
+    <span className={past ? "tm past" : "tm"} title={past ? "已過發車時刻、還沒入鋏也沒蓋済" : "預定時刻"}>
+      <span className="hm">{time}</span>
+      <span className="hz">{estimateMin && estimateMin > 0 ? `発・${estimateMin} 分` : "発"}</span>
+      {nx && <span className="nx">{nx}</span>}
+      {outOfAxis && (
+        <span className="oob" title="這個時刻落在日界線之外，時段視圖放不進軸，改放「未定時」帶">
+          軸外
+        </span>
+      )}
+      {overridden && (
+        <span className="once" title="只改了這一班的時刻">
+          本班
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now }: DayRowProps) {
   const name = row.node?.name ?? "";
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
+  // 時刻（主線②）：赭＝已過、沒入鋏、沒結局。入鋏是節點層的狀態，定期券只算目前那一班（同 TimeGrid 的口徑）
+  const time = row.entry.time;
+  const settled = row.done || row.skipped;
+  const doing = row.node?.status === "doing" && (!row.isRepeat || row.node.scheduled_on === row.entry.date);
+  const past = time !== null && now !== undefined && !settled && !doing && isClockPast(row.entry.date, time, now);
+
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const tMin = time !== null ? clockMinutes(time) : null;
+  const outOfAxis = tMin !== null && (tMin < dayStartHour * 60 || tMin >= dayStartHour * 60 + 1440);
 
   const canStamp = canStampRow(row);
   const stampTitle = row.skipped
@@ -193,6 +251,15 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       <span className={cx("roundel-s", serif && "serif")} aria-hidden style={disc}>
         {badgeOf(row.route)}
       </span>
+      {time !== null && (
+        <TicketTime
+          time={time}
+          estimateMin={row.node?.estimate_min}
+          overridden={row.node ? isTimeOverridden(row.node, row.entry.date) : false}
+          past={past}
+          outOfAxis={outOfAxis}
+        />
+      )}
       <span className="t" title={name}>
         {name}
       </span>
