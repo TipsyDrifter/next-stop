@@ -17,10 +17,15 @@
  * - 對帳：每次「打算貼／收／排／取消」push 一筆到 `ttNoticeLog`（bridge 記）；去重擋掉的不記。
  *
  * 桌機：`noticeDesktop.syncTray`（丁）、`desktopReminder.syncDesktopReminder`（丁）。
+ *
+ * 車次②（② 契約 §5.10、0-13；丙）：運行中那班連到任務 ⇒ 通知的名字是「分類・任務名」（任務名截到 16 字；Kotlin 只照貼字串，
+ * 不重 build 原生層）、跑太久門檻多一層任務的預計時間（預估 → 任務 → 分類 → 全域）。名字與預計都從 store 的 `linkInfo`
+ * 讀（`linkLabelOf`／`taskEstimateOf`）；什麼時候重送由兩個代理的觸發條件決定（`taskSig`，歸乙）。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { MOCK_MODE, settingsRepo } from "../../data";
 import { fmtClock, msOf, thresholdOf } from "../../domain/timetable";
+import { clipLabel, linkLabelOf, runLabel, taskEstimateOf } from "../../domain/timetableLink";
 import { TT_NOTICE_TEXT, buildNoticeState, reminderSig, reminderToKeep } from "../../domain/timetableNotice";
 import { useTimetableStore } from "../../store/timetableStore";
 import { syncDesktopReminder } from "./desktopReminder";
@@ -135,7 +140,8 @@ export async function syncRunningNotice(opts: { force?: boolean } = {}): Promise
   if (!s.ready) return;
   if (!onAndroid()) {
     const r = s.noticeEnabled ? s.running : null;
-    const name = r ? (s.catById[r.category_id]?.name ?? "？") : "";
+    const label = r ? linkLabelOf(r, s.linkInfo) : null;
+    const name = r ? runLabel(s.catById[r.category_id]?.name ?? "？", label === null ? null : clipLabel(label)) : "";
     const text = r ? runningNoticeText(name, r.started_at) : null;
     return syncTray(s.noticeEnabled, text, opts.force === true);
   }
@@ -150,6 +156,9 @@ export async function syncRunningNotice(opts: { force?: boolean } = {}): Promise
     recentIds: s.recentCategoryIds,
     pins: s.noticePins,
     globalMaxMin: s.longRunMaxMin,
+    // ②：運行中那班連到的任務名（buildNoticeState 自己截 16 字）與任務的預計時間
+    linkLabel: s.running ? linkLabelOf(s.running, s.linkInfo) : null,
+    taskEstimateMin: s.running ? taskEstimateOf(s.running, s.linkInfo) : null,
   });
   const sig = JSON.stringify(state);
   if (!opts.force && sig === lastRunningSig) return;
@@ -172,7 +181,8 @@ let lastReminderSig: string | null = null;
  * 排程／取消「跑太久」提醒：`reminderToKeep`（running 存在、跑太久提醒開著、未確認、門檻非 null、門檻時刻在 60 秒之後；
  * 已排好的同一個在提醒前 60 秒內也留著）有 ⇒ `ttScheduleReminder`；無 ⇒ `ttCancelReminder`
  * （也收掉畫面上已響過的那則——提醒時刻已過、人已經回到 App，由 autoAsk 問）。
- * 門檻：這一班的預估 → 分類預設長度 → 全域上限（①b）。桌機 ⇒ `desktopReminder.syncDesktopReminder()`。
+ * 門檻：這一班的預估 → 任務的預計時間（②）→ 分類預設長度 → 全域上限（①b）。標題的名字＝「分類・任務名」（②）。
+ * 桌機 ⇒ `desktopReminder.syncDesktopReminder()`。
  */
 export async function syncLongRunReminder(opts: { force?: boolean } = {}): Promise<void> {
   // 桌機不走 plugin-notification（①a 補充契約 §3-3）：桌機版通知外掛沒有 cancel／remove_active，排了就收不回。
@@ -185,13 +195,14 @@ export async function syncLongRunReminder(opts: { force?: boolean } = {}): Promi
   if (!s.ready) return;
   const r = s.running;
   const cat = r ? (s.catById[r.category_id] ?? null) : null;
+  const label = r ? linkLabelOf(r, s.linkInfo) : null;
   // 60 秒規則只擋新排：已經排好的同一個在提醒前 60 秒內照樣留著（重送也無妨，Kotlin 同一班同一時刻保留 fired），
   // 否則這 60 秒裡任何一次 refresh／回前景都會把快響的提醒取消、之後也不會再排（與 desktopReminder 一致）。
   const rem = r
     ? reminderToKeep(
         r,
-        thresholdOf(r.estimate_min, cat, s.longRunMaxMin),
-        cat?.name ?? "？",
+        thresholdOf(r.estimate_min, cat, s.longRunMaxMin, taskEstimateOf(r, s.linkInfo)),
+        runLabel(cat?.name ?? "？", label === null ? null : clipLabel(label)),
         s.noticeLongRunEnabled,
         Date.now(),
         lastReminderSig,

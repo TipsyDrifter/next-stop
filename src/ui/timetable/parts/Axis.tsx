@@ -16,6 +16,10 @@
  * chip：零長度「時刻待確認」；誤點「誤點 +X」（待確認加「・待確認」）；長時間運行（待確認加「・待確認」）；
  * none 不畫（F3：選了留白／其實在做別的、被切到門檻以下的塊不再掛記號）。運行中那一班有預估、還沒超過 ⇒「預估 1h」（＝原型）。
  * 合併預覽時（BlockPanel 的二次確認開著）那兩塊 `.is-mhl` 描金邊（D-時-33）。
+ *
+ * 車次②（② 契約 §5.9；乙席；長相＝原型 `v-f.js` axisHtml `.vf-bn`）：每一塊的分類名後接 span.ns-tt-link-bn「・任務名」
+ * （`linkLabelOf`；只連路線＝路線名；刪掉＝「（原車票已刪除）」斜體淡字 `.is-gone`）；長的 CSS 省略號。
+ * 已結束的塊點了照舊開改一塊面板（裡面有「連到」那一列）；門檻（blockMarker）多一層任務的預計時間。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
@@ -29,6 +33,7 @@ import {
   type AxisItem,
   type TimeBlockRow,
 } from "../../../domain/timetable";
+import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, dayWindow } from "../../../lib/date";
@@ -70,6 +75,7 @@ export function Axis({ scroller }: AxisProps) {
   const dayBlocks = useTimetableStore((s) => s.dayBlocks);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const setDayKey = useTimetableStore((s) => s.setDayKey);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -118,7 +124,7 @@ export function Axis({ scroller }: AxisProps) {
   /* ── 點擊 ── */
   const onBlock = (it: Extract<AxisItem, { kind: "block" }>): void => {
     const row = rowsById[it.span.id];
-    const m = row ? blockMarker(row, catById, longRunMaxMin, now) : null;
+    const m = row ? blockMarker(row, catById, longRunMaxMin, now, linkInfo) : null;
     const long = !!m && m.kind !== "none" && m.pending;
     if (long) {
       openSheet({ kind: "longRun", blockId: it.span.id, then: null });
@@ -179,9 +185,13 @@ export function Axis({ scroller }: AxisProps) {
         }
         const row = rowsById[it.span.id];
         const cat = catById[it.span.categoryId] ?? null;
-        const m = row ? blockMarker(row, catById, longRunMaxMin, now) : ({ kind: "none" } as const);
+        const m = row ? blockMarker(row, catById, longRunMaxMin, now, linkInfo) : ({ kind: "none" } as const);
         const long = m.kind !== "none" && m.pending;
         const est = it.running && row ? row.estimate_min : null;
+        const label = row ? linkLabelOf(row, linkInfo) : null;
+        const lk = row ? linkOfRow(row) : null;
+        const lkInfo = lk ? linkInfo[lk.nodeId ?? lk.routeId ?? ""] : undefined;
+        const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
         const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`, minHeight: axisRowHeight(dur) } as CSSProperties;
         const cls =
           "ns-tt-blk" +
@@ -197,7 +207,16 @@ export function Axis({ scroller }: AxisProps) {
               <button type="button" className={cls} onClick={() => onBlock(it)}>
                 <CategoryBadge cat={cat} size="sm" />
                 <span className="ns-tt-blk-main">
-                  <span className="ns-tt-blk-name">{cat?.name ?? "？"}</span>
+                  <span className={"ns-tt-blk-name" + (label !== null ? " ns-tt-link-has" : "")}>
+                    {label === null ? (
+                      (cat?.name ?? "？")
+                    ) : (
+                      <>
+                        <span className="ns-tt-link-bn-cat">{cat?.name ?? "？"}</span>
+                        <span className={"ns-tt-link-bn" + (gone ? " is-gone" : "")}>・{label}</span>
+                      </>
+                    )}
+                  </span>
                   <span className="ns-tt-blk-sub">
                     {it.running && (
                       <>

@@ -16,6 +16,7 @@
  *   進度弧＝該路線的**里程進度**（已到站數／車站總數）——今日頁沒有整棵路線樹可算節點完成率
  *   （nodeStore.tree 只裝當前開啟的那條路線），里程是這一頁唯一取得到又不會說謊的口徑；知情項，見交付說明。
  * day-stats「專注」＝今日清單 time_spent_min 合計，為零省略該段（§6 開放問題 6 技術自決）。
+ *   有通車的線填了插槽 `todayStats`（接縫 #66；時刻表車次② 0-14）⇒ 這一段改由線的元件畫（核心合計不畫）；沒有線填＝照舊。
  *
  * 頁面殼契約（WP0）：根節點帶 .page（z-index 蓋過 SkyLayer）與 .ns-today（CSS 前綴）；
  *   天空由 App.tsx 統一掛（density full／train false），本檔不碰。側欄「我的路線」在今日頁保留（Sidebar 負責）。
@@ -36,6 +37,7 @@ import { DeferPopover } from "./DeferPopover";
 import { useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
 import { useTodayDnd } from "./useTodayDnd";
+import { lineTodayStats } from "../../lines/runtime";
 import "./today.css";
 // 票面時刻（.tm）、「未定時・照手排」小標、現在線、頁首「下一班」的樣式寫在 schedule.css（today.css 本班不准碰）
 import "../schedule/schedule.css";
@@ -171,6 +173,8 @@ export function TodayView() {
   // 口徑統一交給 controller 的 c.stats：定期券看班次（済／運休都算已交代），M3 ④。
   const { total, done, left, allDone } = c.stats;
   const focusMin = c.rows.reduce((sum, r) => sum + (r.time_spent_min ?? 0), 0);
+  /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，頁首照舊畫核心「專注」 */
+  const lineStats = lineTodayStats("desktop");
 
   // 紀念章：全部路線中「預定到站日最近且未到站」的車站（D-③-2 甲；沒有就不畫）
   const nextStation: NodeRow | undefined = stations
@@ -235,10 +239,17 @@ export function TodayView() {
                   </span>
                 </>
               )}
-              {total > 0 && focusMin > 0 && <span className="sep">・</span>}
-              {focusMin > 0 && (
+              {lineStats.length ? (
+                // 別線的統計段（插槽 todayStats，接縫 #66）：取代核心「專注」；分隔「・」由元件看 lead 自己畫
+                lineStats.map((S, i) => <S key={i} shell="desktop" dateKey={c.dateKey} lead={total > 0} wrap={false} />)
+              ) : (
                 <>
-                  專注 <b>{fmtMinutes(focusMin)}</b>
+                  {total > 0 && focusMin > 0 && <span className="sep">・</span>}
+                  {focusMin > 0 && (
+                    <>
+                      專注 <b>{fmtMinutes(focusMin)}</b>
+                    </>
+                  )}
                 </>
               )}
               {/* 下一班（主線②；原型 :999）：今天分區第一張還沒交代、時刻還沒到的票 */}

@@ -9,6 +9,8 @@
  * 收到 `tt-tray` 事件後換車／到着是 `TimetableDesktopAgent`＋`noticeDesktop.handleTrayAction`。
  * 長相照原型情境 2（`prototypes/時刻表-src/v-e.js` trayMenuHtml）：「全部分類 ▸」一層平鋪、灰字分組名——
  * 組在 spec 裡照舊是 `groups[]`，平鋪是 Rust 建選單時的畫法。
+ *
+ * 車次②（② 契約 §4.5；丙）：`buildTrayMenu`／`trayTooltipOf` 多收 `linkLabel`，header／tooltip 寫「分類・任務名」。
  */
 import { MIN, fmtClock, fmtDur, groupedCategories, msOf, type TimeBlockRow, type TimeCategoryRow } from "./timetable.ts";
 
@@ -53,6 +55,19 @@ export interface TrayMenuInput {
   categories: readonly TimeCategoryRow[];
   tiles: readonly TimeCategoryRow[];
   now: number;
+  /** ②：運行中那班連到的任務名（`linkLabelOf`；呼叫端不必先截）；有 ⇒ header 寫「分類・任務名」 */
+  linkLabel?: string | null;
+}
+
+/**
+ * ②（車次② 契約 §4.5、0-13）：「分類・任務名」，任務名截到 16 字（多的換「…」）。
+ * 本檔只准 import `./timetable.ts`（§4.1）⇒ 這是 `timetableLink` 的 `runLabel(cat, clipLabel(label))` 同義副本；
+ * `timetable-tray.test.ts` E-②3 逐例對帳。
+ */
+export function trayRunName(catName: string, linkLabel: string | null | undefined): string {
+  if (linkLabel === null || linkLabel === undefined) return catName;
+  const chars = Array.from(linkLabel);
+  return `${catName}・${chars.length <= 16 ? linkLabel : chars.slice(0, 15).join("") + "…"}`;
 }
 
 /** Rust 收到「header 是空字串」的 spec ＝ 建回 ①a 的「開啟 Next Stop／分隔線／結束」（0-16：運行中顯示關掉） */
@@ -94,7 +109,7 @@ export function buildTrayMenu(input: TrayMenuInput): TrayMenuSpec | null {
   let header: string = TT_TRAY_TEXT.idleHeader;
   if (r) {
     const start = msOf(r.started_at);
-    header = TT_TRAY_TEXT.header(catName(input.catById, r.category_id), start, trayElapsedMs(start, input.now));
+    header = TT_TRAY_TEXT.header(trayRunName(catName(input.catById, r.category_id), input.linkLabel), start, trayElapsedMs(start, input.now));
   }
   return { header, running: r !== null, quick, groups, runningCategoryId: r ? r.category_id : null };
 }
@@ -102,11 +117,18 @@ export function buildTrayMenu(input: TrayMenuInput): TrayMenuSpec | null {
 /**
  * 系統匣 tooltip（§5.11）：運行中＝「Next Stop・創作・14:35 発（1h20m）」（經過時間取整到分）；
  * 停車中＝「Next Stop・目前沒有列車在跑」；運行中顯示關掉＝「Next Stop」（不透露運行狀態，①a 補充契約 §3-2）。
+ * ②：`linkLabel`（運行中那班連到的任務名）有 ⇒「Next Stop・創作・寫契約・14:35 発（1h20m）」（任務名截到 16 字）。
  */
-export function trayTooltipOf(input: { enabled: boolean; running: TimeBlockRow | null; catById: Record<string, TimeCategoryRow>; now: number }): string {
+export function trayTooltipOf(input: {
+  enabled: boolean;
+  running: TimeBlockRow | null;
+  catById: Record<string, TimeCategoryRow>;
+  now: number;
+  linkLabel?: string | null;
+}): string {
   if (!input.enabled) return TT_TRAY_TEXT.tooltipOff;
   const r = input.running;
   if (!r) return TT_TRAY_TEXT.tooltipIdle;
   const start = msOf(r.started_at);
-  return TT_TRAY_TEXT.tooltip(catName(input.catById, r.category_id), start, trayElapsedMs(start, input.now));
+  return TT_TRAY_TEXT.tooltip(trayRunName(catName(input.catById, r.category_id), input.linkLabel), start, trayElapsedMs(start, input.now));
 }

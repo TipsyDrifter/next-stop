@@ -7,6 +7,8 @@
  *
  * 車次①a（契約 §6.1）：通車、三個頁內鍵（N／Enter／V）、兩張同步表、一把同步 settings 鍵。此後凍結，只有整合席能改。
  * 車次①b（①b①c 契約 §5.9）：頁內鍵加七個（←／→／T／R／E／S／F）；①b①c 的新設定鍵全部本地、不進 syncSettingsKeys。
+ * 車次②段二（② 契約 0-1 甲、§6.1 #F2；接縫 #66）：今日頁鍵 N＝`timetable.today.depart`（scope "today"，登記在核心 scope ⇒
+ *   id 以 `timetable.` 開頭，牙齒 10）；處理函式在 mount 的 `todayRowActions[].hotkeys`，`hotkeyFiles.today` 指向 mount。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -30,6 +32,8 @@ const TIMETABLE_HOTKEYS: Hotkey[] = [
   { id: "timetable.settings", scope: "timetable", chords: [{ key: "e" }], label: "分類與設定", wired: true },
   { id: "timetable.split", scope: "timetable", chords: [{ key: "s" }], label: "切開運行中那一班", wired: true },
   { id: "timetable.fill", scope: "timetable", chords: [{ key: "f" }], label: "補記最近的一段未記錄", wired: true },
+  // 車次②段二：今日頁選中一列按 N ＝從那張票発車（精確比對、不加 ignoreMods：Shift+N 不作用）
+  { id: "timetable.today.depart", scope: "today", chords: [{ key: "n" }], label: "発車（時刻表）", wired: true },
 ];
 
 const TIMETABLE_SCENES: Scene[] = [
@@ -43,7 +47,7 @@ export const TIMETABLE = {
   hotkeyScopes: ["timetable"],
   hotkeys: TIMETABLE_HOTKEYS,
   scenes: TIMETABLE_SCENES,
-  hotkeyFiles: { timetable: "ui/timetable/useTimetableKeyboard.ts" },
+  hotkeyFiles: { timetable: "ui/timetable/useTimetableKeyboard.ts", today: "lines/timetable.mount.tsx" },
   syncTables: ["time_categories", "time_blocks"],
   syncSettingsKeys: ["timetable_long_run_max_min"],
 } as const satisfies LineManifest;

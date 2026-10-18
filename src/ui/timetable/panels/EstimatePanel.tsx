@@ -9,9 +9,13 @@
  *   └ Actions：「清掉預估」（目前沒有預估時不畫）｜「取消」｜btn-seal「好」
  *
  * 確認 ⇒ onDone()；store.setEstimate(id, v)（值沒變＝只關）。運行中那班已不在（到站了、被別台換掉）⇒「這一班已經不在了」。
+ *
+ * 車次②（② 契約 §4.2-6 #8、§5.11；乙席）：沒預估時的 fallback 多一層任務的預計時間——
+ * `thresholdOf(null, 分類, 保險上限, taskEstimateOf(block, linkInfo))`；來源是 task ⇒ 副標尾「；沒預估時用任務的預計時間 X」。
  */
 import { useState } from "react";
 import { MIN, durOf, fmtClock, fmtDur, msOf, thresholdOf, toSpan } from "../../../domain/timetable";
+import { taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useNow } from "../useNow";
 import { Actions, ESTIMATE_OPTIONS, Opt, Opts, Row, Sub, type PanelProps } from "./controls";
@@ -22,6 +26,7 @@ export function EstimatePanel({ onDone }: PanelProps) {
   const running = useTimetableStore((s) => s.running);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const setEstimate = useTimetableStore((s) => s.setEstimate);
   const blockId = sheet?.kind === "estimate" ? sheet.blockId : "";
   const block = running && running.id === blockId ? running : null;
@@ -42,8 +47,8 @@ export function EstimatePanel({ onDone }: PanelProps) {
   }
 
   const cat = catById[block.category_id] ?? null;
-  const marker = blockMarker(block, catById, longRunMaxMin, now);
-  const fallback = thresholdOf(null, cat, longRunMaxMin);
+  const marker = blockMarker(block, catById, longRunMaxMin, now, linkInfo);
+  const fallback = thresholdOf(null, cat, longRunMaxMin, taskEstimateOf(block, linkInfo));
   const opts = ESTIMATE_OPTIONS.some(([m]) => m === cur) || cur === null ? ESTIMATE_OPTIONS : [...ESTIMATE_OPTIONS, [cur, fmtDur(cur * MIN)] as const];
 
   const confirm = (): void => {
@@ -59,7 +64,11 @@ export function EstimatePanel({ onDone }: PanelProps) {
         {marker.kind === "late" ? (
           <span className="ns-tt-est-late">，{TT_TEXT.late(marker.overMs)}</span>
         ) : cur === null && fallback ? (
-          `；沒預估時用${fallback.source === "category" ? "分類的預設長度" : "保險上限"} ${fmtDur(fallback.min * MIN)}`
+          fallback.source === "task" ? (
+            TT_TEXT.EST_FALLBACK_TASK(fmtDur(fallback.min * MIN))
+          ) : (
+            `；沒預估時用${fallback.source === "category" ? "分類的預設長度" : "保險上限"} ${fmtDur(fallback.min * MIN)}`
+          )
         ) : null}
       </Sub>
       <Row k="預估" top>

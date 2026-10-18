@@ -17,6 +17,9 @@
  *   T／Shift+T 排今天／明天・`.` 詳情側板・L 行內日誌・U 運休／取消運休（M3 ④）
  *   ・Delete soft delete＋undo・Esc 收覆蓋層
  *
+ * 時刻表車次②（接縫 #66）：`default:` 分支先問 `lineHotkey(id)`——別線在自己 manifest 登記 scope "today" 的鍵
+ *   （例：時刻表的 `n` 発車）由插槽 `todayRowActions[].hotkeys` 處理；沒有線登記＝行為與之前逐字相同。
+ *
  * M3 ⑦：鍵位字面值搬進 registry（`ui/shell/hotkeys.ts`，決策記錄 :190「registry 單一來源」）——
  * 這裡只剩「id → 動作」的接線，鍵位本身由 `resolveHotkey("today", e)` 查表決定（行為零變）。
  */
@@ -41,6 +44,11 @@ export interface TodayKeyActions {
   suspendSelected(): void;
   deleteSelected(): void;
   escape(): void;
+  /**
+   * 別線登記在 scope "today" 的鍵（插槽 todayRowActions 的 `hotkeys`，接縫 #66）：有線處理而且有選中列 ⇒ 做了、回 true；
+   * 否則回 false＝當作沒處理（不 preventDefault，鍵照常放行）。沒有線通車登記＝這些 id 根本不在 registry 裡、走不到這裡。
+   */
+  lineHotkey(id: string): boolean;
 }
 
 export function useTodayKeyboard(a: TodayKeyActions, disabled = false) {
@@ -106,7 +114,9 @@ export function useTodayKeyboard(a: TodayKeyActions, disabled = false) {
         a.suspendSelected();
         break;
       default:
-        return; // registry 有、這張表還沒接線的 id：當作沒處理
+        // 別線登記的今日鍵（接縫 #66）；沒有線處理（或沒選中列）＝registry 有、這張表還沒接線的 id：當作沒處理
+        if (!a.lineHotkey(hit.id)) return;
+        break;
     }
     e.preventDefault();
     e.stopPropagation();

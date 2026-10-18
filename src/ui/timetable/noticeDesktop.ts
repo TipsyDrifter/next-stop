@@ -6,9 +6,12 @@
  *   選單要的其他狀態（分類、常用格開關、釘選、最近用過）**這裡自己讀 store**，notice.ts 的呼叫點不必改。
  * - `handleTrayAction(a)`：Rust 送上來的 `tt-tray` 事件（Agent 的 listen 轉進來）⇒ 換車／到着（0-15：不問其實到幾點）。
  * - 去重簽章＝圖示＋tooltip＋選單 JSON：經過時間取整到分 ⇒ 每分鐘最多送一次（Agent 每 60 秒叫一次）。
+ * - 車次②（② 契約 §5.10；丙）：tooltip 與選單第一列寫「分類・任務名」——任務名自己讀 store 的 `linkInfo`（`linkLabelOf`），
+ *   截字在 `timetableTray` 裡做；Rust 只照貼字串、不動。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { MOCK_MODE } from "../../data";
+import { linkLabelOf } from "../../domain/timetableLink";
 import { noticeDepartCategoryOk, noticeTiles } from "../../domain/timetableNotice";
 import {
   TRAY_MENU_OFF,
@@ -37,7 +40,7 @@ export function lastTrayState(): { running: boolean; tooltip: string; menu: Tray
 /**
  * 桌機：系統匣（①a 補充契約 §3-2；①b①c 契約 §5.11）。圖示在 App 開著時一直都在（Rust 建），這裡換三樣：
  *   - 圖示：運行中＝帶紅點；沒有或設定關掉＝預設。
- *   - tooltip：運行中＝「Next Stop・創作・14:35 発（1h20m）」；沒有＝「Next Stop・目前沒有列車在跑」；設定關掉＝「Next Stop」。
+ *   - tooltip：運行中＝「Next Stop・創作・14:35 発（1h20m）」（連到任務＝「Next Stop・創作・寫契約・…」，②）；沒有＝「Next Stop・目前沒有列車在跑」；設定關掉＝「Next Stop」。
  *   - 選單：`buildTrayMenu(...)`；設定關掉＝`TRAY_MENU_OFF`（Rust 建回「開啟／結束」，0-16）。
  * `text`＝notice.ts 算好的運行中文字（設定關掉或沒在跑＝null），這裡只拿它判斷「要不要當運行中」，
  * 字由 `trayTooltipOf` 重算（多了經過時間）。不用問權限：系統匣不是通知。Rust 找不到 tray 會回 Ok，catch 是保險。
@@ -47,7 +50,8 @@ export async function syncTray(enabled: boolean, text: RunningNoticeText | null,
   const now = Date.now();
   const r = enabled && text !== null ? s.running : null;
   const running = r !== null;
-  const tooltip = trayTooltipOf({ enabled, running: r, catById: s.catById, now });
+  const linkLabel = r ? linkLabelOf(r, s.linkInfo) : null;
+  const tooltip = trayTooltipOf({ enabled, running: r, catById: s.catById, now, linkLabel });
   const tiles = s.noticeTilesEnabled ? noticeTiles(s.categories, s.recentCategoryIds, s.noticePins, r ? r.category_id : null) : [];
   const menu =
     buildTrayMenu({
@@ -58,6 +62,7 @@ export async function syncTray(enabled: boolean, text: RunningNoticeText | null,
       categories: s.categories,
       tiles,
       now,
+      linkLabel,
     }) ?? TRAY_MENU_OFF;
   const sig = `${running ? 1 : 0}|${tooltip}|${JSON.stringify(menu)}`;
   if (!force && sig === lastTraySig) return;

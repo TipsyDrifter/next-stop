@@ -19,9 +19,19 @@
 import { LINE_MANIFESTS } from "./index.ts";
 import type { ComponentType } from "react";
 import type { NodeRow } from "../domain";
-import type { CaptureTargetSpec, LineId, LineMount, LineReloadContext, NodeFieldSpec, QuickJumpProviderSpec, TicketSheetItemSpec } from "./types";
+import type {
+  CaptureTargetSpec,
+  LineId,
+  LineMount,
+  LineReloadContext,
+  NodeFieldSpec,
+  QuickJumpProviderSpec,
+  TicketSheetItemSpec,
+  TodayRowActionSpec,
+} from "./types";
 
 type NodeDeleteHintFn = NonNullable<LineMount["nodeDeleteHints"]>;
+type TodayStatsComp = NonNullable<LineMount["todayStats"]>;
 
 let installed: Readonly<Record<LineId, LineMount>> | null = null;
 
@@ -151,6 +161,52 @@ export function lineNodeFields(shell: "desktop" | "mobile"): NodeFieldSpec[] {
     const status = shell === "desktop" ? m.page.status : m.mobile.status;
     const specs = installed[m.id].nodeFields;
     if (status === "open" && specs) out.push(...specs);
+  }
+  return out;
+}
+
+/**
+ * 今日列的附加動作／標記（接縫 #66），比照 `lineNodeFields(shell)`：三線固定順序、各線內照登記順序；
+ * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineTodayRowActions(shell: "desktop" | "mobile"): TodayRowActionSpec[] {
+  const out: TodayRowActionSpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const specs = installed[m.id].todayRowActions;
+    if (status === "open" && specs) out.push(...specs);
+  }
+  return out;
+}
+
+/**
+ * 今日頁鍵盤的線處理函式（接縫 #66），比照 `lineGlobalHotkeyHandler(id)`：只看 `page.status`（今日頁鍵盤只在桌機）；
+ * 某條已通車的線在 `todayRowActions[].hotkeys` 登記了這個 hotkey id 就回處理函式，否則 null。沒裝＝null。
+ */
+export function lineTodayHotkey(hotkeyId: string): ((nodeId: string) => void) | null {
+  if (!installed) return null;
+  for (const m of LINE_MANIFESTS) {
+    if (m.page.status !== "open") continue;
+    for (const spec of installed[m.id].todayRowActions ?? []) {
+      const fn = spec.hotkeys?.[hotkeyId];
+      if (fn) return fn;
+    }
+  }
+  return null;
+}
+
+/**
+ * 今日統計列的附加段（接縫 #66），比照 `lineNodeFields(shell)`：三線固定順序；
+ * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineTodayStats(shell: "desktop" | "mobile"): TodayStatsComp[] {
+  const out: TodayStatsComp[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const S = installed[m.id].todayStats;
+    if (status === "open" && S) out.push(S);
   }
   return out;
 }

@@ -15,8 +15,14 @@
  * - 時刻列「HH:MM 発」之後一顆 button.ns-tt-dock-est：誤點 ⇒ `.is-late`「誤點 +X」（待確認點了問「其實到幾點」，已確認點了改預估）；
  *   有預估 ⇒「預估 1h」；沒有 ⇒ `.is-empty`「＋預估」。後兩者點了開預估面板。
  *   誤點時名稱列不另畫「⚠ 其實到幾點？」（＝原型：同一件事只放一顆赭 chip）。
+ *
+ * 車次②（② 契約 §5.5、§5.9；乙席；長相＝原型 `v-f.js` dockHtml `.vf-dn`）：分類名後接 button.ns-tt-link-dn
+ * 「・任務名」（`linkLabelOf`；長的 CSS 省略號）；沒連 ⇒ 淡字「連到…」（`.is-none`）。點了 `openSheet({ kind: "link" })`。
+ * 門檻來自任務的預計時間、這一班沒預估 ⇒ 時刻列那一顆是實線「預計 X」（點了一樣開預估面板，＝原型的「預計」chip）；
+ * 超過 ⇒ 「誤點 +X」自動成立（runMarker 對 task 來源回 late）。
  */
-import { fmtClock, fmtHMS, msOf } from "../../../domain/timetable";
+import { MIN, fmtClock, fmtDur, fmtHMS, msOf } from "../../../domain/timetable";
+import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { CategoryBadge } from "../CategoryBadge";
@@ -41,6 +47,7 @@ export function RunDock({ variant }: RunDockProps) {
   const running = useTimetableStore((s) => s.running);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const requestDepart = useTimetableStore((s) => s.requestDepart);
   const requestArrive = useTimetableStore((s) => s.requestArrive);
   const openSheet = useTimetableStore((s) => s.openSheet);
@@ -63,10 +70,15 @@ export function RunDock({ variant }: RunDockProps) {
 
   const cat = catById[running.category_id] ?? null;
   const start = msOf(running.started_at);
-  const marker = blockMarker(running, catById, longRunMaxMin, now);
+  const marker = blockMarker(running, catById, longRunMaxMin, now, linkInfo);
   const long = marker.kind !== "none" && marker.pending;
   const blockId = running.id;
   const est = running.estimate_min;
+  const label = linkLabelOf(running, linkInfo);
+  const lk = linkOfRow(running);
+  const lkInfo = linkInfo[lk.nodeId ?? lk.routeId ?? ""];
+  const linkGone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
+  const taskEst = est === null ? taskEstimateOf(running, linkInfo) : null;
   const askLongRun = (): void => openSheet({ kind: "longRun", blockId, then: null });
   const openEstimate = (): void => openSheet({ kind: "estimate", blockId });
 
@@ -75,7 +87,24 @@ export function RunDock({ variant }: RunDockProps) {
       <CategoryBadge cat={cat} />
       <div className="ns-tt-dock-main">
         <div className="ns-tt-dock-name">
-          <span className="ns-tt-dock-cat">{cat?.name ?? "？"}</span>
+          <span className="ns-tt-link-dock">
+            <span className="ns-tt-dock-cat">{cat?.name ?? "？"}</span>
+            <button
+              type="button"
+              className={"ns-tt-link-dn" + (label === null ? " is-none" : "") + (linkGone ? " is-gone" : "")}
+              title={label === null ? "把這一班連到任務" : "改這一班連到的任務"}
+              onClick={() => openSheet({ kind: "link", blockId })}
+            >
+              {label === null ? (
+                TT_TEXT.LINK_NONE
+              ) : (
+                <>
+                  <span className="ns-tt-link-dn-dot">・</span>
+                  <span className="ns-tt-link-dn-t">{label}</span>
+                </>
+              )}
+            </button>
+          </span>
           {marker.kind === "long" && marker.pending && (
             <button type="button" className="ns-tt-chip is-late" onClick={askLongRun}>
               ⚠ 其實到幾點？
@@ -105,6 +134,15 @@ export function RunDock({ variant }: RunDockProps) {
           ) : est !== null ? (
             <button type="button" className="ns-tt-chip ns-tt-dock-est" title="改這一班的預估" onClick={openEstimate}>
               {TT_TEXT.estimateChip(est)}
+            </button>
+          ) : taskEst !== null ? (
+            <button
+              type="button"
+              className="ns-tt-chip ns-tt-dock-est"
+              title="連到的任務的預計時間：超過就算誤點（點了可以給這一班自己的預估）"
+              onClick={openEstimate}
+            >
+              預計 {fmtDur(taskEst * MIN)}
             </button>
           ) : (
             <button type="button" className="ns-tt-chip ns-tt-dock-est is-empty" onClick={openEstimate}>

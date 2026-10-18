@@ -8,14 +8,20 @@
  * - 分類：與真機同，`ensureStarterCategories()` 被呼叫時才種（`?mock=1&wiped=1` 也種——它是「空庫的 App 第一次打開」）。
  * - 示範時間塊（`seedDemo` 時，第一次讀取時 lazy 種）：照原型 `shared.js` 換算成今天的日界線日（`todayKey(3)`）。
  * - 評審端點（本檔自己讀 `location.search`，不經 `DEV_FLAGS`）：`&tt=long`＝運行中那班改成「洗漱，今天 06:30 発」；
- *   `&tt=idle`＝沒有運行中；`&tt=est`（①b）＝運行中那班「創作」帶預估 30 分、開始於 50 分前（一打開就誤點 +20m）。
+ *   `&tt=idle`＝沒有運行中；`&tt=est`（①b）＝運行中那班「創作」帶預估 30 分、開始於 50 分前（一打開就誤點 +20m）；
+ *   `&tt=link`（②，② 契約 0-17）＝運行中那班連到今日第一張未交代的票（優先有掛路線的車票）、往前兩塊已結束的連到同一張、再往前一塊只連那張票的路線。
+ * - ②：建構子收 `nodeRepo`（照 `noteRepo.ts` 的注入法）——`lastCategoryFor`／`listBlocksByRoute` 由它取節點的路線、
+ *   `setLink` 由它驗節點種類、`&tt=link` 由它找今日車票。
  */
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, dayWindow, todayKey } from "../lib/date";
+import type { NodeRepository } from "./nodeRepository";
+import { LINKABLE_KINDS, linkOfRow } from "../domain/timetableLink";
 import {
   MIN,
   STARTER_CATEGORIES,
   canUndoArrive,
+  insertLinkOf,
   groupedCategories,
   inReconcileWindow,
   isoOf,
@@ -32,6 +38,7 @@ import {
   planResolveLongRun,
   planRestart,
   planSetEstimate,
+  planSetLink,
   planSplit,
   planSplitMulti,
   reconcileWindowStart,
@@ -40,6 +47,7 @@ import {
   summarizeCover,
   toDayBlockSegments,
   toSpan,
+  type BlockLink,
   type CoverSummary,
   type DayBlockSegment,
   type KeyedSpan,
@@ -55,12 +63,12 @@ import { pieceId } from "./sqliteTimetableRepository";
 const clone = <T extends object>(o: T): T => ({ ...o });
 const isAlive = (r: { deleted_at: string | null }): boolean => r.deleted_at === null;
 
-/** 評審端點：`&tt=long|idle|est` */
-function ttMode(): "long" | "idle" | "est" | null {
+/** 評審端點：`&tt=long|idle|est|link` */
+function ttMode(): "long" | "idle" | "est" | "link" | null {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("tt");
-    return v === "long" || v === "idle" || v === "est" ? v : null;
+    return v === "long" || v === "idle" || v === "est" || v === "link" ? v : null;
   } catch {
     return null;
   }
@@ -94,13 +102,56 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /** id → started_at 最後被寫的時刻（ISO）；＝真機 sync_cells 裡 `started_at` 那一格的 hlc 的替身（整理寫入鍵用，D-時-26） */
   private readonly startStamp = new Map<string, string>();
   private readonly seedDemo: boolean;
+  private readonly nodeRepo: NodeRepository;
   private demoSeeded = false;
+  /** ② `&tt=link` 的連結示範（async；做過一次就直接回同一個 promise） */
+  private linkDemo: Promise<void> | null = null;
 
-  constructor(opts: { seedDemo: boolean }) {
+  constructor(opts: { seedDemo: boolean; nodeRepo: NodeRepository }) {
     this.seedDemo = opts.seedDemo;
+    this.nodeRepo = opts.nodeRepo;
   }
 
   /* ───────── 內部 ───────── */
+
+  /**
+   * ② 契約 0-17：`&tt=link` 的連結示範。ensureDemo 是同步的，連結要讀 nodeRepo（async）⇒ 另寫，
+   * 每個碰時間塊的公開 async 方法開頭 `await this.ready()`。沒有今日票 ⇒ 不連。
+   */
+  private ready(): Promise<void> {
+    if (!this.linkDemo) this.linkDemo = this.seedDemo && ttMode() === "link" ? this.ensureLinkDemo() : Promise.resolve();
+    return this.linkDemo;
+  }
+
+  private async ensureLinkDemo(): Promise<void> {
+    this.ensureDemo();
+    try {
+      const rows = await this.nodeRepo.listToday(todayKey(3), 3);
+      // 還沒交代的（同今日頁 isSettledRow 的反面：沒有班次結局、也不是 done）。優先挑**有掛路線的車票**：
+      // 「只連路線」那一塊、路線與子樹的合計（§7.1-12a、15、16、17）都要 X 有路線才看得到；
+      // 示範資料的第一張未交代是根層臨時票（沒路線），照字面挑它就示範不到。都沒有才退回第一張能連的
+      const open = rows.filter((r) => r.occurrence === null && r.status !== "done" && LINKABLE_KINDS.includes(r.kind));
+      const t = open.find((r) => r.kind === "ticket" && r.route_id !== null) ?? open[0];
+      if (!t) return;
+      const ordered = Array.from(this.blocks.values())
+        .filter(isAlive)
+        .sort((a, b) => (a.started_at < b.started_at ? 1 : a.started_at > b.started_at ? -1 : 0)); // 新到舊
+      const run = ordered.findIndex((r) => r.ended_at === null);
+      if (run < 0) return;
+      const toNode = ordered.slice(run, run + 3); // 運行中那班＋往前兩塊
+      for (const r of toNode) {
+        r.node_id = t.id;
+        r.route_id = null;
+      }
+      const routeOnly = ordered[run + 3];
+      if (routeOnly && t.route_id !== null) {
+        routeOnly.node_id = null;
+        routeOnly.route_id = t.route_id;
+      }
+    } catch {
+      // 示範資料失敗不影響主流程
+    }
+  }
 
   private ensureDemo(): void {
     if (this.demoSeeded || !this.seedDemo) return;
@@ -195,12 +246,20 @@ export class MemoryTimetableRepository implements TimetableRepository {
       if (p.categoryId !== undefined) r.category_id = p.categoryId;
       if (p.ack !== undefined) r.long_run_ack = p.ack ? 1 : 0;
       if (p.estimateMin !== undefined) r.estimate_min = p.estimateMin;
+      if (p.link !== undefined) {
+        // ② 契約 0-2：連結兩欄成對寫
+        r.node_id = p.link.nodeId;
+        r.route_id = p.link.routeId;
+      }
       r.updated_at = nowIso;
     }
     const ids: string[] = [];
     for (const i of plan.inserts) {
       const id = i.fixedId ?? (i.key ? await pieceId(i.key) : uuid());
-      const from = i.inherit && i.fromId ? this.blocks.get(i.fromId) : undefined;
+      const src = i.fromId ? this.blocks.get(i.fromId) : undefined;
+      const from = i.inherit ? src : undefined;
+      // ② 契約 §3.1：明寫的連結優先；否則 inherit 或 keepLink 時照 fromId 那一列抄；其餘沒連（規則在純函式 insertLinkOf）
+      const link: BlockLink = insertLinkOf(i, src);
       const prev = this.blocks.get(id);
       const row: TimeBlockRow = {
         id,
@@ -209,8 +268,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
         ended_at: i.end === null ? null : isoOf(i.end),
         // ①b：insert 明寫的預估蓋過 inherit 抄來的（undefined＝照 inherit 規則；同 sqlite 實作）
         estimate_min: i.estimateMin !== undefined ? i.estimateMin : (from?.estimate_min ?? null),
-        node_id: from?.node_id ?? null,
-        route_id: from?.route_id ?? null,
+        node_id: link.nodeId,
+        route_id: link.routeId,
         long_run_ack: i.ack ? 1 : 0,
         account_id: null,
         device_id: null,
@@ -368,6 +427,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /* ───────── 時間塊：讀 ───────── */
 
   async listRunning(): Promise<TimeBlockRow[]> {
+    await this.ready();
     this.ensureDemo();
     return Array.from(this.blocks.values())
       .filter((r) => isAlive(r) && r.ended_at === null)
@@ -376,6 +436,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async listBlocks(fromIso: string, toIso: string): Promise<TimeBlockRow[]> {
+    await this.ready();
     this.ensureDemo();
     return Array.from(this.blocks.values())
       .filter((r) => isAlive(r) && r.started_at < toIso && (r.ended_at === null || r.ended_at > fromIso))
@@ -397,14 +458,22 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /* ───────── 時間塊：寫 ───────── */
 
   async depart(categoryId: string, atIso: string, opts?: DepartOptions): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
+    await this.ready();
     const now = Date.now();
-    const plan = planDepart(this.aliveSpans(), { categoryId, at: msOf(atIso), now, estimateMin: opts?.estimateMin ?? null });
+    const plan = planDepart(this.aliveSpans(), {
+      categoryId,
+      at: msOf(atIso),
+      now,
+      estimateMin: opts?.estimateMin ?? null,
+      link: opts?.link ?? null,
+    });
     const ids = await this.applyPlan(plan, isoOf(now));
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
     return { block: clone(this.blocks.get(newId)!), summary: summarizeCover(plan) };
   }
 
   async arrive(atIso?: string): Promise<TimeBlockRow[]> {
+    await this.ready();
     const now = Date.now();
     const plan = planArrive(this.aliveSpans(), { at: atIso ? msOf(atIso) : null, now });
     await this.applyPlan(plan, isoOf(now));
@@ -412,6 +481,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async undoArrive(id: string): Promise<boolean> {
+    await this.ready();
     if (!canUndoArrive(this.aliveSpans(), id)) return false;
     const r = this.rowOrThrow(id);
     r.ended_at = null;
@@ -420,34 +490,55 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async restart(id: string, atIso: string): Promise<CoverSummary> {
+    await this.ready();
     const now = Date.now();
     const plan = planRestart(this.aliveSpans(), { id, at: msOf(atIso), now });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);
   }
 
-  async fill(categoryId: string, startIso: string, endIso: string): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
+  async fill(
+    categoryId: string,
+    startIso: string,
+    endIso: string,
+    opts?: { link?: BlockLink | null },
+  ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
+    await this.ready();
     const now = Date.now();
-    const plan = planFill(this.aliveSpans(), { categoryId, start: msOf(startIso), end: msOf(endIso), now });
+    const plan = planFill(this.aliveSpans(), {
+      categoryId,
+      start: msOf(startIso),
+      end: msOf(endIso),
+      now,
+      link: opts?.link ?? null,
+    });
     const ids = await this.applyPlan(plan, isoOf(now));
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
     return { block: clone(this.blocks.get(newId)!), summary: summarizeCover(plan) };
   }
 
-  async editBlock(id: string, input: { categoryId: string; startIso: string; endIso: string }): Promise<CoverSummary> {
+  async editBlock(
+    id: string,
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null },
+  ): Promise<CoverSummary> {
+    await this.ready();
     const now = Date.now();
+    const cur = this.blocks.get(id);
     const plan = planEdit(this.aliveSpans(), {
       id,
       categoryId: input.categoryId,
       start: msOf(input.startIso),
       end: msOf(input.endIso),
       now,
+      link: input.link, // undefined＝不動
+      curLink: cur ? linkOfRow(cur) : undefined,
     });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);
   }
 
   async split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null> {
+    await this.ready();
     const now = Date.now();
     const plan = planSplit(this.aliveSpans(), { id, at: msOf(atIso), categoryId2, now });
     if (!plan) return null;
@@ -456,12 +547,14 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async resolveLongRun(id: string, endIso: string, choice: LongRunChoice, categoryId2?: string): Promise<void> {
+    await this.ready();
     const now = Date.now();
     const plan = planResolveLongRun(this.aliveSpans(), { id, end: msOf(endIso), choice, categoryId2: categoryId2 ?? null, now });
     await this.applyPlan(plan, isoOf(now));
   }
 
   async softDelete(id: string): Promise<void> {
+    await this.ready();
     const r = this.rowOrThrow(id);
     const now = nowUtcIso();
     r.deleted_at = now;
@@ -469,6 +562,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async restore(id: string): Promise<CoverSummary> {
+    await this.ready();
     const r = this.blocks.get(id);
     if (!r || r.deleted_at === null) throw new RangeError("找不到這一塊");
     const now = Date.now();
@@ -484,6 +578,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async previewCover(startIso: string, endIso: string | null, exceptId: string | null): Promise<CoverSummary> {
+    await this.ready();
     const plan = planCover(this.aliveSpans(), { start: msOf(startIso), end: endIso === null ? null : msOf(endIso) }, exceptId);
     return summarizeCover(plan, exceptId);
   }
@@ -491,11 +586,13 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /* ───────── ①b（①b①c 契約 §3.2、§3.4） ───────── */
 
   async setEstimate(id: string, estimateMin: number | null): Promise<void> {
+    await this.ready();
     const plan = planSetEstimate(this.aliveSpans(), { id, estimateMin });
     await this.applyPlan(plan, nowUtcIso());
   }
 
   async splitMulti(id: string, cutsIso: readonly string[], categoryIds: readonly string[]): Promise<TimeBlockRow[]> {
+    await this.ready();
     const now = Date.now();
     const r = this.rowOrThrow(id);
     const plan = planSplitMulti(this.aliveSpans(), { id, cuts: cutsIso.map(msOf), categoryIds, now, estimateMin: r.estimate_min });
@@ -504,11 +601,13 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async previewMerge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
+    await this.ready();
     const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now: Date.now() });
     return out ? { ...out.preview } : null;
   }
 
   async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
+    await this.ready();
     const now = Date.now();
     const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now });
     if (!out) return null;
@@ -517,6 +616,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async listRecentCategoryIds(sinceIso: string, limit: number): Promise<string[]> {
+    await this.ready();
     this.ensureDemo();
     const last = new Map<string, string>();
     for (const r of this.blocks.values()) {
@@ -533,11 +633,13 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /* ───────── ①c 預留 ───────── */
 
   async blockExists(id: string): Promise<boolean> {
+    await this.ready();
     this.ensureDemo();
     return this.blocks.has(id);
   }
 
   async departPending(categoryId: string, atIso: string, opts: { fixedId: string; untilNext: boolean }): Promise<TimeBlockRow | null> {
+    await this.ready();
     const now = Date.now();
     const plan = planDepartPending(this.aliveSpans(), { categoryId, at: msOf(atIso), now, fixedId: opts.fixedId, untilNext: opts.untilNext });
     if (!plan) return null;
@@ -547,6 +649,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async arrivePending(atIso: string): Promise<TimeBlockRow[]> {
+    await this.ready();
     const now = Date.now();
     const plan = planArriveBefore(this.aliveSpans(), { at: msOf(atIso), now });
     await this.applyPlan(plan, isoOf(now));
@@ -556,6 +659,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /* ───────── 同步後整理 ───────── */
 
   async reconcile(): Promise<number> {
+    await this.ready();
     this.ensureDemo();
     // 與真機同語義：只掃最近 RECONCILE_WINDOW_DAYS 天＋所有運行中（契約 §9-6 退路）
     const floor = reconcileWindowStart(Date.now());
@@ -570,5 +674,89 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const n = plan.patches.length + plan.inserts.length + plan.deletes.length;
     if (n) await this.applyPlan(plan, nowUtcIso());
     return n;
+  }
+
+  /* ───────── ②（② 契約 §3.3、§3.5） ───────── */
+
+  /** 依 started_at 遞減（新到舊）的存活塊 */
+  private aliveNewestFirst(): TimeBlockRow[] {
+    this.ensureDemo();
+    return Array.from(this.blocks.values())
+      .filter(isAlive)
+      .sort((a, b) => (a.started_at < b.started_at ? 1 : a.started_at > b.started_at ? -1 : 0));
+  }
+
+  private sortAsc(rows: TimeBlockRow[]): TimeBlockRow[] {
+    return rows.sort((a, b) => (a.started_at < b.started_at ? -1 : a.started_at > b.started_at ? 1 : 0)).map(clone);
+  }
+
+  async setLink(id: string, link: BlockLink | null): Promise<void> {
+    await this.ready();
+    this.ensureDemo();
+    const r = this.rowOrThrow(id);
+    if (link?.nodeId) {
+      const node = await this.nodeRepo.getNode(link.nodeId);
+      // 節點不在這台 ⇒ 照樣允許（可能還沒同步過來；同 sqlite）
+      if (node && !LINKABLE_KINDS.includes(node.kind)) throw new RangeError("只能連到車票、列車或車廂");
+    }
+    const plan = planSetLink([toSpan(r)], { id, link, curLink: linkOfRow(r) });
+    await this.applyPlan(plan, nowUtcIso());
+  }
+
+  async lastCategoryFor(nodeId: string | null, routeId: string | null): Promise<{ categoryId: string; from: "node" | "route" } | null> {
+    await this.ready();
+    const usable = (catId: string): boolean => {
+      const c = this.cats.get(catId);
+      return !!c && c.deleted_at === null && c.archived_at === null && c.parent_id !== null;
+    };
+    const rows = this.aliveNewestFirst();
+    // nodeId null（只連路線）⇒ 跳過節點段；不能拿 null 去比（沒連的塊 node_id 也是 null）
+    if (nodeId !== null) {
+      for (const b of rows) {
+        if (b.node_id === nodeId && usable(b.category_id)) return { categoryId: b.category_id, from: "node" };
+      }
+    }
+    if (routeId === null) return null;
+    // 路線那段：經節點推導（不看節點的 deleted_at，同 sqlite）＋只連這條路線；getNode 一次呼叫內快取
+    const routeOf = new Map<string, string | null>();
+    for (const b of rows) {
+      let hit = false;
+      if (b.node_id !== null) {
+        if (!routeOf.has(b.node_id)) {
+          const n = await this.nodeRepo.getNode(b.node_id).catch(() => null);
+          routeOf.set(b.node_id, n ? n.route_id : null);
+        }
+        hit = routeOf.get(b.node_id) === routeId;
+      } else {
+        hit = b.route_id === routeId;
+      }
+      if (hit && usable(b.category_id)) return { categoryId: b.category_id, from: "route" };
+    }
+    return null;
+  }
+
+  async listBlocksByNodes(nodeIds: readonly string[]): Promise<TimeBlockRow[]> {
+    await this.ready();
+    if (!nodeIds.length) return [];
+    const want = new Set(nodeIds);
+    return this.sortAsc(this.aliveNewestFirst().filter((b) => b.node_id !== null && want.has(b.node_id)));
+  }
+
+  async listBlocksByRoute(routeId: string): Promise<TimeBlockRow[]> {
+    await this.ready();
+    const alive = new Map<string, boolean>(); // node id → 在這條路線上而且沒刪
+    const out: TimeBlockRow[] = [];
+    for (const b of this.aliveNewestFirst()) {
+      if (b.node_id !== null) {
+        if (!alive.has(b.node_id)) {
+          const n = await this.nodeRepo.getNode(b.node_id).catch(() => null);
+          alive.set(b.node_id, !!n && n.route_id === routeId && n.deleted_at === null);
+        }
+        if (alive.get(b.node_id)) out.push(b);
+      } else if (b.route_id === routeId) {
+        out.push(b);
+      }
+    }
+    return this.sortAsc(out);
   }
 }

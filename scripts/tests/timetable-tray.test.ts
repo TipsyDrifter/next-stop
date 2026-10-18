@@ -3,6 +3,8 @@
  * 跑法：`node --test scripts/tests/timetable-tray.test.ts`（node 24，型別剝除預設開；零依賴）。
  *
  * 時區：測資一律用 `new Date(y, m-1, d, h, mi).getTime()` 造本地時刻（同 timetable-logic.test.ts）。
+ *
+ * 車次②（② 契約 §4.5；丙）：E-②1–E-②3（tooltip／header 帶任務名、16 字截字、與 timetableLink 的 runLabel／clipLabel 對帳）。
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -17,9 +19,11 @@ import {
   TT_TRAY_TEXT,
   buildTrayMenu,
   trayElapsedMs,
+  trayRunName,
   trayTooltipOf,
   type TrayMenuInput,
 } from "../../src/domain/timetableTray.ts";
+import { clipLabel, runLabel } from "../../src/domain/timetableLink.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -212,5 +216,45 @@ describe("E 區（①b①c 契約 §4.9）", () => {
     assert.ok(agent.includes('"tt-tray"'));
     assert.ok(agent.includes('"tt:arrive"'));
     assert.ok(agent.includes('"tt:depart:"'));
+  });
+});
+
+describe("E 區・②（② 契約 §4.5）", () => {
+  const run = block("b1", "c2", T(14, 35), null);
+  const catById = byId(CATS);
+
+  test("E-②1 tooltip「Next Stop・創作・寫契約・14:35 発（1h20m）」；linkLabel null／不給＝跟 ①c 一樣", () => {
+    assert.equal(
+      trayTooltipOf({ enabled: true, running: run, catById, now: T(15, 55, 10), linkLabel: "寫契約" }),
+      "Next Stop・創作・寫契約・14:35 発（1h20m）",
+    );
+    assert.equal(trayTooltipOf({ enabled: true, running: run, catById, now: T(15, 55, 10), linkLabel: null }), "Next Stop・創作・14:35 発（1h20m）");
+    // 停車中、關掉照舊（任務名不透露）
+    assert.equal(trayTooltipOf({ enabled: true, running: null, catById, now: T(15, 55), linkLabel: "寫契約" }), "Next Stop・目前沒有列車在跑");
+    assert.equal(trayTooltipOf({ enabled: false, running: run, catById, now: T(15, 55), linkLabel: "寫契約" }), "Next Stop");
+  });
+
+  test("E-②2 header「創作・寫契約・14:35 発（1h20m）」；分類不在 ⇒「？・寫契約」；超過 16 字截字", () => {
+    const spec = buildTrayMenu(input({ running: run, now: T(15, 55, 30), linkLabel: "寫契約" }));
+    assert.ok(spec);
+    assert.equal(spec.header, "創作・寫契約・14:35 発（1h20m）");
+    assert.equal(spec.runningCategoryId, "c2"); // 其餘欄位不受任務名影響
+    const plain = buildTrayMenu(input({ running: run, now: T(15, 55, 30) }));
+    assert.deepEqual({ ...spec, header: "" }, { ...plain, header: "" });
+    const ghost = buildTrayMenu(input({ running: block("b2", "gone", T(15, 0), null), now: T(15, 30), linkLabel: "寫契約" }));
+    assert.equal(ghost?.header, "？・寫契約・15:00 発（30m）");
+    const long = "一二三四五六七八九十一二三四五六七八九十"; // 20 字
+    const cut = buildTrayMenu(input({ running: run, now: T(15, 55, 30), linkLabel: long }));
+    assert.equal(cut?.header, "創作・一二三四五六七八九十一二三四五…・14:35 発（1h20m）");
+    // 停車中不帶任務名
+    assert.equal(buildTrayMenu(input({ linkLabel: "寫契約" }))?.header, "目前沒有列車在跑");
+  });
+
+  test("E-②3 trayRunName ＝ timetableLink 的 runLabel(cat, clipLabel(label))（本檔不能 import timetableLink，副本對帳）", () => {
+    const cases: (string | null)[] = [null, "", "寫契約", "一二三四五六七八九十一二三四五六", "一二三四五六七八九十一二三四五六七", "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"];
+    for (const l of cases) {
+      assert.equal(trayRunName("創作", l), runLabel("創作", l === null ? null : clipLabel(l)), `label=${String(l)}`);
+    }
+    assert.equal(trayRunName("創作", undefined), "創作");
   });
 });

@@ -996,3 +996,330 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   .ns-tt-pin, .ns-tt-pin-cat, .ns-tt-pins { transition: none; }
   .ns-tt-pin.is-pinned { animation: none; }
 }
+
+/* ═══ §H 任務連動・時刻表頁（乙・②）═══
+ * 值照原型 prototypes/時刻表-src/v-f.css（.vf-*），class 換 ns-tt- 前綴；顏色只用 theme token。
+ * 名字分三組：.ns-tt-todaytix*（發車台今日車票）、.ns-tt-link*（選擇器、「連到」列、運行列與軸的任務名、主鈕）、
+ * .ns-tt-taskcat*（第一次選分類）；另有圓牌 .ns-tt-roundel／問號 .ns-tt-q／頁外宿主 .ns-tt-offpage。 */
+
+/* 頁外宿主（OffPageSheetHost）：只是包一層給焦點管理找 [role="dialog"]，不佔版面 */
+.ns-tt-offpage { display: contents; }
+
+/* 路線圓牌（＝核心 .roundel 的亮盤深字；底色由 roundelStyle 給 inline）；沒路線＝虛線「臨」 */
+.ns-tt-roundel {
+  width: 22px; height: 22px; flex: none; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  font-family: var(--font-latin); font-weight: 600; font-size: 10px; letter-spacing: 0; line-height: 1;
+  color: var(--color-ink);
+}
+[data-theme="dark"] .ns-tt-roundel { color: var(--color-book); }
+.ns-tt-roundel.is-temp,
+[data-theme="dark"] .ns-tt-roundel.is-temp {
+  border: 1px dashed var(--color-ink-faint); color: var(--color-ink-faint);
+  font-family: var(--font-body); font-weight: 400; font-size: 9.5px;
+}
+.ns-tt-roundel-dot { width: 8px; height: 8px; border-radius: 50%; }
+.ns-tt-q {
+  width: 15px; height: 15px; flex: none; border-radius: 50%; border: 1px dashed var(--color-ink-faint);
+  display: inline-grid; place-items: center; line-height: 1;
+  font-family: var(--font-latin); font-size: 9px; color: var(--color-ink-faint);
+}
+
+/* ── 發車台「今日車票」一排（☎一-4；＝原型 .vf-strip／.vf-sk）：卡片寬跟著那一排算（約 2.35 張），第三張探頭＝還能往右捲 ── */
+.ns-tt-sec.ns-tt-todaytix-sec { margin: 12px 0 8px; }
+.ns-tt-todaytix-sec .ns-tt-sec-note b { font-weight: 500; color: var(--color-ink-soft); }
+.ns-tt-todaytix {
+  container-type: inline-size;
+  display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity;
+  padding: 2px 2px 6px; margin: 0 -2px 6px;
+  scrollbar-width: thin; scrollbar-color: var(--color-dash) transparent;
+  -webkit-mask-image: linear-gradient(90deg, black calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, black calc(100% - 28px), transparent);
+}
+.ns-tt-todaytix.is-end { -webkit-mask-image: none; mask-image: none; }
+.ns-tt-todaytix-k {
+  flex: none; width: clamp(132px, calc((100cqi - 12px) / 2.35), 184px); scroll-snap-align: start;
+  display: flex; align-items: center; gap: 8px; padding: 9px; text-align: left;
+  background: var(--color-paper-high); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+  font-family: inherit; color: var(--color-ink); cursor: pointer;
+  transition: border-color .15s, box-shadow .2s, transform .25s var(--ns-tt-spring);
+}
+.ns-tt-todaytix-k:hover { border-color: color-mix(in srgb, var(--color-gold) 60%, var(--color-line)); }
+.ns-tt-todaytix-k:active { transform: scale(.97); transition-duration: .08s; }
+.ns-tt-todaytix-k:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-todaytix-k.is-live { box-shadow: var(--shadow-card), inset 0 0 0 1.5px color-mix(in srgb, var(--color-seal) 70%, transparent); }
+.ns-tt-todaytix-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ns-tt-todaytix-t {
+  font-size: 12.5px; letter-spacing: .04em; line-height: 1.3; color: var(--color-ink);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.ns-tt-todaytix-s {
+  display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 16px;
+  font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap;
+}
+.ns-tt-todaytix-s > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-todaytix-k.is-live .ns-tt-todaytix-s { color: var(--color-seal); }
+.ns-tt-todaytix .ns-tt-live-dot { width: 6px; height: 6px; }
+.ns-tt-todaytix .ns-tt-badge.is-sm { width: 16px; height: 16px; font-size: 8.5px; border-width: 1px; flex: none; }
+/* 手機：一路捲到螢幕邊（右緣不留 gutter）、不畫捲軸 */
+[data-shell="mobile"] .ns-tt-todaytix { margin-right: calc(var(--m-gutter) * -1); padding-right: var(--m-gutter); scrollbar-width: none; }
+[data-shell="mobile"] .ns-tt-todaytix::-webkit-scrollbar { display: none; }
+
+/* ── 分類格「上次」（〈原型拍板〉4；＝原型 .vf-mem／.vf-memtag）── */
+.ns-tt-cat.is-mem,
+.ns-tt-cats.is-compact .ns-tt-cat.is-mem { border-color: color-mix(in srgb, var(--color-gold) 70%, transparent); border-style: dashed; }
+.ns-tt-cat-memtag {
+  position: absolute; top: -6px; right: 2px; padding: 0 3px; border-radius: 2px;
+  font-style: normal; font-size: 8.5px; letter-spacing: .1em; line-height: 13px;
+  background: var(--color-gold); color: var(--color-book);
+}
+
+/* ── 面板「連到」那一列（＝原型 .vf-linkbtn／.vf-lk）── */
+.ns-tt-link-btn {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 8px 4px 6px;
+  text-align: left; background: transparent; border: 1px solid var(--color-dash); border-radius: 3px;
+  font-family: inherit; color: var(--color-ink); cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ns-tt-link-btn:hover { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 6%, transparent); }
+.ns-tt-link-btn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-link-chev { margin-left: auto; color: var(--color-ink-faint); font-size: 16px; line-height: 1; }
+.ns-tt-link-chip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.ns-tt-link-chip-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .04em; }
+.ns-tt-link-chip-k {
+  flex: none; padding: 0 5px; border: 1px solid var(--color-line); border-radius: 2px;
+  font-size: 10px; letter-spacing: .12em; color: var(--color-ink-faint);
+}
+.ns-tt-link-chip.is-none { padding-left: 4px; }
+.ns-tt-link-chip.is-none .ns-tt-link-chip-t,
+.ns-tt-link-chip.is-gone .ns-tt-link-chip-t { color: var(--color-ink-faint); }
+.ns-tt-link-chip.is-gone .ns-tt-link-chip-t { font-style: italic; }
+
+/* 發車面板：連到的票有上次的分類 ⇒ 主鈕（＝原型 .vf-memgo） */
+.ns-btn.ns-tt-link-memgo {
+  width: 100%; margin-top: 12px; min-height: 44px;
+  display: flex; justify-content: center; align-items: center; gap: 8px;
+  font-size: 14px; letter-spacing: .12em;
+}
+.ns-tt-link-memgo em { font-style: normal; font-size: 10.5px; letter-spacing: .08em; opacity: .78; }
+.ns-tt-link-memgo .ns-tt-kbd { margin-left: 2px; color: inherit; border-color: currentColor; opacity: .7; }
+[data-shell="mobile"] .ns-tt-link-memkbd { display: none; }
+.ns-tt-panel-sub.ns-tt-link-memsub { margin: 6px 0 0; text-align: center; }
+.ns-tt-panel-sub.ns-tt-link-hint { margin-top: 6px; color: var(--color-gold-ink); }
+
+/* ── 選擇器（＝原型 .vf-pick；面板子頁：掛上時從右邊滑進來）── */
+.ns-tt-link-pick { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px; animation: ns-tt-link-in .3s var(--ns-tt-ease) both; }
+@keyframes ns-tt-link-in { from { opacity: .4; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+.ns-tt-link-head {
+  display: flex; align-items: center; gap: 2px; margin: -4px 0 4px;
+  font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .16em; color: var(--color-ink);
+}
+.ns-tt-link-back {
+  width: 30px; height: 30px; margin-left: -8px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; font-size: 20px; line-height: 1; color: var(--color-ink-soft); cursor: pointer;
+}
+.ns-tt-link-back:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
+.ns-tt-link-back:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-link-now {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-gold) 70%, transparent); border-radius: 3px;
+  background: color-mix(in srgb, var(--color-gold) 8%, transparent);
+}
+.ns-tt-link-now-k { flex: none; font-size: 11px; letter-spacing: .16em; color: var(--color-ink-faint); }
+.ns-tt-link-search {
+  display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px; margin: 4px 0 6px;
+  color: var(--color-ink-faint); border: 1px solid var(--color-dash); border-radius: 3px;
+  background: color-mix(in srgb, var(--color-paper-high) 60%, transparent);
+}
+.ns-tt-link-search:focus-within { border-color: var(--color-gold); }
+.ns-tt-link-search input {
+  flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink);
+}
+.ns-tt-link-search input::placeholder { color: var(--color-ink-faint); }
+.ns-tt-link-sec { margin: 10px 0 4px; font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: .22em; color: var(--color-ink-faint); }
+.ns-tt-link-sec span { margin-left: 8px; font-family: var(--font-body); font-weight: 400; font-size: 10.5px; letter-spacing: .06em; }
+.ns-tt-link-list { display: flex; flex-direction: column; gap: 2px; }
+.ns-tt-link-pk {
+  width: 100%; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 6px;
+  text-align: left; background: transparent; border: 1px solid transparent; border-radius: 3px;
+  font-family: inherit; color: var(--color-ink); cursor: pointer; transition: background .15s;
+}
+.ns-tt-link-pk:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+.ns-tt-link-pk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.ns-tt-link-pk.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+.ns-tt-link-pk-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ns-tt-link-pk-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .04em; }
+.ns-tt-link-pk-s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-link-pk-done { font-style: normal; font-family: var(--font-display); font-weight: 700; font-size: 11px; color: var(--color-seal); }
+.ns-tt-link-pk-done.is-skip { color: var(--color-ink-faint); }
+.ns-tt-link-pk-on { flex: none; font-size: 14px; color: var(--color-gold-ink); }
+.ns-tt-link-empty { margin: 0; padding: 18px 4px; font-size: 12px; color: var(--color-ink-faint); }
+.ns-tt-link-routes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.ns-tt-link-rk {
+  min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 8px;
+  text-align: left; background: transparent; border: 1px dashed var(--color-dash); border-radius: 3px;
+  font-family: inherit; font-size: 13px; letter-spacing: .06em; color: var(--color-ink); cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ns-tt-link-rk > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-link-rk:hover { border-color: var(--color-gold); }
+.ns-tt-link-rk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-link-rk.is-on { border-style: solid; border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+.ns-tt-link-foot { display: flex; justify-content: center; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--color-dash); font-size: 12px; }
+.ns-tt-link-foot .ns-btn { min-height: 38px; font-size: 13px; }
+.ns-tt-link-dim { color: var(--color-ink-faint); }
+
+/* ── 運行列「分類・任務名」（＝原型 .vf-dn）：任務名可點＝連到…；沒連＝淡字虛線 ── */
+.ns-tt-link-dock { flex: 0 1 auto; min-width: 0; max-width: 100%; display: flex; align-items: baseline; }
+.ns-tt-link-dock .ns-tt-dock-cat { flex: none; }
+.ns-tt-link-dn {
+  min-width: 0; display: inline-flex; align-items: baseline; padding: 0; margin: 0;
+  background: none; border: 0; border-bottom: 1px dashed transparent; border-radius: 0;
+  font: inherit; letter-spacing: inherit; text-align: left; color: var(--color-ink-soft); cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.ns-tt-link-dn:hover { border-bottom-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-link-dn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-link-dn-dot { flex: none; color: var(--color-ink-faint); }
+.ns-tt-link-dn-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-link-dn.is-none {
+  flex: none; margin-left: 8px; font-size: 11px; letter-spacing: .1em;
+  color: var(--color-ink-faint); border-bottom-color: var(--color-dash);
+}
+.ns-tt-link-dn.is-none:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
+.ns-tt-link-dn.is-gone .ns-tt-link-dn-t { font-style: italic; color: var(--color-ink-faint); }
+
+/* ── 軸上每一塊「分類・任務名」（＝原型 .vf-bn）── */
+.ns-tt-blk-name.ns-tt-link-has { display: flex; min-width: 0; }
+.ns-tt-link-bn-cat { flex: none; }
+.ns-tt-link-bn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-soft); }
+.ns-tt-link-bn.is-gone { font-style: italic; color: var(--color-ink-faint); }
+
+/* ── 第一次從某條路線発車：先選分類（＝原型 askcatBody .vf-askfor）── */
+.ns-tt-taskcat-for {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 8px 10px;
+  font-size: 12.5px; letter-spacing: .04em; color: var(--color-ink-soft);
+  border: 1px solid var(--color-line); border-radius: 3px;
+  background: color-mix(in srgb, var(--color-paper-high) 60%, transparent);
+}
+.ns-tt-taskcat-for b { font-weight: 500; color: var(--color-ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-link-pick { animation: none; }
+  .ns-tt-todaytix-k, .ns-tt-link-btn, .ns-tt-link-pk, .ns-tt-link-rk, .ns-tt-link-dn { transition: none; }
+}
+
+/* ═══ §I 任務連動・任務側與今日頁（丙・②）═══
+ * 值照原型 prototypes/時刻表-src/v-f.css（.vf-tval／.vf-tip／.vf-tdet／.vf-tr／.vf-man、.vf-go、.vf-runmk、.vf-msi、.vf-focus）。
+ * 只選自己的 class（.ns-tt-time*／.ns-tt-todaydep*／.ns-tt-focus）；借用的核心 class（.meta-hover、.m-sheet-item、.sep、
+ * .m-today-left、.m-today-stats）只在 JSX 上借、本區不選它們——唯一例外是同一個元素上「核心 class＋自己的 class」
+ * 抬特異度蓋排版（.m-sheet-item.ns-tt-todaydep-sheet），選擇器以自己的 class 為錨。 */
+
+/* ── 側板「時間」列（TimeField 桌機、TimeFieldMobile 手機共用）── */
+.ns-tt-time { min-width: 0; }
+.ns-tt-time-val {
+  position: relative; display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%;
+  padding: 2px 0 3px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash);
+  font-family: inherit; color: var(--color-ink); text-align: left; white-space: nowrap; cursor: pointer;
+  transition: border-color .15s;
+}
+.ns-tt-time-val:hover, .ns-tt-time-val.is-open { border-bottom-color: var(--color-gold); }
+.ns-tt-time-val:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-time-total { font-size: 17px; font-weight: 500; letter-spacing: .02em; color: var(--color-ink); }
+.ns-tt-time-route { font-size: 13.5px; color: var(--color-ink); letter-spacing: .04em; }
+.ns-tt-time-val .ns-tt-live-dot { width: 6px; height: 6px; align-self: center; }
+.ns-tt-time-caret {
+  align-self: center; font-size: 11.5px; color: var(--color-ink-faint);
+  transition: transform .25s var(--ns-tt-ease);
+}
+.ns-tt-time-val.is-open .ns-tt-time-caret { transform: rotate(180deg); }
+/* 滑過浮出的小卡（書封色底；展開後不出） */
+.ns-tt-time-tip {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 5; pointer-events: none;
+  padding: 6px 10px 7px; border-radius: 4px; background: var(--color-book); color: var(--color-book-ink);
+  white-space: nowrap; font-size: 12px; letter-spacing: .06em; font-weight: 400;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--color-book) 40%, transparent);
+  opacity: 0; transform: translateY(-3px); transition: opacity .12s, transform .2s var(--ns-tt-ease);
+}
+.ns-tt-time-val:hover .ns-tt-time-tip { opacity: 1; transform: none; transition-delay: .25s; }
+.ns-tt-time-val.is-open .ns-tt-time-tip { display: none; }
+/* 點開的細項：grid-rows 0fr → 1fr（收起時 visibility:hidden ⇒ 手填輸入框不進 Tab 順序；JSX 另掛 inert） */
+.ns-tt-time-det { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .36s var(--ns-tt-ease); }
+.ns-tt-time-det.is-open { grid-template-rows: 1fr; }
+.ns-tt-time-det > div { min-height: 0; overflow: hidden; visibility: hidden; transition: visibility 0s .36s; }
+.ns-tt-time-det.is-open > div { visibility: visible; transition-delay: 0s; }
+.ns-tt-time-in { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 2px; }
+.ns-tt-time-row {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: baseline;
+  column-gap: 8px; row-gap: 1px; font-size: 12px; color: var(--color-ink);
+}
+.ns-tt-time-k { font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); }
+.ns-tt-time-row > b { font-size: 13.5px; font-weight: 500; }
+.ns-tt-time-f {
+  grid-column: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 3px;
+  font-size: 11px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-faint);
+}
+/* 手填輸入（NumberField 的 div.num > input）：panel.css 的 `.panel input[type="number"]`（0,2,1）、`.panel .num .meta`（0,3,0）
+ * 載入在後 ⇒ 這裡一律抬到比它們高一級，不靠載入順序 */
+.ns-tt-time-f .ns-tt-time-man .num { display: inline-flex; align-items: baseline; gap: 3px; }
+.ns-tt-time-f .ns-tt-time-man .num .meta { margin: 0; font-size: 11px; color: var(--color-ink-faint); }
+.ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input {
+  display: inline-block; width: 3.6em; min-width: 0; padding: 0 2px 1px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash);
+  font-family: var(--font-latin); font-size: 13px; color: var(--color-ink); text-align: right; outline: none;
+  appearance: textfield; -moz-appearance: textfield;
+}
+.ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input::-webkit-inner-spin-button,
+.ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input:focus { border-bottom-color: var(--color-gold); }
+/* 手機路線圖詳情的一列：對齊 .m2-field 的 52px 標籤欄（不借核心 class） */
+.ns-tt-time-m { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: baseline; gap: 8px; margin: 0; padding: 3px 0; }
+.ns-tt-time-m dt { font-size: 10px; letter-spacing: .2em; color: var(--color-ink-faint); }
+.ns-tt-time-m dd { margin: 0; min-width: 0; }
+.ns-tt-time-m .ns-tt-time-total { font-size: 16px; }
+.ns-tt-time-m .ns-tt-time-val { min-height: 28px; }
+
+/* ── 今日列「発車」鈕（桌機；.meta-hover 現身規則歸 today.css）── */
+.ns-tt-todaydep {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 4px 0 8px;
+  background: transparent; border: 1px solid color-mix(in srgb, var(--color-seal) 45%, transparent); border-radius: 2px;
+  font-family: inherit; font-size: 11px; letter-spacing: .14em; color: var(--color-seal); cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.ns-tt-todaydep:hover { background: color-mix(in srgb, var(--color-seal) 9%, transparent); border-color: var(--color-seal); }
+.ns-tt-todaydep:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-todaydep svg { margin-right: -1px; }
+.ns-tt-todaydep .ns-tt-kbd { margin-left: 2px; line-height: 14px; }
+.ns-tt-todaydep:not(:has(.ns-tt-kbd)) { padding-right: 8px; }
+/* 「正在跑」標記（兩殼；常駐，不靠 hover）＝原型 .vf-runmk */
+.ns-tt-todaydep-run {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px 0 7px;
+  background: color-mix(in srgb, var(--color-seal) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-seal) 38%, transparent); border-radius: 11px;
+  font-family: inherit; font-size: 11px; letter-spacing: .12em; color: var(--color-seal); white-space: nowrap; cursor: pointer;
+  transition: background .15s;
+}
+.ns-tt-todaydep-run:hover { background: color-mix(in srgb, var(--color-seal) 14%, transparent); }
+.ns-tt-todaydep-run:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-todaydep-run b { font-size: 12px; font-weight: 500; color: var(--color-ink); letter-spacing: .02em; }
+.ns-tt-todaydep-run .ns-tt-live-dot { width: 6px; height: 6px; }
+.ns-tt-todaydep-run .ns-tt-badge.is-sm { width: 16px; height: 16px; font-size: 8.5px; border-width: 1px; }
+.ns-tt-todaydep-run.is-m { height: 20px; margin: 3px 0 1px; padding: 0 7px 0 6px; font-size: 10.5px; }
+.ns-tt-todaydep-run.is-m b { font-size: 11px; }
+/* 手機票卡 ⋯ 面板的「発車」一項（.m-sheet-item 的排版改 flex，右側小字靠右） */
+[data-shell="mobile"] .m-sheet-item.ns-tt-todaydep-sheet { display: flex; align-items: center; }
+[data-shell="mobile"] .m-sheet-item.ns-tt-todaydep-sheet.is-go { color: var(--color-seal); font-weight: 500; }
+.ns-tt-todaydep-aside {
+  margin-left: auto; padding-left: 12px; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 400; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap;
+}
+.ns-tt-todaydep-aside.is-live { color: var(--color-seal); }
+.ns-tt-todaydep-aside .ns-tt-live-dot { width: 6px; height: 6px; }
+
+/* ── 今日「專注」（桌機頁首；原型 .vf-focus 的虛線底） ── */
+.ns-tt-focus { border-bottom: 1px dotted var(--color-dash); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-time-det, .ns-tt-time-det > div, .ns-tt-time-caret, .ns-tt-time-tip { transition: none; }
+}

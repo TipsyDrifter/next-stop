@@ -19,17 +19,22 @@
  * - 設定讀寫不在這裡（store 直接用 `settingsRepo`）。
  * - 車次①b①c（契約 §3.3）：預估、多切點、合併、分類的搬組／封存／換圓牌字；①c 預留的佇列発車／到着與 `blockExists`。
  *   全部照同一套寫法（純函式 → applyPlan → 一個 WriteBatch）；`updateCategory` 的驗證規則與訊息與 memory 版逐字相同。
+ * - 車次②（② 契約 §3.4）：`applyPlan` 的連結兩欄成對寫（patch：任一欄不同 ⇒ 兩欄都寫；insert：明寫 → inherit／keepLink
+ *   照 fromId 抄 → 沒連）；`depart`／`fill`／`editBlock` 的連結照傳給純函式；`setLink`、`lastCategoryFor`、
+ *   `listBlocksByNodes`、`listBlocksByRoute`。零 migration（§3.6）。
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow } from "../lib/date";
 import { ensureSyncTables, newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
 import type { TimetableRepository, CreateCategoryInput, CategoryPatch, DepartOptions, MergePreview } from "./timetableRepository";
+import { LINKABLE_KINDS, linkOfRow } from "../domain/timetableLink";
 import {
   MIN,
   STARTER_CATEGORIES,
   TIMETABLE_ID_NAMESPACE,
   canUndoArrive,
+  insertLinkOf,
   groupedCategories,
   isoOf,
   msOf,
@@ -45,6 +50,7 @@ import {
   planResolveLongRun,
   planRestart,
   planSetEstimate,
+  planSetLink,
   planSplit,
   planSplitMulti,
   reconcileWindowStart,
@@ -53,6 +59,7 @@ import {
   summarizeCover,
   toDayBlockSegments,
   toSpan,
+  type BlockLink,
   type CoverSummary,
   type DayBlockSegment,
   type KeyedSpan,
@@ -182,6 +189,21 @@ export class SqliteTimetableRepository implements TimetableRepository {
       if (p.categoryId !== undefined) put("category_id", p.categoryId);
       if (p.ack !== undefined) put("long_run_ack", p.ack ? 1 : 0);
       if (p.estimateMin !== undefined) put("estimate_min", p.estimateMin);
+      if (p.link !== undefined) {
+        // ② 契約 0-2：連結兩欄成對寫——任一欄跟現值不同 ⇒ 兩欄都寫、都進 op（繞過 put 的相同值跳過）；
+        // 逐欄 LWW 下只送變了的那欄，兩台同時改連結會拼出 (X, R) 這種誰都沒選的組合
+        const same = !!cur && cur.node_id === p.link.nodeId && cur.route_id === p.link.routeId;
+        if (!same) {
+          for (const [col, v] of [
+            ["node_id", p.link.nodeId],
+            ["route_id", p.link.routeId],
+          ] as const) {
+            args.push(v);
+            sets.push(`${col} = $${args.length}`);
+            cols[col] = v;
+          }
+        }
+      }
       if (!sets.length) continue;
       args.push(nowIso);
       sets.push(`updated_at = $${args.length}`);
@@ -194,15 +216,18 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const ids: string[] = [];
     for (const i of plan.inserts) {
       const id = i.fixedId ?? (i.key ? await pieceId(i.key) : uuid());
-      const from = i.inherit && i.fromId ? rowsById[i.fromId] : undefined;
+      // ② 契約 §3.1：連結的來源列要用 rowsById[fromId]（不能沿用只在 inherit 時才取的 from——keepLink 不看 inherit）
+      const src = i.fromId ? rowsById[i.fromId] : undefined;
+      const from = i.inherit ? src : undefined;
+      const link: BlockLink = insertLinkOf(i, src);
       const row = {
         category_id: i.categoryId,
         started_at: isoOf(i.start),
         ended_at: i.end === null ? null : isoOf(i.end),
         // ①b：insert 明寫的預估蓋過 inherit 抄來的（undefined＝照 inherit 規則）
         estimate_min: i.estimateMin !== undefined ? i.estimateMin : (from?.estimate_min ?? null),
-        node_id: from?.node_id ?? null,
-        route_id: from?.route_id ?? null,
+        node_id: link.nodeId,
+        route_id: link.routeId,
         long_run_ack: i.ack ? 1 : 0,
       };
       b.stmts.push({
@@ -437,7 +462,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const now = Date.now();
     const at = Math.min(msOf(atIso), now);
     const snap = await this.loadSnapshot(db, isoOf(at));
-    const plan = planDepart(snap.spans, { categoryId, at, now, estimateMin: opts?.estimateMin ?? null });
+    const plan = planDepart(snap.spans, { categoryId, at, now, estimateMin: opts?.estimateMin ?? null, link: opts?.link ?? null });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -490,12 +515,17 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return summarizeCover(plan, id);
   }
 
-  async fill(categoryId: string, startIso: string, endIso: string): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
+  async fill(
+    categoryId: string,
+    startIso: string,
+    endIso: string,
+    opts?: { link?: BlockLink | null },
+  ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     const db = await getDb();
     const now = Date.now();
     const start = msOf(startIso);
     const snap = await this.loadSnapshot(db, isoOf(start));
-    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now });
+    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now, link: opts?.link ?? null });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -505,7 +535,10 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return { block, summary: summarizeCover(plan) };
   }
 
-  async editBlock(id: string, input: { categoryId: string; startIso: string; endIso: string }): Promise<CoverSummary> {
+  async editBlock(
+    id: string,
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null },
+  ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
     // 主角自己可能整個落在新區間之前（往後挪）⇒ 不帶 $from，讀全部
@@ -516,6 +549,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       start: msOf(input.startIso),
       end: msOf(input.endIso),
       now,
+      link: input.link, // ②：undefined＝不動
+      curLink: snap.rowsById[id] ? linkOfRow(snap.rowsById[id]) : undefined,
     });
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
@@ -743,5 +778,99 @@ export class SqliteTimetableRepository implements TimetableRepository {
     await this.applyPlan(b, plan, rowsById, nowUtcIso());
     await this.commit(db, b);
     return n;
+  }
+
+  /* ───────── ②（② 契約 §3.4） ───────── */
+
+  /**
+   * 改一塊的連結（運行中、已結束都可以）；null＝取消連結。只讀那一列（同 setEstimate）；連結一樣 ⇒ 空 plan、不寫。
+   * 節點不在這台（還沒同步過來）⇒ 照樣允許；在、但種類不能連 ⇒ RangeError。
+   */
+  async setLink(id: string, link: BlockLink | null): Promise<void> {
+    const db = await getDb();
+    const r = await this.getBlock(db, id);
+    if (!r || r.deleted_at !== null) throw new RangeError("找不到這一塊");
+    if (link && link.nodeId !== null) {
+      const k = await db.select<{ kind: string }[]>(`SELECT kind FROM nodes WHERE id = $1`, [link.nodeId]);
+      if (k[0] && !LINKABLE_KINDS.includes(k[0].kind)) throw new RangeError("只能連到車票、列車或車廂");
+    }
+    const plan = planSetLink([toSpan(r)], { id, link, curLink: linkOfRow(r) });
+    const b = newWriteBatch();
+    await this.applyPlan(b, plan, { [id]: r }, nowUtcIso());
+    await this.commit(db, b);
+  }
+
+  /**
+   * 「記住上次的分類」（② 契約 0-4、§3.4-6）：先節點、再路線，第一條有結果就不跑第二條。
+   * 「還能用」＝分類未刪除、未封存、是子分類。路線那條不看 `n.deleted_at`（刪掉的票以前用過的分類照樣算）。
+   */
+  async lastCategoryFor(nodeId: string | null, routeId: string | null): Promise<{ categoryId: string; from: "node" | "route" } | null> {
+    const db = await getDb();
+    const usable = `c.deleted_at IS NULL AND c.archived_at IS NULL AND c.parent_id IS NOT NULL`;
+    if (nodeId !== null) {
+      const byNode = await db.select<{ category_id: string }[]>(
+        `SELECT b.category_id FROM time_blocks b
+         JOIN time_categories c ON c.id = b.category_id
+         WHERE b.deleted_at IS NULL AND b.node_id = $1 AND ${usable}
+         ORDER BY b.started_at DESC LIMIT 1`,
+        [nodeId],
+      );
+      if (byNode[0]) return { categoryId: byNode[0].category_id, from: "node" };
+    }
+    if (routeId === null) return null;
+    // 兩段 UNION ALL，各自用得上索引（idx_nodes_route＋idx_tb_node；只連路線那段量小、沒有索引，§3.4-8）
+    const byRoute = await db.select<{ category_id: string }[]>(
+      `SELECT x.category_id FROM (
+         SELECT b.category_id, b.started_at FROM nodes n
+         JOIN time_blocks b ON b.node_id = n.id
+         WHERE n.route_id = $1 AND b.deleted_at IS NULL
+         UNION ALL
+         SELECT b.category_id, b.started_at FROM time_blocks b
+         WHERE b.node_id IS NULL AND b.route_id = $1 AND b.deleted_at IS NULL
+       ) x
+       JOIN time_categories c ON c.id = x.category_id
+       WHERE ${usable}
+       ORDER BY x.started_at DESC LIMIT 1`,
+      [routeId],
+    );
+    return byRoute[0] ? { categoryId: byRoute[0].category_id, from: "route" } : null;
+  }
+
+  /** 未刪除、node_id 在清單裡的塊（每 400 個 id 一批；空清單回 []），started_at 遞增 */
+  async listBlocksByNodes(nodeIds: readonly string[]): Promise<TimeBlockRow[]> {
+    const ids = Array.from(new Set(nodeIds));
+    if (!ids.length) return [];
+    const db = await getDb();
+    const out: TimeBlockRow[] = [];
+    for (let i = 0; i < ids.length; i += 400) {
+      const chunk = ids.slice(i, i + 400);
+      const ph = chunk.map((_, k) => `$${k + 1}`).join(", ");
+      const rows = await db.select<TimeBlockRow[]>(
+        `SELECT * FROM time_blocks WHERE ${ALIVE} AND node_id IN (${ph}) ORDER BY started_at ASC`,
+        chunk,
+      );
+      for (const r of rows) out.push(r);
+    }
+    // 多批合併後重排（ISO 24 字元字串比較＝時刻比較）
+    if (ids.length > 400) out.sort((a, b) => (a.started_at < b.started_at ? -1 : a.started_at > b.started_at ? 1 : 0));
+    return out;
+  }
+
+  /**
+   * 未刪除、屬於這條路線的塊（② 契約 0-5、§3.4-8）：經節點推導（活的節點）＋只連這條路線。
+   * 寫成 UNION ALL 讓第一段由 nodes 起頭走 idx_nodes_route、再走 idx_tb_node；兩段不相交（第二段 node_id IS NULL）。
+   */
+  async listBlocksByRoute(routeId: string): Promise<TimeBlockRow[]> {
+    const db = await getDb();
+    return db.select<TimeBlockRow[]>(
+      `SELECT b.* FROM nodes n
+       JOIN time_blocks b ON b.node_id = n.id
+       WHERE n.route_id = $1 AND n.deleted_at IS NULL AND b.deleted_at IS NULL
+       UNION ALL
+       SELECT * FROM time_blocks
+       WHERE node_id IS NULL AND route_id = $1 AND deleted_at IS NULL
+       ORDER BY started_at ASC`,
+      [routeId],
+    );
   }
 }

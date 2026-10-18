@@ -10,10 +10,14 @@
  *
  * 車次①b（①b①c 契約 §5.5）：門檻改成 `thresholdOf(這一班的預估, 分類, 保險上限)`；門檻來自預估時副標改寫
  * 「預估 {門檻}，已經誤點 {超過}。其實到幾點？」、「別問了」的說明改成留『誤點』記號。
+ *
+ * 車次②（② 契約 §4.2-6 #9、§5.11；乙席）：門檻多一層任務的預計時間（`taskEstimateOf(block, linkInfo)`，預估之後、分類之前）；
+ * 來源是 task ⇒ 副標「『{任務}』預計 {門檻}，已經誤點 {超過}。其實到幾點？」（estimate 那條的姊妹句），「別問了」一樣留『誤點』。
  */
 import { useState } from "react";
 import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, msOf, thresholdOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
-import { useTimetableStore } from "../../../store/timetableStore";
+import { linkLabelOf, taskEstimateOf } from "../../../domain/timetableLink";
+import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, useBlock, useNowOnce, type PanelProps } from "./controls";
 
@@ -25,10 +29,11 @@ export function LongRunPanel({ onDone }: PanelProps) {
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
   const resolveLongRun = useTimetableStore((s) => s.resolveLongRun);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
 
   const cat = block ? (catById[block.category_id] ?? null) : null;
   const span = block ? toSpan(block) : null;
-  const th = block ? thresholdOf(block.estimate_min, cat, longRunMaxMin) : null;
+  const th = block ? thresholdOf(block.estimate_min, cat, longRunMaxMin, taskEstimateOf(block, linkInfo)) : null;
   const threshold = th?.min ?? null;
   const ended = block !== null && block.ended_at !== null;
   const cap = block ? (block.ended_at !== null ? msOf(block.ended_at) : now) : now;
@@ -61,7 +66,7 @@ export function LongRunPanel({ onDone }: PanelProps) {
       ? `${fmtClock(end)} 到${untilText}會標成未記錄，之後隨時可以補。`
       : after === "cat"
         ? `${fmtClock(end)} 起算成那個分類，一直到${untilText}。`
-        : th?.source === "estimate"
+        : th?.source === "estimate" || th?.source === "task"
           ? "這一班照跑；軸上會留一個『誤點』的記號。"
           : "這一班照跑；軸上會留一個『長時間運行』的記號。";
 
@@ -76,7 +81,13 @@ export function LongRunPanel({ onDone }: PanelProps) {
           ? "其實到幾點？"
           : th.source === "estimate"
             ? `預估 ${fmtDur(th.min * MIN)}，已經誤點 ${fmtDur(Math.max(0, durOf(span, now) - th.min * MIN))}。其實到幾點？`
-            : th.source === "category"
+            : th.source === "task"
+              ? TT_TEXT.LONG_RUN_TASK(
+                  linkLabelOf(block, linkInfo) ?? "任務",
+                  fmtDur(th.min * MIN),
+                  fmtDur(Math.max(0, durOf(span, now) - th.min * MIN)),
+                )
+              : th.source === "category"
               ? `平常大約 ${fmtDur(th.min * MIN)}。其實到幾點？`
               : `已經超過 ${fmtDur(th.min * MIN)} 的保險上限。其實到幾點？`}
         <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>

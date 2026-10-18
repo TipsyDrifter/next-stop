@@ -9,6 +9,9 @@
  *   - `CAT_PALETTE`（＝timetable.css §A 逐值；測試 D8 對帳）、`TT_NOTICE_TEXT`（N 系列固定字）
  *   - 佇列動作 `PendingAction`、通知狀態 `NoticeState`（JS → Kotlin 的 JSON 形狀，§5.10.4 的 `state` 鍵）
  *   - `noticeTiles`（0-10、D-時-32）、`tileOf`、`buildNoticeState`、`sortPending`、`reminderOf`
+ *
+ * 車次②（② 契約 §4.5；丙）：`buildNoticeState` 多收 `linkLabel`／`taskEstimateMin`（運行中那班顯示「分類・任務名」、
+ * 門檻多一層任務的預計時間）；`noticeRunName`（＝`timetableLink` 的 `runLabel(cat, clipLabel(label))` 同義副本）。
  */
 import {
   MIN,
@@ -174,6 +177,21 @@ function glyphOf(cat: TimeCategoryRow): string {
   return cat.glyph ?? Array.from(cat.name)[0] ?? "・";
 }
 
+/**
+ * ②（車次② 契約 §4.5、0-13）：「分類・任務名」與 16 字截字。
+ * 本檔只准 import `./timetable.ts`（§4.1），所以這兩支是 `timetableLink.ts` 的 `runLabel`／`clipLabel` 的同義副本；
+ * `timetable-notice.test.ts` D-②5 逐例對帳兩邊相同。
+ */
+const LABEL_CLIP = 16;
+function clipTaskLabel(s: string): string {
+  const chars = Array.from(s);
+  return chars.length <= LABEL_CLIP ? s : chars.slice(0, LABEL_CLIP - 1).join("") + "…";
+}
+/** 有任務名 ⇒ `${catName}・${clip(label)}`；null／undefined ⇒ 只有分類名 */
+export function noticeRunName(catName: string, linkLabel: string | null | undefined): string {
+  return linkLabel === null || linkLabel === undefined ? catName : `${catName}・${clipTaskLabel(linkLabel)}`;
+}
+
 /** 一格：圓牌字＝glyph ?? 名稱第一字 ?? "・"（＝CategoryBadge）；顏色＝CAT_PALETTE；門檻＝分類預設→全域（發車時還沒有預估） */
 export function tileOf(cat: TimeCategoryRow, globalMaxMin: number): NoticeTile {
   const th = thresholdOf(null, cat, globalMaxMin);
@@ -194,6 +212,10 @@ export function tileOf(cat: TimeCategoryRow, globalMaxMin: number): NoticeTile {
  * running.estimateText＝`預估 ${fmtDur}`（沒預估＝null），Kotlin 只在展開版接成「14:35 発・預估 1h」。
  * 分類已不在（同步途中）⇒ 名稱「？」、圓牌「？」、色盤第 1 色（＝①a notice 的「？」）。
  * tiles 一律照算（tilesEnabled 只是給 Kotlin 決定畫不畫）。
+ *
+ * ②（契約 §4.5）：`linkLabel`＝運行中那班連到的任務名（`linkLabelOf` 的結果；呼叫端不必先截）——有 ⇒ running.name、
+ * subText、reminderTitle 都用「分類・任務名」（任務名截到 16 字）；圓牌、顏色照舊是分類的。
+ * `taskEstimateMin`＝任務的預計時間（`taskEstimateOf`）——門檻多一層（預估 → 任務 → 分類 → 全域）。兩欄不給＝跟 ①c 一樣。
  */
 export function buildNoticeState(input: {
   enabled: boolean;
@@ -205,13 +227,15 @@ export function buildNoticeState(input: {
   recentIds: readonly string[];
   pins: readonly string[];
   globalMaxMin: number;
+  linkLabel?: string | null;
+  taskEstimateMin?: number | null;
 }): NoticeState {
   let running: NoticeRunning | null = null;
   const r = input.running;
   if (r) {
     const cat = input.catById[r.category_id] ?? null;
-    const name = cat ? cat.name : "？";
-    const th: Threshold | null = thresholdOf(r.estimate_min, cat, input.globalMaxMin);
+    const name = noticeRunName(cat ? cat.name : "？", input.linkLabel);
+    const th: Threshold | null = thresholdOf(r.estimate_min, cat, input.globalMaxMin, input.taskEstimateMin ?? null);
     const startedAt = msOf(r.started_at);
     const startedLabel = fmtClock(startedAt) + TT_NOTICE_TEXT.startedSuffix;
     running = {

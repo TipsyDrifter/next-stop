@@ -34,6 +34,7 @@ import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../dat
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
+import { lineTodayHotkey } from "../../lines/runtime";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
 
@@ -489,6 +490,14 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       if (deferTarget) return closeDefer();
       if (logTarget) return closeLog();
       ui().setPanelOpen(false);
+    },
+    // 別線的今日鍵（插槽 todayRowActions 的 hotkeys，接縫 #66）：沒有線處理或沒選中列 ⇒ false＝鍵照常放行
+    lineHotkey(id) {
+      const fn = lineTodayHotkey(id);
+      const row = selRow();
+      if (!fn || !row) return false;
+      fn(row.id);
+      return true;
     },
   };
 

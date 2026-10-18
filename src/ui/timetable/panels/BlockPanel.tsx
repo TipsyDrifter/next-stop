@@ -14,13 +14,19 @@
  *   看得到確認鈕），確認框 div.ns-tt-merge-confirm：B2 預覽一行＋說明＋「算了」「確認合併」；軸上那兩塊描金邊
  *   （setMergeMarks）。主鈕「改好了」在確認框開著時不在畫面上（互斥）。
  *   bound：上＝看的那天的起點；下＝min(那天的終點, 現在)。
+ *
+ * 車次②（② 契約 §5.5；乙席；長相＝原型 `v-f.js` editBody／fillBody）：副標之後一列「連到」（LinkRow）——改一塊預設＝這一塊
+ * 目前的連結、補記預設沒連；點了面板換成 LinkPicker 子頁（‹ 回來；選了就回來）。主鈕：補記＝`fill(cat, s, e, link)`；
+ * 改好了＝`editBlock(..., link)`，**沒動過連結就傳 undefined**（不動）。沒動過時，面板開著別台改了這一塊的連結 ⇒ 跟著顯示新的。
  */
 import { useEffect, useState } from "react";
-import { MIN, fmtClock, fmtDur, msOf, type MergePreview } from "../../../domain/timetable";
+import { MIN, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
+import { linkOfRow } from "../../../domain/timetableLink";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
 import { CategoryGrid } from "../parts/CategoryGrid";
+import { LinkPicker, LinkRow } from "../parts/LinkPicker";
 import {
   Actions,
   Expand,
@@ -91,6 +97,10 @@ export function BlockPanel({ onDone }: PanelProps) {
   const [start, setStart] = useState(init.start);
   const [end, setEnd] = useState(init.end);
   const [cat, setCat] = useState<string | null>(init.cat);
+  // ②：連結（undefined＝還沒動過：改一塊跟著這一塊目前的連結、補記＝沒連）；picking＝子頁開著
+  const [linkPicked, setLinkPicked] = useState<BlockLink | null | undefined>(undefined);
+  const [picking, setPicking] = useState(false);
+  const link: BlockLink | null = linkPicked !== undefined ? linkPicked : mode === "edit" && block ? linkOfRow(block) : null;
   // 面板開著時別台改了這一塊（同步拉到 ⇒ block 換新）：主人還沒動過的欄位跟著換成新的值，動過的照留（沙盒 S9）。
   // 不跟的話，「改好了」會把面板上的舊起訖／舊分類整份寫回去，蓋掉別台的修改。
   const [base, setBase] = useState(init);
@@ -140,6 +150,21 @@ export function BlockPanel({ onDone }: PanelProps) {
     );
   }
 
+  if (picking) {
+    return (
+      <div className="ns-tt-panel ns-tt-panel-block is-picking">
+        <LinkPicker
+          value={link}
+          onBack={() => setPicking(false)}
+          onPick={(l) => {
+            setLinkPicked(l);
+            setPicking(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   const setStartClamped = (v: number): void => setStart(clamp(v, 0, end - MIN));
   const setEndClamped = (v: number): void => setEnd(clamp(v, start + MIN, now));
 
@@ -149,8 +174,8 @@ export function BlockPanel({ onDone }: PanelProps) {
       return;
     }
     onDone();
-    if (mode === "fill") void fill(cat, start, end);
-    else if (block) void editBlock(block.id, cat, start, end);
+    if (mode === "fill") void fill(cat, start, end, link);
+    else if (block) void editBlock(block.id, cat, start, end, linkPicked);
   };
 
   const catName = (id: string): string => catById[id]?.name ?? "？";
@@ -229,6 +254,7 @@ export function BlockPanel({ onDone }: PanelProps) {
         {fmtClock(start)} – {fmtClock(end)}　・　{fmtDur(end - start)}
       </Sub>
       {warn && <Sub warn>{warn}</Sub>}
+      <LinkRow value={link} onOpen={() => setPicking(true)} />
       <CategoryGrid selected={cat} onPick={setCat} compact />
       <Row k="発車">
         <Stepper value={start} steps={[-5, 5]} lo={0} hi={end - MIN} onChange={setStartClamped} label="発車時刻" />

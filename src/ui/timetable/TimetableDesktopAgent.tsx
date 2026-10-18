@@ -1,6 +1,7 @@
 /**
  * TimetableDesktopAgent——桌機全域代理（①a 補充契約 §3：系統匣顯示運行中；mount 的 `desktopOverlay`）。
- * 回 `null`、只有 effect，App 每頁常駐掛一份（`lineOverlays("desktop")`）：
+ * App 每頁常駐掛一份（`lineOverlays("desktop")`）。車次② 起不再是零 DOM：回 `<OffPageSheetHost shell="desktop" />`
+ * （不在時刻表頁時畫時刻表的面板，② 契約 0-9、§5.3；在時刻表頁時它回 null）。其餘照舊只有 effect：
  *   - mount：`store.init("desktop")`（冪等；與 TimetableView 共用同一個 init promise）→ `syncRunningNotice()`（不 force，見下方註解）。
  *     App 一開就知道有沒有運行中——不必先進時刻表頁，系統匣就寫「目前沒有列車在跑」或「創作・14:35 発」。
  *   - 訂閱 store：`ready`／`running`／`categories`／`noticeEnabled` 變化 ⇒ 重送（notice.ts 內部去重）。
@@ -16,15 +17,31 @@
  *   - 跑太久提醒：`syncLongRunReminder()`（notice.ts 路由；桌機＝desktopReminder）在 mount 與 running／分類／
  *     保險上限／提醒開關變化時重算。
  *   `?mock=1` 沒有 Rust：`window.__ttTrayMock = { menu(), click(menuId) }` 照 Rust 的 id 規則模擬點選單。
+ *
+ * 車次②（② 契約 §5.3；乙席，本檔整個歸乙）：
+ *   - 掛 `startTaskWatch()`（蓋済偵測；參考計數，StrictMode 的掛→清→掛不會退掉共用訂閱）。
+ *   - 通知組與提醒組的觸發都多看「運行中那班的任務名與任務預計時間」（`taskSig`，比算出來的值、不比 linkInfo 物件）：
+ *     運行中改了連到任務的預計時間、或 linkInfo 第一次讀失敗之後被 refreshLinks 補上，系統匣與提醒都會重送／重排。
  */
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { MOCK_MODE } from "../../data";
+import { linkLabelOf, taskEstimateOf } from "../../domain/timetableLink";
 import type { TrayAction, TrayMenuSpec } from "../../domain/timetableTray";
-import { useTimetableStore } from "../../store/timetableStore";
+import { useTimetableStore, type TimetableStore } from "../../store/timetableStore";
+import { OffPageSheetHost } from "./OffPageSheetHost";
+import { startTaskWatch } from "./taskWatch";
 import { syncLongRunReminder, syncRunningNotice } from "./notice";
 import { handleTrayAction, lastTrayState } from "./noticeDesktop";
 import { stopDesktopReminder } from "./desktopReminder";
+
+/**
+ * ②：運行中那班的任務名＋任務預計時間（比算出來的值：linkInfo 每次 refresh 都換物件，比物件會每次重送）。
+ * 手機代理也用同一支。
+ */
+export function taskSig(st: Pick<TimetableStore, "running" | "linkInfo">): string {
+  return st.running ? `${linkLabelOf(st.running, st.linkInfo) ?? ""}|${taskEstimateOf(st.running, st.linkInfo) ?? ""}` : "";
+}
 
 /** 經過時間每分鐘才變（§5.11）；沒變的那幾次被 syncTray 的去重簽章擋掉 */
 const TRAY_TICK_MS = 60_000;
@@ -63,7 +80,9 @@ export function TimetableDesktopAgent() {
     const unsub = useTimetableStore.subscribe((s, prev) => {
       // `ready` 也要看：整批換掉（reload wiped）時 refresh 在 ready=false 期間就換了 running（那時 notice 會略過），
       // 等 ready 回 true 才補送，否則系統匣停在換掉之前的那班
-      const base = s.ready !== prev.ready || s.running !== prev.running || s.categories !== prev.categories;
+      // ②：任務名／任務預計時間變了也算（通知組的系統匣名稱、提醒組的門檻都跟著它）
+      const taskChanged = taskSig(s) !== taskSig(prev);
+      const base = s.ready !== prev.ready || s.running !== prev.running || s.categories !== prev.categories || taskChanged;
       if (
         base ||
         s.noticeEnabled !== prev.noticeEnabled ||
@@ -110,5 +129,8 @@ export function TimetableDesktopAgent() {
     };
   }, []);
 
-  return null;
+  // ②：蓋済偵測（startTaskWatch 回的就是 cleanup）
+  useEffect(() => startTaskWatch(), []);
+
+  return <OffPageSheetHost shell="desktop" />;
 }

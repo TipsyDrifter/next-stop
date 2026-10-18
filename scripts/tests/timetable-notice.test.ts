@@ -4,6 +4,9 @@
  * 時區：測資一律用 `new Date(y, m-1, d, h, mi).getTime()` 造本地時刻（同 timetable-logic.test.ts）。
  *
  * D1–D9 全是真斷言（丙 Stage 1）。D7 的「冪等推演」照 noticePending.ts 的套用規則在記憶體裡重演（那支模組 import store，node 載不進來）。
+ *
+ * 車次②（② 契約 §4.5；丙）：D-②1–D-②5（運行中那班「分類・任務名」、16 字截字、任務的預計時間當門檻、不給新欄＝①c 原樣、
+ * 與 timetableLink 的 runLabel／clipLabel 對帳＋三支純函式檔只 import ./timetable.ts）。
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -32,6 +35,7 @@ import {
   TT_NOTICE_TEXT,
   buildNoticeState,
   noticeDepartCategoryOk,
+  noticeRunName,
   noticeTiles,
   pendingIsValid,
   reminderOf,
@@ -42,6 +46,7 @@ import {
   type PendingAction,
   type PendingOutcome,
 } from "../../src/domain/timetableNotice.ts";
+import { clipLabel, runLabel } from "../../src/domain/timetableLink.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../..");
@@ -459,5 +464,88 @@ describe("D 區（①b①c 契約 §4.8）", () => {
       "utf8",
     );
     assert.ok(renderer.includes(`"estimateText"`), "TtNoticeRenderer.kt 要讀 estimateText");
+  });
+});
+
+describe("D 區・②（② 契約 §4.5）", () => {
+  const cs = cats();
+  const catById: Record<string, TimeCategoryRow> = {};
+  for (const c of cs) catById[c.id] = c;
+  const base = { enabled: true, tilesEnabled: true, longRunEnabled: true, catById, categories: cs, recentIds: [] as string[], pins: [] as string[], globalMaxMin: 840 };
+  const start = T(14, 35);
+
+  test("D-②1 給 linkLabel ⇒ running.name、subText、reminderTitle 都是「創作・寫契約」；圓牌、顏色、tiles 照舊是分類的", () => {
+    const r = block("blk", "c", start, null);
+    const s = buildNoticeState({ ...base, running: r, linkLabel: "寫契約" });
+    assert.ok(s.running);
+    assert.equal(s.running.name, "創作・寫契約");
+    assert.equal(s.running.subText, "創作・寫契約・14:35 発");
+    assert.equal(s.running.reminderTitle, "創作・寫契約已經跑了 2h，還在嗎？"); // 分類預設 120
+    assert.equal(s.running.glyph, "創");
+    assert.equal(s.running.categoryId, "c");
+    const plain = buildNoticeState({ ...base, running: r });
+    assert.deepEqual(s.tiles, plain.tiles); // 格子是分類，不帶任務名
+    assert.equal(s.running.colorLight, plain.running?.colorLight);
+    // 分類已不在（同步途中）⇒「？・寫契約」
+    const ghost = buildNoticeState({ ...base, running: block("g", "gone", start, null), linkLabel: "寫契約" });
+    assert.equal(ghost.running?.name, "？・寫契約");
+    assert.equal(ghost.running?.glyph, "？");
+  });
+
+  test("D-②2 linkLabel 超過 16 字被截（第 16 字是「…」）；剛好 16 字不截", () => {
+    const r = block("blk", "c", start, null);
+    const long = "一二三四五六七八九十一二三四五六七八九十"; // 20 字
+    const s = buildNoticeState({ ...base, running: r, linkLabel: long });
+    assert.equal(s.running?.name, "創作・一二三四五六七八九十一二三四五…");
+    assert.equal(Array.from(s.running!.name.slice("創作・".length)).length, 16);
+    assert.equal(s.running?.subText, "創作・一二三四五六七八九十一二三四五…・14:35 発");
+    const sixteen = long.slice(0, 16);
+    assert.equal(buildNoticeState({ ...base, running: r, linkLabel: sixteen }).running?.name, `創作・${sixteen}`);
+  });
+
+  test("D-②3 taskEstimateMin 60、分類 240 ⇒ running.thresholdMin === 60；預估優先於任務；任務 0／null ⇒ 退回分類", () => {
+    const cs2 = cs.map((c) => (c.id === "c" ? { ...c, default_min: 240 } : c));
+    const byId2: Record<string, TimeCategoryRow> = {};
+    for (const c of cs2) byId2[c.id] = c;
+    const b2 = { ...base, catById: byId2, categories: cs2 };
+    const r = block("blk", "c", start, null);
+    const s = buildNoticeState({ ...b2, running: r, taskEstimateMin: 60, linkLabel: "寫契約" });
+    assert.equal(s.running?.thresholdMin, 60);
+    assert.equal(s.running?.reminderTitle, "創作・寫契約已經跑了 1h，還在嗎？");
+    assert.equal(thresholdOf(null, byId2.c, 840, 60)?.source, "task");
+    const est = buildNoticeState({ ...b2, running: block("blk", "c", start, null, { estimate_min: 30 }), taskEstimateMin: 60 });
+    assert.equal(est.running?.thresholdMin, 30);
+    assert.equal(buildNoticeState({ ...b2, running: r, taskEstimateMin: 0 }).running?.thresholdMin, 240);
+    assert.equal(buildNoticeState({ ...b2, running: r, taskEstimateMin: null }).running?.thresholdMin, 240);
+    // 常用格的門檻不吃任務（從格子發車的那班沒有連結；§4.2-6 #3 不改）
+    assert.equal(s.tiles.find((t) => t.categoryId === "c")?.thresholdMin, 240);
+  });
+
+  test("D-②4 不給新欄／給 null ＝ ①c 的狀態逐欄相同", () => {
+    for (const r of [null, block("blk", "c", start, null, { estimate_min: 30 }), block("blk", "f", start, null), block("g", "gone", start, null)]) {
+      const old = buildNoticeState({ ...base, running: r });
+      assert.deepEqual(buildNoticeState({ ...base, running: r, linkLabel: null, taskEstimateMin: null }), old);
+      assert.deepEqual(buildNoticeState({ ...base, running: r, linkLabel: undefined, taskEstimateMin: undefined }), old);
+      assert.equal(JSON.stringify(buildNoticeState({ ...base, running: r, linkLabel: null })), JSON.stringify(old)); // 去重簽章不變
+    }
+    // ①c 的快照（D2 同一組）原樣成立
+    const s = buildNoticeState({ ...base, running: block("blk", "c", start, null, { estimate_min: 30 }) });
+    assert.equal(s.running?.subText, "創作・14:35 発");
+    assert.equal(s.running?.thresholdMin, 30);
+    assert.equal(s.running?.reminderTitle, "創作已經跑了 30m，還在嗎？");
+  });
+
+  test("D-②5 noticeRunName ＝ runLabel(cat, clipLabel(label))；三支純函式檔只 import ./timetable.ts", () => {
+    const cases: (string | null)[] = [null, "", "寫契約", "一二三四五六七八九十一二三四五六", "一二三四五六七八九十一二三四五六七", "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"];
+    for (const l of cases) {
+      assert.equal(noticeRunName("創作", l), runLabel("創作", l === null ? null : clipLabel(l)), `label=${String(l)}`);
+    }
+    assert.equal(noticeRunName("創作", undefined), "創作");
+    for (const f of ["timetableNotice.ts", "timetableTray.ts", "timetableLink.ts"]) {
+      const src = readFileSync(path.join(ROOT, "src/domain", f), "utf8");
+      const froms = Array.from(src.matchAll(/^import[\s\S]*?from\s+"([^"]+)";/gm)).map((m) => m[1]);
+      assert.ok(froms.length > 0, f);
+      assert.deepEqual(Array.from(new Set(froms)), ["./timetable.ts"], `${f} 只准 import ./timetable.ts`);
+    }
   });
 });

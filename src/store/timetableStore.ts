@@ -14,14 +14,30 @@
  * `blockIsLongRun`）；預估、多切點、合併、封存／搬組／換圓牌字、F 鍵；F1（dayStartHour 變了就 refresh）。
  * ①c 要的狀態與動作也在這裡先寫好（①b 單獨進站時休眠）：三把本地通知鍵、`recentCategoryIds`、
  * 模組層匯出 `timetableWrite`／`waitForTimetableSyncSettle`。
+ *
+ * 車次②（② 契約 §3.7、§3.8；只加不改）：連到的節點資訊 `linkInfo`（＋序號 `linkSeq`）、`rev`；從任務發車
+ * （`departFromTask`／`departWithLink`）；`depart`／`fill`／`editBlock` 收連結、`setLink`；側板「時間」用的讀取
+ * （`linkedBlocks`／`subtreeNodes`／`routeNodes`）；門檻多一層任務的預計時間（`blockMarker`／`blockIsLongRun` 的 `links`）。
+ * `nodeRepo` 只在本檔與 `taskWatch.ts` 用（② 契約 §1-5）。
  */
 import { create } from "zustand";
 import { timetableRepo } from "../data/timetableRepository";
-import { settingsRepo, MOCK_MODE } from "../data";
+import { settingsRepo, nodeRepo, MOCK_MODE } from "../data";
 import { useUiStore } from "./uiStore";
 import { useSyncStore } from "./syncStore";
+import { indexTree, useNodeStore, type TreeIndex } from "./nodeStore";
 import { addDays, dayWindow, todayKey } from "../lib/date";
 import type { LineReloadContext } from "../lines/types";
+import { KIND_LABEL, type NodeRow } from "../domain/node";
+import { notePulled } from "../ui/timetable/taskWatch";
+import {
+  LINKABLE_KINDS,
+  LINK_MISSING_TEXT,
+  linkDeletedText,
+  linkLabelOf,
+  taskEstimateOf,
+  type LinkInfo,
+} from "../domain/timetableLink";
 import {
   MIN,
   currentRunning,
@@ -36,6 +52,7 @@ import {
   thresholdOf,
   toSpan,
   weekStartKey,
+  type BlockLink,
   type CoverSummary,
   type LongRunChoice,
   type MergePreview,
@@ -59,14 +76,19 @@ export type TimetableShell = "desktop" | "mobile";
 
 export type TimetableSheet =
   | { kind: "depart" }
-  | { kind: "longRun"; blockId: string; then: "depart" | "arrive" | { tile: string } | null }
+  /** ②：then 的 tile 可以帶連結（從任務發車遇到長時間運行待確認，先問完再發車） */
+  | { kind: "longRun"; blockId: string; then: "depart" | "arrive" | { tile: string; link?: BlockLink } | null }
   | { kind: "restart"; blockId: string }
   | { kind: "fill"; start: number; end: number }
   | { kind: "edit"; blockId: string }
   | { kind: "split"; blockId: string }
   | { kind: "categories" }
   /** ①b：這一班的預估（運行中那班） */
-  | { kind: "estimate"; blockId: string };
+  | { kind: "estimate"; blockId: string }
+  /** ②：從任務發車、第一次碰到的路線（☎一-1） */
+  | { kind: "taskCategory"; nodeId: string }
+  /** ②：改一塊的連結（運行列「連到…」與改一塊面板都開它） */
+  | { kind: "link"; blockId: string };
 
 /** toast 全文（契約 §5.10）與固定文案（§5.11）——顯示端不手抄 */
 export const TT_TEXT = {
@@ -129,6 +151,39 @@ export const TT_TEXT = {
   noGap: "這一天沒有未記錄的時間",
   /** B14 切點驗證 */
   cutTooShort: "每段至少 1 分",
+
+  /* ── ②（② 契約 §5.13；鍵名照契約） ── */
+  DEPART_TASK: (cat: string, task: string, at: number) => `発車・${cat}・${task}　${fmtClock(at)}`,
+  ALREADY_RUNNING_TASK: (task: string) => `「${task}」已經在跑了`,
+  TASK_MISSING: "找不到這張車票",
+  LINKED: (label: string) => `已連到「${label}」`,
+  UNLINKED: "已取消連結",
+  DONE_STILL_RUNNING: (task: string) => `「${task}」蓋済了，計時還在跑`,
+  ARRIVE_ACTION: "到着",
+  TASK_CATEGORY_TITLE: (task: string) => `「${task}」算哪一類？`,
+  /** 節點掛著路線 */
+  TASK_CATEGORY_NOTE: "之後從這條路線發車會記住",
+  /** 沒掛路線的臨時車票（只查節點那一段，每一張第一次都會跳） */
+  TASK_CATEGORY_NOTE_NO_ROUTE: "之後從這張票發車會記住",
+  LINK_DELETED: linkDeletedText,
+  LINK_MISSING: LINK_MISSING_TEXT,
+  /** LinkPanel 標題 */
+  LINK_TITLE: "連到…",
+  /** 運行列沒連時的淡字 */
+  LINK_NONE: "連到…",
+  LINK_CLEAR: "取消連結",
+  LINK_ROUTE_ONLY: "只連路線",
+  TODAY_TICKETS: "今日車票",
+  TIME_LABEL: "時間",
+  TIME_HOVER: (self: string, below: string) => `自己 ${self}／底下 ${below}`,
+  ROUTE_TIME: (month: string, total: string) => `本月 ${month}・累計 ${total}`,
+  TIME_MANUAL: "手填",
+  TIME_BLOCKS: (x: string) => `時間塊 ${x}`,
+  FOCUS: "專注",
+  TODAY_DEPART: "発車",
+  TODAY_RUNNING: "正在跑",
+  EST_FALLBACK_TASK: (x: string) => `；沒預估時用任務的預計時間 ${x}`,
+  LONG_RUN_TASK: (task: string, est: string, over: string) => `「${task}」預計 ${est}，已經誤點 ${over}。其實到幾點？`,
 } as const;
 
 export interface TimetableStore {
@@ -164,6 +219,10 @@ export interface TimetableStore {
   noticePins: string[];
   /** 最近 30 天用過的分類 id（refresh 時讀；給 ①c 的 noticeTiles），依最後一次開始遞減、最多 12 個 */
   recentCategoryIds: string[];
+  /** ②：連到的節點／路線資訊（② 契約 0-16）；key＝節點 id 或路線 id */
+  linkInfo: Record<string, LinkInfo>;
+  /** ②：每次 refresh 成功 +1（側板「時間」據此重查） */
+  rev: number;
 
   /* 載入 */
   /** 冪等；第一次：讀設定 → 起手分類（§3.7.1）→ reconcile 一次 → refresh */
@@ -200,12 +259,14 @@ export interface TimetableStore {
   requestFillLatestGap(): void;
 
   /* 寫入（面板確認時叫；成功 ⇒ refresh＋toast；失敗 ⇒ toast 15；全部經 serial 佇列） */
-  /** ①b：第三參數＝這一班的預估（分；舊呼叫照舊成立） */
-  depart(categoryId: string, at: number, estimateMin?: number | null): Promise<void>;
+  /** ①b：第三參數＝這一班的預估（分；舊呼叫照舊成立）。②：第四參數＝新一班的連結 */
+  depart(categoryId: string, at: number, estimateMin?: number | null, link?: BlockLink | null): Promise<void>;
   arrive(at?: number): Promise<void>;
   restart(blockId: string, at: number): Promise<void>;
-  fill(categoryId: string, start: number, end: number): Promise<void>;
-  editBlock(blockId: string, categoryId: string, start: number, end: number): Promise<void>;
+  /** ②：第四參數＝新一塊的連結 */
+  fill(categoryId: string, start: number, end: number, link?: BlockLink | null): Promise<void>;
+  /** ②：link undefined＝不動連結 */
+  editBlock(blockId: string, categoryId: string, start: number, end: number, link?: BlockLink | null): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
   deleteBlock(blockId: string): Promise<void>;
@@ -229,6 +290,26 @@ export interface TimetableStore {
   moveCategoryToGroup(id: string, parentId: string): Promise<void>;
   /** ①b：換圓牌字；toast B9 */
   setCategoryGlyph(id: string, glyph: string): Promise<void>;
+
+  /* ②（② 契約 §3.7） */
+  /** 從任務發車（§5.2 的流程）：面板開著就不動；找不到／已刪／不能連 ⇒ TASK_MISSING；正在跑 ⇒ ALREADY_RUNNING_TASK；
+   *  記得上次的分類 ⇒ departWithLink；否則開 taskCategory 面板 */
+  departFromTask(nodeId: string): Promise<void>;
+  /** 分類選擇面板選好之後（或其他已知分類的入口）真的發車；長時間運行待確認 ⇒ 先問「其實到幾點」 */
+  departWithLink(categoryId: string, link: BlockLink, opts?: { estimateMin?: number | null; at?: number }): Promise<void>;
+  /** 改一塊的連結；toast LINKED／UNLINKED */
+  setLink(blockId: string, link: BlockLink | null): Promise<void>;
+  /** 只重讀 linkInfo（taskWatch 叫；不經 serial、不 toast；帶序號，比後來開始的 refresh 舊的結果丟掉） */
+  refreshLinks(): Promise<void>;
+  /** 側板「時間」用的讀取（不寫狀態、不經 serial） */
+  linkedBlocks(q: { nodeIds: readonly string[] } | { routeId: string }): Promise<TimeBlockRow[]>;
+  /** 「記住上次的分類」的讀取（不寫狀態、不經 serial；直接轉 repository 的 lastCategoryFor，跟 departFromTask 用同一份）。
+   *  nodeId null＝只連路線 ⇒ 只查路線段 */
+  lastCategoryFor(nodeId: string | null, routeId: string | null): Promise<{ categoryId: string; from: "node" | "route" } | null>;
+  /** 子樹（② 契約 0-5）：在 nodeStore.tree 就從樹取，否則 nodeRepo.listRouteTree 建臨時樹；回含自己的節點列 */
+  subtreeNodes(node: NodeRow): Promise<NodeRow[]>;
+  /** 路線樹的節點（② 契約 0-5、0-6）：不含路線自己；nodeStore.routeId === routeId 就從樹取，否則 nodeRepo.listRouteTree */
+  routeNodes(routeId: string): Promise<NodeRow[]>;
 }
 
 /* ───────── 模組層狀態 ───────── */
@@ -247,8 +328,73 @@ let enteredOnce = false;
 /** `reload({wiped:true})` 觸發的重 init：這一趟剛拉完（而且是在 syncStore 那趟 `working:true` 裡被 await 的），
  *  起手分類的閘門沒有東西可等 ⇒ 跳過，不然必定等滿 10 秒才種分類、頁面 loading 10 秒 */
 let skipSettleGateOnce = false;
+/** ②：linkInfo 的序號（② 契約 §3.7-1）：refresh／refreshLinks 開始讀時 +1；refreshLinks 讀完發現被超車就丟掉 */
+let linkSeq = 0;
+/** ②：從任務發車進行中（重複點擊／鍵 n 連按時不再發一次；② 契約 0-9 的「再發一次」護欄之外多一道） */
+let taskDepartBusy = false;
 
-const toast = (message: string, actionLabel?: string, onAction?: () => void): void =>
+/** ②：節點列 → linkInfo 的一格（路線那格 routeId＝自己、code 取 node.code） */
+function linkInfoOf(n: NodeRow): LinkInfo {
+  const isRoute = n.kind === "route";
+  return {
+    id: n.id,
+    kind: n.kind,
+    kindLabel: KIND_LABEL[n.kind] ?? n.kind,
+    name: n.name,
+    routeId: isRoute ? n.id : n.route_id,
+    estimateMin: n.estimate_min,
+    code: isRoute ? n.code : null,
+    deleted: n.deleted_at !== null,
+    missing: false,
+  };
+}
+
+function missingInfo(id: string): LinkInfo {
+  return { id, kind: "", kindLabel: "", name: "", routeId: null, estimateMin: null, code: null, deleted: false, missing: true };
+}
+
+/**
+ * ② 契約 §3.7-1：逐一 `nodeRepo.getNode`（含已刪除）。**照抄這一行的寫法**——不可寫成 `ids.map(nodeRepo.getNode)`
+ * （方法拆離物件後 this 是 undefined，mock 會每格都丟錯）。回 null 或讀失敗 ⇒ 那格 missing，不讓整個 refresh 失敗。
+ */
+async function loadLinkInfo(ids: readonly string[]): Promise<Record<string, LinkInfo>> {
+  const nodes = await Promise.all(ids.map((id) => nodeRepo.getNode(id).catch(() => null)));
+  const out: Record<string, LinkInfo> = {};
+  ids.forEach((id, i) => {
+    const n = nodes[i];
+    out[id] = n ? linkInfoOf(n) : missingInfo(id);
+  });
+  return out;
+}
+
+/** ②：要載 linkInfo 的 id（去重）：運行中、看的那天、今天的塊的 node_id／route_id，加開著的 taskCategory 面板的節點 */
+function linkIdsOf(rowsList: readonly (readonly TimeBlockRow[])[], sheet: TimetableSheet | null): string[] {
+  const set = new Set<string>();
+  for (const rows of rowsList) {
+    for (const r of rows) {
+      if (r.node_id !== null) set.add(r.node_id);
+      if (r.route_id !== null) set.add(r.route_id);
+    }
+  }
+  if (sheet?.kind === "taskCategory") set.add(sheet.nodeId);
+  return Array.from(set);
+}
+
+/** ②：從樹上取含自己的子樹（只含樹裡的活節點） */
+function walkTree(tree: TreeIndex, root: NodeRow): NodeRow[] {
+  const out: NodeRow[] = [root];
+  const stack = [...(tree.childrenOf[root.id] ?? [])];
+  while (stack.length) {
+    const id = stack.pop()!;
+    const n = tree.byId[id];
+    if (!n) continue;
+    out.push(n);
+    stack.push(...(tree.childrenOf[id] ?? []));
+  }
+  return out;
+}
+
+const toast =(message: string, actionLabel?: string, onAction?: () => void): void =>
   useUiStore.getState().showToast(actionLabel ? { message, actionLabel, onAction } : { message });
 
 function failToast(e: unknown): void {
@@ -367,9 +513,9 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
 
   /** 長時間運行的判斷（運行中那班 × 門檻：這一班的預估 → 分類預設長度 → 全域上限；〈開工決定〉二-4） */
   function longRunNow(): TimeBlockRow | null {
-    const { running, catById, longRunMaxMin } = get();
+    const { running, catById, longRunMaxMin, linkInfo } = get();
     if (!running) return null;
-    return blockIsLongRun(running, catById, longRunMaxMin, Date.now()) ? running : null;
+    return blockIsLongRun(running, catById, longRunMaxMin, Date.now(), linkInfo) ? running : null;
   }
 
   const catName = (id: string): string => get().catById[id]?.name ?? "？";
@@ -393,7 +539,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     } else if (then === "arrive") {
       if (get().running) void get().arrive();
     } else {
-      void get().depart(then.tile, Date.now());
+      void get().depart(then.tile, Date.now(), null, then.link ?? null);
     }
   }
 
@@ -419,6 +565,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     noticeTilesEnabled: true,
     noticePins: [],
     recentCategoryIds: [],
+    linkInfo: {},
+    rev: 0,
 
     /* ───────── 載入 ───────── */
 
@@ -454,6 +602,15 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         const catById: Record<string, TimeCategoryRow> = {};
         for (const c of categories) catById[c.id] = c;
         const cur = currentRunning(runningRows.map(toSpan));
+        // ②：連到的節點資訊（跟時間塊同一次 set；序號讓晚回來的 refreshLinks 丟掉舊結果）
+        ++linkSeq;
+        const linkInfo = await loadLinkInfo(linkIdsOf([runningRows, dayBlocks, todayBlocks ?? []], get().sheet));
+        // 讀的期間 departFromTask 開了 taskCategory 面板（開工時 sheet 還是 null、沒算到那個節點）⇒ 保留它塞進去的那一格
+        const sh = get().sheet;
+        if (sh?.kind === "taskCategory" && !(sh.nodeId in linkInfo)) {
+          const keep = get().linkInfo[sh.nodeId];
+          if (keep) linkInfo[sh.nodeId] = keep;
+        }
         set({
           categories,
           catById,
@@ -464,6 +621,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
           todayBlocks: todayBlocks ?? dayBlocks,
           weekBlocks,
           recentCategoryIds,
+          linkInfo,
+          rev: get().rev + 1,
           error: null,
         });
       } catch (e) {
@@ -477,6 +636,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     },
 
     async reload(ctx) {
+      notePulled(ctx.changed); // ②：蓋済偵測分辨「同步拉下來的」（② 契約 §3.8、0-8）
       if (ctx.wiped) set({ sheet: null, dismissedLongRunId: null, pendingAsk: false, ready: false });
       const touched = ctx.wiped || ctx.changed.includes("time_blocks") || ctx.changed.includes("time_categories");
       if (ctx.changed.includes("settings")) await readLongRunMax(); // 全域保險上限可能被別台改了
@@ -626,21 +786,24 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
 
     /* ───────── 寫入 ───────── */
 
-    async depart(categoryId, at, estimateMin) {
+    async depart(categoryId, at, estimateMin, link) {
       const now = Date.now();
       const atMs = Math.min(at, now);
       await write(
-        () => timetableRepo.depart(categoryId, isoOf(atMs), { estimateMin: estimateMin ?? null }),
+        () => timetableRepo.depart(categoryId, isoOf(atMs), { estimateMin: estimateMin ?? null, link: link ?? null }),
         ({ block }) => {
           const start = msOf(block.started_at);
           const name = catName(block.category_id);
+          // ②：有連結 ⇒「発車・分類・任務」（refresh 已經載好這一班的 linkInfo）
+          const label = linkLabelOf(block, get().linkInfo);
+          const text = label !== null ? TT_TEXT.DEPART_TASK(name, label, start) : TT_TEXT.depart(name, start);
           if (now - atMs < MIN) {
             // 出發＝現在：帶「改 10 分前」（該班仍運行中才動）
-            toast(TT_TEXT.depart(name, start), TT_TEXT.departAction, () => {
+            toast(text, TT_TEXT.departAction, () => {
               if (get().running?.id === block.id) void get().restart(block.id, start - 10 * MIN);
             });
           } else {
-            toast(TT_TEXT.depart(name, start));
+            toast(text);
           }
         },
       );
@@ -678,16 +841,16 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async fill(categoryId, start, end) {
+    async fill(categoryId, start, end, link) {
       await write(
-        () => timetableRepo.fill(categoryId, isoOf(start), isoOf(end)),
+        () => timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null }),
         ({ block }) => toast(TT_TEXT.fill(catName(block.category_id), end - start)),
       );
     },
 
-    async editBlock(blockId, categoryId, start, end) {
+    async editBlock(blockId, categoryId, start, end, link) {
       await write(
-        () => timetableRepo.editBlock(blockId, { categoryId, startIso: isoOf(start), endIso: isoOf(end) }),
+        () => timetableRepo.editBlock(blockId, { categoryId, startIso: isoOf(start), endIso: isoOf(end), link }),
         () => toast(TT_TEXT.edit(catName(categoryId), start, end)),
       );
     },
@@ -821,6 +984,110 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         () => toast(TT_TEXT.glyphSet(g)),
       );
     },
+
+    /* ───────── ②（② 契約 §3.7） ───────── */
+
+    async departFromTask(nodeId) {
+      if (get().sheet !== null || taskDepartBusy) return; // 面板開著時鍵 n、重複點擊都不再發一次（0-9）
+      taskDepartBusy = true;
+      try {
+        const node = await nodeRepo.getNode(nodeId).catch(() => null);
+        if (!node || node.deleted_at !== null || !LINKABLE_KINDS.includes(node.kind)) {
+          toast(TT_TEXT.TASK_MISSING);
+          return;
+        }
+        if (get().running?.node_id === nodeId) {
+          toast(TT_TEXT.ALREADY_RUNNING_TASK(node.name));
+          return;
+        }
+        const hit = await timetableRepo.lastCategoryFor(nodeId, node.route_id);
+        if (get().sheet !== null) return; // 讀的期間別的面板開了
+        if (!hit) {
+          // 面板標題要任務名：先放進 linkInfo（refresh 收集 id 時也會把開著的 taskCategory 面板的節點算進去）。
+          // ++linkSeq：讓進行中的 refreshLinks（開工時 sheet 還是 null）作廢，不把這一格蓋掉；進行中的 refresh 寫回時自己保留
+          ++linkSeq;
+          set({ linkInfo: { ...get().linkInfo, [nodeId]: linkInfoOf(node) } });
+          get().openSheet({ kind: "taskCategory", nodeId });
+          return;
+        }
+        await get().departWithLink(hit.categoryId, { nodeId, routeId: null });
+      } catch (e) {
+        failToast(e);
+      } finally {
+        taskDepartBusy = false;
+      }
+    },
+
+    async departWithLink(categoryId, link, opts) {
+      set({ dismissedLongRunId: null });
+      const lr = longRunNow();
+      if (lr) {
+        get().openSheet({ kind: "longRun", blockId: lr.id, then: { tile: categoryId, link } });
+        return;
+      }
+      await get().depart(categoryId, opts?.at ?? Date.now(), opts?.estimateMin ?? null, link);
+    },
+
+    async setLink(blockId, link) {
+      await write(
+        async () => {
+          await timetableRepo.setLink(blockId, link);
+          // toast 用的名字：refresh 之後 linkInfo 通常已經有；沒有（這一塊不在畫面的範圍）就自己讀一次
+          const id = link ? (link.nodeId ?? link.routeId) : null;
+          const n = id ? await nodeRepo.getNode(id).catch(() => null) : null;
+          return n ? n.name : null;
+        },
+        (fetched) => {
+          if (!link) {
+            toast(TT_TEXT.UNLINKED);
+            return;
+          }
+          const label = linkLabelOf({ node_id: link.nodeId, route_id: link.routeId }, get().linkInfo) ?? fetched ?? "";
+          toast(TT_TEXT.LINKED(label));
+        },
+      );
+    },
+
+    async refreshLinks() {
+      const my = ++linkSeq;
+      const s = get();
+      const ids = linkIdsOf([s.running ? [s.running] : [], s.dayBlocks, s.todayBlocks], s.sheet);
+      try {
+        const linkInfo = await loadLinkInfo(ids);
+        if (my !== linkSeq) return; // 中間有別的 refresh／refreshLinks 開始過 ⇒ 這份可能是舊的 id 集合
+        set({ linkInfo });
+      } catch {
+        // 只是顯示資訊，讀不到下次再補
+      }
+    },
+
+    linkedBlocks(q) {
+      return "nodeIds" in q ? timetableRepo.listBlocksByNodes(q.nodeIds) : timetableRepo.listBlocksByRoute(q.routeId);
+    },
+
+    lastCategoryFor(nodeId, routeId) {
+      return timetableRepo.lastCategoryFor(nodeId, routeId);
+    },
+
+    async subtreeNodes(node) {
+      const t = useNodeStore.getState().tree;
+      const inTree = t.byId[node.id];
+      if (inTree) return walkTree(t, inTree);
+      if (node.route_id !== null) {
+        // 節點不在開著的那條路線（側板從今日頁、行程表、日曆開的）⇒ 讀那一條路線建臨時樹；不改 nodeStore
+        const tmp = indexTree(await nodeRepo.listRouteTree(node.route_id), node.route_id);
+        const hit = tmp.byId[node.id];
+        if (hit) return walkTree(tmp, hit);
+      }
+      return [node];
+    },
+
+    async routeNodes(routeId) {
+      const ns = useNodeStore.getState();
+      // 路線節點自己不在 tree.byId 裡 ⇒ 判斷要看 ns.routeId
+      if (ns.routeId === routeId) return Object.values(ns.tree.byId);
+      return nodeRepo.listRouteTree(routeId);
+    },
   };
 });
 
@@ -842,16 +1109,43 @@ export async function timetableWrite<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 這一班的門檻與長時間運行記號（兩殼、notice、NavBadge 共用）：門檻＝這一班的預估 → 分類預設長度 → 全域上限。
+ * 這一班的門檻與長時間運行記號（兩殼、notice、NavBadge 共用）：門檻＝這一班的預估 → 任務的預計時間（②）→ 分類預設長度 → 全域上限。
  * 「待確認」＝`marker.kind !== "none" && marker.pending`（＝blockIsLongRun）。
  */
-export function blockMarker(block: TimeBlockRow, catById: Record<string, TimeCategoryRow>, globalMaxMin: number, now: number): RunMarker {
-  return runMarker(toSpan(block), thresholdOf(block.estimate_min, catById[block.category_id] ?? null, globalMaxMin), now);
+/** 任務的預計時間只套在運行中那一班：任務預計是會改的計畫資料，套到已結束的塊會讓改一次預計就回頭翻掉歷史的誤點標記（②評審 #4，時刻表線裁定）。 */
+function liveTaskEstimate(block: TimeBlockRow, links: Record<string, LinkInfo>): number | null {
+  return block.ended_at === null ? taskEstimateOf(block, links) : null;
+}
+export function blockMarker(
+  block: TimeBlockRow,
+  catById: Record<string, TimeCategoryRow>,
+  globalMaxMin: number,
+  now: number,
+  links: Record<string, LinkInfo>,
+): RunMarker {
+  return runMarker(
+    toSpan(block),
+    thresholdOf(block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links)),
+    now,
+  );
 }
 
-/** 乙丙席共用：某塊是不是「長時間運行・待確認」（①b：門檻改成 預估 → 分類預設長度 → 全域上限；簽名不變） */
-export function blockIsLongRun(block: TimeBlockRow, catById: Record<string, TimeCategoryRow>, globalMaxMin: number, now: number): boolean {
-  return isLongRun(toSpan(block), thresholdOf(block.estimate_min, catById[block.category_id] ?? null, globalMaxMin)?.min ?? null, now);
+/**
+ * 乙丙席共用：某塊是不是「長時間運行・待確認」（①b：門檻改成 預估 → 分類預設長度 → 全域上限）。
+ * ②：門檻多一層任務的預計時間（預估之後、分類之前）⇒ 第五參數 `links`（store 的 linkInfo）必填。
+ */
+export function blockIsLongRun(
+  block: TimeBlockRow,
+  catById: Record<string, TimeCategoryRow>,
+  globalMaxMin: number,
+  now: number,
+  links: Record<string, LinkInfo>,
+): boolean {
+  return isLongRun(
+    toSpan(block),
+    thresholdOf(block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links))?.min ?? null,
+    now,
+  );
 }
 
 /** 乙丙席共用：昨天的 dayKey（「昨日 ›」一鍵） */

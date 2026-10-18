@@ -142,16 +142,19 @@ function NameBlock({
  * 要改班次就改規則（上面的「重複」區段）或按 U 跳過本班。
  * 版位沿用 panel.css 的 `.date`（flex 一列）與 `.latin`／`.empty`，不新增 class。
  */
-/** 別線登記的節點欄位列（插槽 `nodeFields`，接縫 #56）：依 kind 過濾；三線都沒登記＝空陣列、DOM 零變 */
-function lineFieldsFor(node: NodeRow) {
-  return lineNodeFields("desktop").filter((f) => f.kinds.includes(node.kind));
+/**
+ * 別線登記的節點欄位列（插槽 `nodeFields`，接縫 #56）：依 kind 與段（`section`，接縫 #66；不填＝status）過濾；
+ * 三線都沒登記＝空陣列、DOM 零變。amount 段只有列車／車廂面板的「分量」段會問。
+ */
+function lineFieldsFor(node: NodeRow, section: "status" | "amount" = "status") {
+  return lineNodeFields("desktop").filter((f) => f.kinds.includes(node.kind) && (f.section ?? "status") === section);
 }
 
-/** 也給 RoutePanel 用（路線面板的 `.fields` 尾端渲染點，同一個插槽） */
-export function LineRows({ node }: { node: NodeRow }) {
+/** 也給 RoutePanel 用（路線面板的 `.fields` 尾端渲染點，同一個插槽）；`section` 不給＝status */
+export function LineRows({ node, section }: { node: NodeRow; section?: "status" | "amount" }) {
   return (
     <>
-      {lineFieldsFor(node).map((f) => (
+      {lineFieldsFor(node, section).map((f) => (
         <FieldRow key={f.id} label={f.label} top={f.top}>
           <f.Desktop node={node} />
         </FieldRow>
@@ -379,15 +382,20 @@ function TaskPanel({ node }: { node: NodeRow }) {
           </div>
         </FieldRow>
 
-        <FieldRow label="花費">
-          <NumberField
-            value={node.time_spent_min}
-            onCommit={(v) => void updateNode(node.id, { time_spent_min: v })}
-            ariaLabel="花費時間（分）"
-            unit="分"
-            placeholder="—"
-          />
-        </FieldRow>
+        {/* 別線的分量段欄位（插槽 nodeFields 的 section "amount"，接縫 #66）有登記 ⇒ 取代「花費」這一列；沒有＝照舊 */}
+        {lineFieldsFor(node, "amount").length ? (
+          <LineRows node={node} section="amount" />
+        ) : (
+          <FieldRow label="花費">
+            <NumberField
+              value={node.time_spent_min}
+              onCommit={(v) => void updateNode(node.id, { time_spent_min: v })}
+              ariaLabel="花費時間（分）"
+              unit="分"
+              placeholder="—"
+            />
+          </FieldRow>
+        )}
 
         <FieldRow label="進度">
           {auto !== null ? (

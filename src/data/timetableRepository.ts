@@ -16,8 +16,9 @@ import type {
   LongRunChoice,
   DayBlockSegment,
   MergePreview,
+  BlockLink,
 } from "../domain/timetable";
-import { MOCK_MODE, WIPED_MODE } from "./index";
+import { MOCK_MODE, WIPED_MODE, nodeRepo } from "./index";
 import { SqliteTimetableRepository } from "./sqliteTimetableRepository";
 import { MemoryTimetableRepository } from "./memoryTimetableRepository";
 
@@ -50,6 +51,8 @@ export type { MergePreview };
 
 export interface DepartOptions {
   estimateMin?: number | null;
+  /** ②：新一班的連結；不給＝沒連 */
+  link?: BlockLink | null;
 }
 
 export interface TimetableRepository {
@@ -83,10 +86,18 @@ export interface TimetableRepository {
   undoArrive(id: string): Promise<boolean>;
   /** 改運行中那班的出發時間（往前挪會蓋掉前面的紀錄） */
   restart(id: string, atIso: string): Promise<CoverSummary>;
-  /** 補記一塊（必須 start < end ≤ 現在） */
-  fill(categoryId: string, startIso: string, endIso: string): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
-  /** 改一塊已結束的塊的分類與起訖（蓋到的照補記規則處理）；運行中的塊丟 RangeError */
-  editBlock(id: string, input: { categoryId: string; startIso: string; endIso: string }): Promise<CoverSummary>;
+  /** 補記一塊（必須 start < end ≤ 現在）。②：opts.link＝新一塊的連結 */
+  fill(
+    categoryId: string,
+    startIso: string,
+    endIso: string,
+    opts?: { link?: BlockLink | null },
+  ): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
+  /** 改一塊已結束的塊的分類與起訖（蓋到的照補記規則處理）；運行中的塊丟 RangeError。②：input.link 不給＝不動連結 */
+  editBlock(
+    id: string,
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null },
+  ): Promise<CoverSummary>;
   /** 單點切開；at 不在 (開始, 結束或現在) 之內回 null */
   split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null>;
   /** 「其實到幾點」三選一（§4.3 planResolveLongRun） */
@@ -120,8 +131,20 @@ export interface TimetableRepository {
   /* ── 同步後整理 ── */
   /** 全部未刪除的塊跑一次 planReconcile；回寫了幾筆（0＝本來就乾淨） */
   reconcile(): Promise<number>;
+
+  /* ── ②（② 契約 §3.3、§3.4；只加不改） ── */
+  /** 改一塊的連結（運行中、已結束都可以）；null＝取消連結。找不到或已刪除 ⇒ RangeError「找不到這一塊」；
+   *  link 指的節點不是 LINKABLE_KINDS ⇒ RangeError「只能連到車票、列車或車廂」 */
+  setLink(id: string, link: BlockLink | null): Promise<void>;
+  /** ② 契約 0-4：先節點、再路線；回能用的分類 id 與它是從哪一段來的；都沒有＝null。
+   *  nodeId null＝只連路線（「連到…」選了只連路線）⇒ 跳過節點段、只查路線段 */
+  lastCategoryFor(nodeId: string | null, routeId: string | null): Promise<{ categoryId: string; from: "node" | "route" } | null>;
+  /** 未刪除、node_id 在清單裡的塊（清單每 400 個一批查；空清單回 []），started_at 遞增 */
+  listBlocksByNodes(nodeIds: readonly string[]): Promise<TimeBlockRow[]>;
+  /** 未刪除、屬於這條路線的塊（② 契約 0-5：經節點推導＋只連這條路線），started_at 遞增 */
+  listBlocksByRoute(routeId: string): Promise<TimeBlockRow[]>;
 }
 
 export const timetableRepo: TimetableRepository = MOCK_MODE
-  ? new MemoryTimetableRepository({ seedDemo: !WIPED_MODE })
+  ? new MemoryTimetableRepository({ seedDemo: !WIPED_MODE, nodeRepo })
   : new SqliteTimetableRepository();

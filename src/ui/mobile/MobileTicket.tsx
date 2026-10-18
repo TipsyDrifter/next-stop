@@ -33,6 +33,7 @@ import type { NodeRow } from "../../domain";
 import { isClockPast, nextDayNote } from "../../lib/date";
 import { SealCarryOver, SealDone, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
+import { lineTodayRowActions } from "../../lines/runtime";
 
 /** YYYY-MM-DD → M/D（票面 chip 用） */
 function mmdd(key: string): string {
@@ -164,6 +165,12 @@ export function MobileTicket({ card, route, today, fresh, onComplete, onMore, no
               </span>
             ))}
           </div>
+          {/* 別線的票卡標記（插槽 todayRowActions，接縫 #66）：今日子頁與行程表串流共用，畫不畫由元件看 readOnly／railDate 自己決定；沒有線填＝不出 DOM */}
+          {lineTodayRowActions("mobile").map(({ id, Mobile }) =>
+            Mobile ? (
+              <Mobile key={id} nodeId={card.nodeId} name={card.name} readOnly={card.readOnly} railDate={card.railDate} today={today} />
+            ) : null,
+          )}
         </div>
 
         {/* 検印區＝44px 觸控目標（鐵則 5）。単擊＝済／取消済／取消運休（分支由 actions 決定）；唯讀列不可按 */}

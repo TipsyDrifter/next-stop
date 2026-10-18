@@ -35,6 +35,7 @@ import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
 import { isClockPast } from "../../lib/date";
 import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
+import { lineTodayRowActions } from "../../lines/runtime";
 
 /** MMDD-NN 之外的 M/D 顯示（票面 chip 用） */
 function mmdd(key: string): string {
@@ -340,6 +341,10 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
               <span className="meta-hover">
                 {deferChip(chipDate ? `執行 ${mmdd(chipDate)}` : "＋執行日", false)}
               </span>
+            )}
+            {/* 別線的今日列動作／標記（插槽 todayRowActions，接縫 #66）：沒有線填＝不出 DOM */}
+            {lineTodayRowActions("desktop").map(({ id, Desktop }) =>
+              Desktop ? <Desktop key={id} nodeId={row.id} name={row.name} selected={selected} /> : null,
             )}
           </div>
 

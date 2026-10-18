@@ -8,15 +8,18 @@
  * - `fire`：重讀 store；同一班仍運行中、`blockMarker(...).pending`（真的超過門檻且沒確認過）、設定開著、
  *   本地鍵 `timetable_desktop_reminded` 不是這一班 ⇒ `notifyOnce("tt-longrun:" + blockId, …)` → 寫這把鍵。
  *   只發、不收回（桌機通知外掛沒有 cancel；〈開工決定〉三-11）。App 要開著才會響（文案已寫）。
+ * - 車次②（② 契約 §4.2-6 #5、#6、§5.10；丙）：門檻多一層任務的預計時間（預估 → 任務 → 分類預設 → 全域上限，
+ *   `taskEstimateOf(r, linkInfo)`）；通知標題的名字＝「分類・任務名」（任務名截到 16 字，0-13）。
  * - setTimeout 上限約 24.8 天：超過 24 天的不排，下次 refresh 再算。觸發時刻多等 1 秒——門檻判斷是「超過」，
  *   剛好等於門檻的那一毫秒還不算。
  */
 import { MOCK_MODE, settingsRepo } from "../../data";
-import { MIN, thresholdOf } from "../../domain/timetable";
+import { MIN, thresholdOf, type TimeBlockRow } from "../../domain/timetable";
+import { clipLabel, linkLabelOf, runLabel, taskEstimateOf } from "../../domain/timetableLink";
 import { TT_NOTICE_TEXT, reminderOf } from "../../domain/timetableNotice";
 import { TT_TRAY_TEXT } from "../../domain/timetableTray";
 import { notifyOnce } from "../../lib/notify";
-import { blockMarker, useTimetableStore } from "../../store/timetableStore";
+import { blockMarker, useTimetableStore, type TimetableStore } from "../../store/timetableStore";
 import { noticeLog } from "./ttNoticeBridge";
 
 /** 本地鍵（不同步，契約 0-11）：最後一次發過提醒的那一班 id——「同一班只發一次」跨重開也成立 */
@@ -41,13 +44,21 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** 提醒標題的名字：「分類・任務名」（沒連任務＝分類名；分類不在＝「？」） */
+function reminderName(s: TimetableStore, r: TimeBlockRow): string {
+  const cat = s.catById[r.category_id] ?? null;
+  const label = linkLabelOf(r, s.linkInfo);
+  return runLabel(cat ? cat.name : "？", label === null ? null : clipLabel(label));
+}
+
 /** 目前這一班的提醒（`reminderOf`，store 還沒 ready／沒在跑＝null）。`now = -Infinity`＝不看 60 秒規則 */
 function reminderNow(now: number): { blockId: string; fireAt: number; title: string } | null {
   const s = useTimetableStore.getState();
   const r = s.running;
   if (!s.ready || !r) return null;
   const cat = s.catById[r.category_id] ?? null;
-  return reminderOf(r, thresholdOf(r.estimate_min, cat, s.longRunMaxMin), cat ? cat.name : "？", s.noticeLongRunEnabled, now);
+  const th = thresholdOf(r.estimate_min, cat, s.longRunMaxMin, taskEstimateOf(r, s.linkInfo));
+  return reminderOf(r, th, reminderName(s, r), s.noticeLongRunEnabled, now);
 }
 
 export function syncDesktopReminder(): void {
@@ -85,7 +96,7 @@ async function fire(blockId: string): Promise<void> {
   const s = useTimetableStore.getState();
   const r = s.running;
   if (!s.ready || !r || r.id !== blockId || !s.noticeLongRunEnabled) return;
-  const m = blockMarker(r, s.catById, s.longRunMaxMin, Date.now());
+  const m = blockMarker(r, s.catById, s.longRunMaxMin, Date.now(), s.linkInfo);
   if (m.kind === "none" || !m.pending) return;
   let reminded: string | null = null;
   try {
@@ -95,9 +106,9 @@ async function fire(blockId: string): Promise<void> {
   }
   if (reminded === blockId) return;
   const cat = s.catById[r.category_id] ?? null;
-  const th = thresholdOf(r.estimate_min, cat, s.longRunMaxMin);
+  const th = thresholdOf(r.estimate_min, cat, s.longRunMaxMin, taskEstimateOf(r, s.linkInfo));
   if (!th) return;
-  const title = TT_NOTICE_TEXT.reminderTitle(cat ? cat.name : "？", th.min);
+  const title = TT_NOTICE_TEXT.reminderTitle(reminderName(s, r), th.min);
   noticeLog("post", `desktop:${title}（${blockId}）`);
   await notifyOnce(`tt-longrun:${blockId}`, { title, body: TT_TRAY_TEXT.reminderBody }, false, "desktop");
   try {

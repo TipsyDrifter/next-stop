@@ -15,6 +15,10 @@
  *
  * 車次①b（①b①c 契約 §3.1、§4；只加不改）：門檻 `thresholdOf`／記號 `runMarker`、`planSetEstimate`、
  * `planSplitMulti`、`planMerge`、①c 預留的 `planDepartPending`／`planArriveBefore`、`latestGap`／`defaultCuts`／`addCut`。
+ *
+ * 車次②（② 契約 §3.1、§4.2；只加不改）：連結 `BlockLink`／`NO_LINK`、`SpanPatch.link`、`SpanInsert.link`／`keepLink`、
+ * `planSetLink`；`planDepart`／`planFill`／`planEdit` 收連結；切開沿用連結；`thresholdOf` 第四參數（任務的預計時間）。
+ * 連結相關的讀取與合計在 `timetableLink.ts`。
  */
 
 export const MIN = 60_000;
@@ -70,6 +74,16 @@ export interface KeyedSpan extends Span {
   writeKey: string;
 }
 
+/** ②：一塊的連結（② 契約 0-2）：兩欄至多一欄非 null；兩欄都 null＝沒連 */
+export interface BlockLink {
+  nodeId: string | null;
+  routeId: string | null;
+}
+/** 沒連（共用物件，**不准改它**） */
+export const NO_LINK: BlockLink = { nodeId: null, routeId: null };
+
+const sameLink = (a: BlockLink, b: BlockLink): boolean => a.nodeId === b.nodeId && a.routeId === b.routeId;
+
 export interface SpanPatch {
   id: string;
   start?: number;
@@ -78,6 +92,8 @@ export interface SpanPatch {
   ack?: boolean;
   /** ①b：這一班的預估（分）；null＝清掉；undefined＝不動 */
   estimateMin?: number | null;
+  /** ②：改連結；undefined＝不動。applyPlan 寫的時候兩欄成對（② 契約 0-2） */
+  link?: BlockLink;
 }
 
 export interface SpanInsert {
@@ -94,6 +110,27 @@ export interface SpanInsert {
   estimateMin?: number | null;
   /** ①c 預留：確定性 id（佇列発車，①b①c 契約 0-6）；給了就優先於 key／uuid */
   fixedId?: string;
+  /**
+   * ②：明寫連結；給了就蓋過抄來的。insert 的連結規則（sqlite 與 memory 同，② 契約 §3.1）：
+   * `link !== undefined ? link : ((inherit || keepLink) && fromId ? fromId 那一列的 (node_id, route_id) : NO_LINK)`
+   */
+  link?: BlockLink;
+  /** ②：照 fromId 那一列抄連結（不管 inherit）；切開用（② 契約 0-3） */
+  keepLink?: boolean;
+}
+
+/**
+ * ②：insert 這一列最後寫進去的連結（② 契約 §3.1；sqlite 與 memory 的 applyPlan 共用，不各寫一份）：
+ * 明寫 `link` 優先；否則 `inherit` 或 `keepLink`、而且 `src`（fromId 那一列）在 ⇒ 照抄它的兩欄；其餘 NO_LINK。
+ * 回傳的物件不會是 `src` 本身（抄成新物件）；沒連時回共用的 NO_LINK（呼叫端不准改它）。
+ */
+export function insertLinkOf(
+  i: Pick<SpanInsert, "link" | "inherit" | "keepLink">,
+  src: { node_id: string | null; route_id: string | null } | undefined,
+): BlockLink {
+  if (i.link !== undefined) return i.link;
+  if ((i.inherit || i.keepLink) && src) return { nodeId: src.node_id, routeId: src.route_id };
+  return NO_LINK;
 }
 
 export interface WritePlan {
@@ -395,7 +432,7 @@ export function planCover(
  */
 export function planDepart(
   spans: readonly Span[],
-  input: { categoryId: string; at: number; now: number; estimateMin?: number | null },
+  input: { categoryId: string; at: number; now: number; estimateMin?: number | null; link?: BlockLink | null },
 ): WritePlan {
   const at = Math.min(input.at, input.now);
   const plan = planCover(spans, { start: at, end: null }, null);
@@ -408,6 +445,7 @@ export function planDepart(
     end: null,
     ack: false,
     estimateMin: input.estimateMin ?? null,
+    link: input.link ?? NO_LINK, // ②：新一班的連結（不給＝沒連）
   });
   return plan;
 }
@@ -453,7 +491,7 @@ function assertRange(start: number, end: number, now: number): void {
 /** 補記一塊（必須 start < end ≤ now） */
 export function planFill(
   spans: readonly Span[],
-  input: { categoryId: string; start: number; end: number; now: number },
+  input: { categoryId: string; start: number; end: number; now: number; link?: BlockLink | null },
 ): WritePlan {
   assertRange(input.start, input.end, input.now);
   const plan = planCover(spans, { start: input.start, end: input.end }, null);
@@ -465,6 +503,7 @@ export function planFill(
     start: input.start,
     end: input.end,
     ack: false,
+    link: input.link ?? NO_LINK, // ②
   });
   return plan;
 }
@@ -473,10 +512,21 @@ export function planFill(
  * 改一塊已結束的塊的分類與起訖；運行中的塊丟 RangeError。
  * patch **只帶真的變了的欄**（逐欄 LWW：沒改的欄不能重新戳成最新，否則會蓋掉另一台對同一塊別的欄的改動）；
  * 什麼都沒變就不出 patch（蓋到的仍照 planCover 處理）。
+ *
+ * ②：`link` undefined＝不動連結；給了而且跟 `curLink`（原塊的連結，Span 不帶，由 repository 從列上給）不同 ⇒ patch 帶 `link`。
+ * `curLink` 沒給＝當作「不同」（寧可多寫一次相同的值，applyPlan 會再比一次現值；② 契約 §4.2-3）。
  */
 export function planEdit(
   spans: readonly Span[],
-  input: { id: string; categoryId: string; start: number; end: number; now: number },
+  input: {
+    id: string;
+    categoryId: string;
+    start: number;
+    end: number;
+    now: number;
+    link?: BlockLink | null;
+    curLink?: BlockLink;
+  },
 ): WritePlan {
   const s = findSpan(spans, input.id);
   if (s.end === null) throw new RangeError("運行中的這一班，用運行列換車或到着");
@@ -497,11 +547,32 @@ export function planEdit(
     patch.ack = false;
     changed = true;
   }
+  if (input.link !== undefined) {
+    const want = input.link ?? NO_LINK;
+    if (input.curLink === undefined || !sameLink(want, input.curLink)) {
+      patch.link = { nodeId: want.nodeId, routeId: want.routeId };
+      changed = true;
+    }
+  }
   if (changed) plan.patches.push(patch);
   return plan;
 }
 
-/** 單點切開；at 不在 (開始, 結束或現在) 之內回 null。運行中的塊切開後**後段**仍運行中 */
+/**
+ * ②：改一塊的連結（運行中、已結束都可以）。`link` null＝取消連結（當 NO_LINK）；跟 `curLink` 一樣 ⇒ 空 plan。
+ * `curLink`＝這一塊目前的連結（Span 不帶，由 repository 從列上給；必填）。
+ */
+export function planSetLink(
+  spans: readonly Span[],
+  input: { id: string; link: BlockLink | null; curLink: BlockLink },
+): WritePlan {
+  const s = findSpan(spans, input.id);
+  const want = input.link ?? NO_LINK;
+  if (sameLink(want, input.curLink)) return emptyPlan();
+  return { patches: [{ id: s.id, link: { nodeId: want.nodeId, routeId: want.routeId } }], inserts: [], deletes: [] };
+}
+
+/** 單點切開；at 不在 (開始, 結束或現在) 之內回 null。運行中的塊切開後**後段**仍運行中。②：新段沿用原塊的連結（keepLink） */
 export function planSplit(
   spans: readonly Span[],
   input: { id: string; at: number; categoryId2: string; now: number },
@@ -519,6 +590,7 @@ export function planSplit(
     start: input.at,
     end: s.end,
     ack: false,
+    keepLink: true, // ②：不論分類換不換，新段沿用原塊的連結（② 契約 0-3）
   });
   return plan;
 }
@@ -529,7 +601,7 @@ export function isLongRun(s: Span, thresholdMin: number | null, now: number): bo
 
 /* ── ①b：門檻與記號（①b①c 契約 §4.2） ── */
 
-export type ThresholdSource = "estimate" | "category" | "global";
+export type ThresholdSource = "estimate" | "task" | "category" | "global";
 export interface Threshold {
   min: number;
   source: ThresholdSource;
@@ -538,13 +610,16 @@ export interface Threshold {
 /**
  * 〈開工決定〉二-4 的門檻順序：這一班的預估 → 分類預設長度 → 全域保險上限；都沒有（全域 0）回 null。
  * `longRunThreshold`（不看預估的 ①a 舊版）保留不動。
+ * ②（② 契約 0-7）：第四參數＝這一塊連到的任務的預計時間（選填；不傳＝跟以前一樣），排在預估之後、分類之前。
  */
 export function thresholdOf(
   estimateMin: number | null,
   cat: { default_min: number | null } | null,
   globalMaxMin: number,
+  taskEstimateMin: number | null = null,
 ): Threshold | null {
   if (estimateMin !== null && estimateMin > 0) return { min: estimateMin, source: "estimate" };
+  if (taskEstimateMin !== null && taskEstimateMin > 0) return { min: taskEstimateMin, source: "task" };
   const own = cat?.default_min ?? null;
   if (own !== null && own > 0) return { min: own, source: "category" };
   return globalMaxMin > 0 ? { min: globalMaxMin, source: "global" } : null;
@@ -552,7 +627,7 @@ export function thresholdOf(
 
 export type RunMarker =
   | { kind: "none" }
-  /** 門檻來自預估：「誤點 +X」 */
+  /** 門檻來自預估或任務的預計時間（②）：「誤點 +X」 */
   | { kind: "late"; overMs: number; pending: boolean }
   /** 門檻來自分類或全域：「長時間運行」 */
   | { kind: "long"; pending: boolean };
@@ -565,7 +640,7 @@ export function runMarker(s: Span, th: Threshold | null, now: number): RunMarker
   if (th === null) return { kind: "none" };
   const dur = durOf(s, now);
   if (dur <= th.min * MIN) return { kind: "none" };
-  if (th.source === "estimate") return { kind: "late", overMs: dur - th.min * MIN, pending: !s.ack };
+  if (th.source === "estimate" || th.source === "task") return { kind: "late", overMs: dur - th.min * MIN, pending: !s.ack };
   return { kind: "long", pending: !s.ack };
 }
 
@@ -590,6 +665,8 @@ export function planResolveLongRun(
   if (input.choice === "cat") {
     if (!input.categoryId2) throw new RangeError("選一個分類");
     const split = planSplit(spans, { id: s.id, at: end, categoryId2: input.categoryId2, now: input.now });
+    // ②：「其實在做別的」的那段時間不帶連結（② 契約 0-3）
+    if (split) split.inserts = split.inserts.map((ins) => ({ ...ins, link: NO_LINK }));
     return mergePlans(split ?? emptyPlan(), ackPlan);
   }
   return ackPlan;
@@ -656,6 +733,7 @@ export function planSplitMulti(
       // 運行中的塊：仍在跑的最後一段沿用原本那班的 ack（主人已選「別問了」的，切完不再被問）；其餘新段 false
       ack: running && last ? s.ack : false,
       estimateMin: running && last ? est : null,
+      keepLink: true, // ②：每一段都沿用原塊的連結（② 契約 0-3）
     });
   }
   return plan;

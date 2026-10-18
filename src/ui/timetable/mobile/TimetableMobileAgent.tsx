@@ -1,6 +1,7 @@
 /**
  * TimetableMobileAgent——手機全域代理（車次①a 契約 §5.3、§5.5、§5.8、§5.9；mount 的 `mobileOverlay`；丙席）。
- * 回 `null`、只有 effect：
+ * 車次② 起不再是零 DOM：回 `<OffPageSheetHost shell="mobile" />`（不在時刻表 tab 時畫時刻表的面板，② 契約 0-9、§5.3；
+ * 在時刻表 tab 時它回 null）。其餘照舊只有 effect：
  *   - mount：`store.init("mobile")`（輕量：App 一啟動就知道有沒有運行中，供常駐通知與提醒重排）
  *     → `drainPending("launch")`（套 App 沒開時在通知上按的換車／到着；先等同步 ≤5 秒）→ 貼通知、排提醒。
  *   - `visibilitychange → visible`：`store.refresh()` → `drainPending("foreground")` → `syncRunningNotice({force})`
@@ -11,6 +12,9 @@
  *     `noticeTilesEnabled`／`noticePins`／`recentCategoryIds` 變化 ⇒ 重貼通知、重排提醒（notice.ts 內部去重）。
  *   - 不是 Android（桌機視窗拉窄成手機排版）：接 TimetableDesktopAgent 的兩件——`listen("tt-tray")`、每分鐘重送系統匣。
  *   丙席（①b①c 契約 §5.10.8）。
+ *
+ * 車次②（② 契約 §5.3；乙席，本檔整個歸乙）：掛 `startTaskWatch()`；訂閱的條件群組多一個 `taskChanged`
+ * （運行中那班的任務名／任務預計時間，`taskSig` 與桌機代理共用）——通知與提醒在同一個 syncAll，一起重送／重排。
  */
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -18,6 +22,9 @@ import { MOCK_MODE } from "../../../data";
 import type { TrayAction } from "../../../domain/timetableTray";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
+import { OffPageSheetHost } from "../OffPageSheetHost";
+import { taskSig } from "../TimetableDesktopAgent";
+import { startTaskWatch } from "../taskWatch";
 import { onAndroid, syncLongRunReminder, syncRunningNotice } from "../notice";
 import { handleTrayAction } from "../noticeDesktop";
 import { drainPending } from "../noticePending";
@@ -95,7 +102,8 @@ export function TimetableMobileAgent() {
         s.noticeLongRunEnabled !== prev.noticeLongRunEnabled ||
         s.noticeTilesEnabled !== prev.noticeTilesEnabled ||
         s.noticePins !== prev.noticePins ||
-        s.recentCategoryIds !== prev.recentCategoryIds
+        s.recentCategoryIds !== prev.recentCategoryIds ||
+        taskSig(s) !== taskSig(prev)
       ) {
         void syncAll(false);
       }
@@ -111,5 +119,8 @@ export function TimetableMobileAgent() {
     };
   }, []);
 
-  return null;
+  // ②：蓋済偵測（startTaskWatch 回的就是 cleanup）
+  useEffect(() => startTaskWatch(), []);
+
+  return <OffPageSheetHost shell="mobile" />;
 }

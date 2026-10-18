@@ -1,4 +1,4 @@
-# install-dev.ps1 — dev 包桌機安裝的唯一入口（權限白名單只放行這支腳本）
+﻿# install-dev.ps1 — dev 包桌機安裝的唯一入口（權限白名單只放行這支腳本）
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-dev.ps1 -Setup <NextStop_*-dev_x64-setup.exe 路徑> [-CdpPort <埠>]
 # 做的事（照 v1.5.0 起歷班裝機的成功做法）：關 next-stop → WMI 在 silo 外跑 NSIS /S → 回讀 FileVersion → silo 外重啟 App（帶 -CdpPort 時附 WebView2 偵錯參數）。
 # 安全邊界：只接受本 repo 底下、檔名符合 NextStop_*-dev_x64-setup.exe 的安裝檔；除此之外不跑任何外部指令。

@@ -5,6 +5,8 @@
  *   （Badge＋span.ns-tt-cat-name＋有 totals 時 span.ns-tt-cat-sum）
  * ＝原型 `catGridHtml`（shared.js:402-406）＋丁案發車台格（v-d.js:boardHtml）。
  * 自己讀 store 的 `categories`；`runningId`＝運行中那一班的**分類 id**（＝原型 `r.cat === c.id` 的 is-live）。
+ * 車次②（② 契約〈原型拍板〉4；乙席）：`memId`＝連到的票上次用的分類 ⇒ 那一格 `.is-mem` 描金虛線＋右上角「上次」小牌
+ * （＝原型 `v-f.js` gridHtml 的 mem／`.vf-mem`／`.vf-memtag`）。
  */
 import { useMemo } from "react";
 import { fmtDur, groupedCategories } from "../../../domain/timetable";
@@ -19,9 +21,11 @@ export interface CategoryGridProps {
   totals?: Record<string, number>;
   /** 運行中那一班的分類 id（該格 .is-live） */
   runningId?: string | null;
+  /** ②：上次用的分類 id（該格 .is-mem＋「上次」） */
+  memId?: string | null;
 }
 
-export function CategoryGrid({ selected, onPick, compact = false, totals, runningId = null }: CategoryGridProps) {
+export function CategoryGrid({ selected, onPick, compact = false, totals, runningId = null, memId = null }: CategoryGridProps) {
   const categories = useTimetableStore((s) => s.categories);
   const groups = useMemo(() => groupedCategories(categories), [categories]);
   return (
@@ -33,11 +37,12 @@ export function CategoryGrid({ selected, onPick, compact = false, totals, runnin
             {children.map((c) => {
               const live = runningId !== null && runningId === c.id;
               const sum = totals ? (totals[c.id] ?? 0) : 0;
+              const mem = memId !== null && memId === c.id;
               return (
                 <button
                   type="button"
                   key={c.id}
-                  className={"ns-tt-cat" + (selected === c.id ? " is-on" : "") + (live ? " is-live" : "")}
+                  className={"ns-tt-cat" + (selected === c.id ? " is-on" : "") + (live ? " is-live" : "") + (mem ? " is-mem" : "")}
                   aria-pressed={selected === c.id ? true : undefined}
                   onClick={() => onPick(c.id)}
                 >
@@ -45,6 +50,7 @@ export function CategoryGrid({ selected, onPick, compact = false, totals, runnin
                   <CategoryBadge cat={c} />
                   <span className="ns-tt-cat-name">{c.name}</span>
                   {totals && <span className="ns-tt-cat-sum ns-tt-num">{sum > 0 ? fmtDur(sum) : ""}</span>}
+                  {mem && <em className="ns-tt-cat-memtag">上次</em>}
                 </button>
               );
             })}

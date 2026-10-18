@@ -169,6 +169,37 @@ export interface LineMount {
    * 沒有任何線填值＝DOM 與地基完全相同。
    */
   calendarDayAux?: ComponentType<{ day: string; close(): void }>;
+  /**
+   * 今日列的附加動作／標記（接縫 #66；時刻表車次② 0-1 甲）：桌機 `TodayRow` 在 `.meta` 尾端依序渲染各線的 `Desktop`
+   * （收 `nodeId`／`name`／`selected`）；手機 `MobileTicket` 在 `.m-tk-meta` 之後依序渲染 `Mobile`（今日子頁與行程表串流共用，
+   * 收 `readOnly`／`railDate`／`today` 讓元件自己決定只在哪一張卡畫）。元件沒東西要畫就回 null；樣式寫在該線自己的 CSS。
+   * `hotkeys`：今日頁鍵盤的處理函式，鍵＝該線 manifest `hotkeys` 裡 scope "today" 的 hotkey id，收「選中那一列的 id」；
+   * 沒選中任何列時不呼叫、鍵照常放行。只看 `page.status`（`lineTodayHotkey(id)`）。
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才出（`lineTodayRowActions(shell)`）；三線固定順序、各線內照登記順序。
+   * 未通車即使填了也不出。沒有任何線填值＝DOM 與鍵盤行為與地基完全相同。
+   */
+  todayRowActions?: readonly TodayRowActionSpec[];
+  /**
+   * 今日統計列的附加段（接縫 #66；時刻表車次② 0-14「專注」）：有任何一條通車的線填值時，桌機 `TodayView` 頁首 `.day-stats`
+   * 的核心「專注」（今日清單 time_spent_min 合計）改由各線元件畫；手機 `MobileToday` 統計列尾端依序渲染。
+   * `lead`＝前面已經有東西（元件要自己畫分隔「・」）；`wrap`＝核心沒畫統計列（手機今天沒有車票）⇒ 元件有內容時自己包
+   * `<p className="m-today-stats">`、沒內容回 null（核心永遠不留空的 `<p>`）；桌機恆 false。
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才出（`lineTodayStats(shell)`）；三線固定順序。
+   * 未通車即使填了也不出。沒有任何線填值＝DOM 與地基完全相同。
+   */
+  todayStats?: ComponentType<{ shell: "desktop" | "mobile"; dateKey: string; lead: boolean; wrap: boolean }>;
+}
+
+/** 今日列附加動作（`LineMount.todayRowActions` 的一筆） */
+export interface TodayRowActionSpec {
+  /** `<line>.<name>` */
+  id: `${LineId}.${string}`;
+  /** 桌機今日列 `.meta` 尾端 */
+  Desktop?: ComponentType<{ nodeId: string; name: string; selected: boolean }>;
+  /** 手機票卡 `.m-tk-meta` 之後（今日子頁與行程表串流共用；`railDate`／`readOnly` 照 `TicketCardModel`，`today`＝日界線今天） */
+  Mobile?: ComponentType<{ nodeId: string; name: string; readOnly: boolean; railDate: string | null; today: string }>;
+  /** hotkey id（該線 manifest 登記、scope "today"）→ 處理函式（收選中列的 id） */
+  hotkeys?: Readonly<Record<string, (nodeId: string) => void>>;
 }
 
 /** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */
@@ -195,6 +226,12 @@ export interface NodeFieldSpec {
    * 預設 false；不填＝既有欄位位置不動。
    */
   top?: boolean;
+  /**
+   * 桌機任務側板畫在哪一段（接縫 #66；時刻表車次② 0-1）：預設 `"status"`（既有位置）；`"amount"`＝列車／車廂面板的「分量」段，
+   * 有任何一筆 amount 欄位時取代原本的「花費」那一列（只有列車／車廂面板畫，別的面板不出 amount 欄位）。
+   * 手機路線圖詳情不分段。不填＝既有欄位位置不動。
+   */
+  section?: "status" | "amount";
 }
 
 /** Ctrl+P 的一列結果（`QuickJumpProviderSpec.search` 回傳） */

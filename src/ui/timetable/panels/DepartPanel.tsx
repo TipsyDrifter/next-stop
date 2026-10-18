@@ -13,12 +13,20 @@
  *   收起＝button.ns-tt-opt.ns-tt-est-open「＋預估」＋一行小字；
  *   展開＝Row k="預估"：30 分｜1h｜1h30｜2h｜3h（單選、再點一次＝取消）＋「收起」（選了之後叫「不預估」，按了清掉並收起）。
  * 選了預估時「＝ HH:MM」後面多「預計 HH:MM 到着」。點分類＝`depart(id, at, estimateMin)`；收起／沒選＝null；面板關掉不記住。
+ *
+ * 車次②（② 契約 §5.5、〈原型拍板〉4；乙席；長相＝原型 `v-f.js` departBody）：「預估」之後一列「連到」（LinkRow，預設沒連），
+ * 點了面板換成 LinkPicker 子頁（‹ 回來；選了就回來）。連到的票（或路線）有上次的分類 ⇒ 下面多一顆主鈕「用『X』発車」
+ * （Enter 也行），分類格那一格描金寫「上次」；沒有 ⇒ 一行金字提示「點一個分類，下次就直接用」。
+ * 點分類或主鈕＝`depart(cat, at, est, link)`。運行中那班「同分類、同連結」才吐「已經在跑」（換了連結＝換一件事，照發）。
  */
-import { useState } from "react";
-import { MIN, fmtClock, msOf } from "../../../domain/timetable";
+import { useEffect, useRef, useState } from "react";
+import { MIN, fmtClock, msOf, type BlockLink } from "../../../domain/timetable";
+import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
+import { formatChord, isEditableTarget } from "../../shell/hotkeys";
 import { CategoryGrid } from "../parts/CategoryGrid";
+import { LinkPicker, LinkRow, useLastCategory } from "../parts/LinkPicker";
 import { useNow } from "../useNow";
 import { ESTIMATE_OPTIONS, Expand, Opt, Opts, Row, Sub, useCoverWarn, type PanelProps } from "./controls";
 
@@ -39,7 +47,12 @@ export function DepartPanel({ onDone }: PanelProps) {
   const catById = useTimetableStore((s) => s.catById);
   const todayBlocks = useTimetableStore((s) => s.todayBlocks);
   const depart = useTimetableStore((s) => s.depart);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const [back, setBack] = useState<Back>(0);
+  const [link, setLink] = useState<BlockLink | null>(null);
+  const [picking, setPicking] = useState(false);
+  const mem = useLastCategory(link);
+  const memCat = mem ? (catById[mem.categoryId] ?? null) : null;
   const [estOpen, setEstOpen] = useState(false);
   const [est, setEst] = useState<number | null>(null);
 
@@ -61,19 +74,58 @@ export function DepartPanel({ onDone }: PanelProps) {
   const warn = useCoverWarn(at, null, exceptId, at < tick - MIN / 2);
 
   const pick = (id: string): void => {
-    if (running && running.category_id === id) {
+    const rl = running ? linkOfRow(running) : null;
+    const sameLink = rl !== null && (link?.nodeId ?? null) === rl.nodeId && (link?.routeId ?? null) === rl.routeId;
+    if (running && running.category_id === id && sameLink) {
       useUiStore.getState().showToast({ message: TT_TEXT.alreadyRunning });
       return;
     }
     const atNow = atOf(Date.now()); // 以點下的這一刻為準
     onDone();
-    void depart(id, atNow, estOpen ? est : null);
+    void depart(id, atNow, estOpen ? est : null, link);
   };
   const estOn = estOpen && est !== null;
 
+  // 〈原型拍板〉4：主鈕＝Enter（焦點在按鈕或輸入框上時交給它們自己；IME 組字中不吃）
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  const memId = memCat && !picking ? memCat.id : null;
+  useEffect(() => {
+    if (!memId) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key !== "Enter" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (isEditableTarget(e.target) || (e.target instanceof HTMLElement && e.target.closest("button"))) return;
+      e.preventDefault();
+      pickRef.current(memId);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [memId]);
+
+  if (picking) {
+    return (
+      <div className="ns-tt-panel ns-tt-panel-depart is-picking">
+        <LinkPicker
+          value={link}
+          onBack={() => setPicking(false)}
+          onPick={(l) => {
+            setLink(l);
+            setPicking(false);
+          }}
+        />
+      </div>
+    );
+  }
+  const runLabelText = running ? linkLabelOf(running, linkInfo) : null;
+
   return (
     <div className="ns-tt-panel ns-tt-panel-depart">
-      <Sub>{running ? `「${catById[running.category_id]?.name ?? "？"}」會在出發時間自動到站，中間不留空白` : "點分類就開始計時"}</Sub>
+      <Sub>
+        {running
+          ? `「${catById[running.category_id]?.name ?? "？"}${runLabelText ? "・" + runLabelText : ""}」會在出發時間自動到站，中間不留空白`
+          : "點分類就開始計時"}
+      </Sub>
       <Row k="出發" top>
         <Opts>
           {BACKS.map(([v, t]) => (
@@ -125,8 +177,26 @@ export function DepartPanel({ onDone }: PanelProps) {
           </span>
         </div>
       )}
+      <LinkRow value={link} onOpen={() => setPicking(true)} />
+      {memCat ? (
+        <>
+          <button type="button" className="ns-btn btn-seal ns-tt-link-memgo" onClick={() => pick(memCat.id)}>
+            <svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5 3.5v9l7-4.5z" fill="currentColor" />
+            </svg>
+            <span>用「{memCat.name}」発車</span>
+            <em>上次的分類</em>
+            <kbd className="ns-tt-kbd ns-tt-link-memkbd" aria-hidden="true">
+              {formatChord({ key: "Enter" }).join("+")}
+            </kbd>
+          </button>
+          <p className="ns-tt-panel-sub ns-tt-link-memsub">要換分類就點下面的格子</p>
+        </>
+      ) : link && mem === null ? (
+        <p className="ns-tt-panel-sub ns-tt-link-hint">這個連結還沒記過時間：點一個分類，下次從它発車就直接用這個分類</p>
+      ) : null}
       {warn && <Sub warn>{warn}</Sub>}
-      <CategoryGrid selected={null} onPick={pick} compact runningId={running?.category_id ?? null} />
+      <CategoryGrid selected={null} onPick={pick} compact runningId={running?.category_id ?? null} memId={memCat?.id ?? null} />
     </div>
   );
 }

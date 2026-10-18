@@ -50,6 +50,7 @@ import { isSettledRow } from "../today/useTodayController";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
 import { useMinuteTick } from "../schedule/useMinuteTick";
+import { lineTodayStats } from "../../lines/runtime";
 
 export default function MobileToday() {
   const c = useMobileToday();
@@ -78,6 +79,8 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
   const { total, done, left } = c.stats;
+  /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，兩條路都與之前逐字相同 */
+  const stats = lineTodayStats("mobile");
   const allSettled = !c.empty && left === 0 && c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
 
   /* ───────── 時刻（主線②）：分群、現在線、下一班 ───────── */
@@ -135,7 +138,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   return (
     <>
       <div className="m-page m-today" ref={pageRef}>
-        {total > 0 && (
+        {total > 0 ? (
           <p className="m-today-stats">
             完成 <b>{done}</b>/<b>{total}</b>
             {left > 0 && <span className="m-today-left">・還有 {left} 張</span>}
@@ -144,7 +147,13 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
                 {"　"}下一班 <b className="tmx">{timeOfRow(next)}</b>
               </span>
             )}
+            {stats.map((S, i) => (
+              <S key={i} shell="mobile" dateKey={c.dateKey} lead wrap={false} />
+            ))}
           </p>
+        ) : (
+          // 今天沒有車票：核心不畫統計列；線的統計段有內容時自己包 `.m-today-stats`（wrap），沒內容回 null——不留空的 <p>
+          stats.map((S, i) => <S key={i} shell="mobile" dateKey={c.dateKey} lead={false} wrap />)
         )}
 
         {/* ═══ 誤點區（置頂＝r1 拍板；含 D-③-7 浮上來的締切段）═══ */}

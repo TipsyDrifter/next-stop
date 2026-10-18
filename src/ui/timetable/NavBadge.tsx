@@ -11,9 +11,12 @@
  *   淡出途中又發車 ⇒ 換成新那班（key 變 ⇒ 重播彈出），淡出取消。
  * - useNow(60_000)：只有「待確認」外圈會隨時間變，分鐘級就夠。key＝那一班的 id ⇒ 換車時重播一次彈出動畫。
  * - 兩殼的書封／tab 都在 store init 之後才有資料（桌機 TimetableDesktopAgent、手機 TimetableMobileAgent 開 App 就 init）。
+ *
+ * 車次②（② 契約 §5.9、0-13；乙席）：`timetableNavHint()`＝「{分類・任務名} HH:MM 発」，任務名截到 16 字（clipLabel）。
  */
 import { useEffect, useState } from "react";
 import { fmtClock, msOf, type TimeBlockRow } from "../../domain/timetable";
+import { clipLabel, linkLabelOf, runLabel } from "../../domain/timetableLink";
 import { blockMarker, useTimetableStore } from "../../store/timetableStore";
 import { CategoryBadge } from "./CategoryBadge";
 import { useNow } from "./useNow";
@@ -26,6 +29,7 @@ export function NavBadge({ shell }: { shell: "desktop" | "mobile" }) {
   const running = useTimetableStore((s) => s.running);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const now = useNow(60_000);
   // 最後畫出來的那一班（到着後還要留著淡出）；render 中比對上一輪（React「記住上一次 render 的資訊」寫法，不多一輪 effect）
   const [shown, setShown] = useState<TimeBlockRow | null>(running);
@@ -48,7 +52,7 @@ export function NavBadge({ shell }: { shell: "desktop" | "mobile" }) {
   const b = running ?? shown;
   if (!b) return null;
   const leaving = !running;
-  const m = blockMarker(b, catById, longRunMaxMin, now);
+  const m = blockMarker(b, catById, longRunMaxMin, now, linkInfo);
   const pending = m.kind !== "none" && m.pending;
   return (
     <span
@@ -63,7 +67,9 @@ export function NavBadge({ shell }: { shell: "desktop" | "mobile" }) {
 
 /** 桌機 tooltip 的尾巴（Sidebar 組字：原 title＋「・」＋這個）：純函式、不訂閱，hover／focus 當下才叫 */
 export function timetableNavHint(): string | null {
-  const { running, catById } = useTimetableStore.getState();
+  const { running, catById, linkInfo } = useTimetableStore.getState();
   if (!running) return null;
-  return `${catById[running.category_id]?.name ?? "？"} ${fmtClock(msOf(running.started_at))} 発`;
+  const label = linkLabelOf(running, linkInfo);
+  const name = runLabel(catById[running.category_id]?.name ?? "？", label === null ? null : clipLabel(label));
+  return `${name} ${fmtClock(msOf(running.started_at))} 発`;
 }
