@@ -46,7 +46,7 @@ use tauri::{
 use tauri_plugin_sql::{DbInstances, DbPool};
 
 /// DB 檔名（`app_config_dir()` 下）
-const DB_FILE: &str = "next-stop-v2.db";
+const DB_FILE: &str = crate::db_gate::DB_FILE;
 /// 前端 `src/lib/db.ts` 用的連線字串＝`DbInstances` map 的鍵
 const DB_URL: &str = "sqlite:next-stop-v2.db";
 /// 只認這個前綴的檔（c11：舊 `next-stop.db` 與 `.bak-20260806` 原地保留不讀）
@@ -676,6 +676,9 @@ async fn validate(path: &Path) -> Result<FileInfo, String> {
         }
     }
 
+    // ③ 版本（主線④ §0-1）：較新版拍的備份換上去，重開後這版會拒開——在換檔前就擋。與開 App 時同一支驗法。
+    crate::db_gate::check_backup_file(path).await?;
+
     Ok(FileInfo { path: path.to_string_lossy().to_string(), size_bytes: size, page_count, tables })
 }
 
@@ -1238,6 +1241,34 @@ mod tests {
             assert!(e.contains("檔頭對不上"), "非 DB 檔的訊息要講人話：{e}");
             let e = validate(&dir.join("不存在.db")).await.unwrap_err();
             assert!(e.contains("找不到"), "缺檔的訊息要講人話：{e}");
+        });
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 主線④ §0-1：較新版拍的備份（`_sqlx_migrations` 有這版不認得的版號）在還原前的驗檔就擋
+    #[test]
+    fn 驗檔擋下較新版拍的備份() {
+        let dir = temp_dir("newer");
+        let db = dir.join("next-stop-v2.db");
+        tauri::async_runtime::block_on(async {
+            let writer = make_db(&db).await;
+            let _ = writer.close().await;
+            let mut c = open_source(&db, false).await.unwrap();
+            sqlx::query(
+                "CREATE TABLE IF NOT EXISTS _sqlx_migrations (version BIGINT PRIMARY KEY, description TEXT NOT NULL, \
+                 installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, success BOOLEAN NOT NULL, \
+                 checksum BLOB NOT NULL, execution_time BIGINT NOT NULL)",
+            )
+            .execute(&mut c)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (9999, 'probe', true, x'00', 0)")
+                .execute(&mut c)
+                .await
+                .unwrap();
+            let _ = c.close().await;
+            let e = validate(&db).await.unwrap_err();
+            assert!(e.contains("先更新 App 再還原") && e.contains("9999"), "{e}");
         });
         let _ = fs::remove_dir_all(&dir);
     }

@@ -1051,3 +1051,46 @@ describe("C. 車次①b①c", () => {
     assert.deepEqual(planArriveBefore(once, { at: T(10, 45), now }).patches, []);
   });
 });
+
+/* ───────── ③ R1：接縫 #73 的釘住測試（③ 契約 0-3、§4 末段） ───────── */
+
+describe("R1. 往下併後 s 被另一台復活 ⇒ 整理把 s 刪掉（現行語義，刻意不改 planMerge）", () => {
+  const K = (s: Span, writeKey: string): KeyedSpan => ({ ...s, writeKey });
+
+  test("往下併：鄰居 N 的 started_at 往前延到 s 的開頭、s 刪除（planMerge 不動）", () => {
+    const s = mk("s", "x", T(9, 0), T(10, 0));
+    const n = mk("N", "y", T(10, 0), T(11, 0));
+    const out = planMerge([s, n], { id: "s", dir: "next", bound: T(12, 0), now: NOW })!;
+    assert.deepEqual(out.plan.patches, [{ id: "N", start: T(9, 0) }]);
+    assert.deepEqual(out.plan.deletes, ["s"]);
+    assert.equal(out.preview.keepId, "N");
+  });
+
+  test("兩台同步後 s 復活（另一台改過 s）：N 的 started_at 是併的人剛寫的 ⇒ 寫入鍵較新 ⇒ 整理把 s 整段收掉，N 完整留下", () => {
+    // 併完之後 N＝[9:00, 11:00)；復活的 s＝[9:00, 10:00) 被 N 整段蓋住。
+    // s 的 started_at 那一格是更早寫的（0001），N 的 started_at 是 A 併的時候寫的（0002）
+    const s = K(mk("s", "x", T(9, 0), T(10, 0)), "0001|");
+    const n = K(mk("N", "y", T(9, 0), T(11, 0)), "0002|");
+    const plan = planReconcile([s, n]);
+    assert.deepEqual(plan.deletes, ["s"]);
+    assert.deepEqual(plan.patches, []);
+    assert.deepEqual(plan.inserts, []);
+    // 冪等：收完再整理不再動；順序顛倒結果相同
+    assert.deepEqual(planReconcile([n]), { patches: [], inserts: [], deletes: [] });
+    assert.deepEqual(planReconcile([n, s]), plan);
+  });
+
+  test("往上併（P 的 end 往後延）但 P 的 started_at 較新時同一招：s 復活後被 P 蓋住的部分由寫入較晚者留下", () => {
+    // P＝[8:00, 10:00)（往上併延長的），s＝[9:00, 10:00) 復活；P 的 started_at 較新 ⇒ P 完整，s 被收掉
+    const p = K(mk("P", "y", T(8, 0), T(10, 0)), "0002|");
+    const s = K(mk("s", "x", T(9, 0), T(10, 0)), "0001|");
+    const plan = planReconcile([p, s]);
+    assert.deepEqual(plan.deletes, ["s"]);
+    // 反過來 s 的 started_at 較新（s 才是後發車的）⇒ s 完整、P 被切短到 s 之前
+    const p2 = K(mk("P", "y", T(8, 0), T(10, 0)), "0001|");
+    const s2 = K(mk("s", "x", T(9, 0), T(10, 0)), "0002|");
+    const plan2 = planReconcile([p2, s2]);
+    assert.deepEqual(plan2.deletes, []);
+    assert.deepEqual(plan2.patches, [{ id: "P", end: T(9, 0) }]);
+  });
+});

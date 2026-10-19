@@ -24,6 +24,7 @@ export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> 
   taggings: { noun: "荷札掛載", unit: "筆" },
   time_categories: { noun: "時間分類", unit: "個" },
   time_blocks: { noun: "一段時間", unit: "段" },
+  time_goals: { noun: "時數目標", unit: "個" },
   tk_currencies: { noun: "幣別", unit: "個" },
   tk_accounts: { noun: "帳戶", unit: "個" },
   tk_categories: { noun: "帳目分類", unit: "個" },
@@ -177,22 +178,59 @@ function quoted(label: string): string {
   return label.includes("『") ? label : `『${label}』`;
 }
 
+/** 一筆通知講的是哪一樣東西（表＋列）。toast 的數量一律數這個，不數通知筆數（接縫 #82：一塊兩欄被蓋＝兩筆通知、一樣東西） */
+export function mergeObjectKey(n: Pick<MergeNotice, "tbl" | "row_id">): string {
+  return `${n.tbl}\u0000${n.row_id}`;
+}
+
+/** 按物件分組，保留第一次出現的順序 */
+function byObject(list: readonly MergeNotice[]): MergeNotice[][] {
+  const groups = new Map<string, MergeNotice[]>();
+  for (const n of list) {
+    const k = mergeObjectKey(n);
+    const g = groups.get(k);
+    if (g) g.push(n);
+    else groups.set(k, [n]);
+  }
+  return [...groups.values()];
+}
+
 /**
  * toast 全文（§4.9；`fresh` 是新批、不是整張清單）。
- *   `singleLabel`：fresh 恰好一筆時由呼叫端解好的名字（已截 12 字）；解不到（泛稱／找不到）⇒ null，句子改用「1 則筆記」。
- *   `cols`：恰好一筆且是 overwritten 時的欄名表（插槽給的、或核心的 CONFLICT_COL_LABEL）；沒給就印欄名原文。
- *   恰好一筆 ⇒ 依 kind、方向、by_me；多筆同一類同一表 ⇒ countNoun；其餘 ⇒ 「同步時有 N 處兩台撞到——看看是哪些」。
+ *   `singleLabel`：fresh 只講一樣東西時由呼叫端解好的名字（已截 12 字）；解不到（泛稱／找不到）⇒ null，句子改用「1 則筆記」。
+ *   `cols`：只講一樣東西且是 overwritten 時的欄名表（插槽給的、或核心的 CONFLICT_COL_LABEL）；沒給就印欄名原文。
+ *   `gone`：revived／kept 的那樣東西**現在**已經不在了（`mergeObjectKey` 的集合；主線④ #81——例：時刻表的整理在同一趟
+ *     又把復活的那塊刪掉）。在集合裡的不再說「回來了／留著」，改說「現在已經不在了」；不給＝都當作還在（原行為）。
+ *   數量一律是「幾樣東西」（#82）：一樣東西 ⇒ 依 kind、方向、by_me（同一樣東西被蓋好幾欄 ⇒ 一句列欄名）；
+ *   多樣同一類同一表 ⇒ countNoun；其餘 ⇒ 「同步時有 N 處兩台撞到——看看是哪些」（N＝樣數）。
  */
 export function mergeToastText(
   fresh: readonly MergeNotice[],
   singleLabel: string | null,
   cols?: Readonly<Record<string, string>>,
+  gone?: ReadonlySet<string>,
 ): string {
   const list = fresh.filter((n) => n && isKnownKind(n.kind));
   if (list.length === 0) return "";
+  const objects = byObject(list);
+  const isGone = (n: MergeNotice): boolean => n.kind !== "overwritten" && !!gone?.has(mergeObjectKey(n));
+  if (objects.length === 1 && list.length > 1) {
+    // 同一樣東西好幾筆（#82）：全是 overwritten ⇒ 一句列出被蓋的欄；全是同一種刪改 ⇒ 當一筆講（有一筆是第三台的就不指認「這台」）
+    const n = list[0];
+    if (list.every((x) => x.kind === "overwritten")) return manyColsText(list, singleLabel, cols);
+    if (list.every((x) => x.kind === n.kind)) {
+      const by_me = list.every((x) => x.by_me);
+      return mergeToastText([{ ...n, by_me }], singleLabel, cols, gone);
+    }
+    return `同步時有 1 處兩台撞到——看看是哪些`;
+  }
   if (list.length === 1) {
     const n = list[0];
     const one = countNoun(n.tbl, 1);
+    if (isGone(n)) {
+      // 刪改相撞、後來又不在了：不分方向（「回來了」「留著」都會是反話），只講結果
+      return singleLabel ? `${quoted(singleLabel)}一台刪過、另一台改過，現在已經不在了` : `有 ${one}一台刪過、另一台改過，現在已經不在了`;
+    }
     if (n.kind === "revived") {
       if (n.by_me) return singleLabel ? `你刪掉的${quoted(singleLabel)}因為另一台改過，回來了` : `你刪掉的 ${one}因為另一台改過，回來了`;
       return singleLabel ? `${quoted(singleLabel)}因為另一台改過，回來了` : `有 ${one}因為另一台改過，回來了`;
@@ -208,14 +246,39 @@ export function mergeToastText(
   const first = list[0];
   const sameKindTbl = list.every((n) => n.kind === first.kind && n.tbl === first.tbl);
   if (sameKindTbl) {
-    const many = countNoun(first.tbl, list.length);
-    // revived／kept 的 N 筆句會說「你刪掉的」「這台改過」——有一筆是第三台的就不能這樣講，退回混合句
+    const many = countNoun(first.tbl, objects.length);
     if (first.kind === "overwritten") return `有 ${many}兩台改到同一格，留下後改的`;
-    if (list.every((n) => n.by_me)) {
+    // 全都又不在了 ⇒ 結果句；有的在有的不在 ⇒ 混合句（一句話講不完兩種結果）
+    const goneCount = list.filter(isGone).length;
+    if (goneCount === list.length) return `有 ${many}一台刪過、另一台改過，現在已經不在了`;
+    // revived／kept 的 N 筆句會說「你刪掉的」「這台改過」——有一筆是第三台的就不能這樣講，退回混合句
+    if (goneCount === 0 && list.every((n) => n.by_me)) {
       return first.kind === "revived" ? `你刪掉的 ${many}因為另一台改過，回來了` : `另一台刪過 ${many}，但這台改過——留著`;
     }
   }
-  return `同步時有 ${list.length} 處兩台撞到——看看是哪些`;
+  return `同步時有 ${objects.length} 處兩台撞到——看看是哪些`;
+}
+
+/** toast 兩行上限（#59；單筆句的 12 字名＋欄名就是照這個量的） */
+const TOAST_MAX_CHARS = 40;
+
+/**
+ * 同一樣東西被蓋了好幾欄（#82）：「『X』的分類、結束時刻兩台都改過，留下另一台後改的」。
+ * 欄超過兩個就只說幾個地方（toast 兩行上限）。各欄留下的不是同一台、或有一欄是第三台的 ⇒ 不指認「這台／另一台」。
+ */
+function manyColsText(list: readonly MergeNotice[], label: string | null, cols?: Readonly<Record<string, string>>): string {
+  const n = list[0];
+  const sameWinner = list.every((x) => x.by_me && x.winner === n.winner);
+  const who = !sameWinner ? "" : n.winner === "mine" ? "這台" : "另一台";
+  const names = [...new Set(list.map((x) => colLabelOf(x, cols)))];
+  if (label) {
+    const many = `${quoted(label)}有 ${names.length} 個地方兩台都改過，留下${who}後改的`;
+    if (names.length > 2) return many;
+    const listed = `${quoted(label)}的${names.join("、")}兩台都改過，留下${who}後改的`;
+    // 名字長＋欄名長會超過兩行（#59 的 40 字）⇒ 退回只說幾個地方
+    return Array.from(listed).length <= TOAST_MAX_CHARS ? listed : many;
+  }
+  return `有 ${countNoun(n.tbl, 1)}兩台改到同樣的 ${names.length} 格，留下${who}後改的`;
 }
 
 export const MERGE_TEXT = {

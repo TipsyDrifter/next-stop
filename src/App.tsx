@@ -57,6 +57,8 @@ import { useNodeStore } from "./store/nodeStore";
 import { useUiStore } from "./store/uiStore";
 import { useBackupStore, BACKUP_FAIL_BANNER_STREAK } from "./store/backupStore";
 import { useSyncStore } from "./store/syncStore";
+import { MOCK_MODE } from "./data";
+import { dbUsable } from "./lib/db";
 import { useGlobalHotkeys } from "./ui/shell/useGlobalHotkeys";
 import { SkyLayer } from "./ui/ambience";
 import { ensureStampDefs } from "./ui/stamps";
@@ -114,10 +116,17 @@ export default function App() {
     // 兩殼都叫（桌機＝primary 推、手機＝replica 拉），沒啟用時 boot 只問一次狀態就停手
     // （runCycle 自己擋，enabled=0 ⇒ 零背景動作、側欄不畫點）。boot 可重入、stop 只拆監聽，
     // 所以 StrictMode 的 boot→stop→boot 不會掉排程。
-    void loadSettings().then(() => {
-      if (!mobile) void useBackupStore.getState().boot();
-      return useSyncStore.getState().boot(shell);
-    });
+    //
+    // 主線④（反駁報告 Y1）：降版閘門拒開時兩個都不 boot——被擋的舊版照常 boot 的話，備份輪替讀不到設定、
+    // 拿預設份數把主人多留的備份刪掉（正是退版要用的那幾份），同步也只會冒「找不到已連線的資料庫」。
+    // 假資料模式不碰真庫（記憶體 repository），照常 boot。
+    void loadSettings()
+      .then(() => (MOCK_MODE ? true : dbUsable()))
+      .then((usable) => {
+        if (!usable) return;
+        if (!mobile) void useBackupStore.getState().boot();
+        return useSyncStore.getState().boot(shell);
+      });
     void loadSidebar();
     return () => {
       useSyncStore.getState().stop();

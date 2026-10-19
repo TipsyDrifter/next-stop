@@ -10,7 +10,7 @@
 import { nodeRepo } from "../data";
 import { MOCK_FIRST_TICKET, type MergeNotice } from "../data/syncRepository";
 import { CONFLICT_COL_LABEL, KIND_LABEL, type NodeRow } from "../domain";
-import { clipLabel } from "../domain/syncMerge";
+import { clipLabel, mergeObjectKey } from "../domain/syncMerge";
 import type { SyncRowLabel } from "../lines/types";
 import { lineSyncRowLabel } from "../lines/runtime";
 import { todayKey } from "../lib/date";
@@ -91,14 +91,15 @@ export async function resolveMergeLabel(
 }
 
 /**
- * toast 用：`list` 恰好一筆時解它的名字（截 12 字）與欄名表；多筆、泛稱、找不到 ⇒ null（句子改用「1 則筆記」）。
+ * toast 用：`list` 只講一樣東西時（主線④ #82：同一塊兩欄被蓋是兩筆、仍是一樣東西）解它的名字（截 12 字）與欄名表；
+ * 多樣、泛稱、找不到 ⇒ null（句子改用「1 則筆記」）。
  * 欄名表給 overwritten 的「『{label}』的{欄}」用（契約 §4.9）——`resolveToastLabel` 只回名字、這支多帶欄名（加的，不改簽名）。
  */
 export async function resolveToastParts(
   list: readonly MergeNotice[],
   shell: "desktop" | "mobile",
 ): Promise<{ label: string; cols?: Readonly<Record<string, string>> } | null> {
-  if (list.length !== 1) return null;
+  if (list.length === 0 || new Set(list.map(mergeObjectKey)).size !== 1) return null;
   const r = await resolveMergeLabel(list[0], shell);
   // 泛稱不當名字：句子改用「1 筆乘務記錄」的句型（`mergeToastText` 的 singleLabel=null 那條）
   if (!r || r === "fallback" || r.generic) return null;

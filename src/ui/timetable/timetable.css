@@ -1323,3 +1323,610 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-time-det, .ns-tt-time-det > div, .ns-tt-time-caret, .ns-tt-time-tip { transition: none; }
 }
+
+/* ═══ §J 統計頁・目標面板・待確認清單（乙・③）═══
+ * 長相＝原型 prototypes/時刻表-src/v-g.css 的 .vg-*（@bd1b0a64）＋〈原型定案〉D-時-63～67；值照抄、色碼換成 token。
+ * 兩殼共用 DOM（StatsView／MobileStats 只差排版），手機微調掛 [data-shell="mobile"]（本節最後）。
+ * 圖的顏色＝子分類自己的 --ns-tt-cat-n（D-時-63）；組與組之間 1px 紙色縫＝容器底色 --color-paper-high＋gap。 */
+.ns-tt-stats { padding-bottom: 28px; color: var(--color-ink); }
+.ns-tt-stats-body { transition: opacity .2s var(--ns-tt-ease); }
+/* 評審 #8：換期後新結果還沒回來＝淡掉（期間列照新的期，下面整片淡），不畫出錯的期 */
+.ns-tt-stats-body.is-stale { opacity: .5; pointer-events: none; }
+.ns-tt-stats-loading { padding: 28px 2px; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+
+/* ── 期間列 ── */
+.ns-tt-stats-pbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 2px 0 14px; }
+.ns-tt-stats-seg { display: inline-flex; border: 1px solid var(--color-dash); border-radius: 3px; overflow: hidden; }
+.ns-tt-stats-seg button {
+  min-height: 32px; padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: .2em; color: var(--color-ink-faint);
+  transition: background .15s, color .15s;
+}
+.ns-tt-stats-seg button + button { border-left: 1px solid var(--color-dash); }
+.ns-tt-stats-seg button:hover { color: var(--color-ink); }
+.ns-tt-stats-seg button.is-on { background: color-mix(in srgb, var(--color-gold) 18%, transparent); color: var(--color-ink); }
+.ns-tt-stats-seg button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-tt-stats-pnav { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.ns-tt-stats-arrow {
+  width: 32px; height: 32px; padding: 0; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent; cursor: pointer;
+  font-size: 18px; line-height: 1; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s, transform .2s var(--ns-tt-spring);
+}
+.ns-tt-stats-arrow:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-stats-arrow:active:not(:disabled) { transform: scale(.92); }
+.ns-tt-stats-arrow:disabled { opacity: .3; cursor: default; }
+.ns-tt-stats-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-stats-pname { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ns-tt-stats-pname b { font-weight: 500; font-size: 16px; white-space: nowrap; }
+.ns-tt-stats-pname em {
+  font-style: normal; font-size: 10.5px; letter-spacing: .2em; color: var(--color-gold-ink); white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px; line-height: 18px;
+}
+.ns-tt-stats-tocur {
+  min-height: 30px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s; animation: ns-tt-st-in .3s var(--ns-tt-ease) both;
+}
+.ns-tt-stats-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-stats-tocur .ns-tt-kbd { margin-left: 6px; }
+.ns-tt-stats-keys { margin-left: auto; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); opacity: .8; }
+
+/* ── 摘要三格＋環比總述 ── */
+.ns-tt-stats-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ns-tt-stats-cell {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
+  padding: 12px 16px 13px; text-align: left; color: var(--color-ink); font-family: inherit;
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+}
+.ns-tt-stats-cell .k { font-size: 11px; letter-spacing: .2em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tt-stats-cell b { font-weight: 500; font-size: 26px; line-height: 1.15; white-space: nowrap; }
+.ns-tt-stats-cell.is-pend {
+  cursor: pointer; box-shadow: var(--shadow-card), inset 3px 0 0 var(--color-late);
+  transition: border-color .15s, transform .25s var(--ns-tt-spring);
+}
+.ns-tt-stats-cell.is-pend .k { color: var(--color-late); }
+.ns-tt-stats-cell.is-pend:hover { border-color: color-mix(in srgb, var(--color-late) 55%, transparent); }
+.ns-tt-stats-cell.is-pend:active:not(:disabled) { transform: scale(.985); }
+.ns-tt-stats-cell.is-pend:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-stats-cell-go { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 20px; color: var(--color-late); opacity: .75; }
+.ns-tt-stats-cell.is-zero { cursor: default; box-shadow: var(--shadow-card); opacity: .62; }
+.ns-tt-stats-cell.is-zero .k, .ns-tt-stats-cell.is-zero b { color: var(--color-ink-faint); }
+.ns-tt-stats-cmp { margin: 9px 2px 18px; }
+.ns-tt-stats-cmp p { margin: 0; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
+.ns-tt-stats-cmp .ns-tt-stats-cmp-span { margin-top: 2px; font-size: 11px; letter-spacing: .02em; color: var(--color-ink-faint); }
+
+/* 環比：▲▼ 中性墨色（D-時-49：不分好壞色）；點一下冒小泡「多 3h10m（上期 18h）」 */
+.ns-tt-stats-dl {
+  position: relative; display: inline-flex; align-items: baseline; gap: 2px; white-space: nowrap; cursor: default;
+  font-family: var(--font-latin); font-feature-settings: "tnum" 1; color: var(--color-ink-soft);
+}
+.ns-tt-stats-dl i { font-style: normal; font-size: .72em; transform: translateY(-.08em); color: var(--color-ink-faint); }
+.ns-tt-stats-dl.is-flat { font-family: var(--font-body); font-size: .92em; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-tt-stats-dl-tip {
+  position: absolute; z-index: 5; right: -4px; bottom: calc(100% + 6px); padding: 4px 9px; border-radius: 3px; white-space: nowrap;
+  font-family: var(--font-body); font-size: 11.5px; letter-spacing: .06em; line-height: 1.5;
+  background: var(--color-book); color: var(--color-book-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent);
+  box-shadow: var(--shadow-card); animation: ns-tt-st-pop .32s var(--ns-tt-spring) both; transform-origin: bottom right;
+}
+
+/* ── 卡片與兩欄（桌機：左＝占比＋路線、右＝趨勢＋目標；〈原型定案〉1） ── */
+.ns-tt-stats-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.ns-tt-stats-cols.is-one { grid-template-columns: minmax(0, 1fr); }
+.ns-tt-stats-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.ns-tt-stats-card {
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card); padding: 14px 16px 12px;
+}
+.ns-tt-stats-ch { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 12px; }
+.ns-tt-stats-ch h3, .ns-tt-goals-h h3 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .22em; }
+.ns-tt-stats-ch-note { font-size: 10.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-tt-stats-foot { margin: 10px 0 0; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); opacity: .85; }
+.ns-tt-stats-dot {
+  --c: var(--ns-tt-cat-8); display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--c) 22%, transparent);
+}
+/* 迷你長條（D-時-63：頂層列用它代替單色點） */
+.ns-tt-stats-mini {
+  flex: none; display: inline-flex; gap: 0; width: 22px; height: 9px; border-radius: 2px; overflow: hidden;
+  background: color-mix(in srgb, var(--color-dash) 45%, transparent);
+}
+.ns-tt-stats-mini i { --c: var(--ns-tt-cat-8); display: block; flex-basis: 0; min-width: 1.5px; background: var(--c); }
+.ns-tt-stats-mini i.is-empty { flex-grow: 1; background: transparent; }
+.ns-tt-stats-mini.is-xs { width: 16px; height: 7px; }
+
+/* 占比長條：子分類色、依頂層分組、組間 1px 紙色縫；只畫已記錄 */
+.ns-tt-stats-sbar {
+  display: flex; gap: 1px; height: 14px; border-radius: 2px; overflow: hidden; margin-bottom: 12px;
+  background: var(--color-paper-high); box-shadow: inset 0 0 0 1px var(--color-line);
+}
+.ns-tt-stats-sgrp { display: flex; flex-basis: 0; min-width: 2px; animation: ns-tt-st-grow .6s var(--ns-tt-ease) both; transform-origin: left; }
+.ns-tt-stats-sgrp i { --c: var(--ns-tt-cat-8); display: block; flex-basis: 0; min-width: 1px; background: var(--c); }
+
+/* 清單列：› 名稱 時數 % 環比 */
+.ns-tt-stats-list { display: flex; flex-direction: column; }
+.ns-tt-stats-row {
+  position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto 42px 76px; align-items: center; column-gap: 8px;
+  width: 100%; min-height: 42px; border: 0; border-top: 1px solid var(--color-line); background: transparent;
+  text-align: left; font-family: inherit; color: var(--color-ink); padding: 0;
+}
+.ns-tt-stats-list > :first-child > .ns-tt-stats-row:first-child, .ns-tt-stats-list > .ns-tt-stats-row:first-child { border-top: 0; }
+.ns-tt-stats-row.is-top { min-height: 46px; }
+.ns-tt-stats-row.is-kid { min-height: 38px; border-top-style: dashed; }
+.ns-tt-stats-exp {
+  width: 26px; height: 32px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 2px;
+  background: transparent; color: var(--color-ink-faint); cursor: pointer;
+}
+.ns-tt-stats-exp i { font-style: normal; font-size: 16px; line-height: 1; display: inline-block; transition: transform .35s var(--ns-tt-spring); }
+.ns-tt-stats-row.is-open .ns-tt-stats-exp i { transform: rotate(90deg); }
+.ns-tt-stats-exp:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
+.ns-tt-stats-exp.is-blank { visibility: hidden; cursor: default; }
+.ns-tt-stats-rname {
+  display: flex; align-items: center; gap: 9px; min-width: 0; min-height: 36px; padding: 0 6px 0 2px;
+  border: 0; border-radius: 2px; background: transparent; text-align: left; font-family: inherit; color: inherit; cursor: pointer;
+}
+.ns-tt-stats-rname > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .1em; }
+.ns-tt-stats-row.is-top .ns-tt-stats-rname > span { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .16em; }
+.ns-tt-stats-row.is-kid .ns-tt-stats-rname { padding-left: 10px; }
+.ns-tt-stats-row.is-kid .ns-tt-stats-rname > span { color: var(--color-ink-soft); }
+button.ns-tt-stats-rname:hover > span { text-decoration: underline dotted; text-underline-offset: 3px; }
+button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-stats-rname.is-static { cursor: inherit; }
+.ns-tt-stats-rv { font-size: 14px; text-align: right; white-space: nowrap; }
+.ns-tt-stats-row.is-kid .ns-tt-stats-rv { font-size: 13px; color: var(--color-ink-soft); }
+.ns-tt-stats-rp { font-size: 12px; color: var(--color-ink-faint); text-align: right; }
+.ns-tt-stats-rd { font-size: 12.5px; text-align: right; }
+/* 選中的分類（趨勢只看它）：左邊一道金、底淡金 */
+.ns-tt-stats-row.is-sel { background: color-mix(in srgb, var(--color-gold) 12%, transparent); box-shadow: inset 2px 0 0 var(--color-gold); }
+.ns-tt-stats-row.is-sel .ns-tt-stats-rname > span { color: var(--color-ink); }
+.ns-tt-stats-kids { overflow: hidden; }
+.ns-tt-stats-kids.is-new { animation: ns-tt-st-rows .4s var(--ns-tt-ease) both; }
+.ns-tt-stats-kids.is-new > .ns-tt-stats-row { animation: ns-tt-st-in .32s var(--ns-tt-ease) both; }
+
+/* ── 趨勢 ── */
+.ns-tt-stats-fchip {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 13px;
+  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  font-family: inherit; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink); animation: ns-tt-st-in .3s var(--ns-tt-ease) both;
+}
+.ns-tt-stats-fchip > span { font-size: 10px; color: var(--color-ink-faint); }
+.ns-tt-stats-tdet { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-height: 22px; margin: -2px 0 6px; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-tt-stats-tlbl { color: var(--color-ink); }
+.ns-tt-stats-tlbl em { font-style: normal; font-family: var(--font-body); margin-left: 6px; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); }
+.ns-tt-stats-tsum { font-size: 15px; font-weight: 500; color: var(--color-ink); }
+.ns-tt-stats-tpart { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--color-ink-faint); }
+.ns-tt-stats-tpart b { font-weight: 500; color: var(--color-ink-soft); }
+.ns-tt-stats-tbox { width: 100%; min-height: 150px; }
+.ns-tt-stats-tsvg { display: block; overflow: visible; }
+.ns-tt-stats-tsvg .tr-grid { stroke: var(--color-line); stroke-width: 1; }
+.ns-tt-stats-tsvg .tr-grid.is-base { stroke: var(--color-dash); }
+.ns-tt-stats-tsvg .tr-y, .ns-tt-stats-tsvg .tr-x { font-family: var(--font-latin); font-size: 9.5px; fill: var(--color-ink-faint); }
+.ns-tt-stats-tsvg .tr-x.is-cur { fill: var(--color-gold-ink); font-weight: 600; }
+.ns-tt-stats-tsvg .tr-hit { fill: transparent; cursor: pointer; transition: fill .15s; }
+.ns-tt-stats-tsvg .tr-hit:hover, .ns-tt-stats-tsvg .tr-hit.is-sel { fill: color-mix(in srgb, var(--color-ink) 5%, transparent); }
+.ns-tt-stats-tsvg .tr-seg { transform-box: fill-box; transform-origin: bottom; animation: ns-tt-st-rise .5s var(--ns-tt-ease) both; }
+.ns-tt-stats-tsvg .tr-cur { fill: none; stroke: var(--color-gold); stroke-width: 1.6; }
+.ns-tt-stats-tsvg .tr-live { stroke: var(--color-ink-soft); stroke-width: 1.2; stroke-dasharray: 3 2.5; }
+
+/* ── 依路線 ── */
+.ns-tt-stats-row.is-route { grid-template-columns: 30px minmax(0, 1fr) auto 42px 76px; }
+.ns-tt-stats-row.is-route.is-link { cursor: pointer; transition: background .15s; }
+.ns-tt-stats-row.is-route.is-link:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+.ns-tt-stats-row.is-route.is-link:hover .ns-tt-stats-rname > span { text-decoration: underline dotted; text-underline-offset: 3px; }
+.ns-tt-stats-row.is-route.is-link:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.ns-tt-stats-row.is-route .ns-tt-stats-rname > span { font-family: var(--font-body); font-weight: 400; font-size: 13.5px; letter-spacing: .1em; }
+.ns-tt-stats-rlead { display: grid; place-items: center; }
+.ns-tt-stats-rlead-x {
+  width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px dashed var(--color-dash); font-size: 10px; color: var(--color-ink-faint);
+}
+
+/* ── 空狀態（〈原型定案〉1：不畫摘要三格） ── */
+.ns-tt-stats-empty { display: flex; flex-direction: column; align-items: center; padding: 38px 20px 30px; text-align: center; }
+.ns-tt-stats-empty-rail { position: relative; display: flex; align-items: center; gap: 22px; margin-bottom: 18px; }
+.ns-tt-stats-empty-rail::before { content: ""; position: absolute; left: -16px; right: -16px; top: 50%; border-top: 2px dashed var(--color-dash); }
+.ns-tt-stats-empty-rail i { position: relative; width: 12px; height: 12px; border-radius: 50%; background: var(--color-paper-high); border: 2px solid var(--color-dash); }
+.ns-tt-stats-empty-rail i:nth-child(2) { border-color: var(--color-gold); }
+.ns-tt-stats-empty-t { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: .2em; }
+
+/* ── 時數目標 ── */
+.ns-tt-goals-h { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px; }
+.ns-tt-goals-h .rule { flex: 1; border-top: 1px dashed var(--color-dash); }
+.ns-tt-goals-add {
+  min-height: 30px; padding: 0 12px; border: 1px dashed var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
+}
+.ns-tt-goals-add:hover { border-style: solid; border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-goals-list, .ns-tt-goals-restlist { display: flex; flex-direction: column; gap: 10px; }
+.ns-tt-goals-restlist { animation: ns-tt-st-in .3s var(--ns-tt-ease) both; }
+.ns-tt-goals-none { margin: 0; padding: 4px 2px 8px; font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+/* D-時-64：未開始與已結束收成一行 */
+.ns-tt-goals-rest {
+  display: flex; align-items: center; gap: 6px; align-self: flex-start; min-height: 32px; padding: 0 4px; border: 0; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .1em; color: var(--color-ink-faint);
+}
+.ns-tt-goals-rest:hover { color: var(--color-ink); }
+.ns-tt-goals-rest i { font-style: normal; display: inline-block; transition: transform .35s var(--ns-tt-spring); }
+.ns-tt-goals-rest.is-open i { transform: rotate(90deg); }
+.ns-tt-goal {
+  position: relative; padding: 12px 14px 11px; overflow: hidden;
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+}
+.ns-tt-goal.is-over { box-shadow: var(--shadow-card), inset 3px 0 0 var(--color-late); }
+.ns-tt-goal-h { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.ns-tt-goal-name {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-display); font-weight: 700; font-size: 14.5px; letter-spacing: .16em;
+}
+.ns-tt-goal-more {
+  width: 32px; height: 28px; margin: -4px -6px -4px 0; padding: 0; border: 0; border-radius: 2px; background: transparent; cursor: pointer;
+  color: var(--color-ink-faint); font-size: 16px; letter-spacing: .05em;
+}
+.ns-tt-goal-more:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+.ns-tt-goal-hide {
+  flex: none; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-dash); border-radius: 12px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: .12em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
+}
+.ns-tt-goal-hide:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-goal-sub { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 3px 0 10px; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-tt-goal-per { color: var(--color-ink-soft); }
+.ns-tt-goal-bar { position: relative; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--color-dash) 50%, transparent); overflow: hidden; }
+.ns-tt-goal-bar i {
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--color-gold);
+  transform-origin: left; animation: ns-tt-st-grow .7s var(--ns-tt-ease) both;
+}
+.ns-tt-goal.is-most .ns-tt-goal-bar i { background: var(--stamp-ink); }
+.ns-tt-goal.is-over .ns-tt-goal-bar i { background: var(--color-late); }
+.ns-tt-goal-num { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--color-ink-faint); }
+.ns-tt-goal-num b { font-weight: 500; font-size: 17px; color: var(--color-ink); }
+.ns-tt-goal-scope { font-size: 11px; letter-spacing: .14em; }
+.ns-tt-goal-of { font-size: 12.5px; color: var(--color-ink-faint); }
+.ns-tt-goal-left { font-size: 12px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap; }
+.ns-tt-goal-over { font-size: 12.5px; letter-spacing: .08em; color: var(--color-late); font-weight: 600; white-space: nowrap; }
+.ns-tt-goal-when { font-size: 12px; letter-spacing: .14em; color: var(--color-ink-faint); white-space: nowrap; }
+/* 章（D-時-67）：卡片右上、蓋下去；達成／守住金、沒達到墨、超過赭 */
+.ns-tt-goal-stamp {
+  flex: none; display: inline-grid; place-items: center; margin: -2px 2px -2px 0; padding: 1px 7px;
+  font-family: var(--font-display); font-weight: 700; font-size: 13.5px; letter-spacing: .24em; text-indent: .24em;
+  border: 2px solid; border-radius: 3px; transform: rotate(-8deg);
+  animation: ns-tt-st-stamp .5s cubic-bezier(.2, 1.4, .4, 1) .15s both;
+}
+.ns-tt-goal-stamp.is-gold { color: var(--color-gold-ink); border-color: color-mix(in srgb, var(--color-gold) 85%, transparent); background: color-mix(in srgb, var(--color-gold) 14%, transparent); }
+.ns-tt-goal-stamp.is-ink { color: var(--color-ink-soft); border-color: color-mix(in srgb, var(--color-ink-soft) 55%, transparent); background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
+.ns-tt-goal-stamp.is-late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 70%, transparent); background: color-mix(in srgb, var(--color-late) 8%, transparent); }
+.ns-tt-goal-pace { margin: 5px 0 0; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
+.ns-tt-goal-prev { margin: 6px 0 0; padding-top: 6px; border-top: 1px dashed var(--color-line); font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+/* 待確認：獨立一行在卡尾（D-時-67） */
+.ns-tt-goal-hint { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; padding-top: 6px; border-top: 1px dashed var(--color-line); font-size: 11.5px; letter-spacing: .08em; color: var(--color-late); }
+.ns-tt-goal-hint button {
+  padding: 2px 0; border: 0; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 11.5px; letter-spacing: .08em; color: var(--color-late); text-decoration: underline dotted; text-underline-offset: 3px;
+}
+/* 未開始（D-時-61）／已結束（D-時-60）：灰、虛線框 */
+.ns-tt-goal.is-dim { background: color-mix(in srgb, var(--color-paper-high) 55%, transparent); box-shadow: none; border-style: dashed; }
+.ns-tt-goal.is-dim .ns-tt-goal-name, .ns-tt-goal.is-dim .ns-tt-goal-num b { color: var(--color-ink-soft); }
+.ns-tt-goal.is-dim .ns-tt-goal-bar i { background: var(--color-ink-faint); opacity: .55; }
+
+/* ── 待確認清單（PendingListPanel） ── */
+.ns-tt-pend-list { display: flex; flex-direction: column; margin-top: 4px; }
+.ns-tt-pend-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 6px 2px;
+  border: 0; border-top: 1px solid var(--color-line); background: transparent; text-align: left; font-family: inherit; color: var(--color-ink); cursor: pointer;
+  transition: background .15s;
+}
+.ns-tt-pend-item:first-child { border-top: 0; }
+.ns-tt-pend-item:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+.ns-tt-pend-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.ns-tt-pend-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ns-tt-pend-main b { font-weight: 500; font-size: 14px; letter-spacing: .06em; }
+.ns-tt-pend-main small { margin-top: 1px; font-size: 11.5px; color: var(--color-late); letter-spacing: .04em; }
+.ns-tt-pend-go { font-size: 18px; color: var(--color-ink-faint); padding-right: 4px; }
+.ns-tt-pend-empty { margin: 10px 0 0; font-size: 13px; letter-spacing: .08em; color: var(--color-ink-faint); }
+
+/* ── 目標面板（GoalPanel） ── */
+.ns-tt-goal-name-in { flex: 1; min-height: 38px; font-size: 15px; }
+.ns-tt-goal-count { font-size: 11px; color: var(--color-ink-faint); }
+.ns-tt-goal-tree { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.ns-tt-goal-tgh { display: flex; align-items: center; gap: 4px; }
+.ns-tt-goal-tgx {
+  width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 2px; background: transparent; cursor: pointer;
+  color: var(--color-ink-faint);
+}
+.ns-tt-goal-tgx i { font-style: normal; font-size: 16px; display: inline-block; transition: transform .35s var(--ns-tt-spring); }
+.ns-tt-goal-tg.is-open .ns-tt-goal-tgx i { transform: rotate(90deg); }
+.ns-tt-goal-tgx:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
+.ns-tt-goal-kids { display: flex; flex-wrap: wrap; gap: 2px 4px; padding: 0 0 6px 26px; animation: ns-tt-st-in .28s var(--ns-tt-ease) both; }
+.ns-tt-goal-ck {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 0 8px 0 2px; border-radius: 2px; cursor: pointer;
+  font-size: 13px; letter-spacing: .08em; color: var(--color-ink-soft); transition: color .15s, opacity .15s;
+}
+.ns-tt-goal-ck input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.ns-tt-goal-ckbox {
+  flex: none; width: 16px; height: 16px; border: 1.5px solid var(--color-dash); border-radius: 3px; display: grid; place-items: center;
+  transition: background .15s, border-color .15s;
+}
+.ns-tt-goal-ck input:checked + .ns-tt-goal-ckbox { background: var(--color-gold); border-color: var(--color-gold); }
+.ns-tt-goal-ck input:checked + .ns-tt-goal-ckbox::after {
+  content: ""; width: 8px; height: 4px; border-left: 2px solid var(--color-book); border-bottom: 2px solid var(--color-book); transform: translateY(-1px) rotate(-45deg);
+}
+.ns-tt-goal-ck input:focus-visible + .ns-tt-goal-ckbox { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-goal-ck:has(input:checked) { color: var(--color-ink); }
+.ns-tt-goal-ck.is-grp { color: var(--color-ink); }
+.ns-tt-goal-ck.is-grp b { font-family: var(--font-display); font-weight: 700; letter-spacing: .16em; }
+.ns-tt-goal-ck.is-grp small { font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-goal-ck.is-dis { opacity: .5; cursor: default; }
+.ns-tt-goal-kseg button { padding: 0 11px; font-size: 12px; letter-spacing: .1em; }
+.ns-tt-goal-subrow { min-height: 46px; border-bottom-style: dashed; animation: ns-tt-st-in .28s var(--ns-tt-ease) both; }
+.ns-tt-goal-date {
+  min-height: 34px; padding: 0 8px; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent;
+  color: var(--color-ink); font-size: 13px; color-scheme: light dark;
+}
+.ns-tt-goal-date:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-goal-hint { font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-goal-dash { color: var(--color-ink-faint); margin: 0 2px; }
+.ns-tt-goal-startlink { padding: 2px 0 6px 58px; border-bottom: 1px solid var(--color-line); }
+.ns-tt-goal-link {
+  min-height: 28px; padding: 0 2px; border: 0; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 12px; letter-spacing: .06em; color: var(--color-ink-soft); text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.ns-tt-goal-link:hover { color: var(--color-ink); }
+.ns-tt-goal-hval { min-width: 64px; }
+.ns-tt-goal-hval small { margin-left: 1px; font-size: 12px; color: var(--color-ink-faint); }
+.ns-tt-goal-preview { margin: 12px 0 0; min-height: 20px; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
+.ns-tt-goal-warn { color: var(--color-ink-faint); }
+.ns-tt-goal-del { color: var(--color-late) !important; }
+/* 不能按的儲存鈕：不透明的淡印泥色（不用透明度，底下的列才不會透上來；＝原型） */
+.ns-tt-goal-form .ns-tt-actions .btn-seal:disabled {
+  cursor: default; border-color: transparent;
+  background: color-mix(in srgb, var(--color-seal) 32%, var(--color-paper-high)); color: color-mix(in srgb, var(--color-on-seal) 80%, var(--color-paper-high));
+}
+.ns-tt-goal-arch { margin-top: 14px; border-top: 1px dashed var(--color-dash); padding-top: 6px; }
+.ns-tt-goal-arch-h {
+  display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .14em; color: var(--color-ink-faint);
+}
+.ns-tt-goal-arch-h:hover { color: var(--color-ink); }
+.ns-tt-goal-arch-h i { font-style: normal; display: inline-block; transition: transform .35s var(--ns-tt-spring); }
+.ns-tt-goal-arch.is-open .ns-tt-goal-arch-h i { transform: rotate(90deg); }
+.ns-tt-goal-arch-row { display: flex; align-items: center; gap: 10px; min-height: 48px; border-top: 1px solid var(--color-line); animation: ns-tt-st-in .3s var(--ns-tt-ease) both; }
+.ns-tt-goal-arch-row > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ns-tt-goal-arch-row b { font-weight: 500; font-size: 13.5px; letter-spacing: .08em; }
+.ns-tt-goal-arch-row small { font-size: 11px; color: var(--color-ink-faint); letter-spacing: .04em; }
+
+/* ── 手機（375px）微調 ── */
+[data-shell="mobile"] .ns-tt-stats { padding-bottom: 22px; }
+[data-shell="mobile"] .ns-tt-stats-pbar { gap: 8px 10px; margin-bottom: 12px; }
+[data-shell="mobile"] .ns-tt-stats-seg:not(.ns-tt-goal-kseg) { flex: 1 1 100%; }
+[data-shell="mobile"] .ns-tt-stats-seg:not(.ns-tt-goal-kseg) button { flex: 1; min-height: 36px; }
+[data-shell="mobile"] .ns-tt-stats-pnav { flex: 1; }
+[data-shell="mobile"] .ns-tt-stats-pname { flex: 1; justify-content: center; }
+[data-shell="mobile"] .ns-tt-stats-arrow { width: 40px; height: 40px; }
+[data-shell="mobile"] .ns-tt-stats-tocur { min-height: 36px; padding: 0 10px; font-size: 11.5px; letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tt-stats-sum { gap: 6px; }
+[data-shell="mobile"] .ns-tt-stats-cell { padding: 9px 10px 10px; }
+[data-shell="mobile"] .ns-tt-stats-cell .k { font-size: 10.5px; letter-spacing: .1em; }
+[data-shell="mobile"] .ns-tt-stats-cell b { font-size: 18px; }
+[data-shell="mobile"] .ns-tt-stats-cell-go { right: 6px; top: 10px; transform: none; font-size: 15px; }
+[data-shell="mobile"] .ns-tt-stats-cmp { margin: 8px 2px 14px; }
+[data-shell="mobile"] .ns-tt-stats-cmp p { font-size: 12px; letter-spacing: .04em; }
+[data-shell="mobile"] .ns-tt-stats-body > .ns-tt-stats-card, [data-shell="mobile"] .ns-tt-stats-body > .ns-tt-goals { margin-bottom: 14px; }
+[data-shell="mobile"] .ns-tt-stats-card { padding: 12px 12px 10px; }
+[data-shell="mobile"] .ns-tt-stats-row { grid-template-columns: 22px minmax(0, 1fr) auto 34px 64px; column-gap: 6px; }
+[data-shell="mobile"] .ns-tt-stats-row.is-route { grid-template-columns: 28px minmax(0, 1fr) auto 34px 64px; }
+[data-shell="mobile"] .ns-tt-stats-exp { width: 22px; height: 40px; }
+[data-shell="mobile"] .ns-tt-stats-row.is-top { min-height: 44px; }
+[data-shell="mobile"] .ns-tt-stats-rv { font-size: 13px; }
+[data-shell="mobile"] .ns-tt-stats-rd { font-size: 11.5px; }
+[data-shell="mobile"] .ns-tt-stats-rp { font-size: 11px; }
+[data-shell="mobile"] .ns-tt-stats-rname { gap: 7px; min-height: 40px; }
+[data-shell="mobile"] .ns-tt-stats-rname > span { letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tt-stats-row.is-top .ns-tt-stats-rname > span { letter-spacing: .12em; }
+[data-shell="mobile"] .ns-tt-stats-mini { width: 18px; }
+/* 375 寬：「（已刪除的任務）」整句放得下（字距收緊） */
+[data-shell="mobile"] .ns-tt-stats-row.is-route .ns-tt-stats-rname > span { letter-spacing: .02em; }
+[data-shell="mobile"] .ns-tt-goal { padding: 11px 12px 10px; }
+[data-shell="mobile"] .ns-tt-goal-more { width: 40px; height: 36px; }
+[data-shell="mobile"] .ns-tt-goal-hint button { min-height: 32px; }
+[data-shell="mobile"] .ns-tt-goals-add { min-height: 36px; }
+[data-shell="mobile"] .ns-tt-goal-kseg { width: 100%; }
+[data-shell="mobile"] .ns-tt-goal-kseg button { flex: 1; min-height: 36px; padding: 0 2px; font-size: 11.5px; letter-spacing: .02em; }
+[data-shell="mobile"] .ns-tt-goal-date { font-size: 14px; padding: 0 4px; }
+[data-shell="mobile"] .ns-tt-goal-startlink { padding-left: 0; }
+[data-shell="mobile"] .ns-tt-goal-ck { min-height: 36px; }
+[data-shell="mobile"] .ns-tt-goal-form .ns-tt-step { width: 38px; }
+
+/* ── 動效 ── */
+@keyframes ns-tt-st-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@keyframes ns-tt-st-grow { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes ns-tt-st-rise { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes ns-tt-st-rows { from { max-height: 0; opacity: .3; } to { max-height: 900px; opacity: 1; } }
+@keyframes ns-tt-st-pop { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
+@keyframes ns-tt-st-stamp {
+  0% { transform: rotate(-8deg) scale(1.8); opacity: 0; }
+  60% { transform: rotate(-8deg) scale(.94); opacity: 1; }
+  100% { transform: rotate(-8deg) scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-stats *, .ns-tt-goal-form *, .ns-tt-pend-list * { animation: none !important; transition: none !important; }
+}
+
+/* ═══ §K 週視圖＋視圖切換＋手機路線時間（丙・③；③ 契約 §5.1、§5.5、§5.6；D-時-46、53、54、66）═══
+ * 長相＝原型 prototypes/時刻表-src/v-g.css「週視圖」（.vg-w*）與 .vg-vsw／.vg-dockrow／.vg-dscroll；token 對照：
+ * --line→--color-line、--dash→--color-dash、--late→--color-late、--seal→--color-seal、--on-cat→--ns-tt-on-cat、--ve-ease→--ns-tt-ease。
+ * 週與統計視圖的外框（data-view="week"|"stats"）也在這裡（視圖切換歸丙）；統計頁本體歸 §J。 */
+
+/* ── 桌機切換鈕：四格各帶鍵帽、V 的鍵帽夾在前兩格之間 ── */
+.ns-tt-switch button .ns-tt-kbd { margin: 0 0 0 8px; }
+.ns-tt-switch-v {
+  align-self: stretch; display: grid; place-items: center; padding: 0 6px;
+  border-left: 1px solid var(--color-dash);
+}
+.ns-tt-switch-v .ns-tt-kbd { margin: 0; opacity: .8; }
+.ns-tt-switch-v + button { border-left: 1px solid var(--color-dash); }
+
+/* ── 桌機：週／統計＝頁首下運行列（同只看軸）＋下面一塊自己捲；<960px 照樣整頁捲 ── */
+.page.ns-tt[data-view="week"] .ns-tt-cols,
+.page.ns-tt[data-view="stats"] .ns-tt-cols { grid-template-columns: minmax(0, 1fr); }
+.ns-tt-col.is-wide { min-width: 0; }
+.ns-tt-vscroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 2px 4px 6px 0; }
+.ns-tt-vscroll::-webkit-scrollbar { width: 8px; }
+.ns-tt-vscroll::-webkit-scrollbar-thumb { background: var(--color-dash); border-radius: 4px; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-vscroll { overflow: visible; }
+/* 運行列在寬版是一整條、薄一點（＝原型 .vg-dockline） */
+.page.ns-tt .ns-tt-col.is-wide .ns-tt-dock.is-desktop { margin-bottom: 12px; padding: 8px 14px; }
+
+/* ── 週視圖 ── */
+.ns-tt-week { --ns-tt-week-tw: 24px; }
+.ns-tt-week.is-desk { --ns-tt-week-tw: 34px; }
+
+/* 期間列：‹ 10/13–10/19 本週 › ＋ 回到本週 ＋ 右側圖例 */
+.ns-tt-week-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 2px 0 12px; }
+.ns-tt-week-nav { display: inline-flex; align-items: center; gap: 8px; }
+.ns-tt-week-arrow {
+  width: 32px; height: 32px; padding: 0; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent;
+  font-size: 18px; line-height: 1; color: var(--color-ink-soft); cursor: pointer;
+  transition: border-color .15s, color .15s, transform .15s var(--ns-tt-ease);
+}
+.ns-tt-week-arrow:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-week-arrow:active:not(:disabled) { transform: scale(.94); }
+.ns-tt-week-arrow:disabled { opacity: .3; cursor: default; }
+.ns-tt-week-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-week-name { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ns-tt-week-name b { font-family: var(--font-latin); font-weight: 500; font-size: 16px; letter-spacing: .02em; white-space: nowrap; }
+.ns-tt-week-name em {
+  font-style: normal; font-size: 10.5px; letter-spacing: .2em; line-height: 18px; white-space: nowrap;
+  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px;
+}
+.ns-tt-week-tocur {
+  min-height: 30px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s;
+  animation: ns-tt-week-in .3s var(--ns-tt-ease) both;
+}
+.ns-tt-week-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-week-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-week-tocur .ns-tt-kbd { margin-left: 7px; }
+@keyframes ns-tt-week-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+.ns-tt-week-legend {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; letter-spacing: .12em; color: var(--color-ink-faint);
+}
+.ns-tt-week-legend i { display: inline-block; }
+.ns-tt-week-legend i.is-pend {
+  width: 14px; height: 10px; border-radius: 2px;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-late) 70%, transparent) 0 2px, color-mix(in srgb, var(--color-late) 18%, transparent) 2px 5px);
+}
+.ns-tt-week-legend i.is-now { width: 14px; height: 2px; margin-left: 8px; background: var(--color-seal); }
+.ns-tt-week-err { margin: 0 0 10px; font-size: 12.5px; color: var(--color-late); }
+
+/* 格子：欄頭＋本體（24 × 每小時；桌機 20px、手機 28px；整天不捲） */
+.ns-tt-week-grid {
+  --ns-tt-week-hpx: 20px;
+  background: var(--color-paper-high); border: 1px solid var(--color-line);
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow: hidden;
+}
+.ns-tt-week-grid.is-loading { height: calc(24 * 20px + 46px); }
+.ns-tt-week-head { display: grid; grid-template-columns: var(--ns-tt-week-tw) repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--color-line); }
+.ns-tt-week-h {
+  display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0;
+  padding: 7px 2px 6px; border-left: 1px solid var(--color-line);
+}
+.ns-tt-week-hd { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.ns-tt-week-hd b { font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .1em; color: var(--color-ink); }
+.ns-tt-week-hd .ns-tt-num { font-size: 12px; color: var(--color-ink-soft); }
+.ns-tt-week-hsum { font-size: 11px; line-height: 15px; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tt-week-h.is-today { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
+.ns-tt-week-h.is-today b { color: var(--color-gold-ink); }
+.ns-tt-week-h.is-future { opacity: .55; }
+
+.ns-tt-week-body {
+  position: relative; display: grid; grid-template-columns: var(--ns-tt-week-tw) repeat(7, minmax(0, 1fr));
+  height: calc(var(--ns-tt-week-hpx) * 24);
+}
+.ns-tt-week-hrs { position: relative; }
+.ns-tt-week-hrs span { position: absolute; right: 5px; transform: translateY(-50%); font-size: 9.5px; line-height: 1; color: var(--color-ink-faint); }
+.ns-tt-week-hrs span:first-child { transform: translateY(3px); }
+.ns-tt-week-col { position: relative; min-width: 0; border-left: 1px solid var(--color-line); }
+.ns-tt-week-col > i { position: absolute; left: 0; right: 0; border-top: 1px dashed color-mix(in srgb, var(--color-dash) 70%, transparent); pointer-events: none; }
+.ns-tt-week-col.is-today { background: color-mix(in srgb, var(--color-gold) 9%, transparent); }
+/* 現在以後：極淡橫紋（〈原型定案〉1） */
+.ns-tt-week-fut {
+  position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 5px, color-mix(in srgb, var(--color-ink) 2.5%, transparent) 5px 6px);
+}
+/* 空白：點了補記那段 */
+.ns-tt-week-gap {
+  position: absolute; left: 0; right: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: copy;
+  transition: background .15s;
+}
+.ns-tt-week-gap:hover { background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
+.ns-tt-week-gap:focus-visible { outline: 1px dashed var(--color-gold); outline-offset: -1px; }
+
+/* 塊：分類色（82%）；名稱（桌機）／圓牌字（手機）；高的塊多一行開始時刻 */
+.ns-tt-week-b {
+  --c: var(--ns-tt-cat-8);
+  position: absolute; left: 2px; right: 2px; min-height: 2px; margin: .5px 0 0; padding: 0 4px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; overflow: hidden;
+  border: 0; border-radius: 2px; text-align: left; cursor: pointer; font-family: inherit;
+  background: color-mix(in srgb, var(--c) 82%, transparent); color: var(--ns-tt-on-cat);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-paper-high) 70%, transparent);
+  transition: filter .15s, box-shadow .15s, transform .2s var(--ns-tt-ease);
+}
+.ns-tt-week-b span { max-width: 100%; padding-top: 1px; font-size: 10.5px; letter-spacing: .06em; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-week-b small { font-size: 9px; line-height: 11px; opacity: .8; }
+.ns-tt-week-b:hover { filter: brightness(1.08) saturate(1.05); box-shadow: 0 0 0 1.5px var(--color-gold); z-index: 2; }
+.ns-tt-week-b:active { transform: scale(.97); }
+.ns-tt-week-b:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 0; z-index: 2; }
+.ns-tt-week-b.is-tiny { background: var(--c); opacity: .9; }
+.ns-tt-week-b.is-live { box-shadow: inset 0 -2px 0 var(--color-seal); }
+/* 待確認：赭色斜紋 */
+.ns-tt-week-b.is-pend {
+  color: var(--color-late);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-late) 62%, transparent) 0 3px, color-mix(in srgb, var(--color-late) 16%, transparent) 3px 8px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-late) 70%, transparent);
+}
+.ns-tt-week-b.is-pend span, .ns-tt-week-b.is-pend small {
+  margin-top: 2px; padding: 0 3px; border-radius: 2px; opacity: 1;
+  background: var(--color-paper); color: var(--color-late); font-weight: 600;
+}
+.ns-tt-week-b.is-pend small { margin-top: 1px; font-weight: 400; }
+/* 現在線 */
+.ns-tt-week-now { position: absolute; left: -1px; right: 0; height: 0; border-top: 2px solid var(--color-seal); z-index: 3; pointer-events: none; }
+.ns-tt-week-now b { position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-seal); }
+/* 桌機 tooltip（手機不出） */
+.ns-tt-week-tip {
+  position: absolute; z-index: 6; transform: translate(-50%, calc(-100% - 8px)); pointer-events: none; opacity: 0;
+  padding: 5px 10px; border-radius: 3px; white-space: nowrap; font-size: 11.5px; letter-spacing: .06em;
+  background: var(--color-book); color: var(--color-book-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent);
+  box-shadow: var(--shadow-card); transition: opacity .12s;
+}
+.ns-tt-week-tip.is-below { transform: translate(-50%, 8px); }
+.ns-tt-week-tip.is-on { opacity: 1; }
+.ns-tt-week-foot { margin: 10px 0 0; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); opacity: .85; }
+
+/* 手機：每小時 28px、欄頭三行（週一／10/13／時數）、塊只放圓牌字 */
+[data-shell="mobile"] .ns-tt-week-grid { --ns-tt-week-hpx: 28px; }
+[data-shell="mobile"] .ns-tt-week-grid.is-loading { height: calc(24 * 28px + 62px); }
+[data-shell="mobile"] .ns-tt-week-bar { justify-content: center; }
+[data-shell="mobile"] .ns-tt-week-legend { margin-left: 0; width: 100%; justify-content: flex-end; }
+[data-shell="mobile"] .ns-tt-week-h { padding: 6px 0 5px; }
+[data-shell="mobile"] .ns-tt-week-hd { flex-direction: column; align-items: center; gap: 0; }
+[data-shell="mobile"] .ns-tt-week-hd b { font-size: 11px; letter-spacing: .02em; }
+[data-shell="mobile"] .ns-tt-week-hd .ns-tt-num { font-size: 10.5px; }
+[data-shell="mobile"] .ns-tt-week-hsum { font-size: 9.5px; letter-spacing: -.01em; }
+[data-shell="mobile"] .ns-tt-week-b { left: 1px; right: 1px; padding: 0; align-items: center; }
+[data-shell="mobile"] .ns-tt-week-b span { font-family: var(--font-display); font-weight: 700; font-size: 10px; letter-spacing: 0; }
+[data-shell="mobile"] .ns-tt-week-b.is-pend span { padding: 0 2px; }
+
+/* ── 手機路線時間（D-時-53）：路線清單列尾本月時數、路線圖抬頭下一行 ── */
+[data-shell="mobile"] .m2-route .ns-tt-route-aside {
+  flex: none; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+[data-shell="mobile"] .ns-tt-time-m.is-route { margin: -4px 0 10px; }
+[data-shell="mobile"] .ns-tt-time-m.is-route .ns-tt-time-route { font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-week-tocur { animation: none; }
+  .ns-tt-week-b, .ns-tt-week-arrow, .ns-tt-week-gap, .ns-tt-week-tip { transition: none; }
+}

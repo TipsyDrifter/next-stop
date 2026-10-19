@@ -32,6 +32,22 @@ const TIME_BLOCKS_COLS: &[(&str, bool)] = &[
     ("deleted_at", false),
 ];
 
+/// time_goals 的「主人資料」欄（③ 契約 0-5）。account_id／device_id／synced_at 不同步（同核心慣例）。
+const TIME_GOALS_COLS: &[(&str, bool)] = &[
+    ("name", false),
+    ("scope", false),
+    ("period", false),
+    ("target_min", true),
+    ("direction", false),
+    ("start_on", false),
+    ("end_on", false),
+    ("position", true),
+    ("archived_at", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
 /// 起手分類不算「這台有沒有資料」（契約 0-2 甲案）：每台都會自動種這 19 列，算進去的話任何新裝置加入同步都會被當成有資料。
 /// id 與 `src/domain/timetable.ts` 的 `STARTER_CATEGORIES` 逐字相同（`scripts/tests/timetable-logic.test.ts` 對帳）。
 const TIME_CATEGORIES_ALIVE: &str = "deleted_at IS NULL AND id NOT IN (\
@@ -85,6 +101,26 @@ pub const TABLES: &[SyncTableSpec] = &[
             conflict_anchor: ConflictAnchor::None,
             alive_filter: Some("deleted_at IS NULL"),
             since: Some("timetable_blocks"),
+        }),
+    },
+    SyncTableSpec {
+        name: "time_goals",
+        pk: "id",
+        columns: TIME_GOALS_COLS,
+        // NOT NULL 且沒有 DEFAULT：name、scope、period、target_min、direction（position 有 DEFAULT）
+        required: &["name", "scope", "period", "target_min", "direction"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "position",
+            fk_checked: false, // 沒有外鍵（scope 的分類 id 在 JSON 裡）
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("timetable_goals"),
         }),
     },
 ];

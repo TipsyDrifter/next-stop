@@ -19,6 +19,10 @@
  * （`departFromTask`／`departWithLink`）；`depart`／`fill`／`editBlock` 收連結、`setLink`；側板「時間」用的讀取
  * （`linkedBlocks`／`subtreeNodes`／`routeNodes`）；門檻多一層任務的預計時間（`blockMarker`／`blockIsLongRun` 的 `links`）。
  * `nodeRepo` 只在本檔與 `taskWatch.ts` 用（② 契約 §1-5）。
+ *
+ * 車次③（③ 契約 §3.3、0-7；只加不改）：視圖多 `week`／`stats`、面板多 `goal`／`pendingList`；`ensureFreshDay()`（#72：進頁、
+ * 切視圖、回前景都檢查換日）；時數目標的寫入動作（`createGoal`…）；`TT_TEXT` 增補（§5.9）；本週合計跟全 App 的 `week_start`。
+ * 統計與週視圖的資料另開 `timetableStatsStore`（只讀，統計頁沒開時不載）。
  */
 import { create } from "zustand";
 import { timetableRepo } from "../data/timetableRepository";
@@ -27,9 +31,11 @@ import { useUiStore } from "./uiStore";
 import { useSyncStore } from "./syncStore";
 import { indexTree, useNodeStore, type TreeIndex } from "./nodeStore";
 import { addDays, dayWindow, todayKey } from "../lib/date";
+import type { GoalInput, GoalPeriod, GoalDirection, StatsPeriod } from "../domain/timetableStats";
 import type { LineReloadContext } from "../lines/types";
 import { KIND_LABEL, type NodeRow } from "../domain/node";
 import { notePulled } from "../ui/timetable/taskWatch";
+import { waitTimetableIdle } from "../domain/timetableIdle";
 import {
   LINKABLE_KINDS,
   LINK_MISSING_TEXT,
@@ -43,12 +49,14 @@ import {
   currentRunning,
   fmtClock,
   fmtDur,
+  findBlockIn,
   isLongRun,
   isoOf,
   latestGap,
   msOf,
   runMarker,
   segmentsOfDay,
+  sheetBlockIdOf,
   thresholdOf,
   toSpan,
   weekStartKey,
@@ -71,7 +79,8 @@ export const KEY_NOTICE_TILES = "timetable_notice_tiles"; // 本地："0"＝關�
 export const KEY_NOTICE_PINS = "timetable_notice_pins"; // 本地：JSON string[]（≤5；釘選分類）
 export const NOTICE_PINS_MAX = 5;
 
-export type TimetableView = "board" | "axis" | "split"; // 手機 board|axis；桌機 split|axis（契約 0-6）
+/** 手機 board|axis|week|stats；桌機 split|axis|week|stats（①a 契約 0-6；③ 加 week／stats，D-時-46） */
+export type TimetableView = "board" | "axis" | "split" | "week" | "stats";
 export type TimetableShell = "desktop" | "mobile";
 
 export type TimetableSheet =
@@ -88,7 +97,11 @@ export type TimetableSheet =
   /** ②：從任務發車、第一次碰到的路線（☎一-1） */
   | { kind: "taskCategory"; nodeId: string }
   /** ②：改一塊的連結（運行列「連到…」與改一塊面板都開它） */
-  | { kind: "link"; blockId: string };
+  | { kind: "link"; blockId: string }
+  /** ③：時數目標面板；goalId null＝新增 */
+  | { kind: "goal"; goalId: string | null }
+  /** ③：待確認清單（from／to＝正在看的那一期的窗，毫秒；清單內容讀 timetableStatsStore） */
+  | { kind: "pendingList"; from: number; to: number; /** 乙：有值＝只列這個目標範圍的待確認（目標卡「看看 ›」，〈原型定案〉1） */ goalId?: string | null };
 
 /** toast 全文（契約 §5.10）與固定文案（§5.11）——顯示端不手抄 */
 export const TT_TEXT = {
@@ -184,6 +197,209 @@ export const TT_TEXT = {
   TODAY_RUNNING: "正在跑",
   EST_FALLBACK_TASK: (x: string) => `；沒預估時用任務的預計時間 ${x}`,
   LONG_RUN_TASK: (task: string, est: string, over: string) => `「${task}」預計 ${est}，已經誤點 ${over}。其實到幾點？`,
+
+  /* ── ③（③ 契約 §5.9；顯示端不手抄） ── */
+  viewWeek: "週",
+  viewStats: "統計",
+  statsRecorded: "已記錄",
+  statsUnrecorded: "未記錄",
+  statsPending: (n: number, ms: number) => `待確認 ${n} 班・${fmtDur(ms)}`,
+  /** 環比總述的前綴：「比上週同期」（進行中的期，same）／「比上週」（已過完的期） */
+  statsCompare: (p: StatsPeriod, same: boolean) => `比${p === "day" ? "昨天" : p === "week" ? "上週" : "上個月"}${same ? "同期" : ""}`,
+  statsEmpty: "這一期還沒有紀錄",
+  statsToCurrent: "回到本期",
+  weekToCurrent: "回到本週",
+  routeNone: "沒連任務",
+  routeGone: "（已刪除的任務）",
+  goalAdd: "＋目標",
+  goalMet: "達成",
+  goalOver: (ms: number) => `超過 ${fmtDur(ms)}`,
+  /** 至少＝「還差」、至多（atMost 傳 true）＝「還剩」 */
+  goalLeft: (ms: number, atMost = false) => `${atMost ? "還剩" : "還差"} ${fmtDur(ms)}`,
+  goalPendingHint: (n: number) => `另有 ${n} 班待確認`,
+  /** D-時-60／61／62：期間過了／還沒開始／節奏 */
+  goalEnded: "已結束",
+  goalMissed: "沒達到",
+  goalKept: "守住",
+  goalStarts: (md: string) => `${md} 開始`,
+  goalDaysLeft: (n: number) => `還剩 ${n} 天`,
+  goalPace: (ms: number) => `平均每天還要 ${fmtDur(ms)}`,
+  /** 已結束的卡上「收起來」（＝封存） */
+  goalHide: "收起來",
+  goalSaved: (name: string) => `目標「${name}」存好了`,
+  goalDeleted: "目標刪掉了",
+  goalArchived: (name: string) => `「${name}」收起來了`,
+  goalUnarchived: (name: string) => `「${name}」叫回來了`,
+  pendingAllDone: "都確認好了",
+  syncBlockGone: "後來又被整理掉，現在不在軸上了",
+  /** ③ 週視圖、視圖切換的畫面字（丙席；契約 §5.1、§5.5、D-時-54、66；顯示端不手抄） */
+  weekUi: {
+    /** 欄頭（D-時-66：寫「週一」，不是單一個「一」） */
+    weekdays: ["週日", "週一", "週二", "週三", "週四", "週五", "週六"] as readonly string[],
+    viewSplit: "兩欄",
+    viewAxis: "只看軸",
+    viewBoard: "發車台",
+    viewAxisMobile: "軸",
+    tagThisWeek: "本週",
+    tagLastWeek: "上週",
+    prevWeek: "上一週",
+    nextWeek: "下一週",
+    legendPending: "待確認",
+    legendNow: "現在",
+    running: "運行中",
+    /** 塊的 tooltip／讀屏：「創作 14:00–16:30・2h30m」（＋待確認／碎塊） */
+    blockTip: (name: string, from: string, to: string, dur: string, pending: boolean, tiny: boolean) =>
+      `${name} ${from}–${to}・${dur}${pending ? "・待確認" : ""}${tiny ? "・碎塊（不進統計）" : ""}`,
+    gapTip: (from: string, to: string, dur: string) => `未記錄 ${from}–${to}・${dur}　點了補記`,
+    foot: (desktop: boolean) => `點塊＝跳到那天的軸、打開那塊；點空白＝補記那段${desktop ? "；← → 換週、T 回本週" : ""}`,
+  },
+  /** ③ 同步清單的時刻表三張表（丙席；契約 0-13、D-時-58；`lines/timetableSyncLabel.ts` 讀） */
+  syncRunningFrom: "起",
+  syncCatLabel: (name: string) => `分類『${name}』`,
+  syncGoalLabel: (name: string) => `目標『${name}』`,
+  syncCatGone: "已刪除的分類",
+  syncNodeGone: "一張車票",
+  syncRouteGone: "一條路線",
+  syncTopLevel: "（頂層）",
+  syncNoEstimate: "沒預估",
+  syncNoDefault: "沒預設",
+  syncNoScope: "（沒有分類）",
+  syncRunning: "運行中",
+  syncAck: "已確認",
+  syncPending: "待確認",
+  syncArchived: "已封存",
+  syncNotArchived: "沒封存",
+  syncCols: {
+    time_blocks: {
+      started_at: "開始時刻",
+      ended_at: "結束時刻",
+      category_id: "分類",
+      node_id: "連結",
+      route_id: "連結",
+      estimate_min: "預估",
+      long_run_ack: "確認",
+    },
+    time_categories: { name: "名字", parent_id: "分組", color_idx: "顏色", default_min: "預設長度", archived_at: "封存" },
+    time_goals: {
+      name: "名字",
+      scope: "分類",
+      period: "期間",
+      target_min: "目標時數",
+      direction: "方向",
+      start_on: "起點",
+      end_on: "終點",
+      archived_at: "封存",
+    },
+  } as { time_blocks: Readonly<Record<string, string>>; time_categories: Readonly<Record<string, string>>; time_goals: Readonly<Record<string, string>> },
+  /** 期間字、方向字（目標卡與目標面板共用） */
+  goalPeriodWord: { day: "每日", week: "每週", month: "每月", since: "從某天起", until: "到某天為止", range: "單一區間" } as Readonly<Record<GoalPeriod, string>>,
+  goalDirectionWord: { atLeast: "至少", atMost: "至多" } as Readonly<Record<GoalDirection, string>>,
+  /** 期間分段鈕 */
+  periodWord: { day: "日", week: "週", month: "月" } as Readonly<Record<StatsPeriod, string>>,
+  /** ③ 統計頁、目標面板、待確認清單的畫面字（乙席；契約 §5.2–5.4 與〈原型定案〉；顯示端不手抄） */
+  statsUi: {
+    weekdays: "日一二三四五六",
+    tagToday: "今天",
+    tagYesterday: "昨天",
+    tagThisWeek: "本週",
+    tagLastWeek: "上週",
+    tagThisMonth: "本月",
+    tagLastMonth: "上個月",
+    monthName: (y: number, m: number) => `${y} 年 ${m} 月`,
+    monthShort: (m: number) => `${m} 月`,
+    periodGroup: "期間",
+    prevPeriod: "上一期",
+    nextPeriod: "下一期",
+    keysHint: "← → 換期",
+    pendingCount: (n: number) => `待確認 ${n} 班`,
+    pendingTip: "點開：逐塊看、修好就回到分類",
+    pendingNone: "沒有跑太久沒確認的塊",
+    cmpRecorded: "已記錄",
+    cmpWhole: (name: string) => `上一期：${name}`,
+    /** 環比的滑過／點開說明（〈原型定案〉1：「多 3h10m（上期 18h）」） */
+    deltaTip: (ms: number, prevMs: number) =>
+      Math.abs(ms) < MIN ? `一樣（上期 ${fmtDur(prevMs)}）` : `${ms > 0 ? "多" : "少"} ${fmtDur(Math.abs(ms))}（上期 ${fmtDur(prevMs)}）`,
+    shareTitle: "占比與環比",
+    shareNote: (cmp: string) => `分母＝已記錄・環比＝${cmp}`,
+    shareFoot: "點名稱＝趨勢只看那一類（再點取消）；點 › 看子分類",
+    expandKids: "展開子分類",
+    collapseKids: "收起子分類",
+    filterOn: "趨勢只看這一類",
+    filterOff: "再點一次取消",
+    trendTitle: "趨勢",
+    trendNote: (p: StatsPeriod) => (p === "day" ? "近 14 天" : p === "week" ? "近 8 週" : "近 6 個月"),
+    filterChip: (name: string) => `只看「${name}」`,
+    filterClear: "取消過濾",
+    toNow: "到現在",
+    goalsTitle: "時數目標",
+    goalsNone: "還沒有目標。「＋目標」可以設「每週至少 10h 創作」這種。",
+    goalsMore: (upcoming: number, ended: number) =>
+      `另有 ${[upcoming ? `${upcoming} 個未開始` : "", ended ? `${ended} 個已結束` : ""].filter(Boolean).join("、")}`,
+    goalsLess: "收起來",
+    goalEdit: "改這個目標",
+    goalTarget: (dir: string, t: string) => `${dir} ${t}`,
+    goalRepeat: (word: string, target: string) => `${word}${target}`,
+    goalSince: (md: string, target: string) => `自 ${md} 起${target}`,
+    goalUntil: (md: string, target: string) => `到 ${md} 為止${target}`,
+    goalRange: (a: string, b: string, target: string) => `${a}–${b} ${target}`,
+    scopeMore: (names: string, n: number) => `${names}…等 ${n} 類`,
+    scopeNow: { day: "今天", week: "本週", month: "本月" } as Readonly<Record<StatsPeriod, string>>,
+    scopePrev: { day: "昨天", week: "上週", month: "上個月" } as Readonly<Record<StatsPeriod, string>>,
+    scopeToNow: "到現在",
+    scopeLast: "最後",
+    scopeNotYet: "還沒開始",
+    prevLine: (label: string, dur: string, verdict: string) => `${label}：${dur}　${verdict}`,
+    pendingLook: "看看 ›",
+    /** 已結束、至多、超過的章（D-時-60／67；進行中的超過寫 goalOver 全句） */
+    stampOver: "超過",
+    catGone: "已刪除的分類",
+    routesTitle: "依路線",
+    routesNote: "分母＝已記錄",
+    routeDeleted: (name: string) => `${name}（已刪除）`,
+    loading: "算一下…",
+    loadFailed: (msg: string) => `統計讀不出來：${msg}`,
+    pendingSub: "跑太久、還沒確認的塊整塊另列，不算進任何分類，也不算進目標。修好（其實到幾點）或按「沒錯」就回到分類。",
+    pendingGoalSub: (name: string) => `只列「${name}」範圍內的。`,
+    pendingRowSub: (clock: string, dur: string, running: boolean) => `${clock} 起・跑了 ${dur}${running ? "（還在跑）" : ""}`,
+    pendingEmpty: "沒有待確認的了",
+    goalNewTitle: "新目標",
+    goalEditTitle: "改目標",
+    fName: "名字",
+    fCats: "分類",
+    fPeriod: "期間",
+    fDir: "方向",
+    fHours: "時數",
+    fStart: "起點",
+    fEnd: "截止",
+    fRange: "起訖",
+    namePlaceholder: "例：夜行列車",
+    groupWhole: "整組（含之後新增的）",
+    groupPicked: (n: number) => `勾了 ${n} 個`,
+    kindRepeat: "週期重複",
+    hintSince: "從這天的日界線開始累計、沒有終點",
+    hintUntil: "那天整天都算",
+    hintStartDefault: "預設＝今天",
+    startLink: (md: string) => `從 ${md} 起算・改起點`,
+    minutes: (m: number) => `${m} 分`,
+    hourUnit: "h",
+    hoursDown: (n: number) => `少 ${n} 小時`,
+    hoursUp: (n: number) => `多 ${n} 小時`,
+    noName: "取個名字",
+    noCat: "勾至少一個分類",
+    noHours: "時數要大於 0",
+    noEndUntil: "選截止日",
+    noEndRange: "選結束那天",
+    noStart: "選起點",
+    endBeforeUntil: "截止日不能早於起點",
+    endBeforeRange: "結束不能早於開始",
+    save: "儲存",
+    archive: "封存",
+    remove: "刪除",
+    archivedList: (n: number) => `已封存的目標（${n}）`,
+    restore: "叫回",
+    goalGone: "這個目標已經不在了",
+    close: "關閉",
+  },
 } as const;
 
 export interface TimetableStore {
@@ -207,6 +423,12 @@ export interface TimetableStore {
   view: TimetableView;
   noticeEnabled: boolean;
   sheet: TimetableSheet | null;
+  /**
+   * ③ 評審 #1：開著的 sheet 帶 blockId（longRun／restart／edit／split／estimate／link）而那一塊不在 running／dayBlocks／todayBlocks／weekBlocks
+   * （例：統計頁待確認清單點到 9 天前那塊）⇒ `openSheet` 先 `getBlock` 把它帶進來放這裡，寫入後（rev 變）`refresh` 再抓一次。
+   * 面板／標題先查既有清單、找不到再看它（`useBlock`、`sheetTitle`）；sheet 關了＝null。
+   */
+  sheetBlock: TimeBlockRow | null;
   /** 「其實到幾點」被略過的那一班（契約 0-10）；回前景／換車／到站時清掉 */
   dismissedLongRunId: string | null;
   /** 回前景時不在時刻表頁 ⇒ 記下，進頁才問 */
@@ -234,8 +456,14 @@ export interface TimetableStore {
   reload(ctx: LineReloadContext): Promise<void>;
 
   /* 視圖與設定 */
-  setView(v: TimetableView): void; // 寫 KEY_VIEW（本地）
-  toggleView(shell: TimetableShell): void; // V 鍵與頂端切換鈕
+  setView(v: TimetableView): void; // 寫 KEY_VIEW（本地）；切到任何視圖都順手 ensureFreshDay（③ 0-7）
+  /**
+   * ③ 接縫 #72：`todayKey(dayStartHour, 現在) !== state.todayKey` ⇒ `refresh()`；否則什麼都不做。
+   * 呼叫點：頁面每次掛上（桌機 TimetableView、手機 MobileTimetable）、`setView`；回前景原有的 refresh 照舊。
+   */
+  ensureFreshDay(): Promise<void>;
+  /** V 鍵與頂端切換鈕：兩欄（發車台）⇄只看軸；在週／統計按 V 回兩欄（發車台）（D-時-57） */
+  toggleView(shell: TimetableShell): void;
   setLongRunMax(min: number): Promise<void>; // settingsRepo.set(KEY_LONG_RUN_MAX)（會同步）
   setNoticeEnabled(on: boolean): Promise<void>;
   setNoticeLongRunEnabled(on: boolean): Promise<void>;
@@ -291,6 +519,15 @@ export interface TimetableStore {
   /** ①b：換圓牌字；toast B9 */
   setCategoryGlyph(id: string, glyph: string): Promise<void>;
 
+  /* ③ 時數目標（③ 契約 §3.3）：走 write()（serial → refresh → toast）；回 true＝寫成功（面板據此關），失敗已 toast */
+  createGoal(input: GoalInput): Promise<boolean>;
+  updateGoal(id: string, patch: Partial<GoalInput>): Promise<boolean>;
+  /** 封存（toast 帶「撤回」）／叫回 */
+  archiveGoal(id: string, on: boolean): Promise<boolean>;
+  /** 軟刪除（toast 帶「撤回」＝restoreGoal） */
+  deleteGoal(id: string): Promise<boolean>;
+  restoreGoal(id: string): Promise<boolean>;
+
   /* ②（② 契約 §3.7） */
   /** 從任務發車（§5.2 的流程）：面板開著就不動；找不到／已刪／不能連 ⇒ TASK_MISSING；正在跑 ⇒ ALREADY_RUNNING_TASK；
    *  記得上次的分類 ⇒ departWithLink；否則開 taskCategory 面板 */
@@ -332,6 +569,8 @@ let skipSettleGateOnce = false;
 let linkSeq = 0;
 /** ②：從任務發車進行中（重複點擊／鍵 n 連按時不再發一次；② 契約 0-9 的「再發一次」護欄之外多一道） */
 let taskDepartBusy = false;
+/** ③ 評審 #1：`openSheet` 非同步帶 `sheetBlock` 的序號——後來的 openSheet 蓋掉前一個還沒讀完的 */
+let sheetSeq = 0;
 
 /** ②：節點列 → linkInfo 的一格（路線那格 routeId＝自己、code 取 node.code） */
 function linkInfoOf(n: NodeRow): LinkInfo {
@@ -368,7 +607,7 @@ async function loadLinkInfo(ids: readonly string[]): Promise<Record<string, Link
 }
 
 /** ②：要載 linkInfo 的 id（去重）：運行中、看的那天、今天的塊的 node_id／route_id，加開著的 taskCategory 面板的節點 */
-function linkIdsOf(rowsList: readonly (readonly TimeBlockRow[])[], sheet: TimetableSheet | null): string[] {
+function linkIdsOf(rowsList: readonly (readonly TimeBlockRow[])[], sheet: TimetableSheet | null, sheetBlock: TimeBlockRow | null = null): string[] {
   const set = new Set<string>();
   for (const rows of rowsList) {
     for (const r of rows) {
@@ -377,6 +616,10 @@ function linkIdsOf(rowsList: readonly (readonly TimeBlockRow[])[], sheet: Timeta
     }
   }
   if (sheet?.kind === "taskCategory") set.add(sheet.nodeId);
+  if (sheetBlock !== null) {
+    if (sheetBlock.node_id !== null) set.add(sheetBlock.node_id);
+    if (sheetBlock.route_id !== null) set.add(sheetBlock.route_id);
+  }
   return Array.from(set);
 }
 
@@ -402,6 +645,7 @@ function failToast(e: unknown): void {
 }
 
 function normalizeView(raw: string | null, shell: TimetableShell): TimetableView {
+  if (raw === "week" || raw === "stats") return raw; // ③：兩殼都有（D-時-46）
   if (shell === "mobile") return raw === "axis" ? "axis" : "board";
   return raw === "axis" ? "axis" : "split";
 }
@@ -464,6 +708,19 @@ export function waitForTimetableSyncSettle(ms: number): Promise<void> {
   const st = useSyncStore.getState().status;
   if (st && !(st.joined && st.enabled)) return Promise.resolve();
   return waitForSyncSettle(ms);
+}
+
+/**
+ * 沙盒回報 F3（③ 契約 §9-2）：同步清單解名字前先等「同步這一趟收完（含 reload／reconcile）＋serial 佇列清空」。
+ * 給 `timetable.mount.tsx` 的 `syncRowLabel` 用；等待邏輯在純函式 `domain/timetableIdle.ts`（為什麼要等寫在那裡）。
+ * mock 沒有同步 ⇒ `working` 恆 false，只剩等佇列。
+ */
+export function whenTimetableIdle(): Promise<void> {
+  return waitTimetableIdle({
+    syncWorking: () => useSyncStore.getState().working,
+    onSyncChange: (cb) => useSyncStore.subscribe((s, p) => (s.working !== p.working ? cb() : undefined)),
+    chainTail: () => chain,
+  });
 }
 
 export const useTimetableStore = create<TimetableStore>((set, get) => {
@@ -559,6 +816,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     view: "split",
     noticeEnabled: true,
     sheet: null,
+    sheetBlock: null,
     dismissedLongRunId: null,
     pendingAsk: false,
     noticeLongRunEnabled: true,
@@ -590,7 +848,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         const dayKey = prev.dayKey === prev.todayKey && newToday !== prev.todayKey ? newToday : prev.dayKey;
         const dw = dayWindow(dayKey, dayStartHour);
         const tw = dayWindow(newToday, dayStartHour);
-        const ww = dayWindow(weekStartKey(newToday), dayStartHour);
+        const ww = dayWindow(weekStartKey(newToday, useUiStore.getState().weekStart), dayStartHour); // ③：週起點跟全 App 的 week_start（D-時-48）
         const [categories, runningRows, dayBlocks, todayBlocks, weekBlocks, recentCategoryIds] = await Promise.all([
           timetableRepo.listCategories(),
           timetableRepo.listRunning(),
@@ -602,9 +860,16 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         const catById: Record<string, TimeCategoryRow> = {};
         for (const c of categories) catById[c.id] = c;
         const cur = currentRunning(runningRows.map(toSpan));
+        // ③ 評審 #1：開著的 sheet 那一塊不在這幾段裡 ⇒ 重抓一次（寫入後它的內容變了；抓不到＝已被整理掉，面板顯示「不在了」）
+        const runningRow = cur ? (runningRows.find((r) => r.id === cur.id) ?? null) : null;
+        const sheetId = sheetBlockIdOf(get().sheet);
+        let sheetBlock: TimeBlockRow | null = null;
+        if (sheetId !== null && !findBlockIn(sheetId, runningRow, [dayBlocks, todayBlocks ?? [], weekBlocks])) {
+          sheetBlock = await timetableRepo.getBlock(sheetId).catch(() => null);
+        }
         // ②：連到的節點資訊（跟時間塊同一次 set；序號讓晚回來的 refreshLinks 丟掉舊結果）
         ++linkSeq;
-        const linkInfo = await loadLinkInfo(linkIdsOf([runningRows, dayBlocks, todayBlocks ?? []], get().sheet));
+        const linkInfo = await loadLinkInfo(linkIdsOf([runningRows, dayBlocks, todayBlocks ?? []], get().sheet, sheetBlock));
         // 讀的期間 departFromTask 開了 taskCategory 面板（開工時 sheet 還是 null、沒算到那個節點）⇒ 保留它塞進去的那一格
         const sh = get().sheet;
         if (sh?.kind === "taskCategory" && !(sh.nodeId in linkInfo)) {
@@ -614,12 +879,14 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         set({
           categories,
           catById,
-          running: cur ? (runningRows.find((r) => r.id === cur.id) ?? null) : null,
+          running: runningRow,
           dayKey,
           dayBlocks,
           todayKey: newToday,
           todayBlocks: todayBlocks ?? dayBlocks,
           weekBlocks,
+          // 讀的期間 sheet 換了／關了 ⇒ 不蓋；沒換 ⇒ 用剛抓的（找得到清單裡有的就清成 null）
+          sheetBlock: sheetBlockIdOf(get().sheet) === sheetId ? sheetBlock : get().sheetBlock,
           recentCategoryIds,
           linkInfo,
           rev: get().rev + 1,
@@ -637,8 +904,9 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
 
     async reload(ctx) {
       notePulled(ctx.changed); // ②：蓋済偵測分辨「同步拉下來的」（② 契約 §3.8、0-8）
-      if (ctx.wiped) set({ sheet: null, dismissedLongRunId: null, pendingAsk: false, ready: false });
-      const touched = ctx.wiped || ctx.changed.includes("time_blocks") || ctx.changed.includes("time_categories");
+      if (ctx.wiped) set({ sheet: null, sheetBlock: null, dismissedLongRunId: null, pendingAsk: false, ready: false });
+      const touched =
+        ctx.wiped || ctx.changed.includes("time_blocks") || ctx.changed.includes("time_categories") || ctx.changed.includes("time_goals"); // ③：目標變了也要 refresh（rev 變 ⇒ 統計重載）
       if (ctx.changed.includes("settings")) await readLongRunMax(); // 全域保險上限可能被別台改了
       if (ctx.wiped) {
         initPromise = null; // 整批換掉：重走 init（表可能是空的 ⇒ 重種起手分類）
@@ -655,11 +923,17 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     setView(v) {
       set({ view: v });
       void settingsRepo.set(KEY_VIEW, v).catch(() => undefined);
+      void get().ensureFreshDay(); // ③ #72：切到任何視圖都檢查換日
+    },
+
+    async ensureFreshDay() {
+      if (todayKey(useUiStore.getState().dayStartHour, new Date()) !== get().todayKey) await get().refresh();
     },
 
     toggleView(shell) {
       const cur = get().view;
-      const next: TimetableView = shell === "mobile" ? (cur === "axis" ? "board" : "axis") : cur === "axis" ? "split" : "axis";
+      const home: TimetableView = shell === "mobile" ? "board" : "split";
+      const next: TimetableView = cur === "axis" ? home : cur === "week" || cur === "stats" ? home : "axis";
       get().setView(next);
     },
 
@@ -767,12 +1041,36 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     },
 
     openSheet(s) {
-      set({ sheet: s });
+      const my = ++sheetSeq;
+      const id = sheetBlockIdOf(s);
+      const st = get();
+      // 那一塊就在畫面的清單裡（絕大多數）：同步開
+      if (id === null || findBlockIn(id, st.running, [st.dayBlocks, st.todayBlocks, st.weekBlocks])) {
+        set({ sheet: s, sheetBlock: null });
+        return;
+      }
+      // 不在（例：統計頁待確認清單點到更早的塊）⇒ 讀到了才開，面板初值才算得出來；讀不到也開（面板顯示「這一班已經不在了」）
+      void (async () => {
+        let block: TimeBlockRow | null = null;
+        let info: Record<string, LinkInfo> = {};
+        try {
+          block = await timetableRepo.getBlock(id);
+          if (block) {
+            const want = [block.node_id, block.route_id].filter((x): x is string => x !== null && !(x in get().linkInfo));
+            if (want.length) info = await loadLinkInfo(want);
+          }
+        } catch {
+          block = null;
+        }
+        if (my !== sheetSeq) return; // 中間有別的 openSheet ⇒ 這個作廢
+        set({ sheet: s, sheetBlock: block, linkInfo: { ...info, ...get().linkInfo } });
+      })();
     },
 
     closeSheet() {
+      ++sheetSeq;
       const s = get().sheet;
-      set({ sheet: null, dismissedLongRunId: s?.kind === "longRun" ? s.blockId : get().dismissedLongRunId });
+      set({ sheet: null, sheetBlock: null, dismissedLongRunId: s?.kind === "longRun" ? s.blockId : get().dismissedLongRunId });
     },
 
     requestFillLatestGap() {
@@ -868,7 +1166,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     async resolveLongRun(blockId, end, choice, categoryId2) {
       const sheet = get().sheet;
       const then = sheet?.kind === "longRun" && sheet.blockId === blockId ? sheet.then : null;
-      const block = get().running?.id === blockId ? get().running : (get().dayBlocks.find((b) => b.id === blockId) ?? null);
+      const st = get();
+      const block = findBlockIn(blockId, st.running, [st.dayBlocks, st.todayBlocks, st.weekBlocks]) ?? (st.sheetBlock?.id === blockId ? st.sheetBlock : null);
       if (choice === "cat" && !categoryId2) {
         toast(TT_TEXT.pickCategory);
         return;
@@ -876,7 +1175,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       await write(
         () => timetableRepo.resolveLongRun(blockId, isoOf(end), choice, categoryId2),
         () => {
-          set({ sheet: null });
+          ++sheetSeq;
+          set({ sheet: null, sheetBlock: null });
           if (choice === "gap" && block) toast(TT_TEXT.longRunGap(catName(block.category_id), end));
           else if (choice === "cat" && categoryId2) toast(TT_TEXT.longRunCat(catName(categoryId2), end));
           continueAfterLongRun(then);
@@ -985,6 +1285,74 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
+    /* ───────── ③ 時數目標（③ 契約 §3.3、0-5） ───────── */
+
+    async createGoal(input) {
+      let ok = false;
+      await write(
+        () => timetableRepo.createGoal(input),
+        (row) => {
+          ok = true;
+          toast(TT_TEXT.goalSaved(row.name));
+        },
+      );
+      return ok;
+    },
+
+    async updateGoal(id, patch) {
+      let ok = false;
+      await write(
+        async () => {
+          await timetableRepo.updateGoal(id, patch);
+          return (await timetableRepo.getGoal(id))?.name ?? "";
+        },
+        (name) => {
+          ok = true;
+          toast(TT_TEXT.goalSaved(name));
+        },
+      );
+      return ok;
+    },
+
+    async archiveGoal(id, on) {
+      let ok = false;
+      await write(
+        async () => {
+          await timetableRepo.archiveGoal(id, on);
+          return (await timetableRepo.getGoal(id))?.name ?? "";
+        },
+        (name) => {
+          ok = true;
+          if (on) toast(TT_TEXT.goalArchived(name), TT_TEXT.undo, () => void get().archiveGoal(id, false));
+          else toast(TT_TEXT.goalUnarchived(name));
+        },
+      );
+      return ok;
+    },
+
+    async deleteGoal(id) {
+      let ok = false;
+      await write(
+        () => timetableRepo.deleteGoal(id),
+        () => {
+          ok = true;
+          toast(TT_TEXT.goalDeleted, TT_TEXT.undo, () => void get().restoreGoal(id));
+        },
+      );
+      return ok;
+    },
+
+    async restoreGoal(id) {
+      let ok = false;
+      await write(
+        () => timetableRepo.restoreGoal(id),
+        () => {
+          ok = true;
+        },
+      );
+      return ok;
+    },
+
     /* ───────── ②（② 契約 §3.7） ───────── */
 
     async departFromTask(nodeId) {
@@ -1051,7 +1419,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     async refreshLinks() {
       const my = ++linkSeq;
       const s = get();
-      const ids = linkIdsOf([s.running ? [s.running] : [], s.dayBlocks, s.todayBlocks], s.sheet);
+      const ids = linkIdsOf([s.running ? [s.running] : [], s.dayBlocks, s.todayBlocks], s.sheet, s.sheetBlock);
       try {
         const linkInfo = await loadLinkInfo(ids);
         if (my !== linkSeq) return; // 中間有別的 refresh／refreshLinks 開始過 ⇒ 這份可能是舊的 id 集合
@@ -1096,6 +1464,10 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
 // F1（①b①c 契約 §3.7）：設定裡改「一天的開始時間」⇒ 時刻表當場重讀；refresh() 的「停在今天就跟著換」把 dayKey 帶到新的今天
 useUiStore.subscribe((s, p) => {
   if (s.dayStartHour !== p.dayStartHour && useTimetableStore.getState().ready) void useTimetableStore.getState().refresh();
+});
+// ③（D-時-48）：設定裡改「每週從星期幾開始」⇒ 軸頂的本週合計（weekBlocks）一起改跟設定
+useUiStore.subscribe((s, p) => {
+  if (s.weekStart !== p.weekStart && useTimetableStore.getState().ready) void useTimetableStore.getState().refresh();
 });
 
 /**

@@ -5,7 +5,7 @@
  * 車次②（Stage 0-②，甲）：taskCategory「『{任務}』算哪一類？」、link「連到…」（② 契約 §5.13）；兩個面板先是樁。
  */
 import { createElement, type ReactElement } from "react";
-import { durOf, fmtDur, toSpan } from "../../../domain/timetable";
+import { durOf, findBlockIn, fmtDur, toSpan } from "../../../domain/timetable";
 import { TT_TEXT, useTimetableStore, type TimetableSheet, type TimetableStore } from "../../../store/timetableStore";
 import { BlockPanel } from "./BlockPanel";
 import { CategoryManagerPanel } from "./CategoryManagerPanel";
@@ -16,13 +16,15 @@ import { LongRunPanel } from "./LongRunPanel";
 import { RestartPanel } from "./RestartPanel";
 import { SplitPanel } from "./SplitPanel";
 import { TaskCategoryPanel } from "./TaskCategoryPanel";
+import { GoalPanel } from "./GoalPanel"; // ③ 乙席
+import { PendingListPanel, pendingListTitle } from "./PendingListPanel"; // ③ 乙席
 
 export type { PanelProps } from "./controls";
 export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, RestartPanel, SplitPanel, TaskCategoryPanel };
 
 /** ②：linkInfo 選填（host 沒傳就讀 store 現值；taskCategory 的任務名在開面板前已放進 linkInfo） */
 type TitleState = Pick<TimetableStore, "running" | "catById" | "dayBlocks" | "todayBlocks" | "weekBlocks"> &
-  Partial<Pick<TimetableStore, "linkInfo">>;
+  Partial<Pick<TimetableStore, "linkInfo" | "sheetBlock">>;
 
 /** 面板標題（桌機 DialogShell `title`／手機 `.m-sheet-title`） */
 export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): string {
@@ -30,12 +32,9 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
     case "depart":
       return s.running ? "換車——接下來做什麼？" : "発車——接下來做什麼？";
     case "longRun": {
-      const b =
-        (s.running?.id === sheet.blockId ? s.running : null) ??
-        s.dayBlocks.find((x) => x.id === sheet.blockId) ??
-        s.todayBlocks.find((x) => x.id === sheet.blockId) ??
-        s.weekBlocks.find((x) => x.id === sheet.blockId) ??
-        null;
+      // 清單裡沒有 ⇒ 看 sheetBlock（host 沒傳就讀 store 現值；它在 openSheet 時就跟 sheet 一起放好了，③ 評審 #1）
+      const sb = s.sheetBlock !== undefined ? s.sheetBlock : useTimetableStore.getState().sheetBlock;
+      const b = findBlockIn(sheet.blockId, s.running, [s.dayBlocks, s.todayBlocks, s.weekBlocks]) ?? (sb?.id === sheet.blockId ? sb : null);
       if (!b) return "其實到幾點？";
       const name = s.catById[b.category_id]?.name ?? "？";
       return `${name}已經跑了 ${fmtDur(durOf(toSpan(b), now))}`;
@@ -58,6 +57,10 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
     }
     case "link":
       return TT_TEXT.LINK_TITLE;
+    case "goal": // ③ 乙席
+      return sheet.goalId ? TT_TEXT.statsUi.goalEditTitle : TT_TEXT.statsUi.goalNewTitle;
+    case "pendingList": // ③ 乙席
+      return pendingListTitle(sheet.goalId);
     default:
       return "";
   }
@@ -85,6 +88,10 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(TaskCategoryPanel, { onDone });
     case "link":
       return createElement(LinkPanel, { onDone });
+    case "goal": // ③ 乙席
+      return createElement(GoalPanel, { onDone, key: sheet.goalId ?? "new" });
+    case "pendingList": // ③ 乙席
+      return createElement(PendingListPanel, { onDone });
     default:
       return createElement(DepartPanel, { onDone });
   }

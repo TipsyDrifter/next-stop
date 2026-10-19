@@ -11,14 +11,17 @@
  */
 import type {
   TimeBlockRow,
+  TimeBlockSlim,
   TimeCategoryRow,
+  TimeGoalRow,
   CoverSummary,
   LongRunChoice,
   DayBlockSegment,
   MergePreview,
   BlockLink,
 } from "../domain/timetable";
-import { MOCK_MODE, WIPED_MODE, nodeRepo } from "./index";
+import type { GoalInput } from "../domain/timetableStats";
+import { MOCK_MODE, WIPED_MODE, nodeRepo, settingsRepo } from "./index";
 import { SqliteTimetableRepository } from "./sqliteTimetableRepository";
 import { MemoryTimetableRepository } from "./memoryTimetableRepository";
 
@@ -74,6 +77,9 @@ export interface TimetableRepository {
   listRunning(): Promise<TimeBlockRow[]>;
   /** 未刪除、與 [fromIso, toIso) 相交：started_at < toIso AND (ended_at IS NULL OR ended_at > fromIso)；started_at 遞增 */
   listBlocks(fromIso: string, toIso: string): Promise<TimeBlockRow[]>;
+  /** ③ 效能（沙盒回報 F1②）：語義同 `listBlocks`（未刪除、overlap 條件、started_at 遞增），只取統計要的 8 欄
+   *  （id、category_id、started_at、ended_at、estimate_min、node_id、route_id、long_run_ack）。plugin-sql 的成本在 IPC 傳列數×欄數 */
+  listBlocksSlim(fromIso: string, toIso: string): Promise<TimeBlockSlim[]>;
   /** 給旅客筆記線（接縫 §6.3-1）：某個日界線日的時間塊，已在日界線切開、運行中回到「現在」為止 */
   listDaySegments(dateKey: string, dayStartHour: number): Promise<DayBlockSegment[]>;
 
@@ -143,8 +149,29 @@ export interface TimetableRepository {
   listBlocksByNodes(nodeIds: readonly string[]): Promise<TimeBlockRow[]>;
   /** 未刪除、屬於這條路線的塊（② 契約 0-5：經節點推導＋只連這條路線），started_at 遞增 */
   listBlocksByRoute(routeId: string): Promise<TimeBlockRow[]>;
+
+  /* ── ③（③ 契約 §3.2；只加不改） ── */
+  /**
+   * 取一塊（`syncRowLabel` 用）。預設不含已刪除；`{ withDeleted: true }` ⇒ 已刪除的也回（真的沒有這個 id 才回 null）。
+   * 統計用的長區間讀取走 `listBlocksSlim`（只取 8 欄；沙盒回報 F1②）。
+   */
+  getBlock(id: string, opts?: { withDeleted?: boolean }): Promise<TimeBlockRow | null>;
+  /** 時數目標：未刪除（含封存），position 遞增、同 position 以 created_at。讀不懂的列（新版寫的）照樣回，由 `parseGoal` 擋 */
+  listGoals(): Promise<TimeGoalRow[]>;
+  /** 取一個目標；預設不含已刪除，`withDeleted` 同 `getBlock` */
+  getGoal(id: string, opts?: { withDeleted?: boolean }): Promise<TimeGoalRow | null>;
+  /** 驗證規則在 `normalizeGoalInput`（不合法 ⇒ RangeError）；position＝最大值 +1 */
+  createGoal(input: GoalInput): Promise<TimeGoalRow>;
+  /** 只送真的變了的欄（逐欄 LWW）；目標不存在 ⇒ RangeError「找不到這個目標」；新版寫的（parseGoal 不認得）⇒ RangeError */
+  updateGoal(id: string, patch: Partial<GoalInput>): Promise<void>;
+  /** true＝封存（archived_at = now）、false＝叫回（null）；狀態沒變不送 op */
+  archiveGoal(id: string, on: boolean): Promise<void>;
+  /** 軟刪除（deleted_at） */
+  deleteGoal(id: string): Promise<void>;
+  /** 復原軟刪除（撤回用） */
+  restoreGoal(id: string): Promise<void>;
 }
 
 export const timetableRepo: TimetableRepository = MOCK_MODE
-  ? new MemoryTimetableRepository({ seedDemo: !WIPED_MODE, nodeRepo })
+  ? new MemoryTimetableRepository({ seedDemo: !WIPED_MODE, nodeRepo, settingsRepo })
   : new SqliteTimetableRepository();

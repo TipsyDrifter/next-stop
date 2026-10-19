@@ -8,7 +8,7 @@
  * - 面板只讀 store、只叫 store 的動作（契約 §2.6-3）。
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { MIN, fmtClock, type TimeBlockRow } from "../../../domain/timetable";
+import { MIN, findBlockIn, fmtClock, type TimeBlockRow } from "../../../domain/timetable";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 
 export interface PanelProps {
@@ -27,17 +27,9 @@ export function useNowOnce(): number {
   return now;
 }
 
-/** 依 id 找畫面上拿得到的那一塊（運行中／看的那天／今天／本週） */
+/** 依 id 找畫面上拿得到的那一塊（運行中／看的那天／今天／本週）；都沒有再看 `sheetBlock`（面板從清單外的塊開起來，如統計頁的待確認，③ 評審 #1） */
 export function useBlock(id: string): TimeBlockRow | null {
-  return useTimetableStore((s) => {
-    if (s.running?.id === id) return s.running;
-    return (
-      s.dayBlocks.find((b) => b.id === id) ??
-      s.todayBlocks.find((b) => b.id === id) ??
-      s.weekBlocks.find((b) => b.id === id) ??
-      null
-    );
-  });
+  return useTimetableStore((s) => findBlockIn(id, s.running, [s.dayBlocks, s.todayBlocks, s.weekBlocks]) ?? (s.sheetBlock?.id === id ? s.sheetBlock : null));
 }
 
 /**

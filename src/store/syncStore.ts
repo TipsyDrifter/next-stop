@@ -871,15 +871,22 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     lastFailAt = 0;
     await refreshStatusInner();
     if (pulled.changed_tables.length > 0) await refreshAfterPull(pulled);
-    // 主線③：兩台撞到的提示不在這裡出——上面那趟 refreshStatusInner 拿到的 status 已含剛寫進去的清單，
-    // 由 maybeToastMerges 統一出（pull 後／開機／回前景同一條路；uiStore 的 toast 是單槽，兩句會互蓋）。
+    // 主線③：兩台撞到的提示由 maybeToastMerges 統一出（pull 後／開機／回前景同一條路；uiStore 的 toast 是單槽，兩句會互蓋）。
+    // 主線④ #81：上面那趟 refreshStatusInner 在 inflight 期間不出 toast，等各線 reload（時刻表在這裡整理）跑完才組句，
+    // 句子才講得到「後來又不在了」。**不 await**：線的名字插槽可能等 `working` 放下（時刻表③ whenTimetableIdle），在這裡等會卡住整趟。
+    let manualToast = false;
     if (manual) {
       if (pushed.busy || pulled.busy) {
         useUiStore.getState().showToast({ message: "另一趟同步正在進行，請稍候" });
+        manualToast = true;
       } else if (pulled.gated) {
         useUiStore.getState().showToast({ message: "兩台的版本不一致，同步先停在這裡" });
+        manualToast = true;
       }
     }
+    // 手動那句是主人剛按鈕要的回答，合併提示晚到會把它蓋掉（沒帶鈕，otherActionToastShowing 擋不到）⇒ 這一趟讓它；
+    // 鍵沒記，下一份 status（下一趟、回前景）再提
+    if (!manualToast) void maybeToastMerges(useSyncStore.getState().status, true);
     // v1.1.4（契約 §6 排程）：一趟成功之後順手問引擎「今天拍過雲端快照沒」——引擎判當日、這裡不另起 timer。
     // 失敗不打擾（背景動作；狀態列的「上次上傳」會停在舊時刻，主人翻雲端備份區就看得到）。
     if (!pushed.busy && !pulled.busy && !pulled.gated) void autoCloudSnapshot();
@@ -898,6 +905,8 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     // v1.1.5（契約 §2.3）：`fail_streak` 是 Rust 記的（`record_error` +1），本機那份 status 沒有它——
     // 失敗這趟也要重問一次，第 3 趟的橫幅與通知才會準時出現（不等下一個 60 秒）。
     await refreshStatusInner();
+    // pull 是一個物件一個交易：中途失敗前套上的那幾顆也可能留了通知（#81：inflight 期間 refreshStatusInner 不出 toast，這裡補）
+    void maybeToastMerges(useSyncStore.getState().status, true);
     return null;
   } finally {
     inflight = false;
@@ -950,7 +959,10 @@ async function refreshStatusInner(): Promise<SyncStatus | null> {
  *   * 句子只講「新批」（at 比上次提過的新的那幾筆）——舊的沒按「知道了」不會把單筆句稀釋成「N 處」（反駁 E1）。
  *   * 背景不吐（回前景那趟再吐）；畫面上已有別的帶鈕 toast（join 結果、刪除後的「復原」）就不蓋、**不記鍵**，等下一份 status（反駁 S2）。
  */
-async function maybeToastMerges(status: SyncStatus | null): Promise<void> {
+async function maybeToastMerges(status: SyncStatus | null, afterCycle = false): Promise<void> {
+  // 主線④ #81：一趟同步還在跑（拉完、各線還沒重載完）⇒ 先不提，由 runCycle 收尾那一下（afterCycle）提；
+  // 這裡什麼都不記，鍵留給收尾那一下判斷
+  if (inflight && !afterCycle) return;
   const list = status?.notices ?? []; // 舊版 Rust（混用期）沒有這一欄
   const key = latestMergeAt(list);
   if (key === null) {
@@ -976,6 +988,8 @@ async function maybeToastMerges(status: SyncStatus | null): Promise<void> {
   const prevKey = mergeToastKey;
   mergeToastKey = key; // 先記鍵再 await：同時進來的第二份 status（boot 與 runCycle 連叫）看到同鍵就不重提
   const parts = await resolveToastParts(fresh, shell);
+  // #81：刪改相撞的那幾樣，現在是不是又不在了（整理在同一趟又刪掉）——在的話照舊說「回來了／留著」
+  const gone = await syncRepo.goneObjects(fresh.filter((n) => n.kind !== "overwritten"));
   // 等名字的這一拍裡：更新的一批已接手（鍵變了）、切到背景／按了知道了（鍵歸零）⇒ 這句作廢
   if (mergeToastKey !== key) return;
   // 別人的帶鈕 toast 搶先上了 ⇒ 不蓋，鍵退回去（＝沒提過），下一份 status 再試
@@ -985,7 +999,7 @@ async function maybeToastMerges(status: SyncStatus | null): Promise<void> {
   }
   const toastShell = shell;
   const toast = {
-    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols),
+    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols, gone),
     actionLabel: MERGE_TEXT.look,
     onAction: () => useUiStore.getState().openSyncPage(toastShell),
   };

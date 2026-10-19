@@ -5165,6 +5165,28 @@ pub async fn rejoin(app: &AppHandle, passphrase: &str, mode: Option<JoinMode>) -
 ///   空＝第一台／這台空＝直接拉／兩邊有料＝問一次／紀元＋鹽一致＝重接（只換憑證，不問）。
 ///
 /// 「存 credstore」之前的任何失敗都保證**本機零改變**（可以直接重按）。
+/// 加入成功的那一句（TS `JOIN_TOAST` 是退路）。`gated`＝加入那一趟的拉取被閘住（雲端有較新 schema 的物件，
+/// 一顆都沒套）——主線④ #83：這時不能說「已拉下來／已合併」。
+pub(crate) fn join_message(outcome: &JoinOutcome, gated: bool) -> &'static str {
+    // 被閘住的可能只是其中幾台（`pull_core` 只擋 schema 比較新的那幾台），所以說「那部分」不說「全部」
+    match (outcome, gated) {
+        (JoinOutcome::Adopted, true) => {
+            "已改用另一台的資料——但雲端有較新版 App 寫的部分，這台還拉不下來，畫面可能缺東西；請先更新這台的 App，更新後會自動補齊。"
+        }
+        (JoinOutcome::Merged, true) => {
+            "已加入——但雲端有較新版 App 寫的資料，那部分先不拉、這台的資料也先不上傳；請先更新這台的 App，更新後會自動合併。"
+        }
+        (JoinOutcome::Pulled, true) => {
+            "已加入——但雲端有較新版 App 寫的資料，那部分先不拉；請先更新這台的 App，更新後會自動補齊。"
+        }
+        (JoinOutcome::First, _) => "已加入——這台是第一台，資料正在上傳。",
+        (JoinOutcome::Pulled, false) => "已加入——雲端的資料已拉下來。",
+        (JoinOutcome::Merged, false) => "已加入——兩邊的資料已合併，較晚改的為準。",
+        (JoinOutcome::Adopted, false) => "已改用另一台的資料。",
+        _ => "已加入同步。",
+    }
+}
+
 pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String> {
     // 工程評審 B-4：`save_creds` 寫死 `data_key_next_b64: None`——換鑰匙沒做完時走這條會把 K2 抹掉
     guard_not_rotating(app)?;
@@ -5769,7 +5791,11 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         // 主線③：join 的全量拉取是重播，不落通知清單（persist_notices=false；join 本來就有自己的結果訊息）
         pull_report = Some(pull_core(&pool, &client, &data_key, &root, &epoch, &device_id, Some(&st), false).await?);
     }
-    if matches!(outcome, JoinOutcome::First | JoinOutcome::Merged) {
+    // 主線④ #83：這一趟拉取被閘住（雲端有較新 schema 的物件）＝沒有拉完整
+    let join_gated = pull_report.as_ref().is_some_and(|p| p.gated);
+    // 被閘住時不快照、`join_pending` 留著——跟 `push_inner` 補做那條路同一條規則（「只拉了一半」不能當完整基準推出去）；
+    // 主人更新這台之後，下一趟 push 先完整拉取再補戳再快照（反駁報告 K3）
+    if matches!(outcome, JoinOutcome::First | JoinOutcome::Merged) && !join_gated {
         snapshot_ops = snapshot_into_outbox(&pool, &device_id).await?;
         // 快照做完了，旗降下（工程評審 B-2）
         sqlx::query("DELETE FROM sync_meta WHERE key = 'join_pending'")
@@ -5778,7 +5804,10 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
             .map_err(db_err)?;
     }
     meta_set(&pool, "enabled", "1").await?;
-    st.set_gate(None);
+    // 被閘住 ⇒ 留著 `pull_core` 記下的對方 schema，加入當下狀態就是信号待ち；沒被閘住才清（清的是上一個進程留下的舊閘門）
+    if !join_gated {
+        st.set_gate(None);
+    }
     // 刻意**不**標記 `bucket_meta_done`：加入時若沿用的是 v1.1.1／v1.1.2 開的舊紀元（沒有 EPOCH.bin），
     // 要靠第一趟 push／pull 的 `ensure_bucket_meta` 去補寫它，別台的紀元偵測才有依據（§7 ⑥）。
     // 反過來，**上一個進程留下的 true 要清掉**（工程評審 S-9）：不清的話新血統的 SALT 比對、
@@ -5786,13 +5815,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     st.clear_bucket_meta_done();
     drop(_busy);
 
-    let message = match outcome {
-        JoinOutcome::First => "已加入——這台是第一台，資料正在上傳。",
-        JoinOutcome::Pulled => "已加入——雲端的資料已拉下來。",
-        JoinOutcome::Merged => "已加入——兩邊的資料已合併，較晚改的為準。",
-        JoinOutcome::Adopted => "已改用另一台的資料。",
-        _ => "已加入同步。",
-    };
+    let message = join_message(&outcome, join_gated);
     let message = if rescued_key.is_some() {
         format!("{message}{}", recovery::RESCUE_NEXT_STEP)
     } else {
@@ -10306,3 +10329,20 @@ pub(crate) mod foundation_golden;
 #[cfg(test)]
 #[path = "foundation_checks.rs"]
 mod foundation_checks;
+
+/// 主線④ #83：加入被閘住時不說「已拉下來／已合併」
+#[cfg(test)]
+mod join_message_tests {
+    use super::{join_message, JoinOutcome};
+
+    #[test]
+    fn 被閘住的加入不說已拉下來() {
+        for o in [JoinOutcome::Pulled, JoinOutcome::Merged, JoinOutcome::Adopted] {
+            let m = join_message(&o, true);
+            assert!(!m.contains("已拉下來") && !m.contains("已合併"), "{o:?}：{m}");
+            assert!(m.contains("請先更新這台的 App"), "{o:?}：{m}");
+        }
+        assert_eq!(join_message(&JoinOutcome::Pulled, false), "已加入——雲端的資料已拉下來。");
+        assert_eq!(join_message(&JoinOutcome::Merged, false), "已加入——兩邊的資料已合併，較晚改的為準。");
+    }
+}

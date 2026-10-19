@@ -6,6 +6,7 @@
  *   div.ns-tt-day-cats（今日各分類合計，依時長遞減，最多 8 個、其餘併「其他」）
  *   div.ns-tt-day-week（三個頂層組＋右側「本週」）
  * 讀的是 store 的 `dayBlocks`（Axis 把 `store.dayKey` 傳進來，兩者對應同一天）；本週讀 `weekBlocks`。
+ * ③（D-時-48；丙席）：本週的起點跟 `uiStore.weekStart`（store 的 weekBlocks 也已改跟它，兩邊同一個窗）。
  */
 import { useMemo, type CSSProperties } from "react";
 import {
@@ -42,6 +43,7 @@ export function DaySummary({ dayKey }: DaySummaryProps) {
   const catById = useTimetableStore((s) => s.catById);
   const setDayKey = useTimetableStore((s) => s.setDayKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const weekStart = useUiStore((s) => s.weekStart);
   const now = useNow(1000);
 
   const w = useMemo(() => {
@@ -67,14 +69,14 @@ export function DaySummary({ dayKey }: DaySummaryProps) {
     return { rows: head, other };
   }, [spans, w, now]);
 
-  /** 本週（週一的日界線起到今天為止）各頂層組合計 */
+  /** 本週（全 App「每週從星期幾開始」那天的日界線起到今天為止；③ D-時-48）各頂層組合計 */
   const weekRows = useMemo(() => {
-    const ws = dayWindow(weekStartKey(todayKey), dayStartHour);
+    const ws = dayWindow(weekStartKey(todayKey, weekStart), dayStartHour);
     const te = dayWindow(todayKey, dayStartHour);
     const totals = totalsByCategory(weekBlocks.map(toSpan), { start: msOf(ws.start), end: msOf(te.end) }, now);
     const byGroup = totalsByGroup(totals, categories);
     return groupedCategories(categories).map(({ group }) => ({ id: group.id, name: group.name, ms: byGroup[group.id] ?? 0 }));
-  }, [weekBlocks, todayKey, dayStartHour, categories, now]);
+  }, [weekBlocks, todayKey, dayStartHour, weekStart, categories, now]);
 
   const isToday = dayKey === todayKey;
   const showYesterday = isToday && now - w.start < 60 * MIN;

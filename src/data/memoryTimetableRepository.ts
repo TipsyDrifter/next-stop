@@ -10,12 +10,16 @@
  * - 評審端點（本檔自己讀 `location.search`，不經 `DEV_FLAGS`）：`&tt=long`＝運行中那班改成「洗漱，今天 06:30 発」；
  *   `&tt=idle`＝沒有運行中；`&tt=est`（①b）＝運行中那班「創作」帶預估 30 分、開始於 50 分前（一打開就誤點 +20m）；
  *   `&tt=link`（②，② 契約 0-17）＝運行中那班連到今日第一張未交代的票（優先有掛路線的車票）、往前兩塊已結束的連到同一張、再往前一塊只連那張票的路線。
+ * - ③（`&tt=stats`，③ 契約 0-12）：種**最近 10 週**、照使用者的分類分布、每天 6–9 筆首尾相接；3 塊跑太久沒確認（一塊跨兩天）、
+ *   5 塊 10–40 秒的碎塊、約三成連到兩條路線的車票、一成只連路線；四個目標（夜行列車：從 6 週前起至少 180h 創作＋學習＋興趣；
+ *   娛樂每週至多 20h；到 2 週後為止至少 30h 上課＋學習；上個月的單一區間至少 N 小時創作〔已結束、沒達到；N 依示範資料算成約 7 成進度〕）。日界線讀當下設定（`day_start_hour`，沒有就 6）；種子固定（同一天開兩次長一樣）。
  * - ②：建構子收 `nodeRepo`（照 `noteRepo.ts` 的注入法）——`lastCategoryFor`／`listBlocksByRoute` 由它取節點的路線、
  *   `setLink` 由它驗節點種類、`&tt=link` 由它找今日車票。
  */
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, dayWindow, todayKey } from "../lib/date";
 import type { NodeRepository } from "./nodeRepository";
+import type { SettingsRepository } from "./settingsRepository";
 import { LINKABLE_KINDS, linkOfRow } from "../domain/timetableLink";
 import {
   MIN,
@@ -54,21 +58,25 @@ import {
   type LongRunChoice,
   type Span,
   type TimeBlockRow,
+  type TimeBlockSlim,
   type TimeCategoryRow,
+  type TimeGoalRow,
   type WritePlan,
 } from "../domain/timetable";
+import { goalScopeJson, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
+import { buildStatsDemo } from "../domain/timetableStatsDemo";
 import type { CategoryPatch, CreateCategoryInput, DepartOptions, MergePreview, TimetableRepository } from "./timetableRepository";
 import { pieceId } from "./sqliteTimetableRepository";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
 const isAlive = (r: { deleted_at: string | null }): boolean => r.deleted_at === null;
 
-/** 評審端點：`&tt=long|idle|est|link` */
-function ttMode(): "long" | "idle" | "est" | "link" | null {
+/** 評審端點：`&tt=long|idle|est|link|stats` */
+function ttMode(): "long" | "idle" | "est" | "link" | "stats" | null {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("tt");
-    return v === "long" || v === "idle" || v === "est" || v === "link" ? v : null;
+    return v === "long" || v === "idle" || v === "est" || v === "link" || v === "stats" ? v : null;
   } catch {
     return null;
   }
@@ -96,9 +104,13 @@ const DEMO_YESTERDAY: { key: string; start: number; end: number }[] = [
   { key: "meal", start: 540, end: 600 }, // 12:00–13:00
 ];
 
+/* ③ `&tt=stats` 示範資料的產生器在 `domain/timetableStatsDemo.ts`（純函式，測試釘住待確認＝3、碎塊＝5；評審 #2） */
+
 export class MemoryTimetableRepository implements TimetableRepository {
   private readonly cats = new Map<string, TimeCategoryRow>();
   private readonly blocks = new Map<string, TimeBlockRow>();
+  private readonly goals = new Map<string, TimeGoalRow>();
+  private readonly settings: Pick<SettingsRepository, "get"> | null;
   /** id → started_at 最後被寫的時刻（ISO）；＝真機 sync_cells 裡 `started_at` 那一格的 hlc 的替身（整理寫入鍵用，D-時-26） */
   private readonly startStamp = new Map<string, string>();
   private readonly seedDemo: boolean;
@@ -107,9 +119,10 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /** ② `&tt=link` 的連結示範（async；做過一次就直接回同一個 promise） */
   private linkDemo: Promise<void> | null = null;
 
-  constructor(opts: { seedDemo: boolean; nodeRepo: NodeRepository }) {
+  constructor(opts: { seedDemo: boolean; nodeRepo: NodeRepository; settingsRepo?: Pick<SettingsRepository, "get"> }) {
     this.seedDemo = opts.seedDemo;
     this.nodeRepo = opts.nodeRepo;
+    this.settings = opts.settingsRepo ?? null;
   }
 
   /* ───────── 內部 ───────── */
@@ -119,8 +132,137 @@ export class MemoryTimetableRepository implements TimetableRepository {
    * 每個碰時間塊的公開 async 方法開頭 `await this.ready()`。沒有今日票 ⇒ 不連。
    */
   private ready(): Promise<void> {
-    if (!this.linkDemo) this.linkDemo = this.seedDemo && ttMode() === "link" ? this.ensureLinkDemo() : Promise.resolve();
+    if (!this.linkDemo) {
+      const mode = ttMode();
+      this.linkDemo = !this.seedDemo
+        ? Promise.resolve()
+        : mode === "link"
+          ? this.ensureLinkDemo()
+          : mode === "stats"
+            ? this.ensureStatsDemo()
+            : Promise.resolve();
+    }
     return this.linkDemo;
+  }
+
+  /**
+   * ③ `&tt=stats`（契約 0-12）：取代 `ensureDemo`（先把 `demoSeeded` 設成 true）。日界線讀當下設定（`day_start_hour`，沒有／壞了＝6）；
+   * 路線與車票從 nodeRepo 取（前兩條有車票的路線）；讀不到就不連。
+   */
+  private async ensureStatsDemo(): Promise<void> {
+    if (this.demoSeeded) return;
+    this.demoSeeded = true;
+    const now = Date.now();
+    let h = 6;
+    try {
+      const raw = await this.settings?.get("day_start_hour");
+      const n = raw === null || raw === undefined ? NaN : Number(raw);
+      if (Number.isInteger(n) && n >= 0 && n <= 23) h = n;
+    } catch {
+      /* 用預設 */
+    }
+    const links = { nodeIds: [] as string[], routeIds: [] as string[] };
+    try {
+      const side = await this.nodeRepo.listSidebar();
+      for (const route of side.routes) {
+        if (links.routeIds.length >= 2) break;
+        const tree = await this.nodeRepo.listRouteTree(route.id);
+        const ids = tree
+          .filter((n) => n.deleted_at === null && LINKABLE_KINDS.includes(n.kind))
+          .slice(0, 6)
+          .map((n) => n.id);
+        if (!ids.length) continue;
+        links.routeIds.push(route.id);
+        links.nodeIds.push(...ids);
+      }
+    } catch {
+      /* 示範資料失敗不影響主流程 */
+    }
+    const stamp = nowUtcIso();
+    let seq = 0;
+    const demoBlocks = buildStatsDemo(h, now, links);
+    for (const b of demoBlocks) {
+      const id = `5ca70000-0000-4000-8000-${(++seq).toString(16).padStart(12, "0")}`;
+      this.blocks.set(id, {
+        id,
+        category_id: STARTER_ID[b.key],
+        started_at: isoOf(b.start),
+        ended_at: b.end === null ? null : isoOf(b.end),
+        estimate_min: null,
+        node_id: b.nodeId ?? null,
+        route_id: b.routeId ?? null,
+        long_run_ack: b.ack ? 1 : 0,
+        account_id: null,
+        device_id: null,
+        created_at: stamp,
+        updated_at: stamp,
+        synced_at: null,
+        deleted_at: null,
+      });
+      this.startStamp.set(id, stamp);
+    }
+    const today = todayKey(h, new Date(now));
+    const goal = (n: number, g: GoalInput): void => {
+      const v = normalizeGoalInput(g);
+      const id = `90a10000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
+      this.goals.set(id, {
+        id,
+        name: v.name,
+        scope: goalScopeJson(v.categoryIds),
+        period: v.period,
+        target_min: v.targetMin,
+        direction: v.direction,
+        start_on: v.startOn,
+        end_on: v.endOn,
+        position: n - 1,
+        archived_at: null,
+        account_id: null,
+        device_id: null,
+        created_at: stamp,
+        updated_at: stamp,
+        synced_at: null,
+        deleted_at: null,
+      });
+    };
+    // 上個月的單一區間：目標時數依示範資料算成約 7 成進度（保證「已結束、沒達到」）
+    const monthStart = addDays(today.slice(0, 7) + "-01", -1).slice(0, 7) + "-01";
+    const monthEnd = addDays(today.slice(0, 7) + "-01", -1);
+    const rs = msOf(dayWindow(monthStart, h).start);
+    const re = msOf(dayWindow(addDays(monthEnd, 1), h).start);
+    let createMs = 0;
+    for (const b of demoBlocks) {
+      if (b.key !== "create") continue;
+      createMs += Math.max(0, Math.min(b.end ?? now, re) - Math.max(b.start, rs));
+    }
+    const rangeTarget = Math.max(60, Math.ceil((createMs / MIN / 60) * 1.4));
+    goal(1, {
+      name: "夜行列車",
+      categoryIds: [STARTER_ID.create, STARTER_ID.study, STARTER_ID.hobby],
+      period: "since",
+      targetMin: 180 * 60,
+      direction: "atLeast",
+      startOn: addDays(today, -42),
+      endOn: null,
+    });
+    goal(2, { name: "娛樂別太多", categoryIds: [STARTER_ID.play], period: "week", targetMin: 20 * 60, direction: "atMost", startOn: null, endOn: null });
+    goal(3, {
+      name: "期中衝刺",
+      categoryIds: [STARTER_ID.class, STARTER_ID.study],
+      period: "until",
+      targetMin: 30 * 60,
+      direction: "atLeast",
+      startOn: today,
+      endOn: addDays(today, 14),
+    });
+    goal(4, {
+      name: "上個月的創作",
+      categoryIds: [STARTER_ID.create],
+      period: "range",
+      targetMin: rangeTarget * 60,
+      direction: "atLeast",
+      startOn: monthStart,
+      endOn: monthEnd,
+    });
   }
 
   private async ensureLinkDemo(): Promise<void> {
@@ -444,6 +586,24 @@ export class MemoryTimetableRepository implements TimetableRepository {
       .map(clone);
   }
 
+  async listBlocksSlim(fromIso: string, toIso: string): Promise<TimeBlockSlim[]> {
+    await this.ready();
+    this.ensureDemo();
+    return Array.from(this.blocks.values())
+      .filter((r) => isAlive(r) && r.started_at < toIso && (r.ended_at === null || r.ended_at > fromIso))
+      .sort((a, b) => (a.started_at < b.started_at ? -1 : a.started_at > b.started_at ? 1 : 0))
+      .map((r) => ({
+        id: r.id,
+        category_id: r.category_id,
+        started_at: r.started_at,
+        ended_at: r.ended_at,
+        estimate_min: r.estimate_min,
+        node_id: r.node_id,
+        route_id: r.route_id,
+        long_run_ack: r.long_run_ack,
+      }));
+  }
+
   async listDaySegments(dateKey: string, dayStartHour: number): Promise<DayBlockSegment[]> {
     const w = dayWindow(dateKey, dayStartHour);
     const rows = await this.listBlocks(w.start, w.end);
@@ -758,5 +918,116 @@ export class MemoryTimetableRepository implements TimetableRepository {
       }
     }
     return this.sortAsc(out);
+  }
+
+  /* ───────── ③：公開的取一塊、時數目標 ───────── */
+
+  async getBlock(id: string, opts?: { withDeleted?: boolean }): Promise<TimeBlockRow | null> {
+    await this.ready();
+    this.ensureDemo();
+    const r = this.blocks.get(id);
+    if (!r) return null;
+    return !isAlive(r) && !opts?.withDeleted ? null : clone(r);
+  }
+
+  private aliveGoalOrThrow(id: string): TimeGoalRow {
+    const g = this.goals.get(id);
+    if (!g || !isAlive(g)) throw new RangeError("找不到這個目標");
+    return g;
+  }
+
+  async listGoals(): Promise<TimeGoalRow[]> {
+    await this.ready();
+    return Array.from(this.goals.values())
+      .filter(isAlive)
+      .sort((a, b) => a.position - b.position || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0) || (a.id < b.id ? -1 : 1))
+      .map(clone);
+  }
+
+  async getGoal(id: string, opts?: { withDeleted?: boolean }): Promise<TimeGoalRow | null> {
+    await this.ready();
+    const g = this.goals.get(id);
+    if (!g) return null;
+    return !isAlive(g) && !opts?.withDeleted ? null : clone(g);
+  }
+
+  async createGoal(input: GoalInput): Promise<TimeGoalRow> {
+    await this.ready();
+    const v = normalizeGoalInput(input);
+    const now = nowUtcIso();
+    const position = Array.from(this.goals.values()).filter(isAlive).reduce((m, g) => Math.max(m, g.position), -1) + 1;
+    const row: TimeGoalRow = {
+      id: uuid(),
+      name: v.name,
+      scope: goalScopeJson(v.categoryIds),
+      period: v.period,
+      target_min: v.targetMin,
+      direction: v.direction,
+      start_on: v.startOn,
+      end_on: v.endOn,
+      position,
+      archived_at: null,
+      account_id: null,
+      device_id: null,
+      created_at: now,
+      updated_at: now,
+      synced_at: null,
+      deleted_at: null,
+    };
+    this.goals.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateGoal(id: string, patch: Partial<GoalInput>): Promise<void> {
+    await this.ready();
+    const cur = this.aliveGoalOrThrow(id);
+    const parsed = parseGoal(cur);
+    if (!parsed) throw new RangeError("這個目標是新版本寫的，這一版改不了");
+    const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch });
+    const scope = goalScopeJson(v.categoryIds);
+    if (
+      v.name === cur.name &&
+      scope === cur.scope &&
+      v.period === cur.period &&
+      v.targetMin === cur.target_min &&
+      v.direction === cur.direction &&
+      v.startOn === cur.start_on &&
+      v.endOn === cur.end_on
+    ) {
+      return;
+    }
+    cur.name = v.name;
+    cur.scope = scope;
+    cur.period = v.period;
+    cur.target_min = v.targetMin;
+    cur.direction = v.direction;
+    cur.start_on = v.startOn;
+    cur.end_on = v.endOn;
+    cur.updated_at = nowUtcIso();
+  }
+
+  async archiveGoal(id: string, on: boolean): Promise<void> {
+    await this.ready();
+    const cur = this.aliveGoalOrThrow(id);
+    if (on === (cur.archived_at !== null)) return;
+    const now = nowUtcIso();
+    cur.archived_at = on ? now : null;
+    cur.updated_at = now;
+  }
+
+  async deleteGoal(id: string): Promise<void> {
+    await this.ready();
+    const cur = this.aliveGoalOrThrow(id);
+    const now = nowUtcIso();
+    cur.deleted_at = now;
+    cur.updated_at = now;
+  }
+
+  async restoreGoal(id: string): Promise<void> {
+    await this.ready();
+    const cur = this.goals.get(id);
+    if (!cur || isAlive(cur)) throw new RangeError("找不到這個目標");
+    cur.deleted_at = null;
+    cur.updated_at = nowUtcIso();
   }
 }

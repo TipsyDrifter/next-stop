@@ -60,6 +60,37 @@ export interface TimeBlockRow {
   deleted_at: string | null;
 }
 
+/** ③ 效能（沙盒回報 F1②）：統計／週視圖／目標只要的 8 欄（`listBlocksSlim` 回這個；`toStatsSpan` 吃它，`TimeBlockRow` 也相容） */
+export type TimeBlockSlim = Pick<
+  TimeBlockRow,
+  "id" | "category_id" | "started_at" | "ended_at" | "estimate_min" | "node_id" | "route_id" | "long_run_ack"
+>;
+
+/** ③：時數目標（`time_goals` 一列；欄位語義見 ③ 契約 0-5） */
+export interface TimeGoalRow {
+  id: string;
+  name: string;
+  /** JSON：`{"categories":["<id>",…]}` */
+  scope: string;
+  /** 'day' | 'week' | 'month'（週期重複）| 'since' | 'until' | 'range' */
+  period: string;
+  target_min: number;
+  /** 'atLeast' | 'atMost' */
+  direction: string;
+  /** 'YYYY-MM-DD'（日界線日）；since／until／range 的起點（含），週期重複＝NULL */
+  start_on: string | null;
+  /** 'YYYY-MM-DD'（日界線日）；until／range 的終點（含當天整天），其餘 NULL */
+  end_on: string | null;
+  position: number;
+  archived_at: string | null;
+  account_id: string | null;
+  device_id: string | null;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+  deleted_at: string | null;
+}
+
 /** 純函式用的時間塊 */
 export interface Span {
   id: string;
@@ -322,14 +353,17 @@ function localDateKey(d: Date): string {
   return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
 }
 
-/** 該日界線日所在週的**週一**（`YYYY-MM-DD`；本地日期運算，不經 Date.parse） */
-export function weekStartKey(dateKey: string): string {
+/**
+ * 該日界線日所在週的第一天（`YYYY-MM-DD`；本地日期運算，不經 Date.parse）。
+ * ③：`weekStart`＝全 App 的「每週從星期幾開始」（`uiStore.weekStart`，JS getDay() 的值：0＝週日、1＝週一）；預設 1＝週一＝①②行為。
+ */
+export function weekStartKey(dateKey: string, weekStart: 0 | 1 = 1): string {
   const parts = dateKey.split("-");
   const y = Number(parts[0]);
   const m = Number(parts[1]);
   const d = Number(parts[2]);
   const date = new Date(y, m - 1, d);
-  const back = (date.getDay() + 6) % 7; // 週一＝0 … 週日＝6
+  const back = weekStart === 0 ? date.getDay() : (date.getDay() + 6) % 7; // 週起點＝0 … 6
   return localDateKey(new Date(y, m - 1, d - back));
 }
 
@@ -1097,38 +1131,65 @@ export function segmentsOfDay(spans: readonly Span[], w: { start: number; end: n
   return items;
 }
 
-/** 毫秒；先夾進窗；重疊不重複計——每一小段時間只記給開始較晚的那一塊（同開始取 id 較大） */
+/**
+ * ③：把塊切進窗 `[w.start, min(w.end, now))`，重疊不重複計——每一小段時間只記給開始較晚的那一塊（同開始取 id 較大）。
+ * 回每塊一筆 `{ id, categoryId, ms }`（只出 ms > 0 的；同一塊被重疊切成幾段也併成一筆；順序＝依開始時間）。
+ * `totalsByCategory` 與統計（`timetableStats.ts`）共用這一條規則，只寫這一次。
+ * 掃描線：切點由小到大，活動中的塊依（開始, id）排好，擁有者＝最後一個；乾淨資料（不重疊）下是 O(n log n)。
+ */
+export function sliceSpans(
+  spans: readonly Span[],
+  w: { start: number; end: number },
+  now: number,
+): { id: string; categoryId: string; ms: number }[] {
+  const effEnd = Math.min(w.end, now);
+  interface Clip {
+    id: string;
+    categoryId: string;
+    start: number;
+    end: number;
+  }
+  const clipped: Clip[] = [];
+  for (const s of spans) {
+    const from = Math.max(s.start, w.start);
+    const to = Math.min(s.end ?? now, effEnd);
+    if (to <= from) continue;
+    clipped.push({ id: s.id, categoryId: s.categoryId, start: from, end: to });
+  }
+  if (!clipped.length) return [];
+  clipped.sort((x, y) => x.start - y.start || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  const boundSet = new Set<number>();
+  for (const c of clipped) {
+    boundSet.add(c.start);
+    boundSet.add(c.end);
+  }
+  const ts = Array.from(boundSet).sort((x, y) => x - y);
+  const msById = new Map<string, number>();
+  const order: Clip[] = [];
+  let active: Clip[] = [];
+  let p = 0;
+  for (let i = 0; i + 1 < ts.length; i++) {
+    const a = ts[i];
+    const b = ts[i + 1];
+    while (p < clipped.length && clipped[p].start <= a) active.push(clipped[p++]);
+    if (active.length && active.some((c) => c.end <= a)) active = active.filter((c) => c.end > a);
+    if (!active.length) continue;
+    const owner = active[active.length - 1];
+    const prev = msById.get(owner.id);
+    if (prev === undefined) order.push(owner);
+    msById.set(owner.id, (prev ?? 0) + (b - a));
+  }
+  return order.map((c) => ({ id: c.id, categoryId: c.categoryId, ms: msById.get(c.id)! }));
+}
+
+/** 毫秒；先夾進窗；重疊不重複計——每一小段時間只記給開始較晚的那一塊（同開始取 id 較大）。切片規則在 `sliceSpans` */
 export function totalsByCategory(
   spans: readonly Span[],
   w: { start: number; end: number },
   now: number,
 ): Record<string, number> {
-  const effEnd = Math.min(w.end, now);
-  const clipped: Span[] = [];
-  for (const s of spans) {
-    const from = Math.max(s.start, w.start);
-    const to = Math.min(s.end ?? now, effEnd);
-    if (to <= from) continue;
-    clipped.push({ ...s, start: from, end: to });
-  }
   const totals: Record<string, number> = {};
-  if (!clipped.length) return totals;
-  const bounds = new Set<number>();
-  for (const s of clipped) {
-    bounds.add(s.start);
-    bounds.add(s.end!);
-  }
-  const ts = Array.from(bounds).sort((a, b) => a - b);
-  for (let i = 0; i + 1 < ts.length; i++) {
-    const a = ts[i];
-    const b = ts[i + 1];
-    let owner: Span | null = null;
-    for (const s of clipped) {
-      if (s.start > a || s.end! < b) continue;
-      if (!owner || s.start > owner.start || (s.start === owner.start && s.id > owner.id)) owner = s;
-    }
-    if (owner) totals[owner.categoryId] = (totals[owner.categoryId] ?? 0) + (b - a);
-  }
+  for (const sl of sliceSpans(spans, w, now)) totals[sl.categoryId] = (totals[sl.categoryId] ?? 0) + sl.ms;
   return totals;
 }
 
@@ -1246,4 +1307,22 @@ export function toDayBlockSegments(
     });
   }
   return out;
+}
+
+/* ───────── ③ 甲席修正：面板開的那一塊不一定在畫面的清單裡（評審 #1） ───────── */
+
+/** 帶 blockId 的 sheet（longRun／restart／edit／split／estimate／link）→ 那一塊的 id；其餘（含 null）→ null */
+export function sheetBlockIdOf(sheet: { kind: string } | null): string | null {
+  if (sheet === null) return null;
+  const id = (sheet as { blockId?: unknown }).blockId;
+  return typeof id === "string" && id !== "" ? id : null;
+}
+
+/** 在「運行中、各段時間塊」裡依 id 找一塊（先找到的先贏；找不到 null） */
+export function findBlockIn(id: string, running: TimeBlockRow | null, lists: readonly (readonly TimeBlockRow[])[]): TimeBlockRow | null {
+  if (running !== null && running.id === id) return running;
+  for (const rows of lists) {
+    for (const b of rows) if (b.id === id) return b;
+  }
+  return null;
 }

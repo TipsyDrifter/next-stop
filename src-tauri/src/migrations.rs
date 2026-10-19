@@ -60,6 +60,8 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(8, "0008_notes_tags", "notes: tags + taggings (deterministic ids; nested by name)"),
     mig!(9, "0009_ticket_time", "ticket time: nodes.scheduled_time (business-day HH:MM) + nodes.time_overrides (per-run JSON)"),
     mig!(10, "0010_ticket_plan", "ticket plan: tk_budgets + tk_repeats + tk_entries.repeat_id (no data rows)"),
+    // 施工期暫定號（時刻表③）。進驗收時由主對話發正式號：改這一行的版號＋檔名＋git mv，程式其餘地方不寫號碼
+    mig!(11, "0011_timetable_goals", "timetable goals: time_goals (category-group hour targets: repeating day/week/month, since, until, range)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -152,6 +154,11 @@ mod tests {
             10,
             "0010_ticket_plan",
             "0db42374c4b7e71a45c0b213494ddb7c0bc0b5059b44909c1043386ce0572cd50b72dcb0f6291fe193449870b2d3b0d6",
+        ),
+        (
+            11,
+            "0011_timetable_goals",
+            "a17d0b710f8ab6cf58aae67191e98a9fd7a850ef02759f15de733cf5c183f1728587d5800329b1c06bf8103f93abd10c",
         ),
     ];
 

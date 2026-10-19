@@ -17,6 +17,9 @@ mod ticket;
 // pub：清單與 `version_of` 是給 sync（`SCHEMA_VERSION`、同步表 spec 的 `since`）與 probe 讀的介面。
 pub mod migrations;
 
+// 主線④（接縫 #80）：降版閘門——plugin-sql 只在第一次 load 驗 migration，前端每次開庫前改先叫這裡驗。兩殼都編。
+mod db_gate;
+
 // 時刻表 ①a 補充契約（D-時-24／25）：桌機系統匣＋按 ✕ 縮到系統匣。全 App 的殼層行為，時刻表只透過
 // `tray_set_status` 告訴它顯示什麼。手機沒有系統匣，整支不編（`desktop` cfg 由 tauri-build 設，與 `mobile` 互斥）。
 #[cfg(desktop)]
@@ -180,6 +183,8 @@ pub fn run() {
             sync::commands::sync_start_over,
             // 主線③ 同步復活提示契約 §3.2：同步頁「知道了」清掉兩台撞到的通知清單
             sync::commands::sync_ack_merges,
+            // 主線④ 降版閘門（接縫 #80）：前端每次開庫前先驗（兩殼都掛）
+            db_gate::db_gate_check,
             // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
             // ⑤ 捕捉小窗（契約 §3.5-③、M-1）：五支，桌機限定（手機那份不加）
             capture::capture_hide,
@@ -221,6 +226,8 @@ pub fn run() {
         sync::commands::sync_recovery_clear,
         sync::commands::sync_start_over,
         sync::commands::sync_ack_merges,
+        // 主線④ 降版閘門（接縫 #80）
+        db_gate::db_gate_check,
         // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
         // ── 時刻表線插槽 ──
         // ── 售票口線插槽 ──

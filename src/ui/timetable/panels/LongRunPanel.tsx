@@ -61,11 +61,12 @@ export function LongRunPanel({ onDone }: PanelProps) {
 
   const name = cat?.name ?? "？";
   const untilText = ended ? fmtClock(cap) : "現在";
+  const sp = ended ? " " : ""; // 時刻前後留空格、「現在」不留
   const note =
     after === "gap"
-      ? `${fmtClock(end)} 到${untilText}會標成未記錄，之後隨時可以補。`
+      ? `${fmtClock(end)} 到${sp}${untilText}${sp}會標成未記錄，之後隨時可以補。`
       : after === "cat"
-        ? `${fmtClock(end)} 起算成那個分類，一直到${untilText}。`
+        ? `${fmtClock(end)} 起算成那個分類，一直到${sp}${untilText}。`
         : th?.source === "estimate" || th?.source === "task"
           ? "這一班照跑；軸上會留一個『誤點』的記號。"
           : "這一班照跑；軸上會留一個『長時間運行』的記號。";

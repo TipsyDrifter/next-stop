@@ -8,9 +8,18 @@
  * F2（契約 0-13）：疊層關掉後焦點落在 body、keydown 不經過 `.page` ⇒ TimetableView 在 window 掛後援監聽，
  * 原生事件也走同一支 `handleTimetableKey`。
  * 全域 `Ctrl+5` 由地基的 `navHotkeys()` 產生，不在這張表。
+ *
+ * 車次③（③ 契約 §5.8、D-時-57；整合席）：加七個 id——1–4 切視圖（`showView`）、D／W／M 換統計的期（`statsPeriod`，
+ * 不在統計視圖回 false 放行）。←／→／T 不另登記：同一組 `dayPrev`／`dayNext`／`dayToday` 由接線端依 view 分派
+ * （週視圖＝換週／回本週，統計＝換期／回本期，其餘＝換日）。面板開著時照舊整張表停用。
  */
 import type { KeyboardEvent } from "react";
 import { isEditableTarget, resolveHotkey, type KeyLike } from "../shell/hotkeys";
+
+/** 1–4 對應的視圖（＝切換鈕四格的順序，D-時-46） */
+export type TimetableKeyView = "split" | "axis" | "week" | "stats";
+/** D／W／M 對應的統計期 */
+export type TimetableKeyPeriod = "day" | "week" | "month";
 
 export interface TimetableKeyActions {
   /** N：発車／換車 → store.requestDepart() */
@@ -21,11 +30,11 @@ export interface TimetableKeyActions {
   toggleView(): void;
 
   /* 車次①b（①b①c 契約 §5.9）的七支；回 false＝放行 */
-  /** ←：前一天 → setDayKey(addDays(dayKey, -1)) */
+  /** ←：前一天 → setDayKey(addDays(dayKey, -1))；③：週視圖＝上一週、統計＝上一期 */
   dayPrev(): void;
-  /** →：後一天；看今天時回 false（放行） */
+  /** →：後一天；看今天時回 false（放行）；③：週視圖＝下一週、統計＝下一期（已在本週／本期回 false） */
   dayNext(): boolean;
-  /** T：回今天；已是今天回 false（放行） */
+  /** T：回今天；已是今天回 false（放行）；③：週視圖＝回到本週、統計＝回到本期（已在本週／本期回 false） */
   dayToday(): boolean;
   /** R：有運行中 ⇒ openSheet restart；否則回 false（放行） */
   restart(): boolean;
@@ -35,6 +44,12 @@ export interface TimetableKeyActions {
   split(): boolean;
   /** F：store.requestFillLatestGap() */
   fill(): void;
+
+  /* 車次③（③ 契約 §5.8）的兩支 */
+  /** 1–4：store.setView(v) */
+  showView(v: TimetableKeyView): void;
+  /** D／W／M：統計 store.setPeriod(p)；不在統計視圖回 false（放行） */
+  statsPeriod(p: TimetableKeyPeriod): boolean;
 }
 
 /** React 合成事件與原生 `KeyboardEvent` 共同的形狀（F2 的 body 後援監聽也走同一支 handler，①b①c 契約 §5.9 末條） */
@@ -88,6 +103,27 @@ export function handleTimetableKey(e: TimetableKeyEvent, a: TimetableKeyActions,
       break;
     case "timetable.fill":
       a.fill();
+      break;
+    case "timetable.view.1":
+      a.showView("split");
+      break;
+    case "timetable.view.2":
+      a.showView("axis");
+      break;
+    case "timetable.view.3":
+      a.showView("week");
+      break;
+    case "timetable.view.4":
+      a.showView("stats");
+      break;
+    case "timetable.stats.day":
+      if (!a.statsPeriod("day")) return;
+      break;
+    case "timetable.stats.week":
+      if (!a.statsPeriod("week")) return;
+      break;
+    case "timetable.stats.month":
+      if (!a.statsPeriod("month")) return;
       break;
     default:
       return;

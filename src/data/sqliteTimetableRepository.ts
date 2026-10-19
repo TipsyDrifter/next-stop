@@ -22,6 +22,8 @@
  * - 車次②（② 契約 §3.4）：`applyPlan` 的連結兩欄成對寫（patch：任一欄不同 ⇒ 兩欄都寫；insert：明寫 → inherit／keepLink
  *   照 fromId 抄 → 沒連）；`depart`／`fill`／`editBlock` 的連結照傳給純函式；`setLink`、`lastCategoryFor`、
  *   `listBlocksByNodes`、`listBlocksByRoute`。零 migration（§3.6）。
+ * - 車次③（③ 契約 0-5、§3.2）：`time_goals` 的 CRUD（`listGoals`／`createGoal`／`updateGoal`／`archiveGoal`／`deleteGoal`／
+ *   `restoreGoal`／`getGoal`）與公開的 `getBlock(id, { withDeleted })`。統計／週視圖／目標讀 `listBlocksSlim`（只取 8 欄，沙盒回報 F1②；語義同 `listBlocks`）。
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
@@ -66,9 +68,12 @@ import {
   type LongRunChoice,
   type Span,
   type TimeBlockRow,
+  type TimeBlockSlim,
   type TimeCategoryRow,
+  type TimeGoalRow,
   type WritePlan,
 } from "../domain/timetable";
+import { goalScopeJson, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
 
 const ALIVE = "deleted_at IS NULL";
 
@@ -154,7 +159,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return { rowsById, spans };
   }
 
-  private async getBlock(db: Database, id: string): Promise<TimeBlockRow | null> {
+  private async getBlockRow(db: Database, id: string): Promise<TimeBlockRow | null> {
     const rows = await db.select<TimeBlockRow[]>(`SELECT * FROM time_blocks WHERE id = $1`, [id]);
     return rows[0] ?? null;
   }
@@ -444,6 +449,16 @@ export class SqliteTimetableRepository implements TimetableRepository {
     );
   }
 
+  async listBlocksSlim(fromIso: string, toIso: string): Promise<TimeBlockSlim[]> {
+    const db = await getDb();
+    return db.select<TimeBlockSlim[]>(
+      `SELECT id, category_id, started_at, ended_at, estimate_min, node_id, route_id, long_run_ack
+       FROM time_blocks WHERE ${ALIVE} AND started_at < $2 AND (ended_at IS NULL OR ended_at > $1)
+       ORDER BY started_at ASC`,
+      [fromIso, toIso],
+    );
+  }
+
   async listDaySegments(dateKey: string, dayStartHour: number): Promise<DayBlockSegment[]> {
     const w = dayWindow(dateKey, dayStartHour);
     const rows = await this.listBlocks(w.start, w.end);
@@ -467,7 +482,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
-    const block = await this.getBlock(db, newId);
+    const block = await this.getBlockRow(db, newId);
     if (!block) throw new Error("發車失敗");
     return { block, summary: summarizeCover(plan) };
   }
@@ -484,7 +499,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     await this.commit(db, b);
     const out: TimeBlockRow[] = [];
     for (const p of plan.patches) {
-      const r = await this.getBlock(db, p.id);
+      const r = await this.getBlockRow(db, p.id);
       if (r) out.push(r);
     }
     return out;
@@ -530,7 +545,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
-    const block = await this.getBlock(db, newId);
+    const block = await this.getBlockRow(db, newId);
     if (!block) throw new Error("補記失敗");
     return { block, summary: summarizeCover(plan) };
   }
@@ -567,7 +582,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
-    return this.getBlock(db, ids[0]);
+    return this.getBlockRow(db, ids[0]);
   }
 
   async resolveLongRun(id: string, endIso: string, choice: LongRunChoice, categoryId2?: string): Promise<void> {
@@ -582,7 +597,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async softDelete(id: string): Promise<void> {
     const db = await getDb();
-    const r = await this.getBlock(db, id);
+    const r = await this.getBlockRow(db, id);
     if (!r || r.deleted_at !== null) throw new RangeError("找不到這一塊");
     const now = nowUtcIso();
     const b = newWriteBatch();
@@ -593,7 +608,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async restore(id: string): Promise<CoverSummary> {
     const db = await getDb();
-    const r = await this.getBlock(db, id);
+    const r = await this.getBlockRow(db, id);
     if (!r || r.deleted_at === null) throw new RangeError("找不到這一塊");
     const now = Date.now();
     const nowIso = isoOf(now);
@@ -636,7 +651,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
    */
   async setEstimate(id: string, estimateMin: number | null): Promise<void> {
     const db = await getDb();
-    const r = await this.getBlock(db, id);
+    const r = await this.getBlockRow(db, id);
     if (!r || r.deleted_at !== null) throw new RangeError("找不到這一塊");
     const plan = planSetEstimate([toSpan(r)], { id, estimateMin });
     const b = newWriteBatch();
@@ -661,7 +676,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     await this.commit(db, b);
     const out: TimeBlockRow[] = [];
     for (const x of [id, ...ids]) {
-      const r = await this.getBlock(db, x);
+      const r = await this.getBlockRow(db, x);
       if (r) out.push(r);
     }
     return out;
@@ -717,7 +732,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
-    return this.getBlock(db, opts.fixedId);
+    return this.getBlockRow(db, opts.fixedId);
   }
 
   /** 佇列到着：只結束開始早於 at 的運行中（planArriveBefore）；回被結束的列 */
@@ -733,7 +748,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     await this.commit(db, b);
     const out: TimeBlockRow[] = [];
     for (const p of plan.patches) {
-      const r = await this.getBlock(db, p.id);
+      const r = await this.getBlockRow(db, p.id);
       if (r) out.push(r);
     }
     return out;
@@ -788,7 +803,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
    */
   async setLink(id: string, link: BlockLink | null): Promise<void> {
     const db = await getDb();
-    const r = await this.getBlock(db, id);
+    const r = await this.getBlockRow(db, id);
     if (!r || r.deleted_at !== null) throw new RangeError("找不到這一塊");
     if (link && link.nodeId !== null) {
       const k = await db.select<{ kind: string }[]>(`SELECT kind FROM nodes WHERE id = $1`, [link.nodeId]);
@@ -872,5 +887,141 @@ export class SqliteTimetableRepository implements TimetableRepository {
        ORDER BY started_at ASC`,
       [routeId],
     );
+  }
+
+  /* ───────── ③：公開的取一塊、時數目標 ───────── */
+
+  async getBlock(id: string, opts?: { withDeleted?: boolean }): Promise<TimeBlockRow | null> {
+    const db = await getDb();
+    const r = await this.getBlockRow(db, id);
+    if (!r) return null;
+    return r.deleted_at !== null && !opts?.withDeleted ? null : r;
+  }
+
+  private async getGoalRow(db: Database, id: string): Promise<TimeGoalRow | null> {
+    const rows = await db.select<TimeGoalRow[]>(`SELECT * FROM time_goals WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+
+  private async aliveGoalOrThrow(db: Database, id: string): Promise<TimeGoalRow> {
+    const g = await this.getGoalRow(db, id);
+    if (!g || g.deleted_at !== null) throw new RangeError("找不到這個目標");
+    return g;
+  }
+
+  async listGoals(): Promise<TimeGoalRow[]> {
+    const db = await getDb();
+    return db.select<TimeGoalRow[]>(`SELECT * FROM time_goals WHERE ${ALIVE} ORDER BY position ASC, created_at ASC, id ASC`);
+  }
+
+  async getGoal(id: string, opts?: { withDeleted?: boolean }): Promise<TimeGoalRow | null> {
+    const db = await getDb();
+    const g = await this.getGoalRow(db, id);
+    if (!g) return null;
+    return g.deleted_at !== null && !opts?.withDeleted ? null : g;
+  }
+
+  async createGoal(input: GoalInput): Promise<TimeGoalRow> {
+    const v = normalizeGoalInput(input);
+    const db = await getDb();
+    const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM time_goals WHERE ${ALIVE}`);
+    const position = (max[0]?.m ?? -1) + 1;
+    const now = nowUtcIso();
+    const id = uuid();
+    const scope = goalScopeJson(v.categoryIds);
+    const b = newWriteBatch();
+    b.stmts.push({
+      sql: `INSERT INTO time_goals
+         (id, name, scope, period, target_min, direction, start_on, end_on, position, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
+      args: [id, v.name, scope, v.period, v.targetMin, v.direction, v.startOn, v.endOn, position, now],
+    });
+    addOp(b, "time_goals", id, "upsert", {
+      name: v.name,
+      scope,
+      period: v.period,
+      target_min: v.targetMin,
+      direction: v.direction,
+      start_on: v.startOn,
+      end_on: v.endOn,
+      position,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    });
+    await runWriteBatch(db, b.stmts, b.ops);
+    const row = await this.getGoalRow(db, id);
+    if (!row) throw new Error("建立目標失敗");
+    return row;
+  }
+
+  async updateGoal(id: string, patch: Partial<GoalInput>): Promise<void> {
+    const db = await getDb();
+    const cur = await this.aliveGoalOrThrow(db, id);
+    const parsed = parseGoal(cur);
+    if (!parsed) throw new RangeError("這個目標是新版本寫的，這一版改不了");
+    const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch });
+    const scope = goalScopeJson(v.categoryIds);
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const cols: Record<string, unknown> = {};
+    // 值沒變的欄不送（逐欄 LWW：兩台各改不同欄都保得住）
+    const put = (col: string, val: unknown, old: unknown): void => {
+      if (val === old) return;
+      args.push(val);
+      sets.push(`${col} = $${args.length}`);
+      cols[col] = val;
+    };
+    put("name", v.name, cur.name);
+    put("scope", scope, cur.scope);
+    put("period", v.period, cur.period);
+    put("target_min", v.targetMin, cur.target_min);
+    put("direction", v.direction, cur.direction);
+    put("start_on", v.startOn, cur.start_on);
+    put("end_on", v.endOn, cur.end_on);
+    if (!sets.length) return;
+    const now = nowUtcIso();
+    args.push(now);
+    sets.push(`updated_at = $${args.length}`);
+    cols.updated_at = now;
+    args.push(id);
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_goals SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+    addOp(b, "time_goals", id, "upsert", cols);
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async archiveGoal(id: string, on: boolean): Promise<void> {
+    const db = await getDb();
+    const cur = await this.aliveGoalOrThrow(db, id);
+    if (on === (cur.archived_at !== null)) return; // 狀態沒變：不重戳封存時刻、不送 op
+    const now = nowUtcIso();
+    const at = on ? now : null;
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_goals SET archived_at = $1, updated_at = $2 WHERE id = $3`, args: [at, now, id] });
+    addOp(b, "time_goals", id, "upsert", { archived_at: at, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async deleteGoal(id: string): Promise<void> {
+    const db = await getDb();
+    await this.aliveGoalOrThrow(db, id);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_goals SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_goals", id, "delete", { deleted_at: now, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async restoreGoal(id: string): Promise<void> {
+    const db = await getDb();
+    const cur = await this.getGoalRow(db, id);
+    if (!cur || cur.deleted_at === null) throw new RangeError("找不到這個目標");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_goals SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_goals", id, "upsert", { deleted_at: null, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
   }
 }

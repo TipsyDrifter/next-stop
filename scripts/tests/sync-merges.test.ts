@@ -14,6 +14,7 @@ import {
   mergeFreshSince,
   mergeSubject,
   mergeToastKey,
+  mergeObjectKey,
   mergeToastText,
   nounOf,
 } from "../../src/domain/syncMerge.ts";
@@ -258,9 +259,9 @@ test("mergeToastText：同類同表 N 筆三種", () => {
 });
 
 test("mergeToastText：混合（含同類同表但有第三台）⇒「同步時有 N 處…」", () => {
-  const mixed = [mk(), mk({ kind: "overwritten", tbl: "nodes", col: "name" }), mk({ kind: "kept", tbl: "tk_entries" }), mk({ tbl: "nodes" })];
+  const mixed = [mk(), mk({ kind: "overwritten", tbl: "nodes", col: "name" }), mk({ kind: "kept", tbl: "tk_entries" }), mk({ tbl: "nodes", row_id: "n2" })];
   assert.equal(mergeToastText(mixed, null), "同步時有 4 處兩台撞到——看看是哪些");
-  assert.equal(mergeToastText([mk(), mk({ by_me: false })], null), "同步時有 2 處兩台撞到——看看是哪些");
+  assert.equal(mergeToastText([mk(), mk({ row_id: "n2", by_me: false })], null), "同步時有 2 處兩台撞到——看看是哪些");
 });
 
 test("反駁 E1：舊 1 筆＋新 1 筆 revived，經 mergeFreshSince 後是單筆句、不是「2 則」", () => {
@@ -278,13 +279,86 @@ test("§6.1 #24 的兩顆 toast：4 筆種子＝混合句；補的那一筆＝�
     mk({ kind: "overwritten", tbl: "nodes", col: "scheduled_time", at: "2026-10-17T08:57:00.000Z" }),
     mk({ kind: "revived", tbl: "notes", at: "2026-10-17T08:55:00.000Z" }),
     mk({ kind: "kept", tbl: "tk_entries", by_me: false, at: "2026-10-17T08:51:00.000Z" }),
-    mk({ kind: "revived", tbl: "nodes", at: "2026-10-17T08:48:00.000Z" }),
+    mk({ kind: "revived", tbl: "nodes", row_id: "n2", at: "2026-10-17T08:48:00.000Z" }),
   ];
   assert.equal(mergeToastText(seed, null), "同步時有 4 處兩台撞到——看看是哪些");
   const added = mk({ kind: "overwritten", tbl: "notes", col: "body", winner: "mine", at: "2026-10-17T09:00:00.000Z" });
   const list = [added, ...seed];
   const batch = mergeFreshSince(list, mergeToastKey(seed));
   assert.equal(mergeToastText(batch, null), "有 1 則筆記兩台改到同一格，留下這台後改的");
+});
+
+/* ── 主線④ #82：數的是物件，不是通知筆數 ── */
+
+test("#82 反例：同一塊兩欄同時被蓋 ⇒ 一句列兩個欄名、不說「2 段」", () => {
+  const a = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "category_id", winner: "theirs" });
+  const b = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "ended_at", winner: "theirs" });
+  const cols = { category_id: "分類", ended_at: "結束時刻" };
+  const named = mergeToastText([a, b], "10/18 工作 09:00", cols);
+  assert.equal(named, "『10/18 工作 09:00』的分類、結束時刻兩台都改過，留下另一台後改的");
+  const unnamed = mergeToastText([a, b], null, cols);
+  assert.equal(unnamed, "有 1 段時間兩台改到同樣的 2 格，留下另一台後改的");
+  for (const s of [named, unnamed]) assert.ok(!s.includes("2 段"), s);
+});
+
+test("#82 長度：12 字名＋兩個 4 字欄名的兩欄句在 40 字內（#59 兩行上限）", () => {
+  const label = clipLabel("車票『一二三四五六七八九十一二三四五』", 12);
+  const a = mk({ kind: "overwritten", tbl: "nodes", row_id: "x", col: "c1", winner: "theirs" });
+  const b = mk({ kind: "overwritten", tbl: "nodes", row_id: "x", col: "c2", winner: "theirs" });
+  const s = mergeToastText([a, b], label, { c1: "本班時刻", c2: "預定時刻" });
+  assert.ok(Array.from(s).length <= 40, `${Array.from(s).length}：${s}`);
+});
+
+test("#82：同一塊兩欄、留下的不是同一台 ⇒ 不指認「這台／另一台」", () => {
+  const a = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "category_id", winner: "mine" });
+  const b = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "ended_at", winner: "theirs" });
+  const s = mergeToastText([a, b], "睡覺", { category_id: "分類", ended_at: "結束時刻" });
+  assert.equal(s, "『睡覺』的分類、結束時刻兩台都改過，留下後改的");
+});
+
+test("#82：同一樣東西三欄以上只說幾個地方；兩樣東西各一欄仍是「2 段」", () => {
+  const cs = ["a", "b", "c"].map((col) => mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col }));
+  assert.equal(mergeToastText(cs, "睡覺"), "『睡覺』有 3 個地方兩台都改過，留下另一台後改的");
+  const two = [mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "a" }), mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b2", col: "a" })];
+  assert.equal(mergeToastText(two, null), "有 2 段時間兩台改到同一格，留下後改的");
+});
+
+test("#82：混合句的 N 也是樣數（同一塊兩欄＋一則筆記 ⇒ 2 處）", () => {
+  const list = [
+    mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "a" }),
+    mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "b" }),
+    mk({ kind: "revived", tbl: "notes", row_id: "n1" }),
+  ];
+  assert.equal(mergeToastText(list, null), "同步時有 2 處兩台撞到——看看是哪些");
+});
+
+/* ── 主線④ #81：刪改相撞之後又不在了，toast 不說反話 ── */
+
+test("#81 反例：revived／kept 但現在已經不在了 ⇒ 不說「回來了」「留著」", () => {
+  const r = mk({ kind: "revived", tbl: "time_blocks", row_id: "s" });
+  const k = mk({ kind: "kept", tbl: "time_blocks", row_id: "s" });
+  const gone = new Set([mergeObjectKey(r)]);
+  for (const n of [r, k]) {
+    const named = mergeToastText([n], "10/18 社交 16:…", undefined, gone);
+    const unnamed = mergeToastText([n], null, undefined, gone);
+    assert.equal(named, "『10/18 社交 16:…』一台刪過、另一台改過，現在已經不在了");
+    assert.equal(unnamed, "有 1 段時間一台刪過、另一台改過，現在已經不在了");
+    for (const s of [named, unnamed]) assert.ok(!s.includes("回來了") && !s.includes("留著"), s);
+  }
+  // 不在集合裡的照舊
+  assert.equal(mergeToastText([r], "睡覺", undefined, new Set()), "你刪掉的『睡覺』因為另一台改過，回來了");
+});
+
+test("#81：多樣東西全都不在了 ⇒ 結果句；有的在有的不在 ⇒ 混合句", () => {
+  const a = mk({ kind: "revived", tbl: "time_blocks", row_id: "a" });
+  const b = mk({ kind: "revived", tbl: "time_blocks", row_id: "b" });
+  assert.equal(mergeToastText([a, b], null, undefined, new Set([mergeObjectKey(a), mergeObjectKey(b)])), "有 2 段時間一台刪過、另一台改過，現在已經不在了");
+  assert.equal(mergeToastText([a, b], null, undefined, new Set([mergeObjectKey(a)])), "同步時有 2 處兩台撞到——看看是哪些");
+});
+
+test("#81：overwritten 不受 gone 影響（那一類本來就沒說回來）", () => {
+  const o = mk({ kind: "overwritten", col: "body", winner: "mine" });
+  assert.equal(mergeToastText([o], null, undefined, new Set([mergeObjectKey(o)])), "有 1 則筆記兩台改到同一格，留下這台後改的");
 });
 
 test("toast 長度：最長的單筆句（12 字名＋欄名）在 40 字內（#59 兩行上限）", () => {

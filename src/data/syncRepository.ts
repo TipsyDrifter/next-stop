@@ -54,7 +54,8 @@
 import type Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "../lib/db";
-import type { SyncTable } from "./syncTables";
+import { SYNC_TABLE_NAMES, type SyncTable } from "./syncTables";
+import { mergeObjectKey } from "../domain/syncMerge";
 
 /* ═══════════════════════════════════════════════════════════════════════
    型別（與 Rust serde 同名同形）
@@ -445,6 +446,12 @@ export interface SyncRepository {
   /* ── 主線③ 同步頁「最近兩台撞到的」（契約 §3.3） ── */
   /** 「知道了」：清掉 `sync_meta.merge_notices`、回最新 status（整張清光，D-主-19） */
   ackMerges(): Promise<SyncStatus>;
+  /**
+   * 主線④ #81：這幾樣東西（表＋列）裡，**現在**已經不在的那些（列不見了、或 `deleted_at` 有值）。
+   * 給「刪了又回來／留著」的 toast 在整理之後說實話用。回 `mergeObjectKey` 的集合；
+   * 不認得的表、丟錯 ⇒ 不放進集合（當作不知道＝照舊句）。**永不 throw**。
+   */
+  goneObjects(objs: readonly { tbl: string; row_id: string }[]): Promise<Set<string>>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -546,6 +553,29 @@ export class TauriSyncRepository implements SyncRepository {
   /* ── 主線③ ── */
   ackMerges(): Promise<SyncStatus> {
     return invoke<SyncStatus>(SYNC_COMMANDS.ackMerges, {});
+  }
+  /* ── 主線④ ── */
+  async goneObjects(objs: readonly { tbl: string; row_id: string }[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    // 刪改相撞的意思就是 `deleted_at` 被救回來（引擎層的通用語義）——會出 revived／kept 的同步表都有 id 與 deleted_at。
+    // 表名只收同步登記表上的（settings 是鍵值表、沒有刪除，排除）；拼進 SQL 前再驗一次只有小寫與底線
+    const known = new Set(SYNC_TABLE_NAMES.filter((t) => t !== "settings"));
+    let db: Database;
+    try {
+      db = await getDb();
+    } catch {
+      return out;
+    }
+    for (const o of objs) {
+      if (!known.has(o.tbl) || !/^[a-z_]+$/.test(o.tbl)) continue;
+      try {
+        const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM "${o.tbl}" WHERE id = $1`, [o.row_id]);
+        if (rows.length === 0 || rows[0].deleted_at) out.add(mergeObjectKey(o));
+      } catch {
+        /* 不知道就不說 */
+      }
+    }
+    return out;
   }
 }
 
@@ -1093,6 +1123,10 @@ export class MemorySyncRepository implements SyncRepository {
   async ackMerges(): Promise<SyncStatus> {
     this.state = { ...this.state, notices: [] };
     return this.status();
+  }
+  /* ── 主線④ ── */
+  async goneObjects(): Promise<Set<string>> {
+    return new Set(); // 記憶體版沒有「整理」會再刪；示範通知照舊句
   }
 }
 
