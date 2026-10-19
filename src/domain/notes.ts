@@ -872,3 +872,214 @@ export function resolveLeaveText(
   if (same) return { remote: false, ...local };
   return { remote: true, title: stored.title ?? "", body: stored.body };
 }
+
+// ───────────────────────── 階段⑤ 捕捉小窗（契約 §4.6）─────────────────────────
+
+/** 正式版的 identifier（`src-tauri/tauri.conf.json`）；「預設開機自啟」只對它做，dev／沙盒的 identifier 都不同 */
+export const NS_PROD_IDENTIFIER = "app.shitetsu.nextstop";
+
+/**
+ * 這個網址的查詢字串是不是捕捉小窗（`?window=capture`）。不分大小寫、容許其他參數、壞字串回 false。
+ * 小窗的網址由 `tauri.conf.json` 第二個視窗的 `url` 給；`?mock=1&window=capture` 則是瀏覽器預覽。
+ */
+export function captureWindowFromSearch(search: string): boolean {
+  try {
+    for (const [k, v] of new URLSearchParams(search)) {
+      if (k.toLowerCase() === "window" && v.trim().toLowerCase() === "capture") return true;
+    }
+  } catch {
+    // 非法字串：當成不是小窗
+  }
+  return false;
+}
+
+/**
+ * 「第一次執行就把開機自啟打開」該不該做（契約 0-15）：只在打包版（isProd）＋正式 identifier、且還沒做過（旗標不是 "1"）時為真。
+ * dev／沙盒（identifier 不同，或 import.meta.env.PROD 為 false）永遠為假——它們不能去動使用者真實的開機項目。
+ */
+export function shouldApplyAutostartDefault(isProd: boolean, identifier: string, flag: string | null): boolean {
+  return isProd && identifier === NS_PROD_IDENTIFIER && flag !== "1";
+}
+
+/** 小窗的開合狀態（只看「有沒有東西開著」：捕捉票、變待辦預覽框） */
+export interface CaptureWindowOpenState {
+  capture: boolean;
+  preview: boolean;
+}
+
+/**
+ * 小窗的收法（契約 §4.3-3、§0-0／D-筆-61）：store 從 `prev` 變成 `next` 時小窗該做什麼。
+ * - `saved`：票（或預覽框）收起、而且是存檔／建立正在飛的時候收的 ⇒ 還前景、蓋章、播完才 hide。
+ * - `esc`：收起、但不是存檔收的（Esc 放棄、預覽框取消）⇒ 還前景再 hide。
+ * - `null`：沒收起（剛開、捕捉票換成預覽框、還開著）。
+ * `saving`＝`saveCapture`／`confirmPreview` 正在執行（小窗包一層計數；store 在寫入成功後才把 capture／preview 設成 null，
+ * 失敗時留著——所以「飛行中收起」就是存成功）。
+ */
+export function captureWindowTransition(
+  prev: CaptureWindowOpenState,
+  next: CaptureWindowOpenState,
+  saving: boolean,
+): "saved" | "esc" | null {
+  const wasOpen = prev.capture || prev.preview;
+  const isOpen = next.capture || next.preview;
+  if (!wasOpen || isOpen) return null;
+  return saving ? "saved" : "esc";
+}
+
+/**
+ * 小窗：Enter／Ctrl+Enter 一按下去，要不要**馬上**把前景還給原 App（不等存檔寫完；D-筆-61 的補強）。
+ * 存檔的 DB 寫入加 IPC 要 65–125ms，這段期間鍵盤還在小窗手上，Enter 後馬上打的字會掉。
+ * 只在「幾乎確定會寫入」時還：
+ * - `save`（saveCapture）：有票、去掉空白後有字、而且不是會轉成預覽框的多行待辦（轉預覽框時小窗要留著給人挑）。
+ * - `confirm`（confirmPreview）：預覽框開著、而且有東西可建（單筆，或至少勾了一行）。
+ * 判斷錯了（例如只剩路線前綴的空內文、寫入失敗）也不會丟字：呼叫端事後用 `revive` 把小窗叫回來。
+ */
+export function captureWindowReleaseEarly(
+  s: {
+    capture: { text: string; stub: CaptureStub } | null;
+    preview: { single: boolean; lines: { checked: boolean }[] } | null;
+  },
+  kind: "save" | "confirm",
+): boolean {
+  if (kind === "confirm") {
+    return !!s.preview && (s.preview.single || s.preview.lines.some((l) => l.checked));
+  }
+  const c = s.capture;
+  if (!c || !c.text.trim()) return false;
+  return !needsPreview(c.stub, c.text.replace(/\s+$/, ""));
+}
+
+/** 小窗的 DB 附著在主視窗的連線上（契約 0-10）：主視窗還沒 load 好時 plugin-sql 回「database … not loaded」 */
+export const CAPTURE_DB_NOT_READY = "主視窗還在啟動，請再按一次 Enter";
+
+/** 小窗的存檔失敗 toast 要不要換字：plugin-sql 的「not loaded」換成 `CAPTURE_DB_NOT_READY`；其餘照原文（回 null） */
+export function captureWindowToastText(message: string): string | null {
+  return /not\s+loaded/i.test(message) ? CAPTURE_DB_NOT_READY : null;
+}
+
+/** 「預設開機自啟一次」用到的外部動作（autostartBoot.ts 接真的；測試接假的） */
+export interface AutostartDefaultDeps {
+  isProd: boolean;
+  /** 開機自啟現況；`name`＝登錄檔值名＝identifier；`debugBuild`＝這支 exe 是 debug 建置（Rust `cfg!(debug_assertions)`） */
+  get(): Promise<{ available: boolean; enabled: boolean; name: string; debugBuild: boolean }>;
+  enable(): Promise<unknown>;
+  readFlag(): Promise<string | null>;
+  writeFlag(): Promise<void>;
+}
+
+/**
+ * 「第一次執行就把開機自啟打開」整趟（契約 0-15）：
+ * 外掛沒掛成功（available=false）、或是 debug 建置（debugBuild）⇒ 什麼都不做、旗標也不寫（下次啟動再看）；
+ * `shouldApplyAutostartDefault` 為假 ⇒ 不做；已經開著 ⇒ 只寫旗標；
+ * 否則 enable——**不論成敗**都寫旗標（只做一次，失敗由呼叫端 toast 一次，開關仍在設定〈一般〉）。
+ * 永遠 resolve；回傳結果給呼叫端決定要不要 toast。
+ */
+export async function autostartDefaultOnce(
+  deps: AutostartDefaultDeps,
+): Promise<{ kind: "skipped" } | { kind: "enabled" } | { kind: "already" } | { kind: "failed"; error: string }> {
+  let info: { available: boolean; enabled: boolean; name: string; debugBuild: boolean };
+  let flag: string | null;
+  try {
+    info = await deps.get();
+    if (!info.available) return { kind: "skipped" };
+    // 第三道閘：debug exe 不做——「正式 identifier 的 debug exe」（沙盒流程換回正式 exe 時 build 出來的）與安裝版共用
+    // 登錄檔值名和 DB，做了會把使用者真實的 Run 值改成指向 debug exe、旗標又寫進共用的 settings。旗標也不寫（留給真正的安裝版）。
+    if (info.debugBuild) return { kind: "skipped" };
+    flag = await deps.readFlag();
+  } catch {
+    return { kind: "skipped" };
+  }
+  if (!shouldApplyAutostartDefault(deps.isProd, info.name, flag)) return { kind: "skipped" };
+  let out: { kind: "enabled" } | { kind: "already" } | { kind: "failed"; error: string };
+  if (info.enabled) out = { kind: "already" };
+  else {
+    try {
+      await deps.enable();
+      out = { kind: "enabled" };
+    } catch (e) {
+      out = { kind: "failed", error: e instanceof Error ? e.message : String(e ?? "") };
+    }
+  }
+  try {
+    await deps.writeFlag();
+  } catch {
+    // 旗標寫不進去：下次啟動會再試一次 enable（已開著就只補旗標），不致命
+  }
+  return out;
+}
+
+/* ═══ 手機分享進收件匣（⑤ D-筆-63；手機沙盒 M7） ═══ */
+
+/** Kotlin `take_shared` 交出來的一筆 */
+export interface SharedItemLike {
+  id: string;
+  text: string;
+  subject?: string;
+}
+
+/** 標題（例如網頁標題）有、且內文沒包含它時，放在第一行 */
+export function shareBody(it: SharedItemLike): string {
+  const text = it.text.trim();
+  const subject = it.subject?.trim();
+  return subject && !text.includes(subject) ? `${subject}\n${text}` : text;
+}
+
+/** 收完一輪的提示句 */
+export function shareToastText(count: number): string {
+  return count === 1 ? "收到分享，放進收件匣了" : `收到 ${count} 則分享，放進收件匣了`;
+}
+
+/** 「取分享」整趟用到的外部動作（useShareIntake.ts 接真的；測試接假的） */
+export interface ShareDrainDeps {
+  take(): Promise<SharedItemLike[]>;
+  create(body: string): Promise<void>;
+  ack(ids: string[]): Promise<void>;
+  /** 這一輪收進來的則數（>0 才叫）：重讀收件匣＋提示 */
+  after(count: number): Promise<void> | void;
+  onError(e: unknown): void;
+}
+
+/**
+ * 取分享的排程器：取＋確認兩段（每筆先建成收件匣筆記，成功後才 ack——中途被殺，下次再取不丟字）。
+ * 觸發點有好幾個（冷啟動、回前景、plugin 的 `shared` 事件），收到一半又被敲門時**不能直接丟掉**——
+ * 記一筆 `again`，這輪收完再取一次，直到佇列是空的（手機沙盒 M7：背景連送兩則，第二則的事件
+ * 撞上第一則的 drain，舊寫法直接 return，第二則要等下一次回前景才收）。整輪只提示一次（合計則數）。
+ */
+export function createShareDrainer(deps: ShareDrainDeps): () => Promise<void> {
+  let running = false;
+  let again = false;
+  return async function drain(): Promise<void> {
+    if (running) {
+      again = true;
+      return;
+    }
+    running = true;
+    let total = 0;
+    try {
+      do {
+        again = false;
+        const items = await deps.take();
+        if (items.length === 0) continue;
+        const done: string[] = [];
+        for (const it of items) {
+          const body = shareBody(it);
+          if (body) await deps.create(body);
+          done.push(it.id);
+        }
+        await deps.ack(done);
+        total += done.length;
+      } while (again);
+    } catch (e) {
+      deps.onError(e);
+    } finally {
+      running = false;
+    }
+    if (total > 0) {
+      try {
+        await deps.after(total);
+      } catch (e) {
+        deps.onError(e);
+      }
+    }
+  };
+}

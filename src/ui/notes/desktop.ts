@@ -23,6 +23,10 @@ export { TagField } from "./tags/TagField";
 export { NOTES_QUICK_JUMP } from "./tags/quickJump";
 export { NoteField } from "./NoteField";
 export { CalendarDiaryAux } from "./CalendarDiaryAux";
+// 階段⑤（契約 §4.3）：捕捉小窗的根；main.tsx 在 isCaptureWindow() 時掛它
+export { CaptureWindowApp } from "./capture-window/CaptureWindowApp";
+// 階段⑤（契約 §4.5／§5.4）：設定〈一般〉的開機自啟一列；SettingsPanel 從這裡 import
+export { AutostartRow } from "./AutostartRow";
 export { NOTES_QJ_NOTES, NOTES_QJ_DIARY };
 /** Ctrl+P 的三組（順序＝畫面上的組序：荷札、筆記、日記） */
 export const NOTES_QUICK_JUMPS: readonly QuickJumpProviderSpec[] = [NOTES_QUICK_JUMP, NOTES_QJ_NOTES, NOTES_QJ_DIARY];

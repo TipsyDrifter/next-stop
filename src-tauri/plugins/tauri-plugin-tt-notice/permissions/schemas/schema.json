@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the ack_pending command without any pre-configured scope."
         },
         {
+          "description": "Enables the ack_shared command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ack-shared",
+          "markdownDescription": "Enables the ack_shared command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ack_shared command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ack-shared",
+          "markdownDescription": "Denies the ack_shared command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cancel_reminder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cancel-reminder",
@@ -403,10 +415,22 @@
           "markdownDescription": "Denies the take_pending command without any pre-configured scope."
         },
         {
-          "description": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽\n#### This default permission set includes:\n\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the take_shared command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-take-shared",
+          "markdownDescription": "Enables the take_shared command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the take_shared command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-take-shared",
+          "markdownDescription": "Denies the take_shared command without any pre-configured scope."
+        },
+        {
+          "description": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字\n#### This default permission set includes:\n\n- `allow-take-shared`\n- `allow-ack-shared`\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽\n#### This default permission set includes:\n\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字\n#### This default permission set includes:\n\n- `allow-take-shared`\n- `allow-ack-shared`\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

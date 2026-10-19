@@ -16,9 +16,12 @@ import { MobileCaptureFab } from "./MobileCaptureFab";
 import { MobileCaptureSheet } from "./MobileCaptureSheet";
 import { MobileTodoPreview } from "./MobileTodoPreview";
 import { MobileTagPicker } from "./MobileTagPicker";
+import { useShareIntake } from "./useShareIntake";
 import "../notes-mobile.css";
 
 export function NotesMobileOverlay() {
+  // 車次⑤：別的 App 分享進來的文字收進收件匣（Android 限定；桌機殼不掛這個浮層）
+  useShareIntake();
   const hasCapture = useNotesStore((s) => s.capture !== null);
   const hasPreview = useNotesStore((s) => s.preview !== null);
   const picker = useTagStore((s) => s.picker);

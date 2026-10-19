@@ -188,6 +188,16 @@ export interface LineMount {
    * 未通車即使填了也不出。沒有任何線填值＝DOM 與地基完全相同。
    */
   todayStats?: ComponentType<{ shell: "desktop" | "mobile"; dateKey: string; lead: boolean; wrap: boolean }>;
+  /**
+   * 同步頁「最近兩台撞到的」清單列的名字（接縫：主線車次③ 契約 §3.3）：核心表由主線自己填，
+   * 三線各自填自己的表（`tbl` 一定是該線 manifest `syncTables` 裡的名字）。
+   * 回 `{ label, open?, cols? }`：`label`＝這一筆在主人眼裡叫什麼；`open`＝點了跳過去（沒給＝列不可點；`shell` 告訴你要用桌機還是手機的導航）；
+   * `cols`＝欄名中文（「兩邊都改了」那一類印「○○ 的 {欄}」；沒給就印欄名原文）。
+   * 回 null＝這一筆現在找不到了（又被刪了、或還沒拉到）⇒ 清單印「（現在找不到了）」。
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才叫（`lineSyncRowLabel(tbl, shell)`）；未通車即使填了也不叫。
+   * 一條線丟錯當作 null。沒有任何線填值＝清單列印泛稱，DOM 與沒有插槽時相同。
+   */
+  syncRowLabel?: (tbl: string, rowId: string, shell: "desktop" | "mobile") => Promise<SyncRowLabel | null>;
 }
 
 /** 今日列附加動作（`LineMount.todayRowActions` 的一筆） */
@@ -200,6 +210,13 @@ export interface TodayRowActionSpec {
   Mobile?: ComponentType<{ nodeId: string; name: string; readOnly: boolean; railDate: string | null; today: string }>;
   /** hotkey id（該線 manifest 登記、scope "today"）→ 處理函式（收選中列的 id） */
   hotkeys?: Readonly<Record<string, (nodeId: string) => void>>;
+}
+
+/** `LineMount.syncRowLabel` 的回傳：同步頁清單列的名字與跳轉 */
+export interface SyncRowLabel {
+  label: string;
+  open?: () => void | Promise<void>;
+  cols?: Readonly<Record<string, string>>;
 }
 
 /** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */

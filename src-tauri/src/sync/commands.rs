@@ -20,6 +20,9 @@
 //!   「只清這台」／「所有裝置一起重新開始」；機制在 `engine::start_over`）。`sync_finish_restore` 的回傳多 `reason`
 //!   （restore／reset）。`SyncStatus` 不加欄、既有 command 名一個都不改。共二十二支。
 //!
+//! **主線③（2026-10-18；同步復活提示契約 §3.2）**：新增一支 `sync_ack_merges`（同步頁「知道了」：清掉
+//!   `sync_meta.merge_notices`、回最新 status）。`SyncStatus`／`PullReport` 多 `notices`；既有 command 名一個都不改。累計二十四支（上一段 v1.1.6 的「共二十二支」是當時少數了一支，`sync/mod.rs` 與 `lib.rs` 的二十三支才是實數）。
+//!
 //! 全部回 `Result<T, String>`，Err 一律**人話**（沿 backup.rs 的口吻），且**不夾帶憑證、密語與復原碼**。
 //! 兩端（桌機／Android）都註冊（`lib.rs` 兩份 `generate_handler!`）。
 //!
@@ -235,6 +238,13 @@ pub async fn sync_reset_local(app: AppHandle) -> Result<SyncStatus, String> {
 #[tauri::command]
 pub async fn sync_start_over(app: AppHandle, scope: StartOverScope) -> Result<(), String> {
     engine::start_over(&app, scope).await
+}
+
+/// 主線③（契約 §3.2）：同步頁「知道了」——清掉 `sync_meta.merge_notices`，回最新 status。
+/// JS：`invoke("sync_ack_merges")`。兩殼都註冊。
+#[tauri::command]
+pub async fn sync_ack_merges(app: AppHandle) -> Result<SyncStatus, String> {
+    engine::ack_merges(&app).await
 }
 
 /// 任何已加入的裝置都能產配對碼（契約 §4.6；payload v2：憑證＋root＋epoch，不含鹽與身分）。

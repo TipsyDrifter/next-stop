@@ -36,6 +36,8 @@
  *   ② 加入表單「雲端（Cloudflare R2）」那塊第一行 `JOIN_FIELDS_HINT`（展開／收合兩態都看得到）。
  *   ①ʹ 改正待ち的 reset 版（`pending_epoch_info.reason==="reset"`）：標題「另一台重新開始了」、鈕「一起清空」。
  *   「重新開始」的入口**不在本頁**（拍板：不放同步頁）——在「更多」頁尾的危險區（MobileMore）。
+ * 主線車次③（《2026-10-18-主線-車次③同步復活提示-契約.md》§4.1／§4.6）：① 狀態 block 底下一區「最近兩台撞到的」
+ *   （共用元件 `MergeNotices`，與桌機同一個）；常駐句補上「一台刪、另一台改過」那半句，且不再只講車票。
  * 手機沒有備份三件套（本機檔案那一套仍是桌機的事），其餘與桌機同一套字。
  * 觸控與輸入（鐵則）：可點目標 ≥44px（mobile.css 的 WP8 區塊）；輸入框 font-size 16px。
  * 資料流：不碰 repository，全走 `syncStore`；密語只活在本檔的 local state，送出後即清空。
@@ -61,6 +63,7 @@ import { useUiStore } from "../../store/uiStore";
 import { CloudSnapshots } from "../common/CloudSnapshots";
 import { NEEDS_PASSPHRASE_TEXT } from "../common/SyncBanner";
 import { RECOVERY_CODE_LEN, formatRecoveryInput } from "../common/RecoveryCodeDialog";
+import { MergeNotices } from "../common/MergeNotices";
 
 export default function MobileSync({ onBack }: { onBack: () => void }) {
   const status = useSyncStore((s) => s.status);
@@ -166,10 +169,13 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
           )}
           {configured && (
             <p className="m2-note m2-sy-oneway">
-              這台蓋的章、開的票會送到其他裝置；兩台同時改同一格時後改的算數，另一方的值記進該車票的乘務記錄。
+              這台蓋的章、改的東西會送到其他裝置。兩台在沒看到對方修改時各自改到同一筆：同一格後改的留下；一台刪、另一台改過的，改過的那份留下、回來的那筆會列在下面「最近兩台撞到的」。車票的細節另外記在該車票的乘務記錄。
             </p>
           )}
         </div>
+
+        {/* 主線③（契約 §4.1）：「最近兩台撞到的」——清單空時整區不出現；與桌機同一個元件 */}
+        <MergeNotices shell="mobile" />
 
         {/* ①ᵃ v1.1.4 修正席（產品評審 B1）：鍵違い（rotated）唯一走得通的那條路，就放在講那句話的正下方。
             形狀沿改正待ち那一塊（說明＋一顆主鈕），差別只在多一格密語輸入。 */}

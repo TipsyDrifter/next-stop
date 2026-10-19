@@ -21,6 +21,8 @@ const ALL_LOOSE = ["ctrl", "shift", "alt"] as const;
 /** 另外宣告（不包在 as const 裡）：Hotkey.chords 是可變陣列，as const 的 readonly tuple 不滿足它 */
 const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.capture", scope: "global", chords: [{ key: "n", ctrl: true }], label: "記一句（捕捉）", wired: true, ignoreMods: [...GLOBAL_LOOSE] },
+  // 階段⑤（契約 0-16、M-5）：Windows 全域鍵，由 Rust 的 RegisterHotKey 接走、到不了 webview，所以只登錄給快捷鍵頁顯示（wired:false）。
+  { id: "notes.capture.global", scope: "global", chords: [{ key: "n", ctrl: true, alt: true }], label: "記一句（App 不在前面也能用）", note: "Windows 全域鍵；被別的程式佔走時設定〈一般〉會提示", wired: false },
   { id: "notes.move.up", scope: "notes", chords: [{ key: "ArrowUp" }], label: "上移選取", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.move.down", scope: "notes", chords: [{ key: "ArrowDown" }], label: "下移選取", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.open", scope: "notes", chords: [{ key: "Enter" }], label: "進編輯／展開去處", wired: true },

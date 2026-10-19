@@ -36,6 +36,13 @@
  *     （`reset_done`）；別台走既有改正待ち，`pending_epoch_info.reason==="reset"` 只換字（`describeEpochChange`／`JOIN_CHOICE_TEXT`）。
  *   * `JOIN_FIELDS_HINT`：加入表單四欄上方一句（點子簿 2026-09-28；四欄＝桶的門牌與鑰匙、密語＝打不打得開資料）。
  *
+ * 主線車次③ 改了什麼（《2026-10-18-主線-車次③同步復活提示-契約.md》§3.6；D-主-16～21）：
+ *   * 舊的 `pulled.conflicts` 計數 toast（「有 N 處兩台同時改到…」）退場，併進狀態驅動的 `maybeToastMerges`：
+ *     看 `status.notices`（Rust 記在本機 sync_meta 的「最近兩台撞到的」清單），pull 後／開機第一份／回前景三個時機同一條路，
+ *     帶「看看」跳同步頁；同一批只提一次、只講新批、開過同步頁看過的不再提。
+ *   * `ackMerges()`（「知道了」＝整張清光）、`markMergesSeen()`（同步頁清單掛著＝看過）。
+ *   * 名字由 `syncMergeLabels.ts` 解、句子由 `domain/syncMerge.ts` 組；兩支都不 import 元件（跳轉由 MergeNotices 組）。
+ *
  * 節奏（`boot(shell)` 掛、`stop()` 拆；兩端對稱）：
  *   * 一趟＝**先 push 再 pull**；`SYNC_WRITE_EVENT` 去抖 2 秒、每 60 秒（僅前景）、`visibilitychange`、window focus、手動。
  *   * in-flight 去重；未加入／總開關關著／改正待ち／鍵違い時什麼都不跑。
@@ -68,6 +75,9 @@ import { useUiStore } from "./uiStore";
 // 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
 import { LINE_MANIFESTS } from "../lines";
 import { lineAfterPulls, lineReloads } from "../lines/runtime";
+// 主線③（契約 §3.6）：同步頁「最近兩台撞到的」的提示。兩支都不 import 任何 `.tsx`（跳轉由 UI 層的 MergeNotices 組）
+import { MERGE_TEXT, mergeFreshSince, mergeToastKey as latestMergeAt, mergeToastText } from "../domain/syncMerge";
+import { resolveToastParts } from "./syncMergeLabels";
 
 /** 拉取／推送節奏（P4）；去抖秒數見 Plan §6 */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -612,6 +622,11 @@ export interface SyncStore {
    * `syncRepo.startOver(scope)`（成功不會回來）→ 失敗 toast `重新開始沒有執行：…`。桌機未加入也走這條。
    */
   startOver: (scope: StartOverScope) => void;
+  /* ── 主線③ 同步頁「最近兩台撞到的」（契約 §3.6）── */
+  /** 「知道了」——清掉整張清單（D-主-19），status 立即更新（Rust 回最新 status）。失敗往上拋（UI 吐「沒清成：…」） */
+  ackMerges: () => Promise<void>;
+  /** 主人開著同步頁（MergeNotices 掛載、清單非空）＝看過這批；回前景不再為這批重提（§0-1 第 3 條） */
+  markMergesSeen: () => void;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -663,6 +678,57 @@ let pendingJoinInput: JoinInput | null = null;
  * 非 null ⇒ `joinWith` 要走 `rejoin(pass, mode)` 而不是 `join({...})`。
  */
 let pendingRejoinPass: string | null = null;
+/**
+ * 主線③（契約 §0-1 第 3 條、§3.6）：上一次 toast 過的「清單最新一筆的 at」。hidden 時歸零
+ * ⇒ 回前景還有東西就再提一次（D-主-16；桌機開 App 時也提一次＝D-主-21，第一份 status 就走這條）。
+ */
+let mergeToastKey: string | null = null;
+/**
+ * 主人開同步頁時清單最新一筆的 at（看過＝不再提）。只在清單變了（新鍵）或「知道了」時失效，不隨 hidden 歸零。
+ * 存進本機 localStorage、跨重開記得（D-主-21「看過一次不再跳」；沙盒 10-19 實測只放記憶體時每次開機都再跳）。
+ * 只在這台、不同步——跟清單本身一樣。讀寫失敗（私密模式、被清）就退回只在記憶體，頂多多提一次。
+ */
+const MERGE_SEEN_STORAGE_KEY = "ns.mergeSeenKey";
+let mergeSeenKey: string | null = readMergeSeen();
+function readMergeSeen(): string | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage.getItem(MERGE_SEEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+function setMergeSeen(key: string | null): void {
+  mergeSeenKey = key;
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (key === null) localStorage.removeItem(MERGE_SEEN_STORAGE_KEY);
+    else localStorage.setItem(MERGE_SEEN_STORAGE_KEY, key);
+  } catch {
+    /* 只在記憶體 */
+  }
+}
+/**
+ * 「最近兩台撞到的」清單此刻就在畫面上的元件數（`MergeNotices` 掛載＝同步頁真的在眼前；兩殼是條件渲染）。
+ * > 0 時新拉到的一批不彈 toast（按「看看」只是落在本來就在的那一頁）——`mergeSeenKey` 要等 React 重畫之後
+ * 的 effect 才更新，擋不到「頁開著、這一趟剛拉到新的一批」，所以掛載期間另記一個旗標（契約 §4.5：看過就不再提）。
+ */
+let mergesOnScreen = 0;
+
+/** `MergeNotices` 掛載時叫、卸載時（回傳的 cleanup）撤；計數而非布林，兩個實例並存也不會互相蓋掉 */
+export function registerMergesOnScreen(): () => void {
+  mergesOnScreen += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    mergesOnScreen = Math.max(0, mergesOnScreen - 1);
+  };
+}
+/**
+ * 主線③：上一顆「兩台撞到」toast 本身（物件參照）。畫面上那顆若就是它，新一批要**換掉**它（只講新批），
+ * 不能被「已有帶鈕 toast 就不蓋」那條擋下——否則 pull 補到的新通知在舊 toast 的 10 秒內永遠出不來（mock 實測）。
+ */
+let lastMergeToast: object | null = null;
 
 function detachSchedule(): void {
   rerun = false;
@@ -712,7 +778,16 @@ function attachSchedule(): void {
   }, SYNC_INTERVAL_MS);
 
   visibilityHandler = () => {
-    if (document.visibilityState === "visible") void runCycle();
+    // 主線③：切到背景＝這次前景期間提過的那批作廢（mergeSeenKey 不動：開過同步頁看過的不再提）
+    if (document.visibilityState === "hidden") {
+      mergeToastKey = null;
+      return;
+    }
+    if (document.visibilityState === "visible") {
+      // 先補一次提示再跑一趟：離線／退避期 runCycle 不跑時，回前景也還是看得到（D-主-16）
+      void maybeToastMerges(useSyncStore.getState().status);
+      void runCycle();
+    }
   };
   document.addEventListener("visibilitychange", visibilityHandler);
   // 桌機從別的視窗切回來不會發 visibilitychange（視窗本來就沒被隱藏）——補 window focus 這一趟（去抖 1.5 秒）
@@ -796,12 +871,8 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     lastFailAt = 0;
     await refreshStatusInner();
     if (pulled.changed_tables.length > 0) await refreshAfterPull(pulled);
-    // 同時改到同一格＝敗方已被 Rust 記進那張票的乘務記錄。自動趟也講（衝突本來就罕見，不會變成噪音）。
-    if (pulled.conflicts > 0) {
-      useUiStore.getState().showToast({
-        message: `有 ${pulled.conflicts} 處兩台同時改到——詳情在該車票的乘務記錄`,
-      });
-    }
+    // 主線③：兩台撞到的提示不在這裡出——上面那趟 refreshStatusInner 拿到的 status 已含剛寫進去的清單，
+    // 由 maybeToastMerges 統一出（pull 後／開機／回前景同一條路；uiStore 的 toast 是單槽，兩句會互蓋）。
     if (manual) {
       if (pushed.busy || pulled.busy) {
         useUiStore.getState().showToast({ message: "另一趟同步正在進行，請稍候" });
@@ -862,6 +933,7 @@ async function refreshStatusInner(): Promise<SyncStatus | null> {
     const status = await syncRepo.status();
     useSyncStore.setState({ status, bridgeError: null });
     evaluateAlerts(status); // v1.1.5 契約 §2.4：所有 status 都經過這裡 ⇒ 轉變偵測只寫一次
+    void maybeToastMerges(status); // 主線③ §3.6：同一個位置——pull 後、開機第一份、回前景那趟都經過這裡
     return status;
   } catch (e) {
     useSyncStore.setState({ status: null, bridgeError: messageOf(e) });
@@ -869,6 +941,62 @@ async function refreshStatusInner(): Promise<SyncStatus | null> {
     // 橋接抖一下就會「解除→再轉入」＝同一個告警多響一則；橫幅維持上一個已知狀態，等下一份 status 再說。
     return null;
   }
+}
+
+/**
+ * 主線③（契約 §0-1 第 5 條、§3.6）：狀態驅動的「兩台撞到」提示——`refreshStatusInner` 拿到新 status 之後叫、
+ * 回前景時 visibilityHandler 再叫一次。三個時機（pull 後、開機第一份、回前景）只寫這一份。
+ *   * 同一批（清單最新一筆的 at 沒變）在同一次前景期間只提一次；主人開過同步頁看過的那批不再提。
+ *   * 句子只講「新批」（at 比上次提過的新的那幾筆）——舊的沒按「知道了」不會把單筆句稀釋成「N 處」（反駁 E1）。
+ *   * 背景不吐（回前景那趟再吐）；畫面上已有別的帶鈕 toast（join 結果、刪除後的「復原」）就不蓋、**不記鍵**，等下一份 status（反駁 S2）。
+ */
+async function maybeToastMerges(status: SyncStatus | null): Promise<void> {
+  const list = status?.notices ?? []; // 舊版 Rust（混用期）沒有這一欄
+  const key = latestMergeAt(list);
+  if (key === null) {
+    mergeToastKey = null;
+    // 真的拿到 status 而清單是空的才忘掉「看過」；status 還沒來（開機前幾拍、回前景時尚未載入）不動存著的鍵
+    if (status) setMergeSeen(null);
+    return;
+  }
+  if (key === mergeToastKey || key === mergeSeenKey) return;
+  if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+  // 清單就在眼前（同步頁開著）：新批直接列在那一頁，不再彈「看看」；順手記成看過，回前景不重提
+  if (mergesOnScreen > 0) {
+    setMergeSeen(key);
+    return;
+  }
+  if (otherActionToastShowing()) return;
+  // 新批＝比「提過的」與「看過的」兩把鍵裡較新的那把還新的。只看 mergeToastKey 的話，主人開過同步頁、切過一次背景
+  // （toast 鍵歸零）之後再來一筆，句子會把看過的舊批一起算進去（mock 實測：1 筆新的被講成「6 處」）
+  const since = mergeToastKey !== null && (mergeSeenKey === null || mergeToastKey > mergeSeenKey) ? mergeToastKey : mergeSeenKey;
+  const fresh0 = mergeFreshSince(list, since);
+  // 理論上新鍵一定帶得出新批；時鐘倒退之類的怪情況就講整張（不會是空句）
+  const fresh = fresh0.length ? fresh0 : list;
+  const prevKey = mergeToastKey;
+  mergeToastKey = key; // 先記鍵再 await：同時進來的第二份 status（boot 與 runCycle 連叫）看到同鍵就不重提
+  const parts = await resolveToastParts(fresh, shell);
+  // 等名字的這一拍裡：更新的一批已接手（鍵變了）、切到背景／按了知道了（鍵歸零）⇒ 這句作廢
+  if (mergeToastKey !== key) return;
+  // 別人的帶鈕 toast 搶先上了 ⇒ 不蓋，鍵退回去（＝沒提過），下一份 status 再試
+  if (otherActionToastShowing()) {
+    mergeToastKey = prevKey;
+    return;
+  }
+  const toastShell = shell;
+  const toast = {
+    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols),
+    actionLabel: MERGE_TEXT.look,
+    onAction: () => useUiStore.getState().openSyncPage(toastShell),
+  };
+  lastMergeToast = toast;
+  useUiStore.getState().showToast(toast);
+}
+
+/** 畫面上有**別人的**帶鈕 toast（join 結果、刪除後的「復原」…）正在等主人按 */
+function otherActionToastShowing(): boolean {
+  const t = useUiStore.getState().toast;
+  return !!t?.actionLabel && t !== lastMergeToast;
 }
 
 /**
@@ -1665,6 +1793,20 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         })();
       },
     });
+  },
+
+  /* ── 主線③（契約 §3.6）── */
+  async ackMerges() {
+    // 不取 working：單句 DELETE、Rust 端也刻意不取 BusyGuard（pull 若同時在寫，後寫的留下，沒有壞狀態）
+    const s = await syncRepo.ackMerges();
+    set({ status: s });
+    evaluateAlerts(s);
+    mergeToastKey = null;
+    setMergeSeen(null);
+  },
+
+  markMergesSeen() {
+    setMergeSeen(latestMergeAt(get().status?.notices ?? []));
   },
 }));
 

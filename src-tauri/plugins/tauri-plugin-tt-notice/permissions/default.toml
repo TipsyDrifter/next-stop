@@ -1,6 +1,8 @@
 [default]
-description = "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽"
+description = "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字"
 permissions = [
+  "allow-take-shared",
+  "allow-ack-shared",
   "allow-post",
   "allow-remove",
   "allow-take-pending",

@@ -1,9 +1,11 @@
 ## Default Permission
 
-時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽
+時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字
 
 #### This default permission set includes the following:
 
+- `allow-take-shared`
+- `allow-ack-shared`
 - `allow-post`
 - `allow-remove`
 - `allow-take-pending`
@@ -45,6 +47,32 @@ Enables the ack_pending command without any pre-configured scope.
 <td>
 
 Denies the ack_pending command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-ack-shared`
+
+</td>
+<td>
+
+Enables the ack_shared command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-ack-shared`
+
+</td>
+<td>
+
+Denies the ack_shared command without any pre-configured scope.
 
 </td>
 </tr>
@@ -253,6 +281,32 @@ Enables the take_pending command without any pre-configured scope.
 <td>
 
 Denies the take_pending command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-take-shared`
+
+</td>
+<td>
+
+Enables the take_shared command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-take-shared`
+
+</td>
+<td>
+
+Denies the take_shared command without any pre-configured scope.
 
 </td>
 </tr>

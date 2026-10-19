@@ -278,6 +278,8 @@ pub struct SyncStatus {
     pub needs_passphrase: bool,
     /// v1.1.5（契約 §3.4）：通知權限問過了沒（`sync_meta.notif_asked='1'`；TS 在加入成功後問一次並寫入）
     pub notif_asked: bool,
+    /// 主線③：`sync_meta.merge_notices`（新在前）；空陣列＝沒有東西、同步頁整區不出現
+    pub notices: Vec<MergeNotice>,
 }
 
 /// 上一次重置時另存的未同步修改（見 `SyncStatus::last_orphans`）
@@ -328,6 +330,45 @@ pub struct PullReport {
     pub max_hlc: Option<String>,
     /// v1.1.4：這趟「必填欄不齊而跳過的新列」（已含在 `skipped_ops` 裡；另計是為了讓 UI 講得出原因）
     pub skipped_missing: u64,
+    /// 主線③：這趟產生的通知（重播裝置的已濾掉；日常 pull 另外落進 `sync_meta.merge_notices`，join 重播不落）。
+    /// TS 端不靠它出 toast，見 syncStore `maybeToastMerges`
+    pub notices: Vec<MergeNotice>,
+}
+
+/// 主線③（2026-10-18 契約 §3.1）：同步時「兩台撞到」的一筆通知。
+/// 不是資料：不進 outbox、不進快照、不同步、各台自己記；存 `sync_meta.merge_notices`（JSON 陣列，新在前，最多 20 筆）。
+/// 與乘務記錄的 `event='conflict'` 是兩份：乘務記錄只掛得住 nodes 系（`conflict_anchor`），這份**不看掛點**、每張表都記。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeKind {
+    /// 這台刪過、另一台改過 ⇒ 回來了（② 第二支，`resurrect`）
+    Revived,
+    /// 另一台刪過、這台改過 ⇒ 留著（② 第一支，刪除不套）
+    Kept,
+    /// 同一格兩台都改、後改的贏（③／③ʹ；`winner` 說留下誰的）
+    Overwritten,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeNotice {
+    pub kind: MergeKind,
+    pub tbl: String,
+    pub row_id: String,
+    /// `Overwritten` 才有；Revived／Kept 為 None
+    pub col: Option<String>,
+    /// 本機原本的值／對方帶來的值（語義同 `PendingConflict.mine`／`theirs`）；字串超過 120 字截斷補「…」（`chars()` 切，不切壞 UTF-8）
+    pub mine: Value,
+    pub theirs: Value,
+    /// "mine" | "theirs"（同 work_logs body 的 `winner`）
+    pub winner: String,
+    pub their_device: String,
+    /// 本機那一格是這台自己寫的嗎（`PendingConflict.mine_dev == my_device_id`）。false＝第三台寫的，
+    /// TS 不得說「你在這台刪過」「這台改成」（契約 §0-1 第 20 條）。③ʹ 恆 true。
+    pub by_me: bool,
+    /// 對方那個 op 的 hlc
+    pub hlc: String,
+    /// 本機記下這筆的時刻（`now_iso()`，UTC ISO）；清單排序與 toast 去重鍵都用它
+    pub at: String,
 }
 
 /// managed state。
@@ -494,6 +535,261 @@ pub(crate) async fn meta_set_if_changed(
         return Ok(());
     }
     meta_set(pool, key, value).await
+}
+
+// ─────────────────────────────────────────────────────────────
+// 主線③：兩台撞到的通知清單（契約 §3.1；`sync_meta.merge_notices`）
+// ─────────────────────────────────────────────────────────────
+
+pub(crate) const MERGE_NOTICES_KEY: &str = "merge_notices";
+pub(crate) const MERGE_NOTICES_CAP: usize = 20;
+/// 通知裡單一字串值的上限（字元數，不是位元組）
+const MERGE_VALUE_CLIP: usize = 120;
+
+/// 值截斷：`Value::String` 超過 120 字 ⇒ 前 120 字＋「…」（`chars()` 切，不切壞 UTF-8）；其餘原樣
+fn clip_value(v: &Value) -> Value {
+    match v {
+        Value::String(s) if s.chars().count() > MERGE_VALUE_CLIP => {
+            let mut t: String = s.chars().take(MERGE_VALUE_CLIP).collect();
+            t.push('…');
+            Value::String(t)
+        }
+        other => other.clone(),
+    }
+}
+
+/// 重播界線的鍵前綴：`last_pull_key_replay:<dev>` ＝「這台從頭重播那一台的目錄時，重播到哪把 key（含）為止」。
+/// 放在 `last_pull_key` 前綴底下——`EPOCH_SCOPED_META`、`finish_restore(Present)` 的 `LIKE 'last_pull_key%'`
+/// 與 `forget_sync_in_tx` 都會自動把它跟游標一起清掉（資料換掉，界線就沒有意義）。
+const REPLAY_MARK_PREFIX: &str = "last_pull_key_replay:";
+
+/// 這趟開始時 `last_pull_key:<dev>` 缺或為空的裝置（整個目錄從頭重播；契約 §0-1 第 19 條）。
+/// 純函式，給測試直接打。
+///
+/// 為什麼要有：引擎靠「依檔名序把整個紀元重播一次」收斂，重播時歷史上真的併發過的對子會在這台
+/// **重新被判一次**——那是「加入／換紀元」的副作用，不是「這台剛撞到了什麼」，不能落進清單。
+pub(crate) fn replay_devices(meta: &HashMap<String, String>, devices: &[String]) -> BTreeSet<String> {
+    devices
+        .iter()
+        .filter(|d| meta.get(&format!("last_pull_key:{d}")).is_none_or(|v| v.is_empty()))
+        .cloned()
+        .collect()
+}
+
+/// 算這趟的「重播界線」：`dev → 該台目錄裡重播到哪把 key（含）為止`；落在界線內的物件（`key <= 界線`）
+/// 產生的通知一律丟棄。
+///   * 這趟開始時游標為空的裝置（`replay_devices`）：界線＝這趟 `list_after` 列到的該台**最後一把** key，
+///     **先寫進 `sync_meta.last_pull_key_replay:<dev>`**（套任何物件之前）；列表是空的就沒有界線（順手清掉舊界線）。
+///   * 游標不為空、但留著上一趟寫下的界線：重播被中斷（`get`／`open` 失敗、App 被切到背景…），
+///     游標已經往前推了，剩下的歷史物件這趟接著套——它們還是重播，界線沿用。
+///
+/// 為什麼要存下來（評審：引擎語義 B1 的中斷版）：只用「這趟開始時游標是空的」判斷，重播拉到一半斷掉後，
+/// 下一趟日常 pull 看到的游標已非空，剩下的歷史物件會被當成新事件寫進清單，`at` 還是現在的時間。
+/// 界線被套過之後（`apply_and_settle`）才刪鍵。
+pub(crate) async fn replay_until_prepare(
+    pool: &Pool<Sqlite>,
+    meta: &HashMap<String, String>,
+    dev_lists: &[(String, Vec<String>)],
+) -> Result<HashMap<String, String>, String> {
+    let devices: Vec<String> = dev_lists.iter().map(|(d, _)| d.clone()).collect();
+    let fresh = replay_devices(meta, &devices);
+    let mut until: HashMap<String, String> = HashMap::new();
+    let mut writes: Vec<(String, Option<String>)> = Vec::new(); // (鍵, Some=寫入／None=刪除)
+    for (dev, keys) in dev_lists {
+        let mark_key = format!("{REPLAY_MARK_PREFIX}{dev}");
+        if fresh.contains(dev) {
+            match keys.last() {
+                Some(last) => {
+                    writes.push((mark_key, Some(last.clone())));
+                    until.insert(dev.clone(), last.clone());
+                }
+                None if meta.contains_key(&mark_key) => writes.push((mark_key, None)),
+                None => {}
+            }
+        } else if let Some(m) = meta.get(&mark_key).filter(|v| !v.is_empty()) {
+            until.insert(dev.clone(), m.clone());
+        }
+    }
+    if !writes.is_empty() {
+        let mut tx = pool.begin().await.map_err(db_err)?;
+        for (k, v) in &writes {
+            match v {
+                Some(v) => meta_set(&mut *tx, k, v).await?,
+                None => {
+                    sqlx::query("DELETE FROM sync_meta WHERE key = ?")
+                        .bind(k)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(db_err)?;
+                }
+            }
+        }
+        tx.commit().await.map_err(db_err)?;
+    }
+    Ok(until)
+}
+
+/// 解 `sync_meta.merge_notices` 的 JSON 字串；壞 JSON ⇒ 空，壞一筆（含不認得的 kind）丟一筆、不整包丟
+fn parse_merge_notices(raw: &str) -> Vec<MergeNotice> {
+    let Ok(items) = serde_json::from_str::<Vec<Value>>(raw) else {
+        return Vec::new();
+    };
+    items
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<MergeNotice>(v).ok())
+        .collect()
+}
+
+/// 讀 `sync_meta.merge_notices`；缺鍵／壞 JSON／不認得的 kind ⇒ 空
+pub(crate) fn merge_notices_read(meta: &HashMap<String, String>) -> Vec<MergeNotice> {
+    meta.get(MERGE_NOTICES_KEY)
+        .map(|raw| parse_merge_notices(raw))
+        .unwrap_or_default()
+}
+
+/// 把一批通知併進清單。**自己開交易、現讀現寫**（契約 §0-1 第 18 條）——不吃呼叫端的 `meta` 快照：
+/// `pull_core` 開頭那份快照整趟不更新，主人在拉取途中按「知道了」（`ack_merges` 不取 BusyGuard）時，
+/// 若拿舊快照合併回去，剛清掉的舊通知會復活。
+///   1. 去重鍵＝(kind, tbl, row_id, col)：新的取代舊的（同一筆同欄撞三次只留最新）。
+///   2. 新的放前面（`fresh` 本身依 `at`、再依 hlc 由新到舊），舊的接在後面。
+///   3. 超過 `MERGE_NOTICES_CAP`：先從尾端丟 Overwritten，丟完了才從尾端丟 Revived／Kept（復活比內容競合值錢）。
+///   4. 寫回 `sync_meta`；commit。
+pub(crate) async fn merge_notices_push(pool: &Pool<Sqlite>, fresh: &[MergeNotice]) -> Result<(), String> {
+    if fresh.is_empty() {
+        return Ok(());
+    }
+    let mut tx = pool.begin().await.map_err(db_err)?;
+    let old: Vec<MergeNotice> = match sqlx::query("SELECT value FROM sync_meta WHERE key = ?")
+        .bind(MERGE_NOTICES_KEY)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db_err)?
+    {
+        Some(row) => parse_merge_notices(&row.try_get::<String, _>("value").map_err(db_err)?),
+        None => Vec::new(),
+    };
+
+    let mut fresh_sorted: Vec<MergeNotice> = fresh.to_vec();
+    fresh_sorted.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| b.hlc.cmp(&a.hlc)));
+
+    let mut merged: Vec<MergeNotice> = Vec::with_capacity(fresh_sorted.len() + old.len());
+    for n in fresh_sorted.into_iter().chain(old) {
+        let dup = merged
+            .iter()
+            .any(|m| m.kind == n.kind && m.tbl == n.tbl && m.row_id == n.row_id && m.col == n.col);
+        if !dup {
+            merged.push(n);
+        }
+    }
+
+    while merged.len() > MERGE_NOTICES_CAP {
+        match merged.iter().rposition(|n| n.kind == MergeKind::Overwritten) {
+            Some(i) => {
+                merged.remove(i);
+            }
+            None => {
+                merged.pop();
+            }
+        }
+    }
+
+    let json = serde_json::to_string(&merged).map_err(|e| format!("同步通知清單序列化失敗：{e}"))?;
+    meta_set(&mut *tx, MERGE_NOTICES_KEY, &json).await?;
+    tx.commit().await.map_err(db_err)?;
+    Ok(())
+}
+
+/// `pull_core` 每顆物件套完後的通知落地決策（抽出來讓測試不必連 R2 就能打到）。
+/// 回傳＝這顆物件算進 `report.notices` 的那幾筆。
+///   * 落在重播界線內（`replay_until[dev]`：`object_key <= 界線`）⇒ 一律丟棄，不寫也不回報；
+///   * 否則 `persist=true`（日常 pull、`join_pending` 補做）才 `merge_notices_push`；join 傳 false ⇒ 不寫。
+/// 在物件交易**提交之後**才呼叫——apply 自己不寫 DB（G0 的 t7 會傾印整張 sync_meta）。
+///
+/// **盡力而為**：通知不是資料。寫進清單失敗（例如 deferred 交易升級寫鎖時撞上 SQLITE_BUSY_SNAPSHOT，
+/// busy_timeout 救不了）重試一次，還失敗就只記 log、照常回傳 notices——物件已提交、游標已推進，
+/// 不能因為提示寫不進去就把整趟 pull 變成「同步沒有完成」。
+async fn settle_object_notices(
+    pool: &Pool<Sqlite>,
+    dev: &str,
+    object_key: &str,
+    notices: &[MergeNotice],
+    replay_until: &HashMap<String, String>,
+    persist: bool,
+) -> Vec<MergeNotice> {
+    let replayed = replay_until.get(dev).is_some_and(|m| object_key <= m.as_str());
+    if notices.is_empty() || replayed {
+        return Vec::new();
+    }
+    if persist {
+        let mut res = merge_notices_push(pool, notices).await;
+        if res.is_err() {
+            res = merge_notices_push(pool, notices).await;
+        }
+        if let Err(e) = res {
+            eprintln!("[sync:pull] 通知沒寫進清單：{e}");
+        }
+    }
+    notices.to_vec()
+}
+
+/// `pull_core` 對一顆物件的完整處理：套用 → 診斷線 → 通知落地 → 重播界線到頂就刪鍵。
+/// 抽成一支讓 `pull_core` 與測試共用同一份（反例測試不再自己手抄迴圈）。
+/// `replay_until` 是 `&mut`：界線被套過（`object_key >= 界線`）就從記憶體與 `sync_meta` 拿掉，
+/// 之後同一台的物件（一定比界線新）不再算重播。
+pub(crate) async fn apply_and_settle(
+    pool: &Pool<Sqlite>,
+    dev: &str,
+    obj: &OplogObject,
+    object_key: &str,
+    me: &str,
+    replay_until: &mut HashMap<String, String>,
+    persist: bool,
+) -> Result<(ApplyOutcome, Vec<MergeNotice>), String> {
+    let outcome = apply_object(pool, obj, object_key, me).await?;
+    // 診斷線（主人真機 2026-09-20「配對後車票不見」）：release 版讀不到 DB，只能靠 logcat 的
+    // RustStdoutStderr 看每個物件套了幾筆、跳了幾筆。不印任何資料內容，只印計數與物件名。
+    eprintln!(
+        "[sync:pull] {object_key} ops={} applied={} skipped={} conflicts={} notices={} tables={:?}",
+        obj.ops.len(),
+        outcome.applied,
+        outcome.skipped,
+        outcome.conflicts,
+        outcome.notices.len(),
+        outcome.changed
+    );
+    // 主線③：通知在物件交易**提交之後**才寫（apply 自己不寫 DB——G0 的 t7 會傾印整張 sync_meta）。
+    // 每顆物件寫一次：pull 中途斷網時，前面物件的通知不會跟著丟（它們的游標已推進、不會再來一次）。
+    let accepted = settle_object_notices(pool, dev, object_key, &outcome.notices, replay_until, persist).await;
+    if replay_until.get(dev).is_some_and(|m| object_key >= m.as_str()) {
+        replay_until.remove(dev);
+        // 刪不掉也無妨：殘留的界線只會讓「比它舊」的物件算重播，而那些早就套過了
+        if let Err(e) = sqlx::query("DELETE FROM sync_meta WHERE key = ?")
+            .bind(format!("{REPLAY_MARK_PREFIX}{dev}"))
+            .execute(pool)
+            .await
+        {
+            eprintln!("[sync:pull] 重播界線沒刪掉：{e}");
+        }
+    }
+    Ok((outcome, accepted))
+}
+
+/// 「知道了」的 DB 那一半：`DELETE FROM sync_meta WHERE key = 'merge_notices'`（抽出來給測試）
+pub(crate) async fn merge_notices_clear(pool: &Pool<Sqlite>) -> Result<(), String> {
+    sqlx::query("DELETE FROM sync_meta WHERE key = ?")
+        .bind(MERGE_NOTICES_KEY)
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+    Ok(())
+}
+
+/// 「知道了」：清鍵後回最新 status（給 command 用）。
+/// 不取 BusyGuard：單句 DELETE；pull 若同時在寫，後寫的留下，沒有壞狀態。
+pub async fn ack_merges(app: &AppHandle) -> Result<SyncStatus, String> {
+    let pool = pool(app).await?;
+    merge_notices_clear(&pool).await?;
+    status(app).await
 }
 
 /// device_id 的**唯一誕生點**（契約 §3）：首次呼叫 `sync_status()` 時 INSERT OR IGNORE。
@@ -858,6 +1154,7 @@ pub async fn status(app: &AppHandle) -> Result<SyncStatus, String> {
         recovery_set: meta.get("recovery_set").map(|v| v == "1"),
         needs_passphrase: meta.get("needs_passphrase").map(String::as_str) == Some("1"),
         notif_asked: meta.get("notif_asked").map(String::as_str) == Some("1"),
+        notices: merge_notices_read(&meta),
     })
 }
 
@@ -1439,7 +1736,10 @@ async fn push_inner(app: &AppHandle, pool: &Pool<Sqlite>) -> Result<PushReport, 
     //   * 補戳要在快照之前：沒有格子的列在合併時會被遠端無條件蓋掉。
     if meta.get("join_pending").is_some_and(|v| !v.is_empty()) {
         let st_ref = app.try_state::<SyncState>();
-        let pulled = pull_core(pool, &client, &key, &root, &epoch, &device_id, st_ref.as_deref()).await?;
+        // 主線③：重播的部分由 `replay_until_prepare` 存下來的界線擋掉；界線之外（沒被閘住那幾台的日常新物件）
+        // 是真的新事件——以前這裡傳 false，信号待ち卡住的那段期間（可能好幾天）每 60 秒先被這條路吃掉游標，
+        // 之後的 `pull_inner` 就拿不到，真通知全丟。
+        let pulled = pull_core(pool, &client, &key, &root, &epoch, &device_id, st_ref.as_deref(), true).await?;
         // 信号待ち（對方的 schema 比較新）＝這一趟**沒有拉完整**。旗標留著，等主人更新那一台之後再補做；
         // 在這裡快照會把「只拉了一半」的狀態當成完整基準推出去。
         if pulled.gated {
@@ -1671,6 +1971,7 @@ pub async fn pull(app: &AppHandle) -> Result<PullReport, String> {
         conflicts: 0,
         max_hlc: None,
         skipped_missing: 0,
+        notices: vec![],
     };
     let Some(st) = app.try_state::<SyncState>() else {
         return Err("同步模組還沒初始化。".into());
@@ -1699,6 +2000,7 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
         conflicts: 0,
         max_hlc: None,
         skipped_missing: 0,
+        notices: vec![],
     };
     let meta = meta_all(pool).await?;
     if meta.get("enabled").map(String::as_str) != Some("1") {
@@ -1744,7 +2046,8 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
         return Ok(empty);
     }
 
-    let report = pull_core(pool, &client, &key, &root, &epoch, &me, Some(st)).await?;
+    // 主線③：只有這一條（日常 pull）才把通知落進 sync_meta（persist_notices=true）
+    let report = pull_core(pool, &client, &key, &root, &epoch, &me, Some(st), true).await?;
 
     if report.objects > 0 {
         record_success(pool).await?;
@@ -1778,6 +2081,11 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
 /// 讓 `sync_join` 在同一趟裡直接拉全量（它已經握著憑證與資料鑰匙，也不該再被 `enabled` 擋住）。
 ///
 /// `st` 為 None＝呼叫端自己管信号待ち（join 期間 UI 還在等回覆，`report.gated` 會照實回報）。
+///
+/// 主線③ `persist_notices`：`pull_inner`（日常 pull）與 `join_pending` 補做傳 true＝每顆物件套完後把「兩台撞到」的通知
+/// 落進 `sync_meta.merge_notices`；`sync_join` 的全量拉取是整個目錄重播，傳 false、不落清單。
+/// 無論 true／false，落在「重播界線」內的物件（游標為空的裝置從頭重播的那一段，含被中斷後接著跑的；
+/// 見 `replay_until_prepare`）產生的通知一律丟棄（契約 §0-1 第 19 條）。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn pull_core(
     pool: &Pool<Sqlite>,
@@ -1787,6 +2095,7 @@ pub(crate) async fn pull_core(
     epoch: &str,
     me: &str,
     st: Option<&SyncState>,
+    persist_notices: bool,
 ) -> Result<PullReport, String> {
     let mut report = PullReport {
         objects: 0,
@@ -1798,6 +2107,7 @@ pub(crate) async fn pull_core(
         conflicts: 0,
         max_hlc: None,
         skipped_missing: 0,
+        notices: vec![],
     };
     let meta = meta_all(pool).await?;
 
@@ -1822,16 +2132,24 @@ pub(crate) async fn pull_core(
     // 建立指令才存在 ⇒ 蓋章被當孤兒跳過；接著桌機 18:03:31 的刪除照套，「編輯勝刪除」根本沒機會發生。
     // 改成**所有裝置的物件先收齊，依檔名（推送戳記）全域排序再套**——因果順序才對得上。
     // 游標與 seen 仍在 apply_object 的交易裡逐物件推進，與順序無關。
-    let mut queue: Vec<(String, String)> = Vec::new(); // (device, object_key)
+    let mut dev_lists: Vec<(String, Vec<String>)> = Vec::new();
     for dev in &devices {
         let cursor = meta
             .get(&format!("last_pull_key:{dev}"))
             .cloned()
             .unwrap_or_default();
-        for k in client
+        let keys = client
             .list_after(&format!("{root}/{epoch}/{dev}/"), &cursor)
-            .await?
-        {
+            .await?;
+        dev_lists.push((dev.clone(), keys));
+    }
+    // 主線③：游標為空的裝置＝這台從頭重播它的目錄，歷史併發會被重判一次——那些通知不落清單。
+    // 「重播到哪」要先存進 sync_meta（`replay_until_prepare`）：重播被中斷後，下一趟游標已非空，
+    // 只看游標會把剩下的歷史物件當成新事件。
+    let mut replay_until = replay_until_prepare(pool, &meta, &dev_lists).await?;
+    let mut queue: Vec<(String, String)> = Vec::new(); // (device, object_key)
+    for (dev, keys) in dev_lists {
+        for k in keys {
             queue.push((dev.clone(), k));
         }
     }
@@ -1871,17 +2189,9 @@ pub(crate) async fn pull_core(
         let obj: OplogObject = serde_json::from_slice(&plain)
             .map_err(|_| "同步資料的格式看不懂（可能是較新版本產生的）。".to_string())?;
 
-        let outcome = apply_object(pool, &obj, &object_key, me).await?;
-        // 診斷線（主人真機 2026-09-20「配對後車票不見」）：release 版讀不到 DB，只能靠 logcat 的
-        // RustStdoutStderr 看每個物件套了幾筆、跳了幾筆。不印任何資料內容，只印計數與物件名。
-        eprintln!(
-            "[sync:pull] {object_key} ops={} applied={} skipped={} conflicts={} tables={:?}",
-            obj.ops.len(),
-            outcome.applied,
-            outcome.skipped,
-            outcome.conflicts,
-            outcome.changed
-        );
+        let (outcome, accepted) =
+            apply_and_settle(pool, &dev, &obj, &object_key, me, &mut replay_until, persist_notices).await?;
+        report.notices.extend(accepted);
         report.objects += 1;
         report.applied_ops += outcome.applied;
         report.skipped_ops += outcome.skipped;
@@ -2228,6 +2538,9 @@ pub struct ApplyOutcome {
     pub changed: Vec<String>,
     /// v1.1.4：`skipped` 裡「新列缺 NOT NULL 欄」那一種的筆數（契約 §4；只計新列，其餘四種跳過不算）
     pub skipped_missing: u64,
+    /// 主線③：這個物件產生的通知（記憶體；由 `pull_core` 在交易提交後落 sync_meta）。
+    /// apply 自己不寫 DB——G0 的 t7 會傾印整張 sync_meta。
+    pub notices: Vec<MergeNotice>,
 }
 
 /// 一格 `sync_cells` 的戳記
@@ -2283,6 +2596,11 @@ struct PendingConflict {
     mine_hlc: String,
     /// 贏的是本機那一版嗎（評審 S3 的「還沒 push 的贏家」；預設 false＝對方贏、本機讓位）
     winner_is_mine: bool,
+    /// 主線③：這筆是哪一類（在 push 點寫死；⑥ 據此分類通知，不事後猜）
+    kind: MergeKind,
+    /// 主線③：本機那一格的 device_id（Kept＝擋下刪除的那一格；Revived＝被復活的 deleted_at 格；
+    /// Overwritten＝被蓋／擋人的那一格）。與 `my_device_id` 不同＝第三台寫的（通知 `by_me=false`）
+    mine_dev: String,
 }
 
 /// 套用一個物件（一個交易）。
@@ -2335,6 +2653,8 @@ pub(crate) async fn apply_object_with(
         .map_err(db_err)?;
 
     let mut out = ApplyOutcome::default();
+    // 主線③：這個物件記通知用的時刻（work_logs 段 ⑥ 裡自己那個同名 `let now` 照舊，內層遮蔽無害）
+    let now = now_iso();
     let mut tables: BTreeSet<String> = BTreeSet::new();
     // 這個交易裡新 INSERT 的列（評審 B1 第二層的救援名單；只有自己剛塞的才敢回退）
     let mut inserted: BTreeSet<(String, String)> = BTreeSet::new();
@@ -2412,8 +2732,26 @@ pub(crate) async fn apply_object_with(
                 let incoming_delete = op.cols.get("deleted_at").is_some_and(|v| !v.is_null());
                 if incoming_delete {
                     // 收到刪除：本列若有「別台寫的、對方沒看過」的非 deleted_at 編輯 ⇒ 不套 deleted_at
-                    let edited = cells.iter().any(|(col, c)| col != "deleted_at" && concurrent(c));
-                    if edited {
+                    // 主線③：判準不變，只把找到的那格留下來（第三台時 `by_me` 要看它是誰寫的）
+                    // `cells` 是 HashMap，迭代順序不固定——這台與第三台都對這列有併發編輯時，`find` 會隨機拿到其中一格，
+                    // 同一情境 `by_me` 有時 true 有時 false。所以先收齊再決定性地挑：
+                    // 實質欄優先於記帳欄（`updated_at` 之類）；同類裡這台寫的優先（`by_me=true`），最後依欄名排序。
+                    let mut hits: Vec<(&String, &CellStamp)> = cells
+                        .iter()
+                        .filter(|(col, c)| col.as_str() != "deleted_at" && concurrent(c))
+                        .collect();
+                    hits.sort_by(|a, b| {
+                        let rank = |h: &(&String, &CellStamp)| {
+                            (
+                                BOOKKEEPING_COLS.contains(&h.0.as_str()),
+                                h.1.device_id != my_device_id,
+                                h.0.clone(),
+                            )
+                        };
+                        rank(a).cmp(&rank(b))
+                    });
+                    let edited_by = hits.first().map(|(_, c)| c.device_id.clone());
+                    if let Some(dev) = edited_by {
                         if let Some(pos) = taken.iter().position(|(c, _, _)| *c == "deleted_at") {
                             taken.remove(pos);
                             pending.push(PendingConflict {
@@ -2425,6 +2763,8 @@ pub(crate) async fn apply_object_with(
                                     .map(|c| c.hlc.clone())
                                     .unwrap_or_default(),
                                 winner_is_mine: true, // 這台的編輯擋下了對方的刪除
+                                kind: MergeKind::Kept,
+                                mine_dev: dev,
                             });
                         }
                     }
@@ -2443,6 +2783,8 @@ pub(crate) async fn apply_object_with(
                                 theirs: Value::Null,
                                 mine_hlc: d.hlc.clone(),
                                 winner_is_mine: false, // 對方的編輯把這台刪掉的票救回來了
+                                kind: MergeKind::Revived,
+                                mine_dev: d.device_id.clone(),
                             });
                         }
                     }
@@ -2475,6 +2817,8 @@ pub(crate) async fn apply_object_with(
                         theirs: (*v).clone(),
                         mine_hlc: c.hlc.clone(),
                         winner_is_mine: false,
+                        kind: MergeKind::Overwritten,
+                        mine_dev: c.device_id.clone(),
                     });
                 }
 
@@ -2502,6 +2846,8 @@ pub(crate) async fn apply_object_with(
                         theirs: (*v).clone(),
                         mine_hlc: c.hlc.clone(),
                         winner_is_mine: true,
+                        kind: MergeKind::Overwritten,
+                        mine_dev: my_device_id.to_string(), // ③ʹ 恆是這台自己寫的（判準就含 `device_id == my_device_id`）
                     });
                 }
             }
@@ -2604,7 +2950,37 @@ pub(crate) async fn apply_object_with(
         }
 
         // ⑥ 競合留痕（§3.4）：Rust 直寫 work_logs，天然不進 outbox（TS 的閘門不在這條路上）
+        //
+        // 主線③：同一個迴圈順手把「兩台撞到」記成通知（只進記憶體 `out.notices`，不看掛點、每張表都記；
+        // 乘務記錄那段原樣不動）。兩條過濾只影響通知：
+        //   (a) `Overwritten` 且 `deleted_at` 欄（兩台都刪、或明確復原撞刪除）＝結果沒有使用者故事，不進；
+        //   (b) 同一個 op 已有 Revived／Kept 時，它的 Overwritten 不進——② 第二支只設 `resurrect`、不 `continue`，
+        //       被復活的列若還有別的併發欄，同一 op 會同時產生 Revived 與 Overwritten；清單一列講「回來了」就夠。
+        //   (c) `Kept` 但本機這列早就刪了（兩台都刪）＝什麼都沒留著，不進。各線刪除都會順手寫 `updated_at`，
+        //       ② 第一支會把那格當成「這台改過」而擋下對方的刪除（既有行為，乘務記錄照記）；通知只是不跟著說錯話。
+        let has_row_level = pending.iter().any(|p| p.kind != MergeKind::Overwritten);
+        let local_was_deleted = existing
+            .as_ref()
+            .and_then(|r| r.get("deleted_at"))
+            .is_some_and(|v| !v.is_null());
         for pc in &pending {
+            let skip_notice = (pc.kind == MergeKind::Overwritten && (pc.col == "deleted_at" || has_row_level))
+                || (pc.kind == MergeKind::Kept && local_was_deleted);
+            if !skip_notice {
+                out.notices.push(MergeNotice {
+                    kind: pc.kind,
+                    tbl: op.tbl.clone(),
+                    row_id: op.row_id.clone(),
+                    col: (pc.kind == MergeKind::Overwritten).then(|| pc.col.clone()),
+                    mine: clip_value(&pc.mine),
+                    theirs: clip_value(&pc.theirs),
+                    winner: String::from(if pc.winner_is_mine { "mine" } else { "theirs" }),
+                    their_device: obj.device_id.clone(),
+                    by_me: pc.mine_dev == my_device_id,
+                    hlc: op.hlc.clone(),
+                    at: now.clone(),
+                });
+            }
             // 掛在哪個節點上由登記表的 `conflict_anchor` 決定（並行地基 A-10）；settings（KeyValue）沒有節點可掛，不記
             let node_id: Option<String> = match &table.kind {
                 super::tables::Kind::Rows(r) => match r.conflict_anchor {
@@ -3049,6 +3425,11 @@ pub struct WizardEnv {
 pub(crate) const EPOCH_SCOPED_META: &str = "DELETE FROM sync_meta WHERE key LIKE 'last_pull_key%' OR key LIKE 'seen:%' \
      OR key IN ('last_push_hlc','last_object_stamp','inflight_key','inflight_max_seq','pending_epoch','pending_epoch_info','locked','locked_reason','join_pending')";
 
+/// `finish_restore(Present)`（還原到「接上現在」）清同步進度的那一句。抽成常數是為了讓測試斷言得到
+/// （主線③：重播界線鍵 `last_pull_key_replay:<dev>` 在 `last_pull_key` 前綴底下，這句要把它一起帶走）。
+pub(crate) const RESTORE_PRESENT_META: &str = "DELETE FROM sync_meta WHERE key LIKE 'last_pull_key%' OR key LIKE 'seen:%' \
+     OR key IN ('inflight_key','inflight_max_seq','pending_epoch','pending_epoch_info')";
+
 /// 清空「這台的主人資料＋同步進度」（`adopt_epoch` 的 ② ；**settings 不動**）。
 ///
 /// 順序與 pragma 的理由：
@@ -3060,8 +3441,20 @@ pub(crate) const EPOCH_SCOPED_META: &str = "DELETE FROM sync_meta WHERE key LIKE
 ///      這個 pragma 是**交易內**的，COMMIT 之後自動復原，不影響別的連線。
 /// **settings 不動**：白名單只有 `day_start_hour`（快照會蓋回來），其餘十把鑰匙（主題、書封……）
 /// 是這台自己的偏好，不該被別台的還原抹掉。
+///
+/// **主線③**：兩台撞到的通知清單（`sync_meta.merge_notices`）跟著這句一起清——資料整批換掉，清單裡每列指向的
+/// 東西都不在了。清除寫在這個**生產包裝**而不是 `wipe_statements`／`wipe_local_data_with`：後兩者被 G0
+/// （`foundation_checks` 鎖 `SQL_WIPE`、`foundation_golden` 的 t7）逐字鎖住，動了金樣就紅。
+/// 三個呼叫端（`adopt_epoch`、`join(AdoptRemote)`、`start_over(AllDevices)`）一次補齊。
+/// `EPOCH_SCOPED_META` 仍不含它：「回到過去」不清本機資料、清單仍有意義。
 pub(crate) async fn wipe_local_data(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), String> {
-    wipe_local_data_with(Registry::production(), tx).await
+    wipe_local_data_with(Registry::production(), tx).await?;
+    sqlx::query("DELETE FROM sync_meta WHERE key = ?")
+        .bind(MERGE_NOTICES_KEY)
+        .execute(&mut **tx)
+        .await
+        .map_err(db_err)?;
+    Ok(())
 }
 
 /// 清空的整串 SQL（並行地基 A-13）：延後外鍵 → Rows 表子先父後 → outbox → 格子。
@@ -5373,7 +5766,8 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     let mut pull_report = None;
     let mut snapshot_ops = 0u64;
     if remote_has_data {
-        pull_report = Some(pull_core(&pool, &client, &data_key, &root, &epoch, &device_id, Some(&st)).await?);
+        // 主線③：join 的全量拉取是重播，不落通知清單（persist_notices=false；join 本來就有自己的結果訊息）
+        pull_report = Some(pull_core(&pool, &client, &data_key, &root, &epoch, &device_id, Some(&st), false).await?);
     }
     if matches!(outcome, JoinOutcome::First | JoinOutcome::Merged) {
         snapshot_ops = snapshot_into_outbox(&pool, &device_id).await?;
@@ -5614,6 +6008,10 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
     let creds = match credstore::load(app) {
         Ok(Some(c)) => c,
         Ok(None) => {
+            // 同上：沒加入同步也一樣把備份帶回來的清單清掉
+            if let Ok(p) = pool(app).await {
+                let _ = merge_notices_clear(&p).await;
+            }
             clear_restore_pending(app);
             return Ok(RestoreReport {
                 outcome: RestoreOutcome::NotJoined,
@@ -5632,6 +6030,10 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
         return Err("同步正在進行中，請稍候再試。".into());
     };
     let pool = pool(app).await?;
+    // 主線③：備份是整顆 DB（含 sync_meta），還原後帶回來的 `merge_notices` 講的是備份當時的舊事
+    // （備份來自另一台機器時，`by_me` 的句子指的還是那台）。還原＝本機資料整批換掉，清單一起清。
+    // 「回到過去」只清紀元範圍（`EPOCH_SCOPED_META`）不含這把鍵，所以不論 Past／Present 都在這裡清。
+    merge_notices_clear(&pool).await?;
     let meta = meta_all(&pool).await?;
     let root = creds.root.clone();
     let data_key = crypto::key_from_b64(&creds.data_key_b64)?;
@@ -5728,10 +6130,7 @@ pub async fn finish_restore(app: &AppHandle) -> Result<RestoreReport, String> {
                 None => resolve_current_epoch(&client, &data_key, &root).await?,
             };
             let mut tx = pool.begin().await.map_err(db_err)?;
-            sqlx::query(
-                "DELETE FROM sync_meta WHERE key LIKE 'last_pull_key%' OR key LIKE 'seen:%' \
-                 OR key IN ('inflight_key','inflight_max_seq','pending_epoch','pending_epoch_info')",
-            )
+            sqlx::query(RESTORE_PRESENT_META)
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
@@ -7146,6 +7545,24 @@ mod tests {
             assert_eq!(cf[0]["tbl"], "nodes");
             assert_eq!(cf[0]["row_id"], "N1");
 
+            // 主線③：同一件事也進通知（記憶體；apply 自己不寫 DB）
+            assert_eq!(r.notices.len(), 1);
+            let n = &r.notices[0];
+            assert_eq!(n.kind, MergeKind::Overwritten);
+            assert_eq!((n.tbl.as_str(), n.row_id.as_str()), ("nodes", "N1"));
+            assert_eq!(n.col.as_deref(), Some("name"));
+            assert_eq!(n.mine, Value::from("本機版"));
+            assert_eq!(n.theirs, Value::from("對方版"));
+            assert_eq!(n.winner, "theirs");
+            assert_eq!(n.their_device, "dev-b");
+            assert!(n.by_me);
+            assert_eq!(n.hlc, H20);
+            assert_eq!(
+                count(&dst, "SELECT COUNT(*) FROM sync_meta WHERE key = 'merge_notices'").await,
+                0,
+                "apply 不寫 sync_meta（G0 的 t7 會傾印整張 sync_meta）"
+            );
+
             drop_pool(dst, path).await;
         });
     }
@@ -7310,6 +7727,15 @@ mod tests {
             assert_eq!(cf[0]["mine"], Value::Null);
             assert_eq!(cf[0]["theirs"], "2026-09-19T01:00:00.000Z");
 
+            // 主線③：Kept——另一台刪過、這台改過，留著
+            assert_eq!(r.notices.len(), 1);
+            let n = &r.notices[0];
+            assert_eq!(n.kind, MergeKind::Kept);
+            assert_eq!(n.tbl, "nodes");
+            assert!(n.col.is_none());
+            assert_eq!(n.winner, "mine");
+            assert!(n.by_me);
+
             drop_pool(dst, path).await;
         });
     }
@@ -7358,6 +7784,14 @@ mod tests {
             assert_eq!(cf[0]["col"], "deleted_at");
             assert_eq!(cf[0]["mine"], "2026-09-01T00:00:00.000Z");
             assert_eq!(cf[0]["theirs"], Value::Null);
+
+            // 主線③：Revived——這台刪過、另一台改過，回來了
+            assert_eq!(r.notices.len(), 1);
+            let n = &r.notices[0];
+            assert_eq!(n.kind, MergeKind::Revived);
+            assert!(n.col.is_none());
+            assert_eq!(n.winner, "theirs");
+            assert!(n.by_me);
 
             drop_pool(dst, path).await;
         });
@@ -7993,7 +8427,788 @@ mod tests {
             assert_eq!(cf[0]["mine"], "這台改的");
             assert_eq!(cf[0]["theirs"], "對方改的");
 
+            // 主線③：③ʹ 的通知——贏的是這台，by_me 恆 true
+            assert_eq!(r.notices.len(), 1);
+            let n = &r.notices[0];
+            assert_eq!(n.kind, MergeKind::Overwritten);
+            assert_eq!(n.col.as_deref(), Some("name"));
+            assert_eq!(n.winner, "mine");
+            assert_eq!(n.mine, Value::from("這台改的"));
+            assert_eq!(n.theirs, Value::from("對方改的"));
+            assert!(n.by_me);
+
             drop_pool(dst, path).await;
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // 主線③：兩台撞到的通知（契約 §6.3）。apply 只回傳 `notices`（不寫 DB）；落地在 `settle_object_notices`
+    // ─────────────────────────────────────────────────────────
+
+    const H12: &str = "17581536000000012-cccccccc"; // 本機（dev-self）的另一版
+    const HA10: &str = "17581536000000010-aaaaaaaa"; // 第三台 dev-a
+    const HA20: &str = "17581536000000020-aaaaaaaa";
+    const HB15: &str = "17581536000000015-bbbbbbbb"; // dev-b
+
+    /// 一顆本機的筆記（走 `notes` 表：`conflict_anchor` 是 None，不會記乘務記錄）
+    async fn seed_note(pool: &Pool<Sqlite>, id: &str, body: &str, deleted_at: Option<&str>) {
+        sqlx::query(
+            "INSERT INTO notes (id, kind, noted_at, body, deleted_at) \
+             VALUES (?, 'note', '2026-10-17T00:00:00.000Z', ?, ?)",
+        )
+        .bind(id)
+        .bind(body)
+        .bind(deleted_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn mk_notice(kind: MergeKind, tbl: &str, row: &str, col: Option<&str>, at: &str, theirs: &str) -> MergeNotice {
+        MergeNotice {
+            kind,
+            tbl: tbl.into(),
+            row_id: row.into(),
+            col: col.map(str::to_string),
+            mine: Value::Null,
+            theirs: Value::from(theirs),
+            winner: "theirs".into(),
+            their_device: "dev-b".into(),
+            by_me: true,
+            hlc: H20.into(),
+            at: at.into(),
+        }
+    }
+
+    async fn read_notices(pool: &Pool<Sqlite>) -> Vec<MergeNotice> {
+        merge_notices_read(&meta_all(pool).await.unwrap())
+    }
+
+    /// 第三台 dev-a 建票並改名（H20），dev-b 在只看過 dev-a 的 H10 時刪票 ⇒ 重播到 dev-b 的刪除物件時，
+    /// 本機（dev-self）會把「歷史上真的併發過」的這一對重新判一次＝Kept，而且那一格是 dev-a 寫的（`by_me=false`）
+    fn replay_pair() -> (OplogObject, OplogObject) {
+        let o1 = make_obj(
+            "dev-a",
+            vec![
+                mk_op(HA10, "nodes", "N1", OpKind::Upsert, &[("kind", "train".into()), ("name", "v1".into())]),
+                mk_op(HA20, "nodes", "N1", OpKind::Upsert, &[("name", "v2".into())]),
+            ],
+        );
+        let o2 = make_obj_seen(
+            "dev-b",
+            &[("dev-a", HA10)],
+            vec![mk_op(
+                HB15,
+                "nodes",
+                "N1",
+                OpKind::Delete,
+                &[("deleted_at", "2026-10-17T00:00:00.000Z".into())],
+            )],
+        );
+        (o1, o2)
+    }
+
+    #[test]
+    fn notes_刪vs改_兩方向_不記乘務記錄但有通知() {
+        tauri::async_runtime::block_on(async {
+            // 本機已刪、收到 dev-b 的併發編輯 ⇒ Revived
+            let (dst, path) = make_pool("mg-notes-revive").await;
+            seed_note(&dst, "NT1", "舊內文", Some("2026-10-17T01:00:00.000Z")).await;
+            set_cell(&dst, "notes", "NT1", "deleted_at", H10, "dev-self").await;
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(H20, "notes", "NT1", OpKind::Upsert, &[("body", "對方補寫".into())])],
+            );
+            let r = apply(&dst, &obj, "k1").await;
+            assert_eq!(r.conflicts, 0, "notes 沒有掛點，乘務記錄不記");
+            assert_eq!(r.notices.len(), 1);
+            assert_eq!(r.notices[0].kind, MergeKind::Revived);
+            assert_eq!(r.notices[0].tbl, "notes");
+            assert_eq!(r.notices[0].row_id, "NT1");
+            assert!(r.notices[0].by_me);
+            assert_eq!(
+                count(&dst, "SELECT COUNT(*) FROM notes WHERE id='NT1' AND deleted_at IS NULL").await,
+                1,
+                "刪了又回來"
+            );
+            drop_pool(dst, path).await;
+
+            // 反向：本機改了 body、收到 dev-b 的併發刪除 ⇒ Kept
+            let (dst, path) = make_pool("mg-notes-keep").await;
+            seed_note(&dst, "NT2", "本機改的", None).await;
+            set_cell(&dst, "notes", "NT2", "body", H10, "dev-self").await;
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(
+                    H20,
+                    "notes",
+                    "NT2",
+                    OpKind::Delete,
+                    &[
+                        ("deleted_at", "2026-10-17T02:00:00.000Z".into()),
+                        ("updated_at", "2026-10-17T02:00:00.000Z".into()),
+                    ],
+                )],
+            );
+            let r = apply(&dst, &obj, "k2").await;
+            assert_eq!(r.conflicts, 0);
+            assert_eq!(r.notices.len(), 1);
+            assert_eq!(r.notices[0].kind, MergeKind::Kept);
+            assert_eq!(r.notices[0].tbl, "notes");
+            assert!(r.notices[0].col.is_none());
+            assert_eq!(
+                count(&dst, "SELECT COUNT(*) FROM notes WHERE id='NT2' AND deleted_at IS NULL").await,
+                1,
+                "編輯勝刪除：筆記活著"
+            );
+            drop_pool(dst, path).await;
+        });
+    }
+
+    #[test]
+    fn notes_內容競合_有通知且值被截到120字() {
+        tauri::async_runtime::block_on(async {
+            let (dst, path) = make_pool("mg-notes-clip").await;
+            let mine_body = "甲".repeat(200);
+            let their_body = "乙".repeat(200);
+            seed_note(&dst, "NT1", &mine_body, None).await;
+            set_cell(&dst, "notes", "NT1", "body", H10, "dev-self").await;
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(H20, "notes", "NT1", OpKind::Upsert, &[("body", Value::from(their_body.clone()))])],
+            );
+            let r = apply(&dst, &obj, "k1").await;
+            assert_eq!(r.notices.len(), 1);
+            let n = &r.notices[0];
+            assert_eq!(n.kind, MergeKind::Overwritten);
+            assert_eq!(n.col.as_deref(), Some("body"));
+            assert_eq!(n.winner, "theirs");
+            let m = n.mine.as_str().unwrap();
+            assert_eq!(m.chars().count(), 121, "120 字＋「…」");
+            assert!(m.ends_with('…') && m.starts_with("甲甲甲"));
+            assert_eq!(n.theirs.as_str().unwrap().chars().count(), 121);
+            // 實際寫進資料列的值不受截斷影響
+            assert_eq!(
+                text(&dst, "SELECT body FROM notes WHERE id='NT1'").await.as_deref(),
+                Some(their_body.as_str())
+            );
+            drop_pool(dst, path).await;
+        });
+    }
+
+    #[test]
+    fn clip_value_只截長字串_短字串與非字串原樣() {
+        assert_eq!(clip_value(&Value::from("短")), Value::from("短"));
+        let exactly = "字".repeat(120);
+        assert_eq!(clip_value(&Value::from(exactly.clone())), Value::from(exactly), "剛好 120 字不截");
+        assert_eq!(clip_value(&Value::Null), Value::Null);
+        assert_eq!(clip_value(&Value::from(7)), Value::from(7));
+        let long = format!("{}尾", "字".repeat(120));
+        let clipped = clip_value(&Value::from(long));
+        assert_eq!(clipped.as_str().unwrap().chars().count(), 121);
+    }
+
+    #[test]
+    fn deleted_at欄的覆蓋_不進清單() {
+        tauri::async_runtime::block_on(async {
+            // 明確復原（deleted_at: null）撞本機刪除：結果沒有使用者故事
+            let (dst, path) = make_pool("mg-del-null").await;
+            seed_note(&dst, "NT1", "x", Some("2026-10-17T01:00:00.000Z")).await;
+            set_cell(&dst, "notes", "NT1", "deleted_at", H10, "dev-self").await;
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(H20, "notes", "NT1", OpKind::Upsert, &[("deleted_at", Value::Null)])],
+            );
+            let r = apply(&dst, &obj, "k1").await;
+            assert_eq!(r.applied, 1, "復原照走 LWW");
+            assert!(r.notices.is_empty(), "deleted_at 欄的 Overwritten 不進清單：{:?}", r.notices);
+            drop_pool(dst, path).await;
+
+            // 兩台都刪（時刻不同）
+            let (dst, path) = make_pool("mg-del-both").await;
+            seed_note(&dst, "NT2", "x", Some("2026-10-17T01:00:00.000Z")).await;
+            set_cell(&dst, "notes", "NT2", "deleted_at", H10, "dev-self").await;
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(
+                    H20,
+                    "notes",
+                    "NT2",
+                    OpKind::Delete,
+                    &[("deleted_at", "2026-10-17T03:00:00.000Z".into())],
+                )],
+            );
+            let r = apply(&dst, &obj, "k2").await;
+            assert!(r.notices.is_empty(), "兩台都刪：{:?}", r.notices);
+            drop_pool(dst, path).await;
+
+            // 兩台都刪、本機刪除時順手寫了 updated_at（各線刪除的實際寫法）：
+            // ② 第一支會把 updated_at 當成併發編輯擋下對方的刪除（既有行為），但不能記成「留著」
+            let (dst, path) = make_pool("mg-del-both-upd").await;
+            seed_note(&dst, "NT3", "x", Some("2026-10-17T01:00:00.000Z")).await;
+            set_cell(&dst, "notes", "NT3", "deleted_at", H10, "dev-self").await;
+            set_cell(&dst, "notes", "NT3", "updated_at", H10, "dev-self").await;
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(
+                    H20,
+                    "notes",
+                    "NT3",
+                    OpKind::Delete,
+                    &[
+                        ("deleted_at", "2026-10-17T03:00:00.000Z".into()),
+                        ("updated_at", "2026-10-17T03:00:00.000Z".into()),
+                    ],
+                )],
+            );
+            let r = apply(&dst, &obj, "k3").await;
+            assert!(r.notices.is_empty(), "兩台都刪（本機有 updated_at 格）：{:?}", r.notices);
+            drop_pool(dst, path).await;
+        });
+    }
+
+    #[test]
+    fn merge_notices_push_去重_排序_上限_現讀() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("mg-push").await;
+            let t = |s: u32| format!("2026-10-18T00:00:{s:02}.000Z");
+
+            // 先 3 筆：A revived、B／C overwritten（col=body）
+            merge_notices_push(
+                &pool,
+                &[
+                    mk_notice(MergeKind::Revived, "notes", "a", None, &t(1), "-"),
+                    mk_notice(MergeKind::Overwritten, "notes", "b", Some("body"), &t(2), "舊"),
+                    mk_notice(MergeKind::Overwritten, "notes", "c", Some("body"), &t(3), "-"),
+                ],
+            )
+            .await
+            .unwrap();
+            let l = read_notices(&pool).await;
+            assert_eq!(l.iter().map(|n| n.row_id.as_str()).collect::<Vec<_>>(), ["c", "b", "a"], "新在前");
+
+            // 同 B（kind／tbl／row／col 相同）再來一筆新值 ⇒ 取代舊的、排到最前、總數不變
+            merge_notices_push(
+                &pool,
+                &[mk_notice(MergeKind::Overwritten, "notes", "b", Some("body"), &t(4), "新")],
+            )
+            .await
+            .unwrap();
+            let l = read_notices(&pool).await;
+            assert_eq!(l.len(), 3);
+            assert_eq!(l[0].row_id, "b");
+            assert_eq!(l[0].theirs, Value::from("新"));
+
+            // 25 筆 overwritten ⇒ 只剩 20；revived（A）仍在，被丟的是最舊的 overwritten
+            let many: Vec<MergeNotice> = (0..25u32)
+                .map(|i| mk_notice(MergeKind::Overwritten, "notes", &format!("n{i:02}"), Some("body"), &t(10 + i), "x"))
+                .collect();
+            merge_notices_push(&pool, &many).await.unwrap();
+            let l = read_notices(&pool).await;
+            assert_eq!(l.len(), MERGE_NOTICES_CAP);
+            assert!(l.iter().any(|n| n.kind == MergeKind::Revived && n.row_id == "a"), "復活比內容競合值錢");
+            assert!(!l.iter().any(|n| n.row_id == "b" || n.row_id == "c"), "舊的 overwritten 先被丟");
+            assert!(l.iter().any(|n| n.row_id == "n24"));
+            assert!(!l.iter().any(|n| n.row_id == "n00"), "新批裡最舊的也被丟");
+            assert!(l.iter().any(|n| n.row_id == "n06") && !l.iter().any(|n| n.row_id == "n05"));
+
+            // 一批裡同鍵兩筆 ⇒ 只留較新的那筆
+            merge_notices_clear(&pool).await.unwrap();
+            merge_notices_push(
+                &pool,
+                &[
+                    mk_notice(MergeKind::Overwritten, "notes", "d", Some("body"), &t(20), "舊的"),
+                    mk_notice(MergeKind::Overwritten, "notes", "d", Some("body"), &t(21), "新的"),
+                ],
+            )
+            .await
+            .unwrap();
+            let l = read_notices(&pool).await;
+            assert_eq!(l.len(), 1);
+            assert_eq!(l[0].theirs, Value::from("新的"));
+
+            // 「知道了」清鍵後再 push 一筆 ⇒ 恰好 1 筆（現讀現寫，不吃舊快照；反駁 E4）
+            merge_notices_clear(&pool).await.unwrap();
+            merge_notices_push(&pool, &[mk_notice(MergeKind::Kept, "notes", "z", None, &t(30), "-")])
+                .await
+                .unwrap();
+            let l = read_notices(&pool).await;
+            assert_eq!(l.len(), 1);
+            assert_eq!(l[0].row_id, "z");
+
+            // 空批不動 DB
+            merge_notices_clear(&pool).await.unwrap();
+            merge_notices_push(&pool, &[]).await.unwrap();
+            assert!(!meta_all(&pool).await.unwrap().contains_key(MERGE_NOTICES_KEY));
+
+            drop_pool(pool, path).await;
+        });
+    }
+
+    #[test]
+    fn merge_notices_clear_清鍵() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("mg-clear").await;
+            meta_set(&pool, MERGE_NOTICES_KEY, "[]").await.unwrap();
+            meta_set(&pool, "skipped_missing_total", "3").await.unwrap();
+            assert!(meta_all(&pool).await.unwrap().contains_key(MERGE_NOTICES_KEY));
+            merge_notices_clear(&pool).await.unwrap();
+            let meta = meta_all(&pool).await.unwrap();
+            assert!(!meta.contains_key(MERGE_NOTICES_KEY));
+            assert!(meta.contains_key("skipped_missing_total"), "只清這一把");
+            merge_notices_clear(&pool).await.unwrap(); // 冪等
+            drop_pool(pool, path).await;
+        });
+    }
+
+    #[test]
+    fn merge_notices_read_壞一筆丟一筆_壞整包給空() {
+        let good = serde_json::to_value(mk_notice(MergeKind::Kept, "notes", "g", None, "2026-10-18T00:00:00.000Z", "-")).unwrap();
+        let mut weird = good.clone();
+        weird["kind"] = Value::from("weird");
+        let raw = Value::Array(vec![weird, good.clone(), Value::from(5)]).to_string();
+        let mut meta = HashMap::new();
+        meta.insert(MERGE_NOTICES_KEY.to_string(), raw);
+        let l = merge_notices_read(&meta);
+        assert_eq!(l.len(), 1, "不認得的 kind／不是物件的都丟，好的留");
+        assert_eq!(l[0].row_id, "g");
+        meta.insert(MERGE_NOTICES_KEY.to_string(), "{壞掉".to_string());
+        assert!(merge_notices_read(&meta).is_empty());
+        assert!(merge_notices_read(&HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn 復活列另有併發欄_清單只一筆revived() {
+        tauri::async_runtime::block_on(async {
+            let (dst, path) = make_pool("mg-revive-plus").await;
+            seed_one(&dst).await;
+            local_edit(&dst, "N1", "deleted_at", Some("2026-10-17T01:00:00.000Z"), H10).await;
+            local_edit(&dst, "N1", "name", Some("本機名"), H12).await;
+
+            // dev-b 沒看過我的刪除與改名：改了 name ⇒ 復活＋name 也是併發欄
+            let obj = make_obj(
+                "dev-b",
+                vec![mk_op(H20, "nodes", "N1", OpKind::Upsert, &[("name", "對方名".into())])],
+            );
+            let r = apply(&dst, &obj, "k1").await;
+
+            assert_eq!(r.conflicts, 2, "乘務記錄照舊：deleted_at＋name 兩行（既有行為不動）");
+            assert_eq!(r.notices.len(), 1, "清單一列講「回來了」就夠：{:?}", r.notices);
+            assert_eq!(r.notices[0].kind, MergeKind::Revived);
+            assert_eq!(
+                count(&dst, "SELECT COUNT(*) FROM nodes WHERE id='N1' AND deleted_at IS NULL").await,
+                1
+            );
+            drop_pool(dst, path).await;
+        });
+    }
+
+    #[test]
+    fn replay_devices_游標空的裝置列入() {
+        let mut meta = HashMap::new();
+        meta.insert("last_pull_key:a".to_string(), "k9".to_string());
+        meta.insert("last_pull_key:b".to_string(), String::new());
+        let devices: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let got = replay_devices(&meta, &devices);
+        assert_eq!(got.into_iter().collect::<Vec<_>>(), vec!["b".to_string(), "c".to_string()]);
+    }
+
+    /// 文件性測試：證明契約 §0-1 第 19 條有必要——重播時歷史上真的併發過的對子會被重判一次，
+    /// `apply` 自己會產生通知（`pull_core` 靠重播界線擋）。順便驗第三台（`by_me=false`）。
+    #[test]
+    fn 重播會重判歷史競合() {
+        tauri::async_runtime::block_on(async {
+            let (dst, path) = make_pool("mg-replay-judge").await;
+            let (o1, o2) = replay_pair();
+            let r1 = apply(&dst, &o1, "a/1").await;
+            assert!(r1.notices.is_empty(), "同一台自己的先後兩版不是併發");
+            let r2 = apply(&dst, &o2, "b/1").await;
+            assert_eq!(r2.notices.len(), 1);
+            assert_eq!(r2.notices[0].kind, MergeKind::Kept);
+            assert!(!r2.notices[0].by_me, "擋下刪除的那一格是第三台 dev-a 寫的，不是這台");
+            assert_eq!(r2.notices[0].their_device, "dev-b");
+            drop_pool(dst, path).await;
+        });
+    }
+
+    /// 模擬 `pull_core` 的接線（不連 R2）：`queue` 是各台目錄裡的物件（依套用順序）；
+    /// 每台先照游標過濾（＝`list_after`），再 `replay_until_prepare`，最後逐顆 `apply_and_settle`。
+    /// `stop_after=Some(n)`：套完前 n 顆就中斷（模擬 `get`／`open` 失敗整趟回 Err）。回傳＝算進 report 的通知數。
+    async fn fake_pull(
+        pool: &Pool<Sqlite>,
+        queue: &[(&str, &str, &OplogObject)],
+        persist: bool,
+        stop_after: Option<usize>,
+    ) -> usize {
+        let meta = meta_all(pool).await.unwrap();
+        let mut devs: Vec<&str> = Vec::new();
+        for (d, _, _) in queue {
+            if !devs.contains(d) {
+                devs.push(d);
+            }
+        }
+        let listed: Vec<(&str, &str, &OplogObject)> = queue
+            .iter()
+            .filter(|(d, k, _)| {
+                meta.get(&format!("last_pull_key:{d}"))
+                    .is_none_or(|c| c.is_empty() || *k > c.as_str())
+            })
+            .cloned()
+            .collect();
+        let dev_lists: Vec<(String, Vec<String>)> = devs
+            .iter()
+            .map(|d| {
+                (
+                    d.to_string(),
+                    listed
+                        .iter()
+                        .filter(|(x, _, _)| x == d)
+                        .map(|(_, k, _)| k.to_string())
+                        .collect(),
+                )
+            })
+            .collect();
+        let mut until = replay_until_prepare(pool, &meta, &dev_lists).await.unwrap();
+        let mut accepted = 0;
+        for (i, (dev, key, obj)) in listed.iter().enumerate() {
+            if stop_after == Some(i) {
+                break;
+            }
+            let (_, acc) = apply_and_settle(pool, dev, obj, key, "dev-self", &mut until, persist)
+                .await
+                .unwrap();
+            accepted += acc.len();
+        }
+        accepted
+    }
+
+    /// 「只有日常 pull 才 persist、整串重播不灌歷史」的反例測試。
+    /// 走 `fake_pull`＝`pull_core` 物件迴圈共用的 `replay_until_prepare` ＋ `apply_and_settle`。
+    /// （三個呼叫點的 true／false 字面值本身要 R2 才打得到，見 `sandbox_重播界線接線`。）
+    #[test]
+    fn 重播不落清單_只有日常pull才落() {
+        tauri::async_runtime::block_on(async {
+            let (o1, o2) = replay_pair();
+            let q = [("dev-a", "a/1", &o1), ("dev-b", "b/1", &o2)];
+
+            // 甲：整串重播（兩台的游標都是空的）⇒ 清單不增量，report 也不收；界線套完就刪鍵
+            let (pool, path) = make_pool("mg-replay-a").await;
+            assert_eq!(fake_pull(&pool, &q, true, None).await, 0);
+            assert!(read_notices(&pool).await.is_empty(), "重播不灌歷史");
+            let meta = meta_all(&pool).await.unwrap();
+            assert!(!meta.contains_key(MERGE_NOTICES_KEY));
+            assert!(
+                !meta.keys().any(|k| k.starts_with(REPLAY_MARK_PREFIX)),
+                "界線被套過就刪：{:?}",
+                meta.keys().collect::<Vec<_>>()
+            );
+            drop_pool(pool, path).await;
+
+            // 乙：日常 pull（游標都在、persist=true）⇒ 同一對真的落進清單（對照組，證明上面不是因為別的原因才空）
+            let (pool, path) = make_pool("mg-replay-b").await;
+            meta_set(&pool, "last_pull_key:dev-a", "a/0").await.unwrap();
+            meta_set(&pool, "last_pull_key:dev-b", "b/0").await.unwrap();
+            assert_eq!(fake_pull(&pool, &q, true, None).await, 1);
+            let l = read_notices(&pool).await;
+            assert_eq!(l.len(), 1);
+            assert_eq!(l[0].kind, MergeKind::Kept);
+            assert!(!l[0].by_me);
+            drop_pool(pool, path).await;
+
+            // 丙：join 的全量拉取（persist=false）⇒ 不落清單（即使游標都在）
+            let (pool, path) = make_pool("mg-replay-c").await;
+            meta_set(&pool, "last_pull_key:dev-a", "a/0").await.unwrap();
+            meta_set(&pool, "last_pull_key:dev-b", "b/0").await.unwrap();
+            let _ = fake_pull(&pool, &q, false, None).await;
+            assert!(!meta_all(&pool).await.unwrap().contains_key(MERGE_NOTICES_KEY), "persist=false 不寫");
+            drop_pool(pool, path).await;
+
+            // 丁：只有 dev-b 是從頭重播（dev-a 有游標）⇒ dev-b 物件產生的通知被丟、dev-a 的照收
+            let (pool, path) = make_pool("mg-replay-d").await;
+            meta_set(&pool, "last_pull_key:dev-a", "a/0").await.unwrap();
+            let until = replay_until_prepare(
+                &pool,
+                &meta_all(&pool).await.unwrap(),
+                &[("dev-a".into(), vec!["a/1".into()]), ("dev-b".into(), vec!["b/1".into()])],
+            )
+            .await
+            .unwrap();
+            assert_eq!(until.keys().cloned().collect::<Vec<_>>(), vec!["dev-b".to_string()]);
+            let fake = [mk_notice(MergeKind::Kept, "notes", "x", None, "2026-10-18T00:00:00.000Z", "-")];
+            assert!(settle_object_notices(&pool, "dev-b", "b/1", &fake, &until, true).await.is_empty());
+            assert_eq!(settle_object_notices(&pool, "dev-a", "a/1", &fake, &until, true).await.len(), 1);
+            assert_eq!(read_notices(&pool).await.len(), 1, "只有 dev-a 那批落進去");
+            // 界線之後的 dev-b 物件（key 比界線新）不再算重播
+            assert_eq!(settle_object_notices(&pool, "dev-b", "b/2", &fake, &until, true).await.len(), 1);
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// 評審（引擎語義）：重播拉到一半斷掉 ⇒ 下一趟日常 pull 的游標已非空，但剩下的歷史物件仍是重播，
+    /// 不能落進清單（界線存在 `sync_meta.last_pull_key_replay:<dev>`）。
+    #[test]
+    fn 重播中斷後下一趟日常pull接著跑_歷史不落清單() {
+        tauri::async_runtime::block_on(async {
+            let (o1, o2) = replay_pair();
+            // dev-b 的目錄有兩顆：b/0 是無關的前導物件，b/1 才是歷史上併發過的那顆刪除
+            let filler = make_obj(
+                "dev-b",
+                vec![mk_op(
+                    "17581536000000005-bbbbbbbb",
+                    "nodes",
+                    "N9",
+                    OpKind::Upsert,
+                    &[("kind", "train".into()), ("name", "其他".into())],
+                )],
+            );
+            let q = [("dev-a", "a/1", &o1), ("dev-b", "b/0", &filler), ("dev-b", "b/1", &o2)];
+
+            // 第一趟：全部從頭重播，套完 a/1、b/0 就斷（b/1 還沒套）
+            let (pool, path) = make_pool("mg-replay-cut").await;
+            assert_eq!(fake_pull(&pool, &q, true, Some(2)).await, 0);
+            let meta = meta_all(&pool).await.unwrap();
+            assert_eq!(meta.get("last_pull_key:dev-b").map(String::as_str), Some("b/0"), "游標已經往前推");
+            assert_eq!(
+                meta.get("last_pull_key_replay:dev-b").map(String::as_str),
+                Some("b/1"),
+                "界線還在：重播到 b/1 為止"
+            );
+            assert!(!meta.contains_key("last_pull_key_replay:dev-a"), "dev-a 套完了界線就刪");
+
+            // 第二趟：日常 pull（persist=true），游標非空 ⇒ 剩下的 b/1 仍是重播，清單不增量
+            assert_eq!(fake_pull(&pool, &q, true, None).await, 0, "歷史對子不能被當成新事件");
+            assert!(read_notices(&pool).await.is_empty());
+            assert!(
+                !meta_all(&pool).await.unwrap().contains_key("last_pull_key_replay:dev-b"),
+                "界線套過就刪"
+            );
+            drop_pool(pool, path).await;
+
+            // 對照組：同樣的中斷，但界線鍵不見了（＝修正前的行為）⇒ 歷史對子會灌進清單。證明上面不是因為別的原因才空
+            let (pool, path) = make_pool("mg-replay-cut-ctrl").await;
+            assert_eq!(fake_pull(&pool, &q, true, Some(2)).await, 0);
+            sqlx::query("DELETE FROM sync_meta WHERE key LIKE 'last_pull_key_replay:%'")
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert_eq!(fake_pull(&pool, &q, true, None).await, 1);
+            assert_eq!(read_notices(&pool).await.len(), 1);
+            drop_pool(pool, path).await;
+        });
+    }
+
+    #[test]
+    fn replay_until_prepare_界線寫入_沿用_清除() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("mg-replay-prep").await;
+            let lists = vec![
+                ("dev-a".to_string(), vec!["a/1".to_string(), "a/2".to_string()]),
+                ("dev-b".to_string(), vec![]),
+                ("dev-c".to_string(), vec!["c/9".to_string()]),
+            ];
+            meta_set(&pool, "last_pull_key:dev-c", "c/5").await.unwrap();
+            // dev-c 有游標也有上一趟留下的界線 ⇒ 沿用；dev-b 空目錄的舊界線 ⇒ 清掉
+            meta_set(&pool, "last_pull_key_replay:dev-c", "c/8").await.unwrap();
+            meta_set(&pool, "last_pull_key_replay:dev-b", "b/3").await.unwrap();
+            let until = replay_until_prepare(&pool, &meta_all(&pool).await.unwrap(), &lists)
+                .await
+                .unwrap();
+            assert_eq!(until.get("dev-a").map(String::as_str), Some("a/2"), "游標空 ⇒ 界線＝列到的最後一把");
+            assert_eq!(until.get("dev-c").map(String::as_str), Some("c/8"), "游標非空＋留著界線 ⇒ 沿用");
+            assert!(!until.contains_key("dev-b"));
+            let meta = meta_all(&pool).await.unwrap();
+            assert_eq!(meta.get("last_pull_key_replay:dev-a").map(String::as_str), Some("a/2"));
+            assert!(!meta.contains_key("last_pull_key_replay:dev-b"));
+            // 界線鍵在 `last_pull_key` 前綴底下：換紀元的清除句自然帶走
+            sqlx::query(EPOCH_SCOPED_META).execute(&pool).await.unwrap();
+            assert!(!meta_all(&pool).await.unwrap().keys().any(|k| k.starts_with("last_pull_key")));
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// 主對話 #69 條件（R-2）：重播界線鍵在換紀元（`EPOCH_SCOPED_META`）與還原接上現在
+    /// （`RESTORE_PRESENT_META`）兩條路都要被清掉，而通知清單本身不跟著清（它另由 wipe／finish_restore 處理）。
+    #[test]
+    fn 重播界線鍵_換紀元與還原都清掉() {
+        tauri::async_runtime::block_on(async {
+            for (name, sql) in [("epoch", EPOCH_SCOPED_META), ("restore-present", RESTORE_PRESENT_META)] {
+                let (pool, path) = make_pool(&format!("replay-mark-{name}")).await;
+                meta_set(&pool, "last_pull_key:dev-a", "a/1").await.unwrap();
+                meta_set(&pool, "last_pull_key_replay:dev-a", "a/9").await.unwrap();
+                meta_set(&pool, "last_pull_key_replay:dev-b", "b/3").await.unwrap();
+                meta_set(&pool, "merge_notices", "[]").await.unwrap();
+                sqlx::query(sql).execute(&pool).await.unwrap();
+                let meta = meta_all(&pool).await.unwrap();
+                assert!(
+                    !meta.keys().any(|k| k.starts_with("last_pull_key_replay:")),
+                    "{name}：重播界線鍵要清掉"
+                );
+                assert!(!meta.contains_key("last_pull_key:dev-a"), "{name}：游標一起清");
+                assert_eq!(meta.get("merge_notices").map(String::as_str), Some("[]"), "{name}：清單不歸這句管");
+                drop_pool(pool, path).await;
+            }
+        });
+    }
+
+    /// 評審（雙端同等）：Kept 的 `by_me` 不能看 HashMap 迭代順序。
+    #[test]
+    fn kept_的by_me不隨迭代順序跳動() {
+        tauri::async_runtime::block_on(async {
+            // 這台與第三台 dev-a 都對同一列有併發編輯（實質欄）⇒ 認這台
+            let (pool, path) = make_pool("mg-bame-both").await;
+            seed_note(&pool, "NT7", "本機改的", None).await;
+            set_cell(&pool, "notes", "NT7", "body", H10, "dev-self").await;
+            set_cell(&pool, "notes", "NT7", "kind", H10, "dev-a").await;
+            let del = make_obj(
+                "dev-b",
+                vec![mk_op(
+                    H20,
+                    "notes",
+                    "NT7",
+                    OpKind::Delete,
+                    &[("deleted_at", "2026-10-17T02:00:00.000Z".into())],
+                )],
+            );
+            for i in 0..24 {
+                let r = apply(&pool, &del, &format!("k{i}")).await;
+                assert_eq!(r.notices.len(), 1);
+                assert_eq!(r.notices[0].kind, MergeKind::Kept);
+                assert!(r.notices[0].by_me, "第 {i} 次：兩台都改過 ⇒ 認這台");
+            }
+            drop_pool(pool, path).await;
+
+            // 實質欄是第三台寫的、這台只有記帳欄 ⇒ 實質欄優先（by_me=false），也不隨順序跳
+            let (pool, path) = make_pool("mg-bame-third").await;
+            seed_note(&pool, "NT8", "第三台改的", None).await;
+            set_cell(&pool, "notes", "NT8", "body", H10, "dev-a").await;
+            set_cell(&pool, "notes", "NT8", "updated_at", H10, "dev-self").await;
+            let del = make_obj(
+                "dev-b",
+                vec![mk_op(
+                    H20,
+                    "notes",
+                    "NT8",
+                    OpKind::Delete,
+                    &[("deleted_at", "2026-10-17T02:00:00.000Z".into())],
+                )],
+            );
+            for i in 0..24 {
+                let r = apply(&pool, &del, &format!("k{i}")).await;
+                assert_eq!(r.notices.len(), 1);
+                assert!(!r.notices[0].by_me, "第 {i} 次：擋下刪除的實質欄是第三台寫的");
+            }
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// 評審（引擎語義）：守住 `pull_core` 本身的接線——`replay_until_prepare` 在套任何物件之前算、
+    /// persist 的 true／false 真的決定落不落清單。`fake_pull` 打不到這一層（它自己組迴圈），這支走真的 `pull_core`。
+    ///
+    /// 跑法（Git Bash）：
+    /// ```text
+    /// set -a && source "$LOCALAPPDATA/NextStop/r2.env" && set +a
+    /// cargo test --lib sync::engine::tests::sandbox_重播界線接線 -- --ignored --nocapture
+    /// ```
+    /// 全部物件都在沙盒根 `v1-sb-<run>/` 底下，收工逐一刪除；憑證一個字都不印。
+    /// （`pull_inner`／`push_inner`／`join` 的字面值要 `AppHandle`＋鑰匙圈，這裡拿不到；它們呼叫的就是這支 `pull_core`。）
+    #[test]
+    #[ignore = "需要 R2 憑證：source %LOCALAPPDATA%/NextStop/r2.env 後加 --ignored"]
+    fn sandbox_重播界線接線() {
+        tauri::async_runtime::block_on(async {
+            let client = sandbox_client();
+            let root = sandbox_root();
+            let epoch = hlc::now_ms().to_string();
+            let data_key = crypto::random_data_key().unwrap();
+            let (o1, o2) = replay_pair();
+            // 檔名（推送戳記）決定全域套用順序：dev-a 的先、dev-b 的後
+            let key_a = format!("{root}/{epoch}/dev-a/0000000000001.bin");
+            let key_b = format!("{root}/{epoch}/dev-b/0000000000002.bin");
+            for (k, obj) in [(&key_a, &o1), (&key_b, &o2)] {
+                let blob = crypto::seal(&data_key, k, &serde_json::to_vec(obj).unwrap()).unwrap();
+                client.put(k, blob).await.unwrap();
+            }
+            let before_a = format!("{root}/{epoch}/dev-a/0000000000000.bin");
+            let before_b = format!("{root}/{epoch}/dev-b/0000000000000.bin");
+
+            // 甲：游標都是空的（整個目錄從頭重播）＋ persist=true ⇒ 歷史對子不落清單、不回報，界線套完就刪
+            let (pool, path) = make_pool("sb-replay-a").await;
+            let r = pull_core(&pool, &client, &data_key, &root, &epoch, "dev-self", None, true)
+                .await
+                .unwrap();
+            assert_eq!(r.objects, 2);
+            assert!(r.notices.is_empty(), "重播的通知不回報：{:?}", r.notices);
+            let meta = meta_all(&pool).await.unwrap();
+            assert!(!meta.contains_key(MERGE_NOTICES_KEY), "重播不灌歷史");
+            assert!(!meta.keys().any(|k| k.starts_with(REPLAY_MARK_PREFIX)), "界線套完就刪");
+            drop_pool(pool, path).await;
+
+            // 乙：游標都在（日常 pull）＋ persist=true ⇒ 同一對真的落進清單（對照組）
+            let (pool, path) = make_pool("sb-replay-b").await;
+            meta_set(&pool, "last_pull_key:dev-a", &before_a).await.unwrap();
+            meta_set(&pool, "last_pull_key:dev-b", &before_b).await.unwrap();
+            let r = pull_core(&pool, &client, &data_key, &root, &epoch, "dev-self", None, true)
+                .await
+                .unwrap();
+            assert_eq!(r.notices.len(), 1);
+            assert_eq!(read_notices(&pool).await.len(), 1);
+            drop_pool(pool, path).await;
+
+            // 丙：游標都在 ＋ persist=false（join 的全量拉取）⇒ 回報照給、清單不寫
+            let (pool, path) = make_pool("sb-replay-c").await;
+            meta_set(&pool, "last_pull_key:dev-a", &before_a).await.unwrap();
+            meta_set(&pool, "last_pull_key:dev-b", &before_b).await.unwrap();
+            let r = pull_core(&pool, &client, &data_key, &root, &epoch, "dev-self", None, false)
+                .await
+                .unwrap();
+            assert_eq!(r.notices.len(), 1);
+            assert!(!meta_all(&pool).await.unwrap().contains_key(MERGE_NOTICES_KEY), "persist=false 不寫");
+            drop_pool(pool, path).await;
+
+            // 收工
+            for k in client.list_after(&format!("{root}/"), "").await.unwrap() {
+                client.delete(&k).await.unwrap();
+            }
+            assert!(client.list_after(&format!("{root}/"), "").await.unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn wipe_local_data_連merge_notices一起清() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("mg-wipe").await;
+            seed_tree(&pool).await;
+            merge_notices_push(
+                &pool,
+                &[mk_notice(MergeKind::Revived, "notes", "a", None, "2026-10-18T00:00:00.000Z", "-")],
+            )
+            .await
+            .unwrap();
+            meta_set(&pool, "skipped_missing_total", "3").await.unwrap();
+            assert_eq!(read_notices(&pool).await.len(), 1);
+
+            let mut tx = pool.begin().await.unwrap();
+            wipe_local_data(&mut tx).await.unwrap();
+            tx.commit().await.unwrap();
+
+            let meta = meta_all(&pool).await.unwrap();
+            assert!(!meta.contains_key(MERGE_NOTICES_KEY), "資料整批換掉，清單一起清");
+            assert_eq!(meta.get("skipped_missing_total").map(String::as_str), Some("3"), "只清這一把");
+
+            // 清除句只能掛在 `wipe_local_data` 包裝層：`wipe_statements`／`_with` 被 G0 逐字鎖住
+            assert!(
+                !wipe_statements(Registry::production()).iter().any(|s| s.contains(MERGE_NOTICES_KEY)),
+                "wipe_statements 不得夾帶 merge_notices（foundation_checks 鎖 SQL_WIPE）"
+            );
+            // 「回到過去」用的紀元範圍清除句不碰清單
+            merge_notices_push(
+                &pool,
+                &[mk_notice(MergeKind::Kept, "notes", "k", None, "2026-10-18T00:00:01.000Z", "-")],
+            )
+            .await
+            .unwrap();
+            sqlx::query(EPOCH_SCOPED_META).execute(&pool).await.unwrap();
+            assert_eq!(read_notices(&pool).await.len(), 1);
+            drop_pool(pool, path).await;
         });
     }
 
@@ -8401,11 +9616,14 @@ mod tests {
                 ("last_cloud_snapshot_at", "2026-09-22T05:00:00Z"),
                 ("last_cloud_snapshot_day", "2026-09-22"),
                 ("epoch", "1758153600001"),
+                // 主線③：兩台撞到的通知清單不在紀元範圍內（「回到過去」不清本機資料，清單仍有意義）
+                ("merge_notices", "[]"),
             ] {
                 meta_set(&pool, k, v).await.unwrap();
             }
             sqlx::query(EPOCH_SCOPED_META).execute(&pool).await.unwrap();
             let meta = meta_all(&pool).await.unwrap();
+            assert_eq!(meta.get("merge_notices").map(String::as_str), Some("[]"), "清單不跟紀元清");
             assert!(!meta.contains_key("locked"));
             assert!(!meta.contains_key("locked_reason"), "沒有主詞的原因不該留著");
             assert!(!meta.contains_key("last_pull_key:dev-a"));

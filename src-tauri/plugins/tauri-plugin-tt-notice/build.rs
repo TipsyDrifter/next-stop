@@ -10,6 +10,9 @@ const COMMANDS: &[&str] = &[
     "schedule_reminder",
     "cancel_reminder",
     "status",
+    // 旅客筆記 ⑤：分享進收件匣（取＋確認兩段）
+    "take_shared",
+    "ack_shared",
     // addPluginListener 走 plugin:tt-notice|register_listener（notification 2.3.3 api-iife.js）
     "register_listener",
     "remove_listener",

@@ -39,6 +39,9 @@
  *      標題「另一台重新開始了」、主鈕「一起清空」、確認窗 body 走 `adoptEpochBody(shell,"reset")`；動作仍是既有 `adoptEpoch`。
  *   「重新開始」的入口**不在本籤**（拍板：不放同步頁）——在〈備份與還原〉籤最底的危險區。
  *
+ * 主線車次③（《2026-10-18-主線-車次③同步復活提示-契約.md》§4.1）：狀態列底下一區「最近兩台撞到的」（共用元件 `MergeNotices`，
+ *   與手機同一個；清單空時整區不出現）。本籤只多一行掛載。
+ *
  * 退場的字（契約 §8.7）：「啟用同步（這台是正本）」「要改用桌機的版本嗎？」「桌機已還原並重設同步」「手機要重新配對」。
  * 視覺紀律（c13）：語彙全借 BackupTab 與覆蓋層，本籤自己的排版在 settings.css 檔尾的 WP8 區塊。
  * 資料流：本檔不碰 repository，全走 `syncStore`；密語只活在這支的 local state，送出後即清空（不存、不上傳）。
@@ -61,6 +64,7 @@ import {
 import { useUiStore } from "../../store/uiStore";
 import { NEEDS_PASSPHRASE_TEXT } from "../common/SyncBanner";
 import { RECOVERY_CODE_LEN, formatRecoveryInput } from "../common/RecoveryCodeDialog";
+import { MergeNotices } from "../common/MergeNotices";
 import "./settings.css";
 
 export function SyncTab() {
@@ -162,6 +166,9 @@ export function SyncTab() {
           </span>
         )}
       </section>
+
+      {/* 主線③（契約 §4.1）：「最近兩台撞到的」——清單空時整區不出現；兩殼同一個元件 */}
+      <MergeNotices shell="desktop" />
 
       {/* ①ᵃ v1.1.4 修正席（產品評審 B1）：鍵違い（rotated）唯一走得通的那條路，就放在講那句話的正下方。
           形狀沿改正待ち那一塊（說明＋一顆主鈕），差別只在多一格密語。 */}

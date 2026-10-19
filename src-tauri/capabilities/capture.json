@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture",
+  "description": "捕捉小窗（旅客筆記⑤）：只讀寫 SQLite、收發事件；沒有 window／dialog／notification／opener 權限——收起走 Rust command capture_hide",
+  "platforms": [
+    "windows",
+    "macOS",
+    "linux"
+  ],
+  "windows": [
+    "capture"
+  ],
+  "permissions": [
+    "core:default",
+    "sql:default",
+    "sql:allow-execute"
+  ]
+}

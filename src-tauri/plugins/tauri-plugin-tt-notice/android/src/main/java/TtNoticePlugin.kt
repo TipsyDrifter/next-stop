@@ -60,12 +60,46 @@ class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
     instance = this
     TtNoticeRenderer.ensureChannels(activity)
     captureLaunch(activity.intent)
+    captureShare(activity.intent)
   }
 
   /** 點提醒／點通知本體回 App（launchMode singleTask ⇒ 走這裡）：記下 launch，叫 JS 來取 */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    if (captureShare(intent)) return
     if (captureLaunch(intent)) notifyPending(TtNoticeStore.pendingCount(activity))
+  }
+
+  /**
+   * 旅客筆記 ⑤：別的 App 分享文字進來（ACTION_SEND text/plain；intent-filter 在本 plugin 的 manifest，merger 併進 MainActivity）。
+   * 只吃 ACTION_SEND，其他 intent 原樣交給 captureLaunch。從最近任務清單回來會重放原 intent ⇒ 帶 LAUNCHED_FROM_HISTORY 的不收。
+   * 收過就把 action／extras 拿掉，同一個 Intent（冷啟動的 activity.intent）不會被算第二次。
+   */
+  private fun captureShare(intent: Intent?): Boolean {
+    if (intent == null || intent.action != Intent.ACTION_SEND) return false
+    if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return true
+    val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+    val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+    intent.removeExtra(Intent.EXTRA_TEXT)
+    intent.removeExtra(Intent.EXTRA_SUBJECT)
+    intent.action = null
+    if (text.isNullOrBlank()) return true
+    val count = NsShareStore.append(activity, text, subject)
+    trigger("shared", JSObject().put("count", count))
+    return true
+  }
+
+  /** resolve({ items: [{ id, text, subject?, at }] })；只讀不清（ackShared 才刪） */
+  @Command
+  fun takeShared(invoke: Invoke) {
+    invoke.resolve(JSObject().put("items", NsShareStore.read(activity)))
+  }
+
+  @Command
+  fun ackShared(invoke: Invoke) {
+    val args = invoke.parseArgs(AckArgs::class.java)
+    NsShareStore.ack(activity, args.ids)
+    invoke.resolve()
   }
 
   @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")

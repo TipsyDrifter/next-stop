@@ -1,0 +1,90 @@
+/* ═══ 捕捉小窗（旅客筆記⑤；契約 §5.1／§5.9） ═══
+ * 小窗＝一張捕捉票單獨浮在別的 App 上面：同一份 CaptureOverlay／TodoPreviewDialog（零改動），這裡只把「浮在 App 中央的疊層」
+ * 改成「一張票就是整個視窗」。每條規則都掛 [data-window="capture"]（CaptureWindowApp 掛在 <html> 與根 div 上），主視窗零影響。
+ * 尺寸：視窗寬 640（tauri.conf.json）＝票寬 600＋左右紙邊 20；高度由 CaptureWindowApp 量 .ns-notes-capwin-stage 後 capture_fit
+ * （Rust 端再加上下紙邊 16＋16、夾在 180～640）。
+ */
+
+/* 視窗本身：紙色、不捲（內容超過就票內捲）；body 的桌機 min-width 1180（techo.css，≥768 才命中）在這裡一律解除 */
+html[data-window="capture"],
+html[data-window="capture"] body,
+html[data-window="capture"] #root {
+  background: var(--color-paper);
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* 根：上下 16、左右 20 的紙邊（與 Rust 的 WIN_H_PAD＝32 對應） */
+[data-window="capture"].ns-notes-capwin {
+  padding: 16px 20px;
+  color: var(--color-ink);
+}
+/* 量高度的那一層：票、預覽框、蓋章時凍住的票、toast 都在這裡面（受付章以它為定位脈絡） */
+[data-window="capture"] .ns-notes-capwin-stage {
+  position: relative;
+  width: 600px;
+  display: flow-root;
+}
+
+/* 沒有暗幕：「點到外面」由視窗失焦接手（0-1 甲） */
+[data-window="capture"] .ns-notes-veil {
+  display: none;
+}
+
+/* 捕捉票：不再 fixed 在 App 中央偏上，也不播浮出動畫（小窗出現本身就是浮出） */
+[data-window="capture"] .ns-notes-capwrap {
+  position: static;
+  left: auto;
+  top: auto;
+  margin: 0;
+  width: 600px;
+  animation: none;
+}
+/* 打字區超過就票內捲，視窗不再長（App 內是 260，小窗高度上限 640 放得下 320） */
+[data-window="capture"] .ns-notes-capwrap .ns-notes-capta {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* 變待辦預覽框（0-5 甲）：同樣就地展開；App 內寬 620，小窗收成 600 */
+[data-window="capture"] .ns-notes-prev {
+  position: static;
+  left: auto;
+  top: auto;
+  margin: 0;
+  width: 600px;
+  animation: none;
+}
+[data-window="capture"] .ns-notes-prevcard {
+  max-width: 600px;
+}
+
+/* 蓋章那 0.4 秒：存好的那張票凍住（DOM 複本，不可互動），章蓋在票號那一角 */
+[data-window="capture"] .ns-notes-capwin-frozen:empty {
+  display: none;
+}
+[data-window="capture"] .ns-notes-capwin-frozen {
+  pointer-events: none;
+  user-select: none;
+}
+[data-window="capture"] .ns-notes-sealflash {
+  position: absolute;
+  top: 10px;
+  right: 22px;
+  bottom: auto;
+  animation: none; /* App 內 1.6 秒的淡出用不到：小窗 0.4 秒就收（章本身的 nsNotesStampIn 剛好 .4s） */
+}
+/* 捕捉票上：章往下挪到「標題／打字那一列」的右側（stage 內 y≈32–74；票頭的「No.xxxx · 時刻」在 y≈17–31，撕線在 y≈81），
+ * 不壓票號那一行。變待辦預覽框的版面不同，維持上面 top:10px。 */
+[data-window="capture"] .ns-notes-capwin-frozen:has(.ns-notes-capwrap) ~ .ns-notes-sealflash {
+  top: 32px;
+}
+
+/* toast（存失敗、主視窗還在啟動）：不浮在視窗底，排在票下面、跟著量進高度——不蓋票根列 */
+[data-window="capture"] .ns-card[role="status"] {
+  position: static;
+  translate: none;
+  transform: none;
+  margin: 10px auto 0;
+  max-width: 600px;
+}

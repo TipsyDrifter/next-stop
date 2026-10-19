@@ -18,6 +18,7 @@ import { DialogShell } from "../common/DialogShell";
 import { BackupTab } from "./BackupTab";
 import { HotkeysTab } from "./HotkeysTab";
 import { SyncTab } from "./SyncTab";
+import { AutostartRow } from "../notes/desktop";
 import "../common/overlay.css";
 import "./settings.css";
 
@@ -222,6 +223,7 @@ function GeneralTab() {
         </div>
         <p className="ns-note mt-2">行程表與旅客筆記的月曆都照這個排。</p>
       </div>
+      <AutostartRow />
     </div>
   );
 }

@@ -233,6 +233,10 @@ else
   if [[ "$DRY_RUN" == "0" ]]; then
     # shellcheck source=android-env.sh
     source scripts/android-env.sh
+    # 這台 16GB：Android 會編兩輪 Rust，第二輪（gradle 的 android-studio-script）曾把認可記憶體頂到 99.8%（v1.12.0）／被看門狗砍（1.12.0-dev）；
+    # 壓 gradle heap＋限 cargo 平行度（呼叫端有設就照呼叫端）
+    export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+    export GRADLE_OPTS="${GRADLE_OPTS:--Xmx1536m -Dorg.gradle.jvmargs=-Xmx1536m}"
     pnpm tauri android build --apk --target aarch64
     [[ -f "$APK_SRC" ]] || die "找不到 APK 產物（${APK_SRC}）。"
     # 驗簽章：拿 build-tools 最新版的 apksigner；憑證 CN 要含主人的名字，debug 簽章（CN=Android Debug）即停

@@ -22,6 +22,11 @@ pub mod migrations;
 #[cfg(desktop)]
 mod tray;
 
+// 旅客筆記線 ⑤（契約 2026-10-16 §3.1／§3.5；接縫 #68 #2／#55）：全域鍵 Ctrl+Alt+N 叫出捕捉小窗、開機自啟、
+// 存檔後把前景還給原本的 App。手機沒有這些，整支不編（與 tray 同一個 `desktop` cfg）。
+#[cfg(desktop)]
+mod capture;
+
 // G0 金樣（`sync/foundation_golden.rs`，凍結）以 `crate::lf` 呼叫——`lf()` 搬家後在原位置留一個別名。
 #[cfg(test)]
 use migrations::lf;
@@ -51,6 +56,11 @@ pub fn run() {
         tray::show_main_window(app);
     }));
 
+    // 旅客筆記 ⑤（契約 §3.5-②）：全域鍵 plugin 要在 setup 之前掛好，`capture::setup` 裡才能 register。
+    // 排在 single-instance 之後（它必須是第一個 plugin，見上）。
+    #[cfg(desktop)]
+    let builder = capture::plugins(builder);
+
     // 時刻表 ①a 補充契約 §2-1、§2-6：桌機系統匣＋按 ✕ 縮到系統匣。
     //  * setup 建圖示；建不起來只記 log、App 照開（系統匣不是開 App 的前提）。
     //  * 只攔 label `main` 的 CloseRequested：先 hide 成功才 prevent_close——hide 失敗或系統匣根本沒建起來時
@@ -59,12 +69,21 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .setup(|app| {
+            // 旅客筆記 ⑤（契約 §3.5-⑤、0-14）：**必須是第一句**——主視窗在 tauri.conf.json 是 visible:false，
+            // 「顯示」由它決定（沒帶 --minimized 就顯示）；排在 tray::init 之前，後面任何一步出錯都回不到隱藏。
+            // capture::setup 自己永遠回 Ok，這個 Err 分支只是保險。
+            if let Err(e) = capture::setup(app.handle()) {
+                eprintln!("[capture] setup：{e}");
+            }
             if let Err(e) = tray::init(app.handle()) {
                 eprintln!("[tray] 系統匣建立失敗（按 ✕ 會照舊直接關）：{e}");
             }
             Ok(())
         })
         .on_window_event(|window, event| {
+            // 旅客筆記 ⑤（契約 §3.5-④）：只認 capture 的 CloseRequested（攔成 hide）與 main 的 Focused(true)（熱鍵重試）；
+            // 下面既有的 main CloseRequested 邏輯逐字不動。
+            capture::on_window_event(window, event);
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 use tauri::Manager;
                 if window.label() != tray::MAIN_WINDOW || window.app_handle().tray_by_id(tray::TRAY_ID).is_none() {
@@ -159,7 +178,15 @@ pub fn run() {
             sync::commands::sync_recovery_clear,
             // v1.1.6 重新開始契約 §3.1：危險區「重新開始」（桌機沒加入也要能「只清這台」）
             sync::commands::sync_start_over,
+            // 主線③ 同步復活提示契約 §3.2：同步頁「知道了」清掉兩台撞到的通知清單
+            sync::commands::sync_ack_merges,
             // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
+            // ⑤ 捕捉小窗（契約 §3.5-③、M-1）：五支，桌機限定（手機那份不加）
+            capture::capture_hide,
+            capture::capture_fit,
+            capture::capture_status,
+            capture::autostart_get,
+            capture::autostart_set,
             // ── 時刻表線插槽 ──
             // ①a 補充契約 §2-8：系統匣顯示運行中（桌機限定；手機那份不加——手機沒有系統匣、tray mod 不編）
             tray::tray_set_status,
@@ -167,7 +194,7 @@ pub fn run() {
             ticket::ticket_import_read,
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十三支（清單與桌機那份逐字相同）。
+    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十四支（清單與桌機那份逐字相同）。
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         sync::commands::sync_status,
@@ -193,6 +220,7 @@ pub fn run() {
         sync::commands::sync_recovery_generate,
         sync::commands::sync_recovery_clear,
         sync::commands::sync_start_over,
+        sync::commands::sync_ack_merges,
         // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
         // ── 時刻表線插槽 ──
         // ── 售票口線插槽 ──

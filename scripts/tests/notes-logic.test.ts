@@ -6,6 +6,8 @@
 // 之後是車次①新增：D-筆-25 冒號後空白、escapeLike、支線視同路線、isInboxTicket 的 done、三枚票根輪替等。
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   CAPTURE_STUBS,
   STUB_HINT,
@@ -71,6 +73,19 @@ import {
   type FootprintOccSrc,
   type FootprintSeal,
   type RouteLike,
+  NS_PROD_IDENTIFIER,
+  captureWindowFromSearch,
+  shouldApplyAutostartDefault,
+  captureWindowTransition,
+  captureWindowReleaseEarly,
+  captureWindowToastText,
+  CAPTURE_DB_NOT_READY,
+  autostartDefaultOnce,
+  type AutostartDefaultDeps,
+  createShareDrainer,
+  shareBody,
+  shareToastText,
+  type SharedItemLike,
 } from "../../src/domain/notes.ts";
 import { addDays, dayWindow } from "../../src/lib/date.ts";
 
@@ -1000,4 +1015,422 @@ test("resolveLeaveText：存檔失敗時 store 還是舊值（呼叫端把失敗
   const r = resolveLeaveText({ title: "", body: "我剛打的字 #新荷札" }, { title: null, body: "舊內文" }, true);
   assert.equal(r.remote, false);
   assert.equal(r.body, "我剛打的字 #新荷札");
+});
+
+// ───────────────────────── 階段⑤ 捕捉小窗（契約 §4.6）─────────────────────────
+
+test("captureWindowFromSearch：?window=capture 為真，容許其他參數與順序", () => {
+  assert.equal(captureWindowFromSearch("?window=capture"), true);
+  assert.equal(captureWindowFromSearch("?mock=1&window=capture"), true);
+  assert.equal(captureWindowFromSearch("?window=capture&mock=1&page=notes"), true);
+});
+
+test("captureWindowFromSearch：不分大小寫，值前後空白不影響", () => {
+  assert.equal(captureWindowFromSearch("?WINDOW=Capture"), true);
+  assert.equal(captureWindowFromSearch("?window=%20capture%20"), true);
+});
+
+test("captureWindowFromSearch：沒有、別的值、前綴、空字串、壞字串都是假", () => {
+  assert.equal(captureWindowFromSearch(""), false);
+  assert.equal(captureWindowFromSearch("?mock=1"), false);
+  assert.equal(captureWindowFromSearch("?window=main"), false);
+  assert.equal(captureWindowFromSearch("?window=capture-x"), false);
+  assert.equal(captureWindowFromSearch("?capture=window"), false);
+  assert.equal(captureWindowFromSearch("?window"), false);
+  assert.equal(captureWindowFromSearch("%E0%A4%A"), false);
+});
+
+test("shouldApplyAutostartDefault：打包版＋正式 identifier＋沒做過 ⇒ 真", () => {
+  assert.equal(shouldApplyAutostartDefault(true, NS_PROD_IDENTIFIER, null), true);
+  assert.equal(shouldApplyAutostartDefault(true, "app.shitetsu.nextstop", ""), true);
+});
+
+test("shouldApplyAutostartDefault：做過（旗標 \"1\"）⇒ 假", () => {
+  assert.equal(shouldApplyAutostartDefault(true, NS_PROD_IDENTIFIER, "1"), false);
+});
+
+test("shouldApplyAutostartDefault：dev／沙盒（非打包版或 identifier 不同）永遠假——不能動使用者真實的開機項目", () => {
+  assert.equal(shouldApplyAutostartDefault(false, NS_PROD_IDENTIFIER, null), false);
+  assert.equal(shouldApplyAutostartDefault(true, "app.shitetsu.nextstop.dev.notes", null), false);
+  assert.equal(shouldApplyAutostartDefault(true, "app.shitetsu.nextstop.sandbox.a", null), false);
+  assert.equal(shouldApplyAutostartDefault(true, "", null), false);
+});
+
+const ROOT_5 = resolve(import.meta.dirname, "../..");
+
+/** 取 Rust 的 `pub const NAME: &str = "..."`（含 `#[allow(...)]` 在前面的）字串值 */
+function rustConst(rs: string, name: string): string | null {
+  const m = new RegExp(`pub const ${name}: &str = "([^"]*)"`).exec(rs);
+  return m ? m[1] : null;
+}
+/** 取 TS 的 `export const NAME = "..."` 字串值 */
+function tsConst(ts: string, name: string): string | null {
+  const m = new RegExp(`export const ${name} = "([^"]*)"`).exec(ts);
+  return m ? m[1] : null;
+}
+
+test("對帳：capture.rs 與 shell.ts 的視窗 label／事件名逐字相同（規則 1-9）", () => {
+  const rs = readFileSync(resolve(ROOT_5, "src-tauri/src/capture.rs"), "utf8");
+  const ts = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/shell.ts"), "utf8");
+  assert.equal(rustConst(rs, "CAPTURE_WINDOW"), "capture");
+  assert.equal(tsConst(ts, "CAPTURE_WINDOW"), "capture");
+  assert.equal(rustConst(rs, "EV_CAPTURE_SHOW"), "notes:capture-show");
+  assert.equal(tsConst(ts, "EV_CAPTURE_SHOW"), "notes:capture-show");
+  assert.equal(rustConst(rs, "TRAY_MENU_ID"), "notes:capture");
+  assert.equal(rustConst(rs, "MINIMIZED_ARG"), "--minimized");
+  // 小窗存檔事件只有 JS 兩側用（Rust 不 emit）
+  assert.equal(tsConst(ts, "EV_CAPTURED"), "notes:captured");
+});
+
+test("對帳：shell.ts 的 command 名都在 capture.rs 的 #[tauri::command] 函式裡，也都在 lib.rs 的 invoke_handler", () => {
+  const rs = readFileSync(resolve(ROOT_5, "src-tauri/src/capture.rs"), "utf8");
+  const ts = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/shell.ts"), "utf8");
+  const lib = readFileSync(resolve(ROOT_5, "src-tauri/src/lib.rs"), "utf8");
+  for (const cmd of ["capture_hide", "capture_fit", "capture_status", "autostart_get", "autostart_set"]) {
+    assert.ok(ts.includes(`"${cmd}"`), `shell.ts 要有 "${cmd}"`);
+    assert.ok(new RegExp(String.raw`#\[tauri::command\]\s*pub (async )?fn ${cmd}\b`).test(rs), `capture.rs 要有 command ${cmd}`);
+    assert.ok(lib.includes(`capture::${cmd},`), `lib.rs 的 invoke_handler 要有 capture::${cmd}`);
+  }
+});
+
+test("對帳：lib.rs 手機那份 invoke_handler 不含 capture（手機不編 capture mod）", () => {
+  const lib = readFileSync(resolve(ROOT_5, "src-tauri/src/lib.rs"), "utf8");
+  const m = /#\[cfg\(mobile\)\]\s*let builder = builder\.invoke_handler/.exec(lib);
+  const at = m ? m.index : -1;
+  assert.ok(at >= 0, "找得到手機的 invoke_handler");
+  const block = lib.slice(at, lib.indexOf("]);", at));
+  assert.ok(!block.includes("capture::"));
+});
+
+test("對帳：capture::setup 會自己建小窗（conf 的 capture 是 create:false，沒人建就永遠沒有小窗）", () => {
+  const rs = readFileSync(resolve(ROOT_5, "src-tauri/src/capture.rs"), "utf8");
+  assert.ok(/fn build_capture_window\b/.test(rs), "要有 build_capture_window");
+  const setupAt = rs.indexOf("pub fn setup<");
+  const setupBody = rs.slice(setupAt, rs.indexOf("\n}\n", setupAt));
+  assert.ok(setupBody.includes("build_capture_window(app)"), "setup 要叫 build_capture_window");
+  // 硬條件：顯示主視窗（show_main_window）在建小窗之前
+  assert.ok(setupBody.indexOf("show_main_window") < setupBody.indexOf("build_capture_window"));
+  // 啟動參數用 args_os：args() 遇到非 Unicode 參數會 panic，而這是「絕不讓主視窗留在隱藏」的那一句
+  assert.ok(setupBody.includes("std::env::args_os()") && !setupBody.includes("std::env::args()"));
+});
+
+test("對帳：tauri.conf.json 有 main（visible:false）與 capture（置頂、不上工作列、visible:false）兩個視窗", () => {
+  const conf = JSON.parse(readFileSync(resolve(ROOT_5, "src-tauri/tauri.conf.json"), "utf8"));
+  const [main, capture] = conf.app.windows;
+  assert.equal(main.label, "main");
+  assert.equal(main.visible, false);
+  assert.notEqual(main.create, false); // 主視窗一定由 tauri 自己建
+  assert.equal(capture.label, "capture");
+  assert.equal(capture.visible, false);
+  // create:false：Android 共用這份 conf，tauri 照 conf 建第二個視窗會把主畫面換成捕捉頁；桌機由 capture::setup 自己建
+  assert.equal(capture.create, false);
+  assert.equal(capture.alwaysOnTop, true);
+  assert.equal(capture.skipTaskbar, true);
+  assert.equal(capture.decorations, false);
+  const cap = JSON.parse(readFileSync(resolve(ROOT_5, "src-tauri/capabilities/capture.json"), "utf8"));
+  assert.deepEqual(cap.windows, ["capture"]);
+  const def = JSON.parse(readFileSync(resolve(ROOT_5, "src-tauri/capabilities/default.json"), "utf8"));
+  assert.deepEqual(def.windows, ["main"]);
+});
+
+test("對帳：Rust STAMP_GUARD 必須大於前端 CAPTURE_STAMP_MS（章調長時兩邊要一起調，否則章會被提早收掉）", () => {
+  const rs = readFileSync(resolve(ROOT_5, "src-tauri/src/capture.rs"), "utf8");
+  const ts = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/shell.ts"), "utf8");
+  const guard = /const STAMP_GUARD: Duration = Duration::from_millis\((\d+)\);/.exec(rs);
+  const stamp = /export const CAPTURE_STAMP_MS = (\d+);/.exec(ts);
+  assert.ok(guard, "capture.rs 要有 STAMP_GUARD 常數");
+  assert.ok(stamp, "shell.ts 要有 CAPTURE_STAMP_MS 常數");
+  assert.ok(Number(guard[1]) > Number(stamp[1]), `STAMP_GUARD(${guard[1]}) 要大於 CAPTURE_STAMP_MS(${stamp[1]})`);
+});
+
+test("對帳：熱鍵字樣只有 capture.rs 的 HOTKEY_ACCEL 一份，shell.ts 不再抄第二份（鍵帽走 capsOf(HOTKEY_ID)）", () => {
+  const rs = readFileSync(resolve(ROOT_5, "src-tauri/src/capture.rs"), "utf8");
+  const ts = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/shell.ts"), "utf8");
+  const accel = rustConst(rs, "HOTKEY_ACCEL");
+  assert.ok(accel, "capture.rs 要有 HOTKEY_ACCEL");
+  assert.ok(!ts.includes(accel), `shell.ts 不該有 "${accel}" 字面`);
+});
+
+test("對帳：小窗 css 把 Toast 排進票下面靠的選擇器（.ns-card[role=status]）在 Toast.tsx 還對得上", () => {
+  const css = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/capture-window.css"), "utf8");
+  const toast = readFileSync(resolve(ROOT_5, "src/ui/common/Toast.tsx"), "utf8");
+  assert.ok(css.includes('.ns-card[role="status"]'));
+  assert.ok(toast.includes('role="status"') && /className="ns-card\b/.test(toast), "Toast.tsx 要有 role=status 與 ns-card");
+});
+
+/* ═══ 階段⑤ 小窗前端（契約 §4.3／§0-0 D-筆-61／0-15）═══ */
+
+const OPEN_C = { capture: true, preview: false };
+const OPEN_P = { capture: false, preview: true };
+const CLOSED = { capture: false, preview: false };
+
+test("captureWindowTransition：存檔飛行中收起＝saved（捕捉票、預覽框建立都算）", () => {
+  assert.equal(captureWindowTransition(OPEN_C, CLOSED, true), "saved");
+  assert.equal(captureWindowTransition(OPEN_P, CLOSED, true), "saved");
+});
+
+test("captureWindowTransition：不是存檔收的＝esc（Esc 放棄、預覽框取消）", () => {
+  assert.equal(captureWindowTransition(OPEN_C, CLOSED, false), "esc");
+  assert.equal(captureWindowTransition(OPEN_P, CLOSED, false), "esc");
+});
+
+test("captureWindowTransition：沒收起就不動（剛開、票換成預覽框、還開著、本來就關著）", () => {
+  assert.equal(captureWindowTransition(CLOSED, OPEN_C, false), null);
+  assert.equal(captureWindowTransition(OPEN_C, OPEN_P, true), null); // 多行待辦：存檔換成預覽框，小窗長高不收
+  assert.equal(captureWindowTransition(OPEN_C, OPEN_C, true), null);
+  assert.equal(captureWindowTransition(CLOSED, CLOSED, true), null);
+});
+
+const NO_PV = null;
+const cap = (text: string, stub = "inbox") => ({ capture: { text, stub }, preview: NO_PV });
+
+test("captureWindowReleaseEarly：有字的捕捉票存檔＝馬上還前景（D-筆-61：Enter 後立刻打的字不能掉）", () => {
+  assert.equal(captureWindowReleaseEarly(cap("買牛奶"), "save"), true);
+  assert.equal(captureWindowReleaseEarly(cap("買牛奶", "todo"), "save"), true); // 單行待辦直接建票
+  assert.equal(captureWindowReleaseEarly(cap("甲\n乙", "note"), "save"), true); // 非待辦票根的多行照存
+  assert.equal(captureWindowReleaseEarly(cap("今天：寫報告", "diary"), "save"), true);
+});
+
+test("captureWindowReleaseEarly：不會寫入的情況不還（空字、多行待辦轉預覽框、沒有票）", () => {
+  assert.equal(captureWindowReleaseEarly(cap("   \n "), "save"), false);
+  assert.equal(captureWindowReleaseEarly(cap("甲\n乙", "todo"), "save"), false); // 小窗要留著給人挑哪幾行
+  assert.equal(captureWindowReleaseEarly({ capture: null, preview: NO_PV }, "save"), false);
+});
+
+test("captureWindowReleaseEarly：預覽框確定——單筆、或至少勾了一行才還", () => {
+  const lines = (...c: boolean[]) => c.map((checked) => ({ checked }));
+  assert.equal(captureWindowReleaseEarly({ capture: null, preview: { single: true, lines: lines() } }, "confirm"), true);
+  assert.equal(captureWindowReleaseEarly({ capture: null, preview: { single: false, lines: lines(false, true) } }, "confirm"), true);
+  assert.equal(captureWindowReleaseEarly({ capture: null, preview: { single: false, lines: lines(false, false) } }, "confirm"), false);
+  assert.equal(captureWindowReleaseEarly({ capture: null, preview: NO_PV }, "confirm"), false);
+});
+
+test("對帳：shell.ts 的收法含 revive，Rust HideMode 有對應變體", () => {
+  const rs = readFileSync(resolve(ROOT_5, "src-tauri/src/capture.rs"), "utf8");
+  const ts = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/shell.ts"), "utf8");
+  assert.ok(/export type CaptureHideMode = [^;]*"revive"/.test(ts));
+  assert.ok(/pub enum HideMode \{[^}]*Revive/.test(rs));
+});
+
+test("captureWindowToastText：plugin-sql 的 not loaded 換成「主視窗還在啟動」，其餘照原文", () => {
+  assert.equal(captureWindowToastText("database sqlite:next-stop-v2.db not loaded"), CAPTURE_DB_NOT_READY);
+  assert.equal(captureWindowToastText("Database NOT  LOADED"), CAPTURE_DB_NOT_READY);
+  assert.equal(captureWindowToastText("error returned from database: UNIQUE constraint failed"), null);
+  assert.equal(captureWindowToastText("存檔失敗——請再試一次"), null);
+});
+
+function fakeAutostart(over: Partial<{ isProd: boolean; available: boolean; enabled: boolean; name: string; debugBuild: boolean; flag: string | null; enableFails: boolean; getFails: boolean }> = {}) {
+  const o = { isProd: true, available: true, enabled: false, name: NS_PROD_IDENTIFIER, debugBuild: false, flag: null as string | null, enableFails: false, getFails: false, ...over };
+  const log: string[] = [];
+  const deps: AutostartDefaultDeps = {
+    isProd: o.isProd,
+    async get() {
+      if (o.getFails) throw new Error("bridge down");
+      return { available: o.available, enabled: o.enabled, name: o.name, debugBuild: o.debugBuild };
+    },
+    async enable() {
+      log.push("enable");
+      if (o.enableFails) throw new Error("拒絕存取");
+    },
+    async readFlag() {
+      return o.flag;
+    },
+    async writeFlag() {
+      log.push("flag");
+    },
+  };
+  return { deps, log };
+}
+
+test("autostartDefaultOnce：正式版第一次 ⇒ enable 再寫旗標", async () => {
+  const { deps, log } = fakeAutostart();
+  assert.deepEqual(await autostartDefaultOnce(deps), { kind: "enabled" });
+  assert.deepEqual(log, ["enable", "flag"]);
+});
+
+test("autostartDefaultOnce：enable 失敗也寫旗標（只做一次），回 failed 讓呼叫端 toast", async () => {
+  const { deps, log } = fakeAutostart({ enableFails: true });
+  assert.deepEqual(await autostartDefaultOnce(deps), { kind: "failed", error: "拒絕存取" });
+  assert.deepEqual(log, ["enable", "flag"]);
+});
+
+test("autostartDefaultOnce：已經開著 ⇒ 不再 enable、只補旗標", async () => {
+  const { deps, log } = fakeAutostart({ enabled: true });
+  assert.deepEqual(await autostartDefaultOnce(deps), { kind: "already" });
+  assert.deepEqual(log, ["flag"]);
+});
+
+test("autostartDefaultOnce：做過、dev、沙盒 identifier、正式 identifier 的 debug exe、外掛沒掛、橋接壞掉 ⇒ 什麼都不碰（旗標也不寫）", async () => {
+  for (const over of [
+    { flag: "1" },
+    { isProd: false },
+    { name: "app.shitetsu.nextstop.sandbox.a" },
+    { debugBuild: true }, // 沙盒流程換回正式 identifier 的 debug exe：與安裝版共用 Run 值名，不能去改它
+    { available: false },
+    { getFails: true },
+  ]) {
+    const { deps, log } = fakeAutostart(over);
+    assert.deepEqual(await autostartDefaultOnce(deps), { kind: "skipped" }, JSON.stringify(over));
+    assert.deepEqual(log, [], JSON.stringify(over));
+  }
+});
+
+/* ═══ 手機分享進收件匣：createShareDrainer（⑤ 手機沙盒 M7） ═══ */
+
+/** 假的 Kotlin 佇列＋收件匣；`gate` 讓測試決定 create 什麼時候完成（模擬「收到一半又被敲門」） */
+function fakeShare(initial: SharedItemLike[] = []) {
+  const queue: SharedItemLike[] = [...initial];
+  const inbox: string[] = [];
+  const toasts: number[] = [];
+  const errors: unknown[] = [];
+  let takes = 0;
+  let gate: Promise<void> | null = null;
+  const deps = {
+    take: async () => {
+      takes++;
+      return [...queue];
+    },
+    create: async (body: string) => {
+      if (gate) await gate;
+      inbox.push(body);
+    },
+    ack: async (ids: string[]) => {
+      for (const id of ids) {
+        const i = queue.findIndex((q) => q.id === id);
+        if (i >= 0) queue.splice(i, 1);
+      }
+    },
+    after: (count: number) => {
+      toasts.push(count);
+    },
+    onError: (e: unknown) => {
+      errors.push(e);
+    },
+  };
+  return {
+    deps,
+    queue,
+    inbox,
+    toasts,
+    errors,
+    get takes() {
+      return takes;
+    },
+    hold() {
+      let release!: () => void;
+      gate = new Promise<void>((r) => (release = r));
+      return () => {
+        gate = null;
+        release();
+      };
+    },
+  };
+}
+
+test("shareBody：標題不在內文裡 ⇒ 第一行標題；在內文裡或沒有 ⇒ 只放內文", () => {
+  assert.equal(shareBody({ id: "1", text: " 內文 ", subject: "標題" }), "標題\n內文");
+  assert.equal(shareBody({ id: "1", text: "標題 與內文", subject: "標題" }), "標題 與內文");
+  assert.equal(shareBody({ id: "1", text: "內文", subject: "  " }), "內文");
+  assert.equal(shareBody({ id: "1", text: "內文" }), "內文");
+});
+
+test("shareToastText：一則／多則", () => {
+  assert.equal(shareToastText(1), "收到分享，放進收件匣了");
+  assert.equal(shareToastText(3), "收到 3 則分享，放進收件匣了");
+});
+
+test("createShareDrainer：收一則 ⇒ 進收件匣、ack、提示一次", async () => {
+  const f = fakeShare([{ id: "a", text: "第一則" }]);
+  await createShareDrainer(f.deps)();
+  assert.deepEqual(f.inbox, ["第一則"]);
+  assert.equal(f.queue.length, 0);
+  assert.deepEqual(f.toasts, [1]);
+});
+
+test("createShareDrainer：佇列空 ⇒ 不提示", async () => {
+  const f = fakeShare();
+  await createShareDrainer(f.deps)();
+  assert.deepEqual(f.toasts, []);
+  assert.equal(f.takes, 1);
+});
+
+test("createShareDrainer：收到一半又被敲門（M7）⇒ 這輪收完再取一次，第二則不用等下次回前景", async () => {
+  const f = fakeShare([{ id: "a", text: "第一則" }]);
+  const drain = createShareDrainer(f.deps);
+  const release = f.hold();
+  const first = drain();
+  // 第一則還卡在 create 時，第二則進佇列、事件敲門
+  f.queue.push({ id: "b", text: "第二則" });
+  await drain();
+  release();
+  await first;
+  assert.deepEqual(f.inbox, ["第一則", "第二則"]);
+  assert.equal(f.queue.length, 0);
+  assert.deepEqual(f.toasts, [2], "整輪只提示一次、合計則數");
+});
+
+test("createShareDrainer：敲門好幾次也只多取一輪", async () => {
+  const f = fakeShare([{ id: "a", text: "一" }]);
+  const drain = createShareDrainer(f.deps);
+  const release = f.hold();
+  const first = drain();
+  f.queue.push({ id: "b", text: "二" });
+  await drain();
+  await drain();
+  await drain();
+  release();
+  await first;
+  assert.deepEqual(f.inbox, ["一", "二"]);
+  assert.equal(f.takes, 2, "第一輪＋一次重取（重取那輪沒人再敲門就停）");
+});
+
+test("createShareDrainer：create 失敗 ⇒ 不 ack（下次再取不丟字）、記錯、不提示；之後可再跑", async () => {
+  const f = fakeShare([{ id: "a", text: "一" }]);
+  let fail = true;
+  const deps = {
+    ...f.deps,
+    create: async (body: string) => {
+      if (fail) throw new Error("db");
+      f.inbox.push(body);
+    },
+  };
+  const drain = createShareDrainer(deps);
+  await drain();
+  assert.equal(f.queue.length, 1);
+  assert.equal(f.errors.length, 1);
+  assert.deepEqual(f.toasts, []);
+  fail = false;
+  await drain();
+  assert.deepEqual(f.inbox, ["一"]);
+  assert.deepEqual(f.toasts, [1]);
+});
+
+test("createShareDrainer：第一批成功、重取那批失敗 ⇒ 已收的照樣提示", async () => {
+  const f = fakeShare([{ id: "a", text: "一" }]);
+  let calls = 0;
+  const deps = {
+    ...f.deps,
+    take: async () => {
+      calls++;
+      if (calls === 2) throw new Error("bridge");
+      return [...f.queue];
+    },
+  };
+  const drain = createShareDrainer(deps);
+  const release = f.hold();
+  const first = drain();
+  await drain();
+  release();
+  await first;
+  assert.deepEqual(f.inbox, ["一"]);
+  assert.equal(f.errors.length, 1);
+  assert.deepEqual(f.toasts, [1]);
+});
+
+test("createShareDrainer：空內文（只有空白）不建筆記但照樣 ack", async () => {
+  const f = fakeShare([{ id: "a", text: "   " }]);
+  await createShareDrainer(f.deps)();
+  assert.deepEqual(f.inbox, []);
+  assert.equal(f.queue.length, 0);
+  assert.deepEqual(f.toasts, [1]);
 });

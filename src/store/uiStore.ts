@@ -56,6 +56,11 @@ export interface ConfirmState {
   typeToConfirm?: string;
   /** 輸入框上方那一句（預設 `輸入「{typeToConfirm}」才能按下去`） */
   typeHint?: string;
+  /**
+   * 確認鈕的色（接縫 #74）：沒帶＝`"seal"`＝朱印主鈕（與既有每一個確認窗逐字相同）；
+   * `"gold"`＝金框鈕（`btn-gold`），給不是破壞性動作、又不該蓋朱印的確認（D-票-11：朱只給領収）。
+   */
+  tone?: "seal" | "gold";
 }
 
 export interface RouteDialogState {

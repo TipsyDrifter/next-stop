@@ -1,0 +1,113 @@
+/* ═══════════════════════════════════════════════════════
+ * 同步頁「最近兩台撞到的」（主線車次③；契約 §4.1；MergeNotices.tsx 兩殼共用）
+ *
+ * 形狀零發明：整區＝改正待ち那種「虛線分隔的一塊」（`settings.css` `.ns-sy-epoch` 的形，寫在這裡、不引用那個 class）；
+ *   說明＝既有 `.ns-note`；「知道了」＝`.btn-ghost.ns-btn.ns-btn--sm`（同「從精靈匯入」）。
+ * 色：只用 theme token。紙面強調＝`--accent`（「刪了又回來」那組列前一枚小點、可點列的 hover 底與焦點框）；
+ *   不用朱（済章專用）、不用赭（誤點／故障）、不用金——兩台撞到是正常收斂，不是故障也不是要人處理。
+ * 手機覆寫：每一條都以手機殼的屬性選擇器開頭（內距同 `.m2-block`、字 13px、可點列 ≥44px、列內改兩行）。
+ * 沒有動畫（不需要 prefers-reduced-motion 分支）。
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-mg {
+  padding-top: 14px;
+  border-top: 1px dashed var(--color-dash);
+}
+
+.ns-mg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* 小標＝`.techo-label` 的字級與字距（10px、.28em），h3 不吃預設的粗與大 */
+.ns-mg-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: .28em;
+  color: var(--color-ink-soft);
+}
+.ns-mg-ack { flex: none; }
+.ns-mg-ack:disabled { opacity: .5; cursor: default; }
+
+.ns-mg-intro { margin: 6px 0 0; }
+
+/* 組小標：比區塊標題再小一階的墨色，靠上方留白分組（不畫線，免得與區塊虛線打架） */
+.ns-mg-group {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: .16em;
+  color: var(--color-ink-faint);
+}
+
+.ns-mg-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一列：時刻｜名字，方向句在名字底下第二行。設定面板只有約 560px 寬，三段擠一行時名字欄寬各列不同、對不齊
+   （mock 實測）；兩行版時刻欄固定寬，名字與方向句都從同一條左緣起 */
+.ns-mg-open,
+.ns-mg-static {
+  display: grid;
+  grid-template-columns: 6.6em minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 1px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 6px;
+  margin: 0 -6px;
+  box-sizing: content-box;
+  font-size: 12.5px;
+  line-height: 1.6;
+  letter-spacing: .03em;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+}
+.ns-mg-open { cursor: pointer; font: inherit; font-size: 12.5px; }
+.ns-mg-open:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.ns-mg-open:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+.ns-mg-when {
+  font-family: var(--font-latin);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+}
+.ns-mg-label {
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.ns-mg-what {
+  grid-column: 2;
+  color: var(--color-ink-soft);
+  overflow-wrap: anywhere;
+}
+
+/* 「刪了又回來」組（revived／kept）名字前一枚 4px 靛點；「兩邊都改了」不加點 */
+.ns-mg-row.is-revived .ns-mg-label::before,
+.ns-mg-row.is-kept .ns-mg-label::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin: 0 6px 0 0;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: .2em;
+}
+
+/* ── 手機（更多 → 同步）────────────────────────────── */
+[data-shell="mobile"] .ns-mg { padding: 14px 2px 4px; border-top: none; }
+[data-shell="mobile"] .ns-mg-ack { min-height: 44px; padding: 0 14px; font-size: 13px; }
+[data-shell="mobile"] .ns-mg-intro { font-size: 11px; line-height: 1.7; letter-spacing: .08em; color: var(--color-ink-faint); }
+/* 列內兩行：時刻與名字同一行、方向句第二行（全寬） */
+[data-shell="mobile"] .ns-mg-row > * { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; padding: 8px 6px; font-size: 13px; }
+[data-shell="mobile"] .ns-mg-open { min-height: 44px; }
+[data-shell="mobile"] .ns-mg-what { grid-column: 1 / -1; }

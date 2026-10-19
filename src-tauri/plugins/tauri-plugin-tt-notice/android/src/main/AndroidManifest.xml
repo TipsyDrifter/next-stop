@@ -7,6 +7,16 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <application>
+        <!-- 旅客筆記 ⑤（D-筆-59）：收別的 App 分享的文字。merger 依 android:name 把這組 intent-filter 加進 App 的
+             MainActivity（namespace 固定 app.shitetsu.nextstop，沙盒換 applicationId 也不變）；只追加 filter，
+             不宣告 launchMode 等屬性 ⇒ launcher 那組 filter 與 singleTask 照舊。gen/android 一個字都不動。 -->
+        <activity android:name="app.shitetsu.nextstop.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <receiver android:name="app.shitetsu.nextstop.ttnotice.TtActionReceiver" android:exported="false" />
         <receiver android:name="app.shitetsu.nextstop.ttnotice.TtReminderReceiver" android:exported="false" />
         <!-- exported="false" 收開機廣播的寫法同 notification 2.3.3 的 LocalNotificationRestoreReceiver。

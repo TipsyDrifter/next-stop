@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.12.0"
+version = "1.13.0"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -81,6 +81,17 @@ keyring = { version = "3", features = ["windows-native", "apple-native"] }
 # 外掛本身只支援桌機（README 平台表 Android／iOS ✗、lib.rs 整支 `#![cfg(not(any(android, ios)))]`），所以只在這段拉。
 # 沒有 npm 對應套件（純 Rust 端），不受 tauri-cli 的 crate／npm minor 一致檢查影響。
 tauri-plugin-single-instance = "2"
+# 旅客筆記⑤（契約 §3.4；查證 Q1／Q4）：全域鍵與開機自啟。兩個都只支援桌機（crate 整支 cfg(not(android, ios))）。
+# 釘 ~2.3.2／~2.5.1：2.4.x／2.6.x 要 tauri ^2.12，lock 是 2.11.2（與 notification 鎖 ~2.3.3 同一個理由）。
+# 沒有 npm 對應（只從 Rust 端用），不受 tauri-cli 的 crate／npm minor 一致檢查影響。
+tauri-plugin-global-shortcut = "~2.3.2"
+tauri-plugin-autostart = "~2.5.1"
+
+# 旅客筆記⑤（契約 §0-0 / D-筆-61；主對話 M-6 已准）：存檔後把前景還給原本的 App，要 GetForegroundWindow／
+# SetForegroundWindow。windows-sys 0.59.0 本來就在 Cargo.lock（間接依賴），這裡升為直接依賴、同版本，不多一棵樹；
+# features 只開 Win32_Foundation（HWND）與 Win32_UI_WindowsAndMessaging（兩支函式）。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 
 # v1.1.2 QR 掃描（D-1.1-6 甲：手機掃桌機的 QR；契約席 2026-09-19 加、WP10a 接線）。

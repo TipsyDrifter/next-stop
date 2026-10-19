@@ -188,7 +188,39 @@ export interface SyncStatus {
   needs_passphrase: boolean;
   /** v1.1.5（契約 §3.4）：通知權限問過了沒（加入成功後問一次；`markNotifAsked()` 寫入） */
   notif_asked: boolean;
+  /**
+   * 主線③（契約 §3.3）：`sync_meta.merge_notices`（新在前、≤20）；空陣列＝沒有東西、同步頁整區不出現。
+   * 舊版 Rust 沒有這一欄（混用期）——讀的人一律寫 `status?.notices ?? []`。
+   */
+  notices: MergeNotice[];
 }
+
+/**
+ * 主線③（契約 §3.1／§3.3）：同步時「兩台撞到」的一筆通知——不是資料：不進 outbox、不同步、各台自己記。
+ *   revived＝這台刪過、另一台改過 ⇒ 回來了；kept＝另一台刪過、這台改過 ⇒ 留著；
+ *   overwritten＝同一格兩台都改、後改的贏（`winner` 說留下誰的）。
+ */
+export type MergeKind = "revived" | "kept" | "overwritten";
+export interface MergeNotice {
+  kind: MergeKind;
+  tbl: string;
+  row_id: string;
+  /** overwritten 才有；revived／kept 為 null */
+  col: string | null;
+  /** 本機原本的值／對方帶來的值（字串超過 120 字 Rust 已截斷補「…」） */
+  mine: unknown;
+  theirs: unknown;
+  winner: "mine" | "theirs";
+  their_device: string;
+  /** 本機那一格是這台寫的嗎；false＝第三台（句子不得指認「這台」，§4.9） */
+  by_me: boolean;
+  hlc: string;
+  /** UTC ISO；清單排序鍵、toast 去重鍵 */
+  at: string;
+}
+
+/** mock 用的哨兵 row_id：seedState 第 1 筆的 nodes 列；resolveMergeLabel 遇到它改拿今日頁第一張 ticket（§0-1 第 15 條） */
+export const MOCK_FIRST_TICKET = "mock:first-ticket";
 
 /** v1.1.5：`sync_recovery_generate` 的回傳——**碼只在這裡出現一次**（不存本機、不進 log、不進 zustand devtools） */
 export interface RecoveryReport {
@@ -302,6 +334,8 @@ export interface PullReport {
   max_hlc: string | null;
   /** v1.1.4：這趟「必填欄不齊而跳過的新列」（已含在 skipped_ops 裡） */
   skipped_missing: number;
+  /** 主線③：這趟落進 sync_meta 的通知（重播裝置的已濾掉）。TS 端不靠它出 toast（看 status.notices；syncStore maybeToastMerges） */
+  notices: MergeNotice[];
 }
 
 /** `sync_adopt_epoch`（改正待ち→「改用那份」）：未推的 op 匯出到 `orphans_path`（0 筆＝null） */
@@ -349,6 +383,8 @@ export const SYNC_COMMANDS = {
   recoveryClear: "sync_recovery_clear",
   // v1.1.6（契約 §3.1）
   startOver: "sync_start_over",
+  // 主線③（契約 §3.2）
+  ackMerges: "sync_ack_merges",
 } as const;
 
 export interface SyncRepository {
@@ -406,6 +442,9 @@ export interface SyncRepository {
    * 桌機的本機 manual 備份由 store 在呼叫前拍（這支不拍）。Err＝這台一個字都沒動（Rust 人話已含那句）。
    */
   startOver(scope: StartOverScope): Promise<never>;
+  /* ── 主線③ 同步頁「最近兩台撞到的」（契約 §3.3） ── */
+  /** 「知道了」：清掉 `sync_meta.merge_notices`、回最新 status（整張清光，D-主-19） */
+  ackMerges(): Promise<SyncStatus>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -504,6 +543,10 @@ export class TauriSyncRepository implements SyncRepository {
     await invoke<void>(SYNC_COMMANDS.startOver, { scope });
     throw new Error("重新開始的指令回來了但 App 沒有重新啟動，請手動重開私鐵手帳確認資料。");
   }
+  /* ── 主線③ ── */
+  ackMerges(): Promise<SyncStatus> {
+    return invoke<SyncStatus>(SYNC_COMMANDS.ackMerges, {});
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -538,6 +581,8 @@ const MOCK_DEVICE_ID = "3f9c2b1e-0000-4000-8000-000000000000";
  *   restore_reset   → v1.1.6：這台剛按完「所有裝置一起重新開始」重啟（標記 choice=past、reason=reset）：
  *                     boot 叫 `finishRestore()` ⇒ renewed（空紀元、0 op）＋ reset 版 toast＋`reset_done` 通知。
  *                     mock 的 `startOver("all_devices")` 就是 reload 到這一態。
+ *   merges          → 主線③：運行中、同步頁「最近兩台撞到的」有 4 筆示範通知（開頁 toast「同步時有 4 處…」）；
+ *                     第一趟 pull 再補 1 筆（第二顆 toast 只講那一筆）；「知道了」清空。
  * v1.1.6 另一個端點（`data/index.ts` 讀）：`&wiped=1`＝示範資料不種（＝清空後的樣子）；mock 的 `startOver` 兩條都帶它 reload。
  * （舊端點 primary／replica／running 仍接受＝joined，免得書籤失效；`running` 是 v1.1.5 對帳單上的寫法。）
  *
@@ -570,6 +615,8 @@ type SyncMockMode =
   /** v1.1.6 */
   | "reset_pending"
   | "restore_reset"
+  /** 主線③：已加入、清單有 4 筆示範通知；第一次 pull 再補 1 筆（驗「toast 只講新批」） */
+  | "merges"
   | null;
 
 const SYNC_MOCK_MODES = [
@@ -593,6 +640,7 @@ const SYNC_MOCK_MODES = [
   "failing",
   "reset_pending",
   "restore_reset",
+  "merges",
 ] as const;
 
 function detectSyncMock(): SyncMockMode {
@@ -637,7 +685,27 @@ const OFF_STATE: SyncStatus = {
   recovery_set: null,
   needs_passphrase: false,
   notif_asked: false,
+  notices: [],
 };
+
+/** 主線③ mock：一筆示範通知（`minutesAgo` 決定 at；hlc 跟著 at 走，與真機同形） */
+function mockNotice(minutesAgo: number, n: Omit<MergeNotice, "at" | "hlc" | "their_device">): MergeNotice {
+  const at = new Date(Date.now() - minutesAgo * 60_000);
+  return { ...n, their_device: "edcf0000-0000-4000-8000-000000000000", hlc: `${at.getTime()}0000-edcf0000`, at: at.toISOString() };
+}
+
+/**
+ * `?sync=merges` 的 4 筆種子（契約 §6.4；新在前）：①核心車票的內容競合（哨兵 id＝今日頁第一張票）②筆記回來了
+ * ③帳目留著（第三台句）④一張已經不存在的票（「車票（現在找不到了）」）。
+ */
+function mockMergeSeed(): MergeNotice[] {
+  return [
+    mockNotice(3, { kind: "overwritten", tbl: "nodes", row_id: MOCK_FIRST_TICKET, col: "scheduled_time", mine: "15:00", theirs: "16:00", winner: "theirs", by_me: true }),
+    mockNotice(5, { kind: "revived", tbl: "notes", row_id: "mock-note-0000a1b2", col: null, mine: new Date(Date.now() - 6 * 60_000).toISOString(), theirs: null, winner: "theirs", by_me: true }),
+    mockNotice(9, { kind: "kept", tbl: "tk_entries", row_id: "mock-entry-0000e5f6", col: null, mine: null, theirs: new Date(Date.now() - 10 * 60_000).toISOString(), winner: "mine", by_me: false }),
+    mockNotice(12, { kind: "revived", tbl: "nodes", row_id: "gone-0000zzzz", col: null, mine: new Date(Date.now() - 13 * 60_000).toISOString(), theirs: null, winner: "theirs", by_me: true }),
+  ];
+}
 
 /** 示範狀態（同一顆 SyncStatus 的幾個切片；真機的 phase 一律由 Rust 算） */
 function seedState(mode: SyncMockMode): SyncStatus {
@@ -732,6 +800,8 @@ function seedState(mode: SyncMockMode): SyncStatus {
   if (mode === "copied_folder") {
     return { ...base, configured: false, phase: "off", root: null, key_sealed: null, pending_ops: 2 };
   }
+  // 主線③：清單有 4 筆示範通知（同步頁「最近兩台撞到的」、開頁第一份 status 就出 toast）
+  if (mode === "merges") return { ...base, notices: mockMergeSeed() };
   // joined：舊血統升級後 KEY 尚未封存，改密語頁會多一行提示
   return { ...base, key_sealed: false };
 }
@@ -746,6 +816,7 @@ const EMPTY_PULL: PullReport = {
   conflicts: 0,
   max_hlc: null,
   skipped_missing: 0,
+  notices: [],
 };
 
 /** v1.1.4 mock：假的雲端快照三顆（今天這台自動、昨天另一台手動、三天前這台自動），大小照真機量級（zstd 後幾十 KB） */
@@ -759,6 +830,8 @@ function mockSnapshot(hoursAgo: number, device: string, kind: SnapshotKind, size
 export class MemorySyncRepository implements SyncRepository {
   private mode: SyncMockMode = detectSyncMock();
   private state: SyncStatus = seedState(this.mode);
+  /** 主線③ `?sync=merges`：第一趟 pull 補過那一筆了沒 */
+  private mergePullDone = false;
   /**
    * v1.1.4 修正席：多兩顆才看得到新東西——一顆 `safety`（產品評審 S2 的「保險」chip），
    * 一顆落在 14 天之外（產品評審 S3 的「更早的…」摺疊；14 天內 3 顆、之外 2 顆）。
@@ -888,6 +961,14 @@ export class MemorySyncRepository implements SyncRepository {
   async pull(): Promise<PullReport> {
     this.state = { ...this.state, last_sync_at: new Date().toISOString() };
     const report: PullReport = { ...EMPTY_PULL };
+    // 主線③ `?sync=merges`：第一趟 pull 補一筆「兩邊都改了、這台後改的」（之後不再加）——
+    // 走與真機同一條路：通知落在 status.notices，toast 由 syncStore 的 status 驅動、只講這一筆新的
+    if (this.mode === "merges" && !this.mergePullDone) {
+      this.mergePullDone = true;
+      const fresh = mockNotice(0, { kind: "overwritten", tbl: "notes", row_id: "mock-note-0000c3d4", col: "body", mine: "買牛奶和雞蛋", theirs: "買豆漿", winner: "mine", by_me: true });
+      this.state = { ...this.state, notices: [fresh, ...this.state.notices] };
+      report.notices = [fresh];
+    }
     seedHlc(report.max_hlc); // 與真機同一條路徑（mock 也不該有第二種行為）
     return report;
   }
@@ -1007,6 +1088,11 @@ export class MemorySyncRepository implements SyncRepository {
     await new Promise((r) => setTimeout(r, 400));
     window.location.replace(url.toString());
     return new Promise<never>(() => undefined); // 永遠 pending＝跟真機「不會回來」同形
+  }
+  /* ── 主線③ ── */
+  async ackMerges(): Promise<SyncStatus> {
+    this.state = { ...this.state, notices: [] };
+    return this.status();
   }
 }
 

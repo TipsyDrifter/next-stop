@@ -261,6 +261,21 @@ export function lineCalendarDayAux(): { id: LineId; Aux: ComponentType<{ day: st
   return out;
 }
 
+/**
+ * 擁有 `tbl` 的那條線的 `syncRowLabel`（接縫 #50；主線車次③）：manifest `syncTables` 含它、桌機看 `page.status`／手機看 `mobile.status` 為 `open`、
+ * 且有填才回；否則 null（清單列印泛稱）。沒裝＝null。
+ */
+export function lineSyncRowLabel(tbl: string, shell: "desktop" | "mobile"): LineMount["syncRowLabel"] | null {
+  if (!installed) return null;
+  for (const m of LINE_MANIFESTS) {
+    if (!m.syncTables.includes(tbl)) continue;
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const fn = installed[m.id].syncRowLabel;
+    if (status === "open" && fn) return fn;
+  }
+  return null;
+}
+
 /** Ctrl+P 的結果提供者（接縫 #56），比照 `lineSidebarTools()`：三線固定順序、只看 `page.status`；`open` 且有填才算。沒裝＝空陣列。 */
 export function lineQuickJumpProviders(): QuickJumpProviderSpec[] {
   const out: QuickJumpProviderSpec[] = [];
