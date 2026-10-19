@@ -54,6 +54,46 @@ const TK_ENTRIES_COLS: &[(&str, bool)] = &[
     ("to_amount_minor", true),
     ("note", false),
     ("route_id", false),
+    ("repeat_id", false), // 第③階段（③契約 0-3）：哪條定期規則記的；舊版 App 收到只丟這一欄
+    ("import_id", false),
+    ("import_source", false),
+    ("import_utime", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// tk_budgets 的「主人資料」欄（第③階段，③契約 §3.2）。amount_minor 是主幣別；month NULL＝預設。
+const TK_BUDGETS_COLS: &[(&str, bool)] = &[
+    ("kind", false),
+    ("category_id", false),
+    ("month", false),
+    ("amount_minor", true),
+    ("position", true),
+    ("import_id", false),
+    ("import_source", false),
+    ("import_utime", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// tk_repeats 的「主人資料」欄（第③階段）。next_on 是游標（③契約 0-6-4）、skipped_days 是 JSON 整欄 LWW（③契約 0-7-4）。
+const TK_REPEATS_COLS: &[(&str, bool)] = &[
+    ("kind", false),
+    ("account_id", false),
+    ("to_account_id", false),
+    ("category_id", false),
+    ("amount_minor", true),
+    ("currency", false),
+    ("note", false),
+    ("route_id", false),
+    ("rule", false),
+    ("hhmm", false),
+    ("next_on", false),
+    ("paused_at", false),
+    ("skipped_days", false),
+    ("position", true),
     ("import_id", false),
     ("import_source", false),
     ("import_utime", true),
@@ -68,7 +108,7 @@ const TK_CURRENCIES_ALIVE: &str = "deleted_at IS NULL AND id <> '0fd3bc2e-78d6-5
 const TK_CATEGORIES_ALIVE: &str = "deleted_at IS NULL AND id NOT IN (\
 'aa25f94b-7093-5bd4-afe2-e3266219e74d','a6006f3b-a58a-502f-8164-98305b88fd1c')";
 
-/// 售票口線的同步表。只有售票口線改這個檔。順序＝外鍵的父先子後：currencies → accounts → categories → entries。
+/// 售票口線的同步表。只有售票口線改這個檔。順序＝外鍵的父先子後：currencies → accounts → categories → entries → budgets → repeats（第③階段；兩張只指父表、彼此不指）。
 pub const TABLES: &[SyncTableSpec] = &[
     SyncTableSpec {
         name: "tk_currencies",
@@ -150,6 +190,46 @@ pub const TABLES: &[SyncTableSpec] = &[
             conflict_anchor: ConflictAnchor::None,
             alive_filter: Some("deleted_at IS NULL"),
             since: Some("ticket_ledger"),
+        }),
+    },
+    SyncTableSpec {
+        name: "tk_budgets",
+        pk: "id",
+        columns: TK_BUDGETS_COLS,
+        // NOT NULL 且沒有 DEFAULT：kind、amount_minor
+        required: &["kind", "amount_minor"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "created_at",
+            fk_checked: true, // category_id → tk_categories
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("ticket_plan"),
+        }),
+    },
+    SyncTableSpec {
+        name: "tk_repeats",
+        pk: "id",
+        columns: TK_REPEATS_COLS,
+        // NOT NULL 且沒有 DEFAULT：kind、account_id、amount_minor、currency、rule（note／hhmm／skipped_days 有 DEFAULT）
+        required: &["kind", "account_id", "amount_minor", "currency", "rule"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "created_at",
+            fk_checked: true, // account_id／to_account_id → tk_accounts；category_id → tk_categories
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("ticket_plan"),
         }),
     },
 ];

@@ -130,6 +130,45 @@ test("describeMerge：overwritten 值為空印（空）", () => {
   );
 });
 
+test("describeMerge（接縫 #77）：不給 fmt ⇒ 逐字不變（長字串、物件、null 都走 fmtMergeValue）", () => {
+  const cases: MergeNotice[] = [
+    mk({ kind: "overwritten", col: "ended_at", mine: "2026-10-19T06:35:00.000Z", theirs: "2026-10-19T07:10:00.000Z", winner: "theirs" }),
+    mk({ kind: "overwritten", col: "scope", mine: { a: 1 }, theirs: null, winner: "mine" }),
+    mk({ kind: "overwritten", col: "body", mine: "甲", theirs: "乙", by_me: false }),
+    mk({ kind: "revived" }),
+    mk({ kind: "kept", by_me: false }),
+  ];
+  for (const n of cases) {
+    assert.equal(describeMerge(n, undefined), describeMerge(n));
+  }
+  assert.equal(
+    describeMerge(cases[0]),
+    "這台改成「2026-10-19T06:35:00.000Z」、另一台改成「2026-10-19T07:10:00.000Z」——留下另一台後改的",
+  );
+});
+
+test("describeMerge（接縫 #77）：給 fmt ⇒ overwritten 兩邊用它的字；回 null 的欄退回 fmtMergeValue", () => {
+  const seen: Array<[string, unknown]> = [];
+  const fmt = (col: string, v: unknown): string | null => {
+    seen.push([col, v]);
+    return col === "ended_at" ? `<${String(v).slice(11, 16)}>` : null;
+  };
+  const t = mk({ kind: "overwritten", col: "ended_at", mine: "2026-10-19T06:35:00.000Z", theirs: "2026-10-19T07:10:00.000Z", winner: "theirs" });
+  assert.equal(describeMerge(t, fmt), "這台改成「<06:35>」、另一台改成「<07:10>」——留下另一台後改的");
+  assert.deepEqual(seen.map((x) => x[0]), ["ended_at", "ended_at"]);
+  const other = mk({ kind: "overwritten", col: "name", mine: "甲", theirs: "乙", winner: "mine" });
+  assert.equal(describeMerge(other, fmt), "另一台改成「乙」、這台改成「甲」——留下這台後改的");
+  // fmt 丟錯 ⇒ 退回，不 throw
+  const boom = (): string | null => {
+    throw new Error("x");
+  };
+  assert.equal(describeMerge(other, boom), describeMerge(other));
+  // revived／kept 不問 fmt
+  seen.length = 0;
+  describeMerge(mk({ kind: "revived" }), fmt);
+  assert.equal(seen.length, 0);
+});
+
 test("mergeSubject：cols 覆蓋 > 欄名原文；沒有 CONFLICT_COL_LABEL 退路", () => {
   const n = mk({ kind: "overwritten", tbl: "tags", col: "name" });
   assert.equal(mergeSubject("荷札（a1b2）", n), "荷札（a1b2） 的 name"); // tags.name 不准被印成「票名」

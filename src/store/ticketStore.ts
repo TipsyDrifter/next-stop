@@ -40,7 +40,6 @@ import {
   parseAmount,
   parseQuickEntry,
   parseRate,
-  planImport,
   quickAmountText,
   quickToast,
   signedText,
@@ -93,11 +92,38 @@ import {
   type TicketView,
   type ViewCtx,
 } from "../domain/ticketView";
+import {
+  amountInputText,
+  budgetLines,
+  draftFromRepeat,
+  draftToRepeatInput,
+  effectiveBudget,
+  overBudgetDay,
+  parseBudgetAmount,
+  parseFixedRule,
+  planImportAll,
+  ruleFromEntry,
+  type BudgetLine,
+  type BudgetRow,
+  type BudgetScope,
+  type PlanImportPart,
+  type RepeatDraft,
+  type RepeatRow,
+} from "../domain/ticketPlan";
+import { describeRule, type FixedRepeatRule } from "../domain/repeat";
 
 export type TicketShell = "desktop" | "mobile";
 /** 詳情板（桌機右側）／全螢幕面板（手機）現在畫什麼；兩殼共用 */
 export type TicketPanel = { kind: "none" } | { kind: "new" } | { kind: "entry"; id: string } | { kind: "account"; id: string };
-export type TicketDialog = { kind: "newAccount" } | { kind: "categories" } | { kind: "currencies" } | { kind: "import" };
+export type TicketDialog =
+  | { kind: "newAccount" }
+  | { kind: "categories" }
+  | { kind: "currencies" }
+  | { kind: "import" }
+  /* 第③階段（③契約 §3.8）：預算對話框、定期帳管理、規則編輯器（id null＝新建；seed＝「設成定期…」帶的預填） */
+  | { kind: "budgets" }
+  | { kind: "repeats" }
+  | { kind: "repeat"; id: string | null; seed?: Partial<RepeatDraft> };
 
 export interface ImportState {
   phase: "idle" | "reading" | "unknown" | "preview" | "writing" | "done" | "error";
@@ -106,6 +132,7 @@ export interface ImportState {
   local: ImportLocal | null;
   balanceText: Record<string, string>; // 財務管家帳戶 uid → 主人抄的餘額
   plan: ImportPlan | null; // 每次 balanceText 變動就重算（純函式，即時）
+  part: PlanImportPart | null; // 第③階段：預算與定期規則的計畫（planImportAll 與 plan 一起算；③契約 §4.4）
   choices: Record<string, ImportChoice>; // entry id → "theirs" | "ours"（預設 theirs）
   progress: { done: number; total: number } | null;
   outcome: ImportOutcome | null;
@@ -240,6 +267,32 @@ export interface TicketStore {
   loadRouteSpend(routeId: string): Promise<void>; // serial 外（純讀）；已有值就不重查
   /* Ctrl+P「帳目」組（0-19；本線授權乙席加）：全部期間 queryEntries → matchesKeyword → 新到舊取 limit；純讀、不進 serial、不動頁面的 filter／results */
   searchEntries(text: string, limit: number): Promise<EntryRow[]>;
+
+  /* ═══ 第③階段「管帳」（③契約 §3.8；①②的欄位與動作一個都不改） ═══ */
+
+  /* 預算（0-10、0-11） */
+  budgets: BudgetRow[]; // warm／refresh 重讀（未刪；含預設與所有月的覆寫）
+  budgetLines: BudgetLine[] | null; // 月模式統計：budgetLines(budgets, statsEntries, period.key, categories, today, ctx)；年模式 null；已篩帳戶 null
+  overDay: string | null; // refresh：overBudgetDay(本月 entries, effectiveBudget(total, month))（月曆「超」格；已篩帳戶 null）
+  setBudget(scope: BudgetScope, month: string | null, amountText: string): Promise<boolean>; // parseAmount（主幣別、不允許負與 0）→ repo → refresh；失敗 toast
+  removeBudget(scope: BudgetScope, month: string | null): Promise<void>;
+  /* 定期帳（0-6～0-8） */
+  repeats: RepeatRow[]; // warm／refresh 重讀（含暫停）
+  /** 暫停中、從沒開始過的匯入規則 id（repo.listUnstartedRepeatIds，看帳含墓碑）：橫幅、確認窗的 N、「全部開始」開始的就是這幾條（收尾修正） */
+  repeatUnstarted: string[];
+  repeatBlocked: Record<string, string>; // 上次實體化被擋的規則 id → 原因（記憶體）
+  repeatDraft: RepeatDraft | null; // dialog.kind === "repeat" 時
+  openRepeatEditor(id: string | null, seed?: Partial<RepeatDraft>): void; // id ⇒ 從列建草稿；null ⇒ 預設（expense、defaultAccountId、每月今天的日號、start 今天、09:00）
+  /** 規則編輯器的「取消」／Esc（Stage 0 加）：從管理頁開的回管理頁，從大票「設成定期…」開的直接關 */
+  closeRepeatEditor(): void;
+  setRepeatDraft(patch: Partial<RepeatDraft>): void;
+  saveRepeatDraft(): Promise<boolean>; // draftToRepeatInput → create／update →（新建且有 fromEntryId ⇒ linkEntryToRepeat）→ 實體化一次 → refresh → toast「已設定期：每月 1 日 · 房租」
+  pauseRepeat(id: string): Promise<void>;
+  resumeRepeat(id: string): Promise<void>;
+  resumeAllRepeats(): Promise<void>; // 只開始 repeatUnstarted 那幾條（手動暫停的不動）；toast「已開始 N 條，接著財務管家的下一班記」
+  deleteRepeat(id: string): Promise<void>; // 軟刪＋toast「已刪除這條規則」帶「復原」
+  makeRepeatFromEntry(id: string): void; // 大票「設成定期…」：seed＝那筆（ruleFromEntry）＋ fromEntryId ⇒ openRepeatEditor(null, seed)
+  materialize(reason: "startup" | "afterPull" | "day" | "manual"): Promise<void>; // serial(repo.materializeRepeats(today(), dayStart())) → 有插入或補刪 ⇒ refresh；blocked 寫進 repeatBlocked
 }
 
 export const TK_TEXT = {
@@ -276,7 +329,27 @@ export const TK_TEXT = {
   refunds: VIEW_TEXT.refunds,
   emptyStats: VIEW_TEXT.emptyStats,
   emptyResults: VIEW_TEXT.emptyResults,
+  /* 第③階段（③契約 §3.8、§5.7） */
+  budgetSet: (label: string, amt: string) => `已設 ${label} 預算 ${amt}`,
+  budgetSetMonth: (label: string, m: number, amt: string) => `已設 ${label} ${m} 月預算 ${amt}`, // 修正-資料：設單月覆寫（評審）
+  budgetRemoved: "已移除這個預算",
+  budgetMonthCleared: (m: number) => `已清掉 ${m} 月的覆寫`, // 修正-資料：清單月覆寫不是刪預算（評審）
+  repeatSaved: (desc: string) => `已設定期：${desc}`,
+  repeatSavedFilled: (n: number) => ` · 補記了 ${n} 筆`, // Stage 0 加：存規則時起算日在過去、當場補記的筆數（接在 repeatSaved 後面）
+  repeatDeleted: "已刪除這條規則",
+  repeatPaused: "已暫停",
+  repeatResumed: "已開始，明天起算",
+  repeatResumedNext: (d: string) => `已開始，下一班 ${d}`, // 修正-資料：直接帶下一班（每週規則不一定是明天；評審 nit）
+  repeatResumedImported: "已開始，接著財務管家的下一班記", // Stage 0 加：單條開始一條從沒開始過的匯入規則（✎-8）
+  repeatResumedAll: (n: number) => `已開始 ${n} 條，接著財務管家的下一班記`,
+  repeatBlocked: (why: string) => `這條規則記不了：${why}`,
+  materialized: (n: number) => `定期帳記了 ${n} 筆`,
+  budgetAllAccounts: "預算看全部帳戶",
+  importPaused: "從財務管家匯入的定期規則先暫停：停用財務管家那天，到「定期帳」按「全部開始」",
 } as const;
+
+/** 0-1 (a)（D-票-31）：匯入的定期規則一律以暫停狀態進來；答 (b) 改 false（§4.5） */
+export const IMPORT_REPEATS_PAUSED = true;
 
 /* ───────── §3.8.3 常數與模組層狀態 ───────── */
 
@@ -290,6 +363,7 @@ export const IMPORT_IDLE: ImportState = {
   local: null,
   balanceText: {},
   plan: null,
+  part: null,
   choices: {},
   progress: null,
   outcome: null,
@@ -315,6 +389,8 @@ let routeSpendGen = 0;
 /** routeSpend 目前算的是哪個月的「本月」（跨月時 loadRouteSpend 把整批作廢重查） */
 let routeSpendMonth = "";
 const routeSpendInflight = new Set<string>();
+/** 第③階段：規則編輯器從哪裡開的（「取消」回去的地方；管理頁＝repeats、大票＝null） */
+let repeatBack: TicketDialog | null = null;
 
 const isUnfilterableKey = (k: string | null | undefined): boolean => k === GONE_KEY || k === UNSPLIT_KEY;
 
@@ -445,7 +521,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     const r = trendRange(s.period);
     const statsEntries = await ticketRepo.listEntries(r.from, r.toExcl, s.filterAccountId);
     set({ statsEntries });
-    set({ stats: computeStats() });
+    set({ stats: computeStats(), budgetLines: computeBudgetLines() });
   }
 
   /** 月曆格（只用 month 那個月的帳；本月外的格空著） */
@@ -474,6 +550,102 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   function setImp(token: number, patch: Partial<ImportState>): void {
     if (token !== importToken) return;
     set({ imp: { ...get().imp, ...patch } });
+  }
+
+  /* ───────── 第③階段的內部工具（③契約 §3.8） ───────── */
+
+  /**
+   * 預算＋規則（warm 與 refresh 共用）。讀不到（例：Stage 0 的 SQLite 骨架）只 console.warn、保留舊值——
+   * 第③階段的表讀不到不准拖垮①②的帳本。
+   */
+  async function loadPlan(): Promise<void> {
+    try {
+      const [budgets, repeats, repeatUnstarted] = await Promise.all([
+        ticketRepo.listBudgets(),
+        ticketRepo.listRepeats(),
+        ticketRepo.listUnstartedRepeatIds(),
+      ]);
+      set({ budgets, repeats, repeatUnstarted });
+    } catch (e) {
+      console.warn("[ticket] 讀預算／定期帳失敗", e);
+    }
+  }
+
+  /** 月模式、沒篩帳戶才有（✎-2、✎-11）；資料＝statsEntries（trendRange 涵蓋 period 那個月，0-11） */
+  function computeBudgetLines(): BudgetLine[] | null {
+    const s = get();
+    if (s.span !== "month" || s.filterAccountId !== null) return null;
+    return budgetLines(s.budgets, s.statsEntries, s.period.key, s.categories, today(), entryCtx());
+  }
+
+  /** 月曆「超」格（✎-6）：本月總預算被超過的那一天；已篩帳戶 ⇒ null（預算看全部帳戶） */
+  function computeOverDay(entries: readonly EntryRow[], month: string): string | null {
+    const s = get();
+    if (s.filterAccountId !== null) return null;
+    const eff = effectiveBudget(s.budgets, { kind: "total" }, month);
+    return overBudgetDay(entries, month, eff ? eff.row.amount_minor : null);
+  }
+
+  /** 主幣別（預算一律主幣別，§1-6） */
+  function mainCur(): { code: string; decimals: number } {
+    const s = get();
+    for (const c of s.currencies) if (c.is_main === 1) return { code: c.code, decimals: c.decimals };
+    return { code: MAIN_CURRENCY, decimals: s.curByCode[MAIN_CURRENCY]?.decimals ?? 2 };
+  }
+
+  function scopeLabel(scope: BudgetScope): string {
+    if (scope.kind === "total") return "總預算";
+    const c = get().catById[scope.categoryId];
+    return c ? bareName(c.name) : "（分類已不在）";
+  }
+
+  /** "2026-10" → 10（覆寫 toast 用） */
+  function monthNum(month: string): number {
+    return parseInt(month.slice(5, 7), 10);
+  }
+
+  /**
+   * 使用者正在看售票口頁（實體化的 toast 只在這裡出，§3.8）。
+   * 殼看 <html data-shell>（useShell 同步；同 tagStore.isMobileShell）——不看 lastShell：啟動那一次實體化時 init(shell) 還沒跑、
+   * lastShell 還是預設的 desktop，手機停在今日頁也會被當成「在售票口」（評審-UI should-3）。
+   */
+  function onTicketPage(): boolean {
+    const ui = useUiStore.getState();
+    const mobile = typeof document !== "undefined" && document.documentElement.getAttribute("data-shell") === "mobile";
+    return mobile ? (ui.mobileTab as string) === "ticket" : (ui.page as string) === "ticket";
+  }
+
+  /** 規則的一句話（toast 用）：「每月 1 日 · 房租」；轉帳「每月 5 日 · 帳戶 → 悠遊卡」 */
+  function repeatDesc(rule: FixedRepeatRule, kind: RepeatRow["kind"], accountId: string, toAccountId: string | null, categoryId: string | null, note: string): string {
+    const s = get();
+    if (kind === "transfer") {
+      return `${describeRule(rule)} · ${s.accById[accountId]?.name ?? ""} → ${toAccountId ? (s.accById[toAccountId]?.name ?? "") : ""}`;
+    }
+    const cat = categoryId ? s.catById[categoryId] : undefined;
+    const label = cat && !isUncat(cat.id) ? bareName(cat.name) : note ? Array.from(note).slice(0, 12).join("") : UNCAT_NAME;
+    return `${describeRule(rule)} · ${label}`;
+  }
+
+  /**
+   * 實體化一次（0-6-3）：serial 裡叫 repo；blocked 寫進 repeatBlocked；有插入或補刪 ⇒ 重讀（ready 才整頁 refresh，否則只重讀規則）。
+   * 回插入幾筆；失敗回 null（呼叫端決定要不要出聲）。
+   */
+  async function runMaterialize(): Promise<number | null> {
+    try {
+      await get().warm();
+      const res = await serial(() => ticketRepo.materializeRepeats(today(), dayStart()));
+      const blocked: Record<string, string> = {};
+      for (const b of res.blocked) blocked[b.id] = b.reason;
+      set({ repeatBlocked: blocked });
+      if (res.inserted > 0 || res.reconciled > 0) {
+        if (get().ready) await serial(() => get().refresh());
+        else await loadPlan();
+      } else await loadPlan(); // 游標可能推了（沒插入也會推）
+      return res.inserted;
+    } catch (e) {
+      console.warn("[ticket] 定期帳實體化失敗", e);
+      return null;
+    }
   }
 
   return {
@@ -519,6 +691,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     results: null,
     resultDays: [],
     routeSpend: {},
+    budgets: [],
+    budgetLines: null,
+    overDay: null,
+    repeats: [],
+    repeatUnstarted: [],
+    repeatBlocked: {},
+    repeatDraft: null,
 
     /* ───────── 載入 ───────── */
 
@@ -526,7 +705,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (!warmPromise) {
         warmPromise = (async () => {
           await serial(() => ticketRepo.ensureStarterRows());
-          await loadMeta();
+          await Promise.all([loadMeta(), loadPlan()]); // 第③階段：預算＋規則（讀不到不擋 warm）
         })().catch((e) => {
           warmPromise = null; // 失敗可重試
           throw e;
@@ -565,8 +744,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         const s0 = get();
         const months = s0.loadedMonths.length ? s0.loadedMonths : [s0.month];
         const filter = s0.filterAccountId;
-        const [, balances, hasAny, ...lists] = await Promise.all([
+        const [, , balances, hasAny, ...lists] = await Promise.all([
           loadMeta(),
+          loadPlan(), // 第③階段
           ticketRepo.balances(),
           ticketRepo.hasAnyEntry(),
           ...months.map((m) => {
@@ -601,6 +781,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         // 第②階段（②契約 §3.4）：路線花費作廢重查、月曆重算、統計與搜尋結果跟著重讀（本身已在 serial 裡，不再排隊）
         routeSpendGen++;
         set({ routeSpend: {}, calendar: computeCalendar(entries, get().month) });
+        // 第③階段（③契約 §3.8）：月曆「超」格重算；統計預算卡在 loadStats 裡一起算
+        set({ overDay: computeOverDay(entries, get().month) });
         if (get().view === "stats") await loadStats();
         if (isFilterActive(get().filter)) await runQuery();
       } catch (e) {
@@ -620,6 +802,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], drill: null,
           statsEntries: [], stats: null, pendingDay: null, dayNotice: null, routeSpend: {},
         });
+        // 第③階段：草稿與預算／規則作廢（實體化不在 reload 裡，在 afterPull，③契約 §3.8）
+        repeatBack = null;
+        set({ repeatDraft: null, budgets: [], budgetLines: null, overDay: null, repeats: [], repeatUnstarted: [], repeatBlocked: {} });
         warmPromise = null; // 整批換掉：重走 warm（起手三列可能要重種）＋init
         initPromise = null;
         await get().init(lastShell);
@@ -940,6 +1125,11 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         set({ dialog: null, imp: IMPORT_IDLE });
         return;
       }
+      if (get().dialog?.kind === "repeat") {
+        repeatBack = null;
+        set({ dialog: null, repeatDraft: null });
+        return;
+      }
       set({ dialog: null });
     },
 
@@ -974,8 +1164,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           return;
         }
         const local = await ticketRepo.loadImportLocal();
-        const plan = planImport(res.dump, local, { balanceText: {}, nowIso: new Date().toISOString() });
-        setImp(token, { phase: "preview", dump: res.dump, local, plan, choices: defaultChoices(plan), balanceText: {} });
+        // 第③階段（③契約 §4.4）：planImportAll＝①的 planImport＋預算與定期規則兩段
+        const { plan, part } = planImportAll(res.dump, local, { balanceText: {}, nowIso: new Date().toISOString(), pauseImported: IMPORT_REPEATS_PAUSED });
+        setImp(token, { phase: "preview", dump: res.dump, local, plan, part, choices: defaultChoices(plan), balanceText: {} });
       } catch (e) {
         setImp(token, { phase: "error", message: errText(e) });
       }
@@ -985,10 +1176,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const imp = get().imp;
       if (!imp.dump || !imp.local) return;
       const balanceText = { ...imp.balanceText, [mmAccountUid]: text };
-      const plan = planImport(imp.dump, imp.local, { balanceText, nowIso: new Date().toISOString() });
+      const { plan, part } = planImportAll(imp.dump, imp.local, { balanceText, nowIso: new Date().toISOString(), pauseImported: IMPORT_REPEATS_PAUSED });
       const choices: Record<string, ImportChoice> = {};
       for (const c of plan.entries.changed) choices[c.id] = imp.choices[c.id] ?? "theirs";
-      set({ imp: { ...imp, balanceText, plan, choices } });
+      set({ imp: { ...imp, balanceText, plan, part, choices } });
     },
 
     setImportChoice(entryId, c) {
@@ -1002,10 +1193,15 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (!plan || plan.unsupported !== null || (imp0.phase !== "preview" && imp0.phase !== "error")) return;
       const token = importToken;
       const choices = imp0.choices;
+      const part: PlanImportPart = imp0.part ?? {
+        budgets: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [], overrides: 0, scopes: 0 },
+        repeats: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [] },
+        missing: [],
+      };
       setImp(token, { phase: "writing", progress: { done: 0, total: 0 }, message: null });
       try {
         const outcome = await serial(() =>
-          ticketRepo.applyImport(plan, choices, (done, total) => setImp(token, { progress: { done, total } })),
+          ticketRepo.applyImport(plan, choices, part, (done, total) => setImp(token, { progress: { done, total } })),
         );
         await serial(() => get().refresh());
         const balances = get().balances;
@@ -1227,6 +1423,191 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const tokens = keywordTokens(text);
       if (!tokens.length && text.trim() !== "") return []; // 只打 emoji／符號：catKey 後沒有 token，不當成「全部」
       return (tokens.length ? rows.filter((e) => matchesKeyword(e, tokens, viewCtx())) : rows).slice(0, limit);
+    },
+
+    /* ═══════════ 第③階段「管帳」（③契約 §3.8） ═══════════ */
+
+    /* ───────── 預算 ───────── */
+
+    async setBudget(scope, month, amountText) {
+      try {
+        const main = mainCur();
+        const amount = parseBudgetAmount(amountText, main);
+        await serial(() => ticketRepo.setBudget(scope, month, amount));
+        await serial(() => get().refresh());
+        const amt = moneyText(amount, main.decimals);
+        toast(month === null ? TK_TEXT.budgetSet(scopeLabel(scope), amt) : TK_TEXT.budgetSetMonth(scopeLabel(scope), monthNum(month), amt));
+        return true;
+      } catch (e) {
+        failToast(e);
+        return false;
+      }
+    },
+
+    async removeBudget(scope, month) {
+      await write(
+        () => ticketRepo.removeBudget(scope, month),
+        () => toast(month === null ? TK_TEXT.budgetRemoved : TK_TEXT.budgetMonthCleared(monthNum(month))),
+      );
+    },
+
+    /* ───────── 定期帳 ───────── */
+
+    openRepeatEditor(id, seed) {
+      const s = get();
+      let draft: RepeatDraft;
+      if (id !== null) {
+        const row = s.repeats.find((r) => r.id === id);
+        if (!row) return;
+        draft = { ...draftFromRepeat(row, entryCtx()), ...seed };
+      } else {
+        const t = today();
+        const accountId = defaultAccountId(s.accounts, s.lastAccountId);
+        draft = {
+          kind: DEFAULT_KIND,
+          amountText: "",
+          currency: (accountId && s.accById[accountId]?.currency) || MAIN_CURRENCY,
+          accountId,
+          toAccountId: null,
+          categoryId: null,
+          note: "",
+          routeId: null,
+          freq: "monthly",
+          byweekday: [],
+          bymonthday: [parseInt(t.slice(8, 10), 10)],
+          start: t,
+          until: null,
+          hhmm: "09:00",
+          fromEntryId: null,
+          ...seed,
+        };
+      }
+      const cur = s.dialog;
+      repeatBack = cur && cur.kind === "repeats" ? cur : null;
+      set({ dialog: { kind: "repeat", id, seed }, repeatDraft: draft });
+    },
+
+    closeRepeatEditor() {
+      const back = repeatBack;
+      repeatBack = null;
+      set({ dialog: back, repeatDraft: null });
+    },
+
+    setRepeatDraft(patch) {
+      const s = get();
+      if (!s.repeatDraft) return;
+      const d: RepeatDraft = { ...s.repeatDraft, ...patch };
+      const acc = d.accountId ? s.accById[d.accountId] : undefined;
+      if (d.kind === "transfer") {
+        d.categoryId = null;
+        if (acc) d.currency = acc.currency;
+      } else {
+        d.toAccountId = null;
+        if (patch.accountId !== undefined && patch.currency === undefined && acc) d.currency = acc.currency;
+        const cat = d.categoryId ? s.catById[d.categoryId] : undefined;
+        if (cat && cat.kind !== d.kind) d.categoryId = null;
+      }
+      set({ repeatDraft: d });
+    },
+
+    async saveRepeatDraft() {
+      const s = get();
+      const d = s.repeatDraft;
+      const dlg = s.dialog;
+      if (!d || !dlg || dlg.kind !== "repeat") return false;
+      try {
+        const input = draftToRepeatInput(d, entryCtx());
+        const row = await serial(async () => {
+          if (dlg.id !== null) return ticketRepo.updateRepeat(dlg.id, input, today());
+          const created = await ticketRepo.createRepeat(input);
+          if (d.fromEntryId) await ticketRepo.linkEntryToRepeat(d.fromEntryId, created.id);
+          return created;
+        });
+        // 起算日在過去 ⇒ 當場補記（§5.3「會補記從那天起的每一班」；§6 #10「存完立刻」）
+        const n = await runMaterialize();
+        await serial(() => get().refresh());
+        get().closeRepeatEditor();
+        const rule = parseFixedRule(row.rule) ?? input.rule;
+        toast(TK_TEXT.repeatSaved(repeatDesc(rule, row.kind, row.account_id, row.to_account_id, row.category_id, row.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
+        return true;
+      } catch (e) {
+        failToast(e);
+        return false;
+      }
+    },
+
+    async pauseRepeat(id) {
+      await write(
+        () => ticketRepo.setRepeatPaused(id, true, today()),
+        () => toast(TK_TEXT.repeatPaused),
+      );
+    },
+
+    async resumeRepeat(id) {
+      const imported = get().repeatUnstarted.indexOf(id) >= 0; // 從沒開始過的匯入規則（與橫幅同一份，看帳含墓碑）
+      const ok = await write(() => ticketRepo.setRepeatPaused(id, false, today()));
+      if (!ok) return;
+      await runMaterialize(); // 匯入規則的 NEXT_DATE 已過 ⇒ 照常補記到今天（✎-8）
+      if (imported) {
+        toast(TK_TEXT.repeatResumedImported);
+        return;
+      }
+      const next = get().repeats.find((x) => x.id === id)?.next_on ?? null;
+      toast(next !== null ? TK_TEXT.repeatResumedNext(shortDay(next)) : TK_TEXT.repeatResumed);
+    },
+
+    async resumeAllRepeats() {
+      try {
+        const n = await serial(() => ticketRepo.resumeAllRepeats(today()));
+        await serial(() => get().refresh());
+        await runMaterialize();
+        toast(TK_TEXT.repeatResumedAll(n));
+      } catch (e) {
+        failToast(e);
+      }
+    },
+
+    async deleteRepeat(id) {
+      await write(
+        () => ticketRepo.softDeleteRepeat(id),
+        () =>
+          toast(TK_TEXT.repeatDeleted, TK_TEXT.undo, () => {
+            void write(() => ticketRepo.restoreRepeat(id));
+          }),
+      );
+    },
+
+    makeRepeatFromEntry(id) {
+      const s = get();
+      const e =
+        s.entries.find((x) => x.id === id) ?? s.statsEntries.find((x) => x.id === id) ?? (s.results ? s.results.find((x) => x.id === id) : undefined);
+      if (!e || e.kind === "adjust") return;
+      const rule = ruleFromEntry(e);
+      const seed: Partial<RepeatDraft> = {
+        kind: e.kind,
+        amountText: amountInputText(e.amount_minor, decimalsOf(e.currency)),
+        currency: e.currency,
+        accountId: e.account_id,
+        toAccountId: e.to_account_id,
+        categoryId: e.category_id,
+        note: e.note,
+        routeId: e.route_id,
+        freq: "monthly",
+        byweekday: [],
+        bymonthday: rule.bymonthday ? rule.bymonthday.slice() : [],
+        start: rule.start,
+        until: null,
+        hhmm: localTime(e.occurred_at),
+        fromEntryId: e.id,
+      };
+      get().openRepeatEditor(null, seed);
+    },
+
+    async materialize(reason) {
+      const n = await runMaterialize();
+      console.debug(`[ticket] 定期帳實體化（${reason}）：${n === null ? "失敗" : `記了 ${n} 筆`}`);
+      if (n === null) return; // 失敗只 console.warn、不 toast（使用者沒按任何東西，§3.9）
+      if (reason === "manual" || (n >= 1 && onTicketPage())) toast(TK_TEXT.materialized(n));
     },
   };
 });

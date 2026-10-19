@@ -217,6 +217,13 @@ export interface SyncRowLabel {
   label: string;
   open?: () => void | Promise<void>;
   cols?: Readonly<Record<string, string>>;
+  /**
+   * 「兩邊都改了」那一類的值格式化（接縫 #77）：`(欄名, 原值)` ⇒ 要印的字；回 null＝這個欄退回 `fmtMergeValue`。
+   * 例：時刻欄把 UTC ISO 印成本地「10/19 14:35」、外鍵欄把 uuid 印成名字。不給＝照原樣印。
+   */
+  fmt?: (col: string, v: unknown) => string | null;
+  /** 補一句（接縫 #77）：接在方向句後面、括號包起來（只放清單列；toast 不放，兩行上限）。不給＝不多任何東西 */
+  note?: string;
 }
 
 /** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */

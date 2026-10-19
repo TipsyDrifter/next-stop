@@ -14,7 +14,8 @@
  * 手機的單欄排版由丙席在 ticket-mobile.css 調（本檔 class 兩殼共用）。
  */
 import { useState } from "react";
-import { useTicketStore, TK_TEXT } from "../../store/ticketStore";
+import { useTicketStore, TK_TEXT, IMPORT_REPEATS_PAUSED } from "../../store/ticketStore";
+import { partSummary, type PlanImportPart } from "../../domain/ticketPlan";
 import { SealReceipt } from "../stamps/Stamps";
 import { moneyText, type BalanceCheck, type EntryRow, type ImportChange, type ImportPlan } from "../../domain/ticket";
 import { groupLabel } from "./TicketLedger";
@@ -101,6 +102,24 @@ export function ImportCard(props: { onDone(): void }) {
 
 /* ───────── 預覽卡 ───────── */
 
+/** 第③階段（③契約 §5.6）：預算與定期規則的計畫——摘要行之後一行；有略過、或備份少了欄位 ⇒ 各多一行小字 */
+function PlanLines() {
+  const part: PlanImportPart | null = useTicketStore((s) => s.imp.part);
+  if (!part) return null;
+  const b = part.budgets;
+  const sum = partSummary(part);
+  return (
+    <>
+      <p className="ns-tk-im-sum is-plan">
+        預算 <b>{b.scopes}</b> 個{b.overrides > 0 && <>（{b.overrides} 個單月覆寫）</>} · 定期 <b>{part.repeats.inserts.length + part.repeats.updates.length}</b> 條
+      </p>
+      {sum.skipLine && <p className="ns-tk-im-plannote">{sum.skipLine}</p>}
+      {sum.tombLine && <p className="ns-tk-im-plannote">{sum.tombLine}</p>}
+      {part.missing.length > 0 && <p className="ns-tk-im-plannote">這個備份的預算／定期表少了 {part.missing.join("、")}，這次只匯交易</p>}
+    </>
+  );
+}
+
 function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: string; onCancel(): void }) {
   const balanceText = useTicketStore((s) => s.imp.balanceText);
   const choices = useTicketStore((s) => s.imp.choices);
@@ -125,6 +144,7 @@ function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: str
         <p className="ns-tk-im-sum">
           帳戶 <b>{sm.accounts}</b> · 分類 <b>{sm.categories}</b> · 交易 <b>{sm.transactions}</b> · {ymd(sm.from)} – {ymd(sm.to)}
         </p>
+        <PlanLines />
       </header>
 
       {plan.unsupported !== null && <p className="ns-tk-verdict bad">{plan.unsupported}</p>}
@@ -320,6 +340,7 @@ function ModRow({ c, choice, onChoice }: { c: ImportChange; choice: "theirs" | "
 
 function Done({ onClose }: { onClose(): void }) {
   const outcome = useTicketStore((s) => s.imp.outcome);
+  const part = useTicketStore((s) => s.imp.part);
   const after = useTicketStore((s) => s.imp.after);
   const plan = useTicketStore((s) => s.imp.plan);
   const curByCode = useTicketStore((s) => s.curByCode);
@@ -329,17 +350,23 @@ function Done({ onClose }: { onClose(): void }) {
   const anyBad = rows.some((r) => r.ok === false);
   const dec = (code: string) => curByCode[code]?.decimals ?? 2;
   const dupNames = dupSet(rows.map((r) => r.name));
+  const tombLine = part ? partSummary(part).tombLine : null;
 
   return (
     <div className="ns-tk-im-done">
       <div className="ns-tk-im-donehead">
         <p className="ns-tk-im-result">
           {outcome ? TK_TEXT.importResult(outcome.inserted, outcome.updated, outcome.skipped) : TK_TEXT.importResult(0, 0, 0)}
+          {/* 第③階段（③契約 §5.6）：預算和預覽同一個口徑（有變動的對象數＋單月覆寫數，不是列數；收尾修正 nit n4） */}
+          {outcome &&
+            ` · 預算 ${part ? part.budgets.scopes : 0} 個${part && part.budgets.overrides > 0 ? `（${part.budgets.overrides} 個單月覆寫）` : ""} · 定期 ${outcome.repeats} 條`}
         </p>
         <span className="ns-tk-im-seal">
           <SealReceipt size={46} fresh rotate={-5} title="領収" />
         </span>
       </div>
+      {/* 沙盒代驗 D2：本機刪過的預算／定期照舊不復活，和預覽卡同一行小字說出來 */}
+      {outcome && tombLine && <p className="ns-tk-im-plannote">{tombLine}</p>}
       {rows.length > 0 && (
         <table className="ns-tk-im-table">
           <thead>
@@ -370,6 +397,14 @@ function Done({ onClose }: { onClose(): void }) {
       )}
       {(!anyInput || plan?.adjust.rule === "default") && (
         <p className="ns-tk-im-note">「差別」的方向用了預設假設——請對照財務管家「帳戶」頁的餘額核對一次。</p>
+      )}
+      {outcome && outcome.repeats > 0 && IMPORT_REPEATS_PAUSED && (
+        <p className="ns-tk-im-note is-plan">
+          {TK_TEXT.importPaused}
+          <button type="button" className="ns-tk-btn quiet" onClick={() => useTicketStore.getState().openDialog({ kind: "repeats" })}>
+            去定期帳 ›
+          </button>
+        </p>
       )}
       {anyBad && <p className="ns-tk-im-note is-bad">有帳戶對不上：可以在帳戶版「調整餘額…」補一筆精算。</p>}
       <footer className="ns-tk-im-foot">

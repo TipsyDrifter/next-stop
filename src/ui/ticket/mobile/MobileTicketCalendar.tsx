@@ -4,6 +4,7 @@
  * 7 欄、格 `button` 高 ≥ 56px：日號左上；有收入的天先一行小字「＋N」（gold-ink），支出一個數在右下
  *   （兩個都走 `cellText(cell, dec, true)`＝compactMoney，≥ 10 萬縮「12.3萬」）；不用金點（D-票-28）。
  * 格值＝store.calendar（`calendarCells`，與清單日分組頭同口徑）；本月外的格只有淡日號。
+ * 第③階段（③契約 §5.5、✎-6）：store.overDay 那一格加 `is-over`、日號後小字「超」（墨色，格不上色；一個月最多一格）。
  * 點格＝`jumpToDay`（切清單、捲到那天）。手機的「選中」只是清單那一列亮起：store 的 `select` 會順手開詳情（桌機右側板），
  *   手機那是全螢幕表單、會把剛捲到的清單蓋掉，所以跳完若開了 entry 面板就收起（選取留著）。
  */
@@ -18,6 +19,7 @@ import { useCalendarTodayFresh } from "../resume";
 
 export function MobileTicketCalendar() {
   const calendar = useTicketStore((s) => s.calendar);
+  const overDay = useTicketStore((s) => s.overDay); // 第③階段（✎-6）：本月總預算被超過的那一天
   const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
   const weekStart = useUiStore((s) => s.weekStart);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -54,7 +56,7 @@ export function MobileTicketCalendar() {
             calendar.map((week) => (
               <div key={week[0].dayKey} className="ns-tk-mcal-week" role="row">
                 {week.map((c) => (
-                  <Cell key={c.dayKey} c={c} dec={dec} future={c.dayKey > today} onPick={pick} />
+                  <Cell key={c.dayKey} c={c} dec={dec} future={c.dayKey > today} over={c.inMonth && c.dayKey === overDay} onPick={pick} />
                 ))}
               </div>
             ))
@@ -66,7 +68,7 @@ export function MobileTicketCalendar() {
   );
 }
 
-function Cell({ c, dec, future, onPick }: { c: CalendarCell; dec: number; future: boolean; onPick(day: string): void }) {
+function Cell({ c, dec, future, over, onPick }: { c: CalendarCell; dec: number; future: boolean; over: boolean; onPick(day: string): void }) {
   const t = c.inMonth ? cellText(c, dec, true) : { expense: "", income: null };
   const d = Number(c.dayKey.slice(8, 10));
   const label =
@@ -74,16 +76,21 @@ function Cell({ c, dec, future, onPick }: { c: CalendarCell; dec: number; future
     (c.count === 0
       ? "：沒有紀錄"
       : `：支出 ${moneyText(c.expense, dec, { whole: true })}${c.income !== 0 ? `、收入 ${moneyText(c.income, dec, { whole: true })}` : ""}`) +
-    (c.isToday ? "（今天）" : "");
+    (c.isToday ? "（今天）" : "") +
+    (over ? "；本月總預算在這天超過" : "");
   const cls =
     "ns-tk-mcal-cell" +
     (c.inMonth ? "" : " is-out") +
     (c.isToday ? " is-today" : "") +
     (future ? " is-future" : "") +
-    (c.count > 0 && c.inMonth ? " has" : "");
+    (c.count > 0 && c.inMonth ? " has" : "") +
+    (over ? " is-over" : "");
   return (
     <button type="button" role="gridcell" className={cls} aria-label={label} onClick={() => onPick(c.dayKey)}>
-      <span className="d">{d}</span>
+      <span className="d">
+        {d}
+        {over && <small className="over">超</small>}
+      </span>
       <span className="vals">
         {t.income !== null && <span className="i">{t.income}</span>}
         {t.expense !== "" && <span className="x">{t.expense}</span>}

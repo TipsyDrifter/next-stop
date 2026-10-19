@@ -60,6 +60,7 @@ import {
   resultSummary,
   routeCtx,
 } from "../../../domain/ticketView";
+import { budgetScopes, effectiveBudget } from "../../../domain/ticketPlan";
 import "../ticket.css";
 import "../ticket-mobile.css";
 
@@ -127,6 +128,8 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const searchOpen = useTicketStore((s) => s.searchOpen);
   const filter = useTicketStore((s) => s.filter);
   const dayNotice = useTicketStore((s) => s.dayNotice);
+  const budgets = useTicketStore((s) => s.budgets);
+  const repeats = useTicketStore((s) => s.repeats);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
   const [sheet, setSheet] = useState<"manage" | "archived" | null>(null);
@@ -167,6 +170,19 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
     categoryTree(categories, kind, { includeArchived: false }).filter((t) => t.parent.id !== UNCAT_INCOME_ID && t.parent.id !== UNCAT_EXPENSE_ID)
       .length;
 
+  // 第③階段：管理 sheet 兩列的小字（0-14）——「總預算 15,000 · 分類 2」／「進行中 3 · 已暫停 1」；都沒有 ⇒「還沒有」
+  const budgetScopeList = budgetScopes(budgets);
+  const totalEff = effectiveBudget(budgets, { kind: "total" }, thisMonth);
+  const catBudgets = budgetScopeList.filter((x) => x.kind === "category").length;
+  const budgetSummary =
+    budgetScopeList.length === 0
+      ? "還沒有"
+      : [totalEff ? `總預算 ${moneyText(totalEff.row.amount_minor, mainDec, { whole: true })}` : null, catBudgets ? `分類 ${catBudgets}` : null]
+          .filter((x): x is string => x !== null)
+          .join(" · ") || "還沒有";
+  const pausedN = repeats.filter((r) => r.paused_at !== null).length;
+  const repeatSummary = repeats.length === 0 ? "還沒有" : `進行中 ${repeats.length - pausedN} · 已暫停 ${pausedN}`;
+
   return (
     <>
       <div className="ns-tk-mtotal">
@@ -197,7 +213,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           type="button"
           className="ns-tk-mmanage"
           aria-label="管理"
-          title="管理：分類、幣別與匯率、匯入"
+          title="管理：分類、預算、定期帳、幣別與匯率、匯入"
           aria-haspopup="menu"
           aria-expanded={sheet === "manage"}
           onClick={() => setSheet("manage")}
@@ -319,6 +335,27 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
             }}
           >
             分類管理<small>支出 {catCount("expense")} · 收入 {catCount("income")}</small>
+          </button>
+          {/* 第③階段（③契約 0-14、§5.5）：預算、定期帳 */}
+          <button
+            type="button"
+            className="m-sheet-item ns-tk-msheet-row"
+            onClick={() => {
+              setSheet(null);
+              openDialog({ kind: "budgets" });
+            }}
+          >
+            預算<small>{budgetSummary}</small>
+          </button>
+          <button
+            type="button"
+            className="m-sheet-item ns-tk-msheet-row"
+            onClick={() => {
+              setSheet(null);
+              openDialog({ kind: "repeats" });
+            }}
+          >
+            定期帳<small>{repeatSummary}</small>
           </button>
           <button
             type="button"
@@ -705,7 +742,11 @@ function Row({ e }: { e: EntryRow }) {
       >
         <span className="sg">{SIGN[e.kind]}</span>
         <span className="main">
-          <span className="c">{cat}</span>
+          {/* 第③階段（✎-5）：定期帳記的（或被「設成定期」連上的）帳在分類後接小標；分類字包 .ct 負責省略號，小標永遠看得到 */}
+          <span className="c">
+            <span className="ct">{cat}</span>
+            {e.repeat_id && <span className="ns-tk-mrep">定期</span>}
+          </span>
           {(e.note || route) && (
             <span className="nt">
               {route && (

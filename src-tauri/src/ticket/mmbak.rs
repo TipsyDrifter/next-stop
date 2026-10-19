@@ -24,7 +24,8 @@ pub struct MmbakReadResult {
     pub dump: Option<MmbakDump>,
 }
 
-/// 五張要讀的表的原樣內容（字串欄一律 `CAST(x AS TEXT)`，整數欄 `CAST(COALESCE(x,0) AS INTEGER)`）。
+/// 五張要讀的表的原樣內容（字串欄一律 `CAST(x AS TEXT)`，整數欄 `CAST(COALESCE(x,0) AS INTEGER)`）；
+/// 第③階段多三張（`BUDGET`／`BUDGET_AMOUNT`／`REPEATTRANSACTION`，缺欄不擋）。
 #[derive(Debug, Clone, Serialize)]
 pub struct MmbakDump {
     /// 給預覽卡顯示的檔名（路徑最後一段）
@@ -34,6 +35,64 @@ pub struct MmbakDump {
     pub accounts: Vec<MmAccount>,
     pub categories: Vec<MmCategory>,
     pub transactions: Vec<MmTx>,
+    /// 第③階段（③契約 §3.6、0-17）：三張表**缺欄不擋**——某張表少了 `PLAN_COLUMNS` 裡任一欄 ⇒ 那張的陣列 None、
+    /// `plan_missing` 推「表.欄」，交易照讀照匯。
+    pub budgets: Option<Vec<MmBudget>>,
+    pub budget_amounts: Option<Vec<MmBudgetAmount>>,
+    pub repeats: Option<Vec<MmRepeat>>,
+    pub plan_missing: Vec<String>,
+}
+
+/// `BUDGET` 一列（預算對象；碼值意義在 TS `planBudgetImport`）
+#[derive(Debug, Clone, Serialize)]
+pub struct MmBudget {
+    pub uid: String,
+    /// 分類預算的 `ZCATEGORY.uid`；總額是空字串或 NULL
+    pub target_uid: Option<String>,
+    pub do_type: i64,
+    pub period_type: i64,
+    pub is_total: bool,
+    pub is_del: bool,
+    pub transfer_type: i64,
+    /// 毫秒
+    pub modify_date: i64,
+}
+
+/// `BUDGET_AMOUNT` 一列（某個預算對象在某期的金額）
+#[derive(Debug, Clone, Serialize)]
+pub struct MmBudgetAmount {
+    pub uid: String,
+    pub budget_uid: String,
+    pub is_del: bool,
+    /// 十進位字串（`AMOUNT` 是 REAL；`num_text`，不經浮點運算）
+    pub amount: String,
+    /// `0`＝預設、`YYYYMM`＝該月覆寫
+    pub budget_period: i64,
+    /// 毫秒
+    pub modify_date: i64,
+}
+
+/// `REPEATTRANSACTION` 一列（定期規則；只讀不解讀）
+#[derive(Debug, Clone, Serialize)]
+pub struct MmRepeat {
+    pub uid: String,
+    pub is_del: bool,
+    /// 修改時間（毫秒）
+    pub usetime: i64,
+    /// 終止日（毫秒；0＝沒有）
+    pub end_date: i64,
+    /// 下一班（毫秒）
+    pub next_date: i64,
+    pub do_type: i64,
+    pub repeat_type: i64,
+    pub asset_uid: Option<String>,
+    pub to_asset_uid: Option<String>,
+    pub ctg_uid: Option<String>,
+    pub currency_uid: Option<String>,
+    /// 交易幣別原幣的金額（十進位字串；`AMOUNT_SUB` 是 REAL）
+    pub amount_sub: String,
+    pub memo: String,
+    pub payee: String,
 }
 
 /// `CURRENCY` 一列
@@ -122,8 +181,51 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "ZETC",
 ];
 
-/// 要讀的五張表（欄名檢查只看這幾張）
-const READ_TABLES: &[&str] = &["INOUTCOME", "ASSETS", "ASSETGROUP", "ZCATEGORY", "CURRENCY"];
+/// 要讀的表（欄名檢查只看這幾張）：①b 的五張＋第③階段的三張（後三張只為了填 `plan_missing`，不進 `REQUIRED_COLUMNS`，0-17）
+const READ_TABLES: &[&str] = &[
+    "INOUTCOME",
+    "ASSETS",
+    "ASSETGROUP",
+    "ZCATEGORY",
+    "CURRENCY",
+    "BUDGET",
+    "BUDGET_AMOUNT",
+    "REPEATTRANSACTION",
+];
+
+/// 第③階段三張表要讀的欄（表, 欄；③契約 §3.6，全部實證於〈③備份預算重複表實證〉）。
+/// 缺了**不擋**（0-17）：那張表的陣列 None、`plan_missing` 推「表.欄」，交易照匯。
+pub const PLAN_COLUMNS: &[(&str, &str)] = &[
+    ("BUDGET", "uid"),
+    ("BUDGET", "targetUid"),
+    ("BUDGET", "DO_TYPE"),
+    ("BUDGET", "PERIOD_TYPE"),
+    ("BUDGET", "IS_TOTAL"),
+    ("BUDGET", "IS_DEL"),
+    ("BUDGET", "TRANSFER_TYPE"),
+    ("BUDGET", "MODIFY_DATE"),
+    ("BUDGET_AMOUNT", "uid"),
+    ("BUDGET_AMOUNT", "budgetUid"),
+    ("BUDGET_AMOUNT", "IS_DEL"),
+    ("BUDGET_AMOUNT", "AMOUNT"),
+    ("BUDGET_AMOUNT", "BUDGET_PERIOD"),
+    ("BUDGET_AMOUNT", "MODIFY_DATE"),
+    ("REPEATTRANSACTION", "uid"),
+    ("REPEATTRANSACTION", "IS_DEL"),
+    ("REPEATTRANSACTION", "USETIME"),
+    ("REPEATTRANSACTION", "END_DATE"),
+    ("REPEATTRANSACTION", "NEXT_DATE"),
+    ("REPEATTRANSACTION", "DO_TYPE"),
+    ("REPEATTRANSACTION", "REPEAT_TYPE"),
+    ("REPEATTRANSACTION", "assetUid"),
+    ("REPEATTRANSACTION", "toAssetUid"),
+    ("REPEATTRANSACTION", "ctgUid"),
+    ("REPEATTRANSACTION", "currencyUid"),
+    ("REPEATTRANSACTION", "AMOUNT_SUB"),
+    ("REPEATTRANSACTION", "MEMO"),
+    ("REPEATTRANSACTION", "PAYEE"),
+];
+const PLAN_TABLES: &[&str] = &["BUDGET", "BUDGET_AMOUNT", "REPEATTRANSACTION"];
 
 /// 必須存在的欄（表, 欄）。前段＝樣本格式文件實證；後段＝甲席 10-12 `PRAGMA table_info` 實證（契約 §3.6）。
 /// 改欄名時 `scripts/probes/ticket-import-dryrun.ts`（若有）要一起改。
@@ -492,6 +594,126 @@ async fn read_with(conn: &mut SqliteConnection, file_name: &str) -> Result<Mmbak
         });
     }
 
+    // 5. 第③階段三張表（0-17 缺欄不擋）：表不在（REQUIRED_TABLES 已擋，實際上不會發生）推「表」、少欄推「表.欄」，那張給 None
+    let mut plan_missing: Vec<String> = Vec::new();
+    let mut plan_ok: HashSet<&str> = HashSet::new();
+    for t in PLAN_TABLES {
+        if !actual.contains_key(*t) {
+            plan_missing.push(t.to_string());
+            continue;
+        }
+        let before = plan_missing.len();
+        for (pt, c) in PLAN_COLUMNS {
+            if pt == t && !has((pt, c)) {
+                plan_missing.push(format!("{pt}.{c}"));
+            }
+        }
+        if plan_missing.len() == before {
+            plan_ok.insert(*t);
+        }
+    }
+
+    let budgets = if plan_ok.contains("BUDGET") {
+        let sql = format!(
+            "SELECT {}, {}, {}, {}, {} <> 0, {} <> 0, {}, {} FROM {} ORDER BY rowid",
+            text("uid"),
+            opt_text("targetUid"),
+            int("DO_TYPE"),
+            int("PERIOD_TYPE"),
+            int("IS_TOTAL"),
+            int("IS_DEL"),
+            int("TRANSFER_TYPE"),
+            int("MODIFY_DATE"),
+            tbl("BUDGET"),
+        );
+        let mut v = Vec::new();
+        for r in sqlx::query(&sql).fetch_all(&mut *conn).await.map_err(read_err)? {
+            v.push(MmBudget {
+                uid: r.try_get(0).map_err(read_err)?,
+                target_uid: r.try_get(1).map_err(read_err)?,
+                do_type: r.try_get(2).map_err(read_err)?,
+                period_type: r.try_get(3).map_err(read_err)?,
+                is_total: r.try_get(4).map_err(read_err)?,
+                is_del: r.try_get(5).map_err(read_err)?,
+                transfer_type: r.try_get(6).map_err(read_err)?,
+                modify_date: r.try_get(7).map_err(read_err)?,
+            });
+        }
+        Some(v)
+    } else {
+        None
+    };
+
+    let budget_amounts = if plan_ok.contains("BUDGET_AMOUNT") {
+        let sql = format!(
+            "SELECT {}, {}, {} <> 0, {}, {}, {} FROM {} ORDER BY rowid",
+            text("uid"),
+            text("budgetUid"),
+            int("IS_DEL"),
+            num_text("AMOUNT"),
+            int("BUDGET_PERIOD"),
+            int("MODIFY_DATE"),
+            tbl("BUDGET_AMOUNT"),
+        );
+        let mut v = Vec::new();
+        for r in sqlx::query(&sql).fetch_all(&mut *conn).await.map_err(read_err)? {
+            v.push(MmBudgetAmount {
+                uid: r.try_get(0).map_err(read_err)?,
+                budget_uid: r.try_get(1).map_err(read_err)?,
+                is_del: r.try_get(2).map_err(read_err)?,
+                amount: r.try_get(3).map_err(read_err)?,
+                budget_period: r.try_get(4).map_err(read_err)?,
+                modify_date: r.try_get(5).map_err(read_err)?,
+            });
+        }
+        Some(v)
+    } else {
+        None
+    };
+
+    let repeats = if plan_ok.contains("REPEATTRANSACTION") {
+        let sql = format!(
+            "SELECT {}, {} <> 0, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} FROM {} ORDER BY rowid",
+            text("uid"),
+            int("IS_DEL"),
+            int("USETIME"),
+            int("END_DATE"),
+            int("NEXT_DATE"),
+            int("DO_TYPE"),
+            int("REPEAT_TYPE"),
+            opt_text("assetUid"),
+            opt_text("toAssetUid"),
+            opt_text("ctgUid"),
+            opt_text("currencyUid"),
+            num_text("AMOUNT_SUB"),
+            text("MEMO"),
+            text("PAYEE"),
+            tbl("REPEATTRANSACTION"),
+        );
+        let mut v = Vec::new();
+        for r in sqlx::query(&sql).fetch_all(&mut *conn).await.map_err(read_err)? {
+            v.push(MmRepeat {
+                uid: r.try_get(0).map_err(read_err)?,
+                is_del: r.try_get(1).map_err(read_err)?,
+                usetime: r.try_get(2).map_err(read_err)?,
+                end_date: r.try_get(3).map_err(read_err)?,
+                next_date: r.try_get(4).map_err(read_err)?,
+                do_type: r.try_get(5).map_err(read_err)?,
+                repeat_type: r.try_get(6).map_err(read_err)?,
+                asset_uid: r.try_get(7).map_err(read_err)?,
+                to_asset_uid: r.try_get(8).map_err(read_err)?,
+                ctg_uid: r.try_get(9).map_err(read_err)?,
+                currency_uid: r.try_get(10).map_err(read_err)?,
+                amount_sub: r.try_get(11).map_err(read_err)?,
+                memo: r.try_get(12).map_err(read_err)?,
+                payee: r.try_get(13).map_err(read_err)?,
+            });
+        }
+        Some(v)
+    } else {
+        None
+    };
+
     Ok(MmbakReadResult {
         missing: Vec::new(),
         dump: Some(MmbakDump {
@@ -501,12 +723,16 @@ async fn read_with(conn: &mut SqliteConnection, file_name: &str) -> Result<Mmbak
             accounts,
             categories,
             transactions,
+            budgets,
+            budget_amounts,
+            repeats,
+            plan_missing,
         }),
     })
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   單測（契約 §3.6 (a)–(g)；臨時 DB 造最小 schema，照 backup.rs 的 temp_dir 寫法）
+   單測（契約 §3.6 (a)–(g)；③契約 §3.6 (h)–(j)；臨時 DB 造最小 schema，照 backup.rs 的 temp_dir 寫法）
    `copy_to_cache` 要 AppHandle，不進單測（沙盒 §7.2 驗）。
    ═══════════════════════════════════════════════════════════════════════ */
 #[cfg(test)]
@@ -541,9 +767,19 @@ mod tests {
                 "CURRENCY",
                 vec!["uid", "NAME", "ISO", "IS_DEL", "ORDER_SEQ", "RATE", "IS_MAIN_CURRENCY", "DECIMAL_POINT"],
             ),
-            ("BUDGET", vec!["ID"]),
-            ("BUDGET_AMOUNT", vec!["ID"]),
-            ("REPEATTRANSACTION", vec!["ID"]),
+            // 第③階段（③契約 §3.6）：三張表的完整欄（＋一兩個不讀的欄，驗「多的欄不礙事」）
+            (
+                "BUDGET",
+                vec!["uid", "targetUid", "DO_TYPE", "PERIOD_TYPE", "IS_TOTAL", "IS_DEL", "TRANSFER_TYPE", "MODIFY_DATE", "ORDERSEQ"],
+            ),
+            ("BUDGET_AMOUNT", vec!["uid", "budgetUid", "IS_DEL", "AMOUNT", "BUDGET_PERIOD", "MODIFY_DATE"]),
+            (
+                "REPEATTRANSACTION",
+                vec![
+                    "uid", "IS_DEL", "USETIME", "END_DATE", "NEXT_DATE", "DO_TYPE", "REPEAT_TYPE", "assetUid", "toAssetUid",
+                    "ctgUid", "currencyUid", "AMOUNT_SUB", "MEMO", "PAYEE", "MARK",
+                ],
+            ),
             ("ZETC", vec!["ID"]),
         ]
     }
@@ -625,6 +861,70 @@ mod tests {
                 .execute(&mut c)
                 .await
                 .unwrap();
+            }
+        }
+        // 第③階段三張表（欄＝值的 SQL 字面；skip_col 指到的欄連值一起拿掉）。無 affinity：REAL 照 REAL 存、字串照字串存
+        let plan_rows: Vec<(&str, Vec<Vec<(&str, &str)>>)> = vec![
+            (
+                "BUDGET",
+                vec![
+                    vec![
+                        ("uid", "'b-total'"), ("targetUid", "NULL"), ("DO_TYPE", "1"), ("PERIOD_TYPE", "6"), ("IS_TOTAL", "1"),
+                        ("IS_DEL", "0"), ("TRANSFER_TYPE", "0"), ("MODIFY_DATE", "1791000000010"),
+                    ],
+                    vec![
+                        ("uid", "'b-food'"), ("targetUid", "'k-food'"), ("DO_TYPE", "1"), ("PERIOD_TYPE", "6"), ("IS_TOTAL", "0"),
+                        ("IS_DEL", "0"), ("TRANSFER_TYPE", "0"), ("MODIFY_DATE", "1791000000011"),
+                    ],
+                ],
+            ),
+            (
+                "BUDGET_AMOUNT",
+                vec![
+                    vec![
+                        ("uid", "'ba1'"), ("budgetUid", "'b-total'"), ("IS_DEL", "0"), ("AMOUNT", "15000.0"),
+                        ("BUDGET_PERIOD", "0"), ("MODIFY_DATE", "1791000000012"),
+                    ],
+                    vec![
+                        ("uid", "'ba2'"), ("budgetUid", "'b-total'"), ("IS_DEL", "0"), ("AMOUNT", "12000.5"),
+                        ("BUDGET_PERIOD", "202601"), ("MODIFY_DATE", "1791000000013"),
+                    ],
+                    vec![
+                        ("uid", "'ba3'"), ("budgetUid", "'b-food'"), ("IS_DEL", "1"), ("AMOUNT", "'3000'"),
+                        ("BUDGET_PERIOD", "'202602'"), ("MODIFY_DATE", "1791000000014"),
+                    ],
+                ],
+            ),
+            (
+                "REPEATTRANSACTION",
+                vec![
+                    vec![
+                        ("uid", "'r1'"), ("IS_DEL", "0"), ("USETIME", "1791000000020"), ("END_DATE", "0"),
+                        ("NEXT_DATE", "1793000000000"), ("DO_TYPE", "1"), ("REPEAT_TYPE", "1"), ("assetUid", "'a-cash'"),
+                        ("toAssetUid", "''"), ("ctgUid", "'k-lunch'"), ("currencyUid", "'c-usd'"), ("AMOUNT_SUB", "12.5"),
+                        ("MEMO", "''"), ("PAYEE", "'雲端'"),
+                    ],
+                    vec![
+                        ("uid", "'r2'"), ("IS_DEL", "1"), ("USETIME", "1791000000021"), ("END_DATE", "1800000000000"),
+                        ("NEXT_DATE", "1793000000001"), ("DO_TYPE", "0"), ("REPEAT_TYPE", "9"), ("assetUid", "'a-card'"),
+                        ("toAssetUid", "NULL"), ("ctgUid", "NULL"), ("currencyUid", "NULL"), ("AMOUNT_SUB", "300"),
+                        ("MEMO", "NULL"), ("PAYEE", "NULL"),
+                    ],
+                ],
+            ),
+        ];
+        for (t, rows) in plan_rows {
+            if !has(t) {
+                continue;
+            }
+            for row in rows {
+                let row: Vec<(&str, &str)> = row.into_iter().filter(|(col, _)| skip_col != Some((t, *col))).collect();
+                let cs: Vec<&str> = row.iter().map(|x| x.0).collect();
+                let vs: Vec<&str> = row.iter().map(|x| x.1).collect();
+                sqlx::query(&format!("INSERT INTO {t} ({}) VALUES ({})", cs.join(", "), vs.join(", ")))
+                    .execute(&mut c)
+                    .await
+                    .unwrap();
             }
         }
         let _ = c.close().await;
@@ -758,6 +1058,94 @@ mod tests {
         let t3 = d.transactions.iter().find(|t| t.uid == "t3").unwrap();
         assert!(t3.is_del);
         assert!(d.categories.iter().any(|c| c.uid == "k-old" && c.is_del));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn h_三張管帳表完整_plan_missing_空_欄值照讀() {
+        let p = temp_db("plan");
+        tauri::async_runtime::block_on(make(&p, None, None, None));
+        let r = read(&p);
+        assert!(r.missing.is_empty(), "{:?}", r.missing);
+        let d = r.dump.expect("dump");
+        assert!(d.plan_missing.is_empty(), "{:?}", d.plan_missing);
+
+        let b = d.budgets.expect("budgets");
+        assert_eq!(b.len(), 2);
+        assert_eq!(b[0].uid, "b-total");
+        assert_eq!(b[0].target_uid, None);
+        assert!(b[0].is_total);
+        assert!(!b[0].is_del);
+        assert_eq!((b[0].do_type, b[0].period_type, b[0].transfer_type), (1, 6, 0));
+        assert_eq!(b[0].modify_date, 1791000000010);
+        assert_eq!(b[1].target_uid.as_deref(), Some("k-food"));
+        assert!(!b[1].is_total);
+
+        let a = d.budget_amounts.expect("budget_amounts");
+        assert_eq!(a.len(), 3);
+        assert_eq!(a[0].uid, "ba1");
+        assert_eq!(a[0].budget_uid, "b-total");
+        assert_eq!(a[0].budget_period, 0);
+        assert_eq!(a[0].modify_date, 1791000000012);
+        assert!(a[2].is_del); // IS_DEL=1 照樣回傳（TS 判）
+        assert_eq!(a[2].amount, "3000");
+
+        let rp = d.repeats.expect("repeats");
+        assert_eq!(rp.len(), 2);
+        let r1 = &rp[0];
+        assert_eq!(r1.uid, "r1");
+        assert!(!r1.is_del);
+        assert_eq!((r1.usetime, r1.end_date, r1.next_date), (1791000000020, 0, 1793000000000));
+        assert_eq!((r1.do_type, r1.repeat_type), (1, 1));
+        assert_eq!(r1.asset_uid.as_deref(), Some("a-cash"));
+        assert_eq!(r1.to_asset_uid.as_deref(), Some("")); // 空字串原樣（只讀不解讀；TS 當沒有）
+        assert_eq!(r1.ctg_uid.as_deref(), Some("k-lunch"));
+        assert_eq!(r1.currency_uid.as_deref(), Some("c-usd"));
+        assert_eq!((r1.memo.as_str(), r1.payee.as_str()), ("", "雲端"));
+        let r2 = &rp[1];
+        assert!(r2.is_del);
+        assert_eq!((r2.end_date, r2.repeat_type), (1800000000000, 9)); // 不認得的週期碼也照讀
+        assert_eq!((r2.to_asset_uid.clone(), r2.ctg_uid.clone(), r2.currency_uid.clone()), (None, None, None));
+        assert_eq!((r2.memo.as_str(), r2.payee.as_str()), ("", "")); // NULL ⇒ ''
+        assert_eq!(r2.amount_sub, "300");
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn i_管帳表缺欄不擋_那張給_none_交易照讀() {
+        let p = temp_db("plancol");
+        tauri::async_runtime::block_on(make(&p, None, None, Some(("BUDGET", "targetUid"))));
+        let r = read(&p);
+        assert!(r.missing.is_empty(), "{:?}", r.missing); // 不進 REQUIRED_COLUMNS（0-17）
+        let d = r.dump.expect("dump 仍 Some");
+        assert!(d.budgets.is_none());
+        assert_eq!(d.plan_missing, vec!["BUDGET.targetUid".to_string()]);
+        assert_eq!(d.budget_amounts.map(|v| v.len()), Some(3));
+        assert_eq!(d.repeats.map(|v| v.len()), Some(2));
+        assert_eq!(d.transactions.len(), 4);
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+
+        let p = temp_db("plancol2");
+        tauri::async_runtime::block_on(make(&p, None, None, Some(("REPEATTRANSACTION", "PAYEE"))));
+        let d = read(&p).dump.expect("dump 仍 Some");
+        assert!(d.repeats.is_none());
+        assert_eq!(d.plan_missing, vec!["REPEATTRANSACTION.PAYEE".to_string()]);
+        assert_eq!(d.budgets.map(|v| v.len()), Some(2));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn j_金額以_real_存_讀出字串_期間讀成整數() {
+        let p = temp_db("planreal");
+        tauri::async_runtime::block_on(make(&p, None, None, None));
+        let d = read(&p).dump.unwrap();
+        let rp = d.repeats.unwrap();
+        assert_eq!(rp[0].amount_sub, "12.5");
+        let a = d.budget_amounts.unwrap();
+        assert_eq!(a[0].amount, "15000.0");
+        assert_eq!(a[1].amount, "12000.5");
+        assert_eq!(a[1].budget_period, 202601);
+        assert_eq!(a[2].budget_period, 202602); // 存成字串也讀成整數
         let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 

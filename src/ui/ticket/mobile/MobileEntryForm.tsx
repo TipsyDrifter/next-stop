@@ -7,7 +7,7 @@
  *   → 金額大字（inputmode=decimal 系統鍵盤，不自建數字鍵盤；右側幣別 chip 開 sheet）；外幣時下一行「≈ NT$ … · 匯率 …」可改折算額
  *   → 帳戶 chips 橫捲（轉帳＝「從」「到」兩列；不同幣別時多一欄「轉入金額」）
  *   → （收支）「最近」格子＋完整兩層格子（主分類一格一格、點開在那一列下方展子分類）
- *   → 「更多欄位」折疊：日期（MobileDatePicker）・時刻・備註・路線
+ *   → 「更多欄位」折疊：日期（MobileDatePicker）・時刻・備註・路線・（舊票，第③階段）定期——「設成定期… ›」或唯讀「每月 1 日 · 管理 ›」
  *   → 底部：新票「存並繼續」（存後清金額與備註、留帳戶分類）／舊票「刪除」
  *
  * 新票＝store 的 `draft`（`openNew`／`setDraft`／`saveDraft`）。舊票＝本地草稿，按「存」才送一次 `updateEntry`
@@ -42,6 +42,9 @@ import {
   type EntryRow,
 } from "../../../domain/ticket";
 import { IconCaret, IconRight, MSheet, groupLabelOf, nextDraft, useImeGuard } from "./mobileBits";
+import { parseFixedRule } from "../../../domain/ticketPlan";
+import { useLinkedRepeat } from "../plan/RepeatField";
+import { describeRule } from "../../../domain/repeat";
 
 type Mode = "new" | "edit";
 
@@ -158,6 +161,7 @@ function EditEntry({ row }: { row: EntryRow }) {
     <FormShell
       mode="edit"
       adjust={adjust}
+      entry={row}
       draft={d}
       onPatch={(p) => setD((prev) => nextDraft(prev, p, accById, catById))}
       onSave={() => void save()}
@@ -221,6 +225,7 @@ const SIGN: Record<EntryDraft["kind"], string> = { expense: "", income: "＋", t
 function FormShell({
   mode,
   adjust,
+  entry,
   draft: d,
   amtRef,
   onPatch,
@@ -230,6 +235,8 @@ function FormShell({
 }: {
   mode: Mode;
   adjust: boolean;
+  /** 舊票那一列（第③階段「更多欄位」的「定期」列要看它的 repeat_id）；新票 undefined */
+  entry?: EntryRow;
   draft: EntryDraft;
   amtRef?: RefObject<HTMLInputElement | null>;
   onPatch(p: Partial<EntryDraft>): void;
@@ -298,9 +305,22 @@ function FormShell({
   const autoTo = crossTransfer && amountMinor !== null && cur && toCur ? convertMinor(amountMinor, cur, toCur) : null;
 
   const route = d.routeId ? (routes.find((r) => r.id === d.routeId) ?? null) : null;
-  const moreSum = `${d.dayKey === today ? "今天" : shortDayKey(d.dayKey)} ${d.time} · ${d.note.trim() ? "有備註" : "無備註"} · ${
-    route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線"
-  }`;
+  const linkedRule = useLinkedRepeat(entry); // 第③階段：連著還在的規則（規則已刪 ⇒ null，當成沒連）
+  const moreSum =
+    `${d.dayKey === today ? "今天" : shortDayKey(d.dayKey)} ${d.time} · ${d.note.trim() ? "有備註" : "無備註"} · ${
+      route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線"
+    }` + (linkedRule ? " · 定期" : "");
+
+  /* 第③階段（③契約 §5.5、✎-4）：舊票「更多欄位」最後一列＝「定期」——連著還在的規則的唯讀「每月 1 日 · 管理 ›」，
+     沒連的、或規則已刪的（收尾修正）「設成定期… ›」 */
+  const makeRepeatFromEntry = useTicketStore((s) => s.makeRepeatFromEntry);
+  const linkedRuleObj = linkedRule ? parseFixedRule(linkedRule.rule) : null;
+  const openRepeats = () => {
+    // 定期帳 sheet（z 45）在全螢幕表單（z 46）底下：先收起表單（沒按「存」的改動放掉，同「取消」）
+    const st = useTicketStore.getState();
+    st.closePanel();
+    st.openDialog({ kind: "repeats" });
+  };
 
   /* 選中的帳戶／路線 chip 捲進橫捲列的可視範圍（只動水平，不讓表單上下跳） */
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -615,6 +635,24 @@ function FormShell({
                   ))}
                 </div>
               </div>
+              {entry && !adjust && linkedRule ? (
+                <div className="ns-tk-mf-field ns-tk-mf-rep is-ro">
+                  <span className="lbl">定期</span>
+                  <span className="v">{linkedRuleObj ? describeRule(linkedRuleObj) : "規則看不懂"}</span>
+                  <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={openRepeats}>
+                    管理
+                    <IconRight size={11} />
+                  </button>
+                </div>
+              ) : entry && !adjust ? (
+                <div className="ns-tk-mf-field ns-tk-mf-rep">
+                  <span className="lbl">定期</span>
+                  <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={() => makeRepeatFromEntry(entry.id)}>
+                    設成定期…
+                    <IconRight size={11} />
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

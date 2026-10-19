@@ -25,6 +25,7 @@ import type {
   ImportOutcome,
 } from "../domain/ticket";
 import type { EntryQuery } from "../domain/ticketView";
+import type { BudgetRow, BudgetScope, NewRepeatInput, PlanImportPart, RepeatPatch, RepeatRow } from "../domain/ticketPlan";
 import { MOCK_MODE, WIPED_MODE } from "./index";
 import { SqliteTicketRepository } from "./sqliteTicketRepository";
 import { MemoryTicketRepository } from "./memoryTicketRepository";
@@ -32,6 +33,8 @@ import { MemoryTicketRepository } from "./memoryTicketRepository";
 export type { NewEntryInput, EntryPatch } from "../domain/ticket";
 /** 型別定義在 domain（`filterToQuery` 產生它；domain 不能反過來 import data 層） */
 export type { EntryQuery } from "../domain/ticketView";
+/** 第③階段（③契約 §3.4）：規則的輸入定義在 domain（draftToRepeatInput 產生它），這裡 re-export */
+export type { NewRepeatInput, RepeatPatch, BudgetScope } from "../domain/ticketPlan";
 
 export interface NewAccountInput {
   name: string; // trim 後非空，否則 RangeError（§4.3）
@@ -99,8 +102,9 @@ export interface TicketRepository {
   createEntry(input: NewEntryInput): Promise<EntryRow>;
   /** 回寫入後的列；沒有任何欄真的變 ⇒ 不寫、回原列 */
   updateEntry(id: string, patch: EntryPatch): Promise<EntryRow>;
+  /** 第③階段（0-7-2）：那筆 repeat_id 非空且規則還在 ⇒ 同一批把 occurred_on 加進規則的 skipped_days（withSkipped）＋ upsert op */
   softDeleteEntry(id: string): Promise<void>;
-  /** undo：deleted_at 改回 NULL */
+  /** undo：deleted_at 改回 NULL（第③階段：同一批從 skipped_days 拿掉那一天） */
   restoreEntry(id: string): Promise<void>;
   createAccount(input: NewAccountInput): Promise<AccountRow>;
   updateAccount(id: string, patch: AccountPatch): Promise<void>;
@@ -118,17 +122,65 @@ export interface TicketRepository {
   createCurrency(input: NewCurrencyInput): Promise<CurrencyRow>;
   updateCurrency(id: string, patch: CurrencyPatch): Promise<void>;
 
+  /* ── 讀・第③階段「管帳」（③契約 §3.4） ── */
+  /** 未刪的預算（含預設與所有月的覆寫）；position、month */
+  listBudgets(): Promise<BudgetRow[]>;
+  /** 未刪的規則（含暫停）；(paused_at IS NOT NULL), COALESCE(next_on, 9999-99-99), created_at */
+  listRepeats(): Promise<RepeatRow[]>;
+  // overBudgetDays：0-2 定案選 (a)（主線日曆不標超支日，D-票-32）⇒ 契約 §3.4「答 (b) 才加」，不加。
+
+  /* ── 寫・預算（每支一個 WriteBatch） ── */
+  /** 依 (scope, month) 算 id ⇒ INSERT … ON CONFLICT(id) DO UPDATE SET amount_minor, deleted_at = NULL, updated_at；amount ≤ 0 ⇒ RangeError；未分類／非支出分類 ⇒ RangeError */
+  setBudget(scope: BudgetScope, month: string | null, amountMinor: number): Promise<BudgetRow>;
+  /** 軟刪那一列（預設或某月覆寫）；移除預設時連同該對象所有月的覆寫一起軟刪（同一批） */
+  removeBudget(scope: BudgetScope, month: string | null): Promise<void>;
+
+  /* ── 寫・定期帳（0-6～0-8） ── */
+  /** 驗證（§4.3 錯誤表）→ 新列（next_on = firstFixedDate(rule, rule.start)）；回列 */
+  createRepeat(input: NewRepeatInput): Promise<RepeatRow>;
+  /** 模板或規則變了 ⇒ 寫；規則變了 ⇒ next_on = nextFixedDate(新規則, today)（0-8）；沒變 ⇒ 不寫、回原列 */
+  updateRepeat(id: string, patch: RepeatPatch, today: string): Promise<RepeatRow>;
+  /**
+   * 暫停：paused_at = now；開始：paused_at = NULL＋next_on＝resumeNextOn——手建的（或開始過的）＝nextFixedDate(rule, today)（明天起）、
+   * 從沒開始過的匯入規則 next_on 不動（＝最後一次匯入帶進來的 NEXT_DATE，✎-8）。「從沒開始過」＝neverStarted(repeat, entries)（含墓碑）
+   */
+  setRepeatPaused(id: string, paused: boolean, today: string): Promise<void>;
+  /**
+   * 「全部開始」的對象（0-1；收尾修正）：未刪、暫停中、從沒開始過的匯入規則（neverStarted，看帳含墓碑）的 id。
+   * 橫幅「N 條還在暫停」、確認窗「開始 N 條？」都數這一份；resumeAllRepeats 開始的也是同一個判法
+   */
+  listUnstartedRepeatIds(): Promise<string[]>;
+  /** 全部開始（0-1）：只開始 listUnstartedRepeatIds 那幾條（手動暫停的、開始過的不動），同一批照上面開始；回開始了幾條 */
+  resumeAllRepeats(today: string): Promise<number>;
+  softDeleteRepeat(id: string): Promise<void>;
+  restoreRepeat(id: string): Promise<void>;
+  /** 把一筆既有的帳連到規則（「設成定期」後）：tk_entries.repeat_id = id */
+  linkEntryToRepeat(entryId: string, repeatId: string): Promise<void>;
+  /**
+   * 實體化（契約 0-6-3）：reconcile（0-7-3）→ 算班次（planMaterialize）→ 查本機已有的 id（**含墓碑**）→ 插入＋推游標。
+   * 一次呼叫＝一個或多個 WriteBatch（帳每 IMPORT_CHUNK 筆一批）；**只對本機不存在的 id 發 op**。
+   * 回報數字給 toast／除錯；blocked＝規則 id → 人話原因。整支在 store 的 serial() 裡跑。
+   */
+  materializeRepeats(
+    today: string,
+    dayStartHour: number,
+  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[] }>;
+
   /* ── 匯入（①b） ── */
   /** plugin-dialog open()；桌機帶 `.mmbak` 篩選、手機不帶（MIME 不明，probe §2）；取消＝null */
   pickImportFile(shell: "desktop" | "mobile"): Promise<string | null>;
   /** invoke("ticket_import_read", { path })（§3.6） */
   readImport(path: string): Promise<MmbakReadResult>;
-  /** 四張表**含墓碑**的全部列（planImport 的 local） */
+  /** 六張表**含墓碑**的全部列（planImport 的 local；第③階段多 budgets／repeats） */
   loadImportLocal(): Promise<ImportLocal>;
-  /** materializeImport（§4.7）→ 第 1 批（幣別＋帳戶＋分類）＋帳每 IMPORT_CHUNK 筆一批（0-21）；每批後 onProgress(已寫帳筆數, 帳總筆數) */
+  /**
+   * materializeImport（§4.7）→ 第 1 批（幣別＋帳戶＋分類，第③階段尾端接預算與規則：預算 insert＝DO UPDATE、規則 insert＝DO NOTHING、
+   * updates 走 UPDATE）＋帳每 IMPORT_CHUNK 筆一批（0-21）；每批後 onProgress(已寫帳筆數, 帳總筆數)
+   */
   applyImport(
     plan: ImportPlan,
     choices: Readonly<Record<string, ImportChoice>>,
+    part: PlanImportPart,
     onProgress: (done: number, total: number) => void,
   ): Promise<ImportOutcome>;
 }

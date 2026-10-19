@@ -919,3 +919,187 @@ body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]
 }
 .panel .ns-tk-spend-go:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
 .panel .ns-tk-spend-go:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* ════════ 第③階段「管帳」（③契約 §2.6；Stage 0 甲席只立分區錨點，內容各歸各席） ════════ */
+
+/* ═══ §L 統計預算卡 .ns-tk-bud*：列、進度條 .bar、進度線 .pace、斜紋尾 .over、數字（乙）═══ */
+.ns-tk-bud { --ns-tk-bud-track: color-mix(in srgb, var(--color-ink) 6%, transparent); --ns-tk-bud-fill: color-mix(in srgb, var(--color-ink) 45%, transparent); --ns-tk-bud-fill-total: color-mix(in srgb, var(--color-ink) 62%, transparent); --ns-tk-bud-tail: color-mix(in srgb, var(--color-ink) 55%, transparent); }
+.ns-tk-bud .ns-tk-st-h { margin-bottom: 6px; }
+.ns-tk-bud-set { margin-left: auto; padding: 2px 8px; border: 1px solid transparent; border-radius: 2px; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); transition: border-color .15s, color .15s; }
+.ns-tk-bud-set:hover { border-color: var(--color-dash); color: var(--color-ink); }
+.ns-tk-bud-set:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-tk-bud-rows { border-top: 1px solid var(--color-line); }
+.ns-tk-bud-row > button, .ns-tk-bud-row > div {
+  display: grid; grid-template-columns: 168px minmax(0, 1fr) 188px 96px; align-items: center; column-gap: 16px;
+  width: 100%; min-height: 40px; padding: 0 8px 0 4px; text-align: left; border-bottom: 1px dashed var(--color-line); transition: background .12s;
+}
+.ns-tk-bud-row:last-child > * { border-bottom: 0; }
+.ns-tk-bud-row > button { cursor: pointer; }
+.ns-tk-bud-row > button:hover { background: var(--ns-tk-hover); }
+.ns-tk-bud-row > button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-tk-bud-row.is-total > div { min-height: 46px; border-bottom: 1px solid var(--color-line); }
+.ns-tk-bud-row .n { display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); }
+.ns-tk-bud-row .n .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tk-bud-row .n .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+.ns-tk-bud-row.is-total .n { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .14em; }
+.ns-tk-bud-row .ovr { flex: none; font-size: 9.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+.ns-tk-bud-row:is(.is-archived, .is-gone) .n .t { color: var(--color-ink-faint); }
+.ns-tk-bud .ns-tk-st-h .ns-tk-bud-set { align-self: center; }
+/* 條：底＝墨 6%；填色＝墨 45%（總預算 62%）；超支＝條代表已用、斜紋段＝超出（寬由 JS 給）、左緣 1.5px 實線＝預算到這裡 */
+.ns-tk-bud-row .bar { position: relative; height: 10px; border-radius: 1px; background: var(--ns-tk-bud-track); }
+.ns-tk-bud-row .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: var(--ns-tk-bud-fill); transition: width .35s cubic-bezier(.3, 1.1, .5, 1); }
+.ns-tk-bud-row.is-total .bar .fill { background: var(--ns-tk-bud-fill-total); }
+.ns-tk-bud-row .bar .tail {
+  position: absolute; right: 0; top: 0; bottom: 0; border-radius: 0 1px 1px 0;
+  background: repeating-linear-gradient(-45deg, var(--ns-tk-bud-tail) 0 2px, transparent 2px 5px), var(--color-paper-high);
+  box-shadow: inset 1.5px 0 0 var(--color-ink);
+}
+.ns-tk-bud-row .bar .pace {
+  position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 1px;
+  background: var(--color-ink-faint); box-shadow: 0 0 0 1px var(--color-paper-high);
+}
+.ns-tk-bud-row > button:hover .bar .fill { background: color-mix(in srgb, var(--accent) 70%, transparent); }
+[data-theme="dark"] .ns-tk-bud-row > button:hover .bar .fill { background: color-mix(in srgb, var(--color-gold) 75%, transparent); }
+.ns-tk-bud-row .v { text-align: right; white-space: nowrap; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.ns-tk-bud-row .v small { margin: 0 4px 0 0; font-family: var(--font-body); font-weight: 400; font-size: 10.5px; letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-tk-bud-row .v .sl { margin: 0 6px; font-weight: 400; color: var(--color-ink-faint); }
+.ns-tk-bud-row .r { text-align: right; white-space: nowrap; font-size: 12px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; }
+.ns-tk-bud-row .r b { font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .02em; color: var(--color-ink); }
+.ns-tk-bud-note { padding: 14px 4px 6px; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); border-top: 1px solid var(--color-line); }
+.ns-tk-bud-empty { display: grid; justify-items: center; gap: 10px; padding: 22px 0 12px; border-top: 1px solid var(--color-line); font-size: 13px; letter-spacing: .14em; color: var(--color-ink-faint); }
+
+/* ═══ §M 預算對話框 .ns-tk-be*：表格、兩欄輸入、加列（乙）═══ */
+.ns-tk-be-head { display: flex; align-items: center; gap: 2px; margin: -4px 0 8px; }
+.ns-tk-be-head .m { min-width: 9em; text-align: center; font-family: var(--font-display); font-size: 15px; letter-spacing: .08em; }
+.ns-tk-be-head small { margin-left: auto; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-be-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ns-tk-be-table col.c-def { width: 96px; } .ns-tk-be-table col.c-ovr { width: 112px; } .ns-tk-be-table col.c-act { width: 44px; }
+.ns-tk-be-table thead th { padding: 0 6px 6px 0; text-align: right; font-weight: 400; font-size: 10px; letter-spacing: .28em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); white-space: nowrap; }
+.ns-tk-be-table thead th:first-child { text-align: left; }
+.ns-tk-be-table tbody th, .ns-tk-be-table td { height: 40px; padding: 0 8px 0 0; border-bottom: 1px dashed var(--color-line); text-align: left; font-weight: 400; vertical-align: middle; }
+.ns-tk-be-table td:last-child { padding-right: 0; text-align: right; }
+.ns-tk-be-table .nm { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .03em; }
+.ns-tk-be-table .nm .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+.ns-tk-be-table tr.is-total .nm { font-family: var(--font-display); font-weight: 700; letter-spacing: .14em; }
+.ns-tk-be-table .ns-tk-din { text-align: right; font-size: 14px; }
+.ns-tk-be-table .ns-tk-din::placeholder { font-family: var(--font-body); font-weight: 400; font-size: 11.5px; letter-spacing: .06em; }
+.ns-tk-be-table .ovrcell { position: relative; display: block; }
+.ns-tk-be-table .ovrcell .ns-tk-din { padding-right: 20px; }
+.ns-tk-be-table .ovrcell .clr { position: absolute; right: 0; top: 50%; transform: translateY(-50%); width: 18px; height: 22px; display: grid; place-items: center; color: var(--color-ink-faint); border-radius: 2px; }
+.ns-tk-be-table .ovrcell .clr:hover { color: var(--color-ink); background: var(--ns-tk-hover); }
+.ns-tk-be-table tr.is-add td { border-bottom: 0; padding-top: 4px; text-align: left; }
+/* 分類挑選：照文流開在表格下方（.ns-dialog-body 是內捲容器，絕對定位開在底部會被裁、撐出捲軸）；外觀同 .ns-tk-pop */
+.ns-tk-pop.ns-tk-be-pop { position: relative; z-index: auto; max-width: none; width: 240px; max-height: 240px; margin: 0 0 4px; animation-name: nsTkPop; }
+.ns-tk-be-pop .opt .r { font-family: var(--font-body); font-size: 10.5px; letter-spacing: .12em; }
+.ns-tk-be-pop .opt.is-sub { padding-left: 22px; font-size: 12.5px; color: var(--color-ink-soft); }
+.ns-tk-be-pop .opt[disabled] { cursor: default; color: var(--color-ink-faint); }
+
+/* ═══ §N 定期帳管理 .ns-tk-rm*、規則編輯器 .ns-tk-re*：頻率 chip、日格、暫停橫幅（乙）═══ */
+/* 管理 .ns-tk-rm（DialogShell 寬 620） */
+.ns-tk-rm-banner {
+  display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 10px 12px 10px 14px; border-radius: 2px;
+  background: color-mix(in srgb, var(--color-gold) 9%, transparent); border: 1px dashed color-mix(in srgb, var(--color-gold) 55%, transparent);
+}
+.ns-tk-rm-banner p { flex: 1; font-size: 12.5px; line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-tk-rm-banner b { font-family: var(--font-display); color: var(--color-ink); }
+/* 金字在粉彩紙上太淡（App 的 .btn-gold 兩主題都是 --color-gold，對淺紙約 1.6:1）：售票口對話框的金鈕（存、全部開始、
+   新增帳戶的「新增」、分類／幣別的「完成」）粉彩一律改金墨字＋金墨框（修正-UI；App 全面要不要改是跨線題），銀河照舊 */
+.ns-tk-dbtn.btn-gold { color: var(--color-gold-ink); border-color: color-mix(in srgb, var(--color-gold-ink) 70%, transparent); }
+.ns-tk-dbtn.btn-gold:hover:not([disabled]) { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
+[data-theme="dark"] .ns-tk-dbtn.btn-gold { color: var(--color-gold); border-color: var(--color-gold); }
+.ns-tk-rm-banner .btn-gold { flex: none; }
+.ns-tk-rm-h { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; font-weight: 400; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); }
+.ns-tk-rm-h small { font-family: var(--font-latin); letter-spacing: .04em; }
+.ns-tk-rm-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: 14px; min-height: 52px; padding: 6px 0; border-bottom: 1px dashed var(--color-line); }
+.ns-tk-rm-row .main { display: grid; gap: 1px; min-width: 0; }
+.ns-tk-rm-row .l1 { display: flex; align-items: baseline; gap: 10px; min-width: 0; white-space: nowrap; }
+.ns-tk-rm-row .amt { flex: none; min-width: 64px; font-family: var(--font-display); font-weight: 600; font-size: 14.5px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.ns-tk-rm-row .amt .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; font-weight: 400; letter-spacing: .08em; color: var(--color-ink-soft); }
+.ns-tk-rm-row .what { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; letter-spacing: .03em; color: var(--color-ink); }
+.ns-tk-rm-row .what .gt, .ns-tk-rm-row .what .arr { margin: 0 .3em; color: var(--color-ink-faint); }
+.ns-tk-rm-row .note { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--color-ink-faint); }
+.ns-tk-rm-row .l2 { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-left: 74px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-rm-row .l2 i { font-style: normal; opacity: .7; }
+.ns-tk-rm-row .warn { flex: none; margin-right: 4px; font-weight: 600; color: var(--color-late); }
+.ns-tk-rm-row .nx { display: grid; justify-items: end; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ns-tk-rm-row .nx small { font-size: 10px; letter-spacing: .02em; color: var(--color-ink-faint); }
+.ns-tk-rm-row .nx.is-paused { color: var(--color-ink-faint); }
+.ns-tk-rm-row .nx.is-blocked { color: var(--color-late); }
+.ns-tk-rm-row .acts { display: inline-flex; gap: 0; margin-right: -6px; }
+.ns-tk-rm-row.is-paused .amt, .ns-tk-rm-row.is-paused .what { color: var(--color-ink-soft); }
+.ns-tk-rm-row.is-paused .amt { font-weight: 500; }
+.ns-tk-rm-row.is-blocked .amt, .ns-tk-rm-row.is-blocked .what { color: var(--color-ink-soft); }
+.ns-tk-rm-none, .ns-tk-rm-empty { padding: 18px 0; text-align: center; font-size: 12.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-tk-rm-empty { padding: 40px 10px 24px; line-height: 1.8; }
+
+/* 規則編輯器 .ns-tk-re（DialogShell 寬 620；左右兩欄） */
+.ns-tk-re-from { margin: -4px 0 10px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+/* min-height：頻率切換時對話框不跳高（修正-UI）＝「每月 1–31 格＋小月提示」那一態的高（實測 358.6px）；
+   每日／每週時右欄內容照常往上收、空白留在欄底，底部「存／取消」不動 */
+.ns-tk-re-cols { display: grid; grid-template-columns: minmax(0, 1fr) 250px; column-gap: 22px; min-height: 360px; }
+.ns-tk-re-when { padding-left: 22px; margin-left: -1px; border-left: 1px dashed var(--color-dash); }
+.ns-tk-re-sec { margin: 0 0 8px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); }
+.ns-tk-re .ns-tk-kind button { min-width: 0; padding: 0 12px; }
+.ns-tk-re-amt { display: flex; align-items: baseline; gap: 6px; margin: 12px 0 2px; }
+.ns-tk-re-amt .sg { width: .9em; flex: none; font-family: var(--font-display); font-weight: 600; font-size: 20px; color: var(--color-ink-faint); }
+.ns-tk-re-amt .ns-tk-amtin { font-size: 26px; }
+.ns-tk-fields.is-re { margin-top: 10px; padding-top: 8px; gap: 4px; }
+.ns-tk-fields.is-re .field { min-height: 34px; grid-template-columns: 50px minmax(0, 1fr); }
+.ns-tk-re-detail { margin-top: 10px; min-height: 28px; }
+.ns-tk-re-freq button { min-width: 0; padding: 0 14px; }
+.ns-tk-re-wk { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.ns-tk-re-wk button, .ns-tk-re-days button {
+  height: 30px; border: 1px solid var(--color-line); border-radius: 2px; font-size: 12.5px; color: var(--color-ink-soft);
+  background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); transition: border-color .12s, background .12s, color .12s;
+}
+.ns-tk-re-wk button:hover, .ns-tk-re-days button:hover { border-color: var(--color-dash); color: var(--color-ink); }
+.ns-tk-re-wk button[aria-pressed="true"], .ns-tk-re-days button[aria-pressed="true"] { border-color: var(--color-gold); color: var(--color-ink); font-weight: 600; background: var(--ns-tk-sel); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-gold) 26%, transparent); }
+.ns-tk-re-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.ns-tk-re-days button { height: 26px; font-family: var(--font-latin); font-size: 12px; }
+.ns-tk-re-hint { margin: 6px 0 0; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-re-hint.is-past { margin: -2px 0 2px 62px; }
+.ns-tk-re-dailyhint { padding: 4px 0; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tk-re-time { width: 5em; padding: 2px 2px; background: transparent; border: 0; border-bottom: 1px dashed var(--color-dash); outline: none; font-family: var(--font-latin); font-size: 13px; color: var(--color-ink); }
+.ns-tk-re-time:focus { border-bottom-color: var(--color-gold); }
+.ns-tk-re-preview { display: flex; align-items: baseline; gap: 12px; margin-top: 16px; padding: 9px 12px; border-radius: 2px; background: var(--color-paper-used); border: 1px solid var(--color-line); font-size: 12.5px; letter-spacing: .03em; color: var(--color-ink-soft); }
+.ns-tk-re-preview .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tk-re-preview .nx { flex: none; font-weight: 600; color: var(--color-ink); }
+
+/* 產品化補的（原型沒有的狀態） */
+.ns-tk-dfoot.is-split { justify-content: space-between; }
+.ns-tk-dmini.danger:hover { border-color: color-mix(in srgb, var(--color-late) 45%, transparent); color: var(--color-late); }
+.ns-tk-dmini[disabled] { opacity: .4; cursor: default; border-color: transparent; color: var(--color-ink-faint); }
+.ns-tk-rm-list { list-style: none; margin: 0; padding: 0; }
+.ns-tk-rm-row:last-child { border-bottom: 0; }
+.ns-tk-rm-row .what .unc { color: var(--color-ink-faint); }
+.ns-tk-rm-row.is-ended .amt, .ns-tk-rm-row.is-ended .what { color: var(--color-ink-soft); }
+.ns-tk-rm-row .acts .ns-tk-dmini { min-height: 26px; }
+.ns-tk-re .ns-tk-curwrap .ns-tk-pop.is-cur { left: 0; right: auto; }
+/* 日期浮層往上開：.ns-dialog-body 內捲，往下開會被裁 */
+.ns-tk-fields.is-re .field > div > .ns-datepick.ns-tk-re-datepop { left: auto; right: 0; top: auto; bottom: calc(100% + 4px); z-index: 30; }
+.ns-tk-datechip.is-empty { color: var(--color-ink-faint); border-style: dashed; }
+.ns-tk-re-clr { width: 20px; height: 22px; display: grid; place-items: center; border-radius: 2px; color: var(--color-ink-faint); }
+.ns-tk-re-clr:hover { color: var(--color-ink); background: var(--ns-tk-hover); }
+.ns-tk-re-preview.is-err .t { color: var(--color-ink-faint); }
+.ns-tk-re-wk button:focus-visible, .ns-tk-re-days button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-tk-re .ns-btn[disabled] { opacity: .5; cursor: default; }
+
+/* ═══ §O 定期小標 .ns-tk-rep、大票「定期」列 .ns-tk-repfield、月曆 .is-over 的「超」（乙）═══ */
+/* 清單列小標（✎-5）：墨色細框小字、不蓋印。flex:none ⇒ 不會被截，被讓的是備註 */
+.ns-tk-rep {
+  flex: none; align-self: center; display: inline-block; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--color-ink) 32%, transparent); border-radius: 2px;
+  font-size: 10.5px; line-height: 15px; letter-spacing: .12em; text-indent: .12em; color: var(--color-ink-soft); white-space: nowrap;
+}
+/* 大票「定期」列＋底部淡字鈕 */
+.ns-tk-repfield { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ns-tk-repfield .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--color-ink-soft); }
+.ns-tk-repfield .ns-tk-btn { margin-left: auto; padding: 2px 4px; font-size: 11.5px; letter-spacing: .06em; }
+/* 月曆「超」（✎-6）：和「今天」小字同位置同字級；墨色、粗一階 */
+.ns-tk-cal-cell .d small.over { color: var(--color-ink); font-weight: 700; letter-spacing: .1em; }
+[data-theme="dark"] .ns-tk-cal-cell .d small.over { color: var(--color-ink); }
+.ns-tk-repfield .t.is-gone { color: var(--color-ink-faint); }
+/* 匯入票（§G 的卡）第③階段多的兩行：預算／定期計畫、略過與缺欄小字、結果卡「去定期帳」 */
+.ns-tk-im-sum.is-plan { margin-top: 2px; }
+.ns-tk-im-plannote { margin-top: 3px; font-size: 11.5px; line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tk-im-note.is-plan { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.ns-tk-im-note.is-plan .ns-tk-btn { padding: 2px 6px; font-size: 12px; }

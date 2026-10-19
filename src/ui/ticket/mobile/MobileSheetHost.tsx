@@ -11,12 +11,18 @@ import { CategoryManager } from "../dialogs/CategoryManager";
 import { CurrencyTable } from "../dialogs/CurrencyTable";
 import { ImportCard } from "../ImportCard";
 import { MSheet } from "./mobileBits";
+import { MobileBudgetSheet } from "./plan/MobileBudgetSheet";
+import { MobileRepeatSheet } from "./plan/MobileRepeatSheet";
+import { MobileRepeatForm } from "./plan/MobileRepeatForm";
 
 const TITLE: Record<TicketDialog["kind"], string> = {
   newAccount: "新增帳戶",
   categories: "分類管理",
   currencies: "幣別與匯率",
   import: "從財務管家匯入",
+  budgets: "預算", // 第③階段（③契約 §5.5；Stage 0 甲席掛樁）
+  repeats: "定期帳",
+  repeat: "定期規則",
 };
 
 export function MobileSheetHost() {
@@ -24,6 +30,10 @@ export function MobileSheetHost() {
   const closeDialog = useTicketStore((s) => s.closeDialog);
   const writing = useTicketStore((s) => s.imp.phase === "writing");
   if (!dialog) return null;
+  // 規則表單的「取消」：從管理 sheet 開的回管理 sheet、從表單「設成定期…」開的直接關（③契約 §5.3、§5.5）
+  const closeRepeat = () => useTicketStore.getState().closeRepeatEditor();
+  // 規則表單是全螢幕（骨架照 MobileEntryForm，自己 portal），不包底部面板
+  if (dialog.kind === "repeat") return <MobileRepeatForm onDone={closeRepeat} />;
 
   const body =
     dialog.kind === "newAccount" ? (
@@ -32,6 +42,10 @@ export function MobileSheetHost() {
       <CategoryManager onDone={closeDialog} />
     ) : dialog.kind === "currencies" ? (
       <CurrencyTable onDone={closeDialog} />
+    ) : dialog.kind === "budgets" ? (
+      <MobileBudgetSheet onDone={closeDialog} />
+    ) : dialog.kind === "repeats" ? (
+      <MobileRepeatSheet onDone={closeDialog} />
     ) : (
       <ImportCard onDone={closeDialog} />
     );

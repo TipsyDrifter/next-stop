@@ -59,6 +59,7 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(7, "0007_ticket_ledger", "ticket: tk_currencies + tk_accounts + tk_categories + tk_entries (TWD and the two uncategorized rows are seeded by the app, not here)"),
     mig!(8, "0008_notes_tags", "notes: tags + taggings (deterministic ids; nested by name)"),
     mig!(9, "0009_ticket_time", "ticket time: nodes.scheduled_time (business-day HH:MM) + nodes.time_overrides (per-run JSON)"),
+    mig!(10, "0010_ticket_plan", "ticket plan: tk_budgets + tk_repeats + tk_entries.repeat_id (no data rows)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -141,6 +142,16 @@ mod tests {
             8,
             "0008_notes_tags",
             "91ae726c2b334537a19a6452372e215da9fb0fd28e41a45f749a53d2e96ceb29e27a7cb00cda4e1739a836e86fd1a540",
+        ),
+        (
+            9,
+            "0009_ticket_time",
+            "2989841db66e9f4a832004ec998603c55bcc8c43bb0aad5f7efe7b2b722aeadf6aaebf1d410c8950f79b5d931624a324",
+        ),
+        (
+            10,
+            "0010_ticket_plan",
+            "0db42374c4b7e71a45c0b213494ddb7c0bc0b5059b44909c1043386ce0572cd50b72dcb0f6291fe193449870b2d3b0d6",
         ),
     ];
 

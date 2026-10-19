@@ -8,6 +8,7 @@
  * 車次①（契約 §3.11）：通車、九個頁內鍵＋五個欄位內鍵（只登錄）、四張同步表；此後凍結，只有整合席能改。
  * 第②階段（②契約 §3.5、0-24 解凍）：加搜尋、三視圖、月曆方向鍵共 6 鍵（Stage 0 由甲席寫入，之後凍結）；
  * ticket.move.up／down 標籤補月曆的意思；scene note 補一句。hotkeyScopes／syncTables／hotkeyFiles 不動。
+ * 第③階段（③契約 §3.10）：加兩張同步表 tk_budgets／tk_repeats（順序與 ticket.rs 一致；Stage 0 由甲席寫入，之後凍結）；hotkeys 不動。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -53,6 +54,6 @@ export const TICKET = {
   hotkeys: TICKET_HOTKEYS,
   scenes: TICKET_SCENES,
   hotkeyFiles: { ticket: "ui/ticket/useTicketKeyboard.ts" },
-  syncTables: ["tk_currencies", "tk_accounts", "tk_categories", "tk_entries"],
+  syncTables: ["tk_currencies", "tk_accounts", "tk_categories", "tk_entries", "tk_budgets", "tk_repeats"],
   syncSettingsKeys: [],
 } as const satisfies LineManifest;

@@ -18,6 +18,12 @@
  *   （主線 mock 路線 id 是 uuid() 隨機產生，`memoryRepository.ts` 不改；對不上＝顯示「（路線已刪除）」，不算錯）。
  *   `queryEntries`／`routeSpend` 用 `ticketView.ts` 的純函式算（`matchesQuery`／`routeSpendOf`），與 SQL 同義、測試互證。
  * - 匯入：`pickImportFile` 回 `"mock.mmbak"`；`readImport` 回 fixture dump（`mockImportDump`；與示範資料同一棵樹）。
+ * - 第③階段（③契約 §3.7、0-15）：預算與定期規則各一個 Map；所有寫入走 `ticketPlan.ts` 同一套純函式
+ *   （`budgetRow`／`buildRepeatRow`／`applyRepeatPatch`／`planMaterialize`／`withSkipped`／`resumeNextOn`／`planImportAll` 的產物），與真機語義一致。
+ *     `&tk=plan`    示範資料外加 3 個預算（總預算＋🍜 食物＋午餐；總預算本月有覆寫、而且本月已用 > 覆寫 ⇒ 超支條與月曆「超」格）
+ *                   ＋ 5 條規則（每日、每週一三五、每月 1 日、一條匯入的已暫停、一條指到已刪帳戶的 ⚠）；過去的班在種子裡先記到昨天，
+ *                   今天那一班留給啟動時（或 `__nsTicket.materializeNow()`）的實體化
+ *     `&tk=import3` 匯入 fixture 多三張表（3 預算＋2 覆寫＋1 條 PERIOD_TYPE=3；4 條每月規則＋1 條 REPEAT_TYPE=9）
  */
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, todayKey } from "../lib/date";
@@ -56,6 +62,31 @@ import {
   type NewEntryInput,
 } from "../domain/ticket";
 import { matchesQuery, newestFirst, routeSpendOf, type EntryQuery } from "../domain/ticketView";
+import {
+  applyRepeatPatch,
+  assertBudgetScope,
+  budgetId,
+  budgetRow,
+  buildRepeatRow,
+  neverStarted,
+  planMaterialize,
+  repeatOrder,
+  resumeNextOn,
+  scopeKey,
+  scopeOf,
+  shiftDayOf,
+  withSkipped,
+  type BudgetRow,
+  type BudgetScope,
+  type MmBudget,
+  type MmBudgetAmount,
+  type MmRepeat,
+  type NewRepeatInput,
+  type PlanImportPart,
+  type RepeatPatch,
+  type RepeatRow,
+} from "../domain/ticketPlan";
+import { fixedRule } from "../domain/repeat";
 import type {
   AccountPatch,
   CurrencyPatch,
@@ -73,14 +104,16 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const recency = (a: EntryRow, b: EntryRow): number =>
   cmp(a.created_at, b.created_at) || cmp(a.occurred_on, b.occurred_on) || cmp(a.occurred_at, b.occurred_at) || cmp(a.id, b.id);
 
-type TkMode = "empty" | "noaccount" | "badschema" | "import2" | "routes" | null;
+type TkMode = "empty" | "noaccount" | "badschema" | "import2" | "routes" | "plan" | "import3" | null;
 
-/** 評審端點：`&tk=empty|noaccount|badschema|import2|routes` */
+/** 評審端點：`&tk=empty|noaccount|badschema|import2|routes|plan|import3` */
 function tkMode(): TkMode {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("tk");
-    return v === "empty" || v === "noaccount" || v === "badschema" || v === "import2" || v === "routes" ? v : null;
+    return v === "empty" || v === "noaccount" || v === "badschema" || v === "import2" || v === "routes" || v === "plan" || v === "import3"
+      ? v
+      : null;
   } catch {
     return null;
   }
@@ -147,8 +180,49 @@ const MM_ACC: { uid: string; name: string; group: string }[] = [
 ];
 const MM_UTIME = 1759276800000; // 固定（2025-10-01T00:00:00Z）
 
-/** 匯入 fixture；variant＝"import2" ⇒ 其中 2 筆 UTIME＋1、備註改字 */
-export function mockImportDump(variant: "base" | "import2"): MmbakDump {
+/** 第③階段 fixture 的三張表（`&tk=import3`；③契約 0-15）：分類 uid 對齊 mockImportDump 的樹（mm-ce0＝🍜 食物、mm-ce0-4＝點心） */
+export function mockPlanTables(): Pick<MmbakDump, "budgets" | "budget_amounts" | "repeats"> {
+  const md = MM_UTIME;
+  const budgets: MmBudget[] = [
+    { uid: "_1_1_0_6", target_uid: null, do_type: 1, period_type: 6, is_total: true, is_del: false, transfer_type: 0, modify_date: md },
+    { uid: "mm-ce0_1_0_0_6", target_uid: "mm-ce0", do_type: 1, period_type: 6, is_total: false, is_del: false, transfer_type: 0, modify_date: md },
+    { uid: "mm-ce0-4_1_0_0_6", target_uid: "mm-ce0-4", do_type: 1, period_type: 6, is_total: false, is_del: false, transfer_type: 0, modify_date: md },
+    { uid: "mm-ce1_1_0_0_3", target_uid: "mm-ce1", do_type: 1, period_type: 3, is_total: false, is_del: false, transfer_type: 0, modify_date: md },
+  ];
+  const budget_amounts: MmBudgetAmount[] = [
+    { uid: "mm-ba1", budget_uid: "_1_1_0_6", is_del: false, amount: "15000.0", budget_period: 0, modify_date: md },
+    { uid: "mm-ba2", budget_uid: "mm-ce0_1_0_0_6", is_del: false, amount: "6000.0", budget_period: 0, modify_date: md },
+    { uid: "mm-ba3", budget_uid: "mm-ce0-4_1_0_0_6", is_del: false, amount: "800.0", budget_period: 0, modify_date: md },
+    { uid: "mm-ba4", budget_uid: "_1_1_0_6", is_del: false, amount: "12000.0", budget_period: 202601, modify_date: md },
+    { uid: "mm-ba5", budget_uid: "mm-ce0_1_0_0_6", is_del: false, amount: "5000.0", budget_period: 202601, modify_date: md },
+    { uid: "mm-ba6", budget_uid: "mm-ce1_1_0_0_3", is_del: false, amount: "300.0", budget_period: 0, modify_date: md },
+  ];
+  const at = (y: number, m: number, d: number, h: number, mi: number): number => new Date(y, m - 1, d, h, mi).getTime();
+  const rep = (p: Partial<MmRepeat> & { uid: string; do_type: number; next_date: number; amount_sub: string }): MmRepeat => ({
+    is_del: false,
+    usetime: md,
+    end_date: 0,
+    repeat_type: 1,
+    asset_uid: "mm-a2",
+    to_asset_uid: null,
+    ctg_uid: null,
+    currency_uid: "mm-c1",
+    memo: "",
+    payee: "",
+    ...p,
+  });
+  const repeats: MmRepeat[] = [
+    rep({ uid: "mm-r1", do_type: 1, next_date: at(2026, 11, 3, 9, 30), amount_sub: "300.0", ctg_uid: "mm-ce2-6", payee: "雲端硬碟" }),
+    rep({ uid: "mm-r2", do_type: 0, next_date: at(2026, 10, 20, 8, 0), amount_sub: "6000.0", ctg_uid: "mm-ci0", payee: "生活費" }),
+    rep({ uid: "mm-r3", do_type: 1, next_date: at(2026, 10, 16, 21, 15), amount_sub: "10.0", ctg_uid: "mm-ce2-6", currency_uid: "mm-c2", payee: "線上服務" }),
+    rep({ uid: "mm-r4", do_type: 1, next_date: at(2026, 11, 1, 10, 0), amount_sub: "8000.0", ctg_uid: "mm-ce2-0", asset_uid: "mm-a1", memo: "房租" }),
+    rep({ uid: "mm-r5", do_type: 1, next_date: at(2026, 11, 5, 12, 0), amount_sub: "50.0", ctg_uid: "mm-ce0-5", repeat_type: 9, payee: "每週飲料" }),
+  ];
+  return { budgets, budget_amounts, repeats };
+}
+
+/** 匯入 fixture；variant＝"import2" ⇒ 其中 2 筆 UTIME＋1、備註改字；withPlan ⇒ 三張第③階段的表有內容（否則空陣列） */
+export function mockImportDump(variant: "base" | "import2", withPlan = false): MmbakDump {
   const rnd = prng(20261011);
   const groups = MM_GROUPS.map((name, i) => ({ uid: `mm-g${i + 1}`, type_code: i + 1, name }));
   const groupUid = (name: string) => groups.find((g) => g.name === name)?.uid ?? null;
@@ -248,7 +322,8 @@ export function mockImportDump(variant: "base" | "import2"): MmbakDump {
       }
     }
   }
-  return { file_name: "mock.mmbak", currencies, groups, accounts, categories, transactions: txs };
+  const plan = withPlan ? mockPlanTables() : { budgets: [], budget_amounts: [], repeats: [] };
+  return { file_name: "mock.mmbak", currencies, groups, accounts, categories, transactions: txs, ...plan, plan_missing: [] };
 }
 
 /* ───────── 實作 ───────── */
@@ -258,6 +333,8 @@ export class MemoryTicketRepository implements TicketRepository {
   private readonly acc = new Map<string, AccountRow>();
   private readonly cat = new Map<string, CategoryRow>();
   private readonly ent = new Map<string, EntryRow>();
+  private readonly bud = new Map<string, BudgetRow>(); // 第③階段
+  private readonly rep = new Map<string, RepeatRow>(); // 第③階段
   private readonly seedDemo: boolean;
   private demoSeeded = false;
   private readCount = 0;
@@ -401,6 +478,61 @@ export class MemoryTicketRepository implements TicketRepository {
         });
         this.ent.set(row.id, row);
       }
+    }
+
+    if (mode === "plan") this.seedPlan(today, accId, incomeIds, leafIds, nowIso);
+  }
+
+  /**
+   * `&tk=plan`（③契約 0-15）：3 個預算＋5 條規則。總預算本月覆寫＝本月已用的八成（湊整到百）⇒ 一定超支、月曆有「超」格。
+   * 規則過去的班在這裡先用 planMaterialize 記到昨天（帶 repeat_id、清單有「定期」小標），今天那一班留給實體化。
+   */
+  private seedPlan(today: string, accId: Record<string, string>, incomeIds: string[], leafIds: string[], nowIso: string): void {
+    void incomeIds;
+    const stamp = { device_id: null, created_at: nowIso, updated_at: nowIso, synced_at: null, deleted_at: null };
+    const month = today.slice(0, 7);
+    let used = 0;
+    for (const e of this.ent.values()) if (e.deleted_at === null && e.kind === "expense" && e.occurred_on.slice(0, 7) === month) used += e.main_minor;
+    const food = Array.from(this.cat.values()).find((c) => c.name === "🍜 食物" && c.parent_id === null);
+    const lunch = leafIds[1];
+    const round100 = (n: number) => Math.max(10000, Math.round(n / 10000) * 10000);
+    const put = (b: BudgetRow) => this.bud.set(b.id, b);
+    put(budgetRow({ kind: "total" }, null, round100(used * 1.5), 0, nowIso));
+    put(budgetRow({ kind: "total" }, month, round100(used * 0.8), 1, nowIso));
+    if (food) put(budgetRow({ kind: "category", categoryId: food.id }, null, 600000, 2, nowIso));
+    put(budgetRow({ kind: "category", categoryId: lunch }, null, 150000, 3, nowIso));
+
+    // 一個已刪的帳戶（⚠ 那條規則指著它）
+    const goneAcc = uuid();
+    this.acc.set(goneAcc, { id: goneAcc, name: "舊悠遊卡", group_key: "debit", currency: "TWD", position: 9, archived_at: null, ...stamp, deleted_at: nowIso });
+
+    const ctx = this.ctx();
+    const mk = (id: string, position: number, input: NewRepeatInput, patch: Partial<RepeatRow> = {}): RepeatRow => {
+      // 指到已刪帳戶的那條過不了 buildRepeatRow 的驗證 ⇒ 用一個活帳戶建，再換成已刪的
+      const row = buildRepeatRow(input, ctx, { id, position, nowIso });
+      return { ...row, ...patch };
+    };
+    const base = { toAccountId: null, currency: "TWD", routeId: null, hhmm: "09:00" };
+    const rules: RepeatRow[] = [
+      mk(uuid(), 0, { ...base, kind: "expense", accountId: accId.cash, categoryId: leafIds[0], amountMinor: 6000, note: "早餐店", rule: fixedRule("daily", addDays(today, -3)), hhmm: "07:30" }),
+      mk(uuid(), 1, { ...base, kind: "expense", accountId: accId.easy, categoryId: leafIds[9], amountMinor: 2500, note: "通勤", rule: fixedRule("weekly", addDays(today, -21), { byweekday: [1, 3, 5] }), hhmm: "08:10" }),
+      mk(uuid(), 2, { ...base, kind: "expense", accountId: accId.bank, categoryId: leafIds[16], amountMinor: 800000, note: "房租", rule: fixedRule("monthly", addDays(today, -70), { bymonthday: [1] }), hhmm: "10:00" }),
+      mk(ticketId("moneymanager:repeat:mock-paused"), 3, {
+        ...base, kind: "expense", accountId: accId.bank, categoryId: leafIds[22], amountMinor: 1000, currency: "USD", note: "線上服務",
+        rule: fixedRule("monthly", addDays(today, 5), { bymonthday: [parseInt(addDays(today, 5).slice(8, 10), 10)] }), hhmm: "21:15",
+      }, { paused_at: nowIso, import_id: "mock-paused", import_source: "moneymanager", import_utime: MM_UTIME }),
+      mk(uuid(), 4, {
+        ...base, kind: "expense", accountId: accId.cash, categoryId: leafIds[8], amountMinor: 4500, note: "悠遊卡自動加值",
+        rule: fixedRule("weekly", addDays(today, -6), { byweekday: [0, 1, 2, 3, 4, 5, 6] }),
+      }, { account_id: goneAcc }),
+    ];
+    for (const r of rules) this.rep.set(r.id, r);
+    // 過去的班記到昨天（⚠ 那條在昨天就被擋：帳戶已不在 ⇒ 游標不動，今天照樣被擋）
+    const plan = planMaterialize(rules, new Set(this.ent.keys()), addDays(today, -1), ctx, nowIso, 3); // 3＝上面 todayKey(3) 的 mock 日界線
+    for (const row of plan.inserts) this.ent.set(row.id, row);
+    for (const c of plan.cursors) {
+      const r = this.rep.get(c.id);
+      if (r) r.next_on = c.next_on;
     }
   }
 
@@ -610,14 +742,30 @@ export class MemoryTicketRepository implements TicketRepository {
     const now = nowUtcIso();
     row.deleted_at = now;
     row.updated_at = now;
+    this.touchSkipped(row, true, now); // 第③階段（③契約 0-7-2）：同一批記進規則的 skipped_days
   }
 
   async restoreEntry(id: string): Promise<void> {
     this.ensureDemo();
     const row = this.ent.get(id);
     if (!row || isAlive(row)) return;
+    const now = nowUtcIso();
     row.deleted_at = null;
-    row.updated_at = nowUtcIso();
+    row.updated_at = now;
+    this.touchSkipped(row, false, now);
+  }
+
+  /** 那筆 repeat_id 非空且規則還在 ⇒ skipped_days 加／減那一班（**班次日**，shiftDayOf；對不上就不碰；值沒變就不動；評審 R13／R14） */
+  private touchSkipped(row: EntryRow, add: boolean, now: string): void {
+    if (!row.repeat_id) return;
+    const r = this.rep.get(row.repeat_id);
+    if (!r || !isAlive(r)) return;
+    const day = shiftDayOf(r, row, todayKey(0));
+    if (day === null) return;
+    const next = withSkipped(r.skipped_days, day, add);
+    if (next === r.skipped_days) return;
+    r.skipped_days = next;
+    r.updated_at = now;
   }
 
   /* ───────── 寫：帳戶 ───────── */
@@ -816,6 +964,188 @@ export class MemoryTicketRepository implements TicketRepository {
     if (changed) c.updated_at = nowUtcIso();
   }
 
+  /* ───────── 第③階段：預算（③契約 §3.4） ───────── */
+
+  async listBudgets(): Promise<BudgetRow[]> {
+    this.ensureDemo();
+    return Array.from(this.bud.values())
+      .filter(isAlive)
+      .sort((a, b) => a.position - b.position || cmp(a.month ?? "", b.month ?? "") || cmp(a.id, b.id))
+      .map(clone);
+  }
+
+  async setBudget(scope: BudgetScope, month: string | null, amountMinor: number): Promise<BudgetRow> {
+    this.ensureDemo();
+    if (!Number.isInteger(amountMinor) || amountMinor <= 0) throw new RangeError("預算要是大於 0 的金額");
+    assertBudgetScope(scope, this.ctx().catById);
+    const id = budgetId(scope, month);
+    const now = nowUtcIso();
+    const prev = this.bud.get(id);
+    if (prev) {
+      // ON CONFLICT(id) DO UPDATE SET amount_minor, deleted_at = NULL, updated_at
+      prev.amount_minor = amountMinor;
+      prev.deleted_at = null;
+      prev.updated_at = now;
+      return clone(prev);
+    }
+    let position = -1;
+    for (const b of this.bud.values()) if (isAlive(b)) position = Math.max(position, b.position);
+    const row = budgetRow(scope, month, amountMinor, position + 1, now);
+    this.bud.set(id, row);
+    return clone(row);
+  }
+
+  async removeBudget(scope: BudgetScope, month: string | null): Promise<void> {
+    this.ensureDemo();
+    const now = nowUtcIso();
+    const key = scopeKey(scope);
+    for (const b of this.bud.values()) {
+      if (!isAlive(b) || scopeKey(scopeOf(b)) !== key) continue;
+      // 移除預設 ⇒ 連同該對象所有月的覆寫（同一批）；移除覆寫 ⇒ 只那一列
+      if (month === null || b.month === month) {
+        b.deleted_at = now;
+        b.updated_at = now;
+      }
+    }
+  }
+
+  /* ───────── 第③階段：定期帳（③契約 §3.4、0-6～0-8） ───────── */
+
+  async listRepeats(): Promise<RepeatRow[]> {
+    this.ensureDemo();
+    return Array.from(this.rep.values()).filter(isAlive).sort(repeatOrder).map(clone);
+  }
+
+  private repeatOrThrow(id: string): RepeatRow {
+    const r = this.rep.get(id);
+    if (!r || !isAlive(r)) throw new RangeError("這條規則已經刪除了");
+    return r;
+  }
+
+  async createRepeat(input: NewRepeatInput): Promise<RepeatRow> {
+    this.ensureDemo();
+    let position = -1;
+    for (const r of this.rep.values()) if (isAlive(r)) position = Math.max(position, r.position);
+    const row = buildRepeatRow(input, this.ctx(), { id: uuid(), position: position + 1, nowIso: nowUtcIso() });
+    this.rep.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateRepeat(id: string, patch: RepeatPatch, today: string): Promise<RepeatRow> {
+    this.ensureDemo();
+    const r = this.repeatOrThrow(id);
+    const res = applyRepeatPatch(r, patch, this.ctx(), today, nowUtcIso());
+    if (Object.keys(res.cols).length === 0) return clone(r);
+    this.rep.set(id, res.row);
+    return clone(res.row);
+  }
+
+  /** 開始：手建的明天起、從沒開始過的匯入規則接著 next_on（resumeNextOn，✎-8） */
+  private resumeOne(r: RepeatRow, today: string, now: string): void {
+    r.next_on = resumeNextOn(r, Array.from(this.ent.values()), today);
+    r.paused_at = null;
+    r.updated_at = now;
+  }
+
+  async setRepeatPaused(id: string, paused: boolean, today: string): Promise<void> {
+    this.ensureDemo();
+    const r = this.repeatOrThrow(id);
+    if ((r.paused_at !== null) === paused) return;
+    const now = nowUtcIso();
+    if (paused) {
+      r.paused_at = now;
+      r.updated_at = now;
+    } else this.resumeOne(r, today, now);
+  }
+
+  /** 暫停中、從沒開始過的匯入規則（看帳含墓碑；與 sqlite 同一個判法），依建立順序 */
+  private unstartedRepeats(): RepeatRow[] {
+    const all = Array.from(this.ent.values());
+    return Array.from(this.rep.values())
+      .filter((r) => isAlive(r) && r.paused_at !== null && neverStarted(r, all))
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  async listUnstartedRepeatIds(): Promise<string[]> {
+    this.ensureDemo();
+    return this.unstartedRepeats().map((r) => r.id);
+  }
+
+  /** 全部開始：只開始從沒開始過的匯入規則（手動暫停的、開始過的不動） */
+  async resumeAllRepeats(today: string): Promise<number> {
+    this.ensureDemo();
+    const now = nowUtcIso();
+    const list = this.unstartedRepeats();
+    // 先全部算好再寫（同一批：其中一條規則看不懂 ⇒ 整批不動）
+    const next = list.map((r) => resumeNextOn(r, Array.from(this.ent.values()), today));
+    list.forEach((r, i) => {
+      r.next_on = next[i];
+      r.paused_at = null;
+      r.updated_at = now;
+    });
+    return list.length;
+  }
+
+  async softDeleteRepeat(id: string): Promise<void> {
+    this.ensureDemo();
+    const r = this.rep.get(id);
+    if (!r || !isAlive(r)) return;
+    const now = nowUtcIso();
+    r.deleted_at = now;
+    r.updated_at = now;
+  }
+
+  async restoreRepeat(id: string): Promise<void> {
+    this.ensureDemo();
+    const r = this.rep.get(id);
+    if (!r || isAlive(r)) return;
+    r.deleted_at = null;
+    r.updated_at = nowUtcIso();
+  }
+
+  async linkEntryToRepeat(entryId: string, repeatId: string): Promise<void> {
+    this.ensureDemo();
+    const e = this.ent.get(entryId);
+    if (!e || !isAlive(e)) throw new RangeError("這一筆已經刪除了");
+    this.repeatOrThrow(repeatId);
+    if (e.repeat_id === repeatId) return;
+    e.repeat_id = repeatId;
+    e.updated_at = nowUtcIso();
+  }
+
+  async materializeRepeats(
+    today: string,
+    dayStartHour: number,
+  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[] }> {
+    // 「今天」已由呼叫端用日界線算好（0-6-6）；dayStartHour 給 planMaterialize 算帳的時刻（手建套日界線、匯入字面時刻，✎-7 改）
+    await this.alignRoutes();
+    const now = nowUtcIso();
+    const repeats = Array.from(this.rep.values()).filter(isAlive);
+    // existingIds：本機已有的 id **含墓碑**（0-6-3）
+    const plan = planMaterialize(repeats, new Set(this.ent.keys()), today, this.ctx(), now, dayStartHour);
+    let reconciled = 0;
+    for (const id of plan.reconcileIds) {
+      const e = this.ent.get(id);
+      if (!e || !isAlive(e)) continue;
+      e.deleted_at = now;
+      e.updated_at = now;
+      reconciled++;
+    }
+    let inserted = 0;
+    for (const row of plan.inserts) {
+      if (this.ent.has(row.id)) continue; // ON CONFLICT(id) DO NOTHING、且不對已存在的 id 發 op
+      this.ent.set(row.id, clone(row));
+      inserted++;
+    }
+    for (const c of plan.cursors) {
+      const r = this.rep.get(c.id);
+      if (!r || !isAlive(r) || r.next_on === c.next_on) continue;
+      r.next_on = c.next_on;
+      r.updated_at = now;
+    }
+    return { inserted, reconciled, blocked: plan.blocked };
+  }
+
   /* ───────── 匯入 ───────── */
 
   async pickImportFile(_shell: "desktop" | "mobile"): Promise<string | null> {
@@ -826,7 +1156,7 @@ export class MemoryTicketRepository implements TicketRepository {
     this.readCount++;
     const mode = tkMode();
     if (mode === "badschema") return { missing: ["ASSETS"], dump: null };
-    return { missing: [], dump: mockImportDump(mode === "import2" && this.readCount > 1 ? "import2" : "base") };
+    return { missing: [], dump: mockImportDump(mode === "import2" && this.readCount > 1 ? "import2" : "base", mode === "import3") };
   }
 
   async loadImportLocal(): Promise<ImportLocal> {
@@ -836,12 +1166,15 @@ export class MemoryTicketRepository implements TicketRepository {
       accounts: Array.from(this.acc.values()).map(clone),
       categories: Array.from(this.cat.values()).map(clone),
       entries: Array.from(this.ent.values()).map(clone),
+      budgets: Array.from(this.bud.values()).map(clone),
+      repeats: Array.from(this.rep.values()).map(clone),
     };
   }
 
   async applyImport(
     plan: ImportPlan,
     choices: Readonly<Record<string, ImportChoice>>,
+    part: PlanImportPart,
     onProgress: (done: number, total: number) => void,
   ): Promise<ImportOutcome> {
     this.ensureDemo();
@@ -851,6 +1184,34 @@ export class MemoryTicketRepository implements TicketRepository {
     for (const c of plan.currencies) if (!this.cur.has(c.id)) this.cur.set(c.id, clone(c));
     for (const a of plan.accounts) if (!this.acc.has(a.id)) this.acc.set(a.id, clone(a));
     for (const c of plan.categories) if (!this.cat.has(c.id)) this.cat.set(c.id, clone(c));
+    // 第③階段（③契約 §3.5-8）：第 1 批尾端接預算與規則（父先：分類已在前面）。預算 insert＝DO UPDATE（重設同一個預算）、規則 insert＝DO NOTHING
+    let budgets = 0;
+    let repeats = 0;
+    for (const b of part.budgets.inserts) {
+      const prev = this.bud.get(b.id);
+      if (prev) Object.assign(prev, { amount_minor: b.amount_minor, deleted_at: null, updated_at: b.updated_at });
+      else this.bud.set(b.id, clone(b));
+      budgets++;
+    }
+    for (const u of part.budgets.updates) {
+      const row = this.bud.get(u.id);
+      if (row && isAlive(row)) {
+        Object.assign(row, u.cols);
+        budgets++;
+      }
+    }
+    for (const r of part.repeats.inserts) {
+      if (this.rep.has(r.id)) continue;
+      this.rep.set(r.id, clone(r));
+      repeats++;
+    }
+    for (const u of part.repeats.updates) {
+      const row = this.rep.get(u.id);
+      if (row && isAlive(row)) {
+        Object.assign(row, u.cols);
+        repeats++;
+      }
+    }
     // kept＝「留 Next Stop 的」只蓋 import_utime／updated_at 的記號（不算 updated）
     type Op = { kind: "insert"; row: EntryRow } | { kind: "update"; id: string; cols: Record<string, unknown>; kept?: true };
     const ops: Op[] = [
@@ -883,6 +1244,6 @@ export class MemoryTicketRepository implements TicketRepository {
       await new Promise((r) => setTimeout(r, 0)); // 讓進度列畫得出來（同真機分批的節奏）
     }
     const e = plan.entries;
-    return { inserted, updated, skipped: e.unchanged + e.tombstoned + e.invalid.length + m.keptLocal };
+    return { inserted, updated, skipped: e.unchanged + e.tombstoned + e.invalid.length + m.keptLocal, budgets, repeats };
   }
 }

@@ -34,6 +34,7 @@ import {
 } from "../../../domain/ticketView";
 import type { NodeRow } from "../../../domain/node";
 import { TkIcon, TkRoundel } from "../TicketLedger";
+import { BudgetCard } from "../plan/BudgetCard";
 
 const FACETS: readonly [Facet, string][] = [
   ["category", "分類"],
@@ -307,6 +308,9 @@ export function TicketStats() {
           ))}
         </span>
       </div>
+
+      {/* 第③階段（③契約 §5.1、✎-2）：三數卡之後、月對月之前；只在月模式（Stage 0 甲席掛樁） */}
+      {span === "month" && <BudgetCard />}
 
       <section className="ns-tk-st-card" aria-label="月對月">
         <div className="ns-tk-st-h">

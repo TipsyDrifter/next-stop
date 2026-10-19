@@ -1070,6 +1070,8 @@ function makeSqliteDb(): TestDb {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = ON"); // sqlx 預設開（0-15）
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0007_ticket_ledger.sql"), "utf8"));
+  // 第③階段（③契約 0-3）：tk_entries 多 repeat_id、另兩張表——sqlite 實作的 ENT_COLS 已含 repeat_id，真機也一定跑過 0010
+  raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0010_ticket_plan.sql"), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   const db: TestDb = {
     ops: [],
@@ -1101,6 +1103,13 @@ function rustCols(name: string): string[] {
   assert.ok(m, `ticket.rs 找不到 ${name}`);
   return Array.from(m[1].matchAll(/\("(\w+)",/g), (x) => x[1]);
 }
+
+/** 第③階段 applyImport 多一個 part（③契約 §3.4）；①的匯入測試不帶預算／規則 */
+const EMPTY_PART = {
+  budgets: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [], overrides: 0, scopes: 0 },
+  repeats: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [] },
+  missing: [],
+};
 
 const rejectsMsg = (p: Promise<unknown>, msg: string) =>
   assert.rejects(p, (e: unknown) => e instanceof RangeError && e.message === msg, `應丟「${msg}」`);
@@ -1286,13 +1295,15 @@ describe("E2. repository 層（memory／sqlite）", () => {
       const dump: MmbakDump = mockImportDump("base");
       const plan = planImport(dump, await repo.loadImportLocal(), { balanceText: {}, nowIso: NOW });
       const progress: [number, number][] = [];
-      const out = await repo.applyImport(plan, defaultChoices(plan), (d: number, t: number) => progress.push([d, t]));
+      const out = await repo.applyImport(plan, defaultChoices(plan), EMPTY_PART, (d: number, t: number) => progress.push([d, t]));
       const n = plan.entries.inserts.length;
       assert.ok(n > 100);
       assert.deepEqual(out, {
         inserted: n,
         updated: 0,
         skipped: plan.entries.unchanged + plan.entries.tombstoned + plan.entries.invalid.length,
+        budgets: 0,
+        repeats: 0,
       });
       assert.deepEqual(progress[0], [0, n]);
       assert.deepEqual(progress[progress.length - 1], [n, n]);
@@ -1302,7 +1313,7 @@ describe("E2. repository 層（memory／sqlite）", () => {
       assert.deepEqual([again.entries.inserts.length, again.entries.changed.length], [0, 0]);
       const plan2 = planImport(mockImportDump("import2"), local1, { balanceText: {}, nowIso: NOW });
       assert.equal(plan2.entries.changed.length, 2);
-      const out2 = await repo.applyImport(plan2, defaultChoices(plan2), () => {});
+      const out2 = await repo.applyImport(plan2, defaultChoices(plan2), EMPTY_PART, () => {});
       assert.equal(out2.updated, 2);
       const plan3 = planImport(mockImportDump("import2"), await repo.loadImportLocal(), { balanceText: {}, nowIso: NOW });
       assert.equal(plan3.entries.changed.length, 0);
@@ -1317,12 +1328,12 @@ describe("E2. repository 層（memory／sqlite）", () => {
       await repo.ensureStarterRows();
       const { mockImportDump } = await import("../../src/data/memoryTicketRepository.ts");
       const plan = planImport(mockImportDump("base"), await repo.loadImportLocal(), { balanceText: {}, nowIso: NOW });
-      await repo.applyImport(plan, defaultChoices(plan), () => {});
+      await repo.applyImport(plan, defaultChoices(plan), EMPTY_PART, () => {});
       const local1: ImportLocal = await repo.loadImportLocal();
       const plan2 = planImport(mockImportDump("import2"), local1, { balanceText: {}, nowIso: NOW });
       assert.equal(plan2.entries.changed.length, 2);
       const [keep, take] = plan2.entries.changed;
-      const out = await repo.applyImport(plan2, { [keep.id]: "ours", [take.id]: "theirs" }, () => {});
+      const out = await repo.applyImport(plan2, { [keep.id]: "ours", [take.id]: "theirs" }, EMPTY_PART, () => {});
       assert.equal(out.updated, 1, "留本機的不算 updated");
       const local2: ImportLocal = await repo.loadImportLocal();
       const keptRow = local2.entries.find((x) => x.id === keep.id)!;

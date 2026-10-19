@@ -89,6 +89,12 @@
   color: var(--color-ink-soft);
   overflow-wrap: anywhere;
 }
+/* 線補的一句（SyncRowLabel.note，接縫 #77）：接在方向句後面，同欄換行 */
+.ns-mg-note {
+  grid-column: 2;
+  color: var(--color-ink-faint);
+  overflow-wrap: anywhere;
+}
 
 /* 「刪了又回來」組（revived／kept）名字前一枚 4px 靛點；「兩邊都改了」不加點 */
 .ns-mg-row.is-revived .ns-mg-label::before,
@@ -110,4 +116,5 @@
 /* 列內兩行：時刻與名字同一行、方向句第二行（全寬） */
 [data-shell="mobile"] .ns-mg-row > * { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; padding: 8px 6px; font-size: 13px; }
 [data-shell="mobile"] .ns-mg-open { min-height: 44px; }
-[data-shell="mobile"] .ns-mg-what { grid-column: 1 / -1; }
+[data-shell="mobile"] .ns-mg-what,
+[data-shell="mobile"] .ns-mg-note { grid-column: 1 / -1; }

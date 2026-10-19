@@ -82,11 +82,15 @@ export function MergeNotices({ shell }: { shell: SyncShell }) {
     let label: string;
     let cols: Readonly<Record<string, string>> | undefined = coreCols(n.tbl);
     let open: (() => void | Promise<void>) | undefined;
+    let fmt: ((col: string, v: unknown) => string | null) | undefined;
+    let note: string | undefined;
     if (r === undefined || r === "fallback") label = fallbackLabel(n);
     else if (r === null) label = `${nounOf(n.tbl)}${MERGE_TEXT.gone}`;
     else {
       label = r.label;
       cols = r.cols ?? cols;
+      fmt = r.fmt;
+      note = r.note;
       const node = r.node;
       open =
         r.open ??
@@ -104,7 +108,8 @@ export function MergeNotices({ shell }: { shell: SyncShell }) {
           {fmtSyncStamp(n.at)}
         </time>
         <span className="ns-mg-label">{subject}</span>
-        <span className="ns-mg-what">{describeMerge(n)}</span>
+        <span className="ns-mg-what">{describeMerge(n, fmt)}</span>
+        {note ? <span className="ns-mg-note">（{note}）</span> : null}
       </>
     );
     return (

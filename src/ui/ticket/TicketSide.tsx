@@ -152,7 +152,7 @@ export function TicketSide() {
   );
 }
 
-/** 滑桿鈕的選單（0-9）：分類管理／幣別與匯率／從財務管家匯入… */
+/** 滑桿鈕的選單（0-9；③契約 0-14 加兩項）：分類管理／預算…／定期帳…／幣別與匯率／從財務管家匯入… */
 function ManageMenu({ onClose, onEscape }: { onClose(): void; onEscape(): void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -190,6 +190,13 @@ function ManageMenu({ onClose, onEscape }: { onClose(): void; onEscape(): void }
     <div ref={ref} className="ns-tk-pop ns-tk-menu" role="menu" aria-label="管理" onKeyDown={onKeyDown}>
       <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "categories" }))}>
         分類管理
+      </button>
+      {/* 第③階段（③契約 0-14）：分類管理之後加「預算…」「定期帳…」 */}
+      <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "budgets" }))}>
+        預算…
+      </button>
+      <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "repeats" }))}>
+        定期帳…
       </button>
       <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "currencies" }))}>
         幣別與匯率

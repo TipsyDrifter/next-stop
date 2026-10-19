@@ -97,12 +97,25 @@ export function fmtMergeValue(v: unknown, max = 24): string {
  *                  winner==="mine"：「另一台改成「{theirs}」、這台改成「{mine}」——留下這台後改的」（③ʹ 恆 by_me）
  *                  winner==="theirs"：「這台改成「{mine}」、另一台改成「{theirs}」——留下另一台後改的」
  *   （先看 by_me：萬一有 winner=mine 卻不是這台寫的那一格，也不說「這台改成」——§0-1 第 20 條的精神）
+ * `fmt`（選填，來自 `SyncRowLabel.fmt`）：overwritten 的兩邊值先問它，回 null 就退回 `fmtMergeValue`。
  */
-export function describeMerge(n: MergeNotice): string {
+export function describeMerge(n: MergeNotice, fmt?: (col: string, v: unknown) => string | null): string {
   if (n.kind === "revived") return n.by_me ? "你在這台刪過，另一台改過——回來了" : "一台刪過、另一台改過——回來了";
   if (n.kind === "kept") return n.by_me ? "另一台刪過，但這台改過——留著" : "一台刪過、另一台改過——留著改過的";
-  const mine = fmtMergeValue(n.mine);
-  const theirs = fmtMergeValue(n.theirs);
+  // 線可以給 `fmt` 把值印成人話（接縫 #77）；回 null、丟錯或沒給 ⇒ 退回 fmtMergeValue（不給 fmt 時輸出逐字不變）
+  const show = (v: unknown): string => {
+    if (fmt) {
+      try {
+        const s = fmt(n.col ?? "", v);
+        if (s !== null && s !== undefined) return s;
+      } catch {
+        /* 退回 fmtMergeValue */
+      }
+    }
+    return fmtMergeValue(v);
+  };
+  const mine = show(n.mine);
+  const theirs = show(n.theirs);
   if (!n.by_me) return `一台改成「${mine}」、另一台改成「${theirs}」——留下後改的`;
   if (n.winner === "mine") return `另一台改成「${theirs}」、這台改成「${mine}」——留下這台後改的`;
   return `這台改成「${mine}」、另一台改成「${theirs}」——留下另一台後改的`;

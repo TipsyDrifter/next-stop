@@ -145,6 +145,16 @@ case "$BRANCH" in
 esac
 if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then soft "tag ${TAG} 已存在。"; fi
 for tool in pnpm cargo gh node git; do command -v "$tool" >/dev/null 2>&1 || die "找不到 ${tool}。"; done
+# 守門：每一支 migration 在發版 commit 都要進 `released_migrations_are_frozen` 的已發行表（公約 §四）。
+#   v1.11.0 的 0009 漏加過一次（10-19 發 v1.14.0 時才發現），所以在這裡數：MIGRATIONS 幾支、RELEASED 就要幾筆。
+MIG_N="$(grep -cE '^[[:space:]]*mig!\([0-9]+,' src-tauri/src/migrations.rs || true)"
+REL_N="$(awk '/const RELEASED/,/^    \];/' src-tauri/src/migrations.rs | grep -cE '^[[:space:]]*"0[0-9]{3}_[a-z0-9_]+",$' || true)"
+if [[ "$MIG_N" != "$REL_N" ]]; then
+  printf '  migrations.rs：MIGRATIONS 有 %s 支、已發行表 RELEASED 只有 %s 筆。\n  漏的那支算 SHA-384(lf(sql)) 的 hex 補進 RELEASED 尾端（node crypto sha384，對 CRLF→LF 後的檔內容），cargo test released_migrations_are_frozen 過了再發。\n' "$MIG_N" "$REL_N" >&2
+  soft "已發行 migration 表沒跟上（${REL_N}/${MIG_N}）。"
+else
+  say "✓ 已發行 migration 表 ${REL_N}/${MIG_N} 對齊"
+fi
 gh auth status >/dev/null 2>&1 || die "gh 尚未登入（gh auth login）。"
 if [[ -n "$NOTES" && ! -f "$NOTES" ]]; then die "找不到 notes 檔：$NOTES"; fi
 if [[ -z "$NOTES" ]]; then say "⚠ 沒給 --notes，⑥ 會用 gh --generate-notes（建議先寫 docs/release-notes/${TAG}.md）"; fi

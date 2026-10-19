@@ -53,6 +53,7 @@ import type { NodeRow } from "../../domain/node";
 import { Money } from "./parts/Money";
 import { TicketSeal } from "./parts/TicketSeal";
 import { TkIcon, TkRoundel, acctLabel, capsOf, groupLabel } from "./TicketLedger";
+import { RepeatField, RepeatMakeButton, useLinkedRepeat } from "./plan/RepeatField";
 
 /* ───────── 小工具 ───────── */
 
@@ -88,7 +89,7 @@ function mainCurrency(curByCode: Record<string, CurrencyRow>): CurrencyRow | und
 }
 
 /** 點外面收起（帶 data-pop-toggle 的開關鈕除外——讓它自己切換） */
-function useOutside(ref: RefObject<HTMLElement | null>, onClose: () => void): void {
+export function useOutside(ref: RefObject<HTMLElement | null>, onClose: () => void): void {
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const t = e.target;
@@ -105,7 +106,7 @@ function useOutside(ref: RefObject<HTMLElement | null>, onClose: () => void): vo
  * 小浮層 .ns-tk-pop（帳戶／路線／幣別）：開啟時焦點落在選中的那一項（或搜尋欄、或第一項）；
  * ↑↓ 在選項間移動、Enter＝按鈕原生 click、Esc 收起；這幾個鍵都不漏給頁面鍵盤表。
  */
-function Pop({ label, onClose, children, className, search }: { label: string; onClose(): void; children: ReactNode; className?: string; search?: boolean }) {
+export function Pop({ label, onClose, children, className, search }: { label: string; onClose(): void; children: ReactNode; className?: string; search?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose);
   useEffect(() => {
@@ -216,6 +217,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const balances = useTicketStore((s) => s.balances);
   const entries = useTicketStore((s) => s.entries);
   const savedAt = useTicketStore((s) => s.savedAt);
+  const linkedRepeat = useLinkedRepeat(row); // 第③階段：連著還在的規則才出「定期」列（規則已刪 ⇒ 底部出「設成定期…」）
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const routes = useNodeStore((s) => s.routes);
   const [pop, setPop] = useState<PopKind>(null);
@@ -656,6 +658,12 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               )}
             </FieldRow>
           )}
+          {/* 第③階段（③契約 §5.4）：定期記的（或「設成定期」連上的）帳多一列「定期」；規則已刪的不出（收尾修正） */}
+          {row && linkedRepeat && (
+            <FieldRow label="定期">
+              <RepeatField entry={row} />
+            </FieldRow>
+          )}
         </div>
 
         <div className="ns-tk-bt-foot">
@@ -671,6 +679,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             </>
           ) : (
             <>
+              {row && <RepeatMakeButton entry={row} />}
               <button type="button" className="ns-tk-btn quiet danger" onClick={() => row && void store().deleteEntry(row.id)}>
                 刪除<kbd className="ns-tk-kbd">{capsOf("ticket.delete")}</kbd>
               </button>
@@ -686,7 +695,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
 }
 
 /* ── 帳戶挑選鈕＋浮層（依群組分區；封存的不列） ── */
-function AcctPick(props: {
+export function AcctPick(props: {
   open: boolean;
   onToggle(): void;
   onClose(): void;
@@ -766,7 +775,7 @@ function AcctPick(props: {
 }
 
 /* ── 路線浮層（只到路線，D-票 K3；頂部搜尋） ── */
-function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow[]; current: string | null; onClose(): void; onPick(id: string | null): void }) {
+export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow[]; current: string | null; onClose(): void; onPick(id: string | null): void }) {
   const [q, setQ] = useState("");
   const list = useMemo(() => {
     const k = q.trim().toLowerCase();
@@ -798,7 +807,7 @@ function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow[]; cur
 }
 
 /* ── 分類 combobox（打字即搜：子分類優先、顯示「主 › 子」；空白列最近用過；↑↓ Enter） ── */
-function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "expense"; categoryId: string | null; onPick(id: string | null): void }) {
+export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "expense"; categoryId: string | null; onPick(id: string | null): void }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const recent = useTicketStore((s) => s.recent[kind]);

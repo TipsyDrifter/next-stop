@@ -333,6 +333,12 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
           <span className="ns-tk-cat">
             <EntryCat e={e} />
           </span>
+          {/* 第③階段（③契約 §5.4、✎-5）：定期記的帳（規則已刪也照標） */}
+          {e.repeat_id && (
+            <span className="ns-tk-rep" title="定期帳記的">
+              定期
+            </span>
+          )}
           {e.note && <span className="ns-tk-note">{e.note}</span>}
         </span>
         <span className="ns-tk-route">

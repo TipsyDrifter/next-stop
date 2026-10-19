@@ -45,6 +45,7 @@ export function TicketCalendar() {
   const weekStart = useUiStore((s) => s.weekStart);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const focus = useCalFocus((s) => s.day);
+  const overDay = useTicketStore((s) => s.overDay); // 第③階段（③契約 §5.4、✎-6）：本月總預算被超過的那一天
   const today = todayKey(dayStartHour);
   useCalendarTodayFresh(); // 頁面一直開著跨午夜：回前景時今日格跟上
 
@@ -68,19 +69,21 @@ export function TicketCalendar() {
         {(calendar ?? []).map((week) =>
           week.map((c) => {
             const t = cellText(c, dec, false);
+            const over = c.inMonth && overDay === c.dayKey;
             const cls =
               "ns-tk-cal-cell" +
               (c.inMonth ? "" : " is-out") +
               (c.isToday ? " is-today" : "") +
               (c.dayKey > today ? " is-future" : "") +
-              (focus === c.dayKey ? " is-focus" : "");
+              (focus === c.dayKey ? " is-focus" : "") +
+              (over ? " is-over" : "");
             return (
               <button
                 key={c.dayKey}
                 type="button"
                 role="gridcell"
                 className={cls}
-                aria-label={cellLabel(c, dec)}
+                aria-label={cellLabel(c, dec) + (over ? "；本月總預算在這天超過" : "")}
                 aria-current={c.isToday ? "date" : undefined}
                 onMouseDown={(e) => e.preventDefault() /* 焦點留在頁根（鍵盤表接得到）；點了就換頁 */}
                 onClick={() => {
@@ -91,6 +94,7 @@ export function TicketCalendar() {
                 <span className="d">
                   {Number(c.dayKey.slice(8))}
                   {c.isToday && <small>今天</small>}
+                  {over && <small className="over">超</small>}
                 </span>
                 <span className="vals">
                   {t.income && <span className="i">{t.income}</span>}

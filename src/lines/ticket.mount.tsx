@@ -10,6 +10,7 @@
  * 車次①（契約 §3.11）：填 desktopView／mobileView／reload／desktopOverlay／mobileOverlay／sidebarAux／captureTargets；
  * 不填 globalHotkeyHandlers、sidebarTool、calendarDayMarks。
  * 第②階段（②契約 §3.5）起再填 nodeFields／quickJump／routeListAside（整合席）。`desktopView`／`mobileView` 的欄位與值寫同一行（probe 牙齒 9）。
+ * 第③階段（③契約 §3.10）：再填 afterPull（整合席）；calendarDayMarks 照舊不填（D-票-32）。
  * 此後凍結，只有整合席能改。
  */
 import type { LineMount, NodeFieldSpec } from "./types";
@@ -39,5 +40,7 @@ export const TICKET_MOUNT: LineMount = {
   nodeFields: TICKET_NODE_FIELDS,
   quickJump: TICKET_QUICK_JUMP,
   routeListAside: RouteSpendAside,
-  // calendarDayMarks 不填（D-票-29）；afterPull 不填（reload 一路已涵蓋）
+  // 第③階段（③契約 0-6）：同步拉完 ⇒ 實體化到期的定期帳（含 0-7 的 reconcile）。reload 只在 tk_* 有變才跑，不適合當觸發
+  afterPull: () => void useTicketStore.getState().materialize("afterPull"),
+  // calendarDayMarks 不填（D-票-29；③的 0-2 答 (a)，D-票-32：主線日曆不標超支）
 };

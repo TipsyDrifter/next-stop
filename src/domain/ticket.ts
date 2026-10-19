@@ -127,6 +127,44 @@ export interface EntryRow extends TkSyncCols {
   to_amount_minor: number | null;
   note: string;
   route_id: string | null;
+  /** 第③階段（③契約 0-3）：哪條定期規則記的（或被「設成定期」連上的）；不設外鍵、不進 entryDiffCols */
+  repeat_id: string | null;
+  import_id: string | null;
+  import_source: string | null;
+  import_utime: number | null;
+}
+
+/**
+ * 第③階段的兩張表（③契約 §3.3；與 SQLite 列逐字相同）。定義在本檔而不是 ticketPlan.ts：
+ * ImportLocal 要用、本檔又「零 import」（③契約 0-10 不准反向 import）——ticketPlan.ts 原樣 re-export。
+ */
+export interface BudgetRow extends TkSyncCols {
+  id: string;
+  kind: "total" | "category";
+  category_id: string | null;
+  month: string | null; // NULL＝預設；"YYYY-MM"＝該月覆寫
+  amount_minor: number; // 主幣別
+  position: number;
+  import_id: string | null;
+  import_source: string | null;
+  import_utime: number | null;
+}
+export interface RepeatRow extends TkSyncCols {
+  id: string;
+  kind: "income" | "expense" | "transfer";
+  account_id: string;
+  to_account_id: string | null;
+  category_id: string | null;
+  amount_minor: number; // 原幣
+  currency: string;
+  note: string;
+  route_id: string | null;
+  rule: string; // FixedRepeatRule 的 JSON
+  hhmm: string;
+  next_on: string | null; // 游標（可回退、不是真相）
+  paused_at: string | null;
+  skipped_days: string; // JSON 陣列
+  position: number;
   import_id: string | null;
   import_source: string | null;
   import_utime: number | null;
@@ -217,6 +255,11 @@ export interface MmbakDump {
   accounts: MmAccount[];
   categories: MmCategory[];
   transactions: MmTx[];
+  /** 第③階段（③契約 §3.6、0-17）：三張表缺欄 ⇒ 對應陣列 null、plan_missing 列「表.欄」。舊版 Rust 不送這四欄（執行期 undefined，讀的人一律 ?? 退回） */
+  budgets: MmBudget[] | null;
+  budget_amounts: MmBudgetAmount[] | null;
+  repeats: MmRepeat[] | null;
+  plan_missing: string[];
 }
 export interface MmCurrency {
   uid: string;
@@ -263,12 +306,49 @@ export interface MmTx {
   /** 交易幣別（`currency_uid`）**原幣**的金額；備份沒有 `IN_ZMONEY` 欄或這列為 NULL ⇒ null */
   in_zmoney: string | null;
 }
-/** 四張表含墓碑的全部列（planImport 的 local） */
+/** Rust MmbakDump 的三個新陣列（第③階段，③契約 §4.1；欄名與 mmbak.rs 逐字相同） */
+export interface MmBudget {
+  uid: string;
+  target_uid: string | null;
+  do_type: number;
+  period_type: number;
+  is_total: boolean;
+  is_del: boolean;
+  transfer_type: number;
+  modify_date: number;
+}
+export interface MmBudgetAmount {
+  uid: string;
+  budget_uid: string;
+  is_del: boolean;
+  amount: string;
+  budget_period: number;
+  modify_date: number;
+}
+export interface MmRepeat {
+  uid: string;
+  is_del: boolean;
+  usetime: number;
+  end_date: number;
+  next_date: number;
+  do_type: number;
+  repeat_type: number;
+  asset_uid: string | null;
+  to_asset_uid: string | null;
+  ctg_uid: string | null;
+  currency_uid: string | null;
+  amount_sub: string;
+  memo: string;
+  payee: string;
+}
+/** 六張表含墓碑的全部列（planImport 的 local；budgets／repeats 是第③階段加的，planImport 本身不讀） */
 export interface ImportLocal {
   currencies: CurrencyRow[];
   accounts: AccountRow[];
   categories: CategoryRow[];
   entries: EntryRow[];
+  budgets: BudgetRow[];
+  repeats: RepeatRow[];
 }
 export type ImportChoice = "theirs" | "ours";
 export interface ImportChange {
@@ -293,6 +373,7 @@ export interface ImportPlan {
   accounts: AccountRow[];
   categories: CategoryRow[]; // 父先子後
   accountIdOf: Record<string, string>; // 財務管家帳戶 uid → 本機帳戶 id
+  categoryIdOf: Record<string, string>; // 財務管家分類 uid → 本機分類 id（第③階段：預算與定期規則的分類對應，③契約 0-12）
   entries: {
     inserts: EntryRow[];
     changed: ImportChange[];
@@ -308,6 +389,8 @@ export interface ImportOutcome {
   inserted: number;
   updated: number;
   skipped: number;
+  budgets: number; // 第③階段（③契約 §3.4）：寫入的預算列數（新增＋更新）
+  repeats: number; // 第③階段：寫入的規則數（新增＋更新）
 }
 
 /** 換算只需要的幣別欄（匯入時用備份匯率組的假列也能餵） */
@@ -704,6 +787,7 @@ export function buildEntryRow(input: NewEntryInput, ctx: EntryCtx, meta: { id: s
     to_amount_minor: amt.to_amount_minor,
     note: m.note,
     route_id: m.routeId,
+    repeat_id: null,
     import_id: null,
     import_source: null,
     import_utime: null,
@@ -889,6 +973,7 @@ export function adjustRow(a: {
     to_amount_minor: null,
     note: a.note,
     route_id: null,
+    repeat_id: null,
     import_id: null,
     import_source: null,
     import_utime: null,
@@ -1707,6 +1792,7 @@ export function planImport(
     occurred_at: isoFromZdate(t.zdate, t.wdate),
     note: t.content ?? "",
     route_id: null,
+    repeat_id: null,
     import_id: t.uid,
     import_source: IMPORT_SOURCE_MM,
     import_utime: t.utime,
@@ -2001,6 +2087,7 @@ export function planImport(
     accounts: newAccounts,
     categories: newCategories,
     accountIdOf,
+    categoryIdOf,
     entries: { inserts, changed, unchanged, tombstoned, invalid },
     extraLocal,
     adjust: { total: plus + minus, plus, minus, rule },

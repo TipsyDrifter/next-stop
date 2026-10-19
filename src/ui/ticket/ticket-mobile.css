@@ -632,6 +632,199 @@
 /* 在 .m2-route-name（flex:1）之後、.m2-route-go 之前；名字長時名字先省略，小字不縮 */
 [data-shell="mobile"] .m2-route .ns-tk-maside { flex: none; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
+/* ════════ 第③階段「管帳」（③契約 §2.6；Stage 0 甲席只立分區錨點，內容丙席；每條前綴 [data-shell="mobile"]）════════ */
+
+/* ═══ 手機預算卡 .ns-tk-mbud*（丙）═══ */
+/* 原型題一手機：「月｜年」那一列下面；一條兩行（名稱｜已用／預算；條｜剩），列高 ≥ 56。
+   條：底＝墨 6%；填色＝墨 45%（總預算 62%）；超支＝條代表已用、斜紋段＝超出的部分（墨 55%：契約的 20% 在銀河主題看不見）、
+   左緣 1.5px 實線＝預算到這裡；按日進度線＝2px ink-faint＋紙色光暈（壓在填色上也看得見）。不用朱（D-票-11） */
+[data-shell="mobile"] .ns-tk-mbud {
+  --bud-track: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  --bud-fill: color-mix(in srgb, var(--color-ink) 45%, transparent);
+  --bud-fill-total: color-mix(in srgb, var(--color-ink) 62%, transparent);
+  --bud-tail: color-mix(in srgb, var(--color-ink) 55%, transparent);
+  margin-top: 10px; padding: 8px 12px 4px;
+}
+[data-shell="mobile"] .ns-tk-mbud-h { display: flex; align-items: baseline; gap: 10px; min-height: 30px; padding: 2px 0 6px; }
+[data-shell="mobile"] .ns-tk-mbud-h h2 { margin: 0; font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: .2em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbud-h small { font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; }
+/* 「設定」：無框淡字；觸控 44 高用負外距吃進標題列 */
+[data-shell="mobile"] .ns-tk-mbud-set {
+  align-self: center; margin: -8px -8px -8px auto; min-height: 44px; padding: 0 8px;
+  font-family: inherit; font-size: 12.5px; letter-spacing: .12em; color: var(--color-ink-soft); background: transparent; border: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mbud-set:active { color: var(--color-ink); background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mbud-set:focus-visible { outline: 1px solid var(--accent); outline-offset: -4px; }
+[data-shell="mobile"] .ns-tk-mbud-rows { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mbud-row > button,
+[data-shell="mobile"] .ns-tk-mbud-row > div {
+  /* 右欄固定寬（修正-UI：原本 auto 跟著「剩／超支」的字變，三條長度不同、同一根按日進度線在各列落在不同 x）。
+     7.25em ≈ 116px 放得下最寬的「99,999／99,999」（再大就是 compactMoney 的「萬」）；真的更寬才撐開，不溢出 */
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(7.25em, max-content); grid-template-areas: "n v" "b r"; align-items: center; column-gap: 12px; row-gap: 4px;
+  width: 100%; min-height: 56px; box-sizing: border-box; padding: 6px 0 7px; text-align: left;
+  font-family: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px dashed var(--color-line);
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mbud-row:last-child > * { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mbud-row.is-total > div { border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mbud-row:last-child.is-total > div { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mbud-row > button:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mbud-row > button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mbud-row .n { grid-area: n; display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 14px; letter-spacing: .04em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbud-row .n .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mbud-row .n .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-row .n .ovr { flex: none; font-family: var(--font-body); font-weight: 400; font-size: 9.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-row.is-total .n { font-family: var(--font-display); font-weight: 700; letter-spacing: .14em; }
+[data-shell="mobile"] .ns-tk-mbud-row.is-archived .n .t { color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mbud-row.is-gone .n .t { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-row .v { grid-area: v; text-align: right; white-space: nowrap; font-family: var(--font-display); font-weight: 600; font-size: 14px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mbud-row .v .sl { margin: 0 3px; font-weight: 400; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-row .bar { grid-area: b; position: relative; height: 8px; border-radius: 1px; background: var(--bud-track); }
+[data-shell="mobile"] .ns-tk-mbud-row .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: var(--bud-fill); transition: width .35s cubic-bezier(.3, 1.1, .5, 1); }
+[data-shell="mobile"] .ns-tk-mbud-row.is-total .bar .fill { background: var(--bud-fill-total); }
+[data-shell="mobile"] .ns-tk-mbud-row .bar .tail {
+  position: absolute; right: 0; top: 0; bottom: 0; border-radius: 0 1px 1px 0;
+  background: repeating-linear-gradient(-45deg, var(--bud-tail) 0 2px, transparent 2px 5px), var(--color-paper-high);
+  box-shadow: inset 1.5px 0 0 var(--color-ink);
+}
+[data-shell="mobile"] .ns-tk-mbud-row .bar .pace {
+  position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px;
+  background: var(--color-ink-faint); box-shadow: 0 0 0 1px var(--color-paper-high);
+}
+[data-shell="mobile"] .ns-tk-mbud-row .r { grid-area: r; min-width: 64px; text-align: right; white-space: nowrap; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mbud-row .r b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbud-note { margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--color-line); font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-empty { display: grid; justify-items: center; gap: 10px; padding: 18px 0 12px; border-top: 1px solid var(--color-line); font-size: 13px; letter-spacing: .14em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-empty p { margin: 0; }
+/* 趨勢卡自己的標題列（圖例從「月｜年」那一列搬進來，不然看起來像在標預算卡） */
+[data-shell="mobile"] .ns-tk-mst-cardh { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+[data-shell="mobile"] .ns-tk-mst-cardh b { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: .2em; color: var(--color-ink); }
+
+/* ═══ 預算 sheet .ns-tk-mbe*（丙）═══ */
+/* 原型題二手機：一個對象一塊；塊內「預設｜覆寫」兩格並排（一塊 114px；上下疊要 145px） */
+[data-shell="mobile"] .ns-tk-mbe-head { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 2px 0 0; }
+[data-shell="mobile"] .ns-tk-mbe-head .ns-tk-mnav { width: 44px; height: 44px; }
+[data-shell="mobile"] .ns-tk-mbe-head b { min-width: 9em; text-align: center; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: .08em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbe-hint { margin: -4px 0 8px; text-align: center; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-blk { padding: 6px 0 10px; border-top: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mbe-blk.is-total { border-top: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mbe-bh { display: flex; align-items: center; min-height: 36px; }
+[data-shell="mobile"] .ns-tk-mbe-bh .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbe-bh .nm .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-blk.is-total .nm { font-family: var(--font-display); font-weight: 700; letter-spacing: .14em; }
+[data-shell="mobile"] .ns-tk-mbe-bh .ns-tk-mbtn { min-height: 36px; margin-right: -10px; font-size: 13px; }
+[data-shell="mobile"] .ns-tk-mbe-fs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+[data-shell="mobile"] .ns-tk-mbe-f { display: grid; gap: 1px; min-width: 0; }
+[data-shell="mobile"] .ns-tk-mbe-f .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mbe-f .in { position: relative; display: block; }
+[data-shell="mobile"] .ns-tk-mbe-f input {
+  width: 100%; min-height: 44px; box-sizing: border-box; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); text-align: right; font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-mbe-f input.has-clr { padding-right: 32px; }
+[data-shell="mobile"] .ns-tk-mbe-f input:focus { border-bottom-color: var(--color-gold); }
+[data-shell="mobile"] .ns-tk-mbe-f input::placeholder { font-family: var(--font-body); font-weight: 400; font-size: 13px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-f .clr { position: absolute; right: -6px; top: 0; width: 36px; height: 44px; display: grid; place-items: center; color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent; }
+[data-shell="mobile"] .ns-tk-mbe-f .clr:active { color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbe-add { width: 100%; margin: 6px 0 2px; }
+/* 加分類預算（疊一層的 sheet）：支出兩層格子；已設的淡掉、不能點 */
+[data-shell="mobile"] .ns-tk-mbe-picksheet .ns-tk-msheet-body { padding-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mbe-pickhint { margin: 0; padding: 0 18px 8px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-pick { padding-bottom: 6px; }
+[data-shell="mobile"] .ns-tk-mbe-pick .ns-tk-mcell.has-kids small { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-pick .ns-tk-mcell.is-taken { opacity: .45; cursor: default; }
+
+/* ═══ 定期帳 sheet .ns-tk-mrm*（丙）═══ */
+/* 原型題四手機：橫幅（金，是提醒不是錯誤）→「進行中」「已暫停」兩區 → 一條兩行；列尾只留「暫停／開始」 */
+[data-shell="mobile"] .ns-tk-mrm-banner { margin: 8px 0 4px; padding: 10px 12px; border-radius: 2px; background: color-mix(in srgb, var(--color-gold) 9%, transparent); border: 1px dashed color-mix(in srgb, var(--color-gold) 55%, transparent); }
+[data-shell="mobile"] .ns-tk-mrm-banner p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrm-banner b { font-family: var(--font-display); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn { width: 100%; }
+/* 金底橫幅裡的主鈕：粉彩改金墨（同桌機橫幅；原本是 accent 靛藍，兩殼不一致），銀河照 .primary 的金 */
+[data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn.primary { color: var(--color-gold-ink); border-color: var(--color-gold-ink); background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+[data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn.primary:active { background: color-mix(in srgb, var(--color-gold) 22%, transparent); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn.primary,
+[data-theme="dark"][data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn.primary { color: var(--color-gold); border-color: var(--color-gold); }
+/* 匯入結果卡「去定期帳 ›」（ImportCard 兩殼共用、桌機樣式 ticket.css §O）：手機觸控高 44，用負外距吃回去不把卡撐高 */
+[data-shell="mobile"] .ns-tk-im-note.is-plan { align-items: center; }
+[data-shell="mobile"] .ns-tk-im-note.is-plan .ns-tk-btn { min-height: 44px; margin: -8px 0 -8px -8px; padding: 0 8px; font-size: 13px; }
+[data-shell="mobile"] .ns-tk-mrm-h { margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mrm-h .n { font-family: var(--font-latin); letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tk-mrm ul { margin: 0; padding: 0; list-style: none; }
+[data-shell="mobile"] .ns-tk-mrm-empty { margin: 0; padding: 28px 8px 20px; text-align: center; font-size: 13px; line-height: 1.7; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-none { margin: 0; padding: 14px 0; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-row { display: flex; align-items: center; border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mrm li:last-child .ns-tk-mrm-row { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mrm-row .main {
+  flex: 1; min-width: 0; display: grid; gap: 1px; min-height: 60px; box-sizing: border-box; padding: 8px 0; text-align: left;
+  font-family: inherit; color: inherit; background: transparent; border: 0; -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mrm-row .main:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mrm-row .main:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mrm-row .l1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mrm-row .amt { flex: none; font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mrm-row .amt .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; font-weight: 400; letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrm-row .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mrm-row .what .gt { margin: 0 .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-row .what .unc { color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrm-row .l1 .nx { flex: none; margin-left: auto; padding-left: 8px; font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrm-row .l2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-row .warn { margin-right: 4px; font-weight: 600; color: var(--color-late); }
+[data-shell="mobile"] .ns-tk-mrm-row.is-blocked .l1 .nx { color: var(--color-late); }
+[data-shell="mobile"] .ns-tk-mrm-row.is-paused :is(.amt, .what) { color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrm-row:is(.is-paused, .is-ended) .l1 .nx { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-row .tog { flex: none; margin-right: -10px; }
+[data-shell="mobile"] .ns-tk-mrm-foot { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0 calc(var(--m-safe-bottom) + 6px); }
+
+/* ═══ 定期表單 .ns-tk-mre*（丙）═══ */
+/* 骨架＝.ns-tk-mform（記一筆表單同一套）；頻率區在金額正下方、固定展開（原型題三：頻率要在第一屏） */
+[data-shell="mobile"] .ns-tk-mre-from { margin: 0; padding: 10px 18px 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mre-freq { margin: 2px 0 0; }
+[data-shell="mobile"] .ns-tk-mre-seg { padding: 0 18px; }
+[data-shell="mobile"] .ns-tk-mre-seg .ns-tk-mseg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: row; }
+[data-shell="mobile"] .ns-tk-mre-detail { padding: 10px 18px 2px; }
+[data-shell="mobile"] .ns-tk-mre-freq > .ns-tk-mf-field { margin: 6px 18px 0; border-top: 1px dashed var(--color-line); border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mre-wk, [data-shell="mobile"] .ns-tk-mre-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+[data-shell="mobile"] .ns-tk-mre-wk { gap: 5px; }
+[data-shell="mobile"] .ns-tk-mre-days { gap: 4px; }
+[data-shell="mobile"] .ns-tk-mre-wk button,
+[data-shell="mobile"] .ns-tk-mre-days button {
+  min-width: 0; height: 44px; padding: 0; box-sizing: border-box; border: 1px solid var(--color-line); border-radius: 2px;
+  background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); font-family: inherit; font-size: 14px; color: var(--color-ink-soft);
+  -webkit-tap-highlight-color: transparent; transition: border-color .12s, background .12s, color .12s;
+}
+[data-shell="mobile"] .ns-tk-mre-days button { height: 40px; font-family: var(--font-latin); }
+[data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+[data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button[aria-pressed="true"] { border-color: var(--color-gold); color: var(--color-ink); font-weight: 600; background: var(--ns-tk-sel); box-shadow: var(--ns-tk-mgoldring); }
+[data-shell="mobile"] .ns-tk-mre-dailyhint { margin: 0; padding: 4px 0; font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mre-hint { margin: 6px 0 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mre-hint.is-past { margin: 0; padding: 0 18px 2px calc(18px + 44px + 12px); }
+[data-shell="mobile"] .ns-tk-mre-clr { min-height: 40px; font-size: 13px; }
+[data-shell="mobile"] .ns-tk-mre-preview { display: grid; gap: 1px; margin: 14px 18px 0; padding: 9px 12px; border-radius: 2px; background: var(--color-paper-used); border: 1px solid var(--color-line); font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mre-preview .t { min-width: 0; overflow-wrap: anywhere; }
+[data-shell="mobile"] .ns-tk-mre-preview .nx { font-weight: 600; color: var(--color-ink); }
+
+/* ═══ 定期小標 .ns-tk-mrep、月曆 .is-over（丙）═══ */
+/* 清單列小標（✎-5）：墨色細框小字、不蓋印；在分類那一行，分類字包 .ct 負責省略號、小標 flex:none（長分類被截的是分類字） */
+[data-shell="mobile"] .ns-tk-mrow .c { display: flex; align-items: center; gap: 7px; }
+[data-shell="mobile"] .ns-tk-mrow .c .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mrep {
+  flex: none; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--color-ink) 32%, transparent); border-radius: 2px;
+  font-size: 10.5px; line-height: 15px; letter-spacing: .12em; text-indent: .12em; color: var(--color-ink-soft); white-space: nowrap;
+}
+/* 月曆「超」（✎-6）：日號後小字、墨色粗一階；格不上色（試過淡墨底，像 hover） */
+[data-shell="mobile"] .ns-tk-mcal-cell .d small.over { margin-left: 2px; font-family: var(--font-body); font-size: 10px; font-weight: 700; letter-spacing: 0; color: var(--color-ink); }
+/* 記一筆表單「更多欄位」最後一列：定期（設成定期… ›／唯讀「每月 1 日 · 管理 ›」） */
+[data-shell="mobile"] .ns-tk-mf-rep .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mf-rep.is-ro .ns-tk-mf-pick { border-color: transparent; padding-right: 0; color: var(--color-ink-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .ns-tk-mbud-row .bar .fill { transition: none; }
+  [data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button { transition: none; }
+}
+
 /* ═══ 減量動態 ═══ */
 @media (prefers-reduced-motion: reduce) {
   [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msheet, .ns-tk-mveil, .ns-tk-msubs, .ns-tk-mday, .ns-tk-mnotice, .ns-tk-mst-rows .row > button) { animation: none; }

@@ -3,8 +3,9 @@
  *
  * 單欄由上而下：
  *   三數卡（收入／支出／淨額橫排三格＋「N 筆收支」；compactMoney）
- *   →「月｜年」小切換＋圖例
- *   → 趨勢 12 根（inline SVG、寬度＝容器實際像素；支出墨、收入金、選中月 accent；條頂 compact 小字——
+ *   →「月｜年」小切換
+ *   →（第③階段，月模式）預算卡 MobileBudgetCard
+ *   → 趨勢 12 根（卡頭「月對月」＋圖例）（inline SVG、寬度＝容器實際像素；支出墨、收入金、選中月 accent；條頂 compact 小字——
  *      12 個月 × 兩個數放不下，收入數字只印選中月，同原型）；點一根 ⇒ 切到那個月（年模式先切回月）
  *   → 切面「分類｜帳戶｜路線」（側欄已篩帳戶時「帳戶」不出，0-8）＋「支出｜收入」
  *   → 占比列（名稱｜金額｜%，條在下一行全寬；觸控高 ≥ 44）：主分類點＝展開／收起子分類（store.drill，一次一個）；
@@ -33,6 +34,7 @@ import {
 } from "../../../domain/ticketView";
 import { IconRight } from "./mobileBits";
 import { useViewSwipe } from "./MobileViewBar";
+import { MobileBudgetCard } from "./plan/MobileBudgetCard";
 
 export function MobileTicketStats() {
   const stats = useTicketStore((s) => s.stats);
@@ -59,14 +61,20 @@ export function MobileTicketStats() {
                 </button>
               ))}
             </span>
-            <span className="ns-tk-mst-legend" aria-hidden>
-              <i className="sw exp" />
-              支出
-              <i className="sw inc" />
-              收入
-            </span>
           </div>
+          {/* 第③階段（③契約 §5.5；原型題一）：預算卡放在「月｜年」下面——放最上面的話切「年」卡片消失、這列會跳位 */}
+          {span === "month" && <MobileBudgetCard />}
           <section className="ns-tk-mst-card">
+            {/* 圖例搬進趨勢卡自己的標題列：留在「月｜年」那一列會像在標預算卡 */}
+            <div className="ns-tk-mst-cardh">
+              <b>月對月</b>
+              <span className="ns-tk-mst-legend" aria-hidden>
+                <i className="sw exp" />
+                支出
+                <i className="sw inc" />
+                收入
+              </span>
+            </div>
             <Trend stats={stats} dec={dec} />
           </section>
           <Facets />
