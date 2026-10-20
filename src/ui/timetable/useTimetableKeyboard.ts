@@ -12,12 +12,16 @@
  * 車次③（③ 契約 §5.8、D-時-57；整合席）：加七個 id——1–4 切視圖（`showView`）、D／W／M 換統計的期（`statsPeriod`，
  * 不在統計視圖回 false 放行）。←／→／T 不另登記：同一組 `dayPrev`／`dayNext`／`dayToday` 由接線端依 view 分派
  * （週視圖＝換週／回本週，統計＝換期／回本期，其餘＝換日）。面板開著時照舊整張表停用。
+ *
+ * 車次④（④ 契約 0-7、§5.10；D-時-74；整合席）：加 `timetable.view.5`＝日程。←／→／T 在日程＝換日（接線端分派）。
+ * 車次⑤（⑤ 契約 0-6；D-時-92、104；整合席）：加 `timetable.view.6`＝方眼。←／→／T 在方眼＝換日（同軸）；Esc 由方眼元件自己處理、不進這張表；
+ *   Enter 照舊＝到着（不給方眼）。
  */
 import type { KeyboardEvent } from "react";
 import { isEditableTarget, resolveHotkey, type KeyLike } from "../shell/hotkeys";
 
-/** 1–4 對應的視圖（＝切換鈕四格的順序，D-時-46） */
-export type TimetableKeyView = "split" | "axis" | "week" | "stats";
+/** 1–6 對應的視圖（＝切換鈕六格的順序，D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼） */
+export type TimetableKeyView = "split" | "axis" | "week" | "stats" | "schedule" | "grid";
 /** D／W／M 對應的統計期 */
 export type TimetableKeyPeriod = "day" | "week" | "month";
 
@@ -46,7 +50,7 @@ export interface TimetableKeyActions {
   fill(): void;
 
   /* 車次③（③ 契約 §5.8）的兩支 */
-  /** 1–4：store.setView(v) */
+  /** 1–6：store.setView(v) */
   showView(v: TimetableKeyView): void;
   /** D／W／M：統計 store.setPeriod(p)；不在統計視圖回 false（放行） */
   statsPeriod(p: TimetableKeyPeriod): boolean;
@@ -115,6 +119,12 @@ export function handleTimetableKey(e: TimetableKeyEvent, a: TimetableKeyActions,
       break;
     case "timetable.view.4":
       a.showView("stats");
+      break;
+    case "timetable.view.5":
+      a.showView("schedule");
+      break;
+    case "timetable.view.6":
+      a.showView("grid");
       break;
     case "timetable.stats.day":
       if (!a.statsPeriod("day")) return;

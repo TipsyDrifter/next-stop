@@ -21,6 +21,7 @@ import type {
   BlockLink,
 } from "../domain/timetable";
 import type { GoalInput } from "../domain/timetableStats";
+import type { PaintUndo } from "../domain/timetableGrid";
 import { MOCK_MODE, WIPED_MODE, nodeRepo, settingsRepo } from "./index";
 import { SqliteTimetableRepository } from "./sqliteTimetableRepository";
 import { MemoryTimetableRepository } from "./memoryTimetableRepository";
@@ -170,6 +171,21 @@ export interface TimetableRepository {
   deleteGoal(id: string): Promise<void>;
   /** 復原軟刪除（撤回用） */
   restoreGoal(id: string): Promise<void>;
+
+  /* ── ⑤（⑤ 契約 0-5、§3.2；只加不改） ── */
+  /**
+   * ⑤：方眼塗色。mode "fill"＝planFill（新塊 long_run_ack＝1，〈原型定案〉5）；"live"＝planPaintLive（換車＝planDepart(at=start)；
+   * 同分類而且選區頭早於它＝planRestart；同分類而且不早於它＝什麼都不寫：回運行中那班、summary 全 0、undo 兩個清單都空）。
+   * 回撤回用的快照（PaintUndo：寫完讀回、`updated_at` 真的變了的列才記）。
+   */
+  paint(
+    categoryId: string,
+    startIso: string,
+    endIso: string,
+    mode: "fill" | "live",
+  ): Promise<{ block: TimeBlockRow; summary: CoverSummary; undo: PaintUndo }>;
+  /** ⑤：撤回一次塗色。任何一列的現況 `updated_at` 跟塗完時不同（另一台改過、整理動過）⇒ 一列都不動、回 false */
+  undoPaint(undo: PaintUndo): Promise<boolean>;
 }
 
 export const timetableRepo: TimetableRepository = MOCK_MODE

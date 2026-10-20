@@ -10,6 +10,8 @@
  * 車次②段二（② 契約 0-1 甲、§6.1 #F2；接縫 #66）：今日頁鍵 N＝`timetable.today.depart`（scope "today"，登記在核心 scope ⇒
  *   id 以 `timetable.` 開頭，牙齒 10）；處理函式在 mount 的 `todayRowActions[].hotkeys`，`hotkeyFiles.today` 指向 mount。
  * 車次③（③ 契約 §5.8；D-時-57；整合席）：視圖 1–4、統計 D／W／M 七個鍵；←／→／T 依視圖分派（只補 note）。
+ * 車次④（④ 契約 0-7；D-時-74；整合席）：視圖 5＝日程；←／→／T 在日程＝換日（同軸，note 照舊）。
+ * 車次⑤（⑤ 契約 0-6；D-時-92、104；整合席）：視圖 6＝方眼；←／→／T 在方眼＝換日（同軸，note 照舊）；Esc 不登記（方眼元件自己處理）。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -27,12 +29,16 @@ const STATS_ONLY_NOTE = "統計視圖才有作用";
 const TIMETABLE_HOTKEYS: Hotkey[] = [
   { id: "timetable.depart", scope: "timetable", chords: [{ key: "n" }], label: "発車／換車", wired: true },
   { id: "timetable.arrive", scope: "timetable", chords: [{ key: "Enter" }], label: "到着（運行中才有效）", wired: true },
-  { id: "timetable.view", scope: "timetable", chords: [{ key: "v" }], label: "切換視圖", note: "兩欄⇄只看軸；在週視圖或統計按下回到兩欄", wired: true },
+  { id: "timetable.view", scope: "timetable", chords: [{ key: "v" }], label: "切換視圖", note: "兩欄⇄只看軸；在週視圖、統計、日程或方眼按下回到兩欄", wired: true },
   // 車次③（③ 契約 §5.8、D-時-57）：視圖四格 1–4（同切換鈕的鍵帽）。無修飾鍵、不加 ignoreMods（同①b）
   { id: "timetable.view.1", scope: "timetable", chords: [{ key: "1" }], label: "切到兩欄", wired: true },
   { id: "timetable.view.2", scope: "timetable", chords: [{ key: "2" }], label: "切到只看軸", wired: true },
   { id: "timetable.view.3", scope: "timetable", chords: [{ key: "3" }], label: "切到週視圖", wired: true },
   { id: "timetable.view.4", scope: "timetable", chords: [{ key: "4" }], label: "切到統計", wired: true },
+  // 車次④（④ 契約 0-7、D-時-74）：第五格日程
+  { id: "timetable.view.5", scope: "timetable", chords: [{ key: "5" }], label: "切到日程", wired: true },
+  // 車次⑤（⑤ 契約 0-6、D-時-92）：第六格方眼
+  { id: "timetable.view.6", scope: "timetable", chords: [{ key: "6" }], label: "切到方眼", wired: true },
   // 車次①b（①b①c 契約 §5.9；Stage 0-B 寫最終版，之後凍結）：無修飾鍵、不加 ignoreMods（Shift+T 等不吃）
   // 車次③（③ 契約 §5.8、D-時-57）：←／→／T 同一組鍵依視圖分派（週視圖＝換週／回本週，統計＝換期／回本期），不另登記；只補 note
   { id: "timetable.day.prev", scope: "timetable", chords: [{ key: "ArrowLeft" }], label: "前一天", note: STEP_NOTE, wired: true },

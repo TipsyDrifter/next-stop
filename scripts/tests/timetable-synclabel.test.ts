@@ -258,3 +258,44 @@ describe("小工具", () => {
     assert.deepEqual(froms.sort(), ["../domain/timetable.ts", "../lib/date.ts", "type:./types.ts"].sort());
   });
 });
+
+/* ───────── ④ 契約 §4 第 10 項（#73 R5） ───────── */
+
+describe("#73 R5：TT_TEXT.syncCols 的 glyph／position 欄名是中文", () => {
+  // TT_TEXT 在 store（node 載不起來）⇒ 讀原始碼裡 syncCols 那一段的字面值
+  const syncColsOf = async (): Promise<Record<string, Record<string, string>>> => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../../src/store/timetableStore.ts", import.meta.url), "utf8");
+    const start = src.indexOf("syncCols: {");
+    assert.ok(start >= 0, "找不到 syncCols");
+    const body = src.slice(start, src.indexOf("} as {", start));
+    const out: Record<string, Record<string, string>> = {};
+    for (const t of ["time_blocks", "time_categories", "time_goals"]) {
+      const m = new RegExp(`${t}: \{([^}]*)\}`).exec(body);
+      assert.ok(m, `找不到 ${t}`);
+      out[t] = Object.fromEntries(Array.from(m[1].matchAll(/(\w+): "([^"]*)"/g)).map((x) => [x[1], x[2]]));
+    }
+    return out;
+  };
+  const CJK = /^[㐀-鿿　-〿]+$/;
+  test("time_categories.glyph＝圓牌字、time_categories.position＝排序、time_goals.position＝排序", async () => {
+    const cols = await syncColsOf();
+    assert.equal(cols.time_categories.glyph, "圓牌字");
+    assert.equal(cols.time_categories.position, "排序");
+    assert.equal(cols.time_goals.position, "排序");
+  });
+  test("三張表每個欄名都是中文（沒有漏網的英文欄名）", async () => {
+    const cols = await syncColsOf();
+    for (const [t, m] of Object.entries(cols)) for (const [k, v] of Object.entries(m)) assert.match(v, CJK, `${t}.${k}`);
+  });
+  test("接上 categorySyncLabel／goalSyncLabel：cols 帶得出這兩欄，fmt 退回核心（null）", async () => {
+    const cols = await syncColsOf();
+    const text: SyncLabelText = { ...TEXT, syncCols: { time_blocks: cols.time_blocks, time_categories: cols.time_categories, time_goals: cols.time_goals } };
+    const cat = categorySyncLabel({ name: "創作" } as TimeCategoryRow, look(T(10, 19, 15)), text);
+    assert.equal(cat.cols?.glyph, "圓牌字");
+    assert.equal(cat.cols?.position, "排序");
+    assert.equal(cat.fmt!("glyph", "創"), null);
+    const goal = goalSyncLabel({ name: "夜行列車" } as TimeGoalRow, look(T(10, 19, 15)), text);
+    assert.equal(goal.cols?.position, "排序");
+  });
+});

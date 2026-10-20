@@ -18,6 +18,8 @@ import { SplitPanel } from "./SplitPanel";
 import { TaskCategoryPanel } from "./TaskCategoryPanel";
 import { GoalPanel } from "./GoalPanel"; // ③ 乙席
 import { PendingListPanel, pendingListTitle } from "./PendingListPanel"; // ③ 乙席
+import { PlanPanel } from "./PlanPanel"; // ④ 乙席
+import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore"; // ④ 乙席
 
 export type { PanelProps } from "./controls";
 export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, RestartPanel, SplitPanel, TaskCategoryPanel };
@@ -61,6 +63,12 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       return sheet.goalId ? TT_TEXT.statsUi.goalEditTitle : TT_TEXT.statsUi.goalNewTitle;
     case "pendingList": // ③ 乙席
       return pendingListTitle(sheet.goalId);
+    case "plan": {
+      // ④ 乙席：標題＝車票名（日程的只讀 store 有節點表）
+      const st = useTimetableScheduleStore.getState();
+      const it = st.items[sheet.key];
+      return (it && st.nodes[it.nodeId]?.name) || TT_TEXT.viewSchedule;
+    }
     default:
       return "";
   }
@@ -92,6 +100,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(GoalPanel, { onDone, key: sheet.goalId ?? "new" });
     case "pendingList": // ③ 乙席
       return createElement(PendingListPanel, { onDone });
+    case "plan": // ④ 乙席：手機的 sheet（桌機是 schedule/PlanPopover 自己畫的浮層，DesktopSheetHost 不畫這一種）
+      return createElement(PlanPanel, { onDone, key: sheet.key });
     default:
       return createElement(DepartPanel, { onDone });
   }

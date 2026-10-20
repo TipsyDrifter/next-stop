@@ -13,11 +13,15 @@
  * - ③（`&tt=stats`，③ 契約 0-12）：種**最近 10 週**、照使用者的分類分布、每天 6–9 筆首尾相接；3 塊跑太久沒確認（一塊跨兩天）、
  *   5 塊 10–40 秒的碎塊、約三成連到兩條路線的車票、一成只連路線；四個目標（夜行列車：從 6 週前起至少 180h 創作＋學習＋興趣；
  *   娛樂每週至多 20h；到 2 週後為止至少 30h 上課＋學習；上個月的單一區間至少 N 小時創作〔已結束、沒達到；N 依示範資料算成約 7 成進度〕）。日界線讀當下設定（`day_start_hour`，沒有就 6）；種子固定（同一天開兩次長一樣）。
+ * - ④（`&tt=sched`，④ 契約 0-9）：照名字從記憶體節點種子找票，種今天與昨天的實績（`ensureSchedDemo`）：準點一張（房東）、
+ *   晚開始＋多花＋一段待確認一張（讀文法書）、済了沒記時間一張（收信）、定期券一張先一塊 30 秒碎塊再準點開始（背單字）、
+ *   正在跑一塊連到某張排定的票、其餘不連任務的塊把一天鋪到現在；昨天也種一份（過去日唯讀）。日界線讀當下設定；種子固定（同一刻開兩次長一樣）。
+ * - ⑤（`&tt=grid`，⑤ 契約 0-7）：今天＝零碎的一天、昨天＝首尾相接的一般日（`ensureGridDemo`）。日界線讀當下設定；種子固定。
  * - ②：建構子收 `nodeRepo`（照 `noteRepo.ts` 的注入法）——`lastCategoryFor`／`listBlocksByRoute` 由它取節點的路線、
  *   `setLink` 由它驗節點種類、`&tt=link` 由它找今日車票。
  */
 import { nowUtcIso, uuid } from "../lib/db";
-import { addDays, dayWindow, todayKey } from "../lib/date";
+import { addDays, clockInstant, dayWindow, todayKey } from "../lib/date";
 import type { NodeRepository } from "./nodeRepository";
 import type { SettingsRepository } from "./settingsRepository";
 import { LINKABLE_KINDS, linkOfRow } from "../domain/timetableLink";
@@ -25,6 +29,7 @@ import {
   MIN,
   STARTER_CATEGORIES,
   canUndoArrive,
+  currentRunning,
   insertLinkOf,
   groupedCategories,
   inReconcileWindow,
@@ -65,18 +70,26 @@ import {
 } from "../domain/timetable";
 import { goalScopeJson, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
 import { buildStatsDemo } from "../domain/timetableStatsDemo";
+import {
+  buildPaintUndo,
+  planPaintFill,
+  planPaintLive,
+  planUndoPaint,
+  type PaintRow,
+  type PaintUndo,
+} from "../domain/timetableGrid";
 import type { CategoryPatch, CreateCategoryInput, DepartOptions, MergePreview, TimetableRepository } from "./timetableRepository";
 import { pieceId } from "./sqliteTimetableRepository";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
 const isAlive = (r: { deleted_at: string | null }): boolean => r.deleted_at === null;
 
-/** 評審端點：`&tt=long|idle|est|link|stats` */
-function ttMode(): "long" | "idle" | "est" | "link" | "stats" | null {
+/** 評審端點：`&tt=long|idle|est|link|stats|sched|grid` */
+function ttMode(): "long" | "idle" | "est" | "link" | "stats" | "sched" | "grid" | null {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("tt");
-    return v === "long" || v === "idle" || v === "est" || v === "link" || v === "stats" ? v : null;
+    return v === "long" || v === "idle" || v === "est" || v === "link" || v === "stats" || v === "sched" || v === "grid" ? v : null;
   } catch {
     return null;
   }
@@ -140,7 +153,11 @@ export class MemoryTimetableRepository implements TimetableRepository {
           ? this.ensureLinkDemo()
           : mode === "stats"
             ? this.ensureStatsDemo()
-            : Promise.resolve();
+            : mode === "sched"
+              ? this.ensureSchedDemo()
+              : mode === "grid"
+                ? this.ensureGridDemo()
+                : Promise.resolve();
     }
     return this.linkDemo;
   }
@@ -263,6 +280,306 @@ export class MemoryTimetableRepository implements TimetableRepository {
       startOn: monthStart,
       endOn: monthEnd,
     });
+  }
+
+  /** 當下的日界線設定（`day_start_hour`；沒有／壞了＝6，同 ensureStatsDemo） */
+  private async readDayStartHour(): Promise<number> {
+    try {
+      const raw = await this.settings?.get("day_start_hour");
+      const n = raw === null || raw === undefined ? NaN : Number(raw);
+      if (Number.isInteger(n) && n >= 0 && n <= 23) return n;
+    } catch {
+      /* 用預設 */
+    }
+    return 6;
+  }
+
+  /**
+   * ④ `&tt=sched`（契約 0-9）：取代 `ensureDemo`（先把 `demoSeeded` 設成 true）。預定時刻一律讀節點種子當天的有效時刻
+   * （`listCalendar` 的 `time`），實績照它排；找不到某張票（名字改了）就略過那一段。種子固定：只依「現在」與節點種子決定。
+   *   今天：房東 +3 分開始、做 22 分（準點）；背 N5 單字 −3 分一塊 30 秒碎塊、+1 分開始做 29 分（準點，碎塊不當第一塊）；
+   *         讀文法書 +25 分開始、做 100 分（晚 25 分・多花 40m）＋隔 5 分一塊 100 分、這一班預估 30 分沒確認（待確認）；
+   *         收信不種（済・沒記時間）；夜班回報不種。超過現在的不種、跨到現在的那塊改成運行中；
+   *         正在跑的那塊沒連任務 ⇒ 連到最近一張有時刻、還沒交代、沒有實績的票。其餘空白用不連任務的塊鋪滿（每塊短於分類預設長度，免得變待確認）。
+   *   昨天：有時刻、沒運休的票依時刻輪流「+2 分準點」「+15 分晚開始、多 20 分」「不種」；其餘鋪滿整天。
+   */
+  private async ensureSchedDemo(): Promise<void> {
+    if (this.demoSeeded) return;
+    this.demoSeeded = true;
+    const now = Date.now();
+    const h = await this.readDayStartHour();
+    const today = todayKey(h, new Date(now));
+    const yday = addDays(today, -1);
+    type Plan = { nodeId: string; date: string; time: string; est: number | null; settled: boolean };
+    const plans: Plan[] = [];
+    const idByName = new Map<string, string>();
+    try {
+      const cal = await this.nodeRepo.listCalendar(yday, today, { todayDateKey: today, dayStartHour: h });
+      for (const n of Object.values(cal.nodes)) if (!idByName.has(n.name)) idByName.set(n.name, n.id);
+      for (const e of cal.entries) {
+        if (e.time === null || e.occurrence_status === "skipped") continue;
+        const est = cal.nodes[e.node_id]?.estimate_min ?? null;
+        plans.push({ nodeId: e.node_id, date: e.date, time: e.time, est: typeof est === "number" && est > 0 ? est : null, settled: e.is_done });
+      }
+    } catch {
+      /* 示範資料失敗不影響主流程：只鋪不連任務的塊 */
+    }
+    const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+    plans.sort((a, b) => cmp(a.date, b.date) || cmp(a.time, b.time) || cmp(a.nodeId, b.nodeId));
+    const planOf = (date: string, name: string): Plan | null => {
+      const id = idByName.get(name);
+      return (id !== undefined && plans.find((p) => p.date === date && p.nodeId === id)) || null;
+    };
+    type Seed = { key: string; start: number; end: number | null; nodeId: string | null; est: number | null };
+    const at = (p: Plan, offMin: number): number => (clockInstant(p.date, p.time) ?? now) + offMin * MIN;
+    const seed = (key: string, start: number, end: number, nodeId: string | null, est: number | null = null): Seed => ({ key, start, end, nodeId, est });
+
+    // 今天的幾個角色
+    const todaySeeds: Seed[] = [];
+    const landlord = planOf(today, "回覆房東訊息");
+    if (landlord) todaySeeds.push(seed("chore", at(landlord, 3), at(landlord, 25), landlord.nodeId));
+    const vocab = planOf(today, "背 N5 單字");
+    if (vocab) {
+      todaySeeds.push(seed("study", at(vocab, -3), at(vocab, -3) + 30_000, vocab.nodeId)); // 30 秒碎塊
+      todaySeeds.push(seed("study", at(vocab, 1), at(vocab, 30), vocab.nodeId));
+    }
+    const grammar = planOf(today, "讀文法書 §3 做筆記");
+    if (grammar) {
+      todaySeeds.push(seed("study", at(grammar, 25), at(grammar, 125), grammar.nodeId));
+      todaySeeds.push(seed("study", at(grammar, 130), at(grammar, 230), grammar.nodeId, 30)); // 預估 30 分、跑了 100 分、沒確認＝待確認
+    }
+    // 昨天：輪流 準點／晚開始多做／不種
+    const ydaySeeds: Seed[] = [];
+    plans
+      .filter((p) => p.date === yday)
+      .forEach((p, i) => {
+        const len = p.est ?? 30;
+        if (i % 3 === 0) ydaySeeds.push(seed("study", at(p, 2), at(p, 2 + len), p.nodeId));
+        else if (i % 3 === 1) ydaySeeds.push(seed("chore", at(p, 15), at(p, 15 + len + 20), p.nodeId));
+      });
+
+    const FILL = ["meal", "chore", "play", "rest", "move"];
+    const FILL_MAX = 75 * MIN; // 都短於這幾類的預設長度（90 分起），不會變待確認
+    const SLEEP_MAX = 8 * 60 * MIN; // 睡覺預設 600 分
+    const RUN_MAX = 20 * MIN; // 運行中那塊：短於任何示範票的預計（夜班回報 30 分），不會一打開就變待確認
+    /** 一天：角色塊去重疊、截到 until（跨過 until 的那塊改成運行中＝end null，之後的不種）、空白鋪滿 */
+    const lay = (date: string, seeds: readonly Seed[], until: number): Seed[] => {
+      const w = dayWindow(date, h);
+      const ws = msOf(w.start);
+      const wEnd = msOf(w.end);
+      const we = Math.min(wEnd, until);
+      const kept: Seed[] = [];
+      for (const s of [...seeds].sort((a, b) => a.start - b.start)) {
+        if (s.start < ws || s.start >= we) continue;
+        const last = kept[kept.length - 1];
+        if (last && s.start < (last.end ?? we)) continue;
+        kept.push(s);
+      }
+      const out: Seed[] = [];
+      let cursor = ws;
+      let fi = 0;
+      const fill = (to: number): void => {
+        while (to - cursor >= MIN) {
+          const first = cursor === ws;
+          const end = Math.min(to, cursor + (first ? SLEEP_MAX : FILL_MAX));
+          out.push(seed(first ? "sleep" : FILL[fi++ % FILL.length], cursor, end, null));
+          cursor = end;
+        }
+      };
+      for (const s of kept) {
+        fill(s.start);
+        cursor = Math.max(cursor, s.start);
+        const end = s.end ?? we;
+        if (end > we) {
+          out.push({ ...s, end: we < wEnd ? null : we }); // 跨到現在：運行中
+          return out;
+        }
+        out.push(s);
+        cursor = end;
+      }
+      if (we < wEnd) {
+        // 今天：鋪到「現在前 20 分」，最後一塊從那裡跑到現在
+        const runFrom = Math.max(cursor, we - RUN_MAX);
+        fill(runFrom);
+        if (we - runFrom >= MIN) out.push({ key: "create", start: runFrom, end: null, nodeId: null, est: null });
+      } else {
+        fill(we);
+      }
+      return out;
+    };
+
+    const todayBlocks = lay(today, todaySeeds, now);
+    // 正在跑的那塊沒連任務 ⇒ 連到最近一張有時刻、還沒交代、沒有實績的票
+    const run = todayBlocks.find((b) => b.end === null);
+    if (run && run.nodeId === null) {
+      const used = new Set(todayBlocks.flatMap((b) => (b.nodeId === null ? [] : [b.nodeId])));
+      const open = plans.filter((p) => p.date === today && !p.settled && !used.has(p.nodeId));
+      open.sort((a, b) => Math.abs(at(a, 0) - run.start) - Math.abs(at(b, 0) - run.start) || cmp(a.nodeId, b.nodeId));
+      if (open[0]) {
+        run.nodeId = open[0].nodeId;
+        run.key = "study";
+      }
+    }
+    const yBlocks = lay(yday, ydaySeeds, msOf(dayWindow(yday, h).end));
+
+    const stamp = nowUtcIso();
+    let seq = 0;
+    for (const b of [...yBlocks, ...todayBlocks]) {
+      const id = `5c4ed000-0000-4000-8000-${(++seq).toString(16).padStart(12, "0")}`;
+      this.blocks.set(id, {
+        id,
+        category_id: STARTER_ID[b.key],
+        started_at: isoOf(b.start),
+        ended_at: b.end === null ? null : isoOf(b.end),
+        estimate_min: b.est,
+        node_id: b.nodeId,
+        route_id: null,
+        long_run_ack: 0,
+        account_id: null,
+        device_id: null,
+        created_at: stamp,
+        updated_at: stamp,
+        synced_at: null,
+        deleted_at: null,
+      });
+      this.startStamp.set(id, stamp);
+    }
+  }
+
+  /**
+   * ⑤ `&tt=grid`（契約 0-7；同原型 `v-i.js` 的 generate）：取代 `ensureDemo`（先把 `demoSeeded` 設成 true）。日界線讀當下設定。
+   * 時刻以「今天的日界線 + 分」寫（日界線 06:00 時＝原型的時刻）：
+   *   今天：−372（昨天 23:48）起的睡覺跨進來、睡到 +72（07:12）；洗漱 +72 跑 79 分沒確認（門檻 60 ⇒ 待確認）；空白 13 分；
+   *         上課 63（08:44）；學習 51（09:47）；娛樂 30 秒碎塊（10:38）；創作 41.5；空白 1h40m（11:20–13:00）；吃飯 46；空白 7 分；
+   *         休息 14（13:53–14:07）；空白 45 分（14:07–14:52，試頭尾貼齊）；之後正在跑一班創作。
+   *   相對 now（不種未來）：現在離日界線不夠排完 ⇒ 等比壓縮可縮的六段（起床、上課、學習、創作、吃飯、休息；空白、待確認、碎塊照原長，
+   *         最多縮到一成）；還排不下 ⇒ 超過現在的不種、跨到現在的那塊改成運行中（停在空白裡 ⇒ 創作從空白開頭跑）。
+   *         現在比樣板晚 ⇒ 樣板之後用一般的塊（每塊 ≤ 75 分，都短於分類預設）鋪到「現在前 50 分」，創作從那裡跑到現在。
+   *   昨天：前一天 −400 起的睡覺跨進來、+65 起床，照平日首尾相接鋪到 −372＋1 天（今天那塊睡覺的開始）。
+   * 種子固定：只依「現在」與日界線決定（同一刻開兩次長一樣）。
+   */
+  private async ensureGridDemo(): Promise<void> {
+    if (this.demoSeeded) return;
+    this.demoSeeded = true;
+    const now = Date.now();
+    const h = await this.readDayStartHour();
+    const today = todayKey(h, new Date(now));
+    const t0 = msOf(dayWindow(today, h).start);
+    const y0 = msOf(dayWindow(addDays(today, -1), h).start);
+    const ms = (min: number): number => Math.round(min * 60) * 1000;
+    type Seed = { key: string; start: number; end: number | null };
+    const seeds: Seed[] = [];
+    const push = (key: string, start: number, end: number | null): void => {
+      seeds.push({ key, start, end });
+    };
+
+    // 昨天：首尾相接的平日（每塊都不超過分類預設，不會變待確認）
+    const bed = t0 - ms(372);
+    let cur = y0 + ms(65);
+    push("sleep", y0 - ms(400), cur);
+    const yday: [string, number][] = [
+      ["wash", 25], ["meal", 30], ["move", 35], ["class", 180], ["meal", 55], ["create", 170],
+      ["sport", 60], ["meal", 60], ["study", 105], ["play", 120],
+    ];
+    for (const [key, min] of yday) {
+      push(key, cur, cur + ms(min));
+      cur += ms(min);
+    }
+    const hobbyEnd = Math.max(cur + MIN, bed - ms(30));
+    push("hobby", cur, hobbyEnd);
+    push("wash", hobbyEnd, bed);
+
+    // 今天：零碎的一天（key null＝空白；scale＝現在不夠時可以等比壓縮）
+    const steps: { key: string | null; min: number; scale: boolean }[] = [
+      { key: "wash", min: 79, scale: false }, // 待確認
+      { key: null, min: 13, scale: false },
+      { key: "class", min: 63, scale: true },
+      { key: "study", min: 51, scale: true },
+      { key: "play", min: 0.5, scale: false }, // 30 秒碎塊
+      { key: "create", min: 41.5, scale: true },
+      { key: null, min: 100, scale: false },
+      { key: "meal", min: 46, scale: true },
+      { key: null, min: 7, scale: false },
+      { key: "rest", min: 14, scale: true },
+      { key: null, min: 45, scale: false },
+    ];
+    const WAKE = 72;
+    const fixedMin = steps.reduce((s, x) => s + (x.scale ? 0 : x.min), 0);
+    const scaleMin = WAKE + steps.reduce((s, x) => s + (x.scale ? x.min : 0), 0);
+    const avail = (now - t0) / MIN - 10; // 運行中那班至少留 10 分
+    const f = Math.max(0.1, Math.min(1, (avail - fixedMin) / scaleMin));
+    const len = (x: { min: number; scale: boolean }): number => ms(x.scale ? x.min * f : x.min);
+
+    let running = false;
+    let stopped = false;
+    cur = t0 + ms(WAKE * f);
+    if (cur > now) {
+      push("sleep", bed, null);
+      running = true;
+      stopped = true;
+    } else {
+      push("sleep", bed, cur);
+      for (const x of steps) {
+        const end = cur + len(x);
+        if (x.key === null) {
+          if (end >= now) {
+            stopped = true;
+            break;
+          }
+          cur = end;
+          continue;
+        }
+        if (cur >= now) {
+          stopped = true;
+          break;
+        }
+        if (end > now) {
+          push(x.key, cur, null);
+          running = true;
+          stopped = true;
+          break;
+        }
+        push(x.key, cur, end);
+        cur = end;
+      }
+    }
+    if (!running) {
+      if (!stopped) {
+        const FILL = ["meal", "chore", "play", "rest", "move"];
+        const runFrom = Math.max(cur, now - 50 * MIN);
+        let fi = 0;
+        while (runFrom - cur >= MIN) {
+          const end = Math.min(runFrom, cur + 75 * MIN);
+          push(FILL[fi++ % FILL.length], cur, end);
+          cur = end;
+        }
+        cur = runFrom;
+      }
+      push("create", Math.min(cur, now - 1000), null);
+    }
+
+    const stamp = nowUtcIso();
+    let seq = 0;
+    for (const b of seeds) {
+      const id = `9e1d0000-0000-4000-8000-${(++seq).toString(16).padStart(12, "0")}`;
+      this.blocks.set(id, {
+        id,
+        category_id: STARTER_ID[b.key],
+        started_at: isoOf(b.start),
+        ended_at: b.end === null ? null : isoOf(b.end),
+        estimate_min: null,
+        node_id: null,
+        route_id: null,
+        long_run_ack: 0,
+        account_id: null,
+        device_id: null,
+        created_at: stamp,
+        updated_at: stamp,
+        synced_at: null,
+        deleted_at: null,
+      });
+      this.startStamp.set(id, stamp);
+    }
   }
 
   private async ensureLinkDemo(): Promise<void> {
@@ -1029,5 +1346,87 @@ export class MemoryTimetableRepository implements TimetableRepository {
     if (!cur || isAlive(cur)) throw new RangeError("找不到這個目標");
     cur.deleted_at = null;
     cur.updated_at = nowUtcIso();
+  }
+
+  /* ── ⑤（⑤ 契約 0-5、§3.2；語義同 sqlite 實作） ── */
+
+  /**
+   * 方眼塗色（同 sqlite）：plan（fill＝planPaintFill；live＝planPaintLive）→ 寫前複製 patch／delete 對象 → applyPlan →
+   * 讀回 → buildPaintUndo。memory 的 applyPlan 每個 patch 都動 `updated_at`（跟 sqlite 不同）；兩邊都「讀回寫後的
+   * `updated_at`」，撤回的守門就一致。
+   */
+  async paint(
+    categoryId: string,
+    startIso: string,
+    endIso: string,
+    mode: "fill" | "live",
+  ): Promise<{ block: TimeBlockRow; summary: CoverSummary; undo: PaintUndo }> {
+    await this.ready();
+    const now = Date.now();
+    const start = msOf(startIso);
+    const spans = this.aliveSpans();
+    let plan: WritePlan | null;
+    let restartId: string | null = null;
+    if (mode === "fill") {
+      plan = planPaintFill(spans, { categoryId, start, end: msOf(endIso), now });
+    } else {
+      const R = currentRunning(spans);
+      plan = planPaintLive(spans, { categoryId, at: Math.min(start, now), now });
+      if (R && R.categoryId === categoryId) {
+        restartId = R.id;
+        if (plan === null) {
+          return {
+            block: clone(this.rowOrThrow(R.id)),
+            summary: { removed: 0, shortened: 0, splitCount: 0 },
+            undo: { inserted: [], touched: [] },
+          };
+        }
+      }
+    }
+    if (plan === null) throw new Error("塗色失敗");
+    const before: Record<string, TimeBlockRow> = {};
+    for (const id of [...plan.patches.map((p) => p.id), ...plan.deletes]) {
+      const r = this.blocks.get(id);
+      if (r) before[id] = clone(r);
+    }
+    const ids = await this.applyPlan(plan, isoOf(now));
+    const after: Record<string, TimeBlockRow | null> = {};
+    for (const id of [...Object.keys(before), ...ids]) {
+      const r = this.blocks.get(id);
+      after[id] = r ? clone(r) : null;
+    }
+    const undo = buildPaintUndo(plan, before, after, ids);
+    const blockId = restartId ?? ids[plan.inserts.findIndex((i) => !i.inherit)];
+    const block = after[blockId];
+    if (!block) throw new Error("塗色失敗");
+    return { block, summary: summarizeCover(plan, restartId), undo };
+  }
+
+  /** 撤回一次塗色（同 sqlite）：守門比 `updated_at`（含已刪除的列）；只寫變了的欄；不叫 restore()、不跑 planCover */
+  async undoPaint(undo: PaintUndo): Promise<boolean> {
+    await this.ready();
+    const current: Record<string, PaintRow | null> = {};
+    for (const id of [...undo.inserted.map((x) => x.id), ...undo.touched.map((x) => x.id)]) {
+      const r = this.blocks.get(id);
+      current[id] = r ? clone(r) : null;
+    }
+    const writes = planUndoPaint(undo, current);
+    if (writes === null) return false;
+    const nowIso = isoOf(Date.now());
+    for (const w of writes) {
+      const r = this.blocks.get(w.id)!;
+      if (w.op === "delete") {
+        r.deleted_at = nowIso;
+      } else {
+        if (w.cols.started_at !== undefined) {
+          r.started_at = w.cols.started_at;
+          this.startStamp.set(r.id, nowIso); // 同真機：寫到 started_at 那一格就戳
+        }
+        if (w.cols.ended_at !== undefined) r.ended_at = w.cols.ended_at;
+        if (w.cols.deleted_at !== undefined) r.deleted_at = w.cols.deleted_at;
+      }
+      r.updated_at = nowIso;
+    }
+    return true;
   }
 }

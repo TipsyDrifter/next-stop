@@ -37,6 +37,8 @@ import { dayKeyOf, todayKey } from "../../../lib/date";
 import { fmtShortDay, noteTitle, weekdayZh } from "../../../domain/notes";
 import { KIND_LABEL, parseRule, type NodeKind } from "../../../domain";
 import { useTagStore } from "../../../store/tagStore";
+import type { TagEntityRow } from "../../../lines/types";
+import { useOtherSections } from "../tags/otherEntities";
 import { useNotesStore } from "../../../store/notesStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -200,7 +202,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
               )}
               <Group title="筆記" rows={groups.notes} tagKey={key} onOpenNote={onOpenNote} />
               <Group title="日記" rows={groups.diaries} tagKey={key} onOpenNote={onOpenNote} />
-              <Group title="別處" rows={groups.other} tagKey={key} onOpenNote={onOpenNote} />
+              <OtherGroups rows={groups.other} tagKey={key} onOpenNote={onOpenNote} />
             </div>
           )}
         </>
@@ -382,7 +384,7 @@ function Group({ title, rows, tagKey, onOpenNote }: { title: string; rows: Group
   );
 }
 
-function ItemRow({ it, tagKey, onOpenNote }: { it: GroupedTaggedItem; tagKey: string; onOpenNote(id: string): void }) {
+function ItemRow({ it, tagKey, onOpenNote, desc }: { it: GroupedTaggedItem; tagKey: string; onOpenNote(id: string): void; desc?: TagEntityRow | null }) {
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
@@ -451,17 +453,57 @@ function ItemRow({ it, tagKey, onOpenNote }: { it: GroupedTaggedItem; tagKey: st
       </li>
     );
   }
-  // 別線的實體：本線不認得，畫成不可點的一列
+  // 別線的實體：有登記 describe（時刻表⑥ 0-6）＝那條線給的字、有 open 就能點；沒登記＝本線不認得，畫成不可點的一列
   void tagKey;
+  if (desc?.open) {
+    const open = desc.open;
+    return (
+      <li>
+        <button type="button" className="ns-notes-mtagitem other" onClick={() => open()}>
+          <span className="main">
+            <span className="nm">{desc.label}</span>
+            {it.rel && <span className="rel"><TagName name={it.rel} /></span>}
+            {desc.sub && <span className="sn">{desc.sub}</span>}
+          </span>
+        </button>
+      </li>
+    );
+  }
   return (
     <li>
       <div className="ns-notes-mtagitem other">
         <span className="main">
-          <span className="nm">{it.entityType}</span>
+          <span className="nm">{desc ? desc.label : it.entityType}</span>
           {it.rel && <span className="rel"><TagName name={it.rel} /></span>}
+          {desc?.sub && <span className="sn">{desc.sub}</span>}
         </span>
       </div>
     </li>
+  );
+}
+
+/** 別線實體的幾段（時刻表⑥ 0-6；沒有任何線登記＝一段「別處」，跟插槽之前的 `<Group title="別處">` 畫得一樣） */
+function OtherGroups({ rows, tagKey, onOpenNote }: { rows: GroupedTaggedItem[]; tagKey: string; onOpenNote(id: string): void }) {
+  const sections = useOtherSections(rows, "mobile");
+  return (
+    <>
+      {sections.map((sec) =>
+        sec.rows.length ? (
+          <section key={sec.title} className="ns-notes-mtaggroup">
+            <h4>
+              {sec.title}
+              <span className="n">{sec.rows.length}</span>
+              <span className="rule" />
+            </h4>
+            <ul>
+              {sec.rows.map(({ it, row }) => (
+                <ItemRow key={it.kind + it.id} it={it} tagKey={tagKey} onOpenNote={onOpenNote} desc={row} />
+              ))}
+            </ul>
+          </section>
+        ) : null,
+      )}
+    </>
   );
 }
 

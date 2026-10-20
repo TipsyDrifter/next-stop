@@ -198,6 +198,38 @@ export interface LineMount {
    * 一條線丟錯當作 null。沒有任何線填值＝清單列印泛稱，DOM 與沒有插槽時相同。
    */
   syncRowLabel?: (tbl: string, rowId: string, shell: "desktop" | "mobile") => Promise<SyncRowLabel | null>;
+  /**
+   * 這條線掛在荷札上的實體（時刻表⑥ 契約 0-6；零行為插槽）。荷札的 `taggings` 用 `'<頁面id>:<自訂>'` 當 entity_type 的別線實體：
+   * - **存活**（`existsSql`／`aliveMemory`）：不分 status，裝上就生效（資料正確性）——荷札的計數、清單、刪除影響都只算還在的；
+   *   沒登記的別線類型照舊一律算存活。登記經 `installLineMounts` 交給 `data/tagEntityAlive.ts`。
+   * - **荷札頁怎麼畫**（`group`、`describe`）：旅客筆記荷札頁的「別處」那段，有登記的類型依 `group` 分段、用 `describe` 畫列；
+   *   桌機看 `page.status`、手機看 `mobile.status`，`open` 才用（`lineTagEntities(shell)`）。沒登記＝照舊印原始 entity_type 字串、段名「別處」。
+   * - **重載**（`tables`）：同步的 `changed` 含這些表 ⇒ 荷札的 index 重載（實體存活可能變了）。
+   * 沒有任何線填值＝SQL、DOM、重載條件與沒有插槽時逐字相同。
+   */
+  tagEntities?: readonly TagEntitySpec[];
+}
+
+/** 一種掛在荷札上的別線實體（`LineMount.tagEntities` 的一筆） */
+export interface TagEntitySpec {
+  /** 跟 `taggings.entity_type` 完全一樣（`'<頁面id>:<自訂>'`；不可用 node／note） */
+  type: `${string}:${string}`;
+  /** 荷札頁的段名（例「時刻表」）；同一條線的幾種 type 給同一個 group 就併成一段 */
+  group: string;
+  /** SQL 片段：`g.entity_id` 指到的實體還在（`g`＝taggings 的別名），例 `EXISTS (SELECT 1 FROM x WHERE x.id = g.entity_id AND x.deleted_at IS NULL)` */
+  existsSql: string;
+  /** mock 模式的同一個判斷 */
+  aliveMemory(id: string): Promise<boolean>;
+  /** 荷札頁的列：label 主字、sub 小字、open 點了去哪；回 null 或缺這個 id＝退回原始字串 */
+  describe(ids: readonly string[]): Promise<Readonly<Record<string, TagEntityRow | null>>>;
+  /** 同步 `changed` 含其中任一 ⇒ 荷札 index 重載 */
+  tables: readonly string[];
+}
+
+export interface TagEntityRow {
+  label: string;
+  sub?: string;
+  open?: () => void;
 }
 
 /** 今日列附加動作（`LineMount.todayRowActions` 的一筆） */

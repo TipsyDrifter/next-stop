@@ -40,6 +40,7 @@ import {
   type TagRow,
 } from "./tagRepository";
 import { byNameKey, pickNode, readRecent, recordTagBefore, recordTaggingBefore } from "./tagRepoShared";
+import { otherEntityAliveMemory } from "./tagEntityAlive";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
 
@@ -134,7 +135,7 @@ export class MemoryTagRepository implements TagRepository {
           note: { id: x.id, kind: x.kind, title: x.title, body: x.body, entry_date: x.entry_date, noted_at: x.noted_at },
           matched,
         });
-      } else out.push({ kind: "other", entityType: e.type, id: e.id, matched });
+      } else if (await otherEntityAliveMemory(e.type, e.id)) out.push({ kind: "other", entityType: e.type, id: e.id, matched });
     }
     return out;
   }
@@ -305,6 +306,9 @@ export class MemoryTagRepository implements TagRepository {
     } else if (type === "note") {
       const x = await this.noteRepo.getNote(id);
       kind = x ? x.kind : null;
+    } else if (!(await otherEntityAliveMemory(type, id))) {
+      // 別線有登記存活條件（tagEntityAlive.ts；沒登記＝一律 "other"，同插槽之前）
+      kind = null;
     }
     cache.set(ref, kind);
     return kind;

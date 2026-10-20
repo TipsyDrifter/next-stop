@@ -15,12 +15,24 @@
   --ns-tt-cat-5: #2f6f86; --ns-tt-cat-6: #6b4aa0; --ns-tt-cat-7: #a0503f; --ns-tt-cat-8: #5c5b7d;
   /* 實心分類色上的字（＝原型 v-e.css --on-cat）：粉彩的分類色深 ⇒ 白字 */
   --ns-tt-on-cat: #fff;
+  /* ④ 日程（乙・§L；＝原型 v-h.css --vh-night／--vh-gut、shared.css --paper-solid）：24:00 以後的淡夜色、刻度欄底、不透明的紙（浮層、sticky 欄頭） */
+  --ns-tt-sched-night: rgba(44, 48, 89, .055);
+  --ns-tt-sched-gut: rgba(42, 43, 73, .035);
+  --ns-tt-sched-solid: #f1eef8;
+  --ns-tt-sched-shadow: rgba(80, 60, 20, .18);
+  --ns-tt-sched-pop-shadow: rgba(10, 10, 40, .32);
 }
 [data-theme="dark"] {
   --ns-tt-cat-1: #a9c0ea; --ns-tt-cat-2: #e6a8c0; --ns-tt-cat-3: #a6c9ad; --ns-tt-cat-4: #d9b98a;
   --ns-tt-cat-5: #95c6d6; --ns-tt-cat-6: #c2aee6; --ns-tt-cat-7: #e6a88a; --ns-tt-cat-8: #a3a9b8;
   /* 銀河鐵道的分類色是亮粉色 ⇒ 深字（＝原型 :root[data-theme="dark"] --on-cat） */
   --ns-tt-on-cat: #101217;
+  /* ④ 日程（乙・§L） */
+  --ns-tt-sched-night: rgba(0, 0, 0, .18);
+  --ns-tt-sched-gut: rgba(222, 230, 250, .03);
+  --ns-tt-sched-solid: #1c2438;
+  --ns-tt-sched-shadow: rgba(0, 0, 0, .4);
+  --ns-tt-sched-pop-shadow: rgba(0, 0, 0, .5);
 }
 
 /* ═══ §B gnav 下排通車那一枚（乙・見契約 §5.6：main 上已有 .gnav-line 樣式就留空）═══
@@ -1753,7 +1765,9 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 /* ═══ §K 週視圖＋視圖切換＋手機路線時間（丙・③；③ 契約 §5.1、§5.5、§5.6；D-時-46、53、54、66）═══
  * 長相＝原型 prototypes/時刻表-src/v-g.css「週視圖」（.vg-w*）與 .vg-vsw／.vg-dockrow／.vg-dscroll；token 對照：
  * --line→--color-line、--dash→--color-dash、--late→--color-late、--seal→--color-seal、--on-cat→--ns-tt-on-cat、--ve-ease→--ns-tt-ease。
- * 週與統計視圖的外框（data-view="week"|"stats"）也在這裡（視圖切換歸丙）；統計頁本體歸 §J。 */
+ * 週與統計視圖的外框（data-view="week"|"stats"）也在這裡（視圖切換歸丙）；統計頁本體歸 §J。
+ * ④（整合席）：data-view="schedule" 的外框選擇器同週／統計；日程本體歸 §L。
+ * ⑤（整合席）：data-view="grid" 同；方眼本體歸 §M。手機切換鈕六格時字距收成 .08em（D-時-108）。 */
 
 /* ── 桌機切換鈕：四格各帶鍵帽、V 的鍵帽夾在前兩格之間 ── */
 .ns-tt-switch button .ns-tt-kbd { margin: 0 0 0 8px; }
@@ -1766,7 +1780,11 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 
 /* ── 桌機：週／統計＝頁首下運行列（同只看軸）＋下面一塊自己捲；<960px 照樣整頁捲 ── */
 .page.ns-tt[data-view="week"] .ns-tt-cols,
-.page.ns-tt[data-view="stats"] .ns-tt-cols { grid-template-columns: minmax(0, 1fr); }
+.page.ns-tt[data-view="stats"] .ns-tt-cols,
+.page.ns-tt[data-view="schedule"] .ns-tt-cols,
+.page.ns-tt[data-view="grid"] .ns-tt-cols { grid-template-columns: minmax(0, 1fr); } /* ④／⑤ 整合席：日程、方眼同（§L／§M 另用 :has 認，不衝突） */
+/* ⑤ D-時-108：手機切換鈕六格照一排擺，字距 .18em→.08em 讓「發車台」不貼邊（375px 每格約 57px、360px 約 55px） */
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch button { letter-spacing: .08em; }
 .ns-tt-col.is-wide { min-width: 0; }
 .ns-tt-vscroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 2px 4px 6px 0; }
 .ns-tt-vscroll::-webkit-scrollbar { width: 8px; }
@@ -1929,4 +1947,764 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-week-tocur { animation: none; }
   .ns-tt-week-b, .ns-tt-week-arrow, .ns-tt-week-gap, .ns-tt-week-tip { transition: none; }
+}
+
+/* ═══ §L 日程（乙・④；④ 契約 §5、〈原型定案〉；D-時-71～89）═══
+ * 長相＝原型 prototypes/時刻表-src/v-h.css（.vh-*）。token 對照同 §K，另：--paper-solid→--ns-tt-sched-solid、
+ * --vh-night→--ns-tt-sched-night、--vh-gut→--ns-tt-sched-gut、陰影色→--ns-tt-sched-shadow／-pop-shadow（都在 §A）。
+ * 版面外框用 :has 自己認（.ns-tt-cols／.m-page 裡有 .ns-tt-sched ⇒ 單欄、直欄不捲），不靠 data-view；
+ * 整合席加的 data-view="schedule" 選擇器與這裡不衝突。 */
+
+/* ── 外框：桌機單欄、手機 .m-page 改直欄不捲（時間軸自己捲） ── */
+.page.ns-tt .ns-tt-cols:has(.ns-tt-sched) { grid-template-columns: minmax(0, 1fr); }
+.ns-tt-sched { display: flex; flex-direction: column; min-height: 0; }
+.ns-tt-sched.is-desk { flex: 1; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-sched-grid { flex: none; height: 72vh; }
+[data-shell="mobile"] .m-page.ns-tt-m:has(.ns-tt-sched) { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 10px; }
+[data-shell="mobile"] .m-page.ns-tt-m:has(.ns-tt-sched) > .ns-tt-mtop { flex: none; }
+[data-shell="mobile"] .ns-tt-sched.is-phone { flex: 1; }
+
+/* ── 頂上一列：日期列＋總結＋操作提示 ── */
+.ns-tt-sched-top { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 22px; margin: 2px 0 12px; }
+.ns-tt-sched-keys { margin-left: auto; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); opacity: .8; }
+.ns-tt-sched-err { margin: 0 0 10px; font-size: 12.5px; color: var(--color-late); }
+.ns-tt-sched-nav { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.ns-tt-sched-pnav { display: inline-flex; align-items: center; gap: 8px; }
+.ns-tt-sched-arrow {
+  width: 32px; height: 32px; padding: 0; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent;
+  font-size: 18px; line-height: 1; color: var(--color-ink-soft); cursor: pointer;
+  transition: border-color .15s, color .15s, transform .15s var(--ns-tt-ease);
+}
+.ns-tt-sched-arrow:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-sched-arrow:active { transform: scale(.94); }
+.ns-tt-sched-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-pname { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ns-tt-sched-pname b { font-family: var(--font-latin); font-weight: 500; font-size: 16px; letter-spacing: .02em; white-space: nowrap; }
+.ns-tt-sched-pname em {
+  font-style: normal; font-size: 10.5px; letter-spacing: .2em; line-height: 18px; white-space: nowrap;
+  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px;
+}
+.ns-tt-sched-tocur {
+  min-height: 30px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s;
+  animation: ns-tt-week-in .3s var(--ns-tt-ease) both;
+}
+.ns-tt-sched-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-sched-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+
+/* 總結一行（D-時-72）：數字抬成拉丁粗字 */
+.ns-tt-sched-sum { display: flex; flex-direction: column; gap: 1px; }
+.ns-tt-sched-sumline { margin: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 2px; font-size: 12.5px; letter-spacing: .1em; color: var(--color-ink-soft); }
+.ns-tt-sched-sumline b { font-family: var(--font-latin); font-weight: 500; font-size: 17px; letter-spacing: .01em; color: var(--color-ink); margin: 0 2px; }
+.ns-tt-sched-sumline i { font-style: normal; color: var(--color-ink-faint); margin: 0 4px; }
+.ns-tt-sched-sumline.is-empty { color: var(--color-ink-faint); }
+.ns-tt-sched-ro { margin: 0; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); opacity: .85; }
+
+.ns-tt-sched-main { flex: 1; min-height: 0; display: flex; gap: 18px; }
+.ns-tt-sched-gwrap { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-sched-main { flex: none; }
+
+/* ── 還沒排：桌機左欄 ── */
+.ns-tt-sched-un.is-side { width: 200px; flex: none; display: flex; flex-direction: column; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; padding: 2px 3px 4px 0; }
+.ns-tt-sched-un-h { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
+.ns-tt-sched-un-h b { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .22em; color: var(--color-ink); }
+.ns-tt-sched-un-h .ns-tt-num { font-size: 13px; color: var(--color-ink-faint); }
+.ns-tt-sched-un-h small { font-size: 10.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-tt-sched-un-note { margin: 2px 0 10px; padding-bottom: 8px; border-bottom: 1px dashed var(--color-dash); font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-tt-sched-ulist { display: flex; flex-direction: column; gap: 8px; }
+.ns-tt-sched-ui {
+  --rc: var(--ns-tt-cat-8);
+  position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 50px; padding: 7px 10px 7px 6px; text-align: left;
+  font-family: inherit; color: var(--color-ink);
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-left: 3px solid var(--rc); border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+  cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none;
+  transition: box-shadow .18s, transform .25s var(--ns-tt-ease), opacity .2s, background .15s;
+}
+.ns-tt-sched-ui:hover { box-shadow: var(--shadow-card), 0 0 0 1px color-mix(in srgb, var(--color-gold) 70%, transparent); }
+.ns-tt-sched-ui:active { cursor: grabbing; }
+.ns-tt-sched-ui:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-ui.is-pick {
+  background: color-mix(in srgb, var(--color-gold) 14%, var(--color-paper-high));
+  box-shadow: 0 0 0 1.5px var(--color-gold), 0 6px 16px var(--ns-tt-sched-shadow); transform: translateX(3px);
+}
+.ns-tt-sched-ui.is-lifted { opacity: .35; transform: scale(.98); }
+.ns-tt-sched-ui.is-ro { cursor: default; opacity: .6; box-shadow: none; }
+.ns-tt-sched-grip { flex: none; display: grid; grid-template-columns: repeat(2, 3px); gap: 2px; padding: 0 1px; opacity: .45; }
+.ns-tt-sched-grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--color-ink-faint); }
+.ns-tt-sched-ui-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ns-tt-sched-ui-main b { font-weight: 500; font-size: 13.5px; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-sched-ui-main small { font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-sched-none { margin: 0; padding: 6px 2px; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-tt-sched-un-foot { margin-top: auto; padding-top: 12px; }
+.ns-tt-sched-late {
+  display: inline-flex; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 11.5px; letter-spacing: .06em; line-height: 1.5; color: var(--color-ink-faint);
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.ns-tt-sched-late:hover { color: var(--color-ink); }
+.ns-tt-sched-pickhint {
+  display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 3px;
+  background: color-mix(in srgb, var(--color-gold) 10%, transparent);
+  font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-soft);
+  animation: ns-tt-week-in .26s var(--ns-tt-ease) both;
+}
+.ns-tt-sched-un.is-side .ns-tt-sched-pickhint { position: sticky; bottom: 0; flex-wrap: wrap; background: color-mix(in srgb, var(--color-gold) 10%, var(--ns-tt-sched-solid)); }
+.ns-tt-sched-pickhint span { flex: 1; min-width: 0; }
+.ns-tt-sched-pickhint button {
+  flex: none; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink); text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.ns-tt-sched-pickhint .ns-tt-kbd { margin-left: 6px; text-decoration: none; }
+
+/* ── 還沒排：手機頂上一排 chip ── */
+.ns-tt-sched-un.is-chips { flex: none; margin: 0 calc(var(--m-gutter, 16px) * -1) 8px; }
+.ns-tt-sched-un.is-chips .ns-tt-sched-un-h { padding: 0 var(--m-gutter, 16px) 5px; gap: 7px; }
+.ns-tt-sched-un.is-chips .ns-tt-sched-un-h b { font-size: 12.5px; letter-spacing: .2em; }
+.ns-tt-sched-un.is-chips .ns-tt-sched-un-h .ns-tt-num { font-size: 12px; }
+.ns-tt-sched-un.is-chips .ns-tt-sched-un-h small { margin-left: auto; font-size: 10px; letter-spacing: .06em; }
+.ns-tt-sched-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 1px var(--m-gutter, 16px) 2px; scroll-padding: 0 var(--m-gutter, 16px); }
+.ns-tt-sched-chips::-webkit-scrollbar { display: none; }
+.ns-tt-sched-chip {
+  --rc: var(--ns-tt-cat-8);
+  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px 0 10px;
+  font-family: inherit; font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink);
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: 18px; box-shadow: var(--shadow-card);
+  touch-action: pan-x; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  transition: box-shadow .18s, transform .25s var(--ns-tt-ease), background .15s, opacity .2s;
+}
+.ns-tt-sched-chip small { font-size: 10px; letter-spacing: 0; color: var(--color-ink-faint); }
+.ns-tt-sched-chip small.is-warn { color: var(--color-late); }
+.ns-tt-sched-chip.is-pick { background: color-mix(in srgb, var(--color-gold) 16%, var(--color-paper-high)); box-shadow: 0 0 0 1.5px var(--color-gold); }
+.ns-tt-sched-chip.is-lifted { opacity: .4; transform: scale(.96); }
+.ns-tt-sched-chip.is-ro { opacity: .55; box-shadow: none; }
+.ns-tt-sched-rdot { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rc, var(--ns-tt-cat-8)); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--rc, var(--ns-tt-cat-8)) 25%, transparent); }
+.ns-tt-sched-un.is-chips .ns-tt-sched-late,
+.ns-tt-sched-un.is-chips .ns-tt-sched-pickhint { margin: 6px var(--m-gutter, 16px) 0; }
+.ns-tt-sched-un.is-chips .ns-tt-sched-pickhint { padding: 6px 10px; }
+.ns-tt-sched-un.is-chips .ns-tt-sched-none { padding: 4px var(--m-gutter, 16px); }
+[data-shell="mobile"] .ns-tt-sched-nav { justify-content: center; margin: 0 0 4px; }
+[data-shell="mobile"] .ns-tt-sched-sum { margin: 0 2px 8px; align-items: center; }
+[data-shell="mobile"] .ns-tt-sched-sumline { justify-content: center; font-size: 12px; letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tt-sched-sumline b { font-size: 15px; }
+[data-shell="mobile"] .ns-tt-sched-ro { text-align: center; }
+
+/* ── 時間軸：預定｜刻度｜實績 ── */
+.ns-tt-sched-grid {
+  --ns-tt-sched-h: 48px;
+  --ns-tt-sched-cols: minmax(0, 1.3fr) 64px minmax(0, 1fr);
+  position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+}
+.ns-tt-sched-grid::-webkit-scrollbar { width: 8px; }
+.ns-tt-sched-grid::-webkit-scrollbar-thumb { background: var(--color-dash); border-radius: 4px; }
+[data-shell="mobile"] .ns-tt-sched-grid { --ns-tt-sched-cols: minmax(0, 1.4fr) 46px minmax(0, .85fr); scrollbar-width: none; }
+[data-shell="mobile"] .ns-tt-sched-grid::-webkit-scrollbar { display: none; }
+.ns-tt-sched-ghead {
+  position: sticky; top: 0; z-index: 9; display: grid; grid-template-columns: var(--ns-tt-sched-cols); height: 30px; align-items: center;
+  background: color-mix(in srgb, var(--ns-tt-sched-solid) 90%, transparent);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--color-line);
+  font-family: var(--font-display); font-weight: 700; font-size: 12px; letter-spacing: .26em; color: var(--color-ink-soft);
+}
+.ns-tt-sched-gh-p { display: flex; align-items: baseline; padding-left: 12px; }
+.ns-tt-sched-gh-p i { margin-left: auto; width: 128px; padding-left: 12px; font-style: normal; font-family: var(--font-body); font-weight: 400; font-size: 10.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+.ns-tt-sched-gh-t { align-self: stretch; background: var(--ns-tt-sched-gut); border-left: 1px solid var(--color-line); border-right: 1px solid var(--color-line); }
+.ns-tt-sched-gh-a { padding-left: 12px; }
+[data-shell="mobile"] .ns-tt-sched-ghead { height: 26px; font-size: 11px; letter-spacing: .2em; }
+[data-shell="mobile"] .ns-tt-sched-gh-p, [data-shell="mobile"] .ns-tt-sched-gh-a { padding-left: 8px; }
+
+.ns-tt-sched-gbody { position: relative; display: grid; grid-template-columns: var(--ns-tt-sched-cols); }
+.ns-tt-sched-pcol, .ns-tt-sched-acol {
+  position: relative; min-width: 0;
+  background-image:
+    repeating-linear-gradient(to bottom, var(--color-line) 0 1px, transparent 1px var(--ns-tt-sched-h)),
+    repeating-linear-gradient(to bottom, transparent 0 calc(var(--ns-tt-sched-h) / 2), color-mix(in srgb, var(--color-line) 42%, transparent) calc(var(--ns-tt-sched-h) / 2) calc(var(--ns-tt-sched-h) / 2 + 1px), transparent calc(var(--ns-tt-sched-h) / 2 + 1px) var(--ns-tt-sched-h));
+}
+.ns-tt-sched-grid.is-picking .ns-tt-sched-pcol { cursor: crosshair; background-color: color-mix(in srgb, var(--color-gold) 6%, transparent); }
+.ns-tt-sched-grid.is-picking .ns-tt-sched-card { cursor: crosshair; }
+.ns-tt-sched-night { position: absolute; left: 0; right: 0; background: var(--ns-tt-sched-night); pointer-events: none; }
+.ns-tt-sched-mid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--color-dash); pointer-events: none; }
+.ns-tt-sched-lanes { position: absolute; left: 0; top: 0; bottom: 0; right: 0; }
+.ns-tt-sched-pcol.is-rail .ns-tt-sched-lanes { right: 128px; }
+.ns-tt-sched-rail { position: absolute; right: 0; top: 0; bottom: 0; width: 128px; border-left: 1px dashed color-mix(in srgb, var(--color-dash) 70%, transparent); pointer-events: none; }
+.ns-tt-sched-pempty { position: absolute; left: 0; right: 0; top: 46%; margin: 0; text-align: center; font-size: 12px; letter-spacing: .1em; color: var(--color-ink-faint); pointer-events: none; }
+
+/* 刻度欄：每小時；24 以後「25:00」＋小字「深夜 1 時」 */
+.ns-tt-sched-gut { position: relative; background: var(--ns-tt-sched-gut); border-left: 1px solid var(--color-line); border-right: 1px solid var(--color-line); }
+.ns-tt-sched-hl { position: absolute; left: 0; right: 0; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; line-height: 1; pointer-events: none; }
+.ns-tt-sched-hl .ns-tt-num { font-size: 10.5px; color: var(--color-ink-faint); background: var(--ns-tt-sched-solid); padding: 1px 3px; border-radius: 2px; }
+.ns-tt-sched-hl.is-nite .ns-tt-num { color: var(--color-ink-soft); }
+.ns-tt-sched-hl small { margin-top: 2px; font-size: 8.5px; letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tt-sched-hl.is-hidden { visibility: hidden; }
+[data-shell="mobile"] .ns-tt-sched-hl .ns-tt-num { font-size: 10px; padding: 1px; }
+[data-shell="mobile"] .ns-tt-sched-hl small { font-size: 8px; letter-spacing: 0; }
+.ns-tt-sched-nowpill {
+  position: absolute; left: 50%; transform: translate(-50%, -50%); z-index: 6; padding: 1px 5px; border-radius: 2px;
+  background: var(--color-seal); color: var(--color-on-seal); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; pointer-events: none;
+}
+.ns-tt-sched-hintlbl {
+  position: absolute; left: 50%; transform: translate(-50%, -50%); z-index: 8; padding: 2px 6px; border-radius: 2px;
+  background: var(--color-gold); color: var(--color-book); font-size: 11px; font-weight: 600; pointer-events: none;
+  box-shadow: 0 2px 8px var(--ns-tt-sched-shadow);
+  animation: ns-tt-sched-pop .2s var(--ns-tt-ease) both;
+}
+/* 滑過一張票：預定開始 → 實際開始，中間這一段金色＝晚（早）了多少 */
+.ns-tt-sched-lag {
+  position: absolute; left: 7px; width: 4px; z-index: 4; border-radius: 2px; pointer-events: none;
+  background: linear-gradient(to bottom, var(--color-gold), color-mix(in srgb, var(--color-gold) 55%, transparent));
+  transform-origin: top; animation: ns-tt-sched-grow .3s var(--ns-tt-ease) both;
+}
+.ns-tt-sched-lag.is-early { transform-origin: bottom; background: linear-gradient(to top, var(--color-gold), color-mix(in srgb, var(--color-gold) 55%, transparent)); }
+.ns-tt-sched-lag::before, .ns-tt-sched-lag::after { content: ""; position: absolute; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--color-gold); }
+.ns-tt-sched-lag::before { top: -4px; }
+.ns-tt-sched-lag::after { bottom: -4px; }
+@keyframes ns-tt-sched-grow { from { opacity: 0; transform: scaleY(.3); } to { opacity: 1; transform: none; } }
+@keyframes ns-tt-sched-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.9); } to { opacity: 1; transform: translate(-50%, -50%); } }
+
+/* 現在線：橫過整條軸；現在以後淡斜紋 */
+.ns-tt-sched-now { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--color-seal); z-index: 5; pointer-events: none; }
+.ns-tt-sched-now b { position: absolute; right: 0; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-seal); }
+.ns-tt-sched-fut { position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--color-ink) 3.5%, transparent) 6px 7px); }
+.ns-tt-sched-fut span { position: sticky; top: 46px; display: block; padding-top: 14px; text-align: center; font-size: 12px; letter-spacing: .2em; color: var(--color-ink-faint); }
+
+/* ── 預定卡（照主線時段 .blk：左緣路線色、長度未定＝虛線淡出、済＝小章） ── */
+.ns-tt-sched-card {
+  --rc: var(--ns-tt-cat-8);
+  position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 0; overflow: hidden; min-height: 22px;
+  margin: 0; padding: 3px 6px 2px 8px; text-align: left; font-family: inherit; font-size: 11.5px; line-height: 1.3; color: var(--color-ink);
+  border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-left: 3px solid var(--rc); border-radius: 3px;
+  background: color-mix(in srgb, var(--rc) 13%, var(--ns-tt-sched-solid));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-book) 10%, transparent);
+  cursor: pointer;
+  transition: box-shadow .18s, transform .25s var(--ns-tt-ease), opacity .22s ease, filter .2s;
+  touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.ns-tt-sched-card.is-movable { cursor: grab; }
+.ns-tt-sched-card.is-movable:active { cursor: grabbing; }
+.ns-tt-sched-card:hover { z-index: 3; box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-gold) 80%, transparent), 0 4px 10px color-mix(in srgb, var(--color-book) 14%, transparent); }
+.ns-tt-sched-card:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-card > * { flex-shrink: 0; }
+.ns-tt-sched-ct { display: flex; align-items: baseline; gap: 3px; min-width: 0; white-space: nowrap; color: var(--color-ink-soft); }
+.ns-tt-sched-t { font-weight: 600; font-size: 10.5px; letter-spacing: .02em; flex: none; }
+.ns-tt-sched-hatsu { margin-left: 2px; font-family: var(--font-body); font-weight: 400; font-size: 9.5px; color: var(--color-ink-faint); }
+.ns-tt-sched-next { font-size: 8.5px; letter-spacing: .04em; color: var(--color-ink-faint); margin-left: 4px; }
+.ns-tt-sched-noest { font-style: normal; font-size: 8.5px; letter-spacing: .1em; color: var(--color-ink-faint); margin-left: 4px; }
+.ns-tt-sched-cn { font-weight: 500; font-size: 12px; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink); min-width: 0; }
+.ns-tt-sched-card.is-short { flex-direction: row; align-items: center; gap: 6px; padding-top: 0; padding-bottom: 0; }
+.ns-tt-sched-card.is-short .ns-tt-sched-ct { flex: none; }
+.ns-tt-sched-card.is-rail.is-short .ns-tt-sched-cn { flex: 1 1 auto; }
+.ns-tt-sched-tag {
+  flex: none; font-style: normal; font-family: var(--font-body); font-weight: 500; font-size: 9px; letter-spacing: .12em; line-height: 13px;
+  padding: 0 4px; margin-left: 4px; border-radius: 2px;
+  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 75%, transparent); background: color-mix(in srgb, var(--color-gold) 14%, transparent);
+}
+.ns-tt-sched-tag.is-cancel { color: var(--color-ink-faint); border-color: var(--color-dash); background: transparent; }
+.ns-tt-sched-seal {
+  position: absolute; right: 4px; top: 3px; width: 16px; height: 16px; border-radius: 50%; border: 1.3px solid var(--color-seal); color: var(--color-seal);
+  font-family: var(--font-display); font-weight: 700; font-size: 9px; display: grid; place-items: center; transform: rotate(-8deg); opacity: .85;
+}
+.ns-tt-sched-card.is-short .ns-tt-sched-seal { top: 50%; margin-top: -8px; }
+.ns-tt-sched-card.is-done { padding-right: 24px; background: color-mix(in srgb, var(--rc) 7%, var(--ns-tt-sched-solid)); }
+.ns-tt-sched-card.is-done .ns-tt-sched-cn { color: var(--color-ink-soft); }
+/* 運休：灰＋刪除線 */
+.ns-tt-sched-card.is-cancel {
+  --rc: var(--color-ink-faint);
+  background: color-mix(in srgb, var(--ns-tt-sched-solid) 70%, transparent); border-style: dashed; border-left-style: solid; box-shadow: none; color: var(--color-ink-faint);
+}
+.ns-tt-sched-card.is-cancel .ns-tt-sched-cn { text-decoration: line-through 1px; color: var(--color-ink-faint); }
+.ns-tt-sched-card.is-cancel .ns-tt-sched-ct { color: var(--color-ink-faint); }
+/* 沒填預計：45 分高、底邊虛線淡出＝「沒說要多久」 */
+.ns-tt-sched-card.is-noest { border-bottom: 0; box-shadow: none; background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 13%, var(--ns-tt-sched-solid)) 50%, transparent); }
+.ns-tt-sched-card.is-noest::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; border-bottom: 1.5px dashed color-mix(in srgb, var(--rc) 60%, transparent); }
+.ns-tt-sched-card.is-live { border-color: color-mix(in srgb, var(--color-seal) 50%, transparent); border-left-color: var(--rc); }
+.ns-tt-sched-card.is-rail.is-live .ns-tt-sched-ct::after { content: "行駛中"; /* ＝PLAN_TEXT.running（§5.6；修正席統一，原型寫「進行中」） */ font-family: var(--font-body); font-weight: 500; font-size: 8.5px; letter-spacing: .14em; color: var(--color-seal); margin-left: 5px; }
+/* 已過發車時刻、還沒開始：時刻字轉赭 */
+.ns-tt-sched-card.is-overdue .ns-tt-sched-t { color: var(--color-late); }
+.ns-tt-sched-card.is-sel, .ns-tt-sched-card.is-on, .ns-tt-sched-card.is-open { z-index: 4; box-shadow: 0 0 0 1.5px var(--color-gold), 0 6px 14px var(--ns-tt-sched-shadow); }
+.ns-tt-sched-card.is-lifted { opacity: .3; filter: saturate(.4); }
+.ns-tt-sched-cd { font-size: 10px; letter-spacing: 0; line-height: 1.35; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ns-tt-sched-cd .ns-tt-sched-tag { margin: 0 4px 0 0; font-size: 8.5px; padding: 0 2px; letter-spacing: .04em; line-height: 12px; vertical-align: 1px; }
+.ns-tt-sched-cd.is-ok { color: var(--color-gold-ink); }
+.ns-tt-sched-cd.is-off { color: var(--color-ink-soft); }
+.ns-tt-sched-cd.is-late { color: color-mix(in srgb, var(--color-late) 80%, transparent); }
+.ns-tt-sched-cd.is-live { color: var(--color-seal); }
+.ns-tt-sched-cd.is-done, .ns-tt-sched-cd.is-cancel { color: var(--color-ink-faint); }
+.ns-tt-sched-ct .ns-tt-sched-cd { flex: 0 1 auto; margin-left: 2px; }
+.ns-tt-sched-open {
+  position: absolute; right: 3px; bottom: 2px; z-index: 2; padding: 0 6px; border-radius: 9px;
+  background: var(--color-gold); color: var(--color-book); font-size: 10px; letter-spacing: .06em; line-height: 16px;
+  animation: ns-tt-week-in .22s var(--ns-tt-ease) both;
+}
+.ns-tt-sched-card.is-short .ns-tt-sched-open { top: 50%; bottom: auto; transform: translateY(-50%); animation: none; }
+/* 單行（inline）卡：時刻＋名稱＋差多少擠一行；兩行時第二行是差多少 */
+.ns-tt-sched-card.is-inline { padding: 1px 4px 1px 6px; border-left-width: 2.5px; } /* 上下 1px：33px（45 分）的卡放得下兩行 */
+.ns-tt-sched-card.is-inline .ns-tt-sched-ct { gap: 4px; color: var(--color-ink); }
+.ns-tt-sched-card.is-inline .ns-tt-sched-t { font-size: 10px; color: var(--color-ink-soft); }
+.ns-tt-sched-card.is-inline.is-overdue .ns-tt-sched-t { color: var(--color-late); }
+.ns-tt-sched-card.is-inline .ns-tt-sched-cn { font-size: 11.5px; letter-spacing: .02em; flex: 0 1 auto; }
+.ns-tt-sched-card.is-inline.is-short .ns-tt-sched-ct { flex: 1 1 auto; }
+.ns-tt-sched-card.is-inline.is-done { padding-right: 18px; }
+.ns-tt-sched-card.is-inline .ns-tt-sched-seal { width: 14px; height: 14px; font-size: 8px; right: 2px; }
+/* 修正席：單行卡的本班／運休小標籤（緊跟時刻、不縮）、名稱至少留兩個字、短說法先縮 */
+.ns-tt-sched-card.is-inline.is-short .ns-tt-sched-ct > .ns-tt-sched-tag { margin-left: 0; font-size: 8.5px; padding: 0 2px; letter-spacing: .04em; line-height: 12px; }
+.ns-tt-sched-card.is-inline.is-short .ns-tt-sched-cn { min-width: 2.2em; }
+.ns-tt-sched-card.is-inline.is-short .ns-tt-sched-ct .ns-tt-sched-cd { flex-shrink: 4; }
+/* 手機點亮的卡：文字讓出「打開 ›」的位置；並排的窄卡（≤ 120px）只留「›」，免得把名稱整個蓋住 */
+.ns-tt-sched-card.is-inline { container: ns-tt-card / inline-size; }
+.ns-tt-sched-card.is-inline.is-sel .ns-tt-sched-ct, .ns-tt-sched-card.is-inline.is-sel > .ns-tt-sched-cd { margin-right: 44px; }
+@container ns-tt-card (max-width: 120px) {
+  .ns-tt-sched-open-w { display: none; }
+  .ns-tt-sched-open { padding: 0 5px; }
+  .ns-tt-sched-card.is-inline.is-sel .ns-tt-sched-ct, .ns-tt-sched-card.is-inline.is-sel > .ns-tt-sched-cd { margin-right: 13px; }
+}
+
+/* 「差多少」欄（桌機 ≥1100px） */
+.ns-tt-sched-rl {
+  position: absolute; left: 0; right: 4px; display: flex; flex-direction: column; padding: 1px 0 1px 9px;
+  font-size: 11px; line-height: 15px; letter-spacing: .04em; color: var(--color-ink-soft); white-space: nowrap; transition: opacity .22s ease;
+}
+.ns-tt-sched-rl span { overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-sched-rl::before { content: ""; position: absolute; left: -1px; top: 7px; width: 6px; border-top: 1px solid var(--color-dash); }
+.ns-tt-sched-rl span:first-child { color: var(--color-ink); }
+.ns-tt-sched-rl.is-ok span:first-child { color: var(--color-gold-ink); font-weight: 600; }
+.ns-tt-sched-rl.is-ok span:first-child::before { content: "◆"; font-size: 7px; margin-right: 4px; vertical-align: 2px; color: var(--color-gold); }
+.ns-tt-sched-rl.is-live span { color: var(--color-seal); }
+.ns-tt-sched-rl.is-live span:first-child { color: var(--color-ink); }
+.ns-tt-sched-rl.is-late span { color: color-mix(in srgb, var(--color-late) 72%, transparent); }
+.ns-tt-sched-rl.is-done span { color: var(--color-ink-faint); }
+.ns-tt-sched-rl.is-cancel span { color: var(--color-ink-faint); text-decoration: line-through 1px; }
+
+/* ── 實績塊（照週視圖 .ns-tt-week-b，放大） ── */
+.ns-tt-sched-blk {
+  --c: var(--ns-tt-cat-8);
+  position: absolute; left: 4px; right: 6px; z-index: 2; min-height: 1.5px; margin: 0;
+  display: flex; flex-direction: column; align-items: flex-start; overflow: hidden; padding: 1px 7px 0; text-align: left;
+  border: 0; border-radius: 2px; cursor: pointer; font-family: inherit;
+  background: color-mix(in srgb, var(--c) 82%, transparent); color: var(--ns-tt-on-cat);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-paper-high) 70%, transparent);
+  transition: opacity .22s ease, box-shadow .18s, filter .15s;
+}
+.ns-tt-sched-blk:hover { filter: brightness(1.06); }
+.ns-tt-sched-blk:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 0; z-index: 3; }
+.ns-tt-sched-blk.is-thin { padding: 0; }
+.ns-tt-sched-bn { max-width: 100%; font-size: 11px; letter-spacing: .05em; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-sched-bn i { font-style: normal; opacity: .72; font-size: 10px; }
+.ns-tt-sched-blk small { font-size: 9.5px; line-height: 12px; opacity: .85; white-space: nowrap; }
+.ns-tt-sched-blk.is-linked { padding-left: 9px; box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ns-tt-sched-solid) 55%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--color-paper-high) 70%, transparent); }
+.ns-tt-sched-blk.is-live {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ns-tt-sched-solid) 55%, transparent), inset 0 -2px 0 var(--color-seal);
+  background-image: linear-gradient(to bottom, transparent 60%, color-mix(in srgb, var(--ns-tt-sched-solid) 18%, transparent));
+}
+.ns-tt-sched-blk.is-on { z-index: 4; box-shadow: 0 0 0 2px var(--color-gold), 0 6px 16px var(--ns-tt-sched-shadow); }
+[data-shell="mobile"] .ns-tt-sched-blk { left: 3px; right: 3px; padding: 1px 4px 0; }
+[data-shell="mobile"] .ns-tt-sched-blk.is-linked { padding-left: 6px; }
+[data-shell="mobile"] .ns-tt-sched-bn { font-size: 10.5px; letter-spacing: .02em; }
+
+/* 滑過（手機：點亮）一張票：連到的描金、其他淡到 0.45（D-時-89） */
+.ns-tt-sched-grid.is-hl .ns-tt-sched-card:not(.is-on),
+.ns-tt-sched-grid.is-hl .ns-tt-sched-blk:not(.is-on),
+.ns-tt-sched-grid.is-hl .ns-tt-sched-rl:not(.is-on) { opacity: .45; }
+
+/* ── 拖曳／點選：金色時刻線、落點卡、手上的票 ── */
+.ns-tt-sched-hint { position: absolute; left: 0; right: 0; height: 0; z-index: 7; border-top: 2px solid var(--color-gold); pointer-events: none; }
+.ns-tt-sched-hint::before { content: ""; position: absolute; left: -1px; top: -5px; width: 8px; height: 8px; background: var(--color-gold); transform: rotate(45deg); }
+.ns-tt-sched-ghost {
+  position: absolute; left: 2px; right: 2px; z-index: 6; display: flex; flex-direction: column; overflow: hidden; min-height: 22px; padding: 3px 7px;
+  border: 1.5px dashed var(--color-gold); border-radius: 3px; background: color-mix(in srgb, var(--color-gold) 16%, transparent);
+  font-size: 11.5px; line-height: 1.3; pointer-events: none;
+}
+.ns-tt-sched-ghost.is-short { flex-direction: row; align-items: center; gap: 6px; padding-top: 0; padding-bottom: 0; }
+.ns-tt-sched-ghost .ns-tt-num { font-size: 10.5px; font-weight: 600; color: var(--color-gold-ink); }
+.ns-tt-sched-ghost b { font-weight: 500; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-sched-ghost.is-noest { border-bottom-style: dotted; background: linear-gradient(180deg, color-mix(in srgb, var(--color-gold) 18%, transparent) 50%, transparent); }
+.ns-tt-sched-grid.is-dragging { cursor: grabbing; }
+.ns-tt-sched-grid.is-dragging .ns-tt-sched-card:not(.is-lifted) { pointer-events: none; }
+.ns-tt-sched-float {
+  --rc: var(--ns-tt-cat-8);
+  position: fixed; z-index: 80; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px;
+  transform: translate(-30%, -140%) rotate(-2deg);
+  background: var(--color-book); color: var(--color-book-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent); border-radius: 16px;
+  font-size: 12.5px; letter-spacing: .06em; white-space: nowrap; pointer-events: none; box-shadow: 0 10px 26px var(--ns-tt-sched-pop-shadow);
+  transition: border-color .15s, transform .2s var(--ns-tt-ease);
+}
+.ns-tt-sched-float.is-over { border-color: var(--color-gold); transform: translate(-30%, -140%) scale(.96); }
+
+/* ── 小面板：桌機＝貼在卡旁的浮層（PlanPopover）；手機＝MobileSheetHost 的 sheet；本體 PlanPanel 共用 ── */
+/* 整合席：veil／浮層壓在 Toast（App 根 z-50）底下——面板開著時 toast 的「撤回」要一下就按得到（不然第一下被 veil 吃掉、只關面板） */
+.ns-tt-sched-veil { position: fixed; inset: 0; z-index: 48; background: transparent; }
+.ns-tt-sched-pop {
+  position: fixed; z-index: 49; max-height: calc(100vh - 24px); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--ns-tt-sched-solid); color: var(--color-ink); border: 1px solid var(--color-line); border-radius: 6px;
+  box-shadow: 0 18px 50px var(--ns-tt-sched-pop-shadow);
+  opacity: 0; transform: translateX(-8px) scale(.97); transform-origin: left top;
+  transition: opacity .16s ease, transform .4s var(--ns-tt-spring);
+}
+.ns-tt-sched-pop.is-open { opacity: 1; transform: none; }
+.ns-tt-sched-pop:focus { outline: none; }
+.ns-tt-sched-pop-h { flex: none; display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 4px 8px 4px 16px; border-bottom: 1px dashed var(--color-dash); }
+.ns-tt-sched-pop-h b { flex: 1; min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-sched-pop-b { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 6px 16px 0; }
+.ns-tt-sched-pop .ns-tt-actions {
+  position: sticky; bottom: 0; margin: 12px -16px 0; padding: 10px 16px 12px;
+  background: var(--ns-tt-sched-solid); border-top: 1px solid var(--color-line);
+}
+.ns-tt-sched-pop .ns-tt-actions .ns-btn { min-height: 38px; font-size: 13px; padding: 0 10px; letter-spacing: .1em; }
+.ns-tt-sched-pop .ns-tt-row { min-height: 46px; }
+
+.ns-tt-plan { font-size: 13px; }
+.ns-tt-plan-h { display: flex; align-items: center; gap: 10px; padding: 4px 0 10px; border-bottom: 1px solid var(--color-line); }
+.ns-tt-plan-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ns-tt-plan-meta b { font-weight: 500; font-size: 12.5px; letter-spacing: .08em; }
+.ns-tt-plan-meta small { font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tt-plan-seal {
+  flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--color-seal); color: var(--color-seal);
+  display: grid; place-items: center; font-family: var(--font-display); font-weight: 700; font-size: 11px; transform: rotate(-8deg);
+}
+.ns-tt-input.ns-tt-plan-tin { width: 76px; height: 40px; padding: 0 4px; text-align: center; font-size: 17px; }
+.ns-tt-input.ns-tt-plan-tin[aria-invalid="true"] { border-color: var(--color-late); }
+.ns-tt-plan-hatsu { font-size: 12px; color: var(--color-ink-faint); }
+.ns-tt-plan-tnote { min-height: 18px; margin: 4px 0 2px 58px; font-size: 11px; letter-spacing: .04em; line-height: 1.5; color: var(--color-ink-faint); }
+.ns-tt-plan-tnote.is-err { color: var(--color-late); }
+.ns-tt-plan-ptime { font-size: 18px; font-weight: 500; }
+.ns-tt-plan-pnx { font-size: 11px; color: var(--color-ink-faint); }
+.ns-tt-plan-faint { font-size: 12px; color: var(--color-ink-faint); }
+.ns-tt-plan-act { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.ns-tt-plan-act .ns-tt-num { font-size: 14px; }
+.ns-tt-plan-act small { font-size: 11px; color: var(--color-ink-faint); }
+.ns-tt-plan-diff { margin-top: 2px; font-size: 12px; letter-spacing: .04em; color: var(--color-ink); }
+.ns-tt-plan-diff.is-ok { color: var(--color-gold-ink); font-weight: 600; }
+.ns-tt-plan-diff.is-live { color: var(--color-seal); }
+.ns-tt-plan-diff.is-late { color: var(--color-late); }
+.ns-tt-plan-teiki {
+  margin: 10px 0 0; padding: 8px 10px; border-radius: 3px;
+  background: color-mix(in srgb, var(--color-gold) 9%, transparent); border: 1px dashed color-mix(in srgb, var(--color-gold) 50%, transparent);
+  font-size: 11.5px; letter-spacing: .04em; line-height: 1.6; color: var(--color-ink-soft);
+}
+.ns-tt-plan-teiki .ns-tt-opt.is-ghostlink {
+  min-height: 24px; margin-left: 4px; padding: 0 2px; border: 0; background: transparent; font-size: 11.5px;
+  color: var(--color-ink); text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.ns-tt-plan-ro { margin: 8px 0 0; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-tt-plan .btn-seal:disabled { cursor: default; opacity: .45; }
+[data-shell="mobile"] .ns-tt-plan .ns-tt-input.ns-tt-plan-tin { font-size: 17px; height: 44px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-sched-card, .ns-tt-sched-blk, .ns-tt-sched-ui, .ns-tt-sched-chip, .ns-tt-sched-pop, .ns-tt-sched-float, .ns-tt-sched-rl { transition: none; }
+  .ns-tt-sched-lag, .ns-tt-sched-hintlbl, .ns-tt-sched-open, .ns-tt-sched-pickhint, .ns-tt-sched-tocur { animation: none; }
+}
+
+/* ═══ §M 方眼（乙・⑤；⑤ 契約 §5、〈原型定案〉1、4、7、9；D-時-90～108）═══
+ * 長相＝原型 prototypes/時刻表-src/v-i.css（.vi-*）。token 對照同 §K／§L，另：--vi-card→--ns-tt-grid-card（＝§A 的不透明紙
+ * --ns-tt-sched-solid：格線＝紙色的縫，要蓋得住色帶）、--vi-tile→--ns-tt-grid-tile、--vi-spring→--ns-tt-spring、--ve-ease→--ns-tt-ease、
+ * 陰影色→--ns-tt-sched-shadow／-pop-shadow（§A）。
+ * 版面外框用 :has 自己認（.ns-tt-cols／.m-page 裡有 .ns-tt-grid ⇒ 單欄、直欄不捲），不靠 data-view；整合席加的 data-view="grid" 不衝突。
+ * 手機塗色列 .ns-tt-grid-mbar 在 .m-page 之外（MobileGridDock）：fixed 在 tab bar 之上、蓋住運行列；開著時 Toast 抬到它上面。 */
+
+.ns-tt-grid, .ns-tt-grid-mbar {
+  --ns-tt-grid-card: var(--ns-tt-sched-solid);
+  --ns-tt-grid-tile: color-mix(in srgb, var(--color-ink) 5.5%, var(--ns-tt-grid-card));
+}
+[data-theme="dark"] .ns-tt-grid, [data-theme="dark"] .ns-tt-grid-mbar { --ns-tt-grid-tile: color-mix(in srgb, var(--color-ink) 6%, var(--ns-tt-grid-card)); }
+
+/* ── 外框：桌機單欄（方眼＋右欄 320px）；手機 .m-page 改直欄不捲 ── */
+.page.ns-tt .ns-tt-cols:has(.ns-tt-grid) { grid-template-columns: minmax(0, 1fr); }
+.ns-tt-grid.is-desk { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 22px; }
+.ns-tt-grid-main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.ns-tt-grid-side { min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; padding: 0 2px 2px; }
+.ns-tt-grid-side::-webkit-scrollbar { width: 8px; }
+.ns-tt-grid-side::-webkit-scrollbar-thumb { background: var(--color-dash); border-radius: 4px; }
+.ns-tt-grid-swap { display: flex; flex-direction: column; gap: 14px; animation: ns-tt-grid-side .38s var(--ns-tt-ease) both; }
+.ns-tt-grid-side .ns-tt-day { margin-bottom: 0; }
+@keyframes ns-tt-grid-side { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+/* 單欄退化（<960px）：方眼在上、右欄掉到下面，整頁捲；方眼給固定高 */
+.page.ns-tt[data-layout="narrow"] .ns-tt-grid.is-desk { display: flex; flex-direction: column; gap: 14px; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-grid-sheet { flex: none; height: 72vh; }
+.page.ns-tt[data-layout="narrow"] .ns-tt-grid-side { overflow: visible; }
+
+[data-shell="mobile"] .m-page.ns-tt-m:has(.ns-tt-grid) { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 8px; }
+[data-shell="mobile"] .m-page.ns-tt-m:has(.ns-tt-grid) > .ns-tt-mtop { flex: none; margin-bottom: 8px; padding-top: 8px; padding-bottom: 7px; }
+/* 垂直預算很緊（〈原型定案〉4 量到的數字）：方眼頁的切換鈕收到 38px（＝原型 .vi-msw） */
+[data-shell="mobile"] .m-page.ns-tt-m:has(.ns-tt-grid) .ns-tt-switch button { min-height: 38px; }
+[data-shell="mobile"] .ns-tt-grid.is-phone { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 旅客筆記的「記一句」浮動鈕（notes-mobile.css〈一〉，56×56、tab bar 上 14px）在方眼頁收起來（修正席）：方眼整頁不捲、
+ * 格子撐到合計列，鈕抬到哪裡都蓋在格子上（375×812 看過去的日子＝最後一列 05:42–06:00；360×640＝02 列 03:47–04:00，點下去開的是記一句），
+ * 塗色列開著時又蓋住「購物」。抬高 --m-page-dock-h 只是把蓋到的位置換一格，所以整類一起收；別的 tab、時刻表其他視圖照常有鈕。
+ * 寫法同 notes-mobile.css 的 .is-hidden（visibility＋pointer-events），鈕留在 DOM。 */
+/* 接縫 #90（主對話 D 10-20 准先出貨）：方眼頁整頁不捲、浮鈕抬到哪都蓋一格 ⇒ 收起旅客筆記的「記一句」浮鈕；旅客筆記終審做通用的「這頁不要浮鈕」變數後改用它、刪這行 */
+[data-shell="mobile"]:has(.ns-tt-grid) .ns-notes-fab { visibility: hidden; opacity: 0; pointer-events: none; }
+
+/* ── 頂列：‹ 日期 ›、回到今天、讀數、格子大小 ── */
+.ns-tt-grid-nav { position: relative; flex: none; display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0 0 8px; }
+.ns-tt-grid-pnav { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.ns-tt-grid-arrow {
+  width: 32px; height: 32px; padding: 0; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent; cursor: pointer;
+  font-size: 18px; line-height: 1; color: var(--color-ink-soft);
+  transition: border-color .15s, color .15s, transform .15s var(--ns-tt-ease);
+}
+.ns-tt-grid-arrow:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-grid-arrow:active:not(:disabled) { transform: scale(.94); }
+.ns-tt-grid-arrow:disabled { opacity: .3; cursor: default; }
+.ns-tt-grid-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-grid-pname { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ns-tt-grid-pname b { font-family: var(--font-latin); font-weight: 500; font-size: 16px; letter-spacing: .02em; white-space: nowrap; color: var(--color-ink); }
+.ns-tt-grid-pname em {
+  font-style: normal; font-size: 10.5px; letter-spacing: .2em; line-height: 18px; white-space: nowrap; margin-left: 2px;
+  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px;
+}
+.ns-tt-grid-tocur {
+  min-height: 28px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft); white-space: nowrap;
+  transition: border-color .15s, color .15s;
+}
+.ns-tt-grid-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-grid-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-grid-tocur .ns-tt-kbd { margin-left: 6px; }
+.ns-tt-grid-segw { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.ns-tt-grid-seg { display: inline-flex; border: 1px solid var(--color-dash); border-radius: 3px; overflow: hidden; }
+.ns-tt-grid-seg button {
+  min-height: 28px; padding: 0 9px; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-latin); font-weight: 500; font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink-faint);
+  transition: background .15s, color .15s;
+}
+.ns-tt-grid-seg button + button { border-left: 1px solid var(--color-dash); }
+.ns-tt-grid-seg button:hover { color: var(--color-ink); }
+.ns-tt-grid-seg button.is-on { background: color-mix(in srgb, var(--color-gold) 18%, transparent); color: var(--color-ink); }
+.ns-tt-grid-seg button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-tt-grid-segu { font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
+/* 拖的時候的讀數：桌機在頂列右側、暫時佔掉格子大小那一塊（放開就回來）；手機蓋在頂列上（手指遮不到） */
+.ns-tt-grid-read {
+  display: none; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap;
+  font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-soft);
+}
+.ns-tt-grid-read.is-on { display: inline-flex; animation: ns-tt-grid-pop .18s var(--ns-tt-ease) both; }
+.ns-tt-grid-rdm { display: inline-flex; align-items: baseline; }
+.ns-tt-grid-read b { font-family: var(--font-latin); font-weight: 500; font-size: 18px; letter-spacing: .01em; color: var(--color-ink); }
+.ns-tt-grid-rd { font-size: 13px; color: var(--color-gold-ink); }
+.ns-tt-grid-cover { font-style: normal; font-size: 11.5px; letter-spacing: .06em; color: var(--color-late); }
+.ns-tt-grid.is-desk .ns-tt-grid-read.is-on { margin-left: auto; }
+.ns-tt-grid.is-desk .ns-tt-grid-read.is-on + .ns-tt-grid-segw { display: none; }
+.ns-tt-grid.is-phone .ns-tt-grid-read {
+  position: absolute; inset: -4px -6px; z-index: 6; padding: 0 12px; align-items: center; justify-content: flex-start;
+  background: var(--ns-tt-grid-card); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent);
+  border-radius: 4px; box-shadow: 0 6px 18px var(--ns-tt-sched-shadow);
+}
+.ns-tt-grid.is-phone .ns-tt-grid-read .ns-tt-grid-cover { margin-left: auto; }
+@keyframes ns-tt-grid-pop { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+[data-shell="mobile"] .ns-tt-grid-nav { gap: 6px; margin-bottom: 6px; min-height: 34px; }
+/* ‹ 日期 › 不准縮到比內容窄（原本 flex:1＋min-width:0＋置中：看過去的日子時 pname 被壓到 64px、nowrap 的日期往兩邊溢出，
+ * 蓋住 ‹ ›、‹ 點不到；修正席）。手機不放「回到今天」鈕、改成點日期回今天（GridView），格子大小那一塊也不縮 */
+[data-shell="mobile"] .ns-tt-grid-pnav { flex: 1 0 auto; gap: 4px; }
+[data-shell="mobile"] .ns-tt-grid-pname { flex: 1 0 auto; justify-content: center; gap: 5px; }
+[data-shell="mobile"] .ns-tt-grid-segw { flex: none; }
+.ns-tt-grid-pname.is-tocur {
+  min-height: 30px; padding: 0 2px; border: 0; border-radius: 3px; background: transparent; cursor: pointer;
+  font: inherit; color: inherit; -webkit-tap-highlight-color: transparent;
+}
+.ns-tt-grid-pname.is-tocur b { text-decoration: underline dotted color-mix(in srgb, var(--color-gold) 70%, transparent); text-underline-offset: 4px; }
+.ns-tt-grid-pname.is-tocur:active { background: color-mix(in srgb, var(--color-gold) 14%, transparent); }
+.ns-tt-grid-pname.is-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+[data-shell="mobile"] .ns-tt-grid-arrow { width: 30px; height: 30px; }
+[data-shell="mobile"] .ns-tt-grid-pname b { font-size: 15px; }
+[data-shell="mobile"] .ns-tt-grid-pname em { padding: 0 4px; letter-spacing: .1em; }
+[data-shell="mobile"] .ns-tt-grid-segw { margin-left: 0; }
+/* 6px（原 7px）：360 寬看昨天＝‹ 日期 昨天 › ＋格子大小剛好塞得下（修正席量過） */
+[data-shell="mobile"] .ns-tt-grid-seg button { min-height: 28px; padding: 0 6px; font-size: 12px; }
+[data-shell="mobile"] .ns-tt-grid-tocur { padding: 0 8px; font-size: 11px; letter-spacing: .04em; }
+
+/* ── 方眼本體：格子＝淡墨的「格」，格與格之間是紙色的縫；色帶畫在格上、縫再疊在色帶上 ── */
+.ns-tt-grid-sheet {
+  --tw: 30px; display: flex; flex-direction: column; min-height: 0; flex: 1;
+  background: var(--ns-tt-grid-card); border: 1px solid var(--color-line); border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+  padding: 6px 10px 8px 4px;
+}
+.ns-tt-grid-sheet.is-desk { --tw: 36px; padding: 8px 14px 10px 6px; }
+.ns-tt-grid-colhead { display: grid; grid-template-columns: var(--tw) 1fr; flex: none; height: 16px; }
+.ns-tt-grid-colhead-t { position: relative; }
+.ns-tt-grid-colhead-t span { position: absolute; top: 1px; font-size: 9.5px; color: var(--color-ink-faint); letter-spacing: .02em; transform: translateX(1px); }
+.ns-tt-grid-colhead-t span.is-h { color: var(--color-ink-soft); font-weight: 600; }
+/* D-時-103：手指一按就選，不跟捲動打架（格子區不捲） */
+.ns-tt-grid-rows {
+  flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(var(--rows), minmax(0, 1fr)); row-gap: 2px;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.ns-tt-grid-row { display: grid; grid-template-columns: var(--tw) 1fr; align-items: stretch; min-height: 0; }
+.ns-tt-grid-hr {
+  display: flex; align-items: center; justify-content: flex-end; padding-right: 6px;
+  font-size: 10px; color: var(--color-ink-faint); line-height: 1; letter-spacing: .02em;
+}
+.ns-tt-grid-sheet.is-desk .ns-tt-grid-hr { font-size: 11px; padding-right: 8px; }
+.ns-tt-grid-row.is-noon .ns-tt-grid-hr { color: var(--color-ink); font-weight: 600; }
+.ns-tt-grid-row.is-nowrow .ns-tt-grid-hr { color: var(--color-seal); font-weight: 600; }
+.ns-tt-grid-track { position: relative; min-height: 0; overflow: visible; cursor: cell; background: var(--ns-tt-grid-tile); border-radius: 2px; }
+.ns-tt-grid-rows.is-dragging .ns-tt-grid-track { cursor: crosshair; }
+/* 未來：極淡橫紋、不能選（D-時-100） */
+.ns-tt-grid-fut {
+  position: absolute; top: 0; bottom: 0; right: 0; border-radius: 0 2px 2px 0; cursor: not-allowed;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 5px, color-mix(in srgb, var(--color-ink) 5%, transparent) 5px 6px),
+    color-mix(in srgb, var(--ns-tt-grid-tile) 45%, var(--ns-tt-grid-card));
+}
+/* 色帶（D-時-94）：照實際起訖、跨列折行；接著上一列／下一列的那一側不畫圓角 */
+.ns-tt-grid-band {
+  --c: var(--ns-tt-cat-8); position: absolute; top: 0; bottom: 0; min-width: 2px; z-index: 1;
+  display: flex; align-items: center; gap: 4px; overflow: hidden; padding-left: 4px;
+  background: color-mix(in srgb, var(--c) 80%, var(--ns-tt-grid-card)); color: var(--ns-tt-on-cat);
+  border-radius: 2px; font-style: normal; pointer-events: none;
+}
+.ns-tt-grid-band.is-cp { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.ns-tt-grid-band.is-cn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ns-tt-grid-band b { position: relative; z-index: 3; flex: none; font-family: var(--font-display); font-weight: 700; font-size: 10px; line-height: 1; }
+.ns-tt-grid-band span {
+  position: relative; z-index: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; letter-spacing: .08em; line-height: 1;
+}
+.ns-tt-grid-band small { margin-left: 5px; font-size: 9.5px; letter-spacing: .02em; opacity: .82; }
+.ns-tt-grid-sheet.is-desk .ns-tt-grid-band b { font-size: 11px; }
+/* 碎塊（D-時-105）：最少 2px、實心 */
+.ns-tt-grid-band.is-tiny { padding: 0; background: var(--c); z-index: 2; box-shadow: 0 0 0 .5px var(--ns-tt-grid-card); }
+.ns-tt-grid-band.is-tiny b, .ns-tt-grid-band.is-tiny span { display: none; }
+/* 待確認：赭色斜紋（同週視圖 .is-pend） */
+.ns-tt-grid-band.is-pend {
+  color: var(--color-late);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-late) 58%, var(--ns-tt-grid-card)) 0 3px, color-mix(in srgb, var(--color-late) 16%, var(--ns-tt-grid-card)) 3px 8px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-late) 65%, transparent);
+}
+.ns-tt-grid-band.is-pend b, .ns-tt-grid-band.is-pend span { background: var(--ns-tt-grid-card); border-radius: 2px; padding: 1px 3px; font-weight: 700; }
+/* 運行中：慢呼吸＋右緣朱色 */
+.ns-tt-grid-band.is-live { box-shadow: inset -2px 0 0 var(--color-seal); }
+.ns-tt-grid-band.is-live::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: var(--ns-tt-grid-card); animation: ns-tt-grid-breathe 2.8s ease-in-out infinite;
+}
+@keyframes ns-tt-grid-breathe { 0%, 100% { opacity: 0; } 50% { opacity: .2; } }
+/* 格線（紙色的縫）疊在色帶上：細縫＝每格；粗縫＝每 15／30 分（一列 2 小時時中間那條也是） */
+.ns-tt-grid-lines {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--ns-tt-grid-card) 0 2px, transparent 2px),
+    linear-gradient(to right, var(--ns-tt-grid-card) 0 1px, transparent 1px);
+  background-size: calc(100% / var(--m)) 100%, calc(100% / var(--n)) 100%;
+  background-position: -1px 0, 0 0;
+}
+/* 選區：虛線＝拖到的格子；實心金＝貼齊後真正會寫的那段（〈原型定案〉1） */
+.ns-tt-grid-sl { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.ns-tt-grid-sl i { position: absolute; top: -1px; bottom: -1px; }
+.ns-tt-grid-sl i.is-raw { border: 1px dashed color-mix(in srgb, var(--color-gold-ink) 70%, transparent); border-radius: 2px; }
+.ns-tt-grid-sl i.is-sel { background: color-mix(in srgb, var(--color-gold) 46%, transparent); box-shadow: inset 0 0 0 1.5px var(--color-gold-ink); border-radius: 2px; }
+[data-theme="dark"] .ns-tt-grid-sl i.is-sel { background: color-mix(in srgb, var(--color-gold) 34%, transparent); }
+.ns-tt-grid-sl i.is-sel.is-live {
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--color-gold) 50%, transparent) 0 6px, color-mix(in srgb, var(--color-gold) 32%, transparent) 6px 9px);
+}
+/* 現在：朱色豎線＋菱形（週視圖的現在線轉 90°） */
+.ns-tt-grid-now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--color-seal); z-index: 5; pointer-events: none; }
+.ns-tt-grid-now b { position: absolute; left: 50%; top: -3px; width: 7px; height: 7px; background: var(--color-seal); transform: translateX(-50%) rotate(45deg); }
+/* 列太矮（< 14px）：色帶上的字縮小 */
+.ns-tt-grid-rows.is-tight .ns-tt-grid-band b, .ns-tt-grid-rows.is-tight .ns-tt-grid-band span { font-size: 8.5px; }
+.ns-tt-grid-rows.is-tight .ns-tt-grid-band.is-pend b { padding: 0 2px; }
+.ns-tt-grid-rows.is-tight .ns-tt-grid-hr { font-size: 9px; }
+
+/* ── 桌機右欄（沒選的時候）：操作說明與圖例 ── */
+.ns-tt-grid-help {
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-card); box-shadow: var(--shadow-card);
+  padding: 12px 14px;
+}
+.ns-tt-grid-help-t { margin: 0; font-size: 12px; line-height: 1.65; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-tt-grid-legendk {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--color-line);
+  font-size: 11px; color: var(--color-ink-faint); letter-spacing: .08em;
+}
+.ns-tt-grid-legendk span { display: inline-flex; align-items: center; gap: 6px; }
+.ns-tt-grid-legendk i { display: inline-block; width: 16px; height: 10px; border-radius: 2px; }
+.ns-tt-grid-legendk .k-pend { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-late) 62%, transparent) 0 2px, color-mix(in srgb, var(--color-late) 16%, transparent) 2px 5px); }
+.ns-tt-grid-legendk .k-live { background: color-mix(in srgb, var(--ns-tt-cat-5) 80%, var(--color-paper-high)); box-shadow: inset -2px 0 0 var(--color-seal); }
+.ns-tt-grid-legendk .k-now { width: 2px; height: 12px; background: var(--color-seal); }
+.ns-tt-grid-legendk .k-fut { background: repeating-linear-gradient(0deg, transparent 0 2px, color-mix(in srgb, var(--color-ink) 18%, transparent) 2px 3px); border: 1px solid var(--color-line); }
+
+/* ── 手機：格子下一排本日各分類合計（橫捲；選了一段時藏起來、不讓位） ── */
+.ns-tt-grid-legend { display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; margin-top: 7px; padding: 0 2px 1px; flex: none; touch-action: pan-x; }
+.ns-tt-grid-legend::-webkit-scrollbar { display: none; }
+.ns-tt-grid-legend.is-hidden { visibility: hidden; }
+.ns-tt-grid-lg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 11px; color: var(--color-ink-soft); letter-spacing: .04em; }
+.ns-tt-grid-lg i { width: 9px; height: 9px; border-radius: 1.5px; background: color-mix(in srgb, var(--c) 80%, transparent); }
+.ns-tt-grid-lg b { font-weight: 500; font-size: 11.5px; color: var(--color-ink); }
+.ns-tt-grid-lg.is-gap, .ns-tt-grid-lg.is-gap b { color: var(--color-late); }
+.ns-tt-grid-lg.is-rec { color: var(--color-ink-faint); }
+
+/* ── 塗色列（D-時-96）：桌機在右欄取代本日合計；手機從底部升起 ── */
+.ns-tt-grid-pb { display: flex; flex-direction: column; gap: 8px; transition: opacity .15s; }
+.ns-tt-grid-pb.is-busy { opacity: .6; pointer-events: none; }
+.ns-tt-grid-pb.is-desk {
+  background: var(--color-paper-high); border: 1px solid color-mix(in srgb, var(--color-gold) 55%, var(--color-line));
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card), inset 3px 0 0 var(--color-gold); padding: 14px 14px 12px 16px;
+}
+.ns-tt-grid-pb-read { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-tt-grid-pb-read b { font-family: var(--font-latin); font-weight: 500; font-size: 22px; letter-spacing: .01em; color: var(--color-ink); }
+.ns-tt-grid-pb-read .ns-tt-grid-rd { font-size: 14px; }
+.ns-tt-grid-pb-read .ns-tt-grid-cover { flex-basis: 100%; font-size: 12px; }
+.ns-tt-grid-snap { flex-basis: 100%; font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-grid-pb-hint { margin: -2px 0 0; font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-grid-pb-same { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-tt-grid-pb-same .ns-tt-badge { width: 18px; height: 18px; font-size: 9px; }
+/* 沙盒 F2：點別的分類時運行中那班的結局（讀數的「會蓋掉」不算它） */
+.ns-tt-grid-pb-other { display: block; margin-top: 1px; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tt-grid-pb-cats { display: flex; flex-direction: column; gap: 6px; }
+/* 分類格＝CategoryGrid compact；特異度抬過 §D 的 `.page.ns-tt[data-layout="narrow"] .ns-tt-cats`（0,4,0） */
+.ns-tt-grid .ns-tt-grid-pb .ns-tt-group { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.ns-tt-grid .ns-tt-grid-pb .ns-tt-group-name { font-size: 10.5px; letter-spacing: .22em; }
+.ns-tt-grid .ns-tt-grid-pb .ns-tt-cats.is-compact { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; margin: 0; }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat {
+  padding: 5px 0 4px; gap: 3px;
+  transition: background .15s, border-color .15s, transform .25s var(--ns-tt-spring);
+}
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:hover { background: color-mix(in srgb, var(--color-gold) 12%, transparent); border-color: color-mix(in srgb, var(--color-gold) 50%, transparent); }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:hover .ns-tt-cat-name { color: var(--color-ink); }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:active { transform: scale(.92); background: color-mix(in srgb, var(--color-gold) 22%, transparent); }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat-name { font-size: 11px; letter-spacing: .06em; }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat.is-live .ns-tt-badge {
+  box-shadow: 0 0 0 2px var(--ns-tt-grid-card), 0 0 0 3.2px color-mix(in srgb, var(--color-seal) 75%, transparent);
+}
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat.is-live .ns-tt-live-dot { right: 7px; top: 5px; width: 6px; height: 6px; animation: none; }
+.ns-tt-grid-pb-act { display: flex; align-items: center; gap: 8px; }
+.ns-tt-grid-pb-act .ns-btn { min-height: 36px; padding: 0 14px; font-size: 13px; letter-spacing: .12em; }
+.ns-tt-grid-pb-act .ns-tt-grid-pb-cancel { margin-left: auto; }
+.ns-tt-grid-pb-note { flex: 1; font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); line-height: 1.4; }
+
+/* 手機：.m-page 之外的兄弟節點；fixed 在 tab bar 之上、蓋住運行列（同 z-index、DOM 在運行列後面 ⇒ 疊在上面；tab bar 3 在它之上） */
+[data-shell="mobile"] .ns-tt-grid-mbar {
+  position: fixed; left: 0; right: 0; bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom)); z-index: 2;
+  transform: translateY(calc(100% + var(--m-tabbar-h) + var(--m-safe-bottom)));
+  transition: transform .46s var(--ns-tt-spring); pointer-events: none;
+}
+[data-shell="mobile"] .ns-tt-grid-mbar.is-open { transform: none; pointer-events: auto; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-grid-pb {
+  padding: 4px var(--m-gutter) 10px; gap: 6px;
+  background: color-mix(in srgb, var(--ns-tt-grid-card) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3); backdrop-filter: blur(20px) saturate(1.3);
+  border-radius: 14px 14px 0 0; border-top: 1px solid color-mix(in srgb, var(--color-gold) 50%, transparent);
+  box-shadow: 0 -10px 34px var(--ns-tt-sched-pop-shadow);
+}
+[data-shell="mobile"] .ns-tt-grid-grip { display: block; width: 34px; height: 4px; border-radius: 2px; background: var(--color-dash); margin: 2px auto 0; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-grid-pb-read b { font-size: 19px; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-grid-pb-cats { gap: 3px; }
+/* 每一組分類一橫排（7 欄）、組名直排在左（〈原型定案〉9） */
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-group { margin: 0; display: flex; flex-direction: row; align-items: stretch; gap: 4px; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-group-name {
+  flex: none; writing-mode: vertical-rl; display: grid; place-items: center; width: 14px;
+  font-size: 9.5px; letter-spacing: .3em; border-right: 1px dashed var(--color-line); padding-right: 2px;
+}
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-cats.is-compact { flex: 1; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0; margin: 0; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-cats.is-compact .ns-tt-cat { padding: 3px 0 2px; gap: 2px; -webkit-tap-highlight-color: transparent; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-cats.is-compact .ns-tt-cat-name { font-size: 10px; letter-spacing: 0; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-cats.is-compact .ns-tt-badge { width: 26px; height: 26px; font-size: 11.5px; }
+[data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-grid-pb-act .ns-btn { min-height: 38px; }
+/* Toast：塗色列開著時抬到它上面（特異度 (0,5,0) 贏過 §E 運行列那條 (0,4,0)；--ns-tt-grid-mbar-h 由 MobileGridDock 量了寫在 App 根） */
+[data-shell="mobile"] .ns-tt-grid-mbar.is-open ~ .ns-card.fixed {
+  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-grid-mbar-h, 280px) + 12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-grid-band.is-live::after, .ns-tt-grid-read.is-on, .ns-tt-grid-swap { animation: none; }
+  [data-shell="mobile"] .ns-tt-grid-mbar, .ns-tt-grid-arrow, .ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat { transition: none; }
 }

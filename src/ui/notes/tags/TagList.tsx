@@ -9,7 +9,7 @@
  * 資料：`tagRepo.listUnder(key)`（index 一變就重查——掛、摘、改名、同步進來都會換 index）；分組排序＝`groupTaggedItems`。
  * 鍵盤：NotesView 的 ↑↓／Enter 經 `apiRef` 在列間移選取（`.is-sel`）、開選中列；滑鼠點列＝開。
  */
-import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { tagRepo } from "../../../data/tagRepo";
 import type { TaggedItem } from "../../../data/tagRepository";
 import { fmtShortDay, noteTitle, weekdayZh } from "../../../domain/notes";
@@ -20,6 +20,9 @@ import { useUiStore } from "../../../store/uiStore";
 import { IconCaret, RouteDot, dayOf } from "../notesBits";
 import { TagName } from "./TagChip";
 import { goDiary, goNode, goNote } from "./jump";
+import { useOtherSections } from "./otherEntities";
+
+const NO_ITEMS: readonly GroupedTaggedItem[] = [];
 
 export interface TagListApi {
   move(delta: 1 | -1): void;
@@ -100,6 +103,8 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
     () => (items ? groupTaggedItems(items, hasKids ? tagKey : null, (k) => useTagStore.getState().nameOf(k)) : null),
     [items, hasKids, tagKey],
   );
+  // 別線實體依登記分段（時刻表⑥ 0-6；沒有任何線登記＝一段「別處」、順序同 groups.other）
+  const otherSections = useOtherSections(groups?.other ?? NO_ITEMS, "desktop");
 
   /** 鍵盤能走到的列（已完成收著就不算） */
   const flat = useMemo(() => {
@@ -109,11 +114,16 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
       ...(doneOpen ? groups.nodes.done : []),
       ...groups.notes,
       ...groups.diaries,
-      ...groups.other,
+      ...otherSections.flatMap((s) => s.rows.map((r) => r.it)),
     ];
-  }, [groups, doneOpen]);
+  }, [groups, doneOpen, otherSections]);
 
   const rowId = (it: GroupedTaggedItem) => `${it.kind}:${it.id}`;
+  /** 別線的列：有登記的 `open` 就叫它；node／note 照 openItem */
+  const openRow = (it: GroupedTaggedItem) => {
+    if (it.kind !== "other") return openItem(it);
+    for (const s of otherSections) for (const r of s.rows) if (r.it === it) r.row?.open?.();
+  };
 
   apiRef.current = {
     move(delta) {
@@ -124,7 +134,7 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
     },
     open() {
       const it = flat.find((x) => rowId(x) === sel);
-      if (it) openItem(it);
+      if (it) openRow(it);
     },
   };
 
@@ -150,7 +160,7 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
         className={`ns-notes-tagitem ${extraCls}${sel === rowId(it) ? " is-sel" : ""}`}
         onClick={() => {
           setSel(rowId(it));
-          openItem(it);
+          openRow(it);
         }}
       >
         {children}
@@ -251,23 +261,37 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
       )}
       {section("筆記", groups.notes.length, <ul className="ns-notes-tagrows">{groups.notes.map(noteRow)}</ul>)}
       {section("日記", groups.diaries.length, <ul className="ns-notes-tagrows">{groups.diaries.map(noteRow)}</ul>)}
-      {section(
-        "別處",
-        groups.other.length,
-        <ul className="ns-notes-tagrows">
-          {groups.other.map((it) =>
-            it.kind === "other" ? (
-              <li key={rowId(it)}>
-                <span className="ns-notes-tagitem other" data-rid={rowId(it)}>
-                  <span className="main">
-                    <span className="nm">{it.entityType}</span>
-                  </span>
-                </span>
-              </li>
-            ) : null,
+      {otherSections.map((sec) => (
+        <Fragment key={sec.title}>
+          {section(
+            sec.title,
+            sec.rows.length,
+            <ul className="ns-notes-tagrows">
+              {sec.rows.map(({ it, row: r }) =>
+                it.kind !== "other" ? null : r?.open ? (
+                  row(
+                    it,
+                    "other",
+                    <span className="main">
+                      <span className="nm">{r.label}</span>
+                      {r.sub && <span className="sn">{r.sub}</span>}
+                    </span>,
+                  )
+                ) : (
+                  <li key={rowId(it)}>
+                    <span className="ns-notes-tagitem other" data-rid={rowId(it)}>
+                      <span className="main">
+                        <span className="nm">{r ? r.label : it.entityType}</span>
+                        {r?.sub && <span className="sn">{r.sub}</span>}
+                      </span>
+                    </span>
+                  </li>
+                ),
+              )}
+            </ul>,
           )}
-        </ul>,
-      )}
+        </Fragment>
+      ))}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import {
   type TagSuggestResult,
 } from "../domain/tags";
 import type { LineReloadContext } from "../lines/types";
+import { lineTagEntityTables } from "../lines/runtime";
 import { notesFlush } from "../ui/notes/notesFlush";
 import { useUiStore } from "./uiStore";
 import { useNotesStore } from "./notesStore";
@@ -530,7 +531,8 @@ export const useTagStore = create<TagStore>((set, get) => {
         set({ selectedKey: null, back: null, renaming: null, picker: null, pendingPlan: null });
         backfillRun = null;
       }
-      const hit = ctx.wiped || ["tags", "taggings", "notes", "nodes"].some((t) => ctx.changed.includes(t));
+      // 別線實體的表（時刻表⑥ 0-6 的 tagEntities.tables）也算：實體被刪或復活會改變荷札的計數；沒有任何線填＝原本四張
+      const hit = ctx.wiped || ["tags", "taggings", "notes", "nodes", ...lineTagEntityTables()].some((t) => ctx.changed.includes(t));
       if (!hit || (!get().index && !ctx.wiped)) return;
       await get().loadIndex();
     },

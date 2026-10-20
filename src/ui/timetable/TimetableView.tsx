@@ -15,6 +15,12 @@
  * - 車次③（③ 契約 §5.1、0-7；D-時-46；丙席）：切換鈕四格「兩欄｜V｜只看軸｜週｜統計」，鍵帽 1–4（整合席已登記
  *   `timetable.view.1`～`4` 並接上 KEY_ACTIONS；鍵帽照 manifest 由 formatChord 產）。週／統計：頁首下放運行列（同只看軸），下面一塊自己捲
  *   （data-view="week"|"stats"，§K）。#72：每次掛上（不只第一次 init）都 `ensureFreshDay()`。
+ * - 車次④（④ 契約 0-7、§5.10；D-時-74；整合席）：第五格「日程」（鍵帽 5，`timetable.view.5`）；data-view="schedule"，頁首下運行列＋
+ *   ScheduleView（自己 flex:1、時間軸自己捲）。←／→／T 在日程＝換日（同軸、共用 dayKey）；→ 可以翻到未來（日程能排明天以後）。
+ *   從日程翻到未來再切回軸／兩欄時，dayKey 拉回今天（軸只看今天以前）。
+ * - 車次⑤（⑤ 契約 0-6、§5.1；D-時-92、102、104；整合席）：第六格「方眼」（鍵帽 6，`timetable.view.6`）；data-view="grid"，頁首下運行列＋
+ *   GridView（不包 `.ns-tt-vscroll`，方眼自己決定捲不捲；單欄版面由 §M 的 :has 認）。←／→／T 在方眼＝換日，照軸：→ 翻不過今天。
+ *   「切回時未來日拉回今天」的排除清單不含 grid＝從日程翻到未來再切到方眼也拉回今天（方眼不能記未來，D-時-100）。
  */
 import { Fragment, useEffect, useRef, useState } from "react";
 import { TT_TEXT, useTimetableStore, type TimetableView as TimetableViewMode } from "../../store/timetableStore";
@@ -25,6 +31,8 @@ import { Axis } from "./parts/Axis";
 import { DesktopSheetHost } from "./DesktopSheetHost";
 import { WeekView, rememberDeskAxisView } from "./week/WeekView";
 import { StatsView } from "./stats/StatsView";
+import { ScheduleView } from "./schedule/ScheduleView";
+import { GridView } from "./grid/GridView";
 import { useTimetableStatsStore } from "../../store/timetableStatsStore";
 import { handleTimetableKey, useTimetableKeyboard, type TimetableKeyActions } from "./useTimetableKeyboard";
 import { useTimetableForeground } from "./useTimetableForeground";
@@ -35,12 +43,14 @@ import "./timetable.css";
 /** 兩欄撐不開的門檻（契約 §5.2） */
 const NARROW_PX = 960;
 
-/** 視圖切換四格（D-時-46）；n＝鍵帽 1–4（鍵 id `timetable.view.<n>`，整合席登記） */
+/** 視圖切換六格（D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼）；n＝鍵帽 1–6（鍵 id `timetable.view.<n>`，整合席登記） */
 const VIEW_OPTIONS: { v: TimetableViewMode; label: string; n: number }[] = [
   { v: "split", label: TT_TEXT.weekUi.viewSplit, n: 1 },
   { v: "axis", label: TT_TEXT.weekUi.viewAxis, n: 2 },
   { v: "week", label: TT_TEXT.viewWeek, n: 3 },
   { v: "stats", label: TT_TEXT.viewStats, n: 4 },
+  { v: "schedule", label: TT_TEXT.viewSchedule, n: 5 },
+  { v: "grid", label: TT_TEXT.viewGrid, n: 6 },
 ];
 
 /** 鍵帽字：manifest 有登記就照它（formatChord，不手抄）；還沒登記先印數字 */
@@ -57,6 +67,8 @@ const SPLIT_MIN_MS = 2 * MIN;
  * 回 false＝放行（不 preventDefault）。
  * ③：←／→／T 依 view 分派——週視圖＝`weekStep(±1)`／`weekToCurrent()`，統計＝`step(±1)`／`toCurrent()`，其餘照舊換日；
  * 已在本週／本期時 →、T 放行（同「看今天時 → 放行」）。D／W／M 只在統計視圖作用。
+ * ④：日程＝換日（同軸、共用 dayKey），但 → 不卡在今天（日程能翻到未來排時刻）。
+ * ⑤：方眼＝換日，照軸（→ 在今天放行，D-時-102）——走下面「其餘」那條，不另分支。
  */
 const KEY_ACTIONS: TimetableKeyActions = {
   depart: () => useTimetableStore.getState().requestDepart(),
@@ -82,7 +94,7 @@ const KEY_ACTIONS: TimetableKeyActions = {
       else st.step(1);
       return true;
     }
-    if (s.dayKey === s.todayKey) return false;
+    if (s.view !== "schedule" && s.dayKey >= s.todayKey) return false; // 軸：看今天時放行；日程可以往未來翻
     void s.setDayKey(addDays(s.dayKey, 1));
     return true;
   },
@@ -140,8 +152,14 @@ export function TimetableView() {
       .then(() => useTimetableStore.getState().autoAsk("enter", true))
       .catch(() => undefined); // 載入失敗寫在 store.error，頁面上顯示
   }, []);
-  // 記住上次的兩欄／只看軸（週視圖點塊跳軸時回到它）
+  // 記住上次的兩欄／只看軸（週視圖點塊跳軸時回到它；日程、方眼不算——rememberDeskAxisView 只收 split／axis）
   useEffect(() => rememberDeskAxisView(view), [view]);
+  // ④：日程翻到未來後切回軸／兩欄 ⇒ dayKey 拉回今天（軸的 → 本來就翻不過今天）。⑤：方眼不在排除清單（同軸，不能記未來）
+  useEffect(() => {
+    if (view === "schedule" || view === "week" || view === "stats") return;
+    const s = useTimetableStore.getState();
+    if (s.dayKey > s.todayKey) void s.setDayKey(s.todayKey);
+  }, [view]);
   useTimetableForeground({ ask: true });
 
   // 寬度不足就退成單欄；只量根節點，不改 view 設定
@@ -187,8 +205,8 @@ export function TimetableView() {
   }, []);
 
   const viewKey = hotkeyById("timetable.view");
-  const mode: "split" | "axis" | "week" | "stats" =
-    view === "week" || view === "stats" ? view : view === "axis" ? "axis" : "split"; // 手機記的 board 在桌機＝兩欄
+  const mode: "split" | "axis" | "week" | "stats" | "schedule" | "grid" =
+    view === "week" || view === "stats" || view === "schedule" || view === "grid" ? view : view === "axis" ? "axis" : "split"; // 手機記的 board 在桌機＝兩欄
   const split = mode === "split";
   const stacked = narrow && split; // 單欄疊放：運行列 → 發車台 → 軸（整頁捲動）
 
@@ -250,6 +268,16 @@ export function TimetableView() {
           <div className="ns-tt-col is-right is-full">
             <RunDock variant="desktop" />
             <Axis scroller={narrow ? "page" : "self"} />
+          </div>
+        ) : mode === "schedule" ? (
+          <div className="ns-tt-col is-right is-wide">
+            <RunDock variant="desktop" />
+            <ScheduleView />
+          </div>
+        ) : mode === "grid" ? (
+          <div className="ns-tt-col is-right is-wide">
+            <RunDock variant="desktop" />
+            <GridView shell="desktop" />
           </div>
         ) : (
           <div className="ns-tt-col is-right is-wide">

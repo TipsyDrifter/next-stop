@@ -23,7 +23,8 @@ export function DesktopSheetHost() {
   const closeSheet = useTimetableStore((s) => s.closeSheet);
   const now = useNow(1000);
 
-  if (!sheet) return null;
+  // ④（乙席）：日程的 plan 面板在桌機是貼在卡旁的浮層，由 schedule/ScheduleView 的 PlanPopover 自己畫，這裡不包置中的 DialogShell
+  if (!sheet || sheet.kind === "plan") return null;
   const title = sheetTitle(sheet, { running, catById, dayBlocks, todayBlocks, weekBlocks }, now);
 
   return (

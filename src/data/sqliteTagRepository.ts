@@ -28,6 +28,7 @@ import {
 import { nodeRepo, settingsRepo } from "./index";
 import { noteBodyUpdate } from "./sqliteNoteRepository";
 import { newWriteBatch, runWriteBatch } from "./syncRepository";
+import { otherEntitiesAliveSql } from "./tagEntityAlive";
 import {
   emptyReceipt,
   tagId,
@@ -236,7 +237,7 @@ export class SqliteTagRepository implements TagRepository {
        WHERE g.deleted_at IS NULL AND (
             (g.entity_type = 'node' AND n.id IS NOT NULL AND n.deleted_at IS NULL AND n.kind IN (${NODE_KINDS_SQL}))
          OR (g.entity_type = 'note' AND x.id IS NOT NULL AND x.deleted_at IS NULL)
-         OR (g.entity_type NOT IN ('node','note')))`,
+         OR (${otherEntitiesAliveSql()}))`,
     );
     const kinds: Record<string, string> = {};
     const taggings = rows.map((r) => {
@@ -291,7 +292,7 @@ export class SqliteTagRepository implements TagRepository {
         ? Promise.resolve([] as { entity_type: TagEntityType; entity_id: string; tag_id: string }[])
         : db.select<{ entity_type: TagEntityType; entity_id: string; tag_id: string }[]>(
             `SELECT g.entity_type, g.entity_id, g.tag_id FROM taggings g
-             WHERE g.deleted_at IS NULL AND g.entity_type NOT IN ('node','note') AND g.tag_id IN (${inList})`,
+             WHERE g.deleted_at IS NULL AND ${otherEntitiesAliveSql()} AND g.tag_id IN (${inList})`,
             ids,
           ),
     ]);

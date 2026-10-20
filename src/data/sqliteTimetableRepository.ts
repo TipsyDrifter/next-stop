@@ -36,6 +36,7 @@ import {
   STARTER_CATEGORIES,
   TIMETABLE_ID_NAMESPACE,
   canUndoArrive,
+  currentRunning,
   insertLinkOf,
   groupedCategories,
   isoOf,
@@ -74,6 +75,14 @@ import {
   type WritePlan,
 } from "../domain/timetable";
 import { goalScopeJson, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
+import {
+  buildPaintUndo,
+  planPaintFill,
+  planPaintLive,
+  planUndoPaint,
+  type PaintRow,
+  type PaintUndo,
+} from "../domain/timetableGrid";
 
 const ALIVE = "deleted_at IS NULL";
 
@@ -1023,5 +1032,100 @@ export class SqliteTimetableRepository implements TimetableRepository {
     b.stmts.push({ sql: `UPDATE time_goals SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
     addOp(b, "time_goals", id, "upsert", { deleted_at: null, updated_at: now });
     await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  /* ── ⑤（⑤ 契約 0-5、§3.2） ── */
+
+  /**
+   * 方眼塗色：loadSnapshot → plan（fill＝planPaintFill；live＝planPaintLive）→ 記 before（plan 的 patch／delete 對象，
+   * 寫前一定在 snapshot 裡）→ applyPlan → 讀回寫後的列 → buildPaintUndo（`updated_at` 真的變了才進 touched）。
+   * `fill`／`depart`／`restart` 本身不動。live 同分類而且選區頭不早於它（plan＝null）＝什麼都不寫。
+   */
+  async paint(
+    categoryId: string,
+    startIso: string,
+    endIso: string,
+    mode: "fill" | "live",
+  ): Promise<{ block: TimeBlockRow; summary: CoverSummary; undo: PaintUndo }> {
+    const db = await getDb();
+    const now = Date.now();
+    const start = msOf(startIso);
+    let snap: Snapshot;
+    let plan: WritePlan | null;
+    /** live 同分類＝提早出發：主角是運行中那班（summary 不算它、回傳它） */
+    let restartId: string | null = null;
+    if (mode === "fill") {
+      snap = await this.loadSnapshot(db, isoOf(start));
+      plan = planPaintFill(snap.spans, { categoryId, start, end: msOf(endIso), now });
+    } else {
+      const a = Math.min(start, now);
+      // planRestart 會把 at 夾到 now − 1 分 ⇒ 讀的範圍跟著放寬（同 restart()）
+      snap = await this.loadSnapshot(db, isoOf(Math.min(a, now - MIN)));
+      const R = currentRunning(snap.spans);
+      plan = planPaintLive(snap.spans, { categoryId, at: a, now });
+      if (R && R.categoryId === categoryId) {
+        restartId = R.id;
+        if (plan === null) {
+          return {
+            block: snap.rowsById[R.id],
+            summary: { removed: 0, shortened: 0, splitCount: 0 },
+            undo: { inserted: [], touched: [] },
+          };
+        }
+      }
+    }
+    if (plan === null) throw new Error("塗色失敗");
+    const b = newWriteBatch();
+    const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
+    await this.commit(db, b);
+    const after: Record<string, TimeBlockRow | null> = {};
+    for (const id of [...plan.patches.map((p) => p.id), ...plan.deletes, ...ids]) {
+      if (!(id in after)) after[id] = await this.getBlockRow(db, id);
+    }
+    const undo = buildPaintUndo(plan, snap.rowsById, after, ids);
+    const blockId = restartId ?? ids[plan.inserts.findIndex((i) => !i.inherit)];
+    const block = after[blockId] ?? (await this.getBlockRow(db, blockId));
+    if (!block) throw new Error("塗色失敗");
+    return { block, summary: summarizeCover(plan, restartId), undo };
+  }
+
+  /**
+   * 撤回一次塗色（0-5）：現況用 getBlockRow 讀（含已刪除；loadSnapshot 不含）→ planUndoPaint 守門（比 `updated_at`）→
+   * 一個 WriteBatch：新增的列軟刪除；被動到的列只寫跟塗之前不同的欄＋updated_at（逐欄 LWW）。
+   * **不叫 restore()**（它內部跑 planCover，會把復原的塊當最新寫入去切別人）；不跑 planCover。
+   */
+  async undoPaint(undo: PaintUndo): Promise<boolean> {
+    const db = await getDb();
+    const current: Record<string, PaintRow | null> = {};
+    for (const id of [...undo.inserted.map((x) => x.id), ...undo.touched.map((x) => x.id)]) {
+      if (!(id in current)) current[id] = await this.getBlockRow(db, id);
+    }
+    const writes = planUndoPaint(undo, current);
+    if (writes === null) return false;
+    const nowIso = isoOf(Date.now());
+    const b = newWriteBatch();
+    for (const w of writes) {
+      if (w.op === "delete") {
+        b.stmts.push({ sql: `UPDATE time_blocks SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [nowIso, w.id] });
+        addOp(b, "time_blocks", w.id, "delete", { deleted_at: nowIso, updated_at: nowIso });
+        continue;
+      }
+      const sets: string[] = [];
+      const args: unknown[] = [];
+      const cols: Record<string, unknown> = {};
+      for (const [col, v] of Object.entries(w.cols)) {
+        args.push(v);
+        sets.push(`${col} = $${args.length}`);
+        cols[col] = v;
+      }
+      args.push(nowIso);
+      sets.push(`updated_at = $${args.length}`);
+      cols.updated_at = nowIso;
+      args.push(w.id);
+      b.stmts.push({ sql: `UPDATE time_blocks SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+      addOp(b, "time_blocks", w.id, "upsert", cols);
+    }
+    await this.commit(db, b);
+    return true;
   }
 }

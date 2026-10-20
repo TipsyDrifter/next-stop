@@ -26,9 +26,11 @@ import type {
   LineReloadContext,
   NodeFieldSpec,
   QuickJumpProviderSpec,
+  TagEntitySpec,
   TicketSheetItemSpec,
   TodayRowActionSpec,
 } from "./types";
+import { setTagEntityAlive } from "../data/tagEntityAlive";
 
 type NodeDeleteHintFn = NonNullable<LineMount["nodeDeleteHints"]>;
 type TodayStatsComp = NonNullable<LineMount["todayStats"]>;
@@ -38,6 +40,40 @@ let installed: Readonly<Record<LineId, LineMount>> | null = null;
 /** 只給 `./mounts` 呼叫 */
 export function installLineMounts(mounts: Readonly<Record<LineId, LineMount>>): void {
   installed = mounts;
+  // 荷札的別線實體存活條件（時刻表⑥ 0-6）：不分 status 交給 data 層；沒有任何線填＝空表＝插槽之前的行為
+  const alive: TagEntitySpec[] = [];
+  for (const m of LINE_MANIFESTS) alive.push(...ownTagEntities(m.id, mounts[m.id]));
+  setTagEntityAlive(alive);
+}
+
+/** 一條線只能登記自己的類型（`<線 id>:…`）；別人的前綴一律丟掉（防兩條線搶同一個 entity_type） */
+function ownTagEntities(id: LineId, mount: LineMount): readonly TagEntitySpec[] {
+  const specs = mount.tagEntities ?? [];
+  const own = specs.filter((s) => s.type.startsWith(id + ":"));
+  if (own.length !== specs.length) console.warn(`lines：${id} 的 tagEntities 有不是「${id}:」開頭的類型，略過`);
+  return own;
+}
+
+/**
+ * 荷札頁要畫的別線實體（時刻表⑥ 0-6），比照 `lineNodeFields(shell)`：三線固定順序；桌機看 `page.status`、手機看 `mobile.status`，
+ * `open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineTagEntities(shell: "desktop" | "mobile"): TagEntitySpec[] {
+  const out: TagEntitySpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    if (status === "open") out.push(...ownTagEntities(m.id, installed[m.id]));
+  }
+  return out;
+}
+
+/** 同步後要讓荷札 index 重載的別線表（不分 status；沒裝＝空陣列） */
+export function lineTagEntityTables(): string[] {
+  const out: string[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) for (const s of ownTagEntities(m.id, installed[m.id])) out.push(...s.tables);
+  return out;
 }
 
 /** 有填 `reload` 的線（三線固定順序 notes → timetable → ticket；地基階段恆為空陣列） */

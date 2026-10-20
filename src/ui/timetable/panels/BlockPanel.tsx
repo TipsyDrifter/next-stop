@@ -135,7 +135,8 @@ export function BlockPanel({ onDone }: PanelProps) {
 
   const exceptId = mode === "edit" && block ? block.id : null;
   const changed = start !== init.start || end !== init.end;
-  const warn = useCoverWarn(start, end, exceptId, mode === "fill" ? changed || start < init.start || end > init.end : changed);
+  // ⑤ 契約 §5.3：補記一開就預演（方眼「更多…」會拿蓋到既有紀錄的選區開；只拿空白開時預演本來就是空的）
+  const warn = useCoverWarn(start, end, exceptId, mode === "fill" ? true : changed);
 
   if (mode === "edit" && !block) {
     return (

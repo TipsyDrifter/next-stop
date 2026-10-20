@@ -23,6 +23,12 @@
  * 車次③（③ 契約 §3.3、0-7；只加不改）：視圖多 `week`／`stats`、面板多 `goal`／`pendingList`；`ensureFreshDay()`（#72：進頁、
  * 切視圖、回前景都檢查換日）；時數目標的寫入動作（`createGoal`…）；`TT_TEXT` 增補（§5.9）；本週合計跟全 App 的 `week_start`。
  * 統計與週視圖的資料另開 `timetableStatsStore`（只讀，統計頁沒開時不載）。
+ *
+ * 車次④（④ 契約 §3.2、0-7、0-8；只加不改）：視圖多 `schedule`（兩殼都有；V 回 home）、面板多 `plan`；`TT_TEXT` 增補（§5.8、§5.6）；
+ * `syncCols` 補 #73 R5 三個欄名。日程的資料另開 `timetableScheduleStore`（只讀＋排時刻的寫入，日程頁沒開時不載）。
+ *
+ * 車次⑤（⑤ 契約 0-5、§3.3；只加不改）：方眼塗色 `paint`（撤回走 repository 的 `undoPaint`）；`TT_TEXT` 增補（§5.6）。
+ * 選取與格子大小另開 `timetableGridStore`（純 UI 狀態）；`view` 的 `"grid"` 由整合席加。
  */
 import { create } from "zustand";
 import { timetableRepo } from "../data/timetableRepository";
@@ -44,6 +50,8 @@ import {
   taskEstimateOf,
   type LinkInfo,
 } from "../domain/timetableLink";
+import { PLAN_TEXT } from "../domain/timetableSchedule";
+import { paintCoverOf, paintKindOf, paintUndoable } from "../domain/timetableGrid";
 import {
   MIN,
   currentRunning,
@@ -79,8 +87,8 @@ export const KEY_NOTICE_TILES = "timetable_notice_tiles"; // 本地："0"＝關�
 export const KEY_NOTICE_PINS = "timetable_notice_pins"; // 本地：JSON string[]（≤5；釘選分類）
 export const NOTICE_PINS_MAX = 5;
 
-/** 手機 board|axis|week|stats；桌機 split|axis|week|stats（①a 契約 0-6；③ 加 week／stats，D-時-46） */
-export type TimetableView = "board" | "axis" | "split" | "week" | "stats";
+/** 手機 board|axis|week|stats|schedule|grid；桌機 split|axis|week|stats|schedule|grid（①a 契約 0-6；③ 加 week／stats，D-時-46；④ 加 schedule，D-時-74；⑤ 加 grid，D-時-92） */
+export type TimetableView = "board" | "axis" | "split" | "week" | "stats" | "schedule" | "grid";
 export type TimetableShell = "desktop" | "mobile";
 
 export type TimetableSheet =
@@ -101,7 +109,9 @@ export type TimetableSheet =
   /** ③：時數目標面板；goalId null＝新增 */
   | { kind: "goal"; goalId: string | null }
   /** ③：待確認清單（from／to＝正在看的那一期的窗，毫秒；清單內容讀 timetableStatsStore） */
-  | { kind: "pendingList"; from: number; to: number; /** 乙：有值＝只列這個目標範圍的待確認（目標卡「看看 ›」，〈原型定案〉1） */ goalId?: string | null };
+  | { kind: "pendingList"; from: number; to: number; /** 乙：有值＝只列這個目標範圍的待確認（目標卡「看看 ›」，〈原型定案〉1） */ goalId?: string | null }
+  /** ④：日程上點已排的卡開的小面板；key＝預定項（`${date}-${nodeId}`，timetableScheduleStore.items 的 key） */
+  | { kind: "plan"; key: string };
 
 /** toast 全文（契約 §5.10）與固定文案（§5.11）——顯示端不手抄 */
 export const TT_TEXT = {
@@ -279,7 +289,8 @@ export const TT_TEXT = {
       estimate_min: "預估",
       long_run_ack: "確認",
     },
-    time_categories: { name: "名字", parent_id: "分組", color_idx: "顏色", default_min: "預設長度", archived_at: "封存" },
+    // ④ #73 R5：glyph、position（兩台改同一分類的圓牌字／排序時同步清單印中文）
+    time_categories: { name: "名字", parent_id: "分組", color_idx: "顏色", default_min: "預設長度", archived_at: "封存", glyph: "圓牌字", position: "排序" },
     time_goals: {
       name: "名字",
       scope: "分類",
@@ -289,6 +300,7 @@ export const TT_TEXT = {
       start_on: "起點",
       end_on: "終點",
       archived_at: "封存",
+      position: "排序", // ④ #73 R5
     },
   } as { time_blocks: Readonly<Record<string, string>>; time_categories: Readonly<Record<string, string>>; time_goals: Readonly<Record<string, string>> },
   /** 期間字、方向字（目標卡與目標面板共用） */
@@ -400,6 +412,115 @@ export const TT_TEXT = {
     goalGone: "這個目標已經不在了",
     close: "關閉",
   },
+
+  /* ── ④ 日程（④ 契約 §5.8；顯示端不手抄） ── */
+  viewSchedule: "日程",
+  schedToday: "今天",
+  /**
+   * 總結行（今天、過去；D-時-83 使用者改題）：「排了 6 件・済 3・只記時間 1・準點 2」。
+   * stamped＝排了的裡面蓋了済的、timedOnly＝有記到時間但還沒済的（互斥）；只記時間 0 ⇒ 不印那一段，済 0 照印
+   */
+  schedPlanned: (n: number, stamped: number, timedOnly: number, onTime: number) =>
+    `排了 ${n} 件・済 ${stamped}` + (timedOnly > 0 ? `・只記時間 ${timedOnly}` : "") + `・準點 ${onTime}`,
+  /** 總結行（未來）：「排了 3 件・共 4h30m（2 件長度未定）」；ms＝預計加總（毫秒）、noEst＝沒預計的件數；預計加總 0 ⇒ 不寫「共」 */
+  schedFuture: (n: number, ms: number, noEst: number) =>
+    `排了 ${n} 件` + (ms > 0 ? `・共 ${fmtDur(ms)}` : "") + (noEst > 0 ? `（${noEst} 件長度未定）` : ""),
+  schedEmpty: "這天還沒有排時刻的票",
+  schedTrayTitle: "還沒排",
+  schedTrayEmpty: "這天的票都排好了",
+  /** 「還沒排」底下的灰字（D-時-80 改題）：誤點的單發票都進清單了，只剩定期券漏班要去今日頁（主線擋改執行日） */
+  schedLateRepeat: (n: number) => `另有 ${n} 班定期券漏班在今日頁`,
+  /** 誤點的單發票排上來的收據：執行日改到今天＋排時刻 */
+  schedLateMoved: (t: string) => `移到今天 ${t}`,
+  /** 定期券「改回每班時刻」的收據（PlanPanel 的「改回 20:00」；store.revertRun） */
+  schedReverted: (t: string) => `改回每班時刻 ${t}`,
+  schedRevertedNone: "改回每班時刻（沒有時刻）",
+  schedOutOfAxis: (t: string) => `軸外 ${t}`,
+  schedPickHint: "點預定欄的位置排上去",
+  schedPickCancel: "取消",
+  schedPast: "過去的日子只能看",
+  schedPlaced: (t: string) => `已排到 ${t}`,
+  schedMoved: (t: string) => `改到 ${t}`,
+  schedCleared: "清掉這張的時刻了",
+  /** 收據後面補的一句：原本的時刻在現在的日界線外（軸外），寫不回去 ⇒ 這筆不出「撤回」（修正席） */
+  schedNoUndo: (t: string) => `（原本的 ${t} 在日界線外，撤不回）`,
+  schedNoEstimate: "長度未定",
+  schedRun: "本班",
+  /** 預定卡上的時刻：「14:00 発」（照存的字；≥ 24:00 另加 `nextDayNote` 的「隔天 01:00」） */
+  schedDepart: (t: string) => `${t} 発`,
+  schedDone: "済",
+  schedSkipped: "運休",
+  /** 面板 PlanPanel 的字（§5.5） */
+  schedTimeLabel: "時刻",
+  schedMinus15: "−15",
+  schedPlus15: "＋15",
+  schedClear: "清除時刻",
+  schedOpenTicket: "打開車票",
+  schedTimePlaceholder: "14:00",
+  /** §5.6 差多少的字（`fmtPlanDelta` 用同一份 `PLAN_TEXT`） */
+  schedOnTime: PLAN_TEXT.onTime,
+  schedLateStart: PLAN_TEXT.lateStart,
+  schedCarried: PLAN_TEXT.carried,
+  schedRunning: PLAN_TEXT.running,
+  schedNotStarted: PLAN_TEXT.notStarted,
+  schedDoneNoTime: PLAN_TEXT.doneNoTime,
+  schedOver: PLAN_TEXT.over,
+  schedUnder: PLAN_TEXT.under,
+  schedSoFar: PLAN_TEXT.soFar,
+  schedPendingNote: PLAN_TEXT.pendingNote,
+
+  /* ── ⑤ 方眼（⑤ 契約 §5.6＋〈原型定案〉1；顯示端不手抄）。讀數類收已排好的字串（UI 自己分段上樣式）；toast 類收毫秒 ── */
+  viewGrid: "方眼",
+  /** 格子大小分段鈕的一格（讀屏／tooltip 用；鈕面只印數字＋「分」） */
+  gridCell: (m: number) => `${m} 分`,
+  gridCellGroup: "格子大小",
+  gridCellUnit: "分",
+  /** 讀數：「14:00–15:30・1h30m」 */
+  gridRead: (a: string, b: string, dur: string) => `${a}–${b}・${dur}`,
+  /** 讀數（live）：「14:00 起換成・繼續跑」 */
+  gridLive: (a: string) => `${a} 起換成・繼續跑`,
+  /** 〈原型定案〉1：放開後的貼齊說明「貼齊空白：頭 14:00→14:07、尾 15:00→14:52」；parts＝gridSnapHead／gridSnapTail 的結果 */
+  gridSnap: (parts: readonly string[]) => `貼齊空白：${parts.join("、")}`,
+  gridSnapHead: (from: string, to: string) => `頭 ${from}→${to}`,
+  gridSnapTail: (from: string, to: string) => `尾 ${from}→${to}`,
+  /** 〈原型定案〉1：live 時塗色列多一行（點運行中那班的分類會怎樣） */
+  gridLiveRestart: (cat: string, at: string) => `點「${cat}」＝這一班提早到 ${at} 出發`,
+  gridLiveSame: (cat: string) => `點「${cat}」＝本來就是，不會寫`,
+  /** 沙盒 F2：同一行接著講點別的分類時運行中那班的結局（讀數的「會蓋掉」不算它）；whole＝選區頭不晚於它的開始 */
+  gridLiveOther: (whole: boolean, at: string) => (whole ? "別的分類＝這一班整班收掉" : `別的分類＝這一班在 ${at} 到站`),
+  /** 桌機塗色列的說明一行（live 時運行中那班的結局在下面那一行講，這裡不重複） */
+  gridPaintHint: (live: boolean) => `點一個分類就直接寫${live ? "、從選區頭繼續跑" : ""}`,
+  gridMore: "更多…",
+  gridCancel: "取消",
+  /** live 模式不給「更多…」時那一格的說明 */
+  gridLiveNoMore: "繼續跑的不能用「更多…」（補記面板沒有「繼續跑」）",
+  gridFuture: "還沒到的時間不能記",
+  /** 點了過去的空白格、卻沒有可補的空白（不到 1 分的縫） */
+  gridNoGap: "這一格沒有空白",
+  /** 手機：起點離螢幕左右邊 < 24px 不開始拖（讓給返回手勢） */
+  gridEdge: "離螢幕邊緣太近：讓給返回手勢",
+  gridLegendFuture: "還沒到",
+  /** 操作說明一行 */
+  gridFoot: (isDesk: boolean) =>
+    `拖過一段格子，點分類就補上；點有顏色的格子改那一塊${isDesk ? "；← → 換日、T 回今天、Esc 取消" : ""}`,
+  /** toast：補上（fill） */
+  paint: (cat: string, durMs: number) => `補上・${cat}　${fmtDur(durMs)}`,
+  /** toast：live 換車 */
+  paintLive: (cat: string, at: number) => `${fmtClock(at)} 起換成 ${cat}`,
+  /**
+   * toast 的副標（〈原型定案〉1；Toast 主訊息下面的第二行小字）：「蓋掉 2 塊、切短 2 塊——撤回會全部回來」；沒蓋到＝空字串。
+   * undoable＝false（提早出發不給撤回，沙盒 F3）⇒ 不接「撤回會全部回來」。
+   */
+  paintCoverSub: (s: CoverSummary, undoable = true) => {
+    const parts: string[] = [];
+    if (s.removed) parts.push(`蓋掉 ${s.removed} 塊`);
+    if (s.shortened) parts.push(`切短 ${s.shortened} 塊`);
+    if (s.splitCount) parts.push(`切開 ${s.splitCount} 塊`);
+    return parts.length ? `${parts.join("、")}${undoable ? "——撤回會全部回來" : ""}` : "";
+  },
+  paintSame: (cat: string) => `本來就是「${cat}」`,
+  paintUndone: "已撤回・回到塗之前",
+  paintUndoFailed: "後來又改過了，撤回不了",
 } as const;
 
 export interface TimetableStore {
@@ -462,7 +583,7 @@ export interface TimetableStore {
    * 呼叫點：頁面每次掛上（桌機 TimetableView、手機 MobileTimetable）、`setView`；回前景原有的 refresh 照舊。
    */
   ensureFreshDay(): Promise<void>;
-  /** V 鍵與頂端切換鈕：兩欄（發車台）⇄只看軸；在週／統計按 V 回兩欄（發車台）（D-時-57） */
+  /** V 鍵與頂端切換鈕：兩欄（發車台）⇄只看軸；在週／統計／日程按 V 回兩欄（發車台）（D-時-57；④ 0-7） */
   toggleView(shell: TimetableShell): void;
   setLongRunMax(min: number): Promise<void>; // settingsRepo.set(KEY_LONG_RUN_MAX)（會同步）
   setNoticeEnabled(on: boolean): Promise<void>;
@@ -547,6 +668,17 @@ export interface TimetableStore {
   subtreeNodes(node: NodeRow): Promise<NodeRow[]>;
   /** 路線樹的節點（② 契約 0-5、0-6）：不含路線自己；nodeStore.routeId === routeId 就從樹取，否則 nodeRepo.listRouteTree */
   routeNodes(routeId: string): Promise<NodeRow[]>;
+
+  /* ⑤ 方眼（⑤ 契約 0-5、§3.3；只加不改） */
+  /**
+   * 方眼塗色列點了分類：走 write()（serial → refresh → toast）。start／end 在這一刻夾到 now（呼叫端已依 liveTail 重算 end、重做 paintModeOf）。
+   * toast：fill＝`paint`；live 換車＝`paintLive`；live 同分類提早出發＝`restart`；live 同分類不早於它＝`paintSame`（沒寫、沒有撤回）；
+   * live 但資料庫裡已經沒有運行中的班（另一台剛到站、還沒 refresh）＝repository 補到現在 ⇒ `paint`。
+   * 蓋到既有紀錄 ⇒ toast 的副標（第二行）＝`paintCoverSub`（蓋掉數跟讀數同一口徑：live 不算運行中那班，`paintCoverOf`）。
+   * 「撤回」＝`undoPaint`，false ⇒ toast `paintUndoFailed`；都 refresh。只保證最近一次可撤回（快照在閉包裡）。
+   * **提早出發（restart）不給撤回**（沙盒 F3＝契約 §9-3 降級；`paintUndoable`）：撤回得把運行中那班的 started_at 寫回去，跨裝置會拼出零長度塊。
+   */
+  paint(categoryId: string, start: number, end: number, mode: "fill" | "live"): Promise<void>;
 }
 
 /* ───────── 模組層狀態 ───────── */
@@ -637,15 +769,15 @@ function walkTree(tree: TreeIndex, root: NodeRow): NodeRow[] {
   return out;
 }
 
-const toast =(message: string, actionLabel?: string, onAction?: () => void): void =>
-  useUiStore.getState().showToast(actionLabel ? { message, actionLabel, onAction } : { message });
+const toast =(message: string, actionLabel?: string, onAction?: () => void, sub?: string): void =>
+  useUiStore.getState().showToast({ message, ...(sub ? { sub } : {}), ...(actionLabel ? { actionLabel, onAction } : {}) });
 
 function failToast(e: unknown): void {
   toast(e instanceof RangeError ? e.message : TT_TEXT.saveFailed);
 }
 
 function normalizeView(raw: string | null, shell: TimetableShell): TimetableView {
-  if (raw === "week" || raw === "stats") return raw; // ③：兩殼都有（D-時-46）
+  if (raw === "week" || raw === "stats" || raw === "schedule" || raw === "grid") return raw; // ③：兩殼都有（D-時-46）；④ schedule、⑤ grid 同（D-時-74、92）
   if (shell === "mobile") return raw === "axis" ? "axis" : "board";
   return raw === "axis" ? "axis" : "split";
 }
@@ -933,7 +1065,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     toggleView(shell) {
       const cur = get().view;
       const home: TimetableView = shell === "mobile" ? "board" : "split";
-      const next: TimetableView = cur === "axis" ? home : cur === "week" || cur === "stats" ? home : "axis";
+      const next: TimetableView = cur === "axis" ? home : cur === "week" || cur === "stats" || cur === "schedule" || cur === "grid" ? home : "axis";
       get().setView(next);
     },
 
@@ -1455,6 +1587,60 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       // 路線節點自己不在 tree.byId 裡 ⇒ 判斷要看 ns.routeId
       if (ns.routeId === routeId) return Object.values(ns.tree.byId);
       return nodeRepo.listRouteTree(routeId);
+    },
+
+    /* ── ⑤ 方眼（⑤ 契約 0-5、§3.3） ── */
+    async paint(categoryId, start, end, mode) {
+      const now = Date.now();
+      const r0 = get().running;
+      const a = Math.min(start, now);
+      const b = Math.min(end, now);
+      await write(
+        () => timetableRepo.paint(categoryId, isoOf(a), isoOf(Math.max(a, b)), mode),
+        ({ block, summary, undo }) => {
+          const kind = paintKindOf({
+            mode,
+            blockInserted: undo.inserted.some((x) => x.id === block.id),
+            blockEnded: block.ended_at !== null,
+            wrote: undo.inserted.length > 0 || undo.touched.length > 0,
+          });
+          if (kind === "same") {
+            toast(TT_TEXT.paintSame(catName(categoryId)));
+            return;
+          }
+          // 副標跟塗色列的讀數同一口徑（沙盒 F2）：live 換車不算運行中那班（到站＝換車本身、整班收掉另一行講過）
+          const sum = paintCoverOf(kind, summary, r0 ? msOf(r0.started_at) : null, a);
+          let msg: string;
+          if (kind === "restart") {
+            msg = TT_TEXT.restart(msOf(block.started_at));
+          } else if (kind === "fillToNow") {
+            // store 還以為有班在跑、資料庫裡已經到站（另一台剛按到站）⇒ repository 補到現在（D-時-99），照補上講
+            msg = TT_TEXT.paint(catName(categoryId), msOf(block.ended_at!) - msOf(block.started_at));
+          } else if (kind === "live") {
+            msg = TT_TEXT.paintLive(catName(categoryId), a);
+          } else {
+            msg = TT_TEXT.paint(catName(categoryId), b - a);
+          }
+          const undoable = paintUndoable(kind);
+          const sub = TT_TEXT.paintCoverSub(sum, undoable);
+          // 提早出發不給撤回（沙盒 F3；＝RestartPanel 改出發時間沒有撤回）
+          if (!undoable) {
+            toast(msg, undefined, undefined, sub || undefined);
+            return;
+          }
+          toast(msg, TT_TEXT.undo, () => {
+            void (async () => {
+              try {
+                const ok = await serial(() => timetableRepo.undoPaint(undo));
+                toast(ok ? TT_TEXT.paintUndone : TT_TEXT.paintUndoFailed);
+                await get().refresh();
+              } catch (e) {
+                failToast(e);
+              }
+            })();
+          }, sub || undefined);
+        },
+      );
     },
   };
 });
