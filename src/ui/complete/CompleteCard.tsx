@@ -121,8 +121,8 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="這班列車做了什麼？（選填）"
-            aria-label="一行乘務記錄"
+            placeholder="這一趟做了什麼？（選填）"
+            aria-label="一行工作日誌"
             spellCheck={false}
             autoComplete="off"
             className="techo-input log"

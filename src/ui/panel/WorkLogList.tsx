@@ -66,7 +66,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
     <div>
       <input
         type="text"
-        aria-label="新增乘務記錄"
+        aria-label="新增工作日誌"
         placeholder="寫一行剛才做了什麼，Enter 記下"
         value={draft}
         disabled={busy}
@@ -86,7 +86,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
       {logs === undefined ? (
         <p className="empty">讀取中…</p>
       ) : sorted.length === 0 ? (
-        <p className="empty">還沒有日誌——做完一段就記一行，累積感從這裡開始。</p>
+        <p className="empty">還沒有工作日誌——做完一段就記一行。</p>
       ) : (
         <ul className="log">
           {sorted.map((l) => {
@@ -115,7 +115,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
         </ul>
       )}
       <p className="log-hint">
-        今日視圖選中車票按 <kbd>L</kbd> 行內記一句——寫完就進這裡。
+        在今日視圖點選車票按 <kbd>L</kbd> 就能「記一句」，寫完會收進這裡。
       </p>
     </div>
   );

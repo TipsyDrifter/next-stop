@@ -139,11 +139,11 @@ function EmptyHint() {
   return (
     <div className="blank">
       <div>
-        <h3>選一個節點</h3>
+        <h3>選一個項目</h3>
         <p>
-          在大綱裡選中列車或車票，
+          點選列車或車票，
           <br />
-          這裡會攤開它的欄位。
+          這裡會顯示詳細內容。
         </p>
       </div>
     </div>

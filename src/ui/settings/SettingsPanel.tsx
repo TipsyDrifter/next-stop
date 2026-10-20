@@ -26,7 +26,7 @@ import "./settings.css";
 const THEMES: { value: ThemePref; label: string; note: string }[] = [
   { value: "pastel", label: "粉彩星空", note: "朧月的月台・日間" },
   { value: "galaxy", label: "銀河鐵道", note: "深夜月台・夜間" },
-  { value: "system", label: "跟隨系統", note: "依作業系統" },
+  { value: "system", label: "跟隨系統", note: "依手機設定" },
 ];
 
 const HOURS = [0, 1, 2, 3, 4, 5, 6];
@@ -202,7 +202,7 @@ function GeneralTab() {
             ))}
           </select>
         </span>
-        <p className="ns-note mt-2">熬夜到這個時間前都算同一天——今日視圖的聚合與誤點判定都依此計算。</p>
+        <p className="ns-note mt-2">熬夜到這個時間前都算前一天——今日視圖與誤點都依此計算。</p>
       </div>
 
       <div>

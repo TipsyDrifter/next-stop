@@ -16,11 +16,11 @@ export function repeatWarn(
   ctx: { accById: Readonly<Record<string, AccountRow>>; catById: Readonly<Record<string, CategoryRow>> },
   blocked: Readonly<Record<string, string>>,
 ): string | null {
-  if (!parseFixedRule(r.rule)) return "規則看不懂";
-  if (!alive(ctx.accById[r.account_id])) return r.kind === "transfer" ? "轉出帳戶已不在" : "帳戶已不在";
-  if (r.kind === "transfer" && (!r.to_account_id || !alive(ctx.accById[r.to_account_id]))) return "轉入帳戶已不在";
+  if (!parseFixedRule(r.rule)) return "重複規則有誤";
+  if (!alive(ctx.accById[r.account_id])) return r.kind === "transfer" ? "轉出帳戶已刪除" : "帳戶已刪除";
+  if (r.kind === "transfer" && (!r.to_account_id || !alive(ctx.accById[r.to_account_id]))) return "轉入帳戶已刪除";
   if (r.kind !== "transfer" && r.category_id && r.category_id !== UNCAT_EXPENSE_ID && r.category_id !== UNCAT_INCOME_ID && !alive(ctx.catById[r.category_id])) {
-    return "分類已不在";
+    return "分類已刪除";
   }
   return blocked[r.id] ?? null;
 }

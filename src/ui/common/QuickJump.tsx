@@ -121,12 +121,12 @@ export async function jumpToNode(node: NodeRow) {
       const [, m, d] = node.scheduled_on.split("-");
       // 定期券的 scheduled_on ＝引擎排出來的**下一班**（這一班済／運休之後就推走了），講法要跟著換
       const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
-      ui.showToast({ message: `『${node.name}』${when}，今天的清單還看不到` });
+      ui.showToast({ message: `『${node.name}』${when}，今天還不會出現在清單裡` });
     }
     return;
   }
   if (!node.route_id) {
-    ui.showToast({ message: `「${node.name}」沒有所屬路線，暫時無法跳轉` });
+    ui.showToast({ message: `「${node.name}」不屬於任何路線，無法跳轉` });
     return;
   }
   await ns.openRoute(node.route_id);
@@ -279,7 +279,7 @@ function QuickJumpPanel() {
               {prefixed.map((p) => (
                 <span key={p.id}>
                   <br />
-                  第一個字打 {p.prefix} 只找{p.group}。
+                  開頭輸入 {p.prefix} 只找{p.group}。
                 </span>
               ))}
             </p>

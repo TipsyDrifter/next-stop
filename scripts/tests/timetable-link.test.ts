@@ -227,12 +227,12 @@ describe("F 區：任務連動（② 契約 §4.4）", () => {
     };
     const row = (node_id: string | null, route_id: string | null = null) => ({ node_id, route_id });
     assert.equal(linkLabelOf(row("n1"), links), "寫契約");
-    assert.equal(linkLabelOf(row("n2"), links), "（原列車已刪除）");
+    assert.equal(linkLabelOf(row("n2"), links), "（原列車已刪）");
     assert.equal(linkLabelOf(row("n2"), links), linkDeletedText("列車"));
     assert.equal(linkLabelOf(row("n3"), links), LINK_MISSING_TEXT);
     assert.equal(linkLabelOf(row(null, "R1"), links), "創作線");
-    assert.equal(linkLabelOf(row(null, "R2"), links), "（原路線已刪除）");
-    assert.equal(linkLabelOf(row(null, "R3"), links), "（原路線已刪除）");
+    assert.equal(linkLabelOf(row(null, "R2"), links), "（原路線已刪）");
+    assert.equal(linkLabelOf(row(null, "R3"), links), "（原路線已刪）");
     assert.equal(linkLabelOf(row(null, null), links), null);
     assert.equal(linkLabelOf(row("unknown"), links), null, "節點 info 還沒載");
     assert.equal(linkLabelOf(row(null, "unknown"), links), null, "路線 info 還沒載");

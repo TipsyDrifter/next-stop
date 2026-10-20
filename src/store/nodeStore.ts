@@ -371,7 +371,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       // 在 today 分區卻不在手排座標＝有時刻的票（照時刻排）；其餘是誤點區／締切區
       const row = today.byId[id];
       if (row && row.bucket === "today") return { ok: false, reason: TIME_FIXED_ORDER_MSG };
-      return { ok: false, reason: "誤點區的票不能拖——要排上今天請按 T" };
+      return { ok: false, reason: "誤點區的票不能拖——要排到今天請按 T" };
     }
     try {
       await nodeRepo.assignTodayPositions(reorderIds(ids, id, index));
@@ -450,7 +450,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     try {
       if ("repeat_rule" in patch) {
         const rule = parseRule(repeat_rule ?? null);
-        if (repeat_rule && repeat_rule.trim() && !rule) throw new Error("重複規則格式不正確");
+        if (repeat_rule && repeat_rule.trim() && !rule) throw new Error("重複設定的格式不對");
         await nodeRepo.setRepeatRule(id, rule, currentDateKey(), dayStart());
       }
       // dateKey／dayStartHour 帶進去：mood 會鏡射到定期券的目前班次，日界線要與畫面同一把尺
@@ -485,7 +485,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async reorder(id, delta) {
     const { tree, routeId } = get();
     const node = tree.byId[id];
-    if (!node) return { ok: false, reason: "節點不存在" };
+    if (!node) return { ok: false, reason: "找不到這個項目" };
     const { siblings, index } = siblingsOf(tree, routeId, id);
     const j = index + delta;
     if (j < 0 || j >= siblings.length) return { ok: false, reason: delta < 0 ? "已經在最上面" : "已經在最下面" };
@@ -497,13 +497,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async indent(id) {
     const { tree, routeId } = get();
     const node = tree.byId[id];
-    if (!node) return { ok: false, reason: "節點不存在" };
+    if (!node) return { ok: false, reason: "找不到這個項目" };
     const { siblings, index } = siblingsOf(tree, routeId, id);
-    if (index <= 0) return { ok: false, reason: "上面沒有可以掛靠的節點" };
+    if (index <= 0) return { ok: false, reason: "上面沒有可以放進去的項目" };
     const prev = tree.byId[siblings[index - 1]];
-    if (!canHaveChildren(prev.kind)) return { ok: false, reason: "車票／車站底下不能掛東西" };
+    if (!canHaveChildren(prev.kind)) return { ok: false, reason: "車票／車站底下不能再放項目" };
     const newKind = adaptKind(node.kind, prev.kind);
-    if (!newKind) return { ok: false, reason: "這種節點不能掛在那裡" };
+    if (!newKind) return { ok: false, reason: "這個項目不能放在那裡" };
     const kids = tree.childrenOf[prev.id] ?? [];
     const newIndex = kids.length ? Math.max(...kids.map((k) => tree.byId[k].position)) + 1 : 0;
     return get().moveNode(id, prev.id, newIndex, newKind);
@@ -512,15 +512,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async outdent(id) {
     const { tree, routeId } = get();
     const node = tree.byId[id];
-    if (!node) return { ok: false, reason: "節點不存在" };
+    if (!node) return { ok: false, reason: "找不到這個項目" };
     if (!node.parent_id || node.parent_id === routeId || !tree.byId[node.parent_id]) {
-      return { ok: false, reason: "已經在路線頂層——跨路線請用「移動到…」" };
+      return { ok: false, reason: "已經在路線最上層——要換路線請用「移動到…」" };
     }
     const parent = tree.byId[node.parent_id];
     const gpId = parent.parent_id;
     const gpKind: NodeKind = gpId && gpId !== routeId && tree.byId[gpId] ? tree.byId[gpId].kind : "route";
     const newKind = adaptKind(node.kind, gpKind);
-    if (!newKind) return { ok: false, reason: "這種節點不能升到那一層" };
+    if (!newKind) return { ok: false, reason: "這個項目不能移到那一層" };
     return get().moveNode(id, gpId ?? routeId, parent.position + 1, newKind);
   },
 

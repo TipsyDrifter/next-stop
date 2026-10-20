@@ -173,7 +173,7 @@ export function MobileWheel({ value, dayStartHour, onChange }: MobileWheelProps)
     () =>
       Array.from({ length: 24 }, (_, k) => {
         const h = dayStartHour + k;
-        return { value: h, label: pad2(h), sub: h >= 24 ? `隔天${h - 24}時` : undefined };
+        return { value: h, label: pad2(h), sub: h >= 24 ? `隔天${h - 24}點` : undefined };
       }),
     [dayStartHour],
   );

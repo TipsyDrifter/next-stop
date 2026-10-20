@@ -58,7 +58,7 @@ export function TagSuggestRows({ res, act, onPick, onHover, noCreate = false, na
           <span className="nm">
             <TagName name={it.name} hl={it.hl} />
           </span>
-          <span className="n">{it.real ? `${it.count} 處` : "虛資料夾"}</span>
+          <span className="n">{it.real ? `${it.count} 處` : "上層分類"}</span>
         </button>
       ))}
       {canCreate && res.create && (
@@ -80,7 +80,7 @@ export function TagSuggestRows({ res, act, onPick, onHover, noCreate = false, na
       {res.hint ? (
         <p className="ns-notes-sughint">{res.hint}</p>
       ) : !res.items.length && !canCreate ? (
-        <p className="ns-notes-sughint">沒有對到的荷札</p>
+        <p className="ns-notes-sughint">找不到符合的荷札</p>
       ) : null}
     </>
   );

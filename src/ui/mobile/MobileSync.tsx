@@ -108,7 +108,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
   const keyringUnreadable = !configured && !!status?.joined && !!status?.last_error;
   /** 產品評審 B1：已加入狀態下重填四欄（換 token／撤銷 token 之後唯一的路） */
   const [updatingCreds, setUpdatingCreds] = useState(false);
-  const credsRejected = phase === "stopped" && !!status?.last_error?.includes("拒絕了這組金鑰");
+  const credsRejected = phase === "stopped" && !!status?.last_error?.includes("拒絕了這組憑證");
   /** 產品評審 B1：鍵違い且原因是「另一台換過鑰匙」——出路只有一條，畫面就只給那一條 */
   const rotatedLocked = phase === "locked" && status?.locked_reason === "rotated";
   /** v1.1.5：`formError` 是 store 共用的一格——記住最後按的是密語還是復原碼，錯誤只紅在那一塊 */
@@ -137,7 +137,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
           {phase === "gated" && (
             <p className="m2-note is-fail">
               兩台的版本不一致
-              {status?.remote_schema != null ? `（對方 schema ${status.remote_schema}）` : ""}
+              {status?.remote_schema != null ? `（對方資料格式 ${status.remote_schema}）` : ""}
               ，請先更新較舊的那一台。
             </p>
           )}
@@ -149,11 +149,11 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
           {/* v1.1.5 契約 §6.5：用復原碼加入、還沒設新密語（朱色左緣＝要主人去做一件事） */}
           {configured && status?.needs_passphrase && <p className="m2-note m2-recovery-need">{NEEDS_PASSPHRASE_TEXT.status}</p>}
           {!!status?.skipped_missing_total && <p className="m2-note">{describeSkipped(status.skipped_missing_total)}</p>}
-          {bridgeError && <p className="m2-note is-fail">這個版本的手機端還沒接上同步（{bridgeError}）。</p>}
+          {bridgeError && <p className="m2-note is-fail">這版手機 App 還不支援同步（{bridgeError}）。</p>}
           {!!status?.pending_ops && <p className="m2-note">待上傳 {status.pending_ops} 筆</p>}
           {status?.last_orphans && (
             <p className="m2-note m2-sy-orphans">
-              上次改用另一份時另存 {status.last_orphans.count} 筆未送出的修改
+              上次改用另一份資料時，已另存 {status.last_orphans.count} 筆未送出的修改
               {status.last_orphans.at ? `（${fmtSyncStamp(status.last_orphans.at)}）` : ""}
               <br />
               <span className="m2-sy-orphans-path">{status.last_orphans.path}</span>
@@ -162,7 +162,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
           {status?.last_export && (
             <p className="m2-note m2-sy-orphans">
               {/* 修正席（產品評審 #6）：v1.1.6 起「只清這台」（未加入）也會記這一行，不再只是「改用另一台」 */}
-              上次清空／改用另一份之前，這台的全部資料另存於
+              上次清空或改用另一份之前，這台的全部資料已另存於
               {status.last_export.at ? `（${fmtSyncStamp(status.last_export.at)}）` : ""}
               <br />
               <span className="m2-sy-orphans-path">{status.last_export.path}</span>
@@ -170,7 +170,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
           )}
           {configured && (
             <p className="m2-note m2-sy-oneway">
-              這台蓋的章、改的東西會送到其他裝置。兩台在沒看到對方修改時各自改到同一筆：同一格後改的留下；一台刪、另一台改過的，改過的那份留下、回來的那筆會列在下面「最近兩台撞到的」。車票的細節另外記在該車票的乘務記錄。
+              這台蓋的章、改的東西會送到其他裝置。兩台在沒看到對方修改時各自改到同一筆：同一格後改的留下；一台刪、另一台改過的，改過的那份留下、回來的那筆會列在下面「最近兩台撞到的」。車票的細節另外記在該車票的工作日誌。
             </p>
           )}
         </div>
@@ -257,8 +257,8 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
                     <span className="m2-choice-label">{v ? "開" : "關"}</span>
                     <span className="m2-choice-note">
                       {v
-                        ? "開啟時每分鐘、回到前景與改動後兩秒各同步一次"
-                        : "關著時這台不收也不送，本機的操作照舊；這段期間的修改會先排隊，開回來再一起送上去"}
+                        ? "開啟時會自動背景同步，有修改也會馬上傳送"
+                        : "關閉時暫停收發；期間的修改會先存著，重開後再一起同步"}
                     </span>
                   </button>
                 ))}
@@ -327,9 +327,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
             <div className="m2-block m2-sy-danger">
               <span className="m2-block-label">重新加入</span>
               <p className="m2-note">
-                清掉這台的同步設定、憑證與身分；這台的資料與雲端上的東西都不動。清掉之後這一頁會回到「加入同步」，
-                重問一次（兩邊都有資料時會問要不要合併）。
-              </p>
+                這會清除同步設定，但手機與雲端的資料都會保留。之後可重新加入同步。</p>
               <div className="m2-sy-actions">
                 <button type="button" className="ns-btn btn-ghost m2-sy-go" disabled={working} onClick={reset}>
                   重新加入同步
@@ -340,15 +338,13 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
         ) : keyringUnreadable ? (
           /* 工程評審 B-1：讀不到私有檔 ≠ 沒加入。不給表單，只給一句人話 */
           <div className="m2-block m2-sy-epoch">
-            <span className="m2-block-label">讀不到這台的同步身分</span>
+            <span className="m2-block-label">讀不到同步設定</span>
             <p className="m2-note">
-              這台加入過同步，但這次打不開存身分的檔，所以暫時停在這裡。<b>先不要重新加入</b>——
-              重新加入會把這台當成新的一台、整份資料再上傳一次。多半把 App 關掉重開就好了。
-            </p>
+              暫時讀不到同步設定，請把 App 關掉重開試試。<b>先不要按「重新加入」</b>，以免整份資料重複上傳。
+                          </p>
             <div className="m2-sy-actions">
               <button type="button" className="ns-btn btn-seal m2-sy-go" disabled={working} onClick={() => void refreshStatus()}>
-                再看一次
-              </button>
+                重試</button>
             </div>
           </div>
         ) : (
@@ -477,7 +473,7 @@ function JoinForm({
       let perm = await bs.checkPermissions();
       if (perm !== "granted") perm = await bs.requestPermissions();
       if (perm !== "granted") {
-        setScanHint("相機權限沒開——請改用下面的貼上，或到系統設定開啟相機。");
+        setScanHint("相機權限沒開——請改用下方貼上，或到系統設定開啟相機。");
         return;
       }
       const r = await bs.scan({ windowed: true, formats: [bs.Format.QRCode] });
@@ -485,7 +481,7 @@ function JoinForm({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.toLowerCase().includes("cancel")) return; // 主人自己按的取消不是失敗
-      setScanHint(`掃不到（${msg}）——請改用下面的貼上。`);
+      setScanHint(`掃不到（${msg}）——請改用下方貼上。`);
     } finally {
       document.documentElement.removeAttribute("data-scanning");
       setScanning(false);
@@ -551,7 +547,7 @@ function JoinForm({
         </div>
       )}
       <div className="m2-block">
-        <span className="m2-block-label">配對碼（省手打）</span>
+        <span className="m2-block-label">配對碼（免手打）</span>
         <div className="m2-sy-actions m2-sy-scan-row">
           <button
             type="button"
@@ -580,10 +576,9 @@ function JoinForm({
             disabled={!code.trim() || working || disabled}
             onClick={() => void fillFromCode(code)}
           >
-            填入四欄
-          </button>
+            填入設定</button>
         </div>
-        <p className="m2-note">另一台〔設定 → 同步 → 顯示配對碼〕；配對碼只含雲端憑證，密語要親手打。</p>
+        <p className="m2-note">到另一台的〔設定 → 同步 → 顯示配對碼〕取得；密語需另外輸入。</p>
       </div>
 
       <div className="m2-block">
@@ -607,7 +602,7 @@ function JoinForm({
             <input className="m2-input" value={ak} autoComplete="off" spellCheck={false} placeholder="access key id" onChange={(e) => setAk(e.target.value)} aria-label="access key id" />
             <input className="m2-input" type="password" value={sk} autoComplete="off" placeholder="secret access key" onChange={(e) => setSk(e.target.value)} aria-label="secret access key" />
             {import.meta.env.DEV && (
-              <input className="m2-input" value={root} autoComplete="off" spellCheck={false} placeholder="root（沙盒；可略，預設 v1）" onChange={(e) => setRoot(e.target.value)} aria-label="root" />
+              <input className="m2-input" value={root} autoComplete="off" spellCheck={false} placeholder="資料夾名（可略，預設 v1）" onChange={(e) => setRoot(e.target.value)} aria-label="root" />
             )}
           </>
         )}
@@ -660,8 +655,8 @@ function JoinForm({
             )}
             <p className="m2-note">
               {updating
-                ? "密語沒有換、也不會上雲——這裡打它只是用來打開雲端上那把鑰匙。"
-                : "第一台加入時這句就是密語；其他裝置加入要打同一句。密語不會上雲，之後可以改，改了也不用重傳資料。"}
+                ? "密語不會上傳到雲端，這裡輸入只是用來解鎖同步資料。"
+                : "其他裝置加入時要打同一句密語。密語不會上傳，隨時可改。"}
             </p>
             {!updating && pass1.length > 0 && pass1.length < 8 && <p className="m2-note is-fail">密語至少 8 個字。</p>}
             {!updating && pass2.length > 0 && !matched && <p className="m2-note is-fail">兩次打的密語不一樣。</p>}
@@ -692,15 +687,15 @@ function JoinForm({
       {!ready && !working && (
         <p className="m2-note">
           {updating
-            ? "四欄與現在的密語都填好才能更新。"
+            ? "雲端設定與現在的密語都填好才能更新。"
             : coding
-              ? `四欄與復原碼（${RECOVERY_CODE_LEN} 個字）都填好才能加入。`
-              : "四欄與密語（兩次相同、至少 8 字）都填好才能加入。"}
+              ? `雲端設定與復原碼（${RECOVERY_CODE_LEN} 個字）都填好才能加入。`
+              : "雲端設定與密語（兩次相同、至少 8 字）都填好才能加入。"}
         </p>
       )}
       {/* 用碼加入時雲端一定有資料（空的雲端沒有復原碼可用），這句三分法只對密語那條路成立 */}
       {!updating && !coding && (
-        <p className="m2-note">雲端是空的→這台成為第一台；雲端有資料而這台是空的→直接拉下來；兩邊都有資料→會問你一次。</p>
+        <p className="m2-note">若兩邊都有資料，下一步會問你要怎麼處理。</p>
       )}
     </div>
   );
@@ -790,7 +785,7 @@ function ChoiceBlock({
           {working ? "處理中…" : JOIN_CHOICE_TEXT.merge}
         </button>
       </div>
-      <p className="m2-note">同一張票以較晚改的為準，被蓋掉的值記進該車票的乘務記錄。</p>
+      <p className="m2-note">同一張票以較晚改的為準，被蓋掉的值記進該車票的工作日誌。</p>
       <div className="m2-sy-actions">
         <button type="button" className="ns-btn btn-ghost m2-sy-go" disabled={working} onClick={onAdopt}>
           {JOIN_CHOICE_TEXT.adopt}
@@ -843,7 +838,7 @@ function PairingCodeBlock({ code }: { code: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      showToast({ message: "複製不了——請長按下面那段文字選取" });
+      showToast({ message: "複製失敗——請長按下方文字手動複製" });
     }
   };
 
@@ -902,9 +897,9 @@ function RecoveryBlock({
       </div>
       <p className="m2-note">{RECOVERY_TEXT.intro}</p>
       {lockedReason === "rotated" && (
-        <p className="m2-note">這份資料已在另一台換過鑰匙——先用新密語重新加入，才能在這台產生復原碼。</p>
+        <p className="m2-note">另一台已經換過密語——請先用新密語重新加入，才能產生復原碼。</p>
       )}
-      {lockedReason === "rotating" && <p className="m2-note">換鑰匙還沒走完，等它做完再來產生。</p>}
+      {lockedReason === "rotating" && <p className="m2-note">正在更換密語與加密設定，請稍後再試。</p>}
       {error && (
         <p className="m2-note is-fail" role="alert">
           {error}
@@ -1020,12 +1015,11 @@ function PassphraseBlock({
     <div className="m2-block">
       <span className="m2-block-label">密語</span>
       <p className="m2-note">
-        不勾下面那格時，改密語只重包雲端上的鑰匙：資料不重傳，其他已加入的裝置不受影響，之後新加入的裝置要用新密語。
-      </p>
+        只改密語時，已加入的裝置不受影響，之後新加入的裝置請用新密語。</p>
       {needsPassphrase && <p className="m2-note m2-recovery-need">{NEEDS_PASSPHRASE_TEXT.passphrase}</p>}
-      {keySealed === false && <p className="m2-note">升級後第一次：這次會把鑰匙封存到雲端（新密語可以與現在相同）。</p>}
+      {keySealed === false && <p className="m2-note">升級後首次設定：請輸入密語以同步加密設定（可與現在的密語相同）。</p>}
       {/* 勾了換鑰匙就不能留白（那是作廢舊密語，得先證明你有它）——所以這句只在沒勾時說，同桌機 */}
-      {!rotate && !needsPassphrase && <p className="m2-note">忘了現在的密語也沒關係——這台的鑰匙還在，現在的密語可以留白，直接設一個新的就好。</p>}
+      {!rotate && !needsPassphrase && <p className="m2-note">忘了現在的密語也沒關係，留白並直接設一個新的就好。</p>}
       {rotating && <p className="m2-note is-fail">{PASSPHRASE_ROTATE.inProgress}</p>}
       <input
         className="m2-input"
@@ -1065,7 +1059,7 @@ function PassphraseBlock({
       )}
       <div className="m2-sy-actions">
         <button type="button" className="ns-btn btn-ghost m2-sy-go" disabled={!ready} onClick={() => void submit()}>
-          {working ? "處理中…" : rotate ? "改密語並換鑰匙" : keySealed === false ? "封存密語" : "改密語"}
+          {working ? "處理中…" : rotate ? "改密語並重新加密" : keySealed === false ? "封存密語" : "改密語"}
         </button>
       </div>
     </div>

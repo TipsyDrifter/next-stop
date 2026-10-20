@@ -112,7 +112,7 @@ export function Outline() {
     return (
       <section className="page ns-outline" aria-label="路線大綱">
         <div className="sheet">
-          <EmptyBlock title="選一條路線開始鋪軌" body="左側書封是你的路線網絡——點一條路線，這一頁就是它的大綱。" />
+          <EmptyBlock title="選一條路線開始鋪軌" body="從左側選一條路線，這裡會顯示它的內容。" />
           <footer className="page-foot">
             <span>私鐵手帳・路線大綱</span>
             <span className="fr">
@@ -212,7 +212,7 @@ export function Outline() {
     } else if (!hasAnyNode) {
       empty = {
         title: "這條路線還沒有列車",
-        body: "按 Enter 新增第一班——列車是一件要完成的事，車廂是它的子任務，車票是最末端的待辦。",
+        body: "按 Enter 新增第一班列車，底下可再細分車廂與車票。",
         action: "新增第一班列車",
       };
     } else {
@@ -255,7 +255,7 @@ export function Outline() {
               )}
             </div>
             {total > 0 && (
-              <p className="day-stats" title="車票済／全部・子樹進度・節點數">
+              <p className="day-stats" title="車票済／全部・進度・總項目數">
                 {ticketTotal > 0 && (
                   <>
                     車票 <b>{ticketDone}/{ticketTotal}</b> 済<span className="dot">・</span>
@@ -263,7 +263,7 @@ export function Outline() {
                     <span className="dot">・</span>
                   </>
                 )}
-                節點 <b>{total}</b>
+                項 <b>{total}</b>
                 {/* 原型沒有的控件：hover 才現身（開啟中則常駐） */}
                 <button type="button" tabIndex={-1} aria-pressed={c.hideDone} onMouseDown={(e) => e.preventDefault()} onClick={toggleHideDone} className="hide-done">
                   {c.hideDone ? "顯示已完成" : "隱藏已完成"}

@@ -64,7 +64,7 @@ export function StationList({ routeId }: { routeId: string }) {
     <section>
       <SectionRule title="車站" aside={list.length ? `${arrivedCount}/${list.length} 到站` : undefined} />
       {list.length === 0 ? (
-        <p className="empty">還沒有車站——里程碑會以小注記掛在側欄路線底下。</p>
+        <p className="empty">還沒有車站——可以加幾個階段目標，會顯示在路線底下。</p>
       ) : (
         <ul className="stations">
           {list.map((st) => (

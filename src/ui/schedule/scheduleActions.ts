@@ -60,7 +60,7 @@ export interface ScheduleActions {
 }
 
 /** DayPopover.tsx:64 的同一句（該檔沒 export；字面照抄） */
-const HISTORY_MSG = "歷史班次唯讀——只能交代目前班次";
+const HISTORY_MSG = "過去的班次不能改——只能處理目前的班次";
 
 const nodeOf = (t: ScheduleTarget): NodeRow | undefined => (t.kind === "entry" ? t.row.node : t.node);
 

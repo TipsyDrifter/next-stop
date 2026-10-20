@@ -202,7 +202,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
         <button
           type="button"
           className="ns-tk-mmanage ns-tk-msearch"
-          aria-label={filterOn ? "搜尋與篩選（有條件）" : "搜尋與篩選"}
+          aria-label={filterOn ? "搜尋與篩選（已套用）" : "搜尋與篩選"}
           aria-haspopup="dialog"
           aria-expanded={searchSheet}
           onClick={() => setSearchSheet(true)}
@@ -214,7 +214,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           type="button"
           className="ns-tk-mmanage"
           aria-label="管理"
-          title="管理：分類、預算、定期帳、幣別與匯率、匯入"
+          title="管帳：分類、預算、定期帳、幣別、匯入"
           aria-haspopup="menu"
           aria-expanded={sheet === "manage"}
           onClick={() => setSheet("manage")}
@@ -326,7 +326,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       {searchSheet && <MobileSearchSheet onClose={() => setSearchSheet(false)} />}
 
       {sheet === "manage" && (
-        <MSheet title="售票口 · 管理" onClose={() => setSheet(null)}>
+        <MSheet title="售票口 · 管帳" onClose={() => setSheet(null)}>
           <button
             type="button"
             className="m-sheet-item ns-tk-msheet-row"
@@ -698,7 +698,7 @@ function Row({ e }: { e: EntryRow }) {
   const amt = rowAmount(e, filterAccountId, accById);
   const dec = curByCode[amt.currency]?.decimals ?? 2;
   const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
-  const accName = (id: string | null) => (id ? (accById[id]?.name ?? "（帳戶已不在）") : "—");
+  const accName = (id: string | null) => (id ? (accById[id]?.name ?? "（帳戶已刪除）") : "—");
 
   let cat: ReactElement;
   if (e.kind === "transfer") {
@@ -721,7 +721,7 @@ function Row({ e }: { e: EntryRow }) {
     const uncat = !c || c.id === UNCAT_INCOME_ID || c.id === UNCAT_EXPENSE_ID;
     const p = c?.parent_id ? catById[c.parent_id] : undefined;
     cat = uncat ? (
-      <span className="unc">{c ? c.name : "（分類已不在）"}</span>
+      <span className="unc">{c ? c.name : "（分類已刪除）"}</span>
     ) : p ? (
       <>
         {p.name}

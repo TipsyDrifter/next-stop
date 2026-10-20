@@ -107,7 +107,7 @@ export function BudgetCard() {
                     <LabelText label={l.label} />
                   </span>
                   {l.archived && <small className="ovr">已封存</small>}
-                  {l.override && <small className="ovr">本月覆寫</small>}
+                  {l.override && <small className="ovr">僅改本月</small>}
                 </span>
                 <BudgetBar line={l} />
                 <span className="v">
@@ -126,7 +126,7 @@ export function BudgetCard() {
                 {scope.kind === "category" && !l.gone ? (
                   <button
                     type="button"
-                    title={`到清單看${l.label}這個月的支出`}
+                    title={`到帳本看${l.label}這個月的支出`}
                     onClick={() => void useTicketStore.getState().drillToList({ categoryIds: [scope.categoryId], kinds: ["expense"] })}
                   >
                     {inner}

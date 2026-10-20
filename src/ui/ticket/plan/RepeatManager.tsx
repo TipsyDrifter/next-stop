@@ -40,16 +40,16 @@ function What({ r, ctx }: { r: RepeatRow; ctx: Ctx }) {
     const b = r.to_account_id ? ctx.accById[r.to_account_id] : undefined;
     return (
       <>
-        {alive(a) ? a.name : "（帳戶已不在）"}
+        {alive(a) ? a.name : "（帳戶已刪除）"}
         <span className="arr">→</span>
-        {alive(b) ? b.name : "（帳戶已不在）"}
+        {alive(b) ? b.name : "（帳戶已刪除）"}
       </>
     );
   }
   const id = r.category_id;
   if (!id || id === UNCAT_EXPENSE_ID || id === UNCAT_INCOME_ID) return <span className="unc">未分類</span>;
   const c = ctx.catById[id];
-  if (!alive(c)) return <span className="unc">（分類已不在）</span>;
+  if (!alive(c)) return <span className="unc">（分類已刪除）</span>;
   const label = categoryLabel(c, ctx.catById);
   const i = label.indexOf(" › ");
   return i < 0 ? (
@@ -88,7 +88,7 @@ function RmRow({ r, ctx, warn, imported }: { r: RepeatRow; ctx: Ctx; warn: strin
         </span>
         <span className="l2">
           {warn && <span className="warn">⚠ {warn}</span>}
-          {rule ? describeRule(rule) : "規則看不懂"}
+          {rule ? describeRule(rule) : "重複規則有誤"}
           {!warn && r.kind !== "transfer" && alive(acc) && (
             <>
               <i>·</i>
@@ -156,7 +156,7 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
   const resumeAll = () => {
     const n = importedIds.size; // 只開始匯入、從沒開始過的；手動暫停的不動
     useUiStore.getState().askConfirm({
-      title: `開始 ${n} 條規則？`,
+      title: `啟動 ${n} 筆定期帳？`,
       body: "接著財務管家的下一班記；之後請不要再用財務管家記帳。",
       confirmLabel: "全部開始",
       tone: "gold", // 不是破壞性動作、也不蓋朱（接縫 #74、D-票-11）
@@ -178,7 +178,7 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
   if (!list.length) {
     return (
       <div className="ns-tk-dialog ns-tk-rm">
-        <p className="ns-tk-rm-empty">還沒有定期帳——從一筆帳的大票按「設成定期…」，或在這裡新增</p>
+        <p className="ns-tk-rm-empty">還沒有定期帳——點開一筆帳按「設成定期…」，或在這裡新增</p>
         {foot}
       </div>
     );
@@ -197,7 +197,7 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
       {importedIds.size > 0 && (
         <div className="ns-tk-rm-banner">
           <p>
-            從財務管家匯入的 <b>{importedIds.size}</b> 條規則還在暫停——停用財務管家那天按「全部開始」
+            從財務管家匯入的 <b>{importedIds.size}</b> 筆定期帳還在暫停——停用財務管家那天再按「全部開始」
           </p>
           <button type="button" className="ns-btn btn-gold ns-tk-dbtn" onClick={resumeAll}>
             全部開始
@@ -207,7 +207,7 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
       <h3 className="ns-tk-rm-h">
         進行中<small>{active.length}</small>
       </h3>
-      {active.length ? ul(active) : <p className="ns-tk-rm-none">沒有進行中的規則</p>}
+      {active.length ? ul(active) : <p className="ns-tk-rm-none">沒有進行中的定期帳</p>}
       {paused.length > 0 && (
         <>
           <h3 className="ns-tk-rm-h">

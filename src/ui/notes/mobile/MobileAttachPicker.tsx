@@ -281,7 +281,7 @@ export function MobileAttachPicker({
               ) : treeHits === null ? (
                 <li className="empty">載入中…</li>
               ) : treeHits.length === 0 ? (
-                <li className="empty">{q ? "找不到符合的列車或車廂" : "這條路線底下還沒有支線或列車"}</li>
+                <li className="empty">{q ? "找不到符合的列車或車廂" : "這條路線還沒有支線或列車"}</li>
               ) : (
                 treeHits.map((o) =>
                   o.selectable ? (

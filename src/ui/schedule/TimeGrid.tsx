@@ -377,7 +377,7 @@ export function TimeGrid({
       >
         <i className="dot" style={{ background: routeColor(node) }} />
         <span className="nm">{name}</span>
-        {u.outOfAxis && e.time && <span className="oob-t">軸外 {e.time}</span>}
+        {u.outOfAxis && e.time && <span className="oob-t">未排時刻 {e.time}</span>}
       </button>
     );
   };
@@ -444,8 +444,8 @@ export function TimeGrid({
     const name = node?.name ?? "";
     const title =
       `${time}${nx ? `（${nx}）` : ""}${estFull ? `・${estFull} 分` : "・長度未定"}　${name}` +
-      (past ? "　＊已過發車時刻" : "") +
-      (b.contToNext ? "　＊超過這一天的軸尾" : "");
+      (past ? "　＊已過預定時刻" : "") +
+      (b.contToNext ? "　＊超過當天最晚時段" : "");
     const style = {
       "--rc": routeColor(node),
       "--lc": x.lc,

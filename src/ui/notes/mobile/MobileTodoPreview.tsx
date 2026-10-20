@@ -37,7 +37,7 @@ export function MobileTodoPreview() {
   const n = preview.single ? 1 : preview.lines.filter((l) => l.checked).length;
   const { attach, scheduledOn } = preview;
   const route = attach.routeId ? (routes.find((r) => r.id === attach.routeId) ?? null) : null;
-  const nodeName = attach.nodeId ? (nodeNames[attach.nodeId] ?? "已選的節點") : null;
+  const nodeName = attach.nodeId ? (nodeNames[attach.nodeId] ?? "已選的項目") : null;
   const custom = scheduledOn !== null && scheduledOn !== today && scheduledOn !== tomorrow;
   const staysInInbox = scheduledOn === null && !attach.routeId && !attach.nodeId;
   const single = preview.single;
@@ -54,12 +54,12 @@ export function MobileTodoPreview() {
   };
 
   return (
-    <div className="ns-notes-mfull" role="dialog" aria-modal="true" aria-label="變成車票">
+    <div className="ns-notes-mfull" role="dialog" aria-modal="true" aria-label="變待辦">
       <div className="ns-notes-mfullhead">
         <button type="button" className="ns-notes-mbtn" onClick={cancelPreview}>
           取消
         </button>
-        <h3>變成車票</h3>
+        <h3>變待辦</h3>
         <button
           type="button"
           className="ns-notes-mbtn primary"
@@ -74,7 +74,7 @@ export function MobileTodoPreview() {
         <p className="ns-notes-mfullsrc">
           {single
             ? `「${firstText}」`
-            : `${preview.source === "capture" ? "來自捕捉框" : fromInbox ? "來自收件匣的筆記" : "來自筆記"}・勾掉不要的`}
+            : `${preview.source === "capture" ? "來自捕捉框" : fromInbox ? "來自收件匣的筆記" : "來自筆記"}・取消勾選不要的`}
         </p>
 
         <dl className="ns-notes-mfields">
@@ -150,7 +150,7 @@ export function MobileTodoPreview() {
           </div>
         </dl>
 
-        {staysInInbox && <p className="ns-notes-mfullhint">沒有日期也沒有路線＝留在收件匣</p>}
+        {staysInInbox && <p className="ns-notes-mfullhint">沒選日期和路線，就會留在收件匣</p>}
 
         {!single && (
           <ul className="ns-notes-mlines">
@@ -164,7 +164,7 @@ export function MobileTodoPreview() {
                     onChange={(e) => setPreviewLine(i, e.target.checked)}
                   />
                   <span className="tx">{l.text}</span>
-                  {l.isHeading && <span className="ns-notes-mheadtag">標題行</span>}
+                  {l.isHeading && <span className="ns-notes-mheadtag">標題</span>}
                 </label>
               </li>
             ))}

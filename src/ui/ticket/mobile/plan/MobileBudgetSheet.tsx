@@ -54,7 +54,7 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
   for (const x of saved) if (x.kind === "category") scopes.push(x);
   for (const id of pending) if (!savedCats.has(id)) scopes.push({ kind: "category", categoryId: id });
 
-  const ovrName = `${Number(month.slice(5, 7))} 月覆寫`;
+  const ovrName = `${Number(month.slice(5, 7))} 月單獨設定`;
 
   return (
     <div className="ns-tk-mbe">
@@ -67,7 +67,7 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
           <IconRight />
         </button>
       </div>
-      <p className="ns-tk-mbe-hint">預設套用沒有覆寫的每個月</p>
+      <p className="ns-tk-mbe-hint">沒單獨設定的月份都照預設</p>
 
       {scopes.map((scope) => (
         <Block
@@ -108,7 +108,7 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
 
 function catName(id: string, catById: Readonly<Record<string, CategoryRow>>): string {
   const c = catById[id];
-  if (!c || c.deleted_at !== null) return "（分類已不在）";
+  if (!c || c.deleted_at !== null) return "（分類已刪除）";
   return categoryLabel(c, catById) + (c.archived_at ? "（已封存）" : "");
 }
 
@@ -150,7 +150,7 @@ function Block({
   const confirmRemove = () =>
     askConfirm({
       title: "移除這個預算？",
-      body: `${name}——連同各月的覆寫`,
+      body: `${name}——連同各月單獨設定的金額`,
       confirmLabel: "移除",
       danger: true,
       onConfirm: () => void removeBudget(scope, null),
@@ -300,7 +300,7 @@ function AmountField({
           <button
             type="button"
             className="clr"
-            aria-label="清掉這個月的覆寫"
+            aria-label="改回預設金額"
             onPointerDown={(e) => e.preventDefault() /* 別讓輸入框先失焦送出一次 */}
             onClick={() => {
               setText("");
@@ -383,7 +383,7 @@ function CategoryPick({ taken, onPick, onClose }: { taken: ReadonlySet<string>; 
 
   return (
     <MSheet title="加分類預算" over onClose={onClose} className="ns-tk-mbe-picksheet">
-      <p className="ns-tk-mbe-pickhint">支出的主分類或子分類；主分類的預算含它的子分類</p>
+      <p className="ns-tk-mbe-pickhint">主分類的預算會包含底下的子分類</p>
       <div className="ns-tk-mf-cats ns-tk-mbe-pick">
         <div className="ns-tk-mgrid">{cells}</div>
       </div>

@@ -117,7 +117,7 @@ export function SearchBar() {
           <button
             type="button"
             className="clr"
-            aria-label="清除搜尋字"
+            aria-label="清除搜尋"
             title="清除"
             onMouseDown={(e) => e.preventDefault() /* 焦點留在框裡 */}
             onClick={() => {

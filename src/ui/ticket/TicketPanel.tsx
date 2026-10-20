@@ -395,7 +395,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     >
       <div className="ns-tk-bt-stub">
         {vm.kind === "adjust" ? (
-          <span className="ns-tk-kind is-locked" title="精算票：類型不能切">
+          <span className="ns-tk-kind is-locked" title="精算不能改類型">
             精算
           </span>
         ) : (
@@ -434,7 +434,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               aria-haspopup="listbox"
               aria-expanded={pop === "cur"}
               disabled={vm.kind === "transfer" || vm.kind === "adjust"}
-              title={vm.kind === "transfer" ? "轉帳的幣別跟著轉出帳戶" : "換幣別"}
+              title={vm.kind === "transfer" ? "轉帳幣別會跟著轉出帳戶" : "換幣別"}
               data-pop-toggle
               onClick={() => setPop(pop === "cur" ? null : "cur")}
             >
@@ -457,7 +457,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                   >
                     <span className="code">{c.code}</span>
                     {c.name}
-                    <span className="r">{c.is_main === 1 ? "主幣別" : `1 ＝ ${c.rate_to_main}`}</span>
+                    <span className="r">{c.is_main === 1 ? "主要幣別" : `1 ＝ ${c.rate_to_main}`}</span>
                   </button>
                 ))}
               </Pop>
@@ -527,7 +527,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             </FieldRow>
           )}
           {crossCur && toAcc && toCur && (
-            <FieldRow label="轉入額">
+            <FieldRow label="轉入金額">
               <ToAmountField
                 key={row ? `${row.id}-${row.to_amount_minor}` : "new"}
                 isNew={isNew}
@@ -587,7 +587,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               <DatePicker
                 float
                 className="ns-tk-datepop"
-                label="記在哪一天"
+                label="日期"
                 value={vm.dayKey}
                 markValue
                 max={today}
@@ -616,14 +616,14 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               <textarea
                 className="ns-tk-textin"
                 rows={1}
-                placeholder="一句話"
+                placeholder="備註"
                 aria-label="備註"
                 value={vm.note}
                 onChange={(e) => store().setDraft({ note: e.target.value })}
               />
             ) : (
               <div className="ns-tk-notewrap">
-                <CommitTextarea value={vm.note} rows={1} ariaLabel="備註" placeholder="一句話" onCommit={(note) => patch({ note })} />
+                <CommitTextarea value={vm.note} rows={1} ariaLabel="備註" placeholder="備註" onCommit={(note) => patch({ note })} />
               </div>
             )}
           </FieldRow>
@@ -686,7 +686,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                 刪除<kbd className="ns-tk-kbd">{capsOf("ticket.delete")}</kbd>
               </button>
               <span className={`ns-tk-saved${savedFlash ? " flash" : ""}`} aria-live="polite">
-                {savedFlash ? "已存" : "即時存檔"}
+                {savedFlash ? "已存" : "自動存檔"}
               </span>
             </>
           )}
@@ -797,7 +797,7 @@ export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow
       {!q && (
         <button type="button" role="option" aria-selected={current === null} className={`opt${current === null ? " on" : ""}`} onClick={() => onPick(null)}>
           <TkRoundel route={null} />
-          不掛
+          不選
         </button>
       )}
       {list.map((r) => (
@@ -869,7 +869,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         aria-autocomplete="list"
         aria-label="分類"
         autoComplete="off"
-        placeholder={cat ? "" : "打字搜尋，或選最近用過"}
+        placeholder={cat ? "" : "打字搜尋，或選最近用過的"}
         value={open ? q : label}
         onFocus={() => {
           setOpen(true);
@@ -898,7 +898,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         onKeyDown={onKeyDown}
       />
       {open && (
-        <div className="ns-tk-pop is-cat" role="listbox" aria-label="分類候選" onMouseDown={(e) => e.preventDefault()}>
+        <div className="ns-tk-pop is-cat" role="listbox" aria-label="分類選項" onMouseDown={(e) => e.preventDefault()}>
           {options.length > 0 ? (
             <>
               <div className="hd">{q.trim() ? "符合" : "最近用過"}</div>
@@ -921,7 +921,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
               })}
             </>
           ) : (
-            <div className="hd">{q.trim() ? `找不到「${q.trim()}」` : "還沒有用過的分類——打字搜尋"}</div>
+            <div className="hd">{q.trim() ? `找不到「${q.trim()}」` : "打字搜尋分類"}</div>
           )}
           {cat && (
             <>
@@ -1075,9 +1075,9 @@ function AcctCard({ acc }: { acc: AccountRow }) {
   }
   const hint =
     adj === null || adj.trim() === ""
-      ? "填目標餘額，會生成一筆「精算」補上差額"
+      ? "填目標餘額，會記一筆「精算」補差額"
       : diff === null
-        ? "看不懂這個數字"
+        ? "請輸入有效的數字"
         : diff === 0
           ? "和目前餘額相同，不用精算"
           : null;
@@ -1134,7 +1134,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
               </option>
             ))}
           </select>
-          {locked && <span className="ns-tk-lock">已有帳，幣別鎖定</span>}
+          {locked && <span className="ns-tk-lock">已有帳，不能改幣別</span>}
         </FieldRow>
       </div>
 
@@ -1219,7 +1219,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
         >
           {filterAccountId === acc.id ? "看全部帳" : "只看這個帳戶"}
         </button>
-        <span className="note">{archived ? "仍計入合計" : acctLabel(acc, accounts) !== acc.name ? groupLabel(acc.group_key) : ""}</span>
+        <span className="note">{archived ? "仍算進總額" : acctLabel(acc, accounts) !== acc.name ? groupLabel(acc.group_key) : ""}</span>
       </div>
     </article>
   );

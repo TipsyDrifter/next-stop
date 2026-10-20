@@ -336,7 +336,7 @@ export function WeekStrip({
         <button
           type="button"
           className={"m-sch-wk-today" + (focusDay === today ? " is-here" : "")}
-          aria-label="捲回今天"
+          aria-label="回到今天"
           onClick={onToday}
         >
           <span>今日</span>

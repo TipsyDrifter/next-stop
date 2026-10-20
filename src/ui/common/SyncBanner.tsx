@@ -34,11 +34,11 @@ import "../../styles/sync.css";
  */
 export const NEEDS_PASSPHRASE_TEXT = {
   /** 狀態列多一行 */
-  status: "這台是用復原碼加入的——請在下面的〈密語〉設一個新密語（現密語留白）。",
+  status: "這台裝置是用復原碼加入的——請在下方設定新密語（現在的密語請留白）。",
   /** 〈密語〉那一段頂上一句（現密語欄同時鎖住留白） */
-  passphrase: "這台是用復原碼加入的，還沒有密語：現密語留白，直接設一個新的。設好之後其他裝置要用它加入；想換鑰匙，設好再來勾。",
+  passphrase: "這台裝置是用復原碼加入的，請直接設定新密語（現在的密語留白），之後其他裝置就能用新密語加入。",
   /** 現密語欄鎖住時的 placeholder */
-  currentLocked: "現在的密語（用復原碼加入，留白）",
+  currentLocked: "現在的密語（用復原碼加入請留白）",
 } as const;
 
 export function SyncBanner({ shell }: { shell: "desktop" | "mobile" }) {

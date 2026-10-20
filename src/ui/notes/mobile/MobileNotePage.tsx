@@ -300,7 +300,7 @@ export function MobileNotePage({ onBack, onOpenTag }: MobileNotePageProps) {
             onClick={() => setPop("attach")}
           >
             {note?.node_missing ? (
-              <span className="faint">原節點已刪除</span>
+              <span className="faint">原本掛的地方已刪除</span>
             ) : route ? (
               <>
                 <RouteRoundel route={route} className="ns-notes-mroundel xs" />

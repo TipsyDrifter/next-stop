@@ -36,7 +36,7 @@ export function EstimatePanel({ onDone }: PanelProps) {
   if (!block) {
     return (
       <div className="ns-tt-panel">
-        <Sub>這一班已經不在了</Sub>
+        <Sub>找不到這一班</Sub>
         <Actions>
           <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
             關閉
@@ -80,7 +80,7 @@ export function EstimatePanel({ onDone }: PanelProps) {
           ))}
         </Opts>
       </Row>
-      {v !== null && <Sub>超過預估會在運行列與軸上標『誤點』，回來時問一聲</Sub>}
+      {v !== null && <Sub>超過預估時間會標上『誤點』並提醒你</Sub>}
       <Actions>
         {cur !== null && (
           <button

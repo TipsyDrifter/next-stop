@@ -784,14 +784,14 @@ describe("10. 目標", () => {
     const ok = normalizeGoalInput({ name: "  夜行列車 ", categoryIds: ["c1", "c1", "c2"], period: "week", targetMin: 60, direction: "atMost", startOn: "2026-10-01", endOn: "2026-10-09" });
     assert.deepEqual(ok, { name: "夜行列車", categoryIds: ["c1", "c2"], period: "week", targetMin: 60, direction: "atMost", startOn: null, endOn: null });
     const base = { name: "x", categoryIds: ["c1"], period: "since" as const, targetMin: 60, direction: "atLeast" as const, startOn: "2026-10-01", endOn: null };
-    assert.throws(() => normalizeGoalInput({ ...base, name: "   " }), /名稱不能是空的/);
-    assert.throws(() => normalizeGoalInput({ ...base, name: "一".repeat(25) }), /最多 24 個字/);
+    assert.throws(() => normalizeGoalInput({ ...base, name: "   " }), /請輸入目標名稱/);
+    assert.throws(() => normalizeGoalInput({ ...base, name: "一".repeat(25) }), /最多 24 字/);
     assert.equal(normalizeGoalInput({ ...base, name: "一".repeat(24) }).name.length, 24);
-    assert.throws(() => normalizeGoalInput({ ...base, categoryIds: [] }), /至少選一個分類/);
+    assert.throws(() => normalizeGoalInput({ ...base, categoryIds: [] }), /請選至少一個分類/);
     assert.throws(() => normalizeGoalInput({ ...base, targetMin: 0 }), /大於 0/);
     assert.throws(() => normalizeGoalInput({ ...base, targetMin: 1.5 }), /大於 0/);
-    assert.throws(() => normalizeGoalInput({ ...base, startOn: null }), /起點/);
-    assert.throws(() => normalizeGoalInput({ ...base, startOn: "10/01" }), /起點/);
+    assert.throws(() => normalizeGoalInput({ ...base, startOn: null }), /開始日期/);
+    assert.throws(() => normalizeGoalInput({ ...base, startOn: "10/01" }), /開始日期/);
     assert.throws(() => normalizeGoalInput({ ...base, period: "year" as unknown as "week" }), RangeError);
     assert.throws(() => normalizeGoalInput({ ...base, direction: "x" as unknown as "atLeast" }), RangeError);
     assert.equal(normalizeGoalInput({ ...base, period: "day", startOn: "2026-10-01" }).startOn, null);
@@ -801,7 +801,7 @@ describe("10. 目標", () => {
     assert.throws(() => normalizeGoalInput({ ...until, endOn: null }), /截止/);
     assert.throws(() => normalizeGoalInput({ ...until, endOn: "2026-09-30" }), /不能早於/);
     assert.equal(normalizeGoalInput({ ...until, endOn: "2026-10-01" }).endOn, "2026-10-01");
-    assert.throws(() => normalizeGoalInput({ ...until, period: "range", startOn: null, endOn: "2026-10-09" }), /起點/);
+    assert.throws(() => normalizeGoalInput({ ...until, period: "range", startOn: null, endOn: "2026-10-09" }), /開始日期/);
   });
 });
 

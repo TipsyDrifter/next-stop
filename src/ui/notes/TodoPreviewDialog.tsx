@@ -104,11 +104,11 @@ export function TodoPreviewDialog() {
           st().cancelPreview();
         }}
       />
-      <div className="ns-notes-prev" role="dialog" aria-modal="true" aria-label="變成車票">
+      <div className="ns-notes-prev" role="dialog" aria-modal="true" aria-label="變待辦">
         <div className="ns-notes-prevcard">
           <div className="ns-notes-prevhead">
-            <h3>變成車票</h3>
-            <span className="src">{pv.single ? `「${title}」` : `${src}・勾掉不要的`}</span>
+            <h3>變待辦</h3>
+            <span className="src">{pv.single ? `「${title}」` : `${src}・取消勾選不要的`}</span>
           </div>
 
           <dl className="ns-notes-fields">
@@ -208,7 +208,7 @@ export function TodoPreviewDialog() {
                       onChange={(e) => st().setPreviewLine(i, e.target.checked)}
                     />
                     <span className="tx">{l.text}</span>
-                    {l.isHeading && <span className="ns-notes-headtag">標題行</span>}
+                    {l.isHeading && <span className="ns-notes-headtag">標題</span>}
                   </label>
                 </li>
               ))}
@@ -217,7 +217,7 @@ export function TodoPreviewDialog() {
 
           <div className="ns-notes-prevfoot">
             <span className="hint">
-              {pv.scheduledOn === null && !hasAttach && "沒有日期也沒有路線＝留在收件匣・"}
+              {pv.scheduledOn === null && !hasAttach && "未指定日期或路線，將留在收件匣・"}
               <Kbd id="notes-capture.preview.confirm" />
               建立・
               <Kbd id="notes-capture.escape" />
@@ -227,8 +227,7 @@ export function TodoPreviewDialog() {
               取消
             </button>
             <button type="button" className="ns-notes-btn primary" autoFocus disabled={n === 0} onClick={() => void confirm()}>
-              建立 {n} 張車票
-            </button>
+              變成 {n} 張車票</button>
           </div>
         </div>
       </div>

@@ -400,7 +400,7 @@ export function TodayView() {
         {noRows ? (
           <EmptyBlock
             title="今天還沒有班次"
-            body="按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）選一班列車，按 T 排上今天。"
+            body="按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）選一班列車，按 T 排進今天。"
             action="開一張臨時車票"
             onAction={c.openDraft}
           />
@@ -423,8 +423,7 @@ export function TodayView() {
                   {i === nowAt && nowText !== null && <NowLine text={nowText} />}
                   {i === tl.subgrpAt && (
                     <li role="presentation" className="subgrp">
-                      未定時・照手排
-                    </li>
+                      不排時間・手動排序</li>
                   )}
                   <TodayRow
                     row={r}
@@ -463,7 +462,7 @@ export function TodayView() {
           <EmptyBlock
             cheer
             title="今天的班次都到站了"
-            body="剩下的時間是你的。明天要跑的，可以到行程表先排好。"
+            body="剩下的時間是你的。明天的事，可以先去行程表排好。"
           />
         )}
 

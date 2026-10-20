@@ -313,7 +313,7 @@ export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
               pendingFocus.current = byKeyboard;
               setEditing(false);
             }}
-            clearHint="清空＝這一班不排時刻（每班時刻不動）"
+            clearHint="清空＝這班不排時刻（固定時刻不動）"
           />
         ) : (
           <div className="ov">

@@ -190,7 +190,7 @@ export function MobileTicket({ card, route, today, fresh, flash = false, onCompl
           className="m-tk-stamp"
         >
           {suspended ? (
-            <SealSuspended className="m-tk-seal-zone" title="運休（本班停駛）" />
+            <SealSuspended className="m-tk-seal-zone" title="運休（本班暫停）" />
           ) : done ? (
             <SealDone small fresh={fresh} className="m-tk-seal-zone" title="済" />
           ) : (

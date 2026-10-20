@@ -39,10 +39,10 @@ import { useSyncStore, fmtSyncStamp, type SyncShell } from "../../store/syncStor
  * v1.1.4 從 BackupTab 搬到這裡：雲端還原與本機還原要同一套字（D-2）。
  */
 export const RESTORE_CONSEQUENCE: Record<RestoreChoice, string> = {
-  past: "所有裝置都改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。",
+  past: "所有裝置都會還原到這份備份，之後的修改都會消失；其他裝置還沒同步的修改會另存成檔，不會自動合併。",
   // 產品評審 S3：舊句「等於只找回沒人動過的部分」會被讀成「沒人編輯過的部分」，
   // 但**刪除也算動過**——誤刪的票只要那筆刪除已經送上雲，這條路一張都救不回來。
-  present: "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。",
+  present: "只有這台換成備份；其他裝置較新的修改（包含刪除）同步後會再蓋回來。",
 };
 export const RESTORE_CHOICES: { value: RestoreChoice; label: string; consequence: string }[] = [
   { value: "past", label: "回到過去", consequence: RESTORE_CONSEQUENCE.past },
@@ -52,22 +52,22 @@ export const RESTORE_CHOICES: { value: RestoreChoice; label: string; consequence
 /** 雲端備份區的字（契約 §7；兩殼同一份） */
 export const CLOUD_TEXT = {
   title: "雲端備份",
-  intro: "每天第一次同步後自動上傳一份加密快照；最近 14 天每份都留，之後每週留一份（3 個月）、每月留一份（1 年）。",
+  intro: "每天第一次同步後自動上傳加密備份；保留最近 14 天每日、3 個月內每週、1 年內每月的備份。",
   lastUpload: (iso: string | null) => (iso ? `上次上傳 ${fmtSyncStamp(iso)}` : "還沒上傳過"),
   now: "立即備份到雲端",
-  listEmpty: "雲端上還沒有快照——按「立即備份到雲端」拍第一份。",
+  listEmpty: "雲端還沒有備份——按「立即備份到雲端」建立第一份。",
   loading: "讀取中…",
   restore: "還原到這份",
   restoreHow: "還原方式",
   /** 桌機：選擇與上面本機還原共用同一顆，這裡只複述現在選的是哪一枚（不另長一組 radio） */
-  restoreHowShared: (label: string) => `還原方式沿用上面選的「${label}」——雲端還原與從備份還原是同一個選擇。`,
+  restoreHowShared: (label: string) => `還原方式會沿用上面選的「${label}」。`,
   exportMobile: "匯出到手機",
   // 產品評審 S5：誠實講它目前只能人工翻閱（沒有匯入工具），與改正待ち那邊對孤兒 JSON 的講法一致
-  exportNote: "把整份資料存成一個 JSON 檔到你選的位置（例如「下載」）——那個檔目前只能人工翻閱，沒有匯入工具。",
+  exportNote: "將所有資料匯出成文字檔（JSON）——這份檔案目前只能打開來看，無法匯回 App。",
   /** 產品評審 B2：沒加入同步的手機唯一的存底出口（app 私有目錄；路徑會在 toast 裡講出來） */
-  exportNotJoined: "加入同步之後，這裡還會多一份「雲端備份」——每天自動拍一份加密快照，任何裝置都還原得回來。",
+  exportNotJoined: "開啟同步後，每天會自動上傳一份加密的「雲端備份」，在任何裝置都能還原。",
   /** 產品評審（Nice）：沒加入的桌機在〈備份與還原〉只看得到本機那一套，要講一句它們去哪了 */
-  notJoined: "加入同步之後，這裡會列出雲端快照（每天第一次同步後自動拍一份，任何裝置都還原得回來）。",
+  notJoined: "開啟同步後，這裡會列出每天自動上傳的雲端備份，在任何裝置都能還原。",
   /** 產品評審 S3：預設只展最近 14 天（階梯本來就是「14 天內全留」），更舊的收起來 */
   showOlder: (n: number) => `更早的…（還有 ${n} 份）`,
   showFewer: "只看最近 14 天",

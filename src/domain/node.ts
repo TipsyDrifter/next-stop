@@ -204,13 +204,13 @@ export function describeConflict(body: string): string {
   if (!b || typeof b.col !== "string") return body;
   const empty = (v: unknown) => v === null || v === undefined || v === "";
   if (b.col === "deleted_at") {
-    if (!empty(b.theirs) && empty(b.mine)) return "另一台刪了這張票，但這台改過——保留這張票";
-    if (empty(b.theirs) && !empty(b.mine)) return "這台刪過這張票，另一台改過——已復活";
+    if (!empty(b.theirs) && empty(b.mine)) return "另一台刪過，但這台改過——已保留";
+    if (empty(b.theirs) && !empty(b.mine)) return "這台刪過，但另一台改過——已還原";
   }
   const label = CONFLICT_COL_LABEL[b.col] ?? b.col;
   // 方向兩種（評審 S3）：預設是這台讓位；`winner === "mine"` 是對方讓給這台（敗方值同樣留在這一行）
   if (b.winner === "mine") {
-    return `${label}：另一台改的「${fmtConflictValue(b.theirs)}」讓給這台的「${fmtConflictValue(b.mine)}」`;
+    return `${label}：放棄另一台的「${fmtConflictValue(b.theirs)}」，保留這台的「${fmtConflictValue(b.mine)}」`;
   }
-  return `${label}：這台改的「${fmtConflictValue(b.mine)}」讓給另一台的「${fmtConflictValue(b.theirs)}」`;
+  return `${label}：放棄這台的「${fmtConflictValue(b.mine)}」，保留另一台的「${fmtConflictValue(b.theirs)}」`;
 }

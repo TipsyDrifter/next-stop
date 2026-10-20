@@ -189,7 +189,7 @@ export function captureToast(
   if (dest.target === "diary") return { text: "已記在今天的日記", stamp: null };
   // note
   if (stub === "inbox" && dest.withRoute) {
-    return { text: "有路線前綴，已直接存進筆記 · " + routeName + "（不進收件匣）", stamp: null };
+    return { text: "有寫路線，已直接存進筆記 · " + routeName + "（不進收件匣）", stamp: null };
   }
   return { text: dest.withRoute ? "已存進筆記 · " + routeName : "已存進筆記", stamp: null };
 }
@@ -471,7 +471,7 @@ export function entryWrittenLabel(entryDate: string, notedDay: string, hhmm: str
 
 /** 沒有篇也沒草稿時的空狀態（原型施工決定 12） */
 export function diaryEmptyText(isToday: boolean): { text: string; button: string } {
-  return isToday ? { text: "今天還沒有寫日記", button: "寫日記" } : { text: "這天沒有寫日記", button: "補記" };
+  return isToday ? { text: "今天還沒寫日記", button: "寫日記" } : { text: "這天沒寫日記", button: "補記" };
 }
 
 /** 草稿內文的 placeholder（=app.js:378） */
@@ -537,7 +537,7 @@ export function footprintSummary(f: FootprintDay | null): string {
   if (!f) return "沒有足跡";
   const parts: string[] = [];
   if (f.seals.length) parts.push(f.seals.length + " 枚済章");
-  if (f.logs.length) parts.push(f.logs.length + " 則手記");
+  if (f.logs.length) parts.push(f.logs.length + " 則筆記");
   return parts.length ? parts.join("・") : "沒有足跡";
 }
 
@@ -950,7 +950,7 @@ export function captureWindowReleaseEarly(
 }
 
 /** 小窗的 DB 附著在主視窗的連線上（契約 0-10）：主視窗還沒 load 好時 plugin-sql 回「database … not loaded」 */
-export const CAPTURE_DB_NOT_READY = "主視窗還在啟動，請再按一次 Enter";
+export const CAPTURE_DB_NOT_READY = "App 還在開啟，請再按一次 Enter";
 
 /** 小窗的存檔失敗 toast 要不要換字：plugin-sql 的「not loaded」換成 `CAPTURE_DB_NOT_READY`；其餘照原文（回 null） */
 export function captureWindowToastText(message: string): string | null {

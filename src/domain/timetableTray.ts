@@ -44,7 +44,7 @@ export const TT_TRAY_TEXT = {
   tooltip: (name: string, start: number, elapsedMs: number) => `Next Stop・${name}・${fmtClock(start)} 発（${fmtDur(elapsedMs)}）`,
   tooltipIdle: "Next Stop・目前沒有列車在跑",
   tooltipOff: "Next Stop",
-  reminderBody: "回到時刻表修正",
+  reminderBody: "去時刻表修正",
 } as const;
 
 export interface TrayMenuInput {

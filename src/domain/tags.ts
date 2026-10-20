@@ -170,11 +170,11 @@ export function normalizeName(raw: string): NormalizedName {
   if (s.charAt(0) === "#") s = s.slice(1);
   if (!s) return { ok: false, reason: "還沒有名稱" };
   const segs = s.split("/").map((x) => x.replace(/^\s+|\s+$/g, ""));
-  for (const seg of segs) if (!seg) return { ok: false, reason: "層與層之間不能空著" };
+  for (const seg of segs) if (!seg) return { ok: false, reason: "斜線之間不能空著" };
   const name = segs.join("/");
   if (/\s/.test(name)) return { ok: false, reason: "荷札名稱不能有空白" };
   if (name.indexOf("#") >= 0) return { ok: false, reason: "荷札名稱不能有 #" };
-  if (!/[^0-9/]/.test(name)) return { ok: false, reason: "只有數字不能當荷札（像 #2026）" };
+  if (!/[^0-9/]/.test(name)) return { ok: false, reason: "荷札不能只有數字（像 #2026）" };
   return { ok: true, name, key: lowerAscii(name) };
 }
 export function keyOf(raw: string): string | null {
@@ -502,7 +502,7 @@ export function suggest(idx: TagIndex, q: string, opts: SuggestOptions = {}): Ta
     return {
       items: items.slice(0, limit),
       create: null,
-      hint: items.length ? null : "「" + raw.replace(/\/+$/, "") + "」底下還沒有子荷札",
+      hint: items.length ? null : "「" + raw.replace(/\/+$/, "") + "」底下還沒有其他荷札",
       browse: pk,
     };
   }
@@ -673,11 +673,11 @@ export function renameImpact(plan: RenamePlan): string {
   if (a.ticket) parts.push(a.ticket + " 張車票");
   if (a.train) parts.push(a.train + " 班列車");
   if (a.car) parts.push(a.car + " 節車廂");
-  if (a.note) parts.push(a.note + " 則筆記的內文");
+  if (a.note) parts.push(a.note + " 則筆記");
   if (a.diary) parts.push(a.diary + " 篇日記");
-  if (a.other) parts.push(a.other + " 處別處");
+  if (a.other) parts.push(a.other + " 個其他地方");
   let s = parts.length ? "會改動 " + parts.join("、") : "沒有東西掛著，只改名稱";
-  if (plan.childCount) s += "；#" + plan.oldName + " 底下的 " + plan.childCount + " 個子荷札一起搬";
+  if (plan.childCount) s += "；#" + plan.oldName + " 底下的 " + plan.childCount + " 個荷札一起搬";
   return s;
 }
 
@@ -718,14 +718,14 @@ export function deleteConfirmText(
   ex: { raw: string; before: string; after: string } | null,
 ): { title: string; body: string } {
   if (!plan.ok) return { title: "", body: plan.reason };
-  const title = plan.kidsWithItems ? `刪除 #${plan.name}，連同底下 ${plan.kidsWithItems} 個子荷札？` : `刪除 #${plan.name}？`;
+  const title = plan.kidsWithItems ? `刪除 #${plan.name}，連同底下 ${plan.kidsWithItems} 個荷札？` : `刪除 #${plan.name}？`;
   const exRaw = ex ? ex.raw : plan.name;
   const isSelf = keyOf(exRaw) === plan.key;
   let body = isSelf
-    ? `摘下 ${plan.places} 處。筆記與日記內文裡的 #${exRaw}${plan.kidsWithItems ? "（含子荷札）" : ""} 會一起刪掉。`
-    : `摘下 ${plan.places} 處。#${plan.name} 和它的子荷札（例：#${exRaw}）會從筆記與日記內文裡一起刪掉。`;
+    ? `摘下 ${plan.places} 處，筆記與日記裡的 #${exRaw}${plan.kidsWithItems ? "（含底下的荷札）" : ""} 也會刪掉。`
+    : `摘下 ${plan.places} 處，筆記與日記裡的 #${plan.name} 及底下荷札（如 #${exRaw}）也會刪掉。`;
   if (ex) body += `例：『${ex.before}』→『${ex.after}』。`;
-  body += plan.bodyCount ? `會改動 ${plan.bodyCount} 則筆記或日記的內文。` : "目前沒有筆記或日記寫到它。";
+  body += plan.bodyCount ? `會改動 ${plan.bodyCount} 則筆記或日記。` : "目前沒有筆記或日記寫到它。";
   return { title, body };
 }
 /** 併入確認框全文（§5.9-1／2；=app.js:627-637）：rootConflict＝併入既有名稱；否則＝子孫撞名 */
@@ -736,14 +736,14 @@ export function mergeConfirmText(plan: RenamePlan): { title: string; body: strin
     const t = plan.rootConflict;
     return {
       title: `併入 #${t.name}？`,
-      body: `#${t.name} 已經存在（掛著 ${t.count} 處）。要把 #${plan.oldName} 的 ${plan.ownCount} 處併進去嗎？${impact}。`,
+      body: `已經有 #${t.name} 了（掛著 ${t.count} 處），要把 #${plan.oldName} 的 ${plan.ownCount} 處併進去嗎？${impact}。`,
     };
   }
   const c = plan.conflicts[0];
   const cName = plan.moves.find((m) => m.to === c)?.toName ?? c;
   return {
-    title: "連子荷札一起併入？",
-    body: `#${plan.oldName} 底下有 ${plan.conflicts.length} 個子荷札和既有的同名（例：#${cName}），改名後會併在一起。${impact}。`,
+    title: "連底下的荷札一起併入？",
+    body: `#${plan.oldName} 底下有 ${plan.conflicts.length} 個荷札撞名（如 #${cName}），改名後會併在一起。${impact}。`,
   };
 }
 /** 通車提示條（D-筆-43；=app.js:251） */
@@ -756,7 +756,7 @@ export function setTagsToast(addedNames: readonly string[], removedNames: readon
   if (addedNames.length) parts.push("掛上 " + addedNames.map((n) => "#" + n).join("、"));
   if (removedNames.length) parts.push("摘下 " + removedNames.map((n) => "#" + n).join("、"));
   if (!parts.length) return null;
-  return parts.join("；") + (createdCount ? `（新建 ${createdCount} 個）` : "");
+  return parts.join("；") + (createdCount ? `（新增 ${createdCount} 個）` : "");
 }
 
 /* ═══ 八、摘要與行內切段（=logic.js:506-551） ═══ */

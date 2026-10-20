@@ -547,8 +547,8 @@ test("entryWrittenLabel：當天寫＝寫於 HH:MM；補記＝寫於 M/D HH:MM�
   assert.equal(entryWrittenLabel("2026-10-02", "2026-10-05", "23:40", "10/5"), "寫於 10/5 23:40（補記）");
 });
 test("diaryEmptyText：今天／其他天", () => {
-  assert.deepEqual(diaryEmptyText(true), { text: "今天還沒有寫日記", button: "寫日記" });
-  assert.deepEqual(diaryEmptyText(false), { text: "這天沒有寫日記", button: "補記" });
+  assert.deepEqual(diaryEmptyText(true), { text: "今天還沒寫日記", button: "寫日記" });
+  assert.deepEqual(diaryEmptyText(false), { text: "這天沒寫日記", button: "補記" });
 });
 test("diaryPlaceholder：今天／其他天", () => {
   assert.equal(diaryPlaceholder(true), "今天過得怎麼樣…");
@@ -613,7 +613,7 @@ test("hasFootprint：只有時間塊不算有足跡", () => {
   assert.equal(hasFootprint(fday({ blocks: [block] })), false);
 });
 test("footprintSummary：済章＋手記／只有済章／沒有足跡", () => {
-  assert.equal(footprintSummary(fday({ seals: [seal({}), seal({ id: "2", nodeId: "2" })], logs: [flog({})] })), "2 枚済章・1 則手記");
+  assert.equal(footprintSummary(fday({ seals: [seal({}), seal({ id: "2", nodeId: "2" })], logs: [flog({})] })), "2 枚済章・1 則筆記");
   assert.equal(footprintSummary(fday({ seals: [seal({})] })), "1 枚済章");
   assert.equal(footprintSummary(fday({})), "沒有足跡");
   assert.equal(footprintSummary(null), "沒有足跡");

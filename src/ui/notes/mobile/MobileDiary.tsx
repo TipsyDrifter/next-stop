@@ -156,7 +156,7 @@ export function MobileDiary() {
         <button
           type="button"
           className="ns-notes-mbigdate"
-          aria-label={`${fmtMonthDay(diaryDay)}，點一下挑別的日子`}
+          aria-label={`${fmtMonthDay(diaryDay)}，點一下換日期`}
           onClick={() => setPickDay(true)}
         >
           {fmtMonthDay(diaryDay)}

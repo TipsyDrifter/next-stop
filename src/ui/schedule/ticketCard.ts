@@ -107,11 +107,11 @@ export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel
 /** DayRow.tsx:150-162 的同一組句子（只取「按不得」的分支；能按的卡 hint 為 null） */
 function stampHintOf(row: DayRowModel): string | null {
   if (canStampRow(row)) return null;
-  if (row.skipped) return "歷史班次唯讀——運休只能對目前或未來的班次";
-  if (row.done) return "歷史班次唯讀";
+  if (row.skipped) return "過去的班次不能改——只有目前或未來的班次能運休";
+  if (row.done) return "過去的班次不能改";
   return row.isRepeat && (row.ahead || row.isFuture)
     ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
-    : "歷史班次唯讀——只能交代目前班次";
+    : "過去的班次不能改——只能處理目前的班次";
 }
 
 /**

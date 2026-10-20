@@ -193,7 +193,7 @@ export function MobileTimeSheet({ card, mode, today, dayStartHour, now, onCommit
           </div>
           {/* 永遠佔一行（理由見檔頭） */}
           <p className={"ts-note" + (wrapped ? " wrap" : "")} aria-live="polite">
-            {wrapped ? `比日界線 ${pad2(dayStartHour)}:00 早＝算今天的深夜，記成 ${time}` : " "}
+            {wrapped ? `早於日界線 ${pad2(dayStartHour)}:00 算今天深夜，記為 ${time}` : " "}
           </p>
 
           <div className="ts-lbl">常用時刻</div>
@@ -244,7 +244,7 @@ export function MobileTimeSheet({ card, mode, today, dayStartHour, now, onCommit
                       autoFocus
                       value={customRaw}
                       placeholder="45"
-                      aria-label="自訂預計（分）"
+                      aria-label="自訂時間（分）"
                       onChange={(e) => onCustomChange(e.target.value)}
                       onKeyDown={onCustomKey}
                       onCompositionStart={() => {
@@ -281,7 +281,7 @@ export function MobileTimeSheet({ card, mode, today, dayStartHour, now, onCommit
                 → <b className="hm">{arrive}</b> 着（{sumEst} 分）
               </>
             ) : (
-              "・長度未定"
+              "・時間未定"
             )}
           </div>
 

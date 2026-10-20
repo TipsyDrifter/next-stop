@@ -103,8 +103,8 @@ export function TodayTickets() {
               ? `用「${cat.name}」発車（${m.from === "node" ? "這張票上次的" : "這條路線上次的"}）`
               : m === null
                 ? r.route_id
-                  ? "這條路線還沒記過時間：先選分類"
-                  : "這張票還沒記過時間：先選分類"
+                  ? "這條路線還沒記過時間，請先選分類"
+                  : "這張車票還沒記過時間，請先選分類"
                 : "発車";
           return (
             <button

@@ -857,7 +857,7 @@ export class MemoryTicketRepository implements TicketRepository {
     if (input.parentId !== null) {
       if (isUncat(input.parentId)) throw new RangeError("「未分類」下面不能建子分類");
       const p = this.categoryOrThrow(input.parentId);
-      if (p.kind !== input.kind) throw new RangeError("分類和收支類型對不上");
+      if (p.kind !== input.kind) throw new RangeError("這個分類不屬於目前的收支類型");
       if (p.parent_id !== null) throw new RangeError("分類只有兩層");
     }
     let position = -1;
@@ -1018,7 +1018,7 @@ export class MemoryTicketRepository implements TicketRepository {
 
   private repeatOrThrow(id: string): RepeatRow {
     const r = this.rep.get(id);
-    if (!r || !isAlive(r)) throw new RangeError("這條規則已經刪除了");
+    if (!r || !isAlive(r)) throw new RangeError("這筆定期帳已經刪除了");
     return r;
   }
 

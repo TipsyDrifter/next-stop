@@ -401,7 +401,7 @@ describe("4. 目標（0-4：分類 ∪ 荷札，一塊只算一次）", () => {
     assert.equal(v.cur.ms, 6 * H, "待確認不進進度");
   });
 
-  test("goalMember：分類中、荷札中（含子荷札）、都不中", () => {
+  test("goalMember：分類中、荷札中（含底下的荷札）、都不中", () => {
     const cs = new Set(["c1"]);
     assert.ok(goalMember({ categoryId: "c1", tagKeys: [] }, cs, []));
     assert.ok(goalMember({ categoryId: "x", tagKeys: ["高效/深度"] }, cs, ["高效"]));
@@ -413,17 +413,17 @@ describe("4. 目標（0-4：分類 ∪ 荷札，一塊只算一次）", () => {
 
 /* ───────── 5. normalizeGoalInput ───────── */
 
-describe("5. normalizeGoalInput（至少選一個分類或荷札）", () => {
+describe("5. normalizeGoalInput（請選至少一個分類或荷札）", () => {
   const base: GoalInput = { name: "夜行列車", categoryIds: [], period: "since", targetMin: 180 * 60, direction: "atLeast", startOn: "2026-10-01", endOn: null };
   test("分類 0、荷札 1 ⇒ 過；荷札 trim、去掉 #、去重", () => {
     const v = normalizeGoalInput({ ...base, tagNames: [" #高效 ", "高效", ""] });
     assert.deepEqual(v.categoryIds, []);
     assert.deepEqual(v.tagNames, ["高效"]);
   });
-  test("兩者都 0 ⇒「至少選一個分類或荷札」（tagNames 沒給、給空陣列都一樣）", () => {
-    assert.throws(() => normalizeGoalInput(base), /^RangeError: 至少選一個分類或荷札$/);
-    assert.throws(() => normalizeGoalInput({ ...base, tagNames: [] }), /至少選一個分類或荷札/);
-    assert.throws(() => normalizeGoalInput({ ...base, tagNames: ["  ", "#"] }), /至少選一個分類或荷札/);
+  test("兩者都 0 ⇒「請選至少一個分類或荷札」（tagNames 沒給、給空陣列都一樣）", () => {
+    assert.throws(() => normalizeGoalInput(base), /^RangeError: 請選至少一個分類或荷札$/);
+    assert.throws(() => normalizeGoalInput({ ...base, tagNames: [] }), /請選至少一個分類或荷札/);
+    assert.throws(() => normalizeGoalInput({ ...base, tagNames: ["  ", "#"] }), /請選至少一個分類或荷札/);
   });
   test("tagNames 沒給 ⇒ 回傳也沒有（＝repository 不動荷札）；給了空陣列 ⇒ 回空陣列（＝摘光）", () => {
     const a = normalizeGoalInput({ ...base, categoryIds: ["c1"] });

@@ -361,10 +361,10 @@ describe("R4 主分類本身有帳又有子分類（未細分，0-8）", () => {
     const b = breakdown([E({ occurred_on: "2026-10-02", category_id: "p-life", amount_minor: 3000 })], OCT, "category", "expense", CTX);
     assert.equal(b.rows[0].children, undefined);
   });
-  test("R4c 已刪的子分類（墓碑、catById 沒有）的帳 ⇒ 不併進主分類，歸「（分類已不在）」且進分母、排最後", () => {
+  test("R4c 已刪的子分類（墓碑、catById 沒有）的帳 ⇒ 不併進主分類，歸「（分類已刪除）」且進分母、排最後", () => {
     const xs = [E({ occurred_on: "2026-10-02", category_id: "c-food-del", amount_minor: 900000 }), E({ occurred_on: "2026-10-02", category_id: "c-lunch", amount_minor: 100 })];
     const b = breakdown(xs, OCT, "category", "expense", CTX);
-    assert.deepEqual(b.rows.map((r) => [r.key, r.label]), [["p-food", "🍜 食物"], [GONE_KEY, "（分類已不在）"]]);
+    assert.deepEqual(b.rows.map((r) => [r.key, r.label]), [["p-food", "🍜 食物"], [GONE_KEY, "（分類已刪除）"]]);
     assert.equal(b.total, 900100);
   });
 });
@@ -410,7 +410,7 @@ describe("R6 墓碑（0-7-1）", () => {
     assert.deepEqual(xs.filter((e) => matchesQuery(e, filterToQuery(EMPTY_FILTER, ALIVE_CATS))).map((e) => e.id), [live.id]);
     assert.deepEqual(filterEntries(xs, { ...EMPTY_FILTER, text: "刪掉" }, CTX), []);
   });
-  test("R6b 已刪的路線（routeCtx 丟掉墓碑）⇒ 路線切面歸「（路線已刪除）」、關鍵字不再命中舊路線名", () => {
+  test("R6b 已刪的路線（routeCtx 丟掉墓碑）⇒ 路線切面歸「（路線已刪）」、關鍵字不再命中舊路線名", () => {
     const nodes = [
       { id: "r-j", name: "日文", code: "J", color: null, deleted_at: null },
       { id: "r-dead", name: "吉他", code: "G", color: "x", deleted_at: NOW },
@@ -418,13 +418,13 @@ describe("R6 墓碑（0-7-1）", () => {
     const ctx: ViewCtx = { ...CTX, ...routeCtx(nodes) };
     const e = E({ occurred_on: "2026-10-02", route_id: "r-dead", amount_minor: 3000 });
     const b = breakdown([e], OCT, "route", "expense", ctx);
-    assert.deepEqual(b.rows.map((r) => [r.key, r.label, r.color]), [[GONE_KEY, "（路線已刪除）", null]]);
+    assert.deepEqual(b.rows.map((r) => [r.key, r.label, r.color]), [[GONE_KEY, "（路線已刪）", null]]);
     assert.ok(!matchesKeyword(e, keywordTokens("吉他"), ctx));
   });
 });
 
 describe("R7 route_id 指到已刪路線（0-7-6、0-8）", () => {
-  test("R7a 兩條不同的已刪路線 ⇒ 合成一列「（路線已刪除）」；color null；進分母；未掛路線另一列", () => {
+  test("R7a 兩條不同的已刪路線 ⇒ 合成一列「（路線已刪）」；color null；進分母；無路線另一列", () => {
     const xs = [
       E({ occurred_on: "2026-10-02", route_id: "r-ghost1", amount_minor: 3000 }),
       E({ occurred_on: "2026-10-03", route_id: "r-ghost2", amount_minor: 2000 }),
@@ -433,15 +433,15 @@ describe("R7 route_id 指到已刪路線（0-7-6、0-8）", () => {
     ];
     const b = breakdown(xs, OCT, "route", "expense", CTX);
     assert.deepEqual(b.rows.map((r) => [r.key, r.label, r.minor, r.count, r.color]), [
-      [GONE_KEY, "（路線已刪除）", 5000, 2, null],
-      [NO_ROUTE_KEY, "未掛路線", 4000, 1, null],
+      [GONE_KEY, "（路線已刪）", 5000, 2, null],
+      [NO_ROUTE_KEY, "無路線", 4000, 1, null],
       ["r-j", "日文", 1000, 1, "var(--route-preset-2)"],
     ]);
     assert.equal(b.total, 10000);
   });
   test("R7b 篩選 chips／routeSpendOf／結構查詢對已刪路線照常運作", () => {
     const e = E({ occurred_on: "2026-10-02", route_id: "r-ghost1", amount_minor: 3000 });
-    assert.deepEqual(filterChips({ ...EMPTY_FILTER, routeId: "r-ghost1" }, CTX), [{ key: "routeId", label: "路線 （路線已刪除）" }]);
+    assert.deepEqual(filterChips({ ...EMPTY_FILTER, routeId: "r-ghost1" }, CTX), [{ key: "routeId", label: "路線 （路線已刪）" }]);
     assert.deepEqual(routeSpendOf([e], "r-ghost1", OCT), { inRange: 3000, allTime: 3000 });
     assert.equal(filterEntries([e], { ...EMPTY_FILTER, routeId: "r-ghost1" }, CTX).length, 1);
     assert.equal(filterEntries([e], { ...EMPTY_FILTER, routeId: "none" }, CTX).length, 0);

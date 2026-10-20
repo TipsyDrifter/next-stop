@@ -280,7 +280,7 @@ describe("B. 預算", () => {
     assert.equal(lines[1].archived, true);
     assert.equal(lines[1].label, "🍜 食物 › 點心");
     assert.equal(lines[2].gone, true);
-    assert.equal(lines[2].label, "（分類已不在）");
+    assert.equal(lines[2].label, "（分類已刪除）");
     assert.equal(lines[3].over, true);
     assert.ok(lines[3].share > 1);
     assert.equal(lines[3].pace, 19 / 31);
@@ -354,13 +354,13 @@ describe("C. 規則", () => {
     assert.equal(r.freq, "monthly");
   });
   test("12. draftToRepeatInput 錯誤表逐字（五條）＋沿用 validate", () => {
-    throwsMsg(() => P.draftToRepeatInput(draft({ freq: "weekly", byweekday: [] }), CTX), "每週要選至少一天");
-    throwsMsg(() => P.draftToRepeatInput(draft({ freq: "monthly", bymonthday: [] }), CTX), "每月要選至少一天");
-    throwsMsg(() => P.draftToRepeatInput(draft({ start: "11/1" }), CTX), "起算日看不懂");
-    throwsMsg(() => P.draftToRepeatInput(draft({ until: "2026-10-01" }), CTX), "終止日要在起算日之後");
+    throwsMsg(() => P.draftToRepeatInput(draft({ freq: "weekly", byweekday: [] }), CTX), "每週至少選一天");
+    throwsMsg(() => P.draftToRepeatInput(draft({ freq: "monthly", bymonthday: [] }), CTX), "每月至少選一天");
+    throwsMsg(() => P.draftToRepeatInput(draft({ start: "11/1" }), CTX), "開始日期格式有誤");
+    throwsMsg(() => P.draftToRepeatInput(draft({ until: "2026-10-01" }), CTX), "結束日期要在開始日期之後");
     throwsMsg(() => P.draftToRepeatInput(draft({ hhmm: "25:00" }), CTX), "時刻看不懂");
-    throwsMsg(() => P.draftToRepeatInput(draft({ accountId: "a-gone" }), CTX), "這個帳戶已經不在了");
-    throwsMsg(() => P.draftToRepeatInput(draft({ categoryId: "c-salary" }), CTX), "分類和收支類型對不上");
+    throwsMsg(() => P.draftToRepeatInput(draft({ accountId: "a-gone" }), CTX), "這個帳戶已經刪除了");
+    throwsMsg(() => P.draftToRepeatInput(draft({ categoryId: "c-salary" }), CTX), "這個分類不屬於目前的收支類型");
     throwsMsg(() => P.draftToRepeatInput(draft({ amountText: "" }), CTX), "先填金額");
     const ok = P.draftToRepeatInput(draft({ bymonthday: [15, 1, 15] }), CTX);
     assert.deepEqual(ok.rule.bymonthday, [1, 15]);
@@ -371,17 +371,17 @@ describe("C. 規則", () => {
   });
   test("13. repeatLabel 四種（支出子分類、收入主分類、轉帳、USD）", () => {
     const ex = rep("r1", monthly("2026-10-01", [1]), { category_id: "c-rent", amount_minor: 1200000, note: "房租" });
-    assert.equal(P.repeatLabel(ex, CTX), "每月 1 日 · 房租 · −12,000 · 現金");
+    assert.equal(P.repeatLabel(ex, CTX), "每月 1 號 · 房租 · −12,000 · 現金");
     const inc = rep("r2", monthly("2026-10-01", [20]), { kind: "income", category_id: "c-salary", amount_minor: 600000, account_id: "a-bank" });
-    assert.equal(P.repeatLabel(inc, CTX), "每月 20 日 · 💳 薪水 · ＋6,000 · 帳戶");
+    assert.equal(P.repeatLabel(inc, CTX), "每月 20 號 · 💳 薪水 · ＋6,000 · 帳戶");
     const tr = rep("r3", fixedRule("weekly", "2026-10-01", { byweekday: [1, 3, 5] }), {
       kind: "transfer", category_id: null, account_id: "a-bank", to_account_id: "a-easy", amount_minor: 100000,
     });
     assert.equal(P.repeatLabel(tr, CTX), "每週一・三・五 · 帳戶 → 悠遊卡 · ⇄1,000");
     const usd = rep("r4", monthly("2026-10-01", [16]), { currency: "USD", amount_minor: 1000, category_id: "c-snack" });
-    assert.equal(P.repeatLabel(usd, CTX), "每月 16 日 · 點心 · −10 USD · 現金");
+    assert.equal(P.repeatLabel(usd, CTX), "每月 16 號 · 點心 · −10 USD · 現金");
     const gone = rep("r5", fixedRule("daily", "2026-10-01"), { account_id: "a-gone", category_id: "c-nope" });
-    assert.equal(P.repeatLabel(gone, CTX), "每日重複 · （分類已不在） · −80 · （帳戶已不在）");
+    assert.equal(P.repeatLabel(gone, CTX), "每天重複 · （分類已刪除） · −80 · （帳戶已刪除）");
   });
   test("14. nextOnText／repeatStatus", () => {
     const r = rep("r1", monthly("2026-10-01", [1]), { next_on: "2026-11-01" });
@@ -390,7 +390,7 @@ describe("C. 規則", () => {
     assert.equal(P.nextOnText({ ...r, next_on: null }), "已結束");
     assert.equal(P.repeatStatus(r, TODAY, {}), "active");
     assert.equal(P.repeatStatus({ ...r, paused_at: NOW }, TODAY, { r1: "x" }), "paused");
-    assert.equal(P.repeatStatus(r, TODAY, { r1: "這個帳戶已經不在了" }), "blocked");
+    assert.equal(P.repeatStatus(r, TODAY, { r1: "這個帳戶已經刪除了" }), "blocked");
     assert.equal(P.repeatStatus({ ...r, next_on: null }, TODAY, {}), "ended");
   });
 });
@@ -457,11 +457,11 @@ describe("D. 實體化（planMaterialize；today＝2026-10-19）", () => {
     const r = rep("rg", fixedRule("daily", "2026-10-01"), { next_on: "2026-10-18", account_id: "a-gone" });
     const ok = rep("rd", fixedRule("daily", "2026-10-01"), { next_on: "2026-10-19" });
     const p = P.planMaterialize([r, ok], none, TODAY, CTX, NOW, DSH);
-    assert.deepEqual(p.blocked, [{ id: "rg", reason: "這個帳戶已經不在了" }]);
+    assert.deepEqual(p.blocked, [{ id: "rg", reason: "這個帳戶已經刪除了" }]);
     assert.deepEqual(daysOf(p.inserts), ["2026-10-19"], "別條照記");
     assert.deepEqual(p.cursors, [{ id: "rd", next_on: "2026-10-20" }]);
     const badRule = rep("rx", fixedRule("daily", "2026-10-01"), { rule: "{bad" });
-    assert.deepEqual(P.planMaterialize([badRule], none, TODAY, CTX, NOW, DSH).blocked, [{ id: "rx", reason: "規則看不懂" }]);
+    assert.deepEqual(P.planMaterialize([badRule], none, TODAY, CTX, NOW, DSH).blocked, [{ id: "rx", reason: "重複規則有誤" }]);
   });
   test("23. until 過了 ⇒ next_on null", () => {
     const rule = fixedRule("daily", "2026-10-01");
@@ -584,7 +584,7 @@ describe("F. 匯入", () => {
     assert.equal(b.inserts.length, 5);
     assert.equal(b.scopes, 3);
     assert.equal(b.overrides, 2);
-    assert.deepEqual(b.invalid, [{ uid: "mm-ba6", reason: "不是月預算" }]);
+    assert.deepEqual(b.invalid, [{ uid: "mm-ba6", reason: "目前只支援每月預算" }]);
     const total = b.inserts.find((x) => x.kind === "total" && x.month === null)!;
     assert.equal(total.id, P.budgetId({ kind: "total" }, null));
     assert.equal(total.amount_minor, 1500000);
@@ -609,13 +609,13 @@ describe("F. 匯入", () => {
     const plan2 = { categoryIdOf: { ...plan.categoryIdOf, "mm-uncat": UNCAT_EXPENSE_ID } };
     const inv = P.planBudgetImport(d, plan2, [], NOW).invalid;
     assert.deepEqual(inv, [
-      { uid: "mm-ba6", reason: "不是月預算" },
-      { uid: "x-13", reason: "看不懂的期間" },
-      { uid: "x-inc", reason: "收入預算（本版只管支出）" },
-      { uid: "x-nobud", reason: "預算對象找不到" },
-      { uid: "x-tt", reason: "不認得的預算型態" },
-      { uid: "x-uncat", reason: "未分類不設預算" },
-      { uid: "x-zero", reason: "金額看不懂" },
+      { uid: "mm-ba6", reason: "目前只支援每月預算" },
+      { uid: "x-13", reason: "時間範圍格式有誤" },
+      { uid: "x-inc", reason: "收入預算（目前只支援支出預算）" },
+      { uid: "x-nobud", reason: "找不到設預算的分類" },
+      { uid: "x-tt", reason: "不支援這種預算類型" },
+      { uid: "x-uncat", reason: "「未分類」不能設預算" },
+      { uid: "x-zero", reason: "金額格式有誤" },
     ]);
   });
   test("32. 重跑：結果當 local ⇒ 0／0；MODIFY_DATE+1 且金額變 ⇒ updates 1；金額沒變 ⇒ unchanged；本機墓碑 ⇒ tombstoned", () => {
@@ -638,7 +638,7 @@ describe("F. 匯入", () => {
     const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
     const r = part.repeats;
     assert.equal(r.inserts.length, 4);
-    assert.deepEqual(r.invalid, [{ uid: "mm-r5", reason: "不認得的週期碼 9" }]);
+    assert.deepEqual(r.invalid, [{ uid: "mm-r5", reason: "不支援的重複週期：9" }]);
     const byUid = (u: string) => r.inserts.find((x) => x.import_id === u)!;
     assert.equal(byUid("mm-r1").id, ticketId("moneymanager:repeat:mm-r1"));
     assert.equal(byUid("mm-r1").hhmm, "09:30");
@@ -659,7 +659,7 @@ describe("F. 匯入", () => {
     const r2 = P.planImportAll(d, emptyLocal(), planOpts()).part.repeats;
     const tr = r2.inserts.find((x) => x.import_id === "mm-tr")!;
     assert.deepEqual([tr.kind, tr.to_account_id, tr.category_id, tr.amount_minor], ["transfer", plan.accountIdOf["mm-a3"], null, 50000]);
-    assert.ok(r2.invalid.some((x) => x.uid === "mm-x5" && x.reason === "不認得的類型 5"));
+    assert.ok(r2.invalid.some((x) => x.uid === "mm-x5" && x.reason === "不支援的類型：5"));
   });
   test("34. 0-1 兩種：pauseImported true ⇒ paused_at 非 null；false ⇒ null、next_on＝nextDay", () => {
     const a = P.planImportAll(dump3(), emptyLocal(), planOpts(true)).part.repeats.inserts;
@@ -723,9 +723,9 @@ describe("F. 匯入", () => {
   });
   test("37. partSummary 文字逐字", () => {
     const { part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    assert.deepEqual(P.partSummary(part), { budgetLine: "預算 3 個（2 個單月覆寫）", repeatLine: "定期 4 條", skipLine: "略過 2：不是月預算、不認得的週期碼 9", tombLine: null });
+    assert.deepEqual(P.partSummary(part), { budgetLine: "預算 3 個（2 個單月覆寫）", repeatLine: "定期帳 4 筆", skipLine: "略過 2：目前只支援每月預算、不支援的重複週期：9", tombLine: null });
     const { part: empty } = P.planImportAll(M.mockImportDump("base"), emptyLocal(), planOpts());
-    assert.deepEqual(P.partSummary(empty), { budgetLine: "預算 0 個", repeatLine: "定期 0 條", skipLine: null, tombLine: null });
+    assert.deepEqual(P.partSummary(empty), { budgetLine: "預算 0 個", repeatLine: "定期帳 0 筆", skipLine: null, tombLine: null });
   });
 });
 
@@ -844,8 +844,8 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
         const rows = await db.select(`SELECT COUNT(*) AS n FROM tk_budgets WHERE id = $1`, [tid]);
         assert.equal(rows[0].n, 1);
       }
-      await assert.rejects(repo.setBudget({ kind: "category", categoryId: UNCAT_EXPENSE_ID }, null, 100), /未分類不設預算/);
-      await assert.rejects(repo.setBudget({ kind: "category", categoryId: "c-nope" }, null, 100), /這個分類已經不在了/);
+      await assert.rejects(repo.setBudget({ kind: "category", categoryId: UNCAT_EXPENSE_ID }, null, 100), /「未分類」不能設預算/);
+      await assert.rejects(repo.setBudget({ kind: "category", categoryId: "c-nope" }, null, 100), /這個分類已經刪除了/);
       await assert.rejects(repo.setBudget({ kind: "total" }, null, 0), /預算要是大於 0 的金額/);
       await assert.rejects(repo.setBudget({ kind: "total" }, null, 1.5), /預算要是大於 0 的金額/);
       const before = db ? db.ops.length : 0;
@@ -1027,7 +1027,7 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       assert.equal(r.position, 0);
       const r2 = await repo.createRepeat(dailyInput(acc.id, lunch.id, TODAY));
       assert.equal(r2.position, 1);
-      await assert.rejects(repo.createRepeat({ ...dailyInput(acc.id, lunch.id, TODAY), accountId: "nope" }), /這個帳戶已經不在了/);
+      await assert.rejects(repo.createRepeat({ ...dailyInput(acc.id, lunch.id, TODAY), accountId: "nope" }), /這個帳戶已經刪除了/);
       const m0 = db ? db.ops.length : 0;
       const same = await repo.updateRepeat(r.id, { note: "早餐" }, TODAY);
       assert.equal(same.updated_at, r.updated_at, "沒變 ⇒ 不寫");
@@ -1050,8 +1050,8 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       // 刪除／復原
       await repo.softDeleteRepeat(r2.id);
       assert.deepEqual((await repo.listRepeats()).map((x: RepeatRow) => x.id), [r.id]);
-      await assert.rejects(repo.updateRepeat(r2.id, { note: "x" }, TODAY), /這條規則已經刪除了/);
-      await assert.rejects(repo.setRepeatPaused(r2.id, true, TODAY), /這條規則已經刪除了/);
+      await assert.rejects(repo.updateRepeat(r2.id, { note: "x" }, TODAY), /這筆定期帳已經刪除了/);
+      await assert.rejects(repo.setRepeatPaused(r2.id, true, TODAY), /這筆定期帳已經刪除了/);
       await repo.restoreRepeat(r2.id);
       assert.equal((await repo.listRepeats()).length, 2);
       // 連帳
@@ -1065,7 +1065,7 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       assert.equal((await repo.getEntry(e.id)).repeat_id, r.id);
       if (db) assert.deepEqual(opsOf(db, m1).map((o) => Object.keys(o.cols).sort()), [["repeat_id", "updated_at"]]);
       await assert.rejects(repo.linkEntryToRepeat("nope", r.id), /這一筆已經刪除了/);
-      await assert.rejects(repo.linkEntryToRepeat(e.id, "nope"), /這條規則已經刪除了/);
+      await assert.rejects(repo.linkEntryToRepeat(e.id, "nope"), /這筆定期帳已經刪除了/);
     });
 
     test(`42c. 實體化的分批與 blocked：帳戶已刪 ⇒ blocked、游標不動、別條照記；超過 IMPORT_CHUNK 分批（${impl.name}）`, async () => {
@@ -1080,7 +1080,7 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       const res = await repo.materializeRepeats(TODAY, 6);
       if (db) assert.equal(db.batches - b0, 2, "帳每 IMPORT_CHUNK 筆一批");
       assert.equal(res.inserted, T.IMPORT_CHUNK + 10);
-      assert.deepEqual(res.blocked, [{ id: bad.id, reason: "這個帳戶已經不在了" }]);
+      assert.deepEqual(res.blocked, [{ id: bad.id, reason: "這個帳戶已經刪除了" }]);
       const rows: RepeatRow[] = await repo.listRepeats();
       assert.equal(rows.find((x) => x.id === bad.id)!.next_on, V.dayStep(TODAY, -1), "被擋 ⇒ 游標不動");
       assert.equal(rows.find((x) => x.id === big.id)!.next_on, V.dayStep(TODAY, 1));
@@ -1174,7 +1174,7 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
 });
 
 describe("G. 修正-資料（評審 findings 的回歸；R 編號對 ticket-plan-review.test.ts）", () => {
-  test("G1. shiftDayOf：沒改日期 ⇒ occurred_on；改過日期 ⇒ 找回原本的班次日；連上的那筆（id 不是 repeat: 形）⇒ null；規則看不懂 ⇒ null", () => {
+  test("G1. shiftDayOf：沒改日期 ⇒ occurred_on；改過日期 ⇒ 找回原本的班次日；連上的那筆（id 不是 repeat: 形）⇒ null；重複規則有誤 ⇒ null", () => {
     const r = rep("rs", fixedRule("daily", "2026-10-17"));
     const id17 = P.materializeId("rs", "2026-10-17");
     assert.equal(P.shiftDayOf(r, { id: id17, occurred_on: "2026-10-17" }, TODAY), "2026-10-17");
@@ -1217,13 +1217,13 @@ describe("G. 修正-資料（評審 findings 的回歸；R 編號對 ticket-plan
     assert.equal(P.partSummary(again.part).budgetLine, "預算 0 個");
   });
 
-  test("G5. 規則指到①會丟掉的幣別（匯率看不懂／代碼不是三個字母）⇒ invalid「幣別看不懂」；對不到任何幣別仍用帳戶幣別", () => {
+  test("G5. 規則指到①會丟掉的幣別（匯率看不懂／代碼不是三個字母）⇒ invalid「不支援這個幣別」；對不到任何幣別仍用帳戶幣別", () => {
     for (const bad of [{ iso: "JPY", rate: "abc" }, { iso: "J1", rate: "0.2" }]) {
       const d = dump3();
       d.currencies.push({ uid: "mm-c9", iso: bad.iso, is_main: false, rate: bad.rate, decimals: 0 });
       d.repeats![2].currency_uid = "mm-c9";
       const { part } = P.planImportAll(d, emptyLocal(), planOpts());
-      assert.ok(part.repeats.invalid.some((x) => x.uid === "mm-r3" && x.reason === "幣別看不懂"), bad.iso);
+      assert.ok(part.repeats.invalid.some((x) => x.uid === "mm-r3" && x.reason === "不支援這個幣別"), bad.iso);
       assert.equal(part.repeats.inserts.some((x) => x.import_id === "mm-r3"), false);
     }
   });

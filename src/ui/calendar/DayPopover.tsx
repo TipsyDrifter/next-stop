@@ -62,7 +62,7 @@ const GAP = 10;
 const EDGE = 8;
 
 /** 歷史班次唯讀（D-⑤-3）——鍵盤按在那種列上時的一句 */
-const HISTORY_MSG = "歷史班次唯讀——只能交代目前班次";
+const HISTORY_MSG = "過去的班次不能改——只能處理目前的班次";
 
 const ns = () => useNodeStore.getState();
 const ui = () => useUiStore.getState();

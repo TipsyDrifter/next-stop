@@ -72,7 +72,7 @@ test("settings 表有名詞：Rust 對每張表都記通知，核心 settings（
   assert.equal(countNoun("settings", 1), "1 項設定");
   assert.equal(
     mergeToastText([mk({ kind: "overwritten", tbl: "settings", row_id: "day_start_hour", col: "value", by_me: false })], null),
-    "有 1 項設定兩台改到同一格，留下後改的",
+    "有 1 項設定兩台都改過，留下後改的",
   );
 });
 
@@ -239,7 +239,7 @@ test("mergeToastText：單筆解不到名字 ⇒「1 則筆記」句", () => {
   assert.equal(mergeToastText([mk({ kind: "kept" })], null), "另一台刪過 1 則筆記，但這台改過——留著");
   assert.equal(
     mergeToastText([mk({ kind: "overwritten", col: "body", winner: "mine" })], null),
-    "有 1 則筆記兩台改到同一格，留下這台後改的",
+    "有 1 則筆記兩台都改過，留下這台後改的",
   );
 });
 
@@ -259,7 +259,7 @@ test("mergeToastText：同類同表 N 筆三種", () => {
   const ks = rs.map((n) => ({ ...n, kind: "kept" as const, tbl: "time_blocks" }));
   assert.equal(mergeToastText(ks, null), "另一台刪過 3 段時間，但這台改過——留著");
   const os = rs.slice(0, 2).map((n) => ({ ...n, kind: "overwritten" as const, col: "body" }));
-  assert.equal(mergeToastText(os, null), "有 2 則筆記兩台改到同一格，留下後改的");
+  assert.equal(mergeToastText(os, null), "有 2 則筆記兩台都改過，留下後改的");
 });
 
 test("mergeToastText：混合（含同類同表但有第三台）⇒「同步時有 N 處…」", () => {
@@ -289,7 +289,7 @@ test("§6.1 #24 的兩顆 toast：4 筆種子＝混合句；補的那一筆＝�
   const added = mk({ kind: "overwritten", tbl: "notes", col: "body", winner: "mine", at: "2026-10-17T09:00:00.000Z" });
   const list = [added, ...seed];
   const batch = mergeFreshSince(list, mergeToastKey(seed));
-  assert.equal(mergeToastText(batch, null), "有 1 則筆記兩台改到同一格，留下這台後改的");
+  assert.equal(mergeToastText(batch, null), "有 1 則筆記兩台都改過，留下這台後改的");
 });
 
 /* ── 主線④ #82：數的是物件，不是通知筆數 ── */
@@ -301,7 +301,7 @@ test("#82 反例：同一塊兩欄同時被蓋 ⇒ 一句列兩個欄名、不�
   const named = mergeToastText([a, b], "10/18 工作 09:00", cols);
   assert.equal(named, "『10/18 工作 09:00』的分類、結束時刻兩台都改過，留下另一台後改的");
   const unnamed = mergeToastText([a, b], null, cols);
-  assert.equal(unnamed, "有 1 段時間兩台改到同樣的 2 格，留下另一台後改的");
+  assert.equal(unnamed, "有 1 段時間兩台改到同樣的 2 處，留下另一台後改的");
   for (const s of [named, unnamed]) assert.ok(!s.includes("2 段"), s);
 });
 
@@ -324,7 +324,7 @@ test("#82：同一樣東西三欄以上只說幾個地方；兩樣東西各一�
   const cs = ["a", "b", "c"].map((col) => mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col }));
   assert.equal(mergeToastText(cs, "睡覺"), "『睡覺』有 3 個地方兩台都改過，留下另一台後改的");
   const two = [mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "a" }), mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b2", col: "a" })];
-  assert.equal(mergeToastText(two, null), "有 2 段時間兩台改到同一格，留下後改的");
+  assert.equal(mergeToastText(two, null), "有 2 段時間兩台都改過，留下後改的");
 });
 
 test("#82：混合句的 N 也是樣數（同一塊兩欄＋一則筆記 ⇒ 2 處）", () => {
@@ -363,8 +363,8 @@ test("#81：多樣東西全都不在了 ⇒ 結果句；有的在有的不在 �
 test("#81 → 磨光② A4：overwritten 的列在 gone 裡 ⇒ 不說「留下這台後改的」；不在集合裡照舊", () => {
   // 主線④ 時 overwritten 不看 gone；A4 起「那一列現在不在了」也用 gone 表示（syncStore 把 currentCells 的 gone 併進來）
   const o = mk({ kind: "overwritten", col: "body", winner: "mine" });
-  assert.equal(mergeToastText([o], null, undefined, new Set([mergeObjectKey(o)])), "有 1 則筆記兩台改到同一格，現在已經不在了");
-  assert.equal(mergeToastText([o], null, undefined, new Set()), "有 1 則筆記兩台改到同一格，留下這台後改的");
+  assert.equal(mergeToastText([o], null, undefined, new Set([mergeObjectKey(o)])), "有 1 則筆記兩台都改過，現在已經不在了");
+  assert.equal(mergeToastText([o], null, undefined, new Set()), "有 1 則筆記兩台都改過，留下這台後改的");
 });
 
 test("toast 長度：最長的單筆句（12 字名＋欄名）在 40 字內（#59 兩行上限）", () => {
@@ -470,9 +470,9 @@ test("A4 mergeToastText：單欄 overwritten 的 changed／gone（有名字、�
   const changed = new Set([mergeCellKey(o)]);
   const gone = new Set([mergeObjectKey(o)]);
   assert.equal(mergeToastText([o], "睡覺", cols, undefined, changed), "『睡覺』的結束時刻兩台都改過，之後又被整理過");
-  assert.equal(mergeToastText([o], null, cols, undefined, changed), "有 1 段時間兩台改到同一格，之後又被整理過");
+  assert.equal(mergeToastText([o], null, cols, undefined, changed), "有 1 段時間兩台都改過，之後又被整理過");
   assert.equal(mergeToastText([o], "睡覺", cols, gone), "『睡覺』的結束時刻兩台都改過，現在已經不在了");
-  assert.equal(mergeToastText([o], null, cols, gone), "有 1 段時間兩台改到同一格，現在已經不在了");
+  assert.equal(mergeToastText([o], null, cols, gone), "有 1 段時間兩台都改過，現在已經不在了");
   // 不在了優先於又被整理過
   assert.equal(mergeToastText([o], "睡覺", cols, gone, changed), "『睡覺』的結束時刻兩台都改過，現在已經不在了");
   // 別格的鍵不影響
@@ -486,7 +486,7 @@ test("A4 mergeToastText：同一樣東西多欄——任一欄 changed／gone �
   const cols = { category_id: "分類", ended_at: "結束時刻" };
   const changed = new Set([mergeCellKey(b)]);
   assert.equal(mergeToastText([a, b], "睡覺", cols, undefined, changed), "『睡覺』的分類、結束時刻兩台都改過，之後又被整理過");
-  assert.equal(mergeToastText([a, b], null, cols, undefined, changed), "有 1 段時間兩台改到同樣的 2 格，之後又被整理過");
+  assert.equal(mergeToastText([a, b], null, cols, undefined, changed), "有 1 段時間兩台改到同樣的 2 處，之後又被整理過");
   assert.equal(mergeToastText([a, b], "睡覺", cols, new Set([mergeObjectKey(a)])), "『睡覺』的分類、結束時刻兩台都改過，現在已經不在了");
   const cs = ["a", "b", "c"].map((col) => mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col }));
   assert.equal(mergeToastText(cs, "睡覺", undefined, undefined, new Set([mergeCellKey(cs[2])])), "『睡覺』有 3 個地方兩台都改過，之後又被整理過");
@@ -495,7 +495,7 @@ test("A4 mergeToastText：同一樣東西多欄——任一欄 changed／gone �
 test("A4 mergeToastText：多樣東西的句子不動；舊呼叫（不給 changed）逐字不變", () => {
   const two = [mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "a" }), mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b2", col: "a" })];
   const all = new Set(two.map(mergeCellKey));
-  assert.equal(mergeToastText(two, null, undefined, new Set(two.map(mergeObjectKey)), all), "有 2 段時間兩台改到同一格，留下後改的");
+  assert.equal(mergeToastText(two, null, undefined, new Set(two.map(mergeObjectKey)), all), "有 2 段時間兩台都改過，留下後改的");
   const o = mk({ kind: "overwritten", tbl: "nodes", col: "scheduled_time", winner: "theirs" });
   const cols = { scheduled_time: "時刻" };
   const old = mergeToastText([o], "車票『牙醫』", cols);
@@ -510,5 +510,5 @@ test("MERGE_TEXT：標題與兩組小標照契約（D-主-18 後標題改「最�
   assert.equal(MERGE_TEXT.groupOverwritten, "兩邊都改了、後改的留下");
   assert.equal(MERGE_TEXT.ack, "知道了");
   assert.equal(MERGE_TEXT.look, "看看");
-  assert.equal(MERGE_TEXT.ackFailed("橋接不通"), "沒清成：橋接不通");
+  assert.equal(MERGE_TEXT.ackFailed("橋接不通"), "沒清掉：橋接不通");
 });

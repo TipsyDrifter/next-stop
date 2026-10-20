@@ -63,7 +63,7 @@ export function MobileTicketCalendar() {
           )}
         </div>
       </div>
-      <p className="ns-tk-mcal-hint">點格子＝回清單，捲到那一天</p>
+      <p className="ns-tk-mcal-hint">點日期跳回那天的清單</p>
     </div>
   );
 }
@@ -77,7 +77,7 @@ function Cell({ c, dec, future, over, onPick }: { c: CalendarCell; dec: number; 
       ? "：沒有紀錄"
       : `：支出 ${moneyText(c.expense, dec, { whole: true })}${c.income !== 0 ? `、收入 ${moneyText(c.income, dec, { whole: true })}` : ""}`) +
     (c.isToday ? "（今天）" : "") +
-    (over ? "；本月總預算在這天超過" : "");
+    (over ? "；這天超出本月總預算" : "");
   const cls =
     "ns-tk-mcal-cell" +
     (c.inMonth ? "" : " is-out") +

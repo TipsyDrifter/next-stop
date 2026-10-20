@@ -96,7 +96,7 @@ export function showRescheduleToast(
   next: string,
 ): void {
   useUiStore.getState().showToast({
-    message: `已推到 ${whenText(next)}`,
+    message: `已推遲到 ${whenText(next)}`,
     actionLabel: "復原",
     onAction: () =>
       void useNodeStore
@@ -355,7 +355,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         // toast 是唯一的收據，並且要能反悔（WP3：拍板「可 undo」）。這裡的 undo＝把剛建的票收回去。
         ui().showToast({
           message: INBOX_TOAST,
-          actionLabel: "取消建立",
+          actionLabel: "取消",
           onAction: () => void ns().deleteNode(row.id),
         });
         return;
@@ -398,7 +398,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     if (row.child_total >= 5) {
       ui().askConfirm({
         title: `連同底下 ${row.child_total} 個子項一起刪除？`,
-        body: `『${row.name}』底下的節點會一起移除；10 秒內可從底部提示復原。`,
+        body: `『${row.name}』底下的項目也會一併刪除（10 秒內可復原）。`,
         confirmLabel: "刪除",
         danger: true,
         onConfirm: () => void run(),
@@ -430,7 +430,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       const row = selRow();
       if (!row) return;
       if (row.bucket !== "today") {
-        toast("誤點區的票不能排序——要排上今天請按 T");
+        toast("誤點區的車票不能排序——按 T 可排進今天");
         return;
       }
       // 主線②（D-主-10）：有時刻的票照時刻排、不能手排；手排座標＝沒時刻的 today 列

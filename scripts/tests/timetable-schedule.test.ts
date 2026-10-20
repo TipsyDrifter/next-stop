@@ -97,16 +97,16 @@ describe("1. comparePlan 的每一種 state 與準點邊界", () => {
     const c = comparePlan(item(), [span(T(14, 3), null)], 6, T(14, 30));
     assert.equal(c.state, "running");
     assert.equal(c.startDeltaMin, 3);
-    assert.equal(fmtPlanDelta(c, null), "行駛中・準點");
+    assert.equal(fmtPlanDelta(c, null), "運行中・準點");
   });
   test("running＋晚開始：+10 仍準點、+11 晚；提早也只寫準點", () => {
-    assert.equal(fmtPlanDelta(comparePlan(item(), [span(T(14, 10), null)], 6, T(14, 30)), null), "行駛中・準點");
+    assert.equal(fmtPlanDelta(comparePlan(item(), [span(T(14, 10), null)], 6, T(14, 30)), null), "運行中・準點");
     const c = comparePlan(item(), [span(T(14, 11), null)], 6, T(14, 30));
-    assert.equal(fmtPlanDelta(c, null), "行駛中・晚 11 分開始");
+    assert.equal(fmtPlanDelta(c, null), "運行中・晚 11 分開始");
     const early = comparePlan(item(), [span(T(13, 15), null)], 6, T(14, 30));
-    assert.equal(fmtPlanDelta(early, null), "行駛中・準點");
+    assert.equal(fmtPlanDelta(early, null), "運行中・準點");
   });
-  test("running 剛発車不到一分鐘也算行駛中（運行中的塊不當碎塊）", () => {
+  test("running 剛発車不到一分鐘也算運行中（運行中的塊不當碎塊）", () => {
     const c = comparePlan(item(), [span(T(14, 0), null)], 6, T(14, 0, 20));
     assert.equal(c.state, "running");
   });
@@ -209,7 +209,7 @@ describe("4. 碎塊與待確認", () => {
     assert.equal(c.state, "onTime");
     assert.equal(c.actualMs, MIN);
   });
-  test("待確認：算開始、不算時長、pendingCount 對、字補「（1 段待確認沒算）」", () => {
+  test("待確認：算開始、不算時長、pendingCount 對、字補「（不含 1 段待確認）」", () => {
     const pend = span(T(14, 20), T(17, 0), "n1", { pending: true });
     const ok = span(T(17, 5), T(17, 35));
     const c = comparePlan(item({ estimateMin: 30 }), [pend, ok], 6, T(18));
@@ -218,7 +218,7 @@ describe("4. 碎塊與待確認", () => {
     assert.equal(c.pendingCount, 1);
     assert.equal(c.actualMs, 30 * MIN);
     assert.equal(c.durDeltaMin, 0);
-    assert.equal(fmtPlanDelta(c, 30), "晚 20 分開始（1 段待確認沒算）");
+    assert.equal(fmtPlanDelta(c, 30), "晚 20 分開始（不含 1 段待確認）");
   });
   test("碎塊不算待確認數", () => {
     const c = comparePlan(item(), [span(T(14, 0), T(14, 0, 10), "n1", { pending: true }), span(T(14, 1), T(14, 20))], 6, T(15));
@@ -260,7 +260,7 @@ describe("5. 長短", () => {
     const c = comparePlan(item({ estimateMin: 60 }), [span(T(14, 0), null)], 6, T(14, 40));
     assert.equal(c.durDeltaMin, null);
     assert.equal(c.actualMs, 40 * MIN);
-    assert.equal(fmtPlanDelta(c, 60), "行駛中・準點・已 40m／預計 1h");
+    assert.equal(fmtPlanDelta(c, 60), "運行中・準點・已 40m／預計 1h");
   });
   test("沒實績 ⇒ 不寫長短（不寫「少 1h」）", () => {
     const c = comparePlan(item({ estimateMin: 60 }), [], 6, T(15));
@@ -434,7 +434,7 @@ describe("修正席：撤回寫不寫得回去、只有待確認塊不比長短"
     const c = comparePlan(item({ estimateMin: 60 }), [span(T(14, 2), T(17, 0), "n1", { pending: true })], 6, T(18));
     assert.equal(c.durDeltaMin, null);
     assert.equal(c.actualMs, 0);
-    assert.equal(fmtPlanDelta(c, 60), "準點（1 段待確認沒算）");
+    assert.equal(fmtPlanDelta(c, 60), "準點（不含 1 段待確認）");
   });
 });
 
@@ -546,7 +546,7 @@ describe("沙盒後修正 F4：從前一天續過來的塊不當開始", () => {
     assert.equal(fmtPlanDelta(c, 60), "接續前一天・少 15m");
     assert.equal(PLAN_TEXT.carried, "接續前一天");
   });
-  test("S9 那一型：前一天 01:00 起跑、跨過日界線 02:00 還在跑 ⇒ 隔天那班「行駛中・接續前一天」，不是準點", () => {
+  test("S9 那一型：前一天 01:00 起跑、跨過日界線 02:00 還在跑 ⇒ 隔天那班「運行中・接續前一天」，不是準點", () => {
     const run = span(T(1, 0), null); // 10/20 01:00 起（＝10/19 營業日的深夜）
     const now = T(2, 5);
     const next = rep(); // 10/20 那班 25:00（＝10/21 01:00）
@@ -556,7 +556,7 @@ describe("沙盒後修正 F4：從前一天續過來的塊不當開始", () => {
     assert.equal(c.carried, true);
     assert.equal(startOnTime(c), false);
     assert.equal(c.actualMs, 5 * MIN); // 只算窗內 02:00–02:05
-    assert.equal(fmtPlanDelta(c, 60), "行駛中・接續前一天・已 5m／預計 1h");
+    assert.equal(fmtPlanDelta(c, 60), "運行中・接續前一天・已 5m／預計 1h");
   });
   test("前一班不受影響：同一塊在前一天的窗內開始 ⇒ 前一班照常比開始", () => {
     const run = span(T(1, 0), null);

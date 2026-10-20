@@ -27,7 +27,7 @@ export interface ResolvedMergeLabel extends SyncRowLabel {
 const CORE_TABLES = new Set(["nodes", "work_logs", "occurrences"]);
 
 /** 核心 settings 表（目前只有 `day_start_hour`）：Rust 對每張表都記通知，KeyValue 也算，所以主線自己解名字 */
-const SETTINGS_COL_LABEL: Readonly<Record<string, string>> = { value: "設定值" };
+const SETTINGS_COL_LABEL: Readonly<Record<string, string>> = { value: "設定" };
 const SETTINGS_LABEL: Readonly<Record<string, string>> = { day_start_hour: "一天從幾點開始" };
 
 /**
@@ -71,7 +71,7 @@ export async function resolveMergeLabel(
       return { label: nodeLabel(node, 24), cols: CONFLICT_COL_LABEL, node };
     }
     // 乘務記錄與班次不查列、不可點（它們的主人是那張票；細節在該票的乘務記錄）
-    if (n.tbl === "work_logs") return { label: "一筆乘務記錄", cols: CONFLICT_COL_LABEL, generic: true };
+    if (n.tbl === "work_logs") return { label: "一筆時間記錄", cols: CONFLICT_COL_LABEL, generic: true };
     if (n.tbl === "occurrences") return { label: "一個班次", cols: CONFLICT_COL_LABEL, generic: true };
     if (n.tbl === "settings") {
       const known = Object.prototype.hasOwnProperty.call(SETTINGS_LABEL, n.row_id);

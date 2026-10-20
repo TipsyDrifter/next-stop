@@ -43,7 +43,7 @@ export function HotkeysTab() {
     <div className="ns-hk">
       {/* ⓪ 籤頂：導航／編輯雙模式——規格書鐵則翻成人話（文案在 hotkeyRows，跟 registry 同一份備援鍵字） */}
       <section className="ns-hk-intro">
-        <span className="techo-label block mb-1">導航模式・編輯模式</span>
+        <span className="techo-label block mb-1">選取時・打字時</span>
         <ul className="ns-hk-intro-list">
           {DUAL_MODE_NOTE.map((line) => (
             <li key={line} className="ns-note">

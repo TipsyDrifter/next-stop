@@ -14,7 +14,7 @@ import { isTaskSettled } from "./taskState";
 import "../timetable.css";
 
 /** 〈原型拍板〉2 的原句（已蓋済的票不能発車） */
-const SETTLED_ASIDE = "已蓋済——先取消済章";
+const SETTLED_ASIDE = "已蓋済——請先取消済章";
 
 export function TicketSheetDepart({ nodeId, close }: { nodeId: string; name: string; close(): void }) {
   const running = useTimetableStore((s) => s.running !== null && s.running.node_id === nodeId);

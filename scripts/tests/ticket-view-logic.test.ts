@@ -362,7 +362,7 @@ describe("0-7 收支口徑（統計、月曆、趨勢、路線花費共用）", 
       E({ occurred_on: "2026-10-02", category_id: "c-ghost", account_id: "a-ghost", route_id: "r-ghost", amount_minor: 1000 }),
       E({ occurred_on: "2026-10-02", amount_minor: 3000 }),
     ];
-    for (const [facet, label] of [["category", "（分類已不在）"], ["account", "（帳戶已不在）"], ["route", "（路線已刪除）"]] as const) {
+    for (const [facet, label] of [["category", "（分類已刪除）"], ["account", "（帳戶已刪除）"], ["route", "（路線已刪）"]] as const) {
       const b = breakdown(xs, r, facet, "expense", CTX);
       const gone = b.rows.find((x) => x.key === GONE_KEY);
       assert.ok(gone, facet);
@@ -423,14 +423,14 @@ describe("0-8 占比怎麼算", () => {
     assert.equal(facetAllowed("route", "a-card"), "route");
     assert.equal(facetAllowed("account", null), "account");
   });
-  test("0-8-5 路線切面：未掛路線一列（是最大的一列也不藏）、已刪除的路線一列", () => {
+  test("0-8-5 路線切面：無路線一列（是最大的一列也不藏）、已刪除的路線一列", () => {
     const xs = [
       E({ occurred_on: "2026-10-02", amount_minor: 50000 }),
       E({ occurred_on: "2026-10-02", route_id: "r-e", amount_minor: 3000 }),
       E({ occurred_on: "2026-10-02", route_id: "r-ghost", amount_minor: 100 }),
     ];
     const b = breakdown(xs, r, "route", "expense", CTX);
-    assert.deepEqual(b.rows.map((x) => [x.key, x.label]), [[NO_ROUTE_KEY, "未掛路線"], ["r-e", "全端開發"], [GONE_KEY, "（路線已刪除）"]]);
+    assert.deepEqual(b.rows.map((x) => [x.key, x.label]), [[NO_ROUTE_KEY, "無路線"], ["r-e", "全端開發"], [GONE_KEY, "（路線已刪）"]]);
   });
   test("0-8-6 百分比四捨五入到整數；0 < share < 0.5% ⇒ <1%；加總不補差", () => {
     assert.equal(shareText(1 / 3), "33%");
@@ -626,7 +626,7 @@ describe("B. 統計", () => {
     const y = monthlyTrend(FIX, trendMonths({ span: "year", key: "2026" }));
     assert.deepEqual(y[11], { month: "2026-12", income: 0, expense: 0 }); // 未來的月照畫、值為 0
   });
-  test("8. breakdown(category)：主＝自己＋子；有子又直接掛主 ⇒「未細分」；只有直接掛 ⇒ 沒有；分類找不到 ⇒ GONE；未分類最後、GONE 在它之後", () => {
+  test("8. breakdown(category)：主＝自己＋子；有子又直接掛主 ⇒「未細分」；只有直接掛 ⇒ 沒有；找不到這個分類 ⇒ GONE；未分類最後、GONE 在它之後", () => {
     const xs = [
       E({ occurred_on: "2026-10-02", category_id: "c-lunch", amount_minor: 10000 }),
       E({ occurred_on: "2026-10-02", category_id: "c-lunch", amount_minor: 5000 }),
@@ -646,7 +646,7 @@ describe("B. 統計", () => {
         ["p-traffic", "🚖 交通", 6000, 1],
         ["p-other", "其他", 4000, 1],
         [UNCAT_EXPENSE_ID, "未分類", 50000, 1],
-        [GONE_KEY, "（分類已不在）", 1000, 1],
+        [GONE_KEY, "（分類已刪除）", 1000, 1],
       ],
     );
     assert.deepEqual(b.rows[0].children?.map((x) => [x.key, x.label, x.minor, x.count]), [
@@ -699,10 +699,10 @@ describe("B. 統計", () => {
     assert.deepEqual(b.rows.map((x) => [x.key, x.label, x.minor, x.count]), [
       ["a-usd", "美金帳戶", 39438, 2],
       ["a-cash", "現金", 8000, 1],
-      [GONE_KEY, "（帳戶已不在）", 100, 1],
+      [GONE_KEY, "（帳戶已刪除）", 100, 1],
     ]);
   });
-  test("11. breakdown(route)：未掛路線一列、已刪路線一列、color 帶出；金額大到小、同額照 routeOrder", () => {
+  test("11. breakdown(route)：無路線一列、已刪路線一列、color 帶出；金額大到小、同額照 routeOrder", () => {
     const xs = [
       E({ occurred_on: "2026-10-02", route_id: "r-e", amount_minor: 3000 }),
       E({ occurred_on: "2026-10-02", route_id: "r-j", amount_minor: 3000 }),
@@ -712,11 +712,11 @@ describe("B. 統計", () => {
     ];
     const b = breakdown(xs, r, "route", "expense", CTX);
     assert.deepEqual(b.rows.map((x) => [x.key, x.label, x.color]), [
-      [NO_ROUTE_KEY, "未掛路線", null],
+      [NO_ROUTE_KEY, "無路線", null],
       ["r-j", "日文", "var(--route-preset-2)"],
       ["r-e", "全端開發", "var(--route-preset-1)"],
       ["r-l", "體能", "var(--route-preset-3)"],
-      [GONE_KEY, "（路線已刪除）", null],
+      [GONE_KEY, "（路線已刪）", null],
     ]);
   });
   test("12. shareText 三種（0、<1%、四捨五入）", () => {
@@ -999,13 +999,13 @@ describe("D. 搜尋", () => {
     ]);
     assert.deepEqual(filterChips({ ...EMPTY_FILTER, categoryIds: ["c-lunch", "c-bus", "p-life"], routeId: "none" }, CTX), [
       { key: "categoryIds", label: "分類 3 個" },
-      { key: "routeId", label: "未掛路線" },
+      { key: "routeId", label: "無路線" },
     ]);
     assert.deepEqual(filterChips({ ...EMPTY_FILTER, from: "2025-12-01", toExcl: "2026-02-01" }, CTX), [{ key: "from", label: "期間 2025/12/1–2026/1/31" }]);
     assert.deepEqual(filterChips({ ...EMPTY_FILTER, from: "2026-10-01" }, CTX), [{ key: "from", label: "期間 10/1 起" }]);
     assert.deepEqual(filterChips({ ...EMPTY_FILTER, accountId: "a-ghost", routeId: "r-ghost" }, CTX), [
-      { key: "accountId", label: "帳戶 （帳戶已不在）" },
-      { key: "routeId", label: "路線 （路線已刪除）" },
+      { key: "accountId", label: "帳戶 （帳戶已刪除）" },
+      { key: "routeId", label: "路線 （路線已刪）" },
     ]);
     assert.deepEqual(filterChips(EMPTY_FILTER, CTX), []);
   });

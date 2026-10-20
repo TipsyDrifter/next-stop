@@ -301,7 +301,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
           </li>
           <li className="cut">
             <button type="button" data-defer-item className="ns-defer-item" onClick={editRule}>
-              <span>編輯重複規則…</span>
+              <span>編輯重複週期…</span>
               <span className="when">{describeRule(rule)}</span>
             </button>
           </li>
@@ -345,7 +345,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
             type="button"
             data-defer-item
             disabled={!row.scheduled_on}
-            title={row.scheduled_on ? "票會離開今日，流入旅客筆記的收件匣" : "這張票本來就沒有執行日"}
+            title={row.scheduled_on ? "票會離開今日，流入旅客筆記的收件匣" : "這張車票沒有設定執行日"}
             className="ns-defer-item warn"
             onClick={clearDate}
           >
@@ -361,7 +361,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
               Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡。
               min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4） */}
           <DatePicker
-            label="選擇執行日"
+            label="選執行日"
             value={row.scheduled_on ?? dateKey}
             min={dateKey}
             onPick={(v) => {

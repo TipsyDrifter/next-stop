@@ -282,7 +282,7 @@ export interface GoalInput {
 export const GOAL_NAME_MAX = 24;
 
 /** 驗證字（0-4；`TT_TEXT.tags.goalScopeEmpty` 同字） */
-export const GOAL_SCOPE_EMPTY = "至少選一個分類或荷札";
+export const GOAL_SCOPE_EMPTY = "請選至少一個分類或荷札";
 
 /**
  * 驗證並整理（兩個 repository 共用，訊息逐字相同）。不合法 ⇒ `RangeError("<人話>")`（store 接住後 toast 它的 message）。
@@ -293,8 +293,8 @@ export const GOAL_SCOPE_EMPTY = "至少選一個分類或荷札";
  */
 export function normalizeGoalInput(input: GoalInput): GoalInput {
   const name = input.name.trim();
-  if (!name) throw new RangeError("目標名稱不能是空的");
-  if (Array.from(name).length > GOAL_NAME_MAX) throw new RangeError(`目標名稱最多 ${GOAL_NAME_MAX} 個字`);
+  if (!name) throw new RangeError("請輸入目標名稱");
+  if (Array.from(name).length > GOAL_NAME_MAX) throw new RangeError(`目標名稱最多 ${GOAL_NAME_MAX} 字`);
   const categoryIds: string[] = [];
   for (const id of input.categoryIds) if (typeof id === "string" && id && !categoryIds.includes(id)) categoryIds.push(id);
   let tagNames: string[] | undefined;
@@ -309,14 +309,14 @@ export function normalizeGoalInput(input: GoalInput): GoalInput {
   if (!categoryIds.length && !(tagNames && tagNames.length)) throw new RangeError(GOAL_SCOPE_EMPTY);
   const p = input.period;
   if (p !== "day" && p !== "week" && p !== "month" && p !== "since" && p !== "until" && p !== "range") {
-    throw new RangeError("期間要選每日、每週、每月、從某天起、到某天為止或單一區間");
+    throw new RangeError("請選擇目標期間");
   }
-  if (input.direction !== "atLeast" && input.direction !== "atMost") throw new RangeError("方向要選至少或至多");
+  if (input.direction !== "atLeast" && input.direction !== "atMost") throw new RangeError("請選擇「至少」或「至多」");
   if (!Number.isInteger(input.targetMin) || input.targetMin <= 0) throw new RangeError("目標時數要大於 0");
   let startOn: string | null = null;
   let endOn: string | null = null;
   if (p === "since" || p === "until" || p === "range") {
-    if (!isRealDateKey(input.startOn)) throw new RangeError("要選一個起點日期");
+    if (!isRealDateKey(input.startOn)) throw new RangeError("請選開始日期");
     startOn = input.startOn;
   }
   if (p === "until" || p === "range") {

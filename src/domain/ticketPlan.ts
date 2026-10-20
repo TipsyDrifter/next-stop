@@ -147,24 +147,24 @@ export interface PlanImportPart {
 
 export const PLAN_TEXT = {
   total: "總預算",
-  ruleBad: "規則看不懂",
-  accGone: "（帳戶已不在）",
-  catGone: "（分類已不在）",
+  ruleBad: "重複規則有誤",
+  accGone: "（帳戶已刪除）",
+  catGone: "（分類已刪除）",
   paused: "已暫停",
   ended: "已結束",
   next: (d: string) => `下一班 ${d}`,
-  weekNone: "每週要選至少一天",
-  monthNone: "每月要選至少一天",
-  startBad: "起算日看不懂",
-  untilBad: "終止日要在起算日之後",
+  weekNone: "每週至少選一天",
+  monthNone: "每月至少選一天",
+  startBad: "開始日期格式有誤",
+  untilBad: "結束日期要在開始日期之後",
   budgetLine: (scopes: number, overrides: number) => `預算 ${scopes} 個${overrides > 0 ? `（${overrides} 個單月覆寫）` : ""}`,
-  repeatLine: (n: number) => `定期 ${n} 條`,
+  repeatLine: (n: number) => `定期帳 ${n} 筆`,
   skipLine: (n: number, reasons: string) => `略過 ${n}：${reasons}`,
   /** 本機刪過（墓碑）而跳過的預算列／定期規則（沙盒代驗 D2）；兩個都 0 ⇒ 不出。單位和上一行同：預算「個」、定期「條」 */
   tombLine: (budgets: number, repeats: number) =>
     budgets + repeats === 0
       ? null
-      : `略過 ${[budgets > 0 ? `${budgets} 個` : "", repeats > 0 ? `${repeats} 條` : ""].filter(Boolean).join(" · ")}（這台刪過）`,
+      : `略過 ${[budgets > 0 ? `${budgets} 個` : "", repeats > 0 ? `${repeats} 條` : ""].filter(Boolean).join(" · ")}（已在這台裝置刪除）`,
 } as const;
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -343,10 +343,10 @@ export function parseBudgetAmount(text: string, main: { code: string; decimals: 
 /** 可以設預算的分類（✎-14）：支出、未刪、不是未分類；不合 ⇒ RangeError */
 export function assertBudgetScope(scope: BudgetScope, catById: Readonly<Record<string, CategoryRow>>): void {
   if (scope.kind === "total") return;
-  if (isUncat(scope.categoryId)) throw new RangeError("未分類不設預算");
+  if (isUncat(scope.categoryId)) throw new RangeError("「未分類」不能設預算");
   const c = catById[scope.categoryId];
-  if (!c || c.deleted_at !== null) throw new RangeError("這個分類已經不在了");
-  if (c.kind !== "expense") throw new RangeError("預算只管支出的分類");
+  if (!c || c.deleted_at !== null) throw new RangeError("這個分類已經刪除了");
+  if (c.kind !== "expense") throw new RangeError("只有支出分類可以設預算");
 }
 
 /** 新的一列預算（id 由對象＋月決定；position 由呼叫端給） */
@@ -610,7 +610,7 @@ function uniqSorted(list: readonly number[], lo: number, hi: number): number[] {
 export function draftToRepeatInput(d: RepeatDraft, ctx: EntryCtx): NewRepeatInput {
   if (!d.accountId) throw new RangeError("選一個帳戶");
   const account = ctx.accById[d.accountId];
-  if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經不在了");
+  if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經刪除了");
   const currency = d.kind === "transfer" ? account.currency : d.currency;
   const cur = ctx.curByCode[currency];
   if (!cur) throw new RangeError(`沒有這個幣別：${currency}`);
@@ -707,7 +707,7 @@ export function applyRepeatPatch(
   today: string,
   nowIso: string,
 ): { row: RepeatRow; cols: Record<string, unknown> } {
-  if (r.deleted_at !== null) throw new RangeError("這條規則已經刪除了");
+  if (r.deleted_at !== null) throw new RangeError("這筆定期帳已經刪除了");
   const oldRule = parseFixedRule(r.rule);
   const kind = patch.kind ?? r.kind;
   const accountId = patch.accountId ?? r.account_id;
@@ -859,20 +859,20 @@ export function planBudgetImport(
     if (a.is_del) continue;
     const b = byUid[a.budget_uid];
     if (!b) {
-      out.invalid.push({ uid: a.uid, reason: "預算對象找不到" });
+      out.invalid.push({ uid: a.uid, reason: "找不到設預算的分類" });
       continue;
     }
     if (b.is_del) continue;
     if (b.do_type !== 1) {
-      out.invalid.push({ uid: a.uid, reason: "收入預算（本版只管支出）" });
+      out.invalid.push({ uid: a.uid, reason: "收入預算（目前只支援支出預算）" });
       continue;
     }
     if (b.period_type !== MM_PERIOD_MONTH) {
-      out.invalid.push({ uid: a.uid, reason: "不是月預算" });
+      out.invalid.push({ uid: a.uid, reason: "目前只支援每月預算" });
       continue;
     }
     if (b.transfer_type !== 0) {
-      out.invalid.push({ uid: a.uid, reason: "不認得的預算型態" });
+      out.invalid.push({ uid: a.uid, reason: "不支援這種預算類型" });
       continue;
     }
     let scope: BudgetScope;
@@ -881,33 +881,33 @@ export function planBudgetImport(
       const t = b.target_uid ?? "";
       const cid = t ? plan.categoryIdOf[t] : undefined;
       if (!cid) {
-        out.invalid.push({ uid: a.uid, reason: "分類找不到" });
+        out.invalid.push({ uid: a.uid, reason: "找不到這個分類" });
         continue;
       }
       if (isUncat(cid)) {
-        out.invalid.push({ uid: a.uid, reason: "未分類不設預算" });
+        out.invalid.push({ uid: a.uid, reason: "「未分類」不能設預算" });
         continue;
       }
       if (mmCatType[t] !== undefined && mmCatType[t] !== 1) {
-        out.invalid.push({ uid: a.uid, reason: "分類和收支類型對不上" });
+        out.invalid.push({ uid: a.uid, reason: "這個分類不屬於目前的收支類型" });
         continue;
       }
       scope = { kind: "category", categoryId: cid };
     }
     const month = mmMonth(a.budget_period);
     if (month === undefined) {
-      out.invalid.push({ uid: a.uid, reason: "看不懂的期間" });
+      out.invalid.push({ uid: a.uid, reason: "時間範圍格式有誤" });
       continue;
     }
     let amount: number;
     try {
       amount = minorFromDecimal(a.amount, dec, "round");
     } catch {
-      out.invalid.push({ uid: a.uid, reason: "金額看不懂" });
+      out.invalid.push({ uid: a.uid, reason: "金額格式有誤" });
       continue;
     }
     if (amount <= 0) {
-      out.invalid.push({ uid: a.uid, reason: "金額看不懂" });
+      out.invalid.push({ uid: a.uid, reason: "金額格式有誤" });
       continue;
     }
     const id = budgetId(scope, month);
@@ -1029,19 +1029,19 @@ export function planRepeatImport(
     else if (t.do_type === 1) kind = "expense";
     else if (t.do_type === 3 && t.to_asset_uid) kind = "transfer";
     else {
-      out.invalid.push({ uid: t.uid, reason: `不認得的類型 ${t.do_type}` });
+      out.invalid.push({ uid: t.uid, reason: `不支援的類型：${t.do_type}` });
       continue;
     }
     const accountId = t.asset_uid ? plan.accountIdOf[t.asset_uid] : undefined;
     if (!accountId || !accCur[accountId]) {
-      out.invalid.push({ uid: t.uid, reason: "帳戶找不到" });
+      out.invalid.push({ uid: t.uid, reason: "找不到這個帳戶" });
       continue;
     }
     let toAccountId: string | null = null;
     if (kind === "transfer") {
       toAccountId = (t.to_asset_uid && plan.accountIdOf[t.to_asset_uid]) || null;
       if (!toAccountId) {
-        out.invalid.push({ uid: t.uid, reason: "帳戶找不到" });
+        out.invalid.push({ uid: t.uid, reason: "找不到這個帳戶" });
         continue;
       }
       if (toAccountId === accountId) {
@@ -1057,7 +1057,7 @@ export function planRepeatImport(
     }
     const accCode = accCur[accountId];
     if (t.currency_uid && badCurUid.has(t.currency_uid) && !curByUid[t.currency_uid]) {
-      out.invalid.push({ uid: t.uid, reason: "幣別看不懂" });
+      out.invalid.push({ uid: t.uid, reason: "不支援這個幣別" });
       continue;
     }
     const txCur = t.currency_uid ? curByUid[t.currency_uid] : undefined;
@@ -1070,7 +1070,7 @@ export function planRepeatImport(
         // 轉帳的幣別跟著轉出帳戶（§4.3）：以備份匯率折成帳戶幣別（同①修正席步驟 5）
         const from = curByIso[currency];
         const to = curByIso[accCode];
-        if (!from || !to) throw new RangeError("幣別看不懂");
+        if (!from || !to) throw new RangeError("不支援這個幣別");
         amount = convertMinor(
           amount,
           { decimals: from.decimals, rate_to_main: from.is_main ? "1" : importRate(from.rate) },
@@ -1079,21 +1079,21 @@ export function planRepeatImport(
         currency = accCode;
       }
     } catch {
-      out.invalid.push({ uid: t.uid, reason: "金額看不懂" });
+      out.invalid.push({ uid: t.uid, reason: "金額格式有誤" });
       continue;
     }
     if (amount === 0 || (amount < 0 && kind !== "expense")) {
-      out.invalid.push({ uid: t.uid, reason: "金額看不懂" });
+      out.invalid.push({ uid: t.uid, reason: "金額格式有誤" });
       continue;
     }
     const nextDay = localDayOf(t.next_date);
     if (!nextDay) {
-      out.invalid.push({ uid: t.uid, reason: "下一班日期看不懂" });
+      out.invalid.push({ uid: t.uid, reason: "下一班日期格式有誤" });
       continue;
     }
     const rule = mmRepeatRule(t.repeat_type, nextDay, t.end_date > 0 ? localDayOf(t.end_date) || null : null);
     if (!rule) {
-      out.invalid.push({ uid: t.uid, reason: `不認得的週期碼 ${t.repeat_type}` });
+      out.invalid.push({ uid: t.uid, reason: `不支援的重複週期：${t.repeat_type}` });
       continue;
     }
     const id = ticketId("moneymanager:repeat:" + t.uid);

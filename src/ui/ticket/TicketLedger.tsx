@@ -106,7 +106,7 @@ export function groupLabel(key: string): string {
 
 /** 帳戶名；同名的未刪帳戶（兩張「悠遊卡」）後面補「（群組）」 */
 export function acctLabel(a: AccountRow | undefined, accounts: readonly AccountRow[]): string {
-  if (!a) return "（帳戶已不在）";
+  if (!a) return "（帳戶已刪除）";
   const dup = accounts.some((x) => x.id !== a.id && x.deleted_at === null && x.name === a.name);
   return dup ? `${a.name}（${groupLabel(a.group_key)}）` : a.name;
 }
@@ -153,7 +153,7 @@ export function EntryCat({ e }: { e: EntryRow }) {
   }
   if (!e.category_id || isUncat(e.category_id)) return <span className="unc">未分類</span>;
   const c: CategoryRow | undefined = catById[e.category_id];
-  if (!c) return <span className="unc">（分類已不在）</span>;
+  if (!c) return <span className="unc">（分類已刪除）</span>;
   const p = c.parent_id ? catById[c.parent_id] : undefined;
   if (!p) return <>{c.name}</>;
   return (
@@ -557,9 +557,9 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
                   type="button"
                   onMouseDown={(ev) => ev.preventDefault()}
                   onClick={() => void store().loadOlderMonth()}
-                  title={autoLoad ? "捲到底會自動接上" : undefined}
+                  title={autoLoad ? "捲到底會自動載入" : undefined}
                 >
-                  {autoLoad ? "繼續往前" : "前幾個月沒有紀錄，再往前翻"} · {monthTitle(prevMonth)}
+                  {autoLoad ? "繼續往前" : "前幾個月沒紀錄，再往前翻"} · {monthTitle(prevMonth)}
                   <TkIcon name="caret" size={11} />
                 </button>
               </li>

@@ -119,7 +119,7 @@ function ConfirmDialogInner({ confirm, onClose }: { confirm: ConfirmState; onClo
         {typing && (
           <div className="ns-confirm-type">
             <label htmlFor={typeId} className="ns-note ns-confirm-type-hint">
-              {confirm.typeHint ?? `輸入「${word}」才能按下去`}
+              {confirm.typeHint ?? `請輸入「${word}」確認`}
             </label>
             <input
               ref={inputRef}

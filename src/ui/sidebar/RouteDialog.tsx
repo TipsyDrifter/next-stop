@@ -112,8 +112,8 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
     const body =
       kind === "line"
         ? childRouteCount > 0
-          ? `底下的 ${childRouteCount} 條路線，連同其下所有支線、列車、車廂、車票會一起刪除；10 秒內可復原。`
-          : "會連同其下所有內容一起刪除；10 秒內可復原。"
+          ? `底下的 ${childRouteCount} 條路線與所有支線、列車、車廂、車票會一起刪除；10 秒內可復原。`
+          : "底下的所有內容會一起刪除；10 秒內可復原。"
         : "這條路線底下的支線、列車、車廂、車票會一起刪除；10 秒內可復原。";
     // 別線的附加句（接縫 #62）：這裡沒載底下的樹 ⇒ descendantIds 傳 []，由該線自己補查；沒有線填＝空字串、框的字不變
     const hints = await collectDeleteHints(target, []);
@@ -170,7 +170,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={kind === "line" ? "例：工作、學習、身體" : "例：全端開發"}
+            placeholder={kind === "line" ? "例：工作、學習、健康" : "例：日文檢定、年度旅遊"}
             className="techo-input w-full font-display text-[16px] tracking-[0.04em]"
           />
         </div>
@@ -214,7 +214,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
                     onKeyDown={onKeyDown}
                     placeholder="#4e6e8e"
                     spellCheck={false}
-                    aria-label="自訂色碼"
+                    aria-label="自訂顏色"
                     className="techo-input w-full font-latin text-[12.5px]"
                   />
                 </div>
@@ -223,7 +223,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
 
             <div>
               <label className="techo-label block mb-1" htmlFor="route-dialog-code">
-                代碼 <span className="tracking-normal">（選填・≤4 字・大寫）</span>
+                代碼 <span className="tracking-normal">（選填・最多 4 個大寫字母）</span>
               </label>
               <input
                 id="route-dialog-code"
@@ -237,15 +237,14 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
               />
               {codeTaken && (
                 <p className="ns-note mt-1.5">
-                  代碼「{codeVal}」已有其他路線使用——不影響儲存，只是徽章會長得一樣。
-                </p>
+                  已有其他路線使用「{codeVal}」——仍可儲存，只是圖示會重複。</p>
               )}
             </div>
           </>
         )}
 
         <div className="flex items-center justify-end gap-2 pt-1">
-          {trimmedName.length === 0 && <span className="ns-note mr-auto">名稱不能空白</span>}
+          {trimmedName.length === 0 && <span className="ns-note mr-auto">請輸入名稱</span>}
           <button type="button" onClick={close} className="btn-ghost ns-btn">
             取消
           </button>
@@ -261,10 +260,10 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
                 ? childRouteCount > 0
                   ? `連同底下 ${childRouteCount} 條路線一起刪除；10 秒內可復原。`
                   : "刪除這條幹線；10 秒內可復原。"
-                : "連同其下所有內容一起刪除；10 秒內可復原。"}
+                : "連同底下所有內容一起刪除；10 秒內可復原。"}
             </p>
             <button type="button" onClick={requestDelete} className="btn-ghost ns-btn-danger ns-btn ns-btn--sm shrink-0">
-              刪除這條{kindLabel}
+              刪除{kindLabel}
             </button>
           </div>
         )}

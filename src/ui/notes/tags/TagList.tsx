@@ -166,7 +166,7 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
   if (!total)
     return (
       <div ref={boxRef} className="ns-notes-taglist">
-        <p className="ns-notes-tagempty">還沒有東西掛著這個荷札</p>
+        <p className="ns-notes-tagempty">還沒有東西加上這個荷札</p>
       </div>
     );
 
@@ -262,7 +262,7 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
   return (
     <div ref={boxRef} className="ns-notes-taglist">
       {section(
-        "車票・列車車廂",
+        "車票・列車・車廂",
         groups.nodes.open.length + groups.nodes.done.length,
         <>
           {groups.nodes.open.length > 0 && <ul className="ns-notes-tagrows">{groups.nodes.open.map(nodeRow)}</ul>}

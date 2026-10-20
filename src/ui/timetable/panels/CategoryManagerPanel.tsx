@@ -259,7 +259,7 @@ function GlyphInput({ cat }: { cat: TimeCategoryRow }) {
         }
       }}
       onFocus={(e) => e.currentTarget.select()}
-      aria-label={`${cat.name} 的圓牌字`}
+      aria-label={`${cat.name} 的縮寫字`}
       enterKeyHint="done"
       spellCheck={false}
       autoComplete="off"
@@ -391,7 +391,7 @@ function CategoryRow({
             <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => void archiveCategory(cat.id, true)}>
               封存
             </button>
-            <p className="ns-tt-panel-sub ns-tt-mgr-xnote">封存＝發車台、通知格、系統匣都不再出現；過去的時間塊照常顯示。不提供刪除。</p>
+            <p className="ns-tt-panel-sub ns-tt-mgr-xnote">封存後不會再出現在發車台與選單，但過去的時間塊會保留（無法徹底刪除）。</p>
             <p className="ns-tt-panel-sub ns-tt-mgr-xnote">{TX.catNote}</p>
           </div>
         </Expand>
@@ -563,7 +563,7 @@ export function CategoryManagerPanel(_props: PanelProps) {
       <section className="ns-tt-mgr-settings">
         <h4 className="ns-tt-mgr-sec">設定</h4>
         <label className="ns-tt-setting">
-          <span className="ns-tt-setting-k">長時間運行的保險上限</span>
+          <span className="ns-tt-setting-k">忘記停車的提醒上限</span>
           <select className="ns-tt-select" value={String(longRunMaxMin)} onChange={(e) => void setLongRunMax(Number(e.target.value))}>
             {longRunOpts.map((o) => (
               <option key={o.v} value={String(o.v)}>

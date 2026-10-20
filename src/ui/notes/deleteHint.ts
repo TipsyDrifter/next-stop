@@ -30,5 +30,5 @@ export async function notesDeleteHint(node: NodeRow, descendantIds: readonly str
   const ids = Array.from(new Set(await idsToCount(node, descendantIds)));
   const n = await noteRepo.countByNodes(ids);
   if (!n) return null;
-  return `有 ${n} 則筆記掛在這裡（含底下的節點）。筆記不會跟著刪，之後會顯示「原節點已刪除」，可以再掛到別處。`;
+  return `這裡（含底下項目）掛了 ${n} 則筆記；筆記不會跟著刪，之後可改掛別處。`;
 }

@@ -33,8 +33,8 @@ export interface LinkInfo {
 }
 
 /** 連到的東西被刪掉時的顯示（② 契約 0-15、§5.13 `LINK_DELETED`／`LINK_MISSING`；store 的 TT_TEXT 轉出這兩個） */
-export const linkDeletedText = (kindLabel: string): string => `（原${kindLabel}已刪除）`;
-export const LINK_MISSING_TEXT = "（原任務已刪除）";
+export const linkDeletedText = (kindLabel: string): string => `（原${kindLabel}已刪）`;
+export const LINK_MISSING_TEXT = "（原項目已刪）";
 
 type LinkCols = { node_id: string | null; route_id: string | null };
 

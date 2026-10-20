@@ -82,10 +82,10 @@ export function DaySummary({ dayKey }: DaySummaryProps) {
   const showYesterday = isToday && now - w.start < 60 * MIN;
 
   return (
-    <section className="ns-tt-day" aria-label="本日合計">
+    <section className="ns-tt-day" aria-label="今日合計">
       <div className="ns-tt-day-top">
         <div>
-          <div className="ns-tt-day-lbl">本日已記錄</div>
+          <div className="ns-tt-day-lbl">今日已記錄</div>
           <div className="ns-tt-day-big ns-tt-num">{fmtDur(recorded)}</div>
         </div>
         <div className="ns-tt-day-right">
@@ -94,7 +94,7 @@ export function DaySummary({ dayKey }: DaySummaryProps) {
               未記錄 <span className="ns-tt-num">{fmtDur(gap)}</span>
             </div>
           ) : (
-            <div className="ns-tt-day-lbl">沒有空白</div>
+            <div className="ns-tt-day-lbl">沒有未記錄時段</div>
           )}
           {showYesterday && (
             <button type="button" className="ns-tt-yday" onClick={() => void setDayKey(yesterdayKey(dayKey))}>

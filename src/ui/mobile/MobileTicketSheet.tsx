@@ -118,7 +118,7 @@ export function MobileTicketSheet({
         initial=""
         placeholder="寫一行剛才做了什麼"
         submitLabel="記下"
-        inputLabel="新增乘務記錄"
+        inputLabel="新增工作日誌"
         onSubmit={(body) => {
           onLog(body);
           onClose();
@@ -162,7 +162,7 @@ export function MobileTicketSheet({
   if (picking) {
     return (
       <MobileDatePicker
-        title="選擇執行日"
+        title="選執行日"
         value={card.scheduledOn}
         min={today}
         quick={[]}
@@ -215,7 +215,7 @@ export function MobileTicketSheet({
     );
   } else if (card.readOnly) {
     // 最後一道守門：定期券的歷史班次不出單發票那組項目（推遲／幾點…／清除執行日）
-    items = <p className="m-sheet-item is-disabled">歷史班次唯讀</p>;
+    items = <p className="m-sheet-item is-disabled">過去的班次不能改</p>;
   } else if (settled) {
     items = <p className="m-sheet-item is-disabled">已蓋済——先取消済章才能推遲</p>;
   } else {
@@ -246,7 +246,7 @@ export function MobileTicketSheet({
           </span>
         </button>
         {card.scheduledOn === null ? (
-          <p className="m-sheet-item is-disabled">清除執行日（本來就沒排）</p>
+          <p className="m-sheet-item is-disabled">清除執行日（目前未排）</p>
         ) : (
           <button type="button" onClick={run(() => onDefer(null))} className="m-sheet-item m-sch-row">
             清除執行日

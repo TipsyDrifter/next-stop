@@ -25,7 +25,7 @@ const TITLE: Record<TicketDialog["kind"], string> = {
   import: "從財務管家匯入",
   budgets: "預算", // 第③階段（③契約 §5.2、§5.3；Stage 0 甲席掛樁）
   repeats: "定期帳",
-  repeat: "定期規則",
+  repeat: "定期帳",
 };
 
 export function DesktopDialogHost() {
@@ -52,7 +52,7 @@ export function DesktopDialogHost() {
       return;
     }
     useUiStore.getState().askConfirm({
-      title: dialog.kind === "repeat" && dialog.id === null ? "放棄這條規則？" : "放棄這次的修改？",
+      title: dialog.kind === "repeat" && dialog.id === null ? "放棄這筆定期帳？" : "放棄這次的修改？",
       confirmLabel: "放棄",
       onConfirm: () => useTicketStore.getState().closeRepeatEditor(),
     });

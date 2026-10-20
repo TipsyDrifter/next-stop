@@ -21,7 +21,7 @@ export function MobileTabBar() {
   const setMobileTab = useUiStore((s) => s.setMobileTab);
 
   return (
-    <nav className="m-tabbar" role="tablist" aria-label="主導航">
+    <nav className="m-tabbar" role="tablist" aria-label="主選單">
       {MOBILE_TABS.map((tab) => {
         const active = tab.key === current;
         const planned = tab.status === "planned";

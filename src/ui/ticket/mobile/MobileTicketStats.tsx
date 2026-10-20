@@ -67,7 +67,7 @@ export function MobileTicketStats() {
           <section className="ns-tk-mst-card">
             {/* 圖例搬進趨勢卡自己的標題列：留在「月｜年」那一列會像在標預算卡 */}
             <div className="ns-tk-mst-cardh">
-              <b>月對月</b>
+              <b>各月比較</b>
               <span className="ns-tk-mst-legend" aria-hidden>
                 <i className="sw exp" />
                 支出
@@ -166,7 +166,7 @@ function Trend({ stats, dec }: { stats: StatsData; dec: number }) {
         height={TREND_H}
         viewBox={`0 0 ${W} ${TREND_H}`}
         role="group"
-        aria-label="月對月趨勢：支出與收入"
+        aria-label="每月趨勢：支出與收入"
       >
         <line className="base" x1={0} x2={W} y1={base + 0.5} y2={base + 0.5} />
         {pts.map((p, i) => {

@@ -26,7 +26,7 @@ export function RestartPanel({ onDone }: PanelProps) {
   if (!block || block.ended_at !== null) {
     return (
       <div className="ns-tt-panel">
-        <Sub>這一班已經不在了</Sub>
+        <Sub>找不到這一班</Sub>
         <Actions>
           <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
             關閉
@@ -38,7 +38,7 @@ export function RestartPanel({ onDone }: PanelProps) {
 
   return (
     <div className="ns-tt-panel ns-tt-panel-restart">
-      <Sub>往前挪會把前一塊切短，中間不留重疊</Sub>
+      <Sub>往前調會自動縮短前一段，不會重疊</Sub>
       <Row k="発車">
         <Stepper value={at} steps={[-30, -5, 5, 30]} lo={lo} hi={hi} onChange={setAt} label="出發時刻" />
         <span className="ns-tt-opt is-solid is-num is-static">已跑 {fmtDur(now - at)}</span>

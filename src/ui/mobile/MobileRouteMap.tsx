@@ -171,8 +171,8 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   if (!lines.length) {
     return (
       <div className="m2-empty">
-        <p className="m2-empty-title">還沒有鋪下任何一條軌</p>
-        <p className="m2-empty-body">路線與幹線要在桌機版鋪設；鋪好之後，這一頁就會出現它們。</p>
+        <p className="m2-empty-title">還沒有任何路線</p>
+        <p className="m2-empty-body">請先到電腦版新增路線與幹線。</p>
       </div>
     );
   }
@@ -257,7 +257,7 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
       ? [
           {
             label: "本班",
-            value: occurrence?.status === "done" ? "済" : occurrence?.status === "skipped" ? "運休（本班停駛）" : "未交代",
+            value: occurrence?.status === "done" ? "済" : occurrence?.status === "skipped" ? "運休（本班暫停）" : "未交代",
           },
         ]
       : []),
@@ -303,7 +303,7 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
       {/* 別線登記的欄位列（插槽 `nodeFields` 的 `Mobile`，接縫 #56；本檔仍零 mutation import，寫入在線的元件裡） */}
       {lineFields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}
       {/* 定期券的執行日由規則排定（D-④-3）——桌機側板印「由規則排定」，手機沿同一句話 */}
-      {rule && <p className="m2-note">執行日由規則排定</p>}
+      {rule && <p className="m2-note">執行日由定期券自動排定</p>}
       {conflicts.length > 0 && (
         <div className="m2-detail-conflicts">
           <span className="m2-field-label">競合</span>
@@ -319,8 +319,8 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
       )}
       <p className="m2-note">
         {editable.length > 0
-          ? `路線圖手機版為唯讀（${editable.join("、")}除外）——要修改其他欄位請到桌機版。`
-          : "路線圖手機版為唯讀——要修改請到桌機版。"}
+          ? `手機版路線圖只能改${editable.join("、")}，其他請到電腦版修改。`
+          : "手機版路線圖僅供檢視，要修改請到電腦版。"}
       </p>
     </div>
   );
@@ -521,8 +521,8 @@ export default function MobileRouteMap() {
         ) : null
       ) : rows.length === 0 ? (
         <div className="m2-empty">
-          <p className="m2-empty-title">{zoom ? "這個節點底下還沒有東西" : "這條路線還沒有車票"}</p>
-          <p className="m2-empty-body">新增要在桌機版做；這一頁只看不改。</p>
+          <p className="m2-empty-title">{zoom ? "這裡底下還沒有東西" : "這條路線還沒有車票"}</p>
+          <p className="m2-empty-body">這一頁只能看，請到電腦版新增。</p>
         </div>
       ) : (
         <ul className="m2-tree">

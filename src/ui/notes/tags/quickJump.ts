@@ -30,7 +30,7 @@ function hitOf(x: TagNode, indent: number): QuickJumpHit {
   return {
     id: x.key,
     label: x.name,
-    aside: x.real ? `${x.direct} 處` : `虛資料夾・${x.total} 處`,
+    aside: x.real ? `${x.direct} 處` : `上層分類・${x.total} 處`,
     glyph: { text: "札", dashed: !x.real },
     indent,
     go: () => useTagStore.getState().openTagPage(x.key, backRef()),

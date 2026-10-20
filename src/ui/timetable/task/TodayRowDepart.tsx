@@ -49,7 +49,7 @@ export function RunMark({ block, shell }: { block: TimeBlockRow; shell: "desktop
 }
 
 /** 契約 0-11 的原句：已交代的列按 n 只跳這句（〈原型拍板〉2） */
-const SETTLED_KEY_HINT = "已蓋済——要記時間請用『連到…』";
+const SETTLED_KEY_HINT = "已蓋済——要補記時間請點「連到…」";
 
 /**
  * 今日鍵 n（`timetable.today.depart`，段二填值 commit 掛進 `todayRowActions[].hotkeys`）：

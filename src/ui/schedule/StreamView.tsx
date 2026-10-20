@@ -473,7 +473,7 @@ const RunBlock = memo(function RunBlock({
   const isEdge = sec.kind === "edge";
   const past = sec.kind === "gap" && sec.past;
   const label = isEdge ? `${mdw(sec.from)} 以後` : `${mdw(sec.from)} – ${mdw(sec.to)}`;
-  const note = sec.open ? "收起" : isEdge ? "— 尚無班次" : "— 無班次";
+  const note = sec.open ? "收起" : isEdge ? "— 還沒有班次" : "— 無班次";
   const key = runKey(sec);
   return (
     <section
@@ -577,7 +577,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
   else note = `${total} 張`;
 
   const enterCap = formatChord({ key: "Enter" }).join("+");
-  const title = clickable ? `點一下（或選中後按 ${enterCap}）在這天開一張臨時車票` : "過去的日子不能建票";
+  const title = clickable ? `點一下（或按 ${enterCap}）在這天新增臨時車票` : "過去的日子不能建票";
 
   return (
     <section
@@ -589,7 +589,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
         <button
           type="button"
           className="ns-sch-latejump"
-          aria-label={`誤點 ${p.late.count} 件——捲到最早的誤點日 ${p.late.earliest ? mmdd(p.late.earliest) : ""}`}
+          aria-label={`誤點 ${p.late.count} 件——跳到最早誤點的 ${p.late.earliest ? mmdd(p.late.earliest) : ""}`}
           onClick={p.onLateJump}
         >
           <span className="lj-t">誤點</span>

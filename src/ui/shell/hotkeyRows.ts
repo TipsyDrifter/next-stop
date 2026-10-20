@@ -40,7 +40,7 @@ export const SCENES: readonly Scene[] = [
   {
     scope: "global",
     title: "全域",
-    note: "在哪一頁都能按，游標在輸入框裡也照樣有效。",
+    note: "在哪一頁都能按，打字時也能按。",
   },
   {
     scope: "today",
@@ -50,29 +50,29 @@ export const SCENES: readonly Scene[] = [
   {
     scope: "outline",
     title: "路線圖（大綱）",
-    note: "路線圖裡選中一列、游標不在字裡的時候。",
+    note: "在路線圖選取項目（非打字狀態）時。",
   },
   {
     scope: "calendar",
-    title: "行程表（月格／週格）",
-    note: "行程表的月格或週格裡，焦點停在某一天的時候。",
+    title: "行程表（月／週）",
+    note: "在行程表（月／週）選取某一天時。",
   },
   {
     scope: "daylist",
     title: "行程表・當日清單與串流",
-    note: "在行程表點開某一天的清單浮層，或切到「串流」排列的時候。",
+    note: "在行程表點開單日清單，或切到「串流」檢視時。",
   },
   // 三條功能線的分組（各線 manifest 的 scenes）：插在頁面類之後、通用兩組之前。未通車的線是空的 ⇒ 仍是七組
   ...LINE_MANIFESTS.flatMap((m) => m.scenes),
   {
     scope: "common",
     title: "側板與覆蓋層通用",
-    note: "詳情側板、設定、快速跳轉這類浮起來的卡片開著的時候。",
+    note: "打開詳情側板、設定、快速跳轉等視窗時。",
   },
   {
     scope: "edit",
-    title: "編輯模式（輸入框內）",
-    note: "按 Enter 或 F2 進了輸入框、游標在字裡的時候。",
+    title: "打字時（輸入框內）",
+    note: "按 Enter 或 F2 進入輸入框打字時。",
   },
 ];
 
@@ -91,9 +91,9 @@ const [GUIDE_KEY, GUIDE_FALLBACK] = hotkeyById("global.guide")!.chords.map((c) =
 
 export const DUAL_MODE_NOTE: readonly string[] = [
   // 這三句只出現在設定籤；`?` 叫出的是「目前這一頁」的情境卡，不是這張七組全表——照實說
-  `選中一列、游標不在字裡，就是導航模式：單鍵直接是動作，按 ${GUIDE_KEY} 叫出目前這一頁的快捷鍵卡。`,
-  "按 Enter 或 F2 進了輸入框，就是編輯模式：所有鍵都是在打字，Enter 存、Esc 還原。",
-  `輸入法正在組字的時候，每一顆鍵都先交給輸入法；這時想叫指引，改按 ${GUIDE_FALLBACK}。`,
+  `選取項目（非打字狀態）時，按單鍵就能直接操作；按 ${GUIDE_KEY} 可查看本頁快捷鍵。`,
+  "按 Enter 或 F2 開始打字；期間按 Enter 儲存、Esc 取消。",
+  `中文選字時若要查看快捷鍵，請改按 ${GUIDE_FALLBACK}。`,
 ];
 
 /* ───────── 頁 → scope（`?` 情境卡用） ───────── */
@@ -138,22 +138,22 @@ const PAIR_SUFFIXES: ReadonlyArray<readonly [string, string]> = [
  * 再不行就「a／b」原樣並排。表是文案，不是鍵位——鍵位永遠來自 registry。
  */
 const PAIR_LABEL: Record<string, { label: string; note?: string }> = {
-  "上移選取／下移選取": { label: "移動選取" },
+  "上移選取／下移選取": { label: "上下移動" },
   "今日手動序 上移／今日手動序 下移": { label: "今日手動排序" },
   "手動序 上移／手動序 下移": { label: "手動排序" },
   "排今天／排明天": { label: "排今天／明天" },
-  "展開／摺疊": { label: "展開／摺疊" },
+  "展開／收合": { label: "展開／摺疊" },
   "降層／升層": { label: "降層／升層" },
   "上一條路線／下一條路線": { label: "切換路線" },
   "前一天／後一天": { label: "前一天／後一天" },
   "上一週／下一週": { label: "上一週／下一週" },
   "上一頁（月視圖＝上個月，週視圖＝上一週）／下一頁（月視圖＝下個月，週視圖＝下一週）": {
     label: "換頁",
-    note: "月視圖＝換月，週視圖＝換週",
+    note: "在月／週檢視下切換月份或週次",
   },
   "上個月／下個月": { label: "換月" },
   "上一年／下一年": { label: "換年" },
-  "上一個焦點／下一個焦點": { label: "移動焦點" },
+  "上一個焦點／下一個焦點": { label: "切換位置" },
 };
 
 /** 共同前綴退路：去掉尾端的方向字與空白，剩下至少兩個字才算成句 */

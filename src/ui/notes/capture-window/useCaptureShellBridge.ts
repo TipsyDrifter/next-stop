@@ -33,7 +33,7 @@ export function rememberCaptureStatus(s: CaptureStatus): void {
 
 /** 契約 §5.7-3（toast 與 OS 通知同句） */
 export function hotkeyFailedText(): string {
-  return `全域鍵 ${capsOf(HOTKEY_ID)} 沒有啟用——被別的程式佔走了。設定〈一般〉有說明`;
+  return `快捷鍵 ${capsOf(HOTKEY_ID)} 被別的程式佔走了，請看設定〈一般〉`;
 }
 
 /** 啟動時的熱鍵檢查：一次啟動只做一次（StrictMode 雙掛載不重複 toast） */

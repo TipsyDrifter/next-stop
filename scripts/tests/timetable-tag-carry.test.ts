@@ -398,7 +398,7 @@ for (const { name, make } of IMPLS) {
       const repo = await make(tags);
       await assert.rejects(() => repo.createGoal(goalInput({ tagNames: ["高 效"] })), /荷札名稱不能有空白/);
       assert.equal((await repo.listGoals()).length, 0);
-      await assert.rejects(() => repo.createGoal(goalInput({ tagNames: [] })), /至少選一個分類或荷札/);
+      await assert.rejects(() => repo.createGoal(goalInput({ tagNames: [] })), /請選至少一個分類或荷札/);
     });
   });
 }

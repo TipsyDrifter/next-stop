@@ -49,7 +49,7 @@ export function LongRunPanel({ onDone }: PanelProps) {
   if (!block || !span) {
     return (
       <div className="ns-tt-panel">
-        <Sub>這一班已經不在了</Sub>
+        <Sub>找不到這一班</Sub>
         <Actions>
           <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
             關閉
@@ -64,9 +64,9 @@ export function LongRunPanel({ onDone }: PanelProps) {
   const sp = ended ? " " : ""; // 時刻前後留空格、「現在」不留
   const note =
     after === "gap"
-      ? `${fmtClock(end)} 到${sp}${untilText}${sp}會標成未記錄，之後隨時可以補。`
+      ? `${fmtClock(end)} 到${sp}${untilText}${sp}會留白，之後隨時能補記。`
       : after === "cat"
-        ? `${fmtClock(end)} 起算成那個分類，一直到${sp}${untilText}。`
+        ? `${fmtClock(end)} 到${sp}${untilText}算成新選的分類。`
         : th?.source === "estimate" || th?.source === "task"
           ? "這一班照跑；軸上會留一個『誤點』的記號。"
           : "這一班照跑；軸上會留一個『長時間運行』的記號。";
@@ -90,7 +90,7 @@ export function LongRunPanel({ onDone }: PanelProps) {
                 )
               : th.source === "category"
               ? `平常大約 ${fmtDur(th.min * MIN)}。其實到幾點？`
-              : `已經超過 ${fmtDur(th.min * MIN)} 的保險上限。其實到幾點？`}
+              : `已經連續跑超過 ${fmtDur(th.min * MIN)} 了。其實到幾點？`}
         <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>
       </Sub>
       <Row k="到着">
@@ -105,7 +105,7 @@ export function LongRunPanel({ onDone }: PanelProps) {
             其實在做別的…
           </Opt>
           <Opt on={after === "keep"} onClick={() => setAfter("keep")}>
-            {ended ? "沒錯，就是這麼久" : `還在${name}，別問了`}
+            {ended ? "沒錯，就是這麼久" : `還在${name}，繼續跑`}
           </Opt>
         </Opts>
       </Row>

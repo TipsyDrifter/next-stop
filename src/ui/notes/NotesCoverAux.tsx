@@ -82,9 +82,9 @@ export function NotesCoverAux() {
   };
 
   return (
-    <div className="lines ns-notes-aux" aria-label="旅客筆記頁務件">
+    <div className="lines ns-notes-aux" aria-label="旅客筆記工具">
       <h2>旅客筆記 NOTES</h2>
-      <nav className="ns-notes-auxnav" aria-label="旅客筆記子畫面">
+      <nav className="ns-notes-auxnav" aria-label="旅客筆記分頁">
         {item("inbox", "收件匣", inboxCount)}
         {item("notes", "筆記", notesCount)}
         {item("diary", "日記", diaryCount > 0 ? diaryCount : null, diaryCount > 0 ? `這個月寫了 ${diaryCount} 篇` : undefined)}
@@ -103,7 +103,7 @@ export function NotesCoverAux() {
                   type="button"
                   className="x"
                   aria-label={`清除「${q.underNode.label}」篩選`}
-                  title="清除這個篩選"
+                  title="清除篩選"
                   onClick={() => void goFilter(undefined)}
                 >
                   <IconX size={11} />

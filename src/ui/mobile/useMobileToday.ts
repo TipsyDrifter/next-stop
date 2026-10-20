@@ -38,7 +38,7 @@ import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/sc
 import { timeReceipt } from "./MobileTimeSheet";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
-export const SETTLED_DEFER_MSG = "這張票已經蓋済了——先取消済章才能推遲";
+export const SETTLED_DEFER_MSG = "已蓋済——先取消済章才能推遲";
 
 export interface MobileTodayApi {
   /** 這份資料算的是哪一天（依日界線） */
@@ -384,7 +384,7 @@ export function useMobileToday(): MobileTodayApi {
         // toast 是唯一的收據，且要能反悔（沿桌機 Shift+Enter 契約）
         ui().showToast({
           message: INBOX_TOAST,
-          actionLabel: "取消建立",
+          actionLabel: "取消",
           onAction: () => void ns().deleteNode(row.id),
         });
       }

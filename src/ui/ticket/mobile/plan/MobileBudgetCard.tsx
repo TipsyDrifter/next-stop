@@ -138,7 +138,7 @@ function RowInner({ l, dec }: { l: BudgetLine; dec: number }) {
             l.label
           )}
         </span>
-        {l.override && <small className="ovr">本月覆寫</small>}
+        {l.override && <small className="ovr">僅改本月</small>}
       </span>
       <span className="v" aria-hidden>
         {compactMoney(l.used, dec)}

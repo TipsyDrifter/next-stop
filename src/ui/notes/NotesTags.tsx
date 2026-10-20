@@ -102,15 +102,15 @@ function RenameRow({ tagKey }: { tagKey: string }) {
   let impact: { text: string; cls: string; warn?: string } = { text: "", cls: "" };
   if (plan) {
     if (!plan.ok) impact = { text: plan.reason, cls: "err" };
-    else if (plan.same) impact = { text: plan.nameOnly ? "只改寫法（大小寫），掛著的東西不動" : "名稱沒有變", cls: "" };
+    else if (plan.same) impact = { text: plan.nameOnly ? "只改大小寫，已標記的東西不受影響" : "名稱沒有變", cls: "" };
     else
       impact = {
         text: renameImpact(plan),
         cls: "",
         warn: plan.rootConflict
-          ? `#${plan.rootConflict.name} 已經存在——按確定會先問要不要併入`
+          ? `已經有 #${plan.rootConflict.name} 了——按確定可選擇是否合併`
           : plan.conflicts.length
-            ? `底下有 ${plan.conflicts.length} 個和既有的同名——按確定會先問要不要併入`
+            ? `底下有 ${plan.conflicts.length} 個荷札名稱重複——按確定可選擇是否合併`
             : undefined,
       };
   }
@@ -168,7 +168,7 @@ function RenameRow({ tagKey }: { tagKey: string }) {
         <button type="button" className="ns-notes-btn" onClick={cancel}>
           取消
         </button>
-        <span className="hint">打 / 可以搬層級</span>
+        <span className="hint">用 / 可以分上下層</span>
       </div>
     </div>
   );
@@ -226,7 +226,7 @@ function MergePick({ tagKey, onClose }: { tagKey: string; onClose(): void }) {
         <input
           ref={inRef}
           value={q}
-          placeholder="挑一個既有的荷札"
+          placeholder="挑一個現有的荷札"
           aria-label="併入哪個荷札"
           autoComplete="off"
           spellCheck={false}
@@ -359,7 +359,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                   <p className="techo-overline ns-notes-overline">TAGS · 荷札</p>
                   <h1 className="techo-title">荷札</h1>
                   <p className="ns-notes-lede">
-                    <b>{realTags.length}</b> 個荷札。左邊的樹點一個，看掛著它的車票、筆記、日記與時間塊。
+                    <b>{realTags.length}</b> 個荷札。點選左側荷札，查看相關的車票、筆記、日記與時間塊。
                   </p>
                 </header>
                 {realTags.length > 0 ? (
@@ -370,7 +370,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                   </div>
                 ) : index ? (
                   <p className="ns-notes-tagempty">
-                    還沒有荷札。在筆記或日記裡打 #名稱，或在車票的側板「荷札」欄掛一個。
+                    還沒有荷札。在筆記或日記打 #名稱，或在車票側板就能掛上。
                     <br />
                     時刻表的分類、時間塊也能掛。
                   </p>
@@ -404,7 +404,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                           data-pop-toggle=""
                           aria-haspopup="menu"
                           aria-expanded={menu}
-                          aria-label="荷札動作"
+                          aria-label="荷札選項"
                           title="改名・併入・刪除"
                           onClick={() => {
                             setMerging(false);
@@ -442,8 +442,8 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                     )}
                   </div>
                   <p className="ns-notes-tagcount">
-                    {!node.real && <span className="ns-notes-virt">虛資料夾</span>}
-                    掛著 <b>{node.total}</b> 處{node.children.length > 0 && "・含子荷札"}
+                    {!node.real && <span className="ns-notes-virt">上層分類</span>}
+                    用在 <b>{node.total}</b> 個地方{node.children.length > 0 && "・包含底下的荷札"}
                   </p>
                 </header>
                 <TagList tagKey={node.key} apiRef={listApi} />

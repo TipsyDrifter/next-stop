@@ -236,7 +236,7 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
       <div className="ns-notes-mentrymeta">
         <span className="w">{meta}</span>
         <span className="sp" />
-        <button type="button" className="ns-notes-mmetabtn" aria-label="改日期（改這篇歸屬的日子）" onClick={() => setPickDate(true)}>
+        <button type="button" className="ns-notes-mmetabtn" aria-label="改這篇的日期" onClick={() => setPickDate(true)}>
           改日期
         </button>
         <button type="button" className="ns-notes-mmetabtn quiet" onClick={() => void remove()}>
@@ -512,7 +512,7 @@ export function MobileDiaryDraft({ day, today, handle }: MobileDiaryDraftProps) 
           onInsertTags={(names, caret) => applyTagEdit(insertTagsAt(bodyNow.current, caret, names))}
         />
       )}
-      {confirmCancel && <p className="ns-notes-mwarn">還有內容沒存——再按一次取消就放棄</p>}
+      {confirmCancel && <p className="ns-notes-mwarn">還有內容沒存——再按一次就放棄</p>}
       <div className="ns-notes-mdraftbar">
         <button
           type="button"

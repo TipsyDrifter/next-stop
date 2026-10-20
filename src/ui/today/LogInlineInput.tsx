@@ -47,8 +47,7 @@ export function LogInlineInput({ nodeId, onDone, onCancel }: LogInlineInputProps
     return (
       <>
         <span className="lbl" aria-hidden>
-          乘務記錄
-        </span>
+          工作日誌</span>
         <span className="logged" role="status">
           記了
         </span>
@@ -59,11 +58,10 @@ export function LogInlineInput({ nodeId, onDone, onCancel }: LogInlineInputProps
   return (
     <>
       <span className="lbl" aria-hidden>
-        乘務記錄
-      </span>
+        工作日誌</span>
       <InlineInput
         placeholder="記一句（Enter 記下・Esc 取消）"
-        ariaLabel="乘務記錄"
+        ariaLabel="工作日誌"
         focusKey={nodeId}
         className="techo-input hw"
         onCommit={(text, via) => {

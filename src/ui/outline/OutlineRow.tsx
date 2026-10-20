@@ -345,8 +345,8 @@ export function OutlineRow({
         <button
           type="button"
           tabIndex={-1}
-          aria-label={`${railPrefix} ${mmdd(chipDate)}（定期券由規則排定）`}
-          title="定期券：由規則排定"
+          aria-label={`${railPrefix} ${mmdd(chipDate)}（定期券，自動排定）`}
+          title="定期券：自動排定"
           onClick={(e) => {
             e.stopPropagation();
             actions.noteRepeatDate();
@@ -378,7 +378,7 @@ export function OutlineRow({
         onClose={onDateClose}
       />
     ) : null,
-    hasChildren && collapsed ? <span className="fold-note">收摺中</span> : null,
+    hasChildren && collapsed ? <span className="fold-note">已收合</span> : null,
   ];
 
   return (
@@ -420,7 +420,7 @@ export function OutlineRow({
             e.stopPropagation();
             actions.toggleCollapse(node.id);
           }}
-          title={hasChildren ? (collapsed ? "雙擊展開（→）" : "雙擊摺疊（←）") : undefined}
+          title={hasChildren ? (collapsed ? "雙擊展開（→）" : "雙擊收合（←）") : undefined}
         />
 
         {/* 票面 */}
@@ -498,7 +498,7 @@ export function OutlineRow({
             tabIndex={-1}
             aria-label={suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
             aria-pressed={done}
-            title={suspended ? "本班運休中——再點一次取消（或按 U）" : done ? "取消済章" : "蓋章：完成（Space）"}
+            title={suspended ? "本班運休中——再點一次取消（或按 U）" : done ? "取消「済」章" : "蓋章：完成（Space）"}
             onClick={(e) => {
               e.stopPropagation();
               actions.complete(node.id);
@@ -514,7 +514,7 @@ export function OutlineRow({
           </button>
           {suspended && (
             <span className="stopover-slot">
-              <SealSuspended title="運休（本班停駛）" />
+              <SealSuspended title="運休（本班暫停）" />
             </span>
           )}
         </div>
@@ -583,7 +583,7 @@ export function LateRow({ node, daysLate, railDate, accent, serial, onPick }: La
       className="ticket late-t"
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onPick(node.id)}
-      title="點擊在大綱中選取"
+      title="點擊選取"
     >
       <Stub kind={node.kind} serial={serial} accent={accent} />
       <div className="body">

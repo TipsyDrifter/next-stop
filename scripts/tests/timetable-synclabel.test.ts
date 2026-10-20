@@ -122,7 +122,7 @@ describe("time_blocks 的 label", () => {
     assert.equal(blockLabel(b, look(now, 3), TEXT), "10/17 上課 02:00–02:30");
     assert.equal(blockLabel(b, look(now, 1), TEXT), "10/18 上課 02:00–02:30");
   });
-  test("分類找不到：「已刪除的分類」", () => {
+  test("找不到這個分類：「已刪除的分類」", () => {
     assert.equal(blockLabel(block({ category_id: "zzz" }), look(T(10, 19, 15)), TEXT), "10/17 已刪除的分類 10:50–13:00");
   });
 });

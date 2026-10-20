@@ -120,7 +120,7 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   if (!item || !c) {
     return (
       <div className="ns-tt-panel ns-tt-plan">
-        <Sub>這一班不見了</Sub>
+        <Sub>找不到這一班</Sub>
         <Actions>
           <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
             {TT_TEXT.statsUi.close}

@@ -134,8 +134,8 @@ export function MobileTagMergeSheet({ fromKey, onPick, onClose }: { fromKey: str
             onCompositionEnd={() => {
               composing.current = false;
             }}
-            placeholder="挑一個既有的荷札"
-            aria-label="挑一個既有的荷札"
+            placeholder="挑一個現有的荷札"
+            aria-label="挑一個現有的荷札"
             autoComplete="off"
             spellCheck={false}
             enterKeyHint="done"
@@ -149,10 +149,10 @@ export function MobileTagMergeSheet({ fromKey, onPick, onClose }: { fromKey: str
               <span className="nm">
                 <TagName name={it.name} hl={it.hl} />
               </span>
-              <span className="n">{it.real ? `${it.count} 處` : "虛資料夾"}</span>
+              <span className="n">{it.real ? `${it.count} 處` : "上層分類"}</span>
             </button>
           ))}
-          {!res.items.length && <p className="ns-notes-mpkhint">{res.browse && res.hint ? res.hint : "沒有對到的荷札"}</p>}
+          {!res.items.length && <p className="ns-notes-mpkhint">{res.browse && res.hint ? res.hint : "找不到符合的荷札"}</p>}
         </div>
         <button type="button" className="ns-notes-mbtn wide" onClick={onClose}>
           取消

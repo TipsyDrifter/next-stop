@@ -15,7 +15,7 @@ export function CategoryBadge({ cat, size = "md" }: CategoryBadgeProps) {
   const sizeClass = size === "sm" ? " is-sm" : size === "lg" ? " is-lg" : "";
   if (!cat) {
     return (
-      <span className={"ns-tt-badge is-missing" + sizeClass} aria-label="分類已不在">
+      <span className={"ns-tt-badge is-missing" + sizeClass} aria-label="分類已刪除">
         ？
       </span>
     );

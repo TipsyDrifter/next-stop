@@ -173,7 +173,7 @@ export function SplitPanel({ onDone }: PanelProps) {
         {live && "（運行中）"}
       </Sub>
       {tooShort ? (
-        <Sub warn>這一塊不到兩分鐘，切不開</Sub>
+        <Sub warn>不到兩分鐘，無法切分</Sub>
       ) : (
         <>
           <div
@@ -203,7 +203,7 @@ export function SplitPanel({ onDone }: PanelProps) {
           </div>
           <div className="ns-tt-cutscale ns-tt-num">
             <span>{fmtClock(start)}</span>
-            <span className="ns-tt-cutscale-hint">拖切點，或點時間條加一刀</span>
+            <span className="ns-tt-cutscale-hint">拖曳切點，或點時間條新增切點</span>
             <span>{endLabel}</span>
           </div>
 
@@ -248,12 +248,12 @@ export function SplitPanel({ onDone }: PanelProps) {
                         ✂
                       </span>
                       <span className="ns-tt-row-k">切在</span>
-                      <Stepper value={cuts[i]} steps={[-5, 5]} lo={loOf(i)} hi={hiOf(i)} onChange={(v) => setCut(i, v)} label={`第 ${i + 1} 刀`} />
+                      <Stepper value={cuts[i]} steps={[-5, 5]} lo={loOf(i)} hi={hiOf(i)} onChange={(v) => setCut(i, v)} label={`切點 ${i + 1}`} />
                       <button
                         type="button"
                         className="ns-tt-cut-del"
                         disabled={cuts.length <= 1}
-                        aria-label={`拿掉第 ${i + 1} 刀`}
+                        aria-label={`移除切點 ${i + 1}`}
                         onClick={() => delCut(i)}
                       >
                         ✕

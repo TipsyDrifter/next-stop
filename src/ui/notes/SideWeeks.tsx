@@ -90,7 +90,7 @@ export function SideWeeks() {
           );
         })}
       </div>
-      <p className="ns-notes-weekfoot">點一格＝跳到那天・更早的日子：點大日期</p>
+      <p className="ns-notes-weekfoot">點格子跳到當天・點上方日期可選更早的日子</p>
     </div>
   );
 }

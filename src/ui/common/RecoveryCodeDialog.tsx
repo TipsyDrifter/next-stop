@@ -111,7 +111,7 @@ function RecoveryCodeDialogInner({ code }: { code: string }) {
             <button type="button" className="btn-ghost ns-btn ns-btn--sm" onClick={() => void copy()}>
               {copied === "ok" ? RECOVERY_TEXT.copied : RECOVERY_TEXT.copy}
             </button>
-            {copied === "fail" && <span className="ns-note is-fail">複製不了——請照著上面手抄。</span>}
+            {copied === "fail" && <span className="ns-note is-fail">無法複製——請手動抄寫。</span>}
           </div>
 
           <ul className="ns-recovery-notes">

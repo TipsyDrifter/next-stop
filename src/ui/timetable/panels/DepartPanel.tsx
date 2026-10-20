@@ -194,10 +194,10 @@ export function DepartPanel({ onDone }: PanelProps) {
               {formatChord({ key: "Enter" }).join("+")}
             </kbd>
           </button>
-          <p className="ns-tt-panel-sub ns-tt-link-memsub">要換分類就點下面的格子</p>
+          <p className="ns-tt-panel-sub ns-tt-link-memsub">點下方可換分類</p>
         </>
       ) : link && mem === null ? (
-        <p className="ns-tt-panel-sub ns-tt-link-hint">這個連結還沒記過時間：點一個分類，下次從它発車就直接用這個分類</p>
+        <p className="ns-tt-panel-sub ns-tt-link-hint">先選個分類，下次從這裡発車就會自動套用</p>
       ) : null}
       {warn && <Sub warn>{warn}</Sub>}
       <CategoryGrid selected={null} onPick={pick} compact runningId={running?.category_id ?? null} memId={memCat?.id ?? null} />

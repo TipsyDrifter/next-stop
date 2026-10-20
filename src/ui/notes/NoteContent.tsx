@@ -216,7 +216,7 @@ export function NoteContent({
 
   let where;
   if (!note || !note.node_id) where = <span className="faint">沒掛</span>;
-  else if (note.node_missing) where = <span className="faint">原節點已刪除</span>;
+  else if (note.node_missing) where = <span className="faint">原本掛的地方已刪除</span>;
   else
     where = (
       <>
@@ -374,8 +374,7 @@ export function NoteContent({
                     <MdBody body={body} backRef={() => noteBackRef(id ?? "", note ? noteTitle({ title, body }) : "筆記")} />
                   </div>
                   <div className="ns-notes-readhint">
-                    點一下或按 {capsOf("notes.open")} 編輯・{capsOf("notes.escape")} 或點外面回到閱讀
-                  </div>
+                    點一下或按 {capsOf("notes.open")}編輯・{capsOf("notes.escape")}或點外面結束</div>
                 </>
               )}
             </div>
@@ -388,7 +387,7 @@ export function NoteContent({
                 type="button"
                 className="ns-notes-btn"
                 disabled={!id}
-                title="搬進寫下那天的日記"
+                title="搬進當天的日記"
                 onClick={() => id && onToDiary(id)}
               >
                 記成日記

@@ -164,7 +164,7 @@ export function LinkChip({ link }: { link: BlockLink | null }) {
   if (d.none) {
     return (
       <span className="ns-tt-link-chip is-none">
-        <span className="ns-tt-link-chip-t">沒有連到任務</span>
+        <span className="ns-tt-link-chip-t">未指定任務</span>
         <span className="ns-tt-link-chip-k">只記分類</span>
       </span>
     );
@@ -184,7 +184,7 @@ export function LinkRow({ value, onOpen }: { value: BlockLink | null; onOpen(): 
     <div className="ns-tt-row ns-tt-link-row">
       <span className="ns-tt-row-k">連到</span>
       <span className="ns-tt-row-v">
-        <button type="button" className="ns-tt-link-btn" onClick={onOpen} aria-label="連到…（換連結）">
+        <button type="button" className="ns-tt-link-btn" onClick={onOpen} aria-label="指定任務">
           <LinkChip link={value} />
           <span className="ns-tt-link-chev" aria-hidden="true">
             ›
@@ -353,7 +353,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
           ref={inputRef}
           type="search"
           value={q}
-          placeholder="搜尋全部任務（車票、列車、車廂）"
+          placeholder="搜尋車票、列車、車廂"
           autoComplete="off"
           aria-label="搜尋全部任務"
           onChange={(e) => setQ(e.target.value)}
@@ -372,7 +372,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
       {query ? (
         <div className="ns-tt-link-list">
           {results === null ? null : results.length === 0 ? (
-            <p className="ns-tt-link-empty">找不到「{query}」——只搜得到車票、列車、車廂</p>
+            <p className="ns-tt-link-empty">找不到「{query}」（可搜尋車票、列車、車廂）</p>
           ) : (
             results.map((n) => {
               const on = cur?.nodeId === n.id;
@@ -434,7 +434,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
             <>
               <div className="ns-tt-link-sec">
                 {TT_TEXT.LINK_ROUTE_ONLY}
-                <span>沒有特定的車票，但屬於這條路線</span>
+                <span>不指定車票，直接記在這條路線下</span>
               </div>
               <div className="ns-tt-link-routes">
                 {routes.map((r) => {
@@ -464,7 +464,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
             {TT_TEXT.LINK_CLEAR}（只記分類）
           </button>
         ) : (
-          <span className="ns-tt-link-dim">現在沒有連到任何任務</span>
+          <span className="ns-tt-link-dim">目前未指定任務</span>
         )}
       </div>
     </div>

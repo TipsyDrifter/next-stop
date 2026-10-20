@@ -293,7 +293,7 @@ export function MobileSchedule() {
       if (node && entry) {
         const row = dayRowModel(entry, node, routeOf(node), occ[nodeId]?.due_on ?? null, today);
         if (row.isHistory) {
-          const hint = cardFromDayRow(row, null, today).stampHint ?? "歷史班次唯讀";
+          const hint = cardFromDayRow(row, null, today).stampHint ?? "過去的班次不能改";
           useUiStore.getState().showToast({ message: hint }, 3000);
           return;
         }
@@ -356,7 +356,7 @@ export function MobileSchedule() {
           ref={streamRef}
           onScroll={onScroll}
           tabIndex={-1}
-          aria-label="行程表串流"
+          aria-label="行程表列表"
           aria-hidden={isTime || undefined}
           inert={isTime || undefined}
         >
@@ -476,7 +476,7 @@ const RunHead = memo(function RunHead({
   const isAfter = section.kind === "edge";
   const label = isAfter ? `${mdw(section.from)} 以後` : `${mdw(section.from)} – ${mdw(section.to)}`;
   const past = section.kind === "gap" ? section.past : section.to < today;
-  const note = section.open ? "收起" : isAfter ? "— 尚無班次" : "— 無班次";
+  const note = section.open ? "收起" : isAfter ? "— 還沒有班次" : "— 無班次";
   return (
     <section className={"m-sch-run" + (section.open ? " is-open" : "") + (isAfter ? " is-edge" : "")} data-sec-key={section.key}>
       <button
@@ -633,7 +633,7 @@ const DaySection = memo(function DaySection({
         <button
           type="button"
           className="m-sch-latejump"
-          aria-label={`誤點 ${lateCount} 件——捲到最早的誤點日 ${mmdd(lateEarliest)}`}
+          aria-label={`誤點 ${lateCount} 件——跳到最早誤點的 ${mmdd(lateEarliest)}`}
           onClick={() => onGoTo(lateEarliest)}
         >
           <span className="lj-t">誤點</span>

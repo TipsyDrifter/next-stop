@@ -52,7 +52,7 @@ export function MobileTagSuggest({ q, onPick, onDismiss }: MobileTagSuggestProps
           <span className="nm">
             <TagName name={it.name} hl={it.hl} />
           </span>
-          <span className="n">{it.real ? `${it.count} 處` : "虛資料夾"}</span>
+          <span className="n">{it.real ? `${it.count} 處` : "上層分類"}</span>
         </button>
       ))}
       {res.create && (
@@ -64,7 +64,7 @@ export function MobileTagSuggest({ q, onPick, onDismiss }: MobileTagSuggestProps
         </button>
       )}
       {res.hint && <p className="ns-notes-msughint">{res.hint}</p>}
-      {empty && <p className="ns-notes-msughint">沒有對到的荷札</p>}
+      {empty && <p className="ns-notes-msughint">找不到符合的荷札</p>}
       <button type="button" className="ns-notes-msugclose" onMouseDown={keepFocus} onClick={onDismiss} aria-label="收起荷札建議">
         <IconXs size={10} />
         收起

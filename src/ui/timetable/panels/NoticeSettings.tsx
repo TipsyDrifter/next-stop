@@ -136,7 +136,7 @@ export function NoticeSettings() {
 
       <Setting
         title={android ? "運行中顯示在通知欄" : "運行中顯示在系統匣"}
-        note={android ? "常駐一則通知：跳秒、到着、換車格子；停車中也留著" : "圖示上的紅點、滑過看經過時間、右鍵到着／換車"}
+        note={android ? "常駐通知：顯示計時、到着、換車；停車中也留著" : "圖示紅點、滑鼠移過看時間、右鍵到着／換車"}
       >
         <Toggle on={noticeEnabled} onFlip={() => void setNoticeEnabled(!noticeEnabled)} label="運行中顯示" />
       </Setting>
@@ -162,26 +162,26 @@ export function NoticeSettings() {
         title="跑太久提醒"
         note={
           android
-            ? "超過預估或預設長度時，通知欄跳一則提醒（App 沒開也會響）"
+            ? "超過預計時間就跳提醒（App 沒開也會響）"
             : "超過預估或預設長度時，跳一則 Windows 通知（同一班只跳一次；App 要開著）"
         }
       >
         <Toggle on={longRunEnabled} onFlip={() => void setLongRun(!longRunEnabled)} label="跑太久提醒" />
       </Setting>
-      {android && longRunEnabled && !exactAlarm && <Sub warn>提醒可能晚幾分鐘（系統沒給精準鬧鐘）</Sub>}
+      {android && longRunEnabled && !exactAlarm && <Sub warn>受系統限制，提醒可能會晚幾分鐘</Sub>}
 
       <Setting
-        title="常用分類格"
-        note={android ? "通知下面那一排五格；點一格就換車" : "系統匣「換車 ▸」最上面那五個"}
+        title="常用分類"
+        note={android ? "通知下方顯示 5 個分類，點一下就換車" : "系統匣「換車 ▸」最上面的 5 個分類"}
         dim={!noticeEnabled}
       >
-        <Toggle on={tilesEnabled} onFlip={() => void setTiles(!tilesEnabled)} label="常用分類格" disabled={!noticeEnabled} />
+        <Toggle on={tilesEnabled} onFlip={() => void setTiles(!tilesEnabled)} label="常用分類" disabled={!noticeEnabled} />
       </Setting>
 
       <div className={"ns-tt-pins" + (pinsOff ? " is-dis" : "")} aria-disabled={pinsOff || undefined}>
         <div className="ns-tt-pins-head">
           <span className="ns-tt-setting-k">釘選分類</span>
-          <small className="ns-tt-nset-note">最多 {NOTICE_PINS_MAX} 個；沒釘的格子用最近用過的補</small>
+          <small className="ns-tt-nset-note">最多 {NOTICE_PINS_MAX} 個；空位會自動放最近用過的</small>
         </div>
         <div className="ns-tt-pin-slots">{slots}</div>
         <div className="ns-tt-pin-pool">
@@ -205,7 +205,7 @@ export function NoticeSettings() {
           })}
         </div>
         <div className="ns-tt-pin-prev">
-          <span className="ns-tt-pin-prev-k">{android ? "通知上的格子會長這樣" : "系統匣「換車 ▸」會長這樣"}</span>
+          <span className="ns-tt-pin-prev-k">{android ? "通知預覽" : "系統匣「換車 ▸」預覽"}</span>
           {android ? (
             <div className="ns-tt-pin-prev-nt">
               {tiles.map((c) => (
@@ -237,7 +237,7 @@ export function NoticeSettings() {
         </div>
       </div>
 
-      {android && <Sub>鎖屏上顯示多少，跟著手機的鎖屏通知設定走</Sub>}
+      {android && <Sub>鎖定畫面的顯示內容，依手機通知設定而定</Sub>}
     </section>
   );
 }

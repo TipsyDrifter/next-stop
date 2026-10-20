@@ -32,7 +32,7 @@ export const SCHED_TINY_MS = 60_000;
 export const PLAN_TEXT = {
   onTime: "準點",
   lateStart: (min: number) => `晚 ${minText(min)}開始`,
-  running: "行駛中",
+  running: "運行中",
   notStarted: "還沒開始",
   doneNoTime: "済・沒記時間",
   over: (ms: number) => `多花 ${fmtDur(ms)}`,
@@ -40,7 +40,7 @@ export const PLAN_TEXT = {
   soFar: (actualMs: number, estMs: number) => `已 ${fmtDur(actualMs)}／預計 ${fmtDur(estMs)}`,
   /** 這一天的實績都是從前一天續過來的（沒有在窗內開始的塊）⇒ 開始那一半不比早晚（沙盒後修正 F4） */
   carried: "接續前一天",
-  pendingNote: (n: number) => `（${n} 段待確認沒算）`,
+  pendingNote: (n: number) => `（不含 ${n} 段待確認）`,
   sep: "・",
 } as const;
 

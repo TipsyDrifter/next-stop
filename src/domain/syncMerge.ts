@@ -16,12 +16,12 @@ import type { MergeCellNow, MergeKind, MergeNotice } from "../data/syncRepositor
 /** 表 → 名詞與量詞（泛稱；三線沒填插槽時用）。不認得的表 ⇒ { noun: "一筆資料", unit: "筆" } */
 export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> = {
   nodes: { noun: "車票", unit: "張" }, // 列上實際印 KIND_LABEL[kind]（syncMergeLabels 拿到列才知道 kind）
-  work_logs: { noun: "乘務記錄", unit: "筆" },
+  work_logs: { noun: "工作日誌", unit: "筆" },
   occurrences: { noun: "班次", unit: "班" },
   notes: { noun: "筆記", unit: "則" },
   settings: { noun: "設定", unit: "項" }, // 核心 settings 表（day_start_hour）；Rust 對每張表都記通知，KeyValue 也算
   tags: { noun: "荷札", unit: "枚" },
-  taggings: { noun: "荷札掛載", unit: "筆" },
+  taggings: { noun: "掛上荷札", unit: "筆" },
   time_categories: { noun: "時間分類", unit: "個" },
   time_blocks: { noun: "一段時間", unit: "段" },
   time_goals: { noun: "時數目標", unit: "個" },
@@ -347,13 +347,13 @@ export function mergeToastText(
     const end = afterTail([n], gone, changed);
     const who = !n.by_me ? "" : n.winner === "mine" ? "這台" : "另一台";
     if (singleLabel) return `${quoted(singleLabel)}的${colLabelOf(n, cols)}兩台都改過，${end ?? `留下${who}後改的`}`;
-    return `有 ${one}兩台改到同一格，${end ?? `留下${who}後改的`}`;
+    return `有 ${one}兩台都改過，${end ?? `留下${who}後改的`}`;
   }
   const first = list[0];
   const sameKindTbl = list.every((n) => n.kind === first.kind && n.tbl === first.tbl);
   if (sameKindTbl) {
     const many = countNoun(first.tbl, objects.length);
-    if (first.kind === "overwritten") return `有 ${many}兩台改到同一格，留下後改的`;
+    if (first.kind === "overwritten") return `有 ${many}兩台都改過，留下後改的`;
     // 全都又不在了 ⇒ 結果句；有的在有的不在 ⇒ 混合句（一句話講不完兩種結果）
     const goneCount = list.filter(isGone).length;
     if (goneCount === list.length) return `有 ${many}一台刪過、另一台改過，現在已經不在了`;
@@ -392,7 +392,7 @@ function manyColsText(
     // 名字長＋欄名長會超過兩行（#59 的 40 字）⇒ 退回只說幾個地方
     return Array.from(listed).length <= TOAST_MAX_CHARS ? listed : many;
   }
-  return `有 ${countNoun(n.tbl, 1)}兩台改到同樣的 ${names.length} 格，${end}`;
+  return `有 ${countNoun(n.tbl, 1)}兩台改到同樣的 ${names.length} 處，${end}`;
 }
 
 /**
@@ -412,7 +412,7 @@ export const MERGE_TEXT = {
   ack: "知道了",
   look: "看看",
   gone: "（現在找不到了）",
-  intro: "兩台在沒看到對方修改的情況下各自改到同一筆時，引擎會留下改過的那一邊；這裡列出最近發生的幾筆，方便回頭查。",
+  intro: "兩台同時改到同一筆時，會留下較晚改的那一邊；這裡列出最近發生的幾筆。",
   /** 「知道了」沒清成（橋接不通） */
-  ackFailed: (e: string) => `沒清成：${e}`,
+  ackFailed: (e: string) => `沒清掉：${e}`,
 } as const;

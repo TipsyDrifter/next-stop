@@ -75,7 +75,7 @@ export function AutostartRow() {
       setInfo(await autostartSet(enabled));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e ?? "");
-      useUiStore.getState().showToast({ message: `開機自啟沒有設定成功：${msg || "原因不明"}` });
+      useUiStore.getState().showToast({ message: `設定開機時啟動失敗：${msg || "原因不明"}` });
       // 開關回到實際的值（可能切了一半）
       autostartGet()
         .then(setInfo)
@@ -87,7 +87,7 @@ export function AutostartRow() {
 
   return (
     <div>
-      <span className="techo-label block mb-2.5">開機時啟動（縮在系統匣）</span>
+      <span className="techo-label block mb-2.5">開機時啟動（縮在右下角）</span>
       <div role="radiogroup" aria-label="開機時啟動" className="flex flex-wrap items-center gap-2">
         {[true, false].map((v) => (
           <button
@@ -106,8 +106,7 @@ export function AutostartRow() {
       <p className="ns-note mt-2">登入 Windows 後私鐵手帳會在背景待命，隨時按 {caps} 記一句；主視窗不會自己跳出來。</p>
       {status && !status.hotkeyRegistered && (
         <p className="ns-note mt-1" role="status" style={{ color: ERROR_TEXT }}>
-          全域鍵 {caps} 現在沒有啟用——被別的程式佔走了{status.hotkeyError ? `（${status.hotkeyError}）` : ""}。關掉那個程式後回到這個視窗會再試一次。
-        </p>
+          快捷鍵 {caps}被別的程式佔走了{status.hotkeyError ? `（${status.hotkeyError}）` : ""}，關掉它再回來就會生效。</p>
       )}
     </div>
   );

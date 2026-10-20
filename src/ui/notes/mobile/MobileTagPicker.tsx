@@ -206,7 +206,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
                 </button>
               )}
               {res.browse && res.items.length > 0 && <p className="ns-notes-mpkhint head">#{nameOf(res.browse)} 底下</p>}
-              {res.hint && <p className="ns-notes-mpkhint">{res.hint}{res.browse ? "——接著打子荷札的名稱就能建立" : ""}</p>}
+              {res.hint && <p className="ns-notes-mpkhint">{res.hint}{res.browse ? "——接著打下一層荷札的名稱就能建立" : ""}</p>}
               {res.items.map((it) => (
                 <button
                   key={it.key}
@@ -223,7 +223,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
                   <span className="n">{it.count}</span>
                 </button>
               ))}
-              {!res.items.length && !res.create && !res.hint && <p className="ns-notes-mpkhint">沒有對到的荷札</p>}
+              {!res.items.length && !res.create && !res.hint && <p className="ns-notes-mpkhint">找不到符合的荷札</p>}
             </>
           ) : (
             <>
@@ -247,12 +247,12 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
                 </>
               )}
               <p className="ns-notes-mpklabel">
-                全部荷札<span>長按一列：在這底下建立…</span>
+                全部荷札<span>長按可建立下一層</span>
               </p>
               {!index ? (
                 <MTagLoading className="ns-notes-mpkhint" failed={failed} onRetry={retryTagIndex} />
               ) : rows.length === 0 ? (
-                <p className="ns-notes-mpkhint">還沒有荷札——上面搜尋框打個名稱就能建立</p>
+                <p className="ns-notes-mpkhint">還沒有荷札——在上方輸入名稱就能建立</p>
               ) : (
                 <div className="ns-notes-mpktree" role="tree" aria-label="全部荷札">
                   {rows.map((r) => {
@@ -306,7 +306,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
                           >
                             {x.real ? <CheckBox on={has(x.key)} /> : <TagGlyph real={false} />}
                             <span className="nm">{x.seg}</span>
-                            {!x.real && <span className="vf">虛資料夾</span>}
+                            {!x.real && <span className="vf">上層分類</span>}
                           </button>
                           <span className="n">{x.total}</span>
                         </div>
@@ -324,7 +324,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
               )}
               <p className="ns-notes-mtreelegend">
                 <TagGlyph real={false} />
-                虛資料夾：只能展開、不能勾（沒人直接掛它）
+                這只是上層分類，只能展開、不能勾選
               </p>
             </>
           )}

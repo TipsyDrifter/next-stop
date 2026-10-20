@@ -164,7 +164,7 @@ const COLS_OF: Record<TkTable, readonly string[]> = {
 };
 /** 預算的 upsert（③契約 §3.5-2）：重設同一個預算＝同一列、復活墓碑 */
 const BUDGET_UPSERT = "DO UPDATE SET amount_minor = excluded.amount_minor, deleted_at = NULL, updated_at = excluded.updated_at";
-const REPEAT_GONE = "這條規則已經刪除了";
+const REPEAT_GONE = "這筆定期帳已經刪除了";
 
 /** 陣列切段（`IN (…)` 不超過 `IN_LIMIT` 個參數、寫入每 `IMPORT_CHUNK` 筆一批） */
 function chunks<T>(list: readonly T[], size: number): T[][] {
@@ -638,7 +638,7 @@ export class SqliteTicketRepository implements TicketRepository {
     if (input.parentId !== null) {
       if (isUncat(input.parentId)) throw new RangeError("「未分類」下面不能建子分類");
       const p = await this.categoryOrThrow(db, input.parentId);
-      if (p.kind !== input.kind) throw new RangeError("分類和收支類型對不上");
+      if (p.kind !== input.kind) throw new RangeError("這個分類不屬於目前的收支類型");
       if (p.parent_id !== null) throw new RangeError("分類只有兩層");
     }
     const parentWhere = input.parentId === null ? "parent_id IS NULL" : "parent_id = $4";

@@ -194,8 +194,7 @@ function BackupBanner() {
     return (
       <div role="alert" className="flex items-center gap-3 px-8 pt-3 text-sm text-late">
         <span className="min-w-0 truncate">
-          ⚠ 還原沒有完成，資料庫的連線已經關掉了——請關掉私鐵手帳再重新開一次（資料庫檔案沒有被改動）
-        </span>
+          ⚠ 還原沒有完成——請將私鐵手帳關閉後重開（原本的資料沒有受影響）</span>
       </div>
     );
   }

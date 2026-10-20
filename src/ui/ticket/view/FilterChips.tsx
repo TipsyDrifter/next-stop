@@ -206,7 +206,7 @@ function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
           </span>
         </div>
       )}
-      <p className="ns-tk-pop-note">搜尋預設「全部」——找不知道在哪個月的那一筆</p>
+      <p className="ns-tk-pop-note">預設搜尋全部月份</p>
     </FPop>
   );
 }
@@ -290,11 +290,10 @@ function CatPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
       {tree("expense")}
       <p className="hd">收入</p>
       {tree("income")}
-      <p className="ns-tk-pop-note">勾主分類＝含全部子分類{sel.length > 0 && " · "}</p>
+      <p className="ns-tk-pop-note">勾主分類會包含所有子分類{sel.length > 0 && " · "}</p>
       {sel.length > 0 && (
         <Opt on={false} onPick={() => set([])} className="is-quiet">
-          清掉分類條件
-        </Opt>
+          清除分類</Opt>
       )}
     </FPop>
   );
@@ -327,11 +326,10 @@ function RoutePop({ f, onClose, routes }: { f: EntryFilter; onClose(): void; rou
     <FPop label="路線" onClose={onClose}>
       <p className="hd">路線</p>
       <Opt on={f.routeId === null} onPick={() => pick(null)}>
-        任一條（不篩）
-      </Opt>
+        全部路線</Opt>
       <Opt on={f.routeId === "none"} onPick={() => pick("none")}>
         <TkRoundel route={null} />
-        未掛路線
+        未選路線
       </Opt>
       {live.length > 0 && <div className="sep" />}
       {live.map((r) => (
@@ -427,14 +425,14 @@ export function FilterChips() {
           <button
             type="button"
             className="ns-tk-btn quiet"
-            title="清掉全部條件（搜尋列留著）"
+            title="清除全部條件"
             onClick={() => void useTicketStore.getState().patchFilter({ text: "", from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null })}
           >
             清除
           </button>
         </>
       ) : (
-        <span className="ns-tk-found is-hint">打字或挑一個條件就會開始找；期間預設「全部」</span>
+        <span className="ns-tk-found is-hint">打字或選條件就會開始找（預設找全部期間）</span>
       )}
     </div>
   );

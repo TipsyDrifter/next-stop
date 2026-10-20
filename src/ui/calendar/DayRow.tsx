@@ -209,16 +209,16 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
   const stampTitle = row.skipped
     ? canStamp
       ? "本班運休中——再點一次取消（或按 U）"
-      : "歷史班次唯讀——運休只能對目前或未來的班次"
+      : "過去的班次不能改——只有目前或未來的班次能運休"
     : row.done
       ? row.isCurrent
-        ? "取消済章"
-        : "歷史班次唯讀"
+        ? "取消「済」章"
+        : "過去的班次不能改"
       : canStamp
         ? "蓋章：完成（Space）"
         : row.isRepeat && (row.ahead || row.isFuture)
           ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
-          : "歷史班次唯讀——只能交代目前班次";
+          : "過去的班次不能改——只能處理目前的班次";
 
   const stampInner = (
     <>
@@ -227,7 +227,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       </span>
       {row.skipped && (
         <span className="susp-slot" aria-hidden>
-          <SealSuspended title="運休（本班停駛）" />
+          <SealSuspended title="運休（本班暫停）" />
         </span>
       )}
     </>
@@ -276,8 +276,8 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
             className="rep rep-btn"
             title={
               row.isFuture
-                ? `定期券：${mmdd(row.entry.date)} 這班運休（提前請假）／編輯重複規則`
-                : "定期券：本班運休／編輯重複規則"
+                ? `定期券：${mmdd(row.entry.date)} 這班運休／修改重複時間`
+                : "定期券：本班運休／修改重複時間"
             }
             aria-label="定期券選項"
             onClick={(e: MouseEvent<HTMLButtonElement>) => {
@@ -288,7 +288,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
             <RepIcon />
           </button>
         ) : (
-          <span className="rep" aria-label="重複班次" role="img" title="定期券的班次（由規則排定）">
+          <span className="rep" aria-label="重複班次" role="img" title="定期券自動排的班次">
             <RepIcon />
           </span>
         )
@@ -297,7 +297,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           type="button"
           tabIndex={-1}
           className="defer"
-          title="推遲：執行日往後一天、過期票直接駛往明天（T／Shift+T 排今天／明天）"
+          title="推遲：執行日延後一天，過期票改到明天（T 排今天／Shift+T 排明天）"
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation();
             onDefer(e.currentTarget);

@@ -281,8 +281,7 @@ export function DiaryEntry({
               <MdBody body={body} backRef={() => diaryBackRef(id, entryDay)} />
             </div>
             <div className="ns-notes-readhint">
-              點一下或按 {capsOf("notes.open")} 編輯・{capsOf("notes.escape")} 或點外面回到閱讀
-            </div>
+              點一下或按 {capsOf("notes.open")}編輯・{capsOf("notes.escape")}或點外面結束</div>
           </>
         )}
       </div>
@@ -388,7 +387,7 @@ export function DiaryDraft({ label, placeholder, title, body, onChange, onSave, 
           取消
         </button>
         {confirmEsc ? (
-          <span className="hint warn">還有內容沒存——再按一次 {capsOf("notes.escape")} 放棄，或繼續打字</span>
+          <span className="hint warn">還沒存檔——再按一次 {capsOf("notes.escape")}放棄，或繼續打字</span>
         ) : (
           <span className="hint">
             <Kbd id="notes.diary.save" />

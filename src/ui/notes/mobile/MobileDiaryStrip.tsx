@@ -58,14 +58,14 @@ export function MobileDiaryStrip({ month, day, today, diaryMarks, footprintDays,
   }, [day, month]);
 
   return (
-    <div className="ns-notes-mstrip" ref={ref} role="group" aria-label={`${monthNo(month)} 月的日子`}>
+    <div className="ns-notes-mstrip" ref={ref} role="group" aria-label={`${monthNo(month)} 月的日期`}>
       <span className="ml" aria-hidden>
         {monthNo(month)} 月
       </span>
       <button
         type="button"
         className="ns-notes-mday is-nav"
-        aria-label={`上個月（跳到 ${monthNo(prevMonth)} 月最後一天）`}
+        aria-label={`上個月（跳到 ${monthNo(prevMonth)} 月底）`}
         onClick={() => onPick(addDays(month + "-01", -1))}
       >
         <span className="w" aria-hidden>

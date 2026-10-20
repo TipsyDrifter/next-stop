@@ -364,7 +364,7 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
             tabIndex={-1}
             aria-label={suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
             aria-pressed={done}
-            title={suspended ? "本班運休中——再點一次取消（或按 U）" : done ? "取消済章" : "蓋章：完成（Space）"}
+            title={suspended ? "本班運休中——再點一次取消（或按 U）" : done ? "取消「済」章" : "蓋章：完成（Space）"}
             onClick={(e) => {
               e.stopPropagation();
               actions.complete(row.id);
@@ -380,7 +380,7 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
           </button>
           {suspended && (
             <span className="stopover-slot">
-              <SealSuspended title="運休（本班停駛）" />
+              <SealSuspended title="運休（本班暫停）" />
             </span>
           )}
           {paused && !suspended && (

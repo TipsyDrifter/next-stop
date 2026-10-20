@@ -134,7 +134,7 @@ export function DayGrid({ value, today, min, max, marks, marksLabel, onMonthChan
         ref={gridRef}
         className={`${p}-days`}
         role="group"
-        aria-label={`${monthTitle(month)}，方向鍵移動、Enter 選這一天`}
+        aria-label={`${monthTitle(month)}，方向鍵移動、Enter 選取`}
         onKeyDown={onGridKey}
       >
         {weekHeads(weekStart).map((w) => (

@@ -178,7 +178,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
             aria-haspopup="listbox"
             aria-expanded={pop === "cur"}
             disabled={d.kind === "transfer"}
-            title={d.kind === "transfer" ? "轉帳的幣別跟著轉出帳戶" : "換幣別"}
+            title={d.kind === "transfer" ? "轉帳幣別會跟著轉出帳戶" : "換幣別"}
             data-pop-toggle
             onClick={() => setPop(pop === "cur" ? null : "cur")}
           >
@@ -244,7 +244,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
         <Field label="備註">
           <input
             className="ns-tk-textin"
-            placeholder="一句話"
+            placeholder="備註"
             aria-label="備註"
             autoComplete="off"
             value={d.note}
@@ -318,7 +318,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
                 </button>
               ))}
             </div>
-            {d.bymonthday.some((n) => n > 28) && <p className="ns-tk-re-hint">小月沒有的日子記在月底</p>}
+            {d.bymonthday.some((n) => n > 28) && <p className="ns-tk-re-hint">遇到月底沒有這天，就記在當月最後一天</p>}
           </>
         )}
       </div>
@@ -358,7 +358,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
         <Field label="時刻">
           <TimeInput value={d.hhmm} onCommit={(hhmm) => set({ hhmm })} />
         </Field>
-        <Field label="終止日">
+        <Field label="結束日">
           <span className="ns-tk-date">
             <button
               type="button"
@@ -371,7 +371,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
               {d.until ? ymd(d.until) : "（選填）"}
             </button>
             {d.until && (
-              <button type="button" className="ns-tk-re-clr" aria-label="不設終止日" title="不設終止日" onClick={() => set({ until: null })}>
+              <button type="button" className="ns-tk-re-clr" aria-label="不設結束日" title="不設結束日" onClick={() => set({ until: null })}>
                 <TkIcon name="x" size={10} />
               </button>
             )}
@@ -398,7 +398,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
 
   return (
     <div className="ns-tk-dialog ns-tk-re">
-      {fromEntry && <p className="ns-tk-re-from">從 {shortDay(fromEntry.occurred_on)} 那筆帶過來的；那筆本身不會被重記</p>}
+      {fromEntry && <p className="ns-tk-re-from">從 {shortDay(fromEntry.occurred_on)} 那筆帶入，原本那筆不會重複記</p>}
       <div className="ns-tk-re-cols">
         {left}
         {right}

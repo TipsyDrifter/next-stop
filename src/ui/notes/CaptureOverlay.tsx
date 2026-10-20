@@ -108,15 +108,15 @@ export function CaptureOverlay() {
   /** 路線前綴認到了、但這枚票根不掛路線（日記；登記的票根 acceptsRoute=false）⇒ 路線票根淡化 */
   const routeIgnored = usePreset || (isBuiltinStub(capture.stub) ? capture.stub === "diary" : !spec?.acceptsRoute);
   const ignoredBy = isBuiltinStub(capture.stub) ? STUB_LABEL[capture.stub] : (spec?.label ?? "");
-  const ignoredWhy = usePreset ? "已掛在這裡" : presetOnlyRoute ? "以預掛的路線為準" : `${ignoredBy}不掛路線`;
+  const ignoredWhy = usePreset ? "已掛在這裡" : presetOnlyRoute ? "以已選的路線為準" : `${ignoredBy}不掛路線`;
   const ignoredRoute = rawP ? (routes.find((r) => r.id === rawP.routeId) ?? null) : null;
   let ignoredTitle = "";
   if (rawP) {
-    const head = `認到路線前綴「${rawP.matched.trim()}」——`;
-    if (presetOnlyRoute) ignoredTitle = head + "以預掛節點的路線為準，前綴照原文留著";
+    const head = `認出路線代碼「${rawP.matched.trim()}」——`;
+    if (presetOnlyRoute) ignoredTitle = head + "以已選的路線為準，開頭代碼留在內文";
     else if (usePreset)
-      ignoredTitle = head + (p ? "與預掛的路線相同，前綴不進內文" : `這一則已掛在「${preset.label}」，前綴照原文留著`);
-    else ignoredTitle = head + `${ignoredBy}不掛路線，前綴照原文留著`;
+      ignoredTitle = head + (p ? "與已選的路線相同，開頭代碼不留" : `已掛在「${preset.label}」，開頭代碼留在內文`);
+    else ignoredTitle = head + `${ignoredBy}不掛路線，開頭代碼留在內文`;
   }
 
   const stubText = (k: CaptureStub): { label: string; hint: string } => {
@@ -256,7 +256,7 @@ export function CaptureOverlay() {
                 <span
                   key={p.routeId}
                   className="ns-notes-routestub"
-                  title={presetOnlyRoute ? "預掛節點的路線" : `認到路線前綴「${p.matched.trim()}」`}
+                  title={presetOnlyRoute ? "已選項目的路線" : `認出路線代碼「${p.matched.trim()}」`}
                 >
                   <span className="arr">→</span>
                   <RouteDot route={route} />
@@ -265,8 +265,8 @@ export function CaptureOverlay() {
                     <button
                       type="button"
                       className="x"
-                      aria-label="取消路線（游標在開頭按 Backspace 也可以）"
-                      title="取消路線（游標在開頭按 Backspace）"
+                      aria-label="取消路線（在開頭按 Backspace 也可以）"
+                      title="取消路線（在開頭按 Backspace）"
                       onClick={() => {
                         st().dismissRoute();
                         refocus();
@@ -281,7 +281,7 @@ export function CaptureOverlay() {
             <div className="ns-notes-capdest">{destLine}</div>
             <div className="ns-notes-caphint">
               {capture.confirmEsc ? (
-                <span className="warn">還有內容沒存——再按一次 {capsOf("notes-capture.escape")} 放棄，或繼續打字</span>
+                <span className="warn">還沒存檔——再按一次 {capsOf("notes-capture.escape")}放棄，或繼續打字</span>
               ) : (
                 <>
                   <span>

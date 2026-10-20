@@ -800,19 +800,19 @@ describe("C. 車次①b①c", () => {
   test("32. 驗證：切點越界、未遞增、某段 < 1 分、分類數不對 ⇒ 各自的 RangeError 訊息", () => {
     const run = (cuts: number[], cats?: string[]) => () =>
       planSplitMulti(demo(), { id: "b3", cuts, categoryIds: cats ?? cuts.map(() => "class").concat("class"), now: NOW });
-    const OUT = rangeErr("切點要在這一塊的開頭與尾端之間");
+    const OUT = rangeErr("切開的位置要在這段時間之內");
     assert.throws(run([]), OUT);
     assert.throws(run([T(8, 40)]), OUT, "切在開頭");
     assert.throws(run([T(10, 30)]), OUT, "切在尾端");
     assert.throws(run([T(8, 0)]), OUT, "切在塊外");
     assert.throws(run([T(10, 0), T(9, 20)]), OUT, "未遞增");
     assert.throws(run([T(9, 20), T(9, 20)]), OUT, "重複的切點");
-    const SHORT = rangeErr("每段至少 1 分");
+    const SHORT = rangeErr("每段至少 1 分鐘");
     assert.throws(run([T(8, 40) + 30_000]), SHORT, "第一段 30 秒");
     assert.throws(run([T(9, 20), T(9, 20) + 30_000]), SHORT, "中間一段 30 秒");
     assert.throws(run([T(10, 30) - 30_000]), SHORT, "最後一段 30 秒");
-    assert.throws(run([T(9, 20)], ["class"]), rangeErr("每一段都要有分類"));
-    assert.throws(run([T(9, 20)], ["class", "study", "class"]), rangeErr("每一段都要有分類"));
+    assert.throws(run([T(9, 20)], ["class"]), rangeErr("每段都要選分類"));
+    assert.throws(run([T(9, 20)], ["class", "study", "class"]), rangeErr("每段都要選分類"));
     // 剛好 1 分可以
     assert.doesNotThrow(run([T(8, 41), T(10, 29)]));
     // 運行中的塊：尾端＝now
@@ -934,7 +934,7 @@ describe("C. 車次①b①c", () => {
   });
 
   test("39. planMerge 對運行中的 s ⇒ RangeError；界線上沒有空白 ⇒ null", () => {
-    assert.throws(() => planMerge(demo(), { id: "b9", dir: "prev", bound: DAY.start, now: NOW }), rangeErr("運行中的這一班，用運行列換車或到着"));
+    assert.throws(() => planMerge(demo(), { id: "b9", dir: "prev", bound: DAY.start, now: NOW }), rangeErr("運行中的班次，請直接點「換車」或「到着」"));
     // 第一塊貼著日界線 ⇒ 往前沒得併
     assert.equal(planMerge(demo(), { id: "b1", dir: "prev", bound: DAY.start, now: NOW }), null);
     // 不足 1 分的空白也不算
@@ -967,14 +967,14 @@ describe("C. 車次①b①c", () => {
   });
 
   test("41. planSetEstimate：已結束 ⇒ RangeError；0／1441 ⇒ RangeError；null ⇒ patch null", () => {
-    assert.throws(() => planSetEstimate(demo(), { id: "b3", estimateMin: 30 }), rangeErr("只能改運行中那一班的預估"));
+    assert.throws(() => planSetEstimate(demo(), { id: "b3", estimateMin: 30 }), rangeErr("只能改運行中班次的預估時間"));
     for (const bad of [0, 1441, -5, 1.5, NaN]) {
-      assert.throws(() => planSetEstimate(demo(), { id: "b9", estimateMin: bad }), rangeErr("預估不對"), String(bad));
+      assert.throws(() => planSetEstimate(demo(), { id: "b9", estimateMin: bad }), rangeErr("預估時間不對"), String(bad));
     }
     assert.deepEqual(planSetEstimate(demo(), { id: "b9", estimateMin: null }), { patches: [{ id: "b9", estimateMin: null }], inserts: [], deletes: [] });
     assert.deepEqual(planSetEstimate(demo(), { id: "b9", estimateMin: 1 }).patches, [{ id: "b9", estimateMin: 1 }]);
     assert.deepEqual(planSetEstimate(demo(), { id: "b9", estimateMin: 1440 }).patches, [{ id: "b9", estimateMin: 1440 }]);
-    assert.throws(() => planSetEstimate(demo(), { id: "nope", estimateMin: 30 }), rangeErr("找不到這一塊"));
+    assert.throws(() => planSetEstimate(demo(), { id: "nope", estimateMin: 30 }), rangeErr("找不到這段紀錄"));
   });
 
   test("42. latestGap／defaultCuts／addCut：對半＝中點；最長段中點；太短不加", () => {

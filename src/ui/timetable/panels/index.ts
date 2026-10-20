@@ -55,7 +55,7 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       return "這一班的預估";
     case "taskCategory": {
       const info = (s.linkInfo ?? useTimetableStore.getState().linkInfo)[sheet.nodeId];
-      return info && !info.missing ? TT_TEXT.TASK_CATEGORY_TITLE(info.name) : "算哪一類？";
+      return info && !info.missing ? TT_TEXT.TASK_CATEGORY_TITLE(info.name) : "算哪個分類？";
     }
     case "link":
       return TT_TEXT.LINK_TITLE;

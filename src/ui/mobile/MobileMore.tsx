@@ -53,7 +53,7 @@ import { version as APP_VERSION } from "../../../package.json";
 const THEMES: { value: ThemePref; label: string; note: string }[] = [
   { value: "pastel", label: "粉彩星空", note: "朧月的月台・日間" },
   { value: "galaxy", label: "銀河鐵道", note: "深夜月台・夜間" },
-  { value: "system", label: "跟隨系統", note: "依作業系統" },
+  { value: "system", label: "跟隨系統", note: "依手機設定" },
 ];
 
 /** 週首（uiStore.weekStart＝JS getDay() 的值；settings 鍵 week_start）——字同 SettingsPanel.tsx 的 WEEK_STARTS */

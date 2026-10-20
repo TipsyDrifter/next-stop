@@ -109,14 +109,13 @@ export function SyncTab() {
    * 但因為鑰匙圈與 `joined`／`epoch` 都還在，Rust 會判成「重接」：只更新憑證，資料一個字不動。
    */
   const [updatingCreds, setUpdatingCreds] = useState(false);
-  const credsRejected = phase === "stopped" && !!status?.last_error?.includes("拒絕了這組金鑰");
+  const credsRejected = phase === "stopped" && !!status?.last_error?.includes("拒絕了這組憑證");
 
   return (
     <div className="ns-sync">
       {bridgeError && (
         <p className="ns-note is-fail" role="alert">
-          同步狀態讀不到——這個版本的桌機端還沒接上同步（{bridgeError}）。
-        </p>
+          讀不到同步狀態——此版本尚未支援同步功能（{bridgeError}）。</p>
       )}
 
       {/* ① 狀態列 */}
@@ -133,7 +132,7 @@ export function SyncTab() {
           {phase === "gated" && (
             <p className="ns-bk-err">
               兩台的版本不一致
-              {status?.remote_schema != null ? `（對方 schema ${status.remote_schema}）` : ""}
+              {status?.remote_schema != null ? `（對方資料格式 ${status.remote_schema}）` : ""}
               ，請先更新較舊的那一台。
             </p>
           )}
@@ -147,16 +146,13 @@ export function SyncTab() {
           {!!status?.skipped_missing_total && <p className="ns-note ns-sy-orphans">{describeSkipped(status.skipped_missing_total)}</p>}
           {status?.last_orphans && (
             <p className="ns-note ns-sy-orphans">
-              上次改用另一份時另存 {status.last_orphans.count} 筆未送出的修改
-              {status.last_orphans.at ? `（${fmtSyncStamp(status.last_orphans.at)}）` : ""}
-              ：{status.last_orphans.path}
+              上次切換資料時，已另存 {status.last_orphans.count}筆未上傳的修改{status.last_orphans.at ? `（${fmtSyncStamp(status.last_orphans.at)}）` : ""}：{status.last_orphans.path}
             </p>
           )}
           {status?.last_export && (
             <p className="ns-note ns-sy-orphans">
               {/* 修正席（產品評審 #6）：與手機殼同一句（v1.1.6 起「只清這台」也可能記這一行） */}
-              上次清空／改用另一份之前，這台的全部資料另存於 {status.last_export.path}
-              {status.last_export.at ? `（${fmtSyncStamp(status.last_export.at)}）` : ""}
+              上次清空或切換資料前，這台裝置的資料已另存於 {status.last_export.path}{status.last_export.at ? `（${fmtSyncStamp(status.last_export.at)}）` : ""}
             </p>
           )}
         </div>
@@ -251,15 +247,13 @@ export function SyncTab() {
       ) : keyringUnreadable ? (
         /* 工程評審 B-1：讀不到鑰匙圈 ≠ 沒加入。這裡不給表單，只給一句人話與「再看一次」 */
         <section className="ns-sy-epoch">
-          <span className="techo-label block mb-1">讀不到這台的同步身分</span>
+          <span className="techo-label block mb-1">讀不到同步設定</span>
           <p className="ns-note mb-2">
-            這台加入過同步，但這次打不開系統憑證庫，所以暫時停在這裡。<b>先不要重新加入</b>——
-            重新加入會把這台當成新的一台、整份資料再上傳一次。多半重新啟動私鐵手帳就好了。
-          </p>
+            暫時讀不到系統保存的密碼，請直接重開私鐵手帳試試。<b>先不要重新加入同步</b>，以免整份資料重複上傳。
+                      </p>
           <div className="ns-bk-actions">
             <button type="button" className="btn-seal ns-btn" disabled={working} onClick={() => void refreshStatus()}>
-              再看一次
-            </button>
+              重試</button>
           </div>
         </section>
       ) : (
@@ -403,7 +397,7 @@ function JoinForm({
           type="button"
           className="btn-ghost ns-btn ns-btn--sm"
           disabled={working || disabled}
-          title="讀取 scripts/setup-r2.sh 存在本機的設定，填進下面四欄（密語不在裡面）"
+          title="把精靈存在這台電腦的設定填進下面四欄（密語不在裡面）"
           onClick={() => void importFromWizard()}
         >
           從精靈匯入
@@ -416,15 +410,14 @@ function JoinForm({
         </p>
       ) : (
         <p className="ns-note ns-sy-wizard">
-          還沒有這些值？在專案目錄跑 <code>bash scripts/setup-r2.sh</code>，精靈會帶你在 Cloudflare
-          建好 bucket 與 token 並存到本機；之後按「從精靈匯入」。已經有另一台在同步？把它的配對碼貼在下面，四欄就填好了。
-        </p>
+          還沒有這四欄？用專案附的精靈（在專案目錄執行 <code>bash scripts/setup-r2.sh</code>）到 Cloudflare 建好，再按「從精靈匯入」。已經有另一台在同步？把它的配對碼貼在下面。
+                  </p>
       )}
 
       {/* 貼上配對碼＝省手打的便利（契約 §4.6）：只填欄，密語照樣要打 */}
       <div className="ns-sy-form">
         <label className="ns-sy-field ns-sy-field--wide">
-          <span className="ns-sy-field-label">貼上配對碼（可略）</span>
+          <span className="ns-sy-field-label">貼上配對碼（選填）</span>
           <textarea
             className="techo-input ns-sy-code"
             rows={2}
@@ -440,8 +433,7 @@ function JoinForm({
               disabled={!code.trim() || working || disabled}
               onClick={() => void fillFromCode()}
             >
-              填入四欄
-            </button>
+              填入設定</button>
           </span>
         </label>
       </div>
@@ -449,9 +441,7 @@ function JoinForm({
       {/* 來源摘要（契約 §8.1）：四欄照樣攤在下面可以直接改——桌機有位子，不必再多一顆「展開」 */}
       {filledFrom && (
         <p className="ns-note ns-sy-filled">
-          已從{filledFrom === "code" ? "配對碼" : "精靈"}填入（{bucket || "—"}／{endpoint || "—"}）——下面四欄可以直接改；
-          密語不在裡面，要親手打。
-        </p>
+          已從{filledFrom === "code" ? "配對碼" : "精靈"}填入（{bucket || "—"}／{endpoint || "—"}）——密語不會包含在內，請手動輸入。</p>
       )}
 
       {/* v1.1.6（契約 §6.3）：四欄之前一句——四欄與密語各管什麼。每欄自己的 hint 不動 */}
@@ -469,7 +459,7 @@ function JoinForm({
             onChange={(e) => typed(setEndpoint)(e.target.value)}
           />
           <span className="ns-note ns-sy-hint">
-            <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>；account id 在 Cloudflare 後台 R2 › Overview 右側
+            格式為 <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>（Account ID 在 Cloudflare 後台 R2 › Overview 右側）
           </span>
         </label>
         <label className="ns-sy-field">
@@ -482,7 +472,7 @@ function JoinForm({
             spellCheck={false}
             onChange={(e) => typed(setBucket)(e.target.value)}
           />
-          <span className="ns-note ns-sy-hint">精靈建的 bucket 名（R2 › Overview 清單）</span>
+          <span className="ns-note ns-sy-hint">精靈建好的儲存空間名稱（Cloudflare R2 的清單裡看得到）</span>
         </label>
         <label className="ns-sy-field">
           <span className="ns-sy-field-label">access key id</span>
@@ -494,7 +484,7 @@ function JoinForm({
             autoComplete="off"
             onChange={(e) => typed(setAk)(e.target.value)}
           />
-          <span className="ns-note ns-sy-hint">R2 › Manage API tokens 建 token 時顯示</span>
+          <span className="ns-note ns-sy-hint">在 Cloudflare R2 建 API token 時顯示</span>
         </label>
         <label className="ns-sy-field">
           <span className="ns-sy-field-label">secret access key</span>
@@ -506,12 +496,12 @@ function JoinForm({
             autoComplete="off"
             onChange={(e) => typed(setSk)(e.target.value)}
           />
-          <span className="ns-note ns-sy-hint">只在建 token 那一頁顯示一次；不見了就重建一把 token</span>
+          <span className="ns-note ns-sy-hint">只在建 token 那一頁顯示一次；不見了就重建一把</span>
         </label>
         {/* 沙盒用的桶內根前綴（契約 §2）：正式版不露出 */}
         {import.meta.env.DEV && (
           <label className="ns-sy-field">
-            <span className="ns-sy-field-label">root（沙盒；可略）</span>
+            <span className="ns-sy-field-label">資料夾名（可略）</span>
             <input
               id={`${id}-root`}
               className="techo-input ns-sy-input"
@@ -581,8 +571,8 @@ function JoinForm({
           </div>
           <p className="ns-note mt-2">
             {updating
-              ? "密語沒有換、也不會上雲——這裡打它只是用來打開雲端上那把鑰匙。"
-              : "第一台加入時這句就是密語；其他裝置加入要打同一句。密語不會上雲，之後可以改，改了也不用重傳資料。"}
+              ? "密語不會上傳到雲端，這裡輸入只是用來解鎖同步資料。"
+              : "其他裝置加入時要打同一句密語。密語不會上傳，隨時可改。"}
           </p>
           {!updating && pass1.length > 0 && pass1.length < 8 && <p className="ns-note is-fail">密語至少 8 個字。</p>}
           {!updating && pass2.length > 0 && !matched && <p className="ns-note is-fail">兩次打的密語不一樣。</p>}
@@ -612,18 +602,17 @@ function JoinForm({
         {!ready && !working && (
           <span className="ns-note">
             {updating
-              ? "四欄與現在的密語都填好才能更新。"
+              ? "雲端設定與現在的密語都填好才能更新。"
               : coding
-                ? `四欄與復原碼（${RECOVERY_CODE_LEN} 個字）都填好才能加入。`
-                : "四欄與密語（兩次相同、至少 8 字）都填好才能加入。"}
+                ? `雲端設定與復原碼（${RECOVERY_CODE_LEN} 個字）都填好才能加入。`
+                : "雲端設定與密語（兩次相同、至少 8 字）都填好才能加入。"}
           </span>
         )}
       </div>
       {/* 用碼加入時雲端一定有資料（空的雲端沒有復原碼可用），這句三分法只對密語那條路成立 */}
       {!updating && !coding && (
         <p className="ns-note mt-2">
-          雲端是空的→這台成為第一台；雲端有資料而這台是空的→直接拉下來；兩邊都有資料→會問你一次。
-        </p>
+          若兩邊都有資料，下一步會問你要怎麼處理。</p>
       )}
     </section>
   );
@@ -662,7 +651,7 @@ function ChoiceBlock({
         <button type="button" className="btn-seal ns-btn" disabled={working} onClick={onMerge}>
           {working ? "處理中…" : JOIN_CHOICE_TEXT.merge}
         </button>
-        <span className="ns-note">同一張票以較晚改的為準，被蓋掉的值記進該車票的乘務記錄。</span>
+        <span className="ns-note">同一張票以較晚改的為準，被蓋掉的值記進該車票的工作日誌。</span>
       </div>
       <div className="ns-bk-actions mt-2">
         <button type="button" className="btn-ghost ns-btn ns-btn-danger" disabled={working} onClick={onAdopt}>
@@ -795,8 +784,7 @@ function EnabledSection({
           ))}
         </div>
         <p className="ns-note mt-2">
-          關著的時候這台不推也不拉，本機的操作照舊；這段期間的修改會先排隊，開回來再一起送上去。
-        </p>
+          關閉時暫停上傳與下載，本機可照常使用；期間的修改會在重開後一併同步。</p>
       </section>
 
       <section className="ns-bk-actions">
@@ -821,7 +809,7 @@ function EnabledSection({
             type="button"
             className={`${credsRejected ? "btn-seal" : "btn-ghost"} ns-btn`}
             disabled={working}
-            title="在 Cloudflare 換了新 token 就用這個換掉四欄；資料與身分不動，不必重新加入"
+            title="換過 Cloudflare API token 時由此更新；不影響現有資料，不必重新加入"
             onClick={onUpdateCredentials}
           >
             更新憑證…
@@ -858,9 +846,7 @@ function EnabledSection({
       <section className="ns-bk-danger">
         <span className="techo-label block mb-1">重新加入</span>
         <p className="ns-note mb-2">
-          清掉這台的同步設定、憑證與身分——資料與雲端上的東西都不動。清掉之後這一籤會回到「加入同步」，
-          重問一次（兩邊都有資料時會問要不要合併）。
-        </p>
+          只清除這台裝置的同步設定，本機與雲端資料都會保留。清除後可重新「加入同步」。</p>
         <div className="ns-bk-actions">
           <button type="button" className="btn-ghost ns-btn ns-btn-danger" disabled={working} onClick={onReset}>
             重新加入同步
@@ -934,17 +920,17 @@ function PassphraseSection({
     <section className="ns-sy-pair">
       <span className="techo-label block mb-1">密語</span>
       <p className="ns-note mb-2">
-        不勾下面那格時，改密語<b>只重包</b>雲端上的鑰匙：資料不重傳，其他已加入的裝置不受影響，之後新加入的裝置要用新密語。
+        只改密語時，已加入的裝置不受影響，之後新加入的裝置請用新密語。
       </p>
       {needsPassphrase && <p className="ns-note ns-recovery-need mb-2">{NEEDS_PASSPHRASE_TEXT.passphrase}</p>}
       {keySealed === false && (
-        <p className="ns-note mb-2">升級後第一次：這次會把鑰匙封存到雲端（新密語可以與現在相同）。</p>
+        <p className="ns-note mb-2">升級後首次設定：請輸入密語以同步加密設定（可與現在的密語相同）。</p>
       )}
       {/* 產品評審 N1：這一段已經是字牆了，這句只補「留白也行」那一件事，不重複上面講過的後果。
           v1.1.4：勾了換鑰匙就不能留白（那是作廢舊密語，得先證明你有它），所以這句只在沒勾時說。 */}
       {!rotate && !needsPassphrase && (
         <p className="ns-note mb-2">
-          忘了現在的密語也沒關係——這台的鑰匙還在，<b>現在的密語可以留白</b>，直接設一個新的。
+          如果忘了目前的密語，<b>這一欄可以留白</b>，直接設定新密語。
         </p>
       )}
       {rotating && <p className="ns-note is-fail mb-2">{PASSPHRASE_ROTATE.inProgress}</p>}
@@ -1005,7 +991,7 @@ function PassphraseSection({
       )}
       <div className="ns-bk-actions mt-2">
         <button type="button" className="btn-ghost ns-btn ns-btn--sm" disabled={!ready} onClick={() => void submit()}>
-          {working ? "處理中…" : rotate ? "改密語並換鑰匙" : keySealed === false ? "封存密語" : "改密語"}
+          {working ? "處理中…" : rotate ? "改密語並重新加密" : keySealed === false ? "封存密語" : "改密語"}
         </button>
       </div>
     </section>
@@ -1050,9 +1036,9 @@ function RecoverySection({
       </div>
       <p className="ns-note mb-2">{RECOVERY_TEXT.intro}</p>
       {lockedReason === "rotated" && (
-        <p className="ns-note mb-2">這份資料已在另一台換過鑰匙——先用新密語重新加入，才能在這台產生復原碼。</p>
+        <p className="ns-note mb-2">另一台已經換過密語——請先用新密語重新加入，才能產生復原碼。</p>
       )}
-      {lockedReason === "rotating" && <p className="ns-note mb-2">換鑰匙還沒走完，等它做完再來產生。</p>}
+      {lockedReason === "rotating" && <p className="ns-note mb-2">正在更換密語與加密設定，請稍後再試。</p>}
       {error && (
         <p className="ns-bk-err" role="alert">
           {error}
@@ -1146,10 +1132,7 @@ function PairingCodeBlock({ code }: { code: string }) {
     <section className="ns-sy-pair">
       <span className="techo-label block mb-1">配對碼</span>
       <p className="ns-note mb-2">
-        在另一台的「加入同步」按「貼上配對碼」或掃這格，四欄就填好了；密語不在裡面，要親手打。
-        這段含雲端憑證——用信得過的管道送、送完刪掉。萬一外流：到 Cloudflare 後台撤銷 token 並建一把新的，
-        然後每一台到〈同步〉按「更新憑證…」換上（資料不會動，不必重新加入）。
-      </p>
+        在另一台裝置按「貼上配對碼」或掃描 QR Code 即可填入設定（密語需另外輸入）。配對碼含雲端權限，傳送後請刪除；若不慎外流，請至 Cloudflare 撤銷並重建 API token，再到各裝置的「同步」按「更新憑證…」。</p>
       <div className="ns-sy-pair-body">
         {qr && <div className="ns-sy-qr" aria-label="配對碼 QR" dangerouslySetInnerHTML={{ __html: qr }} />}
         <div className="ns-sy-pair-text">

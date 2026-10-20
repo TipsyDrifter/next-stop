@@ -179,7 +179,7 @@ export function describeRule(rule: RepeatRule): string {
   if (rule.mode === "after") return `完成後 ${rule.days} 天`;
   switch (rule.freq) {
     case "daily":
-      return "每日重複";
+      return "每天重複";
     case "weekly": {
       const days = rule.byweekday;
       if (!days || !days.length) return "每週重複";
@@ -190,7 +190,7 @@ export function describeRule(rule: RepeatRule): string {
       const days = rule.bymonthday;
       if (!days || !days.length) return "每月重複";
       if (days.length > 3) return `每月 ${days.length} 天`;
-      return `每月 ${[...days].sort((a, b) => a - b).join("・")} 日`;
+      return `每月 ${[...days].sort((a, b) => a - b).join("・")} 號`;
     }
   }
 }

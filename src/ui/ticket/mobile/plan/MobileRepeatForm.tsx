@@ -314,7 +314,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const dayLabel = (day: string) => (day === today ? "今天" : `${shortDayKey(day)} 週${WEEKDAY_LABEL[dowOf(day)]}`);
 
   return createPortal(
-    <div ref={rootRef} className="ns-tk-mform ns-tk-mre" tabIndex={-1} data-kind={kind} role="dialog" aria-modal="true" aria-label={isNew ? "新的定期規則" : "定期規則"}>
+    <div ref={rootRef} className="ns-tk-mform ns-tk-mre" tabIndex={-1} data-kind={kind} role="dialog" aria-modal="true" aria-label={isNew ? "新增定期帳" : "定期帳"}>
       <div className="ns-tk-mf-top">
         <button type="button" className="ns-tk-mbtn quiet" onClick={onDone}>
           取消
@@ -332,7 +332,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
       </div>
 
       <div className="ns-tk-mf-scroll">
-        {fromEntry && <p className="ns-tk-mre-from">從 {shortDayKey(fromEntry.occurred_on)} 那筆帶過來的；那筆本身不會被重記</p>}
+        {fromEntry && <p className="ns-tk-mre-from">從 {shortDayKey(fromEntry.occurred_on)} 那筆帶入，原本那筆不會重複記</p>}
 
         <div className="ns-tk-mf-amt">
           <span className="sg">{SIGN[kind]}</span>
@@ -400,7 +400,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                     </button>
                   ))}
                 </div>
-                {hasLate && <p className="ns-tk-mre-hint">小月沒有的日子記在月底</p>}
+                {hasLate && <p className="ns-tk-mre-hint">遇到月底沒有這天，就記在當月最後一天</p>}
               </>
             )}
           </div>
@@ -458,7 +458,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                 />
               </div>
               <div className="ns-tk-mf-field">
-                <span className="lbl">終止日</span>
+                <span className="lbl">結束日</span>
                 <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={() => setSheet("until")}>
                   {d.until ? dayLabel(d.until) : "（選填）"}
                   <IconRight size={11} />
@@ -471,7 +471,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
               </div>
               <label className="ns-tk-mf-field top">
                 <span className="lbl">備註</span>
-                <textarea className="ns-tk-mf-note" rows={2} value={d.note} placeholder="一句話" onChange={(e) => setDraft({ note: e.target.value })} />
+                <textarea className="ns-tk-mf-note" rows={2} value={d.note} placeholder="備註" onChange={(e) => setDraft({ note: e.target.value })} />
               </label>
               <div className="ns-tk-mf-field">
                 <span className="lbl">路線</span>

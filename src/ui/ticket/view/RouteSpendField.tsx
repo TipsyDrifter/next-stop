@@ -47,7 +47,7 @@ export function RouteSpendField({ node }: { node: NodeRow }) {
       <button
         type="button"
         className="ns-tk-spend-go"
-        title="到售票口看掛在這條路線的帳（全部期間）"
+        title="到售票口看這條路線的帳"
         onClick={() => {
           useUiStore.getState().setPage("ticket");
           void useTicketStore.getState().drillToList({ routeId: node.id, from: null, toExcl: null, kinds: [], accountId: null });

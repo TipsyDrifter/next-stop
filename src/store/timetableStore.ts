@@ -142,9 +142,9 @@ export const TT_TEXT = {
   dockSplitTitle: "切開這一班",
   settingsBtn: "分類與設定",
   settingsBtnShort: "設定",
-  undoArriveFailed: "已經有下一班了，到站撤回不了",
+  undoArriveFailed: "已經有下一班了，到站復原不了",
   saveFailed: "存檔失敗——請再試一次",
-  pickCategory: "選一個分類",
+  pickCategory: "請選分類",
   categoryCreated: (name: string) => `已新增分類「${name}」`,
   categoryRenamed: (name: string) => `已改名為「${name}」`,
   /** W1：蓋到既有紀錄時的赭字；為 0 的部分省略；全 0 回空字串 */
@@ -175,9 +175,9 @@ export const TT_TEXT = {
   /** B8 搬組 */
   movedToGroup: (name: string, group: string) => `「${name}」搬到「${group}」`,
   /** B9 換圓牌字 */
-  glyphSet: (glyph: string) => `圓牌字改成「${glyph}」`,
+  glyphSet: (glyph: string) => `圖示字改成「${glyph}」`,
   /** B10 圓牌字不是一個字 */
-  glyphInvalid: "圓牌字只能一個字",
+  glyphInvalid: "圖示只能填一個字",
   /** B11 誤點 chip */
   late: (overMs: number) => `誤點 +${fmtDur(overMs)}`,
   latePending: (overMs: number) => `誤點 +${fmtDur(overMs)}・待確認`,
@@ -185,9 +185,9 @@ export const TT_TEXT = {
   estimateChip: (min: number) => `預估 ${fmtDur(min * MIN)}`,
   estimateAdd: "＋預估",
   /** B13 F 鍵沒有空白 */
-  noGap: "這一天沒有未記錄的時間",
+  noGap: "這天沒有漏記的時間",
   /** B14 切點驗證 */
-  cutTooShort: "每段至少 1 分",
+  cutTooShort: "每段至少 1 分鐘",
 
   /* ── ②（② 契約 §5.13；鍵名照契約） ── */
   DEPART_TASK: (cat: string, task: string, at: number) => `発車・${cat}・${task}　${fmtClock(at)}`,
@@ -199,9 +199,9 @@ export const TT_TEXT = {
   ARRIVE_ACTION: "到着",
   TASK_CATEGORY_TITLE: (task: string) => `「${task}」算哪一類？`,
   /** 節點掛著路線 */
-  TASK_CATEGORY_NOTE: "之後從這條路線發車會記住",
+  TASK_CATEGORY_NOTE: "之後從這條路線發車都會套用",
   /** 沒掛路線的臨時車票（只查節點那一段，每一張第一次都會跳） */
-  TASK_CATEGORY_NOTE_NO_ROUTE: "之後從這張票發車會記住",
+  TASK_CATEGORY_NOTE_NO_ROUTE: "之後從這張車票發車都會套用",
   LINK_DELETED: linkDeletedText,
   LINK_MISSING: LINK_MISSING_TEXT,
   /** LinkPanel 標題 */
@@ -212,7 +212,7 @@ export const TT_TEXT = {
   LINK_ROUTE_ONLY: "只連路線",
   TODAY_TICKETS: "今日車票",
   TIME_LABEL: "時間",
-  TIME_HOVER: (self: string, below: string) => `自己 ${self}／底下 ${below}`,
+  TIME_HOVER: (self: string, below: string) => `本身 ${self}／子項目 ${below}`,
   ROUTE_TIME: (month: string, total: string) => `本月 ${month}・累計 ${total}`,
   /** 手機路線圖列尾（RouteTimeAside）：帶「本月」，跟售票口「本月花 …」並排也看得懂（D-時-140） */
   ROUTE_ASIDE: (month: string) => `本月 ${month}`,
@@ -221,8 +221,8 @@ export const TT_TEXT = {
   FOCUS: "專注",
   TODAY_DEPART: "発車",
   TODAY_RUNNING: "正在跑",
-  EST_FALLBACK_TASK: (x: string) => `；沒預估時用任務的預計時間 ${x}`,
-  LONG_RUN_TASK: (task: string, est: string, over: string) => `「${task}」預計 ${est}，已經誤點 ${over}。其實到幾點？`,
+  EST_FALLBACK_TASK: (x: string) => `；沒設預估時，沿用車票的預計時間 ${x}`,
+  LONG_RUN_TASK: (task: string, est: string, over: string) => `「${task}」預計 ${est}，已經誤點 ${over}。實際到幾點？`,
 
   /* ── ③（③ 契約 §5.9；顯示端不手抄） ── */
   viewWeek: "週",
@@ -232,12 +232,12 @@ export const TT_TEXT = {
   statsPending: (n: number, ms: number) => `待確認 ${n} 班・${fmtDur(ms)}`,
   /** 環比總述的前綴：「比上週同期」（進行中的期，same）／「比上週」（已過完的期） */
   statsCompare: (p: StatsPeriod, same: boolean) => `比${p === "day" ? "昨天" : p === "week" ? "上週" : "上個月"}${same ? "同期" : ""}`,
-  statsEmpty: "這一期還沒有紀錄",
+  statsEmpty: "這期還沒有紀錄",
   statsToCurrent: "回到本期",
   weekToCurrent: "回到本週",
-  routeNone: "沒連任務",
+  routeNone: "沒連車票",
   routeNoRoute: "沒有路線的任務",
-  routeGone: "（已刪除的任務）",
+  routeGone: "（已刪除的車票）",
   goalAdd: "＋目標",
   goalMet: "達成",
   goalOver: (ms: number) => `超過 ${fmtDur(ms)}`,
@@ -246,7 +246,7 @@ export const TT_TEXT = {
   goalPendingHint: (n: number) => `另有 ${n} 班待確認`,
   /** D-時-60／61／62：期間過了／還沒開始／節奏 */
   goalEnded: "已結束",
-  goalMissed: "沒達到",
+  goalMissed: "未達標",
   goalKept: "守住",
   goalStarts: (md: string) => `${md} 開始`,
   goalDaysLeft: (n: number) => `還剩 ${n} 天`,
@@ -256,15 +256,15 @@ export const TT_TEXT = {
   goalSaved: (name: string) => `目標「${name}」存好了`,
   goalDeleted: "目標刪掉了",
   goalArchived: (name: string) => `「${name}」收起來了`,
-  goalUnarchived: (name: string) => `「${name}」叫回來了`,
+  goalUnarchived: (name: string) => `「${name}」取回來了`,
   pendingAllDone: "都確認好了",
-  syncBlockGone: "後來又被整理掉，現在不在軸上了",
+  syncBlockGone: "這筆紀錄已被合併或刪除",
   /** ③ 週視圖、視圖切換的畫面字（丙席；契約 §5.1、§5.5、D-時-54、66；顯示端不手抄） */
   weekUi: {
     /** 欄頭（D-時-66：寫「週一」，不是單一個「一」） */
     weekdays: ["週日", "週一", "週二", "週三", "週四", "週五", "週六"] as readonly string[],
     viewSplit: "兩欄",
-    viewAxis: "只看軸",
+    viewAxis: "只看時間軸",
     viewBoard: "發車台",
     viewAxisMobile: "軸",
     tagThisWeek: "本週",
@@ -277,8 +277,8 @@ export const TT_TEXT = {
     /** 塊的 tooltip／讀屏：「創作 14:00–16:30・2h30m」（＋待確認／碎塊） */
     blockTip: (name: string, from: string, to: string, dur: string, pending: boolean, tiny: boolean) =>
       `${name} ${from}–${to}・${dur}${pending ? "・待確認" : ""}${tiny ? "・碎塊（不進統計）" : ""}`,
-    gapTip: (from: string, to: string, dur: string) => `未記錄 ${from}–${to}・${dur}　點了補記`,
-    foot: (desktop: boolean) => `點塊＝跳到那天的軸、打開那塊；點空白＝補記那段${desktop ? "；← → 換週、T 回本週" : ""}`,
+    gapTip: (from: string, to: string, dur: string) => `未記錄 ${from}–${to}・${dur}　點擊補記`,
+    foot: (desktop: boolean) => `點時間塊可查看或編輯；點空白處可補記${desktop ? "；← → 換週、T 回本週" : ""}`,
   },
   /** ③ 同步清單的時刻表三張表（丙席；契約 0-13、D-時-58；`lines/timetableSyncLabel.ts` 讀） */
   syncRunningFrom: "起",
@@ -287,15 +287,15 @@ export const TT_TEXT = {
   syncCatGone: "已刪除的分類",
   syncNodeGone: "一張車票",
   syncRouteGone: "一條路線",
-  syncTopLevel: "（頂層）",
+  syncTopLevel: "（最上層）",
   syncNoEstimate: "沒預估",
-  syncNoDefault: "沒預設",
+  syncNoDefault: "無預設",
   syncNoScope: "（沒有分類）",
   syncRunning: "運行中",
   syncAck: "已確認",
   syncPending: "待確認",
   syncArchived: "已封存",
-  syncNotArchived: "沒封存",
+  syncNotArchived: "未封存",
   syncCols: {
     time_blocks: {
       started_at: "開始時刻",
@@ -341,16 +341,16 @@ export const TT_TEXT = {
     nextPeriod: "下一期",
     keysHint: "← → 換期",
     pendingCount: (n: number) => `待確認 ${n} 班`,
-    pendingTip: "點開：逐塊看、修好就回到分類",
-    pendingNone: "沒有跑太久沒確認的塊",
+    pendingTip: "點開逐一確認，修好就會歸入分類",
+    pendingNone: "沒有跑太久、待確認的時間塊",
     cmpRecorded: "已記錄",
     cmpWhole: (name: string) => `上一期：${name}`,
     /** 環比的滑過／點開說明（〈原型定案〉1：「多 3h10m（上期 18h）」） */
     deltaTip: (ms: number, prevMs: number) =>
-      Math.abs(ms) < MIN ? `一樣（上期 ${fmtDur(prevMs)}）` : `${ms > 0 ? "多" : "少"} ${fmtDur(Math.abs(ms))}（上期 ${fmtDur(prevMs)}）`,
-    shareTitle: "占比與環比",
-    shareNote: (cmp: string) => `分母＝已記錄・環比＝${cmp}`,
-    shareFoot: "點名稱＝趨勢只看那一類（再點取消）；點 › 看子分類",
+      Math.abs(ms) < MIN ? `持平（上期 ${fmtDur(prevMs)}）` : `${ms > 0 ? "多" : "少"} ${fmtDur(Math.abs(ms))}（上期 ${fmtDur(prevMs)}）`,
+    shareTitle: "占比與上期比較",
+    shareNote: (cmp: string) => `占已記錄時數・與${cmp}比較`,
+    shareFoot: "點名稱只看該類趨勢（再點取消）；點 › 看子分類",
     expandKids: "展開子分類",
     collapseKids: "收起子分類",
     filterOn: "趨勢只看這一類",
@@ -358,10 +358,10 @@ export const TT_TEXT = {
     trendTitle: "趨勢",
     trendNote: (p: StatsPeriod) => (p === "day" ? "近 14 天" : p === "week" ? "近 8 週" : "近 6 個月"),
     filterChip: (name: string) => `只看「${name}」`,
-    filterClear: "取消過濾",
+    filterClear: "顯示全部",
     toNow: "到現在",
     goalsTitle: "時數目標",
-    goalsNone: "還沒有目標。「＋目標」可以設「每週至少 10h 創作」這種。",
+    goalsNone: "還沒有目標。點「＋目標」就能設定（例如：每週創作 10 小時）。",
     goalsMore: (upcoming: number, ended: number) =>
       `另有 ${[upcoming ? `${upcoming} 個未開始` : "", ended ? `${ended} 個已結束` : ""].filter(Boolean).join("、")}`,
     goalsLess: "收起來",
@@ -383,11 +383,11 @@ export const TT_TEXT = {
     stampOver: "超過",
     catGone: "已刪除的分類",
     routesTitle: "依路線",
-    routesNote: "分母＝已記錄",
+    routesNote: "占已記錄時數",
     routeDeleted: (name: string) => `${name}（已刪除）`,
-    loading: "算一下…",
+    loading: "計算中…",
     loadFailed: (msg: string) => `統計讀不出來：${msg}`,
-    pendingSub: "跑太久、還沒確認的塊整塊另列，不算進任何分類，也不算進目標。修好（其實到幾點）或按「沒錯」就回到分類。",
+    pendingSub: "跑太久、待確認的時間塊不會算進分類與目標。改好結束時刻或按「沒錯」就會歸入分類。",
     pendingGoalSub: (name: string) => `只列「${name}」範圍內的。`,
     pendingRowSub: (clock: string, dur: string, running: boolean) => `${clock} 起・跑了 ${dur}${running ? "（還在跑）" : ""}`,
     pendingEmpty: "沒有待確認的了",
@@ -404,29 +404,29 @@ export const TT_TEXT = {
     namePlaceholder: "例：夜行列車",
     groupWhole: "整組（含之後新增的）",
     groupPicked: (n: number) => `勾了 ${n} 個`,
-    kindRepeat: "週期重複",
-    hintSince: "從這天的日界線開始累計、沒有終點",
-    hintUntil: "那天整天都算",
-    hintStartDefault: "預設＝今天",
+    kindRepeat: "定期重複",
+    hintSince: "從這天的日界線開始持續累計",
+    hintUntil: "包含當天整天",
+    hintStartDefault: "預設為今天",
     startLink: (md: string) => `從 ${md} 起算・改起點`,
     minutes: (m: number) => `${m} 分`,
     hourUnit: "h",
     hoursDown: (n: number) => `少 ${n} 小時`,
     hoursUp: (n: number) => `多 ${n} 小時`,
-    noName: "取個名字",
-    noCat: "勾至少一個分類",
+    noName: "請取個名字",
+    noCat: "請至少勾一個分類",
     noHours: "時數要大於 0",
-    noEndUntil: "選截止日",
-    noEndRange: "選結束那天",
-    noStart: "選起點",
-    endBeforeUntil: "截止日不能早於起點",
+    noEndUntil: "請選截止日",
+    noEndRange: "請選結束日期",
+    noStart: "請選開始日期",
+    endBeforeUntil: "截止日不能早於開始日",
     endBeforeRange: "結束不能早於開始",
     save: "儲存",
     archive: "封存",
     remove: "刪除",
     archivedList: (n: number) => `已封存的目標（${n}）`,
     restore: "叫回",
-    goalGone: "這個目標已經不在了",
+    goalGone: "找不到這個目標，可能已刪除",
     close: "關閉",
   },
 
@@ -441,26 +441,26 @@ export const TT_TEXT = {
     `排了 ${n} 件・済 ${stamped}` + (timedOnly > 0 ? `・只記時間 ${timedOnly}` : "") + `・準點 ${onTime}`,
   /** 總結行（未來）：「排了 3 件・共 4h30m（2 件長度未定）」；ms＝預計加總（毫秒）、noEst＝沒預計的件數；預計加總 0 ⇒ 不寫「共」 */
   schedFuture: (n: number, ms: number, noEst: number) =>
-    `排了 ${n} 件` + (ms > 0 ? `・共 ${fmtDur(ms)}` : "") + (noEst > 0 ? `（${noEst} 件長度未定）` : ""),
-  schedEmpty: "這天還沒有排時刻的票",
+    `排了 ${n} 件` + (ms > 0 ? `・共 ${fmtDur(ms)}` : "") + (noEst > 0 ? `（${noEst} 件未定時長）` : ""),
+  schedEmpty: "這天還沒有排定時刻的車票",
   schedTrayTitle: "還沒排",
-  schedTrayEmpty: "這天的票都排好了",
+  schedTrayEmpty: "這天的車票都排好了",
   /** 「還沒排」底下的灰字（D-時-80 改題）：誤點的單發票都進清單了，只剩定期券漏班要去今日頁（主線擋改執行日） */
-  schedLateRepeat: (n: number) => `另有 ${n} 班定期券漏班在今日頁`,
+  schedLateRepeat: (n: number) => `今日視圖還有 ${n} 班誤點的定期券`,
   /** 誤點的單發票排上來的收據：執行日改到今天＋排時刻 */
   schedLateMoved: (t: string) => `移到今天 ${t}`,
   /** 定期券「改回每班時刻」的收據（PlanPanel 的「改回 20:00」；store.revertRun） */
   schedReverted: (t: string) => `改回每班時刻 ${t}`,
   schedRevertedNone: "改回每班時刻（沒有時刻）",
-  schedOutOfAxis: (t: string) => `軸外 ${t}`,
+  schedOutOfAxis: (t: string) => `未排時刻 ${t}`,
   schedPickHint: "點預定欄的位置排上去",
   schedPickCancel: "取消",
   schedPast: "過去的日子只能看",
   schedPlaced: (t: string) => `已排到 ${t}`,
   schedMoved: (t: string) => `改到 ${t}`,
-  schedCleared: "清掉這張的時刻了",
+  schedCleared: "已清除時刻",
   /** 收據後面補的一句：原本的時刻在現在的日界線外（軸外），寫不回去 ⇒ 這筆不出「撤回」（修正席） */
-  schedNoUndo: (t: string) => `（原本的 ${t} 在日界線外，撤不回）`,
+  schedNoUndo: (t: string) => `（原本的 ${t} 在日界線外，無法復原）`,
   schedNoEstimate: "長度未定",
   schedRun: "本班",
   /** 預定卡上的時刻：「14:00 発」（照存的字；≥ 24:00 另加 `nextDayNote` 的「隔天 01:00」） */
@@ -495,31 +495,31 @@ export const TT_TEXT = {
   /** 讀數：「14:00–15:30・1h30m」 */
   gridRead: (a: string, b: string, dur: string) => `${a}–${b}・${dur}`,
   /** 讀數（live）：「14:00 起換成・繼續跑」 */
-  gridLive: (a: string) => `${a} 起換成・繼續跑`,
+  gridLive: (a: string) => `${a} 起換成・繼續計時`,
   /** 〈原型定案〉1：放開後的貼齊說明「貼齊空白：頭 14:00→14:07、尾 15:00→14:52」；parts＝gridSnapHead／gridSnapTail 的結果 */
-  gridSnap: (parts: readonly string[]) => `貼齊空白：${parts.join("、")}`,
+  gridSnap: (parts: readonly string[]) => `填滿空白：${parts.join("、")}`,
   gridSnapHead: (from: string, to: string) => `頭 ${from}→${to}`,
   gridSnapTail: (from: string, to: string) => `尾 ${from}→${to}`,
   /** 〈原型定案〉1：live 時塗色列多一行（點運行中那班的分類會怎樣） */
   gridLiveRestart: (cat: string, at: string) => `點「${cat}」＝這一班提早到 ${at} 出發`,
-  gridLiveSame: (cat: string) => `點「${cat}」＝本來就是，不會寫`,
+  gridLiveSame: (cat: string) => `點「${cat}」＝本來就是，不變動`,
   /** 沙盒 F2：同一行接著講點別的分類時運行中那班的結局（讀數的「會蓋掉」不算它）；whole＝選區頭不晚於它的開始 */
-  gridLiveOther: (whole: boolean, at: string) => (whole ? "別的分類＝這一班整班收掉" : `別的分類＝這一班在 ${at} 到站`),
+  gridLiveOther: (whole: boolean, at: string) => (whole ? "點其他分類＝整班換掉" : `點其他分類＝這一班在 ${at} 到站`),
   /** 桌機塗色列的說明一行（live 時運行中那班的結局在下面那一行講，這裡不重複） */
-  gridPaintHint: (live: boolean) => `點一個分類就直接寫${live ? "、從選區頭繼續跑" : ""}`,
+  gridPaintHint: (live: boolean) => `點分類直接填入${live ? "、從選區頭繼續跑" : ""}`,
   gridMore: "更多…",
   gridCancel: "取消",
   /** live 模式不給「更多…」時那一格的說明 */
-  gridLiveNoMore: "繼續跑的不能用「更多…」（補記面板沒有「繼續跑」）",
+  gridLiveNoMore: "計時中不能用「更多…」，請直接點分類",
   gridFuture: "還沒到的時間不能記",
   /** 點了過去的空白格、卻沒有可補的空白（不到 1 分的縫） */
-  gridNoGap: "這一格沒有空白",
+  gridNoGap: "這一格已經滿了",
   /** 手機：起點離螢幕左右邊 < 24px 不開始拖（讓給返回手勢） */
-  gridEdge: "離螢幕邊緣太近：讓給返回手勢",
+  gridEdge: "太靠螢幕邊緣，請往內滑一點",
   gridLegendFuture: "還沒到",
   /** 操作說明一行 */
   gridFoot: (isDesk: boolean) =>
-    `拖過一段格子，點分類就補上；點有顏色的格子改那一塊${isDesk ? "；← → 換日、T 回今天、Esc 取消" : ""}`,
+    `拖曳選取格子再點分類可補記；點色塊可修改${isDesk ? "；← → 換日、T 回今天、Esc 取消" : ""}`,
   /** toast：補上（fill） */
   paint: (cat: string, durMs: number) => `補上・${cat}　${fmtDur(durMs)}`,
   /** toast：live 換車 */
@@ -536,8 +536,8 @@ export const TT_TEXT = {
     return parts.length ? `${parts.join("、")}${undoable ? "——撤回會全部回來" : ""}` : "";
   },
   paintSame: (cat: string) => `本來就是「${cat}」`,
-  paintUndone: "已撤回・回到塗之前",
-  paintUndoFailed: "後來又改過了，撤回不了",
+  paintUndone: "已復原・回到塗之前",
+  paintUndoFailed: "後來又改過了，復原不了",
 
   /* ── ⑥ 荷札接軌（⑥ 契約 §5.9、D-時-115～123、129；顯示端不手抄）。荷札名一律傳「不含 #」的顯示名，# 由這裡加 ── */
   tags: {
@@ -548,7 +548,7 @@ export const TT_TEXT = {
     runCount: (n: number) => `荷札 ${n}`,
     /** 分類帶的牌子的滑過字（D-時-115；磨光③ 統一用「」） */
     fromCategory: (name: string) => `來自分類「${name}」`,
-    fromGroup: (name: string) => `來自組「${name}」`,
+    fromGroup: (name: string) => `來自「${name}」群組`,
     /** 磨光③ 2-1 單塊排除（D-時-136）：src＝`srcCategory`／`srcGroup` 的字 */
     srcCategory: (name: string) => `分類「${name}」`,
     srcGroup: (name: string) => `組「${name}」`,
@@ -567,7 +567,7 @@ export const TT_TEXT = {
     loadFailed: "荷札沒載入",
     retry: "重試",
     /** 分類管理：子分類列「組帶的：#高效」（D-時-121）；⋯ 展開區那一列的列名 */
-    groupCarried: "組帶的：",
+    groupCarried: "群組預設：",
     defaults: "預設荷札",
     /** 一個荷札的顯示字「#高效」 */
     chip: (name: string) => `#${name}`,
@@ -581,47 +581,47 @@ export const TT_TEXT = {
     shareGroup: "占比依",
     /** 荷札面（D-時-119） */
     untagged: "沒掛荷札",
-    overNote: "一塊可能有好幾個荷札，加起來會超過 100%",
-    virtual: "虛資料夾",
-    shareFoot: "點名稱＝趨勢只看那個荷札（再點取消）；點 › 看子荷札；父層的時數含子荷札、同一塊不重複算",
+    overNote: "一個時間塊可能有多個荷札，總和會超過 100%",
+    virtual: "上層分類",
+    shareFoot: "點名稱只看該荷札的趨勢（再點取消）；點 › 看底下的荷札；上層的時數含底下的荷札、同一塊不重複算",
     filterTitle: (on: boolean) => (on ? "再點一次取消" : "趨勢只看這個荷札"),
     /** 空狀態（D-時-120） */
-    empty: "還沒有荷札。給分類掛預設荷札，例如娛樂 → #拖延，過去的紀錄會一起算進來。",
+    empty: "還沒有荷札。幫分類掛上預設荷札（例如娛樂 → #拖延），過去的紀錄也會一起算進來。",
     goSet: "去設定",
     /** 目標面板（D-時-122）與目標卡 */
     goalSection: "荷札",
-    goalScopeEmpty: "至少選一個分類或荷札",
-    goalTagsGone: "綁的荷札已經不在了",
+    goalScopeEmpty: "請選至少一個分類或荷札",
+    goalTagsGone: "綁定的荷札已刪除",
     /** 荷札頁「時刻表」段（D-時-123；`tagEntities` 的 group 與 describe 用） */
     entityGroup: "時刻表",
     /** 手動掛的塊：「10/17 上課 10:50–13:00」；end null＝運行中 */
     entityBlock: (md: string, cat: string, start: number, end: number | null) =>
       `${md} ${cat} ${fmtClock(start)}–${end === null ? "運行中" : fmtClock(end)}`,
     entityCategory: (name: string) => `分類「${name}」的預設荷札`,
-    entityCategorySub: "這個分類過去和以後的紀錄都算",
+    entityCategorySub: "這個分類過去和未來的紀錄都會套用",
     /** 組（頂層）的預設荷札：會傳給底下每個分類（D-時-111），寫成「組」才看得出刪它的影響範圍（評審後） */
-    entityGroupDefault: (name: string) => `組「${name}」的預設荷札`,
-    entityGroupDefaultSub: "底下每個分類過去和以後的紀錄都算",
+    entityGroupDefault: (name: string) => `「${name}」群組的預設荷札`,
+    entityGroupDefaultSub: "群組內所有分類過去和未來的紀錄都會套用",
     /* ── 評審後從顯示端收進來的字（§5.9；只搬文字） ── */
     /** 補記還沒選分類時荷札列的淡字 */
-    fillHint: "選了分類，分類帶的荷札會自己出現",
+    fillHint: "選分類後，會自動帶入它的預設荷札",
     /** 改一塊：荷札 index 還沒載好（先不給編輯，免得在空的基準上改） */
     loading: "荷札載入中…",
     /** 運行中那班的荷札小面板 */
-    runGone: "這一班已經不在了",
+    runGone: "找不到這一班",
     runStart: (clock: string) => `${clock} 発`,
-    runHint: "手動加的會跟著這一班；到站、切開之後也還在",
+    runHint: "手動加的荷札會跟著這一班，到站或切開後也會保留",
     close: "關閉",
     done: "好了",
     /** 運行列「荷札」鈕的滑過字（還沒有荷札時） */
-    runBtnTitle: "給這一班加荷札（副活動）",
+    runBtnTitle: "幫這一班加荷札",
     /** 目標面板荷札段的說明 */
-    goalTagHint: "選了荷札：有掛它（含分類帶的、含子荷札）的時間都算；跟上面的分類取聯集，同一塊只算一次",
+    goalTagHint: "同時選分類與荷札時，只要符合其一就會計入（不重複計算）",
     /** 分類管理：子分類的「組帶的」那一行尾巴、⋯ 展開區的兩句說明、組頭 ⋯ 的 aria-label */
-    grpEditAt: (group: string) => `（在組「${group}」的 ⋯ 改）`,
+    grpEditAt: (group: string) => `（請到「${group}」群組的 ⋯ 修改）`,
     catNote: "預設荷札＝這個分類的每一塊都帶上，過去的也算（改了會改到過去的統計）。",
     groupNote: "組的預設荷札，底下每個分類都會帶上（含之後新增的）；過去的紀錄一起算。",
-    groupMore: (group: string) => `${group} 的更多：組的預設荷札`,
+    groupMore: (group: string) => `${group} 的預設荷札`,
     /** 荷札牌：名稱可點時的滑過字、摘下鈕 */
     openList: (name: string) => `看 #${name} 的清單`,
     remove: "摘下",
@@ -631,7 +631,7 @@ export const TT_TEXT = {
     entityGoal: (name: string) => `目標「${name}」`,
     /* 丙席・統計（原型 v-tags.js scopeText／goalsHtml）：範圍混了荷札超過 3 項「創作・#高效…等 4 項」；範圍空了的卡尾鈕 */
     scopeMore: (names: string, n: number) => `${names}…等 ${n} 項`,
-    goalRescope: "重新選範圍 ›",
+    goalRescope: "重選範圍 ›",
   },
 } as const;
 
@@ -1537,7 +1537,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         () => timetableRepo.split(blockId, isoOf(at), categoryId2),
         (r) => {
           if (r) toast(TT_TEXT.split(at));
-          else toast("切點要在這一塊的開頭與尾端之間");
+          else toast("切開的位置要在這段時間之內");
         },
       );
     },

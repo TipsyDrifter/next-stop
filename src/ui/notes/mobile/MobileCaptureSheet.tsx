@@ -120,7 +120,7 @@ export function MobileCaptureSheet() {
     const dest = resolveDestination(capture.stub, !!p);
     body = dest.consumePrefix && p ? p.body : capture.text;
     if (needsPreview(capture.stub, body)) {
-      destText = `→ 先預覽：拆成 ${splitTodoLines(body).filter((l) => l.checked).length} 張車票`;
+      destText = `→ 預覽：拆成 ${splitTodoLines(body).filter((l) => l.checked).length} 張車票`;
     } else if (dest.target === "inbox") destText = "→ 收件匣";
     else if (dest.target === "today") destText = "→ 今日";
     else if (dest.target === "diary") destText = "→ 今天的日記";
@@ -131,7 +131,7 @@ export function MobileCaptureSheet() {
   } else {
     const useRoute = !!spec?.acceptsRoute && !!p;
     body = useRoute && p ? p.body : capture.text;
-    destText = "→ " + (spec ? spec.destLabel(p ? { id: p.route.id, name: p.route.name } : null) : "（這個去處目前不能用）");
+    destText = "→ " + (spec ? spec.destLabel(p ? { id: p.route.id, name: p.route.name } : null) : "（這裡目前不能選）");
     showRoute = false; // 路線怎麼寫由 spec.destLabel 決定
     if (spec && !spec.acceptsRoute) routeMuted = `${spec.label}不掛路線`;
   }
@@ -233,7 +233,7 @@ export function MobileCaptureSheet() {
 
         {rawP && rawRoute && routeMuted && (
           <div className="ns-notes-mroute">
-            <span className="ns-notes-mroutestub muted" title={`認到路線前綴「${rawP.matched.trim()}」——${usePreset ? `已掛在「${preset?.label ?? ""}」` : "這一枚票根不掛路線"}，原文照留`}>
+            <span className="ns-notes-mroutestub muted" title={`認出路線「${rawP.matched.trim()}」——${usePreset ? `已掛在「${preset?.label ?? ""}」` : "這一枚票根不掛路線"}，原文保留`}>
               <RouteDot route={rawRoute} />
               <span className="nm">{rawRoute.name}</span>
               <span className="why">・{routeMuted}</span>
@@ -243,7 +243,7 @@ export function MobileCaptureSheet() {
 
         {typedPrefix && p && route && !routeMuted && (
           <div className="ns-notes-mroute">
-            <span className="ns-notes-mroutestub" title={`認到路線前綴「${p.matched.trim()}」`}>
+            <span className="ns-notes-mroutestub" title={`認出路線代碼「${p.matched.trim()}」`}>
               <span className="arr" aria-hidden>
                 →
               </span>
@@ -252,7 +252,7 @@ export function MobileCaptureSheet() {
               <button
                 type="button"
                 className="x"
-                aria-label="取消路線（游標在開頭按退格也可以）"
+                aria-label="取消路線（在開頭按退格鍵也可以）"
                 onMouseDown={keepFocus}
                 onClick={dismissRoute}
               >
@@ -264,7 +264,7 @@ export function MobileCaptureSheet() {
           </div>
         )}
 
-        {capture.confirmEsc && <p className="ns-notes-mwarn">還有內容沒存——再按一次取消就放棄</p>}
+        {capture.confirmEsc && <p className="ns-notes-mwarn">還有內容沒存——再按一次就放棄</p>}
 
         <div className="ns-notes-msave">
           <span className="dest">

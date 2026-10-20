@@ -190,14 +190,14 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="cover" aria-label="路線網絡側欄">
+    <aside className="cover" aria-label="路線清單側欄">
       <div className="brand">
         <h1>私鐵手帳</h1>
         <span className="latin">Next Stop</span>
         <div className="foil-rule" />
       </div>
 
-      <nav className="gnav" aria-label="全域導航">
+      <nav className="gnav" aria-label="主選單">
         {/* 第一欄：核心三頁（今日／路線圖／日曆）。⑤ 起三枚都真的換頁（active＋aria-current 同一套） */}
         <div className="gnav-row">
           {corePages().map((p) => (
@@ -267,12 +267,11 @@ export function Sidebar() {
           <span className="gnav-kbd-note">{MOD_KBD}{` ${openPages().map((p) => p.navDigit).join(" · ")}`}</span>{" "}
           <span
             className="gnav-kbd-guide"
-            title={`快捷鍵指引（${capsOf("global.guide")}）`}
+            title={`快捷鍵（${capsOf("global.guide")}）`}
             onMouseDown={(e) => e.preventDefault()}
             onClick={toggleHotkeyGuide}
           >
-            ? 指引
-          </span>
+            ? 說明</span>
           <SyncDot className="gnav-sync-dot" />
         </p>
 

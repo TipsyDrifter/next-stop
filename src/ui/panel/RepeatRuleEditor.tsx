@@ -154,10 +154,10 @@ export function RepeatSection({ node }: { node: NodeRow }) {
           const cur = nodeRef.current;
           sent.current = cur.repeat_rule ?? null;
           setDraft(draftOf(cur, todayKey(dayStartHour)));
-          showToast({ message: r.reason ?? "無法設定重複規則" }, 4000);
+          showToast({ message: r.reason ?? "無法設定重複" }, 4000);
           return;
         }
-        if (rule === null) showToast({ message: "已改回乘車券——過去的班次記錄保留" });
+        if (rule === null) showToast({ message: "已改回乘車券——過去的班次會保留" });
       });
     },
     [setRepeatRule, showToast, dayStartHour],
@@ -222,7 +222,7 @@ export function RepeatSection({ node }: { node: NodeRow }) {
               else if (v === "fixed") push(fillFixed({ ...draft, mode: "fixed" }));
               else push({ ...draft, mode: v });
             }}
-            ariaLabel="重複模式"
+            ariaLabel="重複方式"
           />
         </FieldRow>
 

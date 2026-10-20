@@ -664,7 +664,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       }
       await reloadLists();
       toast(
-        "已留作筆記，可以在「筆記」裡找到",
+        "已存成筆記",
         safeUndo(async () => {
           await noteRepo.update(id, { inbox: 1 });
           await reloadLists();
@@ -736,7 +736,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       if (!ok) return;
       const origPos = before?.position ?? 0;
       toast(
-        `已掛進 ${parentName}`,
+        `已放進 ${parentName}`,
         safeUndo(async () => {
           await useNodeStore.getState().moveNode(id, null, origPos);
           // 搬回根層時 move 會把列車所屬路線留成「路線標籤」（臨時車票保留路線標籤的規則）；
@@ -750,7 +750,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       const ok = await ticketAction(id, () => useNodeStore.getState().setRouteTag(id, routeId));
       if (!ok) return;
       toast(
-        `已掛上 ${routeName(routeId)}`,
+        `已加上 ${routeName(routeId)}`,
         safeUndo(async () => {
           await useNodeStore.getState().setRouteTag(id, null);
           await get().loadInbox();
@@ -1058,7 +1058,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
             await reloadLists();
             const done = [...created];
             toast(
-              `建到第 ${k + 1} 張時失敗，已建的 ${k} 張留著`,
+              `建到第 ${k + 1} 張時失敗，前 ${k} 張已保留`,
               safeUndo(async () => {
                 for (const x of done) await nodeRepo.softDelete(x);
                 await useNodeStore.getState().refresh();

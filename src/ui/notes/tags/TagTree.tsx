@@ -102,7 +102,7 @@ export function TagTree() {
                 <button
                   type="button"
                   className="line-item ns-notes-treenm"
-                  title={x.real ? `#${x.name}` : `#${x.name}（虛資料夾：沒人直接掛它）`}
+                  title={x.real ? `#${x.name}` : `#${x.name}（僅作上層分類，未直接使用）`}
                   onClick={() => st().select(x.key)}
                 >
                   <TagGlyph real={x.real} />
@@ -117,7 +117,7 @@ export function TagTree() {
       {index && rows.some((r) => !r.node.real) && (
         <p className="ns-notes-treelegend">
           <TagGlyph real={false} size={12} />
-          虛資料夾：沒人直接掛它
+          上層分類（沒有直接掛在上面的項目）
         </p>
       )}
     </div>

@@ -23,17 +23,17 @@ import type { Scene } from "../ui/shell/hotkeyRows";
  * 物件字面值若直接寫在 TIMETABLE 裡會被 `satisfies LineManifest` 拿去做上下文型別 ⇒ 繞回自身推導（TS7022／TS2456）。
  * 另外宣告也順便避開 as const 的 readonly tuple 不滿足 Hotkey.chords 可變陣列的問題。
  */
-const STEP_NOTE = "週視圖＝換週，統計＝換期";
-const STATS_ONLY_NOTE = "統計視圖才有作用";
+const STEP_NOTE = "看週曆時換週，看統計時換區間";
+const STATS_ONLY_NOTE = "只在統計畫面有效";
 
 const TIMETABLE_HOTKEYS: Hotkey[] = [
   { id: "timetable.depart", scope: "timetable", chords: [{ key: "n" }], label: "発車／換車", wired: true },
   { id: "timetable.arrive", scope: "timetable", chords: [{ key: "Enter" }], label: "到着（運行中才有效）", wired: true },
-  { id: "timetable.view", scope: "timetable", chords: [{ key: "v" }], label: "切換視圖", note: "兩欄⇄只看軸；在週視圖、統計、日程或方眼按下回到兩欄", wired: true },
+  { id: "timetable.view", scope: "timetable", chords: [{ key: "v" }], label: "切換畫面", note: "兩欄⇄只看軸；在週視圖、統計、日程或方眼按下回到兩欄", wired: true },
   // 車次③（③ 契約 §5.8、D-時-57）：視圖四格 1–4（同切換鈕的鍵帽）。無修飾鍵、不加 ignoreMods（同①b）
   { id: "timetable.view.1", scope: "timetable", chords: [{ key: "1" }], label: "切到兩欄", wired: true },
-  { id: "timetable.view.2", scope: "timetable", chords: [{ key: "2" }], label: "切到只看軸", wired: true },
-  { id: "timetable.view.3", scope: "timetable", chords: [{ key: "3" }], label: "切到週視圖", wired: true },
+  { id: "timetable.view.2", scope: "timetable", chords: [{ key: "2" }], label: "只看時間軸", wired: true },
+  { id: "timetable.view.3", scope: "timetable", chords: [{ key: "3" }], label: "切到週曆", wired: true },
   { id: "timetable.view.4", scope: "timetable", chords: [{ key: "4" }], label: "切到統計", wired: true },
   // 車次④（④ 契約 0-7、D-時-74）：第五格日程
   { id: "timetable.view.5", scope: "timetable", chords: [{ key: "5" }], label: "切到日程", wired: true },
@@ -43,21 +43,21 @@ const TIMETABLE_HOTKEYS: Hotkey[] = [
   // 車次③（③ 契約 §5.8、D-時-57）：←／→／T 同一組鍵依視圖分派（週視圖＝換週／回本週，統計＝換期／回本期），不另登記；只補 note
   { id: "timetable.day.prev", scope: "timetable", chords: [{ key: "ArrowLeft" }], label: "前一天", note: STEP_NOTE, wired: true },
   { id: "timetable.day.next", scope: "timetable", chords: [{ key: "ArrowRight" }], label: "後一天", note: STEP_NOTE, wired: true },
-  { id: "timetable.day.today", scope: "timetable", chords: [{ key: "t" }], label: "回今天", note: "週視圖＝回到本週，統計＝回到本期", wired: true },
+  { id: "timetable.day.today", scope: "timetable", chords: [{ key: "t" }], label: "回今天", note: "看週曆時回本週，看統計時回本期", wired: true },
   { id: "timetable.restart", scope: "timetable", chords: [{ key: "r" }], label: "改出發時間（運行中才有效）", wired: true },
   { id: "timetable.settings", scope: "timetable", chords: [{ key: "e" }], label: "分類與設定", wired: true },
   { id: "timetable.split", scope: "timetable", chords: [{ key: "s" }], label: "切開運行中那一班", wired: true },
-  { id: "timetable.fill", scope: "timetable", chords: [{ key: "f" }], label: "補記最近的一段未記錄", wired: true },
+  { id: "timetable.fill", scope: "timetable", chords: [{ key: "f" }], label: "補記剛才的空檔", wired: true },
   // 車次③：統計的期 D／W／M——只在統計視圖作用，其他視圖放行（不 preventDefault）
-  { id: "timetable.stats.day", scope: "timetable", chords: [{ key: "d" }], label: "統計看一天", note: STATS_ONLY_NOTE, wired: true },
-  { id: "timetable.stats.week", scope: "timetable", chords: [{ key: "w" }], label: "統計看一週", note: STATS_ONLY_NOTE, wired: true },
-  { id: "timetable.stats.month", scope: "timetable", chords: [{ key: "m" }], label: "統計看一個月", note: STATS_ONLY_NOTE, wired: true },
+  { id: "timetable.stats.day", scope: "timetable", chords: [{ key: "d" }], label: "統計：單日", note: STATS_ONLY_NOTE, wired: true },
+  { id: "timetable.stats.week", scope: "timetable", chords: [{ key: "w" }], label: "統計：單週", note: STATS_ONLY_NOTE, wired: true },
+  { id: "timetable.stats.month", scope: "timetable", chords: [{ key: "m" }], label: "統計：單月", note: STATS_ONLY_NOTE, wired: true },
   // 車次②段二：今日頁選中一列按 N ＝從那張票発車（精確比對、不加 ignoreMods：Shift+N 不作用）
   { id: "timetable.today.depart", scope: "today", chords: [{ key: "n" }], label: "発車（時刻表）", wired: true },
 ];
 
 const TIMETABLE_SCENES: Scene[] = [
-  { scope: "timetable", title: "時刻表", note: "時刻表頁、游標不在字裡、沒有面板開著的時候。" },
+  { scope: "timetable", title: "時刻表", note: "在時刻表頁，沒有開其他視窗、也沒有在打字時。" },
 ];
 
 export const TIMETABLE = {

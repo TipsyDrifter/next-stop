@@ -196,8 +196,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
     if (timed.length > 0) {
       todayItems.push(
         <li key="__subgrp" className="subgrp">
-          未定時・照手排
-        </li>,
+          不排時間・手動排序</li>,
       );
     }
     for (const r of c.todayRows) if (timeOfRow(r) === null) todayItems.push(ticket(r));
@@ -260,7 +259,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
               <h3>今天還沒有班次</h3>
               <span className="rule" />
             </div>
-            <p className="m-empty-body">在下面的輸入列打一件事，按「発券」就開一張臨時車票。</p>
+            <p className="m-empty-body">在下方輸入一件事，按「発券」就能開一張臨時車票。</p>
           </div>
         ) : (
           <>
@@ -284,7 +283,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
                   <h3>今天的班次都到站了</h3>
                   <span className="rule" />
                 </div>
-                <p className="m-empty-body">剩下的時間是你的。明天要跑的，可以到行程表先排好。</p>
+                <p className="m-empty-body">剩下的時間是你的。明天的事，可以先去行程表排好。</p>
               </div>
             )}
           </>
@@ -374,7 +373,7 @@ function MobileNewTicket({ onCreate }: { onCreate(name: string, inbox: boolean):
           composing.current = false;
         }}
         placeholder={inbox ? "放進收件匣的一件事…" : "臨時想到的一件事…"}
-        aria-label={inbox ? "輸入收件匣車票的名稱" : "輸入臨時車票的名稱"}
+        aria-label={inbox ? "輸入收件匣車票名稱" : "輸入臨時車票名稱"}
         enterKeyHint="done"
         spellCheck={false}
         autoComplete="off"

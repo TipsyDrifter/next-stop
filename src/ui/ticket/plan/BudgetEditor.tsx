@@ -81,7 +81,7 @@ export function BudgetEditor({ onDone }: { onDone(): void }) {
         <button type="button" className="ns-tk-mnav" aria-label="下個月" onClick={() => setMonth(addMonths(month, 1))}>
           <TkIcon name="right" size={13} />
         </button>
-        <small>預設套用沒有覆寫的每個月</small>
+        <small>沒單獨設定的月份都照預設</small>
       </div>
       <table className="ns-tk-be-table">
         <colgroup>
@@ -94,7 +94,7 @@ export function BudgetEditor({ onDone }: { onDone(): void }) {
           <tr>
             <th scope="col">對象</th>
             <th scope="col">預設</th>
-            <th scope="col">{parseInt(month.slice(5, 7), 10)} 月覆寫</th>
+            <th scope="col">{parseInt(month.slice(5, 7), 10)}月單獨設定</th>
             <th scope="col" aria-label="動作" />
           </tr>
         </thead>
@@ -126,7 +126,7 @@ export function BudgetEditor({ onDone }: { onDone(): void }) {
         </tbody>
       </table>
       {picking && <CatPicker categories={categories} used={used} onPick={add} onClose={() => setPicking(false)} />}
-      <p className="ns-tk-dhint">金額是主幣別（{MAIN_CURRENCY}）。清空「預設」＝移除這個預算（連同各月的覆寫）；覆寫空著＝這個月照預設。</p>
+      <p className="ns-tk-dhint">以主幣別（{MAIN_CURRENCY}）計。清空「預設」會移除整個預算；單月留空則照預設金額。</p>
       <div className="ns-tk-dfoot">
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           關閉
@@ -153,7 +153,7 @@ function BudgetLineRow(props: {
   const confirmRemove = () =>
     useUiStore.getState().askConfirm({
       title: "移除這個預算？",
-      body: `「${label}」的預設和各月的覆寫會一起移除。`,
+      body: `「${label}」的預設和各月單獨設定的金額會一起移除。`,
       confirmLabel: "移除",
       danger: true,
       onConfirm: () => void store().removeBudget(scope, null),
@@ -203,12 +203,12 @@ function BudgetLineRow(props: {
             value={ovr ? ovr.amount_minor : null}
             dec={dec}
             placeholder={def ? "同預設" : "—"}
-            label={`${label} 在 ${parseInt(month.slice(5, 7), 10)} 月的覆寫`}
+            label={`${label} 在 ${parseInt(month.slice(5, 7), 10)} 月單獨設定的預算`}
             autoFocus={false}
             onCommit={commitOvr}
           />
           {ovr && (
-            <button type="button" className="clr" aria-label="清掉這個月的覆寫" title="清掉這個月的覆寫" onClick={() => void store().removeBudget(scope, month)}>
+            <button type="button" className="clr" aria-label="改回預設金額" title="改回預設金額" onClick={() => void store().removeBudget(scope, month)}>
               <TkIcon name="x" size={10} />
             </button>
           )}

@@ -326,14 +326,14 @@ describe("契約九個反例", () => {
     assert.equal(P.overBudgetDay(es2, "2026-10", 100000), "2026-10-10");
   });
 
-  test("R7. BUDGET_PERIOD 202613 與鄰居 ⇒ 看不懂的期間；同一份備份其餘預算照匯", () => {
+  test("R7. BUDGET_PERIOD 202613 與鄰居 ⇒ 時間範圍格式有誤；同一份備份其餘預算照匯", () => {
     for (const bad of [202613, 202600, 999913, 1, -202601, 2026010, 2026.5]) assert.equal(P.mmMonth(bad), undefined, String(bad));
     assert.equal(P.mmMonth(202612), "2026-12");
     assert.equal(P.mmMonth(100001), "1000-01");
     const d = dump3();
     d.budget_amounts!.push({ uid: "x-13", budget_uid: "_1_1_0_6", is_del: false, amount: "100", budget_period: 202613, modify_date: 1 });
     const { part } = P.planImportAll(d, emptyLocal(), planOpts());
-    assert.ok(part.budgets.invalid.some((x) => x.uid === "x-13" && x.reason === "看不懂的期間"));
+    assert.ok(part.budgets.invalid.some((x) => x.uid === "x-13" && x.reason === "時間範圍格式有誤"));
     assert.equal(part.budgets.inserts.length, 5, "其餘 5 列照匯");
   });
 
@@ -581,14 +581,14 @@ describe("沙盒代驗後：D2 匯入跳過的墓碑要說出來", () => {
     assert.deepEqual([f.tombstoned, f.inserts.length, f.scopes, f.overrides], [2, 3, 2, 1]);
     // 文案
     assert.equal(P.PLAN_TEXT.tombLine(0, 0), null);
-    assert.equal(P.PLAN_TEXT.tombLine(2, 0), "略過 2 個（這台刪過）");
-    assert.equal(P.PLAN_TEXT.tombLine(0, 1), "略過 1 條（這台刪過）");
-    assert.equal(P.PLAN_TEXT.tombLine(1, 3), "略過 1 個 · 3 條（這台刪過）");
+    assert.equal(P.PLAN_TEXT.tombLine(2, 0), "略過 2 個（已在這台裝置刪除）");
+    assert.equal(P.PLAN_TEXT.tombLine(0, 1), "略過 1 條（已在這台裝置刪除）");
+    assert.equal(P.PLAN_TEXT.tombLine(1, 3), "略過 1 個 · 3 條（已在這台裝置刪除）");
     assert.equal(P.partSummary(part).tombLine, null, "乾淨庫 ⇒ 不出");
   });
 
   for (const impl of IMPLS) {
-    test(`D2b. 沙盒重現：設總預算 → 移除 → 匯入 ⇒ 總預算預設不復活、預覽不算它、有「略過 1 個（這台刪過）」；寫入後結果卡同一行（${impl.name}）`, async () => {
+    test(`D2b. 沙盒重現：設總預算 → 移除 → 匯入 ⇒ 總預算預設不復活、預覽不算它、有「略過 1 個（已在這台裝置刪除）」；寫入後結果卡同一行（${impl.name}）`, async () => {
       const { repo } = await impl.make();
       await repo.ensureStarterRows();
       await repo.setBudget({ kind: "total" }, null, 2000000);
@@ -604,7 +604,7 @@ describe("沙盒代驗後：D2 匯入跳過的墓碑要說出來", () => {
       assert.deepEqual([b.scopes, b.overrides], [3, 2]);
       const sum = P.partSummary(a.part);
       assert.equal(sum.budgetLine, "預算 3 個（2 個單月覆寫）");
-      assert.equal(sum.tombLine, "略過 1 個（這台刪過）");
+      assert.equal(sum.tombLine, "略過 1 個（已在這台裝置刪除）");
       const out = await repo.applyImport(a.plan, T.defaultChoices(a.plan), a.part, () => {});
       assert.equal(out.budgets, 4);
       const live = await repo.listBudgets();
@@ -613,12 +613,12 @@ describe("沙盒代驗後：D2 匯入跳過的墓碑要說出來", () => {
       // 再匯一次：墓碑還在 ⇒ 照樣說；其餘 unchanged
       const a2 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
       assert.deepEqual([a2.part.budgets.tombstoned, a2.part.budgets.unchanged, a2.part.budgets.scopes], [1, 4, 0]);
-      assert.equal(P.partSummary(a2.part).tombLine, "略過 1 個（這台刪過）");
+      assert.equal(P.partSummary(a2.part).tombLine, "略過 1 個（已在這台裝置刪除）");
     });
   }
 
   for (const impl of IMPLS) {
-    test(`D2c. 定期規則比照：匯入後刪一條 → 重匯 ⇒ 不復活、「略過 1 條（這台刪過）」；和預算一起 ⇒「略過 1 個 · 1 條」（${impl.name}）`, async () => {
+    test(`D2c. 定期規則比照：匯入後刪一條 → 重匯 ⇒ 不復活、「略過 1 條（已在這台裝置刪除）」；和預算一起 ⇒「略過 1 個 · 1 條」（${impl.name}）`, async () => {
       const { repo } = await impl.make();
       await repo.ensureStarterRows();
       const a1 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
@@ -627,11 +627,11 @@ describe("沙盒代驗後：D2 匯入跳過的墓碑要說出來", () => {
       await repo.softDeleteRepeat(r1.id);
       const a2 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
       assert.deepEqual([a2.part.repeats.tombstoned, a2.part.repeats.inserts.length, a2.part.repeats.updates.length], [1, 0, 0]);
-      assert.equal(P.partSummary(a2.part).repeatLine, "定期 0 條");
-      assert.equal(P.partSummary(a2.part).tombLine, "略過 1 條（這台刪過）");
+      assert.equal(P.partSummary(a2.part).repeatLine, "定期帳 0 筆");
+      assert.equal(P.partSummary(a2.part).tombLine, "略過 1 條（已在這台裝置刪除）");
       await repo.removeBudget({ kind: "category", categoryId: a1.plan.categoryIdOf["mm-ce0-4"] }, null);
       const a3 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      assert.equal(P.partSummary(a3.part).tombLine, "略過 1 個 · 1 條（這台刪過）");
+      assert.equal(P.partSummary(a3.part).tombLine, "略過 1 個 · 1 條（已在這台裝置刪除）");
       await repo.applyImport(a3.plan, T.defaultChoices(a3.plan), a3.part, () => {});
       assert.ok(!(await repo.listRepeats()).some((x: RepeatRow) => x.id === r1.id), "規則墓碑不復活");
     });

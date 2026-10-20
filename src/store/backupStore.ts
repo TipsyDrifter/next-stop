@@ -253,15 +253,15 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
     const joined = !!useSyncStore.getState().status?.configured;
     const pick: RestoreChoice = choice ?? "past";
     const consequence = !joined
-      ? "這台還沒加入同步，還原只動這一台。之後加入同步時若兩邊都有資料會問你要不要合併。"
+      ? "這台還沒加入同步，還原只會改這台。"
       : pick === "past"
-        ? "所有裝置都會改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。"
+        ? "所有裝置都會改用這份備份，備份後的修改都會消失；其他裝置未同步的修改會另存成檔。"
         // 產品評審 S3：「沒人動過」會被讀成「沒人編輯過」，但**刪除也算動過**——
         // 誤刪的票只要那個刪除已經送上雲，這條路一張都救不回來，那才是主人最常撞上的落差。
-        : "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。";
+        : "只有這台換成備份；其他裝置較新的修改（包含刪除）同步後會再蓋回來。";
     useUiStore.getState().askConfirm({
-      title: "要還原到這一份備份嗎？",
-      body: `${label}：會先把現在的資料另存保險備份，然後重新啟動。${consequence}`,
+      title: "要還原這份備份嗎？",
+      body: `${label}：會先把目前的資料另存備份，再重新啟動。${consequence}`,
       confirmLabel: "還原並重新啟動",
       danger: true,
       onConfirm: () => {
@@ -276,7 +276,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
             // （`not-joined` 照常還原：本來就不牽動別台。）
             if (prep === "failed") {
               throw new Error(
-                "你選的還原方式沒有存下來，為了不做成另一種後果，這次先不還原——請再試一次。",
+                "還原設定沒存好，這次先取消還原——請再試一次。",
               );
             }
           }
@@ -289,7 +289,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
           // 改成整頁鎖住＋主畫面常駐橫幅，別讓主人繼續操作一個寫不進去的 App（DB 檔沒被動過）。
           const needsRestart = message.includes(RESTART_MARKER);
           set({ status: "idle", needsRestart });
-          useUiStore.getState().showToast({ message: `還原沒有完成：${message}` });
+          useUiStore.getState().showToast({ message: `還原失敗：${message}` });
         });
       },
     });
@@ -307,7 +307,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
         title: `保留份數改成 ${keep} 份？`,
         body:
           `會立刻刪掉最舊的 ${doomed.count} 份備份${oldest ? `（最舊的那份是 ${oldest}）` : ""}，刪掉就找不回來了。` +
-          (get().secondaryDir ? "第二備份位置也會照新配額一起刪。" : ""),
+          (get().secondaryDir ? "第二備份位置也會照新份數一起刪。" : ""),
         confirmLabel: `刪除並改成 ${keep} 份`,
         danger: true,
         onConfirm: () => void applyKeep(keep, set, get),
@@ -373,7 +373,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
     try {
       await backupRepo.validateFile(path);
     } catch (e) {
-      useUiStore.getState().showToast({ message: `這個檔不能用來還原：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `這個檔案不能用來還原：${messageOf(e)}` });
       return;
     }
     get().restore(path, undefined, choice);
@@ -387,7 +387,7 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
     }
     try {
       await fn.call(backupRepo);
-      useUiStore.getState().showToast({ message: "已清空資料（設定保留）——請重新啟動 App" });
+      useUiStore.getState().showToast({ message: "已清空資料（設定保留）——請重新啟動" });
     } catch (e) {
       useUiStore.getState().showToast({ message: `重置失敗：${messageOf(e)}` });
     }

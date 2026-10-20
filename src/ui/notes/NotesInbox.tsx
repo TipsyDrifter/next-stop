@@ -74,8 +74,7 @@ export function NotesInbox(p: NotesInboxProps) {
           <p className="techo-overline ns-notes-overline">收件匣 — INBOX</p>
           <h1 className="techo-title">收件匣</h1>
           <p className="ns-notes-lede">
-            還沒整理的東西。一個動作送走。
-            {n > 0 && (
+            還沒整理的東西，點一下就能歸檔。{n > 0 && (
               <span style={{ marginLeft: 12 }}>
                 待整理 <b>{n}</b> 則
               </span>
@@ -98,9 +97,7 @@ export function NotesInbox(p: NotesInboxProps) {
               ))}
             </ul>
             <p className="ns-notes-foothint">
-              {capsOf("notes.move.up")}
-              {capsOf("notes.move.down")} 選一則・按鍵直接送走・滑鼠停在一則上也會展開
-            </p>
+              {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理</p>
           </>
         ) : (
           <div className="ns-notes-empty">
@@ -166,7 +163,7 @@ function InboxRow({
             <>
               {act("today", "排今天", "notes.inbox.todo")}
               {act("tomorrow", "排明天", "notes.inbox.tomorrow")}
-              {act("someday", "排某天", null, false, "someday")}
+              {act("someday", "挑日期", null, false, "someday")}
               {act("attach", "掛進列車", "notes.inbox.attach", false, "attach")}
               {act("route", "掛上路線", "notes.inbox.route", false, "route")}
               {act("del", "刪除", "notes.delete", true)}
@@ -190,7 +187,7 @@ function InboxRow({
           <AttachPicker
             depth="node"
             kinds={["train", "car"]}
-            label="掛進哪一班列車或車廂"
+            label="掛進哪班列車或車廂"
             value={{ routeId: null, nodeId: null, nodeKind: null }}
             onPick={(t) => t.nodeId && onPickNode(it, t.nodeId)}
             onClose={onClosePop}
@@ -199,7 +196,7 @@ function InboxRow({
         {myPop === "route" && (
           <AttachPicker
             depth="route"
-            label="掛上哪一條路線"
+            label="掛上哪條路線"
             value={{ routeId: null, nodeId: null, nodeKind: null }}
             onPick={(t) => t.routeId && onPickRoute(it, t.routeId)}
             onClose={onClosePop}
@@ -280,7 +277,7 @@ function InboxRow({
               <span className="sep">・</span>
               <span>沒有日期</span>
               <span className="sep">・</span>
-              <span>{fmtShort(day)} 起票</span>
+              <span>{fmtShort(day)}變車票</span>
             </div>
           </div>
           <div className="stamp-zone">

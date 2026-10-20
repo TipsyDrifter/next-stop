@@ -44,11 +44,11 @@ export const TT_NOTICE_TEXT = {
   startedSuffix: " 発",
   /** 展開版運行列「14:35 発・預估 1h」的後半（＝App 裡的預估 chip 字；Kotlin 用「・」接在 startedLabel 後面） */
   estimate: (min: number) => `預估 ${fmtDur(min * MIN)}`,
-  reminderTitle: (name: string, thMin: number) => `${name}已經跑了 ${fmtDur(thMin * MIN)}，還在嗎？`,
-  reminderBody: "點開時刻表修正",
-  droppedArrive: "通知上的「到着」沒記上：那時已經沒有列車在跑",
-  droppedDepartCategory: "通知上的発車沒記上：那個分類已經不在了",
-  droppedDepartCovered: "通知上的発車沒記上：那段時間另一台已經記了別的",
+  reminderTitle: (name: string, thMin: number) => `${name}已經跑了 ${fmtDur(thMin * MIN)}，還在進行嗎？`,
+  reminderBody: "去時刻表修正",
+  droppedArrive: "剛才點「到着」時，列車已經停了",
+  droppedDepartCategory: "剛才沒発車成功：原分類已刪除",
+  droppedDepartCovered: "剛才沒発車成功：另一台裝置已經記了別的事",
 } as const;
 
 export interface PendingAction {

@@ -159,7 +159,7 @@ export function NotesList({ listRef, searchRef, onSelect, onNew }: NotesListProp
             {rows}
           </ul>
         )}
-        {!empty && hasMore && <p className="ns-notes-more">往下捲載入更多…</p>}
+        {!empty && hasMore && <p className="ns-notes-more">往下滑載入更多…</p>}
       </div>
     </section>
   );
@@ -183,7 +183,7 @@ function NoteRowItem({
   const title = noteTitle(n);
   const ex = excerpt(n, 90);
   let where: ReactNode;
-  if (n.node_missing) where = <span className="w">原節點已刪除</span>;
+  if (n.node_missing) where = <span className="w">原本掛的地方已刪除</span>;
   else if (!n.node_id) where = <span className="w">無路線</span>;
   else
     where = (

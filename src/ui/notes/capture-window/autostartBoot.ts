@@ -27,6 +27,6 @@ export async function bootAutostartDefault(): Promise<void> {
     writeFlag: () => settingsRepo.set(AUTOSTART_FLAG_KEY, "1"),
   });
   if (res.kind === "failed") {
-    useUiStore.getState().showToast({ message: `開機自啟沒有設定成功：${res.error || "原因不明"}` });
+    useUiStore.getState().showToast({ message: `設定開機時啟動失敗：${res.error || "原因不明"}` });
   }
 }

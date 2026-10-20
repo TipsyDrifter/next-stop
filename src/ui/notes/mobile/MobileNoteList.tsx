@@ -173,12 +173,12 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
         </button>
       </div>
 
-      <div className="ns-notes-mroutes" role="group" aria-label="路線篩選">
+      <div className="ns-notes-mroutes" role="group" aria-label="篩選路線">
         {underNode && (
           <button
             type="button"
             className="ns-notes-mchip on ns-notes-mchipnode"
-            aria-label={`取消篩選：${underNode.label}和底下的筆記`}
+            aria-label={`取消篩選：${underNode.label}與底下的筆記`}
             onClick={() => setFilter(undefined)}
           >
             <span className="nm">› {underNode.label}</span>
@@ -224,8 +224,7 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
           <ul className="ns-notes-mlist">{rows}</ul>
           {hasMore && (
             <p className="ns-notes-mmore" ref={sentinel}>
-              往下捲載入更多…
-            </p>
+              往下滑載入更多…</p>
           )}
         </>
       )}
@@ -256,7 +255,7 @@ function Row({
         <span className="m">
           <span>{shortDay(day)}</span>
           {n.node_missing ? (
-            <span>・原節點已刪除</span>
+            <span>・原本掛的地方已刪除</span>
           ) : route ? (
             <>
               <span>・</span>

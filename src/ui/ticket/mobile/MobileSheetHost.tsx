@@ -23,7 +23,7 @@ const TITLE: Record<TicketDialog["kind"], string> = {
   import: "從財務管家匯入",
   budgets: "預算", // 第③階段（③契約 §5.5；Stage 0 甲席掛樁）
   repeats: "定期帳",
-  repeat: "定期規則",
+  repeat: "定期帳",
 };
 
 export function MobileSheetHost() {

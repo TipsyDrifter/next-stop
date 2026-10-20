@@ -96,14 +96,14 @@ export async function jumpToNodeMobile(node: NodeRow, opts: JumpMobileOptions = 
       ui.setMobileTab("today");
       const [, m, d] = node.scheduled_on.split("-");
       const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
-      ui.showToast({ message: `『${node.name}』${when}，今天的清單還看不到` });
+      ui.showToast({ message: `『${node.name}』${when}，今天還不會出現在清單裡` });
       return;
     }
     revealOnToday(node.id);
     return;
   }
   if (!node.route_id) {
-    ui.showToast({ message: `「${node.name}」沒有所屬路線，暫時無法跳轉` });
+    ui.showToast({ message: `「${node.name}」不屬於任何路線，無法跳轉` });
     return;
   }
   // 路線樹由 MobileRouteMap 進路線時載入；這裡先開，讓已經停在路線圖的情形也立刻有樹

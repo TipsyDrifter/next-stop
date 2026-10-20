@@ -249,7 +249,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const n = ns().tree.byId[id];
     if (!n) return;
     if (!canHaveChildren(n.kind)) {
-      toast(`${KIND_LABEL[n.kind]}是葉節點，沒有下層可以聚焦`);
+      toast(`${KIND_LABEL[n.kind]}已經是最底層，無法再往內聚焦`);
       return;
     }
     ui().setZoom(id);
@@ -271,7 +271,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const { zoom: z } = st.current;
     const n = ns().tree.byId[id];
     if (z && n && n.parent_id === z.id) {
-      toast("已到聚焦範圍的頂層——先按 Esc 退出聚焦再升層");
+      toast("已到目前範圍的最上層——先按 Esc 退出聚焦，才能再往上一層");
       return false;
     }
     const r = await ns().outdent(id);
@@ -371,7 +371,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       void collectDeleteHints(n, descendantIdsOf(t, id)).then((hints) =>
         ui().askConfirm({
           title: `連同 ${count} 個子項一起刪除？`,
-          body: withDeleteHints(`『${n.name}』底下的 ${count} 個節點會一起移除；10 秒內可從底部提示復原。`, hints),
+          body: withDeleteHints(`「${n.name}」底下的 ${count} 個項目會一起刪除；10 秒內可從底部提示復原。`, hints),
           confirmLabel: "刪除",
           danger: true,
           onConfirm: () => void run(),
@@ -402,23 +402,23 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       const sibs = d.parentId === rid ? t.roots : (t.childrenOf[d.parentId] ?? NONE);
       const prevId = d.afterId ?? sibs[sibs.length - 1];
       const prev = prevId ? t.byId[prevId] : undefined;
-      if (!prev) return toast("上面沒有可以掛靠的節點");
-      if (!canHaveChildren(prev.kind)) return toast("車票／車站底下不能掛東西");
-      if (ui().hideDone && prev.status === "done") return toast("上面的節點已完成且隱藏中——先關掉「隱藏已完成」");
+      if (!prev) return toast("上面沒有可以放進去的項目");
+      if (!canHaveChildren(prev.kind)) return toast("車票／車站底下不能再放項目");
+      if (ui().hideDone && prev.status === "done") return toast("上一層已完成並隱藏——請先關掉「隱藏已完成」");
       const kind = adaptKind(d.kind, prev.kind);
-      if (!kind) return toast("這種節點不能掛在那裡");
+      if (!kind) return toast("這個項目不能放在那裡");
       ui().setCollapsed(prev.id, false);
       setEdit({ ...d, parentId: prev.id, afterId: null, kind });
     } else {
       if (d.parentId === root) {
-        return toast(root === rid ? "已經在路線頂層——跨路線請用「移動到…」" : "已到聚焦範圍的頂層——先按 Esc 退出聚焦再升層");
+        return toast(root === rid ? "已經在路線最上層——要換路線請用「移動到…」" : "已到目前範圍的最上層——先按 Esc 退出聚焦，才能再往上一層");
       }
       const parent = t.byId[d.parentId];
       if (!parent || !rid) return;
       const gpId = parent.parent_id && parent.parent_id !== rid && t.byId[parent.parent_id] ? parent.parent_id : rid;
       const gpKind: NodeKind = gpId === rid ? "route" : t.byId[gpId].kind;
       const kind = adaptKind(d.kind, gpKind);
-      if (!kind) return toast("這種節點不能升到那一層");
+      if (!kind) return toast("這個項目不能移到那一層");
       setEdit({ ...d, parentId: gpId, afterId: parent.id, kind });
     }
   };

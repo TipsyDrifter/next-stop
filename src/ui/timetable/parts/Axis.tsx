@@ -171,13 +171,13 @@ export function Axis({ scroller }: AxisProps) {
               <div className="ns-tt-seg-body">
                 <button type="button" className="ns-tt-hole" onClick={() => openSheet({ kind: "fill", start: it.from, end: it.to })}>
                   {emptyPastDay ? (
-                    <span>這一天沒有紀錄</span>
+                    <span>這天沒有紀錄</span>
                   ) : (
                     <span>
                       未記錄 <span className="ns-tt-num">{fmtDur(dur)}</span>
                     </span>
                   )}
-                  <span className="ns-tt-hole-go">補上 ›</span>
+                  <span className="ns-tt-hole-go">補記 ›</span>
                 </button>
               </div>
             </div>

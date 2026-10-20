@@ -160,18 +160,18 @@ export function CalendarView() {
                 <button
                   type="button"
                   className="today-chip"
-                  title={stream ? "捲回今天（Home）" : "跳回今天所在的月份（Home）"}
+                  title={stream ? "捲回今天（Home）" : "跳回本月（Home）"}
                   onClick={c.goToday}
                 >
                   今日
                 </button>
                 <span className="gap" />
-                <div className="seg" role="group" aria-label="視圖切換">
+                <div className="seg" role="group" aria-label="切換檢視">
                   <button
                     type="button"
                     className={c.view === "month" ? "on" : undefined}
                     aria-pressed={c.view === "month"}
-                    title="月視圖"
+                    title="按月看"
                     onClick={() => c.setView("month")}
                   >
                     月
@@ -180,7 +180,7 @@ export function CalendarView() {
                     type="button"
                     className={c.view === "week" ? "on" : undefined}
                     aria-pressed={c.view === "week"}
-                    title="週視圖"
+                    title="按週看"
                     onClick={() => c.setView("week")}
                   >
                     週

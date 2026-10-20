@@ -51,7 +51,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
           autoFocus
           autoComplete="off"
           enterKeyHint="next"
-          placeholder="例：現金、學生證"
+          placeholder="例：現金、悠遊卡"
           onChange={(e) => setName(e.target.value)}
           {...ime}
         />
@@ -78,7 +78,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
         </select>
       </label>
       <label className="ns-tk-dfield">
-        <span className="lbl">期初餘額</span>
+        <span className="lbl">初始餘額</span>
         <input
           className="techo-input ns-tk-din is-num"
           value={opening}
@@ -90,7 +90,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
           {...ime}
         />
       </label>
-      <p className="ns-tk-dhint">期初餘額填了，會同時記一筆「精算」，備註「期初餘額」。負債帳戶請填負數。</p>
+      <p className="ns-tk-dhint">填寫後會自動記一筆「精算」（期初餘額）；負債請填負數。</p>
       <div className="ns-tk-dfoot">
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           取消

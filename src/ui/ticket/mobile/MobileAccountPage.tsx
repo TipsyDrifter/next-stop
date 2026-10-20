@@ -131,7 +131,7 @@ export function MobileAccountPage({ id }: { id: string }) {
                 </option>
               ))}
             </select>
-            {locked && <small className="ns-tk-macct-note">有帳之後幣別不能改</small>}
+            {locked && <small className="ns-tk-macct-note">記過帳就不能改幣別了</small>}
           </label>
         </div>
 

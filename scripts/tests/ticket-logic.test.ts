@@ -287,11 +287,11 @@ describe("B. 金額解析", () => {
     assert.equal(parseAmount("８０", T, { allowNegative: false }), 8000);
     throwsMsg(() => parseAmount("12.345", T, { allowNegative: false }), "TWD 最多 2 位小數");
     throwsMsg(() => parseAmount("", T, { allowNegative: false }), "先填金額");
-    throwsMsg(() => parseAmount("abc", T, { allowNegative: false }), "金額要是數字，例如 80 或 12.5");
+    throwsMsg(() => parseAmount("abc", T, { allowNegative: false }), "金額請填數字，例如 80 或 12.5");
     throwsMsg(() => parseAmount("0", T, { allowNegative: false }), "金額不能是 0");
-    throwsMsg(() => parseAmount("-5", T, { allowNegative: false }), "收入和轉帳的金額要是正的");
+    throwsMsg(() => parseAmount("-5", T, { allowNegative: false }), "收入和轉帳金額要大於 0");
     assert.equal(parseAmount("-5", T, { allowNegative: true }), -500);
-    throwsMsg(() => parseAmount("1.5", { code: "JPY", decimals: 0 }, { allowNegative: false }), "JPY 不收小數");
+    throwsMsg(() => parseAmount("1.5", { code: "JPY", decimals: 0 }, { allowNegative: false }), "JPY 不能有小數點");
     throwsMsg(() => parseAmount("99999999999999999", T, { allowNegative: false }), "金額太大了");
   });
 
@@ -307,12 +307,12 @@ describe("B. 金額解析", () => {
     assert.equal(parseRate("4.350"), "4.35");
     assert.equal(parseRate("031"), "31");
     assert.equal(parseRate("1.0"), "1");
-    for (const bad of ["0", "-1", "abc", "0.000"]) throwsMsg(() => parseRate(bad), "匯率要是大於 0 的數字");
+    for (const bad of ["0", "-1", "abc", "0.000"]) throwsMsg(() => parseRate(bad), "匯率要大於 0");
   });
 
   test("9. currencyCode", () => {
     assert.equal(currencyCode(" usd "), "USD");
-    throwsMsg(() => currencyCode("US"), "幣別代碼要是三個英文字母");
+    throwsMsg(() => currencyCode("US"), "幣別代碼是 3 個英文字母（如 TWD）");
   });
 });
 
@@ -368,7 +368,7 @@ describe("D. deriveAmounts", () => {
       deriveAmounts({ kind: "transfer", amountMinor: 31550, currency: "TWD", account: CASH, toAccount: USDACC, curByCode, override: { toAmountMinor: 990 } }).to_amount_minor,
       990,
     );
-    throwsMsg(() => deriveAmounts({ kind: "transfer", amountMinor: 1000, currency: "USD", account: CASH, toAccount: STUDENT, curByCode }), "轉帳的幣別跟著轉出帳戶");
+    throwsMsg(() => deriveAmounts({ kind: "transfer", amountMinor: 1000, currency: "USD", account: CASH, toAccount: STUDENT, curByCode }), "轉帳幣別會跟著轉出帳戶");
   });
 });
 
@@ -387,16 +387,16 @@ describe("E. 推導與驗證", () => {
     assert.equal(ok.import_id, null);
     throwsMsg(() => buildEntryRow(input({ amountMinor: 0 }), ctx, meta), "金額不能是 0");
     throwsMsg(() => buildEntryRow(input({ amountMinor: MAX_MINOR + 1 }), ctx, meta), "金額太大了");
-    throwsMsg(() => buildEntryRow(input({ kind: "income", amountMinor: -1 }), ctx, meta), "收入和轉帳的金額要是正的");
+    throwsMsg(() => buildEntryRow(input({ kind: "income", amountMinor: -1 }), ctx, meta), "收入和轉帳金額要大於 0");
     throwsMsg(() => buildEntryRow(input({ accountId: "" }), ctx, meta), "選一個帳戶");
-    throwsMsg(() => buildEntryRow(input({ accountId: "nope" }), ctx, meta), "這個帳戶已經不在了");
+    throwsMsg(() => buildEntryRow(input({ accountId: "nope" }), ctx, meta), "這個帳戶已經刪除了");
     throwsMsg(() => buildEntryRow(input({ kind: "transfer" }), ctx, meta), "選一個轉入帳戶");
     throwsMsg(() => buildEntryRow(input({ kind: "transfer", toAccountId: CASH.id }), ctx, meta), "轉出和轉入不能是同一個帳戶");
-    throwsMsg(() => buildEntryRow(input({ kind: "transfer", toAccountId: STUDENT.id, currency: "USD" }), ctx, meta), "轉帳的幣別跟著轉出帳戶");
-    throwsMsg(() => buildEntryRow(input({ kind: "income", amountMinor: 100, categoryId: "c:🍜 食物" }), ctx, meta), "分類和收支類型對不上");
+    throwsMsg(() => buildEntryRow(input({ kind: "transfer", toAccountId: STUDENT.id, currency: "USD" }), ctx, meta), "轉帳幣別會跟著轉出帳戶");
+    throwsMsg(() => buildEntryRow(input({ kind: "income", amountMinor: 100, categoryId: "c:🍜 食物" }), ctx, meta), "這個分類不屬於目前的收支類型");
     throwsMsg(() => buildEntryRow(input({ currency: "EUR" }), ctx, meta), "沒有這個幣別：EUR");
-    throwsMsg(() => parseRate("0"), "匯率要是大於 0 的數字");
-    throwsMsg(() => currencyCode("12"), "幣別代碼要是三個英文字母");
+    throwsMsg(() => parseRate("0"), "匯率要大於 0");
+    throwsMsg(() => currencyCode("12"), "幣別代碼是 3 個英文字母（如 TWD）");
     const del = { ...buildEntryRow(input({}), ctx, meta), deleted_at: NOW };
     throwsMsg(() => applyEntryPatch(del, { note: "x" }, ctx, NOW), "這一筆已經刪除了");
   });
@@ -432,7 +432,7 @@ describe("E. 推導與驗證", () => {
     assert.equal(inp.amountMinor, -35000);
     assert.equal(inp.occurredAt, atOf("2026-10-08", "14:32", 6));
     assert.equal(inp.occurredOn, "2026-10-08");
-    throwsMsg(() => draftToInput({ ...draft, kind: "income", amountText: "-1" }, ctx, 6), "收入和轉帳的金額要是正的");
+    throwsMsg(() => draftToInput({ ...draft, kind: "income", amountText: "-1" }, ctx, 6), "收入和轉帳金額要大於 0");
   });
 });
 
@@ -586,7 +586,7 @@ describe("H. 分類與帳戶", () => {
     assert.equal(categoryLabel(byIdCats["c:🍜 食物/午餐"], byIdCats), "🍜 食物 › 午餐");
     assert.equal(categoryLabel(byIdCats["c:🍜 食物"], byIdCats), "🍜 食物");
     assert.equal(categoryLabel(byIdCats[UNCAT_EXPENSE_ID], byIdCats), "未分類");
-    assert.equal(categoryLabel(null, byIdCats), "（分類已不在）");
+    assert.equal(categoryLabel(null, byIdCats), "（分類已刪除）");
   });
 
   test("33. matchAccount／defaultAccountId", () => {
@@ -617,7 +617,7 @@ describe("I. parseQuickEntry", () => {
   });
 
   test("35. 第一個字不是金額 ⇒ 錯誤訊息逐字", () => {
-    throwsMsg(() => parseQuickEntry("午餐 80", qctx(ACCS, null)), "第一個字要是金額，例如『80 午餐』");
+    throwsMsg(() => parseQuickEntry("午餐 80", qctx(ACCS, null)), "開頭先寫金額，例如「80 午餐」");
   });
 
   test("36. 比不到分類 ⇒ 整段當備註、未分類、toast 尾有「（分類待補）」", () => {
@@ -630,7 +630,7 @@ describe("I. parseQuickEntry", () => {
   });
 
   test("37. @ 比不到／沒 @ 用上一筆／上一筆封存取第一個未封存／沒有帳戶", () => {
-    throwsMsg(() => parseQuickEntry("80 午餐 @xx", qctx(ACCS, null)), "找不到帳戶『xx』");
+    throwsMsg(() => parseQuickEntry("80 午餐 @xx", qctx(ACCS, null)), "找不到帳戶「xx」");
     assert.equal(parseQuickEntry("80 午餐", qctx(ACCS, STUDENT.id)).accountId, STUDENT.id);
     const archived = { ...STUDENT, archived_at: NOW };
     assert.equal(parseQuickEntry("80 午餐", qctx([CASH, BANK, archived], archived.id)).accountId, CASH.id);
@@ -792,7 +792,7 @@ describe("J. 匯入", () => {
     const t1 = trs.find((e) => e.id === ticketId("moneymanager:transfer:tr1"));
     assert.ok(t1);
     assert.deepEqual([t1.account_id, t1.to_account_id, t1.amount_minor, t1.to_amount_minor, t1.import_id, t1.note], [mmId("a2"), mmId("a3"), 50000, 50000, "transfer:tr1", "儲值"]);
-    assert.deepEqual(p.entries.invalid, [{ uid: "m1", reason: "轉帳缺另一腿" }]);
+    assert.deepEqual(p.entries.invalid, [{ uid: "m1", reason: "轉帳資料不完整（缺轉出或轉入紀錄）" }]);
     assert.equal(p.entries.inserts.length, 30 - 6 + 3 - 1);
   });
 
@@ -981,7 +981,7 @@ describe("J. 匯入", () => {
     const r = applyEntryPatch(t, { note: "換匯（改）" }, ctx, NOW);
     assert.deepEqual(Object.keys(r.cols).sort(), ["note", "updated_at"]);
     // 防線：舊列若幣別不是轉出帳戶的，只改備註不准偷換幣別（擋下而不是改錯）
-    throwsMsg(() => applyEntryPatch({ ...t, currency: "USD", amount_minor: 1000 }, { note: "x" }, ctx, NOW), "轉帳的幣別跟著轉出帳戶");
+    throwsMsg(() => applyEntryPatch({ ...t, currency: "USD", amount_minor: 1000 }, { note: "x" }, ctx, NOW), "轉帳幣別會跟著轉出帳戶");
   });
 
   test("44b. 匯率超過 10 位小數 ⇒ 半進位到 10 位；看不懂的匯率不退回主幣別、帳戶與帳進 invalid", () => {
@@ -989,8 +989,8 @@ describe("J. 匯入", () => {
     assert.equal(importRate("31.549671"), "31.549671");
     assert.equal(importRate("1.234e-5"), "0.00001234");
     assert.equal(importRate("4.350"), "4.35");
-    throwsMsg(() => importRate("0.00000000001"), "匯率要是大於 0 的數字");
-    throwsMsg(() => importRate("abc"), "匯率要是大於 0 的數字");
+    throwsMsg(() => importRate("0.00000000001"), "匯率要大於 0");
+    throwsMsg(() => importRate("abc"), "匯率要大於 0");
 
     const d = fixtureDump();
     d.currencies.push({ uid: "c4", iso: "JPY", is_main: false, rate: "0.210526315789474", decimals: 0 });
@@ -1011,7 +1011,7 @@ describe("J. 匯入", () => {
     const q = plan0(undefined, {}, bad);
     assert.ok(!q.accounts.some((a) => a.name === "日圓錢包"));
     assert.ok(!q.entries.inserts.some((e) => e.import_id === "j1"));
-    assert.deepEqual(q.entries.invalid.find((x) => x.uid === "j1"), { uid: "j1", reason: "幣別看不懂" });
+    assert.deepEqual(q.entries.invalid.find((x) => x.uid === "j1"), { uid: "j1", reason: "不支援這個幣別" });
   });
 
   test("46b. 第一次按名稱對上手建帳戶／分類，主人改名後重跑 ⇒ 沿用原對應、不多建", () => {
@@ -1173,8 +1173,8 @@ describe("E2. repository 層（memory／sqlite）", () => {
       assert.equal(usd.id, ticketId("currency:USD"));
       assert.equal(usd.name, "美元");
       await rejectsMsg(repo.createCurrency({ code: "USD", name: "", decimals: 2, rate: "30" }), "已經有 USD 了");
-      await rejectsMsg(repo.createCurrency({ code: "US", name: "", decimals: 2, rate: "30" }), "幣別代碼要是三個英文字母");
-      await rejectsMsg(repo.createCurrency({ code: "EUR", name: "", decimals: 2, rate: "0" }), "匯率要是大於 0 的數字");
+      await rejectsMsg(repo.createCurrency({ code: "US", name: "", decimals: 2, rate: "30" }), "幣別代碼是 3 個英文字母（如 TWD）");
+      await rejectsMsg(repo.createCurrency({ code: "EUR", name: "", decimals: 2, rate: "0" }), "匯率要大於 0");
       await rejectsMsg(repo.updateCurrency(CURRENCY_TWD_ID, { rate: "2" }), "主幣別的匯率固定是 1");
 
       await rejectsMsg(repo.updateAccount(cash.id, { currency: "USD" }), "這個帳戶已經有帳，幣別不能改"); // 期初那筆算帳
@@ -1187,7 +1187,7 @@ describe("E2. repository 層（memory／sqlite）", () => {
       const food = await repo.createCategory({ kind: "expense", name: "🍜 食物", parentId: null });
       const lunch = await repo.createCategory({ kind: "expense", name: "午餐", parentId: food.id });
       await rejectsMsg(repo.createCategory({ kind: "expense", name: "便當", parentId: lunch.id }), "分類只有兩層");
-      await rejectsMsg(repo.createCategory({ kind: "income", name: "x", parentId: food.id }), "分類和收支類型對不上");
+      await rejectsMsg(repo.createCategory({ kind: "income", name: "x", parentId: food.id }), "這個分類不屬於目前的收支類型");
       await rejectsMsg(repo.createCategory({ kind: "expense", name: "x", parentId: UNCAT_EXPENSE_ID }), "「未分類」下面不能建子分類");
       await rejectsMsg(repo.renameCategory(UNCAT_EXPENSE_ID, "雜項"), "「未分類」不能改名或封存");
       await rejectsMsg(repo.setCategoryArchived(UNCAT_INCOME_ID, true), "「未分類」不能改名或封存");

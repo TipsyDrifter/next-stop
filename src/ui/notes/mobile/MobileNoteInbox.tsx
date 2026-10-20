@@ -61,7 +61,7 @@ export function MobileNoteInbox() {
 
   return (
     <>
-      <p className="ns-notes-mlede">還沒整理的東西。一個動作送走。點一則展開去處。</p>
+      <p className="ns-notes-mlede">點一則，選擇要收到哪裡。</p>
       {items.length === 0 ? (
         <div className="ns-notes-mempty">
           <UketsukeSeal day={todayKey(dayStartHour)} size={88} />
@@ -186,7 +186,7 @@ function TicketCard({
             <span className="ns-notes-mmeta">
               <span>沒有日期</span>
               <span className="sep">・</span>
-              <span>{shortDay(day)} 起票</span>
+              <span>{shortDay(day)}變車票</span>
             </span>
           </span>
           <span className="ns-notes-mtk-stamp">
@@ -202,8 +202,7 @@ function TicketCard({
               排明天
             </button>
             <button type="button" className="ns-notes-mact" onClick={() => onPop("someday")}>
-              排某天
-            </button>
+              挑日期</button>
             <button type="button" className="ns-notes-mact" onClick={() => onPop("attach")}>
               掛進列車
             </button>
@@ -259,7 +258,7 @@ function TicketPop({ pop, onClose }: { pop: NonNullable<Pop>; onClose(): void })
   if (pop.kind === "attach") {
     return (
       <MobileAttachPicker
-        title="掛進哪一班列車或車廂"
+        title="掛進哪班列車或車廂"
         depth="node"
         kinds={["train", "car"]}
         routeSelectable={false}
@@ -273,7 +272,7 @@ function TicketPop({ pop, onClose }: { pop: NonNullable<Pop>; onClose(): void })
   }
   return (
     <MobileAttachPicker
-      title="掛上哪一條路線"
+      title="掛上哪條路線"
       depth="route"
       onPick={(t) => {
         onClose();

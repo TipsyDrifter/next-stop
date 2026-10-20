@@ -162,7 +162,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
 
       {!node ? (
         index ? (
-          <p className="ns-notes-mtagempty">這個荷札已經不在了（被改名、併入或刪除）</p>
+          <p className="ns-notes-mtagempty">這個荷札已經不在了（可能已改名、合併或刪除）</p>
         ) : (
           <MTagLoading className="ns-notes-mtagempty" failed={indexFailed} onRetry={retryTagIndex} />
         )
@@ -177,7 +177,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
                 <button
                   type="button"
                   className="ns-notes-mdots"
-                  aria-label="荷札動作（改名、併入、刪除）"
+                  aria-label="管理荷札（改名、合併、刪除）"
                   aria-haspopup="dialog"
                   onClick={openMenu}
                 >
@@ -186,15 +186,15 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
               </div>
             )}
             <p className="ns-notes-mtagcount">
-              {!node.real && <span className="virt">虛資料夾</span>}
-              掛著 <b>{node.total}</b> 處{hasKids && "・含子荷札"}
+              {!node.real && <span className="virt">上層分類</span>}
+              用在 <b>{node.total}</b> 個地方{hasKids && "・包含底下的荷札"}
             </p>
           </header>
 
           {!groups ? (
             <MTagLoading className="ns-notes-mtagempty" failed={listFailed} onRetry={() => setListTry((n) => n + 1)} />
           ) : !items?.length ? (
-            <p className="ns-notes-mtagempty">還沒有東西掛著這個荷札</p>
+            <p className="ns-notes-mtagempty">還沒有東西加上這個荷札</p>
           ) : (
             <div className="ns-notes-mtaglist">
               {(groups.nodes.open.length > 0 || groups.nodes.done.length > 0) && (
@@ -250,7 +250,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
                 startRename(key);
               },
             },
-            { label: "併入…", onClick: () => setSheet("merge") },
+            { label: "合併…", onClick: () => setSheet("merge") },
             { label: "刪除", danger: true, onClick: askDelete },
           ]}
         />
@@ -332,11 +332,11 @@ function RenameBox({ tagKey }: { tagKey: string }) {
   let preview: { text: string; err?: boolean; warn?: string } = { text: "" };
   if (plan) {
     if (!plan.ok) preview = { text: plan.reason, err: true };
-    else if (plan.same) preview = { text: plan.nameOnly ? "只改寫法（大小寫），掛著的東西不動" : "名稱沒有變" };
+    else if (plan.same) preview = { text: plan.nameOnly ? "只改大小寫，已標記的東西不受影響" : "名稱沒有變" };
     else {
       preview = { text: renameImpact(plan) };
-      if (plan.rootConflict) preview.warn = `#${plan.rootConflict.name} 已經存在——按確定會先問要不要併入`;
-      else if (plan.conflicts.length) preview.warn = `底下有 ${plan.conflicts.length} 個和既有的同名——按確定會先問要不要併入`;
+      if (plan.rootConflict) preview.warn = `已經有 #${plan.rootConflict.name} 了——按確定可選擇是否合併`;
+      else if (plan.conflicts.length) preview.warn = `底下有 ${plan.conflicts.length} 個荷札名稱重複——按確定可選擇是否合併`;
     }
   }
 
@@ -546,7 +546,7 @@ function OtherGroups({ rows, tagKey, onOpenNote }: { rows: GroupedTaggedItem[]; 
 async function goNode(id: string): Promise<void> {
   const node = await nodeRepo.getNode(id).catch(() => null);
   if (!node) {
-    useUiStore.getState().showToast({ message: "找不到這張票（可能已經刪除）" });
+    useUiStore.getState().showToast({ message: "找不到這張車票（可能已刪除）" });
     return;
   }
   await jumpToNodeMobile(node);

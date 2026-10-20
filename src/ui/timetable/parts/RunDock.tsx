@@ -77,7 +77,7 @@ export function RunDock({ variant }: RunDockProps) {
       <div className={"ns-tt-dock is-idle is-" + variant}>
         <div className="ns-tt-dock-main">
           <div className="ns-tt-dock-name">目前沒有列車在跑</div>
-          <div className="ns-tt-dock-meta">沒記到的時間，之後可以在軸上補</div>
+          <div className="ns-tt-dock-meta">沒記到的時間，之後可以在時刻表補記</div>
         </div>
         <button type="button" className="ns-btn btn-seal ns-tt-dock-go" onClick={requestDepart}>
           発車{desk && <Kbd id="timetable.depart" />}
@@ -147,7 +147,7 @@ export function RunDock({ variant }: RunDockProps) {
             <button
               type="button"
               className={"ns-tt-link-dn" + (label === null ? " is-none" : "") + (linkGone ? " is-gone" : "")}
-              title={label === null ? "把這一班連到任務" : "改這一班連到的任務"}
+              title={label === null ? "為這一班指定任務" : "改這一班連到的任務"}
               onClick={() => openSheet({ kind: "link", blockId })}
             >
               {label === null ? (
@@ -167,8 +167,7 @@ export function RunDock({ variant }: RunDockProps) {
           </span>
           {marker.kind === "long" && marker.pending && (
             <button type="button" className="ns-tt-chip is-late" onClick={askLongRun}>
-              ⚠ 其實到幾點？
-            </button>
+              ⚠ 實際到幾點？</button>
           )}
           {marker.kind === "long" && !marker.pending && <span className="ns-tt-chip">長時間運行</span>}
           {!desk && tagBtn}
@@ -192,20 +191,20 @@ export function RunDock({ variant }: RunDockProps) {
             <button
               type="button"
               className="ns-tt-chip ns-tt-dock-est is-late"
-              title={marker.pending ? "其實到幾點？" : "改這一班的預估"}
+              title={marker.pending ? "其實到幾點？" : "改這一班的預計時間"}
               onClick={marker.pending ? askLongRun : openEstimate}
             >
               {TT_TEXT.late(marker.overMs)}
             </button>
           ) : est !== null ? (
-            <button type="button" className="ns-tt-chip ns-tt-dock-est" title="改這一班的預估" onClick={openEstimate}>
+            <button type="button" className="ns-tt-chip ns-tt-dock-est" title="改這一班的預計時間" onClick={openEstimate}>
               {TT_TEXT.estimateChip(est)}
             </button>
           ) : taskEst !== null ? (
             <button
               type="button"
               className="ns-tt-chip ns-tt-dock-est"
-              title="連到的任務的預計時間：超過就算誤點（點了可以給這一班自己的預估）"
+              title="任務的預計時間，超過就算誤點（點擊可單獨修改這一班）"
               onClick={openEstimate}
             >
               預計 {fmtDur(taskEst * MIN)}

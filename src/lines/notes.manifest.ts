@@ -22,10 +22,10 @@ const ALL_LOOSE = ["ctrl", "shift", "alt"] as const;
 const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.capture", scope: "global", chords: [{ key: "n", ctrl: true }], label: "記一句（捕捉）", wired: true, ignoreMods: [...GLOBAL_LOOSE] },
   // 階段⑤（契約 0-16、M-5）：Windows 全域鍵，由 Rust 的 RegisterHotKey 接走、到不了 webview，所以只登錄給快捷鍵頁顯示（wired:false）。
-  { id: "notes.capture.global", scope: "global", chords: [{ key: "n", ctrl: true, alt: true }], label: "記一句（App 不在前面也能用）", note: "Windows 全域鍵；被別的程式佔走時設定〈一般〉會提示", wired: false },
+  { id: "notes.capture.global", scope: "global", chords: [{ key: "n", ctrl: true, alt: true }], label: "記一句（在背景也能用）", note: "在任何畫面都能按；若跟別的軟體衝到，設定〈一般〉裡會提醒", wired: false },
   { id: "notes.move.up", scope: "notes", chords: [{ key: "ArrowUp" }], label: "上移選取", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.move.down", scope: "notes", chords: [{ key: "ArrowDown" }], label: "下移選取", wired: true, ignoreMods: [...SHIFT_LOOSE] },
-  { id: "notes.open", scope: "notes", chords: [{ key: "Enter" }], label: "進編輯／展開去處", wired: true },
+  { id: "notes.open", scope: "notes", chords: [{ key: "Enter" }], label: "編輯／展開", wired: true },
   { id: "notes.inbox.todo", scope: "notes", chords: [{ key: "t" }], label: "變待辦（筆記）／排今天（車票）", wired: true },
   { id: "notes.inbox.tomorrow", scope: "notes", chords: [{ key: "t", shift: true }], label: "排明天（車票）", wired: true },
   { id: "notes.inbox.keep", scope: "notes", chords: [{ key: "n" }], label: "留作筆記", wired: true, ignoreMods: [...SHIFT_LOOSE] },
@@ -38,11 +38,11 @@ const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.inbox.diary", scope: "notes", chords: [{ key: "d" }], label: "記成日記（筆記）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.prev", scope: "notes", chords: [{ key: "ArrowLeft" }], label: "前一天", wired: true },
   { id: "notes.diary.next", scope: "notes", chords: [{ key: "ArrowRight" }], label: "後一天", wired: true },
-  { id: "notes.diary.fp.prev", scope: "notes", chords: [{ key: "ArrowLeft", shift: true }], label: "足跡翻日 前一天", wired: true },
-  { id: "notes.diary.fp.next", scope: "notes", chords: [{ key: "ArrowRight", shift: true }], label: "足跡翻日 後一天", wired: true },
+  { id: "notes.diary.fp.prev", scope: "notes", chords: [{ key: "ArrowLeft", shift: true }], label: "足跡：前一天", wired: true },
+  { id: "notes.diary.fp.next", scope: "notes", chords: [{ key: "ArrowRight", shift: true }], label: "足跡：後一天", wired: true },
   { id: "notes.diary.today", scope: "notes", chords: [{ key: "Home" }], label: "回到今天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.fp.back", scope: "notes", chords: [{ key: "b" }], label: "足跡回到本文那天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
-  { id: "notes.diary.pick", scope: "notes", chords: [{ key: "g" }], label: "跳到某一天（挑選器）", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.pick", scope: "notes", chords: [{ key: "g" }], label: "跳到指定日期", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.write", scope: "notes", chords: [{ key: "w" }], label: "寫日記／補記／再寫一篇", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.save", scope: "notes", chords: [{ key: "Enter", ctrl: true }], label: "日記草稿存檔", wired: false },
   // 車次③（契約 §5.6）：荷札頁。只在荷札子畫面導航模式有效（NotesView 只在 section==="tags" 給這三個選填動作）；
@@ -54,14 +54,14 @@ const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes-capture.newline", scope: "notes-capture", chords: [{ key: "Enter", shift: true }], label: "換行", wired: false },
   { id: "notes-capture.stub.next", scope: "notes-capture", chords: [{ key: "Tab" }], label: "下一枚票根", wired: false },
   { id: "notes-capture.stub.prev", scope: "notes-capture", chords: [{ key: "Tab", shift: true }], label: "上一枚票根", wired: false },
-  { id: "notes-capture.escape", scope: "notes-capture", chords: [{ key: "Escape" }], label: "關閉（有內容先問一次）", wired: false },
-  { id: "notes-capture.preview.confirm", scope: "notes-capture", chords: [{ key: "Enter", ctrl: true }], label: "預覽框：建立車票", wired: false },
+  { id: "notes-capture.escape", scope: "notes-capture", chords: [{ key: "Escape" }], label: "關閉", wired: false },
+  { id: "notes-capture.preview.confirm", scope: "notes-capture", chords: [{ key: "Enter", ctrl: true }], label: "建立車票", wired: false },
 ];
 
 /** 設定「快捷鍵」籤與「?」情境卡的分組 */
 const NOTES_SCENES: Scene[] = [
-  { scope: "notes", title: "旅客筆記", note: "旅客筆記頁選中一則、停在日記頁或荷札頁、游標不在字裡的時候。" },
-  { scope: "notes-capture", title: "捕捉框（記一句）", note: "捕捉框或變待辦預覽開著的時候；鍵由輸入框自理。" },
+  { scope: "notes", title: "旅客筆記", note: "在旅客筆記、日記或荷札頁，且沒有在打字時。" },
+  { scope: "notes-capture", title: "捕捉框（記一句）", note: "打開捕捉框或變待辦時。" },
 ];
 
 /**

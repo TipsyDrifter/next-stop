@@ -83,7 +83,7 @@ export function TicketCalendar() {
                 type="button"
                 role="gridcell"
                 className={cls}
-                aria-label={cellLabel(c, dec) + (over ? "；本月總預算在這天超過" : "")}
+                aria-label={cellLabel(c, dec) + (over ? "；這天超出本月總預算" : "")}
                 aria-current={c.isToday ? "date" : undefined}
                 onMouseDown={(e) => e.preventDefault() /* 焦點留在頁根（鍵盤表接得到）；點了就換頁 */}
                 onClick={() => {

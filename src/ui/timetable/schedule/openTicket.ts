@@ -14,7 +14,7 @@ export async function openTicket(nodeId: string, shell: "desktop" | "mobile"): P
   const node = await nodeRepo.getNode(nodeId).catch(() => null);
   const ui = useUiStore.getState();
   if (!node || node.deleted_at !== null) {
-    ui.showToast({ message: "找不到這張票（可能已經刪除）" });
+    ui.showToast({ message: "找不到這張車票（可能已刪除）" });
     return;
   }
   if (shell === "desktop") {

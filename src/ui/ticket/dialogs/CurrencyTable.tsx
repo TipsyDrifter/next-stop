@@ -47,7 +47,7 @@ export function CurrencyTable({ onDone }: { onDone(): void }) {
           <CurrencyLine key={c.id} cur={c} />
         ))}
       </ul>
-      <p className="ns-tk-dhint">改匯率只影響之後記的帳；已經記下的折算不動。</p>
+      <p className="ns-tk-dhint">改匯率只影響之後的帳，已記的不變。</p>
 
       <div className="ns-tk-dcuradd" role="group" aria-label="新增幣別">
         <input
@@ -66,14 +66,14 @@ export function CurrencyTable({ onDone }: { onDone(): void }) {
           className="techo-input ns-tk-din"
           value={name}
           placeholder={CURRENCY_NAMES[up] ?? "名稱"}
-          aria-label="幣別名稱（可空）"
+          aria-label="幣別名稱（選填）"
           autoComplete="off"
           onChange={(e) => setName(e.target.value)}
           {...ime}
         />
         <select className="ns-tk-dselect" value={decimals} aria-label="小數位" onChange={(e) => setDecimals(parseInt(e.target.value, 10))}>
           <option value={2}>小數 2 位</option>
-          <option value={0}>不收小數</option>
+          <option value={0}>無小數</option>
         </select>
         <label className="ns-tk-drate">
           <span>1 {up || "外幣"} ＝</span>
@@ -154,7 +154,7 @@ function CurrencyLine({ cur }: { cur: CurrencyRow }) {
       />
       <span className="dec">{cur.decimals === 0 ? "無小數" : `小數 ${cur.decimals}`}</span>
       {main ? (
-        <span className="rate is-main">主幣別</span>
+        <span className="rate is-main">主要幣別</span>
       ) : (
         <label className="rate">
           <span>1 {cur.code} ＝</span>
@@ -162,7 +162,7 @@ function CurrencyLine({ cur }: { cur: CurrencyRow }) {
             className="ns-tk-dname is-num"
             value={rate}
             inputMode="decimal"
-            aria-label={`1 ${cur.code} 折多少 ${MAIN_CURRENCY}`}
+            aria-label={`1 ${cur.code} 換多少 ${MAIN_CURRENCY}`}
             autoComplete="off"
             enterKeyHint="done"
             onChange={(e) => setRate(e.target.value)}

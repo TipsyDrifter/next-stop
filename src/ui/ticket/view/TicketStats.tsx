@@ -119,7 +119,7 @@ function Trend({ points, cur, span, thisMonth, dec }: { points: TrendPoint[]; cu
   return (
     <div ref={boxRef} className="ns-tk-st-trendbox">
       {W > 0 && (
-        <svg className="ns-tk-st-trend" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="group" aria-label="月對月趨勢：支出與收入">
+        <svg className="ns-tk-st-trend" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="group" aria-label="每月趨勢：支出與收入">
           <line className="tr-base" x1={0} x2={W} y1={base + 0.5} y2={base + 0.5} />
           {points.map((p, i) => {
             const cx = gw * i + gw / 2;
@@ -226,7 +226,7 @@ function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Fac
           type="button"
           aria-expanded={isParent ? open : undefined}
           disabled={!isParent && target === null}
-          title={isParent ? (open ? "收起子分類" : "展開子分類") : target ? `到清單看這些帳（${kindLabel}）` : "這些帳的分類／帳戶／路線已不在，沒辦法篩出來"}
+          title={isParent ? (open ? "收起子分類" : "展開子分類") : target ? `到清單看這些帳（${kindLabel}）` : "這些帳的分類、帳戶或路線已刪除，無法篩選"}
           onClick={() => {
             if (isParent) store().setDrill(open ? null : r.key);
             else if (target) void store().drillToList({ ...target, kinds: [kind] });
@@ -259,7 +259,7 @@ function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Fac
               {r.label} <b>{moneyText(r.minor, dec)}</b>
             </span>
           ))}
-          <small>退得比買得多的{facet === "category" ? "分類" : facet === "account" ? "帳戶" : "路線"}不入圖、不入分母</small>
+          <small>退款大於支出的{facet === "category" ? "分類" : facet === "account" ? "帳戶" : "路線"}不計入圖表與總額</small>
         </div>
       )}
     </>
@@ -312,10 +312,10 @@ export function TicketStats() {
       {/* 第③階段（③契約 §5.1、✎-2）：三數卡之後、月對月之前；只在月模式（Stage 0 甲席掛樁） */}
       {span === "month" && <BudgetCard />}
 
-      <section className="ns-tk-st-card" aria-label="月對月">
+      <section className="ns-tk-st-card" aria-label="各月比較">
         <div className="ns-tk-st-h">
-          <h2>月對月</h2>
-          <small>{span === "year" ? "這一年 1–12 月" : "近 12 個月"}・點一根切到那個月</small>
+          <h2>各月比較</h2>
+          <small>{span === "year" ? "這一年 1–12 月" : "近 12 個月"}・點長條切到該月</small>
           <span className="ns-tk-st-legend" aria-hidden>
             <i className="sw exp" />
             支出
@@ -329,7 +329,7 @@ export function TicketStats() {
       <section className="ns-tk-st-card" aria-label="占比">
         <div className="ns-tk-st-h">
           <h2>占比</h2>
-          <small>{facet === "category" ? "點主分類展開子分類；點子分類＝到清單看那些帳" : "點一列＝到清單看那些帳"}</small>
+          <small>{facet === "category" ? "點主分類可展開，點子分類可看明細" : "點任一列可看明細"}</small>
         </div>
         <div className="ns-tk-st-facets">
           <span className="ns-tk-seg" role="group" aria-label="切面">

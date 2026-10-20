@@ -168,8 +168,7 @@ function LockedDate({ value }: { value: string | null }) {
     <div className="date">
       <span className="latin">{value ?? "—"}</span>
       <span className="empty" style={{ marginTop: 0 }}>
-        由規則排定
-      </span>
+        依重複設定排班</span>
     </div>
   );
 }
@@ -205,7 +204,7 @@ function useNodeActions() {
       void collectDeleteHints(node, descendantIdsOf(tree, node.id)).then((hints) =>
         askConfirm({
           title: `將連同 ${n} 個子項一起刪除？`,
-          body: withDeleteHints(`「${node.name}」底下的 ${n} 個節點會一起移除；刪除後 10 秒內可從提示列復原。`, hints),
+          body: withDeleteHints(`「${node.name}」底下的 ${n} 個項目會一起刪掉（10 秒內可復原）。`, hints),
           confirmLabel: "一起刪除",
           danger: true,
           onConfirm: () => void run(),
@@ -261,7 +260,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
       if (open > 0) {
         askConfirm({
           title: `連同 ${open} 個未完成子項一起完成？`,
-          body: "連帶完成的子項不會觸發重複生成。",
+          body: "跟著一起完成的車票，不會自動產生下一張。",
           confirmLabel: "一起完成",
           onConfirm: () => void setCompleted(node.id, true, true),
         });
@@ -310,14 +309,14 @@ function TaskPanel({ node }: { node: NodeRow }) {
           {teiki && <p className="empty">定期券：在検印欄蓋班次</p>}
         </FieldRow>
 
-        <FieldRow label="優先級">
+        <FieldRow label="優先順序">
           <Segmented
             value={node.priority}
             options={PRIORITY_OPTIONS}
             onChange={(v) => {
               if (v) void updateNode(node.id, { priority: v });
             }}
-            ariaLabel="優先級"
+            ariaLabel="優先順序"
           />
         </FieldRow>
 
@@ -363,7 +362,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
       {retired && (
         <>
           <SectionRule title="検印" />
-          <p className="empty">系列已退役——改狀態即重新排班</p>
+          <p className="empty">定期券已停用——更改狀態就會重新排班</p>
         </>
       )}
 
@@ -435,13 +434,13 @@ function TaskPanel({ node }: { node: NodeRow }) {
         </FieldRow>
       </div>
 
-      <SectionRule title="乘務記錄" aside={logCount ? `${logCount} 則` : undefined} />
+      <SectionRule title="工作日誌" aside={logCount ? `${logCount} 則` : undefined} />
       <WorkLogList nodeId={node.id} />
 
       <ActionsRow
         left={
           node.kind === "train" ? (
-            <ActionButton ariaLabel="轉為支線" title="把這班列車改成支線（子專案）" onClick={() => void convert(node, "branch")}>
+            <ActionButton ariaLabel="轉為支線" title="把這班列車改成支線" onClick={() => void convert(node, "branch")}>
               轉為支線
             </ActionButton>
           ) : undefined
@@ -522,7 +521,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
 
   const tag = async (routeId: string | null) => {
     const r = await setRouteTag(node.id, routeId);
-    if (!r.ok) showToast({ message: r.reason ?? "無法掛路線標籤" }, 4000);
+    if (!r.ok) showToast({ message: r.reason ?? "無法加上路線" }, 4000);
   };
 
   return (
@@ -547,7 +546,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
         <>
           <SectionRule title="路線" />
           <div className="fields">
-            <FieldRow label="路線標籤">
+            <FieldRow label="所屬路線">
               {/* 選一條＝寫 route_id（line_id 由 repository 同步）；「無路線」＝清成 null。
                   票根（上方 .panel-kind）與今日列的票根會立刻換成該路線的色。 */}
               <Segmented
@@ -557,7 +556,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
                   ...routes.map((r) => ({ value: r.id, label: r.code ? `${r.code}・${r.name}` : r.name })),
                 ]}
                 onChange={(v) => void tag(!v || v === NO_ROUTE ? null : v)}
-                ariaLabel="路線標籤"
+                ariaLabel="所屬路線"
               />
             </FieldRow>
             <LineRows node={node} />
@@ -643,14 +642,14 @@ function TicketPanel({ node }: { node: NodeRow }) {
           </div>
           {/* 退役的定期券：済章就在上面，取消它＝解除退役、引擎重新排班（M3 ④ 評審 should-5）。
               車票面板沒有狀態 Segmented，指路就指到這裡唯一那個動作上。 */}
-          {retired && <p className="empty">系列已退役——取消済章即重新排班</p>}
+          {retired && <p className="empty">定期券已停用——取消済章就會重新排班</p>}
         </>
       )}
 
       {/* 工作日誌（D-③-4 甲：`L` 全列可用，車票面板補這一段）——直接掛既有 WorkLogList，
           時刻戳＋手寫內文的樣式（＝「乘務記錄」那套版式）在 stamps.css，今日視圖按 `L` 記的那一句就落在這裡。
           標題與列車／車廂面板同一個字：同一個側板位置只能有一個名字（件一 :1340 的 <h4>工作日誌</h4>）。 */}
-      <SectionRule title="乘務記錄" aside={logCount ? `${logCount} 則` : undefined} />
+      <SectionRule title="工作日誌" aside={logCount ? `${logCount} 則` : undefined} />
       <WorkLogList nodeId={node.id} />
 
       <ActionsRow
@@ -689,7 +688,7 @@ function BranchPanel({ node }: { node: NodeRow }) {
       <CommitTextarea
         value={node.description ?? ""}
         onCommit={(v) => void updateNode(node.id, { description: v || null })}
-        ariaLabel="支線描述"
+        ariaLabel="支線說明"
         placeholder="這條支線負責什麼……"
       />
 

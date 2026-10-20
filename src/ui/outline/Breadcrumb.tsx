@@ -13,7 +13,7 @@ interface BreadcrumbProps {
 export function Breadcrumb({ items, onJump }: BreadcrumbProps) {
   if (!items.length) return null;
   return (
-    <nav aria-label="聚焦路徑" className="overline crumbs" title="Esc 退一層">
+    <nav aria-label="目前位置" className="overline crumbs" title="Esc 退一層">
       {items.map((c, i) => {
         const last = i === items.length - 1;
         return (

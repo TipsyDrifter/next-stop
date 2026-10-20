@@ -64,7 +64,7 @@ export function ImportCard(props: { onDone(): void }) {
           <div className="ns-tk-im-bar" role="progressbar" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done}>
             <i style={{ width: `${(ratio * 100).toFixed(1)}%` }} />
           </div>
-          <small>寫入中請不要關掉這張票</small>
+          <small>匯入中，請先別關閉畫面</small>
         </div>
       );
       break;
@@ -79,7 +79,7 @@ export function ImportCard(props: { onDone(): void }) {
             {imp.message ?? "匯入失敗"}
           </p>
           <footer className="ns-tk-im-foot">
-            {imp.plan && <span className="note">已寫進去的不會重複——再跑一次會補完</span>}
+            {imp.plan && <span className="note">已匯入的不會重複——再試一次就能補齊</span>}
             <button type="button" className="ns-tk-btn quiet" onClick={props.onDone}>
               關閉
             </button>
@@ -111,11 +111,11 @@ function PlanLines() {
   return (
     <>
       <p className="ns-tk-im-sum is-plan">
-        預算 <b>{b.scopes}</b> 個{b.overrides > 0 && <>（{b.overrides} 個單月覆寫）</>} · 定期 <b>{part.repeats.inserts.length + part.repeats.updates.length}</b> 條
+        預算 <b>{b.scopes}</b> 個{b.overrides > 0 && <>（{b.overrides} 個單月覆寫）</>} · 定期帳 <b>{part.repeats.inserts.length + part.repeats.updates.length}</b> 筆
       </p>
       {sum.skipLine && <p className="ns-tk-im-plannote">{sum.skipLine}</p>}
       {sum.tombLine && <p className="ns-tk-im-plannote">{sum.tombLine}</p>}
-      {part.missing.length > 0 && <p className="ns-tk-im-plannote">這個備份的預算／定期表少了 {part.missing.join("、")}，這次只匯交易</p>}
+      {part.missing.length > 0 && <p className="ns-tk-im-plannote">這個備份的預算與定期帳少了 {part.missing.join("、")}，這次只匯入帳目</p>}
     </>
   );
 }
@@ -142,7 +142,7 @@ function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: str
       <header className="ns-tk-im-head">
         {fileName && <p className="file">{fileName}</p>}
         <p className="ns-tk-im-sum">
-          帳戶 <b>{sm.accounts}</b> · 分類 <b>{sm.categories}</b> · 交易 <b>{sm.transactions}</b> · {ymd(sm.from)} – {ymd(sm.to)}
+          帳戶 <b>{sm.accounts}</b> · 分類 <b>{sm.categories}</b> · 帳目 <b>{sm.transactions}</b> ·{ymd(sm.from)} – {ymd(sm.to)}
         </p>
         <PlanLines />
       </header>
@@ -162,8 +162,7 @@ function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: str
             ✎︎
           </span>
           <span>
-            財務管家端已修改
-            {changed.length > 0 && (
+            在財務管家有改過{changed.length > 0 && (
               <button type="button" className="tog" aria-expanded={modsOpen} onClick={() => setModsOpen((v) => !v)}>
                 {modsOpen ? "收起" : "逐筆看"}
               </button>
@@ -184,14 +183,14 @@ function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: str
           </span>
           <span>Next Stop 有、備份沒有</span>
           <span className="n">{plan.extraLocal}</span>
-          <span className="hint">預設不動——財務管家刪掉的不會跟著刪</span>
+          <span className="hint">預設保留——在財務管家刪掉的不會跟著刪</span>
         </div>
         {invalid > 0 && (
           <div className="ns-tk-im-row is-faint">
             <span className="ic" aria-hidden>
               −
             </span>
-            <span>讀不懂、會略過</span>
+            <span>格式不支援，將略過</span>
             <span className="n">{invalid}</span>
             <span className="hint">{Array.from(new Set(plan.entries.invalid.map((x) => x.reason))).join("、")}</span>
           </div>
@@ -205,8 +204,7 @@ function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: str
             <span className="rule" />
           </div>
           <p className="ns-tk-im-desc">
-            請抄財務管家「帳戶」頁現在顯示的餘額，用來判定 {plan.adjust.total} 筆「差別」的方向。不填也可以匯入。
-          </p>
+            填入財務管家「帳戶」頁目前的餘額，用來自動推算 {plan.adjust.total}筆差額是變多還是變少（可略過）。</p>
           <div className="ns-tk-recon">
             {plan.checks.map((c) => {
               const text = balanceText[c.mmUid] ?? "";
@@ -262,20 +260,20 @@ function Verdict({ plan }: { plan: ImportPlan }) {
   if (bad.length) {
     return (
       <p className="ns-tk-verdict bad">
-        有 <b>{bad.length}</b> 個帳戶對不上：{bad.map((c) => c.name).join("、")}
+        有 <b>{bad.length}</b> 個帳戶餘額對不上：{bad.map((c) => c.name).join("、")}
       </p>
     );
   }
   if (filled === n) {
     return (
       <p className="ns-tk-verdict ok">
-        校正 <b>{plan.adjust.total}</b> 筆（＋{plan.adjust.plus}／−{plan.adjust.minus}）✓ 全部對上
+        已調整 <b>{plan.adjust.total}</b> 筆（＋{plan.adjust.plus}／−{plan.adjust.minus}）✓ 全部對上
       </p>
     );
   }
   return (
     <p className="ns-tk-verdict">
-      已填 <b>{filled}</b>／{n}——沒填完時，校正方向先用預設假設，結果卡會提醒你核對
+      已填 <b>{filled}</b>／{n}——沒填的會先自動推算，匯入後再提醒你核對
     </p>
   );
 }
@@ -291,7 +289,7 @@ const COL_LABEL: Record<string, string> = {
   currency: "幣別",
   main_minor: "折算",
   account_minor: "帳戶額",
-  to_amount_minor: "轉入額",
+  to_amount_minor: "轉入金額",
   note: "備註",
 };
 
@@ -359,7 +357,7 @@ function Done({ onClose }: { onClose(): void }) {
           {outcome ? TK_TEXT.importResult(outcome.inserted, outcome.updated, outcome.skipped) : TK_TEXT.importResult(0, 0, 0)}
           {/* 第③階段（③契約 §5.6）：預算和預覽同一個口徑（有變動的對象數＋單月覆寫數，不是列數；收尾修正 nit n4） */}
           {outcome &&
-            ` · 預算 ${part ? part.budgets.scopes : 0} 個${part && part.budgets.overrides > 0 ? `（${part.budgets.overrides} 個單月覆寫）` : ""} · 定期 ${outcome.repeats} 條`}
+            ` · 預算 ${part ? part.budgets.scopes : 0} 個${part && part.budgets.overrides > 0 ? `（${part.budgets.overrides} 個單月覆寫）` : ""} · 定期帳 ${outcome.repeats} 筆`}
         </p>
         <span className="ns-tk-im-seal">
           <SealReceipt size={46} fresh rotate={-5} title="領収" />
@@ -396,7 +394,7 @@ function Done({ onClose }: { onClose(): void }) {
         </table>
       )}
       {(!anyInput || plan?.adjust.rule === "default") && (
-        <p className="ns-tk-im-note">「差別」的方向用了預設假設——請對照財務管家「帳戶」頁的餘額核對一次。</p>
+        <p className="ns-tk-im-note">有幾筆差額是自動推算的——請對照財務管家「帳戶」頁的餘額確認一次。</p>
       )}
       {outcome && outcome.repeats > 0 && IMPORT_REPEATS_PAUSED && (
         <p className="ns-tk-im-note is-plan">
@@ -406,7 +404,7 @@ function Done({ onClose }: { onClose(): void }) {
           </button>
         </p>
       )}
-      {anyBad && <p className="ns-tk-im-note is-bad">有帳戶對不上：可以在帳戶版「調整餘額…」補一筆精算。</p>}
+      {anyBad && <p className="ns-tk-im-note is-bad">有帳戶餘額對不上：可以去帳戶點「調整餘額…」補一筆精算。</p>}
       <footer className="ns-tk-im-foot">
         <button type="button" className="ns-tk-btn primary" onClick={onClose}>
           關閉

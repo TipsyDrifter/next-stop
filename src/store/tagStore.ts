@@ -215,7 +215,7 @@ export const useTagStore = create<TagStore>((set, get) => {
     if (isEmptyReceipt(receipt)) return;
     const text = plan.rootConflict
       ? `#${plan.oldName} 的 ${plan.ownCount} 處已併入 #${plan.rootConflict.name}`
-      : `#${plan.oldName} 已改成 #${plan.newName}${plan.childCount ? `（含 ${plan.childCount} 個子荷札）` : ""}`;
+      : `#${plan.oldName} 已改成 #${plan.newName}${plan.childCount ? `（含底下 ${plan.childCount} 個荷札）` : ""}`;
     toast(
       text,
       safeUndo(async () => {
@@ -518,7 +518,7 @@ export const useTagStore = create<TagStore>((set, get) => {
       }
       if (isEmptyReceipt(receipt)) return;
       toast(
-        `已刪除 #${plan.name}${plan.childCount ? ` 和 ${plan.childCount} 個子荷札` : ""}（內文一起刪掉）`,
+        `已刪除 #${plan.name}${plan.childCount ? ` 和底下 ${plan.childCount} 個荷札` : ""}（內文也一併刪除）`,
         safeUndo(async () => {
           await beforeBodyRewrite();
           await tagRepo.undo(receipt);

@@ -195,7 +195,7 @@ describe("D 區（①b①c 契約 §4.8）", () => {
     assert.equal(t.colorLight, CAT_PALETTE.light[5]);
     assert.equal(t.colorDark, CAT_PALETTE.dark[5]);
     assert.equal(t.thresholdMin, 120);
-    assert.equal(t.reminderTitle, "創作已經跑了 2h，還在嗎？");
+    assert.equal(t.reminderTitle, "創作已經跑了 2h，還在進行嗎？");
     const ta = tileOf(cs.find((c) => c.id === "a")!, 0);
     assert.equal(ta.glyph, "上");
     assert.equal(ta.thresholdMin, null); // 分類沒預設、全域 0 ⇒ 不排提醒
@@ -228,7 +228,7 @@ describe("D 區（①b①c 契約 §4.8）", () => {
     assert.equal(s.running.subText, `創作・${fmtClock(start)} 発`);
     assert.equal(s.running.subText, "創作・14:35 発");
     assert.equal(s.running.thresholdMin, 30); // 這一班的預估優先於分類預設 120
-    assert.equal(s.running.reminderTitle, "創作已經跑了 30m，還在嗎？");
+    assert.equal(s.running.reminderTitle, "創作已經跑了 30m，還在進行嗎？");
     // 展開版運行列的「・預估 30m」（Kotlin 接在 startedLabel 後面）；沒預估 ⇒ null
     assert.equal(s.running.estimateText, "預估 30m");
     const s60 = buildNoticeState({ ...base, running: block("blk", "c", start, null, { estimate_min: 60 }) });
@@ -325,7 +325,7 @@ describe("D 區（①b①c 契約 §4.8）", () => {
     const r = block("blk", "f", T(9, 30), null);
     const th = thresholdOf(r.estimate_min, c, 840);
     const rem = reminderOf(r, th, c.name, true, now);
-    assert.deepEqual(rem, { blockId: "blk", fireAt: T(10, 30), title: "洗漱已經跑了 1h，還在嗎？" });
+    assert.deepEqual(rem, { blockId: "blk", fireAt: T(10, 30), title: "洗漱已經跑了 1h，還在進行嗎？" });
     // 未確認以外都不排
     assert.equal(reminderOf({ ...r, long_run_ack: 1 }, th, c.name, true, now), null);
     assert.equal(reminderOf(r, th, c.name, false, now), null); // 跑太久提醒關掉
@@ -339,7 +339,7 @@ describe("D 區（①b①c 契約 §4.8）", () => {
     const est = { ...r, estimate_min: 15 };
     const r2 = reminderOf(est, thresholdOf(est.estimate_min, c, 840), c.name, true, T(9, 31));
     assert.equal(r2?.fireAt, T(9, 45));
-    assert.equal(r2?.title, `洗漱已經跑了 ${fmtDur(15 * MIN)}，還在嗎？`);
+    assert.equal(r2?.title, `洗漱已經跑了 ${fmtDur(15 * MIN)}，還在進行嗎？`);
   });
 
   test("D6b reminderToKeep：已排好的同一個在提醒前 60 秒內不取消；到點、換班、新排才照 60 秒規則", () => {
@@ -480,7 +480,7 @@ describe("D 區・②（② 契約 §4.5）", () => {
     assert.ok(s.running);
     assert.equal(s.running.name, "創作・寫契約");
     assert.equal(s.running.subText, "創作・寫契約・14:35 発");
-    assert.equal(s.running.reminderTitle, "創作・寫契約已經跑了 2h，還在嗎？"); // 分類預設 120
+    assert.equal(s.running.reminderTitle, "創作・寫契約已經跑了 2h，還在進行嗎？"); // 分類預設 120
     assert.equal(s.running.glyph, "創");
     assert.equal(s.running.categoryId, "c");
     const plain = buildNoticeState({ ...base, running: r });
@@ -511,7 +511,7 @@ describe("D 區・②（② 契約 §4.5）", () => {
     const r = block("blk", "c", start, null);
     const s = buildNoticeState({ ...b2, running: r, taskEstimateMin: 60, linkLabel: "寫契約" });
     assert.equal(s.running?.thresholdMin, 60);
-    assert.equal(s.running?.reminderTitle, "創作・寫契約已經跑了 1h，還在嗎？");
+    assert.equal(s.running?.reminderTitle, "創作・寫契約已經跑了 1h，還在進行嗎？");
     assert.equal(thresholdOf(null, byId2.c, 840, 60)?.source, "task");
     const est = buildNoticeState({ ...b2, running: block("blk", "c", start, null, { estimate_min: 30 }), taskEstimateMin: 60 });
     assert.equal(est.running?.thresholdMin, 30);
@@ -532,7 +532,7 @@ describe("D 區・②（② 契約 §4.5）", () => {
     const s = buildNoticeState({ ...base, running: block("blk", "c", start, null, { estimate_min: 30 }) });
     assert.equal(s.running?.subText, "創作・14:35 発");
     assert.equal(s.running?.thresholdMin, 30);
-    assert.equal(s.running?.reminderTitle, "創作已經跑了 30m，還在嗎？");
+    assert.equal(s.running?.reminderTitle, "創作已經跑了 30m，還在進行嗎？");
   });
 
   test("D-②5 noticeRunName ＝ runLabel(cat, clipLabel(label))；三支純函式檔只 import ./timetable.ts", () => {

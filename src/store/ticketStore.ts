@@ -308,17 +308,17 @@ export const TK_TEXT = {
   adjusted: (signed: string) => `已精算 ${signed}`, // §5.7
   adjustSame: "餘額沒有變", // 0-33
   adjustNote: "餘額調整",
-  openingNote: "期初餘額",
+  openingNote: "初始餘額",
   archiveTitle: (name: string) => `要封存「${name}」嗎？`, // §5.7 拆成標題＋內文
-  archiveBody: "封存後仍計入合計，清單可篩到。",
+  archiveBody: "封存後仍會算進總額，也能從清單篩選出來。",
   archiveConfirm: "封存",
   discardTitle: "放棄這一筆？",
   discardConfirm: "放棄",
   saveFail: "存檔失敗——請再試一次", // RangeError 改吐 message
-  importReading: "正在讀備份…", // §5.2
-  importWriting: (done: number, total: number) => `正在寫入 ${done}/${total}`, // §5.2；分母見 0-24
+  importReading: "正在讀取備份…", // §5.2
+  importWriting: (done: number, total: number) => `正在匯入 ${done}/${total}`, // §5.2；分母見 0-24
   importResult: (n: number, m: number, k: number) => `已匯入 ${n} 筆 · 更新 ${m} 筆 · 略過 ${k} 筆`, // §5.7
-  importUnknown: (missing: readonly string[]) => `這個備份版本我不認得（缺 ${missingText(missing)}）`, // §5.7；missingText 在 §4.7
+  importUnknown: (missing: readonly string[]) => `無法讀取這個版本的備份（缺少 ${missingText(missing)}）`, // §5.7；missingText 在 §4.7
   destBase: "售票口",
   /* 第②階段（②契約 §3.4、§5.5）：字串本體在 domain 的 VIEW_TEXT（純函式也要用同一份） */
   found: VIEW_TEXT.found,
@@ -337,19 +337,19 @@ export const TK_TEXT = {
   budgetSet: (label: string, amt: string) => `已設 ${label} 預算 ${amt}`,
   budgetSetMonth: (label: string, m: number, amt: string) => `已設 ${label} ${m} 月預算 ${amt}`, // 修正-資料：設單月覆寫（評審）
   budgetRemoved: "已移除這個預算",
-  budgetMonthCleared: (m: number) => `已清掉 ${m} 月的覆寫`, // 修正-資料：清單月覆寫不是刪預算（評審）
+  budgetMonthCleared: (m: number) => `已還原 ${m} 月的單月設定`, // 修正-資料：清單月覆寫不是刪預算（評審）
   repeatSaved: (desc: string) => `已設定期：${desc}`,
   repeatSavedFilled: (n: number) => ` · 補記了 ${n} 筆`, // Stage 0 加：存規則時起算日在過去、當場補記的筆數（接在 repeatSaved 後面）
-  repeatDeleted: "已刪除這條規則",
+  repeatDeleted: "已刪除這筆定期帳",
   repeatPaused: "已暫停",
   repeatResumed: "已開始，明天起算",
   repeatResumedNext: (d: string) => `已開始，下一班 ${d}`, // 修正-資料：直接帶下一班（每週規則不一定是明天；評審 nit）
   repeatResumedImported: "已開始，接著財務管家的下一班記", // Stage 0 加：單條開始一條從沒開始過的匯入規則（✎-8）
   repeatResumedAll: (n: number) => `已開始 ${n} 條，接著財務管家的下一班記`,
-  repeatBlocked: (why: string) => `這條規則記不了：${why}`,
+  repeatBlocked: (why: string) => `這筆定期帳無法入帳：${why}`,
   materialized: (n: number) => `定期帳記了 ${n} 筆`,
   budgetAllAccounts: "預算看全部帳戶",
-  importPaused: "從財務管家匯入的定期規則先暫停：停用財務管家那天，到「定期帳」按「全部開始」",
+  importPaused: "從財務管家匯入的定期帳已先暫停；等你停用財務管家那天，再到「定期帳」按「全部開始」",
 } as const;
 
 /** 0-1 (a)（D-票-31）：匯入的定期規則一律以暫停狀態進來；答 (b) 改 false（§4.5） */
@@ -600,7 +600,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   function scopeLabel(scope: BudgetScope): string {
     if (scope.kind === "total") return "總預算";
     const c = get().catById[scope.categoryId];
-    return c ? bareName(c.name) : "（分類已不在）";
+    return c ? bareName(c.name) : "（分類已刪除）";
   }
 
   /** "2026-10" → 10（覆寫 toast 用） */
@@ -1070,7 +1070,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     async adjustBalance(accountId, targetText) {
       try {
         const acc = get().accById[accountId];
-        if (!acc) throw new RangeError("這個帳戶已經不在了");
+        if (!acc) throw new RangeError("這個帳戶已經刪除了");
         const cur = get().curByCode[acc.currency];
         const target = parseAmount(targetText, { code: acc.currency, decimals: cur?.decimals ?? 2 }, { allowNegative: true, allowZero: true });
         const row = await serial(() => ticketRepo.adjustBalance(accountId, target, today(), TK_TEXT.adjustNote));

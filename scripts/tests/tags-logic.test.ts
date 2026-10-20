@@ -413,7 +413,7 @@ test("建議：打 `專案/` 也看得到孫荷札", () => {
 test("建議：瀏覽空資料夾給提示", () => {
   const s = suggest(idx0(), "高/");
   assert.equal(s.items.length, 0);
-  assert.equal(s.hint, "「高」底下還沒有子荷札");
+  assert.equal(s.hint, "「高」底下還沒有其他荷札");
 });
 test("建議：沒完全對到 → 給「建立」", () => assert.deepEqual(suggest(idx0(), "新荷札").create, { name: "新荷札", key: "新荷札" }));
 test("建議：完全對到 → 不給建立", () => assert.equal(suggest(idx0(), "難度/高").create, null));
@@ -476,7 +476,7 @@ test("改名：預覽數字與文案", () => {
   assert.equal(p.childCount, 2);
   assert.equal(p.affected.ticket, 1);
   assert.equal(p.affected.note, 1);
-  assert.match(renameImpact(p), /1 張車票、1 則筆記的內文；#專案\/搬家 底下的 2 個子荷札一起搬/);
+  assert.match(renameImpact(p), /1 張車票、1 則筆記；#專案\/搬家 底下的 2 個荷札一起搬/);
 });
 test("改名：搬層級，子孫跟著搬、內文一起改", () => {
   const d = mini();
@@ -576,7 +576,7 @@ test("renameImpact：沒有東西掛著＝只改名稱；別線補「處別處�
   d.tags.push({ key: "空", name: "空" });
   assert.equal(renameImpact(planRename(idxOf(d), "空", "空的")), "沒有東西掛著，只改名稱");
   const idx = buildIndex({ tags: [{ id: "t", name: "x", key: "x" }], taggings: [{ tagId: "t", entityType: "timetable:block", entityId: "b1" }] });
-  assert.equal(renameImpact(planRename(idx, "x", "y")), "會改動 1 處別處");
+  assert.equal(renameImpact(planRename(idx, "x", "y")), "會改動 1 個其他地方");
 });
 test("affectedCounts：kindOf 可由呼叫端給", () => {
   const c = affectedCounts(idx0(), ["高"], () => "car");
@@ -617,7 +617,7 @@ test("counts:false：不算用量（direct／total、建議的數字、影響數
     assert.equal(del.places, 1, "只算筆記那一處");
     assert.equal(del.kidsWithItems, 0, "#高效/深度 只被排除掛著＝底下沒東西");
   }
-  assert.equal(renameImpact(planRename(idx, "拖延", "拖")), "會改動 1 處別處");
+  assert.equal(renameImpact(planRename(idx, "拖延", "拖")), "會改動 1 個其他地方");
   assert.deepEqual(itemsUnder(idx, "拖延").map((x) => x.type), ["timetable:category"]);
 });
 test("counts:false：沒登記（省略或空陣列）＝跟插槽之前逐字相同", () => {
@@ -632,15 +632,15 @@ test("counts:false：沒登記（省略或空陣列）＝跟插槽之前逐字�
 test("併入確認框（rootConflict）文案", () => {
   const t = mergeConfirmText(planRename(idx0(), "高", "難度/高"));
   assert.equal(t.title, "併入 #難度/高？");
-  assert.match(t.body, /^#難度\/高 已經存在（掛著 2 處）。要把 #高 的 5 處併進去嗎？會改動 /);
+  assert.match(t.body, /^已經有 #難度\/高 了（掛著 2 處），要把 #高 的 5 處併進去嗎？會改動 /);
   assert.ok(t.body.endsWith("。"));
 });
 test("併入確認框（子孫撞名）文案", () => {
   const d = mini();
   d.tags.push({ key: "家/搬家/打包", name: "家/搬家/打包" });
   const t = mergeConfirmText(planRename(idxOf(d), "專案", "家"));
-  assert.equal(t.title, "連子荷札一起併入？");
-  assert.match(t.body, /^#專案 底下有 1 個子荷札和既有的同名（例：#家\/搬家\/打包），改名後會併在一起。/);
+  assert.equal(t.title, "連底下的荷札一起併入？");
+  assert.match(t.body, /^#專案 底下有 1 個荷札撞名（如 #家\/搬家\/打包），改名後會併在一起。/);
 });
 
 /* ═══ 刪除（只有「整段字一起刪」，D-筆-39） ═══ */
@@ -697,28 +697,28 @@ test("刪除確認框：單一荷札", () => {
   const p = planDelete(idxOf(d), "高");
   const t = deleteConfirmText(p, deleteExample([...d.notes, ...d.diaries].map((x) => x.body), p));
   assert.equal(t.title, "刪除 #高？");
-  assert.equal(t.body, "摘下 5 處。筆記與日記內文裡的 #高 會一起刪掉。例：『今天 #高 的事很多， #難度/高 也有。色 #AD3D2B 不算。』→『今天 的事很多， #難度/高 也有。色 #AD3D2B 不算。』。會改動 2 則筆記或日記的內文。");
+  assert.equal(t.body, "摘下 5 處，筆記與日記裡的 #高 也會刪掉。例：『今天 #高 的事很多， #難度/高 也有。色 #AD3D2B 不算。』→『今天 的事很多， #難度/高 也有。色 #AD3D2B 不算。』。會改動 2 則筆記或日記。");
 });
 test("刪除確認框：父層（連子）", () => {
   const d = mini();
   const p = planDelete(idxOf(d), "專案");
   const t = deleteConfirmText(p, deleteExample(d.notes.map((n) => n.body), p));
-  assert.equal(t.title, "刪除 #專案，連同底下 2 個子荷札？");
-  assert.match(t.body, /^摘下 2 處。#專案 和它的子荷札（例：#專案\/搬家\/打包）會從筆記與日記內文裡一起刪掉。例：/);
+  assert.equal(t.title, "刪除 #專案，連同底下 2 個荷札？");
+  assert.match(t.body, /^摘下 2 處，筆記與日記裡的 #專案 及底下荷札（如 #專案\/搬家\/打包）也會刪掉。例：/);
 });
-test("刪除確認框：父層自己也寫在內文（含子荷札）", () => {
+test("刪除確認框：父層自己也寫在內文（含底下的荷札）", () => {
   const d = mini();
   const p = planDelete(idxOf(d), "專案");
   assert.ok(p.ok && p.kidsWithItems > 0);
   const t = deleteConfirmText(p, { raw: "專案", before: "#專案 a", after: "a" });
-  assert.equal(t.title, "刪除 #專案，連同底下 2 個子荷札？");
-  assert.match(t.body, /^摘下 2 處。筆記與日記內文裡的 #專案（含子荷札） 會一起刪掉。例：/);
+  assert.equal(t.title, "刪除 #專案，連同底下 2 個荷札？");
+  assert.match(t.body, /^摘下 2 處，筆記與日記裡的 #專案（含底下的荷札） 也會刪掉。例：/);
 });
 test("刪除確認框：沒有內文寫到", () => {
   const d = mini();
   const p = planDelete(idxOf(d), "重要/高");
   const t = deleteConfirmText(p, null);
-  assert.equal(t.body, "摘下 1 處。筆記與日記內文裡的 #重要/高 會一起刪掉。目前沒有筆記或日記寫到它。");
+  assert.equal(t.body, "摘下 1 處，筆記與日記裡的 #重要/高 也會刪掉。目前沒有筆記或日記寫到它。");
 });
 
 /* ═══ 摘要、行內切段、顯示 ═══ */
@@ -804,7 +804,7 @@ test("分組：看父層時附 rel（實際掛的子荷札相對名）", () => {
 
 test("通車提示條文案", () => assert.equal(backfillNotice(12, 30), "以前筆記與日記裡打的 #荷札 已經補掛上了：找到 12 個荷札、30 處。"));
 test("toast 25：掛與摘、新建數；沒變動回 null", () => {
-  assert.equal(setTagsToast(["a", "b"], [], 1), "掛上 #a、#b（新建 1 個）");
+  assert.equal(setTagsToast(["a", "b"], [], 1), "掛上 #a、#b（新增 1 個）");
   assert.equal(setTagsToast(["a"], ["c"], 0), "掛上 #a；摘下 #c");
   assert.equal(setTagsToast([], [], 0), null);
 });

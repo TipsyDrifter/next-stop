@@ -496,7 +496,7 @@ function FormShell({
                   autoFocus
                   value={d.mainOverrideText ?? ""}
                   placeholder={autoMain !== null ? moneyText(autoMain, mainDec).replace(/,/g, "") : "0"}
-                  aria-label="折算成主幣別的金額"
+                  aria-label="換算成主幣別的金額"
                   onChange={(e) => onPatch({ mainOverrideText: e.target.value })}
                 />
               </label>
@@ -609,7 +609,7 @@ function FormShell({
                   className="ns-tk-mf-note"
                   rows={2}
                   value={d.note}
-                  placeholder="一句話"
+                  placeholder="備註"
                   onChange={(e) => onPatch({ note: e.target.value })}
                 />
               </label>
@@ -643,7 +643,7 @@ function FormShell({
               {entry && !adjust && linkedRule ? (
                 <div className="ns-tk-mf-field ns-tk-mf-rep is-ro">
                   <span className="lbl">定期</span>
-                  <span className="v">{linkedRuleObj ? describeRule(linkedRuleObj) : "規則看不懂"}</span>
+                  <span className="v">{linkedRuleObj ? describeRule(linkedRuleObj) : "重複規則有誤"}</span>
                   <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={openRepeats}>
                     管理
                     <IconRight size={11} />
@@ -667,8 +667,7 @@ function FormShell({
       <div className="ns-tk-mf-foot">
         {isNew ? (
           <button type="button" className="ns-tk-mbtn" onClick={() => onSave(true)}>
-            存並繼續
-          </button>
+            存並再記</button>
         ) : (
           <button type="button" className="ns-tk-mbtn danger" onClick={onDelete}>
             刪除

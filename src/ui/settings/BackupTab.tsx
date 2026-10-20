@@ -154,8 +154,7 @@ export function BackupTab() {
       {/* ⓪ 還原失敗在「連線已關」之後——常駐到重新啟動為止（不是 toast 能扛的狀態） */}
       {needsRestart && (
         <p className="ns-note is-fail" role="alert">
-          還原沒有完成，資料庫的連線已經關掉了——請關掉私鐵手帳再重新開一次。資料庫檔案本身沒有被改動。
-        </p>
+          還原未完成——請重開私鐵手帳再試一次，原有資料沒有變動。</p>
       )}
 
       {/* ① 狀態列——三件套之③的「常駐」那一層 */}
@@ -190,7 +189,7 @@ export function BackupTab() {
             id={keepId}
             value={keep}
             disabled={busy}
-            title={`自動與手動備份合計保留這麼多份，超出的自動刪最舊；還原前的保險備份另外保留 ${BACKUP_SAFETY_KEEP} 份，不佔配額。`}
+            title={`自動與手動合計，超出時刪最舊的；還原前的保險備份另留 ${BACKUP_SAFETY_KEEP} 份。`}
             onChange={(e) => void setKeep(Number(e.target.value))}
             className="techo-input font-latin text-[14px]"
           >
@@ -202,7 +201,7 @@ export function BackupTab() {
           </select>
         </span>
         {/* 克制（修正席）：規則講一句就好，長句版改掛 select 的 title */}
-        <p className="ns-note mt-2">自動與手動合計；還原前的保險份另計 {BACKUP_SAFETY_KEEP} 份。</p>
+        <p className="ns-note mt-2">自動與手動合計；還原前的保險備份另留 {BACKUP_SAFETY_KEEP}份。</p>
       </section>
 
       {/* ③ 第二備份位置（異地保險） */}
@@ -236,7 +235,7 @@ export function BackupTab() {
         {(secondaryLastError || secondaryLastOkAt) && (
           <p className={`ns-note mt-2${secondaryLastError ? " is-fail" : ""}`}>
             {secondaryLastError
-              ? `上次鏡射失敗：${secondaryLastError}（第二位置寫不進去不影響主備份）`
+              ? `上次同步到這裡失敗：${secondaryLastError}（不影響主位置的備份）`
               : `上次鏡射成功 ${fmtStamp(secondaryLastOkAt)}——每次備份成功後同步一份到這裡。`}
           </p>
         )}
@@ -269,9 +268,8 @@ export function BackupTab() {
            那位主人帶進最糟的一條路——先加入（拉下手機現況）再還原「回到過去」＝手機這週的修改全變孤兒。
            正解剛好相反：**先還原（這台還沒加入，零影響）再加入**，加入時選「兩邊都保留」就併起來了。 */
         <p className="ns-note">
-          這台還沒加入同步，還原只動這一台。之後加入同步時若兩邊都有資料會問你要不要合併——
-          舊電腦壞了、想把這份備份併進手機現況，就<b>先還原、再加入同步</b>，加入時選「兩邊都保留」。
-        </p>
+          還原只會改這台裝置。若想把這份備份併入其他裝置，就<b>先還原、再加入同步</b>，加入時選「兩邊都保留」。
+                  </p>
       )}
 
       {/* ④ 清單——主位置＋第二位置合併列（D-⑥-5 甲） */}

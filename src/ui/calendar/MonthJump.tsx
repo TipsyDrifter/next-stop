@@ -247,7 +247,7 @@ export function MonthJump({ anchor }: MonthJumpProps) {
               className={`status${m === month ? " on" : ""}${isToday ? " has-today" : ""}`}
               aria-pressed={m === month}
               aria-current={isToday ? "date" : undefined}
-              title={isToday ? `${year}年${m}月（今天在這個月）` : `${year}年${m}月`}
+              title={isToday ? `${year}年${m}月（本月）` : `${year}年${m}月`}
               onClick={() => pickMonth(m)}
             >
               {m}月
@@ -258,12 +258,12 @@ export function MonthJump({ anchor }: MonthJumpProps) {
 
       {/* 第三列：今日 */}
       <div className="ns-mj-now">
-        <button type="button" className="today-chip" title="跳回今天所在的月份（Home）" onClick={pickToday}>
+        <button type="button" className="today-chip" title="跳回本月（Home）" onClick={pickToday}>
           今日
         </button>
       </div>
 
-      <div className="techo-foot ns-mj-foot">←→ 選月・Enter 跳・Esc 關閉</div>
+      <div className="techo-foot ns-mj-foot">←→ 選月・Enter 跳轉・Esc 關閉</div>
     </div>
   );
 }

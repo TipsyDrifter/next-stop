@@ -55,9 +55,9 @@ export const ACCOUNT_GROUPS: readonly { key: AccountGroup; label: string; liabil
   { key: "cash", label: "現金", liability: false, mmName: "現金" },
   { key: "bank", label: "帳戶", liability: false, mmName: "帳戶" },
   { key: "card", label: "信用卡", liability: true, mmName: "信用卡" },
-  { key: "debit", label: "扣帳卡", liability: false, mmName: "扣帳卡" },
-  { key: "deposit", label: "定期存款", liability: false, mmName: "定期存款" },
-  { key: "emoney", label: "電子貨幣", liability: false, mmName: "電子貨幣" },
+  { key: "debit", label: "簽帳卡", liability: false, mmName: "扣帳卡" },
+  { key: "deposit", label: "定存", liability: false, mmName: "定期存款" },
+  { key: "emoney", label: "電子支付", liability: false, mmName: "電子貨幣" },
   { key: "investment", label: "投資", liability: false, mmName: "投資" },
   { key: "lent", label: "借出／應收", liability: false, mmName: null },
   { key: "credit", label: "信用額度", liability: true, mmName: "信用額度" },
@@ -530,7 +530,7 @@ function bigToMinor(v: bigint): number {
 export function minorFromDecimal(text: string, decimals: number, mode: "strict" | "round", code?: string): number {
   const s = normalizeInput(text).trim().replace(/,/g, "");
   const m = /^([+-])?(\d+)(?:\.(\d+))?$/.exec(s);
-  if (!m) throw new RangeError("金額要是數字，例如 80 或 12.5");
+  if (!m) throw new RangeError("金額請填數字，例如 80 或 12.5");
   const neg = m[1] === "-";
   const intPart = m[2];
   let frac = m[3] ?? "";
@@ -538,7 +538,7 @@ export function minorFromDecimal(text: string, decimals: number, mode: "strict" 
   if (frac.length > decimals) {
     if (mode === "strict") {
       const label = code ?? "這個幣別";
-      throw new RangeError(decimals === 0 ? `${label} 不收小數` : `${label} 最多 ${decimals} 位小數`);
+      throw new RangeError(decimals === 0 ? `${label} 不能有小數點` : `${label} 最多 ${decimals} 位小數`);
     }
     bump = frac.charCodeAt(decimals) >= 53; // 下一位 ≥ '5' ⇒ 絕對值進位（遠離零）
     frac = frac.slice(0, decimals);
@@ -557,11 +557,11 @@ export function parseAmount(
   if (normalizeInput(text).trim() === "") throw new RangeError("先填金額");
   const v = minorFromDecimal(text, cur.decimals, "strict", cur.code);
   if (v === 0 && !opts.allowZero) throw new RangeError("金額不能是 0");
-  if (v < 0 && !opts.allowNegative) throw new RangeError("收入和轉帳的金額要是正的");
+  if (v < 0 && !opts.allowNegative) throw new RangeError("收入和轉帳金額要大於 0");
   return v;
 }
 
-const RATE_ERR = "匯率要是大於 0 的數字";
+const RATE_ERR = "匯率要大於 0";
 
 /** 匯率字串正規化（`"4.350"→"4.35"`、`"031"→"31"`、`"1.0"→"1"`）；不合 ⇒ RangeError */
 export function parseRate(text: string): string {
@@ -638,7 +638,7 @@ export function convertMinor(
 /** trim、轉大寫；`^[A-Z]{3}$` 否則 RangeError */
 export function currencyCode(text: string): string {
   const s = text.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(s)) throw new RangeError("幣別代碼要是三個英文字母");
+  if (!/^[A-Z]{3}$/.test(s)) throw new RangeError("幣別代碼是 3 個英文字母（如 TWD）");
   return s;
 }
 
@@ -684,7 +684,7 @@ export function deriveAmounts(a: {
   curByCode: Readonly<Record<string, CurLike>>;
   override?: AmountOverride;
 }): { main_minor: number; account_minor: number; to_amount_minor: number | null } {
-  if (a.kind === "transfer" && a.currency !== a.account.currency) throw new RangeError("轉帳的幣別跟著轉出帳戶");
+  if (a.kind === "transfer" && a.currency !== a.account.currency) throw new RangeError("轉帳幣別會跟著轉出帳戶");
   const { main, account } = convAmounts(a.amountMinor, a.currency, a.account.currency, a.curByCode, a.override);
   let toAmount: number | null = null;
   if (a.kind === "transfer") {
@@ -721,30 +721,30 @@ interface Merged {
 
 /** 驗證（契約 §4.3 錯誤表）；回正規化後的帳戶、轉入帳戶、分類 id */
 function validate(m: Merged, ctx: EntryCtx): { account: AccountRow; toAccount: AccountRow | null; categoryId: string | null } {
-  if (!Number.isInteger(m.amountMinor)) throw new RangeError("金額要是數字，例如 80 或 12.5");
+  if (!Number.isInteger(m.amountMinor)) throw new RangeError("金額請填數字，例如 80 或 12.5");
   if (m.amountMinor === 0) throw new RangeError("金額不能是 0");
   if (Math.abs(m.amountMinor) > MAX_MINOR) throw new RangeError("金額太大了");
-  if (m.amountMinor < 0 && (m.kind === "income" || m.kind === "transfer")) throw new RangeError("收入和轉帳的金額要是正的");
+  if (m.amountMinor < 0 && (m.kind === "income" || m.kind === "transfer")) throw new RangeError("收入和轉帳金額要大於 0");
   if (!m.accountId) throw new RangeError("選一個帳戶");
   const account = ctx.accById[m.accountId];
-  if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經不在了");
+  if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經刪除了");
   curOrThrow(ctx.curByCode, m.currency);
-  if (!DAY_RE.test(m.occurredOn)) throw new RangeError("日期看不懂");
+  if (!DAY_RE.test(m.occurredOn)) throw new RangeError("日期格式有誤");
   let toAccount: AccountRow | null = null;
   let categoryId: string | null = null;
   if (m.kind === "transfer") {
     if (!m.toAccountId) throw new RangeError("選一個轉入帳戶");
     toAccount = ctx.accById[m.toAccountId] ?? null;
-    if (!toAccount || toAccount.deleted_at !== null) throw new RangeError("這個帳戶已經不在了");
+    if (!toAccount || toAccount.deleted_at !== null) throw new RangeError("這個帳戶已經刪除了");
     if (toAccount.id === account.id) throw new RangeError("轉出和轉入不能是同一個帳戶");
-    if (m.currency !== account.currency) throw new RangeError("轉帳的幣別跟著轉出帳戶");
+    if (m.currency !== account.currency) throw new RangeError("轉帳幣別會跟著轉出帳戶");
   } else if (m.kind === "income" || m.kind === "expense") {
     categoryId = m.categoryId ?? uncatIdOf(m.kind);
     const cat = ctx.catById[categoryId];
-    if (cat && cat.kind !== m.kind) throw new RangeError("分類和收支類型對不上");
+    if (cat && cat.kind !== m.kind) throw new RangeError("這個分類不屬於目前的收支類型");
     // 未分類是起手列，ctx 裡沒有也照用（sqlite 端 ensureStarterRows 保證在）；其餘分類必須在
-    if (!cat && categoryId !== uncatIdOf(m.kind)) throw new RangeError("這個分類已經不在了");
-    if (cat && cat.deleted_at !== null) throw new RangeError("這個分類已經不在了");
+    if (!cat && categoryId !== uncatIdOf(m.kind)) throw new RangeError("這個分類已經刪除了");
+    if (cat && cat.deleted_at !== null) throw new RangeError("這個分類已經刪除了");
   }
   return { account, toAccount, categoryId };
 }
@@ -825,7 +825,7 @@ export function applyEntryPatch(
 ): { row: EntryRow; cols: Record<string, unknown> } {
   if (row.deleted_at !== null) throw new RangeError("這一筆已經刪除了");
   if (row.kind === "adjust" && patch.kind !== undefined) {
-    throw new RangeError("「精算」這一筆不能改類型");
+    throw new RangeError("「精算」紀錄不能改收支類型");
   }
   const kind: EntryKind = patch.kind ?? row.kind;
   const accountId = patch.accountId ?? row.account_id;
@@ -915,7 +915,7 @@ export function applyEntryPatch(
 export function draftToInput(d: EntryDraft, ctx: EntryCtx, dayStartHour: number): NewEntryInput {
   if (!d.accountId) throw new RangeError("選一個帳戶");
   const account = ctx.accById[d.accountId];
-  if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經不在了");
+  if (!account || account.deleted_at !== null) throw new RangeError("這個帳戶已經刪除了");
   const currency = d.kind === "transfer" ? account.currency : d.currency;
   const cur = curOrThrow(ctx.curByCode, currency);
   const amountMinor = parseAmount(d.amountText, cur, { allowNegative: d.kind === "expense" });
@@ -954,7 +954,7 @@ export function adjustRow(a: {
   id: string;
   curByCode: Readonly<Record<string, CurLike>>;
 }): EntryRow {
-  if (!Number.isInteger(a.amountMinor)) throw new RangeError("金額要是數字，例如 80 或 12.5");
+  if (!Number.isInteger(a.amountMinor)) throw new RangeError("金額請填數字，例如 80 或 12.5");
   if (Math.abs(a.amountMinor) > MAX_MINOR) throw new RangeError("金額太大了");
   const acc = curOrThrow(a.curByCode, a.account.currency);
   const main = mainOf(a.curByCode);
@@ -1247,7 +1247,7 @@ export function categoryTree(
 
 /** "🍜 食物 › 午餐"／"🍜 食物"／"未分類"；null ⇒ "（分類已不在）" */
 export function categoryLabel(cat: CategoryRow | null, catById: Readonly<Record<string, CategoryRow>>): string {
-  if (!cat) return "（分類已不在）";
+  if (!cat) return "（分類已刪除）";
   const p = cat.parent_id ? catById[cat.parent_id] : undefined;
   return p ? `${p.name} › ${cat.name}` : cat.name;
 }
@@ -1348,7 +1348,7 @@ export function parseQuickEntry(body: string, ctx: QuickCtx): QuickEntry {
   const tokens = normalizeInput(body)
     .split(/\s+/)
     .filter((t) => t !== "");
-  if (!tokens.length || !QUICK_AMOUNT_RE.test(tokens[0])) throw new RangeError("第一個字要是金額，例如『80 午餐』");
+  if (!tokens.length || !QUICK_AMOUNT_RE.test(tokens[0])) throw new RangeError("開頭先寫金額，例如「80 午餐」");
   const kind: "income" | "expense" = tokens[0].charAt(0) === "+" ? "income" : "expense";
   const rest = tokens.slice(1);
   const accounts = Object.keys(ctx.accById).map((k) => ctx.accById[k]);
@@ -1363,7 +1363,7 @@ export function parseQuickEntry(body: string, ctx: QuickCtx): QuickEntry {
   if (atIdx >= 0) {
     const name = rest[atIdx].slice(1);
     account = matchAccount(name, accounts);
-    if (!account) throw new RangeError(`找不到帳戶『${name}』`);
+    if (!account) throw new RangeError(`找不到帳戶「${name}」`);
     rest.splice(atIdx, 1);
   } else {
     const id = defaultAccountId(accounts, ctx.lastAccountId);
@@ -1805,7 +1805,7 @@ export function planImport(
     if (t.do_type !== "3" && t.do_type !== "4") continue;
     const key = (t.tx_uid_trans ?? "").trim();
     if (!key) {
-      invalid.push({ uid: t.uid, reason: "轉帳缺另一腿" });
+      invalid.push({ uid: t.uid, reason: "轉帳資料不完整（缺轉出或轉入紀錄）" });
       continue;
     }
     (legs[key] = legs[key] ?? []).push(t);
@@ -1818,7 +1818,7 @@ export function planImport(
       for (const t of group) invalid.push({ uid: t.uid, reason });
     };
     if (l3s.length !== 1 || l4s.length !== 1) {
-      bad("轉帳缺另一腿");
+      bad("轉帳資料不完整（缺轉出或轉入紀錄）");
       continue;
     }
     const l3 = l3s[0];
@@ -1827,7 +1827,7 @@ export function planImport(
     const toUid = l3.to_asset_uid || l4.asset_uid;
     const toId = toUid ? accountIdOf[toUid] : undefined;
     if (!fromId || !toId) {
-      bad((l3.asset_uid && badCurAcc.has(l3.asset_uid)) || (toUid && badCurAcc.has(toUid)) ? "幣別看不懂" : "轉帳帳戶找不到");
+      bad((l3.asset_uid && badCurAcc.has(l3.asset_uid)) || (toUid && badCurAcc.has(toUid)) ? "不支援這個幣別" : "找不到轉帳的帳戶");
       continue;
     }
     if (fromId === toId) {
@@ -1835,13 +1835,13 @@ export function planImport(
       continue;
     }
     if (!DAY_RE.test(l3.wdate)) {
-      bad("日期看不懂");
+      bad("日期格式有誤");
       continue;
     }
     const cur3 = curCodeOf(l3, fromId);
     const cur4 = curCodeOf(l4, toId);
     if (!cur3 || !cur4) {
-      bad("幣別看不懂");
+      bad("不支援這個幣別");
       continue;
     }
     try {
@@ -1872,7 +1872,7 @@ export function planImport(
         to_amount_minor: toAmount,
       });
     } catch {
-      bad("金額看不懂");
+      bad("金額格式有誤");
     }
   }
 
@@ -1884,21 +1884,21 @@ export function planImport(
     else if (t.do_type === "1") kind = "expense";
     else if (t.do_type === "7" || t.do_type === "8") kind = "adjust";
     else {
-      invalid.push({ uid: t.uid, reason: `不認得的類型 ${t.do_type}` });
+      invalid.push({ uid: t.uid, reason: `不支援的類型：${t.do_type}` });
       continue;
     }
     const accId = t.asset_uid ? accountIdOf[t.asset_uid] : undefined;
     if (!accId) {
-      invalid.push({ uid: t.uid, reason: t.asset_uid && badCurAcc.has(t.asset_uid) ? "幣別看不懂" : "帳戶找不到" });
+      invalid.push({ uid: t.uid, reason: t.asset_uid && badCurAcc.has(t.asset_uid) ? "不支援這個幣別" : "找不到這個帳戶" });
       continue;
     }
     if (!DAY_RE.test(t.wdate)) {
-      invalid.push({ uid: t.uid, reason: "日期看不懂" });
+      invalid.push({ uid: t.uid, reason: "日期格式有誤" });
       continue;
     }
     const cur = curCodeOf(t, accId);
     if (!cur) {
-      invalid.push({ uid: t.uid, reason: "幣別看不懂" });
+      invalid.push({ uid: t.uid, reason: "不支援這個幣別" });
       continue;
     }
     // 財務管家的 ZMONEY 已經是**帳戶幣別**的金額（外幣列 ZMONEY / IN_ZMONEY ＝ 備份匯率），不能再換算第二次；
@@ -1926,7 +1926,7 @@ export function planImport(
         } else entryCur = accCode;
       }
     } catch {
-      invalid.push({ uid: t.uid, reason: "金額看不懂" });
+      invalid.push({ uid: t.uid, reason: "金額格式有誤" });
       continue;
     }
     let categoryId: string | null = null;

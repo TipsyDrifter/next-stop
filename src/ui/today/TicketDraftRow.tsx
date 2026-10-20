@@ -52,7 +52,7 @@ export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today" }: 
           {/* 標題＝黑體（.title；D-筆-32） */}
           <InlineInput
             placeholder={inbox ? "放進收件匣的一件事…" : "臨時想到的一件事…"}
-            ariaLabel={inbox ? "輸入收件匣車票的名稱" : "輸入臨時車票的名稱"}
+            ariaLabel={inbox ? "輸入收件匣車票名稱" : "輸入臨時車票名稱"}
             focusKey={`${kind}:${afterId ?? "$end"}`}
             className="title"
             onCommit={(text) => void onCommit(text)}
@@ -65,7 +65,7 @@ export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today" }: 
             <span className="sep">・</span>
             <span>臨時車票</span>
             <span className="sep">・</span>
-            <span>{inbox ? "Enter 放進收件匣・Esc 取消" : "Enter 建立・再 Enter 連打・Esc 取消"}</span>
+            <span>{inbox ? "Enter 放進收件匣・Esc 取消" : "Enter 新增・連按繼續加・Esc 取消"}</span>
           </div>
         </div>
 

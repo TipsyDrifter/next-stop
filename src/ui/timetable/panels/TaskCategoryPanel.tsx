@@ -38,7 +38,7 @@ export function TaskCategoryPanel({ onDone }: PanelProps) {
       <div className="ns-tt-taskcat-for">
         <RouteRoundel route={routeId ? (routeById[routeId] ?? null) : null} />
         <span>
-          時間會連到「<b>{name}</b>」
+          時間會記在「<b>{name}</b>」
         </span>
       </div>
       <CategoryGrid selected={null} onPick={pick} compact runningId={running?.category_id ?? null} />

@@ -41,7 +41,7 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
 
   const startAll = () =>
     askConfirm({
-      title: `開始 ${imported.length} 條規則？`, // 只開始匯入、從沒開始過的；手動暫停的不動
+      title: `啟動 ${imported.length} 筆定期帳？`, // 只開始匯入、從沒開始過的；手動暫停的不動
       body: "接著財務管家的下一班記；之後請不要再用財務管家記帳。",
       confirmLabel: "全部開始",
       tone: "gold", // 不是破壞性動作、也不蓋朱（接縫 #74、D-票-11）
@@ -53,7 +53,7 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
       {imported.length > 0 && (
         <div className="ns-tk-mrm-banner">
           <p>
-            從財務管家匯入的 <b>{imported.length}</b> 條規則還在暫停——停用財務管家那天按「全部開始」
+            從財務管家匯入的 <b>{imported.length}</b> 筆定期帳還在暫停——停用財務管家那天再按「全部開始」
           </p>
           <button type="button" className="ns-tk-mbtn primary" onClick={startAll}>
             全部開始
@@ -62,14 +62,14 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
       )}
 
       {repeats.length === 0 ? (
-        <p className="ns-tk-mrm-empty">還沒有定期帳——從一筆帳的「更多欄位」按「設成定期…」，或在這裡新增</p>
+        <p className="ns-tk-mrm-empty">還沒有定期帳——可在記帳時打開「更多欄位」按「設成定期…」，或在這裡新增</p>
       ) : (
         <>
           <p className="ns-tk-mrm-h">
             進行中 <span className="n">{active.length}</span>
           </p>
           {active.length === 0 ? (
-            <p className="ns-tk-mrm-none">沒有進行中的規則</p>
+            <p className="ns-tk-mrm-none">沒有進行中的定期帳</p>
           ) : (
             <ul>
               {active.map((r) => (
@@ -133,7 +133,7 @@ function Row({
   const { text: amt, code } = repeatAmount(r, curByCode);
   const foreign = code !== null;
   const nx = paused ? "已暫停" : isBlocked ? "記不了" : nextOnText(r);
-  const desc = rule ? describeRule(rule) : "規則看不懂";
+  const desc = rule ? describeRule(rule) : "重複規則有誤";
   const note = repeatUncat(r) ? null : repeatNoteShown(r, catById); // 未分類的上行已經印備註了
 
   const cls = "ns-tk-mrm-row" + (paused ? " is-paused" : "") + (isBlocked ? " is-blocked" : "") + (status === "ended" ? " is-ended" : "");
@@ -160,7 +160,7 @@ function Row({
         <button
           type="button"
           className="ns-tk-mbtn quiet tog"
-          aria-label={paused ? "開始這條規則" : "暫停這條規則"}
+          aria-label={paused ? "開始這筆定期帳" : "暫停這筆定期帳"}
           onClick={() => void (paused ? resumeRepeat(r.id) : pauseRepeat(r.id))}
         >
           {paused ? "開始" : "暫停"}
@@ -172,7 +172,7 @@ function Row({
 
 function accName(id: string | null, accById: Readonly<Record<string, AccountRow>>): string {
   const a = id ? accById[id] : undefined;
-  return a && a.deleted_at === null ? a.name : "（帳戶已不在）";
+  return a && a.deleted_at === null ? a.name : "（帳戶已刪除）";
 }
 
 /** 上行的「記什麼」：收支＝分類（子分類「食物 › 晚餐」、› 淡字）；轉帳＝「帳戶 → 轉入」 */
@@ -189,7 +189,7 @@ function whatOf(r: RepeatRow, accById: Readonly<Record<string, AccountRow>>, cat
   const id = r.category_id ?? (r.kind === "income" ? UNCAT_INCOME_ID : UNCAT_EXPENSE_ID);
   if (id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID) return <span className="unc">{r.note.trim() || UNCAT_NAME}</span>;
   const c = catById[id];
-  if (!c || c.deleted_at !== null) return <span className="unc">（分類已不在）</span>;
+  if (!c || c.deleted_at !== null) return <span className="unc">（分類已刪除）</span>;
   const p = c.parent_id ? catById[c.parent_id] : undefined;
   return p ? (
     <>

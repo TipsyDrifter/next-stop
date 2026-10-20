@@ -401,7 +401,7 @@ const isZero = (s: Span): boolean => s.end !== null && s.end <= s.start;
 
 function findSpan(spans: readonly Span[], id: string): Span {
   const s = spans.find((x) => x.id === id);
-  if (!s) throw new RangeError("找不到這一塊");
+  if (!s) throw new RangeError("找不到這段紀錄");
   return s;
 }
 
@@ -525,8 +525,8 @@ export function planRestart(spans: readonly Span[], input: { id: string; at: num
 }
 
 function assertRange(start: number, end: number, now: number): void {
-  if (!(start < end)) throw new RangeError("起訖不對");
-  if (end > now) throw new RangeError("不能補記未來的時間");
+  if (!(start < end)) throw new RangeError("結束時間要晚於開始時間");
+  if (end > now) throw new RangeError("不能記未來的時間");
 }
 
 /** 補記一塊（必須 start < end ≤ now） */
@@ -570,7 +570,7 @@ export function planEdit(
   },
 ): WritePlan {
   const s = findSpan(spans, input.id);
-  if (s.end === null) throw new RangeError("運行中的這一班，用運行列換車或到着");
+  if (s.end === null) throw new RangeError("運行中的班次，請直接點「換車」或「到着」");
   assertRange(input.start, input.end, input.now);
   const plan = planCover(spans, { start: input.start, end: input.end }, s.id);
   const patch: SpanPatch = { id: s.id };
@@ -704,7 +704,7 @@ export function planResolveLongRun(
     return { patches: [{ id: s.id, end, ack: true }], inserts: [], deletes: [] };
   }
   if (input.choice === "cat") {
-    if (!input.categoryId2) throw new RangeError("選一個分類");
+    if (!input.categoryId2) throw new RangeError("請選分類");
     const split = planSplit(spans, { id: s.id, at: end, categoryId2: input.categoryId2, now: input.now });
     // ②：「其實在做別的」的那段時間不帶連結（② 契約 0-3）；⑥：同一個理由也不帶原塊的手動荷札（D-時-132）
     if (split) split.inserts = split.inserts.map((ins) => ({ ...ins, link: NO_LINK, noTagCarry: true }));
@@ -718,9 +718,9 @@ export function planResolveLongRun(
 /** 改運行中那一班的預估：null＝清掉；整數 1–1440 分 */
 export function planSetEstimate(spans: readonly Span[], input: { id: string; estimateMin: number | null }): WritePlan {
   const s = findSpan(spans, input.id);
-  if (s.end !== null) throw new RangeError("只能改運行中那一班的預估");
+  if (s.end !== null) throw new RangeError("只能改運行中班次的預估時間");
   const v = input.estimateMin;
-  if (v !== null && !(Number.isInteger(v) && v >= 1 && v <= 1440)) throw new RangeError("預估不對");
+  if (v !== null && !(Number.isInteger(v) && v >= 1 && v <= 1440)) throw new RangeError("預估時間不對");
   return { patches: [{ id: s.id, estimateMin: v }], inserts: [], deletes: [] };
 }
 
@@ -740,17 +740,17 @@ export function planSplitMulti(
   const s = findSpan(spans, input.id);
   const e = s.end ?? input.now;
   const cuts = input.cuts;
-  if (!cuts.length) throw new RangeError("切點要在這一塊的開頭與尾端之間");
+  if (!cuts.length) throw new RangeError("切開的位置要在這段時間之內");
   for (let i = 0; i < cuts.length; i++) {
     const c = cuts[i];
     if (!Number.isFinite(c) || c <= s.start || c >= e || (i > 0 && c <= cuts[i - 1])) {
-      throw new RangeError("切點要在這一塊的開頭與尾端之間");
+      throw new RangeError("切開的位置要在這段時間之內");
     }
   }
-  if (input.categoryIds.length !== cuts.length + 1) throw new RangeError("每一段都要有分類");
+  if (input.categoryIds.length !== cuts.length + 1) throw new RangeError("每段都要選分類");
   const bounds = [s.start, ...cuts, e];
   for (let i = 0; i + 1 < bounds.length; i++) {
-    if (bounds[i + 1] - bounds[i] < MIN) throw new RangeError("每段至少 1 分");
+    if (bounds[i + 1] - bounds[i] < MIN) throw new RangeError("每段至少 1 分鐘");
   }
   const running = s.end === null;
   const est = input.estimateMin ?? null;
@@ -809,7 +809,7 @@ export function planMerge(
   input: { id: string; dir: "prev" | "next"; bound: number; now: number },
 ): MergeOutcome | null {
   const s = findSpan(spans, input.id);
-  if (s.end === null) throw new RangeError("運行中的這一班，用運行列換車或到着");
+  if (s.end === null) throw new RangeError("運行中的班次，請直接點「換車」或「到着」");
   const sEnd = s.end;
   const others = spans.filter((x) => x.id !== s.id && !isZero(x));
   const swallow: WritePlan = { patches: [], inserts: [], deletes: [s.id] }; // planCover 跳過零長度 ⇒ s 明寫刪除

@@ -254,7 +254,7 @@ describe("7. planPaintLive", () => {
     const out = apply(ended, plan);
     assert.equal(out.filter((s) => s.end === null).length, 0, "沒有運行中的班");
     assert.deepEqual(out.find((s) => s.id === "R"), { ...ended[1], end: T(15) });
-    // at 晚於 now ⇒ 夾到 now 之前不成立：起訖不對（store 不會送；守住不發車）
+    // at 晚於 now ⇒ 夾到 now 之前不成立：結束時間要晚於開始時間（store 不會送；守住不發車）
     assert.throws(() => planPaintLive(ended, { categoryId: "study", at: now + MIN, now }), RangeError);
   });
 });

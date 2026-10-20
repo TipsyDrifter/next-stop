@@ -97,7 +97,7 @@ export const SYNC_PUSH_DEBOUNCE_MS = 2_000;
  */
 export const SYNC_FAIL_BACKOFF_MS = 45_000;
 /** 離線時按「立即同步」的字（自動趟離線不打擾） */
-export const SYNC_OFFLINE_TOAST = "目前沒有網路——修改先在這台排隊，連上之後會自動補一趟。";
+export const SYNC_OFFLINE_TOAST = "目前沒有網路——修改會先存在這台，連上網後自動同步。";
 
 /** 狀態文案（契約 §8；桌機分頁與手機頁共用同一份字） */
 export const SYNC_PHASE_LABEL = {
@@ -120,23 +120,23 @@ export const SYNC_PHASE_LABEL = {
  * 預設不勾＝現行「只重包 KEY」（毫秒級、其他裝置不受影響）；勾了＝換資料鑰匙開新紀元＝真撤銷。
  */
 export const PASSPHRASE_ROTATE = {
-  label: "同時換掉資料鑰匙（讓舊密語真的失效）",
+  label: "同時換鑰匙（讓舊密語徹底失效）",
   // v1.1.4 修正席（產品評審 B1(c)／S-6）：多兩句。
   //   ① 「四欄不用重填」——別台的出路是狀態列那顆「用新密語重新加入」，它用的是那台鑰匙圈裡現成的憑證；
   //      不講的話主人會以為要回桌機開配對碼重掃一次（舊版真的要）。
   //   ② 「在不會離手的那台做」——換鑰匙做到一半的裝置若從此不回來，舊鑰匙的密文要等它回來才刪得掉，
   //      「真撤銷」就沒做完。拿手機做這件事再把手機弄丟，正好是最該避免的組合。
   warning:
-    "其他裝置會停在「鍵違い」，要用新密語「重新加入同步」——它們還沒送出的修改會在加入時一起併進來（選「兩邊都保留」）。" +
-    "那些裝置只要打新密語，雲端的四個欄位不用重填。換鑰匙前請先讓所有裝置同步完，並且在不會離手的那一台做。",
+    "其他裝置會停在「鍵違い」，需用新密語重新加入（選「兩邊都保留」即可合併未同步的修改）。" +
+    "換鑰匙前，請先讓所有裝置完成同步，並在主力裝置上操作。其他裝置之後只需輸入新密語，不必重填雲端設定。",
   /** 勾了卻沒打現密語（自決 4：換鑰匙必須證明你有現密語）。
    *  2026-09-25 主人真機驗收問「忘了密語怎麼辦」：舊文案叫人走「重新加入」是錯的（重新加入也要密語）。
    *  正確的救援＝兩步：先不勾、現密語留白設一個新密語（這台鑰匙圈有資料鑰匙，用不到舊密語），
    *  再用新密語當現密語回來勾換鑰匙。 */
   needCurrent:
-    "要換鑰匙得先打現在的密語。忘了？先把這格勾掉、現密語留白設一個新密語，再用新密語回來勾「換鑰匙」。",
+    "換鑰匙需輸入目前的密語。若忘了，請先取消勾選、直接設一個新密語，完成後再回來勾選換鑰匙。",
   /** 換鑰匙中的狀態列下一行 */
-  inProgress: "正在換資料鑰匙——這段期間不推不拉，做完會自動接回。中途關掉 App 也沒關係，下次打開會接著做完。",
+  inProgress: "正在換鑰匙——期間暫停同步，完成後會自動恢復（中途關閉 App 也會在下次打開時接續完成）。",
 } as const;
 
 /**
@@ -149,11 +149,11 @@ export const PASSPHRASE_ROTATE = {
  */
 export const REJOIN_ROTATED = {
   title: "用新密語重新加入",
-  note: "四個欄位不用改（用的是這台已經存好的那組）——只要打另一台換好的新密語。接著會問要不要合併，選「兩邊都保留」，這台還沒送出的修改會一起併進來。忘了新密語？按下面的「重新加入同步」（四欄要重填），在加入表單改用復原碼。",
+  note: "只要輸入新密語，接著選「兩邊都保留」就能合併這台的修改。若忘了新密語，請點下方「重新加入同步」改用復原碼。",
   placeholder: "新密語",
   submit: "用新密語重新加入",
   /** 鍵違い時「更新憑證…」那顆改的字（它的表單是「四欄換新、密語打現在這一句」，在這一態會把人帶錯路） */
-  credsHint: "只是換 Cloudflare 的 API token 才用「更新憑證…」；現在該走上面那一條。",
+  credsHint: "只有更換 Cloudflare API token 時才點「更新憑證…」，換密語請用上方功能。",
 } as const;
 
 /**
@@ -169,16 +169,16 @@ export const JOIN_CHOICE_TEXT = {
   //（不再另開第三個紀元）——此時裝置目錄恆為 0（有目錄＝有資料＝一般那句），用它挑字，不為此多加回報欄位。
   lead: (devices: number, alive: number) =>
     devices === 0
-      ? `雲端上是另一台「重新開始」之後的空的一份，這台還有 ${alive} 張活著的票。要怎麼做？（「改用另一台的」＝這台也一起清空；「兩邊都保留」＝把這台的票送上去給所有裝置）`
-      : `雲端上已有一份（${devices} 個裝置目錄），這台也有 ${alive} 張活著的票。要怎麼做？`,
+      ? `另一台裝置已「重新開始」並清空雲端，但這台還有 ${alive} 張未完成的車票。要怎麼做？（「改用另一台的」＝這台一起清空；「兩邊都保留」＝保留這台的車票並同步出去）`
+      : `雲端上已有資料（共 ${devices} 台裝置），這台也有 ${alive} 張未完成的車票。要怎麼做？`,
   merge: "兩邊都保留",
-  mergeNote: "兩邊的資料合併，同一格以後改的為準。",
+  mergeNote: "合併兩邊資料，重複處以最新修改為準。",
   adopt: "改用另一台的",
   /** 留底講法分殼：桌機拍本機備份、手機拍雲端快照（v1.1.4 契約 §6-6） */
   adoptNote: (shell: SyncShell) =>
     shell === "mobile"
-      ? "這台現有的會先拍一份到雲端，再換成雲端那份。"
-      : "會先自動備份一份到這台的備份資料夾，再換成雲端那份。",
+      ? "會先把這台的資料備份到雲端，再換成雲端那份。"
+      : "會先自動備份到這台的備份資料夾，再換成雲端那份。",
   /**
    * 改正待ち的確認窗 body（「改用那份」）；留底那半同樣分殼。
    * v1.1.6（重新開始契約 §6.4／§7）：`reason==="reset"`（另一台按了「所有裝置一起重新開始」）換成「一起清空」的講法；
@@ -187,11 +187,11 @@ export const JOIN_CHOICE_TEXT = {
   adoptEpochBody: (shell: SyncShell, reason?: string) =>
     reason === "reset"
       ? "這台的車票、筆記與記錄會全部清空；" +
-        (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
-        "還沒送出的修改另存成檔、不會自動併回。"
+        (shell === "mobile" ? "會先備份一份到雲端，" : "會先自動備份一份，") +
+        "未同步的修改會另存成檔，不會自動合併。"
       : "這台現有的車票、筆記與記錄會被那份取代；" +
-        (shell === "mobile" ? "會先拍一份到雲端，" : "會先自動備份一份，") +
-        "還沒送出的修改另存成檔、不會自動併回。",
+        (shell === "mobile" ? "會先備份一份到雲端，" : "會先自動備份一份，") +
+        "未同步的修改會另存成檔，不會自動合併。",
   /** v1.1.6：改正待ち主鈕（與確認窗的確認鈕）的字——reset＝「一起清空」，其餘照舊「改用那份」 */
   adoptLabel: (reason?: string) => (reason === "reset" ? "一起清空" : "改用那份"),
   /**
@@ -208,7 +208,7 @@ export const JOIN_CHOICE_TEXT = {
  */
 export const START_OVER_TEXT = {
   sectionTitle: "危險區",
-  lead: "重新開始＝把這台的車票、班次、筆記與乘務記錄全部清掉，只留主題等設定。清掉之前會先留一份備份。",
+  lead: "會清掉這台的全部資料：車票、班次、筆記、日記、工作日誌、時刻表的紀錄與目標、帳本、預算、定期帳；只留主題等設定。清掉之前會先留一份備份。",
   thisDevice: {
     label: "只清這台",
     noteJoined: "先拿掉這台的同步設定，再清資料——其他裝置與雲端上的資料都不動；之後想再同步就按「加入同步」，會把雲端那份拉回來。",
@@ -216,51 +216,51 @@ export const START_OVER_TEXT = {
   },
   allDevices: {
     label: "所有裝置一起重新開始",
-    note: "雲端換上一份空的；其他裝置下次同步會被問要不要一起清空（各自會先留一份）。同步身分與密語都保留。",
+    note: "清空雲端資料，其他裝置下次同步時會詢問是否一起清空（皆會先自動備份）。同步設定與密語都會保留。",
     disabledTitle: "這台還沒加入同步，只能清這台。",
   },
   confirm: {
     typeWord: "清空",
-    typeHint: "輸入「清空」兩個字才能按下去",
+    typeHint: "請輸入「清空」以確認執行",
     confirmLabel: "清空",
     titleThis: "把這台清空？",
     titleAll: "所有裝置一起重新開始？",
     // body 由三段拼：留底句（分殼、分加入與否）＋動作句＋收尾句
     keepDesktopAlone: "會先在這台備份一份，",
-    keepDesktopJoined: "會先在這台備份一份、再上傳一份到雲端保險用，",
-    keepMobileJoined: "會先拍一份到雲端保險用，",
+    keepDesktopJoined: "會先在這台與雲端各備份一份，",
+    keepMobileJoined: "會先備份一份到雲端，",
     // 修正席（工程評審 S-5）：手機未加入時先走 SAF 讓主人自己選位置（例如「下載」）——Rust 的預設落點
     // `download_dir()` 在 Android 是 App 私有目錄，主人看不到、移除 App 就消失。
-    keepMobileAlone: "會先請你選一個位置（例如「下載」）把整份資料匯出成一個檔，",
+    keepMobileAlone: "會先讓你選擇位置，將整份資料匯出成檔案，",
     // 修正席（產品評審 #2）：已加入版補一句「雲端與別台都還在」——主人想「整個清乾淨」時會先按這顆較溫和的鈕，
     // 清完再加入又全拉回來；桌機這句原本只在 hover 的 title 裡。
-    actThisJoined: "然後拿掉這台的同步設定、清空所有車票、筆記與記錄。設定會留下。雲端與其他裝置的資料都還在，之後加入同步會拉回來。",
-    actThisAlone: "然後清空所有車票、筆記與記錄。設定會留下。",
-    actAll: "然後清空這台、讓雲端換上空的一份。其他裝置下次同步會被問要不要一起清空。",
+    actThisJoined: "接著解除這台的同步，並清空所有車票、筆記與記錄（保留設定）。雲端與其他裝置的資料都在，之後重新加入同步即可載回。",
+    actThisAlone: "接著清空所有車票、筆記與記錄（保留設定）。",
+    actAll: "接著清空這台與雲端的資料。其他裝置下次同步時，會詢問是否一起清空。",
     // 修正席（工程評審 S-4）：留底會過期，講白。本機 manual 與每日 auto 共用保留份數（重新開始後每天拍的是空庫）；
     // 雲端階梯清理 14 天內全留、之後每週只留最新一份（那週之後的每日空庫快照會取代那顆保險）。
-    regretDesktopAlone: "後悔要趁早：這台那份會隨之後每天的自動備份輪替掉（保留幾份就約幾天）。",
-    regretDesktopJoined: "後悔要趁早：這台那份會隨之後每天的自動備份輪替掉（保留幾份就約幾天），雲端那份兩週內一定救得回。",
-    regretMobileJoined: "後悔要趁早：雲端那份兩週內一定救得回。",
-    regretMobileAlone: "那個檔只能人工翻閱（App 目前不能匯入）。",
+    regretDesktopAlone: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋。",
+    regretDesktopJoined: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋，雲端備份則會保留兩週。",
+    regretMobileJoined: "若想復原請趁早：雲端備份會保留兩週。",
+    regretMobileAlone: "匯出的檔案僅供人工檢視，目前無法匯回 App。",
     endDesktop: "完成後 App 會重新啟動。",
-    endMobile: "完成後 App 會關閉，請重新打開。",
+    endMobile: "完成後 App 會關閉，請手動重開。",
   },
   /**
    * 修正席（產品評審 #3／工程評審 S-7）：開窗前就擋得下的情況，**逐字**用 Rust `START_OVER_ERR_*` 那幾句
    *（Rust 仍是最後一道；TS 先擋只是為了不讓主人打完「清空」、桌機白拍一份 manual 才被擋）。
    */
-  blockedRestorePending: "先讓上一次的還原收尾完成（重新啟動 App 就會自動做）。",
+  blockedRestorePending: "請先重開 App，讓上一次的還原完成收尾。",
   blockedUnsettledThis:
-    "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，或先「重新加入同步」拿掉這台的同步，再重新開始。",
-  blockedUnsettledAll: "這台的同步狀態還沒處理完（改正待ち／鍵違い／換鑰匙中）——先到同步頁處理，再重新開始。",
+    "同步狀態異常（改正待ち／鍵違い／換鑰匙中）——請先到同步頁處理，或點「重新加入同步」解除同步後，再重新開始。",
+  blockedUnsettledAll: "同步狀態異常（改正待ち／鍵違い／換鑰匙中）——請先到同步頁處理，再重新開始。",
   /** 修正席（工程評審 S-6）：按下「清空」時背景那一趟還在飛、等了一陣仍沒完（與 Rust BusyGuard 的句子同） */
-  busy: "同步正在進行中，請稍候再試。",
+  busy: "正在同步中，請稍候再試。",
   /** 修正席（工程評審 S-5）：手機未加入、SAF 選位置時按了取消／寫不進去 */
-  exportCancelled: "沒有選匯出的位置（這台一個字都沒動）。",
+  exportCancelled: "未選擇匯出位置，已取消操作（資料未變動）。",
   exportFellBack: (path: string) =>
-    `寫不進你選的位置（這台一個字都沒動；另存了一份在 ${path}，你選的位置可能留下一個空檔，可以刪掉）。`,
-  failed: (e: string) => `重新開始沒有執行：${e}`,
+    `無法寫入你選的位置（資料未變動；已另存備份於 ${path}，原位置若留下空檔可手動刪除）。`,
+  failed: (e: string) => `未能重新開始：${e}`,
 } as const;
 
 /**
@@ -299,13 +299,13 @@ export function startOverBody(scope: StartOverScope, shellName: SyncShell, joine
  * 主人真機驗收時分不清「四欄」與「密語」各管什麼——一個是去哪個桶找，一個是打不打得開。
  */
 export const JOIN_FIELDS_HINT =
-  "這四行是 R2 桶的門牌與鑰匙（去哪個桶找資料）；密語是另一回事（打不打得開資料）。用另一台的配對碼或精靈就會自動填好。";
+  "這四欄是雲端空間（R2 bucket）的連線資訊，可用另一台的配對碼或設定精靈自動填入；密語則是解開資料用的密碼。";
 
 /**
  * 修正席（產品評審 #5）：手機版——手機沒有精靈，而「配對碼（省手打）」那段正上方已經講了「配對碼只含雲端憑證，
  * 密語要親手打」，這裡只留「四欄與密語各管什麼」那半句，不重疊。
  */
-export const JOIN_FIELDS_HINT_MOBILE = "這四行是 R2 桶的門牌與鑰匙（去哪個桶找資料）；密語是另一回事（打不打得開資料）。";
+export const JOIN_FIELDS_HINT_MOBILE = "這四欄是雲端空間（R2 bucket）的連線資訊；密語則是解開資料用的密碼。";
 
 /* ═══════════════════════════════════════════════════════════════════════
    v1.1.5 告警模型（契約 §2；契約席立、WP-B 填偵測、WP-C 讀文案）
@@ -343,47 +343,47 @@ export const SYNC_STOPPED_ALERT_STREAK = 3;
  */
 export const SYNC_ALERT_TEXT: Record<SyncAlertKind, { banner: string; cta: string; notifTitle: string; notifBody: string }> = {
   epoch_changed: {
-    banner: "改正待ち：另一台裝置換上了一份新的資料，這台要改用那份才會繼續同步。",
+    banner: "改正待ち：另一台裝置已換上新資料，這台需改用那份才能繼續同步。",
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步停在改正待ち",
-    notifBody: "另一台裝置換上了一份新的資料。打開同步頁按「改用那份」。",
+    notifBody: "另一台裝置已換上新資料，請到同步頁點選「改用那份」。",
   },
   // v1.1.6 修正席：reset 版——同步頁的鈕叫「一起清空」，通知與橫幅不能叫主人去按一顆不存在的「改用那份」
   epoch_reset: {
-    banner: "改正待ち：另一台按了重新開始，這台要一起清空才會繼續同步。",
+    banner: "改正待ち：另一台裝置已重新開始，這台需一起清空才能繼續同步。",
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步停在改正待ち",
-    notifBody: "另一台按了重新開始。打開同步頁按「一起清空」。",
+    notifBody: "另一台裝置已重新開始，請到同步頁點選「一起清空」。",
   },
   locked_rotated: {
-    banner: "鍵違い：這份資料已在另一台換過鑰匙，這台要用新密語重新加入。",
+    banner: "鍵違い：另一台裝置已換過鑰匙，這台需用新密語重新加入。",
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步停在鍵違い",
-    notifBody: "另一台換過鑰匙了。打開同步頁，用新密語重新加入。",
+    notifBody: "另一台裝置已換過鑰匙，請到同步頁用新密語重新加入。",
   },
   locked_stale: {
-    banner: "鍵違い：雲端上有這台的密語打不開的東西，同步先停在這裡。",
+    banner: "鍵違い：目前的密語解不開雲端資料，已暫停同步。",
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步停在鍵違い",
-    notifBody: "雲端上有這台打不開的東西。打開同步頁看出路。",
+    notifBody: "目前的密語解不開雲端資料，請到同步頁查看解決方式。",
   },
   stopped: {
-    banner: "停車中：同步已經連續三趟沒成功，修改先在這台排隊。",
+    banner: "停車中：同步已連續失敗三次，修改會先存在這台。",
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步連續失敗",
-    notifBody: "已經連續三趟沒同步成功。打開同步頁看原因。",
+    notifBody: "已連續三次同步失敗，請到同步頁查看原因。",
   },
   gated: {
-    banner: "信号待ち：兩台的版本不一致，請先更新較舊的那一台。",
+    banner: "信号待ち：裝置間的 App 版本不一致，請先更新舊版。",
     cta: "前往同步",
     notifTitle: "私鐵手帳・同步停在信号待ち",
-    notifBody: "兩台的版本不一致。更新較舊的那一台後會自動接回。",
+    notifBody: "裝置間的 App 版本不一致，更新舊版後會自動恢復同步。",
   },
   needs_passphrase: {
-    banner: "這台是用復原碼加入的，請設一個新密語（其他裝置之後要用它加入）。",
+    banner: "這台是用復原碼加入的，請設定新密語（供其他裝置日後加入使用）。",
     cta: "前往同步",
-    notifTitle: "私鐵手帳・請設一個新密語",
-    notifBody: "這台是用復原碼加入的。到同步頁的〈密語〉設一個新密語。",
+    notifTitle: "私鐵手帳・請設定新密語",
+    notifBody: "這台是用復原碼加入的，請到同步頁的〈密語〉設定新密語。",
   },
 };
 
@@ -393,20 +393,20 @@ export const SYNC_BANNER_DISMISS = "先收起";
 /** 一次性事件的字（toast 沿用 Rust 回的 `message`，這裡只放通知；`toast` 是 Rust 沒給字時的退路） */
 export const SYNC_EVENT_TEXT: Record<SyncEventKind, { toast: string; notifTitle: string; notifBody: string }> = {
   rotation_done: {
-    toast: "換鑰匙完成——其他裝置要用新密語重新加入。",
+    toast: "換鑰匙完成——其他裝置請用新密語重新加入。",
     notifTitle: "私鐵手帳・換鑰匙完成",
-    notifBody: "資料鑰匙已換新。其他裝置要用新密語重新加入。",
+    notifBody: "鑰匙已換新，其他裝置請用新密語重新加入。",
   },
   restore_done: {
-    toast: "還原後的同步收尾完成。",
+    toast: "還原完成，已恢復同步。",
     notifTitle: "私鐵手帳・還原完成",
-    notifBody: "還原後的同步已接回。",
+    notifBody: "還原完成，已重新連上同步。",
   },
   /** v1.1.6（重新開始契約 §7 逐字）：「所有裝置一起重新開始」重啟後的收尾（`finishRestore` 的 `reason==="reset"`） */
   reset_done: {
-    toast: "已重新開始——雲端換上了空的一份；其他裝置下次同步會被問要不要一起清空。",
+    toast: "已重新開始——雲端資料已清空，其他裝置下次同步時會詢問是否一起清空。",
     notifTitle: "私鐵手帳・重新開始完成",
-    notifBody: "雲端已換上空的一份，其他裝置下次同步會被問要不要一起清空。",
+    notifBody: "雲端資料已清空，其他裝置下次同步時會詢問是否一起清空。",
   },
 };
 
@@ -479,7 +479,7 @@ function fireSyncEvent(kind: SyncEventKind): void {
  */
 export const RECOVERY_TEXT = {
   title: "復原碼",
-  intro: "忘了密語時的最後一條路：任何一台還沒加入同步的裝置都能用這組碼加入、拿回資料，然後設一個新密語。",
+  intro: "忘記密語時的最後辦法：用還沒加入同步的裝置輸入這組碼，就能拿回資料並重設密語。",
   unset: "未設定",
   set: "已設定",
   generate: "產生復原碼",
@@ -487,47 +487,47 @@ export const RECOVERY_TEXT = {
   clear: "作廢復原碼",
   /** 重新產生前的確認窗 */
   regenerateConfirmTitle: "要重新產生復原碼嗎？",
-  regenerateConfirmBody: "現在這組碼會立刻作廢，之後只有新的那組能用。新碼一樣只顯示一次。",
+  regenerateConfirmBody: "舊碼會立刻失效，新碼一樣只會顯示一次。",
   regenerateConfirmLabel: "重新產生",
   clearConfirmTitle: "要作廢復原碼嗎？",
-  clearConfirmBody: "作廢之後忘了密語就沒有這條路了（隨時可以再產生一組新的）。",
+  clearConfirmBody: "作廢後若忘記密語就無法救回資料了（之後隨時可再產生新碼）。",
   clearConfirmLabel: "作廢",
   /** 一次性顯示對話框 */
   dialogTitle: "你的復原碼",
   dialogOverline: "只顯示這一次",
-  dialogLead: "抄下來、收在密語以外的地方（紙上、密碼管理器）。關掉這個視窗之後就再也看不到它了。",
+  dialogLead: "請抄下來並與密語分開保管。關閉視窗後就不會再顯示了。",
   copy: "複製",
   copied: "已複製",
   ack: "我已抄下這組碼",
   close: "我已抄下，關閉",
   notes: [
-    "換鑰匙時在這一台做，這組碼仍有效；在別台換鑰匙或重新產生，舊碼就作廢（App 會提醒）。",
-    "它只在還沒加入同步的裝置「加入同步」時使用（這台本來有資料也行，會問要不要合併）；已加入的裝置改密語不需要它（現密語留白即可）。",
-    "任何拿到這組碼、又拿得到你雲端置物櫃的人都能讀你的資料——請當成密語一樣保管。",
+    "在這台改密語，復原碼仍有效；在別台改密語或重新產生，舊碼就會作廢。",
+    "僅供還沒加入同步的裝置使用；已加入的裝置可直接改密語，不需復原碼。",
+    "請像保管密語一樣妥善收好，避免他人取得後讀出你的雲端資料。",
   ],
   /** 加入表單的切換（契約 §6.4） */
   joinToggle: "忘記密語？用復原碼",
-  joinToggleBack: "改回用密語",
+  joinToggleBack: "改用密語",
   joinLabel: "復原碼",
   joinPlaceholder: "XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XX",
-  joinNote: "27 個字，連字號與大小寫都可以不管。加入成功後會請你設一個新密語。",
+  joinNote: "共 27 碼，不分大小寫與連字號。加入後會請你重設密語。",
   joinSubmit: "用復原碼加入",
   /** 換鑰匙後這台沒有 W、RECOVERY 被作廢時的 toast 尾句（Rust `RotationReport.message` 已含；這裡是退路） */
-  invalidatedByRotation: "復原碼已作廢，請到〈同步〉重新產生一組。",
+  invalidatedByRotation: "復原碼已作廢，請到〈同步〉重新產生。",
 } as const;
 
 /** v1.1.4 契約 §7：跳過筆數那一行（`skipped_missing_total > 0` 才顯示） */
 export function describeSkipped(n: number): string {
-  return `有 ${n} 筆從其他裝置來的資料因欄位不齊而略過（多半是較舊版本或損壞的同步資料）；重新加入時選「兩邊都保留」可以補回。`;
+  return `有 ${n} 筆其他裝置的資料因格式不符而略過；重新加入同步並選「兩邊都保留」即可補回。`;
 }
 
 /** 加入成功的 toast（Rust 的 `message` 為空時退回這份；契約 §8.1） */
 const JOIN_TOAST: Record<Exclude<JoinOutcome, "needs_choice">, string> = {
-  first: "已加入——這台是第一台，資料正在上傳",
-  pulled: "已加入——雲端的資料已拉下來",
-  merged: "已加入——兩邊的資料已合併，較晚改的為準",
+  first: "已加入——這是第一台裝置，正在上傳資料",
+  pulled: "已加入——已下載雲端資料",
+  merged: "已加入——兩邊資料已合併，以最新修改為準",
   adopted: "已改用另一台的資料",
-  reconnected: "憑證已更新，資料照舊",
+  reconnected: "同步連線已更新，資料不變",
 };
 
 export type SyncShell = "desktop" | "mobile";
@@ -885,10 +885,10 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     let manualToast = false;
     if (manual) {
       if (pushed.busy || pulled.busy) {
-        useUiStore.getState().showToast({ message: "另一趟同步正在進行，請稍候" });
+        useUiStore.getState().showToast({ message: "正在同步中，請稍候" });
         manualToast = true;
       } else if (pulled.gated) {
-        useUiStore.getState().showToast({ message: "兩台的版本不一致，同步先停在這裡" });
+        useUiStore.getState().showToast({ message: "兩台裝置的 App 版本不同，已暫停同步" });
         manualToast = true;
       }
     }
@@ -909,7 +909,7 @@ async function runCycle(manual = false): Promise<PushReport | PullReport | null>
     useSyncStore.setState((s) => ({
       status: s.status ? { ...s.status, last_error: message, phase: "stopped" } : s.status,
     }));
-    if (manual) useUiStore.getState().showToast({ message: `同步沒有完成：${message}` });
+    if (manual) useUiStore.getState().showToast({ message: `同步失敗：${message}` });
     // v1.1.5（契約 §2.3）：`fail_streak` 是 Rust 記的（`record_error` +1），本機那份 status 沒有它——
     // 失敗這趟也要重問一次，第 3 趟的橫幅與通知才會準時出現（不等下一個 60 秒）。
     await refreshStatusInner();
@@ -1172,7 +1172,7 @@ async function backupBeforeWipe(): Promise<boolean> {
   await useBackupStore.getState().backupNow().catch(() => undefined);
   const backup = useBackupStore.getState();
   if (backup.lastError) {
-    useSyncStore.setState({ formError: `備份沒拍成（${backup.lastError}）——先到〈備份與還原〉修好再試。` });
+    useSyncStore.setState({ formError: `備份失敗（${backup.lastError}）——請先到〈備份與還原〉檢查。` });
     return false;
   }
   return true;
@@ -1303,7 +1303,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
   async rejoin(passphrase) {
     if (get().working) return;
     if (!passphrase.trim()) {
-      set({ formError: "密語不能是空的。" });
+      set({ formError: "請輸入密語。" });
       return;
     }
     set({ working: true, formError: null, pendingChoice: null });
@@ -1371,7 +1371,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         void get().refreshCloudSnapshots();
         fireSyncEvent("rotation_done"); // v1.1.5 契約 §2.6：一次性事件＝toast（下面那句）＋一則通知
       }
-      useUiStore.getState().showToast({ message: report.message || (report.sealed_first_time ? "密語已封存到雲端" : "密語已更改") });
+      useUiStore.getState().showToast({ message: report.message || (report.sealed_first_time ? "密語已加密存上雲端" : "密語已更改") });
       return true;
     } catch (e) {
       set({ formError: messageOf(e) });
@@ -1431,7 +1431,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       if (report.outcome !== "not_joined") fireSyncEvent(isReset ? "reset_done" : "restore_done"); // v1.1.5 契約 §2.6
     } catch (e) {
       // 多半是網路：標記檔留著，`runCycle` 每 60 秒補一次（契約 §6 步驟 4）
-      useUiStore.getState().showToast({ message: `還原後的同步收尾沒做完：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `還原後無法恢復同步：${messageOf(e)}` });
       await refreshStatusInner();
     } finally {
       set({ working: false });
@@ -1457,12 +1457,12 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       // 產品評審 S2：手機沒有備份三件套，改用那份之前 Rust 會先匯出整顆庫——路徑要講出來，
       // 不然「我的東西去哪了」在手機上完全無跡可循（桌機是 TS 拍的 manual 備份，列在備份籤裡）。
       const saved = [
-        report.export_path ? `這台原本的全部資料另存在 ${report.export_path}` : null,
+        report.export_path ? `這台原本的資料已另存至 ${report.export_path}` : null,
         report.orphan_ops
-          ? `還沒送出的 ${report.orphan_ops} 筆修改另存在 ${report.orphans_path ?? "本機"}`
+          ? `尚未同步的 ${report.orphan_ops} 筆修改已另存至 ${report.orphans_path ?? "本機"}`
           : null,
       ].filter(Boolean);
-      const done = isReset ? "已一起清空——這台現在是空的" : "已改用那份";
+      const done = isReset ? "已一起清空這台的資料" : "已改用該份資料";
       useUiStore.getState().showToast({
         message: saved.length ? `${done}；${saved.join("；")}` : done,
       });
@@ -1488,7 +1488,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       evaluateAlerts(status); // v1.1.5：關總開關＝paused＝不告警，橫幅當場收掉（開回來若仍在告警態＝再轉入一次）
       attachSchedule();
     } catch (e) {
-      useUiStore.getState().showToast({ message: `總開關切不動：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `無法切換同步開關：${messageOf(e)}` });
       await refreshStatusInner();
     } finally {
       set({ working: false });
@@ -1503,7 +1503,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       title: "要重新加入同步嗎？",
       body:
         "會清掉這台的同步設定、憑證與身分——這台的資料與雲端上的資料都不會被動到。" +
-        "之後要再用就是「重新加入」：回到「加入同步」重問一次（兩邊都有資料時會問要不要合併）。",
+        "之後可隨時重新加入同步（若兩邊都有資料，會詢問是否合併）。",
       confirmLabel: "重新加入",
       danger: true,
       onConfirm: () => {
@@ -1518,9 +1518,9 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
             detachSchedule();
             // 鈕上寫的是「重新加入同步」，但按下去只做「拿掉」那一半——表單當場長回來，
             // 主人接著自己填。toast 因此講「已拿掉」而不是「已重新加入」，免得看起來已經接回去了。
-            useUiStore.getState().showToast({ message: "已拿掉這台的同步設定——下面可以重新加入" });
+            useUiStore.getState().showToast({ message: "已清除同步設定——在下方可重新加入" });
           } catch (e) {
-            useUiStore.getState().showToast({ message: `這台的同步設定沒有拿掉：${messageOf(e)}` });
+            useUiStore.getState().showToast({ message: `無法清除同步設定：${messageOf(e)}` });
             await refreshStatusInner();
           } finally {
             set({ working: false });
@@ -1534,7 +1534,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     try {
       set({ pairingCode: await syncRepo.makePairingCode() });
     } catch (e) {
-      useUiStore.getState().showToast({ message: `配對碼產不出來：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `無法產生配對碼：${messageOf(e)}` });
     }
   },
 
@@ -1594,7 +1594,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       void get().refreshCloudSnapshots();
     } catch (e) {
       set({ cloudError: messageOf(e) });
-      useUiStore.getState().showToast({ message: `雲端備份沒拍成：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `雲端備份失敗：${messageOf(e)}` });
     } finally {
       set({ working: false });
     }
@@ -1607,19 +1607,19 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
      * 這裡的 body 也要講出來。成功不會回來（Rust `app.restart()`）；重啟後 boot 走既有 `finishRestore()`。
      */
     const when = fmtSyncStamp(entry.at);
-    const label = `雲端快照 ${when}`;
+    const label = `雲端備份 ${when}`;
     const consequence =
       choice === "past"
-        ? "所有裝置都會改用這份備份：備份之後的修改（含其他裝置已送出的）都會消失；其他裝置還沒送出的修改會另存成檔，不會自動併回。"
-        : "只有這台換成備份；其他裝置比備份新的修改會再蓋回來。刪除也算一種修改——已經同步出去的誤刪不會被找回來。";
-    const keepCopy = shell === "desktop" ? "會先把現在的資料另存保險備份" : "會先把現在的資料拍一份到雲端";
+        ? "所有裝置都會改用這份備份，備份後的修改都會消失；其他裝置未同步的修改會另存成檔。"
+        : "只有這台換成備份；其他裝置較新的修改（包含刪除）同步後會再蓋回來。";
+    const keepCopy = shell === "desktop" ? "會先將目前的資料另存備份" : "會先將目前的資料備份到雲端";
     // v1.1.4 修正席（工程評審 S-6）：**Android 的 `app.restart()` 實際上只是 `exit(0)`**
     //（tauri 2.11 `process.rs`：在 Android 拿不到自己的執行檔，spawn 必定失敗，只寫一行 log 就結束行程）。
     // 資料是安全的——還原標記已經落地，主人重開 App 時 boot 的 `finishRestore()` 會收尾——
     // 但他眼裡看到的是「App 閃退」。所以手機講「App 會關閉，請重新打開」，不講「會重新啟動」。
-    const restartWord = shell === "desktop" ? "然後重新啟動" : "然後 App 會關閉，請重新打開它";
+    const restartWord = shell === "desktop" ? "然後重新啟動" : "接著 App 會關閉，請手動重開";
     useUiStore.getState().askConfirm({
-      title: "要還原到這一份備份嗎？",
+      title: "要還原這份備份嗎？",
       body: `來源：${label}。${keepCopy}，${restartWord}。${consequence}`,
       confirmLabel: shell === "desktop" ? "還原並重新啟動" : "還原並關閉 App",
       danger: true,
@@ -1627,7 +1627,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         set({ working: true, cloudError: null });
         void syncRepo.cloudRestore(entry.key, choice, label).catch((e: unknown) => {
           set({ working: false, cloudError: messageOf(e) });
-          useUiStore.getState().showToast({ message: `還原沒有完成：${messageOf(e)}` });
+          useUiStore.getState().showToast({ message: `還原失敗：${messageOf(e)}` });
         });
       },
     });
@@ -1652,14 +1652,14 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       const fellBack = !!target && !report.picked;
       useUiStore.getState().showToast({
         message: report.picked
-          ? "已匯出到你選的位置"
+          ? "已匯出到指定位置"
           : fellBack
-            ? `寫不進你選的位置，已改存到 ${report.path}（App 私有目錄；你選的位置可能留下一個空檔，可以刪掉）`
-            : `已匯出到 ${report.path}（App 私有目錄；移除 App 會一起消失）`,
+            ? `無法存入指定位置，已改存至 ${report.path}（App 專屬資料夾；原位置若留下空檔可刪除）`
+            : `已匯出至 ${report.path}（App 專屬資料夾，移除 App 時會一併刪除）`,
       });
       return report;
     } catch (e) {
-      useUiStore.getState().showToast({ message: `匯出沒有完成：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `匯出失敗：${messageOf(e)}` });
       return null;
     } finally {
       set({ working: false });
@@ -1688,7 +1688,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
       }
     } catch (e) {
       // 多半是網路：標記檔留著，`runCycle` 每 60 秒補一次
-      useUiStore.getState().showToast({ message: `換鑰匙沒做完：${messageOf(e)}` });
+      useUiStore.getState().showToast({ message: `更改密語失敗：${messageOf(e)}` });
       await refreshStatusInner();
     } finally {
       set({ working: false });
@@ -1787,7 +1787,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
           try {
             // ① 留底（桌機）：manual 本機備份——**未加入的桌機這是唯一一份**；拍不成就停（人話在 formError）
             if (!(await backupBeforeWipe())) {
-              const why = get().formError ?? "備份沒拍成";
+              const why = get().formError ?? "備份失敗";
               useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(why) });
               attachSchedule();
               return;
@@ -1795,7 +1795,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
             // ①' 留底（手機未加入；工程評審 S-5）：先讓主人用 SAF 選位置匯出一份看得到、帶得走的檔。
             // 取消或寫不進選的位置 ⇒ 停（零改變）；選擇器開不了 ⇒ 退回 Rust 那份（App 私有目錄）。
             if (shell === "mobile" && scope === "this_device" && !joinedNow) {
-              const target = await pickExportTarget("重新開始前先匯出一份");
+              const target = await pickExportTarget("重新開始前先匯出備份");
               if (target === null) {
                 useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.exportCancelled) });
                 attachSchedule();
@@ -1871,39 +1871,39 @@ export function describeEpochChange(status: SyncStatus): string {
   // 產品評審 N3：同一組文案也會蓋到 reason=first／backfill 的紀元（那不是「從備份還原」）
   const what =
     info && info.reason !== "restore"
-      ? "另一台裝置換上了一份新的資料"
-      : `另一台裝置回到了${info?.label ? `「${info.label}」` : "一份備份"}的狀態`;
+      ? "另一台裝置換上了新的資料"
+      : `另一台裝置還原到了${info?.label ? `「${info.label}」` : "一份備份"}的狀態`;
   // v1.1.6（重新開始契約 §7 逐字）：reset＝另一台按了「所有裝置一起重新開始」；後半句（pending_ops）一字不改
   const head =
     info?.reason === "reset"
-      ? `${when ? `${when}，` : ""}另一台裝置按了「所有裝置一起重新開始」，雲端現在是空的。這台一起清空之後會變成空的（這台現有的會先留一份）`
-      : `${when ? `${when}，` : ""}${what}。這台要改用那份`;
+      ? `${when ? `${when}，` : ""}另一台裝置執行了「所有裝置一起重新開始」，雲端資料已清空。這台清空前會先將現有資料另存備份`
+      : `${when ? `${when}，` : ""}${what}。這台將改用該份資料`;
   if (!status.pending_ops) return `${head}。`;
   const span = status.pending_span
-    ? `（${fmtSyncStamp(status.pending_span.from)}～${fmtSyncStamp(status.pending_span.to)} 之間改的）`
+    ? `（${fmtSyncStamp(status.pending_span.from)}～${fmtSyncStamp(status.pending_span.to)} 之間的修改）`
     : "";
   // 產品評審 S3：孤兒 JSON 目前沒有匯入工具，所以「想保住這 N 筆」得講出第二條出路——
   // 重新加入 →「兩邊都保留」（引擎支援：重設後的 join 走合併，未送出的修改靠列的 updated_at 派生時間戳回來）。
   return (
-    `${head}；這台還沒送出的 ${status.pending_ops} 筆修改${span}會另存成檔（目前只能人工翻閱，沒有匯入工具）。` +
-    "想把這些修改併進那份：改按下面的「重新加入同步」，重新加入時選「兩邊都保留」。"
+    `${head}；這台尚未同步的 ${status.pending_ops} 筆修改${span}會另存成文字檔（僅供檢視，無法匯入）。` +
+    "若想保留並合併這些修改，請改按下方「重新加入同步」，並選擇「兩邊都保留」。"
   );
 }
 
 /** 鍵違い的說明句（契約 §8.5；v1.1.4 契約 §7 加「換過鑰匙」那一種） */
 export function describeLocked(status: SyncStatus): string {
   if (status.locked === "salt") {
-    return "雲端上的這份資料已用別的密語重新建立，這台的密語打不開它。請「重新加入同步」並輸入新密語（這台的資料不會被動，加入時會問要不要合併）。";
+    return "雲端資料已改用新的密語，請點選「重新加入同步」並輸入新密語（本機資料不會遺失，加入時可選擇合併）。";
   }
   // v1.1.4（D-3）：那個拆不開的新紀元帶著 `ROTATED` 旗標＝另一台勾了「同時換掉資料鑰匙」。出路是既有的 join：
   // 紀元不一致 → 解 KEY 得新鑰匙 → 找到新紀元 → 兩邊有料 →「兩邊都保留」把這台還沒送出的併進去。
   if (status.locked_reason === "rotated") {
     return (
-      "這份資料已在另一台換過鑰匙。請用下面的「用新密語重新加入」——四欄不用改，只要打新密語；" +
-      "加入時會問要不要合併，選「兩邊都保留」，這台還沒送出的修改就會一起併進來。"
+      "另一台裝置已更改過密語。請在下方直接輸入新密語並點選「用新密語重新加入」（其他設定不必改）；" +
+      "加入時選擇「兩邊都保留」，這台尚未同步的修改就會一併留存。"
     );
   }
   // 產品評審 N4：這一態是「雲端多了一個這台打不開的紀元目錄」，實務上只由殘留或竄改造成。
   // 舊文案寫「重新加入並輸入新密語」走不通——join 會回到自己那個拆得開的紀元，下一趟又鎖回來。
-  return "雲端上多了一個這台打不開的紀元（多半是別的密語留下的殘留）。同步先停在這裡；要清掉它得到 Cloudflare 後台把那個目錄刪掉，或用建立它的那組密語「重新加入同步」。";
+  return "雲端上有無法解開的舊紀元（可能是其他密語留下的舊資料），已暫停同步。請用當時的密語「重新加入同步」，或到 Cloudflare 後台刪除該資料夾。";
 }
