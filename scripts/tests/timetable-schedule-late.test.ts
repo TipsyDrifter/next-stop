@@ -51,7 +51,9 @@ async function exec(repo: Repo, w: TimeWrite, today: string): Promise<void> {
   assert.equal(w.op, "setTime");
   if (w.op !== "setTime") return;
   if (w.scheduledOn !== undefined) await repo.reschedule(w.id, w.scheduledOn, today);
-  await repo.update(w.id, { scheduled_time: w.time }, { dateKey: today, dayStartHour: H });
+  const patch: { scheduled_time: string | null; carried_from?: string | null } = { scheduled_time: w.time };
+  if (w.scheduledOn !== undefined && w.carriedFrom !== undefined) patch.carried_from = w.carriedFrom;
+  await repo.update(w.id, patch, { dateKey: today, dayStartHour: H });
 }
 
 describe("D-時-80：誤點單發票 → 排到今天 → 撤回（MemoryNodeRepository）", () => {
@@ -96,8 +98,33 @@ describe("D-時-80：誤點單發票 → 排到今天 → 撤回（MemoryNodeRep
     assert.equal(back?.bucket, "late");
     assert.equal(back?.scheduled_on, from);
     assert.equal(back?.scheduled_time, "09:30");
-    // 已知限制（施工回報〈使用者改題〉）：撤回不會把 carried_from 還原成改之前的值（這張原本是 null）
-    assert.equal(back?.carried_from, from);
+    // D-主-33：撤回把 carried_from 一起寫回改之前的值（這張原本是 null）⇒ 今日頁不會同時有延着＋繰越兩章
+    assert.equal(back?.carried_from, null);
+  });
+
+  test("撤回帶 carriedFrom：改之前就有繰越來源的誤點票，撤回後 carried_from 回到那個原值（不是被洗掉、也不是改成原執行日）", async () => {
+    const repo = new MemoryNodeRepository();
+    const today = todayKey(H);
+    const origin = addDays(today, -9);
+    const from = addDays(today, -3);
+    const n = await repo.create({ kind: "ticket", name: "又誤點的票", parentId: null, scheduledOn: from });
+    await repo.update(n.id, { carried_from: origin }, { dateKey: today, dayStartHour: H });
+    const item = lateItemsOf(await repo.listToday(today, H), today).items.find((i) => i.nodeId === n.id);
+    assert.ok(item);
+    assert.equal(item.carriedFrom, origin);
+    const undo = planUndo(item);
+    assert.deepEqual(undo, { op: "setTime", id: n.id, time: null, scheduledOn: from, carriedFrom: origin });
+    await exec(repo, planTimeWrite(item, "10:00"), today);
+    assert.equal((await repo.getNode(n.id))?.carried_from, from); // 排上去：reschedule 寫成原執行日
+    await exec(repo, undo, today);
+    assert.equal((await repo.getNode(n.id))?.carried_from, origin);
+    assert.equal((await repo.getNode(n.id))?.scheduled_on, from);
+  });
+
+  test("planUndo：一般預定項（單發票、定期券）不帶 carriedFrom；PlanItem.carriedFrom 預設 null", () => {
+    const base = { key: "k", nodeId: "n", date: "2026-10-20", time: null, overridden: false, estimateMin: null, done: false, skipped: false, lateFrom: null, carriedFrom: null };
+    assert.deepEqual(planUndo({ ...base, kind: "single" }), { op: "setTime", id: "n", time: null });
+    assert.equal("carriedFrom" in planUndo({ ...base, kind: "single" }), false);
   });
 
   test("定期券漏班：改執行日會被主線擋（REPEAT_RESCHEDULE_MSG）——所以不進清單", async () => {

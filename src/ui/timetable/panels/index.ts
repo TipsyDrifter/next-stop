@@ -95,8 +95,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(BlockPanel, { onDone });
     case "split":
       return createElement(SplitPanel, { onDone });
-    case "categories":
-      return createElement(CategoryManagerPanel, { onDone });
+    case "categories": // 磨光③ 2-11：換了定位目標就重掛（⋯ 展開狀態從頭來）
+      return createElement(CategoryManagerPanel, { onDone, key: sheet.focusId ?? sheet.focus ?? "" });
     case "estimate":
       return createElement(EstimatePanel, { onDone });
     case "taskCategory":

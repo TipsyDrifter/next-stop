@@ -9,6 +9,8 @@
  *   鍵盤環與點擊走同一份合併後的列。沒有任何一線登記＝畫面與行為照舊。`jumpToNode` export 給線用（邊界規則只有這一份）。
  * M3 ④：結果列的済看 `currentOccurrences`（定期券的済蓋在班次上，nodes.status 一路是 todo）；
  *        定期券的 scheduled_on ＝引擎排出來的下一班，跳轉提示因此講「下一班 M/D」。
+ * 磨光①（手機搜尋）：搜尋本身（`searchQuickJump`）、結果列型別、徽章與淡字抽成 export 給 `mobile/MobileQuickJump` 共用；
+ *   桌機這個面板的行為不變。手機選了節點走 `jumpToNodeMobile`（routeMapReveal.ts），不走這裡的 `jumpToNode`。
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { KIND_LABEL, parseRule, type NodeKind, type NodeRow } from "../../domain";
@@ -37,10 +39,11 @@ export function QuickJump() {
   return <QuickJumpPanel />;
 }
 
-/** 結果列：節點，或別線提供者的一列（`group` 只有組內第一列帶，畫組名小標用） */
-type Row =
+/** 結果列：節點，或別線提供者的一列（`group` 只有組內第一列帶，畫組名小標用）。手機搜尋（MobileQuickJump）共用 */
+export type QuickJumpRow =
   | { type: "node"; key: string; node: NodeRow }
   | { type: "hit"; key: string; hit: QuickJumpHit; group?: string };
+type Row = QuickJumpRow;
 
 /** 附加組模式每個提供者給幾列；前綴模式的上限 */
 const EXTRA_LIMIT = 4;
@@ -56,6 +59,31 @@ async function askProvider(p: QuickJumpProviderSpec, term: string, limit: number
 
 function hitRows(p: QuickJumpProviderSpec, hits: QuickJumpHit[], withGroup: boolean): Row[] {
   return hits.map((hit, i) => ({ type: "hit", key: `${p.id}:${hit.id}`, hit, group: withGroup && i === 0 ? p.group : undefined }));
+}
+
+/**
+ * 一次搜尋（`term` 已 trim、非空）：以某個提供者的 `prefix` 開頭 ⇒ 只問它、節點不查；否則節點結果＋每個提供者各一組。
+ * 桌機與手機搜尋共用這一支（磨光①：手機搜尋重用同一套搜尋與結果模型；`providers` 由呼叫端依殼取）。
+ */
+export function searchQuickJump(term: string, providers: readonly QuickJumpProviderSpec[]): Promise<QuickJumpRow[]> {
+  const only = providers.find((p) => p.prefix && term.startsWith(p.prefix));
+  return only
+    ? // 前綴模式：只問那一個提供者，節點不查
+      askProvider(only, term.slice(only.prefix!.length).trim(), PREFIX_LIMIT).then((hits) => hitRows(only, hits, false))
+    : Promise.all([
+        useNodeStore.getState().searchNodes(term),
+        ...providers.map((p) => askProvider(p, term, EXTRA_LIMIT)),
+      ]).then(([nodes, ...groups]) => [
+        ...(nodes as NodeRow[]).map((node): Row => ({ type: "node", key: node.id, node })),
+        ...groups.flatMap((hits, i) => hitRows(providers[i], hits as QuickJumpHit[], true)),
+      ]);
+}
+
+/** 結果列右側的淡字：路線＝所屬幹線名；臨時車票＝「臨時車票」；其餘＝所屬路線名 */
+export function quickJumpContext(node: NodeRow, routes: readonly NodeRow[], lines: readonly NodeRow[]): string {
+  if (node.kind === "route") return lines.find((l) => l.id === node.line_id)?.name ?? "";
+  if (node.kind === "ticket" && !node.parent_id) return "臨時車票";
+  return routes.find((r) => r.id === node.route_id)?.name ?? "";
 }
 
 /** 跳到一個節點（Ctrl+P 選中、別線清單點車票共用；車次①偏差記錄的邊界全在這一支） */
@@ -114,8 +142,8 @@ export async function jumpToNode(node: NodeRow) {
   ui.select(node.id);
 }
 
-/** 結果列左側徽章：路線＝roundel（路線色圓底＋代碼／圓點）；其餘＝類型徽章（臨時車票虛線「臨」） */
-function ResultBadge({ node, done }: { node: NodeRow; done: boolean }) {
+/** 結果列左側徽章：路線＝roundel（路線色圓底＋代碼／圓點）；其餘＝類型徽章（臨時車票虛線「臨」）。手機搜尋共用 */
+export function ResultBadge({ node, done }: { node: NodeRow; done: boolean }) {
   if (node.kind === "route") {
     // 填色圓牌走淺色階（亮盤深字；換算與理由見 ./roundel）
     const disc = roundelStyle(node.color);
@@ -170,17 +198,7 @@ function QuickJumpPanel() {
     setPending(true);
     const id = ++reqRef.current;
     const timer = setTimeout(() => {
-      const only = providers.find((p) => p.prefix && term.startsWith(p.prefix));
-      const work: Promise<Row[]> = only
-        ? // 前綴模式：只問那一個提供者，節點不查
-          askProvider(only, term.slice(only.prefix!.length).trim(), PREFIX_LIMIT).then((hits) => hitRows(only, hits, false))
-        : Promise.all([
-            useNodeStore.getState().searchNodes(term),
-            ...providers.map((p) => askProvider(p, term, EXTRA_LIMIT)),
-          ]).then(([nodes, ...groups]) => [
-            ...(nodes as NodeRow[]).map((node): Row => ({ type: "node", key: node.id, node })),
-            ...groups.flatMap((hits, i) => hitRows(providers[i], hits as QuickJumpHit[], true)),
-          ]);
+      const work: Promise<Row[]> = searchQuickJump(term, providers);
       void work.then((rows) => {
         if (id !== reqRef.current) return; // 過期的回應
         setResults(rows);
@@ -205,11 +223,7 @@ function QuickJumpPanel() {
     void r.hit.go();
   };
 
-  const contextOf = (node: NodeRow): string => {
-    if (node.kind === "route") return lines.find((l) => l.id === node.line_id)?.name ?? "";
-    if (node.kind === "ticket" && !node.parent_id) return "臨時車票";
-    return routes.find((r) => r.id === node.route_id)?.name ?? "";
-  };
+  const contextOf = (node: NodeRow): string => quickJumpContext(node, routes, lines);
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;

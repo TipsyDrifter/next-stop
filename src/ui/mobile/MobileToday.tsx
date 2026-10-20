@@ -32,10 +32,16 @@
  *   （在最後一張「時刻 ≤ 現在」的列之後；全在未來＝畫在第一張之前；今天沒有有時刻的列＝不畫）；
  *   統計列追加「　下一班 16:30」（today 分區第一張沒交代、時刻還沒到的）。`now` 由 `useMinuteTick()` 一頁一個，傳進每張卡（赭色）。
  *
+ * **磨光①（契約 §1.5、§2.4、§9.4、§9.5）**：
+ *   返回層——行程表段＝子頁（返回＝切回今日段）；⋯ sheet（含子面板）＝一層 sheet（返回＝同按 ×）。
+ *   ⋯ sheet 加改名…／記一句…／上移・下移／刪除（動作在 useMobileToday；上移下移只給 today 分區、沒時刻的票）。
+ *   指出某張票（routeMapReveal 的 target "today"；打開車票、荷札頁、手機搜尋都走這裡）——找到票卡
+ *   （`li[data-node-id]`；在收合的誤點區就先展開）→ 捲到畫面中間 → 閃一下底色約 1 秒 → consume。
+ *
  * 空狀態文案沿桌機（TodayView 的 1.0c／1.0d 兩塊逐字）；只有操作提示那一句改寫成觸控說法
  *   （桌機原句是「按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）…按 T 排上今天」——手機沒有這些鍵）。
  */
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
@@ -45,16 +51,26 @@ import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
 import { MobileSegmentedBar, useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
-import { useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { deleteTicket, logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { useBackLayer } from "./backStack";
+import { useRevealStore } from "./routeMapReveal";
+import "./mobile-polish.css";
 import { isSettledRow } from "../today/useTodayController";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
 import { useMinuteTick } from "../schedule/useMinuteTick";
 import { lineTodayStats } from "../../lines/runtime";
 
+/** 「指出這張票」的閃底色停多久（D-主-48；CSS 動畫 1s，計時器兜底 reduced-motion 的靜態底色） */
+const REVEAL_FLASH_MS = 1000;
+/** 要指的票不在今天的清單（或清單一直沒載好）時，等多久就放掉請求 */
+const REVEAL_GIVE_UP_MS = 1500;
+
 export default function MobileToday() {
   const c = useMobileToday();
   const sub = useScheduleUiStore((s) => s.mobileSub);
+  // 返回層（磨光① §1.5）：行程表段＝子頁，返回＝切回今日段（同段切換）
+  useBackLayer("core.schedule", sub === "schedule", () => useScheduleUiStore.getState().setMobileSub("today"), "page");
   return (
     <>
       <MobileSegmentedBar />
@@ -77,6 +93,57 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   useSubSwipe(pageRef, "today");
   const now = useMinuteTick();
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  // 返回層（磨光① §1.5）：⋯ sheet 與它的子面板（選日期／幾點／改名／記一句）是同一層，返回＝整個流程結束（同按 ×）。
+  // active 看 sheetRow 而不是 sheetId：票在 sheet 開著時被刪／搬走，畫面上已經沒有 sheet，就不該再擋返回鍵
+  useBackLayer("core.todaySheet", sheetRow !== null, () => setSheetId(null));
+
+  /* ───────── 指出某張票（A7 今日半邊；routeMapReveal 的 target "today"）───────── */
+  const reveal = useRevealStore((s) => (s.req?.target === "today" ? s.req : null));
+  /** 正在閃的那張（約 1 秒） */
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const revealId = reveal?.nodeId ?? null;
+  const revealWhere =
+    revealId === null
+      ? null
+      : c.todayRows.some((r) => r.id === revealId)
+        ? "today"
+        : c.lateRows.some((r) => r.id === revealId)
+          ? "late"
+          : null;
+  useEffect(() => {
+    if (!reveal) return;
+    const { nonce, nodeId } = reveal;
+    const consume = () => useRevealStore.getState().consume(nonce);
+    if (nodeId === null) {
+      consume();
+      return;
+    }
+    if (revealWhere === null) {
+      // 清單還沒載好（剛切回今日、剛重載）就等它；等不到（票不在今天的清單）就放掉，請求不卡在槽裡
+      const t = window.setTimeout(consume, REVEAL_GIVE_UP_MS);
+      return () => window.clearTimeout(t);
+    }
+    // 收合的誤點區先展開，下一輪 render 再捲
+    if (revealWhere === "late" && !lateOpen) {
+      setLateOpen(true);
+      return;
+    }
+    const li = pageRef.current?.querySelector<HTMLElement>(`li[data-node-id="${CSS.escape(nodeId)}"]`);
+    if (!li) {
+      // 清單有它、DOM 還沒畫出來（極端時序）：同樣等一下就放掉，不讓請求卡在槽裡、下次重掛時重播
+      const t = window.setTimeout(consume, REVEAL_GIVE_UP_MS);
+      return () => window.clearTimeout(t);
+    }
+    const reduce = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    li.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+    setFlashId(nodeId);
+    consume();
+  }, [reveal, revealWhere, lateOpen]);
+  useEffect(() => {
+    if (flashId === null) return;
+    const t = window.setTimeout(() => setFlashId(null), REVEAL_FLASH_MS);
+    return () => window.clearTimeout(t);
+  }, [flashId]);
 
   const { total, done, left } = c.stats;
   /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，兩條路都與之前逐字相同 */
@@ -106,6 +173,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
       route={c.routeOf(r)}
       today={c.dateKey}
       fresh={c.freshId === r.id}
+      flash={flashId === r.id}
       now={now}
       onComplete={(card) => c.complete(card.nodeId)}
       onMore={(card) => setSheetId(card.nodeId)}
@@ -234,6 +302,13 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           onSetTime={(t, est) => c.setTime(sheetRow.id, t, est)}
           onSetRunTime={(t) => c.setRunTime(sheetRow.id, t)}
           onClearRunTime={() => c.clearRunTime(sheetRow.id)}
+          onRename={(name) => renameTicket(sheetRow.id, name, sheetRow.name)}
+          onLog={(body) => logTicket(sheetRow.id, body)}
+          onDelete={() => deleteTicket(sheetRow.id, sheetRow.name, sheetRow.child_total)}
+          reorder={(() => {
+            const ro = c.reorderOf(sheetRow.id);
+            return ro && { ...ro, onMove: (d: -1 | 1) => c.move(sheetRow.id, d) };
+          })()}
           onClose={() => setSheetId(null)}
         />
       )}

@@ -28,6 +28,7 @@ import { formatChord, isEditableTarget } from "../../shell/hotkeys";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { LinkPicker, LinkRow, useLastCategory } from "../parts/LinkPicker";
 import { useNow } from "../useNow";
+import { useBackLayer } from "../../mobile/backStack";
 import { ESTIMATE_OPTIONS, Expand, Opt, Opts, Row, Sub, useCoverWarn, type PanelProps } from "./controls";
 
 export type { PanelProps } from "./controls";
@@ -102,6 +103,9 @@ export function DepartPanel({ onDone }: PanelProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [memId]);
+
+  // 磨光①：手機返回鍵＝連結挑選的「‹」（疊在 timetable.sheet 上；桌機 no-op）
+  useBackLayer("timetable.departLink", picking, () => setPicking(false));
 
   if (picking) {
     return (

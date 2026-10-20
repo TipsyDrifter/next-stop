@@ -147,7 +147,8 @@ export const VIEW_TEXT = {
   found: (n: number, exp: string, inc: string) => `找到 ${n} 筆 · 支出 ${exp} · 收入 ${inc}`,
   noDay: (d: string) => `${d} 沒有紀錄`,
   spend: (m: string, t: string) => `本月 ${m}／累計 ${t}`,
-  aside: (m: string) => `本月 ${m}`,
+  /** 路線列尾（手機）：跟時刻表的「本月 3h」並排，帶「花」才分得出是錢（磨光③ 2-6、D-票-59） */
+  aside: (m: string) => `本月花 ${m}`,
   spendDetail: "看明細",
   noRoute: "未掛路線",
   routeGone: "（路線已刪除）",
@@ -755,7 +756,7 @@ export function spendText(inRangeMinor: number, allTimeMinor: number, decimals: 
   return VIEW_TEXT.spend(moneyText(inRangeMinor, decimals), moneyText(allTimeMinor, decimals));
 }
 
-/** 手機路線列尾：0 ⇒ null；否則「本月 1,230」 */
+/** 手機路線列尾：0 ⇒ null；否則「本月花 1,230」 */
 export function asideText(inRangeMinor: number, decimals: number): string | null {
   return inRangeMinor === 0 ? null : VIEW_TEXT.aside(moneyText(inRangeMinor, decimals));
 }

@@ -298,6 +298,8 @@ PHASE="done"
 if [[ "$DRY_RUN" == "1" ]]; then
   step "--dry-run 結束：沒有改任何檔、沒有 build、沒有 push。"
 else
+  # 收尾：停掉 gradle daemon（release 後曾留著 2.4GB、把下一個重活頂到 97%；失敗不中止）
+  (cd src-tauri/gen/android 2>/dev/null && ./gradlew --stop >/dev/null 2>&1) || true
   step "✓ ${TAG} 發版完成"
   say "Release：$(gh release view "$TAG" --json url -q .url 2>/dev/null || echo "gh release view ${TAG}")"
   say "手機更新＝下載 ${APK_DST##*/} 覆蓋安裝；桌機＝跑 ${EXE_DST##*/}。"

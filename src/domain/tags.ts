@@ -51,6 +51,11 @@ export interface TagIndexSource {
   tags: { id: string; name: string; key: string }[];
   taggings: { tagId: string; entityType: string; entityId: string }[];
   kinds?: Record<string, string>;
+  /**
+   * 不算用量的 entity_type（磨光③ 0-1；repository 從 `uncountedTagEntityTypes()` 帶進來——domain 不 import data 層）。
+   * 這些掛載照樣進 `ents`（標 `counted:false`），但 direct／total、建議排序、`affectedCounts` 都不算它。省略或空＝全部算（插槽之前的行為）。
+   */
+  uncounted?: readonly string[];
 }
 /** 樹的一個節點（=logic.js:199-201，多 id）。虛資料夾＝只存在於路徑中段、表裡沒有那一列的父層（real:false、id:null） */
 export interface TagNode {
@@ -70,7 +75,8 @@ export interface TagNode {
   /** 真荷札的 tags.id；虛資料夾 null */
   id: string | null;
 }
-export interface TagEnt { type: string; id: string; keys: string[]; kind?: string }
+/** index 裡的一個實體；`counted:false`＝不算用量的那種（`TagIndexSource.uncounted`），只給登記的線自己讀；平常沒有這個欄位 */
+export interface TagEnt { type: string; id: string; keys: string[]; kind?: string; counted?: false }
 export interface TagIndex { byKey: Record<string, TagNode>; roots: string[]; ents: TagEnt[] }
 export interface TagTreeRow { key: string; node: TagNode; open: boolean; hasKids: boolean }
 export interface TagSuggestItem {
@@ -331,9 +337,11 @@ function byName(a: TagNode, b: TagNode): number {
 /**
  * 樹與計數（=logic.js:203-242）。輸入改 `TagIndexSource`：`ents` 由 taggings 依 entityType+entityId 分組；
  * 指到不存在（或已刪除）tag 的 tagging 略過。`entityKinds` 省略＝用 `src.kinds`。
+ * `src.uncounted` 的 type：照樣進 `ents`（標 `counted:false`），但不加 direct／total（建議排序跟著不算）。
  */
 export function buildIndex(src: TagIndexSource, entityKinds?: Record<string, string>): TagIndex {
   const kinds = entityKinds ?? src.kinds;
+  const uncounted = src.uncounted && src.uncounted.length ? new Set(src.uncounted) : null;
   const byKey: Record<string, TagNode> = {};
   const tagById = new Map<string, { id: string; name: string; key: string }>();
   for (const t of src.tags) tagById.set(t.id, t);
@@ -379,12 +387,14 @@ export function buildIndex(src: TagIndexSource, entityKinds?: Record<string, str
       e = { type: g.entityType, id: g.entityId, keys: [] };
       const k = kinds?.[g.entityId];
       if (k) e.kind = k;
+      if (uncounted && uncounted.has(g.entityType)) e.counted = false;
       entByRef.set(ref, e);
       ents.push(e);
     }
     if (e.keys.indexOf(t.key) < 0) e.keys.push(t.key);
   }
   for (const e of ents) {
+    if (e.counted === false) continue; // 不算用量（仍在 ents）
     const hit = new Set<string>();
     for (const k of e.keys) {
       byKey[k].direct++;
@@ -446,6 +456,7 @@ export function flattenTree(
 export function itemsUnder(idx: TagIndex, key: string): { type: string; id: string; matched: string[] }[] {
   const out: { type: string; id: string; matched: string[] }[] = [];
   for (const e of idx.ents) {
+    if (e.counted === false) continue; // 不算用量的不列（同 repo `listUnder` 的「別處」）
     const m = e.keys.filter((k) => isUnder(k, key));
     if (m.length) out.push({ type: e.type, id: e.id, matched: m });
   }
@@ -574,12 +585,12 @@ function defaultKind(e: TagEnt): string {
   if (e.type === "node") return "ticket";
   return "other";
 }
-/** 被影響的實體依種類計數（=logic.js:381-389）；kind 由 `kindOf` 給，省略＝用 index 裡的 kinds */
+/** 被影響的實體依種類計數（=logic.js:381-389）；kind 由 `kindOf` 給，省略＝用 index 裡的 kinds。`counted:false` 的不算 */
 export function affectedCounts(idx: TagIndex, keySet: KeySet, kindOf?: KindOf): AffectedCounts {
   const set = toSet(keySet);
   const c: AffectedCounts = { ticket: 0, train: 0, car: 0, note: 0, diary: 0, other: 0, total: 0 };
   for (const e of idx.ents) {
-    if (!e.keys.some((k) => set.has(k))) continue;
+    if (e.counted === false || !e.keys.some((k) => set.has(k))) continue;
     c.total++;
     const kind = kindOf ? kindOf(e.type, e.id) : defaultKind(e);
     if (COUNT_BUCKETS.indexOf(kind) >= 0) c[kind as "ticket"]++;

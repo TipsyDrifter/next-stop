@@ -62,6 +62,20 @@
 .ns-today .sec .fold .caret { display: inline-block; margin-left: .5em; transition: transform .15s; }
 .ns-today .sec .fold[aria-expanded="false"] .caret { transform: rotate(-90deg); }
 
+/* ═══ 區段標題：「＋ 臨時車票」分裂鈕（10-20 磨光②；today.draft／today.inbox 的滑鼠入口） ═══
+   兩顆 .ns-btn--sm.btn-ghost 併成一組：右鈕左移 1px 疊在主鈕的右框上（中縫只見一條線），外側保留 2px 圓角；
+   hover 的那一半抬到上層，金框四邊完整。align-self:center——.sec 是 baseline 對齊，鈕框比字高，置中才不往下掉。 */
+.ns-today .sec .add-split { display: inline-flex; align-self: center; flex: none; }
+.ns-today .sec .add-split .ns-btn { position: relative; letter-spacing: .1em; }
+.ns-today .sec .add-split .ns-btn:hover,
+.ns-today .sec .add-split .add-more[aria-expanded="true"] { z-index: 1; }
+.ns-today .sec .add-split .add-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ns-today .sec .add-split .add-more {
+  margin-left: -1px; padding-left: 6px; padding-right: 6px;
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+.ns-today .sec .add-split .add-more[aria-expanded="true"] { border-color: var(--color-gold); color: var(--color-ink); }
+
 /* ═══ 車票列 ═══ */
 .ns-today .ticket-list > li { list-style: none; }
 

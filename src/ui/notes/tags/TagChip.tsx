@@ -5,7 +5,7 @@
  * 名稱顯示「難度 / 高」：父層淡、末段正常、分隔「 / 」；牌子上不印 `#`（契約 §1-7）。
  *
  *   TagChip        一般牌（側板、牌雲）與 `size="sm"` 行內小牌（內文）：`span.ns-notes-tag[.sm][.is-armed]`
- *                  ＞ `button.ns-notes-tag-nm`（點＝看清單）＋可選 `button.ns-notes-tag-x`（摘；hover 現身、armed 常亮）
+ *                  ＞ `button.ns-notes-tag-nm`（點＝看清單；沒給 onOpen＝`span`、點不動）＋可選 `button.ns-notes-tag-x`（摘；hover 現身、armed 常亮）
  *   TagChipLarge   荷札頁頁頭大牌 `.lg`：父層每一段是 `button.pa`（點＝看父層）；虛資料夾 `.virtual`（不打孔、框線退淡）
  *   TagName        名稱的三段式排法（建議清單的加粗 `hl` 也走這裡）
  *   TagGlyph       樹與建議清單的小圖示：真荷札＝實線牌、虛資料夾＝虛線空心牌
@@ -68,9 +68,16 @@ export function TagChip({ name, size, armed, onOpen, onRemove, title }: TagChipP
   const cls = ["ns-notes-tag", size, armed && "is-armed"].filter(Boolean).join(" ");
   return (
     <span className={cls}>
-      <button type="button" className="ns-notes-tag-nm" title={title ?? `看 #${name} 的清單`} onClick={onOpen}>
-        <TagName name={name} />
-      </button>
+      {onOpen ? (
+        <button type="button" className="ns-notes-tag-nm" title={title ?? `看 #${name} 的清單`} onClick={onOpen}>
+          <TagName name={name} />
+        </button>
+      ) : (
+        // 沒有 onOpen（受控草稿：點了會離開面板）＝名字不是按鈕、沒有「看 #… 的清單」（磨光③ 2-9；同時刻表 TtTag）
+        <span className="ns-notes-tag-nm" title={title}>
+          <TagName name={name} />
+        </span>
+      )}
       {onRemove && (
         <button
           type="button"

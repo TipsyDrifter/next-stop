@@ -10,9 +10,11 @@
  *     運休＝運休角印（SealSuspended）蓋在検印位、済＝済章（SealDone small，朱肉 filter 由 stamps.css 給）。
  *
  * 已知取捨（與桌機的差別，刻意）：
- *   - **不蓋延着／途中下車角印**：検印位被済／運休佔著、右側還有 ⋯，第三枚角印在 375px 裡只會疊字。
- *     誤點的語彙改由「赭色左緣＋赭 chip 原定 M/D＋延誤 N 天」承擔（桌機本來就同時畫這三件）；
- *     暫停（paused）只留 `.is-paused` 的整列退淡，検印位保持「検印」字樣＝還能蓋（別把入口藏掉）。
+ *   - **延着蓋在 meta 行內、不蓋在検印位**（磨光① N8、D-主-52）：検印位被済／運休佔著、右側還有 ⋯，第三枚角印在 375px
+ *     裡只會疊字——所以誤點卡（誤點區的 `late === "carry"`，同桌機 `.late-seal` 的條件）的延着跟繰越一樣縮成行內小章
+ *     （`m-tk-seal-inline`），排在 meta 尾端、繰越之前（兩枚章收在一起）；済蓋下後同繰越淡到 .38（結局上前、來歷退後）。
+ *     締切浮上來的那一段（`late === "due"`）照桌機不蓋，只給赭 chip。
+ *   - **不蓋途中下車角印**：暫停（paused）只留 `.is-paused` 的整列退淡，検印位保持「検印」字樣＝還能蓋（別把入口藏掉）。
  *   - **不畫車廂格**（.cars 的小方格）：格子 ≤5 個在手機是 5 個 3px 的點，看不出來——只留「車票 n/N」數字。
  *   - **不開側板／完成卡**：票種小字（乘車券／定期券／臨時券）退成 meta 裡的純文字，不是按鈕。
  *
@@ -31,7 +33,7 @@
 import type { ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import { isClockPast, nextDayNote } from "../../lib/date";
-import { SealCarryOver, SealDone, SealSuspended } from "../stamps";
+import { SealCarryOver, SealDone, SealLate, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
 import { lineTodayRowActions } from "../../lines/runtime";
 
@@ -56,6 +58,8 @@ export interface MobileTicketProps {
   today: string;
   /** 剛蓋章 → 播 stampIn */
   fresh: boolean;
+  /** 「指出這張票」→ 閃一下底色（磨光① A7；今日子頁才給） */
+  flash?: boolean;
   onComplete(card: TicketCardModel): void;
   /** ⋯＝開底部 sheet */
   onMore(card: TicketCardModel): void;
@@ -89,7 +93,7 @@ export function TicketTime({ card, today, now }: { card: TicketCardModel; today:
   );
 }
 
-export function MobileTicket({ card, route, today, fresh, onComplete, onMore, now }: MobileTicketProps) {
+export function MobileTicket({ card, route, today, fresh, flash = false, onComplete, onMore, now }: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
   const settled = done || suspended;
 
@@ -124,13 +128,16 @@ export function MobileTicket({ card, route, today, fresh, onComplete, onMore, no
       </span>,
     );
   }
+  // 延着＝誤點區的票（同桌機 .late-seal 的條件；締切那段不蓋）。行內小章，形制同繰越；済蓋下後一樣淡到 .38
+  if (late === "carry") meta.push(<SealLate className="m-tk-seal-inline" title="延着（誤點）" />);
   // 繰越＝來歷不是結局：済蓋下後由 CSS 淡到 .38（沿桌機 .ticket.done .carry-seal 的規則）
   if (card.carriedFrom) {
     meta.push(<SealCarryOver className="m-tk-seal-inline" title={`自 ${mmdd(card.carriedFrom)} 繰越`} />);
   }
 
   return (
-    <li className="m-tk-li">
+    // data-node-id：今日頁「指出這張票」用來找卡（磨光① A7）
+    <li className={"m-tk-li" + (flash ? " is-reveal" : "")} data-node-id={card.nodeId}>
       <article
         className={
           "m-tk" +

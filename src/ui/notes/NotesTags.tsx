@@ -252,6 +252,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
   const back = useTagStore((s) => s.back);
   const notice = useTagStore((s) => s.notice);
   const renaming = useTagStore((s) => s.renaming);
+  const loadFailed = useTagStore((s) => s.loadError !== null && !s.loading);
   const [menu, setMenu] = useState(false);
   const [merging, setMerging] = useState(false);
   const listApi = useRef<TagListApi | null>(null);
@@ -358,7 +359,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                   <p className="techo-overline ns-notes-overline">TAGS · 荷札</p>
                   <h1 className="techo-title">荷札</h1>
                   <p className="ns-notes-lede">
-                    <b>{realTags.length}</b> 個荷札。左邊的樹點一個，看掛著它的車票、筆記與日記。
+                    <b>{realTags.length}</b> 個荷札。左邊的樹點一個，看掛著它的車票、筆記、日記與時間塊。
                   </p>
                 </header>
                 {realTags.length > 0 ? (
@@ -367,10 +368,20 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                       <TagChip key={x.key} name={x.name} onOpen={() => st().select(x.key)} />
                     ))}
                   </div>
+                ) : index ? (
+                  <p className="ns-notes-tagempty">
+                    還沒有荷札。在筆記或日記裡打 #名稱，或在車票的側板「荷札」欄掛一個。
+                    <br />
+                    時刻表的分類、時間塊也能掛。
+                  </p>
                 ) : (
-                  index && (
+                  loadFailed && (
+                    // 磨光③ 2-12：載入失敗不再一片空白
                     <p className="ns-notes-tagempty">
-                      還沒有荷札。在筆記或日記裡打 #名稱，或在車票的側板「荷札」欄掛一個。
+                      荷札沒載入{" "}
+                      <button type="button" className="ns-notes-btn" onClick={() => void st().loadIndex()}>
+                        重試
+                      </button>
                     </p>
                   )
                 )}

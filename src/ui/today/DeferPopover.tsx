@@ -2,7 +2,8 @@
  * DeferPopover——推遲小卡（M3 ③ WP3；決策 D-③-6 乙、種子動線 M3-6）。
  *
  * 入口：今日列的執行日 chip（`.chip.chip-btn`）→ useTodayController.openDefer(id, anchor) → TodayView 渲染本元件。
- * 四項（拍板逐字）：**明天／下週一／選日期…／清除執行日**。
+ * 四項（拍板逐字）：**明天／下週一／選日期…／清除執行日**；票的執行日存在且不是今天（誤點，或在未來）時，
+ * 最前面多一項**今天**（D-主-45；誤點票一步排回今天、未來的票提前到今天；繰越規則由 reschedule 判）。
  *
  * **資料來源＝props 注入的 `row`（M3 ⑤ WP1 解耦，草案 §4-3）**：本元件不查 `today.byId`——
  * 日曆當日清單浮層的列不在今日切片裡。行為零改動；形狀見 `DeferRow`。
@@ -175,7 +176,8 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
     void ns().reschedule(nodeId, next);
     onClose();
-    if (next !== dateKey) showRescheduleToast(nodeId, prev, next);
+    // 今天→今天（同一天）不出收據；但誤點／未來的票挪到今天時，在日曆／行程表裡它會離開眼前那一天，同樣補一張可反悔的收據
+    if (next !== dateKey || showToday) showRescheduleToast(nodeId, prev, next);
   };
 
   /** 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去 */
@@ -241,6 +243,8 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
   const base = future ? (row.scheduled_on as string) : dateKey;
   const tomorrow = addDays(base, 1);
   const monday = nextMonday(base);
+  /** 「今天」項：執行日存在且 ≠ 今天（誤點＝過去；未來＝提前）。沒有執行日的票走「選日期…」就好，不給 */
+  const showToday = row.scheduled_on !== null && row.scheduled_on !== dateKey;
 
   /* ── 定期券版（見檔頭）：規則 parse 得出來就換一套內容 ── */
   const rule = parseRule(row.repeat_rule);
@@ -304,6 +308,14 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
         </ul>
       ) : (
       <ul className="ns-defer-list">
+        {showToday && (
+          <li>
+            <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(dateKey)}>
+              <span>今天</span>
+              <span className="when">{whenLabel(dateKey)}</span>
+            </button>
+          </li>
+        )}
         <li>
           <button type="button" data-defer-item className="ns-defer-item" onClick={() => applyDate(tomorrow)}>
             <span>{future ? "往後推一天" : "明天"}</span>

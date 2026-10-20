@@ -21,12 +21,21 @@
  *                    「每班時刻…」（aside「07:00」／「未排」）→ rule（原型沒畫，雙端同等補——桌機側板的「幾點」就是每班，✎）
  *   已交代的非定期券、唯讀卡｜不出時刻項（唯讀卡的 ⋯ 本來就 disabled）。
  *   時刻 sheet 與「選日期…」同一種接法：本 sheet 收起、改畫子面板；子面板關了＝整個流程結束。
+ *
+ * **磨光① 加工單（契約 §2.4、§9.5；D-主-49）**：手機補可點入口。全部只在 `!card.readOnly`（虛班次、歷史班次一項都不出）。
+ *   順序（由上而下）：推遲／時刻 → 改名… → 記一句… → 上移／下移 → 各線附加項 → 刪除（朱字）→ 取消。
+ *   改名…／記一句…＝子面板 MobileTextSheet（同「幾點…」的接法；返回鍵＝整個流程結束，跟按 × 一樣——同一層，由主人登記）。
+ *   上移／下移＝`reorder` 有給才出（只有今日子頁、today 分區、沒有時刻的票；行程表串流不給）；到頂／到底那一格不可點。
+ *   刪除＝先關本 sheet、再叫 `onDelete`（子項 ≥5 的確認框、toast＋復原都在呼叫端；D-2）。
+ *   各線附加項（荷札…）排在刪除之上：刪除固定貼著取消，是整張 sheet 唯一的破壞性動作。
  */
 import { useState } from "react";
 import { MobileDatePicker } from "../common/MobileDatePicker";
 import { useUiStore } from "../../store/uiStore";
 import { useMinuteTick } from "../schedule/useMinuteTick";
 import { MobileTimeSheet } from "./MobileTimeSheet";
+import { MobileTextSheet } from "./MobileTextSheet";
+import "./mobile-polish.css";
 import { mdw, sheetDeferItems } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
 // 各線附加項：查 `lines/runtime`、不 import `lines/mounts`（理由見 runtime.ts 檔頭）
@@ -50,6 +59,14 @@ export interface MobileTicketSheetProps {
   onSetRunTime(time: string | null): void;
   /** 定期券這一班改回每班時刻 */
   onClearRunTime(): void;
+  /** 改名（已去空白、非空）；沒給＝不出「改名…」 */
+  onRename?(name: string): void;
+  /** 記一句乘務記錄（已去空白、非空）；沒給＝不出「記一句…」 */
+  onLog?(body: string): void;
+  /** 刪除（本 sheet 已先關）；沒給＝不出「刪除」 */
+  onDelete?(): void;
+  /** 上移／下移：null／沒給＝不出（行程表串流、誤點區、有時刻的票）；up／down＝那一格可不可點 */
+  reorder?: { up: boolean; down: boolean; onMove(delta: -1 | 1): void } | null;
   onClose(): void;
 }
 
@@ -61,14 +78,55 @@ export function MobileTicketSheet({
   onSetTime,
   onSetRunTime,
   onClearRunTime,
+  onRename,
+  onLog,
+  onDelete,
+  reorder,
   onClose,
 }: MobileTicketSheetProps) {
   /** 「選日期…」按下去：sheet 收起、改開日期面板（面板關了＝整個流程結束） */
   const [picking, setPicking] = useState(false);
   /** 「幾點…」「每班時刻…」（rule）／「本班改時刻…」（run）按下去：改畫時刻 sheet */
   const [timeMode, setTimeMode] = useState<"rule" | "run" | null>(null);
+  /** 「改名…」／「記一句…」按下去：改畫一行輸入子面板 */
+  const [textMode, setTextMode] = useState<"rename" | "log" | null>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const now = useMinuteTick();
+
+  if (textMode === "rename" && onRename) {
+    return (
+      <MobileTextSheet
+        title="改名"
+        name={card.name}
+        initial={card.name}
+        submitLabel="改好了"
+        inputLabel="車票的新名稱"
+        onSubmit={(name) => {
+          onRename(name);
+          onClose();
+        }}
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (textMode === "log" && onLog) {
+    return (
+      <MobileTextSheet
+        title="記一句"
+        name={card.name}
+        initial=""
+        placeholder="寫一行剛才做了什麼"
+        submitLabel="記下"
+        inputLabel="新增乘務記錄"
+        onSubmit={(body) => {
+          onLog(body);
+          onClose();
+        }}
+        onClose={onClose}
+      />
+    );
+  }
 
   if (timeMode) {
     return (
@@ -210,9 +268,53 @@ export function MobileTicketSheet({
       >
         <p className="m-sheet-title">{card.name}</p>
         {items}
+        {/* 磨光① 加工單：改名…／記一句…／上移・下移（唯讀的卡一項都不出，D-1） */}
+        {!card.readOnly && onRename && (
+          <button type="button" onClick={() => setTextMode("rename")} className="m-sheet-item">
+            改名…
+          </button>
+        )}
+        {!card.readOnly && onLog && (
+          <button type="button" onClick={() => setTextMode("log")} className="m-sheet-item">
+            記一句…
+          </button>
+        )}
+        {!card.readOnly && reorder && (
+          <div className="m-sheet-pair">
+            <button
+              type="button"
+              disabled={!reorder.up}
+              onClick={run(() => reorder.onMove(-1))}
+              className="m-sheet-item"
+            >
+              上移
+            </button>
+            <button
+              type="button"
+              disabled={!reorder.down}
+              onClick={run(() => reorder.onMove(1))}
+              className="m-sheet-item"
+            >
+              下移
+            </button>
+          </div>
+        )}
         {/* 各線附加項（接縫 #56 後半；旅客筆記：荷札…）——唯讀的卡（定期券歷史班次）不出 */}
         {!card.readOnly &&
           lineTicketSheetItems().map(({ id, Item }) => <Item key={id} nodeId={card.nodeId} name={card.name} close={onClose} />)}
+        {/* 刪除：先關 sheet 再問（D-2）；朱字、貼著取消 */}
+        {!card.readOnly && onDelete && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onDelete();
+            }}
+            className="m-sheet-item is-danger"
+          >
+            刪除
+          </button>
+        )}
         <button type="button" onClick={onClose} className="m-sheet-item is-cancel">
           取消
         </button>

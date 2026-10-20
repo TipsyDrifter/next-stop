@@ -16,10 +16,11 @@
  *     （原定 M/D ＋誤點註記）講的是這一班（`occurrence?.due_on ?? scheduled_on`）。
  *   執行日對定期券唯讀（D-④-3）：chip 不開日期輸入，點了吐 REPEAT_RESCHEDULE_MSG。
  */
-import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { KIND_LABEL, describeRule, parseRule, type NodeKind, type NodeRow, type NodeStatus } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
 import { SealSuspended } from "../stamps";
+import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { DateChip } from "./DateChip";
 import { InlineInput } from "./InlineInput";
 import type { EditHandlers, RowActions } from "./useOutlineController";
@@ -213,6 +214,52 @@ export interface OutlineRowProps {
   rename: EditHandlers | null;
   actions: RowActions;
   onFreshEnd(): void;
+  /** 列的 ⋯ 選單項目（10-20 磨光②）：開卡那一刻才算，停用狀態跟著當下的樹 */
+  menu?: () => PopMenuItem[];
+}
+
+/**
+ * 列的 ⋯ 鈕＋小選單（10-20 磨光②）：hover／選中（鍵盤聚焦那一列）才現身，位置＝票右下角（與右上角票種小字對稱）。
+ * 跟列內其他鈕一樣 tabIndex=-1＋mousedown 不搶焦點；開卡後焦點進卡，Esc 收卡焦點回大綱容器。
+ */
+function RowMore({ name, menu, onReturnFocus }: { name: string; menu: () => PopMenuItem[]; onReturnFocus: () => void }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const [items, setItems] = useState<PopMenuItem[] | null>(null);
+  const close = useCallback(() => setItems(null), []);
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        tabIndex={-1}
+        aria-haspopup="menu"
+        aria-expanded={items !== null}
+        aria-label={`「${name}」的更多動作`}
+        title="更多動作：新增・升降層・排序"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setItems((cur) => (cur ? null : menu()));
+        }}
+        className="row-more"
+      >
+        ⋯
+      </button>
+      {items && (
+        <PopMenu
+          anchor={btn.current}
+          overline="這一列 — ROW"
+          label={`「${name}」的更多動作`}
+          items={items}
+          onClose={close}
+          returnFocus={() => {
+            onReturnFocus();
+            return null;
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 export function OutlineRow({
@@ -230,6 +277,7 @@ export function OutlineRow({
   rename,
   actions,
   onFreshEnd,
+  menu,
 }: OutlineRowProps) {
   const ref = useRef<HTMLLIElement>(null);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／支線／臨時券 */
@@ -470,6 +518,7 @@ export function OutlineRow({
             </span>
           )}
         </div>
+        {menu && <RowMore name={node.name} menu={menu} onReturnFocus={actions.focusContainer} />}
       </article>
     </li>
   );

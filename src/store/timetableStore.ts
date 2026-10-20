@@ -8,6 +8,7 @@
  * - 錯誤：寫入失敗 toast（RangeError 吐它的 message；其他吐「存檔失敗——請再試一次」），不寫 `error`；
  *   `error` 只給 `init`／`refresh` 載入失敗（nodeStore 的教訓）。
  * - 設定三把 key：`timetable_long_run_max_min`（同步）、`timetable_view`／`timetable_notice`（本地）。
+ *   磨光② A15：①c 的釘選分類 `timetable_notice_pins` 也改成同步（拉到 settings ⇒ reload 重讀）。
  * - toast 全文（契約 §5.10）集中在 `TT_TEXT`；固定文案（§5.11）給 UI 用的也放這裡。
  *
  * 車次①b（①b①c 契約 §3.6、§3.7；只加不改）：門檻改成「這一班的預估 → 分類預設長度 → 全域上限」（`blockMarker`／
@@ -52,9 +53,9 @@ import {
 } from "../domain/timetableLink";
 import { PLAN_TEXT } from "../domain/timetableSchedule";
 import { paintCoverOf, paintKindOf, paintUndoable } from "../domain/timetableGrid";
-import { TT_TAG_BLOCK } from "../domain/timetableTags";
+import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF } from "../domain/timetableTags";
 import { tagRepo } from "../data/tagRepo";
-import { applyBlockTagEdit, checkTagNames, receiptWrote, type BlockTagEdit } from "../data/timetableTagCarry";
+import { applyBlockTagEdit, blockTagEditOf, checkTagNames, receiptWrote, type BlockTagEdit } from "../data/timetableTagCarry";
 import { useTagStore } from "./tagStore";
 import {
   MIN,
@@ -85,10 +86,11 @@ export const KEY_LONG_RUN_MAX = "timetable_long_run_max_min"; // 同步（manife
 export const KEY_VIEW = "timetable_view"; // 本地
 export const KEY_NOTICE = "timetable_notice"; // 本地："0"＝關；沒有列＝開
 export const LONG_RUN_MAX_DEFAULT = 840; // 14 小時；0＝關
-// ①b①c 契約 0-11：以下全部本地、不同步（不進 manifest syncSettingsKeys；D-時-30 各台各記）
+// ①b①c 契約 0-11：以下本地、不同步（不進 manifest syncSettingsKeys；D-時-30 各台各記）——例外：KEY_NOTICE_PINS 磨光② 起同步（D-主-40）
 export const KEY_NOTICE_LONG_RUN = "timetable_notice_long_run"; // 本地："0"＝關；沒有列＝開（跑太久提醒）
 export const KEY_NOTICE_TILES = "timetable_notice_tiles"; // 本地："0"＝關；沒有列＝開（常用分類格）
-export const KEY_NOTICE_PINS = "timetable_notice_pins"; // 本地：JSON string[]（≤5；釘選分類）
+// 磨光② A15（使用者 Q4「搬」）：釘選分類例外——改成同步（manifest syncSettingsKeys＋Rust SETTINGS_KEYS），拉到 settings 時 reload 重讀
+export const KEY_NOTICE_PINS = "timetable_notice_pins"; // 同步：JSON string[]（≤5；釘選分類）
 export const NOTICE_PINS_MAX = 5;
 
 /** 手機 board|axis|week|stats|schedule|grid；桌機 split|axis|week|stats|schedule|grid（①a 契約 0-6；③ 加 week／stats，D-時-46；④ 加 schedule，D-時-74；⑤ 加 grid，D-時-92） */
@@ -103,7 +105,8 @@ export type TimetableSheet =
   | { kind: "fill"; start: number; end: number }
   | { kind: "edit"; blockId: string }
   | { kind: "split"; blockId: string }
-  | { kind: "categories" }
+  /** 磨光③ 2-11：focusId＝打開就展開那一列（分類或組）的 ⋯、捲進畫面閃一下；focus "notice"＝捲到〈通知〉。都不帶＝照舊 */
+  | { kind: "categories"; focusId?: string; focus?: "notice" }
   /** ①b：這一班的預估（運行中那班） */
   | { kind: "estimate"; blockId: string }
   /** ②：從任務發車、第一次碰到的路線（☎一-1） */
@@ -133,7 +136,12 @@ export const TT_TEXT = {
   split: (at: number) => `切開・${fmtClock(at)}`,
   restart: (at: number) => `出發時間改成 ${fmtClock(at)}`,
   alreadyRunning: "這一班已經在跑了",
-  runningHint: "運行中的這一班：在運行列換車、到着或改出發時間",
+  runningHint: "運行中的這一班：在運行列換車、到着、切開或改出發時間",
+  /** 磨光③ 2-2：運行列的「切開」鈕（D-時-138）；2-3：視圖列固定的「分類與設定」鈕（手機寫短字） */
+  dockSplit: "切開",
+  dockSplitTitle: "切開這一班",
+  settingsBtn: "分類與設定",
+  settingsBtnShort: "設定",
   undoArriveFailed: "已經有下一班了，到站撤回不了",
   saveFailed: "存檔失敗——請再試一次",
   pickCategory: "選一個分類",
@@ -206,6 +214,8 @@ export const TT_TEXT = {
   TIME_LABEL: "時間",
   TIME_HOVER: (self: string, below: string) => `自己 ${self}／底下 ${below}`,
   ROUTE_TIME: (month: string, total: string) => `本月 ${month}・累計 ${total}`,
+  /** 手機路線圖列尾（RouteTimeAside）：帶「本月」，跟售票口「本月花 …」並排也看得懂（D-時-140） */
+  ROUTE_ASIDE: (month: string) => `本月 ${month}`,
   TIME_MANUAL: "手填",
   TIME_BLOCKS: (x: string) => `時間塊 ${x}`,
   FOCUS: "專注",
@@ -226,6 +236,7 @@ export const TT_TEXT = {
   statsToCurrent: "回到本期",
   weekToCurrent: "回到本週",
   routeNone: "沒連任務",
+  routeNoRoute: "沒有路線的任務",
   routeGone: "（已刪除的任務）",
   goalAdd: "＋目標",
   goalMet: "達成",
@@ -532,11 +543,29 @@ export const TT_TEXT = {
   tags: {
     /** 塊面板那一列的列名（D-時-115）、運行列的小鈕（D-時-116）、手機運行列「荷札 N」（D-時-126） */
     row: "荷札",
-    add: "＋ 荷札",
+    /** 手機新增鈕（磨光③ 2-10：跟桌機、旅客筆記同字） */
+    add: "掛荷札",
     runCount: (n: number) => `荷札 ${n}`,
-    /** 分類帶的牌子的滑過字（D-時-115） */
-    fromCategory: (name: string) => `來自分類『${name}』`,
-    fromGroup: (name: string) => `來自組『${name}』`,
+    /** 分類帶的牌子的滑過字（D-時-115；磨光③ 統一用「」） */
+    fromCategory: (name: string) => `來自分類「${name}」`,
+    fromGroup: (name: string) => `來自組「${name}」`,
+    /** 磨光③ 2-1 單塊排除（D-時-136）：src＝`srcCategory`／`srcGroup` 的字 */
+    srcCategory: (name: string) => `分類「${name}」`,
+    srcGroup: (name: string) => `組「${name}」`,
+    offTitle: (tag: string, src: string) => `這一塊不算 #${tag}（${src}還是帶著）`,
+    offTitleRestore: (tag: string, src: string) => `這一塊不算 #${tag}（${src}還是帶著）；點一下還原`,
+    offLabel: (tag: string) => `這一塊不算 #${tag}`,
+    restoreTitle: (tag: string) => `還原：這一塊也算 #${tag}`,
+    restoreLabel: (tag: string) => `還原 #${tag}`,
+    /** 運行中那班的荷札小面板（立刻寫）的 toast */
+    offToast: (tag: string) => `這一塊不算 #${tag}`,
+    onToast: (tag: string) => `這一塊也算 #${tag}`,
+    /** 手機點選器 insert 模式的標題（磨光③ 2-8）：補記還沒選分類／目標面板 */
+    pickerFill: "荷札・補記",
+    pickerGoal: "荷札・目標",
+    /** 荷札 index 載入失敗（磨光③ 2-12） */
+    loadFailed: "荷札沒載入",
+    retry: "重試",
     /** 分類管理：子分類列「組帶的：#高效」（D-時-121）；⋯ 展開區那一列的列名 */
     groupCarried: "組帶的：",
     defaults: "預設荷札",
@@ -568,10 +597,10 @@ export const TT_TEXT = {
     /** 手動掛的塊：「10/17 上課 10:50–13:00」；end null＝運行中 */
     entityBlock: (md: string, cat: string, start: number, end: number | null) =>
       `${md} ${cat} ${fmtClock(start)}–${end === null ? "運行中" : fmtClock(end)}`,
-    entityCategory: (name: string) => `分類『${name}』的預設荷札`,
+    entityCategory: (name: string) => `分類「${name}」的預設荷札`,
     entityCategorySub: "這個分類過去和以後的紀錄都算",
     /** 組（頂層）的預設荷札：會傳給底下每個分類（D-時-111），寫成「組」才看得出刪它的影響範圍（評審後） */
-    entityGroupDefault: (name: string) => `組『${name}』的預設荷札`,
+    entityGroupDefault: (name: string) => `組「${name}」的預設荷札`,
     entityGroupDefaultSub: "底下每個分類過去和以後的紀錄都算",
     /* ── 評審後從顯示端收進來的字（§5.9；只搬文字） ── */
     /** 補記還沒選分類時荷札列的淡字 */
@@ -599,7 +628,7 @@ export const TT_TEXT = {
     removeLabel: (name: string) => `摘下 #${name}`,
     /** 點牌進荷札頁時「‹ 回到剛才」的字 */
     backLabel: "時刻表",
-    entityGoal: (name: string) => `目標『${name}』`,
+    entityGoal: (name: string) => `目標「${name}」`,
     /* 丙席・統計（原型 v-tags.js scopeText／goalsHtml）：範圍混了荷札超過 3 項「創作・#高效…等 4 項」；範圍空了的卡尾鈕 */
     scopeMore: (names: string, n: number) => `${names}…等 ${n} 項`,
     goalRescope: "重新選範圍 ›",
@@ -697,14 +726,25 @@ export interface TimetableStore {
   restart(blockId: string, at: number): Promise<void>;
   /**
    * ②：第四參數＝新一塊的連結。⑥（0-12）：第五參數＝面板草稿的手動荷札名稱（不含分類帶的）；拿到新塊的 id 後
-   * `tagRepo.setTags('timetable:block', id, names)`（不另 toast）。undefined 或空陣列＝不掛。名稱不合法 ⇒ toast 理由、整筆不寫
+   * `tagRepo.setTags('timetable:block', id, names)`（不另 toast）。undefined 或空陣列＝不掛。名稱不合法 ⇒ toast 理由、整筆不寫。
+   * 磨光③ 2-1：第六參數＝草稿裡排除的分類帶荷札名稱（`timetable:block-off`，同一時間寫）；undefined 或空陣列＝不排除
    */
-  fill(categoryId: string, start: number, end: number, link?: BlockLink | null, tagNames?: readonly string[]): Promise<void>;
+  fill(categoryId: string, start: number, end: number, link?: BlockLink | null, tagNames?: readonly string[], offNames?: readonly string[]): Promise<void>;
   /**
    * ②：link undefined＝不動連結。⑥（0-12；評審後改）：tagEdit＝面板草稿相對於「面板打開時的手動荷札」的差集
-   * （`blockTagEditOf`；只 attach／detach 差的那幾個，不整份 setTags——基準不完整時才不會摘掉既有的）；undefined＝不動荷札
+   * （`blockTagEditOf`；只 attach／detach 差的那幾個，不整份 setTags——基準不完整時才不會摘掉既有的）；undefined＝不動荷札。
+   * 磨光③ 2-1（D-時-134）：offNames＝送出後這一塊**全部**排除的分類帶荷札名稱（含畫面上沒畫出來、照留的舊排除）；
+   * store 跟 index 裡現在排除的比出差集再 attach／detach（`timetable:block-off`）。undefined＝不動排除；[]＝全部還原
    */
-  editBlock(blockId: string, categoryId: string, start: number, end: number, link?: BlockLink | null, tagEdit?: BlockTagEdit): Promise<void>;
+  editBlock(
+    blockId: string,
+    categoryId: string,
+    start: number,
+    end: number,
+    link?: BlockLink | null,
+    tagEdit?: BlockTagEdit,
+    offNames?: readonly string[],
+  ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
   deleteBlock(blockId: string): Promise<void>;
@@ -897,10 +937,11 @@ function draftTagNames(names: readonly string[] | undefined): string[] | undefin
 /**
  * 補記的新塊掛上草稿的手動荷札（`tagRepo.setTags`：一個交易、一張收據；不另 toast）。回 null＝成功；失敗回錯誤（時間資料已經寫好）。
  * 只給剛建的塊用（本來就沒有荷札，整份換＝全部掛上）；改既有的塊走 `applyBlockTagEdit` 的差集（評審後）。
+ * 磨光③ 2-1：`type` 傳 `TT_TAG_BLOCK_OFF` 寫排除的那份（同一支、同一張收據規則）。
  */
-async function writeBlockTags(blockId: string, names: readonly string[]): Promise<unknown> {
+async function writeBlockTags(blockId: string, names: readonly string[], type: typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF = TT_TAG_BLOCK): Promise<unknown> {
   try {
-    const r = await tagRepo.setTags(TT_TAG_BLOCK, blockId, names);
+    const r = await tagRepo.setTags(type, blockId, names);
     if (receiptWrote(r.receipt)) blockTagsWritten = true;
     return null;
   } catch (e) {
@@ -1000,6 +1041,16 @@ export function whenTimetableIdle(): Promise<void> {
 export const useTimetableStore = create<TimetableStore>((set, get) => {
   async function readLongRunMax(): Promise<void> {
     set({ longRunMaxMin: parseLongRunMax(await settingsRepo.get(KEY_LONG_RUN_MAX)) });
+  }
+
+  /**
+   * 磨光② A15：釘選分類會同步——別台改了，拉到 settings 時重讀（同 readLongRunMax）。
+   * 內容沒變就不換陣列：兩殼的通知代理以參照比 `noticePins`，換了就會重貼一次通知（拉到別的設定鍵也會進這裡）。
+   */
+  async function readNoticePins(): Promise<void> {
+    const next = parsePins(await settingsRepo.get(KEY_NOTICE_PINS));
+    const cur = get().noticePins;
+    if (next.length !== cur.length || next.some((id, i) => id !== cur[i])) set({ noticePins: next });
   }
 
   async function firstInit(shell: TimetableShell): Promise<void> {
@@ -1188,7 +1239,10 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       if (ctx.wiped) set({ sheet: null, sheetBlock: null, dismissedLongRunId: null, pendingAsk: false, ready: false });
       const touched =
         ctx.wiped || ctx.changed.includes("time_blocks") || ctx.changed.includes("time_categories") || ctx.changed.includes("time_goals"); // ③：目標變了也要 refresh（rev 變 ⇒ 統計重載）
-      if (ctx.changed.includes("settings")) await readLongRunMax(); // 全域保險上限可能被別台改了
+      if (ctx.changed.includes("settings")) {
+        await readLongRunMax(); // 全域保險上限可能被別台改了
+        await readNoticePins(); // 磨光② A15：釘選分類也同步了
+      }
       if (ctx.wiped) {
         initPromise = null; // 整批換掉：重走 init（表可能是空的 ⇒ 重種起手分類）
         skipSettleGateOnce = true; // 這一趟剛拉完，閘門沒有東西可等
@@ -1425,14 +1479,17 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async fill(categoryId, start, end, link, tagNames) {
+    async fill(categoryId, start, end, link, tagNames, offNames) {
       const names = draftTagNames(tagNames); // ⑥ 0-12：先驗名稱（不合法 ⇒ 不寫）
       if (names === false) return;
+      const offs = draftTagNames(offNames); // 磨光③ 2-1：排除的是既有的預設荷札，照樣驗
+      if (offs === false) return;
       let tagErr: unknown = null;
       await write(
         async () => {
           const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null });
           if (names && names.length) tagErr = await writeBlockTags(r.block.id, names);
+          if (offs && offs.length) tagErr = (await writeBlockTags(r.block.id, offs, TT_TAG_BLOCK_OFF)) ?? tagErr;
           return r;
         },
         ({ block }) => {
@@ -1442,17 +1499,24 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editBlock(blockId, categoryId, start, end, link, tagEdit) {
+    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames) {
       const add = draftTagNames(tagEdit?.add); // 只驗要新掛的名稱（摘的是現有的 key）
       if (add === false) return;
+      // 磨光③ 2-1：排除那份交的是整份名稱 ⇒ 跟 index 裡現在排除的比出差集（同手動那份，只 attach／detach 差的；index 沒載＝基準空、只掛不摘）
+      const offEdit = offNames === undefined ? null : blockTagEditOf(useTagStore.getState().keysOf(TT_TAG_BLOCK_OFF, blockId), offNames);
+      const offAdd = draftTagNames(offEdit?.add);
+      if (offAdd === false) return;
       let tagErr: unknown = null;
       await write(
         async () => {
           const r = await timetableRepo.editBlock(blockId, { categoryId, startIso: isoOf(start), endIso: isoOf(end), link });
-          if (tagEdit) {
-            // 評審後：只套差集（attach／detach），不整份 setTags
+          // 評審後：只套差集（attach／detach），不整份 setTags；排除那份（D-時-134）同一招、改分類也不裁（D-時-135）
+          const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
+          if (tagEdit) edits.push([{ add: add ?? [], remove: tagEdit.remove }, TT_TAG_BLOCK]);
+          if (offEdit) edits.push([{ add: offAdd ?? [], remove: offEdit.remove }, TT_TAG_BLOCK_OFF]);
+          for (const [edit, type] of edits) {
             try {
-              if (await applyBlockTagEdit(tagRepo, blockId, { add: add ?? [], remove: tagEdit.remove })) blockTagsWritten = true;
+              if (await applyBlockTagEdit(tagRepo, blockId, edit, type)) blockTagsWritten = true;
             } catch (e) {
               blockTagsWritten = true; // 寫到一半也可能已經動了幾個 ⇒ 重載 index
               console.warn("時刻表：塊的荷札沒改好（時間資料已經寫好）", e);

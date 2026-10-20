@@ -19,11 +19,14 @@
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { useSyncStore, RECOVERY_TEXT } from "../../store/syncStore";
+import { useBackLayer } from "../mobile/backStack";
 import "./overlay.css";
 import "../../styles/sync.css";
 
 export function RecoveryCodeDialog() {
   const code = useSyncStore((s) => s.recoveryDisplay);
+  // 磨光① A3（契約 §1.5）：手機返回鍵在這裡被吞掉（onBack 什麼都不做）——同 Esc 與暗幕，不能用返回跳過抄碼
+  useBackLayer("core.recovery", !!code, () => {}, "dialog");
   if (!code) return null;
   // 每組新碼都是一次新的掛載：勾選與「已複製」不會從上一組殘留下來
   return <RecoveryCodeDialogInner key={code} code={code} />;

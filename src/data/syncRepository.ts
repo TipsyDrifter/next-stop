@@ -55,7 +55,7 @@ import type Database from "@tauri-apps/plugin-sql";
 import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "../lib/db";
 import { SYNC_TABLE_NAMES, type SyncTable } from "./syncTables";
-import { mergeObjectKey } from "../domain/syncMerge";
+import { mergeCellKey, mergeObjectKey } from "../domain/syncMerge";
 
 /* ═══════════════════════════════════════════════════════════════════════
    型別（與 Rust serde 同名同形）
@@ -218,6 +218,15 @@ export interface MergeNotice {
   hlc: string;
   /** UTC ISO；清單排序鍵、toast 去重鍵 */
   at: string;
+}
+
+/**
+ * 磨光② A4：overwritten 那一格**現在**的樣子（`currentCells` 回的）。
+ *   gone＝那一列不見了或 `deleted_at` 有值（value 不給）；否則 value＝那一欄現在的值（SQLite 回什麼就是什麼）。
+ */
+export interface MergeCellNow {
+  gone: boolean;
+  value?: unknown;
 }
 
 /** mock 用的哨兵 row_id：seedState 第 1 筆的 nodes 列；resolveMergeLabel 遇到它改拿今日頁第一張 ticket（§0-1 第 15 條） */
@@ -452,6 +461,12 @@ export interface SyncRepository {
    * 不認得的表、丟錯 ⇒ 不放進集合（當作不知道＝照舊句）。**永不 throw**。
    */
   goneObjects(objs: readonly { tbl: string; row_id: string }[]): Promise<Set<string>>;
+  /**
+   * 磨光② A4：這幾格（表＋列＋欄）**現在**的樣子——給「兩邊都改了」的清單列與 toast 在整理之後說實話用
+   * （整理在同一趟又把留下的值改掉、或把那一列刪掉）。回 `mergeCellKey` → `MergeCellNow` 的 Map；
+   * 不認得的表、settings、欄名不合格、丟錯 ⇒ 不放進 Map（當作不知道＝照舊句）。**永不 throw**。
+   */
+  currentCells(objs: readonly { tbl: string; row_id: string; col: string | null }[]): Promise<Map<string, MergeCellNow>>;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -573,6 +588,34 @@ export class TauriSyncRepository implements SyncRepository {
         if (rows.length === 0 || rows[0].deleted_at) out.add(mergeObjectKey(o));
       } catch {
         /* 不知道就不說 */
+      }
+    }
+    return out;
+  }
+  /* ── 磨光② ── */
+  async currentCells(objs: readonly { tbl: string; row_id: string; col: string | null }[]): Promise<Map<string, MergeCellNow>> {
+    const out = new Map<string, MergeCellNow>();
+    // 同 goneObjects：表名只收同步登記表上的（settings 是鍵值表、沒有 id／deleted_at，排除）；
+    // 表名與欄名都要拼進 SQL，拼之前各驗一次只有小寫與底線（欄名來自 Rust 通知，不是使用者輸入，但不賭）
+    const known = new Set(SYNC_TABLE_NAMES.filter((t) => t !== "settings"));
+    let db: Database;
+    try {
+      db = await getDb();
+    } catch {
+      return out;
+    }
+    for (const o of objs) {
+      const col = o.col ?? "";
+      if (!known.has(o.tbl) || !/^[a-z_]+$/.test(o.tbl) || !/^[a-z_]+$/.test(col)) continue;
+      try {
+        const rows = await db.select<{ v: unknown; deleted_at: string | null }[]>(
+          `SELECT "${col}" AS v, deleted_at FROM "${o.tbl}" WHERE id = $1`,
+          [o.row_id],
+        );
+        if (rows.length === 0 || rows[0].deleted_at) out.set(mergeCellKey(o), { gone: true });
+        else out.set(mergeCellKey(o), { gone: false, value: rows[0].v });
+      } catch {
+        /* 不知道就不說（欄不存在之類） */
       }
     }
     return out;
@@ -725,15 +768,17 @@ function mockNotice(minutesAgo: number, n: Omit<MergeNotice, "at" | "hlc" | "the
 }
 
 /**
- * `?sync=merges` 的 4 筆種子（契約 §6.4；新在前）：①核心車票的內容競合（哨兵 id＝今日頁第一張票）②筆記回來了
- * ③帳目留著（第三台句）④一張已經不存在的票（「車票（現在找不到了）」）。
+ * `?sync=merges` 的 4 筆種子（契約 §6.4；新在前，同 Rust 端清單）：①核心車票的內容競合（哨兵 id＝今日頁第一張票）
+ * ②筆記回來了 ③一張已經不存在的票（「車票（現在找不到了）」）④帳目留著（第三台句）。
+ * 接縫 #79：「刪了又回來」組畫面上是 revived 在前、kept 在後（groupMerges），所以 kept 那筆放最舊——
+ * 種子本身新到舊、畫面上那一組也是新到舊（原本 kept 9 分鐘前夾在兩筆 revived 中間，畫面印成 5→12→9 分鐘前）。
  */
 function mockMergeSeed(): MergeNotice[] {
   return [
     mockNotice(3, { kind: "overwritten", tbl: "nodes", row_id: MOCK_FIRST_TICKET, col: "scheduled_time", mine: "15:00", theirs: "16:00", winner: "theirs", by_me: true }),
     mockNotice(5, { kind: "revived", tbl: "notes", row_id: "mock-note-0000a1b2", col: null, mine: new Date(Date.now() - 6 * 60_000).toISOString(), theirs: null, winner: "theirs", by_me: true }),
-    mockNotice(9, { kind: "kept", tbl: "tk_entries", row_id: "mock-entry-0000e5f6", col: null, mine: null, theirs: new Date(Date.now() - 10 * 60_000).toISOString(), winner: "mine", by_me: false }),
-    mockNotice(12, { kind: "revived", tbl: "nodes", row_id: "gone-0000zzzz", col: null, mine: new Date(Date.now() - 13 * 60_000).toISOString(), theirs: null, winner: "theirs", by_me: true }),
+    mockNotice(9, { kind: "revived", tbl: "nodes", row_id: "gone-0000zzzz", col: null, mine: new Date(Date.now() - 10 * 60_000).toISOString(), theirs: null, winner: "theirs", by_me: true }),
+    mockNotice(12, { kind: "kept", tbl: "tk_entries", row_id: "mock-entry-0000e5f6", col: null, mine: null, theirs: new Date(Date.now() - 13 * 60_000).toISOString(), winner: "mine", by_me: false }),
   ];
 }
 
@@ -1127,6 +1172,10 @@ export class MemorySyncRepository implements SyncRepository {
   /* ── 主線④ ── */
   async goneObjects(): Promise<Set<string>> {
     return new Set(); // 記憶體版沒有「整理」會再刪；示範通知照舊句
+  }
+  /* ── 磨光② ── */
+  async currentCells(): Promise<Map<string, MergeCellNow>> {
+    return new Map(); // 同 goneObjects：記憶體版沒有「整理」會再改；示範通知照舊句
   }
 }
 

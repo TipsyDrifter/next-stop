@@ -26,6 +26,7 @@ import type {
   LineReloadContext,
   NodeFieldSpec,
   QuickJumpProviderSpec,
+  SettingsLinkSpec,
   TagEntitySpec,
   TicketSheetItemSpec,
   TodayRowActionSpec,
@@ -202,6 +203,21 @@ export function lineNodeFields(shell: "desktop" | "mobile"): NodeFieldSpec[] {
 }
 
 /**
+ * 全域設定頁的指路列（磨光③ 0-2），比照 `lineCaptureTargets(shell)`：三線固定順序、各線內照登記順序；
+ * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。沒裝＝空陣列。
+ */
+export function lineSettingsLinks(shell: "desktop" | "mobile"): SettingsLinkSpec[] {
+  const out: SettingsLinkSpec[] = [];
+  if (!installed) return out;
+  for (const m of LINE_MANIFESTS) {
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    const specs = installed[m.id].settingsLinks;
+    if (status === "open" && specs) out.push(...specs);
+  }
+  return out;
+}
+
+/**
  * 今日列的附加動作／標記（接縫 #66），比照 `lineNodeFields(shell)`：三線固定順序、各線內照登記順序；
  * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才算。沒裝＝空陣列。
  */
@@ -312,16 +328,21 @@ export function lineSyncRowLabel(tbl: string, shell: "desktop" | "mobile"): Line
   return null;
 }
 
-/** Ctrl+P 的結果提供者（接縫 #56），比照 `lineSidebarTools()`：三線固定順序、只看 `page.status`；`open` 且有填才算。沒裝＝空陣列。 */
-export function lineQuickJumpProviders(): QuickJumpProviderSpec[] {
+/**
+ * Ctrl+P 的結果提供者（接縫 #56），比照 `lineSidebarTools()`：三線固定順序；`open` 且有填才算。沒裝＝空陣列。
+ * 桌機（預設）只看 `page.status`、不管提供者的 `shells`（行為同加這個參數之前）；
+ * 手機（磨光①：手機搜尋）看 `mobile.status`，而且只收 `shells` 含 "mobile" 的提供者。
+ */
+export function lineQuickJumpProviders(shell: "desktop" | "mobile" = "desktop"): QuickJumpProviderSpec[] {
   const out: QuickJumpProviderSpec[] = [];
   if (!installed) return out;
   for (const m of LINE_MANIFESTS) {
     const spec = installed[m.id].quickJump;
-    if (m.page.status !== "open" || !spec) continue;
+    const status = shell === "desktop" ? m.page.status : m.mobile.status;
+    if (status !== "open" || !spec) continue;
     // 單值（舊寫法）與陣列都收，統一攤平成陣列
-    if (Array.isArray(spec)) out.push(...spec);
-    else out.push(spec as QuickJumpProviderSpec);
+    const list: readonly QuickJumpProviderSpec[] = Array.isArray(spec) ? spec : [spec as QuickJumpProviderSpec];
+    for (const p of list) if (shell === "desktop" || p.shells?.includes("mobile")) out.push(p);
   }
   return out;
 }

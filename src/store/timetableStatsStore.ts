@@ -33,6 +33,7 @@ import { taskEstimateOf } from "../domain/timetableLink";
 import {
   ROUTE_GONE,
   ROUTE_NONE,
+  ROUTE_NOROUTE,
   buildGoals,
   buildStats,
   buildWeek,
@@ -248,7 +249,7 @@ async function routeNamesOf(result: StatsResult): Promise<Record<string, RouteNa
   const live = new Map(useNodeStore.getState().routes.filter((r) => r.deleted_at === null).map((r) => [r.id, r.name] as const));
   const missing: string[] = [];
   for (const r of result.routes) {
-    if (r.key === ROUTE_NONE || r.key === ROUTE_GONE) continue;
+    if (r.key === ROUTE_NONE || r.key === ROUTE_GONE || r.key === ROUTE_NOROUTE) continue;
     const name = live.get(r.key);
     if (name !== undefined) out[r.key] = { name, deleted: false };
     else missing.push(r.key);
@@ -294,7 +295,7 @@ async function goalSpansFor(
 
 /* ───────── ⑥ 荷札（0-9、§3.3） ───────── */
 
-/** 同一個 index 物件只濾一次三張對照 */
+/** 同一個 index 物件只濾一次四張對照 */
 const tagMapsCache = new WeakMap<object, TimetableTagMaps>();
 function currentTagMaps(): TimetableTagMaps {
   const idx = useTagStore.getState().index;

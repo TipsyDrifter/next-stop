@@ -30,6 +30,7 @@ import { addDays, dayKeyOf } from "../../../lib/date";
 import { diaryDraftMeta, diaryPlaceholder, entryWrittenLabel, fmtMonthDay, fmtShortDay } from "../../../domain/notes";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { useBackLayer } from "../../mobile/backStack";
 import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { charCount, hhmm } from "./mobileDiaryBits";
 import { MobileMdBody } from "./MobileMdBody";
@@ -121,6 +122,8 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
   const [title, setTitle] = useState(n.title ?? "");
   const [body, setBody] = useState(n.body);
   const [pickDate, setPickDate] = useState(false);
+  // 磨光① 返回層：改日期面板＝同「取消」（同時只會有一篇開著它）
+  useBackLayer("notes.diaryEntry.pickDate", pickDate, () => setPickDate(false));
   const latest = useRef({ title, body });
   latest.current = { title, body };
   const saved = useRef({ title: n.title ?? "", body: n.body });

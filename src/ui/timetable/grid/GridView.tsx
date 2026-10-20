@@ -7,7 +7,8 @@
  *   ├ div.ns-tt-grid-main   GridNav（‹ 10/20（一）今天 ›、回到今天、拖的時候的讀數、格子大小 5｜10｜15｜30 分）＋ GridSheet
  *   └ aside.ns-tt-grid-side 沒選＝DaySummary＋操作說明與圖例；選了＝PaintBar
  * 手機 `<GridView shell="mobile" />`：
- *   div.ns-tt-grid.is-phone（撐滿 .m-page 剩下的高；整頁不捲——§M 用 :has 把 .m-page 改成直欄不捲）
+ *   div.ns-tt-grid.is-phone[data-no-fab]（撐滿 .m-page 剩下的高；整頁不捲——§M 用 :has 把 .m-page 改成直欄不捲；
+ *     data-no-fab＝收起「記一句」浮鈕：整頁不捲，鈕放哪都蓋一格，磨光③ 2-13）
  *   ├ GridNav（拖的時候讀數蓋在這一列上，手指遮不到；不是今天時沒有「回到今天」鈕、點日期回今天——頂列放不下）
  *   ├ GridSheet（24 列跟著高度伸縮；一列 1 小時算出來 < 16px 改一列 2 小時，〈原型定案〉4）
  *   └ div.ns-tt-grid-legend 本日各分類合計（橫捲；選了一段時藏起來、不讓位）
@@ -399,7 +400,7 @@ export function GridView({ shell }: GridViewProps) {
     );
   }
   return (
-    <div className="ns-tt-grid is-phone" aria-label={TT_TEXT.viewGrid}>
+    <div className="ns-tt-grid is-phone" data-no-fab aria-label={TT_TEXT.viewGrid}>
       <GridNav day={day} read={read} />
       {sheet}
       <MobileLegend day={day} hidden={sel !== null} />

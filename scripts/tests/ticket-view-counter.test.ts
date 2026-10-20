@@ -661,10 +661,10 @@ describe("R13 文字口徑（0-11、§4.6）", () => {
   test("【反例】R13a 路線花費非整數：§4.6 寫 TK_TEXT.spend(moneyText(inRange), moneyText(allTime))（不帶 whole；0-11「整數不顯示小數」）⇒ 12.50 應照印、不該四捨五入成 13", () => {
     assert.equal(spendText(1250, 1842050, 2), `本月 ${moneyText(1250, 2)}／累計 ${moneyText(1842050, 2)}`);
   });
-  test("【反例】R13b 手機列尾同理：§4.6 asideText＝`本月 ${moneyText(inRange)}`", () => {
-    assert.equal(asideText(1250, 2), `本月 ${moneyText(1250, 2)}`);
-    assert.notEqual(asideText(40, 2), null); // 0.40 元不是 0；whole 會印成「本月 0」
-    assert.notEqual(asideText(40, 2), "本月 0");
+  test("【反例】R13b 手機列尾同理：asideText＝`本月花 ${moneyText(inRange)}`（磨光③ 2-6 加「花」）", () => {
+    assert.equal(asideText(1250, 2), `本月花 ${moneyText(1250, 2)}`);
+    assert.notEqual(asideText(40, 2), null); // 0.40 元不是 0；whole 會印成「本月花 0」
+    assert.notEqual(asideText(40, 2), "本月花 0");
   });
   test("R13c 搜尋摘要：N＝全部筆數；支出收入用 main_minor、退款抵回", () => {
     const xs = [E({ occurred_on: "2026-10-02", amount_minor: 123456 }), E({ occurred_on: "2026-10-02", amount_minor: -456 }), E({ occurred_on: "2026-10-02", kind: "income", category_id: "i-allow", amount_minor: 100000 })];

@@ -1,13 +1,14 @@
 /**
- * timetableTagEntities——時刻表掛在荷札上的三種東西，給旅客筆記的荷札頁認（⑥ 契約 0-6、§5.6；D-時-123；丙席）。
- * `timetable.mount.tsx` 的 `tagEntities` 直接用這三筆；登記由 `lines/runtime.ts` 收進 `data/tagEntityAlive.ts`（存活條件）。
+ * timetableTagEntities——時刻表掛在荷札上的四種東西，給旅客筆記的荷札頁認（⑥ 契約 0-6、§5.6；D-時-123；丙席）。
+ * `timetable.mount.tsx` 的 `tagEntities` 直接用這四筆；登記由 `lines/runtime.ts` 收進 `data/tagEntityAlive.ts`（存活條件）。
  *
  *   timetable:block     手動掛的塊（分類帶的不一塊一塊列，0-1）。存活＝`time_blocks.deleted_at IS NULL`
  *                       列字「10/17 上課 10:50–13:00」（日界線日；運行中「…–運行中」）；點了跳到那天的軸、打開那塊
  *                       （運行中那班＝桌機開荷札小面板 `{kind:"tags"}`、手機只跳過去——它的操作在運行列）
- *   timetable:category  分類（或組）的預設荷札。存活＝沒刪（封存的算在）。列字「分類『娛樂』的預設荷札」＋小字「這個分類過去和以後的紀錄都算」；
+ *   timetable:category  分類（或組）的預設荷札。存活＝沒刪（封存的算在）。列字「分類「娛樂」的預設荷札」＋小字「這個分類過去和以後的紀錄都算」；
  *                       點了開分類管理（刪荷札之前看得到它會連帶影響時刻表，評審第 5 條）
- *   timetable:goal      目標綁的荷札。存活＝沒刪（封存的算在）。列字「目標『夜行列車』」＋小字＝期間與方向；點了跳統計頁、捲到那張卡
+ *   timetable:goal      目標綁的荷札。存活＝沒刪（封存的算在）。列字「目標「夜行列車」」＋小字＝期間與方向；點了跳統計頁、捲到那張卡
+ *   timetable:block-off 塊排除的預設荷札（磨光③ 2-1）。存活同 timetable:block；`counts: false`＝荷札頁不算用量、不列（describe 回空）
  *
  * `existsSql` 的別名 `g`＝taggings；`aliveMemory` 只在 mock 模式被叫（那時 `timetableRepo` 就是 memory 版）。
  * 段名、列字一律從 `TT_TEXT.tags` 取。`tables`：三張表任一有同步進來 ⇒ 荷札 index 重載（存活可能變了）。
@@ -16,7 +17,7 @@ import type { TagEntityRow, TagEntitySpec } from "./types";
 import { timetableRepo } from "../data/timetableRepository";
 import type { TimeBlockRow, TimeCategoryRow } from "../domain/timetable";
 import { parseGoal } from "../domain/timetableStats";
-import { TT_TAG_BLOCK, TT_TAG_CATEGORY, TT_TAG_GOAL } from "../domain/timetableTags";
+import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF, TT_TAG_CATEGORY, TT_TAG_GOAL } from "../domain/timetableTags";
 import { todayKey } from "../lib/date";
 import { TT_TEXT, useTimetableStore } from "../store/timetableStore";
 import { useTimetableStatsStore } from "../store/timetableStatsStore";
@@ -32,8 +33,8 @@ function shellNow(): "desktop" | "mobile" {
   return typeof document !== "undefined" && document.documentElement.getAttribute("data-shell") === "mobile" ? "mobile" : "desktop";
 }
 
-/** 先回時刻表頁（桌機關掉設定面板再換頁；手機換 tab），等 store 載好（同 `timetable.mount.tsx` 的 syncRowLabel 跳轉） */
-async function gotoTimetable(shell: "desktop" | "mobile"): Promise<void> {
+/** 先回時刻表頁（桌機關掉設定面板再換頁；手機換 tab），等 store 載好（`timetable.mount.tsx` 的 syncRowLabel／settingsLinks 跳轉也用這一份） */
+export async function gotoTimetable(shell: "desktop" | "mobile"): Promise<void> {
   const ui = useUiStore.getState();
   if (shell === "desktop") {
     ui.setSettingsOpen(false);
@@ -97,7 +98,7 @@ async function describeCategories(ids: readonly string[]): Promise<Record<string
   const out: Record<string, TagEntityRow | null> = {};
   for (const id of ids) {
     const c = byId.get(id);
-    // 組（頂層）的預設荷札會傳給底下每個分類（D-時-111）⇒ 寫「組『X』」，刪荷札前才看得出影響範圍（評審後）
+    // 組（頂層）的預設荷札會傳給底下每個分類（D-時-111）⇒ 寫「組「X」」，刪荷札前才看得出影響範圍（評審後）
     const isGroup = c ? c.parent_id === null : false;
     out[id] = c
       ? {
@@ -106,7 +107,7 @@ async function describeCategories(ids: readonly string[]): Promise<Record<string
           open: () =>
             void (async () => {
               await gotoTimetable(shellNow());
-              useTimetableStore.getState().openSheet({ kind: "categories" });
+              useTimetableStore.getState().openSheet({ kind: "categories", focusId: id }); // 磨光③ 2-11：展開那一列、閃一下
             })(),
         }
       : null;
@@ -171,5 +172,15 @@ export const TIMETABLE_TAG_ENTITIES: readonly TagEntitySpec[] = [
     aliveMemory: async (id) => (await timetableRepo.getGoal(id).catch(() => null)) !== null,
     describe: describeGoals,
     tables: TABLES,
+  },
+  {
+    // 磨光③ 2-1（D-時-134）：塊排除的預設荷札。只給時刻表自己讀（tagStore.index.ents → tagMapsOf 的 off），荷札頁不算用量、不列
+    type: TT_TAG_BLOCK_OFF,
+    group: T.entityGroup,
+    existsSql: existsIn("time_blocks"),
+    aliveMemory: async (id) => (await timetableRepo.getBlock(id).catch(() => null)) !== null,
+    describe: async () => ({}),
+    tables: TABLES,
+    counts: false,
   },
 ];

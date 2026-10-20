@@ -31,7 +31,6 @@ import {
   hasRepeatRule,
   manualOrderIds,
   parseTimeOverrides,
-  pruneTimeOverrides,
   serializeTimeOverrides,
 } from "../domain/scheduledTime";
 import {
@@ -790,29 +789,27 @@ export class SqliteNodeRepository implements NodeRepository {
     id: string,
     dueOn: string,
     time: string | null,
-    todayDateKey: string,
     dayStartHour: number,
   ): Promise<void> {
-    await this.writeRunTime(id, dueOn, todayDateKey, (o) => {
+    await this.writeRunTime(id, dueOn, (o) => {
       assertClockWritable(time, dayStartHour);
       o[dueOn] = time;
     });
   }
 
-  async clearRunTime(id: string, dueOn: string, todayDateKey: string): Promise<void> {
-    await this.writeRunTime(id, dueOn, todayDateKey, (o) => {
+  async clearRunTime(id: string, dueOn: string): Promise<void> {
+    await this.writeRunTime(id, dueOn, (o) => {
       delete o[dueOn];
     });
   }
 
   /**
-   * setRunTime／clearRunTime 的核心：驗身分與日期 → prune（班次日 < 今天且有結局的丟掉；誤點中沒結局的留著）→ 套用 → 一句 UPDATE＋一筆 op。
+   * setRunTime／clearRunTime 的核心：驗身分與日期 → 套用 → 一句 UPDATE＋一筆 op。過去班次的覆寫一律保留（歷史，D-主-32）。
    * 覆寫表是整欄 LWW（自決 4），所以 op 帶的是整串 JSON。
    */
   private async writeRunTime(
     id: string,
     dueOn: string,
-    todayDateKey: string,
     apply: (o: Record<string, string | null>) => void,
   ): Promise<void> {
     const db = await getDb();
@@ -820,8 +817,7 @@ export class SqliteNodeRepository implements NodeRepository {
     if (!node || node.deleted_at !== null) throw new Error("節點不存在");
     if (!parseRule(node.repeat_rule)) throw new Error(TIME_REPEAT_ONLY_MSG);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) throw new Error("班次日格式不正確");
-    const settledDates = new Set((await this.occurrencesOf(db, id)).map((o) => o.due_on));
-    const next = pruneTimeOverrides(parseTimeOverrides(node.time_overrides), todayDateKey, (d) => settledDates.has(d));
+    const next = parseTimeOverrides(node.time_overrides);
     apply(next);
     const json = serializeTimeOverrides(next);
     const now = nowUtcIso();

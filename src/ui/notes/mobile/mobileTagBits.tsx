@@ -7,6 +7,7 @@
  *   - 文字插入：`replaceAtCaret`（游標處建議選了一個）、`insertTagsAt`（點選器插入模式）
  *   - `useCaretTag`：打字框游標處正在打的 `#…`（組字中不算；IME 護欄，契約 §1-8）
  *   - `MobileTagNotice`：通車提示條（D-筆-43）
+ *   - `MTagLoading`／`useTagIndexFailed`／`retryTagIndex`：「載入中…」與載入失敗的「荷札沒載入　重試」（磨光③ 2-12）
  * 名稱怎麼解析、怎麼排建議都在 `domain/tags.ts`；這裡只畫、只接線（契約 §1-9）。
  * 牌子上不印 `#`（§1-7）；名稱照 `tagDisplayParts` 拆成「父層淡、末段正常、分隔 /」。
  */
@@ -285,6 +286,27 @@ export function MobileTagNotice() {
     </div>
   );
 }
+
+/* ═══ 載入中／沒載入（磨光③ 2-12）：載入失敗時「荷札沒載入　重試」取代永遠的「載入中…」 ═══ */
+
+export function MTagLoading({ className, failed, onRetry }: { className: string; failed: boolean; onRetry(): void }) {
+  if (!failed) return <p className={className}>載入中…</p>;
+  return (
+    <p className={className + " ns-notes-mloadfail"} role="alert">
+      荷札沒載入
+      <button type="button" className="ns-notes-mbtn" onClick={onRetry}>
+        重試
+      </button>
+    </p>
+  );
+}
+
+/** 荷札索引載入失敗、而且現在沒在重載（重載中照舊寫「載入中…」，點重試看得到有動） */
+export function useTagIndexFailed(): boolean {
+  return useTagStore((s) => s.loadError !== null && !s.loading);
+}
+
+export const retryTagIndex = () => void useTagStore.getState().loadIndex();
 
 /** 按鈕按下時不搶走打字框的焦點（mousedown 的預設動作＝換焦點；觸控的相容 mousedown 也吃這一條） */
 export const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();

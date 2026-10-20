@@ -44,23 +44,10 @@ export function serializeTimeOverrides(o: TimeOverrides): string | null {
 }
 
 /**
- * 清理（寫入前叫）：丟掉「班次日 < before 且 settled(班次日) 為 true」的項。
- * settled 由 repository 用 occurrences 判（那一天有結局列＝済／運休）；沒有結局的過去班次（誤點中）保留——它還活著（§0-1 第 13 條 (c)）。回新物件
+ * 丟掉班次日 ≥ from 的項（換規則時清未來覆寫，§0-1 第 13 條 (b)）。回新物件。
+ * 過去班次的覆寫一律保留——那是歷史（D-主-32；曾有 pruneTimeOverrides 在 setRunTime 時丟「過去且有結局」的項，
+ * 結果過去那天的日程退回規則時刻、「差多少」被改寫，已拿掉）。
  */
-export function pruneTimeOverrides(
-  o: TimeOverrides,
-  before: string,
-  settled: (date: string) => boolean,
-): TimeOverrides {
-  const out: TimeOverrides = {};
-  for (const [k, v] of Object.entries(o)) {
-    if (k < before && settled(k)) continue;
-    out[k] = v;
-  }
-  return out;
-}
-
-/** 丟掉班次日 ≥ from 的項（換規則時清未來覆寫，§0-1 第 13 條 (b)）。回新物件 */
 export function dropFutureOverrides(o: TimeOverrides, from: string): TimeOverrides {
   const out: TimeOverrides = {};
   for (const [k, v] of Object.entries(o)) {

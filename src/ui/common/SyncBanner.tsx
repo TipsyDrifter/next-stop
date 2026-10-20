@@ -21,6 +21,7 @@
  * 「先收起」＝`dismissSyncBanner()`（本次啟動有效；同種告警不再出、換一種再出、重開 App 再出、狀態解除自動清）。
  * 同步關著的桌機：`alertKindOf` 恆 null ⇒ 本元件回 null、DOM 零節點（鐵則「桌機零改變」）。
  */
+import { useEffect, useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { SYNC_ALERT_TEXT, SYNC_BANNER_DISMISS, type SyncAlertKind } from "../../store/syncStore";
 import "./overlay.css";
@@ -45,6 +46,26 @@ export function SyncBanner({ shell }: { shell: "desktop" | "mobile" }) {
   const dismissed = useUiStore((s) => s.syncBannerDismissed);
   const openSyncPage = useUiStore((s) => s.openSyncPage);
   const dismiss = useUiStore((s) => s.dismissSyncBanner);
+  const mobileRef = useRef<HTMLDivElement>(null);
+  const shown = kind !== null && dismissed !== kind && !!SYNC_ALERT_TEXT[kind];
+
+  // 磨光① A1（契約 §9.3）：手機殼把橫幅自己的高寫進 `<html>` 的 `--m-banner-h`——面板開著時 toast 落在頂帶下方，
+  //   要再讓過這條橫幅（沒橫幅＝變數不在＝0）。高度會隨字數折行與字級變，用 ResizeObserver 跟著量；
+  //   不畫或卸載就移除。桌機殼不量、不寫。
+  useEffect(() => {
+    if (shell !== "mobile" || !shown) return;
+    const el = mobileRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const write = () => root.style.setProperty("--m-banner-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    write();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(write) : null;
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+      root.style.removeProperty("--m-banner-h");
+    };
+  }, [shell, shown]);
 
   if (!kind || dismissed === kind) return null;
   const text = SYNC_ALERT_TEXT[kind];
@@ -54,7 +75,7 @@ export function SyncBanner({ shell }: { shell: "desktop" | "mobile" }) {
 
   if (shell === "mobile") {
     return (
-      <div role="alert" data-kind={kind} className={`m-sync-banner ${tone}`}>
+      <div ref={mobileRef} role="alert" data-kind={kind} className={`m-sync-banner ${tone}`}>
         <p className="m-sync-banner-text">{text.banner}</p>
         <div className="m-sync-banner-actions">
           <button type="button" onClick={() => openSyncPage("mobile")} className="ns-btn btn-seal m-sync-banner-go">

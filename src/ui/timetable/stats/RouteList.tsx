@@ -1,18 +1,18 @@
 /**
  * RouteList——依路線（③ 契約 §5.2-6；D-時-52；乙席）。
- * 每列＝路線圓牌、名稱、時數、百分比（分母＝已記錄）、環比；依時數排，最後「（已刪除的任務）」「沒連任務」（順序 domain 排好）。
- * 點一列＝打開那條路線：桌機走核心 `jumpToNode`（路線圖頁、開那條路線）；手機 `openRoute` → 路線圖 tab（＝MobileTagPage 的手機版跳轉）。
+ * 每列＝路線圓牌、名稱、時數、百分比（分母＝已記錄）、環比；依時數排，最後「沒有路線的任務」「（已刪除的任務）」「沒連任務」（順序 domain 排好）。
+ * 點一列＝打開那條路線：桌機走核心 `jumpToNode`（路線圖頁、開那條路線）；手機走核心 `revealOnRouteMap`（磨光① A7：路線圖 tab、直接進那條路線的第二層）。
  * 統計頁不往下鑽到列車。
  */
 import { fmtDur } from "../../../domain/timetable";
-import { ROUTE_GONE, ROUTE_NONE, fmtPct, type StatsResult } from "../../../domain/timetableStats";
+import { ROUTE_GONE, ROUTE_NONE, ROUTE_NOROUTE, fmtPct, type StatsResult } from "../../../domain/timetableStats";
 import { nodeRepo } from "../../../data";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useNodeStore } from "../../../store/nodeStore";
-import { useUiStore } from "../../../store/uiStore";
 import { jumpToNode } from "../../common/QuickJump";
 import { roundelStyle } from "../../common/roundel";
+import { revealOnRouteMap } from "../../mobile/routeMapReveal";
 import { Delta } from "./parts";
 
 async function openRoute(id: string, desktop: boolean): Promise<void> {
@@ -21,10 +21,8 @@ async function openRoute(id: string, desktop: boolean): Promise<void> {
     if (node && node.deleted_at === null) await jumpToNode(node);
     return;
   }
-  const ui = useUiStore.getState();
-  await useNodeStore.getState().openRoute(id);
-  ui.select(null);
-  ui.setMobileTab("routemap");
+  // 路線的載入交給手機路線圖（進路線時自己 openRoute）
+  revealOnRouteMap(id, null);
 }
 
 export function RouteList({ r, desktop }: { r: StatsResult; desktop: boolean }) {
@@ -42,11 +40,11 @@ export function RouteList({ r, desktop }: { r: StatsResult; desktop: boolean }) 
       </div>
       <div className="ns-tt-stats-list" role="list">
         {r.routes.map((row) => {
-          const special = row.key === ROUTE_NONE || row.key === ROUTE_GONE;
+          const special = row.key === ROUTE_NONE || row.key === ROUTE_GONE || row.key === ROUTE_NOROUTE;
           const info = routeNames[row.key];
           const node = special ? null : routes.find((x) => x.id === row.key) ?? null;
           const deleted = !special && (info?.deleted ?? !node);
-          const name = row.key === ROUTE_NONE ? TT_TEXT.routeNone : row.key === ROUTE_GONE ? TT_TEXT.routeGone : deleted ? T.routeDeleted(info?.name ?? "？") : (info?.name ?? node?.name ?? "？");
+          const name = row.key === ROUTE_NONE ? TT_TEXT.routeNone : row.key === ROUTE_NOROUTE ? TT_TEXT.routeNoRoute : row.key === ROUTE_GONE ? TT_TEXT.routeGone : deleted ? T.routeDeleted(info?.name ?? "？") : (info?.name ?? node?.name ?? "？");
           const lead = special ? (
             <span className="ns-tt-stats-rlead-x" aria-hidden="true">
               {row.key === ROUTE_GONE ? "✕" : "—"}

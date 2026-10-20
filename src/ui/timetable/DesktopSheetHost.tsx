@@ -12,6 +12,11 @@ import { SheetPanel, sheetTitle } from "./panels";
 import { useNow } from "./useNow";
 
 const SHEET_WIDTH = 460;
+/**
+ * 磨光③ 2-4（體檢 S4）：置頂距離 8vh（DialogShell 預設 18vh；前例：設定 10vh、指引 6vh、售票口 9vh）——補記／改一塊在
+ * 1280×800、1366×768 按鈕不用捲就看得到；長面板撐不下時按鈕列黏底（timetable.css §F `.ns-tt-panel-block .ns-tt-actions`）。
+ */
+const SHEET_TOP = "pt-[8vh]";
 
 export function DesktopSheetHost() {
   const sheet = useTimetableStore((s) => s.sheet);
@@ -28,7 +33,7 @@ export function DesktopSheetHost() {
   const title = sheetTitle(sheet, { running, catById, dayBlocks, todayBlocks, weekBlocks }, now);
 
   return (
-    <DialogShell title={title} overline="時刻表 — TIMETABLE" onClose={closeSheet} width={SHEET_WIDTH}>
+    <DialogShell title={title} overline="時刻表 — TIMETABLE" onClose={closeSheet} width={SHEET_WIDTH} topClass={SHEET_TOP}>
       <div className="ns-tt-sheet-body" data-kind={sheet.kind}>
         <SheetPanel sheet={sheet} onDone={closeSheet} />
       </div>

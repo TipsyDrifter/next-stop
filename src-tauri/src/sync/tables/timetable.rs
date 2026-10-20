@@ -125,5 +125,6 @@ pub const TABLES: &[SyncTableSpec] = &[
     },
 ];
 
-/// 時刻表線要同步的 settings 鍵：全域保險上限（分；0＝關）。「上次停在哪個視圖」各台本地、不在這裡。
-pub const SETTINGS_KEYS: &[&str] = &["timetable_long_run_max_min"];
+/// 時刻表線要同步的 settings 鍵：全域保險上限（分；0＝關）、釘選分類（JSON 字串陣列；磨光② A15）。
+/// 「上次停在哪個視圖」與通知開關各台本地、不在這裡。
+pub const SETTINGS_KEYS: &[&str] = &["timetable_long_run_max_min", "timetable_notice_pins"];

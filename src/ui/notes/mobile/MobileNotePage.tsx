@@ -39,6 +39,7 @@ import { MobileMdBody } from "./MobileMdBody";
 import { MobileTagToolbar } from "./MobileTagToolbar";
 import { resolveLeaveNote } from "../leaveSync";
 import { insertTagsAt } from "./mobileTagBits";
+import { useBackLayer } from "../../mobile/backStack";
 
 const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
 function weekday(key: string): string {
@@ -261,6 +262,13 @@ export function MobileNotePage({ onBack, onOpenTag }: MobileNotePageProps) {
     onBack();
     if (id) void deleteNote(id);
   };
+
+  // 磨光① 返回層：本頁只在打開時掛 ⇒ 子頁一直 active；返回＝「‹ 筆記」（會存檔）。back() 是 async，
+  //   存檔還在送時再按一下不重跑（leaving 已立）。日期挑選 sheet 登記在這裡；「掛在哪」挑選器自己登記（MobileAttachPicker）
+  useBackLayer("notes.notePage", true, () => {
+    if (!leaving.current) void back();
+  }, "page");
+  useBackLayer("notes.notePage.date", pop === "date" && !!note, () => setPop(null));
 
   const imeBusy = (e: KeyboardEvent) => e.nativeEvent.isComposing || e.keyCode === 229 || composing.current;
 

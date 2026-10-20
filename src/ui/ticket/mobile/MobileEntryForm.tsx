@@ -22,6 +22,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { addDays, todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { useBackLayer } from "../../mobile/backStack";
 import { shortDayKey } from "../../common/DatePicker";
 import {
   MAIN_CURRENCY,
@@ -256,6 +257,10 @@ function FormShell({
   const today = todayKey(dayStartHour);
 
   const [sheet, setSheet] = useState<"currency" | "date" | null>(null);
+  // 磨光①（主線手機殼契約 §1.5、§9.3）：返回鍵＝「取消」（新帳 requestEscape：有內容先問；舊帳 closePanel）。
+  // 幣別／日期 sheet 疊在全螢幕表單上：權重要比 "full" 高才會先關它，所以登記成 "dialog"（toast 也跟著移到頂帶下方，不壓在 sheet 上）
+  useBackLayer("ticket.form", true, onCancel, "full");
+  useBackLayer("ticket.form.pick", sheet !== null, () => setSheet(null), "dialog");
   const [more, setMore] = useState(mode === "edit" && (d.note !== "" || d.routeId !== null));
   const [editConv, setEditConv] = useState(false);
   const isNew = mode === "new";

@@ -211,6 +211,8 @@
 
 /* 空狀態 */
 .ns-notes-empty { display: grid; justify-items: center; gap: 14px; padding: 70px 0 40px; color: var(--color-ink-faint); font-size: 13.5px; letter-spacing: .14em; text-align: center; }
+/* 空狀態第二行小字（收件匣「隨手記一句，會先放進這裡」，磨光③ 2-15） */
+.ns-notes-empty p small { display: block; margin-top: 8px; font-size: 12px; letter-spacing: .06em; }
 
 /* 頁面按鈕（ghost／primary） */
 .ns-notes-btn,
@@ -630,8 +632,6 @@
 .ns-notes-mood.yellow { color: var(--arc); }          /* 粉彩＝金 #A8803F、銀河＝金 #CDB783（--arc 兩主題就是原型的黃） */
 .ns-notes-mood.red { color: var(--late); }            /* 赭，不用朱——朱只給済章 */
 .ns-notes-fpempty { padding: 26px 0; font-size: 12.5px; color: var(--color-ink-faint); letter-spacing: .12em; }
-.ns-notes-fpfoot { padding: 12px 22px 18px; font-size: 10px; letter-spacing: .12em; color: var(--color-ink-faint); opacity: .85; border-top: 1px dashed var(--color-line); }
-.ns-notes-fpfoot:empty { display: none; }
 
 /* 済章（迷你，足跡用；原型 styles.css:479-488）——朱只給這一枚 */
 .ns-notes-sumi {

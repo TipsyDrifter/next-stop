@@ -28,6 +28,7 @@ import { isTimeOverridden } from "../../domain/scheduledTime";
 import { clockMinutes, isClockPast, nextDayNote } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { roundelStyle } from "../common/roundel";
+import { hotkeyCaps } from "../common/PopMenu";
 import { SealSuspended } from "../stamps";
 // 時刻字（.tm）的樣式在 schedule.css（串流 .ns-sch 與當日清單浮層 .ns-daypop 兩個前綴都寫在那裡）
 import "../schedule/schedule.css";
@@ -263,6 +264,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       <span className="t" title={name}>
         {name}
       </span>
+      <DetailButton nodeId={row.node?.id} />
 
       {row.isRepeat ? (
         // 定期券：原型的 rep 圖示（:1075）。目前**與未來**班次那一列點得動＝叫出小卡定期券版
@@ -334,6 +336,33 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
   );
 }
 
+/**
+ * 「詳情」小字鈕（10-20 磨光②；daylist.panel 的滑鼠入口）：選中那張票＋開詳情側板——今日列「票種小字」同一條路
+ * （select＋setPanelOpen，與 scheduleActions.openPanel 同義）。月曆浮層與串流共用，締切列也有。
+ * 浮層自己會在「側板 關→開」那一刻收起（DayPopover 的 panelOpen 監看），這裡不必通知它。
+ * 長相＝票種小字那一階的淡字（不加框，免得跟「推遲」兩顆框並排）；列 hover／鍵盤聚焦才現身（CSS），平時不添雜訊。
+ */
+function DetailButton({ nodeId }: { nodeId: string | undefined }) {
+  if (!nodeId) return null;
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      className="detail"
+      aria-label="打開詳情側板"
+      title={`詳情（${hotkeyCaps("daylist.panel")}）`}
+      onClick={(e: MouseEvent<HTMLButtonElement>) => {
+        e.stopPropagation();
+        const ui = useUiStore.getState();
+        ui.select(nodeId);
+        ui.setPanelOpen(true);
+      }}
+    >
+      詳情
+    </button>
+  );
+}
+
 /** 重複班次圖示（原型 :1075 的 inline SVG 逐字） */
 function RepIcon() {
   return (
@@ -361,7 +390,7 @@ export interface DueRowProps {
   onSelect(): void;
 }
 
-/** 締切列（原型 :1088-1094）：〆＋圓牌＋標題＋「執行 M/D」或「未排執行日」。唯讀，只有 `.` 開側板 */
+/** 締切列（原型 :1088-1094）：〆＋圓牌＋標題＋「詳情」＋「執行 M/D」或「未排執行日」。唯讀，只有 `.`／「詳情」開側板 */
 export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
   const name = node?.name ?? "";
   const exec = node?.scheduled_on ?? null;
@@ -383,6 +412,7 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
       <span className="t" title={name}>
         {name}
       </span>
+      <DetailButton nodeId={node?.id} />
       {exec ? (
         <span className="due-tag">執行 {mmdd(exec)}</span>
       ) : (

@@ -21,7 +21,7 @@
  * 頁面殼契約（WP0）：根節點帶 .page（z-index 蓋過 SkyLayer）與 .ns-today（CSS 前綴）；
  *   天空由 App.tsx 統一掛（density full／train false），本檔不碰。側欄「我的路線」在今日頁保留（Sidebar 負責）。
  */
-import { Fragment, useRef, type ReactNode } from "react";
+import { Fragment, useCallback, useRef, useState, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { timeOfRow } from "../../domain/scheduledTime";
@@ -38,6 +38,7 @@ import { useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
 import { useTodayDnd } from "./useTodayDnd";
 import { lineTodayStats } from "../../lines/runtime";
+import { PopMenu, hotkeyCaps } from "../common/PopMenu";
 import "./today.css";
 // 票面時刻（.tm）、「未定時・照手排」小標、現在線、頁首「下一班」的樣式寫在 schedule.css（today.css 本班不准碰）
 import "../schedule/schedule.css";
@@ -135,6 +136,69 @@ function EmptyBlock({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * 「＋ 臨時車票」分裂鈕（10-20 磨光②；補 today.draft／today.inbox 的滑鼠入口）：
+ *   主鈕＝Enter 同一條路（controller.openDraft：清單尾開草稿列）；▾＝小選單兩項——
+ *   臨時車票（排今天）／放進收件匣（無日期）＝Shift+Enter 同一條路（controller.createInboxTicket：同款草稿列、
+ *   提交後流入收件匣），對齊手機輸入列的「無日期」切換。
+ * 形狀＝兩顆 .ns-btn.ns-btn--sm.btn-ghost 併成一組（中縫共用一條框線），不另畫新鈕。
+ * 跟區段標題列其他鈕一樣 tabIndex=-1＋mousedown 不搶焦點：鍵盤流留在今日容器（Enter／Shift+Enter 本來就有）。
+ */
+function AddSplit({
+  onDraft,
+  onInbox,
+  returnFocus,
+}: {
+  onDraft: () => void;
+  onInbox: () => void;
+  returnFocus: () => HTMLElement | null;
+}) {
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  return (
+    <span className="add-split" role="group" aria-label="新增車票">
+      <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onDraft}
+        title={`開一張臨時車票（${hotkeyCaps("today.draft")}）`}
+        className="ns-btn ns-btn--sm btn-ghost add-main"
+      >
+        ＋ 臨時車票
+      </button>
+      <button
+        ref={moreRef}
+        type="button"
+        tabIndex={-1}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="更多新增方式"
+        title="更多新增方式"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen((v) => !v)}
+        className="ns-btn ns-btn--sm btn-ghost add-more"
+      >
+        ▾
+      </button>
+      {open && (
+        <PopMenu
+          anchor={moreRef.current}
+          overline="新增 — NEW"
+          label="新增車票"
+          onClose={close}
+          returnFocus={returnFocus}
+          items={[
+            { key: "draft", label: "臨時車票（排今天）", hotkeyId: "today.draft", onSelect: onDraft },
+            { key: "inbox", label: "放進收件匣（無日期）", hotkeyId: "today.inbox", onSelect: onInbox },
+          ]}
+        />
+      )}
+    </span>
   );
 }
 
@@ -346,6 +410,11 @@ export function TodayView() {
               <h3>今天的列車</h3>
               <span className="rule" />
               <span className="note">{total} 張</span>
+              <AddSplit
+                onDraft={c.openDraft}
+                onInbox={c.createInboxTicket}
+                returnFocus={() => containerRef.current}
+              />
             </div>
             <ul role="listbox" aria-label="今天的列車" className="ticket-list">
               {c.todayRows.map((r, i) => (

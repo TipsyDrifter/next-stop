@@ -17,6 +17,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { useBackLayer } from "../../mobile/backStack";
 import {
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
@@ -139,6 +140,10 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
     else if (k === "year") void patchFilter({ from: yr.from, toExcl: yr.toExcl });
   };
   const [picking, setPicking] = useState<"from" | "to" | null>(null);
+  // 磨光①（主線手機殼契約 §1.5、§9.3）：返回鍵＝暗幕／「看結果」（帶條件關上）。挑日子的面板疊在上面：
+  // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"
+  useBackLayer("ticket.search", true, () => void close(), "full");
+  useBackLayer("ticket.search.date", picking !== null, () => setPicking(null), "dialog");
   const toIncl = filter.toExcl !== null ? dayStep(filter.toExcl, -1) : null;
 
   /* ── 帳戶／分類／路線 ── */

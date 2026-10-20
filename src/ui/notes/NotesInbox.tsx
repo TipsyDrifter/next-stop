@@ -19,6 +19,7 @@ import { useNotesStore } from "../../store/notesStore";
 import { addDays, todayKey } from "../../lib/date";
 import { lineCount } from "../../domain/notes";
 import { UketsukeSeal } from "./UketsukeSeal";
+import { CaptureButton } from "./CaptureButton";
 import { AttachPicker } from "./AttachPicker";
 import { DatePop } from "./DatePop";
 import { Kbd, capsOf, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
@@ -104,7 +105,12 @@ export function NotesInbox(p: NotesInboxProps) {
         ) : (
           <div className="ns-notes-empty">
             <UketsukeSeal day={today} size={88} />
-            <p>沒有待整理的東西</p>
+            {/* 教第一步（磨光③ 2-15；照 NotesList「還沒有筆記」的前例） */}
+            <p>
+              沒有待整理的東西
+              <small>隨手記一句，會先放進這裡</small>
+            </p>
+            <CaptureButton variant="page" />
           </div>
         )}
       </div>

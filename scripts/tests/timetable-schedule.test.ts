@@ -60,6 +60,7 @@ function item(p: Partial<PlanItem> = {}): PlanItem {
     done: false,
     skipped: false,
     lateFrom: null,
+    carriedFrom: null,
     ...p,
   };
 }
@@ -439,7 +440,7 @@ describe("修正席：撤回寫不寫得回去、只有待確認塊不比長短"
 
 describe("使用者改題 D-時-80：誤點的單發票能排到今天", () => {
   const TODAY = "2026-10-20";
-  const row = (p: Partial<TodayRow>): Pick<TodayRow, "id" | "bucket" | "status" | "repeat_rule" | "occurrence" | "scheduled_on" | "scheduled_time" | "estimate_min"> => ({
+  const row = (p: Partial<TodayRow>): Pick<TodayRow, "id" | "bucket" | "status" | "repeat_rule" | "occurrence" | "scheduled_on" | "scheduled_time" | "estimate_min" | "carried_from"> => ({
     id: "x",
     bucket: "late",
     status: "todo",
@@ -448,12 +449,13 @@ describe("使用者改題 D-時-80：誤點的單發票能排到今天", () => {
     scheduled_on: "2026-10-17",
     scheduled_time: null,
     estimate_min: null,
+    carried_from: null,
     ...p,
   });
   test("lateItemsOf：late＋單發票＋沒済 ⇒ PlanItem（date＝今天、lateFrom＝原日、time＝原時刻、預計）；照今日列的順序", () => {
     const r = lateItemsOf(
       [
-        row({ id: "a", scheduled_time: "14:00", estimate_min: 60 }),
+        row({ id: "a", scheduled_time: "14:00", estimate_min: 60, carried_from: "2026-10-10" }),
         row({ id: "b", scheduled_on: "2026-10-12" }),
         row({ id: "c", bucket: "today", scheduled_on: TODAY }), // 今天的：不是誤點
         row({ id: "d", status: "done" }), // 補済了：交代了
@@ -480,7 +482,9 @@ describe("使用者改題 D-時-80：誤點的單發票能排到今天", () => {
       done: false,
       skipped: false,
       lateFrom: "2026-10-17",
+      carriedFrom: "2026-10-10", // 節點列上的 carried_from 帶進來（撤回要寫回，D-主-33）
     });
+    assert.equal(r.items[1].carriedFrom, null);
     assert.equal(r.items[1].time, null);
     assert.equal(r.items[2].estimateMin, null);
   });
@@ -488,23 +492,26 @@ describe("使用者改題 D-時-80：誤點的單發票能排到今天", () => {
     const it = item({ date: TODAY, time: null, lateFrom: "2026-10-17" });
     assert.deepEqual(planTimeWrite(it, "14:15"), { op: "setTime", id: "n1", time: "14:15", scheduledOn: TODAY });
   });
-  test("planUndo：誤點項＝改回原日＋原時刻（原本沒時刻 ⇒ null）", () => {
+  test("planUndo：誤點項＝改回原日＋原時刻（原本沒時刻 ⇒ null）＋carried_from 寫回寫入前的值（D-主-33）", () => {
     assert.deepEqual(planUndo(item({ date: TODAY, time: "09:00", lateFrom: "2026-10-17" })), {
       op: "setTime",
       id: "n1",
       time: "09:00",
       scheduledOn: "2026-10-17",
+      carriedFrom: null,
     });
-    assert.deepEqual(planUndo(item({ date: TODAY, time: null, lateFrom: "2026-10-17" })), {
+    assert.deepEqual(planUndo(item({ date: TODAY, time: null, lateFrom: "2026-10-17", carriedFrom: "2026-10-10" })), {
       op: "setTime",
       id: "n1",
       time: null,
       scheduledOn: "2026-10-17",
+      carriedFrom: "2026-10-10",
     });
   });
   test("一般的單發票不帶 scheduledOn（不會順手改執行日）", () => {
     assert.equal("scheduledOn" in planTimeWrite(item(), "15:00"), false);
     assert.equal("scheduledOn" in planUndo(item()), false);
+    assert.equal("carriedFrom" in planUndo(item()), false);
   });
 });
 

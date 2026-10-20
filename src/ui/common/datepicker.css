@@ -32,6 +32,8 @@
   box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09);
 }
 .ns-datepick-label { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); margin-bottom: 8px; }
+/* 日期欄 Enter 不合格、已還原時欄下的一行小字（下一次輸入即消失；D-主-36）。字級同 .ns-datepick-label，色用誤點赭 */
+.ns-datepick-hint { font-size: 10px; letter-spacing: .12em; color: var(--color-late); margin-top: 6px; }
 .ns-datepick-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ns-datepick-chip {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: transparent;

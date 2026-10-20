@@ -5,7 +5,7 @@
  *     車票列 `li.ns-notes-tagitem.node`：路線色點＋名稱＋（列車／車廂小標）＋ 看父層時 `span.ns-notes-rel`（它實際掛的子荷札）＋ 執行日
  *       已完成＝`.done` 淡化＋小済，收在 `details.ns-notes-donefold`「已完成 N」（預設收合）
  *     筆記列 `.note`：標題＋摘要（荷札字 `.ns-notes-mark`）；日記列 `.diary`：「10/5（日）」大字＋摘要
- *   空 ⇒ `p.ns-notes-tagempty`「還沒有東西掛著這個荷札」
+ *   空 ⇒ `p.ns-notes-tagempty`「還沒有東西掛著這個荷札」；查失敗 ⇒「荷札沒載入　重試」（磨光③ 評審：同手機 MobileTagPage）
  * 資料：`tagRepo.listUnder(key)`（index 一變就重查——掛、摘、改名、同步進來都會換 index）；分組排序＝`groupTaggedItems`。
  * 鍵盤：NotesView 的 ↑↓／Enter 經 `apiRef` 在列間移選取（`.is-sel`）、開選中列；滑鼠點列＝開。
  */
@@ -73,6 +73,9 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [items, setItems] = useState<TaggedItem[] | null>(null);
+  /** 清單查失敗（不再假裝「還沒有東西掛著」）；listTry＝按一次重試 +1 */
+  const [listFailed, setListFailed] = useState(false);
+  const [listTry, setListTry] = useState(0);
   const [doneOpen, setDoneOpen] = useState(false);
   const [sel, setSel] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -86,17 +89,21 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
 
   useEffect(() => {
     let alive = true;
+    setListFailed(false);
     tagRepo
       .listUnder(tagKey)
       .then((rows) => alive && setItems(rows))
       .catch((e: unknown) => {
         console.warn("TagList：listUnder 失敗", e);
-        if (alive) setItems([]);
+        if (alive) {
+          setItems(null);
+          setListFailed(true);
+        }
       });
     return () => {
       alive = false;
     };
-  }, [tagKey, index]);
+  }, [tagKey, index, listTry]);
 
   const hasKids = !!index?.byKey[tagKey]?.children.length;
   const groups = useMemo(
@@ -143,6 +150,17 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
     boxRef.current?.querySelector<HTMLElement>(`[data-rid="${CSS.escape(sel)}"]`)?.scrollIntoView({ block: "nearest" });
   }, [sel]);
 
+  if (listFailed)
+    return (
+      <div ref={boxRef} className="ns-notes-taglist">
+        <p className="ns-notes-tagempty">
+          荷札沒載入{" "}
+          <button type="button" className="ns-notes-btn" onClick={() => setListTry((n) => n + 1)}>
+            重試
+          </button>
+        </p>
+      </div>
+    );
   if (!groups) return <div ref={boxRef} className="ns-notes-taglist" aria-busy="true" />;
   const total = groups.nodes.open.length + groups.nodes.done.length + groups.notes.length + groups.diaries.length + groups.other.length;
   if (!total)

@@ -15,10 +15,13 @@
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useUiStore, type ConfirmState } from "../../store/uiStore";
+import { useBackLayer } from "../mobile/backStack";
 
 export function ConfirmDialog() {
   const confirm = useUiStore((s) => s.confirm);
   const closeConfirm = useUiStore((s) => s.closeConfirm);
+  // 磨光① A3（契約 §1.5）：手機返回鍵＝同「取消」（桌機殼 useBackLayer 整支 no-op）
+  useBackLayer("core.confirm", !!confirm, closeConfirm, "dialog");
   if (!confirm) return null;
   return <ConfirmDialogInner confirm={confirm} onClose={closeConfirm} />;
 }

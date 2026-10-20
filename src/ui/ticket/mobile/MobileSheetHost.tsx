@@ -6,6 +6,7 @@
  * 標題由宿主依 `dialog.kind` 給（§2.5-4）。匯入寫入中不給點暗幕關（寫一半關掉＝主人以為取消了、其實還在寫）。
  */
 import { useTicketStore, type TicketDialog } from "../../../store/ticketStore";
+import { useBackLayer } from "../../mobile/backStack";
 import { NewAccountForm } from "../dialogs/NewAccountForm";
 import { CategoryManager } from "../dialogs/CategoryManager";
 import { CurrencyTable } from "../dialogs/CurrencyTable";
@@ -29,6 +30,20 @@ export function MobileSheetHost() {
   const dialog = useTicketStore((s) => s.dialog);
   const closeDialog = useTicketStore((s) => s.closeDialog);
   const writing = useTicketStore((s) => s.imp.phase === "writing");
+  // 磨光①（主線手機殼契約 §1.5）：返回鍵＝同暗幕／「取消」。匯入寫入中吞掉（同暗幕不給關）；規則表單＝closeRepeatEditor（回上一個）。
+  // 規則表單是全螢幕 ⇒ "full"（從記帳表單「設成定期…」開的，疊在表單那一層上面）
+  useBackLayer(
+    "ticket.dialog",
+    dialog !== null,
+    () => {
+      const st = useTicketStore.getState();
+      if (!st.dialog) return;
+      if (st.dialog.kind === "import" && st.imp.phase === "writing") return;
+      if (st.dialog.kind === "repeat") st.closeRepeatEditor();
+      else st.closeDialog();
+    },
+    dialog?.kind === "repeat" ? "full" : "sheet",
+  );
   if (!dialog) return null;
   // 規則表單的「取消」：從管理 sheet 開的回管理 sheet、從表單「設成定期…」開的直接關（③契約 §5.3、§5.5）
   const closeRepeat = () => useTicketStore.getState().closeRepeatEditor();

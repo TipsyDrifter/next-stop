@@ -62,13 +62,24 @@
 [data-shell="mobile"] .ns-notes-fab.is-today { --m-page-dock-h: var(--m-newticket-h); }
 /* Toast（App 層 .ns-card.fixed，唯一一個；z-index 50 在鈕之上）出現時鈕往上讓一個 toast 的高：
    toast 的「復原」「×」正好落在鈕的位置，粉彩主題的 toast 又是半透明票紙，不讓開會疊成一團（實測）。
-   toast 自己也會抬到底部列之上，所以這裡同樣加上 --m-page-dock-h。 */
-[data-shell="mobile"]:has(.ns-card.fixed) .ns-notes-fab {
+   toast 自己也會抬到底部列之上，所以這裡同樣加上 --m-page-dock-h。
+   磨光①（契約 §9.3）：只在 toast 落在底部時抬——<html> 有 data-m-layer（最上層是 sheet／dialog／full）時 toast 改到別處、
+   鈕也收起來（下一條），不抬。`.ns-toast` 是核心給 toast 的新 class，舊的 `.ns-card.fixed` 一起認。
+   寫明 `html`：App 的根 div 也掛 data-shell、但永遠沒有 data-m-layer，不寫的話 :not() 會在根 div 上成立。 */
+html[data-shell="mobile"]:not([data-m-layer]):has(:is(.ns-toast, .ns-card.fixed)) .ns-notes-fab {
   bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + var(--m-page-dock-h, 0px) + 64px);
 }
-/* 面板開著（鈕留在 DOM 只為了下面那條留白不抽動）／任何輸入框聚焦（軟鍵盤多半彈著）＝先收起 */
+/* 面板開著（鈕留在 DOM 只為了下面那條留白不抽動）／任何輸入框聚焦（軟鍵盤多半彈著）＝先收起。
+   磨光①：任何一條線的面板、對話框、全螢幕頁開著（返回堆疊寫在 <html data-m-layer>，同一份真相）也收起 */
 [data-shell="mobile"] .ns-notes-fab.is-hidden,
+html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"]:has(:is(input, textarea):focus) .ns-notes-fab {
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
+/* 「這頁不要浮鈕」（各線通用約定，磨光③ 2-13、D-筆-66）：哪一頁的版面會被鈕擋住（例：時刻表的方眼、日程），
+   就由那條線在自己頁面的某個元素掛 `data-no-fab` 屬性，鈕在那一頁自動收起；離開那頁（元素卸掉）就回來。
+   跟上面的 `--m-page-dock-h` 同一種「頁面告訴浮鈕」的做法——不在這裡點名別線的 class。 */
+[data-shell="mobile"]:has([data-no-fab]) .ns-notes-fab {
   visibility: hidden; opacity: 0; pointer-events: none;
 }
 /* 鈕在的時候，每一頁的捲動區底部多墊一顆鈕的高度：捲到底時最後一列（含 ⋯／検印）不會被鈕蓋住。
@@ -237,6 +248,8 @@
   font-size: 13.5px; letter-spacing: .14em; text-align: center; color: var(--color-ink-faint);
 }
 [data-shell="mobile"] .ns-notes-mempty.is-list { padding-top: 40px; }
+/* 空狀態第二行小字（收件匣「隨手記一句，會先放進這裡」，磨光③ 2-15） */
+[data-shell="mobile"] .ns-notes-mempty p small { display: block; margin-top: 8px; font-size: 12px; letter-spacing: .06em; }
 
 /* ═══════════ 五、收件匣卡片 ═══════════ */
 
@@ -1160,11 +1173,6 @@
 [data-shell="mobile"] .ns-notes-mmood.green { color: var(--route-preset-3); }
 [data-shell="mobile"] .ns-notes-mmood.yellow { color: var(--arc); }
 [data-shell="mobile"] .ns-notes-mmood.red { color: var(--late); }
-[data-shell="mobile"] .ns-notes-mfpfoot {
-  margin: 12px 0 0; padding-top: 10px;
-  border-top: 1px dashed var(--color-line);
-  font-size: 10.5px; letter-spacing: .12em; color: var(--color-ink-faint); opacity: .9;
-}
 
 /* ═══════════ 十二、減量動態 ═══════════ */
 
@@ -1340,6 +1348,11 @@
 }
 [data-shell="mobile"] .ns-notes-mtagempty p { margin: 0; }
 [data-shell="mobile"] .ns-notes-mtagempty small { display: block; margin-top: 10px; font-size: 12px; line-height: 1.8; letter-spacing: .04em; }
+/* 荷札沒載入＋重試（磨光③ 2-12；荷札頁、清單頁、點選器共用） */
+[data-shell="mobile"] .ns-notes-mloadfail {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px;
+  color: var(--color-ink-soft);
+}
 
 /* 12-4 清單整頁：返回列、頁頭、改名列 */
 [data-shell="mobile"] .ns-notes-mback .ns-notes-mbackto { margin-left: auto; min-width: 0; font-size: 12.5px; letter-spacing: .06em; }

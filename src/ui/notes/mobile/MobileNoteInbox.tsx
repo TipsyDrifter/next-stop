@@ -24,6 +24,7 @@ import { UketsukeSeal } from "../UketsukeSeal";
 import { MobileAttachPicker } from "./MobileAttachPicker";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { nextMonday, shortDay } from "./MobileDatePick";
+import { useBackLayer } from "../../mobile/backStack";
 
 type Item = { kind: "note"; id: string; at: string; note: NoteListItem } | { kind: "ticket"; id: string; at: string; ticket: NodeRow };
 
@@ -40,8 +41,11 @@ export function MobileNoteInbox() {
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
   const selected = useNotesStore((s) => s.inboxSelected);
   const selectInbox = useNotesStore((s) => s.selectInbox);
+  const openCapture = useNotesStore((s) => s.openCapture);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [pop, setPop] = useState<Pop>(null);
+  // 磨光① 返回層：「排某天」面板＝同「取消」；兩個掛到哪的挑選器自己登記（MobileAttachPicker）
+  useBackLayer("notes.inbox.someday", pop?.kind === "someday", () => setPop(null));
 
   const items: Item[] = [
     ...inboxNotes.map((n): Item => ({ kind: "note", id: n.id, at: n.noted_at, note: n })),
@@ -61,7 +65,14 @@ export function MobileNoteInbox() {
       {items.length === 0 ? (
         <div className="ns-notes-mempty">
           <UketsukeSeal day={todayKey(dayStartHour)} size={88} />
-          <p>沒有待整理的東西</p>
+          {/* 教第一步（磨光③ 2-15；照 MobileNoteList「還沒有筆記」的前例） */}
+          <p>
+            沒有待整理的東西
+            <small>隨手記一句，會先放進這裡</small>
+          </p>
+          <button type="button" className="ns-notes-mbtn" onClick={() => openCapture()}>
+            記一句
+          </button>
         </div>
       ) : (
         <ul className="ns-notes-milist">

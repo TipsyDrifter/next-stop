@@ -49,6 +49,7 @@
   /* ─── 金與朱 ─── */
   --color-gold: #b08d57;         /* 燙金 */
   --color-gold-soft: #c9b085;
+  --color-gold-ink: #7a5a28;     /* 燙金當「字」用（.btn-gold 字與框）：對 paper 5.5:1、paper-high 5.9:1、paper-used 5.1:1，AA（10-20 磨光② A10） */
   --color-seal: #b44c3b;         /* 朱肉「済」印（完成章） */
   --color-late: #a8503f;         /* 誤點（延着）警示 */
   --color-on-seal: #fbf7ec;      /* 朱印／主鈕上的字：深淺主題同值（對比保險） */
@@ -88,6 +89,7 @@
   --color-book-ink: #dcd3bc;
   --color-gold: #c9a366;         /* 燈下的金 */
   --color-gold-soft: #d8bc8a;
+  --color-gold-ink: #c9a366;     /* 暗底燙金本身就夠亮（paper 7.4:1、paper-high 6.6:1）：字與框同燙金（10-20 磨光② A10） */
   --color-seal: #d96a52;         /* 朱印（暗底提亮版） */
   --color-late: #c9825a;         /* 誤點・燈色暖橙（棄亮黃） */
   --color-on-seal: #1e1913;      /* 暗色：朱印主鈕改「亮盤深字」，對比 5.0:1 */
@@ -119,6 +121,7 @@
   --color-book-ink: #dcd3bc;
   --color-gold: #bfa77a;         /* 燈下的金 */
   --color-gold-soft: #d8bc8a;
+  --color-gold-ink: #bfa77a;     /* 暗底燙金本身就夠亮（paper 6.5:1、paper-high 6.7:1）：字與框同燙金（10-20 磨光② A10） */
   --color-seal: #d96a52;         /* 朱印（暗底提亮版） */
   --color-late: #c9825a;         /* 誤點・燈色暖橙（棄亮黃） */
   --color-on-seal: #23262b;      /* 暗色：朱印主鈕改「亮盤深字」，對比 5.0:1 */

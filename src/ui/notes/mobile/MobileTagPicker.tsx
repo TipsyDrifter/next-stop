@@ -5,9 +5,9 @@
  *   - entity 模式：掛在某個實體上（路線圖詳情「＋ 掛荷札」、之後的票卡 ⋯ →「荷札…」）。
  *     開的時候已掛的牌子就是「已選」；完成＝`setTags(type, id, 已選名稱)`——一個交易、一個 toast、一次復原（原型 9）。
  *   - insert 模式：筆記／日記編輯工具列的「#」。完成＝`onInsert(已選名稱)`（可能是空陣列：呼叫端把焦點放回打字框）。
- * 完成＝右上「完成」或點暗幕（原型 9：點暗幕也算完成）。
+ * 完成＝右上「完成」或點暗幕（原型 9：點暗幕也算完成）；Android 返回鍵同點暗幕（磨光① D-主-51）。
  *
- * 由上而下：標題（「荷札・<名稱>」／「插入荷札」）＋完成 → 已選的牌子（× 常駐）→ 搜尋（不用打 #）
+ * 由上而下：標題（「荷札・<名稱>」／insert 模式 `picker.title ?? "插入荷札"`）＋完成 → 已選的牌子（× 常駐）→ 搜尋（不用打 #）
  *   → 有字：「建立 ○○」、提示、`難度/` 的瀏覽標頭、結果列（勾選框＋名稱＋數量）
  *   → 沒字：「最近用過」一排（≤6）＋「全部荷札」樹（勾選；虛資料夾只能展開）；長按一列 500ms
  *     ⇒ 該列下方出「在 #○○ 底下建立…」⇒ 搜尋框填成 `○○/`、聚焦。
@@ -17,8 +17,9 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { createPortal } from "react-dom";
 import { flattenTree } from "../../../domain/tags";
 import { useTagStore, type TagPickerState } from "../../../store/tagStore";
+import { useBackLayer } from "../../mobile/backStack";
 import { IconPlus, IconSearch } from "./mobileDiaryBits";
-import { IconCaretRight, IconCheck, MTag, TagGlyph, TagName } from "./mobileTagBits";
+import { IconCaretRight, IconCheck, MTag, MTagLoading, TagGlyph, TagName, retryTagIndex, useTagIndexFailed } from "./mobileTagBits";
 import "../notes-mobile.css";
 
 interface Sel {
@@ -37,6 +38,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
   const nameOf = useTagStore((s) => s.nameOf);
   const closePicker = useTagStore((s) => s.closePicker);
   const setTags = useTagStore((s) => s.setTags);
+  const failed = useTagIndexFailed();
 
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<Sel[]>([]);
@@ -95,6 +97,10 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
     if (picker.entityType && picker.entityId) void setTags(picker.entityType, picker.entityId, names);
   };
 
+  // 磨光① 返回層：返回＝同點暗幕＝完成（D-主-51）；本元件只在 picker 開著時掛，所以一直 active。
+  //   可疊在時刻表面板上：比它晚開、序號大，返回先關這裡
+  useBackLayer("notes.tagPicker", true, finish);
+
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
     e.preventDefault();
@@ -134,7 +140,8 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
     window.setTimeout(() => searchRef.current?.focus(), 0);
   };
 
-  const title = picker.mode === "insert" ? "插入荷札" : `荷札・${picker.name}`;
+  // insert 模式：呼叫端給了標題就用（時刻表塊面板「荷札・娛樂 23:20」，磨光③ 2-8），沒給照舊
+  const title = picker.mode === "insert" ? (picker.title ?? "插入荷札") : `荷札・${picker.name}`;
 
   return createPortal(
     <div
@@ -243,7 +250,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
                 全部荷札<span>長按一列：在這底下建立…</span>
               </p>
               {!index ? (
-                <p className="ns-notes-mpkhint">載入中…</p>
+                <MTagLoading className="ns-notes-mpkhint" failed={failed} onRetry={retryTagIndex} />
               ) : rows.length === 0 ? (
                 <p className="ns-notes-mpkhint">還沒有荷札——上面搜尋框打個名稱就能建立</p>
               ) : (

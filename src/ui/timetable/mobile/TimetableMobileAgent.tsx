@@ -15,6 +15,10 @@
  *
  * 車次②（② 契約 §5.3；乙席，本檔整個歸乙）：掛 `startTaskWatch()`；訂閱的條件群組多一個 `taskChanged`
  * （運行中那班的任務名／任務預計時間，`taskSig` 與桌機代理共用）——通知與提醒在同一個 syncAll，一起重送／重排。
+ *
+ * 磨光①（主線手機殼契約 §1.5、§9.1）：時刻表面板的返回層登記在這裡（`timetable.sheet`），不在兩個 SheetHost。
+ * 本元件常駐、不隨 tab 卸載；面板在頁裡那份與 OffPageSheetHost 之間換手（切進／切出時刻表 tab）時，React 先跑卸載的
+ * effect 再跑掛上的，登記在 host 會在同一個 commit 裡先放掉再推回去、拿到新序號，跑到先開的荷札挑選器上面。
  */
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -22,6 +26,7 @@ import { MOCK_MODE } from "../../../data";
 import type { TrayAction } from "../../../domain/timetableTray";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
+import { useBackLayer } from "../../mobile/backStack";
 import { OffPageSheetHost } from "../OffPageSheetHost";
 import { taskSig } from "../TimetableDesktopAgent";
 import { startTaskWatch } from "../taskWatch";
@@ -121,6 +126,10 @@ export function TimetableMobileAgent() {
 
   // ②：蓋済偵測（startTaskWatch 回的就是 cleanup）
   useEffect(() => startTaskWatch(), []);
+
+  // 磨光①：返回鍵＝同 × ／暗幕（longRun 關掉＝略過，照舊）。荷札挑選器、Block／Depart 的連結挑選開得比較晚，各自一層疊在上面
+  const sheetOpen = useTimetableStore((s) => s.sheet !== null);
+  useBackLayer("timetable.sheet", sheetOpen, () => useTimetableStore.getState().closeSheet());
 
   return <OffPageSheetHost shell="mobile" />;
 }

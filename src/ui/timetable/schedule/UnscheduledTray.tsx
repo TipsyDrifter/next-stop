@@ -13,6 +13,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
 import { useUiStore } from "../../../store/uiStore";
+import { useScheduleUiStore } from "../../schedule/scheduleUiStore";
 import { MIN, fmtDur } from "../../../domain/timetable";
 import { SCHED_UI } from "./scheduleModel";
 import { routeColorOf, type SchedulePage } from "./useSchedulePage";
@@ -65,7 +66,11 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
   const goLate = (): void => {
     const ui = useUiStore.getState();
     if (desk) ui.setPage("today");
-    else ui.setMobileTab("today");
+    else {
+      // 漏班整群在今日段的誤點區（不是某一張票，不走 revealOnToday）；手機今日 tab 可能停在「行程表」段，先切回今日段（磨光① A7 同類）
+      useScheduleUiStore.getState().setMobileSub("today");
+      ui.setMobileTab("today");
+    }
   };
   const onPick = (key: string): void => {
     if (swallowClick()) return;
@@ -98,7 +103,7 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
     const n = nodes[u.nodeId];
     const name = n?.name ?? "？";
     const route = n?.route_id ? routeById[n.route_id] : undefined;
-    const off = u.off ? TT_TEXT.schedOutOfAxis(u.off) : u.lateFrom ? SCHED_UI.lateTag(md(u.lateFrom)) : null;
+    const off = u.off ? TT_TEXT.schedOutOfAxis(u.off) : u.lateFrom ? SCHED_UI.lateTag(md(u.lateFrom), it.time) : null;
     const est = it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate;
     const meta = [route?.name ?? "", it.kind === "repeat" ? SCHED_UI.repeat : "", off ?? "", est].filter(Boolean);
     const cls = (mode === "chips" ? "ns-tt-sched-chip" : "ns-tt-sched-ui") + (picked === key ? " is-pick" : "") + (ro ? " is-ro" : "") + (drag?.key === key ? " is-lifted" : "");

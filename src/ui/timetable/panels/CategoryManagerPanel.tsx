@@ -19,8 +19,11 @@
  * 車次⑥（⑥ 契約 §5.3；D-時-121、128、131；乙席；長相＝原型 `v-tags.js` mgrBody）：
  * - 每個子分類列：名字下一行淡字 div.ns-tt-mgr-tags「#拖延」（自己的預設荷札）＋「組帶的：#高效」（`.is-grp`；手機藏起來，D-時-131）。
  * - ⋯ 展開區最上面一列「預設荷札」：桌機 `EntityTagField` 實體模式（`timetable:category`；掛了就寫、toast＋復原；建議清單往下推開、
- *   不列組已經帶的）；手機牌子＋「＋ 荷札」開點選器 entity 模式。子分類另有一行「組帶的：[牌]（在組「X」的 ⋯ 改）」；最後一句說明。
+ *   不列組已經帶的）；手機牌子＋「掛荷札」開點選器 entity 模式。子分類另有一行「組帶的：[牌]（在組「X」的 ⋯ 改）」；最後一句說明。
  * - 組頭多一顆 ⋯（D-時-128），展開只放「預設荷札」＋說明；組名後面淡字列組的預設荷札。⋯ 同時只開一個（組或分類）。
+ *
+ * 磨光③ 2-11（契約 §2-11、2-3）：sheet 帶 `focusId`（荷札頁點分類／組列進來）⇒ 展開那一列的 ⋯（`more = focusId`）、捲進畫面、
+ * 借 `.is-flash` 閃一下（組頭同）；帶 `focus: "notice"`（全域設定的指路）⇒ 捲到〈通知〉。列與組頭掛 `data-cat-id` 給它找。
  */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { MIN, colorSlot, fmtDur, groupedCategories, type TimeCategoryRow } from "../../../domain/timetable";
@@ -67,7 +70,7 @@ function DefaultTagsRow({ id, name, exclude }: { id: string; name: string; exclu
             entityId={id}
             exclude={exclude}
             suggestInline
-            backRef={() => ttBackRef({ kind: "categories" })}
+            backRef={() => ttBackRef({ kind: "categories", focusId: id })}
             afterOpen={closeSheet}
           />
         </div>
@@ -300,7 +303,7 @@ function CategoryRow({
   const d = catDefaults(cat.id, categories, tagMaps);
   const group = categories.find((c) => c.id === cat.parent_id);
   return (
-    <div className={"ns-tt-mgr-row" + (open ? " is-open" : "") + (flash ? " is-flash" : "")}>
+    <div className={"ns-tt-mgr-row" + (open ? " is-open" : "") + (flash ? " is-flash" : "")} data-cat-id={cat.id}>
       <CategoryBadge cat={cat} size="sm" />
       <span className="ns-tt-mgr-namecol">
         <EditableName value={cat.name} label="分類名稱" onSave={(name) => void updateCategory(cat.id, { name })} />
@@ -420,6 +423,27 @@ export function CategoryManagerPanel(_props: PanelProps) {
     return () => clearTimeout(t);
   }, [flash]);
 
+  // 磨光③ 2-11：從荷札頁點分類列（focusId）／全域設定的指路（focus "notice"）進來 ⇒ 展開、捲進畫面、閃一下
+  const sheet = useTimetableStore((s) => s.sheet);
+  const focusId = sheet?.kind === "categories" ? sheet.focusId : undefined;
+  const focusNotice = sheet?.kind === "categories" && sheet.focus === "notice";
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focusId && !focusNotice) return;
+    if (focusId) {
+      setMore(focusId);
+      setFlash(focusId);
+    }
+    // 列已經在畫面上（⋯ 展開區長在列的下面，捲「列頭到頂」不受它影響）⇒ 不等下一幀，直接跳過去。
+    // 不用 smooth：跟 ⋯ 展開的動畫同時跑會被打斷；位置靠閃一下交代
+    const root = rootRef.current;
+    if (!root) return;
+    const el = focusId
+      ? Array.from(root.querySelectorAll<HTMLElement>("[data-cat-id]")).find((n) => n.dataset.catId === focusId)
+      : root.querySelector<HTMLElement>(".ns-tt-notice-sec");
+    el?.scrollIntoView({ block: "start" });
+  }, [focusId, focusNotice]);
+
   const groups = groupedCategories(categories);
   const topGroups = groups.map((g) => g.group);
   const archived = categories.filter((c) => c.parent_id !== null && c.archived_at !== null && c.deleted_at === null);
@@ -434,13 +458,13 @@ export function CategoryManagerPanel(_props: PanelProps) {
   };
 
   return (
-    <div className="ns-tt-panel ns-tt-panel-mgr">
+    <div className="ns-tt-panel ns-tt-panel-mgr" ref={rootRef}>
       {groups.map(({ group, children }, gi) => {
         const gOpen = more === group.id;
         const gTags = catDefaults(group.id, categories, tagMaps).own;
         return (
           <section key={group.id} className="ns-tt-mgr-group">
-            <div className={"ns-tt-mgr-group-head" + (gOpen ? " is-open" : "")}>
+            <div className={"ns-tt-mgr-group-head" + (gOpen ? " is-open" : "") + (flash === group.id ? " is-flash" : "")} data-cat-id={group.id}>
               <span className="ns-tt-mgr-namecol is-group">
                 <EditableName value={group.name} label="分組名稱" big onSave={(name) => void updateCategory(group.id, { name })} />
                 <TagsLine own={gTags} grp={[]} />

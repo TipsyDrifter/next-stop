@@ -590,7 +590,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   async setRunTime(id, dueOn, time) {
     try {
-      await nodeRepo.setRunTime(id, dueOn, time, currentDateKey(), dayStart());
+      await nodeRepo.setRunTime(id, dueOn, time, dayStart());
       await get().refresh();
       return { ok: true };
     } catch (e) {
@@ -602,7 +602,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   async clearRunTime(id, dueOn) {
     try {
-      await nodeRepo.clearRunTime(id, dueOn, currentDateKey());
+      await nodeRepo.clearRunTime(id, dueOn);
       await get().refresh();
       return { ok: true };
     } catch (e) {

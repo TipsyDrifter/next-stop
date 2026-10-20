@@ -11,7 +11,7 @@
  * 文案紀律（總表核可條件）：通用、不點名任何一線——名詞只來自 `TBL_NOUN`，線要講自己的話就填 `syncRowLabel` 插槽。
  * `by_me === false`（本機那一格是第三台寫的）時句子一律不指認「這台」（§0-1 第 20 條）。
  */
-import type { MergeKind, MergeNotice } from "../data/syncRepository.ts";
+import type { MergeCellNow, MergeKind, MergeNotice } from "../data/syncRepository.ts";
 
 /** 表 → 名詞與量詞（泛稱；三線沒填插槽時用）。不認得的表 ⇒ { noun: "一筆資料", unit: "筆" } */
 export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> = {
@@ -90,6 +90,75 @@ export function fmtMergeValue(v: unknown, max = 24): string {
   return clip(s, max);
 }
 
+/** Rust 通知裡字串值的上限（`engine.rs` `MERGE_VALUE_CLIP`；字元＝code point） */
+const RUST_VALUE_CLIP = 120;
+
+/** 照 Rust `clip_value` 的規則截：字串超過 120 字 ⇒ 前 120 字＋「…」；其餘原樣 */
+function clipLikeRust(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  const chars = Array.from(v);
+  return chars.length > RUST_VALUE_CLIP ? `${chars.slice(0, RUST_VALUE_CLIP).join("")}…` : v;
+}
+
+/** 數值或數值字串 ⇒ 數字（SQLite 回的型別可能跟 Rust 記的不同：`"3"` 對 `3`）；空白、`05:00` 之類 ⇒ null */
+function asNumber(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && /^\s*-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$/.test(v)) {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : null;
+  }
+  return null;
+}
+
+/** overwritten 那一格留下的值（`winner` 說留下誰的） */
+export function winnerValue(n: Pick<MergeNotice, "winner" | "mine" | "theirs">): unknown {
+  return n.winner === "mine" ? n.mine : n.theirs;
+}
+
+/**
+ * 通知裡記的值（`recorded`）跟那一格**現在**的值（`current`）是不是同一個（磨光② A4）。
+ *   * Rust 記通知時把超過 120 字的字串截成前 120 字＋「…」——現值照同一規則截了再比；
+ *   * null／undefined 視為相同；兩邊都是有限數值、或可轉成同一個數字的字串 ⇒ 比數值；
+ *   * 其餘用 JSON.stringify 比（丟錯就退回 String）。
+ */
+export function sameAsRecorded(recorded: unknown, current: unknown): boolean {
+  const a = recorded ?? null;
+  const b = clipLikeRust(current ?? null);
+  if (a === null || b === null) return a === b;
+  const na = asNumber(a);
+  const nb = asNumber(b);
+  if (na !== null && nb !== null) return na === nb;
+  const str = (v: unknown): string => {
+    try {
+      return JSON.stringify(v) ?? String(v);
+    } catch {
+      return String(v);
+    }
+  };
+  return str(a) === str(b);
+}
+
+/**
+ * 整理之後的現況（磨光② A4；呼叫端在本機查好再傳進 `describeMerge`）：
+ *   `{ gone: true }`＝那樣東西（overwritten＝那一列）現在已經不在了；
+ *   `{ changed: true, now }`＝overwritten 那一格現在的值跟留下的不一樣（同一趟的整理又改過）；
+ *   undefined＝跟通知說的一樣、或查不到（照舊句）。
+ */
+export type MergeAfter = { gone: true } | { changed: true; now: unknown } | undefined;
+
+/**
+ * 由查到的現況算一筆的 `MergeAfter`：revived／kept 看 `gone`（`mergeObjectKey` 的集合，`goneObjects` 回的）；
+ * overwritten 看 `cells`（`mergeCellKey` → 現況，`currentCells` 回的）——列不在 ⇒ gone、現值≠留下的值 ⇒ changed。
+ * 查不到（集合／Map 裡沒有那一筆）⇒ undefined。
+ */
+export function mergeAfterOf(n: MergeNotice, gone?: ReadonlySet<string>, cells?: ReadonlyMap<string, MergeCellNow>): MergeAfter {
+  if (n.kind !== "overwritten") return gone?.has(mergeObjectKey(n)) ? { gone: true } : undefined;
+  const c = cells?.get(mergeCellKey(n));
+  if (!c) return undefined;
+  if (c.gone) return { gone: true };
+  return sameAsRecorded(winnerValue(n), c.value) ? undefined : { changed: true, now: c.value };
+}
+
 /**
  * 一列的方向句（label 已由呼叫端解好；D-主-17 分方向、D-主-20 印兩邊的值）：
  *   revived     ⇒ by_me：「你在這台刪過，另一台改過——回來了」；!by_me：「一台刪過、另一台改過——回來了」
@@ -99,10 +168,32 @@ export function fmtMergeValue(v: unknown, max = 24): string {
  *                  winner==="theirs"：「這台改成「{mine}」、另一台改成「{theirs}」——留下另一台後改的」
  *   （先看 by_me：萬一有 winner=mine 卻不是這台寫的那一格，也不說「這台改成」——§0-1 第 20 條的精神）
  * `fmt`（選填，來自 `SyncRowLabel.fmt`）：overwritten 的兩邊值先問它，回 null 就退回 `fmtMergeValue`。
+ *
+ * 磨光② A4：`after`＝整理之後的現況（`mergeAfterOf`）；`note`＝線補的一句（`SyncRowLabel.note`；原本由清單元件
+ * 自己接在後面，收進這支才保證「不在了」跟線的話不疊兩句）：
+ *   revived／kept＋gone  ⇒ 方向前半句（不說「回來了／留著」）＋ note ?「（note）」:「——現在已經不在了」
+ *   overwritten＋gone    ⇒ 原句＋ note ?「（note）」:「（後來又不在了）」
+ *   overwritten＋changed ⇒ 原句＋「（後來又被整理成「{now}」）」＋「（note）」
+ *   沒 after             ⇒ 原句＋「（note）」
+ * 沒 after、沒 note 時輸出逐字不變。
  */
-export function describeMerge(n: MergeNotice, fmt?: (col: string, v: unknown) => string | null): string {
-  if (n.kind === "revived") return n.by_me ? "你在這台刪過，另一台改過——回來了" : "一台刪過、另一台改過——回來了";
-  if (n.kind === "kept") return n.by_me ? "另一台刪過，但這台改過——留著" : "一台刪過、另一台改過——留著改過的";
+export function describeMerge(
+  n: MergeNotice,
+  fmt?: (col: string, v: unknown) => string | null,
+  after?: MergeAfter,
+  note?: string,
+): string {
+  const tail = note ? `（${note}）` : "";
+  const gone = !!after && "gone" in after;
+  if (n.kind === "revived" || n.kind === "kept") {
+    if (gone) {
+      // 刪改相撞、後來又不在了：「回來了／留著」會是反話，只留方向的前半句
+      const head = !n.by_me ? "一台刪過、另一台改過" : n.kind === "revived" ? "你在這台刪過，另一台改過" : "另一台刪過，但這台改過";
+      return head + (note ? tail : "——現在已經不在了");
+    }
+    if (n.kind === "revived") return (n.by_me ? "你在這台刪過，另一台改過——回來了" : "一台刪過、另一台改過——回來了") + tail;
+    return (n.by_me ? "另一台刪過，但這台改過——留著" : "一台刪過、另一台改過——留著改過的") + tail;
+  }
   // 線可以給 `fmt` 把值印成人話（接縫 #77）；回 null、丟錯或沒給 ⇒ 退回 fmtMergeValue（不給 fmt 時輸出逐字不變）
   const show = (v: unknown): string => {
     if (fmt) {
@@ -117,9 +208,13 @@ export function describeMerge(n: MergeNotice, fmt?: (col: string, v: unknown) =>
   };
   const mine = show(n.mine);
   const theirs = show(n.theirs);
-  if (!n.by_me) return `一台改成「${mine}」、另一台改成「${theirs}」——留下後改的`;
-  if (n.winner === "mine") return `另一台改成「${theirs}」、這台改成「${mine}」——留下這台後改的`;
-  return `這台改成「${mine}」、另一台改成「${theirs}」——留下另一台後改的`;
+  let base: string;
+  if (!n.by_me) base = `一台改成「${mine}」、另一台改成「${theirs}」——留下後改的`;
+  else if (n.winner === "mine") base = `另一台改成「${theirs}」、這台改成「${mine}」——留下這台後改的`;
+  else base = `這台改成「${mine}」、另一台改成「${theirs}」——留下另一台後改的`;
+  if (gone) return base + (note ? tail : "（後來又不在了）");
+  if (after && "changed" in after) return `${base}（後來又被整理成「${show(after.now)}」）${tail}`;
+  return base + tail;
 }
 
 /** 欄名：cols?.[col] ?? col（**不**退回 CONFLICT_COL_LABEL——它是 nodes 專用，§0-1 第 16 條） */
@@ -183,6 +278,11 @@ export function mergeObjectKey(n: Pick<MergeNotice, "tbl" | "row_id">): string {
   return `${n.tbl}\u0000${n.row_id}`;
 }
 
+/** 一格（表＋列＋欄）的鍵：`currentCells` 的 Map 鍵、toast 的 `changed` 集合（磨光② A4）；col 為 null 當空字串 */
+export function mergeCellKey(n: Pick<MergeNotice, "tbl" | "row_id"> & { col: string | null }): string {
+  return `${n.tbl}\u0000${n.row_id}\u0000${n.col ?? ""}`;
+}
+
 /** 按物件分組，保留第一次出現的順序 */
 function byObject(list: readonly MergeNotice[]): MergeNotice[][] {
   const groups = new Map<string, MergeNotice[]>();
@@ -201,6 +301,9 @@ function byObject(list: readonly MergeNotice[]): MergeNotice[][] {
  *   `cols`：只講一樣東西且是 overwritten 時的欄名表（插槽給的、或核心的 CONFLICT_COL_LABEL）；沒給就印欄名原文。
  *   `gone`：revived／kept 的那樣東西**現在**已經不在了（`mergeObjectKey` 的集合；主線④ #81——例：時刻表的整理在同一趟
  *     又把復活的那塊刪掉）。在集合裡的不再說「回來了／留著」，改說「現在已經不在了」；不給＝都當作還在（原行為）。
+ *     磨光② A4：overwritten 那一列現在不在了，也把它的 `mergeObjectKey` 放進這個集合。
+ *   `changed`（磨光② A4）：overwritten 那一格現值≠留下的值（`mergeCellKey` 的集合；同一趟的整理又改過）⇒
+ *     句尾「留下…後改的」改成「之後又被整理過」（列不在了則「現在已經不在了」）。只影響「一樣東西」的句子；不給＝原行為。
  *   數量一律是「幾樣東西」（#82）：一樣東西 ⇒ 依 kind、方向、by_me（同一樣東西被蓋好幾欄 ⇒ 一句列欄名）；
  *   多樣同一類同一表 ⇒ countNoun；其餘 ⇒ 「同步時有 N 處兩台撞到——看看是哪些」（N＝樣數）。
  */
@@ -209,6 +312,7 @@ export function mergeToastText(
   singleLabel: string | null,
   cols?: Readonly<Record<string, string>>,
   gone?: ReadonlySet<string>,
+  changed?: ReadonlySet<string>,
 ): string {
   const list = fresh.filter((n) => n && isKnownKind(n.kind));
   if (list.length === 0) return "";
@@ -217,10 +321,10 @@ export function mergeToastText(
   if (objects.length === 1 && list.length > 1) {
     // 同一樣東西好幾筆（#82）：全是 overwritten ⇒ 一句列出被蓋的欄；全是同一種刪改 ⇒ 當一筆講（有一筆是第三台的就不指認「這台」）
     const n = list[0];
-    if (list.every((x) => x.kind === "overwritten")) return manyColsText(list, singleLabel, cols);
+    if (list.every((x) => x.kind === "overwritten")) return manyColsText(list, singleLabel, cols, gone, changed);
     if (list.every((x) => x.kind === n.kind)) {
       const by_me = list.every((x) => x.by_me);
-      return mergeToastText([{ ...n, by_me }], singleLabel, cols, gone);
+      return mergeToastText([{ ...n, by_me }], singleLabel, cols, gone, changed);
     }
     return `同步時有 1 處兩台撞到——看看是哪些`;
   }
@@ -239,9 +343,11 @@ export function mergeToastText(
       if (n.by_me) return singleLabel ? `另一台刪過${quoted(singleLabel)}，但這台改過——留著` : `另一台刪過 ${one}，但這台改過——留著`;
       return singleLabel ? `${quoted(singleLabel)}一台刪過、另一台改過——留著` : `有 ${one}一台刪過、另一台改過——留著`;
     }
+    // A4：那一列又不在了／那一格又被整理過 ⇒ 不說「留下…後改的」（留下的已經不是那個值）
+    const end = afterTail([n], gone, changed);
     const who = !n.by_me ? "" : n.winner === "mine" ? "這台" : "另一台";
-    if (singleLabel) return `${quoted(singleLabel)}的${colLabelOf(n, cols)}兩台都改過，留下${who}後改的`;
-    return `有 ${one}兩台改到同一格，留下${who}後改的`;
+    if (singleLabel) return `${quoted(singleLabel)}的${colLabelOf(n, cols)}兩台都改過，${end ?? `留下${who}後改的`}`;
+    return `有 ${one}兩台改到同一格，${end ?? `留下${who}後改的`}`;
   }
   const first = list[0];
   const sameKindTbl = list.every((n) => n.kind === first.kind && n.tbl === first.tbl);
@@ -266,19 +372,37 @@ const TOAST_MAX_CHARS = 40;
  * 同一樣東西被蓋了好幾欄（#82）：「『X』的分類、結束時刻兩台都改過，留下另一台後改的」。
  * 欄超過兩個就只說幾個地方（toast 兩行上限）。各欄留下的不是同一台、或有一欄是第三台的 ⇒ 不指認「這台／另一台」。
  */
-function manyColsText(list: readonly MergeNotice[], label: string | null, cols?: Readonly<Record<string, string>>): string {
+function manyColsText(
+  list: readonly MergeNotice[],
+  label: string | null,
+  cols?: Readonly<Record<string, string>>,
+  gone?: ReadonlySet<string>,
+  changed?: ReadonlySet<string>,
+): string {
   const n = list[0];
   const sameWinner = list.every((x) => x.by_me && x.winner === n.winner);
   const who = !sameWinner ? "" : n.winner === "mine" ? "這台" : "另一台";
+  // A4：任一欄又被整理過／那樣東西不在了 ⇒ 句尾換掉（一句話講不完「哪欄留下、哪欄又改」）
+  const end = afterTail(list, gone, changed) ?? `留下${who}後改的`;
   const names = [...new Set(list.map((x) => colLabelOf(x, cols)))];
   if (label) {
-    const many = `${quoted(label)}有 ${names.length} 個地方兩台都改過，留下${who}後改的`;
+    const many = `${quoted(label)}有 ${names.length} 個地方兩台都改過，${end}`;
     if (names.length > 2) return many;
-    const listed = `${quoted(label)}的${names.join("、")}兩台都改過，留下${who}後改的`;
+    const listed = `${quoted(label)}的${names.join("、")}兩台都改過，${end}`;
     // 名字長＋欄名長會超過兩行（#59 的 40 字）⇒ 退回只說幾個地方
     return Array.from(listed).length <= TOAST_MAX_CHARS ? listed : many;
   }
-  return `有 ${countNoun(n.tbl, 1)}兩台改到同樣的 ${names.length} 格，留下${who}後改的`;
+  return `有 ${countNoun(n.tbl, 1)}兩台改到同樣的 ${names.length} 格，${end}`;
+}
+
+/**
+ * 一樣東西的 overwritten 幾筆（磨光② A4）：列不在了 ⇒「現在已經不在了」；任一格又被整理過 ⇒「之後又被整理過」；
+ * 都沒有（或沒給集合）⇒ null（呼叫端照舊說「留下…後改的」）
+ */
+function afterTail(list: readonly MergeNotice[], gone?: ReadonlySet<string>, changed?: ReadonlySet<string>): string | null {
+  if (list.some((x) => gone?.has(mergeObjectKey(x)))) return "現在已經不在了";
+  if (list.some((x) => changed?.has(mergeCellKey(x)))) return "之後又被整理過";
+  return null;
 }
 
 export const MERGE_TEXT = {

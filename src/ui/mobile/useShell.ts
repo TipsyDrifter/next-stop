@@ -14,7 +14,7 @@
  *   同一時間只渲染一個殼（`shell === 'mobile' ? <MobileShell/> : <桌機樹>`），兩殼共用 store，不共用 DOM。
  *   SSR／非瀏覽器環境（測試）沒有 matchMedia → 一律 'desktop'。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 export type ShellKind = "desktop" | "mobile";
 
@@ -48,7 +48,9 @@ export function useShell(): ShellKind {
 
   // 同步到 <html data-shell>：body{min-width:1180px} 是桌機在 techo.css 的硬假設，根 div 的 data-shell 管不到 body，
   // 只有掛在 html 上，mobile.css 的 `html[data-shell="mobile"] body { min-width: 0 }` 才壓得掉（橫向手機寬 >768 時尤其需要）。
-  useEffect(() => {
+  // 用 layout effect（磨光①）：返回堆疊的 useBackLayer（子元件的 passive effect）靠它判殼；layout effect 全部先於 passive effect，
+  // 切殼那個 commit 裡已經開著的層才不會被當成桌機而漏登記。
+  useLayoutEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.dataset.shell = shell;
   }, [shell]);

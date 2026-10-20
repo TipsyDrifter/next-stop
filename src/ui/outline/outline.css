@@ -73,6 +73,26 @@
 .ns-outline .ticket:hover .meta-hover,
 .ns-outline .ticket.selected .meta-hover,
 .ns-outline .meta-hover:focus-within { opacity: 1; }
+/* 列的 ⋯ 鈕（10-20 磨光②；outline.add.*／indent／outdent／reorder 的滑鼠入口）：票右下角，與右上角票種小字對稱。
+   現身規則同上面的空日期入口（hover／選中＝鍵盤聚焦那一列／選單開著）；長相＝票種小字那一階的淡字，hover 燙金，
+   框線只在 hover／開著時出現（.status 小方標的同一條 --color-dash），不另畫新形狀。 */
+.ns-outline .ticket .row-more {
+  position: absolute; right: 10px; bottom: 6px; z-index: 2;
+  min-width: 26px; height: 18px; padding: 0 5px; border-radius: 2px;
+  display: grid; place-items: center;
+  background: transparent; border: 1px solid transparent; cursor: pointer;
+  font-family: var(--font-latin); font-size: 13px; line-height: 1; letter-spacing: .08em;
+  color: var(--color-ink-faint);
+  opacity: 0; transition: opacity .15s, color .15s, border-color .15s;
+}
+.ns-outline .ticket:hover .row-more,
+.ns-outline .ticket.selected .row-more,
+.ns-outline .ticket .row-more[aria-expanded="true"] { opacity: 1; }
+.ns-outline .ticket .row-more:hover,
+.ns-outline .ticket .row-more[aria-expanded="true"] { color: var(--color-gold); border-color: var(--color-dash); }
+.ns-outline .ticket .row-more:focus-visible { opacity: 1; outline: 1px solid var(--color-gold); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .ns-outline .ticket .row-more { transition: none; } }
+
 /* 日期直改：原生 date 輸入披手帳底線（原型無此控件，最小化） */
 .ns-outline .techo-input.date-input { font-size: 11px; height: 20px; padding: 0 2px; font-family: var(--font-latin); }
 
@@ -124,6 +144,21 @@
 .ns-outline .hide-done[aria-pressed="true"] { opacity: 1; }
 .ns-outline .hide-done:hover,
 .ns-outline .hide-done[aria-pressed="true"] { color: var(--color-gold); }
+
+/* ═══ 頁首：「路線詳情」（10-20 磨光②；路線面板的滑鼠入口） ═══
+   長相＝當日清單「推遲」那顆小框鈕（1px --color-dash、10px／.14em、ink-soft），hover 與按下態（路線面板開著）轉燙金。
+   align-self:center——.date-line 是 baseline 對齊，30px 標題旁的小框對齊基線會浮在字腳，置中才穩。 */
+.ns-outline .date-line .route-detail {
+  align-self: center; flex: none; margin-left: 2px;
+  border: 1px solid var(--color-dash); background: transparent; border-radius: 2px; cursor: pointer;
+  padding: 3px 7px 3px 9px; font-family: inherit; font-size: 10px; letter-spacing: .14em;
+  color: var(--color-ink-soft);
+  transition: color .15s, border-color .15s;
+}
+.ns-outline .date-line .route-detail:hover,
+.ns-outline .date-line .route-detail[aria-pressed="true"] { color: var(--color-gold-ink); border-color: var(--color-gold); }
+.ns-outline .date-line .route-detail:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ns-outline .date-line .route-detail { transition: none; } }
 
 /* ═══ 空狀態：原型 .sec 語彙＋一句話＋文字入口 ═══ */
 .ns-outline .empty { max-width: 520px; }

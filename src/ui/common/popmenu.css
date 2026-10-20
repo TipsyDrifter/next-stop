@@ -1,0 +1,43 @@
+/* ─────────────────────────────────────────────────────
+ * popmenu.css — 列旁小選單（PopMenu.tsx；10-20 磨光②：今日「＋」▾、大綱列 ⋯）
+ *
+ * 一個新形狀都不發明：長相逐值照今日頁推遲小卡（src/ui/today/defer.css 的 .ns-defer*）——
+ *   紙卡 .techo-card・眉標 .techo-overline・一行文字鈕（hover 燙金＋paper-used 底）・--color-dash 虛線分隔。
+ *   右側淡字＝快捷鍵（拉丁字、ink-faint；推遲小卡那一格放的是日期，同一個位置同一個字級）。
+ * 本檔只出位置與間距，顏色一律走 token。掛在 body（portal），所以不加頁面前綴。
+ * ───────────────────────────────────────────────────── */
+
+.ns-popmenu {
+  position: fixed;
+  z-index: 60;
+  min-width: 216px;
+  padding: 12px 0 6px;
+}
+.ns-popmenu:focus { outline: none; }
+.ns-popmenu .ns-popmenu-head { padding: 0 14px 8px; }
+.ns-popmenu .ns-popmenu-list { list-style: none; margin: 0; padding: 0; }
+
+.ns-popmenu .ns-popmenu-item {
+  width: 100%;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 18px;
+  padding: 8px 14px;
+  background: transparent; border: 0; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; letter-spacing: .08em; text-align: left; white-space: nowrap;
+  color: var(--color-ink);
+  transition: color .15s, background .15s;
+}
+.ns-popmenu .ns-popmenu-item:hover:not(:disabled) { color: var(--color-gold); background: var(--color-paper-used); }
+.ns-popmenu .ns-popmenu-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-popmenu .ns-popmenu-item:disabled { color: var(--color-ink-faint); cursor: default; }
+.ns-popmenu .ns-popmenu-item .caps {
+  font-family: var(--font-latin); font-size: 11px; letter-spacing: .08em;
+  color: var(--color-ink-faint); flex: none;
+}
+.ns-popmenu .ns-popmenu-item:disabled .caps { opacity: .6; }
+
+/* 分隔＝手帳的虛線撕線（沿 .sec .rule 的 --color-dash；同推遲小卡） */
+.ns-popmenu .ns-popmenu-list li.cut { border-top: 1px dashed var(--color-dash); margin-top: 4px; padding-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-popmenu .ns-popmenu-item { transition: none; }
+}

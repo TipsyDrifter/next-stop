@@ -4,7 +4,7 @@
  *
  * - 查詢：store.searchEntries(term, limit)＝全部期間 queryEntries → matchesKeyword → 新到舊取 limit（純讀，不動售票口頁的搜尋狀態）。
  *   只打 `$`（term 空）⇒ 最近 limit 筆。
- * - 一列：glyph「票」；label＝`−80 午餐「備註」 · 現金`（支出 −、退款／收入 ＋；轉帳「80 現金 → 學生證」；校正「±N 精算 · 帳戶」）；
+ * - 一列：glyph「帳」（磨光③ 2-17：車票那組才是「票」，帳目別撞字）；label＝`−80 午餐「備註」 · 現金`（支出 −、退款／收入 ＋；轉帳「80 現金 → 學生證」；校正「±N 精算 · 帳戶」）；
  *   aside＝`10/8`（shortDay）。長相照原型 entryLabel()。
  * - go：切到售票口頁 → jumpToEntry（切清單、到那筆的月、選中並攤開大票、捲到那一天）。
  */
@@ -37,7 +37,7 @@ function hitOf(e: EntryRow): QuickJumpHit {
     id: e.id,
     label: entryJumpLabel(e),
     aside: shortDay(e.occurred_on),
-    glyph: { text: "票" },
+    glyph: { text: "帳" },
     go: async () => {
       useUiStore.getState().setPage("ticket");
       await useTicketStore.getState().jumpToEntry(e.id);

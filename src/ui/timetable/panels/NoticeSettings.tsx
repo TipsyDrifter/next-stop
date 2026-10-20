@@ -2,10 +2,10 @@
  * NoticeSettings——「分類與設定」面板的〈通知〉節（①b①c 契約 §5.6、D-時-30、D-時-32；①c 丁席）。
  *
  * 長相照原型情境 6（`prototypes/時刻表-src/v-e.js` manageBody 的 is-notice 那一節）：
- *   標題「通知」＋「只記在這台電腦／手機，不同步。」→ 三個開關（各帶一行說明）→ 釘選分類：上排五格＝實際會出現的
+ *   標題「通知」＋「開關只記在這台電腦／手機；釘選分類兩台一起。」→ 三個開關（各帶一行說明）→ 釘選分類：上排五格＝實際會出現的
  *   常用分類（釘選的帶 ✕、補進來的寫「最近」）、下面一排全部分類可點選釘選（帶序號）、最下面「系統匣『換車 ▸』／
  *   通知上的格子會長這樣」的預覽。手機與桌機文案不同（通知欄 vs 系統匣）。分流看真實平台（`onAndroid()`），不看排版。
- * 資料：三把開關＋釘選都是本地鍵、不同步（store 的 setNotice*）；格子清單＝`noticeTiles`（與手機通知、系統匣子選單同一支）。
+ * 資料：三把開關是本地鍵、不同步；釘選分類 10-20 磨光② 起同步（D-主-40；store 的 setNotice*）；格子清單＝`noticeTiles`（與手機通知、系統匣子選單同一支）。
  * 「運行中顯示」關掉 ⇒ 常用分類格與釘選一起變灰（關掉時通知整則收掉／系統匣選單縮回「開啟／結束」，0-16）。
  * Android 另有：沒權限時「需要允許通知」（①a 原樣）、精準鬧鐘沒給時的提醒延遲說明（`ttStatus().exactAlarm`）、鎖屏說明。
  * class 寫在 timetable.css §G。
@@ -132,7 +132,7 @@ export function NoticeSettings() {
   return (
     <section className="ns-tt-mgr-settings ns-tt-notice-sec">
       <h4 className="ns-tt-mgr-sec">通知</h4>
-      <Sub>只記在這台{android ? "手機" : "電腦"}，不同步。</Sub>
+      <Sub>開關只記在這台{android ? "手機" : "電腦"}；釘選分類兩台一起。</Sub>
 
       <Setting
         title={android ? "運行中顯示在通知欄" : "運行中顯示在系統匣"}

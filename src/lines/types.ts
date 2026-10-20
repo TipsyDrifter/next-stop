@@ -205,9 +205,29 @@ export interface LineMount {
    * - **荷札頁怎麼畫**（`group`、`describe`）：旅客筆記荷札頁的「別處」那段，有登記的類型依 `group` 分段、用 `describe` 畫列；
    *   桌機看 `page.status`、手機看 `mobile.status`，`open` 才用（`lineTagEntities(shell)`）。沒登記＝照舊印原始 entity_type 字串、段名「別處」。
    * - **重載**（`tables`）：同步的 `changed` 含這些表 ⇒ 荷札的 index 重載（實體存活可能變了）。
+   * - **不算用量**（`counts: false`）：這種掛載只標記、不計入荷札的用量數字／排序／影響字／「別處」清單（仍照存活條件算存活）；不填＝算用量。
    * 沒有任何線填值＝SQL、DOM、重載條件與沒有插槽時逐字相同。
    */
   tagEntities?: readonly TagEntitySpec[];
+  /**
+   * 全域設定頁的指路列（磨光③ 0-2）：桌機 Ctrl+, 設定的「一般」分頁尾端、手機「更多」設定節尾端各畫一列；
+   * 線的設定住在自己頁面時用來指路（label 主字、sub 小字、按鈕呼叫 `open(shell)` 跳過去）。
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 才畫（`lineSettingsLinks(shell)`）；未通車即使填了也不畫；三線固定順序、各線內照登記順序。
+   * 沒有任何線填值＝DOM 與沒有插槽時相同。
+   */
+  settingsLinks?: readonly SettingsLinkSpec[];
+}
+
+/** 全域設定頁的一列指路（`LineMount.settingsLinks` 的一筆） */
+export interface SettingsLinkSpec {
+  /** `<line>.<name>`，例 "timetable.settings" */
+  id: `${LineId}.${string}`;
+  /** 列的主字 */
+  label: string;
+  /** 主字下方的小字（可省） */
+  sub?: string;
+  /** 點了去哪；`shell` 告訴你要用桌機還是手機的導航 */
+  open(shell: "desktop" | "mobile"): void;
 }
 
 /** 一種掛在荷札上的別線實體（`LineMount.tagEntities` 的一筆） */
@@ -224,6 +244,12 @@ export interface TagEntitySpec {
   describe(ids: readonly string[]): Promise<Readonly<Record<string, TagEntityRow | null>>>;
   /** 同步 `changed` 含其中任一 ⇒ 荷札 index 重載 */
   tables: readonly string[];
+  /**
+   * 這種掛載不算荷札的「用量」（荷札頁數字、建議排序、刪除／改名影響字、「別處」清單都不列）；
+   * 仍照 `existsSql` 算存活、仍進 `tagStore.index.ents` 給登記的線自己讀（例：時刻表的單塊排除 `timetable:block-off`）。
+   * 不填＝算用量（插槽之前的行為）。
+   */
+  counts?: false;
 }
 
 export interface TagEntityRow {
@@ -313,6 +339,12 @@ export interface QuickJumpProviderSpec {
   group: string;
   /** 前綴（例 "#"）：打的字以它開頭 ⇒ 只查這個提供者；不給＝只在附加組出現 */
   prefix?: string;
+  /**
+   * 這個提供者在哪幾殼出現（磨光①：手機搜尋）。不給＝只有桌機（`["desktop"]`）。
+   * 填 `"mobile"` 的提供者，`go()` 要自己分殼導航（例：`isMobileShell()` ⇒ `setMobileTab`），手機搜尋點了才不會跳到桌機頁。
+   * 手機另外看該線 `mobile.status`（`lineQuickJumpProviders("mobile")`）。
+   */
+  shells?: readonly ("desktop" | "mobile")[];
   /** `term`：前綴模式已去掉前綴（只打前綴＝空字串，提供者自己決定列什麼）；`limit`：附加組模式給 4 */
   search(term: string, limit: number): Promise<QuickJumpHit[]>;
 }

@@ -21,9 +21,11 @@ import {
   ancestorsOf,
   descendantCount,
   openDescendantCount,
+  siblingsOf,
   useNodeStore,
   type TreeIndex,
 } from "../../store/nodeStore";
+import type { PopMenuItem } from "../common/PopMenu";
 import { useUiStore } from "../../store/uiStore";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { addDays, todayKey } from "../../lib/date";
@@ -654,6 +656,62 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     focusContainer,
   };
 
+  /* ───────── 列的 ⋯ 選單（10-20 磨光②；outline.add.sibling／add.ticket／indent／outdent／reorder 的滑鼠入口） ───────── */
+  /**
+   * 六項＝鍵盤同一條路：先選中那一列（跟鍵盤一樣「對選取動手」），再叫 keys 的同名動作。
+   * 停用條件逐條鏡射 nodeStore.indent／outdent／reorder 與 keys.addTicket／outdentNode 的拒絕理由
+   * （做不到的那項不讓點，滑過看得到同一句話）；真的點下去仍由原本那條路把關。
+   */
+  const menuFor = (id: string): PopMenuItem[] => {
+    const t = ns().tree;
+    const { routeId: rid, zoom: z } = st.current;
+    const n = t.byId[id];
+    if (!n) return [];
+    const { siblings, index } = siblingsOf(t, rid, id);
+    const prev = index > 0 ? t.byId[siblings[index - 1]] : undefined;
+    const indentWhy = !prev
+      ? "上面沒有可以掛靠的節點"
+      : !canHaveChildren(prev.kind)
+        ? "車票／車站底下不能掛東西"
+        : !adaptKind(n.kind, prev.kind)
+          ? "這種節點不能掛在那裡"
+          : null;
+    const parent = n.parent_id && n.parent_id !== rid ? t.byId[n.parent_id] : undefined;
+    const gpId = parent?.parent_id;
+    const gpKind: NodeKind = gpId && gpId !== rid && t.byId[gpId] ? t.byId[gpId].kind : "route";
+    const outdentWhy = !parent
+      ? "已經在路線頂層——跨路線請用「移動到…」"
+      : z && n.parent_id === z.id
+        ? "已到聚焦範圍的頂層——先按 Esc 退出聚焦再升層"
+        : !adaptKind(n.kind, gpKind)
+          ? "這種節點不能升到那一層"
+          : null;
+    const ticketWhy = isTaskKind(n.kind) || n.kind === "ticket" ? null : "支線底下不能直接掛車票——先建一班列車";
+    /** 先選中、焦點回大綱容器，再做（新增類會開草稿列、草稿自己拿焦點） */
+    const run = (fn: () => void) => () => {
+      ui().select(id);
+      focusContainer();
+      fn();
+    };
+    const item = (key: string, label: string, hotkeyId: string, why: string | null, fn: () => void, cut = false): PopMenuItem => ({
+      key,
+      label,
+      hotkeyId,
+      disabled: why !== null,
+      why: why ?? undefined,
+      cut,
+      onSelect: run(fn),
+    });
+    return [
+      item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", null, keys.addSibling),
+      item("ticket", "新增車票", "outline.add.ticket", ticketWhy, keys.addTicket),
+      item("indent", "降層", "outline.indent", indentWhy, keys.indentSelected, true),
+      item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected),
+      item("up", "上移", "outline.reorder.up", index > 0 ? null : "已經在最上面", () => keys.reorderSelected(-1), true),
+      item("down", "下移", "outline.reorder.down", index >= 0 && index < siblings.length - 1 ? null : "已經在最下面", () => keys.reorderSelected(1)),
+    ];
+  };
+
   /* ───────── 行內編輯回呼（依目前 edit 綁定） ───────── */
   let draftHandlers: EditHandlers | null = null;
   let renameHandlers: EditHandlers | null = null;
@@ -697,6 +755,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     loading,
     keys,
     row,
+    menuFor,
     zoomTo,
     startFirstDraft: () => keys.addSibling(),
   };

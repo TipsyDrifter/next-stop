@@ -71,6 +71,11 @@ export interface PlanItem {
    * 它不在當天的預定欄、不算進總結（`daySummary` 跳過），只在「還沒排」清單裡。
    */
   lateFrom: string | null;
+  /**
+   * 節點列上的 `carried_from`（繰越來源日）。只有誤點項用得到：排到今天時主線 `reschedule` 會把它寫成原日，
+   * 撤回要一起寫回「寫入之前」的值，不然今日頁同時有延着＋繰越兩章（D-主-33）。一般預定項＝null。
+   */
+  carriedFrom: string | null;
 }
 
 /** ScheduleEntry（listCalendar 的一列）＋節點 → 預定項。節點找不到 ⇒ 沒有預計、沒有覆寫 */
@@ -87,6 +92,7 @@ export function planItemOf(e: ScheduleEntry, node: Pick<NodeRow, "estimate_min" 
     done: e.is_done,
     skipped: e.occurrence_status === "skipped",
     lateFrom: null,
+    carriedFrom: null,
   };
 }
 
@@ -97,7 +103,7 @@ export function planItemOf(e: ScheduleEntry, node: Pick<NodeRow, "estimate_min" 
  * 只有締切過了、沒有執行日的列（bucket "due"）不在這裡。
  */
 export function lateItemsOf(
-  rows: readonly Pick<TodayRow, "id" | "bucket" | "status" | "repeat_rule" | "occurrence" | "scheduled_on" | "scheduled_time" | "estimate_min">[],
+  rows: readonly Pick<TodayRow, "id" | "bucket" | "status" | "repeat_rule" | "occurrence" | "scheduled_on" | "scheduled_time" | "estimate_min" | "carried_from">[],
   today: string,
 ): { items: PlanItem[]; repeatCount: number } {
   const items: PlanItem[] = [];
@@ -121,6 +127,7 @@ export function lateItemsOf(
       done: false,
       skipped: false,
       lateFrom: r.scheduled_on,
+      carriedFrom: r.carried_from ?? null,
     });
   }
   return { items, repeatCount };
@@ -306,8 +313,11 @@ export function fmtPlanDelta(c: PlanCompare, estimateMin: number | null): string
 /* ───────────────────────── 3. 寫入規劃（0-5） ───────────────────────── */
 
 export type TimeWrite =
-  /** scheduledOn（選填）＝順便把執行日改到這一天（誤點項：排＝改到今天、撤回＝改回原日；執行器一次 `updateNode`） */
-  | { op: "setTime"; id: string; time: ClockText | null; scheduledOn?: string }
+  /**
+   * scheduledOn（選填）＝順便把執行日改到這一天（誤點項：排＝改到今天、撤回＝改回原日；執行器一次 `updateNode`）；
+   * carriedFrom（選填，只在撤回誤點項時帶）＝連 `carried_from` 一起寫回（null＝清掉繰越）。
+   */
+  | { op: "setTime"; id: string; time: ClockText | null; scheduledOn?: string; carriedFrom?: string | null }
   | { op: "setRun"; id: string; date: string; time: ClockText | null }
   | { op: "clearRun"; id: string; date: string };
 
@@ -323,10 +333,13 @@ export function planTimeWrite(item: PlanItem, time: ClockText | null): TimeWrite
 
 /**
  * 撤回（依寫入「之前」的 item）：單發票寫回舊值；定期券改之前就是覆寫 ⇒ 寫回舊覆寫（可能是 null），不是 ⇒ 清掉這一班的覆寫。
- * 誤點項＝執行日改回原日＋時刻寫回原本的（已知限制：`reschedule` 動過的繰越／今日序回不去，見施工回報〈使用者改題〉）。
+ * 誤點項＝執行日改回原日＋時刻寫回原本的＋`carried_from` 寫回原值（D-主-33；排上去時 `reschedule` 把它寫成原日，撤回要帶回）。
+ * 已知限制：`reschedule` 清掉的今日序（today_position）回不去。
  */
 export function planUndo(item: PlanItem): TimeWrite {
-  if (item.kind === "single" && item.lateFrom) return { op: "setTime", id: item.nodeId, time: item.time, scheduledOn: item.lateFrom };
+  if (item.kind === "single" && item.lateFrom) {
+    return { op: "setTime", id: item.nodeId, time: item.time, scheduledOn: item.lateFrom, carriedFrom: item.carriedFrom };
+  }
   if (item.kind === "repeat") {
     return item.overridden
       ? { op: "setRun", id: item.nodeId, date: item.date, time: item.time }

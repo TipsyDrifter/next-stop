@@ -11,15 +11,17 @@
  *   - 開啟時焦點落在第一顆 chip（沒有 chip 就是日期欄），並把自己捲進視野
  *   - Esc 收起（自理並 stopPropagation，不漏給頁面的鍵盤表）；點外面收起（mousedown capture；
  *     帶 `data-pop-toggle` 的元素除外——那是開關鈕，讓它自己切換，否則會「關了又被它打開」）
- *   - 日期欄：用月曆點選才完整觸發 change；鍵盤逐位輸入會中途觸發，只接受完整、年份 ≥ 1970、落在 min／max 內的值；
- *     Enter 送出目前的值（同一套檢查）
+ *   - 日期欄（D-主-36；判斷邏輯在 `datePickRules.ts`）：月曆點選造成的 change 立即送出；鍵盤造成的 change
+ *     （數字、↑↓、Backspace／Delete）**不送**——打到一半湊出的合法日期不算選好了。Enter：值合格（完整、年 ≥ 1970、
+ *     在 min／max 內）⇒ 送出；不合格 ⇒ 還原成開啟時的值＋欄下一行小字（下一次輸入時消失）。失焦／點外面關閉＝不送出
  *   - 日期欄的 keydown 先判 IME 組字（isComposing／keyCode 229）
  * 樣式在 `./datepicker.css`（`.ns-datepick*`，不依賴任何一條線的 class）；呼叫端用 `className` 調位置。
  */
-import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { DayGrid } from "./DayGrid";
+import { isDateEditKey, isPickableDay, resolveDateEnter, shouldPickOnChange } from "./datePickRules";
 import "./datepicker.css";
 
 /** 一顆快選 chip */
@@ -64,10 +66,7 @@ export function shortDayKey(key: string): string {
   return m && d ? `${m}/${d}` : key;
 }
 
-/** 日期欄的值能不能當成「選好了」：完整 YYYY-MM-DD、年份 ≥ 1970（逐位輸入會先經過 0002／0020）、落在 min／max 內 */
-export function isPickableDay(d: string, min?: string, max?: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(d) && Number(d.slice(0, 4)) >= 1970 && (!min || d >= min) && (!max || d <= max);
-}
+export { isPickableDay };
 
 /** 點浮層外面就收起；帶 `data-pop-toggle` 的元素（開關鈕）除外 */
 function useOutsideDismiss(ref: RefObject<HTMLElement | null>, onClose: () => void): void {
@@ -104,6 +103,10 @@ export function DatePicker({
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const rootRef = useRef<HTMLDivElement>(null);
   useOutsideDismiss(rootRef, onClose);
+  /** 最近一次 change 是鍵盤造成的（keydown 設、keyup／失焦／滑鼠按下清；change 在兩者之間同步發生） */
+  const typingRef = useRef(false);
+  /** Enter 不合格時欄下那一行小字；下一次輸入即消失 */
+  const [hint, setHint] = useState<string | null>(null);
 
   useEffect(() => {
     const first = rootRef.current?.querySelector<HTMLElement>("button, input");
@@ -160,17 +163,40 @@ export function DatePicker({
               if (e.key === "Enter") {
                 e.preventDefault();
                 e.stopPropagation();
-                const v = e.currentTarget.value;
-                if (isPickableDay(v, min, max)) onPick(v);
+                const out = resolveDateEnter(e.currentTarget.value, min, max);
+                if (out.kind === "pick") onPick(out.day);
+                else {
+                  e.currentTarget.value = value ?? ""; // 還原成開啟時的值（defaultValue 那個）
+                  setHint(out.hint);
+                }
+                return;
+              }
+              if (isDateEditKey(e.key, e.altKey)) {
+                typingRef.current = true;
+                setHint(null);
               }
             }}
+            onKeyUp={() => {
+              typingRef.current = false;
+            }}
+            onBlur={() => {
+              typingRef.current = false;
+            }}
+            onMouseDown={() => {
+              typingRef.current = false;
+            }}
             onChange={(e) => {
-              const v = e.target.value;
-              if (isPickableDay(v, min, max) && v !== (value ?? "")) onPick(v);
+              // 鍵盤造成的 change 只更新欄位本身；月曆點選才在這裡送出
+              if (shouldPickOnChange(e.target.value, typingRef.current, value ?? "", min, max)) onPick(e.target.value);
             }}
           />
         )}
       </div>
+      {!marks && hint && (
+        <div className="ns-datepick-hint" role="status">
+          {hint}
+        </div>
+      )}
       {marks && (
         <DayGrid
           variant="desk"

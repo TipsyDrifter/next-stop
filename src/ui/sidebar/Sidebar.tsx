@@ -214,23 +214,6 @@ export function Sidebar() {
             </button>
           ))}
         </div>
-        {/* 鍵盤註記＋ ⑦「? 指引」滑鼠入口（D-⑦-3 甲）：同一行同字級；註記與入口各包一個 span（讀屏有邊界、
-            淡度只落在註記）；純滑鼠入口所以不掛 role=button（掛了又不能 Enter／Space 對讀屏是「按不下去的鈕」），
-            mousedown 不搶焦點，點了只切 hotkeyGuideOpen（互斥由 uiStore 保證）；鍵盤走 ?（導航模式）／Ctrl+/（IME 備援） */}
-        <p className="gnav-kbd">
-          {/* 前導空白併進數字那一段：維持「MOD_KBD｜ 1 · 2 · 3」兩個文字節點，與重構前同切法（三節點會差次像素） */}
-          <span className="gnav-kbd-note">{MOD_KBD}{` ${openPages().map((p) => p.navDigit).join(" · ")}`}</span>{" "}
-          <span
-            className="gnav-kbd-guide"
-            title={`快捷鍵指引（${capsOf("global.guide")}）`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={toggleHotkeyGuide}
-          >
-            ? 指引
-          </span>
-          <SyncDot className="gnav-sync-dot" />
-        </p>
-
         {/* 第二欄：三條功能線（Q3 拍板 2026-08-28；增補一：位置固定，通車只把那一枚的反灰復原）——
             未通車＝灰階小圖示、hover「次期開業予定」；通車＝可按的 .gnav-line，長相同第一欄大圖示（gnav.css；旅客筆記 D-筆-35） */}
         <div
@@ -274,6 +257,24 @@ export function Sidebar() {
             );
           })}
         </div>
+
+        {/* 鍵盤註記＋ ⑦「? 指引」滑鼠入口（D-⑦-3 甲）：同一行同字級；註記與入口各包一個 span（讀屏有邊界、
+            淡度只落在註記）；純滑鼠入口所以不掛 role=button（掛了又不能 Enter／Space 對讀屏是「按不下去的鈕」），
+            mousedown 不搶焦點，點了只切 hotkeyGuideOpen（互斥由 uiStore 保證）；鍵盤走 ?（導航模式）／Ctrl+/（IME 備援）。
+            10-20 磨光②（使用者指示）：從兩排中間搬到兩排下面——數字註記管的是兩排全部，放在底下才讀得出「這幾枚都有號碼」 */}
+        <p className="gnav-kbd">
+          {/* 前導空白併進數字那一段：維持「MOD_KBD｜ 1 · 2 · 3」兩個文字節點，與重構前同切法（三節點會差次像素） */}
+          <span className="gnav-kbd-note">{MOD_KBD}{` ${openPages().map((p) => p.navDigit).join(" · ")}`}</span>{" "}
+          <span
+            className="gnav-kbd-guide"
+            title={`快捷鍵指引（${capsOf("global.guide")}）`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleHotkeyGuide}
+          >
+            ? 指引
+          </span>
+          <SyncDot className="gnav-sync-dot" />
+        </p>
 
         {/* 側欄工具列：通車的線的 sidebarTool（搜尋鈕左側）＋ D5 頂部搜尋鈕（滑鼠入口；鍵盤走 Ctrl+P） */}
         <div className="gnav-tools">

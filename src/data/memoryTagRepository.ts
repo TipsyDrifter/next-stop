@@ -40,7 +40,7 @@ import {
   type TagRow,
 } from "./tagRepository";
 import { byNameKey, pickNode, readRecent, recordTagBefore, recordTaggingBefore } from "./tagRepoShared";
-import { otherEntityAliveMemory } from "./tagEntityAlive";
+import { otherEntityAliveMemory, uncountedTagEntityTypes } from "./tagEntityAlive";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
 
@@ -56,6 +56,31 @@ const SEED_TAGS: [string, number[]][] = [
   ["等回覆", [5, 7]],
   ["AI/工具", [7]],
 ];
+
+/** `&tagfail=1`：loadIndexSource 一直丟錯，直到使用者按下任何一顆「重試」（只有記憶體實作認，正式資料路徑碰不到；磨光③ 2-12）。
+ *  只失敗一次的話，開頁時別處的載入就先把它吃掉了，畫面上看不到重試（磨光③ 評審 V18） */
+function tagFailFlag(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URLSearchParams(window.location.search).get("tagfail") === "1";
+  } catch {
+    return false;
+  }
+}
+let tagFailUsed = false;
+let tagFailWatching = false;
+/** 第一次丟錯時掛一個捕獲期點擊監聽：點到字是「重試」的按鈕 ⇒ 之後照常（監聽比按鈕的 onClick 先跑，所以這次重試就會成功） */
+function watchRetryClick(): void {
+  if (tagFailWatching || typeof document === "undefined") return;
+  tagFailWatching = true;
+  const onClick = (e: MouseEvent) => {
+    const btn = e.target instanceof Element ? e.target.closest("button") : null;
+    if (!btn || btn.textContent?.trim() !== "重試") return;
+    tagFailUsed = true;
+    document.removeEventListener("click", onClick, true);
+  };
+  document.addEventListener("click", onClick, true);
+}
 
 export class MemoryTagRepository implements TagRepository {
   private readonly tags = new Map<string, TagRow>();
@@ -76,6 +101,11 @@ export class MemoryTagRepository implements TagRepository {
   /* ───────────── 讀 ───────────── */
 
   async loadIndexSource(): Promise<TagIndexSource> {
+    // 評審端點 `?mock=1&tagfail=1`（磨光③ 2-12）：按「重試」之前一直丟錯，驗「荷札沒載入　重試」
+    if (!tagFailUsed && tagFailFlag()) {
+      watchRetryClick();
+      throw new Error("荷札沒載入（tagfail=1）");
+    }
     await this.ensureSeed();
     const tags = this.aliveTags().map((t) => ({ id: t.id, name: t.name, key: t.name_key }));
     const taggings: TagIndexSource["taggings"] = [];
@@ -87,7 +117,9 @@ export class MemoryTagRepository implements TagRepository {
       taggings.push({ tagId: g.tag_id, entityType: g.entity_type, entityId: g.entity_id });
       if (g.entity_type === "node" || g.entity_type === "note") kinds[g.entity_id] = kind;
     }
-    return { tags, taggings, kinds };
+    // 磨光③ 0-1：同 sqlite 版（沒登記 counts:false＝不帶這個欄位）
+    const uncounted = uncountedTagEntityTypes();
+    return uncounted.length ? { tags, taggings, kinds, uncounted: [...uncounted] } : { tags, taggings, kinds };
   }
 
   async listTagsOf(entityType: TagEntityType, entityId: string): Promise<TagRow[]> {
@@ -111,9 +143,11 @@ export class MemoryTagRepository implements TagRepository {
     const keyOfTag = new Map<string, string>();
     for (const t of this.aliveTags()) if (isUnder(t.name_key, key)) keyOfTag.set(t.id, t.name_key);
     const byEnt = new Map<string, { type: TagEntityType; id: string; matched: string[] }>();
+    // 磨光③ 0-1：不算用量的類型不進「別處」（明指要那一種的除外；同 sqlite 版）
+    const skip = uncountedTagEntityTypes().filter((t) => t !== entityType);
     for (const g of this.aliveTaggings()) {
       const k = keyOfTag.get(g.tag_id);
-      if (!k || (entityType && g.entity_type !== entityType)) continue;
+      if (!k || (entityType && g.entity_type !== entityType) || skip.includes(g.entity_type)) continue;
       const ref = g.entity_type + "\u0001" + g.entity_id;
       let e = byEnt.get(ref);
       if (!e) byEnt.set(ref, (e = { type: g.entity_type, id: g.entity_id, matched: [] }));

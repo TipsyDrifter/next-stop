@@ -1047,8 +1047,8 @@ describe("E. 路線", () => {
     assert.equal(spendText(123000, 1842000, 2), "本月 1,230／累計 18,420");
     assert.equal(spendText(0, 0, 2), "本月 0／累計 0");
     assert.equal(asideText(0, 2), null);
-    assert.equal(asideText(123000, 2), "本月 1,230");
-    assert.equal(asideText(-5000, 2), "本月 −50");
+    assert.equal(asideText(123000, 2), "本月花 1,230"); // 磨光③ 2-6：跟時刻表「本月 3h」並排要分得出是錢
+    assert.equal(asideText(-5000, 2), "本月花 −50");
   });
 });
 

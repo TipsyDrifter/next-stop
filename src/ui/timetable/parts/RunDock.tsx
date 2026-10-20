@@ -27,6 +27,14 @@
  * - 手機：只放「荷札 N」個數鈕（圖示＋數字；0 個寫「荷札」），保留「HH:MM 発」；點了直接開點選器 entity 模式（標題「荷札・創作 14:35 起」）。
  *   N 只算手動加的（D-時-133，評審後）：點選器只列手動的，數字要對得上；分類帶的在塊面板看。
  *   位置在名稱列尾端（原型在時刻列；正式版的時刻列多了預估 chip，375 寬放不下、會多一行）。
+ *
+ * 磨光③ 2-2（D-時-138；原型定案桌機 B1、手機 B3）：一顆「切開」開 `{kind:"split", blockId}`（SplitPanel 支援運行中；不到兩分鐘
+ * 時面板自己說切不開——不藏、不灰）。
+ * - 桌機：div.ns-tt-dock-aux 包一顆淡色小鈕「切開 S」，左欄（會折行）在換車／到着那排之上靠右；寬版同一列、排在換車前面。
+ * - 手機：名稱列尾端、緊跟「荷札」鈕的小 chip（button.ns-tt-chip.ns-tt-dock-cut）——運行列不變高。
+ * - 按下就把焦點放掉：鈕若一直留著焦點，面板關掉後 Enter 會再按到它（鍵表 Enter＝到着，聚焦的 button 上的 Enter 放行）；
+ *   放掉後焦點落 body，TimetableView 在面板關掉時把焦點還給根節點。
+ * 運行列淡字也扣這一塊排除的預設荷札（`runTagKeys`，磨光③ 2-1）。
  */
 import { MIN, fmtClock, fmtDur, fmtHMS, msOf } from "../../../domain/timetable";
 import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
@@ -40,8 +48,8 @@ export interface RunDockProps {
   variant: "mobile" | "desktop";
 }
 
-/** 桌機鈕上的鍵帽（一顆鍵一枚 kbd） */
-function Kbd({ id }: { id: string }) {
+/** 桌機鈕上的鍵帽（一顆鍵一枚 kbd）；視圖列的「分類與設定」也借用（磨光③ 2-3） */
+export function Kbd({ id }: { id: string }) {
   const h = hotkeyById(id);
   if (!h) return null;
   return (
@@ -90,6 +98,11 @@ export function RunDock({ variant }: RunDockProps) {
   const linkGone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
   const taskEst = est === null ? taskEstimateOf(running, linkInfo) : null;
   const askLongRun = (): void => openSheet({ kind: "longRun", blockId, then: null });
+  // 磨光③ 2-2：切開（不到兩分鐘也開，SplitPanel 會交代）；焦點放掉，免得面板關掉後 Enter 又按到它
+  const openSplit = (e: { currentTarget: HTMLElement }): void => {
+    e.currentTarget.blur();
+    openSheet({ kind: "split", blockId });
+  };
   const openEstimate = (): void => openSheet({ kind: "estimate", blockId });
   // ⑥：這一班的荷札（推導＋手動）；名稱不含 #
   const tagNames = runTagKeys(running, categories, tagMaps).map(tagNameOf);
@@ -159,6 +172,11 @@ export function RunDock({ variant }: RunDockProps) {
           )}
           {marker.kind === "long" && !marker.pending && <span className="ns-tt-chip">長時間運行</span>}
           {!desk && tagBtn}
+          {!desk && (
+            <button type="button" className="ns-tt-chip ns-tt-dock-cut" title={TT_TEXT.dockSplitTitle} onClick={openSplit}>
+              {TT_TEXT.dockSplit}
+            </button>
+          )}
         </div>
         <div className="ns-tt-dock-meta ns-tt-num">
           <span className="ns-tt-live-dot" aria-hidden="true" />
@@ -201,6 +219,14 @@ export function RunDock({ variant }: RunDockProps) {
           {desk && tagBtn}
         </div>
       </div>
+      {desk && (
+        <div className="ns-tt-dock-aux">
+          <button type="button" className="ns-btn btn-ghost" title={TT_TEXT.dockSplitTitle} onClick={openSplit}>
+            {TT_TEXT.dockSplit}
+            <Kbd id="timetable.split" />
+          </button>
+        </div>
+      )}
       <button type="button" className="ns-btn btn-ghost" onClick={requestDepart}>
         換車{desk && <Kbd id="timetable.depart" />}
       </button>

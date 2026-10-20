@@ -1,6 +1,6 @@
 /**
- * RouteTimeAside——手機路線圖第一層每條路線列尾的本月時數「3h」（③ 契約 §5.6、D-時-53；丙席）。
- * 經 mount 的 `routeListAside`（接縫 #63）登記，排在售票口的「本月花費」之後（三線固定順序：manifest 順序）。
+ * RouteTimeAside——手機路線圖第一層每條路線列尾的本月時數「本月 3h」（③ 契約 §5.6、D-時-53；丙席；磨光③ 2-6 帶「本月」，D-時-140）。
+ * 經 mount 的 `routeListAside`（接縫 #63）登記，排在售票口的「本月花 …」之前（三線固定順序：`LINE_MANIFESTS` 順序，時刻表在前）。
  *
  * **只回 span、不放可點的東西**（它在主線的 `button.m2-route` 裡面）；本月不到 1 分鐘或還沒讀到 ⇒ null，不佔位。
  * 數字＝連到這條路線的時間塊（`store.linkedBlocks({ routeId })`，同側板「時間」列的路線那一份）在「日界線的這個月 1 號起
@@ -13,7 +13,7 @@ import type { NodeRow } from "../../../domain/node";
 import { MIN, fmtDur, msOf } from "../../../domain/timetable";
 import { monthStartKey, toLinkedSpan, unionMs, type LinkedSpan } from "../../../domain/timetableLink";
 import { dayWindow, todayKey } from "../../../lib/date";
-import { useTimetableStore } from "../../../store/timetableStore";
+import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNow } from "../useNow";
 import "../timetable.css";
@@ -44,5 +44,5 @@ export function RouteTimeAside({ route }: { route: NodeRow }) {
   const start = msOf(dayWindow(monthStartKey(todayKey(dayStartHour, new Date(now))), dayStartHour).start);
   const monthMs = unionMs(data.spans, now, { start, end: now });
   if (monthMs < MIN) return null;
-  return <span className="ns-tt-route-aside ns-tt-num">{fmtDur(monthMs)}</span>;
+  return <span className="ns-tt-route-aside ns-tt-num">{TT_TEXT.ROUTE_ASIDE(fmtDur(monthMs))}</span>;
 }

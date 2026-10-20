@@ -22,6 +22,7 @@ import { useUiStore } from "../../../../store/uiStore";
 import { addDays, todayKey } from "../../../../lib/date";
 import { roundelStyle } from "../../../common/roundel";
 import { MobileDatePicker } from "../../../common/MobileDatePicker";
+import { useBackLayer } from "../../../mobile/backStack";
 import { shortDayKey } from "../../../common/DatePicker";
 import {
   MAIN_CURRENCY,
@@ -98,6 +99,9 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const row = editId ? (repeats.find((r) => r.id === editId) ?? null) : null;
 
   const [sheet, setSheet] = useState<"currency" | "start" | "until" | null>(null);
+  // 磨光①（主線手機殼契約 §1.5）：表單本身的返回層在宿主（ticket.dialog）；這裡的幣別／日期 sheet 疊在全螢幕表單上，
+  // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"（同記帳表單）
+  useBackLayer("ticket.repeat.pick", sheet !== null, () => setSheet(null), "dialog");
   const [more, setMore] = useState(!isNew && (d.note !== "" || d.routeId !== null || d.until !== null));
   const busy = useRef(false);
   const rootRef = useRef<HTMLDivElement | null>(null);

@@ -35,11 +35,16 @@
  *   本頁不再是 tab——入口是頂帶右上的 ⋯（MobileTopBand.tsx），點任一格 tab 離開。
  *   並行地基（M-3／M-4）時期掛在這裡的售票口那一列（planned＝灰顯預告、open＝進本地子頁 `view="ticket"`）連同子頁一起拿掉，
  *   `view` 回到 "more" | "sync"。深連結 `openSyncPage("mobile")` 不受影響（"more" 仍是合法的頁 key）。
+ *
+ * 磨光①（契約 `docs/research/2026-10-20-主線-磨光①手機殼-契約.md` §1.5、§9.5 N10）：同步子頁登記返回層（page）；
+ *   週起點下面補「一天的開始時間」（上面 v1.1.0「不出現」那條的日界線，同步早已做進手機，這裡補上入口）。
  */
 import { useEffect, useState } from "react";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
+import { useBackLayer } from "./backStack";
+import { lineSettingsLinks } from "../../lines/runtime";
 // 版本號取 package.json 的 version（tsconfig resolveJsonModule 已開）——發版只改一處，這頁自動跟。
 // ⚠ 發版時 package.json 的 version 要與 tauri.conf.json 一起改成 1.1.0（WP3／整合席）。
 import { version as APP_VERSION } from "../../../package.json";
@@ -57,11 +62,16 @@ const WEEK_STARTS: { value: 0 | 1; label: string; note: string }[] = [
   { value: 0, label: "星期日", note: "月曆日・一…六" },
 ];
 
+/** 一天的開始時間（uiStore.dayStartHour；同 SettingsPanel.tsx 的 HOURS） */
+const DAY_START_HOURS = [0, 1, 2, 3, 4, 5, 6];
+
 export default function MobileMore() {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const setDayStartHour = useUiStore((s) => s.setDayStartHour);
   const syncPhase = useSyncStore((s) => s.status?.phase ?? "off");
   const refreshSyncStatus = useSyncStore((s) => s.refreshStatus);
   // v1.1.6 危險區：未加入時「所有裝置一起」disabled；同步有動作在飛時兩顆一起鎖
@@ -71,6 +81,7 @@ export default function MobileMore() {
   const moreRequest = useUiStore((s) => s.mobileMoreRequest);
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
   const [view, setView] = useState<"more" | "sync">(() => (moreRequest === "sync" ? "sync" : "more"));
+  const settingsLinks = lineSettingsLinks("mobile");
 
   // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
   useEffect(() => {
@@ -84,6 +95,9 @@ export default function MobileMore() {
   useEffect(() => {
     void refreshSyncStatus();
   }, [refreshSyncStatus]);
+
+  // 磨光① A3（契約 §1.5）：同步子頁是一層 page——返回＝回「更多」清單（同「← 更多」）
+  useBackLayer("core.more-sync", view === "sync", () => setView("more"), "page");
 
   if (view === "sync") return <MobileSync onBack={() => setView("more")} />;
 
@@ -139,6 +153,30 @@ export default function MobileMore() {
           </div>
         </div>
 
+        {/* 磨光① N10（D-主-53）：一天的開始時間——放週起點下面（兩個都是「日子怎麼算」）。
+            跟桌機設定同一支 setDayStartHour、同一個設定鍵（本來就同步）；說明照桌機的意思、精簡一句。
+            原生 select（手機會跳系統選單）＋底線輸入 `.m2-input`＋桌機那枚 chevron `.ns-select-wrap`。 */}
+        <div className="m2-block">
+          <label className="m2-block-label" htmlFor="m2-day-start">
+            一天的開始時間
+          </label>
+          <span className="ns-select-wrap m2-select-wrap">
+            <select
+              id="m2-day-start"
+              className="m2-input m2-select"
+              value={dayStartHour}
+              onChange={(e) => void setDayStartHour(Number(e.target.value))}
+            >
+              {DAY_START_HOURS.map((h) => (
+                <option key={h} value={h}>
+                  {String(h).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+          </span>
+          <p className="m2-note m2-day-start-note">熬夜到這個時間前，都算同一天。</p>
+        </div>
+
         {/* v1.1.1（WP8）：同步一列——右側直接寫現在的狀態（觸控沒有 hover，狀態得攤在字面上）。
             形狀沿當年下面那列「售票口」的 `.m2-row-planned`（車次①已拿掉），只是這一列可點：故另立 `.m2-row-link`
             （同樣的排版、不吃 .42 的灰度、撐到 48px 觸控目標）。 */}
@@ -146,6 +184,15 @@ export default function MobileMore() {
           <span className="m2-planned-name">同步</span>
           <span className="m2-planned-note">{SYNC_PHASE_LABEL[syncPhase]}</span>
         </button>
+
+        {/* 磨光③ 0-2：各線的設定住在自己頁面時在這裡指路；沒有任何線填＝什麼都不畫 */}
+        {settingsLinks.length > 0 &&
+          settingsLinks.map((l) => (
+            <button key={l.id} type="button" className="m2-row-link" onClick={() => l.open("mobile")}>
+              <span className="m2-planned-name">{l.label}</span>
+              {l.sub && <span className="m2-planned-note">{l.sub}</span>}
+            </button>
+          ))}
       </section>
 
       <section className="m2-sec" aria-labelledby="m2-sec-about">

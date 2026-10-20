@@ -215,8 +215,10 @@ function reloadIfOpen(): void {
 export async function runTimeWrite(w: TimeWrite): Promise<boolean> {
   const ns = useNodeStore.getState();
   let r: { ok: boolean };
-  // 誤點項：執行日＋時刻一次呼叫（updateNode 先改道 reschedule 再寫時刻，nodeStore.ts updateNode）
-  if (w.op === "setTime" && w.scheduledOn !== undefined) r = await ns.updateNode(w.id, { scheduled_on: w.scheduledOn, scheduled_time: w.time });
+  // 誤點項：執行日＋時刻（＋撤回時的 carried_from）一次呼叫（updateNode 先改道 reschedule、再把其餘欄位當一般欄位寫，nodeStore.ts updateNode；同今日頁撤回）
+  if (w.op === "setTime" && w.scheduledOn !== undefined && w.carriedFrom !== undefined) {
+    r = await ns.updateNode(w.id, { scheduled_on: w.scheduledOn, scheduled_time: w.time, carried_from: w.carriedFrom });
+  } else if (w.op === "setTime" && w.scheduledOn !== undefined) r = await ns.updateNode(w.id, { scheduled_on: w.scheduledOn, scheduled_time: w.time });
   else if (w.op === "setTime") r = await ns.updateNode(w.id, { scheduled_time: w.time });
   else if (w.op === "setRun") r = await ns.setRunTime(w.id, w.date, w.time);
   else r = await ns.clearRunTime(w.id, w.date);

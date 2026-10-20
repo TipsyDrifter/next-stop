@@ -9,6 +9,8 @@
  *   - `pendingPlan`／`cancelPending()`：改名撞名或併入時要確認的計畫（UI 用 `mergeConfirmText(pendingPlan)` 開確認框，
  *     確認＝`confirmRename()`、取消＝`cancelPending()`）；`mergeInto` 遇到要確認的也放這裡。
  *   - `nameOf(key)`：index 裡的顯示名（沒有＝key）。
+ *   - 磨光③：`TagPickerState.title`（insert 模式標題，2-8）；`loadError`（載入失敗給重試，2-12）；
+ *     `ensureBackfill` 補到 0 個不跳提示（2-14）。
  */
 import { create } from "zustand";
 import { tagRepo } from "../data/tagRepo";
@@ -48,12 +50,16 @@ export interface TagPickerState {
   name: string;
   /** insert 模式：選好的名稱交回（丙席把 `#name ` 插在游標處） */
   onInsert: ((names: string[]) => void) | null;
+  /** 增補（磨光③ 2-8）：insert 模式的標題；沒給＝「插入荷札」（時刻表塊面板給「荷札・娛樂 23:20」） */
+  title?: string;
 }
 
 export interface TagStore {
   /** buildIndex(source)；null＝還沒載 */
   index: TagIndex | null;
   loading: boolean;
+  /** 增補（磨光③ 2-12）：最近一次 loadIndex 失敗的訊息；成功就清。`!index && loadError` ⇒ UI 給「荷札沒載入　重試」（重試＝loadIndex） */
+  loadError: string | null;
   /** 荷札子畫面目前看的 key（null＝總覽） */
   selectedKey: string | null;
   /** 樹的展開狀態（桌機書封樹／手機樹共用一份：兩殼永不同時渲染） */
@@ -224,6 +230,7 @@ export const useTagStore = create<TagStore>((set, get) => {
   return {
     index: null,
     loading: false,
+    loadError: null,
     selectedKey: null,
     openKeys: {},
     treeFilter: "",
@@ -243,10 +250,10 @@ export const useTagStore = create<TagStore>((set, get) => {
         if (seq !== loadSeq) return;
         const index = buildIndex(src);
         const sel = get().selectedKey;
-        set({ index, recent, loading: false, ...(sel !== null && !index.byKey[sel] ? { selectedKey: null } : {}) });
+        set({ index, recent, loading: false, loadError: null, ...(sel !== null && !index.byKey[sel] ? { selectedKey: null } : {}) });
       } catch (e) {
         console.warn("tagStore.loadIndex 失敗", e);
-        if (seq === loadSeq) set({ loading: false });
+        if (seq === loadSeq) set({ loading: false, loadError: message(e).trim() || "荷札沒載入" });
       }
     },
 
@@ -256,7 +263,11 @@ export const useTagStore = create<TagStore>((set, get) => {
         try {
           const rec = parseRecord(await settingsRepo.get(TAGS_BACKFILL_KEY));
           if (rec) {
-            set({ notice: rec.seen ? null : { tags: rec.tags, places: rec.places } });
+            // 磨光③ 2-14（D-筆-67）：補到 0 個不跳「找到 0 個荷札」；舊記錄（seen:0、tags:0）順手記成看過
+            set({ notice: rec.seen || rec.tags === 0 ? null : { tags: rec.tags, places: rec.places } });
+            if (!rec.seen && rec.tags === 0) {
+              void settingsRepo.set(TAGS_BACKFILL_KEY, JSON.stringify({ ...rec, seen: 1 })).catch(() => undefined);
+            }
             if (!get().index) await get().loadIndex();
             // 自我修復（沙盒 §5-4）：記錄是這台本地的鍵、不跟快照走——還原一份荷札時代以前的快照後，
             // 記錄說「做過了」但 tags 是空的。一個荷札都沒有時就安靜再補一次（id 決定性、冪等；
@@ -270,9 +281,11 @@ export const useTagStore = create<TagStore>((set, get) => {
           }
           set({ backfilling: true });
           const res = await tagRepo.backfill();
-          const next: BackfillRecord = { done: new Date().toISOString(), tags: res.tagCount, places: res.placeCount, seen: 0 };
+          // 0 個＝全新空庫：不跳提示、直接記看過（磨光③ 2-14）
+          const none = res.tagCount === 0;
+          const next: BackfillRecord = { done: new Date().toISOString(), tags: res.tagCount, places: res.placeCount, seen: none ? 1 : 0 };
           await settingsRepo.set(TAGS_BACKFILL_KEY, JSON.stringify(next));
-          set({ backfilling: false, notice: { tags: res.tagCount, places: res.placeCount } });
+          set({ backfilling: false, notice: none ? null : { tags: res.tagCount, places: res.placeCount } });
           await get().loadIndex();
         } catch (e) {
           console.warn("tagStore.ensureBackfill 失敗", e);
@@ -533,7 +546,9 @@ export const useTagStore = create<TagStore>((set, get) => {
       }
       // 別線實體的表（時刻表⑥ 0-6 的 tagEntities.tables）也算：實體被刪或復活會改變荷札的計數；沒有任何線填＝原本四張
       const hit = ctx.wiped || ["tags", "taggings", "notes", "nodes", ...lineTagEntityTables()].some((t) => ctx.changed.includes(t));
-      if (!hit || (!get().index && !ctx.wiped)) return;
+      // 磨光③ 2-12：上次載入失敗、還沒有 index ⇒ 不論改了哪張表都順便再試一次（同步回來救）
+      const retry = !get().index && get().loadError !== null;
+      if (!retry && (!hit || (!get().index && !ctx.wiped))) return;
       await get().loadIndex();
     },
   };

@@ -292,6 +292,10 @@
 [data-shell="mobile"] .ns-tk-mf-note::placeholder { color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mf-foot { flex: none; display: flex; gap: 8px; padding: 10px 14px calc(var(--m-safe-bottom) + 10px); border-top: 1px dashed var(--color-dash); }
 [data-shell="mobile"] .ns-tk-mf-foot .ns-tk-mbtn { flex: 1; min-height: 46px; font-size: 14.5px; }
+/* 磨光①（主線手機殼契約 §9.3）：全螢幕面板開著時 toast 落在底部、讓過面板自己的底列——宣告底列高（不含 safe-area，核心另加）。
+   記帳表單、定期表單（.ns-tk-mf-foot）與搜尋 sheet（.ns-tk-ms-foot）同一種底列：上下 10 ＋ 鈕 46 ＋ 虛線 1。
+   帳戶頁的 .ns-tk-macct-foot 在捲動區裡、不固定，不算 */
+[data-shell="mobile"]:has(.ns-tk-mf-foot, .ns-tk-ms-foot) { --m-full-foot-h: 67px; }
 
 /* ═══ 手機帳戶頁 MobileAccountPage（丙）═══ */
 

@@ -11,6 +11,7 @@ import { KIND_LABEL, type NodeKind, type NodeRow } from "../../domain";
 import { ancestorsOf, serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { StationStamp } from "../stamps";
+import { hotkeyCaps } from "../common/PopMenu";
 import { Breadcrumb } from "./Breadcrumb";
 import { DraftRow, LateRow, OutlineRow, type CarStats } from "./OutlineRow";
 import { useOutlineController } from "./useOutlineController";
@@ -94,6 +95,18 @@ export function Outline() {
   const serials = useNodeStore((s) => s.serials);
   const showLoading = useDelayedFlag(c.loading, 200);
   const doy = dayOfYear();
+  const panelOpen = useUiStore((s) => s.panelOpen);
+  /** 側板現在攤的是路線面板（開著且沒選到節點）——DetailPanel 的路由條件，這裡只拿來畫按下態 */
+  const routePanelOn = panelOpen && c.selectedId === null;
+  const toggleRoutePanel = () => {
+    const ui = useUiStore.getState();
+    if (routePanelOn) {
+      ui.setPanelOpen(false);
+      return;
+    }
+    ui.select(null);
+    ui.setPanelOpen(true);
+  };
 
   if (!c.routeId) {
     return (
@@ -225,6 +238,21 @@ export function Outline() {
               <span className="d">{title}</span>
               <span className="w">{c.zoom ? KIND_LABEL[c.zoom.kind] : "路線"}</span>
               {code && <span className="latin">{code} Line</span>}
+              {/* 路線詳情（10-20 磨光②；global.panel.toggle 的路線版）：清掉選取＋開側板＝DetailPanel 落到路線面板
+                  （沒選到節點且有 routeId）。路線面板已經開著時再點＝收起（同 Ctrl+. 的開關語義）。聚焦中不畫：頁頭講的是那個節點 */}
+              {!c.zoom && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-pressed={routePanelOn}
+                  title={`路線詳情：車站、路線色、代碼（${hotkeyCaps("global.panel.toggle")}）`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={toggleRoutePanel}
+                  className="route-detail"
+                >
+                  路線詳情
+                </button>
+              )}
             </div>
             {total > 0 && (
               <p className="day-stats" title="車票済／全部・子樹進度・節點數">
@@ -290,6 +318,7 @@ export function Outline() {
                     rename={renaming}
                     actions={c.row}
                     onFreshEnd={c.clearFresh}
+                    menu={() => c.menuFor(r.id)}
                   />
                 );
               })}

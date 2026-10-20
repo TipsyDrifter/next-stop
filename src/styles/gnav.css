@@ -1,6 +1,8 @@
 /* ─────────────────────────────────────────────────────
  * gnav.css — 書封頂部全域導航（兩欄）＋搜尋鈕＋設定入口
  * 視覺真相＝prototypes/m3-ext-routemap.html 的 .gnav / .gnav-closed / .gnav-search / .foot-set 段（逐字移植）
+ *   10-20 磨光②：兩排等寬、鍵盤註記移到兩排下方（使用者指示）——兩排共用同一個三欄格線（--gnav-cell-w），
+ *   「CTRL 1·2·3…　? 指引」從兩排中間搬到第二排下面；這兩處與原型不同，以本檔為準。
  * 拍板依據＝決策記錄〈① 比稿拍板〉Q3（未通車佔位保留、統一成小圖示第二欄）＋Q7（全域三件每頁常駐）
  *
  * 原型變數 → 專案 token 對照（沿 sidebar.css 既有對照表）：
@@ -22,15 +24,33 @@
   --gnav-hover: var(--color-book-hover, rgba(230, 236, 255, .045));
 }
 
-/* ============ 第一欄：已通車（今日／路線圖／日曆）＋當前頁金菱形＋Ctrl 1・2・3 註記 ============
+/* ============ 兩排共用的三欄格線（10-20 磨光②，使用者指示「兩行要對齊」） ============
+   第一排（.gnav-row 核心三頁）與第二排（.gnav-closed 三條功能線）用同一組欄寬與欄距，兩排圖示中心上下對齊。
+   欄寬 60：「旅客筆記」四字（10px＋.18em 字距＋縮排）約 49px，加左右 4px 內距仍放得下、不折行；
+   3×60＋2×6＝192＝書封內容寬（236－左右 22），剛好不溢出。
+   第三排預留：以後新功能往第三排延伸——.gnav-closed 是 3 欄自動換行的格線，第四枚起自然落到第三排、同欄寬對齊；
+   未通車的那幾枚沿用下面「次期開業予定」那套灰階（--gnav-off-*、.gnav-off、.tip-closed），不另畫新樣式。 */
+.cover .gnav {
+  margin-top: 20px;
+  --gnav-cell-w: 60px;          /* 每一格的寬（兩排、以後第三排都同值） */
+  --gnav-col-gap: 6px;          /* 欄距 */
+  --gnav-row-gap: 10px;         /* 排距（第一排與第二排之間；第三排沿用） */
+  --gnav-off-opacity: .42;      /* 次期開業予定（未通車）灰階：常駐淡度（＝line-add 常駐同量級） */
+  --gnav-off-opacity-hover: .8; /* 次期開業予定：hover／focus 浮起的淡度 */
+}
+.cover .gnav-row,
+.cover .gnav-closed {
+  display: grid; grid-template-columns: repeat(3, var(--gnav-cell-w));
+  justify-content: center; justify-items: center; column-gap: var(--gnav-col-gap); row-gap: var(--gnav-row-gap);
+}
+
+/* ============ 第一欄：已通車（今日／路線圖／日曆）＋當前頁金菱形 ============
    第二欄裡「通車的那一枚」（.gnav-line；旅客筆記 D-筆-35）長相與 .gnav-item 一致——大圖示＋字＋作用中金菱形，
    位置仍留在第二欄（地基增補一：兩排、位置固定；未通車的 .gnav-off 照舊灰階小圖示）。三線共用這一份。 */
-.cover .gnav { margin-top: 20px; }
-.cover .gnav-row { display: flex; justify-content: center; gap: 6px; }
 .cover .gnav-item,
 .cover .gnav-line {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
-  width: 58px; padding: 8px 4px 7px; border-radius: 2px;
+  width: var(--gnav-cell-w); padding: 8px 4px 7px; border-radius: 2px; white-space: nowrap;
   background: transparent; border: 0; cursor: pointer;
   font-family: inherit; font-size: 10px; letter-spacing: .18em; text-indent: .18em;
   color: var(--book-muted);
@@ -54,8 +74,9 @@
    故不用第二欄的 .42，用一階淺的 .55 區隔兩種語義；頁面通車即拿掉屬性回原型現樣。 */
 .cover .gnav-item[aria-disabled="true"] { opacity: .55; cursor: default; }
 .cover .gnav-item[aria-disabled="true"]:hover { background: transparent; color: var(--book-muted); }
+/* 鍵盤註記行：10-20 磨光② 從兩排中間搬到第二排下面（margin 換成第二排之後的間距） */
 .cover .gnav-kbd {
-  margin-top: 7px; text-align: center;
+  margin-top: 9px; text-align: center;
   font-family: var(--font-latin); font-size: 9px; letter-spacing: .3em; text-indent: .3em;
   color: var(--book-muted);
 }
@@ -75,17 +96,18 @@
 .cover .gnav-kbd-guide:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
 
 /* ============ 第二欄：未通車佔位（旅客筆記／時刻表／售票口；Q3 拍板 2026-08-28） ============
-   灰階低調（.42＝line-add 常駐同量級）、cursor:default；hover／focus 浮出 tooltip「頁名＋次期開業予定」；
-   通車時該圖示自第二欄升入第一欄（一頁一枚）。 */
-.cover .gnav-closed { display: flex; justify-content: center; gap: 18px; margin: 12px 0 2px; }
+   灰階低調（--gnav-off-opacity）、cursor:default；hover／focus 浮出 tooltip「頁名＋次期開業予定」；
+   通車時那一格換成 .gnav-line（位置固定，增補一）。版面＝上面的三欄格線，這裡只留排距。
+   第三排預留：新功能往第三排延伸時沿用這一套（.gnav-off＋.tip-closed＋--gnav-off-*），不另畫。 */
+.cover .gnav-closed { margin: var(--gnav-row-gap) 0 0; }
 .cover .gnav-off {
-  position: relative; display: grid; place-items: center;
+  position: relative; display: grid; place-items: center; align-self: center;
   width: 30px; height: 26px; border-radius: 2px;
-  color: var(--book-muted); opacity: .42; cursor: default;
+  color: var(--book-muted); opacity: var(--gnav-off-opacity); cursor: default;
   transition: opacity .15s, background .15s;
 }
 .cover .gnav-off svg { display: block; }
-.cover .gnav-off:hover, .cover .gnav-off:focus-visible { opacity: .8; background: var(--gnav-hover); }
+.cover .gnav-off:hover, .cover .gnav-off:focus-visible { opacity: var(--gnav-off-opacity-hover); background: var(--gnav-hover); }
 .cover .gnav-off:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
 .cover .tip-closed {
   position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);

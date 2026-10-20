@@ -121,9 +121,11 @@ export interface PeriodWindow {
   end: number;
 }
 
-/** 路線鍵的兩個保留值（`routeOf` 回路線 id，或這兩個） */
+/** 路線鍵的三個保留值（`routeOf` 回路線 id，或這三個） */
 export const ROUTE_NONE = "__none";
 export const ROUTE_GONE = "__gone";
+/** 任務還在、但任務和塊都沒路線（臨時車票；磨光③ 2-5，D-時-139）——跟「沒連任務」分開列 */
+export const ROUTE_NOROUTE = "__noroute";
 
 /** 一個節點解出來的路線（store 以 `nodeRepo.getNode` 解、快取）；gone＝節點找不到或已刪除，routeId＝它所屬路線（路線節點＝自己） */
 export interface NodeRoute {
@@ -133,12 +135,13 @@ export interface NodeRoute {
 
 /**
  * 依路線（0-9）：節點 → 它的路線；節點已刪／找不到而塊上有 `route_id` ⇒ 算 route_id，否則 ROUTE_GONE（「（已刪除的任務）」）；
- * 沒連節點 ⇒ 塊上的 route_id（只連路線），再沒有 ⇒ ROUTE_NONE（「沒連任務」）。活節點沒掛路線（臨時車票）：退回塊上的 route_id，再沒有算沒連。
+ * 沒連節點 ⇒ 塊上的 route_id（只連路線），再沒有 ⇒ ROUTE_NONE（「沒連任務」）。活節點沒掛路線（臨時車票）：退回塊上的 route_id，
+ * 再沒有 ⇒ ROUTE_NOROUTE（「沒有路線的任務」；任務在，不算沒連）。
  * `node`＝s.nodeId 解出來的結果；undefined（沒解到）當作節點不在。
  */
 export function routeKeyOf(s: StatsSpan, node: NodeRoute | undefined): string {
   if (s.nodeId !== null) {
-    if (node && !node.gone) return node.routeId ?? s.routeId ?? ROUTE_NONE;
+    if (node && !node.gone) return node.routeId ?? s.routeId ?? ROUTE_NOROUTE;
     return s.routeId ?? ROUTE_GONE;
   }
   return s.routeId ?? ROUTE_NONE;
@@ -596,7 +599,7 @@ export function classifySpans(spans: readonly StatsSpan[], now: number, th: (s: 
 export interface WindowTotals {
   /** 分類 id → ms（已記錄；不含待確認、碎塊） */
   byCategory: Record<string, number>;
-  /** 路線鍵 → ms（已記錄；路線鍵＝路線 id 或 ROUTE_NONE／ROUTE_GONE） */
+  /** 路線鍵 → ms（已記錄；路線鍵＝路線 id 或 ROUTE_NOROUTE／ROUTE_GONE／ROUTE_NONE） */
   byRoute: Record<string, number>;
   recordedMs: number;
   pendingMs: number;
@@ -622,7 +625,7 @@ export interface WindowTotals {
 /**
  * 一個窗的數字（0-9）：先丟掉碎塊；其餘（含待確認）一起丟進 `sliceSpans`（重疊歸較晚開始者，與 `totalsByCategory` 同一條規則），
  * 切到的時間：屬於待確認塊 ⇒ `pendingMs`（不算分類、路線、目標）；其餘 ⇒ 分類與路線。
- * `routeOf` 回路線 id 或 ROUTE_NONE／ROUTE_GONE。
+ * `routeOf` 回路線 id 或 ROUTE_NOROUTE／ROUTE_GONE／ROUTE_NONE。
  */
 export function windowTotals(
   spans: readonly StatsSpan[],
@@ -749,7 +752,7 @@ export interface TrendBar {
 }
 
 export interface RouteShare {
-  /** 路線 id，或 ROUTE_GONE／ROUTE_NONE */
+  /** 路線 id，或 ROUTE_NOROUTE／ROUTE_GONE／ROUTE_NONE */
   key: string;
   ms: number;
   prevMs: number;
@@ -937,7 +940,8 @@ function routeRows(cur: Record<string, number>, prev: Record<string, number>): R
     if (ms <= 0 && prevMs <= 0) continue;
     rows.push({ key, ms, prevMs });
   }
-  const rank = (k: string): number => (k === ROUTE_NONE ? 2 : k === ROUTE_GONE ? 1 : 0); // 已刪除的任務在「沒連任務」之前
+  // 一般路線 → 沒有路線的任務 → 已刪除的任務 → 沒連任務（還在的任務排在已刪的前面）
+  const rank = (k: string): number => (k === ROUTE_NONE ? 3 : k === ROUTE_GONE ? 2 : k === ROUTE_NOROUTE ? 1 : 0);
   rows.sort((a, b) => rank(a.key) - rank(b.key) || b.ms - a.ms || b.prevMs - a.prevMs || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return rows;
 }

@@ -7,8 +7,8 @@
  *
  * 三線的表走插槽 `LineMount.syncRowLabel`（`lineSyncRowLabel(tbl, shell)`；未通車／沒填 ⇒ "fallback"＝印泛稱）。
  */
-import { nodeRepo } from "../data";
-import { MOCK_FIRST_TICKET, type MergeNotice } from "../data/syncRepository";
+import { nodeRepo, syncRepo } from "../data";
+import { MOCK_FIRST_TICKET, type MergeCellNow, type MergeNotice } from "../data/syncRepository";
 import { CONFLICT_COL_LABEL, KIND_LABEL, type NodeRow } from "../domain";
 import { clipLabel, mergeObjectKey } from "../domain/syncMerge";
 import type { SyncRowLabel } from "../lines/types";
@@ -104,6 +104,26 @@ export async function resolveToastParts(
   // 泛稱不當名字：句子改用「1 筆乘務記錄」的句型（`mergeToastText` 的 singleLabel=null 那條）
   if (!r || r === "fallback" || r.generic) return null;
   return { label: clipLabel(r.label, 12), cols: r.cols ?? coreCols(list[0].tbl) };
+}
+
+/** 整理之後的現況（磨光② A4）：刪改相撞的那幾樣哪些不在了＋兩邊都改了的那幾格現在的樣子 */
+export interface MergeNow {
+  /** `mergeObjectKey` 的集合（revived／kept 現在不在了的） */
+  gone: Set<string>;
+  /** `mergeCellKey` → 那一格現在的樣子（overwritten 的；查不到的不在 Map 裡） */
+  cells: Map<string, MergeCellNow>;
+}
+
+/**
+ * 清單與 toast 共用（磨光② A4）：一次查齊 `list` 的現況——revived／kept 走 `goneObjects`、overwritten 走 `currentCells`，
+ * 兩支並行（本機 SQL、≤20 筆）。兩支都永不 throw ⇒ 這支也不會；查不到的就不在結果裡（＝照舊句）。
+ */
+export async function resolveMergeNow(list: readonly MergeNotice[]): Promise<MergeNow> {
+  const [gone, cells] = await Promise.all([
+    syncRepo.goneObjects(list.filter((n) => n.kind !== "overwritten")),
+    syncRepo.currentCells(list.filter((n) => n.kind === "overwritten")),
+  ]);
+  return { gone, cells };
 }
 
 /** toast 用：清單恰好一筆時解它的 label（截 12 字）；多筆或解不到 ⇒ null */

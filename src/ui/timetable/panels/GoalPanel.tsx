@@ -7,7 +7,7 @@
  * 寫入一律走 store（createGoal／updateGoal／archiveGoal／deleteGoal），回 true 才關；驗證失敗的字在預覽行（儲存鈕灰掉）。
  *
  * 車次⑥（⑥ 契約 §5.4、0-11；D-時-122；乙席；長相＝原型 `v-tags.js` goalBody）：分類樹下一段「荷札」（div.ns-tt-row.ns-tt-tagrow）：
- * 桌機 `EntityTagField` 受控模式（草稿；建議清單往下推開）、手機牌子＋「＋ 荷札」開點選器 insert 模式；下面一行說明。
+ * 桌機 `EntityTagField` 受控模式（草稿；建議清單往下推開）、手機牌子＋「掛荷札」開點選器 insert 模式（標題「荷札・目標」，磨光③ 2-8）；下面一行說明。
  * 草稿＝`tagDraft`（null＝沒動過：跟著目標現在綁的荷札，`Goal.tagKeys`／荷札 index 的 `timetable:goal`）。
  * 驗證：分類與荷札至少一個（`TT_TEXT.tags.goalScopeEmpty`，跟 normalizeGoalInput 同字）。
  * 存檔把 `tagNames` 交給 createGoal／updateGoal（荷札 index 載過、或已經動過草稿才帶；沒載過又沒動＝不帶＝不動荷札）。
@@ -312,7 +312,7 @@ export function GoalPanel({ onDone }: PanelProps) {
               <EntityTagField value={tagNames} onChange={setTagDraft} suggestInline resetKey={goalId ?? "new"} />
             </div>
           ) : (
-            <MobileTagDraft fixed={[]} value={tagNames} onChange={setTagDraft} />
+            <MobileTagDraft fixed={[]} value={tagNames} onChange={setTagDraft} title={TT_TEXT.tags.pickerGoal} />
           )}
           <span className="ns-tt-tag-hint">{TT_TEXT.tags.goalTagHint}</span>
         </span>

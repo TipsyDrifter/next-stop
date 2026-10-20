@@ -1,7 +1,7 @@
 /**
  * UketsukeSeal——受付章（墨・雙圈事務圓印 +4°；車次①契約 §5.5）。
  *
- * 為什麼本線自建：`Stamps.tsx` 的 `SealReceipt` 是**領収**（備份回執），受付章在 `Stamps.tsx` 檔頭明寫未實作；
+ * 為什麼本線自建：`Stamps.tsx` 的 `SealReceipt` 是**領収**（備份回執），`Stamps.tsx` 沒有受付章（它的檔頭指回本檔）；
  * 本線不改 `Stamps.tsx`／`stamps.css`（集中檔）。
  *
  * 造形規範：`prototypes/m3-mood-a-stamps.html`（事務圓印、墨、雙圈 外 1.6px／內 .8px、48px、字 12px、+4°）。

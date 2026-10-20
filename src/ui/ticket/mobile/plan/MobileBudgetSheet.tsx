@@ -28,6 +28,7 @@ import {
   type CategoryRow,
 } from "../../../../domain/ticket";
 import { amountInputText, budgetScopes, scopeKey, scopeOf, type BudgetRow, type BudgetScope } from "../../../../domain/ticketPlan";
+import { useBackLayer } from "../../../mobile/backStack";
 import { IconLeft, IconPlus, IconRight, MSheet, useImeGuard } from "../mobileBits";
 
 export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
@@ -39,6 +40,8 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
   const [pending, setPending] = useState<string[]>([]); // 加了、還沒填預設的分類
   const [focusCat, setFocusCat] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  // 磨光①（主線手機殼契約 §1.5）：「加分類預算」疊在預算 sheet（ticket.dialog）上，返回鍵＝它的「取消」
+  useBackLayer("ticket.budget.pick", picking, () => setPicking(false));
 
   const saved = useMemo(() => budgetScopes(budgets), [budgets]);
   const savedCats = useMemo(() => new Set(saved.filter((x) => x.kind === "category").map((x) => (x as { categoryId: string }).categoryId)), [saved]);

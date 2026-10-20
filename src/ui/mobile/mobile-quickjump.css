@@ -1,0 +1,152 @@
+/**
+ * mobile-quickjump.css——手機搜尋與「跳到某張票」的落點（磨光①；契約 §2.3、§2.4、§9.4、§9.5）。
+ *
+ * 一、頂帶的放大鏡鈕（MobileTopBand `.m-band-search`）：外形逐條沿 `.m-band-more`（44×44 觸控、圖示 20px），不加按下態。
+ * 二、手機搜尋全螢幕面板（MobileQuickJump `.m-qj`）：頂＝書封色一條（看起來是頂帶變成搜尋列），身＝票紙上的結果清單。
+ * 三、路線圖：跳轉落點閃一下（D-主-48）、済列的圓印（N9）。
+ * 紀律：每條掛 [data-shell="mobile"]；顏色只用既有 token。
+ */
+
+/* ═══════════ 一、頂帶放大鏡 ═══════════ */
+
+[data-shell="mobile"] .m-band-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m-band-search svg { opacity: .85; display: block; }
+[data-shell="mobile"] .m-band-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+/* ═══════════ 二、手機搜尋面板 ═══════════ */
+
+/* z-index 45＝同底部 sheet：蓋住 tab bar，Toast／確認框（50）仍在上面 */
+[data-shell="mobile"] .m-qj {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 45;
+  height: 100vh;
+  height: 100dvh;
+  height: var(--m-vvh, 100dvh);
+  display: flex; flex-direction: column;
+  background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+  color: var(--color-ink);
+  animation: mQjFade .16s ease-out;
+}
+@keyframes mQjFade { from { opacity: 0; } }
+
+[data-shell="mobile"] .m-qj-top {
+  flex: none;
+  box-sizing: border-box;
+  display: flex; align-items: center; gap: 4px;
+  padding: var(--m-safe-top) 4px 0 var(--m-gutter);
+  min-height: calc(var(--m-band-h) + var(--m-safe-top));
+  background: var(--color-book);
+  color: var(--color-book-ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);
+}
+[data-shell="mobile"] .m-qj-field {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 4px 0 10px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-book-ink) 12%, transparent);
+}
+[data-shell="mobile"] .m-qj-field svg { flex: none; opacity: .75; }
+[data-shell="mobile"] .m-qj-input {
+  flex: 1; min-width: 0;
+  padding: 0; border: 0; outline: none; background: transparent;
+  font-family: var(--font-body); font-size: 16px; letter-spacing: .03em;
+  color: inherit;
+}
+[data-shell="mobile"] .m-qj-input::placeholder { color: color-mix(in srgb, var(--color-book-ink) 55%, transparent); }
+[data-shell="mobile"] .m-qj-clear {
+  flex: none;
+  width: 36px; height: 36px; padding: 0;
+  background: transparent; border: 0;
+  font-size: 18px; line-height: 1; color: inherit; opacity: .7;
+  cursor: pointer;
+}
+[data-shell="mobile"] .m-qj-cancel {
+  flex: none;
+  min-width: 44px; min-height: 44px; padding: 0 12px;
+  background: transparent; border: 0;
+  font-family: inherit; font-size: 14px; letter-spacing: .12em; text-indent: .12em;
+  color: inherit;
+  cursor: pointer;
+}
+[data-shell="mobile"] .m-qj-cancel:focus-visible,
+[data-shell="mobile"] .m-qj-clear:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+[data-shell="mobile"] .m-qj-body {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(var(--m-safe-bottom) + 12px);
+}
+[data-shell="mobile"] .m-qj-note {
+  margin: 0;
+  padding: 16px var(--m-gutter);
+  font-size: 13px; line-height: 1.8; letter-spacing: .03em;
+  color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .m-qj-list { margin: 0; padding: 4px 0; list-style: none; }
+[data-shell="mobile"] .m-qj-group {
+  padding: 12px var(--m-gutter) 4px;
+  font-size: 11px; letter-spacing: .12em;
+  color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .m-qj-row {
+  box-sizing: border-box;
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 48px;
+  padding: 6px var(--m-gutter);
+  background: transparent; border: 0; border-bottom: 1px solid var(--color-line);
+  font-family: inherit; text-align: left; color: var(--color-ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m-qj-row:active { background: var(--color-paper-used); }
+[data-shell="mobile"] .m-qj-row:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .m-qj-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-display); font-size: 15px; letter-spacing: .02em;
+}
+[data-shell="mobile"] .m-qj-name.is-done {
+  color: var(--color-ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-ink) 35%, transparent);
+}
+[data-shell="mobile"] .m-qj-done {
+  flex: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 12px;
+  color: var(--color-seal);
+}
+[data-shell="mobile"] .m-qj-aside {
+  flex: none; max-width: 38%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; letter-spacing: .06em;
+  color: var(--color-ink-faint);
+}
+
+/* ═══════════ 三、路線圖：跳轉落點與済印 ═══════════ */
+
+/* 跳轉落點（D-主-48）：那一列的底色亮一下、約 1 秒退掉（class 由 MobileRouteMap 掛約 1 秒）；減少動態時改成靜靜亮那 1 秒 */
+[data-shell="mobile"] .m2-row.is-reveal { animation: mQjReveal 1s ease-out; }
+@keyframes mQjReveal {
+  0%, 35% { background: color-mix(in srgb, var(--color-gold) 30%, transparent); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m2-row.is-reveal { animation: none; background: color-mix(in srgb, var(--color-gold) 18%, transparent); }
+}
+
+/* N9：済列的圓印（SealDone small＝34px，列高 46px 放得下）；運休仍是 `.m2-seal.is-suspended` 方角印 */
+[data-shell="mobile"] .m2-seal-done { flex: none; margin: 0 4px 0 2px; }

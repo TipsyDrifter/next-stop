@@ -67,7 +67,6 @@ import {
   manualIndexOfDisplay,
   manualOrderIds,
   parseTimeOverrides,
-  pruneTimeOverrides,
   serializeTimeOverrides,
   timeOfRow,
   type TodayLike,
@@ -338,17 +337,6 @@ describe("TimeOverrides 解析與序列化", () => {
       serializeTimeOverrides({ "2026-10-17": "09:00", "2026-10-16": null, "2026-10-18": "10:00" }),
       s,
     );
-  });
-  test("pruneTimeOverrides：過去且 settled 清、過去沒結局留、未來留；不改輸入", () => {
-    const input = { "2026-10-10": "07:00", "2026-10-12": "08:00", "2026-10-16": "09:00", "2026-10-20": "10:00" };
-    const copy = { ...input };
-    const out = pruneTimeOverrides(input, "2026-10-16", (d) => d === "2026-10-10");
-    assert.deepEqual(out, { "2026-10-12": "08:00", "2026-10-16": "09:00", "2026-10-20": "10:00" });
-    assert.deepEqual(input, copy);
-  });
-  test("pruneTimeOverrides：今天這班即使有結局也不清（只清 < before）", () => {
-    const out = pruneTimeOverrides({ "2026-10-16": "09:00" }, "2026-10-16", () => true);
-    assert.deepEqual(out, { "2026-10-16": "09:00" });
   });
   test("dropFutureOverrides：丟班次日 ≥ from", () => {
     const out = dropFutureOverrides({ "2026-10-15": "07:00", "2026-10-16": "08:00", "2026-10-17": null }, "2026-10-16");
@@ -705,12 +693,12 @@ describe("MemoryNodeRepository：時刻寫入與覆寫表", () => {
   test("setRunTime：非定期券 ⇒ TIME_REPEAT_ONLY_MSG；壞日期／壞時刻 ⇒ throw", async () => {
     const repo = new MemoryNodeRepository();
     const single = await mk(repo);
-    await assert.rejects(repo.setRunTime(single.id, TODAY, "09:00", TODAY, H), { message: TIME_REPEAT_ONLY_MSG });
+    await assert.rejects(repo.setRunTime(single.id, TODAY, "09:00", H), { message: TIME_REPEAT_ONLY_MSG });
     const r = await mk(repo, "定期券");
     await repo.setRepeatRule(r.id, weeklyFri(), TODAY, H);
-    await assert.rejects(repo.setRunTime(r.id, "10/16", "09:00", TODAY, H));
-    await assert.rejects(repo.setRunTime(r.id, TODAY, "30:00", TODAY, H), { message: TIME_FORMAT_MSG });
-    await assert.rejects(repo.setRunTime("nope", TODAY, "09:00", TODAY, H));
+    await assert.rejects(repo.setRunTime(r.id, "10/16", "09:00", H));
+    await assert.rejects(repo.setRunTime(r.id, TODAY, "30:00", H), { message: TIME_FORMAT_MSG });
+    await assert.rejects(repo.setRunTime("nope", TODAY, "09:00", H));
   });
 
   test("setRunTime／clearRunTime：覆寫只蓋那一班；清空 ⇒ 欄位 null；null＝本班無時刻", async () => {
@@ -718,15 +706,15 @@ describe("MemoryNodeRepository：時刻寫入與覆寫表", () => {
     const r = await mk(repo, "背單字");
     await repo.setRepeatRule(r.id, weeklyFri(), TODAY, H);
     await repo.update(r.id, { scheduled_time: "07:00" }, { dayStartHour: H });
-    await repo.setRunTime(r.id, TODAY, "09:30", TODAY, H);
+    await repo.setRunTime(r.id, TODAY, "09:30", H);
     const n1 = (await repo.getNode(r.id)) as NodeRow;
     assert.equal(effectiveTime(n1, TODAY), "09:30");
     assert.equal(effectiveTime(n1, addDays(TODAY, 7)), "07:00");
-    await repo.setRunTime(r.id, TODAY, null, TODAY, H); // 本班不排時刻
+    await repo.setRunTime(r.id, TODAY, null, H); // 本班不排時刻
     const n2 = (await repo.getNode(r.id)) as NodeRow;
     assert.equal(effectiveTime(n2, TODAY), null);
     assert.equal(isTimeOverridden(n2, TODAY), true);
-    await repo.clearRunTime(r.id, TODAY, TODAY);
+    await repo.clearRunTime(r.id, TODAY);
     const n3 = (await repo.getNode(r.id)) as NodeRow;
     assert.equal(n3.time_overrides, null); // 空表不存 "{}"
     assert.equal(effectiveTime(n3, TODAY), "07:00");
@@ -752,29 +740,33 @@ describe("MemoryNodeRepository：時刻寫入與覆寫表", () => {
     // 有規則的票：寫 scheduled_time 不動覆寫
     const r = await mk(repo, "定期");
     await repo.setRepeatRule(r.id, weeklyFri(), TODAY, H);
-    await repo.setRunTime(r.id, TODAY, "09:30", TODAY, H);
+    await repo.setRunTime(r.id, TODAY, "09:30", H);
     await repo.update(r.id, { scheduled_time: "07:00" }, { dayStartHour: H });
     const rn = (await repo.getNode(r.id)) as NodeRow;
     assert.equal(effectiveTime(rn, TODAY), "09:30");
     assert.equal(rn.time_overrides, '{"2026-10-16":"09:30"}');
   });
 
-  test("誤點中的班次（沒結局）的覆寫不被別班的寫入吃掉；蓋済後再寫一次才清（§6.1 #10）", async () => {
+  test("過去班次的覆寫一律保留：誤點中、蓋済後、再寫別班都不被吃掉（D-主-32；§6.1 #10 舊規則「済後被清」廢止）", async () => {
     const repo = new MemoryNodeRepository();
     const r = await mk(repo, "跑步");
     // 每週三：最近一班在 2 天前（週三 10/14）、沒人蓋 ⇒ 誤點中
     await repo.setRepeatRule(r.id, fixedRule("weekly", addDays(TODAY, -28), { byweekday: [3] }), TODAY, H);
     const lateDay = "2026-10-14";
     assert.equal((await repo.getNode(r.id))?.scheduled_on, lateDay);
-    await repo.setRunTime(r.id, lateDay, "06:45", TODAY, H);
-    await repo.setRunTime(r.id, "2026-10-21", "08:00", TODAY, H); // 對別班寫
+    await repo.setRunTime(r.id, lateDay, "06:45", H);
+    await repo.setRunTime(r.id, "2026-10-21", "08:00", H); // 對別班寫
     let o = parseTimeOverrides((await repo.getNode(r.id))?.time_overrides);
     assert.equal(o[lateDay], "06:45"); // 誤點中的班還在
     await repo.setCompleted(r.id, true, { dateKey: TODAY, dayStartHour: H }); // 蓋済那一班
-    await repo.setRunTime(r.id, "2026-10-28", "08:00", TODAY, H);
+    await repo.setRunTime(r.id, "2026-10-28", "08:00", H);
     o = parseTimeOverrides((await repo.getNode(r.id))?.time_overrides);
-    assert.equal(lateDay in o, false); // 已過且有結局 ⇒ 被清
+    assert.equal(o[lateDay], "06:45"); // 已過且有結局 ⇒ 仍在（歷史不被改寫）
     assert.equal(o["2026-10-21"], "08:00");
+    // 再寫別班一次，過去那天仍不動
+    await repo.setRunTime(r.id, "2026-11-04", "09:00", H);
+    o = parseTimeOverrides((await repo.getNode(r.id))?.time_overrides);
+    assert.equal(o[lateDay], "06:45");
   });
 
   test("setRepeatRule：清規則 ⇒ 覆寫全清、scheduled_time 留著；換規則 ⇒ 只清班次日 ≥ 今天", async () => {
@@ -782,9 +774,9 @@ describe("MemoryNodeRepository：時刻寫入與覆寫表", () => {
     const r = await mk(repo);
     await repo.setRepeatRule(r.id, fixedRule("daily", addDays(TODAY, -28)), TODAY, H);
     await repo.update(r.id, { scheduled_time: "07:00" }, { dayStartHour: H });
-    await repo.setRunTime(r.id, "2026-10-10", "08:00", TODAY, H); // 過去
-    await repo.setRunTime(r.id, TODAY, "09:30", TODAY, H); // 今天
-    await repo.setRunTime(r.id, "2026-10-20", "10:00", TODAY, H); // 未來
+    await repo.setRunTime(r.id, "2026-10-10", "08:00", H); // 過去
+    await repo.setRunTime(r.id, TODAY, "09:30", H); // 今天
+    await repo.setRunTime(r.id, "2026-10-20", "10:00", H); // 未來
     await repo.setRepeatRule(r.id, weeklyFri(), TODAY, H); // 換規則
     let o = parseTimeOverrides((await repo.getNode(r.id))?.time_overrides);
     assert.deepEqual(o, { "2026-10-10": "08:00" });
@@ -821,7 +813,7 @@ describe("MemoryNodeRepository：時刻寫入與覆寫表", () => {
     const r = await mk(repo, "日課");
     await repo.setRepeatRule(r.id, fixedRule("daily", addDays(TODAY, -5)), TODAY, H);
     await repo.update(r.id, { scheduled_time: "07:00" }, { dayStartHour: H });
-    await repo.setRunTime(r.id, TODAY, "09:30", TODAY, H);
+    await repo.setRunTime(r.id, TODAY, "09:30", H);
     const cal = await repo.listCalendar(TODAY, addDays(TODAY, 1), { todayDateKey: TODAY, dayStartHour: H });
     const byDate = Object.fromEntries(cal.entries.filter((e) => e.node_id === r.id).map((e) => [e.date, e.time]));
     assert.equal(byDate[TODAY], "09:30");

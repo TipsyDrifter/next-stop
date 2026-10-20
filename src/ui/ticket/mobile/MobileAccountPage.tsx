@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { TK_TEXT, useTicketStore } from "../../../store/ticketStore";
 import { ACCOUNT_GROUPS, MAIN_CURRENCY, moneyText, type AccountGroup } from "../../../domain/ticket";
+import { useBackLayer } from "../../mobile/backStack";
 import { IconLeft, useImeGuard } from "./mobileBits";
 
 export function MobileAccountPage({ id }: { id: string }) {
@@ -47,6 +48,16 @@ export function MobileAccountPage({ id }: { id: string }) {
     }
     if (v !== acc.name) void updateAccount(acc.id, { name: v });
   };
+  // 磨光①（主線手機殼契約 §1.5）：返回鍵＝「‹ 售票口」。點那顆鈕時名稱框會先失焦存檔；返回鍵不會讓它失焦，所以先存再收
+  useBackLayer(
+    "ticket.account",
+    true,
+    () => {
+      commitName();
+      closePanel();
+    },
+    "full",
+  );
   const nameIme = useImeGuard((e) => (e.currentTarget as HTMLInputElement).blur());
   const adjIme = useImeGuard((e) => {
     e.preventDefault();

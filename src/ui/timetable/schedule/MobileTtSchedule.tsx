@@ -2,7 +2,8 @@
  * MobileTtSchedule——時刻表手機頁的「日程」視圖（④ 契約 §5.1、§5.10；〈原型定案〉2、3、7；D-時-87；乙席）。
  * 檔名避開主線的 `ui/mobile/MobileSchedule.tsx`（契約 §2）。長相＝原型 prototypes/時刻表-④.html 手機（v-h.js schedHtml is-phone）。
  *
- *   div.ns-tt-sched.is-phone（撐滿 .m-page 剩下的高；整頁不捲，時間軸自己捲——§L 用 :has 把 .m-page 改成直欄不捲）
+ *   div.ns-tt-sched.is-phone[data-no-fab]（撐滿 .m-page 剩下的高；整頁不捲，時間軸自己捲——§L 用 :has 把 .m-page 改成直欄不捲；
+ *     data-no-fab＝收起「記一句」浮鈕，跟方眼同一個取捨，要記一句從今日頁或其他頁；磨光③ 2-13）
  *   ├ ScheduleNav ＋ ScheduleSummary
  *   ├ UnscheduledTray mode="chips"（頂上一排橫捲 chip：點一下再點位置、長按 0.4 秒拖）
  *   └ ScheduleGrid layout="inline"（每小時 44px；卡最小一行≈30 分，短票一行「13:30 背 N5 單字 準點」）
@@ -46,7 +47,7 @@ export function MobileTtSchedule() {
   usePickEscape();
 
   return (
-    <div className="ns-tt-sched is-phone" aria-label={TT_TEXT.viewSchedule}>
+    <div className="ns-tt-sched is-phone" data-no-fab aria-label={TT_TEXT.viewSchedule}>
       <ScheduleNav page={page} />
       <ScheduleSummary page={page} />
       {page.error && !page.grid && <p className="ns-tt-sched-err">⚠ {page.error}</p>}

@@ -3,22 +3,22 @@
  *
  * 桌機是右側常駐欄，手機改成本文下方一塊可收合的區塊（契約 §7.0 雙端對照）：
  *   標頭整列是一顆鈕（≥44px）：「當天足跡」＋（收合時）摘要「10/8・2 枚済章・1 則手記」＋ 箭頭。
- *   展開＝足跡翻日列（箭頭 44px、「10/8（四）」、與本文不同天時多一顆「回到 M 月 D 日」）＋ 三段＋欄底一行。
+ *   展開＝足跡翻日列（箭頭 44px、「10/8（四）」、與本文不同天時多一顆「回到 M 月 D 日」）＋ 三段。
  * 展開狀態由 MobileDiary 的 useState 管（契約：切 tab 回來重設為展開），本元件只收 open／onToggle。
  *
  * 三段（只顯示、不寫入；不增不減 D-筆-11）：
  *   蓋了章的 N：迷你済章（朱，唯一的朱）＋票名＋路線色點；定期券班次的 title 寫「班次 M/D」
  *   寫下的 N：時刻＋手寫體內文＋票名（節點已刪＝「（原車票已刪除）」，repository 已填好）
  *   心情：燈號一排（綠＝松葉 route-preset-3、黃＝--arc、紅＝赭 --late，不用朱）
- * 時間段（blocks）本車次恆 null ⇒ 不畫，只在欄底寫一行說明（插槽見 footprintBlocks.ts）。
+ * 時間段（blocks）目前恆 null ⇒ 不畫（插槽見 footprintBlocks.ts；磨光③ 2-7 拿掉欄底「時刻表通車後…」那行，接時間塊留給下一輪 B1）。
  */
 import { useNodeStore } from "../../../store/nodeStore";
+import { useBackLayer } from "../../mobile/backStack";
 import { footprintSummary, fmtMonthDay, fmtShortDay, hasFootprint, weekdayZh, type FootprintDay } from "../../../domain/notes";
 import { RouteDot } from "./MobileAttachPicker";
 import { IconCaret, IconLeft, IconRight, hhmm } from "./mobileDiaryBits";
 
 const MOOD_NAME = { green: "順暢", yellow: "還行", red: "吃力" } as const;
-const FOOT_LINE = "時刻表通車後，這裡會多出當天的時間";
 
 export interface MobileFootprintsProps {
   open: boolean;
@@ -36,6 +36,9 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
   // store 換日時舊的那一份還在：日子對不上的先當沒有（避免摘要寫成前一天的數字）
   const f = footprint && footprint.day === fpDay ? footprint : null;
   const routeOf = (id: string | null) => (id ? (routes.find((r) => r.id === id) ?? null) : null);
+  // 磨光① 返回層：足跡翻到別天＝子頁，返回＝「回到 M 月 D 日」。只在那顆鈕看得到時（展開著）才登記——
+  //   收合時沒有退路可對應，返回不該悄悄改掉看不到的東西
+  useBackLayer("notes.footprintDay", open && fpDay !== diaryDay, onBack, "page");
 
   return (
     <section className="ns-notes-mfp" aria-label="當天足跡">
@@ -140,8 +143,6 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
               {/* 時刻表通車後的小車次填（契約 0-8）；本車次 blocks 恆 null，走不到這裡 */}
             </div>
           )}
-
-          {(!f || f.blocks === null) && <p className="ns-notes-mfpfoot">{FOOT_LINE}</p>}
         </div>
       )}
     </section>

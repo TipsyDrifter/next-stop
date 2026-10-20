@@ -4,6 +4,7 @@
  *
  * 欄位：名稱・群組（12 個，依財務管家順序；`lent` 顯示「借出／應收」）・幣別・期初餘額（可空；填了＝建立時同時生成一筆
  *   精算，備註「期初餘額」——store.createAccount 做）。「建立」成功才關；失敗 store 已吐 toast，欄位留著讓主人改。
+ *   建完要不要接著記一筆／填回草稿看 `dialog.then`，store.createAccount 處理（磨光③ 2-16）；這裡只管建與關。
  * 桌機外觀在 ticket.css §F、手機觸控尺寸在 ticket-mobile.css。
  */
 import { useState } from "react";

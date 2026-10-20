@@ -513,7 +513,7 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 
 /* Toast 抬到運行列之上（特異度 (0,4,0)，贏過 mobile.css WP0 那條 (0,3,0)；今日頁的 S1 規則在這一頁不會命中） */
 [data-shell="mobile"] .ns-tt-mdock ~ .ns-card.fixed {
-  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-mdock-h) + 12px);
+  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-mdock-h) + var(--m-kb, 0px) + 12px);
 }
 
 /* 面板殼：沿用 .m-sheet 骨架，本體自己捲 */
@@ -2428,12 +2428,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 /* 垂直預算很緊（〈原型定案〉4 量到的數字）：方眼頁的切換鈕收到 38px（＝原型 .vi-msw） */
 [data-shell="mobile"] .m-page.ns-tt-m:has(.ns-tt-grid) .ns-tt-switch button { min-height: 38px; }
 [data-shell="mobile"] .ns-tt-grid.is-phone { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* 旅客筆記的「記一句」浮動鈕（notes-mobile.css〈一〉，56×56、tab bar 上 14px）在方眼頁收起來（修正席）：方眼整頁不捲、
- * 格子撐到合計列，鈕抬到哪裡都蓋在格子上（375×812 看過去的日子＝最後一列 05:42–06:00；360×640＝02 列 03:47–04:00，點下去開的是記一句），
- * 塗色列開著時又蓋住「購物」。抬高 --m-page-dock-h 只是把蓋到的位置換一格，所以整類一起收；別的 tab、時刻表其他視圖照常有鈕。
- * 寫法同 notes-mobile.css 的 .is-hidden（visibility＋pointer-events），鈕留在 DOM。 */
-/* 接縫 #90（主對話 D 10-20 准先出貨）：方眼頁整頁不捲、浮鈕抬到哪都蓋一格 ⇒ 收起旅客筆記的「記一句」浮鈕；旅客筆記終審做通用的「這頁不要浮鈕」變數後改用它、刪這行 */
-[data-shell="mobile"]:has(.ns-tt-grid) .ns-notes-fab { visibility: hidden; opacity: 0; pointer-events: none; }
+/* 「記一句」浮鈕：方眼與日程的根掛 data-no-fab，由 notes-mobile.css 的通用規則收起（磨光③ 2-13，取代接縫 #90 的點名規則） */
 
 /* ── 頂列：‹ 日期 ›、回到今天、讀數、格子大小 ── */
 .ns-tt-grid-nav { position: relative; flex: none; display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0 0 8px; }
@@ -2701,7 +2696,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 [data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-grid-pb-act .ns-btn { min-height: 38px; }
 /* Toast：塗色列開著時抬到它上面（特異度 (0,5,0) 贏過 §E 運行列那條 (0,4,0)；--ns-tt-grid-mbar-h 由 MobileGridDock 量了寫在 App 根） */
 [data-shell="mobile"] .ns-tt-grid-mbar.is-open ~ .ns-card.fixed {
-  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-grid-mbar-h, 280px) + 12px);
+  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-grid-mbar-h, 280px) + var(--m-kb, 0px) + 12px);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2933,4 +2928,106 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-stats-row.is-kid.is-new, .ns-tt-goal.is-flash { animation: none; }
   .ns-tt-goal.is-flash { box-shadow: 0 0 0 2px var(--color-gold), var(--shadow-card); }
+}
+
+/* ═══ §磨光③ 時刻表畫面（磨光③ 契約 §2-1～2-4、2-11、2-12；D-時-136、138）═══
+ * 長相＝原型 prototypes/磨光③-排除與切開.html 標「◆ 新」的規則（排除＝A1；切開＝桌機 B1、手機 B3）。 */
+
+/* ── 2-1 單塊排除：分類帶的牌子 × 了變刪除線淡字、留在原位；× 換成常顯的 ↺ ── */
+/* 刪除線＝一條從左掃到右的墨線（不用 text-decoration：才能動；位置對準名稱、不壓到切角） */
+.ns-tt-tag.is-fixed .ns-tt-tag-nm::before {
+  content: ""; position: absolute; left: 11px; right: 7px; top: 50%; height: 1px; margin-top: -.5px;
+  background: currentColor; transform: scaleX(0); transform-origin: left center; pointer-events: none;
+  transition: transform .26s var(--ns-tt-ease);
+}
+.ns-tt-tag.is-sm.is-fixed .ns-tt-tag-nm::before { left: 9px; right: 5px; }
+.ns-tt-tag.is-fixed .ns-tt-tag-nm { transition: color .2s; }
+.ns-tt-tag.is-off .ns-tt-tag-nm::before { transform: scaleX(1); }
+/* 排除後：框更淡、字退到極淡、名稱可點（＝還原） */
+.ns-tt-tag.is-fixed.is-off { background: color-mix(in srgb, var(--ns-tt-tag-line) 24%, transparent); }
+.ns-tt-tag.is-fixed.is-off .ns-tt-tag-nm,
+.ns-tt-tag.is-fixed.is-off .la,
+.ns-tt-tag.is-fixed.is-off .pa { color: color-mix(in srgb, var(--color-ink-faint) 72%, transparent); }
+/* 還原鈕常顯（沒有它，桌機看不出淡牌還能點回來） */
+.ns-tt-tag.is-off .ns-tt-tag-x { width: 18px; margin-left: -5px; opacity: .9; font-size: 11px; }
+.ns-tt-tag.is-off .ns-tt-tag-x:hover { color: var(--color-ink); }
+/* 手機：分類帶的 × 比手動的淡，分得出哪些是分類帶的（原型看到的缺點）；排除後的 ↺ 照常亮 */
+[data-shell="mobile"] .ns-tt-tag.is-fixed .ns-tt-tag-x { opacity: .5; }
+[data-shell="mobile"] .ns-tt-tag.is-off .ns-tt-tag-x { width: 22px; opacity: .9; font-size: 12px; }
+
+/* ── 2-12 荷札沒載入：「重試」借新增鈕的虛線框，常顯 ── */
+.ns-tt-tagadd.ns-tt-tagretry { border-color: var(--color-dash); }
+
+/* ── 2-2 運行列「切開」── */
+/* 桌機（B1）：淡色小鈕；左欄的運行列會折行 ⇒ 自己佔一行、靠右，落在換車／到着那排之上。寬版同一列、排在換車前面 */
+.ns-tt-dock-aux { flex: none; display: flex; }
+.ns-tt-dock-aux .ns-btn {
+  min-height: 26px; padding: 0 8px; border-color: transparent; color: var(--color-ink-faint);
+  font-size: 12px; letter-spacing: .14em; display: inline-flex; align-items: center;
+}
+.ns-tt-dock-aux .ns-btn:hover, .ns-tt-dock-aux .ns-btn:focus-visible { border-color: var(--color-dash); color: var(--color-ink); }
+.ns-tt-dock-aux .ns-tt-kbd { margin-left: 6px; }
+.page.ns-tt .ns-tt-col.is-left .ns-tt-dock-aux { flex: 1 1 100%; justify-content: flex-end; margin: -2px 0 -4px; }
+/* 手機（B3）：名稱列尾端、緊跟荷札鈕的小 chip（運行列不變高） */
+.ns-tt-dock-name .ns-tt-dock-cut {
+  flex: none; min-height: 20px; padding: 0 6px; border-style: solid;
+  font-family: var(--font-body); font-size: 10px; letter-spacing: .02em; color: var(--color-ink-soft);
+}
+.ns-tt-dock-name .ns-tt-dock-cut:hover { border-color: var(--color-gold); color: var(--color-ink); }
+/* 手機名稱列只有「荷札」「切開」兩顆 chip 時不折行，任務名（或「連到…」）先省略：360 寬時「連到…＋荷札＋切開」會把切開
+ * 擠到第二行、運行列從 76px 變 85px（實測）；任務名長的時候荷札鈕整顆掉行也是同一件事（契約 §6）。
+ * 名稱列另有「⚠ 其實到幾點？」／「長時間運行」時照舊折行（那時本來就兩行）。 */
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-name:not(:has(> .ns-tt-chip:not(.ns-tt-dock-tag):not(.ns-tt-dock-cut))) { flex-wrap: nowrap; }
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-name .ns-tt-link-dn.is-none {
+  flex: 0 1 auto; min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 名稱列有「⚠ 其實到幾點？」／「長時間運行」時固定兩行：第一行＝分類名（省略）＋荷札＋切開，第二行＝那顆赭 chip。
+ * 原本的順序在 360 寬會把「切開」擠到第三行（運行列 85→111px、壓到「記一句」浮鈕；磨光③ 評審 V8）。
+ * 分類名那段 flex-basis 0 ⇒ 排行時只算 3em，排完再長滿第一行剩下的寬。 */
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-name:has(> .ns-tt-chip:not(.ns-tt-dock-tag):not(.ns-tt-dock-cut)) > .ns-tt-link-dock { flex: 1 1 0; min-width: 3em; }
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-name:has(> .ns-tt-chip:not(.ns-tt-dock-tag):not(.ns-tt-dock-cut)) .ns-tt-dock-cat { flex: 0 1 auto; min-width: 0; }
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-name > .ns-tt-chip:not(.ns-tt-dock-tag):not(.ns-tt-dock-cut) { order: 1; }
+/* 360 寬：中欄只剩約 162px，跑到 10 小時以上時「HH:MM 発＋預估 跳秒」差 3px 就換行；鈕與間距各讓一點（中欄 +10px） */
+@media (max-width: 370px) {
+  [data-shell="mobile"] .ns-tt-mdock .ns-tt-dock { gap: 6px; }
+  [data-shell="mobile"] .ns-tt-mdock .ns-tt-dock > .ns-btn { padding: 0 10px; }
+}
+
+/* ── 2-3 「分類與設定」固定入口 ── */
+/* 桌機：切換鈕右邊；頁首擠的時候整組換行靠右 */
+.ns-tt-head-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px 10px; min-width: 0; }
+.ns-tt-setbtn {
+  min-height: 34px; padding: 0 12px; display: inline-flex; align-items: center;
+  font-size: 12px; letter-spacing: .14em; color: var(--color-ink-soft); white-space: nowrap;
+}
+.ns-tt-setbtn:hover { color: var(--color-ink); }
+.ns-tt-setbtn .ns-tt-kbd { margin-left: 8px; }
+/* 手機：頂端切換列右邊、六格之外；六格照舊平分剩下的寬（360 寬每格約 47px，「發車台」約 39px） */
+[data-shell="mobile"] .ns-tt-mtop { display: flex; align-items: stretch; gap: 6px; }
+[data-shell="mobile"] .ns-tt-m .ns-tt-mtop > .ns-tt-switch { flex: 1 1 auto; min-width: 0; }
+[data-shell="mobile"] .ns-tt-msetbtn {
+  flex: none; min-width: 40px; padding: 0 8px;
+  border: 1px solid var(--color-dash); border-radius: 3px; background: transparent; cursor: pointer;
+  font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--color-ink-faint);
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tt-msetbtn:active { background: color-mix(in srgb, var(--color-gold) 16%, transparent); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tt-msetbtn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+
+/* ── 2-4 補記／改一塊：按鈕列黏在對話框底（DesktopSheetHost 已把置頂距離收到 8vh）──
+ * 對話框本文（.ns-dialog-body）左右 24px、下 20px 的 padding：負邊距把紙底拉滿、貼到底邊。 */
+.ns-dialog-body:has(.ns-tt-panel-block) .ns-tt-actions {
+  position: sticky; bottom: -20px; z-index: 2; /* 捲動容器的下 padding 也算進黏的範圍：拉回 20px 才貼到底邊 */
+  margin: 14px -24px -20px; padding: 10px 24px 20px;
+  /* 紙卡的紙（粉彩星空的 paper-high 是半透白）疊在實心紙上：捲過去的字不透出來，顏色跟卡面一致 */
+  background: linear-gradient(var(--color-paper-high), var(--color-paper-high)) var(--color-paper);
+  border-top: 1px solid var(--color-line);
+}
+
+/* ── 2-11 從荷札頁點分類列進來：組頭也借閃一下（子分類列本來就有 .is-flash） ── */
+.ns-tt-mgr-group-head.is-flash { animation: ns-tt-flash 1.3s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-tag.is-fixed .ns-tt-tag-nm::before, .ns-tt-tag.is-fixed .ns-tt-tag-nm { transition: none; }
+  .ns-tt-mgr-group-head.is-flash { animation: none; }
 }

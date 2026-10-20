@@ -5,7 +5,7 @@
  *   蓋了章的：済章（本線縮小版 .ns-notes-sumi，朱只給這一枚）＋票名＋路線色點；定期券班次 title「班次 M/D」
  *   寫下的：時刻＋手寫體內文＋票名（節點已刪＝「（原車票已刪除）」，repository 填好）
  *   心情：跟著済章讀的燈號（綠＝路線松葉色、黃＝金／粉彩用 --arc、紅＝赭 --late；不用朱）
- *   時間：時刻表通車後才有（blocks !== null）；本車次恆 null ⇒ 欄底一行說明
+ *   時間：dayBlocksProvider 填了才有（blocks !== null）；目前恆 null ⇒ 不畫（磨光③ 2-7 拿掉欄底「時刻表通車後…」那行；接時間塊留給下一輪 B1）
  * 足跡翻日不必先存日記（本文沒換），所以直接呼叫 store、不經 flushThen。
  */
 import { useNotesStore } from "../../store/notesStore";
@@ -131,9 +131,6 @@ export function Footprints({ today }: { today: string }) {
       </div>
       <div className="ns-notes-fpbody techo-scroll" aria-busy={!ready}>
         {body}
-      </div>
-      <div className="ns-notes-fpfoot">
-        {f?.blocks == null ? "時刻表通車後，這裡會多出當天的時間" : null}
       </div>
     </aside>
   );

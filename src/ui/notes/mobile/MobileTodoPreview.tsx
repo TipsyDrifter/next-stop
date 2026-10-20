@@ -196,6 +196,9 @@ export function MobileTodoPreview() {
           }
           clearLabel="不掛"
           onClose={() => setPicking(false)}
+          // 磨光① 返回層：疊在本全螢幕面板（full）上的子面板一律登記 "dialog"（契約 §9.1，同售票口表單裡的幣別／日期 sheet）：
+          // 權重比 full 高 ⇒ 返回先關挑選器、再關預覽；toast 跟著移到頂端，不壓在挑選器上
+          backKind="dialog"
         />
       )}
     </div>

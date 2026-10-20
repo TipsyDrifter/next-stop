@@ -17,8 +17,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import type { MergeNotice } from "../../data/syncRepository";
-import { MERGE_TEXT, describeMerge, fallbackLabel, groupMerges, mergeSubject, nounOf } from "../../domain/syncMerge";
-import { coreCols, resolveMergeLabel, type ResolvedMergeLabel } from "../../store/syncMergeLabels";
+import { MERGE_TEXT, describeMerge, fallbackLabel, groupMerges, mergeAfterOf, mergeSubject, nounOf } from "../../domain/syncMerge";
+import { coreCols, resolveMergeLabel, resolveMergeNow, type MergeNow, type ResolvedMergeLabel } from "../../store/syncMergeLabels";
 import { fmtSyncStamp, registerMergesOnScreen, useSyncStore, type SyncShell } from "../../store/syncStore";
 import { useUiStore } from "../../store/uiStore";
 import { jumpToNode } from "./QuickJump";
@@ -26,6 +26,8 @@ import "./merge-notices.css";
 
 /** 穩定的空陣列：selector 每次回新 `[]` 會讓 zustand 判成狀態一直在變 */
 const EMPTY: readonly MergeNotice[] = [];
+/** 現況還沒查到（或查不到）＝空＝照舊句 */
+const NO_NOW: MergeNow = { gone: new Set(), cells: new Map() };
 
 type Resolved = ResolvedMergeLabel | null | "fallback";
 
@@ -39,6 +41,8 @@ export function MergeNotices({ shell }: { shell: SyncShell }) {
   const ackMerges = useSyncStore((s) => s.ackMerges);
   const markMergesSeen = useSyncStore((s) => s.markMergesSeen);
   const [labels, setLabels] = useState<Record<string, Resolved>>({});
+  // 整理之後的現況（磨光② A4）；查到之前＝空＝照舊句
+  const [now, setNow] = useState<MergeNow>(NO_NOW);
   const [acking, setAcking] = useState(false);
 
   const sig = useMemo(() => notices.map(noticeKey).join("\n"), [notices]);
@@ -46,13 +50,19 @@ export function MergeNotices({ shell }: { shell: SyncShell }) {
   // 掛載期間＝清單就在眼前：syncStore 的 toast 看到這個旗標就不為新批彈「看看」（否則按了只是落在本來就在的這一頁）
   useEffect(() => registerMergesOnScreen(), []);
 
-  // 清單內容變了（at 序列變）⇒ 記「看過」＋重解名字（≤20 列、本機 SQL）
+  // 清單內容變了（at 序列變）⇒ 記「看過」＋重解名字（≤20 列、本機 SQL）。
+  // 磨光② A4：同一拍查整理之後的現況——刪改相撞的那樣東西還在不在（goneObjects）、兩邊都改了的那一格現在是什麼（currentCells）
   useEffect(() => {
     if (notices.length === 0) return;
     markMergesSeen();
     let alive = true;
-    void Promise.all(notices.map(async (n) => [noticeKey(n), await resolveMergeLabel(n, shell)] as const)).then((pairs) => {
-      if (alive) setLabels(Object.fromEntries(pairs));
+    void Promise.all([
+      Promise.all(notices.map(async (n) => [noticeKey(n), await resolveMergeLabel(n, shell)] as const)),
+      resolveMergeNow(notices),
+    ]).then(([pairs, mergeNow]) => {
+      if (!alive) return;
+      setLabels(Object.fromEntries(pairs));
+      setNow(mergeNow);
     });
     return () => {
       alive = false;
@@ -108,8 +118,7 @@ export function MergeNotices({ shell }: { shell: SyncShell }) {
           {fmtSyncStamp(n.at)}
         </time>
         <span className="ns-mg-label">{subject}</span>
-        <span className="ns-mg-what">{describeMerge(n, fmt)}</span>
-        {note ? <span className="ns-mg-note">（{note}）</span> : null}
+        <span className="ns-mg-what">{describeMerge(n, fmt, mergeAfterOf(n, now.gone, now.cells), note)}</span>
       </>
     );
     return (

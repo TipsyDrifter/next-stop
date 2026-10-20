@@ -5,6 +5,8 @@
  * 訊息最多兩行（窄幅會換行、超過才省略；#59）。w-max 必要：fixed＋left-1/2 的可用寬度只剩半個視窗，不加的話 390px 寬只有約 195px。
  * 副標 `sub`（時刻表⑤〈原型定案〉1：塗色蓋到既有紀錄時「蓋掉 2 塊、切短 2 塊——撤回會全部回來」）：主訊息下面一行小字，各自最多兩行。
  * 取捨：不做淡出（卸載即消失）——為了退場動畫多留一份 toast 狀態不划算。
+ * 磨光① A1（契約 §9.3）：根元素多一個 `ns-toast` class，給手機 CSS 認（三種落點與不透明底都在 mobile.css）；
+ *   沒有任何桌機規則選它，桌機外觀不變。
  */
 import { useUiStore } from "../../store/uiStore";
 import "./overlay.css";
@@ -28,7 +30,7 @@ export function Toast() {
       key={toast.message + (toast.sub ?? "")}
       role="status"
       aria-live="polite"
-      className="ns-card fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-max max-w-[min(92vw,560px)] flex items-center gap-3 pl-4 pr-1.5 py-1.5 text-[13px] tracking-[0.03em] transition duration-200 ease-out starting:opacity-0 starting:translate-y-2"
+      className="ns-card ns-toast fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-max max-w-[min(92vw,560px)] flex items-center gap-3 pl-4 pr-1.5 py-1.5 text-[13px] tracking-[0.03em] transition duration-200 ease-out starting:opacity-0 starting:translate-y-2"
     >
       {toast.sub ? (
         <span className="min-w-0 flex flex-col gap-0.5 py-0.5">

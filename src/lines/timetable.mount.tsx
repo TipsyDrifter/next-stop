@@ -20,6 +20,7 @@
  * syncRowLabel（同步清單的時刻表三張表；組字在 `timetableSyncLabel.ts` 的純函式，這裡只查列、查名字、組跳轉）。
  * 車次⑥（⑥ 契約 0-6、§5.6、D-時-123；丙席，契約授權）：加填 tagEntities 三筆（`timetable:block`／`category`／`goal`；
  * 存活條件、荷札頁列字與跳轉都在 `timetableTagEntities.ts`）。
+ * 磨光③（契約 0-2、§2-3；時刻表雜項席）：加填 settingsLinks 一筆（全域設定頁指路到「分類與設定」的〈通知〉）。
  */
 import type { LineMount } from "./types";
 import { TimetableDesktopAgent, TimetableView } from "../ui/timetable/desktop";
@@ -42,7 +43,7 @@ import { nodeRepo } from "../data";
 import { todayKey } from "../lib/date";
 import { blockSyncLabel, categorySyncLabel, goalSyncLabel, type SyncLabelLookup } from "./timetableSyncLabel";
 import type { SyncRowLabel } from "./types";
-import { TIMETABLE_TAG_ENTITIES } from "./timetableTagEntities";
+import { TIMETABLE_TAG_ENTITIES, gotoTimetable } from "./timetableTagEntities";
 
 export const TIMETABLE_MOUNT: LineMount = {
   desktopView: TimetableView,
@@ -80,19 +81,28 @@ export const TIMETABLE_MOUNT: LineMount = {
   syncRowLabel: timetableSyncRowLabel,
   // ⑥ 0-6：荷札頁認得時刻表的塊（手動掛的）、分類的預設荷札、目標綁的荷札（存活＋列字＋跳轉）
   tagEntities: TIMETABLE_TAG_ENTITIES,
+  // 磨光③ 0-2／§2-3：時刻表的通知開關住在「分類與設定」，全域設定頁（桌機一般、手機設定節）指路過去、捲到〈通知〉
+  settingsLinks: [
+    {
+      id: "timetable.notice",
+      label: "時刻表的通知",
+      sub: "運行中顯示、跑太久提醒、分類格",
+      open: (shell) =>
+        void (async () => {
+          // 載入失敗（錯誤已寫進 store.error）就停在時刻表頁，不開面板、不留沒人接的 rejection
+          try {
+            await gotoTimetable(shell);
+          } catch (e) {
+            console.warn("時刻表的通知：打開時刻表失敗", e);
+            return;
+          }
+          useTimetableStore.getState().openSheet({ kind: "categories", focus: "notice" });
+        })(),
+    },
+  ],
 };
 
-/* ───────── ③ syncRowLabel（0-13；查列一律含已刪除，真的查不到才回 null） ───────── */
-
-/** 先回時刻表頁（桌機關掉設定面板再換頁；手機換 tab），等 store 載好 */
-async function gotoTimetable(shell: "desktop" | "mobile"): Promise<void> {
-  const ui = useUiStore.getState();
-  if (shell === "desktop") {
-    ui.setSettingsOpen(false);
-    ui.setPage("timetable");
-  } else ui.setMobileTab("timetable");
-  await useTimetableStore.getState().init(shell);
-}
+/* ───────── ③ syncRowLabel（0-13；查列一律含已刪除，真的查不到才回 null）；跳轉的 gotoTimetable 在 timetableTagEntities.ts ───────── */
 
 /** 名字查表：分類（store 已載就用、沒載讀一次；含封存）、節點（linkInfo／nodeStore 快取＋這一列自己連到的先讀好） */
 async function lookupFor(extraNodeIds: readonly (string | null)[]): Promise<SyncLabelLookup> {

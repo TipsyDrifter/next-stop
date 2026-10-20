@@ -21,11 +21,12 @@
  * - 車次⑤（⑤ 契約 0-6、§5.1；D-時-92、102、104；整合席）：第六格「方眼」（鍵帽 6，`timetable.view.6`）；data-view="grid"，頁首下運行列＋
  *   GridView（不包 `.ns-tt-vscroll`，方眼自己決定捲不捲；單欄版面由 §M 的 :has 認）。←／→／T 在方眼＝換日，照軸：→ 翻不過今天。
  *   「切回時未來日拉回今天」的排除清單不含 grid＝從日程翻到未來再切到方眼也拉回今天（方眼不能記未來，D-時-100）。
+ * - 磨光③ 2-3：切換鈕右邊固定一顆「分類與設定」（鍵帽 E，`timetable.settings`）；頁首右側包成 div.ns-tt-head-tools。
  */
 import { Fragment, useEffect, useRef, useState } from "react";
 import { TT_TEXT, useTimetableStore, type TimetableView as TimetableViewMode } from "../../store/timetableStore";
 import { formatChord, hotkeyById } from "../shell/hotkeys";
-import { RunDock } from "./parts/RunDock";
+import { Kbd, RunDock } from "./parts/RunDock";
 import { DepartBoard } from "./parts/DepartBoard";
 import { Axis } from "./parts/Axis";
 import { DesktopSheetHost } from "./DesktopSheetHost";
@@ -225,23 +226,37 @@ export function TimetableView() {
           <p className="techo-overline">時刻表 — TIMETABLE</p>
           <h1 className="techo-title">時刻表</h1>
         </div>
-        <div className="ns-tt-switch" role="group" aria-label="視圖">
-          {VIEW_OPTIONS.map((o, i) => (
-            <Fragment key={o.v}>
-              <button type="button" aria-pressed={mode === o.v} onClick={() => setView(o.v)}>
-                {o.label}
-                <kbd className="ns-tt-kbd" aria-hidden="true">
-                  {viewKeyCap(o.n)}
-                </kbd>
-              </button>
-              {/* V（兩欄⇄只看軸；在週／統計按 V 回兩欄）的鍵帽留在前兩格之間（§5.1） */}
-              {i === 0 && viewKey && (
-                <span className="ns-tt-switch-v" title={viewKey.label} aria-hidden="true">
-                  <kbd className="ns-tt-kbd">{formatChord(viewKey.chords[0]).join("+")}</kbd>
-                </span>
-              )}
-            </Fragment>
-          ))}
+        <div className="ns-tt-head-tools">
+          <div className="ns-tt-switch" role="group" aria-label="視圖">
+            {VIEW_OPTIONS.map((o, i) => (
+              <Fragment key={o.v}>
+                <button type="button" aria-pressed={mode === o.v} onClick={() => setView(o.v)}>
+                  {o.label}
+                  <kbd className="ns-tt-kbd" aria-hidden="true">
+                    {viewKeyCap(o.n)}
+                  </kbd>
+                </button>
+                {/* V（兩欄⇄只看軸；在週／統計按 V 回兩欄）的鍵帽留在前兩格之間（§5.1） */}
+                {i === 0 && viewKey && (
+                  <span className="ns-tt-switch-v" title={viewKey.label} aria-hidden="true">
+                    <kbd className="ns-tt-kbd">{formatChord(viewKey.chords[0]).join("+")}</kbd>
+                  </span>
+                )}
+              </Fragment>
+            ))}
+          </div>
+          {/* 磨光③ 2-3：「分類與設定」固定入口（每個視圖都在）；按下放掉焦點，面板關掉後 Enter 才回到「到着」 */}
+          <button
+            type="button"
+            className="ns-btn btn-ghost ns-tt-setbtn"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              useTimetableStore.getState().openSheet({ kind: "categories" });
+            }}
+          >
+            {TT_TEXT.settingsBtn}
+            <Kbd id="timetable.settings" />
+          </button>
         </div>
       </header>
 

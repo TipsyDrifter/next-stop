@@ -17,6 +17,8 @@
  *   時刻（主線② §3.10）    → `setTime(id, time, est?)`＝updateNode({ scheduled_time, estimate_min? })；
  *                            `setRunTime(id, time)`／`clearRunTime(id)`＝nodeStore 同名入口，班次日＝`occurrence?.due_on ?? scheduled_on`
  *                            （timeOfRow 的 railDate 同一把尺）；成功出收據（timeReceipt），失敗由 store 吐 reason
+ *   上移／下移（磨光①）    → `reorderOf(id)`／`move(id, ±1)`＝moveToday（手排座標 manualOrderIds；守門同桌機 reorderSelected）
+ *   改名／記一句／刪除      → 模組函式 `renameTicket`／`logTicket`／`deleteTicket`（行程表串流也用，所以不在 hook 裡）
  *
  * 三條重載時機（手機比桌機多一條）：
  *   ① 進頁與日界線設定變動  → loadToday(todayKey(dayStartHour))
@@ -32,7 +34,7 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
-import { TIME_REPEAT_ONLY_MSG } from "../../domain/scheduledTime";
+import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
@@ -66,8 +68,90 @@ export interface MobileTodayApi {
   /** 定期券這一班改回每班時刻 */
   clearRunTime(id: string): void;
 
+  /**
+   * ⋯ sheet 的「上移／下移」（磨光① 加工單）：只有 today 分區、沒有時刻的票才有（同桌機 reorderSelected 的守門）；
+   * 其餘回 null＝不出這兩項。up／down＝那一個方向還能不能動（到頂／到底不可點）。
+   */
+  reorderOf(id: string): { up: boolean; down: boolean } | null;
+  /** 在手排座標裡往上（-1）／往下（+1）一格；失敗 toast reason */
+  move(id: string, delta: -1 | 1): void;
+
   /** 剛蓋章的那一列（播 stampIn） */
   freshId: string | null;
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ⋯ sheet 的改名／記一句／刪除（磨光① 加工單 §2.4、§9.5）——今日子頁與行程表串流共用，所以是模組函式不是 hook 裡的閉包
+ * ═══════════════════════════════════════════════════════ */
+
+/** 改名（空白由子面板擋；跟原名一樣就不寫）。失敗由 store 寫 error 列 */
+export function renameTicket(id: string, name: string, prev: string): void {
+  const next = name.trim();
+  if (!next || next === prev) return;
+  void useNodeStore.getState().updateNode(id, { name: next });
+}
+
+/** 記一句乘務記錄；成功 toast「記了」（同桌機行內輸入的回饋字）。addWorkLog 失敗不 throw、寫 error 列——看 error 有沒有變 */
+export function logTicket(id: string, body: string): void {
+  const text = body.trim();
+  if (!text) return;
+  const ns = useNodeStore.getState();
+  const before = ns.error;
+  void ns.addWorkLog(id, text).then(() => {
+    const after = useNodeStore.getState().error;
+    if (after === null || after === before) useUiStore.getState().showToast({ message: "記了" }, 2400);
+  });
+}
+
+/**
+ * 直屬子項數（刪除前要不要確認）：今日切片有這張就用它的 child_total，否則看已載入的路線樹（RepeatRuleEditor.useLiveChildCount 同一套退路）；
+ * 都沒有＝null（行程表串流裡不在今天、也沒開過路線的票：不知道底下有幾個，刪除一律先問）
+ */
+export function liveChildCount(id: string): number | null {
+  const ns = useNodeStore.getState();
+  const tr = ns.today.byId[id];
+  if (tr) return tr.child_total;
+  return ns.tree.byId[id] !== undefined ? (ns.tree.childrenOf[id]?.length ?? 0) : null;
+}
+
+/**
+ * 刪除（D-2）：呼叫端先關 ⋯ sheet 再叫這支 ⇒ 子項 ≥5 才出確認框 ⇒ 刪 ⇒ toast「已刪除『…』」＋「復原」。
+ * 句子照桌機 useTodayController.deleteRow；手機不寫 selectedId（沒有選取游標，不重用 select(next) 那段）。
+ */
+export function deleteTicket(id: string, name: string, childTotal: number | null): void {
+  const ns = () => useNodeStore.getState();
+  const ui = () => useUiStore.getState();
+  const run = async () => {
+    const removed = await ns().deleteNode(id);
+    if (removed.length === 0) return; // 失敗：store 已寫 error 列
+    ui().showToast({
+      message: `已刪除『${name}』${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
+      actionLabel: "復原",
+      onAction: () => void ns().undoDelete(),
+    });
+  };
+  if (childTotal === null) {
+    // 子項數不知道（串流上沒載到的票）：寧可多問一次，也不要不問就連同一整串子項刪掉
+    ui().askConfirm({
+      title: `刪除『${name}』？`,
+      body: "底下如果有子項會一起移除；10 秒內可從底部提示復原。",
+      confirmLabel: "刪除",
+      danger: true,
+      onConfirm: () => void run(),
+    });
+    return;
+  }
+  if (childTotal >= 5) {
+    ui().askConfirm({
+      title: `連同底下 ${childTotal} 個子項一起刪除？`,
+      body: `『${name}』底下的節點會一起移除；10 秒內可從底部提示復原。`,
+      confirmLabel: "刪除",
+      danger: true,
+      onConfirm: () => void run(),
+    });
+    return;
+  }
+  void run();
 }
 
 export function useMobileToday(): MobileTodayApi {
@@ -251,6 +335,33 @@ export function useMobileToday(): MobileTodayApi {
       });
   }, []);
 
+  /* ───────── 上移／下移（磨光① 加工單；同桌機 reorderSelected 的守門與 moveToday）───────── */
+
+  const reorderOf = useCallback(
+    (id: string): { up: boolean; down: boolean } | null => {
+      const row = today.byId[id];
+      // 誤點區／締切區、有時刻的票（照時刻排）不出這兩項——不是出了再擋
+      if (!row || row.bucket !== "today" || timeOfRow(row) !== null) return null;
+      const ids = manualOrderIds(today.rows);
+      const i = ids.indexOf(id);
+      if (i < 0) return null;
+      return { up: i > 0, down: i < ids.length - 1 };
+    },
+    [today],
+  );
+
+  const move = useCallback((id: string, delta: -1 | 1) => {
+    const ids = manualOrderIds(ns().today.rows);
+    const i = ids.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    void ns()
+      .moveToday(id, j)
+      .then((r) => {
+        if (!r.ok) toast(r.reason);
+      });
+  }, []);
+
   /* ───────── 建票（臨時券排今天／無日期票進收件匣）───────── */
 
   const createTicket = useCallback(async (raw: string, inbox: boolean): Promise<boolean> => {
@@ -301,6 +412,8 @@ export function useMobileToday(): MobileTodayApi {
     setTime,
     setRunTime,
     clearRunTime,
+    reorderOf,
+    move,
     freshId,
   };
 }

@@ -30,6 +30,7 @@ import {
   weekdayZh,
 } from "../../../domain/notes";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { useBackLayer } from "../../mobile/backStack";
 import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { MobileDiaryStrip } from "./MobileDiaryStrip";
 import { MobileDiaryDraft, MobileDiaryEntry, type DraftHandle } from "./MobileDiaryEntry";
@@ -61,6 +62,8 @@ export function MobileDiary() {
 
   const [fpOpen, setFpOpen] = useState(true);
   const [pickDay, setPickDay] = useState(false);
+  // 磨光① 返回層：日期面板＝同「取消」
+  useBackLayer("notes.diary.pickDay", pickDay, () => setPickDay(false));
   /** 日期面板的自畫月格記號（車次③ 0-6 甲、D-筆-46 修訂「手機版同一套」） */
   const pickMarks = useDiaryPickMarks();
   const [q, setQ] = useState(diaryQuery);

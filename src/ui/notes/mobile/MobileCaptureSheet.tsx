@@ -160,6 +160,7 @@ export function MobileCaptureSheet() {
     saving.current = true;
     try {
       const r = await saveCapture();
+      // 只有真的沒字才聚焦；"failed"（寫入失敗）不聚焦，免得鍵盤彈回來蓋住失敗 toast（磨光① #65 後半）
       if (r === "empty") taRef.current?.focus();
     } finally {
       saving.current = false;

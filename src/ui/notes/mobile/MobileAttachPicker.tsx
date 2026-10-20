@@ -7,6 +7,7 @@
  *     depth="route"：點路線即選定。
  *     depth="node"：點路線進第二層；搜尋框有字時另外把**所有路線**的節點一起比對列出（跨路線直接挑）。
  *   第二層＝該路線的樹（縮排；`kinds` 之外的種類灰字當群組頭、不可點），首列「整條路線」（routeSelectable 時）。
+ *   Android 返回鍵（磨光①）：第二層＝「‹ 路線」、第一層＝「取消」；本元件自己登記，呼叫端不用再登記。
  *
  * 三個用處（呼叫端決定參數）：
  *   - 收件匣車票「掛進列車」：depth="node"、kinds=["train","car"]、routeSelectable=false
@@ -23,6 +24,7 @@ import type { NodeRow } from "../../../domain";
 import type { AttachTarget } from "../../../domain/notes";
 import { roundelStyle } from "../../common/roundel";
 import { useAttachOptions, type AttachKind, type AttachOption } from "../useAttachOptions";
+import { useBackLayer, type BackKind } from "../../mobile/backStack";
 
 /* ───────── 共用小件 ───────── */
 
@@ -69,6 +71,11 @@ export interface MobileAttachPickerProps {
   onClear?: () => void;
   clearLabel?: string;
   onClose(): void;
+  /**
+   * 返回層的種類（預設 "sheet"）。堆疊先比種類再比先後（dialog＞full＞sheet＞page），
+   * 從全螢幕面板裡開的（變待辦預覽）要傳 "dialog"（疊在 full 上的子面板一律 dialog，契約 §9.1），不然返回會先關掉底下的全螢幕面板。
+   */
+  backKind?: BackKind;
 }
 
 interface CrossHit {
@@ -86,6 +93,7 @@ export function MobileAttachPicker({
   onClear,
   clearLabel = "摘掉",
   onClose,
+  backKind = "sheet",
 }: MobileAttachPickerProps) {
   const { routes, loadTree } = useAttachOptions();
   const [routeId, setRouteId] = useState<string | null>(null);
@@ -98,6 +106,14 @@ export function MobileAttachPicker({
 
   const route = routeId ? (routes.find((r) => r.id === routeId) ?? null) : null;
   const q = query.trim().toLowerCase();
+
+  const backToRoutes = () => {
+    setRouteId(null);
+    setQuery("");
+  };
+  // 磨光① 返回層：登記在挑選器自己身上（「‹ 路線」那一層只有這裡知道；呼叫端都是「開著才掛」，所以一直 active）。
+  //   返回＝在第二層 ⇒ 同「‹ 路線」；在第一層 ⇒ 同「取消」
+  useBackLayer("notes.attachPicker", true, () => (route ? backToRoutes() : onClose()), backKind);
 
   // 第二層：進某條路線就載它的樹
   useEffect(() => {
@@ -181,10 +197,7 @@ export function MobileAttachPicker({
             <button
               type="button"
               className="ns-notes-mpick-back"
-              onClick={() => {
-                setRouteId(null);
-                setQuery("");
-              }}
+              onClick={backToRoutes}
             >
               ‹ 路線
             </button>

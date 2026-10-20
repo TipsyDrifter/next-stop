@@ -27,9 +27,16 @@
  *
  * 售票口線車次①（D-票-20；契約 §2.6 #6）：第五格改售票口，`MOBILE_VIEWS` 多一筆 `ticket`（取售票口線 mount 檔的 `mobileView`）。
  *   `more: MobileMore` 留著——「更多」不在 tab bar 上了，但仍是合法的頁 key，由頂帶右上的 ⋯ 與 `openSyncPage("mobile")` 進。
+ *
+ * 磨光①（契約 `docs/research/2026-10-20-主線-磨光①手機殼-契約.md` §0-1、§9.1）：掛 Android 返回鍵橋接 `useAndroidBack`
+ *   （tab 的派生規則在這裡給；各頁的子頁與面板在自己的檔裡 `useBackLayer`），同步告警之後加一列 `⚠ {error}`（A2）。
  */
 import type { ComponentType } from "react";
+import { useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
+import { useNodeStore } from "../../store/nodeStore";
+import { MOCK_MODE } from "../../data";
+import { useAndroidBack } from "./backStack";
 import { mobileTabByKey, type MobileTabKey } from "./tabs";
 import { MobileTopBand } from "./MobileTopBand";
 import { MobileTabBar } from "./MobileTabBar";
@@ -61,11 +68,39 @@ function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
 export default function MobileShell() {
   const tabKey = useUiStore((s) => s.mobileTab);
   const tab = mobileTabByKey(tabKey);
+  const error = useNodeStore((s) => s.error);
+
+  // 磨光① A3（契約 §9.1 A-1）：tab 不登記成一層，交給 useAndroidBack 的派生規則——堆疊空時才看。
+  //   在今日 ⇒ null（交還 Android）；在「更多」⇒ 回進來前那一格；其他 tab ⇒ 回今日（tab 之間不算歷史，§1.2）。
+  //   「進來前那一格」記在本檔的 ref，不動 uiStore（§0-1）；直接開在「更多」（沒有前一格）就回今日。
+  const lastTabRef = useRef<MobileTabKey>(tabKey);
+  const beforeMoreRef = useRef<MobileTabKey>("today");
+  if (lastTabRef.current !== tabKey) {
+    if (tabKey === "more") beforeMoreRef.current = lastTabRef.current;
+    lastTabRef.current = tabKey;
+  }
+  useAndroidBack(
+    () => {
+      // 讀 store 的現值：返回鍵事件可能比 re-render 早到
+      const { mobileTab, setMobileTab } = useUiStore.getState();
+      if (mobileTab === "today") return null;
+      if (mobileTab === "more") return () => setMobileTab(beforeMoreRef.current);
+      return () => setMobileTab("today");
+    },
+    tabKey,
+    MOCK_MODE,
+  );
 
   return (
     <>
       <MobileTopBand tab={tab} />
       <SyncBanner shell="mobile" />
+      {/* 磨光① A2（契約 §2.2）：同桌機那列，同一個來源與文案；下一次成功載入自己清掉 */}
+      {error && (
+        <div className="m-error" role="alert">
+          ⚠ {error}
+        </div>
+      )}
       <MobilePage tabKey={tabKey} />
       <MobileTabBar />
       {lineOverlays("mobile").map(({ id, Overlay }) => (

@@ -11,7 +11,7 @@ import { useEffect, useMemo } from "react";
 import { flattenTree } from "../../../domain/tags";
 import { useTagStore } from "../../../store/tagStore";
 import { IconSearch, IconX } from "./mobileDiaryBits";
-import { IconCaretRight, MobileTagNotice, TagGlyph } from "./mobileTagBits";
+import { IconCaretRight, MTagLoading, MobileTagNotice, TagGlyph, retryTagIndex, useTagIndexFailed } from "./mobileTagBits";
 
 export function MobileTags() {
   const index = useTagStore((s) => s.index);
@@ -21,6 +21,7 @@ export function MobileTags() {
   const toggleOpen = useTagStore((s) => s.toggleOpen);
   const setTreeFilter = useTagStore((s) => s.setTreeFilter);
   const select = useTagStore((s) => s.select);
+  const failed = useTagIndexFailed();
   // 荷札樹一畫出來就重載索引（同桌機 NotesTags：別頁刪了東西再回來，數量要對上）
   useEffect(() => {
     void useTagStore.getState().loadIndex();
@@ -56,12 +57,14 @@ export function MobileTags() {
         </label>
       </div>
 
-      {!index || backfilling ? (
-        <p className="ns-notes-mtagempty">{backfilling ? "正在把以前內文裡的 #荷札 補掛上…" : "載入中…"}</p>
+      {backfilling ? (
+        <p className="ns-notes-mtagempty">正在把以前內文裡的 #荷札 補掛上…</p>
+      ) : !index ? (
+        <MTagLoading className="ns-notes-mtagempty" failed={failed} onRetry={retryTagIndex} />
       ) : total === 0 ? (
         <div className="ns-notes-mtagempty">
           <p>還沒有荷札</p>
-          <small>在筆記或日記裡打 #名稱（例：#難度/高），離開編輯就會掛上；路線圖的車票詳情也能掛。</small>
+          <small>在筆記或日記裡打 #名稱（例：#難度/高），離開編輯就會掛上。路線圖的車票詳情，時刻表的分類、時間塊也能掛。</small>
         </div>
       ) : rows.length === 0 ? (
         <p className="ns-notes-mtagempty">沒有對到『{treeFilter.trim()}』的荷札</p>

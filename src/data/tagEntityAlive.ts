@@ -19,6 +19,11 @@ export interface TagEntityAlive {
   existsSql: string;
   /** mock 模式（MemoryTagRepository）用的同一個判斷 */
   aliveMemory(id: string): Promise<boolean>;
+  /**
+   * `false`＝這種掛載不算荷札的「用量」（數字、建議排序、刪除／改名影響字、「別處」清單都不列）；
+   * 仍照 `existsSql` 算存活、仍進 index 給登記的線自己讀。不填＝算用量（插槽之前的行為）。
+   */
+  counts?: false;
 }
 
 let registered: readonly TagEntityAlive[] = [];
@@ -33,7 +38,12 @@ export function tagEntityAliveList(): readonly TagEntityAlive[] {
   return registered;
 }
 
-const sqlStr = (s: string): string => "'" + s.replace(/'/g, "''") + "'";
+/** 登記了 `counts: false` 的類型（不算荷札用量；沒有任何登記＝空陣列，插槽之前的行為） */
+export function uncountedTagEntityTypes(): readonly string[] {
+  return registered.filter((s) => s.counts === false).map((s) => s.type);
+}
+
+const sqlStr =(s: string): string => "'" + s.replace(/'/g, "''") + "'";
 
 /**
  * node／note 以外的掛載「算存活」的條件（別名 `g`）。沒有登記＝`g.entity_type NOT IN ('node','note')`（插槽之前的原句）；

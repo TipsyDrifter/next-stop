@@ -57,6 +57,8 @@
   color: var(--color-ink-soft);
 }
 .ns-notes-tag .ns-notes-tag-nm > span { overflow: hidden; text-overflow: ellipsis; }
+/* 沒有 onOpen 的牌子（受控草稿）：名字只是字，不給手指游標（磨光③ 2-9） */
+.ns-notes-tag span.ns-notes-tag-nm { cursor: default; }
 .ns-notes-tag .pa { color: var(--color-ink-faint); }
 .ns-notes-tag .la { color: var(--color-ink); }
 .ns-notes-tag .sl, .ns-notes-sugrow .sl, .ns-notes-reltag .sl {

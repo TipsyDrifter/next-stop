@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import { MIN, isoOf } from "../../src/domain/timetable.ts";
 import { goalScopeVersion } from "../../src/domain/timetableStats.ts";
-import { TT_TAG_BLOCK, TT_TAG_GOAL } from "../../src/domain/timetableTags.ts";
+import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF, TT_TAG_GOAL } from "../../src/domain/timetableTags.ts";
 import { applyBlockTagEdit, blockTagEditOf, carryBlockTags, checkTagNames } from "../../src/data/timetableTagCarry.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -252,6 +252,84 @@ for (const { name, make } of IMPLS) {
       assert.equal(tags.attachCalls, 0);
       assert.equal(repo.consumeTagWrites(), false);
     });
+    test("排除（D-時-135）：splitMulti 分類沒換的新段帶排除、換分類的段不帶；第一段（原 id）本來就在", async () => {
+      const tags = fakeTags();
+      const repo = await make(tags);
+      const a = (await repo.fill("cat-a", isoOf(m(0)), isoOf(m(60)))).block.id;
+      await tags.attach(TT_TAG_BLOCK_OFF, a, "拖延");
+      await tags.attach(TT_TAG_BLOCK, a, "podcast");
+      const rows = await repo.splitMulti(a, [isoOf(m(20)), isoOf(m(40))], ["cat-a", "cat-b", "cat-a"]);
+      const byCat = (c: string) => rows.filter((r: { category_id: string; id: string }) => r.category_id === c && r.id !== a);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, a), ["拖延"], "原 id 照留");
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, byCat("cat-a")[0].id), ["拖延"], "同分類的新段帶");
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, byCat("cat-b")[0].id), [], "換分類的段不帶");
+      for (const r of rows) assert.deepEqual(tags.keys(TT_TAG_BLOCK, r.id), ["podcast"], "手動荷札照舊都帶");
+      assert.equal(repo.consumeTagWrites(), true);
+    });
+    test("排除：塗色切開運行中那班 ⇒ 後段（同分類）帶排除", async () => {
+      const tags = fakeTags();
+      const repo = await make(tags);
+      const R = (await repo.depart("cat-r", isoOf(m(300)))).block.id;
+      await tags.attach(TT_TAG_BLOCK_OFF, R, "拖延");
+      await repo.paint("cat-x", isoOf(m(330)), isoOf(m(360)), "fill");
+      const running = (await repo.listRunning())[0];
+      assert.notEqual(running.id, R);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, running.id), ["拖延"]);
+    });
+    test("排除：合併只留留下那塊自己的，被吞那塊的不帶（手動荷札照舊聯集）", async () => {
+      const tags = fakeTags();
+      const repo = await make(tags);
+      const a = (await repo.fill("cat-a", isoOf(m(0)), isoOf(m(60)))).block.id;
+      const b = (await repo.fill("cat-a", isoOf(m(60)), isoOf(m(120)))).block.id;
+      await tags.attach(TT_TAG_BLOCK_OFF, a, "甲");
+      await tags.attach(TT_TAG_BLOCK_OFF, b, "乙");
+      await tags.attach(TT_TAG_BLOCK, b, "手");
+      const p = await repo.merge(b, "prev", isoOf(m(-60)));
+      assert.equal(p.keepId, a);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, a), ["甲"]);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK, a), ["手"]);
+    });
+    test("排除：補記蓋在一塊中間（planCover）⇒ 切出的後段帶排除與手動荷札；補記那塊不帶", async () => {
+      const tags = fakeTags();
+      const repo = await make(tags);
+      const a = (await repo.fill("cat-a", isoOf(m(0)), isoOf(m(60)))).block.id;
+      await tags.attach(TT_TAG_BLOCK_OFF, a, "拖延");
+      await tags.attach(TT_TAG_BLOCK, a, "podcast");
+      repo.consumeTagWrites();
+      const mid = (await repo.fill("cat-b", isoOf(m(20)), isoOf(m(40)))).block.id;
+      const rows = await repo.listBlocks(isoOf(m(-10)), isoOf(m(70)));
+      const tail = rows.filter((r: { id: string }) => r.id !== a && r.id !== mid);
+      assert.equal(tail.length, 1, "切出一段後段");
+      assert.equal(tail[0].category_id, "cat-a");
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, tail[0].id), ["拖延"]);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK, tail[0].id), ["podcast"]);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, mid), []);
+      assert.equal(repo.consumeTagWrites(), true);
+    });
+    test("排除：同步後整理（planReconcile）把被壓住的塊切成兩段 ⇒ 後段帶排除", async () => {
+      const tags = fakeTags();
+      const repo = await make(tags);
+      const a = (await repo.fill("cat-a", isoOf(m(0)), isoOf(m(120)))).block.id;
+      const b = (await repo.fill("cat-b", isoOf(m(200)), isoOf(m(220)))).block.id;
+      await tags.attach(TT_TAG_BLOCK_OFF, a, "拖延");
+      repo.consumeTagWrites();
+      // 模擬別台同步進來的一塊疊在 a 中間（repository 的 API 寫不出重疊，直接改資料）；b 的寫入鍵比較新 ⇒ b 贏、a 被切開
+      const later = new Date(Date.now() + HOUR).toISOString();
+      if (name === "memory") Object.assign(repo.blocks.get(b), { started_at: isoOf(m(40)), ended_at: isoOf(m(60)), updated_at: later });
+      else
+        await (globalThis as { __ttDb?: TestDb }).__ttDb!.execute(
+          "UPDATE time_blocks SET started_at = $1, ended_at = $2, updated_at = $3 WHERE id = $4",
+          [isoOf(m(40)), isoOf(m(60)), later, b],
+        );
+      assert.ok((await repo.reconcile()) > 0);
+      const rows = await repo.listBlocks(isoOf(m(-10)), isoOf(m(130)));
+      const tail = rows.filter((r: { id: string }) => r.id !== a && r.id !== b);
+      assert.equal(tail.length, 1, "a 切出一段後段");
+      assert.equal(tail[0].category_id, "cat-a");
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, tail[0].id), ["拖延"]);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, b), []);
+      assert.equal(repo.consumeTagWrites(), true);
+    });
     test("刪塊／撤回刪塊、刪目標／撤回、撤回塗色 ⇒ consumeTagWrites 為 true（index 只收存活實體的荷札，要重載）", async () => {
       const tags = fakeTags();
       const repo = await make(tags);
@@ -387,6 +465,34 @@ describe("C. carryBlockTags", () => {
     assert.deepEqual(tags.keys(TT_TAG_BLOCK, "B"), ["新", "高效"]);
     // 冪等：本來就沒掛的摘、已經掛著的掛 ⇒ 沒寫
     assert.equal(await applyBlockTagEdit(tags as never, "B", { add: ["高效"], remove: ["podcast"] }), false);
+  });
+  test("排除（D-時-135）：off 為真的那對才搬 block-off；同一對 off／不 off 各來一次＝排除也搬一次", async () => {
+    const tags = fakeTags();
+    await tags.attach(TT_TAG_BLOCK_OFF, "A", "拖延");
+    await tags.attach(TT_TAG_BLOCK, "A", "甲");
+    assert.equal(await carryBlockTags([{ to: "X", from: "A" }, { to: "Y", from: "A", off: false }], tags as never), true);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, "X"), [], "沒標 off＝不帶排除");
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, "Y"), []);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK, "X"), ["甲"]);
+    assert.equal(await carryBlockTags([{ to: "Z", from: "A", off: true }, { to: "Z", from: "A" }], tags as never), true);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, "Z"), ["拖延"]);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK, "Z"), ["甲"]);
+    // 只有排除要搬（手動那趟沒東西）也回 true
+    const t2 = fakeTags();
+    await t2.attach(TT_TAG_BLOCK_OFF, "A", "拖延");
+    assert.equal(await carryBlockTags([{ to: "Z", from: "A", off: true }], t2 as never), true);
+    assert.equal(await carryBlockTags([{ to: "Z", from: "A", off: true }], t2 as never), false, "已經有了＝不寫");
+  });
+  test("排除：applyBlockTagEdit 傳 type 寫 block-off，不碰手動那份", async () => {
+    const tags = fakeTags();
+    await tags.attach(TT_TAG_BLOCK, "B", "拖延");
+    const edit = blockTagEditOf([], ["拖延"]);
+    assert.equal(await applyBlockTagEdit(tags as never, "B", edit!, TT_TAG_BLOCK_OFF), true);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, "B"), ["拖延"]);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK, "B"), ["拖延"], "手動同 key 照留");
+    assert.equal(await applyBlockTagEdit(tags as never, "B", blockTagEditOf(["拖延"], [])!, TT_TAG_BLOCK_OFF), true);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, "B"), []);
+    assert.deepEqual(tags.keys(TT_TAG_BLOCK, "B"), ["拖延"]);
   });
   test("checkTagNames：去掉 #、去重（依 key）、不合法丟旅客筆記的理由", () => {
     assert.deepEqual(checkTagNames(["#高效", "高效", "Podcast", "podcast"]), ["高效", "Podcast"]);

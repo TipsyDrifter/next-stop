@@ -25,13 +25,18 @@
  *
  * 狀態刻意全放本地 useState，不借桌機的 uiStore.zoomId／collapsed（契約 §2.8）：
  *   那兩個是桌機鍵盤流（Esc 退一層、←→ 收合）的狀態，兩殼共用會互相污染；
- *   手機的退路是麵包屑（Android 返回鍵 v1.1.0 不攔，見契約 §5-9），所以麵包屑每一段都做成按鈕，
- *   並且 sticky 釘在內容區頂端——捲到樹深處時它仍在畫面上，這是唯一的回頭路。
+ *   麵包屑每一段都做成按鈕，並且 sticky 釘在內容區頂端——捲到樹深處時它仍在畫面上。
+ *   磨光① A3（返回堆疊）：第二層登記成子頁層，Android 返回鍵＝麵包屑上一段（有縮放退一層祖先、沒縮放回路線清單）。
+ *
+ * 磨光① A7（接縫 #89；契約 §2.3、§9.4）：從別處「跳到某張票」走核心的請求槽 `useRevealStore`（routeMapReveal.ts）。
+ *   本元件收 `target === "routemap"`（已經停在路線圖 tab 也接得到）：進那條路線；樹載好後把節點的祖先都展開、
+ *   不縮放、展開它的唯讀詳情、捲到那一列並閃一下（D-主-48）。節點不在樹裡（被刪了）⇒ 停在那條路線第二層。
+ * 磨光① N9：済列的印改用圓印 `SealDone small`（手機今日票卡同一枚）；運休照舊方角印（規格 §6：圓印＝定案、角印＝運行狀態告示）。
  *
  * 定期券口徑與大綱同一把尺（M3 ④）：是不是定期券＝`parseRule(repeat_rule) !== null`；
  *   済了沒＝`currentOccurrences[id] ? status === 'done' : node.status === 'done'`；運休＝`status === 'skipped'`。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KIND_LABEL,
   canHaveChildren,
@@ -55,6 +60,13 @@ import { roundelStyle } from "../common/roundel";
 import { lineNodeFields, lineRouteListAsides } from "../../lines/runtime";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
+import { SealDone } from "../stamps";
+import { useBackLayer } from "./backStack";
+import { useRevealStore } from "./routeMapReveal";
+import "./mobile-quickjump.css";
+
+/** 跳轉落點閃一下的長度（D-主-48；CSS 動畫 1s，class 多留一點再拿掉） */
+const REVEAL_FLASH_MS = 1100;
 
 const EMPTY: string[] = [];
 
@@ -330,6 +342,12 @@ export default function MobileRouteMap() {
   const [zoomId, setZoomId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [detailId, setDetailId] = useState<string | null>(null);
+  /** A7：進了路線、等樹載好才落點的那張票 */
+  const [landing, setLanding] = useState<{ routeId: string; nodeId: string } | null>(null);
+  /** A7：已展開、等那一列畫出來再捲過去的票；捲到之後換成閃一下的那一列 */
+  const [scrollId, setScrollId] = useState<string | null>(null);
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
 
   const route = openedId ? routes.find((r) => r.id === openedId) : undefined;
   const line = route ? lines.find((l) => l.id === route.line_id) : undefined;
@@ -374,12 +392,66 @@ export default function MobileRouteMap() {
     setOpenedId(null);
     setZoomId(null);
     setDetailId(null);
+    setLanding(null);
   };
 
   const zoomTo = (id: string | null) => {
     setZoomId(id);
     setDetailId(null);
   };
+
+  /** 返回鍵（A3）＝麵包屑上一段：有縮放退到上一層祖先（父就是路線本身＝回路線頂層），沒縮放回路線清單 */
+  const goUp = () => {
+    if (openedId && zoom) zoomTo(ancestorsOf(tree, openedId, zoom.id)[0] ?? null);
+    else backToList();
+  };
+  useBackLayer("core.routemap", openedId !== null, goUp, "page");
+
+  /* ── A7：跳到某張票（請求槽 → 進路線 → 樹載好後展開、捲到、閃一下） ── */
+  const req = useRevealStore((s) => s.req);
+
+  useEffect(() => {
+    if (!req || req.target !== "routemap" || !req.routeId) return;
+    // 收下就銷帳，落點改記在本地：切走 tab 再回來不會把舊請求重播一次
+    useRevealStore.getState().consume(req.nonce);
+    enterRoute(req.routeId);
+    setLanding(req.nodeId ? { routeId: req.routeId, nodeId: req.nodeId } : null);
+    // enterRoute 每次 render 都是新閉包、只碰 setter 與 store，不列進依賴（列了會每次 render 重跑）
+  }, [req]);
+
+  // 樹載好（換路線的載入結束）才落點：openRoute 一開始就把 routeId 換掉、樹清空，treeReady 先成立、樹還是空的
+  useEffect(() => {
+    if (!landing || !treeReady || loading || openedId !== landing.routeId) return;
+    const id = landing.nodeId;
+    setLanding(null);
+    if (!tree.byId[id]) return; // 被刪了／不在這棵樹（例：車站）：停在路線第二層
+    const anc = ancestorsOf(tree, openedId, id);
+    setCollapsed((c) => {
+      if (!anc.some((a) => c[a])) return c;
+      const next = { ...c };
+      for (const a of anc) delete next[a];
+      return next;
+    });
+    setZoomId(null);
+    setDetailId(id);
+    setScrollId(id);
+  }, [landing, treeReady, loading, tree, openedId]);
+
+  // 等那一列真的畫出來再捲（展開祖先與詳情是同一批 state，下一次 commit 才有那一列）
+  useEffect(() => {
+    if (!scrollId || !rows.some((r) => r.id === scrollId)) return;
+    const el = pageRef.current?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(scrollId)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    setScrollId(null);
+    setFlashId(scrollId);
+  }, [scrollId, rows]);
+
+  useEffect(() => {
+    if (!flashId) return;
+    const t = setTimeout(() => setFlashId(null), REVEAL_FLASH_MS);
+    return () => clearTimeout(t);
+  }, [flashId]);
 
   /* ── 第一層 ── */
   if (!openedId) {
@@ -403,8 +475,8 @@ export default function MobileRouteMap() {
   ];
 
   return (
-    <div className="m-page m2-page" aria-label={`路線 ${route?.name ?? ""}`}>
-      {/* 麵包屑：sticky 釘在內容區頂端——Android 返回鍵 v1.1.0 不攔 zoom，這是唯一的回頭路 */}
+    <div ref={pageRef} className="m-page m2-page" aria-label={`路線 ${route?.name ?? ""}`}>
+      {/* 麵包屑：sticky 釘在內容區頂端——捲到樹深處時仍看得到；Android 返回鍵也走同一條路（上面的 goUp） */}
       <nav className="m2-crumbs" aria-label="路線位置">
         {crumbs.map((c, i) => (
           <span key={c.key} className="m2-crumb-item">
@@ -471,7 +543,10 @@ export default function MobileRouteMap() {
             return (
               <li key={id} className="m2-item">
                 <div
-                  className={"m2-row" + (done ? " is-done" : "") + (suspended ? " is-suspended" : "")}
+                  data-node-id={id}
+                  className={
+                    "m2-row" + (done ? " is-done" : "") + (suspended ? " is-suspended" : "") + (flashId === id ? " is-reveal" : "")
+                  }
                   style={{ paddingLeft: Math.min(depth, INDENT_MAX_DEPTH) * INDENT_STEP }}
                 >
                   {hasKids ? (
@@ -528,11 +603,14 @@ export default function MobileRouteMap() {
                     {(done || suspended) && <span className="sr-only">{suspended ? "運休" : "済"}</span>}
                   </button>
 
-                  {(done || suspended) && (
-                    <span className={"m2-seal" + (suspended ? " is-suspended" : "")} aria-hidden>
-                      {suspended ? "運休" : "済"}
+                  {/* N9：済＝圓印（定案，同手機今日票卡）；運休＝方角印（運行狀態告示） */}
+                  {suspended ? (
+                    <span className="m2-seal is-suspended" aria-hidden>
+                      運休
                     </span>
-                  )}
+                  ) : done ? (
+                    <SealDone small className="m2-seal-done" />
+                  ) : null}
                 </div>
 
                 {detail && <RowDetail node={node} serial={serial} occurrence={occ} />}

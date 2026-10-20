@@ -28,6 +28,7 @@ import {
 import {
   ROUTE_GONE,
   ROUTE_NONE,
+  ROUTE_NOROUTE,
   TINY_MS,
   TREND_COUNT,
   buildGoals,
@@ -483,8 +484,41 @@ describe("9. 路線", () => {
     assert.equal(routeKeyOf(sp("d", "c1", 0, 1, { nodeId: "n2", routeId: "R3" }), { gone: true, routeId: null }), "R3");
     assert.equal(routeKeyOf(sp("e", "c1", 0, 1, { nodeId: "n3" }), { gone: true, routeId: null }), ROUTE_GONE);
     assert.equal(routeKeyOf(sp("f", "c1", 0, 1, { nodeId: "n4" }), undefined), ROUTE_GONE, "沒解到＝節點不在");
-    // 活節點沒掛路線（臨時車票）：退回塊上的 route_id，再沒有算沒連
-    assert.equal(routeKeyOf(sp("g", "c1", 0, 1, { nodeId: "n5" }), { gone: false, routeId: null }), ROUTE_NONE);
+    // 活節點沒掛路線（臨時車票）：退回塊上的 route_id，再沒有算「沒有路線的任務」（任務在，不算沒連；2-5）
+    assert.equal(routeKeyOf(sp("g", "c1", 0, 1, { nodeId: "n5" }), { gone: false, routeId: null }), ROUTE_NOROUTE);
+    assert.equal(routeKeyOf(sp("h", "c1", 0, 1, { nodeId: "n6", routeId: "R4" }), { gone: false, routeId: null }), "R4");
+  });
+
+  test("buildStats.routes 排序：一般路線 → 沒有路線的任務 → 已刪除的任務 → 沒連任務（不管時數）", () => {
+    const now = T(20, 0);
+    const spans = [
+      sp("a", "c1", T(8, 0), T(9, 0), { routeId: "R1" }),
+      sp("b", "c1", T(9, 0), T(12, 0), { nodeId: "temp" }), // 臨時車票：任務在、沒路線
+      sp("c", "c2", T(12, 0), T(14, 0), { nodeId: "dead" }), // 已刪除的任務
+      sp("d", "c2", T(14, 0), T(18, 0)), // 沒連
+    ];
+    const byId: Record<string, string> = { a: "R1", b: ROUTE_NOROUTE, c: ROUTE_GONE, d: ROUTE_NONE };
+    const r = buildStats({
+      spans,
+      cats: CATS,
+      goals: [],
+      period: "day",
+      key: "2026-10-06",
+      now,
+      h: 6,
+      weekStart: 1,
+      thresholdMin: noTh,
+      routeOf: (s) => byId[s.id],
+    });
+    assert.deepEqual(
+      r.routes.map((x) => [x.key, x.ms / MIN]),
+      [
+        ["R1", 60],
+        [ROUTE_NOROUTE, 180],
+        [ROUTE_GONE, 120],
+        [ROUTE_NONE, 240],
+      ],
+    );
   });
 
   test("windowTotals.byRoute 照 routeOf 分；buildStats.routes 排序：時數多的在前、已刪除的任務在沒連任務之前", () => {

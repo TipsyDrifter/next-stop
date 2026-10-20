@@ -20,14 +20,21 @@
  * 改好了＝`editBlock(..., link)`，**沒動過連結就傳 undefined**（不動）。沒動過時，面板開著別台改了這一塊的連結 ⇒ 跟著顯示新的。
  *
  * 車次⑥（⑥ 契約 §5.1、0-12；D-時-115、125、127；乙席；長相＝原型 `v-tags.js` blockBody）：「連到」之後一列「荷札」
- * （div.ns-tt-row.ns-tt-tagrow）：分類帶的唯讀淡牌（`FixedTagChips`；滑過「來自分類『X』／來自組『X』」；改分類即時換）＋手動的。
- * **手動的是草稿**（D-時-125）：桌機 `EntityTagField` 受控模式（exclude＝分類帶的 key、建議清單往下推開）；手機牌子＋「＋ 荷札」
+ * （div.ns-tt-row.ns-tt-tagrow）：分類帶的淡牌（`FixedTagChips`；滑過「來自分類「X」／來自組「X」」；可排除見下；改分類即時換）＋手動的。
+ * **手動的是草稿**（D-時-125）：桌機 `EntityTagField` 受控模式（exclude＝分類帶的 key、建議清單往下推開）；手機牌子＋「掛荷札」
  * 開點選器 insert 模式、交回的名稱併進草稿。同一個 key 手動與分類帶的都有 ⇒ 只畫手動那顆（D-時-127）。
  * 按「改好了／補上」才把草稿交給 store：補記＝`fill(..., link, tagNames)`；改一塊＝`editBlock(..., linkPicked, tagNames)`，
  * **沒動過荷札就傳 undefined**（不動）；按「取消」全部放棄。草稿面板裡的牌子不能點（點了會離開面板、草稿就丟了）。
  * 評審後（資料語義第 1 條）：改一塊時記下「面板打開時的手動荷札」（index 載好那一刻的 keysOf），送出只交差集
  * （`blockTagEditOf` → store 逐個 attach／detach；沒變＝不寫），不整份 setTags；index 還沒載好 ⇒ 荷札列只寫「荷札載入中…」、不給編輯。
  * 桌機的荷札欄直接 import tags/EntityTagField（不經 ui/notes/desktop.ts 的 barrel；偏差記錄 10-20）。
+ *
+ * 磨光③（契約 §2-1、2-8、2-12；D-時-134、136）：
+ * - 單塊排除：分類帶的牌子加 ×（桌機滑過才出現、手機常顯），× 了刪除線淡字留原位、↺ 或點牌子還原（原型定案 A1）。
+ *   **也是草稿**：按「改好了／補上」才連同手動荷札一起交給 store（`offNames`；沒動過＝undefined 不動），取消全放棄。
+ *   面板只改「現在畫出來的那幾顆」的排除：換了分類後看不到的舊排除照留（改分類不裁，D-時-135）。
+ * - 手機點選器標題：「荷札・娛樂 23:20」（補記還沒選分類＝「荷札・補記」）。
+ * - 荷札 index 載入失敗：「荷札載入中…」換成「荷札沒載入　重試」（重試＝`tagStore.loadIndex()`）。
  */
 import { useEffect, useState } from "react";
 import { MIN, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
@@ -42,6 +49,7 @@ import { useTagStore } from "../../../store/tagStore";
 import { EntityTagField } from "../../notes/tags/EntityTagField";
 import { blockTagEditOf } from "../../../data/timetableTagCarry";
 import { useShell } from "../../mobile/useShell";
+import { useBackLayer } from "../../mobile/backStack";
 import { FixedTagChips, MobileTagDraft, draftKeys, fixedTagsOf, tagNameOf, useTimetableTagMaps } from "../parts/TimetableTagChips";
 import {
   Actions,
@@ -121,12 +129,27 @@ export function BlockPanel({ onDone }: PanelProps) {
   const categories = useTimetableStore((s) => s.categories);
   const tagMaps = useTimetableTagMaps();
   const tagIndex = useTagStore((s) => s.index);
+  // 磨光③ 2-12：載入失敗（重試的那一下 loading 為真，照寫「載入中…」）
+  const tagLoadFailed = useTagStore((s) => s.loadError !== null && s.index === null && !s.loading);
   const [tagDraft, setTagDraft] = useState<string[] | null>(null);
   const liveManual = mode === "edit" && block && tagIndex ? useTagStore.getState().keysOf(TT_TAG_BLOCK, block.id).map(tagNameOf) : [];
   const tagNames: string[] = tagDraft ?? liveManual;
   // 評審後：面板打開時的手動荷札（index 載好、這一塊找得到的第一刻記一次）＝送出時算差集的基準
   const [tagInit, setTagInit] = useState<string[] | null>(null);
-  if (mode === "edit" && block && tagIndex && tagInit === null) setTagInit(useTagStore.getState().keysOf(TT_TAG_BLOCK, block.id));
+  // 磨光③ 2-1：排除（keys）的草稿與基準；null＝還沒動過（跟著這一塊目前的排除）
+  const [offDraft, setOffDraft] = useState<string[] | null>(null);
+  const [offInit, setOffInit] = useState<string[] | null>(null);
+  if (mode === "edit" && block && tagIndex && tagInit === null) {
+    setTagInit(useTagStore.getState().keysOf(TT_TAG_BLOCK, block.id));
+    setOffInit((tagMaps.off[block.id] ?? []).slice());
+  }
+  const liveOff: readonly string[] = mode === "edit" && block ? (tagMaps.off[block.id] ?? []) : [];
+  const offKeys: readonly string[] = offDraft ?? liveOff;
+  const toggleOff = (key: string, on: boolean): void =>
+    setOffDraft((cur) => {
+      const base = cur ?? liveOff.slice();
+      return on ? (base.includes(key) ? base : [...base, key]) : base.filter((k) => k !== key);
+    });
   // 改一塊要等基準記好才給編輯（index 沒載好時基準是空的，在上面編輯就是在空基準上改）
   const tagReady = mode === "fill" || tagInit !== null;
   const link: BlockLink | null = linkPicked !== undefined ? linkPicked : mode === "edit" && block ? linkOfRow(block) : null;
@@ -166,6 +189,8 @@ export function BlockPanel({ onDone }: PanelProps) {
   const changed = start !== init.start || end !== init.end;
   // ⑤ 契約 §5.3：補記一開就預演（方眼「更多…」會拿蓋到既有紀錄的選區開；只拿空白開時預演本來就是空的）
   const warn = useCoverWarn(start, end, exceptId, mode === "fill" ? true : changed);
+  // 磨光①：手機返回鍵＝連結挑選的「‹」（疊在 timetable.sheet 上；桌機 no-op）
+  useBackLayer("timetable.blockLink", picking, () => setPicking(false));
 
   if (mode === "edit" && !block) {
     return (
@@ -203,40 +228,78 @@ export function BlockPanel({ onDone }: PanelProps) {
       useUiStore.getState().showToast({ message: TT_TEXT.pickCategory });
       return;
     }
+    const offNames = offNamesOf();
     onDone();
-    if (mode === "fill") void fill(cat, start, end, link, tagDraft ?? []);
+    if (mode === "fill") void fill(cat, start, end, link, tagDraft ?? [], offNames);
     else if (block) {
       // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
       const tagEdit = tagDraft !== null && tagInit !== null ? (blockTagEditOf(tagInit, tagDraft) ?? undefined) : undefined;
-      void editBlock(block.id, cat, start, end, linkPicked, tagEdit);
+      void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames);
     }
   };
 
   // ⑥ 荷札列：分類帶的（跟著面板上選的分類即時換）＋手動的草稿
   const fixedTags = fixedTagsOf(cat, categories, tagMaps);
   const tagEmpty = mode === "fill" && !cat ? TT_TEXT.tags.fillHint : undefined;
+
+  /**
+   * 磨光③ 2-1：要交給 store 的排除（顯示名）。沒動過 ⇒ undefined（不動）。
+   * 只改畫出來的那幾顆：基準裡現在分類沒帶的 key 照留，畫出來的那幾顆照草稿；改一塊時跟基準一樣 ⇒ undefined。
+   * 手動也掛了同名的那顆不畫（hideKeys／shown），所以也不算「畫出來的」——先 × 再手動掛回，排除不會偷偷寫進去（磨光③ 評審）。
+   */
+  function offNamesOf(): string[] | undefined {
+    if (offDraft === null) return undefined;
+    const manual = new Set(draftKeys(tagNames));
+    const shownKeys = new Set(fixedTags.filter((t) => !manual.has(t.key)).map((t) => t.key));
+    const base = offInit ?? [];
+    const out: string[] = [];
+    for (const k of [...base.filter((k) => !shownKeys.has(k)), ...offDraft.filter((k) => shownKeys.has(k))]) if (!out.includes(k)) out.push(k);
+    if (mode === "fill" && !out.length) return undefined;
+    if (mode === "edit" && out.length === base.length && out.every((k) => base.includes(k))) return undefined;
+    return out.map(tagNameOf);
+  }
+
+  // 手機點選器的標題（磨光③ 2-8）：「荷札・娛樂 23:20」；補記還沒選分類＝「荷札・補記」
+  const pickTitle = cat ? TT_TEXT.tags.pickerTitle(catById[cat]?.name ?? "？", start, false) : TT_TEXT.tags.pickerFill;
   const tagRow = (
     <div className="ns-tt-row is-top ns-tt-tagrow">
       <span className="ns-tt-row-k">{TT_TEXT.tags.row}</span>
       <span className="ns-tt-row-v">
         {!tagReady ? (
-          <div className={"ns-tt-tagfield" + (desk ? "" : " is-m")} aria-busy="true">
-            <span className="ns-tt-tagfield-empty">{TT_TEXT.tags.loading}</span>
-          </div>
+          tagLoadFailed ? (
+            <div className={"ns-tt-tagfield" + (desk ? "" : " is-m")}>
+              <span className="ns-tt-tagfield-empty">{TT_TEXT.tags.loadFailed}</span>
+              <button type="button" className="ns-tt-tagadd ns-tt-tagretry" onClick={() => void useTagStore.getState().loadIndex()}>
+                {TT_TEXT.tags.retry}
+              </button>
+            </div>
+          ) : (
+            <div className={"ns-tt-tagfield" + (desk ? "" : " is-m")} aria-busy="true">
+              <span className="ns-tt-tagfield-empty">{TT_TEXT.tags.loading}</span>
+            </div>
+          )
         ) : desk ? (
           <div className="ns-tt-tagfield">
-            <FixedTagChips tags={fixedTags} hideKeys={draftKeys(tagNames)} />
+            <FixedTagChips tags={fixedTags} hideKeys={draftKeys(tagNames)} off={offKeys} onToggleOff={toggleOff} />
             {tagEmpty && !tagNames.length && <span className="ns-tt-tagfield-empty">{tagEmpty}</span>}
             <EntityTagField
               value={tagNames}
               onChange={setTagDraft}
-              exclude={fixedTags.map((t) => t.key)}
+              exclude={fixedTags.filter((t) => !offKeys.includes(t.key)).map((t) => t.key)}
               suggestInline
               resetKey={blockId || "fill"}
             />
           </div>
         ) : (
-          <MobileTagDraft fixed={fixedTags} value={tagNames} onChange={setTagDraft} empty={tagEmpty} />
+          <MobileTagDraft
+            fixed={fixedTags}
+            value={tagNames}
+            onChange={setTagDraft}
+            empty={tagEmpty}
+            title={pickTitle}
+            off={offKeys}
+            onToggleOff={toggleOff}
+          />
         )}
       </span>
     </div>

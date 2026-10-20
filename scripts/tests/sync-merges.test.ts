@@ -11,12 +11,16 @@ import {
   fallbackLabel,
   fmtMergeValue,
   groupMerges,
+  mergeAfterOf,
+  mergeCellKey,
   mergeFreshSince,
   mergeSubject,
   mergeToastKey,
   mergeObjectKey,
   mergeToastText,
   nounOf,
+  sameAsRecorded,
+  winnerValue,
 } from "../../src/domain/syncMerge.ts";
 import type { MergeNotice } from "../../src/data/syncRepository.ts";
 
@@ -356,9 +360,11 @@ test("#81：多樣東西全都不在了 ⇒ 結果句；有的在有的不在 �
   assert.equal(mergeToastText([a, b], null, undefined, new Set([mergeObjectKey(a)])), "同步時有 2 處兩台撞到——看看是哪些");
 });
 
-test("#81：overwritten 不受 gone 影響（那一類本來就沒說回來）", () => {
+test("#81 → 磨光② A4：overwritten 的列在 gone 裡 ⇒ 不說「留下這台後改的」；不在集合裡照舊", () => {
+  // 主線④ 時 overwritten 不看 gone；A4 起「那一列現在不在了」也用 gone 表示（syncStore 把 currentCells 的 gone 併進來）
   const o = mk({ kind: "overwritten", col: "body", winner: "mine" });
-  assert.equal(mergeToastText([o], null, undefined, new Set([mergeObjectKey(o)])), "有 1 則筆記兩台改到同一格，留下這台後改的");
+  assert.equal(mergeToastText([o], null, undefined, new Set([mergeObjectKey(o)])), "有 1 則筆記兩台改到同一格，現在已經不在了");
+  assert.equal(mergeToastText([o], null, undefined, new Set()), "有 1 則筆記兩台改到同一格，留下這台後改的");
 });
 
 test("toast 長度：最長的單筆句（12 字名＋欄名）在 40 字內（#59 兩行上限）", () => {
@@ -366,6 +372,136 @@ test("toast 長度：最長的單筆句（12 字名＋欄名）在 40 字內（#
   const o = mk({ kind: "overwritten", tbl: "nodes", col: "time_overrides", winner: "theirs" });
   const s = mergeToastText([o], label, { time_overrides: "本班時刻" });
   assert.ok(Array.from(s).length <= 40, `${Array.from(s).length}：${s}`);
+});
+
+/* ── 磨光② A4：清單與 toast 在整理之後組句 ── */
+
+test("A4 winnerValue／mergeCellKey：留下誰的值；鍵含欄、col null 當空字串", () => {
+  assert.equal(winnerValue(mk({ kind: "overwritten", mine: "甲", theirs: "乙", winner: "mine" })), "甲");
+  assert.equal(winnerValue(mk({ kind: "overwritten", mine: "甲", theirs: "乙", winner: "theirs" })), "乙");
+  const a = mergeCellKey({ tbl: "time_blocks", row_id: "b1", col: "ended_at" });
+  assert.equal(a, "time_blocks\u0000b1\u0000ended_at");
+  assert.notEqual(a, mergeCellKey({ tbl: "time_blocks", row_id: "b1", col: "category_id" }));
+  assert.equal(mergeCellKey({ tbl: "notes", row_id: "n", col: null }), "notes\u0000n\u0000");
+});
+
+test("A4 sameAsRecorded：120 字截斷照 Rust 規則比", () => {
+  const long = `${"甲".repeat(120)}尾巴`;
+  const recorded = `${"甲".repeat(120)}…`; // Rust clip_value 的樣子
+  assert.equal(sameAsRecorded(recorded, long), true);
+  assert.equal(sameAsRecorded(recorded, `${"乙".repeat(120)}尾巴`), false);
+  // 剛好 120 字不截：通知記的是原字串
+  const exact = "字".repeat(120);
+  assert.equal(sameAsRecorded(exact, exact), true);
+  assert.equal(sameAsRecorded(exact, `${exact}多`), false);
+  // 代理對（emoji）以 code point 計，不切壞
+  const emoji = `${"😀".repeat(121)}`;
+  assert.equal(sameAsRecorded(`${"😀".repeat(120)}…`, emoji), true);
+});
+
+test("A4 sameAsRecorded：數字字串對數字、null／undefined、其餘 JSON 比", () => {
+  assert.equal(sameAsRecorded(3, "3"), true);
+  assert.equal(sameAsRecorded("3", 3), true);
+  assert.equal(sameAsRecorded("3.0", 3), true);
+  assert.equal(sameAsRecorded(3, "4"), false);
+  assert.equal(sameAsRecorded(null, undefined), true);
+  assert.equal(sameAsRecorded(undefined, null), true);
+  assert.equal(sameAsRecorded(null, ""), false);
+  assert.equal(sameAsRecorded("", 0), false); // 空字串不是數字
+  assert.equal(sameAsRecorded("05:30", "05:30"), true);
+  assert.equal(sameAsRecorded("05:30", "05:00"), false);
+  assert.equal(sameAsRecorded("2026-10-20T05:30:00Z", "2026-10-20T05:00:00Z"), false);
+  assert.equal(sameAsRecorded({ a: 1 }, { a: 1 }), true);
+});
+
+test("A4 mergeAfterOf：revived 看 gone、overwritten 看 cells；查不到＝undefined", () => {
+  const r = mk({ kind: "revived", tbl: "time_blocks", row_id: "s" });
+  assert.deepEqual(mergeAfterOf(r, new Set([mergeObjectKey(r)])), { gone: true });
+  assert.equal(mergeAfterOf(r, new Set()), undefined);
+  assert.equal(mergeAfterOf(r), undefined);
+  const o = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b", col: "ended_at", mine: "05:00", theirs: "05:30", winner: "theirs" });
+  const k = mergeCellKey(o);
+  assert.equal(mergeAfterOf(o, undefined, new Map()), undefined);
+  assert.equal(mergeAfterOf(o, undefined, new Map([[k, { gone: false, value: "05:30" }]])), undefined);
+  assert.deepEqual(mergeAfterOf(o, undefined, new Map([[k, { gone: false, value: "05:00" }]])), { changed: true, now: "05:00" });
+  assert.deepEqual(mergeAfterOf(o, undefined, new Map([[k, { gone: true }]])), { gone: true });
+  // overwritten 不看 gone 集合（列不在由 cells 說）
+  assert.equal(mergeAfterOf(o, new Set([mergeObjectKey(o)]), new Map()), undefined);
+});
+
+test("A4 describeMerge：revived／kept × gone × note", () => {
+  const g = { gone: true } as const;
+  assert.equal(describeMerge(mk({ kind: "revived" }), undefined, g), "你在這台刪過，另一台改過——現在已經不在了");
+  assert.equal(describeMerge(mk({ kind: "kept", winner: "mine" }), undefined, g), "另一台刪過，但這台改過——現在已經不在了");
+  assert.equal(describeMerge(mk({ kind: "revived", by_me: false }), undefined, g), "一台刪過、另一台改過——現在已經不在了");
+  assert.equal(describeMerge(mk({ kind: "kept", by_me: false }), undefined, g), "一台刪過、另一台改過——現在已經不在了");
+  // 線給 note ⇒ 用線的話取代通用尾句，只出現一次
+  const note = "後來又被整理掉，現在不在軸上了";
+  const s = describeMerge(mk({ kind: "revived" }), undefined, g, note);
+  assert.equal(s, "你在這台刪過，另一台改過（後來又被整理掉，現在不在軸上了）");
+  assert.equal(s.split(note).length - 1, 1);
+  assert.ok(!s.includes("回來了") && !s.includes("現在已經不在了"), s);
+  // 沒 after、有 note ⇒ 原句＋（note）（＝原本清單元件自己接的那一段）
+  assert.equal(describeMerge(mk({ kind: "revived" }), undefined, undefined, note), `你在這台刪過，另一台改過——回來了（${note}）`);
+  assert.equal(describeMerge(mk({ kind: "kept", by_me: false }), undefined, undefined, "甲"), "一台刪過、另一台改過——留著改過的（甲）");
+});
+
+test("A4 describeMerge：overwritten × gone／changed × note", () => {
+  const o = mk({ kind: "overwritten", col: "ended_at", mine: "05:00", theirs: "05:30", winner: "theirs" });
+  const base = "這台改成「05:00」、另一台改成「05:30」——留下另一台後改的";
+  assert.equal(describeMerge(o), base);
+  assert.equal(describeMerge(o, undefined, { gone: true }), `${base}（後來又不在了）`);
+  assert.equal(describeMerge(o, undefined, { gone: true }, "被整理掉了"), `${base}（被整理掉了）`);
+  assert.equal(describeMerge(o, undefined, { changed: true, now: "05:00" }), `${base}（後來又被整理成「05:00」）`);
+  assert.equal(describeMerge(o, undefined, { changed: true, now: "05:00" }, "甲"), `${base}（後來又被整理成「05:00」）（甲）`);
+  assert.equal(describeMerge(o, undefined, undefined, "甲"), `${base}（甲）`);
+  // 現值也走 fmt（線的人話）；現值空 ⇒（空）
+  const fmt = (_c: string, v: unknown) => (typeof v === "string" ? `10/20 ${v}` : null);
+  assert.equal(
+    describeMerge(o, fmt, { changed: true, now: "05:00" }),
+    "這台改成「10/20 05:00」、另一台改成「10/20 05:30」——留下另一台後改的（後來又被整理成「10/20 05:00」）",
+  );
+  assert.equal(describeMerge(o, undefined, { changed: true, now: null }), `${base}（後來又被整理成「（空）」）`);
+});
+
+test("A4 mergeToastText：單欄 overwritten 的 changed／gone（有名字、沒名字）", () => {
+  const o = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "ended_at", winner: "theirs" });
+  const cols = { ended_at: "結束時刻" };
+  const changed = new Set([mergeCellKey(o)]);
+  const gone = new Set([mergeObjectKey(o)]);
+  assert.equal(mergeToastText([o], "睡覺", cols, undefined, changed), "『睡覺』的結束時刻兩台都改過，之後又被整理過");
+  assert.equal(mergeToastText([o], null, cols, undefined, changed), "有 1 段時間兩台改到同一格，之後又被整理過");
+  assert.equal(mergeToastText([o], "睡覺", cols, gone), "『睡覺』的結束時刻兩台都改過，現在已經不在了");
+  assert.equal(mergeToastText([o], null, cols, gone), "有 1 段時間兩台改到同一格，現在已經不在了");
+  // 不在了優先於又被整理過
+  assert.equal(mergeToastText([o], "睡覺", cols, gone, changed), "『睡覺』的結束時刻兩台都改過，現在已經不在了");
+  // 別格的鍵不影響
+  const other = new Set([mergeCellKey({ ...o, col: "category_id" })]);
+  assert.equal(mergeToastText([o], "睡覺", cols, undefined, other), "『睡覺』的結束時刻兩台都改過，留下另一台後改的");
+});
+
+test("A4 mergeToastText：同一樣東西多欄——任一欄 changed／gone ⇒ 句尾換掉", () => {
+  const a = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "category_id", winner: "theirs" });
+  const b = mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "ended_at", winner: "theirs" });
+  const cols = { category_id: "分類", ended_at: "結束時刻" };
+  const changed = new Set([mergeCellKey(b)]);
+  assert.equal(mergeToastText([a, b], "睡覺", cols, undefined, changed), "『睡覺』的分類、結束時刻兩台都改過，之後又被整理過");
+  assert.equal(mergeToastText([a, b], null, cols, undefined, changed), "有 1 段時間兩台改到同樣的 2 格，之後又被整理過");
+  assert.equal(mergeToastText([a, b], "睡覺", cols, new Set([mergeObjectKey(a)])), "『睡覺』的分類、結束時刻兩台都改過，現在已經不在了");
+  const cs = ["a", "b", "c"].map((col) => mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col }));
+  assert.equal(mergeToastText(cs, "睡覺", undefined, undefined, new Set([mergeCellKey(cs[2])])), "『睡覺』有 3 個地方兩台都改過，之後又被整理過");
+});
+
+test("A4 mergeToastText：多樣東西的句子不動；舊呼叫（不給 changed）逐字不變", () => {
+  const two = [mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b1", col: "a" }), mk({ kind: "overwritten", tbl: "time_blocks", row_id: "b2", col: "a" })];
+  const all = new Set(two.map(mergeCellKey));
+  assert.equal(mergeToastText(two, null, undefined, new Set(two.map(mergeObjectKey)), all), "有 2 段時間兩台改到同一格，留下後改的");
+  const o = mk({ kind: "overwritten", tbl: "nodes", col: "scheduled_time", winner: "theirs" });
+  const cols = { scheduled_time: "時刻" };
+  const old = mergeToastText([o], "車票『牙醫』", cols);
+  assert.equal(old, "車票『牙醫』的時刻兩台都改過，留下另一台後改的");
+  assert.equal(mergeToastText([o], "車票『牙醫』", cols, undefined, undefined), old);
+  assert.equal(mergeToastText([o], "車票『牙醫』", cols, new Set(), new Set()), old);
 });
 
 test("MERGE_TEXT：標題與兩組小標照契約（D-主-18 後標題改「最近兩台撞到的」）", () => {

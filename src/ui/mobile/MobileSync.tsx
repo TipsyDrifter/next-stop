@@ -64,6 +64,7 @@ import { CloudSnapshots } from "../common/CloudSnapshots";
 import { NEEDS_PASSPHRASE_TEXT } from "../common/SyncBanner";
 import { RECOVERY_CODE_LEN, formatRecoveryInput } from "../common/RecoveryCodeDialog";
 import { MergeNotices } from "../common/MergeNotices";
+import { useBackLayer } from "./backStack";
 
 export default function MobileSync({ onBack }: { onBack: () => void }) {
   const status = useSyncStore((s) => s.status);
@@ -494,6 +495,10 @@ function JoinForm({
   const cancelScan = () => {
     void import("@tauri-apps/plugin-barcode-scanner").then((bs) => bs.cancel()).catch(() => undefined);
   };
+
+  // 磨光① A3（契約 §1.5）：掃描中是一層——返回＝同「取消」。
+  // 掃描中原生端會不會先吃掉返回鍵：AVD 沒相機驗不到，真機摸到再記。
+  useBackLayer("core.sync-scan", scanning, cancelScan);
 
   const submit = async () => {
     if (!ready) return;

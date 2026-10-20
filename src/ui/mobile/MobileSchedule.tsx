@@ -27,6 +27,10 @@
  *   藏著的串流在資料刷新時仍會 spy 寫 focusDay，跟著它會讓週條跳週。週條點日、月曆點日、「今日」在時段排法下改走
  *   MobileTimeDays 的 goToDay／goToday；切回「清單」時，若在時段裡換過頁，才把串流瞬移到那一頁的第一天。
  *   卡上的時刻與赭色吃 `useMinuteTick()`（一頁一個節拍，傳進每張卡）。⋯ sheet 的時刻項接 scheduleActions 的三個動作。
+ *
+ * **磨光①（契約 §1.5、§9.5）**：⋯ sheet 與月曆覆蓋層各登記一層 sheet 返回層（返回＝同按 ×／收起）；
+ *   ⋯ sheet 加改名…／記一句…／刪除（useMobileToday 的模組函式，同今日子頁）——串流不是手排清單，不出上移下移。
+ *   草稿列是行內、不登記（返回先收鍵盤，再按就回今日段，草稿列跟著卸載）。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { NodeRow } from "../../domain";
@@ -48,6 +52,8 @@ import { MonthOverlay } from "../schedule/MonthOverlay";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
 import { useSubSwipe } from "./MobileSegmentedBar";
+import { useBackLayer } from "./backStack";
+import { deleteTicket, liveChildCount, logTicket, renameTicket } from "./useMobileToday";
 import "../schedule/schedule-mobile.css";
 
 /** ⋯ 開在哪一張（存座標不存快照：資料變了用最新的 calendar 切片重算卡；找不到＝票搬走了，sheet 自己關） */
@@ -316,6 +322,10 @@ export function MobileSchedule() {
     if (sheet && !sheetView) setSheet(null);
   }, [sheet, sheetView]);
 
+  // 返回層（磨光① §1.5）：⋯ sheet（含子面板）＝返回同按 ×；月曆覆蓋層＝返回同收起。行程表段本身的子頁層登記在 MobileToday
+  useBackLayer("core.scheduleSheet", sheetView !== null, closeSheet);
+  useBackLayer("core.scheduleCal", calOpen, closeCal);
+
   const createOn = useCallback((day: string, name: string) => actions.createOn(day, name), [actions]);
   const closeDraft = useCallback(() => useScheduleUiStore.getState().setDraftDay(null), []);
 
@@ -439,6 +449,10 @@ export function MobileSchedule() {
           onClearRunTime={() => {
             if (sheetView.card.railDate) actions.clearRunTime(sheetView.card.nodeId, sheetView.card.railDate);
           }}
+          // 磨光① 加工單：改名／記一句／刪除同今日子頁；串流不是手排清單，不給上移下移
+          onRename={(name) => renameTicket(sheetView.card.nodeId, name, sheetView.card.name)}
+          onLog={(body) => logTicket(sheetView.card.nodeId, body)}
+          onDelete={() => deleteTicket(sheetView.card.nodeId, sheetView.card.name, liveChildCount(sheetView.card.nodeId))}
           onClose={closeSheet}
         />
       )}

@@ -1002,11 +1002,7 @@ body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]
 }
 .ns-tk-rm-banner p { flex: 1; font-size: 12.5px; line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-soft); }
 .ns-tk-rm-banner b { font-family: var(--font-display); color: var(--color-ink); }
-/* 金字在粉彩紙上太淡（App 的 .btn-gold 兩主題都是 --color-gold，對淺紙約 1.6:1）：售票口對話框的金鈕（存、全部開始、
-   新增帳戶的「新增」、分類／幣別的「完成」）粉彩一律改金墨字＋金墨框（修正-UI；App 全面要不要改是跨線題），銀河照舊 */
-.ns-tk-dbtn.btn-gold { color: var(--color-gold-ink); border-color: color-mix(in srgb, var(--color-gold-ink) 70%, transparent); }
-.ns-tk-dbtn.btn-gold:hover:not([disabled]) { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
-[data-theme="dark"] .ns-tk-dbtn.btn-gold { color: var(--color-gold); border-color: var(--color-gold); }
+/* 對話框金鈕的金墨字＋金墨框原本是這裡的覆寫，10-20 磨光② A10 收歸全域 .btn-gold（techo.css） */
 .ns-tk-rm-banner .btn-gold { flex: none; }
 .ns-tk-rm-h { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; font-weight: 400; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); }
 .ns-tk-rm-h small { font-family: var(--font-latin); letter-spacing: .04em; }

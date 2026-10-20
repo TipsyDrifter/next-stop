@@ -19,10 +19,13 @@
  *
  * 車次④：別處（路線圖詳情的筆記列）要開一則的整頁＝`notesStore.requestMobileOpenNote(id)`（0-12）；本頁的 effect 接手
  *   （清篩選→找到那則→開整頁），請求清回 null——「整頁開著」仍是本頁的 state。「筆記 N」改讀 store 的 `notesTotal`（0-16）。
+ *
+ * 磨光① A7：別處要指出收件匣的一張臨時票＝核心請求槽 `useRevealStore` 的 target "inbox"（routeMapReveal.ts `revealInbox`）；本頁接手。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNotesStore } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
+import { useRevealStore } from "../../mobile/routeMapReveal";
 import { noteTitle } from "../../../domain/notes";
 import { MobileNoteInbox } from "./MobileNoteInbox";
 import { MobileNoteList } from "./MobileNoteList";
@@ -143,6 +146,31 @@ export function MobileNotes() {
       st.setSection("notes");
     })();
   }, [mobileOpenNoteId]);
+
+  /**
+   * 別處指出收件匣的一張臨時票（磨光① A7：手機搜尋、荷札頁點臨時票 → 核心 `revealInbox`，請求槽 target "inbox"）：
+   * 收下就銷帳（切走再回來不重播）→ 手上沒有就重載收件匣 → 換到收件匣段、選中（去處列展開）、捲到它。
+   * 已經不在收件匣（剛被排走）＝只停在收件匣段。
+   */
+  const revealReq = useRevealStore((s) => (s.req?.target === "inbox" ? s.req : null));
+  useEffect(() => {
+    if (!revealReq) return;
+    useRevealStore.getState().consume(revealReq.nonce);
+    const id = revealReq.nodeId;
+    void (async () => {
+      if (id && !useNotesStore.getState().inboxTickets.some((t) => t.id === id)) await useNotesStore.getState().loadInbox();
+      const st = useNotesStore.getState();
+      setPageOpen(false);
+      st.setSection("inbox");
+      if (!id || !st.inboxTickets.some((t) => t.id === id)) return;
+      st.selectInbox({ kind: "ticket", id });
+      requestAnimationFrame(() => {
+        const li = pageRef.current?.querySelector<HTMLElement>(".ns-notes-mitem.is-sel");
+        const reduce = !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        li?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+      });
+    })();
+  }, [revealReq]);
 
   const showPage = section === "notes" && pageOpen;
   const showTagPage = section === "tags" && tagKey !== null;

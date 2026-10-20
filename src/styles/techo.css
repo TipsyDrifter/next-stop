@@ -579,8 +579,10 @@ header.day::after { /* 手帳式雙細線 */
 .btn-seal:hover { filter: brightness(1.06); }
 .btn-ghost { border: 1px solid var(--color-dash); color: var(--color-ink-soft); background: transparent; letter-spacing: .12em; }
 .btn-ghost:hover { border-color: var(--color-gold); color: var(--color-ink); }
-.btn-gold { border: 1px solid var(--color-gold); color: var(--color-gold); background: transparent; letter-spacing: .12em; }
-.btn-gold:hover { background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+/* 金鈕的字與框走 --color-gold-ink（10-20 磨光② A10）：粉彩紙上燙金當字只有約 1.6:1，改深金墨 5:1；
+   暗色主題 theme.css 把 --color-gold-ink 設成燙金本身，字與框照舊是燙金。原本是售票口對話框自己的覆寫，收歸全域。 */
+.btn-gold { border: 1px solid color-mix(in srgb, var(--color-gold-ink) 70%, transparent); color: var(--color-gold-ink); background: transparent; letter-spacing: .12em; }
+.btn-gold:hover:not([disabled]) { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
 
 /* 手帳式底線輸入與欄位小標（側板 .frow dt 同款） */
 .techo-input {

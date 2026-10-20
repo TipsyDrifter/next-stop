@@ -234,8 +234,11 @@ export interface NotesStore {
   dismissRoute(): void;
   /** 有內容且 !confirmEsc ⇒ confirmEsc=true；否則 closeCapture */
   escapeCapture(): void;
-  /** 存檔分流（resolveDestination）。回 "empty"（沒內容）／"preview"（多行待辦 ⇒ 已開預覽）／"saved" */
-  saveCapture(): Promise<"empty" | "preview" | "saved">;
+  /**
+   * 存檔分流（resolveDestination）。回 "empty"（沒內容）／"preview"（多行待辦 ⇒ 已開預覽）／"saved"／
+   * "failed"（寫入失敗：已出失敗 toast、框留著；磨光① #65 後半——手機不重新聚焦，免得鍵盤彈回來蓋住 toast）
+   */
+  saveCapture(): Promise<"empty" | "preview" | "saved" | "failed">;
 
   /* ── 變待辦預覽 ── */
   setPreviewLine(i: number, checked: boolean): void;
@@ -462,9 +465,9 @@ export const useNotesStore = create<NotesStore>((set, get) => {
 
   /**
    * 別線登記的票根存檔（D-筆-36）：找不到 spec（該線已不通車）或內容空白 ⇒ "empty"、框留著；
-   * `save` throw ⇒ 框留著＋失敗 toast；回 null ⇒ 當空內容；成功 ⇒ 關框＋spec 給的 toast（有 undo 就帶復原）。
+   * `save` throw ⇒ 框留著＋失敗 toast、回 "failed"；回 null ⇒ 當空內容；成功 ⇒ 關框＋spec 給的 toast（有 undo 就帶復原）。
    */
-  async function saveToTarget(c: CaptureState, p: RoutePrefix | null): Promise<"empty" | "saved"> {
+  async function saveToTarget(c: CaptureState, p: RoutePrefix | null): Promise<"empty" | "saved" | "failed"> {
     const spec = captureTargetOf(c.stub);
     if (!spec) return "empty";
     const text = c.text.replace(/\s+$/, "");
@@ -476,7 +479,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       res = await spec.save({ text, body, routeId: useRoute ? p.route.id : null, dayKey: todayNow() });
     } catch (e) {
       failToast(e);
-      return "empty";
+      return "failed";
     }
     if (!res) return "empty";
     set({ capture: null, capturePreset: null });
@@ -1002,7 +1005,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         return "saved";
       } catch (e) {
         failToast(e); // capture 留著（內容沒丟），主人可以再按一次
-        return "empty";
+        return "failed";
       }
     },
 

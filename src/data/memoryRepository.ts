@@ -15,7 +15,6 @@ import {
   hasRepeatRule,
   manualOrderIds,
   parseTimeOverrides,
-  pruneTimeOverrides,
   serializeTimeOverrides,
 } from "../domain/scheduledTime";
 import {
@@ -436,34 +435,31 @@ export class MemoryNodeRepository implements NodeRepository {
     id: string,
     dueOn: string,
     time: string | null,
-    todayDateKey: string,
     dayStartHour: number,
   ): Promise<void> {
-    this.writeRunTime(id, dueOn, todayDateKey, (o) => {
+    this.writeRunTime(id, dueOn, (o) => {
       assertClockWritable(time, dayStartHour);
       o[dueOn] = time;
     });
   }
 
-  async clearRunTime(id: string, dueOn: string, todayDateKey: string): Promise<void> {
-    this.writeRunTime(id, dueOn, todayDateKey, (o) => {
+  async clearRunTime(id: string, dueOn: string): Promise<void> {
+    this.writeRunTime(id, dueOn, (o) => {
       delete o[dueOn];
     });
   }
 
-  /** setRunTime／clearRunTime 的同步核心：驗身分與日期 → prune（班次日 < 今天且有結局）→ 套用 → 寫回（與 SQLite 版同一套規則） */
+  /** setRunTime／clearRunTime 的同步核心：驗身分與日期 → 套用 → 寫回（過去班次的覆寫一律保留）（與 SQLite 版同一套規則） */
   private writeRunTime(
     id: string,
     dueOn: string,
-    todayDateKey: string,
     apply: (o: Record<string, string | null>) => void,
   ): void {
     const node = this.nodes.get(id);
     if (!node || !isAlive(node)) throw new Error("節點不存在");
     if (!parseRule(node.repeat_rule)) throw new Error(TIME_REPEAT_ONLY_MSG);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) throw new Error("班次日格式不正確");
-    const settledDates = new Set(this.occurrencesOf(id).map((o) => o.due_on));
-    const next = pruneTimeOverrides(parseTimeOverrides(node.time_overrides), todayDateKey, (d) => settledDates.has(d));
+    const next = parseTimeOverrides(node.time_overrides);
     apply(next);
     const now = this.now();
     const json = serializeTimeOverrides(next);

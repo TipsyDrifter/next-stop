@@ -13,6 +13,7 @@
  * 車次⑤（⑤ 契約 0-6、§5.2；D-時-92、101、108；整合席）：第六格「方眼」＝GridView shell="mobile"（切換鈕下面；整頁不捲由 §M 的 :has 處理）；
  *   塗色列 MobileGridDock 是 .m-page 之外、.ns-tt-mdock 之後的兄弟節點（程式地圖 §九-6；Toast 抬高靠後續兄弟選擇器，不 portal）。
  *   「切回時未來日拉回今天」的排除清單不含 grid（方眼照軸，不能記未來）。
+ * 磨光③ 2-3：頂端切換列右邊（六格之外）固定一顆 button.ns-tt-msetbtn「設定」（aria-label／title「分類與設定」）開分類與設定。
  */
 import { useEffect } from "react";
 import type { TimetableView } from "../../../store/timetableStore";
@@ -34,6 +35,7 @@ export function MobileTimetable(_props: { onBack?: () => void }) {
   const setView = useTimetableStore((s) => s.setView);
   const init = useTimetableStore((s) => s.init);
   const autoAsk = useTimetableStore((s) => s.autoAsk);
+  const openSheet = useTimetableStore((s) => s.openSheet);
 
   useEffect(() => {
     void init("mobile")
@@ -73,6 +75,16 @@ export function MobileTimetable(_props: { onBack?: () => void }) {
               </button>
             ))}
           </div>
+          {/* 磨光③ 2-3：「分類與設定」固定入口（六格之外、右上；字寫短的） */}
+          <button
+            type="button"
+            className="ns-tt-msetbtn"
+            aria-label={TT_TEXT.settingsBtn}
+            title={TT_TEXT.settingsBtn}
+            onClick={() => openSheet({ kind: "categories" })}
+          >
+            {TT_TEXT.settingsBtnShort}
+          </button>
         </div>
         {error && !ready && <p className="ns-tt-m-error">{error}</p>}
         {mobileView === "board" ? (

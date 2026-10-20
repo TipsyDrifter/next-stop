@@ -116,7 +116,10 @@ export type TicketShell = "desktop" | "mobile";
 /** 詳情板（桌機右側）／全螢幕面板（手機）現在畫什麼；兩殼共用 */
 export type TicketPanel = { kind: "none" } | { kind: "new" } | { kind: "entry"; id: string } | { kind: "account"; id: string };
 export type TicketDialog =
-  | { kind: "newAccount" }
+  /* then（磨光③ 2-16、D-票-60）：建好之後接著做什麼——意圖放在 dialog 本身，被別的對話框蓋掉或取消就跟著消失。
+     new＝openNew 因為沒帳戶才開這裡 ⇒ 建完直接打開記一筆、帳戶選好（seed＝原本 openNew 帶的，例如某一天）；
+     pick＝從帳戶選單開的 ⇒ 建完選上它（填回草稿） */
+  | { kind: "newAccount"; then?: { new: Partial<EntryDraft> } | { pick(accountId: string): void } }
   | { kind: "categories" }
   | { kind: "currencies" }
   | { kind: "import" }
@@ -197,7 +200,8 @@ export interface TicketStore {
   deleteEntry(id: string): Promise<void>; // 軟刪＋toast「已刪除這一筆」帶「復原」（restoreEntry）
 
   /* 帳戶 */
-  createAccount(input: { name: string; group: AccountGroup; currency: string; openingText: string }): Promise<boolean>;
+  /** 回新帳戶（失敗 toast、回 null）；當下 dialog 帶 then ⇒ 接著 openNew／pick（2-16） */
+  createAccount(input: { name: string; group: AccountGroup; currency: string; openingText: string }): Promise<AccountRow | null>;
   updateAccount(id: string, patch: { name?: string; group?: AccountGroup; currency?: string }): Promise<void>;
   archiveAccount(id: string): void; // askConfirm（§5.7 封存確認）→ setAccountArchived(id, true)
   unarchiveAccount(id: string): Promise<void>;
@@ -900,9 +904,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     openNew(seed) {
       const s = get();
       const accountId = defaultAccountId(s.accounts, s.lastAccountId);
-      // 沒有未封存帳戶（又沒指定帳戶）⇒ 先開「新增帳戶」，不開一張帳戶空白的新票（記帳一定要落在某個帳戶上；手機同口徑）
+      // 沒有未封存帳戶（又沒指定帳戶）⇒ 先開「新增帳戶」，不開一張帳戶空白的新票（記帳一定要落在某個帳戶上；手機同口徑）；
+      // 建好就接著打開記一筆（then.new，createAccount 接手；原本的 seed 一起帶著，鍵盤在某一天按記一筆＝建完還是那一天）
       if (!accountId && !seed?.accountId) {
-        set({ dialog: { kind: "newAccount" } });
+        set({ dialog: { kind: "newAccount", then: { new: seed ?? {} } } });
         return;
       }
       const currency = (accountId && s.accById[accountId]?.currency) || MAIN_CURRENCY;
@@ -1021,14 +1026,19 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         if (!cur) throw new RangeError(`沒有這個幣別：${input.currency}`);
         const openingMinor =
           input.openingText.trim() === "" ? null : parseAmount(input.openingText, cur, { allowNegative: true, allowZero: true });
-        await serial(() =>
+        const row = await serial(() =>
           ticketRepo.createAccount({ name: input.name, group: input.group, currency: input.currency, openingMinor, occurredOn: today() }),
         );
         await serial(() => get().refresh());
-        return true;
+        // 建完接著做（2-16）：只認「當下」的 dialog——中途被蓋掉或取消，意圖就跟著沒了
+        const d = get().dialog;
+        const then = d?.kind === "newAccount" ? d.then : undefined;
+        if (then && "new" in then) get().openNew({ ...then.new, accountId: row.id, currency: row.currency });
+        else if (then) then.pick(row.id);
+        return row;
       } catch (e) {
         failToast(e);
-        return false;
+        return null;
       }
     },
 

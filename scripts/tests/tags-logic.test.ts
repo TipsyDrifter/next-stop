@@ -583,6 +583,52 @@ test("affectedCounts：kindOf 可由呼叫端給", () => {
   assert.equal(c.car, 5);
   assert.equal(c.total, 5);
 });
+/* 磨光③ 0-1：`TagIndexSource.uncounted`（登記 counts:false 的別線類型；例 timetable:block-off） */
+const UNCOUNTED_SRC: TagIndexSource = {
+  tags: [
+    { id: "t1", name: "拖延", key: "拖延" },
+    { id: "t2", name: "高效", key: "高效" },
+    { id: "t3", name: "高效/深度", key: "高效/深度" },
+  ],
+  taggings: [
+    { tagId: "t1", entityType: "timetable:category", entityId: "c3" },
+    { tagId: "t1", entityType: "timetable:block-off", entityId: "b1" },
+    { tagId: "t1", entityType: "timetable:block-off", entityId: "b2" },
+    { tagId: "t3", entityType: "timetable:block-off", entityId: "b1" },
+    { tagId: "t2", entityType: "note", entityId: "n1" },
+  ],
+};
+test("counts:false：不算用量（direct／total、建議的數字、影響數、刪除處數），但照樣在 ents（標 counted:false）", () => {
+  const idx = buildIndex({ ...UNCOUNTED_SRC, uncounted: ["timetable:block-off"] });
+  assert.equal(idx.byKey["拖延"].direct, 1, "只有分類那一處");
+  assert.equal(idx.byKey["拖延"].total, 1);
+  assert.equal(idx.byKey["高效/深度"].direct, 0);
+  assert.equal(idx.byKey["高效"].total, 1, "子荷札只被排除掛著 ⇒ 父層也不加");
+  const offs = idx.ents.filter((e) => e.type === "timetable:block-off");
+  assert.deepEqual(offs.map((e) => [e.id, e.keys, e.counted]), [["b1", ["拖延", "高效/深度"], false], ["b2", ["拖延"], false]]);
+  assert.equal(idx.ents.find((e) => e.type === "note")!.counted, undefined, "算用量的不帶這個欄位");
+  assert.deepEqual(keysOfEntity(idx, "timetable:block-off", "b1"), ["拖延", "高效/深度"], "登記的線照樣讀得到");
+  assert.equal(suggest(idx, "拖").items.find((x) => x.key === "拖延")!.count, 1);
+  assert.equal(affectedCounts(idx, ["拖延"]).total, 1);
+  assert.equal(affectedCounts(idx, ["拖延"], () => "other").other, 1, "kindOf 給了也不算");
+  const del = planDelete(idx, "高效");
+  assert.ok(del.ok);
+  if (del.ok) {
+    assert.equal(del.places, 1, "只算筆記那一處");
+    assert.equal(del.kidsWithItems, 0, "#高效/深度 只被排除掛著＝底下沒東西");
+  }
+  assert.equal(renameImpact(planRename(idx, "拖延", "拖")), "會改動 1 處別處");
+  assert.deepEqual(itemsUnder(idx, "拖延").map((x) => x.type), ["timetable:category"]);
+});
+test("counts:false：沒登記（省略或空陣列）＝跟插槽之前逐字相同", () => {
+  const before = buildIndex(UNCOUNTED_SRC);
+  assert.deepEqual(buildIndex({ ...UNCOUNTED_SRC, uncounted: [] }), before);
+  assert.equal(before.byKey["拖延"].direct, 3);
+  assert.ok(before.ents.every((e) => !("counted" in e)), "沒有 counted 欄位");
+  assert.equal(affectedCounts(before, ["拖延"]).total, 3);
+  // 登記了別的類型＝這份資料照舊全算
+  assert.deepEqual(buildIndex({ ...UNCOUNTED_SRC, uncounted: ["ticket:x"] }), before);
+});
 test("併入確認框（rootConflict）文案", () => {
   const t = mergeConfirmText(planRename(idx0(), "高", "難度/高"));
   assert.equal(t.title, "併入 #難度/高？");

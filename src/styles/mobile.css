@@ -308,7 +308,8 @@
    * 只調 bottom 與寬度，其餘（紙卡材質、置中位移）不動。
    */
   [data-shell="mobile"] .ns-card.fixed {
-    bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + 12px);
+    /* --m-kb：軟鍵盤疊在畫面上時佔掉的高（useViewportHeight 寫；沒鍵盤＝0）——磨光① A1，見檔尾〈磨光①〉 */
+    bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-kb, 0px) + 12px);
     max-width: calc(100vw - 2 * var(--m-gutter));
   }
 }
@@ -1022,6 +1023,9 @@
     border-width: 1px 0 0;
     border-radius: 10px 10px 0 0;
     padding: 6px 0 calc(var(--m-safe-bottom) + 8px);
+    /* 磨光①（AVD 回報問題 3，同 D-主-47 的 toast）：粉彩的票紙 64% 白，⋯ 多了幾項變高之後底下票卡的字透上來跟選項疊在一起——
+       同色票紙疊在紙色上＝不透明；旅客筆記的 .ns-notes-msheet 本來就這樣寫。時刻表、售票口的面板也掛這個 class，一起生效。 */
+    background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
   }
   [data-shell="mobile"] .m-sheet-title {
     padding: 10px var(--m-gutter) 8px;
@@ -1082,7 +1086,7 @@
    * 特異度 (0,4,0) > WP0 那條 (0,3,0)，同一個 @media 內後寫，兩邊都贏。
    * ───────────────────────────────────────────── */
   [data-shell="mobile"] .m-newticket ~ .ns-card.fixed {
-    bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-newticket-h) + 12px);
+    bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-newticket-h) + var(--m-kb, 0px) + 12px);
   }
 
   /* ─────────────────────────────────────────────
@@ -1568,4 +1572,74 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
 
   /* 加入表單「雲端（Cloudflare R2）」那塊的第一行（`JOIN_FIELDS_HINT`）：與下面的輸入框隔一點 */
   [data-shell="mobile"] .m2-sy-fields-hint { margin-bottom: 8px; }
+}
+
+/* ═══════════════════════════════════════════════════════
+ * ── 磨光① ──　toast 三種落點（A1）＋錯誤列（A2）＋「更多」的一天的開始時間（N10）
+ *
+ * 拍板依據：《2026-10-20-主線-磨光①手機殼-契約.md》§2.1、§2.2、§9.3（D-主-46 改、D-主-47）、§9.5 N10。
+ *
+ * toast 落點看 `<html data-m-layer>`（返回堆疊最上面那層的種類，backStack.ts 寫；page 或沒有層＝不寫）——
+ *   同一份真相，不另外偵測「有沒有面板開著」：
+ *   ① 沒有層／只有子頁：底部（上面 WP0 五節、S1 兩條，已加上 `--m-kb`＝鍵盤疊著時抬到鍵盤之上）。
+ *      時刻表運行列、塗色列那兩條抬高在 timetable.css（各線自己的檔），本區不點名。
+ *   ② sheet／dialog（底部面板、確認框、捕捉框）：頂帶下方，再讓過同步告警（`--m-banner-h` 由 SyncBanner 量了寫在 html；
+ *      沒告警＝0）。鍵盤在下面不相干，不加 `--m-kb`。
+ *   ③ full（全螢幕面板）：底部，讓過面板自己的底列。`--m-full-foot-h` 由各面板在自己的 CSS 宣告——
+ *      寫成 `[data-shell="mobile"]:has(.自己的面板) { --m-full-foot-h: 列高; }`（同 `--m-page-dock-h` 的約定；
+ *      toast 是根 div 的子節點，吃得到繼承）；沒宣告＝0。
+ * 特異度：②③ 是 (0,5,1)，贏過 S1 (0,4,0) 與 timetable.css 塗色列那條 (0,5,0)。
+ *
+ * 不透明底（D-主-47）：粉彩的票紙 `--color-paper-high` 是 64% 白，疊在車票卡上字會糊——
+ *   同色票紙疊在紙色上（兩層都是既有 token），看起來還是那張票紙、但不透底；暗色主題票紙本來就不透明，零變化。
+ * ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  [data-shell="mobile"] .ns-toast {
+    background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+  }
+
+  /* ② 面板或對話框開著：頂帶下方 */
+  html[data-m-layer="sheet"] [data-shell="mobile"] .ns-toast.ns-card.fixed,
+  html[data-m-layer="dialog"] [data-shell="mobile"] .ns-toast.ns-card.fixed {
+    top: calc(var(--m-safe-top) + var(--m-band-h) + var(--m-banner-h, 0px) + 8px);
+    bottom: auto;
+  }
+
+  /* ③ 全螢幕面板開著：底部，讓過面板的底列與鍵盤 */
+  html[data-m-layer="full"] [data-shell="mobile"] .ns-toast.ns-card.fixed {
+    bottom: calc(var(--m-kb, 0px) + var(--m-safe-bottom) + var(--m-full-foot-h, 0px) + 12px);
+  }
+
+  /* 落在頂端時進場改成由上往下滑（Toast 的 `starting:translate-y-2` 是由下往上；同一顆 --tw-translate-y 反號） */
+  @starting-style {
+    html[data-m-layer="sheet"] [data-shell="mobile"] .ns-toast.ns-card.fixed,
+    html[data-m-layer="dialog"] [data-shell="mobile"] .ns-toast.ns-card.fixed {
+      --tw-translate-y: -0.5rem;
+    }
+  }
+
+  /* A2 錯誤列：同桌機主欄頂那一列 `⚠ {error}`（13px、赭）；根 div 的直接子節點，flex:none 擠的是 .m-page 的捲動區 */
+  [data-shell="mobile"] .m-error {
+    flex: none;
+    position: relative;
+    z-index: 2;
+    padding: 8px var(--m-gutter) 6px;
+    font-size: 13px;
+    line-height: 1.6;
+    letter-spacing: .04em;
+    color: var(--color-late);
+  }
+
+  /* N10 一天的開始時間：底線輸入 `.m2-input` 套桌機那枚 chevron（`.ns-select-wrap::after`），整列寬、去掉系統外觀 */
+  [data-shell="mobile"] .m2-select-wrap { display: block; }
+  [data-shell="mobile"] .m2-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 22px;
+    font-family: var(--font-latin);
+    letter-spacing: .06em;
+    cursor: pointer;
+  }
+  [data-shell="mobile"] .m2-day-start-note { margin-top: 6px; }
 }

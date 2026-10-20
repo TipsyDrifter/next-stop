@@ -76,8 +76,16 @@ import { useUiStore } from "./uiStore";
 import { LINE_MANIFESTS } from "../lines";
 import { lineAfterPulls, lineReloads } from "../lines/runtime";
 // 主線③（契約 §3.6）：同步頁「最近兩台撞到的」的提示。兩支都不 import 任何 `.tsx`（跳轉由 UI 層的 MergeNotices 組）
-import { MERGE_TEXT, mergeFreshSince, mergeToastKey as latestMergeAt, mergeToastText } from "../domain/syncMerge";
-import { resolveToastParts } from "./syncMergeLabels";
+import {
+  MERGE_TEXT,
+  mergeAfterOf,
+  mergeCellKey,
+  mergeFreshSince,
+  mergeObjectKey,
+  mergeToastKey as latestMergeAt,
+  mergeToastText,
+} from "../domain/syncMerge";
+import { resolveMergeNow, resolveToastParts } from "./syncMergeLabels";
 
 /** 拉取／推送節奏（P4）；去抖秒數見 Plan §6 */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -988,8 +996,16 @@ async function maybeToastMerges(status: SyncStatus | null, afterCycle = false): 
   const prevKey = mergeToastKey;
   mergeToastKey = key; // 先記鍵再 await：同時進來的第二份 status（boot 與 runCycle 連叫）看到同鍵就不重提
   const parts = await resolveToastParts(fresh, shell);
-  // #81：刪改相撞的那幾樣，現在是不是又不在了（整理在同一趟又刪掉）——在的話照舊說「回來了／留著」
-  const gone = await syncRepo.goneObjects(fresh.filter((n) => n.kind !== "overwritten"));
+  // #81：刪改相撞的那幾樣，現在是不是又不在了（整理在同一趟又刪掉）——在的話照舊說「回來了／留著」。
+  // 磨光② A4：兩邊都改了的那幾格也查現況——列不在了併進 gone、現值≠留下的值進 changed（查不到＝照舊句）
+  const { gone, cells } = await resolveMergeNow(fresh);
+  const changed = new Set<string>();
+  for (const n of fresh) {
+    if (n.kind !== "overwritten") continue;
+    const after = mergeAfterOf(n, undefined, cells);
+    if (after && "gone" in after) gone.add(mergeObjectKey(n));
+    else if (after) changed.add(mergeCellKey(n));
+  }
   // 等名字的這一拍裡：更新的一批已接手（鍵變了）、切到背景／按了知道了（鍵歸零）⇒ 這句作廢
   if (mergeToastKey !== key) return;
   // 別人的帶鈕 toast 搶先上了 ⇒ 不蓋，鍵退回去（＝沒提過），下一份 status 再試
@@ -999,7 +1015,7 @@ async function maybeToastMerges(status: SyncStatus | null, afterCycle = false): 
   }
   const toastShell = shell;
   const toast = {
-    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols, gone),
+    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols, gone, changed),
     actionLabel: MERGE_TEXT.look,
     onAction: () => useUiStore.getState().openSyncPage(toastShell),
   };

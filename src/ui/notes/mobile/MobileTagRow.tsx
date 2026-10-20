@@ -3,8 +3,8 @@
  *
  * 這是 `LineMount.nodeFields` 的 `Mobile` 元件：路線圖（MobileRouteMap.tsx 的 RowDetail，整合席接）在欄位表 `</dl>` 之後渲染它；
  * 只在 spec 的 `kinds`（車票／列車／車廂）出現。自己畫 `dt`「荷札」＋`dd`：牌子一排＋「＋ 掛荷札」。
- *   點牌子 ⇒ `openTagPage(key, { label: 路線名, restore: 回路線圖 tab })`（手機路線圖的展開是那一頁的本地狀態，
- *     回去是第一層——契約 §8-9）；
+ *   點牌子 ⇒ `openTagPage(key, { label: 路線名, restore: 回路線圖 })`；「回到剛才」＝`revealOnRouteMap`
+ *     回到那條路線、展開到這一列（磨光① A7；以前只能回第一層——契約 §8-9）；
  *   「＋ 掛荷札」⇒ 點選器（entity 模式；完成一次寫入、一次復原）。路線圖其他欄仍唯讀，只有這一欄能改（D-筆-42）。
  * 資料：`tagStore.keysOf("node", id)`（讀 index，不另查）；index 還沒載就載一次。
  * 樣式 `.ns-notes-mdetailrow`（notes-mobile.css；外觀對齊 `.m2-field` 的 52px 標籤欄，但不借核心 class）。
@@ -14,6 +14,7 @@ import type { NodeRow } from "../../../domain";
 import { useTagStore } from "../../../store/tagStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
+import { revealOnRouteMap } from "../../mobile/routeMapReveal";
 import { IconPlus } from "./mobileDiaryBits";
 import { MTag } from "./mobileTagBits";
 import "../notes-mobile.css";
@@ -37,7 +38,9 @@ export function MobileTagRow({ node }: { node: NodeRow }) {
   const open = (key: string) =>
     void openTagPage(key, {
       label: routeName ?? "路線圖",
-      restore: () => useUiStore.getState().setMobileTab("routemap"),
+      // 磨光① A7：回到原來那條路線、展開到這一列（核心的請求槽）；沒有路線（理論上不會）就照舊只切 tab
+      restore: () =>
+        node.route_id ? revealOnRouteMap(node.route_id, node.id) : useUiStore.getState().setMobileTab("routemap"),
     });
 
   return (

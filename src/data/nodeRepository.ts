@@ -300,14 +300,13 @@ export interface NodeRepository {
   /**
    * 定期券逐班時刻（主線②）：給 dueOn 這一班設時刻；time=null＝「本班無時刻」。
    * 驗：節點存活；parseRule 非 null（否則 throw TIME_REPEAT_ONLY_MSG）；dueOn 合 YYYY-MM-DD；time 非 null 時 isClockInRange。
-   * 寫法：parseTimeOverrides(現值) → pruneTimeOverrides(·, todayDateKey, settled) → 設 [dueOn] → serialize
-   *       → 一句 UPDATE（time_overrides, updated_at）＋一筆 op（同兩欄）。settled(d)＝該節點存活 occurrences 裡有 due_on === d 的列
-   *       （沒有結局的過去班次＝誤點中，保留）。
+   * 寫法：parseTimeOverrides(現值) → 設 [dueOn] → serialize → 一句 UPDATE（time_overrides, updated_at）＋一筆 op（同兩欄）。
+   *       **過去班次的覆寫一律保留**（那是歷史，D-主-32；不在這裡 prune）；未來的由換規則時 dropFutureOverrides 清。
    * 不驗 dueOn 是不是規則日（對未來任何一天、或已運休的班寫都允許；那天沒班就沒人讀它）。
    */
-  setRunTime(id: string, dueOn: string, time: string | null, todayDateKey: string, dayStartHour: number): Promise<void>;
-  /** 改回每班時刻＝刪掉 [dueOn] 那一項（沒有＝仍 prune＋寫回）。驗同上（不驗 time） */
-  clearRunTime(id: string, dueOn: string, todayDateKey: string): Promise<void>;
+  setRunTime(id: string, dueOn: string, time: string | null, dayStartHour: number): Promise<void>;
+  /** 改回每班時刻＝刪掉 [dueOn] 那一項（沒有＝照寫回）。驗同上（不驗 time） */
+  clearRunTime(id: string, dueOn: string): Promise<void>;
   /**
    * lazy 同步（D-④-7）：對所有存活、未退役、有規則的節點重算目前班次日，
    * 變了才寫回 `scheduled_on`；回傳這一輪真的變動的 id。同一個 dateKey 跑兩次結果相同（冪等）。

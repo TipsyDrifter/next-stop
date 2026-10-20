@@ -19,6 +19,7 @@ import { BackupTab } from "./BackupTab";
 import { HotkeysTab } from "./HotkeysTab";
 import { SyncTab } from "./SyncTab";
 import { AutostartRow } from "../notes/desktop";
+import { lineSettingsLinks } from "../../lines/runtime";
 import "../common/overlay.css";
 import "./settings.css";
 
@@ -155,6 +156,8 @@ function GeneralTab() {
   const setDayStartHour = useUiStore((s) => s.setDayStartHour);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
+  const links = lineSettingsLinks("desktop");
   const selectId = useId();
 
   return (
@@ -224,6 +227,24 @@ function GeneralTab() {
         <p className="ns-note mt-2">行程表與旅客筆記的月曆都照這個排。</p>
       </div>
       <AutostartRow />
+      {/* 磨光③ 0-2：各線的設定住在自己頁面時在這裡指路；沒有任何線填＝什麼都不畫 */}
+      {links.length > 0 &&
+        links.map((l) => (
+          <div key={l.id}>
+            <span className="techo-label block mb-2.5">{l.label}</span>
+            <button
+              type="button"
+              className="ns-choice"
+              onClick={() => {
+                setSettingsOpen(false);
+                l.open("desktop");
+              }}
+            >
+              打開
+            </button>
+            {l.sub && <p className="ns-note mt-2">{l.sub}</p>}
+          </div>
+        ))}
     </div>
   );
 }

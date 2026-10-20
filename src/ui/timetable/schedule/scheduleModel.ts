@@ -38,7 +38,8 @@ export const SCHED_UI = {
   openWord: "打開 ",
   openMark: "›",
   repeat: "定期券",
-  lateTag: (md: string) => `誤點・${md}`,
+  /** 誤點票在「還沒排」的標籤；有原本的時刻就一起印（照存的字，29:15 也照印；D-主-34） */
+  lateTag: (md: string, time?: string | null) => (time ? `誤點・${md} ${time}` : `誤點・${md}`),
   temp: "臨時車票",
   dateLine: (md: string) => `執行日 ${md}`,
   /** 誤點的單發票（D-時-80 改題）：還在原日，時刻一寫就改到今天 */

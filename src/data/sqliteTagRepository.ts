@@ -28,7 +28,7 @@ import {
 import { nodeRepo, settingsRepo } from "./index";
 import { noteBodyUpdate } from "./sqliteNoteRepository";
 import { newWriteBatch, runWriteBatch } from "./syncRepository";
-import { otherEntitiesAliveSql } from "./tagEntityAlive";
+import { otherEntitiesAliveSql, uncountedTagEntityTypes } from "./tagEntityAlive";
 import {
   emptyReceipt,
   tagId,
@@ -244,7 +244,9 @@ export class SqliteTagRepository implements TagRepository {
       if (r.kind) kinds[r.entity_id] = r.kind;
       return { tagId: r.tag_id, entityType: r.entity_type, entityId: r.entity_id };
     });
-    return { tags, taggings, kinds };
+    // 磨光③ 0-1：登記了 counts:false 的類型（沒有＝不帶這個欄位，輸出同插槽之前）
+    const uncounted = uncountedTagEntityTypes();
+    return uncounted.length ? { tags, taggings, kinds, uncounted: [...uncounted] } : { tags, taggings, kinds };
   }
 
   async listTagsOf(entityType: TagEntityType, entityId: string): Promise<TagRow[]> {
@@ -268,6 +270,9 @@ export class SqliteTagRepository implements TagRepository {
     const ids = tags.map((t) => t.id);
     const inList = placeholders(ids.length, 1);
     const want = (t: string) => !entityType || entityType === t;
+    // 磨光③ 0-1：不算用量的類型不進「別處」（明指要那一種的除外）；沒登記＝SQL 同插槽之前
+    const skip = uncountedTagEntityTypes().filter((t) => t !== entityType);
+    const skipSql = skip.length ? ` AND g.entity_type NOT IN (${placeholders(skip.length, ids.length + 1)})` : "";
     type NodeHit = { entity_id: string; tag_id: string; id: string; name: string; kind: NodeKind; route_id: string | null; status: NodeStatus; scheduled_on: string | null; parent_id: string | null; repeat_rule: string | null };
     type NoteHit = { entity_id: string; tag_id: string; id: string; kind: NoteKind; title: string | null; body: string; entry_date: string | null; noted_at: string };
     const [nodes, notes, others] = await Promise.all([
@@ -292,8 +297,8 @@ export class SqliteTagRepository implements TagRepository {
         ? Promise.resolve([] as { entity_type: TagEntityType; entity_id: string; tag_id: string }[])
         : db.select<{ entity_type: TagEntityType; entity_id: string; tag_id: string }[]>(
             `SELECT g.entity_type, g.entity_id, g.tag_id FROM taggings g
-             WHERE g.deleted_at IS NULL AND ${otherEntitiesAliveSql()} AND g.tag_id IN (${inList})`,
-            ids,
+             WHERE g.deleted_at IS NULL AND ${otherEntitiesAliveSql()} AND g.tag_id IN (${inList})${skipSql}`,
+            skip.length ? [...ids, ...skip] : ids,
           ),
     ]);
     const out = new Map<string, TaggedItem>();

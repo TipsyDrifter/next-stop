@@ -3,12 +3,12 @@
  *
  * 長相、class、鍵盤規則逐字是原本的 `TagField`（車次③契約 §5.3；說明見 `TagField.tsx` 檔頭）：
  *   牌子一排（點牌＝進荷札頁；hover 出 × 摘）＋「＋ 掛荷札」⇒ 輸入框＋建議清單；
- *   ↑↓ 選列・Enter 掛・Tab 補完・空白鍵＝照打的字掛上・Esc 收起（不漏給外層）・空著按 Backspace 兩下摘最後一個。
+ *   ↑↓ 選列・Enter 掛・Tab 補完・空白鍵＝照打的字掛上・Esc 收起（不漏給外層；焦點回「掛荷札」鈕）・空著按 Backspace 兩下摘最後一個。
  *
  * 兩種用法：
  *   - **實體模式**（`entityType`＋`entityId`）：掛／摘立刻寫（`tagStore.attach／detach`，toast＋復原）——原本 TagField 的行為。
  *   - **受控模式**（`value`＋`onChange`）：只改草稿（名稱陣列），不寫資料；給「按『改好了』才存」的面板用。
- *     牌子不能點（點了會離開面板、草稿就丟了）。
+ *     牌子不能點（點了會離開面板、草稿就丟了）：TagChip 不給 onOpen ⇒ 名字畫成 span。
  * 選填：`exclude`＝建議清單多排除的 key；`suggestInline`＝建議清單往下推開（`.ns-notes-sug.static`）而不是浮層；
  *       `backRef`＋`afterOpen`＝點牌進荷札頁時的「回到剛才」與之後要做的事。都不給＝原本 TagField 的樣子。
  */
@@ -77,6 +77,9 @@ export function EntityTagField(props: EntityTagFieldProps) {
   const [act, setAct] = useState(0);
   const [armed, setArmed] = useState(false);
   const inRef = useRef<HTMLInputElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
+  /** Esc 收起後焦點回「掛荷札」鈕（磨光③ 2-9）；空字失焦收起不搶（使用者是點去別處） */
+  const focusAddAfterClose = useRef(false);
   const busy = useRef(false);
 
   useEffect(() => {
@@ -91,6 +94,10 @@ export function EntityTagField(props: EntityTagFieldProps) {
   }, [resetKey]);
   useEffect(() => {
     if (open) inRef.current?.focus({ preventScroll: true });
+    else if (focusAddAfterClose.current) {
+      focusAddAfterClose.current = false;
+      addRef.current?.focus({ preventScroll: true });
+    }
   }, [open]);
 
   const exclude = props.exclude;
@@ -179,6 +186,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
       case "Escape":
         e.preventDefault();
         e.stopPropagation();
+        focusAddAfterClose.current = true;
         setOpen(false);
         setQ("");
         return;
@@ -239,6 +247,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
         </>
       ) : (
         <button
+          ref={addRef}
           type="button"
           className="ns-notes-tagadd"
           onClick={() => {

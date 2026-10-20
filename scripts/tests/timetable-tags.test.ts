@@ -44,11 +44,14 @@ import {
 import {
   EMPTY_TAG_MAPS,
   TT_TAG_BLOCK,
+  TT_TAG_BLOCK_OFF,
   TT_TAG_CATEGORY,
   TT_TAG_GOAL,
   blockTags,
   carryPairs,
   catDefaults,
+  defaultsAfterOff,
+  isBlockOff,
   tagMapsOf,
   tagShareRows,
   underKey,
@@ -480,11 +483,11 @@ describe("6. carry（0-8：手動荷札跟著 fromId 搬）", () => {
     assert.equal(gap.preview.keepId, "C");
     assert.equal(gap.plan.absorbedInto, undefined);
     // repository 組 pair：insert 的 fromId ＋ absorbedInto
-    assert.deepEqual(carryPairsOfPlan(prev.plan.inserts, [], prev.plan.absorbedInto), [{ to: "A", from: "B" }]);
+    assert.deepEqual(carryPairsOfPlan(prev.plan.inserts, [], prev.plan.absorbedInto), [{ to: "A", from: "B", off: false }]);
   });
   test("carryPairsOfPlan：insert 有 fromId 才成對（新塊 id 依序對應）；沒有 absorbedInto 不加", () => {
     const ins = [{ fromId: "A" }, { fromId: null }, { fromId: "B" }];
-    assert.deepEqual(carryPairsOfPlan(ins, ["n0", "n1", "n2"], undefined), [{ to: "n0", from: "A" }, { to: "n2", from: "B" }]);
+    assert.deepEqual(carryPairsOfPlan(ins, ["n0", "n1", "n2"], undefined), [{ to: "n0", from: "A", off: false }, { to: "n2", from: "B", off: false }]);
     assert.deepEqual(carryPairsOfPlan([], [], undefined), []);
   });
 });
@@ -563,6 +566,76 @@ describe("8. 效能", () => {
     console.log(`[perf] ⑥ 10k 塊 × 5 個目標（分類＋荷札逐塊判）buildGoals：${gms.toFixed(1)} ms`);
     assert.ok(v.cur.ms > 0);
     assert.ok(gms < 250, `${gms.toFixed(1)}ms`);
+  });
+});
+
+/* ───────── 排除（磨光③ 2-1；D-時-134） ───────── */
+
+describe("排除：一塊不算某個分類帶的荷札（D-時-134）", () => {
+  /** 在 ENTS 上加：c2 自己帶「高效/深度」；b-x 排除 高效、b-fun 排除 拖延（它也手動掛著）、b-y 排除跟預設無關的 */
+  const OFF_ENTS = [
+    ...ENTS.filter((e) => !(e.type === TT_TAG_CATEGORY && e.id === "c2")),
+    { type: TT_TAG_CATEGORY, id: "c2", keys: ["高效/深度"] },
+    { type: TT_TAG_BLOCK_OFF, id: "b-x", keys: ["高效"] },
+    { type: TT_TAG_BLOCK_OFF, id: "b-fun", keys: ["拖延"] },
+    { type: TT_TAG_BLOCK_OFF, id: "b-y", keys: ["無關"] },
+    { type: TT_TAG_BLOCK_OFF, id: "b-z", keys: ["創作/寫", "高效", "高效"] },
+  ];
+  const MO = tagMapsOf(OFF_ENTS);
+
+  test("常數字面值＋tagMapsOf 收進 off（升冪、去重）；EMPTY_TAG_MAPS 也有 off；沒有排除＝off 空", () => {
+    assert.equal(TT_TAG_BLOCK_OFF, "timetable:block-off");
+    assert.deepEqual(MO.off, { "b-x": ["高效"], "b-fun": ["拖延"], "b-y": ["無關"], "b-z": ["創作/寫", "高效"] });
+    assert.deepEqual(EMPTY_TAG_MAPS.off, {});
+    assert.deepEqual(M.off, {});
+    assert.equal(MO.block["b-x"], undefined, "排除不混進手動那張");
+  });
+  test("blockTags：只扣預設那半——分類自己的與組帶的同 key 都扣掉", () => {
+    assert.deepEqual(blockTags({ id: "b-x", categoryId: "c1" }, CATS, MO), ["創作/寫"]);
+    assert.deepEqual(blockTags({ id: "b-z", categoryId: "c1" }, CATS, MO), [], "預設全排除＝空");
+    assert.deepEqual(blockTags({ id: "b-other", categoryId: "c1" }, CATS, MO), ["創作/寫", "高效"], "別塊不受影響");
+  });
+  test("手動也掛著同一個 key ⇒ 照樣在（D-時-127 一顆）", () => {
+    assert.deepEqual(blockTags({ id: "b-fun", categoryId: "c3" }, CATS, MO), ["拖延"]);
+    assert.deepEqual(defaultsAfterOff("b-fun", "c3", CATS, MO), { own: [], fromGroup: [] }, "預設那半確實扣了");
+  });
+  test("逐 key 不是子樹：排除 #高效 不影響 #高效/深度", () => {
+    assert.deepEqual(blockTags({ id: "b-x", categoryId: "c2" }, CATS, MO), ["高效/深度"]);
+    assert.deepEqual(defaultsAfterOff("b-x", "c2", CATS, MO), { own: ["高效/深度"], fromGroup: [] });
+  });
+  test("不在預設裡的排除讀時無效（改分類不裁，D-時-135）", () => {
+    assert.deepEqual(blockTags({ id: "b-y", categoryId: "c1" }, CATS, MO), ["創作/寫", "高效"]);
+    // b-x 換到 c3：c3 沒帶 高效 ⇒ 排除沒作用；換回 c1 又生效
+    assert.deepEqual(blockTags({ id: "b-x", categoryId: "c3" }, CATS, MO), ["拖延"]);
+  });
+  test("defaultsAfterOff：沒排除＝跟 catDefaults 一樣；isBlockOff 只看 key 本身", () => {
+    assert.deepEqual(defaultsAfterOff("b-none", "c1", CATS, MO), catDefaults("c1", CATS, MO));
+    assert.deepEqual(defaultsAfterOff("b-x", "c1", CATS, MO), { own: ["創作/寫"], fromGroup: [] });
+    assert.ok(isBlockOff("b-x", "高效", MO));
+    assert.ok(!isBlockOff("b-x", "高效/深度", MO));
+    assert.ok(!isBlockOff("b-none", "高效", MO));
+  });
+  test("舊形狀的對照（沒有 off 這張）照舊算、不炸", () => {
+    const legacy = { block: M.block, category: M.category, goal: M.goal } as unknown as TimetableTagMaps;
+    assert.deepEqual(blockTags({ id: "b-x", categoryId: "c1" }, CATS, legacy), ["創作/寫", "高效"]);
+    assert.deepEqual(defaultsAfterOff("b-x", "c1", CATS, legacy), catDefaults("c1", CATS, legacy));
+    assert.ok(!isBlockOff("b-x", "高效", legacy));
+  });
+  test("統計經 blockTags 就扣：byTag 少了那一塊", () => {
+    const now = L(10, 20, 23);
+    const w = periodWindow("day", "2026-10-20", 6, 1);
+    const spans = [
+      withTags(sp("b-x", "c1", L(10, 20, 8), L(10, 20, 9)), MO), // 排除 高效 ⇒ 只剩 創作/寫
+      withTags(sp("b-other", "c1", L(10, 20, 9), L(10, 20, 10)), MO),
+    ];
+    const t = windowTotals(spans, classifySpans(spans, now, noTh), w, now, noRoute);
+    assert.equal(t.byTag["高效"], 1 * H);
+    assert.equal(t.byTag["創作/寫"], 2 * H);
+  });
+  test("純度：timetableTags.ts 仍只 import ./timetable.ts 與 ./tags.ts（同第 9 項）", () => {
+    const src = readFileSync(path.join(ROOT, "src/domain/timetableTags.ts"), "utf8");
+    const froms = Array.from(src.matchAll(/^import[\s\S]*?from\s+"([^"]+)";/gm)).map((m) => m[1]);
+    assert.deepEqual(Array.from(new Set(froms)).sort(), ["./tags.ts", "./timetable.ts"]);
   });
 });
 

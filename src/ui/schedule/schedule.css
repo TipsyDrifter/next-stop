@@ -208,6 +208,21 @@
 .ns-sch .prow .rep-btn:hover { color: var(--accent); }
 .ns-sch .prow .rep-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
+/* 「詳情」小字鈕（10-20 磨光②；daylist.panel 的滑鼠入口）：票種小字那一階（9.5px／.24em、ink-faint），不加框；
+   列 hover／鍵盤聚焦（列 tabIndex＝0 那一列）才現身。平時 display:none 不佔位——浮層窄，常駐佔位會把標題多截掉兩個字；
+   現身時只有標題（flex:1）讓出位置，右側推遲鈕與検印欄不動 */
+.ns-sch .prow .detail {
+  display: none; flex: none; border: 0; background: transparent; padding: 2px 2px 2px 4px; cursor: pointer;
+  font-family: inherit; font-size: 9.5px; letter-spacing: .24em;
+  color: var(--color-ink-faint); transition: color .15s;
+}
+.ns-sch .prow:hover .detail,
+.ns-sch .prow:focus .detail,
+.ns-sch .prow:focus-within .detail { display: block; }
+.ns-sch .prow .detail:hover { color: var(--accent); }
+.ns-sch .prow .detail:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ns-sch .prow .detail { transition: none; } }
+
 .ns-sch .defer {
   flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: 2px;
   color: var(--ink-mid, var(--color-ink-soft)); font-size: 10px; letter-spacing: .14em;

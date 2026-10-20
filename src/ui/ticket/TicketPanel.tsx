@@ -505,6 +505,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                 if (isNew) store().setDraft({ accountId: id });
                 else patch({ accountId: id });
               }}
+              onCreated={isNew ? (id) => store().setDraft({ accountId: id }) : undefined}
             />
           </FieldRow>
           {vm.kind === "transfer" && (
@@ -521,6 +522,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                   if (isNew) store().setDraft({ toAccountId: id, toAmountText: null });
                   else patch({ toAccountId: id });
                 }}
+                onCreated={isNew ? (id) => store().setDraft({ toAccountId: id, toAmountText: null }) : undefined}
               />
             </FieldRow>
           )}
@@ -703,6 +705,8 @@ export function AcctPick(props: {
   exclude: string | null;
   balText(a: AccountRow): string;
   onPick(id: string): void;
+  /** 選單底「新增帳戶」建好之後（給了才接；草稿用來把新帳戶填回去） */
+  onCreated?(id: string): void;
 }) {
   const accounts = useTicketStore((s) => s.accounts);
   const groups = groupAccounts(accounts);
@@ -762,7 +766,9 @@ export function AcctPick(props: {
             className="opt is-add"
             onClick={() => {
               props.onClose();
-              useTicketStore.getState().openDialog({ kind: "newAccount" });
+              // 給了 onCreated（新票草稿）⇒ 建完直接選上它（磨光③ 2-16）
+              const pick = props.onCreated;
+              useTicketStore.getState().openDialog({ kind: "newAccount", ...(pick ? { then: { pick } } : {}) });
             }}
           >
             <TkIcon name="plus" size={11} />

@@ -39,8 +39,13 @@ export function useVisualViewportHeight(active: boolean) {
       const covered = window.innerHeight - vv.height;
       if (vv.scale <= 1.01 && covered >= KEYBOARD_MIN_INSET) {
         root.style.setProperty("--m-vvh", `${Math.round(vv.height)}px`);
+        // 磨光① A1（契約 §9.3 B-4）：鍵盤佔掉的高（扣掉視覺視窗的位移）——fixed 的 toast 量的是版面視窗，
+        //   底部落點要加上它才浮在鍵盤之上。只在認定是鍵盤時寫；視窗會縮的機型走不到這裡，照舊。
+        const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+        root.style.setProperty("--m-kb", `${kb}px`);
       } else {
         root.style.removeProperty("--m-vvh");
+        root.style.removeProperty("--m-kb");
       }
     };
 
@@ -52,6 +57,7 @@ export function useVisualViewportHeight(active: boolean) {
       vv.removeEventListener("resize", apply);
       vv.removeEventListener("scroll", apply);
       root.style.removeProperty("--m-vvh");
+      root.style.removeProperty("--m-kb");
     };
   }, [active]);
 }

@@ -41,6 +41,7 @@ import {
   type DayGroup,
   type EntryRow,
 } from "../../../domain/ticket";
+import { useBackLayer } from "../../mobile/backStack";
 import { MobileEntryForm } from "./MobileEntryForm";
 import { MobileAccountPage } from "./MobileAccountPage";
 import { MobileSheetHost } from "./MobileSheetHost";
@@ -134,6 +135,9 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
 
   const [sheet, setSheet] = useState<"manage" | "archived" | null>(null);
   const [searchSheet, setSearchSheet] = useState(false);
+  // 磨光①（主線手機殼契約 §1.5）：管理／封存 sheet 的返回鍵＝「取消」。搜尋 sheet 自己登記（MobileSearchSheet）；
+  // 記帳表單、帳戶頁、對話框各在自己的元件登記——都只在售票口 tab 畫，切走時那層跟著放掉（store 的 panel 留著，切回來再登記）
+  useBackLayer("ticket.office.sheet", sheet !== null, () => setSheet(null));
 
   // 0-16：月曆點到沒帳的日 ⇒ 淡字 3 秒
   useEffect(() => {
@@ -151,11 +155,8 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const filterOn = isFilterActive(filter);
   const searching = view === "list" && searchOpen && filterOn;
 
-  /** 「＋ 記一筆」：一個帳戶都沒有時先開新增帳戶（記帳一定要落在某個帳戶上） */
-  const add = () => {
-    if (liveCount === 0) openDialog({ kind: "newAccount" });
-    else openNew();
-  };
+  /** 「＋ 記一筆」：一律走 openNew（兩殼同一條路，磨光③ 2-16）——一個帳戶都沒有時它先開新增帳戶、建完接著打開記一筆 */
+  const add = () => openNew();
 
   // 進入搜尋模式（統計下鑽 drillToList、搜尋 sheet 帶條件關上）⇒ 捲回頂端，讓 chips 列與「清除 ×」露出來
   // （原型 drill() 也是 mpage.scrollTop = 0）。不然 .m-page 會留著統計／帳簿原本捲到的位置，條件列在畫面外。

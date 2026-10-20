@@ -1,0 +1,35 @@
+/* ═══════════════════════════════════════════════════════
+ * mobile-polish.css——手機今日／行程表的磨光①補丁（加工單 §2.4、§9.5；A7 今日半邊 §9.4）。
+ *
+ * 紀律同 schedule-mobile.css：每一條選擇器以 `[data-shell="mobile"]` 開頭（桌機殼永遠不命中）；不往 mobile.css 追加；
+ *   顏色只用 theme token（紙面強調＝--accent；朱＝--color-seal）。
+ * 由 MobileTextSheet.tsx／MobileTicketSheet.tsx／MobileToday.tsx import。
+ * ═══════════════════════════════════════════════════════ */
+
+/* ─────────── ⋯ sheet 新項 ─────────── */
+/* 刪除＝朱字（放最下面、取消之上） */
+[data-shell="mobile"] .m-sheet-item.is-danger { color: var(--color-seal); }
+/* 上移／下移並排成一列兩格（同一件事的兩個方向；各自 52px 高的觸控目標） */
+[data-shell="mobile"] .m-sheet-pair { display: grid; grid-template-columns: 1fr 1fr; }
+[data-shell="mobile"] .m-sheet-pair .m-sheet-item { text-align: center; }
+[data-shell="mobile"] .m-sheet-pair .m-sheet-item + .m-sheet-item { border-left: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .m-sheet-pair .m-sheet-item:disabled { color: var(--color-ink-faint); cursor: default; background: transparent; }
+
+/* ─────────── 一行輸入子面板（改名…／記一句…） ─────────── */
+[data-shell="mobile"] .m-txs-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 10px var(--m-gutter) 12px;
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .m-txs-input { width: 100%; }
+
+/* ─────────── 今日頁「指出這張票」（A7；D-主-48 閃一下底色） ─────────── */
+/* 只寫 from：動畫從強調色淡回這張卡自己的底色（済卡的票紙、一般卡的高紙都對） */
+@keyframes m-tk-reveal { from { background-color: color-mix(in srgb, var(--accent) 18%, var(--color-paper-high)); } }
+[data-shell="mobile"] .m-tk-li.is-reveal > .m-tk { animation: m-tk-reveal 1s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m-tk-li.is-reveal > .m-tk {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 12%, var(--color-paper-high));
+  }
+}

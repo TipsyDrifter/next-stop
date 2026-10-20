@@ -9,12 +9,13 @@
  * 流程與文案同桌機（D-筆-41）：store 的 commitRename／mergeInto／removePlan／confirmRemove；文案出自 domain/tags。
  *
  * 點一列：
- *   車票・列車車廂 ⇒ 手機沒有 setPage、路線圖的展開是那一頁的本地狀態（契約 §8-9）：
- *     臨時票有執行日 → 今日 tab（選中；排在未來補一句 toast，同 QuickJump）；
- *     臨時票沒日期、沒路線、未済 → 收件匣（選中那張）；
- *     其他有路線的 → `openRoute(route_id)` 後切到路線圖 tab（停在路線清單，無法選中列——記回報）。
+ *   車票・列車車廂 ⇒ 核心的 `jumpToNodeMobile`（磨光① A7，契約 §2.3、§9.4）：
+ *     臨時票有執行日 → 今日 tab 捲到那張票、閃一下（排在未來＝toast，同 QuickJump）；
+ *     臨時票沒日期、沒路線、未済 → 收件匣（選中那張；核心 `revealInbox`，MobileNotes 接手——與手機搜尋同一條）；
+ *     其他有路線的 → 路線圖進那條路線、展開到它。
  *   筆記 ⇒ 清掉路線篩選與搜尋 → 筆記段 → 整頁（`onOpenNote`）；收件匣裡的筆記 → 收件匣段並選中。
  *   日記 ⇒ `openDiaryAt(entry_date)`＋選中那篇。
+ * Android 返回鍵（磨光①）：清單頁＝子頁（有「回到剛才」就回去，否則同「‹ 荷札」）；各 sheet＝同「取消」。
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { nodeRepo } from "../../../data";
@@ -33,9 +34,9 @@ import {
   type DeletePlan,
   type GroupedTaggedItem,
 } from "../../../domain/tags";
-import { dayKeyOf, todayKey } from "../../../lib/date";
+import { dayKeyOf } from "../../../lib/date";
 import { fmtShortDay, noteTitle, weekdayZh } from "../../../domain/notes";
-import { KIND_LABEL, parseRule, type NodeKind } from "../../../domain";
+import { KIND_LABEL, type NodeKind } from "../../../domain";
 import { useTagStore } from "../../../store/tagStore";
 import type { TagEntityRow } from "../../../lines/types";
 import { useOtherSections } from "../tags/otherEntities";
@@ -44,8 +45,10 @@ import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { RouteDot } from "./MobileAttachPicker";
 import { IconLeft } from "./mobileDiaryBits";
-import { IconCaretRight, IconDots, MobileTagNotice, TagName } from "./mobileTagBits";
+import { IconCaretRight, IconDots, MTagLoading, MobileTagNotice, TagName, retryTagIndex, useTagIndexFailed } from "./mobileTagBits";
 import { MobileTagActionSheet, MobileTagConfirmSheet, MobileTagMergeSheet } from "./MobileTagSheet";
+import { useBackLayer } from "../../mobile/backStack";
+import { jumpToNodeMobile } from "../../mobile/routeMapReveal";
 
 type Sheet = null | "menu" | "merge" | { kind: "delete"; plan: Extract<DeletePlan, { ok: true }>; title: string; body: string };
 
@@ -73,13 +76,18 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
   const [doneOpen, setDoneOpen] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
   const seq = useRef(0);
+  const indexFailed = useTagIndexFailed();
+  /** 清單查失敗（磨光③ 2-12：給重試，不再假裝「還沒有東西掛著」）；listTry＝按一次重試 +1 */
+  const [listFailed, setListFailed] = useState(false);
+  const [listTry, setListTry] = useState(0);
 
   const node = key && index ? (index.byKey[key] ?? null) : null;
 
-  // 清單：換荷札、或 index 換了（掛摘、改名、同步）就重查
+  // 清單：換荷札、或 index 換了（掛摘、改名、同步）、或按了重試就重查
   useEffect(() => {
     if (!key) return;
     const my = ++seq.current;
+    setListFailed(false);
     tagRepo
       .listUnder(key)
       .then((rows) => {
@@ -87,9 +95,12 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
       })
       .catch((e) => {
         console.warn("MobileTagPage.listUnder 失敗", e);
-        if (my === seq.current) setItems([]);
+        if (my === seq.current) {
+          setItems(null);
+          setListFailed(true);
+        }
       });
-  }, [key, index]);
+  }, [key, index, listTry]);
   // 換荷札：摺疊收回、sheet 收掉、捲回頂
   useEffect(() => {
     setDoneOpen(false);
@@ -99,6 +110,21 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
   }, [key]);
 
   const groups = useMemo(() => (items && key ? groupTaggedItems(items, key, nameOf) : null), [items, key, nameOf]);
+
+  // 磨光① 返回層（契約 §1.5）：清單頁＝子頁，返回＝有「回到剛才」就回去（可跨 tab）、否則同「‹ 荷札」；
+  //   ⋯／併入／刪除確認（本地 sheet）與併入確認（store 的 pendingPlan）各自一層 sheet＝同「取消」。改名是行內，不登記
+  useBackLayer(
+    "notes.tagPage",
+    key !== null,
+    () => {
+      const st = useTagStore.getState();
+      if (st.back) st.goBack();
+      else st.select(null);
+    },
+    "page",
+  );
+  useBackLayer("notes.tagPage.sheet", sheet !== null, () => setSheet(null));
+  useBackLayer("notes.tagPage.pending", !!pendingPlan?.ok, () => useTagStore.getState().cancelPending());
 
   if (!key) return null;
 
@@ -135,7 +161,11 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
       <MobileTagNotice />
 
       {!node ? (
-        <p className="ns-notes-mtagempty">{index ? "這個荷札已經不在了（被改名、併入或刪除）" : "載入中…"}</p>
+        index ? (
+          <p className="ns-notes-mtagempty">這個荷札已經不在了（被改名、併入或刪除）</p>
+        ) : (
+          <MTagLoading className="ns-notes-mtagempty" failed={indexFailed} onRetry={retryTagIndex} />
+        )
       ) : (
         <>
           <header className="ns-notes-mtagview">
@@ -162,7 +192,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
           </header>
 
           {!groups ? (
-            <p className="ns-notes-mtagempty">載入中…</p>
+            <MTagLoading className="ns-notes-mtagempty" failed={listFailed} onRetry={() => setListTry((n) => n + 1)} />
           ) : !items?.length ? (
             <p className="ns-notes-mtagempty">還沒有東西掛著這個荷札</p>
           ) : (
@@ -509,38 +539,17 @@ function OtherGroups({ rows, tagKey, onOpenNote }: { rows: GroupedTaggedItem[]; 
 
 /* ═══ 點一列：跳過去 ═══ */
 
-/** 車票・列車車廂（手機版的 jumpToNode；QuickJump.tsx:35-88 的邊界，換成手機的 tab） */
+/**
+ * 車票・列車車廂：走核心的手機跳轉 `jumpToNodeMobile`（磨光① A7：今日頁捲到那張票、路線圖展開到它；邊界同桌機 jumpToNode）。
+ * 沒日期、沒路線的臨時券＝核心的收件匣請求（`revealInbox`）：MobileNotes 換到收件匣段、選中、捲到它。
+ */
 async function goNode(id: string): Promise<void> {
   const node = await nodeRepo.getNode(id).catch(() => null);
-  const ui = useUiStore.getState();
   if (!node) {
-    ui.showToast({ message: "找不到這張票（可能已經刪除）" });
+    useUiStore.getState().showToast({ message: "找不到這張票（可能已經刪除）" });
     return;
   }
-  if (node.kind === "ticket" && !node.parent_id && !(node.route_id && !node.scheduled_on) && !(node.status === "done" && !node.scheduled_on)) {
-    if (!node.scheduled_on) {
-      // 沒日期、沒路線＝收件匣的臨時券：就在這個 tab 換到收件匣段並選中
-      const ns = useNotesStore.getState();
-      ns.setSection("inbox");
-      ns.selectInbox({ kind: "ticket", id: node.id });
-      return;
-    }
-    ui.select(node.id);
-    ui.setMobileTab("today");
-    if (node.scheduled_on > todayKey(ui.dayStartHour)) {
-      const [, m, d] = node.scheduled_on.split("-");
-      const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
-      ui.showToast({ message: `『${node.name}』${when}，今天的清單還看不到` });
-    }
-    return;
-  }
-  if (!node.route_id) {
-    ui.showToast({ message: `「${node.name}」沒有所屬路線，暫時無法跳轉` });
-    return;
-  }
-  await useNodeStore.getState().openRoute(node.route_id);
-  ui.select(node.id);
-  ui.setMobileTab("routemap");
+  await jumpToNodeMobile(node);
 }
 
 /** 筆記：清掉篩選與搜尋（不然列表裡可能沒有它）→ 筆記段整頁；收件匣裡的筆記 → 收件匣段選中 */
