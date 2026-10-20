@@ -20,6 +20,13 @@
  * 「・任務名」（`linkLabelOf`；長的 CSS 省略號）；沒連 ⇒ 淡字「連到…」（`.is-none`）。點了 `openSheet({ kind: "link" })`。
  * 門檻來自任務的預計時間、這一班沒預估 ⇒ 時刻列那一顆是實線「預計 X」（點了一樣開預估面板，＝原型的「預計」chip）；
  * 超過 ⇒ 「誤點 +X」自動成立（runMarker 對 task 來源回 late）。
+ *
+ * 車次⑥（⑥ 契約 §5.2；D-時-116、126、129；乙席；長相＝原型 `v-tags.js` dockHtml）：
+ * - 桌機：「連到」後面淡字 span.ns-tt-dock-tags「・#高效 #podcast …」（順序：分類自己的 → 手動的 → 組帶的，最多 2 個；滑過看全部），
+ *   計時後面一顆 button.ns-tt-chip.ns-tt-dock-tag「荷札 N」（N＝這一班的全部荷札，含分類帶的）⇒ 開 `{kind:"tags", blockId}`。
+ * - 手機：只放「荷札 N」個數鈕（圖示＋數字；0 個寫「荷札」），保留「HH:MM 発」；點了直接開點選器 entity 模式（標題「荷札・創作 14:35 起」）。
+ *   N 只算手動加的（D-時-133，評審後）：點選器只列手動的，數字要對得上；分類帶的在塊面板看。
+ *   位置在名稱列尾端（原型在時刻列；正式版的時刻列多了預估 chip，375 寬放不下、會多一行）。
  */
 import { MIN, fmtClock, fmtDur, fmtHMS, msOf } from "../../../domain/timetable";
 import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
@@ -27,6 +34,7 @@ import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetabl
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { CategoryBadge } from "../CategoryBadge";
 import { useNow } from "../useNow";
+import { openRunPicker, runTagKeys, tagNameOf, useTimetableTagMaps } from "./TimetableTagChips";
 
 export interface RunDockProps {
   variant: "mobile" | "desktop";
@@ -51,6 +59,8 @@ export function RunDock({ variant }: RunDockProps) {
   const requestDepart = useTimetableStore((s) => s.requestDepart);
   const requestArrive = useTimetableStore((s) => s.requestArrive);
   const openSheet = useTimetableStore((s) => s.openSheet);
+  const categories = useTimetableStore((s) => s.categories);
+  const tagMaps = useTimetableTagMaps();
   const now = useNow(1000);
   const desk = variant === "desktop";
 
@@ -81,6 +91,38 @@ export function RunDock({ variant }: RunDockProps) {
   const taskEst = est === null ? taskEstimateOf(running, linkInfo) : null;
   const askLongRun = (): void => openSheet({ kind: "longRun", blockId, then: null });
   const openEstimate = (): void => openSheet({ kind: "estimate", blockId });
+  // ⑥：這一班的荷札（推導＋手動）；名稱不含 #
+  const tagNames = runTagKeys(running, categories, tagMaps).map(tagNameOf);
+  // D-時-133：手機的「荷札 N」只算手動加的（點開的點選器只列手動的，數字要對得上）；分類帶的在塊面板看
+  const manualNames = (tagMaps.block[blockId] ?? []).slice().sort().map(tagNameOf);
+  const btnNames = desk ? tagNames : manualNames;
+  const tagAll = btnNames.map(TT_TEXT.tags.chip).join(" ");
+  const openTags = (): void => {
+    if (desk) openSheet({ kind: "tags", blockId });
+    else openRunPicker(blockId, cat?.name ?? "？", start);
+  };
+  // 桌機在計時後面；手機時刻列已經被「HH:MM 発＋預估 chip＋跳秒」排滿（375 寬只剩約 20px），放名稱列尾端，運行列才不會多一行
+  const tagBtn = (
+    <button
+      type="button"
+      className={"ns-tt-chip ns-tt-dock-tag" + (desk ? "" : " is-m")}
+      title={tagAll || TT_TEXT.tags.runBtnTitle}
+      aria-label={btnNames.length > 0 ? TT_TEXT.tags.runCount(btnNames.length) : TT_TEXT.tags.row}
+      onClick={openTags}
+    >
+      <i className="ns-tt-tglyph" aria-hidden="true" />
+      {desk ? (
+        <>
+          {TT_TEXT.tags.row}
+          {tagNames.length > 0 && <b>{tagNames.length}</b>}
+        </>
+      ) : manualNames.length > 0 ? (
+        <b>{manualNames.length}</b>
+      ) : (
+        TT_TEXT.tags.row
+      )}
+    </button>
+  );
 
   return (
     <div className={"ns-tt-dock is-" + variant + (long ? " is-long" : "")}>
@@ -104,6 +146,11 @@ export function RunDock({ variant }: RunDockProps) {
                 </>
               )}
             </button>
+            {desk && tagNames.length > 0 && (
+              <span className="ns-tt-dock-tags" title={tagAll}>
+                {TT_TEXT.tags.runList(tagNames)}
+              </span>
+            )}
           </span>
           {marker.kind === "long" && marker.pending && (
             <button type="button" className="ns-tt-chip is-late" onClick={askLongRun}>
@@ -111,6 +158,7 @@ export function RunDock({ variant }: RunDockProps) {
             </button>
           )}
           {marker.kind === "long" && !marker.pending && <span className="ns-tt-chip">長時間運行</span>}
+          {!desk && tagBtn}
         </div>
         <div className="ns-tt-dock-meta ns-tt-num">
           <span className="ns-tt-live-dot" aria-hidden="true" />
@@ -150,6 +198,7 @@ export function RunDock({ variant }: RunDockProps) {
             </button>
           )}
           <b className="ns-tt-dock-el">{fmtHMS(now - start)}</b>
+          {desk && tagBtn}
         </div>
       </div>
       <button type="button" className="ns-btn btn-ghost" onClick={requestDepart}>

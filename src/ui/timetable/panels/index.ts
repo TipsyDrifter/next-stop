@@ -5,7 +5,7 @@
  * 車次②（Stage 0-②，甲）：taskCategory「『{任務}』算哪一類？」、link「連到…」（② 契約 §5.13）；兩個面板先是樁。
  */
 import { createElement, type ReactElement } from "react";
-import { durOf, findBlockIn, fmtDur, toSpan } from "../../../domain/timetable";
+import { durOf, findBlockIn, fmtDur, msOf, toSpan } from "../../../domain/timetable";
 import { TT_TEXT, useTimetableStore, type TimetableSheet, type TimetableStore } from "../../../store/timetableStore";
 import { BlockPanel } from "./BlockPanel";
 import { CategoryManagerPanel } from "./CategoryManagerPanel";
@@ -20,7 +20,7 @@ import { GoalPanel } from "./GoalPanel"; // ③ 乙席
 import { PendingListPanel, pendingListTitle } from "./PendingListPanel"; // ③ 乙席
 import { PlanPanel } from "./PlanPanel"; // ④ 乙席
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore"; // ④ 乙席
-
+import { TagSheetPanel } from "./TagSheetPanel"; // ⑥ 乙席
 export type { PanelProps } from "./controls";
 export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, RestartPanel, SplitPanel, TaskCategoryPanel };
 
@@ -69,6 +69,13 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       const it = st.items[sheet.key];
       return (it && st.nodes[it.nodeId]?.name) || TT_TEXT.viewSchedule;
     }
+    case "tags": {
+      // ⑥ 乙席：「荷札・創作 14:35 起」（同手機點選器的標題，D-時-129）
+      const sb = s.sheetBlock !== undefined ? s.sheetBlock : useTimetableStore.getState().sheetBlock;
+      const b = findBlockIn(sheet.blockId, s.running, [s.dayBlocks, s.todayBlocks, s.weekBlocks]) ?? (sb?.id === sheet.blockId ? sb : null);
+      if (!b) return TT_TEXT.tags.row;
+      return TT_TEXT.tags.pickerTitle(s.catById[b.category_id]?.name ?? "？", msOf(b.started_at), b.ended_at === null);
+    }
     default:
       return "";
   }
@@ -102,6 +109,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(PendingListPanel, { onDone });
     case "plan": // ④ 乙席：手機的 sheet（桌機是 schedule/PlanPopover 自己畫的浮層，DesktopSheetHost 不畫這一種）
       return createElement(PlanPanel, { onDone, key: sheet.key });
+    case "tags": // ⑥ 乙席：運行中那一班的荷札小面板（D-時-116）
+      return createElement(TagSheetPanel, { onDone, key: sheet.blockId });
     default:
       return createElement(DepartPanel, { onDone });
   }

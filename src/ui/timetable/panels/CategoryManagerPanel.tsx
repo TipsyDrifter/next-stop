@@ -13,8 +13,14 @@
  *   「圓牌字」input.ns-tt-glyph-input（Enter／blur 存、Esc 還原、IME 護欄；空字串不存；不是一個字 ⇒ toast B10 不存）、
  *   「搬到」select（所有未刪除、未封存的頂層組；目前那組 selected）、「封存」鈕（toast B6 帶撤回）＋一行說明。
  * - 「＋ 新增分組」之後、「設定」節之前：details.ns-tt-mgr-archived「已封存 N 個」（0 個不畫；預設收起），每個一列＋「還原」。
- * - 不做刪除（〈開工決定〉二-5）；頂層組沒有 ⋯（封存／搬組／圓牌字都只對子分類）。
+ * - 不做刪除（〈開工決定〉二-5）；封存／搬組／圓牌字都只對子分類（頂層組的 ⋯ 是 ⑥ 加的，只放預設荷札）。
  * - 封存運行中那一班的分類：照封存（契約 §5.6「照跑、圓牌照畫」；原型是擋下來，資料語義以契約為準）。
+ *
+ * 車次⑥（⑥ 契約 §5.3；D-時-121、128、131；乙席；長相＝原型 `v-tags.js` mgrBody）：
+ * - 每個子分類列：名字下一行淡字 div.ns-tt-mgr-tags「#拖延」（自己的預設荷札）＋「組帶的：#高效」（`.is-grp`；手機藏起來，D-時-131）。
+ * - ⋯ 展開區最上面一列「預設荷札」：桌機 `EntityTagField` 實體模式（`timetable:category`；掛了就寫、toast＋復原；建議清單往下推開、
+ *   不列組已經帶的）；手機牌子＋「＋ 荷札」開點選器 entity 模式。子分類另有一行「組帶的：[牌]（在組「X」的 ⋯ 改）」；最後一句說明。
+ * - 組頭多一顆 ⋯（D-時-128），展開只放「預設荷札」＋說明；組名後面淡字列組的預設荷札。⋯ 同時只開一個（組或分類）。
  */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { MIN, colorSlot, fmtDur, groupedCategories, type TimeCategoryRow } from "../../../domain/timetable";
@@ -23,6 +29,54 @@ import { useUiStore } from "../../../store/uiStore";
 import { CategoryBadge } from "../CategoryBadge";
 import { Expand, Sub, type PanelProps } from "./controls";
 import { NoticeSettings } from "./NoticeSettings";
+import { TT_TAG_CATEGORY, catDefaults, type TimetableTagMaps } from "../../../domain/timetableTags";
+import { EntityTagField } from "../../notes/tags/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
+import { useShell } from "../../mobile/useShell";
+import { FixedTagChips, MobileTagEntity, tagNameOf, ttBackRef, useTimetableTagMaps } from "../parts/TimetableTagChips";
+
+const TX = TT_TEXT.tags;
+
+/** 名字下（組：名字後）的淡字：自己的預設荷札＋組帶的 */
+function TagsLine({ own, grp }: { own: readonly string[]; grp: readonly string[] }) {
+  if (!own.length && !grp.length) return null;
+  const hashes = (ks: readonly string[]): string => ks.map((k) => TX.chip(tagNameOf(k))).join(" ");
+  return (
+    <span className="ns-tt-mgr-tags">
+      {own.length > 0 && <span className="ns-tt-mgr-own">{hashes(own)}</span>}
+      {grp.length > 0 && (
+        <span className="is-grp">
+          {TX.groupCarried}
+          {hashes(grp)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** ⋯ 展開區的「預設荷札」一列：桌機實體模式荷札欄／手機牌子＋點選器 */
+function DefaultTagsRow({ id, name, exclude }: { id: string; name: string; exclude?: readonly string[] }) {
+  const desk = useShell() === "desktop";
+  const closeSheet = useTimetableStore((s) => s.closeSheet);
+  return (
+    <div className="ns-tt-mgr-tagrow">
+      <span className="ns-tt-mgr-def-k">{TX.defaults}</span>
+      {desk ? (
+        <div className="ns-tt-tagfield">
+          <EntityTagField
+            entityType={TT_TAG_CATEGORY}
+            entityId={id}
+            exclude={exclude}
+            suggestInline
+            backRef={() => ttBackRef({ kind: "categories" })}
+            afterOpen={closeSheet}
+          />
+        </div>
+      ) : (
+        <MobileTagEntity entityType={TT_TAG_CATEGORY} entityId={id} pickName={name} />
+      )}
+    </div>
+  );
+}
 
 const DEFAULT_MIN_OPTIONS: readonly { v: number | null; label: string }[] = [
   { v: null, label: "無" },
@@ -218,7 +272,12 @@ function CategoryRow({
   open,
   flash,
   onToggle,
+  categories,
+  tagMaps,
 }: {
+  /** ⑥：推導預設荷札用（含封存的整張分類表） */
+  categories: readonly TimeCategoryRow[];
+  tagMaps: TimetableTagMaps;
   cat: TimeCategoryRow;
   index: number;
   count: number;
@@ -237,10 +296,16 @@ function CategoryRow({
   const cur = cat.default_min ?? null;
   const opts = DEFAULT_MIN_OPTIONS.some((o) => o.v === cur) ? DEFAULT_MIN_OPTIONS : [...DEFAULT_MIN_OPTIONS, { v: cur, label: fmtDur((cur ?? 0) * MIN) }];
   const slot = colorSlot(cat.color_idx);
+  // ⑥：自己的預設荷札＋組帶的
+  const d = catDefaults(cat.id, categories, tagMaps);
+  const group = categories.find((c) => c.id === cat.parent_id);
   return (
     <div className={"ns-tt-mgr-row" + (open ? " is-open" : "") + (flash ? " is-flash" : "")}>
       <CategoryBadge cat={cat} size="sm" />
-      <EditableName value={cat.name} label="分類名稱" onSave={(name) => void updateCategory(cat.id, { name })} />
+      <span className="ns-tt-mgr-namecol">
+        <EditableName value={cat.name} label="分類名稱" onSave={(name) => void updateCategory(cat.id, { name })} />
+        <TagsLine own={d.own} grp={d.fromGroup} />
+      </span>
       <span className="ns-tt-mgr-moves">
         <button type="button" className="ns-tt-mgr-move" disabled={index === 0} aria-label={`${cat.name} 往上`} onClick={() => void moveCategory(cat.id, -1)}>
           ↑
@@ -252,7 +317,7 @@ function CategoryRow({
           type="button"
           className={"ns-tt-mgr-move ns-tt-mgr-more" + (open ? " is-on" : "")}
           aria-expanded={open}
-          aria-label={`${cat.name} 的更多：圓牌字、搬組、封存`}
+          aria-label={`${cat.name} 的更多：預設荷札、圓牌字、搬組、封存`}
           onClick={onToggle}
         >
           ⋯
@@ -292,6 +357,14 @@ function CategoryRow({
       {open && (
         <Expand className="ns-tt-mgr-x">
           <div className="ns-tt-mgr-xin">
+            <DefaultTagsRow id={cat.id} name={cat.name} exclude={d.fromGroup} />
+            {d.fromGroup.length > 0 && group && (
+              <p className="ns-tt-panel-sub ns-tt-mgr-grptags">
+                {TX.groupCarried}
+                <FixedTagChips tags={d.fromGroup.map((key) => ({ key, from: TX.fromGroup(group.name) }))} sm />
+                <span>{TX.grpEditAt(group.name)}</span>
+              </p>
+            )}
             <label className="ns-tt-mgr-def">
               <span className="ns-tt-mgr-def-k">圓牌字</span>
               <GlyphInput cat={cat} />
@@ -316,6 +389,7 @@ function CategoryRow({
               封存
             </button>
             <p className="ns-tt-panel-sub ns-tt-mgr-xnote">封存＝發車台、通知格、系統匣都不再出現；過去的時間塊照常顯示。不提供刪除。</p>
+            <p className="ns-tt-panel-sub ns-tt-mgr-xnote">{TX.catNote}</p>
           </div>
         </Expand>
       )}
@@ -332,6 +406,7 @@ export function CategoryManagerPanel(_props: PanelProps) {
   const moveCategory = useTimetableStore((s) => s.moveCategory);
 
   const archiveCategory = useTimetableStore((s) => s.archiveCategory);
+  const tagMaps = useTimetableTagMaps(); // ⑥
 
   /** 正在新增：`{ parentId }`（null＝新增分組） */
   const [adding, setAdding] = useState<{ parentId: string | null } | null>(null);
@@ -360,44 +435,70 @@ export function CategoryManagerPanel(_props: PanelProps) {
 
   return (
     <div className="ns-tt-panel ns-tt-panel-mgr">
-      {groups.map(({ group, children }, gi) => (
-        <section key={group.id} className="ns-tt-mgr-group">
-          <div className="ns-tt-mgr-group-head">
-            <EditableName value={group.name} label="分組名稱" big onSave={(name) => void updateCategory(group.id, { name })} />
-            <span className="ns-tt-mgr-moves">
-              <button type="button" className="ns-tt-mgr-move" disabled={gi === 0} aria-label={`${group.name} 往上`} onClick={() => void moveCategory(group.id, -1)}>
-                ↑
+      {groups.map(({ group, children }, gi) => {
+        const gOpen = more === group.id;
+        const gTags = catDefaults(group.id, categories, tagMaps).own;
+        return (
+          <section key={group.id} className="ns-tt-mgr-group">
+            <div className={"ns-tt-mgr-group-head" + (gOpen ? " is-open" : "")}>
+              <span className="ns-tt-mgr-namecol is-group">
+                <EditableName value={group.name} label="分組名稱" big onSave={(name) => void updateCategory(group.id, { name })} />
+                <TagsLine own={gTags} grp={[]} />
+              </span>
+              <span className="ns-tt-mgr-moves">
+                <button type="button" className="ns-tt-mgr-move" disabled={gi === 0} aria-label={`${group.name} 往上`} onClick={() => void moveCategory(group.id, -1)}>
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="ns-tt-mgr-move"
+                  disabled={gi >= groups.length - 1}
+                  aria-label={`${group.name} 往下`}
+                  onClick={() => void moveCategory(group.id, 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className={"ns-tt-mgr-move ns-tt-mgr-more" + (gOpen ? " is-on" : "")}
+                  aria-expanded={gOpen}
+                  aria-label={TX.groupMore(group.name)}
+                  onClick={() => setMore(gOpen ? null : group.id)}
+                >
+                  ⋯
+                </button>
+              </span>
+              <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => setAdding({ parentId: group.id })}>
+                ＋ 分類
               </button>
-              <button
-                type="button"
-                className="ns-tt-mgr-move"
-                disabled={gi >= groups.length - 1}
-                aria-label={`${group.name} 往下`}
-                onClick={() => void moveCategory(group.id, 1)}
-              >
-                ↓
-              </button>
-            </span>
-            <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => setAdding({ parentId: group.id })}>
-              ＋ 分類
-            </button>
-          </div>
-          {adding?.parentId === group.id && <AddRow placeholder="新分類的名稱" onAdd={(name) => add(group.id, name)} onCancel={() => setAdding(null)} />}
-          {children.length === 0 && adding?.parentId !== group.id && <Sub>這一組還沒有分類</Sub>}
-          {children.map((c, i) => (
-            <CategoryRow
-              key={c.id}
-              cat={c}
-              index={i}
-              count={children.length}
-              groups={topGroups}
-              open={more === c.id}
-              flash={flash === c.id}
-              onToggle={() => setMore(more === c.id ? null : c.id)}
-            />
-          ))}
-        </section>
-      ))}
+            </div>
+            {gOpen && (
+              <Expand className="ns-tt-mgr-x ns-tt-mgr-gx">
+                <div className="ns-tt-mgr-xin">
+                  <DefaultTagsRow id={group.id} name={group.name} />
+                  <p className="ns-tt-panel-sub ns-tt-mgr-xnote">{TX.groupNote}</p>
+                </div>
+              </Expand>
+            )}
+            {adding?.parentId === group.id && <AddRow placeholder="新分類的名稱" onAdd={(name) => add(group.id, name)} onCancel={() => setAdding(null)} />}
+            {children.length === 0 && adding?.parentId !== group.id && <Sub>這一組還沒有分類</Sub>}
+            {children.map((c, i) => (
+              <CategoryRow
+                key={c.id}
+                cat={c}
+                index={i}
+                count={children.length}
+                groups={topGroups}
+                open={more === c.id}
+                flash={flash === c.id}
+                onToggle={() => setMore(more === c.id ? null : c.id)}
+                categories={categories}
+                tagMaps={tagMaps}
+              />
+            ))}
+          </section>
+        );
+      })}
       {adding !== null && adding.parentId === null ? (
         <AddRow placeholder="新分組的名稱" onAdd={(name) => add(null, name)} onCancel={() => setAdding(null)} />
       ) : (

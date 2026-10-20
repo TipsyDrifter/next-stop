@@ -148,6 +148,8 @@ export interface SpanInsert {
   link?: BlockLink;
   /** ②：照 fromId 那一列抄連結（不管 inherit）；切開用（② 契約 0-3） */
   keepLink?: boolean;
+  /** ⑥（D-時-132）：不搬 fromId 那一塊的手動荷札（`carryPairsOfPlan` 略過）；「其實在做別的」切出的那段用 */
+  noTagCarry?: boolean;
 }
 
 /**
@@ -168,6 +170,11 @@ export interface WritePlan {
   patches: SpanPatch[];
   inserts: SpanInsert[];
   deletes: string[];
+  /**
+   * ⑥（⑥ 契約 0-8、§3.2；只加）：合併時被吞掉的那一塊 → 留下的那一塊（`planMerge` 併進鄰居才標）。
+   * repository 照它把被吞那塊的手動荷札補掛到留下的那塊（`timetableTagCarry.ts`）；不影響時間資料的寫法。
+   */
+  absorbedInto?: { from: string; to: string }[];
 }
 
 export interface CoverSummary {
@@ -699,8 +706,8 @@ export function planResolveLongRun(
   if (input.choice === "cat") {
     if (!input.categoryId2) throw new RangeError("選一個分類");
     const split = planSplit(spans, { id: s.id, at: end, categoryId2: input.categoryId2, now: input.now });
-    // ②：「其實在做別的」的那段時間不帶連結（② 契約 0-3）
-    if (split) split.inserts = split.inserts.map((ins) => ({ ...ins, link: NO_LINK }));
+    // ②：「其實在做別的」的那段時間不帶連結（② 契約 0-3）；⑥：同一個理由也不帶原塊的手動荷札（D-時-132）
+    if (split) split.inserts = split.inserts.map((ins) => ({ ...ins, link: NO_LINK, noTagCarry: true }));
     return mergePlans(split ?? emptyPlan(), ackPlan);
   }
   return ackPlan;
@@ -815,6 +822,7 @@ export function planMerge(
     }
     if (P && s.start - P.end! < MIN) {
       const plan = mergePlans(planCover(spans, { start: P.end!, end: sEnd }, P.id), { patches: [{ id: P.id, end: sEnd }], inserts: [], deletes: [] }, swallow);
+      plan.absorbedInto = [{ from: s.id, to: P.id }]; // ⑥ 0-8：被吞那塊的手動荷札併到留下的
       return { plan, preview: { keepId: P.id, categoryId: P.categoryId, start: P.start, end: sEnd, gapMs: 0 } };
     }
     const gapStart = P ? Math.max(P.end!, input.bound) : input.bound;
@@ -832,6 +840,7 @@ export function planMerge(
   }
   if (N && N.start - sEnd < MIN) {
     const plan = mergePlans(planCover(spans, { start: s.start, end: N.start }, N.id), { patches: [{ id: N.id, start: s.start }], inserts: [], deletes: [] }, swallow);
+    plan.absorbedInto = [{ from: s.id, to: N.id }]; // ⑥ 0-8
     return { plan, preview: { keepId: N.id, categoryId: N.categoryId, start: s.start, end: N.end, gapMs: 0 } };
   }
   const gapEnd = Math.min(N ? N.start : Infinity, input.bound, input.now);

@@ -3,13 +3,28 @@
  * 只展開進行中的；未開始與已結束收成一行「另有 1 個未開始、1 個已結束 ›」，點了展開（D-時-64，兩殼一樣）。
  * 卡片＝名稱（右上：結果章／「收起來」／⋯）、期間與方向・範圍、進度條、數字與狀態、節奏、上一期、待確認（獨立一行在卡尾，D-時-67）。
  * 目標的期跟正在看的期無關（永遠是「現在」所在的那一期），所以換期時這一區不變。
+ *
+ * ⑥（§5.4；D-時-122、123；丙席）：範圍字帶 `#荷札`（`goal.tagKeys` → 顯示名）；範圍空了（`emptyScope`，而且沒有綁分類＝綁的荷札都被刪了）⇒
+ * 卡上一行「綁的荷札已經不在了」＋「重新選範圍 ›」、不畫條。荷札頁點「目標『…』」⇒ `focusGoalCard(id)`：捲到那張卡、描金閃一下
+ * （收在「另有…」裡的先展開；卡還沒畫出來就等它畫出來）。
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fmtDur, MIN } from "../../../domain/timetable";
 import type { GoalView } from "../../../domain/timetableStats";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
-import { goalPeriodText, md, scopeText, useCatById } from "./format";
+import { goalPeriodText, md, scopeText, useCatById, useTagNameOf } from "./format";
+
+/* ───────── ⑥ 荷札頁跳過來：捲到那張卡（模組層一個待辦 id＋事件；卡區掛著就立刻處理，沒掛就等它掛上） ───────── */
+
+const FOCUS_EVENT = "ns-tt-goal-focus";
+let pendingFocus: string | null = null;
+
+/** 荷札頁「目標『…』」的跳轉用（`lines/timetableTagEntities.ts`）：統計頁已經在畫面上就立刻捲，還沒有就等卡區掛上 */
+export function focusGoalCard(goalId: string): void {
+  pendingFocus = goalId;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(FOCUS_EVENT));
+}
 
 type Stamp = { text: string; tone: "gold" | "ink" | "late" };
 
@@ -25,10 +40,37 @@ function stampOf(v: GoalView): Stamp | null {
 
 function GoalCard({ v }: { v: GoalView }) {
   const catById = useCatById();
+  const tagNameOf = useTagNameOf();
   const openSheet = useTimetableStore((s) => s.openSheet);
   const archiveGoal = useTimetableStore((s) => s.archiveGoal);
   const T = TT_TEXT.statsUi;
   const g = v.goal;
+  const tagNames = (g.tagKeys ?? []).map(tagNameOf);
+
+  // ⑥：綁的荷札都不在了（分類本來就沒綁）⇒ 範圍空、不畫條（原型 vt-glost）
+  if (v.emptyScope && g.categoryIds.length === 0) {
+    return (
+      <article className="ns-tt-goal is-dim is-lost" data-goal-id={g.id}>
+        <div className="ns-tt-goal-h">
+          <b className="ns-tt-goal-name">{g.name}</b>
+          <button type="button" className="ns-tt-goal-more" aria-label={T.goalEdit} title={T.goalEdit} onClick={() => openSheet({ kind: "goal", goalId: g.id })}>
+            ⋯
+          </button>
+        </div>
+        <p className="ns-tt-goal-sub">
+          <span className="ns-tt-goal-per">{goalPeriodText(g)}</span>
+        </p>
+        <p className="ns-tt-goal-lost">
+          <i className="ns-tt-stats-tglyph is-hollow" aria-hidden="true" />
+          {TT_TEXT.tags.goalTagsGone}
+          <button type="button" onClick={() => openSheet({ kind: "goal", goalId: g.id })}>
+            {TT_TEXT.tags.goalRescope}
+          </button>
+        </p>
+      </article>
+    );
+  }
+
   const target = g.targetMin * MIN;
   const ms = v.cur.ms;
   const repeat = g.period === "day" || g.period === "week" || g.period === "month";
@@ -66,7 +108,7 @@ function GoalCard({ v }: { v: GoalView }) {
     (v.state === "upcoming" ? " is-upcoming" : "");
 
   return (
-    <article className={cls}>
+    <article className={cls} data-goal-id={g.id}>
       <div className="ns-tt-goal-h">
         <b className="ns-tt-goal-name">{g.name}</b>
         {stamp && <span className={"ns-tt-goal-stamp is-" + stamp.tone}>{stamp.text}</span>}
@@ -81,7 +123,7 @@ function GoalCard({ v }: { v: GoalView }) {
       </div>
       <p className="ns-tt-goal-sub">
         <span className="ns-tt-goal-per">{per}</span>
-        <span>{scopeText(v.liveCategoryIds.length ? v.liveCategoryIds : g.categoryIds, catById)}</span>
+        <span>{scopeText(v.liveCategoryIds.length ? v.liveCategoryIds : g.categoryIds, catById, tagNames)}</span>
       </p>
       {v.state !== "upcoming" && (
         <div className="ns-tt-goal-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
@@ -120,14 +162,44 @@ export function GoalCards() {
   const goals = useTimetableStatsStore((s) => s.goals);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const [showRest, setShowRest] = useState(false);
+  const [focusTick, setFocusTick] = useState(0);
+  const rootRef = useRef<HTMLElement>(null);
   const T = TT_TEXT.statsUi;
   const active = goals.filter((v) => v.state === "active");
   const rest = goals.filter((v) => v.state !== "active");
+
+  // ⑥ 荷札頁跳過來（focusGoalCard）：事件只負責叫醒；真正的捲動等卡畫出來（goals 換了也再試）
+  useEffect(() => {
+    const wake = () => setFocusTick((n) => n + 1);
+    window.addEventListener(FOCUS_EVENT, wake);
+    return () => window.removeEventListener(FOCUS_EVENT, wake);
+  }, []);
+  useEffect(() => {
+    const id = pendingFocus;
+    if (id === null || !goals.length) return;
+    if (!goals.some((v) => v.goal.id === id)) {
+      pendingFocus = null; // 封存的、讀不懂的：不在卡區，就停在統計頁
+      return;
+    }
+    if (!showRest && goals.some((v) => v.goal.id === id && v.state !== "active")) {
+      setShowRest(true);
+      return; // 展開之後這個 effect 會再跑一次
+    }
+    const el = rootRef.current?.querySelector<HTMLElement>(`[data-goal-id="${CSS.escape(id)}"]`);
+    if (!el) return;
+    pendingFocus = null;
+    el.scrollIntoView({ block: "center" }); // 不用 smooth：剛換頁、統計還在重算，平滑捲動會被版面變動打斷（同原型）
+    el.classList.remove("is-flash");
+    void el.offsetWidth; // 重播動畫
+    el.classList.add("is-flash");
+    // 不在 cleanup 清：卡區重畫不該讓閃光卡住
+    setTimeout(() => el.classList.remove("is-flash"), 1700);
+  }, [focusTick, goals, showRest]);
   const upcoming = rest.filter((v) => v.state === "upcoming").length;
   const ended = rest.length - upcoming;
 
   return (
-    <section className="ns-tt-goals">
+    <section className="ns-tt-goals" ref={rootRef}>
       <div className="ns-tt-goals-h">
         <h3>{T.goalsTitle}</h3>
         <span className="rule" />

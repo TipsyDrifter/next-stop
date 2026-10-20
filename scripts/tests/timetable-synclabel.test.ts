@@ -244,6 +244,15 @@ describe("time_goals", () => {
     assert.equal(scopeNames("{oops", look(0), TEXT), null);
     assert.equal(scopeNames(JSON.stringify({ tags: [] }), look(0), TEXT), null);
   });
+  test("⑥ scope v2（D-時-113、§5.7）：{v:2,cats} 印分類名；cats 空＝（沒有分類）；v≠2、只有 cats、v:2 配 categories、非物件＝null", () => {
+    assert.equal(scopeNames(JSON.stringify({ v: 2, cats: ["c-create", "gone"] }), look(0), TEXT), "創作");
+    assert.equal(scopeNames(JSON.stringify({ v: 2, cats: [] }), look(0), TEXT), "（沒有分類）");
+    assert.equal(scopeNames(JSON.stringify({ v: 3, cats: ["c-create"] }), look(0), TEXT), null);
+    assert.equal(scopeNames(JSON.stringify({ cats: ["c-create"] }), look(0), TEXT), null);
+    assert.equal(scopeNames(JSON.stringify({ v: 2, categories: ["c-create"] }), look(0), TEXT), null);
+    assert.equal(scopeNames("[1]", look(0), TEXT), null);
+    assert.equal(scopeNames("null", look(0), TEXT), null);
+  });
 });
 
 describe("小工具", () => {

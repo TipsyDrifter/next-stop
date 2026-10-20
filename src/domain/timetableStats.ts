@@ -12,6 +12,10 @@
  *   5. 整頁的計算（`buildStats`／`buildWeek`；store 只負責「讀資料、叫它、存結果」）
  *
  * 判定都「以現在為準」（0-8）：今天確認了上個月那塊，上個月的統計就跟著回到分類。
+ *
+ * ⑥ 荷札接軌（⑥ 契約 §3.1、0-4、0-10；只加）：`StatsSpan.tagKeys`（store 填）→ `WindowTotals.byTag`／`untaggedMs`、
+ * `StatsResult.tags`／`untagged`、`TrendBar.byTag`；目標範圍＝分類 ∪ 荷札（`Goal.tagKeys`、`goalMember`、`goalProgressIn` 逐塊判），
+ * scope 認 v1／v2（`parseGoal`、`goalScopeJson`、`goalScopeNext`）。荷札的推導規則在 `timetableTags.ts`（這支檔不 import 它）。
  */
 import {
   MIN,
@@ -51,6 +55,11 @@ export interface Goal {
   endOn: string | null;
   position: number;
   archived: boolean;
+  /**
+   * ⑥（0-4）：目標綁的荷札 keys——**由 store 從 taggings（`timetable:goal`）填**，不看 scope 是 v1 還是 v2；
+   * `parseGoal` 一律給 `[]`。範圍＝分類 ∪ 荷札（`goalMember`）。
+   */
+  tagKeys: string[];
 }
 
 /** 統計用的時間塊：Span ＋ 預估、連結 */
@@ -58,7 +67,14 @@ export interface StatsSpan extends Span {
   estimateMin: number | null;
   nodeId: string | null;
   routeId: string | null;
+  /**
+   * ⑥（0-9／0-10）：這一塊的全部荷札 keys（手動 ∪ 分類推導；`timetableTags.ts` 的 `blockTags`），
+   * 由 store 在算之前填好（純函式不認得 tagStore）；`toStatsSpan` 給 `[]`。
+   */
+  tagKeys: readonly string[];
 }
+
+const NO_TAGS: readonly string[] = Object.freeze([]) as readonly string[];
 
 export function toStatsSpan(r: TimeBlockSlim): StatsSpan {
   return {
@@ -70,7 +86,32 @@ export function toStatsSpan(r: TimeBlockSlim): StatsSpan {
     estimateMin: r.estimate_min,
     nodeId: r.node_id,
     routeId: r.route_id,
+    tagKeys: NO_TAGS,
   };
+}
+
+/** key 是不是落在 k 或它底下（同 `timetableTags.ts` 的 `underKey`；這支檔只准 import timetable.ts 與 lib/date.ts，所以自帶一份） */
+function keyUnder(key: string, k: string): boolean {
+  return key === k || key.startsWith(k + "/");
+}
+
+/** 一組 keys 的所有前綴（含自己；`a/b/c` ⇒ a、a/b、a/b/c），去重。同一個陣列只算一次（byTag 的「同塊同前綴只算一次」） */
+const prefixCache = new WeakMap<readonly string[], readonly string[]>();
+function prefixesOf(keys: readonly string[]): readonly string[] {
+  let out = prefixCache.get(keys);
+  if (out) return out;
+  const set = new Set<string>();
+  for (const k of keys) {
+    let i = k.indexOf("/");
+    while (i >= 0) {
+      set.add(k.slice(0, i));
+      i = k.indexOf("/", i + 1);
+    }
+    set.add(k);
+  }
+  out = Array.from(set);
+  prefixCache.set(keys, out);
+  return out;
 }
 
 /** 一期的窗；key＝期的第一個日界線日 */
@@ -135,9 +176,8 @@ export function parseGoal(r: TimeGoalRow, h = 6): Goal | null {
   } catch {
     return null;
   }
-  if (scope === null || typeof scope !== "object" || Array.isArray(scope)) return null;
-  const cats = (scope as { categories?: unknown }).categories;
-  if (!Array.isArray(cats)) return null;
+  const cats = scopeCategoriesOf(scope);
+  if (cats === null) return null;
   const categoryIds: string[] = [];
   for (const c of cats) if (typeof c === "string" && !categoryIds.includes(c)) categoryIds.push(c);
   if (typeof r.target_min !== "number" || !Number.isInteger(r.target_min) || r.target_min <= 0) return null;
@@ -171,14 +211,51 @@ export function parseGoal(r: TimeGoalRow, h = 6): Goal | null {
     endOn,
     position: r.position,
     archived: r.archived_at !== null,
+    tagKeys: [],
   };
 }
 
-/** `scope` 欄的 JSON（⑥ 荷札進站後加 "tags"，不加欄） */
-export function goalScopeJson(categoryIds: readonly string[]): string {
+/**
+ * scope 物件 → 分類 id 陣列（原樣，還沒去重）；認不得 ⇒ null（0-4）：
+ *   v1 `{"categories":[…]}`（多的鍵忽略）；v2 `{"v":2,"cats":[…]}`（有綁荷札的目標；舊版讀成 null）。
+ *   有 `v` 鍵就照 v 判（v≠2 ⇒ null，給更新的版本用）；`{"cats":[…]}` 沒有 v ⇒ null。
+ */
+function scopeCategoriesOf(scope: unknown): unknown[] | null {
+  if (scope === null || typeof scope !== "object" || Array.isArray(scope)) return null;
+  const o = scope as { v?: unknown; cats?: unknown; categories?: unknown };
+  if ("v" in o) return o.v === 2 && Array.isArray(o.cats) ? o.cats : null;
+  return Array.isArray(o.categories) ? o.categories : null;
+}
+
+/** scope 欄是哪一版：1＝`{"categories":[…]}`、2＝`{"v":2,"cats":[…]}`；解不開或認不得 ⇒ null */
+export function goalScopeVersion(scopeJson: string): 1 | 2 | null {
+  let scope: unknown;
+  try {
+    scope = JSON.parse(scopeJson);
+  } catch {
+    return null;
+  }
+  if (scopeCategoriesOf(scope) === null) return null;
+  return "v" in (scope as object) ? 2 : 1;
+}
+
+/**
+ * `scope` 欄的 JSON（0-4）：只綁分類 ⇒ v1 `{"categories":[…]}`（舊版照常讀寫）；
+ * `hasTags`（有綁荷札）⇒ v2 `{"v":2,"cats":[…]}`、沒有 `categories` 鍵（舊版 `parseGoal` 讀成 null、不畫也不能改）。
+ * 荷札本身不在這欄（在 `timetable:goal` 的 taggings）。寫既有目標請用 `goalScopeNext`（v2 有黏性）。
+ */
+export function goalScopeJson(categoryIds: readonly string[], hasTags = false): string {
   const ids: string[] = [];
   for (const id of categoryIds) if (!ids.includes(id)) ids.push(id);
-  return JSON.stringify({ categories: ids });
+  return hasTags ? JSON.stringify({ v: 2, cats: ids }) : JSON.stringify({ categories: ids });
+}
+
+/**
+ * 寫既有目標時的 scope（0-4「v2 有黏性」）：這次有荷札，**或**目標列現在的 scope 已經是 v2 ⇒ 寫 v2
+ * （就算這次沒帶 tagNames、就算荷札全被摘了）；否則 v1。`prevScope`＝目標列現在的 scope 欄（新目標傳 null）。
+ */
+export function goalScopeNext(prevScope: string | null, categoryIds: readonly string[], hasTags: boolean): string {
+  return goalScopeJson(categoryIds, hasTags || (prevScope !== null && goalScopeVersion(prevScope) === 2));
 }
 
 /** 寫入用的目標欄位（面板送進來的；`normalizeGoalInput` 驗過才落地） */
@@ -192,14 +269,24 @@ export interface GoalInput {
   startOn: string | null;
   /** until／range 必填（含當天整天，須 ≥ startOn）；其餘一律存 null */
   endOn: string | null;
+  /**
+   * ⑥（0-4、0-11）：目標綁的荷札名稱（面板草稿；存檔時 repository 用 `tagRepo.setTags(TT_TAG_GOAL, id, tagNames)`）。
+   * **沒給（undefined）＝不動荷札**；給了空陣列＝摘光。驗證只算「有幾個」（名稱合不合法由 tagRepo 判）。
+   */
+  tagNames?: readonly string[];
 }
 
 export const GOAL_NAME_MAX = 24;
 
+/** 驗證字（0-4；`TT_TEXT.tags.goalScopeEmpty` 同字） */
+export const GOAL_SCOPE_EMPTY = "至少選一個分類或荷札";
+
 /**
  * 驗證並整理（兩個 repository 共用，訊息逐字相同）。不合法 ⇒ `RangeError("<人話>")`（store 接住後 toast 它的 message）。
- * 名字 trim 後 1–24 字；分類至少一個（去重）；期間、方向要認得；目標時數 > 0 的整數分鐘；
+ * 名字 trim 後 1–24 字；分類（去重）與荷札（trim、去掉開頭的 #、去重）**至少要有一個**（⑥ 0-4；`tagNames` 沒給算 0 個）；
+ * 期間、方向要認得；目標時數 > 0 的整數分鐘；
  * since／until／range 要有起點、until／range 要有終點且終點 ≥ 起點；其餘欄存 null。
+ * 回傳的 `tagNames`：輸入有給才有（沒給＝repository 不動荷札）。
  */
 export function normalizeGoalInput(input: GoalInput): GoalInput {
   const name = input.name.trim();
@@ -207,7 +294,16 @@ export function normalizeGoalInput(input: GoalInput): GoalInput {
   if (Array.from(name).length > GOAL_NAME_MAX) throw new RangeError(`目標名稱最多 ${GOAL_NAME_MAX} 個字`);
   const categoryIds: string[] = [];
   for (const id of input.categoryIds) if (typeof id === "string" && id && !categoryIds.includes(id)) categoryIds.push(id);
-  if (!categoryIds.length) throw new RangeError("至少選一個分類");
+  let tagNames: string[] | undefined;
+  if (input.tagNames !== undefined) {
+    tagNames = [];
+    for (const raw of input.tagNames) {
+      if (typeof raw !== "string") continue;
+      const t = raw.trim().replace(/^#/, "");
+      if (t && !tagNames.includes(t)) tagNames.push(t);
+    }
+  }
+  if (!categoryIds.length && !(tagNames && tagNames.length)) throw new RangeError(GOAL_SCOPE_EMPTY);
   const p = input.period;
   if (p !== "day" && p !== "week" && p !== "month" && p !== "since" && p !== "until" && p !== "range") {
     throw new RangeError("期間要選每日、每週、每月、從某天起、到某天為止或單一區間");
@@ -225,7 +321,9 @@ export function normalizeGoalInput(input: GoalInput): GoalInput {
     if (startOn !== null && input.endOn < startOn) throw new RangeError("截止日期不能早於起點");
     endOn = input.endOn;
   }
-  return { name, categoryIds, period: p, targetMin: input.targetMin, direction: input.direction, startOn, endOn };
+  const out: GoalInput = { name, categoryIds, period: p, targetMin: input.targetMin, direction: input.direction, startOn, endOn };
+  if (tagNames !== undefined) out.tagNames = tagNames;
+  return out;
 }
 
 /** `Goal` → 可編輯欄位（編輯面板的初值；patch 合併用） */
@@ -258,9 +356,20 @@ export function expandScope(categoryIds: readonly string[], cats: readonly TimeC
   return out;
 }
 
+/** ms → 進度（目標 ≤ 0 ⇒ ratio 0）。atLeast：met＝ms ≥ 目標、over 恆 false；atMost：over＝ms > 目標、met＝!over */
+function progressOf(g: Goal, ms: number): { ms: number; ratio: number; met: boolean; over: boolean } {
+  const target = g.targetMin * MIN;
+  const ratio = target > 0 ? ms / target : 0;
+  if (g.direction === "atLeast") return { ms, ratio, met: ms >= target, over: false };
+  const over = ms > target;
+  return { ms, ratio, met: !over, over };
+}
+
 /**
- * 進度：`ms`＝scope 內各分類時數加總；`ratio`＝ms ÷ 目標（目標 ≤ 0 ⇒ 0）。
+ * 進度（**只看分類**的舊介面，③ 起）：`ms`＝scope 內各分類時數加總；`ratio`＝ms ÷ 目標（目標 ≤ 0 ⇒ 0）。
  * atLeast：met＝ms ≥ 目標、over 恆 false；atMost：over＝ms > 目標、met＝!over。
+ * ⑥ 起目標可以綁荷札（範圍＝分類 ∪ 荷札，一塊只算一次），聯集沒辦法從加總表拼出來 ⇒ 正式計算改用 `goalProgressIn`
+ * （逐塊判 `goalMember`；`buildGoals` 用它）。沒綁荷札的目標兩者結果相同。
  */
 export function goalProgress(
   g: Goal,
@@ -270,11 +379,54 @@ export function goalProgress(
   const scope = expandScope(g.categoryIds, cats);
   let ms = 0;
   for (const id of scope) ms += byCategory[id] ?? 0;
-  const target = g.targetMin * MIN;
-  const ratio = target > 0 ? ms / target : 0;
-  if (g.direction === "atLeast") return { ms, ratio, met: ms >= target, over: false };
-  const over = ms > target;
-  return { ms, ratio, met: !over, over };
+  return progressOf(g, ms);
+}
+
+/**
+ * ⑥ 0-10：一塊在不在目標的範圍裡——分類在 `catSet`（`expandScope` 展開過的）**或**它的荷札（含推導的）有一個落在
+ * `tagKeys` 裡某個 key 或它底下（`#高效` 的目標也算 `#高效/深度` 的塊）。
+ */
+export function goalMember(
+  s: { categoryId: string; tagKeys?: readonly string[] },
+  catSet: ReadonlySet<string>,
+  tagKeys: readonly string[],
+): boolean {
+  if (catSet.has(s.categoryId)) return true;
+  if (!tagKeys.length) return false;
+  const ks = s.tagKeys;
+  if (!ks || !ks.length) return false;
+  for (const k of ks) for (const t of tagKeys) if (keyUnder(k, t)) return true;
+  return false;
+}
+
+/** 目標實際的範圍（⑥）：展開過的分類集合＋荷札 keys；兩者都空＝`empty`（綁的分類／荷札都不在了） */
+export function goalScopeOf(g: Goal, cats: readonly TimeCategoryRow[]): { cats: Set<string>; tagKeys: readonly string[]; empty: boolean } {
+  const set = expandScope(g.categoryIds, cats);
+  const tagKeys = g.tagKeys ?? [];
+  return { cats: set, tagKeys, empty: set.size === 0 && tagKeys.length === 0 };
+}
+
+/**
+ * ⑥ 0-10 目標進度（逐塊判）：窗內每一塊（`t.msById`，碎塊已排除）是範圍成員、而且不是待確認 ⇒ 它切進窗的 ms 加進去；
+ * 一塊只算一次（分類＋荷札都中也一樣）。`spanById`＝算 `t` 用的那批 spans。
+ */
+export function goalProgressIn(
+  g: Goal,
+  t: WindowTotals,
+  spanById: ReadonlyMap<string, StatsSpan>,
+  cats: readonly TimeCategoryRow[],
+): { ms: number; ratio: number; met: boolean; over: boolean } {
+  const sc = goalScopeOf(g, cats);
+  const pend = new Set(t.pendingIds);
+  let ms = 0;
+  if (!sc.empty) {
+    for (const id of Object.keys(t.msById)) {
+      if (pend.has(id)) continue;
+      const s = spanById.get(id);
+      if (s && goalMember(s, sc.cats, sc.tagKeys)) ms += t.msById[id];
+    }
+  }
+  return progressOf(g, ms);
 }
 
 /** 兩個 YYYY-MM-DD 相差幾天（b − a） */
@@ -456,6 +608,15 @@ export interface WindowTotals {
   unrecordedMs: number;
   /** 有效段長＝max(0, min(w.end, now) − w.start)；未來的窗＝0 */
   effectiveMs: number;
+  /**
+   * ⑥ 0-10 依荷札：key → ms（已記錄；不含待確認、碎塊）。**不是分割**：一塊掛幾個荷札就進幾列；
+   * key 含虛資料夾父層（每個前綴都累加），同一塊同一個前綴只算一次（`高效/深度`＋`高效` 都掛，`高效` 那列不重複算）。
+   */
+  byTag: Record<string, number>;
+  /** ⑥：沒掛荷札（`tagKeys` 空）的已記錄 ms */
+  untaggedMs: number;
+  /** ⑥：每塊切進這個窗的 ms（含待確認、不含碎塊；0 ms 的不列）——目標逐塊判（`goalProgressIn`）用 */
+  msById: Record<string, number>;
 }
 
 /**
@@ -481,6 +642,9 @@ export function windowTotals(
     pendingByCategory: {},
     unrecordedMs: 0,
     effectiveMs,
+    byTag: {},
+    untaggedMs: 0,
+    msById: {},
   };
   if (effectiveMs <= 0) return out;
   // 先濾掉碎塊與不相交的（大資料時省掉切片的前置成本）
@@ -511,6 +675,7 @@ export function windowTotals(
     }
   };
   for (const sl of sliceSpans(eligible, w, now)) {
+    out.msById[sl.id] = (out.msById[sl.id] ?? 0) + sl.ms;
     if (cls.pending.has(sl.id)) {
       out.pendingMs += sl.ms;
       addPending(sl.id, sl.categoryId, sl.ms);
@@ -518,8 +683,16 @@ export function windowTotals(
     }
     out.recordedMs += sl.ms;
     out.byCategory[sl.categoryId] = (out.byCategory[sl.categoryId] ?? 0) + sl.ms;
-    const r = routeOf(byId.get(sl.id)!);
+    const s = byId.get(sl.id)!;
+    const r = routeOf(s);
     out.byRoute[r] = (out.byRoute[r] ?? 0) + sl.ms;
+    // ⑥ 依荷札（舊呼叫端的 span 沒有 tagKeys ⇒ 當沒掛）
+    const tk = s.tagKeys;
+    if (!tk || !tk.length) {
+      out.untaggedMs += sl.ms;
+    } else {
+      for (const k of prefixesOf(tk)) out.byTag[k] = (out.byTag[k] ?? 0) + sl.ms;
+    }
   }
   for (const s of eligible) if (cls.pending.has(s.id) && !seenPending.has(s.id)) addPending(s.id, s.categoryId, 0);
   out.unrecordedMs = Math.max(0, effectiveMs - out.recordedMs - out.pendingMs);
@@ -566,6 +739,8 @@ export interface TrendBar {
   byCategory: Record<string, number>;
   /** 頂層（totalsByGroup）；過濾到頂層分類、堆疊上色都用它 */
   byGroup: Record<string, number>;
+  /** ⑥：依荷札（同 `WindowTotals.byTag`；趨勢過濾到某個荷札時用它，單色墨） */
+  byTag: Record<string, number>;
   recordedMs: number;
   /** 最後一根（＝正在看的這一期） */
   isCurrent: boolean;
@@ -619,6 +794,27 @@ export interface GoalView {
   paceMs: number | null;
   /** 從今天（含）到終點（含）還剩幾天；沒有終點或已結束＝null */
   daysLeft: number | null;
+  /**
+   * ⑥：範圍是空的——綁的分類都刪了、綁的荷札也都不在了（`goal.tagKeys` 空）。進度恆 0；
+   * 卡上不畫條，`goal.categoryIds` 也空時寫「綁的荷札已經不在了」（`TT_TEXT.tags.goalTagsGone`）。
+   */
+  emptyScope: boolean;
+}
+
+/**
+ * ⑥ 占比卡「荷札」面的一列（結構同 `timetableTags.ts` 的 `TagShareRow`；這支檔不准 import 它，所以各寫一份、結構相容）。
+ * 由 `StatsInput.tagRows`（store 傳 `tagShareRows` 進來）產生。
+ */
+export interface StatsTagRow {
+  key: string;
+  name: string;
+  seg: string;
+  depth: number;
+  parent: string | null;
+  hasKids: boolean;
+  real: boolean;
+  ms: number;
+  prevMs: number;
 }
 
 export interface StatsResult {
@@ -646,6 +842,13 @@ export interface StatsResult {
   pending: PendingItem[];
   /** 這一期完全沒有紀錄（已記錄與待確認都是 0） */
   empty: boolean;
+  /**
+   * ⑥ 占比卡「荷札」面（D-時-118／119）：樹狀列（本期或上期 > 0 的；父層含子孫、同塊不重複）。
+   * 數字來源＝`cur.byTag`／`prev.byTag`；名字與排序由 `StatsInput.tagRows` 給（沒給＝空陣列）。
+   */
+  tags: StatsTagRow[];
+  /** ⑥ 最後一列「沒掛荷札」（0 也列）：本期／上期 ms（＝`cur.untaggedMs`／`prev.untaggedMs`） */
+  untagged: { ms: number; prevMs: number };
 }
 
 export interface StatsInput {
@@ -663,6 +866,11 @@ export interface StatsInput {
   /** 門檻分鐘（見 `classifySpans`） */
   thresholdMin: (s: StatsSpan) => number | null;
   routeOf: (s: StatsSpan) => string;
+  /**
+   * ⑥：本期／上期的 byTag → 「荷札」面的列。store 傳 `(c, p) => tagShareRows(c, p, (k) => tagStore.index?.byKey[k])`
+   * （`timetableTags.ts`）；不傳＝`tags` 空陣列。
+   */
+  tagRows?: (cur: Readonly<Record<string, number>>, prev: Readonly<Record<string, number>>) => StatsTagRow[];
 }
 
 /**
@@ -754,6 +962,7 @@ export function buildStats(input: StatsInput): StatsResult {
       end: w.end,
       byCategory: t.byCategory,
       byGroup: totalsByGroup(t.byCategory, cats),
+      byTag: t.byTag,
       recordedMs: t.recordedMs,
       isCurrent: i === keys.length - 1,
       inProgress: now >= w.start && now < w.end,
@@ -785,6 +994,8 @@ export function buildStats(input: StatsInput): StatsResult {
     routes: routeRows(cur.byRoute, prev.byRoute),
     pending,
     empty: cur.recordedMs <= 0 && cur.pendingMs <= 0,
+    tags: input.tagRows ? input.tagRows(cur.byTag, prev.byTag) : [],
+    untagged: { ms: cur.untaggedMs, prevMs: prev.untaggedMs },
   };
 }
 
@@ -810,26 +1021,27 @@ export function buildGoals(
   const spanById = new Map<string, StatsSpan>();
   for (const s of spans) spanById.set(s.id, s);
   const routeOf = opts.routeOf ?? ((): string => ROUTE_NONE);
-  const one = (g: Goal, scope: Set<string>, w: { start: number; end: number }): GoalPeriodResult => {
+  // ⑥ 0-10：進度與「另有 n 班待確認」都逐塊判（範圍＝分類 ∪ 荷札，一塊只算一次）
+  const one = (g: Goal, scope: ReturnType<typeof goalScopeOf>, w: { start: number; end: number }): GoalPeriodResult => {
     const t = windowTotals(spans, cls, w, opts.now, routeOf);
-    const p = goalProgress(g, t.byCategory, cats);
+    const p = goalProgressIn(g, t, spanById, cats);
     let pendingCount = 0;
     let pendingMs = 0;
-    for (const id of Object.keys(t.pendingByCategory)) {
-      if (!scope.has(id)) continue;
-      pendingCount += t.pendingByCategory[id].count;
-      pendingMs += t.pendingByCategory[id].ms;
-    }
     const pendingItems: PendingItem[] = [];
-    for (const id of t.pendingIds) {
-      const s = spanById.get(id);
-      if (s && scope.has(s.categoryId)) pendingItems.push({ id: s.id, categoryId: s.categoryId, start: s.start, end: s.end, durMs: durOf(s, opts.now) });
+    if (!scope.empty) {
+      for (const id of t.pendingIds) {
+        const s = spanById.get(id);
+        if (!s || !goalMember(s, scope.cats, scope.tagKeys)) continue;
+        pendingCount += 1;
+        pendingMs += t.msById[id] ?? 0;
+        pendingItems.push({ id: s.id, categoryId: s.categoryId, start: s.start, end: s.end, durMs: durOf(s, opts.now) });
+      }
     }
     pendingItems.sort((a, b) => b.start - a.start || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
     return { start: w.start, end: w.end, ...p, pendingCount, pendingMs, pendingItems };
   };
   const views = goals.map((g): GoalView => {
-    const scope = expandScope(g.categoryIds, cats);
+    const scope = goalScopeOf(g, cats);
     const win = goalWindow(g, today, opts.h, opts.weekStart);
     const prevWin = goalPrevWindow(g, today, opts.h, opts.weekStart);
     const live = g.categoryIds.filter((id) => {
@@ -846,6 +1058,7 @@ export function buildGoals(
       prev: prevWin ? one(g, scope, prevWin) : null,
       paceMs: win.state === "active" ? goalPace(g, cur.ms, today, opts.h) : null,
       daysLeft: win.state === "active" ? goalDaysLeft(g, today) : null,
+      emptyScope: scope.empty,
     };
   });
   // 排序（5.2-5）：進行中 → 未開始 → 已結束，同類照 position（Array.sort 在 ES2019+ 穩定，原順序＝store 給的 position 序）

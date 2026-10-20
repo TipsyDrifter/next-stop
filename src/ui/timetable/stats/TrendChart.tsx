@@ -3,17 +3,21 @@
  * 日 14／週 8／月 6 根；子分類色、依頂層一組一組堆、組間 1px 紙色縫；本期那根描金、進行中的上緣一條虛線。
  * 過濾（清單點名稱）：頂層＝只畫它那一組（子分類色）、子分類＝單色。
  * 明細：桌機滑過、手機點一根 ⇒ 上面那行換成「10/13–10/19　96h12m」＋各頂層（或過濾那組的子分類）數字；預設＝本期那根。
+ * ⑥（D-時-119；丙席）：過濾到荷札（`filter.kind === "tag"`）＝每根只畫那個荷札的時數（`TrendBar.byTag`，父層含子孫、同塊不重複），
+ * **單色墨**（荷札沒有顏色）；明細只寫合計；卡頭的過濾鈕放荷札牌。
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { fmtDur } from "../../../domain/timetable";
 import { type StatsResult } from "../../../domain/timetableStats";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
-import { catColor, trendLabel, trendTick, useCatById } from "./format";
+import { catColor, trendLabel, trendTick, useCatById, useTagNameOf } from "./format";
 import { MiniBar } from "./parts";
-import { stackOf, stackOrder } from "./stack";
+import { stackOf, stackOrder, type SegGroup } from "./stack";
 
 const HOUR = 3_600_000;
+/** ⑥ 過濾到荷札時的單色（墨；token 在 timetable.css §⑥ 統計節） */
+const TAG_INK = "var(--ns-tt-stats-tagink)";
 
 function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
   const ref = useRef<T>(null);
@@ -32,8 +36,13 @@ function useWidth<T extends HTMLElement>(): [RefObject<T | null>, number] {
 
 export function TrendChart({ r, desktop }: { r: StatsResult; desktop: boolean }) {
   const catById = useCatById();
-  const filter = useTimetableStatsStore((s) => s.filterCategoryId);
+  const f = useTimetableStatsStore((s) => s.filter);
   const setFilter = useTimetableStatsStore((s) => s.setFilter);
+  const tagNameOf = useTagNameOf();
+  const filter = f && f.kind === "cat" ? f.id : null;
+  const tagKey = f && f.kind === "tag" ? f.id : null;
+  const tagRow = tagKey === null ? undefined : r.tags.find((t) => t.key === tagKey);
+  const tagName = tagKey === null ? "" : (tagRow?.name ?? tagNameOf(tagKey));
   const [boxRef, W] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
@@ -44,10 +53,16 @@ export function TrendChart({ r, desktop }: { r: StatsResult; desktop: boolean })
   useEffect(() => {
     setPicked(null);
     setHover(null);
-  }, [r.period, r.key, filter]);
+  }, [r.period, r.key, filter, tagKey]);
 
   const order = stackOrder(r.groups);
-  const stacks = r.trend.map((b) => stackOf(b.byCategory, order, catById, filter));
+  const stacks: SegGroup[][] =
+    tagKey !== null
+      ? r.trend.map((b) => {
+          const ms = b.byTag?.[tagKey] ?? 0;
+          return ms > 0 ? [{ id: tagKey, ms, segs: [{ id: tagKey, ms, color: TAG_INK }] }] : [];
+        })
+      : r.trend.map((b) => stackOf(b.byCategory, order, catById, filter));
   const totals = stacks.map((gs) => gs.reduce((s, g) => s + g.ms, 0));
   const sel = hover ?? (picked !== null && picked < n ? picked : n - 1);
 
@@ -136,7 +151,9 @@ export function TrendChart({ r, desktop }: { r: StatsResult; desktop: boolean })
   const sgs = stacks[sel] ?? [];
   const filterIsTop = filter !== null && (catById[filter]?.parent_id ?? null) === null;
   const detailParts =
-    filter === null
+    tagKey !== null
+      ? []
+      : filter === null
       ? sgs.map((g) => ({ id: g.id, name: catById[g.id]?.name ?? T.catGone, ms: g.ms, segs: g.segs, dot: null as string | null }))
       : filterIsTop
         ? (sgs[0]?.segs ?? []).map((s) => ({ id: s.id, name: catById[s.id]?.name ?? T.catGone, ms: s.ms, segs: null, dot: s.color }))
@@ -148,6 +165,13 @@ export function TrendChart({ r, desktop }: { r: StatsResult; desktop: boolean })
       <div className="ns-tt-stats-ch">
         <h3>{T.trendTitle}</h3>
         <span className="ns-tt-stats-ch-note">{T.trendNote(r.period)}</span>
+        {tagKey !== null && (
+          <button type="button" className="ns-tt-stats-fchip is-tag" title={T.filterClear} onClick={() => setFilter(null)}>
+            <i className={"ns-tt-stats-tglyph" + (tagRow && !tagRow.real ? " is-hollow" : "")} aria-hidden="true" />
+            {T.filterChip(TT_TEXT.tags.chip(tagName))}
+            <span aria-hidden="true">✕</span>
+          </button>
+        )}
         {filter !== null && (
           <button type="button" className="ns-tt-stats-fchip" title={T.filterClear} onClick={() => setFilter(null)}>
             {filterIsTop ? (

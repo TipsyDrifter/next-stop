@@ -16,6 +16,13 @@
  *   - 換日（#72）：`checkDay()` 比對「算的時候的今天」，不同就重算；停在「本期／本週」的跟著換，翻到過去某一期的留在原地。
  *     統計頁開著時 UI 每分鐘用 `useNow` 叫一次（只比字串，不重算）；`timetableStore.ensureFreshDay` → `refresh` → `rev` 變也會帶動重算。
  * `period` 存本機鍵 `timetable_stats_period`（手機 `_mobile`，兩殼各記）；第一次＝週。
+ *
+ * ⑥（⑥ 契約 0-9、§3.3）：過濾 `filter: {kind:"cat"|"tag", id} | null`、
+ * 占比卡的面 `shareBy`＋`setShareBy`（本機鍵 `timetable_stats_share_by`／`_mobile`；切面清另一種過濾，D-時-130）。
+ * 統計算之前：`tagStore.index` 沒載過（或 repository 剛寫過 taggings）就 `loadIndex()`；用 `tagMapsOf`＋`blockTags` 填每個
+ * `StatsSpan.tagKeys`、`Goal.tagKeys` 從 `timetable:goal` 的 taggings 填（不看 scope 版本）、`buildStats` 的 `tagRows`＝`tagShareRows`。
+ * 訂 `useTagStore` 的 `index`：換了只重算、不重讀塊（沿用上一趟讀的塊）；`filter.kind==="tag"` 的 key 已經不在 index 裡
+ * （改名＝換 key、刪除）⇒ 清掉過濾（評審第 8 條）。週視圖不畫荷札（D-時-117），不填。
  */
 import { create } from "zustand";
 import { timetableRepo } from "../data/timetableRepository";
@@ -49,13 +56,26 @@ import {
   type StatsSpan,
   type WeekResult,
 } from "../domain/timetableStats";
+import { EMPTY_TAG_MAPS, blockTags, tagMapsOf, tagShareRows, type TimetableTagMaps } from "../domain/timetableTags";
+import type { TimeCategoryRow } from "../domain/timetable";
 import { useNodeStore } from "./nodeStore";
 import { timetableShell, useTimetableStore } from "./timetableStore";
+import { useTagStore } from "./tagStore";
 import { useUiStore } from "./uiStore";
 
-export type { Goal, GoalView, StatsResult, WeekResult } from "../domain/timetableStats";
+export type { Goal, GoalView, StatsResult, StatsTagRow, WeekResult } from "../domain/timetableStats";
 
 export const KEY_STATS_PERIOD = "timetable_stats_period"; // 本地；手機加 `_mobile`
+/** ⑥ D-時-118：占比卡「分類｜荷札」記住上次（本地；手機加 `_mobile`，兩殼各記）；沒有列＝分類 */
+export const KEY_STATS_SHARE_BY = "timetable_stats_share_by";
+
+/** ⑥：占比卡看哪一面 */
+export type StatsShareBy = "cat" | "tag";
+/** ⑥：趨勢只看什麼——分類（頂層或子分類 id）或荷札（name_key，含虛資料夾父層） */
+export interface StatsFilter {
+  kind: "cat" | "tag";
+  id: string;
+}
 
 /** 路線的顯示名（來自 nodeStore.routes；已刪除或找不到的另標） */
 export interface RouteName {
@@ -75,8 +95,10 @@ export interface StatsState {
   weekKey: string;
   weekRef: string;
   weekFollow: boolean;
-  /** D-時-51：趨勢只看這一類（頂層或子分類 id）；null＝全部 */
-  filterCategoryId: string | null;
+  /** D-時-51／⑥：趨勢只看這一類或這個荷札；null＝全部 */
+  filter: StatsFilter | null;
+  /** ⑥ D-時-118：占比卡看「分類」還是「荷札」那一面（本機記住，兩殼各記） */
+  shareBy: StatsShareBy;
   loading: boolean;
   error: string | null;
   result: StatsResult | null;
@@ -93,7 +115,10 @@ export interface StatsState {
   /** 翻期：+1 下一期、−1 上一期；不能翻到未來（到本期就停） */
   step(delta: number): void;
   toCurrent(): void;
-  setFilter(id: string | null): void;
+  /** 字串＝分類 id（③ 的舊呼叫法，讀成 `{kind:"cat"}`）；null＝取消 */
+  setFilter(f: StatsFilter | string | null): void;
+  /** ⑥ D-時-118／130：切占比卡的面；切面時清掉另一種過濾（切回分類就清荷札過濾，反之亦然）；記到本機鍵 */
+  setShareBy(v: StatsShareBy): void;
   weekStep(delta: number): void;
   weekToCurrent(): void;
   /** 統計頁掛上／需要重算時叫；叫了就算「開著」。回傳的 promise 在這一輪（含合併進來的重算）算完時 resolve */
@@ -134,7 +159,43 @@ function storageKey(): string {
   return timetableShell() === "mobile" ? `${KEY_STATS_PERIOD}_mobile` : KEY_STATS_PERIOD;
 }
 
+function shareByKey(): string {
+  return timetableShell() === "mobile" ? `${KEY_STATS_SHARE_BY}_mobile` : KEY_STATS_SHARE_BY;
+}
+
+/** 過濾正規化：字串＝分類（③ 的舊格式）；空 id＝null */
+function toFilter(f: StatsFilter | string | null): StatsFilter | null {
+  if (f === null) return null;
+  if (typeof f === "string") return f ? { kind: "cat", id: f } : null;
+  return f.id ? { kind: f.kind, id: f.id } : null;
+}
+
+/** 過濾欄的 patch（③ 的相容欄 `filterCategoryId` 在整合時拿掉了：讀的地方都改讀 `filter`） */
+function filterPatch(f: StatsFilter | null): { filter: StatsFilter | null } {
+  return { filter: f };
+}
+
+let shareByRestored = false;
+/** 使用者已經自己切過面（本機鍵還沒讀回來也一樣）⇒ 讀回來的舊值不蓋掉 */
+let shareByTouched = false;
+
+/** ⑥：占比卡的面讀本機鍵（只讀一次；使用者在讀到之前就切了面 ⇒ 不蓋掉） */
+async function restoreShareByOnce(): Promise<void> {
+  if (shareByRestored) return;
+  shareByRestored = true;
+  try {
+    const raw = await settingsRepo.get(shareByKey());
+    if (shareByTouched) return;
+    if ((raw === "cat" || raw === "tag") && raw !== useTimetableStatsStore.getState().shareBy) {
+      useTimetableStatsStore.setState({ shareBy: raw });
+    }
+  } catch {
+    /* 讀不到就用預設（分類） */
+  }
+}
+
 async function restorePeriodOnce(): Promise<void> {
+  void restoreShareByOnce();
   if (periodRestored) return;
   periodRestored = true;
   try {
@@ -231,6 +292,61 @@ async function goalSpansFor(
   return spans;
 }
 
+/* ───────── ⑥ 荷札（0-9、§3.3） ───────── */
+
+/** 同一個 index 物件只濾一次三張對照 */
+const tagMapsCache = new WeakMap<object, TimetableTagMaps>();
+function currentTagMaps(): TimetableTagMaps {
+  const idx = useTagStore.getState().index;
+  if (!idx) return EMPTY_TAG_MAPS;
+  let m = tagMapsCache.get(idx);
+  if (!m) {
+    m = tagMapsOf(idx.ents);
+    tagMapsCache.set(idx, m);
+  }
+  return m;
+}
+
+/** 0-9：每塊的 tagKeys＝手動 ∪ 分類推導（`blockTags`；分類清單含封存）。沒有任何塊／分類荷札 ⇒ 原陣列（tagKeys 都是空的） */
+function withTagKeys(spans: StatsSpan[], cats: readonly TimeCategoryRow[], m: TimetableTagMaps): StatsSpan[] {
+  if (!Object.keys(m.block).length && !Object.keys(m.category).length) return spans;
+  return spans.map((s) => {
+    const k = blockTags(s, cats, m);
+    return k.length ? { ...s, tagKeys: k } : s;
+  });
+}
+
+/** 0-4：Goal.tagKeys 一律從 taggings（`timetable:goal`）填，不看 scope 是 v1 還是 v2 */
+function withGoalTags(goals: Goal[], m: TimetableTagMaps): Goal[] {
+  return goals.map((g) => {
+    const k = m.goal[g.id];
+    return k && k.length ? { ...g, tagKeys: k.slice() } : g;
+  });
+}
+
+/** 我們自己叫的 loadIndex 進行中（它換 index 時訂閱不必再排一趟：這一趟 await 完就會讀到新的） */
+let selfIndexLoad = false;
+
+/** 0-9：統計要用荷札——index 沒載過、或時刻表 repository 剛寫過 taggings（搬手動荷札、目標荷札、mock 種子）⇒ loadIndex */
+async function ensureTagIndex(): Promise<void> {
+  const wrote = timetableRepo.consumeTagWrites();
+  const ts = useTagStore.getState();
+  if (ts.index && !wrote) return;
+  selfIndexLoad = true;
+  try {
+    await ts.loadIndex();
+  } finally {
+    selfIndexLoad = false;
+  }
+}
+
+/**
+ * 荷札 index 換了只重算、不重讀塊（§3.3）：上一趟讀的塊（未填 tagKeys）留著；`blocksStale`＝下一趟要不要重讀。
+ * 除了荷札訂閱，所有排重算的路徑（rev、設定、翻期、load、換日、節點）都把它設成 true（`runStats()` 預設）。
+ */
+let blocksStale = true;
+let statsBlocksCache: { rev: number; fromIso: string; winEnd: number; spans: StatsSpan[] } | null = null;
+
 async function computeStats(): Promise<void> {
   const tt = useTimetableStore.getState();
   if (!tt.ready) return; // 起手分類與第一次 refresh 還沒好：等 ready／rev 變了再來（訂閱會叫）
@@ -248,19 +364,48 @@ async function computeStats(): Promise<void> {
       const g = parseGoal(r, h);
       if (g) all.push(g);
     }
-    const active = all.filter((g) => !g.archived);
-    const archivedGoals = all.filter((g) => g.archived);
     const from = statsFromMs(period, key, h, weekStart);
     const win = periodWindow(period, key, h, weekStart);
-    const rows = await timetableRepo.listBlocksSlim(isoOf(from), isoOf(Math.max(now, win.end)));
-    const spans = rows.map(toStatsSpan);
+    const fromIso = isoOf(from);
+    const c = statsBlocksCache;
+    const reuse = !blocksStale && c !== null && c.rev === tt.rev && c.fromIso === fromIso && c.winEnd === win.end;
+    blocksStale = false;
+    let spans: StatsSpan[];
+    if (reuse) {
+      spans = c.spans;
+    } else {
+      const rows = await timetableRepo.listBlocksSlim(fromIso, isoOf(Math.max(now, win.end)));
+      spans = rows.map(toStatsSpan);
+      statsBlocksCache = { rev: tt.rev, fromIso, winEnd: win.end, spans };
+    }
+    // ⑥ 0-9：讀完塊（mock 的示範荷札在第一次讀時種）再確保荷札 index，然後填 tagKeys
+    await ensureTagIndex();
+    const tagIndex = useTagStore.getState().index;
+    const maps = currentTagMaps();
+    const withTags = withGoalTags(all, maps);
+    const active = withTags.filter((g) => !g.archived);
+    const archivedGoals = withTags.filter((g) => g.archived);
     // 節點只解趨勢窗內的塊（目標另算、不查節點）
     await resolveNodeRoutes(spans);
     windowNodeIds = new Set(spans.flatMap((s) => (s.nodeId === null ? [] : [s.nodeId])));
     const th = thresholdFn();
     const cats = useTimetableStore.getState().categories;
-    const result = buildStats({ spans, cats, goals: active, period, key, now, h, weekStart, thresholdMin: th, routeOf });
-    const goalSpans = await goalSpansFor(goalsFromMs(active, now, h, weekStart), from, spans, now, today, tt.rev);
+    const tagged = withTagKeys(spans, cats, maps);
+    const result = buildStats({
+      spans: tagged,
+      cats,
+      goals: active,
+      period,
+      key,
+      now,
+      h,
+      weekStart,
+      thresholdMin: th,
+      routeOf,
+      tagRows: (cur, prev) => tagShareRows(cur, prev, (k) => tagIndex?.byKey[k]),
+    });
+    const goalRaw = await goalSpansFor(goalsFromMs(active, now, h, weekStart), from, spans, now, today, tt.rev);
+    const goalSpans = goalRaw === spans ? tagged : withTagKeys(goalRaw, cats, maps);
     const goals = buildGoals(active, goalSpans, cats, { now, h, weekStart, thresholdMin: th });
     const routeNames = await routeNamesOf(result);
     // 算的期間使用者又換了期 ⇒ 這份作廢（下一趟已經排好；沒排下一趟〔例如已 release〕就把 loading 放下）
@@ -298,8 +443,12 @@ async function computeWeek(): Promise<void> {
   }
 }
 
-/** 排一趟統計：正在算 ⇒ 標記「算完再來一趟」並回同一個 promise */
-function runStats(): Promise<void> {
+/**
+ * 排一趟統計：正在算 ⇒ 標記「算完再來一趟」並回同一個 promise。
+ * ⑥：`reuseBlocks`＝只有荷札 index 換了（沿用上一趟讀的塊）；其餘呼叫一律重讀。
+ */
+function runStats(reuseBlocks = false): Promise<void> {
+  if (!reuseBlocks) blocksStale = true;
   if (statsRunning) {
     statsDirty = true;
     return statsRunning;
@@ -350,7 +499,8 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
   weekKey: currentWeekKey(),
   weekRef: currentWeekKey(),
   weekFollow: true,
-  filterCategoryId: null,
+  filter: null,
+  shareBy: "cat",
   loading: false,
   error: null,
   result: null,
@@ -368,7 +518,7 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
     // 停在本期就跟著今天；翻到過去某一期的，換成「包含那一天」的新期（參考日不動）。
     // 沒開著（已 release）也照改——下次 load() 會依這個狀態重算
     const key = resolveViewKey(p, s.followCurrent, s.ref, todayKey(h, new Date()), h, weekStart);
-    set({ period: p, key, followCurrent: key === curKey, filterCategoryId: null });
+    set({ period: p, key, followCurrent: key === curKey, ...filterPatch(null) });
     void settingsRepo.set(storageKey(), p).catch(() => undefined);
     if (attached.stats) void runStats();
   },
@@ -389,8 +539,19 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
     if (attached.stats) void runStats();
   },
 
-  setFilter(id) {
-    set({ filterCategoryId: id });
+  setFilter(f) {
+    set(filterPatch(toFilter(f)));
+  },
+
+  setShareBy(v) {
+    if (v !== "cat" && v !== "tag") return;
+    shareByTouched = true;
+    const s = get();
+    if (v === s.shareBy) return;
+    // D-時-130：切面時清掉另一種過濾
+    const keep = s.filter && s.filter.kind === v ? s.filter : null;
+    set({ shareBy: v, ...filterPatch(keep) });
+    void settingsRepo.set(shareByKey(), v).catch(() => undefined);
   },
 
   weekStep(delta) {
@@ -468,4 +629,14 @@ useNodeStore.subscribe((s, p) => {
   }
   if (s.routes !== p.routes && routesChanged(usedRouteKeys, p.routes, s.routes)) rerun = true;
   if (rerun && attached.stats) void runStats();
+});
+
+useTagStore.subscribe((s, p) => {
+  if (s.index === p.index) return;
+  // 評審第 8 條：趨勢正在只看的荷札已經不在了（改名＝換 key、刪除）⇒ 清掉過濾，不報錯
+  const f = useTimetableStatsStore.getState().filter;
+  if (f && f.kind === "tag" && s.index && !s.index.byKey[f.id]) useTimetableStatsStore.getState().setFilter(null);
+  // §3.3：index 換了只重算、不重讀塊；我們自己在 computeStats 裡載的那一次不必再排（那一趟 await 完就讀到新的）
+  if (selfIndexLoad) return;
+  if (attached.stats) void runStats(true);
 });

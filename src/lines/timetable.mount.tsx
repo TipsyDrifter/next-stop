@@ -18,6 +18,8 @@
  * `desktopView`／`mobileView` 的欄位與值寫同一行（probe 牙齒 9 讀值）。此後凍結，只有整合席能改。
  * 車次③（③ 契約 §2 丙列、§5.6、0-13；丙席，契約授權）：加填 routeListAside（手機路線列尾本月時數，D-時-53）與
  * syncRowLabel（同步清單的時刻表三張表；組字在 `timetableSyncLabel.ts` 的純函式，這裡只查列、查名字、組跳轉）。
+ * 車次⑥（⑥ 契約 0-6、§5.6、D-時-123；丙席，契約授權）：加填 tagEntities 三筆（`timetable:block`／`category`／`goal`；
+ * 存活條件、荷札頁列字與跳轉都在 `timetableTagEntities.ts`）。
  */
 import type { LineMount } from "./types";
 import { TimetableDesktopAgent, TimetableView } from "../ui/timetable/desktop";
@@ -40,6 +42,7 @@ import { nodeRepo } from "../data";
 import { todayKey } from "../lib/date";
 import { blockSyncLabel, categorySyncLabel, goalSyncLabel, type SyncLabelLookup } from "./timetableSyncLabel";
 import type { SyncRowLabel } from "./types";
+import { TIMETABLE_TAG_ENTITIES } from "./timetableTagEntities";
 
 export const TIMETABLE_MOUNT: LineMount = {
   desktopView: TimetableView,
@@ -75,6 +78,8 @@ export const TIMETABLE_MOUNT: LineMount = {
   routeListAside: RouteTimeAside,
   // ③ 0-13（#73 R1／R5）：同步清單的時刻表三張表——名字、欄名、值印成人話、已刪除的塊補一句
   syncRowLabel: timetableSyncRowLabel,
+  // ⑥ 0-6：荷札頁認得時刻表的塊（手動掛的）、分類的預設荷札、目標綁的荷札（存活＋列字＋跳轉）
+  tagEntities: TIMETABLE_TAG_ENTITIES,
 };
 
 /* ───────── ③ syncRowLabel（0-13；查列一律含已刪除，真的查不到才回 null） ───────── */

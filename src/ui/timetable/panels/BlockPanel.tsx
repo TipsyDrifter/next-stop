@@ -18,6 +18,16 @@
  * 車次②（② 契約 §5.5；乙席；長相＝原型 `v-f.js` editBody／fillBody）：副標之後一列「連到」（LinkRow）——改一塊預設＝這一塊
  * 目前的連結、補記預設沒連；點了面板換成 LinkPicker 子頁（‹ 回來；選了就回來）。主鈕：補記＝`fill(cat, s, e, link)`；
  * 改好了＝`editBlock(..., link)`，**沒動過連結就傳 undefined**（不動）。沒動過時，面板開著別台改了這一塊的連結 ⇒ 跟著顯示新的。
+ *
+ * 車次⑥（⑥ 契約 §5.1、0-12；D-時-115、125、127；乙席；長相＝原型 `v-tags.js` blockBody）：「連到」之後一列「荷札」
+ * （div.ns-tt-row.ns-tt-tagrow）：分類帶的唯讀淡牌（`FixedTagChips`；滑過「來自分類『X』／來自組『X』」；改分類即時換）＋手動的。
+ * **手動的是草稿**（D-時-125）：桌機 `EntityTagField` 受控模式（exclude＝分類帶的 key、建議清單往下推開）；手機牌子＋「＋ 荷札」
+ * 開點選器 insert 模式、交回的名稱併進草稿。同一個 key 手動與分類帶的都有 ⇒ 只畫手動那顆（D-時-127）。
+ * 按「改好了／補上」才把草稿交給 store：補記＝`fill(..., link, tagNames)`；改一塊＝`editBlock(..., linkPicked, tagNames)`，
+ * **沒動過荷札就傳 undefined**（不動）；按「取消」全部放棄。草稿面板裡的牌子不能點（點了會離開面板、草稿就丟了）。
+ * 評審後（資料語義第 1 條）：改一塊時記下「面板打開時的手動荷札」（index 載好那一刻的 keysOf），送出只交差集
+ * （`blockTagEditOf` → store 逐個 attach／detach；沒變＝不寫），不整份 setTags；index 還沒載好 ⇒ 荷札列只寫「荷札載入中…」、不給編輯。
+ * 桌機的荷札欄直接 import tags/EntityTagField（不經 ui/notes/desktop.ts 的 barrel；偏差記錄 10-20）。
  */
 import { useEffect, useState } from "react";
 import { MIN, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
@@ -27,6 +37,12 @@ import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { LinkPicker, LinkRow } from "../parts/LinkPicker";
+import { TT_TAG_BLOCK } from "../../../domain/timetableTags";
+import { useTagStore } from "../../../store/tagStore";
+import { EntityTagField } from "../../notes/tags/EntityTagField";
+import { blockTagEditOf } from "../../../data/timetableTagCarry";
+import { useShell } from "../../mobile/useShell";
+import { FixedTagChips, MobileTagDraft, draftKeys, fixedTagsOf, tagNameOf, useTimetableTagMaps } from "../parts/TimetableTagChips";
 import {
   Actions,
   Expand,
@@ -100,6 +116,19 @@ export function BlockPanel({ onDone }: PanelProps) {
   // ②：連結（undefined＝還沒動過：改一塊跟著這一塊目前的連結、補記＝沒連）；picking＝子頁開著
   const [linkPicked, setLinkPicked] = useState<BlockLink | null | undefined>(undefined);
   const [picking, setPicking] = useState(false);
+  // ⑥：荷札草稿（null＝還沒動過：改一塊跟著這一塊目前的手動荷札、補記＝沒有）
+  const desk = useShell() === "desktop";
+  const categories = useTimetableStore((s) => s.categories);
+  const tagMaps = useTimetableTagMaps();
+  const tagIndex = useTagStore((s) => s.index);
+  const [tagDraft, setTagDraft] = useState<string[] | null>(null);
+  const liveManual = mode === "edit" && block && tagIndex ? useTagStore.getState().keysOf(TT_TAG_BLOCK, block.id).map(tagNameOf) : [];
+  const tagNames: string[] = tagDraft ?? liveManual;
+  // 評審後：面板打開時的手動荷札（index 載好、這一塊找得到的第一刻記一次）＝送出時算差集的基準
+  const [tagInit, setTagInit] = useState<string[] | null>(null);
+  if (mode === "edit" && block && tagIndex && tagInit === null) setTagInit(useTagStore.getState().keysOf(TT_TAG_BLOCK, block.id));
+  // 改一塊要等基準記好才給編輯（index 沒載好時基準是空的，在上面編輯就是在空基準上改）
+  const tagReady = mode === "fill" || tagInit !== null;
   const link: BlockLink | null = linkPicked !== undefined ? linkPicked : mode === "edit" && block ? linkOfRow(block) : null;
   // 面板開著時別台改了這一塊（同步拉到 ⇒ block 換新）：主人還沒動過的欄位跟著換成新的值，動過的照留（沙盒 S9）。
   // 不跟的話，「改好了」會把面板上的舊起訖／舊分類整份寫回去，蓋掉別台的修改。
@@ -175,9 +204,43 @@ export function BlockPanel({ onDone }: PanelProps) {
       return;
     }
     onDone();
-    if (mode === "fill") void fill(cat, start, end, link);
-    else if (block) void editBlock(block.id, cat, start, end, linkPicked);
+    if (mode === "fill") void fill(cat, start, end, link, tagDraft ?? []);
+    else if (block) {
+      // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
+      const tagEdit = tagDraft !== null && tagInit !== null ? (blockTagEditOf(tagInit, tagDraft) ?? undefined) : undefined;
+      void editBlock(block.id, cat, start, end, linkPicked, tagEdit);
+    }
   };
+
+  // ⑥ 荷札列：分類帶的（跟著面板上選的分類即時換）＋手動的草稿
+  const fixedTags = fixedTagsOf(cat, categories, tagMaps);
+  const tagEmpty = mode === "fill" && !cat ? TT_TEXT.tags.fillHint : undefined;
+  const tagRow = (
+    <div className="ns-tt-row is-top ns-tt-tagrow">
+      <span className="ns-tt-row-k">{TT_TEXT.tags.row}</span>
+      <span className="ns-tt-row-v">
+        {!tagReady ? (
+          <div className={"ns-tt-tagfield" + (desk ? "" : " is-m")} aria-busy="true">
+            <span className="ns-tt-tagfield-empty">{TT_TEXT.tags.loading}</span>
+          </div>
+        ) : desk ? (
+          <div className="ns-tt-tagfield">
+            <FixedTagChips tags={fixedTags} hideKeys={draftKeys(tagNames)} />
+            {tagEmpty && !tagNames.length && <span className="ns-tt-tagfield-empty">{tagEmpty}</span>}
+            <EntityTagField
+              value={tagNames}
+              onChange={setTagDraft}
+              exclude={fixedTags.map((t) => t.key)}
+              suggestInline
+              resetKey={blockId || "fill"}
+            />
+          </div>
+        ) : (
+          <MobileTagDraft fixed={fixedTags} value={tagNames} onChange={setTagDraft} empty={tagEmpty} />
+        )}
+      </span>
+    </div>
+  );
 
   const catName = (id: string): string => catById[id]?.name ?? "？";
   const snapPrev = prevEnd;
@@ -256,6 +319,7 @@ export function BlockPanel({ onDone }: PanelProps) {
       </Sub>
       {warn && <Sub warn>{warn}</Sub>}
       <LinkRow value={link} onOpen={() => setPicking(true)} />
+      {tagRow}
       <CategoryGrid selected={cat} onPick={setCat} compact />
       <Row k="発車">
         <Stepper value={start} steps={[-5, 5]} lo={0} hi={end - MIN} onChange={setStartClamped} label="発車時刻" />

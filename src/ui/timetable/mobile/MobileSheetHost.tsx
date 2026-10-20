@@ -6,6 +6,7 @@
  */
 import { useEffect, useId } from "react";
 import { useTimetableStore } from "../../../store/timetableStore";
+import { useTagStore } from "../../../store/tagStore";
 import { SheetPanel, sheetTitle } from "../panels";
 import { useNow } from "../useNow";
 
@@ -24,6 +25,8 @@ export function MobileSheetHost() {
     if (!sheet) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.isComposing || e.keyCode === 229) return;
+      // ⑥ 評審後：荷札點選器（旅客筆記的，蓋在面板上）開著時 Esc 不關底下的面板——關了草稿就丟，點選器「完成」交回的名稱也沒人收
+      if (useTagStore.getState().picker !== null) return;
       if (e.key === "Escape") {
         e.preventDefault();
         closeSheet();

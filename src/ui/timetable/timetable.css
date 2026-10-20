@@ -2708,3 +2708,229 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   .ns-tt-grid-band.is-live::after, .ns-tt-grid-read.is-on, .ns-tt-grid-swap { animation: none; }
   [data-shell="mobile"] .ns-tt-grid-mbar, .ns-tt-grid-arrow, .ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat { transition: none; }
 }
+
+/* ═══ §⑥L 荷札（面板）（乙・⑥；節名用「§⑥L」：§L／§M 已是 ④ 日程、⑤ 方眼；⑥ 契約 §5.1～5.4、§5.8；D-時-115、116、121、122、125～131；＝原型 v-tags.css 荷札牌／荷札欄／運行列／分類管理）═══
+ * 荷札牌沒有顏色（荷札契約鐵則 5）：框線、牌面、打孔都從墨與紙推導；分類帶的（.is-fixed）＝框線退淡、牌面＝面板的紙、不打孔、沒有 ×。
+ * 桌機的手動荷札欄是旅客筆記的 EntityTagField（.ns-notes-tagfield）：放進 .ns-tt-tagfield 時 display: contents，
+ * 讓分類帶的淡牌和手動的牌子排成同一排；建議清單（suggestInline ⇒ .ns-notes-sug.static）佔滿一行、往下推開。 */
+.ns-tt-tag {
+  --ns-tt-tag-line: color-mix(in srgb, var(--color-ink) 44%, transparent);
+  --ns-tt-tag-line-hi: color-mix(in srgb, var(--color-ink) 80%, transparent);
+  --ns-tt-tag-fill: rgba(var(--starlight), .92);
+  --ns-tt-tag-eye: color-mix(in srgb, var(--color-ink) 55%, transparent);
+  --h: 22px; --c: 6px;
+  position: relative; display: inline-flex; align-items: stretch; flex: none;
+  height: var(--h); max-width: 100%; vertical-align: middle;
+  background: var(--ns-tt-tag-line);
+  clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+  transition: background .15s;
+}
+[data-theme="dark"] .ns-tt-tag {
+  --ns-tt-tag-line: color-mix(in srgb, var(--color-ink) 34%, transparent);
+  --ns-tt-tag-line-hi: color-mix(in srgb, var(--color-ink) 72%, transparent);
+  --ns-tt-tag-fill: var(--color-paper-high);
+  --ns-tt-tag-eye: color-mix(in srgb, var(--color-ink) 50%, transparent);
+}
+.ns-tt-tag::before {
+  content: ""; position: absolute; inset: 1px; background: var(--ns-tt-tag-fill);
+  clip-path: polygon(calc(var(--c) - .45px) 0, 100% 0, 100% 100%, calc(var(--c) - .45px) 100%, 0 calc(100% - var(--c) + .45px), 0 calc(var(--c) - .45px));
+}
+.ns-tt-tag::after {
+  content: ""; position: absolute; left: 6px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
+  border-radius: 50%; border: 1px solid var(--ns-tt-tag-eye); background: var(--color-paper); z-index: 1; pointer-events: none;
+}
+.ns-tt-tag-nm {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; min-width: 0;
+  padding: 0 8px 0 16px; border: 0; background: transparent;
+  font-family: inherit; font-size: 12px; line-height: 1; letter-spacing: .04em; white-space: nowrap; color: var(--color-ink-soft);
+}
+button.ns-tt-tag-nm { cursor: pointer; }
+button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -3px; }
+.ns-tt-tag .pa { color: var(--color-ink-faint); }
+.ns-tt-tag .la { color: var(--color-ink); }
+.ns-tt-tag .sl { font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7; }
+.ns-tt-tag:hover { background: var(--ns-tt-tag-line-hi); }
+.ns-tt-tag-x {
+  position: relative; z-index: 1; width: 0; padding: 0; overflow: hidden; opacity: 0; display: grid; place-items: center;
+  border: 0; background: transparent; cursor: pointer; font-size: 9px; color: var(--color-ink-faint);
+  transition: width .15s cubic-bezier(.2, .9, .3, 1.1), opacity .12s;
+}
+.ns-tt-tag:hover .ns-tt-tag-x, .ns-tt-tag-x:focus-visible { width: 18px; margin-left: -5px; opacity: 1; }
+.ns-tt-tag-x:hover { color: var(--color-late); }
+/* 分類（或組）帶的：淡一階 */
+.ns-tt-tag.is-fixed { background: color-mix(in srgb, var(--ns-tt-tag-line) 42%, transparent); }
+.ns-tt-tag.is-fixed::before { background: var(--ns-tt-sched-solid); }
+.ns-tt-tag.is-fixed::after { display: none; }
+.ns-tt-tag.is-fixed .ns-tt-tag-nm { padding-left: 11px; color: var(--color-ink-faint); }
+.ns-tt-tag.is-fixed .la { color: var(--color-ink-soft); }
+.ns-tt-tag.is-fixed:hover { background: color-mix(in srgb, var(--ns-tt-tag-line) 80%, transparent); }
+/* 小牌 */
+.ns-tt-tag.is-sm { --h: 19px; --c: 5px; }
+.ns-tt-tag.is-sm::after { left: 5px; width: 4px; height: 4px; margin-top: -2px; }
+.ns-tt-tag.is-sm .ns-tt-tag-nm { font-size: 11px; padding: 0 6px 0 13px; }
+.ns-tt-tag.is-sm.is-fixed .ns-tt-tag-nm { padding-left: 9px; }
+/* 小圖示（運行列的「荷札」鈕）：實線牌形 */
+.ns-tt-tglyph {
+  display: inline-block; flex: none; width: 9px; height: 7px; vertical-align: middle;
+  background: currentColor; opacity: .55; clip-path: polygon(3px 0, 100% 0, 100% 100%, 3px 100%, 0 calc(100% - 3px), 0 3px);
+}
+
+/* 荷札欄（塊面板、荷札小面板、分類管理、目標面板） */
+.ns-tt-tagfield { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; width: 100%; }
+.ns-tt-tagfield .ns-notes-tagfield { display: contents; }
+.ns-tt-tagfield .ns-notes-sug.static {
+  flex-basis: 100%; margin-top: 2px; padding: 5px; max-height: 240px;
+  border: 1px solid var(--color-line); border-radius: 4px; background: var(--ns-tag-float, var(--color-paper-high));
+}
+.ns-tt-tagfield-empty { font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-tagadd {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 8px; cursor: pointer;
+  background: transparent; border: 1px dashed transparent; border-radius: 2px;
+  font-family: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint);
+  transition: color .15s, border-color .15s;
+}
+.ns-tt-tagadd:hover, .ns-tt-tagadd:focus-visible { color: var(--color-ink); border-color: var(--color-dash); outline: none; }
+.ns-tt-tagadd.is-m { height: 30px; padding: 0 12px; border-color: var(--color-dash); font-size: 12.5px; }
+.ns-tt-tagrow .ns-tt-row-v { gap: 0; }
+.ns-tt-tag-hint { flex-basis: 100%; margin-top: 6px; font-size: 10.5px; line-height: 1.6; letter-spacing: .06em; color: var(--color-ink-faint); }
+
+/* 運行列（D-時-116、126）：桌機「連到」後的淡字；計時後的「荷札 N」小鈕 */
+.ns-tt-dock-tags {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .86em; letter-spacing: .03em; color: var(--color-ink-faint);
+}
+.ns-tt-dock .ns-tt-dock-tag {
+  flex: none; min-height: 20px; padding: 0 7px; border-style: solid; font-family: var(--font-body); font-size: 10.5px; color: var(--color-ink-soft);
+  transition: color .2s, border-color .2s;
+}
+.ns-tt-dock .ns-tt-dock-tag b { font-size: 10.5px; font-weight: 500; letter-spacing: 0; color: var(--color-ink-faint); font-family: var(--font-latin); }
+.ns-tt-dock .ns-tt-dock-tag:hover { border-color: var(--color-gold); color: var(--color-ink); }
+/* 手機：放在名稱列尾端（時刻列排滿了）；只有圖示＋個數 */
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock .ns-tt-dock-tag { padding: 0 6px; font-size: 10px; letter-spacing: .02em; }
+[data-shell="mobile"] .ns-tt-mdock .ns-tt-dock .ns-tt-dock-tag b { margin-left: 1px; }
+
+/* 分類管理（D-時-121、128、131） */
+.ns-tt-mgr-namecol { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 1px; }
+.ns-tt-mgr-namecol > .ns-tt-mgr-name, .ns-tt-mgr-namecol > .ns-tt-mgr-name-input { flex: none; width: 100%; }
+.ns-tt-mgr-namecol.is-group { flex-direction: row; align-items: baseline; gap: 10px; }
+.ns-tt-mgr-namecol.is-group > .ns-tt-mgr-name, .ns-tt-mgr-namecol.is-group > .ns-tt-mgr-name-input { flex: 0 1 auto; width: auto; }
+.ns-tt-mgr-tags { display: flex; flex-wrap: wrap; gap: 0 8px; padding-left: 2px; font-size: 10.5px; line-height: 1.4; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tt-mgr-own { color: var(--color-ink-soft); }
+.ns-tt-mgr-tags .is-grp { opacity: .85; }
+.ns-tt-mgr-namecol.is-group .ns-tt-mgr-tags { flex: 0 1 auto; min-width: 0; }
+.ns-tt-mgr-group-head.is-open { border-bottom-color: transparent; }
+.ns-tt-mgr-gx { margin-bottom: 4px; }
+.ns-tt-mgr-tagrow { display: flex; align-items: flex-start; gap: 10px; width: 100%; }
+.ns-tt-mgr-tagrow > .ns-tt-mgr-def-k { flex: none; padding-top: 6px; }
+.ns-tt-mgr-tagrow > .ns-tt-tagfield { flex: 1; width: auto; min-width: 0; }
+.ns-tt-mgr-grptags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; margin: -2px 0 0; }
+.ns-tt-mgr-grptags > span:last-child { font-size: 10.5px; }
+/* 手機：每列的「組帶的」只在 ⋯ 展開區出現（D-時-131） */
+[data-shell="mobile"] .ns-tt-mgr-tags .is-grp { display: none; }
+
+/* 手機：牌子大一號、× 常亮（沒有 hover） */
+[data-shell="mobile"] .ns-tt-tag { --h: 26px; }
+[data-shell="mobile"] .ns-tt-tag .ns-tt-tag-nm { font-size: 12.5px; }
+[data-shell="mobile"] .ns-tt-tag .ns-tt-tag-x { width: 22px; margin-left: -5px; opacity: .8; font-size: 10px; }
+[data-shell="mobile"] .ns-tt-tag.is-sm { --h: 21px; }
+[data-shell="mobile"] .ns-tt-tag.is-sm .ns-tt-tag-nm { font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-tag, .ns-tt-tag-x, .ns-tt-tagadd, .ns-tt-dock .ns-tt-dock-tag { transition: none; }
+}
+
+/* ═══ §⑥M 荷札・統計（丙・⑥；⑥ 契約 §5.4、§5.5、D-時-118～120、122、123）═══
+ * 長相＝原型 prototypes/時刻表-⑥-src/v-tags.css 的「統計：占比卡『分類｜荷札』」「目標」兩節（.vt-shch／.vt-trow／.vt-over／.vt-tagempty／.vt-glost／.vt-flash）。
+ * 節名用「§⑥M」：§L／§M 已是 ④ 日程、⑤ 方眼。荷札牌沒有顏色——只用墨與紙；牌子變數借旅客筆記的 --ns-tag-*（notes-tags.css 定在 :root，
+ * 兩主題各給值），沒載到時退回墨的 %。統計列裡的小牌＝.ns-tt-stag（唯讀；塊面板那種可摘的牌子是乙席 §L 的 .ns-tt-tag*）。 */
+.ns-tt-stats { --ns-tt-stats-tagink: color-mix(in srgb, var(--color-ink) 62%, transparent); }
+
+/* 卡頭：分段鈕靠右、說明換到下一行（原型 .vt-shch） */
+.ns-tt-stats-shch { align-items: center; }
+.ns-tt-stats-shch .ns-tt-stats-ch-note { flex-basis: 100%; }
+.ns-tt-stats-shch .ns-tt-stats-shseg { flex: none; width: auto; margin-left: auto; }
+.ns-tt-stats-shseg button { min-height: 26px; padding: 0 11px; font-size: 11.5px; letter-spacing: .14em; }
+[data-shell="mobile"] .ns-tt-stats-shch .ns-tt-stats-shseg { flex: none; }
+[data-shell="mobile"] .ns-tt-stats-shch .ns-tt-stats-shseg button { flex: none; min-height: 30px; padding: 0 13px; }
+
+/* 荷札牌（小、唯讀）：細框、左端切角、打孔小圓；父層段淡、末段正常（同 notes-tags.css 的 TagChip 造型） */
+.ns-tt-stag {
+  --h: 19px; --c: 5px;
+  position: relative; display: inline-flex; align-items: stretch; flex: none; height: var(--h); max-width: 100%; vertical-align: middle;
+  background: var(--ns-tag-line, color-mix(in srgb, var(--color-ink) 44%, transparent));
+  clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+  transition: background .15s;
+}
+.ns-tt-stag::before {
+  content: ""; position: absolute; inset: 1px; background: var(--ns-tag-fill, var(--color-paper-high));
+  clip-path: polygon(calc(var(--c) - .45px) 0, 100% 0, 100% 100%, calc(var(--c) - .45px) 100%, 0 calc(100% - var(--c) + .45px), 0 calc(var(--c) - .45px));
+}
+.ns-tt-stag::after {
+  content: ""; position: absolute; left: 5px; top: 50%; width: 4px; height: 4px; margin-top: -2px; z-index: 1; pointer-events: none;
+  border-radius: 50%; border: 1px solid var(--ns-tag-eye, color-mix(in srgb, var(--color-ink) 55%, transparent)); background: var(--ns-tag-hole, var(--color-paper));
+}
+.ns-tt-stag-nm {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; min-width: 0; overflow: hidden;
+  padding: 0 6px 0 13px; font-size: 11px; line-height: 1; letter-spacing: .04em; white-space: nowrap; color: var(--color-ink-soft);
+}
+.ns-tt-stag .pa { color: var(--color-ink-faint); }
+.ns-tt-stag .la { color: var(--color-ink); }
+.ns-tt-stag .sl { font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7; }
+.ns-tt-stag.is-virtual { background: color-mix(in srgb, var(--ns-tag-line, color-mix(in srgb, var(--color-ink) 44%, transparent)) 55%, transparent); }
+.ns-tt-stag.is-virtual::after { border-style: dashed; background: transparent; opacity: .7; }
+.ns-tt-stag.is-virtual .la { color: var(--color-ink-soft); }
+/* 小圖示：實線牌＝荷札、虛線空心＝虛資料夾／不在了（原型 .vt-tglyph） */
+.ns-tt-stats-tglyph {
+  display: inline-block; flex: none; width: 11px; height: 8px; position: relative; vertical-align: middle;
+  background: currentColor; opacity: .55; clip-path: polygon(3px 0, 100% 0, 100% 100%, 3px 100%, 0 calc(100% - 3px), 0 3px);
+}
+.ns-tt-stats-tglyph.is-hollow { background: none; opacity: .7; clip-path: none; border: 1px dashed currentColor; border-radius: 1px 1px 1px 3px; }
+
+/* 荷札面：長條的位置換成一行淡字（0-10：加起來會超過 100%，不畫堆疊） */
+.ns-tt-stats-over { display: flex; align-items: center; min-height: 14px; margin: 0 0 12px; font-size: 11px; letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-tt-stats-over::before { content: ""; flex: none; width: 14px; margin-right: 8px; border-top: 1px dashed var(--color-dash); }
+/* 樹：子荷札依層縮排；牌子在按鈕裡不吃指標 */
+.ns-tt-stats-tname { gap: 7px; }
+.ns-tt-stats-tname .ns-tt-stag { pointer-events: none; }
+/* §J 的 `.ns-tt-stats-rname > span`（分類名的字體、省略號、滑過底線）不套到牌子上 */
+.ns-tt-stats-row.ns-tt-stats-trow .ns-tt-stats-tname > span.ns-tt-stag {
+  overflow: visible; font-family: var(--font-body); font-weight: 400; font-size: 11px; letter-spacing: normal; text-decoration: none; color: inherit;
+}
+.ns-tt-stats-row.ns-tt-stats-trow.is-kid .ns-tt-stats-tname { padding-left: calc(10px + (var(--d, 1) - 1) * 16px); }
+.ns-tt-stats-row.is-kid.is-new { animation: ns-tt-st-in .32s var(--ns-tt-ease) both; }
+button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, color-mix(in srgb, var(--color-ink) 80%, transparent)); }
+.ns-tt-stats-trow.is-sel .ns-tt-stag { background: var(--color-gold); }
+.ns-tt-stats-vf { flex: none; font-style: normal; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); border: 1px dashed var(--color-line); border-radius: 2px; padding: 0 4px; }
+/* 「沒掛荷札」：永遠在最後，虛線分隔、內文字體 */
+.ns-tt-stats-trow.is-none { border-top-style: dashed; }
+.ns-tt-stats-trow.is-none .ns-tt-stats-rname > span { font-family: var(--font-body); font-weight: 400; font-size: 13px; letter-spacing: .12em; color: var(--color-ink-soft); }
+/* 還沒有荷札（D-時-120） */
+.ns-tt-stats-tagempty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 12px 14px; text-align: center; }
+.ns-tt-stats-tagempty-ic { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; border: 1px dashed var(--color-dash); color: var(--color-ink-faint); }
+.ns-tt-stats-tagempty-ic .ns-tt-stats-tglyph { width: 16px; height: 11px; }
+.ns-tt-stats-tagempty p { max-width: 30em; margin: 0; font-size: 12.5px; line-height: 1.75; letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-tt-stats-goset { min-height: 36px; padding: 0 22px; }
+[data-shell="mobile"] .ns-tt-stats-goset { min-height: 44px; }
+
+/* 趨勢：過濾到荷札時卡頭的過濾鈕放小圖示（直條本身的單色＝--ns-tt-stats-tagink，TrendChart 寫在 fill） */
+.ns-tt-stats-fchip.is-tag .ns-tt-stats-tglyph { color: var(--color-ink); }
+
+/* 目標卡：綁的荷札都不在了（§5.4；原型 .vt-glost） */
+.ns-tt-goal-lost { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 2px 0 0; font-size: 12.5px; letter-spacing: .08em; color: var(--color-late); }
+.ns-tt-goal-lost .ns-tt-stats-tglyph { color: var(--color-late); }
+.ns-tt-goal-lost button {
+  margin-left: auto; padding: 2px 0; border: 0; border-bottom: 1px dashed var(--color-dash); background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-soft);
+}
+.ns-tt-goal-lost button:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
+[data-shell="mobile"] .ns-tt-goal-lost button { min-height: 36px; }
+/* 荷札頁「目標『…』」跳過來：描金閃一下（原型 .vt-flash） */
+.ns-tt-goal.is-flash { animation: ns-tt-goal-flash 1.6s var(--ns-tt-ease) both; }
+@keyframes ns-tt-goal-flash {
+  0%, 40% { box-shadow: 0 0 0 2px var(--color-gold), var(--shadow-card); }
+  100% { box-shadow: var(--shadow-card); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-stats-row.is-kid.is-new, .ns-tt-goal.is-flash { animation: none; }
+  .ns-tt-goal.is-flash { box-shadow: 0 0 0 2px var(--color-gold), var(--shadow-card); }
+}

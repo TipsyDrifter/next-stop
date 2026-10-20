@@ -24,6 +24,9 @@
  *   `listBlocksByNodes`、`listBlocksByRoute`。零 migration（§3.6）。
  * - 車次③（③ 契約 0-5、§3.2）：`time_goals` 的 CRUD（`listGoals`／`createGoal`／`updateGoal`／`archiveGoal`／`deleteGoal`／
  *   `restoreGoal`／`getGoal`）與公開的 `getBlock(id, { withDeleted })`。統計／週視圖／目標讀 `listBlocksSlim`（只取 8 欄，沙盒回報 F1②；語義同 `listBlocks`）。
+ * - 車次⑥（⑥ 契約 0-8、0-11、§3.2）：`applyPlan` 把要搬的手動荷札（insert 的 `fromId`、`planMerge` 的 `absorbedInto`）記在那一批上，
+ *   `commit` 提交之後 `carryBlockTags`（第二個交易）；目標的 `tagNames` 先寫目標列、再 `setTags('timetable:goal')`，scope 照 0-4（v2 有黏性）。
+ *   荷札 repository 由建構子注入（`timetableRepository.ts` 給 `tagRepo`）；寫過 taggings 由 `consumeTagWrites()` 回報給 store。
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
@@ -74,7 +77,9 @@ import {
   type TimeGoalRow,
   type WritePlan,
 } from "../domain/timetable";
-import { goalScopeJson, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
+import { goalScopeJson, goalScopeNext, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
+import { TT_TAG_GOAL } from "../domain/timetableTags";
+import { carryBlockTags, carryPairsOfPlan, checkTagNames, receiptWrote, type CarryPair, type TimetableTagRepo } from "./timetableTagCarry";
 import {
   buildPaintUndo,
   planPaintFill,
@@ -145,6 +150,23 @@ function orderCategories(all: TimeCategoryRow[]): TimeCategoryRow[] {
 }
 
 export class SqliteTimetableRepository implements TimetableRepository {
+  /** ⑥：荷札 repository（注入；沒給＝不搬手動荷札、目標不寫荷札——`node --test` 直載時） */
+  private readonly tags: TimetableTagRepo | null;
+  /** ⑥：每個 WriteBatch 要搬的手動荷札（applyPlan 收、commit 之後 carryBlockTags） */
+  private readonly carryOf = new WeakMap<WriteBatch, CarryPair[]>();
+  /** ⑥：上次 consumeTagWrites 以來有沒有寫過 taggings */
+  private tagWrites = false;
+
+  constructor(opts?: { tagRepo?: TimetableTagRepo | null }) {
+    this.tags = opts?.tagRepo ?? null;
+  }
+
+  consumeTagWrites(): boolean {
+    const v = this.tagWrites;
+    this.tagWrites = false;
+    return v;
+  }
+
   /* ───────── 內部 ───────── */
 
   /**
@@ -263,13 +285,28 @@ export class SqliteTimetableRepository implements TimetableRepository {
       b.stmts.push({ sql: `UPDATE time_blocks SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [nowIso, d] });
       addOp(b, "time_blocks", d, "delete", { deleted_at: nowIso, updated_at: nowIso });
     }
+    // ⑥ 0-8：手動荷札跟著 fromId／合併搬——記在這一批上，commit 之後才寫（兩個交易）
+    const pairs = carryPairsOfPlan(plan.inserts, ids, plan.absorbedInto);
+    if (pairs.length) {
+      const list = this.carryOf.get(b);
+      if (list) list.push(...pairs);
+      else this.carryOf.set(b, pairs);
+    }
     return ids;
   }
 
-  /** plan 為空 ⇒ 不呼叫 runWriteBatch（§3.5-2） */
+  /**
+   * plan 為空 ⇒ 不呼叫 runWriteBatch（§3.5-2）。⑥ 0-8：批次提交**之後** await 搬手動荷札（applyPlan 記在這一批上的 pair）；
+   * 搬荷札失敗只 warn，不影響這次寫入的結果。
+   */
   private async commit(db: Database, b: WriteBatch): Promise<void> {
     if (!b.stmts.length && !b.ops.length) return;
     await runWriteBatch(db, b.stmts, b.ops);
+    const pairs = this.carryOf.get(b);
+    if (pairs) {
+      this.carryOf.delete(b);
+      if (await carryBlockTags(pairs, this.tags)) this.tagWrites = true;
+    }
   }
 
   /* ───────── 分類 ───────── */
@@ -613,6 +650,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     b.stmts.push({ sql: `UPDATE time_blocks SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
     addOp(b, "time_blocks", id, "delete", { deleted_at: now, updated_at: now });
     await runWriteBatch(db, b.stmts, b.ops);
+    this.tagWrites = true; // ⑥ 評審後：index 只收實體存活的 taggings（0-6）⇒ 刪／復活都要重載
   }
 
   async restore(id: string): Promise<CoverSummary> {
@@ -641,7 +679,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       b.stmts.push({ sql: `UPDATE time_blocks SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [nowIso, id] });
       addOp(b, "time_blocks", id, "upsert", { deleted_at: null, updated_at: nowIso });
     }
-    await runWriteBatch(db, b.stmts, b.ops);
+    await this.commit(db, b); // ⑥：planCover 切出的片段也搬手動荷札（批次一定非空，＝原本的 runWriteBatch）
+    this.tagWrites = true; // ⑥ 評審後：復活的塊的手動荷札要回到 index（0-6 存活過濾）
     return summarizeCover(plan, id);
   }
 
@@ -930,14 +969,22 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return g.deleted_at !== null && !opts?.withDeleted ? null : g;
   }
 
+  /** ⑥ 0-11：目標列寫好之後才掛荷札（第二個交易）；`names` 是 undefined＝不動 */
+  private async writeGoalTags(id: string, names: readonly string[] | undefined): Promise<void> {
+    if (names === undefined || !this.tags) return;
+    const r = await this.tags.setTags(TT_TAG_GOAL, id, names);
+    if (receiptWrote(r.receipt)) this.tagWrites = true;
+  }
+
   async createGoal(input: GoalInput): Promise<TimeGoalRow> {
     const v = normalizeGoalInput(input);
+    const tagNames = v.tagNames !== undefined ? checkTagNames(v.tagNames) : undefined; // 不合法 ⇒ 目標列也不寫
     const db = await getDb();
     const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM time_goals WHERE ${ALIVE}`);
     const position = (max[0]?.m ?? -1) + 1;
     const now = nowUtcIso();
     const id = uuid();
-    const scope = goalScopeJson(v.categoryIds);
+    const scope = goalScopeJson(v.categoryIds, (tagNames?.length ?? 0) > 0); // ⑥ 0-4：有荷札 ⇒ v2
     const b = newWriteBatch();
     b.stmts.push({
       sql: `INSERT INTO time_goals
@@ -960,6 +1007,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
       deleted_at: null,
     });
     await runWriteBatch(db, b.stmts, b.ops);
+    await this.writeGoalTags(id, tagNames);
     const row = await this.getGoalRow(db, id);
     if (!row) throw new Error("建立目標失敗");
     return row;
@@ -970,8 +1018,11 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const cur = await this.aliveGoalOrThrow(db, id);
     const parsed = parseGoal(cur);
     if (!parsed) throw new RangeError("這個目標是新版本寫的，這一版改不了");
-    const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch });
-    const scope = goalScopeJson(v.categoryIds);
+    // ⑥ 0-4：patch 沒帶荷札 ⇒ 驗證與 scope 版本照 taggings 現在掛的（只綁荷札的目標改名不會被「至少選一個」擋下）
+    const curTags = this.tags ? (await this.tags.listTagsOf(TT_TAG_GOAL, id)).map((t) => t.name) : [];
+    const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch, tagNames: patch.tagNames ?? curTags });
+    const tagNames = patch.tagNames !== undefined ? checkTagNames(v.tagNames ?? []) : undefined;
+    const scope = goalScopeNext(cur.scope, v.categoryIds, (tagNames ?? curTags).length > 0); // v2 有黏性
     const sets: string[] = [];
     const args: unknown[] = [];
     const cols: Record<string, unknown> = {};
@@ -989,16 +1040,18 @@ export class SqliteTimetableRepository implements TimetableRepository {
     put("direction", v.direction, cur.direction);
     put("start_on", v.startOn, cur.start_on);
     put("end_on", v.endOn, cur.end_on);
-    if (!sets.length) return;
-    const now = nowUtcIso();
-    args.push(now);
-    sets.push(`updated_at = $${args.length}`);
-    cols.updated_at = now;
-    args.push(id);
-    const b = newWriteBatch();
-    b.stmts.push({ sql: `UPDATE time_goals SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
-    addOp(b, "time_goals", id, "upsert", cols);
-    await runWriteBatch(db, b.stmts, b.ops);
+    if (sets.length) {
+      const now = nowUtcIso();
+      args.push(now);
+      sets.push(`updated_at = $${args.length}`);
+      cols.updated_at = now;
+      args.push(id);
+      const b = newWriteBatch();
+      b.stmts.push({ sql: `UPDATE time_goals SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+      addOp(b, "time_goals", id, "upsert", cols);
+      await runWriteBatch(db, b.stmts, b.ops);
+    }
+    await this.writeGoalTags(id, tagNames); // 欄都沒變也照樣對荷札做差（setTags 沒變＝不寫）
   }
 
   async archiveGoal(id: string, on: boolean): Promise<void> {
@@ -1021,6 +1074,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     b.stmts.push({ sql: `UPDATE time_goals SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
     addOp(b, "time_goals", id, "delete", { deleted_at: now, updated_at: now });
     await runWriteBatch(db, b.stmts, b.ops);
+    this.tagWrites = true; // ⑥ 評審後：同 softDelete
   }
 
   async restoreGoal(id: string): Promise<void> {
@@ -1032,6 +1086,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     b.stmts.push({ sql: `UPDATE time_goals SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
     addOp(b, "time_goals", id, "upsert", { deleted_at: null, updated_at: now });
     await runWriteBatch(db, b.stmts, b.ops);
+    this.tagWrites = true; // ⑥ 評審後：復活的目標綁的荷札要回到 index（只綁荷札的目標才畫得出條）
   }
 
   /* ── ⑤（⑤ 契約 0-5、§3.2） ── */
@@ -1126,6 +1181,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
       addOp(b, "time_blocks", w.id, "upsert", cols);
     }
     await this.commit(db, b);
+    this.tagWrites = true; // ⑥ 評審後：撤回會讓被蓋掉的塊復活、切出的片段軟刪 ⇒ index 要重載
     return true;
   }
 }

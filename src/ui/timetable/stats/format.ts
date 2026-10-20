@@ -9,6 +9,7 @@ import { addDays, todayKey } from "../../../lib/date";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
+import { useTagStore } from "../../../store/tagStore";
 
 const T = TT_TEXT.statsUi;
 
@@ -81,11 +82,24 @@ export function goalPeriodText(g: Pick<Goal, "period" | "direction" | "targetMin
   return T.goalRepeat(TT_TEXT.goalPeriodWord[g.period], target);
 }
 
-/** 範圍字：分類名「・」串；超過 3 個「創作・學習…等 4 類」 */
-export function scopeText(ids: readonly string[], catById: Record<string, TimeCategoryRow>): string {
-  const names = ids.map((id) => catById[id]?.name ?? T.catGone);
+/**
+ * 範圍字：分類名「・」串；超過 3 個「創作・學習…等 4 類」。
+ * ⑥ D-時-122：`tagNames`（荷札顯示名，不含 #）接在分類後面、帶 #：「創作・學習・#高效」；混了荷札超過 3 項「創作・學習…等 4 項」。
+ */
+export function scopeText(ids: readonly string[], catById: Record<string, TimeCategoryRow>, tagNames: readonly string[] = []): string {
+  const names = ids.map((id) => catById[id]?.name ?? T.catGone).concat(tagNames.map((n) => TT_TEXT.tags.chip(n)));
   if (names.length <= 3) return names.join("・");
-  return T.scopeMore(names.slice(0, 2).join("・"), names.length);
+  const head = names.slice(0, 2).join("・");
+  return tagNames.length ? TT_TEXT.tags.scopeMore(head, names.length) : T.scopeMore(head, names.length);
+}
+
+/**
+ * ⑥：荷札 key → 顯示名（不含 #；`tagStore.index.byKey[k].name`，index 沒載或找不到＝key 本身）。
+ * 換 index（改名、刪除、載入）才換函式。
+ */
+export function useTagNameOf(): (key: string) => string {
+  const index = useTagStore((s) => s.index);
+  return useMemo(() => (k: string) => index?.byKey[k]?.name ?? k, [index]);
 }
 
 /** 現在的日界線日、日界線、週起點（畫面算「本期」「今天」用；每分鐘跟著 now 變） */

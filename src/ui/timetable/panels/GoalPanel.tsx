@@ -5,6 +5,12 @@
  * （從某天起＝起點；到某天為止＝截止必填、起點預設今天收在「改起點」裡；單一區間＝起訖都必填、訖 ≥ 起）、方向（至少／至多）、
  * 目標時數（小時 stepper＋分鐘 chips，> 0）。底部：儲存；編輯時多「封存」「刪除」（store 的 toast 帶撤回）。最下「已封存的目標」可展開、叫回。
  * 寫入一律走 store（createGoal／updateGoal／archiveGoal／deleteGoal），回 true 才關；驗證失敗的字在預覽行（儲存鈕灰掉）。
+ *
+ * 車次⑥（⑥ 契約 §5.4、0-11；D-時-122；乙席；長相＝原型 `v-tags.js` goalBody）：分類樹下一段「荷札」（div.ns-tt-row.ns-tt-tagrow）：
+ * 桌機 `EntityTagField` 受控模式（草稿；建議清單往下推開）、手機牌子＋「＋ 荷札」開點選器 insert 模式；下面一行說明。
+ * 草稿＝`tagDraft`（null＝沒動過：跟著目標現在綁的荷札，`Goal.tagKeys`／荷札 index 的 `timetable:goal`）。
+ * 驗證：分類與荷札至少一個（`TT_TEXT.tags.goalScopeEmpty`，跟 normalizeGoalInput 同字）。
+ * 存檔把 `tagNames` 交給 createGoal／updateGoal（荷札 index 載過、或已經動過草稿才帶；沒載過又沒動＝不帶＝不動荷札）。
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { TimeCategoryRow } from "../../../domain/timetable";
@@ -16,6 +22,11 @@ import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { catColor, goalPeriodText, md, scopeText } from "../stats/format";
 import { Actions, Opt, Opts, Row, Sub, type PanelProps } from "./controls";
+import { TT_TAG_GOAL } from "../../../domain/timetableTags";
+import { useTagStore } from "../../../store/tagStore";
+import { EntityTagField } from "../../notes/tags/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
+import { useShell } from "../../mobile/useShell";
+import { MobileTagDraft, tagNameOf } from "../parts/TimetableTagChips";
 
 type Kind = "repeat" | "since" | "until" | "range";
 type Rep = "day" | "week" | "month";
@@ -36,10 +47,10 @@ interface Form {
 const kindOf = (p: GoalPeriod): Kind => (p === "day" || p === "week" || p === "month" ? "repeat" : p);
 const MINUTE_CHIPS = [0, 15, 30, 45] as const;
 
-function problemOf(f: Form): string {
+function problemOf(f: Form, tagCount: number): string {
   const T = TT_TEXT.statsUi;
   if (!f.name.trim()) return T.noName;
-  if (!f.cats.length) return T.noCat;
+  if (!f.cats.length && !tagCount) return TT_TEXT.tags.goalScopeEmpty; // ⑥：分類或荷札至少一個
   if (!(f.h * 60 + f.m > 0)) return T.noHours;
   if ((f.kind === "until" || f.kind === "range") && !f.endOn) return f.kind === "until" ? T.noEndUntil : T.noEndRange;
   if (f.kind !== "repeat" && !f.startOn) return T.noStart;
@@ -47,8 +58,9 @@ function problemOf(f: Form): string {
   return "";
 }
 
-function inputOf(f: Form): GoalInput {
+function inputOf(f: Form, tagNames?: readonly string[]): GoalInput {
   return {
+    ...(tagNames !== undefined ? { tagNames: tagNames.slice() } : {}),
     name: f.name.trim(),
     categoryIds: f.cats.slice(),
     period: f.kind === "repeat" ? f.rep : f.kind,
@@ -132,6 +144,26 @@ export function GoalPanel({ onDone }: PanelProps) {
   const [busy, setBusy] = useState(false);
   const [archOpen, setArchOpen] = useState(false);
   const [openTops, setOpenTops] = useState<Record<string, boolean>>(() => openOf(f.cats));
+  // ⑥：荷札草稿（null＝沒動過，跟著目標現在綁的）
+  const desk = useShell() === "desktop";
+  const tagIndex = useTagStore((s) => s.index);
+  useEffect(() => {
+    const st = useTagStore.getState();
+    if (!st.index && !st.loading) void st.loadIndex();
+  }, []);
+  const [tagDraft, setTagDraftRaw] = useState<string[] | null>(null);
+  const setTagDraft = (names: string[]): void => {
+    dirty.current = true;
+    setTagDraftRaw(names);
+  };
+  const liveTagKeys: readonly string[] = goal
+    ? tagIndex
+      ? useTagStore.getState().keysOf(TT_TAG_GOAL, goal.id)
+      : (goal.tagKeys ?? [])
+    : [];
+  const tagNames: string[] = tagDraft ?? liveTagKeys.map(tagNameOf);
+  /** 存檔時帶不帶 tagNames：動過草稿、或荷札 index 載過（帶現值，免得只綁荷札的目標過不了驗證）；否則不帶＝不動荷札 */
+  const tagsToSave: readonly string[] | undefined = tagDraft !== null || tagIndex ? tagNames : undefined;
   useEffect(() => {
     if (!goal || filledFor === goal.id || dirty.current) return;
     const next = formOf(goal);
@@ -178,11 +210,12 @@ export function GoalPanel({ onDone }: PanelProps) {
     });
   };
 
-  const bad = problemOf(f);
+  const bad = problemOf(f, tagNames.length);
   const save = async (): Promise<void> => {
     if (bad || busy) return;
     setBusy(true);
-    const ok = goal ? await updateGoal(goal.id, inputOf(f)) : await createGoal(inputOf(f));
+    const input = inputOf(f, tagsToSave);
+    const ok = goal ? await updateGoal(goal.id, input) : await createGoal(input);
     setBusy(false);
     if (ok) onDone();
   };
@@ -271,6 +304,19 @@ export function GoalPanel({ onDone }: PanelProps) {
           })}
         </div>
       </Row>
+      <div className="ns-tt-row is-top ns-tt-tagrow ns-tt-goal-tagrow">
+        <span className="ns-tt-row-k">{TT_TEXT.tags.goalSection}</span>
+        <span className="ns-tt-row-v">
+          {desk ? (
+            <div className="ns-tt-tagfield">
+              <EntityTagField value={tagNames} onChange={setTagDraft} suggestInline resetKey={goalId ?? "new"} />
+            </div>
+          ) : (
+            <MobileTagDraft fixed={[]} value={tagNames} onChange={setTagDraft} />
+          )}
+          <span className="ns-tt-tag-hint">{TT_TEXT.tags.goalTagHint}</span>
+        </span>
+      </div>
       <Row k={T.fPeriod}>
         <span className="ns-tt-stats-seg ns-tt-goal-kseg" role="group" aria-label={T.fPeriod}>
           {kinds.map(([k, label]) => (
@@ -374,7 +420,7 @@ export function GoalPanel({ onDone }: PanelProps) {
         </Opts>
       </Row>
       <p className="ns-tt-goal-preview">
-        {bad ? <span className="ns-tt-goal-warn">{bad}</span> : `${goalPeriodText(inputOf(f))}・${scopeText(f.cats, catById)}`}
+        {bad ? <span className="ns-tt-goal-warn">{bad}</span> : `${goalPeriodText(inputOf(f))}・${scopeText(f.cats, catById, tagNames)}`}
       </p>
       <Actions>
         {goal && (
@@ -403,7 +449,7 @@ export function GoalPanel({ onDone }: PanelProps) {
                 <span>
                   <b>{g.name}</b>
                   <small>
-                    {goalPeriodText(g)}・{scopeText(g.categoryIds, catById)}
+                    {goalPeriodText(g)}・{scopeText(g.categoryIds, catById, (g.tagKeys ?? []).map(tagNameOf))}
                   </small>
                 </span>
                 <button type="button" className="ns-tt-opt is-solid" disabled={busy} onClick={() => void archiveGoal(g.id, false)}>

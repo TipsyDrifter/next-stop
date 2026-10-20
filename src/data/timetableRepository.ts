@@ -25,6 +25,7 @@ import type { PaintUndo } from "../domain/timetableGrid";
 import { MOCK_MODE, WIPED_MODE, nodeRepo, settingsRepo } from "./index";
 import { SqliteTimetableRepository } from "./sqliteTimetableRepository";
 import { MemoryTimetableRepository } from "./memoryTimetableRepository";
+import { tagRepo } from "./tagRepo"; // ⑥：塊的手動荷札搬家、目標的荷札（注入，repository 本身不 import 單例）
 
 export interface CreateCategoryInput {
   /** null＝新增頂層組 */
@@ -186,8 +187,21 @@ export interface TimetableRepository {
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary; undo: PaintUndo }>;
   /** ⑤：撤回一次塗色。任何一列的現況 `updated_at` 跟塗完時不同（另一台改過、整理動過）⇒ 一列都不動、回 false */
   undoPaint(undo: PaintUndo): Promise<boolean>;
+
+  /* ── ⑥（⑥ 契約 0-8、0-11、§3.2；只加不改） ── */
+  /**
+   * 上次呼叫以來，這個 repository 有沒有寫過荷札的 taggings（塊的手動荷札跟著 `fromId`／合併搬、目標的荷札、`&tt=stats` 的示範荷札），
+   * 呼叫＝讀完歸零。store 的 `write()`／`reload()` 寫完叫它，回 true 而且 `tagStore.index` 已載 ⇒ `loadIndex()`（0-8 必改段）。
+   * 兩支寫入同時跑時可能把別支的也一起回報（只是多重載一次 index）。
+   */
+  consumeTagWrites(): boolean;
+  /*
+   * 目標的荷札（0-4、0-11）：`createGoal`／`updateGoal` 收 `GoalInput.tagNames`——先寫目標列、再
+   * `tagRepo.setTags('timetable:goal', id, tagNames)`（兩個交易；`tagNames` 沒給＝不動荷札）。scope：有荷札或原本就是 v2 ⇒ v2（v2 有黏性）。
+   * 名稱不合法 ⇒ RangeError（旅客筆記的訊息），目標列不寫。
+   */
 }
 
 export const timetableRepo: TimetableRepository = MOCK_MODE
-  ? new MemoryTimetableRepository({ seedDemo: !WIPED_MODE, nodeRepo, settingsRepo })
-  : new SqliteTimetableRepository();
+  ? new MemoryTimetableRepository({ seedDemo: !WIPED_MODE, nodeRepo, settingsRepo, tagRepo })
+  : new SqliteTimetableRepository({ tagRepo });

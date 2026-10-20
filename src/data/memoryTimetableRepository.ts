@@ -19,6 +19,9 @@
  * - ⑤（`&tt=grid`，⑤ 契約 0-7）：今天＝零碎的一天、昨天＝首尾相接的一般日（`ensureGridDemo`）。日界線讀當下設定；種子固定。
  * - ②：建構子收 `nodeRepo`（照 `noteRepo.ts` 的注入法）——`lastCategoryFor`／`listBlocksByRoute` 由它取節點的路線、
  *   `setLink` 由它驗節點種類、`&tt=link` 由它找今日車票。
+ * - ⑥（⑥ 契約 0-8、0-11、0-13）：建構子收 `tagRepo`（注入）——`applyPlan` 套完就搬手動荷札、目標的荷札兩步寫（同 sqlite）；
+ *   `&tt=stats` 多種荷札（娛樂→#拖延、創作／學習／興趣→#高效、有「主線」組→#主線、最近三塊路上→#podcast、目標「夜行列車（荷札版）」綁 #高效），
+ *   經荷札 repository 的 attach／setTags 寫。
  */
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, clockInstant, dayWindow, todayKey } from "../lib/date";
@@ -68,8 +71,10 @@ import {
   type TimeGoalRow,
   type WritePlan,
 } from "../domain/timetable";
-import { goalScopeJson, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
+import { goalScopeJson, goalScopeNext, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
 import { buildStatsDemo } from "../domain/timetableStatsDemo";
+import { TT_TAG_BLOCK, TT_TAG_CATEGORY, TT_TAG_GOAL } from "../domain/timetableTags";
+import { carryBlockTags, carryPairsOfPlan, checkTagNames, receiptWrote, type TimetableTagRepo } from "./timetableTagCarry";
 import {
   buildPaintUndo,
   planPaintFill,
@@ -132,10 +137,27 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /** ② `&tt=link` 的連結示範（async；做過一次就直接回同一個 promise） */
   private linkDemo: Promise<void> | null = null;
 
-  constructor(opts: { seedDemo: boolean; nodeRepo: NodeRepository; settingsRepo?: Pick<SettingsRepository, "get"> }) {
+  /** ⑥：荷札 repository（注入；沒給＝不搬手動荷札、目標不寫荷札、`&tt=stats` 不種荷札——`node --test` 直載時） */
+  private readonly tags: TimetableTagRepo | null;
+  /** ⑥：上次 consumeTagWrites 以來有沒有寫過 taggings */
+  private tagWrites = false;
+
+  constructor(opts: {
+    seedDemo: boolean;
+    nodeRepo: NodeRepository;
+    settingsRepo?: Pick<SettingsRepository, "get">;
+    tagRepo?: TimetableTagRepo | null;
+  }) {
     this.seedDemo = opts.seedDemo;
     this.nodeRepo = opts.nodeRepo;
     this.settings = opts.settingsRepo ?? null;
+    this.tags = opts.tagRepo ?? null;
+  }
+
+  consumeTagWrites(): boolean {
+    const v = this.tagWrites;
+    this.tagWrites = false;
+    return v;
   }
 
   /* ───────── 內部 ───────── */
@@ -225,7 +247,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       this.goals.set(id, {
         id,
         name: v.name,
-        scope: goalScopeJson(v.categoryIds),
+        scope: goalScopeJson(v.categoryIds, (v.tagNames?.length ?? 0) > 0), // ⑥：綁荷札的寫 v2
         period: v.period,
         target_min: v.targetMin,
         direction: v.direction,
@@ -280,6 +302,45 @@ export class MemoryTimetableRepository implements TimetableRepository {
       startOn: monthStart,
       endOn: monthEnd,
     });
+    // ⑥（⑥ 契約 0-13）：照備份分析的用法種荷札——經 MemoryTagRepository 的 attach／setTags 寫（不直接塞 Map）
+    goal(5, {
+      name: "夜行列車（荷札版）",
+      categoryIds: [],
+      tagNames: ["高效"],
+      period: "since",
+      targetMin: 180 * 60,
+      direction: "atLeast",
+      startOn: addDays(today, -42),
+      endOn: null,
+    });
+    await this.seedStatsTags(seq);
+  }
+
+  /**
+   * ⑥ `&tt=stats` 的荷札（0-13）：娛樂的預設 #拖延；創作、學習、興趣的預設 #高效；有叫「主線」的組就給它 #主線；
+   * 最近三塊「路上」（通勤）手動掛 #podcast；目標 5「夜行列車（荷札版）」綁 #高效。沒注入荷札 repository 就不種；失敗不影響主流程。
+   */
+  private async seedStatsTags(blockCount: number): Promise<void> {
+    if (!this.tags) return;
+    const tags = this.tags;
+    try {
+      await tags.attach(TT_TAG_CATEGORY, STARTER_ID.play, "拖延");
+      for (const k of ["create", "study", "hobby"]) await tags.attach(TT_TAG_CATEGORY, STARTER_ID[k], "高效");
+      for (const c of this.cats.values()) {
+        if (c.parent_id === null && c.deleted_at === null && c.name === "主線") await tags.attach(TT_TAG_CATEGORY, c.id, "主線");
+      }
+      const commute: string[] = [];
+      for (let i = blockCount; i >= 1 && commute.length < 3; i--) {
+        const id = `5ca70000-0000-4000-8000-${i.toString(16).padStart(12, "0")}`;
+        const b = this.blocks.get(id);
+        if (b && b.category_id === STARTER_ID.move && b.ended_at !== null) commute.push(id);
+      }
+      for (const id of commute) await tags.attach(TT_TAG_BLOCK, id, "podcast");
+      await tags.setTags(TT_TAG_GOAL, `90a10000-0000-4000-8000-${(5).toString(16).padStart(12, "0")}`, ["高效"]);
+      this.tagWrites = true;
+    } catch (e) {
+      console.warn("時刻表 &tt=stats：示範荷札沒種成", e);
+    }
   }
 
   /** 當下的日界線設定（`day_start_hour`；沒有／壞了＝6，同 ensureStatsDemo） */
@@ -747,6 +808,9 @@ export class MemoryTimetableRepository implements TimetableRepository {
       r.deleted_at = nowIso;
       r.updated_at = nowIso;
     }
+    // ⑥ 0-8：時間資料落地之後搬手動荷札（同 sqlite 的「commit 之後」；memory 沒有批次，套完就是落地）
+    const pairs = carryPairsOfPlan(plan.inserts, ids, plan.absorbedInto);
+    if (pairs.length && (await carryBlockTags(pairs, this.tags))) this.tagWrites = true;
     return ids;
   }
 
@@ -1036,6 +1100,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const now = nowUtcIso();
     r.deleted_at = now;
     r.updated_at = now;
+    this.tagWrites = true; // ⑥ 評審後：index 只收實體存活的 taggings（0-6）⇒ 刪／復活都要重載（同 sqlite）
   }
 
   async restore(id: string): Promise<CoverSummary> {
@@ -1051,6 +1116,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     if (endedAtRestore !== null) r.ended_at = endedAtRestore;
     r.deleted_at = null;
     r.updated_at = isoOf(now);
+    this.tagWrites = true; // ⑥ 評審後：復活的塊的手動荷札要回到 index（同 sqlite）
     return summarizeCover(plan, id);
   }
 
@@ -1268,15 +1334,23 @@ export class MemoryTimetableRepository implements TimetableRepository {
     return !isAlive(g) && !opts?.withDeleted ? null : clone(g);
   }
 
+  /** ⑥ 0-11：目標列寫好之後才掛荷札（同 sqlite）；`names` 是 undefined＝不動 */
+  private async writeGoalTags(id: string, names: readonly string[] | undefined): Promise<void> {
+    if (names === undefined || !this.tags) return;
+    const r = await this.tags.setTags(TT_TAG_GOAL, id, names);
+    if (receiptWrote(r.receipt)) this.tagWrites = true;
+  }
+
   async createGoal(input: GoalInput): Promise<TimeGoalRow> {
     await this.ready();
     const v = normalizeGoalInput(input);
+    const tagNames = v.tagNames !== undefined ? checkTagNames(v.tagNames) : undefined; // 不合法 ⇒ 目標列也不寫
     const now = nowUtcIso();
     const position = Array.from(this.goals.values()).filter(isAlive).reduce((m, g) => Math.max(m, g.position), -1) + 1;
     const row: TimeGoalRow = {
       id: uuid(),
       name: v.name,
-      scope: goalScopeJson(v.categoryIds),
+      scope: goalScopeJson(v.categoryIds, (tagNames?.length ?? 0) > 0), // ⑥ 0-4：有荷札 ⇒ v2
       period: v.period,
       target_min: v.targetMin,
       direction: v.direction,
@@ -1292,6 +1366,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       deleted_at: null,
     };
     this.goals.set(row.id, row);
+    await this.writeGoalTags(row.id, tagNames);
     return clone(row);
   }
 
@@ -1300,27 +1375,30 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const cur = this.aliveGoalOrThrow(id);
     const parsed = parseGoal(cur);
     if (!parsed) throw new RangeError("這個目標是新版本寫的，這一版改不了");
-    const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch });
-    const scope = goalScopeJson(v.categoryIds);
-    if (
+    // ⑥ 0-4：patch 沒帶荷札 ⇒ 驗證與 scope 版本照 taggings 現在掛的（同 sqlite）
+    const curTags = this.tags ? (await this.tags.listTagsOf(TT_TAG_GOAL, id)).map((t) => t.name) : [];
+    const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch, tagNames: patch.tagNames ?? curTags });
+    const tagNames = patch.tagNames !== undefined ? checkTagNames(v.tagNames ?? []) : undefined;
+    const scope = goalScopeNext(cur.scope, v.categoryIds, (tagNames ?? curTags).length > 0); // v2 有黏性
+    const same =
       v.name === cur.name &&
       scope === cur.scope &&
       v.period === cur.period &&
       v.targetMin === cur.target_min &&
       v.direction === cur.direction &&
       v.startOn === cur.start_on &&
-      v.endOn === cur.end_on
-    ) {
-      return;
+      v.endOn === cur.end_on;
+    if (!same) {
+      cur.name = v.name;
+      cur.scope = scope;
+      cur.period = v.period;
+      cur.target_min = v.targetMin;
+      cur.direction = v.direction;
+      cur.start_on = v.startOn;
+      cur.end_on = v.endOn;
+      cur.updated_at = nowUtcIso();
     }
-    cur.name = v.name;
-    cur.scope = scope;
-    cur.period = v.period;
-    cur.target_min = v.targetMin;
-    cur.direction = v.direction;
-    cur.start_on = v.startOn;
-    cur.end_on = v.endOn;
-    cur.updated_at = nowUtcIso();
+    await this.writeGoalTags(id, tagNames); // 欄都沒變也照樣對荷札做差
   }
 
   async archiveGoal(id: string, on: boolean): Promise<void> {
@@ -1338,6 +1416,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const now = nowUtcIso();
     cur.deleted_at = now;
     cur.updated_at = now;
+    this.tagWrites = true; // ⑥ 評審後：同 softDelete
   }
 
   async restoreGoal(id: string): Promise<void> {
@@ -1346,6 +1425,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     if (!cur || isAlive(cur)) throw new RangeError("找不到這個目標");
     cur.deleted_at = null;
     cur.updated_at = nowUtcIso();
+    this.tagWrites = true; // ⑥ 評審後：復活的目標綁的荷札要回到 index（同 sqlite）
   }
 
   /* ── ⑤（⑤ 契約 0-5、§3.2；語義同 sqlite 實作） ── */
@@ -1427,6 +1507,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       }
       r.updated_at = nowIso;
     }
+    this.tagWrites = true; // ⑥ 評審後：撤回會讓被蓋掉的塊復活、切出的片段軟刪 ⇒ index 要重載（同 sqlite）
     return true;
   }
 }

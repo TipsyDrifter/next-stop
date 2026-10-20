@@ -11,7 +11,7 @@
  *                   fmt：時刻欄＝本地 `M/D HH:MM`；category_id＝分類名（找不到「已刪除的分類」）；node_id＝節點名
  *                   （找不到「一張車票」）；route_id＝路線名（找不到「一條路線」）；estimate_min＝fmtDur；long_run_ack＝已確認／待確認。
  *   time_categories label＝`分類『{name}』`；fmt：parent_id＝分組名（null＝頂層）、default_min＝fmtDur、archived_at＝已封存／沒封存。
- *   time_goals      label＝`目標『{name}』`；fmt：scope＝分類名以「・」串、period＝期間字、start_on／end_on＝M/D、
+ *   time_goals      label＝`目標『{name}』`；fmt：scope＝分類名以「・」串（v1、⑥ 的 v2 都認）、period＝期間字、start_on／end_on＝M/D、
  *                   target_min＝fmtDur、direction＝至少／至多、archived_at＝已封存／沒封存。
  * fmt 對不認得的欄、或值的型別不對 ⇒ 回 null（退回核心的 `fmtMergeValue`）。null 值另有字的欄（例 ended_at＝運行中）照印字。
  */
@@ -167,12 +167,19 @@ export function categorySyncLabel(row: TimeCategoryRow, look: SyncLabelLookup, t
 
 /* ───────── time_goals ───────── */
 
-/** scope JSON → 分類名以「・」串（已刪除、找不到的略過；全部找不到＝「（沒有分類）」）；解不開 ⇒ null */
+/**
+ * scope JSON → 分類名以「・」串（已刪除、找不到的略過；全部找不到＝「（沒有分類）」）；解不開 ⇒ null。
+ * ⑥ 0-4／§5.7：認 v1 `{"categories":[…]}` 與 v2 `{"v":2,"cats":[…]}`（規則同 `timetableStats.ts` 的 `parseGoal`：有 `v` 鍵但不是 2、
+ * 或只有 `cats` 沒有 `v` ⇒ null）。荷札在 taggings、不在這欄，不另印。
+ */
 export function scopeNames(v: unknown, look: SyncLabelLookup, text: SyncLabelText): string | null {
   if (typeof v !== "string") return null;
   let ids: unknown;
   try {
-    ids = (JSON.parse(v) as { categories?: unknown }).categories;
+    const o: unknown = JSON.parse(v);
+    if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
+    const s = o as { v?: unknown; cats?: unknown; categories?: unknown };
+    ids = "v" in s ? (s.v === 2 ? s.cats : null) : s.categories;
   } catch {
     return null;
   }
