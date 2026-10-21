@@ -13,6 +13,9 @@
  *   月份列在統計「年」模式改成「‹ 2026 年 ›」（‹ › 切年）；搜尋模式（清單＋有條件）時月份列換成篩選 chips 列＋「找到 N 筆…」、
  *   清單畫 resultDays（跨月印月份分隔、300 筆一頁）；月曆點格跳回來（pendingDay）⇒ 捲到那天的日分組頭、閃一下；
  *   那天沒帳 ⇒ 淡字「10/8 沒有紀錄」3 秒（dayNotice）。清單容器與月曆／統計一樣掛左右滑換視圖（useViewSwipe）。
+ * 磨光⑥ 契約 §2-1／§2-4（D-票-61、D-票-64）：管理 sheet「分類管理」下面多一列「帳戶順序」；月份列多一顆「排序」（開排序 sheet，
+ *   選日期・新到舊以外的 ⇒ 開這個月的搜尋）；搜尋時條件列最前面一顆「排序」chip（開同一個 sheet）。結果依 store.resultSort：
+ *   日期排序照舊日分組；金額排序＝平面清單（不分日、每列第二行前面帶日期「10/21（三）」、沒有月份分隔與日小計），300 筆分頁照 results 切。
  * 全螢幕表單／帳戶頁／對話框 sheet 都由 store 的 `panel`／`dialog` 決定畫不畫（兩殼共用一份 store，永不同時渲染）。
  *
  * UI 只讀 store、只叫 store 的動作；金額顯示走 domain 的純函式（moneyText／rowAmount…），不經浮點。
@@ -52,9 +55,14 @@ import { MobileTicketCalendar } from "./MobileTicketCalendar";
 import { MobileTicketStats } from "./MobileTicketStats";
 import { IconSearch, MobileSearchSheet } from "./MobileSearchSheet";
 import {
+  DEFAULT_ENTRY_SORT,
+  ENTRY_SORTS,
+  ENTRY_SORT_TEXT,
   RESULT_PAGE,
   VIEW_TEXT,
   filterChips,
+  flatDayText,
+  isAmountSort,
   isFilterActive,
   pageResults,
   periodTitle,
@@ -62,6 +70,7 @@ import {
   routeCtx,
 } from "../../../domain/ticketView";
 import { budgetScopes, effectiveBudget } from "../../../domain/ticketPlan";
+import { chooseSort } from "../view/sortChoice";
 import "../ticket.css";
 import "../ticket-mobile.css";
 
@@ -133,7 +142,8 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const repeats = useTicketStore((s) => s.repeats);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
-  const [sheet, setSheet] = useState<"manage" | "archived" | null>(null);
+  const [sheet, setSheet] = useState<"manage" | "archived" | "sort" | null>(null);
+  const resultSort = useTicketStore((s) => s.resultSort);
   const [searchSheet, setSearchSheet] = useState(false);
   // 磨光①（主線手機殼契約 §1.5）：管理／封存 sheet 的返回鍵＝「取消」。搜尋 sheet 自己登記（MobileSearchSheet）；
   // 記帳表單、帳戶頁、對話框各在自己的元件登記——都只在售票口 tab 畫，切走時那層跟著放掉（store 的 panel 留著，切回來再登記）
@@ -214,7 +224,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           type="button"
           className="ns-tk-mmanage"
           aria-label="管理"
-          title="管帳：分類、預算、定期帳、幣別、匯入"
+          title="管帳：分類、帳戶順序、預算、定期帳、幣別、匯入"
           aria-haspopup="menu"
           aria-expanded={sheet === "manage"}
           onClick={() => setSheet("manage")}
@@ -265,7 +275,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       <MobileViewBar />
 
       {searching ? (
-        <SearchRow onEdit={() => setSearchSheet(true)} />
+        <SearchRow onEdit={() => setSearchSheet(true)} onSort={() => setSheet("sort")} />
       ) : (
         <div className="ns-tk-mmonth">
           <button
@@ -286,6 +296,11 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           >
             <IconRight />
           </button>
+          {view === "list" && hasAny && (
+            <button type="button" className="ns-tk-msort" aria-haspopup="dialog" aria-expanded={sheet === "sort"} onClick={() => setSheet("sort")}>
+              排序
+            </button>
+          )}
           <button type="button" className="ns-tk-madd" onClick={add}>
             <IconPlus />
             記一筆
@@ -337,6 +352,17 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           >
             分類管理<small>支出 {catCount("expense")} · 收入 {catCount("income")}</small>
           </button>
+          {/* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序 */}
+          <button
+            type="button"
+            className="m-sheet-item ns-tk-msheet-row"
+            onClick={() => {
+              setSheet(null);
+              openDialog({ kind: "accountOrder" });
+            }}
+          >
+            帳戶順序<small>{liveCount} 個帳戶</small>
+          </button>
           {/* 第③階段（③契約 0-14、§5.5）：預算、定期帳 */}
           <button
             type="button"
@@ -378,6 +404,33 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           >
             從財務管家匯入…<small>.mmbak</small>
           </button>
+          <button type="button" className="m-sheet-item is-cancel" onClick={() => setSheet(null)}>
+            取消
+          </button>
+        </MSheet>
+      )}
+
+      {sheet === "sort" && (
+        // 清單本身永遠是日期・新到舊；搜尋中才是 store.resultSort
+        <MSheet title="排序" onClose={() => setSheet(null)}>
+          {ENTRY_SORTS.map((k) => {
+            const on = (searching ? resultSort : DEFAULT_ENTRY_SORT) === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                className={"m-sheet-item ns-tk-msheet-row" + (on ? " is-on" : "")}
+                aria-pressed={on}
+                onClick={() => {
+                  setSheet(null);
+                  if (!on) chooseSort(k);
+                }}
+              >
+                {ENTRY_SORT_TEXT[k]}
+                {!searching && k !== DEFAULT_ENTRY_SORT && <small>{monthTitle(month)}</small>}
+              </button>
+            );
+          })}
           <button type="button" className="m-sheet-item is-cancel" onClick={() => setSheet(null)}>
             取消
           </button>
@@ -605,13 +658,14 @@ function usePendingDayScroll(root: RefObject<HTMLElement | null>): string | null
 /* ═══════════ 搜尋模式（0-14、0-15）：篩選 chips 列＋結果 ═══════════ */
 
 /** 月份列的替身：條件 chips 橫捲（點＝回 sheet 改）＋「清除」＋「找到 N 筆 · 支出 X · 收入 Y」 */
-function SearchRow({ onEdit }: { onEdit(): void }) {
+function SearchRow({ onEdit, onSort }: { onEdit(): void; onSort(): void }) {
   const filter = useTicketStore((s) => s.filter);
   const results = useTicketStore((s) => s.results);
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
   const closeSearch = useTicketStore((s) => s.closeSearch);
+  const resultSort = useTicketStore((s) => s.resultSort);
   const routes = useNodeStore((s) => s.routes);
   const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
   const chips = filterChips(filter, { accById, catById, curByCode, ...routeCtx(routes) });
@@ -620,6 +674,10 @@ function SearchRow({ onEdit }: { onEdit(): void }) {
   return (
     <>
       <div className="ns-tk-mfilters" role="group" aria-label="搜尋條件">
+        {/* 排序（磨光⑥ §2-4）：預設不亮；點＝排序 sheet */}
+        <button type="button" className={"ns-tk-mfchip" + (resultSort !== DEFAULT_ENTRY_SORT ? " is-on" : "")} aria-haspopup="dialog" onClick={onSort}>
+          {resultSort !== DEFAULT_ENTRY_SORT ? ENTRY_SORT_TEXT[resultSort] : "排序"}
+        </button>
         {text !== "" && (
           <button type="button" className="ns-tk-mfchip is-on" onClick={onEdit}>
             「{text}」
@@ -644,6 +702,7 @@ function SearchRow({ onEdit }: { onEdit(): void }) {
 function Results() {
   const results = useTicketStore((s) => s.results);
   const resultDays = useTicketStore((s) => s.resultDays);
+  const resultSort = useTicketStore((s) => s.resultSort);
   const curByCode = useTicketStore((s) => s.curByCode);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
@@ -657,14 +716,19 @@ function Results() {
   const flash = usePendingDayScroll(book);
 
   const all = results ?? [];
-  const shown = pageResults(all, page).length;
-  const months = new Set(resultDays.map((g) => monthOf(g.dayKey)));
-  // 只有一個月 ⇒ 那個月印一次在最上面；跨月 ⇒ 每個月一條分隔（firstMonth＝null）
-  const items = dayItems(resultDays, null, today, mainDec, flash, shown);
+  const shownRows = pageResults(all, page);
+  const shown = shownRows.length;
+  const months = new Set(all.map((e) => monthOf(e.occurred_on)));
+  // 日期排序：只有一個月 ⇒ 那個月印一次在最上面；跨月 ⇒ 每個月一條分隔（firstMonth＝null）。
+  // 金額排序：平面清單，每列帶日期（跨年才印年）
+  const spanYears = new Set(all.map((e) => e.occurred_on.slice(0, 4))).size > 1;
+  const items = isAmountSort(resultSort)
+    ? shownRows.map((e) => <Row key={e.id} e={e} day={flatDayText(e.occurred_on, spanYears)} />)
+    : dayItems(resultDays, null, today, mainDec, flash, shown);
 
   return (
     <div className="ns-tk-mbook is-results" ref={book}>
-      <ul className="ns-tk-mlist" aria-label={`搜尋結果${months.size > 1 ? `，跨 ${months.size} 個月` : ""}`}>
+      <ul className={"ns-tk-mlist" + (isAmountSort(resultSort) ? " is-flat" : "")} aria-label={`搜尋結果${months.size > 1 ? `，跨 ${months.size} 個月` : ""}`}>
         {results !== null && all.length === 0 && (
           <li className="ns-tk-mnone">
             {VIEW_TEXT.emptyResults}
@@ -686,7 +750,8 @@ function Results() {
 
 const SIGN: Record<EntryRow["kind"], string> = { income: "＋", expense: "", transfer: "⇄", adjust: "±" };
 
-function Row({ e }: { e: EntryRow }) {
+/** day＝平面清單（金額排序）的日期字，畫在第二行最前面 */
+function Row({ e, day }: { e: EntryRow; day?: string }) {
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
@@ -748,8 +813,9 @@ function Row({ e }: { e: EntryRow }) {
             <span className="ct">{cat}</span>
             {e.repeat_id && <span className="ns-tk-mrep">定期</span>}
           </span>
-          {(e.note || route) && (
+          {(e.note || route || day !== undefined) && (
             <span className="nt">
+              {day !== undefined && <span className="dt">{day}</span>}
               {route && (
                 <span className="roundel" aria-hidden style={roundelStyle(route.color)}>
                   {route.code ?? route.name.slice(0, 1)}

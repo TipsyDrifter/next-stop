@@ -5,6 +5,7 @@
  *   頂：搜尋框（autoFocus、inputmode=search、IME 組字中不查、去抖 150ms）＋「完成」
  *   五段：期間（全部／本月／今年／自訂＋兩個 MobileDatePicker）／帳戶（chips 橫捲，含「封存」分區）／
  *         分類（支出、收入兩組格子：主分類格整勾＝含子分類；格右 › 展開子分類單勾）／類型（四顆 toggle）／路線（全部／未掛／各路線）
+ *         ＋排序（磨光⑥ 契約 §2-4；D-票-64）：日期・新到舊／日期・舊到新／金額・大到小／金額・小到大（還沒有條件時選非預設 ⇒ 期間＝現在看的月份）
  *   底：「清除全部」・「看結果（N）」
  * 條件一改 store 就查（`patchFilter`／`setFilterText`），N＝`results.length`。
  * 關 sheet（完成／暗幕／看結果）：有任何條件 ⇒ `openSearch`（切清單、清單畫結果，月份列換成 chips 列）；全空 ⇒ `closeSearch`。
@@ -29,7 +30,8 @@ import {
   type CategoryKind,
   type EntryKind,
 } from "../../../domain/ticket";
-import { EMPTY_FILTER, dayStep, isFilterActive, shortDay, type EntryFilter } from "../../../domain/ticketView";
+import { EMPTY_FILTER, ENTRY_SORTS, ENTRY_SORT_TEXT, dayStep, isFilterActive, shortDay, type EntryFilter } from "../../../domain/ticketView";
+import { chooseSort } from "../view/sortChoice";
 import { IconRight } from "./mobileBits";
 
 export interface MobileSearchSheetProps {
@@ -71,6 +73,7 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   const categories = useTicketStore((s) => s.categories);
   const patchFilter = useTicketStore((s) => s.patchFilter);
   const setFilterText = useTicketStore((s) => s.setFilterText);
+  const resultSort = useTicketStore((s) => s.resultSort);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
@@ -356,6 +359,10 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
                 ),
               )}
             </div>
+          </Sec>
+
+          <Sec title="排序">
+            <div className="ns-tk-mchips">{ENTRY_SORTS.map((k) => chip(k, resultSort === k, ENTRY_SORT_TEXT[k], () => resultSort !== k && chooseSort(k)))}</div>
           </Sec>
         </div>
 

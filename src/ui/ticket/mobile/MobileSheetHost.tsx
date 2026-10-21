@@ -9,6 +9,7 @@ import { useTicketStore, type TicketDialog } from "../../../store/ticketStore";
 import { useBackLayer } from "../../mobile/backStack";
 import { NewAccountForm } from "../dialogs/NewAccountForm";
 import { CategoryManager } from "../dialogs/CategoryManager";
+import { AccountOrder } from "../dialogs/AccountOrder";
 import { CurrencyTable } from "../dialogs/CurrencyTable";
 import { ImportCard } from "../ImportCard";
 import { MSheet } from "./mobileBits";
@@ -19,6 +20,7 @@ import { MobileRepeatForm } from "./plan/MobileRepeatForm";
 const TITLE: Record<TicketDialog["kind"], string> = {
   newAccount: "新增帳戶",
   categories: "分類管理",
+  accountOrder: "帳戶順序", // 磨光⑥ 契約 §2-1；D-票-61
   currencies: "幣別與匯率",
   import: "從財務管家匯入",
   budgets: "預算", // 第③階段（③契約 §5.5；Stage 0 甲席掛樁）
@@ -55,6 +57,8 @@ export function MobileSheetHost() {
       <NewAccountForm onDone={closeDialog} />
     ) : dialog.kind === "categories" ? (
       <CategoryManager onDone={closeDialog} />
+    ) : dialog.kind === "accountOrder" ? (
+      <AccountOrder onDone={closeDialog} />
     ) : dialog.kind === "currencies" ? (
       <CurrencyTable onDone={closeDialog} />
     ) : dialog.kind === "budgets" ? (

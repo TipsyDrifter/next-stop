@@ -835,3 +835,21 @@
   [data-shell="mobile"] :is(.ns-tk-mviews-ink, .ns-tk-mst-rows .bar i, .ns-tk-mst-rows .c svg, .ns-tk-msc .more svg) { transition: none; }
   [data-shell="mobile"] .ns-tk-mf-moretog svg { transition: none; }
 }
+
+/* ═══ 磨光⑥ 售票口排序（契約 §2-3、§2-4；D-票-63、D-票-64）═══ */
+/* 月份列「排序」：細框字鈕，44 高；夾在 › 與「＋ 記一筆」之間 */
+[data-shell="mobile"] .ns-tk-msort {
+  margin-left: auto; min-height: 44px; padding: 0 10px; border-radius: 2px; background: none;
+  font-size: 13px; letter-spacing: .12em; color: var(--color-ink-faint); white-space: nowrap; transition: background .15s, color .15s;
+}
+[data-shell="mobile"] .ns-tk-msort:active { background: var(--ns-tk-hover); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-msort:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-msort + .ns-tk-madd { margin-left: 4px; }
+
+/* 記一筆的帳戶 chips：「常用」小標＋前 3 個，再一道虛線「全部」接完整清單（同搜尋 sheet 的 .ns-tk-ms-sep） */
+[data-shell="mobile"] .ns-tk-mf-acctsep { flex: none; align-self: center; margin: 0 2px 0 6px; padding-left: 10px; border-left: 1px dashed var(--color-dash); font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mf-acctsep.is-lead { margin: 0 2px 0 0; padding-left: 0; border-left: 0; }
+
+/* 平面清單（金額排序）：第二行最前面是日期 */
+[data-shell="mobile"] .ns-tk-mlist.is-flat { padding-top: 4px; }
+[data-shell="mobile"] .ns-tk-mrow .nt .dt { flex: none; font-family: var(--font-latin); font-size: 11.5px; letter-spacing: .02em; color: var(--color-ink-soft); font-variant-numeric: tabular-nums; }

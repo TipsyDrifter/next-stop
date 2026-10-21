@@ -35,10 +35,21 @@
  *   面板只改「現在畫出來的那幾顆」的排除：換了分類後看不到的舊排除照留（改分類不裁，D-時-135）。
  * - 手機點選器標題：「荷札・娛樂 23:20」（補記還沒選分類＝「荷札・補記」）。
  * - 荷札 index 載入失敗：「荷札載入中…」換成「荷札沒載入　重試」（重試＝`tagStore.loadIndex()`）。
+ *
+ * 磨光⑥（契約 §1-1、1-2、1-4、1-5½；D-時-142～147）：
+ * - 発車／到着換成可打字的 Stepper（−1h −15 −5 −1｜框｜+1 +5 +15 +1h）；「接上一塊／接下一塊」換到下一行，按了丟掉框裡的草稿。
+ *   発車 Enter 確定後焦點跳到着。桌機開補記游標在発車框、連續補換段後在到着框；手機不自動叫鍵盤。
+ * - 補記那段一路到現在：到着的快捷叫「接到現在」（貼到面板打開那一刻的現在）。
+ * - 「補上／改好了」：失焦那一刻已套用合法草稿；剛打錯的框（`clockDraftsOk`）⇒ 不送出、焦點回框。
+ * - 連續補：補上後那段還有剩（`fillContinuation`：後面優先、跳過的前段帶在 cont.rest）⇒ 面板不關、換到剩下那段
+ *   （`openSheet({ kind: "fill", ..., cont })`；SheetPanel 用起訖當 key 重掛，分類／連結／荷札草稿都從頭來）；
+ *   副標第二行「剩下 X–Y 還沒記」、取消改叫「先這樣」。補滿照舊關。寫入不等（fill 失敗照舊 toast，面板照開）。
+ *   換段後面板捲回頂（那一行才看得到）；桌機自動聚焦的到着框若被黏底的按鈕列擋住，再往下捲到剛好露出（評審 #4）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { MIN, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
 import { linkOfRow } from "../../../domain/timetableLink";
+import { fillContinuation } from "../../../domain/timetableFillCont";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
@@ -59,12 +70,14 @@ import {
   Stepper,
   Sub,
   clamp,
+  clockDraftsOk,
   setMergeMarks,
   useBlock,
   useCoverWarn,
   useNowOnce,
   type PanelProps,
 } from "./controls";
+import type { ClockInputHandle } from "./ClockInput";
 
 type Dir = "prev" | "next";
 
@@ -84,6 +97,8 @@ export function BlockPanel({ onDone }: PanelProps) {
   const previewMerge = useTimetableStore((s) => s.previewMerge);
   const mergeBlock = useTimetableStore((s) => s.mergeBlock);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const running = useTimetableStore((s) => s.running);
+  const todayBlocks = useTimetableStore((s) => s.todayBlocks);
 
   // 合併：兩側的預演（undefined＝還在問）；ask＝二次確認開著的那一側
   const dw = dayWindow(dayKey, dayStartHour);
@@ -112,13 +127,40 @@ export function BlockPanel({ onDone }: PanelProps) {
   }, [ask, askPreview, block]);
   useEffect(() => () => setMergeMarks([]), []);
 
-  // 初值：補記＝那段空白的兩端；改＝這一塊的起訖
+  // 磨光⑥ 1-2：補記那段一路到現在？連續補換過來的段照帶來的旗子；軸上點開的：那段的尾就是當時畫面的「現在」（軸的時鐘
+  // 不是每毫秒跳，所以比面板的 now 早一點），用「離現在不到 5 分、沒有運行中那班、之後沒有任何一塊」判
+  const toNow =
+    sheet?.kind === "fill" &&
+    (sheet.cont
+      ? sheet.cont.toNow
+      : sheet.end >= now ||
+        (now - sheet.end < 5 * MIN && running === null && ![...dayBlocks, ...todayBlocks].some((b) => msOf(b.started_at) >= sheet.end)));
+  const fillEnd = sheet?.kind === "fill" ? (toNow ? now : Math.min(sheet.end, now)) : now;
+
+  // 初值：補記＝那段空白的兩端（一路到現在的貼到現在）；改＝這一塊的起訖
   const init = (() => {
-    if (sheet?.kind === "fill") return { start: sheet.start, end: Math.min(sheet.end, now), cat: null as string | null };
+    if (sheet?.kind === "fill") return { start: sheet.start, end: fillEnd, cat: null as string | null };
     if (block) return { start: msOf(block.started_at), end: block.ended_at ? msOf(block.ended_at) : now, cat: block.category_id };
     return { start: now - MIN, end: now, cat: null as string | null };
   })();
   const [start, setStart] = useState(init.start);
+  const endClock = useRef<ClockInputHandle | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // 連續補換段（評審 #4）：重掛不會把捲動容器捲回去 ⇒ 「剩下 X–Y 還沒記」會留在畫面外。掛上時捲回頂；桌機到着框已自動
+  // 聚焦（子元件的 effect 先跑）：若它因此躲到底部黏住的按鈕列後面，只往下捲到剛好露出框——面板只高出一點時兩行都看得到
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || sheet?.kind !== "fill" || !sheet.cont) return;
+    const box = root.closest<HTMLElement>(".ns-dialog-body, .ns-tt-sheet");
+    if (!box) return;
+    box.scrollTop = 0;
+    const input = document.activeElement instanceof HTMLInputElement && root.contains(document.activeElement) ? document.activeElement : null;
+    if (!input) return;
+    const actions = root.querySelector(".ns-tt-actions");
+    const floor = Math.min(box.getBoundingClientRect().bottom, actions?.getBoundingClientRect().top ?? Infinity);
+    const need = input.getBoundingClientRect().bottom + 6 - floor;
+    if (need > 0) box.scrollTop += need;
+  }, []);
   const [end, setEnd] = useState(init.end);
   const [cat, setCat] = useState<string | null>(init.cat);
   // ②：連結（undefined＝還沒動過：改一塊跟著這一塊目前的連結、補記＝沒連）；picking＝子頁開著
@@ -168,7 +210,7 @@ export function BlockPanel({ onDone }: PanelProps) {
   let nextStart: number | null = null;
   if (sheet?.kind === "fill") {
     prevEnd = sheet.start;
-    nextStart = Math.min(sheet.end, now);
+    nextStart = fillEnd;
   } else if (block) {
     for (const b of dayBlocks) {
       if (b.id === block.id || b.ended_at === null) continue;
@@ -223,15 +265,22 @@ export function BlockPanel({ onDone }: PanelProps) {
   const setStartClamped = (v: number): void => setStart(clamp(v, 0, end - MIN));
   const setEndClamped = (v: number): void => setEnd(clamp(v, start + MIN, now));
 
-  const submit = (): void => {
+  const submit = (e: MouseEvent<HTMLButtonElement>): void => {
+    if (!clockDraftsOk(e.currentTarget)) return;
     if (!cat) {
       useUiStore.getState().showToast({ message: TT_TEXT.pickCategory });
       return;
     }
     const offNames = offNamesOf();
-    onDone();
-    if (mode === "fill") void fill(cat, start, end, link, tagDraft ?? [], offNames);
-    else if (block) {
+    if (mode === "fill" && sheet?.kind === "fill") {
+      // 連續補（1-4）：先算幾何、不等寫完
+      const piece = { start: sheet.start, end: toNow ? now : sheet.end };
+      const c = fillContinuation(piece, { start, end }, sheet.cont?.rest ?? [], now);
+      if (c.next) openSheet({ kind: "fill", start: c.next.start, end: c.next.end, cont: { rest: c.rest, toNow: toNow && c.next.end >= now } });
+      else onDone();
+      void fill(cat, start, end, link, tagDraft ?? [], offNames);
+    } else if (block) {
+      onDone();
       // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
       const tagEdit = tagDraft !== null && tagInit !== null ? (blockTagEditOf(tagInit, tagDraft) ?? undefined) : undefined;
       void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames);
@@ -375,28 +424,51 @@ export function BlockPanel({ onDone }: PanelProps) {
     );
   }
 
+  const cont = sheet?.kind === "fill" ? sheet.cont : undefined;
   return (
-    <div className="ns-tt-panel ns-tt-panel-block">
+    <div className="ns-tt-panel ns-tt-panel-block" ref={rootRef}>
       <Sub num>
         {fmtClock(start)} – {fmtClock(end)}　・　{fmtDur(end - start)}
       </Sub>
+      {cont && sheet?.kind === "fill" && (
+        <p className="ns-tt-fill-cont">
+          剩下 <span className="ns-tt-num">{fmtClock(sheet.start)}–{fmtClock(fillEnd)}</span> 還沒記
+        </p>
+      )}
       {warn && <Sub warn>{warn}</Sub>}
       <LinkRow value={link} onOpen={() => setPicking(true)} />
       {tagRow}
       <CategoryGrid selected={cat} onPick={setCat} compact />
-      <Row k="発車">
-        <Stepper value={start} steps={[-5, 5]} lo={0} hi={end - MIN} onChange={setStartClamped} label="発車時刻" />
+      <Row k="発車" time>
+        <Stepper
+          value={start}
+          lo={0}
+          hi={end - MIN}
+          onChange={setStartClamped}
+          label="発車時刻"
+          onEnter={() => endClock.current?.focus()}
+          enterKeyHint="next"
+          autoFocus={desk && mode === "fill" && !cont}
+        />
         {snapPrev !== null && (
-          <Opt solid on={start === snapPrev} onClick={() => setStartClamped(snapPrev)}>
+          <Opt solid dropDraft on={start === snapPrev} onClick={() => setStartClamped(snapPrev)}>
             接上一塊
           </Opt>
         )}
       </Row>
-      <Row k="到着">
-        <Stepper value={end} steps={[-5, 5]} lo={start + MIN} hi={now} onChange={setEndClamped} label="到着時刻" />
+      <Row k="到着" time>
+        <Stepper
+          value={end}
+          lo={start + MIN}
+          hi={now}
+          onChange={setEndClamped}
+          label="到着時刻"
+          handleRef={endClock}
+          autoFocus={desk && !!cont}
+        />
         {snapNext !== null && (
-          <Opt solid on={end === snapNext} onClick={() => setEndClamped(snapNext)}>
-            接下一塊
+          <Opt solid dropDraft on={end === snapNext} onClick={() => setEndClamped(snapNext)}>
+            {toNow ? "接到現在" : "接下一塊"}
           </Opt>
         )}
       </Row>
@@ -420,7 +492,7 @@ export function BlockPanel({ onDone }: PanelProps) {
           </>
         )}
         <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-          取消
+          {cont ? "先這樣" : "取消"}
         </button>
         <button type="button" className="ns-btn btn-seal" onClick={submit}>
           {mode === "fill" ? "補上" : "改好了"}

@@ -53,6 +53,7 @@ import {
 } from "../domain/timetableLink";
 import { PLAN_TEXT } from "../domain/timetableSchedule";
 import { paintCoverOf, paintKindOf, paintUndoable } from "../domain/timetableGrid";
+import type { FillPiece } from "../domain/timetableFillCont";
 import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF } from "../domain/timetableTags";
 import { tagRepo } from "../data/tagRepo";
 import { applyBlockTagEdit, blockTagEditOf, checkTagNames, receiptWrote, type BlockTagEdit } from "../data/timetableTagCarry";
@@ -102,7 +103,12 @@ export type TimetableSheet =
   /** ②：then 的 tile 可以帶連結（從任務發車遇到長時間運行待確認，先問完再發車） */
   | { kind: "longRun"; blockId: string; then: "depart" | "arrive" | { tile: string; link?: BlockLink } | null }
   | { kind: "restart"; blockId: string }
-  | { kind: "fill"; start: number; end: number }
+  /**
+   * 磨光⑥ §1-4（D-時-145）：cont＝連續補換過來的段（有值＝副標多一行「剩下 X–Y 還沒記」、取消鈕叫「先這樣」）。
+   * rest＝同一段未記錄裡往後補時跳過、還沒補的段（往後補完了再回頭補它）；toNow＝這段一路到現在（到着快捷叫「接到現在」）。
+   * 選填、只有 BlockPanel 讀
+   */
+  | { kind: "fill"; start: number; end: number; cont?: { rest: readonly FillPiece[]; toNow: boolean } }
   | { kind: "edit"; blockId: string }
   | { kind: "split"; blockId: string }
   /** 磨光③ 2-11：focusId＝打開就展開那一列（分類或組）的 ⋯、捲進畫面閃一下；focus "notice"＝捲到〈通知〉。都不帶＝照舊 */

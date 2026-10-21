@@ -18,6 +18,11 @@
  *   第三列 FilterChips（搜尋開著才出）。main 依 view 換成 TicketCalendar／TicketStats。
  *   月曆跳回來（jumpToDay）⇒ store.pendingDay：捲到那一天的日分組頭、閃一下；那天沒帳 ⇒ 捲到最接近的日、帳簿頂端貼一行淡字「10/8 沒有紀錄」3 秒（sticky：頁首此時已捲出畫面）。
  *
+ * 磨光⑥ 契約 §2-4（D-票-64）：頁首第二列（清單、沒在搜尋）多一顆「排序」（FilterChips 的 SortButton）；搜尋結果依 store.resultSort 畫——
+ *   日期排序照舊日分組（舊到新＝組與組內都反過來，store 已排好）；金額排序＝平面清單 ul.is-flat：不分日、每列前面多一欄日期「10/21（三）」，
+ *   沒有月份分隔與日小計（月曆跳日本來就會先關搜尋）。↑↓ 照 results 走（useTicketKeyboard），300 筆分頁照 results 切；
+ *   選到還沒畫出來的那一頁（↑↓ 走過頭）⇒ 自動翻到那一頁。
+ *
  * 往前接月份的停點：store 沒有「最早一筆在哪個月」，所以連續 3 個月都空就停止自動接、改成手按「繼續往前」
  * （不然沒有更早的帳時會一路往前載空月）。見回報 needs。
  */
@@ -45,11 +50,11 @@ import {
   type EntryRow,
 } from "../../domain/ticket";
 import type { NodeRow } from "../../domain/node";
-import { RESULT_PAGE, VIEW_TEXT, isFilterActive, pageResults } from "../../domain/ticketView";
+import { RESULT_PAGE, VIEW_TEXT, flatDayText, isAmountSort, isFilterActive, pageResults } from "../../domain/ticketView";
 // 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖——Stage 0 掛樁，乙席接手
 import { ViewSwitch } from "./view/ViewSwitch";
 import { SearchBar } from "./view/SearchBar";
-import { FilterChips } from "./view/FilterChips";
+import { FilterChips, SortButton } from "./view/FilterChips";
 import { TicketCalendar } from "./view/TicketCalendar";
 import { TicketStats } from "./view/TicketStats";
 
@@ -200,6 +205,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const filter = useTicketStore((s) => s.filter);
   const results = useTicketStore((s) => s.results);
   const resultDays = useTicketStore((s) => s.resultDays);
+  const resultSort = useTicketStore((s) => s.resultSort);
   const pendingDay = useTicketStore((s) => s.pendingDay);
   const dayNotice = useTicketStore((s) => s.dayNotice);
 
@@ -255,6 +261,15 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   /* 搜尋結果分頁（0-14：先畫 300 筆）；結果換了就回第一頁 */
   const [page, setPage] = useState(1);
   useEffect(() => setPage(1), [results]);
+  // ↑↓ 在結果裡走（results 全部）走到還沒畫的那一頁 ⇒ 翻過去（不然選中的那一行不在畫面上）
+  useEffect(() => {
+    if (!results || selectedId === null) return;
+    const i = results.findIndex((e) => e.id === selectedId);
+    if (i >= page * RESULT_PAGE) setPage(Math.floor(i / RESULT_PAGE) + 1);
+  }, [results, selectedId, page]);
+  const flat = searching && isAmountSort(resultSort);
+  // 平面清單跨年 ⇒ 日期欄要印年（「2025/10/21（三）」），欄寬跟著放寬
+  const flatSpanYears = flat && !!results && new Set(results.map((e) => e.occurred_on.slice(0, 4))).size > 1;
 
   /* 切視圖／搜尋收起時焦點若掉到 body（清單、chip、「回 N 月」鈕卸載了）⇒ 還給清單／頁根，鍵盤表才接得到。
      一支 effect 收全部入口（1／2／3、點分頁、Esc、點「回 N 月」、篩選鈕），不在每條路各自補 focus */
@@ -304,8 +319,8 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     return () => clearTimeout(t);
   }, [dayNotice]);
 
-  /* 一筆帳簿行（月份清單與搜尋結果共用） */
-  const rowOf = (e: EntryRow): ReactNode => {
+  /* 一筆帳簿行（月份清單與搜尋結果共用）；day＝平面清單（金額排序）每列前面的日期字 */
+  const rowOf = (e: EntryRow, day?: string): ReactNode => {
     const active = panelOpen && selectedId === e.id;
     const amt = rowAmount(e, filterAccountId, accById);
     const cur = curByCode[amt.currency];
@@ -329,6 +344,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <span className="ns-tk-sign" aria-hidden>
           {amt.prefix}
         </span>
+        {day !== undefined && <span className="ns-tk-rday">{day}</span>}
         <span className="ns-tk-main">
           <span className="ns-tk-cat">
             <EntryCat e={e} />
@@ -399,10 +415,15 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
       const shown = pageResults(results, page);
       const shownIds = new Set(shown.map((e) => e.id));
       const spanMonths = new Set(results.map((e) => monthOf(e.occurred_on))).size > 1;
-      for (const g of resultDays) {
-        const ents = g.entries.filter((e) => shownIds.has(e.id));
-        if (!ents.length) break;
-        pushDay(resultItems, ents.length === g.entries.length ? g : { ...g, entries: ents }, spanMonths);
+      if (flat) {
+        // 金額排序：平面清單，每列帶日期（跨年才印年）
+        for (const e of shown) resultItems.push(rowOf(e, flatDayText(e.occurred_on, flatSpanYears)));
+      } else {
+        for (const g of resultDays) {
+          const ents = g.entries.filter((e) => shownIds.has(e.id));
+          if (!ents.length) break;
+          pushDay(resultItems, ents.length === g.entries.length ? g : { ...g, entries: ents }, spanMonths);
+        }
       }
       if (results.length > shown.length) {
         resultItems.push(
@@ -490,6 +511,8 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
               >
                 <TkIcon name="right" />
               </button>
+              {/* 搜尋列開著（條件還空著）時排序在 chips 那一顆，這裡不重複 */}
+              {view === "list" && !searchOpen && hasAny && <SortButton />}
             </>
           )}
           {view === "list" && !searching && monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) && (
@@ -544,7 +567,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
           )}
           <ul
             ref={listRef}
-            className="ns-tk-list"
+            className={"ns-tk-list" + (flat ? " is-flat" : "") + (flatSpanYears ? " is-year" : "")}
             tabIndex={0}
             role="listbox"
             aria-label="帳簿"

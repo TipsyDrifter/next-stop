@@ -3,6 +3,7 @@
  *
  *   div.ns-tk-filters
  *   ├─ span.ns-tk-chipwrap × 5   button.ns-tk-fchip[.is-on]「期間 <b>10/1–10/31</b> ▾」→ 點開 div.ns-tk-pop.ns-tk-fpop 小浮層
+ *   ├─ span.ns-tk-chipwrap       第六顆「排序」（磨光⑥ 契約 §2-4；D-票-64）：日期・新到舊（預設，chip 不亮）／日期・舊到新／金額・大到小／金額・小到大
  *   │     期間：快選「全部／本月／今年／自訂」＋自訂時兩顆日期 chip（DatePicker）
  *   │     帳戶：全部帳戶＋未封存帳戶（orderAccounts）＋「封存」分區
  *   │     分類：支出／收入兩棵樹；勾主分類＝含全部子分類（只存主分類 id）；子分類可單勾
@@ -11,6 +12,9 @@
  *   └─ 右端 .ns-tk-found「找到 N 筆 · 支出 X · 收入 Y」＋「清除」；沒有條件時淡字提示
  *
  * chip 上的值字取自 domain `filterChips`（與手機同一份字）；摘要取自 `resultSummary`。浮層鍵盤：↑↓ 移、Enter 選、Esc 收（自理，不漏給頁面鍵盤表）。
+ *
+ * 另 export `SortButton`：一般清單（沒在搜尋）頁首的「排序」（TicketLedger 掛）。選「日期・新到舊」以外的 ⇒ 開搜尋、期間＝現在看的月份、
+ * 套上那個排序（store.searchMonthSorted；金額排序要有邊界的範圍）。排序 chip 在沒有條件時選非預設也走同一條路。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
@@ -29,11 +33,24 @@ import {
   type CategoryRow,
   type EntryKind,
 } from "../../../domain/ticket";
-import { dayStep, filterChips, isFilterActive, resultSummary, routeCtx, type EntryFilter, type ViewCtx } from "../../../domain/ticketView";
+import {
+  DEFAULT_ENTRY_SORT,
+  ENTRY_SORTS,
+  ENTRY_SORT_TEXT,
+  dayStep,
+  filterChips,
+  isFilterActive,
+  resultSummary,
+  routeCtx,
+  type EntryFilter,
+  type EntrySort,
+  type ViewCtx,
+} from "../../../domain/ticketView";
 import type { NodeRow } from "../../../domain/node";
 import { TkIcon, TkRoundel, acctLabel } from "../TicketLedger";
+import { chooseSort } from "./sortChoice";
 
-type ChipKey = "period" | "acct" | "cat" | "kind" | "route";
+type ChipKey = "period" | "acct" | "cat" | "kind" | "route" | "sort";
 
 const CHIPS: readonly { key: ChipKey; label: string; field: keyof EntryFilter }[] = [
   { key: "period", label: "期間", field: "from" },
@@ -342,12 +359,72 @@ function RoutePop({ f, onClose, routes }: { f: EntryFilter; onClose(): void; rou
   );
 }
 
+/* ───────── 排序（磨光⑥ 契約 §2-4；D-票-64） ───────── */
+
+function SortPop({ current, onClose }: { current: EntrySort; onClose(): void }) {
+  return (
+    <FPop label="排序" onClose={onClose}>
+      <p className="hd">排序</p>
+      {ENTRY_SORTS.map((k) => (
+        <Opt
+          key={k}
+          on={current === k}
+          onPick={() => {
+            onClose();
+            if (k !== current) chooseSort(k);
+          }}
+        >
+          {ENTRY_SORT_TEXT[k]}
+        </Opt>
+      ))}
+    </FPop>
+  );
+}
+
+/** 一般清單頁首的「排序」鈕（清單永遠是日期・新到舊；選別的 ⇒ 開這個月的搜尋） */
+export function SortButton() {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const btn = useRef<HTMLButtonElement>(null);
+  // Esc 收起時焦點若掉到 body ⇒ 還給鈕（同 chips）；選了排序會換成搜尋畫面、鈕卸載，交給 TicketLedger 的焦點補位
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    const prev = wasOpen.current;
+    wasOpen.current = open;
+    if (open || !prev) return;
+    const t = setTimeout(() => {
+      const a = document.activeElement;
+      if (a !== null && a !== document.body) return;
+      btn.current?.focus({ preventScroll: true });
+    });
+    return () => clearTimeout(t);
+  }, [open]);
+  return (
+    <span className="ns-tk-chipwrap ns-tk-sortwrap">
+      <button
+        ref={btn}
+        type="button"
+        className="ns-tk-fchip ns-tk-sortbtn"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        data-pop-toggle
+        onClick={() => setOpen(!open)}
+      >
+        排序
+        <TkIcon name="caret" size={10} />
+      </button>
+      {open && <SortPop current={DEFAULT_ENTRY_SORT} onClose={close} />}
+    </span>
+  );
+}
+
 /* ───────── chips 列 ───────── */
 
 export function FilterChips() {
   const searchOpen = useTicketStore((s) => s.searchOpen);
   const filter = useTicketStore((s) => s.filter);
   const results = useTicketStore((s) => s.results);
+  const resultSort = useTicketStore((s) => s.resultSort);
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
@@ -417,8 +494,25 @@ export function FilterChips() {
           </span>
         );
       })}
+      {/* 第六顆：排序（預設不亮，同其他 chip「沒設條件」的樣子） */}
+      <span className="ns-tk-chipwrap">
+        <button
+          type="button"
+          className={"ns-tk-fchip" + (resultSort !== DEFAULT_ENTRY_SORT ? " is-on" : "")}
+          aria-expanded={pop === "sort"}
+          data-pop-toggle
+          data-chip="sort"
+          onClick={() => setPop(pop === "sort" ? null : "sort")}
+        >
+          排序
+          {resultSort !== DEFAULT_ENTRY_SORT && <b>{ENTRY_SORT_TEXT[resultSort]}</b>}
+          <TkIcon name="caret" size={10} />
+        </button>
+        {pop === "sort" && <SortPop current={resultSort} onClose={close} />}
+      </span>
       {active ? (
-        <>
+        // 摘要與「清除」綁在一起：chip 多一顆後窄欄會折行，兩個一起換到下一行靠右，不讓「清除」單獨落到行首
+        <span className="ns-tk-foundwrap">
           <span className="ns-tk-found" aria-live="polite">
             {results ? resultSummary(results, dec) : "正在找…"}
           </span>
@@ -430,7 +524,7 @@ export function FilterChips() {
           >
             清除
           </button>
-        </>
+        </span>
       ) : (
         <span className="ns-tk-found is-hint">打字或選條件就會開始找（預設找全部期間）</span>
       )}

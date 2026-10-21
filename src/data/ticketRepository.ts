@@ -23,6 +23,7 @@ import type {
   ImportPlan,
   ImportChoice,
   ImportOutcome,
+  UsageSince,
 } from "../domain/ticket";
 import type { EntryQuery } from "../domain/ticketView";
 import type { BudgetRow, BudgetScope, NewRepeatInput, PlanImportPart, RepeatPatch, RepeatRow } from "../domain/ticketPlan";
@@ -87,6 +88,12 @@ export interface TicketRepository {
   lastUsedAccountId(): Promise<string | null>;
   /** 該 kind 最近用過的分類 id（依該分類最近一筆的 created_at 遞減；排除未分類與已封存／已刪的分類） */
   recentCategoryIds(kind: CategoryKind, limit: number): Promise<string[]>;
+  /**
+   * 只讀・用量（磨光⑥ §2-3；記一筆的「常用」）：未刪、`occurred_on ≥ sinceDay` 的帳，各分類與各帳戶用了幾次。
+   * 分類＝收支帳（kind income／expense）依 category_id 分組，排除未分類與已封存／已刪的分類，`last`＝最近一筆的 `occurred_on + " " + occurred_at`；
+   * 帳戶＝非 adjust 的帳依 account_id 分組，轉帳另把 to_account_id 也算一次（兩邊都是它用過的帳戶）。沒用過的不出現。
+   */
+  usageSince(sinceDay: string): Promise<UsageSince>;
 
   /* ── 讀・第②階段「看帳」（②契約 §3.2；純讀、不經 serial） ── */
   /**
@@ -117,7 +124,7 @@ export interface TicketRepository {
   renameCategory(id: string, name: string): Promise<void>;
   /** 封存主分類 ⇒ 子分類一起；取消封存主分類 ⇒ 與它同一刻被連帶封存的子分類一起回來；未分類 ⇒ RangeError */
   setCategoryArchived(id: string, archived: boolean): Promise<void>;
-  /** 同 kind、同父、未封存的鄰居互換 position（未分類不參與） */
+  /** 同 kind、同層、未封存的鄰居互換 position（未分類不參與）；父分類已不在的子分類當主分類那一層（`effectiveParentId`，D-票-62） */
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
   createCurrency(input: NewCurrencyInput): Promise<CurrencyRow>;
   updateCurrency(id: string, patch: CurrencyPatch): Promise<void>;

@@ -696,7 +696,8 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   );
 }
 
-/* ── 帳戶挑選鈕＋浮層（依群組分區；封存的不列） ── */
+/* ── 帳戶挑選鈕＋浮層（依群組分區；封存的不列）。磨光⑥ 契約 §2-3（D-票-63）：最上面多一組「常用」（30 天次數前 3；
+   帳戶 ≤ 3 個時 store 給空的就不畫），下面照舊是手動順序的完整清單（重複出現沒關係） ── */
 export function AcctPick(props: {
   open: boolean;
   onToggle(): void;
@@ -709,7 +710,28 @@ export function AcctPick(props: {
   onCreated?(id: string): void;
 }) {
   const accounts = useTicketStore((s) => s.accounts);
+  const accById = useTicketStore((s) => s.accById);
+  const frequentIds = useTicketStore((s) => s.frequent.accounts);
   const groups = groupAccounts(accounts);
+  const frequent = frequentIds
+    .map((id) => accById[id])
+    .filter((a): a is AccountRow => !!a && a.deleted_at === null && a.archived_at === null && a.id !== props.exclude);
+  const opt = (a: AccountRow) => (
+    <button
+      key={a.id}
+      type="button"
+      role="option"
+      aria-selected={props.acc?.id === a.id}
+      className={`opt${props.acc?.id === a.id ? " on" : ""}`}
+      onClick={() => props.onPick(a.id)}
+    >
+      {acctLabel(a, accounts)}
+      <span className="r">
+        {props.balText(a)}
+        {a.currency !== MAIN_CURRENCY && <small> {a.currency}</small>}
+      </span>
+    </button>
+  );
   return (
     <>
       <button
@@ -734,28 +756,20 @@ export function AcctPick(props: {
       </button>
       {props.open && (
         <Pop label="帳戶" onClose={props.onClose}>
+          {frequent.length > 0 && (
+            <div role="group" aria-label="常用" className="is-frequent">
+              <div className="hd">常用</div>
+              {frequent.map(opt)}
+              <div className="sep" />
+            </div>
+          )}
           {groups.map(({ group, accounts: list }) => {
             const opts = list.filter((a) => a.id !== props.exclude);
             if (!opts.length) return null;
             return (
               <div key={group.key} role="group" aria-label={group.label}>
                 <div className="hd">{group.label}</div>
-                {opts.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    role="option"
-                    aria-selected={props.acc?.id === a.id}
-                    className={`opt${props.acc?.id === a.id ? " on" : ""}`}
-                    onClick={() => props.onPick(a.id)}
-                  >
-                    {acctLabel(a, accounts)}
-                    <span className="r">
-                      {props.balText(a)}
-                      {a.currency !== MAIN_CURRENCY && <small> {a.currency}</small>}
-                    </span>
-                  </button>
-                ))}
+                {opts.map(opt)}
               </div>
             );
           })}
@@ -812,11 +826,11 @@ export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow
   );
 }
 
-/* ── 分類 combobox（打字即搜：子分類優先、顯示「主 › 子」；空白列最近用過；↑↓ Enter） ── */
+/* ── 分類 combobox（打字即搜：子分類優先、顯示「主 › 子」；空白列「常用」（磨光⑥ §2-3：30 天次數，不滿 8 個用最近用過補）；↑↓ Enter） ── */
 export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "expense"; categoryId: string | null; onPick(id: string | null): void }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
-  const recent = useTicketStore((s) => s.recent[kind]);
+  const recent = useTicketStore((s) => s.frequent[kind]);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [kb, setKb] = useState(-1); // -1＝還沒挑（空白時 Enter 留給新票存檔）
@@ -869,7 +883,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         aria-autocomplete="list"
         aria-label="分類"
         autoComplete="off"
-        placeholder={cat ? "" : "打字搜尋，或選最近用過的"}
+        placeholder={cat ? "" : "打字搜尋，或選常用的"}
         value={open ? q : label}
         onFocus={() => {
           setOpen(true);
@@ -901,7 +915,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         <div className="ns-tk-pop is-cat" role="listbox" aria-label="分類選項" onMouseDown={(e) => e.preventDefault()}>
           {options.length > 0 ? (
             <>
-              <div className="hd">{q.trim() ? "符合" : "最近用過"}</div>
+              <div className="hd">{q.trim() ? "符合" : "常用"}</div>
               {options.map((c, i) => {
                 const p = c.parent_id ? catById[c.parent_id] : undefined;
                 return (

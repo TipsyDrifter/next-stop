@@ -1099,3 +1099,23 @@ body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]
 .ns-tk-im-plannote { margin-top: 3px; font-size: 11.5px; line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-faint); }
 .ns-tk-im-note.is-plan { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
 .ns-tk-im-note.is-plan .ns-tk-btn { padding: 2px 6px; font-size: 12px; }
+
+/* ═══ 磨光⑥ 售票口排序（契約 §2-1、§2-4；D-票-61、D-票-64）═══ */
+/* 帳戶順序：照分類管理的一列（.ns-tk-drow），依群組分區；群組小標沿 .ns-tk-dialog .lbl */
+.ns-tk-dorder-grp + .ns-tk-dorder-grp { margin-top: 14px; }
+.ns-tk-dorder-grp > h3 { margin: 0 0 4px 2px; font-weight: 400; }
+.ns-tk-dorder .ns-tk-drow { padding-left: 2px; border-radius: 2px; outline: none; }
+.ns-tk-dorder .ns-tk-drow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.ns-tk-dorder .ns-tk-drow:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* 頁首「排序」鈕（清單、沒在搜尋）：chip 語彙，緊接在 ‹ 月份 › 後面（排的是「這個月」） */
+.ns-tk-headrow .ns-tk-sortwrap { margin-left: 6px; flex: none; }
+/* 篩選列多了第六顆「排序」：摘要＋「清除」綁成一組，折行時一起靠右 */
+.ns-tk-foundwrap { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; }
+
+/* 平面清單（金額排序）：日期欄插在符號與分類之間；不分日 ⇒ 頂上留一點氣口 */
+.ns-tk-list.is-flat { padding-top: 6px; }
+.ns-tk-list.is-flat .ns-tk-row { grid-template-columns: 14px 78px minmax(0, 1fr) auto auto; }
+/* 跨年：日期欄多一個年（「2025/10/21（三）」約 106px） */
+.ns-tk-list.is-flat.is-year .ns-tk-row { grid-template-columns: 14px 112px minmax(0, 1fr) auto auto; }
+.ns-tk-rday { font-family: var(--font-latin); font-size: 12px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }

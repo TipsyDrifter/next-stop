@@ -86,7 +86,9 @@ const {
   filterChips,
   filterEntries,
   filterToQuery,
+  flatDayText,
   inRange,
+  isAmountSort,
   isFilterActive,
   keywordTokens,
   matchesKeyword,
@@ -95,13 +97,17 @@ const {
   monthlyTrend,
   nearestDayWithEntries,
   newestFirst,
+  ENTRY_SORTS,
+  ENTRY_SORT_TEXT,
   pageResults,
+  parseEntrySort,
   periodOf,
   periodRange,
   periodTitle,
   resultSummary,
   routeSpendOf,
   shareText,
+  sortEntries,
   spendText,
   statsOverview,
   stepPeriod,
@@ -1090,3 +1096,70 @@ function makeSqliteDb() {
     },
   };
 }
+
+/* ═════════════════════════ G. 搜尋結果排序（磨光⑥ 契約 §2-4；D-票-64） ═════════════════════════ */
+
+describe("G. 搜尋結果排序", () => {
+  // 三天：10-10 兩筆（USD 外幣 main 換好的 31,550、一筆退款 -9,000）、10-11 兩筆（同金額 5,000 ×2）、10-12 一筆收入 20,000
+  const usd = E({ id: "g-usd", occurred_on: "2026-10-10", currency: "USD", amount_minor: 1000, main_minor: 31550 });
+  const refund = E({ id: "g-ref", occurred_on: "2026-10-10", amount_minor: -9000, main_minor: -9000 });
+  const t1 = E({ id: "g-t1", occurred_on: "2026-10-11", main_minor: 5000 });
+  const t2 = E({ id: "g-t2", occurred_on: "2026-10-11", main_minor: 5000 });
+  const inc = E({ id: "g-inc", occurred_on: "2026-10-12", kind: "income", main_minor: 20000 });
+  const all = [t1, usd, inc, t2, refund];
+  const ids = (xs: readonly EntryRow[]) => xs.map((e) => e.id);
+
+  test("日期・新到舊＝newestFirst；舊到新＝剛好反過來", () => {
+    const desc = sortEntries(all, "dateDesc");
+    assert.deepEqual(ids(desc), ids([...all].sort(newestFirst)));
+    const asc = sortEntries(all, "dateAsc");
+    assert.deepEqual(ids(asc), ids(desc).reverse());
+    assert.equal(asc[0].occurred_on, "2026-10-10");
+  });
+
+  test("金額大到小／小到大：主幣絕對值（外幣用換好的 main_minor、退款取絕對值）；同值日期新到舊、再 id，輸入順序不影響", () => {
+    const big = sortEntries(all, "amountDesc");
+    assert.deepEqual(ids(big).slice(0, 3), ["g-usd", "g-inc", "g-ref"]); // 31,550 > 20,000 > |-9,000|
+    // 兩筆 5,000：同日 ⇒ 依 newestFirst（occurred_at 新的在前）
+    const tie = [t1, t2].sort(newestFirst).map((e) => e.id);
+    assert.deepEqual(ids(big).slice(3), tie);
+    const small = sortEntries(all, "amountAsc");
+    assert.deepEqual(ids(small), [...tie, "g-ref", "g-inc", "g-usd"]);
+    for (let i = 0; i < 6; i++) assert.deepEqual(ids(sortEntries(shuffled(all, 7 + i), "amountDesc")), ids(big), `第 ${i + 1} 次打亂`);
+  });
+
+  test("同日期同金額 ⇒ 靠 id 穩定", () => {
+    const at = new Date(2026, 9, 11, 12, 0).toISOString();
+    const p = E({ id: "g-p", occurred_on: "2026-10-11", occurred_at: at, main_minor: 700, created_at: NOW });
+    const q = E({ id: "g-q", occurred_on: "2026-10-11", occurred_at: at, main_minor: 700, created_at: NOW });
+    assert.deepEqual(ids(sortEntries([p, q], "amountDesc")), ["g-q", "g-p"]); // newestFirst：id 大的在前
+    assert.deepEqual(ids(sortEntries([q, p], "amountAsc")), ["g-q", "g-p"]);
+  });
+
+  test("不改輸入陣列", () => {
+    const copy = ids(all);
+    sortEntries(all, "amountAsc");
+    assert.deepEqual(ids(all), copy);
+  });
+
+  test("日期舊到新餵 groupByDay ⇒ 日組舊到新、組內也是舊到新；日小計不變", () => {
+    const days = groupByDay(sortEntries(all, "dateAsc"), null);
+    assert.deepEqual(days.map((g) => g.dayKey), ["2026-10-10", "2026-10-11", "2026-10-12"]);
+    const fwd = [t1, t2].sort(newestFirst).reverse().map((e) => e.id);
+    assert.deepEqual(ids(days[1].entries), fwd);
+    const newest = groupByDay(sortEntries(all, "dateDesc"), null);
+    assert.deepEqual(days.map((g) => [g.dayKey, g.expense, g.income]), newest.map((g) => [g.dayKey, g.expense, g.income]).reverse());
+  });
+
+  test("isAmountSort／parseEntrySort：壞值與沒存過 ⇒ dateDesc", () => {
+    assert.deepEqual((["dateDesc", "dateAsc", "amountDesc", "amountAsc"] as const).map(isAmountSort), [false, false, true, true]);
+    assert.equal(parseEntrySort("amountAsc"), "amountAsc");
+    for (const bad of [null, undefined, "", "amount", "AMOUNTDESC", "1"]) assert.equal(parseEntrySort(bad as string), "dateDesc");
+  });
+  test("平面清單的日期字「10/21（三）」：不補零、跨年才帶年；四種排序都有字", () => {
+    assert.equal(flatDayText("2026-10-21", false), "10/21（三）");
+    assert.equal(flatDayText("2026-01-04", false), "1/4（日）");
+    assert.equal(flatDayText("2025-12-31", true), "2025/12/31（三）");
+    assert.deepEqual(ENTRY_SORTS.map((k) => ENTRY_SORT_TEXT[k]), ["日期・新到舊", "日期・舊到新", "金額・大到小", "金額・小到大"]);
+  });
+});

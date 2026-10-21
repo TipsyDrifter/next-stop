@@ -10,7 +10,7 @@
  *   │   ├─ button.ns-tk-sideitem「全部帳戶 N」（aria-pressed）
  *   │   ├─ .ns-tk-group ×N     群組小字（負債群組右標「負債」）→ .ns-tk-acct（名稱左、餘額右；點＝篩選；hover 才現的 › ＝詳情板帳戶版）
  *   │   └─ .ns-tk-group.is-archived「封存 N ▸」（預設收）
- *   └─ .ns-tk-sidefoot         「＋ 帳戶」・滑桿圖示鈕 button.ns-tk-manage（aria-label 管理 → 選單：分類管理／幣別與匯率／從財務管家匯入…）
+ *   └─ .ns-tk-sidefoot         「＋ 帳戶」・滑桿圖示鈕 button.ns-tk-manage（aria-label 管理 → 選單：分類管理／帳戶順序／幣別與匯率／從財務管家匯入…）
  *
  * 只讀 store、只叫 store 的動作（§2.5）。選單：↑↓ 移動、Esc 收起（自理、不漏給頁面鍵盤表）、點外面收起。
  */
@@ -130,7 +130,7 @@ export function TicketSide() {
           ref={manageRef}
           className="ns-tk-manage"
           aria-label="管理"
-          title="管理：分類／幣別與匯率／從財務管家匯入"
+          title="管理：分類／帳戶順序／幣別與匯率／從財務管家匯入"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           data-pop-toggle
@@ -152,7 +152,7 @@ export function TicketSide() {
   );
 }
 
-/** 滑桿鈕的選單（0-9；③契約 0-14 加兩項）：分類管理／預算…／定期帳…／幣別與匯率／從財務管家匯入… */
+/** 滑桿鈕的選單（0-9；③契約 0-14 加兩項；磨光⑥ §2-1 加帳戶順序）：分類管理／帳戶順序／預算…／定期帳…／幣別與匯率／從財務管家匯入… */
 function ManageMenu({ onClose, onEscape }: { onClose(): void; onEscape(): void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -190,6 +190,10 @@ function ManageMenu({ onClose, onEscape }: { onClose(): void; onEscape(): void }
     <div ref={ref} className="ns-tk-pop ns-tk-menu" role="menu" aria-label="管理" onKeyDown={onKeyDown}>
       <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "categories" }))}>
         分類管理
+      </button>
+      {/* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序 */}
+      <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "accountOrder" }))}>
+        帳戶順序
       </button>
       {/* 第③階段（③契約 0-14）：分類管理之後加「預算…」「定期帳…」 */}
       <button type="button" role="menuitem" className="opt" onClick={pick(() => s().openDialog({ kind: "budgets" }))}>

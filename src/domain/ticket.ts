@@ -1245,6 +1245,84 @@ export function categoryTree(
   return roots.map((p) => ({ parent: p, children: isUncat(p.id) ? [] : (kids[p.id] ?? []).slice().sort(byPosThenCreated) }));
 }
 
+/**
+ * 分類實際掛在哪一層（跟 `categoryTree` 的顯示一致；磨光⑥ 契約 §2-2；D-票-62）：
+ * 父列不在了（已刪、別 kind、這張表沒有）或父是「未分類」⇒ 主分類層（null）；其餘＝它的 parent_id（父封存也算在，子分類跟著被藏）。
+ * repository 的 `moveCategory` 用它找「兄弟」，孤兒子分類才會和主分類一起排。`byId` 要含父可能的列（同 kind、未刪即可，封存的也要）。
+ */
+export function effectiveParentId(c: CategoryRow, byId: Readonly<Record<string, CategoryRow>>): string | null {
+  if (!c.parent_id || isUncat(c.parent_id)) return null;
+  const p = byId[c.parent_id];
+  return p && p.deleted_at === null && p.kind === c.kind ? p.id : null;
+}
+
+/* ── 記一筆的「常用」（磨光⑥ 契約 §2-3；D-票-63）：只改顯示順序、不寫資料 ── */
+
+/** 常用統計看最近幾天（含今天） */
+export const USAGE_DAYS = 30;
+/** 記一筆「常用」分類的個數（不夠用「最近用過」補到這個數） */
+export const FREQUENT_CATEGORY_LIMIT = 8;
+/** 記一筆「常用」帳戶的個數 */
+export const FREQUENT_ACCOUNT_LIMIT = 3;
+
+/** 一個分類在統計期間的用量：n＝筆數，last＝最近一筆的 `occurred_on + " " + occurred_at`（字串比大小＝比時間） */
+export interface CategoryUsage {
+  id: string;
+  n: number;
+  last: string;
+}
+/** 一個帳戶在統計期間的用量（轉帳的來源與目的各算一次） */
+export interface AccountUsage {
+  id: string;
+  n: number;
+}
+/** `TicketRepository.usageSince` 的回傳 */
+export interface UsageSince {
+  categories: CategoryUsage[];
+  accounts: AccountUsage[];
+}
+
+/**
+ * 常用分類（單一 kind；呼叫端先把 usage 濾成那個 kind）：次數多的在前、同次數最近一次新的在前（再同 ⇒ id），取 `limit` 個；
+ * 不滿就用 `recent`（最近用過，已排好）依序補、去重，湊到 `limit` 或補完為止。
+ */
+export function frequentCategoryIds(usage: readonly CategoryUsage[], recent: readonly string[], limit: number = FREQUENT_CATEGORY_LIMIT): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const ranked = usage.filter((u) => u.n > 0).sort((a, b) => b.n - a.n || cmpStr(b.last, a.last) || cmpStr(a.id, b.id));
+  for (const u of ranked) {
+    if (out.length >= limit) break;
+    if (seen.has(u.id)) continue;
+    seen.add(u.id);
+    out.push(u.id);
+  }
+  for (const id of recent) {
+    if (out.length >= limit) break;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * 常用帳戶：用過至少 1 次的前 `limit` 名（次數多的在前；同次數照 orderAccounts 的順序）。
+ * 只看未刪、未封存的帳戶；這些帳戶 ≤ `limit` 個時回空（全部本來就在手邊，不需要這一列）。
+ */
+export function frequentAccountIds(usage: readonly AccountUsage[], accounts: readonly AccountRow[], limit: number = FREQUENT_ACCOUNT_LIMIT): string[] {
+  const live = orderAccounts(accounts.filter((a) => a.deleted_at === null && a.archived_at === null));
+  if (live.length <= limit) return [];
+  const rank: Record<string, number> = {};
+  live.forEach((a, i) => {
+    rank[a.id] = i;
+  });
+  return usage
+    .filter((u) => u.n >= 1 && rank[u.id] !== undefined)
+    .sort((a, b) => b.n - a.n || rank[a.id] - rank[b.id])
+    .slice(0, limit)
+    .map((u) => u.id);
+}
+
 /** "🍜 食物 › 午餐"／"🍜 食物"／"未分類"；null ⇒ "（分類已不在）" */
 export function categoryLabel(cat: CategoryRow | null, catById: Readonly<Record<string, CategoryRow>>): string {
   if (!cat) return "（分類已刪除）";

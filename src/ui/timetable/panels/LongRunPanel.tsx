@@ -1,7 +1,7 @@
 /**
  * LongRunPanel——「其實到幾點」面板（車次①a 契約 §5.4、§5.5；丙席；＝原型 `shared.js` openOverdueSheet）。
  * 副標「平常大約 {門檻}。其實到幾點？」（門檻來自全域時：「已經超過 {門檻} 的保險上限。其實到幾點？」）；
- * 「到着」stepper −30／−5／HH:MM／+5／+30（夾 [開始+1 分, 上限−1 分]，預設 `longRunDefaultEnd`）；
+ * 「到着」stepper（磨光⑥ 起五處同一排：−1h −15 −5 −1｜可打字的框｜+1 +5 +15 +1h；夾 [開始+1 分, 上限−1 分]，預設 `longRunDefaultEnd`）；
  * 「之後」三 chips：「沒記到，留白」「其實在做別的…」「還在{分類}，別問了」（已結束的塊第三項改「沒錯，就是這麼久」）；
  * 選「其實在做別的」時展開分類格；底部說明 L1–L3；主鈕「就這樣」（keep 時「知道了」）。
  *
@@ -14,12 +14,12 @@
  * 車次②（② 契約 §4.2-6 #9、§5.11；乙席）：門檻多一層任務的預計時間（`taskEstimateOf(block, linkInfo)`，預估之後、分類之前）；
  * 來源是 task ⇒ 副標「『{任務}』預計 {門檻}，已經誤點 {超過}。其實到幾點？」（estimate 那條的姊妹句），「別問了」一樣留『誤點』。
  */
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, msOf, thresholdOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
 import { linkLabelOf, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
-import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, useBlock, useNowOnce, type PanelProps } from "./controls";
+import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, type PanelProps } from "./controls";
 
 export function LongRunPanel({ onDone }: PanelProps) {
   const now = useNowOnce();
@@ -71,7 +71,8 @@ export function LongRunPanel({ onDone }: PanelProps) {
           ? "這一班照跑；軸上會留一個『誤點』的記號。"
           : "這一班照跑；軸上會留一個『長時間運行』的記號。";
 
-  const confirm = (): void => {
+  const confirm = (e: MouseEvent<HTMLButtonElement>): void => {
+    if (!clockDraftsOk(e.currentTarget)) return;
     void resolveLongRun(block.id, end, after, after === "cat" ? (cat2 ?? undefined) : undefined);
   };
 
@@ -93,8 +94,8 @@ export function LongRunPanel({ onDone }: PanelProps) {
               : `已經連續跑超過 ${fmtDur(th.min * MIN)} 了。其實到幾點？`}
         <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>
       </Sub>
-      <Row k="到着">
-        <Stepper value={end} steps={[-30, -5, 5, 30]} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" />
+      <Row k="到着" time>
+        <Stepper value={end} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" />
       </Row>
       <Row k="之後" top>
         <Opts>

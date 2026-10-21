@@ -74,6 +74,9 @@ import {
   defaultChoices,
   deriveAmounts,
   draftToInput,
+  effectiveParentId,
+  frequentAccountIds,
+  frequentCategoryIds,
   groupByDay,
   importRate,
   matchAccount,
@@ -1448,4 +1451,178 @@ describe("E2. repository 層（memory／sqlite）", () => {
       ],
     );
   });
+});
+
+/* ═════════════════════════ E3. 磨光⑥ 契約 §2：孤兒子分類排序、用量、常用 ═════════════════════════ */
+
+describe("E3. 常用（純函式）", () => {
+  const u = (id: string, n: number, last: string) => ({ id, n, last });
+
+  test("frequentCategoryIds：次數多的在前、同次數比最近一次、再同比 id；不滿 8 個用 recent 補且去重", () => {
+    const usage = [u("a", 2, "2026-10-01 x"), u("b", 5, "2026-10-02 x"), u("c", 2, "2026-10-05 x"), u("d", 2, "2026-10-05 x"), u("e", 1, "2026-10-09 x")];
+    assert.deepEqual(frequentCategoryIds(usage, []), ["b", "c", "d", "a", "e"]);
+    // recent 補：已在常用裡的不重複，補到 8 個為止
+    const recent = ["e", "r1", "a", "r2", "r3", "r4", "r5", "r6", "r7"];
+    assert.deepEqual(frequentCategoryIds(usage, recent), ["b", "c", "d", "a", "e", "r1", "r2", "r3"]);
+    // 超過 8 個常用 ⇒ 只取前 8、不再補
+    const many = Array.from({ length: 10 }, (_, i) => u("k" + i, 10 - i, "2026-10-01 x"));
+    assert.deepEqual(frequentCategoryIds(many, ["r1"]), many.slice(0, 8).map((x) => x.id));
+    // 沒有任何用量 ⇒ 就是 recent
+    assert.deepEqual(frequentCategoryIds([], ["r1", "r2", "r1"]), ["r1", "r2"]);
+    assert.deepEqual(frequentCategoryIds([], []), []);
+    // 不改輸入
+    const copy = JSON.stringify(usage);
+    frequentCategoryIds(usage, recent);
+    assert.equal(JSON.stringify(usage), copy);
+  });
+
+  test("frequentAccountIds：前 3 名、至少用過 1 次；帳戶（未封存）≤ 3 個時空；封存與不認得的 id 不列；同次數照 orderAccounts", () => {
+    const a = acc("a", "A", "cash");
+    const b = acc("b", "B", "bank", "TWD", { position: 0 });
+    const c = acc("c", "C", "bank", "TWD", { position: 1 });
+    const d = acc("d", "D", "bank", "TWD", { position: 2 });
+    const e = acc("e", "E", "card");
+    const use = [
+      { id: "e", n: 1 },
+      { id: "d", n: 4 },
+      { id: "c", n: 4 },
+      { id: "b", n: 2 },
+      { id: "a", n: 0 },
+      { id: "ghost", n: 99 },
+    ];
+    const five = [e, d, c, b, a]; // 故意亂序
+    assert.deepEqual(frequentAccountIds(use, five), ["c", "d", "b"]); // c、d 同 4 次 ⇒ c 排在 d 前（orderAccounts：bank 內 position 1、2）
+    assert.deepEqual(frequentAccountIds(use, [a, b, c]), []); // 剛好 3 個 ⇒ 不出
+    assert.deepEqual(frequentAccountIds(use, [a, b, c, acc("z", "Z", "cash", "TWD", { archived_at: NOW })]), []); // 封存的不算在內
+    assert.deepEqual(frequentAccountIds([], five), []); // 沒用量
+    assert.deepEqual(frequentAccountIds([{ id: "a", n: 1 }], five), ["a"]); // 不滿 3 名也列（n≥1）
+    // 封存帳戶用量再高也不列
+    const arch = acc("x", "X", "cash", "TWD", { archived_at: NOW });
+    assert.deepEqual(frequentAccountIds([{ id: "x", n: 50 }, { id: "c", n: 1 }], [...five, arch]), ["c"]);
+  });
+
+  test("effectiveParentId：父在 ⇒ 父；父已刪／別 kind／沒這列／未分類 ⇒ null", () => {
+    const p = cat("p", "expense", "P", null, 0);
+    const k = cat("k", "expense", "K", "p", 0);
+    const map = byId([p, k]);
+    assert.equal(effectiveParentId(k, map), "p");
+    assert.equal(effectiveParentId(p, map), null);
+    assert.equal(effectiveParentId(k, byId([k])), null, "沒這列");
+    assert.equal(effectiveParentId(k, byId([{ ...p, deleted_at: NOW }, k])), null, "父已刪");
+    assert.equal(effectiveParentId(k, byId([{ ...p, kind: "income" as CategoryKind }, k])), null, "父別 kind");
+    assert.equal(effectiveParentId(cat("k2", "expense", "K2", UNCAT_EXPENSE_ID, 0), byId([])), null, "掛在未分類下");
+    assert.equal(effectiveParentId(k, byId([{ ...p, archived_at: NOW }, k])), "p", "父封存仍在 ⇒ 還是它的子（被藏）");
+  });
+});
+
+describe("E3. repository：孤兒子分類排序、用量（memory／sqlite）", () => {
+  /** 讓一個分類「被刪」（repository 沒有刪分類的公開方法，同步拉到墓碑時就是這樣） */
+  async function tombstoneCategory(repo: AnyRepo, db: TestDb | null, id: string): Promise<void> {
+    if (db) await db.execute("UPDATE tk_categories SET deleted_at = $1 WHERE id = $2", [NOW, id]);
+    else (repo as { cat: Map<string, CategoryRow> }).cat.get(id)!.deleted_at = NOW;
+  }
+
+  for (const impl of IMPLS) {
+    test(`父分類已刪的子分類當主分類那一層排序（${impl.name}）`, async () => {
+      const { repo, db } = await impl.make();
+      await repo.ensureStarterRows();
+      const A = await repo.createCategory({ kind: "expense", name: "A", parentId: null });
+      const B = await repo.createCategory({ kind: "expense", name: "B", parentId: null });
+      const P = await repo.createCategory({ kind: "expense", name: "P", parentId: null });
+      const k1 = await repo.createCategory({ kind: "expense", name: "k1", parentId: P.id });
+      const k2 = await repo.createCategory({ kind: "expense", name: "k2", parentId: P.id });
+      const Q = await repo.createCategory({ kind: "expense", name: "Q", parentId: null });
+      const other = await repo.createCategory({ kind: "income", name: "收入A", parentId: null });
+      await tombstoneCategory(repo, db, P.id);
+
+      const order = async (kind: CategoryKind = "expense") =>
+        categoryTree(await repo.listCategories(), kind, { includeArchived: false }).map((t) => t.parent.id);
+      // 孤兒 k1、k2 升成主分類（position 0、1 和 A、B 撞號——排序靠 position→created_at→id）
+      const before = await order();
+      assert.deepEqual(before.filter((id) => id !== UNCAT_EXPENSE_ID).sort(), [A.id, B.id, k1.id, k2.id, Q.id].sort(), "孤兒出現在主分類層");
+      assert.equal(before[before.length - 1], UNCAT_EXPENSE_ID);
+
+      // 往上一格：真的和畫面上的前一個互換
+      const i = before.indexOf(k2.id);
+      assert.ok(i > 0);
+      await repo.moveCategory(k2.id, -1);
+      const swapped = before.slice();
+      [swapped[i - 1], swapped[i]] = [swapped[i], swapped[i - 1]];
+      assert.deepEqual(await order(), swapped, "孤兒子分類 ↑ 要動");
+
+      // 往下一格
+      const afterUp = await order();
+      const j = afterUp.indexOf(k2.id);
+      await repo.moveCategory(k2.id, 1);
+      const back = afterUp.slice();
+      [back[j], back[j + 1]] = [back[j + 1], back[j]];
+      assert.deepEqual(await order(), back, "孤兒子分類 ↓ 要動");
+
+      // 排在最後一個（未分類之前）的往下不動
+      const snap = await order();
+      const last = snap.filter((id) => id !== UNCAT_EXPENSE_ID).pop()!;
+      await repo.moveCategory(last, 1);
+      assert.deepEqual(await order(), snap, "最後一個往下 ⇒ 不動（未分類不參與）");
+
+      // 主分類往下也會跟孤兒換（兄弟包含孤兒）
+      const s2 = await order();
+      const ai = s2.indexOf(A.id);
+      await repo.moveCategory(A.id, 1);
+      const s3 = s2.slice();
+      [s3[ai], s3[ai + 1]] = [s3[ai + 1], s3[ai]];
+      assert.deepEqual(await order(), s3);
+
+      // 別 kind 不受影響
+      assert.deepEqual(await order("income"), [other.id, UNCAT_INCOME_ID]);
+    });
+
+    test(`usageSince：30 天內收支帳的分類次數與最近一次；帳戶次數（轉帳兩端都算、校正不算、已刪不算、封存分類與未分類不列）（${impl.name}）`, async () => {
+      const { repo } = await impl.make();
+      await repo.ensureStarterRows();
+      const a1 = await repo.createAccount(newAcc("現金", "cash", "TWD", 1000)); // 期初餘額 ⇒ 一筆 adjust（不算用量）
+      const a2 = await repo.createAccount(newAcc("帳戶", "bank"));
+      const x = await repo.createCategory({ kind: "expense", name: "X", parentId: null });
+      const y = await repo.createCategory({ kind: "expense", name: "Y", parentId: null });
+      const w = await repo.createCategory({ kind: "expense", name: "W", parentId: null });
+      const z = await repo.createCategory({ kind: "income", name: "Z", parentId: null });
+      const at = (day: string, h: number) => new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), h, 0).toISOString();
+      const mk = (p: Partial<NewEntryInput> & { day: string; h?: number }) =>
+        repo.createEntry(newEntry({ ...p, occurredOn: p.day, occurredAt: at(p.day, p.h ?? 12) }));
+      await mk({ accountId: a1.id, categoryId: x.id, day: "2026-10-10" });
+      await mk({ accountId: a1.id, categoryId: x.id, day: "2026-10-11" });
+      await mk({ accountId: a2.id, categoryId: x.id, day: "2026-10-12", h: 15 });
+      await mk({ accountId: a1.id, categoryId: x.id, day: "2026-10-01" }); // 期間外
+      await mk({ accountId: a2.id, categoryId: y.id, day: "2026-10-12" });
+      await mk({ accountId: a1.id, categoryId: w.id, day: "2026-10-12" });
+      await mk({ kind: "income", accountId: a1.id, categoryId: z.id, day: "2026-10-09" });
+      await mk({ kind: "income", accountId: a1.id, categoryId: z.id, day: "2026-10-12" });
+      const gone = await mk({ accountId: a2.id, categoryId: x.id, day: "2026-10-12" });
+      await repo.softDeleteEntry(gone.id);
+      await mk({ kind: "transfer", accountId: a1.id, toAccountId: a2.id, day: "2026-10-11" });
+      await mk({ accountId: a2.id, categoryId: null, day: "2026-10-12" }); // 未分類：帳戶算、分類不列
+      await repo.setCategoryArchived(w.id, true); // 封存的分類不列
+
+      type CU = { id: string; n: number; last: string };
+      type AU = { id: string; n: number };
+      const out = await repo.usageSince("2026-10-05");
+      const cats: Record<string, CU> = Object.fromEntries(out.categories.map((c: CU) => [c.id, c]));
+      assert.deepEqual(Object.keys(cats).sort(), [x.id, y.id, z.id].sort());
+      assert.equal(cats[x.id].n, 3);
+      assert.equal(cats[x.id].last, `2026-10-12 ${at("2026-10-12", 15)}`);
+      assert.equal(cats[y.id].n, 1);
+      assert.equal(cats[z.id].n, 2);
+      assert.equal(cats[z.id].last, `2026-10-12 ${at("2026-10-12", 12)}`);
+      const accs = Object.fromEntries(out.accounts.map((c: AU) => [c.id, c.n]));
+      // a1：x×2、w、z×2、轉出 ＝ 6；a2：x×1、y、未分類、轉入 ＝ 4（已刪的、期間外的、期初 adjust 都不算）
+      assert.deepEqual(accs, { [a1.id]: 6, [a2.id]: 4 });
+
+      // 更晚的起點：只剩 10-12 的
+      const late = await repo.usageSince("2026-10-12");
+      assert.deepEqual(late.categories.map((c: CU) => c.id).sort(), [x.id, y.id, z.id].sort());
+      assert.equal(late.categories.find((c: CU) => c.id === x.id).n, 1);
+      assert.deepEqual(Object.fromEntries(late.accounts.map((c: AU) => [c.id, c.n])), { [a1.id]: 2, [a2.id]: 3 }); // a1：w、z；a2：x、y、未分類
+      // 起點在未來 ⇒ 空
+      assert.deepEqual(await repo.usageSince("2027-01-01"), { categories: [], accounts: [] });
+    });
+  }
 });

@@ -607,6 +607,62 @@ export function newestFirst(a: EntryRow, b: EntryRow): number {
   return cmpStr(b.occurred_on, a.occurred_on) || cmpStr(b.occurred_at, a.occurred_at) || cmpStr(b.created_at, a.created_at) || cmpStr(b.id, a.id);
 }
 
+/* ── 搜尋結果的排序（磨光⑥ 契約 §2-4；D-票-64） ── */
+
+/** 搜尋結果的排序條件；預設（也是一般清單的樣子）是 dateDesc */
+export type EntrySort = "dateDesc" | "dateAsc" | "amountDesc" | "amountAsc";
+export const ENTRY_SORTS: readonly EntrySort[] = ["dateDesc", "dateAsc", "amountDesc", "amountAsc"];
+export const DEFAULT_ENTRY_SORT: EntrySort = "dateDesc";
+
+/** 排序選項的字（兩殼同一份；磨光⑥ 契約 §2-4） */
+export const ENTRY_SORT_TEXT: Readonly<Record<EntrySort, string>> = {
+  dateDesc: "日期・新到舊",
+  dateAsc: "日期・舊到新",
+  amountDesc: "金額・大到小",
+  amountAsc: "金額・小到大",
+};
+
+/** 平面清單（金額排序）每列的日期字：「10/21（三）」；跨年的結果加年「2025/10/21（二）」 */
+export function flatDayText(dayKey: string, withYear: boolean): string {
+  const [y, m, d] = splitDay(dayKey);
+  const w = "日一二三四五六"[new Date(y, m - 1, d).getDay()];
+  return `${withYear ? `${y}/` : ""}${m}/${d}（${w}）`;
+}
+
+/** 金額排序畫平面清單（不分日）；日期排序照舊按日分組 */
+export function isAmountSort(s: EntrySort): boolean {
+  return s === "amountDesc" || s === "amountAsc";
+}
+
+/** 讀本機設定值：不認得（壞值、沒存過）⇒ 預設 */
+export function parseEntrySort(raw: string | null | undefined): EntrySort {
+  return ENTRY_SORTS.find((s) => s === raw) ?? DEFAULT_ENTRY_SORT;
+}
+
+/** 日期舊到新：newestFirst 反過來（發生日、發生時刻、建立時刻、id 全部反向） */
+function oldestFirst(a: EntryRow, b: EntryRow): number {
+  return newestFirst(b, a);
+}
+
+/**
+ * 依條件排好（回新陣列，不改輸入）。金額比的是 `main_minor` 的絕對值——跟日小計（groupByDay）同一欄，外幣已換成主幣別、
+ * 退款（負的）與收入、轉帳、校正都照絕對值比；同金額用日期新到舊、再 id，所以結果穩定。
+ * 日期舊到新時，餵給 groupByDay 會自然開出「舊的日在前、組內舊的在前」的分組（groupByDay 依輸入順序開組）。
+ */
+export function sortEntries(entries: readonly EntryRow[], sort: EntrySort): EntryRow[] {
+  const out = entries.slice();
+  switch (sort) {
+    case "dateAsc":
+      return out.sort(oldestFirst);
+    case "amountDesc":
+      return out.sort((a, b) => Math.abs(b.main_minor) - Math.abs(a.main_minor) || newestFirst(a, b));
+    case "amountAsc":
+      return out.sort((a, b) => Math.abs(a.main_minor) - Math.abs(b.main_minor) || newestFirst(a, b));
+    default:
+      return out.sort(newestFirst);
+  }
+}
+
 const NUMBER_RE = /^\d[\d,]*(\.\d+)?$/;
 
 /** 數字字串的正規形：去千分位、小數去尾 0（"80.00"→"80"、"80.50"→"80.5"、"1,200"→"1200"） */

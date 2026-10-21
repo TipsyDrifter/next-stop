@@ -5,8 +5,9 @@
  * 由上而下（原型 app.js mobForm 的 A 分支）：
  *   頂列「取消」・「支出｜收入｜轉帳」・「存」
  *   → 金額大字（inputmode=decimal 系統鍵盤，不自建數字鍵盤；右側幣別 chip 開 sheet）；外幣時下一行「≈ NT$ … · 匯率 …」可改折算額
- *   → 帳戶 chips 橫捲（轉帳＝「從」「到」兩列；不同幣別時多一欄「轉入金額」）
- *   → （收支）「最近」格子＋完整兩層格子（主分類一格一格、點開在那一列下方展子分類）
+ *   → 帳戶 chips 橫捲（轉帳＝「從」「到」兩列；不同幣別時多一欄「轉入金額」）——磨光⑥ 契約 §2-3（D-票-63）：最前面是「常用」
+ *     （30 天次數前 3；帳戶 ≤ 3 個時沒有），小標與虛線隔開，後面照舊是手動順序的完整清單
+ *   → （收支）「常用」格子（磨光⑥ §2-3：30 天次數，不滿 8 個用最近用過補；原本叫「最近」）＋完整兩層格子（主分類一格一格、點開在那一列下方展子分類）
  *   → 「更多欄位」折疊：日期（MobileDatePicker）・時刻・備註・路線・（舊票，第③階段）定期——「設成定期… ›」或唯讀「每月 1 日 · 管理 ›」
  *   → 底部：新票「存並繼續」（存後清金額與備註、留帳戶分類）／舊票「刪除」
  *
@@ -251,7 +252,7 @@ function FormShell({
   const catById = useTicketStore((s) => s.catById);
   const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
-  const recent = useTicketStore((s) => s.recent);
+  const frequent = useTicketStore((s) => s.frequent);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
@@ -276,17 +277,22 @@ function FormShell({
     }
     return live;
   }, [accounts, accById, d.accountId, d.toAccountId]);
+  /* 常用帳戶（store 已排好、最多 3 個）：只列未封存的 */
+  const frequentAccounts = useMemo(
+    () => frequent.accounts.map((id) => accById[id]).filter((a): a is AccountRow => !!a && a.deleted_at === null && a.archived_at === null),
+    [frequent.accounts, accById],
+  );
   const dupName = (a: AccountRow) => accounts.filter((x) => x.name === a.name && x.deleted_at === null).length > 1;
 
   /* 分類 */
   const tree = useMemo(() => categoryTree(categories, catKind, { includeArchived: false }), [categories, catKind]);
   const recentCats = useMemo(
     () =>
-      recent[catKind]
+      frequent[catKind]
         .map((id) => catById[id])
         .filter((c): c is CategoryRow => !!c && c.deleted_at === null && c.archived_at === null && c.kind === catKind)
         .slice(0, 8),
-    [recent, catKind, catById],
+    [frequent, catKind, catById],
   );
   const selCat = d.categoryId ? (catById[d.categoryId] ?? null) : null;
   const [openMain, setOpenMain] = useState<string | null>(() => (selCat ? (selCat.parent_id ?? selCat.id) : null));
@@ -415,21 +421,34 @@ function FormShell({
   const chips = (which: "from" | "to") => {
     const cur = which === "from" ? d.accountId : d.toAccountId;
     const list = which === "to" ? chipAccounts.filter((a) => a.id !== d.accountId) : chipAccounts;
+    const freq = which === "to" ? frequentAccounts.filter((a) => a.id !== d.accountId) : frequentAccounts;
+    const chip = (a: AccountRow, key: string) => (
+      <button
+        key={key}
+        type="button"
+        className={"ns-tk-mchip" + (a.id === cur ? " on" : "")}
+        aria-pressed={a.id === cur}
+        disabled={adjust}
+        onClick={() => onPatch(which === "from" ? { accountId: a.id } : { toAccountId: a.id, toAmountText: null })}
+      >
+        {a.name}
+        {dupName(a) && <small>{groupLabelOf(a.group_key)}</small>}
+      </button>
+    );
     return (
       <div className="ns-tk-mf-accts" role="group" aria-label={which === "from" ? "帳戶" : "轉入帳戶"}>
-        {list.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            className={"ns-tk-mchip" + (a.id === cur ? " on" : "")}
-            aria-pressed={a.id === cur}
-            disabled={adjust}
-            onClick={() => onPatch(which === "from" ? { accountId: a.id } : { toAccountId: a.id, toAmountText: null })}
-          >
-            {a.name}
-            {dupName(a) && <small>{groupLabelOf(a.group_key)}</small>}
-          </button>
-        ))}
+        {freq.length > 0 && (
+          <>
+            <span className="ns-tk-mf-acctsep is-lead" aria-hidden>
+              常用
+            </span>
+            {freq.map((a) => chip(a, "f-" + a.id))}
+            <span className="ns-tk-mf-acctsep" aria-hidden>
+              全部
+            </span>
+          </>
+        )}
+        {list.map((a) => chip(a, a.id))}
         {list.length === 0 && <span className="ns-tk-mf-none">{which === "to" ? "只有一個帳戶，轉不出去" : "還沒有帳戶"}</span>}
       </div>
     );
@@ -546,7 +565,7 @@ function FormShell({
             {chips("from")}
             {recentCats.length > 0 && (
               <>
-                <p className="ns-tk-mf-lbl">最近</p>
+                <p className="ns-tk-mf-lbl">常用</p>
                 <div className="ns-tk-mf-cats">
                   <div className="ns-tk-mgrid">
                     {recentCats.map((c) => {

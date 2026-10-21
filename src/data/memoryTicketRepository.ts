@@ -39,6 +39,7 @@ import {
   balancesOf,
   buildEntryRow,
   currencyCode,
+  effectiveParentId,
   materializeImport,
   minorFromDecimal,
   orderAccounts,
@@ -60,6 +61,7 @@ import {
   type MmbakReadResult,
   type MmTx,
   type NewEntryInput,
+  type UsageSince,
 } from "../domain/ticket";
 import { matchesQuery, newestFirst, routeSpendOf, type EntryQuery } from "../domain/ticketView";
 import {
@@ -716,6 +718,34 @@ export class MemoryTicketRepository implements TicketRepository {
       .slice(0, limit);
   }
 
+  async usageSince(sinceDay: string): Promise<UsageSince> {
+    this.ensureDemo();
+    const cats: Record<string, { n: number; last: string }> = {};
+    const accs: Record<string, number> = {};
+    for (const e of this.ent.values()) {
+      if (!isAlive(e) || e.occurred_on < sinceDay) continue;
+      if (e.kind !== "adjust") {
+        accs[e.account_id] = (accs[e.account_id] ?? 0) + 1;
+        if (e.kind === "transfer" && e.to_account_id) accs[e.to_account_id] = (accs[e.to_account_id] ?? 0) + 1;
+      }
+      if ((e.kind === "income" || e.kind === "expense") && e.category_id && !isUncat(e.category_id)) {
+        const c = this.cat.get(e.category_id);
+        if (!c || !isAlive(c) || c.archived_at !== null) continue;
+        const last = `${e.occurred_on} ${e.occurred_at}`;
+        const u = cats[e.category_id];
+        if (!u) cats[e.category_id] = { n: 1, last };
+        else {
+          u.n += 1;
+          if (last > u.last) u.last = last;
+        }
+      }
+    }
+    return {
+      categories: Object.keys(cats).map((id) => ({ id, n: cats[id].n, last: cats[id].last })),
+      accounts: Object.keys(accs).map((id) => ({ id, n: accs[id] })),
+    };
+  }
+
   /* ───────── 寫：帳 ───────── */
 
   async createEntry(input: NewEntryInput): Promise<EntryRow> {
@@ -916,8 +946,13 @@ export class MemoryTicketRepository implements TicketRepository {
     this.ensureDemo();
     if (isUncat(id)) return;
     const c = this.categoryOrThrow(id);
-    const list = Array.from(this.cat.values())
-      .filter((x) => isAlive(x) && x.archived_at === null && !isUncat(x.id) && x.kind === c.kind && x.parent_id === c.parent_id)
+    // 找兄弟看「實際掛在哪一層」（D-票-62）：父列已不在的子分類跟主分類同一層，與 categoryTree 的顯示一致
+    const all = Array.from(this.cat.values()).filter((x) => isAlive(x) && !isUncat(x.id) && x.kind === c.kind);
+    const byId: Record<string, CategoryRow> = {};
+    for (const x of all) byId[x.id] = x;
+    const level = effectiveParentId(c, byId);
+    const list = all
+      .filter((x) => x.archived_at === null && effectiveParentId(x, byId) === level)
       .sort((a, b) => a.position - b.position || cmp(a.created_at, b.created_at) || cmp(a.id, b.id));
     this.swapIn(list, id, delta, nowUtcIso());
   }

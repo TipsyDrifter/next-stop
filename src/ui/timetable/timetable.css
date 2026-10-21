@@ -623,6 +623,81 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   color: var(--color-ink);
 }
 
+/* 磨光⑥（契約 §1-1、§1-5½；D-時-142、147、148）：可打字的時刻框＋兩側一排微調鈕＋框下說明行；長相＝原型
+   prototypes/時刻表-補記選時間.html 的 A 排法。桌機一行八顆（窄一點）；手機兩側各 2×2（越外側越大），鈕 44×44 不縮 */
+.ns-tt-timecol { display: inline-flex; flex-direction: column; align-items: stretch; }
+.ns-tt-stepper.is-a .ns-tt-step { width: 34px; font-size: 11.5px; }
+.ns-tt-step {
+  touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ns-tt-step:active:not(:disabled), .ns-tt-step.is-held { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 18%, transparent); color: var(--color-ink); }
+.ns-tt-tinwrap { position: relative; display: inline-flex; margin: 0 2px; border-radius: 3px; }
+input.ns-tt-tin {
+  box-sizing: border-box; width: 76px; min-width: 0; height: 40px; margin: 0; padding: 0 2px;
+  background: transparent; border: 0; border-bottom: 1px dashed var(--color-dash); border-radius: 0;
+  letter-spacing: .02em; caret-color: var(--color-gold-ink);
+  -webkit-appearance: none; appearance: none;
+  transition: background .15s, border-color .15s, color .15s;
+  scroll-margin: 16px 0 96px; /* 聚焦捲動時讓開面板底部黏住的按鈕列（§D .ns-dialog-body:has(.ns-tt-panel-block) .ns-tt-actions） */
+}
+input.ns-tt-tin:hover { border-bottom-color: var(--color-gold); }
+input.ns-tt-tin:focus {
+  outline: none; border-bottom: 1px solid var(--color-gold); border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--color-gold) 14%, transparent);
+}
+input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50%, transparent); color: var(--color-ink); }
+.ns-tt-tinwrap.is-bad input.ns-tt-tin {
+  color: var(--color-late); border-bottom: 1px solid var(--color-late);
+  background: color-mix(in srgb, var(--color-late) 12%, transparent);
+}
+.ns-tt-tinwrap.is-shake { animation: ns-tt-tin-shake .42s cubic-bezier(.36, .07, .19, .97) both; }
+@keyframes ns-tt-tin-shake {
+  0% { transform: translateX(0); } 14% { transform: translateX(-6px); } 30% { transform: translateX(5px); }
+  46% { transform: translateX(-3.5px); } 62% { transform: translateX(2px); } 80% { transform: translateX(-1px); } 100% { transform: translateX(0); }
+}
+/* 框下說明行：跟 stepper 疊成一欄、置中在時刻框底下；固定高度，打字時版面不跳 */
+.ns-tt-thint {
+  display: flex; justify-content: center; min-height: 17px; margin-top: 1px;
+  font-size: 11px; line-height: 17px; letter-spacing: .06em; color: var(--color-ink-faint);
+  white-space: nowrap; transition: color .15s;
+}
+.ns-tt-thint b { font-weight: 500; font-size: 12px; color: var(--color-ink); }
+.ns-tt-thint.is-ok { color: var(--color-ink-soft); }
+.ns-tt-thint.is-err { color: var(--color-late); }
+/* 放 stepper 的列：頂端對齊（說明行在下面）、chip 換到下一行 */
+.ns-tt-row.is-time { align-items: flex-start; padding: 6px 0 3px; }
+.ns-tt-row.is-time .ns-tt-row-k { line-height: 40px; }
+.ns-tt-row.is-time .ns-tt-row-v { align-items: flex-start; row-gap: 4px; }
+.ns-tt-row.is-time .ns-tt-opt { margin-top: 5px; }
+/* 連續補：副標第二行「剩下 X–Y 還沒記」 */
+.ns-tt-fill-cont {
+  display: flex; align-items: center; gap: 6px; margin: -4px 0 6px;
+  font-size: 12px; letter-spacing: .08em; color: var(--color-late);
+  animation: ns-tt-fade-up .32s var(--ns-tt-ease, ease-out) both;
+}
+.ns-tt-fill-cont::before { content: ""; flex: none; width: 6px; height: 6px; transform: rotate(45deg); border: 1.5px dashed var(--color-late); }
+.ns-tt-fill-cont .ns-tt-num { font-size: 12.5px; }
+[data-shell="mobile"] .ns-tt-panel .ns-tt-stepper.is-a {
+  display: grid; grid-template-columns: 44px 44px auto 44px 44px; grid-template-rows: 44px 44px; gap: 4px 3px; align-items: center;
+}
+[data-shell="mobile"] .ns-tt-panel .ns-tt-stepper.is-a .ns-tt-step { width: 44px; height: 44px; font-size: 12px; }
+[data-shell="mobile"] .ns-tt-stepper.is-a .ns-tt-tinwrap { grid-column: 3; grid-row: 1 / span 2; }
+[data-shell="mobile"] .ns-tt-panel input.ns-tt-tin { width: 84px; height: 44px; font-size: 20px; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="-60"] { grid-area: 1 / 1; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="-15"] { grid-area: 1 / 2; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="-5"] { grid-area: 2 / 1; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="-1"] { grid-area: 2 / 2; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="15"] { grid-area: 1 / 4; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="60"] { grid-area: 1 / 5; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="1"] { grid-area: 2 / 4; }
+[data-shell="mobile"] .ns-tt-stepper.is-a [data-d="5"] { grid-area: 2 / 5; }
+[data-shell="mobile"] .ns-tt-row.is-time .ns-tt-row-k { line-height: 92px; }
+[data-shell="mobile"] .ns-tt-row.is-time .ns-tt-opt { margin-top: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-tinwrap.is-shake, .ns-tt-fill-cont { animation: none; }
+}
+
 /* 選項 chip（出發幾分前／之後怎麼辦／接上一塊） */
 .ns-tt-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ns-tt-opt {
@@ -853,6 +928,10 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 .ns-tt-cut-row .ns-tt-row-k { width: auto; }
 .ns-tt-cut-row .ns-tt-step { width: 36px; height: 36px; }
 .ns-tt-cut-row .ns-tt-val { font-size: 17px; min-width: 60px; }
+/* 磨光⑥：切點列也是一排八顆＋框，桌機鈕再窄一點，✕ 不被擠扁 */
+.ns-tt-cut-row .ns-tt-stepper.is-a .ns-tt-step { width: 32px; }
+.ns-tt-cut-row input.ns-tt-tin { width: 68px; }
+.ns-tt-cut-row .ns-tt-cut-del { flex: none; }
 .ns-tt-cut-del {
   margin-left: auto; margin-right: 2px; width: 34px; height: 34px; padding: 0; border-radius: 50%;
   background: transparent; border: 0; cursor: pointer; font-size: 12px; color: var(--color-ink-faint);

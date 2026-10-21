@@ -29,6 +29,7 @@ import {
   applyEntryPatch,
   buildEntryRow,
   currencyCode,
+  effectiveParentId,
   materializeImport,
   orderAccounts,
   parseRate,
@@ -47,6 +48,7 @@ import {
   type ImportPlan,
   type MmbakReadResult,
   type NewEntryInput,
+  type UsageSince,
 } from "../domain/ticket";
 import {
   applyRepeatPatch,
@@ -458,6 +460,34 @@ export class SqliteTicketRepository implements TicketRepository {
     return rows.map((r) => r.id);
   }
 
+  async usageSince(sinceDay: string): Promise<UsageSince> {
+    const db = await getDb();
+    const [cats, accs] = await Promise.all([
+      db.select<{ id: string; n: number; last: string }[]>(
+        `SELECT e.category_id AS id, COUNT(*) AS n, MAX(e.occurred_on || ' ' || e.occurred_at) AS last
+         FROM tk_entries e JOIN tk_categories c ON c.id = e.category_id
+         WHERE e.deleted_at IS NULL AND e.kind IN ('income', 'expense') AND e.occurred_on >= $1
+           AND c.deleted_at IS NULL AND c.archived_at IS NULL AND c.id NOT IN ($2, $3)
+         GROUP BY e.category_id`,
+        [sinceDay, UNCAT_INCOME_ID, UNCAT_EXPENSE_ID],
+      ),
+      // 轉帳的兩端各算一次；校正（adjust）不是「用」帳戶，不算
+      db.select<{ id: string; n: number }[]>(
+        `SELECT id, COUNT(*) AS n FROM (
+           SELECT account_id AS id FROM tk_entries WHERE deleted_at IS NULL AND kind <> 'adjust' AND occurred_on >= $1
+           UNION ALL
+           SELECT to_account_id AS id FROM tk_entries
+           WHERE deleted_at IS NULL AND kind = 'transfer' AND to_account_id IS NOT NULL AND occurred_on >= $1
+         ) GROUP BY id`,
+        [sinceDay],
+      ),
+    ]);
+    return {
+      categories: cats.map((r) => ({ id: r.id, n: Number(r.n), last: String(r.last) })),
+      accounts: accs.map((r) => ({ id: r.id, n: Number(r.n) })),
+    };
+  }
+
   /* ───────── 寫：帳 ───────── */
 
   async createEntry(input: NewEntryInput): Promise<EntryRow> {
@@ -706,14 +736,15 @@ export class SqliteTicketRepository implements TicketRepository {
     if (isUncat(id)) return;
     const db = await getDb();
     const c = await this.categoryOrThrow(db, id);
-    const parentWhere = c.parent_id === null ? "parent_id IS NULL" : "parent_id = $4";
-    const args: unknown[] = [c.kind, UNCAT_INCOME_ID, UNCAT_EXPENSE_ID];
-    if (c.parent_id !== null) args.push(c.parent_id);
-    const sibs = await db.select<CategoryRow[]>(
-      `SELECT * FROM tk_categories
-       WHERE ${ALIVE} AND archived_at IS NULL AND kind = $1 AND id NOT IN ($2, $3) AND ${parentWhere}`,
-      args,
+    // 找兄弟看「實際掛在哪一層」（D-票-62）：父列已不在的子分類跟主分類同一層，與 categoryTree 的顯示一致
+    const all = await db.select<CategoryRow[]>(
+      `SELECT * FROM tk_categories WHERE ${ALIVE} AND kind = $1 AND id NOT IN ($2, $3)`,
+      [c.kind, UNCAT_INCOME_ID, UNCAT_EXPENSE_ID],
     );
+    const byId: Record<string, CategoryRow> = {};
+    for (const x of all) byId[x.id] = x;
+    const level = effectiveParentId(c, byId);
+    const sibs = all.filter((x) => x.archived_at === null && effectiveParentId(x, byId) === level);
     sibs.sort((a, b) => a.position - b.position || cmp(a.created_at, b.created_at) || cmp(a.id, b.id));
     const moves = planSwap(sibs, id, delta);
     if (!moves.length) return;

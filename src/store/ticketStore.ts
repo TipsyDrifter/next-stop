@@ -13,13 +13,15 @@
  */
 import { create } from "zustand";
 import { ticketRepo } from "../data/ticketRepository";
+import { settingsRepo } from "../data";
 import { useUiStore } from "./uiStore";
 import { useNodeStore } from "./nodeStore";
-import { todayKey } from "../lib/date";
+import { addDays, todayKey } from "../lib/date";
 import type { LineReloadContext, CaptureSaveInput, CaptureSaveResult, CaptureRouteRef } from "../lines/types";
 import {
   IMPORT_CHUNK,
   MAIN_CURRENCY,
+  USAGE_DAYS,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   UNCAT_NAME,
@@ -29,6 +31,8 @@ import {
   defaultAccountId,
   defaultChoices,
   draftToInput,
+  frequentAccountIds,
+  frequentCategoryIds,
   groupByDay,
   localTime,
   missingText,
@@ -62,6 +66,7 @@ import {
   type QuickCtx,
 } from "../domain/ticket";
 import {
+  DEFAULT_ENTRY_SORT,
   EMPTY_FILTER,
   GONE_KEY,
   UNSPLIT_KEY,
@@ -70,21 +75,25 @@ import {
   calendarCells,
   facetAllowed,
   filterToQuery,
+  isAmountSort,
   isFilterActive,
   keywordTokens,
   matchesKeyword,
   monthlyTrend,
   nearestDayWithEntries,
+  parseEntrySort,
   periodOf,
   periodRange,
   routeCtx,
   shortDay,
+  sortEntries,
   statsOverview,
   stepPeriod,
   trendMonths,
   trendRange,
   type CalendarCell,
   type EntryFilter,
+  type EntrySort,
   type Facet,
   type Period,
   type StatsData,
@@ -121,6 +130,8 @@ export type TicketDialog =
      pick＝從帳戶選單開的 ⇒ 建完選上它（填回草稿） */
   | { kind: "newAccount"; then?: { new: Partial<EntryDraft> } | { pick(accountId: string): void } }
   | { kind: "categories" }
+  /* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序（群組內 ↑↓，兩殼共用本體 dialogs/AccountOrder） */
+  | { kind: "accountOrder" }
   | { kind: "currencies" }
   | { kind: "import" }
   /* 第③階段（③契約 §3.8）：預算對話框、定期帳管理、規則編輯器（id null＝新建；seed＝「設成定期…」帶的預填） */
@@ -169,6 +180,8 @@ export interface TicketStore {
   savedAt: number | null; // 舊票即時存成功的時間（「已存」淡字）
   lastAccountId: string | null;
   recent: { income: string[]; expense: string[] }; // 最近用過 8 個
+  /** 記一筆的「常用」（磨光⑥ §2-3；只改顯示順序）：分類＝30 天次數多的在前、不滿 8 個用 recent 補；帳戶＝30 天前 3 名（帳戶 ≤ 3 個時空）。warm／refresh 跟 recent 一起重讀 */
+  frequent: { income: string[]; expense: string[]; accounts: string[] };
   dialog: TicketDialog | null;
   imp: ImportState;
 
@@ -259,7 +272,12 @@ export interface TicketStore {
   searchOpen: boolean;
   filter: EntryFilter; // text＋五欄
   results: EntryRow[] | null; // isFilterActive(filter) 才有；queryEntries → matchesKeyword；新到舊
-  resultDays: DayGroup[]; // groupByDay(results, filterAccountId)
+  resultDays: DayGroup[]; // groupByDay(results, filterAccountId)；金額排序是平面清單 ⇒ 空陣列（畫面直接畫 results）
+  /** 搜尋結果的排序（磨光⑥ §2-4）：results 已照它排好；金額排序（isAmountSort）不分日。選擇存本機 `ticket_result_sort`（手機 `_mobile`），closeSearch 回 dateDesc */
+  resultSort: EntrySort;
+  setResultSort(sort: EntrySort): void; // 立刻重排現有 results（不重查）＋存本機；失敗吞掉
+  /** 一般清單頁首的「排序」：開搜尋、期間＝現在看的那個月、套上 sort（金額排序需要有邊界的範圍）；已有搜尋條件就只換排序 */
+  searchMonthSorted(sort: EntrySort): Promise<void>;
   openSearch(): void; // view 非 list ⇒ 先切清單
   closeSearch(): void; // filter 回 EMPTY_FILTER、results null
   setFilterText(text: string): Promise<void>; // 去抖由 UI 做（150ms），store 直接查
@@ -358,6 +376,8 @@ export const IMPORT_REPEATS_PAUSED = true;
 /* ───────── §3.8.3 常數與模組層狀態 ───────── */
 
 export const RECENT_LIMIT = 8;
+/** 搜尋結果排序的本機設定鍵（手機加 `_mobile`；不同步） */
+export const KEY_RESULT_SORT = "ticket_result_sort";
 export { IMPORT_CHUNK };
 export const DEFAULT_KIND = "expense" as const;
 export const IMPORT_IDLE: ImportState = {
@@ -443,14 +463,24 @@ function draftHasContent(d: EntryDraft | null): boolean {
 export const useTicketStore = create<TicketStore>((set, get) => {
   /** 帳戶／分類／幣別＋上一筆帳戶＋最近分類（warm 與 refresh 共用） */
   async function loadMeta(): Promise<void> {
-    const [currencies, accounts, categories, lastAccountId, rin, rex] = await Promise.all([
+    const [currencies, accounts, categories, lastAccountId, rin, rex, usage] = await Promise.all([
       ticketRepo.listCurrencies(),
       ticketRepo.listAccounts(),
       ticketRepo.listCategories(),
       ticketRepo.lastUsedAccountId(),
       ticketRepo.recentCategoryIds("income", RECENT_LIMIT),
       ticketRepo.recentCategoryIds("expense", RECENT_LIMIT),
+      ticketRepo.usageSince(addDays(today(), 1 - USAGE_DAYS)), // 含今天共 30 天（日界線日）
     ]);
+    const kindOf = byId(categories);
+    // 父分類已封存的子分類在完整分類樹裡看不到（categoryTree 藏起來）⇒「常用」也不列，免得列得到卻找不到
+    const hiddenUnderArchived = (id: string): boolean => {
+      const c = kindOf[id];
+      const p = c?.parent_id ? kindOf[c.parent_id] : undefined;
+      return !!p && p.kind === c?.kind && p.archived_at !== null;
+    };
+    const usedBy = (k: CategoryKind) => usage.categories.filter((u) => kindOf[u.id]?.kind === k && !hiddenUnderArchived(u.id));
+    const recentOf = (ids: string[]) => ids.filter((id) => !hiddenUnderArchived(id));
     set({
       currencies,
       curByCode: byCode(currencies),
@@ -460,6 +490,11 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       catById: byId(categories),
       lastAccountId,
       recent: { income: rin, expense: rex },
+      frequent: {
+        income: frequentCategoryIds(usedBy("income"), recentOf(rin)),
+        expense: frequentCategoryIds(usedBy("expense"), recentOf(rex)),
+        accounts: frequentAccountIds(usage.accounts, accounts),
+      },
     });
   }
 
@@ -546,8 +581,36 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     if (get().filter !== f) return; // 查的途中 filter 又變了：讓排在後面的那一次寫
     const tokens = keywordTokens(f.text);
     const ctx = viewCtx();
-    const results = rows.filter((e) => matchesKeyword(e, tokens, ctx));
-    set({ results, resultDays: groupByDay(results, get().filterAccountId) });
+    setResults(rows.filter((e) => matchesKeyword(e, tokens, ctx)), get().resultSort);
+  }
+
+  /** 結果依 sort 排好寫進 store；日期排序按日分組（舊到新＝groupByDay 依輸入順序開組），金額排序是平面清單 */
+  function setResults(list: readonly EntryRow[], sort: EntrySort): void {
+    const results = sortEntries(list, sort);
+    set({ results, resultDays: isAmountSort(sort) ? [] : groupByDay(results, get().filterAccountId) });
+  }
+
+  /** 排序的本機鍵（手機另記；不同步、不進 manifest，前例 timetableGridStore） */
+  const sortKey = (shell: TicketShell): string => (shell === "mobile" ? `${KEY_RESULT_SORT}_mobile` : KEY_RESULT_SORT);
+  /** 已讀過哪個殼的鍵（null＝還沒讀） */
+  let sortLoadedShell: TicketShell | null = null;
+  /** 讀的途中使用者先選了排序 ⇒ 讀回來的舊值不蓋掉它 */
+  let sortChangedWhileLoading = false;
+
+  async function loadResultSort(shell: TicketShell): Promise<void> {
+    if (sortLoadedShell === shell) return;
+    sortLoadedShell = shell;
+    sortChangedWhileLoading = false;
+    let sort: EntrySort = DEFAULT_ENTRY_SORT;
+    try {
+      sort = parseEntrySort(await settingsRepo.get(sortKey(shell)));
+    } catch {
+      /* 本機鍵讀不到就用預設（日期・新到舊） */
+    }
+    if (sortChangedWhileLoading || sort === get().resultSort) return;
+    set({ resultSort: sort });
+    const r = get().results;
+    if (r) setResults(r, sort);
   }
 
   /** 匯入流程的 imp 寫回（代號不符＝流程已被關掉或重開，丟掉） */
@@ -677,6 +740,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     savedAt: null,
     lastAccountId: null,
     recent: { income: [], expense: [] },
+    frequent: { income: [], expense: [], accounts: [] },
     dialog: null,
     imp: IMPORT_IDLE,
     view: "list",
@@ -694,6 +758,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     filter: EMPTY_FILTER,
     results: null,
     resultDays: [],
+    resultSort: DEFAULT_ENTRY_SORT,
     routeSpend: {},
     budgets: [],
     budgetLines: null,
@@ -720,6 +785,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
 
     init(shell) {
       lastShell = shell;
+      void loadResultSort(shell);
       if (!initPromise) {
         initPromise = (async () => {
           set({ loading: true, error: null });
@@ -803,7 +869,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         // 第②階段：視圖回清單、搜尋清空、統計與路線花費作廢（②契約 §3.4）
         routeSpendGen++;
         set({
-          view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], drill: null,
+          view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT, drill: null,
           statsEntries: [], stats: null, pendingDay: null, dayNotice: null, routeSpend: {},
         });
         // 第③階段：草稿與預算／規則作廢（實體化不在 reload 裡，在 afterPull，③契約 §3.8）
@@ -1348,7 +1414,29 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     closeSearch() {
-      set({ searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [] });
+      // 清除搜尋 ⇒ 排序回日期・新到舊，本機鍵也一起回預設（「每台記住」只管搜尋開著的那段；
+      // 不然重開 App 後第一次搜尋、從統計下鑽都會莫名變成金額排序）。D-票-64
+      sortChangedWhileLoading = true;
+      void settingsRepo.set(sortKey(lastShell), DEFAULT_ENTRY_SORT).catch(() => undefined);
+      set({ searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT });
+    },
+
+    setResultSort(sort) {
+      sortChangedWhileLoading = true;
+      if (sort !== get().resultSort) {
+        set({ resultSort: sort });
+        const r = get().results;
+        if (r) setResults(r, sort);
+      }
+      void settingsRepo.set(sortKey(lastShell), sort).catch(() => undefined);
+    },
+
+    async searchMonthSorted(sort) {
+      get().setResultSort(sort);
+      const s = get();
+      if (isFilterActive(s.filter)) return; // 已經在搜尋：只是換排序（setResultSort 已重排）
+      const r = monthRange(s.month);
+      await get().patchFilter({ from: r.from, toExcl: r.toExcl });
     },
 
     async setFilterText(text) {

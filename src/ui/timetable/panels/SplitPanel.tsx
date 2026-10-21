@@ -8,7 +8,7 @@
  *   ├ div.ns-tt-cutlist
  *   │   每段：div.ns-tt-seg-row[data-i]（button.ns-tt-seg-cat 圓牌▾＋button.ns-tt-seg-txt 名稱與起訖＋span.ns-tt-seg-tag）
  *   │         點了在那一段底下展開分類格（Expand＋CategoryGrid compact），選了收起
- *   │   段與段之間：div.ns-tt-cut-row（✂「切在」Stepper ±5＋button.ns-tt-cut-del ✕；只剩一刀時 disabled）
+ *   │   段與段之間：div.ns-tt-cut-row（✂「切在」Stepper（磨光⑥ 起五處同一排、可打字）＋button.ns-tt-cut-del ✕；只剩一刀時 disabled）
  *   ├ div.ns-tt-cut-tools：「＋ 加切點」（addCut：最長那段的中點）、「對半」（defaultCuts n=1、分類重設成原分類）
  *   ├ Sub.is-warn（驗證不過）B14「每段至少 1 分」
  *   └ Actions：「取消」｜btn-seal「切成 N 段」→ onDone()；store.splitMulti(...)
@@ -16,12 +16,12 @@
  * 預設：一刀在中點（＝①a）、兩段都是原分類（〈開工決定〉二-1）。不到 2 分＝①a 原樣「切不開」。
  * 「現在」用 useNowOnce（面板生命週期內固定；運行中那一班的最後一段上限＝它，送出後最後一段仍運行中）。
  */
-import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { MIN, addCut, colorSlot, defaultCuts, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryBadge } from "../CategoryBadge";
 import { CategoryGrid } from "../parts/CategoryGrid";
-import { Actions, Expand, Stepper, Sub, clamp, useBlock, useNowOnce, type PanelProps } from "./controls";
+import { Actions, Expand, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, type PanelProps } from "./controls";
 
 /** 拖曳時抓得到切點的距離（px） */
 const GRAB_PX = 18;
@@ -160,8 +160,8 @@ export function SplitPanel({ onDone }: PanelProps) {
     if (e.type === "pointerup") addCutAt(msAt(e.clientX));
   };
 
-  const submit = (): void => {
-    if (!valid) return;
+  const submit = (e: ReactMouseEvent<HTMLButtonElement>): void => {
+    if (!valid || !clockDraftsOk(e.currentTarget)) return;
     onDone();
     void splitMulti(block.id, cuts, cats);
   };
@@ -248,7 +248,7 @@ export function SplitPanel({ onDone }: PanelProps) {
                         ✂
                       </span>
                       <span className="ns-tt-row-k">切在</span>
-                      <Stepper value={cuts[i]} steps={[-5, 5]} lo={loOf(i)} hi={hiOf(i)} onChange={(v) => setCut(i, v)} label={`切點 ${i + 1}`} />
+                      <Stepper value={cuts[i]} lo={loOf(i)} hi={hiOf(i)} onChange={(v) => setCut(i, v)} label={`切點 ${i + 1}`} />
                       <button
                         type="button"
                         className="ns-tt-cut-del"

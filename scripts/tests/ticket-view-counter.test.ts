@@ -62,6 +62,11 @@ globalThis.__nodeStore = useNodeStore;
 const FAKE_REPO = `
 export const ticketRepo = new Proxy({}, { get: (_, k) => (...a) => globalThis.__tkRepo[k](...a) });
 `;
+/** 磨光⑥：store 多讀寫本機設定（排序鍵）⇒ `../data` 換成記憶體版的 settingsRepo */
+const FAKE_DATA = `
+const m = new Map();
+export const settingsRepo = { async get(k) { return m.has(k) ? m.get(k) : null; }, async set(k, v) { m.set(k, v); } };
+`;
 const dataUrl = (src: string) => "data:text/javascript," + encodeURIComponent(src);
 
 registerHooks({
@@ -74,6 +79,7 @@ registerHooks({
       if (specifier === "@tauri-apps/api/core") return { url: dataUrl(FAKE_CORE), shortCircuit: true };
       if (parent.includes("/src/store/ticketStore")) {
         if (specifier === "../data/ticketRepository") return { url: dataUrl(FAKE_REPO), shortCircuit: true };
+        if (specifier === "../data") return { url: dataUrl(FAKE_DATA), shortCircuit: true };
         if (specifier === "./uiStore") return { url: dataUrl(FAKE_UI), shortCircuit: true };
         if (specifier === "./nodeStore") return { url: dataUrl(FAKE_NODE), shortCircuit: true };
       }
@@ -705,6 +711,9 @@ function fakeRepo(entries: EntryRow[]): FakeRepo {
     },
     async recentCategoryIds() {
       return [];
+    },
+    async usageSince() {
+      return { categories: [], accounts: [] };
     },
     async balances() {
       return {};

@@ -90,9 +90,10 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(LongRunPanel, { onDone });
     case "restart":
       return createElement(RestartPanel, { onDone });
-    case "fill":
+    case "fill": // 磨光⑥ 1-4：連續補換段＝新的起訖 ⇒ 重掛（分類、連結、荷札草稿、時刻框都從頭來）
+      return createElement(BlockPanel, { onDone, key: `fill-${sheet.start}-${sheet.end}` });
     case "edit":
-      return createElement(BlockPanel, { onDone });
+      return createElement(BlockPanel, { onDone, key: `edit-${sheet.blockId}` });
     case "split":
       return createElement(SplitPanel, { onDone });
     case "categories": // 磨光③ 2-11：換了定位目標就重掛（⋯ 展開狀態從頭來）

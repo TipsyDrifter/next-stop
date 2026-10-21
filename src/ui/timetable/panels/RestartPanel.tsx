@@ -1,12 +1,12 @@
 /**
  * RestartPanel——改出發時間面板（車次①a 契約 §5.4；丙席；＝原型 `shared.js` openRestartSheet）。
- * 副標「往前挪會把前一塊切短，中間不留重疊」；「発車」stepper −30／−5／HH:MM／+5／+30＋右側「已跑 Xh」；
+ * 副標「往前挪會把前一塊切短，中間不留重疊」；「発車」stepper（磨光⑥ 起五處同一排、可打字）＋「已跑 Xh」（桌機換到下一行）；
  * 會蓋掉時赭字 W1；「取消」「改好了」。只對運行中那一班（store.restart 之外的塊 repository 會丟 RangeError）。
  */
 import { useState } from "react";
 import { MIN, fmtDur, msOf } from "../../../domain/timetable";
 import { useTimetableStore } from "../../../store/timetableStore";
-import { Actions, Row, Stepper, Sub, clamp, useBlock, useCoverWarn, useNowOnce, type PanelProps } from "./controls";
+import { Actions, Row, Stepper, Sub, clamp, clockDraftsOk, useBlock, useCoverWarn, useNowOnce, type PanelProps } from "./controls";
 
 export function RestartPanel({ onDone }: PanelProps) {
   const now = useNowOnce();
@@ -39,8 +39,8 @@ export function RestartPanel({ onDone }: PanelProps) {
   return (
     <div className="ns-tt-panel ns-tt-panel-restart">
       <Sub>往前調會自動縮短前一段，不會重疊</Sub>
-      <Row k="発車">
-        <Stepper value={at} steps={[-30, -5, 5, 30]} lo={lo} hi={hi} onChange={setAt} label="出發時刻" />
+      <Row k="発車" time>
+        <Stepper value={at} lo={lo} hi={hi} onChange={setAt} label="出發時刻" />
         <span className="ns-tt-opt is-solid is-num is-static">已跑 {fmtDur(now - at)}</span>
       </Row>
       {warn && <Sub warn>{warn}</Sub>}
@@ -52,7 +52,8 @@ export function RestartPanel({ onDone }: PanelProps) {
           type="button"
           className="ns-btn btn-seal"
           disabled={at === start}
-          onClick={() => {
+          onClick={(e) => {
+            if (!clockDraftsOk(e.currentTarget)) return;
             onDone();
             void restart(block.id, at);
           }}

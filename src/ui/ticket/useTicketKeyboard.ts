@@ -42,8 +42,8 @@ function revealSelected(root: HTMLElement): void {
 /** 搜尋結果畫在清單上時（0-15）：↑↓ 在結果裡移（store.moveSelection 只走月份清單的 days） */
 function moveInResults(delta: 1 | -1): void {
   const s = useTicketStore.getState();
-  const flat: EntryRow[] = [];
-  for (const g of s.resultDays) for (const e of g.entries) flat.push(e);
+  // results 已照排序排好，畫面上的先後就是它的順序（金額排序是平面清單，resultDays 是空的）
+  const flat: EntryRow[] = s.results ?? [];
   if (!flat.length) return;
   const i = s.selectedId === null ? -1 : flat.findIndex((e) => e.id === s.selectedId);
   if (i < 0) return s.select(flat[0].id);
