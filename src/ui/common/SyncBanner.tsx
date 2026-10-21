@@ -14,8 +14,8 @@
  *   * 手機——`MobileShell` 頂帶之後、頁面之前的一條紙色帶（class `m-sync-banner`，mobile.css 檔尾）：
  *     手機寬度塞不下一行，所以字在上、兩顆 44px 鈕在下；左緣一道色線沿 `.m2-sy-epoch` 的「要人處理」語彙。
  *     它是 Fragment 的直接子節點（flex column 才分得到高度），自己 `flex: none`，擠的是下面 `.m-page` 的捲動區。
- * 色（與 SyncDot 同一套語彙、不新增顏色）：stopped＝赭（`text-late`，故障）；其餘＝朱（`text-seal`，等人處理）。
- *   `needs_passphrase` 也是朱——它同樣是「要主人去做一件事」（設新密語），不是這台在忙。
+ * 色（與 SyncDot 同一套語彙、不新增顏色）：一律赭（`text-late`）。原本 stopped＝赭、其餘「等人處理」＝朱；
+ *   磨光⑤ 朱只給済後，等人處理也改赭（`needs_passphrase` 同列——它同樣是「要主人去做一件事」）。
  * 狀態來源：只讀 `uiStore.syncBanner`／`syncBannerDismissed`（由 syncStore 的轉變偵測寫）；**元件自己不算 phase**。
  * 「前往同步」＝`uiStore.openSyncPage(shell)`（桌機開設定落同步籤；手機切「更多」並由 MobileMore 進同步子頁）；
  * 「先收起」＝`dismissSyncBanner()`（本次啟動有效；同種告警不再出、換一種再出、重開 App 再出、狀態解除自動清）。
@@ -70,8 +70,9 @@ export function SyncBanner({ shell }: { shell: "desktop" | "mobile" }) {
   if (!kind || dismissed === kind) return null;
   const text = SYNC_ALERT_TEXT[kind];
   if (!text) return null; // 型別外的值（store 以 string 存）：寧可不出，也不畫一條空橫幅
-  // 朱（要人處理）：改正待ち／鍵違い／信号待ち／請設新密語；赭（誤點）：停車中——與 SyncDot 同一套色語彙
-  const tone = kind === "stopped" ? "text-late" : "text-seal";
+  // 要人處理（改正待ち／鍵違い／信号待ち／請設新密語）與停車中都走赭——與 SyncDot 同一套色語彙。
+  // 磨光⑤（D-主-63）：「要人處理」原本借朱，朱收回只給済後跟同步點一起改赭
+  const tone = "text-late";
 
   if (shell === "mobile") {
     return (

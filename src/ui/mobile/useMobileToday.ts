@@ -33,7 +33,8 @@ import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
-import { isDoneRow, isSettledRow, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
+import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
+import { dayCount } from "../../domain/dayCount";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
 
@@ -43,6 +44,8 @@ export const SETTLED_DEFER_MSG = "已蓋済——先取消済章才能推遲";
 export interface MobileTodayApi {
   /** 這份資料算的是哪一天（依日界線） */
   dateKey: string;
+  /** 第一次 loadToday 回來了沒（磨光⑤ S10）：沒回來之前不畫空狀態與慶祝（rows 空不代表今天沒班次） */
+  loaded: boolean;
   /** 今天的列車（bucket==='today'） */
   todayRows: TodayRow[];
   /** 誤點區（late＝有執行日已過／due＝締切已到但沒排執行日） */
@@ -396,15 +399,13 @@ export function useMobileToday(): MobileTodayApi {
 
   return {
     dateKey,
+    loaded: today.dateKey !== null,
     todayRows,
     lateRows,
     empty: rows.length === 0,
     routeOf,
-    stats: {
-      total: todayRows.length,
-      done: todayRows.filter(isDoneRow).length,
-      left: todayRows.length - todayRows.filter(isSettledRow).length,
-    },
+    // 磨光⑤ N11：與桌機今日同一把尺（domain/dayCount）
+    stats: dayCount(todayRows.map(dayCountItem)),
     complete,
     defer,
     skip,

@@ -1,11 +1,14 @@
 /**
  * 詳情側板欄位積木（UI Flow 2.1 共用）：版面列、區段標題、文字／多行／日期／數字輸入、分段選擇、操作鈕。
  * 文字類 blur／Enter 才提交（避免每鍵重整），Esc 先還原草稿、草稿乾淨時才放行給面板關閉；數字空字串→null。
- * 已知取捨：日期欄位配合原生 date picker 採「改動後 400ms 去抖提交＋blur／Enter 立即送出」，不等 Enter 才寫。
+ * 日期欄位（磨光⑤ S8）＝開關鈕＋App 自畫的共用 DatePicker，挑了立即寫回（原生 date 欄與它的 400ms 去抖已拿掉）。
  * 視覺＝原型語彙（techo.css 原型逐字移植段＋panel.css）：區段＝.sec、小標＝.overline 字型（.lbl）、輸入＝透明底＋.dash 底線、
  * 選項與按鈕＝.status 小方標（選中 ink 邊）；原型沒有的控件（清除叉）hover 才現身。
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useUiStore } from "../../store/uiStore";
+import { todayKey } from "../../lib/date";
+import { DatePicker } from "../common/DatePicker";
 
 /** 側板內 input／textarea 的樣式由 panel.css 依元素統一給（透明底＋底線）；此常數保留給使用端掛額外 class */
 export const inputClass = "";
@@ -263,69 +266,72 @@ interface DateFieldProps {
   className?: string;
 }
 
-/** 原生 date：選到完整日期後 400ms 去抖寫回；blur／Enter 立即送；清除叉（hover 現身）→null */
+const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+
+/** "2026-10-21" → "2026/10/21（三）"（側板日期欄的字樣；壞字串原樣回傳） */
+export function dateFieldText(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  if (!y || !m || !d) return key;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${y}/${p(m)}/${p(d)}（${WEEKDAY_ZH[new Date(y, m - 1, d).getDay()]}）`;
+}
+
+/**
+ * 日期欄（磨光⑤ S8，D-主-54：日期挑選統一成 App 自畫）：一顆像輸入框的開關鈕＋共用 DatePicker（anchor 模式，
+ * 掛 body——側板 `.panel` 是 overflow hidden 的捲動容器，浮層放在裡面會被裁掉）。
+ * 點了才挑、挑了立即寫回（不再需要原生欄那套 400ms 去抖）；浮層裡「今天」快選＋「清除」；hover 的清除叉照舊。
+ * 對外 props 不變（TaskFields／StationList／RepeatRuleEditor 零改動）；`className` 改掛在開關鈕上。
+ */
 export function DateField({ value, onCommit, ariaLabel, className }: DateFieldProps) {
-  const [draft, setDraft] = useState(value ?? "");
-  const focused = useRef(false);
-  const sent = useRef<string | null>(value);
-  const send = useCallback(
-    (v: string | null) => {
-      sent.current = v;
-      onCommit(v);
-    },
-    [onCommit],
-  );
-  const { schedule, flush, cancel } = useDebouncedCommit<string | null>(send, 400);
-
-  useEffect(() => {
-    if (!focused.current) setDraft(value ?? "");
-  }, [value]);
-
-  const settle = () => {
-    if (draft) {
-      flush();
-    } else {
-      cancel();
-      if (value !== null || sent.current !== null) send(null);
-    }
-  };
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const today = todayKey(dayStartHour);
 
   return (
     <div className="date">
-      <input
-        type="date"
-        aria-label={ariaLabel}
-        className={className}
-        value={draft}
-        onChange={(e) => {
-          const v = e.target.value;
-          setDraft(v);
-          if (v) schedule(v);
-        }}
-        onFocus={() => {
-          focused.current = true;
-        }}
-        onBlur={() => {
-          focused.current = false;
-          settle();
-        }}
-        onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            settle();
+      <button
+        ref={btnRef}
+        type="button"
+        aria-label={`${ariaLabel}：${value ? dateFieldText(value) : "未定"}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={["ns-datefield", !value && "empty", className].filter(Boolean).join(" ")}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {value ? dateFieldText(value) : "未定"}
+      </button>
+      {open && (
+        <DatePicker
+          anchor={btnRef.current}
+          label={ariaLabel}
+          value={value}
+          markValue
+          quick={[{ label: "今天", day: today }]}
+          onPick={(d) => {
+            setOpen(false);
+            if (d !== value) onCommit(d);
+          }}
+          onClear={
+            value
+              ? () => {
+                  setOpen(false);
+                  onCommit(null);
+                }
+              : undefined
           }
-        }}
-      />
-      {(value || draft) && (
+          onClose={close}
+        />
+      )}
+      {value && (
         <button
           type="button"
           aria-label={`清除${ariaLabel}`}
           title="清除"
           onClick={() => {
-            cancel();
-            setDraft("");
-            send(null);
+            setOpen(false);
+            onCommit(null);
           }}
           className="x"
         >

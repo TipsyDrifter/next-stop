@@ -4,7 +4,7 @@
  * 單行＝只有欄位列；多行＝欄位列＋可勾的清單（標題行預設不勾、淡化並標「標題行」）。
  * 欄位只有兩欄（D-筆-26）：
  *   掛到哪＝AttachPicker depth="node"（第一層路線、往下支線／列車／車廂；只選到路線＝路線標籤）＋清除 ×
- *   執行日＝今天／明天 chip＋日期欄（min＝今天）＋清除
+ *   執行日＝今天／明天 chip＋「挑日期…」chip（開共用 DatePicker，min＝今天；磨光⑤ S8 取代原生日期欄）＋清除
  * 鍵（掛在 window，先判 IME）：Ctrl+Enter 建立、Esc 取消（掛到哪浮層開著時先收浮層）、清單列上 Space 切勾（原生 checkbox）。
  * 開啟時焦點在「建立 N 張車票」。
  */
@@ -15,6 +15,7 @@ import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { matches } from "../shell/hotkeys";
 import { AttachPicker } from "./AttachPicker";
+import { DatePicker, shortDayKey } from "../common/DatePicker";
 import { IconX, Kbd, RouteDot, attachParts, restoreFocus, takeReturnFocus } from "./notesBits";
 
 export function TodoPreviewDialog() {
@@ -61,6 +62,9 @@ export function TodoPreviewDialog() {
   }, []);
   const confirmRef = useRef<() => Promise<void>>(async () => {});
   const fieldBtnRef = useRef<HTMLButtonElement>(null);
+  // 「挑日期」浮層（磨光⑤ S8：取代原生 date 欄）；Esc 由 DatePicker 自己擋下，到不了上面的 window 鍵
+  const [dateOpen, setDateOpen] = useState(false);
+  const dateBtnRef = useRef<HTMLButtonElement>(null);
   const closeAttach = () => {
     setAttachOpen(false);
     fieldBtnRef.current?.focus({ preventScroll: true });
@@ -173,17 +177,30 @@ export function TodoPreviewDialog() {
                   >
                     明天
                   </button>
-                  <input
-                    type="date"
-                    className={`ns-notes-date${custom ? " on" : ""}`}
-                    value={custom ? (pv.scheduledOn ?? "") : ""}
-                    min={today}
-                    aria-label="挑日期"
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (/^\d{4}-\d{2}-\d{2}$/.test(v) && Number(v.slice(0, 4)) >= 1970 && v >= today) st().setPreviewDate(v);
-                    }}
-                  />
+                  <button
+                    ref={dateBtnRef}
+                    type="button"
+                    className={`ns-notes-chip${custom ? " on" : ""}`}
+                    aria-haspopup="dialog"
+                    aria-expanded={dateOpen}
+                    aria-label={custom && pv.scheduledOn ? `執行日 ${shortDayKey(pv.scheduledOn)}，換一天` : "挑日期"}
+                    onClick={() => setDateOpen((o) => !o)}
+                  >
+                    {custom && pv.scheduledOn ? shortDayKey(pv.scheduledOn) : "挑日期…"}
+                  </button>
+                  {dateOpen && (
+                    <DatePicker
+                      anchor={dateBtnRef.current}
+                      label="執行日"
+                      value={pv.scheduledOn}
+                      min={today}
+                      onPick={(d) => {
+                        setDateOpen(false);
+                        if (d >= today) st().setPreviewDate(d);
+                      }}
+                      onClose={() => setDateOpen(false)}
+                    />
+                  )}
                   <button
                     type="button"
                     className={`ns-notes-chip${pv.scheduledOn === null ? " on" : ""}`}

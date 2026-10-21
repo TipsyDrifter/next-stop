@@ -77,9 +77,9 @@ function dateOf(key: string): Date {
 const WEEK_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
 /**
- * 原生 date input 在鍵盤逐字輸入時會邊打邊發 change（年份只打了「0002」也算一個合法值），
- * 這裡擋掉明顯打到一半的值——與 fields.tsx DateField 的 400ms 去抖同一個問題、不同解法
- * （小卡送出即關窗，沒有去抖的餘地）。
+ * 過去用原生 date input 時，鍵盤逐字輸入會邊打邊發 change（年份只打了「0002」也算一個合法值），
+ * 這裡擋掉明顯打到一半的值（小卡送出即關窗，沒有去抖的餘地）。磨光⑤ S8 起挑選器是自畫月格、
+ * 不會再送出半成品，這道檢查只留作保險（擋年份離譜的值）。
  */
 function isSaneDateKey(v: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
@@ -222,9 +222,10 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       items[j]?.focus();
     } else if (e.key === "Tab") {
       // 卡內循環（別把焦點丟回底下那張已停用的清單）
+      // tabIndex ≥ 0 才算：共用挑選器的月格是 roving tabindex（磨光⑤ S8 起推遲也畫月格），其餘 41 格是 -1，不該被 Tab 一格格走過
       const focusables = Array.from(
         ref.current?.querySelectorAll<HTMLElement>("button, input") ?? [],
-      ).filter((el) => !(el as HTMLButtonElement).disabled);
+      ).filter((el) => !(el as HTMLButtonElement).disabled && el.tabIndex >= 0);
       if (focusables.length < 2) return;
       const k = focusables.indexOf(document.activeElement as HTMLElement);
       const j = e.shiftKey ? (k <= 0 ? focusables.length - 1 : k - 1) : k >= focusables.length - 1 ? 0 : k + 1;
@@ -357,7 +358,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
 
       {!rule && picking && (
         <div className="ns-defer-pick">
-          {/* 共用挑選器（D-筆-30）：沒有快選（明天／下週一已在上面）；開啟時焦點落在日期欄；
+          {/* 共用挑選器（D-筆-30）：沒有快選（明天／下週一已在上面）；開啟時焦點落在月格上的那一天（磨光⑤ S8 起自畫月格）；
               Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡。
               min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4） */}
           <DatePicker

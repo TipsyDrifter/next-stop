@@ -1,15 +1,18 @@
 /**
  * DayGrid——共用日期挑選器的「自畫月格」（旅客筆記車次③ 0-6 甲、D-筆-46 修訂；示意＝prototypes/旅客筆記-日記選日期-參考圖.html「大日期的挑選器」）。
  *
- * 只在呼叫端傳了 `marks` 時由 `DatePicker`（桌機）／`MobileDatePicker`（手機）畫，取代原生日期欄；沒傳＝原生欄照舊（今日頁推遲零變）。
+ * 由 `DatePicker`（桌機）／`MobileDatePicker`（手機）畫。磨光⑤ S8（D-主-54：日期挑選統一成 App 自畫）起**一律**畫月格、
+ * 不再退回原生日期欄；`marks` 變可選（沒給＝沒有記號點）。
  *
  *   月份列：‹ 上個月 「2026 年 10 月」 下個月 ›（整個月都在 min／max 外的那一邊反灰）
  *   欄頭＋42 格（6 列固定，換月不跳高）：週首讀 uiStore.weekStart
- *   格：`marks` 裡的日＝數字下方一枚朱點（--color-seal）、今天＝外框、`value`＝底色、min／max 外＝反灰不可點
+ *   格：`marks` 裡的日＝數字下方一枚墨點（--stamp-ink；磨光⑤：記號不是済，朱改墨）、今天＝外框、`value`＝底色、min／max 外＝反灰不可點
  *   圖例（給了 `marksLabel` 才畫）：「• 寫過日記」
  *
  * 鍵盤（只在格上；roving tabindex，Tab 進出整張格只停一次）：←→ ±1 天、↑↓ ±7 天、PageUp／PageDown ±1 月、Home／End 月初／月底、
- * Enter／Space＝按鈕本身。越過月界自動換月。處理過的鍵 preventDefault＋stopPropagation，不漏給頁面的鍵盤表。
+ * Enter＝選（自己處理並擋冒泡：時刻表的 window 後援會把漏出去的 Enter 當「到着」）、Space＝按鈕本身（只擋冒泡）；
+ * Esc 不在這裡——由外層挑選器收起。越過月界自動換月。規則全在純函式 `gridKeyAction`（monthGridMath.ts；測試
+ * scripts/tests/day-grid-keys.test.ts）。處理過的鍵 preventDefault＋stopPropagation，不漏給頁面的鍵盤表。
  *
  * `onMonthChange(month)`：**掛上時呼叫一次**（開啟時那個月）、之後每次換月再呼叫——呼叫端據此補查那個月的記號。
  *
@@ -20,12 +23,12 @@ import { useUiStore } from "../../store/uiStore";
 import {
   canShowMonth,
   focusDayOf,
+  gridKeyAction,
   initialMonth,
   inRange,
   monthCells,
   monthOfDay,
   monthTitle,
-  moveFocus,
   shiftMonth,
   weekHeads,
 } from "./monthGridMath";
@@ -37,8 +40,8 @@ export interface DayGridProps {
   today: string;
   min?: string;
   max?: string;
-  /** 有記號的日子（YYYY-MM-DD） */
-  marks: ReadonlySet<string>;
+  /** 有記號的日子（YYYY-MM-DD）；省略＝沒有記號（磨光⑤ S8：所有日期挑選都畫月格，記號變可選） */
+  marks?: ReadonlySet<string>;
   /** 記號的意思（圖例字與每格的讀屏字，例「寫過日記」）；省略＝不畫圖例、讀屏念「有記號」 */
   marksLabel?: string;
   /** 掛上時一次、之後每次換月：YYYY-MM */
@@ -49,8 +52,9 @@ export interface DayGridProps {
 }
 
 const NAV_ICON = { width: 12, height: 12, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.6 } as const;
+const NO_MARKS: ReadonlySet<string> = new Set();
 
-export function DayGrid({ value, today, min, max, marks, marksLabel, onMonthChange, onPick, variant }: DayGridProps) {
+export function DayGrid({ value, today, min, max, marks = NO_MARKS, marksLabel, onMonthChange, onPick, variant }: DayGridProps) {
   const weekStart = useUiStore((s) => s.weekStart);
   const [month, setMonth] = useState(() => initialMonth(value, today, min, max));
   /** 鍵盤焦點日（只在 month 裡才有意義；換月時重算） */
@@ -82,20 +86,21 @@ export function DayGrid({ value, today, min, max, marks, marksLabel, onMonthChan
 
   const onGridKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229 || e.ctrlKey || e.altKey || e.metaKey) return;
-    const to = moveFocus(rovingDay, e.key, min, max);
-    if (to === null) {
-      // 認得的鍵但走不動（到邊界）也吃掉，免得方向鍵捲動頁面或被頁面鍵盤表當成上下選取
-      if (/^(Arrow|Page|Home$|End$)/.test(e.key)) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
+    // Space 交給按鈕自己點（keyup 才觸發）；只擋冒泡——外層卡片或大綱的 Space 不該跟著動（磨光⑤ S8）
+    if (e.key === " ") {
+      e.stopPropagation();
       return;
     }
+    const act = gridKeyAction(rovingDay, e.key, min, max);
+    if (act === null) return;
     e.preventDefault();
     e.stopPropagation();
-    moveDom.current = true;
-    if (monthOfDay(to) !== month) setMonth(monthOfDay(to));
-    setFocusDay(to);
+    if (act.type === "pick") onPick(act.day);
+    else if (act.type === "move") {
+      moveDom.current = true;
+      if (monthOfDay(act.day) !== month) setMonth(monthOfDay(act.day));
+      setFocusDay(act.day);
+    }
   };
 
   const what = marksLabel ?? "有記號";

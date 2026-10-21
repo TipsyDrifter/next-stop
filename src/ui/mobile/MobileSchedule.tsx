@@ -34,6 +34,7 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { NodeRow } from "../../domain";
+import { dayCount, dayCountParts } from "../../domain/dayCount";
 import type { DueEntry } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -51,6 +52,7 @@ import { MobileTimeDays, pageStartOf, type MobileTimeDaysHandle } from "./Mobile
 import { MonthOverlay } from "../schedule/MonthOverlay";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
+import { moveNodeTo } from "../common/moveTo";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { useBackLayer } from "./backStack";
 import { deleteTicket, liveChildCount, logTicket, renameTicket } from "./useMobileToday";
@@ -452,6 +454,7 @@ export function MobileSchedule() {
           // 磨光① 加工單：改名／記一句／刪除同今日子頁；串流不是手排清單，不給上移下移
           onRename={(name) => renameTicket(sheetView.card.nodeId, name, sheetView.card.name)}
           onLog={(body) => logTicket(sheetView.card.nodeId, body)}
+          onMove={(dest) => void moveNodeTo(sheetView.card.nodeId, dest)}
           onDelete={() => deleteTicket(sheetView.card.nodeId, sheetView.card.name, liveChildCount(sheetView.card.nodeId))}
           onClose={closeSheet}
         />
@@ -597,17 +600,19 @@ const DaySection = memo(function DaySection({
   );
 
   // 標題右側的 note（契約 §4.3）：済＋運休算交代；只數 rows（班次），不數 dues
-  const total = rows.length;
-  const done = rows.filter((r) => r.entry.is_done).length;
-  const settled = rows.filter((r) => r.entry.is_done || r.entry.occurrence_status === "skipped").length;
-  const left = total - settled;
+  // 磨光⑤ N11：完成數走 domain/dayCount（済才算完成、済＋運休算結清），與桌機／手機今日、串流同一把尺
+  const count = dayCount(
+    rows.map((r) => ({ done: r.entry.is_done, settled: r.entry.is_done || r.entry.occurrence_status === "skipped" })),
+  );
+  const { total, left } = count;
+  const countParts = dayCountParts(count);
   let note;
   if (empty || (isToday && total === 0)) note = "— 無班次";
-  else if (isToday)
+  else if (isToday && countParts)
     note = (
       <>
-        完成 <b>{done}</b>/<b>{total}</b>
-        {left > 0 && <span className="left">・還有 {left} 張</span>}
+        完成 <b>{countParts.done}</b>/<b>{countParts.total}</b>
+        <span className="left">・{countParts.tail}</span>
       </>
     );
   else if (past) note = left > 0 ? <span className="late-n">誤點 {left} 件</span> : "已交代";

@@ -8,9 +8,10 @@
  * - 面板只讀 store、只叫 store 的動作（契約 §2.6-3）。
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
-import { MIN, findBlockIn, type TimeBlockRow } from "../../../domain/timetable";
-import { CLOCK_STEPS, HOLD_DELAY_MS, clockStepLabel, holdGapMs } from "../../../domain/timetableClockInput";
+import { findBlockIn, type TimeBlockRow } from "../../../domain/timetable";
+import { CLOCK_STEPS, HOLD_DELAY_MS, clockInputRefDay, clockStepLabel, holdGapMs, stepClockValue } from "../../../domain/timetableClockInput";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { useUiStore } from "../../../store/uiStore";
 import { ClockInput, type ClockInputHandle } from "./ClockInput";
 
 export interface PanelProps {
@@ -27,6 +28,18 @@ export function clamp(v: number, lo: number, hi: number): number {
 export function useNowOnce(): number {
   const [now] = useState(() => Date.now());
   return now;
+}
+
+/**
+ * 面板的參考日（磨光⑤ §8 甲′；D-主-65）：時刻框旁的日期跟它同一天＝淡字、不同天＝赭色。
+ * 一個面板只算一次、所有框共用（`anchor`＝這一塊的開始；落在看的那一天裡＝看的那一天，否則＝它自己那一天，同 clockInputRefDay）。
+ * 不能每格各自算：補記到着的初值常在隔天（那段空白一路到隔天日界線），各自算就會把隔天當「同一天」畫成淡字。
+ */
+export function usePanelRefDay(anchor: number): string {
+  const viewDay = useTimetableStore((s) => s.dayKey);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const [ref] = useState(() => clockInputRefDay(anchor, viewDay, dayStartHour));
+  return ref;
 }
 
 /** 依 id 找畫面上拿得到的那一塊（運行中／看的那天／今天／本週）；都沒有再看 `sheetBlock`（面板從清單外的塊開起來，如統計頁的待確認，③ 評審 #1） */
@@ -98,6 +111,8 @@ export function Row({ k, children, top = false, time = false }: { k: string; chi
  *   點一下的那一步交給 click（捲動不會發 click），按滿 HOLD_DELAY_MS 才開始連跳，連跳過就不再讓 click 多走一步。
  * - 框裡有草稿時按步進鈕：先套用草稿再走（原型行為；打錯就不走、框抖一下）。
  * - onEnter／autoFocus／enterKeyHint 是補記面板要的選填項（発車 Enter 跳到着、開面板游標在框裡）。
+ * - refDay（磨光⑤ 甲′）：框下的日期標籤跟哪一天比（面板用 usePanelRefDay 算一次、每一格傳同一個）。
+ *   步進穿過日界線值照算（真的跨天是正當的）——靠日期標籤讓人看得到、靠 BlockPanel 的長塊確認問得到。
  */
 export function Stepper({
   value,
@@ -109,6 +124,7 @@ export function Stepper({
   autoFocus,
   enterKeyHint,
   handleRef,
+  refDay,
 }: {
   value: number;
   lo: number;
@@ -119,6 +135,7 @@ export function Stepper({
   autoFocus?: boolean;
   enterKeyHint?: "done" | "next";
   handleRef?: Ref<ClockInputHandle>;
+  refDay?: string;
 }) {
   const clock = useRef<ClockInputHandle | null>(null);
   const live = useRef({ value, lo, hi, onChange });
@@ -162,7 +179,7 @@ export function Stepper({
     const c = clock.current;
     const base = c && c.dirty() ? c.flush() : live.current.value;
     if (base === null) return false;
-    const nv = clamp(base + d * MIN, live.current.lo, live.current.hi);
+    const nv = stepClockValue(base, d, live.current.lo, live.current.hi);
     if (nv !== live.current.value) {
       live.current = { ...live.current, value: nv }; // 連跳時下一步不等重畫
       live.current.onChange(nv);
@@ -226,6 +243,7 @@ export function Stepper({
       onEnter={onEnter}
       autoFocus={autoFocus}
       enterKeyHint={enterKeyHint}
+      refDay={refDay}
       handleRef={(h) => {
         clock.current = h;
         if (typeof handleRef === "function") handleRef(h);

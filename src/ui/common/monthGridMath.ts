@@ -154,6 +154,26 @@ export function moveFocus(day: string, key: string, min?: string, max?: string):
   return clamped === day ? null : clamped;
 }
 
+/** 月格上一個按鍵要做什麼（磨光⑤ S8：DayGrid 的鍵盤規則全在這裡，元件只照做） */
+export type GridKeyAction =
+  /** 焦點移到這一天（可能跨月，呼叫端跟著換月） */
+  | { type: "move"; day: string }
+  /** 選這一天（Enter；Space 交給按鈕自己點，避免 keyup 再點一次） */
+  | { type: "pick"; day: string }
+  /** 認得的鍵但走不動（到邊界、焦點日不能點）：吃掉，免得捲動頁面或被頁面鍵盤表拿去用 */
+  | { type: "swallow" };
+
+/**
+ * 方向鍵／PageUp／PageDown／Home／End＝moveFocus；Enter＝選焦點日（不在 min／max 內就只吃掉）；
+ * 其他鍵＝null（不處理、照常冒泡——Esc 由外層挑選器收起，Tab 照常移焦點）。
+ */
+export function gridKeyAction(day: string, key: string, min?: string, max?: string): GridKeyAction | null {
+  if (key === "Enter") return inRange(day, min, max) ? { type: "pick", day } : { type: "swallow" };
+  const to = moveFocus(day, key, min, max);
+  if (to !== null) return { type: "move", day: to };
+  return /^(Arrow(Left|Right|Up|Down)|PageUp|PageDown|Home|End)$/.test(key) ? { type: "swallow" } : null;
+}
+
 /** 月份標題：「2026 年 10 月」 */
 export function monthTitle(month: string): string {
   const [y, m] = partsOf(month);

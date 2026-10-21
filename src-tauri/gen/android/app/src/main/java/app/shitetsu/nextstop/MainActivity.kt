@@ -1,14 +1,22 @@
 package app.shitetsu.nextstop
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 
+private const val PROD_PACKAGE = "app.shitetsu.nextstop"
+
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    // 磨光⑤ 甲：dev 包與沙盒包開 WebView 遠端偵錯，真機才接得上 CDP（/proc/net/unix 出現 webview_devtools_remote_<pid>）。
+    // 手機 dev 包跟正式版同一個套件名、只有 versionName 帶 -dev（release 簽章）；沙盒包是 debug 建置＋applicationIdSuffix。
+    // 正式版＝正式套件名、沒有 -dev、不是 debuggable ⇒ 不開。要在 super.onCreate 建 WebView 之前呼叫。
+    if (isDevBuild()) WebView.setWebContentsDebuggingEnabled(true)
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
@@ -37,5 +45,10 @@ class MainActivity : TauriActivity() {
       return
     }
     moveTaskToBack(true)
+  }
+
+  private fun isDevBuild(): Boolean {
+    val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    return debuggable || packageName != PROD_PACKAGE || BuildConfig.VERSION_NAME.endsWith("-dev")
   }
 }

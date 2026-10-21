@@ -35,7 +35,7 @@
   display: flex; align-items: center; justify-content: center; gap: 10px;
   padding: 0 14px 11px;
 }
-/* 年份欄＝透明底＋dash 底線（沿 .ns-defer-pick input／techo 的底線輸入語彙），不做新形狀 */
+/* 年份欄＝透明底＋dash 底線（沿 techo 的底線輸入語彙），不做新形狀 */
 .ns-monthjump .ns-mj-yin {
   width: 76px; flex: none;
   background: transparent; border: 0;

@@ -1,5 +1,7 @@
 /**
- * 日期欄「該不該送出」的判斷（純函式；DatePicker 桌機版的原生 `<input type="date">` 用，D-主-36）。
+ * 日期欄「該不該送出」的判斷（純函式；原本給 DatePicker 桌機版的原生日期欄用，D-主-36）。
+ * 磨光⑤ S8（D-主-54）起挑選器一律自畫月格、原生欄已拿掉：`isPickableDay` 仍由 DatePicker 轉出給呼叫端驗值，
+ * 其餘幾支留著（測試照綠），之後若再出現可打字的日期欄就沿用這套規則。
  * 不 import 任何東西，`node --test` 直接載（scripts/tests/date-pick-rules.test.ts）。
  *
  * 規則：

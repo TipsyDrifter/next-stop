@@ -28,8 +28,20 @@
  *   上移／下移＝`reorder` 有給才出（只有今日子頁、today 分區、沒有時刻的票；行程表串流不給）；到頂／到底那一格不可點。
  *   刪除＝先關本 sheet、再叫 `onDelete`（子項 ≥5 的確認框、toast＋復原都在呼叫端；D-2）。
  *   各線附加項（荷札…）排在刪除之上：刪除固定貼著取消，是整張 sheet 唯一的破壞性動作。
+ *
+ * **磨光⑤ B1「移動到…」（D-主-49 順序延伸、D-主-55）**：排在「記一句…」之後、上移／下移之前；`onMove` 有給才出。
+ *   按下去＝本 sheet 收起、改畫「掛到哪」挑選器（旅客筆記的 MobileAttachPicker 搬遷模式：藏掉自己與子樹、目前位置不可點）。
+ *   返回層：挑選器自己登記（第二層＝「‹ 路線」、第一層＝取消），取消＝整個流程結束（同其他子面板）。
+ *   能挑什麼依種類（domain/moveTo）：車票、車廂 → 列車／車廂；列車 → 路線／支線。
  */
 import { useState } from "react";
+import { nodeRepo } from "../../data";
+import type { NodeKind } from "../../domain";
+import { currentDest, moveTargetRule, type MoveDest } from "../../domain/moveTo";
+import type { AttachTarget } from "../../domain/notes";
+import { useNodeStore } from "../../store/nodeStore";
+import { MobileAttachPicker } from "../notes/mobile/MobileAttachPicker";
+import "../common/moveTo.css";
 import { MobileDatePicker } from "../common/MobileDatePicker";
 import { useUiStore } from "../../store/uiStore";
 import { useMinuteTick } from "../schedule/useMinuteTick";
@@ -63,6 +75,8 @@ export interface MobileTicketSheetProps {
   onRename?(name: string): void;
   /** 記一句乘務記錄（已去空白、非空）；沒給＝不出「記一句…」 */
   onLog?(body: string): void;
+  /** 移動到挑好的新父節點（磨光⑤ B1；本 sheet 已先關）；沒給＝不出「移動到…」 */
+  onMove?(dest: MoveDest): void;
   /** 刪除（本 sheet 已先關）；沒給＝不出「刪除」 */
   onDelete?(): void;
   /** 上移／下移：null／沒給＝不出（行程表串流、誤點區、有時刻的票）；up／down＝那一格可不可點 */
@@ -80,6 +94,7 @@ export function MobileTicketSheet({
   onClearRunTime,
   onRename,
   onLog,
+  onMove,
   onDelete,
   reorder,
   onClose,
@@ -90,8 +105,43 @@ export function MobileTicketSheet({
   const [timeMode, setTimeMode] = useState<"rule" | "run" | null>(null);
   /** 「改名…」／「記一句…」按下去：改畫一行輸入子面板 */
   const [textMode, setTextMode] = useState<"rename" | "log" | null>(null);
+  /** 「移動到…」按下去：挑選器的 value（目前位置）；null＝沒在挑 */
+  const [moveFrom, setMoveFrom] = useState<AttachTarget | null>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const now = useMinuteTick();
+  const moveRule = onMove ? moveTargetRule(card.kind) : null;
+
+  /** 先問到父節點的種類才開挑選器（要標「目前位置」）；卡片只帶 nodeId，父節點從 repository 讀 */
+  const startMove = async () => {
+    const node = await nodeRepo.getNode(card.nodeId);
+    if (!node) return onClose();
+    let parentKind: NodeKind | null = null;
+    if (node.parent_id) {
+      parentKind = useNodeStore.getState().routes.some((r) => r.id === node.parent_id)
+        ? "route"
+        : ((await nodeRepo.getNode(node.parent_id))?.kind ?? null);
+    }
+    setMoveFrom(currentDest(node.parent_id, parentKind, node.route_id));
+  };
+
+  if (moveFrom && moveRule && onMove) {
+    return (
+      <MobileAttachPicker
+        title={moveRule.label}
+        depth={moveRule.depth}
+        kinds={moveRule.depth === "node" ? moveRule.kinds : undefined}
+        routeSelectable={moveRule.routeSelectable}
+        value={moveFrom}
+        excludeId={card.nodeId}
+        currentNote="目前位置"
+        onPick={(t) => {
+          onClose();
+          onMove({ routeId: t.routeId, nodeId: t.nodeId });
+        }}
+        onClose={onClose}
+      />
+    );
+  }
 
   if (textMode === "rename" && onRename) {
     return (
@@ -277,6 +327,11 @@ export function MobileTicketSheet({
         {!card.readOnly && onLog && (
           <button type="button" onClick={() => setTextMode("log")} className="m-sheet-item">
             記一句…
+          </button>
+        )}
+        {!card.readOnly && moveRule && (
+          <button type="button" onClick={() => void startMove()} className="m-sheet-item">
+            移動到…
           </button>
         )}
         {!card.readOnly && reorder && (

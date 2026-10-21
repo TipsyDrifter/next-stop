@@ -14,7 +14,7 @@
  *
  * 顏色只用 theme.css 的 token（含 color-mix）。紙面上的作用中／強調＝`--accent`（粉彩靛、銀河金）——原型的金
  * （今日菱形、focus 環）一律換 `--accent`（theme.css 契約 5）；赭＝`--color-late`；朱只給済章。
- * daypop 的圓牌深字 #1d1f3a／#0f1218 換 `--color-ink`／銀河 `--color-on-seal`（同是「亮盤深字」那一階）。
+ * daypop 的圓牌深字 #1d1f3a／#0f1218 換 `--color-ink`／銀河 `--color-on-ink`（同是「亮盤深字」那一階；磨光⑤ 前讀 `--color-on-seal`，同值）。
  * ───────────────────────────────────────────────────── */
 
 /* ═══ 版面：串流時頁面本身不捲，捲的是 .ns-sch-scroll ═══ */
@@ -184,7 +184,8 @@
   font-family: var(--font-latin); font-weight: 600; font-size: 8.5px;
   color: var(--color-ink); letter-spacing: 0;
 }
-[data-theme="dark"] .ns-sch .roundel-s { color: var(--color-on-seal); }
+/* 磨光⑤：亮盤深字改讀 --color-on-ink（同值 #101217），跟朱脫鉤——這不是済 */
+[data-theme="dark"] .ns-sch .roundel-s { color: var(--color-on-ink); }
 /* 無路線＝襯線「臨」（承臨時車票的由來） */
 .ns-sch .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; }
 

@@ -1,7 +1,7 @@
 /**
  * ConfirmDialog——置中的小確認窗（F1 連同子項完成 2.0e／F3 子孫 ≥5 刪除確認）：title／body／取消／確認；
  * Enter 確認、Esc 取消、開啟時聚焦確認鈕。視覺＝暗幕（techo-veil）＋紙卡（techo-card）＋襯線標題；
- * 確認鈕預設朱印主鈕（`confirm.tone === "gold"` 才換金框 btn-gold，接縫 #74）（btn-seal：字色 --color-on-seal，深淺主題同值——修掉暗色下字底混色），取消＝btn-ghost。唯一來源＝uiStore.confirm。
+ * 確認鈕預設主鈕（`confirm.tone === "gold"` 才換金框 btn-gold，接縫 #74）（btn-seal：磨光⑤ 起是實心墨＋字色 --color-on-ink，class 名沿用），取消＝btn-ghost。唯一來源＝uiStore.confirm。
  * 取捨：自帶兩鍵 Tab 循環與焦點還原，不依賴 DialogShell（那是帶標題列與 × 的表單殼，語義不同）。
  *
  * v1.1.6（重新開始契約 §5；拍板〈回饋兩題拍板〉三層保護的第二層＝打字確認）：`confirm.typeToConfirm` 有值時，

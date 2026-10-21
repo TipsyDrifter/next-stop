@@ -1,7 +1,7 @@
 /**
  * OutlineRow／DraftRow／LateRow——大綱的一列＝一張完整車票（結構與 class 1:1 照抄 prototypes/m1-c-techo.html 的 .ticket；CSS 在 styles/techo.css）：
  * .stub（.badge 類型徽章＝點擊聚焦／.line-name 類型／.serial 票號 No.MMDD-NN）＋ .body（.fare-class 票種＝點擊開詳情／.title 標題＝雙擊改名／
- * .meta 狀態・車廂格・預計・執行日／締切 chip）＋ .stamp-zone（検印／済章）。摺疊＝雙擊票根（鍵盤 ←／→ 另有）。
+ * .meta 狀態・車廂格・預計・執行日／締切 chip）＋ .stamp-zone（検印／済章）。摺疊＝票根左邊的 ▸／▾ 鈕（磨光⑤ K5）或雙擊票根（鍵盤 ←／→ 另有）。
  * DraftRow＝同款票、虛線邊、輸入在 .title 位置；LateRow＝誤點區的 .ticket.late-t（赭 chip「原定 M/D」・
  * 誤點註記「晚了 N 天」〔粉彩手寫〕／「延誤 N 天」〔銀河排印〕＋「延着」印）。
  * 對應 UI Flow 2.0／2.0b／2.0d。取捨：列內按鈕 tabIndex=-1 且 mousedown 不搶焦點——焦點永遠留在大綱容器，鍵盤流不中斷；
@@ -20,7 +20,8 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNo
 import { KIND_LABEL, describeRule, parseRule, type NodeKind, type NodeRow, type NodeStatus } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
 import { SealSuspended } from "../stamps";
-import { PopMenu, type PopMenuItem } from "../common/PopMenu";
+import { Chevron } from "../common/Chevron";
+import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
 import { DateChip } from "./DateChip";
 import { InlineInput } from "./InlineInput";
 import type { EditHandlers, RowActions } from "./useOutlineController";
@@ -399,6 +400,28 @@ export function OutlineRow({
         actions.focusContainer();
       }}
     >
+      {/* 摺疊／展開鈕（磨光⑤ K5）：有子項才畫，畫在票根左邊的縮排溝（outline.css .row-fold，絕對定位、票不挪位）。
+          單擊切換、不搶列的選取（mousedown 擋掉 li 的選列＋不搶焦點）；雙擊票根與鍵盤 ←／→ 照舊 */}
+      {hasChildren && (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="row-fold"
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? "展開" : "收合"}「${node.name}」`}
+          title={collapsed ? `展開（${hotkeyCaps("outline.expand")}）` : `收合（${hotkeyCaps("outline.collapse")}）`}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            actions.toggleCollapse(node.id);
+          }}
+        >
+          <Chevron open={!collapsed} size={14} />
+        </button>
+      )}
       <article
         className={
           "ticket" +

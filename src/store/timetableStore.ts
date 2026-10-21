@@ -734,13 +734,23 @@ export interface TimetableStore {
    * ②：第四參數＝新一塊的連結。⑥（0-12）：第五參數＝面板草稿的手動荷札名稱（不含分類帶的）；拿到新塊的 id 後
    * `tagRepo.setTags('timetable:block', id, names)`（不另 toast）。undefined 或空陣列＝不掛。名稱不合法 ⇒ toast 理由、整筆不寫。
    * 磨光③ 2-1：第六參數＝草稿裡排除的分類帶荷札名稱（`timetable:block-off`，同一時間寫）；undefined 或空陣列＝不排除
+   * 磨光⑤ 收尾（沙盒 O1）：第七參數 longOk＝面板上按了「確定記這麼長」⇒ 新塊記成已確認（不再標「長時間運行・待確認」）
    */
-  fill(categoryId: string, start: number, end: number, link?: BlockLink | null, tagNames?: readonly string[], offNames?: readonly string[]): Promise<void>;
+  fill(
+    categoryId: string,
+    start: number,
+    end: number,
+    link?: BlockLink | null,
+    tagNames?: readonly string[],
+    offNames?: readonly string[],
+    longOk?: boolean,
+  ): Promise<void>;
   /**
    * ②：link undefined＝不動連結。⑥（0-12；評審後改）：tagEdit＝面板草稿相對於「面板打開時的手動荷札」的差集
    * （`blockTagEditOf`；只 attach／detach 差的那幾個，不整份 setTags——基準不完整時才不會摘掉既有的）；undefined＝不動荷札。
    * 磨光③ 2-1（D-時-134）：offNames＝送出後這一塊**全部**排除的分類帶荷札名稱（含畫面上沒畫出來、照留的舊排除）；
    * store 跟 index 裡現在排除的比出差集再 attach／detach（`timetable:block-off`）。undefined＝不動排除；[]＝全部還原
+   * 磨光⑤ 收尾（沙盒 O1）：longOk＝按了「確定記這麼長」⇒ 這一塊記成已確認
    */
   editBlock(
     blockId: string,
@@ -750,6 +760,7 @@ export interface TimetableStore {
     link?: BlockLink | null,
     tagEdit?: BlockTagEdit,
     offNames?: readonly string[],
+    longOk?: boolean,
   ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
@@ -1485,7 +1496,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async fill(categoryId, start, end, link, tagNames, offNames) {
+    async fill(categoryId, start, end, link, tagNames, offNames, longOk) {
       const names = draftTagNames(tagNames); // ⑥ 0-12：先驗名稱（不合法 ⇒ 不寫）
       if (names === false) return;
       const offs = draftTagNames(offNames); // 磨光③ 2-1：排除的是既有的預設荷札，照樣驗
@@ -1493,7 +1504,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null });
+          const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null, ack: longOk === true });
           if (names && names.length) tagErr = await writeBlockTags(r.block.id, names);
           if (offs && offs.length) tagErr = (await writeBlockTags(r.block.id, offs, TT_TAG_BLOCK_OFF)) ?? tagErr;
           return r;
@@ -1505,7 +1516,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames) {
+    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames, longOk) {
       const add = draftTagNames(tagEdit?.add); // 只驗要新掛的名稱（摘的是現有的 key）
       if (add === false) return;
       // 磨光③ 2-1：排除那份交的是整份名稱 ⇒ 跟 index 裡現在排除的比出差集（同手動那份，只 attach／detach 差的；index 沒載＝基準空、只掛不摘）
@@ -1515,7 +1526,13 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = await timetableRepo.editBlock(blockId, { categoryId, startIso: isoOf(start), endIso: isoOf(end), link });
+          const r = await timetableRepo.editBlock(blockId, {
+            categoryId,
+            startIso: isoOf(start),
+            endIso: isoOf(end),
+            link,
+            ack: longOk === true ? true : undefined, // 磨光⑤ 收尾：沒按確定鈕＝不給（照舊）
+          });
           // 評審後：只套差集（attach／detach），不整份 setTags；排除那份（D-時-134）同一招、改分類也不裁（D-時-135）
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
           if (tagEdit) edits.push([{ add: add ?? [], remove: tagEdit.remove }, TT_TAG_BLOCK]);

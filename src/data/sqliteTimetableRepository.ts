@@ -580,13 +580,14 @@ export class SqliteTimetableRepository implements TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null },
+    opts?: { link?: BlockLink | null; ack?: boolean },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     const db = await getDb();
     const now = Date.now();
     const start = msOf(startIso);
     const snap = await this.loadSnapshot(db, isoOf(start));
-    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now, link: opts?.link ?? null });
+    // 磨光⑤ 收尾：ack＝按了「確定記這麼長」（新塊直接記成已確認）
+    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now, link: opts?.link ?? null, ack: opts?.ack });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -598,7 +599,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null },
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
   ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
@@ -612,6 +613,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
       now,
       link: input.link, // ②：undefined＝不動
       curLink: snap.rowsById[id] ? linkOfRow(snap.rowsById[id]) : undefined,
+      ack: input.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
     });
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));

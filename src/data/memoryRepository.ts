@@ -164,8 +164,9 @@ export class MemoryNodeRepository implements NodeRepository {
       lineId = newParent.kind === "line" ? newParent.id : newParent.line_id;
       routeId = newParent.kind === "route" ? newParent.id : newParent.route_id;
     } else {
-      lineId = null;
       routeId = node.kind === "ticket" ? node.route_id : null; // 臨時車票保留路線標籤
+      // 磨光⑤ 沙盒 F1：根層車票的 line_id 跟著路線標籤的幹線（同 sqlite 版）
+      lineId = routeId ? (this.nodes.get(routeId)?.line_id ?? null) : null;
     }
     if (lineId !== node.line_id) {
       for (const sid of sub) this.mutate(sid, (n) => ({ ...n, line_id: lineId, updated_at: now }));

@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { KIND_LABEL, type NodeKind, type NodeRow } from "../../domain";
+import { flattenSubtrees, routeHeadStats } from "../../domain/routeHead";
 import { ancestorsOf, serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { StationStamp } from "../stamps";
@@ -85,6 +86,40 @@ function EmptyBlock({ title, body, action, onAction }: { title: string; body?: s
   );
 }
 
+/**
+ * 沒開路線時的空狀態（磨光⑤ N6）。App 會自動開第一條路線，所以實際上只在「一條路線都沒有」時看得到——
+ * 那時叫人「從左側選一條」是指不到東西的。依側欄資料教第一步：
+ *   沒有幹線 ⇒ 先建幹線（＝側欄「＋ 幹線」同一個對話框）；有幹線沒路線 ⇒ 在第一條幹線底下開路線（＝「＋ 路線」）；
+ *   有路線但沒選（理論上不會）⇒ 原句。
+ */
+function NoRouteEmpty() {
+  const lines = useNodeStore((s) => s.lines);
+  const routes = useNodeStore((s) => s.routes);
+  const openRouteDialog = useUiStore((s) => s.openRouteDialog);
+  if (!lines.length) {
+    return (
+      <EmptyBlock
+        title="還沒有任何路線"
+        body="先建一條幹線（大方向，例如「學習」），再在底下開路線。"
+        action="＋ 新增幹線"
+        onAction={() => openRouteDialog({ lineId: null, editId: null })}
+      />
+    );
+  }
+  if (!routes.length) {
+    const first = lines[0];
+    return (
+      <EmptyBlock
+        title={lines.length === 1 ? "這條幹線還沒有路線" : "幹線底下還沒有路線"}
+        body={`在「${first.name}」底下開一條路線，就能開始鋪軌。`}
+        action="＋ 新增路線"
+        onAction={() => openRouteDialog({ lineId: first.id, editId: null })}
+      />
+    );
+  }
+  return <EmptyBlock title="選一條路線開始鋪軌" body="從左側選一條路線，這裡會顯示它的內容。" />;
+}
+
 export function Outline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useOutlineController(containerRef);
@@ -112,7 +147,7 @@ export function Outline() {
     return (
       <section className="page ns-outline" aria-label="路線大綱">
         <div className="sheet">
-          <EmptyBlock title="選一條路線開始鋪軌" body="從左側選一條路線，這裡會顯示它的內容。" />
+          <NoRouteEmpty />
           <footer className="page-foot">
             <span>私鐵手帳・路線大綱</span>
             <span className="fr">
@@ -132,22 +167,11 @@ export function Outline() {
 
   // 頁首統計＝件一定稿口徑（m3-ext-routemap.html：車票 n/N 済・進度 P%・節點 M）：
   // 進度＝子樹「車票済／總車票」自動彙總；節點＝範圍內全部節點（列車＋車廂＋車票，車站不在樹裡）。
-  let total = 0;
-  let ticketTotal = 0;
-  let ticketDone = 0;
-  const collectStats = (id: string) => {
-    const n = c.tree.byId[id];
-    if (!n) return;
-    total += 1;
-    if (n.kind === "ticket") {
-      ticketTotal += 1;
-      // 定期券的済蓋在「目前班次」上（nodes.status 一路是 todo）——票面看得到済章，頁首就得跟著算
-      if (c.isDoneNode(n)) ticketDone += 1;
-    }
-    for (const k of c.tree.childrenOf[id] ?? []) collectStats(k);
-  };
-  for (const id of c.rootChildren) collectStats(id);
-  const ticketPct = ticketTotal > 0 ? Math.round((ticketDone / ticketTotal) * 100) : 0;
+  // 磨光⑤ N12：數字走 domain/routeHead（手機路線圖抬頭同一支）。
+  // 定期券的済蓋在「目前班次」上（nodes.status 一路是 todo）——票面看得到済章，頁首就得跟著算（isDoneNode）
+  const head = routeHeadStats(flattenSubtrees(c.tree, c.rootChildren), c.isDoneNode);
+  const { ticketTotal, ticketDone, items: total } = head;
+  const ticketPct = head.pct;
   // 整條路線的進度（車站紀念章的進度弧）
   let routeTotal = 0;
   let routeOpen = 0;

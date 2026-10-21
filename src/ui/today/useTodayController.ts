@@ -30,6 +30,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
+import { dayCount, type DayCountItem } from "../../domain/dayCount";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -76,6 +77,11 @@ export function isSettledRow(row: TodayRow): boolean {
   return row.occurrence !== null || row.status === "done";
 }
 
+/** 今日列 → 完成數的一格（磨光⑤ N11；桌機今日與手機今日共用，domain/dayCount 吃這個形狀） */
+export function dayCountItem(row: TodayRow): DayCountItem {
+  return { done: isDoneRow(row), settled: isSettledRow(row) };
+}
+
 /** 「M/D（週X）」——改期收據用；不經 Date.parse，避免 date-only 被當 UTC 而跨日 */
 export function whenText(key: string): string {
   const [y, m, d] = key.split("-").map(Number);
@@ -112,6 +118,11 @@ export interface TodayControllerApi {
   visibleRows: TodayRow[];
   /** 這份資料算的是哪一天（依日界線） */
   dateKey: string;
+  /**
+   * 第一次 loadToday 回來了沒（磨光⑤ S10）：沒回來之前 rows 是空的，但那不是「今天沒有班次」——
+   * 空狀態與慶祝都等它，免得開頁先閃一下「今天還沒有班次」。
+   */
+  loaded: boolean;
   /** 今日清單（today 分區）——空狀態判斷與統計用 */
   todayRows: TodayRow[];
   lateRows: TodayRow[];
@@ -517,6 +528,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     rows,
     visibleRows,
     dateKey,
+    loaded: today.dateKey !== null,
     todayRows,
     lateRows,
     routeOf,
@@ -546,10 +558,9 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
 
     moveTo,
 
+    // 磨光⑤ N11：數字走 domain/dayCount（桌機、手機今日、串流、手機行程表同一把尺）
     stats: {
-      total: todayRows.length,
-      done: todayRows.filter(isDoneRow).length,
-      left: todayRows.length - todayRows.filter(isSettledRow).length,
+      ...dayCount(todayRows.map(dayCountItem)),
       allDone: rows.length > 0 && rows.every(isSettledRow),
     },
 

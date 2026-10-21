@@ -38,6 +38,7 @@ import { RepeatSection, TeikiStampRow } from "./RepeatRuleEditor";
 import { ArrivalNote, TimeField } from "./TimeField";
 import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
+import { useMoveTo } from "./MoveTo";
 import { lineNodeFields } from "../../lines/runtime";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 
@@ -57,11 +58,11 @@ const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
 /** 路線標籤選擇器的「無路線」哨兵值（Segmented 的 value 必須是 string，不能用 null 當選項） */
 const NO_ROUTE = "__none__";
 
-/** 心情三燈＝三個 .badge 小圓：綠 route-preset-3（松葉）／黃 gold（燙金）／紅 seal（朱）——都跟著主題換色 */
+/** 心情三燈＝三個 .badge 小圓：綠 route-preset-3（松葉）／黃 gold（燙金）／紅 late（赭；磨光⑤ 前是朱）——都跟著主題換色 */
 const MOODS: { value: Mood; label: string; glyph: string; color: string }[] = [
   { value: "green", label: "順利", glyph: "順", color: "var(--route-preset-3)" },
   { value: "yellow", label: "普通", glyph: "普", color: "var(--color-gold)" },
-  { value: "red", label: "卡關", glyph: "卡", color: "var(--color-seal)" },
+  { value: "red", label: "卡關", glyph: "卡", color: "var(--color-late)" }, // 磨光⑤：警示改赭（朱只給済）
 ];
 
 /* ───────────── 入口：依 kind 分派 ───────────── */
@@ -234,6 +235,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
     (s) => s.workLogs[node.id]?.filter((l) => l.event === null).length ?? 0,
   );
   const { updateNode, remove, convert } = useNodeActions();
+  const move = useMoveTo(node);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
   const done = node.status === "done";
@@ -439,11 +441,15 @@ function TaskPanel({ node }: { node: NodeRow }) {
 
       <ActionsRow
         left={
-          node.kind === "train" ? (
-            <ActionButton ariaLabel="轉為支線" title="把這班列車改成支線" onClick={() => void convert(node, "branch")}>
-              轉為支線
-            </ActionButton>
-          ) : undefined
+          <>
+            {/* 磨光⑤ B1：跨路線搬遷的入口（挑選器接在操作列下方） */}
+            {move.button}
+            {node.kind === "train" && (
+              <ActionButton ariaLabel="轉為支線" title="把這班列車改成支線" onClick={() => void convert(node, "branch")}>
+                轉為支線
+              </ActionButton>
+            )}
+          </>
         }
         right={
           <ActionButton ariaLabel={`刪除${KIND_LABEL[node.kind]}`} tone="danger" onClick={() => remove(node)}>
@@ -451,6 +457,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
           </ActionButton>
         }
       />
+      {move.picker}
     </div>
   );
 }
@@ -493,6 +500,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
   );
   const showToast = useUiStore((s) => s.showToast);
   const { updateNode, remove } = useNodeActions();
+  const move = useMoveTo(node);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const done = node.status === "done";
   /**
@@ -653,12 +661,15 @@ function TicketPanel({ node }: { node: NodeRow }) {
       <WorkLogList nodeId={node.id} />
 
       <ActionsRow
+        // 磨光⑤ B1：臨時車票＝掛進某班列車；樹內車票＝換一班列車或車廂
+        left={move.button}
         right={
           <ActionButton ariaLabel="刪除車票" tone="danger" onClick={() => remove(node)}>
             刪除
           </ActionButton>
         }
       />
+      {move.picker}
     </div>
   );
 }
@@ -668,6 +679,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
 function BranchPanel({ node }: { node: NodeRow }) {
   const tree = useNodeStore((s) => s.tree);
   const { updateNode, remove, convert } = useNodeActions();
+  const move = useMoveTo(node);
   const n = descendantCount(tree, node.id);
 
   return (
@@ -701,9 +713,12 @@ function BranchPanel({ node }: { node: NodeRow }) {
 
       <ActionsRow
         left={
-          <ActionButton ariaLabel="轉為列車" title="把這條支線改成一班列車（任務）" onClick={() => void convert(node, "train")}>
-            轉為列車
-          </ActionButton>
+          <>
+            {move.button}
+            <ActionButton ariaLabel="轉為列車" title="把這條支線改成一班列車（任務）" onClick={() => void convert(node, "train")}>
+              轉為列車
+            </ActionButton>
+          </>
         }
         right={
           <ActionButton ariaLabel="刪除支線" tone="danger" onClick={() => remove(node)}>
@@ -711,6 +726,7 @@ function BranchPanel({ node }: { node: NodeRow }) {
           </ActionButton>
         }
       />
+      {move.picker}
     </div>
   );
 }
@@ -719,16 +735,20 @@ function BranchPanel({ node }: { node: NodeRow }) {
 
 function FallbackPanel({ node }: { node: NodeRow }) {
   const { updateNode, remove } = useNodeActions();
+  // 站（從別處選到時才會落到這裡）也能換路線；幹線／路線不給（moveTargetRule 回 null ⇒ 不出鈕）
+  const move = useMoveTo(node);
   return (
     <div>
       <NameBlock node={node} onRename={(name) => void updateNode(node.id, { name })} />
       <ActionsRow
+        left={move.button}
         right={
           <ActionButton ariaLabel={`刪除${KIND_LABEL[node.kind]}`} tone="danger" onClick={() => remove(node)}>
             刪除
           </ActionButton>
         }
       />
+      {move.picker}
     </div>
   );
 }

@@ -25,6 +25,7 @@ import { Fragment, useCallback, useRef, useState, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { timeOfRow } from "../../domain/scheduledTime";
+import { dayCountParts } from "../../domain/dayCount";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -235,7 +236,8 @@ export function TodayView() {
 
   // 頁首統計：完成／還有幾張以「今天的列車」為母數（誤點區另計，照 C2 的 #today-list 口徑）。
   // 口徑統一交給 controller 的 c.stats：定期券看班次（済／運休都算已交代），M3 ④。
-  const { total, done, left, allDone } = c.stats;
+  const { total, left, allDone } = c.stats;
+  const countParts = dayCountParts(c.stats);
   const focusMin = c.rows.reduce((sum, r) => sum + (r.time_spent_min ?? 0), 0);
   /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，頁首照舊畫核心「專注」 */
   const lineStats = lineTodayStats("desktop");
@@ -276,31 +278,26 @@ export function TodayView() {
               <span className="latin">
                 {MONTH_EN[day.getMonth()]} {day.getDate()}, {WEEK_EN[day.getDay()]}
               </span>
-              {/* 頁邊手寫（粉彩三處手寫之一）：全部蓋完＝「都完成了」（C2 script 逐字） */}
-              {total > 0 && <span className="margin-note">{left === 0 ? "都完成了" : `還有 ${left} 張`}</span>}
+              {/* 頁邊手寫（粉彩三處手寫之一）：全部蓋済＝「都完成了」（C2 script 逐字）。
+                  磨光⑤ N11：運休算結清不算完成——有運休的結清寫「都結清了」，不然跟底下「完成 2/3・全部結清」打架 */}
+              {countParts && (
+                <span className="margin-note">
+                  {left > 0 ? `還有 ${left} 張` : countParts.done === countParts.total ? "都完成了" : "都結清了"}
+                </span>
+              )}
               {/* 頁首日付印一枚（a38／規格 §6；位置照 A、尺寸 92px 照 ① 比稿 Q8） */}
               <DateSeal date={day} size={92} title={`日付印 ${c.dateKey}`} />
             </div>
             <p className="day-stats">
-              {total > 0 && (
+              {/* 磨光⑤ N11：兩主題同一句「完成 d/t・還有 l 張」（全結清＝「全部結清」），與手機今日、串流今日列同一把尺 */}
+              {countParts && (
                 <>
-                  <span className="theme-pastel-only">
-                    完成{" "}
-                    <b>
-                      {done}/{total}
-                    </b>
-                  </span>
-                  <span className="theme-galaxy-only">
-                    {left === 0 ? (
-                      <>
-                        <b>{total}</b> 張全蓋完了
-                      </>
-                    ) : (
-                      <>
-                        蓋了 <b>{done}</b> 張，還有 <b>{left}</b> 張
-                      </>
-                    )}
-                  </span>
+                  完成{" "}
+                  <b>
+                    {countParts.done}/{countParts.total}
+                  </b>
+                  <span className="sep">・</span>
+                  {countParts.tail}
                 </>
               )}
               {lineStats.length ? (
@@ -397,7 +394,8 @@ export function TodayView() {
         )}
 
         {/* ═══ 今天的列車 ═══ */}
-        {noRows ? (
+        {/* 磨光⑤ S10：第一次 loadToday 回來前清單區留白（不放骨架、不畫空狀態）——否則開頁先閃「今天還沒有班次」 */}
+        {!c.loaded ? null : noRows ? (
           <EmptyBlock
             title="今天還沒有班次"
             body="按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）選一班列車，按 T 排進今天。"
@@ -451,6 +449,8 @@ export function TodayView() {
                   kind={c.draft.kind}
                   onCommit={c.commitDraft}
                   onCancel={c.closeDraft}
+                  // 磨光⑤ K3：「無日期」切換＝換成另一種草稿（跟 Enter／Shift+Enter 開的是同兩種）
+                  onKindChange={(k) => (k === "inbox" ? c.createInboxTicket() : c.openDraft())}
                 />
               )}
             </ul>
@@ -458,7 +458,7 @@ export function TodayView() {
         )}
 
         {/* 1.0d 全完成慶祝（語氣與 1.0c 分開：這裡是收工，不是招募） */}
-        {allDone && !c.draft && (
+        {c.loaded && allDone && !c.draft && (
           <EmptyBlock
             cheer
             title="今天的班次都到站了"

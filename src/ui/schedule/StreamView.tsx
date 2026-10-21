@@ -31,6 +31,7 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
+import { dayCount, dayCountParts } from "../../domain/dayCount";
 import type { CurrentOccurrence, DueEntry } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { formatChord, isEditableTarget, matches, resolveHotkey } from "../shell/hotkeys";
@@ -554,23 +555,19 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
   const clickable = !past; // 今天與未來可點開草稿（含空白單日、攤開的逐日行）；過去不行（P10）
   const hKey = headKey(sec.date);
 
-  // 統計口徑＝countByDate：済＋運休算交代
-  let done = 0;
-  let skipped = 0;
-  for (const r of rows) {
-    if (r.done) done++;
-    else if (r.skipped) skipped++;
-  }
-  const total = rows.length;
-  const open = total - done - skipped;
+  // 統計口徑＝domain/dayCount（磨光⑤ N11）：済才算「完成」，済＋運休算結清；與桌機、手機今日同一把尺
+  const count = dayCount(rows.map((r) => ({ done: r.done, settled: r.done || r.skipped })));
+  const { total } = count;
+  const open = count.left;
+  const countParts = dayCountParts(count);
 
   let note: ReactNode;
-  if (sec.empty) note = "— 無班次";
-  else if (isToday)
+  if (sec.empty || (isToday && !countParts)) note = "— 無班次";
+  else if (isToday && countParts)
     note = (
       <>
-        完成 <b>{done + skipped}</b>/<b>{total}</b>
-        {open > 0 && <span className="left">・還有 {open} 張</span>}
+        完成 <b>{countParts.done}</b>/<b>{countParts.total}</b>
+        <span className="left">・{countParts.tail}</span>
       </>
     );
   else if (past) note = open > 0 ? <span className="late-n">誤點 {open} 件</span> : "已交代";

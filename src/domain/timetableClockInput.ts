@@ -10,7 +10,7 @@
  * - 時間一律毫秒；不讀時鐘（`now` 由呼叫端給）。只 import `./timetable.ts` 與 `../lib/date.ts`。
  */
 import { MIN, fmtClock } from "./timetable.ts";
-import { addDays, clockInstant, dayKeyOf, dayWindow, parseClockInput } from "../lib/date.ts";
+import { addDays, clockInstant, dayKeyOf, dayWindow, parseClockInput, toDateKey } from "../lib/date.ts";
 
 const DAY = 24 * 60 * MIN;
 /** 前一天／後一天的候選離目前值超過這個就不取 */
@@ -90,6 +90,46 @@ export function clockInputPreview(ms: number, refDay: string): [string, string] 
   if (days === 1) return ["＝隔天 ", hm];
   if (days === -1) return ["＝前一天 ", hm];
   return [days > 0 ? `＝${days} 天後 ` : `＝${-days} 天前 `, hm];
+}
+
+/* ── 磨光⑤ §8 甲′（D-主-64、65）：補記跨日變長塊——看得到哪一天、超過 12 小時要確認 ──
+ * 使用者 10-21：看週一、補記那段＝週一 06:00–週二 06:00（兩端都寫「06:00」），到着用鈕往後轉到 10:30 其實是週二 10:30，
+ * 存成 33 小時。步進穿過日界線本身是對的（真的跨天是正當的）；缺的是畫面上看不到日期、也沒人問。 */
+
+const WEEK_ZH = "日一二三四五六";
+
+/**
+ * 時間欄旁的短日期「10/20（一）」；`other`＝跟面板參考日（營業日 key，當日曆日看）不是同一個日曆日 ⇒ 畫成赭色。
+ * 比日曆日、不比營業日：跟打字預覽「＝隔天 01:00」同一把尺（日界線 06:00 下的週一 01:30，使用者說的就是「週一 01:30」）。
+ */
+export function clockDateLabel(ms: number, refDay: string): { text: string; other: boolean } {
+  const d = new Date(ms);
+  const [y, m, dd] = refDay.split("-").map(Number);
+  const other = d.getFullYear() !== y || d.getMonth() !== m - 1 || d.getDate() !== dd;
+  return { text: `${d.getMonth() + 1}/${d.getDate()}（${WEEK_ZH[d.getDay()]}）`, other };
+}
+
+/** 一塊超過這個長度，存檔前要確認（D-主-64；睡眠常見 8～10 小時，12 已夠寬） */
+export const LONG_BLOCK_MS = 12 * 60 * MIN;
+
+/**
+ * 起訖組成的這一塊超過 12 小時 ⇒ 確認句「這一塊有 33 小時，跨到 10/20（二）——確定嗎？」；12 小時內（含）回 null。
+ * 不論是打字、步進、長按、貼齊造成的都一樣（打字那條路的 12 小時解讀規則是另一件事：它決定打的字是哪一天）。
+ * 時長取整到分（同軸上的顯示）；結束跟開始同一個日曆日就不寫「跨到」。
+ */
+export function longBlockAsk(start: number, end: number): string | null {
+  if (end - start <= LONG_BLOCK_MS) return null;
+  const mins = Math.floor((end - start) / MIN);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const len = m ? `${h} 小時 ${m} 分` : `${h} 小時`;
+  const endDay = clockDateLabel(end, toDateKey(new Date(start)));
+  return `這一塊有 ${len}` + (endDay.other ? `，跨到 ${endDay.text}` : "") + "——確定嗎？";
+}
+
+/** 步進鈕走一步（d 分），夾在 [lo, hi]；lo > hi（區間退化）回 lo（同 panels/controls clamp）。Stepper 用，測試重現步進路徑也用這支 */
+export function stepClockValue(base: number, d: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(base + d * MIN, hi));
 }
 
 /* ── 長按加速（§1-5½；D-時-148）：按下先走一步，停 HOLD_DELAY_MS 後連跳，間隔從 170ms 逐步縮到最快 45ms ── */

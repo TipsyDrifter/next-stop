@@ -21,7 +21,7 @@ import { MIN, addCut, colorSlot, defaultCuts, fmtClock, fmtDur, msOf } from "../
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryBadge } from "../CategoryBadge";
 import { CategoryGrid } from "../parts/CategoryGrid";
-import { Actions, Expand, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, type PanelProps } from "./controls";
+import { Actions, Expand, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, usePanelRefDay, type PanelProps } from "./controls";
 
 /** 拖曳時抓得到切點的距離（px） */
 const GRAB_PX = 18;
@@ -45,6 +45,8 @@ export function SplitPanel({ onDone }: PanelProps) {
   const [open, setOpen] = useState<number | null>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  // 磨光⑤ 甲′：切點框下的日期跟這一塊開始那天比（過夜的塊切在隔天＝赭）
+  const refDay = usePanelRefDay(start);
 
   if (!block) {
     return (
@@ -248,7 +250,7 @@ export function SplitPanel({ onDone }: PanelProps) {
                         ✂
                       </span>
                       <span className="ns-tt-row-k">切在</span>
-                      <Stepper value={cuts[i]} lo={loOf(i)} hi={hiOf(i)} onChange={(v) => setCut(i, v)} label={`切點 ${i + 1}`} />
+                      <Stepper value={cuts[i]} lo={loOf(i)} hi={hiOf(i)} onChange={(v) => setCut(i, v)} label={`切點 ${i + 1}`} refDay={refDay} />
                       <button
                         type="button"
                         className="ns-tt-cut-del"

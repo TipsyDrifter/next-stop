@@ -45,11 +45,25 @@
  *   （`openSheet({ kind: "fill", ..., cont })`；SheetPanel 用起訖當 key 重掛，分類／連結／荷札草稿都從頭來）；
  *   副標第二行「剩下 X–Y 還沒記」、取消改叫「先這樣」。補滿照舊關。寫入不等（fill 失敗照舊 toast，面板照開）。
  *   換段後面板捲回頂（那一行才看得到）；桌機自動聚焦的到着框若被黏底的按鈕列擋住，再往下捲到剛好露出（評審 #4）。
+ *
+ * 磨光⑤ §8 甲′（使用者 10-21：補記睡覺 01:30–10:30 變成 33 小時；D-主-64、65）：
+ * - 発車／到着框下一律寫日期（usePanelRefDay：參考日＝這一塊開始那天，落在看的那一天裡就是看的那一天）；另一天赭色。
+ * - 起訖超過 12 小時（longBlockAsk）⇒ 按鈕列最上面多一行「這一塊有 N 小時 M 分，跨到 {日期}——確定嗎？」＋「確定記這麼長」；
+ *   按「補上／改好了」不存、抖一下那一行並把焦點放到確定鈕；按確定鈕才存。12 小時內照舊直接存。
+ *   改一塊時只在起訖動過才問（本來就這麼長、只改分類／連結／荷札的不必每次都確認）。
+ * - 確認綁在「按下那一刻畫著的起訖」（評審）：框裡沒提交的草稿會在按確定鈕的那一下失焦才提交、句子跟著換——
+ *   按下時記起訖（`longSeen`），放開時跟提交後的比，不一樣＝確認的不是這個長度 ⇒ 不存、抖一下讓人重看。
+ *
+ * 磨光⑤ 收尾：
+ * - 走「確定記這麼長」存的塊一併記成已確認（fill／editBlock 的 longOk ⇒ long_run_ack＝1；沙盒 O1：不然軸上照標「待確認」）。
+ * - 確認行收起時留同高空白（hold），捲到底的面板內容不往下掉（自測 ②）。
+ * - 連續補「剩下 X–Y 還沒記」的端點跟參考日不同天時加日期（沙盒 O6）。
  */
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { MIN, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
 import { linkOfRow } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
+import { clockDateLabel, longBlockAsk } from "../../../domain/timetableClockInput";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
@@ -75,6 +89,7 @@ import {
   useBlock,
   useCoverWarn,
   useNowOnce,
+  usePanelRefDay,
   type PanelProps,
 } from "./controls";
 import type { ClockInputHandle } from "./ClockInput";
@@ -144,6 +159,13 @@ export function BlockPanel({ onDone }: PanelProps) {
     return { start: now - MIN, end: now, cat: null as string | null };
   })();
   const [start, setStart] = useState(init.start);
+  // 磨光⑤ 甲′：兩格共用的參考日（到着初值常在隔天，不能各自算）
+  const refDay = usePanelRefDay(init.start);
+  // 長塊確認行：按了「補上／改好了」沒確認 ⇒ 抖一下、焦點放到確定鈕
+  const [longNudge, setLongNudge] = useState(0);
+  const longRowRef = useRef<HTMLDivElement>(null);
+  /** 確定鈕按下（pointerdown，早於時刻框失焦提交草稿）那一刻畫著的起訖 */
+  const longSeen = useRef<{ start: number; end: number } | null>(null);
   const endClock = useRef<ClockInputHandle | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   // 連續補換段（評審 #4）：重掛不會把捲動容器捲回去 ⇒ 「剩下 X–Y 還沒記」會留在畫面外。掛上時捲回頂；桌機到着框已自動
@@ -229,6 +251,45 @@ export function BlockPanel({ onDone }: PanelProps) {
 
   const exceptId = mode === "edit" && block ? block.id : null;
   const changed = start !== init.start || end !== init.end;
+  // 磨光⑤ 甲′：超過 12 小時要確認（補記一律看；改一塊只在起訖動過時看）
+  const longAsk = mode === "fill" || changed ? longBlockAsk(start, end) : null;
+  // 磨光⑤ 收尾（自測 ②）：面板捲到底時，確認行一收起內容就變矮、捲動被夾回去，整片往下掉一行——連點的下一下會點到
+  // 上面那顆鈕（實際踩到「接上一塊」）。收起那一拍在原位留一塊同高的空白（hold），不讓捲動高度變；之後只在「留白不再
+  // 需要」時縮（沒捲到底的面板當拍就縮成 0，捲到底的等使用者往上捲才一點一點縮），縮的過程不會讓內容跳。
+  const [longShown, setLongShown] = useState(!!longAsk);
+  const [hold, setHold] = useState(0);
+  /** 確認行上一次畫出來佔的高度（含它跟主鈕之間的列距） */
+  const longH = useRef(0);
+  if (!!longAsk !== longShown) {
+    setLongShown(!!longAsk);
+    setHold(longAsk ? 0 : longH.current);
+  }
+  useLayoutEffect(() => {
+    const row = longRowRef.current;
+    const bar = row?.parentElement;
+    if (!row || !bar) return;
+    // 確認行還在、只是句子變短（不再「跨到 …」）也會矮一兩行、同樣把捲到底的內容往下拉——框的高度只增不減（框內置中）
+    const box = row.firstElementChild instanceof HTMLElement ? row.firstElementChild : null;
+    const h = box?.offsetHeight ?? 0;
+    if (box && h > (parseFloat(box.style.minHeight) || 0)) box.style.minHeight = `${h}px`;
+    longH.current = row.offsetHeight + (parseFloat(getComputedStyle(bar).rowGap) || 0);
+  });
+  useLayoutEffect(() => {
+    if (!hold) return;
+    const box = rootRef.current?.closest<HTMLElement>(".ns-dialog-body, .ns-tt-sheet");
+    if (!box) {
+      setHold(0);
+      return;
+    }
+    // 拿掉留白後捲動位置還放得下＝不需要；還需要的那一截＝捲過頭的部分
+    const fit = (): void => {
+      const need = Math.max(0, Math.ceil(box.scrollTop + box.clientHeight - (box.scrollHeight - hold)));
+      if (need < hold) setHold(need);
+    };
+    fit();
+    box.addEventListener("scroll", fit, { passive: true });
+    return () => box.removeEventListener("scroll", fit);
+  }, [hold]);
   // ⑤ 契約 §5.3：補記一開就預演（方眼「更多…」會拿蓋到既有紀錄的選區開；只拿空白開時預演本來就是空的）
   const warn = useCoverWarn(start, end, exceptId, mode === "fill" ? true : changed);
   // 磨光①：手機返回鍵＝連結挑選的「‹」（疊在 timetable.sheet 上；桌機 no-op）
@@ -265,25 +326,35 @@ export function BlockPanel({ onDone }: PanelProps) {
   const setStartClamped = (v: number): void => setStart(clamp(v, 0, end - MIN));
   const setEndClamped = (v: number): void => setEnd(clamp(v, start + MIN, now));
 
-  const submit = (e: MouseEvent<HTMLButtonElement>): void => {
+  const submit = (e: MouseEvent<HTMLButtonElement>, longOk = false): void => {
     if (!clockDraftsOk(e.currentTarget)) return;
     if (!cat) {
       useUiStore.getState().showToast({ message: TT_TEXT.pickCategory });
       return;
     }
+    // 磨光⑤ 甲′：長塊沒按「確定記這麼長」就不存（失焦套用的草稿已在這一拍之前重畫進 start／end）
+    if (longAsk && !longOk) {
+      setLongNudge((n) => n + 1);
+      // 焦點放確認行、不放確定鈕：連按兩下 Enter 或長按自動重複，第二下會直接落在確定鈕上存檔（磨光⑤ 評審）
+      longRowRef.current?.focus();
+      return;
+    }
     const offNames = offNamesOf();
+    // 磨光⑤ 收尾（沙盒 O1）：走「確定記這麼長」存的長塊＝使用者確認過長度 ⇒ 記成已確認（long_run_ack＝1），
+    // 軸上不再標「長時間運行・待確認」、待確認清單也不再問一次。只有這條路；12 小時內直接存的照舊不動 ack
+    const ackLong = !!longAsk && longOk;
     if (mode === "fill" && sheet?.kind === "fill") {
       // 連續補（1-4）：先算幾何、不等寫完
       const piece = { start: sheet.start, end: toNow ? now : sheet.end };
       const c = fillContinuation(piece, { start, end }, sheet.cont?.rest ?? [], now);
       if (c.next) openSheet({ kind: "fill", start: c.next.start, end: c.next.end, cont: { rest: c.rest, toNow: toNow && c.next.end >= now } });
       else onDone();
-      void fill(cat, start, end, link, tagDraft ?? [], offNames);
+      void fill(cat, start, end, link, tagDraft ?? [], offNames, ackLong);
     } else if (block) {
       onDone();
       // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
       const tagEdit = tagDraft !== null && tagInit !== null ? (blockTagEditOf(tagInit, tagDraft) ?? undefined) : undefined;
-      void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames);
+      void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong);
     }
   };
 
@@ -425,6 +496,19 @@ export function BlockPanel({ onDone }: PanelProps) {
   }
 
   const cont = sheet?.kind === "fill" ? sheet.cont : undefined;
+  // 磨光⑤ 收尾（沙盒 O6）：「剩下 X–Y 還沒記」的端點跟面板參考日不同天 ⇒ 時刻前面加日期（同時刻框下的日期標籤，
+  // D-主-65 那一套；這行本來就是赭色，日期加粗）。只寫時刻會把隔天 06:00 看成當天 06:00
+  const contClock = (ms: number) => {
+    const d = clockDateLabel(ms, refDay);
+    return d.other ? (
+      <>
+        <b className="ns-tt-fill-cont-date">{d.text}</b>
+        {fmtClock(ms)}
+      </>
+    ) : (
+      fmtClock(ms)
+    );
+  };
   return (
     <div className="ns-tt-panel ns-tt-panel-block" ref={rootRef}>
       <Sub num>
@@ -432,7 +516,11 @@ export function BlockPanel({ onDone }: PanelProps) {
       </Sub>
       {cont && sheet?.kind === "fill" && (
         <p className="ns-tt-fill-cont">
-          剩下 <span className="ns-tt-num">{fmtClock(sheet.start)}–{fmtClock(fillEnd)}</span> 還沒記
+          剩下{" "}
+          <span className="ns-tt-num">
+            {contClock(sheet.start)}–{contClock(fillEnd)}
+          </span>{" "}
+          還沒記
         </p>
       )}
       {warn && <Sub warn>{warn}</Sub>}
@@ -445,6 +533,7 @@ export function BlockPanel({ onDone }: PanelProps) {
           lo={0}
           hi={end - MIN}
           onChange={setStartClamped}
+          refDay={refDay}
           label="発車時刻"
           onEnter={() => endClock.current?.focus()}
           enterKeyHint="next"
@@ -462,6 +551,7 @@ export function BlockPanel({ onDone }: PanelProps) {
           lo={start + MIN}
           hi={now}
           onChange={setEndClamped}
+          refDay={refDay}
           label="到着時刻"
           handleRef={endClock}
           autoFocus={desk && !!cont}
@@ -474,6 +564,35 @@ export function BlockPanel({ onDone }: PanelProps) {
       </Row>
       {mergeRow}
       <Actions>
+        {longAsk && (
+          // 外層只管出現時淡入；抖動放內層（同一個元素換 animation 會在抖完後把淡入再播一次）
+          <div className="ns-tt-longask" role="group" aria-label={longAsk} ref={longRowRef} tabIndex={-1}>
+            <div className={"ns-tt-longask-in" + (longNudge ? " is-nudge" : "")} onAnimationEnd={() => setLongNudge(0)}>
+              {/* 不放 aria-live：步進每一下句子都變；擋下時焦點放到這一組，報讀器會念這一組的名字 */}
+              <span className="ns-tt-longask-t">
+                {/* 日期整串不拆行（手機窄面板會在「（」前斷開） */}
+                {longAsk.split(/(\d+\/\d+（.）)/).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part))}
+              </span>
+              <button
+                type="button"
+                className="ns-btn btn-ghost ns-btn--sm"
+                onPointerDown={() => {
+                  longSeen.current = { start, end };
+                }}
+                onClick={(e) => {
+                  const seen = longSeen.current;
+                  longSeen.current = null;
+                  // 鍵盤按（detail 0）沒有「按下才失焦」這一段：焦點早就在鈕上，畫著的就是要存的
+                  const sameAsSeen = e.detail === 0 || (seen !== null && seen.start === start && seen.end === end);
+                  submit(e, sameAsSeen);
+                }}
+              >
+                確定記這麼長
+              </button>
+            </div>
+          </div>
+        )}
+        {!longAsk && hold > 0 && <div className="ns-tt-longask-hold" style={{ height: hold }} aria-hidden />}
         {mode === "edit" && block && (
           <>
             <button

@@ -383,8 +383,11 @@ export class SqliteNodeRepository implements NodeRepository {
       lineId = newParent.kind === "line" ? newParent.id : newParent.line_id;
       routeId = newParent.kind === "route" ? newParent.id : newParent.route_id;
     } else {
-      lineId = null;
       routeId = node.kind === "ticket" ? node.route_id : null; // 臨時車票保留路線標籤
+      // 磨光⑤ 沙盒 F1：根層車票的 line_id 跟著路線標籤的幹線（同 create、同對面那台整表重算）；
+      // 原本寫死 null ⇒ 「搬進同路線列車再復原」這台變 null、對面重算成幹線，兩台暫時不一致
+      const tag = routeId ? await this.getNode(routeId) : null;
+      lineId = tag?.line_id ?? null;
     }
     // 子樹的 line_id／route_id 是反正規化快取：SQL 照舊寫，但**不進 oplog**——
     // 對面那台 apply 完會自己整表重算（契約 §7.3），同步它只是把推導物推來推去。

@@ -574,8 +574,10 @@ header.day::after { /* 手帳式雙細線 */
   font-size: 10px; letter-spacing: .28em; color: var(--color-ink-faint);
 }
 
-/* 按鈕：朱印主鈕（字色固定 --color-on-seal）／ghost ／金 */
-.btn-seal { background: var(--color-seal); color: var(--color-on-seal); border: 1px solid var(--color-seal); letter-spacing: .12em; }
+/* 按鈕：主鈕（實心墨，字色固定 --color-on-ink）／ghost ／金
+   磨光⑤（D-主-62，使用者 10-20 裁示「朱只給済」）：主鈕是事務，改四色墨・墨 --stamp-ink。
+   class 名 .btn-seal 保留不改（全 App 約五十處引用，改名只增風險）；名字是歷史，顏色以這裡為準。 */
+.btn-seal { background: var(--stamp-ink); color: var(--color-on-ink); border: 1px solid var(--stamp-ink); letter-spacing: .12em; }
 .btn-seal:hover { filter: brightness(1.06); }
 .btn-ghost { border: 1px solid var(--color-dash); color: var(--color-ink-soft); background: transparent; letter-spacing: .12em; }
 .btn-ghost:hover { border-color: var(--color-gold); color: var(--color-ink); }

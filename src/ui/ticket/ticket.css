@@ -448,6 +448,9 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
   font-family: var(--font-latin); font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink);
 }
 .ns-tk-datepop { left: 0; top: calc(100% + 4px); }
+/* 磨光⑤ 自測：側板（360px）的日期欄值寬只有 226px，S8 改成 300px 自畫月格後從左緣往右長會超出面板 32px、
+ * 把 .ns-tk-panel 撐出橫向捲軸（還被自動捲 32px、左邊欄名被切）。側板與對話框的欄位改成貼值欄右緣往左長。 */
+.ns-tk-fields .field > div > .ns-tk-datepop { left: auto; right: 0; }
 .ns-tk-toamt { display: flex; align-items: baseline; gap: 6px; }
 .ns-tk-toamt small { font-family: var(--font-latin); font-size: 10px; letter-spacing: .08em; color: var(--color-ink-soft); }
 
@@ -497,7 +500,7 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 /* ═══ §F 對話框本體：新增帳戶／分類管理／幣別與匯率——桌機外觀（丙）═══ */
 /* 三個本體兩殼共用：桌機包在 DialogShell（.ns-dialog-body 內捲）、手機包在 MobileSheetHost 的底部面板；
    這裡是兩殼共同的長相，手機的觸控尺寸在 ticket-mobile.css 末段。按鈕沿 overlay.css 的 .ns-btn＋.btn-ghost／.btn-gold
-   （不用 .btn-seal：朱紅只給領収，鐵則 5）。 */
+   （磨光⑤：.btn-seal 已是實心墨、不再是朱；這三個對話框的「完了」沿用金框 .btn-gold、不上主鈕，是延續原設計的取捨，非色彩限制）。 */
 .ns-tk-dialog { font-size: 14px; line-height: 1.6; letter-spacing: .02em; color: var(--color-ink); font-variant-numeric: tabular-nums; }
 .ns-tk-dialog .lbl { font-size: 10px; letter-spacing: .28em; color: var(--color-ink-faint); white-space: nowrap; }
 .ns-tk-dfield { display: grid; grid-template-columns: 64px minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 40px; border-bottom: 1px dashed var(--color-line); }

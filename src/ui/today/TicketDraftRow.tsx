@@ -18,6 +18,7 @@
  *   onCancel  Esc／空白提交，收掉草稿
  *   kind      today＝排今天的臨時券（Enter）／inbox＝無日期票（Shift+Enter，建完流入收件匣）
  *             ——只換提示語與 placeholder，建票規則在 controller 那一側
+ *   onKindChange（磨光⑤ K3，選填）給了才畫 meta 最右的「無日期」切換
  */
 import { InlineInput } from "../outline/InlineInput";
 
@@ -28,9 +29,15 @@ export interface TicketDraftRowProps {
   onCancel(): void;
   /** today＝排今天的臨時券（Enter）／inbox＝無日期票（Shift+Enter，流入收件匣） */
   kind?: "today" | "inbox";
+  /**
+   * 磨光⑤ K3：給了才畫「無日期」切換（對齊手機輸入列的 .m-nt-toggle）。點一下在 today／inbox 間切，
+   * 由呼叫端換掉草稿的 kind（今日頁＝controller.openDraft／createInboxTicket）；輸入框是同一顆、打到一半的字留著。
+   * 不給（串流某一天的草稿：日期已經是那一天）＝不畫。
+   */
+  onKindChange?(kind: "today" | "inbox"): void;
 }
 
-export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today" }: TicketDraftRowProps) {
+export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today", onKindChange }: TicketDraftRowProps) {
   const inbox = kind === "inbox";
   return (
     <li className="ticket-li">
@@ -66,6 +73,23 @@ export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today" }: 
             <span>臨時車票</span>
             <span className="sep">・</span>
             <span>{inbox ? "Enter 放進收件匣・Esc 取消" : "Enter 新增・連按繼續加・Esc 取消"}</span>
+            {/* 「無日期」切換（磨光⑤ K3）：排在 meta 最右。tabIndex=-1＋mousedown 不搶焦點——焦點一離開輸入框，
+                InlineInput 的 blur 就會把打到一半的字提交出去；鍵盤要切用 Shift+Enter 開的那一種就好 */}
+            {onKindChange && (
+              <button
+                type="button"
+                role="switch"
+                tabIndex={-1}
+                aria-checked={inbox}
+                aria-label="無日期——建好直接放進收件匣"
+                title="不排日期，建好放進收件匣"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onKindChange(inbox ? "today" : "inbox")}
+                className={"draft-nodate" + (inbox ? " is-on" : "")}
+              >
+                無日期
+              </button>
+            )}
           </div>
         </div>
 

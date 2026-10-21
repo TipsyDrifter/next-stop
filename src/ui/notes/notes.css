@@ -185,12 +185,6 @@
 .ns-notes-input {
   width: 100%; font-size: 13px;
 }
-.ns-notes-date {
-  background: transparent; border: 1px solid var(--color-line); border-radius: 2px; padding: 2px 6px;
-  font-family: inherit; font-size: 12px; color: var(--color-ink-soft); color-scheme: light;
-}
-.ns-notes-date.on { border-color: var(--accent); }
-[data-theme="dark"] .ns-notes-date { color-scheme: dark; }
 .ns-notes-nodelist { list-style: none; margin: 8px 0 0; padding: 0; max-height: 216px; overflow-y: auto; }
 .ns-notes-nodelist li > button, .ns-notes-nodelist li > .grp {
   display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: 0; background: transparent;

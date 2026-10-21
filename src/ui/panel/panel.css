@@ -98,11 +98,7 @@
 .panel input:focus, .panel textarea:focus { border-bottom-color: var(--accent); }
 .panel input::placeholder, .panel textarea::placeholder { color: var(--color-ink-faint); }
 .panel textarea { resize: none; line-height: 1.6; field-sizing: content; }
-.panel input[type="date"] { width: 8.4em; }
-.panel input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0; cursor: pointer; transition: opacity .15s; }
-.panel .field:hover input[type="date"]::-webkit-calendar-picker-indicator,
-.panel .st:hover input[type="date"]::-webkit-calendar-picker-indicator,
-.panel input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity: .55; }
+/* 日期欄不再是原生 date 輸入（磨光⑤ S8）：開關鈕的樣式在 common/datepicker.css `.panel .ns-datefield` */
 .panel input[type="number"] { width: 4.5em; appearance: textfield; -moz-appearance: textfield; }
 .panel input[type="number"]::-webkit-inner-spin-button, .panel input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .panel .num { display: flex; align-items: baseline; gap: 6px; }
@@ -189,7 +185,6 @@
 .st .title:focus { border-bottom-color: var(--accent); }
 .st.arrived .title { color: var(--color-ink-faint); }
 .st .meta { margin-top: 2px; }
-.st .meta input[type="date"] { font-size: 12px; padding: 0 0 1px; }
 .st .arr-note { color: var(--color-seal); letter-spacing: .12em; white-space: nowrap; }
 .arr-seal {
   border: 1.6px solid var(--color-seal); color: var(--color-seal); background: transparent; cursor: pointer;

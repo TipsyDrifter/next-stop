@@ -514,7 +514,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const node = tree.byId[id];
     if (!node) return { ok: false, reason: "找不到這個項目" };
     if (!node.parent_id || node.parent_id === routeId || !tree.byId[node.parent_id]) {
-      return { ok: false, reason: "已經在路線最上層——要換路線請用「移動到…」" };
+      // 磨光⑤ B1：指得到的入口（大綱列 ⋯／側板操作列都有「移動到…」）
+      return { ok: false, reason: "已經在路線最上層——要換路線，用 ⋯ 選單的「移動到…」" };
     }
     const parent = tree.byId[node.parent_id];
     const gpId = parent.parent_id;

@@ -95,6 +95,15 @@ function applyTheme(pref: ThemePref) {
     pref === "galaxy" ||
     (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   root.setAttribute("data-theme", dark ? "dark" : "light");
+  // 磨光⑤ S10：算好的結果留一份，index.html 開頁前同步 script 先套上，銀河主題使用者不再先看到粉彩。
+  // ?theme= 覆寫不留（不蓋掉主人自己的偏好）；讀寫失敗（私密視窗、被擋）就算了，下次照舊慢一拍。
+  if (!THEME_OVERRIDE) {
+    try {
+      localStorage.setItem("ns-theme-resolved", dark ? "dark" : "light");
+    } catch {
+      /* 沒有快取只是開頁慢一拍套主題 */
+    }
+  }
 }
 
 /** settings 表的字串 → ThemePref；含 M2 舊值遷移（light＝旅の手帖→粉彩星空、dark＝月白→銀河鐵道） */
@@ -377,8 +386,10 @@ export const useUiStore = create<UiStore>((set, get) => ({
   },
 
   async loadSettings() {
-    // 先套預設主題，再讀設定（讀不到——例如非 Tauri 環境預覽——也不讓畫面裸奔）
-    applyTheme(get().theme);
+    // 先套預設主題，再讀設定（讀不到——例如非 Tauri 環境預覽——也不讓畫面裸奔）。
+    // 磨光⑤ 真機 D1：index.html 已用快取（或 ?theme= 覆寫）套好主題時不再先套預設——預設是「跟隨系統」，
+    // 粉彩主題＋系統深色會先閃銀河 1.5 秒，反過來會先閃粉彩與英文「Today」；讀設定失敗就留著快取那一個。
+    if (!document.documentElement.hasAttribute("data-theme")) applyTheme(get().theme);
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
       if (get().theme === "system") applyTheme("system");
     });

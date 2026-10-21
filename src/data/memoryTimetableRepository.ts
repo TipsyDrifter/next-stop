@@ -1042,7 +1042,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null },
+    opts?: { link?: BlockLink | null; ack?: boolean },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     await this.ready();
     const now = Date.now();
@@ -1052,6 +1052,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       end: msOf(endIso),
       now,
       link: opts?.link ?? null,
+      ack: opts?.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
     });
     const ids = await this.applyPlan(plan, isoOf(now));
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
@@ -1060,7 +1061,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
 
   async editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null },
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
   ): Promise<CoverSummary> {
     await this.ready();
     const now = Date.now();
@@ -1073,6 +1074,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
       now,
       link: input.link, // undefined＝不動
       curLink: cur ? linkOfRow(cur) : undefined,
+      ack: input.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
     });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);

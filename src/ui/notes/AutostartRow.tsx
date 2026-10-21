@@ -2,7 +2,7 @@
  * AutostartRow——設定〈一般〉的「開機時啟動（縮在系統匣）」一列（階段⑤ 契約 §5.4；SettingsPanel 的 GeneralTab 最後一段）。
  *
  * 開關＝兩枚 `.ns-choice`「開／關」（同步分頁「同步總開關」同一個寫法，新形狀零發明）；說明＝`.ns-note`；
- * 熱鍵沒註冊成功時多一行朱紅字（`--color-seal`；App 沒有獨立的 error 色票，朱印是最紅的那一個，深淺主題各有提亮版）。
+ * 熱鍵沒註冊成功時多一行赭字（`--color-late`；App 沒有獨立的 error 色票，磨光⑤ 前借朱，朱只給済後改赭——四色墨的警示色）。
  * 鍵帽一律 `capsOf`（probe 牙齒 5）。
  * 掛上時問 `autostart_get()`：`available=false`（瀏覽器預覽、外掛沒掛成功、不是桌機）⇒ 整列不畫。
  * 熱鍵狀態：先用主視窗啟動時問到的那一份（`lastCaptureStatus`），掛上再問一次；之後視窗取得焦點／重新可見時也再問
@@ -16,8 +16,8 @@ import { capsOf } from "./notesBits";
 import { HOTKEY_ID, autostartGet, autostartSet, captureStatus, type AutostartInfo, type CaptureStatus } from "./capture-window/shell";
 import { lastCaptureStatus, rememberCaptureStatus } from "./capture-window/useCaptureShellBridge";
 
-/** 熱鍵警示字的顏色：朱（深色主題有提亮版）。不用同步／備份分頁那條偏橘的 `--ns-warn-text` */
-const ERROR_TEXT = "var(--color-seal)";
+/** 熱鍵警示字的顏色：赭（深色主題有提亮版；磨光⑤ 朱只給済，警示由朱改赭）。不用同步／備份分頁那條偏橘的 `--ns-warn-text` */
+const ERROR_TEXT = "var(--color-late)";
 
 /** 主視窗取得焦點後，Rust 側重試註冊熱鍵要一點時間：JS 的 focus 事件之後再補問一次的延遲 */
 const RECHECK_MS = 400;

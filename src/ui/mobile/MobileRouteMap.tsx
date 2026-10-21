@@ -48,6 +48,7 @@ import {
 } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
 import { effectiveTime, isTimeOverridden } from "../../domain/scheduledTime";
+import { flattenSubtrees, isRouteNodeDone, routeHeadStats, routeHeadTicketText } from "../../domain/routeHead";
 import {
   ancestorsOf,
   descendantCount,
@@ -57,6 +58,7 @@ import {
   type TreeIndex,
 } from "../../store/nodeStore";
 import { roundelStyle } from "../common/roundel";
+import { Chevron } from "../common/Chevron";
 import { lineNodeFields, lineRouteListAsides } from "../../lines/runtime";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
@@ -117,23 +119,7 @@ function buildRows(tree: TreeIndex, rootChildren: string[], collapsed: Record<st
 
 /* ── 小圖示（1.3px 細線幾何，與 gnav／tabs.ts 同筆觸；stroke 走 currentColor）── */
 
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.3}
-      strokeLinecap="round"
-      style={{ transform: open ? "rotate(90deg)" : undefined, transition: "transform .15s" }}
-      aria-hidden
-    >
-      <path d="M6 3.5 10.5 8 6 12.5" />
-    </svg>
-  );
-}
+// 展開／收合箭頭 Chevron 在磨光⑤ K5 抽到 ui/common/Chevron（桌機大綱同一枚）
 
 function CaretRight() {
   return (
@@ -367,17 +353,14 @@ export default function MobileRouteMap() {
     [treeReady, tree, rootChildren, collapsed],
   );
 
-  /** 路線抬頭的統計：子孫總數與未完成數（`autoProgress` 的同一組數字，這裡印「n/N」比百分比好讀） */
+  /**
+   * 路線抬頭的統計（磨光⑤ N12）：與桌機大綱頁首同一支 domain/routeHead——分母只數車票，
+   * 済＝定期券看目前班次的結局、其餘看 status（同桌機 isDoneNode）。
+   */
   const stat = useMemo(() => {
     if (!treeReady) return null;
-    let total = 0;
-    let open = 0;
-    for (const id of tree.roots) {
-      total += 1 + descendantCount(tree, id);
-      open += (tree.byId[id]?.status === "done" ? 0 : 1) + openDescendantCount(tree, id);
-    }
-    return { total, done: total - open };
-  }, [treeReady, tree]);
+    return routeHeadStats(flattenSubtrees(tree, tree.roots), (n) => isRouteNodeDone(n, currentOccurrences));
+  }, [treeReady, tree, currentOccurrences]);
 
   const enterRoute = (id: string) => {
     setZoomId(null);
@@ -503,7 +486,7 @@ export default function MobileRouteMap() {
           <h2 className="m2-head-title">{route?.name ?? "路線"}</h2>
           <p className="m2-head-sub">
             {line ? `幹線・${line.name}` : ""}
-            {stat && stat.total > 0 ? `${line ? "・" : ""}済 ${stat.done}/${stat.total}` : ""}
+            {stat && stat.ticketTotal > 0 ? `${line ? "・" : ""}${routeHeadTicketText(stat)}` : ""}
           </p>
         </header>
       )}

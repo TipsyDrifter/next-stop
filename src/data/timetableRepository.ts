@@ -94,17 +94,19 @@ export interface TimetableRepository {
   undoArrive(id: string): Promise<boolean>;
   /** 改運行中那班的出發時間（往前挪會蓋掉前面的紀錄） */
   restart(id: string, atIso: string): Promise<CoverSummary>;
-  /** 補記一塊（必須 start < end ≤ 現在）。②：opts.link＝新一塊的連結 */
+  /** 補記一塊（必須 start < end ≤ 現在）。②：opts.link＝新一塊的連結。
+   *  磨光⑤ 收尾：opts.ack＝使用者按了「確定記這麼長」⇒ 新塊 long_run_ack＝1（不給＝0，照舊） */
   fill(
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null },
+    opts?: { link?: BlockLink | null; ack?: boolean },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
-  /** 改一塊已結束的塊的分類與起訖（蓋到的照補記規則處理）；運行中的塊丟 RangeError。②：input.link 不給＝不動連結 */
+  /** 改一塊已結束的塊的分類與起訖（蓋到的照補記規則處理）；運行中的塊丟 RangeError。②：input.link 不給＝不動連結。
+   *  磨光⑤ 收尾：input.ack＝按了「確定記這麼長」⇒ long_run_ack＝1（不給＝照舊：換分類歸 0、其餘不動） */
   editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null },
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
   ): Promise<CoverSummary>;
   /** 單點切開；at 不在 (開始, 結束或現在) 之內回 null */
   split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null>;

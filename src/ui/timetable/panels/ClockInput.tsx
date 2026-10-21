@@ -20,10 +20,13 @@
  * - 失焦去「丟草稿」的鈕（貼齊 chip，帶 `data-tt-drop-draft`）⇒ 草稿直接丟、照鈕的語義做（D-時-144）；
  *   其餘（補上／改好了、分類格、面板空白處…）⇒ 先套用草稿。送出鈕再用 `clockDraftsOk` 檢查有沒有剛打錯、還沒看過的框。
  * - 手機：聚焦後把框捲進可見區（軟鍵盤升起時 visualViewport 變矮，兩邊都捲；同 notes/mobile/MobileDiaryEntry）。
+ * - 磨光⑤ §8 甲′（D-主-65）：說明行沒事的時候一律寫這個值的日期「10/20（一）」——跟面板參考日（`refDay`）同一天淡字、
+ *   不同天赭色（`.ns-tt-tdate.is-other`）。只看時刻會把「隔天 10:30」當成「當天 10:30」（補記 33 小時那次）。
+ *   打字預覽／錯字說明出現時讓位給它們（預覽本身就寫「＝隔天」）。日期不放進 aria-live（步進每一下都念太吵）。
  */
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { MIN, fmtClock } from "../../../domain/timetable";
-import { clockInputErrText, clockInputPreview, clockInputRefDay, resolveClockInput } from "../../../domain/timetableClockInput";
+import { clockDateLabel, clockInputErrText, clockInputPreview, clockInputRefDay, resolveClockInput } from "../../../domain/timetableClockInput";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useShell } from "../../mobile/useShell";
@@ -55,6 +58,7 @@ export function ClockInput({
   left,
   right,
   handleRef,
+  refDay,
 }: {
   value: number;
   lo: number;
@@ -67,9 +71,13 @@ export function ClockInput({
   left?: ReactNode;
   right?: ReactNode;
   handleRef?: Ref<ClockInputHandle>;
+  /** 日期標籤的參考日（營業日 key；磨光⑤ 甲′）。面板裡的每一格要同一個——沒給就用掛上那一刻這一格的值算一次 */
+  refDay?: string;
 }) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const viewDay = useTimetableStore((s) => s.dayKey);
+  const [ownRefDay] = useState(() => clockInputRefDay(value, viewDay, dayStartHour));
+  const date = clockDateLabel(value, refDay ?? ownRefDay);
   const mobile = useShell() === "mobile";
   const inputRef = useRef<HTMLInputElement>(null);
   const [text, setTextState] = useState(() => fmtClock(value));
@@ -354,15 +362,18 @@ export function ClockInput({
         </span>
         {right}
       </span>
-      <span className={"ns-tt-thint" + (hint ? " is-" + hint.kind : "")} aria-live="polite">
-        {hint?.kind === "ok" ? (
-          <>
-            {hint.pre}
-            <b className="ns-tt-num">{hint.hm}</b>
-          </>
-        ) : hint?.kind === "err" ? (
-          hint.text
-        ) : null}
+      <span className={"ns-tt-thint" + (hint ? " is-" + hint.kind : "")}>
+        <span className="ns-tt-thint-msg" aria-live="polite">
+          {hint?.kind === "ok" ? (
+            <>
+              {hint.pre}
+              <b className="ns-tt-num">{hint.hm}</b>
+            </>
+          ) : hint?.kind === "err" ? (
+            hint.text
+          ) : null}
+        </span>
+        {!hint && <span className={"ns-tt-tdate ns-tt-num" + (date.other ? " is-other" : "")}>{date.text}</span>}
       </span>
     </span>
   );

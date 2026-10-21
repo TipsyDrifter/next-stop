@@ -10,7 +10,7 @@
  *      借了就得賭對方的特異度與屬性；手機這邊自給自足，桌機那邊怎麼改都不會滲過來。
  *      受付章因此在這裡另寫一份 `[data-shell="mobile"] .ns-notes-uke`（特異度高一級，桌機那份滲進來也被蓋過）。
  *   3. 顏色只用 theme.css 的 token（--color-*／--accent／--ink-mid／--stamp-ink／--route-none／--sky-top…），
- *      沒有色碼字面值；兩主題靠 token 換值。唯一的主題覆寫是原生日期欄的 `color-scheme`（token 管不到）。
+ *      沒有色碼字面值；兩主題靠 token 換值（磨光⑤：原生日期欄已全換自畫，不再有主題覆寫）。
  *      原型的 --sel-wash／--hover-wash／--glass-border／--shadow-float 本專案沒有 → 以 color-mix／既有 token 就地重現。
  *      浮在內容上的面板（捕捉面板／全螢幕預覽／挑選器）要不透字：票紙 token 疊在 --color-paper 上
  *      （`linear-gradient(var(--color-paper-high)…), var(--color-paper)`），粉彩＝實心淡紫白、銀河＝本來就實心。
@@ -126,18 +126,6 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   border-color: var(--accent); color: var(--color-ink);
   background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
-
-/* 原生日期欄（font-size 16px＝行動瀏覽器聚焦時不自動放大頁面） */
-[data-shell="mobile"] .ns-notes-mdate {
-  min-height: 44px; padding: 0 8px;
-  background: transparent;
-  border: 1px solid var(--color-line); border-radius: 2px;
-  font-family: inherit; font-size: 16px; color: var(--color-ink-soft);
-  color-scheme: light;
-}
-[data-shell="mobile"] .ns-notes-mdate.on { border-color: var(--accent); color: var(--color-ink); }
-/* token 管不到原生控件的配色：唯一的主題覆寫 */
-[data-theme="dark"] [data-shell="mobile"] .ns-notes-mdate { color-scheme: dark; }
 
 /* 底線輸入（搜尋框）；16px 不觸發自動放大 */
 [data-shell="mobile"] .ns-notes-minput {
@@ -847,8 +835,6 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 
 /* 日期面板 */
 [data-shell="mobile"] .ns-notes-mpick-body { padding: 14px var(--m-gutter) 4px; display: grid; gap: 14px; }
-[data-shell="mobile"] .ns-notes-mdatefield { display: flex; align-items: center; gap: 12px; }
-[data-shell="mobile"] .ns-notes-mdatefield .lab { font-size: 10.5px; letter-spacing: .28em; color: var(--ink-mid); }
 [data-shell="mobile"] .ns-notes-mpick-cancel {
   display: block; width: 100%; min-height: 52px; margin-top: 8px;
   background: transparent; border: 0; border-top: 1px solid var(--color-line);
@@ -894,8 +880,9 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   position: absolute; left: 50%; bottom: 7px;
   width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%;
 }
-/* 「寫過日記」記號統一朱點（D-筆-47）：與日期挑選器月格（datepicker.css）、日曆頁記號同色 */
-[data-shell="mobile"] .ns-notes-mday.diary .dot { background: var(--color-seal); }
+/* 「寫過日記」記號統一一種點（D-筆-47）：與日期挑選器月格（datepicker.css）、日曆頁記號同色。
+   磨光⑤：只是標記、不是済 ⇒ 由朱改墨 */
+[data-shell="mobile"] .ns-notes-mday.diary .dot { background: var(--stamp-ink); }
 [data-shell="mobile"] .ns-notes-mday.fp .dot { border: 1px solid var(--color-ink-faint); }
 [data-shell="mobile"] .ns-notes-mday.today { border-color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-notes-mday.today .d { font-weight: 600; color: var(--color-ink); }

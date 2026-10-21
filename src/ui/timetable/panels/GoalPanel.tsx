@@ -26,6 +26,9 @@ import { TT_TAG_GOAL } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
 import { EntityTagField } from "../../notes/tags/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
 import { useShell } from "../../mobile/useShell";
+import { useBackLayer } from "../../mobile/backStack";
+import { DatePicker } from "../../common/DatePicker";
+import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { MobileTagDraft, tagNameOf } from "../parts/TimetableTagChips";
 
 type Kind = "repeat" | "since" | "until" | "range";
@@ -146,6 +149,10 @@ export function GoalPanel({ onDone }: PanelProps) {
   const [openTops, setOpenTops] = useState<Record<string, boolean>>(() => openOf(f.cats));
   // ⑥：荷札草稿（null＝沒動過，跟著目標現在綁的）
   const desk = useShell() === "desktop";
+  // 起訖日挑選（磨光⑤ S8，D-主-54：取代原生 date 欄）：桌機＝貼著日期鈕的共用 DatePicker，手機＝底部面板（返回鍵先關它）
+  const [datePick, setDatePick] = useState<"startOn" | "endOn" | null>(null);
+  const dateBtns = useRef<Partial<Record<"startOn" | "endOn", HTMLButtonElement | null>>>({});
+  useBackLayer("timetable.goalDate", !desk && datePick !== null, () => setDatePick(null));
   const tagIndex = useTagStore((s) => s.index);
   useEffect(() => {
     const st = useTagStore.getState();
@@ -233,16 +240,49 @@ export function GoalPanel({ onDone }: PanelProps) {
     ["until", TT_TEXT.goalPeriodWord.until],
     ["range", TT_TEXT.goalPeriodWord.range],
   ];
-  const date = (field: "startOn" | "endOn", min?: string) => (
-    <input
-      type="date"
-      className="ns-tt-goal-date ns-tt-num"
-      value={f[field]}
-      min={min}
-      aria-label={field === "startOn" ? T.fStart : T.fEnd}
-      onChange={(e) => set({ [field]: e.target.value } as Partial<Form>)}
-    />
-  );
+  const date = (field: "startOn" | "endOn", min?: string) => {
+    const label = field === "startOn" ? T.fStart : T.fEnd;
+    const v = f[field];
+    const pick = (d: string): void => {
+      setDatePick(null);
+      set({ [field]: d } as Partial<Form>);
+    };
+    const close = (): void => setDatePick(null);
+    // 「今天」快選只在可選範圍內才給（迄日的 min＝起日，起日在未來時今天選不到）
+    const quick = !min || today >= min ? [{ label: "今天", day: today }] : [];
+    return (
+      <>
+        <button
+          ref={(el) => {
+            dateBtns.current[field] = el;
+          }}
+          type="button"
+          className={"ns-datefield ns-tt-goal-date ns-tt-num" + (v ? "" : " empty")}
+          aria-label={`${label}：${v ? v.replace(/-/g, "/") : "未定"}`}
+          aria-haspopup="dialog"
+          aria-expanded={datePick === field}
+          onClick={() => setDatePick((p) => (p === field ? null : field))}
+        >
+          {v ? v.replace(/-/g, "/") : "挑日期…"}
+        </button>
+        {datePick === field &&
+          (desk ? (
+            <DatePicker
+              anchor={dateBtns.current[field] ?? null}
+              label={label}
+              value={v || null}
+              min={min}
+              markValue
+              quick={quick}
+              onPick={pick}
+              onClose={close}
+            />
+          ) : (
+            <MobileDatePicker title={label} value={v || null} min={min} quick={quick} onPick={pick} onClose={close} />
+          ))}
+      </>
+    );
+  };
   const minuteChips = MINUTE_CHIPS.includes(f.m as (typeof MINUTE_CHIPS)[number]) ? MINUTE_CHIPS : [...MINUTE_CHIPS, f.m].sort((a, b) => a - b);
 
   return (

@@ -26,6 +26,8 @@ import {
   type TreeIndex,
 } from "../../store/nodeStore";
 import type { PopMenuItem } from "../common/PopMenu";
+import { requestMoveTo } from "../common/moveTo";
+import { moveTargetRule } from "../../domain/moveTo";
 import { useUiStore } from "../../store/uiStore";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { addDays, todayKey } from "../../lib/date";
@@ -411,7 +413,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       setEdit({ ...d, parentId: prev.id, afterId: null, kind });
     } else {
       if (d.parentId === root) {
-        return toast(root === rid ? "已經在路線最上層——要換路線請用「移動到…」" : "已到目前範圍的最上層——先按 Esc 退出聚焦，才能再往上一層");
+        return toast(root === rid ? "已經在路線最上層——要換路線，用 ⋯ 選單的「移動到…」" : "已到目前範圍的最上層——先按 Esc 退出聚焦，才能再往上一層");
       }
       const parent = t.byId[d.parentId];
       if (!parent || !rid) return;
@@ -661,6 +663,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
    * 六項＝鍵盤同一條路：先選中那一列（跟鍵盤一樣「對選取動手」），再叫 keys 的同名動作。
    * 停用條件逐條鏡射 nodeStore.indent／outdent／reorder 與 keys.addTicket／outdentNode 的拒絕理由
    * （做不到的那項不讓點，滑過看得到同一句話）；真的點下去仍由原本那條路把關。
+   * 第七項「移動到…」（磨光⑤ B1）只有滑鼠入口、沒有鍵；挑選器在側板。
    */
   const menuFor = (id: string): PopMenuItem[] => {
     const t = ns().tree;
@@ -680,7 +683,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const gpId = parent?.parent_id;
     const gpKind: NodeKind = gpId && gpId !== rid && t.byId[gpId] ? t.byId[gpId].kind : "route";
     const outdentWhy = !parent
-      ? "已經在路線頂層——跨路線請用「移動到…」"
+      ? "已經在路線最上層——要換路線，用下面的「移動到…」"
       : z && n.parent_id === z.id
         ? "已到聚焦範圍的頂層——先按 Esc 退出聚焦再升層"
         : !adaptKind(n.kind, gpKind)
@@ -709,6 +712,11 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected),
       item("up", "上移", "outline.reorder.up", index > 0 ? null : "已經在最上面", () => keys.reorderSelected(-1), true),
       item("down", "下移", "outline.reorder.down", index >= 0 && index < siblings.length - 1 ? null : "已經在最下面", () => keys.reorderSelected(1)),
+      // 磨光⑤ B1（D-主-55）：跨路線搬遷。沒有快捷鍵（不給 hotkeyId）；挑選器開在側板（requestMoveTo＝選中＋開側板＋請它打開）
+      // 種類搬不了（moveTargetRule 回 null）就不出——側板那顆鈕同一條規則，兩個入口不會一個有一個沒有
+      ...(moveTargetRule(n.kind)
+        ? [{ key: "move", label: "移動到…", cut: true, onSelect: () => requestMoveTo(id) } satisfies PopMenuItem]
+        : []),
     ];
   };
 

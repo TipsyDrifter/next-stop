@@ -19,7 +19,7 @@ import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, msOf, thresholdOf, toS
 import { linkLabelOf, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
-import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, type PanelProps } from "./controls";
+import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, usePanelRefDay, type PanelProps } from "./controls";
 
 export function LongRunPanel({ onDone }: PanelProps) {
   const now = useNowOnce();
@@ -45,6 +45,8 @@ export function LongRunPanel({ onDone }: PanelProps) {
   );
   const [after, setAfter] = useState<LongRunChoice>("gap");
   const [cat2, setCat2] = useState<string | null>(null);
+  // 磨光⑤ 甲′：到着框下的日期跟這一班開始那天比（跑過夜的那班，到着在隔天＝赭）
+  const refDay = usePanelRefDay(span ? span.start : now);
 
   if (!block || !span) {
     return (
@@ -95,7 +97,7 @@ export function LongRunPanel({ onDone }: PanelProps) {
         <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>
       </Sub>
       <Row k="到着" time>
-        <Stepper value={end} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" />
+        <Stepper value={end} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" refDay={refDay} />
       </Row>
       <Row k="之後" top>
         <Opts>

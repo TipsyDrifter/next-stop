@@ -54,18 +54,10 @@
 .ns-defer .ns-defer-item.warn { color: var(--color-late); }
 .ns-defer .ns-defer-item.warn:hover { color: var(--color-late); background: var(--color-paper-used); }
 
-/* 選日期…展開的共用 DatePicker（D-筆-30）：卡裡不再套一層紙片（攤平 .ns-datepick 的底與框），
-   日期欄沿 techo.css 的底線輸入語彙（.techo-input），不做新形狀 */
+/* 選日期…展開的共用 DatePicker（D-筆-30）：卡裡不再套一層紙片（攤平 .ns-datepick 的底與框）。
+   磨光⑤：挑選器改自畫月格後裡面沒有 <input>，原本給原生日期欄的底線／深色圖示反相規則已刪 */
 .ns-defer .ns-defer-pick { padding: 4px 14px 10px; }
 .ns-defer .ns-defer-pick .ns-datepick { padding: 0; background: transparent; border: 0; }
-.ns-defer .ns-defer-pick input {
-  width: 100%; background: transparent; border: 0;
-  border-bottom: 1px solid var(--color-dash);
-  color: var(--color-ink); font-family: inherit; font-size: 12.5px; letter-spacing: .06em;
-  padding: 4px 0; outline: none;
-}
-.ns-defer .ns-defer-pick input:focus { border-bottom-color: var(--color-gold); }
-[data-theme="dark"] .ns-defer .ns-defer-pick input::-webkit-calendar-picker-indicator { filter: invert(1) opacity(.6); }
 
 .ns-defer .ns-defer-foot { margin-top: 4px; padding: 6px 14px 8px; }
 

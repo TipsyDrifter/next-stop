@@ -93,8 +93,23 @@
 .ns-outline .ticket .row-more:focus-visible { opacity: 1; outline: 1px solid var(--color-gold); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .ns-outline .ticket .row-more { transition: none; } }
 
-/* 日期直改：原生 date 輸入披手帳底線（原型無此控件，最小化） */
-.ns-outline .techo-input.date-input { font-size: 11px; height: 20px; padding: 0 2px; font-family: var(--font-latin); }
+/* 摺疊／展開鈕（磨光⑤ K5、D-主-61）：有子項的列，票根左邊的縮排溝裡放一枚 ▸／▾（ui/common/Chevron）。
+   絕對定位在 li 左緣外（每層縮排 28px、第一層外面是頁邊留白），票本身一格都不挪——沒有子項的列不畫，對齊照舊。
+   常駐可見（次要字色），hover 燙金。垂直對齊票根徽章：.stub 內容（徽章＋類型＋票號）在票裡垂直置中，
+   一兩行標題的票高被票根撐住、徽章中線約在上緣 28px ⇒ top 17px；標題換到三行以上票變高、徽章跟著往下，
+   改追「票高一半往上 32px」（徽章中線＝中線往上約 21px；探針實測 2026-10-21），兩者取大。 */
+.ns-outline .ticket-list > .ticket-li { position: relative; }
+.ns-outline .ticket-li > .row-fold {
+  position: absolute; left: -25px; top: max(17px, calc(50% - 32px));
+  width: 22px; height: 22px; padding: 0; border-radius: 2px;
+  display: grid; place-items: center;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--color-ink-soft);
+  transition: color .15s;
+}
+.ns-outline .ticket-li > .row-fold:hover { color: var(--color-gold); }
+.ns-outline .ticket-li > .row-fold:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .ns-outline .ticket-li > .row-fold { transition: none; } }
 
 /* ═══ 草稿票（新增中）：同款票、虛線邊 ═══ */
 .ns-outline .ticket.draft,
@@ -114,6 +129,11 @@
    ⚠ 與今日列同步的刻意偏離（M3 ④ 評審 should-3）：A 的 `opacity:.68` 讓標題／角印對比跌破 3:1，
    故只淡紙不淡字——整張的 .68 拿掉、標題改 ink-soft，退後感交給 paper-used＋停駛角印＋「今日停駛」。 ═══ */
 .ns-outline .stamp-zone { position: relative; }
+/* 磨光⑤ 收尾（沙盒 O2）：上一行讓検印欄變成定位元素、又排在票面後面，整塊 100px 疊在票右上角的「乘車券」（開詳情側板的鈕，
+   絕對定位錨在整張票上）上面——滑鼠點不到它（elementFromPoint 落在 .stamp-zone）。検印欄的空白不吃滑鼠，只有章本身吃；
+   點空白照樣冒到票上選列。09-11 運休角印那次起就這樣（不是本班改的） */
+.ns-outline .stamp-zone { pointer-events: none; }
+.ns-outline .stamp-zone > .stamp { pointer-events: auto; }
 .ns-outline .stopover-slot { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .ns-outline .ticket.is-suspended::before { background: var(--color-paper-used); }
 .ns-outline .ticket.is-suspended .stamp { border-color: transparent; }

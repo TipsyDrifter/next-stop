@@ -7,6 +7,14 @@
          刻意不加 maximum-scale／user-scalable=no——無障礙縮放要留著。 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>私鐵手帳 · Next Stop</title>
+    <!-- 磨光⑤ S10：開頁前先套上次算好的主題（uiStore.applyTheme 寫的 ns-theme-resolved），
+         銀河主題不再先閃一下粉彩。讀不到或例外就什麼都不做，照舊等 loadSettings。 -->
+    <script>
+      try {
+        var t = localStorage.getItem("ns-theme-resolved");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
     <!-- 字型自帶在 src/assets/fonts（D-筆-34：不連 Google Fonts，離線也是同一套字）；@font-face 在 src/styles/theme.css。
          Noto Serif TC＝--font-display、Noto Sans TC＝--font-body、Fraunces＝--font-latin、Iansui（芫荽）＝--font-hand。 -->
   </head>

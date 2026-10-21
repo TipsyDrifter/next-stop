@@ -14,6 +14,9 @@ import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore } from "../../../store/notesStore";
 import { addDays, todayKey } from "../../../lib/date";
 import { MobileAttachPicker, RouteDot } from "./MobileAttachPicker";
+import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { shortDayKey } from "../../common/DatePicker";
+import { useBackLayer } from "../../mobile/backStack";
 
 export function MobileTodoPreview() {
   const preview = useNotesStore((s) => s.preview);
@@ -29,6 +32,9 @@ export function MobileTodoPreview() {
   const [picking, setPicking] = useState(false);
   const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // 「挑日期」底部面板（磨光⑤ S8：取代原生日期欄）。疊在本全螢幕面板（full）上 ⇒ 登記 "dialog"（同掛到哪挑選器）
+  const [pickingDate, setPickingDate] = useState(false);
+  useBackLayer("notes.preview.date", pickingDate && !!preview, () => setPickingDate(false), "dialog");
 
   if (!preview) return null;
 
@@ -127,17 +133,16 @@ export function MobileTodoPreview() {
               >
                 明天
               </button>
-              <input
-                type="date"
-                className={"ns-notes-mdate" + (custom ? " on" : "")}
-                value={custom && scheduledOn ? scheduledOn : ""}
-                min={today}
-                aria-label="挑日期"
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v && v >= today) setPreviewDate(v);
-                }}
-              />
+              <button
+                type="button"
+                className={"ns-notes-mchip2" + (custom ? " on" : "")}
+                aria-pressed={custom}
+                aria-haspopup="dialog"
+                aria-label={custom && scheduledOn ? `執行日 ${shortDayKey(scheduledOn)}，換一天` : "挑日期"}
+                onClick={() => setPickingDate(true)}
+              >
+                {custom && scheduledOn ? shortDayKey(scheduledOn) : "挑日期…"}
+              </button>
               <button
                 type="button"
                 className={"ns-notes-mchip2" + (scheduledOn === null ? " on" : "")}
@@ -171,6 +176,20 @@ export function MobileTodoPreview() {
           </ul>
         )}
       </div>
+
+      {pickingDate && (
+        <MobileDatePicker
+          title="執行日"
+          value={scheduledOn}
+          min={today}
+          quick={[]}
+          onPick={(d) => {
+            if (d >= today) setPreviewDate(d);
+            setPickingDate(false);
+          }}
+          onClose={() => setPickingDate(false)}
+        />
+      )}
 
       {picking && (
         <MobileAttachPicker

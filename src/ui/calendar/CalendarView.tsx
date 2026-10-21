@@ -5,7 +5,7 @@
  *
  * 版面（由上而下）：
  *   header.day（overline 兩份文案／date-line「9月・2026年・September」＋頁邊手寫／月統計／
- *     cal-ctl ‹ › 今日 seg／日付印 92px -6°＝Q8）
+ *     cal-ctl（«）‹ ›（»）今日 seg——« » 換年只在月、週，磨光⑤ K4／日付印 92px -6°＝Q8）
  *   → 月卡一張紙（MonthGrid：wk-head ＋ 35／42 格）／週視圖（WeekGrid，WP4）
  *   → page-foot
  *
@@ -28,6 +28,7 @@
  */
 import { useRef } from "react";
 import { addDays } from "../../lib/date";
+import { hotkeyCaps } from "../common/PopMenu";
 import { DateSeal } from "../stamps";
 import { StreamView } from "../schedule/StreamView";
 import { WeekTimeGrid } from "../schedule/WeekTimeGrid";
@@ -95,6 +96,8 @@ export function CalendarView() {
   // 頁首三段：月視圖＝月／年／英文月名；週視圖＝日期區間／年／latin 區間（大字仍是 MonthJump 的觸發鈕，
   // 小卡的「目前月」照舊由 cursor（週視圖＝該週週一；串流＝focusDay 的月）決定，契約不動）
   const week = c.view === "week" || timeView ? weekHeading(c.cursor) : null;
+  /** 頁首「« »」換年鈕只在月、週（磨光⑤ K4） */
+  const yearCtl = c.view === "month" || c.view === "week";
 
   return (
     <section
@@ -139,6 +142,18 @@ export function CalendarView() {
               </div>
 
               <div className="cal-ctl">
+                {/* 換年（磨光⑤ K4、D-主-60）：月、週才有「« »」——原本只有 Ctrl+↑↓ 與月份跳轉卡；時段、串流不加（串流按週捲） */}
+                {yearCtl && (
+                  <button
+                    type="button"
+                    className="chev chev-year"
+                    title={`上一年（${hotkeyCaps("calendar.year.prev")}）`}
+                    aria-label="上一年"
+                    onClick={() => c.keys.jumpYear(-1)}
+                  >
+                    «
+                  </button>
+                )}
                 <button
                   type="button"
                   className="chev"
@@ -157,6 +172,17 @@ export function CalendarView() {
                 >
                   ›
                 </button>
+                {yearCtl && (
+                  <button
+                    type="button"
+                    className="chev chev-year"
+                    title={`下一年（${hotkeyCaps("calendar.year.next")}）`}
+                    aria-label="下一年"
+                    onClick={() => c.keys.jumpYear(1)}
+                  >
+                    »
+                  </button>
+                )}
                 <button
                   type="button"
                   className="today-chip"

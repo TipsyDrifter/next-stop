@@ -105,7 +105,8 @@
   --color-gold-ink: #6e5220;     /* 燙金當「字」用時的深金（紙上選中籤）：對票紙實測色 5.0:1，AA；邊線仍走 --color-gold */
   --color-seal: #AD3D2B;         /* 朱肉「済」印＝四色墨・朱（拍板乙） */
   --color-late: #985030;         /* 誤點／繰越／〆締切＝四色墨・赭（拍板甲） */
-  --color-on-seal: #e4e3f3;      /* 朱印主鈕上的字（對 #AD3D2B ＝ 4.8:1，AA） */
+  --color-on-seal: #e4e3f3;      /* 實心朱上的字（對 #AD3D2B ＝ 4.8:1，AA）；磨光⑤ 主鈕改墨後暫無消費者，留給日後実心済 */
+  --color-on-ink: #e4e3f3;       /* 磨光⑤：實心墨主鈕上的字（朱只留給済，主鈕改墨 --stamp-ink #474667；對比 7.1:1，AA） */
 
   /* ─── 線 ─── */
   --color-line: rgba(42, 43, 73, 0.18);
@@ -207,6 +208,7 @@
    * 被這區塊的別名引用一次，就不會發生「亮色定值消失、只剩暗色覆寫」的歪斜。 */
   --paper: var(--color-paper);
   --on-seal: var(--color-on-seal);
+  --on-ink: var(--color-on-ink);
 
   /* ─── 圓角與陰影（手寫 CSS 用這一份）───
    * 同名 token 在 @theme 也有一份，但那份只餵 Tailwind utilities：
@@ -283,6 +285,7 @@
   --color-seal: #D96547;               /* 四色墨・朱（拍板乙） */
   --color-late: #D19B72;               /* 四色墨・赭（拍板甲） */
   --color-on-seal: #101217;            /* 暗色＝亮盤深字（對 #D96547 ＝ 5.3:1，AA） */
+  --color-on-ink: #101217;             /* 磨光⑤：實心墨主鈕（--stamp-ink #9AA3B8）上的深字（對比 7.4:1，AA） */
   --color-line: rgba(222, 230, 250, 0.14);
   --color-dash: rgba(222, 230, 250, 0.24);
   --radius-card: 3px;

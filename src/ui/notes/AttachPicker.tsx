@@ -12,10 +12,15 @@
  * 鍵盤：搜尋框裡 ↑↓ 移動、Enter 選、Esc 收起（自理並 stopPropagation，不讓頁面／預覽框的 Esc 一次關兩層）。
  *
  * 資料來自 useAttachOptions（與手機共用，畫面各寫）；挑到的節點名記進 notesBits 的快取給欄位鈕顯示。
+ *
+ * 磨光⑤ B1「移動到…」借用本元件（主線代改）：給 `excludeId` ＝搬遷模式——樹裡藏掉自己與整個子樹、
+ * 只留挑得到的種類與它們的群組頭；`currentNote`（「目前位置」）讓目前所在的父節點標出來、不可選；
+ * `routeSelectable` 讓「給了 kinds 但路線本身也能挑」（搬列車＝路線或支線）。三個都不給＝原本的行為。
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { NodeRow } from "../../domain";
 import type { AttachTarget } from "../../domain/notes";
+import { excludeSubtree, pruneToSelectable } from "../../domain/moveTo";
 import { useAttachOptions, type AttachKind, type AttachOption } from "./useAttachOptions";
 import { Roundel, rememberNodeName, usePopDismiss } from "./notesBits";
 
@@ -32,6 +37,12 @@ export interface AttachPickerProps {
   label: string;
   /** true＝浮在內容上（position:absolute）；false＝接在去處列下方的內嵌版 */
   float?: boolean;
+  /** 搬遷模式（磨光⑤ B1）：不列這個節點與它的整個子樹，樹只留挑得到的列與其群組頭 */
+  excludeId?: string;
+  /** 路線本身能不能選；省略＝沒給 kinds 才能選（原本的規則） */
+  routeSelectable?: boolean;
+  /** 有給＝`value` 那一列標這個字（「目前位置」）、不可選 */
+  currentNote?: string;
 }
 
 const KIND_GLYPH: Record<AttachKind, string> = { branch: "支", train: "列", car: "廂" };
@@ -52,6 +63,9 @@ export function AttachPicker({
   onClose,
   label,
   float = false,
+  excludeId,
+  routeSelectable,
+  currentNote,
 }: AttachPickerProps) {
   const { routes, loadTree } = useAttachOptions();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -113,8 +127,15 @@ export function AttachPicker({
     };
   }, [depth, expanded, k, all, routes, kindsKey, loadTree]);
 
-  const routeAllowed = !kinds; // 給了 kinds（例：只能掛列車／車廂）⇒ 路線本身不可選
+  // 給了 kinds（例：只能掛列車／車廂）⇒ 路線本身預設不可選；搬遷模式另由 routeSelectable 指定（搬列車＝路線或支線）
+  const routeAllowed = routeSelectable ?? !kinds;
   const expandedRoute = expanded ? (routes.find((r) => r.id === expanded) ?? null) : null;
+  /** 搬遷模式（磨光⑤ B1）：藏掉自己與子樹、只留挑得到的列與其群組頭；其他用處原樣 */
+  const moving = excludeId !== undefined;
+  const shownTree = useMemo(
+    () => (tree && moving ? pruneToSelectable(excludeSubtree(tree, excludeId)) : tree),
+    [tree, moving, excludeId],
+  );
 
   const rows: Row[] = useMemo(() => {
     if (!expandedRoute) {
@@ -123,7 +144,7 @@ export function AttachPicker({
         .map((r) => ({ key: r.id, type: "route" as const, route: r, pick: depth === "route" }));
       if (depth === "node" && k && all) {
         for (const r of routes) {
-          for (const opt of all.get(r.id) ?? []) {
+          for (const opt of moving ? excludeSubtree(all.get(r.id) ?? [], excludeId) : (all.get(r.id) ?? [])) {
             if (opt.selectable && opt.name.toLowerCase().includes(k)) {
               out.push({ key: `x:${opt.id}`, type: "node", route: r, opt, cross: true });
             }
@@ -136,16 +157,25 @@ export function AttachPicker({
     if (routeAllowed && (!k || `${expandedRoute.code ?? ""} ${expandedRoute.name}`.toLowerCase().includes(k))) {
       out.push({ key: "$self", type: "self", route: expandedRoute });
     }
-    for (const opt of tree ?? []) {
+    for (const opt of shownTree ?? []) {
       if (k && !opt.name.toLowerCase().includes(k)) continue;
       if (k && !opt.selectable) continue; // 搜尋時只列可選的，群組頭留給沒搜尋時的樹狀瀏覽
       out.push({ key: opt.id, type: "node", route: expandedRoute, opt });
     }
     return out;
-  }, [expandedRoute, routes, k, depth, routeAllowed, tree, all]);
+  }, [expandedRoute, routes, k, depth, routeAllowed, shownTree, all, moving, excludeId]);
+
+  const isCur = (r: Row): boolean => {
+    if (r.type === "self") return !value.nodeId && value.routeId === r.route.id;
+    if (r.type === "route") return depth === "route" && value.routeId === r.route.id;
+    if (r.type === "node") return value.nodeId === r.opt.id;
+    return false;
+  };
+  /** 「目前位置」那一列（磨光⑤ B1）：標出來、不可選、鍵盤游標跳過 */
+  const isLocked = (r: Row): boolean => !!currentNote && value.nodeKind !== null && isCur(r);
 
   /** 可以按的列（鍵盤 ↑↓ 只在這些列之間走） */
-  const actionable = rows.filter((r) => r.type !== "node" || r.opt.selectable);
+  const actionable = rows.filter((r) => (r.type !== "node" || r.opt.selectable) && !isLocked(r));
   const kbRow = actionable[Math.min(kb, actionable.length - 1)] ?? null;
 
   // 點進一條路線後，鍵盤游標預設落在第一個可選的（跳過「‹ 所有路線」那一列）
@@ -154,6 +184,7 @@ export function AttachPicker({
   }, [k, expanded]);
 
   const activate = (r: Row) => {
+    if (isLocked(r)) return;
     switch (r.type) {
       case "back":
         setExpanded(null);
@@ -200,16 +231,9 @@ export function AttachPicker({
     }
   };
 
-  const isCur = (r: Row): boolean => {
-    if (r.type === "self") return !value.nodeId && value.routeId === r.route.id;
-    if (r.type === "route") return depth === "route" && value.routeId === r.route.id;
-    if (r.type === "node") return value.nodeId === r.opt.id;
-    return false;
-  };
-
   const placeholder = expandedRoute
     ? `在「${expandedRoute.name}」裡搜尋…`
-    : depth === "route"
+    : depth === "route" || moving
       ? "搜尋路線…"
       : "搜尋路線…（點進去挑列車、車廂）";
 
@@ -234,7 +258,15 @@ export function AttachPicker({
       />
       <ul className="ns-notes-nodelist" role="listbox" aria-label={label}>
         {rows.map((r) => (
-          <PickerRow key={r.key} row={r} kb={kbRow?.key === r.key} cur={isCur(r)} onPick={activate} />
+          <PickerRow
+            key={r.key}
+            row={r}
+            kb={kbRow?.key === r.key}
+            cur={isCur(r)}
+            locked={isLocked(r) ? currentNote : undefined}
+            selfNote={moving ? "路線底下" : undefined}
+            onPick={activate}
+          />
         ))}
         {!expandedRoute && rows.length === 0 && (
           <li className="empty">
@@ -242,10 +274,14 @@ export function AttachPicker({
           </li>
         )}
         {expandedRoute && tree === null && <li className="empty">載入中…</li>}
-        {expandedRoute && tree !== null && !rows.some((r) => r.type === "node" && r.opt.selectable) && (
+        {expandedRoute && tree !== null && !moving && !rows.some((r) => r.type === "node" && r.opt.selectable) && (
           <li className="empty">
             {k ? "找不到符合的支線、列車或車廂" : kinds ? "這條路線還沒有列車或車廂" : "這條路線還沒有支線、列車或車廂"}
           </li>
+        )}
+        {/* 搬遷模式：只在整條路線一個能挑的都沒有時才說（列車搬到路線本身那一列還在，就不多一句） */}
+        {expandedRoute && tree !== null && moving && !rows.some((r) => r.type !== "back" && !isLocked(r) && (r.type !== "node" || r.opt.selectable)) && (
+          <li className="empty">{k ? "找不到符合的地方" : "這條路線沒有可以放的地方"}</li>
         )}
       </ul>
       {onClear && (value.routeId || value.nodeId) && (
@@ -259,8 +295,43 @@ export function AttachPicker({
   );
 }
 
-function PickerRow({ row, kb, cur, onPick }: { row: Row; kb: boolean; cur: boolean; onPick(r: Row): void }) {
+function PickerRow({
+  row,
+  kb,
+  cur,
+  locked,
+  selfNote = "只掛路線",
+  onPick,
+}: {
+  row: Row;
+  kb: boolean;
+  cur: boolean;
+  /** 「目前位置」（磨光⑤ B1）：有給＝這列不可選、右側寫這個字 */
+  locked?: string;
+  /** 「整條路線」那一列右側的字（搬遷模式＝「路線底下」） */
+  selfNote?: string;
+  onPick(r: Row): void;
+}) {
   const cls = [kb ? "kb" : "", cur ? "cur" : ""].filter(Boolean).join(" ");
+  if (locked && row.type !== "back") {
+    const name = row.type === "node" ? row.opt.name : row.route.name;
+    const indent = row.type === "node" ? { paddingLeft: 6 + (row.cross ? 0 : row.opt.depth * 16) } : undefined;
+    return (
+      <li>
+        <button type="button" className="locked" style={indent} role="option" aria-selected={false} aria-disabled disabled>
+          {row.type === "node" ? (
+            <span className="kind" style={{ color: row.route.color ?? "var(--route-none)" }}>
+              {KIND_GLYPH[row.opt.kind]}
+            </span>
+          ) : (
+            <Roundel route={row.route} />
+          )}
+          <span className="nm">{name}</span>
+          <span className="path">{locked}</span>
+        </button>
+      </li>
+    );
+  }
   switch (row.type) {
     case "back":
       return (
@@ -286,7 +357,7 @@ function PickerRow({ row, kb, cur, onPick }: { row: Row; kb: boolean; cur: boole
           <button type="button" className={cls} role="option" aria-selected={cur} onClick={() => onPick(row)}>
             <Roundel route={row.route} />
             <span className="nm">{row.route.name}</span>
-            <span className="path">只掛路線</span>
+            <span className="path">{selfNote}</span>
           </button>
         </li>
       );

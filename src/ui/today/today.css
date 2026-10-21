@@ -167,6 +167,22 @@
 .ns-today .ticket.draft::before,
 .ns-today .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
 .ns-today .ticket.draft .stamp { cursor: default; pointer-events: none; }
+/* 「無日期」切換（磨光⑤ K3）：照手機 .m-nt-toggle——關＝虛線小方標淡字、開＝燙金實線；排在 meta 最右 */
+.ns-today .ticket.draft .draft-nodate {
+  margin-left: auto; padding: 1px 8px 1px 10px; border-radius: 2px;
+  background: transparent; border: 1px dashed var(--color-dash); cursor: pointer;
+  font-family: inherit; font-size: 11px; letter-spacing: .14em; line-height: 1.5;
+  color: var(--color-ink-faint);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.ns-today .ticket.draft .draft-nodate:hover { color: var(--color-ink-soft); border-color: var(--color-ink-faint); }
+.ns-today .ticket.draft .draft-nodate.is-on {
+  border-style: solid; border-color: var(--color-gold);
+  color: var(--color-gold-ink);
+  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+}
+.ns-today .ticket.draft .draft-nodate:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ns-today .ticket.draft .draft-nodate { transition: none; } }
 .ns-today .ticket input.title {
   display: block; width: 100%; min-width: 160px;
   margin: 0; background: transparent; border: 0; outline: none; border-radius: 0;

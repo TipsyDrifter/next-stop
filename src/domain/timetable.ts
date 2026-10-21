@@ -529,10 +529,14 @@ function assertRange(start: number, end: number, now: number): void {
   if (end > now) throw new RangeError("不能記未來的時間");
 }
 
-/** 補記一塊（必須 start < end ≤ now） */
+/**
+ * 補記一塊（必須 start < end ≤ now）。
+ * 磨光⑤ 收尾（沙盒 O1）：`ack` true＝使用者在面板上按了「確定記這麼長」，新塊直接記成已確認（long_run_ack＝1）——
+ * 否則軸上照樣標「長時間運行・待確認」、待確認清單也會再問一次，同一件事要確認兩次。不給＝false（照舊）。
+ */
 export function planFill(
   spans: readonly Span[],
-  input: { categoryId: string; start: number; end: number; now: number; link?: BlockLink | null },
+  input: { categoryId: string; start: number; end: number; now: number; link?: BlockLink | null; ack?: boolean },
 ): WritePlan {
   assertRange(input.start, input.end, input.now);
   const plan = planCover(spans, { start: input.start, end: input.end }, null);
@@ -543,7 +547,7 @@ export function planFill(
     categoryId: input.categoryId,
     start: input.start,
     end: input.end,
-    ack: false,
+    ack: input.ack === true,
     link: input.link ?? NO_LINK, // ②
   });
   return plan;
@@ -567,6 +571,8 @@ export function planEdit(
     now: number;
     link?: BlockLink | null;
     curLink?: BlockLink;
+    /** 磨光⑤ 收尾（沙盒 O1）：true＝面板上按了「確定記這麼長」⇒ 這一塊記成已確認（同 planFill 的 ack）；不給＝照舊 */
+    ack?: boolean;
   },
 ): WritePlan {
   const s = findSpan(spans, input.id);
@@ -586,6 +592,11 @@ export function planEdit(
   if (input.categoryId !== s.categoryId) {
     patch.categoryId = input.categoryId;
     patch.ack = false;
+    changed = true;
+  }
+  // 磨光⑤ 收尾：確認過長度 ⇒ 已確認（換分類那條的 false 也蓋過去：確認的就是改完的這一塊）；本來就確認過的不重寫
+  if (input.ack === true && (patch.ack === false || !s.ack)) {
+    patch.ack = true;
     changed = true;
   }
   if (input.link !== undefined) {

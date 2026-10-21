@@ -46,9 +46,11 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { timeOfRow } from "../../domain/scheduledTime";
+import { dayCountParts } from "../../domain/dayCount";
 import type { TodayRow } from "../../data";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
+import { moveNodeTo } from "../common/moveTo";
 import { MobileSegmentedBar, useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
 import { deleteTicket, logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
@@ -145,7 +147,9 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
     return () => window.clearTimeout(t);
   }, [flashId]);
 
-  const { total, done, left } = c.stats;
+  const { total, left } = c.stats;
+  // 磨光⑤ N11：完成數字樣走 domain/dayCount（與桌機今日、串流今日列同一句）
+  const countParts = dayCountParts(c.stats);
   /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，兩條路都與之前逐字相同 */
   const stats = lineTodayStats("mobile");
   const allSettled = !c.empty && left === 0 && c.lateRows.every((r) => r.occurrence !== null || r.status === "done");
@@ -205,10 +209,10 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   return (
     <>
       <div className="m-page m-today" ref={pageRef}>
-        {total > 0 ? (
+        {countParts ? (
           <p className="m-today-stats">
-            完成 <b>{done}</b>/<b>{total}</b>
-            {left > 0 && <span className="m-today-left">・還有 {left} 張</span>}
+            完成 <b>{countParts.done}</b>/<b>{countParts.total}</b>
+            <span className="m-today-left">・{countParts.tail}</span>
             {next && (
               <span className="m-today-next">
                 {"　"}下一班 <b className="tmx">{timeOfRow(next)}</b>
@@ -253,7 +257,8 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
         )}
 
         {/* ═══ 今天的列車 ═══ */}
-        {c.empty ? (
+        {/* 磨光⑤ S10：第一次 loadToday 回來前清單區留白（不放骨架、不畫空狀態與慶祝） */}
+        {!c.loaded ? null : c.empty ? (
           <div className="m-empty">
             <div className="sec">
               <h3>今天還沒有班次</h3>
@@ -303,6 +308,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           onClearRunTime={() => c.clearRunTime(sheetRow.id)}
           onRename={(name) => renameTicket(sheetRow.id, name, sheetRow.name)}
           onLog={(body) => logTicket(sheetRow.id, body)}
+          onMove={(dest) => void moveNodeTo(sheetRow.id, dest)}
           onDelete={() => deleteTicket(sheetRow.id, sheetRow.name, sheetRow.child_total)}
           reorder={(() => {
             const ro = c.reorderOf(sheetRow.id);

@@ -15,7 +15,8 @@ import { useUiStore } from "../../store/uiStore";
 const MOODS: { value: Mood; label: string; glyph: string; color: string }[] = [
   { value: "green", label: "順暢", glyph: "順", color: "var(--route-preset-3)" },
   { value: "yellow", label: "還行", glyph: "還", color: "var(--color-gold)" },
-  { value: "red", label: "吃力", glyph: "難", color: "var(--color-seal)" },
+  // 磨光⑤（D-主-63）：「吃力」是警示不是済 ⇒ 朱改赭
+  { value: "red", label: "吃力", glyph: "難", color: "var(--color-late)" },
 ];
 
 export function CompleteCard({ className }: { className?: string }) {

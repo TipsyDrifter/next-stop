@@ -1000,7 +1000,7 @@
   [data-shell="mobile"] .m-nt-input:focus { border-bottom-color: var(--color-gold); }
   [data-shell="mobile"] .m-nt-input::placeholder { color: var(--color-ink-faint); }
 
-  /* 「発券」＝朱印主鈕（.ns-btn.btn-seal 的尺寸在這裡撐到 44px 觸控目標） */
+  /* 「発券」＝主鈕（磨光⑤ 起實心墨；.ns-btn.btn-seal 的尺寸在這裡撐到 44px 觸控目標） */
   [data-shell="mobile"] .m-nt-go {
     min-height: 44px; padding: 0 14px;
     font-size: 13px; letter-spacing: .12em; text-indent: .12em;
@@ -1327,9 +1327,9 @@ html[data-scanning] .m-tabbar { visibility: hidden; }
   /* 掃描鈕那一列：與下面的 textarea 隔開一點 */
   [data-shell="mobile"] .m2-sy-scan-row { margin-bottom: 10px; }
 
-  /* 改正待ち一塊：語氣是「要人處理」，用一道朱色左緣把它從其他 block 裡拎出來 */
+  /* 改正待ち一塊：語氣是「要人處理」，用一道左緣把它從其他 block 裡拎出來（磨光⑤：朱只給済，警示改赭） */
   [data-shell="mobile"] .m2-sy-epoch {
-    border-left: 2px solid var(--color-seal);
+    border-left: 2px solid var(--color-late);
     padding-left: 10px;
   }
   [data-shell="mobile"] .m2-sy-epoch .m2-sy-actions { margin-top: 10px; }
@@ -1462,7 +1462,7 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
     border-bottom: 1px dashed var(--color-dash);
   }
   [data-theme="dark"] [data-shell="mobile"] .m-sync-banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
-  /* 字：色由 tone（text-seal／text-late）給，小字級再往墨色拉一點才讀得清（同 `--ns-warn-text` 的推導） */
+  /* 字：色由 tone（text-late；磨光⑤ 前「等人處理」是 text-seal）給，小字級再往墨色拉一點才讀得清（同 `--ns-warn-text` 的推導） */
   [data-shell="mobile"] .m-sync-banner-text {
     margin: 0;
     font-size: 13px;
@@ -1494,11 +1494,11 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   [data-shell="mobile"] .m2-recovery-state.is-set { color: var(--color-gold); }
   [data-shell="mobile"] .m2-recovery .m2-sy-actions { margin-top: 10px; }
 
-  /* 用復原碼加入、還沒設新密語：朱色左緣（狀態那行與〈密語〉頂那句共用；同桌機 `.ns-recovery-need`） */
+  /* 用復原碼加入、還沒設新密語：赭色左緣（磨光⑤ 由朱改赭；狀態那行與〈密語〉頂那句共用；同桌機 `.ns-recovery-need`） */
   [data-shell="mobile"] .m2-recovery-need {
     margin-top: 6px;
     padding-left: 8px;
-    border-left: 2px solid var(--color-seal);
+    border-left: 2px solid var(--color-late);
   }
 
   /* 鎖住的「現在的密語」：看得出是鎖著的，不是空著等人填 */
