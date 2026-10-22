@@ -27,6 +27,11 @@ import { TIME_FIXED_ORDER_MSG, manualOrderIds } from "../domain/scheduledTime";
 import { todayKey } from "../lib/date";
 import { useUiStore } from "./uiStore";
 
+/** 磨光⑦（D-主-67）：backfill＝這次的執行日是使用者在日期欄親手選的（選到今天以前＝補記）；推遲、T、復原都不帶 */
+export interface UpdateNodeOpts {
+  backfill?: boolean;
+}
+
 /**
  * 今日切片（M3 ③ WP1）——今日列不在當前路線樹裡，另存一份索引給今日視圖用。
  * dateKey＝這份資料算的是哪一天（依日界線）；跨 03:00 時 App 層重算 key、重新 loadToday。
@@ -75,6 +80,29 @@ const EMPTY_CALENDAR: CalendarIndex = {
 let calendarInflight: { key: string; p: Promise<void> } | null = null;
 
 /** 現在的日界線今天（設定裡的 day_start_hour，預設 03:00） */
+/**
+ * 磨光⑦（D-主-67）：補記的收據「已補記到 10/20」＋「復原」。復原＝先收回済、再把執行日與繰越來源放回去
+ * （走 updateNode 但不帶 backfill：原執行日可能本來就在過去〔誤點票〕，放回去不能又被當補記）。
+ */
+function showBackfillToast(id: string, day: string, before: Pick<NodeRow, "scheduled_on" | "carried_from" | "status">): void {
+  const [, m, d] = day.split("-").map(Number);
+  useUiStore.getState().showToast({
+    message: `已補記到 ${m}/${d}`,
+    actionLabel: "復原",
+    onAction: () =>
+      void (async () => {
+        const st = useNodeStore.getState();
+        await nodeRepo.setCompleted(id, false, { dateKey: currentDateKey(), dayStartHour: dayStart() });
+        // 取消完成一律寫 todo ⇒ 原本是進行中／擱置的放回去（評審 #2）
+        await st.updateNode(id, {
+          scheduled_on: before.scheduled_on,
+          carried_from: before.carried_from,
+          ...(before.status !== "todo" ? { status: before.status } : {}),
+        });
+      })(),
+  });
+}
+
 function currentDateKey(): string {
   return todayKey(useUiStore.getState().dayStartHour);
 }
@@ -235,7 +263,7 @@ interface NodeStore {
    * 欄位補丁。回傳 ActionResult：`scheduled_on` 被 repository 擋下（定期券的班次由規則排定）時
    * ok=false＋一句話 toast，**不**寫 error 欄位——那會在 App 頂端釘一條不會自己消失的紅字橫幅（M3 ④ 評審 must）。
    */
-  updateNode: (id: string, patch: NodePatch) => Promise<ActionResult>;
+  updateNode: (id: string, patch: NodePatch, opts?: UpdateNodeOpts) => Promise<ActionResult>;
   moveNode: (id: string, newParentId: string | null, index: number, newKind?: NodeKind) => Promise<ActionResult>;
   reorder: (id: string, delta: 1 | -1) => Promise<ActionResult>;
   indent: (id: string) => Promise<ActionResult>;
@@ -430,7 +458,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
   },
 
-  async updateNode(id, patch) {
+  async updateNode(id, patch, opts) {
     // 執行日一律改道 reschedule：繰越（carried_from）與今日序清空的規則只留一份，
     // 側板日期 chip／T／Shift+T／推遲 popover 走哪條路進來都一樣。
     // repeat_rule 同理改道 setRepeatRule（身分驗證＋掛規則後立刻算目前班次日只留一份，M3 ④）。
@@ -439,7 +467,13 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       // 定期券在這裡會被 repository throw 掉（D-④-3）。那不是「壞掉」而是一句指路：
       // 走 toast＋ActionResult，不寫 error 欄位（紅字橫幅是常駐的，要等下一次成功 refresh 才清）。
       try {
-        await nodeRepo.reschedule(id, scheduled_on ?? null, currentDateKey());
+        // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記（repository 判條件、同一個交易裡済在那一天）
+        const before = opts?.backfill ? await nodeRepo.getNode(id) : null;
+        const r = await nodeRepo.reschedule(id, scheduled_on ?? null, currentDateKey(), {
+          backfill: opts?.backfill === true,
+          dayStartHour: dayStart(),
+        });
+        if (r.backfilled && before && scheduled_on) showBackfillToast(id, scheduled_on, before);
       } catch (e) {
         const reason = message(e);
         useUiStore.getState().showToast({ message: reason }, 4000);

@@ -13,7 +13,6 @@ import { DepartPanel } from "./DepartPanel";
 import { EstimatePanel } from "./EstimatePanel";
 import { LinkPanel } from "./LinkPanel";
 import { LongRunPanel } from "./LongRunPanel";
-import { RestartPanel } from "./RestartPanel";
 import { SplitPanel } from "./SplitPanel";
 import { TaskCategoryPanel } from "./TaskCategoryPanel";
 import { GoalPanel } from "./GoalPanel"; // ③ 乙席
@@ -22,7 +21,7 @@ import { PlanPanel } from "./PlanPanel"; // ④ 乙席
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore"; // ④ 乙席
 import { TagSheetPanel } from "./TagSheetPanel"; // ⑥ 乙席
 export type { PanelProps } from "./controls";
-export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, RestartPanel, SplitPanel, TaskCategoryPanel };
+export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, SplitPanel, TaskCategoryPanel };
 
 /** ②：linkInfo 選填（host 沒傳就讀 store 現值；taskCategory 的任務名在開面板前已放進 linkInfo） */
 type TitleState = Pick<TimetableStore, "running" | "catById" | "dayBlocks" | "todayBlocks" | "weekBlocks"> &
@@ -41,12 +40,13 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       const name = s.catById[b.category_id]?.name ?? "？";
       return `${name}已經跑了 ${fmtDur(durOf(toSpan(b), now))}`;
     }
-    case "restart":
-      return "改出發時間";
     case "fill":
       return "補記這段時間";
-    case "edit":
-      return "改這一塊";
+    case "edit": {
+      // 磨光⑦：運行中那班＝「改這一班」；開著時它到站了就變回「改這一塊」
+      const b = findBlockIn(sheet.blockId, s.running, [s.dayBlocks, s.todayBlocks, s.weekBlocks]);
+      return b && b.ended_at === null ? "改這一班" : "改這一塊";
+    }
     case "split":
       return "切開這一塊";
     case "categories":
@@ -88,8 +88,6 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(DepartPanel, { onDone });
     case "longRun":
       return createElement(LongRunPanel, { onDone });
-    case "restart":
-      return createElement(RestartPanel, { onDone });
     case "fill": // 磨光⑥ 1-4：連續補換段＝新的起訖 ⇒ 重掛（分類、連結、荷札草稿、時刻框都從頭來）
       return createElement(BlockPanel, { onDone, key: `fill-${sheet.start}-${sheet.end}` });
     case "edit":

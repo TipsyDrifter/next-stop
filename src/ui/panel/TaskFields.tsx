@@ -335,7 +335,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
           {lockedDate ? <LockedDate value={node.scheduled_on} /> : (
             <DateField
               value={node.scheduled_on}
-              onCommit={(v) => void updateNode(node.id, { scheduled_on: v })}
+              onCommit={(v) => void updateNode(node.id, { scheduled_on: v }, { backfill: true })}
               ariaLabel="執行日"
             />
           )}
@@ -585,7 +585,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
           {lockedDate ? <LockedDate value={node.scheduled_on} /> : (
             <DateField
               value={node.scheduled_on}
-              onCommit={(v) => void updateNode(node.id, { scheduled_on: v })}
+              onCommit={(v) => void updateNode(node.id, { scheduled_on: v }, { backfill: true })}
               ariaLabel="執行日"
             />
           )}

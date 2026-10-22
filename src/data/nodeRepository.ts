@@ -5,7 +5,7 @@
  */
 import type { NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, RepeatRule, WorkLog } from "../domain";
 import { currentDue, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed } from "../domain";
-import { compareClock, isInDay } from "../lib/date";
+import { clockInstant, compareClock, dayWindow, isInDay } from "../lib/date";
 // 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
 // UI 取這些值一律經 data/index.ts 的明列 export，不直接 import 本檔的值（主線②契約 §0-1 第 10 條）
 import { effectiveTime, timeOfRow } from "../domain/scheduledTime";
@@ -272,7 +272,7 @@ export interface NodeRepository {
    * - 推到未來日或清成 NULL → today_position 清回 NULL（下次進今日算新聚合、尾插）
    * todayDateKey＝呼叫端當下的日界線今天。
    */
-  reschedule(id: string, nextDate: string | null, todayDateKey: string): Promise<void>;
+  reschedule(id: string, nextDate: string | null, todayDateKey: string, opts?: RescheduleOpts): Promise<RescheduleResult>;
   /**
    * 名稱模糊搜尋（含臨時車票，不含幹線）。
    * 主線②（接縫 #67）：query 是字面字串、不是 LIKE 樣式——SQL 實作要 `escapeLike`（lib/sql.ts）＋ `ESCAPE '\'`（反斜線當跳脫字元），
@@ -389,6 +389,42 @@ export interface NodeRepository {
  * 但這一列還留在今天（済留原位 r2）——分區與「原定 M/D」要看**班次日**＝`occurrence.due_on ?? scheduled_on`。
  * 省略＝沿用 `scheduled_on`（非定期券的行為一個字都沒變）。
  */
+/**
+ * 磨光⑦（D-主-67；使用者 10-21：「補記過去的任務，建票當時就會立刻被判為誤點」）：改期的選項。
+ * `backfill`＝這次改期是使用者在**日期欄親手選的日子**（側板執行日、大綱日期 chip）——選到今天以前就當補記。
+ * 推遲、T／Shift+T、各種「復原」都不帶（復原常把誤點票放回過去的原執行日，那不是補記）。
+ */
+export interface RescheduleOpts {
+  backfill?: boolean;
+  /** 補記完成時刻用的日界線；沒給＝3 */
+  dayStartHour?: number;
+}
+export interface RescheduleResult {
+  /** true＝這次改期順便補記了（直接済在那一天） */
+  backfilled: boolean;
+}
+
+/**
+ * 補記的完成時刻（UTC ISO）；不算補記 ⇒ null。補記＝還沒済、不是定期券、沒有未完成的子票、執行日改到今天以前。
+ * 時刻：有預定時刻 ⇒ 那天那個時刻（營業日表記，25:00＝隔天 01:00）；沒有 ⇒ 那天日界線視窗結束前一秒。
+ * 一律夾在那天的日界線視窗裡（統計、日記、行程表都把它算在那天；不進今天的今日清單、不算今天的完成數）。
+ */
+export function backfillAtOf(
+  node: Pick<NodeRow, "status" | "repeat_rule" | "scheduled_time">,
+  nextDate: string | null,
+  todayDateKey: string,
+  dayStartHour: number,
+  openChildren: number,
+): string | null {
+  if (nextDate === null || nextDate >= todayDateKey) return null;
+  if (node.status === "done" || parseRule(node.repeat_rule) || openChildren > 0) return null;
+  const w = dayWindow(nextDate, dayStartHour);
+  const lo = Date.parse(w.start);
+  const hi = Date.parse(w.end) - 1000;
+  const t = node.scheduled_time ? clockInstant(nextDate, node.scheduled_time) : null;
+  return new Date(Math.min(hi, Math.max(lo, t ?? hi))).toISOString();
+}
+
 export function todayBucketOf(
   row: Pick<NodeRow, "scheduled_on" | "due_on">,
   dateKey: string,

@@ -28,7 +28,7 @@ import { create } from "zustand";
 import { timetableRepo } from "../data/timetableRepository";
 import { nodeRepo, settingsRepo } from "../data";
 import { todayKey } from "../lib/date";
-import { isoOf, thresholdOf } from "../domain/timetable";
+import { blockThresholdOf, isoOf } from "../domain/timetable";
 import { taskEstimateOf } from "../domain/timetableLink";
 import {
   ROUTE_GONE,
@@ -232,11 +232,12 @@ function routeOf(s: StatsSpan): string {
   return routeKeyOf(s, s.nodeId === null ? undefined : nodeRouteCache.get(s.nodeId));
 }
 
-/** 這一塊的門檻分鐘：已結束的＝預估 → 分類預設 → 全域；運行中那班多一層任務的預計時間（與 `blockIsLongRun` 一致，0-8） */
+/** 這一塊的門檻分鐘：已結束的＝預估 → 全域（磨光⑦ D-時-151）；運行中那班＝預估 → 任務的預計時間 → 分類預設 → 全域（與 `blockIsLongRun` 一致，0-8） */
 function thresholdFn(): (s: StatsSpan) => number | null {
   const { catById, longRunMaxMin, linkInfo } = useTimetableStore.getState();
   return (s) =>
-    thresholdOf(
+    blockThresholdOf(
+      s.end !== null,
       s.estimateMin,
       catById[s.categoryId] ?? null,
       longRunMaxMin,

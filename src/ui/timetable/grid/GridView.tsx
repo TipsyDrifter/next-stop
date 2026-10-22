@@ -65,10 +65,7 @@ function tapCell(day: GridDay, ci: number): void {
     tt.openSheet({ kind: "longRun", blockId: hit.span.id, then: null });
     return;
   }
-  if (hit.running) {
-    toast(TT_TEXT.runningHint);
-    return;
-  }
+  // 磨光⑦（D-時-152）：運行中那班也開同一個編輯面板（改分類、出發時間、連結、荷札）
   tt.openSheet({ kind: "edit", blockId: hit.span.id });
 }
 

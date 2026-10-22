@@ -58,10 +58,19 @@
  * - 走「確定記這麼長」存的塊一併記成已確認（fill／editBlock 的 longOk ⇒ long_run_ack＝1；沙盒 O1：不然軸上照標「待確認」）。
  * - 確認行收起時留同高空白（hold），捲到底的面板內容不往下掉（自測 ②）。
  * - 連續補「剩下 X–Y 還沒記」的端點跟參考日不同天時加日期（沙盒 O6）。
+ *
+ * 磨光⑦（契約 §4；D-時-152、153；使用者 10-21：「直接點正在跑的那班車彈出視窗編輯資料就好，不要在票面加一堆按鈕」）：
+ * - **運行中那班也開這個面板**（RestartPanel 併進來）：副標「{分類}・HH:MM 発・● 運行中 Xh」；分類格、発車（範圍同舊
+ *   RestartPanel：往前最多一天、不晚於現在−1 分）、連到、荷札照改一塊；「到着」那一列換成一行說明（結束時間對正在跑的班
+ *   不適用）；次鈕只有「切開」（不給刪除、不給合併）。主鈕走 `editRunning`；什麼都沒動＝關閉。長塊確認照問（尾端＝現在），
+ *   但按「確定記這麼長」不寫 ack（運行中的長度還沒定，寫了「忘記停車」的保險上限就不再問）。
+ * - sheet.focus "start"（從「HH:MM 発」／改出發時間快捷鍵進來）：桌機游標在発車框；手機把発車列捲進畫面閃一下、不叫鍵盤。
+ * - 面板開著時這一班到站了（別台到着／換車，同步拉到）：換成已結束的樣子——到着列出現（上限＝max(打開時的現在, 實際到站)）、
+ *   副標下赭字「這一班剛到站了」、草稿全留著，「改好了」走一般 editBlock；仍不冒出刪除與合併（按鈕不在手底下突然變多）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import { MIN, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
-import { linkOfRow } from "../../../domain/timetableLink";
+import { MIN, findBlockIn, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
+import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
 import { clockDateLabel, longBlockAsk } from "../../../domain/timetableClockInput";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
@@ -105,6 +114,7 @@ export function BlockPanel({ onDone }: PanelProps) {
   const dayBlocks = useTimetableStore((s) => s.dayBlocks);
   const fill = useTimetableStore((s) => s.fill);
   const editBlock = useTimetableStore((s) => s.editBlock);
+  const editRunning = useTimetableStore((s) => s.editRunning);
   const deleteBlock = useTimetableStore((s) => s.deleteBlock);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const catById = useTimetableStore((s) => s.catById);
@@ -120,7 +130,11 @@ export function BlockPanel({ onDone }: PanelProps) {
   const boundOf = (d: Dir): number => (d === "prev" ? msOf(dw.start) : Math.min(msOf(dw.end), now));
   const [previews, setPreviews] = useState<{ prev?: MergePreview | null; next?: MergePreview | null }>({});
   const [ask, setAsk] = useState<Dir | null>(null);
-  const mergeId = mode === "edit" && block && block.ended_at !== null ? block.id : null;
+  // 磨光⑦：live＝現在正在跑；fromRunning＝面板是從運行中那班開的（開著時到站了也記得，不冒出刪除與合併）
+  const live = mode === "edit" && !!block && block.ended_at === null;
+  const [fromRunning] = useState(live);
+  const arrived = fromRunning && !live && !!block;
+  const mergeId = mode === "edit" && block && block.ended_at !== null && !fromRunning ? block.id : null;
   const mergeSig = block ? `${block.started_at}|${block.ended_at}|${block.category_id}` : "";
   useEffect(() => {
     if (!mergeId) return;
@@ -135,9 +149,9 @@ export function BlockPanel({ onDone }: PanelProps) {
     // boundOf 隨 dayKey／dayStartHour 變（now 是面板掛上時固定的值）；mergeSig＝這一塊被別台改了就重問
   }, [mergeId, mergeSig, dayKey, dayStartHour, previewMerge]);
   const askPreview = ask ? (previews[ask] ?? null) : null;
-  // 軸上描金邊：這一塊＋合併後留下的那一塊
+  // 軸上描金邊：這一塊＋會被併進來的鄰居（磨光⑦：留下的一律是這一塊；下一塊正在跑時留的是運行中那一列）
   useEffect(() => {
-    if (ask && askPreview && block) setMergeMarks(askPreview.keepId === block.id ? [block.id] : [block.id, askPreview.keepId]);
+    if (ask && askPreview && block) setMergeMarks([...new Set([block.id, askPreview.keepId, askPreview.absorbId ?? block.id])]);
     else setMergeMarks([]);
   }, [ask, askPreview, block]);
   useEffect(() => () => setMergeMarks([]), []);
@@ -167,6 +181,8 @@ export function BlockPanel({ onDone }: PanelProps) {
   /** 確定鈕按下（pointerdown，早於時刻框失焦提交草稿）那一刻畫著的起訖 */
   const longSeen = useRef<{ start: number; end: number } | null>(null);
   const endClock = useRef<ClockInputHandle | null>(null);
+  const startClock = useRef<ClockInputHandle | null>(null);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const rootRef = useRef<HTMLDivElement>(null);
   // 連續補換段（評審 #4）：重掛不會把捲動容器捲回去 ⇒ 「剩下 X–Y 還沒記」會留在畫面外。掛上時捲回頂；桌機到着框已自動
   // 聚焦（子元件的 effect 先跑）：若它因此躲到底部黏住的按鈕列後面，只往下捲到剛好露出框——面板只高出一點時兩行都看得到
@@ -182,6 +198,17 @@ export function BlockPanel({ onDone }: PanelProps) {
     const floor = Math.min(box.getBoundingClientRect().bottom, actions?.getBoundingClientRect().top ?? Infinity);
     const need = input.getBoundingClientRect().bottom + 6 - floor;
     if (need > 0) box.scrollTop += need;
+  }, []);
+  // 磨光⑦：從「HH:MM 発」／改出發時間快捷鍵進來。桌機游標在発車框（Stepper autoFocus）；手機不叫鍵盤，把発車列捲進畫面閃一下
+  const focusStart = sheet?.kind === "edit" && sheet.focus === "start";
+  useEffect(() => {
+    if (!focusStart || desk) return;
+    const row = rootRef.current?.querySelector<HTMLElement>(".ns-tt-row.is-time");
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest" });
+    row.classList.add("is-flash");
+    const t = window.setTimeout(() => row.classList.remove("is-flash"), 1400);
+    return () => window.clearTimeout(t);
   }, []);
   const [end, setEnd] = useState(init.end);
   const [cat, setCat] = useState<string | null>(init.cat);
@@ -323,17 +350,31 @@ export function BlockPanel({ onDone }: PanelProps) {
     );
   }
 
-  const setStartClamped = (v: number): void => setStart(clamp(v, 0, end - MIN));
-  const setEndClamped = (v: number): void => setEnd(clamp(v, start + MIN, now));
+  // 磨光⑦：運行中＝舊 RestartPanel 的範圍（剛発車不到一分鐘時以實際開始為上限；往前最多一天，再早就該用補記）
+  const startHi = live ? Math.max(init.start, now - MIN) : end - MIN;
+  const startLo = live ? Math.min(init.start, startHi) - 24 * 60 * MIN : 0;
+  // 剛到站：別台按到着的時刻可能晚於面板打開那一刻的「現在」
+  const endHi = arrived && block?.ended_at ? Math.max(now, msOf(block.ended_at)) : now;
+  const setStartClamped = (v: number): void => setStart(clamp(v, startLo, startHi));
+  const setEndClamped = (v: number): void => setEnd(clamp(v, start + MIN, endHi));
 
   const submit = (e: MouseEvent<HTMLButtonElement>, longOk = false): void => {
     if (!clockDraftsOk(e.currentTarget)) return;
+    // 磨光⑦ 評審 #6：運行中模式的主鈕按下時不搶焦點（往前改出發時間一定冒出 W1 那行、把鈕擠開，第一下 click 會被吃掉；
+    // 同舊 RestartPanel），発車框的草稿在這裡提交。打錯 ⇒ flush 已還原＋抖＋說明，不送
+    let curStart = start;
+    if (live) {
+      const v = startClock.current ? startClock.current.flush() : start;
+      if (v === null) return;
+      curStart = v;
+    }
+    const ask = live ? (curStart !== init.start ? longBlockAsk(curStart, end) : null) : longAsk;
     if (!cat) {
       useUiStore.getState().showToast({ message: TT_TEXT.pickCategory });
       return;
     }
     // 磨光⑤ 甲′：長塊沒按「確定記這麼長」就不存（失焦套用的草稿已在這一拍之前重畫進 start／end）
-    if (longAsk && !longOk) {
+    if (ask && !longOk) {
       setLongNudge((n) => n + 1);
       // 焦點放確認行、不放確定鈕：連按兩下 Enter 或長按自動重複，第二下會直接落在確定鈕上存檔（磨光⑤ 評審）
       longRowRef.current?.focus();
@@ -342,7 +383,7 @@ export function BlockPanel({ onDone }: PanelProps) {
     const offNames = offNamesOf();
     // 磨光⑤ 收尾（沙盒 O1）：走「確定記這麼長」存的長塊＝使用者確認過長度 ⇒ 記成已確認（long_run_ack＝1），
     // 軸上不再標「長時間運行・待確認」、待確認清單也不再問一次。只有這條路；12 小時內直接存的照舊不動 ack
-    const ackLong = !!longAsk && longOk;
+    const ackLong = !!ask && longOk;
     if (mode === "fill" && sheet?.kind === "fill") {
       // 連續補（1-4）：先算幾何、不等寫完
       const piece = { start: sheet.start, end: toNow ? now : sheet.end };
@@ -354,7 +395,14 @@ export function BlockPanel({ onDone }: PanelProps) {
       onDone();
       // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
       const tagEdit = tagDraft !== null && tagInit !== null ? (blockTagEditOf(tagInit, tagDraft) ?? undefined) : undefined;
-      void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong);
+      if (live) {
+        // 磨光⑦：運行中那班；什麼都沒動＝只關面板
+        const same =
+          cat === block.category_id && curStart === msOf(block.started_at) && linkPicked === undefined && tagEdit === undefined && offNames === undefined;
+        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames);
+      } else {
+        void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong);
+      }
     }
   };
 
@@ -426,6 +474,25 @@ export function BlockPanel({ onDone }: PanelProps) {
   );
 
   const catName = (id: string): string => catById[id]?.name ?? "？";
+  /** 磨光⑦（D-時-149、150）：合併一律留這一塊——說清楚哪一塊會刪掉、這一塊延伸到哪 */
+  const mergeNote = (d: Dir, p: MergePreview): string => {
+    if (p.absorbId === null) return `鄰居是未記錄：這一塊延伸蓋住那段空白（同「${d === "prev" ? "接上一塊" : "接下一塊"}」）。`;
+    if (p.intoRunning) {
+      const nRow = findBlockIn(p.keepId, running, [dayBlocks, todayBlocks]);
+      const base = `下一塊（${catName(nRow?.category_id ?? "")}）正在跑：合併後由這一塊接著跑，從 ${fmtClock(p.start)} 起算。`;
+      // 評審 #5：連結也換成這一塊的——正在跑的那班連著任務、這一塊沒連（或連別的）時，任務計時會換掉，要講
+      if (!nRow || !block) return base;
+      const a = linkOfRow(nRow);
+      const b = linkOfRow(block);
+      if (a.nodeId === b.nodeId && a.routeId === b.routeId) return base;
+      return `${base}連到的任務會從「${linkLabelOf(nRow, linkInfo) ?? "未指定"}」換成「${linkLabelOf(block, linkInfo) ?? "未指定"}」。`;
+    }
+    const nb = findBlockIn(p.absorbId, running, [dayBlocks, todayBlocks]);
+    const what = nb ? `（${catName(nb.category_id)} ${fmtClock(msOf(nb.started_at))}–${nb.ended_at ? fmtClock(msOf(nb.ended_at)) : "現在"}）` : "";
+    return d === "prev"
+      ? `上一塊${what}會刪掉，這一塊延伸到 ${fmtClock(p.start)}。`
+      : `下一塊${what}會刪掉，這一塊延伸到 ${fmtClock(p.end ?? now)}。`;
+  };
   const snapPrev = prevEnd;
   const snapNext = nextStart;
 
@@ -457,11 +524,7 @@ export function BlockPanel({ onDone }: PanelProps) {
             <p className="ns-tt-merge-preview">
               {TT_TEXT.mergePreview(catName(askPreview.categoryId), askPreview.start, askPreview.end, askPreview.gapMs)}
             </p>
-            <p className="ns-tt-merge-note">
-              {askPreview.keepId === block.id
-                ? `鄰居是未記錄：這一塊延伸蓋住那段空白（同「${ask === "prev" ? "接上一塊" : "接下一塊"}」）。`
-                : `這一塊（${catName(block.category_id)} ${fmtClock(init.start)}–${fmtClock(init.end)}）會刪掉，時間併進「${catName(askPreview.categoryId)}」。`}
-            </p>
+            <p className="ns-tt-merge-note">{mergeNote(ask, askPreview)}</p>
             <div className="ns-tt-merge-btns">
               <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => setAsk(null)}>
                 算了
@@ -511,9 +574,20 @@ export function BlockPanel({ onDone }: PanelProps) {
   };
   return (
     <div className="ns-tt-panel ns-tt-panel-block" ref={rootRef}>
-      <Sub num>
-        {fmtClock(start)} – {fmtClock(end)}　・　{fmtDur(end - start)}
-      </Sub>
+      {live && block ? (
+        <Sub num>
+          <span className="ns-tt-runsub">
+            {catName(cat ?? block.category_id)}・{fmtClock(start)} 発　・
+            <span className="ns-tt-live-dot" aria-hidden="true" />
+            運行中 {fmtDur(now - start)}
+          </span>
+        </Sub>
+      ) : (
+        <Sub num>
+          {fmtClock(start)} – {fmtClock(end)}　・　{fmtDur(end - start)}
+        </Sub>
+      )}
+      {arrived && <Sub warn>{TT_TEXT.justArrived}</Sub>}
       {cont && sheet?.kind === "fill" && (
         <p className="ns-tt-fill-cont">
           剩下{" "}
@@ -530,14 +604,15 @@ export function BlockPanel({ onDone }: PanelProps) {
       <Row k="発車" time>
         <Stepper
           value={start}
-          lo={0}
-          hi={end - MIN}
+          lo={startLo}
+          hi={startHi}
           onChange={setStartClamped}
           refDay={refDay}
           label="発車時刻"
-          onEnter={() => endClock.current?.focus()}
-          enterKeyHint="next"
-          autoFocus={desk && mode === "fill" && !cont}
+          handleRef={startClock}
+          onEnter={() => (live ? undefined : endClock.current?.focus())}
+          enterKeyHint={live ? "done" : "next"}
+          autoFocus={desk && ((mode === "fill" && !cont) || focusStart)}
         />
         {snapPrev !== null && (
           <Opt solid dropDraft on={start === snapPrev} onClick={() => setStartClamped(snapPrev)}>
@@ -545,11 +620,16 @@ export function BlockPanel({ onDone }: PanelProps) {
           </Opt>
         )}
       </Row>
+      {live ? (
+        <Row k="到着">
+          <span className="ns-tt-runnote">{TT_TEXT.runningNoEnd}</span>
+        </Row>
+      ) : (
       <Row k="到着" time>
         <Stepper
           value={end}
           lo={start + MIN}
-          hi={now}
+          hi={endHi}
           onChange={setEndClamped}
           refDay={refDay}
           label="到着時刻"
@@ -562,6 +642,7 @@ export function BlockPanel({ onDone }: PanelProps) {
           </Opt>
         )}
       </Row>
+      )}
       {mergeRow}
       <Actions>
         {longAsk && (
@@ -595,16 +676,18 @@ export function BlockPanel({ onDone }: PanelProps) {
         {!longAsk && hold > 0 && <div className="ns-tt-longask-hold" style={{ height: hold }} aria-hidden />}
         {mode === "edit" && block && (
           <>
-            <button
-              type="button"
-              className="ns-btn btn-ghost is-aux"
-              onClick={() => {
-                onDone();
-                void deleteBlock(block.id);
-              }}
-            >
-              刪除
-            </button>
+            {!fromRunning && (
+              <button
+                type="button"
+                className="ns-btn btn-ghost is-aux"
+                onClick={() => {
+                  onDone();
+                  void deleteBlock(block.id);
+                }}
+              >
+                刪除
+              </button>
+            )}
             <button type="button" className="ns-btn btn-ghost is-aux" onClick={() => openSheet({ kind: "split", blockId: block.id })}>
               切開
             </button>
@@ -613,7 +696,7 @@ export function BlockPanel({ onDone }: PanelProps) {
         <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
           {cont ? "先這樣" : "取消"}
         </button>
-        <button type="button" className="ns-btn btn-seal" onClick={submit}>
+        <button type="button" className="ns-btn btn-seal" onMouseDown={live ? (e) => e.preventDefault() : undefined} onClick={submit}>
           {mode === "fill" ? "補上" : "改好了"}
         </button>
       </Actions>

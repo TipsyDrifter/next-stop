@@ -12,7 +12,6 @@ import { colorSlot, fmtClock, fmtDur, segmentsOfDay, toSpan, type AxisItem, type
 import { linkLabelOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
-import { useUiStore } from "../../../store/uiStore";
 import { pct } from "./scheduleModel";
 import type { SchedulePage } from "./useSchedulePage";
 
@@ -47,10 +46,7 @@ export function ActualColumn({ page, hourPx }: { page: SchedulePage; hourPx: num
       s.openSheet({ kind: "longRun", blockId: it.span.id, then: null });
       return;
     }
-    if (it.running) {
-      useUiStore.getState().showToast({ message: TT_TEXT.runningHint });
-      return;
-    }
+    // 磨光⑦（D-時-152）：運行中那班也開同一個編輯面板（改分類、出發時間、連結、荷札）
     s.openSheet({ kind: "edit", blockId: it.span.id });
   };
 

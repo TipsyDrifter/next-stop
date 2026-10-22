@@ -115,7 +115,7 @@ const KEY_ACTIONS: TimetableKeyActions = {
   restart: () => {
     const s = useTimetableStore.getState();
     if (!s.running) return false;
-    s.openSheet({ kind: "restart", blockId: s.running.id });
+    s.openSheet({ kind: "edit", blockId: s.running.id, focus: "start" }); // 磨光⑦：RestartPanel 併進編輯面板
     return true;
   },
   settings: () => useTimetableStore.getState().openSheet({ kind: "categories" }),

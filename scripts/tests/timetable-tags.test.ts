@@ -473,17 +473,18 @@ describe("6. carry（0-8：手動荷札跟著 fromId 搬）", () => {
     const B = { id: "B", categoryId: "c2", start: L(10, 20, 9), end: L(10, 20, 10), ack: false };
     const now = L(10, 20, 23);
     const prev = planMerge([A, B], { id: "B", dir: "prev", bound: L(10, 20, 6), now })!;
-    assert.deepEqual(prev.plan.absorbedInto, [{ from: "B", to: "A" }]);
-    assert.ok(prev.plan.deletes.includes("B"));
+    // 磨光⑦：留當前塊 ⇒ 被吞的是鄰居
+    assert.deepEqual(prev.plan.absorbedInto, [{ from: "A", to: "B" }]);
+    assert.ok(prev.plan.deletes.includes("A"));
     const next = planMerge([A, B], { id: "A", dir: "next", bound: L(10, 20, 23), now })!;
-    assert.deepEqual(next.plan.absorbedInto, [{ from: "A", to: "B" }]);
+    assert.deepEqual(next.plan.absorbedInto, [{ from: "B", to: "A" }]);
     // 鄰居與自己之間隔了 ≥ 1 分的未記錄 ⇒ 自己延長、沒有被吞的
     const C = { id: "C", categoryId: "c2", start: L(10, 20, 12), end: L(10, 20, 13), ack: false };
     const gap = planMerge([A, C], { id: "C", dir: "prev", bound: L(10, 20, 6), now })!;
     assert.equal(gap.preview.keepId, "C");
     assert.equal(gap.plan.absorbedInto, undefined);
     // repository 組 pair：insert 的 fromId ＋ absorbedInto
-    assert.deepEqual(carryPairsOfPlan(prev.plan.inserts, [], prev.plan.absorbedInto), [{ to: "A", from: "B", off: false }]);
+    assert.deepEqual(carryPairsOfPlan(prev.plan.inserts, [], prev.plan.absorbedInto), [{ to: "B", from: "A", off: false }]);
   });
   test("carryPairsOfPlan：insert 有 fromId 才成對（新塊 id 依序對應）；沒有 absorbedInto 不加", () => {
     const ins = [{ fromId: "A" }, { fromId: null }, { fromId: "B" }];

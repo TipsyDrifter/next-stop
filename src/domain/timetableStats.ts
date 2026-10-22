@@ -578,7 +578,7 @@ export interface Classified {
 
 /**
  * 判定碎塊與待確認（0-8）。`th(s)`＝這一塊的門檻分鐘（null＝沒有門檻、永遠不會待確認）；
- * 已結束的塊由呼叫端用 `thresholdOf(estimate_min, 分類, 全域)`、運行中那班用含任務預計的版本。碎塊優先（碎塊不會是待確認）。
+ * 呼叫端一律用 `blockThresholdOf`（已結束的塊不看分類預設長度，磨光⑦ D-時-151）。碎塊優先（碎塊不會是待確認）。
  */
 export function classifySpans(spans: readonly StatsSpan[], now: number, th: (s: StatsSpan) => number | null): Classified {
   const pending = new Set<string>();

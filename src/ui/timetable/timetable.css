@@ -3146,3 +3146,26 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
   .ns-tt-tag.is-fixed .ns-tt-tag-nm::before, .ns-tt-tag.is-fixed .ns-tt-tag-nm { transition: none; }
   .ns-tt-mgr-group-head.is-flash { animation: none; }
 }
+
+/* ═══ 磨光⑦（D-時-152）：點正在跑的那班開編輯面板（原型 prototypes/時刻表-運行中編輯.html） ═══
+ * 運行列分類名：平常沒底線、滑過金色虛線底線（同旁邊「・任務名」那一套）、按下淡金底；圓牌也點得到（不進 Tab 順序）。
+ * 面板：副標的運行中紅點、「到着」那一列的說明、從「HH:MM 発」進來時手機把発車列閃一下。 */
+button.ns-tt-dock-cat {
+  display: inline-block; max-width: 100%; padding: 0; margin: 0; min-height: 0;
+  background: none; border: 0; border-bottom: 1px dashed transparent; border-radius: 0;
+  font: inherit; letter-spacing: inherit; color: inherit; text-align: left; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+button.ns-tt-dock-cat:hover { border-bottom-color: var(--color-gold); }
+button.ns-tt-dock-cat:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
+.ns-tt-badge.is-press { cursor: pointer; transition: border-color .15s, background .15s; }
+.ns-tt-badge.is-press:hover { border-color: var(--c); }
+.ns-tt-badge.is-press:active { background: color-mix(in srgb, var(--c) 22%, transparent); }
+.ns-tt-runsub { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
+.ns-tt-runsub .ns-tt-live-dot { width: 6px; height: 6px; margin-left: 2px; }
+.ns-tt-runnote { font-size: 12px; letter-spacing: .06em; line-height: 1.6; color: var(--color-ink-faint); }
+.ns-tt-row.is-flash { animation: ns-tt-flash 1.3s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-row.is-flash { animation: none; }
+}

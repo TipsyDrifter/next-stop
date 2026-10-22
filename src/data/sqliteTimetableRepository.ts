@@ -52,6 +52,7 @@ import {
   planEdit,
   planFill,
   planMerge,
+  planEditRunning,
   planReconcile,
   planResolveLongRun,
   planRestart,
@@ -127,6 +128,14 @@ function addOp(b: WriteBatch, tbl: SyncTable, rowId: string, op: "upsert" | "del
 interface Snapshot {
   rowsById: Record<string, TimeBlockRow>;
   spans: Span[];
+}
+
+/** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去） */
+function mergeInfoOf(rowsById: Record<string, TimeBlockRow>): (id: string) => { estimateMin: number | null; link: BlockLink } | undefined {
+  return (x) => {
+    const r = rowsById[x];
+    return r ? { estimateMin: r.estimate_min, link: linkOfRow(r) } : undefined;
+  };
 }
 
 /** 分類列表的順序（§3.4）：頂層組 position，再各組子分類 position；同 position 以 created_at；孤兒（父已刪）排最後 */
@@ -621,6 +630,25 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return summarizeCover(plan, id);
   }
 
+  async editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null }): Promise<CoverSummary> {
+    const db = await getDb();
+    const now = Date.now();
+    // 往前挪可能蓋到很早的紀錄（最多一天）⇒ 讀全部，同 editBlock
+    const snap = await this.loadSnapshot(db, null);
+    const plan = planEditRunning(snap.spans, {
+      id,
+      categoryId: input.categoryId,
+      start: msOf(input.startIso),
+      now,
+      link: input.link,
+      curLink: snap.rowsById[id] ? linkOfRow(snap.rowsById[id]) : undefined,
+    });
+    const b = newWriteBatch();
+    await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
+    await this.commit(db, b);
+    return summarizeCover(plan, id);
+  }
+
   async split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null> {
     const db = await getDb();
     const now = Date.now();
@@ -735,7 +763,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
   async previewMerge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
     const db = await getDb();
     const snap = await this.loadSnapshot(db, null);
-    const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now: Date.now() });
+    const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now: Date.now(), infoOf: mergeInfoOf(snap.rowsById) });
     return out ? { ...out.preview } : null;
   }
 
@@ -743,7 +771,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const db = await getDb();
     const now = Date.now();
     const snap = await this.loadSnapshot(db, null);
-    const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now });
+    const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now, infoOf: mergeInfoOf(snap.rowsById) });
     if (!out) return null;
     const b = newWriteBatch();
     await this.applyPlan(b, out.plan, snap.rowsById, isoOf(now));

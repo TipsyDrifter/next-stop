@@ -71,7 +71,7 @@ import {
   runMarker,
   segmentsOfDay,
   sheetBlockIdOf,
-  thresholdOf,
+  blockThresholdOf,
   toSpan,
   weekStartKey,
   type BlockLink,
@@ -102,14 +102,17 @@ export type TimetableSheet =
   | { kind: "depart" }
   /** ②：then 的 tile 可以帶連結（從任務發車遇到長時間運行待確認，先問完再發車） */
   | { kind: "longRun"; blockId: string; then: "depart" | "arrive" | { tile: string; link?: BlockLink } | null }
-  | { kind: "restart"; blockId: string }
   /**
    * 磨光⑥ §1-4（D-時-145）：cont＝連續補換過來的段（有值＝副標多一行「剩下 X–Y 還沒記」、取消鈕叫「先這樣」）。
    * rest＝同一段未記錄裡往後補時跳過、還沒補的段（往後補完了再回頭補它）；toNow＝這段一路到現在（到着快捷叫「接到現在」）。
    * 選填、只有 BlockPanel 讀
    */
   | { kind: "fill"; start: number; end: number; cont?: { rest: readonly FillPiece[]; toNow: boolean } }
-  | { kind: "edit"; blockId: string }
+  /**
+   * 改一塊（已結束）／改這一班（運行中，磨光⑦ D-時-152：RestartPanel 併進來）。focus "start"＝從「HH:MM 発」或
+   * 改出發時間的快捷鍵進來：桌機游標落在発車框、手機把発車列捲進畫面閃一下（不叫鍵盤）
+   */
+  | { kind: "edit"; blockId: string; focus?: "start" }
   | { kind: "split"; blockId: string }
   /** 磨光③ 2-11：focusId＝打開就展開那一列（分類或組）的 ⋯、捲進畫面閃一下；focus "notice"＝捲到〈通知〉。都不帶＝照舊 */
   | { kind: "categories"; focusId?: string; focus?: "notice" }
@@ -142,7 +145,16 @@ export const TT_TEXT = {
   split: (at: number) => `切開・${fmtClock(at)}`,
   restart: (at: number) => `出發時間改成 ${fmtClock(at)}`,
   alreadyRunning: "這一班已經在跑了",
-  runningHint: "運行中的這一班：在運行列換車、到着、切開或改出發時間",
+  /** 磨光⑦：運行中那班改了分類（出發時間沒動或一起動） */
+  editRunning: (cat: string, start: number) => `改成 ${cat}・${fmtClock(start)} 発`,
+  /** 磨光⑦：運行中那班只改了連結或荷札 */
+  editRunningOther: (cat: string) => `改好了・${cat}（運行中）`,
+  /** 磨光⑦：運行列分類名的滑過提示 */
+  dockEditTitle: "改這一班",
+  /** 磨光⑦：運行中面板的「到着」那一列（結束時間對正在跑的班不適用） */
+  runningNoEnd: "還在跑——到站請按運行列的「到着」",
+  /** 磨光⑦：面板開著時這一班被別台按了到着 */
+  justArrived: "這一班剛到站了",
   /** 磨光③ 2-2：運行列的「切開」鈕（D-時-138）；2-3：視圖列固定的「分類與設定」鈕（手機寫短字） */
   dockSplit: "切開",
   dockSplitTitle: "切開這一班",
@@ -761,6 +773,18 @@ export interface TimetableStore {
     tagEdit?: BlockTagEdit,
     offNames?: readonly string[],
     longOk?: boolean,
+  ): Promise<void>;
+  /**
+   * 磨光⑦（D-時-152）：改運行中那一班——分類、出發時間、連結（undefined＝不動）、荷札差集／排除（同 editBlock）。
+   * 什麼都沒變 ⇒ 不寫。toast：換了分類「改成 X・HH:MM 発」；只改出發時間「出發時間改成 HH:MM」。
+   */
+  editRunning(
+    blockId: string,
+    categoryId: string,
+    start: number,
+    link?: BlockLink | null,
+    tagEdit?: BlockTagEdit,
+    offNames?: readonly string[],
   ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
@@ -1555,6 +1579,42 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
+    async editRunning(blockId, categoryId, start, link, tagEdit, offNames) {
+      const add = draftTagNames(tagEdit?.add);
+      if (add === false) return;
+      const offEdit = offNames === undefined ? null : blockTagEditOf(useTagStore.getState().keysOf(TT_TAG_BLOCK_OFF, blockId), offNames);
+      const offAdd = draftTagNames(offEdit?.add);
+      if (offAdd === false) return;
+      const before = get().running;
+      const catChanged = !before || before.id !== blockId || before.category_id !== categoryId;
+      const startChanged = !before || before.id !== blockId || msOf(before.started_at) !== start;
+      let tagErr: unknown = null;
+      await write(
+        async () => {
+          const r = await timetableRepo.editRunning(blockId, { categoryId, startIso: isoOf(start), link });
+          const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
+          if (tagEdit) edits.push([{ add: add ?? [], remove: tagEdit.remove }, TT_TAG_BLOCK]);
+          if (offEdit) edits.push([{ add: offAdd ?? [], remove: offEdit.remove }, TT_TAG_BLOCK_OFF]);
+          for (const [edit, type] of edits) {
+            try {
+              if (await applyBlockTagEdit(tagRepo, blockId, edit, type)) blockTagsWritten = true;
+            } catch (e) {
+              blockTagsWritten = true;
+              console.warn("時刻表：運行中那班的荷札沒改好（時間資料已經寫好）", e);
+              tagErr = e;
+            }
+          }
+          return r;
+        },
+        () => {
+          if (tagErr) failToast(tagErr);
+          else if (catChanged) toast(TT_TEXT.editRunning(catName(categoryId), Math.min(start, Date.now() - MIN)));
+          else if (startChanged) toast(TT_TEXT.restart(Math.min(start, Date.now() - MIN)));
+          else toast(TT_TEXT.editRunningOther(catName(categoryId)));
+        },
+      );
+    },
+
     async split(blockId, at, categoryId2) {
       await write(
         () => timetableRepo.split(blockId, isoOf(at), categoryId2),
@@ -1937,7 +1997,8 @@ export async function timetableWrite<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 這一班的門檻與長時間運行記號（兩殼、notice、NavBadge 共用）：門檻＝這一班的預估 → 任務的預計時間（②）→ 分類預設長度 → 全域上限。
+ * 這一班的門檻與長時間運行記號（兩殼、notice、NavBadge 共用）：門檻＝這一班的預估 → 任務的預計時間（②）→ 分類預設長度 → 全域上限；
+ * 已結束的塊不看分類預設長度（磨光⑦ D-時-151，`blockThresholdOf`）。
  * 「待確認」＝`marker.kind !== "none" && marker.pending`（＝blockIsLongRun）。
  */
 /** 任務的預計時間只套在運行中那一班：任務預計是會改的計畫資料，套到已結束的塊會讓改一次預計就回頭翻掉歷史的誤點標記（②評審 #4，時刻表線裁定）。 */
@@ -1953,7 +2014,7 @@ export function blockMarker(
 ): RunMarker {
   return runMarker(
     toSpan(block),
-    thresholdOf(block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links)),
+    blockThresholdOf(block.ended_at !== null, block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links)),
     now,
   );
 }
@@ -1971,7 +2032,7 @@ export function blockIsLongRun(
 ): boolean {
   return isLongRun(
     toSpan(block),
-    thresholdOf(block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links))?.min ?? null,
+    blockThresholdOf(block.ended_at !== null, block.estimate_min, catById[block.category_id] ?? null, globalMaxMin, liveTaskEstimate(block, links))?.min ?? null,
     now,
   );
 }

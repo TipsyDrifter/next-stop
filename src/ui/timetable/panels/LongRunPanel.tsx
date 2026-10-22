@@ -15,7 +15,7 @@
  * 來源是 task ⇒ 副標「『{任務}』預計 {門檻}，已經誤點 {超過}。其實到幾點？」（estimate 那條的姊妹句），「別問了」一樣留『誤點』。
  */
 import { useState, type MouseEvent } from "react";
-import { MIN, durOf, fmtClock, fmtDur, longRunDefaultEnd, msOf, thresholdOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
+import { MIN, durOf, fmtClock, fmtDur, blockThresholdOf, longRunDefaultEnd, msOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
 import { linkLabelOf, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
@@ -33,7 +33,7 @@ export function LongRunPanel({ onDone }: PanelProps) {
 
   const cat = block ? (catById[block.category_id] ?? null) : null;
   const span = block ? toSpan(block) : null;
-  const th = block ? thresholdOf(block.estimate_min, cat, longRunMaxMin, taskEstimateOf(block, linkInfo)) : null;
+  const th = block ? blockThresholdOf(block.ended_at !== null, block.estimate_min, cat, longRunMaxMin, taskEstimateOf(block, linkInfo)) : null;
   const threshold = th?.min ?? null;
   const ended = block !== null && block.ended_at !== null;
   const cap = block ? (block.ended_at !== null ? msOf(block.ended_at) : now) : now;

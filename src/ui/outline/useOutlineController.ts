@@ -652,7 +652,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         toast(REPEAT_RESCHEDULE_MSG);
         return;
       }
-      void ns().updateNode(id, field === "scheduled_on" ? { scheduled_on: value } : { due_on: value });
+      // 磨光⑦（D-主-67）：執行日 chip 親手選到今天以前＝補記
+      void ns().updateNode(id, field === "scheduled_on" ? { scheduled_on: value } : { due_on: value }, { backfill: field === "scheduled_on" });
     },
     noteRepeatDate: () => toast(REPEAT_RESCHEDULE_MSG),
     focusContainer,

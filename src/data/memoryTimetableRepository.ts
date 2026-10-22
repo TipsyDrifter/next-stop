@@ -46,6 +46,7 @@ import {
   planEdit,
   planFill,
   planMerge,
+  planEditRunning,
   planReconcile,
   planResolveLongRun,
   planRestart,
@@ -1059,6 +1060,22 @@ export class MemoryTimetableRepository implements TimetableRepository {
     return { block: clone(this.blocks.get(newId)!), summary: summarizeCover(plan) };
   }
 
+  async editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null }): Promise<CoverSummary> {
+    await this.ready();
+    const now = Date.now();
+    const cur = this.blocks.get(id);
+    const plan = planEditRunning(this.aliveSpans(), {
+      id,
+      categoryId: input.categoryId,
+      start: msOf(input.startIso),
+      now,
+      link: input.link,
+      curLink: cur ? linkOfRow(cur) : undefined,
+    });
+    await this.applyPlan(plan, isoOf(now));
+    return summarizeCover(plan, id);
+  }
+
   async editBlock(
     id: string,
     input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
@@ -1145,16 +1162,24 @@ export class MemoryTimetableRepository implements TimetableRepository {
     return [id, ...ids].map((x) => clone(this.blocks.get(x)!));
   }
 
+  /** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去） */
+  private mergeInfoOf(): (id: string) => { estimateMin: number | null; link: BlockLink } | undefined {
+    return (x) => {
+      const r = this.blocks.get(x);
+      return r ? { estimateMin: r.estimate_min, link: linkOfRow(r) } : undefined;
+    };
+  }
+
   async previewMerge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
     await this.ready();
-    const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now: Date.now() });
+    const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now: Date.now(), infoOf: this.mergeInfoOf() });
     return out ? { ...out.preview } : null;
   }
 
   async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
     await this.ready();
     const now = Date.now();
-    const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now });
+    const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now, infoOf: this.mergeInfoOf() });
     if (!out) return null;
     await this.applyPlan(out.plan, isoOf(now));
     return { ...out.preview };

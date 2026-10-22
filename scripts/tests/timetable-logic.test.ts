@@ -875,60 +875,66 @@ describe("C. 車次①b①c", () => {
     assert.deepEqual(ended.inserts.map((i) => i.ack), [false, false]);
   });
 
-  test("35. planMerge prev 併進塊：上課 08:40–10:30、休息 10:30–10:50 ⇒ 上課 08:40–10:50、休息 delete；preview 一致", () => {
+  test("35. planMerge prev 緊貼：上課 08:40–10:30、休息 10:30–10:50，從休息往上併 ⇒ 休息 08:40–10:50、上課 delete（磨光⑦ 留當前塊）", () => {
     const out = planMerge(demo(), { id: "b4", dir: "prev", bound: DAY.start, now: NOW })!;
     assert.ok(out);
-    assert.deepEqual(out.preview, { keepId: "b3", categoryId: "class", start: T(8, 40), end: T(10, 50), gapMs: 0 });
-    assert.ok(out.plan.deletes.includes("b4"));
-    assert.ok(out.plan.patches.some((p) => p.id === "b3" && p.end === T(10, 50)));
-    assert.ok(!out.plan.patches.some((p) => p.id === "b3" && (p.categoryId !== undefined || p.ack !== undefined)), "留鄰居的分類與 ack");
+    assert.deepEqual(out.preview, { keepId: "b4", categoryId: "rest", start: T(8, 40), end: T(10, 50), gapMs: 0, absorbId: "b3", intoRunning: false });
+    assert.ok(out.plan.deletes.includes("b3"));
+    assert.ok(out.plan.patches.some((p) => p.id === "b4" && p.start === T(8, 40)));
+    assert.ok(!out.plan.patches.some((p) => p.id === "b4" && (p.categoryId !== undefined || p.ack !== undefined)), "留當前塊的分類與 ack");
+    assert.deepEqual(out.plan.absorbedInto, [{ from: "b3", to: "b4" }]);
     const after = apply(demo(), out.plan);
-    assert.equal(after.find((s) => s.id === "b4"), undefined);
-    const b3 = after.find((s) => s.id === "b3")!;
-    assert.deepEqual([b3.categoryId, b3.start, b3.end], [out.preview.categoryId, out.preview.start, out.preview.end]);
+    assert.equal(after.find((s) => s.id === "b3"), undefined);
+    const b4 = after.find((s) => s.id === "b4")!;
+    assert.deepEqual([b4.categoryId, b4.start, b4.end], [out.preview.categoryId, out.preview.start, out.preview.end]);
     assertNoOverlap(after);
   });
 
-  test("36. planMerge 中間隔著 < 1 分的縫（10:30:20）⇒ 照樣併進塊", () => {
+  test("36. planMerge 中間隔著 < 1 分的縫（10:30:20）⇒ 照樣當緊貼；兩個方向都留當前塊", () => {
     const spans = [mk("b3", "class", T(8, 40), T(10, 30)), mk("b4", "rest", T(10, 30) + 20_000, T(10, 50))];
     const prev = planMerge(spans, { id: "b4", dir: "prev", bound: DAY.start, now: NOW })!;
-    assert.deepEqual(prev.preview, { keepId: "b3", categoryId: "class", start: T(8, 40), end: T(10, 50), gapMs: 0 });
-    assert.deepEqual(shape(apply(spans, prev.plan)), [["b3", "class", T(8, 40), T(10, 50)]]);
-    // 反方向：上課併進下一塊休息 ⇒ 休息往前延到 08:40、上課刪掉
+    assert.deepEqual(prev.preview, { keepId: "b4", categoryId: "rest", start: T(8, 40), end: T(10, 50), gapMs: 0, absorbId: "b3", intoRunning: false });
+    assert.deepEqual(shape(apply(spans, prev.plan)), [["b4", "rest", T(8, 40), T(10, 50)]]);
+    // 反方向：從上課往下併 ⇒ 上課延到 10:50、休息刪掉
     const next = planMerge(spans, { id: "b3", dir: "next", bound: DAY.end, now: NOW })!;
-    assert.deepEqual(next.preview, { keepId: "b4", categoryId: "rest", start: T(8, 40), end: T(10, 50), gapMs: 0 });
-    assert.deepEqual(shape(apply(spans, next.plan)), [["b4", "rest", T(8, 40), T(10, 50)]]);
+    assert.deepEqual(next.preview, { keepId: "b3", categoryId: "class", start: T(8, 40), end: T(10, 50), gapMs: 0, absorbId: "b4", intoRunning: false });
+    assert.deepEqual(next.plan.absorbedInto, [{ from: "b4", to: "b3" }]);
+    assert.deepEqual(shape(apply(spans, next.plan)), [["b3", "class", T(8, 40), T(10, 50)]]);
   });
 
   test("37. planMerge 鄰居是未記錄：休息 10:50–11:10 前面空白到 10:30 ⇒ 休息 start=10:30、gapMs=20 分；一側沒有塊時用 bound", () => {
     const spans = [mk("b3", "class", T(8, 40), T(10, 30)), mk("r", "rest", T(10, 50), T(11, 10))];
     const out = planMerge(spans, { id: "r", dir: "prev", bound: DAY.start, now: NOW })!;
     assert.deepEqual(out.plan, { patches: [{ id: "r", start: T(10, 30) }], inserts: [], deletes: [] });
-    assert.deepEqual(out.preview, { keepId: "r", categoryId: "rest", start: T(10, 30), end: T(11, 10), gapMs: 20 * MIN });
+    assert.deepEqual(out.preview, { keepId: "r", categoryId: "rest", start: T(10, 30), end: T(11, 10), gapMs: 20 * MIN, absorbId: null, intoRunning: false });
     // 前面沒有塊 ⇒ 延到 bound（看的那天的起點）
     const alone = [mk("r", "rest", T(10, 50), T(11, 10))];
     const toBound = planMerge(alone, { id: "r", dir: "prev", bound: T(9, 0), now: NOW })!;
-    assert.deepEqual(toBound.preview, { keepId: "r", categoryId: "rest", start: T(9, 0), end: T(11, 10), gapMs: 110 * MIN });
+    assert.deepEqual(toBound.preview, { keepId: "r", categoryId: "rest", start: T(9, 0), end: T(11, 10), gapMs: 110 * MIN, absorbId: null, intoRunning: false });
     // 上一塊在 bound 之前（昨天）⇒ 只蓋到 bound，不蓋畫面上看不到的那段空白
     const yday = [mk("y", "class", T(22, 0, -1), T(23, 0, -1)), mk("r", "rest", T(4, 0), T(5, 0))];
     assert.equal(planMerge(yday, { id: "r", dir: "prev", bound: DAY.start, now: NOW })!.preview.start, DAY.start);
     // 後面沒有塊 ⇒ 延到 min(bound, now)
     assert.equal(planMerge(alone, { id: "r", dir: "next", bound: T(12, 0), now: NOW })!.preview.end, T(12, 0));
     const toNow = planMerge(alone, { id: "r", dir: "next", bound: DAY.end, now: NOW })!;
-    assert.deepEqual(toNow.preview, { keepId: "r", categoryId: "rest", start: T(10, 50), end: NOW, gapMs: NOW - T(11, 10) });
+    assert.deepEqual(toNow.preview, { keepId: "r", categoryId: "rest", start: T(10, 50), end: NOW, gapMs: NOW - T(11, 10), absorbId: null, intoRunning: false });
     // 後面有塊、中間空白 ⇒ 延到那塊的開始
     const nextGap = planMerge(spans, { id: "b3", dir: "next", bound: DAY.end, now: NOW })!;
     assert.deepEqual(nextGap.plan.patches, [{ id: "b3", end: T(10, 50) }]);
     assert.equal(nextGap.preview.gapMs, 20 * MIN);
   });
 
-  test("38. planMerge next 併進運行中那班 ⇒ 運行中那班 start 往前、仍運行中、preview.end=null", () => {
-    const out = planMerge(demo(), { id: "b8", dir: "next", bound: DAY.end, now: NOW })!;
-    assert.deepEqual(out.preview, { keepId: "b9", categoryId: "create", start: T(14, 20), end: null, gapMs: 0 });
-    const after = apply(demo(), out.plan);
+  test("38. planMerge next 下一塊正在跑 ⇒ 保留運行中那一列、換成當前塊的分類、start 往前、仍運行中、ack 歸 0（磨光⑦ D-時-150）", () => {
+    const base = demo().map((s) => (s.id === "b8" ? { ...s, ack: true } : s));
+    const out = planMerge(base, { id: "b8", dir: "next", bound: DAY.end, now: NOW })!;
+    const b8cat = base.find((s) => s.id === "b8")!.categoryId;
+    assert.deepEqual(out.preview, { keepId: "b9", categoryId: b8cat, start: T(14, 20), end: null, gapMs: 0, absorbId: "b8", intoRunning: true });
+    assert.deepEqual(out.plan.absorbedInto, [{ from: "b8", to: "b9", off: true }]);
+    assert.ok(out.plan.patches.some((p) => p.id === "b9" && p.ack === false), "運行中的長度還沒定，不抄已確認");
+    const after = apply(base, out.plan);
     assert.equal(after.find((s) => s.id === "b8"), undefined);
     const b9 = after.find((s) => s.id === "b9")!;
-    assert.deepEqual([b9.start, b9.end], [T(14, 20), null]);
+    assert.deepEqual([b9.categoryId, b9.start, b9.end], [b8cat, T(14, 20), null]);
     assert.equal(runningCount(after), 1);
     assertNoOverlap(after);
   });
@@ -1054,16 +1060,26 @@ describe("C. 車次①b①c", () => {
 
 /* ───────── ③ R1：接縫 #73 的釘住測試（③ 契約 0-3、§4 末段） ───────── */
 
-describe("R1. 往下併後 s 被另一台復活 ⇒ 整理把 s 刪掉（現行語義，刻意不改 planMerge）", () => {
+describe("R1. 合併後被吞的那塊被另一台復活 ⇒ 整理收斂（磨光⑦ 起留當前塊）", () => {
   const K = (s: Span, writeKey: string): KeyedSpan => ({ ...s, writeKey });
 
-  test("往下併：鄰居 N 的 started_at 往前延到 s 的開頭、s 刪除（planMerge 不動）", () => {
+  test("往下併（下一塊已結束）：s 的 ended_at 延到 N 的尾、N 刪除；s 的 started_at 不動", () => {
     const s = mk("s", "x", T(9, 0), T(10, 0));
     const n = mk("N", "y", T(10, 0), T(11, 0));
     const out = planMerge([s, n], { id: "s", dir: "next", bound: T(12, 0), now: NOW })!;
-    assert.deepEqual(out.plan.patches, [{ id: "N", start: T(9, 0) }]);
-    assert.deepEqual(out.plan.deletes, ["s"]);
-    assert.equal(out.preview.keepId, "N");
+    assert.deepEqual(out.plan.patches, [{ id: "s", end: T(11, 0) }]);
+    assert.deepEqual(out.plan.deletes, ["N"]);
+    assert.equal(out.preview.keepId, "s");
+  });
+
+  test("往下併後 N 復活（另一台同時改過 N）：s 的 started_at 沒重寫、N 的較新 ⇒ 整理把 s 切回 N 之前＝合併被退回成兩塊（不重疊、不掉資料；D-時-149 接受）", () => {
+    // 併完 s＝[9:00, 11:00)、started_at 那格是當初発車寫的（0001）；N＝[10:00, 11:00) 復活，started_at 那格較新（0002）
+    const s = K(mk("s", "x", T(9, 0), T(11, 0)), "0001|");
+    const n = K(mk("N", "y", T(10, 0), T(11, 0)), "0002|");
+    const plan = planReconcile([s, n]);
+    assert.deepEqual(plan.deletes, []);
+    assert.deepEqual(plan.patches, [{ id: "s", end: T(10, 0) }]);
+    assert.deepEqual(planReconcile([n, s]), plan);
   });
 
   test("兩台同步後 s 復活（另一台改過 s）：N 的 started_at 是併的人剛寫的 ⇒ 寫入鍵較新 ⇒ 整理把 s 整段收掉，N 完整留下", () => {

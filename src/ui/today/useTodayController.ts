@@ -31,6 +31,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { dayCount, type DayCountItem } from "../../domain/dayCount";
+import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -292,6 +293,10 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     // 要蓋済就再點一次（票面已回到空欄）。取消運休不留痕，故不出收據。
     if (row.occurrence?.status === "skipped") {
       suspendRow(row);
+      return;
+    }
+    if (isRetiredRunRow(row)) {
+      toast(RETIRED_RUN_MSG); // 磨光⑦ 評審 #1：不准悄悄解除退役
       return;
     }
     if (isDoneRow(row)) {

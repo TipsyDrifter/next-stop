@@ -210,8 +210,8 @@ for (const { name, make } of IMPLS) {
       await tags.attach(TT_TAG_BLOCK, a, "甲");
       await tags.attach(TT_TAG_BLOCK, b, "乙");
       const p = await repo.merge(b, "prev", isoOf(m(-60)));
-      assert.equal(p.keepId, a);
-      assert.deepEqual(tags.keys(TT_TAG_BLOCK, a), ["乙", "甲"]);
+      assert.equal(p.keepId, b, "磨光⑦：留當前塊");
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK, b), ["乙", "甲"]);
       assert.equal(repo.consumeTagWrites(), true);
     });
     test("塗色把運行中那班切成兩段 ⇒ 後段（新 id）帶上手動荷札", async () => {
@@ -285,9 +285,9 @@ for (const { name, make } of IMPLS) {
       await tags.attach(TT_TAG_BLOCK_OFF, b, "乙");
       await tags.attach(TT_TAG_BLOCK, b, "手");
       const p = await repo.merge(b, "prev", isoOf(m(-60)));
-      assert.equal(p.keepId, a);
-      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, a), ["甲"]);
-      assert.deepEqual(tags.keys(TT_TAG_BLOCK, a), ["手"]);
+      assert.equal(p.keepId, b, "磨光⑦：留當前塊");
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK_OFF, b), ["乙"]);
+      assert.deepEqual(tags.keys(TT_TAG_BLOCK, b), ["手"]);
     });
     test("排除：補記蓋在一塊中間（planCover）⇒ 切出的後段帶排除與手動荷札；補記那塊不帶", async () => {
       const tags = fakeTags();

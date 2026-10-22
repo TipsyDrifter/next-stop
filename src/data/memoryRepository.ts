@@ -40,6 +40,8 @@ import type {
   CurrentOccurrence,
   NodePatch,
   NodeRepository,
+  RescheduleOpts,
+  RescheduleResult,
   RouteProgress,
   ScheduleBounds,
   ScheduleEntry,
@@ -47,6 +49,7 @@ import type {
   TodayRow,
 } from "./nodeRepository";
 import {
+  backfillAtOf,
   buildCalendar,
   buildRouteProgress,
   buildSchedule,
@@ -211,7 +214,8 @@ export class MemoryNodeRepository implements NodeRepository {
     const { start, end } = dayWindow(dateKey, dayStartHour);
     const hit = this.alive().filter((n) => {
       if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
-      if (n.scheduled_on === dateKey) return true;
+      // 磨光⑦ 沙盒 F1：退役的定期券不走第一條（scheduled_on 是各台推算、退役後凍住的值；與 SQLite 版同）
+      if (n.scheduled_on === dateKey && !(n.repeat_rule !== null && n.status === "done")) return true;
       if (n.scheduled_on !== null && n.scheduled_on < dateKey && n.status !== "done") return true;
       if (
         n.status !== "done" && n.due_on !== null && n.due_on <= dateKey &&
@@ -225,9 +229,10 @@ export class MemoryNodeRepository implements NodeRepository {
           (n.scheduled_on === null && n.due_on !== null && n.due_on <= dateKey))
       ) return true;
       // 第五條＝定期券變體（r2 的定期券版）：蓋済／運休之後 scheduled_on 已被推到下一班，
-      // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡（與 SQLite 版的第五條 OR 同源）
+      // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡（與 SQLite 版的第五條 OR 同源）；
+      // 磨光⑦ #102：退役的定期券也算（今天先済、同一天又被上層一起完成）
       return (
-        n.repeat_rule !== null && n.status !== "done" &&
+        n.repeat_rule !== null &&
         this.occurrencesOf(n.id).some((o) => {
           const at = o.completed_at ?? o.updated_at;
           return at >= start && at < end;
@@ -238,7 +243,7 @@ export class MemoryNodeRepository implements NodeRepository {
     const serials = buildSerialMap(this.alive());
     const rows: TodayRow[] = hit.map((n) => {
       const occ =
-        n.status !== "done" && parseRule(n.repeat_rule)
+        parseRule(n.repeat_rule) // #102：退役的也配對
           ? pickTodayOccurrence(this.occurrencesOf(n.id), n.scheduled_on, dateKey, dayStartHour)
           : null;
       return {
@@ -274,7 +279,7 @@ export class MemoryNodeRepository implements NodeRepository {
     await this.update(ticketId, { route_id: routeId });
   }
 
-  async reschedule(id: string, nextDate: string | null, todayDateKey: string): Promise<void> {
+  async reschedule(id: string, nextDate: string | null, todayDateKey: string, opts?: RescheduleOpts): Promise<RescheduleResult> {
     const node = this.nodes.get(id);
     if (!node) throw new Error("節點不存在");
     // 定期券的班次由規則排定（M3-5e）——與 SQLite 版同一句話、同一道門
@@ -285,13 +290,24 @@ export class MemoryNodeRepository implements NodeRepository {
     const carried =
       nextDate !== null && prev !== null && prev < nextDate && prev <= todayDateKey ? prev : node.carried_from;
     const now = this.now();
+    // 磨光⑦（D-主-67）：與 SQLite 版同一條規則（日期欄親手選了今天以前 ⇒ 補記，直接済在那一天）
+    const open = this.alive().filter((c) => c.parent_id === id && c.status !== "done").length;
+    const doneAt = opts?.backfill ? backfillAtOf(node, nextDate, todayDateKey, opts.dayStartHour ?? 3, open) : null;
     this.mutate(id, (n) => ({
       ...n,
       scheduled_on: nextDate,
       carried_from: carried,
       today_position: leavesToday ? null : n.today_position,
+      // 補記不算繰越（往過去挪；評審 #3）
+      ...(doneAt ? { status: "done" as const, completed_at: doneAt, carried_from: n.carried_from } : {}),
       updated_at: now,
     }));
+    if (doneAt) {
+      const e = this.log(id, "", "done", doneAt);
+      e.created_at = now; // 済的時刻＝那一天；列的寫入時刻照實是現在（同 SQLite 版）
+      e.updated_at = now;
+    }
+    return { backfilled: doneAt !== null };
   }
 
   async search(query: string, limit = 50): Promise<NodeRow[]> {

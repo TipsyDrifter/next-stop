@@ -35,6 +35,7 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
 import { dayCount } from "../../domain/dayCount";
+import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
 
@@ -222,6 +223,11 @@ export function useMobileToday(): MobileTodayApi {
       if (row.occurrence?.status === "skipped") {
         const r = await ns().skipOccurrence(id, false);
         if (!r.ok) toast(r.reason);
+        return;
+      }
+      // 磨光⑦ 評審 #1：退役定期券今天那班的済，點了不准悄悄解除退役
+      if (isRetiredRunRow(row)) {
+        toast(RETIRED_RUN_MSG);
         return;
       }
       // ② 已済＝取消済

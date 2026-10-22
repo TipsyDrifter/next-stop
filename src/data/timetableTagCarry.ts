@@ -36,7 +36,7 @@ export interface CarryPair {
 export function carryPairsOfPlan(
   inserts: readonly { fromId: string | null; inherit?: boolean; noTagCarry?: boolean }[],
   ids: readonly string[],
-  absorbedInto: readonly { to: string; from: string }[] | undefined,
+  absorbedInto: readonly { to: string; from: string; off?: boolean }[] | undefined,
 ): CarryPair[] {
   const out: CarryPair[] = [];
   inserts.forEach((ins, k) => {
@@ -44,7 +44,8 @@ export function carryPairsOfPlan(
     // D-時-135：分類沒換（inherit）的片段才帶排除
     if (ins.fromId && ids[k] && !ins.noTagCarry) out.push({ to: ids[k], from: ins.fromId, off: !!ins.inherit });
   });
-  if (absorbedInto) for (const p of absorbedInto) out.push({ to: p.to, from: p.from, off: false });
+  // 磨光⑦：併進運行中那列（off）才帶被吞那塊的排除——那一列的內容換成被吞那塊的
+  if (absorbedInto) for (const p of absorbedInto) out.push({ to: p.to, from: p.from, off: !!p.off });
   return out;
 }
 

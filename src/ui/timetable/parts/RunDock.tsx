@@ -104,6 +104,7 @@ export function RunDock({ variant }: RunDockProps) {
     openSheet({ kind: "split", blockId });
   };
   const openEstimate = (): void => openSheet({ kind: "estimate", blockId });
+  const openEdit = (): void => openSheet({ kind: "edit", blockId });
   // ⑥：這一班的荷札（推導＋手動）；名稱不含 #
   const tagNames = runTagKeys(running, categories, tagMaps).map(tagNameOf);
   // D-時-133：手機的「荷札 N」只算手動加的（點開的點選器只列手動的，數字要對得上）；分類帶的在塊面板看
@@ -139,11 +140,14 @@ export function RunDock({ variant }: RunDockProps) {
 
   return (
     <div className={"ns-tt-dock is-" + variant + (long ? " is-long" : "")}>
-      <CategoryBadge cat={cat} />
+      <CategoryBadge cat={cat} onPress={openEdit} />
       <div className="ns-tt-dock-main">
         <div className="ns-tt-dock-name">
           <span className="ns-tt-link-dock">
-            <span className="ns-tt-dock-cat">{cat?.name ?? "？"}</span>
+            {/* 磨光⑦（D-時-152）：點分類名＝開這一班的編輯面板（長相不變，只加 hover／focus 回饋） */}
+            <button type="button" className="ns-tt-dock-cat" title={TT_TEXT.dockEditTitle} onClick={openEdit}>
+              {cat?.name ?? "？"}
+            </button>
             <button
               type="button"
               className={"ns-tt-link-dn" + (label === null ? " is-none" : "") + (linkGone ? " is-gone" : "")}
@@ -183,7 +187,7 @@ export function RunDock({ variant }: RunDockProps) {
             type="button"
             className="ns-tt-dock-start"
             title="改出發時間"
-            onClick={() => openSheet({ kind: "restart", blockId })}
+            onClick={() => openSheet({ kind: "edit", blockId, focus: "start" })}
           >
             {fmtClock(start)} 発
           </button>

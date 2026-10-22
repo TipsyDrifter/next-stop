@@ -174,7 +174,7 @@ export interface WritePlan {
    * ⑥（⑥ 契約 0-8、§3.2；只加）：合併時被吞掉的那一塊 → 留下的那一塊（`planMerge` 併進鄰居才標）。
    * repository 照它把被吞那塊的手動荷札補掛到留下的那塊（`timetableTagCarry.ts`）；不影響時間資料的寫法。
    */
-  absorbedInto?: { from: string; to: string }[];
+  absorbedInto?: { from: string; to: string; /** 磨光⑦：也搬排除（併進運行中那列＝內容換成被吞那塊的） */ off?: boolean }[];
 }
 
 export interface CoverSummary {
@@ -524,6 +524,41 @@ export function planRestart(spans: readonly Span[], input: { id: string; at: num
   return plan;
 }
 
+/**
+ * 磨光⑦（D-時-152；使用者 10-21：「直接點正在跑的那班車彈出視窗編輯資料就好」）：改運行中那一班的分類、出發時間、連結。
+ * 只接受運行中的塊（到站了 ⇒ RangeError，面板改走 planEdit）。出發時間沒動 ⇒ 不蓋任何東西；動了 ⇒ 同 planRestart
+ * （夾到現在−1 分、往前挪蓋掉前面的紀錄）。換分類 ⇒ ack 歸 0（同 planEdit：門檻跟著分類換）。patch 只帶真的變了的欄（逐欄 LWW）。
+ */
+export function planEditRunning(
+  spans: readonly Span[],
+  input: { id: string; categoryId: string; start: number; now: number; link?: BlockLink | null; curLink?: BlockLink },
+): WritePlan {
+  const s = findSpan(spans, input.id);
+  if (s.end !== null) throw new RangeError("這一班已經到站了");
+  const at = input.start === s.start ? s.start : Math.min(input.start, input.now - MIN);
+  const plan = at !== s.start ? planCover(spans, { start: at, end: null }, s.id) : emptyPlan();
+  const patch: SpanPatch = { id: s.id };
+  let changed = false;
+  if (at !== s.start) {
+    patch.start = at;
+    changed = true;
+  }
+  if (input.categoryId !== s.categoryId) {
+    patch.categoryId = input.categoryId;
+    patch.ack = false;
+    changed = true;
+  }
+  if (input.link !== undefined) {
+    const want = input.link ?? NO_LINK;
+    if (input.curLink === undefined || !sameLink(want, input.curLink)) {
+      patch.link = { nodeId: want.nodeId, routeId: want.routeId };
+      changed = true;
+    }
+  }
+  if (changed) plan.patches.push(patch);
+  return plan;
+}
+
 function assertRange(start: number, end: number, now: number): void {
   if (!(start < end)) throw new RangeError("結束時間要晚於開始時間");
   if (end > now) throw new RangeError("不能記未來的時間");
@@ -677,6 +712,21 @@ export function thresholdOf(
   return globalMaxMin > 0 ? { min: globalMaxMin, source: "global" } : null;
 }
 
+/**
+ * 磨光⑦（D-時-151；使用者 10-21「蠻多正常記錄的時間塊被判定成長時間運行」）：一塊的門檻，所有可能拿到已結束塊的地方都走這支。
+ * 已結束的塊＝這一班的預估 → 全域上限（**不看分類預設長度**：那是「正在跑超過這麼久要提醒」用的通用值，拿來判已經記完的
+ * 紀錄只會把正常的長塊標成待確認）；任務的預計時間也只給運行中那班（②評審 #4）。運行中那班照舊四層（`thresholdOf`）。
+ */
+export function blockThresholdOf(
+  ended: boolean,
+  estimateMin: number | null,
+  cat: { default_min: number | null } | null,
+  globalMaxMin: number,
+  taskEstimateMin: number | null = null,
+): Threshold | null {
+  return ended ? thresholdOf(estimateMin, null, globalMaxMin) : thresholdOf(estimateMin, cat, globalMaxMin, taskEstimateMin);
+}
+
 export type RunMarker =
   | { kind: "none" }
   /** 門檻來自預估或任務的預計時間（②）：「誤點 +X」 */
@@ -792,14 +842,22 @@ export function planSplitMulti(
 }
 
 export interface MergePreview {
-  /** 合併後留下的那一列（併進鄰居＝鄰居的 id；鄰居是未記錄＝自己的 id） */
+  /**
+   * 合併後留下的那一列。磨光⑦（D-時-149）起一律是當前塊；只有「下一塊正在跑」時是運行中那一列的 id
+   * （它接著跑、內容換成當前塊的，D-時-150）。
+   */
   keepId: string;
+  /** 合併後的分類（一律是當前塊的） */
   categoryId: string;
   start: number;
-  /** null＝運行中（併進的是運行中那班） */
+  /** null＝運行中（下一塊正在跑，合併後接著跑） */
   end: number | null;
   /** 鄰居是未記錄時＝蓋掉的空白長度（毫秒）；鄰居是塊＝0 */
   gapMs: number;
+  /** 磨光⑦：會被刪掉的那一塊（鄰居緊貼＝鄰居；下一塊正在跑＝當前塊；鄰居是未記錄＝null） */
+  absorbId: string | null;
+  /** 磨光⑦：下一塊正在跑（合併後由當前塊的分類接著跑） */
+  intoRunning: boolean;
 }
 
 export interface MergeOutcome {
@@ -808,22 +866,34 @@ export interface MergeOutcome {
 }
 
 /**
- * 合併（〈開工決定〉二-2；①b①c 契約 §4.4）。`s` 必須已結束（零長度的也可以，它就是被吞掉）。
+ * 合併（〈開工決定〉二-2；①b①c 契約 §4.4）。`s` 必須已結束（零長度的也可以）。
  * 鄰居只看非零長度、不是 s 的塊：prev＝`end <= s.start` 之中 end 最大（同值取 start 大、再 id 大）；
  * next＝`start >= s.end` 之中 start 最小（含運行中；同值取 id 小）。
- *   - 鄰居與 s 之間的空白 < 1 分（畫面上沒有「未記錄」那一列）⇒ **併進鄰居**：鄰居延長蓋過 s（s 刪除），分類／ack 留鄰居的。
- *   - 否則鄰居是「未記錄」⇒ s 自己延長到空白的另一端。空白的另一端＝鄰居那一端與 `bound`（畫面上那一側的界線）
+ *
+ * 磨光⑦（使用者 10-21：「合併應該要保留當前選擇的時間塊，不是上/下一塊」；D-時-149、150）——結果一律是當前塊：
+ *   - 鄰居與 s 之間的空白 < 1 分（畫面上沒有「未記錄」那一列）⇒ s 延伸到鄰居那一端、鄰居刪除；分類、ack、預估、連結
+ *     都留 s 的；鄰居的手動荷札併進 s（`absorbedInto: 鄰居 → s`）。
+ *   - 下一塊緊貼、而且正在跑 ⇒ **保留運行中那一列**（通知、系統匣、提醒、別台的運行列認的是它）：`start ← s.start`，
+ *     分類抄 s 的、預估與連結抄 s 的（`infoOf` 給；沒給就只抄分類），ack 歸 0（長度還沒定，抄成已確認會讓保險上限
+ *     不再問）；s 刪除，s 的手動荷札併到運行中那列。從使用者看＝s 接著跑；同步上只是逐欄改值、不刪運行中那列。
+ *   - 否則鄰居是「未記錄」⇒ s 自己延長到空白的另一端（不變）。空白的另一端＝鄰居那一端與 `bound`（畫面上那一側的界線）
  *     取較近者；next 側再夾 now。界線上已經沒有 ≥ 1 分的空白 ⇒ null。
  */
 export function planMerge(
   spans: readonly Span[],
-  input: { id: string; dir: "prev" | "next"; bound: number; now: number },
+  input: {
+    id: string;
+    dir: "prev" | "next";
+    bound: number;
+    now: number;
+    /** 磨光⑦：塊的預估與連結（Span 不帶；repository 從列上給）。只有「下一塊正在跑」用得到 */
+    infoOf?: (id: string) => { estimateMin: number | null; link: BlockLink } | undefined;
+  },
 ): MergeOutcome | null {
   const s = findSpan(spans, input.id);
   if (s.end === null) throw new RangeError("運行中的班次，請直接點「換車」或「到着」");
   const sEnd = s.end;
   const others = spans.filter((x) => x.id !== s.id && !isZero(x));
-  const swallow: WritePlan = { patches: [], inserts: [], deletes: [s.id] }; // planCover 跳過零長度 ⇒ s 明寫刪除
 
   if (input.dir === "prev") {
     let P: Span | null = null;
@@ -832,15 +902,23 @@ export function planMerge(
       if (!P || x.end > P.end! || (x.end === P.end && (x.start > P.start || (x.start === P.start && x.id > P.id)))) P = x;
     }
     if (P && s.start - P.end! < MIN) {
-      const plan = mergePlans(planCover(spans, { start: P.end!, end: sEnd }, P.id), { patches: [{ id: P.id, end: sEnd }], inserts: [], deletes: [] }, swallow);
-      plan.absorbedInto = [{ from: s.id, to: P.id }]; // ⑥ 0-8：被吞那塊的手動荷札併到留下的
-      return { plan, preview: { keepId: P.id, categoryId: P.categoryId, start: P.start, end: sEnd, gapMs: 0 } };
+      // P 整塊落在 [P.start, s.start) 裡 ⇒ planCover 把它收掉（連同中間 < 1 分的碎屑）
+      const plan = mergePlans(planCover(spans, { start: P.start, end: s.start }, s.id), {
+        patches: [{ id: s.id, start: P.start }],
+        inserts: [],
+        deletes: [P.id],
+      });
+      plan.absorbedInto = [{ from: P.id, to: s.id }]; // ⑥ 0-8：被吞那塊的手動荷札併到留下的
+      return {
+        plan,
+        preview: { keepId: s.id, categoryId: s.categoryId, start: P.start, end: sEnd, gapMs: 0, absorbId: P.id, intoRunning: false },
+      };
     }
     const gapStart = P ? Math.max(P.end!, input.bound) : input.bound;
     if (s.start - gapStart < MIN) return null;
     return {
       plan: { patches: [{ id: s.id, start: gapStart }], inserts: [], deletes: [] },
-      preview: { keepId: s.id, categoryId: s.categoryId, start: gapStart, end: sEnd, gapMs: s.start - gapStart },
+      preview: { keepId: s.id, categoryId: s.categoryId, start: gapStart, end: sEnd, gapMs: s.start - gapStart, absorbId: null, intoRunning: false },
     };
   }
 
@@ -850,15 +928,39 @@ export function planMerge(
     if (!N || x.start < N.start || (x.start === N.start && x.id < N.id)) N = x;
   }
   if (N && N.start - sEnd < MIN) {
-    const plan = mergePlans(planCover(spans, { start: s.start, end: N.start }, N.id), { patches: [{ id: N.id, start: s.start }], inserts: [], deletes: [] }, swallow);
-    plan.absorbedInto = [{ from: s.id, to: N.id }]; // ⑥ 0-8
-    return { plan, preview: { keepId: N.id, categoryId: N.categoryId, start: s.start, end: N.end, gapMs: 0 } };
+    if (N.end === null) {
+      // 下一塊正在跑：保留運行中那一列，內容換成 s 的（D-時-150）
+      const patch: SpanPatch = { id: N.id, start: s.start, ack: false };
+      if (N.categoryId !== s.categoryId) patch.categoryId = s.categoryId;
+      const info = input.infoOf?.(s.id);
+      if (info) {
+        const nInfo = input.infoOf?.(N.id);
+        if (!nInfo || nInfo.estimateMin !== info.estimateMin) patch.estimateMin = info.estimateMin;
+        if (!nInfo || !sameLink(nInfo.link, info.link)) patch.link = { nodeId: info.link.nodeId, routeId: info.link.routeId };
+      }
+      const plan = mergePlans(planCover(spans, { start: sEnd, end: N.start }, N.id), { patches: [patch], inserts: [], deletes: [s.id] });
+      plan.absorbedInto = [{ from: s.id, to: N.id, off: true }]; // 評審 #4：排除也跟著當前塊走（N 自己的排除照留＝D-時-135「改分類不裁」）
+      return {
+        plan,
+        preview: { keepId: N.id, categoryId: s.categoryId, start: s.start, end: null, gapMs: 0, absorbId: s.id, intoRunning: true },
+      };
+    }
+    const plan = mergePlans(planCover(spans, { start: sEnd, end: N.end }, s.id), {
+      patches: [{ id: s.id, end: N.end }],
+      inserts: [],
+      deletes: [N.id],
+    });
+    plan.absorbedInto = [{ from: N.id, to: s.id }]; // ⑥ 0-8
+    return {
+      plan,
+      preview: { keepId: s.id, categoryId: s.categoryId, start: s.start, end: N.end, gapMs: 0, absorbId: N.id, intoRunning: false },
+    };
   }
   const gapEnd = Math.min(N ? N.start : Infinity, input.bound, input.now);
   if (gapEnd - sEnd < MIN) return null;
   return {
     plan: { patches: [{ id: s.id, end: gapEnd }], inserts: [], deletes: [] },
-    preview: { keepId: s.id, categoryId: s.categoryId, start: s.start, end: gapEnd, gapMs: gapEnd - sEnd },
+    preview: { keepId: s.id, categoryId: s.categoryId, start: s.start, end: gapEnd, gapMs: gapEnd - sEnd, absorbId: null, intoRunning: false },
   };
 }
 

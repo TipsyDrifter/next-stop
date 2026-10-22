@@ -54,6 +54,8 @@ import type {
   CurrentOccurrence,
   NodePatch,
   NodeRepository,
+  RescheduleOpts,
+  RescheduleResult,
   RouteProgress,
   RouteProgressSeed,
   ScheduleBounds,
@@ -62,6 +64,7 @@ import type {
   TodayRow,
 } from "./nodeRepository";
 import {
+  backfillAtOf,
   buildCalendar,
   buildRouteProgress,
   buildSchedule,
@@ -572,6 +575,9 @@ export class SqliteNodeRepository implements NodeRepository {
     // 票號不在這支 SQL 裡算：M3-2 改「當日全域發券序」後，號碼取決於本地日界與全集排序，
     // 統一交給 listSerials／buildSerialMap（大綱與今日視圖共用同一把尺）。
     const serials = await this.listSerials();
+    // 磨光⑦ 沙盒 F1：第一條（scheduled_on＝今天）不收退役的定期券——它的 scheduled_on 是各台自己推算、不同步、退役後就凍住的值，
+    // 兩台可能停在不同天（先済再退役的那台推到明天、同步收到的那台停在今天），落在哪天那天就冒出一張済。
+    // 退役的定期券只認第四條（今天完成）與第五條（今天交代過的班次）。
     const raw = await db.select<(NodeRow & { child_total: number; child_done: number })[]>(
       `SELECT r.*,
               (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = r.id AND c.${ALIVE}) AS child_total,
@@ -580,7 +586,7 @@ export class SqliteNodeRepository implements NodeRepository {
        WHERE r.${ALIVE}
          AND r.kind IN ('train','car','ticket')
          AND (
-              r.scheduled_on = $1
+              (r.scheduled_on = $1 AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
            OR (r.scheduled_on IS NOT NULL AND r.scheduled_on < $1 AND r.status != 'done')
            OR (r.status != 'done' AND r.due_on IS NOT NULL AND r.due_on <= $1
                AND (r.scheduled_on IS NULL OR r.scheduled_on > $1))
@@ -589,7 +595,7 @@ export class SqliteNodeRepository implements NodeRepository {
                     (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
                  OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
                ))
-           OR (r.repeat_rule IS NOT NULL AND r.status != 'done' AND EXISTS (
+           OR (r.repeat_rule IS NOT NULL AND EXISTS (
                  SELECT 1 FROM occurrences o
                  WHERE o.node_id = r.id AND o.${ALIVE}
                    AND COALESCE(o.completed_at, o.updated_at) >= $2
@@ -599,10 +605,12 @@ export class SqliteNodeRepository implements NodeRepository {
     );
     // 第五條 OR＝定期券變體（r2 的定期券版）：蓋済／運休之後 scheduled_on 已被引擎推到下一班，
     // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡。活著的定期券 status 恆非 done，
-    // 所以第四條（原樣）碰不到它；退役的定期券反過來只走第四條。
+    // 所以第四條（原樣）碰不到它。磨光⑦（接縫 #102，D-主-68）：**退役的也走第五條**——今天先済、同一天又被上層
+    // 「一起完成」退役的定期券，scheduled_on 已是明天、status 已是 done，第四條撈不到；不收它今日完成數會少一張
+    // （行程表走班次紀錄算得到）。退役之後引擎不再排班、連帶完成也不寫 occurrence，所以只會多出「今天交代過」的那幾張。
 
     // 這一輪出現的定期券，把班次記錄撈回來配對（一次查完，不逐列往返）
-    const repeatIds = raw.filter((n) => n.status !== "done" && parseRule(n.repeat_rule)).map((n) => n.id);
+    const repeatIds = raw.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id); // #102：退役的也配對（分區用那筆的班次日）
     const occByNode = await this.occurrencesByNode(db, repeatIds);
 
     const rows: TodayRow[] = raw.map((n) => {
@@ -676,7 +684,7 @@ export class SqliteNodeRepository implements NodeRepository {
     await this.update(ticketId, { route_id: routeId });
   }
 
-  async reschedule(id: string, nextDate: string | null, todayDateKey: string): Promise<void> {
+  async reschedule(id: string, nextDate: string | null, todayDateKey: string, opts?: RescheduleOpts): Promise<RescheduleResult> {
     const db = await getDb();
     const node = await this.getNode(id);
     if (!node) throw new Error("節點不存在");
@@ -691,19 +699,46 @@ export class SqliteNodeRepository implements NodeRepository {
       nextDate !== null && prev !== null && prev < nextDate && prev <= todayDateKey ? prev : node.carried_from;
     const todayPosition = leavesToday ? null : node.today_position;
     const now = nowUtcIso();
+    // 磨光⑦（D-主-67）：日期欄親手選了今天以前 ⇒ 補記＝同一個交易裡直接済在那一天
+    let doneAt: string | null = null;
+    if (opts?.backfill && nextDate !== null && nextDate < todayDateKey) {
+      const open = await db.select<{ c: number }[]>(
+        `SELECT COUNT(*) AS c FROM nodes WHERE parent_id = $1 AND ${ALIVE} AND status != 'done'`,
+        [id],
+      );
+      doneAt = backfillAtOf(node, nextDate, todayDateKey, opts.dayStartHour ?? 3, open[0]?.c ?? 0);
+    }
     const b = newWriteBatch();
-    b.stmts.push({
-      sql: `UPDATE nodes SET scheduled_on = $1, carried_from = $2, today_position = $3, updated_at = $4 WHERE id = $5`,
-      args: [nextDate, carried, todayPosition, now, id],
-    });
-    // 沒有 repeat_rule 的節點，scheduled_on 是貨真價實的主人資料（推遲＝主人的決定）
-    addOp(b, "nodes", id, "upsert", {
-      scheduled_on: nextDate,
-      carried_from: carried,
-      today_position: todayPosition,
-      updated_at: now,
-    });
+    if (doneAt) {
+      b.stmts.push({
+        sql: `UPDATE nodes SET scheduled_on = $1, carried_from = $2, today_position = $3, status = 'done', completed_at = $4, updated_at = $5 WHERE id = $6`,
+        args: [nextDate, node.carried_from, todayPosition, doneAt, now, id],
+      });
+      // 補記不算繰越（往過去挪；評審 #3：誤點票 10/18 補記到 10/20 不該長「自 10/18 繰越」）
+      addOp(b, "nodes", id, "upsert", {
+        scheduled_on: nextDate,
+        carried_from: node.carried_from,
+        today_position: todayPosition,
+        status: "done",
+        completed_at: doneAt,
+        updated_at: now,
+      });
+      this.writeLog(b, id, "", "done", doneAt, now); // 済的時刻＝那一天；列的寫入時刻照實是現在
+    } else {
+      b.stmts.push({
+        sql: `UPDATE nodes SET scheduled_on = $1, carried_from = $2, today_position = $3, updated_at = $4 WHERE id = $5`,
+        args: [nextDate, carried, todayPosition, now, id],
+      });
+      // 沒有 repeat_rule 的節點，scheduled_on 是貨真價實的主人資料（推遲＝主人的決定）
+      addOp(b, "nodes", id, "upsert", {
+        scheduled_on: nextDate,
+        carried_from: carried,
+        today_position: todayPosition,
+        updated_at: now,
+      });
+    }
     await runWriteBatch(db, b.stmts, b.ops);
+    return { backfilled: doneAt !== null };
   }
 
   async search(query: string, limit = 50): Promise<NodeRow[]> {
@@ -1127,20 +1162,22 @@ export class SqliteNodeRepository implements NodeRepository {
     body: string,
     event: WorkLogEvent | null,
     at: string,
+    /** 磨光⑦：列的寫入時刻（created_at／updated_at）；沒給＝at。補記的済 logged_at 是過去、寫入時刻照實是現在 */
+    writtenAt: string = at,
   ): WorkLog {
     const id = uuid();
     b.stmts.push({
       sql: `INSERT INTO work_logs (id, node_id, body, logged_at, event, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$6)`,
-      args: [id, nodeId, body, at, event, at],
+      args: [id, nodeId, body, at, event, writtenAt],
     });
     addOp(b, "work_logs", id, "upsert", {
       node_id: nodeId,
       body,
       logged_at: at,
       event,
-      created_at: at,
-      updated_at: at,
+      created_at: writtenAt,
+      updated_at: writtenAt,
     });
     return {
       id, node_id: nodeId, body, logged_at: at, event,
