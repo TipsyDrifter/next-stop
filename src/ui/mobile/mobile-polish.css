@@ -2,18 +2,21 @@
  * mobile-polish.css——手機今日／行程表的磨光①補丁（加工單 §2.4、§9.5；A7 今日半邊 §9.4）。
  *
  * 紀律同 schedule-mobile.css：每一條選擇器以 `[data-shell="mobile"]` 開頭（桌機殼永遠不命中）；不往 mobile.css 追加；
- *   顏色只用 theme token（紙面強調＝--accent；警示＝--color-late；朱 --color-seal 只給済）。
+ *   顏色只用 theme token（紙面強調＝--accent；警示＝--color-late／危險 --danger；朱 --color-seal 只給済）。
  * 由 MobileTextSheet.tsx／MobileTicketSheet.tsx／MobileToday.tsx import。
  * ═══════════════════════════════════════════════════════ */
 
 /* ─────────── ⋯ sheet 新項 ─────────── */
-/* 刪除＝赭字（放最下面、取消之上；磨光⑤ 朱只給済，警示由朱改赭） */
-[data-shell="mobile"] .m-sheet-item.is-danger { color: var(--color-late); }
+/* 刪除＝赭字（放最下面、取消之上；磨光⑤ 朱只給済，警示由朱改赭）。UI 丙-1：舊的危險列 class 退役，改掛危險鈕的 .ns-btn-danger——
+   sheet 列不畫框（列的長相歸 .m-sheet-item），只吃危險 token：字 --danger、按下 --danger-bg（視覺規範 §2.3） */
+[data-shell="mobile"] .m-sheet-item.ns-btn-danger { color: var(--danger); }
+[data-shell="mobile"] .m-sheet-item.ns-btn-danger:active { background: var(--danger-bg); }
 /* 上移／下移並排成一列兩格（同一件事的兩個方向；各自 52px 高的觸控目標） */
 [data-shell="mobile"] .m-sheet-pair { display: grid; grid-template-columns: 1fr 1fr; }
 [data-shell="mobile"] .m-sheet-pair .m-sheet-item { text-align: center; }
 [data-shell="mobile"] .m-sheet-pair .m-sheet-item + .m-sheet-item { border-left: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .m-sheet-pair .m-sheet-item:disabled { color: var(--color-ink-faint); cursor: default; background: transparent; }
+/* 禁用（§1.8）：淡度交給 .ns-btn:disabled 的 --disabled（.3），這裡只把字蓋回墨、按下不變底，免得淡上加淡 */
+[data-shell="mobile"] .m-sheet-pair .m-sheet-item:disabled { color: var(--color-ink); cursor: not-allowed; background: transparent; }
 
 /* ─────────── 一行輸入子面板（改名…／記一句…） ─────────── */
 [data-shell="mobile"] .m-txs-row {

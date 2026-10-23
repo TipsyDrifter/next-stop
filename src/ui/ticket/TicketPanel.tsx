@@ -7,7 +7,7 @@
  *   │   ├─ .ns-tk-bt-amt    前綴＋金額大字 input＋幣別 chip（小選單）；外幣下一行 .ns-tk-conv「≈ NT$ 3,155 · 匯率 31.55」可點改折算額
  *   │   ├─ .ns-tk-bt-seal   検印位（TicketSeal）
  *   │   ├─ .ns-tk-fields    帳戶／轉入／（轉入金額）／分類 combobox／日期＋時刻／備註／路線
- *   │   └─ .ns-tk-bt-foot   新票：存檔 Enter・存並再記 Ctrl+Enter・Esc 放棄；舊票：刪除 Del＋「已存」
+ *   │   └─ .ns-tk-bt-foot   新票：存並再記 Ctrl+Enter・存檔 Enter（主鈕在右）・Esc 放棄；舊票：刪除 Del＋「已存」
  *   └─【帳戶版】article.ns-tk-acctcard：名稱（行內改）・群組・幣別（有餘額鎖）・目前餘額＋調整餘額…・封存
  *
  * 新票＝明確存檔（Enter／Ctrl+Enter；store.setDraft／saveDraft）；舊票＝即時存（金額 600ms 去抖、其餘改了就送；
@@ -671,18 +671,19 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
         <div className="ns-tk-bt-foot">
           {isNew ? (
             <>
-              <button type="button" className="ns-tk-btn primary" onClick={() => void save(false)}>
-                存檔<kbd className="ns-tk-kbd">{capsOf("ticket-entry.save")}</kbd>
-              </button>
-              <button type="button" className="ns-tk-btn" onClick={() => void save(true)}>
+              {/* 次鈕在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起主鈕＝實心墨 .btn-seal） */}
+              <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => void save(true)}>
                 存並再記<kbd className="ns-tk-kbd">{capsOf("ticket-entry.again")}</kbd>
+              </button>
+              <button type="button" className="ns-btn btn-seal ns-tk-btn" onClick={() => void save(false)}>
+                存檔<kbd className="ns-tk-kbd">{capsOf("ticket-entry.save")}</kbd>
               </button>
               <span className="ns-tk-esc">{capsOf("ticket-entry.escape")} 放棄</span>
             </>
           ) : (
             <>
               {row && <RepeatMakeButton entry={row} />}
-              <button type="button" className="ns-tk-btn quiet danger" onClick={() => row && void store().deleteEntry(row.id)}>
+              <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => row && void store().deleteEntry(row.id)}>
                 刪除<kbd className="ns-tk-kbd">{capsOf("ticket.delete")}</kbd>
               </button>
               <span className={`ns-tk-saved${savedFlash ? " flash" : ""}`} aria-live="polite">
@@ -1162,7 +1163,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
           {adj === null ? (
             <button
               type="button"
-              className="ns-tk-btn"
+              className="ns-btn btn-ghost ns-tk-btn"
               onClick={() => {
                 setAdj("");
                 setTimeout(() => adjRef.current?.focus(), 0);
@@ -1196,11 +1197,11 @@ function AcctCard({ acc }: { acc: AccountRow }) {
                     }}
                   />
                 </label>
-                <button type="button" className="ns-tk-btn primary" disabled={!diff} onClick={() => void confirmAdj()}>
-                  確定
-                </button>
-                <button type="button" className="ns-tk-btn quiet" onClick={() => setAdj(null)}>
+                <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => setAdj(null)}>
                   取消
+                </button>
+                <button type="button" className="ns-btn btn-seal ns-tk-btn" disabled={!diff} onClick={() => void confirmAdj()}>
+                  確定
                 </button>
               </div>
               <p className="ns-tk-adjhint" aria-live="polite">
@@ -1217,17 +1218,17 @@ function AcctCard({ acc }: { acc: AccountRow }) {
 
       <div className="ns-tk-acctfoot">
         {archived ? (
-          <button type="button" className="ns-tk-btn quiet" onClick={() => void store().unarchiveAccount(acc.id)}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => void store().unarchiveAccount(acc.id)}>
             取消封存
           </button>
         ) : (
-          <button type="button" className="ns-tk-btn quiet" onClick={() => store().archiveAccount(acc.id)}>
+          <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => store().archiveAccount(acc.id)}>
             封存
           </button>
         )}
         <button
           type="button"
-          className="ns-tk-btn quiet"
+          className="ns-btn btn-ghost ns-tk-btn"
           aria-pressed={filterAccountId === acc.id}
           onClick={() => void store().setFilter(filterAccountId === acc.id ? null : acc.id)}
         >

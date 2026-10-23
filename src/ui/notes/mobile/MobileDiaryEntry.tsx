@@ -239,7 +239,7 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
         <button type="button" className="ns-notes-mmetabtn" aria-label="改這篇的日期" onClick={() => setPickDate(true)}>
           改日期
         </button>
-        <button type="button" className="ns-notes-mmetabtn quiet" onClick={() => void remove()}>
+        <button type="button" className="ns-notes-mmetabtn quiet ns-btn-danger" onClick={() => void remove()}>
           刪除
         </button>
       </div>
@@ -514,17 +514,18 @@ export function MobileDiaryDraft({ day, today, handle }: MobileDiaryDraftProps) 
       )}
       {confirmCancel && <p className="ns-notes-mwarn">還有內容沒存——再按一次就放棄</p>}
       <div className="ns-notes-mdraftbar">
+        {/* 取消在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起從「主鈕在左」換過來，同桌機日記草稿列） */}
+        <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onMouseDown={(e) => e.preventDefault()} onClick={cancel}>
+          取消
+        </button>
         <button
           type="button"
-          className="ns-notes-mbtn primary"
+          className="ns-notes-mbtn ns-btn btn-seal"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => void save()}
           disabled={saving}
         >
           存檔
-        </button>
-        <button type="button" className="ns-notes-mbtn" onMouseDown={(e) => e.preventDefault()} onClick={cancel}>
-          取消
         </button>
       </div>
     </div>

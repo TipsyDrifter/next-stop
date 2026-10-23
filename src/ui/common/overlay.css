@@ -1,30 +1,26 @@
 /* ─────────────────────────────────────────────────────
- * overlay.css — 覆蓋層（dialog 殼／快速跳轉／toast／設定／路線 dialog）
- * 原型沒有這些畫面，一律借原型票面語彙：紙卡＝.ticket（paper-high、1px line、3px radius、原型 box-shadow）、
- * 小字標籤＝.status（11px／.14em／1px dash 邊／1px 7px 1px 9px）、徽章＝.badge、輸入＝底線、主鈕＝朱印 seal。
- * 共用 class（.techo-overline／.techo-title／.techo-input／.techo-label／.btn-*／.techo-foot／.techo-veil）在 techo.css；
- * 這裡只補覆蓋層自己的：紙卡、按鈕尺寸、關閉 ×、大號搜尋輸入、類型徽章、status 式選項、底線 select。
- * 顏色一律 tokens，透明度用 color-mix；不留任何 Tailwind 預設灰。
+ * overlay.css — 覆蓋層（dialog 殼／快速跳轉／toast／設定／路線 dialog）＋按鈕基底
+ * 原型沒有這些畫面，一律借原型票面語彙：浮層材質＝.techo-card（techo.css；視覺規範 §1.5「浮」）、
+ * 小字標籤＝.status、徽章＝.badge、輸入＝底線、主鈕＝實心墨 .btn-seal（視覺規範 §2.3）。
+ * 共用 class（.techo-card／.techo-overline／.techo-title／.techo-input／.techo-label／.btn-*／.techo-foot／.techo-veil）在 techo.css；
+ * 這裡只補：浮層的字、按鈕尺寸（.ns-btn）、圖示鈕（.ns-iconbtn）、關閉 ×、大號搜尋輸入、類型徽章、status 式選項、底線 select。
+ * UI 丙-1 起一律引用 theme.css 語意層（theme.css 契約 6）：顏色、字級、圓角、控件高度、動效都寫 var()；
+ * 例外只有票券專用尺寸（視覺規範 §2.9，照原型逐字、行尾註明）。不留任何 Tailwind 預設灰。
  * ───────────────────────────────────────────────────── */
 
-/* 紙卡＝一張浮起的車票（原型 .ticket:hover 的陰影；暗色取 m1-c3 的 .ticket:hover） */
-.ns-card {
-  background: var(--color-paper-high);
-  border: 1px solid var(--color-line); border-radius: 3px;
-  box-shadow: 0 2px 4px rgba(60, 50, 30, .09), 0 6px 14px rgba(60, 50, 30, .08);
+/* 浮層的字：材質交給 .techo-card（它只管紙、不管字），三個殼的卡沿用頁面內文那一套（＝techo.css .page）。
+   UI 丙-1（視覺規範 §1.5「所有浮層一律 .techo-card」）：Toast／Ctrl+P／DialogShell 的卡改掛 .techo-card，
+   舊的 3px 暖棕陰影小卡退役（techo.css 留一個過渡別名給還沒改名的手機 sheet，丙-7 刪）。 */
+.ns-dialog, .ns-toast, .ns-qj {
   color: var(--color-ink);
-  font-size: 14px; line-height: 1.6; letter-spacing: .02em;
-}
-[data-theme="dark"] .ns-card {
-  border-color: #4A4030;
-  box-shadow: inset 0 1px 0 rgba(232, 214, 175, .06), 0 2px 4px rgba(0, 0, 0, .4), 0 8px 18px rgba(0, 0, 0, .36);
+  font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em;
 }
 
 /* DialogShell 的紙卡：高度由殼統一管（M3 ⑥ 修正席）。
    暗幕是 fixed inset-0＋items-start＋padding-top（topClass），故 % 高度算的正是「扣掉置頂距離之後」那一段；
    再讓出 24px 給下緣的陰影與呼吸。撐不下時由 .ns-dialog-body 內捲——**分頁不再自己猜標題列／頁腳的高度**
    （原本 .ns-bk 用 calc(82vh - 200px) 猜，少估 15px，1280×800 預設視窗下紙卡下緣就溢出視窗外）。
-   只掛在 DialogShell 的卡上，不動 .ns-card 共用類別（Toast／QuickJump 照舊）。 */
+   只掛在 DialogShell 的卡上（.techo-card.ns-dialog），Toast／QuickJump 不受影響。 */
 .ns-dialog {
   display: flex;
   flex-direction: column;
@@ -38,50 +34,59 @@
   overflow-y: auto;
 }
 
-/* 粉彩星空的「紙卡透出主欄的字」（主人真機拍板）：紙 --color-paper-high ＝ rgba(255,255,255,.64)
-   是主題共識 token（theme.css:50），不動；真正缺的是 .ns-card 少了那層霧面玻璃——
-   .ticket::before／.panel-sheet／.techo-card 三處票面都有 backdrop-filter，只有 .ns-card 沒有，
-   於是半透白只是一片薄紗，560 寬的設定卡壓在主欄上，底下整排字還讀得出來。
-   補回同一份材質配方（值逐字同 techo.css 的 .techo-card）：透明度不變、天空照樣看得見，
-   背後的字糊成光暈——票紙的輕盈感保住，不會變成實心白卡。
-   銀河鐵道照票紙紀律關掉（月光下的票紙是啞光不透，暗色視覺零變化）。
-   只掛 .ns-dialog（DialogShell 的卡，設定／RouteDialog 一起受益）；Toast／QuickJump 的 .ns-card 不受影響。 */
-.ns-dialog {
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-[data-theme="dark"] .ns-dialog {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
+/* 粉彩星空的「紙卡透出主欄的字」（主人真機拍板）：霧面玻璃原本在這裡替 dialog 單獨補一份；
+   UI 丙-1 起所有浮層都是 .techo-card，由 --float-blur 統一給（粉彩 blur(14px) saturate(1.15)、銀河 none），
+   Toast 與 Ctrl+P 也一起不透字，這裡不再另寫。 */
 
-/* 按鈕通用尺寸：techo 的 .btn-* 只管色與字距，尺寸／焦點環／停用態在此統一（字級走 .status 的 11px 家族上一階） */
+/* 按鈕基底（視覺規範 §2.3、§1.3 高度表）：techo.css 的 .btn-* 只管層級的色與字距，尺寸／焦點環／禁用在此統一。
+   高度用 min-height：桌機 --ctl-h 32＝1px 框＋5px＋20px 行高＋5px＋1px 框，跟舊的 padding 撐法逐像素同；
+   手機殼 theme.css [data-shell="mobile"] 換成 44（緊湊 36），元件不寫兩套；各線自己撐高的覆寫（特異度較高）照舊有效。
+   刻意不寫 display／white-space：本檔沒有 @layer，寫了會蓋掉掛在同一顆鈕上的 Tailwind hidden／flex。 */
 .ns-btn {
-  padding: 5px 14px; border-radius: 2px; cursor: pointer;
-  font-size: 12.5px; line-height: 20px; font-weight: 500;
-  transition: filter .15s, color .15s, border-color .15s, background .15s;
+  min-height: var(--ctl-h);
+  padding: 5px 14px; border-radius: var(--radius-ctl); cursor: pointer;
+  font-size: var(--fs-ui); line-height: 20px; font-weight: 500;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft),
+              background-color var(--dur-fast) var(--ease-soft), filter var(--dur-fast) var(--ease-soft),
+              box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
-.ns-btn--sm { padding: 2px 10px; font-size: 12px; line-height: 18px; }
-.ns-btn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-.ns-btn:disabled { opacity: .4; cursor: not-allowed; }
-.ns-btn:disabled:hover { filter: none; }
+.ns-btn--sm { min-height: var(--ctl-h-sm); padding: 2px 10px; font-size: var(--fs-sm); line-height: 18px; }
+.ns-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 禁用（§1.8）：--disabled .3＋not-allowed＋不響應 hover（主鈕不抬）；跟常駐淡態 --dim .42 分得出來 */
+.ns-btn:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-btn:disabled:hover { filter: none; box-shadow: none; transform: none; }
 
-/* 危險鈕：ghost 形制、字與邊走 late（刪除幹線／路線） */
-.btn-ghost.ns-btn-danger { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 45%, transparent); }
+/* 危險鈕：次鈕形制、字與框走 --danger（赭）、hover 底 --danger-bg；永遠不實心（§2.3） */
+.btn-ghost.ns-btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .btn-ghost.ns-btn-danger:hover {
-  color: var(--color-late); border-color: var(--color-late);
-  background: color-mix(in srgb, var(--color-late) 8%, transparent);
+  color: var(--danger); border-color: var(--danger);
+  background: var(--danger-bg);
 }
 
-/* 關閉 ×（dialog 殼／toast 共用） */
-.ns-close {
-  width: 28px; height: 28px; display: grid; place-items: center; border-radius: 2px; cursor: pointer;
-  font-size: 17px; line-height: 1; color: var(--color-ink-faint);
-  transition: color .15s, background .15s;
+/* 圖示鈕（§2.3，新）：28×28（手機 44）、無框、淡墨；hover 換 --hover-bg。一定要有 aria-label＋title。
+   常駐淡態另掛 opacity: var(--dim)（丙-3 起各列的 ⋯）。這是新 class，沒有既有元素會被 display 蓋到。 */
+.ns-iconbtn {
+  width: var(--ctl-icon); height: var(--ctl-icon); flex: none;
+  display: inline-grid; place-items: center;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  color: var(--color-ink-faint);
+  transition: color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft),
+              opacity var(--dur-fast) var(--ease-soft);
 }
-.ns-close--sm { width: 24px; height: 24px; font-size: 15px; }
-.ns-close:hover { color: var(--color-ink); background: var(--color-paper-used); }
-.ns-close:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-iconbtn:hover:not(:disabled) { background: var(--hover-bg); color: var(--color-ink); }
+.ns-iconbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-iconbtn:disabled { opacity: var(--disabled); cursor: not-allowed; background: transparent; color: var(--color-ink-faint); }
+
+/* 關閉 ×（dialog 殼／toast 共用）：字形 17／15 收進字階（--fs-h3 16／--fs-body 14，手機 16／15），
+   丙-2 換成 icons.tsx 的 SVG × 後字級就不再相干；hover 底照圖示鈕（§2.3）換 --hover-bg。 */
+.ns-close {
+  width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--radius-ctl); cursor: pointer;
+  font-size: var(--fs-h3); line-height: 1; color: var(--color-ink-faint);
+  transition: color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-close--sm { width: 24px; height: 24px; font-size: var(--fs-body); }
+.ns-close:hover { color: var(--color-ink); background: var(--hover-bg); }
+.ns-close:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* 標題列下的撕線（原型 .stub 的 1px dashed --dash） */
 .ns-tear { border-bottom: 1px dashed var(--color-dash); }
@@ -89,37 +94,42 @@
 /* 快速跳轉：大一點的底線輸入（覆蓋 .techo-input 的 4px 2px） */
 .techo-input.ns-qj-input {
   width: 100%; padding: 13px 20px 12px;
-  font-size: 16px; letter-spacing: .04em;
+  font-size: var(--fs-h3); letter-spacing: .04em;   /* 輸入框「大號」＝16（§2.5） */
   border-bottom-color: var(--color-line);
 }
-.techo-input.ns-qj-input:focus { border-bottom-color: var(--color-gold); }
-/* 結果列：選中＝燙金左邊線＋已使用的票色 */
-.ns-qj-row { border-left: 2px solid transparent; transition: background .15s, border-color .15s; }
-.ns-qj-row.is-active { border-left-color: var(--color-gold); background: var(--color-paper-used); }
+.techo-input.ns-qj-input:focus { border-bottom-color: var(--accent); }
+/* 結果列：選中＝--sel-line 左線（粉彩靛、銀河金；§2.10）＋已使用的票色 */
+.ns-qj-row {
+  border-left: 2px solid transparent;
+  transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-qj-row.is-active { border-left: var(--sel-line); background: var(--color-paper-used); }
 
 /* 結果列的類型徽章：原型 .badge 的小號版（臨時車票＝虛線「臨」，同 .badge.dashed） */
 .ns-kind-badge {
   width: 23px; height: 23px; flex: none; border-radius: 50%;
   border: 1.3px solid currentColor; display: grid; place-items: center;
-  font-family: var(--font-display); font-size: 10.5px; line-height: 1; font-weight: 600;
+  font-family: var(--font-display); font-size: 10.5px; line-height: 1; font-weight: 600; /* 票券專用（圓牌字），原型定值（§2.9） */
   color: var(--color-ink-soft);
 }
 .ns-kind-badge.is-dashed { border-style: dashed; }
 .ns-kind-badge.is-done { color: var(--color-ink-faint); }
-/* 夜間燈箱：亮盤深字（m3-ext-routemap 銀河版 .roundel 逐字＝#0f1218） */
-[data-theme="dark"] .ns-qj .roundel { color: #0f1218; }
+/* 夜間燈箱：亮盤深字（m3-ext-routemap 銀河版 .roundel 逐字；值在 theme.css --on-roundel） */
+[data-theme="dark"] .ns-qj .roundel { color: var(--on-roundel); }
 .roundel .dot { display: block; width: 9px; height: 9px; border-radius: 50%; }
 
-/* 選項（設定的主題三選）：原型 .status 式小字標籤；選中＝燙金邊與字 */
+/* 選項（設定的主題三選）：原型 .status 式小字標籤；選中＝作用中 --sel-fg（粉彩靛、銀河金；§2.10） */
 .ns-choice {
-  font-size: 11px; letter-spacing: .14em; padding: 2px 9px 2px 11px; cursor: pointer;
+  font-size: var(--fs-xs); letter-spacing: .14em; padding: 2px 9px 2px 11px; cursor: pointer;
   border: 1px solid var(--color-dash); color: var(--color-ink-soft); background: transparent;
-  transition: border-color .15s, color .15s, background .15s;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft),
+              background-color var(--dur-fast) var(--ease-soft);
 }
 .ns-choice:hover { color: var(--color-ink); }
-.ns-choice:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-/* 選中：邊走燙金、字走 --color-gold-ink（粉彩燙金字對紙只有 1.26，深金 5.0；暗色兩枚同值，視覺零變） */
-.ns-choice.is-on { border-color: var(--color-gold); color: var(--color-gold-ink); }
+.ns-choice:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 選中：框與字都走 --sel-fg（＝--accent）。框維持 1px（--sel-line 是 2px，換了會把同列擠動）；
+   銀河 --accent＝燙金，跟舊值同色、視覺零變 */
+.ns-choice.is-on { border-color: var(--sel-fg); color: var(--sel-fg); }
 
 /* 手帳式底線 select：去掉系統外觀，右側一枚細線 chevron */
 .ns-select-wrap { position: relative; display: inline-block; }
@@ -131,39 +141,104 @@
 }
 .ns-select-wrap select option { background: var(--color-paper-high); color: var(--color-ink); }
 
-/* 路線色 swatch（RouteDialog）：選中＝燙金外環 */
+/* 路線色 swatch（RouteDialog）：選中＝--accent 2px 外環（＝--sel-line；§2.5 ColorPicker）、聚焦＝同色淡一階 */
 .ns-swatch {
   width: 23px; height: 23px; border-radius: 50%; cursor: pointer;
   outline: 2px solid transparent; outline-offset: 2px;
   transition: outline-color .15s, opacity .15s;
 }
 .ns-swatch:hover { opacity: .85; }
-.ns-swatch.is-on { outline-color: var(--color-gold); }
-.ns-swatch:focus-visible { outline-color: var(--color-gold-soft); }
+.ns-swatch.is-on { outline-color: var(--accent); }
+.ns-swatch:focus-visible { outline-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .ns-swatch--hex { width: 16px; height: 16px; border: 1px solid var(--color-line); }
 
 /* 說明小字（欄位下方的一句話） */
-.ns-note { font-size: 11px; line-height: 20px; letter-spacing: .04em; color: var(--color-ink-soft); }
+.ns-note { font-size: var(--fs-xs); line-height: 20px; letter-spacing: .04em; color: var(--color-ink-soft); }
 
 /* 鍵帽小標籤（M3 ⑦ 快捷鍵指引頁／設定「快捷鍵」籤）：
    沿 stamps.css 的 .panel .log-hint kbd（--font-latin、1px line 邊、radius 2、0 4px）放大一級到 12px，
    不畫新形狀；顏色走 ink，暗色自然跟 token 走。單顆鍵帽給個最小寬，讓「T」「U」這種單字鍵帽跟「Esc」一樣站得穩。 */
 .ns-kbd {
   display: inline-block; min-width: 20px; text-align: center; white-space: nowrap;
-  font-family: var(--font-latin); font-size: 12px; line-height: 18px; letter-spacing: .04em;
-  padding: 0 4px; border: 1px solid var(--color-line); border-radius: 2px;
+  font-family: var(--font-latin); font-size: var(--fs-sm); line-height: 18px; letter-spacing: .04em;
+  padding: 0 4px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
   color: var(--color-ink);
 }
 /* 一條路徑的多顆鍵帽橫排（Ctrl ＋ Enter）：鍵帽間 3px，中間的「+」是小字、ink-soft */
 .ns-kbd-seq { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-.ns-kbd-plus { font-size: 11px; line-height: 18px; color: var(--color-ink-soft); }
+.ns-kbd-plus { font-size: var(--fs-xs); line-height: 18px; color: var(--color-ink-soft); }
 
 /* 打字確認（v1.1.6 重新開始契約 §5；ConfirmDialog 的 `typeToConfirm`）：
    形狀零發明——一句 `.ns-note`＋一條 `.techo-input` 底線輸入，疊在確認窗的 body 與鈕列之間；
-   確認鈕沿用 `.btn-seal`，不相符時只借 `.ns-btn:disabled` 的同一個淡度（.4＋not-allowed），不另畫一種「灰鈕」。
-   手機殼 16px：Android WebView 對 <16px 的輸入框聚焦時會放大整頁（沿 mobile.css `.m2-input` 的同一條理由）。 */
+   確認鈕就是一顆 `.ns-btn`，不相符時吃 `.ns-btn:disabled` 的禁用態（--disabled＋not-allowed），不另畫一種「灰鈕」。
+   手機殼 16px：Android WebView 對 <16px 的輸入框聚焦時會放大整頁（沿 mobile.css `.m2-input` 的同一條理由）——
+   字階裡兩殼都是 16 的只有 --fs-h3，借它的值、不是當標題用。 */
 .ns-confirm-type { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
-.ns-confirm-type-input { width: 100%; font-size: 14px; line-height: 1.5; letter-spacing: .12em; }
-.ns-confirm-type-input[aria-invalid="true"] { border-bottom-color: color-mix(in srgb, var(--color-late) 60%, var(--color-dash)); }
-.btn-seal.ns-confirm-type-ok:disabled { opacity: .4; cursor: not-allowed; filter: none; }
-[data-shell="mobile"] .ns-confirm-type-input { font-size: 16px; }
+.ns-confirm-type-input { width: 100%; font-size: var(--fs-body); line-height: 1.5; letter-spacing: .12em; }
+.ns-confirm-type-input[aria-invalid="true"] { border-bottom-color: color-mix(in srgb, var(--danger) 60%, var(--color-dash)); }
+[data-shell="mobile"] .ns-confirm-type-input { font-size: var(--fs-h3); }
+
+/* ─────────────────────────────────────────────────────
+ * UI 丙-2：DialogShell 擴充（契約 §1 #13；視覺規範 §2.4「置中對話框」；活樣本 ui-brand §2.4 容器 `.ns-dialog*`）
+ * 只加不刪：上面丙-1 的規則一條不動。紙卡（預設）的 DOM 跟既有 5 個 host 比，只有標題列（head）多一個 `ns-dialog-head` class
+ *   （給票皮的 `.ns-dialog.is-ticket .ns-dialog-head` 選得到），座標樣式不變；下列規則只命中新 prop 才會出現的 class：
+ *   .ns-dialog-foot（foot 插槽）／.ns-dialog.is-ticket（skin="ticket"）／.ns-dialog-stub／.ns-dialog-main。
+ *   寬度三檔 S／M／L 的 px 在 DialogShell.tsx 的 DIALOG_WIDTH（行內 style，同現況 width），這裡不寫寬度字面值。
+ * 一律 var() token；mask 的漸層只看 alpha（用 --color-ink 當不透明），不是顏色。
+ * ───────────────────────────────────────────────────── */
+
+/* 黏底按鈕列：排在內捲的 .ns-dialog-body 之外（.ns-dialog > * 不准被壓），本文怎麼捲它都在卡底。
+   取消在左、主鈕在右（host 照順序給；§2.3「順序」）；即時存的面板不給這一列。 */
+.ns-dialog-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5) var(--sp-4);
+  border-top: 1px solid var(--color-line);
+}
+
+/* 票皮（捕捉框＝DialogShell 的票皮；10-12 定稿：票形 600、去處票根、受付章）。
+   殼同紙卡（焦點、Esc、暗幕、標題列），材質畫在 ::before：同 .ticket 的配方（霧面玻璃／月光票紙），票根處上下各打一個孔。
+   --stub-w／--hole 是票券專用尺寸（§2.9：照原型逐字、不入字階），只在本皮內有效。 */
+.ns-dialog.is-ticket {
+  --stub-w: 132px; --hole: 7px;
+  position: relative; isolation: isolate;
+  flex-direction: row; align-items: stretch;
+  border: 0; border-radius: var(--radius-card); background: transparent;
+  box-shadow: var(--shadow-card-hover);
+}
+.ns-dialog.is-ticket::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background: var(--float-bg);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge); box-shadow: var(--glass-hi);
+}
+/* 有票根才打孔（mask 只看 alpha：洞＝transparent、其餘＝不透明的 --color-ink） */
+.ns-dialog.is-ticket.has-stub::before {
+  -webkit-mask-image:
+    radial-gradient(circle var(--hole) at var(--stub-w) 0, transparent 97%, var(--color-ink) 100%),
+    radial-gradient(circle var(--hole) at var(--stub-w) 100%, transparent 97%, var(--color-ink) 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    radial-gradient(circle var(--hole) at var(--stub-w) 0, transparent 97%, var(--color-ink) 100%),
+    radial-gradient(circle var(--hole) at var(--stub-w) 100%, transparent 97%, var(--color-ink) 100%);
+  mask-composite: intersect;
+}
+/* 去處票根（原型 .stub 的票皮版：寬 --stub-w、置中直排、右側撕線） */
+.ns-dialog-stub {
+  width: var(--stub-w); flex: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: var(--sp-4) 10px;
+  border-right: 1px dashed var(--color-dash);
+}
+.ns-dialog-stub .techo-label { text-align: center; }
+/* 主欄（原型 .cap-body）：標題列、本文、foot 直排；它吃滿卡高，本文照舊內捲 */
+.ns-dialog.is-ticket > .ns-dialog-main {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-4) 18px 14px 20px;
+}
+.ns-dialog-main > * { flex: 0 0 auto; }
+.ns-dialog-main > .ns-dialog-body { flex: 0 1 auto; }
+/* 票皮的標題列沒有撕線（票根右緣那條虛線就是撕線）；內距交給主欄（蓋過 Tailwind 的 px-6／pt-5／pb-3.5：utilities 在 @layer 內） */
+.ns-dialog.is-ticket .ns-dialog-head { padding: 0; border-bottom: 0; }
+.ns-dialog.is-ticket .ns-dialog-body { padding: 0; }
+.ns-dialog.is-ticket .ns-dialog-foot { padding: var(--sp-3) 0 0; }

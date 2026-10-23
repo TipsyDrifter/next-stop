@@ -1,7 +1,7 @@
 /**
- * DialogShell——置中小 dialog 的共用殼（2.3 路線 dialog／4.0 設定共用）：書封色暗幕（.techo-veil）＋票面紙卡（.ns-card）
- * ＋標題列（燙金 overline 小標＋襯線大標＋×）＋撕線分隔（.ns-tear）；Esc／點暗幕關閉。
- * 視覺全借原型票面語彙（paper-high、1px line、3px radius、原型 box-shadow、襯線標題）；沒有任何預設灰。
+ * DialogShell——置中小 dialog 的共用殼（2.3 路線 dialog／4.0 設定共用）：書封色暗幕（.techo-veil）＋浮層紙卡（.techo-card）
+ * ＋標題列（overline 小標＋襯線大標＋×）＋撕線分隔（.ns-tear）；Esc／點暗幕關閉。
+ * 視覺全借原型票面語彙（UI 丙-1：材質走 .techo-card 的語意層 token、字在 overlay.css 的 .ns-dialog、襯線標題）；沒有任何預設灰。
  * 取捨：桌面單窗、dialog 都很小，不做完整 focus trap（Tab 走得出去）；保證 Esc 可關、點暗幕可關、進場淡入（@starting-style）。
  * 焦點（磨光⑤ #100）：紙卡 tabIndex=-1，三條規則——
  *   ① 開啟：焦點不在卡內就移到卡本身（子元件 autoFocus／自己的開場聚焦優先：子的 effect 先跑，這裡看到已在卡內就不搶）。
@@ -15,9 +15,31 @@
  *   API 不變；五個 host（設定、`?`、路線對話框、時刻表面板、售票口對話框）自己的開場聚焦照舊有效。
  * 高度由殼統一管（M3 ⑥ 修正席）：紙卡 `.ns-dialog` 自己吃 `max-height: calc(100% - 24px)`（% 算的是
  * 暗幕扣掉 topClass 之後的內容高），撐不下時由 `.ns-dialog-body` 內捲——分頁不必去猜標題列與頁腳的高度。
+ *
+ * ── UI 丙-2 擴充（契約 §1 #13；視覺規範 §2.4「置中對話框」；活樣本 prototypes/ui-brand §2.4 容器）──
+ * 用途：一個明確的小任務（建路線、補記、改塊、分類管理、設定、記一句）。只要一個決定改用 ConfirmDialog；手機改用 MSheet／MFullPage。
+ * 三個新 prop，都是選填、預設值＝丙-1 現況（既有 5 個 host：設定、`?`、路線對話框、時刻表面板、售票口對話框——零變）：
+ *   - `size`：寬度三檔 S 380（確認框）／M 520（表單、時刻表面板）／L 620（變待辦、設定）。給了 size 就以它為準；
+ *     沒給才看 `width`（deprecated，丙-3～6 各 host 改 size 後刪）；兩個都沒給＝380（＝S，＝現況預設）。
+ *     寬度是版面常數，寫在本檔 `DIALOG_WIDTH`（行內 style，同現況），css 不寫 px 字面值；卡另掛 `.is-s|.is-m|.is-l` 當鉤子。
+ *   - `skin`：`paper` 紙卡（預設，`.techo-card`）／`ticket` 票皮（捕捉框：票形 600、去處票根、受付章——10-12 定稿保留）。
+ *     殼統一（焦點三規則、Esc、暗幕、標題列），皮只換材質與排版：票皮的材質畫在 `::before`（同 `.ticket` 打孔 mask），
+ *     左側 `stub`（去處票根，host 給內容）＋右側主欄（標題列、本文、foot）；`stub` 只在票皮生效，沒給就不打孔。
+ *   - `foot`：黏底按鈕列（`.ns-dialog-foot`；取消在左、主鈕在右，host 照這個順序給）。它排在內捲的本文之外，
+ *     本文怎麼捲按鈕列都在卡底——不必 position: sticky。即時存的面板不給（§2.3：即時存的表單沒有主鈕）。
+ * ARIA：`role="dialog"`＋`aria-modal`＋`aria-labelledby`→標題。鍵盤：Esc 關（IME 組字中不攔）、開啟焦點落卡、關閉還焦點（磨光⑤ 第 100 號的三規則）。
+ *   「Tab 不出卡」（規範 §2.4）本班不做：會改到既有 5 個 host 的 Tab 行為，留給丙-3 起套用時一併驗。
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import "./overlay.css";
+
+/** 對話框寬度三檔（視覺規範 §2.4；9 種收 3） */
+export type DialogSize = "S" | "M" | "L";
+
+/** 寬度檔位（px）：S＝確認框、M＝表單與時刻表面板、L＝變待辦與設定 */
+const DIALOG_WIDTH: Record<DialogSize, number> = { S: 380, M: 520, L: 620 };
+/** 票皮（捕捉框）的寬：票形 600（10-12 定稿，原型 `.ns-dialog.is-ticket`） */
+const TICKET_WIDTH = 600;
 
 interface DialogShellProps {
   title: string;
@@ -25,10 +47,21 @@ interface DialogShellProps {
   overline?: string;
   onClose: () => void;
   children: ReactNode;
-  /** 卡片寬（px） */
+  /** 寬度三檔（S 380／M 520／L 620）；給了就蓋過 `width` */
+  size?: DialogSize;
+  /**
+   * 卡片寬（px）。
+   * @deprecated 改用 `size`（S／M／L）；丙-3～6 各 host 換完後刪。
+   */
   width?: number;
   /** 置頂距離，預設 18vh */
   topClass?: string;
+  /** 皮：`paper` 紙卡（預設）／`ticket` 票皮（捕捉框） */
+  skin?: "paper" | "ticket";
+  /** 票皮左側的去處票根（`.ns-dialog-stub` 內的內容）；只在 `skin="ticket"` 生效 */
+  stub?: ReactNode;
+  /** 黏底按鈕列（取消在左、主鈕在右）；即時存的面板不給 */
+  foot?: ReactNode;
 }
 
 /**
@@ -49,16 +82,18 @@ function openerToRestore(): HTMLElement | null {
   return a;
 }
 
-export function DialogShell({ title, overline, onClose, children, width = 380, topClass = "pt-[18vh]" }: DialogShellProps) {
-  const titleId = useId();
-  const cardRef = useRef<HTMLDivElement>(null);
-  // 開窗前的焦點：第一次 render 時記（commit 之後子元件的 autoFocus 已經把焦點搬進來，effect 裡再讀就晚了）
+/**
+ * 焦點三條規則（磨光⑤ 第 100 號，見檔頭）抽成鉤子：DialogShell 自己用，丙-2 的 MSheet／MFullPage 也用同一套（一個殼一種焦點行為）。
+ * `cardRef` 指向帶 `tabIndex={-1}` 的容器；開窗前的焦點在第一次 render 記下（commit 之後子元件的 autoFocus 已經把焦點搬進來，
+ * effect 裡再讀就晚了）。抽出前後 hook 呼叫順序與依賴不變（useState → useEffect[opener]），既有 host 行為零變。
+ * `enabled=false`：整支不動（dev 樣本頁把 MSheet／MFullPage 畫在框裡當靜態樣本時，不搶頁面焦點）。
+ */
+export function useDialogFocus(cardRef: RefObject<HTMLElement | null>, enabled = true): void {
   const [opener] = useState(() => openerToRestore());
 
-  /* 磨光⑤ #100：焦點三條規則（見檔頭） */
   useEffect(() => {
     const card = cardRef.current;
-    if (!card) return;
+    if (!card || !enabled) return;
     // ① 開啟
     if (!card.contains(document.activeElement)) card.focus({ preventScroll: true });
     // ② 開著：掉到 body 就拉回卡上（下一拍再看，讓重畫後的子元件先有機會自己聚焦）
@@ -88,8 +123,31 @@ export function DialogShell({ title, overline, onClose, children, width = 380, t
       const a = document.activeElement;
       if (opener && opener.isConnected && (a === null || a === document.body)) opener.focus({ preventScroll: true });
     };
-    // 只在開窗那一刻設定（opener 在同一個 dialog 生命週期內不變）
-  }, [opener]);
+    // 只在開窗那一刻設定（opener 在同一個 dialog 生命週期內不變；cardRef 是穩定的 ref 物件；DialogShell 恆為 enabled）
+  }, [opener, cardRef, enabled]);
+}
+
+export function DialogShell({
+  title,
+  overline,
+  onClose,
+  children,
+  size,
+  width,
+  topClass = "pt-[18vh]",
+  skin = "paper",
+  stub,
+  foot,
+}: DialogShellProps) {
+  const ticket = skin === "ticket";
+  // size 優先；沒給才看 deprecated 的 width；都沒給＝現況預設 380（＝S）。票皮另有自己的 600。
+  const cardWidth = size ? DIALOG_WIDTH[size] : width ?? (ticket ? TICKET_WIDTH : DIALOG_WIDTH.S);
+  const hasStub = ticket && stub != null;
+  const titleId = useId();
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  /* 磨光⑤ 第 100 號：焦點三條規則（見檔頭）；UI 丙-2 抽成上方的 useDialogFocus，行為不變 */
+  useDialogFocus(cardRef);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -102,6 +160,24 @@ export function DialogShell({ title, overline, onClose, children, width = 380, t
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // 標題列與本文的 DOM 兩種皮共用（紙卡＝丙-1 現況逐字，只多一個 .ns-dialog-head 鉤子）；票皮的排版差在 overlay.css 的 .is-ticket
+  const head = (
+    <div className="ns-dialog-head ns-tear flex items-start justify-between gap-3 px-6 pt-5 pb-3.5">
+      <div className="min-w-0">
+        {overline && <p className="techo-overline mb-1.5">{overline}</p>}
+        <h2 id={titleId} className="techo-title text-[19px] truncate">
+          {title}
+        </h2>
+      </div>
+      <button type="button" onClick={onClose} aria-label="關閉" className="ns-close -mr-2 -mt-1 shrink-0">
+        ×
+      </button>
+    </div>
+  );
+  const body = <div className="ns-dialog-body px-6 pt-4 pb-5">{children}</div>;
+  const footRow = foot != null ? <div className="ns-dialog-foot">{foot}</div> : null;
+  const sizeClass = size ? ` is-${size.toLowerCase()}` : "";
 
   return (
     <div
@@ -116,22 +192,30 @@ export function DialogShell({ title, overline, onClose, children, width = 380, t
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ns-card ns-dialog max-w-[92vw] transition duration-150 ease-out starting:opacity-0 starting:translate-y-1"
+        className={
+          (ticket ? "ns-dialog is-ticket" + (hasStub ? " has-stub" : "") : "techo-card ns-dialog") +
+          sizeClass +
+          " max-w-[92vw] transition duration-150 ease-out starting:opacity-0 starting:translate-y-1"
+        }
         // 卡本身只是焦點的落腳處（#100），不畫聚焦框——框留給卡裡真正能操作的東西
-        style={{ width, outline: "none" }}
+        style={{ width: cardWidth, outline: "none" }}
       >
-        <div className="ns-tear flex items-start justify-between gap-3 px-6 pt-5 pb-3.5">
-          <div className="min-w-0">
-            {overline && <p className="techo-overline mb-1.5">{overline}</p>}
-            <h2 id={titleId} className="techo-title text-[19px] truncate">
-              {title}
-            </h2>
-          </div>
-          <button type="button" onClick={onClose} aria-label="關閉" className="ns-close -mr-2 -mt-1 shrink-0">
-            ×
-          </button>
-        </div>
-        <div className="ns-dialog-body px-6 pt-4 pb-5">{children}</div>
+        {ticket ? (
+          <>
+            {hasStub && <div className="ns-dialog-stub">{stub}</div>}
+            <div className="ns-dialog-main">
+              {head}
+              {body}
+              {footRow}
+            </div>
+          </>
+        ) : (
+          <>
+            {head}
+            {body}
+            {footRow}
+          </>
+        )}
       </div>
     </div>
   );

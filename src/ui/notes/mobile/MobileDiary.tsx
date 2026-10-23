@@ -249,14 +249,14 @@ export function MobileDiary() {
           ) : entries.length === 0 && !loading ? (
             <div className="ns-notes-mnodiary">
               <p>{empty.text}</p>
-              <button type="button" className="ns-notes-mbtn" onClick={openDiaryDraft}>
+              <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={openDiaryDraft}>
                 <IconPen />
                 {empty.button}
               </button>
             </div>
           ) : (
             <div className="ns-notes-mmorebtn">
-              <button type="button" className="ns-notes-mbtn" onClick={openDiaryDraft}>
+              <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={openDiaryDraft}>
                 <IconPlus />
                 再寫一篇
               </button>

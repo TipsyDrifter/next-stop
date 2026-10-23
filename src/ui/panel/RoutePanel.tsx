@@ -64,7 +64,7 @@ export function RoutePanel({ route }: { route: NodeRow }) {
     );
     askConfirm({
       title: `刪除路線「${route.name}」？`,
-      body: withDeleteHints("底下的支線、列車、車票與車站會一起刪掉（10 秒內可復原）。", hints),
+      body: withDeleteHints("底下的支線、列車、車票與車站會一起刪掉（6 秒內可復原）。", hints),
       confirmLabel: "刪除路線",
       danger: true,
       onConfirm: () =>
@@ -197,7 +197,7 @@ export function RoutePanel({ route }: { route: NodeRow }) {
 
       <ActionsRow
         right={
-          <ActionButton ariaLabel="刪除路線" title="刪除這條路線（10 秒內可復原）" tone="danger" onClick={removeRoute}>
+          <ActionButton ariaLabel="刪除路線" title="刪除這條路線（6 秒內可復原）" tone="danger" onClick={removeRoute}>
             刪除路線
           </ActionButton>
         }

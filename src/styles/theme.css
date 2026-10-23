@@ -37,6 +37,13 @@
  *    **不要用 .shadow-card utility**（它永遠是粉彩那組值）。
  * 5. 紙面上的「作用中／強調」色，粉彩星空請用 --accent／--accent-sky（靛），
  *    --gold 只留給書封燙金；銀河鐵道兩者同為金，不衝突。
+ * 6. 元件只引用語意層（UI 總盤點 丙-1 起；正本＝docs/UI/視覺規範.md §1，活樣本＝prototypes/ui-brand/index.html）。
+ *    三層：原色層（上方 @theme／:root／銀河區）→ 語意層（本檔末段：選中、聚焦、浮層、危險、心情、荷札、
+ *    分類盤、字階、間距、圓角、控件高度、動效）→ 元件。各線 css／tsx 不寫色碼、不寫字級／圓角／控件高度
+ *    的字面值，也不再自己定義同義變數（--ns-sel、--ns-tk-*、--cal-seg-on…一律改指語意層，丙-7 刪舊名）；
+ *    要的值語意層沒有，就加在本檔、附視覺規範出處，不在元件檔另起一份。選中與聚焦一律走 --sel-*／--focus-ring。
+ *    例外：噪點 SVG、陰影裡的 rgba、票券專用尺寸（視覺規範 §2.9）。
+ *    手機值一律寫在本檔 [data-shell="mobile"] 整組覆寫，元件不寫兩套；新 token 不進 @theme（見 4）。
  * ───────────────────────────────────────────────────── */
 
 /* ─── 字型全部內建（D-筆-34，旅客筆記車次②）───
@@ -327,4 +334,166 @@
   --route-j-l: var(--route-j);
   --route-l2-l: var(--route-l2);
   --route-none-l: var(--route-none);
+}
+
+/* ═══════════════════════════════════════════════════
+ * 語意層（UI 總盤點 丙-1；視覺規範 §1 定稿 v2.1；契約 6）
+ *   元件只引用這一層；各線的同義變數（--ns-sel／--ns-glass／--ns-tk-*／--cal-seg-on／--ns-tg-seg-on／
+ *   --ns-tt-cat-*／--ns-tag-*／--ns-tt-tag-*／--ns-mtag-*…）改指到這裡，舊名丙-7 總驗收時刪。
+ *   ⚠ 一律寫在無層級區塊，不進 @theme（契約 4：Tailwind 4.3 會摘掉沒被引用的變數）。
+ *   值與 prototypes/ui-brand/index.html 的「2. 規範新增」逐字一致；註解「現值」＝搬來的出處。
+ * ═══════════════════════════════════════════════════ */
+
+/* ─── 顏色（兩主題）───
+ * 選擇器寫 :root, [data-theme]（同 ui-brand 樣本）：這一組多半是 var()／color-mix() 推導，
+ * 自訂屬性在「宣告它的元素」上就把 var() 代入算好、往下繼承算好的值——掛在 [data-theme] 上，
+ * 局部掛主題的框（樣本頁兩主題並排）也會就地重算，不會繼承到 <html> 那一組。
+ * 銀河只在下一段覆寫「值本身不同」的幾條；--sel-*／--focus-ring／--danger*／--mood-* 指的是
+ * --accent／--late／--arc／--route-preset-3，銀河同名換值，自動跟著翻（粉彩靛、銀河金）。 */
+:root,
+[data-theme] {
+  /* 作用中／選中／聚焦／hover（§1.1、§2.10：三種狀態一種畫法） */
+  --sel-bg: color-mix(in srgb, var(--accent) 10%, transparent);      /* 選中底；現值：calendar.css:32 --cal-seg-on＝accent 10% */
+  --sel-fg: var(--accent);                                           /* 選中字 */
+  --sel-line: 2px solid var(--accent);                               /* 選中外框／左線；現值：售票口底線籤滑塊 2px */
+  --focus-ring: 1px solid var(--accent);                             /* outline: var(--focus-ring); outline-offset: 2px；現值 overlay.css:62 金 1px → 新定靛 */
+  --hover-bg: color-mix(in srgb, var(--color-ink) 6%, transparent);  /* 新定（--cover-hover 是 .06，取同感） */
+
+  /* 浮層與玻璃（§1.5：所有浮層一律 .techo-card；.ns-card 退役） */
+  --float-bg: var(--color-paper-high);
+  --float-blur: blur(14px) saturate(1.15);                           /* backdrop-filter: var(--float-blur)；現值 techo.css:537-538 */
+  --glass-edge: rgba(255, 255, 255, .78);                            /* 現值 techo.css:539 */
+  --glass-hi: inset 0 0 0 transparent;                               /* 粉彩無上緣高光：零陰影，才能跟 --shadow-card 串接 */
+  --veil: color-mix(in srgb, var(--color-book) 35%, transparent);    /* 暗幕；現值 techo.css:532 */
+
+  /* 圓牌字（路線圓牌：亮盤深字；原型 m3-ext-routemap.html .roundel／.theme-galaxy .roundel 逐字）。
+   * 圓牌底一律走淺色階 --roundel-preset-*，字固定深色、不跟 --color-ink 翻（銀河的 ink 是亮字）。 */
+  --on-roundel: #1d1f3a;                                             /* 現值 techo.css .roundel */
+
+  /* 危險（赭；§2.3 危險鈕永遠不實心） */
+  --danger: var(--late);
+  --danger-bg: color-mix(in srgb, var(--late) 8%, transparent);      /* 現值 overlay.css:73（荷札確認的 9% 併入） */
+
+  /* 心情三色（完成卡、側板；現值 CompleteCard.tsx 拿 --color-gold 當資料色 → 新定） */
+  --mood-good: var(--route-preset-3);   /* 順暢＝松葉 */
+  --mood-ok: var(--arc);                /* 還行＝金（紀念章弧那一金） */
+  --mood-hard: var(--late);             /* 吃力＝赭 */
+
+  /* 淡態與禁用（§1.8；值是 opacity：opacity: var(--dim)） */
+  --dim: .42;                           /* 常駐淡態（⋯、＋ 路線、›）：會 hover 轉實；現值 sidebar.css:113 */
+  --disabled: .3;                       /* 禁用：另加 cursor: not-allowed、不響應 hover、title 寫原因 */
+
+  /* 分類盤（時刻表存 color_idx 1–8；值逐字搬自 timetable.css:14-15 的 --ns-tt-cat-*，＝prototypes/時刻表-src/shared.css）。
+   * 與路線盤 --route-preset-* 共存、不併（§1.1 反駁 ③）；實心分類色上的字仍是 timetable.css 的 --ns-tt-on-cat。 */
+  --cat-1: #4757a6; --cat-2: #964468; --cat-3: #326b4b; --cat-4: #8a5a2b;
+  --cat-5: #2f6f86; --cat-6: #6b4aa0; --cat-7: #a0503f; --cat-8: #5c5b7d;
+
+  /* 荷札牌（沒有顏色，只用墨與紙推導）：值逐字搬自 notes-tags.css:17-24 的 --ns-tag-*；
+   * --ns-tt-tag-*（timetable.css）、--ns-mtag-*（notes-mobile.css）同值，三份都改指這裡。 */
+  --tag-line: color-mix(in srgb, var(--color-ink) 44%, transparent);     /* 框（牌的外層底＝細框） */
+  --tag-line-hi: color-mix(in srgb, var(--color-ink) 80%, transparent);  /* hover 時的框 */
+  --tag-fill: rgba(var(--starlight), .92);                               /* 牌面 */
+  --tag-hole: var(--color-paper);                                         /* 打孔（兩主題同式，銀河不重寫） */
+  --tag-eye: color-mix(in srgb, var(--color-ink) 55%, transparent);      /* 打孔墊圈 */
+  --tag-wash: color-mix(in srgb, var(--color-ink) 5%, transparent);      /* 建議列 hover */
+  --tag-sel: var(--sel-bg);                                               /* 原值 accent 10%＝--sel-bg，同值只留一處 */
+  --tag-float: rgba(var(--starlight), .9);                                /* 建議清單浮層底 */
+  /* 視覺規範 §1.1 表上的四個語意名（底、框、字、hover）＝上面逐字值的別名 */
+  --tag-bg: var(--tag-fill);
+  --tag-border: var(--tag-line);
+  --tag-fg: var(--color-ink-soft);
+  --tag-hover: var(--tag-line-hi);
+}
+
+/* 銀河：只覆寫值本身不同的（必須排在上一段之後——同特異度，後者勝出） */
+[data-theme="dark"] {
+  --float-blur: none;                                   /* 月光票紙啞光不透；現值 techo.css:545 */
+  --glass-edge: var(--color-line);                      /* 現值 techo.css:546 */
+  --glass-hi: inset 0 1px 0 rgba(230, 236, 255, .09);   /* 月光上緣高光；現值 techo.css:548 */
+  --on-roundel: #0f1218;                                /* 夜間燈箱亮盤深字；現值 techo.css／overlay.css:118 */
+
+  /* 分類盤・銀河（逐字搬自 timetable.css:25-26） */
+  --cat-1: #a9c0ea; --cat-2: #e6a8c0; --cat-3: #a6c9ad; --cat-4: #d9b98a;
+  --cat-5: #95c6d6; --cat-6: #c2aee6; --cat-7: #e6a88a; --cat-8: #a3a9b8;
+
+  /* 荷札牌・銀河（逐字搬自 notes-tags.css:26-32） */
+  --tag-line: color-mix(in srgb, var(--color-ink) 34%, transparent);
+  --tag-line-hi: color-mix(in srgb, var(--color-ink) 72%, transparent);
+  --tag-fill: var(--color-paper-high);
+  --tag-eye: color-mix(in srgb, var(--color-ink) 50%, transparent);
+  --tag-float: var(--color-paper-high);
+}
+
+/* ─── 尺度（字階、間距、圓角、控件高度、動效）───
+ * 都是字面值、不隨主題換 ⇒ 只寫 :root；手機殼在下一段 [data-shell="mobile"] 整組覆寫（元件不寫兩套）。 */
+:root {
+  /* 字階（§1.2 桌機欄；font-size 一律 var(--fs-*)。票券專用的 8.5／9／9.5／10.5 照原型、不入字階） */
+  --fs-date: 34px;      /* 日期大字、售票口月份大標（C2 定稿 m3-mood-c2-pastel.html:308） */
+  --fs-display: 30px;   /* 頁名式大標（現值 techo.css:184） */
+  --fs-title: 19px;     /* 對話框／側板／sheet 標題（現值 DialogShell.tsx:126） */
+  --fs-h3: 16px;        /* 區段標題 .sec h3、空狀態標題（現值 techo.css:209） */
+  --fs-tab: 14px;       /* 分頁籤（襯線 700、字距 .22em） */
+  --fs-ticket: 15px;    /* 票名（現值 techo.css:329；手機同值、字重 500） */
+  --fs-body: 14px;      /* 內文、列表主字 */
+  --fs-ui: 12.5px;      /* 按鈕、分段鈕、輸入框、選單項（現值 overlay.css:61） */
+  --fs-sm: 12px;        /* 次要資訊、chip */
+  --fs-xs: 11px;        /* 眉標（粉彩）、status 標籤（現值 techo.css:158） */
+  --fs-micro: 10px;     /* 眉標（銀河）、腳註（現值 techo.css:164） */
+
+  /* 間距（§1.3） */
+  --sp-1: 4px;          /* 圖示與字、chip 內距 */
+  --sp-2: 8px;          /* 控件之間、列內元素 */
+  --sp-3: 12px;         /* 卡內距（緊湊） */
+  --sp-4: 16px;         /* 卡內距（舒適）、手機 gutter */
+  --sp-5: 24px;         /* 區段內距 */
+  --sp-6: 32px;         /* 區段之間（.sec 的 34 收成 32） */
+  --sp-7: 48px;         /* 頁首與內容之間 */
+
+  /* 圓角（§1.4；--radius-card／--radius-pill 在上方原色層） */
+  --radius-ctl: 2px;    /* 按鈕、輸入框、分段鈕、chip（現值 overlay.css:60 .ns-btn） */
+  --radius-sheet: 12px; /* 手機底部 sheet 的上緣 */
+
+  /* 控件高度（§1.3 高度表桌機欄） */
+  --ctl-h: 32px;        /* 按鈕預設 */
+  --ctl-h-sm: 24px;     /* 按鈕緊湊、分段鈕緊湊 */
+  --ctl-icon: 28px;     /* 圖示鈕 */
+  --ctl-tab: 36px;      /* 分頁籤 */
+  --ctl-seg: 32px;      /* 分段鈕 */
+  --ctl-input: 32px;    /* 輸入框 */
+  --row-menu: 36px;     /* 選單列／sheet 列 */
+  --row-list: 36px;     /* 帳本列、緊湊票 */
+
+  /* 動效（§1.6；只動 transform／opacity，prefers-reduced-motion 一律凍結到終態）
+   * ambience.css 的星星／流星／列車另有自己的時長參數 --sky-dur（行內 style 帶、var(--sky-dur, Ns) 取用）；
+   * 原本也叫 --dur：現有元素都有帶行內值，但只要漏帶一個就會繼承到這裡的 180ms、預設值失效，丙-1 收尾改名分開。
+   * 天空層不要改吃這個。 */
+  --dur-fast: 120ms;    /* hover 與狀態換色 */
+  --dur: 180ms;         /* 浮層進出場 */
+  --dur-slow: 260ms;    /* 面板與 sheet 進出場 */
+  --ease: cubic-bezier(.2, .8, .2, 1);            /* 進出場 */
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1); /* 蓋章、小牌彈出（stampIn 不動） */
+  --ease-soft: ease-out;                          /* 透明度 */
+}
+
+/* 手機殼：App 根 div 與 <html> 都帶 data-shell（useShell 同步），portal 進 <body> 的 sheet 也吃得到。
+ * 只列兩殼不同的；--fs-title／-h3／-tab／-ticket、間距、圓角、動效兩殼同值。 */
+[data-shell="mobile"] {
+  /* 字階手機欄 */
+  --fs-date: 30px;
+  --fs-display: 26px;
+  --fs-body: 15px;
+  --fs-ui: 14px;
+  --fs-sm: 13px;
+  --fs-xs: 12px;
+  --fs-micro: 11px;
+
+  /* 控件高度手機欄（觸控目標 ≥44） */
+  --ctl-h: 44px;
+  --ctl-h-sm: 36px;
+  --ctl-icon: 44px;
+  --ctl-tab: 44px;
+  --ctl-seg: 44px;
+  --ctl-input: 44px;
+  --row-menu: 52px;
+  --row-list: 44px;
 }

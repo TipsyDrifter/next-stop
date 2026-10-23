@@ -100,7 +100,7 @@ export function useMoveTo(node: NodeRow): { button: ReactNode; picker: ReactNode
       aria-expanded={value !== null}
       title="搬到別的路線、列車或支線"
       onClick={() => (value ? close() : void open())}
-      className="status idle"
+      className="ns-btn ns-btn--sm btn-ghost" // UI 丙-1：跟同一列的 ActionButton 同一顆次鈕（§2.3）
     >
       移動到…
     </button>

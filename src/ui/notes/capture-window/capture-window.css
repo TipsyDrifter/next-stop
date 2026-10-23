@@ -80,8 +80,9 @@ html[data-window="capture"] #root {
   top: 32px;
 }
 
-/* toast（存失敗、主視窗還在啟動）：不浮在視窗底，排在票下面、跟著量進高度——不蓋票根列 */
-[data-window="capture"] .ns-card[role="status"] {
+/* toast（存失敗、主視窗還在啟動）：不浮在視窗底，排在票下面、跟著量進高度——不蓋票根列。
+ * UI 丙-1：Toast 的卡換成 .techo-card（舊的紙卡 class 退役），這裡改認 toast 自己的 .ns-toast */
+[data-window="capture"] .ns-toast[role="status"] {
   position: static;
   translate: none;
   transform: none;

@@ -1,0 +1,143 @@
+/* ─────────────────────────────────────────────────────
+ * listbits.css — 清單與空狀態的共用件（UI 丙-2 U3）
+ *   ManagerRow（§2.5 分類管理列）・EmptyState（§2.7）・ErrorBar（§2.4／§2.8 頁級錯誤列）・icons.tsx 的 .ns-ico
+ *
+ * 長相逐條照活樣本 prototypes/ui-brand/index.html（.ns-mgr、.ns-empty／.ns-empty-row、.ns-errrow、.ico）；
+ * 只引用 theme.css 的語意層 token——本檔沒有色碼、沒有 font-size／border-radius 字面值（§9 probe 1、2）。
+ * 手機值靠 [data-shell="mobile"] 的 token 整組換（--ctl-icon 44、--fs-* 手機欄），元件不寫兩套；
+ * 只有「常駐淡態在手機常駐實」與「手機圖示鈕裡的圖示放大到 20」兩條是殼的差異。
+ *
+ * 由各元件自己 import（同 PopMenu／popmenu.css 的作法）：只在元件被用到時才進 bundle。
+ * 全部是新的 class 名（.ns-mgr*／.ns-empty*／.ns-errrow*／.ns-ico*），不碰任何既有元素。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 圖示（icons.tsx）═══ */
+.ns-ico { flex: none; }
+/* 按鈕裡的小圖示（樣本 .ns-btn .ico 14） */
+.ns-btn > .ns-ico { width: 14px; height: 14px; }
+/* 手機殼的圖示鈕是 44 的觸控目標，圖示跟著放大（樣本 [data-shell="mobile"] .ns-iconbtn .ico） */
+[data-shell="mobile"] .ns-iconbtn > .ns-ico { width: 20px; height: 20px; }
+/* IconChevron：› 展開轉成 ▾ */
+.ns-ico-chev { transform-origin: 50% 50%; transition: transform var(--dur-fast) var(--ease); }
+.ns-ico-chev.is-open { transform: rotate(90deg); }
+
+/* ═══ ManagerRow（§2.5）：名稱｜色票／emoji｜↑ ↓｜⋯；自動存、沒有「完成」═══ */
+.ns-mgr { list-style: none; margin: 0; padding: 0; }
+.ns-mgr-row {
+  display: flex; align-items: center; gap: var(--sp-1);
+  min-height: 40px;
+  border-bottom: 1px dashed var(--color-line);
+}
+.ns-mgr-row:last-child { border-bottom: 0; }
+
+/* 名稱：行內改名的底線輸入（平常不畫底線、hover 淡線、聚焦作用中色） */
+.techo-input.ns-mgr-name {
+  flex: 1; min-width: 0;
+  height: var(--ctl-input); padding: 0 2px;
+  font-family: var(--font-body); font-size: var(--fs-body); line-height: 20px; letter-spacing: .04em;
+  border-bottom-color: transparent;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+.techo-input.ns-mgr-name:hover { border-bottom-color: var(--color-line); }
+.techo-input.ns-mgr-name:focus { border-bottom-color: var(--accent); }
+/* 不能改名的列（例：「未分類」固定在最後）：同字級的純文字，一行省略 */
+.ns-mgr-text {
+  flex: 1; min-width: 0; padding: 0 2px;
+  font-size: var(--fs-body); line-height: 20px; letter-spacing: .04em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ns-mgr-note { flex: none; font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); }
+
+/* 色票／emoji 格（22 寬、置中）；SwatchDot＝14 的圓點色票，顏色走 --c */
+.ns-mgr-swatch { flex: none; width: 22px; display: grid; place-items: center; line-height: 1; }
+.ns-mgr-dot {
+  width: 14px; height: 14px; border-radius: var(--radius-pill);
+  background: var(--c, var(--color-ink-faint));
+}
+
+/* ↑↓ 在邊界時禁用：disabled 的 <button> 收不到滑鼠，原因（title）掛在外面這層（同 PopMenu 的作法） */
+.ns-mgr-why { flex: none; display: inline-grid; }
+/* 沒有 ⋯ 的列留同寬的空格，讓整欄對齊 */
+.ns-mgr-gap { flex: none; width: var(--ctl-icon); }
+
+/* ⋯ 常駐淡態（§0 法則 05、§1.8）：平常 --dim，列被 hover／列內有焦點／選單開著時轉實；手機常駐實 */
+.ns-mgr-row .ns-iconbtn.is-dim { opacity: var(--dim); }
+.ns-mgr-row:hover .ns-iconbtn.is-dim,
+.ns-mgr-row:focus-within .ns-iconbtn.is-dim,
+.ns-mgr-row .ns-iconbtn.is-dim[aria-expanded="true"] { opacity: 1; }
+[data-shell="mobile"] .ns-mgr-row .ns-iconbtn.is-dim { opacity: 1; }
+
+/* 已封存：名稱淡墨、↑↓ 的位置換成「已封存」小字（同寬，整欄仍對齊） */
+.ns-mgr-row.is-archived .ns-mgr-name,
+.ns-mgr-row.is-archived .ns-mgr-text { color: var(--color-ink-faint); }
+.ns-mgr-row.is-archived .ns-mgr-swatch { opacity: var(--dim); }
+.ns-mgr-tag {
+  flex: none; width: calc(var(--ctl-icon) * 2 + var(--sp-1)); text-align: center;
+  font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); white-space: nowrap;
+}
+
+/* ═══ EmptyState（§2.7）：置中；印章輪廓（可省）＋襯線標題＋一句說明＋一顆次鈕＋可省文字鈕 ═══ */
+.ns-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-2);
+  max-width: 300px; margin-inline: auto; padding: var(--sp-5) var(--sp-4);
+}
+.ns-empty-mark { display: grid; place-items: center; margin-bottom: var(--sp-1); }
+/* 呼叫端放進來的印章（.stamp 検印框）在空狀態裡只是插畫：不可點、不抬 */
+.ns-empty-mark .stamp { cursor: default; }
+.ns-empty-mark .stamp:hover { transform: none; border-color: var(--color-dash); color: var(--color-ink-faint); }
+/* 搜尋無結果的預設記號：虛線圓＋放大鏡（樣本同款 54） */
+.ns-empty-search {
+  width: 54px; height: 54px; display: grid; place-items: center;
+  border: 1.6px dashed var(--color-dash); border-radius: var(--radius-pill);
+  color: var(--color-ink-faint);
+}
+.ns-empty-title {
+  margin: 0;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); line-height: 1.4; letter-spacing: .1em;
+  color: var(--color-ink);
+}
+/* 說明句：內文字級、最多兩行夾斷（§1.2 長文字） */
+.ns-empty-desc {
+  margin: 0;
+  font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em; color: var(--color-ink-soft);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.ns-empty-acts { display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); }
+
+/* 區段級（inline）：卡內一行＋文字鈕 */
+.ns-empty-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
+  font-size: var(--fs-sm); line-height: 20px; color: var(--color-ink-soft);
+}
+.ns-empty-row .ns-empty-desc { font-size: inherit; display: inline; -webkit-line-clamp: unset; }
+
+/* 空狀態裡的鈕要「圖示＋字」橫排（.ns-btn 基底刻意不寫 display，見 overlay.css，這裡就地補） */
+.ns-empty .ns-btn,
+.ns-empty-row .ns-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); }
+
+/* ═══ ErrorBar（§2.4 頁級錯誤列）：內容區頂一行、紙材質、赭字＋「重試」次鈕 ═══ */
+/* 紙＝樣本 .ns-paper 的配方（霧面玻璃＋噪點；銀河月光票紙＋上緣高光），全走語意層 token */
+.ns-errrow {
+  position: relative; isolation: isolate;
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 100%; padding: 6px 8px 6px 14px;
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge); border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  color: var(--late); font-size: var(--fs-ui); line-height: 20px; letter-spacing: .04em;
+}
+.ns-errrow::after { /* 霧面顆粒（粉彩限定；月光票紙啞光不加噪）——噪點 SVG 是 §9 probe 的例外 */
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .055; mix-blend-mode: multiply;
+}
+[data-theme="dark"] .ns-errrow::after { display: none; }
+.ns-errrow-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ns-errrow .ns-btn,
+.ns-errrow .ns-iconbtn { flex: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-ico-chev { transition: none; }
+  .techo-input.ns-mgr-name { transition: none; }
+}

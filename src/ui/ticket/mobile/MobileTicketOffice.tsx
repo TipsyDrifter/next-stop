@@ -96,7 +96,7 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
         <div className="ns-tk-mstate" role="alert">
           <p>帳本打不開</p>
           <small>{error}</small>
-          <button type="button" className="ns-tk-mbtn" onClick={() => void init("mobile").catch(() => undefined)}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => void init("mobile").catch(() => undefined)}>
             再試一次
           </button>
         </div>
@@ -301,7 +301,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
               排序
             </button>
           )}
-          <button type="button" className="ns-tk-madd" onClick={add}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-madd" onClick={add}>
             <IconPlus />
             記一筆
           </button>
@@ -329,7 +329,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       ) : (
         <div className="ns-tk-mempty">
           <p>這本帳還是空的</p>
-          <button type="button" className="ns-tk-mbtn primary" onClick={add}>
+          <button type="button" className="ns-btn btn-seal ns-tk-mbtn" onClick={add}>
             記第一筆
           </button>
           <button type="button" className="ns-tk-mlink" onClick={() => void startImport("mobile")}>

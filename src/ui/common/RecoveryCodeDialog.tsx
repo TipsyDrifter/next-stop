@@ -8,7 +8,7 @@
  *   * 碼只從 `syncStore.recoveryDisplay` 來（Rust 只回一次）；關掉就 `closeRecoveryDialog()` 清掉，之後再也拿不到。
  *   * **勾了「我已抄下」才能關**；Esc 與點暗幕一律不關。
  * 為什麼不套 DialogShell（WP-C）：DialogShell 恆有 ×、Esc 與點暗幕都會叫 onClose——在這裡那三條路都得是死路，
- *   留一顆按了沒反應的 × 只會讓人以為壞了。所以殼的**樣式**照借（`.techo-veil`＋`.ns-card.ns-dialog`＋`.ns-tear`
+ *   留一顆按了沒反應的 × 只會讓人以為壞了。所以殼的**樣式**照借（`.techo-veil`＋`.techo-card.ns-dialog`＋`.ns-tear`
  *   ＋燙金 overline＋襯線標題，視覺與設定卡同一張票），行為自己寫：沒有 ×、暗幕不收點擊。
  * 為什麼要在 window 的**捕獲階段**吞掉 Esc：桌機是在設定卡（DialogShell）裡按「產生」的，設定卡的 Esc 監聽掛在
  *   window 冒泡階段——不先吞掉，主人在看碼時順手按 Esc 會把底下的設定卡關掉，畫面剩一張浮在主欄上的碼。
@@ -83,7 +83,7 @@ function RecoveryCodeDialogInner({ code }: { code: string }) {
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={leadId}
-        className="ns-card ns-dialog ns-recovery-dialog max-w-[92vw] transition duration-150 ease-out starting:opacity-0 starting:translate-y-1"
+        className="techo-card ns-dialog ns-recovery-dialog max-w-[92vw] transition duration-150 ease-out starting:opacity-0 starting:translate-y-1"
         style={{ width: 520 }}
       >
         <div className="ns-tear px-6 pt-5 pb-3.5">

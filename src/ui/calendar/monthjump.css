@@ -47,8 +47,8 @@
 }
 .ns-monthjump .ns-mj-yin::-webkit-outer-spin-button,
 .ns-monthjump .ns-mj-yin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.ns-monthjump .ns-mj-yin:focus { border-bottom-color: var(--color-gold); }
-.ns-monthjump .chev:disabled { opacity: .35; cursor: default; }
+.ns-monthjump .ns-mj-yin:focus { border-bottom-color: var(--accent); }   /* UI 丙-1：聚焦底線＝作用中色（粉彩靛、銀河金；§2.10） */
+.ns-monthjump .chev:disabled { opacity: var(--disabled); cursor: not-allowed; }   /* 禁用（§1.8） */
 .ns-monthjump .chev:disabled:hover { color: var(--ink-mid, var(--color-ink-soft)); border-color: var(--color-dash); }
 
 /* ═══ 第二區：十二個月份小方標（3 列 × 4 欄；欄數與 MonthJump.tsx 的 COLUMNS 同一個數字） ═══ */
@@ -64,13 +64,13 @@
   transition: color .15s, border-color .15s;
 }
 .ns-monthjump button.status:hover { color: var(--color-ink-soft); border-color: var(--color-dash); }
-.ns-monthjump button.status.on { color: var(--color-ink); border-color: var(--color-ink); }
-.ns-monthjump button.status:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-monthjump button.status.on { color: var(--sel-fg); border-color: var(--sel-fg); }   /* 選中＝作用中色（§2.10；同 panel.css） */
+.ns-monthjump button.status:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* 今天所在的月＝金菱形小記（同月格今天的菱形；4px 收小一階，不搶 .on 的邊框） */
 .ns-monthjump button.status.has-today::before {
   content: ""; display: inline-block; width: 4px; height: 4px;
-  background: var(--accent, var(--color-gold)); transform: rotate(45deg);
+  background: var(--accent); transform: rotate(45deg);
   margin-right: 5px; vertical-align: 1.5px;
 }
 

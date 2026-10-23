@@ -1,0 +1,230 @@
+/* ─────────────────────────────────────────────────────
+ * gallery.css — 共用元件樣本頁（dev／mock 專用；UI 丙-2 契約 §0、§1「樣本頁」）的版面
+ *
+ * 只管「樣本頁自己的架子」：舞台框、圖說、規格行、手機框、目錄、主題／殼切換列。
+ * 元件本身的長相一律吃元件自己的 css（common/*.css、overlay.css、techo.css），本檔不重畫任何元件。
+ * 例外只有五種「靜態示範」（真的 :focus-visible／:hover 同一時間只能有一顆、常駐淡態還沒有通用 class）：
+ *   .ns-gal-focus*  把 :focus-visible 的同一個 token（--focus-ring／聚焦底線 --accent）畫在樣本上；
+ *   .is-hover       按鈕／圖示鈕的 hover 欄：照抄元件 :hover 的同一組宣告（techo.css .btn-*:hover、overlay.css），只在 .ns-gal 內；
+ *   .ns-gal-dim     常駐淡態 --dim（會 hover 轉實）；
+ *   .ns-gal-oncover 借 .ns-mfull-bar（全螢幕頁頂列＝書封色）當「書封上」的底，不另寫深面；
+ *   .ns-gal-band    手機頂帶 MobileTopBand 的長相（同樣借 .ns-mfull-bar；真元件的樣式只在手機 media 內，桌機預覽吃不到）。
+ * 規則（視覺規範 §9 probe 1、2）：只用 var(--…) token——零色碼、零 font-size／border-radius 字面值；
+ *   手機值靠 [data-shell="mobile"] 的 token 整組換，本檔只有版面（欄數、內距）掛 [data-shell="mobile"]。
+ * 全部 class 以 .ns-gal 開頭；只由 Gallery.tsx import（lazy chunk，?gallery=1 才載入，不進一般頁面）。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 根與版心 ═══ */
+.ns-gal { color: var(--color-ink); }
+.ns-gal-sheet {
+  position: relative; z-index: 1;
+  max-width: 1040px; margin: 0 0 0 var(--sp-5);
+  padding: var(--sp-7) var(--sp-7) calc(var(--sp-7) * 2);
+}
+[data-shell="mobile"] .ns-gal-sheet { max-width: none; margin: 0; padding: 0 0 var(--sp-7); }
+/* 桌機上「手機 375」預覽：整頁內容掛 data-shell="mobile"，token 整組換成手機欄 */
+.ns-gal-forced {
+  width: min(375px, 100%); margin: 0 auto; padding: var(--sp-3) var(--m-gutter, var(--sp-4)) var(--sp-5);
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-sheet);
+  font-size: var(--fs-body); line-height: 1.6;
+}
+.ns-gal code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0; color: var(--color-ink); overflow-wrap: anywhere;
+}
+
+/* ═══ 頁頭（樣本頁自己的，照 ui-brand 章首 .bk-ch） ═══ */
+.ns-gal-head {
+  position: relative; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: var(--sp-4) var(--sp-5); padding-bottom: var(--sp-5); margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-gal-head::after { /* 手帳式雙細線（同頁首 ⑥） */
+  content: ""; position: absolute; left: 0; right: 0; bottom: calc(var(--sp-1) * -1);
+  border-bottom: 1px solid var(--color-line); opacity: .5;
+}
+.ns-gal-head .techo-overline { margin: 0 0 var(--sp-2); }
+.ns-gal-title {
+  margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-display);
+  letter-spacing: .06em; line-height: 1.15;
+}
+.ns-gal-lede { margin: var(--sp-2) 0 0; max-width: 680px; font-size: var(--fs-sm); line-height: 1.7; color: var(--color-ink-soft); }
+.ns-gal-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+.ns-gal-toc { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); margin: 0 0 var(--sp-2); }
+
+/* ═══ 一節＝.sec 標題（techo.css 既有）＋若干組樣本 ═══ */
+.ns-gal-sec { scroll-margin-top: var(--sp-4); }
+.ns-gal-sec > .sec { margin-top: var(--sp-7); }
+/* 手機寬：節號那行太長，換到標題下一行 */
+[data-shell="mobile"] .ns-gal-sec > .sec { flex-wrap: wrap; row-gap: var(--sp-1); }
+[data-shell="mobile"] .ns-gal-sec > .sec > .note { flex: 1 1 100%; }
+.ns-gal-comp { margin-bottom: var(--sp-5); }
+.ns-gal-stage {
+  position: relative; display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: var(--sp-4) var(--sp-5); padding: var(--sp-5);
+  border: 1px dashed var(--color-line); border-radius: var(--radius-card);
+}
+.ns-gal-stage.is-col { flex-direction: column; }
+.ns-gal-stage.is-center { justify-content: center; }
+[data-shell="mobile"] .ns-gal-stage { gap: var(--sp-3); padding: var(--sp-3); }
+
+/* 一格樣本：上方圖說（狀態＋class 名），下方渲染出來的元件 */
+.ns-gal-cell { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); min-width: 0; max-width: 100%; }
+.ns-gal-cell.is-wide { width: 100%; }
+/* 只這一格掛 data-shell="mobile" 的格（Cell shell="mobile"）：mobile.css 的 App 根版面規則 [data-shell="mobile"]
+   （手機 media 內：height 100dvh、overflow hidden、width 100%）也會命中它，格子被撐成一整屏、底下多一大片空白——
+   特異度 (0,2,0) 蓋回一般格。桌機殼的 media 不成立，本來就沒中。 */
+.ns-gal-cell[data-shell] { height: auto; overflow: visible; }
+.ns-gal-cell[data-shell]:not(.is-wide) { width: auto; }
+/* 在 .ns-gal-grid 裡占滿一整列（例：大號輸入） */
+.ns-gal-cell.is-span { grid-column: 1 / -1; }
+.ns-gal-cap { font-size: var(--fs-micro); letter-spacing: .2em; line-height: 1.6; color: var(--ink-mid); }
+.ns-gal-cap b { color: var(--color-ink); font-weight: 500; letter-spacing: .12em; }
+.ns-gal-cap code { letter-spacing: 0; color: var(--color-ink-soft); }
+.ns-gal-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.ns-gal-grid {
+  display: grid; width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--sp-4) var(--sp-5); align-items: start;
+}
+/* 頁首樣本夠寬才排得出全套工具列：窄時橫捲（雙細線在 bottom:-4px，底下留一格不讓它撐出直捲） */
+.ns-gal-scrollx { width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: var(--sp-2); }
+/* PageHeader 是桌機主欄的件：全套要 780、窄版畫成主欄 600 的樣子；比這窄（手機殼、375 預覽）就橫捲，不硬擠 */
+.ns-gal-scrollx > .ns-pagehead,
+.ns-gal-scrollx > .ns-gal-narrow { min-width: 600px; }
+.ns-gal-scrollx > .ns-pagehead:not(.is-compact) { min-width: 780px; }
+.ns-gal-narrow { width: 600px; }
+
+/* 規格行（ui-brand .bk-spec）：dt 小字欄名、dd 一行規格 */
+.ns-gal-spec {
+  display: grid; grid-template-columns: minmax(56px, max-content) 1fr; gap: 2px var(--sp-3);
+  margin: var(--sp-3) 0 0; font-size: var(--fs-sm); line-height: 1.7; color: var(--color-ink-soft);
+}
+.ns-gal-spec dt { padding-top: 2px; font-size: var(--fs-micro); letter-spacing: .28em; color: var(--ink-mid); }
+.ns-gal-spec dd { margin: 0; min-width: 0; }
+.ns-gal-spec b { color: var(--color-ink); font-weight: 500; }
+[data-shell="mobile"] .ns-gal-spec { grid-template-columns: 1fr; gap: 0; }
+[data-shell="mobile"] .ns-gal-spec dd + dt { margin-top: var(--sp-2); }
+
+/* ═══ 按鈕矩陣：一個層級一列，狀態格自動換行（手機 375 也排得下） ═══ */
+.ns-gal-btnrow {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-4);
+  width: 100%; padding: var(--sp-3) 0; border-bottom: 1px dashed var(--color-line);
+}
+.ns-gal-btnrow:last-child { border-bottom: 0; }
+.ns-gal-btnrow > .lv { width: 7.5em; align-self: center; font-weight: 500; }
+.ns-gal-btnrow > .st { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
+.ns-gal-btnrow > .note { flex: 1 1 15em; min-width: 0; align-self: center; font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-gal-btnrow > .lv { width: 100%; }
+
+/* 淡態 vs 禁用：每顆鈕下方一行小字（--dim／--disabled），一對一對並排 */
+.ns-gal-row.ns-gal-pairs { align-items: flex-end; gap: var(--sp-2) var(--sp-4); }
+.ns-gal-pair { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+
+/* ═══ 表單欄位（樣本頁的欄：小標在上、控件在下；.techo-input 基底沒有高度 token，這裡補） ═══ */
+.ns-gal-field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; width: 100%; }
+.ns-gal-field > .techo-input,
+.ns-gal-field > .ns-select-wrap > .techo-input { box-sizing: border-box; width: 100%; min-height: var(--ctl-input); }
+/* 字級補 --fs-ui；大號（.ns-qj-input，--fs-h3＝16）保留元件自己的字級 */
+.ns-gal-field > .techo-input:not(.ns-qj-input),
+.ns-gal-field > .ns-select-wrap > .techo-input { font-size: var(--fs-ui); }
+.ns-gal-field > .ns-select-wrap { display: block; }
+.ns-gal-hint { font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-faint); }
+.ns-gal-hint.is-err { color: var(--late); }
+
+/* ═══ 靜態示範：focus／常駐淡態／書封上 ═══ */
+.ns-gal-focus { outline: var(--focus-ring); outline-offset: 2px; }
+.techo-input.ns-gal-focus { outline: none; border-bottom-color: var(--accent); }
+/* 漫遊焦點元件（Tabs／Segmented）：Tab 進來焦點落在選中那一格，框往內縮（同元件 :focus-visible 的 offset） */
+.ns-gal-focus-sel > [aria-selected="true"],
+.ns-gal-focus-sel > [aria-checked="true"] { outline: var(--focus-ring); outline-offset: -3px; }
+.ns-gal-focus-chip .ns-datechip { outline: var(--focus-ring); outline-offset: 2px; }
+/* 靜態 hover 欄（ui-brand 的 .is-hover）：宣告逐字照元件的 :hover——techo.css .btn-seal／.btn-ghost／.btn-text:hover、
+   overlay.css .btn-ghost.ns-btn-danger:hover／.ns-iconbtn:hover。元件改了 hover，這裡跟著改。 */
+.ns-gal .btn-seal.is-hover { box-shadow: var(--shadow-card-hover); transform: translateY(-1px); }
+.ns-gal .btn-ghost.is-hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-gal .btn-ghost.ns-btn-danger.is-hover { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.ns-gal .btn-text.is-hover { text-decoration: underline; text-decoration-thickness: 1px; }
+.ns-gal .ns-iconbtn.is-hover { background: var(--hover-bg); color: var(--color-ink); }
+@media (prefers-reduced-motion: reduce) {
+  .ns-gal .btn-seal.is-hover { transform: none; }   /* 同 techo.css：主鈕抬一階只留陰影 */
+}
+.ns-gal-dim { opacity: var(--dim); }
+.ns-gal-dim:hover, .ns-gal-dim:focus-visible { opacity: 1; }
+.ns-gal [aria-busy="true"] { cursor: progress; }
+/* 樣本頁自己的「圖示＋字」鈕：.ns-btn 刻意不寫 display（怕蓋 Tailwind），Tailwind preflight 又把 svg 設成 block，
+   沒有父層補 inline-flex 時圖示會疊在字上面（PageHeader／EmptyState 各自補了）——樣本這幾顆自己補 */
+.ns-btn.ns-gal-ibtn { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); }
+.ns-mfull-bar.ns-gal-oncover {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  min-height: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-ctl);
+}
+
+/* ═══ 手機框（桌機上看手機殼元件；框本身掛 data-shell="mobile"，token 換手機欄） ═══ */
+.ns-gal-phones { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-5); width: 100%; }
+.ns-gal-phone-cell { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); width: min(375px, 100%); }
+.ns-gal-phone-cell > .ns-gal-cap { text-align: center; }
+.ns-gal-phone {
+  position: relative; isolation: isolate; overflow: hidden; flex: none;
+  display: flex; flex-direction: column; box-sizing: border-box;
+  width: 100%; height: var(--gal-h, auto);
+  border: 1px solid var(--color-dash); border-radius: var(--radius-sheet);
+  box-shadow: var(--shadow-card);
+  font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em; color: var(--color-ink);
+}
+.ns-gal-phone-body { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--m-gutter, var(--sp-4)); }
+.ns-gal-fakerow {
+  padding: var(--sp-2) 0; border-bottom: 1px dashed var(--color-line);
+  font-size: var(--fs-sm); color: var(--color-ink-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 手機頂帶的樣子（Gallery.tsx BandLook；MobileTopBand 的靜態複本）：書封色＋燙金線借 .ns-mfull-bar，
+   版面照 mobile.css .m-band（頁名左、日付印＋搜尋＋齒輪靠右；44 觸控格、圖示 20、最右鈕吃掉右側內距）。
+   框裡不需要狀態列高度：min-height 只取 --m-band-h，不加 --m-safe-top。 */
+.ns-mfull-bar.ns-gal-band {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--m-band-h); padding: 0 var(--m-gutter, var(--sp-4));
+}
+.ns-gal-band-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ns-gal-band-name > .t {
+  font-family: var(--font-display); font-size: var(--fs-h3); letter-spacing: .14em; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ns-gal-band-name > .l { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .26em; color: var(--color-gold); }
+.ns-gal-band-end { margin-left: auto; display: flex; align-items: center; }
+.ns-gal-band-end .ns-date-seal { color: var(--color-book-ink); }
+.ns-gal-band-btn { flex: none; display: grid; place-items: center; width: 44px; height: 44px; color: var(--color-book-ink); }
+.ns-gal-band-btn > svg { opacity: .85; }
+.ns-gal-band-btn:last-child { margin-right: -12px; }
+
+/* 時刻表 tab 一格（運行中徽的定位框）＋書封底 */
+.ns-mfull-bar.ns-gal-tabbar {
+  display: flex; justify-content: center; gap: var(--sp-5);
+  min-height: 0; padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-ctl);
+}
+.ns-gal-tabcell {
+  position: relative; display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--sp-1); width: 72px; height: 56px;
+  font-size: var(--fs-micro); letter-spacing: .16em;
+}
+
+/* ═══ 卡（ManagerRow 清單、區段級空狀態用的紙卡） ═══ */
+.ns-gal-card { box-sizing: border-box; width: 100%; max-width: 460px; padding: var(--sp-3) var(--sp-5) var(--sp-4); }
+.ns-gal-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+.ns-gal-card-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); letter-spacing: .05em; }
+.ns-gal-card > .sec.ns-gal-cardsec { margin: 0 0 var(--sp-2); }
+.ns-gal-empties { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--sp-5); }
+
+/* ═══ 圖示表 ═══ */
+.ns-gal-icons {
+  display: grid; width: 100%;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr));
+  gap: var(--sp-3) var(--sp-4);
+}
+.ns-gal-icon { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; font-size: var(--fs-sm); color: var(--color-ink-soft); }
+.ns-gal-icon > .box {
+  flex: none; display: grid; place-items: center; width: var(--ctl-icon); height: var(--ctl-icon);
+  border: 1px dashed var(--color-line); border-radius: var(--radius-ctl); color: var(--color-ink);
+}
+.ns-gal-icon > span:last-child { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; }

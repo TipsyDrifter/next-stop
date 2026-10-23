@@ -6,16 +6,15 @@
  *
  *   一、閱讀態  .ns-notes-read.ns-notes-md（加在既有 .ns-notes-read 上的第二個 class；子選擇器、不另加 class）
  *               D-筆-54：16px／行高 1.8／字距 .03em（取代 notes.css 的 15／1.95／.035em）；`*斜體*`＝著重號（拉丁段 .lat 仍斜）
- *   二、側板筆記區  .ns-notes-nf*（住在核心側板 FieldRow 裡；hover／選中底借本線 --ns-hover／--ns-sel 的同一公式，就地推導）
+ *   二、側板筆記區  .ns-notes-nf*（住在核心側板 FieldRow 裡；hover／選中底直接用 theme.css 的 --hover-bg／--sel-bg）
  *               列內摘要行用 .ex 不用契約字面的 .x——側板 panel.css 的 `.panel .x` 是清除小叉（18px、hover 才現身），會把摘要行吃掉
  *   三、日曆浮層的日記列  .ns-notes-dayaux*（借核心 .pop-sec／h4／.rule）
  * 原型的 --mono 在 theme.css 沒有 ⇒ 本檔就地定義 --ns-mono（只是字型堆疊，不是全域 token）。
  * ───────────────────────────────────────────────────── */
 
+/* hover／選中底不再就地推導（UI 丙-1）：側板、日曆浮層不在 .ns-notes 底下，直接引用 theme.css 的 --hover-bg／--sel-bg */
 .ns-notes-md, .ns-notes-nf, .ns-notes-dayaux {
   --ns-mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "Noto Sans Mono", monospace;
-  --ns-hover: color-mix(in srgb, var(--color-ink) 5%, transparent);
-  --ns-sel: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
 /* ═══ 一、閱讀態 ═══ */
@@ -76,7 +75,7 @@
   transition: text-decoration-color .15s;
 }
 .ns-notes-md a:hover { text-decoration-color: var(--color-ink); }
-.ns-notes-md a:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 1px; }
+.ns-notes-md a:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 1px; }
 /* 行內小牌：只把垂直對位壓在行框裡（不撐行距；原型實測 -.32em 會多 1px） */
 .ns-notes-md .ns-notes-tag.sm { vertical-align: baseline; }
 
@@ -89,8 +88,8 @@
   font: inherit; color: inherit; background: transparent; border: 0; cursor: pointer;
   transition: background .12s;
 }
-.ns-notes-nfrow > button:hover { background: var(--ns-hover); }
-.ns-notes-nfrow > button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.ns-notes-nfrow > button:hover { background: var(--hover-bg); }
+.ns-notes-nfrow > button:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-notes-nfrow .t {
   display: block; font-size: 13px; line-height: 1.5; letter-spacing: .03em; color: var(--color-ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -110,7 +109,7 @@
   font: inherit; font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-soft); transition: color .15s;
 }
 .ns-notes-nfmore:hover { color: var(--color-ink); }
-.ns-notes-nfmore:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-notes-nfmore:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-notes-nfadd {
   display: inline-flex; align-items: center; gap: 4px; height: 24px; margin: 4px 0 0 -7px; padding: 0 7px;
   font: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); opacity: .8;
@@ -129,7 +128,7 @@
 .ns-notes-dayauxrow .ar { margin-left: 6px; color: var(--color-ink-faint); transition: transform .15s cubic-bezier(.2, .9, .3, 1.2), color .15s; }
 .ns-notes-dayauxrow:hover { color: var(--color-ink); }
 .ns-notes-dayauxrow:hover .ar { transform: translateX(2px); color: var(--accent); }
-.ns-notes-dayauxrow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-notes-dayauxrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 @media (prefers-reduced-motion: reduce) {
   .ns-notes-md a, .ns-notes-nfrow > button, .ns-notes-nfmore, .ns-notes-nfadd, .ns-notes-dayauxrow, .ns-notes-dayauxrow .ar { transition: none; }

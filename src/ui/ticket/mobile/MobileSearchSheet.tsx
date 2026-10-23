@@ -230,7 +230,7 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   return createPortal(
     <div className="m-sheet-veil techo-veil ns-tk-mveil" role="presentation" onClick={() => void close()}>
       <div
-        className="m-sheet ns-card ns-tk-msheet ns-tk-msearch-sheet"
+        className="m-sheet techo-card ns-tk-msheet ns-tk-msearch-sheet"
         role="dialog"
         aria-modal="true"
         aria-label="搜尋與篩選"
@@ -280,7 +280,7 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
               </button>
             )}
           </label>
-          <button type="button" className="ns-tk-mbtn quiet" onClick={() => void close()}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => void close()}>
             完成
           </button>
         </div>
@@ -367,10 +367,10 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
         </div>
 
         <div className="ns-tk-ms-foot">
-          <button type="button" className="ns-tk-mbtn" onClick={clearAll} disabled={!isFilterActive(filter) && text === ""}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={clearAll} disabled={!isFilterActive(filter) && text === ""}>
             清除全部
           </button>
-          <button type="button" className="ns-tk-mbtn primary" onClick={() => void close()}>
+          <button type="button" className="ns-btn btn-seal ns-tk-mbtn" onClick={() => void close()}>
             看結果（{n}）
           </button>
         </div>

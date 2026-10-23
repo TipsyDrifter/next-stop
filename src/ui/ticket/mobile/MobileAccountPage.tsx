@@ -142,7 +142,7 @@ export function MobileAccountPage({ id }: { id: string }) {
             {acc.currency !== MAIN_CURRENCY && <small>{acc.currency}</small>}
           </b>
           {adj === null ? (
-            <button type="button" className="ns-tk-mbtn" onClick={() => setAdj("")}>
+            <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => setAdj("")}>
               調整餘額…
             </button>
           ) : (
@@ -160,10 +160,10 @@ export function MobileAccountPage({ id }: { id: string }) {
                   {...adjIme}
                 />
               </label>
-              <button type="button" className="ns-tk-mbtn quiet" onClick={() => setAdj(null)}>
+              <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => setAdj(null)}>
                 取消
               </button>
-              <button type="button" className="ns-tk-mbtn primary" disabled={busy || adj.trim() === ""} onClick={() => void submitAdjust()}>
+              <button type="button" className="ns-btn btn-seal ns-tk-mbtn" disabled={busy || adj.trim() === ""} onClick={() => void submitAdjust()}>
                 確定
               </button>
             </div>
@@ -173,7 +173,7 @@ export function MobileAccountPage({ id }: { id: string }) {
         <div className="ns-tk-macct-links">
           <button
             type="button"
-            className="ns-tk-mbtn"
+            className="ns-btn btn-ghost ns-tk-mbtn"
             onClick={() => {
               void setFilter(acc.id);
               closePanel();
@@ -182,7 +182,7 @@ export function MobileAccountPage({ id }: { id: string }) {
             看這個帳戶的帳
           </button>
           {!archived && (
-            <button type="button" className="ns-tk-mbtn" onClick={() => openNew({ accountId: acc.id, currency: acc.currency })}>
+            <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => openNew({ accountId: acc.id, currency: acc.currency })}>
               在這個帳戶記一筆
             </button>
           )}
@@ -190,11 +190,11 @@ export function MobileAccountPage({ id }: { id: string }) {
 
         <div className="ns-tk-macct-foot">
           {archived ? (
-            <button type="button" className="ns-tk-mbtn" onClick={() => void unarchiveAccount(acc.id)}>
+            <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => void unarchiveAccount(acc.id)}>
               取消封存
             </button>
           ) : (
-            <button type="button" className="ns-tk-mbtn danger" onClick={() => archiveAccount(acc.id)}>
+            <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={() => archiveAccount(acc.id)}>
               封存
             </button>
           )}

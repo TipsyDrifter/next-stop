@@ -9,10 +9,16 @@
  * - 分區錨點：每席只在自己的分區內加規則；分區之間空一行＋錨點註解，合併時才不撞。
  */
 
-/* ═══ §A 分類色盤 token（甲・Stage 0；D-時-16：每個主題一組八色；值＝prototypes/時刻表-src/shared.css 的 --cat-1..8）═══ */
+/* ═══ §A 分類色盤 token（甲・Stage 0；D-時-16：每個主題一組八色；值＝prototypes/時刻表-src/shared.css 的 --cat-1..8）═══
+ * UI 丙-1（視覺規範 §1.1、契約 §1-2）：八色兩主題搬進 theme.css 語意層 --cat-1..8；這裡只把舊名指回去（tsx 的 style 仍寫
+ * var(--ns-tt-cat-N)，丙-7 總驗收時一起改名、刪這段）。選擇器跟 theme.css 一樣寫 :root, [data-theme]——var() 在宣告的元素上
+ * 就地代入，局部掛主題的框也拿到自己那一組。通知用色（timetableNotice.ts CAT_PALETTE）要給 Kotlin 實色，留一份對照表。 */
+:root,
+[data-theme] {
+  --ns-tt-cat-1: var(--cat-1); --ns-tt-cat-2: var(--cat-2); --ns-tt-cat-3: var(--cat-3); --ns-tt-cat-4: var(--cat-4);
+  --ns-tt-cat-5: var(--cat-5); --ns-tt-cat-6: var(--cat-6); --ns-tt-cat-7: var(--cat-7); --ns-tt-cat-8: var(--cat-8);
+}
 :root {
-  --ns-tt-cat-1: #4757a6; --ns-tt-cat-2: #964468; --ns-tt-cat-3: #326b4b; --ns-tt-cat-4: #8a5a2b;
-  --ns-tt-cat-5: #2f6f86; --ns-tt-cat-6: #6b4aa0; --ns-tt-cat-7: #a0503f; --ns-tt-cat-8: #5c5b7d;
   /* 實心分類色上的字（＝原型 v-e.css --on-cat）：粉彩的分類色深 ⇒ 白字 */
   --ns-tt-on-cat: #fff;
   /* ④ 日程（乙・§L；＝原型 v-h.css --vh-night／--vh-gut、shared.css --paper-solid）：24:00 以後的淡夜色、刻度欄底、不透明的紙（浮層、sticky 欄頭） */
@@ -23,8 +29,6 @@
   --ns-tt-sched-pop-shadow: rgba(10, 10, 40, .32);
 }
 [data-theme="dark"] {
-  --ns-tt-cat-1: #a9c0ea; --ns-tt-cat-2: #e6a8c0; --ns-tt-cat-3: #a6c9ad; --ns-tt-cat-4: #d9b98a;
-  --ns-tt-cat-5: #95c6d6; --ns-tt-cat-6: #c2aee6; --ns-tt-cat-7: #e6a88a; --ns-tt-cat-8: #a3a9b8;
   /* 銀河鐵道的分類色是亮粉色 ⇒ 深字（＝原型 :root[data-theme="dark"] --on-cat） */
   --ns-tt-on-cat: #101217;
   /* ④ 日程（乙・§L） */
@@ -40,22 +44,17 @@
  *
  * 車次①b 全 App 的運行中標記（①b①c 契約 §5.8；NavBadge.tsx；長相＝原型 v-e.css .ve-nb）：書封「時刻表」那一枚、
  * 手機 tab 第四格的圖示右上角一顆實心小圓牌（運行中那一班的分類色＋圓牌字），外圈一道書封色描邊跟底色分開；
- * 長時間運行待確認＝再一圈赭、慢慢呼吸。掛上（發車／換車）時彈一下（spring 取樣的 linear()，不支援的環境退回 Bézier）；
+ * 長時間運行待確認＝再一圈赭、慢慢呼吸。掛上（發車／換車）時彈一下（--ns-tt-spring＝--ease-spring）；
  * 到着時縮小淡出（.is-out，＝原型 .ve-nb.is-out；NavBadge 留著最後那班 220ms 才拿掉）。
  * 書封與 tab bar 都是 --color-book 底；字色用 §A 的 --ns-tt-on-cat（＝原型 --on-cat：粉彩白字、銀河鐵道深字）。 */
 
-/* 動效曲線（①b；§B–§F 共用）：ease＝出場快、收尾軟的 Bézier；spring＝阻尼彈簧取樣（＝原型 springCurve(320, 26)，
- * 約 0.48 秒、過衝 3%）、soft＝不過衝的彈簧（springCurve(220, 29)）。不支援 linear() 的環境退回 ease。 */
+/* 動效曲線（①b；§B–§F 共用）：ease＝進出場、spring＝蓋章／小牌彈出（會過衝）、soft＝透明度與展開（不過衝）。
+ * UI 丙-1（視覺規範 §1.6、契約 §1-2）：三條改指 theme.css 動效 token（--ease／--ease-spring／--ease-soft）；
+ * 原本的 linear() 彈簧取樣（springCurve(320, 26)／(220, 29)）併掉，舊名丙-7 刪。 */
 :root {
-  --ns-tt-ease: cubic-bezier(.22, 1, .36, 1);
-  --ns-tt-spring: var(--ns-tt-ease);
-  --ns-tt-soft: var(--ns-tt-ease);
-}
-@supports (transition-timing-function: linear(0, 1)) {
-  :root {
-    --ns-tt-spring: linear(0, 0.049, 0.123, 0.247, 0.348, 0.481, 0.575, 0.686, 0.781, 0.839, 0.902, 0.939, 0.975, 0.995, 1.013, 1.021, 1.027, 1.029, 1.029, 1.026, 1.024, 1.02, 1.017, 1.013, 1.01, 1.007, 1.005, 1.004, 1.002, 1.001, 1, 1, 1);
-    --ns-tt-soft: linear(0, 0.034, 0.123, 0.212, 0.329, 0.418, 0.501, 0.593, 0.657, 0.726, 0.772, 0.811, 0.851, 0.877, 0.904, 0.921, 0.939, 0.95, 0.959, 0.969, 0.975, 0.98, 0.984, 0.987, 0.99, 0.992, 0.994, 0.995, 0.996, 0.997, 0.998, 0.998, 1);
-  }
+  --ns-tt-ease: var(--ease);
+  --ns-tt-spring: var(--ease-spring);
+  --ns-tt-soft: var(--ease-soft);
 }
 
 .cover .gnav-line:has(> .ns-tt-navbadge) { position: relative; }
@@ -111,14 +110,14 @@
 /* chip（原型 .chip；is-late＝赭） */
 .ns-tt-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  border: 1px dashed var(--color-dash); border-radius: 2px; padding: 1px 6px;
-  font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .06em; white-space: nowrap;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); padding: 1px 6px;
+  font-size: var(--fs-micro); color: var(--color-ink-faint); letter-spacing: .06em; white-space: nowrap;
   background: transparent; font-family: inherit; line-height: 1.5;
 }
 .ns-tt-chip.is-late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 46%, transparent); }
 button.ns-tt-chip { cursor: pointer; }
 button.ns-tt-chip:hover { border-style: solid; }
-button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* 鍵帽（桌機運行列與切換鈕；字由 formatChord 產） */
 .ns-tt-kbd {
@@ -156,12 +155,12 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   color: var(--color-ink-soft); font-family: inherit; cursor: pointer;
   transition: box-shadow .15s, border-color .15s, background .15s;
 }
-.ns-tt-cat:hover { border-color: color-mix(in srgb, var(--color-gold) 60%, var(--color-line)); }
+.ns-tt-cat:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--color-line)); }
 .ns-tt-cat:active { background: var(--color-paper-used); }
-.ns-tt-cat:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-cat:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-cat-name { font-size: 13px; letter-spacing: .1em; color: var(--color-ink); line-height: 1.3; }
 .ns-tt-cat-sum { font-size: 11px; color: var(--color-ink-faint); min-height: 16px; line-height: 16px; }
-.ns-tt-cat.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 12%, transparent); color: var(--color-ink); }
+.ns-tt-cat.is-on { border-color: var(--sel-fg); background: var(--sel-bg); color: var(--color-ink); }
 .ns-tt-cat.is-live { box-shadow: var(--shadow-card), inset 0 0 0 1.5px color-mix(in srgb, var(--color-late) 70%, transparent); }
 .ns-tt-cat.is-live .ns-tt-live-dot { position: absolute; right: 8px; top: 8px; }
 /* 面板裡的緊湊版（原型 .bs-cats.is-compact）：六欄、無卡片 */
@@ -170,7 +169,7 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   min-height: 0; padding: 4px 0; gap: 4px;
   background: transparent; border: 1px solid transparent; box-shadow: none; border-radius: 4px;
 }
-.ns-tt-cats.is-compact .ns-tt-cat.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
+.ns-tt-cats.is-compact .ns-tt-cat.is-on { border-color: var(--sel-fg); background: var(--sel-bg); }
 .ns-tt-cats.is-compact .ns-tt-cat.is-live { box-shadow: none; }
 .ns-tt-cats.is-compact .ns-tt-cat-name { font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
 .ns-tt-cats.is-compact .ns-tt-badge { width: 28px; height: 28px; font-size: 12px; }
@@ -195,8 +194,8 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; cursor: pointer;
   border-bottom: 1px dashed var(--color-dash); padding: 0; min-height: 0; border-radius: 0;
 }
-.ns-tt-dock-start:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
-.ns-tt-dock-start:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-dock-start:hover { color: var(--color-ink); border-bottom-color: var(--accent); }
+.ns-tt-dock-start:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-dock.is-idle .ns-tt-dock-name { color: var(--color-ink-soft); }
 /* 長時間運行未確認＝整列赭（原型 .m-dock.is-long） */
 .ns-tt-dock.is-long { box-shadow: inset 3px 0 0 var(--color-late); }
@@ -214,20 +213,13 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 46%, transparent);
   background: color-mix(in srgb, var(--color-late) 10%, transparent);
 }
-.ns-tt-dock-meta .ns-tt-dock-est:hover { border-style: solid; border-color: var(--color-gold); color: var(--color-ink); opacity: 1; }
+.ns-tt-dock-meta .ns-tt-dock-est:hover { border-style: solid; border-color: var(--accent); color: var(--color-ink); opacity: 1; }
 .ns-tt-dock-meta .ns-tt-dock-est.is-late:hover { border-color: var(--color-late); color: var(--color-late); }
 
 /* ── 發車台（原型 .sec＋丁案 .board-group）── */
 .ns-tt-board { display: block; }
 .ns-tt-board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 4px 0 2px; }
 .ns-tt-board-title { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .22em; margin: 0; color: var(--color-ink); }
-.ns-tt-edit {
-  background: none; border: 1px solid var(--color-dash); border-radius: 2px; padding: 2px 10px; cursor: pointer;
-  font-family: inherit; font-size: 11px; letter-spacing: .18em; color: var(--color-ink-soft);
-  transition: color .15s, border-color .15s;
-}
-.ns-tt-edit:hover { color: var(--color-ink); border-color: var(--color-gold); }
-.ns-tt-edit:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
 
 /* ── 軸頂端：日期列 ── */
 .ns-tt-axis-nav { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
@@ -237,10 +229,10 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 }
 .ns-tt-axis-arrow { width: 30px; height: 28px; font-size: 18px; line-height: 1; padding: 0 0 2px; }
 .ns-tt-axis-today { height: 28px; padding: 0 10px; font-size: 11px; letter-spacing: .18em; margin-left: auto; }
-.ns-tt-axis-arrow:hover, .ns-tt-axis-today:hover { color: var(--color-ink); border-color: var(--color-gold); }
-.ns-tt-axis-arrow:disabled, .ns-tt-axis-today:disabled { opacity: .4; cursor: default; }
+.ns-tt-axis-arrow:hover, .ns-tt-axis-today:hover { color: var(--color-ink); border-color: var(--accent); }
+.ns-tt-axis-arrow:disabled, .ns-tt-axis-today:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-tt-axis-arrow:disabled:hover, .ns-tt-axis-today:disabled:hover { color: var(--color-ink-soft); border-color: var(--color-dash); }
-.ns-tt-axis-arrow:focus-visible, .ns-tt-axis-today:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-axis-arrow:focus-visible, .ns-tt-axis-today:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-axis-date { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .14em; color: var(--color-ink); }
 
 /* ── 本日合計卡（原型 .card.day／.consist／.day-week）── */
@@ -258,7 +250,7 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   background: none; border: 1px solid var(--color-dash); border-radius: 2px; padding: 1px 8px; cursor: pointer;
   font-family: inherit; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-soft);
 }
-.ns-tt-yday:hover { color: var(--color-ink); border-color: var(--color-gold); }
+.ns-tt-yday:hover { color: var(--color-ink); border-color: var(--accent); }
 .ns-tt-consist { display: flex; height: 8px; margin-top: 10px; border-radius: 1px; overflow: hidden; gap: 1px; }
 .ns-tt-consist i { display: block; min-width: 2px; background: var(--c, var(--color-dash)); opacity: .78; }
 .ns-tt-consist i.is-gap {
@@ -309,8 +301,8 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   color: var(--color-ink);
   transition: border-color .15s, box-shadow .15s;
 }
-.ns-tt-blk:hover { border-color: color-mix(in srgb, var(--color-gold) 60%, var(--color-line)); border-left-color: var(--c, var(--color-dash)); }
-.ns-tt-blk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-blk:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--color-line)); border-left-color: var(--c, var(--color-dash)); }
+.ns-tt-blk:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-blk-main { flex: 1; min-width: 0; display: block; }
 .ns-tt-blk-name { display: block; font-size: 14.5px; letter-spacing: .06em; line-height: 1.35; }
 .ns-tt-blk-sub {
@@ -326,10 +318,10 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 /* 零長度＝一條赭色細線（契約 0-7） */
 .ns-tt-blk.is-zero { padding-top: 5px; padding-bottom: 5px; align-items: center; border-left-color: var(--color-late); border-top: 1px solid color-mix(in srgb, var(--color-late) 55%, transparent); }
 .ns-tt-blk.is-zero .ns-tt-blk-dur { color: var(--color-late); }
-/* ①b 合併預覽：這次合併會動到的兩塊描金邊（D-時-33；BlockPanel 的二次確認開著時） */
+/* ①b 合併預覽：這次合併會動到的兩塊描邊（D-時-33；BlockPanel 的二次確認開著時）。丙-1 收尾：金 → 作用中 --accent（粉彩靛、銀河金） */
 .ns-tt-blk.is-mhl {
-  border-color: var(--color-gold); border-left-color: var(--c, var(--color-dash));
-  box-shadow: var(--shadow-card), 0 0 0 2px color-mix(in srgb, var(--color-gold) 70%, transparent);
+  border-color: var(--accent); border-left-color: var(--c, var(--color-dash));
+  box-shadow: var(--shadow-card), 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
   transition: border-color .2s, box-shadow .25s var(--ns-tt-ease);
 }
 
@@ -343,7 +335,7 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   transition: background .15s, border-color .15s;
 }
 .ns-tt-hole:hover { background: color-mix(in srgb, var(--color-late) 11%, transparent); border-color: var(--color-late); }
-.ns-tt-hole:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-hole:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-hole .ns-tt-num { font-size: 13px; }
 .ns-tt-hole-go { margin-left: auto; font-size: 11px; letter-spacing: .16em; opacity: .85; white-space: nowrap; }
 
@@ -359,7 +351,7 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-live-dot { animation: none; }
-  .ns-tt-cat, .ns-tt-blk, .ns-tt-hole, .ns-tt-edit, .ns-tt-chip { transition: none; }
+  .ns-tt-cat, .ns-tt-blk, .ns-tt-hole, .ns-tt-chip { transition: none; }
 }
 
 /* ═══ §D 桌機頁（乙）═══
@@ -382,9 +374,9 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   transition: background .15s, color .15s;
 }
 .ns-tt-switch button + button { border-left: 1px solid var(--color-dash); }
-.ns-tt-switch button[aria-pressed="true"] { background: color-mix(in srgb, var(--color-gold) 16%, transparent); color: var(--color-ink); }
+.ns-tt-switch button[aria-pressed="true"] { background: var(--sel-bg); color: var(--color-ink); }
 .ns-tt-switch button:hover { color: var(--color-ink); }
-.ns-tt-switch button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-tt-switch button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .ns-tt-switch .ns-tt-kbd { margin: 0 8px 0 6px; }
 
 .ns-tt-error { flex: none; margin: 0; padding: 0 40px 10px 48px; font-size: 13px; color: var(--color-late); }
@@ -476,10 +468,10 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 }
 [data-shell="mobile"] .ns-tt-m .ns-tt-switch button + button { border-left: 1px solid var(--color-dash); }
 [data-shell="mobile"] .ns-tt-m .ns-tt-switch button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-gold) 16%, transparent);
+  background: var(--sel-bg);
   color: var(--color-ink);
 }
-[data-shell="mobile"] .ns-tt-m .ns-tt-switch button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tt-m .ns-tt-switch button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
 [data-shell="mobile"] .ns-tt-m-error { margin: 0 0 10px; font-size: 12px; letter-spacing: .06em; color: var(--color-late); }
 
@@ -514,7 +506,7 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 [data-shell="mobile"] .ns-tt-mdock .ns-tt-dock-meta b.ns-tt-dock-el { font-size: 14px; letter-spacing: .02em; }
 
 /* Toast 抬到運行列之上（特異度 (0,4,0)，贏過 mobile.css WP0 那條 (0,3,0)；今日頁的 S1 規則在這一頁不會命中） */
-[data-shell="mobile"] .ns-tt-mdock ~ .ns-card.fixed {
+[data-shell="mobile"] .ns-tt-mdock ~ .techo-card.fixed {
   bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-mdock-h) + var(--m-kb, 0px) + 12px);
 }
 
@@ -527,16 +519,10 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   padding: 4px 0 calc(var(--m-safe-bottom) + 12px);
 }
 [data-shell="mobile"] .m-sheet.ns-tt-sheet::-webkit-scrollbar { display: none; }
-/* #52(a)：粉彩的紙 --color-paper-high 是 .64 半透白（theme.css:90）；.ns-card 沒有霧面（桌機 DialogShell 靠 .ns-dialog 補，
- * overlay.css:41-56）⇒ 手機底部面板透出底下的格字。補同一份材質配方；銀河鐵道照票紙紀律關掉。不動 mobile.css。 */
-[data-shell="mobile"] .m-sheet.ns-tt-sheet {
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-[data-theme="dark"] [data-shell="mobile"] .m-sheet.ns-tt-sheet {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
+/* #52(a)（手機面板透出底下的格字）：UI 丙-1 起這張卡掛 .techo-card（MobileSheetHost），霧面由 --float-blur 給
+ * （粉彩 blur(14px) saturate(1.15)、銀河 none，值同原本這裡補的那一份），不再自己寫。
+ * 退役的舊浮層卡（techo.css 的別名規則）自帶內文字、.techo-card 不管字 ⇒ 面板殼這裡補回同一組值，面板內字級不變。 */
+[data-shell="mobile"] .m-sheet.ns-tt-sheet { color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em; }
 [data-shell="mobile"] .ns-tt-sheet-head {
   display: flex; align-items: center; gap: 8px;
   padding-right: 10px;
@@ -564,7 +550,6 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
 [data-shell="mobile"] .ns-tt-panel .ns-btn { min-height: 44px; }
 [data-shell="mobile"] .ns-tt-panel .ns-btn.ns-btn--sm { min-height: 36px; }
 [data-shell="mobile"] .ns-tt-panel .ns-tt-step { width: 44px; height: 44px; }
-[data-shell="mobile"] .ns-tt-panel .ns-tt-opt { min-height: 36px; }
 [data-shell="mobile"] .ns-tt-panel .ns-tt-input { font-size: 16px; }
 [data-shell="mobile"] .ns-tt-panel .ns-tt-select { min-height: 36px; font-size: 14px; }
 [data-shell="mobile"] .ns-tt-panel .ns-tt-mgr-move { width: 36px; height: 36px; }
@@ -615,10 +600,10 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   font-family: var(--font-latin); font-size: 12px; color: var(--color-ink-soft);
   cursor: pointer;
 }
-.ns-tt-step:hover { border-color: var(--color-gold); color: var(--color-ink); }
-.ns-tt-step:disabled { opacity: .35; cursor: default; }
+.ns-tt-step:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-step:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-tt-step:disabled:hover { border-color: var(--color-dash); color: var(--color-ink-soft); }
-.ns-tt-step:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-step:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-val {
   min-width: 74px; text-align: center;
   font-family: var(--font-latin); font-size: 20px; font-feature-settings: "tnum" 1, "lnum" 1;
@@ -633,22 +618,22 @@ button.ns-tt-chip:focus-visible { outline: 1px solid var(--color-gold); outline-
   touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   transition: border-color .15s, color .15s, background .15s;
 }
-.ns-tt-step:active:not(:disabled), .ns-tt-step.is-held { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 18%, transparent); color: var(--color-ink); }
+.ns-tt-step:active:not(:disabled), .ns-tt-step.is-held { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--color-ink); }
 .ns-tt-tinwrap { position: relative; display: inline-flex; margin: 0 2px; border-radius: 3px; }
 input.ns-tt-tin {
   box-sizing: border-box; width: 76px; min-width: 0; height: 40px; margin: 0; padding: 0 2px;
   background: transparent; border: 0; border-bottom: 1px dashed var(--color-dash); border-radius: 0;
-  letter-spacing: .02em; caret-color: var(--color-gold-ink);
+  letter-spacing: .02em; caret-color: var(--accent);
   -webkit-appearance: none; appearance: none;
   transition: background .15s, border-color .15s, color .15s;
   scroll-margin: 16px 0 96px; /* 聚焦捲動時讓開面板底部黏住的按鈕列（§D .ns-dialog-body:has(.ns-tt-panel-block) .ns-tt-actions） */
 }
-input.ns-tt-tin:hover { border-bottom-color: var(--color-gold); }
+input.ns-tt-tin:hover { border-bottom-color: var(--accent); }
 input.ns-tt-tin:focus {
-  outline: none; border-bottom: 1px solid var(--color-gold); border-radius: 3px 3px 0 0;
-  background: color-mix(in srgb, var(--color-gold) 14%, transparent);
+  outline: none; border-bottom: 1px solid var(--accent); border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50%, transparent); color: var(--color-ink); }
+input.ns-tt-tin::selection { background: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--color-ink); }
 .ns-tt-tinwrap.is-bad input.ns-tt-tin {
   color: var(--color-late); border-bottom: 1px solid var(--color-late);
   background: color-mix(in srgb, var(--color-late) 12%, transparent);
@@ -671,7 +656,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-row.is-time { align-items: flex-start; padding: 6px 0 3px; }
 .ns-tt-row.is-time .ns-tt-row-k { line-height: 40px; }
 .ns-tt-row.is-time .ns-tt-row-v { align-items: flex-start; row-gap: 4px; }
-.ns-tt-row.is-time .ns-tt-opt { margin-top: 5px; }
+.ns-tt-row.is-time .ns-tt-opt { margin-top: 8px; } /* 丙-1：選項高 24（--ctl-h-sm）⇒ (40 − 24) / 2，跟 40px 時刻框置中 */
 /* 連續補：副標第二行「剩下 X–Y 還沒記」 */
 .ns-tt-fill-cont {
   display: flex; align-items: center; gap: 6px; margin: -4px 0 6px;
@@ -732,20 +717,20 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ns-tt-opt {
   display: inline-flex; align-items: center; gap: 4px;
-  min-height: 30px; padding: 2px 9px;
-  background: transparent; border: 1px dashed var(--color-dash); border-radius: 2px;
-  font-family: inherit; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-soft);
+  min-height: var(--ctl-h-sm); padding: 2px 9px;
+  background: transparent; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft);
   white-space: nowrap; cursor: pointer;
 }
 .ns-tt-opt.is-solid { border-style: solid; }
 .ns-tt-opt.is-on {
-  border-style: solid; border-color: var(--color-gold);
-  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  border-style: solid; border-color: var(--sel-fg);
+  background: var(--sel-bg);
   color: var(--color-ink);
 }
 .ns-tt-opt.is-num { font-family: var(--font-latin); font-feature-settings: "tnum" 1, "lnum" 1; }
 .ns-tt-opt.is-static { border-color: transparent; color: var(--color-ink); cursor: default; }
-.ns-tt-opt:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-opt:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* 底部動作列 */
 .ns-tt-actions { display: flex; gap: 10px; margin-top: 14px; }
@@ -759,7 +744,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   background: transparent; border: 0; border-bottom: 1px solid var(--color-line);
   font-family: inherit; font-size: 15px; letter-spacing: .06em; color: var(--color-ink);
 }
-.ns-tt-input:focus { outline: none; border-bottom-color: var(--color-gold); }
+.ns-tt-input:focus { outline: none; border-bottom-color: var(--accent); }
 .ns-tt-input::placeholder { color: var(--color-ink-faint); opacity: .7; }
 .ns-tt-select {
   appearance: none; -webkit-appearance: none;
@@ -774,7 +759,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   background-size: 4px 4px;
   background-repeat: no-repeat;
 }
-.ns-tt-select:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-select:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* 分類與設定 */
 .ns-tt-mgr-group + .ns-tt-mgr-group { margin-top: 14px; }
@@ -792,7 +777,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ns-tt-mgr-name:hover { border-bottom-color: var(--color-dash); }
-.ns-tt-mgr-name:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-mgr-name:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-mgr-name.is-group,
 .ns-tt-mgr-name-input.is-group {
   font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .22em;
@@ -805,10 +790,10 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   background: transparent; border: 1px solid var(--color-dash); border-radius: 3px;
   font-size: 13px; color: var(--color-ink-soft); cursor: pointer;
 }
-.ns-tt-mgr-move:hover { border-color: var(--color-gold); color: var(--color-ink); }
-.ns-tt-mgr-move:disabled { opacity: .3; cursor: default; }
+.ns-tt-mgr-move:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-mgr-move:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-tt-mgr-move:disabled:hover { border-color: var(--color-dash); color: var(--color-ink-soft); }
-.ns-tt-mgr-move:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-mgr-move:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-mgr-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
   gap: 6px 8px; padding: 8px 0;
@@ -828,8 +813,8 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 18%, transparent);
   cursor: pointer;
 }
-.ns-tt-swatch.is-on { border-color: var(--color-paper); box-shadow: 0 0 0 2px var(--color-gold); }
-.ns-tt-swatch:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+.ns-tt-swatch.is-on { border-color: var(--color-paper); box-shadow: 0 0 0 2px var(--sel-fg); }
+.ns-tt-swatch:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .ns-tt-mgr-add { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .ns-tt-mgr-addgroup { margin-top: 12px; align-self: flex-start; }
 .ns-tt-mgr-settings { margin-top: 20px; padding-top: 10px; border-top: 1px dashed var(--color-dash); }
@@ -866,11 +851,11 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 }
 .ns-tt-toggle.is-on { color: var(--color-ink); }
 .ns-tt-toggle.is-on .ns-tt-toggle-knob {
-  border-color: var(--color-gold);
-  background: color-mix(in srgb, var(--color-gold) 22%, transparent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
-.ns-tt-toggle.is-on .ns-tt-toggle-knob::after { transform: translateX(16px); background: var(--color-gold); }
-.ns-tt-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-toggle.is-on .ns-tt-toggle-knob::after { transform: translateX(16px); background: var(--accent); }
+.ns-tt-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-toggle-knob, .ns-tt-toggle-knob::after { transition: none; }
 }
@@ -882,10 +867,10 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-expand-in > * { animation: ns-tt-fade-up .36s var(--ns-tt-ease) .04s both; }
 @keyframes ns-tt-rows { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes ns-tt-fade-up { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-.ns-tt-opt:disabled { opacity: .38; cursor: default; }
+.ns-tt-opt:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-tt-opt.is-link { border-color: transparent; color: var(--color-ink-faint); text-decoration: underline dotted; text-underline-offset: 3px; }
 .ns-tt-opt.is-link:hover { color: var(--color-ink); }
-.ns-tt-opt:not(:disabled):not(.is-static):hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-opt:not(:disabled):not(.is-static):hover { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-opt:not(:disabled):not(.is-static):active { transform: scale(.96); }
 .ns-tt-opt { transition: border-color .15s, color .15s, background .15s, transform .2s var(--ns-tt-ease); }
 
@@ -936,9 +921,9 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 }
 .ns-tt-seg-cat i { font-style: normal; font-size: 9px; color: var(--color-ink-faint); transition: transform .3s var(--ns-tt-ease); }
 .ns-tt-seg-cat:hover { border-color: var(--color-dash); }
-.ns-tt-seg-row.is-open .ns-tt-seg-cat { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
+.ns-tt-seg-row.is-open .ns-tt-seg-cat { border-color: var(--sel-fg); background: var(--sel-bg); }
 .ns-tt-seg-row.is-open .ns-tt-seg-cat i { transform: rotate(180deg); }
-.ns-tt-seg-cat:focus-visible, .ns-tt-seg-txt:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-seg-cat:focus-visible, .ns-tt-seg-txt:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-seg-txt {
   flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left;
   background: none; border: 0; padding: 4px 0; cursor: pointer; font-family: inherit; color: var(--color-ink);
@@ -948,7 +933,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-seg-tag { flex: none; font-size: 10.5px; letter-spacing: .12em; color: var(--color-ink-faint); }
 .ns-tt-seg-grid .ns-tt-expand-in > * { animation: none; }
 .ns-tt-seg-grid .ns-tt-expand-in {
-  background: color-mix(in srgb, var(--color-gold) 6%, transparent); border-radius: 4px; padding: 0 6px; margin-bottom: 4px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: 4px; padding: 0 6px; margin-bottom: 4px;
 }
 .ns-tt-cut-row {
   display: flex; align-items: center; gap: 8px; min-height: 48px; padding-left: 4px;
@@ -969,16 +954,16 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: color .15s, background .15s;
 }
 .ns-tt-cut-del:hover:not(:disabled) { color: var(--color-late); background: color-mix(in srgb, var(--color-late) 8%, transparent); } /* 磨光⑤：刪除＝警示，朱改赭 */
-.ns-tt-cut-del:disabled { opacity: .25; cursor: default; }
-.ns-tt-cut-del:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-cut-del:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-tt-cut-del:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-cut-tools { display: flex; gap: 8px; margin-top: 12px; }
 
 /* ── ①b 改一塊：合併（BlockPanel；＝原型 情境 4、D-時-33）── */
 .ns-tt-merge .ns-tt-row { border-bottom: 0; }
 .ns-tt-merge-confirm .ns-tt-expand-in {
   margin: 2px 0 6px; padding: 10px 12px; border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent);
-  background: color-mix(in srgb, var(--color-gold) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--sel-bg); /* 丙-1 收尾：合併確認框 金 10% → 選中底（＝accent 10%） */
 }
 .ns-tt-merge-preview { margin: 0; font-size: 14px; letter-spacing: .06em; color: var(--color-ink); font-feature-settings: "tnum" 1, "lnum" 1; }
 .ns-tt-merge-note { margin: 3px 0 0; font-size: 11.5px; line-height: 1.55; letter-spacing: .06em; color: var(--color-ink-faint); }
@@ -994,12 +979,12 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 
 /* ── ①b 分類進階管理（CategoryManagerPanel；＝原型 情境 6）── */
 .ns-tt-mgr-more { font-weight: 700; letter-spacing: 0; }
-.ns-tt-mgr-more.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 16%, transparent); color: var(--color-ink); }
+.ns-tt-mgr-more.is-on { border-color: var(--sel-fg); background: var(--sel-bg); color: var(--color-ink); }
 .ns-tt-mgr-x { grid-column: 1 / -1; }
 .ns-tt-mgr-xin {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 4px; padding: 10px 12px;
-  border-radius: 4px; background: color-mix(in srgb, var(--color-gold) 9%, transparent);
-  border: 1px dashed color-mix(in srgb, var(--color-gold) 55%, transparent);
+  border-radius: 4px; background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .ns-tt-mgr-xnote { width: 100%; margin: 0; }
 .ns-tt-glyph-input {
@@ -1007,9 +992,9 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   border: 1px solid var(--color-dash); border-radius: 50%; background: var(--color-paper-high);
   font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: 0;
 }
-.ns-tt-glyph-input:focus { border-color: var(--color-gold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-gold) 30%, transparent); }
+.ns-tt-glyph-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 .ns-tt-mgr-row.is-flash { animation: ns-tt-flash 1.3s ease both; }
-@keyframes ns-tt-flash { 0%, 30% { background: color-mix(in srgb, var(--color-gold) 22%, transparent); } 100% { background: transparent; } }
+@keyframes ns-tt-flash { 0%, 30% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
 .ns-tt-mgr-archived { margin-top: 14px; border-top: 1px dashed var(--color-dash); }
 .ns-tt-mgr-archived summary {
   display: flex; align-items: center; gap: 6px; min-height: 40px; cursor: pointer; list-style: none;
@@ -1017,7 +1002,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 }
 .ns-tt-mgr-archived summary::-webkit-details-marker { display: none; }
 .ns-tt-mgr-archived summary:hover { color: var(--color-ink); }
-.ns-tt-mgr-archived summary:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-mgr-archived summary:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-mgr-archived summary i { font-style: normal; display: inline-block; transition: transform .3s var(--ns-tt-ease); }
 .ns-tt-mgr-archived[open] summary i { transform: rotate(90deg); }
 .ns-tt-mgr-archived[open] .ns-tt-mgr-archived-list { animation: ns-tt-fade-up .3s var(--ns-tt-ease) both; }
@@ -1039,7 +1024,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-nset-k .ns-tt-setting-k { font-size: 13.5px; }
 .ns-tt-nset-note { margin-top: 1px; font-size: 10.5px; line-height: 1.45; letter-spacing: .04em; color: var(--color-ink-faint); }
 .ns-tt-nset.is-dis .ns-tt-nset-k { opacity: .45; }
-.ns-tt-toggle:disabled { opacity: .5; cursor: default; }
+.ns-tt-toggle:disabled { opacity: var(--disabled); cursor: not-allowed; }
 
 /* 釘選：上排五格（實際會出現的常用分類）＋下面全部分類（點選釘選）＋預覽 */
 .ns-tt-pins { padding: 10px 0 4px; transition: opacity .2s; }
@@ -1055,14 +1040,14 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: transform .3s var(--ns-tt-spring), border-color .2s, background .2s;
 }
 .ns-tt-pin.is-pinned {
-  border: 1px solid var(--color-gold);
-  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  border: 1px solid var(--sel-fg);
+  background: var(--sel-bg);
   color: var(--color-ink); cursor: pointer;
   animation: ns-tt-pin-pop .45s var(--ns-tt-spring) both;
 }
-.ns-tt-pin.is-pinned:hover { background: color-mix(in srgb, var(--color-gold) 20%, transparent); }
+.ns-tt-pin.is-pinned:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .ns-tt-pin.is-pinned:active { transform: scale(.96); }
-.ns-tt-pin.is-pinned:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-pin.is-pinned:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-pin.is-empty { min-height: 58px; }
 .ns-tt-pin-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-tt-pin-tag { font-style: normal; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
@@ -1079,14 +1064,14 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: border-color .15s, background .15s, opacity .15s, transform .2s var(--ns-tt-ease);
 }
 .ns-tt-pin-cat .ns-tt-badge { width: 20px; height: 20px; font-size: 10px; }
-.ns-tt-pin-cat:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-pin-cat:hover:not(:disabled) { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-pin-cat:active:not(:disabled) { transform: scale(.96); }
-.ns-tt-pin-cat:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
-.ns-tt-pin-cat.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 12%, transparent); color: var(--color-ink); }
-.ns-tt-pin-cat.is-full, .ns-tt-pin-cat:disabled { opacity: .45; cursor: default; }
+.ns-tt-pin-cat:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-pin-cat.is-on { border-color: var(--sel-fg); background: var(--sel-bg); color: var(--color-ink); }
+.ns-tt-pin-cat.is-full, .ns-tt-pin-cat:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-tt-pin-no {
   display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
-  background: var(--color-gold); color: var(--color-book);
+  background: var(--sel-fg); color: var(--color-on-ink);
   font-family: var(--font-latin); font-weight: 500; font-size: 10.5px;
 }
 
@@ -1167,9 +1152,9 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   font-family: inherit; color: var(--color-ink); cursor: pointer;
   transition: border-color .15s, box-shadow .2s, transform .25s var(--ns-tt-spring);
 }
-.ns-tt-todaytix-k:hover { border-color: color-mix(in srgb, var(--color-gold) 60%, var(--color-line)); }
+.ns-tt-todaytix-k:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--color-line)); }
 .ns-tt-todaytix-k:active { transform: scale(.97); transition-duration: .08s; }
-.ns-tt-todaytix-k:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-todaytix-k:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-todaytix-k.is-live { box-shadow: var(--shadow-card), inset 0 0 0 1.5px color-mix(in srgb, var(--color-late) 70%, transparent); }
 .ns-tt-todaytix-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .ns-tt-todaytix-t {
@@ -1188,13 +1173,14 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 [data-shell="mobile"] .ns-tt-todaytix { margin-right: calc(var(--m-gutter) * -1); padding-right: var(--m-gutter); scrollbar-width: none; }
 [data-shell="mobile"] .ns-tt-todaytix::-webkit-scrollbar { display: none; }
 
-/* ── 分類格「上次」（〈原型拍板〉4；＝原型 .vf-mem／.vf-memtag）── */
+/* ── 分類格「上次」（〈原型拍板〉4；＝原型 .vf-mem／.vf-memtag）──
+ * 丙-1 收尾：「上次」是推薦高亮、不是定期／紀念 ⇒ 金 → --accent；小牌字改 --color-on-ink（粉彩靛底淺字、銀河金底深字＝原值） */
 .ns-tt-cat.is-mem,
-.ns-tt-cats.is-compact .ns-tt-cat.is-mem { border-color: color-mix(in srgb, var(--color-gold) 70%, transparent); border-style: dashed; }
+.ns-tt-cats.is-compact .ns-tt-cat.is-mem { border-color: color-mix(in srgb, var(--accent) 70%, transparent); border-style: dashed; }
 .ns-tt-cat-memtag {
   position: absolute; top: -6px; right: 2px; padding: 0 3px; border-radius: 2px;
   font-style: normal; font-size: 8.5px; letter-spacing: .1em; line-height: 13px;
-  background: var(--color-gold); color: var(--color-book);
+  background: var(--accent); color: var(--color-on-ink);
 }
 
 /* ── 面板「連到」那一列（＝原型 .vf-linkbtn／.vf-lk）── */
@@ -1204,8 +1190,8 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   font-family: inherit; color: var(--color-ink); cursor: pointer;
   transition: border-color .15s, background .15s;
 }
-.ns-tt-link-btn:hover { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 6%, transparent); }
-.ns-tt-link-btn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-link-btn:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ns-tt-link-btn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-link-chev { margin-left: auto; color: var(--color-ink-faint); font-size: 16px; line-height: 1; }
 .ns-tt-link-chip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .ns-tt-link-chip-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .04em; }
@@ -1228,7 +1214,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-link-memgo .ns-tt-kbd { margin-left: 2px; color: inherit; border-color: currentColor; opacity: .7; }
 [data-shell="mobile"] .ns-tt-link-memkbd { display: none; }
 .ns-tt-panel-sub.ns-tt-link-memsub { margin: 6px 0 0; text-align: center; }
-.ns-tt-panel-sub.ns-tt-link-hint { margin-top: 6px; color: var(--color-gold-ink); }
+.ns-tt-panel-sub.ns-tt-link-hint { margin-top: 6px; color: var(--color-ink-soft); }
 
 /* ── 選擇器（＝原型 .vf-pick；面板子頁：掛上時從右邊滑進來）── */
 .ns-tt-link-pick { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px; animation: ns-tt-link-in .3s var(--ns-tt-ease) both; }
@@ -1242,11 +1228,11 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   background: transparent; font-size: 20px; line-height: 1; color: var(--color-ink-soft); cursor: pointer;
 }
 .ns-tt-link-back:hover { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
-.ns-tt-link-back:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-link-back:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-link-now {
   display: flex; align-items: center; gap: 8px; margin: 0 0 4px; padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--color-gold) 70%, transparent); border-radius: 3px;
-  background: color-mix(in srgb, var(--color-gold) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, transparent); border-radius: 3px;
+  background: var(--sel-bg);
 }
 .ns-tt-link-now-k { flex: none; font-size: 11px; letter-spacing: .16em; color: var(--color-ink-faint); }
 .ns-tt-link-search {
@@ -1254,7 +1240,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   color: var(--color-ink-faint); border: 1px solid var(--color-dash); border-radius: 3px;
   background: color-mix(in srgb, var(--color-paper-high) 60%, transparent);
 }
-.ns-tt-link-search:focus-within { border-color: var(--color-gold); }
+.ns-tt-link-search:focus-within { border-color: var(--accent); }
 .ns-tt-link-search input {
   flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: transparent;
   font: inherit; font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink);
@@ -1269,14 +1255,14 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   font-family: inherit; color: var(--color-ink); cursor: pointer; transition: background .15s;
 }
 .ns-tt-link-pk:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
-.ns-tt-link-pk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
-.ns-tt-link-pk.is-on { border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+.ns-tt-link-pk:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-tt-link-pk.is-on { border-color: var(--sel-fg); background: var(--sel-bg); }
 .ns-tt-link-pk-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ns-tt-link-pk-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .04em; }
 .ns-tt-link-pk-s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
 .ns-tt-link-pk-done { font-style: normal; font-family: var(--font-display); font-weight: 700; font-size: 11px; color: var(--color-seal); }
 .ns-tt-link-pk-done.is-skip { color: var(--color-ink-faint); }
-.ns-tt-link-pk-on { flex: none; font-size: 14px; color: var(--color-gold-ink); }
+.ns-tt-link-pk-on { flex: none; font-size: 14px; color: var(--sel-fg); }
 .ns-tt-link-empty { margin: 0; padding: 18px 4px; font-size: 12px; color: var(--color-ink-faint); }
 .ns-tt-link-routes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .ns-tt-link-rk {
@@ -1286,9 +1272,9 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: border-color .15s, background .15s;
 }
 .ns-tt-link-rk > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ns-tt-link-rk:hover { border-color: var(--color-gold); }
-.ns-tt-link-rk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
-.ns-tt-link-rk.is-on { border-style: solid; border-color: var(--color-gold); background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+.ns-tt-link-rk:hover { border-color: var(--accent); }
+.ns-tt-link-rk:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-link-rk.is-on { border-style: solid; border-color: var(--sel-fg); background: var(--sel-bg); }
 .ns-tt-link-foot { display: flex; justify-content: center; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--color-dash); font-size: 12px; }
 .ns-tt-link-foot .ns-btn { min-height: 38px; font-size: 13px; }
 .ns-tt-link-dim { color: var(--color-ink-faint); }
@@ -1302,15 +1288,15 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   font: inherit; letter-spacing: inherit; text-align: left; color: var(--color-ink-soft); cursor: pointer;
   transition: border-color .15s, color .15s;
 }
-.ns-tt-link-dn:hover { border-bottom-color: var(--color-gold); color: var(--color-ink); }
-.ns-tt-link-dn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-link-dn:hover { border-bottom-color: var(--accent); color: var(--color-ink); }
+.ns-tt-link-dn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-link-dn-dot { flex: none; color: var(--color-ink-faint); }
 .ns-tt-link-dn-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-tt-link-dn.is-none {
   flex: none; margin-left: 8px; font-size: 11px; letter-spacing: .1em;
   color: var(--color-ink-faint); border-bottom-color: var(--color-dash);
 }
-.ns-tt-link-dn.is-none:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
+.ns-tt-link-dn.is-none:hover { color: var(--color-ink); border-bottom-color: var(--accent); }
 .ns-tt-link-dn.is-gone .ns-tt-link-dn-t { font-style: italic; color: var(--color-ink-faint); }
 
 /* ── 軸上每一塊「分類・任務名」（＝原型 .vf-bn）── */
@@ -1347,8 +1333,8 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   font-family: inherit; color: var(--color-ink); text-align: left; white-space: nowrap; cursor: pointer;
   transition: border-color .15s;
 }
-.ns-tt-time-val:hover, .ns-tt-time-val.is-open { border-bottom-color: var(--color-gold); }
-.ns-tt-time-val:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-time-val:hover, .ns-tt-time-val.is-open { border-bottom-color: var(--accent); }
+.ns-tt-time-val:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-time-total { font-size: 17px; font-weight: 500; letter-spacing: .02em; color: var(--color-ink); }
 .ns-tt-time-route { font-size: 13.5px; color: var(--color-ink); letter-spacing: .04em; }
 .ns-tt-time-val .ns-tt-live-dot { width: 6px; height: 6px; align-self: center; }
@@ -1357,12 +1343,14 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: transform .25s var(--ns-tt-ease);
 }
 .ns-tt-time-val.is-open .ns-tt-time-caret { transform: rotate(180deg); }
-/* 滑過浮出的小卡（書封色底；展開後不出） */
+/* 滑過浮出的小卡（展開後不出）。丙-1 收尾（視覺規範 §1.5）：書封色底 → 浮層材質（書封只給殼） */
 .ns-tt-time-tip {
   position: absolute; left: 0; top: calc(100% + 6px); z-index: 5; pointer-events: none;
-  padding: 6px 10px 7px; border-radius: 4px; background: var(--color-book); color: var(--color-book-ink);
+  padding: 6px 10px 7px; border-radius: 4px; color: var(--color-ink);
+  background: var(--float-bg); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge);
   white-space: nowrap; font-size: 12px; letter-spacing: .06em; font-weight: 400;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--color-book) 40%, transparent);
+  box-shadow: var(--glass-hi), var(--shadow-card);
   opacity: 0; transform: translateY(-3px); transition: opacity .12s, transform .2s var(--ns-tt-ease);
 }
 .ns-tt-time-val:hover .ns-tt-time-tip { opacity: 1; transform: none; transition-delay: .25s; }
@@ -1394,7 +1382,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 }
 .ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input::-webkit-inner-spin-button,
 .ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input:focus { border-bottom-color: var(--color-gold); }
+.ns-tt-time-in .ns-tt-time-f .ns-tt-time-man input:focus { border-bottom-color: var(--accent); }
 /* 手機路線圖詳情的一列：對齊 .m2-field 的 52px 標籤欄（不借核心 class） */
 .ns-tt-time-m { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: baseline; gap: 8px; margin: 0; padding: 3px 0; }
 .ns-tt-time-m dt { font-size: 10px; letter-spacing: .2em; color: var(--color-ink-faint); }
@@ -1413,7 +1401,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: background .15s, border-color .15s;
 }
 .ns-tt-todaydep:hover { background: color-mix(in srgb, var(--stamp-ink) 9%, transparent); border-color: var(--stamp-ink); }
-.ns-tt-todaydep:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-todaydep:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-todaydep svg { margin-right: -1px; }
 .ns-tt-todaydep .ns-tt-kbd { margin-left: 2px; line-height: 14px; }
 .ns-tt-todaydep:not(:has(.ns-tt-kbd)) { padding-right: 8px; }
@@ -1426,7 +1414,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
   transition: background .15s;
 }
 .ns-tt-todaydep-run:hover { background: color-mix(in srgb, var(--color-late) 14%, transparent); }
-.ns-tt-todaydep-run:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-todaydep-run:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-todaydep-run b { font-size: 12px; font-weight: 500; color: var(--color-ink); letter-spacing: .02em; }
 .ns-tt-todaydep-run .ns-tt-live-dot { width: 6px; height: 6px; }
 .ns-tt-todaydep-run .ns-tt-badge.is-sm { width: 16px; height: 16px; font-size: 8.5px; border-width: 1px; }
@@ -1469,30 +1457,31 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 }
 .ns-tt-stats-seg button + button { border-left: 1px solid var(--color-dash); }
 .ns-tt-stats-seg button:hover { color: var(--color-ink); }
-.ns-tt-stats-seg button.is-on { background: color-mix(in srgb, var(--color-gold) 18%, transparent); color: var(--color-ink); }
-.ns-tt-stats-seg button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-tt-stats-seg button.is-on { background: var(--sel-bg); color: var(--color-ink); }
+.ns-tt-stats-seg button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .ns-tt-stats-pnav { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .ns-tt-stats-arrow {
   width: 32px; height: 32px; padding: 0; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent; cursor: pointer;
   font-size: 18px; line-height: 1; color: var(--color-ink-soft);
   transition: border-color .15s, color .15s, transform .2s var(--ns-tt-spring);
 }
-.ns-tt-stats-arrow:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-stats-arrow:hover:not(:disabled) { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-stats-arrow:active:not(:disabled) { transform: scale(.92); }
-.ns-tt-stats-arrow:disabled { opacity: .3; cursor: default; }
-.ns-tt-stats-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-stats-arrow:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-tt-stats-arrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-stats-pname { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .ns-tt-stats-pname b { font-weight: 500; font-size: 16px; white-space: nowrap; }
+/* 期間標籤（今天／本週／本月…）：丙-1 收尾 金 → 作用中 --accent（週、日程、方眼三處同） */
 .ns-tt-stats-pname em {
-  font-style: normal; font-size: 10.5px; letter-spacing: .2em; color: var(--color-gold-ink); white-space: nowrap;
-  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px; line-height: 18px;
+  font-style: normal; font-size: 10.5px; letter-spacing: .2em; color: var(--accent); white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 2px; padding: 0 6px; line-height: 18px;
 }
 .ns-tt-stats-tocur {
   min-height: 30px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
   font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft);
   transition: border-color .15s, color .15s; animation: ns-tt-st-in .3s var(--ns-tt-ease) both;
 }
-.ns-tt-stats-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-stats-tocur:hover { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-stats-tocur .ns-tt-kbd { margin-left: 6px; }
 .ns-tt-stats-keys { margin-left: auto; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); opacity: .8; }
 
@@ -1512,7 +1501,7 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-stats-cell.is-pend .k { color: var(--color-late); }
 .ns-tt-stats-cell.is-pend:hover { border-color: color-mix(in srgb, var(--color-late) 55%, transparent); }
 .ns-tt-stats-cell.is-pend:active:not(:disabled) { transform: scale(.985); }
-.ns-tt-stats-cell.is-pend:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-stats-cell.is-pend:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-stats-cell-go { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 20px; color: var(--color-late); opacity: .75; }
 .ns-tt-stats-cell.is-zero { cursor: default; box-shadow: var(--shadow-card); opacity: .62; }
 .ns-tt-stats-cell.is-zero .k, .ns-tt-stats-cell.is-zero b { color: var(--color-ink-faint); }
@@ -1530,8 +1519,10 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-stats-dl-tip {
   position: absolute; z-index: 5; right: -4px; bottom: calc(100% + 6px); padding: 4px 9px; border-radius: 3px; white-space: nowrap;
   font-family: var(--font-body); font-size: 11.5px; letter-spacing: .06em; line-height: 1.5;
-  background: var(--color-book); color: var(--color-book-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent);
-  box-shadow: var(--shadow-card); animation: ns-tt-st-pop .32s var(--ns-tt-spring) both; transform-origin: bottom right;
+  /* 丙-1 收尾（視覺規範 §1.5）：書封色小泡 → 浮層材質 */
+  background: var(--float-bg); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  color: var(--color-ink); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-hi), var(--shadow-card); animation: ns-tt-st-pop .32s var(--ns-tt-spring) both; transform-origin: bottom right;
 }
 
 /* ── 卡片與兩欄（桌機：左＝占比＋路線、右＝趨勢＋目標；〈原型定案〉1） ── */
@@ -1594,14 +1585,14 @@ input.ns-tt-tin::selection { background: color-mix(in srgb, var(--color-gold) 50
 .ns-tt-stats-row.is-kid .ns-tt-stats-rname { padding-left: 10px; }
 .ns-tt-stats-row.is-kid .ns-tt-stats-rname > span { color: var(--color-ink-soft); }
 button.ns-tt-stats-rname:hover > span { text-decoration: underline dotted; text-underline-offset: 3px; }
-button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-stats-rname.is-static { cursor: inherit; }
 .ns-tt-stats-rv { font-size: 14px; text-align: right; white-space: nowrap; }
 .ns-tt-stats-row.is-kid .ns-tt-stats-rv { font-size: 13px; color: var(--color-ink-soft); }
 .ns-tt-stats-rp { font-size: 12px; color: var(--color-ink-faint); text-align: right; }
 .ns-tt-stats-rd { font-size: 12.5px; text-align: right; }
-/* 選中的分類（趨勢只看它）：左邊一道金、底淡金 */
-.ns-tt-stats-row.is-sel { background: color-mix(in srgb, var(--color-gold) 12%, transparent); box-shadow: inset 2px 0 0 var(--color-gold); }
+/* 選中的分類（趨勢只看它）：底 --sel-bg＋左線 2px --sel-fg（＝--sel-line 同值；box-shadow 畫，不佔寬、整列不位移） */
+.ns-tt-stats-row.is-sel { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--sel-fg); }
 .ns-tt-stats-row.is-sel .ns-tt-stats-rname > span { color: var(--color-ink); }
 .ns-tt-stats-kids { overflow: hidden; }
 .ns-tt-stats-kids.is-new { animation: ns-tt-st-rows .4s var(--ns-tt-ease) both; }
@@ -1610,8 +1601,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 /* ── 趨勢 ── */
 .ns-tt-stats-fchip {
   margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 13px;
-  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 13px;
+  background: var(--sel-bg);
   font-family: inherit; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink); animation: ns-tt-st-in .3s var(--ns-tt-ease) both;
 }
 .ns-tt-stats-fchip > span { font-size: 10px; color: var(--color-ink-faint); }
@@ -1626,11 +1617,11 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-stats-tsvg .tr-grid { stroke: var(--color-line); stroke-width: 1; }
 .ns-tt-stats-tsvg .tr-grid.is-base { stroke: var(--color-dash); }
 .ns-tt-stats-tsvg .tr-y, .ns-tt-stats-tsvg .tr-x { font-family: var(--font-latin); font-size: 9.5px; fill: var(--color-ink-faint); }
-.ns-tt-stats-tsvg .tr-x.is-cur { fill: var(--color-gold-ink); font-weight: 600; }
+.ns-tt-stats-tsvg .tr-x.is-cur { fill: var(--accent); font-weight: 600; } /* 本期：丙-1 收尾 金 → --accent */
 .ns-tt-stats-tsvg .tr-hit { fill: transparent; cursor: pointer; transition: fill .15s; }
 .ns-tt-stats-tsvg .tr-hit:hover, .ns-tt-stats-tsvg .tr-hit.is-sel { fill: color-mix(in srgb, var(--color-ink) 5%, transparent); }
 .ns-tt-stats-tsvg .tr-seg { transform-box: fill-box; transform-origin: bottom; animation: ns-tt-st-rise .5s var(--ns-tt-ease) both; }
-.ns-tt-stats-tsvg .tr-cur { fill: none; stroke: var(--color-gold); stroke-width: 1.6; }
+.ns-tt-stats-tsvg .tr-cur { fill: none; stroke: var(--accent); stroke-width: 1.6; }
 .ns-tt-stats-tsvg .tr-live { stroke: var(--color-ink-soft); stroke-width: 1.2; stroke-dasharray: 3 2.5; }
 
 /* ── 依路線 ── */
@@ -1638,7 +1629,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-stats-row.is-route.is-link { cursor: pointer; transition: background .15s; }
 .ns-tt-stats-row.is-route.is-link:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
 .ns-tt-stats-row.is-route.is-link:hover .ns-tt-stats-rname > span { text-decoration: underline dotted; text-underline-offset: 3px; }
-.ns-tt-stats-row.is-route.is-link:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.ns-tt-stats-row.is-route.is-link:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-tt-stats-row.is-route .ns-tt-stats-rname > span { font-family: var(--font-body); font-weight: 400; font-size: 13.5px; letter-spacing: .1em; }
 .ns-tt-stats-rlead { display: grid; place-items: center; }
 .ns-tt-stats-rlead-x {
@@ -1651,17 +1642,12 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-stats-empty-rail { position: relative; display: flex; align-items: center; gap: 22px; margin-bottom: 18px; }
 .ns-tt-stats-empty-rail::before { content: ""; position: absolute; left: -16px; right: -16px; top: 50%; border-top: 2px dashed var(--color-dash); }
 .ns-tt-stats-empty-rail i { position: relative; width: 12px; height: 12px; border-radius: 50%; background: var(--color-paper-high); border: 2px solid var(--color-dash); }
-.ns-tt-stats-empty-rail i:nth-child(2) { border-color: var(--color-gold); }
+.ns-tt-stats-empty-rail i:nth-child(2) { border-color: var(--accent); } /* 中間那站＝「在這」：丙-1 收尾 金 → --accent */
 .ns-tt-stats-empty-t { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: .2em; }
 
 /* ── 時數目標 ── */
 .ns-tt-goals-h { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px; }
 .ns-tt-goals-h .rule { flex: 1; border-top: 1px dashed var(--color-dash); }
-.ns-tt-goals-add {
-  min-height: 30px; padding: 0 12px; border: 1px dashed var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
-  font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
-}
-.ns-tt-goals-add:hover { border-style: solid; border-color: var(--color-gold); color: var(--color-ink); }
 .ns-tt-goals-list, .ns-tt-goals-restlist { display: flex; flex-direction: column; gap: 10px; }
 .ns-tt-goals-restlist { animation: ns-tt-st-in .3s var(--ns-tt-ease) both; }
 .ns-tt-goals-none { margin: 0; padding: 4px 2px 8px; font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
@@ -1692,15 +1678,15 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   flex: none; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-dash); border-radius: 12px; background: transparent; cursor: pointer;
   font-family: inherit; font-size: 11px; letter-spacing: .12em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
 }
-.ns-tt-goal-hide:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-goal-hide:hover { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-goal-sub { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 3px 0 10px; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
 .ns-tt-goal-per { color: var(--color-ink-soft); }
 .ns-tt-goal-bar { position: relative; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--color-dash) 50%, transparent); overflow: hidden; }
 .ns-tt-goal-bar i {
-  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--color-gold);
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--stamp-ink); /* 進度條＝墨（規範 §1.8）；至多型降一階 */
   transform-origin: left; animation: ns-tt-st-grow .7s var(--ns-tt-ease) both;
 }
-.ns-tt-goal.is-most .ns-tt-goal-bar i { background: var(--stamp-ink); }
+.ns-tt-goal.is-most .ns-tt-goal-bar i { background: var(--ink-mid); }
 .ns-tt-goal.is-over .ns-tt-goal-bar i { background: var(--color-late); }
 .ns-tt-goal-num { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 7px; font-size: 12px; color: var(--color-ink-faint); }
 .ns-tt-goal-num b { font-weight: 500; font-size: 17px; color: var(--color-ink); }
@@ -1716,7 +1702,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   border: 2px solid; border-radius: 3px; transform: rotate(-8deg);
   animation: ns-tt-st-stamp .5s cubic-bezier(.2, 1.4, .4, 1) .15s both;
 }
-.ns-tt-goal-stamp.is-gold { color: var(--color-gold-ink); border-color: color-mix(in srgb, var(--color-gold) 85%, transparent); background: color-mix(in srgb, var(--color-gold) 14%, transparent); }
+.ns-tt-goal-stamp.is-gold { color: var(--color-gold-ink); border-color: color-mix(in srgb, var(--color-gold) 85%, transparent); background: color-mix(in srgb, var(--color-gold) 14%, transparent); } /* 語意金：定期／紀念 */
 .ns-tt-goal-stamp.is-ink { color: var(--color-ink-soft); border-color: color-mix(in srgb, var(--color-ink-soft) 55%, transparent); background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
 .ns-tt-goal-stamp.is-late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 70%, transparent); background: color-mix(in srgb, var(--color-late) 8%, transparent); }
 .ns-tt-goal-pace { margin: 5px 0 0; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
@@ -1741,7 +1727,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 }
 .ns-tt-pend-item:first-child { border-top: 0; }
 .ns-tt-pend-item:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
-.ns-tt-pend-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.ns-tt-pend-item:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-tt-pend-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ns-tt-pend-main b { font-weight: 500; font-size: 14px; letter-spacing: .06em; }
 .ns-tt-pend-main small { margin-top: 1px; font-size: 11.5px; color: var(--color-late); letter-spacing: .04em; }
@@ -1770,23 +1756,23 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   flex: none; width: 16px; height: 16px; border: 1.5px solid var(--color-dash); border-radius: 3px; display: grid; place-items: center;
   transition: background .15s, border-color .15s;
 }
-.ns-tt-goal-ck input:checked + .ns-tt-goal-ckbox { background: var(--color-gold); border-color: var(--color-gold); }
+.ns-tt-goal-ck input:checked + .ns-tt-goal-ckbox { background: var(--accent); border-color: var(--accent); }
 .ns-tt-goal-ck input:checked + .ns-tt-goal-ckbox::after {
-  content: ""; width: 8px; height: 4px; border-left: 2px solid var(--color-book); border-bottom: 2px solid var(--color-book); transform: translateY(-1px) rotate(-45deg);
+  content: ""; width: 8px; height: 4px; border-left: 2px solid var(--color-on-ink); border-bottom: 2px solid var(--color-on-ink); transform: translateY(-1px) rotate(-45deg);
 }
-.ns-tt-goal-ck input:focus-visible + .ns-tt-goal-ckbox { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-tt-goal-ck input:focus-visible + .ns-tt-goal-ckbox { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-tt-goal-ck:has(input:checked) { color: var(--color-ink); }
 .ns-tt-goal-ck.is-grp { color: var(--color-ink); }
 .ns-tt-goal-ck.is-grp b { font-family: var(--font-display); font-weight: 700; letter-spacing: .16em; }
 .ns-tt-goal-ck.is-grp small { font-size: 10.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
-.ns-tt-goal-ck.is-dis { opacity: .5; cursor: default; }
+.ns-tt-goal-ck.is-dis { opacity: var(--disabled); cursor: not-allowed; }
 .ns-tt-goal-kseg button { padding: 0 11px; font-size: 12px; letter-spacing: .1em; }
 .ns-tt-goal-subrow { min-height: 46px; border-bottom-style: dashed; animation: ns-tt-st-in .28s var(--ns-tt-ease) both; }
 .ns-tt-goal-date {
   min-height: 34px; padding: 0 8px; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent;
   color: var(--color-ink); font-size: 13px; color-scheme: light dark;
 }
-.ns-tt-goal-date:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-goal-date:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-goal-hint { font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); }
 .ns-tt-goal-dash { color: var(--color-ink-faint); margin: 0 2px; }
 .ns-tt-goal-startlink { padding: 2px 0 6px 58px; border-bottom: 1px solid var(--color-line); }
@@ -1799,7 +1785,6 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-goal-hval small { margin-left: 1px; font-size: 12px; color: var(--color-ink-faint); }
 .ns-tt-goal-preview { margin: 12px 0 0; min-height: 20px; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
 .ns-tt-goal-warn { color: var(--color-ink-faint); }
-.ns-tt-goal-del { color: var(--color-late) !important; }
 /* 不能按的儲存鈕：不透明的淡墨色（不用透明度，底下的列才不會透上來；＝原型。磨光⑤ 主鈕改墨，這裡跟著由朱改墨） */
 .ns-tt-goal-form .ns-tt-actions .btn-seal:disabled {
   cursor: default; border-color: transparent;
@@ -1852,7 +1837,6 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 [data-shell="mobile"] .ns-tt-goal { padding: 11px 12px 10px; }
 [data-shell="mobile"] .ns-tt-goal-more { width: 40px; height: 36px; }
 [data-shell="mobile"] .ns-tt-goal-hint button { min-height: 32px; }
-[data-shell="mobile"] .ns-tt-goals-add { min-height: 36px; }
 [data-shell="mobile"] .ns-tt-goal-kseg { width: 100%; }
 [data-shell="mobile"] .ns-tt-goal-kseg button { flex: 1; min-height: 36px; padding: 0 2px; font-size: 11.5px; letter-spacing: .02em; }
 [data-shell="mobile"] .ns-tt-goal-date { font-size: 14px; padding: 0 4px; }
@@ -1918,15 +1902,15 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   font-size: 18px; line-height: 1; color: var(--color-ink-soft); cursor: pointer;
   transition: border-color .15s, color .15s, transform .15s var(--ns-tt-ease);
 }
-.ns-tt-week-arrow:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-week-arrow:hover:not(:disabled) { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-week-arrow:active:not(:disabled) { transform: scale(.94); }
-.ns-tt-week-arrow:disabled { opacity: .3; cursor: default; }
-.ns-tt-week-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-week-arrow:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-tt-week-arrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-week-name { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .ns-tt-week-name b { font-family: var(--font-latin); font-weight: 500; font-size: 16px; letter-spacing: .02em; white-space: nowrap; }
 .ns-tt-week-name em {
   font-style: normal; font-size: 10.5px; letter-spacing: .2em; line-height: 18px; white-space: nowrap;
-  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px;
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 2px; padding: 0 6px;
 }
 .ns-tt-week-tocur {
   min-height: 30px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
@@ -1934,8 +1918,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   transition: border-color .15s, color .15s;
   animation: ns-tt-week-in .3s var(--ns-tt-ease) both;
 }
-.ns-tt-week-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
-.ns-tt-week-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-week-tocur:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-week-tocur:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-week-tocur .ns-tt-kbd { margin-left: 7px; }
 @keyframes ns-tt-week-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
 .ns-tt-week-legend {
@@ -1966,8 +1950,9 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-week-hd b { font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .1em; color: var(--color-ink); }
 .ns-tt-week-hd .ns-tt-num { font-size: 12px; color: var(--color-ink-soft); }
 .ns-tt-week-hsum { font-size: 11px; line-height: 15px; color: var(--color-ink-faint); white-space: nowrap; }
-.ns-tt-week-h.is-today { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
-.ns-tt-week-h.is-today b { color: var(--color-gold-ink); }
+/* 今天欄：丙-1 收尾 金 16％ 底 → --sel-bg（視覺規範 §1.1 點名）；本體欄維持比欄頭淡一階 */
+.ns-tt-week-h.is-today { background: var(--sel-bg); }
+.ns-tt-week-h.is-today b { color: var(--sel-fg); }
 .ns-tt-week-h.is-future { opacity: .55; }
 
 .ns-tt-week-body {
@@ -1979,7 +1964,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-week-hrs span:first-child { transform: translateY(3px); }
 .ns-tt-week-col { position: relative; min-width: 0; border-left: 1px solid var(--color-line); }
 .ns-tt-week-col > i { position: absolute; left: 0; right: 0; border-top: 1px dashed color-mix(in srgb, var(--color-dash) 70%, transparent); pointer-events: none; }
-.ns-tt-week-col.is-today { background: color-mix(in srgb, var(--color-gold) 9%, transparent); }
+.ns-tt-week-col.is-today { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 /* 現在以後：極淡橫紋（〈原型定案〉1） */
 .ns-tt-week-fut {
   position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none;
@@ -1990,8 +1975,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   position: absolute; left: 0; right: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: copy;
   transition: background .15s;
 }
-.ns-tt-week-gap:hover { background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
-.ns-tt-week-gap:focus-visible { outline: 1px dashed var(--color-gold); outline-offset: -1px; }
+.ns-tt-week-gap:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ns-tt-week-gap:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 
 /* 塊：分類色（82%）；名稱（桌機）／圓牌字（手機）；高的塊多一行開始時刻 */
 .ns-tt-week-b {
@@ -2005,9 +1990,9 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 }
 .ns-tt-week-b span { max-width: 100%; padding-top: 1px; font-size: 10.5px; letter-spacing: .06em; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ns-tt-week-b small { font-size: 9px; line-height: 11px; opacity: .8; }
-.ns-tt-week-b:hover { filter: brightness(1.08) saturate(1.05); box-shadow: 0 0 0 1.5px var(--color-gold); z-index: 2; }
+.ns-tt-week-b:hover { filter: brightness(1.08) saturate(1.05); box-shadow: 0 0 0 1.5px var(--accent); z-index: 2; }
 .ns-tt-week-b:active { transform: scale(.97); }
-.ns-tt-week-b:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 0; z-index: 2; }
+.ns-tt-week-b:focus-visible { outline: var(--focus-ring); outline-offset: 0; z-index: 2; }
 .ns-tt-week-b.is-tiny { background: var(--c); opacity: .9; }
 .ns-tt-week-b.is-live { box-shadow: inset 0 -2px 0 var(--color-late); }
 /* 待確認：赭色斜紋 */
@@ -2024,12 +2009,13 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 /* 現在線 */
 .ns-tt-week-now { position: absolute; left: -1px; right: 0; height: 0; border-top: 2px solid var(--color-late); z-index: 3; pointer-events: none; }
 .ns-tt-week-now b { position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-late); }
-/* 桌機 tooltip（手機不出） */
+/* 桌機 tooltip（手機不出）。丙-1 收尾（視覺規範 §1.5）：書封色 → 浮層材質 */
 .ns-tt-week-tip {
   position: absolute; z-index: 6; transform: translate(-50%, calc(-100% - 8px)); pointer-events: none; opacity: 0;
   padding: 5px 10px; border-radius: 3px; white-space: nowrap; font-size: 11.5px; letter-spacing: .06em;
-  background: var(--color-book); color: var(--color-book-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent);
-  box-shadow: var(--shadow-card); transition: opacity .12s;
+  background: var(--float-bg); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  color: var(--color-ink); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-hi), var(--shadow-card); transition: opacity .12s;
 }
 .ns-tt-week-tip.is-below { transform: translate(-50%, 8px); }
 .ns-tt-week-tip.is-on { opacity: 1; }
@@ -2088,14 +2074,14 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   font-size: 18px; line-height: 1; color: var(--color-ink-soft); cursor: pointer;
   transition: border-color .15s, color .15s, transform .15s var(--ns-tt-ease);
 }
-.ns-tt-sched-arrow:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-sched-arrow:hover { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-sched-arrow:active { transform: scale(.94); }
-.ns-tt-sched-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-arrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-sched-pname { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .ns-tt-sched-pname b { font-family: var(--font-latin); font-weight: 500; font-size: 16px; letter-spacing: .02em; white-space: nowrap; }
 .ns-tt-sched-pname em {
   font-style: normal; font-size: 10.5px; letter-spacing: .2em; line-height: 18px; white-space: nowrap;
-  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px;
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 2px; padding: 0 6px;
 }
 .ns-tt-sched-tocur {
   min-height: 30px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
@@ -2103,8 +2089,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   transition: border-color .15s, color .15s;
   animation: ns-tt-week-in .3s var(--ns-tt-ease) both;
 }
-.ns-tt-sched-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
-.ns-tt-sched-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-tocur:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-sched-tocur:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* 總結一行（D-時-72）：數字抬成拉丁粗字 */
 .ns-tt-sched-sum { display: flex; flex-direction: column; gap: 1px; }
@@ -2134,12 +2120,12 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none;
   transition: box-shadow .18s, transform .25s var(--ns-tt-ease), opacity .2s, background .15s;
 }
-.ns-tt-sched-ui:hover { box-shadow: var(--shadow-card), 0 0 0 1px color-mix(in srgb, var(--color-gold) 70%, transparent); }
+.ns-tt-sched-ui:hover { box-shadow: var(--shadow-card), 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent); }
 .ns-tt-sched-ui:active { cursor: grabbing; }
-.ns-tt-sched-ui:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-ui:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-sched-ui.is-pick {
-  background: color-mix(in srgb, var(--color-gold) 14%, var(--color-paper-high));
-  box-shadow: 0 0 0 1.5px var(--color-gold), 0 6px 16px var(--ns-tt-sched-shadow); transform: translateX(3px);
+  background: color-mix(in srgb, var(--accent) 14%, var(--color-paper-high));
+  box-shadow: 0 0 0 1.5px var(--sel-fg), 0 6px 16px var(--ns-tt-sched-shadow); transform: translateX(3px);
 }
 .ns-tt-sched-ui.is-lifted { opacity: .35; transform: scale(.98); }
 .ns-tt-sched-ui.is-ro { cursor: default; opacity: .6; box-shadow: none; }
@@ -2158,12 +2144,12 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-sched-late:hover { color: var(--color-ink); }
 .ns-tt-sched-pickhint {
   display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 7px 10px;
-  border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 3px;
-  background: color-mix(in srgb, var(--color-gold) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-soft);
   animation: ns-tt-week-in .26s var(--ns-tt-ease) both;
 }
-.ns-tt-sched-un.is-side .ns-tt-sched-pickhint { position: sticky; bottom: 0; flex-wrap: wrap; background: color-mix(in srgb, var(--color-gold) 10%, var(--ns-tt-sched-solid)); }
+.ns-tt-sched-un.is-side .ns-tt-sched-pickhint { position: sticky; bottom: 0; flex-wrap: wrap; background: color-mix(in srgb, var(--accent) 10%, var(--ns-tt-sched-solid)); }
 .ns-tt-sched-pickhint span { flex: 1; min-width: 0; }
 .ns-tt-sched-pickhint button {
   flex: none; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: inherit;
@@ -2189,7 +2175,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 }
 .ns-tt-sched-chip small { font-size: 10px; letter-spacing: 0; color: var(--color-ink-faint); }
 .ns-tt-sched-chip small.is-warn { color: var(--color-late); }
-.ns-tt-sched-chip.is-pick { background: color-mix(in srgb, var(--color-gold) 16%, var(--color-paper-high)); box-shadow: 0 0 0 1.5px var(--color-gold); }
+.ns-tt-sched-chip.is-pick { background: color-mix(in srgb, var(--accent) 16%, var(--color-paper-high)); box-shadow: 0 0 0 1.5px var(--sel-fg); }
 .ns-tt-sched-chip.is-lifted { opacity: .4; transform: scale(.96); }
 .ns-tt-sched-chip.is-ro { opacity: .55; box-shadow: none; }
 .ns-tt-sched-rdot { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--rc, var(--ns-tt-cat-8)); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--rc, var(--ns-tt-cat-8)) 25%, transparent); }
@@ -2235,7 +2221,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
     repeating-linear-gradient(to bottom, var(--color-line) 0 1px, transparent 1px var(--ns-tt-sched-h)),
     repeating-linear-gradient(to bottom, transparent 0 calc(var(--ns-tt-sched-h) / 2), color-mix(in srgb, var(--color-line) 42%, transparent) calc(var(--ns-tt-sched-h) / 2) calc(var(--ns-tt-sched-h) / 2 + 1px), transparent calc(var(--ns-tt-sched-h) / 2 + 1px) var(--ns-tt-sched-h));
 }
-.ns-tt-sched-grid.is-picking .ns-tt-sched-pcol { cursor: crosshair; background-color: color-mix(in srgb, var(--color-gold) 6%, transparent); }
+.ns-tt-sched-grid.is-picking .ns-tt-sched-pcol { cursor: crosshair; background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
 .ns-tt-sched-grid.is-picking .ns-tt-sched-card { cursor: crosshair; }
 .ns-tt-sched-night { position: absolute; left: 0; right: 0; background: var(--ns-tt-sched-night); pointer-events: none; }
 .ns-tt-sched-mid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--color-dash); pointer-events: none; }
@@ -2260,18 +2246,18 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 }
 .ns-tt-sched-hintlbl {
   position: absolute; left: 50%; transform: translate(-50%, -50%); z-index: 8; padding: 2px 6px; border-radius: 2px;
-  background: var(--color-gold); color: var(--color-book); font-size: 11px; font-weight: 600; pointer-events: none;
+  background: var(--accent); color: var(--color-on-ink); font-size: 11px; font-weight: 600; pointer-events: none;
   box-shadow: 0 2px 8px var(--ns-tt-sched-shadow);
   animation: ns-tt-sched-pop .2s var(--ns-tt-ease) both;
 }
-/* 滑過一張票：預定開始 → 實際開始，中間這一段金色＝晚（早）了多少 */
+/* 滑過一張票：預定開始 → 實際開始，中間這一段＝晚（早）了多少。滑過高亮 ⇒ 丙-1 收尾 金 → --accent（粉彩靛、銀河金） */
 .ns-tt-sched-lag {
   position: absolute; left: 7px; width: 4px; z-index: 4; border-radius: 2px; pointer-events: none;
-  background: linear-gradient(to bottom, var(--color-gold), color-mix(in srgb, var(--color-gold) 55%, transparent));
+  background: linear-gradient(to bottom, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent));
   transform-origin: top; animation: ns-tt-sched-grow .3s var(--ns-tt-ease) both;
 }
-.ns-tt-sched-lag.is-early { transform-origin: bottom; background: linear-gradient(to top, var(--color-gold), color-mix(in srgb, var(--color-gold) 55%, transparent)); }
-.ns-tt-sched-lag::before, .ns-tt-sched-lag::after { content: ""; position: absolute; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--color-gold); }
+.ns-tt-sched-lag.is-early { transform-origin: bottom; background: linear-gradient(to top, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent)); }
+.ns-tt-sched-lag::before, .ns-tt-sched-lag::after { content: ""; position: absolute; left: 50%; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--accent); }
 .ns-tt-sched-lag::before { top: -4px; }
 .ns-tt-sched-lag::after { bottom: -4px; }
 @keyframes ns-tt-sched-grow { from { opacity: 0; transform: scaleY(.3); } to { opacity: 1; transform: none; } }
@@ -2297,8 +2283,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 }
 .ns-tt-sched-card.is-movable { cursor: grab; }
 .ns-tt-sched-card.is-movable:active { cursor: grabbing; }
-.ns-tt-sched-card:hover { z-index: 3; box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-gold) 80%, transparent), 0 4px 10px color-mix(in srgb, var(--color-book) 14%, transparent); }
-.ns-tt-sched-card:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-sched-card:hover { z-index: 3; box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 80%, transparent), 0 4px 10px color-mix(in srgb, var(--color-book) 14%, transparent); }
+.ns-tt-sched-card:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-sched-card > * { flex-shrink: 0; }
 .ns-tt-sched-ct { display: flex; align-items: baseline; gap: 3px; min-width: 0; white-space: nowrap; color: var(--color-ink-soft); }
 .ns-tt-sched-t { font-weight: 600; font-size: 10.5px; letter-spacing: .02em; flex: none; }
@@ -2312,7 +2298,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-sched-tag {
   flex: none; font-style: normal; font-family: var(--font-body); font-weight: 500; font-size: 9px; letter-spacing: .12em; line-height: 13px;
   padding: 0 4px; margin-left: 4px; border-radius: 2px;
-  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 75%, transparent); background: color-mix(in srgb, var(--color-gold) 14%, transparent);
+  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 75%, transparent); background: color-mix(in srgb, var(--color-gold) 14%, transparent); /* 語意金：定期／紀念 */
 }
 .ns-tt-sched-tag.is-cancel { color: var(--color-ink-faint); border-color: var(--color-dash); background: transparent; }
 .ns-tt-sched-seal {
@@ -2336,11 +2322,11 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-sched-card.is-rail.is-live .ns-tt-sched-ct::after { content: "行駛中"; /* ＝PLAN_TEXT.running（§5.6；修正席統一，原型寫「進行中」） */ font-family: var(--font-body); font-weight: 500; font-size: 8.5px; letter-spacing: .14em; color: var(--color-late); margin-left: 5px; }
 /* 已過發車時刻、還沒開始：時刻字轉赭 */
 .ns-tt-sched-card.is-overdue .ns-tt-sched-t { color: var(--color-late); }
-.ns-tt-sched-card.is-sel, .ns-tt-sched-card.is-on, .ns-tt-sched-card.is-open { z-index: 4; box-shadow: 0 0 0 1.5px var(--color-gold), 0 6px 14px var(--ns-tt-sched-shadow); }
+.ns-tt-sched-card.is-sel, .ns-tt-sched-card.is-on, .ns-tt-sched-card.is-open { z-index: 4; box-shadow: 0 0 0 1.5px var(--sel-fg), 0 6px 14px var(--ns-tt-sched-shadow); }
 .ns-tt-sched-card.is-lifted { opacity: .3; filter: saturate(.4); }
 .ns-tt-sched-cd { font-size: 10px; letter-spacing: 0; line-height: 1.35; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ns-tt-sched-cd .ns-tt-sched-tag { margin: 0 4px 0 0; font-size: 8.5px; padding: 0 2px; letter-spacing: .04em; line-height: 12px; vertical-align: 1px; }
-.ns-tt-sched-cd.is-ok { color: var(--color-gold-ink); }
+.ns-tt-sched-cd.is-ok { color: var(--color-ink); font-weight: 600; /* 準點＝墨加粗，金不做狀態色（§6） */ }
 .ns-tt-sched-cd.is-off { color: var(--color-ink-soft); }
 .ns-tt-sched-cd.is-late { color: color-mix(in srgb, var(--color-late) 80%, transparent); }
 .ns-tt-sched-cd.is-live { color: var(--color-late); }
@@ -2348,7 +2334,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-sched-ct .ns-tt-sched-cd { flex: 0 1 auto; margin-left: 2px; }
 .ns-tt-sched-open {
   position: absolute; right: 3px; bottom: 2px; z-index: 2; padding: 0 6px; border-radius: 9px;
-  background: var(--color-gold); color: var(--color-book); font-size: 10px; letter-spacing: .06em; line-height: 16px;
+  background: var(--sel-fg); color: var(--color-on-ink); font-size: 10px; letter-spacing: .06em; line-height: 16px;
   animation: ns-tt-week-in .22s var(--ns-tt-ease) both;
 }
 .ns-tt-sched-card.is-short .ns-tt-sched-open { top: 50%; bottom: auto; transform: translateY(-50%); animation: none; }
@@ -2382,8 +2368,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-sched-rl span { overflow: hidden; text-overflow: ellipsis; }
 .ns-tt-sched-rl::before { content: ""; position: absolute; left: -1px; top: 7px; width: 6px; border-top: 1px solid var(--color-dash); }
 .ns-tt-sched-rl span:first-child { color: var(--color-ink); }
-.ns-tt-sched-rl.is-ok span:first-child { color: var(--color-gold-ink); font-weight: 600; }
-.ns-tt-sched-rl.is-ok span:first-child::before { content: "◆"; font-size: 7px; margin-right: 4px; vertical-align: 2px; color: var(--color-gold); }
+.ns-tt-sched-rl.is-ok span:first-child { color: var(--color-ink); font-weight: 600; }
+.ns-tt-sched-rl.is-ok span:first-child::before { content: "◆"; font-size: 7px; margin-right: 4px; vertical-align: 2px; color: var(--color-ink); }
 .ns-tt-sched-rl.is-live span { color: var(--color-late); }
 .ns-tt-sched-rl.is-live span:first-child { color: var(--color-ink); }
 .ns-tt-sched-rl.is-late span { color: color-mix(in srgb, var(--color-late) 72%, transparent); }
@@ -2401,7 +2387,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   transition: opacity .22s ease, box-shadow .18s, filter .15s;
 }
 .ns-tt-sched-blk:hover { filter: brightness(1.06); }
-.ns-tt-sched-blk:focus-visible { outline: 1.5px solid var(--color-gold); outline-offset: 0; z-index: 3; }
+.ns-tt-sched-blk:focus-visible { outline: var(--focus-ring); outline-offset: 0; z-index: 3; }
 .ns-tt-sched-blk.is-thin { padding: 0; }
 .ns-tt-sched-bn { max-width: 100%; font-size: 11px; letter-spacing: .05em; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ns-tt-sched-bn i { font-style: normal; opacity: .72; font-size: 10px; }
@@ -2411,7 +2397,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ns-tt-sched-solid) 55%, transparent), inset 0 -2px 0 var(--color-late);
   background-image: linear-gradient(to bottom, transparent 60%, color-mix(in srgb, var(--ns-tt-sched-solid) 18%, transparent));
 }
-.ns-tt-sched-blk.is-on { z-index: 4; box-shadow: 0 0 0 2px var(--color-gold), 0 6px 16px var(--ns-tt-sched-shadow); }
+.ns-tt-sched-blk.is-on { z-index: 4; box-shadow: 0 0 0 2px var(--sel-fg), 0 6px 16px var(--ns-tt-sched-shadow); }
 [data-shell="mobile"] .ns-tt-sched-blk { left: 3px; right: 3px; padding: 1px 4px 0; }
 [data-shell="mobile"] .ns-tt-sched-blk.is-linked { padding-left: 6px; }
 [data-shell="mobile"] .ns-tt-sched-bn { font-size: 10.5px; letter-spacing: .02em; }
@@ -2421,29 +2407,31 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-sched-grid.is-hl .ns-tt-sched-blk:not(.is-on),
 .ns-tt-sched-grid.is-hl .ns-tt-sched-rl:not(.is-on) { opacity: .45; }
 
-/* ── 拖曳／點選：金色時刻線、落點卡、手上的票 ── */
-.ns-tt-sched-hint { position: absolute; left: 0; right: 0; height: 0; z-index: 7; border-top: 2px solid var(--color-gold); pointer-events: none; }
-.ns-tt-sched-hint::before { content: ""; position: absolute; left: -1px; top: -5px; width: 8px; height: 8px; background: var(--color-gold); transform: rotate(45deg); }
+/* ── 拖曳／點選：時刻線、落點卡、手上的票（作用中＝--accent：粉彩靛、銀河金；丙-1 由金改） ── */
+.ns-tt-sched-hint { position: absolute; left: 0; right: 0; height: 0; z-index: 7; border-top: 2px solid var(--accent); pointer-events: none; }
+.ns-tt-sched-hint::before { content: ""; position: absolute; left: -1px; top: -5px; width: 8px; height: 8px; background: var(--accent); transform: rotate(45deg); }
 .ns-tt-sched-ghost {
   position: absolute; left: 2px; right: 2px; z-index: 6; display: flex; flex-direction: column; overflow: hidden; min-height: 22px; padding: 3px 7px;
-  border: 1.5px dashed var(--color-gold); border-radius: 3px; background: color-mix(in srgb, var(--color-gold) 16%, transparent);
+  border: 1.5px dashed var(--accent); border-radius: 3px; background: color-mix(in srgb, var(--accent) 16%, transparent);
   font-size: 11.5px; line-height: 1.3; pointer-events: none;
 }
 .ns-tt-sched-ghost.is-short { flex-direction: row; align-items: center; gap: 6px; padding-top: 0; padding-bottom: 0; }
-.ns-tt-sched-ghost .ns-tt-num { font-size: 10.5px; font-weight: 600; color: var(--color-gold-ink); }
+.ns-tt-sched-ghost .ns-tt-num { font-size: 10.5px; font-weight: 600; color: var(--accent); }
 .ns-tt-sched-ghost b { font-weight: 500; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ns-tt-sched-ghost.is-noest { border-bottom-style: dotted; background: linear-gradient(180deg, color-mix(in srgb, var(--color-gold) 18%, transparent) 50%, transparent); }
+.ns-tt-sched-ghost.is-noest { border-bottom-style: dotted; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, transparent) 50%, transparent); }
 .ns-tt-sched-grid.is-dragging { cursor: grabbing; }
 .ns-tt-sched-grid.is-dragging .ns-tt-sched-card:not(.is-lifted) { pointer-events: none; }
 .ns-tt-sched-float {
   --rc: var(--ns-tt-cat-8);
   position: fixed; z-index: 80; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px;
   transform: translate(-30%, -140%) rotate(-2deg);
-  background: var(--color-book); color: var(--color-book-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent); border-radius: 16px;
-  font-size: 12.5px; letter-spacing: .06em; white-space: nowrap; pointer-events: none; box-shadow: 0 10px 26px var(--ns-tt-sched-pop-shadow);
+  /* 丙-1 收尾（視覺規範 §1.5）：書封色浮籤 → 浮層材質；手上拿著＝抬起一階（--shadow-card-hover）；落點上＝作用中描邊 */
+  background: var(--float-bg); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  color: var(--color-ink); border: 1px solid var(--glass-edge); border-radius: 16px;
+  font-size: 12.5px; letter-spacing: .06em; white-space: nowrap; pointer-events: none; box-shadow: var(--glass-hi), var(--shadow-card-hover);
   transition: border-color .15s, transform .2s var(--ns-tt-ease);
 }
-.ns-tt-sched-float.is-over { border-color: var(--color-gold); transform: translate(-30%, -140%) scale(.96); }
+.ns-tt-sched-float.is-over { border-color: var(--accent); transform: translate(-30%, -140%) scale(.96); }
 
 /* ── 小面板：桌機＝貼在卡旁的浮層（PlanPopover）；手機＝MobileSheetHost 的 sheet；本體 PlanPanel 共用 ── */
 /* 整合席：veil／浮層壓在 Toast（App 根 z-50）底下——面板開著時 toast 的「撤回」要一下就按得到（不然第一下被 veil 吃掉、只關面板） */
@@ -2488,12 +2476,12 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-plan-act .ns-tt-num { font-size: 14px; }
 .ns-tt-plan-act small { font-size: 11px; color: var(--color-ink-faint); }
 .ns-tt-plan-diff { margin-top: 2px; font-size: 12px; letter-spacing: .04em; color: var(--color-ink); }
-.ns-tt-plan-diff.is-ok { color: var(--color-gold-ink); font-weight: 600; }
+.ns-tt-plan-diff.is-ok { color: var(--color-ink); font-weight: 600; }
 .ns-tt-plan-diff.is-live { color: var(--color-late); } /* 磨光⑤：行駛中＝時刻注意，朱改赭（與 is-late 同色，差別在字） */
 .ns-tt-plan-diff.is-late { color: var(--color-late); }
 .ns-tt-plan-teiki {
   margin: 10px 0 0; padding: 8px 10px; border-radius: 3px;
-  background: color-mix(in srgb, var(--color-gold) 9%, transparent); border: 1px dashed color-mix(in srgb, var(--color-gold) 50%, transparent);
+  background: color-mix(in srgb, var(--color-gold) 9%, transparent); border: 1px dashed color-mix(in srgb, var(--color-gold) 50%, transparent); /* 語意金：定期／紀念 */
   font-size: 11.5px; letter-spacing: .04em; line-height: 1.6; color: var(--color-ink-soft);
 }
 .ns-tt-plan-teiki .ns-tt-opt.is-ghostlink {
@@ -2501,7 +2489,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   color: var(--color-ink); text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .ns-tt-plan-ro { margin: 8px 0 0; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
-.ns-tt-plan .btn-seal:disabled { cursor: default; opacity: .45; }
+.ns-tt-plan .btn-seal:disabled { cursor: not-allowed; opacity: var(--disabled); }
 [data-shell="mobile"] .ns-tt-plan .ns-tt-input.ns-tt-plan-tin { font-size: 17px; height: 44px; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2552,23 +2540,23 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   font-size: 18px; line-height: 1; color: var(--color-ink-soft);
   transition: border-color .15s, color .15s, transform .15s var(--ns-tt-ease);
 }
-.ns-tt-grid-arrow:hover:not(:disabled) { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-grid-arrow:hover:not(:disabled) { border-color: var(--accent); color: var(--color-ink); }
 .ns-tt-grid-arrow:active:not(:disabled) { transform: scale(.94); }
-.ns-tt-grid-arrow:disabled { opacity: .3; cursor: default; }
-.ns-tt-grid-arrow:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-grid-arrow:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-tt-grid-arrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-grid-pname { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .ns-tt-grid-pname b { font-family: var(--font-latin); font-weight: 500; font-size: 16px; letter-spacing: .02em; white-space: nowrap; color: var(--color-ink); }
 .ns-tt-grid-pname em {
   font-style: normal; font-size: 10.5px; letter-spacing: .2em; line-height: 18px; white-space: nowrap; margin-left: 2px;
-  color: var(--color-gold-ink); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent); border-radius: 2px; padding: 0 6px;
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 2px; padding: 0 6px;
 }
 .ns-tt-grid-tocur {
   min-height: 28px; padding: 0 12px; border: 1px solid var(--color-dash); border-radius: 15px; background: transparent; cursor: pointer;
   font-family: inherit; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-soft); white-space: nowrap;
   transition: border-color .15s, color .15s;
 }
-.ns-tt-grid-tocur:hover { border-color: var(--color-gold); color: var(--color-ink); }
-.ns-tt-grid-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-grid-tocur:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-grid-tocur:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-tt-grid-tocur .ns-tt-kbd { margin-left: 6px; }
 .ns-tt-grid-segw { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; flex: none; }
 .ns-tt-grid-seg { display: inline-flex; border: 1px solid var(--color-dash); border-radius: 3px; overflow: hidden; }
@@ -2579,8 +2567,8 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 }
 .ns-tt-grid-seg button + button { border-left: 1px solid var(--color-dash); }
 .ns-tt-grid-seg button:hover { color: var(--color-ink); }
-.ns-tt-grid-seg button.is-on { background: color-mix(in srgb, var(--color-gold) 18%, transparent); color: var(--color-ink); }
-.ns-tt-grid-seg button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+.ns-tt-grid-seg button.is-on { background: var(--sel-bg); color: var(--color-ink); }
+.ns-tt-grid-seg button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .ns-tt-grid-segu { font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
 /* 拖的時候的讀數：桌機在頂列右側、暫時佔掉格子大小那一塊（放開就回來）；手機蓋在頂列上（手指遮不到） */
 .ns-tt-grid-read {
@@ -2590,13 +2578,13 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 .ns-tt-grid-read.is-on { display: inline-flex; animation: ns-tt-grid-pop .18s var(--ns-tt-ease) both; }
 .ns-tt-grid-rdm { display: inline-flex; align-items: baseline; }
 .ns-tt-grid-read b { font-family: var(--font-latin); font-weight: 500; font-size: 18px; letter-spacing: .01em; color: var(--color-ink); }
-.ns-tt-grid-rd { font-size: 13px; color: var(--color-gold-ink); }
+.ns-tt-grid-rd { font-size: 13px; color: var(--accent); } /* 選取範圍的讀數：丙-1 收尾 金 → --accent */
 .ns-tt-grid-cover { font-style: normal; font-size: 11.5px; letter-spacing: .06em; color: var(--color-late); }
 .ns-tt-grid.is-desk .ns-tt-grid-read.is-on { margin-left: auto; }
 .ns-tt-grid.is-desk .ns-tt-grid-read.is-on + .ns-tt-grid-segw { display: none; }
 .ns-tt-grid.is-phone .ns-tt-grid-read {
   position: absolute; inset: -4px -6px; z-index: 6; padding: 0 12px; align-items: center; justify-content: flex-start;
-  background: var(--ns-tt-grid-card); border: 1px solid color-mix(in srgb, var(--color-gold) 60%, transparent);
+  background: var(--ns-tt-grid-card); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   border-radius: 4px; box-shadow: 0 6px 18px var(--ns-tt-sched-shadow);
 }
 .ns-tt-grid.is-phone .ns-tt-grid-read .ns-tt-grid-cover { margin-left: auto; }
@@ -2611,9 +2599,9 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   min-height: 30px; padding: 0 2px; border: 0; border-radius: 3px; background: transparent; cursor: pointer;
   font: inherit; color: inherit; -webkit-tap-highlight-color: transparent;
 }
-.ns-tt-grid-pname.is-tocur b { text-decoration: underline dotted color-mix(in srgb, var(--color-gold) 70%, transparent); text-underline-offset: 4px; }
-.ns-tt-grid-pname.is-tocur:active { background: color-mix(in srgb, var(--color-gold) 14%, transparent); }
-.ns-tt-grid-pname.is-tocur:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-tt-grid-pname.is-tocur b { text-decoration: underline dotted color-mix(in srgb, var(--accent) 70%, transparent); text-underline-offset: 4px; }
+.ns-tt-grid-pname.is-tocur:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ns-tt-grid-pname.is-tocur:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 [data-shell="mobile"] .ns-tt-grid-arrow { width: 30px; height: 30px; }
 [data-shell="mobile"] .ns-tt-grid-pname b { font-size: 15px; }
 [data-shell="mobile"] .ns-tt-grid-pname em { padding: 0 4px; letter-spacing: .1em; }
@@ -2697,14 +2685,14 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   background-size: calc(100% / var(--m)) 100%, calc(100% / var(--n)) 100%;
   background-position: -1px 0, 0 0;
 }
-/* 選區：虛線＝拖到的格子；實心金＝貼齊後真正會寫的那段（〈原型定案〉1） */
+/* 選區：虛線＝拖到的格子；實心＝貼齊後真正會寫的那段（〈原型定案〉1）；選中色走 --accent／--sel-fg（丙-1 由金改，銀河仍是金） */
 .ns-tt-grid-sl { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .ns-tt-grid-sl i { position: absolute; top: -1px; bottom: -1px; }
-.ns-tt-grid-sl i.is-raw { border: 1px dashed color-mix(in srgb, var(--color-gold-ink) 70%, transparent); border-radius: 2px; }
-.ns-tt-grid-sl i.is-sel { background: color-mix(in srgb, var(--color-gold) 46%, transparent); box-shadow: inset 0 0 0 1.5px var(--color-gold-ink); border-radius: 2px; }
-[data-theme="dark"] .ns-tt-grid-sl i.is-sel { background: color-mix(in srgb, var(--color-gold) 34%, transparent); }
+.ns-tt-grid-sl i.is-raw { border: 1px dashed color-mix(in srgb, var(--sel-fg) 70%, transparent); border-radius: 2px; }
+.ns-tt-grid-sl i.is-sel { background: color-mix(in srgb, var(--accent) 46%, transparent); box-shadow: inset 0 0 0 1.5px var(--sel-fg); border-radius: 2px; }
+[data-theme="dark"] .ns-tt-grid-sl i.is-sel { background: color-mix(in srgb, var(--accent) 34%, transparent); }
 .ns-tt-grid-sl i.is-sel.is-live {
-  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--color-gold) 50%, transparent) 0 6px, color-mix(in srgb, var(--color-gold) 32%, transparent) 6px 9px);
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 50%, transparent) 0 6px, color-mix(in srgb, var(--accent) 32%, transparent) 6px 9px);
 }
 /* 現在：朱色豎線＋菱形（週視圖的現在線轉 90°） */
 .ns-tt-grid-now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--color-late); z-index: 5; pointer-events: none; }
@@ -2744,9 +2732,10 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 /* ── 塗色列（D-時-96）：桌機在右欄取代本日合計；手機從底部升起 ── */
 .ns-tt-grid-pb { display: flex; flex-direction: column; gap: 8px; transition: opacity .15s; }
 .ns-tt-grid-pb.is-busy { opacity: .6; pointer-events: none; }
+/* 塗色列開著＝作用中：丙-1 收尾 金框金左線 → --accent（形狀不動；左線要不要拿掉留給丙-4） */
 .ns-tt-grid-pb.is-desk {
-  background: var(--color-paper-high); border: 1px solid color-mix(in srgb, var(--color-gold) 55%, var(--color-line));
-  border-radius: var(--radius-card); box-shadow: var(--shadow-card), inset 3px 0 0 var(--color-gold); padding: 14px 14px 12px 16px;
+  background: var(--color-paper-high); border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
+  border-radius: var(--radius-card); box-shadow: var(--shadow-card), inset 3px 0 0 var(--accent); padding: 14px 14px 12px 16px;
 }
 .ns-tt-grid-pb-read { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; letter-spacing: .06em; color: var(--color-ink-soft); }
 .ns-tt-grid-pb-read b { font-family: var(--font-latin); font-weight: 500; font-size: 22px; letter-spacing: .01em; color: var(--color-ink); }
@@ -2767,9 +2756,9 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   padding: 5px 0 4px; gap: 3px;
   transition: background .15s, border-color .15s, transform .25s var(--ns-tt-spring);
 }
-.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:hover { background: color-mix(in srgb, var(--color-gold) 12%, transparent); border-color: color-mix(in srgb, var(--color-gold) 50%, transparent); }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:hover .ns-tt-cat-name { color: var(--color-ink); }
-.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:active { transform: scale(.92); background: color-mix(in srgb, var(--color-gold) 22%, transparent); }
+.ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat:active { transform: scale(.92); background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat-name { font-size: 11px; letter-spacing: .06em; }
 .ns-tt-grid-pb .ns-tt-cats.is-compact .ns-tt-cat.is-live .ns-tt-badge {
   /* 磨光⑤：這圈是「運行中」（.is-live）不是焦點框 ⇒ 跟其他運行中一起由朱改赭（契約盤點列為墨，以選擇器語義為準） */
@@ -2792,7 +2781,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   padding: 4px var(--m-gutter) 10px; gap: 6px;
   background: color-mix(in srgb, var(--ns-tt-grid-card) 92%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(1.3); backdrop-filter: blur(20px) saturate(1.3);
-  border-radius: 14px 14px 0 0; border-top: 1px solid color-mix(in srgb, var(--color-gold) 50%, transparent);
+  border-radius: 14px 14px 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   box-shadow: 0 -10px 34px var(--ns-tt-sched-pop-shadow);
 }
 [data-shell="mobile"] .ns-tt-grid-grip { display: block; width: 34px; height: 4px; border-radius: 2px; background: var(--color-dash); margin: 2px auto 0; }
@@ -2810,7 +2799,7 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
 [data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-cats.is-compact .ns-tt-badge { width: 26px; height: 26px; font-size: 11.5px; }
 [data-shell="mobile"] .ns-tt-grid-mbar .ns-tt-grid-pb-act .ns-btn { min-height: 38px; }
 /* Toast：塗色列開著時抬到它上面（特異度 (0,5,0) 贏過 §E 運行列那條 (0,4,0)；--ns-tt-grid-mbar-h 由 MobileGridDock 量了寫在 App 根） */
-[data-shell="mobile"] .ns-tt-grid-mbar.is-open ~ .ns-card.fixed {
+[data-shell="mobile"] .ns-tt-grid-mbar.is-open ~ .techo-card.fixed {
   bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--ns-tt-grid-mbar-h, 280px) + var(--m-kb, 0px) + 12px);
 }
 
@@ -2824,30 +2813,20 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
  * 桌機的手動荷札欄是旅客筆記的 EntityTagField（.ns-notes-tagfield）：放進 .ns-tt-tagfield 時 display: contents，
  * 讓分類帶的淡牌和手動的牌子排成同一排；建議清單（suggestInline ⇒ .ns-notes-sug.static）佔滿一行、往下推開。 */
 .ns-tt-tag {
-  --ns-tt-tag-line: color-mix(in srgb, var(--color-ink) 44%, transparent);
-  --ns-tt-tag-line-hi: color-mix(in srgb, var(--color-ink) 80%, transparent);
-  --ns-tt-tag-fill: rgba(var(--starlight), .92);
-  --ns-tt-tag-eye: color-mix(in srgb, var(--color-ink) 55%, transparent);
   --h: 22px; --c: 6px;
   position: relative; display: inline-flex; align-items: stretch; flex: none;
   height: var(--h); max-width: 100%; vertical-align: middle;
-  background: var(--ns-tt-tag-line);
+  background: var(--tag-line);
   clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
   transition: background .15s;
 }
-[data-theme="dark"] .ns-tt-tag {
-  --ns-tt-tag-line: color-mix(in srgb, var(--color-ink) 34%, transparent);
-  --ns-tt-tag-line-hi: color-mix(in srgb, var(--color-ink) 72%, transparent);
-  --ns-tt-tag-fill: var(--color-paper-high);
-  --ns-tt-tag-eye: color-mix(in srgb, var(--color-ink) 50%, transparent);
-}
 .ns-tt-tag::before {
-  content: ""; position: absolute; inset: 1px; background: var(--ns-tt-tag-fill);
+  content: ""; position: absolute; inset: 1px; background: var(--tag-fill);
   clip-path: polygon(calc(var(--c) - .45px) 0, 100% 0, 100% 100%, calc(var(--c) - .45px) 100%, 0 calc(100% - var(--c) + .45px), 0 calc(var(--c) - .45px));
 }
 .ns-tt-tag::after {
   content: ""; position: absolute; left: 6px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
-  border-radius: 50%; border: 1px solid var(--ns-tt-tag-eye); background: var(--color-paper); z-index: 1; pointer-events: none;
+  border-radius: 50%; border: 1px solid var(--tag-eye); background: var(--tag-hole); z-index: 1; pointer-events: none;
 }
 .ns-tt-tag-nm {
   position: relative; z-index: 1; display: inline-flex; align-items: center; min-width: 0;
@@ -2855,11 +2834,11 @@ button.ns-tt-stats-rname:focus-visible { outline: 1px solid var(--color-gold); o
   font-family: inherit; font-size: 12px; line-height: 1; letter-spacing: .04em; white-space: nowrap; color: var(--color-ink-soft);
 }
 button.ns-tt-tag-nm { cursor: pointer; }
-button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -3px; }
+button.ns-tt-tag-nm:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 .ns-tt-tag .pa { color: var(--color-ink-faint); }
 .ns-tt-tag .la { color: var(--color-ink); }
 .ns-tt-tag .sl { font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7; }
-.ns-tt-tag:hover { background: var(--ns-tt-tag-line-hi); }
+.ns-tt-tag:hover { background: var(--tag-line-hi); }
 .ns-tt-tag-x {
   position: relative; z-index: 1; width: 0; padding: 0; overflow: hidden; opacity: 0; display: grid; place-items: center;
   border: 0; background: transparent; cursor: pointer; font-size: 9px; color: var(--color-ink-faint);
@@ -2868,12 +2847,12 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
 .ns-tt-tag:hover .ns-tt-tag-x, .ns-tt-tag-x:focus-visible { width: 18px; margin-left: -5px; opacity: 1; }
 .ns-tt-tag-x:hover { color: var(--color-late); }
 /* 分類（或組）帶的：淡一階 */
-.ns-tt-tag.is-fixed { background: color-mix(in srgb, var(--ns-tt-tag-line) 42%, transparent); }
+.ns-tt-tag.is-fixed { background: color-mix(in srgb, var(--tag-line) 42%, transparent); }
 .ns-tt-tag.is-fixed::before { background: var(--ns-tt-sched-solid); }
 .ns-tt-tag.is-fixed::after { display: none; }
 .ns-tt-tag.is-fixed .ns-tt-tag-nm { padding-left: 11px; color: var(--color-ink-faint); }
 .ns-tt-tag.is-fixed .la { color: var(--color-ink-soft); }
-.ns-tt-tag.is-fixed:hover { background: color-mix(in srgb, var(--ns-tt-tag-line) 80%, transparent); }
+.ns-tt-tag.is-fixed:hover { background: color-mix(in srgb, var(--tag-line) 80%, transparent); }
 /* 小牌 */
 .ns-tt-tag.is-sm { --h: 19px; --c: 5px; }
 .ns-tt-tag.is-sm::after { left: 5px; width: 4px; height: 4px; margin-top: -2px; }
@@ -2890,7 +2869,7 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
 .ns-tt-tagfield .ns-notes-tagfield { display: contents; }
 .ns-tt-tagfield .ns-notes-sug.static {
   flex-basis: 100%; margin-top: 2px; padding: 5px; max-height: 240px;
-  border: 1px solid var(--color-line); border-radius: 4px; background: var(--ns-tag-float, var(--color-paper-high));
+  border: 1px solid var(--color-line); border-radius: 4px; background: var(--tag-float);
 }
 .ns-tt-tagfield-empty { font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
 .ns-tt-tagadd {
@@ -2914,7 +2893,7 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
   transition: color .2s, border-color .2s;
 }
 .ns-tt-dock .ns-tt-dock-tag b { font-size: 10.5px; font-weight: 500; letter-spacing: 0; color: var(--color-ink-faint); font-family: var(--font-latin); }
-.ns-tt-dock .ns-tt-dock-tag:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-dock .ns-tt-dock-tag:hover { border-color: var(--accent); color: var(--color-ink); }
 /* 手機：放在名稱列尾端（時刻列排滿了）；只有圖示＋個數 */
 [data-shell="mobile"] .ns-tt-mdock .ns-tt-dock .ns-tt-dock-tag { padding: 0 6px; font-size: 10px; letter-spacing: .02em; }
 [data-shell="mobile"] .ns-tt-mdock .ns-tt-dock .ns-tt-dock-tag b { margin-left: 1px; }
@@ -2951,8 +2930,8 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
 
 /* ═══ §⑥M 荷札・統計（丙・⑥；⑥ 契約 §5.4、§5.5、D-時-118～120、122、123）═══
  * 長相＝原型 prototypes/時刻表-⑥-src/v-tags.css 的「統計：占比卡『分類｜荷札』」「目標」兩節（.vt-shch／.vt-trow／.vt-over／.vt-tagempty／.vt-glost／.vt-flash）。
- * 節名用「§⑥M」：§L／§M 已是 ④ 日程、⑤ 方眼。荷札牌沒有顏色——只用墨與紙；牌子變數借旅客筆記的 --ns-tag-*（notes-tags.css 定在 :root，
- * 兩主題各給值），沒載到時退回墨的 %。統計列裡的小牌＝.ns-tt-stag（唯讀；塊面板那種可摘的牌子是乙席 §L 的 .ns-tt-tag*）。 */
+ * 節名用「§⑥M」：§L／§M 已是 ④ 日程、⑤ 方眼。荷札牌沒有顏色——只用墨與紙；牌子變數＝theme.css 語意層 --tag-*（丙-1 由旅客筆記的 --ns-tag-* 收過去，
+ * 兩主題各給值）。統計列裡的小牌＝.ns-tt-stag（唯讀；塊面板那種可摘的牌子是乙席 §L 的 .ns-tt-tag*）。 */
 .ns-tt-stats { --ns-tt-stats-tagink: color-mix(in srgb, var(--color-ink) 62%, transparent); }
 
 /* 卡頭：分段鈕靠右、說明換到下一行（原型 .vt-shch） */
@@ -2967,17 +2946,17 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
 .ns-tt-stag {
   --h: 19px; --c: 5px;
   position: relative; display: inline-flex; align-items: stretch; flex: none; height: var(--h); max-width: 100%; vertical-align: middle;
-  background: var(--ns-tag-line, color-mix(in srgb, var(--color-ink) 44%, transparent));
+  background: var(--tag-line);
   clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
   transition: background .15s;
 }
 .ns-tt-stag::before {
-  content: ""; position: absolute; inset: 1px; background: var(--ns-tag-fill, var(--color-paper-high));
+  content: ""; position: absolute; inset: 1px; background: var(--tag-fill);
   clip-path: polygon(calc(var(--c) - .45px) 0, 100% 0, 100% 100%, calc(var(--c) - .45px) 100%, 0 calc(100% - var(--c) + .45px), 0 calc(var(--c) - .45px));
 }
 .ns-tt-stag::after {
   content: ""; position: absolute; left: 5px; top: 50%; width: 4px; height: 4px; margin-top: -2px; z-index: 1; pointer-events: none;
-  border-radius: 50%; border: 1px solid var(--ns-tag-eye, color-mix(in srgb, var(--color-ink) 55%, transparent)); background: var(--ns-tag-hole, var(--color-paper));
+  border-radius: 50%; border: 1px solid var(--tag-eye); background: var(--tag-hole);
 }
 .ns-tt-stag-nm {
   position: relative; z-index: 1; display: inline-flex; align-items: center; min-width: 0; overflow: hidden;
@@ -2986,7 +2965,7 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
 .ns-tt-stag .pa { color: var(--color-ink-faint); }
 .ns-tt-stag .la { color: var(--color-ink); }
 .ns-tt-stag .sl { font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7; }
-.ns-tt-stag.is-virtual { background: color-mix(in srgb, var(--ns-tag-line, color-mix(in srgb, var(--color-ink) 44%, transparent)) 55%, transparent); }
+.ns-tt-stag.is-virtual { background: color-mix(in srgb, var(--tag-line) 55%, transparent); }
 .ns-tt-stag.is-virtual::after { border-style: dashed; background: transparent; opacity: .7; }
 .ns-tt-stag.is-virtual .la { color: var(--color-ink-soft); }
 /* 小圖示：實線牌＝荷札、虛線空心＝虛資料夾／不在了（原型 .vt-tglyph） */
@@ -3008,8 +2987,8 @@ button.ns-tt-tag-nm:focus-visible { outline: 1px solid var(--color-gold); outlin
 }
 .ns-tt-stats-row.ns-tt-stats-trow.is-kid .ns-tt-stats-tname { padding-left: calc(10px + (var(--d, 1) - 1) * 16px); }
 .ns-tt-stats-row.is-kid.is-new { animation: ns-tt-st-in .32s var(--ns-tt-ease) both; }
-button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, color-mix(in srgb, var(--color-ink) 80%, transparent)); }
-.ns-tt-stats-trow.is-sel .ns-tt-stag { background: var(--color-gold); }
+button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--tag-line-hi); }
+.ns-tt-stats-trow.is-sel .ns-tt-stag { background: var(--sel-fg); }
 .ns-tt-stats-vf { flex: none; font-style: normal; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); border: 1px dashed var(--color-line); border-radius: 2px; padding: 0 4px; }
 /* 「沒掛荷札」：永遠在最後，虛線分隔、內文字體 */
 .ns-tt-stats-trow.is-none { border-top-style: dashed; }
@@ -3032,17 +3011,17 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
   margin-left: auto; padding: 2px 0; border: 0; border-bottom: 1px dashed var(--color-dash); background: transparent; cursor: pointer;
   font-family: inherit; font-size: 11.5px; letter-spacing: .08em; color: var(--color-ink-soft);
 }
-.ns-tt-goal-lost button:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
+.ns-tt-goal-lost button:hover { color: var(--color-ink); border-bottom-color: var(--accent); }
 [data-shell="mobile"] .ns-tt-goal-lost button { min-height: 36px; }
-/* 荷札頁「目標『…』」跳過來：描金閃一下（原型 .vt-flash） */
+/* 荷札頁「目標『…』」跳過來：描邊閃一下（原型 .vt-flash；丙-1 收尾 金 → --accent） */
 .ns-tt-goal.is-flash { animation: ns-tt-goal-flash 1.6s var(--ns-tt-ease) both; }
 @keyframes ns-tt-goal-flash {
-  0%, 40% { box-shadow: 0 0 0 2px var(--color-gold), var(--shadow-card); }
+  0%, 40% { box-shadow: 0 0 0 2px var(--accent), var(--shadow-card); }
   100% { box-shadow: var(--shadow-card); }
 }
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-stats-row.is-kid.is-new, .ns-tt-goal.is-flash { animation: none; }
-  .ns-tt-goal.is-flash { box-shadow: 0 0 0 2px var(--color-gold), var(--shadow-card); }
+  .ns-tt-goal.is-flash { box-shadow: 0 0 0 2px var(--accent), var(--shadow-card); }
 }
 
 /* ═══ §磨光③ 時刻表畫面（磨光③ 契約 §2-1～2-4、2-11、2-12；D-時-136、138）═══
@@ -3059,7 +3038,7 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
 .ns-tt-tag.is-fixed .ns-tt-tag-nm { transition: color .2s; }
 .ns-tt-tag.is-off .ns-tt-tag-nm::before { transform: scaleX(1); }
 /* 排除後：框更淡、字退到極淡、名稱可點（＝還原） */
-.ns-tt-tag.is-fixed.is-off { background: color-mix(in srgb, var(--ns-tt-tag-line) 24%, transparent); }
+.ns-tt-tag.is-fixed.is-off { background: color-mix(in srgb, var(--tag-line) 24%, transparent); }
 .ns-tt-tag.is-fixed.is-off .ns-tt-tag-nm,
 .ns-tt-tag.is-fixed.is-off .la,
 .ns-tt-tag.is-fixed.is-off .pa { color: color-mix(in srgb, var(--color-ink-faint) 72%, transparent); }
@@ -3088,7 +3067,7 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
   flex: none; min-height: 20px; padding: 0 6px; border-style: solid;
   font-family: var(--font-body); font-size: 10px; letter-spacing: .02em; color: var(--color-ink-soft);
 }
-.ns-tt-dock-name .ns-tt-dock-cut:hover { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-tt-dock-name .ns-tt-dock-cut:hover { border-color: var(--accent); color: var(--color-ink); }
 /* 手機名稱列只有「荷札」「切開」兩顆 chip 時不折行，任務名（或「連到…」）先省略：360 寬時「連到…＋荷札＋切開」會把切開
  * 擠到第二行、運行列從 76px 變 85px（實測）；任務名長的時候荷札鈕整顆掉行也是同一件事（契約 §6）。
  * 名稱列另有「⚠ 其實到幾點？」／「長時間運行」時照舊折行（那時本來就兩行）。 */
@@ -3126,8 +3105,8 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
   font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--color-ink-faint);
   -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-tt-msetbtn:active { background: color-mix(in srgb, var(--color-gold) 16%, transparent); color: var(--color-ink); }
-[data-shell="mobile"] .ns-tt-msetbtn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tt-msetbtn:active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tt-msetbtn:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
 /* ── 2-4 補記／改一塊：按鈕列黏在對話框底（DesktopSheetHost 已把置頂距離收到 8vh）──
  * 對話框本文（.ns-dialog-body）左右 24px、下 20px 的 padding：負邊距把紙底拉滿、貼到底邊。 */
@@ -3148,7 +3127,7 @@ button.ns-tt-stats-tname:hover .ns-tt-stag { background: var(--ns-tag-line-hi, c
 }
 
 /* ═══ 磨光⑦（D-時-152）：點正在跑的那班開編輯面板（原型 prototypes/時刻表-運行中編輯.html） ═══
- * 運行列分類名：平常沒底線、滑過金色虛線底線（同旁邊「・任務名」那一套）、按下淡金底；圓牌也點得到（不進 Tab 順序）。
+ * 運行列分類名：平常沒底線、滑過 --accent 虛線底線（丙-1 由金改）（同旁邊「・任務名」那一套）、按下淡 --accent 底；圓牌也點得到（不進 Tab 順序）。
  * 面板：副標的運行中紅點、「到着」那一列的說明、從「HH:MM 発」進來時手機把発車列閃一下。 */
 button.ns-tt-dock-cat {
   display: inline-block; max-width: 100%; padding: 0; margin: 0; min-height: 0;
@@ -3156,9 +3135,9 @@ button.ns-tt-dock-cat {
   font: inherit; letter-spacing: inherit; color: inherit; text-align: left; cursor: pointer;
   transition: border-color .15s, background .15s;
 }
-button.ns-tt-dock-cat:hover { border-bottom-color: var(--color-gold); }
-button.ns-tt-dock-cat:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--color-gold) 16%, transparent); }
+button.ns-tt-dock-cat:hover { border-bottom-color: var(--accent); }
+button.ns-tt-dock-cat:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ns-tt-badge.is-press { cursor: pointer; transition: border-color .15s, background .15s; }
 .ns-tt-badge.is-press:hover { border-color: var(--c); }
 .ns-tt-badge.is-press:active { background: color-mix(in srgb, var(--c) 22%, transparent); }

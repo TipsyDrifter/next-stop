@@ -139,7 +139,7 @@ function InboxRow({
     <button
       key={op}
       type="button"
-      className={`ns-notes-act${quiet ? " quiet" : ""}`}
+      className={`ns-notes-act ns-btn btn-ghost${quiet ? " quiet ns-btn-danger" : ""}`}
       onClick={() => onOp(it, op)}
       {...(popKind ? { "data-pop-toggle": "", "aria-expanded": myPop === popKind } : {})}
     >

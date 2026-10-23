@@ -3,8 +3,8 @@
  *
  * 兩種長相：
  *   variant="cover"（預設）：書封側欄工具列那一顆（整合席在 mount 填 `sidebarTool: CaptureButton`，無 props 呼叫）。
- *     根元素 `button.ns-notes-capbtn`；樣式 `.cover .ns-notes-capbtn` 在 notes.css（原型 styles.css:266-283）。
- *   variant="page"：頁內空狀態用的 ghost 鈕（`.ns-notes-btn`）。
+ *     根元素 `button.ns-notes-capbtn.ns-btn.btn-ghost`；書封上的版位與配色 `.cover .ns-notes-capbtn` 在 notes.css（原型 styles.css:266-283）。
+ *   variant="page"：頁內空狀態用的次鈕（`.ns-notes-btn.ns-btn.btn-ghost`；空狀態第一步＝次鈕，視覺規範 §2.3）。
  * 鍵位顯示查 registry（`notes.capture`），不手抄。
  */
 import type { CaptureStub } from "../../domain/notes";
@@ -24,7 +24,7 @@ export function CaptureButton({ variant = "cover", stub }: CaptureButtonProps) {
   const title = `記一句（${capsOf("notes.capture")}）`;
   if (variant === "page") {
     return (
-      <button type="button" className="ns-notes-btn" onClick={open} title={title}>
+      <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={open} title={title}>
         <IconPen size={13} />
         記一句
       </button>
@@ -33,7 +33,7 @@ export function CaptureButton({ variant = "cover", stub }: CaptureButtonProps) {
   const hk = hotkeyById("notes.capture");
   const kbd = hk ? formatChord(hk.chords[0]).join(" ").toUpperCase() : "";
   return (
-    <button type="button" className="ns-notes-capbtn" onClick={open} title={title}>
+    <button type="button" className="ns-notes-capbtn ns-btn btn-ghost" onClick={open} title={title}>
       <IconPen size={13} />
       記一句
       {kbd && <span className="kbd">{kbd}</span>}

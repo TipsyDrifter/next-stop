@@ -6,7 +6,7 @@
  *
  * 內容：
  *   - `PENDING_DEPART_UNTIL_NEXT`（契約 0-5：主對話裁乙「蓋到下一班為止」）
- *   - `CAT_PALETTE`（＝timetable.css §A 逐值；測試 D8 對帳）、`TT_NOTICE_TEXT`（N 系列固定字）
+ *   - `CAT_PALETTE`（＝theme.css `--cat-1..8` 逐值；測試 D8 對帳）、`TT_NOTICE_TEXT`（N 系列固定字）
  *   - 佇列動作 `PendingAction`、通知狀態 `NoticeState`（JS → Kotlin 的 JSON 形狀，§5.10.4 的 `state` 鍵）
  *   - `noticeTiles`（0-10、D-時-32）、`tileOf`、`buildNoticeState`、`sortPending`、`reminderOf`
  *
@@ -29,7 +29,12 @@ import {
 /** 0-5：false＝〈開工決定〉原文（照 at 套）；true＝「蓋到下一班為止」（主對話 2026-10-13 裁乙）。主對話放行才改 */
 export const PENDING_DEPART_UNTIL_NEXT = true;
 
-/** 通知用的分類色：與 timetable.css §A 逐值相同（測試 D8 對帳）。Kotlin 依系統深淺色挑一組 */
+/**
+ * 通知用的分類色：與 theme.css 語意層 `--cat-1..8`（兩主題）逐值相同（測試 D8 對帳）。Kotlin 依系統深淺色挑一組。
+ * UI 丙-1（契約 §1-2、§5）：保留實色字面值、不改成 CSS 變數名——state 整包序列化給 Android 的 TtNoticeRenderer.kt，
+ * 那邊用 colorLight／colorDark 解色碼（壞值退第 8 色）；而且兩組都要給（跟系統深淺色走、不跟 App 主題），
+ * getComputedStyle 只讀得到當下主題那一組，本檔又是 node 測試直接載入的純函式檔。改色時兩邊一起改。
+ */
 export const CAT_PALETTE: { light: readonly string[]; dark: readonly string[] } = {
   light: ["#4757a6", "#964468", "#326b4b", "#8a5a2b", "#2f6f86", "#6b4aa0", "#a0503f", "#5c5b7d"],
   dark: ["#a9c0ea", "#e6a8c0", "#a6c9ad", "#d9b98a", "#95c6d6", "#c2aee6", "#e6a88a", "#a3a9b8"],

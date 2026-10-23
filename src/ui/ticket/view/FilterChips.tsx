@@ -518,7 +518,7 @@ export function FilterChips() {
           </span>
           <button
             type="button"
-            className="ns-tk-btn quiet"
+            className="ns-btn ns-btn--sm btn-ghost ns-tk-btn"
             title="清除全部條件"
             onClick={() => void useTicketStore.getState().patchFilter({ text: "", from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null })}
           >

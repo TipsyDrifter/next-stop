@@ -679,7 +679,7 @@ export function BlockPanel({ onDone }: PanelProps) {
             {!fromRunning && (
               <button
                 type="button"
-                className="ns-btn btn-ghost is-aux"
+                className="ns-btn btn-ghost ns-btn-danger is-aux"
                 onClick={() => {
                   onDone();
                   void deleteBlock(block.id);

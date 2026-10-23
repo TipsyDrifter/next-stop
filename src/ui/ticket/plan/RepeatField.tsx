@@ -35,7 +35,7 @@ export function RepeatField({ entry }: { entry: EntryRow }) {
       <span className="t" title={repeatLabel(rule, { accById, catById, curByCode })}>
         {text}
       </span>
-      <button type="button" className="ns-tk-btn quiet" onClick={() => openDialog({ kind: "repeats" })}>
+      <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-btn" onClick={() => openDialog({ kind: "repeats" })}>
         管理定期 ›
       </button>
     </span>
@@ -48,7 +48,7 @@ export function RepeatMakeButton({ entry }: { entry: EntryRow }) {
   const rule = useLinkedRepeat(entry);
   if (rule || entry.kind === "adjust") return null;
   return (
-    <button type="button" className="ns-tk-btn quiet ns-tk-mkrep" title="照這筆每個月記一次（可改頻率）" onClick={() => makeRepeatFromEntry(entry.id)}>
+    <button type="button" className="ns-btn btn-text ns-tk-btn ns-tk-mkrep" title="照這筆每個月記一次（可改頻率）" onClick={() => makeRepeatFromEntry(entry.id)}>
       設成定期…
     </button>
   );

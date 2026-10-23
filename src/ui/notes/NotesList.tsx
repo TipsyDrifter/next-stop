@@ -139,7 +139,7 @@ export function NotesList({ listRef, searchRef, onSelect, onNew }: NotesListProp
             }}
           />
         </label>
-        <button type="button" className="ns-notes-newbtn" onClick={onNew}>
+        <button type="button" className="ns-notes-newbtn ns-btn btn-ghost" onClick={onNew}>
           <IconPlus size={11} />
           新筆記
         </button>

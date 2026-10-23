@@ -155,7 +155,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
         <div className="ns-notes-grip" aria-hidden />
         <div className="ns-notes-mpkhead">
           <h3>{title}</h3>
-          <button type="button" className="ns-notes-mbtn primary" onClick={finish}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-seal" onClick={finish}>
             完成
           </button>
         </div>
@@ -312,7 +312,7 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
                         </div>
                         {lp === x.key && (
                           <div className="ns-notes-mpklp" style={{ ["--d" as string]: x.depth }}>
-                            <button type="button" className="ns-notes-mbtn" onClick={() => createUnder(x.key)}>
+                            <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => createUnder(x.key)}>
                               <IconPlus />在 #{x.name} 底下建立…
                             </button>
                           </div>

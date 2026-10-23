@@ -373,7 +373,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       void collectDeleteHints(n, descendantIdsOf(t, id)).then((hints) =>
         ui().askConfirm({
           title: `連同 ${count} 個子項一起刪除？`,
-          body: withDeleteHints(`「${n.name}」底下的 ${count} 個項目會一起刪除；10 秒內可從底部提示復原。`, hints),
+          body: withDeleteHints(`「${n.name}」底下的 ${count} 個項目會一起刪除；6 秒內可從底部提示復原。`, hints),
           confirmLabel: "刪除",
           danger: true,
           onConfirm: () => void run(),

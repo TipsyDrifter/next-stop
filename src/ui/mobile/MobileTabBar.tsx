@@ -11,9 +11,18 @@
  *
  * a11y：`role="tablist"`／每格 `role="tab"`＋`aria-selected`；planned 格的 `aria-label` 補上
  *   「——次期開業予定」，讀螢幕的人不必先點進去才知道。切頁走 `uiStore.setMobileTab`（順手收桌機疊層）。
+ *
+ * UI 丙-2（契約 §1 #17；視覺規範 §2.0「時刻表運行中徽落在 tab 圖示右上（赭色膠囊）」、§2.9 運行中小牌、§1.4 --radius-pill）：
+ *   線標記外面包一層 `span.m-tab-live`（display: contents，不佔版面、不改定位——徽仍以 .m-tab 為定位框），
+ *   由 common/msheet.css 把裡面的運行中小牌從「分類色實心圓＋一字」改成「赭膠囊＋一字」：淡赭底 --danger-bg、
+ *   赭框、赭字、--radius-pill，前面一顆赭點（同 ui-brand `.ns-live`）——不再跟圓印同形。
+ *   徽的資料、彈出／到着淡出／待確認外圈的動畫都還是時刻表線的 NavBadge（不動那支）；只換形與色。
+ *   只包時刻表那一格；旅客筆記那格的線標記（若有）DOM 照舊、不受影響。
+ *   桌機書封 gnav 上同一枚小牌（核對 L19）不在本席範圍，仍是圓牌（handoff 給時刻表線／丙-3）。
  */
 import { lineNavBadge } from "../../lines/runtime";
 import { useUiStore } from "../../store/uiStore";
+import "../common/msheet.css";
 import { COMING_SOON_TEXT, MOBILE_TABS, renderTabIcon } from "./tabs";
 
 export function MobileTabBar() {
@@ -39,7 +48,14 @@ export function MobileTabBar() {
             className={"m-tab" + (active ? " is-active" : "") + (planned ? " is-planned" : "")}
           >
             {renderTabIcon(tab.icon)}
-            {Badge && <Badge shell="mobile" />}
+            {Badge &&
+              (tab.key === "timetable" ? (
+                <span className="m-tab-live">
+                  <Badge shell="mobile" />
+                </span>
+              ) : (
+                <Badge shell="mobile" />
+              ))}
             <span className="m-tab-label">{tab.label}</span>
           </button>
         );

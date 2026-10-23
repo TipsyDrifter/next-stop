@@ -128,7 +128,7 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
       empty = (
         <>
           <p>還沒有筆記</p>
-          <button type="button" className="ns-notes-mbtn" onClick={() => openCapture("note")}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => openCapture("note")}>
             記一句
           </button>
         </>
@@ -165,7 +165,7 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
             enterKeyHint="search"
           />
         </label>
-        <button type="button" className="ns-notes-mbtn" onClick={onNew}>
+        <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onNew}>
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
             <path d="M8 3v10M3 8h10" />
           </svg>

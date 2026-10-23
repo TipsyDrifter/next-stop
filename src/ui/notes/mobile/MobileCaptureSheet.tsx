@@ -278,12 +278,12 @@ export function MobileCaptureSheet() {
             )}
             {noInboxNote && "（有路線，不進收件匣）"}
           </span>
-          <button type="button" className="ns-notes-mbtn" onMouseDown={keepFocus} onClick={escapeCapture}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onMouseDown={keepFocus} onClick={escapeCapture}>
             取消
           </button>
           <button
             type="button"
-            className="ns-notes-mbtn primary"
+            className="ns-notes-mbtn ns-btn btn-seal"
             onMouseDown={keepFocus}
             onClick={() => void save()}
             disabled={empty}

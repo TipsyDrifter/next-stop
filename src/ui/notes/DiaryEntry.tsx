@@ -289,7 +289,7 @@ export function DiaryEntry({
       <div className="ns-notes-actions">
         <span className="spacer" />
         <span className="ns-notes-wordcount">{countChars(body).toLocaleString()} 字</span>
-        <button type="button" className="ns-notes-act quiet" onClick={onDelete}>
+        <button type="button" className="ns-notes-act quiet ns-btn ns-btn--sm btn-ghost ns-btn-danger" onClick={onDelete}>
           刪除
         </button>
       </div>
@@ -380,11 +380,12 @@ export function DiaryDraft({ label, placeholder, title, body, onChange, onSave, 
         />
       </div>
       <div className="ns-notes-draftbar">
-        <button type="button" className="ns-notes-btn primary" onClick={onSave}>
-          存檔
-        </button>
-        <button type="button" className="ns-notes-btn" onClick={onCancel}>
+        {/* 取消在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起從「主鈕在左」換過來） */}
+        <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={onCancel}>
           取消
+        </button>
+        <button type="button" className="ns-notes-btn ns-btn btn-seal" onClick={onSave}>
+          存檔
         </button>
         {confirmEsc ? (
           <span className="hint warn">還沒存檔——再按一次 {capsOf("notes.escape")}放棄，或繼續打字</span>

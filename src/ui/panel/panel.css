@@ -46,9 +46,8 @@
   color: var(--color-ink-faint); cursor: pointer;
   transition: color .15s, background .15s;
 }
-.panel .panel-close:hover { color: var(--color-ink); background: rgba(42, 43, 73, .06); }
-[data-theme="dark"] .panel .panel-close:hover { background: rgba(230, 236, 255, .06); }
-.panel .panel-close:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.panel .panel-close:hover { color: var(--color-ink); background: var(--hover-bg); }   /* UI 丙-1：語意層 hover 底（粉彩值同舊 ink 6%） */
+.panel .panel-close:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* ═══ 票頭（件一 .panel-head／.panel-kind 逐字）＝「攤開的一張大票」的票頭 ═══ */
 .panel .panel-head {
@@ -115,16 +114,15 @@
 .panel .field:hover .x, .panel .st:hover .x, .panel .x:focus-visible { opacity: 1; }
 .panel .x:hover { color: var(--color-late); }
 
-/* ═══ 選項：原型 .status 小方標；未選＝idle、選中＝ink 邊 ═══ */
+/* ═══ 選項：原型 .status 小方標；未選＝idle、選中＝作用中 --sel-fg 框與字（UI 丙-1，視覺規範 §2.10；框維持 1px 不擠動同列） ═══ */
 .opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .opts.grid2 { display: grid; grid-template-columns: repeat(2, max-content); }
 .panel button.status { background: transparent; cursor: pointer; font-family: inherit; line-height: 1.6; transition: color .15s, border-color .15s; }
 .panel button.status:hover { color: var(--color-ink-soft); border-color: var(--color-dash); }
-.panel button.status.on { color: var(--color-ink); border-color: var(--color-ink); }
-.panel button.status.late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 40%, transparent); }
-.panel button.status.late:hover { color: var(--color-late); border-color: var(--color-late); }
-.panel button.status:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-.panel button.status:disabled { opacity: .5; cursor: default; }
+.panel button.status.on { color: var(--sel-fg); border-color: var(--sel-fg); }
+.panel button.status:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 禁用（§1.8）：--disabled＋not-allowed；危險操作鈕改 .ns-btn.btn-ghost.ns-btn-danger（fields.tsx ActionButton），誤點色的 status 小方標退役 */
+.panel button.status:disabled { opacity: var(--disabled); cursor: not-allowed; }
 
 /* 星期 chip（M3 ④ WP3）：七顆要在 220px 的控制項欄排成一列 → 收字距、給等寬底
    （原型沒有這個控件，形制沿用 .status 小方標，只動間距不動顏色） */
@@ -134,17 +132,17 @@
 /* 票根徽章當按鈕（無代碼的路線：空章點了去填代碼） */
 .panel button.badge { background: transparent; cursor: pointer; padding: 0; }
 
-/* ═══ 心情三燈：三個 .badge 小圓（color 由元件給：松葉／燙金／朱） ═══ */
+/* ═══ 心情三燈：三個 .badge 小圓（color 由元件給：--mood-good／-ok／-hard；未選＝常駐淡態 --dim、hover 轉實） ═══ */
 .mood { display: flex; align-items: center; gap: 8px; }
 .mood .badge {
   background: transparent; cursor: pointer; padding: 0;
   font-family: var(--font-display); font-size: 13px;
-  opacity: .4; transition: opacity .15s, background .15s;
+  opacity: var(--dim); transition: opacity .15s, background .15s;
 }
 .mood .badge:hover { opacity: .75; }
 .mood .badge.on { opacity: 1; background: currentColor; }
 .mood .badge.on > span { color: var(--color-paper-high); }
-.mood .badge:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.mood .badge:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 
 /* ═══ 路線色：原型 .roundel 小圓盤；選中＝ink 邊；自訂＝虛線空盤（color picker 藏在裡面） ═══ */
 .swatches { display: flex; align-items: center; gap: 8px; }
@@ -153,7 +151,7 @@
 .swatches .roundel.custom { background: transparent; border: 1.6px dashed var(--color-dash); color: var(--color-ink-faint); font-size: 12px; }
 .swatches .roundel.custom.on { border: 0; }
 .swatches .roundel.custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.swatches .roundel:focus-within { outline: 1px solid var(--accent); outline-offset: 2px; }
+.swatches .roundel:focus-within { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* ═══ 車票検印：沿原型 .stamp／.seal；done／fresh 對應 .ticket.done／.ticket.fresh ═══ */
 .panel .stamp-row { display: flex; align-items: center; gap: 16px; }
@@ -199,7 +197,7 @@
 .st:not(.arrived):hover .arr-seal, .st:not(.arrived) .arr-seal:focus-visible { opacity: .7; }
 .st:not(.arrived) .arr-seal:hover { border-color: var(--accent); color: var(--accent); }
 .st.arrived .arr-seal:hover { opacity: 1; }
-.arr-seal:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.arr-seal:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .st.fresh .arr-seal { animation: arrIn .4s cubic-bezier(.2, 1.5, .4, 1); }
 @keyframes arrIn {
   0%   { transform: scale(1.75) rotate(-24deg); opacity: 0; }
@@ -207,7 +205,7 @@
   100% { transform: scale(1)    rotate(-6deg);  opacity: .78; }
 }
 
-/* ═══ 操作列：上接撕線（.sec .rule 的虛線），鈕＝.status 式次鈕 ═══ */
+/* ═══ 操作列：上接撕線（.sec .rule 的虛線），鈕＝.ns-btn.btn-ghost 緊湊次鈕（危險加 .ns-btn-danger；UI 丙-1） ═══ */
 .actions {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin-top: 34px; padding-top: 14px; border-top: 1px dashed var(--color-dash);
@@ -231,7 +229,7 @@
 }
 .panel .tf-show:hover { border-bottom-color: var(--accent); }
 .panel .tf-show:focus { outline: none; }
-.panel .tf-show:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.panel .tf-show:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .panel .tf-show .hm { font-family: var(--font-latin); font-weight: 500; font-size: 17px; letter-spacing: .03em; color: var(--color-ink); }
 .panel .tf-show .ph { font-size: 13px; color: var(--color-ink-faint); letter-spacing: .08em; }
 .panel .tf-show .pre { font-size: 11px; color: var(--color-ink-soft); letter-spacing: .14em; }
@@ -267,7 +265,7 @@
   text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .panel .linkbtn:hover { text-decoration-style: solid; }
-.panel .linkbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.panel .linkbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .panel .tf.shake > :first-child { animation: none; }

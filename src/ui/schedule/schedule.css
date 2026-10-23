@@ -72,7 +72,7 @@
   background-image: linear-gradient(color-mix(in srgb, var(--accent) 5%, transparent), color-mix(in srgb, var(--accent) 5%, transparent));
 }
 .ns-sch .sec:focus { outline: none; }
-.ns-sch .sec:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-sch .sec:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
 /* 空白日／區間列／邊界行＝一行（不 sticky、無底色、不留大片空白；原型 :426-434） */
 .ns-sch-day.is-empty .sec,
@@ -104,7 +104,7 @@
 }
 .ns-sch-run-head:hover { background-color: color-mix(in srgb, var(--color-paper-high) 40%, transparent); }
 .ns-sch-run-head:hover h3 .dt { color: var(--color-ink-soft); }
-.ns-sch-run-head:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-sch-run-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .ns-sch-run-head .caret { display: inline-block; margin-left: .55em; transition: transform .2s ease-out; }
 .ns-sch-run.is-open > .ns-sch-run-head .caret { transform: rotate(90deg); }
 .ns-sch-run.is-open > .ns-sch-run-head .note { color: var(--color-ink-soft); }
@@ -142,7 +142,7 @@
   text-underline-offset: 4px;
 }
 .ns-sch-latejump:hover .caret { transform: translateY(-2px); }
-.ns-sch-latejump:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-sch-latejump:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
 /* ═══ 締切小段（原型 .subhead :454-458） ═══ */
 .ns-sch-subhead {
@@ -176,7 +176,7 @@
 .ns-sch .prow { display: flex; align-items: center; gap: 9px; padding: 7px 0; }
 /* 原型沒有「選中列」的視覺：只在鍵盤流現身（同 DayCell 的處置） */
 .ns-sch .prow:focus { outline: none; }
-.ns-sch .prow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+.ns-sch .prow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 2px; }
 
 .ns-sch .roundel-s {
   width: 19px; height: 19px; flex: none; border-radius: 50%;
@@ -207,7 +207,7 @@
   transition: color .15s;
 }
 .ns-sch .prow .rep-btn:hover { color: var(--accent); }
-.ns-sch .prow .rep-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-sch .prow .rep-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* 「詳情」小字鈕（10-20 磨光②；daylist.panel 的滑鼠入口）：票種小字那一階（9.5px／.24em、ink-faint），不加框；
    列 hover／鍵盤聚焦（列 tabIndex＝0 那一列）才現身。平時 display:none 不佔位——浮層窄，常駐佔位會把標題多截掉兩個字；
@@ -221,7 +221,7 @@
 .ns-sch .prow:focus .detail,
 .ns-sch .prow:focus-within .detail { display: block; }
 .ns-sch .prow .detail:hover { color: var(--accent); }
-.ns-sch .prow .detail:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-sch .prow .detail:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .ns-sch .prow .detail { transition: none; } }
 
 .ns-sch .defer {
@@ -231,7 +231,7 @@
   transition: color .15s, border-color .15s;
 }
 .ns-sch .defer:hover { color: var(--accent); border-color: var(--accent); }
-.ns-sch .defer:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-sch .defer:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-sch .prow.done .defer { display: none; }
 
 /* 迷你検印欄（＝今日票検印圈的縮小版） */
@@ -332,7 +332,7 @@
 .ns-sch .prow .tm .nx, .ns-daypop .prow .tm .nx { font-size: 9.5px; }
 .ns-sch .prow .tm .once, .ns-daypop .prow .tm .once { font-size: 9px; }
 
-/* ② 今日頁：「未定時・照手排」小標（右側點線延伸）與現在線（靛：左端圓點＋實線＋「現在 15:10」） */
+/* ② 今日頁：「未定時・照手排」小標（右側點線延伸）與現在線（赭：左端圓點＋實線＋「現在 15:10」；UI 丙-1 前是靛，視覺規範 §2.10） */
 .ns-today .ticket-list > .subgrp {
   list-style: none; display: flex; align-items: center; gap: 10px; margin: 6px 0 -2px;
   font-size: 10.5px; letter-spacing: .24em; color: var(--color-ink-faint);
@@ -340,7 +340,7 @@
 .ns-today .ticket-list > .subgrp::after { content: ""; flex: 1; border-top: 1px dotted var(--color-dash); }
 .ns-today .ticket-list > .nowline {
   list-style: none; position: relative; display: flex; align-items: center; gap: 8px;
-  margin: -4px 0; height: 6px; color: var(--accent); pointer-events: none;
+  margin: -4px 0; height: 6px; color: var(--late); pointer-events: none;
 }
 .ns-today .ticket-list > .nowline::before {
   content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-left: -3px; flex: none;

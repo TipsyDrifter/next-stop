@@ -37,7 +37,7 @@ export function Meteor({ variant, enabled, paused }: MeteorProps) {
         return {
           left: `${rand(28, 72).toFixed(1)}%`,
           top: `${rand(5, 26).toFixed(1)}%`,
-          "--dur": `${rand(1.0, 1.3).toFixed(2)}s`,
+          "--sky-dur": `${rand(1.0, 1.3).toFixed(2)}s`,
         };
       }
       return {

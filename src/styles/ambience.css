@@ -126,7 +126,7 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 .sky--galaxy .sky-dust { opacity: var(--o, .35); }
 .sky--galaxy .sky-star {
   opacity: var(--o1, .9);
-  animation: skyTwinkleG var(--dur, 8s) ease-in-out infinite alternate;
+  animation: skyTwinkleG var(--sky-dur, 8s) ease-in-out infinite alternate;
   animation-delay: var(--delay, 0s);
 }
 .sky--galaxy .sky-star.is-warm { background: rgb(255, 232, 200); }
@@ -141,13 +141,13 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 .sky-meteor-wrap { position: absolute; }
 .sky-meteor { display: block; }
 
-/* 粉彩：角度固定 24deg、飛行時長由 --dur 帶（1.0–1.3s） */
+/* 粉彩：角度固定 24deg、飛行時長由 --sky-dur 帶（1.0–1.3s） */
 .sky--pastel .sky-meteor-wrap { transform: rotate(24deg); transform-origin: 0 50%; }
 .sky--pastel .sky-meteor {
   width: 170px; height: 2px; border-radius: 2px;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .6) 60%, #fff);
   box-shadow: 0 0 10px 1px rgba(255, 255, 255, .85);
-  animation: skyMeteorP var(--dur, 1.15s) cubic-bezier(.25, .1, .35, 1) forwards;
+  animation: skyMeteorP var(--sky-dur, 1.15s) cubic-bezier(.25, .1, .35, 1) forwards;
 }
 @keyframes skyMeteorP {
   0%   { transform: translateX(0);     opacity: 0; }
@@ -194,7 +194,7 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
   left: 0; bottom: 0; width: 262px; height: 26px;
   color: var(--color-ink, #2a2b49); opacity: .58;
   transform: translateX(-300px);
-  animation: skyTrainP var(--dur, 20s) linear forwards;
+  animation: skyTrainP var(--sky-dur, 20s) linear forwards;
 }
 @keyframes skyTrainP {
   0%   { transform: translateX(-300px); }

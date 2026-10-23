@@ -1,32 +1,12 @@
 /*
- * 「移動到…」挑選器（磨光⑤ B1）的版位與「目前位置」那一列。
- * 挑選器本體借旅客筆記的 AttachPicker／MobileAttachPicker（樣式在 notes.css／notes-mobile.css）；
- * 這裡只補：側板裡的外距、筆記頁根才有的區域變數（側板不在 .ns-notes 底下）、不可選那一列的淡字。
- * 顏色只用既有 token（墨家族），不出朱——朱只給済（規格書 §6）。
+ * 「移動到…」挑選器（磨光⑤ B1）在側板裡的版位。
+ * 挑選器本體是共用的 AttachPicker／MobileAttachPicker（UI 丙-2 起在 common/；清單樣式在 common/attachpicker.css，
+ * 浮層殼 .ns-notes-pop 仍在 notes.css、面板本體在 notes-mobile.css）；這裡只補側板裡的外距與捲動餘裕。
+ * 「目前位置」那一列（看得到、點不了）的規則屬挑選器本身，UI 丙-2 搬到 common/attachpicker.css。
+ * 側板沒有 .ns-notes 祖先：浮層殼要的區域變數由 notes.css「本線區域變數」那段一併掛在 .ns-moveto 上（MoveTo.tsx 同時 import notes.css）。
  */
 
-/* 側板：區域變數照 notes.css「本線區域變數」那段（側板沒有 .ns-notes 祖先，不補的話浮層底色是透明的） */
-.ns-moveto {
-  --ns-glass: rgba(var(--starlight), .78);
-  --ns-sel: color-mix(in srgb, var(--accent) 9%, transparent);
-  --ns-float: rgba(var(--starlight), .84);
-  --ns-hi: 0 0 0 0 transparent;
-}
-[data-theme="dark"] .ns-moveto {
-  --ns-glass: var(--color-line);
-  --ns-float: var(--color-paper-high);
-  --ns-hi: inset 0 1px 0 rgba(var(--starlight), .09);
-}
 /* 內嵌在操作列下方：側板內容寬 288px，浮層版的 300px 會撐出橫捲軸，所以用內嵌版、吃滿欄寬 */
 .ns-moveto .ns-notes-pop { margin: 12px 0 0; }
 /* 捲進視野時下緣留一點紙（側板捲動區的底距），清單最後一列不要貼著視窗邊 */
 .ns-moveto { scroll-margin-bottom: 26px; }
-
-/* 目前位置：看得到、點不了 */
-.ns-notes-nodelist li > button.locked { color: var(--color-ink-faint); cursor: default; }
-.ns-notes-nodelist li > button.locked:hover { background: transparent; }
-.ns-notes-nodelist li > button.locked .path { color: var(--color-ink-soft); }
-
-[data-shell="mobile"] .ns-notes-mnode.is-locked { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-notes-mnode.is-locked:active { background: transparent; }
-[data-shell="mobile"] .ns-notes-mnode.is-locked .path { color: var(--color-ink-soft); }

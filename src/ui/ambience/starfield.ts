@@ -155,7 +155,7 @@ function buildGalaxy(density: "full" | "reduced"): Starfield {
         height: `${size}px`,
         "--o0": o0,
         "--o1": o1,
-        "--dur": `${dur}s`,
+        "--sky-dur": `${dur}s`,
         "--delay": `-${delay}s`,
       },
     });

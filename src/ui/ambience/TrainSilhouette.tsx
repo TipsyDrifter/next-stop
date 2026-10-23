@@ -32,8 +32,8 @@ export function TrainSilhouette({ variant, enabled, paused }: TrainSilhouettePro
     firstDelay: () => (pastel ? 5000 : 9000),
     nextDelay: () => (pastel ? rand(75000, 120000) : rand(180000, 360000)),
     makeStyle: (): CssVars => {
-      // 粉彩行駛 20s（原型以 --dur 帶）；銀河行駛 15s 寫死在 keyframes，不需要參數
-      if (pastel) return { "--dur": "20s" };
+      // 粉彩行駛 20s（原型以 --dur 帶，本專案改名 --sky-dur）；銀河行駛 15s 寫死在 keyframes，不需要參數
+      if (pastel) return { "--sky-dur": "20s" };
       return {};
     },
   });

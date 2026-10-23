@@ -45,7 +45,7 @@ export function ImportCard(props: { onDone(): void }) {
         <>
           <p className="ns-tk-im-unknown">{TK_TEXT.importUnknown(imp.missing)}</p>
           <footer className="ns-tk-im-foot">
-            <button type="button" className="ns-tk-btn" onClick={props.onDone}>
+            <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={props.onDone}>
               關閉
             </button>
           </footer>
@@ -80,11 +80,11 @@ export function ImportCard(props: { onDone(): void }) {
           </p>
           <footer className="ns-tk-im-foot">
             {imp.plan && <span className="note">已匯入的不會重複——再試一次就能補齊</span>}
-            <button type="button" className="ns-tk-btn quiet" onClick={props.onDone}>
+            <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={props.onDone}>
               關閉
             </button>
             {imp.plan && (
-              <button type="button" className="ns-tk-btn primary" onClick={() => void store().runImport()}>
+              <button type="button" className="ns-btn btn-seal ns-tk-btn" onClick={() => void store().runImport()}>
                 再試一次
               </button>
             )}
@@ -236,12 +236,12 @@ function Preview({ plan, fileName, onCancel }: { plan: ImportPlan; fileName: str
       )}
 
       <footer className="ns-tk-im-foot">
-        <button type="button" className="ns-tk-btn quiet" onClick={onCancel}>
+        <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={onCancel}>
           取消
         </button>
         <button
           type="button"
-          className="ns-tk-btn primary"
+          className="ns-btn btn-seal ns-tk-btn"
           disabled={plan.unsupported !== null}
           onClick={() => void store().runImport()}
         >
@@ -399,14 +399,14 @@ function Done({ onClose }: { onClose(): void }) {
       {outcome && outcome.repeats > 0 && IMPORT_REPEATS_PAUSED && (
         <p className="ns-tk-im-note is-plan">
           {TK_TEXT.importPaused}
-          <button type="button" className="ns-tk-btn quiet" onClick={() => useTicketStore.getState().openDialog({ kind: "repeats" })}>
+          <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-btn" onClick={() => useTicketStore.getState().openDialog({ kind: "repeats" })}>
             去定期帳 ›
           </button>
         </p>
       )}
       {anyBad && <p className="ns-tk-im-note is-bad">有帳戶餘額對不上：可以去帳戶點「調整餘額…」補一筆精算。</p>}
       <footer className="ns-tk-im-foot">
-        <button type="button" className="ns-tk-btn primary" onClick={onClose}>
+        <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={onClose}>
           關閉
         </button>
       </footer>

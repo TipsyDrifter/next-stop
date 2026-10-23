@@ -1,7 +1,10 @@
 /**
  * ConfirmDialog——置中的小確認窗（F1 連同子項完成 2.0e／F3 子孫 ≥5 刪除確認）：title／body／取消／確認；
  * Enter 確認、Esc 取消、開啟時聚焦確認鈕。視覺＝暗幕（techo-veil）＋紙卡（techo-card）＋襯線標題；
- * 確認鈕預設主鈕（`confirm.tone === "gold"` 才換金框 btn-gold，接縫 #74）（btn-seal：磨光⑤ 起是實心墨＋字色 --color-on-ink，class 名沿用），取消＝btn-ghost。唯一來源＝uiStore.confirm。
+ * 確認鈕＝主鈕 `.ns-btn.btn-seal`（磨光⑤ 起是實心墨＋字色 --color-on-ink，class 名沿用）；`confirm.danger` 的確認鈕＝危險鈕
+ * `.ns-btn.btn-ghost.ns-btn-danger`（赭框、永遠不實心）；取消＝`.ns-btn.btn-ghost`。唯一來源＝uiStore.confirm。
+ * UI 丙-1（視覺規範 §2.3／§2.4）：兩顆鈕的尺寸、焦點環、禁用一律吃 `.ns-btn`（原本用 Tailwind 另寫一套尺寸＋金色焦點框）；
+ *   `confirm.tone === "gold"` 的金框鈕退役——不再讀 tone，定期帳那一顆改成一般確認框（主鈕）。
  * 取捨：自帶兩鍵 Tab 循環與焦點還原，不依賴 DialogShell（那是帶標題列與 × 的表單殼，語義不同）。
  *
  * v1.1.6（重新開始契約 §5；拍板〈回饋兩題拍板〉三層保護的第二層＝打字確認）：`confirm.typeToConfirm` 有值時，
@@ -138,7 +141,7 @@ function ConfirmDialogInner({ confirm, onClose }: { confirm: ConfirmState; onClo
             ref={cancelRef}
             type="button"
             onClick={cancel}
-            className="btn-ghost px-4 py-1.5 text-[13px] rounded-[2px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-gold transition-colors"
+            className="ns-btn btn-ghost"
           >
             取消
           </button>
@@ -147,12 +150,7 @@ function ConfirmDialogInner({ confirm, onClose }: { confirm: ConfirmState; onClo
             type="button"
             onClick={ok}
             disabled={!matched}
-            className={
-              // tone 沒帶＝btn-seal（接縫 #74：只加選填、不改既有確認窗）
-              (confirm.tone === "gold" ? "btn-gold" : "btn-seal") +
-              " px-4 py-1.5 text-[13px] font-medium rounded-[2px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-gold" +
-              (typing ? " ns-confirm-type-ok" : "")
-            }
+            className={danger ? "ns-btn btn-ghost ns-btn-danger" : "ns-btn btn-seal"}
           >
             {confirm.confirmLabel ?? "確認"}
           </button>

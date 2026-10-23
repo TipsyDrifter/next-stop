@@ -117,7 +117,7 @@ export function BudgetEditor({ onDone }: { onDone(): void }) {
           })}
           <tr className="is-add">
             <td colSpan={4}>
-              <button type="button" className="ns-tk-btn quiet" aria-expanded={picking} data-pop-toggle onClick={() => setPicking(!picking)}>
+              <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-btn" aria-expanded={picking} data-pop-toggle onClick={() => setPicking(!picking)}>
                 <TkIcon name="plus" size={11} />
                 加分類預算
               </button>
@@ -218,7 +218,7 @@ function BudgetLineRow(props: {
         {!isTotal && (
           <button
             type="button"
-            className="ns-tk-dmini"
+            className="ns-btn ns-btn--sm btn-ghost ns-btn-danger ns-tk-dmini"
             onClick={() => {
               if (props.onDropPending && !def && !ovr) props.onDropPending();
               else confirmRemove();

@@ -77,7 +77,7 @@
  *   （`[data-shell="mobile"]` 選擇器，特異度自然蓋過這裡）。
  * 形狀零發明：橫幅＝`<BackupBanner/>` 那一列（Tailwind 工具類已在元件上，這裡只補一條）；
  *   對話框＝DialogShell 的紙卡（`.ns-card.ns-dialog`＋`.ns-tear`）；碼＝配對碼 `.ns-sy-code` 的拉丁等寬感放大一號。
- * 色一律 token：碼走墨色（它不是警告，是一段要抄的字）；「我已抄下」的勾選沿換鑰匙那格的金色 accent。
+ * 色一律 token：碼走墨色（它不是警告，是一段要抄的字）；「我已抄下」的勾選沿換鑰匙那格的 accent（UI 丙-1 起＝`--accent`）。
  * ───────────────────────────────────────────────────── */
 
 /* 桌機橫幅：與 BackupBanner 疊在一起時兩列別黏成一團（BackupBanner 也是 pt-3，這裡不必再加） */
@@ -133,5 +133,5 @@
   color: var(--color-ink);
   cursor: pointer;
 }
-.ns-recovery-ack input { flex: none; accent-color: var(--color-gold); }
+.ns-recovery-ack input { flex: none; accent-color: var(--accent); }   /* 勾選框＝控件作用中色（UI 丙-1） */
 .ns-recovery-foot { display: flex; justify-content: flex-end; margin-top: 12px; }

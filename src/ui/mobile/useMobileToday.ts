@@ -12,7 +12,7 @@
  *   改期（主線車次① P11）  → `defer(id, target)`：reschedule(target) ＋ showRescheduleToast（帶「復原」）；
  *                            target=null＝清除執行日：INBOX_TOAST＋「復原」放回原執行日（DeferPopover.tsx 同款）
  *   本班運休／取消運休     → `skip(id, skip)`：skipOccurrence(id, skip)（不帶 dueOn＝今日頁口徑）
- *   臨時車票／無日期票     → createNode({ scheduledOn: dateKey | null })，後者附 INBOX_TOAST 的「取消建立」
+ *   臨時車票／無日期票     → createNode({ scheduledOn: dateKey | null })，後者附 INBOX_TOAST 的「復原」
  *   v1.1.0 的 `deferTomorrow` 已併進 `defer`（⋯ sheet 從一項補成四項＋運休，P11）。
  *   時刻（主線② §3.10）    → `setTime(id, time, est?)`＝updateNode({ scheduled_time, estimate_min? })；
  *                            `setRunTime(id, time)`／`clearRunTime(id)`＝nodeStore 同名入口，班次日＝`occurrence?.due_on ?? scheduled_on`
@@ -138,7 +138,7 @@ export function deleteTicket(id: string, name: string, childTotal: number | null
     // 子項數不知道（串流上沒載到的票）：寧可多問一次，也不要不問就連同一整串子項刪掉
     ui().askConfirm({
       title: `刪除『${name}』？`,
-      body: "底下如果有子項會一起移除；10 秒內可從底部提示復原。",
+      body: "底下如果有子項會一起移除；6 秒內可從底部提示復原。",
       confirmLabel: "刪除",
       danger: true,
       onConfirm: () => void run(),
@@ -148,7 +148,7 @@ export function deleteTicket(id: string, name: string, childTotal: number | null
   if (childTotal >= 5) {
     ui().askConfirm({
       title: `連同底下 ${childTotal} 個子項一起刪除？`,
-      body: `『${name}』底下的節點會一起移除；10 秒內可從底部提示復原。`,
+      body: `『${name}』底下的節點會一起移除；6 秒內可從底部提示復原。`,
       confirmLabel: "刪除",
       danger: true,
       onConfirm: () => void run(),
@@ -393,7 +393,7 @@ export function useMobileToday(): MobileTodayApi {
         // toast 是唯一的收據，且要能反悔（沿桌機 Shift+Enter 契約）
         ui().showToast({
           message: INBOX_TOAST,
-          actionLabel: "取消",
+          actionLabel: "復原", // UI 丙-1：反悔動作一律叫「復原」（視覺規範 §2.8；原「取消」）
           onAction: () => void ns().deleteNode(row.id),
         });
       }

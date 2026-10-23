@@ -94,7 +94,7 @@ export function MSheet({
       }}
     >
       <div
-        className={"m-sheet ns-card ns-tk-msheet" + (className ? " " + className : "")}
+        className={"m-sheet techo-card ns-tk-msheet" + (className ? " " + className : "")}
         role="dialog"
         aria-modal="true"
         aria-label={title}

@@ -1,0 +1,490 @@
+/**
+ * 詳情側板欄位積木（UI Flow 2.1 共用）：版面列、區段標題、文字／多行／日期／數字輸入、分段選擇、操作鈕。
+ * 文字類 blur／Enter 才提交（避免每鍵重整），Esc 先還原草稿、草稿乾淨時才放行給面板關閉；數字空字串→null。
+ * 日期欄位（磨光⑤ S8）＝開關鈕＋App 自畫的共用 DatePicker，挑了立即寫回（原生 date 欄與它的 400ms 去抖已拿掉）。
+ * 視覺＝原型語彙（techo.css 原型逐字移植段＋panel.css）：區段＝.sec、小標＝.overline 字型（.lbl）、輸入＝透明底＋.dash 底線、
+ * 選項＝.status 小方標（選中＝--sel-fg 作用中色，UI 丙-1）；操作鈕＝.ns-btn.btn-ghost（危險加 .ns-btn-danger）；
+ * 原型沒有的控件（清除叉）hover 才現身。
+ *
+ * ── UI 丙-2 搬家（契約 §1 #18；2026-10-22）──
+ * 用途：表單欄位積木（FieldRow／SectionRule／ActionsRow／ActionButton／CommitInput／CommitTextarea／DateField／NumberField／
+ *   Segmented（側板 .status 小方標版）／useDebouncedCommit／XIcon），側板、售票口面板、時刻表 TimeField 共用。
+ * 規範：視覺規範 §2.5（輸入框、FieldRow 搬到 common）、§2.6（區段標題 .sec）、§2.3（ActionButton＝次鈕／危險鈕）。
+ *   ⚠ 這裡的 Segmented 是側板舊的 .status 小方標版；§2.2 的新分段鈕是 common/Segmented.tsx（丙-3 起各頁換那支）。
+ * ARIA：輸入一律 aria-label；DateField 開關鈕 aria-haspopup=dialog＋aria-expanded；Segmented role=group＋每顆 aria-pressed。
+ * 鍵盤：文字類 Enter 提交、Esc 有改動先還原（不冒泡）、乾淨才放行給面板關；多行 Ctrl+Enter 提交；IME 組字中不攔。
+ * 樣式：.field／.lbl／.sec／.opts／.status／.date／.num 仍在 techo.css 與 panel/panel.css（側板範圍），本班不搬。
+ *   原路徑 panel/fields.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
+ */
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useUiStore } from "../../store/uiStore";
+import { todayKey } from "../../lib/date";
+import { DatePicker } from "./DatePicker";
+
+/** 側板內 input／textarea 的樣式由 panel.css 依元素統一給（透明底＋底線）；此常數保留給使用端掛額外 class */
+export const inputClass = "";
+
+/* ───────────── 版面 ───────────── */
+
+/** 兩欄表單列：左小標（.lbl＝原型 .overline 字型）、右控制項；`top`＝多行控制項時小標對齊頂部（父層用 `.fields`） */
+export function FieldRow({ label, children, top }: { label: string; children: ReactNode; top?: boolean }) {
+  return (
+    <div className={`field ${top ? "top" : ""}`}>
+      <span className="lbl">{label}</span>
+      <div style={{ minWidth: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+/** 區段標題（原型 .sec）：襯線小標＋虛線延伸＋右側淡注記 */
+export function SectionRule({ title, aside }: { title: string; aside?: ReactNode }) {
+  return (
+    <div className="sec">
+      <h3>{title}</h3>
+      <span className="rule" />
+      {aside && <span className="note">{aside}</span>}
+    </div>
+  );
+}
+
+/** 操作列：上方撕線、左右兩組鈕 */
+export function ActionsRow({ left, right }: { left?: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="actions">
+      <div>{left}</div>
+      <div>{right}</div>
+    </div>
+  );
+}
+
+export function ActionButton({
+  children,
+  onClick,
+  ariaLabel,
+  tone = "normal",
+  title,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  ariaLabel: string;
+  tone?: "normal" | "danger";
+  title?: string;
+}) {
+  // UI 丙-1（視覺規範 §2.3）：次鈕＝.ns-btn.btn-ghost（緊湊尺寸，跟舊的 .status 小方標同一個量級）；
+  // 危險鈕＝次鈕形制＋.ns-btn-danger（赭字赭框、hover 淡赭底；舊的誤點色 status 小方標退役）
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      title={title}
+      onClick={onClick}
+      className={`ns-btn ns-btn--sm btn-ghost${tone === "danger" ? " ns-btn-danger" : ""}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ───────────── 去抖提交 ───────────── */
+
+/** 把連續變動收斂成一次提交；卸載時會把還沒送出的補送，避免面板關閉吃掉最後一筆 */
+export function useDebouncedCommit<T>(fn: (v: T) => void, ms: number) {
+  const fnRef = useRef(fn);
+  useEffect(() => {
+    fnRef.current = fn;
+  }, [fn]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<{ v: T } | null>(null);
+
+  const cancel = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    pending.current = null;
+  }, []);
+  const flush = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    const p = pending.current;
+    if (p) {
+      pending.current = null;
+      fnRef.current(p.v);
+    }
+  }, []);
+  const schedule = useCallback(
+    (v: T) => {
+      pending.current = { v };
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(flush, ms);
+    },
+    [flush, ms],
+  );
+  useEffect(() => flush, [flush]);
+  return { schedule, flush, cancel };
+}
+
+/* ───────────── 文字 ───────────── */
+
+interface CommitInputProps {
+  value: string;
+  onCommit: (next: string) => void;
+  ariaLabel: string;
+  placeholder?: string;
+  /** 必填：空字串不提交、還原成原值 */
+  required?: boolean;
+  className?: string;
+  autoFocus?: boolean;
+  /** 標題用：改渲染成單列 textarea 讓長名稱折行（field-sizing:content），Enter 仍＝提交、不換行 */
+  wrap?: boolean;
+}
+
+/** 單行文字：blur／Enter 提交（去前後空白）；Esc 在有改動時還原、否則放行（讓面板關閉） */
+export function CommitInput({ value, onCommit, ariaLabel, placeholder, required, className, autoFocus, wrap }: CommitInputProps) {
+  const [draft, setDraft] = useState(value);
+  const focused = useRef(false);
+  const committed = useRef(value);
+
+  useEffect(() => {
+    committed.current = value;
+    if (!focused.current) setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    const next = draft.replace(/\s*\n\s*/g, " ").trim();
+    if (next === committed.current || (required && !next)) {
+      setDraft(committed.current);
+      return;
+    }
+    committed.current = next;
+    setDraft(next);
+    onCommit(next);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Escape" && draft !== committed.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDraft(committed.current);
+    }
+  };
+  const onFocus = () => {
+    focused.current = true;
+  };
+  const onBlur = () => {
+    focused.current = false;
+    commit();
+  };
+
+  if (wrap) {
+    return (
+      <textarea
+        rows={1}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        className={className}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.replace(/\n/g, ""))}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
+      />
+    );
+  }
+  return (
+    <input
+      type="text"
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      className={className}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
+    />
+  );
+}
+
+interface CommitTextareaProps {
+  value: string;
+  onCommit: (next: string) => void;
+  ariaLabel: string;
+  placeholder?: string;
+  rows?: number;
+}
+
+/** 多行文字：blur／Ctrl+Enter 提交；Enter 換行；Esc 同單行規則 */
+export function CommitTextarea({ value, onCommit, ariaLabel, placeholder, rows = 2 }: CommitTextareaProps) {
+  const [draft, setDraft] = useState(value);
+  const focused = useRef(false);
+  const committed = useRef(value);
+
+  useEffect(() => {
+    committed.current = value;
+    if (!focused.current) setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next === committed.current) {
+      setDraft(committed.current);
+      return;
+    }
+    committed.current = next;
+    setDraft(next);
+    onCommit(next);
+  };
+
+  return (
+    <textarea
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      rows={rows}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape" && draft !== committed.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          setDraft(committed.current);
+        }
+      }}
+    />
+  );
+}
+
+/* ───────────── 日期 ───────────── */
+
+interface DateFieldProps {
+  value: string | null;
+  onCommit: (v: string | null) => void;
+  ariaLabel: string;
+  className?: string;
+}
+
+const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+
+/** "2026-10-21" → "2026/10/21（三）"（側板日期欄的字樣；壞字串原樣回傳） */
+export function dateFieldText(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  if (!y || !m || !d) return key;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${y}/${p(m)}/${p(d)}（${WEEKDAY_ZH[new Date(y, m - 1, d).getDay()]}）`;
+}
+
+/**
+ * 日期欄（磨光⑤ S8，D-主-54：日期挑選統一成 App 自畫）：一顆像輸入框的開關鈕＋共用 DatePicker（anchor 模式，
+ * 掛 body——側板 `.panel` 是 overflow hidden 的捲動容器，浮層放在裡面會被裁掉）。
+ * 點了才挑、挑了立即寫回（不再需要原生欄那套 400ms 去抖）；浮層裡「今天」快選＋「清除」；hover 的清除叉照舊。
+ * 對外 props 不變（TaskFields／StationList／RepeatRuleEditor 零改動）；`className` 改掛在開關鈕上。
+ */
+export function DateField({ value, onCommit, ariaLabel, className }: DateFieldProps) {
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const today = todayKey(dayStartHour);
+
+  return (
+    <div className="date">
+      <button
+        ref={btnRef}
+        type="button"
+        aria-label={`${ariaLabel}：${value ? dateFieldText(value) : "未定"}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={["ns-datefield", !value && "empty", className].filter(Boolean).join(" ")}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {value ? dateFieldText(value) : "未定"}
+      </button>
+      {open && (
+        <DatePicker
+          anchor={btnRef.current}
+          label={ariaLabel}
+          value={value}
+          markValue
+          quick={[{ label: "今天", day: today }]}
+          onPick={(d) => {
+            setOpen(false);
+            if (d !== value) onCommit(d);
+          }}
+          onClear={
+            value
+              ? () => {
+                  setOpen(false);
+                  onCommit(null);
+                }
+              : undefined
+          }
+          onClose={close}
+        />
+      )}
+      {value && (
+        <button
+          type="button"
+          aria-label={`清除${ariaLabel}`}
+          title="清除"
+          onClick={() => {
+            setOpen(false);
+            onCommit(null);
+          }}
+          className="x"
+        >
+          <XIcon />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 原型圖標語彙：1.3px 細線幾何 inline SVG */
+export function XIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M2.5 2.5 9.5 9.5M9.5 2.5 2.5 9.5" />
+    </svg>
+  );
+}
+
+/* ───────────── 數字 ───────────── */
+
+interface NumberFieldProps {
+  value: number | null;
+  onCommit: (v: number | null) => void;
+  ariaLabel: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
+}
+
+/** 數字：blur／Enter 提交；空字串→null；非數字還原；取整、夾在 min～max */
+export function NumberField({ value, onCommit, ariaLabel, unit, min = 0, max, step, placeholder }: NumberFieldProps) {
+  const toText = (v: number | null) => (v === null ? "" : String(v));
+  const [draft, setDraft] = useState(toText(value));
+  const focused = useRef(false);
+  const committed = useRef<number | null>(value);
+
+  useEffect(() => {
+    committed.current = value;
+    if (!focused.current) setDraft(toText(value));
+  }, [value]);
+
+  const commit = () => {
+    const raw = draft.trim();
+    let next: number | null;
+    if (raw === "") {
+      next = null;
+    } else {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) {
+        setDraft(toText(committed.current));
+        return;
+      }
+      next = Math.max(min, Math.round(n));
+      if (max !== undefined) next = Math.min(max, next);
+    }
+    setDraft(toText(next));
+    if (next === committed.current) return;
+    committed.current = next;
+    onCommit(next);
+  };
+
+  return (
+    <div className="num">
+      <input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step={step}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => {
+          focused.current = true;
+        }}
+        onBlur={() => {
+          focused.current = false;
+          commit();
+        }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape" && draft !== toText(committed.current)) {
+            e.preventDefault();
+            e.stopPropagation();
+            setDraft(toText(committed.current));
+          }
+        }}
+      />
+      {unit && <span className="meta">{unit}</span>}
+    </div>
+  );
+}
+
+/* ───────────── 分段選擇 ───────────── */
+
+interface SegmentedProps<T extends string> {
+  value: T | null;
+  options: { value: T; label: string }[];
+  onChange: (v: T | null) => void;
+  ariaLabel: string;
+  /** 再按一次已選項＝清除 */
+  clearable?: boolean;
+  /** 四個選項在 320 側板放不下一排 → 2×2 */
+  twoColumns?: boolean;
+}
+
+/** 原型 .status 小方標一排：未選＝idle 色階、選中＝ink 邊（選取不只靠顏色：aria-pressed） */
+export function Segmented<T extends string>({ value, options, onChange, ariaLabel, clearable, twoColumns }: SegmentedProps<T>) {
+  return (
+    <div role="group" aria-label={ariaLabel} className={`opts ${twoColumns ? "grid2" : ""}`}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-label={o.label}
+            aria-pressed={active}
+            onClick={() => onChange(active && clearable ? null : o.value)}
+            className={`status ${active ? "on" : "idle"}`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

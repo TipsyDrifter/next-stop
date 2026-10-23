@@ -70,7 +70,7 @@ export function MobileNoteInbox() {
             沒有待整理的東西
             <small>隨手記一句，會先放進這裡</small>
           </p>
-          <button type="button" className="ns-notes-mbtn" onClick={() => openCapture()}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => openCapture()}>
             記一句
           </button>
         </div>
@@ -143,7 +143,7 @@ function NoteCard({ n, day, sel, onToggle }: { n: NoteListItem; day: string; sel
             <button type="button" className="ns-notes-mact" onClick={() => void noteToDiary(n.id)}>
               記成日記
             </button>
-            <button type="button" className="ns-notes-mact quiet" onClick={() => void deleteNote(n.id)}>
+            <button type="button" className="ns-notes-mact quiet ns-btn-danger" onClick={() => void deleteNote(n.id)}>
               刪除
             </button>
           </div>
@@ -217,7 +217,7 @@ function TicketCard({
             >
               荷札…
             </button>
-            <button type="button" className="ns-notes-mact quiet" onClick={() => void deleteTicket(t.id)}>
+            <button type="button" className="ns-notes-mact quiet ns-btn-danger" onClick={() => void deleteTicket(t.id)}>
               刪除
             </button>
           </div>

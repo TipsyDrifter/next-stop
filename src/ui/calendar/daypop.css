@@ -80,7 +80,7 @@
   font-family: inherit; transition: color .15s;
 }
 .ns-daypop .pop-x:hover { color: var(--color-ink); }
-.ns-daypop .pop-x:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-daypop .pop-x:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* ═══ 段（班次／締切） ═══ */
 .ns-daypop .pop-sec { padding: 10px 16px 6px; }
@@ -98,15 +98,14 @@
 .ns-daypop .prow { display: flex; align-items: center; gap: 9px; padding: 7px 0; }
 /* 原型沒有「選中列」的視覺：只在鍵盤流現身（同 DayCell 的處置） */
 .ns-daypop .prow:focus { outline: none; }
-.ns-daypop .prow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+.ns-daypop .prow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 2px; }
 
 .ns-daypop .roundel-s {
   width: 19px; height: 19px; flex: none; border-radius: 50%;
   display: grid; place-items: center;
   font-family: var(--font-latin); font-weight: 600; font-size: 8.5px;
-  color: #1d1f3a; letter-spacing: 0;
+  color: var(--on-roundel); letter-spacing: 0;
 }
-[data-theme="dark"] .ns-daypop .roundel-s { color: #0f1218; }
 /* 無路線＝襯線「臨」（承臨時車票的由來） */
 .ns-daypop .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; }
 
@@ -131,7 +130,7 @@
   transition: color .15s;
 }
 .ns-daypop .prow .rep-btn:hover { color: var(--accent); }
-.ns-daypop .prow .rep-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-daypop .prow .rep-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 /* 「詳情」小字鈕（10-20 磨光②；daylist.panel 的滑鼠入口）：票種小字那一階（9.5px／.24em、ink-faint），不加框；
    列 hover／鍵盤聚焦（列 tabIndex＝0 那一列）才現身。平時 display:none 不佔位——浮層窄，常駐佔位會把標題多截掉兩個字；
@@ -145,7 +144,7 @@
 .ns-daypop .prow:focus .detail,
 .ns-daypop .prow:focus-within .detail { display: block; }
 .ns-daypop .prow .detail:hover { color: var(--accent); }
-.ns-daypop .prow .detail:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-daypop .prow .detail:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .ns-daypop .prow .detail { transition: none; } }
 
 .ns-daypop .defer {
@@ -155,7 +154,7 @@
   transition: color .15s, border-color .15s;
 }
 .ns-daypop .defer:hover { color: var(--accent); border-color: var(--accent); }
-.ns-daypop .defer:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-daypop .defer:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-daypop .prow.done .defer { display: none; }
 
 /* ═══ 迷你検印欄（＝今日票検印圈的縮小版） ═══ */

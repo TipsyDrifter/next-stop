@@ -457,7 +457,7 @@ function FormShell({
   return createPortal(
     <div ref={rootRef} className="ns-tk-mform" tabIndex={-1} data-kind={adjust ? "adjust" : kind} role="dialog" aria-modal="true" aria-label={isNew ? "記一筆" : "這一筆"}>
       <div className="ns-tk-mf-top">
-        <button type="button" className="ns-tk-mbtn quiet" onClick={onCancel}>
+        <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={onCancel}>
           取消
         </button>
         {adjust ? (
@@ -471,7 +471,7 @@ function FormShell({
             ))}
           </span>
         )}
-        <button type="button" className="ns-tk-mbtn primary" onClick={() => onSave(false)}>
+        <button type="button" className="ns-btn btn-seal ns-tk-mbtn" onClick={() => onSave(false)}>
           存
         </button>
       </div>
@@ -685,10 +685,10 @@ function FormShell({
 
       <div className="ns-tk-mf-foot">
         {isNew ? (
-          <button type="button" className="ns-tk-mbtn" onClick={() => onSave(true)}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => onSave(true)}>
             存並再記</button>
         ) : (
-          <button type="button" className="ns-tk-mbtn danger" onClick={onDelete}>
+          <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={onDelete}>
             刪除
           </button>
         )}

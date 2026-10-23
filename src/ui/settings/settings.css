@@ -1,6 +1,6 @@
 /**
  * 設定頁籤列（M3 ⑥ WP0）——**只放排版**。
- * 語彙全借 overlay.css 既有的 `.ns-choice`（原型 .status 式小字標籤，選中＝燙金邊與字），
+ * 語彙全借 overlay.css 既有的 `.ns-choice`（原型 .status 式小字標籤，選中＝作用中 --sel-fg 的邊與字；UI 丙-1 前是燙金），
  * 一個新形狀都不發明（c13：原型沒有的控件只拼既有語彙）；顏色一律 token，不寫死色值。
  */
 
@@ -12,9 +12,10 @@
   margin-bottom: 18px;
 }
 
-/* 還在施工的籤（⑥ 時「快捷鍵」掛過；⑦ 通車後三籤全開，規則留給日後的新籤）——淡出並讓游標說明它現在按不動 */
+/* 還在施工的籤（⑥ 時「快捷鍵」掛過；⑦ 通車後三籤全開，規則留給日後的新籤）——淡出並讓游標說明它現在按不動
+   （UI 丙-1：禁用一律 --disabled，跟常駐淡態 --dim 分開；視覺規範 §1.8） */
 .ns-tabs .ns-choice:disabled {
-  opacity: 0.42;
+  opacity: var(--disabled);
   cursor: not-allowed;
 }
 .ns-tabs .ns-choice:disabled:hover {
@@ -428,11 +429,12 @@
   color: var(--color-ink-faint);
 }
 
-/* 換鑰匙中那一行（狀態列）：金色左緣＝「這台自己在忙」，與朱（等人處理）、赭（故障）都分開 */
+/* 換鑰匙中那一行（狀態列）：金色左緣＝「這台自己在忙」，與朱（等人處理）、赭（故障）都分開
+   （UI 丙-1：紙面上的金改「金當線／字」的深金 --color-gold-ink——燙金 --color-gold 只留書封；銀河兩者同值、零變） */
 .ns-sy-rotating {
   margin-top: 4px;
   padding-left: 8px;
-  border-left: 2px solid var(--color-gold);
+  border-left: 2px solid var(--color-gold-ink);
 }
 
 /* 「同時換掉資料鑰匙」那一格：方框與字對齊在同一條基線上，字長了換行也不會跑到方框底下 */
@@ -443,7 +445,7 @@
   margin-top: 10px;
   cursor: pointer;
 }
-.ns-sy-rotate input { margin-top: 2px; flex: none; accent-color: var(--color-gold); }
+.ns-sy-rotate input { margin-top: 2px; flex: none; accent-color: var(--accent); }   /* 勾選框＝控件作用中色（UI 丙-1） */
 .ns-sy-rotate input:disabled { cursor: default; }
 /* 警告文（勾了才出現）：與勾選那一列黏在一起——它講的是那一格的後果，不是獨立的一段 */
 .ns-sy-rotate-warn { margin-top: 4px; }
@@ -465,14 +467,14 @@
 }
 
 /* 「忘記密語？用復原碼」⇄「改回用密語」：一顆文字鈕——不搶「加入同步」主鈕的戲，
-   但要一眼認得出能按（淡金底線；hover 轉墨） */
+   但要一眼認得出能按（淡作用中色底線；hover 轉墨；UI 丙-1 前是淡金） */
 .ns-recovery-toggle {
   display: inline-block;
   margin-top: 8px;
   padding: 2px 0;
   background: transparent;
   border: 0;
-  border-bottom: 1px dashed color-mix(in srgb, var(--color-gold) 60%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
   font-family: inherit;
   font-size: 12px;
   letter-spacing: .06em;
@@ -480,9 +482,10 @@
   cursor: pointer;
   transition: color .15s, border-color .15s;
 }
-.ns-recovery-toggle:hover { color: var(--color-ink); border-bottom-color: var(--color-gold); }
-.ns-recovery-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-.ns-recovery-toggle:disabled { opacity: .4; cursor: default; }
+.ns-recovery-toggle:hover { color: var(--color-ink); border-bottom-color: var(--accent); }
+.ns-recovery-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-recovery-toggle:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-recovery-toggle:disabled:hover { color: var(--color-ink-soft); border-bottom-color: color-mix(in srgb, var(--accent) 60%, transparent); }   /* 禁用不響應 hover（§1.8） */
 
 /* 復原碼那一欄：與對話框同一個長相（拉丁等寬感、放大一號、字距拉開），打起來就是抄在紙上的樣子 */
 .ns-recovery-input {
@@ -492,8 +495,9 @@
 }
 .ns-recovery-input::placeholder { letter-spacing: .08em; color: var(--color-ink-faint); }
 
-/* 已設定的 chip：借 SyncDot 運行中的金（「在、而且有效」），未設定維持 `.status` 原樣 */
+/* 已設定的 chip：借 SyncDot 運行中的金（「在、而且有效」），未設定維持 `.status` 原樣
+   （UI 丙-1：紙面上的金字改深金 --color-gold-ink，燙金只留書封；銀河同值） */
 /* 鎖住的「現在的密語」（用復原碼加入、還沒設新密語）：看得出是鎖著的，不是空著等人填 */
 .ns-sync .ns-sy-input:disabled { opacity: .55; cursor: not-allowed; }
 
-.ns-recovery-state.is-set { color: var(--color-gold); border-color: color-mix(in srgb, var(--color-gold) 55%, transparent); }
+.ns-recovery-state.is-set { color: var(--color-gold-ink); border-color: color-mix(in srgb, var(--color-gold-ink) 55%, transparent); }

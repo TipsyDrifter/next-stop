@@ -3,7 +3,7 @@
  * ＝済章（原型 .stamp／.seal）＋節點名（.title）＋心情三燈（三個 .badge 小圓，可不選）＋一行工作日誌（自動聚焦）。
  * Enter／「存入」＝儲存（有選心情→updateNode({mood})；有文字→addWorkLog）並關閉；Esc／「跳過」＝整卡跳過；不阻擋其他操作（無暗幕）。
  * 對應 UI Flow 2.0d／1.0b（今日視圖共用）。唯一來源＝uiStore.completeCardFor。
- * 取捨：心情三燈的顏色借主題既有變數（松葉／燙金／朱）而非新增 token；預設吸附於主欄底部中央（父層需 relative），可用 className 覆寫定位。
+ * 取捨：心情三燈的顏色走語意層 --mood-good／-ok／-hard（UI 丙-1；松葉／紀念章弧金／赭）；預設吸附於主欄底部中央（父層需 relative），可用 className 覆寫定位。
  * M3 ④（定期券）：心情照舊走 `updateNode({ mood })`——repository 會把它鏡射到「現在顯示的那一班」
  *   （nodes.mood ＝最近一班），所以這張卡對定期券與一般票走同一條路；一行乘務記錄也照舊掛在節點上。
  */
@@ -12,11 +12,13 @@ import { KIND_LABEL, type Mood } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 
+// UI 丙-1：心情三色走語意層 --mood-*（theme.css；視覺規範 §1.1）——黃燈從書封燙金改成紀念章弧那一金（--arc），
+// 跟旅客筆記的心情點同色；松葉、赭值不變。
 const MOODS: { value: Mood; label: string; glyph: string; color: string }[] = [
-  { value: "green", label: "順暢", glyph: "順", color: "var(--route-preset-3)" },
-  { value: "yellow", label: "還行", glyph: "還", color: "var(--color-gold)" },
+  { value: "green", label: "順暢", glyph: "順", color: "var(--mood-good)" },
+  { value: "yellow", label: "還行", glyph: "還", color: "var(--mood-ok)" },
   // 磨光⑤（D-主-63）：「吃力」是警示不是済 ⇒ 朱改赭
-  { value: "red", label: "吃力", glyph: "難", color: "var(--color-late)" },
+  { value: "red", label: "吃力", glyph: "難", color: "var(--mood-hard)" },
 ];
 
 export function CompleteCard({ className }: { className?: string }) {

@@ -15,7 +15,7 @@
 [data-shell="mobile"] .m-sch-seg::before { content: ""; position: absolute; left: 50%; top: 14px; bottom: 14px; border-left: 1px dashed var(--color-dash); pointer-events: none; }
 [data-shell="mobile"] .m-sch-seg-btn { position: relative; min-height: 44px; display: flex; align-items: center; justify-content: center; background: transparent; border: 0; cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .22em; text-indent: .22em; color: var(--color-ink-faint); transition: color .2s; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-seg-btn[aria-selected="true"] { color: var(--accent); }
-[data-shell="mobile"] .m-sch-seg-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+[data-shell="mobile"] .m-sch-seg-btn:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 [data-shell="mobile"] .m-sch-seg-ink { position: absolute; left: 0; bottom: -1px; width: 50%; height: 2px; pointer-events: none; transition: transform .2s ease-out; }
 [data-shell="mobile"] .m-sch-seg-ink::after { content: ""; position: absolute; left: 50%; top: 0; width: 46px; height: 2px; margin-left: -23px; background: var(--accent); border-radius: 1px; }
 
@@ -28,7 +28,7 @@
 [data-shell="mobile"] .m-sch-wk-head { display: flex; align-items: center; height: 40px; padding: 0 8px 0 10px; }
 [data-shell="mobile"] .m-sch-wk-month { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; min-width: 120px; margin-block: -2px; padding: 0 8px; background: transparent; border: 0; border-radius: 2px; cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: .08em; color: var(--color-ink); -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-wk-month:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-[data-shell="mobile"] .m-sch-wk-month:focus-visible, [data-shell="mobile"] .m-sch-wk-today:focus-visible, [data-shell="mobile"] .m-sch-wk-chev:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-wk-month:focus-visible, [data-shell="mobile"] .m-sch-wk-today:focus-visible, [data-shell="mobile"] .m-sch-wk-chev:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-wk-month .lat { font-family: var(--font-latin); font-weight: 500; font-size: 10px; letter-spacing: .26em; color: var(--color-ink-faint); padding-top: 2px; }
 [data-shell="mobile"] .m-sch-wk-month .caret { font-size: 10px; color: var(--color-ink-faint); transition: transform .25s ease-out; }
 [data-shell="mobile"] .m-sch-wk-month[aria-expanded="true"] .caret { transform: rotate(180deg); }
@@ -49,7 +49,7 @@
 [data-shell="mobile"] .m-sch-wk-week { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; display: grid; grid-template-columns: repeat(7, 1fr); padding: 0 6px 4px; }
 [data-shell="mobile"] .m-sch-wk-day { position: relative; height: 58px; min-width: 44px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 2px 0 0; gap: 0; background: transparent; border: 0; border-radius: var(--radius-card); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-wk-day:active { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-[data-shell="mobile"] .m-sch-wk-day:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-wk-day:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-wk-w { font-size: 10px; line-height: 14px; letter-spacing: .1em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .m-sch-wk-n { position: relative; display: grid; place-items: center; width: 28px; height: 26px; font-family: var(--font-latin); font-weight: 500; font-size: 15px; line-height: 1; color: var(--color-ink); }
 [data-shell="mobile"] .m-sch-wk-n > b { position: relative; z-index: 1; font-weight: inherit; }
@@ -88,7 +88,7 @@
 [data-shell="mobile"] .m-sch-stream .sec.is-past h3 { color: var(--color-ink-soft); }
 [data-shell="mobile"] .m-sch-stream .sec.is-clickable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-stream .sec.is-clickable:active { background: color-mix(in srgb, var(--accent) 8%, color-mix(in srgb, color-mix(in srgb, var(--sky-top) 45%, var(--sky-mid)) 78%, transparent)); }
-[data-shell="mobile"] .m-sch-stream .sec.is-clickable:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-stream .sec.is-clickable:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 /* 空白單日＝一行（不 sticky、不留大片空白；原型 :426-434）；邊界行同款、不可點 */
 [data-shell="mobile"] .m-sch-day.is-empty { padding-bottom: 0; }
 [data-shell="mobile"] .m-sch-day.is-empty .sec, [data-shell="mobile"] .m-sch-run .sec, [data-shell="mobile"] .m-sch-stream .m-sch-edge { position: relative; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; margin-bottom: 0; padding-top: 7px; padding-bottom: 7px; min-height: 34px; align-items: center; box-sizing: border-box; }
@@ -99,7 +99,7 @@
 /* 連續空白日的區間列（按鈕）：點了逐日攤開、再點收回（原型 :436-451） */
 [data-shell="mobile"] .m-sch-run-head { width: calc(100% + 2 * var(--m-gutter)); border: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-run-head:active { background: color-mix(in srgb, var(--color-paper-high) 40%, transparent); }
-[data-shell="mobile"] .m-sch-run-head:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-run-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-run-head .caret { display: inline-block; margin-left: .55em; transition: transform .2s ease-out; }
 [data-shell="mobile"] .m-sch-run.is-open > .m-sch-run-head .caret { transform: rotate(90deg); }
 [data-shell="mobile"] .m-sch-run.is-open > .m-sch-run-head .note { color: var(--color-ink-soft); }
@@ -113,21 +113,21 @@
 [data-shell="mobile"] .m-sch-latejump .lj-n { font-size: 10px; letter-spacing: .14em; white-space: nowrap; }
 [data-shell="mobile"] .m-sch-latejump .caret { display: inline-block; margin-left: .5em; transition: transform .2s ease-out; }
 [data-shell="mobile"] .m-sch-latejump:active .caret { transform: translateY(-2px); }
-[data-shell="mobile"] .m-sch-latejump:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-latejump:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 /* 締切小段（原型 .subhead :454-458） */
 [data-shell="mobile"] .m-sch-subhead { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 10.5px; letter-spacing: .2em; color: var(--color-late); }
 [data-shell="mobile"] .m-sch-subhead::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--color-late) 35%, transparent); }
 /* 有執行日的締切＝一行（〆＋圓牌＋名稱＋「執行 M/D」；點＝捲到執行日） */
 [data-shell="mobile"] .m-sch-due { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 4px; padding: 0 10px; box-sizing: border-box; background: transparent; border: 1px dashed var(--color-dash); border-radius: var(--radius-card); font: inherit; color: var(--color-ink); cursor: pointer; text-align: left; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-due:active { background: color-mix(in srgb, var(--color-paper-high) 50%, transparent); }
-[data-shell="mobile"] .m-sch-due:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-due:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-due-badge { flex: none; display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 3px; border-radius: 2px; background: color-mix(in srgb, currentColor 13%, transparent); }
 [data-shell="mobile"] .m-sch-due-name { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [data-shell="mobile"] .m-sch-due-when { flex: none; font-size: 10px; letter-spacing: .1em; color: var(--color-late); white-space: nowrap; }
 /* 唯讀卡（定期券歷史班次；原型 :505、:514、:520） */
 [data-shell="mobile"] .m-tk.is-ro .m-tk-body { opacity: .78; }
 [data-shell="mobile"] .m-tk-stamp:disabled { cursor: default; background: transparent; }
-[data-shell="mobile"] .m-tk-more:disabled { opacity: .25; cursor: default; }
+[data-shell="mobile"] .m-tk-more:disabled { opacity: var(--disabled); cursor: not-allowed; }   /* 禁用（§1.8；UI 丙-1 前 .25） */
 /* 全済（原型 .cheer :541-546） */
 [data-shell="mobile"] .m-sch-cheer { display: flex; align-items: center; gap: 9px; margin: 12px 0 2px; font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-soft); animation: m-sch-bar-in .4s ease-out; }
 [data-shell="mobile"] .m-sch-cheer::after { content: ""; flex: 1; border-top: 1px dashed var(--color-dash); }
@@ -149,7 +149,7 @@
 [data-shell="mobile"] .m-sch-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); padding: 0 2px; }
 [data-shell="mobile"] .m-sch-cal-d { position: relative; height: 50px; min-width: 44px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 6px 0 0; background: transparent; border: 0; border-top: 1px solid var(--color-line); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .m-sch-cal-d:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-[data-shell="mobile"] .m-sch-cal-d:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-cal-d:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-cal-n { position: relative; display: grid; place-items: center; width: 28px; height: 24px; font-family: var(--font-latin); font-weight: 500; font-size: 14px; line-height: 1; color: var(--color-ink); }
 [data-shell="mobile"] .m-sch-cal-n > b { position: relative; z-index: 1; font-weight: inherit; }
 [data-shell="mobile"] .m-sch-cal-d .m-sch-dots { margin-top: 2px; height: 15px; }
@@ -179,7 +179,8 @@
 /* ─────────── 今日子頁：分群小標、現在線、下一班（原型 :243-250、:574-576） ─────────── */
 [data-shell="mobile"] .m-tk-list .subgrp { list-style: none; display: flex; align-items: center; gap: 10px; margin: 4px 0 -1px; font-size: 10px; letter-spacing: .24em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .m-tk-list .subgrp::after { content: ""; flex: 1; border-top: 1px dotted var(--color-dash); }
-[data-shell="mobile"] .m-tk-list .nowline { list-style: none; position: relative; display: flex; align-items: center; gap: 8px; height: 6px; margin: -2px 0; color: var(--accent); }
+/* 現在線＝赭（視覺規範 §2.10；UI 丙-1 前是靛） */
+[data-shell="mobile"] .m-tk-list .nowline { list-style: none; position: relative; display: flex; align-items: center; gap: 8px; height: 6px; margin: -2px 0; color: var(--late); }
 [data-shell="mobile"] .m-tk-list .nowline::before { content: ""; flex: none; width: 7px; height: 7px; margin-left: -3px; border-radius: 50%; background: currentColor; }
 [data-shell="mobile"] .m-tk-list .nowline::after { content: ""; flex: 1; border-top: 1.5px solid currentColor; opacity: .75; }
 [data-shell="mobile"] .m-tk-list .nowline span { order: 2; font-family: var(--font-latin); font-size: 11px; font-weight: 500; letter-spacing: .1em; white-space: nowrap; }
@@ -232,11 +233,11 @@
 [data-shell="mobile"] .ts-sum { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--color-dash); border-radius: 3px; font-size: 12.5px; letter-spacing: .04em; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ts-sum .hm { font-family: var(--font-latin); font-weight: 600; font-size: 14px; color: var(--color-ink); }
 [data-shell="mobile"] .ts-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-[data-shell="mobile"] .ts-ghost { flex: none; min-height: 48px; padding: 0 14px; border: 1px solid var(--color-dash); border-radius: 3px; background: transparent; cursor: pointer; font-family: inherit; font-size: 13px; letter-spacing: .12em; color: var(--color-ink-soft); -webkit-tap-highlight-color: transparent; }
-[data-shell="mobile"] .ts-ghost:active { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--color-ink); }
-[data-shell="mobile"] .ts-ok { flex: 1 1 88px; min-height: 48px; border: 1px solid var(--accent); border-radius: 3px; background: var(--accent); color: var(--ns-tg-on-accent); cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 500; letter-spacing: .2em; text-indent: .2em; -webkit-tap-highlight-color: transparent; }
-[data-shell="mobile"] .ts-ok:active { filter: brightness(.94); }
-[data-shell="mobile"] .ts-ghost:focus-visible, [data-shell="mobile"] .ts-ok:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+/* 鈕本體＝.ns-btn（高 --ctl-h 44、字 --fs-ui、圓角 --radius-ctl、焦點 --focus-ring）＋層級 .btn-ghost／.btn-seal（UI 丙-1，視覺規範 §2.3）；
+   這裡只剩佈局：次鈕不伸縮、主鈕「確定」吃掉剩下的寬（沿用舊「確定」鈕的 flex；那顆實心靛的專用 class 退役） */
+[data-shell="mobile"] .ts-ghost { flex: none; -webkit-tap-highlight-color: transparent; }
+[data-shell="mobile"] .ts-ghost:active { background: var(--hover-bg); color: var(--color-ink); }
+[data-shell="mobile"] .ts-foot .btn-seal { flex: 1 1 88px; -webkit-tap-highlight-color: transparent; }
 
 /* ─────────── 週條：「清單｜時段」小分段＋3 天底線（原型 :623-628、:637） ─────────── */
 [data-shell="mobile"] .m-sch-wk-mode { margin-left: auto; display: inline-flex; border: 1px solid var(--color-dash); border-radius: 2px; }
@@ -247,7 +248,7 @@
 [data-shell="mobile"] .m-sch-wk-mode button::after { content: ""; position: absolute; inset: -6px 0; }
 [data-shell="mobile"] .m-sch-wk-mode button + button { border-left: 1px solid var(--color-line); }
 [data-shell="mobile"] .m-sch-wk-mode button.on { background: var(--ns-tg-seg-on); color: var(--accent); }
-[data-shell="mobile"] .m-sch-wk-mode button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .m-sch-wk-mode button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .m-sch-wk-week { position: relative; }
 [data-shell="mobile"] .m-sch-wk-range { position: absolute; bottom: 2px; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; transition: left .25s cubic-bezier(.22, 1, .36, 1), width .25s cubic-bezier(.22, 1, .36, 1); }
 

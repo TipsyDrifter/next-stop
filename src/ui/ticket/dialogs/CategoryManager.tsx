@@ -17,7 +17,8 @@ import { useImeGuard } from "./dialogBits";
 
 const isUncat = (id: string) => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
 
-export function CategoryManager({ onDone }: { onDone(): void }) {
+// 即時存（改名失焦送、排序與封存按一下就寫）⇒ 沒有「完成」鈕：關閉走 ×／暗幕／返回鍵（UI 丙-1，視覺規範 §6）；onDone 留作宿主介面。
+export function CategoryManager(_props: { onDone(): void }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const createCategory = useTicketStore((s) => s.createCategory);
@@ -102,7 +103,7 @@ export function CategoryManager({ onDone }: { onDone(): void }) {
                       {p ? `${p.name} › ` : ""}
                       {c.name}
                     </span>
-                    <button type="button" className="ns-tk-dmini" onClick={() => void setCategoryArchived(c.id, false)}>
+                    <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" onClick={() => void setCategoryArchived(c.id, false)}>
                       取消封存
                     </button>
                   </li>
@@ -112,12 +113,6 @@ export function CategoryManager({ onDone }: { onDone(): void }) {
           )}
         </div>
       )}
-
-      <div className="ns-tk-dfoot">
-        <button type="button" className="ns-btn btn-gold ns-tk-dbtn" onClick={onDone}>
-          完成
-        </button>
-      </div>
     </div>
   );
 }
@@ -182,17 +177,17 @@ function CatRow({ cat, onAddSub, adding }: { cat: CategoryRow; onAddSub?: () => 
         onCompositionEnd={ime.onCompositionEnd}
       />
       {onAddSub && (
-        <button type="button" className="ns-tk-dmini" aria-expanded={adding} onClick={onAddSub}>
+        <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" aria-expanded={adding} onClick={onAddSub}>
           ＋子
         </button>
       )}
-      <button type="button" className="ns-tk-dmini sq" aria-label={`上移：${cat.name}`} title="上移（Alt+↑）" onClick={() => void moveCategory(cat.id, -1)}>
+      <button type="button" className="ns-iconbtn ns-tk-dmini sq" aria-label={`上移：${cat.name}`} title="上移（Alt+↑）" onClick={() => void moveCategory(cat.id, -1)}>
         ↑
       </button>
-      <button type="button" className="ns-tk-dmini sq" aria-label={`下移：${cat.name}`} title="下移（Alt+↓）" onClick={() => void moveCategory(cat.id, 1)}>
+      <button type="button" className="ns-iconbtn ns-tk-dmini sq" aria-label={`下移：${cat.name}`} title="下移（Alt+↓）" onClick={() => void moveCategory(cat.id, 1)}>
         ↓
       </button>
-      <button type="button" className="ns-tk-dmini" onClick={() => void setCategoryArchived(cat.id, true)}>
+      <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-btn-danger ns-tk-dmini" onClick={() => void setCategoryArchived(cat.id, true)}>
         封存
       </button>
     </div>

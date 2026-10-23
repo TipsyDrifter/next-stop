@@ -106,11 +106,11 @@
 .cover .line-row:hover .line-edit, .cover .line-edit:focus-visible { opacity: 1; outline: none; }
 .cover .line-edit:hover { color: var(--color-book-ink); background: rgba(255, 255, 255, .07); }
 
-/* ＋路線／＋幹線：.nav-item.muted 風格小字（可點；hover 才轉實） */
+/* ＋路線／＋幹線：.nav-item.muted 風格小字（可點；hover 才轉實）＝常駐淡態 --dim（UI 丙-1，視覺規範 §1.8；值同舊 .42） */
 .cover .line-add {
   display: flex; align-items: center; gap: 11px;
   padding: 6px 10px; border-radius: 2px; cursor: pointer;
-  font-size: 11px; letter-spacing: .2em; color: var(--book-muted); opacity: .42;
+  font-size: 11px; letter-spacing: .2em; color: var(--book-muted); opacity: var(--dim);
   width: 100%; text-align: left; font-family: inherit; line-height: 1.6;
   transition: opacity .15s, color .15s, background .15s;
 }

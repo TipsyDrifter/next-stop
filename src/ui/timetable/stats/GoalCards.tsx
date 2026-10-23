@@ -203,7 +203,7 @@ export function GoalCards() {
       <div className="ns-tt-goals-h">
         <h3>{T.goalsTitle}</h3>
         <span className="rule" />
-        <button type="button" className="ns-tt-goals-add" onClick={() => openSheet({ kind: "goal", goalId: null })}>
+        <button type="button" className="ns-btn ns-btn--sm btn-ghost" onClick={() => openSheet({ kind: "goal", goalId: null })}>
           {TT_TEXT.goalAdd}
         </button>
       </div>

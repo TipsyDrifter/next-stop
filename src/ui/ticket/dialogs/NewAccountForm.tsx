@@ -95,7 +95,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           取消
         </button>
-        <button type="submit" className="ns-btn btn-gold ns-tk-dbtn" disabled={busy || !name.trim()}>
+        <button type="submit" className="ns-btn btn-seal ns-tk-dbtn" disabled={busy || !name.trim()}>
           建立
         </button>
       </div>

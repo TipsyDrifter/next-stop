@@ -113,7 +113,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .m-qj-row:active { background: var(--color-paper-used); }
-[data-shell="mobile"] .m-qj-row:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .m-qj-row:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }   /* 紙面焦點＝作用中色（UI 丙-1；頂帶書封上的仍用燙金） */
 [data-shell="mobile"] .m-qj-name {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -141,11 +141,11 @@
 /* 跳轉落點（D-主-48）：那一列的底色亮一下、約 1 秒退掉（class 由 MobileRouteMap 掛約 1 秒）；減少動態時改成靜靜亮那 1 秒 */
 [data-shell="mobile"] .m2-row.is-reveal { animation: mQjReveal 1s ease-out; }
 @keyframes mQjReveal {
-  0%, 35% { background: color-mix(in srgb, var(--color-gold) 30%, transparent); }
+  0%, 35% { background: color-mix(in srgb, var(--accent) 30%, transparent); }   /* UI 丙-1：紙面強調＝--accent（同今日頁 m-tk-reveal；銀河仍是金） */
   100% { background: transparent; }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-shell="mobile"] .m2-row.is-reveal { animation: none; background: color-mix(in srgb, var(--color-gold) 18%, transparent); }
+  [data-shell="mobile"] .m2-row.is-reveal { animation: none; background: color-mix(in srgb, var(--accent) 18%, transparent); }
 }
 
 /* N9：済列的圓印（SealDone small＝34px，列高 46px 放得下）；運休仍是 `.m2-seal.is-suspended` 方角印 */

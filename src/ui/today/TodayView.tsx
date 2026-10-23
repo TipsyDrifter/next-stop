@@ -203,7 +203,7 @@ function AddSplit({
   );
 }
 
-/** 現在線（原型 :246-250 .nowline）：靛色圓點＋實線＋「現在 15:10」 */
+/** 現在線（原型 :246-250 .nowline）：赭色圓點＋實線＋「現在 15:10」（UI 丙-1 前是靛；視覺規範 §2.10） */
 function NowLine({ text }: { text: string }): ReactNode {
   return (
     <li role="presentation" aria-hidden className="nowline">

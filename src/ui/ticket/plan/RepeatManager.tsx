@@ -3,12 +3,12 @@
  * props `{ onDone(): void }`。長相照原型席結論（app.js repeatManager／rmRow；樣式 ticket.css §N）——**一列兩行**（契約一行版在 620 寬會截掉帳戶）：
  *
  *   div.ns-tk-dialog.ns-tk-rm
- *   ├─（有暫停、從沒開始過的匯入規則）.ns-tk-rm-banner「從財務管家匯入的 N 條規則還在暫停——…」・btn-gold「全部開始」（askConfirm）
+ *   ├─（有暫停、從沒開始過的匯入規則）.ns-tk-rm-banner「從財務管家匯入的 N 條規則還在暫停——…」・次鈕「全部開始」（askConfirm）
  *   ├─ h3.ns-tk-rm-h「進行中 N」 ul.ns-tk-rm-list  li.ns-tk-rm-row[.is-blocked][.is-ended]
  *   │     .main  .l1 金額（外幣小字代碼）＋分類或「帳戶 → 帳戶」＋備註
  *   │            .l2 規則一句 · 帳戶（匯入的加「· 從財務管家匯入」；⚠ 列開頭「⚠ 帳戶已不在」、不再印帳戶）
  *   │     .nx    「下一班 11/1」／「已結束」／⚠「記不了」
- *   │     .acts  暫停・編輯・刪除（.ns-tk-dmini）
+ *   │     .acts  暫停・編輯・刪除（.ns-tk-dmini＋.ns-btn--sm 次鈕；刪除＝危險鈕）
  *   ├─ h3「已暫停 N」 ul …[.is-paused]（.nx「已暫停」＋匯入的小字「財務管家下一班 11/16」；動作「開始」）
  *   ├─ 空狀態 .ns-tk-rm-empty
  *   └─ .ns-tk-dfoot.is-split  「＋ 新增」｜「關閉」
@@ -114,18 +114,18 @@ function RmRow({ r, ctx, warn, imported }: { r: RepeatRow; ctx: Ctx; warn: strin
       )}
       <span className="acts">
         {paused ? (
-          <button type="button" className="ns-tk-dmini" onClick={() => void store().resumeRepeat(r.id)}>
+          <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" onClick={() => void store().resumeRepeat(r.id)}>
             開始
           </button>
         ) : (
-          <button type="button" className="ns-tk-dmini" disabled={ended} onClick={() => void store().pauseRepeat(r.id)}>
+          <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" disabled={ended} onClick={() => void store().pauseRepeat(r.id)}>
             暫停
           </button>
         )}
-        <button type="button" className="ns-tk-dmini" onClick={() => store().openRepeatEditor(r.id)}>
+        <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" onClick={() => store().openRepeatEditor(r.id)}>
           編輯
         </button>
-        <button type="button" className="ns-tk-dmini danger" onClick={() => void store().deleteRepeat(r.id)}>
+        <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-btn-danger ns-tk-dmini" onClick={() => void store().deleteRepeat(r.id)}>
           刪除
         </button>
       </span>
@@ -158,8 +158,7 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
     useUiStore.getState().askConfirm({
       title: `啟動 ${n} 筆定期帳？`,
       body: "接著財務管家的下一班記；之後請不要再用財務管家記帳。",
-      confirmLabel: "全部開始",
-      tone: "gold", // 不是破壞性動作、也不蓋朱（接縫 #74、D-票-11）
+      confirmLabel: "全部開始", // 不是破壞性動作、也不蓋朱（接縫 #74、D-票-11）：一般確認框（UI 丙-1 起不另上金色）
       onConfirm: () => void store().resumeAllRepeats(),
     });
   };
@@ -199,7 +198,7 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
           <p>
             從財務管家匯入的 <b>{importedIds.size}</b> 筆定期帳還在暫停——停用財務管家那天再按「全部開始」
           </p>
-          <button type="button" className="ns-btn btn-gold ns-tk-dbtn" onClick={resumeAll}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={resumeAll}>
             全部開始
           </button>
         </div>

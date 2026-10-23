@@ -25,18 +25,19 @@
 [data-theme="dark"] .ns-calendar .theme-pastel-only { display: none; }
 [data-theme="dark"] .ns-calendar .theme-galaxy-only { display: inline; }
 
-/* ═══ 原型的語義別名（:80-86／:104-110 逐字） ═══ */
+/* ═══ 原型的語義別名（:80-86／:104-110 逐字）＝現值；UI 丙-1 起選中底指回語意層 --sel-bg（theme.css；兩主題都是 accent 10%，
+   銀河舊值 12% 收成 10%），今天的框寫成 accent 的 color-mix（值同舊字面值），丙-7 刪舊名 ═══ */
 .ns-calendar {
-  --cal-today-ring: rgba(82, 77, 156, .5);
+  --cal-today-ring: color-mix(in srgb, var(--accent) 50%, transparent);
   --cal-today-bg: rgba(255, 255, 255, .32);
-  --cal-seg-on: rgba(82, 77, 156, .10);
+  --cal-seg-on: var(--sel-bg);
   --cal-cellhover: rgba(42, 43, 73, .035);
   --cal-out-ink: rgba(42, 43, 73, .34);
 }
 [data-theme="dark"] .ns-calendar {
-  --cal-today-ring: rgba(205, 183, 131, .45);
+  --cal-today-ring: color-mix(in srgb, var(--accent) 45%, transparent);
   --cal-today-bg: rgba(230, 236, 255, .045);
-  --cal-seg-on: rgba(205, 183, 131, .12);
+  --cal-seg-on: var(--sel-bg);
   --cal-cellhover: rgba(230, 236, 255, .035);
   --cal-out-ink: rgba(228, 232, 243, .30);
 }
@@ -79,7 +80,7 @@
 }
 .ns-calendar .mj-trigger:hover::before { background: var(--cal-cellhover); }
 .ns-calendar .mj-trigger > * { position: relative; }
-.ns-calendar .mj-trigger:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 4px; }
+.ns-calendar .mj-trigger:focus-visible { outline: var(--focus-ring); outline-offset: 4px; }
 @media (prefers-reduced-motion: reduce) {
   .ns-calendar .mj-trigger::before { transition: none; }
 }
@@ -122,7 +123,7 @@
 .ns-calendar .today-chip:hover { color: var(--accent); border-color: var(--accent); }
 .ns-calendar .chev:focus-visible,
 .ns-calendar .today-chip:focus-visible,
-.ns-calendar .seg button:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-calendar .seg button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-calendar .cal-ctl .gap { width: 8px; }
 .ns-calendar .seg { display: inline-flex; border: 1px solid var(--color-dash); border-radius: 2px; overflow: hidden; }
 .ns-calendar .seg button {
@@ -188,7 +189,7 @@
 /* 原型沒有的控件：鍵盤焦點環（只在鍵盤流現身，滑鼠點不會出現） */
 .ns-calendar .cell.in:focus-visible {
   background: var(--cal-cellhover);
-  outline: 1px solid var(--accent); outline-offset: -2px;
+  outline: var(--focus-ring); outline-offset: -2px;
 }
 .ns-calendar .cell.out .dnum { color: var(--cal-out-ink); }
 .ns-calendar .ch { display: flex; align-items: baseline; padding-right: 16px; } /* 右端留給格角〆 */

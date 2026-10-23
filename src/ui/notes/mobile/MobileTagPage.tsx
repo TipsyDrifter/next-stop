@@ -383,10 +383,10 @@ function RenameBox({ tagKey }: { tagKey: string }) {
         )}
       </p>
       <div className="btns">
-        <button type="button" className="ns-notes-mbtn primary" onClick={commit} disabled={!plan || !plan.ok}>
+        <button type="button" className="ns-notes-mbtn ns-btn btn-seal" onClick={commit} disabled={!plan || !plan.ok}>
           確定
         </button>
-        <button type="button" className="ns-notes-mbtn" onClick={cancelRename}>
+        <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={cancelRename}>
           取消
         </button>
       </div>

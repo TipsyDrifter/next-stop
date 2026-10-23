@@ -35,7 +35,7 @@
   --gnav-cell-w: 60px;          /* 每一格的寬（兩排、以後第三排都同值） */
   --gnav-col-gap: 6px;          /* 欄距 */
   --gnav-row-gap: 10px;         /* 排距（第一排與第二排之間；第三排沿用） */
-  --gnav-off-opacity: .42;      /* 次期開業予定（未通車）灰階：常駐淡度（＝line-add 常駐同量級） */
+  --gnav-off-opacity: var(--dim);  /* 次期開業予定（未通車）灰階：常駐淡態 --dim（UI 丙-1；值同舊 .42＝line-add 常駐同量級） */
   --gnav-off-opacity-hover: .8; /* 次期開業予定：hover／focus 浮起的淡度 */
 }
 .cover .gnav-row,

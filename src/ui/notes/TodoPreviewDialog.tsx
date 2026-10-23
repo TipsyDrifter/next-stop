@@ -240,10 +240,10 @@ export function TodoPreviewDialog() {
               <Kbd id="notes-capture.escape" />
               取消
             </span>
-            <button type="button" className="ns-notes-btn" onClick={() => st().cancelPreview()}>
+            <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => st().cancelPreview()}>
               取消
             </button>
-            <button type="button" className="ns-notes-btn primary" autoFocus disabled={n === 0} onClick={() => void confirm()}>
+            <button type="button" className="ns-notes-btn ns-btn btn-seal" autoFocus disabled={n === 0} onClick={() => void confirm()}>
               變成 {n} 張車票</button>
           </div>
         </div>

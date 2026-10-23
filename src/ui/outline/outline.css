@@ -9,31 +9,31 @@
 /* ═══ 票的巢狀排列（縮排由 inline style 給：每層 28px） ═══ */
 .ns-outline .ticket-list > li { list-style: none; }
 
-/* ═══ 選中票：邊框燙金（打孔圈跟著） ═══ */
+/* ═══ 選中票：邊框＝作用中色（＝--sel-line 的色；粉彩靛、銀河金；UI 丙-1 前是燙金，視覺規範 §2.10）；打孔圈跟著 ═══ */
 .ns-outline .ticket-list .ticket.selected,
 .ns-outline .ticket-list .ticket.selected::before,
-.ns-outline .ticket-list .ticket.selected::after { border-color: var(--color-gold); }
-/* 大綱容器沒焦點時燙金退淡（鍵盤流不在這裡的提示） */
+.ns-outline .ticket-list .ticket.selected::after { border-color: var(--accent); }
+/* 大綱容器沒焦點時選中邊退淡（鍵盤流不在這裡的提示） */
 .ns-outline:not(:focus-within) .ticket-list .ticket.selected,
 .ns-outline:not(:focus-within) .ticket-list .ticket.selected::before,
 .ns-outline:not(:focus-within) .ticket-list .ticket.selected::after {
-  border-color: color-mix(in srgb, var(--color-gold) 55%, var(--color-line));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--color-line));
 }
 
-/* ═══ 票根徽章當按鈕（點擊聚焦；hover 轉金提示） ═══ */
+/* ═══ 票根徽章當按鈕（點擊聚焦；hover 轉作用中色提示） ═══ */
 .ns-outline .stub button.badge {
   padding: 0; background: transparent; color: inherit; cursor: pointer;
   transition: color .15s;
 }
-.ns-outline .stub button.badge:hover { color: var(--color-gold); }
-.ns-outline .stub button.badge:focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
+.ns-outline .stub button.badge:hover { color: var(--accent); }
+.ns-outline .stub button.badge:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
-/* ═══ 票種小字當按鈕（點擊開詳情側板；hover 轉金） ═══ */
+/* ═══ 票種小字當按鈕（點擊開詳情側板；hover 轉作用中色） ═══ */
 .ns-outline button.fare-class {
   padding: 0; background: transparent; border: 0; cursor: pointer; line-height: inherit;
   transition: color .15s;
 }
-.ns-outline button.fare-class:hover { color: var(--color-gold); }
+.ns-outline button.fare-class:hover { color: var(--accent); }
 
 /* ═══ .title 位置的輸入框（新增草稿／改名）：同款字、透明無邊 ═══ */
 .ns-outline .ticket input.title {
@@ -58,8 +58,8 @@
 }
 .ns-outline .meta .date.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); }
 [data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: rgba(209, 155, 114, .38); }
-.ns-outline .meta .date:hover { color: var(--color-gold); }
-.ns-outline .meta .date.chip:hover { color: var(--color-gold); border-color: var(--color-gold); }
+.ns-outline .meta .date:hover { color: var(--accent); }
+.ns-outline .meta .date.chip:hover { color: var(--accent); border-color: var(--accent); }
 /* 定期券的執行日唯讀（M3 ④ D-④-3）：班次由規則排定，不開日期輸入——不給「可改」的 hover 暗示 */
 .ns-outline .meta .date.locked { cursor: default; }
 .ns-outline .meta .date.locked:hover { color: var(--color-ink-soft); border-color: var(--color-line); }
@@ -69,12 +69,12 @@
 /* 原型沒有的控件：空日期入口 hover／選中才現身 */
 .ns-outline .meta .meta-hover { display: inline-flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .15s; }
 .ns-outline .meta .meta-hover .date.empty { color: var(--color-ink-faint); }
-.ns-outline .meta .meta-hover .date.empty:hover { color: var(--color-gold); }
+.ns-outline .meta .meta-hover .date.empty:hover { color: var(--accent); }
 .ns-outline .ticket:hover .meta-hover,
 .ns-outline .ticket.selected .meta-hover,
 .ns-outline .meta-hover:focus-within { opacity: 1; }
 /* 列的 ⋯ 鈕（10-20 磨光②；outline.add.*／indent／outdent／reorder 的滑鼠入口）：票右下角，與右上角票種小字對稱。
-   現身規則同上面的空日期入口（hover／選中＝鍵盤聚焦那一列／選單開著）；長相＝票種小字那一階的淡字，hover 燙金，
+   現身規則同上面的空日期入口（hover／選中＝鍵盤聚焦那一列／選單開著）；長相＝票種小字那一階的淡字，hover 轉作用中色，
    框線只在 hover／開著時出現（.status 小方標的同一條 --color-dash），不另畫新形狀。 */
 .ns-outline .ticket .row-more {
   position: absolute; right: 10px; bottom: 6px; z-index: 2;
@@ -89,13 +89,13 @@
 .ns-outline .ticket.selected .row-more,
 .ns-outline .ticket .row-more[aria-expanded="true"] { opacity: 1; }
 .ns-outline .ticket .row-more:hover,
-.ns-outline .ticket .row-more[aria-expanded="true"] { color: var(--color-gold); border-color: var(--color-dash); }
-.ns-outline .ticket .row-more:focus-visible { opacity: 1; outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-outline .ticket .row-more[aria-expanded="true"] { color: var(--accent); border-color: var(--color-dash); }
+.ns-outline .ticket .row-more:focus-visible { opacity: 1; outline: var(--focus-ring); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .ns-outline .ticket .row-more { transition: none; } }
 
 /* 摺疊／展開鈕（磨光⑤ K5、D-主-61）：有子項的列，票根左邊的縮排溝裡放一枚 ▸／▾（ui/common/Chevron）。
    絕對定位在 li 左緣外（每層縮排 28px、第一層外面是頁邊留白），票本身一格都不挪——沒有子項的列不畫，對齊照舊。
-   常駐可見（次要字色），hover 燙金。垂直對齊票根徽章：.stub 內容（徽章＋類型＋票號）在票裡垂直置中，
+   常駐可見（次要字色），hover 轉作用中色。垂直對齊票根徽章：.stub 內容（徽章＋類型＋票號）在票裡垂直置中，
    一兩行標題的票高被票根撐住、徽章中線約在上緣 28px ⇒ top 17px；標題換到三行以上票變高、徽章跟著往下，
    改追「票高一半往上 32px」（徽章中線＝中線往上約 21px；探針實測 2026-10-21），兩者取大。 */
 .ns-outline .ticket-list > .ticket-li { position: relative; }
@@ -107,8 +107,8 @@
   color: var(--color-ink-soft);
   transition: color .15s;
 }
-.ns-outline .ticket-li > .row-fold:hover { color: var(--color-gold); }
-.ns-outline .ticket-li > .row-fold:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+.ns-outline .ticket-li > .row-fold:hover { color: var(--accent); }
+.ns-outline .ticket-li > .row-fold:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .ns-outline .ticket-li > .row-fold { transition: none; } }
 
 /* ═══ 草稿票（新增中）：同款票、虛線邊 ═══ */
@@ -163,10 +163,10 @@
 .ns-outline .hide-done:focus-visible,
 .ns-outline .hide-done[aria-pressed="true"] { opacity: 1; }
 .ns-outline .hide-done:hover,
-.ns-outline .hide-done[aria-pressed="true"] { color: var(--color-gold); }
+.ns-outline .hide-done[aria-pressed="true"] { color: var(--accent); }
 
 /* ═══ 頁首：「路線詳情」（10-20 磨光②；路線面板的滑鼠入口） ═══
-   長相＝當日清單「推遲」那顆小框鈕（1px --color-dash、10px／.14em、ink-soft），hover 與按下態（路線面板開著）轉燙金。
+   長相＝當日清單「推遲」那顆小框鈕（1px --color-dash、10px／.14em、ink-soft），hover 與按下態（路線面板開著）轉作用中色（UI 丙-1 前是燙金）。
    align-self:center——.date-line 是 baseline 對齊，30px 標題旁的小框對齊基線會浮在字腳，置中才穩。 */
 .ns-outline .date-line .route-detail {
   align-self: center; flex: none; margin-left: 2px;
@@ -176,17 +176,17 @@
   transition: color .15s, border-color .15s;
 }
 .ns-outline .date-line .route-detail:hover,
-.ns-outline .date-line .route-detail[aria-pressed="true"] { color: var(--color-gold-ink); border-color: var(--color-gold); }
-.ns-outline .date-line .route-detail:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-outline .date-line .route-detail[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.ns-outline .date-line .route-detail:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .ns-outline .date-line .route-detail { transition: none; } }
 
-/* ═══ 空狀態：原型 .sec 語彙＋一句話＋文字入口 ═══ */
+/* ═══ 空狀態：原型 .sec 語彙＋一句話＋文字入口（UI 丙-1：入口字燙金→作用中 --accent；丙-3 才換成次鈕） ═══ */
 .ns-outline .empty { max-width: 520px; }
 .ns-outline .empty .sec { margin-top: 8vh; }
 .ns-outline .empty-body { font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft); }
 .ns-outline .empty-action {
   margin-top: 16px; padding: 0; background: transparent; border: 0; cursor: pointer;
-  font-size: 12px; letter-spacing: .14em; color: var(--color-gold);
+  font-size: 12px; letter-spacing: .14em; color: var(--accent);
   text-decoration: underline dotted transparent; text-underline-offset: 4px;
   transition: text-decoration-color .15s;
 }

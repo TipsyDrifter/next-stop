@@ -1,8 +1,8 @@
 /**
  * QuickJump——UI Flow 2.4 快速跳轉（Ctrl+P／側欄搜尋鈕；讀 uiStore.quickJumpOpen）：置頂紙卡，150ms debounce 搜尋節點與臨時車票，
  * ↑↓ 移動、Enter 選取、Esc 關閉、點擊選取。選取：路線→開路線；樹內節點→開所屬路線後展開祖先並選中；臨時車票→有執行日就切到今日頁選中；沒執行日、沒路線、未完成的是收件匣票→切到旅客筆記選中（車次①）；掛了路線的→該路線大綱頂層；済票不導向（調度 10-08）。
- * 視覺：票面紙卡 .ns-card（paper-high、1px line、3px radius、原型陰影）＋燙金 overline ＋ 大號底線輸入 ＋ 結果列（路線＝roundel、
- *       其餘＝原型 .badge 小號版類型徽章）＋襯線名稱＋淡字路線名；選中列燙金左邊線＋已使用票色。
+ * 視覺：浮層紙卡 .techo-card（UI 丙-1；霧面玻璃、不透字）＋ overline ＋ 大號底線輸入 ＋ 結果列（路線＝roundel、
+ *       其餘＝原型 .badge 小號版類型徽章）＋襯線名稱＋淡字路線名；選中列 --sel-line 左邊線（粉彩靛、銀河金）＋已使用票色。
  * 取捨：車站不在大綱樹裡——選取＝只開所屬路線；結果上限由 repository 決定（50）；組字中不處理任何快捷鍵。
  * 接縫 #56（旅客筆記車次③ 0-5／0-7）：別線以 `LineMount.quickJump` 登記結果提供者。打的字以某個提供者的 `prefix` 開頭 ⇒ 只問它
  *   （去掉前綴後的字；只打前綴＝空字串），節點不查；否則節點結果之後每個提供者 `search(term, 4)` 各成一組（組名＝`group`，空組不畫）。
@@ -255,7 +255,7 @@ function QuickJumpPanel() {
         if (e.target === e.currentTarget) close(false);
       }}
     >
-      <div className="ns-qj ns-card w-[540px] max-w-[92vw] overflow-hidden transition duration-150 ease-out starting:opacity-0 starting:translate-y-1">
+      <div className="ns-qj techo-card w-[540px] max-w-[92vw] overflow-hidden transition duration-150 ease-out starting:opacity-0 starting:translate-y-1">
         <p className="techo-overline px-5 pt-4">搜尋・跳轉 — QUICK JUMP</p>
         <input
           autoFocus

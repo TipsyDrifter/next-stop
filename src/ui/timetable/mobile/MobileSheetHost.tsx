@@ -1,6 +1,6 @@
 /**
  * MobileSheetHost——手機的面板殼（車次①a 契約 §5.3；丙席）。
- * `store.sheet` → 對應 panel，包進 `div.m-sheet-veil.techo-veil > div.m-sheet.ns-card.ns-tt-sheet`（沿用既有 .m-sheet 骨架）。
+ * `store.sheet` → 對應 panel，包進 `div.m-sheet-veil.techo-veil > div.m-sheet.techo-card.ns-tt-sheet`（沿用既有 .m-sheet 骨架；UI 丙-1 起浮層一律 .techo-card）。
  * 關閉＝點暗幕／×／Esc ⇒ `store.closeSheet()`（longRun 面板被這樣關＝「略過」，契約 0-10）。
  * 標題由 `sheetTitle` 給；longRun 前置 live dot。
  */
@@ -42,7 +42,7 @@ export function MobileSheetHost() {
   return (
     <div className="m-sheet-veil techo-veil ns-tt-veil" role="presentation" onClick={closeSheet}>
       <div
-        className="m-sheet ns-card ns-tt-sheet"
+        className="m-sheet techo-card ns-tt-sheet"
         data-kind={sheet.kind}
         role="dialog"
         aria-modal="true"

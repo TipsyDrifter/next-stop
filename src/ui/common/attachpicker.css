@@ -1,0 +1,57 @@
+/* ─────────────────────────────────────────────────────
+ * attachpicker.css —「掛到哪」挑選器（桌機 AttachPicker／手機 MobileAttachPicker）的專屬規則
+ *   UI 丙-2 搬家（契約 §1 #18）：從 notes/notes.css（清單、輸入框、腳列）與 common/moveTo.css（「目前位置」那一列）搬來。
+ *   由 src/index.css 集中 @import（techo.css 之後、mobile.css 之前），元件檔不自己 import。
+ *
+ * 規範：視覺規範 §2.4（錨定 popover）、§2.10（選中＝--sel-bg／--sel-fg）、§1.4（圓角）、§1.2（字階）。
+ * 規則：只引用 theme.css 語意層；零色碼、零字級圓角字面值。區域變數 --ns-sel 改吃 --sel-bg（值相同：
+ *   notes.css 的 --ns-sel 本來就是 var(--sel-bg)，挑選器的四個掛載點——收件匣與筆記內容欄（.ns-notes）、變待辦（.ns-notes-prev）、
+ *   側板移動到（.ns-moveto）——都有定義；沒有任何地方在局部改寫 --accent／--sel-*）。
+ *
+ * 不在這裡的（與旅客筆記其他浮層共用、本班不搬，見 notes.css）：
+ *   浮層殼 .ns-notes-pop／.float（DatePop 也掛它，和 .ns-datepick 同特異度、靠載入順序分勝負，搬了會改到畫面）、
+ *   小標 .ns-notes-poplabel（荷札頁合併也用）、清除鈕 .ns-notes-chip（變待辦的日期 chip 也用）、
+ *   三條不在字階的字級（輸入框 13、右側注記 10.5、「‹ 所有路線」11.5——丙-3～6 決定收成哪一階再搬）。
+ *   手機面板本體（.ns-notes-mpick／mnode…）在 notes/notes-mobile.css。
+ *
+ * 載入位置變了（以前是元件層、排在 techo.css 之前；現在在 techo.css 之後）：逐條查過，下面每條要不是沒有同特異度的
+ *   競爭規則，就是對手特異度較高（.ns-notes-nodelist .back／.path 的字級、側板 .panel input），勝負與以前相同。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 桌機 AttachPicker ═══ */
+
+/* 搜尋框（.techo-input 底線式；字級見檔頭，仍在 notes.css） */
+.ns-notes-input { width: 100%; }
+
+/* 清單：路線／支線／列車／車廂一列一顆鈕；不可選的種類（群組頭）是 span.grp */
+.ns-notes-nodelist { list-style: none; margin: 8px 0 0; padding: 0; max-height: 216px; overflow-y: auto; }
+.ns-notes-nodelist li > button, .ns-notes-nodelist li > .grp {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 6px 6px; border-radius: var(--radius-ctl); font-family: inherit; font-size: var(--fs-ui); color: var(--color-ink); cursor: pointer;
+}
+.ns-notes-nodelist li > .grp { color: var(--color-ink-faint); cursor: default; font-size: var(--fs-sm); }
+/* hover 與鍵盤游標同一種底；目前的值＝選中字（§2.10） */
+.ns-notes-nodelist li > button:hover, .ns-notes-nodelist li > button.kb { background: var(--sel-bg); }
+.ns-notes-nodelist li > button.cur { color: var(--sel-fg); }
+/* 種類字（支／列／廂）：虛線圓圈、路線色（行內 style 給 color） */
+.ns-notes-nodelist .kind {
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-micro); width: 18px; height: 18px;
+  border: 1.2px dashed currentColor; border-radius: var(--radius-pill); display: grid; place-items: center; flex: none;
+}
+.ns-notes-nodelist .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-notes-nodelist .path { margin-left: auto; color: var(--color-ink-faint); letter-spacing: .04em; flex: none; }
+.ns-notes-nodelist .back { color: var(--color-ink-soft); letter-spacing: .08em; }
+.ns-notes-nodelist .empty { padding: 8px 6px; font-size: var(--fs-sm); color: var(--color-ink-faint); }
+
+/* 腳列（「清除／摘掉」）：上方虛線撕線 */
+.ns-notes-popfoot { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--color-line); }
+
+/* 目前位置（磨光⑤ B1「移動到…」的搬遷模式）：看得到、點不了 */
+.ns-notes-nodelist li > button.locked { color: var(--color-ink-faint); cursor: default; }
+.ns-notes-nodelist li > button.locked:hover { background: transparent; }
+.ns-notes-nodelist li > button.locked .path { color: var(--color-ink-soft); }
+
+/* ═══ 手機 MobileAttachPicker：目前位置那一格（面板本體在 notes-mobile.css） ═══ */
+[data-shell="mobile"] .ns-notes-mnode.is-locked { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-notes-mnode.is-locked:active { background: transparent; }
+[data-shell="mobile"] .ns-notes-mnode.is-locked .path { color: var(--color-ink-soft); }

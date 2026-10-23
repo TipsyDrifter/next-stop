@@ -162,11 +162,12 @@ function RenameRow({ tagKey }: { tagKey: string }) {
         )}
       </p>
       <div className="ns-notes-renbtns">
-        <button type="button" className="ns-notes-btn primary" disabled={!plan || !plan.ok} onClick={() => void commit()}>
-          確定
-        </button>
-        <button type="button" className="ns-notes-btn" onClick={cancel}>
+        {/* 取消在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起從「主鈕在左」換過來，同日記草稿列） */}
+        <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={cancel}>
           取消
+        </button>
+        <button type="button" className="ns-notes-btn ns-btn btn-seal" disabled={!plan || !plan.ok} onClick={() => void commit()}>
+          確定
         </button>
         <span className="hint">用 / 可以分上下層</span>
       </div>
@@ -379,7 +380,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                     // 磨光③ 2-12：載入失敗不再一片空白
                     <p className="ns-notes-tagempty">
                       荷札沒載入{" "}
-                      <button type="button" className="ns-notes-btn" onClick={() => void st().loadIndex()}>
+                      <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => void st().loadIndex()}>
                         重試
                       </button>
                     </p>
@@ -423,7 +424,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                               併入…
                               <Kbd id="notes.tags.merge" />
                             </button>
-                            <button type="button" role="menuitem" className="danger" onClick={del}>
+                            <button type="button" role="menuitem" className="ns-btn-danger" onClick={del}>
                               刪除
                               <Kbd id="notes.delete" />
                             </button>

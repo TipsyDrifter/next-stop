@@ -58,11 +58,12 @@ const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
 /** 路線標籤選擇器的「無路線」哨兵值（Segmented 的 value 必須是 string，不能用 null 當選項） */
 const NO_ROUTE = "__none__";
 
-/** 心情三燈＝三個 .badge 小圓：綠 route-preset-3（松葉）／黃 gold（燙金）／紅 late（赭；磨光⑤ 前是朱）——都跟著主題換色 */
+/** 心情三燈＝三個 .badge 小圓：語意層 --mood-good（松葉）／--mood-ok（紀念章弧金 --arc；UI 丙-1 前是書封燙金）／
+ *  --mood-hard（赭；磨光⑤ 前是朱）——theme.css 定義、都跟著主題換色（視覺規範 §1.1） */
 const MOODS: { value: Mood; label: string; glyph: string; color: string }[] = [
-  { value: "green", label: "順利", glyph: "順", color: "var(--route-preset-3)" },
-  { value: "yellow", label: "普通", glyph: "普", color: "var(--color-gold)" },
-  { value: "red", label: "卡關", glyph: "卡", color: "var(--color-late)" }, // 磨光⑤：警示改赭（朱只給済）
+  { value: "green", label: "順利", glyph: "順", color: "var(--mood-good)" },
+  { value: "yellow", label: "普通", glyph: "普", color: "var(--mood-ok)" },
+  { value: "red", label: "卡關", glyph: "卡", color: "var(--mood-hard)" }, // 磨光⑤：警示改赭（朱只給済）
 ];
 
 /* ───────────── 入口：依 kind 分派 ───────────── */
@@ -205,7 +206,7 @@ function useNodeActions() {
       void collectDeleteHints(node, descendantIdsOf(tree, node.id)).then((hints) =>
         askConfirm({
           title: `將連同 ${n} 個子項一起刪除？`,
-          body: withDeleteHints(`「${node.name}」底下的 ${n} 個項目會一起刪掉（10 秒內可復原）。`, hints),
+          body: withDeleteHints(`「${node.name}」底下的 ${n} 個項目會一起刪掉（6 秒內可復原）。`, hints),
           confirmLabel: "一起刪除",
           danger: true,
           onConfirm: () => void run(),

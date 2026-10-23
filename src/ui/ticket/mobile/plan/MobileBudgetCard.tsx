@@ -58,7 +58,7 @@ export function MobileBudgetCard() {
         {head}
         <div className="ns-tk-mbud-empty">
           <p>還沒有預算</p>
-          <button type="button" className="ns-tk-mbtn" onClick={open}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={open}>
             設定預算…
           </button>
         </div>

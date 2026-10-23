@@ -11,8 +11,9 @@
  *      - arrive：`arrivePending(at)`；`[]` ⇒ dropped noRunning。到着的冪等靠規則本身（第二次已經沒有開始早於 at 的運行中）。
  *      單筆丟錯（DB 錯）⇒ 該筆**不 ack**、停止這一趟（下次再試；前面套過的照樣 ack）。
  *   4. `ttAckPending(套過的全部 id)`（含 dropped、duplicate、invalid）。
- *   5. toast：只吐被丟掉的（同一趟同一種原因只算一次；toast 只有一格，好幾種原因併成一則）；套上的不吐（契約 0-17）。
- *   6. `launch`：點提醒回來（ask）⇒ 切到時刻表 tab＋`autoAsk("foreground", true)`；點通知本體（open）⇒ 切到時刻表 tab。
+ *   5. `launch`：點提醒回來（ask）⇒ 切到時刻表 tab＋`autoAsk("foreground", true)`；點通知本體（open）⇒ 切到時刻表 tab。
+ *   6. toast：只吐被丟掉的（同一趟同一種原因只算一次；toast 只有一格，好幾種原因併成一則）；套上的不吐（契約 0-17）。
+ *      排在切 tab 之後：換 tab 會收 toast（UI 丙-1，視覺規範 §2.8）。
  *   7. 這一趟有取到東西（動作或 launch）⇒ `syncRunningNotice({force})`＋`syncLongRunReminder({force})`：
  *      Kotlin 在佇列沒清空時不讓 JS 蓋掉樂觀更新的 running／提醒，ack 完這一次 force 才把真正的狀態送回去。
  *      什麼都沒取到 ⇒ 不重送（呼叫端 Agent 回前景／冷啟動自己會同步一次）。
@@ -117,12 +118,14 @@ async function drainOnce(reason: DrainReason): Promise<void> {
     const msg = DROP_TEXT[r];
     if (dropped.has(r) && msg) msgs.push(msg);
   }
-  if (msgs.length) ui.showToast({ message: msgs.join("；") });
 
   if (launch && (launch.ask !== null || launch.open)) {
     ui.setMobileTab("timetable");
     if (launch.ask !== null) useTimetableStore.getState().autoAsk("foreground", true);
   }
+
+  // 先切 tab 再吐：setMobileTab 換 tab 會收 toast（視覺規範 §2.8），反過來從別的 tab 被帶進來時這則會當場被收掉
+  if (msgs.length) ui.showToast({ message: msgs.join("；") });
 
   await syncRunningNotice({ force: true });
   await syncLongRunReminder({ force: true });

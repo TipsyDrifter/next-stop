@@ -1,0 +1,129 @@
+/* ─────────────────────────────────────────────────────
+ * tabs.css — 分頁籤 Tabs 與分段鈕 Segmented（視覺規範 §2.2：兩件事，17 個 class 收成 2）
+ * 元件：`Tabs.tsx`（含 `TabsSelect`）、`Segmented.tsx`；活樣本 prototypes/ui-brand/index.html §9（值與 token 寫法照抄）。
+ * 由 `src/index.css` 集中 @import（techo.css 之後、mobile.css 之前），元件檔不自己 import。
+ *
+ * 規則：只引用 theme.css 語意層（顏色、字級、圓角、控件高度、動效都是 var(--…)，零色碼、零字級圓角字面值）；
+ *   手機值靠 [data-shell="mobile"] 的 token 整組換（--ctl-tab 36→44、--ctl-seg 32→44、--fs-ui 12.5→14…），
+ *   元件不寫兩套；下面掛 [data-shell="mobile"] 的只有「形制」差異（整列玻璃、撐滿、末段露半格）。
+ *
+ * ⚠ `.ns-tabs[data-tabs]` 的 [data-tabs] 限定是刻意的：`ui/settings/settings.css` 還有一條同名 `.ns-tabs`
+ *   （設定頁籤列，`.ns-choice` 小框籤；丙-3～6 換成本元件後刪）。本檔不加限定就會蓋到設定頁（本檔排在它之後），
+ *   反過來它的 flex-wrap／gap／margin-bottom 也會滲進本元件——所以本元件的容器規則把那三條明寫歸零。
+ *   設定頁換完、settings.css 那條刪掉之後，[data-tabs] 與歸零三條可以拿掉。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 分頁籤 Tabs：文字籤、襯線 700、段間虛線、選中＝底線滑塊＋--sel-fg 字 ═══ */
+.ns-tabs[data-tabs] {
+  position: relative; display: inline-flex; flex: none; align-items: stretch; max-width: 100%;
+  flex-wrap: nowrap; gap: 0; margin: 0; /* 歸零：settings.css 同名 .ns-tabs 的滲入（見檔頭） */
+}
+/* 橫捲（scroll）：捲軸藏起來；只橫不直（底線滑塊因此收進框內，bottom 0） */
+.ns-tabs[data-tabs].is-scroll {
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.ns-tabs[data-tabs].is-scroll::-webkit-scrollbar { display: none; }
+
+.ns-tabs[data-tabs] > [role="tab"] {
+  position: relative; flex: none; height: var(--ctl-tab); padding: 0 var(--sp-4); margin: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; white-space: nowrap; cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); line-height: 1;
+  letter-spacing: .22em; text-indent: .22em; /* 字距補在左邊，字才置中 */
+  color: var(--color-ink-faint);
+  transition: color var(--dur) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+/* 段間虛線 */
+.ns-tabs[data-tabs] > [role="tab"] + [role="tab"]::before {
+  content: ""; position: absolute; left: 0; top: 30%; bottom: 30%;
+  border-left: 1px dashed var(--color-dash);
+}
+.ns-tabs[data-tabs] > [role="tab"]:hover:not(:disabled) {
+  color: var(--color-ink-soft); background: color-mix(in srgb, var(--accent) 5%, transparent); /* ui-brand §9 原寫法 */
+}
+/* 選中（第二個選擇器跟 hover 同特異度、排在後面：滑過選中籤時字仍是 --sel-fg） */
+.ns-tabs[data-tabs] > [role="tab"][aria-selected="true"],
+.ns-tabs[data-tabs] > [role="tab"][aria-selected="true"]:hover { color: var(--sel-fg); }
+.ns-tabs[data-tabs] > [role="tab"]:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+.ns-tabs[data-tabs] > [role="tab"]:disabled { opacity: var(--disabled); cursor: not-allowed; }
+
+/* 底線：JS 量到位置時畫滑塊 .ns-tabs-ink；量不到時退回選中籤自己畫一條（::after），兩者同長同粗 */
+.ns-tabs[data-tabs] > [role="tab"][aria-selected="true"]::after {
+  content: ""; position: absolute; left: 50%; bottom: -1px; width: 46px; margin-left: -23px;
+  border-bottom: var(--sel-line);
+}
+.ns-tabs[data-tabs].has-ink > [role="tab"][aria-selected="true"]::after { display: none; }
+.ns-tabs-ink {
+  position: absolute; left: 0; bottom: -1px; width: 46px; height: 0; pointer-events: none;
+  border-bottom: var(--sel-line);
+  transform: translateX(calc(var(--ink-x, 0px) - 50%)); /* --ink-x＝選中籤中心（Tabs.tsx 量） */
+  transition: transform var(--dur) var(--ease);
+}
+.ns-tabs[data-tabs].is-scroll > [role="tab"][aria-selected="true"]::after,
+.ns-tabs[data-tabs].is-scroll > .ns-tabs-ink { bottom: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-tabs-ink { transition: none; }
+}
+
+/* 獨立一列（手機殼預設；size="mobile" 在任何殼強制）：整列霧面玻璃底＋底線、撐滿、每籤平分。
+   size="md" 在手機殼強制留在行內形制（例：區段標題右側的 日｜週｜月）。 */
+[data-shell="mobile"] .ns-tabs[data-tabs]:not(.ns-tabs--md),
+.ns-tabs[data-tabs].ns-tabs--mobile {
+  display: flex; width: 100%;
+  background-color: var(--float-bg);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .ns-tabs[data-tabs]:not(.ns-tabs--md) > [role="tab"],
+.ns-tabs[data-tabs].ns-tabs--mobile > [role="tab"] { flex: 1 0 auto; }
+/* 超過 4 段（.is-peek）：不撐滿，改由 Tabs.tsx 量自然寬後均勻補左右內距 --tab-pad-x，
+   讓一列剛好 4 格＋第 5 格露一半＝「還能捲」的提示（§2.2 段數欄；算法見 Tabs.tsx peekPad） */
+[data-shell="mobile"] .ns-tabs[data-tabs].is-peek:not(.ns-tabs--md) > [role="tab"],
+.ns-tabs[data-tabs].ns-tabs--mobile.is-peek > [role="tab"] {
+  flex: none; padding: 0 calc(var(--sp-4) + var(--tab-pad-x, 0px));
+}
+
+/* 手機頂帶下一列（MobileTopBand 的 tabsRow 插槽）：籤列＋末端「管理」文字鈕，兩段同一片玻璃 */
+.ns-tabrow { display: flex; align-items: stretch; }
+.ns-tabrow > .ns-tabs[data-tabs] { flex: 1; min-width: 0; }
+.ns-tabrow > .mgr {
+  flex: none; display: flex; align-items: center; padding: 0 var(--m-gutter, var(--sp-4)) 0 var(--sp-2);
+  background-color: var(--float-bg);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border-bottom: 1px solid var(--color-line);
+}
+
+/* 窄主欄（<704）：分頁籤改下拉——底線 select（.ns-select-wrap＋.techo-input，overlay.css）的襯線版 */
+.techo-input.ns-tabs-select {
+  width: auto; min-width: 7.5em; height: var(--ctl-input); padding-top: 0; padding-bottom: 0;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .14em;
+  color: var(--color-ink);
+}
+
+/* ═══ 分段鈕 Segmented：相連方格、1px --color-dash 框、黑體；選中＝--sel-bg＋--sel-fg ═══ */
+.ns-seg {
+  display: inline-flex; flex: none; max-width: 100%;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  overflow-x: auto; scrollbar-width: none;
+}
+.ns-seg::-webkit-scrollbar { display: none; }
+.ns-seg > [role="radio"] {
+  height: calc(var(--ctl-seg) - 2px); padding: 0 14px; margin: 0; flex: none; /* 減 2px＝上下框 */
+  border: 0; border-left: 1px solid var(--color-dash); background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-ui); font-weight: 500; line-height: 20px; letter-spacing: .12em;
+  color: var(--color-ink-soft); white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-seg > [role="radio"]:first-child { border-left: 0; }
+.ns-seg > [role="radio"]:hover:not(:disabled) { color: var(--color-ink); }
+.ns-seg > [role="radio"][aria-checked="true"],
+.ns-seg > [role="radio"][aria-checked="true"]:hover { background: var(--sel-bg); color: var(--sel-fg); }
+.ns-seg > [role="radio"]:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+.ns-seg > [role="radio"]:disabled { opacity: var(--disabled); cursor: not-allowed; }
+/* 緊湊 24（手機 36）：長度組那種 */
+.ns-seg--sm > [role="radio"] {
+  height: calc(var(--ctl-h-sm) - 2px); padding: 0 10px; font-size: var(--fs-sm); line-height: 18px;
+}
+/* 手機殼：撐滿一列、每段平分 */
+[data-shell="mobile"] .ns-seg { display: flex; }
+[data-shell="mobile"] .ns-seg > [role="radio"] { flex: 1 0 auto; }

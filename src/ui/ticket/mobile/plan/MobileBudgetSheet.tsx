@@ -83,7 +83,7 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
         />
       ))}
 
-      <button type="button" className="ns-tk-mbtn ns-tk-mbe-add" aria-haspopup="dialog" onClick={() => setPicking(true)}>
+      <button type="button" className="ns-btn btn-text ns-tk-mbtn ns-tk-mbe-add" aria-haspopup="dialog" onClick={() => setPicking(true)}>
         <IconPlus />
         加分類預算
       </button>
@@ -189,7 +189,7 @@ function Block({
         {scope.kind === "category" && (
           <button
             type="button"
-            className="ns-tk-mbtn quiet"
+            className="ns-btn ns-btn--sm btn-ghost ns-btn-danger ns-tk-mbtn"
             onClick={() => {
               if (any) confirmRemove();
               else onDropPending(scope.categoryId);

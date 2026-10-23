@@ -1,24 +1,23 @@
 /* ─────────────────────────────────────────────────────
- * defer.css — 推遲小卡（M3 ③ WP3；D-③-6 乙）專用補充。
+ * defer.css — 推遲小卡 DeferPopover（M3 ③ WP3；D-③-6 乙）的位置、間距與項目列。
+ *   UI 丙-2 搬家（契約 §1 #18）：原 today/defer.css 整份搬來；字級改吃字階 token（12.5→--fs-ui、11→--fs-xs，桌機同值）。
+ *   由 src/index.css 集中 @import（techo.css 之後、mobile.css 之前），元件檔不自己 import。
  *
- * ⚠ 這張小卡**沒有原型**（① 比稿與 C1／C2 都沒畫過 popover）。移植規格 §0 鐵律「原型沒有的元素
- *   一律不可見／不自創新視覺元素」的處置＝**只拼 techo.css 既有語彙**，一個新形狀都不發明：
- *     紙卡      ＝ .techo-card（覆蓋層共用件，techo.css:531-547「一張浮起的票」）
- *     眉標      ＝ .techo-overline（同上 :555-566）
- *     腳註      ＝ .techo-foot（同上 :568-574）
- *     項目      ＝ .status 小方標的邊框語彙（--color-dash 虛線分隔、hover 轉燙金）
- *     清除執行日 ＝ 赭（--color-late），與誤點／締切同一色階，不新增顏色
- *   本檔只出「位置與間距」，顏色一律走 token。
+ * 規範：視覺規範 §2.4（錨定 popover＝.techo-card 紙卡＋.techo-overline 眉標＋.techo-foot 腳註）、§1.8（禁用）、§2.10（聚焦）。
+ *   形制與材質全部來自 .techo-card（techo.css，「浮」層）；本檔只出位置、間距與項目列，顏色一律走 token、零色碼、零字級圓角字面值。
+ *   「清除執行日」＝赭（--color-late，與誤點／締切同一色階）。
  *
- * 注入順序（鐵律 4）：本檔由 DeferPopover.tsx import ＝排在 index.css（含 techo.css）之前，
- *   凡與 techo 既有 class 同名屬性競爭者一律以 .ns-defer 前綴抬一級（比照 outline.css／today.css）。
+ * 載入位置變了（以前由 DeferPopover.tsx import、排在 techo.css 之前；現在在 techo.css 之後）：逐條查過，
+ *   .ns-defer 與 .techo-card 管的屬性不重疊（本檔：位置、寬、內距；techo-card：底、模糊、框、圓角、陰影），
+ *   其餘規則都帶 .ns-defer 前綴（特異度 ≥ 0,2,0），勝負與以前相同。
+ *   卡只在桌機殼出現（手機改期走 sheet），字階 token 取桌機值。
  * ───────────────────────────────────────────────────── */
 
 /* 小卡本體：position:fixed，座標由元件量 anchor 後給（clamp 進視窗） */
 .ns-defer {
   position: fixed;
   z-index: 60;
-  /* 232px＝腳註「↑↓ 移動・Enter 選・Esc 關閉」在 .techo-foot 的 10px/.28em 下剛好不折行的最小寬 */
+  /* 232px＝腳註「↑↓ 移動・Enter 選・Esc 關閉」在 .techo-foot 的 --fs-micro／.28em 下剛好不折行的最小寬 */
   width: 232px;
   padding: 12px 0 0;
   /* 形制與材質全部來自 .techo-card；這裡只補圓角以外的尺寸 */
@@ -35,15 +34,16 @@
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
   padding: 8px 14px;
   background: transparent; border: 0; cursor: pointer;
-  font-family: inherit; font-size: 12.5px; letter-spacing: .08em; text-align: left;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .08em; text-align: left;
   color: var(--color-ink);
   transition: color .15s, background .15s;
 }
-.ns-defer .ns-defer-item:hover { color: var(--color-gold); background: var(--color-paper-used); }
-.ns-defer .ns-defer-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
-.ns-defer .ns-defer-item:disabled { color: var(--color-ink-faint); cursor: default; background: transparent; }
+.ns-defer .ns-defer-item:hover { color: var(--accent); background: var(--color-paper-used); }   /* UI 丙-1：紙面作用中＝--accent（粉彩靛、銀河金） */
+.ns-defer .ns-defer-item:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+/* 禁用（§1.8，同 PopMenu 禁用項）：--disabled＋not-allowed、不響應 hover（字與底蓋回常態） */
+.ns-defer .ns-defer-item:disabled { opacity: var(--disabled); cursor: not-allowed; color: var(--color-ink); background: transparent; }
 .ns-defer .ns-defer-item .when {
-  font-family: var(--font-latin); font-size: 11px; letter-spacing: .12em;
+  font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .12em;
   color: var(--color-ink-faint); flex: none;
 }
 

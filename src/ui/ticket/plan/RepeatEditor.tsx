@@ -13,7 +13,7 @@
  *   │   └─ 右「什麼時候」.ns-tk-re-freq 每日｜每週｜每月 → 每週 7 顆星期、每月 1–31 格（7×5；選了 29–31 才出「小月記在月底」）
  *   │                    → 起算日（新規則起算日在過去 ⇒「會補記」提示）・時刻・終止日（選填）
  *   ├─ .ns-tk-re-preview  規則一句（repeatLabel）＋右端「第一班 11/5」／「下一班 11/5」／「從 10/5 起補記」；草稿還不完整 ⇒ 原因淡字
- *   └─ .ns-tk-dfoot       取消・存（btn-gold）
+ *   └─ .ns-tk-dfoot       取消・存（主鈕 btn-seal，在右）
  *
  * 帳戶／分類／路線／幣別的挑選元件借大票的（TicketPanel 的 AcctPick／CategoryCombo／RoutePop／Pop），鍵盤與 IME 行為一致。
  * 日期浮層往上開（.ns-dialog-body 是內捲容器，往下開會被裁）。
@@ -419,7 +419,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           取消
         </button>
-        <button type="button" className="ns-btn btn-gold ns-tk-dbtn" disabled={busy} onClick={() => void save()}>
+        <button type="button" className="ns-btn btn-seal ns-tk-dbtn" disabled={busy} onClick={() => void save()}>
           存
         </button>
       </div>

@@ -62,13 +62,13 @@ export function MobileTodoPreview() {
   return (
     <div className="ns-notes-mfull" role="dialog" aria-modal="true" aria-label="變待辦">
       <div className="ns-notes-mfullhead">
-        <button type="button" className="ns-notes-mbtn" onClick={cancelPreview}>
+        <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={cancelPreview}>
           取消
         </button>
         <h3>變待辦</h3>
         <button
           type="button"
-          className="ns-notes-mbtn primary"
+          className="ns-notes-mbtn ns-btn btn-seal"
           onClick={() => void confirm()}
           disabled={n === 0 || busy}
         >

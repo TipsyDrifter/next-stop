@@ -38,6 +38,8 @@ export type SettingsTab = "general" | "backup" | "hotkeys" | "sync";
 
 export interface ToastState {
   message: string;
+  /** 第二行小字（墨色淡一階）；沒有＝只有一行主訊息（時刻表⑤〈原型定案〉1；UI 丙-1 從 Toast.tsx 的 module augmentation 搬進本體） */
+  sub?: string;
   actionLabel?: string;
   onAction?: () => void;
 }
@@ -56,11 +58,8 @@ export interface ConfirmState {
   typeToConfirm?: string;
   /** 輸入框上方那一句（預設 `輸入「{typeToConfirm}」才能按下去`） */
   typeHint?: string;
-  /**
-   * 確認鈕的色（接縫 #74）：沒帶＝`"seal"`＝朱印主鈕（與既有每一個確認窗逐字相同）；
-   * `"gold"`＝金框鈕（`btn-gold`），給不是破壞性動作、又不該蓋朱印的確認（D-票-11：朱只給領収）。
-   */
-  tone?: "seal" | "gold";
+  // UI 丙-1（視覺規範 §2.3）：舊的 `tone?: "seal" | "gold"`（接縫 #74 的金框確認鈕）退役——ConfirmDialog 不再讀它，
+  // 定期帳那一顆改成一般確認框（主鈕＝實心墨，本來就不是朱），兩個呼叫端也已拿掉；欄位刪掉，免得有人再傳。
 }
 
 export interface RouteDialogState {
@@ -282,12 +281,18 @@ export const useUiStore = create<UiStore>((set, get) => ({
   calendarMarksTick: 0,
 
   // 未通車的頁不動作（對既有三頁行為相同；契約 §6.2 C-3）
+  // 切頁即收 toast（視覺規範 §2.8，UI 丙-1）：上一頁的「復原」留到下一頁會讓人以為是在復原眼前的東西。
+  // 同一頁重設（快速跳轉、荷札回跳落在原頁）不算切頁，不收——不然「先 setPage 再 showToast」以外的順序也會誤殺。
   setPage: (page) => {
     if (pageById(page).status !== "open") return;
+    if (page !== get().page) get().hideToast();
     set({ page });
   },
-  // 切頁順手收掉桌機專屬疊層：手機殼本來就不掛它們，這是保險不是功能（藍牙鍵盤按到 ? 或 Ctrl+P 時）
-  setMobileTab: (tab) => set({ mobileTab: tab, hotkeyGuideOpen: false, quickJumpOpen: false }),
+  // 切頁順手收掉桌機專屬疊層：手機殼本來就不掛它們，這是保險不是功能（藍牙鍵盤按到 ? 或 Ctrl+P 時）；toast 同 setPage
+  setMobileTab: (tab) => {
+    if (tab !== get().mobileTab) get().hideToast();
+    set({ mobileTab: tab, hotkeyGuideOpen: false, quickJumpOpen: false });
+  },
   select: (id) => set({ selectedId: id }),
   setZoom: (id) => set({ zoomId: id }),
   toggleCollapsed: (id) =>
@@ -303,7 +308,8 @@ export const useUiStore = create<UiStore>((set, get) => ({
   setPanelOpen: (open) => set({ panelOpen: open }),
   toggleHideDone: () => set((s) => ({ hideDone: !s.hideDone })),
 
-  showToast(toast, ttlMs = 10_000) {
+  // 壽命（視覺規範 §2.8，UI 丙-1）：有動作（復原）6 秒、純通知 4 秒；呼叫端帶了 ttlMs 照帶的
+  showToast(toast, ttlMs = toast.actionLabel ? 6_000 : 4_000) {
     if (toastTimer) clearTimeout(toastTimer);
     set({ toast });
     toastTimer = setTimeout(() => set({ toast: null }), ttlMs);
@@ -349,12 +355,15 @@ export const useUiStore = create<UiStore>((set, get) => ({
   dismissSyncBanner: () => set((s) => ({ syncBannerDismissed: s.syncBanner })),
   // v1.1.5 真機驗收（主人 2026-09-28）：按「前往同步」＝主人已經看到了，橫幅隨即收起（與「先收起」同一個機制：
   // 本次啟動有效、狀態解除自動清、重開 App 若還沒解除會再出）。不收的話同步頁上方還疊著橫幅、像沒點到。
-  openSyncPage: (shell) =>
+  // UI 丙-1：換到同步頁＝切頁，先收 toast（§2.8；同步失敗 toast 的「前往同步」本來就會在按下後收）
+  openSyncPage: (shell) => {
+    get().hideToast();
     set((s) =>
       shell === "mobile"
         ? { mobileTab: "more", mobileMoreRequest: "sync", hotkeyGuideOpen: false, quickJumpOpen: false, syncBannerDismissed: s.syncBanner }
         : { settingsOpen: true, settingsTab: "sync", hotkeyGuideOpen: false, syncBannerDismissed: s.syncBanner },
-    ),
+    );
+  },
   consumeMobileMoreRequest: () => set({ mobileMoreRequest: null }),
   bumpCalendarMarks: () => set((s) => ({ calendarMarksTick: s.calendarMarksTick + 1 })),
 

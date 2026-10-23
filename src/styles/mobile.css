@@ -13,10 +13,14 @@
  *      兩主題靠 token 自己換值，本檔不寫 `[data-theme="dark"]` 覆寫。要半透明書封色就用
  *      `color-mix(in srgb, var(--color-book) 92%, transparent)`，不寫 rgba 字面值。
  *   3. 觸控目標 ≥ 44px。
+ *   4. UI 丙-1（視覺規範 §1）：字級一律 var(--fs-*)、圓角 var(--radius-*)、禁用／常駐淡態 var(--disabled)／var(--dim)，
+ *      吃 theme.css [data-shell="mobile"] 的手機值（字階手機欄比桌機大一號：10→11、12.5→13 之類的收斂是刻意的）；
+ *      只有票券／印章專用尺寸照原型寫字面值、行尾註明。紙面上的作用中／選中／聚焦走 --accent／--sel-*／--focus-ring，
+ *      燙金 --color-gold 只留書封（頂帶、tab bar、搜尋頂列）與掃描取景框（壓在相機畫面上，不是紙面）。
  *
  * ── 注入位置 ──
  *   index.css 的 @import 串最後（gnav.css 之後）＝unlayered CSS 的最末，同特異度必勝；
- *   Tailwind utilities 在 @layer 內、優先權更低，所以 `[data-shell="mobile"] .ns-card.fixed`
+ *   Tailwind utilities 在 @layer 內、優先權更低，所以 `[data-shell="mobile"] .techo-card.fixed`（Toast；UI 丙-1 前掛暖棕小卡）
  *   蓋得過 Toast 的 `bottom-6`。
  *
  * ── 三席共筆的紀律（契約 §1）──
@@ -71,7 +75,7 @@
   --m-gutter: 16px;    /* 單欄左右留白（取代桌機 .sheet 的 50px/56px） */
   /**
    * 建票輸入列的實際高度（評審 S1 要的常數）：內容 44（.m-nt-* 的觸控目標）＋ 上下 padding 7＋7
-   * ＋ border-top 1 ＝ 59px。Toast 在今日頁要再抬過這一列，否則「取消建立」被輸入列壓住。
+   * ＋ border-top 1 ＝ 59px。Toast 在今日頁要再抬過這一列，否則「復原」被輸入列壓住。
    * 它與 tab bar 一樣是 flex column 的固定段，高度不隨內容變，寫成常數比量測穩。
    */
   --m-newticket-h: 59px;
@@ -170,14 +174,14 @@
   /* 頁名（中文）＋拉丁小字；字級與字距沿 gnav 的書封語彙 */
   [data-shell="mobile"] .m-band-title {
     font-family: var(--font-display);
-    font-size: 16px;
+    font-size: var(--fs-h3);
     letter-spacing: .14em;
     text-indent: .14em;
     line-height: 1.3;
   }
   [data-shell="mobile"] .m-band-latin {
     font-family: var(--font-latin);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .26em;
     text-indent: .26em;
     color: var(--color-gold);
@@ -267,7 +271,7 @@
     border: 0;
     cursor: pointer;
     font-family: inherit;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .16em;
     text-indent: .16em;               /* letter-spacing 會在字串尾多一格，補回來才置中 */
     color: var(--book-muted);          /* theme.css 既有別名＝書封上的次級字色 */
@@ -295,7 +299,7 @@
    * （.55 是「施工中」，兩種語義不可混用）。**仍可點**：點了切頁顯示 <ComingSoon/> 一行
    * 「次期開業予定」，不是 disabled 不可點（拍板原話是「點了只顯示一行」）。
    */
-  [data-shell="mobile"] .m-tab.is-planned { opacity: .42; }
+  [data-shell="mobile"] .m-tab.is-planned { opacity: var(--dim); }
   [data-shell="mobile"] .m-tab.is-planned.is-active { opacity: .58; }
 
   /* ═════════════════════════════════════════════════════
@@ -303,11 +307,11 @@
    * ═════════════════════════════════════════════════════ */
 
   /**
-   * Toast 掛在 App 根 div 內、class 是 `ns-card fixed bottom-6 left-1/2 …`（Tailwind utilities 在 @layer，
-   * 本檔 unlayered 必勝）。手機要讓它浮在 tab bar **之上**，否則收件匣那張票的「取消建立」按不到。
+   * Toast 掛在 App 根 div 內、class 是 `techo-card ns-toast fixed bottom-6 left-1/2 …`（UI 丙-1 前掛退役的暖棕小卡）（Tailwind utilities 在 @layer，
+   * 本檔 unlayered 必勝）。手機要讓它浮在 tab bar **之上**，否則收件匣那張票的「復原」按不到。
    * 只調 bottom 與寬度，其餘（紙卡材質、置中位移）不動。
    */
-  [data-shell="mobile"] .ns-card.fixed {
+  [data-shell="mobile"] .techo-card.fixed {
     /* --m-kb：軟鍵盤疊在畫面上時佔掉的高（useViewportHeight 寫；沒鍵盤＝0）——磨光① A1，見檔尾〈磨光①〉 */
     bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-kb, 0px) + 12px);
     max-width: calc(100vw - 2 * var(--m-gutter));
@@ -339,7 +343,7 @@
 
   /* 兩頁共用的小字注記（載入中／空狀態補述／唯讀提醒） */
   [data-shell="mobile"] .m2-note {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     line-height: 1.7;
     letter-spacing: .08em;
     color: var(--color-ink-faint);
@@ -349,13 +353,13 @@
   [data-shell="mobile"] .m2-empty { padding: 34px 2px; text-align: center; }
   [data-shell="mobile"] .m2-empty-title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--fs-body);
     letter-spacing: .1em;
     color: var(--color-ink-soft);
   }
   [data-shell="mobile"] .m2-empty-body {
     margin-top: 8px;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     line-height: 1.8;
     color: var(--color-ink-faint);
   }
@@ -368,7 +372,7 @@
 
   /* 幹線小標（沿書封 .trunk 的字級語彙，只是改壓在紙上） */
   [data-shell="mobile"] .m2-trunk {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .28em;
     text-indent: .28em;
     color: var(--color-ink-faint);
@@ -394,7 +398,7 @@
     font-family: inherit;
   }
   [data-shell="mobile"] .m2-route:active { background: var(--color-paper-used); }
-  [data-shell="mobile"] .m2-route:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m2-route:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
   /* 色帶＝路線色（inline style 帶 var(--route-preset-N) 或自訂 #hex，本檔不寫色值） */
   [data-shell="mobile"] .m2-band {
@@ -402,13 +406,13 @@
     width: 4px;
     align-self: stretch;
     min-height: 34px;
-    border-radius: 2px;
+    border-radius: var(--radius-ctl);
   }
 
   [data-shell="mobile"] .m2-route-name {
     flex: 1;
     min-width: 0;
-    font-size: 15px;
+    font-size: var(--fs-body);
     letter-spacing: .04em;
     color: var(--color-ink);
     overflow: hidden;
@@ -446,14 +450,14 @@
     row-gap: 2px;
   }
   [data-shell="mobile"] .m2-crumb-item { display: inline-flex; align-items: center; min-width: 0; }
-  [data-shell="mobile"] .m2-crumb-sep { padding: 0 5px; color: var(--color-ink-faint); font-size: 11px; }
+  [data-shell="mobile"] .m2-crumb-sep { padding: 0 5px; color: var(--color-ink-faint); font-size: var(--fs-micro); }
   [data-shell="mobile"] .m2-crumb {
     max-width: 42vw;
     padding: 6px 2px;                 /* 麵包屑是文字鏈，靠行高與間距拉開，不撐成方塊 */
     background: transparent;
     border: 0;
     font-family: inherit;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     letter-spacing: .06em;
     color: var(--color-ink-soft);
     cursor: pointer;
@@ -462,20 +466,20 @@
     white-space: nowrap;
   }
   [data-shell="mobile"] .m2-crumb.is-here { color: var(--color-ink); cursor: default; }
-  [data-shell="mobile"] .m2-crumb:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
+  [data-shell="mobile"] .m2-crumb:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
   [data-shell="mobile"] .m2-head { padding: 2px 0 12px; }
   [data-shell="mobile"] .m2-head-title {
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 19px;
+    font-size: var(--fs-title);
     letter-spacing: .05em;
     line-height: 1.4;
     color: var(--color-ink);
   }
   [data-shell="mobile"] .m2-head-sub {
     margin-top: 3px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .22em;
     color: var(--color-ink-faint);
   }
@@ -506,7 +510,7 @@
     cursor: pointer;
   }
   [data-shell="mobile"] .m2-caret.is-empty { cursor: default; }
-  [data-shell="mobile"] .m2-caret:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -4px; }
+  [data-shell="mobile"] .m2-caret:focus-visible { outline: var(--focus-ring); outline-offset: -4px; }
 
   /**
    * 票根徽章：沿 techo.css 既有的 `.badge`／`.badge.dashed`（虛線圈＝容器、實線圈＝車票／車站），
@@ -517,7 +521,7 @@
     width: 26px;
     height: 26px;
     border-width: 1.3px;
-    font-size: 11px;
+    font-size: var(--fs-micro);
     color: var(--color-ink-soft);
     background: transparent;
     padding: 0;
@@ -539,7 +543,7 @@
     border: 0;
   }
   [data-shell="mobile"] button.m2-zoom { cursor: pointer; }
-  [data-shell="mobile"] button.m2-zoom:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -4px; }
+  [data-shell="mobile"] button.m2-zoom:focus-visible { outline: var(--focus-ring); outline-offset: -4px; }
 
   [data-shell="mobile"] .m2-row-body {
     flex: 1;
@@ -558,10 +562,10 @@
     cursor: pointer;
   }
   [data-shell="mobile"] .m2-row-body:active { background: var(--color-paper-used); }
-  [data-shell="mobile"] .m2-row-body:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m2-row-body:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
   [data-shell="mobile"] .m2-name {
-    font-size: 14px;
+    font-size: var(--fs-ui);
     line-height: 1.4;
     letter-spacing: .02em;
     color: var(--color-ink);
@@ -570,7 +574,7 @@
     white-space: nowrap;
   }
   [data-shell="mobile"] .m2-meta {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .14em;
     color: var(--color-ink-faint);
     overflow: hidden;
@@ -584,9 +588,9 @@
     margin-right: 2px;
     padding: 2px 5px;
     border: 1.2px solid currentColor;
-    border-radius: 2px;
+    border-radius: var(--radius-ctl);
     font-family: var(--font-display);
-    font-size: 10px;
+    font-size: 10px;                  /* 印章專用（角印字），原型定值（視覺規範 §2.9） */
     letter-spacing: .18em;
     text-indent: .18em;
     line-height: 1.4;
@@ -604,8 +608,8 @@
     margin: 0 0 12px 46px;            /* 左緣對齊 caret 之後，視覺上掛在那一列底下 */
     padding: 10px 12px;
     background: var(--color-paper-used);
-    border-left: 2px solid color-mix(in srgb, var(--color-gold) 44%, transparent);
-    border-radius: 0 var(--radius-card) var(--radius-card) 0;
+    border-left: 2px solid color-mix(in srgb, var(--accent) 44%, transparent);
+    border-radius: var(--radius-card); border-top-left-radius: 0; border-bottom-left-radius: 0;   /* 左緣貼色線、右兩角圓 */
   }
   [data-shell="mobile"] .m2-fields { margin: 0; }
   [data-shell="mobile"] .m2-field {
@@ -617,14 +621,14 @@
   }
   [data-shell="mobile"] .m2-field.is-wrap { align-items: start; }
   [data-shell="mobile"] .m2-field-label {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .2em;
     color: var(--color-ink-faint);
   }
   [data-shell="mobile"] .m2-field-value {
     margin: 0;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     line-height: 1.6;
     color: var(--color-ink);
     overflow-wrap: anywhere;
@@ -649,7 +653,7 @@
     display: flex;
     gap: 8px;
     padding: 3px 0;
-    font-size: 12.5px;
+    font-size: var(--fs-sm);
     line-height: 1.55;
     color: var(--color-ink);
     overflow-wrap: anywhere;
@@ -657,7 +661,7 @@
   [data-shell="mobile"] .m2-conflict-tm {
     flex: none;
     font-family: var(--font-latin);
-    font-size: 9.5px;
+    font-size: var(--fs-micro);
     letter-spacing: .1em;
     color: var(--color-ink-faint);
     padding-top: 3px;
@@ -669,7 +673,7 @@
 
   [data-shell="mobile"] .m2-sec + .m2-sec { margin-top: 26px; }
   [data-shell="mobile"] .m2-sec-title {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .28em;
     text-indent: .28em;
     color: var(--color-ink-faint);
@@ -681,7 +685,7 @@
   [data-shell="mobile"] .m2-block-label {
     display: block;
     margin-bottom: 10px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .28em;
     color: var(--color-ink-soft);
   }
@@ -689,7 +693,7 @@
   [data-shell="mobile"] .m2-choices { display: flex; flex-direction: column; gap: 8px; }
 
   /**
-   * 主題三選：語彙沿設定紙卡的 `.ns-choice`（細框小字、選中＝燙金邊與深金字），
+   * 主題三選：語彙沿設定紙卡的 `.ns-choice`（細框小字、選中＝作用中 --sel-fg 的框與字；UI 丙-1 前是燙金），
    * 但手機改成整列可點（≥44px）並把副註（原本只在 title 屬性裡）攤到第二行——
    * 觸控沒有 hover，藏在 title 裡的字等於不存在。
    */
@@ -711,12 +715,12 @@
     cursor: pointer;
     transition: border-color .15s, color .15s;
   }
-  [data-shell="mobile"] .m2-choice.is-on { border-color: var(--color-gold); color: var(--color-gold-ink); }
-  [data-shell="mobile"] .m2-choice:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
-  [data-shell="mobile"] .m2-choice-label { font-size: 14px; letter-spacing: .1em; }
-  [data-shell="mobile"] .m2-choice-note { font-size: 10px; letter-spacing: .14em; color: var(--color-ink-faint); }
+  [data-shell="mobile"] .m2-choice.is-on { border-color: var(--sel-fg); color: var(--sel-fg); }
+  [data-shell="mobile"] .m2-choice:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+  [data-shell="mobile"] .m2-choice-label { font-size: var(--fs-ui); letter-spacing: .1em; }
+  [data-shell="mobile"] .m2-choice-note { font-size: var(--fs-micro); letter-spacing: .14em; color: var(--color-ink-faint); }
 
-  /* 未通車一列（售票口）：灰度沿 tab 的 .is-planned（.42＝「未通車」；.55 是「施工中」，語義不可混用） */
+  /* 未通車一列（售票口）：灰度沿 tab 的 .is-planned（--dim .42＝「未通車」；.55 是「施工中」，語義不可混用） */
   [data-shell="mobile"] .m2-row-planned {
     display: flex;
     align-items: center;
@@ -726,12 +730,12 @@
     padding: 10px 2px;
     margin-top: 10px;
     border-top: 1px dashed var(--color-dash);
-    opacity: .42;
+    opacity: var(--dim);
   }
-  [data-shell="mobile"] .m2-planned-name { font-size: 14px; letter-spacing: .06em; color: var(--color-ink); }
+  [data-shell="mobile"] .m2-planned-name { font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-ink); }
   [data-shell="mobile"] .m2-planned-note {
     flex: none;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     letter-spacing: .2em;
     color: var(--color-ink-soft);
   }
@@ -740,7 +744,7 @@
   [data-shell="mobile"] .m2-about-name {
     font-family: var(--font-display);
     font-weight: 700;
-    font-size: 17px;
+    font-size: var(--fs-h3);
     letter-spacing: .3em;
     text-indent: .3em;
     color: var(--color-ink);
@@ -749,14 +753,14 @@
     margin-top: 4px;
     font-family: var(--font-latin);
     font-style: italic;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     letter-spacing: .22em;
     color: var(--color-ink-soft);
   }
   [data-shell="mobile"] .m2-about-version {
     margin-top: 10px;
     font-family: var(--font-latin);
-    font-size: 11px;
+    font-size: var(--fs-micro);
     letter-spacing: .16em;
     color: var(--color-ink-faint);
   }
@@ -795,11 +799,11 @@
   }
   [data-shell="mobile"] .m-coming-name {
     font-family: var(--font-display); font-weight: 700;
-    font-size: 19px; letter-spacing: .22em; text-indent: .22em;
+    font-size: var(--fs-title); letter-spacing: .22em; text-indent: .22em;
     color: var(--color-ink-soft);
   }
   [data-shell="mobile"] .m-coming-latin {
-    font-family: var(--font-latin); font-size: 10px; letter-spacing: .3em; text-indent: .3em;
+    font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .3em; text-indent: .3em;
     color: var(--color-ink-faint);
   }
   /**
@@ -818,11 +822,11 @@
 
   [data-shell="mobile"] .m-today .sec { margin: 18px 0 8px; gap: 9px; }
   [data-shell="mobile"] .m-today .sec:first-child { margin-top: 4px; }
-  [data-shell="mobile"] .m-today .sec h3 { font-size: 14px; letter-spacing: .18em; text-indent: .18em; }
-  [data-shell="mobile"] .m-today .sec .note { font-size: 10px; letter-spacing: .14em; }
+  [data-shell="mobile"] .m-today .sec h3 { font-size: var(--fs-tab); letter-spacing: .18em; text-indent: .18em; }
+  [data-shell="mobile"] .m-today .sec .note { font-size: var(--fs-micro); letter-spacing: .14em; }
 
   [data-shell="mobile"] .m-today-stats {
-    font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft);
+    font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-soft);
   }
   [data-shell="mobile"] .m-today-stats b { font-weight: 700; color: var(--color-ink); }
   [data-shell="mobile"] .m-today-left { color: var(--color-ink-faint); }
@@ -833,7 +837,7 @@
   [data-shell="mobile"] .m-today .m-empty .sec { margin-top: 12vh; }
   [data-shell="mobile"] .m-today .m-empty.is-cheer .sec { margin-top: 26px; }
   [data-shell="mobile"] .m-empty-body {
-    font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft);
+    font-size: var(--fs-sm); line-height: 1.9; color: var(--color-ink-soft);
   }
 
   /* ─────────────────────────────────────────────
@@ -868,23 +872,25 @@
     border-right: 1px dashed var(--color-dash);
   }
   [data-shell="mobile"] .m-tk-badge {
-    font-family: var(--font-latin); font-weight: 600; font-size: 11px;
+    font-family: var(--font-latin); font-weight: 600; font-size: 11px; /* 票券專用（票根圓牌字），原型定值 */
     line-height: 1; color: currentColor;
   }
   [data-shell="mobile"] .m-tk-badge.is-dashed {
-    font-family: var(--font-body); font-size: 10px;
-    border: 1px dashed currentColor; border-radius: 2px; padding: 1px 3px;
+    font-family: var(--font-body); font-size: 10px; /* 票券專用（臨時票虛線徽），原型定值 */
+    border: 1px dashed currentColor; border-radius: var(--radius-ctl); padding: 1px 3px;
   }
 
   [data-shell="mobile"] .m-tk-body { min-width: 0; padding: 9px 8px 9px 10px; align-self: center; }
   [data-shell="mobile"] .m-tk-title {
-    font-size: 14.5px; line-height: 1.45; color: var(--color-ink);
+    font-weight: 500; font-size: var(--fs-ticket);   /* 票名 500＋15（視覺規範 §1.2；UI 丙-1 前 400／14.5） */
+    line-height: 1.45; color: var(--color-ink);
     overflow-wrap: anywhere;
   }
   [data-shell="mobile"] .m-tk-meta {
     margin-top: 3px;
     display: flex; flex-wrap: wrap; align-items: center;
-    font-size: 10.5px; line-height: 1.7; letter-spacing: .04em;
+    font-size: 10.5px;   /* 票券專用（票面 meta），原型定值 */
+    line-height: 1.7; letter-spacing: .04em;
     color: var(--color-ink-faint);
   }
   [data-shell="mobile"] .m-tk-mi { display: inline-flex; align-items: center; }
@@ -894,8 +900,8 @@
 
   /* 締切／原定 chip（沿桌機 .chip／.chip.late 的語彙：赭＝時刻注意） */
   [data-shell="mobile"] .m-tk-chip {
-    border: 1px solid var(--color-dash); border-radius: 2px;
-    padding: 0 4px; font-size: 10px; letter-spacing: .06em;
+    border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+    padding: 0 4px; font-size: 10px; letter-spacing: .06em;   /* 票券專用（票面 chip），原型定值 */
   }
   [data-shell="mobile"] .m-tk-chip.is-late {
     border-color: color-mix(in srgb, var(--color-late) 55%, transparent);
@@ -905,7 +911,7 @@
 
   /* 繰越角印縮到 meta 行內（形制沿 .ns-imp.ns-rect，只收字級與內距；(0,3,0) 蓋得過 (0,2,0)） */
   [data-shell="mobile"] .m-tk .m-tk-seal-inline {
-    font-size: 9.5px; letter-spacing: .18em; text-indent: .18em;
+    font-size: 9.5px; letter-spacing: .18em; text-indent: .18em;   /* 印章專用（角印字），原型定值 */
     padding: 2px 5px 1px 7px; border-width: 1.2px;
     margin-left: 2px;
   }
@@ -918,15 +924,15 @@
     cursor: pointer; font-family: inherit;
     -webkit-tap-highlight-color: transparent;
   }
-  [data-shell="mobile"] .m-tk-stamp:active { background: color-mix(in srgb, var(--color-gold) 12%, transparent); }
-  [data-shell="mobile"] .m-tk-stamp:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m-tk-stamp:active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  [data-shell="mobile"] .m-tk-stamp:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
   [data-shell="mobile"] .m-tk-hint {
-    font-size: 9px; letter-spacing: .1em; text-indent: .1em;
+    font-size: 9px; letter-spacing: .1em; text-indent: .1em;   /* 票券專用（検印提示），原型定值 */
     color: var(--color-ink-faint);
   }
   /* 運休角印在 48px 欄裡要比欄寬窄一點才不貼邊（済章 SealDone small＝34px 本來就放得下） */
   [data-shell="mobile"] .m-tk .m-tk-seal-zone.ns-rect {
-    font-size: 10px; letter-spacing: .12em; text-indent: .12em; padding: 3px 5px 2px 7px;
+    font-size: 10px; letter-spacing: .12em; text-indent: .12em; padding: 3px 5px 2px 7px;   /* 印章專用（運休角印），原型定值 */
   }
 
   /* ⋯＝底部 action sheet 入口 */
@@ -934,12 +940,12 @@
     display: grid; place-items: center;
     min-height: 44px; padding: 0;
     background: transparent; border: 0;
-    color: var(--color-ink-faint); font-size: 19px; line-height: 1;
+    color: var(--color-ink-faint); font-size: var(--fs-title); line-height: 1;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m-tk-more:active { color: var(--color-ink); }
-  [data-shell="mobile"] .m-tk-more:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m-tk-more:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
   /* 狀態：誤點（暖框）／済（票紙退一階）／運休（整張轉淡）／暫停 */
   [data-shell="mobile"] .m-tk.is-late-t {
@@ -973,39 +979,39 @@
     backdrop-filter: blur(14px) saturate(1.15);
   }
 
-  /* 「無日期」＝常駐切換鈕（開＝建收件匣種子票）；關態沿 .status 小標語彙、開態燙金 */
+  /* 「無日期」＝常駐切換鈕（開＝建收件匣種子票）；關態沿 .status 小標語彙、開態＝選中 --sel-*（UI 丙-1 前是燙金） */
   [data-shell="mobile"] .m-nt-toggle {
     min-height: 44px; padding: 0 9px;
-    background: transparent; border: 1px dashed var(--color-dash); border-radius: 2px;
-    font-family: inherit; font-size: 10.5px; letter-spacing: .12em; text-indent: .12em;
+    background: transparent; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+    font-family: inherit; font-size: var(--fs-micro); letter-spacing: .12em; text-indent: .12em;
     color: var(--color-ink-faint); cursor: pointer;
     transition: color .15s, border-color .15s, background .15s;
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m-nt-toggle.is-on {
-    border-style: solid; border-color: var(--color-gold);
-    color: var(--color-gold-ink);
-    background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+    border-style: solid; border-color: var(--sel-fg);
+    color: var(--sel-fg);
+    background: var(--sel-bg);
   }
-  [data-shell="mobile"] .m-nt-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+  [data-shell="mobile"] .m-nt-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
-  /* 底線輸入（沿 .techo-input 的語彙）；font-size 16px＝行動瀏覽器聚焦時不自動放大頁面 */
+  /* 底線輸入（沿 .techo-input 的語彙）；font-size 16px＝行動瀏覽器聚焦時不自動放大頁面（字階裡兩殼都是 16 的只有 --fs-h3，借它的值） */
   [data-shell="mobile"] .m-nt-input {
     min-width: 0; min-height: 44px;
     padding: 4px 2px;
     background: transparent; border: 0; border-bottom: 1px solid var(--color-dash);
-    font-family: var(--font-body); font-size: 16px; line-height: 1.4;
+    font-family: var(--font-body); font-size: var(--fs-h3); line-height: 1.4;
     color: var(--color-ink); outline: none;
   }
-  [data-shell="mobile"] .m-nt-input:focus { border-bottom-color: var(--color-gold); }
+  [data-shell="mobile"] .m-nt-input:focus { border-bottom-color: var(--accent); }
   [data-shell="mobile"] .m-nt-input::placeholder { color: var(--color-ink-faint); }
 
   /* 「発券」＝主鈕（磨光⑤ 起實心墨；.ns-btn.btn-seal 的尺寸在這裡撐到 44px 觸控目標） */
   [data-shell="mobile"] .m-nt-go {
     min-height: 44px; padding: 0 14px;
-    font-size: 13px; letter-spacing: .12em; text-indent: .12em;
+    font-size: var(--fs-sm); letter-spacing: .12em; text-indent: .12em;
   }
-  [data-shell="mobile"] .m-nt-go:disabled { opacity: .4; cursor: default; }
+  [data-shell="mobile"] .m-nt-go:disabled { opacity: var(--disabled); cursor: not-allowed; }
 
   /* ─────────────────────────────────────────────
    * WP1-F　底部 action sheet（⋯ 的唯一用途）
@@ -1021,43 +1027,48 @@
     box-sizing: border-box;
     width: 100%;
     border-width: 1px 0 0;
-    border-radius: 10px 10px 0 0;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     padding: 6px 0 calc(var(--m-safe-bottom) + 8px);
     /* 磨光①（AVD 回報問題 3，同 D-主-47 的 toast）：粉彩的票紙 64% 白，⋯ 多了幾項變高之後底下票卡的字透上來跟選項疊在一起——
        同色票紙疊在紙色上＝不透明；旅客筆記的 .ns-notes-msheet 本來就這樣寫。時刻表、售票口的面板也掛這個 class，一起生效。 */
     background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+    /* UI 丙-1：卡從退役的暖棕小卡改掛 .techo-card（它不管字），舊卡帶的內文字級搬到這裡（值同 techo.css 給舊卡留的過渡別名） */
+    color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em;
   }
   [data-shell="mobile"] .m-sheet-title {
     padding: 10px var(--m-gutter) 8px;
-    font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint);
+    font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     border-bottom: 1px dashed var(--color-dash);
   }
+  /* 鈕類的列另掛 .ns-btn（UI 丙-1，視覺規範 §2.3：焦點環、禁用、過場吃按鈕基底）；列的長相仍歸這裡——
+     高 --row-menu、字 --fs-body，字重與行高蓋回列的樣子（.ns-btn 的 500／20px 是給獨立按鈕的；2px 圓角留著，列只有底線、看不出來） */
   [data-shell="mobile"] .m-sheet-item {
     display: block; width: 100%;
-    min-height: 52px; padding: 0 var(--m-gutter);
+    min-height: var(--row-menu); padding: 0 var(--m-gutter);
     background: transparent; border: 0; border-bottom: 1px solid var(--color-line);
-    font-family: inherit; font-size: 15px; letter-spacing: .08em; text-align: left;
+    font-family: inherit; font-size: var(--fs-body); font-weight: 400; line-height: inherit; letter-spacing: .08em; text-align: left;
     color: var(--color-ink); cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  [data-shell="mobile"] .m-sheet-item:active { background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
+  [data-shell="mobile"] .m-sheet-item:active { background: var(--hover-bg); }
+  [data-shell="mobile"] .m-sheet-item.ns-btn:focus-visible { outline-offset: -2px; }   /* 滿版列的焦點環收進列內（同 .m2-row-body） */
   [data-shell="mobile"] .m-sheet-item.is-disabled { color: var(--color-ink-faint); cursor: default; }
   [data-shell="mobile"] .m-sheet-item.is-cancel {
-    border-bottom: 0; color: var(--color-ink-faint); font-size: 14px;
+    border-bottom: 0; color: var(--color-ink-faint); font-size: var(--fs-ui);
   }
 
   /* ─────────────────────────────────────────────
    * WP1-G　Toast 的寬度（驗收時量到的，補 WP0 五節）
    *
-   * `.ns-card.fixed` 是 `position:fixed; left:50%` 而**沒有 right**——這種 shrink-to-fit 盒的
+   * `.techo-card.fixed`（Toast；UI 丙-1 前掛暖棕小卡） 是 `position:fixed; left:50%` 而**沒有 right**——這種 shrink-to-fit 盒的
    * 「可用寬度」是從 left:50% 到視窗右緣，桌機 1280px 有 640px 綽綽有餘，375px 卻只剩 187px，
    * 於是 `truncate` 把「已推到 9/17（週三）」截成「已推到 9/17（週…」。
    * WP0 已把它抬到 tab bar 之上並限了 max-width；這裡補上左右定位讓它真的用滿那個寬度。
    * ⚠ 這條動到的是 WP0 擁有的選擇器，寫在 WP1 區是因為問題在 WP1 驗收才量到——
    *   已知會整合席：日後要收斂請併進 WP0 五節那一條，本區同時刪掉。
    * ───────────────────────────────────────────── */
-  [data-shell="mobile"] .ns-card.fixed {
+  [data-shell="mobile"] .techo-card.fixed {
     /* 只給寬度、不碰 left/translate：Tailwind v4 的 `-translate-x-1/2` 是 **translate 屬性**
        （不是 transform，寫 `transform:none` 蓋不掉），而它同時也是 Toast 進場位移的載體——
        改成「置中不動、寬度寫死」既修好截斷，也保住 starting:translate-y-2 的滑入。 */
@@ -1069,7 +1080,7 @@
  * ── 評審修正（2026-09-16 修正席）──
  *
  * product-reviewer 評審後補的兩條版面修正。獨立成區塊是為了讓「哪些是評審改出來的」一眼可查；
- * 日後收斂時 S1 那條併回 WP0 五節（它動的是 WP0 擁有的 .ns-card.fixed，和 WP1-G 同一顆），
+ * 日後收斂時 S1 那條併回 WP0 五節（它動的是 WP0 擁有的 .techo-card.fixed，和 WP1-G 同一顆），
  * S2 那條併進 WP1-C（誤點區段標題）。
  * 紀律照舊：每條都帶 [data-shell="mobile"]，都在 @media (max-width:767px) 內，顏色全用既有 token。
  * ═══════════════════════════════════════════════════════ */
@@ -1079,13 +1090,13 @@
    * S1　Toast 要抬過建票輸入列（今日頁）
    *
    * WP0 只把 Toast 抬到 tab bar 之上；今日頁的 tab bar 上面還壓著一條 59px 的 .m-newticket，
-   * 於是收件匣票的「已放進收件匣／取消建立」收據正好落在輸入列上——主人連打第二張時
-   * 既看不到收據也按不到「取消建立」（useMobileToday 的 INBOX_TOAST 是那張票唯一的收據）。
+   * 於是收件匣票的「已放進收件匣／復原」收據正好落在輸入列上——主人連打第二張時
+   * 既看不到收據也按不到「復原」（useMobileToday 的 INBOX_TOAST 是那張票唯一的收據）。
    * Toast 與 .m-newticket 都是 App 根 div 的直接子節點且 Toast 在後（App.tsx 的共用覆蓋層區），
    * 用一般兄弟選擇器就能「只有今日頁抬高、其他三頁維持原位」——不必讓 Toast 知道自己在哪一頁。
    * 特異度 (0,4,0) > WP0 那條 (0,3,0)，同一個 @media 內後寫，兩邊都贏。
    * ───────────────────────────────────────────── */
-  [data-shell="mobile"] .m-newticket ~ .ns-card.fixed {
+  [data-shell="mobile"] .m-newticket ~ .techo-card.fixed {
     bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-newticket-h) + var(--m-kb, 0px) + 12px);
   }
 
@@ -1115,7 +1126,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m-today .sec .fold:focus-visible {
-    outline: 1px solid var(--color-gold);
+    outline: var(--focus-ring);
     outline-offset: 2px;
   }
   [data-shell="mobile"] .m-today .sec .fold .caret {
@@ -1169,7 +1180,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m2-row-link:active { background: var(--color-paper-used); }
-  [data-shell="mobile"] .m2-row-link:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m2-row-link:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
   /* 子頁頂部「← 更多」：同一套 44px 觸控目標，負 margin 讓它不把內容往下推太多 */
   [data-shell="mobile"] .m2-back {
@@ -1181,17 +1192,17 @@
     background: transparent;
     border: 0;
     font-family: inherit;
-    font-size: 12px;
+    font-size: var(--fs-xs);
     letter-spacing: .14em;
     color: var(--color-ink-soft);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  [data-shell="mobile"] .m2-back:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+  [data-shell="mobile"] .m2-back:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
   /* 狀態那一行：字級比本文大一階（這頁唯一的主詞），停車中轉赭 */
   [data-shell="mobile"] .m2-sy-phase {
-    font-size: 17px;
+    font-size: var(--fs-h3);
     letter-spacing: .12em;
     color: var(--color-ink);
   }
@@ -1207,18 +1218,18 @@
     border: 0;
     border-bottom: 1px solid var(--color-dash);
     font-family: var(--font-body);
-    font-size: 16px;
+    font-size: var(--fs-h3);   /* 16＝聚焦不放大整頁的門檻（借 --fs-h3 的值，兩殼都是 16） */
     line-height: 1.45;
     color: var(--color-ink);
     outline: none;
   }
-  [data-shell="mobile"] .m2-input:focus { border-bottom-color: var(--color-gold); }
+  [data-shell="mobile"] .m2-input:focus { border-bottom-color: var(--accent); }
   [data-shell="mobile"] .m2-input::placeholder { color: var(--color-ink-faint); }
   /* 配對碼是一長串 base64url：等寬感、逐字換行，不橫向捲 */
   [data-shell="mobile"] .m2-sy-code {
     resize: none;
     font-family: var(--font-latin);
-    font-size: 13px;
+    font-size: var(--fs-sm);
     letter-spacing: .02em;
     word-break: break-all;
   }
@@ -1227,11 +1238,11 @@
   [data-shell="mobile"] .m2-sy-go {
     min-height: 44px;
     padding: 0 16px;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     letter-spacing: .12em;
     text-indent: .12em;
   }
-  [data-shell="mobile"] .m2-sy-go:disabled { opacity: .4; cursor: default; }
+  [data-shell="mobile"] .m2-sy-go:disabled { opacity: var(--disabled); cursor: not-allowed; }
 
   /* 單向提示（評審 B2）：常駐一句，語氣同其他 note，但與狀態那兩行隔開一點 */
   [data-shell="mobile"] .m2-sy-oneway { margin-top: 8px; }
@@ -1294,11 +1305,11 @@ html[data-scanning] .m-tabbar { visibility: hidden; }
   [data-shell="mobile"] .m2-scan-tip {
     margin: 0;
     padding: 6px 12px;
-    border-radius: 2px;
+    border-radius: var(--radius-ctl);
     /* 底色是相機畫面（什麼顏色都可能），所以這兩行字自己帶一塊暗底才讀得到 */
-    background: rgb(0 0 0 / .55);
-    color: #fff;
-    font-size: 13px;
+    background: rgb(0 0 0 / .55); /* 媒體檢視器：真黑白 */
+    color: #fff; /* 媒體檢視器：真黑白 */
+    font-size: var(--fs-sm);
     letter-spacing: .12em;
   }
   /* 四角取景框：四個 <i> 各畫一個角，中央完全空著 */
@@ -1319,9 +1330,9 @@ html[data-scanning] .m-tabbar { visibility: hidden; }
   [data-shell="mobile"] .m2-scan-frame i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
   /* 取消：44px 觸控目標、自帶暗底（同 tip，理由一樣） */
   [data-shell="mobile"] .m2-scan-cancel {
-    background: rgb(0 0 0 / .55);
-    border-color: rgb(255 255 255 / .5);
-    color: #fff;
+    background: rgb(0 0 0 / .55); /* 媒體檢視器：真黑白 */
+    border-color: rgb(255 255 255 / .5); /* 媒體檢視器：真黑白 */
+    color: #fff; /* 媒體檢視器：真黑白 */
   }
 
   /* 掃描鈕那一列：與下面的 textarea 隔開一點 */
@@ -1396,14 +1407,14 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   [data-shell="mobile"] .m2-cl-when {
     display: block;
     font-family: var(--font-latin);
-    font-size: 15px;
+    font-size: var(--fs-body);
     letter-spacing: .06em;
     color: var(--color-ink);
   }
   [data-shell="mobile"] .m2-cl-who {
     display: block;
     margin-top: 2px;
-    font-size: 11px;
+    font-size: var(--fs-micro);
     letter-spacing: .08em;
     color: var(--color-ink-faint);
   }
@@ -1422,14 +1433,14 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
     flex: none;
     width: 20px;
     height: 20px;
-    accent-color: var(--color-gold);
+    accent-color: var(--accent);   /* 勾選框＝控件作用中色（UI 丙-1） */
   }
 
-  /* 換鑰匙中那一行：金色左緣＝「這台自己在忙」（同桌機 `.ns-sy-rotating`），不吃赭也不吃朱 */
+  /* 換鑰匙中那一行：金色左緣（紙面上的金＝深金 --color-gold-ink；UI 丙-1）＝「這台自己在忙」（同桌機 `.ns-sy-rotating`），不吃赭也不吃朱 */
   [data-shell="mobile"] .m2-sy-rotating {
     margin-top: 6px;
     padding-left: 8px;
-    border-left: 2px solid var(--color-gold);
+    border-left: 2px solid var(--color-gold-ink);
   }
 }
 
@@ -1465,7 +1476,7 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   /* 字：色由 tone（text-late；磨光⑤ 前「等人處理」是 text-seal）給，小字級再往墨色拉一點才讀得清（同 `--ns-warn-text` 的推導） */
   [data-shell="mobile"] .m-sync-banner-text {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     line-height: 1.6;
     letter-spacing: .04em;
     color: color-mix(in srgb, currentColor 80%, var(--color-ink));
@@ -1474,7 +1485,7 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   [data-shell="mobile"] .m-sync-banner-go {
     min-height: 44px;
     padding: 0 16px;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     letter-spacing: .12em;
     text-indent: .12em;
   }
@@ -1487,11 +1498,11 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
     gap: 10px;
   }
   [data-shell="mobile"] .m2-recovery-state {
-    font-size: 12px;
+    font-size: var(--fs-xs);
     letter-spacing: .12em;
     color: var(--color-ink-faint);
   }
-  [data-shell="mobile"] .m2-recovery-state.is-set { color: var(--color-gold); }
+  [data-shell="mobile"] .m2-recovery-state.is-set { color: var(--color-gold-ink); }   /* 紙面上的金字＝深金（UI 丙-1；銀河同值） */
   [data-shell="mobile"] .m2-recovery .m2-sy-actions { margin-top: 10px; }
 
   /* 用復原碼加入、還沒設新密語：赭色左緣（磨光⑤ 由朱改赭；狀態那行與〈密語〉頂那句共用；同桌機 `.ns-recovery-need`） */
@@ -1514,39 +1525,39 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
     background: transparent;
     border: 0;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     letter-spacing: .06em;
     color: var(--color-ink-soft);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m2-recovery-toggle span {
-    border-bottom: 1px dashed color-mix(in srgb, var(--color-gold) 60%, transparent);
+    border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
   }
-  [data-shell="mobile"] .m2-recovery-toggle:disabled { opacity: .4; }
-  [data-shell="mobile"] .m2-recovery-toggle:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+  [data-shell="mobile"] .m2-recovery-toggle:disabled { opacity: var(--disabled); cursor: not-allowed; }
+  [data-shell="mobile"] .m2-recovery-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
   /* 復原碼輸入：底線輸入、拉丁字、即時大寫。
      v1.1.5 修正席（產品評審 S2）：原本 17px＋.1em 字距，32 字（含連字號）在 375 寬超出右緣、看不到最後一組——
      主人要能目視逐組核對。縮到 15px、字距收緊，一行放得下。（16px 門檻是 iOS Safari 聚焦放大；本 App 手機殼只有 Android WebView） */
   [data-shell="mobile"] .m2-recovery-input {
     font-family: var(--font-latin);
-    font-size: 15px;
+    font-size: var(--fs-body);
     letter-spacing: .02em;
     text-transform: uppercase;
   }
-  [data-shell="mobile"] .m2-recovery-input::placeholder { font-size: 15px; letter-spacing: .04em; }
+  [data-shell="mobile"] .m2-recovery-input::placeholder { font-size: var(--fs-body); letter-spacing: .04em; }
 
   /* 一次性對話框（兩殼共用）：手機寬度下的三處調整 */
   [data-shell="mobile"] .ns-recovery-veil { padding-top: calc(var(--m-safe-top) + 24px); }
-  [data-shell="mobile"] .ns-recovery-code { font-size: 17px; letter-spacing: .1em; padding: 12px 8px; }
+  [data-shell="mobile"] .ns-recovery-code { font-size: var(--fs-h3); letter-spacing: .1em; padding: 12px 8px; }
   [data-shell="mobile"] .ns-recovery-copy .ns-btn,
   [data-shell="mobile"] .ns-recovery-close {
     min-height: 44px;
     padding: 0 16px;
-    font-size: 13px;
+    font-size: var(--fs-sm);
   }
-  [data-shell="mobile"] .ns-recovery-ack { min-height: 44px; font-size: 14px; }
+  [data-shell="mobile"] .ns-recovery-ack { min-height: 44px; font-size: var(--fs-ui); }
   [data-shell="mobile"] .ns-recovery-ack input { width: 20px; height: 20px; }
 }
 
@@ -1600,21 +1611,21 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
   }
 
   /* ② 面板或對話框開著：頂帶下方 */
-  html[data-m-layer="sheet"] [data-shell="mobile"] .ns-toast.ns-card.fixed,
-  html[data-m-layer="dialog"] [data-shell="mobile"] .ns-toast.ns-card.fixed {
+  html[data-m-layer="sheet"] [data-shell="mobile"] .ns-toast.techo-card.fixed,
+  html[data-m-layer="dialog"] [data-shell="mobile"] .ns-toast.techo-card.fixed {
     top: calc(var(--m-safe-top) + var(--m-band-h) + var(--m-banner-h, 0px) + 8px);
     bottom: auto;
   }
 
   /* ③ 全螢幕面板開著：底部，讓過面板的底列與鍵盤 */
-  html[data-m-layer="full"] [data-shell="mobile"] .ns-toast.ns-card.fixed {
+  html[data-m-layer="full"] [data-shell="mobile"] .ns-toast.techo-card.fixed {
     bottom: calc(var(--m-kb, 0px) + var(--m-safe-bottom) + var(--m-full-foot-h, 0px) + 12px);
   }
 
   /* 落在頂端時進場改成由上往下滑（Toast 的 `starting:translate-y-2` 是由下往上；同一顆 --tw-translate-y 反號） */
   @starting-style {
-    html[data-m-layer="sheet"] [data-shell="mobile"] .ns-toast.ns-card.fixed,
-    html[data-m-layer="dialog"] [data-shell="mobile"] .ns-toast.ns-card.fixed {
+    html[data-m-layer="sheet"] [data-shell="mobile"] .ns-toast.techo-card.fixed,
+    html[data-m-layer="dialog"] [data-shell="mobile"] .ns-toast.techo-card.fixed {
       --tw-translate-y: -0.5rem;
     }
   }
@@ -1625,7 +1636,7 @@ html[data-scanning] .m2-scan-overlay { visibility: visible; }
     position: relative;
     z-index: 2;
     padding: 8px var(--m-gutter) 6px;
-    font-size: 13px;
+    font-size: var(--fs-sm);
     line-height: 1.6;
     letter-spacing: .04em;
     color: var(--color-late);

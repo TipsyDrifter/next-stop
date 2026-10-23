@@ -91,7 +91,7 @@
 }
 .ns-datepick-gridnav:hover:not([disabled]) { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
 .ns-datepick-gridnav:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.ns-datepick-gridnav[disabled] { opacity: .3; cursor: default; }
+.ns-datepick-gridnav[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 .ns-datepick-days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
 .ns-datepick-days .wd { text-align: center; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
 .ns-datepick-days .blank { height: 30px; }
@@ -103,7 +103,7 @@
 }
 .ns-datepick-days .day:hover:not([disabled]) { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
 .ns-datepick-days .day:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.ns-datepick-days .day[disabled] { opacity: .3; cursor: default; }
+.ns-datepick-days .day[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 .ns-datepick-days .day.mk { color: var(--color-ink); }
 .ns-datepick-days .day.today::before {
   content: ""; position: absolute; inset: 1px 3px; pointer-events: none;
@@ -177,7 +177,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-mdatepick-gridnav svg { width: 15px; height: 15px; }
-[data-shell="mobile"] .ns-mdatepick-gridnav[disabled] { opacity: .3; cursor: default; }
+[data-shell="mobile"] .ns-mdatepick-gridnav[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 [data-shell="mobile"] .ns-mdatepick-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 [data-shell="mobile"] .ns-mdatepick-days .wd { text-align: center; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
 [data-shell="mobile"] .ns-mdatepick-days .blank { height: 44px; }
@@ -188,7 +188,7 @@
   color: var(--color-ink-soft); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-mdatepick-days .day[disabled] { opacity: .3; cursor: default; }
+[data-shell="mobile"] .ns-mdatepick-days .day[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 [data-shell="mobile"] .ns-mdatepick-days .day.mk { color: var(--color-ink); }
 [data-shell="mobile"] .ns-mdatepick-days .day.today::before {
   content: ""; position: absolute; inset: 3px 4px; pointer-events: none;

@@ -2,7 +2,7 @@
  * MobileTimeSheet——手機設預定時刻的底部 sheet（主線②；D-主-14、契約 §4.5-4；原型 `:1264-1350`）。
  *
  * 從 ⋯ sheet 的「幾點…」「每班時刻…」（mode="rule"）或「本班改時刻…」（mode="run"）開進來；DOM 沿兩子頁共用的
- * `.m-sheet-veil.techo-veil > .m-sheet.ns-card[role=dialog]`。由上而下：
+ * `.m-sheet-veil.techo-veil > .m-sheet.techo-card[role=dialog]`（UI 丙-1 前是退役的暖棕小卡）。由上而下：
  *   標題「幾點発車　·　票名」／「本班改時刻　·　票名」＋（run）「只改 M/D（週X）這一班；每班 07:00 不動」
  *   .ts-top    會存成的時刻（大字；營業日表記照寫）＋小字「＝隔天 01:00」「発」或赭「已過現在時刻」
  *   .ts-note   滾到日界線以後的小時（≥ 24）時：「比日界線 06:00 早＝算今天的深夜，記成 25:00」——**永遠佔一行**，
@@ -10,6 +10,7 @@
  *   常用時刻 chip（4 欄）→ 滾輪 MobileWheel → （rule）預計多久 chip（15／30／60／90／120／自訂）
  *   .ts-sum    「14:00 発 → 15:30 着（90 分）」／「・長度未定」
  *   .ts-foot   rule：「不排時刻」＋「確定」；run：「本班不排時刻」＋（覆寫中）「改回每班 07:00」＋「確定」
+ *              （UI 丙-1：次鈕＝.ns-btn.btn-ghost、「確定」＝主鈕 .ns-btn.btn-seal；.ts-ghost 只剩佈局鉤子、舊的實心靛「確定」class 退役）
  *
  * 值：滾輪一定帶值（D-主-14）⇒ 「不排時刻」是一顆**直接送出**的鈕（原型 data-tclear 同款），不是切換狀態。
  *   所以契約寫的 `.ts-big.is-none`（「不排時刻」／「照每班」大字）在這支沒有出現的時機，沒有畫。
@@ -157,7 +158,7 @@ export function MobileTimeSheet({ card, mode, today, dayStartHour, now, onCommit
   return (
     <div className="m-sheet-veil techo-veil" role="presentation" onClick={onClose}>
       <div
-        className="m-sheet ns-card ts-sheet"
+        className="m-sheet techo-card ts-sheet"
         role="dialog"
         aria-modal="true"
         aria-label={`${title}——${card.name}`}
@@ -287,22 +288,22 @@ export function MobileTimeSheet({ card, mode, today, dayStartHour, now, onCommit
 
           <div className="ts-foot">
             {mode === "rule" ? (
-              <button type="button" className="ts-ghost" onClick={onClear}>
+              <button type="button" className="ns-btn btn-ghost ts-ghost" onClick={onClear}>
                 不排時刻
               </button>
             ) : (
               <>
-                <button type="button" className="ts-ghost" onClick={onClear}>
+                <button type="button" className="ns-btn btn-ghost ts-ghost" onClick={onClear}>
                   本班不排時刻
                 </button>
                 {card.timeOverridden && onReset && (
-                  <button type="button" className="ts-ghost" onClick={onReset}>
+                  <button type="button" className="ns-btn btn-ghost ts-ghost" onClick={onReset}>
                     {ruleTime ? `改回每班 ${ruleTime}` : "改回每班時刻"}
                   </button>
                 )}
               </>
             )}
-            <button type="button" className="ts-ok" onClick={commit}>
+            <button type="button" className="ns-btn btn-seal" onClick={commit}>
               確定
             </button>
           </div>

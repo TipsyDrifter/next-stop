@@ -99,7 +99,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
     }
   }
 
-  /** 刪除（連同子樹；repository soft delete，10 秒內可由 toast 復原） */
+  /** 刪除（連同子樹；repository soft delete，6 秒內可由 toast 復原） */
   async function requestDelete() {
     if (!editing) return;
     const target = editing;
@@ -112,9 +112,9 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
     const body =
       kind === "line"
         ? childRouteCount > 0
-          ? `底下的 ${childRouteCount} 條路線與所有支線、列車、車廂、車票會一起刪除；10 秒內可復原。`
-          : "底下的所有內容會一起刪除；10 秒內可復原。"
-        : "這條路線底下的支線、列車、車廂、車票會一起刪除；10 秒內可復原。";
+          ? `底下的 ${childRouteCount} 條路線與所有支線、列車、車廂、車票會一起刪除；6 秒內可復原。`
+          : "底下的所有內容會一起刪除；6 秒內可復原。"
+        : "這條路線底下的支線、列車、車廂、車票會一起刪除；6 秒內可復原。";
     // 別線的附加句（接縫 #62）：這裡沒載底下的樹 ⇒ descendantIds 傳 []，由該線自己補查；沒有線填＝空字串、框的字不變
     const hints = await collectDeleteHints(target, []);
     askConfirm({
@@ -258,9 +258,9 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
             <p className="ns-note">
               {kind === "line"
                 ? childRouteCount > 0
-                  ? `連同底下 ${childRouteCount} 條路線一起刪除；10 秒內可復原。`
-                  : "刪除這條幹線；10 秒內可復原。"
-                : "連同底下所有內容一起刪除；10 秒內可復原。"}
+                  ? `連同底下 ${childRouteCount} 條路線一起刪除；6 秒內可復原。`
+                  : "刪除這條幹線；6 秒內可復原。"
+                : "連同底下所有內容一起刪除；6 秒內可復原。"}
             </p>
             <button type="button" onClick={requestDelete} className="btn-ghost ns-btn-danger ns-btn ns-btn--sm shrink-0">
               刪除{kindLabel}

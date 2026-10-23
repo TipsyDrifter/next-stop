@@ -380,12 +380,12 @@ export function NoteContent({
             </div>
 
             <div className="ns-notes-actions">
-              <button type="button" className="ns-notes-btn" disabled={!id} onClick={() => id && onTodo(id)}>
+              <button type="button" className="ns-notes-btn ns-btn ns-btn--sm btn-ghost" disabled={!id} onClick={() => id && onTodo(id)}>
                 變待辦
               </button>
               <button
                 type="button"
-                className="ns-notes-btn"
+                className="ns-notes-btn ns-btn ns-btn--sm btn-ghost"
                 disabled={!id}
                 title="搬進當天的日記"
                 onClick={() => id && onToDiary(id)}
@@ -394,7 +394,7 @@ export function NoteContent({
               </button>
               <button
                 type="button"
-                className="ns-notes-btn"
+                className="ns-notes-btn ns-btn ns-btn--sm btn-ghost ns-btn-danger"
                 onClick={() => (id ? onDelete(id) : useNotesStore.getState().selectNote(null))}
               >
                 刪除

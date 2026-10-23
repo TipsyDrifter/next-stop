@@ -43,8 +43,7 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
     askConfirm({
       title: `啟動 ${imported.length} 筆定期帳？`, // 只開始匯入、從沒開始過的；手動暫停的不動
       body: "接著財務管家的下一班記；之後請不要再用財務管家記帳。",
-      confirmLabel: "全部開始",
-      tone: "gold", // 不是破壞性動作、也不蓋朱（接縫 #74、D-票-11）
+      confirmLabel: "全部開始", // 不是破壞性動作、也不蓋朱（接縫 #74、D-票-11）：一般確認框（UI 丙-1 起不另上金色）
       onConfirm: () => void resumeAllRepeats(),
     });
 
@@ -55,7 +54,7 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
           <p>
             從財務管家匯入的 <b>{imported.length}</b> 筆定期帳還在暫停——停用財務管家那天再按「全部開始」
           </p>
-          <button type="button" className="ns-tk-mbtn primary" onClick={startAll}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={startAll}>
             全部開始
           </button>
         </div>
@@ -93,11 +92,11 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
       )}
 
       <div className="ns-tk-mrm-foot">
-        <button type="button" className="ns-tk-mbtn" onClick={() => openRepeatEditor(null)}>
+        <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => openRepeatEditor(null)}>
           <IconPlus />
           新增
         </button>
-        <button type="button" className="ns-tk-mbtn quiet" onClick={onDone}>
+        <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={onDone}>
           完成
         </button>
       </div>
@@ -159,7 +158,7 @@ function Row({
         </button>
         <button
           type="button"
-          className="ns-tk-mbtn quiet tog"
+          className="ns-btn btn-ghost ns-tk-mbtn tog"
           aria-label={paused ? "開始這筆定期帳" : "暫停這筆定期帳"}
           onClick={() => void (paused ? resumeRepeat(r.id) : pauseRepeat(r.id))}
         >

@@ -32,10 +32,10 @@
  *   （tab 的派生規則在這裡給；各頁的子頁與面板在自己的檔裡 `useBackLayer`），同步告警之後加一列 `⚠ {error}`（A2）。
  */
 import type { ComponentType } from "react";
-import { useRef } from "react";
+import { lazy, Suspense, useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
-import { MOCK_MODE } from "../../data";
+import { DEV_FLAGS, MOCK_MODE } from "../../data";
 import { useAndroidBack } from "./backStack";
 import { mobileTabByKey, type MobileTabKey } from "./tabs";
 import { MobileTopBand } from "./MobileTopBand";
@@ -46,6 +46,8 @@ import MobileRouteMap from "./MobileRouteMap";
 import MobileMore from "./MobileMore";
 import { SyncBanner } from "../common/SyncBanner";
 import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
+// UI 丙-2：`?mock=1&gallery=1` 頁面改畫共用元件樣本頁（DEV_FLAGS.gallery；lazy＝沒帶參數不載入）
+const Gallery = lazy(() => import("../dev/Gallery"));
 
 /** tab → 頁面元件（planned 的格子先被 ComingSoon 攔下，走不到這裡） */
 const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
@@ -101,7 +103,7 @@ export default function MobileShell() {
           ⚠ {error}
         </div>
       )}
-      <MobilePage tabKey={tabKey} />
+      {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <MobilePage tabKey={tabKey} />}
       <MobileTabBar />
       {lineOverlays("mobile").map(({ id, Overlay }) => (
         <Overlay key={id} />

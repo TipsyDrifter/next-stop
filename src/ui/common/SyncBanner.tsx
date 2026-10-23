@@ -95,7 +95,7 @@ export function SyncBanner({ shell }: { shell: "desktop" | "mobile" }) {
       <span className="min-w-0 truncate" title={text.banner}>
         ⚠ {text.banner}
       </span>
-      <button type="button" onClick={() => openSyncPage("desktop")} className="btn-gold ns-btn ns-btn--sm shrink-0">
+      <button type="button" onClick={() => openSyncPage("desktop")} className="ns-btn ns-btn--sm btn-ghost shrink-0">
         {text.cta}
       </button>
       <button type="button" onClick={dismiss} className="btn-ghost ns-btn ns-btn--sm shrink-0">

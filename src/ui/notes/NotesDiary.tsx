@@ -263,7 +263,7 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
             loading ? null : (
               <div className="ns-notes-nodiary">
                 <p>{empty.text}</p>
-                <button type="button" className="ns-notes-btn" onClick={() => st().openDiaryDraft()}>
+                <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => st().openDiaryDraft()}>
                   <IconPen size={13} />
                   {empty.button}
                   <Kbd id="notes.diary.write" />
@@ -272,7 +272,7 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
             )
           ) : (
             <div className="ns-notes-more">
-              <button type="button" className="ns-notes-btn" onClick={() => st().openDiaryDraft()}>
+              <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => st().openDiaryDraft()}>
                 <IconPlus size={12} />
                 再寫一篇
                 <Kbd id="notes.diary.write" />

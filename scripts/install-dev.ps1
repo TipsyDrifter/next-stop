@@ -1,8 +1,8 @@
-﻿# install-dev.ps1 — dev 包桌機安裝的唯一入口（權限白名單只放行這支腳本）
-# 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-dev.ps1 -Setup <NextStop_*-dev_x64-setup.exe 路徑> [-CdpPort <埠>] [-IdleMinSeconds <秒>] [-WaitForIdle] [-WaitMaxSeconds <秒>] [-Force]
+﻿# install-dev.ps1 — 桌機安裝（dev 包與正式包）的唯一入口（權限白名單只放行這支腳本）
+# 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-dev.ps1 -Setup <NextStop_<版號>[-dev]_x64-setup.exe 路徑> [-CdpPort <埠>] [-IdleMinSeconds <秒>] [-WaitForIdle] [-WaitMaxSeconds <秒>] [-Force]
 # 做的事（照 v1.5.0 起歷班裝機的成功做法）：關 next-stop → WMI 在 silo 外跑 NSIS /S → 回讀 FileVersion → silo 外重啟 App（帶 -CdpPort 時附 WebView2 偵錯參數）。
 # 關 App 前的禮貌檢查：鍵鼠閒置不到 -IdleMinSeconds（預設 120）＝使用者正在用，不關、不裝、exit code 3；-WaitForIdle 等到閒置（最多 -WaitMaxSeconds，預設 1800）；-Force 跳過。App 本來沒開就不檢查。細節見 scripts/lib/idle-guard.ps1。
-# 安全邊界：只接受本 repo 底下、檔名符合 NextStop_*-dev_x64-setup.exe 的安裝檔；除此之外不跑任何外部指令。
+# 安全邊界：只接受本 repo 底下、檔名符合 NextStop_<版號>[-dev]_x64-setup.exe 的安裝檔（dev 包與 release.sh 打出來的正式包都收；邊界的重點是「只跑 repo 自己 build 出來的安裝檔」，dev／正式不是安全差別——v1.17.5 發版時正式包被擋、使用者還得自己跑 setup，使用者 10-22 授權放寬）；除此之外不跑任何外部指令。
 param(
   [Parameter(Mandatory=$true)][string]$Setup,
   [int]$CdpPort = 0,
@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 $setupFull = (Resolve-Path $Setup).Path
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 if (-not $setupFull.StartsWith($repoRoot)) { throw "安裝檔必須在 repo 底下：$setupFull" }
-if ($setupFull -notmatch 'NextStop_[\d\.]+-dev_x64-setup\.exe$') { throw "檔名不符 dev 安裝包樣式：$setupFull" }
+if ($setupFull -notmatch 'NextStop_[\d\.]+(-dev)?_x64-setup\.exe$') { throw "檔名不符安裝包樣式（NextStop_<版號>[-dev]_x64-setup.exe）：$setupFull" }
 
 # ② 關掉正在跑的 App（沒跑就略過）；真的要關之前先做禮貌檢查，使用者正在用電腦就不關、不裝
 . "$PSScriptRoot\lib\idle-guard.ps1"

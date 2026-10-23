@@ -11,7 +11,8 @@ import { useTicketStore } from "../../../store/ticketStore";
 import { CURRENCY_NAMES, MAIN_CURRENCY, type CurrencyRow } from "../../../domain/ticket";
 import { useImeGuard } from "./dialogBits";
 
-export function CurrencyTable({ onDone }: { onDone(): void }) {
+// 即時存（匯率失焦／Enter 就送）⇒ 沒有「完成」鈕：關閉走 ×／暗幕／返回鍵（UI 丙-1，視覺規範 §6）；onDone 留作宿主介面。
+export function CurrencyTable(_props: { onDone(): void }) {
   const currencies = useTicketStore((s) => s.currencies);
   const createCurrency = useTicketStore((s) => s.createCurrency);
   const [code, setCode] = useState("");
@@ -97,12 +98,6 @@ export function CurrencyTable({ onDone }: { onDone(): void }) {
           onClick={() => void add()}
         >
           ＋ 幣別
-        </button>
-      </div>
-
-      <div className="ns-tk-dfoot">
-        <button type="button" className="ns-btn btn-gold ns-tk-dbtn" onClick={onDone}>
-          完成
         </button>
       </div>
     </div>

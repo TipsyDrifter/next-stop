@@ -1,0 +1,222 @@
+/* ─────────────────────────────────────────────────────
+ * datefield.css——日期、時間、顏色、日曆格四件共用元件的樣式（丙-2 契約 §1 第 4～7、11 件；U2 席）
+ *   DateNav（.ns-datenav）    視覺規範 §2.5「日期」、§3 入口表「翻日期」
+ *   DateChip（.ns-datechip）  §2.5「日期」：觸發統一成日期 chip
+ *   ClockInput（.ns-clock）   §2.5「時間」：新變體 full／compact／mobile（舊版 DOM .ns-tt-* 的樣式仍在 timetable.css）
+ *   ColorPicker（.ns-colorpick／.ns-sw）  §2.5「顏色」、§1.1 兩盤共存
+ *   DayCell（.ns-daycells／.ns-daycell）  §2.5「日曆格」
+ *   選項 chip（.chip.ns-chip）  §2.5「選項 chip」——快選、今天、常用時刻用
+ *
+ * 長相逐件照 prototypes/ui-brand/index.html 的同名樣本（class 名照規範）。規則：
+ *   - 顏色、字級、圓角只用 theme.css 的 token（var(--…)）；不寫色碼、字級、圓角字面值（規範 §9 probe 1、2）。
+ *   - 手機值靠 theme.css 的 [data-shell="mobile"] 整組換（--ctl-h-sm 24→36、--ctl-input 32→44、--fs-sm 12→13…），本檔不寫第二套數值；
+ *     只有「手機沒有 hover ⇒ 常駐淡態一律實」這條行為規則（§3.1）掛 [data-shell="mobile"]。
+ *   - `.chip.ns-chip`：techo.css 的 `.chip` 是票面的日期小字（11px、無高度）；本檔用雙 class 提高特異度蓋成規範的選項 chip，
+ *     既有頁面的 `.chip` 一個都不動（本班不套頁面）。丙-3 起 `.chip` 全面換成選項 chip 後可併回。
+ *   - 只動 transform／opacity 與顏色；prefers-reduced-motion 一律凍結（檔尾）。
+ * 由 src/index.css @import（排在 techo.css 之後、mobile.css 之前；契約 §0）。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 選項 chip（多選、篩選、快選；單選一組改用 Segmented） ═══ */
+.chip.ns-chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1);
+  min-height: calc(var(--ctl-h-sm) - 2px); /* 桌機 22（ui-brand 原值）、手機 34 */
+  padding: 0 8px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-soft); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 400; letter-spacing: .08em; line-height: 18px; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.chip.ns-chip:hover:not(:disabled) { color: var(--color-ink); border-color: var(--color-dash); }
+.chip.ns-chip.is-on, .chip.ns-chip[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-fg); }
+.chip.ns-chip:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.chip.ns-chip:disabled { opacity: var(--disabled); cursor: not-allowed; }
+
+/* ═══ DateChip：框 chip「10/22（四）」／「無日期」＋清除 ×＋快選列 ═══ */
+.ns-datechip-wrap { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
+.ns-datechip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: var(--ctl-h-sm); padding: 0 9px 0 7px; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-soft); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; line-height: 18px; letter-spacing: .06em; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-datechip .ns-ico { width: 13px; height: 13px; flex: none; color: var(--color-ink-faint); }
+.ns-datechip:hover:not(:disabled), .ns-datechip.is-open { border-color: var(--accent); color: var(--color-ink); }
+.ns-datechip:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-datechip:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-datechip.is-empty { color: var(--color-ink-faint); }
+.ns-datechip.is-late { color: var(--late); border-color: color-mix(in srgb, var(--late) 40%, transparent); }
+.ns-datechip.is-late .ns-ico { color: var(--late); }
+/* 清除 ×：圖示鈕（overlay.css .ns-iconbtn）＋常駐淡態 --dim；hover／聚焦轉實；手機沒有 hover ⇒ 常駐實（§3.1） */
+.ns-datechip-clear { opacity: var(--dim); }
+.ns-datechip-clear .ns-ico { width: 12px; height: 12px; }
+.ns-datechip-clear:hover, .ns-datechip-clear:focus-visible, .ns-datechip-wrap:hover .ns-datechip-clear { opacity: 1; }
+[data-shell="mobile"] .ns-datechip-clear { opacity: 1; }
+.ns-datechip-quick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* ═══ DateNav：« ‹ 標題 › » ＋「今天」 ═══
+ * 可換行：排不下時「今天」chip 換到下一行（手機 « » 版：4×44 圖示鈕＋標題＋chip 超過 375 的內容寬）；列距 --sp-1。
+ * 標題 min-width 是「翻日期時箭頭不跟著字寬跳」的保底：桌機 8.5em；手機收成 7em（=112px，裝得下「2026年10月」「10/22（四）」），
+ * « ‹ 標題 › » 一列 ≈ 4×44＋112＋間距 ≈ 296，放得進 375 殼的卡內寬（≈317）。 */
+.ns-datenav { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) 2px; }
+.ns-datenav .t {
+  min-width: 8.5em; padding: 0 var(--sp-1); text-align: center; white-space: nowrap; color: var(--color-ink);
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .06em; line-height: 28px;
+}
+[data-shell="mobile"] .ns-datenav .t { min-width: 7em; }
+.ns-datenav button.t {
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-datenav button.t:hover { background: var(--hover-bg); }
+.ns-datenav button.t:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-datenav .chip.ns-chip { margin-left: var(--sp-2); }
+/* 放在頁首大標裡（§2.1：售票口的月份大標＝DateNav；PageHeader 的 title 直接給 <DateNav>）：
+ *   標題吃大標的字型、字級、行高（--fs-date，不是 --fs-h3），不留翻頁保底寬；
+ *   整組以標題的字基線對齊（大標右側的補述「2026年」跟著對齊），箭頭與「今天」chip 各自垂直置中。 */
+.ns-pagehead-title .ns-datenav { align-items: baseline; }
+.ns-pagehead-title .ns-datenav > :not(.t) { align-self: center; }
+.ns-pagehead-title .ns-datenav .t { min-width: 2.6em; font: inherit; letter-spacing: inherit; font-variant-numeric: tabular-nums; } /* 保底寬＝兩位數月份，翻頁時右側的 › 與「今天」不跳 */
+
+/* ═══ ClockInput 新變體：（快選列）／ −1h −15 −5 −1 ｜時刻框｜ +1 +5 +15 +1h ／說明行（日期，跨天赭字） ═══ */
+.ns-clock { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; }
+.ns-clock-quick { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.chip.ns-chip.ns-clock-tmx { font-family: var(--font-latin); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.ns-clock-row { display: flex; align-items: center; gap: var(--sp-1); }
+/* 微調鈕＝.ns-btn.btn-ghost.ns-btn--sm（高 --ctl-h-sm）；這裡只收窄、改拉丁數字、擋長按的選字與選單 */
+.ns-clock .step {
+  min-width: 34px; padding: 0 6px;
+  font-family: var(--font-latin); letter-spacing: .02em; font-variant-numeric: tabular-nums;
+  touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.ns-clock .step:active:not(:disabled), .ns-clock .step.is-held { border-color: var(--accent); background: var(--sel-bg); color: var(--color-ink); }
+.ns-clock-inwrap { position: relative; display: inline-flex; margin: 0 var(--sp-1); }
+/* 時刻框＝.techo-input 底線式；拉丁 600、--fs-title；手機高度跟 --ctl-input（44）走 */
+.techo-input.ns-clock-in {
+  box-sizing: border-box; width: 92px; min-height: var(--ctl-input);
+  text-align: center; caret-color: var(--accent);
+  font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-title); letter-spacing: .04em; line-height: 28px; font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-ctl) var(--radius-ctl) 0 0;
+  transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+  scroll-margin: var(--sp-4) 0 calc(var(--sp-7) * 2); /* 聚焦捲動時讓開面板底部黏住的按鈕列 */
+}
+.techo-input.ns-clock-in:hover { border-bottom-color: var(--accent); }
+.techo-input.ns-clock-in:focus { background: var(--sel-bg); border-bottom-color: var(--accent); }
+.techo-input.ns-clock-in::selection { background: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--color-ink); }
+.ns-clock-inwrap.is-bad .techo-input.ns-clock-in { color: var(--late); border-bottom-color: var(--late); background: var(--danger-bg); }
+.ns-clock-inwrap.is-shake { animation: ns-clock-shake calc(var(--dur) + var(--dur-slow)) var(--ease) both; }
+@keyframes ns-clock-shake {
+  0% { transform: translateX(0); } 14% { transform: translateX(-6px); } 30% { transform: translateX(5px); }
+  46% { transform: translateX(-3.5px); } 62% { transform: translateX(2px); } 80% { transform: translateX(-1px); } 100% { transform: translateX(0); }
+}
+/* 說明行：固定高度（打字時版面不跳）；沒事＝這個值的日期，跟參考日不同天赭字；預覽淡墨、錯字赭 */
+.ns-clock-foot {
+  display: flex; justify-content: center; min-height: 18px; white-space: nowrap; color: var(--color-ink-faint);
+  font-size: var(--fs-sm); line-height: 18px; letter-spacing: .06em;
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+.ns-clock-foot.is-ok { color: var(--color-ink-soft); }
+.ns-clock-foot.is-err { color: var(--late); }
+.ns-clock-foot b { font-family: var(--font-latin); font-weight: 600; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+.ns-clock-msg:empty { display: none; }
+.ns-clock-date.is-other { font-weight: 600; color: var(--late); }
+
+/* ═══ ColorPicker：預設格（圓）＋「自訂…」；選中外環 --sel-line；沒有色碼框 ═══ */
+.ns-colorpick { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ns-sw {
+  width: 23px; height: 23px; flex: none; padding: 0; border: 0; border-radius: var(--radius-pill);
+  background: var(--c); cursor: pointer;
+  outline: 2px solid transparent; outline-offset: 2px;
+  transition: outline-color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-soft);
+}
+.ns-sw:hover:not(:disabled) { transform: scale(1.08); }
+.ns-sw.is-on { outline: var(--sel-line); outline-offset: 2px; }
+.ns-sw:focus-visible { outline: var(--focus-ring); outline-offset: 4px; }
+.ns-sw.is-on:focus-visible { outline: var(--sel-line); outline-offset: 3px; } /* 選中＋聚焦：留 2px 選中環、外推一格當焦點提示 */
+.ns-sw:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-sw-custom {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 25px; padding: 0 9px 0 4px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  color: var(--color-ink-soft); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .06em; line-height: 18px; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-sw-custom:hover { color: var(--color-ink); border-color: var(--accent); }
+.ns-sw-custom .pv {
+  box-sizing: border-box; width: 17px; height: 17px; flex: none; border-radius: var(--radius-pill);
+  background: var(--pv, transparent); box-shadow: inset 0 0 0 1px var(--color-line);
+}
+.ns-sw-custom.is-blank .pv { border: 1px dashed var(--color-dash); box-shadow: none; }
+.ns-sw-custom.is-on .pv { outline: var(--sel-line); outline-offset: 2px; }
+.ns-sw-custom input {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0;
+  opacity: 0; cursor: pointer;
+}
+.ns-sw-custom input:disabled { cursor: not-allowed; }
+.ns-sw-custom:focus-within { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* ═══ DayCell：今天＝赭字＋赭菱形、有事＝墨點、選中＝--sel-bg、「＋」常駐淡態 ═══ */
+/* 格寬由容器決定：撐滿父層、7 欄平分（minmax(0, 1fr)：格內 children 再長也不把某一欄撐寬） */
+.ns-daycells {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  box-sizing: border-box; width: 100%;
+  border-top: 1px solid var(--color-line); border-left: 1px solid var(--color-line);
+}
+.ns-daycell {
+  position: relative; box-sizing: border-box; height: var(--daycell-h, 64px); padding: 6px 8px; overflow: hidden;
+  border-right: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line);
+  color: var(--color-ink-soft); text-align: left;
+  font-family: var(--font-latin); font-size: var(--fs-sm); line-height: 18px; font-variant-numeric: tabular-nums;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-daycell:not(.is-static):hover { background: var(--hover-bg); }
+.ns-daycell.is-on, .ns-daycell.is-on:hover { background: var(--sel-bg); color: var(--sel-fg); }
+.ns-daycell.is-today { color: var(--late); }
+.ns-daycell.is-out { color: var(--color-ink-faint); opacity: .6; }
+/* 點擊面蓋滿整格；其餘疊在上面、不吃指標（點下去落到點擊面）；「＋」與 children 裡的控件照常可點 */
+.ns-daycell-hit {
+  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; margin: 0; padding: 0;
+  border: 0; background: transparent; cursor: pointer;
+}
+.ns-daycell-hit:disabled { cursor: default; }
+.ns-daycell-hit:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.ns-daycell > :not(.ns-daycell-hit) { z-index: 1; pointer-events: none; }
+/* 日數：今天在數字左側同列多一顆赭菱形（照 ui-brand；6px 方塊轉 45°，跟數字垂直置中）。
+ * vertical-align: top：inline-flex 的基線取第一個子項（空的菱形＝底邊），不貼頂會讓今天的數字比隔壁低 1～2px */
+.ns-daycell-num { position: relative; display: inline-flex; align-items: center; gap: 5px; vertical-align: top; }
+.ns-daycell.is-today .ns-daycell-num::before {
+  content: ""; flex: none; width: 6px; height: 6px;
+  background: var(--late); transform: rotate(45deg);
+}
+.ns-daycell .dots { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 3px; }
+.ns-daycell .dots i { width: 4px; height: 4px; border-radius: var(--radius-pill); background: var(--stamp-ink); }
+.ns-daycell > .ns-daycell-add {
+  position: absolute; right: 4px; top: 4px; width: 22px; height: 22px;
+  opacity: var(--dim); pointer-events: auto;
+}
+.ns-daycell-add .ns-ico { width: 14px; height: 14px; }
+.ns-daycell:hover > .ns-daycell-add, .ns-daycell:focus-within > .ns-daycell-add { opacity: 1; }
+[data-shell="mobile"] .ns-daycell > .ns-daycell-add { opacity: 1; }
+.ns-daycell-body { position: relative; margin-top: var(--sp-1); }
+.ns-daycell-body :is(button, a, input, select, textarea, [role="button"]) { pointer-events: auto; }
+/* 窄格：每格自己當 container 量寬（量的是內容盒＝格寬 − 左右距 16 − 右框 1），放不下就挪位置（不換數值，兩殼共用）。
+ * 門檻（實量，--fs-sm 12／13 都一樣）：「◆22」≈26px（數字左緣 8 → 右緣 34）；「＋」22px 貼右 4 ⇒ 左緣＝格寬 − 26；
+ * 同列要並排、再留 ≥3px 縫 ⇒ 格寬 ≥65px（內容盒 ≥48px）。手機殼一週 7 格每格約 45px（內容盒 28）就落在窄格。
+ * 窄格：「＋」挪到右下角；墨點從左下改接在日數正下方（不然 3 顆點〔左 8～26〕會撞右下的「＋」〔左緣＝格寬 − 26〕），
+ * 所有窄格一律這樣排、不看這格有沒有「＋」（同一列的點才對得齊）。窄格不建議放 children（會跟右下的「＋」疊）。 */
+.ns-daycell { container: ns-daycell / inline-size; }
+@container ns-daycell (max-width: 47px) {
+  .ns-daycell > .ns-daycell-add { top: auto; bottom: 4px; }
+  .ns-daycell .dots { position: relative; left: auto; bottom: auto; margin-top: var(--sp-1); }
+}
+/* 再窄到放不下「◆22」（內容盒 <26px＝格寬約 42px 以下，例：320 寬手機一週 7 格每格約 41px）：菱形收掉、只留赭字（今天仍有 aria-current） */
+@container ns-daycell (max-width: 25px) {
+  .ns-daycell.is-today .ns-daycell-num::before { display: none; }
+}
+
+/* ═══ 減少動態：凍結到終態 ═══ */
+@media (prefers-reduced-motion: reduce) {
+  .ns-clock-inwrap.is-shake { animation: none; }
+  .ns-sw, .ns-sw:hover:not(:disabled) { transition: none; transform: none; }
+  .chip.ns-chip, .ns-datechip, .ns-daycell, .ns-sw-custom, .techo-input.ns-clock-in, .ns-clock-foot { transition: none; }
+}

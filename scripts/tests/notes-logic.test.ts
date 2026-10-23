@@ -1151,11 +1151,12 @@ test("對帳：熱鍵字樣只有 capture.rs 的 HOTKEY_ACCEL 一份，shell.ts 
   assert.ok(!ts.includes(accel), `shell.ts 不該有 "${accel}" 字面`);
 });
 
-test("對帳：小窗 css 把 Toast 排進票下面靠的選擇器（.ns-card[role=status]）在 Toast.tsx 還對得上", () => {
+test("對帳：小窗 css 把 Toast 排進票下面靠的選擇器（.ns-toast[role=status]）在 Toast.tsx 還對得上（根元素掛 techo-card＋ns-toast）", () => {
   const css = readFileSync(resolve(ROOT_5, "src/ui/notes/capture-window/capture-window.css"), "utf8");
   const toast = readFileSync(resolve(ROOT_5, "src/ui/common/Toast.tsx"), "utf8");
-  assert.ok(css.includes('.ns-card[role="status"]'));
-  assert.ok(toast.includes('role="status"') && /className="ns-card\b/.test(toast), "Toast.tsx 要有 role=status 與 ns-card");
+  assert.ok(css.includes('.ns-toast[role="status"]'), "capture-window.css 要認 .ns-toast[role=status]");
+  assert.ok(toast.includes('role="status"') && /\bns-toast\b/.test(toast), "Toast.tsx 要有 role=status 與 ns-toast");
+  assert.ok(/className="[^"]*\btecho-card\b/.test(toast), "Toast.tsx 根元素要掛 techo-card");
 });
 
 /* ═══ 階段⑤ 小窗前端（契約 §4.3／§0-0 D-筆-61／0-15）═══ */

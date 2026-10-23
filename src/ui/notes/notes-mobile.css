@@ -54,19 +54,19 @@
   pointer-events: none;
 }
 [data-shell="mobile"] .ns-notes-fab:active { transform: scale(.94); }
-[data-shell="mobile"] .ns-notes-fab:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+[data-shell="mobile"] .ns-notes-fab:focus-visible { outline: var(--focus-ring); outline-offset: 3px; } /* 浮在紙面上，不在書封：聚焦＝--focus-ring（UI 丙-1） */
 /* 底部列避讓（各線通用約定）：哪一頁在 tab bar 上方還有一條固定的底部列，就由那條線在自己的 CSS
    對 [data-shell="mobile"] 宣告 `--m-page-dock-h: <列高>`（例：時刻表的運行列，timetable.css §E），鈕自動抬到它之上。
    不在這裡點名別線的 class——新的底部列只要宣告變數，不必再回來加規則。
    今日頁的建票輸入列是同一件事；鈕本身就知道自己在今日頁（.is-today），直接在鈕上宣告，行為與原本相同。 */
 [data-shell="mobile"] .ns-notes-fab.is-today { --m-page-dock-h: var(--m-newticket-h); }
-/* Toast（App 層 .ns-card.fixed，唯一一個；z-index 50 在鈕之上）出現時鈕往上讓一個 toast 的高：
+/* Toast（App 層 .ns-toast，唯一一個；z-index 50 在鈕之上）出現時鈕往上讓一個 toast 的高：
    toast 的「復原」「×」正好落在鈕的位置，粉彩主題的 toast 又是半透明票紙，不讓開會疊成一團（實測）。
    toast 自己也會抬到底部列之上，所以這裡同樣加上 --m-page-dock-h。
    磨光①（契約 §9.3）：只在 toast 落在底部時抬——<html> 有 data-m-layer（最上層是 sheet／dialog／full）時 toast 改到別處、
-   鈕也收起來（下一條），不抬。`.ns-toast` 是核心給 toast 的新 class，舊的 `.ns-card.fixed` 一起認。
+   鈕也收起來（下一條），不抬。`.ns-toast` 是核心給 toast 的 class（UI 丙-1 起卡改 .techo-card、舊卡名退役，只認這一個）。
    寫明 `html`：App 的根 div 也掛 data-shell、但永遠沒有 data-m-layer，不寫的話 :not() 會在根 div 上成立。 */
-html[data-shell="mobile"]:not([data-m-layer]):has(:is(.ns-toast, .ns-card.fixed)) .ns-notes-fab {
+html[data-shell="mobile"]:not([data-m-layer]):has(.ns-toast) .ns-notes-fab {
   bottom: calc(var(--m-safe-bottom) + var(--m-tabbar-h) + var(--m-page-dock-h, 0px) + 64px);
 }
 /* 面板開著（鈕留在 DOM 只為了下面那條留白不抽動）／任何輸入框聚焦（軟鍵盤多半彈著）＝先收起。
@@ -90,25 +90,14 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 
 /* ═══════════ 二、共用小件：按鈕／chip／輸入／圓牌／色點 ═══════════ */
 
+/* 鈕：UI 丙-1 起同一顆另掛 .ns-btn＋層級（主鈕 .btn-seal／次鈕 .btn-ghost／危險 .btn-ghost.ns-btn-danger；視覺規範 §2.3）。
+   高度（手機殼 --ctl-h 44）、字級（--fs-ui 14）、框、hover、焦點、禁用全由那幾個 class 管；.ns-notes-mbtn 只剩版位。
+   退役：靛框主鈕、赭底危險鈕兩個修飾 class。text-indent 抵銷字距的右偏，讓字真的置中（版位，不是字級） */
 [data-shell="mobile"] .ns-notes-mbtn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-height: 44px; padding: 0 16px;
-  background: transparent;
-  border: 1px solid var(--color-dash); border-radius: 2px;
-  font-family: inherit; font-size: 14px; letter-spacing: .12em; text-indent: .12em; white-space: nowrap;
-  color: var(--color-ink-soft);
-  cursor: pointer;
+  font-family: inherit; text-indent: .12em; white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
-  transition: border-color .15s, color .15s, background .15s;
 }
-[data-shell="mobile"] .ns-notes-mbtn:active { border-color: var(--accent); color: var(--color-ink); }
-[data-shell="mobile"] .ns-notes-mbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-[data-shell="mobile"] .ns-notes-mbtn.primary {
-  border-color: var(--accent); color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-}
-[data-shell="mobile"] .ns-notes-mbtn.primary:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
-[data-shell="mobile"] .ns-notes-mbtn:disabled { opacity: .45; cursor: default; }
 
 /* chip（執行日／日期面板的快捷） */
 [data-shell="mobile"] .ns-notes-mchiprow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -268,7 +257,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   mask: radial-gradient(circle 2.6px at 50% 0, transparent 96%, currentColor 100%) 0 0 / 13px 100% repeat-x;
   transition: border-color .15s;
 }
-[data-shell="mobile"] .ns-notes-mitem.is-sel .ns-notes-mslip::before { border-color: var(--color-gold); }
+[data-shell="mobile"] .ns-notes-mitem.is-sel .ns-notes-mslip::before { border-color: var(--sel-fg); } /* 選中＝作用中色（粉彩靛、銀河金；UI 丙-1） */
 [data-shell="mobile"] .ns-notes-mslip > * { position: relative; z-index: 1; }
 
 [data-shell="mobile"] .ns-notes-mslip-body {
@@ -278,7 +267,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-family: inherit; text-align: left; color: var(--color-ink);
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-notes-mslip-body:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-mslip-body:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .ns-notes-mslip-body .ns-notes-uke { position: absolute; top: 12px; right: 14px; }
 [data-shell="mobile"] .ns-notes-mslip-text {
   font-size: 14.5px; line-height: 1.75; letter-spacing: .03em; white-space: pre-line; overflow-wrap: anywhere;
@@ -294,7 +283,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   overflow: hidden;
   transition: border-color .15s;
 }
-[data-shell="mobile"] .ns-notes-mitem.is-sel .ns-notes-mtk { border-color: var(--color-gold); }
+[data-shell="mobile"] .ns-notes-mitem.is-sel .ns-notes-mtk { border-color: var(--sel-fg); }
 [data-shell="mobile"] .ns-notes-mtk-face {
   display: grid; grid-template-columns: 40px minmax(0, 1fr) 60px; align-items: stretch;
   width: 100%; min-height: 66px; padding: 0;
@@ -302,7 +291,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-family: inherit; text-align: left; color: var(--color-ink);
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-notes-mtk-face:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-mtk-face:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .ns-notes-mtk-stub {
   display: flex; align-items: center; justify-content: center;
   color: var(--route-none);
@@ -345,8 +334,12 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   border-color: var(--accent); color: var(--color-ink);
   background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
-[data-shell="mobile"] .ns-notes-mact:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+[data-shell="mobile"] .ns-notes-mact:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 [data-shell="mobile"] .ns-notes-mact.quiet { border-color: var(--color-line); color: var(--color-ink-faint); }
+/* 「刪除」＝危險色（視覺規範 §2.3：字與框 --danger、按下 --danger-bg；永遠不實心）。去處格是 .ns-notes-mact 自己的格子鈕
+   （不在 .ns-btn 家族、丙-2 手機收斂時再併），這裡只把危險色接上同一組 token，class 用全 App 統一的 .ns-btn-danger */
+[data-shell="mobile"] .ns-notes-mact.ns-btn-danger { border-color: color-mix(in srgb, var(--danger) 45%, transparent); color: var(--danger); }
+[data-shell="mobile"] .ns-notes-mact.ns-btn-danger:active { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
 /* 筆記紙片的去處四顆（變待辦／留作筆記／記成日記／刪除）：一排四格；窄機（≤360）兩排兩格 */
 [data-shell="mobile"] .ns-notes-mdest.is-four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 [data-shell="mobile"] .ns-notes-mdest.is-four .ns-notes-mact { padding: 4px 2px; letter-spacing: .04em; }
@@ -402,7 +395,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mrow:active { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
-[data-shell="mobile"] .ns-notes-mrow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+[data-shell="mobile"] .ns-notes-mrow:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 [data-shell="mobile"] .ns-notes-mrow > span { display: block; }
 [data-shell="mobile"] .ns-notes-mrow .t {
   padding-top: 12px;
@@ -421,9 +414,11 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-size: 10.5px; letter-spacing: .05em; color: var(--color-ink-faint);
 }
 [data-shell="mobile"] .ns-notes-mlist > li:last-child .ns-notes-mrow .m { border-bottom: 0; }
+/* 搜尋命中的螢光底＝紙面作用中色（同桌機 notes.css .ns-notes-mark：粉彩靛 24%；銀河金維持 38%，零變） */
 [data-shell="mobile"] .ns-notes-mrow mark {
-  background: color-mix(in srgb, var(--color-gold) 38%, transparent); color: inherit; border-radius: 1px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent); color: inherit; border-radius: 1px;
 }
+[data-theme="dark"][data-shell="mobile"] .ns-notes-mrow mark { background: color-mix(in srgb, var(--accent) 38%, transparent); }
 /* 捲到底載下一頁的提示兼哨兵（MobileNoteList；與桌機 .ns-notes-more 同字同色） */
 [data-shell="mobile"] .ns-notes-mmore {
   margin: 0; padding: 12px 14px 4px; text-align: center;
@@ -597,7 +592,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   background: var(--accent);
   clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
-[data-shell="mobile"] .ns-notes-mstub:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-mstub:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 /* 窄機收掉票根小字（契約 §8-7） */
 @media (max-width: 360px) {
   [data-shell="mobile"] .ns-notes-mstub .h { display: none; }
@@ -644,7 +639,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   flex: 1; min-width: 0; margin-right: auto;
   font-size: 12px; line-height: 1.5; letter-spacing: .04em; color: var(--color-ink-faint);
 }
-[data-shell="mobile"] .ns-notes-msave .ns-notes-mbtn { flex: none; padding: 0 18px; }
+[data-shell="mobile"] .ns-notes-msave .ns-notes-mbtn { flex: none; } /* 內距＝.ns-btn（UI 丙-1） */
 
 /* ═══════════ 九、變待辦：全螢幕面板 ═══════════ */
 
@@ -742,7 +737,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   border: 1.8px solid var(--color-paper); border-top: 0; border-right: 0;
   transform: translateY(-1px) rotate(-45deg);
 }
-[data-shell="mobile"] .ns-notes-mcheck:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+[data-shell="mobile"] .ns-notes-mcheck:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 [data-shell="mobile"] .ns-notes-mheadtag {
   flex: none;
   padding: 0 5px;
@@ -891,8 +886,8 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 [data-shell="mobile"] .ns-notes-mday:active:not(:disabled) { border-color: var(--accent); }
-[data-shell="mobile"] .ns-notes-mday:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
-[data-shell="mobile"] .ns-notes-mday:disabled { opacity: .35; cursor: default; }
+[data-shell="mobile"] .ns-notes-mday:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+[data-shell="mobile"] .ns-notes-mday:disabled { opacity: var(--disabled); cursor: not-allowed; } /* 禁用（視覺規範 §1.8） */
 /* 上個月／下個月的跳格：虛線框、不帶記號 */
 [data-shell="mobile"] .ns-notes-mday.is-nav { border-style: dashed; background: transparent; }
 [data-shell="mobile"] .ns-notes-mday.is-nav .w { font-family: var(--font-latin); font-size: 15px; line-height: 1; color: var(--color-ink-soft); }
@@ -915,8 +910,8 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   transition: border-color .15s, color .15s;
 }
 [data-shell="mobile"] .ns-notes-marrow:active:not(:disabled) { border-color: var(--color-dash); color: var(--color-ink); }
-[data-shell="mobile"] .ns-notes-marrow:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
-[data-shell="mobile"] .ns-notes-marrow:disabled { opacity: .3; cursor: default; }
+[data-shell="mobile"] .ns-notes-marrow:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-marrow:disabled { opacity: var(--disabled); cursor: not-allowed; }
 [data-shell="mobile"] .ns-notes-mbigdate {
   flex: none; min-height: 44px; padding: 0 4px;
   background: transparent; border: 0; border-radius: 2px;
@@ -926,7 +921,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 }
 [data-shell="mobile"] .ns-notes-mbigdate .w { margin-left: .3em; font-weight: 600; font-size: 14px; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-notes-mbigdate:active { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
-[data-shell="mobile"] .ns-notes-mbigdate:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+[data-shell="mobile"] .ns-notes-mbigdate:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 [data-shell="mobile"] .ns-notes-mtodaybtn {
   flex: none; margin-left: auto;
   min-height: 44px; padding: 0 14px;
@@ -935,7 +930,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mtodaybtn:active:not(:disabled) { border-color: var(--accent); color: var(--color-ink); }
-[data-shell="mobile"] .ns-notes-mtodaybtn:disabled { opacity: .4; cursor: default; }
+[data-shell="mobile"] .ns-notes-mtodaybtn:disabled { opacity: var(--disabled); cursor: not-allowed; }
 /* 窄機（≤360）：「10 月 10 日 · 六」＋兩顆箭頭＋今天 要塞進 288px——字級縮一階、箭頭收 40 寬（高仍 44） */
 @media (max-width: 360px) {
   [data-shell="mobile"] .ns-notes-mdateline { gap: 0; }
@@ -979,7 +974,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mdhit:active { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
-[data-shell="mobile"] .ns-notes-mdhit:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+[data-shell="mobile"] .ns-notes-mdhit:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 [data-shell="mobile"] .ns-notes-mdhit > span { display: block; }
 [data-shell="mobile"] .ns-notes-mdhit .d {
   font-family: var(--font-display); font-weight: 600; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-soft);
@@ -1000,8 +995,9 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 [data-shell="mobile"] .ns-notes-mdhit mark {
-  background: color-mix(in srgb, var(--color-gold) 38%, transparent); color: inherit; border-radius: 1px;
+  background: color-mix(in srgb, var(--accent) 24%, transparent); color: inherit; border-radius: 1px;
 }
+[data-theme="dark"][data-shell="mobile"] .ns-notes-mdhit mark { background: color-mix(in srgb, var(--accent) 38%, transparent); }
 
 /* 11-4 攤開的一頁：當天各篇（舊在上、新在下），篇與篇之間一道虛線 */
 [data-shell="mobile"] .ns-notes-mdiarypage { margin-top: 4px; padding: 16px 18px 14px; }
@@ -1017,10 +1013,10 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   margin-top: 18px; padding-top: 14px;
   border-top: 1px dashed var(--color-dash);
 }
-/* 選中（剛跳過來／剛寫好的那篇）：左緣一道燙金細線 */
+/* 選中（剛跳過來／剛寫好的那篇）：左緣一道 --sel-line（粉彩靛、銀河金；UI 丙-1） */
 [data-shell="mobile"] .ns-notes-mentry.is-sel::before {
   content: ""; position: absolute; left: -18px; top: 6px; bottom: 6px;
-  border-left: 2px solid var(--color-gold);
+  border-left: var(--sel-line);
   border-radius: 0 1px 1px 0;
 }
 [data-shell="mobile"] .ns-notes-mentry + .ns-notes-mentry.is-sel::before { top: 20px; }
@@ -1035,6 +1031,9 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"] .ns-notes-mentrymeta .ns-notes-mmetabtn { margin-left: 0; padding: 0 8px; font-size: 12px; }
 [data-shell="mobile"] .ns-notes-mentrymeta .ns-notes-mmetabtn:last-child { margin-right: -8px; }
 [data-shell="mobile"] .ns-notes-mmetabtn.quiet { color: var(--color-ink-faint); }
+/* 篇頭的「刪除」＝危險色（§2.3）。篇頭是無框的字鈕列，這裡只接赭字，不加框（加框會撐高篇頭）；class 用全 App 統一的 .ns-btn-danger */
+[data-shell="mobile"] .ns-notes-mmetabtn.ns-btn-danger { color: var(--danger); }
+[data-shell="mobile"] .ns-notes-mmetabtn.ns-btn-danger:active { background: var(--danger-bg); }
 [data-shell="mobile"] .ns-notes-mentry .ns-notes-mbodywrap { margin-top: 6px; }
 [data-shell="mobile"] .ns-notes-mentry .ns-notes-mread,
 [data-shell="mobile"] .ns-notes-mentry .ns-notes-mta { min-height: 3.8em; }
@@ -1072,7 +1071,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-family: inherit; text-align: left; color: var(--color-ink);
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-notes-mfphead:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-mfphead:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .ns-notes-mfphead h3 {
   flex: none; margin: 0;
   font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .24em;
@@ -1165,30 +1164,24 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 
 /* ═══════════ 十二、荷札（車次③契約 §5.4／§5.5；原型 styles.css:32-94、525-701） ═══════════
  * 荷札沒有顏色（決策記錄〈承接〉、契約 §1-5）：牌子只用墨與紙；金只給「現在在這」。
- * 牌子的四個色（框、牌面、打孔墊圈、孔）定義在牌子自己身上（`--ns-mtag-*`），亮暗兩主題各給值：
- *   點選器與 sheet 以 portal 掛在 <body>，不在 App 根 div 底下——主題覆寫寫成 `[data-theme][data-shell]`
- *   （<html> 同時帶兩個屬性，useShell.ts），portal 裡外都命中。
+ * 牌子的四個色（框、牌面、打孔墊圈、孔）掛在牌子自己身上（`--ns-mtag-*`），UI 丙-1 起指回 theme.css 的 --tag-*
+ *   （值逐字同；兩主題由 --tag-* 自己換，本檔不再寫銀河覆寫）。點選器與 sheet 以 portal 掛在 <body>，
+ *   --tag-* 定在 <html>（:root, [data-theme]），portal 裡外都繼承得到。
  * 版面：第四段＝篩選框＋整頁樹；清單整頁；三種底部 sheet（沿捕捉面板的 .ns-notes-mveil.is-top／.ns-notes-msheet）；
  *   點選器抽屜；編輯工具列（sticky、只在編輯中）；路線圖詳情的一列。觸控目標 ≥ 44px。 */
 
 /* 12-1 荷札牌（一般 28px／行內小牌 sm／頁頭大牌 lg）：左端切角＋打孔小圓；觸控沒有 hover ⇒ × 常駐 */
 [data-shell="mobile"] .ns-notes-mtag {
-  --ns-mtag-line: color-mix(in srgb, var(--color-ink) 44%, transparent);
-  --ns-mtag-fill: rgba(var(--starlight), .92);
-  --ns-mtag-eye: color-mix(in srgb, var(--color-ink) 55%, transparent);
-  --ns-mtag-hole: var(--color-paper);
+  --ns-mtag-line: var(--tag-line);
+  --ns-mtag-fill: var(--tag-fill);
+  --ns-mtag-eye: var(--tag-eye);
+  --ns-mtag-hole: var(--tag-hole);
   --h: 28px; --c: 7px;
   position: relative; display: inline-flex; align-items: stretch; flex: none;
   height: var(--h); max-width: 100%; vertical-align: middle;
   padding: 0; border: 0;
   background: var(--ns-mtag-line);
   clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
-}
-[data-theme="dark"][data-shell="mobile"] .ns-notes-mtag {
-  --ns-mtag-line: color-mix(in srgb, var(--color-ink) 34%, transparent);
-  --ns-mtag-fill: var(--color-paper-high);
-  --ns-mtag-eye: color-mix(in srgb, var(--color-ink) 50%, transparent);
-  --ns-mtag-hole: var(--color-paper);
 }
 /* 牌面：內縮 1px、同一個切角 → 細框 */
 [data-shell="mobile"] .ns-notes-mtag::before {
@@ -1213,7 +1206,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] button.ns-notes-mtag-nm { cursor: pointer; }
-[data-shell="mobile"] .ns-notes-mtag-nm:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+[data-shell="mobile"] .ns-notes-mtag-nm:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 [data-shell="mobile"] .ns-notes-mtag:has(> button.ns-notes-mtag-nm:active) { background: color-mix(in srgb, var(--color-ink) 80%, transparent); }
 [data-shell="mobile"] .ns-notes-mtag-nm .seg { display: inline; }
 /* 名稱：父層淡、末段正常、分隔 /（牌子、建議列、點選器列共用） */
@@ -1242,7 +1235,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"] .ns-notes-mtag.sm::after { left: .4em; width: .3em; height: .3em; margin-top: -.15em; border-width: .8px; }
 [data-shell="mobile"] .ns-notes-mtag.sm .ns-notes-mtag-nm { padding: 0 .55em 0 1.05em; font-size: 1em; letter-spacing: .02em; }
 [data-shell="mobile"] .ns-notes-mtag.sm:active { background: color-mix(in srgb, var(--color-ink) 80%, transparent); }
-[data-shell="mobile"] .ns-notes-mtag.sm:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+[data-shell="mobile"] .ns-notes-mtag.sm:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 /* 頁頭大牌：父層段可點（看父層） */
 [data-shell="mobile"] .ns-notes-mtag.lg { --h: 38px; --c: 11px; }
 [data-shell="mobile"] .ns-notes-mtag.lg::after { left: 11px; width: 9px; height: 9px; margin-top: -4.5px; border-width: 1.3px; }
@@ -1363,7 +1356,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mdots:active { border-color: var(--color-dash); color: var(--color-ink); }
-[data-shell="mobile"] .ns-notes-mdots:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-mdots:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .ns-notes-mtagcount { margin: 8px 0 0; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-notes-mtagcount b { font-family: var(--font-latin); font-weight: 600; color: var(--color-ink); }
 [data-shell="mobile"] .ns-notes-mtagcount .virt {
@@ -1387,12 +1380,9 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"] .ns-notes-mimpact .warn { color: var(--color-ink); }
 /* 主鈕在上、上下排、整寬（D-筆-41） */
 [data-shell="mobile"] :is(.ns-notes-mrename, .ns-notes-mconfirm) .btns { display: grid; gap: 8px; }
-[data-shell="mobile"] :is(.ns-notes-mrename, .ns-notes-mconfirm) .btns .ns-notes-mbtn { width: 100%; min-height: 48px; }
+[data-shell="mobile"] :is(.ns-notes-mrename, .ns-notes-mconfirm) .btns .ns-notes-mbtn { width: 100%; } /* 高度＝.ns-btn 的 --ctl-h（手機 44；UI 丙-1 前是自訂 48） */
 [data-shell="mobile"] .ns-notes-mbtn.wide { width: 100%; }
-[data-shell="mobile"] .ns-notes-mbtn.primary.danger {
-  border-color: var(--late); color: var(--late);
-  background: color-mix(in srgb, var(--late) 9%, transparent);
-}
+/* 確認 sheet 的危險主鈕（原本赭底赭框）→ .ns-btn.btn-ghost.ns-btn-danger（危險鈕永遠不實心，§2.3；UI 丙-1） */
 
 /* 12-5 清單：三段（車票・列車車廂／筆記／日記，別線＝別處）＋已完成摺疊 */
 [data-shell="mobile"] .ns-notes-mtaggroup + .ns-notes-mtaggroup { margin-top: 22px; }
@@ -1420,7 +1410,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] button.ns-notes-mtagitem:active { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
-[data-shell="mobile"] .ns-notes-mtagitem:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+[data-shell="mobile"] .ns-notes-mtagitem:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 [data-shell="mobile"] .ns-notes-mtagitem.other { cursor: default; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-notes-mtagitem .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 [data-shell="mobile"] .ns-notes-mtagitem .l1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -1473,8 +1463,10 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-family: inherit; font-size: 15px; letter-spacing: .08em; text-align: left; color: var(--color-ink);
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-notes-mtagsheet .item:active { background: color-mix(in srgb, var(--color-gold) 10%, transparent); }
-[data-shell="mobile"] .ns-notes-mtagsheet .item.danger { color: var(--late); }
+[data-shell="mobile"] .ns-notes-mtagsheet .item:active { background: var(--sel-bg); } /* 按下＝作用中底（粉彩靛、銀河金 10%＝舊值；UI 丙-1） */
+/* 破壞性項目赭字（§2.4 動作清單型 sheet）；class 用全 App 統一的 .ns-btn-danger（UI 丙-1） */
+[data-shell="mobile"] .ns-notes-mtagsheet .item.ns-btn-danger { color: var(--danger); }
+[data-shell="mobile"] .ns-notes-mtagsheet .item.ns-btn-danger:active { background: var(--danger-bg); }
 [data-shell="mobile"] .ns-notes-mtagsheet .item.cancel { border-bottom: 0; font-size: 14px; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-notes-msheet.ns-notes-mtagsheet.is-merge { padding-left: var(--m-gutter); padding-right: var(--m-gutter); }
 [data-shell="mobile"] .ns-notes-mmergelabel { margin: 0 0 2px; font-size: 12px; letter-spacing: .12em; color: var(--color-ink-faint); }
@@ -1582,7 +1574,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint);
 }
 [data-shell="mobile"] .ns-notes-mpklp { padding: 6px 0 8px calc(var(--d, 0) * 18px + 40px); animation: nsNotesMFade .16s ease-out; }
-[data-shell="mobile"] .ns-notes-mpklp .ns-notes-mbtn { min-height: 44px; font-size: 13px; letter-spacing: .06em; text-indent: 0; }
+[data-shell="mobile"] .ns-notes-mpklp .ns-notes-mbtn { letter-spacing: .06em; text-indent: 0; } /* 高度與字級＝.ns-btn（UI 丙-1）；字距收窄塞得下「在 #… 底下建立…」 */
 [data-shell="mobile"] .ns-notes-mcheck {
   flex: none; display: inline-grid; place-items: center;
   width: 20px; height: 20px;
@@ -1788,7 +1780,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mmd a:active { text-decoration-color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
-[data-shell="mobile"] .ns-notes-mmd a:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: 1px; }
+[data-shell="mobile"] .ns-notes-mmd a:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 1px; }
 /* 行內小牌：垂直對位壓在行框裡（16px／1.8 下 -.32em 會撐高那一行；原型實測 baseline 不撐） */
 [data-shell="mobile"] .ns-notes-mmd .ns-notes-mtag.sm { vertical-align: baseline; }
 
@@ -1804,7 +1796,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mnfrow:active { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-[data-shell="mobile"] .ns-notes-mnfrow:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+[data-shell="mobile"] .ns-notes-mnfrow:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 [data-shell="mobile"] .ns-notes-mnfrow .t {
   display: block; max-width: 100%; font-size: 13.5px; line-height: 1.45; letter-spacing: .03em; color: var(--color-ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1822,7 +1814,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mnfmore:active { color: var(--color-ink); background: color-mix(in srgb, var(--accent) 9%, transparent); }
-[data-shell="mobile"] .ns-notes-mnfmore:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+[data-shell="mobile"] .ns-notes-mnfmore:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 [data-shell="mobile"] .ns-notes-mnfadd {
   position: relative; display: inline-flex; align-items: center; gap: 5px;
   height: 32px; margin-top: 8px; padding: 0 12px;
@@ -1833,7 +1825,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 /* 視覺 32px、觸控面積上下各外擴 6px＝44px */
 [data-shell="mobile"] .ns-notes-mnfadd::after { content: ""; position: absolute; inset: -6px -2px; }
 [data-shell="mobile"] .ns-notes-mnfadd:active { border-color: var(--accent); color: var(--color-ink); }
-[data-shell="mobile"] .ns-notes-mnfadd:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+[data-shell="mobile"] .ns-notes-mnfadd:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 [data-shell="mobile"] .ns-notes-mnfempty { display: block; padding: 8px 0 2px; font-size: 12px; letter-spacing: .05em; color: var(--color-ink-faint); }
 
 /* ── 路線抬頭下的筆記區（MobileRouteNotes）：預設收合成一行「筆記 N ›」 ── */
@@ -1847,7 +1839,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-notes-mroutenotes .hd:active { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
-[data-shell="mobile"] .ns-notes-mroutenotes .hd:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+[data-shell="mobile"] .ns-notes-mroutenotes .hd:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .ns-notes-mroutenotes .hd .l { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .24em; }
 [data-shell="mobile"] .ns-notes-mroutenotes .hd .n { font-family: var(--font-latin); font-size: 13px; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-notes-mroutenotes .hd .car {

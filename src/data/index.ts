@@ -75,6 +75,8 @@ export const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
  *   `&backup=fail|streak3`           備份端點（M3 ⑥ WP0）→ `MemoryBackupRepository` 吃這個：
  *                                      fail    → 啟動 report 回 error，拍失敗 toast
  *                                      streak3 → 同上，且 backupStore 視為連敗 ≥3，拍啟動橫幅
+ *   `&gallery=1`                     共用元件樣本頁（UI 丙-2 契約 §0）→ App／MobileShell 的主欄改畫 `ui/dev/Gallery`
+ *                                      取代頁面（兩殼各一版，靠 data-shell 換 token）；false＝沒帶
  *
  * 讀法：`import { DEV_FLAGS } from "../../data";` → `DEV_FLAGS.day` 等；null＝沒帶這個參數。
  */
@@ -83,10 +85,12 @@ export interface DevFlags {
   view: "month" | "week" | "time" | "stream" | null;
   day: string | null;
   backup: BackupMockMode;
+  /** `?gallery=1`：主欄改畫共用元件樣本頁（UI 丙-2）；正式打包（非 DEV 且非 mock）恆 false */
+  gallery: boolean;
 }
 
 function detectDevFlags(): DevFlags {
-  const off: DevFlags = { page: null, view: null, day: null, backup: null };
+  const off: DevFlags = { page: null, view: null, day: null, backup: null, gallery: false };
   if (!import.meta.env.DEV && !MOCK_MODE) return off;
   if (typeof window === "undefined") return off;
   try {
@@ -100,6 +104,7 @@ function detectDevFlags(): DevFlags {
       view: view === "month" || view === "week" || view === "time" || view === "stream" ? view : null,
       day: day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null,
       backup: backup === "fail" || backup === "streak3" ? backup : null,
+      gallery: q.get("gallery") === "1",
     };
   } catch {
     return off;

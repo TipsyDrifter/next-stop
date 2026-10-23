@@ -45,7 +45,7 @@ export function MobileTagActionSheet({ title, items, onClose }: { title: string;
       <div className="ns-notes-msheet ns-notes-mtagsheet" role="dialog" aria-modal="true" aria-label={title}>
         <p className="ttl">{title}</p>
         {items.map((it) => (
-          <button key={it.label} type="button" className={"item" + (it.danger ? " danger" : "")} onClick={it.onClick}>
+          <button key={it.label} type="button" className={"item" + (it.danger ? " ns-btn-danger" : "")} onClick={it.onClick}>
             {it.label}
           </button>
         ))}
@@ -80,7 +80,7 @@ export function MobileTagConfirmSheet({ title, body, primary, danger, onConfirm,
         <div className="btns">
           <button
             type="button"
-            className={"ns-notes-mbtn primary" + (danger ? " danger" : "")}
+            className={"ns-notes-mbtn ns-btn " + (danger ? "btn-ghost ns-btn-danger" : "btn-seal")}
             onClick={() => {
               if (busy.current) return;
               busy.current = true;
@@ -89,7 +89,7 @@ export function MobileTagConfirmSheet({ title, body, primary, danger, onConfirm,
           >
             {primary}
           </button>
-          <button type="button" className="ns-notes-mbtn" onClick={onCancel}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onCancel}>
             取消
           </button>
         </div>
@@ -154,7 +154,7 @@ export function MobileTagMergeSheet({ fromKey, onPick, onClose }: { fromKey: str
           ))}
           {!res.items.length && <p className="ns-notes-mpkhint">{res.browse && res.hint ? res.hint : "找不到符合的荷札"}</p>}
         </div>
-        <button type="button" className="ns-notes-mbtn wide" onClick={onClose}>
+        <button type="button" className="ns-notes-mbtn ns-btn btn-ghost wide" onClick={onClose}>
           取消
         </button>
       </div>

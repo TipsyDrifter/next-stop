@@ -86,7 +86,7 @@ export function BudgetCard() {
       ) : !has ? (
         <div className="ns-tk-bud-empty">
           <p>還沒有預算</p>
-          <button type="button" className="ns-tk-btn" onClick={open}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={open}>
             設定預算…
           </button>
         </div>

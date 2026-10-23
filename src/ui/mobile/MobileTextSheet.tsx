@@ -3,7 +3,7 @@
  *
  * 接法同「選日期…」「幾點…」：⋯ sheet 收起、改畫這一張；關掉（×／取消／暗幕／返回鍵）＝整個流程結束。
  *   返回層由 ⋯ sheet 的主人登記（同一層），本元件不另外登記。
- * DOM 沿兩子頁共用的 `.m-sheet-veil.techo-veil > .m-sheet.ns-card[role=dialog]`；輸入沿今日頁建票列那條底線輸入。
+ * DOM 沿兩子頁共用的 `.m-sheet-veil.techo-veil > .m-sheet.techo-card[role=dialog]`（UI 丙-1 前是退役的暖棕小卡）；輸入沿今日頁建票列那條底線輸入。
  * 空白不給送（送出鈕 disabled、Enter 不動）。送出後由呼叫端關面板（成功與否的收據也在呼叫端）。
  * IME 守門照建票列三道（isComposing／229／composition 旗標）；Esc＝關（外接鍵盤）。
  */
@@ -60,7 +60,7 @@ export function MobileTextSheet({
   return (
     <div className="m-sheet-veil techo-veil" role="presentation" onClick={onClose}>
       <div
-        className="m-sheet ns-card m-txs"
+        className="m-sheet techo-card m-txs"
         role="dialog"
         aria-modal="true"
         aria-label={`${title}——${name}`}
@@ -97,7 +97,7 @@ export function MobileTextSheet({
             {submitLabel}
           </button>
         </div>
-        <button type="button" onClick={onClose} className="m-sheet-item is-cancel">
+        <button type="button" onClick={onClose} className="m-sheet-item is-cancel ns-btn">
           取消
         </button>
       </div>

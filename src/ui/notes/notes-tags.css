@@ -7,29 +7,23 @@
  * class 一律 .ns-notes-*；書封頁務件借書封的 .lines／.line-item[.active]／.roundel（書封是核心的面，本線元件只是住進去）。
  * 注入順序：元件 css 在 index.css 之前 ⇒ 與 techo／gnav／panel 同名屬性競爭的規則以 .cover／.ns-notes／.panel 前綴抬一級。
  *
- * 紀律：**荷札牌沒有顏色**——只用墨與紙推導的 --ns-tag-*（兩主題各給值）；--color-gold 只給「現在在這」的金菱形、今天外框。
- *   原型 --tag-line／--tag-fill／--tag-hole／--tag-eye → 本檔 --ns-tag-*（墨的 % 與紙色推導，不新增全域 token 值）。
+ * 紀律：**荷札牌沒有顏色**——只用墨與紙推導的 --tag-*（theme.css 語意層，兩主題各給值）；--color-gold 只給書封裡
+ *   「現在在這」的金菱形、今天外框。
  *   原型 --cover-* → --color-book／--color-book-ink／--book-muted／--color-book-hover。
  * 牌子會出現在書封、任務側板、旅客筆記頁、掛在 body 的建議清單 ⇒ 變數定在 :root（名稱帶 --ns-tag- 前綴）。
+ * UI 丙-1：值搬進 theme.css 的 --tag-*（逐字同值；時刻表 --ns-tt-tag-*、手機 --ns-mtag-* 也指那裡），這裡只剩舊名的別名，
+ *   兩主題由 --tag-* 自己換值；舊名丙-7 總驗收時刪（時刻表 timetable.css 還在讀 --ns-tag-*，先留）。
  * ───────────────────────────────────────────────────── */
 
 :root {
-  --ns-tag-line: color-mix(in srgb, var(--color-ink) 44%, transparent);
-  --ns-tag-line-hi: color-mix(in srgb, var(--color-ink) 80%, transparent);
-  --ns-tag-fill: rgba(var(--starlight), .92);
-  --ns-tag-hole: var(--color-paper);
-  --ns-tag-eye: color-mix(in srgb, var(--color-ink) 55%, transparent);
-  --ns-tag-wash: color-mix(in srgb, var(--color-ink) 5%, transparent);
-  --ns-tag-sel: color-mix(in srgb, var(--accent) 10%, transparent);
-  --ns-tag-float: rgba(var(--starlight), .9);
-}
-[data-theme="dark"] {
-  --ns-tag-line: color-mix(in srgb, var(--color-ink) 34%, transparent);
-  --ns-tag-line-hi: color-mix(in srgb, var(--color-ink) 72%, transparent);
-  --ns-tag-fill: var(--color-paper-high);
-  --ns-tag-hole: var(--color-paper);
-  --ns-tag-eye: color-mix(in srgb, var(--color-ink) 50%, transparent);
-  --ns-tag-float: var(--color-paper-high);
+  --ns-tag-line: var(--tag-line);
+  --ns-tag-line-hi: var(--tag-line-hi);
+  --ns-tag-fill: var(--tag-fill);
+  --ns-tag-hole: var(--tag-hole);
+  --ns-tag-eye: var(--tag-eye);
+  --ns-tag-wash: var(--tag-wash);
+  --ns-tag-sel: var(--tag-sel);
+  --ns-tag-float: var(--tag-float);
 }
 
 /* ═══ 一、荷札牌（一般／行內小牌 .sm／頁頭大牌 .lg） ═══ */
@@ -65,7 +59,7 @@
   font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7;
 }
 .ns-notes-tag:hover { background: var(--ns-tag-line-hi); }
-.ns-notes-tag .ns-notes-tag-nm:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+.ns-notes-tag .ns-notes-tag-nm:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 .ns-notes-tag .ns-notes-tag-x {
   position: relative; z-index: 1; width: 0; margin-right: 0; overflow: hidden; opacity: 0;
   display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; color: var(--color-ink-faint);
@@ -73,7 +67,7 @@
 }
 .ns-notes-tag:hover .ns-notes-tag-x, .ns-notes-tag .ns-notes-tag-x:focus-visible { width: 18px; margin-left: -5px; opacity: 1; }
 .ns-notes-tag .ns-notes-tag-x:hover { color: var(--color-late); }
-.ns-notes-tag .ns-notes-tag-x:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.ns-notes-tag .ns-notes-tag-x:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .ns-notes-tag.is-armed { background: var(--accent); }
 .ns-notes-tag.is-armed::before { background: color-mix(in srgb, var(--ns-tag-fill) 82%, var(--accent)); }
 .ns-notes-tag.is-armed .ns-notes-tag-x { width: 18px; margin-left: -5px; opacity: 1; color: var(--color-late); }
@@ -90,7 +84,7 @@
   border-radius: 2px; padding: 0 2px; transition: color .15s, background .15s;
 }
 .ns-notes-tag.lg .ns-notes-tag-nm button.pa:hover { color: var(--color-ink); background: var(--ns-tag-wash); }
-.ns-notes-tag.lg .ns-notes-tag-nm button.pa:focus-visible { outline: 1px solid var(--accent); }
+.ns-notes-tag.lg .ns-notes-tag-nm button.pa:focus-visible { outline: var(--focus-ring); }
 .ns-notes-tag.lg .sl { margin: 0 .3em; font-weight: 400; }
 .ns-notes-tag.lg:hover { background: var(--ns-tag-line); }
 /* 虛資料夾：沒人直接掛它——不打孔、框線退淡 */
@@ -200,7 +194,7 @@
 .ns-notes-tagfield .ns-notes-tagadd:hover, .ns-notes-tagfield .ns-notes-tagadd:focus-visible {
   opacity: 1; color: var(--color-ink); border-color: var(--color-dash); outline: none;
 }
-.ns-notes-taginput { display: inline-flex; align-items: center; gap: 2px; flex: 1 1 110px; min-width: 110px; border-bottom: 1px solid var(--color-gold); }
+.ns-notes-taginput { display: inline-flex; align-items: center; gap: 2px; flex: 1 1 110px; min-width: 110px; border-bottom: 1px solid var(--accent); } /* 輸入中的底線＝聚焦底線（§2.5：--accent） */
 .ns-notes-taginput i { font-style: normal; font-family: var(--font-latin); color: var(--color-ink-faint); font-size: 13px; }
 /* .panel input（panel.css）是 0,1,1：這裡 0,2,1 蓋過，免得多一條底線 */
 .ns-notes-tagfield .ns-notes-taginput input, .ns-notes-mergepick .ns-notes-taginput input {
@@ -250,7 +244,7 @@
 }
 .ns-notes .ns-notes-backlink span { color: var(--color-ink-faint); margin-left: 6px; font-size: 11px; }
 .ns-notes .ns-notes-backlink:hover { background: var(--ns-hover); color: var(--color-ink); }
-.ns-notes .ns-notes-backlink:focus-visible { outline: 1px solid var(--accent); }
+.ns-notes .ns-notes-backlink:focus-visible { outline: var(--focus-ring); }
 /* 通車提示（只出現一次） */
 .ns-notes-notice {
   display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding: 9px 10px 9px 14px;
@@ -290,7 +284,7 @@
   border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--color-ink-soft);
 }
 .ns-notes .ns-notes-dots:hover, .ns-notes .ns-notes-dots[aria-expanded="true"] { border-color: var(--color-dash); color: var(--color-ink); background: var(--ns-hover); }
-.ns-notes .ns-notes-dots:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-notes .ns-notes-dots:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-notes-menu, .ns-notes-mergepick {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 25;
   background: var(--ns-float); border: 1px solid var(--ns-glass); border-radius: 4px; box-shadow: var(--shadow-card-hover), var(--ns-hi);
@@ -306,7 +300,9 @@
 }
 .ns-notes .ns-notes-menu button .ns-notes-kbd { margin-left: auto; }
 .ns-notes .ns-notes-menu button:hover, .ns-notes .ns-notes-menu button:focus-visible { background: var(--ns-hover); outline: none; }
-.ns-notes .ns-notes-menu button.danger { color: var(--color-late); border-top: 1px dashed var(--color-line); margin-top: 3px; padding-top: 8px; border-radius: 0 0 2px 2px; }
+/* 破壞性項目最後且赭字（視覺規範 §2.4 PopMenu）；class 照危險鈕統一叫 .ns-btn-danger（UI 丙-1） */
+.ns-notes .ns-notes-menu button.ns-btn-danger { color: var(--danger); border-top: 1px dashed var(--color-line); margin-top: 3px; padding-top: 8px; border-radius: 0 0 2px 2px; }
+.ns-notes .ns-notes-menu button.ns-btn-danger:hover, .ns-notes .ns-notes-menu button.ns-btn-danger:focus-visible { background: var(--danger-bg); }
 .ns-notes-mergepick { width: 330px; padding: 12px 12px 8px; }
 .ns-notes-mergepick .ns-notes-taginput { width: 100%; }
 /* 改名列 */
@@ -315,7 +311,7 @@
 .ns-notes-renamerow .ns-notes-taginput.lg i { font-size: 22px; }
 .ns-notes .ns-notes-renamerow input.techo-input {
   flex: 1; min-width: 0; padding: 2px 0 4px; font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: .05em;
-  border-bottom-width: 1.5px; border-bottom-color: var(--color-gold);
+  border-bottom-width: 1.5px; border-bottom-color: var(--accent); /* 改名中＝聚焦底線（§2.5） */
 }
 .ns-notes-impact { font-size: 12px; line-height: 1.7; color: var(--color-ink-soft); letter-spacing: .04em; min-height: 1.7em; }
 .ns-notes-impact.err { color: var(--color-late); }
@@ -335,8 +331,8 @@
   font-family: inherit; color: var(--color-ink); transition: background .12s;
 }
 .ns-notes .ns-notes-tagitem:hover { background: var(--ns-hover); }
-.ns-notes .ns-notes-tagitem.is-sel { background: var(--ns-sel); box-shadow: inset 2px 0 0 var(--color-gold); }
-.ns-notes .ns-notes-tagitem:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.ns-notes .ns-notes-tagitem.is-sel { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--sel-fg); } /* 左線＝--sel-line 的 2px 作用中色（內陰影畫，不擠列） */
+.ns-notes .ns-notes-tagitem:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-notes-tagitem.other { cursor: default; }
 .ns-notes-tagitem .main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
 .ns-notes-tagitem .nm { font-size: 14px; letter-spacing: .03em; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -363,7 +359,7 @@
 }
 .ns-notes-donefold > summary::-webkit-details-marker { display: none; }
 .ns-notes-donefold > summary:hover { background: var(--ns-hover); color: var(--color-ink-soft); }
-.ns-notes-donefold > summary:focus-visible { outline: 1px solid var(--accent); }
+.ns-notes-donefold > summary:focus-visible { outline: var(--focus-ring); }
 .ns-notes-donefold > summary svg { transition: transform .16s; }
 .ns-notes-donefold[open] > summary svg { transform: rotate(90deg); }
 .ns-notes-donefold > summary .n { font-family: var(--font-latin); }

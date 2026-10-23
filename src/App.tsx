@@ -52,12 +52,12 @@
  *   - 三條功能線的桌機全域浮層：`lineOverlays("desktop")` 依三線固定順序掛在桌機覆蓋層區的最後；
  *     只有通車且有填的線才掛——三線都沒登記時是空陣列，零 DOM 節點。
  */
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useNodeStore } from "./store/nodeStore";
 import { useUiStore } from "./store/uiStore";
 import { useBackupStore, BACKUP_FAIL_BANNER_STREAK } from "./store/backupStore";
 import { useSyncStore } from "./store/syncStore";
-import { MOCK_MODE } from "./data";
+import { DEV_FLAGS, MOCK_MODE } from "./data";
 import { dbUsable } from "./lib/db";
 import { useGlobalHotkeys } from "./ui/shell/useGlobalHotkeys";
 import { SkyLayer } from "./ui/ambience";
@@ -81,6 +81,8 @@ import { useVisualViewportHeight } from "./ui/mobile/useViewportHeight";
 import MobileShell from "./ui/mobile/MobileShell";
 // 備份橫幅用到 .ns-btn／.ns-close（覆蓋層共用小件）——自己 import，不倚賴 Toast 先掛載
 import "./ui/common/overlay.css";
+// UI 丙-2：`?mock=1&gallery=1` 主欄改畫共用元件樣本頁（DEV_FLAGS.gallery；lazy＝沒帶參數不載入）
+const Gallery = lazy(() => import("./ui/dev/Gallery"));
 
 export default function App() {
   const loadSidebar = useNodeStore((s) => s.loadSidebar);
@@ -153,7 +155,7 @@ export default function App() {
             {error && <div className="px-8 pt-3 text-sm text-late">⚠ {error}</div>}
             <BackupBanner />
             <SyncBanner shell="desktop" />
-            <View />
+            {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <View />}
             {/* 完成卡留在桌機樹：它是 `absolute bottom-6`、定位脈絡就是這顆 <main>，
                 搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
             <CompleteCard />
@@ -209,7 +211,7 @@ function BackupBanner() {
       <button
         type="button"
         onClick={() => openSettings("backup")}
-        className="btn-gold ns-btn ns-btn--sm shrink-0"
+        className="ns-btn ns-btn--sm btn-ghost shrink-0"
       >
         開啟設定
       </button>

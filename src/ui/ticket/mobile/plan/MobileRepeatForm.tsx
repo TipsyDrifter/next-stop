@@ -316,7 +316,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   return createPortal(
     <div ref={rootRef} className="ns-tk-mform ns-tk-mre" tabIndex={-1} data-kind={kind} role="dialog" aria-modal="true" aria-label={isNew ? "新增定期帳" : "定期帳"}>
       <div className="ns-tk-mf-top">
-        <button type="button" className="ns-tk-mbtn quiet" onClick={onDone}>
+        <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={onDone}>
           取消
         </button>
         <span className="ns-tk-mkind" role="group" aria-label="類型">
@@ -326,7 +326,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
             </button>
           ))}
         </span>
-        <button type="button" className="ns-tk-mbtn primary" onClick={() => void save()}>
+        <button type="button" className="ns-btn btn-seal ns-tk-mbtn" onClick={() => void save()}>
           存
         </button>
       </div>
@@ -464,7 +464,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                   <IconRight size={11} />
                 </button>
                 {d.until && (
-                  <button type="button" className="ns-tk-mbtn quiet ns-tk-mre-clr" onClick={() => setDraft({ until: null })}>
+                  <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-mbtn ns-tk-mre-clr" onClick={() => setDraft({ until: null })}>
                     不設
                   </button>
                 )}
@@ -515,7 +515,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
         <div className="ns-tk-mf-foot">
           <button
             type="button"
-            className="ns-tk-mbtn danger"
+            className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn"
             onClick={() => {
               onDone();
               void deleteRepeat(editId); // 軟刪＋toast「復原」（store）

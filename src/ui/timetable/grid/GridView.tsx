@@ -412,7 +412,7 @@ const MBAR_CLOSE_MS = 480;
 
 /**
  * 手機的塗色列宿主：`position: fixed` 在 tab bar 之上、從底部彈簧升起，蓋住運行列（〈原型定案〉9）。
- * 量自己的高度寫進 App 根（`[data-shell]`）的 `--ns-tt-grid-mbar-h`，給 Toast 抬高用（§M 的 `.ns-tt-grid-mbar.is-open ~ .ns-card.fixed`）。
+ * 量自己的高度寫進 App 根（`[data-shell]`）的 `--ns-tt-grid-mbar-h`，給 Toast 抬高用（§M 的 `.ns-tt-grid-mbar.is-open ~ .techo-card.fixed`）。
  * 必須是 Toast 的前面兄弟節點（MobileTimetable 的 Fragment 本來就是 App 根的直接子節點，同 .ns-tt-mdock）。
  */
 export function MobileGridDock() {

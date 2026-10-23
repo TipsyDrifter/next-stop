@@ -57,14 +57,14 @@
   font-family: inherit; color: inherit;
   transition: color .15s;
 }
-.ns-today .sec .fold:hover { color: var(--color-gold); }
-.ns-today .sec .fold:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 3px; }
+.ns-today .sec .fold:hover { color: var(--accent); }
+.ns-today .sec .fold:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .ns-today .sec .fold .caret { display: inline-block; margin-left: .5em; transition: transform .15s; }
 .ns-today .sec .fold[aria-expanded="false"] .caret { transform: rotate(-90deg); }
 
 /* ═══ 區段標題：「＋ 臨時車票」分裂鈕（10-20 磨光②；today.draft／today.inbox 的滑鼠入口） ═══
    兩顆 .ns-btn--sm.btn-ghost 併成一組：右鈕左移 1px 疊在主鈕的右框上（中縫只見一條線），外側保留 2px 圓角；
-   hover 的那一半抬到上層，金框四邊完整。align-self:center——.sec 是 baseline 對齊，鈕框比字高，置中才不往下掉。 */
+   hover 的那一半抬到上層，作用中框（--accent）四邊完整。align-self:center——.sec 是 baseline 對齊，鈕框比字高，置中才不往下掉。 */
 .ns-today .sec .add-split { display: inline-flex; align-self: center; flex: none; }
 .ns-today .sec .add-split .ns-btn { position: relative; letter-spacing: .1em; }
 .ns-today .sec .add-split .ns-btn:hover,
@@ -74,19 +74,20 @@
   margin-left: -1px; padding-left: 6px; padding-right: 6px;
   border-top-left-radius: 0; border-bottom-left-radius: 0;
 }
-.ns-today .sec .add-split .add-more[aria-expanded="true"] { border-color: var(--color-gold); color: var(--color-ink); }
+.ns-today .sec .add-split .add-more[aria-expanded="true"] { border-color: var(--accent); color: var(--color-ink); }
 
 /* ═══ 車票列 ═══ */
 .ns-today .ticket-list > li { list-style: none; }
 
-/* 選中票＝燙金邊（打孔圈跟著）；容器沒焦點時退淡——鍵盤流不在這裡的提示 */
+/* 選中票＝作用中色的邊（＝--sel-line 的色；粉彩靛、銀河金；UI 丙-1 前是燙金，視覺規範 §2.10）；打孔圈跟著；
+   容器沒焦點時退淡——鍵盤流不在這裡的提示 */
 .ns-today .ticket-list .ticket.selected,
 .ns-today .ticket-list .ticket.selected::before,
-.ns-today .ticket-list .ticket.selected::after { border-color: var(--color-gold); }
+.ns-today .ticket-list .ticket.selected::after { border-color: var(--accent); }
 .ns-today:not(:focus-within) .ticket-list .ticket.selected,
 .ns-today:not(:focus-within) .ticket-list .ticket.selected::before,
 .ns-today:not(:focus-within) .ticket-list .ticket.selected::after {
-  border-color: color-mix(in srgb, var(--color-gold) 55%, var(--color-line));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--color-line));
 }
 
 /* 票根：鋏痕（入鋏）的定位錨——stamps.css 的 .ns-punch 是 position:absolute（left:-1px／top:26px） */
@@ -98,13 +99,13 @@
   font-family: inherit;
   transition: color .15s;
 }
-.ns-today button.fare-class:hover { color: var(--color-gold); }
+.ns-today button.fare-class:hover { color: var(--accent); }
 
 /* meta 群組與 chip（沿 outline.css 的處理：.mi 只做語義分組、不進版面） */
 .ns-today .meta .mi { display: contents; }
 /* 日期 chip 當按鈕（＝推遲 popover 入口，取代原生 date input；形制仍由 techo.css 的 .chip 出） */
 .ns-today .meta .chip-btn { background: transparent; cursor: pointer; font-family: inherit; }
-.ns-today .meta .chip-btn:hover { color: var(--color-gold); border-color: var(--color-gold); }
+.ns-today .meta .chip-btn:hover { color: var(--accent); border-color: var(--accent); }
 /* 原型沒有的控件：與頁首重複的「執行 M/D」只在 hover／選中現身 */
 .ns-today .meta .meta-hover { display: inline-flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .15s; }
 .ns-today .ticket:hover .meta-hover,
@@ -167,7 +168,7 @@
 .ns-today .ticket.draft::before,
 .ns-today .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
 .ns-today .ticket.draft .stamp { cursor: default; pointer-events: none; }
-/* 「無日期」切換（磨光⑤ K3）：照手機 .m-nt-toggle——關＝虛線小方標淡字、開＝燙金實線；排在 meta 最右 */
+/* 「無日期」切換（磨光⑤ K3）：照手機 .m-nt-toggle——關＝虛線小方標淡字、開＝選中（--sel-*；UI 丙-1 前是燙金）實線；排在 meta 最右 */
 .ns-today .ticket.draft .draft-nodate {
   margin-left: auto; padding: 1px 8px 1px 10px; border-radius: 2px;
   background: transparent; border: 1px dashed var(--color-dash); cursor: pointer;
@@ -177,11 +178,11 @@
 }
 .ns-today .ticket.draft .draft-nodate:hover { color: var(--color-ink-soft); border-color: var(--color-ink-faint); }
 .ns-today .ticket.draft .draft-nodate.is-on {
-  border-style: solid; border-color: var(--color-gold);
-  color: var(--color-gold-ink);
-  background: color-mix(in srgb, var(--color-gold) 12%, transparent);
+  border-style: solid; border-color: var(--sel-fg);
+  color: var(--sel-fg);
+  background: var(--sel-bg);
 }
-.ns-today .ticket.draft .draft-nodate:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.ns-today .ticket.draft .draft-nodate:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .ns-today .ticket.draft .draft-nodate { transition: none; } }
 .ns-today .ticket input.title {
   display: block; width: 100%; min-width: 160px;
@@ -208,14 +209,15 @@
 @keyframes nsLoggedIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ns-today .log-row .logged { animation: none; } }
 
-/* ═══ 空狀態（1.0c 無班次／1.0d 全完成慶祝）：原型 .sec 語彙＋一句話＋文字入口 ═══ */
+/* ═══ 空狀態（1.0c 無班次／1.0d 全完成慶祝）：原型 .sec 語彙＋一句話＋文字入口 ═══
+   UI 丙-1：入口字從燙金改作用中 --accent（燙金在粉彩紙面上幾乎看不見）；丙-3 才換成次鈕 .ns-btn.btn-ghost。 */
 .ns-today .empty { max-width: 520px; }
 .ns-today .empty .sec { margin-top: 8vh; }
 .ns-today .empty.cheer .sec { margin-top: 34px; }
 .ns-today .empty-body { font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft); }
 .ns-today .empty-action {
   margin-top: 16px; padding: 0; background: transparent; border: 0; cursor: pointer;
-  font-family: inherit; font-size: 12px; letter-spacing: .14em; color: var(--color-gold);
+  font-family: inherit; font-size: 12px; letter-spacing: .14em; color: var(--accent);
   text-decoration: underline dotted transparent; text-underline-offset: 4px;
   transition: text-decoration-color .15s;
 }
@@ -230,13 +232,13 @@
 
 /* ═══ 拖曳排序（WP5）：落點指示只動 transform／opacity（情境 6；M2_設計生產線.md:191） ═══
    線常駐（平時 opacity:0）→ 亮起時不動版面、不觸發 layout；
-   語彙＝ .sec .rule 那條 1px dashed var(--color-dash) 的撕線，落點時換成燙金（＝選中票的同一枚金）。
+   語彙＝ .sec .rule 那條 1px dashed var(--color-dash) 的撕線，落點時換成作用中色（＝選中票的同一個 --accent；UI 丙-1 前是燙金）。
    誤點列的 draggable 由 useTodayDnd 在 effect 裡補上（拖起來當場取消＋toast），視覺上不畫任何線。 */
 .ns-today .ticket-list > li { position: relative; }
 .ns-today .ticket-li[draggable="true"]::before,
 .ns-today .ticket-li[draggable="true"]::after {
   content: ""; position: absolute; left: 0; right: 0; height: 0;
-  border-top: 1.5px dashed var(--color-gold);
+  border-top: 1.5px dashed var(--accent);
   opacity: 0; transform: scaleX(.94); transform-origin: left center;
   transition: opacity .12s ease-out, transform .12s ease-out;
   pointer-events: none;

@@ -11,7 +11,9 @@ import { useTicketStore } from "../../../store/ticketStore";
 import { groupAccounts, type AccountRow } from "../../../domain/ticket";
 import { acctLabel } from "../TicketLedger";
 
-export function AccountOrder({ onDone }: { onDone(): void }) {
+// 即時存（moveAccount 按一下就寫）⇒ 沒有「完成」鈕：關閉走 DialogShell 的 ×／暗幕／Esc、手機 sheet 的暗幕／返回鍵（UI 丙-1，視覺規範 §6）。
+// onDone 仍是兩個宿主共用的 props 介面，本體不再呼叫。
+export function AccountOrder(_props: { onDone(): void }) {
   const accounts = useTicketStore((s) => s.accounts);
   const groups = groupAccounts(accounts);
 
@@ -33,12 +35,6 @@ export function AccountOrder({ onDone }: { onDone(): void }) {
           </section>
         ))
       )}
-
-      <div className="ns-tk-dfoot">
-        <button type="button" className="ns-btn btn-gold ns-tk-dbtn" onClick={onDone}>
-          完成
-        </button>
-      </div>
     </div>
   );
 }
@@ -82,10 +78,10 @@ function AcctRow({ account: a, label, first, last }: { account: AccountRow; labe
   return (
     <div ref={rowRef} className="ns-tk-drow" tabIndex={0} aria-label={label} onKeyDown={onKeyDown}>
       <span className="nm">{label}</span>
-      <button type="button" className="ns-tk-dmini sq" aria-label={`上移：${label}`} title="上移（Alt+↑）" disabled={first} onClick={() => press(-1)}>
+      <button type="button" className="ns-iconbtn ns-tk-dmini sq" aria-label={`上移：${label}`} title="上移（Alt+↑）" disabled={first} onClick={() => press(-1)}>
         ↑
       </button>
-      <button type="button" className="ns-tk-dmini sq" aria-label={`下移：${label}`} title="下移（Alt+↓）" disabled={last} onClick={() => press(1)}>
+      <button type="button" className="ns-iconbtn ns-tk-dmini sq" aria-label={`下移：${label}`} title="下移（Alt+↓）" disabled={last} onClick={() => press(1)}>
         ↓
       </button>
     </div>

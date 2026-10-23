@@ -1,0 +1,81 @@
+/* ─────────────────────────────────────────────────────
+ * pageheader.css — 頁首 PageHeader（視覺規範 §2.1；元件 `PageHeader.tsx`）
+ * 活樣本 prototypes/ui-brand/index.html §2.1「頁首」（.ns-pagehead／.ns-toolbar 的值照抄）。
+ * 由 `src/index.css` 集中 @import（techo.css 之後、mobile.css 之前），元件檔不自己 import。
+ *
+ * 規則：只引用 theme.css 語意層（零色碼、零字級圓角字面值）；手機殼不用本元件（頂帶＋分頁籤列），
+ *   字階的手機欄由 [data-shell="mobile"] token 自動換，本檔不寫第二套。
+ * 全部是新的 class 名（.ns-pagehead*／.ns-pagehead .ns-toolbar），不碰任何既有頁首（header.day、.ns-tk-head…，丙-3～6 才換）。
+ * ───────────────────────────────────────────────────── */
+
+/* 骨架：左（眉標＋大標＋補述）・日付印・右側工具列；底線＋下方 4px 一道淡細線（手帳雙線） */
+.ns-pagehead {
+  position: relative; display: flex; align-items: flex-start; gap: var(--sp-4);
+  padding-bottom: 20px; border-bottom: 1px solid var(--color-line);
+}
+.ns-pagehead::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: calc(-1 * var(--sp-1));
+  border-bottom: 1px solid var(--color-line); opacity: .5;
+}
+.ns-pagehead-main { flex: 1; min-width: 0; }
+
+/* ① 眉標：字型、字級、色交給 .techo-overline（粉彩拉丁斜體、銀河黑體燙金）；這裡只管中文段與大小寫 */
+.ns-pagehead-overline { margin: 0 0 var(--sp-2); white-space: nowrap; line-height: 1.6; } /* 行高照 ui-brand 的 .techo-overline */
+.ns-pagehead-ovl-zh { display: none; }                 /* 粉彩：只畫拉丁 */
+[data-theme="dark"] .ns-pagehead-ovl-zh { display: inline; } /* 銀河：中 — LATIN */
+[data-theme="dark"] .ns-pagehead-overline { text-transform: uppercase; }
+
+/* ② 大標＋③ 補述（同一行，基線對齊；放不下時補述換到下一行） */
+.ns-pagehead-titleline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; min-width: 0; }
+.ns-pagehead-title {
+  margin: 0; min-width: 0;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-display);
+  letter-spacing: .06em; line-height: 1.15; color: var(--color-ink);
+}
+.ns-pagehead--identity .ns-pagehead-title { font-size: var(--fs-date); }   /* 身分式：日期／月份／路線名 */
+/* 補述：週幾、年份（襯線 600、淡墨）。字階沒有原型的 15／13，取最近的語意級 --fs-body／--fs-sm（丙-3 套頁時再定） */
+.ns-pagehead-aside {
+  display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px;
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-body); color: var(--color-ink-soft);
+}
+.ns-pagehead-latin {
+  font-family: var(--font-latin); font-style: italic; font-weight: 400; font-size: var(--fs-sm);
+  letter-spacing: .14em; color: var(--color-ink-soft);
+}
+/* 大標下一行的統計 */
+.ns-pagehead-stats {
+  margin: 10px 0 0; max-width: 560px;
+  font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft);
+}
+.ns-pagehead-stats b { font-weight: 500; color: var(--color-ink); }
+
+/* ④ 日付印：貼在主欄右側、工具列之左；上下吃一點負邊距，不撐高頁首 */
+.ns-pagehead-stamp { flex: none; display: flex; margin: calc(-1 * var(--sp-1)) 0 -10px; }
+
+/* ⑤ 右側工具列：固定順序［分頁籤］［＋ 新增］［搜尋］［管理］；margin-top 讓它跟大標同一列 */
+.ns-pagehead .ns-toolbar {
+  flex: none; display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-5);
+}
+.ns-pagehead .ns-toolbar > .ns-tabs { margin-right: var(--sp-1); }
+/* 工具列的次鈕＝圖示＋字橫排（.ns-btn 基底刻意不寫 display，見 overlay.css，這裡就地補） */
+.ns-pagehead .ns-toolbar > .ns-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); white-space: nowrap;
+}
+
+/* 窄版（主欄 <704）：分頁籤已換下拉、新增與搜尋已是圖示鈕（JSX 換），這裡把日付印 92 縮到 76（SVG 有 viewBox，等比縮） */
+.ns-pagehead.is-compact .ns-pagehead-stamp > svg { width: 76px; height: 76px; }
+
+/* 窄版再窄（例：視窗 960 開側板，頁首實寬約 254～384）：一列放不下時工具列換到下一列、靠右，
+ *   日付印留在大標右側（＝工具列上方）。不另設寬度門檻，交給 flex-wrap 看內容：
+ *   主欄至少留 11em（約 11 個內文字）——主欄＋印＋工具列加起來擠不下才換列，
+ *   所以 600 寬的窄版（時刻表四格、今日兩顆圖示鈕）照舊一列，只有放不下的那頁才換。
+ *   11em 的來歷：帶印四頁的銀河眉標最長「路線圖 — ROUTE MAP」約 161，主欄 154＋間距 16 不壓到印；
+ *   主欄＋間距＋印＝154＋16＋76＝246，頁首窄到 254 時印也還在第一列，不會掉到工具列旁。
+ *   列距歸零：換下來的工具列靠自己的 margin-top（--sp-5）跟上一列隔開，不再多疊一份 gap。 */
+.ns-pagehead.is-compact { flex-wrap: wrap; row-gap: 0; }
+.ns-pagehead.is-compact .ns-pagehead-main { flex-basis: 11em; }
+/* margin-left:auto——同一列時剩餘寬先被主欄 flex-grow 吃完，這裡拿到 0、位置不變；獨占第二列時把工具列推到右緣。
+ * max-width＋自身換列——頁首比整條工具列還窄時，鈕在工具列內換列、靠右，不撐出橫捲。 */
+.ns-pagehead.is-compact .ns-toolbar {
+  margin-left: auto; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
+}

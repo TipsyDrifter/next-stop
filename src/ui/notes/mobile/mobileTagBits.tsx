@@ -294,7 +294,7 @@ export function MTagLoading({ className, failed, onRetry }: { className: string;
   return (
     <p className={className + " ns-notes-mloadfail"} role="alert">
       荷札沒載入
-      <button type="button" className="ns-notes-mbtn" onClick={onRetry}>
+      <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onRetry}>
         重試
       </button>
     </p>

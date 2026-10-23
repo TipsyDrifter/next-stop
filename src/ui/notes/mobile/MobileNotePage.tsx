@@ -405,13 +405,13 @@ export function MobileNotePage({ onBack, onOpenTag }: MobileNotePageProps) {
         </div>
 
         <div className="ns-notes-mactions">
-          <button type="button" className="ns-notes-mbtn" onClick={() => void toTodo()} disabled={!body.trim() && !title.trim()}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => void toTodo()} disabled={!body.trim() && !title.trim()}>
             變待辦
           </button>
-          <button type="button" className="ns-notes-mbtn" onClick={() => void toDiary()} disabled={!body.trim() && !title.trim()}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => void toDiary()} disabled={!body.trim() && !title.trim()}>
             記成日記
           </button>
-          <button type="button" className="ns-notes-mbtn" onClick={() => void remove()}>
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost ns-btn-danger" onClick={() => void remove()}>
             刪除
           </button>
           <span className="ns-notes-mwordcount">{charCount(body).toLocaleString()} 字</span>

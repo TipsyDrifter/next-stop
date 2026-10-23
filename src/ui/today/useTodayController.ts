@@ -371,7 +371,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         // toast 是唯一的收據，並且要能反悔（WP3：拍板「可 undo」）。這裡的 undo＝把剛建的票收回去。
         ui().showToast({
           message: INBOX_TOAST,
-          actionLabel: "取消",
+          actionLabel: "復原", // UI 丙-1：反悔動作一律叫「復原」（視覺規範 §2.8；原「取消」）
           onAction: () => void ns().deleteNode(row.id),
         });
         return;
@@ -387,7 +387,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
    * Shift+Enter＝建一張無日期票（立刻離開今日、流入收件匣資料態；種子動線 M3-6 之一）。
    * 走的是「同款草稿列、只換提示語與提交規則」——沒有標題就沒有票可建，所以不是「按下去直接生一筆」，
    * 而是「打完 Enter 就進收件匣」（WP3 覆核維持這個形狀：無名票只會變成 Ctrl+P 裡找不到的垃圾）。
-   * 建成後只有 toast 這一張收據，故 commitDraft 的 inbox 分支帶「取消建立」undo。
+   * 建成後只有 toast 這一張收據，故 commitDraft 的 inbox 分支帶「復原」undo。
    */
   const createInboxTicket = useCallback(() => {
     setLogTarget(null);
@@ -414,7 +414,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     if (row.child_total >= 5) {
       ui().askConfirm({
         title: `連同底下 ${row.child_total} 個子項一起刪除？`,
-        body: `『${row.name}』底下的項目也會一併刪除（10 秒內可復原）。`,
+        body: `『${row.name}』底下的項目也會一併刪除（6 秒內可復原）。`,
         confirmLabel: "刪除",
         danger: true,
         onConfirm: () => void run(),

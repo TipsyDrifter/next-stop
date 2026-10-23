@@ -28,7 +28,7 @@
  * 車次④（④ 契約 §3.2、0-7、0-8；只加不改）：視圖多 `schedule`（兩殼都有；V 回 home）、面板多 `plan`；`TT_TEXT` 增補（§5.8、§5.6）；
  * `syncCols` 補 #73 R5 三個欄名。日程的資料另開 `timetableScheduleStore`（只讀＋排時刻的寫入，日程頁沒開時不載）。
  *
- * 車次⑤（⑤ 契約 0-5、§3.3；只加不改）：方眼塗色 `paint`（撤回走 repository 的 `undoPaint`）；`TT_TEXT` 增補（§5.6）。
+ * 車次⑤（⑤ 契約 0-5、§3.3；只加不改）：方眼塗色 `paint`（復原走 repository 的 `undoPaint`）；`TT_TEXT` 增補（§5.6）。
  * 選取與格子大小另開 `timetableGridStore`（純 UI 狀態）；`view` 的 `"grid"` 由整合席加。
  */
 import { create } from "zustand";
@@ -136,7 +136,7 @@ export const TT_TEXT = {
   depart: (cat: string, at: number) => `発車・${cat}　${fmtClock(at)}`,
   departAction: "改 10 分前",
   arrive: (cat: string, dur: number) => `到着・${cat}　${fmtDur(dur)}`,
-  undo: "撤回",
+  undo: "復原",
   longRunGap: (cat: string, at: number) => `到着・${cat}　${fmtClock(at)}；之後留白`,
   longRunCat: (cat: string, at: number) => `${fmtClock(at)} 起改成「${cat}」`,
   fill: (cat: string, dur: number) => `補上・${cat}　${fmtDur(dur)}`,
@@ -186,7 +186,7 @@ export const TT_TEXT = {
   estimateSet: (min: number) => `預估改成 ${fmtDur(min * MIN)}`,
   /** B5 清掉預估 */
   estimateCleared: "已清掉預估",
-  /** B6 封存（帶「撤回」＝TT_TEXT.undo） */
+  /** B6 封存（帶「復原」＝TT_TEXT.undo） */
   archived: (name: string) => `已封存「${name}」`,
   /** B7 還原 */
   unarchived: (name: string) => `已還原「${name}」`,
@@ -477,7 +477,7 @@ export const TT_TEXT = {
   schedPlaced: (t: string) => `已排到 ${t}`,
   schedMoved: (t: string) => `改到 ${t}`,
   schedCleared: "已清除時刻",
-  /** 收據後面補的一句：原本的時刻在現在的日界線外（軸外），寫不回去 ⇒ 這筆不出「撤回」（修正席） */
+  /** 收據後面補的一句：原本的時刻在現在的日界線外（軸外），寫不回去 ⇒ 這筆不出「復原」（修正席） */
   schedNoUndo: (t: string) => `（原本的 ${t} 在日界線外，無法復原）`,
   schedNoEstimate: "長度未定",
   schedRun: "本班",
@@ -543,15 +543,15 @@ export const TT_TEXT = {
   /** toast：live 換車 */
   paintLive: (cat: string, at: number) => `${fmtClock(at)} 起換成 ${cat}`,
   /**
-   * toast 的副標（〈原型定案〉1；Toast 主訊息下面的第二行小字）：「蓋掉 2 塊、切短 2 塊——撤回會全部回來」；沒蓋到＝空字串。
-   * undoable＝false（提早出發不給撤回，沙盒 F3）⇒ 不接「撤回會全部回來」。
+   * toast 的副標（〈原型定案〉1；Toast 主訊息下面的第二行小字）：「蓋掉 2 塊、切短 2 塊——復原會全部回來」；沒蓋到＝空字串。
+   * undoable＝false（提早出發不給復原，沙盒 F3）⇒ 不接「復原會全部回來」。
    */
   paintCoverSub: (s: CoverSummary, undoable = true) => {
     const parts: string[] = [];
     if (s.removed) parts.push(`蓋掉 ${s.removed} 塊`);
     if (s.shortened) parts.push(`切短 ${s.shortened} 塊`);
     if (s.splitCount) parts.push(`切開 ${s.splitCount} 塊`);
-    return parts.length ? `${parts.join("、")}${undoable ? "——撤回會全部回來" : ""}` : "";
+    return parts.length ? `${parts.join("、")}${undoable ? "——復原會全部回來" : ""}` : "";
   },
   paintSame: (cat: string) => `本來就是「${cat}」`,
   paintUndone: "已復原・回到塗之前",
@@ -803,7 +803,7 @@ export interface TimetableStore {
   createCategory(input: { parentId: string | null; name: string; colorIdx: number; defaultMin: number | null }): Promise<void>;
   updateCategory(id: string, patch: { name?: string; colorIdx?: number; defaultMin?: number | null }): Promise<void>;
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
-  /** ①b：封存（toast B6 帶「撤回」）／還原（B7） */
+  /** ①b：封存（toast B6 帶「復原」）／還原（B7） */
   archiveCategory(id: string, archived: boolean): Promise<void>;
   /** ①b：搬到另一個頂層組；toast B8 */
   moveCategoryToGroup(id: string, parentId: string): Promise<void>;
@@ -813,9 +813,9 @@ export interface TimetableStore {
   /* ③ 時數目標（③ 契約 §3.3）：走 write()（serial → refresh → toast）；回 true＝寫成功（面板據此關），失敗已 toast */
   createGoal(input: GoalInput): Promise<boolean>;
   updateGoal(id: string, patch: Partial<GoalInput>): Promise<boolean>;
-  /** 封存（toast 帶「撤回」）／叫回 */
+  /** 封存（toast 帶「復原」）／叫回 */
   archiveGoal(id: string, on: boolean): Promise<boolean>;
-  /** 軟刪除（toast 帶「撤回」＝restoreGoal） */
+  /** 軟刪除（toast 帶「復原」＝restoreGoal） */
   deleteGoal(id: string): Promise<boolean>;
   restoreGoal(id: string): Promise<boolean>;
 
@@ -842,11 +842,11 @@ export interface TimetableStore {
   /* ⑤ 方眼（⑤ 契約 0-5、§3.3；只加不改） */
   /**
    * 方眼塗色列點了分類：走 write()（serial → refresh → toast）。start／end 在這一刻夾到 now（呼叫端已依 liveTail 重算 end、重做 paintModeOf）。
-   * toast：fill＝`paint`；live 換車＝`paintLive`；live 同分類提早出發＝`restart`；live 同分類不早於它＝`paintSame`（沒寫、沒有撤回）；
+   * toast：fill＝`paint`；live 換車＝`paintLive`；live 同分類提早出發＝`restart`；live 同分類不早於它＝`paintSame`（沒寫、沒有復原）；
    * live 但資料庫裡已經沒有運行中的班（另一台剛到站、還沒 refresh）＝repository 補到現在 ⇒ `paint`。
    * 蓋到既有紀錄 ⇒ toast 的副標（第二行）＝`paintCoverSub`（蓋掉數跟讀數同一口徑：live 不算運行中那班，`paintCoverOf`）。
-   * 「撤回」＝`undoPaint`，false ⇒ toast `paintUndoFailed`；都 refresh。只保證最近一次可撤回（快照在閉包裡）。
-   * **提早出發（restart）不給撤回**（沙盒 F3＝契約 §9-3 降級；`paintUndoable`）：撤回得把運行中那班的 started_at 寫回去，跨裝置會拼出零長度塊。
+   * 「復原」＝`undoPaint`，false ⇒ toast `paintUndoFailed`；都 refresh。只保證最近一次可復原（快照在閉包裡）。
+   * **提早出發（restart）不給復原**（沙盒 F3＝契約 §9-3 降級；`paintUndoable`）：復原得把運行中那班的 started_at 寫回去，跨裝置會拼出零長度塊。
    */
   paint(categoryId: string, start: number, end: number, mode: "fill" | "live"): Promise<void>;
 }
@@ -1953,7 +1953,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
           }
           const undoable = paintUndoable(kind);
           const sub = TT_TEXT.paintCoverSub(sum, undoable);
-          // 提早出發不給撤回（沙盒 F3；＝RestartPanel 改出發時間沒有撤回）
+          // 提早出發不給復原（沙盒 F3；＝RestartPanel 改出發時間沒有復原）
           if (!undoable) {
             toast(msg, undefined, undefined, sub || undefined);
             return;

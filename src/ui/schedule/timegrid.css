@@ -11,11 +11,11 @@
  * 變數（掛在 :root／[data-theme="dark"]，週條「清單｜時段」小分段等畫布外的元件也讀得到）：
  *   --ns-tg-night      24:00 以後的夜色帶
  *   --ns-tg-today-bg   今天那欄／籤帶的底（桌機在 .ns-calendar 內會吃 calendar.css 的 --cal-today-bg）
- *   --ns-tg-seg-on     分段鈕選中底（時段入口用）
+ *   --ns-tg-seg-on     分段鈕選中底（時段入口用）＝語意層 --sel-bg（UI 丙-1；銀河舊值 12% 收成 10%，丙-7 刪舊名）
  *   --ns-tg-head-bg／--ns-tg-band-bg／--ns-tg-gut-bg   三條 sticky 帶的不透明底（捲動時要蓋住塊）
  *   --ns-tg-blk-paper／--ns-tg-blk-rc   塊底的紙色與路線色比例（--ns-tg-blk-bg 在 .ns-tg-blk 上合成：
  *                      自訂屬性在宣告處就代入 var()，--rc 是塊的 inline 值，:root 上合不出來）
- *   --ns-tg-on-accent  現在時刻牌（靛底／銀河金底）上的字
+ *   --ns-tg-on-accent  現在時刻牌（赭底；UI 丙-1 前是靛底／銀河金底）上的字：粉彩淺字、銀河深字
  *   --ns-tg-shadow     塊的淡影
  * 版面變數（在 .ns-tg 上；手機覆寫）：--H 每小時高、--gw 刻度欄寬、--headH 欄頭高。
  * ───────────────────────────────────────────────────── */
@@ -23,7 +23,7 @@
 :root {
   --ns-tg-night: color-mix(in srgb, var(--color-book) 5.5%, transparent);
   --ns-tg-today-bg-base: color-mix(in srgb, white 32%, transparent);
-  --ns-tg-seg-on: color-mix(in srgb, var(--accent) 10%, transparent);
+  --ns-tg-seg-on: var(--sel-bg);
   --ns-tg-head-bg: color-mix(in srgb, var(--color-paper) 30%, white);
   --ns-tg-band-bg: color-mix(in srgb, var(--color-paper) 42%, white);
   --ns-tg-gut-bg: color-mix(in srgb, var(--color-paper) 34%, white);
@@ -36,7 +36,7 @@
 [data-theme="dark"] {
   --ns-tg-night: color-mix(in srgb, black 16%, transparent);
   --ns-tg-today-bg-base: color-mix(in srgb, var(--accent-sky) 4.5%, transparent);
-  --ns-tg-seg-on: color-mix(in srgb, var(--accent) 12%, transparent);
+  --ns-tg-seg-on: var(--sel-bg);
   --ns-tg-head-bg: color-mix(in srgb, var(--color-paper-high) 88%, var(--color-paper));
   --ns-tg-band-bg: color-mix(in srgb, var(--color-paper-high) 65%, var(--color-paper));
   --ns-tg-gut-bg: color-mix(in srgb, var(--color-paper-high) 50%, var(--color-paper));
@@ -156,9 +156,10 @@
   display: block; margin-top: 2px;
   font-family: var(--font-body); font-size: 8px; letter-spacing: .06em; color: var(--color-ink-faint);
 }
+/* 「現在」＝赭（視覺規範 §2.10：線＋小點＋時刻牌；UI 丙-1 前是靛／銀河金） */
 .ns-tg-gut .nowpill {
   position: absolute; right: 3px; z-index: 2; transform: translateY(-50%);
-  padding: 1px 5px; border-radius: 2px; background: var(--accent); color: var(--ns-tg-on-accent);
+  padding: 1px 5px; border-radius: 2px; background: var(--late); color: var(--ns-tg-on-accent);
   font-family: var(--font-latin); font-size: 10px; font-weight: 600; letter-spacing: .03em; line-height: 1.35;
 }
 .ns-tg-col {
@@ -174,9 +175,9 @@
 /* 夜色帶與 24:00 虛線：top／height 由元件依日界線給（日界線 06 ⇒ 18H 起 6H 高） */
 .ns-tg-night { position: absolute; left: 0; right: 0; background: var(--ns-tg-night); pointer-events: none; }
 .ns-tg-midnight { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--color-dash); pointer-events: none; }
-.ns-tg-now { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--accent); z-index: 3; pointer-events: none; transform: translateY(-1px); }
-.ns-tg-now::before { content: ""; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-.ns-tg-now.ghost { border-top: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); transform: none; }
+.ns-tg-now { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--late); z-index: 3; pointer-events: none; transform: translateY(-1px); }
+.ns-tg-now::before { content: ""; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--late); }
+.ns-tg-now.ghost { border-top: 1px dashed color-mix(in srgb, var(--late) 45%, transparent); transform: none; }
 .ns-tg-now.ghost::before { display: none; }
 
 /* ═══ 塊 ═══ */

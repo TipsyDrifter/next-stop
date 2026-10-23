@@ -142,7 +142,7 @@ export function BackupTab() {
   /**
    * 有動作在飛（備份／還原／列清單）就把會改狀態的鈕鎖起來；booting＝清單還沒到齊。
    * `needsRestart`＝還原在「連線已關」之後失敗：這個進程寫不進資料庫了，整頁鎖死到重新啟動為止
-   * （toast 只活 10 秒，撐不住這種狀態；主畫面另有常駐橫幅）。
+   * （toast 只活幾秒（有復原 6 秒、純通知 4 秒），撐不住這種狀態；主畫面另有常駐橫幅）。
    */
   const busy = booting || status !== "idle" || needsRestart;
 

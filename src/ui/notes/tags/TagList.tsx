@@ -155,7 +155,7 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
       <div ref={boxRef} className="ns-notes-taglist">
         <p className="ns-notes-tagempty">
           荷札沒載入{" "}
-          <button type="button" className="ns-notes-btn" onClick={() => setListTry((n) => n + 1)}>
+          <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => setListTry((n) => n + 1)}>
             重試
           </button>
         </p>

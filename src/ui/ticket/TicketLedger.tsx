@@ -469,7 +469,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <div className="ns-tk-headrow">
           <span className="ns-tk-overline">售票口 — TICKET OFFICE</span>
           <SearchBar />
-          <button type="button" className="ns-tk-newbtn" onClick={() => store().openNew()} title="記一筆">
+          <button type="button" className="ns-btn btn-ghost ns-tk-newbtn" onClick={() => store().openNew()} title="記一筆">
             <TkIcon name="plus" size={11} />
             記一筆
             <kbd className="ns-tk-kbd">{capsOf("ticket.new")}</kbd>
@@ -481,7 +481,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
               搜尋結果
               <button
                 type="button"
-                className="ns-tk-btn quiet"
+                className="ns-btn ns-btn--sm btn-ghost ns-tk-btn"
                 title={`回到月份清單（${capsOf("ticket.escape")}）`}
                 onMouseDown={(ev) => ev.preventDefault()}
                 onClick={() => store().closeSearch()}
@@ -537,7 +537,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
       {error && !ready ? (
         <div className="ns-tk-error" role="alert">
           <p>帳本讀不出來：{error}</p>
-          <button type="button" className="ns-tk-btn" onClick={() => void store().init("desktop").catch(() => undefined)}>
+          <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => void store().init("desktop").catch(() => undefined)}>
             再試一次
           </button>
         </div>
@@ -549,7 +549,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <div className="ns-tk-book is-empty">
           <div className="ns-tk-empty is-book">
             <p>這本帳還是空的</p>
-            <button type="button" className="ns-tk-btn primary" onClick={() => store().openNew()}>
+            <button type="button" className="ns-btn btn-seal ns-tk-btn" onClick={() => store().openNew()}>
               記第一筆
             </button>
             <button type="button" className="ns-tk-emptylink" onClick={() => void store().startImport("desktop")}>

@@ -25,16 +25,44 @@
  *
  * 磨光①（加工單 global.quickjump；契約 §2.4、§9.5 D-4）：⋯ 左邊加放大鏡（`.m-band-search`，外形同 ⋯），每一頁都有；
  *   點了開手機搜尋 `MobileQuickJump`（開關是本元件的本地狀態，面板自己 portal 到 body、自己登記返回層）。手機上唯一的搜尋入口。
+ *
+ * UI 丙-2（契約 §1 #16；視覺規範 §2.0「手機殼」、§2.1 桌機↔手機、§1.7 圖示語意；活樣本 ui-brand §2.1 手機頂帶）：
+ *   - 右上的 ⋯ 改成齒輪 `IconGear`（§1.7：設定／管理＝齒輪，⋯ 只代表列的動作）。**行為不變**：還是開「更多」頁
+ *     （全域設定在裡面）、在「更多」頁時 `aria-pressed="true"`；class 仍是 `.m-band-more`（樣式、截圖場景都認它）、
+ *     aria-label 仍是「更多」（＝它開的那一頁的名字），補 `title`（§2.3：圖示鈕一定有 aria-label＋title）。
+ *   - 新增兩個插槽（本班只加插槽、不接線，丙-3 起各頁接）：
+ *       `tabsRow?: ReactNode`＝頂帶下一列的分頁籤列（放 common/Tabs，≤4 段一列、超過橫捲露半格——Tabs 自己管）；
+ *       `manage?: {label, onClick}`＝那一列末端的「管理」文字鈕（`.ns-btn.btn-text.ns-btn--sm`，開線內管理的 sheet 清單）。
+ *     兩個都沒給 ⇒ 不畫那一列，頂帶 DOM 與丙-1 逐字相同。給了 ⇒ 在 `<header class="m-band">` 後面多一個兄弟節點
+ *     `.ns-tabrow`（樣式在 common/tabs.css，U1 席；只有「管理」沒有籤時的留白 `.ns-tabrow-fill` 在 common/msheet.css）。
+ *     插槽列不在頂帶裡：頂帶是書封（深面），籤列是頁的一部分（玻璃），兩種材質分開兩列（§1.5、法則 01）。
+ * ARIA／鍵盤：齒輪與放大鏡都是原生 <button>（Enter／Space），焦點框照書封慣例燙金（mobile.css）；分頁籤的 ←→ 由 Tabs 自己處理。
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { DateSeal } from "../stamps";
 import { SyncDot } from "../common/SyncDot";
+import { IconGear } from "../common/icons";
+import "../common/msheet.css";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
-import { ICON_MORE, renderTabIcon, type MobileTab, type MobileTabIcon } from "./tabs";
+import { renderTabIcon, type MobileTab, type MobileTabIcon } from "./tabs";
 import { MobileQuickJump } from "./MobileQuickJump";
+
+/** 頂帶下一列末端的「管理」文字鈕（§2.0、§2.1：線內管理 → sheet 清單） */
+export interface MobileTopBandManage {
+  label: string;
+  onClick: () => void;
+}
+
+export interface MobileTopBandProps {
+  tab: MobileTab;
+  /** 頂帶下一列：該頁的分頁籤列（common/Tabs）。省略＝不畫這一列 */
+  tabsRow?: ReactNode;
+  /** 籤列末端的「管理」文字鈕。省略＝不畫 */
+  manage?: MobileTopBandManage;
+}
 
 /** 頂帶日付印的尺寸（見檔頭「尺寸自決」） */
 const MOBILE_SEAL_SIZE = 46;
@@ -51,7 +79,7 @@ function dateOf(key: string): Date {
   return new Date(y, m - 1, d);
 }
 
-export function MobileTopBand({ tab }: { tab: MobileTab }) {
+export function MobileTopBand({ tab, tabsRow, manage }: MobileTopBandProps) {
   const storedKey = useNodeStore((s) => s.today.dateKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const sub = useScheduleUiStore((s) => s.mobileSub);
@@ -60,35 +88,53 @@ export function MobileTopBand({ tab }: { tab: MobileTab }) {
   const dateKey = storedKey ?? todayKey(dayStartHour);
   const schedule = today && sub === "schedule";
   const [searching, setSearching] = useState(false);
+  const hasRow = tabsRow != null || manage != null;
 
   return (
-    <header className="m-band">
-      <div className="m-band-name">
-        <div className="m-band-title">{schedule ? "行程表" : tab.label}</div>
-        <div className="m-band-latin">{schedule ? "SCHEDULE" : tab.latin}</div>
-      </div>
-      {/* v1.1.1 WP8：同步狀態點掛在頂帶右端（今日頁在日付印左邊）。
-          沒加入同步時（v1.1.3 的說法；舊稱「未啟用」）`SyncDot` 整顆不渲染，`.m-band-end` 就是個空的 flex 容器——
-          v1.1.0 的版面（頁名＋日付印）逐像素不變。 */}
-      <div className="m-band-end">
-        <SyncDot className="m-band-sync-dot" />
-        {today && <DateSeal date={dateOf(dateKey)} size={MOBILE_SEAL_SIZE} title={`日付印 ${dateKey}`} />}
-        {/* 磨光①：手機搜尋的唯一入口（外接鍵盤的 Ctrl+P 在手機殼不掛，D-4） */}
-        <button type="button" className="m-band-search" aria-label="搜尋" onClick={() => setSearching(true)}>
-          {renderTabIcon(ICON_SEARCH, 20)}
-        </button>
-        {/* 售票口線車次①（D-票-20、0-28）：「更多」的全域入口；在「更多」頁時呈按下狀態，點任一格 tab 離開 */}
-        <button
-          type="button"
-          className="m-band-more"
-          aria-label="更多"
-          aria-pressed={tab.key === "more"}
-          onClick={() => setMobileTab("more")}
-        >
-          {renderTabIcon(ICON_MORE, 20)}
-        </button>
-      </div>
-      {searching && <MobileQuickJump onClose={() => setSearching(false)} />}
-    </header>
+    <>
+      <header className="m-band">
+        <div className="m-band-name">
+          <div className="m-band-title">{schedule ? "行程表" : tab.label}</div>
+          <div className="m-band-latin">{schedule ? "SCHEDULE" : tab.latin}</div>
+        </div>
+        {/* v1.1.1 WP8：同步狀態點掛在頂帶右端（今日頁在日付印左邊）。
+            沒加入同步時（v1.1.3 的說法；舊稱「未啟用」）`SyncDot` 整顆不渲染，`.m-band-end` 就是個空的 flex 容器——
+            v1.1.0 的版面（頁名＋日付印）逐像素不變。 */}
+        <div className="m-band-end">
+          <SyncDot className="m-band-sync-dot" />
+          {today && <DateSeal date={dateOf(dateKey)} size={MOBILE_SEAL_SIZE} title={`日付印 ${dateKey}`} />}
+          {/* 磨光①：手機搜尋的唯一入口（外接鍵盤的 Ctrl+P 在手機殼不掛，D-4） */}
+          <button type="button" className="m-band-search" aria-label="搜尋" onClick={() => setSearching(true)}>
+            {renderTabIcon(ICON_SEARCH, 20)}
+          </button>
+          {/* 售票口線車次①（D-票-20、0-28）：「更多」的全域入口；在「更多」頁時呈按下狀態，點任一格 tab 離開。
+              UI 丙-2：圖示 ⋯ → 齒輪（§1.7；全域設定在「更多」頁裡），行為與 class 不變 */}
+          <button
+            type="button"
+            className="m-band-more"
+            aria-label="更多"
+            title="更多"
+            aria-pressed={tab.key === "more"}
+            onClick={() => setMobileTab("more")}
+          >
+            <IconGear size={20} />
+          </button>
+        </div>
+        {searching && <MobileQuickJump onClose={() => setSearching(false)} />}
+      </header>
+      {/* UI 丙-2 插槽（本班不接線）：頂帶下一列＝分頁籤列＋末端「管理」文字鈕；都沒給就不畫（丙-1 版面逐字不變） */}
+      {hasRow && (
+        <div className="ns-tabrow">
+          {tabsRow ?? <span className="ns-tabrow-fill" aria-hidden="true" />}
+          {manage && (
+            <span className="mgr">
+              <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={manage.onClick}>
+                {manage.label}
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+    </>
   );
 }

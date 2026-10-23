@@ -12,7 +12,10 @@
  *   4. ambience.css  天空氛圍層（.sky-* 具名空間，與上列零撞名）
  *   5. stamps.css    印章家族（.ns-*）＋ 済章朱肉、側板乘務記錄——需蓋過 techo.css 的 .stamp／.seal
  *   6. gnav.css      書封頂部全域導航——需蓋過 sidebar.css 的 .cover nav 家族
- *   7. mobile.css    手機殼（v1.1.0）——**必須排最後**：它要蓋過上列所有桌機視覺
+ *   7. ui/common/*.css  共用元件庫（UI 丙-2；契約 §0：techo.css 之後、mobile.css 之前）——頁首、分頁籤／分段鈕、
+ *                    日期時間色、搬家來的掛到哪挑選器與推遲小卡。只引用 theme.css 語意層 token（零色碼、零字級圓角字面值），
+ *                    元件檔不自己 import（另有 listbits.css／msheet.css 由元件自己 import，不在這裡重列，免得注入兩次）。
+ *   8. mobile.css    手機殼（v1.1.0）——**必須排最後**：它要蓋過上列所有桌機視覺
  *                    （techo 的 body min-width／.page 書溝、Tailwind 的 Toast bottom-6…）。
  *                    每一條規則都帶 `@media (max-width: 767px)` 或 `[data-shell="mobile"]`，
  *                    所以排在最後也不影響桌機（鐵則：桌機行為零改變）。
@@ -27,6 +30,11 @@
 @import "./styles/ambience.css";
 @import "./styles/stamps.css";
 @import "./styles/gnav.css";
+@import "./ui/common/pageheader.css";
+@import "./ui/common/tabs.css";
+@import "./ui/common/datefield.css";
+@import "./ui/common/attachpicker.css";
+@import "./ui/common/defer.css";
 @import "./styles/mobile.css";
 
 @layer base {

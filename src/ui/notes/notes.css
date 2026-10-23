@@ -10,13 +10,12 @@
  *   --cover→--color-book  --cover-ink→--color-book-ink  --cover-muted→--book-muted  --gold→--color-gold
  *   --ink*→--color-ink*（--ink-mid 沿 theme.css 別名）  --line→--color-line  --dash→--color-dash（techo.css .stub 撕線同一枚）
  *   --card／--card-used→--color-paper-high／--color-paper-used   --shadow-card／--shadow-float→--shadow-card／--shadow-card-hover
- *   theme.css 沒有的四個原型語彙，本檔在本線根節點上以 token 推導成區域變數（不新增全域 token）：
- *     --ns-glass   霧面玻璃邊   粉彩＝rgba(var(--starlight), .78)（＝原型白 .78）；銀河＝--color-line（原型同）
- *     --ns-hover   hover 底     --color-ink 5%
- *     --ns-sel     選中底       --accent 9%（粉彩靛／銀河金，與原型兩主題值一致）
- *     --ns-float   浮層票面     粉彩＝rgba(var(--starlight), .84)（原型施工決定 9 的 84% 白）；銀河＝--color-paper-high
- *       （契約 §5.4 寫 color-mix(paper-high 84%, transparent)，但那會比 .64 更透、與「比票卡再實一點」相反；
- *        §8-12 要求兩主題重現原型值，故改用 starlight 三元組，見回報 deviations）
+ *   本線區域變數（UI 丙-1 起一律指回 theme.css 語意層；舊名留到丙-7 總驗收再刪，新寫的規則直接用正式名）：
+ *     --ns-glass → --glass-edge   --ns-hover → --hover-bg   --ns-sel → --sel-bg   --ns-float → --float-bg   --ns-hi → --glass-hi
+ *     （視覺規範 §1.1 語意層表；兩主題由 token 自己換值，本檔不再寫銀河覆寫。--ns-float 原本是 .84 白，
+ *      照 §1.5「浮」層統一成 --float-bg＝--color-paper-high。）只有 --ns-noise（噪點 SVG）仍是本檔自己的。
+ *   側板「移動到…」（.ns-moveto，common/moveTo.css）借本檔的浮層殼 .ns-notes-pop，區域變數也由下方同一段給，moveTo.css 不再另抄。
+ *   挑選器 AttachPicker 本身的清單樣式 UI 丙-2 起在 common/attachpicker.css（見「小浮層」那段的註記）。
  * 紀律：書封是唯一深色面；本線所有面都是「頁」的材質家族。受付章是墨（--stamp-ink）；朱紅只給済章——本檔的 --seal
  *   只出現在車次②足跡欄的 .ns-notes-sumi（済章縮小版）。
  * ───────────────────────────────────────────────────── */
@@ -31,38 +30,35 @@
 .cover .gnav-tools:has(.ns-notes-capbtn) { display: flex; gap: 6px; margin-top: 10px; }
 .cover .gnav-tools:has(.ns-notes-capbtn) .gnav-search { width: auto; margin-top: 0; flex: none; }
 .cover .gnav-tools:has(.ns-notes-capbtn) .gnav-search .kbd { display: none; } /* 鍵位收進 title（原型同） */
+/* UI 丙-1（視覺規範 §2.3）：鈕本身是 .ns-btn.btn-ghost——高度（--ctl-h）、圓角、轉場、禁用都由 .ns-btn 管；
+   這裡只留書封上的版位與配色（書封是深面，次鈕的墨字墨框在上面看不見，照 gnav 慣例用書封字＋燙金框）。
+   左右內距收窄成 9px：書封 236 寬、跟搜尋鈕同一列。字級 --fs-xs＝同列 .gnav-search 的 11px。 */
 .cover .ns-notes-capbtn {
   flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 7px;
-  padding: 7px 9px; border-radius: 2px; cursor: pointer;
+  padding-left: 9px; padding-right: 9px;
   border: 1px solid color-mix(in srgb, var(--color-gold) 42%, transparent);
   background: transparent;
-  font-family: inherit; font-size: 11px; letter-spacing: .18em; white-space: nowrap;
+  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .18em; white-space: nowrap;
   color: var(--color-book-ink);
-  transition: background .15s, color .15s, border-color .15s;
 }
 [data-theme="dark"] .cover .ns-notes-capbtn { border-color: color-mix(in srgb, var(--color-gold) 36%, transparent); }
 .cover .ns-notes-capbtn svg { flex: none; color: var(--color-gold); }
-.cover .ns-notes-capbtn:hover { background: var(--gnav-hover); border-color: color-mix(in srgb, var(--color-gold) 62%, transparent); }
+.cover .ns-notes-capbtn:hover { background: var(--gnav-hover); border-color: color-mix(in srgb, var(--color-gold) 62%, transparent); color: var(--color-book-ink); }
 .cover .ns-notes-capbtn:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
 .cover .ns-notes-capbtn .kbd {
   margin-left: auto; font-family: var(--font-latin); font-size: 8.5px; letter-spacing: .14em; opacity: .7;
 }
 @media (prefers-reduced-motion: reduce) { .cover .ns-notes-capbtn { transition: none; } }
 
-/* ═══ 本線區域變數（頁根＋兩個浮層根；token 推導，見檔頭） ═══ */
-.ns-notes, .ns-notes-capwrap, .ns-notes-prev, .ns-notes-sealflash {
-  --ns-glass: rgba(var(--starlight), .78);
-  --ns-hover: color-mix(in srgb, var(--color-ink) 5%, transparent);
-  --ns-sel: color-mix(in srgb, var(--accent) 9%, transparent);
-  --ns-float: rgba(var(--starlight), .84);
-  --ns-hi: 0 0 0 0 transparent; /* 銀河票紙的上緣月光高光（粉彩＝空陰影；不能寫 none，會讓陰影清單整條失效） */
+/* ═══ 本線區域變數（頁根＋兩個浮層根＋側板「移動到…」；全部指回 theme.css 語意層，見檔頭） ═══ */
+.ns-notes, .ns-notes-capwrap, .ns-notes-prev, .ns-notes-sealflash, .ns-moveto {
+  --ns-glass: var(--glass-edge);
+  --ns-hover: var(--hover-bg);
+  --ns-sel: var(--sel-bg);
+  --ns-float: var(--float-bg);
+  --ns-hi: var(--glass-hi); /* 銀河票紙的上緣月光高光（粉彩＝零陰影；--glass-hi 不寫 none，陰影清單才不會整條失效） */
   --ns-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-[data-theme="dark"] .ns-notes, [data-theme="dark"] .ns-notes-capwrap, [data-theme="dark"] .ns-notes-prev {
-  --ns-glass: var(--color-line);
-  --ns-float: var(--color-paper-high);
-  --ns-hi: inset 0 1px 0 rgba(var(--starlight), .09);
 }
 
 /* ═══ 頁根：三欄（.page 本來整頁捲動，本頁改成各欄自己捲） ═══ */
@@ -80,7 +76,10 @@
 .ns-notes .roundel.ns-notes-rd { width: 17px; height: 17px; font-size: 7.5px; }
 .ns-notes .roundel.ns-notes-rd.xs { width: 15px; height: 15px; font-size: 6.5px; }
 .ns-notes .roundel.ns-notes-rd.empty { background: transparent; border: 1px dashed currentColor; opacity: .7; }
-.ns-notes-mark { background: color-mix(in srgb, var(--color-gold) 38%, transparent); color: inherit; border-radius: 1px; }
+/* 搜尋命中的螢光底：紙面上的作用中色（視覺規範 §0 法則 02：粉彩靛、銀河金）。粉彩靛比金重，取 24% 才跟原本的
+   淡金同一個輕重；銀河 --accent＝燙金，維持原本的 38%（銀河零變） */
+.ns-notes-mark { background: color-mix(in srgb, var(--accent) 24%, transparent); color: inherit; border-radius: 1px; }
+[data-theme="dark"] .ns-notes-mark { background: color-mix(in srgb, var(--accent) 38%, transparent); }
 
 /* ═══ 本線頁務件：車次③起住進書封（NotesCoverAux／notes-tags.css；0-17）——原本主欄最左 196px 那一欄的樣式已刪 ═══ */
 
@@ -130,12 +129,14 @@
 .ns-notes .ns-notes-iticket .title { font-family: var(--font-body); } /* 原型施工決定 6：收件匣臨時券標題用黑體（不加 .hw） */
 .ns-notes .ns-notes-iticket:hover { transform: none; }
 
-/* 選中（鍵盤 ↑↓／hover）＝燙金邊 */
-.ns-notes-iitem.is-sel .ns-notes-slip-in { border-color: var(--color-gold); }
-.ns-notes .ns-notes-iitem.is-sel .ticket::before { border-color: var(--color-gold); }
+/* 選中（鍵盤 ↑↓／hover）＝--sel-line 外框（視覺規範 §2.6／§2.10：粉彩靛、銀河金；同 techo.css 的選中票）。
+   票的材質層是絕對定位的 ::before，直接換 2px；紙片的框在內容盒上，加粗會擠動內文——框維持 1px、
+   內側再補 1px 同色陰影，看起來一樣是 2px。外圈淡環從 --arc 改作用中色（銀河兩者同值） */
+.ns-notes-iitem.is-sel .ns-notes-slip-in { border-color: var(--sel-fg); box-shadow: var(--ns-hi), inset 0 0 0 1px var(--sel-fg); }
+.ns-notes .ns-notes-iitem.is-sel .ticket::before { border: var(--sel-line); }
 .ns-notes-iitem.is-sel .ns-notes-slip,
 .ns-notes .ns-notes-iitem.is-sel .ticket {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--arc) 26%, transparent), var(--shadow-card);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent), var(--shadow-card);
 }
 
 /* 去處列：選中才滑出 */
@@ -145,16 +146,15 @@
 .ns-notes-iitem.is-sel .ns-notes-dest > div { overflow: visible; }
 .ns-notes-destrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 9px 16px 11px; margin: 0 6px; border-top: 1px dashed var(--color-dash); }
 .ns-notes-iticket .ns-notes-destrow { margin-left: 124px; }
+/* 去處鈕＝.ns-btn.btn-ghost（UI 丙-1，視覺規範 §2.3）：尺寸、字級、框、hover、焦點、禁用都由 .ns-btn／.btn-ghost 管，
+   .ns-notes-act 只剩版位（橫排、鍵帽間距）。「刪除」＝.quiet＋.ns-btn-danger（赭框；.quiet 只管推到最右）。
+   展開中的那一顆（挑日期／掛進列車／掛上路線的小浮層開著）＝選中態 */
 .ns-notes .ns-notes-act {
-  display: inline-flex; align-items: center; gap: 7px; cursor: pointer; background: transparent;
-  padding: 4px 10px 4px 11px; border: 1px solid var(--color-dash); border-radius: 2px;
-  font-family: inherit; font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft);
-  transition: border-color .15s, color .15s, background .15s;
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: inherit;
 }
-.ns-notes .ns-notes-act:hover, .ns-notes .ns-notes-act[aria-expanded="true"] { border-color: var(--accent); color: var(--color-ink); background: var(--ns-sel); }
-.ns-notes .ns-notes-act:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-.ns-notes .ns-notes-act.quiet { margin-left: auto; border-color: transparent; color: var(--color-ink-faint); }
-.ns-notes .ns-notes-act.quiet:hover { border-color: var(--color-dash); background: transparent; color: var(--color-ink-soft); }
+.ns-notes .ns-notes-act[aria-expanded="true"] { border-color: var(--sel-fg); color: var(--color-ink); background: var(--sel-bg); }
+.ns-notes .ns-notes-act.quiet { margin-left: auto; }
 
 /* 小浮層（排某天／掛進列車／掛上路線／換掛／改日期／預覽框的掛到哪） */
 .ns-notes-pop {
@@ -180,47 +180,27 @@
 }
 .ns-notes-chip:hover { border-color: var(--accent); color: var(--color-ink); }
 .ns-notes-chip.on { border-color: var(--accent); color: var(--color-ink); background: var(--ns-sel); }
-.ns-notes-chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes-chip:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-notes-chip .sub { opacity: .6; }
-.ns-notes-input {
-  width: 100%; font-size: 13px;
-}
-.ns-notes-nodelist { list-style: none; margin: 8px 0 0; padding: 0; max-height: 216px; overflow-y: auto; }
-.ns-notes-nodelist li > button, .ns-notes-nodelist li > .grp {
-  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: 0; background: transparent;
-  padding: 6px 6px; border-radius: 2px; font-family: inherit; font-size: 12.5px; color: var(--color-ink); cursor: pointer;
-}
-.ns-notes-nodelist li > .grp { color: var(--color-ink-faint); cursor: default; font-size: 12px; }
-.ns-notes-nodelist li > button:hover, .ns-notes-nodelist li > button.kb { background: var(--ns-sel); }
-.ns-notes-nodelist li > button.cur { color: var(--accent); }
-.ns-notes-nodelist .kind {
-  font-family: var(--font-display); font-weight: 600; font-size: 10px; width: 18px; height: 18px;
-  border: 1.2px dashed currentColor; border-radius: 50%; display: grid; place-items: center; flex: none;
-}
-.ns-notes-nodelist .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ns-notes-nodelist .path { margin-left: auto; font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .04em; flex: none; }
-.ns-notes-nodelist .back { color: var(--color-ink-soft); font-size: 11.5px; letter-spacing: .08em; }
-.ns-notes-nodelist .empty { padding: 8px 6px; font-size: 12px; color: var(--color-ink-faint); }
-.ns-notes-popfoot { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--color-line); }
+/* 「掛到哪」挑選器（AttachPicker）的搜尋框、清單、腳列已搬到 common/attachpicker.css（UI 丙-2 搬家，契約 §1 #18）。
+   只留下面三條字級：不在字階（13／10.5／11.5），搬過去就得改值、會動到畫面——丙-3～6 套用時決定收成哪一階再一起搬。 */
+.ns-notes-input { font-size: 13px; }
+.ns-notes-nodelist .path { font-size: 10.5px; }
+.ns-notes-nodelist .back { font-size: 11.5px; }
 
 /* 空狀態 */
 .ns-notes-empty { display: grid; justify-items: center; gap: 14px; padding: 70px 0 40px; color: var(--color-ink-faint); font-size: 13.5px; letter-spacing: .14em; text-align: center; }
 /* 空狀態第二行小字（收件匣「隨手記一句，會先放進這裡」，磨光③ 2-15） */
 .ns-notes-empty p small { display: block; margin-top: 8px; font-size: 12px; letter-spacing: .06em; }
 
-/* 頁面按鈕（ghost／primary） */
+/* 頁面按鈕：UI 丙-1 起同一顆鈕另掛 .ns-btn＋層級（主鈕 .btn-seal／次鈕 .btn-ghost／危險 .btn-ghost.ns-btn-danger；
+   視覺規範 §2.3）——尺寸、字級、框、hover、焦點、禁用全由那幾個 class 管；.ns-notes-btn 只剩版位（圖示與字橫排）。
+   退役：靛框主鈕（存檔／確定／建立改實心墨 .btn-seal） */
 .ns-notes-btn,
 .ns-notes .ns-notes-btn {
-  display: inline-flex; align-items: center; gap: 8px; cursor: pointer; background: transparent;
-  padding: 5px 14px; border: 1px solid var(--color-dash); border-radius: 2px;
-  font-family: inherit; font-size: 12.5px; letter-spacing: .12em; color: var(--color-ink-soft);
-  transition: border-color .15s, color .15s, background .15s;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: inherit;
 }
-.ns-notes-btn:hover { border-color: var(--accent); color: var(--color-ink); }
-.ns-notes-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-.ns-notes-btn.primary { border-color: var(--accent); color: var(--accent); background: var(--ns-sel); }
-.ns-notes-btn.primary:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--color-ink); }
-.ns-notes-btn[disabled] { opacity: .45; cursor: default; }
 .ns-notes-btn svg { flex: none; }
 
 /* ═══ 筆記子畫面：列表欄＋內容欄 ═══ */
@@ -236,20 +216,18 @@
 .ns-notes-searchwrap { position: relative; flex: 1; min-width: 0; display: block; }
 .ns-notes-searchwrap svg { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); color: var(--color-ink-faint); pointer-events: none; }
 .ns-notes .ns-notes-search { width: 100%; padding-left: 20px; font-size: 13px; }
+/* 「＋ 新筆記」＝.ns-btn.btn-ghost（UI 丙-1）：這裡只留版位 */
 .ns-notes .ns-notes-newbtn {
-  flex: none; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; background: transparent;
-  padding: 4px 9px; border: 1px solid var(--color-dash); border-radius: 2px;
-  font-family: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-soft);
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font-family: inherit;
 }
-.ns-notes .ns-notes-newbtn:hover { border-color: var(--accent); color: var(--color-ink); }
-.ns-notes .ns-notes-newbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 .ns-notes-listscroll { flex: 1; min-height: 0; overflow-y: auto; }
 .ns-notes-list { list-style: none; margin: 0; padding: 4px 0 24px; outline: none; }
 .ns-notes-list:focus-visible { box-shadow: inset 0 0 0 1px var(--color-dash); }
 .ns-notes-month { padding: 16px 16px 6px 22px; font-family: var(--font-display); font-weight: 600; font-size: 11px; letter-spacing: .24em; color: var(--color-ink-faint); }
 .ns-notes-row { position: relative; display: block; padding: 0 16px 0 22px; cursor: pointer; transition: background .12s; }
 .ns-notes-row:hover { background: var(--ns-hover); }
-.ns-notes-row.is-active { background: var(--ns-sel); box-shadow: inset 2px 0 0 var(--color-gold); }
+.ns-notes-row.is-active { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--sel-fg); } /* 左線＝--sel-line 的 2px 作用中色；用內陰影畫，不擠列寬 */
 .ns-notes-row .in { display: block; padding: 12px 0 11px; border-bottom: 1px dashed var(--color-line); }
 .ns-notes-row .t { display: block; font-size: 14px; font-weight: 500; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-notes-row .t.blank { color: var(--color-ink-faint); font-weight: 400; }
@@ -286,7 +264,7 @@
   transition: background .15s, color .15s;
 }
 .ns-notes .ns-notes-metabtn:hover, .ns-notes .ns-notes-metabtn[aria-expanded="true"] { background: var(--ns-hover); color: var(--color-ink); }
-.ns-notes .ns-notes-metabtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ns-notes .ns-notes-metabtn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-notes-metabtn .faint { color: var(--color-ink-faint); }
 .ns-notes-metaline .sep { margin: 0 6px 0 2px; }
 .ns-notes-metaline .ns-notes-pop.float { top: 28px; }
@@ -315,8 +293,8 @@
 }
 .ns-notes .ns-notes-ta::placeholder { color: var(--color-ink-faint); opacity: .8; }
 .ns-notes-actions { display: flex; align-items: center; gap: 6px; margin-top: 36px; padding-top: 12px; border-top: 1px solid var(--color-line); }
-.ns-notes .ns-notes-actions .ns-notes-btn { border-color: transparent; color: var(--color-ink-faint); font-size: 11.5px; padding: 3px 8px; }
-.ns-notes .ns-notes-actions .ns-notes-btn:hover { border-color: var(--color-dash); color: var(--color-ink-soft); background: transparent; }
+/* 篇底／筆記底的動作鈕（變待辦、記成日記、刪除）＝緊湊次鈕 .ns-btn--sm.btn-ghost、刪除另掛 .ns-btn-danger（UI 丙-1）；
+   原本的「透明框淡字」覆寫拿掉，框與 hover 吃 .btn-ghost／危險鈕的 token */
 .ns-notes-actions .spacer { flex: 1; }
 .ns-notes-wordcount { font-family: var(--font-latin); font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .06em; }
 
@@ -399,7 +377,7 @@
   content: ""; position: absolute; left: 50%; top: -1px; width: 10px; height: 6px; margin-left: -5px;
   background: var(--accent); clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
-.ns-notes-capwrap .ns-notes-stub:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes-capwrap .ns-notes-stub:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-notes-routestub {
   margin-left: auto; align-self: center; min-width: 0;
   display: inline-flex; align-items: center; gap: 7px;
@@ -458,7 +436,7 @@
   font-family: inherit; font-size: 12.5px; color: var(--color-ink-soft);
 }
 .ns-notes-prev .ns-notes-fieldbtn:hover, .ns-notes-prev .ns-notes-fieldbtn[aria-expanded="true"] { border-color: var(--accent); color: var(--color-ink); }
-.ns-notes-prev .ns-notes-fieldbtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes-prev .ns-notes-fieldbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-notes-fieldbtn .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-notes-prev .ns-notes-fieldbtn.clear { padding: 3px 6px; color: var(--color-ink-faint); }
 .ns-notes-field .ns-notes-pop.float { left: 8px; top: calc(100% - 4px); }
@@ -470,9 +448,9 @@
 .ns-notes-lines li.head.off label .tx { text-decoration: none; }
 .ns-notes-check { appearance: none; -webkit-appearance: none; width: 15px; height: 15px; flex: none; margin: 0; border: 1.3px solid var(--color-ink-faint); border-radius: 2px; display: grid; place-items: center; cursor: pointer; background: transparent; }
 .ns-notes-check:checked { border-color: var(--accent); background: var(--accent); }
-.ns-notes-check:checked::after { content: ""; width: 7px; height: 4px; border: 1.6px solid var(--ns-float); border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); }
+.ns-notes-check:checked::after { content: ""; width: 7px; height: 4px; border: 1.6px solid var(--color-on-ink); border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); }
 [data-theme="dark"] .ns-notes-check:checked::after { border-color: var(--color-book); }
-.ns-notes-check:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes-check:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-notes-headtag { font-size: 9px; letter-spacing: .2em; padding: 0 5px; border: 1px solid var(--color-line); color: var(--color-ink-faint); border-radius: 2px; margin-left: 4px; }
 .ns-notes-prevfoot { display: flex; align-items: center; gap: 8px; padding: 12px 20px 14px; border-top: 1px solid var(--color-line); }
 .ns-notes-prevfoot .hint { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); margin-right: auto; }
@@ -498,7 +476,7 @@
   color: var(--color-ink); transition: background .15s;
 }
 .ns-notes .ns-notes-bigdate:hover, .ns-notes .ns-notes-bigdate[aria-expanded="true"] { background: var(--ns-hover); }
-.ns-notes .ns-notes-bigdate:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes .ns-notes-bigdate:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-notes-bigdate .w { font-weight: 600; font-size: 17px; color: var(--color-ink-soft); margin-left: .3em; }
 .ns-notes .ns-notes-arrow {
   width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; padding: 0;
@@ -506,8 +484,8 @@
   transition: border-color .15s, color .15s, background .15s;
 }
 .ns-notes .ns-notes-arrow:hover:not([disabled]) { border-color: var(--color-dash); color: var(--color-ink); }
-.ns-notes .ns-notes-arrow:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.ns-notes .ns-notes-arrow[disabled] { opacity: .3; cursor: default; }
+.ns-notes .ns-notes-arrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-notes .ns-notes-arrow[disabled] { opacity: var(--disabled); cursor: not-allowed; } /* 禁用（視覺規範 §1.8） */
 .ns-notes .ns-notes-arrow.sm { width: 24px; height: 24px; }
 .ns-notes .ns-notes-todaybtn {
   flex: none; white-space: nowrap;
@@ -516,8 +494,8 @@
   transition: border-color .15s, color .15s;
 }
 .ns-notes .ns-notes-todaybtn:hover:not([disabled]) { border-color: var(--accent); color: var(--color-ink); }
-.ns-notes .ns-notes-todaybtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-.ns-notes .ns-notes-todaybtn[disabled] { opacity: .4; cursor: default; }
+.ns-notes .ns-notes-todaybtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-notes .ns-notes-todaybtn[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 .ns-notes .ns-notes-daypop { left: 36px; top: calc(100% + 8px); width: 316px; }
 .ns-notes-dsearch { margin-top: 14px; max-width: 260px; }
 .ns-notes-dateseal { flex: none; color: var(--stamp-ink); opacity: .88; filter: url(#inkbleed-fine); margin: -10px 0 -14px; }
@@ -543,8 +521,8 @@
 .ns-notes .ns-notes-dpage { min-height: 0; padding-bottom: 34px; }
 .ns-notes-entry { position: relative; }
 .ns-notes-entry + .ns-notes-entry { margin-top: 30px; padding-top: 26px; border-top: 1px dashed var(--color-dash); }
-.ns-notes-entry.is-sel::before { /* 選中（鍵盤 ↑↓ 的目標）＝左緣一道燙金 */
-  content: ""; position: absolute; left: -22px; top: 2px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--color-gold);
+.ns-notes-entry.is-sel::before { /* 選中（鍵盤 ↑↓ 的目標）＝左緣一道 2px 作用中色（＝--sel-line；粉彩靛、銀河金） */
+  content: ""; position: absolute; left: -22px; top: 2px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--sel-fg);
 }
 .ns-notes-entry + .ns-notes-entry.is-sel::before { top: 28px; }
 .ns-notes-entrymeta { position: relative; display: flex; align-items: center; gap: 10px; min-height: 22px; font-size: 10.5px; letter-spacing: .14em; color: var(--color-ink-faint); margin-bottom: 4px; }
@@ -556,7 +534,7 @@
 .ns-notes-entry .ns-notes-actions { margin-top: 14px; padding-top: 0; border-top: 0; }
 /* 沒寫標題的舊篇：「標題（可不寫）」只在選中／滑過／聚焦時清楚，平常退到很淡（一天好幾篇時不搶內文） */
 .ns-notes-entry:not(.is-draft):not(.is-sel):not(:hover) .ns-notes-titlein:not(:focus)::placeholder { opacity: .28; }
-.ns-notes-entry .ns-notes-act.quiet { margin-left: 4px; padding: 3px 8px; font-size: 11.5px; }
+.ns-notes-entry .ns-notes-act.quiet { margin-left: 4px; } /* 尺寸＝.ns-btn--sm（UI 丙-1） */
 .ns-notes-entry.is-draft .ns-notes-entrymeta { color: var(--accent); }
 .ns-notes-nodiary { padding: 54px 0 30px; display: grid; justify-items: start; gap: 14px; color: var(--color-ink-faint); font-size: 14px; letter-spacing: .12em; }
 .ns-notes-nodiary p { margin: 0; }
@@ -578,7 +556,7 @@
   font-family: inherit; color: var(--color-ink); transition: background .12s;
 }
 .ns-notes .ns-notes-dhit > button:hover { background: var(--ns-hover); }
-.ns-notes .ns-notes-dhit > button:focus-visible { outline: none; background: var(--ns-sel); box-shadow: inset 2px 0 0 var(--color-gold); }
+.ns-notes .ns-notes-dhit > button:focus-visible { outline: none; background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--sel-fg); }
 .ns-notes-dhit .d { grid-row: span 2; display: flex; flex-direction: column; gap: 2px; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .06em; }
 .ns-notes-dhit .d .bf { font-family: var(--font-body); font-weight: 400; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
 .ns-notes-dhit .d .y { font-family: var(--font-latin); font-weight: 400; font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); }
@@ -605,7 +583,7 @@
   transition: background .15s;
 }
 .ns-notes .ns-notes-fpback:hover { background: var(--ns-sel); }
-.ns-notes .ns-notes-fpback:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ns-notes .ns-notes-fpback:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-notes-fpbody { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 22px 20px; }
 .ns-notes-fpsec { margin-top: 16px; }
 .ns-notes-fpsec h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; font-size: 10.5px; font-weight: 500; letter-spacing: .26em; color: var(--ink-mid); }

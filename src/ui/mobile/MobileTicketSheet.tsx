@@ -12,7 +12,9 @@
  *   已交代的非定期券｜一行說明「已蓋済——先取消済章才能推遲」（不可點）
  *   其餘            ｜①推遲到明天／往後推一天／排到明天（sheetDeferItems）②下週一 ③選日期…（共用 MobileDatePicker，min＝今天）
  *                    ④清除執行日（aside：回到締切 M/D／進收件匣；本來就沒排 ⇒ 不可點的一行）
- * DOM 沿 v1.1.0 的 MobileActionSheet（`.m-sheet-veil.techo-veil > .m-sheet.ns-card`）。
+ * DOM 沿 v1.1.0 的 MobileActionSheet（`.m-sheet-veil.techo-veil > .m-sheet.techo-card`；UI 丙-1 前是退役的暖棕小卡）。
+ * 鈕類的列＝`.m-sheet-item.ns-btn`（UI 丙-1：焦點環、禁用、過場吃按鈕基底；列高／字級仍由 .m-sheet-item 用 token 定），
+ * 刪除＝`.ns-btn-danger`（赭字、按下淡赭底；舊的危險列 class 退役）。
  * 「選日期…」不翻成原型那張月曆 sheet，改開共用的 `MobileDatePicker`（旅客筆記車次② 抽出的共用件；接縫 33）。
  *
  * **主線②（契約 §4.5-3）**：時刻項。
@@ -240,7 +242,7 @@ export function MobileTicketSheet({
     items = (
       <>
         {card.railDate && (
-          <button type="button" onClick={() => setTimeMode("run")} className="m-sheet-item m-sch-row">
+          <button type="button" onClick={() => setTimeMode("run")} className="m-sheet-item m-sch-row ns-btn">
             本班改時刻…
             <span className="m-sch-aside">
               {card.timeOverridden ? (
@@ -253,11 +255,11 @@ export function MobileTicketSheet({
             </span>
           </button>
         )}
-        <button type="button" onClick={() => setTimeMode("rule")} className="m-sheet-item m-sch-row">
+        <button type="button" onClick={() => setTimeMode("rule")} className="m-sheet-item m-sch-row ns-btn">
           每班時刻…
           <span className="m-sch-aside">{card.ruleTime !== null ? hm(card.ruleTime) : "未排"}</span>
         </button>
-        <button type="button" onClick={run(() => onSkip(!card.suspended))} className="m-sheet-item m-sch-row">
+        <button type="button" onClick={run(() => onSkip(!card.suspended))} className="m-sheet-item m-sch-row ns-btn">
           {card.suspended ? "取消運休" : "本班運休"}
           {card.railDate && <span className="m-sch-aside">{mdw(card.railDate)}</span>}
         </button>
@@ -272,17 +274,17 @@ export function MobileTicketSheet({
     const { first, monday } = sheetDeferItems(card.railDate, card.scheduledOn, today);
     items = (
       <>
-        <button type="button" onClick={run(() => onDefer(first.day))} className="m-sheet-item m-sch-row">
+        <button type="button" onClick={run(() => onDefer(first.day))} className="m-sheet-item m-sch-row ns-btn">
           {first.label}
           <span className="m-sch-aside">{mdw(first.day)}</span>
         </button>
-        <button type="button" onClick={run(() => onDefer(monday))} className="m-sheet-item m-sch-row">
+        <button type="button" onClick={run(() => onDefer(monday))} className="m-sheet-item m-sch-row ns-btn">
           下週一<span className="m-sch-aside">{mdw(monday)}</span>
         </button>
-        <button type="button" onClick={() => setPicking(true)} className="m-sheet-item">
+        <button type="button" onClick={() => setPicking(true)} className="m-sheet-item ns-btn">
           選日期…
         </button>
-        <button type="button" onClick={() => setTimeMode("rule")} className="m-sheet-item m-sch-row">
+        <button type="button" onClick={() => setTimeMode("rule")} className="m-sheet-item m-sch-row ns-btn">
           幾點…
           <span className="m-sch-aside">
             {card.ruleTime !== null ? (
@@ -298,7 +300,7 @@ export function MobileTicketSheet({
         {card.scheduledOn === null ? (
           <p className="m-sheet-item is-disabled">清除執行日（目前未排）</p>
         ) : (
-          <button type="button" onClick={run(() => onDefer(null))} className="m-sheet-item m-sch-row">
+          <button type="button" onClick={run(() => onDefer(null))} className="m-sheet-item m-sch-row ns-btn">
             清除執行日
             <span className="m-sch-aside">{card.dueOn ? `回到締切 ${md(card.dueOn)}` : "進收件匣"}</span>
           </button>
@@ -310,7 +312,7 @@ export function MobileTicketSheet({
   return (
     <div className="m-sheet-veil techo-veil" role="presentation" onClick={onClose}>
       <div
-        className="m-sheet ns-card"
+        className="m-sheet techo-card"
         role="dialog"
         aria-modal="true"
         aria-label={`車票動作——${card.name}`}
@@ -320,17 +322,17 @@ export function MobileTicketSheet({
         {items}
         {/* 磨光① 加工單：改名…／記一句…／上移・下移（唯讀的卡一項都不出，D-1） */}
         {!card.readOnly && onRename && (
-          <button type="button" onClick={() => setTextMode("rename")} className="m-sheet-item">
+          <button type="button" onClick={() => setTextMode("rename")} className="m-sheet-item ns-btn">
             改名…
           </button>
         )}
         {!card.readOnly && onLog && (
-          <button type="button" onClick={() => setTextMode("log")} className="m-sheet-item">
+          <button type="button" onClick={() => setTextMode("log")} className="m-sheet-item ns-btn">
             記一句…
           </button>
         )}
         {!card.readOnly && moveRule && (
-          <button type="button" onClick={() => void startMove()} className="m-sheet-item">
+          <button type="button" onClick={() => void startMove()} className="m-sheet-item ns-btn">
             移動到…
           </button>
         )}
@@ -340,7 +342,7 @@ export function MobileTicketSheet({
               type="button"
               disabled={!reorder.up}
               onClick={run(() => reorder.onMove(-1))}
-              className="m-sheet-item"
+              className="m-sheet-item ns-btn"
             >
               上移
             </button>
@@ -348,7 +350,7 @@ export function MobileTicketSheet({
               type="button"
               disabled={!reorder.down}
               onClick={run(() => reorder.onMove(1))}
-              className="m-sheet-item"
+              className="m-sheet-item ns-btn"
             >
               下移
             </button>
@@ -357,7 +359,7 @@ export function MobileTicketSheet({
         {/* 各線附加項（接縫 #56 後半；旅客筆記：荷札…）——唯讀的卡（定期券歷史班次）不出 */}
         {!card.readOnly &&
           lineTicketSheetItems().map(({ id, Item }) => <Item key={id} nodeId={card.nodeId} name={card.name} close={onClose} />)}
-        {/* 刪除：先關 sheet 再問（D-2）；朱字、貼著取消 */}
+        {/* 刪除：先關 sheet 再問（D-2）；赭字（危險鈕 --danger）、貼著取消 */}
         {!card.readOnly && onDelete && (
           <button
             type="button"
@@ -365,12 +367,12 @@ export function MobileTicketSheet({
               onClose();
               onDelete();
             }}
-            className="m-sheet-item is-danger"
+            className="m-sheet-item ns-btn ns-btn-danger"
           >
             刪除
           </button>
         )}
-        <button type="button" onClick={onClose} className="m-sheet-item is-cancel">
+        <button type="button" onClick={onClose} className="m-sheet-item is-cancel ns-btn">
           取消
         </button>
       </div>
