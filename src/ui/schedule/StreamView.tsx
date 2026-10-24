@@ -28,6 +28,12 @@
  *
  * 建票（D-主-8／P10）：今天與未來的日期標題列可點（含空白單日、攤開的逐日行）⇒ `setDraftDay(date)` 在該段最後開草稿列；
  * 一次只有一張草稿；過去的標題列不可點（title 講明）。草稿送出成功後清空輸入、草稿列留著（連打）；空白 Enter／Esc 關。
+ *
+ * ── UI 丙-3 ──
+ *   D2：頁首「＋ 車票」在串流＝`setDraftDay(today)`＋捲回今天（CalendarView 發；這裡不用另接）。
+ *   D3：庫裡一張會上行程表的票都沒有（`bounds.earliest === null`，載入完才判斷）⇒ 捲動內容頂端一個 EmptyState
+ *     （「＋ 車票」＝開今天的草稿列）；`streamEmpty` 寫回 scheduleUiStore，頁首據此藏起「＋ 車票」（同頁一個入口，規範 §2.7）。
+ *   D5：每列 ⋯（scheduleRowMenu；「選日期…」開的推遲小卡錨在 ⋯ 鈕上）。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
@@ -39,7 +45,10 @@ import { DayRow, DueRow, dayRowModel, mmdd, type DayRowModel } from "../calendar
 import { useCalendar } from "../calendar/useCalendarController";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
 import { TicketDraftRow } from "../today/TicketDraftRow";
-import { makeScheduleActions } from "./scheduleActions";
+import { EmptyState } from "../common/EmptyState";
+import { IconPlus } from "../common/icons";
+import type { PopMenuItem } from "../common/PopMenu";
+import { makeScheduleActions, scheduleRowMenu } from "./scheduleActions";
 import { useScheduleUiStore } from "./scheduleUiStore";
 import {
   mdw,
@@ -221,6 +230,8 @@ export function StreamView() {
     const host = scrollRef.current;
     if (!host) return;
     const active = document.activeElement;
+    // 頁首分頁籤上用 ←→ 切到串流的：焦點留在籤上（UI 丙-3：分頁籤自己吃方向鍵，不搶）
+    if (active instanceof Element && active.closest('[role="tablist"]')) return;
     if (active === document.body || (host.closest(".ns-calendar")?.contains(active) && !host.contains(active))) {
       host.focus({ preventScroll: true });
     }
@@ -247,6 +258,18 @@ export function StreamView() {
     // 再點同一顆＝收起來（與今日列的 chip 同一個 toggle 語義）
     setDeferTarget((cur) => (cur?.key === row.key ? null : { key: row.key, anchor: el }));
   }, []);
+
+  /** 每列 ⋯ 的項目（開卡那一刻才算；「選日期…」＝推遲小卡錨在 ⋯ 鈕） */
+  const menuFor = useCallback(
+    (row: DayRowModel, anchor: HTMLElement | null): PopMenuItem[] =>
+      scheduleRowMenu(actions, row, {
+        today: latest.current.today,
+        openDefer: () => {
+          if (anchor) openDefer(row, anchor);
+        },
+      }),
+    [actions, openDefer],
+  );
 
   const closeDefer = useCallback(() => {
     setDeferTarget(null);
@@ -293,6 +316,13 @@ export function StreamView() {
     const { late: l, goTo } = streamRef.current;
     if (l.earliest) goTo(l.earliest);
   }, []);
+
+  /* ───────── D3 空狀態：查到邊界之後才判斷（bounds=null＝還沒查到，不畫，規範 §1.8） ───────── */
+  const empty = s.bounds !== null && s.bounds.earliest === null;
+  useEffect(() => {
+    useScheduleUiStore.getState().setStreamEmpty(empty);
+  }, [empty]);
+  useEffect(() => () => useScheduleUiStore.getState().setStreamEmpty(false), []);
 
   /* ───────── 捲動：spy／補載交給 useStream；捲動即關小卡 ───────── */
   const onScroll = () => {
@@ -412,12 +442,27 @@ export function StreamView() {
       onDraftCommit={commitDraft}
       onDraftCancel={closeDraft}
       onLateJump={onLateJump}
+      onMenu={menuFor}
     />
   );
 
   return (
     <div className="ns-sch">
       <div ref={scrollRef} className="ns-sch-scroll" tabIndex={0} onScroll={onScroll} onKeyDown={onKeyDown}>
+        {empty && (
+          <EmptyState
+            className="ns-sch-empty"
+            tone="first"
+            stamp={
+              <span className="stamp">
+                <span className="hint">検印</span>
+              </span>
+            }
+            title="行程表還是空的"
+            desc="排了日子的車票會照日子排在這裡。"
+            action={{ label: "車票", icon: <IconPlus />, onClick: () => openDraft(today) }}
+          />
+        )}
         {blocks.map((b) => {
           if (b.kind === "day") return renderDay(b.s);
           if (b.kind === "before") {
@@ -532,6 +577,7 @@ interface DaySectionProps {
   onDraftCommit(date: string, name: string): Promise<void>;
   onDraftCancel(): void;
   onLateJump(): void;
+  onMenu(row: DayRowModel, anchor: HTMLElement | null): PopMenuItem[];
 }
 
 const DaySection = memo(function DaySection(p: DaySectionProps) {
@@ -630,6 +676,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
               onStamp={p.onStamp}
               onDefer={p.onDefer}
               onFreshEnd={p.onFreshEnd}
+              onMenu={p.onMenu}
             />
           ))}
         </div>
@@ -683,6 +730,7 @@ const StreamRow = memo(function StreamRow({
   onStamp,
   onDefer,
   onFreshEnd,
+  onMenu,
 }: {
   row: DayRowModel;
   selected: boolean;
@@ -691,6 +739,7 @@ const StreamRow = memo(function StreamRow({
   onStamp(row: DayRowModel): void;
   onDefer(row: DayRowModel, anchor: HTMLElement): void;
   onFreshEnd(key: string): void;
+  onMenu(row: DayRowModel, anchor: HTMLElement | null): PopMenuItem[];
 }) {
   // 現在（主線②）：時刻已過的赭色要每分鐘自己變——節拍掛在列上，換分只重畫列、不動整條串流
   const now = useMinuteTick();
@@ -704,6 +753,7 @@ const StreamRow = memo(function StreamRow({
       onSelect={() => onSelect(rowKey(row.entry.date, row.entry.node_id))}
       onStamp={() => onStamp(row)}
       onDefer={(el) => onDefer(row, el)}
+      menu={(anchor) => onMenu(row, anchor)}
     />
   );
 });

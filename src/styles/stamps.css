@@ -38,17 +38,17 @@
 /* 圓印・主章（済）：外框 2.5px、字 27px、60px 圓 */
 .ns-imp.ns-round-main {
   width: 60px; height: 60px; border-radius: 50%;
-  border: 2.5px solid currentColor; font-size: 27px;
+  border: 2.5px solid currentColor; font-size: 27px; /* 字面值：印章家族（圓印主章，原型逐字） */
   background: radial-gradient(circle at 36% 30%, color-mix(in srgb, currentColor 11%, transparent), transparent 62%);
 }
-.ns-imp.ns-round-main.ns-sm { width: 34px; height: 34px; border-width: 2px; font-size: 16px; }
+.ns-imp.ns-round-main.ns-sm { width: 34px; height: 34px; border-width: 2px; font-size: 16px; } /* 字面值：印章家族（圓印小章，原型逐字） */
 
 /* 角印：1.6px 框、圓角 2px、字 12.5px 字距 .3em；四字章字距 .16em */
 .ns-imp.ns-rect {
-  border: 1.6px solid currentColor; border-radius: 2px;
-  padding: 4px 8px 3px 10px; font-size: 12.5px; letter-spacing: .3em; text-indent: .3em;
+  border: 1.6px solid currentColor; border-radius: 2px; /* 字面值：印章家族（角印框，原型逐字） */
+  padding: 4px 8px 3px 10px; font-size: 12.5px; letter-spacing: .3em; text-indent: .3em; /* 字面值：印章家族（角印字，原型逐字） */
 }
-.ns-imp.ns-rect.ns-four { font-size: 12px; letter-spacing: .16em; text-indent: .16em; padding: 4px 7px 3px 9px; }
+.ns-imp.ns-rect.ns-four { font-size: 12px; letter-spacing: .16em; text-indent: .16em; padding: 4px 7px 3px 9px; } /* 字面值：印章家族（四字章，原型逐字） */
 
 /* 日付印（SVG）：雙圈 外 1.6／內 .8＋上下兩道橫線夾日期；細字走 -fine 檔朱肉 */
 .ns-date-seal {
@@ -85,7 +85,7 @@
  * （原本用 --cover 當站名色＝書封近黑，壓在銀河深空上不可見——② 修正輪改回原型值）。 */
 .ns-station-stamp .ring-base, .ns-station-stamp .dots { stroke: var(--ink-soft, var(--color-ink-soft)); fill: none; }
 .ns-station-stamp .name { fill: var(--ink, var(--color-ink)); font-family: var(--font-display); }
-.ns-station-stamp .arc { stroke: var(--arc, var(--color-gold)); }
+.ns-station-stamp .arc { stroke: var(--arc, var(--color-gold)); } /* 紀念章弧：--arc 後備（金只做里程弧） */
 .ns-station-stamp .arc-label, .ns-station-stamp .caption { fill: var(--ink-soft, var(--color-ink-soft)); }
 .ns-station-stamp .caption, .ns-station-stamp .state { font-family: var(--font-body); }
 .ns-station-stamp .pct { fill: var(--ink-soft, var(--color-ink-soft)); }
@@ -132,7 +132,7 @@
  * 免得 panel.css 的 `.panel textarea{font:inherit}` 在注入順序變動時翻盤。 */
 .panel .panel-sheet .date-line .d {
   font-family: var(--font-display); font-weight: 700;
-  font-size: 19px; letter-spacing: .05em; line-height: 1.4;
+  font-size: var(--fs-title); letter-spacing: .05em; line-height: 1.4;
 }
 
 /* —— 乘務記錄（工作日誌）：原件 6a1b98c 的 .log／.time-seal；側板窄幅改三欄 grid：戳／內容／日期 —— */
@@ -154,38 +154,38 @@
 .panel .log li.evt { padding: 5px 0; }
 .panel .log li:last-child { border-bottom: 0; }
 .panel .log .tm {
-  font-family: var(--font-latin); font-size: 9px; letter-spacing: .1em;
+  font-family: var(--font-latin); font-size: 9px; letter-spacing: .1em; /* 字面值：乘務記錄時刻小字照原件（字階外） */
   color: var(--color-ink-faint); text-align: center;
 }
 .panel .log .act {
-  font-family: var(--font-display); font-weight: 700; font-size: 12px;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm);
   letter-spacing: .2em; color: var(--color-ink-soft); white-space: nowrap;
 }
 .panel .log .what {
-  font-size: 12.5px; color: var(--color-ink); letter-spacing: .03em; line-height: 1.55;
+  font-size: var(--fs-ui); color: var(--color-ink); letter-spacing: .03em; line-height: 1.55;
   min-width: 0; overflow-wrap: anywhere;
 }
 /* 主人筆跡例外：日誌內文走手寫（Iansui）——① 比稿拍板 Q5 */
 .panel .log .what.hw {
   font-family: var(--hw, "Iansui", "LXGW WenKai TC", "Noto Sans TC", sans-serif);
-  font-size: 14px; letter-spacing: .05em;
+  font-size: var(--fs-body); letter-spacing: .05em;
 }
 .panel .log .no {
-  font-family: var(--font-latin); font-size: 9px; letter-spacing: .16em;
+  font-family: var(--font-latin); font-size: 9px; letter-spacing: .16em; /* 字面值：乘務記錄票號小字照原件（字階外） */
   color: var(--color-ink-faint); white-space: nowrap;
 }
 
 /* 清單腳的提示語（原件＝m3-ext-routemap.html 的側板 .log-hint；③ 今日視圖 `L` 上線後才掛） */
 .panel .log-hint {
-  margin-top: 10px; font-size: 10.5px; letter-spacing: .08em;
+  margin-top: 10px; font-size: 10.5px; letter-spacing: .08em; /* 字面值：側板提示語照原件（字階外） */
   color: var(--color-ink-faint); line-height: 1.7;
 }
 .panel .log-hint kbd {
-  font-family: var(--font-latin); font-size: 9.5px;
-  border: 1px solid var(--color-line); padding: 0 4px; border-radius: 2px;
+  font-family: var(--font-latin); font-size: 9.5px; /* 字面值：鍵帽小字照原件（字階外） */
+  border: 1px solid var(--color-line); padding: 0 4px; border-radius: var(--radius-ctl);
 }
 
-/* 新列落下／撤回打斜線：原件既有的兩個狀態，留給 ③（今日視圖 `L` 行內記一句／undo）掛事件 */
+/* 新列落下／撤回打斜線：原件既有的兩個狀態，留給 ③（今日視圖 `L` 行內記乘務記錄／undo）掛事件 */
 .panel .log li.new { animation: nsRowIn .3s ease-out; }
 @keyframes nsRowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .panel .log li.void { opacity: .55; transition: opacity .25s; }

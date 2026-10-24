@@ -3,28 +3,50 @@
  *
  * 紀律同 schedule-mobile.css：每一條選擇器以 `[data-shell="mobile"]` 開頭（桌機殼永遠不命中）；不往 mobile.css 追加；
  *   顏色只用 theme token（紙面強調＝--accent；警示＝--color-late／危險 --danger；朱 --color-seal 只給済）。
- * 由 MobileTextSheet.tsx／MobileTicketSheet.tsx／MobileToday.tsx import。
+ * 由 MobileTextSheet.tsx／MobileTicketSheet.tsx／MobileTimeSheet.tsx／MobileToday.tsx import。
+ * UI 丙-3：⋯ sheet 與三個子面板換成共用 MSheet（common/msheet.css）；這裡只剩列裡的小件與子面板的版面（全吃 token，零字面字級）。
  * ═══════════════════════════════════════════════════════ */
 
-/* ─────────── ⋯ sheet 新項 ─────────── */
-/* 刪除＝赭字（放最下面、取消之上；磨光⑤ 朱只給済，警示由朱改赭）。UI 丙-1：舊的危險列 class 退役，改掛危險鈕的 .ns-btn-danger——
-   sheet 列不畫框（列的長相歸 .m-sheet-item），只吃危險 token：字 --danger、按下 --danger-bg（視覺規範 §2.3） */
-[data-shell="mobile"] .m-sheet-item.ns-btn-danger { color: var(--danger); }
-[data-shell="mobile"] .m-sheet-item.ns-btn-danger:active { background: var(--danger-bg); }
-/* 上移／下移並排成一列兩格（同一件事的兩個方向；各自 52px 高的觸控目標） */
-[data-shell="mobile"] .m-sheet-pair { display: grid; grid-template-columns: 1fr 1fr; }
-[data-shell="mobile"] .m-sheet-pair .m-sheet-item { text-align: center; }
-[data-shell="mobile"] .m-sheet-pair .m-sheet-item + .m-sheet-item { border-left: 1px dashed var(--color-dash); }
-/* 禁用（§1.8）：淡度交給 .ns-btn:disabled 的 --disabled（.3），這裡只把字蓋回墨、按下不變底，免得淡上加淡 */
-[data-shell="mobile"] .m-sheet-pair .m-sheet-item:disabled { color: var(--color-ink); cursor: not-allowed; background: transparent; }
-
-/* ─────────── 一行輸入子面板（改名…／記一句…） ─────────── */
-[data-shell="mobile"] .m-txs-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px;
-  padding: 10px var(--m-gutter) 12px;
-  border-bottom: 1px solid var(--color-line);
+/* ─────────── ⋯ sheet（UI 丙-3 F3：殼與列換共用 MSheet／MSheetItem，這裡只補列裡的小件） ─────────── */
+/* 刪除＝MSheetItem danger（赭字、按下 --danger-bg，msheet.css）；舊的 .m-sheet-item.ns-btn-danger 退役 */
+/* 右側小字（M/D、時刻、「回到締切」）：靠右、淡字；時刻數字用拉丁字 */
+[data-shell="mobile"] .ns-msheet-item > .m-tks-aside {
+  margin-left: auto; padding-left: var(--sp-3); white-space: nowrap;
+  font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint);
 }
-[data-shell="mobile"] .m-txs-input { width: 100%; }
+[data-shell="mobile"] .m-tks-aside .hm {
+  font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-sm); letter-spacing: .02em; color: var(--color-ink-soft);
+}
+/* 不可點的說明列（已蓋済、過去的班次、目前未排）：同列高、淡字；不是按鈕，↑↓ 不停 */
+[data-shell="mobile"] .m-tks-note {
+  display: flex; align-items: center; box-sizing: border-box;
+  min-height: var(--row-menu); margin: 0; padding: 0 var(--m-gutter);
+  border-bottom: 1px solid var(--color-line);
+  font-size: var(--fs-body); letter-spacing: .08em; color: var(--color-ink-faint);
+}
+/* 上移／下移並排成一列兩格（同一件事的兩個方向；各自 52px 高的觸控目標） */
+[data-shell="mobile"] .m-tks-pair { display: grid; grid-template-columns: 1fr 1fr; }
+[data-shell="mobile"] .m-tks-pair > .ns-msheet-item { justify-content: center; }
+[data-shell="mobile"] .m-tks-pair > .ns-msheet-item + .ns-msheet-item { border-left: 1px dashed var(--color-dash); }
+
+/* ─────────── 一行輸入子面板（改名…／記乘務記錄…；UI 丙-3 F6 殼換 MSheet，按鈕列黏底） ─────────── */
+[data-shell="mobile"] .m-txs-input { width: 100%; box-sizing: border-box; }
+
+/* ─────────── 時刻子面板（幾點…；UI 丙-3 F4：ClockInput＋預計分段鈕） ─────────── */
+[data-shell="mobile"] .m-tms-note { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-soft); }
+[data-shell="mobile"] .m-tms-note.is-wrap { color: var(--accent); }
+[data-shell="mobile"] .m-tms-grp { display: grid; gap: var(--sp-2); }
+[data-shell="mobile"] .m-tms-est { display: flex; align-items: center; gap: var(--sp-2); }
+[data-shell="mobile"] .m-tms-est > .ns-seg { flex: 1 1 auto; min-width: 0; }
+[data-shell="mobile"] .m-tms-est > .chip.ns-chip { flex: none; }
+[data-shell="mobile"] .m-tms-custom { flex: none; width: 5.5em; text-align: center; font-family: var(--font-latin); }
+[data-shell="mobile"] .m-tms-sum {
+  margin: 0; padding: var(--sp-2) var(--sp-3);
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .m-tms-sum .hm { font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-body); color: var(--color-ink); }
+[data-shell="mobile"] .m-tms-past { margin-left: var(--sp-2); color: var(--color-late); }
 
 /* ─────────── 今日頁「指出這張票」（A7；D-主-48 閃一下底色） ─────────── */
 /* 只寫 from：動畫從強調色淡回這張卡自己的底色（済卡的票紙、一般卡的高紙都對） */

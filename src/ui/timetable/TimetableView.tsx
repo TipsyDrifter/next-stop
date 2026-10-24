@@ -2,7 +2,8 @@
  * TimetableView——時刻表桌機頁（車次①a 契約 §5.2；乙席）。根 `div.page.ns-tt`，照今日頁殼契約（TodayView.tsx:132）。
  *
  *   div.page.ns-tt[data-view="split"|"axis"][data-layout="wide"|"narrow"]（tabIndex=0；鍵盤表掛這裡；sheet 開著時停用）
- *   ├─ header.ns-tt-head   .techo-overline「時刻表 — TIMETABLE」＋ h1.techo-title「時刻表」＋ 右側 div.ns-tt-switch（兩欄｜只看軸、鍵帽 V）
+ *   ├─ PageHeader variant="name"（header.ns-pagehead；UI 丙-4 A1）：眉標 {時刻表, Timetable}＋大標「時刻表」＋
+ *   │    工具列［分頁籤 六視圖］［＋ 補記］［搜尋］［分類與設定］
  *   ├─ div.ns-tt-cols
  *   │   ├─ div.ns-tt-col.is-left（split：RunDock desktop 在左欄頂端（D-時-22）＋ DepartBoard；寬 380px）
  *   │   └─ div.ns-tt-col.is-right（自己捲動）→ Axis scroller="self"；axis 視圖：RunDock 置於 Axis 上方、左欄不渲染
@@ -22,11 +23,22 @@
  *   GridView（不包 `.ns-tt-vscroll`，方眼自己決定捲不捲；單欄版面由 §M 的 :has 認）。←／→／T 在方眼＝換日，照軸：→ 翻不過今天。
  *   「切回時未來日拉回今天」的排除清單不含 grid＝從日程翻到未來再切到方眼也拉回今天（方眼不能記未來，D-時-100）。
  * - 磨光③ 2-3：切換鈕右邊固定一顆「分類與設定」（鍵帽 E，`timetable.settings`）；頁首右側包成 div.ns-tt-head-tools。
+ * - UI 丙-4 A1／A2：手刻頁首（.ns-tt-head、.ns-tt-switch 鍵帽方格、.ns-tt-setbtn）退役，換共用 PageHeader 頁名式——
+ *   跟行程表同一副骨架。六視圖＝Tabs（襯線底線滑塊；籤字一律名詞「兩欄／時間軸／週／統計／日程／方眼」）；
+ *   鍵帽不再內嵌在籤上，改進滑過的 title（manifest 的 label＋registry 產的鍵帽字；V 的說明併在前兩籤）。
+ *   工具列另三格：「＋ 補記」＝F 鍵同一支 requestFillLatestGap、搜尋＝全域 QuickJump（時刻表自己的搜尋範圍不在本班）、
+ *   「分類與設定」＝E 鍵同一支。主欄 <704 時 PageHeader 自己把籤收成下拉。
+ *   焦點在籤上時 ←→ 換籤（Tabs 的標準行為，它會 stopPropagation）；離開籤 ←→ 照舊換日。1～6、V、E、F、N、Enter、T 照樣冒泡到 .page。
+ *   滑鼠點籤／下拉選完視圖即放掉焦點（releaseHeadFocus），←→ 不會被籤留住——只有用 Tab 走進籤列的人才在籤上 roving。
  */
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { TT_TEXT, useTimetableStore, type TimetableView as TimetableViewMode } from "../../store/timetableStore";
-import { formatChord, hotkeyById } from "../shell/hotkeys";
-import { Kbd, RunDock } from "./parts/RunDock";
+import { useUiStore } from "../../store/uiStore";
+import { hotkeyById } from "../shell/hotkeys";
+import { hotkeyCaps } from "../common/PopMenu";
+import { PageHeader } from "../common/PageHeader";
+import type { TabItem } from "../common/Tabs";
+import { RunDock } from "./parts/RunDock";
 import { DepartBoard } from "./parts/DepartBoard";
 import { Axis } from "./parts/Axis";
 import { DesktopSheetHost } from "./DesktopSheetHost";
@@ -43,6 +55,13 @@ import "./timetable.css";
 
 /** 兩欄撐不開的門檻（契約 §5.2） */
 const NARROW_PX = 960;
+/**
+ * 頁首工具列整排放得下的門檻（UI 丙-4 A1）：六籤＋補記＋搜尋＋分類與設定整排量到 666px（mock 兩主題同值），
+ * 加頁首左右外距 48＋40 ＝ 754，取 760。根節點比這窄就讓 PageHeader 收成窄版（籤改下拉、新增與搜尋收成圖示）——
+ * 共用的 704 門檻是照「四籤以內」算的，時刻表六籤在 704～760 之間整排塞不下，會把主欄撐出橫捲。
+ * 760 以上、標題同列放不下時，工具列整排換到標題下一列靠右（timetable.css〈丙-4 T1〉）。
+ */
+const HEAD_FULL_PX = 760;
 
 /** 視圖切換六格（D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼）；n＝鍵帽 1–6（鍵 id `timetable.view.<n>`，整合席登記） */
 const VIEW_OPTIONS: { v: TimetableViewMode; label: string; n: number }[] = [
@@ -54,10 +73,42 @@ const VIEW_OPTIONS: { v: TimetableViewMode; label: string; n: number }[] = [
   { v: "grid", label: TT_TEXT.viewGrid, n: 6 },
 ];
 
-/** 鍵帽字：manifest 有登記就照它（formatChord，不手抄）；還沒登記先印數字 */
-function viewKeyCap(n: number): string {
-  const h = hotkeyById(`timetable.view.${n}`);
-  return h ? formatChord(h.chords[0]).join("+") : String(n);
+/**
+ * 籤的滑過說明（UI 丙-4 A1）：manifest 的 label＋registry 產的鍵帽字（hotkeyCaps＝formatChord，不手抄），例「只看時間軸（2）」。
+ * V（兩欄⇄時間軸）原本是夾在前兩格之間的鍵帽，現在併進第一、二籤的說明。還沒登記的鍵就只印籤字。
+ */
+function viewTabTitle(n: number, label: string): string {
+  const id = `timetable.view.${n}`;
+  const h = hotkeyById(id);
+  const base = h ? `${h.label}（${hotkeyCaps(id)}）` : label;
+  if (n > 2 || !hotkeyById("timetable.view")) return base;
+  return `${base}・${TT_TEXT.weekUi.viewToggleTitle}（${hotkeyCaps("timetable.view")}）`;
+}
+
+/** 頁首按鈕按下就放掉焦點：面板關掉後焦點退回 .page，Enter 才是「到着」、不是再按一次這顆（磨光③ 2-3 的做法） */
+function blurThen(fn: () => void) {
+  return (e: MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.blur();
+    fn();
+  };
+}
+
+/**
+ * UI 丙-4 修（T7 評審 2、3）：滑鼠點頁首的視圖籤、或用窄版下拉選完視圖，就把焦點放掉（同 blurThen）。
+ * 不放的話焦點留在籤上：Tabs 把 ←→／Home／End 吃去換籤（它 stopPropagation），換日鍵全失效；
+ * 留在原生 <select> 上更糟：isEditableTarget 認 SELECT ⇒ 1～6、V、E、F、N、Enter 全被放行。
+ * 只認滑鼠點擊（click.detail>0）；鍵盤在籤上 roving 不經過 click、Enter／Space 的 click.detail 是 0，都不動。
+ * 焦點落到 body 後由 F2 的 window 後援接手（同頁首其他三顆鈕）。
+ */
+function releaseHeadFocus(e: SyntheticEvent<HTMLDivElement>): void {
+  const t = e.target;
+  if (!(t instanceof HTMLElement) || !t.closest(".ns-tt-pagehead")) return;
+  if (e.type === "click") {
+    const tab = t.closest<HTMLElement>('[role="tab"]');
+    if (tab && (e.nativeEvent as globalThis.MouseEvent).detail > 0) tab.blur();
+  } else if (t instanceof HTMLSelectElement) {
+    t.blur();
+  }
 }
 
 /** S：運行中那一班至少跑了這麼久才切得開（＝SplitPanel 的「不到兩分鐘切不開」） */
@@ -143,6 +194,7 @@ export function TimetableView() {
   const setView = useTimetableStore((s) => s.setView);
   const rootRef = useRef<HTMLDivElement>(null);
   const [narrow, setNarrow] = useState(false);
+  const [headCompact, setHeadCompact] = useState(false);
 
   // 進頁：載入 → 問一聲（契約 0-10「進頁」觸發點）。③ #72：init 只有第一次真的讀；之後每次掛上都檢查換日
   useEffect(() => {
@@ -163,13 +215,14 @@ export function TimetableView() {
   }, [view]);
   useTimetableForeground({ ask: true });
 
-  // 寬度不足就退成單欄；只量根節點，不改 view 設定
+  // 寬度不足就退成單欄；只量根節點，不改 view 設定。UI 丙-4 A1：同一把尺決定頁首要不要收成窄版（HEAD_FULL_PX）
   useEffect(() => {
     const el = rootRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? el.clientWidth;
       setNarrow(w < NARROW_PX);
+      setHeadCompact(w < HEAD_FULL_PX);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -205,11 +258,15 @@ export function TimetableView() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const viewKey = hotkeyById("timetable.view");
   const mode: "split" | "axis" | "week" | "stats" | "schedule" | "grid" =
     view === "week" || view === "stats" || view === "schedule" || view === "grid" ? view : view === "axis" ? "axis" : "split"; // 手機記的 board 在桌機＝兩欄
   const split = mode === "split";
   const stacked = narrow && split; // 單欄疊放：運行列 → 發車台 → 軸（整頁捲動）
+  // 籤的 title 在 render 時才查 registry（模組載入當下 manifest 不一定登記完）；內容不會變，算一次
+  const viewTabs = useMemo<readonly TabItem<TimetableViewMode>[]>(
+    () => VIEW_OPTIONS.map((o) => ({ key: o.v, label: o.label, hotkeyTitle: viewTabTitle(o.n, o.label) })),
+    [],
+  );
 
   return (
     <div
@@ -219,46 +276,34 @@ export function TimetableView() {
       data-layout={narrow ? "narrow" : "wide"}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onClick={releaseHeadFocus}
+      onChange={releaseHeadFocus}
       aria-label="時刻表"
     >
-      <header className="ns-tt-head">
-        <div className="ns-tt-head-main">
-          <p className="techo-overline">時刻表 — TIMETABLE</p>
-          <h1 className="techo-title">時刻表</h1>
-        </div>
-        <div className="ns-tt-head-tools">
-          <div className="ns-tt-switch" role="group" aria-label="視圖">
-            {VIEW_OPTIONS.map((o, i) => (
-              <Fragment key={o.v}>
-                <button type="button" aria-pressed={mode === o.v} onClick={() => setView(o.v)}>
-                  {o.label}
-                  <kbd className="ns-tt-kbd" aria-hidden="true">
-                    {viewKeyCap(o.n)}
-                  </kbd>
-                </button>
-                {/* V（兩欄⇄只看軸；在週／統計按 V 回兩欄）的鍵帽留在前兩格之間（§5.1） */}
-                {i === 0 && viewKey && (
-                  <span className="ns-tt-switch-v" title={viewKey.label} aria-hidden="true">
-                    <kbd className="ns-tt-kbd">{formatChord(viewKey.chords[0]).join("+")}</kbd>
-                  </span>
-                )}
-              </Fragment>
-            ))}
-          </div>
-          {/* 磨光③ 2-3：「分類與設定」固定入口（每個視圖都在）；按下放掉焦點，面板關掉後 Enter 才回到「到着」 */}
-          <button
-            type="button"
-            className="ns-btn btn-ghost ns-tt-setbtn"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              useTimetableStore.getState().openSheet({ kind: "categories" });
-            }}
-          >
-            {TT_TEXT.settingsBtn}
-            <Kbd id="timetable.settings" />
-          </button>
-        </div>
-      </header>
+      {/* UI 丙-4 A1：頁名式頁首。工具列固定順序［籤］［＋ 補記］［搜尋］［分類與設定］；「分類與設定」是桌機唯一入口（＋E 鍵，A3） */}
+      <PageHeader
+        variant="name"
+        className="ns-tt-pagehead"
+        overline={{ zh: "時刻表", latin: "Timetable" }}
+        title="時刻表"
+        // 根節點 <760 強制窄版；其餘交給 PageHeader 自己量（主欄 <704）
+        compact={headCompact ? true : undefined}
+        tabs={{ items: viewTabs, value: mode, onChange: setView, "aria-label": "時刻表檢視" }}
+        add={{
+          label: TT_TEXT.fillBtn,
+          title: `${TT_TEXT.fillBtnTitle}（${hotkeyCaps("timetable.fill")}）`,
+          onClick: blurThen(() => useTimetableStore.getState().requestFillLatestGap()),
+        }}
+        search={{
+          onOpen: () => useUiStore.getState().setQuickJumpOpen(true),
+          title: `搜尋（${hotkeyCaps("global.quickjump")}）`,
+        }}
+        manage={{
+          label: TT_TEXT.settingsBtn,
+          title: `${TT_TEXT.settingsBtn}（${hotkeyCaps("timetable.settings")}）`,
+          onClick: blurThen(() => useTimetableStore.getState().openSheet({ kind: "categories" })),
+        }}
+      />
 
       {error && !ready && <p className="ns-tt-error">⚠ {error}</p>}
 

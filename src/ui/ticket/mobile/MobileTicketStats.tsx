@@ -3,7 +3,7 @@
  *
  * 單欄由上而下：
  *   三數卡（收入／支出／淨額橫排三格＋「N 筆收支」；compactMoney）
- *   →「月｜年」小切換
+ *   →「月｜年」分頁籤（UI 丙-5 J2：共用 Tabs 行內形制 size="md"，靠右；切面、支出｜收入仍是分段鈕）
  *   →（第③階段，月模式）預算卡 MobileBudgetCard
  *   → 趨勢 12 根（卡頭「月對月」＋圖例）（inline SVG、寬度＝容器實際像素；支出墨、收入金、選中月 accent；條頂 compact 小字——
  *      12 個月 × 兩個數放不下，收入數字只印選中月，同原型）；點一根 ⇒ 切到那個月（年模式先切回月）
@@ -35,6 +35,13 @@ import {
 import { IconRight } from "./mobileBits";
 import { useViewSwipe } from "./MobileViewBar";
 import { MobileBudgetCard } from "./plan/MobileBudgetCard";
+import { Tabs, type TabItem } from "../../common/Tabs";
+
+/** 統計期間（月｜年）：分頁籤的兩段（同桌機 TicketStats；不跨殼 import 桌機視圖檔） */
+const SPAN_TABS: readonly TabItem<"month" | "year">[] = [
+  { key: "month", label: "月" },
+  { key: "year", label: "年" },
+];
 
 export function MobileTicketStats() {
   const stats = useTicketStore((s) => s.stats);
@@ -54,13 +61,7 @@ export function MobileTicketStats() {
         <>
           <Overview stats={stats} dec={dec} />
           <div className="ns-tk-mst-span">
-            <span className="ns-tk-mseg" role="group" aria-label="統計期間">
-              {(["month", "year"] as const).map((k) => (
-                <button key={k} type="button" aria-pressed={span === k} onClick={() => void setSpan(k)}>
-                  {k === "month" ? "月" : "年"}
-                </button>
-              ))}
-            </span>
+            <Tabs items={SPAN_TABS} value={span} onChange={(k) => void setSpan(k)} size="md" aria-label="統計期間" />
           </div>
           {/* 第③階段（③契約 §5.5；原型題一）：預算卡放在「月｜年」下面——放最上面的話切「年」卡片消失、這列會跳位 */}
           {span === "month" && <MobileBudgetCard />}

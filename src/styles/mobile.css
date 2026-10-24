@@ -166,9 +166,9 @@
     padding: 0 var(--m-gutter);
     padding-top: var(--m-safe-top);   /* 狀態列由頂帶自己吃掉 */
     min-height: calc(var(--m-band-h) + var(--m-safe-top));
-    background: var(--color-book);
+    background: var(--color-book); /* 殼：手機頂帶 */
     color: var(--color-book-ink);
-    border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent); /* 書封燙金：頂帶下緣燙金細線 */
   }
 
   /* 頁名（中文）＋拉丁小字；字級與字距沿 gnav 的書封語彙 */
@@ -184,7 +184,7 @@
     font-size: var(--fs-micro);
     letter-spacing: .26em;
     text-indent: .26em;
-    color: var(--color-gold);
+    color: var(--color-gold); /* 書封燙金：頂帶拉丁小字（書封上） */
   }
   /* 頂帶右側的件（日付印）靠右 */
   [data-shell="mobile"] .m-band-end { margin-left: auto; display: flex; align-items: center; }
@@ -210,7 +210,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m-band-more svg { opacity: .85; display: block; }
-  [data-shell="mobile"] .m-band-more:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m-band-more:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
   [data-shell="mobile"] .m-band-more[aria-pressed="true"] svg { opacity: 1; }
   [data-shell="mobile"] .m-band-more[aria-pressed="true"]::after {
     content: "";
@@ -218,7 +218,7 @@
     bottom: 6px;
     width: 5px;
     height: 5px;
-    background: var(--color-gold);
+    background: var(--color-gold); /* 書封燙金：作用中菱形（頂帶「更多」按下） */
     transform: rotate(45deg);
   }
   /**
@@ -253,9 +253,9 @@
     align-items: stretch;
     padding-bottom: var(--m-safe-bottom);   /* 手勢列由 tab bar 自己吃掉 */
     min-height: calc(var(--m-tabbar-h) + var(--m-safe-bottom));
-    background: var(--color-book);
+    background: var(--color-book); /* 殼：手機 tab bar */
     color: var(--color-book-ink);
-    border-top: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent); /* 書封燙金：tab bar 上緣燙金細線 */
   }
 
   [data-shell="mobile"] .m-tab {
@@ -279,7 +279,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   [data-shell="mobile"] .m-tab svg { opacity: .85; display: block; }
-  [data-shell="mobile"] .m-tab:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+  [data-shell="mobile"] .m-tab:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
 
   /* 選中態＝書封上金菱形（逐字沿 gnav .gnav-item.active::after 的語言，只改成絕對定位貼底） */
   [data-shell="mobile"] .m-tab.is-active { color: var(--color-book-ink); }
@@ -290,7 +290,7 @@
     bottom: 4px;
     width: 5px;
     height: 5px;
-    background: var(--color-gold);
+    background: var(--color-gold); /* 書封燙金：作用中菱形（tab bar 選中） */
     transform: rotate(45deg);
   }
 
@@ -831,14 +831,7 @@
   [data-shell="mobile"] .m-today-stats b { font-weight: 700; color: var(--color-ink); }
   [data-shell="mobile"] .m-today-left { color: var(--color-ink-faint); }
 
-  /* 空狀態／全完成慶祝（桌機 .empty 的手機版；文案逐字同桌機）
-     ⚠ 選擇器要含 .m-today 才壓得過上面那條 `.m-today .sec:first-child{margin-top:4px}`——
-     空狀態的 .sec 正好也是 .m-empty 的第一個子節點，(0,4,0) 會贏過 (0,3,0)。 */
-  [data-shell="mobile"] .m-today .m-empty .sec { margin-top: 12vh; }
-  [data-shell="mobile"] .m-today .m-empty.is-cheer .sec { margin-top: 26px; }
-  [data-shell="mobile"] .m-empty-body {
-    font-size: var(--fs-sm); line-height: 1.9; color: var(--color-ink-soft);
-  }
+  /* 空狀態／全完成慶祝：UI 丙-3 起手機今日也用共用 EmptyState（common/EmptyState），舊 .m-empty 退役 */
 
   /* ─────────────────────────────────────────────
    * WP1-D　車票列（MobileTicket）
@@ -1013,50 +1006,8 @@
   }
   [data-shell="mobile"] .m-nt-go:disabled { opacity: var(--disabled); cursor: not-allowed; }
 
-  /* ─────────────────────────────────────────────
-   * WP1-F　底部 action sheet（⋯ 的唯一用途）
-   *   z-index 45＝在 tab bar（3）與 Toast／ConfirmDialog（50）之間：
-   *   sheet 要蓋住 tab bar，但「連同 N 個子項一起完成？」的確認窗要蓋得住 sheet。
-   * ───────────────────────────────────────────── */
-
-  [data-shell="mobile"] .m-sheet-veil {
-    position: fixed; inset: 0; z-index: 45;
-    display: flex; align-items: flex-end;
-  }
-  [data-shell="mobile"] .m-sheet {
-    box-sizing: border-box;
-    width: 100%;
-    border-width: 1px 0 0;
-    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-    padding: 6px 0 calc(var(--m-safe-bottom) + 8px);
-    /* 磨光①（AVD 回報問題 3，同 D-主-47 的 toast）：粉彩的票紙 64% 白，⋯ 多了幾項變高之後底下票卡的字透上來跟選項疊在一起——
-       同色票紙疊在紙色上＝不透明；旅客筆記的 .ns-notes-msheet 本來就這樣寫。時刻表、售票口的面板也掛這個 class，一起生效。 */
-    background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
-    /* UI 丙-1：卡從退役的暖棕小卡改掛 .techo-card（它不管字），舊卡帶的內文字級搬到這裡（值同 techo.css 給舊卡留的過渡別名） */
-    color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em;
-  }
-  [data-shell="mobile"] .m-sheet-title {
-    padding: 10px var(--m-gutter) 8px;
-    font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    border-bottom: 1px dashed var(--color-dash);
-  }
-  /* 鈕類的列另掛 .ns-btn（UI 丙-1，視覺規範 §2.3：焦點環、禁用、過場吃按鈕基底）；列的長相仍歸這裡——
-     高 --row-menu、字 --fs-body，字重與行高蓋回列的樣子（.ns-btn 的 500／20px 是給獨立按鈕的；2px 圓角留著，列只有底線、看不出來） */
-  [data-shell="mobile"] .m-sheet-item {
-    display: block; width: 100%;
-    min-height: var(--row-menu); padding: 0 var(--m-gutter);
-    background: transparent; border: 0; border-bottom: 1px solid var(--color-line);
-    font-family: inherit; font-size: var(--fs-body); font-weight: 400; line-height: inherit; letter-spacing: .08em; text-align: left;
-    color: var(--color-ink); cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  [data-shell="mobile"] .m-sheet-item:active { background: var(--hover-bg); }
-  [data-shell="mobile"] .m-sheet-item.ns-btn:focus-visible { outline-offset: -2px; }   /* 滿版列的焦點環收進列內（同 .m2-row-body） */
-  [data-shell="mobile"] .m-sheet-item.is-disabled { color: var(--color-ink-faint); cursor: default; }
-  [data-shell="mobile"] .m-sheet-item.is-cancel {
-    border-bottom: 0; color: var(--color-ink-faint); font-size: var(--fs-ui);
-  }
+  /* WP1-F　底部 action sheet（.m-sheet-veil／.m-sheet／.m-sheet-title／.m-sheet-item）：UI 丙-3～丙-7 各線換成共用 MSheet
+   * （common/msheet.css；z 45 的理由搬到那邊檔頭），丙-7 T5 最後一個呼叫端（時刻表「発車」）換完後整段刪掉。 */
 
   /* ─────────────────────────────────────────────
    * WP1-G　Toast 的寬度（驗收時量到的，補 WP0 五節）
@@ -1322,7 +1273,7 @@ html[data-scanning] .m-tabbar { visibility: hidden; }
     position: absolute;
     width: 28px;
     height: 28px;
-    border: 2px solid var(--color-gold);
+    border: 2px solid var(--color-gold); /* 手機掃描框四角（相機畫面，§9.3 准） */
   }
   [data-shell="mobile"] .m2-scan-frame i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
   [data-shell="mobile"] .m2-scan-frame i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }

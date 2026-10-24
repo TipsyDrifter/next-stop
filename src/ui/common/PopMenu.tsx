@@ -9,10 +9,17 @@
  *   Esc 收卡並把焦點交回 returnFocus（預設＝anchor）。點卡外＝收；點回 anchor 不處理（交給 anchor 自己 toggle）。
  *   卡內按鍵一律不往上冒（視圖的導航表是容器層 onKeyDown，冒上去會對選中列動手；Ctrl／⌘ 組合鍵放行給全域表）。
  * 掛在 document.body（portal）：列會 hover 位移（transform），fixed 定位放在列裡會跟著跑。
+ *
+ * ── UI 丙-3（契約 G2）──
+ *   - `PopMenuItem.danger`：破壞性項目（刪除…）赭字 `--danger`；hover／鍵盤聚焦底 `--danger-bg`、字仍赭（不轉作用中色）。
+ *     規範 §2.4：一層、≤7 項、破壞性項目放最後（通常再加 `cut` 虛線隔開）——順序由呼叫端排，元件不重排。
+ *   - `overline` 吃 `string | {zh, latin}`：物件＝PageHeader 同一種畫法（粉彩只畫拉丁斜體、銀河「中 — LATIN」）；
+ *     字串＝照字面（別線舊呼叫端不用改）。新寫的呼叫端一律給物件。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { formatChord, hotkeyById } from "../shell/hotkeys";
+import { OverlineText, type Overline } from "./PageHeader";
 import "./popmenu.css";
 
 export interface PopMenuItem {
@@ -25,13 +32,15 @@ export interface PopMenuItem {
   why?: string;
   /** 這一項之前畫一道虛線撕線 */
   cut?: boolean;
+  /** 破壞性項目（刪除…）：赭字；放在最後 */
+  danger?: boolean;
   onSelect: () => void;
 }
 
 export interface PopMenuProps {
   anchor: HTMLElement | null;
-  /** 眉標（.techo-overline），例「新增 — NEW」 */
-  overline: string;
+  /** 眉標（.techo-overline）：物件 `{zh:"這張車票", latin:"Ticket"}`（新寫法）；字串照字面（舊呼叫端，例「新增 — NEW」） */
+  overline: Overline;
   /** 讀屏用名稱 */
   label: string;
   items: PopMenuItem[];
@@ -141,7 +150,9 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }
       className="ns-popmenu techo-card"
       style={{ top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? "visible" : "hidden" }}
     >
-      <p className="techo-overline ns-popmenu-head">{overline}</p>
+      <p className="techo-overline ns-popmenu-head">
+        <OverlineText value={overline} />
+      </p>
       <ul className="ns-popmenu-list" role="none">
         {items.map((it) => {
           const caps = it.hotkeyId ? hotkeyCaps(it.hotkeyId) : "";
@@ -153,7 +164,7 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }
                 role="menuitem"
                 data-menu-item
                 disabled={it.disabled}
-                className="ns-popmenu-item"
+                className={it.danger ? "ns-popmenu-item is-danger" : "ns-popmenu-item"}
                 onClick={() => {
                   close(false);
                   it.onSelect();

@@ -1,27 +1,32 @@
 /**
  * ColorPicker——挑顏色（視覺規範 §2.5「顏色」、§1.1「兩盤共存、不硬併」；丙-2 契約 §1 第 7 件）。
  * 依場景載入一盤：路線盤 `route`（4 格，DB 存 `var(--route-preset-N)` 字串）或分類盤 `category`（8 格，DB 存 `color_idx` 1–8）；
- * 兩盤的值不對應，硬併會改到使用者既有的顏色，所以分開。「自訂…」＝色塊預覽＋原生 `<input type="color">`；**沒有色碼文字框**。
- * 取代 RouteDialog 的色碼文字框與 RoutePanel 的無字「＋」（丙-3～6 套用）。
- * 長相＝prototypes/ui-brand「ColorPicker」；樣式在 `./datefield.css` 的 `.ns-colorpick`／`.ns-sw`／`.ns-sw-custom`。
+ * 兩盤的值不對應，硬併會改到使用者既有的顏色，所以分開。自訂入口＝跟預設色同大小的虛線小圓、中間一個「＋」，
+ * 點了開原生 `<input type="color">`；**沒有色碼文字框**。選了自訂色之後那顆圓填成自訂色、「＋」消失。
+ * （丙-3 曾換成「自訂…」虛線框 chip、色名搬到下方；使用者 10-24 要退回丙-3 以前側板那顆圓「＋」，彈窗與側板都用它。）
+ * `showName`：色名寫在色列最右邊（預設色＝色名，自訂色＝色碼）；路線側板與新增路線彈窗都開，排法一樣。
+ * 長相＝丙-3 以前 RoutePanel 的 `.roundel.custom`；樣式在 `./datefield.css` 的 `.ns-colorpick`／`.ns-sw`／`.ns-sw-custom`／`.ns-colorpick-name`。
  *
  *   div.ns-colorpick[role=radiogroup]
  *     button.ns-sw[role=radio][aria-checked]（style --c＝var(--route-preset-N)｜var(--cat-N)）×4｜×8
- *     label.ns-sw-custom（custom 才有）> span.pv（--pv＝自訂色）＋「自訂…」＋ input[type=color]（透明蓋滿整顆）
+ *     label.ns-sw-custom（custom 才有；--pv＝自訂色）> 「＋」（沒自訂色才有）＋ input[type=color]（透明蓋滿整顆）
+ *     span.ns-colorpick-name（showName 才有）
  *
  * 色名表（§1.1）：路線＝藍鼠／梅紫／松葉／利休鼠（銀河同名，值不同名不改；RouteDialog 的「洗朱」改梅紫）；分類沒有色名，只有「第 N 色」。
- * 選中＝外環 `--sel-line`（2px `--accent`，粉彩靛、銀河金；§2.10）；自訂色在用時「自訂…」那顆外框亮起。
+ * 選中＝外環 `--sel-line`（2px `--accent`，粉彩靛、銀河金；§2.10）；自訂色在用時那顆圓同樣亮外環。
  * 自訂：打開原生色盤時從「目前的顏色」起（預設色讀計算後的值，不寫死色碼）；拖動時只換預覽，關掉色盤（change）才 onChange。
+ * 自訂圓的長相（填色／「＋」）跟著「值」走，拖動預覽只在跟開啟時的顏色不同時疊上去——
+ * 取消色盤（Chromium 按 Esc 會退回開啟時的顏色並發 input）或失焦時預覽清掉，不會卡在「填了色、實際沒存」。
  *
  * ARIA 與鍵盤：
  * - 外層 `role="radiogroup"`＋`aria-label`（預設「路線色」／「分類色」）；每格 `role="radio"`＋`aria-checked`＋`aria-label`／`title`＝色名。
  * - roving tabindex：Tab 只停一格（選中的那格，沒選中＝第一格）；←↑／→↓ 換到前／後一格並選取（循環）、Home／End 第一／最後；
  *   處理過的鍵 preventDefault＋stopPropagation（不漏給頁面的鍵盤表）；Space／Enter＝原生按鈕點選。
- * - 「自訂…」是另一個 Tab 停點（原生 color input，`aria-label`「自訂顏色」）；Enter／Space 開原生色盤。
+ * - 自訂圓「＋」是另一個 Tab 停點（原生 color input，`aria-label`「自訂顏色」）；Enter／Space 開原生色盤。
  */
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 
-/** 路線盤色名（§1.1；RoutePanel.tsx 同表） */
+/** 路線盤色名（§1.1；格子的 aria-label／title 與 showName 的字都用這張表） */
 export const ROUTE_COLOR_NAMES: readonly string[] = ["藍鼠", "梅紫", "松葉", "利休鼠"];
 /** 分類盤格數（`--cat-1..8`） */
 export const CATEGORY_COLOR_COUNT = 8;
@@ -35,8 +40,10 @@ export function routePresetColor(n: number): string {
 const HEX_RE = /^#(?:[0-9a-f]{6}|[0-9a-f]{3})$/i;
 
 interface CommonProps {
-  /** 顯示「自訂…」（預設 false） */
+  /** 顯示自訂入口（虛線圓「＋」；預設 false） */
   custom?: boolean;
+  /** 色列右邊寫色名（預設色＝色名、自訂色＝色碼；預設 false） */
+  showName?: boolean;
   /** radiogroup 的 aria-label（預設 路線色／分類色） */
   label?: string;
   disabled?: boolean;
@@ -93,7 +100,7 @@ function resolveHex(host: HTMLElement | null, css: string): string | null {
 }
 
 export function ColorPicker(props: ColorPickerProps) {
-  const { palette, value, custom = false, disabled = false, className } = props;
+  const { palette, value, custom = false, showName = false, disabled = false, className } = props;
   const label = props.label ?? (palette === "route" ? "路線色" : "分類色");
   const swatches = swatchesOf(palette);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -101,11 +108,16 @@ export function ColorPicker(props: ColorPickerProps) {
   const colorRef = useRef<HTMLInputElement>(null);
 
   const customOn = typeof value === "string" && HEX_RE.test(value);
-  /** 自訂色的預覽（拖動原生色盤時即時換；值換掉就跟著值走） */
-  const [draft, setDraft] = useState<string | null>(customOn ? (value as string) : null);
+  /** 拖動原生色盤時的預覽色（只在色盤開著時有；值換掉就清掉） */
+  const [draft, setDraft] = useState<string | null>(null);
+  /** 打開色盤時的起始色——預覽跟它一樣＝沒拖或已取消，不算預覽 */
+  const primed = useRef<string | null>(null);
   useEffect(() => {
-    setDraft(typeof value === "string" && HEX_RE.test(value) ? value : null);
+    setDraft(null);
   }, [value]);
+  const preview = draft !== null && draft !== primed.current ? draft : null;
+  /** 自訂圓實際顯示的顏色：拖動中的預覽，否則是目前的自訂值（沒有就空、顯示「＋」） */
+  const shown = preview ?? (customOn ? (value as string) : null);
 
   const emit = (out: string | number): void => {
     if (props.palette === "route") props.onChange(String(out));
@@ -131,12 +143,16 @@ export function ColorPicker(props: ColorPickerProps) {
     const el = colorRef.current;
     if (!el) return;
     const sel = swatches.find((s) => isChecked(palette, value, s));
-    const start = draft ?? (sel ? resolveHex(rootRef.current, sel.css) : null) ?? resolveHex(rootRef.current, swatches[0].css);
+    const start = (customOn ? (value as string).toLowerCase() : null) ?? (sel ? resolveHex(rootRef.current, sel.css) : null) ?? resolveHex(rootRef.current, swatches[0].css);
     if (start && el.value !== start) el.value = start;
+    primed.current = start ?? el.value.toLowerCase();
+    setDraft(null);
   };
 
   const checkedIdx = swatches.findIndex((s) => isChecked(palette, value, s));
   const tabIdx = checkedIdx >= 0 ? checkedIdx : 0;
+  /** 色列右邊的字：預設色＝色名；自訂色＝色碼（拖動原生色盤時跟著預覽走，關掉色盤回到看值） */
+  const name = preview ?? (customOn ? (value as string) : checkedIdx >= 0 ? swatches[checkedIdx].name : "");
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number): void => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -187,22 +203,27 @@ export function ColorPicker(props: ColorPickerProps) {
       })}
       {custom && (
         <label
-          className={"ns-sw-custom" + (customOn ? " is-on" : "") + (draft ? "" : " is-blank")}
-          style={draft ? ({ "--pv": draft } as CSSProperties) : undefined}
-          title="自訂顏色"
+          className={"ns-sw-custom" + (customOn ? " is-on" : "") + (shown ? " is-filled" : "")}
+          style={shown ? ({ "--pv": shown } as CSSProperties) : undefined}
+          title={customOn ? `自訂顏色 ${shown}` : "自訂顏色"}
         >
-          <span className="pv" aria-hidden />
-          自訂…
+          {!shown && <span className="plus" aria-hidden>＋</span>}
           <input
             ref={colorRef}
             type="color"
-            aria-label={customOn ? "自訂顏色（使用中）" : "自訂顏色"}
+            aria-label={customOn ? `自訂顏色（使用中 ${shown}）` : "自訂顏色"}
             disabled={disabled}
             onPointerDown={prime}
             onFocus={prime}
             onChange={(e) => setDraft(e.target.value.toLowerCase())}
+            onBlur={() => setDraft(null)}
           />
         </label>
+      )}
+      {showName && name && (
+        <span className="ns-colorpick-name" aria-hidden>
+          {name}
+        </span>
       )}
     </div>
   );

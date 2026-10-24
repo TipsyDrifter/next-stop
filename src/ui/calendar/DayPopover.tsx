@@ -24,6 +24,15 @@
  *   React 17+ 的 onScroll 不冒泡，卡內捲不會觸發外層那條「捲動即關」）。點外關閉——但三處放過：
  *   `.cell.in`（讓格自己換日，:1141）、推遲小卡開著時（小卡自己會先收）、toast（收據的「復原」要按得到）。
  *   側板一開就收浮層（`.`／小卡的編輯規則）——覆蓋層不跟著版面重排，見 openPanel 的註。
+ *
+ * ── UI 丙-3（契約 §1 D2／D4／D5、§5 P4＝B 底端）──
+ *   - 草稿列在清單**底端**（新票出現在輸入框正上方，跟串流日列草稿一致）：格內「＋」與頁首「＋ 車票」開的浮層（`draft`）
+ *     直接帶草稿列並聚焦；點格子本身開的浮層底端是一顆「＋ 車票」文字鈕，點了才展開（過去的日子不畫：不能建票，P10）。
+ *     Enter＝`scheduleActions.createOn`（成功清空、焦點留著連打）；空白 Enter 收草稿；**Esc 先收草稿、再按一次才關浮層**。
+ *     草稿有字時點別處＝照串流草稿（InlineInput）的做法：先建票再走——點浮層裡別處（失焦）、點浮層外（關浮層前）、
+ *     點別的格（換日前）都一樣；切去別的 App（整個視窗失焦）不建、字留著。
+ *   - 點外關閉的三個例外換成新 DOM：格（`.ns-daycell`，共用 DayCell）、列 ⋯ 的小選單（`.ns-popmenu`，portal 在 body）、toast。
+ *   - 每列 ⋯（scheduleRowMenu）：推遲／選日期…／移動到…／運休／詳情／刪除；「選日期…」開的推遲小卡錨在 ⋯ 鈕。
  */
 import {
   useCallback,
@@ -32,7 +41,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type FocusEvent,
   type KeyboardEvent,
+  type MutableRefObject,
 } from "react";
 import { isTaskKind } from "../../domain";
 import { WEEKDAY_LABEL } from "../../domain";
@@ -44,6 +55,9 @@ import { lineCalendarDayAux } from "../../lines/runtime";
 import { isEditableTarget } from "../shell/hotkeys";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
 import { showRescheduleToast } from "../today/useTodayController";
+import { IconClose, IconPlus } from "../common/icons";
+import type { PopMenuItem } from "../common/PopMenu";
+import { makeScheduleActions, scheduleRowMenu } from "../schedule/scheduleActions";
 import { DayRow, DueRow, canStampRow, dayRowModel, mmdd, type DayRowModel } from "./DayRow";
 import { dateOf, useCalendar } from "./useCalendarController";
 import "./daypop.css";
@@ -53,6 +67,10 @@ export interface DayPopoverProps {
   day: string;
   /** 定位錨＝被點的那一格（或格角〆） */
   anchor: HTMLElement | null;
+  /** 開著就帶底端草稿列（格內「＋」、頁首「＋ 車票」；UI 丙-3 P4） */
+  draft?: boolean;
+  /** 每次開浮層遞增（控制器給）：同一天再按一次「＋」也要重開草稿 */
+  seq?: number;
   onClose(): void;
 }
 
@@ -74,7 +92,7 @@ function isGuideKey(e: KeyboardEvent<HTMLElement>): boolean {
   return e.key === "/" && (e.ctrlKey || e.metaKey);
 }
 
-export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
+export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: DayPopoverProps) {
   const { byDate, nodes, routeOf, today } = useCalendar();
   // 「這一列在講的是不是這一班」＝ store 的目前班次表（大綱／側板／今日列同一把尺；
   // 日曆頁由 loadCalendar 一起載，直接開 ?page=calendar 也有）
@@ -83,6 +101,15 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [deferTarget, setDeferTarget] = useState<{ key: string; anchor: HTMLElement | null } | null>(null);
+  /** 底端草稿列開著沒（P4）；換一天／再開一次就照呼叫端給的 draft 重設 */
+  const [draftOpen, setDraftOpen] = useState(draft);
+  /** 草稿列目前的字（點外關閉、點別格之前要先建票；DayDraft 寫、這裡讀） */
+  const draftText = useRef("");
+  const draftOpenRef = useRef(draftOpen);
+  draftOpenRef.current = draftOpen;
+  const actions = useMemo(() => makeScheduleActions("desktop"), []);
+  const dayRef = useRef(day);
+  dayRef.current = day;
 
   const entries = byDate.entries[day];
   const dueList = byDate.dues[day];
@@ -109,12 +136,20 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
   deferRef.current = deferTarget;
   const keysRef = useRef(keys);
   keysRef.current = keys;
+  const selKeyRef = useRef(selKey);
+  selKeyRef.current = selKey;
 
   // 換一天＝落點回到第一列（同一個元件實例會被 React 重用，useState 的初始值不會重算）
   useEffect(() => {
     lastIndex.current = 0;
     setSelKey(keysRef.current[0] ?? null);
   }, [day]);
+
+  // 換一天／再開一次（seq）＝草稿列照呼叫端重設（點格子本身＝收起、按「＋」＝打開）
+  useEffect(() => {
+    draftText.current = "";
+    setDraftOpen(draft);
+  }, [day, seq, draft]);
 
   // 列被交代掉／推遲走了就會從清單消失——落點退到「原本那一格附近」，不要跳回第一列
   useEffect(() => {
@@ -143,7 +178,7 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
     // 先右邊界後左邊界：視窗比浮層還窄時（極小視窗／面板收起時量到 0）也不會被推到負座標
     const left = Math.max(EDGE, Math.min(r.left, vw - POP_W - EDGE));
     setPos({ top: Math.round(top), left: Math.round(left) });
-  }, [anchor, day, rows.length, dues.length]);
+  }, [anchor, day, rows.length, dues.length, draftOpen]);
 
   /* ───────── 焦點：落在選取的那一列（roving tabIndex；沒有列就落在浮層本身） ─────────
    * 排進 macrotask 而不是直接 focus：開浮層的那一個 commit 裡，控制器的「焦點跟著 selectedDay 走」
@@ -152,6 +187,7 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
   useEffect(() => {
     const id = window.setTimeout(() => {
       if (deferRef.current) return; // 小卡開著＝焦點歸它
+      if (draftOpenRef.current) return; // 草稿列開著＝焦點歸輸入框（DayDraft 自己聚焦）
       const host = ref.current;
       if (!host) return;
       const el = selKey ? host.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(selKey)}"]`) : null;
@@ -161,6 +197,29 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
     return () => window.clearTimeout(id);
   }, [selKey, day]);
 
+  /* ───────── 草稿列（P4）：建票＝scheduleActions.createOn（過去日由它擋；busy 重入鎖） ───────── */
+
+  /** 把草稿列目前的字建成票（字先清掉再送：失焦與點外兩條路不會建兩張） */
+  function commitDraftText(): void {
+    const name = draftText.current.trim();
+    if (!draftOpenRef.current || !name) return;
+    draftText.current = "";
+    void actions.createOn(dayRef.current, name);
+  }
+
+  const collapseDraft = useCallback(() => {
+    draftText.current = "";
+    setDraftOpen(false);
+    // 焦點交回浮層（選中的那一列；沒有列就浮層本身）：再按一次 Esc 才關浮層
+    window.setTimeout(() => {
+      const host = ref.current;
+      if (!host) return;
+      const k = selKeyRef.current;
+      const el = k ? host.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(k)}"]`) : null;
+      (el ?? host).focus();
+    }, 0);
+  }, []);
+
   /* ───────── 點外關閉（原型 :1140-1142） ───────── */
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -168,14 +227,22 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
       if (!t) return;
       if (ref.current?.contains(t)) return;
       if (deferRef.current) return; // 推遲小卡開著：這一下是小卡的（它自己會收）
-      if (t instanceof Element && t.closest(".cell.in")) return; // 點格＝換日，交給格
+      // 列 ⋯ 的小選單 portal 在 body：點選單項不是「點外」（選單自己會收）
+      if (t instanceof Element && t.closest(".ns-popmenu")) return;
+      if (t instanceof Element && t.closest(".ns-calendar .ns-daycell:not(.is-out)")) {
+        // 點格＝換日，交給格；草稿有字就先建在原本那天（照串流草稿「點別處就提交」）
+        commitDraftText();
+        return;
+      }
       // toast 是浮層自己吐出來的收據（推遲／T 的「已推到 M/D｜復原」）——mousedown 先關浮層的話，
       // 等 click 打到「復原」時票是回來了、浮層已不在，動線斷掉。與 `.cell.in` 同一條例外。
       if (t instanceof Element && t.closest('[role="status"]')) return;
+      commitDraftText(); // 草稿有字：關之前先建票（浮層一卸載，輸入框的失焦提交就來不及了）
       onClose();
     };
     document.addEventListener("mousedown", onDown, true);
     return () => document.removeEventListener("mousedown", onDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- commitDraftText 只讀 ref，身分穩定與否不影響
   }, [onClose]);
 
   /* ───────── 側板一開就收浮層（同上；小卡的「編輯重複規則…」也走這條） ───────── */
@@ -278,6 +345,15 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
     setDeferTarget((cur) => (cur?.key === row.key ? null : { key: row.key, anchor: el }));
   }, []);
 
+  /** 每列 ⋯（D5）：開卡那一刻才算；「選日期…」＝推遲小卡錨在 ⋯ 鈕 */
+  const menuFor = (row: DayRowModel, el: HTMLElement | null): PopMenuItem[] =>
+    scheduleRowMenu(actions, row, {
+      today,
+      openDefer: () => {
+        if (el) openDefer(row, el);
+      },
+    });
+
   const closeDefer = useCallback(() => {
     setDeferTarget(null);
     const host = ref.current;
@@ -371,6 +447,8 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
   const isToday = day === today;
   const pre = isToday ? "今日" : "當日";
   const headline = `${d.getMonth() + 1}月${d.getDate()}日`;
+  /** 今天與未來才能建票（P10；createOn 也會再擋一次） */
+  const canAdd = day >= today;
 
   return (
     <>
@@ -390,8 +468,8 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
         <div className="pop-head">
           <span className={isToday ? "pd today" : "pd"}>{headline}</span>
           <span className="pw">週{WEEKDAY_LABEL[d.getDay()]}</span>
-          <button type="button" className="pop-x" title="關閉（Esc）" aria-label="關閉" onClick={onClose}>
-            ✕
+          <button type="button" className="ns-iconbtn pop-x" title="關閉（Esc）" aria-label="關閉" onClick={onClose}>
+            <IconClose />
           </button>
         </div>
 
@@ -413,10 +491,42 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
                 onSelect={() => setSelKey(row.key)}
                 onStamp={() => stamp(row)}
                 onDefer={(el) => openDefer(row, el)}
+                menu={(el) => menuFor(row, el)}
               />
             ))
           )}
         </div>
+
+        {/* ═══ 草稿列（P4＝B 底端：接在班次段之後、新票出現在輸入框正上方）／「＋ 車票」文字鈕 ═══ */}
+        {canAdd &&
+          (draftOpen ? (
+            <DayDraft
+              key={`${day}:${seq}`}
+              textRef={draftText}
+              label={`在${headline}新增車票`}
+              onCommit={async (name) => {
+                if (!name.trim()) {
+                  collapseDraft(); // 空白 Enter＝收草稿（同串流草稿）
+                  return false;
+                }
+                draftText.current = "";
+                return actions.createOn(day, name);
+              }}
+              onCancel={collapseDraft}
+            />
+          ) : (
+            <div className="pop-add">
+              <button
+                type="button"
+                className="ns-btn ns-btn--sm btn-text"
+                title={`在${headline}新增車票`}
+                onClick={() => setDraftOpen(true)}
+              >
+                <IconPlus />
+                車票
+              </button>
+            </div>
+          ))}
 
         {/* ═══ 締切段（有締切才出；原型 :1085） ═══ */}
         {dues.length > 0 && (
@@ -453,5 +563,93 @@ export function DayPopover({ day, anchor, onClose }: DayPopoverProps) {
         <DeferPopover row={deferRow} anchor={deferTarget.anchor} onClose={closeDefer} />
       )}
     </>
+  );
+}
+
+/**
+ * 日浮層底端的草稿列（UI 丙-3 P4＝B；長相＝原型 ui-c3 的 `.c3-draft`：緊湊票的虛線版＋虛線圓牌＋「Esc」淡字）。
+ * 行為照串流草稿（StreamView → TicketDraftRow → InlineInput）：Enter 建、成功清空連打；空白 Enter 與 Esc 收起；
+ * 失焦有字＝建（焦點明確去了別處才算；整個視窗失焦不算、字留著）。輸入框 Enter／Esc 一律 stopPropagation，浮層鍵盤表看不到。
+ */
+function DayDraft({
+  textRef,
+  label,
+  onCommit,
+  onCancel,
+}: {
+  textRef: MutableRefObject<string>;
+  label: string;
+  /** 回傳 true＝建成功（清空、焦點留著） */
+  onCommit(name: string): Promise<boolean>;
+  onCancel(): void;
+}) {
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  textRef.current = value;
+
+  // 排進 macrotask 再聚焦：開浮層的那一個 commit 裡，控制器會把焦點交給格（父層 effect 跑在子層之後）
+  useEffect(() => {
+    const id = window.setTimeout(() => ref.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  /** refocus：Enter 建完焦點留在輸入框連打；失焦建票不搶回焦點（使用者已經點去別處了） */
+  const submit = async (text: string, refocus: boolean) => {
+    if (await onCommit(text)) {
+      setValue("");
+      textRef.current = "";
+      if (refocus) ref.current?.focus();
+    }
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      void submit(value, true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+    }
+  };
+
+  const onBlur = (e: FocusEvent<HTMLInputElement>) => {
+    const el = ref.current;
+    if (!el) return;
+    const commit = () => {
+      const text = textRef.current;
+      if (text.trim()) void submit(text, false);
+    };
+    if (e.relatedTarget) {
+      commit();
+      return;
+    }
+    // relatedTarget 為空：整個視窗失焦（保留）或點到不可聚焦處——延一拍再判斷（同 InlineInput）
+    window.setTimeout(() => {
+      if (!el.isConnected || document.activeElement === el || !document.hasFocus()) return;
+      commit();
+    }, 60);
+  };
+
+  return (
+    <div className="pop-draft">
+      <span className="roundel-s none" aria-hidden />
+      <input
+        ref={ref}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
+        placeholder="車票名稱，Enter 建立"
+        aria-label={label}
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <span className="k" aria-hidden>
+        Esc
+      </span>
+    </div>
   );
 }

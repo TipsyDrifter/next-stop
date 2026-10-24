@@ -23,16 +23,22 @@
   display: flex; align-items: baseline; justify-content: space-between; gap: 18px;
   padding: 8px 14px;
   background: transparent; border: 0; cursor: pointer;
-  font-family: inherit; font-size: 12.5px; letter-spacing: .08em; text-align: left; white-space: nowrap;
+  font-family: inherit; font-size: var(--fs-ui); /* 選單項＝--fs-ui（§1.2；丙-3 由 12.5 字面值改 token，桌機同值） */
+  letter-spacing: .08em; text-align: left; white-space: nowrap;
   color: var(--color-ink);
   transition: color .15s, background .15s;
 }
 .ns-popmenu .ns-popmenu-item:hover:not(:disabled) { color: var(--accent); background: var(--color-paper-used); }
 .ns-popmenu .ns-popmenu-item:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+/* 破壞性項目（UI 丙-3 G2；§0 法則 02：刪除是赭）：字 --danger；hover 與鍵盤聚焦都鋪 --danger-bg、字維持赭（不轉 --accent），
+ *   聚焦框照 --focus-ring——赭字＋淡赭底＋框，鍵盤走到它時一眼看得出是「刪除」那一格。禁用時照 §1.8 整列 .3。 */
+.ns-popmenu .ns-popmenu-item.is-danger { color: var(--danger); }
+.ns-popmenu .ns-popmenu-item.is-danger:hover:not(:disabled),
+.ns-popmenu .ns-popmenu-item.is-danger:focus-visible { color: var(--danger); background: var(--danger-bg); }
 /* 禁用（§1.8）：整列 --disabled .3＋not-allowed，不響應 hover（上一條已 :not(:disabled)）；原因寫在 title */
 .ns-popmenu .ns-popmenu-item:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-popmenu .ns-popmenu-item .caps {
-  font-family: var(--font-latin); font-size: 11px; letter-spacing: .08em;
+  font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .08em;
   color: var(--color-ink-faint); flex: none;
 }
 

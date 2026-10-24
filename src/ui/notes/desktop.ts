@@ -21,7 +21,7 @@ export { CaptureButton } from "./CaptureButton";
 export { NotesCoverAux } from "./NotesCoverAux";
 export { TagField } from "./tags/TagField";
 // 時刻表⑥ 契約 0-7：不綁實體種類的荷札欄（實體模式＝立刻寫；受控模式＝只改草稿）；別線的面板從這裡 import
-export { EntityTagField, draftHasKey, type EntityTagFieldProps } from "./tags/EntityTagField";
+export { EntityTagField, draftHasKey, type EntityTagFieldProps } from "../common/EntityTagField";
 export { NOTES_QUICK_JUMP } from "./tags/quickJump";
 export { NoteField } from "./NoteField";
 export { CalendarDiaryAux } from "./CalendarDiaryAux";

@@ -3,7 +3,8 @@
  * 長相照原型 `deskStats()`：
  *
  *   div.ns-tk-stats
- *   ├─ .ns-tk-st-top             三數卡 .ns-tk-st-over（收入／支出／淨額＋「N 筆收支」）・右：「月｜年」.ns-tk-seg
+ *   ├─ .ns-tk-st-top             三數卡 .ns-tk-st-over（收入／支出／淨額＋「N 筆收支」）・右：「月｜年」分頁籤 Tabs.ns-tk-st-span
+ *                                 （UI 丙-5 J2：期間是「換一種看法」＝分頁籤，視覺規範 §2.2；下面的切面、支出｜收入仍是分段鈕）
  *   ├─ section.ns-tk-st-card     「月對月」：svg.ns-tk-st-trend 12 根（每月兩條：支出墨、收入 gold-ink；條頂 compactMoney）
  *   │                              選中月 .is-cur；點一根 ⇒ 切到那個月（年模式點 ⇒ 回月模式並選那個月）；未來的月不能點
  *   └─ section.ns-tk-st-card     「占比」：.ns-tk-st-facets（分類｜帳戶｜路線・支出｜收入）＋ ul.ns-tk-st-rows 橫條排名＋淨退回
@@ -35,6 +36,7 @@ import {
 import type { NodeRow } from "../../../domain/node";
 import { TkIcon, TkRoundel } from "../TicketLedger";
 import { BudgetCard } from "../plan/BudgetCard";
+import { Tabs, type TabItem } from "../../common/Tabs";
 
 const FACETS: readonly [Facet, string][] = [
   ["category", "分類"],
@@ -266,6 +268,12 @@ function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Fac
   );
 }
 
+/** 統計期間（月｜年）：分頁籤的兩段 */
+const SPAN_TABS: readonly TabItem<"month" | "year">[] = [
+  { key: "month", label: "月" },
+  { key: "year", label: "年" },
+];
+
 /* ───────── 視圖 ───────── */
 
 export function TicketStats() {
@@ -295,18 +303,7 @@ export function TicketStats() {
     <div className="ns-tk-stats">
       <div className="ns-tk-st-top">
         <Overview stats={stats} dec={dec} />
-        <span className="ns-tk-seg" role="group" aria-label="統計期間">
-          {(
-            [
-              ["month", "月"],
-              ["year", "年"],
-            ] as const
-          ).map(([k, l]) => (
-            <button key={k} type="button" aria-pressed={span === k} onClick={() => void store().setSpan(k)}>
-              {l}
-            </button>
-          ))}
-        </span>
+        <Tabs items={SPAN_TABS} value={span} onChange={(k) => void store().setSpan(k)} size="md" aria-label="統計期間" className="ns-tk-st-span" />
       </div>
 
       {/* 第③階段（③契約 §5.1、✎-2）：三數卡之後、月對月之前；只在月模式（Stage 0 甲席掛樁） */}

@@ -11,6 +11,10 @@
  * （面板畫在 App 根的代理裡，不在今日頁的 DOM 底下）。只在不在時刻表頁時做（頁裡那份的焦點行為不動）。
  * 「下一個 frame」用 setTimeout(0) 而不是 rAF：背景分頁不跑 rAF（實測：預覽分頁在背景時焦點一直沒移進來）。
  *
+ * UI 丙-4 C1／C3：兩個 host 換了殼（桌機 DialogShell size M＋黏底 foot、手機 MSheet），這裡不用跟著改——
+ * 桌機的 DialogShell 畫在本元件的 div 裡，照舊找得到 `[role="dialog"]`；手機的 MSheet portal 到 body，這裡找不到就不動，
+ * 由 MSheet 自己的焦點三規則（useDialogFocus：開啟落 sheet、關閉還焦點）接手。按鈕列 portal 進 foot 仍在 dialog 裡，焦點擋得住。
+ *
  * 焦點落點（偏離契約字面的保守選擇）：契約寫「第一個可聚焦元件，沒有才移到 [role="dialog"]」。桌機 DialogShell 的第一個
  * 可聚焦元件是標題列的「×」——焦點落在那裡時按 Space／Enter（主人本來想在今日頁蓋済／開側板）會直接把面板關掉。
  * 所以一律落在 `[role="dialog"]` 本身（先給 `tabIndex=-1`）：鍵盤事件一樣被擋在面板裡，Tab 從面板開頭往下走，

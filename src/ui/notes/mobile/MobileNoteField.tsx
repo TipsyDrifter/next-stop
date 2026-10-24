@@ -13,6 +13,7 @@
  *   底下的 ids 從已載好的樹算（`nodeStore.tree`；手機路線圖第二層開著的就是這條路線的樹）：
  *   路線＝整棵樹（`tree.byId` 全部）、其餘＝`descendantIds(tree.childrenOf, id)`。樹換了（同步、別處改）ids 不同就重載一次。
  * 路線圖其他欄位仍唯讀；本列只讀筆記、新增走捕捉面板（寫入在 store）。
+ * UI 丙-6 E19：「還沒有筆記」換共用 EmptyState 區段級（inline）；底下「＋ 記一則」是這一列唯一的新增入口，照留。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeRow } from "../../../domain";
@@ -23,6 +24,7 @@ import { useNotesStore, type CapturePreset } from "../../../store/notesStore";
 import { useUiStore } from "../../../store/uiStore";
 import { IconPlus } from "./mobileDiaryBits";
 import { MobileRouteNotes } from "./MobileRouteNotes";
+import { EmptyState } from "../../common/EmptyState";
 import "../notes-mobile.css";
 
 /** 側板一列最多幾則（§3.3 `loadNodeNotes` 取 5） */
@@ -144,7 +146,7 @@ function NoteRows({
           …
         </span>
       ) : shown.length === 0 ? (
-        <span className="ns-notes-mnfempty">還沒有筆記</span>
+        <EmptyState inline tone="first" className="ns-notes-mnfempty" title="還沒有筆記" />
       ) : (
         <ul className="ns-notes-mnflist">
           {shown.map((n) => {

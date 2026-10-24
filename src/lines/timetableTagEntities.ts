@@ -107,7 +107,8 @@ async function describeCategories(ids: readonly string[]): Promise<Record<string
           open: () =>
             void (async () => {
               await gotoTimetable(shellNow());
-              useTimetableStore.getState().openSheet({ kind: "categories", focusId: id }); // 磨光③ 2-11：展開那一列、閃一下
+              // 磨光③ 2-11：展開那一列、閃一下；UI 丙-4 A3：對話框分頁後 focusId 一律落在「分類」分頁（T3 接）
+              useTimetableStore.getState().openSheet({ kind: "categories", focusId: id });
             })(),
         }
       : null;

@@ -30,6 +30,10 @@
  * - 手機：聚焦後把框捲進可見區（軟鍵盤升起時 visualViewport 變矮，兩邊都捲；同 notes/mobile/MobileDiaryEntry）。
  * - 磨光⑤ §8 甲′（D-主-65）：說明行沒事的時候寫這個值的日期「10/20（一）」——跟參考日（`refDay`）同一天淡字、不同天赭色。
  *   打字預覽／錯字說明出現時讓位給它們（預覽本身就寫「＝隔天」）。日期不放進 aria-live（步進每一下都念太吵）。
+ * - UI 丙-5 `dateLabel`（只管新變體的說明行；省略＝true＝上面這條照舊）：
+ *   "other"＝只在跟參考日不同天時寫（赭色＋「＝隔天」；售票口大票：日期已在上一列 chip，同一天不重寫）；
+ *   false＝不寫日期、也不寫打字預覽，只在打錯時寫錯在哪（定期帳規則的時刻沒有「那一天」，寫日期會誤導）。
+ *   說明行的高度照留（打錯時不跳版）。
  * - 微調鈕（新變體）：夾在 [lo, hi]、到頭的鈕 disabled；框裡有草稿時先套用再走（打錯就不走、框抖一下）。
  *   長按加速：滑鼠 pointerdown 先走一步、停 HOLD_DELAY_MS 後連跳；手指 pointerdown 只起計時（捲動不誤觸），點一下的那一步交給 click。
  * - 常用時刻 chip（`quick`）：照打字同一套規則換成毫秒（resolveClockInput）；換不出來（不在範圍）⇒ disabled＋title 寫為什麼；等於目前值 ⇒ 亮起。
@@ -102,7 +106,22 @@ export const CLOCK_VARIANT_STEPS: Readonly<Record<ClockVariant, readonly number[
   mobile: [-15, 15],
 };
 
-type Hint = { kind: "ok"; pre: string; hm: string } | { kind: "err"; text: string } | null;
+/**
+ * 送出前先叫（UI 丙-5 修正：售票口版的 clockDraftsOk；時刻表那支在 timetable/panels/controls.tsx，認 `.ns-tt-panel`）：
+ * `root` 裡有剛打錯、還沒回去看過的時刻框（`data-tt-unseen`：失焦或 Enter 打錯時已還原＋抖過）⇒ 焦點放回那個框、回 false（不送出；
+ * 說明行再顯示一次）。再按一次才送出——拿到的是還原後的值，人已經看過了。
+ * root 給「包住時刻框的表單」就好，不必包住按鈕（桌機對話框的按鈕 portal 進黏底 foot、手機的「存」在 MFullPage 頂列）。
+ * 只認 `data-tt-unseen`、不認 aria-invalid：看過之後說明行還紅著 4 秒，那段時間再按要照常送出。
+ */
+export function clockDraftsOkIn(root: Element | null | undefined): boolean {
+  const bad = root?.querySelector<HTMLInputElement>("input[data-tt-unseen]") ?? null;
+  if (!bad) return true;
+  bad.focus();
+  bad.select();
+  return false;
+}
+
+type Hint ={ kind: "ok"; pre: string; hm: string } | { kind: "err"; text: string } | null;
 
 /** 失焦時打錯的說明留多久 */
 const STICKY_MS = 4000;
@@ -123,6 +142,7 @@ export function ClockInput({
   variant,
   quick,
   relative = false,
+  dateLabel = true,
 }: {
   value: number;
   lo: number;
@@ -145,6 +165,8 @@ export function ClockInput({
   quick?: readonly string[];
   /** 相對時刻列（現在／5 分前／10 分前）；只在新變體畫 */
   relative?: boolean;
+  /** 新變體說明行寫不寫日期（UI 丙-5）：true（預設）＝照舊；"other"＝只在不同天時寫；false＝不寫日期也不寫預覽，只寫錯字 */
+  dateLabel?: boolean | "other";
 }) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const viewDay = useTimetableStore((s) => s.dayKey);
@@ -572,6 +594,9 @@ export function ClockInput({
   // 新變體的日期跨天時補前綴「＝隔天 」（＝前一天／＝N 天後；同打字預覽 clockInputPreview 的寫法），三個變體一致；舊版 DOM 不動
   const datePre = date.other ? clockInputPreview(value, dateRef)[0] : "";
   const quickList = quick ?? (variant === "mobile" ? CLOCK_QUICK_DEFAULT : undefined);
+  // dateLabel（丙-5）：false 連打字預覽都不寫（只留錯字）；"other" 同一天不寫日期
+  const footHint: Hint = dateLabel === false && hint?.kind === "ok" ? null : hint;
+  const showDate = dateLabel === true || (dateLabel === "other" && date.other);
   const nowMin = Math.floor(Date.now() / MIN) * MIN;
   const rangeErr = (ms: number): string | null =>
     ms < lo ? clockInputErrText({ err: "range", side: "early" }, lo, hi) : ms > hi ? clockInputErrText({ err: "range", side: "late" }, lo, hi) : null;
@@ -630,18 +655,18 @@ export function ClockInput({
         </span>
         {right ?? steps.filter((d) => d > 0).map(stepBtn)}
       </span>
-      <span className={"ns-clock-foot" + (hint ? " is-" + hint.kind : "")}>
+      <span className={"ns-clock-foot" + (footHint ? " is-" + footHint.kind : "")}>
         <span className="ns-clock-msg" aria-live="polite">
-          {hint?.kind === "ok" ? (
+          {footHint?.kind === "ok" ? (
             <>
-              {hint.pre}
-              <b>{hint.hm}</b>
+              {footHint.pre}
+              <b>{footHint.hm}</b>
             </>
-          ) : hint?.kind === "err" ? (
-            hint.text
+          ) : footHint?.kind === "err" ? (
+            footHint.text
           ) : null}
         </span>
-        {!hint && (
+        {!footHint && showDate && (
           <span className={"ns-clock-date" + (date.other ? " is-other" : "")}>
             {datePre}
             {date.text}

@@ -43,7 +43,7 @@ const TIMETABLE_HOTKEYS: Hotkey[] = [
   // 車次③（③ 契約 §5.8、D-時-57）：←／→／T 同一組鍵依視圖分派（週視圖＝換週／回本週，統計＝換期／回本期），不另登記；只補 note
   { id: "timetable.day.prev", scope: "timetable", chords: [{ key: "ArrowLeft" }], label: "前一天", note: STEP_NOTE, wired: true },
   { id: "timetable.day.next", scope: "timetable", chords: [{ key: "ArrowRight" }], label: "後一天", note: STEP_NOTE, wired: true },
-  { id: "timetable.day.today", scope: "timetable", chords: [{ key: "t" }], label: "回今天", note: "看週曆時回本週，看統計時回本期", wired: true },
+  { id: "timetable.day.today", scope: "timetable", chords: [{ key: "t" }], label: "今天", note: "看週曆時回本週，看統計時回本期", wired: true },
   { id: "timetable.restart", scope: "timetable", chords: [{ key: "r" }], label: "改出發時間（運行中才有效）", wired: true },
   { id: "timetable.settings", scope: "timetable", chords: [{ key: "e" }], label: "分類與設定", wired: true },
   { id: "timetable.split", scope: "timetable", chords: [{ key: "s" }], label: "切開運行中那一班", wired: true },

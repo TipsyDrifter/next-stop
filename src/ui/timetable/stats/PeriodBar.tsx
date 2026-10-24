@@ -1,13 +1,19 @@
 /**
- * PeriodBar——統計頁的期間列（③ 契約 §5.2-1；乙席）：分段鈕「日｜週｜月」＋ ‹ 期名 › ＋「回到本期」（只在不是本期時出現）。
+ * PeriodBar——統計頁的期間列（③ 契約 §5.2-1；乙席）：分段鈕「日｜週｜月」＋ ‹ 期名 › ＋「今天」。
  * 期名以 store 的 `period`／`key` 為準（評審 #8：換期後到新結果回來之前，不能照舊結果畫出錯的期）。
- * 未來的期翻不過去（› 到本期就停，store 也夾）。桌機帶鍵帽 D／W／M、T 與「← → 換期」提示。
+ * 未來的期翻不過去（› 到本期就停，store 也夾）。桌機帶鍵帽 D／W／M 與「← → 換期」提示。
  * 鍵帽字照 manifest（`hotkeyById`＋`formatChord`，整合席登記 D-時-57 後接上；不手抄）。
+ *
+ * UI 丙-4 D9：自畫的 ‹ › 與「回到本期」膠囊換共用 DateNav（「今天」chip＝回到本期；箭頭的字跟著期：前一天／上一週／上個月）。
+ * 動作＝鍵盤 ←／→／T 的同一支 `step`／`toCurrent`（TimetableView 的 KEY_ACTIONS 也是叫這兩支）；已在本期 › 停用、chip 原地不動。
+ * 分段鈕與鍵位提示留在 DateNav 兩旁。
  */
 import { periodWindow, type StatsPeriod } from "../../../domain/timetableStats";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
+import { DateNav } from "../../common/DateNav";
+import { DnTitle } from "../parts/DateNavTitle";
 import { periodName } from "./format";
 import { Kbd } from "./parts";
 
@@ -34,7 +40,6 @@ export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number;
   const isCur = shownKey === curKey;
   const canNext = shownKey < curKey;
   const pn = periodName(period, shownKey, today, h, ws);
-  const todayCap = capOf("timetable.day.today");
 
   return (
     <div className="ns-tt-stats-pbar">
@@ -49,24 +54,19 @@ export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number;
           );
         })}
       </span>
-      <span className="ns-tt-stats-pnav">
-        <button type="button" className="ns-tt-stats-arrow" aria-label={T.prevPeriod} onClick={() => step(-1)}>
-          ‹
-        </button>
-        <span className="ns-tt-stats-pname" aria-live="polite">
-          <b className="ns-tt-num">{pn.name}</b>
-          {pn.tag && <em>{pn.tag}</em>}
-        </span>
-        <button type="button" className="ns-tt-stats-arrow" aria-label={T.nextPeriod} disabled={!canNext} onClick={() => step(1)}>
-          ›
-        </button>
-      </span>
-      {!isCur && (
-        <button type="button" className="ns-tt-stats-tocur" onClick={toCurrent}>
-          {TT_TEXT.statsToCurrent}
-          {desktop && todayCap && <Kbd k={todayCap} />}
-        </button>
-      )}
+      <DateNav
+        className="ns-tt-dnav"
+        unit={period}
+        label="翻期間"
+        title={<DnTitle text={pn.name} tag={pn.tag} />}
+        onPrev={() => step(-1)}
+        onNext={() => step(1)}
+        nextDisabled={!canNext}
+        onToday={() => {
+          if (!isCur) toCurrent();
+        }}
+        isToday={isCur}
+      />
       {desktop && <span className="ns-tt-stats-keys">{T.keysHint}</span>}
     </div>
   );

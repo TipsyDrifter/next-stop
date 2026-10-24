@@ -76,6 +76,26 @@
   font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); white-space: nowrap;
 }
 
+/* 展開區（UI 丙-4 §0；⋯「更多設定…」開）：<li> 換行，展開區佔滿第二行、左緣對齊名稱（名稱輸入的 2px 內距）。
+ * 沒有 detail 的列不掛 .is-open，排法跟以前一樣。進場只動 opacity＋transform（§1.6），reduced-motion 關掉（檔尾） */
+.ns-mgr-row.is-open { flex-wrap: wrap; row-gap: 0; }
+/* 展開著的列 ⋯ 常駐實：收起的入口在 ⋯ 裡，開著時要看得到它 */
+.ns-mgr-row.is-open .ns-iconbtn.is-dim { opacity: 1; }
+.ns-mgr-detail {
+  flex: 0 0 100%; box-sizing: border-box; min-width: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--sp-1) 2px var(--sp-3);
+  outline: none;                       /* 沒有可操作的東西時焦點落這格，只是落腳處 */
+  animation: ns-mgr-detail-in var(--dur) var(--ease);
+}
+@keyframes ns-mgr-detail-in { from { opacity: 0; transform: translateY(-4px); } }
+
+/* 子列（UI 丙-5 depth=1：售票口兩層分類的子分類）：名稱左縮一格（--sp-5），↑↓⋯ 照樣靠右、整欄對齊；
+ * 展開區跟著名稱的新左緣（2px＝名稱輸入的內距） */
+.ns-mgr-row.is-sub .ns-mgr-name,
+.ns-mgr-row.is-sub .ns-mgr-text { margin-inline-start: var(--sp-5); }
+.ns-mgr-row.is-sub .ns-mgr-detail { padding-inline-start: calc(var(--sp-5) + 2px); }
+
 /* ═══ EmptyState（§2.7）：置中；印章輪廓（可省）＋襯線標題＋一句說明＋一顆次鈕＋可省文字鈕 ═══ */
 .ns-empty {
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-2);
@@ -140,4 +160,5 @@
 @media (prefers-reduced-motion: reduce) {
   .ns-ico-chev { transition: none; }
   .techo-input.ns-mgr-name { transition: none; }
+  .ns-mgr-detail { animation: none; }
 }

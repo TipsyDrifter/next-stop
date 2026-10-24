@@ -14,16 +14,36 @@
  *   ↑↓——不給 onUp／onDown＝在邊界：禁用（--disabled .3＋not-allowed），滑過說「已經在最上面／最下面」。
  *   ⋯——常駐淡態 --dim，列 hover／列內有焦點／選單開著時轉實；手機常駐實。menu 空陣列＝不畫 ⋯（留同寬空格對齊）。
  *   archived——名稱淡墨、色票淡、↑↓ 的位置換成「已封存」小字（封存的東西不排序）；⋯ 照常（取消封存、刪除放裡面）。
- * 桌機↔手機：同一支；圖示鈕 28→44、字級走 token（[data-shell="mobile"] 整組換）。手機上 ⋯ 目前開同一支 PopMenu，
- *   改成 MSheet 動作清單是丙-5 手機殼的事。
+ * 桌機↔手機：同一支；圖示鈕 28→44、字級走 token（[data-shell="mobile"] 整組換）。⋯ 桌機開 PopMenu、手機開 MSheet 動作清單（丙-5，見下）。
  * ARIA：名稱輸入 aria-label「名稱：X」；↑↓ aria-label「上移：X／下移：X」＋title（含 Alt 快捷）；
  *   ⋯ aria-label「更多動作：X」、aria-haspopup="menu"、aria-expanded、title＝選單項目串起來（例「封存、刪除」）。
  *   色票 aria-hidden（名稱已經說了是誰）。
  * 鍵盤（名稱輸入框裡）：Enter 送出（焦點留著）；Esc 有改動時退回原名並吃掉這一下（不關對話框），沒改動照常往上冒（關對話框）；
  *   Alt+↑／Alt+↓ 上移／下移；組字中（IME）的 Enter／Esc 不動作。⋯ 開的 PopMenu：↑↓ 移動、Enter 執行、Esc 收回並把焦點還給 ⋯。
+ *
+ * ── UI 丙-4 §0（契約 §0 ManagerRow 那列、B2）──
+ *   - `detail`：列下的展開區（時刻表分類的預設長度、預設荷札、圓牌字、色、搬到分組……一列放不下的設定）。
+ *     開關收在 ⋯ 的第一項「更多設定…」（開著時換成「收起設定」）——不另加列尾 ▸：列尾已經有 ↑↓⋯ 三顆圖示鈕，
+ *     再加一顆 28 寬的鈕手機會擠掉名稱；而且 B2 定案的 ⋯ 內容就是「更多設定…、封存」。有 detail 時 menu 空陣列也畫 ⋯。
+ *     展開＝`<li>` 換行（flex-wrap），展開區佔滿第二行、跟名稱左緣對齊；沒有 detail 的列 DOM 與樣式跟以前一模一樣。
+ *     從選單打開 ⇒ 焦點落展開區第一個可操作的東西；從選單收起 ⇒ 焦點回 ⋯（PopMenu 點項目時不還焦點，這裡補）。
+ *     開關預設自己管；要從外面開（例：荷札頁點分類 → 定位並展開）給 `detailOpen`＋`onDetailOpenChange`（受控）。
+ *     展開區是 `role="group"`、aria-label「X 的更多設定」；⋯ 的 aria-controls 指向它（開著時）。
+ *   - `className`：加在 `<li>` 上（呼叫端自己的狀態，例：定位閃爍 is-flash）。
+ *   - `dataId`：畫成 `<li data-id>`，給「點分類 → 捲到這一列並閃一下」用 querySelector 找列。
+ *
+ * ── UI 丙-5（契約 §0 ManagerRow 那列、E1）──
+ *   - `depth`：0（預設）｜1＝子列（售票口兩層分類的子分類）：`<li>` 加 `is-sub`，名稱（與展開區）左縮一格，
+ *     ↑↓⋯ 照樣靠右、整欄對齊。子列還是同一個 <ul> 裡的 <li>（呼叫端照順序排：主分類後面接它的子分類）。
+ *   - 手機 ⋯（useShell()==="mobile"）改開共用 MSheet 動作清單：標題＝這一列的名字、每項一列 MSheetItem（danger 赭字、
+ *     cut 虛線、disabled 帶 why），最後一列「取消」由 MSheet 自補；點一項＝先收 sheet 再做。返回層由 MSheet 自己登記
+ *     （backId＝這一列的選單層 id、kind "dialog"：疊在「分類與設定」sheet／全螢幕頁之上），丙-4 那行 useBackLayer 拿掉。
+ *     桌機照舊 PopMenu。detail／className／dataId 的行為不變（「更多設定…」在手機 sheet 裡也是第一項）。
  */
-import { useCallback, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { PopMenu, type PopMenuItem } from "./PopMenu";
+import { MSheet, MSheetItem } from "./MSheet";
+import { useShell } from "../mobile/useShell";
 import { IconDots, IconDown, IconUp } from "./icons";
 import "./listbits.css";
 
@@ -44,6 +64,18 @@ export interface ManagerRowProps {
   /** ⋯ 裡的動作（封存、刪除…；破壞性項目放最後，§2.4 PopMenu） */
   menu: PopMenuItem[];
   archived?: boolean;
+  /** 列下展開區（UI 丙-4）：給了 ⇒ ⋯ 第一項「更多設定…」開關它 */
+  detail?: ReactNode;
+  /** 受控：展開區開著沒（省略＝元件自己管，預設收著） */
+  detailOpen?: boolean;
+  /** 展開區開關時通知（受控時由呼叫端改 detailOpen） */
+  onDetailOpenChange?: (open: boolean) => void;
+  /** 加在 <li> 上的 class */
+  className?: string;
+  /** 畫成 <li data-id>（定位閃爍用） */
+  dataId?: string;
+  /** 層級（UI 丙-5）：1＝子列，名稱左縮一格 */
+  depth?: 0 | 1;
 }
 
 /** 管理清單的外框（<ul class="ns-mgr">）；ManagerRow 是 <li>，一定要放在它（或任何 <ul>／<ol>）裡 */
@@ -62,7 +94,21 @@ export function SwatchDot({ color }: { color: string }) {
 
 const isComposingKey = (e: KeyboardEvent) => e.nativeEvent.isComposing || e.keyCode === 229;
 
-export function ManagerRow({ name, onRename, swatch, onUp, onDown, menu, archived }: ManagerRowProps) {
+export function ManagerRow({
+  name,
+  onRename,
+  swatch,
+  onUp,
+  onDown,
+  menu,
+  archived,
+  detail,
+  detailOpen,
+  onDetailOpenChange,
+  className,
+  dataId,
+  depth = 0,
+}: ManagerRowProps) {
   const [text, setText] = useState(name);
   const [seen, setSeen] = useState(name);
   // 已送出、還沒回到 props 的名字：Enter 送出後緊接著失焦，不要再送一次
@@ -78,6 +124,54 @@ export function ManagerRow({ name, onRename, swatch, onUp, onDown, menu, archive
   }
 
   const closeMenu = useCallback(() => setMenuAt(null), []);
+  const mobile = useShell() === "mobile";
+  // 手機 ⋯ 的 MSheet 返回層 id（丙-4 T7 評審 14 的那一層：kind dialog，疊在面板 sheet 之上——
+  // 不登記的話返回鍵直接關掉底下整張「分類與設定」）。丙-5 起由 MSheet 自己登記，這裡只給 id。
+  const menuLayer = "common.mgrrow." + useId();
+
+  /* ── 展開區（UI 丙-4） ── */
+  const hasDetail = detail !== undefined && detail !== null && detail !== false;
+  const [openSelf, setOpenSelf] = useState(false);
+  const open = hasDetail && (detailOpen ?? openSelf);
+  const detailId = useId();
+  const detailRef = useRef<HTMLDivElement>(null);
+  const dotsRef = useRef<HTMLButtonElement>(null);
+  // 由選單開關的那一下才搬焦點（外面受控打開＝定位，不搶焦點）
+  const moveFocus = useRef<"detail" | "dots" | null>(null);
+  const setOpen = (next: boolean) => {
+    if (detailOpen === undefined) setOpenSelf(next);
+    onDetailOpenChange?.(next);
+  };
+  useEffect(() => {
+    const want = moveFocus.current;
+    if (!want) return;
+    moveFocus.current = null;
+    if (want === "dots") {
+      dotsRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    const box = detailRef.current;
+    if (!box) return;
+    // 第一個在 Tab 順序裡的東西（roving tabindex 的群組，例 ColorPicker，只有選中那格不是 -1）
+    const first = box.querySelector<HTMLElement>(
+      ["input", "select", "textarea", "button", "[tabindex]"].map((t) => `${t}:not([disabled]):not([tabindex='-1'])`).join(", "),
+    );
+    (first ?? box).focus({ preventScroll: true });
+  }, [open]);
+
+  const items: PopMenuItem[] = hasDetail
+    ? [
+        {
+          key: "ns-mgr-detail",
+          label: open ? "收起設定" : "更多設定…",
+          onSelect: () => {
+            moveFocus.current = open ? "dots" : "detail";
+            setOpen(!open);
+          },
+        },
+        ...menu,
+      ]
+    : menu;
 
   const commit = () => {
     if (!onRename) return;
@@ -129,7 +223,17 @@ export function ManagerRow({ name, onRename, swatch, onUp, onDown, menu, archive
   };
 
   return (
-    <li className={"ns-mgr-row" + (archived ? " is-archived" : "")}>
+    <li
+      className={
+        "ns-mgr-row" +
+        (depth === 1 ? " is-sub" : "") +
+        (archived ? " is-archived" : "") +
+        (hasDetail ? " has-detail" : "") +
+        (open ? " is-open" : "") +
+        (className ? " " + className : "")
+      }
+      data-id={dataId}
+    >
       {onRename ? (
         <input
           className="techo-input ns-mgr-name"
@@ -165,14 +269,16 @@ export function ManagerRow({ name, onRename, swatch, onUp, onDown, menu, archive
         </>
       )}
 
-      {menu.length > 0 ? (
+      {items.length > 0 ? (
         <button
+          ref={dotsRef}
           type="button"
           className="ns-iconbtn is-dim"
           aria-label={`更多動作：${name}`}
-          title={menu.map((it) => it.label).join("、")}
+          title={items.map((it) => it.label).join("、")}
           aria-haspopup="menu"
           aria-expanded={menuAt !== null}
+          aria-controls={open ? detailId : undefined}
           onClick={toggleMenu}
         >
           <IconDots />
@@ -181,7 +287,34 @@ export function ManagerRow({ name, onRename, swatch, onUp, onDown, menu, archive
         <span className="ns-mgr-gap" aria-hidden="true" />
       )}
 
-      {menuAt && <PopMenu anchor={menuAt} overline={name} label={`${name} 的動作`} items={menu} onClose={closeMenu} />}
+      {menuAt &&
+        (mobile ? (
+          <MSheet list title={name} onClose={closeMenu} backId={menuLayer} backKind="dialog">
+            {items.map((it) => (
+              <MSheetItem
+                key={it.key}
+                danger={it.danger}
+                cut={it.cut}
+                disabled={it.disabled}
+                title={it.disabled ? it.why : undefined}
+                onClick={() => {
+                  closeMenu();
+                  it.onSelect();
+                }}
+              >
+                {it.label}
+              </MSheetItem>
+            ))}
+          </MSheet>
+        ) : (
+          <PopMenu anchor={menuAt} overline={{ zh: name, latin: "Actions" }} label={`${name} 的動作`} items={items} onClose={closeMenu} />
+        ))}
+
+      {open && (
+        <div ref={detailRef} id={detailId} className="ns-mgr-detail" role="group" aria-label={`${name} 的更多設定`} tabIndex={-1}>
+          {detail}
+        </div>
+      )}
     </li>
   );
 }

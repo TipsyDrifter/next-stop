@@ -36,13 +36,13 @@
 .sky--pastel {
   background:
     /* 月光暖暈（月亮在書封腳） */
-    radial-gradient(560px 400px at 0% 96%, rgba(255, 240, 220, .62), transparent 66%),
+    radial-gradient(560px 400px at 0% 96%, rgba(255, 240, 220, .62), transparent 66%), /* 字面值：天空層美術色（粉彩月光暖暈） */
     /* 白霧帶 */
-    linear-gradient(180deg, transparent 34%, rgba(255, 255, 255, .16) 54%, transparent 76%),
+    linear-gradient(180deg, transparent 34%, rgba(255, 255, 255, .16) 54%, transparent 76%), /* 字面值：天空層美術色（白霧帶） */
     linear-gradient(180deg,
-      var(--color-sky-top, #b4c1e0) 0%,
-      var(--color-sky-mid, #c8c0e4) 52%,
-      var(--color-sky-bot, #ecd2da) 100%);
+      var(--color-sky-top, #b4c1e0) 0%, /* 字面值：token 後備值（同 theme.css） */
+      var(--color-sky-mid, #c8c0e4) 52%, /* 字面值：token 後備值（同 theme.css） */
+      var(--color-sky-bot, #ecd2da) 100%); /* 字面值：token 後備值（同 theme.css） */
 }
 
 /* 極淡彩虹光暈：七色帶 + 大 blur，只是霧裡被月光折出的一抹色（靜態） */
@@ -50,8 +50,8 @@
   position: absolute; left: 38%; top: 6%; width: 1180px; height: 150px;
   transform: rotate(-16deg); transform-origin: 0 50%;
   background: linear-gradient(90deg,
-    transparent 0%, rgba(255, 176, 176, .27) 14%, rgba(255, 220, 166, .24) 30%,
-    rgba(206, 240, 196, .21) 46%, rgba(176, 212, 255, .27) 62%, rgba(214, 186, 255, .27) 78%, transparent 100%);
+    transparent 0%, rgba(255, 176, 176, .27) 14%, rgba(255, 220, 166, .24) 30%, /* 字面值：天空層美術色（彩虹光暈七色帶） */
+    rgba(206, 240, 196, .21) 46%, rgba(176, 212, 255, .27) 62%, rgba(214, 186, 255, .27) 78%, transparent 100%); /* 字面值：天空層美術色（彩虹光暈七色帶） */
   filter: blur(22px); opacity: .9;
 }
 
@@ -60,21 +60,21 @@
   position: absolute; border-radius: 50%; width: var(--s); height: var(--s);
   background: radial-gradient(circle, var(--c) 0%, transparent 68%);
 }
-.sky-b1 { --s: 340px; --c: rgba(255, 255, 255, .30); left: 14%; top: 18%; }
-.sky-b2 { --s: 220px; --c: rgba(255, 214, 228, .34); left: 58%; top: 30%; }
-.sky-b3 { --s: 420px; --c: rgba(207, 224, 255, .30); left: 66%; top: -8%; }
-.sky-b4 { --s: 180px; --c: rgba(255, 240, 214, .30); left: 30%; top: 56%; }
-.sky-b5 { --s: 280px; --c: rgba(255, 222, 236, .26); left: 80%; top: 58%; }
-.sky-b6 { --s: 150px; --c: rgba(255, 255, 255, .34); left: 46%; top: 72%; }
-.sky-b7 { --s: 260px; --c: rgba(214, 226, 255, .28); left: 8%; top: 66%; }
+.sky-b1 { --s: 340px; --c: rgba(255, 255, 255, .30); left: 14%; top: 18%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b2 { --s: 220px; --c: rgba(255, 214, 228, .34); left: 58%; top: 30%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b3 { --s: 420px; --c: rgba(207, 224, 255, .30); left: 66%; top: -8%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b4 { --s: 180px; --c: rgba(255, 240, 214, .30); left: 30%; top: 56%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b5 { --s: 280px; --c: rgba(255, 222, 236, .26); left: 80%; top: 58%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b6 { --s: 150px; --c: rgba(255, 255, 255, .34); left: 46%; top: 72%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b7 { --s: 260px; --c: rgba(214, 226, 255, .28); left: 8%; top: 66%; } /* 字面值：天空層美術色（光斑 bokeh） */
 
 .sky--pastel .sky-star {
   position: absolute; width: var(--s); height: var(--s); border-radius: 50%;
   left: var(--x); top: var(--y);
-  background: #fff; opacity: var(--o);
+  background: #fff; opacity: var(--o); /* 字面值：天空層美術色（星點） */
   animation: skyTwinkleP var(--d) ease-in-out var(--dl) infinite;
 }
-.sky--pastel .sky-star.is-glow { box-shadow: 0 0 6px 1px rgba(255, 255, 255, .75); }
+.sky--pastel .sky-star.is-glow { box-shadow: 0 0 6px 1px rgba(255, 255, 255, .75); } /* 字面值：天空層美術色（星光暈） */
 @keyframes skyTwinkleP {
   0%, 100% { opacity: calc(var(--o) * .35); }
   50%      { opacity: var(--o); }
@@ -82,22 +82,22 @@
 
 /* ════════ 銀河鐵道 Galaxy：深靛天頂→地平線＋月牙＋銀河帶＋星塵 ════════ */
 .sky--galaxy {
-  background-color: var(--color-sky-mid, #111a30);
+  background-color: var(--color-sky-mid, #111a30); /* 字面值：token 後備值（同 theme.css） */
   background-image:
     /* 月光暈 */
-    radial-gradient(640px 480px at 95% 2%, rgba(226, 232, 250, .085), transparent 62%),
+    radial-gradient(640px 480px at 95% 2%, rgba(226, 232, 250, .085), transparent 62%), /* 字面值：天空層美術色（銀河月光暈） */
     linear-gradient(180deg,
-      var(--color-sky-top, #0d1126) 0%,
-      var(--color-sky-mid, #111a30) 42%,
-      var(--color-sky-low, #17233e) 80%,
-      var(--color-sky-horizon, #1d2b4a) 100%);
+      var(--color-sky-top, #0d1126) 0%, /* 字面值：token 後備值（同 theme.css） */
+      var(--color-sky-mid, #111a30) 42%, /* 字面值：token 後備值（同 theme.css） */
+      var(--color-sky-low, #17233e) 80%, /* 字面值：token 後備值（同 theme.css） */
+      var(--color-sky-horizon, #1d2b4a) 100%); /* 字面值：token 後備值（同 theme.css） */
 }
 /* 銀河：一道極淡的斜帶微光 */
 .sky--galaxy::before {
   content: ""; position: absolute; left: -20%; top: -20%; width: 150%; height: 140%;
   background:
-    radial-gradient(ellipse 42% 3.2% at 52% 48%, rgba(206, 214, 242, .05), transparent 70%),
-    radial-gradient(ellipse 56% 9% at 52% 48%, rgba(196, 206, 240, .075), rgba(196, 206, 240, .028) 48%, transparent 72%);
+    radial-gradient(ellipse 42% 3.2% at 52% 48%, rgba(206, 214, 242, .05), transparent 70%), /* 字面值：天空層美術色（銀河帶微光） */
+    radial-gradient(ellipse 56% 9% at 52% 48%, rgba(196, 206, 240, .075), rgba(196, 206, 240, .028) 48%, transparent 72%); /* 字面值：天空層美術色（銀河帶微光） */
   transform: rotate(22deg);
 }
 
@@ -105,7 +105,7 @@
 .sky-moon {
   position: absolute; top: 36px; right: 52px;
   width: 22px; height: 22px; border-radius: 50%;
-  box-shadow: inset -6.5px 3px 0 0 rgba(232, 236, 246, .88);
+  box-shadow: inset -6.5px 3px 0 0 rgba(232, 236, 246, .88); /* 字面值：天空層美術色（月牙） */
 }
 /* 側板開啟＝月牙讓開，回到 routemap 原型的 calc(--panel-w + 52px)。
    開關沿用 techo.css 已建立的同一組（DetailPanel 關閉時 .panel 不進 DOM；
@@ -115,13 +115,13 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 /* 月暈：一圈很淡的柔光（地照＋薄雲） */
 .sky-moon::before {
   content: ""; position: absolute; inset: -34px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(226, 232, 250, .12), rgba(226, 232, 250, .04) 45%, transparent 70%);
+  background: radial-gradient(circle, rgba(226, 232, 250, .12), rgba(226, 232, 250, .04) 45%, transparent 70%); /* 字面值：天空層美術色（月暈） */
 }
 
 .sky--galaxy .sky-dust,
 .sky--galaxy .sky-star {
   position: absolute; border-radius: 50%;
-  background: rgb(var(--color-starlight, 230, 236, 255));
+  background: rgb(var(--color-starlight, 230, 236, 255)); /* 字面值：天空層美術色（星光 RGB 三元組後備值） */
 }
 .sky--galaxy .sky-dust { opacity: var(--o, .35); }
 .sky--galaxy .sky-star {
@@ -129,8 +129,8 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
   animation: skyTwinkleG var(--sky-dur, 8s) ease-in-out infinite alternate;
   animation-delay: var(--delay, 0s);
 }
-.sky--galaxy .sky-star.is-warm { background: rgb(255, 232, 200); }
-.sky--galaxy .sky-star.is-bright { box-shadow: 0 0 4px 1px rgba(var(--color-starlight, 230, 236, 255), .35); }
+.sky--galaxy .sky-star.is-warm { background: rgb(255, 232, 200); } /* 字面值：天空層美術色（暖色星） */
+.sky--galaxy .sky-star.is-bright { box-shadow: 0 0 4px 1px rgba(var(--color-starlight, 230, 236, 255), .35); } /* 字面值：天空層美術色（亮星光暈） */
 @keyframes skyTwinkleG {
   from { opacity: var(--o0, .4); }
   to   { opacity: var(--o1, .9); }
@@ -144,9 +144,9 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 /* 粉彩：角度固定 24deg、飛行時長由 --sky-dur 帶（1.0–1.3s） */
 .sky--pastel .sky-meteor-wrap { transform: rotate(24deg); transform-origin: 0 50%; }
 .sky--pastel .sky-meteor {
-  width: 170px; height: 2px; border-radius: 2px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .6) 60%, #fff);
-  box-shadow: 0 0 10px 1px rgba(255, 255, 255, .85);
+  width: 170px; height: 2px; border-radius: 2px; /* 字面值：天空層美術（流星線端圓角，不是控件） */
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, .6) 60%, #fff); /* 字面值：天空層美術色（粉彩流星） */
+  box-shadow: 0 0 10px 1px rgba(255, 255, 255, .85); /* 字面值：天空層美術色（粉彩流星光暈） */
   animation: skyMeteorP var(--sky-dur, 1.15s) cubic-bezier(.25, .1, .35, 1) forwards;
 }
 @keyframes skyMeteorP {
@@ -159,16 +159,16 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 /* 銀河：角度每次隨機 20–30deg，帶頭光點，飛行 1.15s */
 .sky--galaxy .sky-meteor-wrap { width: 0; height: 0; transform: rotate(var(--ang, 24deg)); }
 .sky--galaxy .sky-meteor {
-  position: absolute; left: 0; top: 0; width: 170px; height: 1.2px; border-radius: 1px;
+  position: absolute; left: 0; top: 0; width: 170px; height: 1.2px; border-radius: 1px; /* 字面值：天空層美術（流星線端圓角，不是控件） */
   background: linear-gradient(90deg,
-    rgba(var(--color-starlight, 230, 236, 255), 0),
-    rgba(var(--color-starlight, 230, 236, 255), .35) 55%,
-    rgba(var(--color-starlight, 230, 236, 255), .95));
+    rgba(var(--color-starlight, 230, 236, 255), 0), /* 字面值：天空層美術色（銀河流星尾） */
+    rgba(var(--color-starlight, 230, 236, 255), .35) 55%, /* 字面值：天空層美術色（銀河流星尾） */
+    rgba(var(--color-starlight, 230, 236, 255), .95)); /* 字面值：天空層美術色（銀河流星尾） */
   animation: skyMeteorG 1.15s cubic-bezier(.25, .55, .45, 1) forwards;
 }
 .sky--galaxy .sky-meteor::after {
   content: ""; position: absolute; right: -1px; top: -1px; width: 3px; height: 3px; border-radius: 50%;
-  background: #fff; box-shadow: 0 0 7px 1.5px rgba(var(--color-starlight, 230, 236, 255), .65);
+  background: #fff; box-shadow: 0 0 7px 1.5px rgba(var(--color-starlight, 230, 236, 255), .65); /* 字面值：天空層美術色（流星頭光點） */
 }
 @keyframes skyMeteorG {
   0%   { transform: translateX(-40px); opacity: 0; }
@@ -188,11 +188,11 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 .sky-horizon--pastel { bottom: 14px; height: 26px; z-index: 0; }
 .sky-horizon--pastel::before {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(42, 43, 73, .16) 12%, rgba(42, 43, 73, .16) 88%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(42, 43, 73, .16) 12%, rgba(42, 43, 73, .16) 88%, transparent); /* 字面值：天空層美術色（粉彩地平線＝墨 16%） */
 }
 .sky-horizon--pastel .sky-train {
   left: 0; bottom: 0; width: 262px; height: 26px;
-  color: var(--color-ink, #2a2b49); opacity: .58;
+  color: var(--color-ink, #2a2b49); opacity: .58; /* 字面值：token 後備值（同 theme.css） */
   transform: translateX(-300px);
   animation: skyTrainP var(--sky-dur, 20s) linear forwards;
 }
@@ -205,12 +205,12 @@ body:has(.panel) .sky-moon { right: calc(var(--panel-w, 340px) + 52px); }
 .sky-horizon--galaxy { bottom: 0; height: 32px; z-index: 1; }
 .sky-horizon--galaxy::before {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 8px;
-  border-top: 1px solid rgba(var(--color-starlight, 230, 236, 255), .13);
-  background: linear-gradient(180deg, rgba(3, 6, 13, .35), rgba(3, 6, 13, .7));
+  border-top: 1px solid rgba(var(--color-starlight, 230, 236, 255), .13); /* 字面值：天空層美術色（銀河軌道線） */
+  background: linear-gradient(180deg, rgba(3, 6, 13, .35), rgba(3, 6, 13, .7)); /* 字面值：天空層美術色（銀河地面） */
 }
 .sky-horizon--galaxy .sky-train {
   left: 0; bottom: 8px; width: 188px; height: 18px;
-  color: #070a12;
+  color: #070a12; /* 字面值：天空層美術色（銀河列車剪影） */
   transform: translateX(-200px);
   animation: skyTrainG 15s linear forwards;
 }

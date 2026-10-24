@@ -38,7 +38,7 @@ export interface TodayKeyActions {
   /** T＝今天／Shift+T＝明天 */
   scheduleSelected(offsetDays: 0 | 1): void;
   openPanel(): void;
-  /** L：選中列行內記一句 */
+  /** L：選中列行內記乘務記錄 */
   openLogForSelected(): void;
   /** U：定期券本班運休／取消運休（M3 ④）；非定期券會吐一句 toast */
   suspendSelected(): void;

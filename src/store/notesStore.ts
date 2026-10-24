@@ -767,7 +767,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       }
       // 沿今日頁同一句（useTodayController.ts 的刪除 toast）
       toast(
-        `已刪除『${name}』${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
+        `已刪除「${name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
         safeUndo(async () => {
           await useNodeStore.getState().undoDelete();
           await get().loadInbox();

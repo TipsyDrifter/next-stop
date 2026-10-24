@@ -86,7 +86,7 @@ function PastelTrain({ style, onAnimationEnd }: TrainSvgProps) {
         <rect x="234" y="22" width="16" height="3" rx="1" />
       </g>
       {/* 車窗：一點暖光 */}
-      <g fill="rgba(255,236,200,.9)">
+      <g fill="rgba(255,236,200,.9)">{/* 字面值：車窗暖光（天空層美術色） */}
         <rect x="12" y="11" width="9" height="6" rx="1" />
         <rect x="25" y="11" width="9" height="6" rx="1" />
         <rect x="38" y="11" width="9" height="6" rx="1" />
@@ -135,7 +135,7 @@ function GalaxyTrain({ style, onAnimationEnd }: TrainSvgProps) {
       </g>
       <path d="M86 4 l3 -2.6 h8" fill="none" stroke="currentColor" strokeWidth=".9" strokeLinecap="round" />
       {/* 車窗：幾扇拉了窗簾（暗一點），不要整排 LED */}
-      <g fill="rgba(255,226,176,.58)">
+      <g fill="rgba(255,226,176,.58)">{/* 字面值：拉了窗簾的車窗（天空層美術色） */}
         <rect x="5" y="6.5" width="4" height="4.5" />
         <rect x="12" y="6.5" width="4" height="4.5" />
         <rect x="19" y="6.5" width="4" height="4.5" opacity=".4" />
@@ -158,8 +158,8 @@ function GalaxyTrain({ style, onAnimationEnd }: TrainSvgProps) {
         <rect x="168" y="6.5" width="4" height="4.5" />
         <rect x="176" y="6.5" width="7" height="4.5" opacity=".8" />
       </g>
-      <circle cx="186.5" cy="12.5" r="1.1" fill="rgba(255,240,210,.95)" />
-      <circle cx="1.5" cy="12.5" r=".9" fill="rgba(227,123,96,.9)" />
+      <circle cx="186.5" cy="12.5" r="1.1" fill="rgba(255,240,210,.95)" />{/* 字面值：車頭燈（天空層美術色） */}
+      <circle cx="1.5" cy="12.5" r=".9" fill="rgba(227,123,96,.9)" />{/* 字面值：車尾紅燈（天空層美術色） */}
     </svg>
   );
 }

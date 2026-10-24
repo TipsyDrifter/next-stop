@@ -405,6 +405,15 @@ export class SqliteNodeRepository implements NodeRepository {
         args: [lineId, ...sub],
       });
     }
+    // UI 丙-3（路線換幹線）：掛著這條路線標籤的根層臨時車票不在子樹裡，它們的 line_id 快取也要跟上。
+    // 同上：快取、不進 oplog、不碰 updated_at——對面那台收到路線的 parent_id 後由 ROOT_TICKET 那句重算
+    // （engine.rs recompute_caches_tx），兩台收斂到同一個值；這句只是讓本機不必等下一次拉取。
+    if (node.kind === "route" && lineId !== node.line_id) {
+      b.stmts.push({
+        sql: `UPDATE nodes SET line_id = $1 WHERE parent_id IS NULL AND kind = 'ticket' AND route_id = $2`,
+        args: [lineId, id],
+      });
+    }
     if (node.kind !== "route" && routeId !== node.route_id) {
       b.stmts.push({
         sql: `UPDATE nodes SET route_id = $1 WHERE id IN (${placeholders(sub.length, 2)})`,

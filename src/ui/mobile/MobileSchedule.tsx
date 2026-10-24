@@ -29,7 +29,7 @@
  *   卡上的時刻與赭色吃 `useMinuteTick()`（一頁一個節拍，傳進每張卡）。⋯ sheet 的時刻項接 scheduleActions 的三個動作。
  *
  * **磨光①（契約 §1.5、§9.5）**：⋯ sheet 與月曆覆蓋層各登記一層 sheet 返回層（返回＝同按 ×／收起）；
- *   ⋯ sheet 加改名…／記一句…／刪除（useMobileToday 的模組函式，同今日子頁）——串流不是手排清單，不出上移下移。
+ *   ⋯ sheet 加改名…／記乘務記錄…／刪除（useMobileToday 的模組函式，同今日子頁）——串流不是手排清單，不出上移下移。
  *   草稿列是行內、不登記（返回先收鍵盤，再按就回今日段，草稿列跟著卸載）。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -57,6 +57,9 @@ import { useSubSwipe } from "./MobileSegmentedBar";
 import { useBackLayer } from "./backStack";
 import { deleteTicket, liveChildCount, logTicket, renameTicket } from "./useMobileToday";
 import "../schedule/schedule-mobile.css";
+
+/** ⋯ sheet 整個流程的返回層 id（本頁登記、MobileTicketSheet 的每張 MSheet 用同一個 id 合併） */
+const SCHEDULE_SHEET_LAYER = "core.scheduleSheet";
 
 /** ⋯ 開在哪一張（存座標不存快照：資料變了用最新的 calendar 切片重算卡；找不到＝票搬走了，sheet 自己關） */
 interface SheetRef {
@@ -325,14 +328,15 @@ export function MobileSchedule() {
   }, [sheet, sheetView]);
 
   // 返回層（磨光① §1.5）：⋯ sheet（含子面板）＝返回同按 ×；月曆覆蓋層＝返回同收起。行程表段本身的子頁層登記在 MobileToday
-  useBackLayer("core.scheduleSheet", sheetView !== null, closeSheet);
+  // UI 丙-3 F3：⋯ sheet 換成 MSheet 後它也會自己登記——同一個 id 傳進去（backId），refcount 合併成一層、返回鍵按一次就關
+  useBackLayer(SCHEDULE_SHEET_LAYER, sheetView !== null, closeSheet);
   useBackLayer("core.scheduleCal", calOpen, closeCal);
 
   const createOn = useCallback((day: string, name: string) => actions.createOn(day, name), [actions]);
   const closeDraft = useCallback(() => useScheduleUiStore.getState().setDraftDay(null), []);
 
   // sheet 放在 .m-sch **之外**（Fragment 的第二個子節點＝根 flex column 的直接子節點）：.m-sch 是 z-index:1 的疊放脈絡，
-  // fixed 的 .m-sheet-veil（z 45）困在裡面會被 tab bar（z 3）蓋住——今日子頁的 sheet 本來就是 .m-page 的兄弟，這裡同款。
+  // fixed 的 sheet 暗幕（z 45；UI 丙-3 起是 MSheet、本來就 portal 到 body）困在裡面會被 tab bar（z 3）蓋住——今日子頁的 sheet 本來就是 .m-page 的兄弟，這裡同款。
   return (
     <>
     <div className="m-sch">
@@ -451,11 +455,12 @@ export function MobileSchedule() {
           onClearRunTime={() => {
             if (sheetView.card.railDate) actions.clearRunTime(sheetView.card.nodeId, sheetView.card.railDate);
           }}
-          // 磨光① 加工單：改名／記一句／刪除同今日子頁；串流不是手排清單，不給上移下移
+          // 磨光① 加工單：改名／記乘務記錄／刪除同今日子頁；串流不是手排清單，不給上移下移
           onRename={(name) => renameTicket(sheetView.card.nodeId, name, sheetView.card.name)}
           onLog={(body) => logTicket(sheetView.card.nodeId, body)}
           onMove={(dest) => void moveNodeTo(sheetView.card.nodeId, dest)}
           onDelete={() => deleteTicket(sheetView.card.nodeId, sheetView.card.name, liveChildCount(sheetView.card.nodeId))}
+          backId={SCHEDULE_SHEET_LAYER}
           onClose={closeSheet}
         />
       )}

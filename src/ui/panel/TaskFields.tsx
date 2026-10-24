@@ -7,6 +7,9 @@
  * 視覺＝原型語彙 1:1（class 定義在 techo.css 原型逐字移植段、側板版面在 panel.css）：
  * 票頭＝.panel-head（件一 m3-ext-routemap.html：票種＋票根徽章／類型／票號＋襯線標題）、區段＝.sec、狀態／優先級＝.status 小方標（選中 ink 邊）、
  * 心情＝三個 .badge 小圓、子項進度＝.cars 車廂格、手動進度＝純鍵盤數字、車票検印＝.stamp／.seal 蓋「済」（stampIn 動畫）。
+ * UI 丙-3 C5：現況／優先順序／所屬路線換新 `Segmented`（放不下就換下拉，`./Choice`）；執行日、締切日換共用 `DateChip`
+ *   （執行日一定 allowPast＋flag="backfill"，補記不能壞）；「幾點」換共用 `ClockInput`（`./TimeField` 的 ClockField）；
+ *   心情字統一「順暢／還行／吃力」（G1，與完成卡同一份 complete/moods.ts）。
  * 已知取捨：面板內改 done 不彈完成卡（心情／日誌就在同一面板）；車廂不給「轉為支線」（支線只能掛路線／支線下，setKind 必擋）。
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
@@ -28,14 +31,16 @@ import {
   ActionsRow,
   CommitInput,
   CommitTextarea,
-  DateField,
   FieldRow,
   NumberField,
   SectionRule,
-  Segmented,
 } from "./fields";
 import { RepeatSection, TeikiStampRow } from "./RepeatRuleEditor";
-import { ArrivalNote, TimeField } from "./TimeField";
+import { ArrivalNote, ClockField } from "./TimeField";
+import { Choice } from "./Choice";
+import { DateChip } from "../common/DateChip";
+import { MOODS } from "../complete/moods";
+import { todayKey } from "../../lib/date";
 import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
 import { useMoveTo } from "./MoveTo";
@@ -46,7 +51,7 @@ const STATUS_OPTIONS: { value: NodeStatus; label: string }[] = [
   { value: "todo", label: "未開始" },
   { value: "doing", label: "進行中" },
   { value: "done", label: "已完成" },
-  { value: "paused", label: "擱置" },
+  { value: "paused", label: "途中下車" },
 ];
 
 const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
@@ -58,13 +63,8 @@ const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
 /** 路線標籤選擇器的「無路線」哨兵值（Segmented 的 value 必須是 string，不能用 null 當選項） */
 const NO_ROUTE = "__none__";
 
-/** 心情三燈＝三個 .badge 小圓：語意層 --mood-good（松葉）／--mood-ok（紀念章弧金 --arc；UI 丙-1 前是書封燙金）／
- *  --mood-hard（赭；磨光⑤ 前是朱）——theme.css 定義、都跟著主題換色（視覺規範 §1.1） */
-const MOODS: { value: Mood; label: string; glyph: string; color: string }[] = [
-  { value: "green", label: "順利", glyph: "順", color: "var(--mood-good)" },
-  { value: "yellow", label: "普通", glyph: "普", color: "var(--mood-ok)" },
-  { value: "red", label: "卡關", glyph: "卡", color: "var(--mood-hard)" }, // 磨光⑤：警示改赭（朱只給済）
-];
+/* 心情三燈的字與色：UI 丙-3 G1 起跟完成卡同一份（complete/moods.ts；§4 定案字＝順暢／還行／吃力，
+   舊字「順利／普通／卡關」退役；存進資料庫的值 green／yellow／red 不變） */
 
 /* ───────────── 入口：依 kind 分派 ───────────── */
 
@@ -175,6 +175,26 @@ function LockedDate({ value }: { value: string | null }) {
   );
 }
 
+/**
+ * 執行日＝共用 DateChip（UI 丙-3 C5；視覺規範 §2.5「日期」觸發統一成日期 chip）。列車／車廂與車票面板共用。
+ * **一定 `allowPast`＋`flag="backfill"`**：DateChip 預設挑不到今天以前，少了 allowPast 桌機補記（磨光⑦ D-主-67：
+ * 親手把執行日改到過去＝補記）會靜默壞掉（契約 §7-1）。onPick 照舊帶 `{ backfill: true }`——蓋不蓋済由 repository 判斷
+ * （未済、非定期券、沒有未完成子票才蓋），收據 toast「已補記到 M/D」＋復原在 nodeStore。
+ */
+function ScheduledChip({ node }: { node: NodeRow }) {
+  const updateNode = useNodeStore((s) => s.updateNode);
+  return (
+    <DateChip
+      date={node.scheduled_on}
+      onPick={(v) => void updateNode(node.id, { scheduled_on: v }, { backfill: true })}
+      allowPast
+      flag="backfill"
+      clearable
+      label="執行日"
+    />
+  );
+}
+
 /** 改名／刪除（F3 語彙）／轉型（setKind）——三個面板共用 */
 function useNodeActions() {
   const tree = useNodeStore((s) => s.tree);
@@ -205,7 +225,7 @@ function useNodeActions() {
       // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
       void collectDeleteHints(node, descendantIdsOf(tree, node.id)).then((hints) =>
         askConfirm({
-          title: `將連同 ${n} 個子項一起刪除？`,
+          title: `連同 ${n} 個子項一起刪除？`,
           body: withDeleteHints(`「${node.name}」底下的 ${n} 個項目會一起刪掉（6 秒內可復原）。`, hints),
           confirmLabel: "一起刪除",
           danger: true,
@@ -300,25 +320,20 @@ function TaskPanel({ node }: { node: NodeRow }) {
       <div className="fields">
         <FieldRow label="現況">
           {/* 定期券：「已完成」＝退役（v1 不從這裡做），済要蓋在下面検印欄的那一班上 */}
-          <Segmented
+          <Choice
             value={node.status}
             options={teiki ? STATUS_OPTIONS.filter((o) => o.value !== "done") : STATUS_OPTIONS}
-            onChange={(v) => {
-              if (v) changeStatus(v);
-            }}
+            onChange={changeStatus}
             ariaLabel="狀態"
-            twoColumns
           />
           {teiki && <p className="empty">定期券：在検印欄蓋班次</p>}
         </FieldRow>
 
         <FieldRow label="優先順序">
-          <Segmented
+          <Choice
             value={node.priority}
             options={PRIORITY_OPTIONS}
-            onChange={(v) => {
-              if (v) void updateNode(node.id, { priority: v });
-            }}
+            onChange={(v) => void updateNode(node.id, { priority: v })}
             ariaLabel="優先順序"
           />
         </FieldRow>
@@ -333,25 +348,26 @@ function TaskPanel({ node }: { node: NodeRow }) {
       <SectionRule title="時刻" />
       <div className="fields">
         <FieldRow label="執行日">
-          {lockedDate ? <LockedDate value={node.scheduled_on} /> : (
-            <DateField
-              value={node.scheduled_on}
-              onCommit={(v) => void updateNode(node.id, { scheduled_on: v }, { backfill: true })}
-              ariaLabel="執行日"
-            />
-          )}
+          {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
         </FieldRow>
 
         <FieldRow label="締切日">
-          <DateField value={node.due_on} onCommit={(v) => void updateNode(node.id, { due_on: v })} ariaLabel="締切日" />
+          <DateChip
+            date={node.due_on}
+            onPick={(v) => void updateNode(node.id, { due_on: v })}
+            allowPast
+            clearable
+            label="締切日"
+          />
         </FieldRow>
 
         {/* 預定時刻（主線②）：定期券也可編＝每班時刻（lockedDate 只鎖執行日）；逐班改在下面検印段的「本班」 */}
         <FieldRow label="幾點">
-          <TimeField
+          <ClockField
             value={node.scheduled_time}
             onCommit={(v) => void updateNode(node.id, { scheduled_time: v })}
             dayStartHour={dayStartHour}
+            refDay={node.scheduled_on ?? todayKey(dayStartHour)}
             ariaLabel="預定時刻"
             prefix={lockedDate ? "每班" : undefined}
           />
@@ -558,13 +574,13 @@ function TicketPanel({ node }: { node: NodeRow }) {
             <FieldRow label="所屬路線">
               {/* 選一條＝寫 route_id（line_id 由 repository 同步）；「無路線」＝清成 null。
                   票根（上方 .panel-kind）與今日列的票根會立刻換成該路線的色。 */}
-              <Segmented
+              <Choice
                 value={node.route_id ?? NO_ROUTE}
                 options={[
                   { value: NO_ROUTE, label: "無路線" },
                   ...routes.map((r) => ({ value: r.id, label: r.code ? `${r.code}・${r.name}` : r.name })),
                 ]}
-                onChange={(v) => void tag(!v || v === NO_ROUTE ? null : v)}
+                onChange={(v) => void tag(v === NO_ROUTE ? null : v)}
                 ariaLabel="所屬路線"
               />
             </FieldRow>
@@ -583,21 +599,16 @@ function TicketPanel({ node }: { node: NodeRow }) {
       <SectionRule title="時刻" />
       <div className="fields">
         <FieldRow label="執行日">
-          {lockedDate ? <LockedDate value={node.scheduled_on} /> : (
-            <DateField
-              value={node.scheduled_on}
-              onCommit={(v) => void updateNode(node.id, { scheduled_on: v }, { backfill: true })}
-              ariaLabel="執行日"
-            />
-          )}
+          {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
         </FieldRow>
 
         {/* 預定時刻與預計（主線② D-主-12）：車票側板從此也有「預計」；定期券＝每班時刻，逐班改在検印段的「本班」 */}
         <FieldRow label="幾點">
-          <TimeField
+          <ClockField
             value={node.scheduled_time}
             onCommit={(v) => void updateNode(node.id, { scheduled_time: v })}
             dayStartHour={dayStartHour}
+            refDay={node.scheduled_on ?? todayKey(dayStartHour)}
             ariaLabel="預定時刻"
             prefix={lockedDate ? "每班" : undefined}
           />

@@ -6,7 +6,7 @@
  *     ├ b.ns-tt-time-total（合計；0＝「—」）｜路線：span.ns-tt-time-route（ROUTE_TIME「本月 3h・累計 41h20m」）
  *     ├ span.ns-tt-live-dot（有運行中那班在範圍裡）
  *     ├ span.ns-tt-time-caret「▾」
- *     └ span.ns-tt-time-tip（滑過浮出：TIME_HOVER「自己 1h／底下 2h20m」；展開時不出）
+ *     └ span.ns-tt-time-tip.techo-card（滑過浮出：TIME_HOVER「自己 1h／底下 2h20m」；展開時不出；UI 丙-4 D4 材質＝.techo-card）
  *   div.ns-tt-time-det[.is-open] > div > div.ns-tt-time-in（grid-rows 0fr→1fr 展開）
  *     ├ div.ns-tt-time-row「自己 N」＋小字「時間塊 X」（列車、車廂多「＋手填 [NumberField] 分」）
  *     └ div.ns-tt-time-row「底下 M」
@@ -104,7 +104,7 @@ export function TimeField({ node }: { node: NodeRow }) {
           ▾
         </span>
         {t.ready && (
-          <span className="ns-tt-time-tip" aria-hidden="true">
+          <span className="ns-tt-time-tip techo-card" aria-hidden="true">
             {hover}
           </span>
         )}

@@ -23,7 +23,7 @@
 /* 小標＝`.techo-label` 的字級與字距（10px、.28em），h3 不吃預設的粗與大 */
 .ns-mg-title {
   margin: 0;
-  font-size: 10px;
+  font-size: 10px; /* 字面值：小標 10px（同 .techo-label）；兩殼共用規則，--fs-* 手機會換值，照原值留 */
   font-weight: 400;
   letter-spacing: .28em;
   color: var(--color-ink-soft);
@@ -36,7 +36,7 @@
 /* 組小標：比區塊標題再小一階的墨色，靠上方留白分組（不畫線，免得與區塊虛線打架） */
 .ns-mg-group {
   margin: 14px 0 4px;
-  font-size: 11px;
+  font-size: 11px; /* 字面值：組小標 11px；兩殼共用規則，--fs-* 手機會換值，照原值留 */
   font-weight: 400;
   letter-spacing: .16em;
   color: var(--color-ink-faint);
@@ -61,16 +61,16 @@
   padding: 5px 6px;
   margin: 0 -6px;
   box-sizing: content-box;
-  font-size: 12.5px;
+  font-size: var(--fs-ui);
   line-height: 1.6;
   letter-spacing: .03em;
   text-align: left;
   color: inherit;
   background: none;
   border: 0;
-  border-radius: 3px;
+  border-radius: 3px; /* 字面值：可點列 3px 圓角（照原值；--radius-card 兩主題不同值，不能換） */
 }
-.ns-mg-open { cursor: pointer; font: inherit; font-size: 12.5px; }
+.ns-mg-open { cursor: pointer; font: inherit; font-size: var(--fs-ui); }
 .ns-mg-open:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .ns-mg-open:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 
@@ -104,9 +104,9 @@
 
 /* ── 手機（更多 → 同步）────────────────────────────── */
 [data-shell="mobile"] .ns-mg { padding: 14px 2px 4px; border-top: none; }
-[data-shell="mobile"] .ns-mg-ack { min-height: 44px; padding: 0 14px; font-size: 13px; }
-[data-shell="mobile"] .ns-mg-intro { font-size: 11px; line-height: 1.7; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-mg-ack { min-height: 44px; padding: 0 14px; font-size: var(--fs-sm); }
+[data-shell="mobile"] .ns-mg-intro { font-size: var(--fs-micro); line-height: 1.7; letter-spacing: .08em; color: var(--color-ink-faint); }
 /* 列內兩行：時刻與名字同一行、方向句第二行（全寬） */
-[data-shell="mobile"] .ns-mg-row > * { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; padding: 8px 6px; font-size: 13px; }
+[data-shell="mobile"] .ns-mg-row > * { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; padding: 8px 6px; font-size: var(--fs-sm); }
 [data-shell="mobile"] .ns-mg-open { min-height: 44px; }
 [data-shell="mobile"] .ns-mg-what { grid-column: 1 / -1; }

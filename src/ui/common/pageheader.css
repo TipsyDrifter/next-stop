@@ -21,9 +21,11 @@
 
 /* ① 眉標：字型、字級、色交給 .techo-overline（粉彩拉丁斜體、銀河黑體燙金）；這裡只管中文段與大小寫 */
 .ns-pagehead-overline { margin: 0 0 var(--sp-2); white-space: nowrap; line-height: 1.6; } /* 行高照 ui-brand 的 .techo-overline */
-.ns-pagehead-ovl-zh { display: none; }                 /* 粉彩：只畫拉丁 */
-[data-theme="dark"] .ns-pagehead-ovl-zh { display: inline; } /* 銀河：中 — LATIN */
-[data-theme="dark"] .ns-pagehead-overline { text-transform: uppercase; }
+/* 物件眉標 {zh, latin} 的兩段（<OverlineText>；PageHeader、PopMenu、DialogShell 共用，所以寫成全域 class）：
+ *   粉彩只畫拉丁、銀河畫「中 — LATIN」並轉大寫。字串眉標（舊呼叫端）不經過這兩個 class，照字面畫。 */
+.ns-ovl-zh { display: none; }                                   /* 粉彩：只畫拉丁 */
+[data-theme="dark"] .ns-ovl-zh { display: inline; }             /* 銀河：中 — LATIN */
+[data-theme="dark"] .ns-ovl-latin { text-transform: uppercase; }
 
 /* ② 大標＋③ 補述（同一行，基線對齊；放不下時補述換到下一行） */
 .ns-pagehead-titleline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; min-width: 0; }
@@ -33,7 +35,8 @@
   letter-spacing: .06em; line-height: 1.15; color: var(--color-ink);
 }
 .ns-pagehead--identity .ns-pagehead-title { font-size: var(--fs-date); }   /* 身分式：日期／月份／路線名 */
-/* 補述：週幾、年份（襯線 600、淡墨）。字階沒有原型的 15／13，取最近的語意級 --fs-body／--fs-sm（丙-3 套頁時再定） */
+/* 補述：週幾、年份（襯線 600、淡墨）＝--fs-body；拉丁小字＝--fs-sm。舊 header.day 的 15／13 不入字階（規範 §9 probe 2），
+ *   丙-3 原型（prototypes/ui-c3，§5 P1／P5 拍板時看的那份）畫的就是這組 14／12，定案。 */
 .ns-pagehead-aside {
   display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px;
   font-family: var(--font-display); font-weight: 600; font-size: var(--fs-body); color: var(--color-ink-soft);
@@ -51,6 +54,14 @@
 
 /* ④ 日付印：貼在主欄右側、工具列之左；上下吃一點負邊距，不撐高頁首 */
 .ns-pagehead-stamp { flex: none; display: flex; margin: calc(-1 * var(--sp-1)) 0 -10px; }
+/* ④′ 紀念章（emblem，丙-3 契約 §5 P1＝A）：日付印之後、工具列之前，跟日付印同一套負邊距。
+ *   頁首寬 <704（PageHeader.tsx 的 PAGEHEAD_EMBLEM_BELOW，量頁首本身）時 JSX 不畫它，改在 stats 列尾畫 emblemCompact。
+ *   門檻＝窄版同一條 704（10-24 甲案：日付印 76／紀念章 92，章比印稍大；放不下全套就整枚退成小章，不再有兩枚縮成一樣大的中間態）。 */
+.ns-pagehead-emblem { flex: none; display: flex; margin: calc(-1 * var(--sp-1)) 0 -10px; }
+/* 窄退的 stats 列尾：「・」＋28px 小章＋字（原型 ui-c3 方案 C 的 .c3-mini／.sep 逐值） */
+.ns-pagehead-stats .ns-pagehead-sep { margin: 0 .35em; color: var(--color-ink-faint); }
+.ns-pagehead-emblem-c { white-space: nowrap; }
+.ns-pagehead-emblem-mini { display: inline-block; vertical-align: middle; margin: -6px 5px -4px 0; transform: rotate(5deg); }
 
 /* ⑤ 右側工具列：固定順序［分頁籤］［＋ 新增］［搜尋］［管理］；margin-top 讓它跟大標同一列 */
 .ns-pagehead .ns-toolbar {
@@ -62,7 +73,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); white-space: nowrap;
 }
 
-/* 窄版（主欄 <704）：分頁籤已換下拉、新增與搜尋已是圖示鈕（JSX 換），這裡把日付印 92 縮到 76（SVG 有 viewBox，等比縮） */
+/* 窄版（主欄 <704）：分頁籤已換下拉、新增與搜尋已是圖示鈕（JSX 換），這裡把日付印 92 縮到 76（SVG 有 viewBox，等比縮；紀念章在窄版不畫） */
 .ns-pagehead.is-compact .ns-pagehead-stamp > svg { width: 76px; height: 76px; }
 
 /* 窄版再窄（例：視窗 960 開側板，頁首實寬約 254～384）：一列放不下時工具列換到下一列、靠右，

@@ -151,10 +151,19 @@ export function DiaryEntry({
     st().selectDiaryEntry(id);
     st().setDiaryEditing(id);
   };
+  /**
+   * 離開編輯＝存檔送完 → 回閱讀態 → 解析荷札（與手機 MobileDiaryEntry.leaveEdit 同法）。
+   * UI 丙-6 回修：setDiaryEditing(null) 會順手 loadDiary 重載當天，原本跟 flush 同一拍出發，重載先讀到舊字，
+   *   resolveLeaveDiary 再把它當「別台後寫贏了」換掉本地＝剛打的字不見。排在存檔鏈後面，重載讀到的就是新字。
+   */
   const leaveEditing = (focusRead: boolean) => {
     tagSug.close();
     const local = { title, body };
+    // Esc 之後打字框卸載可能再補一個 blur（focusRead=false）：只升不降，免得蓋掉 Esc 要的「焦點回閱讀態」
+    if (focusRead) focusReadNext.current = true;
     void flush().then(() => {
+      if (st().diaryEditingId === id) st().setDiaryEditing(null);
+      else if (focusRead) readRef.current?.focus({ preventScroll: true });
       // 編輯期間別台後寫贏了 ⇒ 本地換成 store 的、荷札依 store 的內文（leaveSync；與 NoteContent 同法）
       const r = resolveLeaveDiary(id, local, Object.keys(pending.current).length > 0 || saveFailed.current);
       if (r.remote) {
@@ -163,9 +172,6 @@ export function DiaryEntry({
       }
       void useTagStore.getState().syncNoteTags(id, r.body);
     });
-    focusReadNext.current = focusRead;
-    if (st().diaryEditingId === id) st().setDiaryEditing(null);
-    else if (focusRead) readRef.current?.focus({ preventScroll: true });
   };
 
   const notedDay = dayOf(item.noted_at, dayStartHour);
@@ -308,8 +314,9 @@ export interface DiaryDraftProps {
   onChange(next: { title: string; body: string }): void;
   /** 存檔（Ctrl+Enter 或「存檔」鈕） */
   onSave(): void;
+  /** 「取消」鈕（NotesDiary 給的是跟 Esc 同一條二段確認） */
   onCancel(): void;
-  /** Esc 二段確認的第一下已按過（顯示「還有內容沒存…」） */
+  /** 二段確認的第一下已按過（Esc 或「取消」；顯示「還沒存檔——再按一次就放棄」） */
   confirmEsc: boolean;
   /** 草稿欄位裡按 Esc：由 NotesDiary 判斷要先問還是直接收 */
   onEscape(): void;
@@ -380,21 +387,22 @@ export function DiaryDraft({ label, placeholder, title, body, onChange, onSave, 
         />
       </div>
       <div className="ns-notes-draftbar">
-        {/* 取消在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起從「主鈕在左」換過來） */}
-        <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={onCancel}>
-          取消
-        </button>
-        <button type="button" className="ns-notes-btn ns-btn btn-seal" onClick={onSave}>
-          存檔
-        </button>
+        {/* 提示推到最左、［取消］［存檔］靠右（取消在左、主鈕在右，視覺規範 §2.3；排法同 DialogShell foot＝變待辦，UI 丙-6 回修） */}
         {confirmEsc ? (
-          <span className="hint warn">還沒存檔——再按一次 {capsOf("notes.escape")}放棄，或繼續打字</span>
+          // 四處同一句（UI 丙-6 C3：捕捉框兩殼、寫日記兩殼）；Esc 與「取消」鈕都走這條，所以不提 Esc
+          <span className="hint warn" role="status">還沒存檔——再按一次就放棄</span>
         ) : (
           <span className="hint">
             <Kbd id="notes.diary.save" />
             存檔
           </span>
         )}
+        <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="ns-notes-btn ns-btn btn-seal" onClick={onSave}>
+          存檔
+        </button>
       </div>
     </div>
   );

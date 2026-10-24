@@ -1,27 +1,34 @@
 /**
  * MobileRepeatForm——手機的定期規則表單（全螢幕；骨架照 MobileEntryForm；③契約 §5.5、✎-4／✎-7／✎-8；原型題三手機；丙席擁有）。
- * 宿主＝MobileSheetHost（dialog.kind === "repeat" 時不包底部面板，直接畫這張）。根 `div.ns-tk-mform.ns-tk-mre`，portal 到 body。
+ * 宿主＝MobileSheetHost（dialog.kind === "repeat" 時不包底部面板，直接畫這張）。殼＝共用 MFullPage（UI 丙-5 H5），
+ *   本文裡放 `div.ns-tk-mform.ns-tk-mre`（本檔的樣式掛在它底下）。
  *
  * 由上而下（原型結論：頻率是這張表單的重點，放第一屏）：
- *   頂列「取消」・「支出｜收入｜轉帳」・「存」
+ *   頂列「取消」・「新增定期帳／定期帳」・「存」（書封色）
+ *   → 類型三選「支出｜收入｜轉帳」＝內文第一列 Segmented（丙-5：同記一筆表單 P5 A 案）
  *   →（從一筆帳「設成定期…」來的）一行淡字「從 10/19 那筆帶過來的；那筆本身不會被重記」
  *   → 金額大字＋幣別 chip
  *   → 頻率區（固定展開）：「頻率 每月 5 日」・每日｜每週｜每月・星期 7 格／1–31 日格（7 欄）・起算日
  *   → 帳戶 chips（轉帳＝從／到）→ 分類兩層格子（收支）
- *   → 「更多欄位」折疊：時刻・終止日（選填）・備註・路線
+ *   → 「更多欄位」折疊：時刻（ClockInput mobile；規則沒有「那一天」，說明行不寫日期，丙-5 F3）・終止日（選填）・備註・路線
  *   → 預覽一行（repeatLabel＋「第一班／下一班／從 X 起補記」）
  *   → 底部：編輯既有規則時「刪除這條規則」
  * 草稿在 store（`repeatDraft`／`setRepeatDraft`／`saveRepeatDraft`）；「取消」＝`onDone`（宿主接 `closeRepeatEditor`：從管理 sheet 開的回管理 sheet）。
  * 層級：和記一筆表單同為 46；從記一筆表單「設成定期…」開時後掛載、疊在它上面，存完回到那一筆（看得到新的「定期」列）。
+ * 返回層：MFullPage 給 backId "ticket.dialog"——跟宿主那一行 useBackLayer 同一個 id ⇒ 合併成一層；onBack 用最後登記的（宿主，
+ *   effect 父後於子），宿主的語意（closeRepeatEditor）跟本頁左鈕 `onDone` 是同一件事。
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useTicketStore } from "../../../../store/ticketStore";
 import { useNodeStore } from "../../../../store/nodeStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { addDays, todayKey } from "../../../../lib/date";
 import { roundelStyle } from "../../../common/roundel";
 import { MobileDatePicker } from "../../../common/MobileDatePicker";
+import { MFullPage } from "../../../common/MFullPage";
+import { MSheet } from "../../../common/MSheet";
+import { Segmented } from "../../../common/Segmented";
+import { ClockInput, clockDraftsOkIn } from "../../../common/ClockInput";
 import { useBackLayer } from "../../../mobile/backStack";
 import { shortDayKey } from "../../../common/DatePicker";
 import {
@@ -44,19 +51,22 @@ import {
   serializeRule,
   type FixedRepeatRule,
 } from "../../../../domain/repeat";
-import { IconCaret, IconRight, MSheet, groupLabelOf, useImeGuard } from "../mobileBits";
+import { IconCaret, IconRight, groupLabelOf, useImeGuard } from "../mobileBits";
+import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../../ticketClock";
 
 const KINDS: { key: RepeatDraft["kind"]; label: string }[] = [
   { key: "expense", label: "支出" },
   { key: "income", label: "收入" },
   { key: "transfer", label: "轉帳" },
 ];
+const KIND_OPTIONS = KINDS.map((k) => ({ value: k.key, label: k.label }));
 const SIGN: Record<RepeatDraft["kind"], string> = { expense: "", income: "＋", transfer: "⇄" };
 const FREQS: { key: RepeatDraft["freq"]; label: string }[] = [
   { key: "daily", label: "每日" },
   { key: "weekly", label: "每週" },
   { key: "monthly", label: "每月" },
 ];
+const FREQ_OPTIONS = FREQS.map((f) => ({ value: f.key, label: f.label }));
 const DAYS_1_31: number[] = Array.from({ length: 31 }, (_, i) => i + 1);
 
 /** 這天是星期幾（0＝日；本地 new Date(y,m-1,d)） */
@@ -100,7 +110,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
 
   const [sheet, setSheet] = useState<"currency" | "start" | "until" | null>(null);
   // 磨光①（主線手機殼契約 §1.5）：表單本身的返回層在宿主（ticket.dialog）；這裡的幣別／日期 sheet 疊在全螢幕表單上，
-  // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"（同記帳表單）
+  // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"（同記帳表單）；三支 sheet 都給同一個 backId ⇒ 跟這一行合併成一層
   useBackLayer("ticket.repeat.pick", sheet !== null, () => setSheet(null), "dialog");
   const [more, setMore] = useState(!isNew && (d.note !== "" || d.routeId !== null || d.until !== null));
   const busy = useRef(false);
@@ -142,19 +152,11 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
     });
   }, [d.accountId, d.toAccountId, d.routeId, kind, more]);
 
-  /* 開啟＝焦點進表單根（新規則且金額空著時由金額欄 autoFocus）；關閉時還回開它的元素 */
-  useEffect(() => {
-    const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (!(isNew && d.amountText === "")) rootRef.current?.focus({ preventScroll: true });
-    return () => {
-      if (prev && prev.isConnected && prev !== document.body) prev.focus({ preventScroll: true });
-    };
-    // 只在開啟那一下
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /* 開啟＝焦點落頁（新規則且金額空著時由金額欄 autoFocus）、關閉還給開它的元素：丙-5 起交給 MFullPage（useDialogFocus） */
 
   const save = async () => {
     if (busy.current) return;
+    if (!clockDraftsOkIn(rootRef.current)) return; // 時刻框剛打錯、還沒回去看過 ⇒ 不存、焦點回框（丙-5 風險 1）
     busy.current = true;
     try {
       await saveRepeatDraft(); // 成功會自己 closeRepeatEditor；失敗 toast、表單留著
@@ -175,6 +177,10 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
     setDraft(patch);
   };
   const toggle = (list: readonly number[], v: number) => (list.indexOf(v) >= 0 ? list.filter((x) => x !== v) : list.concat(v));
+
+  /* 時刻（丙-5 F3）：規則只有牆鐘 hhmm、沒有「那一天」——拿起算日當參考日換成毫秒（ticketClock.ts），存回一律牆鐘 */
+  const { lo: clockLo, hi: clockHi } = ticketClockBounds(d.start, dayStartHour);
+  const clockMs = ticketClockValue(d.start, d.hhmm, dayStartHour) ?? clockLo;
 
   const rule = draftRule(d);
   const ruleText = describeRule(rule);
@@ -313,25 +319,13 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
     .join(" · ");
   const dayLabel = (day: string) => (day === today ? "今天" : `${shortDayKey(day)} 週${WEEKDAY_LABEL[dowOf(day)]}`);
 
-  return createPortal(
-    <div ref={rootRef} className="ns-tk-mform ns-tk-mre" tabIndex={-1} data-kind={kind} role="dialog" aria-modal="true" aria-label={isNew ? "新增定期帳" : "定期帳"}>
-      <div className="ns-tk-mf-top">
-        <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={onDone}>
-          取消
-        </button>
-        <span className="ns-tk-mkind" role="group" aria-label="類型">
-          {KINDS.map((k) => (
-            <button key={k.key} type="button" aria-pressed={kind === k.key} onClick={() => setDraft({ kind: k.key })}>
-              {k.label}
-            </button>
-          ))}
-        </span>
-        <button type="button" className="ns-btn btn-seal ns-tk-mbtn" onClick={() => void save()}>
-          存
-        </button>
-      </div>
-
+  return (
+    <MFullPage title={isNew ? "新增定期帳" : "定期帳"} left={{ label: "取消", onClick: onDone }} right={{ label: "存", onClick: () => void save() }} backId="ticket.dialog">
+    <div ref={rootRef} className="ns-tk-mform ns-tk-mre" data-kind={kind}>
       <div className="ns-tk-mf-scroll">
+        <div className="ns-tk-mf-kind">
+          <Segmented options={KIND_OPTIONS} value={kind} onChange={(k) => setDraft({ kind: k })} aria-label="類型" />
+        </div>
         {fromEntry && <p className="ns-tk-mre-from">從 {shortDayKey(fromEntry.occurred_on)} 那筆帶入，原本那筆不會重複記</p>}
 
         <div className="ns-tk-mf-amt">
@@ -366,13 +360,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
             頻率<em>{ruleText}</em>
           </p>
           <div className="ns-tk-mre-seg">
-            <span className="ns-tk-mseg" role="group" aria-label="頻率">
-              {FREQS.map((f) => (
-                <button key={f.key} type="button" aria-pressed={d.freq === f.key} onClick={() => pickFreq(f.key)}>
-                  {f.label}
-                </button>
-              ))}
-            </span>
+            <Segmented options={FREQ_OPTIONS} value={d.freq} onChange={pickFreq} aria-label="頻率" />
           </div>
           <div className="ns-tk-mre-detail">
             {d.freq === "daily" ? (
@@ -445,16 +433,17 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
           </button>
           {more && (
             <div className="ns-tk-mf-morebody">
-              <div className="ns-tk-mf-field">
+              <div className="ns-tk-mf-field top ns-tk-mf-clock">
                 <span className="lbl">時刻</span>
-                <input
-                  type="time"
-                  className="ns-tk-mf-time"
-                  value={d.hhmm}
-                  aria-label="記在幾點"
-                  onChange={(e) => {
-                    if (e.target.value) setDraft({ hhmm: e.target.value });
-                  }}
+                <ClockInput
+                  variant="mobile"
+                  label="記在幾點"
+                  refDay={d.start}
+                  dateLabel={false}
+                  value={clockMs}
+                  lo={clockLo}
+                  hi={clockHi}
+                  onChange={(ms) => setDraft({ hhmm: msToWallHHMM(ms) })}
                 />
               </div>
               <div className="ns-tk-mf-field">
@@ -526,13 +515,15 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
         </div>
       )}
 
+      </div>
+
       {sheet === "currency" && (
-        <MSheet title="幣別" over onClose={() => setSheet(null)}>
+        <MSheet list title="幣別" onClose={() => setSheet(null)} backId="ticket.repeat.pick" backKind="dialog" className="ns-tk-mcursheet">
           {currencies.map((c) => (
             <button
               key={c.id}
               type="button"
-              className={"m-sheet-item ns-tk-msheet-row" + (c.code === curCode ? " is-on" : "")}
+              className="ns-msheet-item"
               aria-pressed={c.code === curCode}
               onClick={() => {
                 setDraft({ currency: c.code });
@@ -546,9 +537,6 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
               </small>
             </button>
           ))}
-          <button type="button" className="m-sheet-item is-cancel" onClick={() => setSheet(null)}>
-            取消
-          </button>
         </MSheet>
       )}
       {sheet === "start" && (
@@ -565,6 +553,8 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
             setSheet(null);
           }}
           onClose={() => setSheet(null)}
+          backId="ticket.repeat.pick"
+          backKind="dialog"
         />
       )}
       {sheet === "until" && (
@@ -581,10 +571,11 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
             setSheet(null);
           }}
           onClose={() => setSheet(null)}
+          backId="ticket.repeat.pick"
+          backKind="dialog"
         />
       )}
-    </div>,
-    document.body,
+    </MFullPage>
   );
 }
 

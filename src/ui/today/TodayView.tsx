@@ -6,11 +6,22 @@
  * 兩主題共用同一份 DOM，文案差異用 .theme-pastel-only／.theme-galaxy-only 兩份都畫、CSS 擇一顯示。
  *
  * 版面（由上而下）：
- *   header.day（overline／日期＋週＋latin／手寫「還有 N 張」／日付印／day-stats／紀念章）
+ *   PageHeader 身分式（UI 丙-3 A1：眉標 {今日, Today}／大標月日 34／補述週幾＋latin＋粉彩手寫「還有 N 張」／
+ *     stats 完成・專注（或別線 todayStats）・下一班／日付印 92／紀念章 92／工具列「＋ 臨時車票」＋搜尋，第四格空）
  *   → 誤點區（**置頂**＝r1 拍板，樣式逐字取原型 .sec.late／.ticket.late-t 只搬位置；含 D-③-7 的締切段）
  *   → 「今天的列車」清單（＋ Enter 開的臨時車票草稿列）
- *   → 空狀態 1.0c 無班次／1.0d 全完成慶祝（語氣分開）
+ *   → 空狀態 1.0c 無班次／1.0d 全完成慶祝（語氣分開；UI 丙-3 A4 換共用 EmptyState）
  *   → page-foot
+ *
+ * ── UI 丙-3（契約 §1 A1～A5、§5 P1／P5）──
+ *   - 頁首換共用 PageHeader（跟行程表同一副骨架）。紀念章走 `emblem`（P1＝A：日付印右邊、工具列左邊、92）；
+ *     頁首寬 <704 時 PageHeader 自己把它退成 stats 列尾的 28px 小章＋「下一站 X N%」（`emblemCompact`）。
+ *   - 手寫「還有 N 張」（P5）接在補述右邊，銀河不畫（today.css）；別線的 todayStats 插槽元件仍畫在 stats 列。
+ *   - 「＋ 臨時車票」分裂鈕（AddSplit，主鈕＋▾）退役（A3）：頁首工具列第二格一顆「＋ 臨時車票」（＝Enter）；
+ *     收件匣走草稿列既有的「無日期」切換，`Shift+Enter` 照舊。
+ *   - 空狀態（A4）：沒有任何車票＝EmptyState first（一顆「＋ 臨時車票」次鈕），這時頁首的「＋」隱藏（規範 §2.7、§3.1-5）；
+ *     全部交代＝EmptyState done（慶祝，不給鈕；清單還在，頁首「＋」照留）。
+ *   - 每列常駐 ⋯（A5）：TodayRow 的 `menu`，項目由 controller 的 `menuFor` 算。
  *
  * 紀念章（D-③-2 甲）：全部路線中「預定到站日最近且未到站」的車站，沒有就不畫。
  *   進度弧＝該路線的**里程進度**（已到站數／車站總數）——今日頁沒有整棵路線樹可算節點完成率
@@ -21,7 +32,7 @@
  * 頁面殼契約（WP0）：根節點帶 .page（z-index 蓋過 SkyLayer）與 .ns-today（CSS 前綴）；
  *   天空由 App.tsx 統一掛（density full／train false），本檔不碰。側欄「我的路線」在今日頁保留（Sidebar 負責）。
  */
-import { Fragment, useCallback, useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { timeOfRow } from "../../domain/scheduledTime";
@@ -30,7 +41,7 @@ import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMinuteTick } from "../schedule/useMinuteTick";
-import { DateSeal, StationStamp } from "../stamps";
+import { DateSeal, SealDone, StationStamp } from "../stamps";
 import { TodayRow } from "./TodayRow";
 import { TicketDraftRow } from "./TicketDraftRow";
 import { LogInlineInput } from "./LogInlineInput";
@@ -39,7 +50,10 @@ import { useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
 import { useTodayDnd } from "./useTodayDnd";
 import { lineTodayStats } from "../../lines/runtime";
-import { PopMenu, hotkeyCaps } from "../common/PopMenu";
+import { hotkeyCaps } from "../common/PopMenu";
+import { EmblemMini, PageHeader } from "../common/PageHeader";
+import { EmptyState } from "../common/EmptyState";
+import { IconPlus } from "../common/icons";
 import "./today.css";
 // 票面時刻（.tm）、「未定時・照手排」小標、現在線、頁首「下一班」的樣式寫在 schedule.css（today.css 本班不准碰）
 import "../schedule/schedule.css";
@@ -110,99 +124,6 @@ function timeline(rows: TodayRowData[], dateKey: string, now: number) {
   };
 }
 
-/** 空狀態：原型 .sec 語彙（襯線標題＋虛線延伸）＋一句手帳口吻＋文字入口 */
-function EmptyBlock({
-  title,
-  body,
-  action,
-  onAction,
-  cheer,
-}: {
-  title: string;
-  body?: string;
-  action?: string;
-  onAction?: () => void;
-  cheer?: boolean;
-}) {
-  return (
-    <div className={"empty" + (cheer ? " cheer" : "")}>
-      <div className="sec">
-        <h3>{title}</h3>
-        <span className="rule" />
-      </div>
-      {body && <p className="empty-body">{body}</p>}
-      {action && onAction && (
-        <button type="button" tabIndex={-1} onMouseDown={(e) => e.preventDefault()} onClick={onAction} className="empty-action">
-          {action}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/**
- * 「＋ 臨時車票」分裂鈕（10-20 磨光②；補 today.draft／today.inbox 的滑鼠入口）：
- *   主鈕＝Enter 同一條路（controller.openDraft：清單尾開草稿列）；▾＝小選單兩項——
- *   臨時車票（排今天）／放進收件匣（無日期）＝Shift+Enter 同一條路（controller.createInboxTicket：同款草稿列、
- *   提交後流入收件匣），對齊手機輸入列的「無日期」切換。
- * 形狀＝兩顆 .ns-btn.ns-btn--sm.btn-ghost 併成一組（中縫共用一條框線），不另畫新鈕。
- * 跟區段標題列其他鈕一樣 tabIndex=-1＋mousedown 不搶焦點：鍵盤流留在今日容器（Enter／Shift+Enter 本來就有）。
- */
-function AddSplit({
-  onDraft,
-  onInbox,
-  returnFocus,
-}: {
-  onDraft: () => void;
-  onInbox: () => void;
-  returnFocus: () => HTMLElement | null;
-}) {
-  const moreRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
-  return (
-    <span className="add-split" role="group" aria-label="新增車票">
-      <button
-        type="button"
-        tabIndex={-1}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={onDraft}
-        title={`開一張臨時車票（${hotkeyCaps("today.draft")}）`}
-        className="ns-btn ns-btn--sm btn-ghost add-main"
-      >
-        ＋ 臨時車票
-      </button>
-      <button
-        ref={moreRef}
-        type="button"
-        tabIndex={-1}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label="更多新增方式"
-        title="更多新增方式"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen((v) => !v)}
-        className="ns-btn ns-btn--sm btn-ghost add-more"
-      >
-        ▾
-      </button>
-      {open && (
-        <PopMenu
-          anchor={moreRef.current}
-          overline="新增 — NEW"
-          label="新增車票"
-          onClose={close}
-          returnFocus={returnFocus}
-          items={[
-            { key: "draft", label: "臨時車票（排今天）", hotkeyId: "today.draft", onSelect: onDraft },
-            { key: "inbox", label: "放進收件匣（無日期）", hotkeyId: "today.inbox", onSelect: onInbox },
-          ]}
-        />
-      )}
-    </span>
-  );
-}
-
 /** 現在線（原型 :246-250 .nowline）：赭色圓點＋實線＋「現在 15:10」（UI 丙-1 前是靛；視覺規範 §2.10） */
 function NowLine({ text }: { text: string }): ReactNode {
   return (
@@ -252,7 +173,59 @@ export function TodayView() {
     ? (routeStations.filter((s) => s.arrived_on).length / routeStations.length) * 100
     : 0;
 
+  /** 紀念章上的站名（章面窄：六字以上截成五字＋…） */
+  const stampName = nextStation ? (nextStation.name.length > 6 ? `${nextStation.name.slice(0, 5)}…` : nextStation.name) : "";
+
   const noRows = c.rows.length === 0 && !c.draft;
+  const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
+
+  /**
+   * stats 列（大標下一行）的各段，「・」由後一段自己帶（別線元件看 lead 自己畫，同一個規矩）。
+   * 磨光⑤ N11：兩主題同一句「完成 d/t・還有 l 張」（全結清＝「全部結清」），與手機今日、串流今日列同一把尺。
+   */
+  const stats: ReactNode[] = [];
+  if (countParts) {
+    stats.push(
+      <>
+        完成{" "}
+        <b>
+          {countParts.done}/{countParts.total}
+        </b>
+        <span className="sep">・</span>
+        {countParts.tail}
+      </>,
+    );
+  }
+  if (lineStats.length) {
+    // 別線的統計段（插槽 todayStats，接縫 #66）：取代核心「專注」；分隔「・」由元件看 lead 自己畫
+    lineStats.forEach((S, i) =>
+      stats.push(<S key={`line-${i}`} shell="desktop" dateKey={c.dateKey} lead={total > 0} wrap={false} />),
+    );
+  } else if (focusMin > 0) {
+    stats.push(
+      <>
+        {total > 0 && <span className="sep">・</span>}
+        專注 <b>{fmtMinutes(focusMin)}</b>
+      </>,
+    );
+  }
+  // 下一班（主線②；原型 :999）：今天分區第一張還沒交代、時刻還沒到的票
+  if (total > 0) {
+    stats.push(
+      <>
+        <span className="sep">・</span>
+        <span className="next-run">
+          {tl.next ? (
+            <>
+              下一班 <b className="tmx">{tl.next.time}</b>　{tl.next.row.name}
+            </>
+          ) : (
+            "今天沒有下一班了"
+          )}
+        </span>
+      </>,
+    );
+  }
 
   return (
     <section
@@ -263,87 +236,65 @@ export function TodayView() {
       className="page ns-today"
     >
       <div className="sheet">
-        {/* ═══ 頁首（原型 header.day） ═══ */}
-        <header className="day">
-          <div className="day-head">
-            <p className="overline">
-              <span className="theme-pastel-only">Today</span>
-              <span className="theme-galaxy-only">今天 — TODAY</span>
-            </p>
-            <div className="date-line">
-              <span className="d">
-                {day.getMonth() + 1}月{day.getDate()}日
-              </span>
-              <span className="w">{WEEK_ZH[day.getDay()]}</span>
-              <span className="latin">
+        {/* ═══ 頁首（UI 丙-3 A1：PageHeader 身分式） ═══ */}
+        <PageHeader
+          variant="identity"
+          overline={{ zh: "今日", latin: "Today" }}
+          title={`${day.getMonth() + 1}月${day.getDate()}日`}
+          aside={
+            <>
+              <span>{WEEK_ZH[day.getDay()]}</span>
+              <span className="ns-pagehead-latin">
                 {MONTH_EN[day.getMonth()]} {day.getDate()}, {WEEK_EN[day.getDay()]}
               </span>
-              {/* 頁邊手寫（粉彩三處手寫之一）：全部蓋済＝「都完成了」（C2 script 逐字）。
+              {/* 頁邊手寫（粉彩三處手寫之一；§5 P5 接在補述右邊、銀河不畫）：全部蓋済＝「都完成了」（C2 script 逐字）。
                   磨光⑤ N11：運休算結清不算完成——有運休的結清寫「都結清了」，不然跟底下「完成 2/3・全部結清」打架 */}
               {countParts && (
                 <span className="margin-note">
                   {left > 0 ? `還有 ${left} 張` : countParts.done === countParts.total ? "都完成了" : "都結清了"}
                 </span>
               )}
-              {/* 頁首日付印一枚（a38／規格 §6；位置照 A、尺寸 92px 照 ① 比稿 Q8） */}
-              <DateSeal date={day} size={92} title={`日付印 ${c.dateKey}`} />
-            </div>
-            <p className="day-stats">
-              {/* 磨光⑤ N11：兩主題同一句「完成 d/t・還有 l 張」（全結清＝「全部結清」），與手機今日、串流今日列同一把尺 */}
-              {countParts && (
-                <>
-                  完成{" "}
-                  <b>
-                    {countParts.done}/{countParts.total}
-                  </b>
-                  <span className="sep">・</span>
-                  {countParts.tail}
-                </>
-              )}
-              {lineStats.length ? (
-                // 別線的統計段（插槽 todayStats，接縫 #66）：取代核心「專注」；分隔「・」由元件看 lead 自己畫
-                lineStats.map((S, i) => <S key={i} shell="desktop" dateKey={c.dateKey} lead={total > 0} wrap={false} />)
-              ) : (
-                <>
-                  {total > 0 && focusMin > 0 && <span className="sep">・</span>}
-                  {focusMin > 0 && (
-                    <>
-                      專注 <b>{fmtMinutes(focusMin)}</b>
-                    </>
-                  )}
-                </>
-              )}
-              {/* 下一班（主線②；原型 :999）：今天分區第一張還沒交代、時刻還沒到的票 */}
-              {total > 0 && (
-                <>
-                  <span className="sep">・</span>
-                  <span className="next-run">
-                    {tl.next ? (
-                      <>
-                        下一班 <b className="tmx">{tl.next.time}</b>　{tl.next.row.name}
-                      </>
-                    ) : (
-                      "今天沒有下一班了"
-                    )}
-                  </span>
-                </>
-              )}
-            </p>
-          </div>
-
-          {nextStation && (
-            <StationStamp
-              className="station-stamp"
-              size={122}
-              arcLabel={`${stationRoute?.code ? `${stationRoute.code} LINE · ` : ""}NEXT STATION`}
-              caption="下一站"
-              name={nextStation.name.length > 6 ? `${nextStation.name.slice(0, 5)}…` : nextStation.name}
-              percent={milestonePct}
-              statusText="進行中"
-              title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}
-            />
-          )}
-        </header>
+            </>
+          }
+          stats={
+            stats.length ? (
+              <>
+                {stats.map((part, i) => (
+                  <span key={i} className="stat-part">{part}</span>
+                ))}
+              </>
+            ) : undefined
+          }
+          stamp={<DateSeal date={day} size={76} title={`日付印 ${c.dateKey}`} />}
+          emblem={
+            nextStation ? (
+              <StationStamp
+                size={92}
+                arcLabel={`${stationRoute?.code ? `${stationRoute.code} LINE · ` : ""}NEXT STATION`}
+                caption="下一站"
+                name={stampName}
+                percent={milestonePct}
+                statusText="進行中"
+                title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}
+              />
+            ) : undefined
+          }
+          emblemCompact={
+            nextStation ? (
+              <span title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}>
+                <EmblemMini percent={milestonePct} />
+                下一站 <b>{stampName}</b> {Math.round(milestonePct)}%
+              </span>
+            ) : undefined
+          }
+          // 空狀態出現時「＋」交給空狀態那一顆（同一動作同頁一個入口，規範 §2.7）；第一次載入回來前也先不畫，免得閃一下
+          add={
+            c.loaded && !noRows
+              ? { label: "臨時車票", onClick: c.openDraft, title: `開一張臨時車票（${hotkeyCaps("today.draft")}）` }
+              : undefined
+          }
+          search={{ onOpen: () => setQuickJumpOpen(true), title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
+        />
 
         {/* ═══ 誤點區（置頂＝r1；含 D-③-7 浮上來的締切段） ═══ */}
         {c.lateRows.length > 0 && (
@@ -380,6 +331,7 @@ export function TodayView() {
                       actions={c.row}
                       onFreshEnd={c.clearFresh}
                       now={now}
+                      menu={(anchor) => c.menuFor(r, anchor)}
                     />
                     {c.logTarget === r.id && (
                       <li role="presentation" className="log-row">
@@ -396,11 +348,18 @@ export function TodayView() {
         {/* ═══ 今天的列車 ═══ */}
         {/* 磨光⑤ S10：第一次 loadToday 回來前清單區留白（不放骨架、不畫空狀態）——否則開頁先閃「今天還沒有班次」 */}
         {!c.loaded ? null : noRows ? (
-          <EmptyBlock
+          <EmptyState
+            className="today-empty"
+            tone="first"
+            stamp={
+              <span className="stamp">
+                <span className="hint">検印</span>
+              </span>
+            }
             title="今天還沒有班次"
-            body="按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）選一班列車，按 T 排進今天。"
-            action="開一張臨時車票"
-            onAction={c.openDraft}
+            desc="寫一張臨時車票，或從路線圖挑一班。"
+            action={{ label: "臨時車票", icon: <IconPlus />, onClick: c.openDraft }}
+            secondary={{ label: "去路線圖", onClick: () => useUiStore.getState().setPage("routemap") }}
           />
         ) : (
           <>
@@ -408,11 +367,6 @@ export function TodayView() {
               <h3>今天的列車</h3>
               <span className="rule" />
               <span className="note">{total} 張</span>
-              <AddSplit
-                onDraft={c.openDraft}
-                onInbox={c.createInboxTicket}
-                returnFocus={() => containerRef.current}
-              />
             </div>
             <ul role="listbox" aria-label="今天的列車" className="ticket-list">
               {c.todayRows.map((r, i) => (
@@ -433,6 +387,7 @@ export function TodayView() {
                     onFreshEnd={c.clearFresh}
                     dndProps={dnd.rowProps(r.id, i)}
                     now={now}
+                    menu={(anchor) => c.menuFor(r, anchor)}
                   />
                   {c.logTarget === r.id && (
                     <li role="presentation" className="log-row">
@@ -459,10 +414,12 @@ export function TodayView() {
 
         {/* 1.0d 全完成慶祝（語氣與 1.0c 分開：這裡是收工，不是招募） */}
         {c.loaded && allDone && !c.draft && (
-          <EmptyBlock
-            cheer
+          <EmptyState
+            className="today-cheer"
+            tone="done"
+            stamp={<SealDone />}
             title="今天的班次都到站了"
-            body="剩下的時間是你的。明天的事，可以先去行程表排好。"
+            desc="剩下的時間是你的。明天的事，可以先去行程表排好。"
           />
         )}
 

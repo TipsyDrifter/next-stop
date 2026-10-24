@@ -63,7 +63,7 @@ function HotkeyGuideCard() {
     <DialogShell
       /* 卡的大標：講「這一頁」的話（頁面登記表的 guideTitle），不用 registry 的組名（那是設定籤的分組名，帶括號說明） */
       title={pageById(page).guideTitle}
-      overline="快捷鍵 — SHORTCUTS"
+      overline={{ zh: "快捷鍵", latin: "Shortcuts" }}
       onClose={close}
       width={480}
       topClass="pt-[6vh]" /* 比設定卡貼頂一級：1280×800 多出 32px，路線圖 21 列才不捲 */

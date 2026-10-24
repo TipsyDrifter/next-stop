@@ -24,7 +24,8 @@
  * 鍵盤：見上（搜尋框 ↑↓／Enter／Esc／空字 Backspace 退回第一層）；Esc stopPropagation，不連關外層。
  * 樣式：本元件專屬規則（輸入框寬、清單列、腳列、目前位置）在 common/attachpicker.css（src/index.css 集中 @import）；
  *   浮層殼 .ns-notes-pop／小標 .ns-notes-poplabel／清除鈕 .ns-notes-chip 與旅客筆記的 DatePop 等共用，仍在 notes/notes.css。
- *   原路徑 notes/AttachPicker.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
+ *   原路徑 notes/AttachPicker.tsx 的 re-export 殼在 UI 丙-7 T5 刪掉（呼叫端都改 import 本檔）。
+ *   UI 丙-7 T5：根多掛 `.ns-attachpick`——浮在內容上（float）那款的底在 attachpicker.css 墊一層紙色＝不透明（粉彩不再透字）。
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { NodeRow } from "../../domain";
@@ -249,7 +250,7 @@ export function AttachPicker({
   return (
     <div
       ref={rootRef}
-      className={`ns-notes-pop${float ? " float" : ""}`}
+      className={`ns-notes-pop ns-attachpick${float ? " float" : ""}`}
       role="dialog"
       aria-label={label}
       onMouseDown={(e) => e.stopPropagation()}

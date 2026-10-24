@@ -6,6 +6,8 @@
  * 不做：useGlobalHotkeys、sync／backup boot、SkyLayer、側欄、任何頁。不包 StrictMode（main.tsx）。
  *
  * 畫面＝`NotesDesktopOverlay`（CaptureOverlay／TodoPreviewDialog，一個字不改）＋`Toast`，暗幕與定位由 capture-window.css 拿掉。
+ * UI 丙-6 C5：兩個框都是共用 DialogShell（不 portal，仍在 stage 裡，量得到）——DOM 是 stage > .techo-veil > .ns-dialog，
+ *   凍票／對焦不再認「stage 的直接子元素」，改認活的那張卡 `.ns-dialog[role="dialog"]`（凍住的複本拿掉了 role，不會被認成活的）。
  * 存檔一律由 CaptureOverlay／TodoPreviewDialog 自己呼叫 store；本元件只看 store 的開合，決定小窗怎麼收：
  *
  * - **Enter 存好（或預覽框建立好）**（D-筆-61）：`capture_hide("saved")`＝Rust 先把前景還給原本的 App、小窗變成不可聚焦＋點擊穿透
@@ -41,8 +43,11 @@ import { UketsukeSeal } from "../UketsukeSeal";
 import { CAPTURE_STAMP_MS, emitCaptured, fitCapture, hideCapture, onCaptureShow } from "./shell";
 import "./capture-window.css";
 
-/** 浮出 stage 之外、也要算進視窗高度的東西：荷札建議（portal 到 body、fixed）、預覽框「掛到哪」挑選器（absolute） */
-const FLOATERS = ".ns-notes-sug.body, .ns-notes-capwin-stage .ns-notes-pop.float";
+/** 浮出 stage 之外、也要算進視窗高度的東西：荷札建議（portal 到 body、fixed）、預覽框「掛到哪」挑選器（absolute）、
+ *  預覽框執行日 chip 開的日期小卡（DateChip→DatePicker anchored，portal 到 body；UI 丙-6 P5） */
+const FLOATERS = ".ns-notes-sug.body, .ns-notes-capwin-stage .ns-notes-pop.float, .ns-datepick.anchored";
+/** 正在畫的那張卡（捕捉票或預覽框；殼的 .ns-dialog）。凍住的複本拿掉了 role，不會選到 */
+const LIVE_CARD = '.ns-dialog[role="dialog"]';
 
 function warn(what: string) {
   return (e: unknown) => console.warn(`[capture] ${what} 失敗`, e);
@@ -100,11 +105,12 @@ export function CaptureWindowApp() {
       const stage = stageRef.current;
       const holder = frozenRef.current;
       if (!stage || !holder) return;
-      const live = stage.querySelector<HTMLElement>(":scope > .ns-notes-capwrap, :scope > .ns-notes-prev");
+      const live = stage.querySelector<HTMLElement>(LIVE_CARD);
       if (!live) return;
       const copy = live.cloneNode(true) as HTMLElement;
       copy.removeAttribute("role");
       copy.removeAttribute("aria-modal");
+      copy.removeAttribute("aria-labelledby");
       // cloneNode 不帶 textarea 的現值（React 寫的是 value 屬性，不是子節點）
       const src = live.querySelectorAll("textarea");
       copy.querySelectorAll("textarea").forEach((t, i) => {
@@ -117,7 +123,7 @@ export function CaptureWindowApp() {
     const focusTyping = () =>
       requestAnimationFrame(() =>
         stageRef.current
-          ?.querySelector<HTMLTextAreaElement>(":scope > .ns-notes-capwrap textarea.ns-notes-capta")
+          ?.querySelector<HTMLTextAreaElement>(`${LIVE_CARD} .ns-notes-capwrap textarea.ns-notes-capta`)
           ?.focus({ preventScroll: true }),
       );
 

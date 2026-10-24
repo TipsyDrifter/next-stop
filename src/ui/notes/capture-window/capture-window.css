@@ -1,8 +1,13 @@
 /* ═══ 捕捉小窗（旅客筆記⑤；契約 §5.1／§5.9） ═══
- * 小窗＝一張捕捉票單獨浮在別的 App 上面：同一份 CaptureOverlay／TodoPreviewDialog（零改動），這裡只把「浮在 App 中央的疊層」
+ * 小窗＝一張捕捉票單獨浮在別的 App 上面：同一份 CaptureOverlay／TodoPreviewDialog，這裡只把「浮在 App 中央的疊層」
  * 改成「一張票就是整個視窗」。每條規則都掛 [data-window="capture"]（CaptureWindowApp 掛在 <html> 與根 div 上），主視窗零影響。
  * 尺寸：視窗寬 640（tauri.conf.json）＝票寬 600＋左右紙邊 20；高度由 CaptureWindowApp 量 .ns-notes-capwin-stage 後 capture_fit
  * （Rust 端再加上下紙邊 16＋16、夾在 180～640）。
+ *
+ * UI 丙-6 C5：兩個框都換成共用 DialogShell（捕捉＝票皮、變待辦＝紙卡 L）。殼不 portal，DOM 是
+ *   stage > .techo-veil（暗幕：fixed inset-0、flex、pt-[18vh]，Tailwind）> .ns-dialog（卡：max-w-[92vw]、max-height calc(100% - 24px)）。
+ *   這裡把暗幕攤平成一般區塊（static、無底色、無內距——否則 stage 量到 0、capture_fit 壞），卡收成 600、不限高、不播進場淡入。
+ *   本檔沒有 @layer：蓋得過殼的 Tailwind utilities；overlay.css 的 .ns-dialog 規則用 [data-window] 前綴抬特異度蓋過。
  */
 
 /* 視窗本身：紙色、不捲（內容超過就票內捲）；body 的桌機 min-width 1180（techo.css，≥768 才命中）在這裡一律解除 */
@@ -26,19 +31,23 @@ html[data-window="capture"] #root {
   display: flow-root;
 }
 
-/* 沒有暗幕：「點到外面」由視窗失焦接手（0-1 甲） */
-[data-window="capture"] .ns-notes-veil {
-  display: none;
+/* 殼的暗幕：沒有暗幕——「點到外面」由視窗失焦接手（0-1 甲）。攤平成一般區塊，卡就地展開 */
+[data-window="capture"] .techo-veil {
+  position: static;
+  inset: auto;
+  display: block;
+  padding: 0;
+  background: none;
+  z-index: auto;
 }
 
-/* 捕捉票：不再 fixed 在 App 中央偏上，也不播浮出動畫（小窗出現本身就是浮出） */
-[data-window="capture"] .ns-notes-capwrap {
-  position: static;
-  left: auto;
-  top: auto;
+/* 殼的卡（捕捉票皮 600／變待辦 L 620 都收成 600）：不再 fixed 在 App 中央偏上，也不播進場淡入（小窗出現本身就是浮出）；
+   不限高（小窗的高度跟著內容長，上限由 Rust 夾）。凍票的 DOM 複本也是 .ns-dialog，一起吃這條 */
+[data-window="capture"] .ns-dialog {
+  max-width: 600px;
+  max-height: none;
   margin: 0;
-  width: 600px;
-  animation: none;
+  transition: none;
 }
 /* 打字區超過就票內捲，視窗不再長（App 內是 260，小窗高度上限 640 放得下 320） */
 [data-window="capture"] .ns-notes-capwrap .ns-notes-capta {
@@ -46,20 +55,9 @@ html[data-window="capture"] #root {
   overflow-y: auto;
 }
 
-/* 變待辦預覽框（0-5 甲）：同樣就地展開；App 內寬 620，小窗收成 600 */
-[data-window="capture"] .ns-notes-prev {
-  position: static;
-  left: auto;
-  top: auto;
-  margin: 0;
-  width: 600px;
-  animation: none;
-}
-[data-window="capture"] .ns-notes-prevcard {
-  max-width: 600px;
-}
-
-/* 蓋章那 0.4 秒：存好的那張票凍住（DOM 複本，不可互動），章蓋在票號那一角 */
+/* 蓋章那 0.4 秒：存好的那張票凍住（DOM 複本，不可互動），章蓋在票的右上角——殼的標題列「記一句」與 × 之間（不壓 ×）。
+   UI 丙-6 C5：以前捕捉票的票號在右上角，章要往下挪（另一條 :has(.ns-notes-capwrap) 規則）；票頭拿掉後捕捉票與變待辦都是殼的標題列，
+   同一個位置，那條特例刪了 */
 [data-window="capture"] .ns-notes-capwin-frozen:empty {
   display: none;
 }
@@ -70,16 +68,10 @@ html[data-window="capture"] #root {
 [data-window="capture"] .ns-notes-sealflash {
   position: absolute;
   top: 10px;
-  right: 22px;
+  right: 56px;
   bottom: auto;
   animation: none; /* App 內 1.6 秒的淡出用不到：小窗 0.4 秒就收（章本身的 nsNotesStampIn 剛好 .4s） */
 }
-/* 捕捉票上：章往下挪到「標題／打字那一列」的右側（stage 內 y≈32–74；票頭的「No.xxxx · 時刻」在 y≈17–31，撕線在 y≈81），
- * 不壓票號那一行。變待辦預覽框的版面不同，維持上面 top:10px。 */
-[data-window="capture"] .ns-notes-capwin-frozen:has(.ns-notes-capwrap) ~ .ns-notes-sealflash {
-  top: 32px;
-}
-
 /* toast（存失敗、主視窗還在啟動）：不浮在視窗底，排在票下面、跟著量進高度——不蓋票根列。
  * UI 丙-1：Toast 的卡換成 .techo-card（舊的紙卡 class 退役），這裡改認 toast 自己的 .ns-toast */
 [data-window="capture"] .ns-toast[role="status"] {

@@ -2,7 +2,7 @@
  * gnav.css — 書封頂部全域導航（兩欄）＋搜尋鈕＋設定入口
  * 視覺真相＝prototypes/m3-ext-routemap.html 的 .gnav / .gnav-closed / .gnav-search / .foot-set 段（逐字移植）
  *   10-20 磨光②：兩排等寬、鍵盤註記移到兩排下方（使用者指示）——兩排共用同一個三欄格線（--gnav-cell-w），
- *   「CTRL 1·2·3…　? 指引」從兩排中間搬到第二排下面；這兩處與原型不同，以本檔為準。
+ *   「CTRL 1·2·3…」從兩排中間搬到第二排下面；這兩處與原型不同，以本檔為準。UI 丙-3 C7：「? 說明」搬到書封腳（.foot-guide）。
  * 拍板依據＝決策記錄〈① 比稿拍板〉Q3（未通車佔位保留、統一成小圖示第二欄）＋Q7（全域三件每頁常駐）
  *
  * 原型變數 → 專案 token 對照（沿 sidebar.css 既有對照表）：
@@ -18,10 +18,10 @@
  * ───────────────────────────────────────────────────── */
 
 .cover {
-  --gnav-hover: var(--color-book-hover, rgba(228, 227, 243, .06));
+  --gnav-hover: var(--color-book-hover, rgba(228, 227, 243, .06)); /* 字面值：token 後備值（同 theme.css）（--color-book-hover 沒接上時的原型粉彩值） */
 }
 [data-theme="dark"] .cover {
-  --gnav-hover: var(--color-book-hover, rgba(230, 236, 255, .045));
+  --gnav-hover: var(--color-book-hover, rgba(230, 236, 255, .045)); /* 字面值：token 後備值（同 theme.css）（--color-book-hover 沒接上時的原型銀河值） */
 }
 
 /* ============ 兩排共用的三欄格線（10-20 磨光②，使用者指示「兩行要對齊」） ============
@@ -50,9 +50,9 @@
 .cover .gnav-item,
 .cover .gnav-line {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
-  width: var(--gnav-cell-w); padding: 8px 4px 7px; border-radius: 2px; white-space: nowrap;
+  width: var(--gnav-cell-w); padding: 8px 4px 7px; border-radius: var(--radius-ctl); white-space: nowrap;
   background: transparent; border: 0; cursor: pointer;
-  font-family: inherit; font-size: 10px; letter-spacing: .18em; text-indent: .18em;
+  font-family: inherit; font-size: var(--fs-micro); letter-spacing: .18em; text-indent: .18em;
   color: var(--book-muted);
   transition: background .15s, color .15s;
 }
@@ -61,14 +61,14 @@
 .cover .gnav-item:hover,
 .cover .gnav-line:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
 .cover .gnav-item:focus-visible,
-.cover .gnav-line:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .gnav-line:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
 .cover .gnav-item.active,
 .cover .gnav-line.active { color: var(--color-book-ink); }
 /* .gnav-line.active 同一枚 */
 .cover .gnav-item.active::after,
 .cover .gnav-line.active::after { /* 書封上金＝現在作用中（沿 nav active 的金菱形語言） */
   content: ""; width: 5px; height: 5px;
-  background: var(--color-gold); transform: rotate(45deg); margin-top: 2px;
+  background: var(--color-gold); transform: rotate(45deg); margin-top: 2px; /* 書封燙金：作用中菱形 */
 }
 /* ② 過渡態：今日／日曆頁尚未實作（移植規格 §2）——不是「未通車」，是「施工中」，
    故不用第二欄的 .42，用一階淺的 .55 區隔兩種語義；頁面通車即拿掉屬性回原型現樣。 */
@@ -77,23 +77,13 @@
 /* 鍵盤註記行：10-20 磨光② 從兩排中間搬到第二排下面（margin 換成第二排之後的間距） */
 .cover .gnav-kbd {
   margin-top: 9px; text-align: center;
-  font-family: var(--font-latin); font-size: 9px; letter-spacing: .3em; text-indent: .3em;
+  font-family: var(--font-latin); font-size: 9px; letter-spacing: .3em; text-indent: .3em; /* 字面值：書封站牌小字照原型（字階外） */
   color: var(--book-muted);
 }
-/* 「CTRL 1 · 2 · 3」純註記那段：淡度（.8）原本掛在整行 <p>，⑦ 修正席搬到這一段——
-   子元素的 opacity 壓不過父層，「? 指引」變成可點控制項後對比要過 4.5，淡度得只留給註記本身。
-   註記的合成結果與原型定稿逐值相同（--book-muted × .8），鐵道意象的「淡淡站牌小字」不動。 */
+/* 「CTRL 1 · 2 · 3」純註記那段：淡度（.8）掛在這一段（同一行還有同步狀態點，不跟著淡）。
+   註記的合成結果與原型定稿逐值相同（--book-muted × .8），鐵道意象的「淡淡站牌小字」不動。
+   UI 丙-3 C7：原本同一行的「? 指引」可點片段（span，Tab 不到）搬到書封腳、改成文字鈕（下面 .foot-guide），規則一併刪除。 */
 .cover .gnav-kbd-note { opacity: .8; }
-/* ⑦「? 指引」可點片段（D-⑦-3 甲）：住在 .gnav-kbd 同一行、同字級，只加可點的排版；
-   字色走 book-ink（對書封 9.9／13.5）再壓 .85 仍 >7、視覺上不比註記跳太多；
-   hover 沿本檔既有的 --gnav-hover＋book-ink（與 gnav-item／foot-set 同一套），零新形狀 */
-.cover .gnav-kbd-guide {
-  display: inline-block; margin-left: .5em; padding: 1px 5px 1px 4px; border-radius: 2px;
-  white-space: nowrap; cursor: pointer;
-  color: var(--color-book-ink); opacity: .85;
-  transition: background .15s, color .15s;
-}
-.cover .gnav-kbd-guide:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
 
 /* ============ 第二欄：未通車佔位（旅客筆記／時刻表／售票口；Q3 拍板 2026-08-28） ============
    灰階低調（--gnav-off-opacity）、cursor:default；hover／focus 浮出 tooltip「頁名＋次期開業予定」；
@@ -102,66 +92,71 @@
 .cover .gnav-closed { margin: var(--gnav-row-gap) 0 0; }
 .cover .gnav-off {
   position: relative; display: grid; place-items: center; align-self: center;
-  width: 30px; height: 26px; border-radius: 2px;
+  width: 30px; height: 26px; border-radius: var(--radius-ctl);
   color: var(--book-muted); opacity: var(--gnav-off-opacity); cursor: default;
   transition: opacity .15s, background .15s;
 }
 .cover .gnav-off svg { display: block; }
 .cover .gnav-off:hover, .cover .gnav-off:focus-visible { opacity: var(--gnav-off-opacity-hover); background: var(--gnav-hover); }
-.cover .gnav-off:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .gnav-off:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
 .cover .tip-closed {
   position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
   display: none; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 11px 7px; border-radius: 2px; white-space: nowrap; z-index: 5;
-  background-color: var(--color-book);
-  background-image: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .05));
-  border: 1px solid rgba(214, 189, 142, .4);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+  padding: 6px 11px 7px; border-radius: var(--radius-ctl); white-space: nowrap; z-index: 5;
+  background-color: var(--color-book); /* 殼：書封上的 tooltip（書封延伸、不出書封，原型 .tip-closed 逐字） */
+  background-image: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .05)); /* 字面值：書封 tooltip 白霧疊層（原型逐字） */
+  border: 1px solid rgba(214, 189, 142, .4); /* 字面值：書封燙金框（金 40%，原型逐字） */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .35); /* 字面值：陰影色（§1.1 例外） */
 }
-[data-theme="dark"] .cover .tip-closed { border-color: rgba(205, 183, 131, .38); }
+[data-theme="dark"] .cover .tip-closed { border-color: rgba(205, 183, 131, .38); } /* 字面值：書封燙金框（銀河金 38%，原型逐字） */
 .cover .gnav-off:hover .tip-closed, .cover .gnav-off:focus-visible .tip-closed { display: flex; }
-.cover .tip-closed .tn { font-size: 10px; letter-spacing: .22em; text-indent: .22em; color: var(--color-book-ink); }
-.cover .tip-closed .ts { font-size: 8.5px; letter-spacing: .24em; text-indent: .24em; color: var(--color-gold); opacity: .9; }
+.cover .tip-closed .tn { font-size: var(--fs-micro); letter-spacing: .22em; text-indent: .22em; color: var(--color-book-ink); }
+.cover .tip-closed .ts { font-size: 8.5px; letter-spacing: .24em; text-indent: .24em; color: var(--color-gold); opacity: .9; } /* 字面值：書封小字照原型（字階外）；書封燙金：tooltip「次期開業予定」 */
 
 /* ============ D5 頂部搜尋鈕（滑鼠入口；鍵盤走 Ctrl+P） ============ */
 .cover .gnav-search {
   display: flex; align-items: center; gap: 9px;
   width: 100%; margin-top: 10px; padding: 7px 10px;
-  border: 1px solid rgba(228, 227, 243, .2); border-radius: 2px;
+  border: 1px solid rgba(228, 227, 243, .2); border-radius: var(--radius-ctl); /* 字面值：書封上的框線色（書封字色 20%，原型逐字） */
   background: transparent; cursor: pointer;
-  font-family: inherit; font-size: 11px; letter-spacing: .22em;
+  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .22em;
   color: var(--book-muted);
   transition: background .15s, color .15s, border-color .15s;
 }
-[data-theme="dark"] .cover .gnav-search { border-color: rgba(216, 219, 227, .18); }
+[data-theme="dark"] .cover .gnav-search { border-color: rgba(216, 219, 227, .18); } /* 字面值：書封上的框線色（銀河書封字色 18%，原型逐字） */
 .cover .gnav-search svg { flex: none; opacity: .85; }
 .cover .gnav-search .kbd {
-  margin-left: auto; font-family: var(--font-latin); font-size: 8.5px;
+  margin-left: auto; font-family: var(--font-latin); font-size: 8.5px; /* 字面值：書封鍵帽小字照原型（字階外） */
   letter-spacing: .2em; opacity: .75;
 }
-.cover .gnav-search:hover { background: var(--gnav-hover); color: var(--color-book-ink); border-color: rgba(228, 227, 243, .34); }
-[data-theme="dark"] .cover .gnav-search:hover { border-color: rgba(216, 219, 227, .3); }
-.cover .gnav-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .gnav-search:hover { background: var(--gnav-hover); color: var(--color-book-ink); border-color: rgba(228, 227, 243, .34); } /* 字面值：書封上的框線色 hover（原型逐字） */
+[data-theme="dark"] .cover .gnav-search:hover { border-color: rgba(216, 219, 227, .3); } /* 字面值：書封上的框線色 hover（銀河，原型逐字） */
+.cover .gnav-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
 
-/* ============ 設定入口（常駐；M2 現況位置＝cover-foot） ============ */
+/* ============ 書封腳文字鈕：設定入口＋「? 說明」（常駐；cover-foot 第一列，並排的版面在 sidebar.css .foot-btns） ============
+   UI 丙-3 C7（規範 §2.0「底部『設定』『? 說明』兩者都是文字鈕，不是 span」）：兩顆同一副 .foot-set；
+   「?」那一枚是拉丁字，佔設定齒輪的位置（13px 寬，兩顆字的起點對齊）。 */
 .cover .foot-set {
   display: inline-flex; align-items: center; gap: 9px;
-  margin-bottom: 10px; padding: 6px 12px; border: 0; border-radius: 2px;
+  margin: 0; padding: 6px 12px; border: 0; border-radius: var(--radius-ctl);
   background: transparent; cursor: pointer;
-  font-family: inherit; font-size: 11px; letter-spacing: .22em; text-indent: .1em;
+  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .22em; text-indent: .1em;
   color: var(--book-muted);
   transition: background .15s, color .15s;
 }
 .cover .foot-set svg { flex: none; opacity: .85; }
 .cover .foot-set:hover { background: var(--gnav-hover); color: var(--color-book-ink); }
-.cover .foot-set:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; }
+.cover .foot-set:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
+.cover .foot-guide .q {
+  width: 13px; flex: none; text-align: center; text-indent: 0; letter-spacing: 0;
+  font-family: var(--font-latin); font-weight: 600; line-height: 1; opacity: .85;
+}
 
 /* ============ reduced-motion：關掉過場（原型同款） ============ */
 @media (prefers-reduced-motion: reduce) {
   .cover .gnav-item,
   .cover .gnav-line,
   .cover .gnav-off,
-  .cover .gnav-kbd-guide,
   .cover .gnav-search,
   .cover .foot-set { transition: none; }
 }

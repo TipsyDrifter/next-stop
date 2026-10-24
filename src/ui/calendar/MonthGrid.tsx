@@ -5,16 +5,21 @@
  * 材質（粉彩霧面玻璃＋顆粒／銀河月光票紙）全在 calendar.css，本檔只負責結構與資料。
  * 深面紀律（規格 §6）：月卡用「頁」材質，不開第二塊書封級深面。
  *
+ * UI 丙-3 D4：每格換 `CalendarCell`（共用 common/DayCell 外殼；格內「＋」＝開那天的浮層＋草稿列）。
+ *
  * 星期列用控制器的 `weekOrder`（依設定的週首排；預設一…六・日）＋`WEEKDAY_LABEL`（六日＝`.we` 淡），不各算各的（約束表「週起始日」）。
  */
+import { useRef } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
-import { DayCell } from "./DayCell";
+import { CalendarCell, useAddOutOfTabOrder } from "./CalendarCell";
 import { useCalendar } from "./useCalendarController";
 
 const EMPTY_ENTRIES: never[] = [];
 
 export function MonthGrid() {
   const c = useCalendar();
+  const gridRef = useRef<HTMLDivElement>(null);
+  useAddOutOfTabOrder(gridRef); // 格線只留落點格一個 Tab stop
   // 鍵盤焦點的落點：選取格 →（本月的）今天 → 本月 1 日
   const focusDay =
     c.selectedDay && c.selectedDay >= c.range.from && c.selectedDay <= c.range.to
@@ -32,23 +37,26 @@ export function MonthGrid() {
           </span>
         ))}
       </div>
-      <div className="grid" role="grid" aria-label="月曆">
+      <div ref={gridRef} className="grid" role="group" aria-label="月曆">
         {c.days.map((day) => {
           const inRange = day >= c.range.from && day <= c.range.to;
           return (
-            <DayCell
+            <CalendarCell
               key={day}
               day={day}
               inRange={inRange}
               isToday={day === c.today}
+              isPast={day < c.today}
               entries={c.byDate.entries[day] ?? EMPTY_ENTRIES}
               dues={c.byDate.dues[day] ?? EMPTY_ENTRIES}
               count={c.byDate.counts[day]}
               nodes={c.nodes}
               routes={c.routes}
-              selected={inRange && day === focusDay}
+              focusable={inRange && day === focusDay}
+              open={c.popTarget?.day === day}
               truncate
               onOpen={(anchor) => c.openDay(day, anchor)}
+              onAdd={() => c.addOn(day)}
               onTip={(anchor) => (anchor ? c.showTip(day, anchor) : c.hideTip())}
             />
           );

@@ -12,13 +12,19 @@
  *   浮層殼 .ns-notes-pop／.float（DatePop 也掛它，和 .ns-datepick 同特異度、靠載入順序分勝負，搬了會改到畫面）、
  *   小標 .ns-notes-poplabel（荷札頁合併也用）、清除鈕 .ns-notes-chip（變待辦的日期 chip 也用）、
  *   三條不在字階的字級（輸入框 13、右側注記 10.5、「‹ 所有路線」11.5——丙-3～6 決定收成哪一階再搬）。
- *   手機面板本體（.ns-notes-mpick／mnode…）在 notes/notes-mobile.css。
+ *   手機面板（UI 丙-7 T5 起殼＝共用 MSheet）的本文排版與清單列在本檔檔尾；搜尋框 .ns-notes-minput 仍在 notes/notes-mobile.css。
  *
  * 載入位置變了（以前是元件層、排在 techo.css 之前；現在在 techo.css 之後）：逐條查過，下面每條要不是沒有同特異度的
  *   競爭規則，就是對手特異度較高（.ns-notes-nodelist .back／.path 的字級、側板 .panel input），勝負與以前相同。
  * ───────────────────────────────────────────────────── */
 
 /* ═══ 桌機 AttachPicker ═══ */
+
+/* 浮在內容上的那款（float；收件匣掛進列車／掛上路線、筆記內容欄、變待辦預覽）：材質照 §1.5 浮層（--float-bg＋--float-blur，
+ * 殼在 notes.css .ns-notes-pop.float），但粉彩的 --float-bg 是 64% 白——浮層蓋在別人的字上會透字（丙-6 回報：收件匣
+ * 「↑↓點選…」那行從清單裡透出來）。底下墊一層紙色＝不透明，同 MSheet／舊手機 sheet 的「票紙疊在紙色上」；銀河的
+ * --float-bg 本來就不透明，墊了看不出差。特異度 0,3,0 蓋過 notes.css 的 .ns-notes-pop.float（UI 丙-7 T5）。 */
+.ns-notes-pop.float.ns-attachpick { background: linear-gradient(var(--float-bg), var(--float-bg)), var(--color-paper); }
 
 /* 搜尋框（.techo-input 底線式；字級見檔頭，仍在 notes.css） */
 .ns-notes-input { width: 100%; }
@@ -51,7 +57,61 @@
 .ns-notes-nodelist li > button.locked:hover { background: transparent; }
 .ns-notes-nodelist li > button.locked .path { color: var(--color-ink-soft); }
 
-/* ═══ 手機 MobileAttachPicker：目前位置那一格（面板本體在 notes-mobile.css） ═══ */
+/* ═══ 手機 MobileAttachPicker（UI 丙-7 T5：殼換共用 MSheet，舊面板 notes-mobile.css §十 刪掉、清單列搬來這裡）═══
+ * 殼的本文不捲、不留內距：搜尋列固定，只有下面的清單捲（同舊面板；同荷札點選器 .ns-notes-mpksheet）。
+ * 列的值逐字照舊（§十）；字級 10px 的種類字照原型（票券尺寸）。 */
+[data-shell="mobile"] .ns-mattach .ns-msheet-body { overflow: hidden; padding: 0; gap: 0; }
+[data-shell="mobile"] .ns-mattach-search {
+  flex: none; display: flex; align-items: center; gap: 4px;
+  padding: 4px var(--m-gutter);
+}
+[data-shell="mobile"] .ns-mattach-back {
+  flex: none; min-height: 44px; padding: 0 8px 0 0;
+  background: transparent; border: 0;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .08em; color: var(--color-ink-soft);
+  cursor: pointer;
+}
+[data-shell="mobile"] .ns-mattach-list {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+[data-shell="mobile"] .ns-notes-mnodes { list-style: none; margin: 0; padding: 4px 0; }
+[data-shell="mobile"] .ns-notes-mnodes > li { list-style: none; }
+[data-shell="mobile"] .ns-notes-mnode {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 48px; padding: 0 var(--m-gutter);
+  background: transparent; border: 0;
+  font-family: inherit; font-size: var(--fs-body); text-align: left; color: var(--color-ink);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-notes-mnode:active { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+[data-shell="mobile"] .ns-notes-mnode.on { background: var(--sel-bg); }
+[data-shell="mobile"] .ns-notes-mnode.on .nm { font-weight: 500; }
+[data-shell="mobile"] .ns-notes-mnode .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .ns-notes-mnode .path,
+[data-shell="mobile"] .ns-notes-mnode .chev {
+  flex: none; font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .ns-notes-mnode .chev { font-size: var(--fs-title); line-height: 1; }
+[data-shell="mobile"] .ns-notes-mnode.is-whole { border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-notes-mnode .kind,
+[data-shell="mobile"] .ns-notes-mnode-group .kind {
+  flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: var(--radius-pill);
+  border: 1.2px dashed currentColor;
+  font-family: var(--font-display); font-weight: 600; font-size: 10px; /* 票券尺寸：照原型 */
+}
+/* 不可選的種類＝灰字群組頭（例：掛進列車時的支線） */
+[data-shell="mobile"] .ns-notes-mnode-group {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 36px; padding-right: var(--m-gutter);
+  font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .ns-notes-mnodes .empty {
+  padding: 14px var(--m-gutter);
+  font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-faint);
+}
+/* 目前位置那一格 */
 [data-shell="mobile"] .ns-notes-mnode.is-locked { color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-notes-mnode.is-locked:active { background: transparent; }
 [data-shell="mobile"] .ns-notes-mnode.is-locked .path { color: var(--color-ink-soft); }

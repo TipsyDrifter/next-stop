@@ -13,7 +13,7 @@ import { fmtClock, msOf } from "../../../domain/timetable";
 import { linkOfRow } from "../../../domain/timetableLink";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { LinkPicker } from "../parts/LinkPicker";
-import { Actions, Sub, useBlock, type PanelProps } from "./controls";
+import { Sub, useBlock, type PanelProps } from "./controls";
 
 export function LinkPanel({ onDone }: PanelProps) {
   const sheet = useTimetableStore((s) => s.sheet);
@@ -22,15 +22,11 @@ export function LinkPanel({ onDone }: PanelProps) {
   const blockId = sheet?.kind === "link" ? sheet.blockId : "";
   const block = useBlock(blockId);
 
+  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
   if (!block) {
     return (
       <div className="ns-tt-panel">
         <Sub>這一塊已經不在了</Sub>
-        <Actions>
-          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-            關閉
-          </button>
-        </Actions>
       </div>
     );
   }

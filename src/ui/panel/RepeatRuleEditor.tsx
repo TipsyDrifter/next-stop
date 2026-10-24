@@ -1,8 +1,8 @@
 /**
  * 側板「重複」區段（M3 ④ WP3）——掛／改／清除重複規則的**唯一 UI 入口**，以及定期券的班次検印。
  *
- * 沒有原型可逐字移植（原型時代還沒有重複引擎）→ 只拼 fields.tsx 既有元件（Segmented／NumberField／
- * DateField／FieldRow／SectionRule）與 techo 語彙（`.opts .status` 小方標當星期 chip），不自創視覺。
+ * 沒有原型可逐字移植（原型時代還沒有重複引擎）→ 只拼既有元件（模式／頻率＝共用 Segmented 經 ./Choice、起算日＝共用 DateChip〔UI 丙-3〕、NumberField／
+ * FieldRow／SectionRule）與 techo 語彙（`.opts .status` 小方標當星期 chip），不自創視覺。
  * 區段小標右側的淡注記（SectionRule 的 aside）＝ describeRule 的一句話收據，與今日列／大綱列同一句。
  *
  * 資料流：草稿（Draft）→ buildRule → 去抖 400ms → `nodeStore.setRepeatRule`（ActionResult 失敗吐 toast 並還原草稿）。
@@ -32,7 +32,9 @@ import { REPEATABLE_KINDS } from "../../data";
 import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-import { DateField, FieldRow, NumberField, SectionRule, Segmented, useDebouncedCommit } from "./fields";
+import { FieldRow, NumberField, SectionRule, useDebouncedCommit } from "./fields";
+import { Choice } from "./Choice";
+import { DateChip } from "../common/DateChip";
 import { RunTimeRow } from "./TimeField";
 
 /* ───────────── 草稿模型 ───────────── */
@@ -213,11 +215,11 @@ export function RepeatSection({ node }: { node: NodeRow }) {
       <SectionRule title="重複" aside={aside ?? undefined} />
       <div className="fields">
         <FieldRow label="模式">
-          <Segmented
+          <Choice
             value={draft.mode}
             options={MODE_OPTIONS}
             onChange={(v) => {
-              if (!v || v === draft.mode) return;
+              if (v === draft.mode) return;
               if (v === "after") push({ ...draft, mode: "after", days: draft.days ?? 1 });
               else if (v === "fixed") push(fillFixed({ ...draft, mode: "fixed" }));
               else push({ ...draft, mode: v });
@@ -228,11 +230,11 @@ export function RepeatSection({ node }: { node: NodeRow }) {
 
         {draft.mode === "fixed" && (
           <FieldRow label="頻率">
-            <Segmented
+            <Choice
               value={draft.freq}
               options={FREQ_OPTIONS}
               onChange={(v) => {
-                if (!v || v === draft.freq) return;
+                if (v === draft.freq) return;
                 // 每週／每月都預帶起算日的星期／號數：一選就是一條完整規則，馬上生效（改一下再點別的就好）
                 push(fillFixed({ ...draft, freq: v }));
               }}
@@ -276,10 +278,12 @@ export function RepeatSection({ node }: { node: NodeRow }) {
 
         {draft.mode !== "none" && (
           <FieldRow label="起算日">
-            <DateField
-              value={draft.start}
-              onCommit={(v) => push({ ...draft, start: v ?? todayKey(dayStartHour) })}
-              ariaLabel="起算日"
+            {/* 起算日一定有值（清掉＝今天），所以不給清除；過去日照舊可挑（舊 DateField 也沒有 min） */}
+            <DateChip
+              date={draft.start}
+              onPick={(v) => push({ ...draft, start: v ?? todayKey(dayStartHour) })}
+              allowPast
+              label="起算日"
             />
           </FieldRow>
         )}

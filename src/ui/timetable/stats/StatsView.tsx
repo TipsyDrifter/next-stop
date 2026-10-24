@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { periodWindow } from "../../../domain/timetableStats";
+import { EmptyState } from "../../common/EmptyState";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useDayContext } from "./format";
@@ -38,15 +39,28 @@ export function useStatsResult(today: string, h: number, ws: 0 | 1) {
   return { result, stale, error };
 }
 
+/** 統計空狀態的說明句（UI 丙-4 D7；只在這一支用） */
+const STATS_EMPTY_DESC = "発車、到着之後，時數會算在這裡。";
+
+/**
+ * 這一期沒有任何紀錄（兩殼共用；MobileStats 也掛）。UI 丙-4 D7：換成共用 EmptyState（tone first，規範 §2.7），
+ * 原本的「三站虛線」插畫留下來當印章位的記號。不給鈕：第一步（発車／補記）就在正上方的運行列與 F 鍵，同頁不另開第二個入口。
+ */
 export function StatsEmpty() {
   return (
     <section className="ns-tt-stats-card ns-tt-stats-empty">
-      <div className="ns-tt-stats-empty-rail" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </div>
-      <p className="ns-tt-stats-empty-t">{TT_TEXT.statsEmpty}</p>
+      <EmptyState
+        tone="first"
+        stamp={
+          <span className="ns-tt-stats-empty-rail">
+            <i />
+            <i />
+            <i />
+          </span>
+        }
+        title={TT_TEXT.statsEmpty}
+        desc={STATS_EMPTY_DESC}
+      />
     </section>
   );
 }

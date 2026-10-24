@@ -81,6 +81,15 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
   }
 }
 
+/**
+ * 這種面板有沒有黏底按鈕列（UI 丙-4 C1／C3；兩個 host 共用）：有 ⇒ host 給殼一個 foot、面板的 `<Actions>` portal 進去。
+ * 沒有的：即時存（分類與設定、連結、算哪一類、荷札、待確認清單——規範 §2.3「即時存的表單沒有主鈕」）與發車（點分類即發車）。
+ */
+const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "estimate", "longRun", "goal", "plan"]);
+export function sheetHasFoot(kind: TimetableSheet["kind"]): boolean {
+  return FOOT_KINDS.has(kind);
+}
+
 /** sheet.kind → 表單本體 */
 export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone(): void }): ReactElement {
   switch (sheet.kind) {

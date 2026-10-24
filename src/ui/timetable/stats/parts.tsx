@@ -56,7 +56,7 @@ export function Delta({
         </>
       )}
       {open && (
-        <span className="ns-tt-stats-dl-tip" role="status">
+        <span className="ns-tt-stats-dl-tip techo-card" role="status">
           {tip}
         </span>
       )}

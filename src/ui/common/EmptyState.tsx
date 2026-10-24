@@ -19,6 +19,9 @@
  * ARIA：tone="nores" 的外框帶 role="status"（搜尋結果換成「找不到」時讀屏會念出來）；其他語氣是靜態內容、不帶 live region。
  *   印章／記號一律 aria-hidden（插畫）。標題用一般段落（不猜 heading 層級，免得頁面大綱亂掉）。
  * 鍵盤：沒有自己的鍵盤行為；兩顆鈕是一般 <button>，Tab 依序可達、Enter／Space 觸發。
+ *   鈕有頁級快捷鍵時（例：日記「寫今天的日記」＝W）給 `kbd`（鍵帽字，呼叫端從 registry 查），畫在鈕字後面——
+ *   樣式＝共用鍵帽 `.ns-kbd`（overlay.css，App 全域載入），aria-hidden（鍵位另由「?」指引與 title 說，讀屏不念兩次）。
+ *   UI 丙-7 T5 加（丙-6 換 EmptyState 後日記空狀態的 W 鍵帽沒地方放）。
  * 文案：標題寫狀態（「今天還沒有列車」），說明寫做法（「寫下第一張車票，按 Enter 就発券。」），鈕是動詞 2～4 字。
  */
 import type { ReactNode } from "react";
@@ -32,6 +35,8 @@ export interface EmptyAction {
   onClick: () => void;
   /** 字前的小圖示（例：<IconPlus />）；可省 */
   icon?: ReactNode;
+  /** 鍵帽字（例："W"；呼叫端從 registry 查，查不到給空字串＝不畫）；畫在鈕字後面 */
+  kbd?: string;
 }
 
 export interface EmptyStateProps {
@@ -54,6 +59,11 @@ function ActionLabel({ a }: { a: EmptyAction }) {
     <>
       {a.icon}
       {a.label}
+      {a.kbd && (
+        <kbd className="ns-kbd" aria-hidden="true">
+          {a.kbd}
+        </kbd>
+      )}
     </>
   );
 }

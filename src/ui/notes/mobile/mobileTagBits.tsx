@@ -7,13 +7,14 @@
  *   - 文字插入：`replaceAtCaret`（游標處建議選了一個）、`insertTagsAt`（點選器插入模式）
  *   - `useCaretTag`：打字框游標處正在打的 `#…`（組字中不算；IME 護欄，契約 §1-8）
  *   - `MobileTagNotice`：通車提示條（D-筆-43）
- *   - `MTagLoading`／`useTagIndexFailed`／`retryTagIndex`：「載入中…」與載入失敗的「荷札沒載入　重試」（磨光③ 2-12）
+ *   - `MTagLoading`／`useTagIndexFailed`／`retryTagIndex`：「載入中…」與載入失敗的錯誤列＋重試（磨光③ 2-12；UI 丙-6 E12 換 ErrorBar）
  * 名稱怎麼解析、怎麼排建議都在 `domain/tags.ts`；這裡只畫、只接線（契約 §1-9）。
  * 牌子上不印 `#`（§1-7）；名稱照 `tagDisplayParts` 拆成「父層淡、末段正常、分隔 /」。
  */
 import { useEffect, useRef, useState, type MouseEvent, type MutableRefObject } from "react";
 import { backfillNotice, tagAtCaret, tagDisplayParts } from "../../../domain/tags";
 import { useTagStore } from "../../../store/tagStore";
+import { ErrorBar } from "../../common/ErrorBar";
 
 /* ═══ 圖示（16×16 線稿；與 mobileDiaryBits 同寫法） ═══ */
 
@@ -289,16 +290,13 @@ export function MobileTagNotice() {
 
 /* ═══ 載入中／沒載入（磨光③ 2-12）：載入失敗時「荷札沒載入　重試」取代永遠的「載入中…」 ═══ */
 
+/**
+ * UI 丙-6 E12：載入失敗不是空狀態——失敗時畫共用 `ErrorBar`（一行赭字＋「重試」小號次鈕、role="alert"），
+ * 四個呼叫點（荷札段、清單頁兩處、點選器）跟著換。`className` 只給「載入中…」那一行用（各處原本的提示字樣式）。
+ */
 export function MTagLoading({ className, failed, onRetry }: { className: string; failed: boolean; onRetry(): void }) {
   if (!failed) return <p className={className}>載入中…</p>;
-  return (
-    <p className={className + " ns-notes-mloadfail"} role="alert">
-      荷札沒載入
-      <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onRetry}>
-        重試
-      </button>
-    </p>
-  );
+  return <ErrorBar className="ns-notes-mloadfail" message="荷札沒有載入成功。" onRetry={onRetry} />;
 }
 
 /** 荷札索引載入失敗、而且現在沒在重載（重載中照舊寫「載入中…」，點重試看得到有動） */

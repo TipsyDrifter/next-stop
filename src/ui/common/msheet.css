@@ -96,6 +96,17 @@
 .ns-msheet-item.is-danger:active:not(:disabled) { background: var(--danger-bg); }
 .ns-msheet-item:disabled { opacity: var(--disabled); cursor: not-allowed; }        /* §1.8；title 寫原因 */
 .ns-msheet-item.is-cancel { border-bottom: 0; color: var(--color-ink-faint); }
+/* 撕線（UI 丙-5；同 PopMenu 的 cut）：這一列之前一道虛線，分開「設定類」與「匯入」這類不同性質的動作 */
+.ns-msheet-item.is-cut { border-top: 1px dashed var(--color-dash); }
+.ns-msheet-item:has(+ .ns-msheet-item.is-cut) { border-bottom-color: transparent; }   /* 撕線上面那列的實線讓位，不疊成兩道 */
+/* 列內小字摘要（UI 丙-5：售票口管帳「分類管理　支出 3 · 收入 2」）：<small> 換行在名稱下、淡字小一級；
+ * 有摘要的列改成兩行排（名稱一行、摘要一行），列高照 --row-menu 起跳、上下補一點氣口 */
+.ns-msheet-item:has(> small) { flex-wrap: wrap; align-content: center; row-gap: 2px; padding-block: var(--sp-2); }
+.ns-msheet-item small {
+  flex: 0 0 100%; min-width: 0;
+  font-size: var(--fs-sm); line-height: 1.4; letter-spacing: .04em; color: var(--color-ink-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* 黏底按鈕列：取消左（框線）、主鈕右（實心墨），平分整列、高 --ctl-h（手機 44）；即時存的 sheet 沒有這列 */
 .ns-msheet-foot {
@@ -132,7 +143,7 @@
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--sp-2);
   min-height: calc(var(--m-band-h) + var(--m-safe-top));
   padding: var(--m-safe-top) var(--sp-2) 0;
-  background: var(--color-book); color: var(--color-book-ink);
+  background: var(--color-book); color: var(--color-book-ink); /* 殼：全螢幕頁頂列（深面不消失，同頂帶 .m-band） */
   border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);   /* 書封燙金線（同頂帶） */
 }
 .ns-mfull.is-inline .ns-mfull-bar { min-height: var(--m-band-h); padding-top: 0; }

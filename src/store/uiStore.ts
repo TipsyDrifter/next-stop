@@ -261,7 +261,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   zoomId: null,
   collapsed: {},
   panelOpen: false,
-  hideDone: false,
+  hideDone: true, // UI 丙-3 修訂：大綱的已完成預設收進清單底的摺疊列（「済 N 張・顯示」）
   toast: null,
   confirm: null,
   quickJumpOpen: false,

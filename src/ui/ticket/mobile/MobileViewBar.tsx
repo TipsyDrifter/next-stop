@@ -1,23 +1,26 @@
 /**
- * MobileViewBar——售票口手機頁的「清單｜日曆｜統計」（②契約 §5.3 `.ns-tk-mviews`；丙席擁有）。
+ * MobileViewBar——售票口手機頁的分頁籤列「清單｜月曆｜統計」＋末端「管帳」（②契約 §5.3；丙席擁有）。
  *
- * 寫法照 MobileSegmentedBar（tablist＋滑動底線、←→ 換頁、roving tabIndex），class 用 `.ns-tk-mviews*`、
- * CSS 在 ticket-mobile.css「手機視圖列」分區（不 import schedule-mobile.css）。狀態在 `ticketStore.view`（不持久化，0-17）。
+ * UI 丙-5 H1（契約 §1 H1、B2）：自畫的 `.ns-tk-mviews` 三等分 tablist 退役，換成今日頂帶下一列同款 `.ns-tabrow`——
+ *   共用 <Tabs>（籤字「日曆」→「月曆」）＋末端 span.mgr 文字鈕「管帳」（＝手機唯一的管帳入口；開 MobileTicketOffice 的管帳 sheet）。
+ *   跟丙-4 時刻表同一做法：籤列住在頁內 sticky 的 div.ns-tk-mtop（不走 MobileTopBand 的 tabsRow 插槽：那要改集中檔 MobileShell）。
+ *   狀態照舊在 `ticketStore.view`（不持久化，0-17）；←→ Home End 由 Tabs 自己處理。
  *
  * 同檔另出 `useViewSwipe`：內容區左右滑換視圖（門檻同 useSubSwipe：邊緣 24px 不算、|dx| ≥ 56、1.5 倍主導）。
  * 只掛在 `.ns-tk-mlist`／`.ns-tk-mcal`／`.ns-tk-mstats` 三個直向捲動容器（CSS 給 touch-action: pan-y）；
  * 往左滑＝下一個視圖、往右滑＝上一個，到頭不繞回。
  */
-import { useEffect, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import type { TicketView } from "../../../domain/ticketView";
+import { Tabs, type TabItem } from "../../common/Tabs";
 
-const TABS: readonly { view: TicketView; label: string }[] = [
-  { view: "list", label: "清單" },
-  { view: "calendar", label: "日曆" },
-  { view: "stats", label: "統計" },
+const TABS: readonly TabItem<TicketView>[] = [
+  { key: "list", label: "清單" },
+  { key: "calendar", label: "月曆" },
+  { key: "stats", label: "統計" },
 ];
-const ORDER: readonly TicketView[] = TABS.map((t) => t.view);
+const ORDER: readonly TicketView[] = TABS.map((t) => t.key);
 
 /** 系統返回手勢的邊緣保留帶（px）；換頁門檻（px）與橫向主導比——與 useSubSwipe 同值 */
 const EDGE_PX = 24;
@@ -29,49 +32,31 @@ function stepView(cur: TicketView, d: 1 | -1): TicketView | null {
   return i < 0 || i >= ORDER.length ? null : ORDER[i];
 }
 
-export function MobileViewBar() {
+export function MobileViewBar({ manageOpen, onManage }: { manageOpen: boolean; onManage(): void }) {
   const view = useTicketStore((s) => s.view);
   const setView = useTicketStore((s) => s.setView);
-  const idx = ORDER.indexOf(view);
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    if (!d) return;
-    const next = stepView(view, d);
-    e.preventDefault();
-    if (!next) return;
-    void setView(next);
-    // 焦點跟著選中的 tab 走（roving tabIndex）
-    const btn = e.currentTarget.querySelector<HTMLButtonElement>(`[data-view="${next}"]`);
-    btn?.focus();
-  };
-
   return (
-    <div className="ns-tk-mviews" role="tablist" aria-label="視圖" onKeyDown={onKeyDown}>
-      {TABS.map((t) => (
+    <div className="ns-tk-mtop ns-tabrow">
+      <Tabs items={TABS} value={view} onChange={(v) => void setView(v)} aria-label="售票口檢視" />
+      <span className="mgr">
         <button
-          key={t.view}
           type="button"
-          role="tab"
-          data-view={t.view}
-          aria-selected={view === t.view}
-          tabIndex={view === t.view ? 0 : -1}
-          className={"ns-tk-mview" + (view === t.view ? " is-on" : "")}
-          onClick={() => {
-            if (view !== t.view) void setView(t.view);
-          }}
+          className="ns-btn btn-text ns-btn--sm"
+          // 可讀名＝看得到的「管帳」；開的是什麼放 title（同時刻表「管理」）
+          title="管帳：分類、帳戶順序、預算、定期帳、幣別、匯入"
+          aria-haspopup="dialog"
+          aria-expanded={manageOpen}
+          onClick={onManage}
         >
-          {t.label}
+          管帳
         </button>
-      ))}
-      <span className="ns-tk-mviews-ink" aria-hidden style={{ transform: `translateX(${idx * 100}%)` }} />
+      </span>
     </div>
   );
 }
 
 /**
- * 內容區左右滑換視圖。輸入框、橫捲的 chips 列、趨勢圖內起手不算（趨勢圖要點條、手指常帶一點橫移）。
+ * 內容區左右滑換視圖。輸入框、趨勢圖內起手不算（趨勢圖要點條、手指常帶一點橫移；丙-5 起搜尋條件不再是頁內橫捲 chips 列）。
  * pointer 事件（滑鼠拖曳在 ?mock=1 也能驗）；直向捲動時瀏覽器發 pointercancel，等於自動放棄。
  */
 export function useViewSwipe(ref: RefObject<HTMLElement | null>): void {
@@ -86,7 +71,7 @@ export function useViewSwipe(ref: RefObject<HTMLElement | null>): void {
     const down = (e: PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest("input, textarea, [contenteditable], .ns-tk-mfilters, .ns-tk-mst-trend")) return;
+      if (t?.closest("input, textarea, [contenteditable], .ns-tk-mst-trend")) return;
       const w = window.innerWidth;
       if (e.clientX < EDGE_PX || e.clientX > w - EDGE_PX) return;
       sx = e.clientX;

@@ -9,6 +9,7 @@
  *   ├ label.ns-tt-link-search > input（搜尋全部任務；IME 組字中不搜）
  *   ├ 沒打字：「今日車票」（0-10 同一份，含已交代的、標「済」）＋「只連路線」（nodeStore.routes）
  *   │ 打了字：`nodeStore.searchNodes(q)` 只留 LINKABLE_KINDS、未刪除，最多 20 列（種類字・所屬路線）
+ *   │   找不到：共用 EmptyState tone="nores"（UI 丙-4 D7；規範 §2.7 搜尋無結果＝中性＋換個字＋「清除搜尋」）
  *   └ div.ns-tt-link-foot：有連結 ⇒「取消連結」；沒有 ⇒ 淡字
  *
  * 另外匯出面板與發車台共用的小件：
@@ -28,6 +29,7 @@ import type { BlockLink } from "../../../domain/timetable";
 import { LINKABLE_KINDS, linkDeletedText, LINK_MISSING_TEXT, type LinkInfo } from "../../../domain/timetableLink";
 import { useNodeStore } from "../../../store/nodeStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { EmptyState } from "../../common/EmptyState";
 import { roundelStyle } from "../../common/roundel";
 import { useTodayTicketRows } from "./TodayTickets";
 
@@ -372,7 +374,19 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
       {query ? (
         <div className="ns-tt-link-list">
           {results === null ? null : results.length === 0 ? (
-            <p className="ns-tt-link-empty">找不到「{query}」（可搜尋車票、列車、車廂）</p>
+            <EmptyState
+              tone="nores"
+              className="ns-tt-link-empty"
+              title={`找不到「${query}」`}
+              desc="換個字，可以搜尋車票、列車、車廂。"
+              secondary={{
+                label: "清除搜尋",
+                onClick: () => {
+                  setQ("");
+                  inputRef.current?.focus({ preventScroll: true });
+                },
+              }}
+            />
           ) : (
             results.map((n) => {
               const on = cur?.nodeId === n.id;

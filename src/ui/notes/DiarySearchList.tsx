@@ -4,11 +4,12 @@
  * 一列＝日期「10/5」（補記的加「（補記）」）＋標題或第一行＋一行摘要，關鍵字高亮；
  * 點一則（或焦點在列上按 Enter）＝跳到那天並選中那篇（notesStore.openDiaryHit，由 NotesDiary 包 flushThen）。
  * ↑↓ 在列之間移焦點（列是 button；頁面鍵盤表對 button 上的 ↑↓ 會改走這裡——本元件先攔）。
- * 沒有結果：「找不到『{q}』」。
+ * 沒有結果：共用 EmptyState 搜尋無結果語氣（UI 丙-6 E）——「找不到「{q}」」＋文字鈕「清除搜尋」。
  */
 import type { KeyboardEvent, RefObject } from "react";
 import type { NoteListItem } from "../../data/noteRepository";
 import { isBackfilled, toDiaryHit } from "../../domain/notes";
+import { EmptyState } from "../common/EmptyState";
 import { dayOf, fmtShort, highlight } from "./notesBits";
 
 export interface DiarySearchListProps {
@@ -19,15 +20,20 @@ export interface DiarySearchListProps {
   onOpen(id: string, day: string): void;
   /** 第一列再往上：回搜尋框 */
   onExitTop(): void;
+  /** 沒有結果時的「清除搜尋」 */
+  onClear(): void;
 }
 
-export function DiarySearchList({ query, hits, dayStartHour, listRef, onOpen, onExitTop }: DiarySearchListProps) {
+export function DiarySearchList({ query, hits, dayStartHour, listRef, onOpen, onExitTop, onClear }: DiarySearchListProps) {
   const q = query.trim();
   if (!hits.length) {
     return (
-      <div className="ns-notes-dhits empty" role="status">
-        <p>找不到『{q}』</p>
-      </div>
+      <EmptyState
+        tone="nores"
+        className="ns-notes-dhits-empty"
+        title={`找不到「${q}」`}
+        secondary={{ label: "清除搜尋", onClick: onClear }}
+      />
     );
   }
 
@@ -46,7 +52,7 @@ export function DiarySearchList({ query, hits, dayStartHour, listRef, onOpen, on
   return (
     <>
       <p className="ns-notes-dhitcount">
-        {hits.length} 篇日記提到『{q}』
+        {hits.length} 篇日記提到「{q}」
       </p>
       <ul ref={listRef} className="ns-notes-dhits" aria-label="日記搜尋結果" onKeyDown={onKeyDown}>
         {hits.map((n) => {

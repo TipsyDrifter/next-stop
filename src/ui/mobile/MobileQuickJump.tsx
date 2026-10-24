@@ -134,7 +134,7 @@ export function MobileQuickJump({ onClose }: { onClose(): void }) {
             ))}
           </p>
         ) : results.length === 0 ? (
-          <p className="m-qj-note">{pending ? "搜尋中…" : `找不到『${term}』`}</p>
+          <p className="m-qj-note">{pending ? "搜尋中…" : `找不到「${term}」`}</p>
         ) : (
           <ul aria-label="搜尋結果" className="m-qj-list">
             {results.map((r) =>

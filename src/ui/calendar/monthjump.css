@@ -41,15 +41,14 @@
   background: transparent; border: 0;
   border-bottom: 1px solid var(--color-dash);
   color: var(--color-ink);
-  font-family: var(--font-latin); font-weight: 600; font-size: 17px; letter-spacing: .08em;
+  font-family: var(--font-latin); font-weight: 600; font-size: 17px; letter-spacing: .08em; /* 字面值：年份拉丁大字 17px；桌機字階沒有這一階（原型逐字） */
   text-align: center; padding: 2px 0; outline: none;
   -moz-appearance: textfield;
 }
 .ns-monthjump .ns-mj-yin::-webkit-outer-spin-button,
 .ns-monthjump .ns-mj-yin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .ns-monthjump .ns-mj-yin:focus { border-bottom-color: var(--accent); }   /* UI 丙-1：聚焦底線＝作用中色（粉彩靛、銀河金；§2.10） */
-.ns-monthjump .chev:disabled { opacity: var(--disabled); cursor: not-allowed; }   /* 禁用（§1.8） */
-.ns-monthjump .chev:disabled:hover { color: var(--ink-mid, var(--color-ink-soft)); border-color: var(--color-dash); }
+/* 年份 ‹ ›＝共用圖示鈕 .ns-iconbtn（UI 丙-3：頁首 .chev 退役）；禁用態由 overlay.css 的 .ns-iconbtn:disabled 出（§1.8） */
 
 /* ═══ 第二區：十二個月份小方標（3 列 × 4 欄；欄數與 MonthJump.tsx 的 COLUMNS 同一個數字） ═══ */
 .ns-monthjump .ns-mj-months {

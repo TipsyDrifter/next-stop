@@ -3,7 +3,7 @@
  * DepartBoard 兩殼共用（桌機 split 左欄、手機發車台檢視；軸檢視不出）。
  *
  *   div.ns-tt-sec.ns-tt-todaytix-sec（h3「今日車票」＋虛線＋「N 張・點一下就発車」）
- *   div.ns-tt-todaytix[.is-end] > button.ns-tt-todaytix-k[.is-live]（路線圓牌＋標題＋小字：上次的分類／「先選分類」／運行中）
+ *   div.ns-tt-todaytix[.is-end] > button.ns-tt-todaytix-k[.is-live]（路線圓牌（運行中包 RunMark）＋標題＋小字：上次的分類／「先選分類」／運行中）
  *
  * - 資料（0-10）：`nodeStore.today.rows` 的 today／late／due，**還沒交代的**（`!settledRow`，〈原型拍板〉2）；順序照今日頁。
  *   今日切片不是今天 ⇒ 掛載時 `loadToday()` 一次（直接進時刻表頁、沒去過今日頁）。沒有車票 ⇒ 整段不畫。
@@ -17,7 +17,7 @@ import { todayKey } from "../../../lib/date";
 import { useNodeStore } from "../../../store/nodeStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
-import { CategoryBadge } from "../CategoryBadge";
+import { CategoryBadge, RunMark } from "../CategoryBadge";
 import { RouteRoundel, useLastCategories, useRouteById } from "./LinkPicker";
 
 /**
@@ -115,15 +115,19 @@ export function TodayTickets() {
               title={title}
               onClick={() => void departFromTask(r.id)}
             >
-              <RouteRoundel route={r.route_id ? (routeById[r.route_id] ?? null) : null} />
+              {/* UI 丙-7：正在跑那張＝赭實線框＋卡首圓牌右上肩的呼吸點（同軸塊、發車台分類格；這張卡的圓徽是路線圓牌） */}
+              {live ? (
+                <RunMark>
+                  <RouteRoundel route={r.route_id ? (routeById[r.route_id] ?? null) : null} />
+                </RunMark>
+              ) : (
+                <RouteRoundel route={r.route_id ? (routeById[r.route_id] ?? null) : null} />
+              )}
               <span className="ns-tt-todaytix-main">
                 <span className="ns-tt-todaytix-t">{r.name}</span>
                 <span className="ns-tt-todaytix-s">
                   {live ? (
-                    <>
-                      <span className="ns-tt-live-dot" aria-hidden="true" />
-                      <span>運行中</span>
-                    </>
+                    <span>運行中</span>
                   ) : m && cat ? (
                     <>
                       <CategoryBadge cat={cat} size="sm" />

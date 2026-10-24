@@ -32,7 +32,7 @@
  * ── UI 丙-2 搬家（契約 §1 #18；2026-10-22）──
  * 用途：推遲小卡（今日列、行程表串流、日曆當日浮層共用）。
  * 規範：視覺規範 §2.4（錨定 popover＝.techo-card＋眉標）、§2.5（日期：挑一天＝共用 DatePicker）、§2.8（看不見結果的改期出 toast＋復原）。
- * ARIA：根 role=dialog＋aria-label（『推遲／定期券』＋票名）；「選日期…」aria-expanded；「清除執行日」沒有執行日時 disabled＋title 寫原因。
+ * ARIA：根 role=dialog＋aria-label（「推遲／定期券」＋票名）；「選日期…」aria-expanded；「清除執行日」沒有執行日時 disabled＋title 寫原因。
  * 鍵盤：見上（↑↓ 項目間移動、Tab 卡內循環、Esc 自己收不冒泡、? 與 Ctrl+/ 不外漏）。
  * 樣式：common/defer.css（src/index.css 集中 @import；原 today/defer.css 整份搬來，字級改 --fs-*）。
  *   原路徑 today/DeferPopover.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
@@ -287,7 +287,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     <div
       ref={ref}
       role="dialog"
-      aria-label={rule ? `定期券『${row.name}』` : `推遲『${row.name}』`}
+      aria-label={rule ? `定期券「${row.name}」` : `推遲「${row.name}」`}
       onKeyDown={onKeyDown}
       onMouseDown={(e) => e.stopPropagation()}
       className="ns-defer techo-card"

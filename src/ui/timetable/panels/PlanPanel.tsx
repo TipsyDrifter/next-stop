@@ -5,7 +5,7 @@
  *
  *   div.ns-tt-panel.ns-tt-plan
  *   ├ div.ns-tt-plan-h      路線圓牌（沒路線＝虛線「臨」）、路線名、「執行日 10/20（一）」或「定期券・每天 20:00」、本班／済／運休
- *   ├ Row「時刻」           −15｜輸入框（parseClockInput：25:00、1:00→25:00、1415、全形數字）｜＋15｜発；下面一行即時說明或錯在哪
+ *   ├ Row「時刻」           ClockInput compact（−15｜可打字的框｜＋15；框下說明行＝這一天的日期、25:00 寫「＝隔天」、打錯說哪裡錯）｜発
  *   │                       過去的日子／運休＝只顯示時刻（＋「＝隔天 01:00」）
  *   ├ Row「預計」           fmtDur 或「沒填（畫 45 分虛線）」（預計照舊在側板改，契約 §1）
  *   ├ Row「實際」           連到的時間塊「10:25–11:40、…」＋「共 1h15m（2 塊）」＋差多少（fmtPlanDelta）
@@ -16,12 +16,19 @@
  * （同一把鎖、同一套收據＋撤回，撤回＝planUndo）。誤點的單發票（`lateFrom`，D-時-80 改題）照樣能開：頭一行寫「誤點・原定 10/17」，
  * 時刻一寫＝執行日改到今天（placeAt 處理）；它還沒有這一天的時刻，所以不出「清除時刻」。発車＝先關面板再 `departFromPlan`（departFromTask 在面板開著時不發車）。
  * 輸入框：Enter 套用；失焦時按的是按鈕 ⇒ 丟掉草稿（不先寫再做按鈕的事），焦點真的離開才套用（修正席）。
+ *
+ * UI 丙-4 C5：自畫的 −15｜輸入框｜+15 換成全 App 那支 `ClockInput variant="compact"`（解析、範圍、打錯抖一下、跨天日期都是它的）。
+ * - 值換算：時刻表的 `"HH:MM"`（營業日表記，25:00＝隔天 01:00）↔ 毫秒＝執行日 00:00 起算的分鐘；範圍＝`clockRange(日界線)`。
+ * - 寫入節流：ClockInput 的 ±15 可以長按連跳，每一步都 `placeAt` 會撞同一把寫入鎖（忙著的那幾下被丟掉、框裡的數字亂跳）、
+ *   還一步一個 toast。改成框裡先畫（`pend`），停手 COMMIT_MS 才寫一次；面板關掉時還沒寫的照寫（清除時刻除外，它自己蓋過去）。
+ * - 「丟草稿」的鈕：面板的清除時刻／打開車票／発車／改回都帶 `data-tt-drop-draft`（ClockInput 失焦時看到就丟掉打到一半的字），
+ *   保住上面那條「按按鈕不先寫草稿」；外框的 × 由 PlanPopover 帶。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MIN, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
 import { SCHED_TINY_MS, canScheduleDay } from "../../../domain/timetableSchedule";
 import { describeRule, parseRule } from "../../../domain/repeat";
-import { clockMinutes, clockRange, clockText, nextDayNote, parseClockInput, type ClockText } from "../../../lib/date";
+import { clockMinutes, clockRange, clockText, nextDayNote } from "../../../lib/date";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import {
   canDepartPlan,
@@ -35,6 +42,7 @@ import { useNow } from "../useNow";
 import { RouteRoundel, useRouteById } from "../parts/LinkPicker";
 import { SCHED_UI, deltaFull, mdw, toneOf } from "../schedule/scheduleModel";
 import { openTicket } from "../schedule/openTicket";
+import { ClockInput } from "../../common/ClockInput";
 import { Actions, Row, Sub, type PanelProps } from "./controls";
 
 export interface PlanPanelProps extends PanelProps {
@@ -43,22 +51,8 @@ export interface PlanPanelProps extends PanelProps {
 }
 
 const STEP = 15;
-
-/** 輸入框的字 → 時刻或錯在哪（〈原型定案〉2：錯了當場說哪裡錯） */
-function readInput(raw: string, h: number): { t: ClockText } | { err: string } {
-  if (raw.trim() === "") return { err: SCHED_UI.timeErrEmpty };
-  const t = parseClockInput(raw, h);
-  if (t) return { t };
-  const norm = raw
-    .trim()
-    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xff10 + 0x30))
-    .replace(/[：．.]/g, ":");
-  if (/^\d{1,2}:\d{2}$|^\d{1,4}$/.test(norm)) {
-    const r = clockRange(h);
-    return { err: SCHED_UI.timeErrRange(clockText(r.min) ?? "", clockText(r.max) ?? "") };
-  }
-  return { err: SCHED_UI.timeErrBad };
-}
+/** 停手多久才寫（ms）：長按連跳每 45–170ms 一步，停下來才寫一次 */
+const COMMIT_MS = 450;
 
 export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   const sheet = useTimetableStore((s) => s.sheet);
@@ -78,29 +72,41 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   const all = useScheduleCompare(now);
   const c = all.cmp.get(key);
 
-  const [draft, setDraft] = useState(item?.time ?? "");
-  const [touched, setTouched] = useState(false);
-  // 時刻從外面變了（±15、拖、同步）⇒ 輸入框跟著換
+  // UI 丙-4 C5：時刻 ↔ 毫秒（執行日 00:00 起算；營業日表記 25:00＝隔天 01:00）
+  const midnight = item ? new Date(`${item.date}T00:00:00`).getTime() : 0;
+  const itemMs = item?.time ? midnight + (clockMinutes(item.time) ?? 0) * MIN : null;
+  /** 框裡已改、還沒寫進去的值（停手 COMMIT_MS 才寫）；寫成功後 item.time 換了就收掉 */
+  const [pend, setPend] = useState<number | null>(null);
+  const pendRef = useRef<number | null>(null);
+  const commitT = useRef(0);
+  const seq = useRef(0);
+  const write = (ms: number, my: number): void => {
+    const t = clockText(Math.round((ms - midnight) / MIN));
+    if (!t) {
+      if (seq.current === my) setPend(null);
+      return;
+    }
+    // 寫不進去（鎖著、守門擋下）⇒ 框退回原值；寫進去了等 item.time 換掉再收（不然重載前會閃回舊值）
+    void placeAt(key, t).then((ok) => {
+      if (!ok && seq.current === my) setPend(null);
+    });
+  };
+  const flushRef = useRef<() => void>(() => {});
+  flushRef.current = () => {
+    if (!commitT.current) return;
+    window.clearTimeout(commitT.current);
+    commitT.current = 0;
+    if (pendRef.current !== null) write(pendRef.current, seq.current);
+  };
+  // 時刻從外面變了（寫完重載、拖、同步）而手上沒有等著寫的 ⇒ 框跟著 item
   useEffect(() => {
-    setDraft(item?.time ?? "");
-    setTouched(false);
+    if (!commitT.current) {
+      pendRef.current = null;
+      setPend(null);
+    }
   }, [item?.time]);
-
-  /**
-   * 輸入框失焦時要不要套用：按下的是按鈕（面板裡的清除時刻／±15／打開車票／発車／改回，或外框的 ×）⇒ 丟掉草稿、
-   * 照按鈕本身的語義做（不先把打到一半的時刻寫進去）；焦點真的離開（點面板空白處、手機收鍵盤）才套用（＝原型的 change）。
-   * Esc、點旁邊＝面板直接收掉，不寫。pointerdown 一定早於失焦，所以在捕獲階段記一下按的是不是按鈕
-   * （有的引擎點按鈕不給焦點，relatedTarget 會是 null，只看 relatedTarget 不夠）。
-   */
-  const pressedButton = useRef(false);
-  useEffect(() => {
-    const down = (e: PointerEvent): void => {
-      const t = e.target instanceof Element ? e.target : null;
-      pressedButton.current = t?.closest("button, [role=button], a") != null;
-    };
-    document.addEventListener("pointerdown", down, true);
-    return () => document.removeEventListener("pointerdown", down, true);
-  }, []);
+  // 面板關掉時還沒寫的照寫（清除時刻先把它取消了）
+  useEffect(() => () => flushRef.current(), []);
 
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
@@ -117,15 +123,11 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
       .map((r) => ({ row: r, pending: pending.has(r.id) }));
   }, [c, dayBlocks, ttDay, item?.date, catById, longRunMaxMin, linkInfo, now]);
 
+  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
   if (!item || !c) {
     return (
       <div className="ns-tt-panel ns-tt-plan">
         <Sub>找不到這一班</Sub>
-        <Actions>
-          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-            {TT_TEXT.statsUi.close}
-          </button>
-        </Actions>
       </div>
     );
   }
@@ -138,27 +140,31 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   const ruleText = rule ? describeRule(rule) : "";
   const everyRun = node?.scheduled_time ?? null;
   const next = item.time ? nextDayNote(item.time) : null;
-  const read = touched ? readInput(draft, h) : null;
   const delta = deltaFull(item, c, isPast, TT_TEXT.schedSkipped);
   const live = running?.node_id === item.nodeId;
   /** 算進「共 X（N 塊）」的塊數（待確認的列出來但不算） */
   const counted = blocks.filter((b) => !b.pending).length;
 
-  const apply = (): void => {
-    const r = readInput(draft, h);
-    setTouched(true);
-    if ("err" in r) return;
-    void placeAt(key, r.t);
-  };
-  const step = (d: number): void => {
-    const range = clockRange(h);
-    const cur = item.time ? clockMinutes(item.time) : null;
-    const base = cur ?? Math.round(((now - new Date(`${item.date}T00:00:00`).getTime()) / MIN) / STEP) * STEP;
-    const m = Math.max(range.min, Math.min(range.max - (range.max % STEP), base + d));
-    const t = clockText(m);
-    if (t && t !== item.time) void placeAt(key, t);
+  const range = clockRange(h);
+  const loMs = midnight + range.min * MIN;
+  const hiMs = midnight + range.max * MIN;
+  // 還沒排時刻（理論上欄上的卡都有；防禦）：框從「現在」取整到 15 分起算，不先寫
+  const fallbackMs = Math.max(loMs, Math.min(hiMs, midnight + Math.round((now - midnight) / MIN / STEP) * STEP * MIN));
+  const shown = pend ?? itemMs ?? fallbackMs;
+  const change = (ms: number): void => {
+    const my = ++seq.current;
+    pendRef.current = ms;
+    setPend(ms);
+    window.clearTimeout(commitT.current);
+    commitT.current = window.setTimeout(() => {
+      commitT.current = 0;
+      write(ms, my);
+    }, COMMIT_MS);
   };
   const clear = (): void => {
+    // 等著寫的時刻作廢（不然關面板時先寫它、清除那一下撞鎖被丟掉）
+    window.clearTimeout(commitT.current);
+    commitT.current = 0;
     onDone();
     void placeAt(key, null);
   };
@@ -166,10 +172,6 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
     if (busy || !editable) return;
     // store.revertRun：clearRun＋同一把鎖、同一套收據／撤回（舊覆寫在日界線外 ⇒ 不出撤回）、寫完重載
     void revertRun(key);
-  };
-  const discardDraft = (): void => {
-    setDraft(item.time ?? "");
-    setTouched(false);
   };
   const open = (): void => {
     onDone();
@@ -209,58 +211,18 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
 
       {editable ? (
         <>
-          <Row k={TT_TEXT.schedTimeLabel}>
-            <span className="ns-tt-stepper">
-              <button type="button" className="ns-tt-step" disabled={busy} onClick={() => step(-STEP)} aria-label={`${TT_TEXT.schedTimeLabel}－15 分`}>
-                {TT_TEXT.schedMinus15}
-              </button>
-              <input
-                className="ns-tt-input ns-tt-plan-tin ns-tt-num"
-                value={draft}
-                inputMode="numeric"
-                placeholder={TT_TEXT.schedTimePlaceholder}
-                aria-label={TT_TEXT.schedTimeLabel}
-                aria-invalid={read !== null && "err" in read}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  setTouched(true);
-                }}
-                onKeyDown={(e) => {
-                  if (e.nativeEvent.isComposing) return;
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    apply();
-                  }
-                }}
-                onFocus={() => {
-                  pressedButton.current = false;
-                }}
-                onBlur={(e) => {
-                  const to = e.relatedTarget instanceof Element ? e.relatedTarget : null;
-                  const toButton = pressedButton.current || to?.closest("button, [role=button], a") != null;
-                  pressedButton.current = false;
-                  if (toButton) {
-                    discardDraft();
-                    return;
-                  }
-                  if (touched && draft !== (item.time ?? "")) apply();
-                }}
-              />
-              <button type="button" className="ns-tt-step" disabled={busy} onClick={() => step(STEP)} aria-label={`${TT_TEXT.schedTimeLabel}＋15 分`}>
-                {TT_TEXT.schedPlus15}
-              </button>
-            </span>
+          <Row k={TT_TEXT.schedTimeLabel} time>
+            <ClockInput
+              variant="compact"
+              value={shown}
+              lo={loMs}
+              hi={hiMs}
+              onChange={change}
+              label={TT_TEXT.schedTimeLabel}
+              refDay={item.date}
+            />
             <span className="ns-tt-plan-hatsu">発</span>
           </Row>
-          <p className={"ns-tt-plan-tnote" + (read && "err" in read ? " is-err" : "")} aria-live="polite">
-            {read && "err" in read
-              ? read.err
-              : read && "t" in read && read.t !== item.time
-                ? SCHED_UI.timePreview(read.t, nextDayNote(read.t))
-                : next
-                  ? SCHED_UI.timeNext(next)
-                  : SCHED_UI.timeHint(h)}
-          </p>
         </>
       ) : (
         <Row k={TT_TEXT.schedTimeLabel}>
@@ -305,7 +267,7 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
             <>
               {SCHED_UI.teikiNote(`${ruleText}${everyRun ? " " + everyRun : ""}`)}
               {item.overridden && editable && (
-                <button type="button" className="ns-tt-opt is-ghostlink" disabled={busy} onClick={revert}>
+                <button type="button" className="ns-tt-opt is-ghostlink" data-tt-drop-draft="" disabled={busy} onClick={revert}>
                   {SCHED_UI.revert(everyRun ?? "—")}
                 </button>
               )}
@@ -318,15 +280,15 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
 
       <Actions>
         {editable && !item.lateFrom && (
-          <button type="button" className="ns-btn btn-ghost is-aux" disabled={busy} onClick={clear}>
+          <button type="button" className="ns-btn btn-ghost is-aux" data-tt-drop-draft="" disabled={busy} onClick={clear}>
             {TT_TEXT.schedClear}
           </button>
         )}
-        <button type="button" className="ns-btn btn-ghost" onClick={open}>
+        <button type="button" className="ns-btn btn-ghost" data-tt-drop-draft="" onClick={open}>
           {TT_TEXT.schedOpenTicket}
         </button>
         {showDepart && (
-          <button type="button" className="ns-btn btn-seal" disabled={live} title={live ? TT_TEXT.alreadyRunning : undefined} onClick={depart}>
+          <button type="button" className="ns-btn btn-seal" data-tt-drop-draft="" disabled={live} title={live ? TT_TEXT.alreadyRunning : undefined} onClick={depart}>
             {live ? SCHED_UI.runningNow : "発車"}
           </button>
         )}

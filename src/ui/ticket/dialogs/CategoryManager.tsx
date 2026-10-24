@@ -2,32 +2,47 @@
  * CategoryManager——「分類管理」對話框本體（車次①契約 §5.1、§2.5-4；兩殼共用；丙席）。
  * props `{ onDone(): void }`；自己讀 store。標題由 host 依 `store.dialog.kind` 給。
  *
- * 頂部「支出｜收入」兩籤；兩層樹（domain `categoryTree`）：
- *   主分類行＝行內改名（失焦／Enter 才送）・「＋子」・↑↓ 排序（鍵盤 Alt+↑↓）・「封存」
- *   子分類縮排一層，同樣改名／排序／封存
- *   「未分類」固定在最後、不可改名不可封存（只顯示）
+ * 頂部「支出｜收入」分段鈕（Segmented，表單內的單選；UI 丙-5 E1，原本自畫兩籤）；兩層樹（domain `categoryTree`）
+ * 一張 ManagerList 畫完——列是共用 ManagerRow（時刻表分類管理同一種列，視覺規範 §2.5）：
+ *   主分類＝depth 0：行內改名（失焦／Enter 才送）・↑↓（鍵盤 Alt+↑↓；邊界禁用）・⋯（新增子分類…、封存）
+ *   子分類＝depth 1，緊接在它的主分類後面：同樣改名／↑↓／⋯（封存）
+ *   「新增子分類…」＝在那組子分類最後開一列新增（Esc 收回）
+ *   「未分類」固定在最後：不可改名、沒有 ⋯、不排序（↑↓ 不畫，換成「固定在最後」小字，樣式在 ticket.css 丙-5 T3 區）
  *   底部「封存 N」折疊：封存的主分類（子分類跟著它）與「主分類還在、自己被封存」的子分類，各一個「取消封存」
- *   最下面一列新增主分類。
+ *   清單下面一列新增主分類。
+ * ↑↓ 的邊界照 repository.moveCategory 的兄弟算法（同一層、沒封存、不含未分類）＝畫面上看到的同層順序，所以用索引判。
  * 沒有「刪除」：鐵則＝封存不刪（有帳指向的分類刪了舊帳會變孤兒）。
  */
-import { useState, type KeyboardEvent } from "react";
+import { Fragment, useState } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, categoryTree, type CategoryKind, type CategoryRow } from "../../../domain/ticket";
+import { ManagerList, ManagerRow, type PopMenuItem } from "../../common/ManagerRow";
+import { Segmented } from "../../common/Segmented";
 import { useImeGuard } from "./dialogBits";
 
 const isUncat = (id: string) => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
+
+const KIND_OPTIONS = [
+  { value: "expense", label: "支出" },
+  { value: "income", label: "收入" },
+] as const;
 
 // 即時存（改名失焦送、排序與封存按一下就寫）⇒ 沒有「完成」鈕：關閉走 ×／暗幕／返回鍵（UI 丙-1，視覺規範 §6）；onDone 留作宿主介面。
 export function CategoryManager(_props: { onDone(): void }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const createCategory = useTicketStore((s) => s.createCategory);
+  const renameCategory = useTicketStore((s) => s.renameCategory);
+  const moveCategory = useTicketStore((s) => s.moveCategory);
   const setCategoryArchived = useTicketStore((s) => s.setCategoryArchived);
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const tree = categoryTree(categories, kind, { includeArchived: false });
+  // 可排序的主分類（未分類固定在最後、不算在同層兄弟裡）
+  const mains = tree.filter((t) => !isUncat(t.parent.id));
+  const uncat = tree.find((t) => isUncat(t.parent.id))?.parent ?? null;
   // 封存區：封存的主分類＋「父還活著、自己被封存」的子分類（父被封存的子分類跟著父一起回來，不另列）
   const archived = categories.filter((c) => {
     if (c.deleted_at !== null || c.kind !== kind || c.archived_at === null) return false;
@@ -36,55 +51,56 @@ export function CategoryManager(_props: { onDone(): void }) {
     return !p || p.archived_at === null;
   });
 
+  // 一列分類的共用 props：改名回 store 的結果（false＝沒改成，ManagerRow 退回原名）；↑↓ 在邊界不給＝禁用
+  const rowProps = (cat: CategoryRow, i: number, n: number) => ({
+    name: cat.name,
+    onRename: (next: string) => renameCategory(cat.id, next),
+    onUp: i > 0 ? () => void moveCategory(cat.id, -1) : undefined,
+    onDown: i < n - 1 ? () => void moveCategory(cat.id, 1) : undefined,
+    dataId: cat.id,
+  });
+  const archiveItem = (cat: CategoryRow): PopMenuItem => ({ key: "archive", label: "封存", onSelect: () => void setCategoryArchived(cat.id, true) });
+
   return (
     <div className="ns-tk-dialog ns-tk-dcats">
-      <div className="ns-tk-dtabs" role="tablist" aria-label="收支類型">
-        {(["expense", "income"] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={kind === k}
-            onClick={() => {
-              setKind(k);
-              setAddingFor(null);
-            }}
-          >
-            {k === "expense" ? "支出" : "收入"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        className="ns-tk-dkind"
+        aria-label="收支類型"
+        options={KIND_OPTIONS}
+        value={kind}
+        onChange={(k) => {
+          setKind(k);
+          setAddingFor(null);
+        }}
+      />
 
-      <ul className="ns-tk-dtree" aria-label={kind === "expense" ? "支出分類" : "收入分類"}>
-        {tree.map(({ parent, children }) => (
-          <li key={parent.id} className="ns-tk-dmain">
-            <CatRow
-              cat={parent}
-              onAddSub={isUncat(parent.id) ? undefined : () => setAddingFor(addingFor === parent.id ? null : parent.id)}
-              adding={addingFor === parent.id}
+      <ManagerList label={kind === "expense" ? "支出分類" : "收入分類"} className="ns-tk-dcatlist">
+        {mains.map(({ parent, children }, pi) => (
+          <Fragment key={parent.id}>
+            <ManagerRow
+              {...rowProps(parent, pi, mains.length)}
+              menu={[
+                { key: "addsub", label: "新增子分類…", onSelect: () => setAddingFor(parent.id) },
+                archiveItem(parent),
+              ]}
             />
-            {(children.length > 0 || addingFor === parent.id) && (
-              <ul className="ns-tk-dsubs">
-                {children.map((c) => (
-                  <li key={c.id}>
-                    <CatRow cat={c} />
-                  </li>
-                ))}
-                {addingFor === parent.id && (
-                  <li>
-                    <AddRow
-                      placeholder={`「${parent.name}」下的子分類`}
-                      autoFocus
-                      onAdd={(name) => createCategory({ kind, name, parentId: parent.id })}
-                      onCancel={() => setAddingFor(null)}
-                    />
-                  </li>
-                )}
-              </ul>
+            {children.map((c, ci) => (
+              <ManagerRow key={c.id} depth={1} {...rowProps(c, ci, children.length)} menu={[archiveItem(c)]} />
+            ))}
+            {addingFor === parent.id && (
+              <li className="ns-tk-dcat-addli">
+                <AddRow
+                  placeholder={`「${parent.name}」下的子分類`}
+                  autoFocus
+                  onAdd={(name) => createCategory({ kind, name, parentId: parent.id })}
+                  onCancel={() => setAddingFor(null)}
+                />
+              </li>
             )}
-          </li>
+          </Fragment>
         ))}
-      </ul>
+        {uncat && <ManagerRow name={uncat.name} menu={[]} className="ns-tk-dcat-fixed" dataId={uncat.id} />}
+      </ManagerList>
 
       <AddRow placeholder={kind === "expense" ? "新增支出主分類" : "新增收入主分類"} onAdd={(name) => createCategory({ kind, name, parentId: null })} />
 
@@ -117,83 +133,6 @@ export function CategoryManager(_props: { onDone(): void }) {
   );
 }
 
-/* ───────── 一行分類 ───────── */
-
-function CatRow({ cat, onAddSub, adding }: { cat: CategoryRow; onAddSub?: () => void; adding?: boolean }) {
-  const renameCategory = useTicketStore((s) => s.renameCategory);
-  const moveCategory = useTicketStore((s) => s.moveCategory);
-  const setCategoryArchived = useTicketStore((s) => s.setCategoryArchived);
-  const [text, setText] = useState(cat.name);
-  const [seen, setSeen] = useState(cat.name);
-  if (seen !== cat.name) {
-    // 外面改了名（同步／另一個殼）⇒ 跟著換（render 中同步 state，React 文件的「依 props 調整 state」作法）
-    setSeen(cat.name);
-    setText(cat.name);
-  }
-  const ime = useImeGuard((e) => (e.currentTarget as HTMLInputElement).blur());
-
-  if (isUncat(cat.id)) {
-    return (
-      <div className="ns-tk-drow is-fixed">
-        <span className="nm">{cat.name}</span>
-        <small>固定在最後</small>
-      </div>
-    );
-  }
-
-  const commit = () => {
-    const v = text.trim();
-    if (!v) {
-      setText(cat.name);
-      return;
-    }
-    if (v !== cat.name) void renameCategory(cat.id, v);
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      e.preventDefault();
-      void moveCategory(cat.id, e.key === "ArrowUp" ? -1 : 1);
-      return;
-    }
-    if (e.key === "Escape") {
-      setText(cat.name);
-      return;
-    }
-    ime.onKeyDown(e);
-  };
-
-  return (
-    <div className={"ns-tk-drow" + (cat.parent_id ? " is-sub" : "")}>
-      <input
-        className="ns-tk-dname"
-        value={text}
-        aria-label={`分類名稱：${cat.name}`}
-        autoComplete="off"
-        enterKeyHint="done"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={onKeyDown}
-        onCompositionStart={ime.onCompositionStart}
-        onCompositionEnd={ime.onCompositionEnd}
-      />
-      {onAddSub && (
-        <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" aria-expanded={adding} onClick={onAddSub}>
-          ＋子
-        </button>
-      )}
-      <button type="button" className="ns-iconbtn ns-tk-dmini sq" aria-label={`上移：${cat.name}`} title="上移（Alt+↑）" onClick={() => void moveCategory(cat.id, -1)}>
-        ↑
-      </button>
-      <button type="button" className="ns-iconbtn ns-tk-dmini sq" aria-label={`下移：${cat.name}`} title="下移（Alt+↓）" onClick={() => void moveCategory(cat.id, 1)}>
-        ↓
-      </button>
-      <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-btn-danger ns-tk-dmini" onClick={() => void setCategoryArchived(cat.id, true)}>
-        封存
-      </button>
-    </div>
-  );
-}
-
 /* ───────── 新增一列 ───────── */
 
 function AddRow({
@@ -204,7 +143,8 @@ function AddRow({
 }: {
   placeholder: string;
   autoFocus?: boolean;
-  onAdd(name: string): Promise<boolean>;
+  /** 建好回真值（store.createCategory 回新分類列、失敗回 null；UI 丙-5） */
+  onAdd(name: string): Promise<unknown>;
   onCancel?: () => void;
 }) {
   const [text, setText] = useState("");
@@ -234,6 +174,9 @@ function AddRow({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Escape" && onCancel) {
+            // 收回子分類新增列，不讓這一下 Esc 冒到對話框關窗
+            e.preventDefault();
+            e.stopPropagation();
             onCancel();
             return;
           }

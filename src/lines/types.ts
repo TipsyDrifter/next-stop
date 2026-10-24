@@ -284,7 +284,7 @@ export interface SyncRowLabel {
   note?: string;
 }
 
-/** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫 `.m-sheet-item`，點了先 `close()` 再做事。 */
+/** 手機票卡 ⋯ sheet 的一項（`LineMount.ticketSheetItems` 的一筆）。`Item` 自己畫共用 `MSheetItem`（UI 丙-6／丙-7 起；舊的 `.m-sheet-item` 已刪），點了先 `close()` 再做事。 */
 export interface TicketSheetItemSpec {
   /** `<line>.<name>`，例 "notes.tags" */
   id: `${LineId}.${string}`;

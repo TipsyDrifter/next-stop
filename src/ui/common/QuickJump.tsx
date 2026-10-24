@@ -121,7 +121,7 @@ export async function jumpToNode(node: NodeRow) {
       const [, m, d] = node.scheduled_on.split("-");
       // 定期券的 scheduled_on ＝引擎排出來的**下一班**（這一班済／運休之後就推走了），講法要跟著換
       const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
-      ui.showToast({ message: `『${node.name}』${when}，今天還不會出現在清單裡` });
+      ui.showToast({ message: `「${node.name}」${when}，今天還不會出現在清單裡` });
     }
     return;
   }
@@ -284,7 +284,7 @@ function QuickJumpPanel() {
               ))}
             </p>
           ) : results.length === 0 ? (
-            <p className="px-5 py-4 text-[12.5px] text-ink-soft">{pending ? "搜尋中…" : `找不到『${term}』`}</p>
+            <p className="px-5 py-4 text-[12.5px] text-ink-soft">{pending ? "搜尋中…" : `找不到「${term}」`}</p>
           ) : (
             <ul ref={listRef} id={listId} role="listbox" aria-label="搜尋結果" className="py-1.5">
               {results.map((r, i) => {

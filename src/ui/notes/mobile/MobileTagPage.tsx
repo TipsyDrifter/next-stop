@@ -3,9 +3,9 @@
  *
  * 由上而下：「‹ 荷札」（＝select(null)）＋有 back 時「‹ 回到剛才 <label>」→ 通車提示條
  *   → 頁頭：大牌（父層段可點＝看父層；虛資料夾 .virtual）＋右上 ⋯（44px）＋「掛著 N 處・含子荷札」
- *   → 改名中：就地輸入框（`/` 可搬層級）＋即時影響一行＋「確定」「取消」大鈕（上下排、確定在上）
+ *   → 改名中：就地輸入框（`/` 可搬層級）＋即時影響一行＋「取消」「確定」兩顆並排（取消左；UI 丙-6 S7）
  *   → 清單（D-筆-38、契約 0-20）：車票・列車車廂／筆記／日記（別線＝「別處」），已完成收在「已完成 N」（預設收合），空段不畫。
- * ⋯ ＝底部 sheet：改名／併入…／刪除／取消；併入＝搜尋挑選 sheet；要確認的（併入既有名稱、子孫撞名、刪除）＝確認 sheet。
+ * ⋯ ＝底部 sheet：改名／合併…／刪除／取消；合併＝搜尋挑選 sheet；要確認的（併入既有名稱、子孫撞名、刪除）＝核心確認框（UI 丙-6 S5）。
  * 流程與文案同桌機（D-筆-41）：store 的 commitRename／mergeInto／removePlan／confirmRemove；文案出自 domain/tags。
  *
  * 點一列：
@@ -31,7 +31,6 @@ import {
   segsOf,
   snippetAround,
   tagDisplayParts,
-  type DeletePlan,
   type GroupedTaggedItem,
 } from "../../../domain/tags";
 import { dayKeyOf } from "../../../lib/date";
@@ -43,14 +42,15 @@ import { useOtherSections } from "../tags/otherEntities";
 import { useNotesStore } from "../../../store/notesStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
-import { RouteDot } from "./MobileAttachPicker";
+import { RouteDot } from "../../common/MobileAttachPicker";
 import { IconLeft } from "./mobileDiaryBits";
 import { IconCaretRight, IconDots, MTagLoading, MobileTagNotice, TagName, retryTagIndex, useTagIndexFailed } from "./mobileTagBits";
-import { MobileTagActionSheet, MobileTagConfirmSheet, MobileTagMergeSheet } from "./MobileTagSheet";
+import { MobileTagActionSheet, MobileTagMergeSheet } from "./MobileTagSheet";
+import { EmptyState } from "../../common/EmptyState";
 import { useBackLayer } from "../../mobile/backStack";
 import { jumpToNodeMobile } from "../../mobile/routeMapReveal";
 
-type Sheet = null | "menu" | "merge" | { kind: "delete"; plan: Extract<DeletePlan, { ok: true }>; title: string; body: string };
+type Sheet = null | "menu" | "merge";
 
 export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) {
   const key = useTagStore((s) => s.selectedKey);
@@ -67,10 +67,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
   const nameOf = useTagStore((s) => s.nameOf);
   const startRename = useTagStore((s) => s.startRename);
   const removePlan = useTagStore((s) => s.removePlan);
-  const confirmRemove = useTagStore((s) => s.confirmRemove);
   const mergeInto = useTagStore((s) => s.mergeInto);
-  const confirmRename = useTagStore((s) => s.confirmRename);
-  const cancelPending = useTagStore((s) => s.cancelPending);
 
   const [items, setItems] = useState<TaggedItem[] | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
@@ -112,7 +109,8 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
   const groups = useMemo(() => (items && key ? groupTaggedItems(items, key, nameOf) : null), [items, key, nameOf]);
 
   // 磨光① 返回層（契約 §1.5）：清單頁＝子頁，返回＝有「回到剛才」就回去（可跨 tab）、否則同「‹ 荷札」；
-  //   ⋯／併入／刪除確認（本地 sheet）與併入確認（store 的 pendingPlan）各自一層 sheet＝同「取消」。改名是行內，不登記
+  //   ⋯／併入（本地 sheet）＝MSheet 自己登記（backId "notes.tagPage.sheet"，UI 丙-6 S4／S6）；
+  //   刪除與併入的確認＝核心 ConfirmDialog（askConfirm，它自己登記 "core.confirm"，UI 丙-6 S5）。改名是行內，不登記
   useBackLayer(
     "notes.tagPage",
     key !== null,
@@ -123,8 +121,34 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
     },
     "page",
   );
-  useBackLayer("notes.tagPage.sheet", sheet !== null, () => setSheet(null));
-  useBackLayer("notes.tagPage.pending", !!pendingPlan?.ok, () => useTagStore.getState().cancelPending());
+
+  // 併入確認（UI 丙-6 S5）：store 的 pendingPlan（改名撞名、合併到現有的荷札）一出現就開核心確認框。
+  //   ConfirmState 沒有 onCancel：確認框關掉時若不是按「併入」（取消、Esc、點暗幕、返回鍵），就替它 cancelPending——
+  //   ConfirmDialog 是「先關框、再叫 onConfirm」，所以關框那一刻還不知道是哪一顆；等一個 microtask，onConfirm 已經跑過了再判。
+  useEffect(() => {
+    const plan = pendingPlan;
+    if (!plan || !plan.ok) return;
+    const t = mergeConfirmText(plan);
+    let confirmed = false;
+    const ui = useUiStore.getState();
+    ui.askConfirm({
+      title: t.title,
+      body: t.body,
+      confirmLabel: "併入",
+      onConfirm: () => {
+        confirmed = true;
+        void useTagStore.getState().confirmRename();
+      },
+    });
+    const unsub = useUiStore.subscribe((st, prev) => {
+      if (!prev.confirm || st.confirm) return;
+      unsub();
+      queueMicrotask(() => {
+        if (!confirmed && useTagStore.getState().pendingPlan === plan) useTagStore.getState().cancelPending();
+      });
+    });
+    return unsub;
+  }, [pendingPlan]);
 
   if (!key) return null;
 
@@ -137,11 +161,18 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
     }
     const bodies = (items ?? []).flatMap((it) => (it.kind === "note" ? [it.note.body] : []));
     const t = deleteConfirmText(plan, deleteExample(bodies, plan));
-    setSheet({ kind: "delete", plan, title: t.title, body: t.body });
+    setSheet(null);
+    // UI 丙-6 S5：確認改核心 ConfirmDialog（置中、取消在左；同桌機 NotesTags askDelete）
+    useUiStore.getState().askConfirm({
+      title: t.title,
+      body: t.body,
+      confirmLabel: "刪除",
+      danger: true,
+      onConfirm: () => void useTagStore.getState().confirmRemove(plan),
+    });
   };
 
   const hasKids = !!node && node.children.length > 0;
-  const confirmText = pendingPlan && pendingPlan.ok ? mergeConfirmText(pendingPlan) : null;
 
   return (
     <div className="ns-notes-mtagpage">
@@ -162,7 +193,8 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
 
       {!node ? (
         index ? (
-          <p className="ns-notes-mtagempty">這個荷札已經不在了（可能已改名、合併或刪除）</p>
+          // UI 丙-6 E18：不是「第一次」——荷札被改名／合併／刪除後的中性一句；上方「‹ 荷札」就是下一步，不另給鈕
+          <EmptyState tone="nores" stamp={null} title="這個荷札已經不在了" desc="可能已改名、合併或刪除。" className="ns-notes-mtagnone" />
         ) : (
           <MTagLoading className="ns-notes-mtagempty" failed={indexFailed} onRetry={retryTagIndex} />
         )
@@ -177,7 +209,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
                 <button
                   type="button"
                   className="ns-notes-mdots"
-                  aria-label="管理荷札（改名、合併、刪除）"
+                  aria-label="管理荷札（改名、併入、刪除）"
                   aria-haspopup="dialog"
                   onClick={openMenu}
                 >
@@ -194,7 +226,12 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
           {!groups ? (
             <MTagLoading className="ns-notes-mtagempty" failed={listFailed} onRetry={() => setListTry((n) => n + 1)} />
           ) : !items?.length ? (
-            <p className="ns-notes-mtagempty">還沒有東西加上這個荷札</p>
+            <EmptyState
+              tone="first"
+              title="還沒有東西掛上這個荷札"
+              desc="在筆記或日記裡打 #名稱，或從車票的 ⋯ 掛上。"
+              className="ns-notes-mtagnone"
+            />
           ) : (
             <div className="ns-notes-mtaglist">
               {(groups.nodes.open.length > 0 || groups.nodes.done.length > 0) && (
@@ -250,7 +287,7 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
                 startRename(key);
               },
             },
-            { label: "合併…", onClick: () => setSheet("merge") },
+            { label: "併入…", onClick: () => setSheet("merge") },
             { label: "刪除", danger: true, onClick: askDelete },
           ]}
         />
@@ -263,29 +300,6 @@ export function MobileTagPage({ onOpenNote }: { onOpenNote(id: string): void }) 
             setSheet(null);
             void mergeInto(key, target);
           }}
-        />
-      )}
-      {sheet && typeof sheet === "object" && sheet.kind === "delete" && (
-        <MobileTagConfirmSheet
-          title={sheet.title}
-          body={sheet.body}
-          primary="刪除"
-          danger
-          onCancel={() => setSheet(null)}
-          onConfirm={() => {
-            const plan = sheet.plan;
-            setSheet(null);
-            void confirmRemove(plan);
-          }}
-        />
-      )}
-      {confirmText && (
-        <MobileTagConfirmSheet
-          title={confirmText.title}
-          body={confirmText.body}
-          primary="併入"
-          onCancel={cancelPending}
-          onConfirm={() => void confirmRename()}
         />
       )}
     </div>
@@ -366,7 +380,7 @@ function RenameBox({ tagKey }: { tagKey: string }) {
           onCompositionEnd={() => {
             composing.current = false;
           }}
-          aria-label="新名稱（打 / 可以搬層級）"
+          aria-label="新名稱（用 / 可以分上下層）"
           autoFocus
           autoComplete="off"
           spellCheck={false}
@@ -382,12 +396,13 @@ function RenameBox({ tagKey }: { tagKey: string }) {
           </>
         )}
       </p>
+      {/* UI 丙-6 S7：取消左、確定右（§2.3；原本上下排、確定在上） */}
       <div className="btns">
-        <button type="button" className="ns-notes-mbtn ns-btn btn-seal" onClick={commit} disabled={!plan || !plan.ok}>
-          確定
-        </button>
         <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={cancelRename}>
           取消
+        </button>
+        <button type="button" className="ns-notes-mbtn ns-btn btn-seal" onClick={commit} disabled={!plan || !plan.ok}>
+          確定
         </button>
       </div>
     </div>

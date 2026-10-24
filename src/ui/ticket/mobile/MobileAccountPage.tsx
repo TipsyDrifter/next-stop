@@ -1,18 +1,18 @@
 /**
  * MobileAccountPage——手機的帳戶頁（車次①契約 §5.3；桌機詳情板「帳戶版」的手機版，§5.1）。
- * 根 `div.ns-tk-macct`：全螢幕、portal 到 body；左上「‹ 售票口」＝收起（store.closePanel）。
+ * 殼＝共用 MFullPage（UI 丙-5 H5）：書封色頂列左「‹ 售票口」＝先存名稱再收起（store.closePanel）、中「帳戶」、右邊空（即時存的頁沒有主鈕）；
+ *   本文裡放 `div.ns-tk-macct`（本檔的樣式掛在它底下）；「已封存」小牌在本文最上面。返回層 id "ticket.account" 交給 MFullPage（返回鍵＝左鈕）。
  *
  * 由上而下：名稱（失焦／Enter 才改名）・群組・幣別（有帳鎖）→ 目前餘額大字＋「調整餘額…」（行內展開目標餘額＋確定，
  *   生成一筆精算）→「看這個帳戶的帳」「在這個帳戶記一筆」→ 封存／取消封存（封存走 store 的確認窗）。
  * 幣別鎖：store 沒有「這個帳戶有沒有帳」——餘額不是 0 就鎖；餘額剛好 0 但有帳的，repository 會擋下並吐
  *   「這個帳戶已經有帳，幣別不能改」（錯誤表），不會改壞資料。
  */
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { TK_TEXT, useTicketStore } from "../../../store/ticketStore";
 import { ACCOUNT_GROUPS, MAIN_CURRENCY, moneyText, type AccountGroup } from "../../../domain/ticket";
-import { useBackLayer } from "../../mobile/backStack";
-import { IconLeft, useImeGuard } from "./mobileBits";
+import { MFullPage } from "../../common/MFullPage";
+import { useImeGuard } from "./mobileBits";
 
 export function MobileAccountPage({ id }: { id: string }) {
   const acc = useTicketStore((s) => s.accById[id] ?? null);
@@ -31,8 +31,11 @@ export function MobileAccountPage({ id }: { id: string }) {
   const [adj, setAdj] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // 外面改了名（同步、桌機）⇒ 跟著換；帳戶不在了 ⇒ 收起
+  // 剛送出去的名字：點「‹ 售票口」時名稱框先失焦存一次、左鈕又存一次——store 還沒刷新回來前 acc.name 仍是舊名，靠這個不重送
+  const sent = useRef<string | null>(null);
+  // 外面改了名（同步、桌機、自己剛存的刷新回來）⇒ 跟著換；帳戶不在了 ⇒ 收起
   useEffect(() => {
+    sent.current = null;
     if (acc) setName(acc.name);
   }, [acc?.name]);
   useEffect(() => {
@@ -46,18 +49,16 @@ export function MobileAccountPage({ id }: { id: string }) {
       setName(acc.name);
       return;
     }
-    if (v !== acc.name) void updateAccount(acc.id, { name: v });
+    if (v !== acc.name && v !== sent.current) {
+      sent.current = v;
+      void updateAccount(acc.id, { name: v });
+    }
   };
-  // 磨光①（主線手機殼契約 §1.5）：返回鍵＝「‹ 售票口」。點那顆鈕時名稱框會先失焦存檔；返回鍵不會讓它失焦，所以先存再收
-  useBackLayer(
-    "ticket.account",
-    true,
-    () => {
-      commitName();
-      closePanel();
-    },
-    "full",
-  );
+  // 磨光①（主線手機殼契約 §1.5）：返回鍵＝「‹ 售票口」。返回鍵不會讓名稱框失焦，所以左鈕先存再收（丙-5：MFullPage 的返回鍵就是叫左鈕）
+  const leave = () => {
+    commitName();
+    closePanel();
+  };
   const nameIme = useImeGuard((e) => (e.currentTarget as HTMLInputElement).blur());
   const adjIme = useImeGuard((e) => {
     e.preventDefault();
@@ -79,17 +80,11 @@ export function MobileAccountPage({ id }: { id: string }) {
   const locked = balance !== 0;
   const archived = acc.archived_at !== null;
 
-  return createPortal(
-    <div className="ns-tk-macct" role="dialog" aria-modal="true" aria-label={`帳戶：${acc.name}`}>
-      <div className="ns-tk-macct-head">
-        <button type="button" className="ns-tk-mback" onClick={closePanel}>
-          <IconLeft size={14} />
-          售票口
-        </button>
-        {archived && <span className="ns-tk-macct-tag">已封存</span>}
-      </div>
-
+  return (
+    <MFullPage title="帳戶" left={{ label: "售票口", back: true, onClick: leave }} backId="ticket.account">
+    <div className="ns-tk-macct">
       <div className="ns-tk-macct-scroll">
+        {archived && <span className="ns-tk-macct-tag">已封存</span>}
         <input
           className="ns-tk-macct-name"
           value={name}
@@ -201,7 +196,7 @@ export function MobileAccountPage({ id }: { id: string }) {
           <small>{TK_TEXT.archiveBody}</small>
         </div>
       </div>
-    </div>,
-    document.body,
+    </div>
+    </MFullPage>
   );
 }

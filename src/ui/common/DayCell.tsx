@@ -9,7 +9,7 @@
  *     button.ns-daycell-hit（蓋滿整格的點擊面；aria-label 念整格）
  *     span.ns-daycell-num（日數；今天赭字，數字左側同列一顆 ::before 赭菱形——照 ui-brand）
  *     span.dots > i×min(marks,3)（墨點 --stamp-ink；左下）
- *     button.ns-iconbtn.ns-daycell-add「＋」（onAdd 給了才有；右上；常駐淡態 --dim，格被 hover／聚焦時轉實——取代「hover 才出現的＋」）
+ *     button.ns-iconbtn.ns-daycell-add「＋」（onAdd 給了才有；右上；常駐淡態 --dim，格被 hover／聚焦時轉實——取代「hover 才出現的＋」）；不進 Tab 順序（月格只留 roving 一個 Tab stop），鍵盤走「格上 Enter 開日浮層 → 底端『＋ 車票』」
  *     div.ns-daycell-body（children：格內清單等）
  *
  * 窄格（格寬 <65px，例：手機殼一週 7 格每格約 45px）：「◆22」跟右上「＋」並排放不下，改由 CSS container query 挪位置——
@@ -96,7 +96,7 @@ export function DayCell({
         </span>
       )}
       {onAdd && (
-        <button type="button" className="ns-iconbtn ns-daycell-add" aria-label={addLabel} title={addLabel} onClick={() => onAdd(date)}>
+        <button type="button" className="ns-iconbtn ns-daycell-add" tabIndex={-1} aria-label={addLabel} title={addLabel} onClick={() => onAdd(date)}>
           <IconPlus />
         </button>
       )}

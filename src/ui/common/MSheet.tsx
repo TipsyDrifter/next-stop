@@ -24,6 +24,13 @@
  * 返回層：預設 kind "sheet"；疊在全螢幕頁（MFullPage／"full"）上的子 sheet 傳 `backKind="dialog"`（backStack.ts 檔頭的規矩），
  *   同時 z-index 抬到全螢幕頁之上（.is-over）。返回鍵＝這一層自己的取消（onClose），不發明新語意。
  * `inline`：dev 樣本頁（Gallery）用——畫在父框裡（父框要 position: relative）、不 portal、不登記返回層、不搶焦點、沒有進場動畫。
+ *
+ * ── UI 丙-5（契約 §0 MSheet 那列）──
+ *   - `dismissable={false}`：暫時不給關（售票口匯入寫入中）——點暗幕、下滑把手、返回鍵、Esc 都不關；返回層照登記、
+ *     返回鍵與 Esc 被這一層吃掉（不漏到底下那層），把手仍可上拉展開。list 型的「取消」列跟著禁用。換回 true 就恢復。
+ *   - `className`：加在 sheet 外框（.ns-msheet）上，給呼叫端自己的微調（例：售票口對話框宿主的 is-dialog is-<kind>）。
+ *   - `MSheetItem cut`：這一列之前一道虛線撕線（同 PopMenuItem.cut）。
+ *   - 列內小字摘要：`<MSheetItem>名稱<small>支出 3 · 收入 2</small></MSheetItem>`——小字換行在名稱下（msheet.css）。
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -54,6 +61,10 @@ export interface MSheetProps {
   backKind?: "sheet" | "dialog";
   /** dev 樣本頁用：畫在父框裡、不 portal、不登記返回層、不搶焦點 */
   inline?: boolean;
+  /** false＝暫時不給關（暗幕／下滑／返回鍵／Esc 都不關；返回鍵與 Esc 被這層吃掉）。預設 true（UI 丙-5） */
+  dismissable?: boolean;
+  /** 加在 sheet 外框（.ns-msheet）上的 class（UI 丙-5） */
+  className?: string;
 }
 
 /** 把手拖曳的門檻（px／px per ms） */
@@ -82,6 +93,8 @@ export function MSheet({
   backId,
   backKind = "sheet",
   inline = false,
+  dismissable = true,
+  className,
 }: MSheetProps) {
   const autoId = useId();
   const layerId = backId ?? `common.msheet${autoId}`;
@@ -91,9 +104,15 @@ export function MSheet({
   const [expanded, setExpanded] = useState(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // 不給關的時候（丙-5 dismissable=false）四條關閉路一起擋：每條都走 tryClose，不直接叫 onClose
+  const dismissRef = useRef(dismissable);
+  dismissRef.current = dismissable;
+  const tryClose = () => {
+    if (dismissRef.current) onCloseRef.current();
+  };
 
   // 返回鍵（只在手機殼生效；inline 樣本不登記）
-  useBackLayer(layerId, !inline, () => onCloseRef.current(), backKind);
+  useBackLayer(layerId, !inline, tryClose, backKind);
   // 焦點三規則（inline 樣本不搶焦點）
   useDialogFocus(sheetRef, !inline);
 
@@ -104,8 +123,8 @@ export function MSheet({
       if (e.key !== "Escape" || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
       const top = backStack.top();
       if (top && top.id !== layerId && document.documentElement.dataset.shell === "mobile") return;
-      e.preventDefault();
-      onCloseRef.current();
+      e.preventDefault(); // 不給關時也吃掉這一下：Esc 不漏到底下那層
+      if (dismissRef.current) onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -152,7 +171,7 @@ export function MSheet({
       return;
     }
     if (down >= CLOSE_PX || (flick && !expanded)) {
-      onCloseRef.current();
+      tryClose(); // 不給關就只是彈回
       return;
     }
     if (expanded && (down >= STEP_PX || flick)) setExpanded(false);
@@ -182,7 +201,7 @@ export function MSheet({
         "ns-msheet-layer" + (inline ? " is-inline" : "") + (backKind === "dialog" ? " is-over" : "")
       }
     >
-      <div className="ns-msheet-veil" aria-hidden="true" onClick={() => onCloseRef.current()} />
+      <div className="ns-msheet-veil" aria-hidden="true" onClick={tryClose} />
       <div
         ref={sheetRef}
         role="dialog"
@@ -196,7 +215,8 @@ export function MSheet({
           height +
           (expanded ? " is-expanded" : "") +
           (list ? " is-list" : "") +
-          (foot != null ? " has-foot" : "")
+          (foot != null ? " has-foot" : "") +
+          (className ? " " + className : "")
         }
       >
         <div
@@ -221,7 +241,7 @@ export function MSheet({
         {list ? (
           <div className="ns-msheet-list">
             {children}
-            <button type="button" className="ns-msheet-item is-cancel" onClick={() => onCloseRef.current()}>
+            <button type="button" className="ns-msheet-item is-cancel" disabled={!dismissable} onClick={tryClose}>
               取消
             </button>
           </div>
@@ -245,14 +265,18 @@ export interface MSheetItemProps {
   disabled?: boolean;
   /** 禁用時寫「為什麼不能」（§1.8） */
   title?: string;
+  /** 這一列之前畫一道虛線撕線（同 PopMenuItem.cut；UI 丙-5） */
+  cut?: boolean;
+  /** 呼叫端自己的微調 class（UI 丙-7 T5：時刻表「発車」列的朱字、右側小字排版）；加在 .ns-msheet-item 後面 */
+  className?: string;
 }
 
 /** 動作清單型 sheet 的一列（52px 列＝--row-menu 手機值；左對齊、底線分隔） */
-export function MSheetItem({ onClick, children, danger = false, disabled = false, title }: MSheetItemProps) {
+export function MSheetItem({ onClick, children, danger = false, disabled = false, title, cut = false, className }: MSheetItemProps) {
   return (
     <button
       type="button"
-      className={"ns-msheet-item" + (danger ? " is-danger" : "")}
+      className={"ns-msheet-item" + (danger ? " is-danger" : "") + (cut ? " is-cut" : "") + (className ? " " + className : "")}
       onClick={onClick}
       disabled={disabled}
       title={title}

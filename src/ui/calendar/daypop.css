@@ -39,10 +39,10 @@
   background: var(--card);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
-  border: 1px solid rgba(255, 255, 255, .78);
+  border: 1px solid var(--glass-edge);
   box-shadow:
-    0 0 0 1px rgba(60, 60, 120, .10),
-    0 6px 16px rgba(50, 45, 100, .14), 0 18px 44px rgba(60, 50, 120, .22);
+    0 0 0 1px rgba(60, 60, 120, .10), /* 字面值：陰影色（§1.1 例外） */
+    0 6px 16px rgba(50, 45, 100, .14), 0 18px 44px rgba(60, 50, 120, .22); /* 字面值：陰影色（§1.1 例外） */
 }
 .ns-daypop::after {
   content: ""; position: absolute; inset: 0; z-index: 0; border-radius: var(--radius-card);
@@ -55,8 +55,8 @@
   -webkit-backdrop-filter: none; backdrop-filter: none;
   border: 1px solid var(--color-line);
   box-shadow:
-    inset 0 1px 0 rgba(var(--starlight), .09),
-    0 2px 6px rgba(3, 6, 14, .5), 0 18px 44px rgba(3, 6, 14, .55);
+    inset 0 1px 0 rgba(var(--starlight), .09), /* 字面值：陰影色（§1.1 例外）：月光上緣高光 */
+    0 2px 6px rgba(3, 6, 14, .5), 0 18px 44px rgba(3, 6, 14, .55); /* 字面值：陰影色（§1.1 例外） */
 }
 [data-theme="dark"] .ns-daypop::after { content: none; }
 .ns-daypop > * { position: relative; z-index: 1; }
@@ -66,28 +66,23 @@
   display: flex; align-items: baseline; gap: 9px;
   padding: 13px 16px 10px; border-bottom: 1px dashed var(--color-dash);
 }
-.ns-daypop .pop-head .pd { font-family: var(--font-display); font-weight: 700; font-size: 15.5px; }
-.ns-daypop .pop-head .pw { font-family: var(--font-display); font-weight: 600; font-size: 12px; color: var(--color-ink-soft); }
-/* 今天＝菱形（同格內 .cell.today .dnum、書封 nav 的同一個語言） */
+.ns-daypop .pop-head .pd { font-family: var(--font-display); font-weight: 700; font-size: 15.5px; } /* 字面值：日期大字 15.5px；桌機字階沒有這一階（原型逐字） */
+.ns-daypop .pop-head .pw { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-sm); color: var(--color-ink-soft); }
+/* 今天＝菱形。UI 丙-3：格換共用 DayCell 之後今天是赭菱形（規範 §2.5「日曆格」），浮層頭跟著換赭（原型 ui-c3 .pd.today 同值） */
 .ns-daypop .pop-head .pd.today::before {
   content: ""; display: inline-block; width: 5px; height: 5px;
-  background: var(--accent); transform: rotate(45deg);
+  background: var(--late); transform: rotate(45deg);
   margin-right: 7px; vertical-align: 2px;
 }
-.ns-daypop .pop-x {
-  margin-left: auto; border: 0; background: transparent; cursor: pointer;
-  color: var(--color-ink-faint); font-size: 13px; line-height: 1; padding: 2px 4px;
-  font-family: inherit; transition: color .15s;
-}
-.ns-daypop .pop-x:hover { color: var(--color-ink); }
-.ns-daypop .pop-x:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 關閉 ×：共用圖示鈕 .ns-iconbtn（IconClose），在頭列裡縮到 24（原型 ui-c3 .pop-x） */
+.ns-daypop .pop-x { margin-left: auto; align-self: center; width: 24px; height: 24px; }
 
 /* ═══ 段（班次／締切） ═══ */
 .ns-daypop .pop-sec { padding: 10px 16px 6px; }
 .ns-daypop .pop-sec:last-child { padding-bottom: 13px; }
 .ns-daypop .pop-sec h4 {
   display: flex; align-items: center; gap: 9px;
-  font-size: 10px; font-weight: 500; letter-spacing: .3em;
+  font-size: var(--fs-micro); font-weight: 500; letter-spacing: .3em;
   color: var(--ink-mid, var(--color-ink-soft));
 }
 .ns-daypop .pop-sec h4 .rule { flex: 1; border-top: 1px dashed var(--color-dash); }
@@ -98,25 +93,25 @@
 .ns-daypop .prow { display: flex; align-items: center; gap: 9px; padding: 7px 0; }
 /* 原型沒有「選中列」的視覺：只在鍵盤流現身（同 DayCell 的處置） */
 .ns-daypop .prow:focus { outline: none; }
-.ns-daypop .prow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 2px; }
+.ns-daypop .prow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: var(--radius-ctl); }
 
 .ns-daypop .roundel-s {
   width: 19px; height: 19px; flex: none; border-radius: 50%;
   display: grid; place-items: center;
-  font-family: var(--font-latin); font-weight: 600; font-size: 8.5px;
+  font-family: var(--font-latin); font-weight: 600; font-size: 8.5px; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
   color: var(--on-roundel); letter-spacing: 0;
 }
 /* 無路線＝襯線「臨」（承臨時車票的由來） */
-.ns-daypop .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; }
+.ns-daypop .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 .ns-daypop .prow .t {
-  flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em;
+  flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em; /* 字面值：列名 13px；桌機字階沒有這一階（原型逐字） */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   text-decoration: line-through transparent 1px;
   transition: color .25s, text-decoration-color .25s;
 }
-.ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: rgba(42, 43, 73, .35); }
-[data-theme="dark"] .ns-daypop .prow.done .t { text-decoration-color: rgba(228, 232, 243, .35); }
+.ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: rgba(42, 43, 73, .35); } /* 字面值：刪除線色（墨 35%，原型定值） */
+[data-theme="dark"] .ns-daypop .prow.done .t { text-decoration-color: rgba(228, 232, 243, .35); } /* 字面值：刪除線色・銀河（原型定值） */
 /* 運休＝**不刪除線**、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12：「運休票標題維持 ink-soft
    ——運休是中性資訊，不該比済更退後；済有刪除線承擔語義、運休沒有」）。這一列有運休章承擔語義，
    與今日頁同一張定期券要同一個深淺；格內 `.it.skipped` 沒有章、另有一套（見 calendar.css:189）。 */
@@ -137,7 +132,7 @@
    現身時只有標題（flex:1）讓出位置，右側推遲鈕與検印欄不動 */
 .ns-daypop .prow .detail {
   display: none; flex: none; border: 0; background: transparent; padding: 2px 2px 2px 4px; cursor: pointer;
-  font-family: inherit; font-size: 9.5px; letter-spacing: .24em;
+  font-family: inherit; font-size: 9.5px; letter-spacing: .24em; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
   color: var(--color-ink-faint); transition: color .15s;
 }
 .ns-daypop .prow:hover .detail,
@@ -148,14 +143,30 @@
 @media (prefers-reduced-motion: reduce) { .ns-daypop .prow .detail { transition: none; } }
 
 .ns-daypop .defer {
-  flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: 2px;
-  color: var(--ink-mid, var(--color-ink-soft)); font-size: 10px; letter-spacing: .14em;
+  flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: var(--radius-ctl);
+  color: var(--ink-mid, var(--color-ink-soft)); font-size: var(--fs-micro); letter-spacing: .14em;
   padding: 3px 7px 3px 9px; cursor: pointer; font-family: inherit;
   transition: color .15s, border-color .15s;
 }
 .ns-daypop .defer:hover { color: var(--accent); border-color: var(--accent); }
 .ns-daypop .defer:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-daypop .prow.done .defer { display: none; }
+
+/* 每列常駐 ⋯（UI 丙-3 D5；視覺規範 §2.6）：.ns-iconbtn 的形縮到 22（列高 36 內），平時 --dim 淡態，
+   列 hover／鍵盤聚焦／選單開著變實。tabIndex=-1（鍵盤每一項都有自己的鍵），聚焦環照 --focus-ring */
+.ns-daypop .prow .row-more {
+  flex: none; width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  color: var(--color-ink-soft); opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.ns-daypop .prow:hover .row-more,
+.ns-daypop .prow:focus-within .row-more,
+.ns-daypop .prow .row-more[aria-expanded="true"] { opacity: 1; }
+.ns-daypop .prow .row-more:hover,
+.ns-daypop .prow .row-more[aria-expanded="true"] { background: var(--hover-bg); color: var(--color-ink); }
+.ns-daypop .prow .row-more:focus-visible { opacity: 1; outline: var(--focus-ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ns-daypop .prow .row-more { transition: none; } }
 
 /* ═══ 迷你検印欄（＝今日票検印圈的縮小版） ═══ */
 .ns-daypop .stamp-s {
@@ -175,7 +186,7 @@
   position: absolute; inset: -1px; border-radius: 50%;
   border: 2px solid var(--color-seal); color: var(--color-seal);
   display: grid; place-items: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  font-family: var(--font-display); font-weight: 700; font-size: 15px; /* 字面值：印章家族字級（照原型） */
   background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 12%, transparent), transparent 62%);
   transform: rotate(-8deg); opacity: 0; pointer-events: none;
   filter: url(#inkbleed);
@@ -202,19 +213,42 @@
 
 /* ═══ 締切列 ═══ */
 .ns-daypop .prow .sime-g {
-  flex: none; font-family: var(--font-display); font-weight: 600; font-size: 13px;
+  flex: none; font-family: var(--font-display); font-weight: 600; font-size: 13px; /* 字面值：〆 字 13px；桌機字階沒有這一階（原型逐字） */
   color: var(--color-late); transform: rotate(-6deg); line-height: 1;
 }
 .ns-daypop .noexec {
-  flex: none; font-size: 9px; letter-spacing: .16em;
+  flex: none; font-size: 9px; letter-spacing: .16em; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
   border: 1px solid var(--color-dash); color: var(--color-ink-faint);
   padding: 1px 4px 1px 6px;
 }
-.ns-daypop .due-tag { flex: none; font-size: 10px; letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
-.ns-daypop .empty-note { font-size: 12px; color: var(--color-ink-faint); letter-spacing: .08em; padding: 8px 0 4px; }
+.ns-daypop .due-tag { flex: none; font-size: var(--fs-micro); letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
+.ns-daypop .empty-note { font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .08em; padding: 8px 0 4px; }
+
+/* ═══ 草稿列（UI 丙-3 P4＝B 底端；原型 ui-c3 .c3-draft 逐值，字級換 token）＝緊湊票的虛線版 ═══ */
+.ns-daypop .pop-draft {
+  display: flex; align-items: center; gap: 9px; height: var(--row-list); margin: 2px 12px 12px; padding: 0 8px 0 7px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-high) 55%, transparent);
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-daypop .pop-draft:focus-within { border-color: var(--accent); }
+.ns-daypop .pop-draft .roundel-s.none { background: transparent; box-shadow: inset 0 0 0 1px var(--color-dash); }
+.ns-daypop .pop-draft input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; outline: none;
+  font-family: inherit; font-size: var(--fs-body); letter-spacing: .04em; color: var(--color-ink);
+}
+.ns-daypop .pop-draft input::placeholder { color: var(--color-ink-faint); }
+.ns-daypop .pop-draft .k { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
+/* 點格子本身開的浮層：底端一顆「＋ 車票」文字鈕（點了展開成草稿列） */
+.ns-daypop .pop-add { padding: 0 12px 10px; }
+.ns-daypop .pop-add .ns-btn { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.ns-daypop .pop-add .ns-btn > .ns-ico { width: 12px; height: 12px; }
+/* 草稿列／「＋ 車票」在締切段之前：班次段自己就不必收尾的下距 */
+.ns-daypop .pop-sec:has(+ :is(.pop-draft, .pop-add)) { padding-bottom: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   .ns-daypop.on { animation: none; }
+  .ns-daypop .pop-draft { transition: none; }
   .ns-daypop .prow.fresh .seal-s { animation: none; }
   .ns-daypop .stamp-s, .ns-daypop .prow .t { transition: none; }
   .ns-daypop .stamp-s:hover { transform: none; }

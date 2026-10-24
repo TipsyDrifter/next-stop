@@ -3,14 +3,14 @@
  * 長相＝原型 `prototypes/時刻表-src/v-g.js` weekHtml（`.vg-w*`）→ 正式版 `.ns-tt-week-*`（timetable.css §K）。
  *
  *   div.ns-tt-week-grid
- *   ├ div.ns-tt-week-head      角落＋7 個 div.ns-tt-week-h（「週一」＋「10/13」＋那天已記錄時數；今天淡金、未來淡掉）
+ *   ├ div.ns-tt-week-head      角落＋7 個 div.ns-tt-week-h（「週一」＋「10/13」＋那天已記錄時數；今天赭字＋赭菱形〔UI 丙-4 D8〕、未來淡掉）
  *   └ div.ns-tt-week-body      高＝24 × 每小時（桌機 20px、手機 28px），整天不捲
  *       ├ div.ns-tt-week-hrs   日界線起每 3 小時一個時刻
  *       ├ 7 × div.ns-tt-week-col[.is-today]
  *       │    i（每 3 小時一條虛線）、div.ns-tt-week-fut（現在以後極淡橫紋）、
  *       │    button.ns-tt-week-gap（空白：點了補記那段）、button.ns-tt-week-b[.is-pend|.is-live|.is-tiny]（塊）、
  *       │    div.ns-tt-week-now（今天那欄的現在線）
- *       └ div.ns-tt-week-tip   桌機滑過一塊的 tooltip（手機不出，點塊直接跳軸——§5.11 替代）
+ *       └ div.ns-tt-week-tip.techo-card   桌機滑過一塊的 tooltip（手機不出，點塊直接跳軸——§5.11 替代；UI 丙-4 D4 材質＝.techo-card）
  *
  * 位置一律用百分比（相對那天的窗），塊最小 2px 高（CSS）；運行中那塊長到 `now`。資料是 `WeekResult`（統計 store 算好的）。
  */
@@ -176,7 +176,7 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
 
         {isDesk && (
           <div
-            className={"ns-tt-week-tip" + (tip ? " is-on" : "") + (tip?.below ? " is-below" : "")}
+            className={"ns-tt-week-tip techo-card" + (tip ? " is-on" : "") + (tip?.below ? " is-below" : "")}
             style={tip ? { left: tip.x + "px", top: tip.y + "px" } : undefined}
             aria-hidden="true"
           >

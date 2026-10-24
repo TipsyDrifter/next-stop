@@ -11,7 +11,7 @@
 /* ═══ 區域變數（portal 根也要一份）═══ */
 /* UI 丙-1（theme.css 契約 6）：舊名只當轉接，值指回語意層（--hover-bg／--sel-bg／--glass-edge／--glass-hi，兩主題由 theme.css 換值，
    原本的銀河覆寫區塊刪掉）；選中的金外環變數刪掉，選中一律 --sel-line。丙-7 刪舊名。 */
-[data-shell="mobile"] :is(.ns-tk-m, .ns-tk-mform, .ns-tk-macct, .ns-tk-msheet) {
+[data-shell="mobile"] :is(.ns-tk-m, .ns-tk-mform, .ns-tk-macct) {
   --ns-tk-hover: var(--hover-bg);
   --ns-tk-sel: var(--sel-bg);
   --ns-tk-mglass: var(--glass-edge);
@@ -24,23 +24,21 @@
 [data-shell="mobile"] .ns-tk-m { font-variant-numeric: tabular-nums; }
 
 /* 載入／錯誤 */
-[data-shell="mobile"] .ns-tk-mstate { min-height: 60%; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; color: var(--color-ink-faint); font-size: 13px; letter-spacing: .2em; }
+[data-shell="mobile"] .ns-tk-mstate { min-height: 60%; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; color: var(--color-ink-faint); font-size: var(--fs-sm); letter-spacing: .2em; }
 [data-shell="mobile"] .ns-tk-mstate p { margin: 0; }
-[data-shell="mobile"] .ns-tk-mstate small { font-size: 11.5px; letter-spacing: .04em; max-width: 30ch; overflow-wrap: anywhere; }
+[data-shell="mobile"] .ns-tk-mstate small { font-size: 11.5px; letter-spacing: .04em; max-width: 30ch; overflow-wrap: anywhere; } /* 字面值：11.5px 不在手機字階，照原型 */
 
-/* 合計帶＋滑桿管理鈕（D-票-24） */
+/* 合計帶（資產／負債／合計；UI 丙-5 起「管帳」搬到分頁籤列末端、篩選搬到籤列下一列） */
 [data-shell="mobile"] .ns-tk-mtotal {
-  display: flex; align-items: center; gap: 4px; margin: 0 0 12px; padding: 6px 4px 6px 14px; min-height: 56px; box-sizing: border-box;
-  background: var(--color-paper-used); border: 1px solid var(--ns-tk-mglass); border-radius: 3px; box-shadow: var(--ns-tk-mhi);
+  display: flex; align-items: center; gap: 4px; margin: 0 0 12px; padding: 6px 14px; min-height: 56px; box-sizing: border-box; /* 丙-5 B2：右端兩顆鈕拿掉，左右內距對稱 */
+  background: var(--color-paper-used); border: 1px solid var(--ns-tk-mglass); border-radius: 3px; box-shadow: var(--ns-tk-mhi); /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
 }
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat { flex: 1; min-width: 0; display: grid; }
-[data-shell="mobile"] .ns-tk-mstat + .ns-tk-mstat { padding-left: 12px; border-left: 1px dashed var(--color-line); }
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat span { font-size: 10px; letter-spacing: .26em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat b { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; line-height: 1.3; letter-spacing: .01em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat.sum b { font-weight: 700; font-size: 16px; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mmanage { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 2px; color: var(--color-ink-soft); transition: background .15s; }
-[data-shell="mobile"] .ns-tk-mmanage:active, [data-shell="mobile"] .ns-tk-mmanage[aria-expanded="true"] { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-mmanage:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+/* 三數依內容分寬（負債常是 0，讓位給資產與合計），不被截成「23,35…」 */
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat { flex: 1 1 auto; min-width: 0; display: grid; }
+[data-shell="mobile"] .ns-tk-mstat + .ns-tk-mstat { padding-left: 10px; border-left: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat span { font-size: 10px; letter-spacing: .26em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat b { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; line-height: 1.3; letter-spacing: .01em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat.sum b { font-weight: 700; font-size: 16px; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 
 /* 帳戶卡橫捲（頁材質，不是第二塊深面——0-5） */
 [data-shell="mobile"] .ns-tk-mcards {
@@ -51,7 +49,7 @@
 [data-shell="mobile"] .ns-tk-mcard {
   position: relative; flex: none; width: 116px; min-height: 66px; scroll-snap-align: start; box-sizing: border-box;
   background: var(--color-paper-high); -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15);
-  border: 1px solid var(--ns-tk-mglass); border-radius: 3px;
+  border: 1px solid var(--ns-tk-mglass); border-radius: 3px; /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
   box-shadow: var(--ns-tk-mhi), 0 1px 2px color-mix(in srgb, var(--color-book) 8%, transparent);
   transition: border-color .15s, box-shadow .15s;
 }
@@ -61,11 +59,11 @@
   display: flex; flex-direction: column; justify-content: space-between; gap: 1px;
   -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
 }
-[data-shell="mobile"] .ns-tk-mcard .n { font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
-[data-shell="mobile"] .ns-tk-mcard .g { font-size: 9.5px; letter-spacing: .2em; color: var(--color-ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-[data-shell="mobile"] .ns-tk-mcard .b { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; }
-[data-shell="mobile"] .ns-tk-mcard .b small { margin-left: 3px; font-family: var(--font-latin); font-weight: 500; font-size: 9px; letter-spacing: .08em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mcard .go { position: absolute; top: 0; right: 0; width: 34px; height: 34px; display: grid; place-items: center; color: var(--color-ink-faint); border-radius: 2px; }
+[data-shell="mobile"] .ns-tk-mcard .n { font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; } /* 字面值：12.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mcard .g { font-size: 9.5px; letter-spacing: .2em; color: var(--color-ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 字面值：9.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mcard .b { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mcard .b small { margin-left: 3px; font-family: var(--font-latin); font-weight: 500; font-size: 9px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mcard .go { position: absolute; top: 0; right: 0; width: 34px; height: 34px; display: grid; place-items: center; color: var(--color-ink-faint); border-radius: var(--radius-ctl); }
 [data-shell="mobile"] .ns-tk-mcard .go:active { background: var(--ns-tk-hover); color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mcard.on { outline: var(--sel-line); outline-offset: -1px; } /* 選中外框 --sel-line（§2.10；outline 疊在 1px 框上、不擠動橫捲） */
 [data-shell="mobile"] .ns-tk-mcard.on .n { color: var(--color-ink); }
@@ -78,34 +76,33 @@
 [data-shell="mobile"] .ns-tk-mcard.add .hit { align-items: center; justify-content: center; }
 [data-shell="mobile"] .ns-tk-mcard :is(.hit, .go):focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
-/* 月份列＋「＋ 記一筆」 */
+/* 月份列（DateNav＋「＋ 記一筆」，DateNav 的排版在檔尾 T4 區）；‹ › 小鈕 .ns-tk-mnav 只剩預算 sheet 的月份頭在用 */
 [data-shell="mobile"] .ns-tk-mmonth { display: flex; align-items: center; gap: 2px; margin: 0 0 10px; }
-[data-shell="mobile"] .ns-tk-mmonth h2 { margin: 0; font-size: 18px; letter-spacing: .06em; white-space: nowrap; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mnav { width: 40px; height: 44px; display: grid; place-items: center; border-radius: 2px; color: var(--color-ink-faint); transition: background .15s, color .15s; }
+[data-shell="mobile"] .ns-tk-mnav { width: 40px; height: 44px; display: grid; place-items: center; border-radius: var(--radius-ctl); color: var(--color-ink-faint); transition: background .15s, color .15s; }
 [data-shell="mobile"] .ns-tk-mnav:active:not([disabled]) { background: var(--ns-tk-hover); color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mnav[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 /* 「＋ 記一筆」＝頁首新增＝次鈕（UI 丙-1：尺寸與長相吃同一顆鈕上的 .ns-btn.btn-ghost，舊的靛框靛底退役）；這裡只留排版 */
 [data-shell="mobile"] .ns-tk-madd { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-[data-shell="mobile"] .ns-tk-mmsum { margin: -4px 0 10px 6px; font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mmsum { margin: -4px 0 10px 6px; font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mmsum b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mmsum .pos { color: var(--color-gold-ink); }
 
 /* 帳簿：一張霧面紙（不打孔；帳簿行不是票卡——0-1） */
 [data-shell="mobile"] .ns-tk-mbook {
-  position: relative; margin: 0 -4px; border-radius: 4px; background: var(--color-paper-high);
+  position: relative; margin: 0 -4px; border-radius: 4px; background: var(--color-paper-high); /* 字面值：卡 4px 兩主題同值（--radius-card 銀河是 3，換了會變） */
   -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
   border: 1px solid var(--ns-tk-mglass); box-shadow: var(--ns-tk-mhi), var(--shadow-card);
 }
 [data-theme="dark"] [data-shell="mobile"] .ns-tk-mbook, [data-theme="dark"][data-shell="mobile"] .ns-tk-mbook { -webkit-backdrop-filter: none; backdrop-filter: none; }
 [data-shell="mobile"] .ns-tk-mlist { list-style: none; margin: 0; padding: 2px 0 4px; }
 [data-shell="mobile"] .ns-tk-mlist > li { list-style: none; }
-[data-shell="mobile"] .ns-tk-mmonthrule { padding: 22px 14px 2px; font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: .24em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mmonthrule { padding: 22px 14px 2px; font-family: var(--font-display); font-weight: 600; font-size: var(--fs-xs); letter-spacing: .24em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mday { display: flex; align-items: baseline; gap: 8px; padding: 13px 14px 5px; border-bottom: 1px solid var(--color-line); }
-[data-shell="mobile"] .ns-tk-mday .d { font-family: var(--font-latin); font-size: 13px; font-weight: 500; letter-spacing: .04em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mday .w { font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mday .today { font-size: 9.5px; letter-spacing: .3em; color: var(--accent); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mday .today, [data-theme="dark"][data-shell="mobile"] .ns-tk-mday .today { color: var(--color-gold); }
-[data-shell="mobile"] .ns-tk-mday .s { margin-left: auto; font-family: var(--font-display); font-size: 12px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mday .d { font-family: var(--font-latin); font-size: var(--fs-sm); font-weight: 500; letter-spacing: .04em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mday .w { font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mday .today { font-size: 9.5px; letter-spacing: .3em; color: var(--accent); } /* 字面值：9.5px 不在手機字階，照原型 */
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mday .today, [data-theme="dark"][data-shell="mobile"] .ns-tk-mday .today { color: var(--color-gold); } /* 金＝銀河規則：今天標記（銀河作用中＝金，同 --accent） */
+[data-shell="mobile"] .ns-tk-mday .s { margin-left: auto; font-family: var(--font-display); font-size: 12px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-mday .s .pos { color: var(--color-gold-ink); }
 
 /* 帳簿行：符號｜分類＋備註｜金額 */
@@ -117,30 +114,25 @@
 [data-shell="mobile"] .ns-tk-mlist > li:last-of-type .ns-tk-mrow::after { display: none; }
 [data-shell="mobile"] .ns-tk-mrow:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-mrow:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
-[data-shell="mobile"] .ns-tk-mrow.is-last { background: var(--ns-tk-sel); box-shadow: inset 2px 0 0 var(--sel-fg); } /* 左線＝--sel-line 的寬與色；inset 陰影畫、不擠動 */
-[data-shell="mobile"] .ns-tk-mrow .sg { font-family: var(--font-display); font-weight: 600; font-size: 13px; line-height: 1; text-align: center; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow.is-last { background: var(--sel-bg); } /* 最後開過的那一列（UI 丙-5 G1）：整條淡靛底、不畫左線（視覺規範 §2.6） */
+[data-shell="mobile"] .ns-tk-mrow .sg { font-family: var(--font-display); font-weight: 600; font-size: 13px; line-height: 1; text-align: center; color: var(--color-ink-faint); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-mrow[data-kind="income"] .sg { color: var(--color-gold-ink); }
 [data-shell="mobile"] .ns-tk-mrow .main { min-width: 0; }
-[data-shell="mobile"] .ns-tk-mrow .c { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; letter-spacing: .03em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mrow .c { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; letter-spacing: .03em; color: var(--color-ink); } /* 字面值：14.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mrow .c .gt { margin: 0 .3em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mrow .c .arr { margin: 0 .35em; color: var(--color-ink-faint); font-family: var(--font-latin); }
-[data-shell="mobile"] .ns-tk-mrow .c .seikan { margin-right: .5em; font-family: var(--font-display); font-weight: 700; font-size: 11px; letter-spacing: .2em; color: var(--stamp-ink); }
+[data-shell="mobile"] .ns-tk-mrow .c .seikan { margin-right: .5em; font-family: var(--font-display); font-weight: 700; font-size: 11px; letter-spacing: .2em; color: var(--stamp-ink); } /* 字面值：印章家族照原型 */
 [data-shell="mobile"] .ns-tk-mrow .c .unc { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mrow .nt { display: flex; align-items: center; gap: 6px; margin-top: 1px; min-width: 0; font-size: 12px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow .nt { display: flex; align-items: center; gap: 6px; margin-top: 1px; min-width: 0; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mrow .nt .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-[data-shell="mobile"] .ns-tk-mrow .nt .roundel { width: 16px; height: 16px; font-size: 8px; }
+[data-shell="mobile"] .ns-tk-mrow .nt .roundel { width: 16px; height: 16px; font-size: 8px; } /* 字面值：小圓牌字照原型（票券家族） */
 [data-shell="mobile"] .ns-tk-mrow .a { text-align: right; white-space: nowrap; line-height: 1.25; }
-[data-shell="mobile"] .ns-tk-mrow .a b { font-family: var(--font-display); font-weight: 600; font-size: 16px; letter-spacing: .01em; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mrow .a .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .08em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mrow .a .conv { display: block; font-family: var(--font-display); font-size: 11px; letter-spacing: .02em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mnone { padding: 40px 14px 24px; text-align: center; font-size: 13px; letter-spacing: .16em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mloadmore button { display: block; width: 100%; min-height: 48px; border-top: 1px dashed var(--color-line); font-size: 12px; letter-spacing: .14em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrow .a b { font-family: var(--font-display); font-weight: 600; font-size: 16px; letter-spacing: .01em; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mrow .a .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mrow .a .conv { display: block; font-family: var(--font-display); font-size: 11px; letter-spacing: .02em; color: var(--color-ink-faint); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mnone { padding: 40px 14px 24px; text-align: center; font-size: var(--fs-sm); letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mloadmore button { display: block; width: 100%; min-height: 48px; border-top: 1px dashed var(--color-line); font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mloadmore button:active { color: var(--color-ink); background: var(--ns-tk-hover); }
-
-/* 空帳本 */
-[data-shell="mobile"] .ns-tk-mempty { display: grid; justify-items: center; gap: 12px; padding: 56px 0 48px; text-align: center; font-size: 13.5px; letter-spacing: .14em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mempty p { margin: 0; }
-[data-shell="mobile"] .ns-tk-mlink { min-height: 44px; padding: 0 10px; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-faint); text-decoration: underline dashed; text-underline-offset: 4px; }
 
 /* 紙面按鈕（頁內、表單、帳戶頁共用；UI 丙-1，視覺規範 §2.3）：.ns-tk-mbtn 只剩佈局鉤子；尺寸（手機 --ctl-h 44／緊湊 36）、
    字級、框、焦點、禁用都吃同一顆鈕上的 .ns-btn＋層級 class（舊的靛框主鈕、無框淡字鈕、自訂的赭字刪除鈕退役）。
@@ -152,46 +144,23 @@
 [data-shell="mobile"] :is(.ns-tk-mbtn, .ns-tk-madd):is(.btn-ghost, .btn-text):active:not(:disabled) { background: var(--hover-bg); }
 [data-shell="mobile"] .ns-tk-mbtn.ns-btn-danger:active:not(:disabled) { background: var(--danger-bg); }
 
-/* ═══ 底部面板（MSheet；沿 mobile.css .m-sheet-veil／.m-sheet 骨架）═══ */
-/* 高度吃視覺視窗：軟鍵盤彈出時面板底緣停在鍵盤上方（同 .ns-notes-mfull 的作法） */
-[data-shell="mobile"] .m-sheet-veil.ns-tk-mveil { bottom: auto; height: 100vh; height: 100dvh; height: var(--m-vvh, 100dvh); animation: nsTkMFade .18s ease-out; }
-[data-shell="mobile"] .ns-tk-mveil.is-over { z-index: 47; }
-[data-shell="mobile"] .m-sheet.ns-tk-msheet {
-  display: flex; flex-direction: column; box-sizing: border-box;
-  color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em; /* 卡改掛 .techo-card（UI 丙-1，舊的暖棕小卡退役）：舊卡自帶的內文字級補在這（值同 techo.css 過渡別名） */
-  max-height: calc(var(--m-vvh, 100dvh) - var(--m-safe-top) - 12px);
-  background: var(--ns-tk-mpaper); border-color: var(--ns-tk-mglass);
-  animation: nsTkMSheetUp .26s cubic-bezier(.2, .9, .3, 1.02);
-}
-[data-shell="mobile"] .ns-tk-msheet-grip { flex: none; width: 36px; height: 4px; margin: 4px auto 2px; border-radius: 2px; background: var(--color-dash); }
-[data-shell="mobile"] .ns-tk-msheet .m-sheet-title { flex: none; }
-[data-shell="mobile"] .ns-tk-msheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; }
-[data-shell="mobile"] .m-sheet-item.ns-tk-msheet-row { display: flex; align-items: center; gap: 10px; }
-[data-shell="mobile"] .ns-tk-msheet-row small { margin-left: auto; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-[data-shell="mobile"] .ns-tk-msheet-row.is-on { color: var(--color-ink); font-weight: 600; box-shadow: inset 2px 0 0 var(--sel-fg); } /* 選中左線＝--sel-line 的寬與色 */
-[data-shell="mobile"] .ns-tk-msheet.is-dialog .ns-tk-msheet-body { padding: 4px var(--m-gutter) 0; }
-@keyframes nsTkMSheetUp { from { transform: translateY(100%); } }
+/* 底部面板 UI 丙-5 H4 起一律共用 MSheet（common/msheet.css；售票口的微調在檔尾 T4 區）。淡入動畫還有子分類展開與跳日淡字在用 */
 @keyframes nsTkMFade { from { opacity: 0; } }
 
 /* ═══ 手機記一筆表單 MobileEntryForm（丙）═══ */
 
+/* UI 丙-5 H5：殼換共用 MFullPage（fixed、z 46、書封色頂列、紙材質、進場動畫、--m-vvh 高都在 .ns-mfull）；
+   這兩個 class 改成它本文裡的一欄——撐滿本文、自己分捲動區＋底列（本文的內距與間距讓給這一欄，見檔尾 T5 區） */
 [data-shell="mobile"] .ns-tk-mform,
 [data-shell="mobile"] .ns-tk-macct {
-  position: fixed; left: 0; right: 0; top: 0; z-index: 46;
-  height: 100vh; height: 100dvh; height: var(--m-vvh, 100dvh);
-  display: flex; flex-direction: column; box-sizing: border-box; padding-top: var(--m-safe-top);
-  background: var(--ns-tk-mpaper); color: var(--color-ink);
-  font-size: 14px; line-height: 1.6; letter-spacing: .02em; font-variant-numeric: tabular-nums;
-  animation: nsTkMSheetUp .26s cubic-bezier(.2, .9, .3, 1.02);
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
 }
-[data-shell="mobile"] .ns-tk-mf-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px 8px; border-bottom: 1px dashed var(--color-dash); }
 
-/* 類型三選（與桌機 .ns-tk-kind 同語彙，手機尺寸） */
-[data-shell="mobile"] .ns-tk-mkind { margin: 0 auto; display: inline-grid; grid-auto-flow: column; border: 1px solid var(--color-line); border-radius: 2px; overflow: hidden; }
-[data-shell="mobile"] .ns-tk-mkind button { min-width: 56px; height: 38px; padding: 0 10px; font-size: 13.5px; letter-spacing: .14em; text-indent: .14em; color: var(--color-ink-faint); transition: background .15s, color .15s; }
-[data-shell="mobile"] .ns-tk-mkind button + button { border-left: 1px dashed var(--color-line); }
-[data-shell="mobile"] .ns-tk-mkind button[aria-pressed="true"] { color: var(--color-ink); background: var(--ns-tk-sel); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 500; }
-[data-shell="mobile"] .ns-tk-mkind.is-locked { padding: 6px 14px; font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .3em; color: var(--stamp-ink); border-style: dashed; }
+/* 校正票的唯讀「精算」（類型三選 UI 丙-5 D4 起是共用 Segmented，位置在檔尾 T5 區） */
+[data-shell="mobile"] .ns-tk-mkind { margin: 0 auto; display: inline-grid; grid-auto-flow: column; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); overflow: hidden; }
+[data-shell="mobile"] .ns-tk-mkind.is-locked { padding: 6px 14px; font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .3em; color: var(--stamp-ink); border-style: dashed; } /* 字面值：印章家族照原型 */
 
 [data-shell="mobile"] .ns-tk-mf-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; }
 [data-shell="mobile"] .ns-tk-mf-scroll::-webkit-scrollbar { width: 0; }
@@ -199,28 +168,27 @@
 
 /* 金額大字＋幣別 chip */
 [data-shell="mobile"] .ns-tk-mf-amt { display: flex; align-items: baseline; gap: 8px; padding: 16px 18px 6px; }
-[data-shell="mobile"] .ns-tk-mf-amt .sg { flex: none; width: 1em; text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 24px; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mform:focus { outline: none; } /* 舊票開啟時焦點落在對話框根（tabIndex=-1），不畫外框 */
+[data-shell="mobile"] .ns-tk-mf-amt .sg { flex: none; width: 1em; text-align: center; font-family: var(--font-display); font-weight: 600; font-size: 24px; color: var(--color-ink-faint); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-mform[data-kind="income"] .ns-tk-mf-amt .sg { color: var(--color-gold-ink); }
 [data-shell="mobile"] .ns-tk-mform[data-kind="adjust"] .ns-tk-mf-amt .sg { color: var(--stamp-ink); }
 [data-shell="mobile"] .ns-tk-mamtin {
   flex: 1; min-width: 0; width: 100%; padding: 0 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
-  font-family: var(--font-display); font-weight: 600; font-size: 34px; line-height: 1.25; letter-spacing: .01em; color: var(--color-ink); font-variant-numeric: tabular-nums;
+  font-family: var(--font-display); font-weight: 600; font-size: 34px; line-height: 1.25; letter-spacing: .01em; color: var(--color-ink); font-variant-numeric: tabular-nums; /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 }
 [data-shell="mobile"] .ns-tk-mamtin:focus { border-bottom-color: var(--accent); }
 [data-shell="mobile"] .ns-tk-mamtin::placeholder { color: var(--color-ink-faint); opacity: .55; }
-[data-shell="mobile"] .ns-tk-mcurchip { flex: none; align-self: center; min-height: 36px; min-width: 52px; padding: 0 10px; border: 1px solid var(--color-line); border-radius: 2px; font-family: var(--font-latin); font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mcurchip { flex: none; align-self: center; min-height: 36px; min-width: 52px; padding: 0 10px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mcurchip:active:not([disabled]) { border-color: var(--accent); color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mcurchip[disabled] { opacity: .55; cursor: default; }
-[data-shell="mobile"] .ns-tk-mf-conv { display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; padding: 0 18px 2px calc(18px + 24px + 8px); font-size: 12px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-conv { display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; padding: 0 18px 2px calc(18px + 24px + 8px); font-size: var(--fs-xs); color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mf-conv > button { min-height: 32px; padding: 0; border-bottom: 1px dashed var(--color-dash); }
 [data-shell="mobile"] .ns-tk-mf-conv b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mf-conv label { display: inline-flex; align-items: center; gap: 6px; }
-[data-shell="mobile"] .ns-tk-mf-convin { width: 9em; min-height: 32px; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--accent); outline: none; font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mf-convin { width: 9em; min-height: 32px; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--accent); outline: none; font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--color-ink); } /* 字面值：手機輸入框 16px 防放大；換算金額襯線照原型 */
 
 /* 小標（帳戶／最近／分類） */
-[data-shell="mobile"] .ns-tk-mf-lbl { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 12px 18px 6px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mf-lbl em { font-style: normal; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-soft); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mf-lbl { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 12px 18px 6px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mf-lbl em { font-style: normal; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-soft); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 字面值：11.5px 不在手機字階，照原型 */
 
 /* 帳戶 chips 橫捲 */
 [data-shell="mobile"] .ns-tk-mf-accts { display: flex; gap: 6px; padding: 0 18px 4px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
@@ -228,18 +196,18 @@
 [data-shell="mobile"] .ns-tk-mf-accts.in-field { padding: 4px 0; }
 [data-shell="mobile"] .ns-tk-mchip {
   flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 13px; box-sizing: border-box;
-  border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
-  font-size: 13.5px; letter-spacing: .06em; color: var(--color-ink-soft); white-space: nowrap;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  font-size: 13.5px; letter-spacing: .06em; color: var(--color-ink-soft); white-space: nowrap; /* 字面值：13.5px 不在手機字階，照原型 */
 }
-[data-shell="mobile"] .ns-tk-mchip small { font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mchip .roundel { width: 18px; height: 18px; font-size: 8.5px; }
+[data-shell="mobile"] .ns-tk-mchip small { font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mchip .roundel { width: 18px; height: 18px; font-size: 8.5px; } /* 字面值：小圓牌字照原型（票券家族） */
 [data-shell="mobile"] .ns-tk-mchip.on { outline: var(--sel-line); outline-offset: -1px; color: var(--color-ink); background: var(--ns-tk-sel); } /* 選中外框 --sel-line（§2.10） */
 [data-shell="mobile"] .ns-tk-mchip[disabled] { cursor: default; }
-[data-shell="mobile"] .ns-tk-mf-none { align-self: center; padding: 8px 0; font-size: 12px; letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-none { align-self: center; padding: 8px 0; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mf-toamt { display: flex; align-items: center; gap: 10px; margin: 8px 18px 0; padding: 4px 0; border-bottom: 1px dashed var(--color-line); }
-[data-shell="mobile"] .ns-tk-mf-toamt span { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); white-space: nowrap; }
-[data-shell="mobile"] .ns-tk-mf-toamt input { flex: 1; min-width: 0; min-height: 40px; background: transparent; border: 0; outline: none; font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mf-toamt small { font-family: var(--font-latin); font-size: 11px; letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mf-toamt span { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mf-toamt input { flex: 1; min-width: 0; min-height: 40px; background: transparent; border: 0; outline: none; font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mf-toamt small { font-family: var(--font-latin); font-size: 11px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 
 /* 分類格子：最近 8 格＋完整兩層（主分類一格一格、展開的子分類插在那一列下方） */
 [data-shell="mobile"] .ns-tk-mf-cats { padding: 0 14px; }
@@ -247,153 +215,84 @@
 [data-shell="mobile"] .ns-tk-mcell {
   min-height: 44px; padding: 4px; box-sizing: border-box; overflow: hidden;
   display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.25;
-  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
-  font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink); overflow-wrap: anywhere;
+  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
+  font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink); overflow-wrap: anywhere; /* 字面值：12.5px 不在手機字階，照原型 */
 }
-[data-shell="mobile"] .ns-tk-mcell small { display: block; font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcell small { display: block; font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); } /* 字面值：9.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mcell.on { outline: var(--sel-line); outline-offset: -1px; background: var(--ns-tk-sel); font-weight: 500; }
 [data-shell="mobile"] .ns-tk-mcell.open { border-color: var(--color-dash); background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-mcell:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-msubs { grid-column: 1 / -1; padding: 8px; border: 1px dashed var(--color-dash); border-radius: 3px; animation: nsTkMFade .16s ease-out; }
-[data-shell="mobile"] .ns-tk-msubs .hd { padding: 0 2px 6px; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-msubs { grid-column: 1 / -1; padding: 8px; border: 1px dashed var(--color-dash); border-radius: 3px; animation: nsTkMFade .16s ease-out; } /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
+[data-shell="mobile"] .ns-tk-msubs .hd { padding: 0 2px 6px; font-size: var(--fs-micro); letter-spacing: .1em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-msubs .ns-tk-mcell { min-height: 40px; }
 
 /* 更多欄位（折疊） */
 [data-shell="mobile"] .ns-tk-mf-more { margin: 14px 18px 0; border-top: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-mf-moretog { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; font-size: 13.5px; letter-spacing: .12em; color: var(--color-ink-soft); text-align: left; }
-[data-shell="mobile"] .ns-tk-mf-moretog .sum { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mf-moretog { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; font-size: 13.5px; letter-spacing: .12em; color: var(--color-ink-soft); text-align: left; } /* 字面值：13.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mf-moretog .sum { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mf-moretog svg { flex: none; transition: transform .2s cubic-bezier(.2, .9, .3, 1.04); }
 [data-shell="mobile"] .ns-tk-mf-moretog[aria-expanded="true"] svg { transform: rotate(180deg); }
 [data-shell="mobile"] .ns-tk-mf-field { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: 12px; align-items: center; min-height: 48px; border-bottom: 1px dashed var(--color-line); }
 [data-shell="mobile"] .ns-tk-mf-field:last-child { border-bottom: 0; }
 [data-shell="mobile"] .ns-tk-mf-field.top { align-items: start; }
-[data-shell="mobile"] .ns-tk-mf-field .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); }
+[data-shell="mobile"] .ns-tk-mf-field .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mf-field.top .lbl { padding-top: 14px; }
 [data-shell="mobile"] .ns-tk-mf-field > .ns-tk-mf-accts, [data-shell="mobile"] .ns-tk-mf-field > textarea { grid-column: 2 / -1; }
-[data-shell="mobile"] .ns-tk-mf-pick { justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px 0 12px; border: 1px solid var(--color-line); border-radius: 2px; font-size: 14px; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mf-time { min-height: 40px; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px dashed var(--color-dash); outline: none; font-family: var(--font-latin); font-size: 15px; color: var(--color-ink-soft); color-scheme: light dark; }
-[data-shell="mobile"] .ns-tk-mf-note { width: 100%; box-sizing: border-box; padding: 11px 0 8px; background: transparent; border: 0; outline: none; resize: none; font-family: var(--font-body); font-size: 16px; line-height: 1.6; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mf-pick { justify-self: start; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 10px 0 12px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); font-size: var(--fs-ui); color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mf-note { width: 100%; box-sizing: border-box; padding: 11px 0 8px; background: transparent; border: 0; outline: none; resize: none; font-family: var(--font-body); font-size: 16px; line-height: 1.6; color: var(--color-ink); } /* 字面值：手機輸入框 16px 防放大 */
 [data-shell="mobile"] .ns-tk-mf-note::placeholder { color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mf-foot { flex: none; display: flex; gap: 8px; padding: 10px 14px calc(var(--m-safe-bottom) + 10px); border-top: 1px dashed var(--color-dash); }
 [data-shell="mobile"] .ns-tk-mf-foot .ns-tk-mbtn { flex: 1; } /* 高與字級吃 .ns-btn（--ctl-h 44／--fs-ui） */
 /* 磨光①（主線手機殼契約 §9.3）：全螢幕面板開著時 toast 落在底部、讓過面板自己的底列——宣告底列高（不含 safe-area，核心另加）。
-   記帳表單、定期表單（.ns-tk-mf-foot）與搜尋 sheet（.ns-tk-ms-foot）同一種底列：上下 10 ＋ 鈕（--ctl-h，手機 44）＋ 虛線 1。
+   記帳表單、定期表單（.ns-tk-mf-foot）的底列：上下 10 ＋ 鈕（--ctl-h，手機 44）＋ 虛線 1（篩選 sheet 的黏底列另算，在檔尾 T4 區）。
    帳戶頁的 .ns-tk-macct-foot 在捲動區裡、不固定，不算 */
-[data-shell="mobile"]:has(.ns-tk-mf-foot, .ns-tk-ms-foot) { --m-full-foot-h: calc(var(--ctl-h) + 21px); }
+[data-shell="mobile"]:has(.ns-tk-mf-foot) { --m-full-foot-h: calc(var(--ctl-h) + 21px); }
 
 /* ═══ 手機帳戶頁 MobileAccountPage（丙）═══ */
 
-[data-shell="mobile"] .ns-tk-macct-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; border-bottom: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-mback { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 8px; font-size: 14px; letter-spacing: .08em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-macct-tag { margin-left: auto; margin-right: 8px; padding: 1px 8px; border: 1px dashed var(--color-dash); border-radius: 2px; font-size: 11px; letter-spacing: .2em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-macct-tag { display: inline-block; margin: 0 0 6px; padding: 1px 8px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); font-size: var(--fs-xs); letter-spacing: .2em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-macct-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 14px 18px calc(var(--m-safe-bottom) + 20px); }
 [data-shell="mobile"] .ns-tk-macct-name {
   display: block; width: 100%; box-sizing: border-box; padding: 4px 0; background: transparent; border: 0; border-bottom: 1px solid transparent; outline: none;
-  font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: .06em; color: var(--color-ink);
+  font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: .06em; color: var(--color-ink); /* 字面值：帳戶名大字 24px 照原型（不在字階） */
 }
 [data-shell="mobile"] .ns-tk-macct-name:focus { border-bottom-color: var(--accent); }
 [data-shell="mobile"] .ns-tk-macct-fields { margin-top: 8px; border-top: 1px dashed var(--color-dash); }
 [data-shell="mobile"] .ns-tk-macct-fields .ns-tk-mf-field { grid-template-columns: 44px minmax(0, 1fr); }
-[data-shell="mobile"] .ns-tk-mselect { min-height: 44px; width: 100%; padding: 0 2px; background: transparent; border: 0; outline: none; font-family: inherit; font-size: 15px; color: var(--color-ink); color-scheme: light dark; }
+[data-shell="mobile"] .ns-tk-mselect { min-height: 44px; width: 100%; padding: 0 2px; background: transparent; border: 0; outline: none; font-family: inherit; font-size: var(--fs-body); color: var(--color-ink); color-scheme: light dark; }
 [data-shell="mobile"] .ns-tk-mselect[disabled] { color: var(--color-ink-faint); opacity: 1; }
-[data-shell="mobile"] .ns-tk-macct-note { grid-column: 2; margin-top: -8px; padding-bottom: 8px; font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-macct-balance { display: grid; justify-items: start; gap: 6px; margin: 18px 0 0; padding: 14px 16px 16px; border: 1px solid var(--ns-tk-mglass); border-radius: 3px; background: var(--color-paper-used); box-shadow: var(--ns-tk-mhi); }
-[data-shell="mobile"] .ns-tk-macct-balance .lbl { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-macct-balance > b { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.2; letter-spacing: .01em; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-macct-balance > b small { margin-left: 6px; font-family: var(--font-latin); font-weight: 500; font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-macct-note { grid-column: 2; margin-top: -8px; padding-bottom: 8px; font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-macct-balance { display: grid; justify-items: start; gap: 6px; margin: 18px 0 0; padding: 14px 16px 16px; border: 1px solid var(--ns-tk-mglass); border-radius: 3px; background: var(--color-paper-used); box-shadow: var(--ns-tk-mhi); } /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
+[data-shell="mobile"] .ns-tk-macct-balance .lbl { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-macct-balance > b { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.2; letter-spacing: .01em; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-macct-balance > b small { margin-left: 6px; font-family: var(--font-latin); font-weight: 500; font-size: 12px; letter-spacing: .1em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-macct-adj { display: flex; align-items: flex-end; gap: 6px; width: 100%; }
 [data-shell="mobile"] .ns-tk-macct-adj label { flex: 1; min-width: 0; display: grid; }
-[data-shell="mobile"] .ns-tk-macct-adj label .lbl { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-macct-adj input { min-height: 44px; width: 100%; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--accent); outline: none; font-family: var(--font-display); font-weight: 600; font-size: 20px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-macct-adj label .lbl { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-macct-adj input { min-height: 44px; width: 100%; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--accent); outline: none; font-family: var(--font-display); font-weight: 600; font-size: 20px; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-macct-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 [data-shell="mobile"] .ns-tk-macct-links .ns-tk-mbtn { flex: 1 1 auto; }
 [data-shell="mobile"] .ns-tk-macct-foot { display: grid; justify-items: start; gap: 6px; margin-top: 26px; padding-top: 14px; border-top: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-macct-foot small { font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
-
-/* ═══ 匯入票與對話框的手機單欄微調（丙）═══ */
-/* 對話框本體的長相在 ticket.css §F（兩殼共用），這裡只把觸控目標撐到 44px、字級 16px（iOS／部分 Android 小於 16px 聚焦會放大） */
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dialog { padding-bottom: 4px; }
-/* 即時存的三個本體（分類管理、帳戶順序、幣別與匯率）UI 丙-1 起沒有「完成」底列了：底部自己讓出安全區，最後一列不貼手勢條 */
-[data-shell="mobile"] .ns-tk-msheet :is(.ns-tk-dcats, .ns-tk-dorder, .ns-tk-dcur) { padding-bottom: calc(var(--m-safe-bottom) + 16px); }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dfield { min-height: 48px; }
-[data-shell="mobile"] .ns-tk-msheet :is(.ns-tk-din, .ns-tk-dname, .ns-tk-dselect) { min-height: 44px; font-size: 16px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dfoot { position: sticky; bottom: 0; margin: 12px calc(-1 * var(--m-gutter)) 0; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom) + 6px); background: var(--ns-tk-mpaper); border-top: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dfoot .ns-tk-dbtn { flex: 1; }
-[data-shell="mobile"] .ns-tk-msheet.is-dialog { padding-bottom: 0; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dtabs button { min-height: 44px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dmini { min-height: var(--ctl-h); min-width: var(--ctl-h); } /* 列內小鈕在手機撐到觸控目標（緊湊鈕 36 不夠） */
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-drow { min-height: 48px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-darch-tog { min-height: 44px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcurrow { grid-template-columns: 40px minmax(0, 1fr) auto; row-gap: 0; padding: 6px 0; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcurrow .rate { grid-column: 2 / -1; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcuradd { grid-template-columns: 76px minmax(0, 1fr); }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-dcuradd :is(.ns-tk-dselect, .ns-tk-drate, .ns-tk-dbtn) { grid-column: 1 / -1; }
-/* 匯入票（乙席的 ImportCard 本體，§G）：單欄、寬度吃滿；餘額對帳七列直排（§5.3）；底部鈕列黏在面板底、觸控 44px */
-[data-shell="mobile"] .ns-tk-msheet.is-import .ns-tk-msheet-body > * { max-width: 100%; box-sizing: border-box; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-recon { grid-template-columns: minmax(0, 1fr); }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-recon label { grid-template-columns: minmax(0, 1fr) 132px 16px; min-height: 48px; font-size: 14px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-recon input { min-height: 40px; font-size: 16px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-foot { position: sticky; bottom: 0; margin: 16px calc(-1 * var(--m-gutter)) 0; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom) + 6px); background: var(--ns-tk-mpaper); }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod { grid-template-columns: minmax(0, 1fr); }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod .ns-tk-kind { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 4px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-mod .ns-tk-kind button { height: 36px; padding: 0 12px; font-size: 12px; }
-[data-shell="mobile"] .ns-tk-msheet .ns-tk-im-table { font-size: 12.5px; }
+[data-shell="mobile"] .ns-tk-macct-foot small { font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 
 /* ─────────── 第②階段「看帳」（②契約 §2.7；丙）：每條規則前綴 [data-shell="mobile"] ─────────── */
 
-/* ═══ 手機視圖列 MobileViewBar .ns-tk-mviews*（丙）═══ */
-/* 照 MobileSegmentedBar：三等分 tablist＋一條滑動底線（彈性曲線）；底線位置由元件的 inline translateX(idx×100%) 決定 */
-[data-shell="mobile"] .ns-tk-mviews { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: -2px 0 10px; border-bottom: 1px solid var(--color-line); }
-[data-shell="mobile"] .ns-tk-mview {
-  height: 44px; padding: 0; font-family: inherit; font-size: 13.5px; letter-spacing: .3em; text-indent: .3em;
-  color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent; transition: color .15s;
-}
-[data-shell="mobile"] .ns-tk-mview.is-on { color: var(--color-ink); font-weight: 500; }
-[data-shell="mobile"] .ns-tk-mview:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-mview:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
-[data-shell="mobile"] .ns-tk-mviews-ink {
-  position: absolute; left: 0; bottom: -1px; width: calc(100% / 3); height: 2px; display: flex; justify-content: center; pointer-events: none;
-  transition: transform .32s cubic-bezier(.3, 1.35, .5, 1);
-}
-[data-shell="mobile"] .ns-tk-mviews-ink::before { content: ""; width: 40px; height: 2px; border-radius: 1px; background: var(--accent); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mviews-ink::before, [data-theme="dark"][data-shell="mobile"] .ns-tk-mviews-ink::before { background: var(--color-gold); }
 /* 左右滑換視圖的三個容器：直向捲動交給瀏覽器、橫向手勢交給 useViewSwipe */
 [data-shell="mobile"] :is(.ns-tk-mbook, .ns-tk-mcal, .ns-tk-mstats) { touch-action: pan-y; }
 
 /* ═══ 手機月曆 .ns-tk-mcal*（丙）═══ */
-/* 7 欄（375 寬每格約 50px）、格高 ≥ 56：日號左上；有收入的天先一行「＋N」（gold-ink），支出一個數在右下（D-票-28，不用金點） */
+/* 7 欄（375 寬每格約 50px）；格子＝共用 DayCell（UI 丙-5 J1），格高、內距、金額位置在 ticket.css 檔尾 T6 區 */
 [data-shell="mobile"] .ns-tk-mcal-sheet {
-  position: relative; margin: 0 -4px; border-radius: 4px; overflow: hidden; background: var(--color-paper-high);
+  position: relative; margin: 0 -4px; border-radius: 4px; overflow: hidden; background: var(--color-paper-high); /* 字面值：卡 4px 兩主題同值（--radius-card 銀河是 3，換了會變） */
   -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
   border: 1px solid var(--ns-tk-mglass); box-shadow: var(--ns-tk-mhi), var(--shadow-card);
 }
 [data-theme="dark"] [data-shell="mobile"] .ns-tk-mcal-sheet, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcal-sheet { -webkit-backdrop-filter: none; backdrop-filter: none; }
 [data-shell="mobile"] .ns-tk-mcal-heads { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--color-line); }
-[data-shell="mobile"] .ns-tk-mcal-heads span { padding: 6px 0 5px; text-align: center; font-size: 10.5px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcal-heads span { padding: 6px 0 5px; text-align: center; font-size: 10.5px; color: var(--color-ink-faint); } /* 字面值：10.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mcal-heads span.we { color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mcal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-[data-shell="mobile"] .ns-tk-mcal-cell {
-  position: relative; min-width: 0; min-height: 58px; box-sizing: border-box; padding: 4px 3px 5px;
-  display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; text-align: left;
-  background: transparent; border: 0; border-right: 1px dashed var(--color-line); border-bottom: 1px dashed var(--color-line);
-  font-family: inherit; color: inherit; -webkit-tap-highlight-color: transparent; transition: background .12s;
-}
-[data-shell="mobile"] .ns-tk-mcal-cell:last-child { border-right: 0; }
-[data-shell="mobile"] .ns-tk-mcal-week:last-child .ns-tk-mcal-cell { border-bottom: 0; }
-[data-shell="mobile"] .ns-tk-mcal-cell:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-mcal-cell:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
-[data-shell="mobile"] .ns-tk-mcal-cell .d { padding-left: 2px; font-family: var(--font-latin); font-size: 11px; font-weight: 500; line-height: 1.2; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mcal-cell .vals { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
-[data-shell="mobile"] .ns-tk-mcal-cell .x { max-width: 100%; overflow: hidden; font-family: var(--font-display); font-weight: 600; font-size: 11px; line-height: 1.2; letter-spacing: -.01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
-[data-shell="mobile"] .ns-tk-mcal-cell .i { max-width: 100%; overflow: hidden; font-family: var(--font-display); font-size: 9.5px; line-height: 1.2; letter-spacing: -.02em; color: var(--color-gold-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
-[data-shell="mobile"] .ns-tk-mcal-cell.is-out { opacity: var(--dim); }
-[data-shell="mobile"] .ns-tk-mcal-cell.is-future .d { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mcal-cell.is-today { box-shadow: inset 0 2px 0 var(--accent); }
-[data-shell="mobile"] .ns-tk-mcal-cell.is-today .d { color: var(--accent); font-weight: 600; }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mcal-cell.is-today, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcal-cell.is-today { box-shadow: inset 0 2px 0 var(--color-gold); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mcal-cell.is-today .d, [data-theme="dark"][data-shell="mobile"] .ns-tk-mcal-cell.is-today .d { color: var(--color-gold); }
-[data-shell="mobile"] .ns-tk-mcal-wait { margin: 0; padding: 40px 0; text-align: center; font-size: 12.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mcal-hint { margin: 8px 4px 0; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcal-wait { margin: 0; padding: 40px 0; text-align: center; font-size: 12.5px; letter-spacing: .16em; color: var(--color-ink-faint); } /* 字面值：12.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mcal-hint { margin: 8px 4px 0; font-size: var(--fs-micro); letter-spacing: .04em; color: var(--color-ink-faint); }
 /* 從月曆跳回清單：那天的日分組頭閃一下；「10/8 沒有紀錄」淡字 */
 [data-shell="mobile"] .ns-tk-mday { scroll-margin-top: 8px; }
 [data-shell="mobile"] .ns-tk-mday.is-flash { animation: nsTkMFlash 1.6s ease-out; }
@@ -401,8 +300,8 @@
 /* 清單已捲到最接近的那天、月份列在畫面外 ⇒ 淡字浮在 tab bar 上方置中（同原型的 toast 位置），3 秒後消失 */
 [data-shell="mobile"] .ns-tk-mnotice {
   position: fixed; left: 50%; bottom: calc(var(--m-tabbar-h, 60px) + var(--m-safe-bottom) + 18px); z-index: 4; transform: translateX(-50%);
-  margin: 0; padding: 8px 16px; border: 1px solid var(--ns-tk-mglass); border-radius: 2px; background: var(--color-paper-high);
-  box-shadow: var(--ns-tk-mhi), var(--shadow-card); font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap;
+  margin: 0; padding: 8px 16px; border: 1px solid var(--ns-tk-mglass); border-radius: var(--radius-ctl); background: var(--color-paper-high);
+  box-shadow: var(--ns-tk-mhi), var(--shadow-card); font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap; /* 字面值：12.5px 不在手機字階，照原型 */
   pointer-events: none; animation: nsTkMFade .2s ease-out;
 }
 
@@ -411,41 +310,41 @@
 [data-shell="mobile"] .ns-tk-mstats { padding-bottom: 6px; }
 [data-shell="mobile"] .ns-tk-mst-over {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; padding: 8px 4px 7px;
-  background: var(--color-paper-used); border: 1px solid var(--ns-tk-mglass); border-radius: 3px; box-shadow: var(--ns-tk-mhi);
+  background: var(--color-paper-used); border: 1px solid var(--ns-tk-mglass); border-radius: 3px; box-shadow: var(--ns-tk-mhi); /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
 }
 [data-shell="mobile"] .ns-tk-mst-over .num { display: grid; min-width: 0; padding: 0 6px 0 10px; }
 [data-shell="mobile"] .ns-tk-mst-over .num + .num { border-left: 1px dashed var(--color-line); }
-[data-shell="mobile"] .ns-tk-mst-over .num span { font-size: 9.5px; letter-spacing: .26em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mst-over .num b { font-family: var(--font-display); font-weight: 600; font-size: 16px; line-height: 1.3; letter-spacing: .01em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-shell="mobile"] .ns-tk-mst-over .num span { font-size: 9.5px; letter-spacing: .26em; color: var(--color-ink-faint); } /* 字面值：9.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mst-over .num b { font-family: var(--font-display); font-weight: 600; font-size: 16px; line-height: 1.3; letter-spacing: .01em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-mst-over .num.inc b { color: var(--color-gold-ink); }
 [data-shell="mobile"] .ns-tk-mst-over .num.net b { color: var(--color-ink); font-weight: 700; }
-[data-shell="mobile"] .ns-tk-mst-over .cnt { grid-column: 1 / -1; padding: 3px 10px 0; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-over .cnt { grid-column: 1 / -1; padding: 3px 10px 0; font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-faint); } /* 字面值：10.5px 不在手機字階，照原型 */
 
-/* 小切換（月｜年、分類｜帳戶｜路線、支出｜收入）：細框、選中 accent 底線（同桌機 .ns-tk-kind 語彙） */
+/* 小切換（月｜年、分類｜帳戶｜路線、支出｜收入）：細框、選中 accent 底線（同桌機 .ns-tk-seg 語彙；表單內的單選用共用 Segmented） */
 /* 外觀 36 高；觸控 44：每顆鈕的 ::after 上下各外擴 4px（透明）。所以框不能 overflow:hidden，圓角改由頭尾鈕自己帶 */
-[data-shell="mobile"] .ns-tk-mseg { display: inline-grid; grid-auto-flow: column; flex: none; border: 1px solid var(--color-line); border-radius: 2px; }
-[data-shell="mobile"] .ns-tk-mseg button:first-child { border-radius: 1px 0 0 1px; }
+[data-shell="mobile"] .ns-tk-mseg { display: inline-grid; grid-auto-flow: column; flex: none; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); }
+[data-shell="mobile"] .ns-tk-mseg button:first-child { border-radius: 1px 0 0 1px; } /* 字面值：分段鈕第一顆內角 1px 照原型（貼框內緣） */
 [data-shell="mobile"] .ns-tk-mseg button:last-child { border-radius: 0 1px 1px 0; }
 [data-shell="mobile"] .ns-tk-mseg button::after { content: ""; position: absolute; inset: -4px 0; }
 [data-shell="mobile"] .ns-tk-mseg button {
-  position: relative; height: 36px; padding: 0 13px; font-family: inherit; font-size: 13px; letter-spacing: .14em; text-indent: .14em;
+  position: relative; height: 36px; padding: 0 13px; font-family: inherit; font-size: var(--fs-sm); letter-spacing: .14em; text-indent: .14em;
   color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent;
   transition: background .15s, color .15s, box-shadow .2s;
 }
 [data-shell="mobile"] .ns-tk-mseg button + button { border-left: 1px dashed var(--color-line); }
 [data-shell="mobile"] .ns-tk-mseg button:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"] { color: var(--color-ink); font-weight: 500; background: var(--ns-tk-sel); box-shadow: inset 0 -2px 0 var(--accent); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"], [data-theme="dark"][data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--color-gold); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"], [data-theme="dark"][data-shell="mobile"] .ns-tk-mseg button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--color-gold); } /* 金＝銀河規則：分段鈕選中底線（銀河作用中＝金，同 --accent） */
 [data-shell="mobile"] .ns-tk-mseg button:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 
-[data-shell="mobile"] .ns-tk-mst-span { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0 0; }
-[data-shell="mobile"] .ns-tk-mst-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mst-legend .sw { width: 10px; height: 10px; border-radius: 1px; }
+[data-shell="mobile"] .ns-tk-mst-span { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin: 8px 0 0; } /* UI 丙-5 J2：「月｜年」分頁籤靠右（原型 P6 A） */
+[data-shell="mobile"] .ns-tk-mst-legend { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-legend .sw { width: 10px; height: 10px; border-radius: 1px; } /* 字面值：細條／色票 1px 圓角照原型 */
 [data-shell="mobile"] .ns-tk-mst-legend .sw.inc { margin-left: 8px; background: color-mix(in srgb, var(--color-gold-ink) 80%, transparent); }
 [data-shell="mobile"] .ns-tk-mst-legend .sw.exp { background: color-mix(in srgb, var(--color-ink) 50%, transparent); }
 
 [data-shell="mobile"] .ns-tk-mst-card {
-  position: relative; margin-top: 8px; padding: 10px 12px; border-radius: 4px; background: var(--color-paper-high);
+  position: relative; margin-top: 8px; padding: 10px 12px; border-radius: 4px; background: var(--color-paper-high); /* 字面值：卡 4px 兩主題同值（--radius-card 銀河是 3，換了會變） */
   -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
   border: 1px solid var(--ns-tk-mglass); box-shadow: var(--ns-tk-mhi), var(--shadow-card);
 }
@@ -466,13 +365,13 @@
 [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .exp { fill: var(--accent); }
 [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .inc { fill: var(--color-gold-ink); }
 [data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .exp, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .exp { fill: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mst-trend .m { font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .04em; fill: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-trend .m { font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .04em; fill: var(--color-ink-faint); } /* 字面值：趨勢圖月份字照原型（svg 圖表刻度） */
 [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m { fill: var(--accent); font-weight: 600; }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m { fill: var(--color-gold); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .m { fill: var(--color-gold); } /* 金＝銀河規則：趨勢圖本月標籤（銀河作用中＝金，同 --accent） */
 [data-shell="mobile"] .ns-tk-mst-trend .g.is-future .m { opacity: var(--dim); }
-[data-shell="mobile"] .ns-tk-mst-trend .yr { font-family: var(--font-latin); font-size: 8px; letter-spacing: .04em; fill: var(--color-ink-faint); opacity: .8; }
+[data-shell="mobile"] .ns-tk-mst-trend .yr { font-family: var(--font-latin); font-size: 8px; letter-spacing: .04em; fill: var(--color-ink-faint); opacity: .8; } /* 字面值：趨勢圖年份字照原型（svg 圖表刻度） */
 /* 條頂數字比條寬：壓到隔壁較高的條上時，紙色描邊墊底才讀得到 */
-[data-shell="mobile"] .ns-tk-mst-trend .v { font-family: var(--font-display); font-size: 8.5px; letter-spacing: -.02em; fill: var(--color-ink-soft); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--color-paper-high); stroke-width: 3px; stroke-linejoin: round; }
+[data-shell="mobile"] .ns-tk-mst-trend .v { font-family: var(--font-display); font-size: 8.5px; letter-spacing: -.02em; fill: var(--color-ink-soft); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--color-paper-high); stroke-width: 3px; stroke-linejoin: round; } /* 字面值：趨勢圖數值字照原型（svg 圖表刻度） */
 [data-shell="mobile"] .ns-tk-mst-trend .v.is-inc { fill: var(--color-gold-ink); }
 [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .v { fill: var(--color-ink); font-weight: 600; }
 [data-shell="mobile"] .ns-tk-mst-trend .g.is-cur .v.is-inc { fill: var(--color-gold-ink); }
@@ -495,114 +394,85 @@
 [data-shell="mobile"] .ns-tk-mst-rows .c { grid-area: c; display: grid; place-items: center; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mst-rows .c svg { transition: transform .22s cubic-bezier(.3, 1.4, .5, 1); }
 [data-shell="mobile"] .ns-tk-mst-rows .row.is-open .c svg { transform: rotate(90deg); }
-[data-shell="mobile"] .ns-tk-mst-rows .n { grid-area: n; display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 14px; letter-spacing: .04em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mst-rows .n { grid-area: n; display: flex; align-items: center; gap: 7px; min-width: 0; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mst-rows .n .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-shell="mobile"] .ns-tk-mst-rows .n .t.is-faint { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mst-rows .n .roundel { width: 18px; height: 18px; font-size: 8.5px; }
+[data-shell="mobile"] .ns-tk-mst-rows .n .roundel { width: 18px; height: 18px; font-size: 8.5px; } /* 字面值：小圓牌字照原型（票券家族） */
 [data-shell="mobile"] .ns-tk-mst-rows .n .roundel.is-empty { box-sizing: border-box; border: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-mst-rows .v { grid-area: v; text-align: right; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
-[data-shell="mobile"] .ns-tk-mst-rows .p { grid-area: p; text-align: right; font-family: var(--font-latin); font-size: 11.5px; color: var(--color-ink-faint); white-space: nowrap; }
-[data-shell="mobile"] .ns-tk-mst-rows .bar { grid-area: bar; position: relative; height: 4px; border-radius: 1px; background: color-mix(in srgb, var(--color-ink) 5%, transparent); overflow: hidden; }
-[data-shell="mobile"] .ns-tk-mst-rows .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: color-mix(in srgb, var(--color-ink) 55%, transparent); transition: background .15s, width .35s cubic-bezier(.3, 1.1, .5, 1); }
+[data-shell="mobile"] .ns-tk-mst-rows .v { grid-area: v; text-align: right; font-family: var(--font-display); font-weight: 600; font-size: 13.5px; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mst-rows .p { grid-area: p; text-align: right; font-family: var(--font-latin); font-size: 11.5px; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：11.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mst-rows .bar { grid-area: bar; position: relative; height: 4px; border-radius: 1px; background: color-mix(in srgb, var(--color-ink) 5%, transparent); overflow: hidden; } /* 字面值：細條／色票 1px 圓角照原型 */
+[data-shell="mobile"] .ns-tk-mst-rows .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: color-mix(in srgb, var(--color-ink) 55%, transparent); transition: background .15s, width .35s cubic-bezier(.3, 1.1, .5, 1); } /* 字面值：細條／色票 1px 圓角照原型 */
 [data-shell="mobile"] .ns-tk-mst-rows.is-income .bar i { background: color-mix(in srgb, var(--color-gold-ink) 75%, transparent); }
 [data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i { background: var(--accent); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i { background: var(--color-gold); }
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i, [data-theme="dark"][data-shell="mobile"] .ns-tk-mst-rows .row > button:active:not([disabled]) .bar i { background: var(--color-gold); } /* 金＝銀河規則：統計條按住（銀河作用中＝金，同 --accent） */
 [data-shell="mobile"] .ns-tk-mst-rows .row.is-child > button { min-height: 44px; animation: nsTkMRise .2s cubic-bezier(.2, .9, .3, 1.08); }
-[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .n { padding-left: 14px; font-size: 13px; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .n { padding-left: 14px; font-size: var(--fs-sm); color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mst-rows .row.is-child .bar { height: 3px; }
 [data-shell="mobile"] .ns-tk-mst-rows .row.is-child .bar i { background: color-mix(in srgb, var(--color-ink) 35%, transparent); }
 [data-shell="mobile"] .ns-tk-mst-rows.is-income .row.is-child .bar i { background: color-mix(in srgb, var(--color-gold-ink) 50%, transparent); }
-[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .v { font-size: 12.5px; font-weight: 500; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mst-rows .row.is-child .v { font-size: 12.5px; font-weight: 500; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 @keyframes nsTkMRise { from { opacity: 0; transform: translateY(-4px); } }
-[data-shell="mobile"] .ns-tk-mst-refunds { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 10px; font-size: 12px; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mst-refunds .hd { font-size: 10px; letter-spacing: .32em; }
+[data-shell="mobile"] .ns-tk-mst-refunds { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 10px; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-refunds .hd { font-size: 10px; letter-spacing: .32em; } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mst-refunds .it { letter-spacing: .04em; color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mst-refunds .it b { font-family: var(--font-display); font-weight: 600; }
-[data-shell="mobile"] .ns-tk-mst-empty { margin: 0; padding: 28px 0 22px; text-align: center; font-size: 13px; letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-empty { margin: 0; padding: 28px 0 22px; text-align: center; font-size: var(--fs-sm); letter-spacing: .16em; color: var(--color-ink-faint); }
 
-/* ═══ 搜尋 sheet MobileSearchSheet .ns-tk-msearch*（丙）═══ */
-/* 合計帶的放大鏡（沿 .ns-tk-mmanage 的 44×44）；有條件時右上一顆點 */
-[data-shell="mobile"] .ns-tk-mmanage.ns-tk-msearch { position: relative; }
-/* 合計帶多了一顆鈕：兩顆 40 寬、三數依內容分寬（負債常是 0，讓位給資產與合計），不再被截成「23,35…」 */
-/* 觸控目標 44×44，但版面只吃 40：左右各 -2px 外距吃掉兩鈕之間的 4px gap 與帶子右內距，三數的寬度預算不變（合計不被截） */
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mmanage { width: 44px; margin: 0 -2px; }
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat { flex: 1 1 auto; }
-[data-shell="mobile"] .ns-tk-mtotal .ns-tk-mstat + .ns-tk-mstat { padding-left: 10px; }
-[data-shell="mobile"] .ns-tk-msearch .dot { position: absolute; top: 9px; right: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-msearch .dot, [data-theme="dark"][data-shell="mobile"] .ns-tk-msearch .dot { background: var(--color-gold); }
-
-/* 搜尋模式：月份列換成條件 chips 橫捲＋「找到 N 筆…」 */
-[data-shell="mobile"] .ns-tk-mfilters {
-  display: flex; align-items: center; gap: 6px; margin: 0 calc(-1 * var(--m-gutter)) 8px; padding: 2px var(--m-gutter);
-  overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
-}
-[data-shell="mobile"] .ns-tk-mfilters::-webkit-scrollbar { display: none; }
-[data-shell="mobile"] .ns-tk-mfchip {
-  flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 11px; box-sizing: border-box;
-  border: 1px solid var(--color-line); border-radius: 2px; background: transparent; font-family: inherit;
-  font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; -webkit-tap-highlight-color: transparent;
-}
-[data-shell="mobile"] .ns-tk-mfchip.is-on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--ns-tk-sel); color: var(--color-ink); }
-[data-theme="dark"] [data-shell="mobile"] .ns-tk-mfchip.is-on, [data-theme="dark"][data-shell="mobile"] .ns-tk-mfchip.is-on { border-color: color-mix(in srgb, var(--color-gold) 55%, transparent); }
-[data-shell="mobile"] .ns-tk-mfchip.is-clear { border-style: dashed; border-color: var(--color-dash); }
-[data-shell="mobile"] .ns-tk-mfchip:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-mfchip:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+/* ═══ 篩選 sheet MobileSearchSheet .ns-tk-ms*（丙）═══ */
+/* UI 丙-5 H2：入口是分頁籤列下一列的「篩選」chip、殼是共用 MSheet（頂列與黏底列都歸殼，售票口的微調在檔尾 T4 區）；這裡是五段的內容 */
+/* 篩選中：月份列換成「找到 N 筆…」；結果清單的第一個月份小標少一點上距 */
 [data-shell="mobile"] .ns-tk-mfound { margin-top: 0; }
 [data-shell="mobile"] .ns-tk-mbook.is-results .ns-tk-mmonthrule:first-child { padding-top: 12px; }
-[data-shell="mobile"] .ns-tk-mnone small { display: block; margin-top: 6px; font-size: 11.5px; letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tk-mnone small { display: block; margin-top: 6px; font-size: 11.5px; letter-spacing: .06em; } /* 字面值：11.5px 不在手機字階，照原型 */
 
-/* sheet 本體：頂（搜尋框＋完成）／中（五段，自己捲）／底（清除全部・看結果） */
-[data-shell="mobile"] .m-sheet.ns-tk-msearch-sheet { padding-bottom: 0; }
-[data-shell="mobile"] .ns-tk-ms-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px 6px var(--m-gutter); }
+/* 關鍵字欄 */
 [data-shell="mobile"] .ns-tk-ms-field {
   flex: 1; min-width: 0; height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 11px;
-  border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
   color: var(--color-ink-faint); transition: border-color .15s;
 }
 [data-shell="mobile"] .ns-tk-ms-field:focus-within { border-color: var(--accent); color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-ms-field input {
   flex: 1; min-width: 0; height: 100%; padding: 0; background: transparent; border: 0; outline: none; -webkit-appearance: none; appearance: none;
-  font-family: inherit; font-size: 16px; letter-spacing: .03em; color: var(--color-ink);
+  font-family: inherit; font-size: 16px; letter-spacing: .03em; color: var(--color-ink); /* 字面值：手機輸入框 16px 防放大 */
 }
-[data-shell="mobile"] .ns-tk-ms-field input::placeholder { color: var(--color-ink-faint); font-size: 14px; }
+[data-shell="mobile"] .ns-tk-ms-field input::placeholder { color: var(--color-ink-faint); font-size: var(--fs-ui); }
 [data-shell="mobile"] .ns-tk-ms-field input::-webkit-search-cancel-button { display: none; }
-[data-shell="mobile"] .ns-tk-ms-field .clr { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 2px; font-size: 18px; line-height: 1; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-field .clr { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--radius-ctl); font-size: 18px; line-height: 1; color: var(--color-ink-faint); } /* 字面值：清除鈕 × 圖示字 18px 照原型 */
 [data-shell="mobile"] .ns-tk-ms-field .clr:active { background: var(--ns-tk-hover); color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-ms-top .ns-tk-mbtn { flex: none; }
-[data-shell="mobile"] .ns-tk-ms-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; padding: 0 var(--m-gutter) 12px; }
-[data-shell="mobile"] .ns-tk-ms-body::-webkit-scrollbar { display: none; }
 [data-shell="mobile"] .ns-tk-ms-sec + .ns-tk-ms-sec { border-top: 1px dashed var(--color-line); margin-top: 6px; }
-[data-shell="mobile"] .ns-tk-ms-lbl { margin: 0; padding: 12px 2px 7px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-ms-sub { margin: 0; padding: 2px 2px 5px; font-size: 11px; letter-spacing: .2em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-lbl { margin: 0; padding: 12px 2px 7px; font-size: 10px; letter-spacing: .34em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-ms-sub { margin: 0; padding: 2px 2px 5px; font-size: var(--fs-micro); letter-spacing: .2em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-ms-sub ~ .ns-tk-ms-sub { padding-top: 10px; }
 [data-shell="mobile"] .ns-tk-mchips { display: flex; flex-wrap: wrap; gap: 6px; }
 [data-shell="mobile"] .ns-tk-mchips.is-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; margin: 0 calc(-1 * var(--m-gutter)); padding: 0 var(--m-gutter) 2px; }
 [data-shell="mobile"] .ns-tk-mchips.is-scroll::-webkit-scrollbar { display: none; }
-[data-shell="mobile"] .ns-tk-ms-sep { flex: none; align-self: center; margin: 0 2px 0 6px; padding-left: 10px; border-left: 1px dashed var(--color-dash); font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-sep { flex: none; align-self: center; margin: 0 2px 0 6px; padding-left: 10px; border-left: 1px dashed var(--color-dash); font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mchip .is-arch { color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mchip.on .is-arch { color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-ms-range { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 [data-shell="mobile"] .ns-tk-ms-date {
   flex: 1; min-width: 0; min-height: 46px; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
-  padding: 3px 11px; border: 1px solid var(--color-line); border-radius: 2px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
-  font-family: var(--font-display); font-weight: 600; font-size: 14px; color: var(--color-ink); text-align: left;
+  padding: 3px 11px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-ui); color: var(--color-ink); text-align: left;
 }
-[data-shell="mobile"] .ns-tk-ms-date small { font-family: var(--font-body); font-weight: 400; font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-ms-date small { font-family: var(--font-body); font-weight: 400; font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-ms-date:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-ms-range .dash { color: var(--color-ink-faint); }
 /* 分類：三欄格子；主分類格＝整勾（含子分類），格右 › 展開子分類單勾 */
 [data-shell="mobile"] .ns-tk-ms-cats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 [data-shell="mobile"] .ns-tk-msc {
   display: flex; min-width: 0; min-height: 48px; box-sizing: border-box; overflow: hidden;
-  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent);
+  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
   transition: border-color .15s, background .15s;
 }
 [data-shell="mobile"] .ns-tk-msc .pick {
   flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px;
   text-align: center; line-height: 1.25; font-family: inherit; color: var(--color-ink); background: transparent; border: 0;
 }
-[data-shell="mobile"] .ns-tk-msc .nm { max-width: 100%; font-size: 13px; letter-spacing: .02em; overflow-wrap: anywhere; }
-[data-shell="mobile"] .ns-tk-msc .pick small { font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-msc .nm { max-width: 100%; font-size: var(--fs-sm); letter-spacing: .02em; overflow-wrap: anywhere; }
+[data-shell="mobile"] .ns-tk-msc .pick small { font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：9.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-msc .more { flex: none; width: 26px; display: grid; place-items: center; border: 0; border-left: 1px dashed var(--color-line); background: transparent; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-msc .more svg { transition: transform .22s cubic-bezier(.3, 1.4, .5, 1); }
 [data-shell="mobile"] .ns-tk-msc.open .more { background: var(--ns-tk-hover); color: var(--color-ink); }
@@ -612,13 +482,10 @@
 [data-shell="mobile"] .ns-tk-msc.on { outline: var(--sel-line); outline-offset: -1px; background: var(--ns-tk-sel); }
 [data-shell="mobile"] .ns-tk-msc.on .nm { font-weight: 500; }
 [data-shell="mobile"] .ns-tk-msearch-sheet .ns-tk-mgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-[data-shell="mobile"] .ns-tk-ms-foot { flex: none; display: flex; gap: 8px; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom) + 10px); border-top: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-ms-foot .ns-tk-mbtn { flex: 1; }
-[data-shell="mobile"] .ns-tk-ms-foot .ns-tk-mbtn:first-child { flex: 0 0 auto; }
 
 /* ═══ 路線列尾小字 .ns-tk-maside（丙；掛在主線的 .m2-route 裡：[data-shell="mobile"] .m2-route .ns-tk-maside）═══ */
 /* 在 .m2-route-name（flex:1）之後、.m2-route-go 之前；名字長時名字先省略，小字不縮 */
-[data-shell="mobile"] .m2-route .ns-tk-maside { flex: none; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-shell="mobile"] .m2-route .ns-tk-maside { flex: none; font-size: var(--fs-micro); letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ════════ 第③階段「管帳」（③契約 §2.6；Stage 0 甲席只立分區錨點，內容丙席；每條前綴 [data-shell="mobile"]）════════ */
 
@@ -634,12 +501,12 @@
   margin-top: 10px; padding: 8px 12px 4px;
 }
 [data-shell="mobile"] .ns-tk-mbud-h { display: flex; align-items: baseline; gap: 10px; min-height: 30px; padding: 2px 0 6px; }
-[data-shell="mobile"] .ns-tk-mbud-h h2 { margin: 0; font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: .2em; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mbud-h small { font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mbud-h h2 { margin: 0; font-family: var(--font-display); font-size: var(--fs-sm); font-weight: 700; letter-spacing: .2em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbud-h small { font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：10.5px 不在手機字階，照原型 */
 /* 「設定」：無框淡字；觸控 44 高用負外距吃進標題列 */
 [data-shell="mobile"] .ns-tk-mbud-set {
   align-self: center; margin: -8px -8px -8px auto; min-height: 44px; padding: 0 8px;
-  font-family: inherit; font-size: 12.5px; letter-spacing: .12em; color: var(--color-ink-soft); background: transparent; border: 0;
+  font-family: inherit; font-size: 12.5px; letter-spacing: .12em; color: var(--color-ink-soft); background: transparent; border: 0; /* 字面值：12.5px 不在手機字階，照原型 */
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-tk-mbud-set:active { color: var(--color-ink); background: var(--ns-tk-hover); }
@@ -659,17 +526,17 @@
 [data-shell="mobile"] .ns-tk-mbud-row:last-child.is-total > div { border-bottom: 0; }
 [data-shell="mobile"] .ns-tk-mbud-row > button:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-mbud-row > button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
-[data-shell="mobile"] .ns-tk-mbud-row .n { grid-area: n; display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 14px; letter-spacing: .04em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbud-row .n { grid-area: n; display: flex; align-items: baseline; gap: 7px; min-width: 0; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mbud-row .n .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-shell="mobile"] .ns-tk-mbud-row .n .gt { margin: 0 .3em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mbud-row .n .ovr { flex: none; font-family: var(--font-body); font-weight: 400; font-size: 9.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-row .n .ovr { flex: none; font-family: var(--font-body); font-weight: 400; font-size: 9.5px; letter-spacing: .16em; color: var(--color-ink-faint); } /* 字面值：9.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mbud-row.is-total .n { font-family: var(--font-display); font-weight: 700; letter-spacing: .14em; }
 [data-shell="mobile"] .ns-tk-mbud-row.is-archived .n .t { color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mbud-row.is-gone .n .t { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mbud-row .v { grid-area: v; text-align: right; white-space: nowrap; font-family: var(--font-display); font-weight: 600; font-size: 14px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mbud-row .v { grid-area: v; text-align: right; white-space: nowrap; font-family: var(--font-display); font-weight: 600; font-size: 14px; color: var(--color-ink); font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-mbud-row .v .sl { margin: 0 3px; font-weight: 400; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mbud-row .bar { grid-area: b; position: relative; height: 8px; border-radius: 1px; background: var(--bud-track); }
-[data-shell="mobile"] .ns-tk-mbud-row .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: var(--bud-fill); transition: width .35s cubic-bezier(.3, 1.1, .5, 1); }
+[data-shell="mobile"] .ns-tk-mbud-row .bar { grid-area: b; position: relative; height: 8px; border-radius: 1px; background: var(--bud-track); } /* 字面值：細條／色票 1px 圓角照原型 */
+[data-shell="mobile"] .ns-tk-mbud-row .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 1px; background: var(--bud-fill); transition: width .35s cubic-bezier(.3, 1.1, .5, 1); } /* 字面值：細條／色票 1px 圓角照原型 */
 [data-shell="mobile"] .ns-tk-mbud-row.is-total .bar .fill { background: var(--bud-fill-total); }
 [data-shell="mobile"] .ns-tk-mbud-row .bar .tail {
   position: absolute; right: 0; top: 0; bottom: 0; border-radius: 0 1px 1px 0;
@@ -677,47 +544,46 @@
   box-shadow: inset 1.5px 0 0 var(--color-ink);
 }
 [data-shell="mobile"] .ns-tk-mbud-row .bar .pace {
-  position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px;
+  position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; /* 字面值：細條／色票 1px 圓角照原型 */
   background: var(--color-ink-faint); box-shadow: 0 0 0 1px var(--color-paper-high);
 }
-[data-shell="mobile"] .ns-tk-mbud-row .r { grid-area: r; min-width: 64px; text-align: right; white-space: nowrap; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; }
-[data-shell="mobile"] .ns-tk-mbud-row .r b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mbud-note { margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--color-line); font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mbud-empty { display: grid; justify-items: center; gap: 10px; padding: 18px 0 12px; border-top: 1px solid var(--color-line); font-size: 13px; letter-spacing: .14em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbud-row .r { grid-area: r; min-width: 64px; text-align: right; white-space: nowrap; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; } /* 字面值：11.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mbud-row .r b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: .02em; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mbud-note { margin: 0; padding: 12px 0 8px; border-top: 1px solid var(--color-line); font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); } /* 字面值：12.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mbud-empty { display: grid; justify-items: center; gap: 10px; padding: 18px 0 12px; border-top: 1px solid var(--color-line); font-size: var(--fs-sm); letter-spacing: .14em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mbud-empty p { margin: 0; }
 /* 趨勢卡自己的標題列（圖例從「月｜年」那一列搬進來，不然看起來像在標預算卡） */
 [data-shell="mobile"] .ns-tk-mst-cardh { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
-[data-shell="mobile"] .ns-tk-mst-cardh b { font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: .2em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mst-cardh b { font-family: var(--font-display); font-size: var(--fs-sm); font-weight: 700; letter-spacing: .2em; color: var(--color-ink); }
 
 /* ═══ 預算 sheet .ns-tk-mbe*（丙）═══ */
 /* 原型題二手機：一個對象一塊；塊內「預設｜覆寫」兩格並排（一塊 114px；上下疊要 145px） */
 [data-shell="mobile"] .ns-tk-mbe-head { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 2px 0 0; }
 [data-shell="mobile"] .ns-tk-mbe-head .ns-tk-mnav { width: 44px; height: 44px; }
-[data-shell="mobile"] .ns-tk-mbe-head b { min-width: 9em; text-align: center; font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: .08em; color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mbe-hint { margin: -4px 0 8px; text-align: center; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-head b { min-width: 9em; text-align: center; font-family: var(--font-display); font-size: var(--fs-h3); font-weight: 600; letter-spacing: .08em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbe-hint { margin: -4px 0 8px; text-align: center; font-size: var(--fs-micro); letter-spacing: .04em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mbe-blk { padding: 6px 0 10px; border-top: 1px dashed var(--color-line); }
 [data-shell="mobile"] .ns-tk-mbe-blk.is-total { border-top: 1px solid var(--color-line); }
 [data-shell="mobile"] .ns-tk-mbe-bh { display: flex; align-items: center; min-height: 36px; }
-[data-shell="mobile"] .ns-tk-mbe-bh .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mbe-bh .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; color: var(--color-ink); } /* 字面值：14.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mbe-bh .nm .gt { margin: 0 .3em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mbe-blk.is-total .nm { font-family: var(--font-display); font-weight: 700; letter-spacing: .14em; }
 [data-shell="mobile"] .ns-tk-mbe-fs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 [data-shell="mobile"] .ns-tk-mbe-f { display: grid; gap: 1px; min-width: 0; }
-[data-shell="mobile"] .ns-tk-mbe-f .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mbe-f .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); white-space: nowrap; } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mbe-f .in { position: relative; display: block; }
 [data-shell="mobile"] .ns-tk-mbe-f input {
   width: 100%; min-height: 44px; box-sizing: border-box; padding: 0 2px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
-  font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); text-align: right; font-variant-numeric: tabular-nums;
+  font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); text-align: right; font-variant-numeric: tabular-nums; /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 }
 [data-shell="mobile"] .ns-tk-mbe-f input.has-clr { padding-right: 32px; }
 [data-shell="mobile"] .ns-tk-mbe-f input:focus { border-bottom-color: var(--accent); }
-[data-shell="mobile"] .ns-tk-mbe-f input::placeholder { font-family: var(--font-body); font-weight: 400; font-size: 13px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-f input::placeholder { font-family: var(--font-body); font-weight: 400; font-size: var(--fs-sm); color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mbe-f .clr { position: absolute; right: -6px; top: 0; width: 36px; height: 44px; display: grid; place-items: center; color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .ns-tk-mbe-f .clr:active { color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mbe-add { width: 100%; margin: 6px 0 2px; }
 /* 加分類預算（疊一層的 sheet）：支出兩層格子；已設的淡掉、不能點 */
-[data-shell="mobile"] .ns-tk-mbe-picksheet .ns-tk-msheet-body { padding-bottom: 0; }
-[data-shell="mobile"] .ns-tk-mbe-pickhint { margin: 0; padding: 0 18px 8px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mbe-pickhint { margin: 0; padding: 0 18px 8px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mbe-pick { padding-bottom: 6px; }
 [data-shell="mobile"] .ns-tk-mbe-pick .ns-tk-mcell.has-kids small { color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mbe-pick .ns-tk-mcell.is-taken { opacity: var(--disabled); cursor: not-allowed; }
@@ -725,17 +591,17 @@
 /* ═══ 定期帳 sheet .ns-tk-mrm*（丙）═══ */
 /* 原型題四手機：橫幅（金，是提醒不是錯誤）→「進行中」「已暫停」兩區 → 一條兩行；列尾只留「暫停／開始」 */
 [data-shell="mobile"] .ns-tk-mrm-banner { margin: 8px 0 4px; padding: 10px 12px; border-radius: 2px; background: var(--color-paper-used); border: 1px dashed var(--color-dash); } /* 頁內資訊卡＝紙材質（§2.8；不再金底金框） */
-[data-shell="mobile"] .ns-tk-mrm-banner p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mrm-banner p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); } /* 字面值：12.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mrm-banner b { font-family: var(--font-display); color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn { width: 100%; }
 /* 匯入結果卡「去定期帳 ›」（ImportCard 兩殼共用、桌機樣式 ticket.css §O）：手機觸控高 44，用負外距吃回去不把卡撐高 */
 [data-shell="mobile"] .ns-tk-im-note.is-plan { align-items: center; }
 [data-shell="mobile"] .ns-tk-im-note.is-plan .ns-tk-btn { min-height: var(--ctl-h); margin-block: -8px; } /* 文字鈕撐到觸控 44，上下負外距吃回去不把卡撐高 */
-[data-shell="mobile"] .ns-tk-mrm-h { margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mrm-h { margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); } /* 字面值：10.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mrm-h .n { font-family: var(--font-latin); letter-spacing: .06em; }
 [data-shell="mobile"] .ns-tk-mrm ul { margin: 0; padding: 0; list-style: none; }
-[data-shell="mobile"] .ns-tk-mrm-empty { margin: 0; padding: 28px 8px 20px; text-align: center; font-size: 13px; line-height: 1.7; letter-spacing: .08em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mrm-none { margin: 0; padding: 14px 0; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-empty { margin: 0; padding: 28px 8px 20px; text-align: center; font-size: var(--fs-sm); line-height: 1.7; letter-spacing: .08em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-none { margin: 0; padding: 14px 0; font-size: 12.5px; letter-spacing: .08em; color: var(--color-ink-faint); } /* 字面值：12.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mrm-row { display: flex; align-items: center; border-bottom: 1px dashed var(--color-line); }
 [data-shell="mobile"] .ns-tk-mrm li:last-child .ns-tk-mrm-row { border-bottom: 0; }
 [data-shell="mobile"] .ns-tk-mrm-row .main {
@@ -745,13 +611,13 @@
 [data-shell="mobile"] .ns-tk-mrm-row .main:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-mrm-row .main:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 [data-shell="mobile"] .ns-tk-mrm-row .l1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; }
-[data-shell="mobile"] .ns-tk-mrm-row .amt { flex: none; font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--color-ink); font-variant-numeric: tabular-nums; }
-[data-shell="mobile"] .ns-tk-mrm-row .amt .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; font-weight: 400; letter-spacing: .08em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mrm-row .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mrm-row .amt { flex: none; font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--color-ink); font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mrm-row .amt .cur { margin-left: 3px; font-family: var(--font-latin); font-size: 9.5px; font-weight: 400; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mrm-row .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-ui); color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mrm-row .what .gt { margin: 0 .3em; color: var(--color-ink-faint); }
 [data-shell="mobile"] .ns-tk-mrm-row .what .unc { color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mrm-row .l1 .nx { flex: none; margin-left: auto; padding-left: 8px; font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mrm-row .l2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mrm-row .l1 .nx { flex: none; margin-left: auto; padding-left: 8px; font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-soft); } /* 字面值：11.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mrm-row .l2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mrm-row .warn { margin-right: 4px; font-weight: 600; color: var(--color-late); }
 [data-shell="mobile"] .ns-tk-mrm-row.is-blocked .l1 .nx { color: var(--color-late); }
 [data-shell="mobile"] .ns-tk-mrm-row.is-paused :is(.amt, .what) { color: var(--color-ink-soft); }
@@ -761,10 +627,9 @@
 
 /* ═══ 定期表單 .ns-tk-mre*（丙）═══ */
 /* 骨架＝.ns-tk-mform（記一筆表單同一套）；頻率區在金額正下方、固定展開（原型題三：頻率要在第一屏） */
-[data-shell="mobile"] .ns-tk-mre-from { margin: 0; padding: 10px 18px 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mre-from { margin: 0; padding: 10px 18px 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mre-freq { margin: 2px 0 0; }
 [data-shell="mobile"] .ns-tk-mre-seg { padding: 0 18px; }
-[data-shell="mobile"] .ns-tk-mre-seg .ns-tk-mseg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: row; }
 [data-shell="mobile"] .ns-tk-mre-detail { padding: 10px 18px 2px; }
 [data-shell="mobile"] .ns-tk-mre-freq > .ns-tk-mf-field { margin: 6px 18px 0; border-top: 1px dashed var(--color-line); border-bottom: 0; }
 [data-shell="mobile"] .ns-tk-mre-wk, [data-shell="mobile"] .ns-tk-mre-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
@@ -772,33 +637,31 @@
 [data-shell="mobile"] .ns-tk-mre-days { gap: 4px; }
 [data-shell="mobile"] .ns-tk-mre-wk button,
 [data-shell="mobile"] .ns-tk-mre-days button {
-  min-width: 0; height: 44px; padding: 0; box-sizing: border-box; border: 1px solid var(--color-line); border-radius: 2px;
-  background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); font-family: inherit; font-size: 14px; color: var(--color-ink-soft);
+  min-width: 0; height: 44px; padding: 0; box-sizing: border-box; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); font-family: inherit; font-size: var(--fs-ui); color: var(--color-ink-soft);
   -webkit-tap-highlight-color: transparent; transition: border-color .12s, background .12s, color .12s;
 }
 [data-shell="mobile"] .ns-tk-mre-days button { height: 40px; font-family: var(--font-latin); }
 [data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
 [data-shell="mobile"] :is(.ns-tk-mre-wk, .ns-tk-mre-days) button[aria-pressed="true"] { outline: var(--sel-line); outline-offset: -1px; color: var(--color-ink); font-weight: 600; background: var(--ns-tk-sel); }
-[data-shell="mobile"] .ns-tk-mre-dailyhint { margin: 0; padding: 4px 0; font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mre-hint { margin: 6px 0 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mre-dailyhint { margin: 0; padding: 4px 0; font-size: 12.5px; letter-spacing: .06em; color: var(--color-ink-faint); } /* 字面值：12.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-mre-hint { margin: 6px 0 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mre-hint.is-past { margin: 0; padding: 0 18px 2px calc(18px + 44px + 12px); }
-[data-shell="mobile"] .ns-tk-mre-preview { display: grid; gap: 1px; margin: 14px 18px 0; padding: 9px 12px; border-radius: 2px; background: var(--color-paper-used); border: 1px solid var(--color-line); font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mre-preview { display: grid; gap: 1px; margin: 14px 18px 0; padding: 9px 12px; border-radius: var(--radius-ctl); background: var(--color-paper-used); border: 1px solid var(--color-line); font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); } /* 字面值：12.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mre-preview .t { min-width: 0; overflow-wrap: anywhere; }
 [data-shell="mobile"] .ns-tk-mre-preview .nx { font-weight: 600; color: var(--color-ink); }
 
-/* ═══ 定期小標 .ns-tk-mrep、月曆 .is-over（丙）═══ */
+/* ═══ 定期小標 .ns-tk-mrep（丙；月曆「超」UI 丙-5 J1 起在 ticket.css T6 區）═══ */
 /* 清單列小標（✎-5）：墨色細框小字、不蓋印；在分類那一行，分類字包 .ct 負責省略號、小標 flex:none（長分類被截的是分類字） */
 [data-shell="mobile"] .ns-tk-mrow .c { display: flex; align-items: center; gap: 7px; }
 [data-shell="mobile"] .ns-tk-mrow .c .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-shell="mobile"] .ns-tk-mrep {
-  flex: none; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--color-ink) 32%, transparent); border-radius: 2px;
-  font-size: 10.5px; line-height: 15px; letter-spacing: .12em; text-indent: .12em; color: var(--color-ink-soft); white-space: nowrap;
+  flex: none; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--color-ink) 32%, transparent); border-radius: var(--radius-ctl);
+  font-size: 10.5px; line-height: 15px; letter-spacing: .12em; text-indent: .12em; color: var(--color-ink-soft); white-space: nowrap; /* 字面值：10.5px 不在手機字階，照原型 */
 }
-/* 月曆「超」（✎-6）：日號後小字、墨色粗一階；格不上色（試過淡墨底，像 hover） */
-[data-shell="mobile"] .ns-tk-mcal-cell .d small.over { margin-left: 2px; font-family: var(--font-body); font-size: 10px; font-weight: 700; letter-spacing: 0; color: var(--color-ink); }
 /* 記一筆表單「更多欄位」最後一列：定期（設成定期… ›／唯讀「每月 1 日 · 管理 ›」） */
-[data-shell="mobile"] .ns-tk-mf-rep .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mf-rep .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-ui); color: var(--color-ink-soft); }
 [data-shell="mobile"] .ns-tk-mf-rep.is-ro .ns-tk-mf-pick { border-color: transparent; padding-right: 0; color: var(--color-ink-faint); }
 
 @media (prefers-reduced-motion: reduce) {
@@ -808,25 +671,133 @@
 
 /* ═══ 減量動態 ═══ */
 @media (prefers-reduced-motion: reduce) {
-  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msheet, .ns-tk-mveil, .ns-tk-msubs, .ns-tk-mday, .ns-tk-mnotice, .ns-tk-mst-rows .row > button) { animation: none; }
-  [data-shell="mobile"] :is(.ns-tk-mviews-ink, .ns-tk-mst-rows .bar i, .ns-tk-mst-rows .c svg, .ns-tk-msc .more svg) { transition: none; }
+  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msubs, .ns-tk-mday, .ns-tk-mnotice, .ns-tk-mst-rows .row > button) { animation: none; }
+  [data-shell="mobile"] :is(.ns-tk-mst-rows .bar i, .ns-tk-mst-rows .c svg, .ns-tk-msc .more svg) { transition: none; }
   [data-shell="mobile"] .ns-tk-mf-moretog svg { transition: none; }
 }
 
 /* ═══ 磨光⑥ 售票口排序（契約 §2-3、§2-4；D-票-63、D-票-64）═══ */
-/* 月份列「排序」：細框字鈕，44 高；夾在 › 與「＋ 記一筆」之間 */
-[data-shell="mobile"] .ns-tk-msort {
-  margin-left: auto; min-height: 44px; padding: 0 10px; border-radius: 2px; background: none;
-  font-size: 13px; letter-spacing: .12em; color: var(--color-ink-faint); white-space: nowrap; transition: background .15s, color .15s;
-}
-[data-shell="mobile"] .ns-tk-msort:active { background: var(--ns-tk-hover); color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-msort:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
-[data-shell="mobile"] .ns-tk-msort + .ns-tk-madd { margin-left: 4px; }
-
 /* 記一筆的帳戶 chips：「常用」小標＋前 3 個，再一道虛線「全部」接完整清單（同搜尋 sheet 的 .ns-tk-ms-sep） */
-[data-shell="mobile"] .ns-tk-mf-acctsep { flex: none; align-self: center; margin: 0 2px 0 6px; padding-left: 10px; border-left: 1px dashed var(--color-dash); font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mf-acctsep { flex: none; align-self: center; margin: 0 2px 0 6px; padding-left: 10px; border-left: 1px dashed var(--color-dash); font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mf-acctsep.is-lead { margin: 0 2px 0 0; padding-left: 0; border-left: 0; }
 
 /* 平面清單（金額排序）：第二行最前面是日期 */
 [data-shell="mobile"] .ns-tk-mlist.is-flat { padding-top: 4px; }
-[data-shell="mobile"] .ns-tk-mrow .nt .dt { flex: none; font-family: var(--font-latin); font-size: 11.5px; letter-spacing: .02em; color: var(--color-ink-soft); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mrow .nt .dt { flex: none; font-family: var(--font-latin); font-size: 11.5px; letter-spacing: .02em; color: var(--color-ink-soft); font-variant-numeric: tabular-nums; } /* 字面值：11.5px 不在手機字階，照原型 */
+
+/* ═══ UI 丙-5 售票口換裝：各席分區（新樣式只寫在自己那區；刪舊規則集中給 T7） ═══ */
+
+/* ==== 丙-5 T4 手機頁 ==== */
+/* 共用 MSheet 的售票口 sheet（.ns-tk-msh：管帳以外的排序、對話框宿主、篩選、加分類預算）是 portal 根，區域變數補一份（同檔頭那組） */
+[data-shell="mobile"] .ns-tk-msh {
+  --ns-tk-hover: var(--hover-bg);
+  --ns-tk-sel: var(--sel-bg);
+  --ns-tk-mglass: var(--glass-edge);
+  --ns-tk-mhi: var(--glass-hi);
+  --ns-tk-mpaper: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+}
+
+/* H1 分頁籤列（MobileViewBar）＝.ns-tabrow 同款（Tabs＋末端 .mgr「管帳」兩段各自畫玻璃底＋底線，tabs.css）；
+ * 跟丙-4 時刻表 .ns-tt-mtop 同一做法：住在頁內、sticky 貼頂，負 gutter 吃掉 .m-page 的左右內距。
+ * 頁的上內距歸零（籤列直接貼頂帶）；籤列下面的距離由籤列自己的下外距給。 */
+[data-shell="mobile"] .m-page.ns-tk-m { padding-top: 0; }
+[data-shell="mobile"] .ns-tk-mtop {
+  position: sticky; top: 0; z-index: 3;
+  margin: 0 calc(var(--m-gutter) * -1) var(--sp-3);
+}
+/* 帳戶卡、帳簿捲過籤列底下：粉彩的 --float-bg 半透明、籤字後面會透出內容——墊一層紙色（同時刻表；銀河本來就不透） */
+[data-shell="mobile"] .ns-tk-m .ns-tk-mtop > :is(.ns-tabs, .mgr) {
+  background-image: linear-gradient(var(--float-bg), var(--float-bg));
+  background-color: var(--color-paper);
+}
+
+/* H2／H3 篩選列（清單視圖；P4 A 案）：左「篩選」chip（有條件＝亮＋「· N」＋淡字摘要＋「清除」）、右「排序」 */
+[data-shell="mobile"] .ns-tk-mfrow { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; margin: 0 0 var(--sp-3); }
+[data-shell="mobile"] .ns-tk-mfbtn { flex: none; gap: var(--sp-1); }
+[data-shell="mobile"] .ns-tk-mfsum {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .ns-tk-mfrow > .btn-text { flex: none; }
+[data-shell="mobile"] .ns-tk-mfsort { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: auto; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mfsort.is-on { color: var(--sel-fg); }
+
+/* H3 月份列：DateNav（‹ 10月 › 今天）＋右側「＋ 記一筆」，343 寬一行放得下——
+ * DateNav 不換行；標題保底寬收成「2025年10月」的寬（量過 16px 襯線＝95px；datefield.css 手機 7em 是給「10/22（四）」的，
+ * 這裡用不到那麼寬——多一層 .ns-tk-mmonth 壓過它，不靠注入順序） */
+[data-shell="mobile"] .ns-tk-mmonth { min-width: 0; }
+[data-shell="mobile"] .ns-tk-mmonth .ns-tk-mdnav { flex: none; flex-wrap: nowrap; }
+[data-shell="mobile"] .ns-tk-mmonth .ns-tk-mdnav .t { min-width: 6em; white-space: nowrap; }
+
+/* H6 空帳本＝共用 EmptyState（長相在 listbits.css）：只給上下留白 */
+[data-shell="mobile"] .ns-tk-mblank { margin-block: var(--sp-6) var(--sp-5); }
+
+/* H4 排序 sheet：選中那列＝--sel-bg／--sel-fg（§2.10；舊的左線退役） */
+[data-shell="mobile"] .ns-tk-msh .ns-msheet-item.is-on { background: var(--sel-bg); color: var(--sel-fg); }
+
+/* H2 篩選 sheet（共用 MSheet）：段落直接排在殼的內容區裡（殼已有左右 gutter 與上內距，第一段的標籤不再補上距）；
+ * 黏底列（清除全部｜看結果）開著時 toast 落在它上面——宣告底列高（殼 .ns-msheet-foot：上 10＋鈕＋下 14＋線 1；不含 safe-area） */
+[data-shell="mobile"] .ns-tk-ms-secs > .ns-tk-ms-sec:first-child .ns-tk-ms-lbl { padding-top: 0; }
+[data-shell="mobile"]:has(.ns-tk-msearch-sheet) { --m-full-foot-h: calc(var(--ctl-h) + 25px); }
+
+/* H4 加分類預算（疊在預算 sheet 上）：殼的內容區已有 gutter，說明字與格子不再另縮（.ns-tk-mf-cats 的 14 是給記一筆表單的） */
+[data-shell="mobile"] .ns-tk-mbe-picksheet .ns-tk-mbe-pickhint { padding: 0 0 var(--sp-2); }
+[data-shell="mobile"] .ns-tk-mbe-picksheet .ns-tk-mbe-pick { padding-inline: 0; }
+
+/* H4 對話框宿主（MobileSheetHost → 共用 MSheet `.ns-tk-msh.is-dialog.is-<kind>`）：原本掛在舊殼 `.ns-tk-msheet.is-dialog`
+ * 的手機單欄微調搬到這裡（對話框本體的長相在 ticket.css §F，兩殼共用；這裡只把觸控目標撐到 44、輸入字級撐到 16——
+ * iOS／部分 Android 小於 16 聚焦會放大，借 --fs-h3（16）的值）。
+ * 底部：殼的手勢列內距與內容區下內距歸零，由各本體自己讓（黏底按鈕列、或最後一段補 safe-area），按鈕列才貼得到底 */
+[data-shell="mobile"] .ns-tk-msh.is-dialog { padding-bottom: 0; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog > .ns-msheet-body { padding-bottom: 0; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dialog { padding-bottom: var(--sp-1); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-dcats, .ns-tk-dorder, .ns-tk-dcur, .ns-tk-mbe) { padding-bottom: calc(var(--m-safe-bottom, 0px) + var(--sp-4)); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfield { min-height: 48px; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-din, .ns-tk-dname, .ns-tk-dselect) { min-height: var(--ctl-input); font-size: var(--fs-h3); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-dfoot, .ns-tk-im-foot) {
+  position: sticky; bottom: 0;
+  margin: var(--sp-3) calc(-1 * var(--m-gutter)) 0; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom, 0px) + 6px);
+  background: var(--ns-tk-mpaper);
+}
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfoot { border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-foot { margin-top: var(--sp-4); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfoot .ns-tk-dbtn { flex: 1; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dmini { min-height: var(--ctl-h); min-width: var(--ctl-h); } /* 列內小鈕撐到觸控目標（緊湊鈕 36 不夠） */
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-drow { min-height: 48px; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-darch-tog { min-height: var(--ctl-h); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcurrow { grid-template-columns: 40px minmax(0, 1fr) auto; row-gap: 0; padding: 6px 0; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcurrow .rate { grid-column: 2 / -1; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcuradd { grid-template-columns: 76px minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcuradd :is(.ns-tk-dselect, .ns-tk-drate, .ns-tk-dbtn) { grid-column: 1 / -1; }
+/* 匯入票（ImportCard 本體，ticket.css §G）：單欄、寬度吃滿；餘額對帳七列直排（§5.3） */
+[data-shell="mobile"] .ns-tk-msh.is-import > .ns-msheet-body > * { max-width: 100%; box-sizing: border-box; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-recon { grid-template-columns: minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-recon label { grid-template-columns: minmax(0, 1fr) 132px 16px; min-height: 48px; font-size: var(--fs-ui); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-recon input { min-height: 40px; font-size: var(--fs-h3); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-mod { grid-template-columns: minmax(0, 1fr); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-mod .ns-tk-im-pick { grid-column: 1; grid-row: auto; margin-top: var(--sp-1); } /* Segmented 手機殼本來就撐滿一列 */
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-table { font-size: var(--fs-sm); }
+/* ==== end T4 ==== */
+
+/* ==== 丙-5 T5 手機表單 ==== */
+/* 記一筆／定期帳表單、帳戶頁換 MFullPage（H5）：本文交給 .ns-tk-mform／.ns-tk-macct 那一欄自己排（捲動區＋底列），共用本文的內距與間距歸零 */
+[data-shell="mobile"] .ns-mfull-body:has(> .ns-tk-mform, > .ns-tk-macct) { padding: 0; gap: 0; overflow: hidden; }
+/* 類型三選＝內文第一列（D4、P5 A 案）：共用 Segmented 撐滿一列；校正票的唯讀「精算」靠左 */
+[data-shell="mobile"] .ns-tk-mf-kind { padding: 14px 18px 0; }
+[data-shell="mobile"] .ns-tk-mf-kind .ns-tk-mkind.is-locked { display: inline-block; margin: 0; }
+
+/* 「＋ 新增帳戶」chip、分類格「＋ 新增…」（D3）：虛線框＋靛字＝新增，跟可選的項目分開 */
+[data-shell="mobile"] .ns-tk-mchip.is-add,
+[data-shell="mobile"] .ns-tk-mcell.is-add { border-style: dashed; background: transparent; color: var(--accent); }
+
+/* 時刻（F3）：共用 ClockInput 手機變體（常用時刻 chip＋±15＋說明行）佔欄位右邊兩格、靠左 */
+[data-shell="mobile"] .ns-tk-mf-clock > .ns-clock { grid-column: 2 / -1; justify-self: start; align-items: flex-start; padding: var(--sp-2) 0; }
+[data-shell="mobile"] .ns-tk-mf-clock > .ns-clock .ns-clock-quick { justify-content: flex-start; }
+
+/* 幣別 sheet（共用 MSheet list）：目前的幣別＝選中底 */
+[data-shell="mobile"] .ns-tk-mcursheet .ns-msheet-item[aria-pressed="true"] { background: var(--sel-bg); color: var(--sel-fg); font-weight: 600; }
+
+/* 新增分類 sheet（D3）：名稱欄撐滿、「管理分類…」文字鈕在下 */
+[data-shell="mobile"] .ns-tk-mf-catname { display: block; width: 100%; box-sizing: border-box; }
+[data-shell="mobile"] .ns-tk-mf-catmgr { align-self: flex-start; }  /* sheet 本文是直欄 flex（間距吃本文的 gap），不撐滿 */
+/* ==== end T5 ==== */

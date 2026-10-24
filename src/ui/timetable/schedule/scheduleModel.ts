@@ -18,7 +18,7 @@ export const SCHED_UI = {
   colActual: "實績",
   prevDay: "前一天",
   nextDay: "後一天",
-  toToday: "回到今天",
+  toToday: "今天",
   yesterday: "昨天",
   tomorrow: "明天",
   deskKeys: "← → 換日・T 今天・以 15 分為單位拖曳",

@@ -21,6 +21,13 @@
  *   - 既有篇離開編輯（失焦）＝存檔鏈送完後 `tagStore.syncNoteTags`；草稿的解析由 store 的 saveDiaryDraft 做。
  *   - 「改日期」的挑選器傳 `useDiaryPickMarks()`：自畫月格上寫過日記的日子有記號（D-筆-46 修訂）。
  *   - metaline 原本留給荷札的空位拿掉：內文就是正本，不另列一排（原型 7；桌機 DiaryEntry 同）。
+ *
+ * UI 丙-6（契約 §1 L2、L3、C3、S9）：
+ *   - 草稿登記返回層 `notes.diary.draft`（kind "page"）：返回＝按「取消」——有字時第一下只亮「還沒存檔——再按一次就放棄」，
+ *     第二下才放棄（之前返回鍵會直接離開旅客筆記回今日，草稿靠 draftMemo 留著但人被帶走）。
+ *   - 既有一篇編輯中登記 `notes.diaryEntry.edit`（"page"）：返回＝離開打字框（失焦本來就存檔）。
+ *   - 二次確認字跟捕捉框、桌機日記同一句（按「取消」也走這條，所以不提 Esc）。
+ *   - 「改日期」面板給 `backId`＝殼換 MSheet、跟本檔登記的那層合併。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
 import { useUiStore } from "../../../store/uiStore";
@@ -123,7 +130,8 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
   const [body, setBody] = useState(n.body);
   const [pickDate, setPickDate] = useState(false);
   // 磨光① 返回層：改日期面板＝同「取消」（同時只會有一篇開著它）
-  useBackLayer("notes.diaryEntry.pickDate", pickDate, () => setPickDate(false));
+  //   UI 丙-6 S9：面板傳同一個 id＋kind（backId／backKind）⇒ MSheet 殼合併成這一層
+  useBackLayer("notes.diaryEntry.pickDate", pickDate, () => setPickDate(false), "sheet");
   const latest = useRef({ title, body });
   latest.current = { title, body };
   const saved = useRef({ title: n.title ?? "", body: n.body });
@@ -184,6 +192,31 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
     scheduleSave();
   });
   const pickMarks = useDiaryPickMarks();
+
+  /**
+   * 離開編輯＝存檔送完 → 回閱讀態 → 解析荷札。
+   * UI 丙-6 修：回閱讀態要等存檔送完——store.setDiaryEditing(null) 會順手 loadDiary 重載當天，原本跟存檔同一拍出發，
+   *   重載先讀到舊字、晚於存檔寫回 store，syncTags 再拿舊字當「別台後寫贏了」把本地換掉＝剛打的字不見（mock 實測失焦與返回都會；
+   *   下次再打字就把舊字存回去）。排在存檔鏈後面，重載讀到的就是新字。
+   */
+  const leaveEdit = () => {
+    void enqueueSave().then(() => {
+      // 失焦時若 store 已換成別篇（點了另一篇的內文）就不清——那一篇的 setDiaryEditing 已經接手
+      if (useNotesStore.getState().diaryEditingId === n.id) setDiaryEditing(null);
+      syncTags();
+    });
+  };
+  // UI 丙-6 L3：編輯中按返回＝離開打字框（失焦就存）。焦點不在打字框時（例：點選器剛關、焦點沒回來）blur 沒有作用，直接走同一條離開路
+  useBackLayer(
+    "notes.diaryEntry.edit",
+    editing,
+    () => {
+      const ta = taRef.current;
+      if (ta && document.activeElement === ta) ta.blur();
+      else leaveEdit();
+    },
+    "page",
+  );
 
   // 卸載（翻日、切 tab）＝立即送出還在去抖的那一筆
   useEffect(
@@ -292,9 +325,7 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
                 void enqueueSave();
                 return;
               }
-              void enqueueSave().then(syncTags);
-              // 失焦時若 store 已換成別篇（點了另一篇的內文）就不清——那一篇的 setDiaryEditing 已經接手
-              if (useNotesStore.getState().diaryEditingId === n.id) setDiaryEditing(null);
+              leaveEdit();
             }}
             onCompositionStart={() => {
               composing.current = true;
@@ -363,6 +394,8 @@ export function MobileDiaryEntry({ n, today }: MobileDiaryEntryProps) {
           ]}
           onPick={(d) => void changeDate(d)}
           onClose={() => setPickDate(false)}
+          backId="notes.diaryEntry.pickDate"
+          backKind="sheet"
         />
       )}
     </div>
@@ -441,6 +474,8 @@ export function MobileDiaryDraft({ day, today, handle }: MobileDiaryDraftProps) 
     draftMemo = null;
     cancelDiaryDraft();
   };
+  // UI 丙-6 L2：草稿開著時返回＝按「取消」（有字時第一下只亮提示）。kind "page"：不收浮鈕、toast 不搬家（寫日記不是 sheet）
+  useBackLayer("notes.diary.draft", true, cancel, "page");
 
   const onType = () => {
     if (confirmCancel) setConfirmCancel(false);
@@ -512,7 +547,7 @@ export function MobileDiaryDraft({ day, today, handle }: MobileDiaryDraftProps) 
           onInsertTags={(names, caret) => applyTagEdit(insertTagsAt(bodyNow.current, caret, names))}
         />
       )}
-      {confirmCancel && <p className="ns-notes-mwarn">還有內容沒存——再按一次就放棄</p>}
+      {confirmCancel && <p className="ns-notes-mwarn">還沒存檔——再按一次就放棄</p>}
       <div className="ns-notes-mdraftbar">
         {/* 取消在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起從「主鈕在左」換過來，同桌機日記草稿列） */}
         <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onMouseDown={(e) => e.preventDefault()} onClick={cancel}>

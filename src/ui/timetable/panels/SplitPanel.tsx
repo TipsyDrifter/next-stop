@@ -48,15 +48,11 @@ export function SplitPanel({ onDone }: PanelProps) {
   // 磨光⑤ 甲′：切點框下的日期跟這一塊開始那天比（過夜的塊切在隔天＝赭）
   const refDay = usePanelRefDay(start);
 
+  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
   if (!block) {
     return (
       <div className="ns-tt-panel">
         <Sub>這一塊已經不在了</Sub>
-        <Actions>
-          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-            關閉
-          </button>
-        </Actions>
       </div>
     );
   }

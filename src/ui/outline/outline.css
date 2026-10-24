@@ -1,7 +1,7 @@
 /* ─────────────────────────────────────────────────────
  * outline.css — 大綱（主欄）專用補充；視覺本體＝styles/techo.css 第一段（prototypes/m1-c-techo.html 逐字移植）。
- * 這裡只放原型沒有、而 App 才需要的「不可見／hover 才現身」控件與狀態：
- * 巢狀縮排、選中票、草稿票虛線邊、.title 位置的輸入框、票根徽章／票種小字當按鈕、空日期入口、隱藏已完成。
+ * 這裡只放原型沒有、而 App 才需要的控件與狀態：
+ * 巢狀縮排、選中票、草稿票虛線邊、.title 位置的輸入框、票根徽章／票種小字當按鈕、日期 chip、⋯、頁首的 ⋯ 與聚焦麵包屑。
  * 注意：techo.css 與本檔都是 unlayered CSS；本檔在 index.css 之前注入，同權重會輸給 techo.css，
  *       所以凡與原型 class 同名屬性競爭的規則一律加 .ns-outline 前綴抬高特異度。顏色一律 tokens。
  * ───────────────────────────────────────────────────── */
@@ -43,8 +43,14 @@
 }
 .ns-outline .ticket input.title::placeholder { color: var(--color-ink-faint); }
 
-/* ═══ meta 內的項目群組與日期小字 ═══ */
+/* ═══ meta 內的項目群組與日期 chip ═══ */
 .ns-outline .meta .mi { display: contents; }
+/* 日期 chip（UI 丙-3 B5）＝前綴字（執行／原定／締切）＋共用 DateChip（common/datefield.css）。
+   chip 旁的清除 × 收掉：票面上每列一顆太吵；清除走浮層裡的「清除」（舊 chip 就是這樣）。 */
+.ns-outline .meta .row-date { display: inline-flex; align-items: center; gap: 6px; }
+.ns-outline .meta .row-date-pre { color: var(--color-ink-soft); }
+.ns-outline .meta .row-date .ns-datechip-clear { display: none; }
+/* 定期券的執行日：唯讀小框（班次由規則排定，不開挑選器），長相＝件一 .chip */
 .ns-outline .meta .date {
   padding: 0; background: transparent; border: 0; cursor: pointer;
   font: inherit; letter-spacing: inherit; color: inherit; line-height: inherit;
@@ -53,37 +59,37 @@
 /* 帶框 chip（件一 .chip）：上面那條是「＋執行日」空入口用的按鈕重置，會連框一起清掉，
    所以有值的 chip 另拉一級特異度把件一的形制補回來（border／padding／字級字距一律照原型）。 */
 .ns-outline .meta .date.chip {
-  font-size: 11px; letter-spacing: .08em; padding: 1px 7px;
+  font-size: var(--fs-xs); letter-spacing: .08em; padding: 1px 7px;
   border: 1px solid var(--color-line); color: var(--color-ink-soft);
 }
-.ns-outline .meta .date.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); }
-[data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: rgba(209, 155, 114, .38); }
+.ns-outline .meta .date.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); } /* 字面值：誤點 chip 框（赭 40%，原型定值） */
+[data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: rgba(209, 155, 114, .38); } /* 字面值：誤點 chip 框・銀河（赭 38%，原型定值） */
 .ns-outline .meta .date:hover { color: var(--accent); }
 .ns-outline .meta .date.chip:hover { color: var(--accent); border-color: var(--accent); }
 /* 定期券的執行日唯讀（M3 ④ D-④-3）：班次由規則排定，不開日期輸入——不給「可改」的 hover 暗示 */
 .ns-outline .meta .date.locked { cursor: default; }
 .ns-outline .meta .date.locked:hover { color: var(--color-ink-soft); border-color: var(--color-line); }
-.ns-outline .meta .date.locked.late:hover { color: var(--color-late); border-color: rgba(152, 80, 48, .4); }
-[data-theme="dark"] .ns-outline .meta .date.locked.late:hover { border-color: rgba(209, 155, 114, .38); }
+.ns-outline .meta .date.locked.late:hover { color: var(--color-late); border-color: rgba(152, 80, 48, .4); } /* 字面值：誤點 chip 框（赭 40%，原型定值） */
+[data-theme="dark"] .ns-outline .meta .date.locked.late:hover { border-color: rgba(209, 155, 114, .38); } /* 字面值：誤點 chip 框・銀河（赭 38%，原型定值） */
 .ns-outline .meta .fold-note { color: var(--color-ink-faint); }
-/* 原型沒有的控件：空日期入口 hover／選中才現身 */
+/* 原型沒有的控件：空日期入口（＋執行日／＋締切）hover／選中才現身 */
 .ns-outline .meta .meta-hover { display: inline-flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .15s; }
-.ns-outline .meta .meta-hover .date.empty { color: var(--color-ink-faint); }
-.ns-outline .meta .meta-hover .date.empty:hover { color: var(--accent); }
 .ns-outline .ticket:hover .meta-hover,
 .ns-outline .ticket.selected .meta-hover,
 .ns-outline .meta-hover:focus-within { opacity: 1; }
-/* 列的 ⋯ 鈕（10-20 磨光②；outline.add.*／indent／outdent／reorder 的滑鼠入口）：票右下角，與右上角票種小字對稱。
-   現身規則同上面的空日期入口（hover／選中＝鍵盤聚焦那一列／選單開著）；長相＝票種小字那一階的淡字，hover 轉作用中色，
-   框線只在 hover／開著時出現（.status 小方標的同一條 --color-dash），不另畫新形狀。 */
+/* 列的 ⋯ 鈕（10-20 磨光②；outline.add.*／indent／outdent／reorder／rename／delete 的滑鼠入口）：票右下角，與右上角票種小字對稱。
+   常駐淡態（UI 丙-3 B3，視覺規範 §3.1 #1）：平常 --dim，列被 hover／選中（＝鍵盤聚焦那一列）或選單開著時轉實；
+   長相對齊今日列 .stamp-zone .row-more（法則 06 同一件事同一個樣子；規範 §1.7 ⋯＝共用 SVG 三點）：
+   字色 --color-ink-soft（faint×.42 在粉彩紙上幾乎看不見），hover 轉作用中色，框線只在 hover／開著時出現。 */
 .ns-outline .ticket .row-more {
   position: absolute; right: 10px; bottom: 6px; z-index: 2;
-  min-width: 26px; height: 18px; padding: 0 5px; border-radius: 2px;
+  min-width: 26px; height: 18px; padding: 0 5px; border-radius: var(--radius-ctl);
   display: grid; place-items: center;
   background: transparent; border: 1px solid transparent; cursor: pointer;
-  font-family: var(--font-latin); font-size: 13px; line-height: 1; letter-spacing: .08em;
-  color: var(--color-ink-faint);
-  opacity: 0; transition: opacity .15s, color .15s, border-color .15s;
+  color: var(--color-ink-soft);
+  opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft),
+              border-color var(--dur-fast) var(--ease-soft);
 }
 .ns-outline .ticket:hover .row-more,
 .ns-outline .ticket.selected .row-more,
@@ -101,7 +107,7 @@
 .ns-outline .ticket-list > .ticket-li { position: relative; }
 .ns-outline .ticket-li > .row-fold {
   position: absolute; left: -25px; top: max(17px, calc(50% - 32px));
-  width: 22px; height: 22px; padding: 0; border-radius: 2px;
+  width: 22px; height: 22px; padding: 0; border-radius: var(--radius-ctl);
   display: grid; place-items: center;
   background: transparent; border: 0; cursor: pointer;
   color: var(--color-ink-soft);
@@ -116,9 +122,6 @@
 .ns-outline .ticket.draft::before,
 .ns-outline .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
 .ns-outline .ticket.draft .stamp { cursor: default; pointer-events: none; }
-
-/* ═══ 誤點區的票：可點（在大綱裡選到它） ═══ */
-.ns-outline .ticket.late-t { cursor: pointer; }
 
 /* ═══ 運休（M3 ④ WP4）：定期券「本班停駛」——與今日列同一套語彙（today.css 的大綱版）
    視覺真相＝prototypes/m3-mood-a-stamps.html :546-568（paper-used 底、検印圈的虛線與
@@ -142,58 +145,71 @@
 .ns-outline .ticket.is-suspended .status { display: none; }
 .ns-outline .susp-label { display: none; align-items: center; color: var(--color-ink-soft); }
 .ns-outline .ticket.is-suspended .susp-label { display: inline-flex; }
+/* 窄票（例：視窗 960 開側板、第二三層縮排）：票面與検印欄之間那枚延着（在排版流裡、約 83px 寬）會把票面擠到一兩個字寬、
+   標題一字一行。票本身窄於 540 時延着改浮在票面右下（＝結局後退後的同一個座標，但維持原大小與墨色），票面拿回那一格。
+   量的是一列（li）的寬：縮排吃掉的寬也算進去。 */
+.ns-outline .ticket-list > .ticket-li { container-type: inline-size; }
+@container (max-width: 540px) {
+  .ns-outline .ticket:not(.done):not(.is-suspended) .late-seal {
+    position: absolute; right: 114px; bottom: 9px; align-self: auto; margin-right: 0; pointer-events: none;
+  }
+}
+/* 運休也是「結局」：延着照 done 那一套退到右下小號（techo.css `.ticket.done .late-seal` 的座標；同 today.css） */
+.ns-outline .ticket.is-suspended .late-seal {
+  position: absolute; right: 114px; bottom: 9px;
+  align-self: auto; margin-right: 0;
+  border-width: 1.4px;
+  font-size: 10px; letter-spacing: .24em; text-indent: .24em; /* 印章專用（小號角印），同 techo.css 原型定值 */
+  padding: 2px 5px;
+  opacity: .38; pointer-events: none;
+}
 
-/* ═══ 頁首：麵包屑（.overline 位置）與「隱藏已完成」（hover 才現身；開啟中常駐） ═══ */
-.ns-outline .overline.crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .6em; min-height: 16px; }
-.ns-outline .overline.crumbs .crumb { display: inline-flex; align-items: baseline; gap: 0 .6em; min-width: 0; }
-.ns-outline .overline.crumbs button {
+/* ═══ 頁首（UI 丙-3 B1：PageHeader；頁首本體樣式在 common/pageheader.css） ═══ */
+.ns-outline .ns-outline-head { margin-bottom: var(--sp-2); }
+.ns-outline .ns-pagehead-stats .dot { color: var(--color-ink-faint); }
+.ns-outline .ns-pagehead-stats .stat-part { white-space: nowrap; }
+/* 點路線大標＝路線詳情（UI 丙-3 修訂：取代大標旁 ⋯）。字形跟大標一樣，hover／聚焦時底下一道虛線＋手形，告訴人「這可以點」 */
+.ns-outline .ns-outline-titlebtn {
+  all: unset; cursor: pointer; border-bottom: 1px dashed transparent; transition: border-color var(--dur-fast) var(--ease);
+}
+.ns-outline .ns-outline-titlebtn:hover { border-bottom-color: var(--color-ink-faint); }
+.ns-outline .ns-outline-titlebtn:focus-visible { outline: var(--focus-ring); outline-offset: 3px; border-radius: var(--radius-ctl); }
+/* 聚焦時麵包屑取代眉標：PageHeader 的兩段眉標字收掉（Breadcrumb 由 Outline.tsx portal 進同一個 <p>）。
+   麵包屑兩主題都用正體黑體（粉彩的拉丁斜體套中文會合成假斜體），色沿用眉標（粉彩靛藍、銀河金）；放不下就換行。 */
+.ns-outline .ns-pagehead.is-zoomed .ns-pagehead-overline > .ns-ovl-zh,
+.ns-outline .ns-pagehead.is-zoomed .ns-pagehead-overline > .ns-ovl-latin { display: none; }
+.ns-outline .ns-outline-crumbs {
+  display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 .6em; white-space: normal;
+  font-family: var(--font-body); font-style: normal; font-weight: 500; font-size: var(--fs-xs);
+  letter-spacing: .12em; text-transform: none;
+}
+.ns-outline .ns-outline-crumbs .crumb { display: inline-flex; align-items: baseline; gap: 0 .6em; min-width: 0; }
+.ns-outline .ns-outline-crumbs .sep { opacity: .6; }
+.ns-outline .ns-outline-crumbs button {
   padding: 0; background: transparent; border: 0; cursor: pointer;
   font: inherit; letter-spacing: inherit; color: inherit;
   text-decoration: underline dotted transparent; text-underline-offset: 3px;
   transition: text-decoration-color .15s;
 }
-.ns-outline .overline.crumbs button:hover { text-decoration-color: currentColor; }
-.ns-outline .day-stats .dot { color: var(--color-ink-faint); }
-.ns-outline .day-stats .hide-done {
-  margin-left: 14px; padding: 0; background: transparent; border: 0; cursor: pointer;
-  font: inherit; letter-spacing: inherit; color: var(--color-ink-faint);
-  opacity: 0; transition: opacity .15s, color .15s;
-}
-.ns-outline header.day:hover .hide-done,
-.ns-outline .hide-done:focus-visible,
-.ns-outline .hide-done[aria-pressed="true"] { opacity: 1; }
-.ns-outline .hide-done:hover,
-.ns-outline .hide-done[aria-pressed="true"] { color: var(--accent); }
+.ns-outline .ns-outline-crumbs button:hover { text-decoration-color: currentColor; }
 
-/* ═══ 頁首：「路線詳情」（10-20 磨光②；路線面板的滑鼠入口） ═══
-   長相＝當日清單「推遲」那顆小框鈕（1px --color-dash、10px／.14em、ink-soft），hover 與按下態（路線面板開著）轉作用中色（UI 丙-1 前是燙金）。
-   align-self:center——.date-line 是 baseline 對齊，30px 標題旁的小框對齊基線會浮在字腳，置中才穩。 */
-.ns-outline .date-line .route-detail {
-  align-self: center; flex: none; margin-left: 2px;
-  border: 1px solid var(--color-dash); background: transparent; border-radius: 2px; cursor: pointer;
-  padding: 3px 7px 3px 9px; font-family: inherit; font-size: 10px; letter-spacing: .14em;
-  color: var(--color-ink-soft);
-  transition: color .15s, border-color .15s;
-}
-.ns-outline .date-line .route-detail:hover,
-.ns-outline .date-line .route-detail[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
-.ns-outline .date-line .route-detail:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .ns-outline .date-line .route-detail { transition: none; } }
-
-/* ═══ 空狀態：原型 .sec 語彙＋一句話＋文字入口（UI 丙-1：入口字燙金→作用中 --accent；丙-3 才換成次鈕） ═══ */
-.ns-outline .empty { max-width: 520px; }
-.ns-outline .empty .sec { margin-top: 8vh; }
-.ns-outline .empty-body { font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft); }
-.ns-outline .empty-action {
-  margin-top: 16px; padding: 0; background: transparent; border: 0; cursor: pointer;
-  font-size: 12px; letter-spacing: .14em; color: var(--accent);
-  text-decoration: underline dotted transparent; text-underline-offset: 4px;
-  transition: text-decoration-color .15s;
-}
-.ns-outline .empty-action:hover { text-decoration-color: currentColor; }
+/* ═══ 空狀態（B2：common/EmptyState）：頁級的垂直位置交給頁面——離頁首留一段，不貼著 ═══ */
+.ns-outline .ns-empty { margin-top: 8vh; }
 
 /* ═══ 動效 ═══ */
 @media (prefers-reduced-motion: reduce) {
   .ns-outline .ticket.fresh .seal { animation: none; }
   .ns-outline .ticket, .ns-outline .ticket:hover { transform: none; }
 }
+
+/* ═══ 清單底的摺疊列「済 N 張 ──── 顯示／收起」（UI 丙-3 修訂；取代「隱藏已完成」選單項；仿 Apple 提醒事項的「N 個已完成・顯示」）
+ *   預設收起（uiStore.hideDone 預設 true）；整列可點，字淡、動作字用強調色。 */
+.ns-outline .ns-outline-fold {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%; margin-top: var(--sp-3); padding: var(--sp-2) var(--sp-1);
+  border: 0; border-radius: var(--radius-ctl); background: none; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
+}
+.ns-outline .ns-outline-fold .rule { flex: 1; border-top: 1px dashed var(--color-dash); }
+.ns-outline .ns-outline-fold .act { color: var(--sel-fg); font-weight: 500; }
+.ns-outline .ns-outline-fold:hover { background: var(--hover-bg); color: var(--color-ink); }
+.ns-outline .ns-outline-fold:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }

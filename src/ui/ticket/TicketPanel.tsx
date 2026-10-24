@@ -1,27 +1,35 @@
 /**
  * TicketPanel——售票口桌機頁的右側詳情板（車次①契約 §5.1、0-1、0-3、0-8、0-30；乙席）。
+ * UI 丙-5 C1：殼換共用 `SidePanelFrame skin="ticket"`＝詳情側板的票皮變體（視覺規範 §2.4：同殼、340、× 在紙右上＝P1 A 案）；
+ * 票券解剖畫在紙裡，不再是浮在 aside 裡的另一張卡。
  *
- *   aside.ns-tk-panel（寬 360、自己捲；store.panel＝none 時不渲染）＋右上 ×（收起）
- *   ├─【票版】article.ns-tk-bigticket[data-kind]（攤開的大票；材質抄 .ticket::before 配方、打孔在票根撕線兩端）
- *   │   ├─ .ns-tk-bt-stub   類型三選（校正票唯讀「精算」）＋ No.MMDD-nn
- *   │   ├─ .ns-tk-bt-amt    前綴＋金額大字 input＋幣別 chip（小選單）；外幣下一行 .ns-tk-conv「≈ NT$ 3,155 · 匯率 31.55」可點改折算額
- *   │   ├─ .ns-tk-bt-seal   検印位（TicketSeal）
- *   │   ├─ .ns-tk-fields    帳戶／轉入／（轉入金額）／分類 combobox／日期＋時刻／備註／路線
- *   │   └─ .ns-tk-bt-foot   新票：存並再記 Ctrl+Enter・存檔 Enter（主鈕在右）・Esc 放棄；舊票：刪除 Del＋「已存」
- *   └─【帳戶版】article.ns-tk-acctcard：名稱（行內改）・群組・幣別（有餘額鎖）・目前餘額＋調整餘額…・封存
+ *   aside.panel.ns-tk-panel[data-skin=ticket]（SidePanelFrame：寬 --panel-w 340、紙、從右滑入、× 在紙右上；store.panel＝none 時不渲染）
+ *   ├─【票版】article.ns-tk-bigticket[data-kind]（攤開的大票；撕線左端打一個孔＝.panel-sheet 的 mask，位置跟著撕線走）
+ *   │   ├─ .ns-tk-bt-stub   類型 Segmented（校正票唯讀「精算」）＋ No.MMDD-nn（右邊讓出 ×）
+ *   │   ├─ .ns-tk-bt-tear   撕線（橫跨整張紙）
+ *   │   ├─ .ns-tk-bt-face   前綴＋金額大字 input＋幣別 chip（小選單）；外幣下一行 .ns-tk-conv「≈ NT$ 3,155 · 匯率 31.55」可點改折算額
+ *   │   │                    ＋ .ns-tk-bt-seal 検印位（TicketSeal）＋ .ns-tk-fields 帳戶／轉入／（轉入金額）／分類 combobox／日期 DateChip／
+ *   │   │                    時刻 ClockInput compact（P2 A 案：獨立一列，說明行只在跨天時出現）／備註／路線
+ *   │   └─ .ns-tk-bt-foot   操作列黏在紙底：新票＝存並再記 Ctrl+Enter・存檔 Enter（主鈕在右）・Esc 放棄；舊票＝刪除 Del＋「已存」
+ *   └─【帳戶版】article.ns-tk-acctcard：名稱（行內改）・群組・幣別（有餘額鎖）・目前餘額＋調整餘額…・封存（同一支殼，C3）
  *
- * 新票＝明確存檔（Enter／Ctrl+Enter；store.setDraft／saveDraft）；舊票＝即時存（金額 600ms 去抖、其餘改了就送；
+ * 新票＝明確存檔（Enter／Ctrl+Enter；store.setDraft／saveDraft）；舊票＝即時存（金額 600ms 去抖、時刻 400ms 去抖、其餘改了就送；
  * store.updateEntry，0-8）。輸入欄的鍵（ticket-entry scope）由本檔自理：Enter 存、Ctrl+Enter 存並再記、Esc 放棄／收起、
  * 分類欄 ↑↓ 選候選；小浮層的 ↑↓／Enter／Esc 不漏給頁面的鍵盤表。
+ * 時刻框（.ns-clock）裡的 Enter 讓給 ClockInput：看得懂才叫 onEnter 存檔，打錯只還原、不存（丙-5 F1／風險 1）。
+ * Esc（C2）：殼的 onEscape＝requestEscape（新票有內容先問；不直接關）；× 也走同一條。
  * 只讀 store、只叫 store 的動作（§2.5）；domain 的純函式直接用。
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
-import { addDays, todayKey } from "../../lib/date";
-import { CommitInput, CommitTextarea, FieldRow, useDebouncedCommit } from "../panel/fields";
-import { DatePicker } from "../common/DatePicker";
+import { todayKey } from "../../lib/date";
+import { CommitInput, CommitTextarea, FieldRow, useDebouncedCommit } from "../common/fields";
+import { SidePanelFrame } from "../common/SidePanelFrame";
+import { Segmented } from "../common/Segmented";
+import { DateChip } from "../common/DateChip";
+import { ClockInput, clockDraftsOkIn } from "../common/ClockInput";
 import {
   ACCOUNT_GROUPS,
   MAIN_CURRENCY,
@@ -31,7 +39,6 @@ import {
   atOf,
   categoryLabel,
   convertMinor,
-  dayLabel,
   groupAccounts,
   localTime,
   matchCategories,
@@ -54,6 +61,7 @@ import { Money } from "./parts/Money";
 import { TicketSeal } from "./parts/TicketSeal";
 import { TkIcon, TkRoundel, acctLabel, capsOf, groupLabel } from "./TicketLedger";
 import { RepeatField, RepeatMakeButton, useLinkedRepeat } from "./plan/RepeatField";
+import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "./ticketClock";
 
 /* ───────── 小工具 ───────── */
 
@@ -172,28 +180,44 @@ export function TicketPanel({ freshId, onBackToList }: TicketPanelProps) {
     if (acc) body = <AcctCard key={acc.id} acc={acc} />;
   }
   if (!body) return null;
+  return <TicketFrame onBackToList={onBackToList}>{body}</TicketFrame>;
+}
+
+/**
+ * 側板殼（SidePanelFrame 票皮）。× 與 Esc 都走 requestEscape（新票有內容先問；舊票／帳戶版直接收）——
+ * 不用 closePanel：它不問就丟草稿（舊的 × 也是 requestEscape）。收起了才把焦點還給帳簿。
+ *
+ * 焦點：殼一掛上就把焦點拉進面板（核心側板的規則）。但售票口是「選一行就開」：↑↓ 在帳簿上走、點一行，
+ * 焦點本來就該留在帳簿（不然下一個 ↑↓ 落在面板裡、鍵盤表不接）。所以掛上那一刻焦點原本在帳簿（或頁根）上的，還回去；
+ * 要進面板的路（N、Enter／雙擊開帳、書封帳戶 ›）各自會把焦點放進來（金額欄或面板本身）。
+ * 父層的 effect 晚於子層：這裡跑的時候 SidePanelFrame 已經 focus 過面板。
+ */
+function TicketFrame({ onBackToList, children }: { onBackToList(): void; children: ReactNode }) {
+  const escape = () => {
+    useTicketStore.getState().requestEscape();
+    if (useTicketStore.getState().panel.kind === "none") onBackToList();
+  };
+  // 掛上之前（render 時）焦點在哪：只在第一次 render 記
+  const before = useRef<Element | null | undefined>(undefined);
+  if (before.current === undefined) before.current = typeof document !== "undefined" ? document.activeElement : null;
+  useEffect(() => {
+    const prev = before.current;
+    if (useTicketStore.getState().panel.kind !== "entry") return; // 新票（金額欄自己拿焦點）、帳戶版（書封 › 開的）照殼的規則
+    if (!(prev instanceof HTMLElement) || !prev.isConnected) return;
+    const a = document.activeElement;
+    if (!(a instanceof HTMLElement) || !a.classList.contains("ns-tk-panel")) return; // 子層已把焦點放進欄位：不搶
+    if (prev.closest(".ns-tk-list") || prev.matches(".page.ns-tk")) prev.focus({ preventScroll: true });
+  }, []);
   return (
-    <aside className="ns-tk-panel techo-scroll" aria-label="詳情板">
-      <button
-        type="button"
-        className="ns-tk-panelx"
-        title={`收起（${capsOf("ticket.escape")}）`}
-        aria-label="收起"
-        onClick={() => {
-          useTicketStore.getState().requestEscape();
-          onBackToList();
-        }}
-      >
-        <TkIcon name="x" size={13} />
-      </button>
-      {body}
-    </aside>
+    <SidePanelFrame skin="ticket" className="ns-tk-panel" ariaLabel="詳情板" closeLabel="收起詳情板" onClose={escape} onEscape={escape}>
+      {children}
+    </SidePanelFrame>
   );
 }
 
 /* ───────── 大票 ───────── */
 
-type PopKind = "acct" | "toacct" | "cur" | "route" | "date" | null;
+type PopKind = "acct" | "toacct" | "cur" | "route" | null;
 
 interface Vm {
   kind: EntryKind;
@@ -297,9 +321,15 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     }
   };
 
-  // 新票：開啟時焦點在金額
+  // 新票：開啟時焦點在金額。殼（SidePanelFrame）第一次掛上會在這之後把焦點拉到面板本身 ⇒ 下一拍再放一次
   useEffect(() => {
-    if (isNew) amtRef.current?.focus();
+    if (!isNew) return;
+    amtRef.current?.focus();
+    const t = setTimeout(() => {
+      const a = document.activeElement;
+      if (a === null || a === document.body || (a instanceof HTMLElement && a.classList.contains("ns-tk-panel"))) amtRef.current?.focus();
+    });
+    return () => clearTimeout(t);
   }, [isNew]);
 
   /* ── 折算（外幣）── */
@@ -349,8 +379,45 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     } else patch({ kind: k });
   };
 
-  /* ── 存檔（新票）── */
+  /* ── 時刻（丙-5 F1：共用 ClockInput compact；換算在 ticketClock.ts——存回一律牆鐘，不用 panel/clockValue 的 msToClock）──
+     範圍＝這個帳日的日界線起 24 小時；新票改草稿（Enter 才存），舊票先換畫面、400ms 去抖才 updateEntry（±15 長按不會每格寫庫），
+     離開大票（卸載）時 useDebouncedCommit 會立刻送出。 */
+  const { lo: clockLo, hi: clockHi } = ticketClockBounds(vm.dayKey, dayStartHour);
+  /** 舊票：畫面上的時刻（去抖中、還沒寫回）；null＝跟著 row 走 */
+  const [clockDraft, setClockDraft] = useState<number | null>(null);
+  const clockPending = useRef(false);
+  const clockCommit = useDebouncedCommit<number>((ms) => {
+    clockPending.current = false;
+    if (row && ms !== Date.parse(row.occurred_at)) patch({ occurredAt: new Date(ms).toISOString() });
+    else setClockDraft(null);
+  }, 400);
+  const rowAt = row?.occurred_at;
+  useEffect(() => {
+    if (!clockPending.current) setClockDraft(null); // 寫回的值回來了（或別處改了、換了一天）
+  }, [rowAt, vm.dayKey]);
+  const clockMs = row ? (clockDraft ?? Date.parse(row.occurred_at)) : (ticketClockValue(vm.dayKey, vm.time, dayStartHour) ?? clockLo);
+  const onClock = (ms: number) => {
+    if (isNew) {
+      store().setDraft({ time: msToWallHHMM(ms) });
+      return;
+    }
+    clockPending.current = true;
+    setClockDraft(ms);
+    clockCommit.schedule(ms);
+  };
+  /** 改日期時帶著的時刻：舊票去抖中的那個也算（送出前先收掉，免得兩筆 updateEntry 互蓋） */
+  const takeClockHHMM = (): string => {
+    if (clockDraft === null) return vm.time;
+    clockCommit.cancel();
+    clockPending.current = false;
+    return msToWallHHMM(clockDraft);
+  };
+
+  /* ── 存檔（新票）──
+     存檔鈕、存並再記、別的欄的 Enter／Ctrl+Enter 都走這裡：時刻框剛打錯、還沒回去看過 ⇒ 不存、焦點回框（風險 1；
+     不擋的話打的字已還原成舊時刻，會默默存進去）。 */
   const save = async (again: boolean) => {
+    if (!clockDraftsOkIn(ticketRef.current)) return;
     const ok = await store().saveDraft({ again });
     if (ok && again) amtRef.current?.focus();
   };
@@ -359,7 +426,8 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     const t = e.target as HTMLElement;
     const editable = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT";
     if (isNew && e.key === "Enter" && editable && !e.shiftKey && !e.altKey) {
-      if (t.closest(".ns-tk-pop, .ns-datepick")) return;
+      // 時刻框：Enter 由 ClockInput 自己判（看得懂才 onEnter＝存檔；打錯只還原、不存）——它只 preventDefault、會冒到這裡
+      if (t.closest(".ns-tk-pop, .ns-datepick, .ns-clock")) return;
       e.preventDefault();
       e.stopPropagation();
       void save(e.ctrlKey || e.metaKey);
@@ -374,6 +442,23 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     }
   };
 
+  /* 撕線左端的孔：打在 .panel-sheet 上（mask，見 ticket.css T2 區），位置＝撕線在紙上的 y；內容捲動時跟著撕線走 */
+  const ticketRef = useRef<HTMLElement>(null);
+  const enterAgain = useRef(false);
+  useLayoutEffect(() => {
+    const tear = ticketRef.current?.querySelector<HTMLElement>(".ns-tk-bt-tear");
+    const sheet = ticketRef.current?.closest<HTMLElement>(".panel-sheet");
+    const scroller = ticketRef.current?.closest<HTMLElement>(".panel-scroll");
+    if (!tear || !sheet) return;
+    const place = () => sheet.style.setProperty("--tk-tear-y", `${Math.round(tear.getBoundingClientRect().top - sheet.getBoundingClientRect().top)}px`);
+    place();
+    scroller?.addEventListener("scroll", place, { passive: true });
+    return () => {
+      scroller?.removeEventListener("scroll", place);
+      sheet.style.removeProperty("--tk-tear-y");
+    };
+  }, []);
+
   const savedFlash = !isNew && savedAt !== null && Date.now() - savedAt < 2500;
   const [, tick] = useState(0);
   useEffect(() => {
@@ -383,14 +468,17 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   }, [savedAt, savedFlash]);
 
   const serial = row ? serialOf(row, entries.filter((x) => x.occurred_on === row.occurred_on)) : "NEW";
-  const dayText = vm.dayKey === today ? "今天" : dayLabel(vm.dayKey);
   const balText = (a: AccountRow) => moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2);
 
   return (
     <article
+      ref={ticketRef}
       className={`ns-tk-bigticket${isNew ? " is-new" : ""}`}
       data-kind={vm.kind}
       aria-label={isNew ? "新票" : "這一筆"}
+      onKeyDownCapture={(e) => {
+        enterAgain.current = e.key === "Enter" && (e.ctrlKey || e.metaKey); // 時刻框的 Enter 由 ClockInput 叫 onEnter，那裡讀不到修飾鍵
+      }}
       onKeyDown={onTicketKeyDown}
     >
       <div className="ns-tk-bt-stub">
@@ -399,16 +487,17 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             精算
           </span>
         ) : (
-          <span className="ns-tk-kind" role="group" aria-label="類型">
-            {KINDS.map((o) => (
-              <button key={o.k} type="button" aria-pressed={vm.kind === o.k} onClick={() => setKind(o.k)}>
-                {o.label}
-              </button>
-            ))}
-          </span>
+          <Segmented<"expense" | "income" | "transfer">
+            className="ns-tk-kindseg"
+            aria-label="類型"
+            options={KINDS.map((o) => ({ value: o.k, label: o.label }))}
+            value={vm.kind}
+            onChange={setKind}
+          />
         )}
         <span className="ns-tk-serial">{serial}</span>
       </div>
+      <div className="ns-tk-bt-tear" aria-hidden />
 
       <div className="ns-tk-bt-face">
         <div className="ns-tk-bt-amt">
@@ -505,7 +594,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                 if (isNew) store().setDraft({ accountId: id });
                 else patch({ accountId: id });
               }}
-              onCreated={isNew ? (id) => store().setDraft({ accountId: id }) : undefined}
+              onCreated={(id) => (isNew ? store().setDraft({ accountId: id }) : patch({ accountId: id }))}
             />
           </FieldRow>
           {vm.kind === "transfer" && (
@@ -522,7 +611,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
                   if (isNew) store().setDraft({ toAccountId: id, toAmountText: null });
                   else patch({ toAccountId: id });
                 }}
-                onCreated={isNew ? (id) => store().setDraft({ toAccountId: id, toAmountText: null }) : undefined}
+                onCreated={(id) => (isNew ? store().setDraft({ toAccountId: id, toAmountText: null }) : patch({ toAccountId: id }))}
               />
             </FieldRow>
           )}
@@ -558,58 +647,44 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             </FieldRow>
           )}
           <FieldRow label="日期">
-            <span className="ns-tk-date">
-              <button
-                type="button"
-                className="ns-tk-datechip"
-                aria-haspopup="dialog"
-                aria-expanded={pop === "date"}
-                data-pop-toggle
-                onClick={() => setPop(pop === "date" ? null : "date")}
-              >
-                {dayText}
-              </button>
-              <TimeField
-                value={vm.time}
-                onCommit={(hhmm) => {
-                  if (isNew) store().setDraft({ time: hhmm });
-                  else {
-                    try {
-                      patch({ occurredAt: atOf(vm.dayKey, hhmm, dayStartHour) });
-                    } catch (e) {
-                      toast(errMsg(e));
-                    }
+            {/* J3：共用日期 chip（桌機 DatePicker 錨定浮層）；帳不能記到未來 ⇒ max＝今天，往前不設限 */}
+            <DateChip
+              date={vm.dayKey}
+              label="日期"
+              allowPast
+              max={today}
+              today={today}
+              onPick={(day) => {
+                if (!day) return;
+                if (isNew) store().setDraft({ dayKey: day });
+                else {
+                  try {
+                    patch({ occurredOn: day, occurredAt: atOf(day, takeClockHHMM(), dayStartHour) });
+                  } catch (e) {
+                    toast(errMsg(e));
                   }
+                }
+              }}
+            />
+          </FieldRow>
+          <FieldRow label="時刻" top>
+            {/* F1（P2 A 案）：時刻獨立一列、compact（±15）；說明行只在跨天時寫日期（"other"：日期已在上一列） */}
+            <span className="ns-tk-clock">
+              <ClockInput
+                variant="compact"
+                label="時刻"
+                value={clockMs}
+                lo={clockLo}
+                hi={clockHi}
+                refDay={vm.dayKey}
+                dateLabel="other"
+                onChange={onClock}
+                onEnter={() => {
+                  if (isNew) void save(enterAgain.current);
+                  else clockCommit.flush();
                 }}
               />
             </span>
-            {pop === "date" && (
-              <DatePicker
-                float
-                className="ns-tk-datepop"
-                label="日期"
-                value={vm.dayKey}
-                markValue
-                max={today}
-                quick={[
-                  { label: "今天", day: today },
-                  { label: "昨天", day: addDays(today, -1) },
-                  { label: "前天", day: addDays(today, -2) },
-                ]}
-                onPick={(day) => {
-                  setPop(null);
-                  if (isNew) store().setDraft({ dayKey: day });
-                  else {
-                    try {
-                      patch({ occurredOn: day, occurredAt: atOf(day, vm.time, dayStartHour) });
-                    } catch (e) {
-                      toast(errMsg(e));
-                    }
-                  }
-                }}
-                onClose={() => setPop(null)}
-              />
-            )}
           </FieldRow>
           <FieldRow label="備註" top>
             {isNew ? (
@@ -667,8 +742,10 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             </FieldRow>
           )}
         </div>
+      </div>
 
-        <div className="ns-tk-bt-foot">
+      {/* 操作列黏在紙底（規範 §2.4「操作列黏底」；內容短時靠 margin-top:auto 推到底） */}
+      <div className="ns-tk-bt-foot">
           {isNew ? (
             <>
               {/* 次鈕在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起主鈕＝實心墨 .btn-seal） */}
@@ -691,7 +768,6 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               </span>
             </>
           )}
-        </div>
       </div>
     </article>
   );
@@ -707,7 +783,7 @@ export function AcctPick(props: {
   exclude: string | null;
   balText(a: AccountRow): string;
   onPick(id: string): void;
-  /** 選單底「新增帳戶」建好之後（給了才接；草稿用來把新帳戶填回去） */
+  /** 選單底「新增帳戶」建好之後（給了才接：大票新票填回草稿、舊票直接改這一筆＝丙-5 D2） */
   onCreated?(id: string): void;
 }) {
   const accounts = useTicketStore((s) => s.accounts);
@@ -781,7 +857,7 @@ export function AcctPick(props: {
             className="opt is-add"
             onClick={() => {
               props.onClose();
-              // 給了 onCreated（新票草稿）⇒ 建完直接選上它（磨光③ 2-16）
+              // 給了 onCreated ⇒ 建完直接選上它（磨光③ 2-16；丙-5 D2 舊票也給）
               const pick = props.onCreated;
               useTicketStore.getState().openDialog({ kind: "newAccount", ...(pick ? { then: { pick } } : {}) });
             }}
@@ -827,14 +903,32 @@ export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow
   );
 }
 
-/* ── 分類 combobox（打字即搜：子分類優先、顯示「主 › 子」；空白列「常用」（磨光⑥ §2-3：30 天次數，不滿 8 個用最近用過補）；↑↓ Enter） ── */
-export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "expense"; categoryId: string | null; onPick(id: string | null): void }) {
+/* ── 分類 combobox（打字即搜：子分類優先、顯示「主 › 子」；空白列「常用」（磨光⑥ §2-3：30 天次數，不滿 8 個用最近用過補）；↑↓ Enter）
+   丙-5 D1（規範 §2.5「新增 X 在 X 旁邊」）：浮層最後固定兩列——「＋ 新增分類」（打了字、又沒有同名的 ⇒「＋ 新增分類「字」」，
+   建在目前類型下、主分類，建完直接選上；沒打字 ⇒ 點了把焦點放回欄上、提示打名字）與「管理…」（分類管理對話框）。
+   兩列也在 ↑↓ 的輪替裡。打的字找不到任何分類時反白不自動落在「新增」：要 ↓ 或點擊才建（分類只能封存、不能刪，
+   打錯字按 Enter 就多一個清不掉的分類——評審 R1）；這時 Enter 照舊交給新票存檔。
+   `manage={false}`：已經在對話框裡（定期帳規則編輯器）——開分類管理會把那個對話框換掉，不給這一列。 ── */
+export function CategoryCombo({
+  kind,
+  categoryId,
+  onPick,
+  manage = true,
+}: {
+  kind: "income" | "expense";
+  categoryId: string | null;
+  onPick(id: string | null): void;
+  manage?: boolean;
+}) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const recent = useTicketStore((s) => s.frequent[kind]);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [kb, setKb] = useState(-1); // -1＝還沒挑（空白時 Enter 留給新票存檔）
+  const [askName, setAskName] = useState(false); // 沒打字就按「＋ 新增分類」：placeholder 改成請打名字
+  const [busy, setBusy] = useState(false);
+  const navved = useRef(false); // 反白是 ↑↓ 挑的（不是打字自動落的）
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useOutside(wrapRef, () => setOpen(false));
@@ -845,32 +939,70 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
     if (q.trim()) return matchCategories(q, categories, kind).slice(0, 12);
     return recent.map((id) => catById[id]).filter((c): c is CategoryRow => !!c && c.deleted_at === null && c.archived_at === null && c.kind === kind);
   }, [q, categories, kind, recent, catById]);
+  const name = q.trim();
+  // 同類型、沒刪的已有同名（含封存：repository 會擋重名，別讓人按了才吃 toast）⇒ 不給「新增「字」」
+  const taken = name !== "" && categories.some((c) => c.kind === kind && c.deleted_at === null && c.name.trim() === name);
+  type Act = "add" | "manage";
+  const acts: Act[] = [...(taken ? [] : (["add"] as Act[])), ...(manage ? (["manage"] as Act[]) : [])];
+  const total = options.length + acts.length;
+  const actAt = (i: number): Act | null => (i >= options.length && i < total ? acts[i - options.length] : null);
 
   // 挑完只收浮層、焦點留在欄上（不 blur：焦點掉到 body 會讓 Enter 存檔／Esc 放棄／Tab 移欄全接不到）
   const pick = (id: string | null) => {
     setOpen(false);
     setQ("");
     setKb(-1);
+    setAskName(false);
     if (id !== categoryId) onPick(id);
   };
+  const add = async () => {
+    if (!name) {
+      setAskName(true);
+      setKb(-1);
+      inputRef.current?.focus();
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      const row = await useTicketStore.getState().createCategory({ kind, name, parentId: null });
+      if (row) pick(row.id); // 回來時已 refresh 過，catById 裡有它（失敗 store 會 toast，浮層留著）
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openManager = () => {
+    setOpen(false);
+    setQ("");
+    setKb(-1);
+    useTicketStore.getState().openDialog({ kind: "categories" });
+  };
+  const run = (a: Act) => (a === "add" ? void add() : openManager());
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       e.stopPropagation();
       if (!open) setOpen(true);
-      const n = options.length;
+      navved.current = true;
+      const n = total;
       if (n) setKb((i) => (i < 0 ? (e.key === "ArrowDown" ? 0 : n - 1) : (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n));
-    } else if (e.key === "Enter" && open && options[kb]) {
-      // 打了字或用 ↑↓ 挑過：Enter＝挑反白那一個（新票的「Enter 存檔」要等分類挑完）
+    } else if (e.key === "Enter" && open && kb >= 0 && kb < total) {
+      // 打了字或用 ↑↓ 挑過：Enter＝做反白那一列（新票的「Enter 存檔」要等分類挑完）
+      const a = actAt(kb);
+      // 打字落在「管理…」（打的是封存分類的名字、找不到又不能新增）不算挑了它：讓 Enter 照舊（新票存檔）
+      if (a === "manage" && !navved.current) return;
       e.preventDefault();
       e.stopPropagation();
-      pick(options[kb].id);
+      if (a) run(a);
+      else pick(options[kb].id);
     } else if (e.key === "Escape" && open) {
       e.preventDefault();
       e.stopPropagation();
       setOpen(false);
       setQ("");
+      setAskName(false);
     }
   };
 
@@ -884,7 +1016,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         aria-autocomplete="list"
         aria-label="分類"
         autoComplete="off"
-        placeholder={cat ? "" : "打字搜尋，或選常用的"}
+        placeholder={askName ? "打新分類的名字" : cat ? "" : "打字搜尋，或選常用的"}
         value={open ? q : label}
         onFocus={() => {
           setOpen(true);
@@ -901,7 +1033,9 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         }}
         onChange={(e) => {
           setQ(e.target.value);
-          setKb(e.target.value.trim() ? 0 : -1);
+          // 有符合的才反白第一個；找不到時 0 會是「＋ 新增分類「字」」那一列——不自動落在那裡（要 ↓ 或點擊才建）
+          setKb(e.target.value.trim() && matchCategories(e.target.value, categories, kind).length > 0 ? 0 : -1);
+          navved.current = false;
           setOpen(true);
         }}
         onBlur={(e) => {
@@ -909,6 +1043,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
           if (wrapRef.current?.contains(e.relatedTarget as Node)) return;
           setOpen(false);
           setQ("");
+          setAskName(false);
         }}
         onKeyDown={onKeyDown}
       />
@@ -916,7 +1051,7 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
         <div className="ns-tk-pop is-cat" role="listbox" aria-label="分類選項" onMouseDown={(e) => e.preventDefault()}>
           {options.length > 0 ? (
             <>
-              <div className="hd">{q.trim() ? "符合" : "常用"}</div>
+              <div className="hd">{name ? "符合" : "常用"}</div>
               {options.map((c, i) => {
                 const p = c.parent_id ? catById[c.parent_id] : undefined;
                 return (
@@ -936,68 +1071,41 @@ export function CategoryCombo({ kind, categoryId, onPick }: { kind: "income" | "
               })}
             </>
           ) : (
-            <div className="hd">{q.trim() ? `找不到「${q.trim()}」` : "打字搜尋分類"}</div>
+            <div className="hd">{name ? `找不到「${name}」` : "打字搜尋分類"}</div>
           )}
+          {(cat || acts.length > 0) && <div className="sep" />}
           {cat && (
-            <>
-              <div className="sep" />
-              <button type="button" tabIndex={-1} className="opt is-quiet" onClick={() => pick(null)}>
-                改回未分類
-              </button>
-            </>
+            <button type="button" tabIndex={-1} className="opt is-quiet" onClick={() => pick(null)}>
+              改回未分類
+            </button>
           )}
+          {acts.map((a, j) => {
+            const i = options.length + j;
+            return (
+              <button
+                key={a}
+                type="button"
+                role="option"
+                aria-selected={i === kb}
+                tabIndex={-1}
+                className={`opt is-add${i === kb ? " kb" : ""}`}
+                disabled={a === "add" && busy}
+                onClick={() => run(a)}
+              >
+                {a === "add" ? (
+                  <>
+                    <TkIcon name="plus" size={11} />
+                    {name ? `新增分類「${name}」` : "新增分類"}
+                  </>
+                ) : (
+                  "管理…"
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
-  );
-}
-
-/* ── 時刻（小字「14:32」可點改；Enter／blur 送、Esc 還原） ── */
-function TimeField({ value, onCommit }: { value: string; onCommit(hhmm: string): void }) {
-  const [edit, setEdit] = useState(false);
-  const [text, setText] = useState(value);
-  if (!edit) {
-    return (
-      <button
-        type="button"
-        className="ns-tk-time"
-        title="改時刻"
-        onClick={() => {
-          setText(value);
-          setEdit(true);
-        }}
-      >
-        {value}
-      </button>
-    );
-  }
-  const done = () => {
-    setEdit(false);
-    const t = text.trim();
-    if (t && t !== value) onCommit(t);
-  };
-  return (
-    <input
-      className="ns-tk-timein"
-      autoFocus
-      aria-label="時刻"
-      inputMode="numeric"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={done}
-      onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-        if (e.key === "Enter") {
-          e.preventDefault();
-          e.stopPropagation();
-          done();
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          setEdit(false);
-        }
-      }}
-    />
   );
 }
 

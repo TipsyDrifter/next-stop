@@ -14,7 +14,7 @@
  */
 import type { NodeRow } from "../../../domain";
 import { useUiStore } from "../../../store/uiStore";
-import { EntityTagField } from "./EntityTagField";
+import { EntityTagField } from "../../common/EntityTagField";
 import { panelBackRef } from "./backRefs";
 
 export function TagField({ node }: { node: NodeRow }) {

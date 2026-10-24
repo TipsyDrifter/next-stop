@@ -4,13 +4,21 @@
  * 視覺＝原型語彙 1:1：每站一列＝名稱（原型 .title）＋ .meta（預定日・着 日期）＋ 到站章（原型 .late-seal 形制、seal 色、寫「着」；
  * 未到站的章不可見，列 hover 才以虛線空章現身、剛蓋的播 arrIn）；刪除叉 hover 現身；新增車站＝底線輸入、Enter 建立。
  * 已知取捨：車站排序沿 position，不提供拖曳（v0.2 不做）；車站不在大綱樹裡，沒有子孫數問題、刪除不二次確認。
+ * UI 丙-3 C4（規範 §3.1-1／-6：「新增 X」在 X 旁邊、車站 × 常駐淡態）：
+ *   - 新增列＝底線輸入＋「＋ 新增」次鈕，兩條路同一支 add()（不用知道要按 Enter）；輸入空著按鈕＝把焦點交給輸入框。
+ *   - 沒有車站＝`EmptyState inline`（區段級一行；不另給鈕——新增列就在下面，同一動作同一處一個入口）。
+ *   - × 常駐淡態（--dim），列 hover／聚焦轉實（panel.css `.panel .x`）。
+ *   - 預定日換共用 `DateChip`（allowPast：預定日本來就能挑過去，舊 DateField 也沒有 min）。
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
 import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-import { CommitInput, DateField, SectionRule, XIcon } from "./fields";
+import { DateChip } from "../common/DateChip";
+import { EmptyState } from "../common/EmptyState";
+import { IconPlus } from "../common/icons";
+import { CommitInput, SectionRule, XIcon } from "./fields";
 import { fmtDateKey } from "./format";
 
 export function StationList({ routeId }: { routeId: string }) {
@@ -27,6 +35,7 @@ export function StationList({ routeId }: { routeId: string }) {
 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   // 剛蓋章的那一站才播蓋印動畫（純視覺）
   const [freshId, setFreshId] = useState<string | null>(null);
 
@@ -64,7 +73,7 @@ export function StationList({ routeId }: { routeId: string }) {
     <section>
       <SectionRule title="車站" aside={list.length ? `${arrivedCount}/${list.length} 到站` : undefined} />
       {list.length === 0 ? (
-        <p className="empty">還沒有車站——可以加幾個階段目標，會顯示在路線底下。</p>
+        <EmptyState inline tone="first" title="還沒有車站。" desc="加幾個階段目標，會顯示在路線底下。" className="st-empty" />
       ) : (
         <ul className="stations">
           {list.map((st) => (
@@ -80,25 +89,41 @@ export function StationList({ routeId }: { routeId: string }) {
           ))}
         </ul>
       )}
-      <input
-        type="text"
-        aria-label="新增車站"
-        placeholder="新增車站，Enter 建立"
-        value={draft}
-        disabled={busy}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void add();
-          } else if (e.key === "Escape" && draft) {
-            e.preventDefault();
-            e.stopPropagation();
-            setDraft("");
-          }
-        }}
-      />
+      <div className="st-add">
+        <input
+          ref={inputRef}
+          type="text"
+          aria-label="新增車站"
+          placeholder="新增車站"
+          value={draft}
+          disabled={busy}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void add();
+            } else if (e.key === "Escape" && draft) {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft("");
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="ns-btn ns-btn--sm btn-ghost"
+          title="新增車站（輸入框裡按 Enter 也可以）"
+          disabled={busy}
+          onClick={() => {
+            if (draft.trim()) void add();
+            else inputRef.current?.focus();
+          }}
+        >
+          <IconPlus />
+          新增
+        </button>
+      </div>
     </section>
   );
 }
@@ -134,7 +159,7 @@ function StationRow({ station, fresh, onToggle, onRename, onDate, onRemove }: St
       </button>
       <div className="meta">
         <span>預定</span>
-        <DateField value={station.expected_on} onCommit={onDate} ariaLabel="預定到站日" />
+        <DateChip date={station.expected_on} onPick={onDate} allowPast clearable label="預定到站日" emptyText="未定" />
         {station.arrived_on && (
           <>
             <span className="sep">・</span>

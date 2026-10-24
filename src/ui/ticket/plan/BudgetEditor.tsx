@@ -7,8 +7,8 @@
  *   ├─ table.ns-tk-be-table   對象｜預設｜10 月覆寫｜（移除）
  *   │    tr.is-total 總預算（固定第一列，沒設也在）；之後每個分類預算一列（budgetScopes 的順序）
  *   │    tr.is-add「＋ 加分類預算」⇒ 分類挑選（支出兩層樹、未分類不列、封存分區、已設的灰掉）
- *   ├─ .ns-tk-dhint        金額是主幣別…清空「預設」＝移除
- *   └─ .ns-tk-dfoot        關閉
+ *   └─ .ns-tk-dhint        金額是主幣別…清空「預設」＝移除
+ *   （UI 丙-5 E2：「關閉」鈕拿掉——即時存、不改東西的對話框只留 ×／暗幕／Esc，視覺規範 §4；onDone 留作宿主介面）
  *
  * 輸入欄失焦或 Enter ⇒ setBudget；清空預設 ⇒ askConfirm 後 removeBudget(scope, null)（連同覆寫）；清空覆寫或按 × ⇒ removeBudget(scope, month)。
  * 挑選分類的浮層**不浮**：開在表格下方、照文流撐高對話框（.ns-dialog-body 是內捲容器，絕對定位的浮層開在底部會被裁、撐出捲軸——原型席留的題）。
@@ -45,7 +45,7 @@ function rowOf(budgets: readonly BudgetRow[], scope: BudgetScope, month: string 
   return null;
 }
 
-export function BudgetEditor({ onDone }: { onDone(): void }) {
+export function BudgetEditor(_props: { onDone(): void }) {
   const budgets = useTicketStore((s) => s.budgets);
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
@@ -127,11 +127,6 @@ export function BudgetEditor({ onDone }: { onDone(): void }) {
       </table>
       {picking && <CatPicker categories={categories} used={used} onPick={add} onClose={() => setPicking(false)} />}
       <p className="ns-tk-dhint">以主幣別（{MAIN_CURRENCY}）計。清空「預設」會移除整個預算；單月留空則照預設金額。</p>
-      <div className="ns-tk-dfoot">
-        <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
-          關閉
-        </button>
-      </div>
     </div>
   );
 }

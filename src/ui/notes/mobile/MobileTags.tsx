@@ -6,12 +6,21 @@
  * 點名稱＝`select(key)` ⇒ MobileNotes 換成清單整頁（MobileTagPage）；真荷札與虛資料夾都進清單頁（虛的看子孫）。
  * 樹的展開與篩選字存在 tagStore（openKeys／treeFilter；桌機書封樹同一份，兩殼永不同時渲染）。
  * 沒有底部列（契約 0-23：不宣告 `--m-page-dock-h`），捕捉鈕位置照舊。
+ *
+ * UI 丙-6：
+ *   - T2 手機入口：篩選框右邊一顆「＋ 新荷札」（小號次鈕）→ `MobileTagCreateSheet`（MSheet 表單：打名字、即時檢查、取消／建立）
+ *     → `tagStore.createTag`（建好選中 ⇒ 換成它的清單頁）。一個荷札都沒有時鈕藏起來，由空狀態的「新荷札」當唯一入口（§2.7）。
+ *   - E17：空狀態換共用 `EmptyState`：一個都沒有＝first（＋新荷札）；篩選沒結果＝nores（清除篩選）。
+ *     補掛中的那行字是載入態（E21），不換。載入失敗＝`MTagLoading` 的 ErrorBar（E12）。
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { flattenTree } from "../../../domain/tags";
 import { useTagStore } from "../../../store/tagStore";
 import { IconSearch, IconX } from "./mobileDiaryBits";
 import { IconCaretRight, MTagLoading, MobileTagNotice, TagGlyph, retryTagIndex, useTagIndexFailed } from "./mobileTagBits";
+import { MobileTagCreateSheet } from "./MobileTagSheet";
+import { EmptyState } from "../../common/EmptyState";
+import { IconPlus } from "../../common/icons";
 
 export function MobileTags() {
   const index = useTagStore((s) => s.index);
@@ -22,6 +31,7 @@ export function MobileTags() {
   const setTreeFilter = useTagStore((s) => s.setTreeFilter);
   const select = useTagStore((s) => s.select);
   const failed = useTagIndexFailed();
+  const [creating, setCreating] = useState(false);
   // 荷札樹一畫出來就重載索引（同桌機 NotesTags：別頁刪了東西再回來，數量要對上）
   useEffect(() => {
     void useTagStore.getState().loadIndex();
@@ -30,6 +40,9 @@ export function MobileTags() {
   const rows = useMemo(() => (index ? flattenTree(index, openKeys, treeFilter) : []), [index, openKeys, treeFilter]);
   const total = useMemo(() => (index ? Object.values(index.byKey).filter((x) => x.real).length : 0), [index]);
   const filtering = !!treeFilter.trim();
+  /** 已載入、而且一個荷札都沒有（空狀態出現時上方的「＋ 新荷札」藏起來） */
+  const none = !!index && !backfilling && total === 0;
+  const openCreate = () => setCreating(true);
 
   return (
     <div className="ns-notes-mtags">
@@ -55,6 +68,12 @@ export function MobileTags() {
             </button>
           )}
         </label>
+        {!none && (
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost ns-notes-mnewtag" onClick={openCreate}>
+            <IconPlus size={14} />
+            新荷札
+          </button>
+        )}
       </div>
 
       {backfilling ? (
@@ -62,12 +81,21 @@ export function MobileTags() {
       ) : !index ? (
         <MTagLoading className="ns-notes-mtagempty" failed={failed} onRetry={retryTagIndex} />
       ) : total === 0 ? (
-        <div className="ns-notes-mtagempty">
-          <p>還沒有荷札</p>
-          <small>在筆記或日記裡打 #名稱（例：#難度/高），離開編輯就會掛上。路線圖的車票詳情，時刻表的分類、時間塊也能掛。</small>
-        </div>
+        <EmptyState
+          tone="first"
+          title="還沒有荷札"
+          desc="在筆記或日記裡打 #名稱，就會掛上。"
+          action={{ label: "新荷札", icon: <IconPlus size={14} />, onClick: openCreate }}
+          className="ns-notes-mtagnone"
+        />
       ) : rows.length === 0 ? (
-        <p className="ns-notes-mtagempty">找不到『{treeFilter.trim()}』這個荷札</p>
+        <EmptyState
+          tone="nores"
+          title={`找不到「${treeFilter.trim()}」`}
+          desc="換個字試試。"
+          secondary={{ label: "清除篩選", onClick: () => setTreeFilter("") }}
+          className="ns-notes-mtagnone"
+        />
       ) : (
         <ul className="ns-notes-mtree" role="tree" aria-label="荷札">
           {rows.map((r) => {
@@ -111,6 +139,8 @@ export function MobileTags() {
           上層分類（沒有直接掛在上面的項目）
         </p>
       )}
+
+      {creating && <MobileTagCreateSheet onClose={() => setCreating(false)} />}
     </div>
   );
 }

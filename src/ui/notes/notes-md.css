@@ -18,16 +18,16 @@
 }
 
 /* ═══ 一、閱讀態 ═══ */
-.ns-notes-read.ns-notes-md { font-size: 16px; line-height: 1.8; letter-spacing: .03em; overflow-wrap: anywhere; }
+.ns-notes-read.ns-notes-md { font-size: 16px; line-height: 1.8; letter-spacing: .03em; overflow-wrap: anywhere; } /* 閱讀字級：D-筆-54 定值 */
 .ns-notes-md > :first-child { margin-top: 0; }
 .ns-notes-md > :last-child { margin-bottom: 0; }
 .ns-notes-md p { margin: 0 0 .9em; }
 .ns-notes-md h3, .ns-notes-md h4, .ns-notes-md h5 {
   font-family: var(--font-display); font-weight: 700; color: var(--color-ink); line-height: 1.5; letter-spacing: .06em;
 }
-.ns-notes-md h3 { font-size: 1.3em; margin: 1.75em 0 .6em; }
-.ns-notes-md h4 { font-size: 1.1em; margin: 1.5em 0 .5em; }
-.ns-notes-md h5 { font-size: 1em; margin: 1.3em 0 .35em; letter-spacing: .1em; }
+.ns-notes-md h3 { font-size: 1.3em; margin: 1.75em 0 .6em; } /* 相對本文：Markdown 標題階 */
+.ns-notes-md h4 { font-size: 1.1em; margin: 1.5em 0 .5em; } /* 相對本文：Markdown 標題階 */
+.ns-notes-md h5 { font-size: inherit; margin: 1.3em 0 .35em; letter-spacing: .1em; }
 .ns-notes-md ul, .ns-notes-md ol { margin: 0 0 .9em; padding-left: 1.4em; }
 /* 全域 reset 把 list-style 清成 none（techo.css）：ol 的號碼要靠 list-style-type 才有 counter 可畫 */
 .ns-notes-md ul { list-style: disc outside; }
@@ -55,27 +55,27 @@
 }
 .ns-notes-md code {
   font-family: var(--ns-mono); font-size: .86em; letter-spacing: 0;
-  padding: .1em .38em; border-radius: 2px; background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  padding: .1em .38em; border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--color-ink) 6%, transparent);
   -webkit-box-decoration-break: clone; box-decoration-break: clone; overflow-wrap: normal;
 }
 .ns-notes-md pre {
-  display: block; margin: .2em 0 1em; padding: 11px 14px; border: 0; border-radius: 2px;
+  display: block; margin: .2em 0 1em; padding: 11px 14px; border: 0; border-radius: var(--radius-ctl);
   background: color-mix(in srgb, var(--color-ink) 4%, transparent);
-  font-family: var(--ns-mono); font-size: 13px; line-height: 1.65; letter-spacing: 0;
+  font-family: var(--ns-mono); font-size: var(--fs-ui); line-height: 1.65; letter-spacing: 0;
   white-space: pre; overflow-x: auto; overflow-wrap: normal; tab-size: 2;
 }
-.ns-notes-md pre code { padding: 0; background: none; font-size: 1em; border-radius: 0; }
+.ns-notes-md pre code { padding: 0; background: none; font-size: inherit; border-radius: 0; } /* 歸零：蓋掉繼承的圓角 */
 .ns-notes-md pre::-webkit-scrollbar { height: 6px; }
-.ns-notes-md pre::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 3px; }
+.ns-notes-md pre::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: var(--radius-card); }
 .ns-notes-md hr { border: 0; border-top: 1px dashed var(--color-dash); margin: 1.9em 0; }
 .ns-notes-md a {
   color: var(--color-ink); cursor: pointer;
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .22em;
   text-decoration-color: color-mix(in srgb, var(--color-ink) 38%, transparent);
-  transition: text-decoration-color .15s;
+  transition: text-decoration-color var(--dur-fast);
 }
 .ns-notes-md a:hover { text-decoration-color: var(--color-ink); }
-.ns-notes-md a:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 1px; }
+.ns-notes-md a:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: var(--radius-ctl); }
 /* 行內小牌：只把垂直對位壓在行框裡（不撐行距；原型實測 -.32em 會多 1px） */
 .ns-notes-md .ns-notes-tag.sm { vertical-align: baseline; }
 
@@ -84,48 +84,48 @@
 .ns-notes-nflist { list-style: none; margin: 0; padding: 0; }
 .ns-notes-nfrow + .ns-notes-nfrow { border-top: 1px dashed var(--color-line); }
 .ns-notes-nfrow > button {
-  display: block; width: calc(100% + 12px); margin: 0 -6px; padding: 5px 6px 6px; border-radius: 2px; text-align: left;
+  display: block; width: calc(100% + 12px); margin: 0 -6px; padding: 5px 6px 6px; border-radius: var(--radius-ctl); text-align: left;
   font: inherit; color: inherit; background: transparent; border: 0; cursor: pointer;
-  transition: background .12s;
+  transition: background var(--dur-fast);
 }
 .ns-notes-nfrow > button:hover { background: var(--hover-bg); }
 .ns-notes-nfrow > button:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-notes-nfrow .t {
-  display: block; font-size: 13px; line-height: 1.5; letter-spacing: .03em; color: var(--color-ink);
+  display: block; font-size: var(--fs-ui); line-height: 1.5; letter-spacing: .03em; color: var(--color-ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ns-notes-nfrow .ex {
   display: flex; gap: .55em; margin-top: 1px; min-width: 0;
-  font-size: 11.5px; line-height: 1.5; letter-spacing: .03em; color: var(--color-ink-faint);
+  font-size: var(--fs-sm); line-height: 1.5; letter-spacing: .03em; color: var(--color-ink-faint);
 }
 .ns-notes-nfrow .ex .xs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-notes-nfrow .w {
   flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--color-ink-soft); font-size: 11px;
+  color: var(--color-ink-soft); font-size: var(--fs-xs);
 }
 .ns-notes-nfmore {
   display: block; width: 100%; text-align: left; margin-top: 2px; padding: 6px 0 2px;
   border: 0; border-top: 1px dashed var(--color-line); background: transparent; cursor: pointer;
-  font: inherit; font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-soft); transition: color .15s;
+  font: inherit; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); transition: color var(--dur-fast);
 }
 .ns-notes-nfmore:hover { color: var(--color-ink); }
 .ns-notes-nfmore:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 .ns-notes-nfadd {
   display: inline-flex; align-items: center; gap: 4px; height: 24px; margin: 4px 0 0 -7px; padding: 0 7px;
-  font: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); opacity: .8;
-  background: transparent; border: 1px dashed transparent; border-radius: 2px; cursor: pointer;
-  transition: opacity .15s, color .15s, border-color .15s;
+  font: inherit; font-size: var(--fs-sm); letter-spacing: .1em; color: var(--color-ink-faint); opacity: .8;
+  background: transparent; border: 1px dashed transparent; border-radius: var(--radius-ctl); cursor: pointer;
+  transition: opacity var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 .ns-notes-nfadd:hover, .ns-notes-nfadd:focus-visible { opacity: 1; color: var(--color-ink); border-color: var(--color-dash); outline: none; }
-.ns-notes-nfempty { display: block; padding-top: 4px; font-size: 12px; color: var(--color-ink-faint); letter-spacing: .05em; }
+.ns-notes-nfempty { display: block; padding-top: 4px; font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .05em; }
 
 /* ═══ 三、日曆當日清單的「日記」列（契約 §5.4；借核心 .pop-sec／h4／.rule） ═══ */
 .ns-notes-dayauxrow {
   display: flex; align-items: center; width: 100%; min-height: 34px; padding: 4px 0; text-align: left;
-  font: inherit; font-size: 13px; letter-spacing: .06em; color: var(--color-ink-soft);
-  background: transparent; border: 0; border-radius: 2px; cursor: pointer; transition: color .15s;
+  font: inherit; font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-ink-soft);
+  background: transparent; border: 0; border-radius: var(--radius-ctl); cursor: pointer; transition: color var(--dur-fast);
 }
-.ns-notes-dayauxrow .ar { margin-left: 6px; color: var(--color-ink-faint); transition: transform .15s cubic-bezier(.2, .9, .3, 1.2), color .15s; }
+.ns-notes-dayauxrow .ar { margin-left: 6px; color: var(--color-ink-faint); transition: transform var(--dur-fast) var(--ease), color var(--dur-fast); }
 .ns-notes-dayauxrow:hover { color: var(--color-ink); }
 .ns-notes-dayauxrow:hover .ar { transform: translateX(2px); color: var(--accent); }
 .ns-notes-dayauxrow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
@@ -140,9 +140,9 @@
 .cover .ns-notes-aux .ns-notes-auxunder:hover { background: transparent; }
 .cover .ns-notes-auxunder .x {
   flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-left: auto; padding: 0;
-  border: 0; border-radius: 2px; background: transparent; cursor: pointer;
-  color: var(--book-muted); transition: color .15s, background .15s;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  color: var(--book-muted); transition: color var(--dur-fast), background var(--dur-fast);
 }
 .cover .ns-notes-auxunder .x:hover { color: var(--color-book-ink); background: var(--color-book-hover); }
-.cover .ns-notes-auxunder .x:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.cover .ns-notes-auxunder .x:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; } /* 書封燙金 */
 @media (prefers-reduced-motion: reduce) { .cover .ns-notes-auxunder .x { transition: none; } }

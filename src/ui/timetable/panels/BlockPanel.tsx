@@ -11,7 +11,7 @@
  *   跨日的貼齊不補（只找看的那一天）——改用「與上一塊合併」，它查 DB、帶 bound。
  * - 合併（只在改一塊）：div.ns-tt-merge 一列「與上一塊合併／與下一塊合併」；掛上時各問一次 store.previewMerge，
  *   null ⇒ 那顆 disabled。按下其中一顆 ⇒ 面板收成「副標＋合併列＋確認框」（分類格、時刻、底部鈕先收起；手機不用捲就
- *   看得到確認鈕），確認框 div.ns-tt-merge-confirm：B2 預覽一行＋說明＋「算了」「確認合併」；軸上那兩塊描金邊
+ *   看得到確認鈕），確認框 div.ns-tt-merge-confirm：B2 預覽一行＋說明＋「取消」「確認合併」（UI 丙-4 修：原「算了」，規範 §4 不做這個動作一律「取消」）；軸上那兩塊描金邊
  *   （setMergeMarks）。主鈕「改好了」在確認框開著時不在畫面上（互斥）。
  *   bound：上＝看的那天的起點；下＝min(那天的終點, 現在)。
  *
@@ -27,7 +27,7 @@
  * **沒動過荷札就傳 undefined**（不動）；按「取消」全部放棄。草稿面板裡的牌子不能點（點了會離開面板、草稿就丟了）。
  * 評審後（資料語義第 1 條）：改一塊時記下「面板打開時的手動荷札」（index 載好那一刻的 keysOf），送出只交差集
  * （`blockTagEditOf` → store 逐個 attach／detach；沒變＝不寫），不整份 setTags；index 還沒載好 ⇒ 荷札列只寫「荷札載入中…」、不給編輯。
- * 桌機的荷札欄直接 import tags/EntityTagField（不經 ui/notes/desktop.ts 的 barrel；偏差記錄 10-20）。
+ * 桌機的荷札欄直接 import common/EntityTagField（不經 ui/notes/desktop.ts 的 barrel；偏差記錄 10-20）。
  *
  * 磨光③（契約 §2-1、2-8、2-12；D-時-134、136）：
  * - 單塊排除：分類帶的牌子加 ×（桌機滑過才出現、手機常顯），× 了刪除線淡字留原位、↺ 或點牌子還原（原型定案 A1）。
@@ -43,7 +43,7 @@
  * - 「補上／改好了」：失焦那一刻已套用合法草稿；剛打錯的框（`clockDraftsOk`）⇒ 不送出、焦點回框。
  * - 連續補：補上後那段還有剩（`fillContinuation`：後面優先、跳過的前段帶在 cont.rest）⇒ 面板不關、換到剩下那段
  *   （`openSheet({ kind: "fill", ..., cont })`；SheetPanel 用起訖當 key 重掛，分類／連結／荷札草稿都從頭來）；
- *   副標第二行「剩下 X–Y 還沒記」、取消改叫「先這樣」。補滿照舊關。寫入不等（fill 失敗照舊 toast，面板照開）。
+ *   副標第二行「剩下 X–Y 還沒記」、取消鈕原叫「先這樣」（UI 丙-4 修：規範 §4 一律「取消」——前面補好的段都已存，取消＝這一段不記）。補滿照舊關。寫入不等（fill 失敗照舊 toast，面板照開）。
  *   換段後面板捲回頂（那一行才看得到）；桌機自動聚焦的到着框若被黏底的按鈕列擋住，再往下捲到剛好露出（評審 #4）。
  *
  * 磨光⑤ §8 甲′（使用者 10-21：補記睡覺 01:30–10:30 變成 33 小時；D-主-64、65）：
@@ -68,7 +68,7 @@
  * - 面板開著時這一班到站了（別台到着／換車，同步拉到）：換成已結束的樣子——到着列出現（上限＝max(打開時的現在, 實際到站)）、
  *   副標下赭字「這一班剛到站了」、草稿全留著，「改好了」走一般 editBlock；仍不冒出刪除與合併（按鈕不在手底下突然變多）。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { MIN, findBlockIn, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
 import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
@@ -80,7 +80,7 @@ import { CategoryGrid } from "../parts/CategoryGrid";
 import { LinkPicker, LinkRow } from "../parts/LinkPicker";
 import { TT_TAG_BLOCK } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
-import { EntityTagField } from "../../notes/tags/EntityTagField";
+import { EntityTagField } from "../../common/EntityTagField";
 import { blockTagEditOf } from "../../../data/timetableTagCarry";
 import { useShell } from "../../mobile/useShell";
 import { useBackLayer } from "../../mobile/backStack";
@@ -92,6 +92,7 @@ import {
   Row,
   Stepper,
   Sub,
+  TtFootContext,
   clamp,
   clockDraftsOk,
   setMergeMarks,
@@ -101,7 +102,7 @@ import {
   usePanelRefDay,
   type PanelProps,
 } from "./controls";
-import type { ClockInputHandle } from "./ClockInput";
+import type { ClockInputHandle } from "../../common/ClockInput";
 
 type Dir = "prev" | "next";
 
@@ -185,11 +186,13 @@ export function BlockPanel({ onDone }: PanelProps) {
   const linkInfo = useTimetableStore((s) => s.linkInfo);
   const rootRef = useRef<HTMLDivElement>(null);
   // 連續補換段（評審 #4）：重掛不會把捲動容器捲回去 ⇒ 「剩下 X–Y 還沒記」會留在畫面外。掛上時捲回頂；桌機到着框已自動
-  // 聚焦（子元件的 effect 先跑）：若它因此躲到底部黏住的按鈕列後面，只往下捲到剛好露出框——面板只高出一點時兩行都看得到
+  // 聚焦（子元件的 effect 先跑）：若它因此躲到捲動區底下，只往下捲到剛好露出框——面板只高出一點時兩行都看得到。
+  // UI 丙-4 C2：捲動容器＝殼的本文（桌機 `.ns-dialog-body`、手機 `.ns-msheet-body`）；按鈕列抬進殼的 foot 後不在捲動區裡，
+  // 底線就是捲動區的下緣（按鈕列還畫在面板裡的行內用法才扣掉它）
   useEffect(() => {
     const root = rootRef.current;
     if (!root || sheet?.kind !== "fill" || !sheet.cont) return;
-    const box = root.closest<HTMLElement>(".ns-dialog-body, .ns-tt-sheet");
+    const box = root.closest<HTMLElement>(".ns-dialog-body, .ns-msheet-body");
     if (!box) return;
     box.scrollTop = 0;
     const input = document.activeElement instanceof HTMLInputElement && root.contains(document.activeElement) ? document.activeElement : null;
@@ -285,6 +288,9 @@ export function BlockPanel({ onDone }: PanelProps) {
   // 需要」時縮（沒捲到底的面板當拍就縮成 0，捲到底的等使用者往上捲才一點一點縮），縮的過程不會讓內容跳。
   const [longShown, setLongShown] = useState(!!longAsk);
   const [hold, setHold] = useState(0);
+  // 按鈕列在殼的 foot 裡（TtFootContext 有給）⇒ 留白畫在面板最後（本文裡），不跟按鈕列進 foot；行內用法照舊畫在按鈕列裡
+  const inFoot = useContext(TtFootContext) !== undefined;
+  const holdEl = !longAsk && hold > 0 ? <div className="ns-tt-longask-hold" style={{ height: hold }} aria-hidden /> : null;
   /** 確認行上一次畫出來佔的高度（含它跟主鈕之間的列距） */
   const longH = useRef(0);
   if (!!longAsk !== longShown) {
@@ -303,12 +309,15 @@ export function BlockPanel({ onDone }: PanelProps) {
   });
   useLayoutEffect(() => {
     if (!hold) return;
-    const box = rootRef.current?.closest<HTMLElement>(".ns-dialog-body, .ns-tt-sheet");
+    const box = rootRef.current?.closest<HTMLElement>(".ns-dialog-body, .ns-msheet-body");
     if (!box) {
       setHold(0);
       return;
     }
-    // 拿掉留白後捲動位置還放得下＝不需要；還需要的那一截＝捲過頭的部分
+    // 拿掉留白後捲動位置還放得下＝不需要；還需要的那一截＝捲過頭的部分（＝留白 − 底下還能捲的距離）。
+    // 留白一律在本文（捲動區）裡：按鈕列在殼的黏底 foot 時，留白畫在面板最後（不跟著按鈕 portal 進 foot）——
+    // foot 少一行、本文多一塊同高的留白，殼的總高不變：桌機捲到底的內容不掉，手機 MSheet（底部錨定）沒頂到上限時
+    // 頂緣也不往下掉（不然連點的 ±15 跟著移位，UI 丙-4 修／T7 評審 9）；留白在本文底、分隔線之上，不會在按鈕上方空一塊（評審 16）。
     const fit = (): void => {
       const need = Math.max(0, Math.ceil(box.scrollTop + box.clientHeight - (box.scrollHeight - hold)));
       if (need < hold) setHold(need);
@@ -322,15 +331,11 @@ export function BlockPanel({ onDone }: PanelProps) {
   // 磨光①：手機返回鍵＝連結挑選的「‹」（疊在 timetable.sheet 上；桌機 no-op）
   useBackLayer("timetable.blockLink", picking, () => setPicking(false));
 
+  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
   if (mode === "edit" && !block) {
     return (
       <div className="ns-tt-panel">
         <Sub>這一塊已經不在了</Sub>
-        <Actions>
-          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-            關閉
-          </button>
-        </Actions>
       </div>
     );
   }
@@ -527,7 +532,7 @@ export function BlockPanel({ onDone }: PanelProps) {
             <p className="ns-tt-merge-note">{mergeNote(ask, askPreview)}</p>
             <div className="ns-tt-merge-btns">
               <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => setAsk(null)}>
-                算了
+                取消
               </button>
               <button
                 type="button"
@@ -673,7 +678,7 @@ export function BlockPanel({ onDone }: PanelProps) {
             </div>
           </div>
         )}
-        {!longAsk && hold > 0 && <div className="ns-tt-longask-hold" style={{ height: hold }} aria-hidden />}
+        {!inFoot && holdEl}
         {mode === "edit" && block && (
           <>
             {!fromRunning && (
@@ -694,12 +699,13 @@ export function BlockPanel({ onDone }: PanelProps) {
           </>
         )}
         <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-          {cont ? "先這樣" : "取消"}
+          取消
         </button>
         <button type="button" className="ns-btn btn-seal" onMouseDown={live ? (e) => e.preventDefault() : undefined} onClick={submit}>
           {mode === "fill" ? "補上" : "改好了"}
         </button>
       </Actions>
+      {inFoot && holdEl}
     </div>
   );
 }

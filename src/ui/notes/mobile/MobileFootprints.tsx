@@ -11,14 +11,20 @@
  *   寫下的 N：時刻＋手寫體內文＋票名（節點已刪＝「（原車票已刪除）」，repository 已填好）
  *   心情：燈號一排（綠＝松葉 route-preset-3、黃＝--arc、紅＝赭 --late，不用朱）
  * 時間段（blocks）目前恆 null ⇒ 不畫（插槽見 footprintBlocks.ts；磨光③ 2-7 拿掉欄底「時刻表通車後…」那行，接時間塊留給下一輪 B1）。
+ *
+ * UI 丙-6：心情字改讀核心 `complete/moods.ts`（F1：完成卡、側板、足跡同一張表）；顏色走 --mood-*（F2，CSS）；
+ *   「這天沒有留下足跡」換共用 EmptyState 區段級（inline，E19）。
  */
 import { useNodeStore } from "../../../store/nodeStore";
 import { useBackLayer } from "../../mobile/backStack";
 import { footprintSummary, fmtMonthDay, fmtShortDay, hasFootprint, weekdayZh, type FootprintDay } from "../../../domain/notes";
-import { RouteDot } from "./MobileAttachPicker";
+import { RouteDot } from "../../common/MobileAttachPicker";
+import { MOODS } from "../../complete/moods";
+import { EmptyState } from "../../common/EmptyState";
 import { IconCaret, IconLeft, IconRight, hhmm } from "./mobileDiaryBits";
 
-const MOOD_NAME = { green: "順暢", yellow: "還行", red: "吃力" } as const;
+/** 心情燈號的讀名（順暢／還行／吃力）＝核心那一張表 */
+const moodName = (m: string) => MOODS.find((x) => x.value === m)?.label ?? m;
 
 export interface MobileFootprintsProps {
   open: boolean;
@@ -79,7 +85,7 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
             )}
           </div>
 
-          {f && !hasFootprint(f) && <p className="ns-notes-mfpempty">這天沒有留下足跡</p>}
+          {f && !hasFootprint(f) && <EmptyState inline tone="first" className="ns-notes-mfpempty" title="這天沒有留下足跡" />}
 
           {f && f.seals.length > 0 && (
             <div className="ns-notes-mfpsec">
@@ -128,7 +134,7 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
               </h4>
               <div className="ns-notes-mmoods">
                 {f.moods.map((m, i) => (
-                  <span key={i} className={"ns-notes-mmood " + m} title={MOOD_NAME[m]} aria-label={MOOD_NAME[m]} />
+                  <span key={i} className={"ns-notes-mmood " + m} title={moodName(m)} aria-label={moodName(m)} />
                 ))}
               </div>
             </div>

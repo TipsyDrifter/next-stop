@@ -13,26 +13,26 @@
 .panel-sheet {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   /* 原型 body：字級／行高／字距／紙纖維 */
-  font-family: var(--font-body); font-size: 14px; line-height: 1.6; letter-spacing: .02em;
+  font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em;
   color: var(--color-ink); font-variant-numeric: tabular-nums;
   background-color: var(--color-paper);
   background-image:
-    repeating-linear-gradient(105deg, rgba(120, 100, 70, .03) 0 2px, transparent 2px 7px),
-    repeating-linear-gradient(15deg, rgba(90, 75, 55, .02) 0 3px, transparent 3px 9px);
+    repeating-linear-gradient(105deg, rgba(120, 100, 70, .03) 0 2px, transparent 2px 7px), /* 字面值：紙纖維紋（§1.1 噪點例外） */
+    repeating-linear-gradient(15deg, rgba(90, 75, 55, .02) 0 3px, transparent 3px 9px); /* 字面值：紙纖維紋（§1.1 噪點例外） */
   border-left: 1px solid var(--color-line);
   transition: transform .2s ease-out;
 }
 [data-theme="dark"] .panel-sheet {
   background-image:
-    repeating-linear-gradient(45deg, rgba(232, 214, 175, .014) 0 2px, transparent 2px 6px),
-    repeating-linear-gradient(-32deg, rgba(0, 0, 0, .07) 0 3px, transparent 3px 9px);
+    repeating-linear-gradient(45deg, rgba(232, 214, 175, .014) 0 2px, transparent 2px 6px), /* 字面值：紙纖維紋・銀河（§1.1 噪點例外） */
+    repeating-linear-gradient(-32deg, rgba(0, 0, 0, .07) 0 3px, transparent 3px 9px); /* 字面值：紙纖維紋・銀河（§1.1 噪點例外） */
 }
 @starting-style { .panel-sheet { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .panel-sheet { transition: none; } }
 
 .panel-scroll { flex: 1; overflow-y: auto; padding: 38px 26px 40px; }
 .panel-scroll::-webkit-scrollbar { width: 10px; }
-.panel-scroll::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 5px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 5px; } /* 字面值：捲軸滑塊 5px 圓頭（寬 10 的一半） */
 .panel-scroll::-webkit-scrollbar-track { background: transparent; }
 
 /* 關閉叉：件一 .panel-close 定稿（26×26、top/right 14、常駐 ink-faint）——
@@ -42,7 +42,7 @@
 .panel .panel-close {
   position: absolute; top: 14px; right: 14px; z-index: 2;
   width: 26px; height: 26px; display: grid; place-items: center;
-  border: 0; border-radius: 2px; background: transparent;
+  border: 0; border-radius: var(--radius-ctl); background: transparent;
   color: var(--color-ink-faint); cursor: pointer;
   transition: color .15s, background .15s;
 }
@@ -61,8 +61,8 @@
   display: flex; align-items: center; gap: 9px; margin-bottom: 9px;
   color: var(--color-ink-mid, var(--ink-mid, var(--color-ink-soft)));
 }
-.panel .panel-kind .badge { width: 27px; height: 27px; font-size: 12px; flex: none; }
-.panel .panel-kind .line-name { font-size: 10px; letter-spacing: .24em; color: currentColor; }
+.panel .panel-kind .badge { width: 27px; height: 27px; font-size: var(--fs-sm); flex: none; }
+.panel .panel-kind .line-name { font-size: var(--fs-micro); letter-spacing: .24em; color: currentColor; }
 
 /* ═══ 票頭內的襯線標題列（.date-line 語彙；NodePanel／RoutePanel 共用） ═══
    M2 的 header.day 版標題區已在 ③ 全面退場（RoutePanel 也換成上面的 .panel-head，一字題② 拍板），
@@ -71,7 +71,7 @@
 .panel .date-line { align-items: center; gap: 12px; }
 .panel .date-line .d {
   flex: 1; min-width: 0; display: block; width: 100%;
-  font-size: 24px; line-height: 1.3;
+  font-size: 24px; line-height: 1.3; /* 字面值：側板標題輸入 24px（件一定稿）；桌機字階沒有這一階（原型逐字） */
   padding: 0; border-bottom-color: transparent; resize: none; overflow: hidden; field-sizing: content;
 }
 .panel .date-line .d:hover { border-bottom-color: var(--color-dash); }
@@ -85,8 +85,8 @@
 .field { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 26px; }
 .field.top { align-items: start; }
 .field.top .lbl { padding-top: 6px; }
-.lbl { font-size: 10px; letter-spacing: .4em; color: var(--accent); font-weight: 500; }
-.panel .serial { font-family: var(--font-latin); font-size: 8.5px; letter-spacing: .16em; color: var(--color-ink-faint); }
+.lbl { font-size: 10px; letter-spacing: .4em; color: var(--accent); font-weight: 500; } /* 字面值：.lbl 是全域 class、手機頁也在用，--fs-micro 手機是 11，照原值留 */
+.panel .serial { font-family: var(--font-latin); font-size: 8.5px; letter-spacing: .16em; color: var(--color-ink-faint); } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 /* ═══ 輸入：透明底＋ .dash 底線；焦點轉 --accent（粉彩靛、銀河金；主線② #64 起紙面強調一律 --accent，金只給書封） ═══ */
 .panel input, .panel textarea {
@@ -105,11 +105,11 @@
 .panel .date { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .panel .code { font-family: var(--font-latin); letter-spacing: .12em; width: 6em; }
 
-/* 小叉（清除日期／刪除車站）：原型沒有，列 hover 才現身 */
+/* 小叉（刪除車站；舊日期欄的清除）：原型沒有。UI 丙-3 C4 起常駐淡態 --dim（規範 §3.1-1「車站的 × 改成常駐淡態」），列 hover／聚焦轉實 */
 .panel .x {
   flex: none; width: 18px; height: 18px; display: grid; place-items: center;
   border: 0; background: transparent; color: var(--color-ink-faint); cursor: pointer;
-  opacity: 0; transition: opacity .15s, color .15s;
+  opacity: var(--dim); transition: opacity .15s, color .15s;
 }
 .panel .field:hover .x, .panel .st:hover .x, .panel .x:focus-visible { opacity: 1; }
 .panel .x:hover { color: var(--color-late); }
@@ -136,7 +136,7 @@
 .mood { display: flex; align-items: center; gap: 8px; }
 .mood .badge {
   background: transparent; cursor: pointer; padding: 0;
-  font-family: var(--font-display); font-size: 13px;
+  font-family: var(--font-display); font-size: 13px; /* 字面值：心情章 13px；.mood 手機足跡也在用，照原值留 */
   opacity: var(--dim); transition: opacity .15s, background .15s;
 }
 .mood .badge:hover { opacity: .75; }
@@ -144,14 +144,20 @@
 .mood .badge.on > span { color: var(--color-paper-high); }
 .mood .badge:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 
-/* ═══ 路線色：原型 .roundel 小圓盤；選中＝ink 邊；自訂＝虛線空盤（color picker 藏在裡面） ═══ */
-.swatches { display: flex; align-items: center; gap: 8px; }
-.swatches .roundel { border: 0; cursor: pointer; padding: 0; position: relative; overflow: hidden; transition: box-shadow .15s; }
-.swatches .roundel.on { box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 3px var(--color-ink); }
-.swatches .roundel.custom { background: transparent; border: 1.6px dashed var(--color-dash); color: var(--color-ink-faint); font-size: 12px; }
-.swatches .roundel.custom.on { border: 0; }
-.swatches .roundel.custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.swatches .roundel:focus-within { outline: var(--focus-ring); outline-offset: 2px; }
+/* ═══ 路線色（UI 丙-3 C3）：共用 ColorPicker（樣式在 common/datefield.css .ns-colorpick）＋色名淡字；舊 .swatches／.roundel 自畫盤退役 ═══ */
+/* 路線色：ColorPicker 一列＝四格＋自訂圓「＋」＋色名（丙-7 退回丙-3 以前的排法；220px 控制項欄放得下，收窄才換行） */
+.panel .route-color { row-gap: 6px; }
+/* ColorPicker 的自訂圓藏著原生 color input：別吃到側板的底線輸入樣式（.panel input 會給它寬度與底線） */
+.panel .ns-sw-custom input[type="color"] { width: 100%; padding: 0; border: 0; }
+
+/* ═══ 單選欄（UI 丙-3 C2／C5，./Choice）：新 Segmented 放進 220px 控制項欄——收內距與字距，整組撐滿那一欄 ═══
+   內距 4px（丙-7 由 6 收）：現況改名「途中下車」後四段 13 字，要 4px 才擠得進 217px、不必落到下拉。
+   每段都 flex-grow 1，多出來的空間平分，所以本來就放得下的組（優先順序、重複方式）每段寬度不變、長相不變。 */
+.panel .ns-seg.panel-seg { display: flex; width: 100%; }
+.panel .ns-seg.panel-seg > [role="radio"] { flex: 1 1 auto; padding: 0 4px; letter-spacing: .06em; }
+/* 放不下就換底線下拉（.ns-select-wrap＋.techo-input，overlay.css）：撐滿那一欄 */
+.panel .ns-select-wrap.panel-select { display: block; }
+.panel .ns-select-wrap.panel-select select { width: 100%; font: inherit; color: var(--color-ink); background: transparent; }
 
 /* ═══ 車票検印：沿原型 .stamp／.seal；done／fresh 對應 .ticket.done／.ticket.fresh ═══ */
 .panel .stamp-row { display: flex; align-items: center; gap: 16px; }
@@ -168,8 +174,8 @@
    本檔只留清單容器與空狀態（原本的 .log .latin／.log p 隨舊 markup 一併刪除）。 */
 .log { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .log li { min-width: 0; }
-.panel .latin { font-family: var(--font-latin); font-style: italic; font-size: 13px; color: var(--color-ink-faint); letter-spacing: .14em; }
-.panel .empty { margin-top: 6px; font-size: 12px; color: var(--color-ink-faint); letter-spacing: .05em; }
+.panel .latin { font-family: var(--font-latin); font-style: italic; font-size: 13px; color: var(--color-ink-faint); letter-spacing: .14em; } /* 字面值：拉丁斜體 13px；桌機字階沒有這一階（原型逐字） */
+.panel .empty { margin-top: 6px; font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .05em; }
 
 /* ═══ 車站：每站一列＝名稱（原型 .title）＋ .meta（預定日）＋ 到站章（.late-seal 形制、seal 色、寫「着」） ═══ */
 .stations { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -178,18 +184,18 @@
 .st .arr-seal { grid-column: 2; grid-row: 1; }
 .st .x { grid-column: 3; grid-row: 1; }
 .st .meta { grid-column: 1 / -1; grid-row: 2; }
-.st .title { font-size: 15px; font-weight: 500; letter-spacing: .04em; padding: 0; border-bottom-color: transparent; }
+.st .title { font-size: var(--fs-ticket); font-weight: 500; letter-spacing: .04em; padding: 0; border-bottom-color: transparent; }
 .st .title:hover { border-bottom-color: var(--color-dash); }
 .st .title:focus { border-bottom-color: var(--accent); }
 .st.arrived .title { color: var(--color-ink-faint); }
-.st .meta { margin-top: 2px; }
+.st .meta { margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 .st .arr-note { color: var(--color-seal); letter-spacing: .12em; white-space: nowrap; }
 .arr-seal {
   border: 1.6px solid var(--color-seal); color: var(--color-seal); background: transparent; cursor: pointer;
-  font-family: var(--font-display); font-weight: 600; font-size: 12.5px;
+  font-family: var(--font-display); font-weight: 600; font-size: 12.5px; /* 字面值：到著章 12.5px；印章家族字級（照原型） */
   letter-spacing: .3em; text-indent: .3em;
   padding: 3px 8px; transform: rotate(-6deg); opacity: .78;
-  border-radius: 2px;
+  border-radius: var(--radius-ctl);
   transition: opacity .15s, color .15s, border-color .15s;
 }
 /* 未到站：章不可見；列 hover 才以虛線空章現身（＝検印欄的虛線語彙） */
@@ -204,6 +210,11 @@
   55%  { transform: scale(.9)   rotate(-4deg);  opacity: .96; }
   100% { transform: scale(1)    rotate(-6deg);  opacity: .78; }
 }
+/* 新增列（UI 丙-3 C4）：底線輸入＋「＋ 新增」次鈕同一列（規範 §3.1-6「新增 X」在 X 旁邊） */
+.panel .st-add { display: flex; align-items: flex-end; gap: 8px; margin-top: 4px; }
+.panel .st-add input { flex: 1; }
+.panel .st-add .ns-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.panel .st-empty { margin: 4px 0 10px; }
 
 /* ═══ 操作列：上接撕線（.sec .rule 的虛線），鈕＝.ns-btn.btn-ghost 緊湊次鈕（危險加 .ns-btn-danger；UI 丙-1） ═══ */
 .actions {
@@ -214,11 +225,12 @@
 
 /* ═══ 未選節點 ═══ */
 .panel .blank { height: 100%; display: grid; place-items: center; text-align: center; }
-.panel .blank h3 { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: .22em; color: var(--color-ink-soft); }
-.panel .blank p { margin-top: 8px; font-size: 13px; color: var(--color-ink-soft); letter-spacing: .06em; }
+.panel .blank h3 { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; color: var(--color-ink-soft); }
+.panel .blank p { margin-top: 8px; font-size: 13px; color: var(--color-ink-soft); letter-spacing: .06em; } /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
 
 /* ═══ 預定時刻（主線階段②；契約 §4.1–4.2；原型 prototypes/主線-預定時刻.html :381-406、:372-373） ═══
-   「幾點」欄＝TimeField（顯示態 .tf-show 點了變輸入態 .tf-in，下方 .tf-hint 即時講會存成什麼）；
+   「幾點」欄＝ClockField（UI 丙-3 C5：共用 ClockInput compact，樣式在 common/datefield.css .ns-clock*；
+   沒排時刻＝一顆 .tf-show「— 不排時刻」，點了才掛出 ClockInput）；
    預計欄右邊的「→ 15:30 着」＝.arr；定期券検印段的「本班」列＝.occ。前綴 .panel 抬一級（techo.css 的 `.panel-sheet > *` 坑，見 .panel-close）。 */
 .panel .tf { min-width: 0; }
 .panel .tf-show {
@@ -230,44 +242,38 @@
 .panel .tf-show:hover { border-bottom-color: var(--accent); }
 .panel .tf-show:focus { outline: none; }
 .panel .tf-show:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
-.panel .tf-show .hm { font-family: var(--font-latin); font-weight: 500; font-size: 17px; letter-spacing: .03em; color: var(--color-ink); }
-.panel .tf-show .ph { font-size: 13px; color: var(--color-ink-faint); letter-spacing: .08em; }
-.panel .tf-show .pre { font-size: 11px; color: var(--color-ink-soft); letter-spacing: .14em; }
-.panel .tf-show .nx { font-size: 11px; color: var(--color-ink-faint); letter-spacing: .06em; }
-.panel .tf input.tf-in {
-  width: 7.5em; display: inline-block;
-  font-family: var(--font-latin); font-size: 17px; font-weight: 500; letter-spacing: .03em;
-  border-bottom: 1.5px solid var(--accent);
-}
-.panel .tf-hint { margin-top: 4px; font-size: 11.5px; line-height: 1.6; color: var(--color-ink-soft); letter-spacing: .03em; }
-.panel .tf-hint:empty { display: none; }
-.panel .tf-hint .hm { font-family: var(--font-latin); font-weight: 600; font-size: 12.5px; color: var(--accent); }
-.panel .tf-hint.err { color: var(--color-late); }
-.panel .tf.shake > :first-child { animation: tfShake .3s; }
-@keyframes tfShake { 20%, 60% { transform: translateX(-3px); } 40%, 80% { transform: translateX(3px); } }
+.panel .tf-show .ph { font-size: 13px; color: var(--color-ink-faint); letter-spacing: .08em; } /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
+.panel .tf .pre { font-size: var(--fs-xs); color: var(--color-ink-soft); letter-spacing: .14em; white-space: nowrap; }
+/* 有時刻：［前綴］ClockInput［×］一列；ClockInput 本身是直排（框＋下方日期說明行），在控制項欄裡靠左 */
+.panel .clockf-row { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.panel .clockf-row .pre { padding-top: 6px; }
+.panel .clockf .ns-clock { align-items: flex-start; }
+.panel .clockf .ns-clock-foot { justify-content: flex-start; padding-left: 42px; }  /* 對齊時刻框（讓開左邊的 −15） */
+.panel .clockf .ns-clock-inwrap .techo-input.ns-clock-in { display: inline-block; width: 76px; padding: 0; }  /* 92→76：前綴＋±15＋框＋× 要塞進 220px 的控制項欄 */
+.panel .clockf-clear { flex: none; width: 22px; height: 22px; min-height: 0; margin-top: 4px; opacity: var(--dim); }
+.panel .clockf:hover .clockf-clear, .panel .clockf-clear:focus-visible { opacity: 1; }
 
 /* 預計＋到站：NumberField 與「→ 15:30 着」同一列（窄側板放不下就折到下一行） */
 .panel .est-row { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 6px; }
-.panel .arr { font-size: 12px; color: var(--color-ink-soft); letter-spacing: .06em; margin-left: 6px; white-space: nowrap; }
-.panel .arr .hm { font-family: var(--font-latin); font-weight: 500; font-size: 13px; color: var(--color-ink); }
+.panel .arr { font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; margin-left: 6px; white-space: nowrap; }
+.panel .arr .hm { font-family: var(--font-latin); font-weight: 500; font-size: 13px; color: var(--color-ink); } /* 字面值：時刻 13px；桌機字階沒有這一階（原型逐字） */
 
 /* 定期券検印段的「本班」列：左小標（.lbl）＋右內容，欄寬同 .field */
 .panel .occ { margin-top: 12px; display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: start; }
 .panel .occ .lbl { padding-top: 6px; }
 .panel .occ .ov { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding-top: 2px; }
-.panel .occ .ov .hm { font-family: var(--font-latin); font-weight: 500; font-size: 15px; color: var(--color-ink); }
-.panel .occ .ov .hm.none { font-family: var(--font-body); font-size: 13px; letter-spacing: .08em; color: var(--color-ink-soft); }
-.panel .occ .why { font-size: 11px; color: var(--color-ink-faint); letter-spacing: .08em; }
+.panel .occ .ov .hm { font-family: var(--font-latin); font-weight: 500; font-size: 15px; color: var(--color-ink); } /* 字面值：時刻 15px；桌機字階沒有這一階（原型逐字） */
+.panel .occ .ov .hm.none { font-family: var(--font-body); font-size: 13px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
+.panel .occ .why { font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .08em; }
 .panel .occ .why.on { color: var(--accent); }
 .panel .linkbtn {
   background: transparent; border: 0; padding: 0; cursor: pointer; min-height: 24px;
-  font-family: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--accent);
+  font-family: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--accent); /* 字面值：連結鈕 11.5px；桌機字階沒有這一階（原型逐字） */
   text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .panel .linkbtn:hover { text-decoration-style: solid; }
 .panel .linkbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel .tf.shake > :first-child { animation: none; }
   .panel .tf-show { transition: none; }
 }

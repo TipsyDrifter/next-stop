@@ -4,12 +4,12 @@
  *
  * 桌機 `<GridView shell="desktop" />`：
  *   section.ns-tt-grid.is-desk（flex:1；左方眼、右欄 320px）
- *   ├ div.ns-tt-grid-main   GridNav（‹ 10/20（一）今天 ›、回到今天、拖的時候的讀數、格子大小 5｜10｜15｜30 分）＋ GridSheet
+ *   ├ div.ns-tt-grid-main   GridNav（DateNav ‹ 10/20（一）今天 › ＋「今天」、拖的時候的讀數、格子大小 5｜10｜15｜30 分）＋ GridSheet
  *   └ aside.ns-tt-grid-side 沒選＝DaySummary＋操作說明與圖例；選了＝PaintBar
  * 手機 `<GridView shell="mobile" />`：
  *   div.ns-tt-grid.is-phone[data-no-fab]（撐滿 .m-page 剩下的高；整頁不捲——§M 用 :has 把 .m-page 改成直欄不捲；
  *     data-no-fab＝收起「記一句」浮鈕：整頁不捲，鈕放哪都蓋一格，磨光③ 2-13）
- *   ├ GridNav（拖的時候讀數蓋在這一列上，手指遮不到；不是今天時沒有「回到今天」鈕、點日期回今天——頂列放不下）
+ *   ├ GridNav（拖的時候讀數蓋在這一列上，手指遮不到；UI 丙-4 D9：DateNav 收緊成一列，「今天」chip 兩殼都有）
  *   ├ GridSheet（24 列跟著高度伸縮；一列 1 小時算出來 < 16px 改一列 2 小時，〈原型定案〉4）
  *   └ div.ns-tt-grid-legend 本日各分類合計（橫捲；選了一段時藏起來、不讓位）
  * 手機的塗色列另外 export `MobileGridDock`：要放在 `.m-page` **外面**（`.m-page` 是 z-index:1 的 stacking context，蓋不過運行列），
@@ -27,8 +27,9 @@ import { TT_TEXT, blockMarker, useTimetableStore, type TimetableShell } from "..
 import { useTimetableGridStore, type GridSel } from "../../../store/timetableGridStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays } from "../../../lib/date";
-import { formatChord, hotkeyById } from "../../shell/hotkeys";
+import { DateNav } from "../../common/DateNav";
 import { DaySummary } from "../parts/DaySummary";
+import { DnTitle } from "../parts/DateNavTitle";
 import { SCHED_UI, mdw } from "../schedule/scheduleModel";
 import { GridSheet } from "./GridSheet";
 import { PaintBar, ReadLine } from "./PaintBar";
@@ -75,52 +76,23 @@ function GridNav({ day, read }: { day: GridDay; read: ReactNode }) {
   const setDayKey = useTimetableStore((s) => s.setDayKey);
   const setCellMin = useTimetableGridStore((s) => s.setCellMin);
   const { dayKey, todayKey, isToday, isDesk } = day;
-  const tag = isToday ? TT_TEXT.schedToday : dayKey === addDays(todayKey, -1) ? SCHED_UI.yesterday : null;
-  const todayHot = isDesk ? hotkeyById("timetable.day.today") : undefined;
+  // 手機頂列橫向放不下「今天／昨天」小籤（‹ 日期 › ＋今天 chip ＋格子大小，360 寬量過）：日期留星期、小籤只在桌機
+  const tag = !isDesk ? null : isToday ? TT_TEXT.schedToday : dayKey === addDays(todayKey, -1) ? SCHED_UI.yesterday : null;
   return (
     <div className="ns-tt-grid-nav">
-      <span className="ns-tt-grid-pnav">
-        <button type="button" className="ns-tt-grid-arrow" aria-label={SCHED_UI.prevDay} onClick={() => void setDayKey(addDays(dayKey, -1))}>
-          ‹
-        </button>
-        {/* 手機不是今天：頂列放不下「回到今天」鈕（375／360 寬會跟 ‹ › 疊在一起、‹ 點不到；修正席）⇒ 日期本身就是回到今天的鈕 */}
-        {!isDesk && !isToday ? (
-          <button
-            type="button"
-            className="ns-tt-grid-pname is-tocur"
-            aria-label={`${mdw(dayKey)}${tag ? ` ${tag}` : ""}：${SCHED_UI.toToday}`}
-            title={SCHED_UI.toToday}
-            onClick={() => void setDayKey(todayKey)}
-          >
-            <b className="ns-tt-num">{mdw(dayKey)}</b>
-            {tag && <em>{tag}</em>}
-          </button>
-        ) : (
-          <span className="ns-tt-grid-pname">
-            <b className="ns-tt-num">{mdw(dayKey)}</b>
-            {tag && <em>{tag}</em>}
-          </span>
-        )}
-        <button
-          type="button"
-          className="ns-tt-grid-arrow"
-          aria-label={SCHED_UI.nextDay}
-          disabled={dayKey >= todayKey}
-          onClick={() => void setDayKey(addDays(dayKey, 1))}
-        >
-          ›
-        </button>
-      </span>
-      {!isToday && isDesk && (
-        <button type="button" className="ns-tt-grid-tocur" onClick={() => void setDayKey(todayKey)}>
-          {SCHED_UI.toToday}
-          {todayHot && (
-            <kbd className="ns-tt-kbd" aria-hidden="true">
-              {formatChord(todayHot.chords[0]).join("+")}
-            </kbd>
-          )}
-        </button>
-      )}
+      {/* UI 丙-4 D9：‹ 日期 › ＋「回到今天」膠囊換共用 DateNav（兩殼都有「今天」chip；手機原本「點日期回今天」的替身退役）。
+          動作＝鍵盤 ←／→／T 的同一支 setDayKey；方眼照軸、不記未來 ⇒ 看今天時 › 停用 */}
+      <DateNav
+        className="ns-tt-dnav"
+        title={<DnTitle text={mdw(dayKey)} tag={tag} />}
+        onPrev={() => void setDayKey(addDays(dayKey, -1))}
+        onNext={() => void setDayKey(addDays(dayKey, 1))}
+        nextDisabled={dayKey >= todayKey}
+        onToday={() => {
+          if (!isToday) void setDayKey(todayKey);
+        }}
+        isToday={isToday}
+      />
       <span className={"ns-tt-grid-read" + (read ? " is-on" : "")} aria-live="polite">
         {read}
       </span>
@@ -332,6 +304,8 @@ export function GridView({ shell }: GridViewProps) {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || e.isComposing) return;
       if (useTimetableStore.getState().sheet !== null) return;
+      // 別的對話框開著（捕捉框、設定…）＝交給它：DialogShell 的 Esc 看 defaultPrevented（UI 丙-7 T5），這裡先吃掉它就關不掉
+      if (document.querySelector('[aria-modal="true"]')) return;
       const g = useTimetableGridStore.getState();
       if (g.dragging) {
         e.preventDefault();

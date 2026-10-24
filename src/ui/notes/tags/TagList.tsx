@@ -5,7 +5,9 @@
  *     車票列 `li.ns-notes-tagitem.node`：路線色點＋名稱＋（列車／車廂小標）＋ 看父層時 `span.ns-notes-rel`（它實際掛的子荷札）＋ 執行日
  *       已完成＝`.done` 淡化＋小済，收在 `details.ns-notes-donefold`「已完成 N」（預設收合）
  *     筆記列 `.note`：標題＋摘要（荷札字 `.ns-notes-mark`）；日記列 `.diary`：「10/5（日）」大字＋摘要
- *   空 ⇒ `p.ns-notes-tagempty`「還沒有東西掛著這個荷札」；查失敗 ⇒「荷札沒載入　重試」（磨光③ 評審：同手機 MobileTagPage）
+ *   UI 丙-6：有列時整份包一張區塊卡 `.ns-notes-tagcard`（紙材、不全高；K3——荷札頁只有這份密集清單是紙）；
+ *   空 ⇒ `EmptyState first`「還沒有東西掛著 #X」（新建的荷札掛 0 處，第一眼就是它；E13）；
+ *   查失敗 ⇒ `ErrorBar`＋重試（磨光③ 評審起有重試；UI 丙-6 E12 換共用錯誤列）
  * 資料：`tagRepo.listUnder(key)`（index 一變就重查——掛、摘、改名、同步進來都會換 index）；分組排序＝`groupTaggedItems`。
  * 鍵盤：NotesView 的 ↑↓／Enter 經 `apiRef` 在列間移選取（`.is-sel`）、開選中列；滑鼠點列＝開。
  */
@@ -17,6 +19,8 @@ import { groupTaggedItems, snippetAround, type GroupedTaggedItem } from "../../.
 import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
+import { EmptyState } from "../../common/EmptyState";
+import { ErrorBar } from "../../common/ErrorBar";
 import { IconCaret, RouteDot, dayOf } from "../notesBits";
 import { TagName } from "./TagChip";
 import { goDiary, goNode, goNote } from "./jump";
@@ -153,20 +157,19 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
   if (listFailed)
     return (
       <div ref={boxRef} className="ns-notes-taglist">
-        <p className="ns-notes-tagempty">
-          荷札沒載入{" "}
-          <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => setListTry((n) => n + 1)}>
-            重試
-          </button>
-        </p>
+        <ErrorBar message="這個荷札的清單沒有載入成功。" onRetry={() => setListTry((n) => n + 1)} />
       </div>
     );
   if (!groups) return <div ref={boxRef} className="ns-notes-taglist" aria-busy="true" />;
   const total = groups.nodes.open.length + groups.nodes.done.length + groups.notes.length + groups.diaries.length + groups.other.length;
   if (!total)
     return (
-      <div ref={boxRef} className="ns-notes-taglist">
-        <p className="ns-notes-tagempty">還沒有東西加上這個荷札</p>
+      <div ref={boxRef} className="ns-notes-taglist ns-notes-tagnone">
+        <EmptyState
+          tone="first"
+          title={`還沒有東西掛著 #${useTagStore.getState().nameOf(tagKey)}`}
+          desc={`在筆記或日記裡打 #${useTagStore.getState().nameOf(tagKey)}，或在車票側板、時刻表掛上。`}
+        />
       </div>
     );
 
@@ -260,7 +263,7 @@ export function TagList({ tagKey, apiRef }: { tagKey: string; apiRef: MutableRef
     ) : null;
 
   return (
-    <div ref={boxRef} className="ns-notes-taglist">
+    <div ref={boxRef} className="ns-notes-taglist ns-notes-tagcard">
       {section(
         "車票・列車・車廂",
         groups.nodes.open.length + groups.nodes.done.length,

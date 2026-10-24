@@ -4,7 +4,7 @@
  * `nodeFields` 一筆的 `Desktop`，渲染在核心 `FieldRow label="筆記"` 裡（路線／支線／列車／車廂；車票不出，kinds 由 mount 給）。
  *
  *   div.ns-notes-nf
- *   ├ 載入中＝span.ns-notes-nfempty「…」；0 則＝「還沒有筆記」
+ *   ├ 載入中＝span.ns-notes-nfempty「…」；0 則＝共用 EmptyState 區段級「還沒有筆記」（UI 丙-6 E10；手機 MobileNoteField 同）
  *   ├ ul.ns-notes-nflist > li.ns-notes-nfrow（≤5；直接掛的在前、底下節點的接在後）
  *   │   button：.t 標題 ／ .ex（.w「› 車廂名」＋ .xs 一行摘要；不叫 .x——會撞側板 panel.css 的 `.panel .x` 小叉）——點＝切到旅客筆記頁選中那則
  *   ├ total > 5 ⇒ button.ns-notes-nfmore「還有 N 則 → 到旅客筆記看」——路線套 routeId 篩選、其餘套 underNode（P5）
@@ -21,6 +21,7 @@ import { nodeRepo } from "../../data";
 import { indexTree, useNodeStore, type TreeIndex } from "../../store/nodeStore";
 import { useNotesStore, type CapturePreset } from "../../store/notesStore";
 import { useUiStore } from "../../store/uiStore";
+import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "./notesBits";
 import { notesFlush } from "./notesFlush";
 import { goNote } from "./tags/jump";
@@ -139,7 +140,13 @@ export function NoteField({ node }: { node: NodeRow }) {
     const loading = !ids || tried !== `${node.id}|${node.updated_at}|${idsKey}`;
     return (
       <div className="ns-notes-nf">
-        <span className="ns-notes-nfempty">{loading ? "…" : "還沒有筆記"}</span>
+        {loading ? (
+          <span className="ns-notes-nfempty" aria-label="載入中">
+            …
+          </span>
+        ) : (
+          <EmptyState inline tone="first" className="ns-notes-nfempty" title="還沒有筆記" />
+        )}
         {addBtn}
       </div>
     );
@@ -147,7 +154,7 @@ export function NoteField({ node }: { node: NodeRow }) {
   if (!shown.items.length) {
     return (
       <div className="ns-notes-nf">
-        <span className="ns-notes-nfempty">還沒有筆記</span>
+        <EmptyState inline tone="first" className="ns-notes-nfempty" title="還沒有筆記" />
         {addBtn}
       </div>
     );

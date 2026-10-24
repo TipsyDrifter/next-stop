@@ -9,6 +9,7 @@
  * 「運行中顯示」關掉 ⇒ 常用分類格與釘選一起變灰（關掉時通知整則收掉／系統匣選單縮回「開啟／結束」，0-16）。
  * Android 另有：沒權限時「需要允許通知」（①a 原樣）、精準鬧鐘沒給時的提醒延遲說明（`ttStatus().exactAlarm`）、鎖屏說明。
  * class 寫在 timetable.css §G。
+ * UI 丙-4 B1：「分類與設定」對話框分籤後，這一節就是「通知」籤的本體（後面接忘記停車的提醒上限，在 CategoryManagerPanel 的 NoticeTab）。
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { colorSlot, leafCategories } from "../../../domain/timetable";
@@ -131,7 +132,7 @@ export function NoticeSettings() {
 
   return (
     <section className="ns-tt-mgr-settings ns-tt-notice-sec">
-      <h4 className="ns-tt-mgr-sec">通知</h4>
+      {/* UI 丙-4 B1：〈通知〉自己是一個籤了，節標「通知」跟籤名重複、拿掉；說明照留 */}
       <Sub>開關只記在這台{android ? "手機" : "電腦"}；釘選分類兩台一起。</Sub>
 
       <Setting

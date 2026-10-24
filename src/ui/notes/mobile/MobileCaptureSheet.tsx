@@ -5,10 +5,16 @@
  * 「有內容先問一次」、存檔分流都由 store 決定；本元件只畫與轉發事件。
  *
  * 與桌機刻意不同的三處（原型施工決定 11／契約 §5.3）：
- *   1. **Enter 是換行**——手機軟鍵盤的 Enter 就是換行鍵，存檔按「存」。所以這裡不攔 Enter。
- *   2. 「取消」＝桌機的 Esc：有內容時第一次只亮提示「再按一次取消就放棄」（store.escapeCapture 的二段確認），
- *      點暗幕同效（暗幕是隱性知識，「取消」才是明講的那一格）。
- *   3. 沒有鍵位提示列（手機沒有鍵盤）；落點一行與「存」並排在底部。
+ *   1. **Enter 是換行**——手機軟鍵盤的 Enter 就是換行鍵，存檔按「存檔」。所以這裡不攔 Enter。
+ *   2. 「取消」＝桌機的 Esc：有內容時第一次只亮提示「還沒存檔——再按一次就放棄」（store.escapeCapture 的二段確認），
+ *      點暗幕、下滑拉柄、返回鍵同效（都是殼的 onClose；暗幕是隱性知識，「取消」才是明講的那一格）。
+ *   3. 沒有鍵位提示列（手機沒有鍵盤）；落點一行在本文最後。
+ *
+ * UI 丙-6 S1（視覺規範 §2.4「手機底部 sheet」）：殼換共用 `MSheet`（拉柄、暗幕、返回層 backId "notes.capture"＝殼自己登記，
+ *   NotesMobileOverlay 那條刪掉）；foot＝取消（左）＋存檔（右）。打字區、荷札建議、撕線、票根、路線票根、落點、警告都在 body。
+ *   高度：軟鍵盤彈出時視覺視窗只剩一半，殼的 60% 上限會把打字區擠扁——`.ns-notes-mcapsheet` 把上限放回「頂到狀態列下 8px」（同舊面板）。
+ *   Esc：打字區自己收（preventDefault）⇒ 殼的 Esc 看到 defaultPrevented 就不再叫一次（不會連跑兩次跳過二次確認）。
+ *   點暗幕第一下只出警告：焦點不拉回打字區（拉回＝軟鍵盤收下又彈上來，整張 sheet 跳兩次）；要接著打字點一下打字區即可。
  *
  * 焦點：票根／取消路線鈕的 mousedown 先 preventDefault，按了不會把焦點從打字區搶走
  *   ——否則 Android 軟鍵盤會收下去又彈上來，打字被打斷。
@@ -45,7 +51,9 @@ import {
   splitTodoLines,
   type CaptureStub,
 } from "../../../domain/notes";
-import { RouteDot } from "./MobileAttachPicker";
+import { RouteDot } from "../../common/MobileAttachPicker";
+import { MSheet } from "../../common/MSheet";
+import { IconClose } from "../../common/icons";
 
 /** 打字區最高長到幾 px（超過就內捲；面板其餘部分仍看得見） */
 const TA_MAX = 220;
@@ -168,116 +176,13 @@ export function MobileCaptureSheet() {
   };
 
   return (
-    <div
-      className="ns-notes-mveil"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) escapeCapture();
-      }}
-    >
-      <div className="ns-notes-msheet" role="dialog" aria-modal="true" aria-label="記一句">
-        <div className="ns-notes-grip" aria-hidden />
-        <textarea
-          ref={taRef}
-          className="ns-notes-mcapta"
-          rows={2}
-          value={capture.text}
-          onChange={(e) => setCaptureText(e.target.value)}
-          onKeyDown={onKeyDown}
-          onCompositionStart={() => {
-            composing.current = true;
-          }}
-          onCompositionEnd={() => {
-            composing.current = false;
-          }}
-          placeholder="記一句…"
-          aria-label="記一句"
-          autoFocus
-          spellCheck={false}
-          autoComplete="off"
-        />
-        {tagAt && (
-          <div className="ns-notes-mcapsug">
-            <MobileTagSuggest
-              q={tagAt.q}
-              onPick={(name) => {
-                const r = replaceAtCaret(capture.text, tagAt.start, tagAt.caret, name);
-                pendingCaret.current = r.caret;
-                setCaptureText(r.text);
-              }}
-              onDismiss={dismissTag}
-            />
-          </div>
-        )}
-        <div className="ns-notes-mtear" aria-hidden />
-
-        <div className="ns-notes-mstubs" role="group" aria-label="票根">
-          {stubs.map((k) => {
-            const t = stubText(k);
-            if (!t) return null;
-            return (
-              <button
-                key={k}
-                type="button"
-                className={"ns-notes-mstub" + (capture.stub === k ? " on" : "")}
-                aria-pressed={capture.stub === k}
-                onMouseDown={keepFocus}
-                onClick={() => setCaptureStub(k)}
-              >
-                <span className="l">{t.label}</span>
-                <span className="h">{t.hint}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {rawP && rawRoute && routeMuted && (
-          <div className="ns-notes-mroute">
-            <span className="ns-notes-mroutestub muted" title={`認出路線「${rawP.matched.trim()}」——${usePreset ? `已掛在「${preset?.label ?? ""}」` : "這一枚票根不掛路線"}，原文保留`}>
-              <RouteDot route={rawRoute} />
-              <span className="nm">{rawRoute.name}</span>
-              <span className="why">・{routeMuted}</span>
-            </span>
-          </div>
-        )}
-
-        {typedPrefix && p && route && !routeMuted && (
-          <div className="ns-notes-mroute">
-            <span className="ns-notes-mroutestub" title={`認出路線代碼「${p.matched.trim()}」`}>
-              <span className="arr" aria-hidden>
-                →
-              </span>
-              <RouteDot route={route} />
-              <span className="nm">{route.name}</span>
-              <button
-                type="button"
-                className="x"
-                aria-label="取消路線（在開頭按退格鍵也可以）"
-                onMouseDown={keepFocus}
-                onClick={dismissRoute}
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </button>
-            </span>
-          </div>
-        )}
-
-        {capture.confirmEsc && <p className="ns-notes-mwarn">還有內容沒存——再按一次就放棄</p>}
-
-        <div className="ns-notes-msave">
-          <span className="dest">
-            {destText}
-            {showRoute && route && (
-              <>
-                {" · "}
-                <RouteDot route={route} />
-                {route.name}
-              </>
-            )}
-            {noInboxNote && "（有路線，不進收件匣）"}
-          </span>
+    <MSheet
+      title="記一句" /* 標題列跟桌機捕捉框殼同字（規範 §2.4 sheet 解剖；UI 丙-6 回修） */
+      backId="notes.capture"
+      className="ns-notes-mcapsheet"
+      onClose={escapeCapture}
+      foot={
+        <>
           <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onMouseDown={keepFocus} onClick={escapeCapture}>
             取消
           </button>
@@ -288,10 +193,115 @@ export function MobileCaptureSheet() {
             onClick={() => void save()}
             disabled={empty}
           >
-            存
+            存檔
           </button>
+        </>
+      }
+    >
+      <textarea
+        ref={taRef}
+        className="ns-notes-mcapta"
+        rows={2}
+        value={capture.text}
+        onChange={(e) => setCaptureText(e.target.value)}
+        onKeyDown={onKeyDown}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={() => {
+          composing.current = false;
+        }}
+        placeholder="記一句…"
+        aria-label="記一句"
+        autoFocus
+        spellCheck={false}
+        autoComplete="off"
+      />
+      {tagAt && (
+        <div className="ns-notes-mcapsug">
+          <MobileTagSuggest
+            q={tagAt.q}
+            onPick={(name) => {
+              const r = replaceAtCaret(capture.text, tagAt.start, tagAt.caret, name);
+              pendingCaret.current = r.caret;
+              setCaptureText(r.text);
+            }}
+            onDismiss={dismissTag}
+          />
         </div>
+      )}
+      <div className="ns-notes-mtear" aria-hidden />
+
+      <div className="ns-notes-mstubs" role="group" aria-label="票根">
+        {stubs.map((k) => {
+          const t = stubText(k);
+          if (!t) return null;
+          return (
+            <button
+              key={k}
+              type="button"
+              className={"ns-notes-mstub" + (capture.stub === k ? " on" : "")}
+              aria-pressed={capture.stub === k}
+              onMouseDown={keepFocus}
+              onClick={() => setCaptureStub(k)}
+            >
+              <span className="l">{t.label}</span>
+              <span className="h">{t.hint}</span>
+            </button>
+          );
+        })}
       </div>
-    </div>
+
+      {rawP && rawRoute && routeMuted && (
+        <div className="ns-notes-mroute">
+          <span className="ns-notes-mroutestub muted" title={`認出路線「${rawP.matched.trim()}」——${usePreset ? `已掛在「${preset?.label ?? ""}」` : "這一枚票根不掛路線"}，原文保留`}>
+            <RouteDot route={rawRoute} />
+            <span className="nm">{rawRoute.name}</span>
+            <span className="why">・{routeMuted}</span>
+          </span>
+        </div>
+      )}
+
+      {typedPrefix && p && route && !routeMuted && (
+        <div className="ns-notes-mroute">
+          <span className="ns-notes-mroutestub" title={`認出路線代碼「${p.matched.trim()}」`}>
+            <span className="arr" aria-hidden>
+              →
+            </span>
+            <RouteDot route={route} />
+            <span className="nm">{route.name}</span>
+            <button
+              type="button"
+              className="x"
+              aria-label="取消路線（在開頭按退格鍵也可以）"
+              onMouseDown={keepFocus}
+              onClick={dismissRoute}
+            >
+              <IconClose size={12} />
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* 落點一行（UI 丙-6 S1：原本跟「存」並排在底部，按鈕列換成殼的 foot 後留在本文最後） */}
+      <p className="ns-notes-mcapdest">
+        {destText}
+        {showRoute && route && (
+          <>
+            {" · "}
+            <RouteDot route={route} />
+            {route.name}
+          </>
+        )}
+        {noInboxNote && "（有路線，不進收件匣）"}
+      </p>
+
+      {/* UI 丙-6 C3：兩殼、捕捉與寫日記同一句；按「取消」與點暗幕都走這條，所以不提 Esc */}
+      {capture.confirmEsc && (
+        <p className="ns-notes-mwarn" role="status">
+          還沒存檔——再按一次就放棄
+        </p>
+      )}
+    </MSheet>
   );
 }

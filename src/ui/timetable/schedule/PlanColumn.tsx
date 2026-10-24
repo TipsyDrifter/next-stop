@@ -112,6 +112,13 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
         {layout === "rail" && <span className="ns-tt-sched-hatsu">発</span>}
       </span>
     );
+    // UI 丙-4 D1（品味題 P4）：卡的左彩條拿掉，路線記號改成名稱前一顆路線色圓點（跟手機「還沒排」chip 同一顆）
+    const nameEl = (
+      <span className="ns-tt-sched-cn">
+        <i className="ns-tt-sched-rdot" aria-hidden="true" />
+        {name}
+      </span>
+    );
     return (
       <button
         type="button"
@@ -139,7 +146,7 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
               {/* 短卡照樣印「長度未定」（原型 v-h.js:478）：擠的時候名稱先省略，標籤留著 */}
               {b.noEstimate && <i className="ns-tt-sched-noest">{TT_TEXT.schedNoEstimate}</i>}
             </span>
-            <span className="ns-tt-sched-cn">{name}</span>
+            {nameEl}
           </>
         ) : (
           <>
@@ -147,7 +154,7 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
               {time}
               {/* 單行（D-時-87）：本班／運休的小標籤緊跟時刻（一律畫）、短說法接在名稱後（並排也畫）；擠的時候名稱與短說法用省略號截斷 */}
               {short && tag}
-              <span className="ns-tt-sched-cn">{name}</span>
+              {nameEl}
               {short && inlineDelta && <span className={"ns-tt-sched-cd is-" + tone}>{inlineDelta}</span>}
             </span>
             {!short && (tag || inlineDelta) && (

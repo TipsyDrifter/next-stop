@@ -3,7 +3,7 @@
  *
  *   div.page.ns-tk（tabIndex=-1；鍵盤表 useTicketKeyboard 掛這裡，清單 ul.ns-tk-list 是焦點容器）
  *   ├─ TicketLedger（main.ns-tk-ledger：頁首＋帳簿）
- *   ├─ TicketPanel（aside.ns-tk-panel：大票／帳戶版；store.panel＝none 時不渲染）
+ *   ├─ TicketPanel（aside.panel.ns-tk-panel＝共用 SidePanelFrame 的票皮，寬 340：大票／帳戶版；store.panel＝none 時不渲染）
  *   └─ DesktopDialogHost（新增帳戶／分類管理／幣別與匯率／匯入票）
  * 帳戶頁務件 TicketSide 不在這裡——經 mount 的 sidebarAux 掛進書封（D-票-22）。
  *

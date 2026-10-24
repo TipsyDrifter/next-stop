@@ -8,8 +8,8 @@
  *   書封腳改照 m3-ext-routemap.html 定稿——粉彩的光源是掛在書封腳的月亮，銀河的月亮在天上（SkyLayer）。
  *
  * M3 ② gnav 兩欄（Q3 拍板 2026-08-28；視覺真相＝prototypes/m3-ext-routemap.html，樣式見 styles/gnav.css）：
- *   第一欄 .gnav-row＝已通車三頁（今日／路線圖／日曆）＋ .gnav-kbd「CTRL 1 · 2 · 3　? 指引」註記
- *     （⑦ D-⑦-3 甲：「? 指引」是可點片段 .gnav-kbd-guide → toggleHotkeyGuide，滑鼠使用者的 ? 疊層入口）；
+ *   第一欄 .gnav-row＝已通車三頁（今日／路線圖／日曆）＋ .gnav-kbd「CTRL 1 · 2 · 3」註記
+ *     （「? 說明」滑鼠入口：⑦ D-⑦-3 甲起是這一行的可點片段，UI 丙-3 C7 搬到書封腳成文字鈕 .foot-guide）；
  *     ⑤ 起三枚全通車 → 依 uiStore.page 掛 .active＋aria-current（點了 setPage），三枚同一套樣式。
  *   第二欄 .gnav-closed＝未通車三枚 .gnav-off（旅客筆記／時刻表／售票口），灰階不可點、hover／focus 浮出
  *     .tip-closed tooltip「頁名＋次期開業予定」；通車時該枚升入第一欄。
@@ -26,7 +26,9 @@
  *     「次期開業予定」群組名只要還有任何一枚 planned 就照舊；三線全通車才拿掉（容器與按鈕仍在）。
  *   - 六枚頁面圖示搬到 `gnavIcons.tsx`（`GNAV_ICONS[id](size)`，形狀逐字）。
  *
- * 原型沒有的控件：✎ 編輯 hover 才現身；＋路線／＋幹線借 .line-add 小字。
+ * 原型沒有的控件：✎ 編輯、＋路線／＋幹線（借 .line-add 小字）——UI 丙-3 C6 起都是常駐淡態（--dim，hover／聚焦轉實；規範 §3.1-1）。
+ * UI 丙-3：幹線 ✎＝RouteDialog「編輯幹線」（改名、刪除）；路線 ✎＝切到該路線並開詳情側板（路線的編輯只在側板，C1）；
+ *   清單可捲時顯示細捲軸（配書封深色，C6）；「? 說明」搬到書封腳、跟「設定」並排成兩顆文字鈕（C7）。
  * 邏輯：openRoute＋setZoom(null)＋select(null)、openRouteDialog、setQuickJumpOpen、setSettingsOpen；
  * ③ 追加——點路線＝「切到路線圖頁並開該路線」（頁務件隨頁，規格書 §3；草案 §3 WP0）。
  */
@@ -126,18 +128,18 @@ function CoverMoon() {
     <svg className="cover-moon" width="152" height="84" viewBox="0 0 152 84" aria-hidden>
       <defs>
         <radialGradient id="coverMoonGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0" stopColor="#fff2d8" stopOpacity=".34" />
-          <stop offset=".55" stopColor="#fff2d8" stopOpacity=".08" />
-          <stop offset="1" stopColor="#fff2d8" stopOpacity="0" />
+          <stop offset="0" stopColor="#fff2d8" stopOpacity=".34" />{/* 字面值：書封月亮光暈（美術色，原型 .cover-moon 逐字） */}
+          <stop offset=".55" stopColor="#fff2d8" stopOpacity=".08" />{/* 字面值：書封月亮光暈（美術色） */}
+          <stop offset="1" stopColor="#fff2d8" stopOpacity="0" />{/* 字面值：書封月亮光暈（美術色） */}
         </radialGradient>
       </defs>
       <circle cx="96" cy="40" r="40" fill="url(#coverMoonGlow)" />
-      <circle cx="96" cy="40" r="13" fill="#f3e8cf" />
+      <circle cx="96" cy="40" r="13" fill="#f3e8cf" />{/* 字面值：書封月亮本體（美術色） */}
       <circle cx="102" cy="35" r="12.2" fill="var(--color-book)" />
-      <circle cx="52" cy="24" r="1.3" fill="#fff" opacity=".75" />
-      <circle cx="40" cy="52" r="1" fill="#fff" opacity=".55" />
-      <circle cx="68" cy="62" r="1.1" fill="#fff" opacity=".6" />
-      <circle cx="126" cy="66" r=".9" fill="#fff" opacity=".5" />
+      <circle cx="52" cy="24" r="1.3" fill="#fff" opacity=".75" />{/* 字面值：書封星點（美術色） */}
+      <circle cx="40" cy="52" r="1" fill="#fff" opacity=".55" />{/* 字面值：書封星點（美術色） */}
+      <circle cx="68" cy="62" r="1.1" fill="#fff" opacity=".6" />{/* 字面值：書封星點（美術色） */}
+      <circle cx="126" cy="66" r=".9" fill="#fff" opacity=".5" />{/* 字面值：書封星點（美術色） */}
     </svg>
   );
 }
@@ -158,6 +160,7 @@ export function Sidebar() {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const openRouteDialog = useUiStore((s) => s.openRouteDialog);
   const toggleHotkeyGuide = useUiStore((s) => s.toggleHotkeyGuide);
+  const setPanelOpen = useUiStore((s) => s.setPanelOpen);
 
   /**
    * 車站注記（件一 .station-note「◎ 考過 N5・12月」）＝每條路線的下一站：
@@ -187,6 +190,12 @@ export function Sidebar() {
     void openRoute(id);
     setZoom(null);
     select(null);
+  };
+
+  /** 路線 ✎：切到該路線並打開側板——DetailPanel 在沒有選中節點時畫目前路線的 RoutePanel */
+  const editRoute = (id: string) => {
+    onOpenRoute(id);
+    setPanelOpen(true);
   };
 
   return (
@@ -258,20 +267,11 @@ export function Sidebar() {
           })}
         </div>
 
-        {/* 鍵盤註記＋ ⑦「? 指引」滑鼠入口（D-⑦-3 甲）：同一行同字級；註記與入口各包一個 span（讀屏有邊界、
-            淡度只落在註記）；純滑鼠入口所以不掛 role=button（掛了又不能 Enter／Space 對讀屏是「按不下去的鈕」），
-            mousedown 不搶焦點，點了只切 hotkeyGuideOpen（互斥由 uiStore 保證）；鍵盤走 ?（導航模式）／Ctrl+/（IME 備援）。
-            10-20 磨光②（使用者指示）：從兩排中間搬到兩排下面——數字註記管的是兩排全部，放在底下才讀得出「這幾枚都有號碼」 */}
+        {/* 鍵盤註記（數字鍵管兩排全部，所以放在兩排下面；10-20 磨光②）＋同步狀態點。
+            UI 丙-3 C7：「? 說明」從這一行搬到書封腳、跟「設定」並排成兩顆文字鈕（規範 §2.0；原本是 span，Tab 不到） */}
         <p className="gnav-kbd">
           {/* 前導空白併進數字那一段：維持「MOD_KBD｜ 1 · 2 · 3」兩個文字節點，與重構前同切法（三節點會差次像素） */}
-          <span className="gnav-kbd-note">{MOD_KBD}{` ${openPages().map((p) => p.navDigit).join(" · ")}`}</span>{" "}
-          <span
-            className="gnav-kbd-guide"
-            title={`快捷鍵（${capsOf("global.guide")}）`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={toggleHotkeyGuide}
-          >
-            ? 說明</span>
+          <span className="gnav-kbd-note">{MOD_KBD}{` ${openPages().map((p) => p.navDigit).join(" · ")}`}</span>
           <SyncDot className="gnav-sync-dot" />
         </p>
 
@@ -327,11 +327,13 @@ export function Sidebar() {
                             <RouteRoundel route={route} />
                             <span className="line-name">{route.name}</span>
                           </button>
+                          {/* 路線 ✎＝開這條路線的詳情側板（UI 丙-3 C1／C6：路線的編輯只在側板一處；路線圖頁首 ⋯「路線詳情」是同一個側板） */}
                           <button
                             type="button"
                             className="line-edit"
-                            onClick={() => openRouteDialog({ lineId: route.line_id, editId: route.id })}
+                            onClick={() => editRoute(route.id)}
                             aria-label={`編輯路線 ${route.name}`}
+                            title="在側板編輯"
                           >
                             ✎
                           </button>
@@ -363,10 +365,24 @@ export function Sidebar() {
       )}
 
       <div className="cover-foot">
-        <button type="button" className="foot-set" onClick={() => setSettingsOpen(true)} title={`設定（${capsOf("global.settings")}）`}>
-          <IconGear />
-          設定
-        </button>
+        {/* 書封底兩顆文字鈕並排（規範 §2.0）：設定（全域設定）＋「? 說明」（快捷鍵指引；鍵盤也可按 ?／Ctrl+/）。
+            「? 說明」用 mousedown 不搶焦點：滑鼠點開指引時焦點留在原處，關掉指引後鍵盤流不斷（同搬家前） */}
+        <div className="foot-btns">
+          <button type="button" className="foot-set" onClick={() => setSettingsOpen(true)} title={`設定（${capsOf("global.settings")}）`}>
+            <IconGear />
+            設定
+          </button>
+          <button
+            type="button"
+            className="foot-set foot-guide"
+            title={`快捷鍵（${capsOf("global.guide")}）`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleHotkeyGuide}
+          >
+            <span aria-hidden className="q">?</span>
+            說明
+          </button>
+        </div>
         <CoverMoon />
         <div className="foil-rule" />
         <p className="theme-name">銀河鐵道</p>

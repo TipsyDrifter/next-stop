@@ -4,6 +4,7 @@
  * Enter／「存入」＝儲存（有選心情→updateNode({mood})；有文字→addWorkLog）並關閉；Esc／「跳過」＝整卡跳過；不阻擋其他操作（無暗幕）。
  * 對應 UI Flow 2.0d／1.0b（今日視圖共用）。唯一來源＝uiStore.completeCardFor。
  * 取捨：心情三燈的顏色走語意層 --mood-good／-ok／-hard（UI 丙-1；松葉／紀念章弧金／赭）；預設吸附於主欄底部中央（父層需 relative），可用 className 覆寫定位。
+ * UI 丙-3 G1：心情字與色搬到 `./moods.ts`（側板同一份）；「跳過」「存入」補 `.ns-btn` 基底（規範 §2.3）。
  * M3 ④（定期券）：心情照舊走 `updateNode({ mood })`——repository 會把它鏡射到「現在顯示的那一班」
  *   （nodes.mood ＝最近一班），所以這張卡對定期券與一般票走同一條路；一行乘務記錄也照舊掛在節點上。
  */
@@ -11,15 +12,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { KIND_LABEL, type Mood } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
-
-// UI 丙-1：心情三色走語意層 --mood-*（theme.css；視覺規範 §1.1）——黃燈從書封燙金改成紀念章弧那一金（--arc），
-// 跟旅客筆記的心情點同色；松葉、赭值不變。
-const MOODS: { value: Mood; label: string; glyph: string; color: string }[] = [
-  { value: "green", label: "順暢", glyph: "順", color: "var(--mood-good)" },
-  { value: "yellow", label: "還行", glyph: "還", color: "var(--mood-ok)" },
-  // 磨光⑤（D-主-63）：「吃力」是警示不是済 ⇒ 朱改赭
-  { value: "red", label: "吃力", glyph: "難", color: "var(--mood-hard)" },
-];
+// 心情三燈的字與色：完成卡與側板同一份（UI 丙-3 G1；§4 定案字＝順暢／還行／吃力，存的值不變）
+import { MOODS } from "./moods";
 
 export function CompleteCard({ className }: { className?: string }) {
   const id = useUiStore((s) => s.completeCardFor);
@@ -134,10 +128,10 @@ function CompleteCardInner({ id, className }: { id: string; className?: string }
 
         <div className="actions">
           <span className="note">Enter 存入・Esc 跳過</span>
-          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={close} aria-label="跳過完成卡" className="btn-ghost">
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={close} aria-label="跳過完成卡" className="ns-btn ns-btn--sm btn-ghost">
             跳過
           </button>
-          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void save()} className="btn-seal">
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void save()} className="ns-btn ns-btn--sm btn-seal">
             存入
           </button>
         </div>

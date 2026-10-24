@@ -1,5 +1,5 @@
 /**
- * useOutlineController——大綱的狀態機：可見列（zoom／摺疊／隱藏已完成／草稿列）、行內編輯狀態、以及所有流程動作
+ * useOutlineController——大綱的狀態機：可見列（zoom／摺疊／已完成收起〔清單底摺疊列〕／草稿列）、行內編輯狀態、以及所有流程動作
  * （F1 完成流／F2 新增流／F3 刪除流、升降層、排程、zoom、切路線）。Outline.tsx 只負責畫，鍵盤表在 useOutlineKeyboard。
  * 對應 UI Flow 2.0／2.0a／2.0b／2.0c／2.0d／2.0e。
  * 取捨：新增走「本地草稿列 → 提交才 createNode」（空白／Esc 不產生垃圾節點、不污染 undo 堆疊）；
@@ -31,7 +31,7 @@ import { moveTargetRule } from "../../domain/moveTo";
 import { useUiStore } from "../../store/uiStore";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { addDays, todayKey } from "../../lib/date";
-import type { CommitVia } from "./InlineInput";
+import type { CommitVia } from "../common/InlineInput";
 import type { OutlineKeyActions } from "./useOutlineKeyboard";
 
 export type VisibleRow = { type: "node"; id: string; depth: number } | { type: "draft"; depth: number };
@@ -111,13 +111,19 @@ function buildRows(
   hideDone: boolean,
   draft: DraftEdit | null,
   isDone: (n: NodeRow) => boolean,
-): VisibleRow[] {
+): { rows: VisibleRow[]; doneHidden: number; doneShown: number } {
   const out: VisibleRow[] = [];
+  // 摺疊列「済 N 張」的 N（UI 丙-3 修訂）：收起時＝這次被藏起來的最上層已完成節點（子孫跟著藏、不另算）；
+  // 展開時＝目前畫出來的已完成節點。只算展開中的父節點底下（摺起來的父節點本來就看不到）。
+  let doneHidden = 0;
+  let doneShown = 0;
   const walk = (ids: string[], depth: number, parentId: string) => {
     for (const id of ids) {
       const n = tree.byId[id];
       if (!n) continue;
-      if (!(hideDone && isDone(n))) {
+      if (hideDone && isDone(n)) doneHidden++;
+      else {
+        if (isDone(n)) doneShown++;
         out.push({ type: "node", id, depth });
         const open = !collapsed[id] || (draft !== null && draft.parentId === id);
         if (open) walk(tree.childrenOf[id] ?? NONE, depth + 1, id);
@@ -127,7 +133,7 @@ function buildRows(
     if (draft && draft.parentId === parentId && draft.afterId === null) out.push({ type: "draft", depth });
   };
   walk(rootChildren, 0, rootId);
-  return out;
+  return { rows: out, doneHidden, doneShown };
 }
 
 function collectDescendants(tree: TreeIndex, id: string): Set<string> {
@@ -182,10 +188,11 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     },
     [currentOccurrences],
   );
-  const rows = useMemo(
-    () => (rootId ? buildRows(tree, rootId, rootChildren, collapsed, hideDone, draft, isDoneNode) : []),
+  const built = useMemo(
+    () => (rootId ? buildRows(tree, rootId, rootChildren, collapsed, hideDone, draft, isDoneNode) : { rows: [], doneHidden: 0, doneShown: 0 }),
     [tree, rootId, rootChildren, collapsed, hideDone, draft, isDoneNode],
   );
+  const rows = built.rows;
   const today = todayKey(dayStartHour);
 
   const crumbs = useMemo<Crumb[]>(() => {
@@ -363,7 +370,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       await ns().deleteNode(id);
       ui().select(next);
       ui().showToast({
-        message: `已刪除『${n.name}』${count ? `（含 ${count} 個子項）` : ""}`,
+        message: `已刪除「${n.name}」${count ? `（含 ${count} 個子項）` : ""}`,
         actionLabel: "復原",
         onAction: () => void ns().undoDelete(),
       });
@@ -406,7 +413,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       const prev = prevId ? t.byId[prevId] : undefined;
       if (!prev) return toast("上面沒有可以放進去的項目");
       if (!canHaveChildren(prev.kind)) return toast("車票／車站底下不能再放項目");
-      if (ui().hideDone && prev.status === "done") return toast("上一層已完成並隱藏——請先關掉「隱藏已完成」");
+      if (ui().hideDone && prev.status === "done") return toast("上一層已完成、收起來了——請先點清單底的「済 N 張・顯示」展開");
       const kind = adaptKind(d.kind, prev.kind);
       if (!kind) return toast("這個項目不能放在那裡");
       ui().setCollapsed(prev.id, false);
@@ -659,9 +666,9 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     focusContainer,
   };
 
-  /* ───────── 列的 ⋯ 選單（10-20 磨光②；outline.add.sibling／add.ticket／indent／outdent／reorder 的滑鼠入口） ───────── */
+  /* ───────── 列的 ⋯ 選單（10-20 磨光②；outline.add.*／indent／outdent／reorder／rename／panel／delete 的滑鼠入口） ───────── */
   /**
-   * 六項＝鍵盤同一條路：先選中那一列（跟鍵盤一樣「對選取動手」），再叫 keys 的同名動作。
+   * 有鍵的項目＝鍵盤同一條路：先選中那一列（跟鍵盤一樣「對選取動手」），再叫 keys 的同名動作。
    * 停用條件逐條鏡射 nodeStore.indent／outdent／reorder 與 keys.addTicket／outdentNode 的拒絕理由
    * （做不到的那項不讓點，滑過看得到同一句話）；真的點下去仍由原本那條路把關。
    * 第七項「移動到…」（磨光⑤ B1）只有滑鼠入口、沒有鍵；挑選器在側板。
@@ -697,15 +704,29 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       focusContainer();
       fn();
     };
-    const item = (key: string, label: string, hotkeyId: string, why: string | null, fn: () => void, cut = false): PopMenuItem => ({
+    const item = (
+      key: string,
+      label: string,
+      hotkeyId: string,
+      why: string | null,
+      fn: () => void,
+      cut = false,
+      danger = false,
+    ): PopMenuItem => ({
       key,
       label,
       hotkeyId,
       disabled: why !== null,
       why: why ?? undefined,
       cut,
+      danger,
       onSelect: run(fn),
     });
+    // 分組（虛線隔開）：新增｜層級｜排序｜這一列本身（改名・移動到…）｜刪除（赭、最後；視覺規範 §2.4）。
+    // UI 丙-3 B3（E14／E15）補「改名」「刪除」＝F2／Delete 的滑鼠入口（雙擊標題是加速，不算可點的入口）。
+    // 「詳情」不進 ⋯：票種小字就是它常駐、看得見的入口（規範 §3.1 #5 同頁一個動作一個入口；也省一項）。
+    // 目前最多 9 項，仍超過 §2.4「≤7」——每一項都是唯一的滑鼠入口（大綱沒有拖曳），砍不下去；
+    // 收成 7 項的路是 PopMenu 支援「一列兩鈕」（上移｜下移、降層｜升層），待主對話裁（UI 丙-3 回修 T2 回報）。
     return [
       item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", null, keys.addSibling),
       item("ticket", "新增車票", "outline.add.ticket", ticketWhy, keys.addTicket),
@@ -713,11 +734,11 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected),
       item("up", "上移", "outline.reorder.up", index > 0 ? null : "已經在最上面", () => keys.reorderSelected(-1), true),
       item("down", "下移", "outline.reorder.down", index >= 0 && index < siblings.length - 1 ? null : "已經在最下面", () => keys.reorderSelected(1)),
+      item("rename", "改名", "outline.rename", null, keys.renameSelected, true),
       // 磨光⑤ B1（D-主-55）：跨路線搬遷。沒有快捷鍵（不給 hotkeyId）；挑選器開在側板（requestMoveTo＝選中＋開側板＋請它打開）
       // 種類搬不了（moveTargetRule 回 null）就不出——側板那顆鈕同一條規則，兩個入口不會一個有一個沒有
-      ...(moveTargetRule(n.kind)
-        ? [{ key: "move", label: "移動到…", cut: true, onSelect: () => requestMoveTo(id) } satisfies PopMenuItem]
-        : []),
+      ...(moveTargetRule(n.kind) ? [{ key: "move", label: "移動到…", onSelect: () => requestMoveTo(id) } satisfies PopMenuItem] : []),
+      item("delete", "刪除", "outline.delete", null, keys.deleteSelected, true, true),
     ];
   };
 
@@ -750,6 +771,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     zoom,
     crumbs,
     rows,
+    doneHidden: built.doneHidden,
+    doneShown: built.doneShown,
     rootChildren,
     counts,
     selectedId,

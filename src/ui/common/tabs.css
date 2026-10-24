@@ -7,24 +7,21 @@
  *   手機值靠 [data-shell="mobile"] 的 token 整組換（--ctl-tab 36→44、--ctl-seg 32→44、--fs-ui 12.5→14…），
  *   元件不寫兩套；下面掛 [data-shell="mobile"] 的只有「形制」差異（整列玻璃、撐滿、末段露半格）。
  *
- * ⚠ `.ns-tabs[data-tabs]` 的 [data-tabs] 限定是刻意的：`ui/settings/settings.css` 還有一條同名 `.ns-tabs`
- *   （設定頁籤列，`.ns-choice` 小框籤；丙-3～6 換成本元件後刪）。本檔不加限定就會蓋到設定頁（本檔排在它之後），
- *   反過來它的 flex-wrap／gap／margin-bottom 也會滲進本元件——所以本元件的容器規則把那三條明寫歸零。
- *   設定頁換完、settings.css 那條刪掉之後，[data-tabs] 與歸零三條可以拿掉。
+ * `.ns-tabs` 全站只剩本元件一份（UI 丙-3 E1：設定頁換成本元件、settings.css 的同名舊規則刪了，
+ *   原本躲撞名用的 [data-tabs] 限定與歸零三條一起拆掉）。Tabs.tsx 還輸出 `data-tabs=""`，CSS 已不靠它（留著無害）。
  * ───────────────────────────────────────────────────── */
 
 /* ═══ 分頁籤 Tabs：文字籤、襯線 700、段間虛線、選中＝底線滑塊＋--sel-fg 字 ═══ */
-.ns-tabs[data-tabs] {
+.ns-tabs {
   position: relative; display: inline-flex; flex: none; align-items: stretch; max-width: 100%;
-  flex-wrap: nowrap; gap: 0; margin: 0; /* 歸零：settings.css 同名 .ns-tabs 的滲入（見檔頭） */
 }
 /* 橫捲（scroll）：捲軸藏起來；只橫不直（底線滑塊因此收進框內，bottom 0） */
-.ns-tabs[data-tabs].is-scroll {
+.ns-tabs.is-scroll {
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
 }
-.ns-tabs[data-tabs].is-scroll::-webkit-scrollbar { display: none; }
+.ns-tabs.is-scroll::-webkit-scrollbar { display: none; }
 
-.ns-tabs[data-tabs] > [role="tab"] {
+.ns-tabs > [role="tab"] {
   position: relative; flex: none; height: var(--ctl-tab); padding: 0 var(--sp-4); margin: 0;
   display: inline-flex; align-items: center; justify-content: center;
   border: 0; background: transparent; white-space: nowrap; cursor: pointer;
@@ -34,58 +31,58 @@
   transition: color var(--dur) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
 }
 /* 段間虛線 */
-.ns-tabs[data-tabs] > [role="tab"] + [role="tab"]::before {
+.ns-tabs > [role="tab"] + [role="tab"]::before {
   content: ""; position: absolute; left: 0; top: 30%; bottom: 30%;
   border-left: 1px dashed var(--color-dash);
 }
-.ns-tabs[data-tabs] > [role="tab"]:hover:not(:disabled) {
+.ns-tabs > [role="tab"]:hover:not(:disabled) {
   color: var(--color-ink-soft); background: color-mix(in srgb, var(--accent) 5%, transparent); /* ui-brand §9 原寫法 */
 }
 /* 選中（第二個選擇器跟 hover 同特異度、排在後面：滑過選中籤時字仍是 --sel-fg） */
-.ns-tabs[data-tabs] > [role="tab"][aria-selected="true"],
-.ns-tabs[data-tabs] > [role="tab"][aria-selected="true"]:hover { color: var(--sel-fg); }
-.ns-tabs[data-tabs] > [role="tab"]:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
-.ns-tabs[data-tabs] > [role="tab"]:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-tabs > [role="tab"][aria-selected="true"],
+.ns-tabs > [role="tab"][aria-selected="true"]:hover { color: var(--sel-fg); }
+.ns-tabs > [role="tab"]:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+.ns-tabs > [role="tab"]:disabled { opacity: var(--disabled); cursor: not-allowed; }
 
 /* 底線：JS 量到位置時畫滑塊 .ns-tabs-ink；量不到時退回選中籤自己畫一條（::after），兩者同長同粗 */
-.ns-tabs[data-tabs] > [role="tab"][aria-selected="true"]::after {
+.ns-tabs > [role="tab"][aria-selected="true"]::after {
   content: ""; position: absolute; left: 50%; bottom: -1px; width: 46px; margin-left: -23px;
   border-bottom: var(--sel-line);
 }
-.ns-tabs[data-tabs].has-ink > [role="tab"][aria-selected="true"]::after { display: none; }
+.ns-tabs.has-ink > [role="tab"][aria-selected="true"]::after { display: none; }
 .ns-tabs-ink {
   position: absolute; left: 0; bottom: -1px; width: 46px; height: 0; pointer-events: none;
   border-bottom: var(--sel-line);
   transform: translateX(calc(var(--ink-x, 0px) - 50%)); /* --ink-x＝選中籤中心（Tabs.tsx 量） */
   transition: transform var(--dur) var(--ease);
 }
-.ns-tabs[data-tabs].is-scroll > [role="tab"][aria-selected="true"]::after,
-.ns-tabs[data-tabs].is-scroll > .ns-tabs-ink { bottom: 0; }
+.ns-tabs.is-scroll > [role="tab"][aria-selected="true"]::after,
+.ns-tabs.is-scroll > .ns-tabs-ink { bottom: 0; }
 @media (prefers-reduced-motion: reduce) {
   .ns-tabs-ink { transition: none; }
 }
 
 /* 獨立一列（手機殼預設；size="mobile" 在任何殼強制）：整列霧面玻璃底＋底線、撐滿、每籤平分。
    size="md" 在手機殼強制留在行內形制（例：區段標題右側的 日｜週｜月）。 */
-[data-shell="mobile"] .ns-tabs[data-tabs]:not(.ns-tabs--md),
-.ns-tabs[data-tabs].ns-tabs--mobile {
+[data-shell="mobile"] .ns-tabs:not(.ns-tabs--md),
+.ns-tabs.ns-tabs--mobile {
   display: flex; width: 100%;
   background-color: var(--float-bg);
   -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
   border-bottom: 1px solid var(--color-line);
 }
-[data-shell="mobile"] .ns-tabs[data-tabs]:not(.ns-tabs--md) > [role="tab"],
-.ns-tabs[data-tabs].ns-tabs--mobile > [role="tab"] { flex: 1 0 auto; }
+[data-shell="mobile"] .ns-tabs:not(.ns-tabs--md) > [role="tab"],
+.ns-tabs.ns-tabs--mobile > [role="tab"] { flex: 1 0 auto; }
 /* 超過 4 段（.is-peek）：不撐滿，改由 Tabs.tsx 量自然寬後均勻補左右內距 --tab-pad-x，
    讓一列剛好 4 格＋第 5 格露一半＝「還能捲」的提示（§2.2 段數欄；算法見 Tabs.tsx peekPad） */
-[data-shell="mobile"] .ns-tabs[data-tabs].is-peek:not(.ns-tabs--md) > [role="tab"],
-.ns-tabs[data-tabs].ns-tabs--mobile.is-peek > [role="tab"] {
+[data-shell="mobile"] .ns-tabs.is-peek:not(.ns-tabs--md) > [role="tab"],
+.ns-tabs.ns-tabs--mobile.is-peek > [role="tab"] {
   flex: none; padding: 0 calc(var(--sp-4) + var(--tab-pad-x, 0px));
 }
 
 /* 手機頂帶下一列（MobileTopBand 的 tabsRow 插槽）：籤列＋末端「管理」文字鈕，兩段同一片玻璃 */
 .ns-tabrow { display: flex; align-items: stretch; }
-.ns-tabrow > .ns-tabs[data-tabs] { flex: 1; min-width: 0; }
+.ns-tabrow > .ns-tabs { flex: 1; min-width: 0; }
 .ns-tabrow > .mgr {
   flex: none; display: flex; align-items: center; padding: 0 var(--m-gutter, var(--sp-4)) 0 var(--sp-2);
   background-color: var(--float-bg);

@@ -222,7 +222,8 @@ export interface TicketStore {
   adjustBalance(accountId: string, targetText: string): Promise<boolean>; // 備註「餘額調整」；toast「已精算 ±N」／「餘額沒有變」
 
   /* 分類與幣別 */
-  createCategory(input: { kind: CategoryKind; name: string; parentId: string | null }): Promise<boolean>;
+  /** 回新分類（失敗 toast、回 null）；回來時已 refresh 過（catById 裡有它）⇒ 呼叫端可直接 setDraft({ categoryId: row.id })「建完選上」（UI 丙-5 D1） */
+  createCategory(input: { kind: CategoryKind; name: string; parentId: string | null }): Promise<CategoryRow | null>;
   renameCategory(id: string, name: string): Promise<void>;
   setCategoryArchived(id: string, archived: boolean): Promise<void>;
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
@@ -1152,7 +1153,15 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     /* ───────── 分類與幣別 ───────── */
 
     async createCategory(input) {
-      return write(() => ticketRepo.createCategory(input));
+      // UI 丙-5 D1：回新列（原本回 boolean）——大票分類浮層「＋ 新增分類」建完要選上它；舊呼叫端用真值判斷照樣相容
+      let row: CategoryRow | null = null;
+      const ok = await write(
+        () => ticketRepo.createCategory(input),
+        (r) => {
+          row = r;
+        },
+      );
+      return ok ? row : null;
     },
 
     async renameCategory(id, name) {
@@ -1475,6 +1484,14 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     async jumpToEntry(id) {
+      // UI 丙-5 I1：從沒開過售票口就直接跳帳（全域搜尋 $）時，頁面的 init 還在 warm——它跑完會把 month 設回本月、
+      // 蓋掉下面跳過去的月份。先等 init（冪等；已初始化就是同一個 promise）。殼看 <html data-shell>（同 onTicketPage）
+      try {
+        const mobile = typeof document !== "undefined" && document.documentElement.getAttribute("data-shell") === "mobile";
+        await get().init(mobile ? "mobile" : "desktop");
+      } catch {
+        return; // 初始化失敗：頁面自己會顯示錯誤
+      }
       get().closeSearch();
       if (get().view !== "list") await get().setView("list");
       const e = await ticketRepo.getEntry(id);

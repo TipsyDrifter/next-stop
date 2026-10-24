@@ -14,10 +14,15 @@
  *   塗色列 MobileGridDock 是 .m-page 之外、.ns-tt-mdock 之後的兄弟節點（程式地圖 §九-6；Toast 抬高靠後續兄弟選擇器，不 portal）。
  *   「切回時未來日拉回今天」的排除清單不含 grid（方眼照軸，不能記未來）。
  * 磨光③ 2-3：頂端切換列右邊（六格之外）固定一顆 button.ns-tt-msetbtn「設定」（aria-label／title「分類與設定」）開分類與設定。
+ * UI 丙-4 F1：頂端切換列換成今日頂帶下一列同款 `.ns-tabrow`——<Tabs scroll>（發車台／軸／週／統計／日程／方眼；
+ *   超過 4 段末段露半格＝還能捲）＋末端 span.mgr 文字鈕「管理」（＝手機唯一的分類與設定入口，A3）。
+ *   籤列仍住在頁內 sticky 的 div.ns-tt-mtop（不走 MobileTopBand 的 tabsRow 插槽：那要改集中檔 MobileShell）。
+ *   舊方格切換鈕與 .ns-tt-msetbtn 退役。
  */
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { TimetableView } from "../../../store/timetableStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { Tabs, type TabItem } from "../../common/Tabs";
 import { Axis } from "../parts/Axis";
 import { DepartBoard } from "../parts/DepartBoard";
 import { RunDock } from "../parts/RunDock";
@@ -54,37 +59,35 @@ export function MobileTimetable(_props: { onBack?: () => void }) {
   type MobileView = Extract<TimetableView, "board" | "axis" | "week" | "stats" | "schedule" | "grid">;
   const mobileView: MobileView =
     view === "axis" || view === "week" || view === "stats" || view === "schedule" || view === "grid" ? view : "board"; // 桌機記的 split 在手機＝發車台
-  const T = TT_TEXT.weekUi;
-  const options: { v: MobileView; label: string }[] = [
-    { v: "board", label: T.viewBoard },
-    { v: "axis", label: T.viewAxisMobile },
-    { v: "week", label: TT_TEXT.viewWeek },
-    { v: "stats", label: TT_TEXT.viewStats },
-    { v: "schedule", label: TT_TEXT.viewSchedule },
-    { v: "grid", label: TT_TEXT.viewGrid },
-  ];
+  const tabs = useMemo<readonly TabItem<MobileView>[]>(() => {
+    const T = TT_TEXT.weekUi;
+    return [
+      { key: "board", label: T.viewBoard },
+      { key: "axis", label: T.viewAxisMobile },
+      { key: "week", label: TT_TEXT.viewWeek },
+      { key: "stats", label: TT_TEXT.viewStats },
+      { key: "schedule", label: TT_TEXT.viewSchedule },
+      { key: "grid", label: TT_TEXT.viewGrid },
+    ];
+  }, []);
 
   return (
     <>
       <div className="m-page ns-tt-m" data-view={mobileView}>
-        <div className="ns-tt-mtop">
-          <div className="ns-tt-switch" role="group" aria-label="視圖">
-            {options.map((o) => (
-              <button type="button" key={o.v} aria-pressed={mobileView === o.v} onClick={() => setView(o.v)}>
-                {o.label}
-              </button>
-            ))}
-          </div>
-          {/* 磨光③ 2-3：「分類與設定」固定入口（六格之外、右上；字寫短的） */}
-          <button
-            type="button"
-            className="ns-tt-msetbtn"
-            aria-label={TT_TEXT.settingsBtn}
-            title={TT_TEXT.settingsBtn}
-            onClick={() => openSheet({ kind: "categories" })}
-          >
-            {TT_TEXT.settingsBtnShort}
-          </button>
+        {/* UI 丙-4 F1：頁內 sticky 的籤列＝.ns-tabrow 同款（籤＋末端「管理」同一片玻璃） */}
+        <div className="ns-tt-mtop ns-tabrow">
+          <Tabs items={tabs} value={mobileView} onChange={setView} scroll aria-label="時刻表檢視" />
+          <span className="mgr">
+            <button
+              type="button"
+              className="ns-btn btn-text ns-btn--sm"
+              // 可讀名＝看得到的「管理」（讀屏與語音控制都對得上）；開的是什麼放 title
+              title={TT_TEXT.settingsBtn}
+              onClick={() => openSheet({ kind: "categories" })}
+            >
+              {TT_TEXT.settingsBtnShort}
+            </button>
+          </span>
         </div>
         {error && !ready && <p className="ns-tt-m-error">{error}</p>}
         {mobileView === "board" ? (

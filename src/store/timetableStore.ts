@@ -103,7 +103,7 @@ export type TimetableSheet =
   /** ②：then 的 tile 可以帶連結（從任務發車遇到長時間運行待確認，先問完再發車） */
   | { kind: "longRun"; blockId: string; then: "depart" | "arrive" | { tile: string; link?: BlockLink } | null }
   /**
-   * 磨光⑥ §1-4（D-時-145）：cont＝連續補換過來的段（有值＝副標多一行「剩下 X–Y 還沒記」、取消鈕叫「先這樣」）。
+   * 磨光⑥ §1-4（D-時-145）：cont＝連續補換過來的段（有值＝副標多一行「剩下 X–Y 還沒記」；取消鈕原叫「先這樣」，UI 丙-4 起照規範 §4 叫「取消」）。
    * rest＝同一段未記錄裡往後補時跳過、還沒補的段（往後補完了再回頭補它）；toNow＝這段一路到現在（到着快捷叫「接到現在」）。
    * 選填、只有 BlockPanel 讀
    */
@@ -114,16 +114,23 @@ export type TimetableSheet =
    */
   | { kind: "edit"; blockId: string; focus?: "start" }
   | { kind: "split"; blockId: string }
-  /** 磨光③ 2-11：focusId＝打開就展開那一列（分類或組）的 ⋯、捲進畫面閃一下；focus "notice"＝捲到〈通知〉。都不帶＝照舊 */
-  | { kind: "categories"; focusId?: string; focus?: "notice" }
+  /**
+   * 磨光③ 2-11：focusId＝打開就展開那一列（分類或組）的 ⋯、捲進畫面閃一下；focus "notice"＝捲到〈通知〉。都不帶＝照舊。
+   * UI 丙-4 B1：對話框分成「分類｜通知｜目標」三籤，tab＝開在哪一籤（省略＝分類）。舊的兩種寫法照收：
+   * focus "notice"＝tab "notice"、focusId＝tab "cats"（呼叫端不用改）；tab 跟它們打架時以 focus／focusId 為準（定位要找得到列）。
+   */
+  | { kind: "categories"; focusId?: string; focus?: "notice"; tab?: "cats" | "notice" | "goals" }
   /** ①b：這一班的預估（運行中那班） */
   | { kind: "estimate"; blockId: string }
   /** ②：從任務發車、第一次碰到的路線（☎一-1） */
   | { kind: "taskCategory"; nodeId: string }
   /** ②：改一塊的連結（運行列「連到…」與改一塊面板都開它） */
   | { kind: "link"; blockId: string }
-  /** ③：時數目標面板；goalId null＝新增 */
-  | { kind: "goal"; goalId: string | null }
+  /**
+   * ③：時數目標面板；goalId null＝新增。UI 丙-4 修：back "goals"＝從「分類與設定」的目標籤點進來，
+   * 儲存／取消／封存／刪除後回到那一籤（不是整個關掉），面板底的「已封存的目標」也不畫（目標籤已經有一份）
+   */
+  | { kind: "goal"; goalId: string | null; back?: "goals" }
   /** ③：待確認清單（from／to＝正在看的那一期的窗，毫秒；清單內容讀 timetableStatsStore） */
   | { kind: "pendingList"; from: number; to: number; /** 乙：有值＝只列這個目標範圍的待確認（目標卡「看看 ›」，〈原型定案〉1） */ goalId?: string | null }
   /** ④：日程上點已排的卡開的小面板；key＝預定項（`${date}-${nodeId}`，timetableScheduleStore.items 的 key） */
@@ -159,7 +166,11 @@ export const TT_TEXT = {
   dockSplit: "切開",
   dockSplitTitle: "切開這一班",
   settingsBtn: "分類與設定",
-  settingsBtnShort: "設定",
+  /** UI 丙-4 F1：手機籤列末端的文字鈕＝規範 §2.1 的「管理」（各線同一個字；開的仍是分類與設定） */
+  settingsBtnShort: "管理",
+  /** UI 丙-4 A1：桌機頁首第二格「＋ 補記」（＝F 鍵）與它的滑過說明（鍵帽由呼叫端補） */
+  fillBtn: "補記",
+  fillBtnTitle: "補記剛才的空檔",
   undoArriveFailed: "已經有下一班了，到站復原不了",
   saveFailed: "存檔失敗——請再試一次",
   pickCategory: "請選分類",
@@ -282,7 +293,10 @@ export const TT_TEXT = {
     /** 欄頭（D-時-66：寫「週一」，不是單一個「一」） */
     weekdays: ["週日", "週一", "週二", "週三", "週四", "週五", "週六"] as readonly string[],
     viewSplit: "兩欄",
-    viewAxis: "只看時間軸",
+    /** UI 丙-4 A2：籤字一律名詞（舊「只看時間軸」留在 manifest 的鍵 label，滑過說明照用） */
+    viewAxis: "時間軸",
+    /** UI 丙-4 A1：V 鍵併進前兩籤滑過說明的那一段 */
+    viewToggleTitle: "兩欄⇄時間軸",
     viewBoard: "發車台",
     viewAxisMobile: "軸",
     tagThisWeek: "本週",
@@ -300,8 +314,8 @@ export const TT_TEXT = {
   },
   /** ③ 同步清單的時刻表三張表（丙席；契約 0-13、D-時-58；`lines/timetableSyncLabel.ts` 讀） */
   syncRunningFrom: "起",
-  syncCatLabel: (name: string) => `分類『${name}』`,
-  syncGoalLabel: (name: string) => `目標『${name}』`,
+  syncCatLabel: (name: string) => `分類「${name}」`,
+  syncGoalLabel: (name: string) => `目標「${name}」`,
   syncCatGone: "已刪除的分類",
   syncNodeGone: "一張車票",
   syncRouteGone: "一條路線",
@@ -443,9 +457,9 @@ export const TT_TEXT = {
     archive: "封存",
     remove: "刪除",
     archivedList: (n: number) => `已封存的目標（${n}）`,
-    restore: "叫回",
+    restore: "還原", // UI 丙-4 修：同分類、目標籤的「還原」（規範法則 06 同一件事同一個名字）
     goalGone: "找不到這個目標，可能已刪除",
-    close: "關閉",
+    // UI 丙-4 修：close「關閉」拿掉（C4 後沒人用；規範 §4 不放「關閉」字鈕，×／返回就是關）
   },
 
   /* ── ④ 日程（④ 契約 §5.8；顯示端不手抄） ── */
@@ -537,7 +551,7 @@ export const TT_TEXT = {
   gridLegendFuture: "還沒到",
   /** 操作說明一行 */
   gridFoot: (isDesk: boolean) =>
-    `拖曳選取格子再點分類可補記；點色塊可修改${isDesk ? "；← → 換日、T 回今天、Esc 取消" : ""}`,
+    `拖曳選取格子再點分類可補記；點色塊可修改${isDesk ? "；← → 換日、T 今天、Esc 取消" : ""}`,
   /** toast：補上（fill） */
   paint: (cat: string, durMs: number) => `補上・${cat}　${fmtDur(durMs)}`,
   /** toast：live 換車 */
@@ -629,8 +643,7 @@ export const TT_TEXT = {
     runGone: "找不到這一班",
     runStart: (clock: string) => `${clock} 発`,
     runHint: "手動加的荷札會跟著這一班，到站或切開後也會保留",
-    close: "關閉",
-    done: "好了",
+    // UI 丙-4 修：close「關閉」／done「好了」拿掉（C4：荷札小面板即時存，不放字鈕；規範 §4）
     /** 運行列「荷札」鈕的滑過字（還沒有荷札時） */
     runBtnTitle: "幫這一班加荷札",
     /** 目標面板荷札段的說明 */

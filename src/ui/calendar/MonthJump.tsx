@@ -14,6 +14,9 @@
  *     今日            ＝ 頁首控制列的 `.today-chip`（calendar.css:85，同一顆按鈕）
  *     今天所在的月    ＝ 金菱形小記（＝月格 `.cell.today .dnum::before` 的同一枚菱形，尺寸收小）
  *   本元件掛在 `.ns-calendar` 之內（CalendarView 的 section 裡）→ `.chev`／`.today-chip` 直接吃得到。
+ *   ── UI 丙-3 D1：頁首的 `.chev`／`.today-chip` 退役（換 DateNav），卡上兩顆跟著換成 DateNav 同一套零件——
+ *      年份 ‹ › ＝ 圖示鈕 `.ns-iconbtn`（IconBack／IconChevron）、「今日」＝選項 chip `.chip.ns-chip`「今天」（規範 §4）。
+ *      入口也從月份大字鈕換成 DateNav 的標題鈕（點了開這張卡）。
  *
  * 定位與關閉：逐條沿推遲小卡（`DeferPopover.tsx:110-156`）——量完 anchor 與自身尺寸再落座、
  *   溢出翻到大字上方、clamp 進視窗、`position:fixed` z 60、點卡外／Esc 關、點回大字讓大字自己 toggle。
@@ -31,6 +34,7 @@
  *   IME 護欄：組字中（isComposing／keyCode 229）一律不攔（沿 useCalendarKeyboard 鐵則 1）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { IconBack, IconChevron } from "../common/icons";
 import { isEditableTarget } from "../shell/hotkeys";
 import { dateOf, useCalendar, YEAR_MAX, YEAR_MIN } from "./useCalendarController";
 import "./monthjump.css";
@@ -196,13 +200,13 @@ export function MonthJump({ anchor }: MonthJumpProps) {
       <div className="ns-mj-year">
         <button
           type="button"
-          className="chev"
+          className="ns-iconbtn"
           title="上一年"
           aria-label="上一年"
           disabled={year <= YEAR_MIN}
           onClick={() => stepYear(-1)}
         >
-          ‹
+          <IconBack />
         </button>
         <input
           type="number"
@@ -225,13 +229,13 @@ export function MonthJump({ anchor }: MonthJumpProps) {
         />
         <button
           type="button"
-          className="chev"
+          className="ns-iconbtn"
           title="下一年"
           aria-label="下一年"
           disabled={year >= YEAR_MAX}
           onClick={() => stepYear(1)}
         >
-          ›
+          <IconChevron />
         </button>
       </div>
 
@@ -256,10 +260,10 @@ export function MonthJump({ anchor }: MonthJumpProps) {
         })}
       </div>
 
-      {/* 第三列：今日 */}
+      {/* 第三列：今天（選項 chip，同頁首 DateNav 的「今天」） */}
       <div className="ns-mj-now">
-        <button type="button" className="today-chip" title="跳回本月（Home）" onClick={pickToday}>
-          今日
+        <button type="button" className="chip ns-chip" title="跳回本月（Home）" onClick={pickToday}>
+          今天
         </button>
       </div>
 

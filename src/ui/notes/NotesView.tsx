@@ -1,9 +1,13 @@
 /**
  * NotesView——旅客筆記桌機頁根（車次①契約 §5.1；原型 prototypes/旅客筆記-src/ app.js deskMain／deskInbox／deskNotes）。
  *
- * 版面：`div.page.ns-notes`（頁殼契約同今日頁；天空由 App 掛、本頁不碰）flex、各欄自己捲：
- *   收件匣 NotesInbox  或  NotesList ＋ NoteContent  或（車次②）日記 NotesDiary（本文欄＋當天足跡欄）
- *   或（車次③）荷札 NotesTags
+ * 版面（UI 丙-6 H0，規範 §2.1／§1.5）：`div.page.ns-notes`（天空由 App 掛、本頁不碰）**縱排**——
+ *   頁頂通欄一條共用 PageHeader（四頁同高、同一條底線；外距由 notes.css〈H0〉的 `.page.ns-notes .ns-pagehead` 統一給），
+ *   下面是主體（`.ns-notes-body` 橫排、各欄或各卡自己捲）。四頁頁首各掛在：
+ *     收件匣＝NotesInbox 自己畫（PageHeader＋`.ns-notes-body`）
+ *     筆記　＝本檔畫（PageHeader＋`.ns-notes-body`〔NotesList 區塊卡＋NoteContent 大紙〕）
+ *     日記　＝NotesDiary／DiaryHeader（W2）　荷札＝NotesTags（W3）
+ *   每一頁的根是本檔的直接子節點：PageHeader 本身不撐（flex:none），其餘直接子節點吃剩下的高度（flex:1、min-height:0）。
  *   頁務件（子畫面切換＋路線篩選／近 12 週方格／荷札樹）車次③起住進書封（NotesCoverAux，插槽 sidebarAux；0-17）——
  *   書封拿不到本檔的 flushRef，所以本檔把 flush 放進模組級橋 `notesFlush.fn`（進頁登記、卸載清空）。
  *   進頁順手 `tagStore.ensureBackfill()`（0-9／0-10：每台第一次進旅客筆記頁補掛既有內文的 #荷札）。
@@ -38,6 +42,7 @@ import { treeFilterRef } from "./tags/TagTree";
 import { useTagStore } from "../../store/tagStore";
 import { useNotesKeyboard } from "./useNotesKeyboard";
 import { reducedMotion } from "./notesBits";
+import { PageHeader } from "../common/PageHeader";
 import "./notes.css";
 import "./notes-tags.css";
 
@@ -49,8 +54,13 @@ export function NotesView() {
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
   const inboxSelected = useNotesStore((s) => s.inboxSelected);
   const uiSelectedId = useUiStore((s) => s.selectedId);
+  const notesCount = useNotesStore((s) => s.notes.length);
+  const notesTotal = useNotesStore((s) => s.notesTotal);
+  const notesQuery = useNotesStore((s) => s.notesQuery);
 
   const [pop, setPop] = useState<Pop | null>(null);
+  /** 進頁那一趟載入回來了沒（store 沒有「已載入」旗標）：沒回來前清單空著也不畫空狀態，免得開頁先閃一下（規範 §1.8） */
+  const [ready, setReady] = useState({ inbox: false, notes: false });
   const [leaving, setLeaving] = useState<string | null>(null);
   const inboxListRef = useRef<HTMLUListElement>(null);
   const notesListRef = useRef<HTMLUListElement>(null);
@@ -67,8 +77,8 @@ export function NotesView() {
   /* ── 進頁：載兩份清單＋本月日記記號；焦點給目前子畫面的清單 ── */
   useEffect(() => {
     const st = useNotesStore.getState();
-    void st.loadInbox();
-    void st.loadNotes();
+    void st.loadInbox().finally(() => setReady((r) => ({ ...r, inbox: true })));
+    void st.loadNotes().finally(() => setReady((r) => ({ ...r, notes: true })));
     void st.loadMarks(); // 側欄「日記 N」＝本月篇數：進頁就載，不等第一次進日記（契約 §5.1）
     void useTagStore.getState().ensureBackfill(); // 車次③ 0-9：通車補掛（每台一次；之後只載 index）
   }, []);
@@ -232,6 +242,16 @@ export function NotesView() {
     });
   };
 
+  /** 列表「清除篩選」（路線／節點篩選後沒有結果）：先存正在打的字，清掉篩選，焦點回清單 */
+  const clearNotesFilter = () =>
+    void flushThen(() => {
+      const st = useNotesStore.getState();
+      void st.setNotesQuery({ ...st.notesQuery, routeId: undefined, underNode: undefined }).then(() => focusList("notes"));
+    });
+
+  /** 篩選與搜尋都沒有、清單還是空的＝「還沒有筆記」：頁首「＋ 新筆記」藏起來，入口只留空狀態那一顆（規範 §2.7） */
+  const notesFirstEmpty = notesCount === 0 && !notesQuery.query && !notesQuery.routeId && !notesQuery.underNode;
+
   /* ═══ 日記動作 ═══ */
   const inDiary = section === "diary";
   /** 會換日的動作：先存正在打的字（含非空草稿）再換 */
@@ -361,7 +381,11 @@ export function NotesView() {
           treeFilterRef.current?.select();
           return;
         }
-        const ref = sec === "notes" ? searchRef : sec === "diary" ? diarySearchRef : null;
+        if (sec === "diary") {
+          diaryApiRef.current?.openSearch(); // 日記搜尋列平常收著：展開並聚焦（UI 丙-6 H3）
+          return;
+        }
+        const ref = sec === "notes" ? searchRef : null;
         ref?.current?.focus();
         ref?.current?.select();
       },
@@ -394,14 +418,8 @@ export function NotesView() {
       today: inDiary ? () => diaryGo(() => useNotesStore.getState().goDiaryToday()) : undefined,
       fpBack: inDiary ? () => useNotesStore.getState().fpBackToDiaryDay() : undefined,
       pick: inDiary ? () => setPop({ id: DIARY_DAY_POP, kind: "day" }) : undefined,
-      write: inDiary
-        ? () => {
-            const st = useNotesStore.getState();
-            diaryApiRef.current?.showDay(); // 搜尋字還在、畫面是結果列時：先回日視圖
-            if (st.diaryDraftOpen) diaryApiRef.current?.focusDraft();
-            else st.openDiaryDraft();
-          }
-        : undefined,
+      // W 與頁首「✎ 寫日記」同一支（UI 丙-6 D2；回日視圖→草稿已開就聚焦、否則開草稿，在 NotesDiary）
+      write: inDiary ? () => diaryApiRef.current?.write() : undefined,
       /* ── 車次③：只在荷札子畫面給（契約 §5.6） ── */
       rename: section === "tags" ? () => tagsApiRef.current?.rename() : undefined,
       merge: section === "tags" ? () => tagsApiRef.current?.merge() : undefined,
@@ -441,6 +459,7 @@ export function NotesView() {
       ) : section === "inbox" ? (
         <NotesInbox
           items={items}
+          ready={ready.inbox}
           selectedId={inboxSelected?.id ?? null}
           leavingId={leaving}
           pop={inboxPop}
@@ -459,17 +478,33 @@ export function NotesView() {
         />
       ) : (
         <>
-          <NotesList listRef={notesListRef} searchRef={searchRef} onSelect={selectNote} onNew={newNote} />
-          <NoteContent
-            flushRef={flushRef}
-            pop={notePop}
-            setPop={setPop}
-            readRef={readRef}
-            onDelete={deleteNote}
-            onTodo={noteTodo}
-            onToDiary={noteToDiary}
-            onBackToList={() => focusList("notes")}
+          <PageHeader
+            variant="name"
+            overline={{ zh: "筆記", latin: "Notes" }}
+            title="筆記"
+            stats={notesTotal != null && notesTotal > 0 ? <><b>{notesTotal}</b> 則</> : undefined}
+            add={notesFirstEmpty ? undefined : { label: "新筆記", onClick: newNote }}
           />
+          <div className="ns-notes-body">
+            <NotesList
+              listRef={notesListRef}
+              searchRef={searchRef}
+              ready={ready.notes}
+              onSelect={selectNote}
+              onNew={newNote}
+              onClearFilter={clearNotesFilter}
+            />
+            <NoteContent
+              flushRef={flushRef}
+              pop={notePop}
+              setPop={setPop}
+              readRef={readRef}
+              onDelete={deleteNote}
+              onTodo={noteTodo}
+              onToDiary={noteToDiary}
+              onBackToList={() => focusList("notes")}
+            />
+          </div>
         </>
       )}
     </div>

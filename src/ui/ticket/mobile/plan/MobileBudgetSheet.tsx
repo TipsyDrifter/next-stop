@@ -5,8 +5,9 @@
  *   ├ .ns-tk-mbe-head   ‹ 2026 年 10 月 ›（只換「覆寫」格看的月；預設不變）＋小字「預設套用沒有覆寫的每個月」
  *   ├ .ns-tk-mbe-blk × N 一個對象一塊（總預算固定第一塊、之後照 budgetScopes 順序；加了還沒存的分類接在最後）
  *   │    塊頭：名稱＋（分類）「移除」；塊身 **兩格並排**（原型結論：一塊 114px，上下疊要 145px）：「預設」｜「10 月覆寫」（×）
- *   ├ 「＋ 加分類預算」⇒ 疊一層 sheet：支出兩層格子（主分類一格、有子分類的點開在那一列下方展開；未分類不列；封存的另一區）
- *   └ 「完成」
+ *   └ 「＋ 加分類預算」⇒ 疊一層 sheet：支出兩層格子（主分類一格、有子分類的點開在那一列下方展開；未分類不列；封存的另一區）
+ * UI 丙-5 E2／H4：底部「完成」拿掉（即時存的 sheet 只留下滑／暗幕／返回鍵，規範 §4）；「加分類預算」換共用 MSheet
+ *   （疊在預算 sheet 上 ⇒ backKind "dialog"、z 47；返回層跟本檔那行同 id 合併，返回鍵一次關）。
  * 輸入：失焦或 Enter ⇒ setBudget（parseAmount：主幣別、不允許負與 0）；清空預設 ⇒ askConfirm 後 removeBudget(scope, null)（連同覆寫）；
  *   清空覆寫或按 × ⇒ removeBudget(scope, month)。沒聚焦時顯示千分位，聚焦時換成可直接改的數字。
  * UI 只讀 store、只叫 store 的動作（①§2.5-2）。
@@ -29,9 +30,11 @@ import {
 } from "../../../../domain/ticket";
 import { amountInputText, budgetScopes, scopeKey, scopeOf, type BudgetRow, type BudgetScope } from "../../../../domain/ticketPlan";
 import { useBackLayer } from "../../../mobile/backStack";
-import { IconLeft, IconPlus, IconRight, MSheet, useImeGuard } from "../mobileBits";
+import { MSheet } from "../../../common/MSheet";
+import { IconLeft, IconPlus, IconRight, useImeGuard } from "../mobileBits";
 
-export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
+// onDone：宿主的介面照留（兩殼本體同一種 props）；丙-5 拿掉「完成」後本體不再自己關
+export function MobileBudgetSheet(_props: { onDone(): void }) {
   const budgets = useTicketStore((s) => s.budgets);
   const catById = useTicketStore((s) => s.catById);
   const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
@@ -40,8 +43,9 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
   const [pending, setPending] = useState<string[]>([]); // 加了、還沒填預設的分類
   const [focusCat, setFocusCat] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
-  // 磨光①（主線手機殼契約 §1.5）：「加分類預算」疊在預算 sheet（ticket.dialog）上，返回鍵＝它的「取消」
-  useBackLayer("ticket.budget.pick", picking, () => setPicking(false));
+  // 磨光①（主線手機殼契約 §1.5）：「加分類預算」疊在預算 sheet（ticket.dialog）上，返回鍵＝它的「取消」。
+  // 丙-5：kind "dialog" 跟 CategoryPick 的 MSheet backKind 一樣（同 id 合併；預算 sheet 本身可能已是 dialog，要壓得過它）
+  useBackLayer("ticket.budget.pick", picking, () => setPicking(false), "dialog");
 
   const saved = useMemo(() => budgetScopes(budgets), [budgets]);
   const savedCats = useMemo(() => new Set(saved.filter((x) => x.kind === "category").map((x) => (x as { categoryId: string }).categoryId)), [saved]);
@@ -86,9 +90,6 @@ export function MobileBudgetSheet({ onDone }: { onDone(): void }) {
       <button type="button" className="ns-btn btn-text ns-tk-mbtn ns-tk-mbe-add" aria-haspopup="dialog" onClick={() => setPicking(true)}>
         <IconPlus />
         加分類預算
-      </button>
-      <button type="button" className="m-sheet-item is-cancel" onClick={onDone}>
-        完成
       </button>
 
       {picking && (
@@ -382,7 +383,19 @@ function CategoryPick({ taken, onPick, onClose }: { taken: ReadonlySet<string>; 
   });
 
   return (
-    <MSheet title="加分類預算" over onClose={onClose} className="ns-tk-mbe-picksheet">
+    <MSheet
+      title="加分類預算"
+      backId="ticket.budget.pick"
+      backKind="dialog"
+      onClose={onClose}
+      className="ns-tk-msh ns-tk-mbe-picksheet"
+      // 點一格就收＝沒有主鈕；「取消」在殼的黏底列（同 MobileDatePicker 新殼）
+      foot={
+        <button type="button" className="ns-btn btn-ghost" onClick={onClose}>
+          取消
+        </button>
+      }
+    >
       <p className="ns-tk-mbe-pickhint">主分類的預算會包含底下的子分類</p>
       <div className="ns-tk-mf-cats ns-tk-mbe-pick">
         <div className="ns-tk-mgrid">{cells}</div>
@@ -400,9 +413,6 @@ function CategoryPick({ taken, onPick, onClose }: { taken: ReadonlySet<string>; 
           </div>
         </>
       )}
-      <button type="button" className="m-sheet-item is-cancel" onClick={onClose}>
-        取消
-      </button>
     </MSheet>
   );
 }

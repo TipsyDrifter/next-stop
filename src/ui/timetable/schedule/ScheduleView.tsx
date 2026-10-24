@@ -3,11 +3,11 @@
  * 長相＝原型 prototypes/時刻表-④.html 桌機（v-h.js schedHtml is-desk）。
  *
  *   section.ns-tt-sched.is-desk（flex:1、自己不捲；捲的是時間軸）
- *   ├ div.ns-tt-sched-top    ScheduleNav（‹ 10/20（一）今天 ›、回到今天）＋ ScheduleSummary（總結一行）＋ 右側操作提示
+ *   ├ div.ns-tt-sched-top    ScheduleNav（DateNav ‹ 10/20（一）今天 › ＋「今天」；UI 丙-4 D9）＋ ScheduleSummary（總結一行）＋ 右側操作提示
  *   ├ div.ns-tt-sched-main
  *   │   ├ UnscheduledTray mode="side"（左欄 200px）
  *   │   └ div.ns-tt-sched-gwrap → ScheduleGrid（預定｜刻度｜實績；layout＝視窗 ≥1100px 時「差多少」另一欄 128px，窄了印在卡內第二行）
- *   ├ div.ns-tt-sched-float  拖清單項時跟著指標的小籤（portal 到 body）
+ *   ├ div.ns-tt-sched-float.techo-card  拖清單項時跟著指標的小籤（portal 到 body）
  *   └ PlanPopover            sheet { kind: "plan" } 時貼在卡右邊的小面板
  *
  * 整合席掛法：TimetableView 的 schedule 分支＝`<div className="ns-tt-col is-right is-wide"><RunDock variant="desktop" /><ScheduleView /></div>`
@@ -51,6 +51,8 @@ export function usePickEscape(): void {
       if (e.key !== "Escape" || e.isComposing) return;
       const st = useTimetableScheduleStore.getState();
       if (st.picked === null || useTimetableStore.getState().sheet !== null) return;
+      // 別的對話框開著＝交給它（DialogShell 的 Esc 看 defaultPrevented，UI 丙-7 T5）
+      if (document.querySelector('[aria-modal="true"]')) return;
       e.preventDefault();
       st.pick(null);
     };
@@ -59,14 +61,17 @@ export function usePickEscape(): void {
   }, []);
 }
 
-/** 拖清單項時跟著指標的小籤（＝原型 .vh-float）；指標在預定欄上＝金框 */
+/**
+ * 拖清單項時跟著指標的小籤（＝原型 .vh-float）；指標在預定欄上＝作用中描邊。
+ * UI 丙-4 D4：材質掛 `.techo-card`（同 Ctrl+P 的霧面玻璃；§1.5 所有浮出物一律它），timetable.css 只留形狀與位置。
+ */
 export function DragFloat({ page, drag }: { page: SchedulePage; drag: DragView | null }) {
   if (!drag || drag.src !== "list") return null;
   const it = page.items[drag.key];
   if (!it) return null;
   return createPortal(
     <div
-      className={"ns-tt-sched-float" + (drag.min !== null ? " is-over" : "")}
+      className={"ns-tt-sched-float techo-card" + (drag.min !== null ? " is-over" : "")}
       style={{ left: drag.x + "px", top: drag.y + "px", "--rc": routeColorOf(page, it.nodeId) } as CSSProperties}
       aria-hidden="true"
     >

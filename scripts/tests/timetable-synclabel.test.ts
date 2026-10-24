@@ -30,8 +30,8 @@ const iso = (ms: number): string => new Date(ms).toISOString();
 const TEXT: SyncLabelText = {
   syncBlockGone: "後來又被整理掉，現在不在軸上了",
   syncRunningFrom: "起",
-  syncCatLabel: (n) => `分類『${n}』`,
-  syncGoalLabel: (n) => `目標『${n}』`,
+  syncCatLabel: (n) => `分類「${n}」`,
+  syncGoalLabel: (n) => `目標「${n}」`,
   syncCatGone: "已刪除的分類",
   syncNodeGone: "一張車票",
   syncRouteGone: "一條路線",
@@ -195,7 +195,7 @@ describe("time_categories", () => {
     deleted_at: null,
   };
   const r = categorySyncLabel(row, look(T(10, 19, 15)), TEXT);
-  test("label＝分類『名字』", () => assert.equal(r.label, "分類『創作』"));
+  test("label＝分類「名字」", () => assert.equal(r.label, "分類「創作」"));
   test("fmt：分組名、預設長度、封存", () => {
     assert.equal(r.fmt!("parent_id", "g-duty"), "主線");
     assert.equal(r.fmt!("parent_id", null), "（頂層）");
@@ -227,7 +227,7 @@ describe("time_goals", () => {
     deleted_at: null,
   };
   const r = goalSyncLabel(row, look(T(10, 19, 15)), TEXT);
-  test("label＝目標『名字』", () => assert.equal(r.label, "目標『夜行列車』"));
+  test("label＝目標「名字」", () => assert.equal(r.label, "目標「夜行列車」"));
   test("S3：目標時數印「180h」不是「10800」", () => assert.equal(r.fmt!("target_min", 10800), "180h"));
   test("fmt：分類名「・」串、期間字、方向字、M/D", () => {
     assert.equal(r.fmt!("scope", row.scope), "創作・學習");

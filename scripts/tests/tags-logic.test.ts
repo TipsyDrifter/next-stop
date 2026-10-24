@@ -697,7 +697,7 @@ test("刪除確認框：單一荷札", () => {
   const p = planDelete(idxOf(d), "高");
   const t = deleteConfirmText(p, deleteExample([...d.notes, ...d.diaries].map((x) => x.body), p));
   assert.equal(t.title, "刪除 #高？");
-  assert.equal(t.body, "摘下 5 處，筆記與日記裡的 #高 也會刪掉。例：『今天 #高 的事很多， #難度/高 也有。色 #AD3D2B 不算。』→『今天 的事很多， #難度/高 也有。色 #AD3D2B 不算。』。會改動 2 則筆記或日記。");
+  assert.equal(t.body, "摘下 5 處，筆記與日記裡的 #高 也會刪掉。例：「今天 #高 的事很多， #難度/高 也有。色 #AD3D2B 不算。」→「今天 的事很多， #難度/高 也有。色 #AD3D2B 不算。」。會改動 2 則筆記或日記。");
 });
 test("刪除確認框：父層（連子）", () => {
   const d = mini();

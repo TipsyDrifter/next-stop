@@ -1,20 +1,26 @@
 /**
  * NotesTags——旅客筆記「荷札」子畫面的主欄（桌機；旅客筆記車次③契約 §5.2；原型 app.js deskTagsPage／tagHeadHtml／dialogHtml）。
  *
- *   `section.ns-notes-tagmain` ＞ `.ns-notes-sheetwrap` ＞ `article.ns-notes-page`
- *     back ⇒「‹ 回到剛才 <label>」（0-16）
- *     notice ⇒ 通車提示條（D-筆-43；× ＝ dismissNotice，只出現一次）
- *     沒選荷札 ⇒ 總覽：overline「TAGS · 荷札」、h1「荷札」、lede「N 個荷札。…」＋ 牌雲（真荷札，依直接掛的數量多到少）
- *     選了 ⇒ 頁頭大牌（父層段可點＝看父層；虛資料夾退淡）＋「掛著 N 處・含子荷札」＋ ⋯（改名／併入…／刪除；虛資料夾也有）
- *            改名中 ⇒ 改名列（`input.techo-input`、即時影響一行、確定／取消）；清單 `TagList`
+ *   版面（UI 丙-6 H0）：回 fragment——`PageHeader` 與 `.ns-notes-body` 都是頁根（NotesView `.page.ns-notes`）的直接子節點，
+ *   頁首外距、主體內距由 notes.css〈H0〉統一給（四頁同高同線）。
+ *   `PageHeader`（H4：頁名式、眉標 {荷札, Tags}、stats「N 個荷札」、add「＋ 新荷札」——空狀態時藏；選了荷札也不變）
+ *   `.ns-notes-body` ＞ `section.ns-notes-tagmain`（自己捲）：**沒有整頁大紙**（K3：內容直接放天上，只有 TagList 包區塊卡）
+ *       back ⇒「‹ 回到剛才 <label>」（0-16）
+ *       notice ⇒ 通車提示條（D-筆-43；× ＝ dismissNotice，只出現一次）
+ *       載入失敗 ⇒ `ErrorBar`＋重試（E12）
+ *       沒選荷札 ⇒ 牌雲（真荷札，依直接掛的數量多到少）；一個都沒有 ⇒ `EmptyState first`「新荷札」（E11）
+ *       選了 ⇒ 內容區標題：大牌（父層段可點＝看父層；虛資料夾退淡）＋ ⋯（共用 PopMenu：改名／併入…／刪除；虛資料夾也有）
+ *              ＋「用在 N 個地方・包含底下的荷札」；改名中 ⇒ 改名列；清單 `TagList`（區塊卡）
+ *   ＋ 新荷札＝頁首 add 開 `NewTagPop`（錨定小浮層：`#` 輸入框＋即時提示 → `tagStore.createTag`；T2）。
  *   併入…＝⋯ 旁的浮層：`#` 輸入框＋建議清單（排除自己與子孫、含虛資料夾、不給建立）；選了 ⇒ `mergeInto`，要確認就開核心確認框。
  *   刪除＝`removePlan` → 從內文挑一個真的寫過的例子（`deleteExample`）→ 核心 `askConfirm`（danger、主鈕「刪除」）→ `confirmRemove`。
  *   改名撞名／併入＝`commitRename` 回 "confirm" ⇒ 核心 `askConfirm`（`mergeConfirmText(pendingPlan)`，主鈕「併入」）→ `confirmRename`。
  *
  * 鍵盤（契約 §5.6；表在 NotesView、動作經 `apiRef`）：↑↓ 清單列、Enter 開列、Delete 刪目前荷札、F2 改名、M 併入、
- *   Esc＝併入浮層／⋯ 選單開著→收、改名中→取消、有「回到剛才」→回去；Backspace＝有「回到剛才」就回去。
+ *   Esc＝新荷札浮層／併入浮層／⋯ 選單開著→收、改名中→取消、有「回到剛才」→回去；Backspace＝有「回到剛才」就回去。
+ *   （⋯ 選單與新荷札浮層自己收 Esc 並 stopPropagation；apiRef.escape 的那兩支是保險。）
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type MutableRefObject } from "react";
 import { tagRepo } from "../../data/tagRepo";
 import {
   backfillNotice,
@@ -27,7 +33,13 @@ import {
 } from "../../domain/tags";
 import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
-import { IconDots, IconLeft, IconTag, IconX, Kbd, usePopDismiss } from "./notesBits";
+import { EmptyState } from "../common/EmptyState";
+import { ErrorBar } from "../common/ErrorBar";
+import { IconDots, IconPlus } from "../common/icons";
+import { PageHeader } from "../common/PageHeader";
+import { PopMenu, type PopMenuItem } from "../common/PopMenu";
+import { IconLeft, IconTag, IconX, usePopDismiss } from "./notesBits";
+import { NewTagPop } from "./tags/NewTagPop";
 import { TagChip, TagChipLarge } from "./tags/TagChip";
 import { TagList, type TagListApi } from "./tags/TagList";
 import { TagSuggestRows, moveAct, suggestCount } from "./tags/TagSuggest";
@@ -163,10 +175,10 @@ function RenameRow({ tagKey }: { tagKey: string }) {
       </p>
       <div className="ns-notes-renbtns">
         {/* 取消在左、主鈕在右（視覺規範 §2.3；UI 丙-1 起從「主鈕在左」換過來，同日記草稿列） */}
-        <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={cancel}>
+        <button type="button" className="ns-btn btn-ghost" onClick={cancel}>
           取消
         </button>
-        <button type="button" className="ns-notes-btn ns-btn btn-seal" disabled={!plan || !plan.ok} onClick={() => void commit()}>
+        <button type="button" className="ns-btn btn-seal" disabled={!plan || !plan.ok} onClick={() => void commit()}>
           確定
         </button>
         <span className="hint">用 / 可以分上下層</span>
@@ -256,10 +268,20 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
   const loadFailed = useTagStore((s) => s.loadError !== null && !s.loading);
   const [menu, setMenu] = useState(false);
   const [merging, setMerging] = useState(false);
+  /** 新荷札浮層：開著＝錨點（頁首 add 鈕／空狀態的「新荷札」鈕；null＝置中）；undefined＝收著 */
+  const [newTagAt, setNewTagAt] = useState<HTMLElement | null | undefined>(undefined);
   const listApi = useRef<TagListApi | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const dotsRef = useRef<HTMLButtonElement>(null);
+  const emptyRef = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => setMenu(false), []);
-  usePopDismiss(menuRef, closeMenu);
+  /** 收新荷札浮層：Esc ⇒ 焦點回錨點；點外面／送出 ⇒ 焦點回頁根（鍵盤表掛在那裡） */
+  const newTagAtRef = useRef<HTMLElement | null | undefined>(undefined);
+  newTagAtRef.current = newTagAt;
+  const closeNewTag = useCallback((refocus: boolean) => {
+    const at = newTagAtRef.current;
+    setNewTagAt(undefined);
+    setTimeout(() => (refocus && at?.isConnected ? at.focus({ preventScroll: true }) : focusPage()), 0);
+  }, []);
 
   // 荷札頁一畫出來就重載索引：從別頁刪了車票／筆記再回來（頁面本來就停在荷札）也要對上數量（真機代驗 10-15）
   useEffect(() => {
@@ -293,6 +315,12 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
     setMenu(false);
     void askDelete(node.key);
   };
+  /** 開／收新荷札浮層（再點一次錨點＝收） */
+  const toggleNewTag = (at: HTMLElement | null) => {
+    setMenu(false);
+    setMerging(false);
+    setNewTagAt((cur) => (cur === undefined ? at : undefined));
+  };
 
   apiRef.current = {
     move: (d) => listApi.current?.move(d),
@@ -301,6 +329,10 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
     rename: startRename,
     merge: startMerge,
     escape() {
+      if (newTagAt !== undefined) {
+        closeNewTag(true);
+        return true;
+      }
       if (merging) {
         setMerging(false);
         return true;
@@ -319,7 +351,7 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
       }
       return false;
     },
-    popOpen: () => menu || merging,
+    popOpen: () => menu || merging || newTagAt !== undefined,
   };
 
   const realTags = useMemo(
@@ -331,11 +363,42 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
         : [],
     [index],
   );
+  /** 第一次空（E11）：索引載好了、一個真荷札都沒有 ⇒ 頁首「＋ 新荷札」藏起來，入口只留空狀態那顆（§2.7）。
+   *  索引還沒到（載入中／失敗）也不給「＋」：失敗時頁上只有錯誤列與重試（stats 同理，0 個不寫） */
+  const firstEmpty = !!index && realTags.length === 0;
+
+  const menuItems: PopMenuItem[] = [
+    { key: "rename", label: "改名", hotkeyId: "notes.tags.rename", onSelect: startRename },
+    { key: "merge", label: "併入…", hotkeyId: "notes.tags.merge", onSelect: startMerge },
+    { key: "delete", label: "刪除", hotkeyId: "notes.delete", danger: true, cut: true, onSelect: del },
+  ];
 
   return (
-    <section className="ns-notes-tagmain ns-notes-col techo-scroll" aria-label="荷札">
-      <div className="ns-notes-sheetwrap">
-        <article className="ns-notes-page">
+    <>
+      <PageHeader
+        variant="name"
+        overline={{ zh: "荷札", latin: "Tags" }}
+        title="荷札"
+        stats={
+          realTags.length > 0 ? (
+            <>
+              <b>{realTags.length}</b> 個荷札
+            </>
+          ) : undefined
+        }
+        add={
+          !index || firstEmpty
+            ? undefined
+            : {
+                label: "新荷札",
+                title: "新荷札：打名字就建好",
+                onClick: (e: MouseEvent<HTMLButtonElement>) => toggleNewTag(e.currentTarget),
+              }
+        }
+      />
+
+      <div className="ns-notes-body ns-notes-tagbody">
+        <section className="ns-notes-tagmain ns-notes-col techo-scroll" aria-label="荷札">
           <div className="ns-notes-measure">
             {back && (
               <button type="button" className="ns-notes-backlink" onClick={() => st().goBack()}>
@@ -354,43 +417,33 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
               </div>
             )}
 
-            {!node ? (
-              <>
-                <header className="ns-notes-taghead">
-                  <p className="techo-overline ns-notes-overline">TAGS · 荷札</p>
-                  <h1 className="techo-title">荷札</h1>
-                  <p className="ns-notes-lede">
-                    <b>{realTags.length}</b> 個荷札。點選左側荷札，查看相關的車票、筆記、日記與時間塊。
-                  </p>
-                </header>
-                {realTags.length > 0 ? (
-                  <div className="ns-notes-cloud">
-                    {realTags.map((x) => (
-                      <TagChip key={x.key} name={x.name} onOpen={() => st().select(x.key)} />
-                    ))}
-                  </div>
-                ) : index ? (
-                  <p className="ns-notes-tagempty">
-                    還沒有荷札。在筆記或日記打 #名稱，或在車票側板就能掛上。
-                    <br />
-                    時刻表的分類、時間塊也能掛。
-                  </p>
-                ) : (
-                  loadFailed && (
-                    // 磨光③ 2-12：載入失敗不再一片空白
-                    <p className="ns-notes-tagempty">
-                      荷札沒載入{" "}
-                      <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => void st().loadIndex()}>
-                        重試
-                      </button>
-                    </p>
-                  )
-                )}
-              </>
+            {!index ? (
+              // 磨光③ 2-12：載入失敗不再一片空白；UI 丙-6 E12：錯誤不是空狀態 ⇒ 頁級錯誤列（重試＝再載一次索引）
+              loadFailed && <ErrorBar message="荷札沒有載入成功。" onRetry={() => void st().loadIndex()} />
+            ) : !node ? (
+              realTags.length > 0 ? (
+                <div className="ns-notes-cloud">
+                  {realTags.map((x) => (
+                    <TagChip key={x.key} name={x.name} onOpen={() => st().select(x.key)} />
+                  ))}
+                </div>
+              ) : (
+                <div ref={emptyRef} className="ns-notes-tagfirst">
+                  <EmptyState
+                    tone="first"
+                    title="還沒有荷札"
+                    desc="在筆記或日記裡打 #名稱，就會掛上。"
+                    action={{
+                      label: "新荷札",
+                      icon: <IconPlus />,
+                      onClick: () => toggleNewTag(emptyRef.current?.querySelector<HTMLElement>(".ns-empty-acts button") ?? null),
+                    }}
+                  />
+                </div>
+              )
             ) : (
               <>
                 <header className="ns-notes-tagview">
-                  <p className="techo-overline ns-notes-overline">TAG · 荷札</p>
                   <div className="ns-notes-tagtitle">
                     {isRenaming ? (
                       <RenameRow tagKey={node.key} />
@@ -398,10 +451,11 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                       <TagChipLarge name={node.name} virtual={!node.real} onParent={(k) => st().select(k)} />
                     )}
                     {!isRenaming && (
-                      <div className="ns-notes-menuwrap" ref={menuRef}>
+                      <div className="ns-notes-menuwrap">
                         <button
+                          ref={dotsRef}
                           type="button"
-                          className="ns-notes-dots"
+                          className="ns-iconbtn ns-notes-dots"
                           data-pop-toggle=""
                           aria-haspopup="menu"
                           aria-expanded={menu}
@@ -412,23 +466,16 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
                             setMenu((m) => !m);
                           }}
                         >
-                          <IconDots size={16} />
+                          <IconDots />
                         </button>
                         {menu && (
-                          <div className="ns-notes-menu" role="menu">
-                            <button type="button" role="menuitem" onClick={startRename}>
-                              改名
-                              <Kbd id="notes.tags.rename" />
-                            </button>
-                            <button type="button" role="menuitem" onClick={startMerge}>
-                              併入…
-                              <Kbd id="notes.tags.merge" />
-                            </button>
-                            <button type="button" role="menuitem" className="ns-btn-danger" onClick={del}>
-                              刪除
-                              <Kbd id="notes.delete" />
-                            </button>
-                          </div>
+                          <PopMenu
+                            anchor={dotsRef.current}
+                            overline={{ zh: "這個荷札", latin: "Tag" }}
+                            label={`#${node.name} 的動作`}
+                            items={menuItems}
+                            onClose={closeMenu}
+                          />
                         )}
                         {merging && (
                           <MergePick
@@ -451,8 +498,10 @@ export function NotesTags({ apiRef }: { apiRef: MutableRefObject<NotesTagsApi | 
               </>
             )}
           </div>
-        </article>
+        </section>
       </div>
-    </section>
+
+      {newTagAt !== undefined && <NewTagPop anchor={newTagAt} onClose={closeNewTag} />}
+    </>
   );
 }

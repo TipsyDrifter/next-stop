@@ -11,6 +11,10 @@
  *   車票：排今天／排明天／排某天（日期面板）／掛進列車（挑選器：只列車與車廂可選）／掛上路線（挑選器：只路線）／刪除
  * 寫入與 toast（含「復原」）都在 notesStore 的動作裡（契約 §3.6／§5.8）；本元件只轉呼叫。
  * 受付章 42px（D-筆-31，車次②；原 26px 太小讀不出日期）。「排某天」用共用的手機日期面板（D-筆-30）。
+ *
+ * UI 丙-6：段頂一行改寫「待整理 N 則」（M3：分頁籤上的數字拿掉、搬到這裡；原說明句照 10-20 文案規則拿掉）；
+ *   空狀態換共用 EmptyState（E14：完成語氣 done＋淡受付章＋次鈕「記一句」；`ready` 之前不畫，免得進頁閃一下）；
+ *   「排某天」日期面板給 `backId`（S9）＝殼換 MSheet，跟本檔登記的那層合併成一層（返回鍵按一次只關日期面板）。
  */
 import { useState } from "react";
 import { useUiStore } from "../../../store/uiStore";
@@ -21,9 +25,10 @@ import { lineCount } from "../../../domain/notes";
 import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { UketsukeSeal } from "../UketsukeSeal";
-import { MobileAttachPicker } from "./MobileAttachPicker";
+import { EmptyState } from "../../common/EmptyState";
+import { MobileAttachPicker } from "../../common/MobileAttachPicker";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
-import { nextMonday, shortDay } from "./MobileDatePick";
+import { nextMonday, shortDay } from "./dayKeys";
 import { useBackLayer } from "../../mobile/backStack";
 
 type Item = { kind: "note"; id: string; at: string; note: NoteListItem } | { kind: "ticket"; id: string; at: string; ticket: NodeRow };
@@ -36,7 +41,7 @@ function hhmm(iso: string): string {
 
 type Pop = { id: string; kind: "someday" | "attach" | "route" } | null;
 
-export function MobileNoteInbox() {
+export function MobileNoteInbox({ ready }: { ready: boolean }) {
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
   const selected = useNotesStore((s) => s.inboxSelected);
@@ -45,7 +50,8 @@ export function MobileNoteInbox() {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [pop, setPop] = useState<Pop>(null);
   // 磨光① 返回層：「排某天」面板＝同「取消」；兩個掛到哪的挑選器自己登記（MobileAttachPicker）
-  useBackLayer("notes.inbox.someday", pop?.kind === "someday", () => setPop(null));
+  //   UI 丙-6 S9：日期面板傳同一個 id（backId）＋同一個 kind（"sheet"）⇒ MSheet 殼合併成這一層
+  useBackLayer("notes.inbox.someday", pop?.kind === "someday", () => setPop(null), "sheet");
 
   const items: Item[] = [
     ...inboxNotes.map((n): Item => ({ kind: "note", id: n.id, at: n.noted_at, note: n })),
@@ -61,42 +67,44 @@ export function MobileNoteInbox() {
 
   return (
     <>
-      <p className="ns-notes-mlede">點一則，選擇要收到哪裡。</p>
       {items.length === 0 ? (
-        <div className="ns-notes-mempty">
-          <UketsukeSeal day={todayKey(dayStartHour)} size={88} />
-          {/* 教第一步（磨光③ 2-15；照 MobileNoteList「還沒有筆記」的前例） */}
-          <p>
-            沒有待整理的東西
-            <small>隨手記一句，會先放進這裡</small>
-          </p>
-          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => openCapture()}>
-            記一句
-          </button>
-        </div>
+        ready && (
+          <EmptyState
+            tone="done"
+            stamp={<UketsukeSeal day={todayKey(dayStartHour)} size={88} />}
+            title="都整理完了"
+            desc="新記的一句會先放進這裡"
+            action={{ label: "記一句", onClick: () => openCapture() }}
+          />
+        )
       ) : (
-        <ul className="ns-notes-milist">
-          {items.map((it) =>
-            it.kind === "note" ? (
-              <NoteCard
-                key={it.id}
-                n={it.note}
-                day={dayKeyOf(it.at, dayStartHour)}
-                sel={isSel(it)}
-                onToggle={() => toggle(it)}
-              />
-            ) : (
-              <TicketCard
-                key={it.id}
-                t={it.ticket}
-                day={dayKeyOf(it.at, dayStartHour)}
-                sel={isSel(it)}
-                onToggle={() => toggle(it)}
-                onPop={(kind) => setPop({ id: it.id, kind })}
-              />
-            ),
-          )}
-        </ul>
+        <>
+          <p className="ns-notes-mlede">
+            待整理 <b>{items.length}</b> 則
+          </p>
+          <ul className="ns-notes-milist">
+            {items.map((it) =>
+              it.kind === "note" ? (
+                <NoteCard
+                  key={it.id}
+                  n={it.note}
+                  day={dayKeyOf(it.at, dayStartHour)}
+                  sel={isSel(it)}
+                  onToggle={() => toggle(it)}
+                />
+              ) : (
+                <TicketCard
+                  key={it.id}
+                  t={it.ticket}
+                  day={dayKeyOf(it.at, dayStartHour)}
+                  sel={isSel(it)}
+                  onToggle={() => toggle(it)}
+                  onPop={(kind) => setPop({ id: it.id, kind })}
+                />
+              ),
+            )}
+          </ul>
+        </>
       )}
       {pop && <TicketPop pop={pop} onClose={() => setPop(null)} />}
     </>
@@ -252,6 +260,8 @@ function TicketPop({ pop, onClose }: { pop: NonNullable<Pop>; onClose(): void })
           void scheduleTicket(pop.id, d);
         }}
         onClose={onClose}
+        backId="notes.inbox.someday"
+        backKind="sheet"
       />
     );
   }

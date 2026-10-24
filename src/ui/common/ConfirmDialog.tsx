@@ -15,6 +15,10 @@
  *   * Tab 在「輸入框 → 取消 → 確認」三件之間循環（確認鈕 disabled 時跳過它），Shift+Tab 反向；
  *   * 手機殼 16px（overlay.css `.ns-confirm-type`；Android WebView 聚焦時不放大整頁的門檻）。
  * 沒帶 `typeToConfirm` 的確認窗：下面 `typing` 為 false 的每一條分支都與 v1.1.5 逐字相同（焦點、Enter、兩鍵 Tab、class）。
+ *
+ * UI 丙-6（視覺規範 §2.4「刪除類動作鈕赭框、初始焦點在取消、Enter 不觸發刪除」；D 10-24 裁定改 common、全 App 一起變）：
+ *   `confirm.danger` 的確認窗開窗焦點落在**取消**，Enter＝按焦點所在那顆鈕（焦點在取消＝取消；Tab 到刪除鈕再 Enter 才刪）。
+ *   打字確認（typing）照舊：焦點在輸入框、Enter 在相符時確認——打字那一層本身就是防誤觸。非 danger 的確認窗不變。
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useUiStore, type ConfirmState } from "../../store/uiStore";
@@ -42,10 +46,13 @@ function ConfirmDialogInner({ confirm, onClose }: { confirm: ConfirmState; onClo
   const typing = !!word;
   const [typed, setTyped] = useState("");
   const matched = !typing || typed.trim() === word;
+  const danger = !!confirm.danger;
+  // 刪除類（非打字確認）：焦點與 Enter 都以「取消」為預設，Enter 不直接觸發刪除
+  const guarded = danger && !typing;
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    (typing ? inputRef : confirmRef).current?.focus();
+    (typing ? inputRef : guarded ? cancelRef : confirmRef).current?.focus();
     return () => {
       if (prev && prev.isConnected) prev.focus();
     };
@@ -71,6 +78,12 @@ function ConfirmDialogInner({ confirm, onClose }: { confirm: ConfirmState; onClo
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
+      if (guarded) {
+        // 按焦點所在那顆：只有焦點真的在刪除鈕上才刪，其餘（取消、窗本身）一律當取消
+        if (document.activeElement === confirmRef.current) ok();
+        else cancel();
+        return;
+      }
       ok();
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -93,8 +106,6 @@ function ConfirmDialogInner({ confirm, onClose }: { confirm: ConfirmState; onClo
       ring[next]?.focus();
     }
   };
-
-  const danger = !!confirm.danger;
 
   return (
     <div

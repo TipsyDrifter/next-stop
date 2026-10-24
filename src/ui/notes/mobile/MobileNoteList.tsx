@@ -10,6 +10,11 @@
  * 分頁（契約 §5.1，與桌機 NotesList 同形）：列表尾端放一個哨兵，捲到距底 80px 內且 store 說還有（notesHasMore）
  *   ⇒ loadMoreNotes 接下一頁。捲動容器是外層 `.m-page`（不是本元件），所以用 IntersectionObserver（root＝最近的 .m-page）
  *   而不是 onScroll；筆數一變就重掛觀察器，載完一頁哨兵仍在視野內（頁很短）時會再接一頁。
+ *
+ * UI 丙-6（契約 §1 N7、E15）：空狀態換共用 EmptyState——
+ *   一則都沒有（沒搜尋、沒篩選）＝first＋次鈕「＋ 新筆記」，上方那顆「新筆記」同時藏起來（同一動作同頁一個入口）；
+ *   搜尋沒結果＝nores＋「清除搜尋」；路線／節點篩選下沒有＝nores（不畫放大鏡）＋「清除篩選」，這兩種上方「新筆記」照留。
+ *   進頁那一趟還沒載完（`ready` false）不畫空狀態。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -19,8 +24,9 @@ import { dayKeyOf } from "../../../lib/date";
 import { excerpt, fmtMonthHeader, monthKey, noteTitle } from "../../../domain/notes";
 import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
-import { RouteRoundel } from "./MobileAttachPicker";
-import { shortDay } from "./MobileDatePick";
+import { RouteRoundel } from "../../common/MobileAttachPicker";
+import { EmptyState } from "../../common/EmptyState";
+import { shortDay } from "./dayKeys";
 
 /** 把 text 裡的 q（不分大小寫）包成 <mark> */
 function highlight(text: string, q: string): ReactNode {
@@ -42,15 +48,16 @@ function highlight(text: string, q: string): ReactNode {
 }
 
 export interface MobileNoteListProps {
+  /** 進頁那一趟筆記載完了（MobileNotes 給）；之前不畫空狀態 */
+  ready: boolean;
   onOpen(id: string): void;
   onNew(): void;
 }
 
-export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
+export function MobileNoteList({ ready, onOpen, onNew }: MobileNoteListProps) {
   const notes = useNotesStore((s) => s.notes);
   const notesQuery = useNotesStore((s) => s.notesQuery);
   const setNotesQuery = useNotesStore((s) => s.setNotesQuery);
-  const openCapture = useNotesStore((s) => s.openCapture);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [q, setQ] = useState(notesQuery.query ?? "");
@@ -119,19 +126,41 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
     rows.push(<Row key={n.id} n={n} day={day} q={activeQ} route={routeById(n.route_id)} onOpen={onOpen} />);
   }
 
+  const clearSearch = () => {
+    window.clearTimeout(timer.current);
+    setQ("");
+    void setNotesQuery({ ...useNotesStore.getState().notesQuery, query: undefined });
+  };
+  const plus = (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
+      <path d="M8 3v10M3 8h10" />
+    </svg>
+  );
+
+  /** 一則都沒有、也沒在搜尋或篩選＝第一次空：空狀態給「＋ 新筆記」，上方那顆藏起來 */
+  const firstEmpty = ready && notes.length === 0 && !activeQ && !underNode && !filter;
   let empty: ReactNode = null;
-  if (notes.length === 0) {
-    if (activeQ) empty = <p>找不到『{activeQ}』</p>;
-    else if (underNode) empty = <p>這裡還沒有筆記</p>;
-    else if (filter) empty = <p>這條路線還沒有筆記</p>;
+  if (ready && notes.length === 0) {
+    if (activeQ)
+      empty = (
+        <EmptyState tone="nores" title={`找不到「${activeQ}」`} secondary={{ label: "清除搜尋", onClick: clearSearch }} />
+      );
+    else if (underNode || filter)
+      empty = (
+        <EmptyState
+          tone="nores"
+          stamp={null}
+          title={underNode ? "這裡還沒有筆記" : "這條路線還沒有筆記"}
+          secondary={{ label: "清除篩選", onClick: () => setFilter(undefined) }}
+        />
+      );
     else
       empty = (
-        <>
-          <p>還沒有筆記</p>
-          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => openCapture("note")}>
-            記一句
-          </button>
-        </>
+        <EmptyState
+          tone="first"
+          title="還沒有筆記"
+          action={{ label: "新筆記", icon: plus, onClick: onNew }}
+        />
       );
   }
 
@@ -165,12 +194,12 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
             enterKeyHint="search"
           />
         </label>
-        <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onNew}>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
-            <path d="M8 3v10M3 8h10" />
-          </svg>
-          新筆記
-        </button>
+        {!firstEmpty && (
+          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onNew}>
+            {plus}
+            新筆記
+          </button>
+        )}
       </div>
 
       <div className="ns-notes-mroutes" role="group" aria-label="篩選路線">
@@ -217,9 +246,7 @@ export function MobileNoteList({ onOpen, onNew }: MobileNoteListProps) {
         ))}
       </div>
 
-      {empty ? (
-        <div className="ns-notes-mempty is-list">{empty}</div>
-      ) : (
+      {empty ?? (
         <>
           <ul className="ns-notes-mlist">{rows}</ul>
           {hasMore && (

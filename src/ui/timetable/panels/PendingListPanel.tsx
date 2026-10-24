@@ -14,11 +14,12 @@ import { useUiStore } from "../../../store/uiStore";
 import { CategoryBadge } from "../CategoryBadge";
 import { mdw } from "../stats/format";
 import { markPendingReturn } from "../stats/useStatsPage";
-import { Actions, Sub, type PanelProps } from "./controls";
+import { Sub, type PanelProps } from "./controls";
+import { EmptyState } from "../../common/EmptyState";
 
 const EMPTY: PendingItem[] = [];
 
-export function PendingListPanel({ onDone }: PanelProps) {
+export function PendingListPanel(_props: PanelProps) {
   const sheet = useTimetableStore((s) => s.sheet);
   const catById = useTimetableStore((s) => s.catById);
   const openSheet = useTimetableStore((s) => s.openSheet);
@@ -43,14 +44,8 @@ export function PendingListPanel({ onDone }: PanelProps) {
         {goalView && <> {T.pendingGoalSub(goalView.goal.name)}</>}
       </Sub>
       {items.length === 0 ? (
-        <>
-          <p className="ns-tt-pend-empty">{T.pendingEmpty}</p>
-          <Actions>
-            <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-              {T.close}
-            </button>
-          </Actions>
-        </>
+        // UI 丙-4 D7／C4：空的時候換共用 EmptyState（區段級、「都好了」的語氣）；不放「關閉」字鈕（×／返回就是關）
+        <EmptyState inline tone="done" title={T.pendingEmpty} />
       ) : (
         <div className="ns-tt-pend-list" role="list">
           {items.map((b) => {

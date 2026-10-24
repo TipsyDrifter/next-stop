@@ -7,8 +7,17 @@
  * ⑥（§5.4；D-時-122、123；丙席）：範圍字帶 `#荷札`（`goal.tagKeys` → 顯示名）；範圍空了（`emptyScope`，而且沒有綁分類＝綁的荷札都被刪了）⇒
  * 卡上一行「綁的荷札已經不在了」＋「重新選範圍 ›」、不畫條。荷札頁點「目標『…』」⇒ `focusGoalCard(id)`：捲到那張卡、描金閃一下
  * （收在「另有…」裡的先展開；卡還沒畫出來就等它畫出來）。
+ *
+ * UI 丙-4 D6（視覺規範 §2.6 列的 ⋯、§2.7 空狀態）：
+ *   - 卡右上的 ⋯ 從「點了直接開 GoalPanel」改成 `.ns-iconbtn`＋`PopMenu`：編輯…（開 GoalPanel）／封存／刪除（赭、放最後）。
+ *     封存、刪除走 store 現成的 archiveGoal／deleteGoal——跟 GoalPanel 的鈕同一條路：不另跳確認框，store 出 toast＋「復原」。
+ *   - 區段標的「＋目標」拿掉 `--sm`（跟頁上其他次鈕一樣高）；沒有目標時改成卡內一行 EmptyState（action「＋ 目標」），
+ *     區段標的「＋目標」同時藏起來（§2.7 同一動作同頁一個入口）。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { EmptyState } from "../../common/EmptyState";
+import { IconDots, IconPlus } from "../../common/icons";
+import { PopMenu, type PopMenuItem } from "../../common/PopMenu";
 import { fmtDur, MIN } from "../../../domain/timetable";
 import type { GoalView } from "../../../domain/timetableStats";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
@@ -27,6 +36,56 @@ export function focusGoalCard(goalId: string): void {
 }
 
 type Stamp = { text: string; tone: "gold" | "ink" | "late" };
+
+/** UI 丙-4 D6：目標卡 ⋯ 選單與空狀態的字（只在這一支用；封存／刪除沿用 GoalPanel 的 statsUi.archive／remove） */
+const GOAL_MENU = {
+  edit: "編輯…",
+  more: (name: string) => `更多動作：${name}`,
+  label: (name: string) => `「${name}」的動作`,
+  emptyTitle: "還沒有目標。",
+  emptyDesc: "例如：每週創作 10 小時",
+  emptyAction: "目標",
+} as const;
+
+/** 目標卡右上的 ⋯（UI 丙-4 D6）：圖示鈕＋小選單；留在 Tab 順序裡（卡本身不可點，這是卡上動作唯一的鍵盤入口） */
+function GoalMore({ id, name }: { id: string; name: string }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const openSheet = useTimetableStore((s) => s.openSheet);
+  const archiveGoal = useTimetableStore((s) => s.archiveGoal);
+  const deleteGoal = useTimetableStore((s) => s.deleteGoal);
+  const T = TT_TEXT.statsUi;
+  const items: PopMenuItem[] = [
+    { key: "edit", label: GOAL_MENU.edit, onSelect: () => openSheet({ kind: "goal", goalId: id }) },
+    { key: "archive", label: T.archive, onSelect: () => void archiveGoal(id, true) },
+    { key: "delete", label: T.remove, cut: true, danger: true, onSelect: () => void deleteGoal(id) },
+  ];
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        className="ns-iconbtn ns-tt-goal-more"
+        aria-label={GOAL_MENU.more(name)}
+        title={items.map((it) => it.label).join("、")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((x) => !x)}
+      >
+        <IconDots />
+      </button>
+      {open && (
+        <PopMenu
+          anchor={btn.current}
+          overline={{ zh: "這個目標", latin: "Goal" }}
+          label={GOAL_MENU.label(name)}
+          items={items}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
 
 function stampOf(v: GoalView): Stamp | null {
   const g = v.goal;
@@ -53,9 +112,7 @@ function GoalCard({ v }: { v: GoalView }) {
       <article className="ns-tt-goal is-dim is-lost" data-goal-id={g.id}>
         <div className="ns-tt-goal-h">
           <b className="ns-tt-goal-name">{g.name}</b>
-          <button type="button" className="ns-tt-goal-more" aria-label={T.goalEdit} title={T.goalEdit} onClick={() => openSheet({ kind: "goal", goalId: g.id })}>
-            ⋯
-          </button>
+          <GoalMore id={g.id} name={g.name} />
         </div>
         <p className="ns-tt-goal-sub">
           <span className="ns-tt-goal-per">{goalPeriodText(g)}</span>
@@ -117,9 +174,7 @@ function GoalCard({ v }: { v: GoalView }) {
             {TT_TEXT.goalHide}
           </button>
         )}
-        <button type="button" className="ns-tt-goal-more" aria-label={T.goalEdit} title={T.goalEdit} onClick={() => openSheet({ kind: "goal", goalId: g.id })}>
-          ⋯
-        </button>
+        <GoalMore id={g.id} name={g.name} />
       </div>
       <p className="ns-tt-goal-sub">
         <span className="ns-tt-goal-per">{per}</span>
@@ -197,18 +252,27 @@ export function GoalCards() {
   }, [focusTick, goals, showRest]);
   const upcoming = rest.filter((v) => v.state === "upcoming").length;
   const ended = rest.length - upcoming;
+  const addGoal = () => openSheet({ kind: "goal", goalId: null });
 
   return (
     <section className="ns-tt-goals" ref={rootRef}>
       <div className="ns-tt-goals-h">
         <h3>{T.goalsTitle}</h3>
         <span className="rule" />
-        <button type="button" className="ns-btn ns-btn--sm btn-ghost" onClick={() => openSheet({ kind: "goal", goalId: null })}>
-          {TT_TEXT.goalAdd}
-        </button>
+        {goals.length > 0 && (
+          <button type="button" className="ns-btn btn-ghost" onClick={addGoal}>
+            {TT_TEXT.goalAdd}
+          </button>
+        )}
       </div>
       {goals.length === 0 ? (
-        <p className="ns-tt-goals-none">{T.goalsNone}</p>
+        <EmptyState
+          inline
+          tone="first"
+          title={GOAL_MENU.emptyTitle}
+          desc={GOAL_MENU.emptyDesc}
+          action={{ label: GOAL_MENU.emptyAction, icon: <IconPlus />, onClick: addGoal }}
+        />
       ) : (
         <div className="ns-tt-goals-list">
           {active.map((v) => (

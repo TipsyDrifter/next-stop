@@ -1,7 +1,8 @@
 /**
  * NotesDiary——日記子畫面（桌機；車次②契約 §5.1；D-筆-10／11／22／24／27；原型 app.js deskDiary）。
  *
- * 兩欄：本文欄（頁首大日期列＋一天的各篇／草稿／空狀態，或頁內搜尋結果）｜當天足跡欄（Footprints）。
+ * 版面（UI 丙-6 H0／H3／K5）：頁頂通欄的頁首（DiaryHeader＝共用 PageHeader；搜尋展開時多一列）＋下面橫排兩塊：
+ *   本文欄（一天的各篇／草稿／空狀態，或頁內搜尋結果；欄自己捲）｜當天足跡卡（Footprints；右側區塊卡、不全高、卡內捲）。
  * 日記以日為單位：一天可多篇（舊在上、新在下，契約 0-4）；草稿永遠接在當天末尾。
  *
  * 跟 NotesView 的分工：NotesView 持有小浮層（pop）、flushThen、鍵盤表；本元件把
@@ -9,18 +10,20 @@
  *   ・鍵盤表要的幾個「只有本元件知道」的動作（Esc 的層次、焦點到草稿、↑↓ 在結果列）交給 `apiRef`
  * 草稿內容放在這裡（不落庫；store 只有 diaryDraftOpen 一個旗標）。
  *
- * 搜尋：搜尋框有字＝本文區換成跨日結果列；點一則跳到那天並選中那篇，**搜尋字保留**（Esc 才清，契約 §3.6）——
+ * 搜尋：頁首放大鏡（或 `/`）展開搜尋列；搜尋框有字＝本文區換成跨日結果列；點一則跳到那天並選中那篇，**搜尋字保留**（Esc 才清，契約 §3.6）——
  *   所以「正在看某一則」是本地旗標 `browsing`：跳過去或翻日就看那天，回搜尋框打字或聚焦就回結果列（回報 deviations）。
  */
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { useNotesStore } from "../../store/notesStore";
 import { useUiStore } from "../../store/uiStore";
 import { diaryDraftMeta, diaryEmptyText, diaryPlaceholder } from "../../domain/notes";
-import { DiaryHeader } from "./DiaryHeader";
+import { DiaryHeader, DiarySearchBar } from "./DiaryHeader";
 import { DiaryDraft, DiaryEntry } from "./DiaryEntry";
 import { DiarySearchList } from "./DiarySearchList";
 import { Footprints } from "./Footprints";
-import { IconPen, IconPlus, Kbd, useTodayKey } from "./notesBits";
+import { EmptyState } from "../common/EmptyState";
+import { IconEdit } from "../common/icons";
+import { capsOf, useTodayKey } from "./notesBits";
 
 /** 日記子畫面的小浮層：大日期的挑選器／某一篇的改日期 */
 export type DiaryPopKind = "day" | "entrydate";
@@ -31,12 +34,12 @@ export const DIARY_DAY_POP = "$diaryday";
 export interface DiaryApi {
   /** Esc（焦點不在輸入框時）：清搜尋／草稿二段確認／離開編輯；回傳有沒有處理 */
   escape(): boolean;
-  /** W：草稿已開 ⇒ 焦點到草稿內文 */
-  focusDraft(): void;
   /** 結果列正在畫面上 ⇒ ↑↓ 把焦點交給它（回 true＝已處理） */
   moveInHits(delta: 1 | -1): boolean;
-  /** 搜尋字還在、正在看某一天時要寫日記：先回到日視圖 */
-  showDay(): void;
+  /** W 鍵／頁首「✎ 寫日記」：先回日視圖；草稿已開＝焦點到草稿，否則開草稿（D2：鍵與鈕同一支） */
+  write(): void;
+  /** `/` 鍵：展開搜尋列並聚焦（H3） */
+  openSearch(): void;
 }
 
 export interface NotesDiaryProps {
@@ -84,6 +87,29 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
     if (!query.trim()) setBrowsing(false);
   }, [query]);
 
+  /* ── 搜尋列（H3：頁首放大鏡點了才展開；有搜尋字時一定開著——離頁再回來、同步重載都一樣） ── */
+  const [searchOpen, setSearchOpen] = useState(() => !!useNotesStore.getState().diaryQuery.trim());
+  useEffect(() => {
+    if (query.trim()) setSearchOpen(true);
+  }, [query]);
+  const openSearch = () => {
+    setSearchOpen(true);
+    // 框這一輪才掛上：下一輪再聚焦
+    setTimeout(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }, 0);
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    focusHome();
+  };
+  /** 放大鏡：沒開＝展開並聚焦；開著沒字＝收起；開著有字＝聚焦框（不丟掉搜尋字；同售票口 A3） */
+  const onSearchButton = () => {
+    if (searchOpen && !useNotesStore.getState().diaryQuery.trim() && !searchRef.current?.value.trim()) closeSearch();
+    else openSearch();
+  };
+
   /* ── 草稿（本地；不落庫） ── */
   const [draft, setDraft] = useState({ title: "", body: "" });
   const draftRef = useRef(draft);
@@ -104,9 +130,16 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
     st().cancelDiaryDraft();
     focusHome();
   };
+  /** Esc 與「取消」鈕同一條（C3）：有字的第一下只亮「還沒存檔——再按一次就放棄」，第二下才放棄 */
   const escapeDraft = () => {
     if (draftHasText() && !confirmEsc) setConfirmEsc(true);
     else cancelDraft();
+  };
+  const write = () => {
+    setBrowsing(true); // 搜尋字還在、畫面是結果列時：先回日視圖
+    if (useNotesStore.getState().diaryDraftOpen)
+      colRef.current?.querySelector<HTMLTextAreaElement>(".ns-notes-entry.is-draft textarea")?.focus();
+    else st().openDiaryDraft();
   };
 
   /* ── flush：各篇沒送出的字＋草稿（非空＝自動存在原本那天；空＝丟棄） ── */
@@ -140,6 +173,7 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
         const s = useNotesStore.getState();
         if (s.diaryQuery.trim()) {
           void s.setDiaryQuery("");
+          setSearchOpen(false); // 從頁面按 Esc 清掉搜尋＝這次搜尋結束，搜尋列一起收
           return true;
         }
         if (s.diaryDraftOpen) {
@@ -150,10 +184,11 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
           s.setDiaryEditing(null);
           return true;
         }
+        if (searchOpen) {
+          closeSearch();
+          return true;
+        }
         return false;
-      },
-      focusDraft() {
-        colRef.current?.querySelector<HTMLTextAreaElement>(".ns-notes-entry.is-draft textarea")?.focus();
       },
       moveInHits(delta) {
         if (!showHits) return false;
@@ -162,9 +197,8 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
         btns[delta > 0 ? 0 : btns.length - 1].focus();
         return true;
       },
-      showDay() {
-        setBrowsing(true);
-      },
+      write,
+      openSearch,
     };
     return () => {
       apiRef.current = null;
@@ -200,6 +234,8 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
   const visible = entries.filter((n) => n.entry_date === day);
   const dayPopOpen = pop?.kind === "day";
   const empty = diaryEmptyText(isToday);
+  // 空狀態出現時（不是結果列、沒有草稿、這天沒有篇、已載入）頁首「✎ 寫日記」藏起來：同一動作同頁一個入口（規範 §2.7）
+  const emptyShown = !showHits && !draftOpen && visible.length === 0 && !loading;
 
   let main;
   if (showHits) {
@@ -212,6 +248,10 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
           listRef={hitsRef}
           onOpen={openHit}
           onExitTop={() => searchRef.current?.focus()}
+          onClear={() => {
+            void st().setDiaryQuery("");
+            searchRef.current?.focus();
+          }}
         />
       </article>
     );
@@ -255,70 +295,72 @@ export function NotesDiary({ flushRef, apiRef, flushThen, pop, setPop, searchRef
                 setConfirmEsc(false);
               }}
               onSave={() => void saveDraft()}
-              onCancel={cancelDraft}
+              onCancel={escapeDraft}
               confirmEsc={confirmEsc}
               onEscape={escapeDraft}
             />
-          ) : visible.length === 0 ? (
-            loading ? null : (
-              <div className="ns-notes-nodiary">
-                <p>{empty.text}</p>
-                <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => st().openDiaryDraft()}>
-                  <IconPen size={13} />
-                  {empty.button}
-                  <Kbd id="notes.diary.write" />
-                </button>
-              </div>
-            )
-          ) : (
-            <div className="ns-notes-more">
-              <button type="button" className="ns-notes-btn ns-btn btn-ghost" onClick={() => st().openDiaryDraft()}>
-                <IconPlus size={12} />
-                再寫一篇
-                <Kbd id="notes.diary.write" />
-              </button>
-            </div>
-          )}
+          ) : null}
         </div>
+        {emptyShown && (
+          // 頁級空狀態放在整張紙的中央（不在 38em 的文字欄裡，免得寬視窗時偏左）
+          <EmptyState
+            tone="first"
+            className="ns-notes-nodiary"
+            title={empty.text}
+            action={{ label: empty.button, icon: <IconEdit />, kbd: capsOf("notes.diary.write"), onClick: write }}
+          />
+        )}
       </article>
     );
   }
 
+  // 版面（UI 丙-6 H0）：PageHeader 與 `.ns-notes-body` 都是頁根（NotesView `.page.ns-notes`）的直接子節點——
+  // 頁首外距、主體橫排與內距由 notes.css〈H0〉統一給，四頁同高；日記只在 `.ns-notes-dbody` 調自己的兩塊
   return (
     <>
-      <section ref={colRef} className="ns-notes-diarycol ns-notes-col techo-scroll" aria-label="日記">
-        <div className="ns-notes-sheetwrap">
-          <DiaryHeader
-            day={day}
-            today={today}
-            pickOpen={dayPopOpen}
-            onTogglePick={() => setPop(dayPopOpen ? null : { id: DIARY_DAY_POP, kind: "day" })}
-            onClosePick={() => {
-              setPop(null);
-              focusHome();
-            }}
-            onPick={(d) => {
-              go(() => st().setDiaryDay(d));
-              focusHome();
-            }}
-            onStep={(dir) => go(() => st().stepDiaryDay(dir))}
-            onToday={() => go(() => st().goDiaryToday())}
-            searchRef={searchRef}
-            onSearchEnter={() => {
-              const first = useNotesStore.getState().diaryHits[0];
-              if (first) openHit(first.id, first.entry_date ?? day);
-            }}
-            onSearchDown={() => {
-              setBrowsing(false);
-              setTimeout(() => hitsRef.current?.querySelector<HTMLButtonElement>(".ns-notes-dhit > button")?.focus(), 0);
-            }}
-            onSearchTyping={() => setBrowsing(false)}
-            onSearchLeave={focusHome}
-          />
-          {main}
+      <DiaryHeader
+        day={day}
+        today={today}
+        pickOpen={dayPopOpen}
+        onTogglePick={() => setPop(dayPopOpen ? null : { id: DIARY_DAY_POP, kind: "day" })}
+        onClosePick={() => {
+          setPop(null);
+          focusHome();
+        }}
+        onPick={(d) => {
+          go(() => st().setDiaryDay(d));
+          focusHome();
+        }}
+        onStep={(dir) => go(() => st().stepDiaryDay(dir))}
+        onToday={() => go(() => st().goDiaryToday())}
+        onWrite={emptyShown ? null : write}
+        searchOpen={searchOpen}
+        onSearchButton={onSearchButton}
+      />
+      {/* 搜尋列＝頁首下一列、通欄（UI 丙-6 回修：原本插在左欄頂，本文卡被推下去、跟足跡卡頂不齊；同售票口的頁首下一列） */}
+      {searchOpen && (
+        <DiarySearchBar
+          searchRef={searchRef}
+          onSearchEnter={() => {
+            const first = useNotesStore.getState().diaryHits[0];
+            if (first) openHit(first.id, first.entry_date ?? day);
+          }}
+          onSearchDown={() => {
+            setBrowsing(false);
+            setTimeout(() => hitsRef.current?.querySelector<HTMLButtonElement>(".ns-notes-dhit > button")?.focus(), 0);
+          }}
+          onSearchTyping={() => setBrowsing(false)}
+          onSearchLeave={closeSearch}
+        />
+      )}
+      <div className="ns-notes-body ns-notes-dbody">
+        <div className="ns-notes-dmain">
+          <section ref={colRef} className="ns-notes-diarycol ns-notes-col techo-scroll" aria-label="日記">
+            {main}
+          </section>
         </div>
-      </section>
-      <Footprints today={today} />
+        <Footprints today={today} />
+      </div>
     </>
   );
 }

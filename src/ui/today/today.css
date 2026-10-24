@@ -18,6 +18,10 @@
  * 原型沒有的控件（鐵律「原型沒有的元素一律不可見」的例外處置，全部做成 hover／選中才現身）：
  *   誤點區摺疊開關（r1 拍板要求）、當日執行日 chip（＝推遲入口，日期與頁首重複故預設隱形）、
  *   票種小字當側板入口（沿大綱既有語彙）。
+ *
+ * UI 丙-3：頁首換共用 PageHeader（骨架樣式在 common/pageheader.css），本檔只留今日自己的兩件——
+ *   粉彩手寫「還有 N 張」（補述右邊）與銀河手寫統計列；舊 header.day／.day-head／.date-line 的今日補丁、
+ *   「＋ 臨時車票」分裂鈕、私有空狀態 .empty* 一併退役。每列常駐 ⋯（.row-more）是例外處置的反面：常駐淡態（規範 §3.1-1）。
  * ───────────────────────────────────────────────────── */
 
 /* ═══ 主題二選一：同一份 DOM，只顯示屬於當前主題的那一份文案 ═══ */
@@ -26,30 +30,28 @@
 [data-theme="dark"] .ns-today .theme-pastel-only { display: none; }
 [data-theme="dark"] .ns-today .theme-galaxy-only { display: inline; }
 
-/* ═══ 頁首 ═══ */
-.ns-today .day-head { min-width: 0; }
+/* ═══ 頁首（PageHeader 身分式；骨架在 common/pageheader.css） ═══ */
 
-/* 頁邊手寫「還有 N 張」（C2 :321-327 逐字）——銀河沒有這一處手寫（C1 手寫只在統計行與主題名） */
-.ns-today .margin-note {
-  font-family: var(--hw, var(--font-hand)); font-size: 19px; line-height: 1;
-  color: var(--accent-sky, var(--color-accent-sky, var(--color-ink-soft)));
-  margin-left: 10px;
+/* 頁邊手寫「還有 N 張」（C2 :321-327；丙-3 §5 P5 接在補述右邊＝原型 ui-c3 .c3-hw 逐值）——銀河不畫（C1 手寫只在統計行與主題名）。
+   字級是手寫點綴的原型定值（字階沒有手寫檔位，同 .late-hw）。補述是 baseline 對齊的 inline-flex，間距由補述的 gap 給。 */
+.ns-today .ns-pagehead-aside .margin-note {
+  font-family: var(--font-hand); font-weight: 400; font-size: 19px; line-height: 1; /* 手寫點綴：原型定值，不入字階 */
+  color: var(--accent-sky);
+  margin-left: 2px;
   transform: rotate(-2deg); display: inline-block;
   letter-spacing: .04em;
   transition: opacity .25s;
 }
-[data-theme="dark"] .ns-today .margin-note { display: none; }
+[data-theme="dark"] .ns-today .ns-pagehead-aside .margin-note { display: none; }
 
-/* 頁首日付印：蓋在日期行右側、微微壓線（A :470-471 逐字；尺寸 92px＝① 比稿 Q8 頁首檔位） */
-.ns-today .date-line .ns-date-seal { align-self: center; margin-left: 14px; translate: 0 -3px; }
-
-/* 統計行：粉彩＝排印（techo.css 已給）／銀河＝手寫（C1 :313-322 逐字） */
-.ns-today .day-stats .sep { color: var(--color-ink-faint); margin: 0 2px; }
-[data-theme="dark"] .ns-today .day-stats {
-  font-family: var(--hw, var(--font-hand));
-  font-size: 15.5px; letter-spacing: .05em;
+/* 統計列的「・」：核心各段與別線 todayStats 元件（借 .sep）同一種淡分隔 */
+.ns-today .ns-pagehead-stats .sep { color: var(--color-ink-faint); margin: 0 2px; }
+/* 統計列：粉彩＝排印（pageheader.css 已給）／銀河＝手寫（C1 :313-322；銀河兩處手寫之一，字級是原型定值） */
+[data-theme="dark"] .ns-today .ns-pagehead-stats {
+  font-family: var(--font-hand);
+  font-size: 15.5px; letter-spacing: .05em; /* 手寫點綴：原型定值，不入字階 */
 }
-[data-theme="dark"] .ns-today .day-stats b { font-weight: 400; font-size: 17.5px; }
+[data-theme="dark"] .ns-today .ns-pagehead-stats b { font-weight: 400; font-size: 17.5px; } /* 手寫點綴：原型定值 */
 
 /* ═══ 區段標題：誤點區的摺疊開關（原型 .note 的位置換成按鈕；r1「誤點 N 件」可摺疊、記憶） ═══ */
 .ns-today .sec .fold {
@@ -61,20 +63,6 @@
 .ns-today .sec .fold:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .ns-today .sec .fold .caret { display: inline-block; margin-left: .5em; transition: transform .15s; }
 .ns-today .sec .fold[aria-expanded="false"] .caret { transform: rotate(-90deg); }
-
-/* ═══ 區段標題：「＋ 臨時車票」分裂鈕（10-20 磨光②；today.draft／today.inbox 的滑鼠入口） ═══
-   兩顆 .ns-btn--sm.btn-ghost 併成一組：右鈕左移 1px 疊在主鈕的右框上（中縫只見一條線），外側保留 2px 圓角；
-   hover 的那一半抬到上層，作用中框（--accent）四邊完整。align-self:center——.sec 是 baseline 對齊，鈕框比字高，置中才不往下掉。 */
-.ns-today .sec .add-split { display: inline-flex; align-self: center; flex: none; }
-.ns-today .sec .add-split .ns-btn { position: relative; letter-spacing: .1em; }
-.ns-today .sec .add-split .ns-btn:hover,
-.ns-today .sec .add-split .add-more[aria-expanded="true"] { z-index: 1; }
-.ns-today .sec .add-split .add-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.ns-today .sec .add-split .add-more {
-  margin-left: -1px; padding-left: 6px; padding-right: 6px;
-  border-top-left-radius: 0; border-bottom-left-radius: 0;
-}
-.ns-today .sec .add-split .add-more[aria-expanded="true"] { border-color: var(--accent); color: var(--color-ink); }
 
 /* ═══ 車票列 ═══ */
 .ns-today .ticket-list > li { list-style: none; }
@@ -114,6 +102,28 @@
 
 /* 検印欄：paused ＝「途中下車」角印蓋在検印位（A 規範；済蓋下時由 .ticket.done 接管） */
 .ns-today .stamp-zone { position: relative; }
+
+/* ═══ 每列常駐 ⋯（UI 丙-3 A5；規範 §2.6、§3.1-1）═══
+   位置＝票右下角（検印欄的角落，與右上角票種小字對稱；同大綱列 .row-more 的座標），疊上去不佔版面。
+   常駐淡態：--dim；字色取 --color-ink-soft 而不是圖示鈕預設的 ink-faint——faint×.42 在粉彩紙上幾乎看不見
+   （契約 §5 P2 頁首 ⋯ 同一個理由）。hover／選中／選單開著／鍵盤聚焦變實，hover 轉作用中色。 */
+.ns-today .stamp-zone .row-more {
+  position: absolute; right: 10px; bottom: 6px; z-index: 2;
+  min-width: 26px; height: 18px; padding: 0 5px; border-radius: var(--radius-ctl);
+  display: grid; place-items: center;
+  background: transparent; border: 1px solid transparent; cursor: pointer;
+  color: var(--color-ink-soft);
+  opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft),
+              border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-today .ticket:hover .row-more,
+.ns-today .ticket.selected .row-more,
+.ns-today .stamp-zone .row-more[aria-expanded="true"] { opacity: 1; }
+.ns-today .stamp-zone .row-more:hover,
+.ns-today .stamp-zone .row-more[aria-expanded="true"] { color: var(--accent); border-color: var(--color-dash); }
+.ns-today .stamp-zone .row-more:focus-visible { opacity: 1; outline: var(--focus-ring); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .ns-today .stamp-zone .row-more { transition: none; } }
 .ns-today .stopover-slot { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .ns-today .ticket.is-paused .stamp { border-color: transparent; }
 .ns-today .ticket.is-paused .stamp .hint { opacity: 0; }
@@ -142,7 +152,7 @@
   position: absolute; right: 114px; bottom: 9px;
   align-self: auto; margin-right: 0;
   border-width: 1.4px;
-  font-size: 10px; letter-spacing: .24em; text-indent: .24em;
+  font-size: 10px; letter-spacing: .24em; text-indent: .24em; /* 票券專用（延着角印字），techo.css 同一組定值（§2.9） */
   padding: 2px 5px;
   opacity: .38; pointer-events: none;
 }
@@ -161,7 +171,7 @@
 /* ═══ 誤點區的票（C2 :489-496 逐字；techo.css 已給底色／陰影／延着章形制） ═══ */
 .ns-today .ticket.late-t .stub,
 .ns-today .ticket.late-t .body { padding-top: 10px; padding-bottom: 10px; }
-.ns-today .ticket.late-t .title { font-size: 14px; }
+.ns-today .ticket.late-t .title { font-size: var(--fs-body); }
 
 /* ═══ 草稿票（臨時車票輸入中）：同款票、虛線邊（沿 outline.css 語彙） ═══ */
 .ns-today .ticket.draft,
@@ -170,9 +180,9 @@
 .ns-today .ticket.draft .stamp { cursor: default; pointer-events: none; }
 /* 「無日期」切換（磨光⑤ K3）：照手機 .m-nt-toggle——關＝虛線小方標淡字、開＝選中（--sel-*；UI 丙-1 前是燙金）實線；排在 meta 最右 */
 .ns-today .ticket.draft .draft-nodate {
-  margin-left: auto; padding: 1px 8px 1px 10px; border-radius: 2px;
+  margin-left: auto; padding: 1px 8px 1px 10px; border-radius: var(--radius-ctl);
   background: transparent; border: 1px dashed var(--color-dash); cursor: pointer;
-  font-family: inherit; font-size: 11px; letter-spacing: .14em; line-height: 1.5;
+  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .14em; line-height: 1.5;
   color: var(--color-ink-faint);
   transition: color .15s, border-color .15s, background .15s;
 }
@@ -197,31 +207,22 @@
   display: flex; align-items: center; gap: 10px;
   padding-left: 130px; padding-right: 100px;
 }
-.ns-today .log-row .lbl { font-size: 10px; letter-spacing: .28em; color: var(--color-ink-faint); flex: none; }
+.ns-today .log-row .lbl { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-faint); flex: none; }
 /* 主人筆跡例外（① 比稿 Q5）：行內記的那句話＝側板乘務記錄 `.log .what.hw` 的同一套手寫字 */
 .ns-today .log-row input,
 .ns-today .log-row .logged {
   flex: 1; min-width: 0;
-  font-family: var(--font-hand); font-size: 14px; letter-spacing: .05em;
+  font-family: var(--font-hand); font-size: var(--fs-body); letter-spacing: .05em;
 }
 /* Enter 記下後的短暫回饋（0.9s）：輸入框原地換成一枚手寫「記了」 */
 .ns-today .log-row .logged { color: var(--color-ink-soft); animation: nsLoggedIn .18s ease-out; }
 @keyframes nsLoggedIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ns-today .log-row .logged { animation: none; } }
 
-/* ═══ 空狀態（1.0c 無班次／1.0d 全完成慶祝）：原型 .sec 語彙＋一句話＋文字入口 ═══
-   UI 丙-1：入口字從燙金改作用中 --accent（燙金在粉彩紙面上幾乎看不見）；丙-3 才換成次鈕 .ns-btn.btn-ghost。 */
-.ns-today .empty { max-width: 520px; }
-.ns-today .empty .sec { margin-top: 8vh; }
-.ns-today .empty.cheer .sec { margin-top: 34px; }
-.ns-today .empty-body { font-size: 12.5px; line-height: 1.9; color: var(--color-ink-soft); }
-.ns-today .empty-action {
-  margin-top: 16px; padding: 0; background: transparent; border: 0; cursor: pointer;
-  font-family: inherit; font-size: 12px; letter-spacing: .14em; color: var(--accent);
-  text-decoration: underline dotted transparent; text-underline-offset: 4px;
-  transition: text-decoration-color .15s;
-}
-.ns-today .empty-action:hover { text-decoration-color: currentColor; }
+/* ═══ 空狀態（1.0c 無班次／1.0d 全完成慶祝；UI 丙-3 A4 換共用 EmptyState，長相在 common/listbits.css）═══
+   這裡只給頁級位置：第一次空＝內容區中段（沿舊版 8vh 的落點）；慶祝＝接在清單下面（清單還在，不推到中央）。 */
+.ns-today .today-empty { margin-top: 8vh; }
+.ns-today .today-cheer { margin-top: var(--sp-6); }
 
 /* ═══ 動效（減量時只關動畫，不動版面） ═══ */
 @media (prefers-reduced-motion: reduce) {
@@ -261,3 +262,6 @@
   .ns-today .ticket-li[draggable="true"]::after,
   .ns-today .ticket-li[data-dnd-drag] .ticket { transition: none; transform: none; }
 }
+
+/* 頁首 stats 每段不在段內折行（窄頁首時只在段與段之間換行，例「夜班回報」不會斷成「夜班回／報」） */
+.ns-pagehead-stats .stat-part { white-space: nowrap; }

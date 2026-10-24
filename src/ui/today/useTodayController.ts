@@ -37,6 +37,8 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { lineTodayHotkey } from "../../lines/runtime";
+import { requestMoveTo } from "../common/moveTo";
+import type { PopMenuItem } from "../common/PopMenu";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
 
@@ -58,6 +60,9 @@ export interface DeferTarget {
  * DeferPopover 也 import 這一份，兩條路吐出來的字保證一模一樣。
  */
 export const INBOX_TOAST = "已放進收件匣——到旅客筆記整理";
+
+/** 時刻表線登記在今日 scope 的「発車」鍵（timetable.manifest；今日列 ⋯ 只透過 lineTodayHotkey 呼叫，不 import 別線） */
+const DEPART_HOTKEY = "timetable.today.depart";
 
 const WEEK_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -169,6 +174,11 @@ export interface TodayControllerApi {
   blocked: boolean;
   keys: TodayKeyActions;
   row: TodayRowActions;
+  /**
+   * 每列常駐 ⋯ 的選單項（UI 丙-3 A5；視覺規範 §2.6、§3.1-1）：開卡那一刻才算（停用狀態跟著當下的列）。
+   * anchor＝⋯ 鈕本身（「選日期…」的推遲小卡錨在它上面）。每一項都是「選中這一列＋鍵盤表同一條路」，不另寫一份邏輯。
+   */
+  menuFor(row: TodayRow, anchor: HTMLElement | null): PopMenuItem[];
   focusContainer(): void;
 }
 
@@ -406,15 +416,15 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       const removed = await ns().deleteNode(id);
       ui().select(next);
       ui().showToast({
-        message: `已刪除『${row.name}』${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
+        message: `已刪除「${row.name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
         actionLabel: "復原",
         onAction: () => void ns().undoDelete(),
       });
     };
     if (row.child_total >= 5) {
       ui().askConfirm({
-        title: `連同底下 ${row.child_total} 個子項一起刪除？`,
-        body: `『${row.name}』底下的項目也會一併刪除（6 秒內可復原）。`,
+        title: `連同 ${row.child_total} 個子項一起刪除？`,
+        body: `「${row.name}」底下的項目也會一併刪除（6 秒內可復原）。`,
         confirmLabel: "刪除",
         danger: true,
         onConfirm: () => void run(),
@@ -529,6 +539,64 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     focusContainer,
   };
 
+  /* ───────── 列的 ⋯ 選單（UI 丙-3 A5） ───────── */
+  /**
+   * 項目順序＝契約 A5：発車・推遲・選日期…・移動到…・記乘務記錄・運休・詳情・刪除（赭、最後、虛線隔開）。
+   * 依列的情形增減，讓一張卡最多 7 項（規範 §2.4 PopMenu ≤7）：
+   *   発車  ＝有線登記 `timetable.today.depart` 才有（時刻表沒通車＝沒有這項）；已交代（済／運休）停用。
+   *   推遲  ＝誤點／締切段給「推遲到今天」（T），今天的票給「推遲到明天」（Shift+T）——同一張票只給一項，另一項在「選日期…」裡。
+   *           已蓋済的單發票推遲與「選日期…」都不給（要先取消済章）。
+   *           定期券的班次由規則排定（D-④-3），推遲與「選日期…」都不給；定期券改給「運休／取消運休」（U）。
+   *   移動到…＝選中＋開側板＋側板開挑選器（requestMoveTo，挑選器只有側板一個家）。
+   * 每一項先選中該列、焦點交回今日容器，再走鍵盤表同一條路（大綱 run() 模式）；會開覆蓋層的（記錄列、推遲小卡、側板）由覆蓋層自己搶焦點。
+   */
+  const menuFor = (r: TodayRow, anchor: HTMLElement | null): PopMenuItem[] => {
+    const run = (fn: () => void) => () => {
+      ui().select(r.id);
+      focusContainer();
+      fn();
+    };
+    const teiki = parseRule(r.repeat_rule) !== null;
+    const items: PopMenuItem[] = [];
+    const depart = lineTodayHotkey(DEPART_HOTKEY);
+    if (depart) {
+      items.push({
+        key: "depart",
+        label: "発車",
+        hotkeyId: DEPART_HOTKEY,
+        disabled: isSettledRow(r),
+        why: "這張已經交代了",
+        onSelect: run(() => depart(r.id)),
+      });
+    }
+    // 已交代（済）的單發票不給改期項——跟手機 pickDay、行程表 ⋯ 同一把尺（主人真機抓過「蓋済章了還能推遲到明天」）
+    if (!teiki && !isSettledRow(r)) {
+      items.push(
+        r.bucket === "today"
+          ? { key: "tomorrow", label: "推遲到明天", hotkeyId: "today.schedule.tomorrow", onSelect: run(() => keys.scheduleSelected(1)) }
+          : { key: "today", label: "推遲到今天", hotkeyId: "today.schedule.today", onSelect: run(() => keys.scheduleSelected(0)) },
+        { key: "pick", label: "選日期…", onSelect: run(() => openDefer(r.id, anchor)) },
+      );
+    }
+    items.push(
+      { key: "move", label: "移動到…", onSelect: () => requestMoveTo(r.id) },
+      { key: "log", label: "記乘務記錄", hotkeyId: "today.log", onSelect: run(() => openLog(r.id)) },
+    );
+    if (teiki) {
+      items.push({
+        key: "suspend",
+        label: r.occurrence?.status === "skipped" ? "取消運休" : "運休",
+        hotkeyId: "today.suspend",
+        onSelect: run(() => suspendRow(r)),
+      });
+    }
+    items.push(
+      { key: "panel", label: "詳情", hotkeyId: "today.panel", onSelect: () => row.openPanel(r.id) },
+      { key: "del", label: "刪除", hotkeyId: "today.delete", cut: true, danger: true, onSelect: run(() => deleteRow(r.id)) },
+    );
+    return items;
+  };
+
   return {
     rows,
     visibleRows,
@@ -574,6 +642,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     blocked: draft !== null || logTarget !== null || deferTarget !== null,
     keys,
     row,
+    menuFor,
     focusContainer,
   };
 }

@@ -27,8 +27,14 @@
  *     （定期券蓋済後 `scheduled_on` 已被引擎推到下一班，印它就會變成「已完成・原定 9/12」的錯覺）
  *
  * 原型沒有的控件（一律 hover／選中才現身或不佔版面）：票種小字＝側板入口、執行日 chip＝推遲入口。
+ *
+ * ── UI 丙-3 A5：每列常駐 ⋯（視覺規範 §2.6、§3.1-1）──
+ *   票右下角一顆 ⋯（與右上角票種小字對稱，同大綱列的位置），平時 `--dim` 淡態、hover／選中／選單開著變實；
+ *   點開＝PopMenu（眉標「這張車票 — Ticket」），項目由 controller 的 `menuFor` 開卡那一刻算（発車…刪除，刪除赭字最後）。
+ *   跟列內其他鈕一樣 tabIndex=-1＋mousedown 不搶焦點（鍵盤流留在今日容器；鍵盤本來就有每一項的快捷鍵）；
+ *   開卡後焦點進卡，Esc 收卡焦點回今日容器。選中態的「▶ 発車」（時刻表線插槽）照舊不動。
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { describeRule, parseRule, type NodeRow, type NodeStatus } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
@@ -36,6 +42,8 @@ import { isClockPast } from "../../lib/date";
 import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
 import { lineTodayRowActions } from "../../lines/runtime";
+import { PopMenu, type PopMenuItem } from "../common/PopMenu";
+import { IconDots } from "../common/icons";
 
 /** MMDD-NN 之外的 M/D 顯示（票面 chip 用） */
 function mmdd(key: string): string {
@@ -53,7 +61,7 @@ function diffDays(a: string, b: string): number {
 const STATUS_LABEL: Record<NodeStatus, { text: string; idle: boolean }> = {
   todo: { text: "未開始", idle: true },
   doing: { text: "進行中", idle: false },
-  paused: { text: "暫停", idle: true },
+  paused: { text: "途中下車", idle: true },
   done: { text: "已完成", idle: false },
 };
 
@@ -96,6 +104,55 @@ function Cars({ total, done, label }: { total: number; done: number; label: stri
         {label} {done}/{total}
       </em>
     </span>
+  );
+}
+
+/** 列的 ⋯ 鈕＋小選單（UI 丙-3 A5；形狀照大綱 RowMore，圖示換成共用 IconDots） */
+function RowMore({
+  name,
+  menu,
+  onReturnFocus,
+}: {
+  name: string;
+  menu: (anchor: HTMLElement | null) => PopMenuItem[];
+  onReturnFocus: () => void;
+}) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const [items, setItems] = useState<PopMenuItem[] | null>(null);
+  const close = useCallback(() => setItems(null), []);
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        tabIndex={-1}
+        aria-haspopup="menu"
+        aria-expanded={items !== null}
+        aria-label={`「${name}」的更多動作`}
+        title="更多動作"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setItems((cur) => (cur ? null : menu(btn.current)));
+        }}
+        className="row-more"
+      >
+        <IconDots size={14} />
+      </button>
+      {items && (
+        <PopMenu
+          anchor={btn.current}
+          overline={{ zh: "這張車票", latin: "Ticket" }}
+          label={`「${name}」的更多動作`}
+          items={items}
+          onClose={close}
+          returnFocus={() => {
+            onReturnFocus();
+            return null;
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -155,9 +212,11 @@ export interface TodayRowProps {
   dndProps?: Record<string, unknown>;
   /** 現在（useMinuteTick；主線②）：時刻已過、沒入鋏也沒蓋済 ⇒ 時刻字轉赭 */
   now: number;
+  /** 列的 ⋯ 選單項目（UI 丙-3 A5）：開卡那一刻才算；anchor＝⋯ 鈕。沒給＝不畫 ⋯ */
+  menu?: (anchor: HTMLElement | null) => PopMenuItem[];
 }
 
-export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFreshEnd, dndProps, now }: TodayRowProps) {
+export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFreshEnd, dndProps, now, menu }: TodayRowProps) {
   const ref = useRef<HTMLLIElement>(null);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／臨時券 */
   const rule = parseRule(row.repeat_rule);
@@ -254,7 +313,8 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
         : [timeItem, <span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
       : [
           timeItem,
-          statusItem,
+          // 丙-7：途中下車已經蓋角印（検印位），meta 不再重寫一次同字的狀態膠囊；拿掉整格才不會留下空的分隔點
+          paused ? null : statusItem,
           // 定期券的一句話規則（C2 :745「每日重複」那一格）——印 describeRule，不印 JSON
           rule ? (
             <span>
@@ -378,6 +438,8 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
               済
             </span>
           </button>
+          {/* 每列常駐 ⋯（右下角，與右上角票種小字對稱）；疊在検印欄角落，不佔版面 */}
+          {menu && <RowMore name={row.name} menu={menu} onReturnFocus={actions.focusContainer} />}
           {suspended && (
             <span className="stopover-slot">
               <SealSuspended title="運休（本班暫停）" />

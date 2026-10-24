@@ -174,6 +174,12 @@ export class MemoryNodeRepository implements NodeRepository {
     if (lineId !== node.line_id) {
       for (const sid of sub) this.mutate(sid, (n) => ({ ...n, line_id: lineId, updated_at: now }));
     }
+    // 路線換幹線：掛著這條路線標籤的根層臨時車票也跟上 line_id 快取（同 sqlite 版；快取，不動 updated_at）
+    if (node.kind === "route" && lineId !== node.line_id) {
+      for (const n of this.nodes.values()) {
+        if (n.parent_id === null && n.kind === "ticket" && n.route_id === id) this.nodes.set(n.id, { ...n, line_id: lineId });
+      }
+    }
     if (node.kind !== "route" && routeId !== node.route_id) {
       for (const sid of sub) this.mutate(sid, (n) => ({ ...n, route_id: routeId, updated_at: now }));
     }

@@ -7,6 +7,7 @@
  *   expanded    攤開的空白日（評審 C4：捲遠再回來還是攤開的；活到 App 關掉）
  *   draftDay    草稿列開在哪一天（一次一張；D-主-8 點日期標題列建票）
  *   mobileLayout  手機行程表子頁「清單｜時段」（主線②；session 記憶，與 mobileSub 同款）
+ *   streamEmpty 串流查到「庫裡一張會上行程表的票都沒有」（UI 丙-3 D3）：StreamView 寫、桌機頁首讀（空狀態時藏「＋ 車票」）
  *
  * 為什麼不進 uiStore：那是集中檔（並行地基契約 §13），本班不能動；而這幾格只有行程表讀寫。
  * 視窗（from／to）**不在這裡**——住 useStream 的本地 state（D-主-6：進頁起點永遠是今天）。
@@ -41,6 +42,9 @@ export interface ScheduleUiState {
   /** 手機行程表子頁：串流（清單）或 3 天時段（D-主-11；session 記憶，與 mobileSub 同款）。初值 "stream"；dev／mock：`?layout=time` */
   mobileLayout: MobileLayout;
   setMobileLayout(v: MobileLayout): void;
+  /** 串流的空狀態（UI 丙-3 D3）：bounds 查到了且 earliest＝null；串流沒掛＝false */
+  streamEmpty: boolean;
+  setStreamEmpty(v: boolean): void;
 }
 
 /**
@@ -109,4 +113,9 @@ export const useScheduleUiStore: UseBoundStore<StoreApi<ScheduleUiState>> = crea
 
   mobileLayout: detectInitialLayout(),
   setMobileLayout: (v) => set({ mobileLayout: v }),
+
+  streamEmpty: false,
+  setStreamEmpty: (v) => {
+    if (get().streamEmpty !== v) set({ streamEmpty: v });
+  },
 }));

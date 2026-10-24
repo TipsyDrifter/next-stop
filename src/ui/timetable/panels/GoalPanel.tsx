@@ -3,7 +3,7 @@
  * 欄位：名字（必填 ≤ 24 字）、分類（兩層樹：頂層預設收合、有勾子分類的那組自動展開；勾頂層＝整組，子分類跟著勾、灰掉）、
  * 期間（分段：週期重複／從某天起／到某天為止／單一區間；週期重複再選每日／每週／每月）、日期列依期間出現
  * （從某天起＝起點；到某天為止＝截止必填、起點預設今天收在「改起點」裡；單一區間＝起訖都必填、訖 ≥ 起）、方向（至少／至多）、
- * 目標時數（小時 stepper＋分鐘 chips，> 0）。底部：儲存；編輯時多「封存」「刪除」（store 的 toast 帶撤回）。最下「已封存的目標」可展開、叫回。
+ * 目標時數（小時 stepper＋分鐘 chips，> 0）。底部：儲存；編輯時多「封存」「刪除」（store 的 toast 帶撤回）。最下「已封存的目標」可展開、還原（從目標籤點進來時不畫，UI 丙-4 修）。
  * 寫入一律走 store（createGoal／updateGoal／archiveGoal／deleteGoal），回 true 才關；驗證失敗的字在預覽行（儲存鈕灰掉）。
  *
  * 車次⑥（⑥ 契約 §5.4、0-11；D-時-122；乙席；長相＝原型 `v-tags.js` goalBody）：分類樹下一段「荷札」（div.ns-tt-row.ns-tt-tagrow）：
@@ -11,6 +11,13 @@
  * 草稿＝`tagDraft`（null＝沒動過：跟著目標現在綁的荷札，`Goal.tagKeys`／荷札 index 的 `timetable:goal`）。
  * 驗證：分類與荷札至少一個（`TT_TEXT.tags.goalScopeEmpty`，跟 normalizeGoalInput 同字）。
  * 存檔把 `tagNames` 交給 createGoal／updateGoal（荷札 index 載過、或已經動過草稿才帶；沒載過又沒動＝不帶＝不動荷札）。
+ *
+ * UI 丙-4 C4／C5（契約 §1 C4、C5）：
+ * - 按鈕列＝［封存］［刪除］（次要、靠左；刪除赭框）…［取消］［儲存］（唯一一顆 seal）；`<Actions>` 由宿主搬進黏底 foot。
+ *   找不到這個目標的退路只剩殼的 ×（規範 §4：不改東西只是關＝×，不畫「關閉」鈕）。
+ * - 期間、週期、方向三組單選換共用 `Segmented`（規範 §2.2：表單內的單選）；分鐘那排是快選 chip、留 Opt。
+ * - 起訖日換共用 `DateChip`（桌機貼著 chip 的 DatePicker、手機 MobileDatePicker；返回層由 DateChip 自己登記成一層）。
+ *   起日可以挑過去（目標可以從上週算起，同舊行為）；迄日 `min`＝起日。
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { TimeCategoryRow } from "../../../domain/timetable";
@@ -22,13 +29,12 @@ import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { catColor, goalPeriodText, md, scopeText } from "../stats/format";
 import { Actions, Opt, Opts, Row, Sub, type PanelProps } from "./controls";
+import { Segmented } from "../../common/Segmented";
+import { DateChip } from "../../common/DateChip";
 import { TT_TAG_GOAL } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
-import { EntityTagField } from "../../notes/tags/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
+import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
 import { useShell } from "../../mobile/useShell";
-import { useBackLayer } from "../../mobile/backStack";
-import { DatePicker } from "../../common/DatePicker";
-import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { MobileTagDraft, tagNameOf } from "../parts/TimetableTagChips";
 
 type Kind = "repeat" | "since" | "until" | "range";
@@ -88,6 +94,10 @@ export function GoalPanel({ onDone }: PanelProps) {
   const T = TT_TEXT.statsUi;
 
   const goalId = sheet?.kind === "goal" ? sheet.goalId : null;
+  // UI 丙-4 修（T7 評審 5、28）：從「分類與設定」目標籤點進來的，做完回到那一籤；已封存清單交給目標籤（同一動作一個入口）
+  const fromGoalsTab = sheet?.kind === "goal" && sheet.back === "goals";
+  const openSheet = useTimetableStore((s) => s.openSheet);
+  const finish = fromGoalsTab ? () => openSheet({ kind: "categories", tab: "goals" }) : onDone;
   const listGoal = goalId ? (goalList.find((g) => g.id === goalId) ?? null) : null;
   // 統計頁還沒算好（剛切過來就開、或從同步清單點進來而統計頁沒開著）時 goalList 是空的：直接向 repository 要那一列
   const [fetched, setFetched] = useState<Goal | "loading" | "gone" | null>(null);
@@ -149,10 +159,6 @@ export function GoalPanel({ onDone }: PanelProps) {
   const [openTops, setOpenTops] = useState<Record<string, boolean>>(() => openOf(f.cats));
   // ⑥：荷札草稿（null＝沒動過，跟著目標現在綁的）
   const desk = useShell() === "desktop";
-  // 起訖日挑選（磨光⑤ S8，D-主-54：取代原生 date 欄）：桌機＝貼著日期鈕的共用 DatePicker，手機＝底部面板（返回鍵先關它）
-  const [datePick, setDatePick] = useState<"startOn" | "endOn" | null>(null);
-  const dateBtns = useRef<Partial<Record<"startOn" | "endOn", HTMLButtonElement | null>>>({});
-  useBackLayer("timetable.goalDate", !desk && datePick !== null, () => setDatePick(null));
   const tagIndex = useTagStore((s) => s.index);
   useEffect(() => {
     const st = useTagStore.getState();
@@ -194,13 +200,6 @@ export function GoalPanel({ onDone }: PanelProps) {
     return (
       <div className="ns-tt-panel">
         <Sub>{loading ? T.loading : T.goalGone}</Sub>
-        {!loading && (
-          <Actions>
-            <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-              {T.close}
-            </button>
-          </Actions>
-        )}
       </div>
     );
   }
@@ -224,14 +223,14 @@ export function GoalPanel({ onDone }: PanelProps) {
     const input = inputOf(f, tagsToSave);
     const ok = goal ? await updateGoal(goal.id, input) : await createGoal(input);
     setBusy(false);
-    if (ok) onDone();
+    if (ok) finish();
   };
   const run = async (fn: () => Promise<boolean>): Promise<void> => {
     if (busy) return;
     setBusy(true);
     const ok = await fn();
     setBusy(false);
-    if (ok) onDone();
+    if (ok) finish();
   };
 
   const kinds: readonly (readonly [Kind, string])[] = [
@@ -240,47 +239,22 @@ export function GoalPanel({ onDone }: PanelProps) {
     ["until", TT_TEXT.goalPeriodWord.until],
     ["range", TT_TEXT.goalPeriodWord.range],
   ];
+  /** 起訖日 chip（UI 丙-4 C5）：起日不設下限（可以從過去算起）；迄日 min＝起日 */
   const date = (field: "startOn" | "endOn", min?: string) => {
     const label = field === "startOn" ? T.fStart : T.fEnd;
-    const v = f[field];
-    const pick = (d: string): void => {
-      setDatePick(null);
-      set({ [field]: d } as Partial<Form>);
-    };
-    const close = (): void => setDatePick(null);
-    // 「今天」快選只在可選範圍內才給（迄日的 min＝起日，起日在未來時今天選不到）
-    const quick = !min || today >= min ? [{ label: "今天", day: today }] : [];
     return (
-      <>
-        <button
-          ref={(el) => {
-            dateBtns.current[field] = el;
-          }}
-          type="button"
-          className={"ns-datefield ns-tt-goal-date ns-tt-num" + (v ? "" : " empty")}
-          aria-label={`${label}：${v ? v.replace(/-/g, "/") : "未定"}`}
-          aria-haspopup="dialog"
-          aria-expanded={datePick === field}
-          onClick={() => setDatePick((p) => (p === field ? null : field))}
-        >
-          {v ? v.replace(/-/g, "/") : "挑日期…"}
-        </button>
-        {datePick === field &&
-          (desk ? (
-            <DatePicker
-              anchor={dateBtns.current[field] ?? null}
-              label={label}
-              value={v || null}
-              min={min}
-              markValue
-              quick={quick}
-              onPick={pick}
-              onClose={close}
-            />
-          ) : (
-            <MobileDatePicker title={label} value={v || null} min={min} quick={quick} onPick={pick} onClose={close} />
-          ))}
-      </>
+      <DateChip
+        className="ns-tt-goal-date"
+        label={label}
+        date={f[field] || null}
+        min={min}
+        allowPast={field === "startOn"}
+        today={today}
+        emptyText="挑日期…"
+        onPick={(d) => {
+          if (d) set({ [field]: d } as Partial<Form>);
+        }}
+      />
     );
   };
   const minuteChips = MINUTE_CHIPS.includes(f.m as (typeof MINUTE_CHIPS)[number]) ? MINUTE_CHIPS : [...MINUTE_CHIPS, f.m].sort((a, b) => a - b);
@@ -358,25 +332,25 @@ export function GoalPanel({ onDone }: PanelProps) {
         </span>
       </div>
       <Row k={T.fPeriod}>
-        <span className="ns-tt-stats-seg ns-tt-goal-kseg" role="group" aria-label={T.fPeriod}>
-          {kinds.map(([k, label]) => (
-            <button type="button" key={k} className={f.kind === k ? "is-on" : ""} aria-pressed={f.kind === k} onClick={() => set({ kind: k })}>
-              {label}
-            </button>
-          ))}
-        </span>
+        <Segmented
+          className="ns-tt-goal-kseg"
+          aria-label={T.fPeriod}
+          options={kinds.map(([value, label]) => ({ value, label }))}
+          value={f.kind}
+          onChange={(kind) => set({ kind })}
+        />
       </Row>
       {f.kind === "repeat" && (
         <div className="ns-tt-row ns-tt-goal-subrow">
           <span className="ns-tt-row-k" />
           <span className="ns-tt-row-v">
-            <Opts>
-              {(["day", "week", "month"] as const).map((r) => (
-                <Opt key={r} on={f.rep === r} onClick={() => set({ rep: r })}>
-                  {TT_TEXT.goalPeriodWord[r]}
-                </Opt>
-              ))}
-            </Opts>
+            <Segmented
+              compact
+              aria-label={T.kindRepeat}
+              options={(["day", "week", "month"] as const).map((r) => ({ value: r, label: TT_TEXT.goalPeriodWord[r] }))}
+              value={f.rep}
+              onChange={(rep) => set({ rep })}
+            />
           </span>
         </div>
       )}
@@ -426,13 +400,12 @@ export function GoalPanel({ onDone }: PanelProps) {
         </div>
       )}
       <Row k={T.fDir}>
-        <Opts>
-          {(["atLeast", "atMost"] as const).map((d) => (
-            <Opt key={d} on={f.dir === d} onClick={() => set({ dir: d })}>
-              {TT_TEXT.goalDirectionWord[d]}
-            </Opt>
-          ))}
-        </Opts>
+        <Segmented
+          aria-label={T.fDir}
+          options={(["atLeast", "atMost"] as const).map((d) => ({ value: d, label: TT_TEXT.goalDirectionWord[d] }))}
+          value={f.dir}
+          onChange={(dir) => set({ dir })}
+        />
       </Row>
       <Row k={T.fHours}>
         <span className="ns-tt-stepper" role="group" aria-label={T.fHours}>
@@ -473,11 +446,14 @@ export function GoalPanel({ onDone }: PanelProps) {
             </button>
           </>
         )}
+        <button type="button" className="ns-btn btn-ghost" disabled={busy} onClick={finish}>
+          取消
+        </button>
         <button type="button" className="ns-btn btn-seal" disabled={!!bad || busy} onClick={() => void save()}>
           {T.save}
         </button>
       </Actions>
-      {archived.length > 0 && (
+      {archived.length > 0 && !fromGoalsTab && (
         <div className={"ns-tt-goal-arch" + (archOpen ? " is-open" : "")}>
           <button type="button" className="ns-tt-goal-arch-h" aria-expanded={archOpen} onClick={() => setArchOpen((x) => !x)}>
             {T.archivedList(archived.length)}
@@ -492,7 +468,7 @@ export function GoalPanel({ onDone }: PanelProps) {
                     {goalPeriodText(g)}・{scopeText(g.categoryIds, catById, (g.tagKeys ?? []).map(tagNameOf))}
                   </small>
                 </span>
-                <button type="button" className="ns-tt-opt is-solid" disabled={busy} onClick={() => void archiveGoal(g.id, false)}>
+                <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={busy} onClick={() => void archiveGoal(g.id, false)}>
                   {T.restore}
                 </button>
               </div>

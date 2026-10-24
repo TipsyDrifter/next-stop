@@ -9,16 +9,18 @@
  *   div.ns-tk-dialog.ns-tk-re
  *   ├─（從大票帶來的）.ns-tk-re-from「從 10/19 那筆帶過來的；那筆本身不會被重記」
  *   ├─ .ns-tk-re-cols
- *   │   ├─ 左「記什麼」 .ns-tk-kind 三顆・.ns-tk-re-amt（前綴＋金額＋幣別 chip）・.ns-tk-fields.is-re 帳戶／轉入或分類／備註／路線
- *   │   └─ 右「什麼時候」.ns-tk-re-freq 每日｜每週｜每月 → 每週 7 顆星期、每月 1–31 格（7×5；選了 29–31 才出「小月記在月底」）
+ *   │   ├─ 左「記什麼」 類型 Segmented 三段・.ns-tk-re-amt（前綴＋金額＋幣別 chip）・.ns-tk-fields.is-re 帳戶／轉入或分類／備註／路線
+ *   │   └─ 右「什麼時候」頻率 Segmented 每日｜每週｜每月 → 每週 7 顆星期、每月 1–31 格（7×5；選了 29–31 才出「小月記在月底」）
  *   │                    → 起算日（新規則起算日在過去 ⇒「會補記」提示）・時刻・終止日（選填）
+ *   │                    時刻＝共用 ClockInput compact（丙-5 F2，跟大票同一支、同一套換算 ticketClock.ts）：規則沒有「那一天」，
+ *   │                    換算借起算日當參考日（refDay＝d.start）、說明行不寫日期（dateLabel={false}，只在打錯時說錯在哪）
  *   ├─ .ns-tk-re-preview  規則一句（repeatLabel）＋右端「第一班 11/5」／「下一班 11/5」／「從 10/5 起補記」；草稿還不完整 ⇒ 原因淡字
- *   └─ .ns-tk-dfoot       取消・存（主鈕 btn-seal，在右）
+ *   └─ DialogFoot         取消・存（主鈕 btn-seal，在右）；丙-5 E3：桌機 portal 進 DialogShell 的黏底 foot（不用捲到底）
  *
  * 帳戶／分類／路線／幣別的挑選元件借大票的（TicketPanel 的 AcctPick／CategoryCombo／RoutePop／Pop），鍵盤與 IME 行為一致。
  * 日期浮層往上開（.ns-dialog-body 是內捲容器，往下開會被裁）。
  */
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -29,8 +31,12 @@ import { shortDay } from "../../../domain/ticketView";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER, firstFixedDate, nextFixedDate, serializeRule } from "../../../domain/repeat";
 import { buildRepeatRow, draftToRepeatInput, repeatLabel, type RepeatDraft } from "../../../domain/ticketPlan";
 import { useImeGuard } from "../dialogs/dialogBits";
+import { DialogFoot } from "../dialogs/DialogFoot";
 import { TkIcon, TkRoundel } from "../TicketLedger";
 import { AcctPick, CategoryCombo, Pop, RoutePop } from "../TicketPanel";
+import { ClockInput, clockDraftsOkIn } from "../../common/ClockInput";
+import { Segmented } from "../../common/Segmented";
+import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../ticketClock";
 
 type PopKind = "acct" | "toacct" | "cur" | "route" | "start" | "until" | null;
 
@@ -82,6 +88,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const [pop, setPop] = useState<PopKind>(null);
   const [busy, setBusy] = useState(false);
   const [amtFocus, setAmtFocus] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const store = useTicketStore.getState;
   const ime = useImeGuard((e) => {
     e.preventDefault();
@@ -101,9 +108,12 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const balText = (a: AccountRow) => moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2);
   const fromEntry = d.fromEntryId ? entries.find((e) => e.id === d.fromEntryId) : undefined;
   const isNew = editingId === null;
+  const validDay = /^\d{4}-\d{2}-\d{2}$/.test(d.start);
 
   async function save() {
     if (busy) return;
+    // 時刻框剛打錯、還沒回去看過 ⇒ 不存、焦點回框（丙-5 風險 1；不擋的話規則會默默用舊時刻存）。「存」鈕 portal 在本文外，所以從本文的根找
+    if (!clockDraftsOkIn(rootRef.current)) return;
     setBusy(true);
     try {
       await store().saveRepeatDraft(); // 成功會自己關掉、出 toast；失敗 toast 原因、留在這裡
@@ -146,13 +156,12 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const left = (
     <div className="ns-tk-re-what">
       <p className="ns-tk-re-sec">記什麼</p>
-      <span className="ns-tk-kind" role="group" aria-label="類型">
-        {KINDS.map((o) => (
-          <button key={o.k} type="button" aria-pressed={d.kind === o.k} onClick={() => set({ kind: o.k })}>
-            {o.label}
-          </button>
-        ))}
-      </span>
+      <Segmented<RepeatDraft["kind"]>
+        aria-label="類型"
+        options={KINDS.map((o) => ({ value: o.k, label: o.label }))}
+        value={d.kind}
+        onChange={(k) => set({ kind: k })}
+      />
       <div className="ns-tk-re-amt">
         <span className="sg" aria-hidden>
           {SIGN[d.kind]}
@@ -238,7 +247,8 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
           </Field>
         ) : (
           <Field label="分類">
-            <CategoryCombo kind={d.kind} categoryId={d.categoryId} onPick={(id) => set({ categoryId: id })} />
+            {/* manage={false}：已經在對話框裡，開分類管理會把規則編輯器換掉 */}
+            <CategoryCombo kind={d.kind} categoryId={d.categoryId} onPick={(id) => set({ categoryId: id })} manage={false} />
           </Field>
         )}
         <Field label="備註">
@@ -291,13 +301,12 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const right = (
     <div className="ns-tk-re-when">
       <p className="ns-tk-re-sec">什麼時候</p>
-      <span className="ns-tk-kind ns-tk-re-freq" role="group" aria-label="頻率">
-        {FREQS.map((o) => (
-          <button key={o.k} type="button" aria-pressed={d.freq === o.k} onClick={() => setFreq(o.k)}>
-            {o.label}
-          </button>
-        ))}
-      </span>
+      <Segmented<RepeatDraft["freq"]>
+        aria-label="頻率"
+        options={FREQS.map((o) => ({ value: o.k, label: o.label }))}
+        value={d.freq}
+        onChange={setFreq}
+      />
       <div className="ns-tk-re-detail">
         {d.freq === "daily" && <p className="ns-tk-re-dailyhint">每天都記一筆</p>}
         {d.freq === "weekly" && (
@@ -356,7 +365,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
         </Field>
         {isNew && d.start < today && /^\d{4}-\d{2}-\d{2}$/.test(d.start) && <p className="ns-tk-re-hint is-past">起算日在過去：會補記從那天起的每一班</p>}
         <Field label="時刻">
-          <TimeInput value={d.hhmm} onCommit={(hhmm) => set({ hhmm })} />
+          <RuleClock day={validDay ? d.start : today} hhmm={d.hhmm} dayStartHour={dayStartHour} onChange={(hhmm) => set({ hhmm })} />
         </Field>
         <Field label="結束日">
           <span className="ns-tk-date">
@@ -397,7 +406,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   );
 
   return (
-    <div className="ns-tk-dialog ns-tk-re">
+    <div ref={rootRef} className="ns-tk-dialog ns-tk-re">
       {fromEntry && <p className="ns-tk-re-from">從 {shortDay(fromEntry.occurred_on)} 那筆帶入，原本那筆不會重複記</p>}
       <div className="ns-tk-re-cols">
         {left}
@@ -415,44 +424,28 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
           </>
         )}
       </p>
-      <div className="ns-tk-dfoot">
+      {/* E3：按鈕列交給 DialogFoot（桌機 portal 進 DialogShell 的黏底 foot；沒插槽時照舊畫在本文裡） */}
+      <DialogFoot>
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           取消
         </button>
         <button type="button" className="ns-btn btn-seal ns-tk-dbtn" disabled={busy} onClick={() => void save()}>
           存
         </button>
-      </div>
+      </DialogFoot>
     </div>
   );
 }
 
-/* ── 時刻 HH:MM：本地文字、失焦送（格式錯由存檔時的檢查說） ── */
-function TimeInput({ value, onCommit }: { value: string; onCommit(hhmm: string): void }) {
-  const [text, setText] = useState(value);
-  const [seen, setSeen] = useState(value);
-  if (seen !== value) {
-    setSeen(value);
-    setText(value);
-  }
-  const ime = useImeGuard((e) => {
-    e.preventDefault();
-    (e.currentTarget as HTMLInputElement).blur();
-  });
+/* ── 時刻（丙-5 F2）：共用 ClockInput compact。草稿是牆鐘 "HH:MM"；換算同大票（ticketClock.ts：日界線起 24 小時、存回牆鐘）。
+   草稿在 store、按「存」才寫庫 ⇒ 每一步直接改草稿，不用去抖。Enter 只確定時刻（不存整條規則）。
+   草稿的字看不懂（理論上不會：只有這一格能改它）⇒ 框裡顯示日界線那一刻，存檔時的檢查會說。 ── */
+function RuleClock({ day, hhmm, dayStartHour, onChange }: { day: string; hhmm: string; dayStartHour: number; onChange(hhmm: string): void }) {
+  const { lo, hi } = ticketClockBounds(day, dayStartHour);
+  const value = ticketClockValue(day, hhmm, dayStartHour) ?? lo;
   return (
-    <input
-      className="ns-tk-re-time"
-      aria-label="時刻 HH:MM"
-      inputMode="numeric"
-      autoComplete="off"
-      placeholder="09:00"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        const t = text.trim();
-        if (t !== value) onCommit(t);
-      }}
-      {...ime}
-    />
+    <span className="ns-tk-re-clock">
+      <ClockInput variant="compact" label="時刻" value={value} lo={lo} hi={hi} refDay={day} dateLabel={false} onChange={(ms) => onChange(msToWallHHMM(ms))} />
+    </span>
   );
 }

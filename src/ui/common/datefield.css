@@ -121,7 +121,7 @@
 .ns-clock-msg:empty { display: none; }
 .ns-clock-date.is-other { font-weight: 600; color: var(--late); }
 
-/* ═══ ColorPicker：預設格（圓）＋「自訂…」；選中外環 --sel-line；沒有色碼框 ═══ */
+/* ═══ ColorPicker：預設格（圓）＋自訂圓「＋」＋色名；選中外環 --sel-line；沒有色碼框 ═══ */
 .ns-colorpick { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ns-sw {
   width: 23px; height: 23px; flex: none; padding: 0; border: 0; border-radius: var(--radius-pill);
@@ -134,26 +134,35 @@
 .ns-sw:focus-visible { outline: var(--focus-ring); outline-offset: 4px; }
 .ns-sw.is-on:focus-visible { outline: var(--sel-line); outline-offset: 3px; } /* 選中＋聚焦：留 2px 選中環、外推一格當焦點提示 */
 .ns-sw:disabled { opacity: var(--disabled); cursor: not-allowed; }
+/* 自訂入口＝跟 .ns-sw 同大小的虛線圓、中間「＋」（丙-3 以前側板 .roundel.custom 的長相，使用者 10-24 要回來）；
+ * 選了自訂色＝整顆填成自訂色（--pv）、虛線與「＋」消失；選中外環跟預設格同一條 --sel-line。 */
 .ns-sw-custom {
-  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 25px; padding: 0 9px 0 4px;
-  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
-  color: var(--color-ink-soft); cursor: pointer;
-  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .06em; line-height: 18px; white-space: nowrap;
-  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+  position: relative; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  width: 23px; height: 23px; flex: none; border-radius: var(--radius-pill);
+  border: 1.6px dashed var(--color-dash); background: transparent;
+  color: var(--color-ink-faint); cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); line-height: 1;
+  outline: 2px solid transparent; outline-offset: 2px;
+  transition: outline-color var(--dur-fast) var(--ease-soft), transform var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
 }
-.ns-sw-custom:hover { color: var(--color-ink); border-color: var(--accent); }
-.ns-sw-custom .pv {
-  box-sizing: border-box; width: 17px; height: 17px; flex: none; border-radius: var(--radius-pill);
-  background: var(--pv, transparent); box-shadow: inset 0 0 0 1px var(--color-line);
-}
-.ns-sw-custom.is-blank .pv { border: 1px dashed var(--color-dash); box-shadow: none; }
-.ns-sw-custom.is-on .pv { outline: var(--sel-line); outline-offset: 2px; }
+.ns-colorpick:not([aria-disabled="true"]) .ns-sw-custom:hover { transform: scale(1.08); color: var(--color-ink); border-color: var(--accent); } /* 停用不響應 hover（theme.css --disabled 約定） */
+.ns-sw-custom.is-filled { border: 0; background: var(--pv); }
+.ns-sw-custom .plus { pointer-events: none; }
+.ns-sw-custom.is-on { outline: var(--sel-line); outline-offset: 2px; }
 .ns-sw-custom input {
   position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0;
-  opacity: 0; cursor: pointer;
+  border-radius: var(--radius-pill); opacity: 0; cursor: pointer;
 }
 .ns-sw-custom input:disabled { cursor: not-allowed; }
-.ns-sw-custom:focus-within { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-sw-custom:focus-within { outline: var(--focus-ring); outline-offset: 4px; }
+.ns-sw-custom.is-on:focus-within { outline: var(--sel-line); outline-offset: 3px; } /* 同 .ns-sw.is-on:focus-visible */
+.ns-colorpick[aria-disabled="true"] .ns-sw-custom { opacity: var(--disabled); transform: none; }
+/* 色名（showName）：色列最右邊；預設色寫色名、自訂色寫色碼（字樣同側板 .meta） */
+.ns-colorpick-name {
+  margin-left: 2px; font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .05em;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
 
 /* ═══ DayCell：今天＝赭字＋赭菱形、有事＝墨點、選中＝--sel-bg、「＋」常駐淡態 ═══ */
 /* 格寬由容器決定：撐滿父層、7 欄平分（minmax(0, 1fr)：格內 children 再長也不把某一欄撐寬） */
@@ -217,6 +226,6 @@
 /* ═══ 減少動態：凍結到終態 ═══ */
 @media (prefers-reduced-motion: reduce) {
   .ns-clock-inwrap.is-shake { animation: none; }
-  .ns-sw, .ns-sw:hover:not(:disabled) { transition: none; transform: none; }
+  .ns-sw, .ns-sw:hover:not(:disabled), .ns-sw-custom, .ns-colorpick:not([aria-disabled="true"]) .ns-sw-custom:hover { transition: none; transform: none; }
   .chip.ns-chip, .ns-datechip, .ns-daycell, .ns-sw-custom, .techo-input.ns-clock-in, .ns-clock-foot { transition: none; }
 }

@@ -129,6 +129,8 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
             <i />
           </span>
         )}
+        {/* UI 丙-4 D1：左彩條拿掉，路線色改成名稱前一顆圓點（跟手機 chip 同一顆） */}
+        <i className="ns-tt-sched-rdot" aria-hidden="true" />
         <span className="ns-tt-sched-ui-main">
           <b>{name}</b>
           <small>{meta.join("・")}</small>

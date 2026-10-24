@@ -35,6 +35,7 @@ import {
   taggingId,
   type AttachResult,
   type BackfillResult,
+  type CreateTagResult,
   type SyncBodyResult,
   type TagEntityType,
   type TaggedItem,
@@ -348,6 +349,17 @@ export class SqliteTagRepository implements TagRepository {
     const { already } = await st.ensureTagging(entityType, entityId, row.id);
     await st.commit();
     return { key: n.key, name: row.name, created, already, receipt: st.r };
+  }
+
+  /** ＝attach 去掉 assertAttachable 與 ensureTagging（UI 丙-6 ☎-1；與 MemoryTagRepository.create 逐條對齊）。
+   *  已存活時 ensureTag 不發語句——不開交易、收據空、created:false */
+  async create(rawName: string): Promise<CreateTagResult> {
+    const n = normalizeName(rawName);
+    if (!n.ok) throw new RangeError(n.reason);
+    const st = new Stage(await getDb(), nowUtcIso());
+    const { row, created } = await st.ensureTag(n.name, n.key);
+    if (created) await st.commit();
+    return { key: n.key, name: row.name, created, receipt: st.r };
   }
 
   async detach(entityType: TagEntityType, entityId: string, key: string): Promise<TagReceipt> {

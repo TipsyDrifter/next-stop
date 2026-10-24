@@ -449,6 +449,13 @@
   --sp-6: 32px;         /* 區段之間（.sec 的 34 收成 32） */
   --sp-7: 48px;         /* 頁首與內容之間 */
 
+  /* 頁首外距（§1.3「六頁同一個版心」；值＝今日系 .sheet 現值）：桌機六頁的頁首標題左緣、上緣都從這組算，切頁不跳。
+   * 內容左緣＝書封右緣＋--page-gutter＋--page-pad-x（80）；頁首上緣＝--page-pad-top（50）。
+   * 側板開著收緊成 44／48，在下面另一段整組換。手機殼不用這組（單欄走 mobile.css 的 --m-gutter）。 */
+  --page-gutter: 24px;  /* 版心離書封（今日系 .sheet 的 margin-left） */
+  --page-pad-top: 50px; /* 頁首上緣 */
+  --page-pad-x: 56px;   /* 版心左右內距 */
+
   /* 圓角（§1.4；--radius-card／--radius-pill 在上方原色層） */
   --radius-ctl: 2px;    /* 按鈕、輸入框、分段鈕、chip（現值 overlay.css:60 .ns-btn） */
   --radius-sheet: 12px; /* 手機底部 sheet 的上緣 */
@@ -473,6 +480,15 @@
   --ease: cubic-bezier(.2, .8, .2, 1);            /* 進出場 */
   --ease-spring: cubic-bezier(.34, 1.56, .64, 1); /* 蓋章、小牌彈出（stampIn 不動） */
   --ease-soft: ease-out;                          /* 透明度 */
+}
+
+/* 側板開著＝版面收緊（規格 §2 規則化）：頁首外距整組換成 44／48，六頁一起收。
+ * DetailPanel／售票口詳情板關閉時整個 .panel 不進 DOM → :has() 現況即生效；
+ * .ns-panel-open 是給整合席／未來頁面掛在任一祖先上的等價開關（自訂屬性會往下繼承）。 */
+.ns-panel-open,
+body:has(.panel) {
+  --page-pad-top: 44px;
+  --page-pad-x: 48px;
 }
 
 /* 手機殼：App 根 div 與 <html> 都帶 data-shell（useShell 同步），portal 進 <body> 的 sheet 也吃得到。

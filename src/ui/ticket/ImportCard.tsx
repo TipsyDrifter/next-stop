@@ -4,12 +4,13 @@
  * 讀檔與寫入只透過 store 的動作（startImport／importFromPath／setImportBalance／setImportChoice／runImport）。
  *
  *   reading  檢查中：淡字「正在讀備份…」
- *   unknown  schema 不符：一句「這個備份版本我不認得（缺 ○○ 表）」＋關閉
+ *   unknown  schema 不符：一句「這個備份版本我不認得（缺 ○○ 表）」
  *   preview  預覽卡：檔名＋摘要（帳戶・分類・交易・日期範圍）→ 三行（新增／財務管家端已修改（可展開逐筆二選一）／Next Stop 有、備份沒有）
  *            → 餘額對帳區（plan.checks；兩欄）＋判定行 → 取消・匯入
  *   writing  執行中：「正在寫入 ○/N」＋細進度條
- *   done     結果卡：「已匯入 N 筆 · 更新 M 筆 · 略過 K 筆」＋餘額對照表（Next Stop｜財務管家｜✓/✗）＋蓋一枚領収＋關閉
- *   error    訊息＋再試一次（plan 在就能重跑；確定性 id 讓重跑安全）＋關閉
+ *   done     結果卡：「已匯入 N 筆 · 更新 M 筆 · 略過 K 筆」＋餘額對照表（Next Stop｜財務管家｜✓/✗）＋蓋一枚領収
+ *   error    訊息＋再試一次（plan 在就能重跑；確定性 id 讓重跑安全）
+ * UI 丙-5 E2：卡裡不放「關閉」鈕——關＝宿主的 ×（桌機）／下滑、返回鍵（手機）；writing 時宿主不給關。
  *
  * 手機的單欄排版由丙席在 ticket-mobile.css 調（本檔 class 兩殼共用）。
  */
@@ -19,6 +20,7 @@ import { partSummary, type PlanImportPart } from "../../domain/ticketPlan";
 import { SealReceipt } from "../stamps/Stamps";
 import { moneyText, type BalanceCheck, type EntryRow, type ImportChange, type ImportPlan } from "../../domain/ticket";
 import { groupLabel } from "./TicketLedger";
+import { Segmented } from "../common/Segmented";
 
 const ymd = (d: string | null): string => (d ? d.replace(/-/g, "/") : "—");
 
@@ -44,11 +46,6 @@ export function ImportCard(props: { onDone(): void }) {
       body = (
         <>
           <p className="ns-tk-im-unknown">{TK_TEXT.importUnknown(imp.missing)}</p>
-          <footer className="ns-tk-im-foot">
-            <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={props.onDone}>
-              關閉
-            </button>
-          </footer>
         </>
       );
       break;
@@ -70,7 +67,7 @@ export function ImportCard(props: { onDone(): void }) {
       break;
     }
     case "done":
-      body = <Done onClose={props.onDone} />;
+      body = <Done />;
       break;
     case "error":
       body = (
@@ -78,17 +75,14 @@ export function ImportCard(props: { onDone(): void }) {
           <p className="ns-tk-im-error" role="alert">
             {imp.message ?? "匯入失敗"}
           </p>
-          <footer className="ns-tk-im-foot">
-            {imp.plan && <span className="note">已匯入的不會重複——再試一次就能補齊</span>}
-            <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={props.onDone}>
-              關閉
-            </button>
-            {imp.plan && (
+          {imp.plan && (
+            <footer className="ns-tk-im-foot">
+              <span className="note">已匯入的不會重複——再試一次就能補齊</span>
               <button type="button" className="ns-btn btn-seal ns-tk-btn" onClick={() => void store().runImport()}>
                 再試一次
               </button>
-            )}
-          </footer>
+            </footer>
+          )}
         </>
       );
       break;
@@ -297,6 +291,11 @@ function entryLine(e: EntryRow, dec: number): string {
   return `${moneyText(e.amount_minor, dec)}${e.note ? ` ${e.note}` : ""}`;
 }
 
+const PICK_OPTIONS = [
+  { value: "theirs", label: "用財務管家的" },
+  { value: "ours", label: "留 Next Stop 的" },
+] as const;
+
 function ModRow({ c, choice, onChoice }: { c: ImportChange; choice: "theirs" | "ours"; onChoice(v: "theirs" | "ours"): void }) {
   const curByCode = useTicketStore((s) => s.curByCode);
   const dec = curByCode[c.incoming.currency]?.decimals ?? 2;
@@ -322,21 +321,21 @@ function ModRow({ c, choice, onChoice }: { c: ImportChange; choice: "theirs" | "
           </>
         )}
       </span>
-      <span className="ns-tk-kind" role="group" aria-label="用哪一邊">
-        <button type="button" aria-pressed={choice === "theirs"} onClick={() => onChoice("theirs")}>
-          用財務管家的
-        </button>
-        <button type="button" aria-pressed={choice === "ours"} onClick={() => onChoice("ours")}>
-          留 Next Stop 的
-        </button>
-      </span>
+      <Segmented<"theirs" | "ours">
+        compact
+        className="ns-tk-im-pick"
+        aria-label="用哪一邊"
+        options={PICK_OPTIONS}
+        value={choice}
+        onChange={onChoice}
+      />
     </div>
   );
 }
 
 /* ───────── 結果卡 ───────── */
 
-function Done({ onClose }: { onClose(): void }) {
+function Done() {
   const outcome = useTicketStore((s) => s.imp.outcome);
   const part = useTicketStore((s) => s.imp.part);
   const after = useTicketStore((s) => s.imp.after);
@@ -405,11 +404,6 @@ function Done({ onClose }: { onClose(): void }) {
         </p>
       )}
       {anyBad && <p className="ns-tk-im-note is-bad">有帳戶餘額對不上：可以去帳戶點「調整餘額…」補一筆精算。</p>}
-      <footer className="ns-tk-im-foot">
-        <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={onClose}>
-          關閉
-        </button>
-      </footer>
     </div>
   );
 }

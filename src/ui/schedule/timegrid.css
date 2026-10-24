@@ -60,7 +60,7 @@
   scrollbar-width: thin; overscroll-behavior: contain;
 }
 .ns-tg-scroll::-webkit-scrollbar { width: 10px; height: 8px; }
-.ns-tg-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 20%, transparent); border-radius: 5px; }
+.ns-tg-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 20%, transparent); border-radius: 5px; } /* 字面值：捲軸滑塊 5px 圓頭（寬 10 的一半） */
 .ns-tg-grid { position: relative; }
 
 .ns-tg-row { display: grid; grid-template-columns: var(--gw) repeat(var(--n), minmax(0, 1fr)); }
@@ -82,7 +82,7 @@
 .ns-tg-corner {
   position: sticky; left: 0; z-index: 2; background: inherit;
   display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 8px 6px 0;
-  font-size: 9px; letter-spacing: .14em; color: var(--color-ink-faint);
+  font-size: 9px; letter-spacing: .14em; color: var(--color-ink-faint); /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 }
 .ns-tg-dh {
   position: relative; min-width: 0; cursor: pointer;
@@ -90,9 +90,9 @@
   border-left: 1px solid var(--color-line); padding: 4px 2px;
 }
 .ns-tg-dh:hover { background: color-mix(in srgb, var(--color-ink) 3.5%, transparent); }
-.ns-tg-dh .wd { font-size: 10px; letter-spacing: .2em; color: var(--color-ink-soft); }
-.ns-tg-dh .dn { position: relative; font-family: var(--font-latin); font-weight: 600; font-size: 15px; line-height: 1.2; color: var(--color-ink-soft); }
-.ns-tg-dh .cnt { font-size: 9px; letter-spacing: .1em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-tg-dh .wd { font-size: 10px; letter-spacing: .2em; color: var(--color-ink-soft); } /* 字面值：欄頭週幾 10px；兩殼共用規則，--fs-* 手機會換值，照原值留 */
+.ns-tg-dh .dn { position: relative; font-family: var(--font-latin); font-weight: 600; font-size: 15px; line-height: 1.2; color: var(--color-ink-soft); } /* 字面值：欄頭日數 15px（原型；手機在 schedule-mobile.css 另覆寫） */
+.ns-tg-dh .cnt { font-size: 9px; letter-spacing: .1em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 .ns-tg-dh.is-past .dn, .ns-tg-dh.is-past .wd { color: var(--color-ink-faint); }
 .ns-tg-dh.is-today .dn, .ns-tg-dh.is-today .wd { color: var(--accent); }
 .ns-tg-dh.is-today .dn::before { /* 作用中＝菱形：同 calendar.css .cell.today .dnum::before */
@@ -104,11 +104,11 @@
 /* 締切〆：照 calendar.css .sime 的語彙（赭、斜 -6°，相鄰錯開） */
 .ns-tg-dh .sime {
   position: absolute; top: 3px; right: 5px;
-  font-family: var(--font-display); font-weight: 600; font-size: 12px; line-height: 1;
+  font-family: var(--font-display); font-weight: 600; font-size: 12px; line-height: 1; /* 字面值：〆 字 12px；兩殼共用規則，--fs-* 手機會換值，照原值留 */
   color: var(--color-late); transform: rotate(-6deg); opacity: .92; pointer-events: none;
 }
 .ns-tg-dh .sime.alt { transform: rotate(-8.5deg); }
-.ns-tg-dh .sime .n { font-size: 8px; font-family: var(--font-latin); vertical-align: 3px; margin-left: 1px; }
+.ns-tg-dh .sime .n { font-size: 8px; font-family: var(--font-latin); vertical-align: 3px; margin-left: 1px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 /* ═══ 未定時帶（sticky，黏在欄頭下） ═══ */
 .ns-tg-band {
@@ -124,8 +124,8 @@
 .ns-tg-bc.is-today { background: var(--ns-tg-today-bg); }
 .ns-tg-chip {
   display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 20px; margin: 0; padding: 0 5px;
-  border-radius: 2px; border: 1px dashed var(--color-dash); background: transparent;
-  font: inherit; font-size: 10.5px; line-height: 1.3; color: var(--color-ink-soft); text-align: left; cursor: pointer;
+  border-radius: var(--radius-ctl); border: 1px dashed var(--color-dash); background: transparent;
+  font: inherit; font-size: 10.5px; line-height: 1.3; color: var(--color-ink-soft); text-align: left; cursor: pointer; /* 字面值：全天 chip 10.5px；桌機字階沒有這一階（原型逐字）（手機另覆寫） */
 }
 .ns-tg-chip .dot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
 .ns-tg-chip .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -139,28 +139,28 @@
 /* 軸外（改日界線前存的時刻）：票名後一個小註 */
 .ns-tg-chip .oob-t {
   flex: none; margin-left: auto; padding-left: 3px;
-  font-family: var(--font-latin); font-size: 9px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap;
+  font-family: var(--font-latin); font-size: 9px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 }
-.ns-tg-more { font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-left: 4px; }
+.ns-tg-more { font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-left: 4px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 /* ═══ 時間軸本體 ═══ */
 .ns-tg-body { position: relative; border-bottom: 1px solid var(--color-dash); }
 .ns-tg-gut { position: sticky; left: 0; z-index: 4; height: calc(24 * var(--H)); background: var(--ns-tg-gut-bg); }
 .ns-tg-gut .hl {
   position: absolute; right: 7px; transform: translateY(-50%);
-  font-family: var(--font-latin); font-size: 10px; letter-spacing: .02em; line-height: 1;
+  font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .02em; line-height: 1;
   color: var(--color-ink-faint); white-space: nowrap; text-align: right;
 }
 .ns-tg-gut .hl.nite { color: var(--color-ink-soft); }
 .ns-tg-gut .hl small {
   display: block; margin-top: 2px;
-  font-family: var(--font-body); font-size: 8px; letter-spacing: .06em; color: var(--color-ink-faint);
+  font-family: var(--font-body); font-size: 8px; letter-spacing: .06em; color: var(--color-ink-faint); /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 }
 /* 「現在」＝赭（視覺規範 §2.10：線＋小點＋時刻牌；UI 丙-1 前是靛／銀河金） */
 .ns-tg-gut .nowpill {
   position: absolute; right: 3px; z-index: 2; transform: translateY(-50%);
-  padding: 1px 5px; border-radius: 2px; background: var(--late); color: var(--ns-tg-on-accent);
-  font-family: var(--font-latin); font-size: 10px; font-weight: 600; letter-spacing: .03em; line-height: 1.35;
+  padding: 1px 5px; border-radius: var(--radius-ctl); background: var(--late); color: var(--ns-tg-on-accent);
+  font-family: var(--font-latin); font-size: var(--fs-micro); font-weight: 600; letter-spacing: .03em; line-height: 1.35;
 }
 .ns-tg-col {
   position: relative; min-width: 0; height: calc(24 * var(--H)); border-left: 1px solid var(--color-line); cursor: pointer;
@@ -185,19 +185,19 @@
   --ns-tg-blk-bg: color-mix(in srgb, var(--rc) var(--ns-tg-blk-rc), var(--ns-tg-blk-paper));
   position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 0; overflow: hidden;
   margin: 0; padding: 3px 5px 2px 7px; box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-left: 3px solid var(--rc); border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-left: 3px solid var(--rc); border-radius: 3px; /* 字面值：時段塊 3px 圓角（照原型；--radius-card 粉彩 4、銀河 3，不能換） */
   background: var(--ns-tg-blk-bg); box-shadow: 0 1px 2px var(--ns-tg-shadow);
-  font: inherit; font-size: 11px; line-height: 1.3; color: var(--color-ink); text-align: left; cursor: pointer;
+  font: inherit; font-size: var(--fs-xs); line-height: 1.3; color: var(--color-ink); text-align: left; cursor: pointer;
   transition: box-shadow .15s var(--ease-out, ease-out);
 }
 .ns-tg-blk:hover { z-index: 3; box-shadow: 0 0 0 1px var(--accent), 0 4px 10px var(--ns-tg-shadow-lift); }
 .ns-tg-blk.is-sel { z-index: 3; box-shadow: 0 0 0 1.5px var(--accent), 0 4px 10px var(--ns-tg-shadow-lift); }
 .ns-tg-blk:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
 .ns-tg-blk .bt {
-  font-family: var(--font-latin); font-weight: 600; font-size: 10.5px; letter-spacing: .02em;
+  font-family: var(--font-latin); font-weight: 600; font-size: 10.5px; letter-spacing: .02em; /* 字面值：時段塊時刻 10.5px；兩殼共用規則，--fs-* 手機會換值，照原值留 */
   color: var(--color-ink-soft); white-space: nowrap;
 }
-.ns-tg-blk .bt .nx { margin-left: 3px; font-family: var(--font-body); font-weight: 400; font-size: 9px; color: var(--color-ink-faint); }
+.ns-tg-blk .bt .nx { margin-left: 3px; font-family: var(--font-body); font-weight: 400; font-size: 9px; color: var(--color-ink-faint); } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 .ns-tg-blk .bn {
   font-weight: 500; overflow: hidden; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: var(--lc, 3); -webkit-box-orient: vertical;
@@ -209,7 +209,7 @@
 .ns-tg-blk.doing { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), 0 1px 2px var(--ns-tg-shadow); }
 .ns-tg-blk.doing .bt::after {
   content: "進行中"; margin-left: 5px;
-  font-family: var(--font-body); font-weight: 500; font-size: 8.5px; letter-spacing: .14em; color: var(--accent);
+  font-family: var(--font-body); font-weight: 500; font-size: 8.5px; letter-spacing: .14em; color: var(--accent); /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 }
 .ns-tg-blk.done {
   background: color-mix(in srgb, var(--rc) 5%, var(--color-paper-used));
@@ -226,7 +226,7 @@
 .ns-tg-blk .mini-seal { /* 済＝朱（印章家族唯一用朱的地方） */
   position: absolute; right: 3px; top: 3px; width: 15px; height: 15px; box-sizing: border-box;
   display: grid; place-items: center; border-radius: 50%; border: 1.3px solid var(--color-seal);
-  font-family: var(--font-display); font-weight: 700; font-size: 9px; line-height: 1; color: var(--color-seal);
+  font-family: var(--font-display); font-weight: 700; font-size: 9px; line-height: 1; color: var(--color-seal); /* 字面值：印章家族字級（照原型） */
   transform: rotate(-8deg); opacity: .85;
 }
 .ns-tg-blk.short .mini-seal { top: 50%; margin-top: -7.5px; }
@@ -241,14 +241,14 @@
 }
 .ns-tg-blk.noest .bt::after {
   content: "長度未定"; margin-left: 5px;
-  font-family: var(--font-body); font-weight: 400; font-size: 8.5px; letter-spacing: .1em; color: var(--color-ink-faint);
+  font-family: var(--font-body); font-weight: 400; font-size: 8.5px; letter-spacing: .1em; color: var(--color-ink-faint); /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 }
 .ns-tg-blk.noest.doing { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
 .ns-tg-blk.noest.doing .bt::after { content: "進行中・長度未定"; font-weight: 500; letter-spacing: .14em; color: var(--accent); }
 .ns-tg-blk.noest:hover { box-shadow: 0 0 0 1px var(--accent); }
 .ns-tg-blk.noest.is-sel { box-shadow: 0 0 0 1.5px var(--accent); }
 .ns-tg-blk.late-day { border-color: color-mix(in srgb, var(--color-late) 45%, transparent); border-left-color: var(--rc); }
-.ns-tg-blk.over::before { content: "續→"; position: absolute; right: 4px; bottom: 1px; font-size: 8.5px; color: var(--color-ink-faint); }
+.ns-tg-blk.over::before { content: "續→"; position: absolute; right: 4px; bottom: 1px; font-size: 8.5px; color: var(--color-ink-faint); } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 /* ═══ 窄塊（兩端共用；第二輪 §7-1） ═══
  * 塊寬＝欄寬 ÷ lane 數：手機 3 天頁兩條 lane 只剩約 51px、桌機週時段約 61px，時刻字後面的「長度未定／進行中」被截成一兩個字、
@@ -275,7 +275,7 @@
 }
 @container ns-tg-blk (max-width: 26px) {
   /* 三條 lane 起：時刻縮到 8.5px（≈24px）往左借 2px；章不蓋、票名不再讓位（點開仍看得到全文） */
-  .ns-tg-blk .bt { margin-left: -2px; font-size: 8.5px; letter-spacing: 0; }
+  .ns-tg-blk .bt { margin-left: -2px; font-size: 8.5px; letter-spacing: 0; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階）；窄塊時刻縮到 8.5 */
   .ns-tg-blk .mini-seal { display: none; }
   .ns-tg-blk.done .bn { margin-right: 0; }
 }

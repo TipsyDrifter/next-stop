@@ -724,7 +724,7 @@ export function deleteConfirmText(
   let body = isSelf
     ? `摘下 ${plan.places} 處，筆記與日記裡的 #${exRaw}${plan.kidsWithItems ? "（含底下的荷札）" : ""} 也會刪掉。`
     : `摘下 ${plan.places} 處，筆記與日記裡的 #${plan.name} 及底下荷札（如 #${exRaw}）也會刪掉。`;
-  if (ex) body += `例：『${ex.before}』→『${ex.after}』。`;
+  if (ex) body += `例：「${ex.before}」→「${ex.after}」。`;
   body += plan.bodyCount ? `會改動 ${plan.bodyCount} 則筆記或日記。` : "目前沒有筆記或日記寫到它。";
   return { title, body };
 }

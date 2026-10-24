@@ -16,10 +16,16 @@
  *   375px 放不下四組；月曆蓋著時排法也沒有意義）。
  *   `layout === "time"` 時，`visibleDays`（3 天時段那一頁）在週格底下畫 3px 靛圓角條 `.m-sch-wk-range`；
  *   一頁跨兩週時兩週各畫自己那一段。left／width 依那幾天在 7 格中的位置，.25s 過渡。
+ *
+ * ── UI 丙-3 D6（視覺規範 §2.5「日期」、§3 入口表「翻日期」；§4「回到今天＝今天」）──
+ *   月曆開著時，頭一列整列換成共用 DateNav：« ‹ 「10月・2026」 › » ＋「今天」（兩殼都有 « »：一鍵換年）；
+ *   標題就是月份鈕（點了收起月曆，aria-expanded）。月曆收著時照舊：月份鈕＋「清單｜時段」＋「今天」。
+ *   換年＝`onShiftMonth(±12)`（MobileSchedule 的 shiftMonth 走 addMonths，任何月數都成立）；「今日」字樣改「今天」。
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
 import { addDays } from "../../lib/date";
+import { DateNav } from "../common/DateNav";
 import { dateOf, weekStart } from "../calendar/useCalendarController";
 
 /** 一天在週條／月曆上的記號（MobileSchedule 從 calendar 切片算；color＝路線色字串，無路線＝var(--route-none)） */
@@ -73,8 +79,8 @@ export interface WeekStripProps {
   label: { y: number; m: number };
   calOpen: boolean;
   onToggleCal(): void;
-  /** 月曆開著時的 ‹ › */
-  onShiftMonth(n: 1 | -1): void;
+  /** 月曆開著時的 ‹ ›（±1）與 « »（±12）：翻幾個月 */
+  onShiftMonth(n: number): void;
   onPickDay(day: string): void;
   onToday(): void;
   /** 停在某一週（first＝該週週首） */
@@ -294,53 +300,74 @@ export function WeekStrip({
   return (
     <nav className={"m-sch-wk" + (calOpen ? " is-cal" : "")} aria-label="週條">
       <div className="m-sch-wk-head">
-        <button
-          type="button"
-          className="m-sch-wk-month"
-          aria-expanded={calOpen}
-          aria-label={calOpen ? "收起月曆" : `${label.m + 1}月・${label.y}，展開月曆`}
-          onClick={onToggleCal}
-        >
-          {label.m + 1}月・{label.y}
-          <span className="lat">{MONTH_EN[label.m]}</span>
-          <span className="caret" aria-hidden>
-            ▾
+        {calOpen ? (
+          // 月曆開著：整列＝DateNav（« ‹ 月份 › » ＋今天）；標題＝月份鈕，點了收起月曆
+          <DateNav
+            className="m-sch-wk-datenav"
+            unit="month"
+            label="翻月份"
+            title={
+              <>
+                {label.m + 1}月・{label.y}
+                <span className="caret" aria-hidden>
+                  ▾
+                </span>
+              </>
+            }
+            onPrev={() => onShiftMonth(-1)}
+            onNext={() => onShiftMonth(1)}
+            onPrevYear={() => onShiftMonth(-12)}
+            onNextYear={() => onShiftMonth(12)}
+            onToday={onToday}
+            isToday={focusDay === today}
+            onTitle={() => onToggleCal()}
+            titleExpanded
+          />
+        ) : (
+          <button
+            type="button"
+            className="m-sch-wk-month"
+            aria-expanded={false}
+            aria-label={`${label.m + 1}月・${label.y}，展開月曆`}
+            onClick={onToggleCal}
+          >
+            {label.m + 1}月・{label.y}
+            <span className="lat">{MONTH_EN[label.m]}</span>
+            <span className="caret" aria-hidden>
+              ▾
+            </span>
+          </button>
+        )}
+        {!calOpen && (
+          <span className="m-sch-wk-mode" role="group" aria-label="行程表排法">
+            <button
+              type="button"
+              className={layout === "stream" ? "on" : undefined}
+              aria-pressed={layout === "stream"}
+              onClick={() => onLayout("stream")}
+            >
+              清單
+            </button>
+            <button
+              type="button"
+              className={layout === "time" ? "on" : undefined}
+              aria-pressed={layout === "time"}
+              onClick={() => onLayout("time")}
+            >
+              時段
+            </button>
           </span>
-        </button>
-        <span className="m-sch-wk-nav">
-          <button type="button" className="m-sch-wk-chev" aria-label="上個月" onClick={() => onShiftMonth(-1)}>
-            ‹
-          </button>
-          <button type="button" className="m-sch-wk-chev" aria-label="下個月" onClick={() => onShiftMonth(1)}>
-            ›
-          </button>
-        </span>
-        <span className="m-sch-wk-mode" role="group" aria-label="行程表排法">
+        )}
+        {!calOpen && (
           <button
             type="button"
-            className={layout === "stream" ? "on" : undefined}
-            aria-pressed={layout === "stream"}
-            onClick={() => onLayout("stream")}
+            className={"m-sch-wk-today" + (focusDay === today ? " is-here" : "")}
+            aria-label="今天"
+            onClick={onToday}
           >
-            清單
+            <span>今天</span>
           </button>
-          <button
-            type="button"
-            className={layout === "time" ? "on" : undefined}
-            aria-pressed={layout === "time"}
-            onClick={() => onLayout("time")}
-          >
-            時段
-          </button>
-        </span>
-        <button
-          type="button"
-          className={"m-sch-wk-today" + (focusDay === today ? " is-here" : "")}
-          aria-label="回到今天"
-          onClick={onToday}
-        >
-          <span>今日</span>
-        </button>
+        )}
       </div>
       <div className="m-sch-wk-fold">
         <div className="m-sch-wk-track" ref={trackRef} onScroll={onScroll} aria-hidden={calOpen || undefined}>

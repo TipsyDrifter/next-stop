@@ -5,12 +5,13 @@
  *   ・未整理的筆記＝紙片（.ns-notes-slip：上緣撕孔、前兩行內文、右上受付章）
  *   ・沒日期、沒 parent、沒路線標籤的臨時車票＝臨時券（沿 .ticket>.stub/.body/.stamp-zone；標題用黑體不加 .hw——原型施工決定 6）
  * 選中（鍵盤 ↑↓ 或滑鼠停留）那一則滑出去處列；按鈕上的鍵帽字查 registry。
- * 「排某天／掛進列車／掛上路線」各開一個內嵌小浮層（DatePop／AttachPicker）。
+ * 「排某天／掛進列車／掛上路線」各開一個小浮層：挑日期＝錨定 DatePicker（掛 body）、掛到哪＝float 的 AttachPicker（UI 丙-6 K2）。
+ * 頁首＝共用 PageHeader 頁名式（UI 丙-6 H1：眉標 {收件匣, Inbox}、待整理 N 則、「＋ 記一句」；清單空時藏「＋」，入口只留空狀態那顆）。
  * 車次②：筆記的去處列多一顆「記成日記」（D；契約 §5.2），歸屬日＝筆記寫下那天。
  *
  * 狀態與動作都由 NotesView 給（選取、離場動畫、小浮層開關都要跟鍵盤表共用）。
  */
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import type { NoteListItem } from "../../data/noteRepository";
 import type { InboxRef } from "../../store/notesStore";
@@ -19,9 +20,11 @@ import { useNotesStore } from "../../store/notesStore";
 import { addDays, todayKey } from "../../lib/date";
 import { lineCount } from "../../domain/notes";
 import { UketsukeSeal } from "./UketsukeSeal";
-import { CaptureButton } from "./CaptureButton";
-import { AttachPicker } from "./AttachPicker";
-import { DatePop } from "./DatePop";
+import { AttachPicker } from "../common/AttachPicker";
+import { DatePicker } from "../common/DatePicker";
+import { EmptyState } from "../common/EmptyState";
+import { IconEdit } from "../common/icons";
+import { PageHeader } from "../common/PageHeader";
 import { Kbd, capsOf, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
 
 export type InboxItem =
@@ -42,6 +45,8 @@ export type InboxPopKind = "someday" | "attach" | "route";
 
 export interface NotesInboxProps {
   items: InboxItem[];
+  /** 進頁那一趟載入回來了沒：沒回來前清單空著也不畫空狀態（免得開頁先閃「都整理完了」） */
+  ready: boolean;
   selectedId: string | null;
   leavingId: string | null;
   /** 目前開著的小浮層（只會掛在選中的那一張車票上） */
@@ -67,51 +72,52 @@ export function NotesInbox(p: NotesInboxProps) {
     el?.scrollIntoView({ block: "nearest" });
   }, [p.selectedId, p.listRef]);
 
-  return (
-    <main className="ns-notes-inbox ns-notes-col techo-scroll" aria-label="收件匣">
-      <div className="ns-notes-sheet">
-        <header className="ns-notes-head">
-          <p className="techo-overline ns-notes-overline">收件匣 — INBOX</p>
-          <h1 className="techo-title">收件匣</h1>
-          <p className="ns-notes-lede">
-            還沒整理的東西，點一下就能歸檔。{n > 0 && (
-              <span style={{ marginLeft: 12 }}>
-                待整理 <b>{n}</b> 則
-              </span>
-            )}
-          </p>
-        </header>
+  const capture = () => useNotesStore.getState().openCapture();
 
-        {n > 0 ? (
-          <>
-            <ul
-              ref={p.listRef}
-              className="ns-notes-ilist"
-              role="listbox"
-              aria-label="收件匣"
-              tabIndex={0}
-              aria-activedescendant={p.selectedId ? `ns-notes-i-${p.selectedId}` : undefined}
-            >
-              {p.items.map((it) => (
-                <InboxRow key={it.id} it={it} today={today} dayStartHour={dayStartHour} {...p} />
-              ))}
-            </ul>
-            <p className="ns-notes-foothint">
-              {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理</p>
-          </>
-        ) : (
-          <div className="ns-notes-empty">
-            <UketsukeSeal day={today} size={88} />
-            {/* 教第一步（磨光③ 2-15；照 NotesList「還沒有筆記」的前例） */}
-            <p>
-              沒有待整理的東西
-              <small>隨手記一句，會先放進這裡</small>
-            </p>
-            <CaptureButton variant="page" />
+  return (
+    <>
+      <PageHeader
+        variant="name"
+        overline={{ zh: "收件匣", latin: "Inbox" }}
+        title="收件匣"
+        stats={n > 0 ? <>待整理 <b>{n}</b> 則</> : undefined}
+        add={n > 0 ? { label: "記一句", onClick: capture, title: `記一句（${capsOf("notes.capture")}）` } : undefined}
+      />
+      <div className="ns-notes-body">
+        <section className="ns-notes-inbox ns-notes-col techo-scroll" aria-label="收件匣">
+          <div className="ns-notes-sheet">
+            {n > 0 ? (
+              <>
+                <ul
+                  ref={p.listRef}
+                  className="ns-notes-ilist"
+                  role="listbox"
+                  aria-label="收件匣"
+                  tabIndex={0}
+                  aria-activedescendant={p.selectedId ? `ns-notes-i-${p.selectedId}` : undefined}
+                >
+                  {p.items.map((it) => (
+                    <InboxRow key={it.id} it={it} today={today} dayStartHour={dayStartHour} {...p} />
+                  ))}
+                </ul>
+                <p className="ns-notes-foothint">
+                  {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理</p>
+              </>
+            ) : p.ready ? (
+              // 完成語氣＋受付章（丙-6 §5 P6）；這時頁首「＋ 記一句」藏起來，入口只留這一顆（規範 §2.7）
+              <EmptyState
+                tone="done"
+                className="ns-notes-inboxempty"
+                stamp={<UketsukeSeal day={today} size={88} />}
+                title="都整理完了"
+                desc="新記的一句會先放進這裡"
+                action={{ label: "記一句", icon: <IconEdit />, onClick: capture }}
+              />
+            ) : null}
           </div>
-        )}
+        </section>
       </div>
-    </main>
+    </>
   );
 }
 
@@ -134,10 +140,13 @@ function InboxRow({
   const cls = `ns-notes-iitem${sel ? " is-sel" : ""}${leavingId === it.id ? " is-leaving" : ""}`;
   const day = dayOf(it.at, dayStartHour);
   const myPop = pop && pop.id === it.id ? pop.kind : null;
+  /** 「挑日期」鈕：日期卡錨在它下方（丙-6 K2：挑日期＝錨定 popover，規範 §2.4） */
+  const somedayRef = useRef<HTMLButtonElement>(null);
 
   const act = (op: InboxOp, label: string, keyId: string | null, quiet = false, popKind?: InboxPopKind) => (
     <button
       key={op}
+      ref={op === "someday" ? somedayRef : undefined}
       type="button"
       className={`ns-notes-act ns-btn btn-ghost${quiet ? " quiet ns-btn-danger" : ""}`}
       onClick={() => onOp(it, op)}
@@ -170,8 +179,11 @@ function InboxRow({
             </>
           )}
         </div>
+        {/* K2：兩種小浮層都浮在清單上面，不再塞進紙片／票裡（卡中卡）——日期卡掛 body、貼著「挑日期」鈕；
+            掛到哪＝float（絕對定位在去處列下方；選中那一則 z 抬高，蓋得過下面幾則，notes.css〈收件匣〉） */}
         {myPop === "someday" && (
-          <DatePop
+          <DatePicker
+            anchor={somedayRef.current}
             label="排到哪一天"
             min={today}
             quick={[
@@ -185,6 +197,7 @@ function InboxRow({
         )}
         {myPop === "attach" && (
           <AttachPicker
+            float
             depth="node"
             kinds={["train", "car"]}
             label="掛進哪班列車或車廂"
@@ -195,6 +208,7 @@ function InboxRow({
         )}
         {myPop === "route" && (
           <AttachPicker
+            float
             depth="route"
             label="掛上哪條路線"
             value={{ routeId: null, nodeId: null, nodeKind: null }}

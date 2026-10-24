@@ -96,6 +96,7 @@ export const TIMETABLE_MOUNT: LineMount = {
             console.warn("時刻表的通知：打開時刻表失敗", e);
             return;
           }
+          // UI 丙-4 A3：對話框有分頁之後 focus:"notice"＝直接開「通知」分頁（T3 保留這個舊鍵的相容，不必捲到底）
           useTimetableStore.getState().openSheet({ kind: "categories", focus: "notice" });
         })(),
     },
@@ -165,7 +166,8 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
       ...categorySyncLabel(row, look, TT_TEXT),
       open: async () => {
         await gotoTimetable(shell);
-        useTimetableStore.getState().openSheet({ kind: "categories" });
+        // UI 丙-4 A3：同荷札頁——帶 focusId 開「分類」分頁、定位並閃那一列（原本只開面板、不定位）
+        useTimetableStore.getState().openSheet({ kind: "categories", focusId: rowId });
       },
     };
   }

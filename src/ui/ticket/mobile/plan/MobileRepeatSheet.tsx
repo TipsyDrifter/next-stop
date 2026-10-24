@@ -6,7 +6,7 @@
  *   ├ 「進行中 N」ul（依下一班；store 的 repeats 已照 repeatOrder 排）
  *   ├ 「已暫停 N」ul（灰字）
  *   ├ 空狀態「還沒有定期帳——…」
- *   └ 「＋ 新增」｜「完成」
+ *   └ 「＋ 新增」（UI 丙-5 E2：「完成」拿掉——清單即時生效，關 sheet 走下滑／暗幕／返回鍵，規範 §4）
  * 列（原型結論：兩行）：button.main 點＝開全螢幕表單編輯——上行 金額＋分類（或「帳戶 → 轉入」）……右端「下一班 11/1」；
  *   下行 規則一句 · 帳戶（匯入的暫停規則多「· 財務管家下一班 X」；被擋 ⇒ 開頭「⚠ 原因」、右端「記不了」）。
  *   列尾只留「暫停／開始」（三顆 44px 鈕放不下）；刪除在表單底部。
@@ -23,7 +23,8 @@ import { IconPlus } from "../mobileBits";
 import { acctLabel } from "../../TicketLedger";
 import { repeatAmount, repeatNoteShown, repeatUncat, repeatWarn } from "../../plan/repeatText";
 
-export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
+// onDone：宿主的介面照留；丙-5 拿掉「完成」後本體不再自己關
+export function MobileRepeatSheet(_props: { onDone(): void }) {
   const repeats = useTicketStore((s) => s.repeats);
   const blocked = useTicketStore((s) => s.repeatBlocked);
   const unstarted = useTicketStore((s) => s.repeatUnstarted);
@@ -95,9 +96,6 @@ export function MobileRepeatSheet({ onDone }: { onDone(): void }) {
         <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => openRepeatEditor(null)}>
           <IconPlus />
           新增
-        </button>
-        <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={onDone}>
-          完成
         </button>
       </div>
     </div>

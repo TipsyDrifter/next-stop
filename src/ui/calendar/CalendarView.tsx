@@ -1,25 +1,28 @@
 /**
  * CalendarView——日曆視圖（UI Flow ⑤；M3 ⑤ WP2）。結構與 class 逐字移植自
  *   prototypes/m3-ext-calendar.html（頁首 :879-915、月卡 :917-923、頁尾 :942-945）。
- * 兩主題共用同一份 DOM，文案差異用 .theme-pastel-only／.theme-galaxy-only 兩份都畫、CSS 擇一顯示。
  *
- * 版面（由上而下）：
- *   header.day（overline 兩份文案／date-line「9月・2026年・September」＋頁邊手寫／月統計／
- *     cal-ctl（«）‹ ›（»）今日 seg——« » 換年只在月、週，磨光⑤ K4／日付印 92px -6°＝Q8）
- *   → 月卡一張紙（MonthGrid：wk-head ＋ 35／42 格）／週視圖（WeekGrid，WP4）
- *   → page-foot
+ * ── UI 丙-3（契約 §1 D1～D4、§5 P4）：頁首換共用 PageHeader 身分式 ──
+ *   眉標 {行程表, Schedule}・大標＝DateNav（« ‹ 月份／週區間 › » ＋「今天」；« » 只在月、週；標題點開 MonthJump）・
+ *   補述＝年份＋拉丁小字＋（粉彩）頁邊手寫・統計列＝MonthStats（串流不畫）・日付印 92 -6°・
+ *   工具列［分頁籤 月／週／時段／串流］［＋ 車票］［搜尋］，第四格空著（行程表沒有線內管理）。
+ *   「＋ 車票」（P4＝B 底端）：月／週／時段＝開今天的日浮層、底端草稿列已聚焦（在別的月份先回本月）；串流＝今天的日列草稿。
+ *   空狀態（D3）：載入完、整個區間沒有班次也沒有締切 ⇒ 內容區中央一張 EmptyState，頁首「＋ 車票」藏起來（規範 §2.7）。
+ *   舊 header.day／.cal-ctl／.seg／.mj-trigger 一併退役。
+ *
+ * 版面（由上而下）：PageHeader → 月卡一張紙（MonthGrid）／週（WeekGrid）／時段（WeekTimeGrid）／串流（StreamView）→ page-foot
  *
  * 頁面殼契約（沿 TodayView 的 WP0 慣例）：根節點帶 `.page`（z-index 蓋過 SkyLayer）與 `.ns-calendar`
  *   （CSS 前綴，權重抬一級，避免被 techo.css 同權重蓋掉；雷區 4）；星空由 App.tsx 統一掛
  *   （非今日頁＝density "reduced"，日曆頁無流星無列車，決策 10／氛11），本檔不碰。
  *
  * 插槽（Wave C 三席只填自己的檔，不改契約，詳見各檔檔頭）：
- *   `DayPopover`（WP3）＝當日清單兩段，`popTarget` 非 null 時掛載
+ *   `DayPopover`（WP3）＝當日清單兩段，`popTarget` 非 null 時掛載（`popTarget.draft`＝底端草稿列開著）
  *   `WeekGrid`（WP4）＝週視圖，`view==="week"` 時掛載
- *   `DueTip`／`MonthHeaderNotes`（WP5）＝〆 hover 明細／頁邊手寫＋統計列
- *   `MonthJump`（⑤-b 追加 1）＝月／年快速跳轉小卡，`jumpOpen` 時掛載；入口＝date-line 的月份大字鈕
+ *   `DueTip`／`MonthMarginNote`／`MonthStats`（WP5）＝〆 hover 明細／頁邊手寫／統計列
+ *   `MonthJump`（⑤-b 追加 1）＝月／年快速跳轉小卡，`jumpOpen` 時掛載；入口＝DateNav 的標題鈕
  *   `StreamView`（主線車次①）＝「串流」排列，`view==="stream"` 時掛載：頁面本身不捲（`.is-stream`），
- *     串流自己捲、頁尾也畫在捲動內容裡；頁首的 ‹ ›／今日／月份字改走 scroll-spy（控制器 §2.2-1）
+ *     串流自己捲、頁尾也畫在捲動內容裡；頁首的 ‹ ›／今天／月份字改走 scroll-spy（控制器 §2.2-1）
  *   `WeekTimeGrid`（主線②）＝「時段」排列（週的另一種排法，D-主-13 第四段），`view==="time"` 時掛載：
  *     頁面本身不捲（`.is-time`），畫布自己捲；頁首、‹ ›、鍵盤全照週
  * 資料一律經 `useCalendar()`（＝`useCalendarController` 的 context），不各自查 store。
@@ -28,17 +31,24 @@
  */
 import { useRef } from "react";
 import { addDays } from "../../lib/date";
+import { useUiStore } from "../../store/uiStore";
 import { hotkeyCaps } from "../common/PopMenu";
+import { PageHeader } from "../common/PageHeader";
+import { DateNav } from "../common/DateNav";
+import { EmptyState } from "../common/EmptyState";
+import { IconPlus } from "../common/icons";
+import type { TabItem } from "../common/Tabs";
 import { DateSeal } from "../stamps";
 import { StreamView } from "../schedule/StreamView";
 import { WeekTimeGrid } from "../schedule/WeekTimeGrid";
+import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { DayPopover } from "./DayPopover";
 import { DueTip } from "./DueTip";
 import { MonthGrid } from "./MonthGrid";
-import { MonthHeaderNotes } from "./MonthHeaderNotes";
+import { MonthMarginNote, MonthStats } from "./MonthHeaderNotes";
 import { MonthJump } from "./MonthJump";
 import { WeekGrid } from "./WeekGrid";
-import { CalendarProvider, dateOf, useCalendarController } from "./useCalendarController";
+import { CalendarProvider, dateOf, useCalendarController, type CalendarViewMode } from "./useCalendarController";
 import { useCalendarKeyboard } from "./useCalendarKeyboard";
 import "./calendar.css";
 
@@ -55,6 +65,14 @@ const MONTH_EN = [
   "October",
   "November",
   "December",
+];
+
+/** 工具列第一格：四種排列（分頁籤，規範 §2.2；舊 `.seg` 四鈕退役） */
+const VIEW_TABS: readonly TabItem<CalendarViewMode>[] = [
+  { key: "month", label: "月", hotkeyTitle: "按月看" },
+  { key: "week", label: "週", hotkeyTitle: "按週看" },
+  { key: "time", label: "時段", hotkeyTitle: "時段：一週七天照幾點排" },
+  { key: "stream", label: "串流", hotkeyTitle: "串流：從今天往上下捲" },
 ];
 
 /**
@@ -90,14 +108,37 @@ export function CalendarView() {
   const timeView = c.view === "time";
   // 串流時格層表只剩 Esc（StreamView 自己吃 daylist 那張表）
   const onKeyDown = useCalendarKeyboard(c.keys, c.blocked || stream);
+  const streamEmpty = useScheduleUiStore((st) => st.streamEmpty);
+  const focusDay = useScheduleUiStore((st) => st.focusDay);
 
   const cur = dateOf(c.cursor);
   const monthEn = MONTH_EN[cur.getMonth()];
-  // 頁首三段：月視圖＝月／年／英文月名；週視圖＝日期區間／年／latin 區間（大字仍是 MonthJump 的觸發鈕，
+  // 頁首三段：月視圖＝月／年／英文月名；週視圖＝日期區間／年／latin 區間（標題仍是 MonthJump 的觸發鈕，
   // 小卡的「目前月」照舊由 cursor（週視圖＝該週週一；串流＝focusDay 的月）決定，契約不動）
   const week = c.view === "week" || timeView ? weekHeading(c.cursor) : null;
   /** 頁首「« »」換年鈕只在月、週（磨光⑤ K4） */
   const yearCtl = c.view === "month" || c.view === "week";
+  /** 空狀態（D3）：月／週／時段＝控制器載入完的區間；串流＝StreamView 查到的邊界 */
+  const empty = stream ? streamEmpty : c.empty;
+  /** 「今天」chip 的 title 用：目前看的區間含今天（串流＝捲到的那天就是今天） */
+  const atToday = stream ? (focusDay ?? c.today) === c.today : c.today >= c.range.from && c.today <= c.range.to;
+
+  /** 「＋ 車票」（P4）：串流＝今天的日列草稿（捲回今天）；其餘＝今天的日浮層＋底端草稿列 */
+  const addTicket = () => {
+    if (stream) {
+      const st = useScheduleUiStore.getState();
+      st.setDraftDay(c.today);
+      // 今天那一段已經在畫面上：草稿列（在那一段最後）一聚焦瀏覽器就會捲進視野，不另發捲動——
+      // 發了反而會把畫面拉回今天的標題列、草稿列被推到視窗外。不在（捲遠了）才請串流先回到今天。
+      const sec = containerRef.current?.querySelector(`.ns-sch-day[data-day="${c.today}"]`);
+      if (!sec) st.requestScroll(c.today);
+      return;
+    }
+    c.addTicket();
+  };
+  const openSearch = () => useUiStore.getState().setQuickJumpOpen(true);
+
+  const titleText = week ? week.d : `${cur.getMonth() + 1}月`;
 
   return (
     <section
@@ -114,144 +155,74 @@ export function CalendarView() {
     >
       <CalendarProvider value={c}>
         <div className="sheet">
-          {/* ═══ 頁首（原型 header.day :879-915） ═══ */}
-          <header className="day">
-            <div className="day-head">
-              <p className="overline">
-                <span className="theme-pastel-only">Schedule</span>
-                <span className="theme-galaxy-only">行程表 — SCHEDULE</span>
-              </p>
-              <div className="date-line">
-                {/* 月份大字＝月／年快速跳轉的入口（⑤-b 追加 1）。無邊框、hover 才現底，
-                    字本身的排版與位置與改鈕之前一模一樣（底色走 ::before，不佔版面） */}
-                <button
-                  type="button"
-                  className="mj-trigger"
-                  aria-label="跳到其他月份"
-                  aria-haspopup="dialog"
-                  aria-expanded={c.jumpOpen}
-                  title="跳到其他月份（Ctrl+←→ 換月・Ctrl+↑↓ 換年）"
-                  onClick={(e) => (c.jumpOpen ? c.closeJump() : c.openJump(e.currentTarget))}
-                >
-                  <span className="d">{week ? week.d : `${cur.getMonth() + 1}月`}</span>
-                  <span className="w">{week ? week.w : `${cur.getFullYear()}年`}</span>
-                </button>
-                <span className="latin">{week ? week.latin : monthEn}</span>
-                {/* 頁邊手寫＋統計列（WP5 覆蓋；.month-stats 由 CSS 換到下一行）。串流沒有「本區間」可統計 ⇒ 不畫 */}
-                {!stream && <MonthHeaderNotes range={c.range} today={c.today} />}
-              </div>
-
-              <div className="cal-ctl">
-                {/* 換年（磨光⑤ K4、D-主-60）：月、週才有「« »」——原本只有 Ctrl+↑↓ 與月份跳轉卡；時段、串流不加（串流按週捲） */}
-                {yearCtl && (
-                  <button
-                    type="button"
-                    className="chev chev-year"
-                    title={`上一年（${hotkeyCaps("calendar.year.prev")}）`}
-                    aria-label="上一年"
-                    onClick={() => c.keys.jumpYear(-1)}
-                  >
-                    «
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="chev"
-                  title={c.view === "month" ? "上個月" : "上一週"}
-                  aria-label={c.view === "month" ? "上個月" : "上一週"}
-                  onClick={() => c.go(-1)}
-                >
-                  ‹
-                </button>
-                <button
-                  type="button"
-                  className="chev"
-                  title={c.view === "month" ? "下個月" : "下一週"}
-                  aria-label={c.view === "month" ? "下個月" : "下一週"}
-                  onClick={() => c.go(1)}
-                >
-                  ›
-                </button>
-                {yearCtl && (
-                  <button
-                    type="button"
-                    className="chev chev-year"
-                    title={`下一年（${hotkeyCaps("calendar.year.next")}）`}
-                    aria-label="下一年"
-                    onClick={() => c.keys.jumpYear(1)}
-                  >
-                    »
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="today-chip"
-                  title={stream ? "捲回今天（Home）" : "跳回本月（Home）"}
-                  onClick={c.goToday}
-                >
-                  今日
-                </button>
-                <span className="gap" />
-                <div className="seg" role="group" aria-label="切換檢視">
-                  <button
-                    type="button"
-                    className={c.view === "month" ? "on" : undefined}
-                    aria-pressed={c.view === "month"}
-                    title="按月看"
-                    onClick={() => c.setView("month")}
-                  >
-                    月
-                  </button>
-                  <button
-                    type="button"
-                    className={c.view === "week" ? "on" : undefined}
-                    aria-pressed={c.view === "week"}
-                    title="按週看"
-                    onClick={() => c.setView("week")}
-                  >
-                    週
-                  </button>
-                  <button
-                    type="button"
-                    className={timeView ? "on" : undefined}
-                    aria-pressed={timeView}
-                    title="時段：一週七天照幾點排"
-                    onClick={() => c.setView("time")}
-                  >
-                    時段
-                  </button>
-                  <button
-                    type="button"
-                    className={stream ? "on" : undefined}
-                    aria-pressed={stream}
-                    title="串流：從今天往上下捲"
-                    onClick={() => c.setView("stream")}
-                  >
-                    串流
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 日付印一枚示意（92px＝Q8、-6°＝原型 :485；每格日付印不做＝D-⑤-5-1） */}
-            <DateSeal
-              className="date-stamp"
-              date={dateOf(c.today)}
-              size={92}
-              rotate={-6}
-              title={`日付印 ${c.today}`}
-            />
-          </header>
+          <PageHeader
+            variant="identity"
+            className="ns-cal-head"
+            overline={{ zh: "行程表", latin: "Schedule" }}
+            title={
+              <DateNav
+                unit={c.view === "month" ? "month" : "week"}
+                label={c.view === "month" ? "翻月份" : "翻週"}
+                // 標題＝月／年快速跳轉的入口（⑤-b 追加 1）；說明掛在字上（DateNav 的標題鈕不收 title）
+                title={<span title="跳到其他月份（Ctrl+←→ 換月・Ctrl+↑↓ 換年）">{titleText}</span>}
+                onPrev={() => c.go(-1)}
+                onNext={() => c.go(1)}
+                // 換年（磨光⑤ K4、D-主-60）：月、週才有「« »」；時段、串流不加（串流按週捲）
+                onPrevYear={yearCtl ? () => c.keys.jumpYear(-1) : undefined}
+                onNextYear={yearCtl ? () => c.keys.jumpYear(1) : undefined}
+                onToday={c.goToday}
+                isToday={atToday}
+                onTitle={(a) => (c.jumpOpen ? c.closeJump() : c.openJump(a))}
+                titleExpanded={c.jumpOpen}
+              />
+            }
+            aside={
+              <>
+                <span>{week ? week.w : `${cur.getFullYear()}年`}</span>
+                <span className="ns-pagehead-latin">{week ? week.latin : monthEn}</span>
+                {/* 頁邊手寫（粉彩；銀河 calendar.css 藏）。串流沒有「本區間」⇒ 不畫 */}
+                {!stream && <MonthMarginNote range={c.range} today={c.today} />}
+              </>
+            }
+            stats={stream ? undefined : <MonthStats />}
+            // 日付印一枚示意（92px＝Q8、-6°＝原型 :485；每格日付印不做＝D-⑤-5-1）
+            stamp={<DateSeal date={dateOf(c.today)} size={92} rotate={-6} title={`日付印 ${c.today}`} />}
+            tabs={{ items: VIEW_TABS, value: c.view, onChange: c.setView, "aria-label": "切換檢視" }}
+            // 空狀態出現時藏起來：同一個動作同頁一個入口（規範 §2.7，空狀態自己有「＋ 車票」）
+            add={empty ? undefined : { label: "車票", onClick: addTicket, title: "在今天新增車票" }}
+            search={{ onOpen: openSearch, title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
+          />
 
           {/* ═══ 月間頁／週視圖／時段／串流 ═══ */}
           {stream ? (
             <StreamView />
-          ) : timeView ? (
-            <WeekTimeGrid />
-          ) : c.view === "week" ? (
-            <WeekGrid weekStart={c.cursor} days={c.days} />
           ) : (
-            <MonthGrid />
+            <div className="ns-cal-body">
+              {timeView ? (
+                <WeekTimeGrid />
+              ) : c.view === "week" ? (
+                <WeekGrid weekStart={c.cursor} days={c.days} />
+              ) : (
+                <MonthGrid />
+              )}
+              {/* D3：載入完、整個區間空 ⇒ 內容區中央（格照畫、卡片浮在上面；只有卡片本身吃滑鼠，其餘點得到格） */}
+              {c.empty && (
+                <div className="ns-cal-empty">
+                  <EmptyState
+                    className="techo-card"
+                    tone="first"
+                    stamp={
+                      <span className="stamp">
+                        <span className="hint">検印</span>
+                      </span>
+                    }
+                    title={c.view === "month" ? "這個月還沒有車票" : "這週還沒有車票"}
+                    desc="點格子右上的＋，在那天建一張。"
+                    action={{ label: "車票", icon: <IconPlus />, onClick: addTicket }}
+                  />
+                </div>
+              )}
+            </div>
           )}
 
           {/* 串流的頁尾畫在捲動內容的最後（StreamView），這裡不畫 */}
@@ -265,13 +236,19 @@ export function CalendarView() {
           )}
         </div>
 
-        {/* 當日清單浮層（WP3 填內容；WP2 是空殼，事件已接） */}
+        {/* 當日清單浮層（底端草稿列由 popTarget.draft 決定；seq 變＝重開） */}
         {c.popTarget && (
-          <DayPopover day={c.popTarget.day} anchor={c.popTarget.anchor} onClose={c.closeDay} />
+          <DayPopover
+            day={c.popTarget.day}
+            anchor={c.popTarget.anchor}
+            draft={c.popTarget.draft === true}
+            seq={c.popTarget.seq ?? 0}
+            onClose={c.closeDay}
+          />
         )}
         {/* 〆 hover 明細（WP5 填內容） */}
         {c.tipTarget && <DueTip day={c.tipTarget.day} anchor={c.tipTarget.anchor} />}
-        {/* 月／年快速跳轉小卡（⑤-b 追加 1；錨＝上面那顆月份大字鈕） */}
+        {/* 月／年快速跳轉小卡（⑤-b 追加 1；錨＝DateNav 的標題鈕） */}
         {c.jumpOpen && <MonthJump anchor={c.jumpAnchor} />}
       </CalendarProvider>
     </section>

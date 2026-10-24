@@ -2,7 +2,7 @@
  * WeekView——時刻表頁的「週」視圖（③ 契約 §5.1、§5.5、0-7、0-10；D-時-46、54、66；丙席）。兩殼共用，`shell` 只換尺寸與字。
  *
  *   section.ns-tt-week[.is-desk]
- *   ├ div.ns-tt-week-bar   ‹ 「10/13–10/19」＋本週／上週 › 、「回到本週」（不是本週才出）、右側圖例（待確認斜紋／現在線）
+ *   ├ div.ns-tt-week-bar   DateNav ‹ 「10/13–10/19」＋本週／上週 › ＋「今天」（＝回到本週；UI 丙-4 D9）、右側圖例（待確認斜紋／現在線）
  *   ├ WeekGrid
  *   └ p.ns-tt-week-foot    操作說明一行
  *
@@ -21,7 +21,8 @@ import { useUiStore } from "../../../store/uiStore";
 import { shiftPeriod } from "../../../domain/timetableStats";
 import { weekStartKey } from "../../../domain/timetable";
 import { addDays } from "../../../lib/date";
-import { formatChord, hotkeyById } from "../../shell/hotkeys";
+import { DateNav } from "../../common/DateNav";
+import { DnTitle } from "../parts/DateNavTitle";
 import { useNow } from "../useNow";
 import { WeekGrid, type WeekBlockItem } from "./WeekGrid";
 
@@ -90,46 +91,25 @@ export function WeekView({ shell }: { shell: "desktop" | "mobile" }) {
     : week && week.todayKey && key === shiftPeriod("week", weekStartKey(week.todayKey, weekStart), -1, weekStart)
       ? T.tagLastWeek
       : null;
-  const todayKeyHot = hotkeyById("timetable.day.today");
 
   return (
     <section className={"ns-tt-week" + (isDesk ? " is-desk" : "")} aria-label={T.tagThisWeek}>
       <div className="ns-tt-week-bar">
-        <span className="ns-tt-week-nav">
-          <button
-            type="button"
-            className="ns-tt-week-arrow"
-            aria-label={T.prevWeek}
-            onClick={() => useTimetableStatsStore.getState().weekStep(-1)}
-          >
-            ‹
-          </button>
-          <span className="ns-tt-week-name">
-            <b className="ns-tt-num">
-              {mdOf(key)}–{mdOf(addDays(key, 6))}
-            </b>
-            {tag && <em>{tag}</em>}
-          </span>
-          <button
-            type="button"
-            className="ns-tt-week-arrow"
-            aria-label={T.nextWeek}
-            disabled={isCurrent}
-            onClick={() => useTimetableStatsStore.getState().weekStep(1)}
-          >
-            ›
-          </button>
-        </span>
-        {!isCurrent && (
-          <button type="button" className="ns-tt-week-tocur" onClick={() => useTimetableStatsStore.getState().weekToCurrent()}>
-            {TT_TEXT.weekToCurrent}
-            {isDesk && todayKeyHot && (
-              <kbd className="ns-tt-kbd" aria-hidden="true">
-                {formatChord(todayKeyHot.chords[0]).join("+")}
-              </kbd>
-            )}
-          </button>
-        )}
+        {/* UI 丙-4 D9：‹ 週 › ＋「回到本週」膠囊換共用 DateNav（「今天」chip＝回到本週，同行程表週視圖）。
+            動作＝鍵盤 ←／→／T 的同一支 weekStep／weekToCurrent；已在本週 › 停用、chip 原地不動 */}
+        <DateNav
+          className="ns-tt-dnav"
+          unit="week"
+          label="翻週"
+          title={<DnTitle text={`${mdOf(key)}–${mdOf(addDays(key, 6))}`} tag={tag} />}
+          onPrev={() => useTimetableStatsStore.getState().weekStep(-1)}
+          onNext={() => useTimetableStatsStore.getState().weekStep(1)}
+          nextDisabled={isCurrent}
+          onToday={() => {
+            if (!isCurrent) useTimetableStatsStore.getState().weekToCurrent();
+          }}
+          isToday={isCurrent}
+        />
         <span className="ns-tt-week-legend" aria-hidden="true">
           <i className="is-pend" />
           {T.legendPending}

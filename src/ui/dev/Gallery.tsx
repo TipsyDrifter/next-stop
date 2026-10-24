@@ -24,8 +24,8 @@ import { addDays, todayKey } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { useShell } from "../mobile/useShell";
 import { renderTabIcon } from "../mobile/tabs";
-import { DateSeal, SealDone } from "../stamps";
-import { PageHeader } from "../common/PageHeader";
+import { DateSeal, SealDone, StationStamp } from "../stamps";
+import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { Tabs, TabsSelect, type TabItem } from "../common/Tabs";
 import { Segmented } from "../common/Segmented";
 import { DateNav } from "../common/DateNav";
@@ -259,6 +259,31 @@ function HeaderSection({ today, phone }: { today: string; phone: boolean }) {
   const year = `${d.getFullYear()}年`;
   const monthLatin = d.toLocaleString("en-US", { month: "long" });
   const seal = <DateSeal date={d} size={92} title={`日付印 ${today}`} />;
+  // 有紀念章的頁（今日、路線圖）日付印給 76、紀念章 92——章比印稍大（10-24 甲案）
+  const sealSm = <DateSeal date={d} size={76} title={`日付印 ${today}`} />;
+  // 紀念章（丙-3 P1＝A）：92 的 StationStamp 給 emblem；頁首 <704 時改畫 emblemCompact（28px 小章＋字）
+  const routeEmblem = (
+    <StationStamp
+      size={92}
+      arcLabel="J LINE · NEXT STATION"
+      caption="下一站"
+      name="N3 模考"
+      percent={40}
+      statusText="進行中"
+      title="下一站 N3 模考，進度 40%"
+    />
+  );
+  const routeEmblemMini = (
+    <>
+      <EmblemMini percent={40} />
+      下一站 <b>N3 模考</b> 40%
+    </>
+  );
+  const routeStats = (
+    <>
+      車票 <b>4/6</b> 済 ・ 進度 <b>67%</b>
+    </>
+  );
   const tkD = new Date(d.getFullYear(), d.getMonth() + tkOff, 1);
 
   // 手機殼的頁首＝頂帶＋頂帶下一列的分頁籤列（兩殼共用這一組框；手機 375 只畫它、不畫 PageHeader）
@@ -319,7 +344,7 @@ function HeaderSection({ today, phone }: { today: string; phone: boolean }) {
       <Comp
         col
         spec={[
-          ["規格", <>① 眉標（粉彩只畫拉丁斜體、銀河畫「中 — LATIN」）② 大標（身分式 <code>--fs-date</code>、頁名式 <code>--fs-display</code>）③ 補述 <code>aside</code>／統計 <code>stats</code> ④ 日付印 92 ⑤ 工具列<b>固定順序［分頁籤］［＋ 新增］［搜尋］［齒輪＋管理］</b>，沒給的格不畫 ⑥ 底線＋雙細線。</>],
+          ["規格", <>① 眉標（粉彩只畫拉丁斜體、銀河畫「中 — LATIN」）② 大標（身分式 <code>--fs-date</code>、頁名式 <code>--fs-display</code>）③ 補述 <code>aside</code>（14／12）／統計 <code>stats</code> ④ 日付印 92 ④′ 紀念章 <code>emblem</code> 92（今日、路線圖；頁首 &lt;660 改畫 <code>emblemCompact</code>）⑤ 工具列<b>固定順序［分頁籤］［＋ 新增］［搜尋］［齒輪＋管理］</b>，沒給的格不畫 ⑥ 底線＋雙細線。</>],
           ["狀態", <><code>compact</code> 省略＝自動：主欄 &lt;704 或在手機殼就收——分頁籤改下拉、新增與搜尋收成圖示鈕（帶 title）、<b>管理永遠帶字</b>、日付印縮 76。hover：次鈕框轉 <code>--accent</code>、圖示鈕換 <code>--hover-bg</code>。</>],
           ["鍵盤", <>本身不攔鍵；工具列照 DOM 順序 Tab，分頁籤是一個 Tab stop（籤內 ←→）。</>],
         ]}
@@ -390,17 +415,64 @@ function HeaderSection({ today, phone }: { today: string; phone: boolean }) {
             />
           </div>
         </Cell>
-        <Cell wide state="A 身分式" note="路線圖：路線名＋印；「＋ 路線 ▾」開選單（add.haspopup）" cls="aria-haspopup=menu">
+        <Cell
+          wide
+          state="A 身分式＋紀念章"
+          note="路線圖：路線名＋日付印＋紀念章 emblem（印之後、工具列之前，丙-3 P1＝A）；「＋ 路線 ▾」開選單（add.haspopup）"
+          cls=".ns-pagehead-emblem ＋ aria-haspopup=menu"
+        >
           <div className="ns-gal-scrollx">
             <PageHeader
               variant="identity"
-              overline={{ zh: "路線圖", latin: "Route Map" }}
+              overline={{ zh: "日文", latin: "J Line" }}
               title="日文"
-              aside={<span className="ns-pagehead-latin">J Line</span>}
-              stamp={seal}
+              aside="路線"
+              stats={routeStats}
+              stamp={sealSm}
+              emblem={routeEmblem}
+              emblemCompact={routeEmblemMini}
               add={{ label: "路線", haspopup: true, onClick: () => say("樣本：＋ 路線 ▾") }}
               search={{ onOpen: () => say("樣本：搜尋") }}
             />
+          </div>
+        </Cell>
+        <Cell
+          wide
+          state="紀念章窄退"
+          note="頁首寬 ≥704：印 76＋章 92；頁首寬 <704：章不畫，改在 stats 列尾接 28px 小章＋字（emblemCompact）"
+          cls=".ns-pagehead-emblem-c > .ns-pagehead-emblem-mini"
+        >
+          <div className="ns-gal-scrollx">
+            <div className="ns-gal-narrow">
+              <PageHeader
+                compact
+                variant="identity"
+                overline={{ zh: "日文", latin: "J Line" }}
+                title="日文"
+                aside="路線"
+                stats={routeStats}
+                stamp={sealSm}
+                emblem={routeEmblem}
+                emblemCompact={routeEmblemMini}
+                add={{ label: "路線", haspopup: true, onClick: () => say("樣本：＋ 路線 ▾") }}
+                search={{ onOpen: () => say("樣本：搜尋") }}
+              />
+              <div style={{ width: 420 }}>
+                <PageHeader
+                  compact
+                  variant="identity"
+                  overline={{ zh: "日文", latin: "J Line" }}
+                  title="日文"
+                  aside="路線"
+                  stats={routeStats}
+                  stamp={sealSm}
+                  emblem={routeEmblem}
+                  emblemCompact={routeEmblemMini}
+                  add={{ label: "路線", haspopup: true, onClick: () => say("樣本：＋ 路線 ▾") }}
+                  search={{ onOpen: () => say("樣本：搜尋") }}
+                />
+              </div>
+            </div>
           </div>
         </Cell>
         <Cell wide state="窄版（compact）" note="主欄 <704：籤→下拉、新增與搜尋→圖示鈕、管理帶字、印縮 76" cls=".ns-pagehead.is-compact">
@@ -829,7 +901,7 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
     { key: "defer", label: "推遲到…", onSelect: () => say("樣本：推遲到…") },
     { key: "move", label: "移動到…", onSelect: () => say("樣本：移動到…") },
     { key: "stop", label: "途中下車", disabled: true, why: "還沒発車，不能途中下車", onSelect: noop },
-    { key: "del", label: "刪除", cut: true, onSelect: () => say("樣本：刪除") },
+    { key: "del", label: "刪除", cut: true, danger: true, onSelect: () => say("樣本：刪除") },
   ];
   const sheetBody = (
     <>
@@ -892,7 +964,8 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
       <Comp
         spec={[
           ["規格", <><b>DialogShell</b>：<code>.techo-card</code>；標題列＝眉標（可省）＋<code>--fs-title</code> 襯線標題＋×；撕線；本文自己捲；<code>foot</code> 黏底按鈕列（取消左、主鈕右；即時存的不給）。寬 <code>size</code> S 380／M 520／L 620；<code>skin="ticket"</code>＝捕捉框票皮（票形 600、去處票根）。</>],
-          ["鍵盤", <>開啟焦點落卡、Esc 關、點暗幕關、關閉還焦點。PopMenu：↑↓、Enter、Esc 回錨點；破壞性項目最後、虛線分隔。</>],
+          ["鍵盤", <>開啟焦點落卡、Esc 關、點暗幕關、關閉還焦點、<b>Tab 不出卡</b>（最後一格按 Tab 回第一格）。PopMenu：↑↓、Enter、Esc 回錨點；破壞性項目最後、虛線分隔、<code>danger</code> 赭字。</>],
+          ["眉標", <><code>overline</code> 給 <code>{"{zh, latin}"}</code>：粉彩只畫拉丁斜體、銀河畫「中 — LATIN」（同 PageHeader）；字串＝照字面（舊呼叫端）。</>],
         ]}
       >
         <Cell state="置中對話框（點了真的開）" cls=".techo-card.ns-dialog.is-s|.is-m|.is-l ＋ .ns-dialog-foot">
@@ -914,7 +987,7 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
             </button>
           </div>
         </Cell>
-        <Cell state="選單" note="列尾 ⋯ 開 PopMenu（第四項 disabled、刪除在虛線後）" cls=".techo-card.ns-popmenu">
+        <Cell state="選單" note="列尾 ⋯ 開 PopMenu（第四項 disabled、刪除在虛線後、danger 赭字）" cls=".techo-card.ns-popmenu ＋ .ns-popmenu-item.is-danger">
           <div className="ns-gal-row">
             <span className="ns-gal-hint">審 Next Stop 風格原型</span>
             <button
@@ -986,7 +1059,7 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
       </Comp>
 
       {dlg === "S" && (
-        <DialogShell title="改路線名稱" overline="路線 — Route" size="S" onClose={close} foot={foot("改好了")}>
+        <DialogShell title="改路線名稱" overline={{ zh: "路線", latin: "Route" }} size="S" onClose={close} foot={foot("改好了")}>
           <label className="ns-gal-field">
             <span className="techo-label">名稱</span>
             <input className="techo-input" defaultValue="日文" autoFocus />
@@ -994,19 +1067,19 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
         </DialogShell>
       )}
       {dlg === "M" && (
-        <DialogShell title="建立路線" overline="路線 — Route" size="M" onClose={close} foot={foot("建立")}>
+        <DialogShell title="建立路線" overline={{ zh: "路線", latin: "Route" }} size="M" onClose={close} foot={foot("建立")}>
           <div className="ns-gal-grid">
             <RouteFields color={color} setColor={setColor} />
           </div>
         </DialogShell>
       )}
       {dlg === "L" && (
-        <DialogShell title="變成待辦" overline="收件匣 — Inbox" size="L" onClose={close} foot={foot("變成待辦")}>
+        <DialogShell title="變成待辦" overline={{ zh: "收件匣", latin: "Inbox" }} size="L" onClose={close} foot={foot("變成待辦")}>
           <div className="ns-gal-grid">{sheetBody}</div>
         </DialogShell>
       )}
       {dlg === "live" && (
-        <DialogShell title="分類與設定" overline="時刻表 — Timetable" size="M" onClose={close}>
+        <DialogShell title="分類與設定" overline={{ zh: "時刻表", latin: "Timetable" }} size="M" onClose={close}>
           <p className="ns-gal-hint">即時存的面板沒有按鈕列，關閉只有 ×（§2.3）。</p>
           <ManagerDemo />
         </DialogShell>
@@ -1014,7 +1087,7 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
       {dlg === "ticket" && (
         <DialogShell
           title="記一句"
-          overline="記一句 — Capture"
+          overline={{ zh: "記一句", latin: "Capture" }}
           skin="ticket"
           onClose={close}
           stub={
@@ -1028,7 +1101,7 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
           <p className="ns-gal-hint">Enter 存進收件匣 ・ 再按一次 Esc 放棄</p>
         </DialogShell>
       )}
-      {menuAt && <PopMenu anchor={menuAt} overline="這張車票 — Ticket" label="車票動作" items={menu} onClose={() => setMenuAt(null)} />}
+      {menuAt && <PopMenu anchor={menuAt} overline={{ zh: "這張車票", latin: "Ticket" }} label="車票動作" items={menu} onClose={() => setMenuAt(null)} />}
       {live === "sheet" && (
         <MSheet title="改一張車票" onClose={() => setLive(null)} foot={sheetFoot(() => setLive(null))}>
           {sheetBody}
@@ -1090,6 +1163,8 @@ interface DemoCat {
   id: string;
   name: string;
   color: number;
+  /** 預設長度（分）；UI 丙-4 展開區樣本用 */
+  len?: number;
   archived?: boolean;
 }
 const DEMO_CATS: readonly DemoCat[] = [
@@ -1099,9 +1174,37 @@ const DEMO_CATS: readonly DemoCat[] = [
   { id: "z", name: "舊社團", color: 8, archived: true },
 ];
 
-/** ManagerRow 的清單（樣本）：改名、上下移、⋯ 封存／刪除都只改 local state */
+/** ManagerRow 展開區的內容（樣本，UI 丙-4）：分類色（分類盤 8 格、不開自訂）＋預設長度（≤7 個固定選項＝底線下拉） */
+function ManagerDetailDemo({ cat, onPatch }: { cat: DemoCat; onPatch: (p: Partial<DemoCat>) => void }) {
+  return (
+    <>
+      <div className="ns-gal-field">
+        <span className="techo-label">顏色 ・ 分類盤</span>
+        <ColorPicker palette="category" value={cat.color} onChange={(n) => typeof n === "number" && onPatch({ color: n })} />
+      </div>
+      <label className="ns-gal-field">
+        <span className="techo-label">預設長度</span>
+        <span className="ns-select-wrap">
+          <select className="techo-input" value={cat.len ?? 30} onChange={(e) => onPatch({ len: Number(e.target.value) })}>
+            {[15, 30, 60, 90, 120].map((m) => (
+              <option key={m} value={m}>
+                {m} 分
+              </option>
+            ))}
+          </select>
+        </span>
+      </label>
+    </>
+  );
+}
+
+/**
+ * ManagerRow 的清單（樣本）：改名、上下移、⋯ 封存／刪除都只改 local state。
+ * UI 丙-4：沒封存的列帶 `detail`（⋯「更多設定…」展開：分類色＋預設長度，B2 的長相）；第一列預設開著，用受控的 detailOpen 示範
+ */
 function ManagerDemo() {
   const [cats, setCats] = useState<DemoCat[]>(() => [...DEMO_CATS]);
+  const [openId, setOpenId] = useState<string | null>("a");
   const active = cats.filter((c) => !c.archived);
   const archived = cats.filter((c) => c.archived);
   const patch = (id: string, p: Partial<DemoCat>) => setCats((cs) => cs.map((c) => (c.id === id ? { ...c, ...p } : c)));
@@ -1116,7 +1219,7 @@ function ManagerDemo() {
     });
   const menuOf = (c: DemoCat): PopMenuItem[] => [
     { key: "arch", label: c.archived ? "取消封存" : "封存", onSelect: () => patch(c.id, { archived: !c.archived }) },
-    { key: "del", label: "刪除", cut: true, onSelect: () => setCats((cs) => cs.filter((x) => x.id !== c.id)) },
+    { key: "del", label: "刪除", cut: true, danger: true, onSelect: () => setCats((cs) => cs.filter((x) => x.id !== c.id)) },
   ];
   const row = (c: DemoCat, i: number, n: number) => (
     <ManagerRow
@@ -1128,6 +1231,10 @@ function ManagerDemo() {
       onDown={c.archived || i === n - 1 ? undefined : () => move(c.id, 1)}
       menu={menuOf(c)}
       archived={c.archived}
+      dataId={c.id}
+      detail={c.archived ? undefined : <ManagerDetailDemo cat={c} onPatch={(p) => patch(c.id, p)} />}
+      detailOpen={openId === c.id}
+      onDetailOpenChange={(o) => setOpenId(o ? c.id : null)}
     />
   );
   return (
@@ -1351,12 +1458,12 @@ function FormSection({ today }: { today: string }) {
 
       <Comp
         spec={[
-          ["ColorPicker", <>依場景載入一盤、兩盤共存：路線盤 4 格（藍鼠／梅紫／松葉／利休鼠，存 <code>var(--route-preset-N)</code>）、分類盤 8 格（只標「第 N 色」，存 <code>color_idx</code>）；「自訂…」＝色塊預覽＋原生色盤，<b>沒有色碼文字框</b>；選中外環 <code>--sel-line</code>。hover：色票放大 1.08。</>],
-          ["鍵盤", <><code>role=radiogroup</code>；一個 Tab stop，←→↑↓ 換格並選取、Home／End；「自訂…」另一個 Tab 停點。</>],
+          ["ColorPicker", <>依場景載入一盤、兩盤共存：路線盤 4 格（藍鼠／梅紫／松葉／利休鼠，存 <code>var(--route-preset-N)</code>）、分類盤 8 格（只標「第 N 色」，存 <code>color_idx</code>）；自訂＝同大小虛線圓「＋」、點了開原生色盤，選了自訂色整顆填色、「＋」消失，<b>沒有色碼文字框</b>；<code>showName</code> 在右邊寫色名（自訂色寫色碼）；選中外環 <code>--sel-line</code>。hover：色票放大 1.08。</>],
+          ["鍵盤", <><code>role=radiogroup</code>；一個 Tab stop，←→↑↓ 換格並選取、Home／End；自訂圓「＋」另一個 Tab 停點。</>],
         ]}
       >
         <Cell state="路線盤＋自訂" cls=".ns-colorpick > .ns-sw.is-on ＋ .ns-sw-custom">
-          <ColorPicker palette="route" value={route} onChange={setRoute} custom />
+          <ColorPicker palette="route" value={route} onChange={setRoute} custom showName />
         </Cell>
         <Cell state="分類盤＋自訂" cls="--cat-1..8">
           <ColorPicker palette="category" value={cat} onChange={setCat} custom />
@@ -1369,7 +1476,7 @@ function FormSection({ today }: { today: string }) {
       <Comp
         spec={[
           ["選項 chip", <>多選、篩選、快選用（單選一組改 Segmented）；選中＝<code>--sel-bg</code>＋<code>--sel-fg</code>；篩選 chip 在頁首下一列。</>],
-          ["ManagerRow", <>名稱（行內改名，失焦或 Enter 就存）｜色票｜↑ ↓（到邊界禁用）｜⋯（封存、刪除）；<b>自動存、沒有「完成」、關閉只有 ×</b>；封存的列淡墨、不排序。鍵盤：Alt+↑／↓ 上下移、Esc 有改動先還原。</>],
+          ["ManagerRow", <>名稱（行內改名，失焦或 Enter 就存）｜色票｜↑ ↓（到邊界禁用）｜⋯（更多設定…、封存、刪除）；<b>自動存、沒有「完成」、關閉只有 ×</b>；一列放不下的設定進 ⋯「更多設定…」打開的列下展開區；封存的列淡墨、不排序。鍵盤：Alt+↑／↓ 上下移、Esc 有改動先還原。</>],
         ]}
       >
         <Cell state="選項 chip" note="點了切換；最後一顆 disabled" cls=".chip.ns-chip[aria-pressed]">
@@ -1390,7 +1497,7 @@ function FormSection({ today }: { today: string }) {
             </button>
           </div>
         </Cell>
-        <Cell wide state="ManagerRow" note="第一列 ↑、最後一列 ↓ 禁用；最後一列已封存" cls="ul.ns-mgr > li.ns-mgr-row">
+        <Cell wide state="ManagerRow" note="第一列 ↑、最後一列 ↓ 禁用；最後一列已封存；第一列展開區開著（⋯ 更多設定…）" cls="ul.ns-mgr > li.ns-mgr-row">
           <div className="techo-card ns-gal-card">
             <div className="ns-gal-card-head">
               <h4 className="ns-gal-card-title">分類與設定</h4>

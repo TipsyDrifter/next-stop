@@ -2,7 +2,8 @@
  * NoteContent——筆記內容欄（桌機；車次①契約 §5.1；D-筆-1／6／24）。
  *
  *   metaline：「掛在哪」（●路線名 › 節點名／沒掛／原節點已刪除；點開 AttachPicker depth="node"，含「摘掉」）
- *             ・日期「10 月 5 日」（點開 DatePop 改 noted_at，保留原時刻）
+ *             ・日期「10 月 5 日」（點開錨定 DatePicker 改 noted_at，保留原時刻）
+ *   UI 丙-6：攤開的大紙保留（K6，填滿欄高由 notes.css〈筆記〉給）；沒選時只寫「選一則筆記」、不放鈕（N6）。
  *   標題（選填）＋內文讀寫兩態（D-筆-24）：
  *     閱讀＝plainParagraphs 排成段落與換行（Markdown 在車次④）；點一下或 Enter（頁面按鍵表 notes.open）進編輯
  *           車次③：內文的 #荷札 畫成行內小牌（點＝荷札頁，「‹ 回到剛才 <標題>」回這則）
@@ -25,9 +26,8 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { fmtMonthDay, noteTitle } from "../../domain/notes";
 import { useTagStore } from "../../store/tagStore";
-import { AttachPicker } from "./AttachPicker";
-import { CaptureButton } from "./CaptureButton";
-import { DatePop } from "./DatePop";
+import { AttachPicker } from "../common/AttachPicker";
+import { DatePicker } from "../common/DatePicker";
 import { Roundel, capsOf, dayOf, isoWithDay } from "./notesBits";
 import { MdBody } from "./md/MdBody";
 import { resolveLeaveNote } from "./leaveSync";
@@ -66,6 +66,7 @@ export function NoteContent({
   const selectedId = useNotesStore((s) => s.selectedNoteId);
   const draftNew = useNotesStore((s) => s.draftNew);
   const editing = useNotesStore((s) => s.editing);
+  const listEmpty = useNotesStore((s) => s.notes.length === 0);
   const note = useNotesStore((s) => (s.selectedNoteId ? (s.notes.find((n) => n.id === s.selectedNoteId) ?? null) : null));
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -143,6 +144,8 @@ export function NoteContent({
   /* ── 編輯態 ── */
   const taRef = useRef<HTMLTextAreaElement>(null);
   const focusReadNext = useRef(false);
+  /** metaline 的日期鈕：「改日期」卡錨在它下方（掛 body，不靠寫死的 left／top；丙-6） */
+  const dateBtnRef = useRef<HTMLButtonElement>(null);
   const autosize = () => {
     const ta = taRef.current;
     if (!ta) return;
@@ -198,9 +201,10 @@ export function NoteContent({
       <section className="ns-notes-contentcol ns-notes-col techo-scroll" aria-label="筆記內容">
         <div className="ns-notes-sheetwrap">
           <article className="ns-notes-page">
+            {/* 丙-6 N6：沒選時只是提示、不放鈕（新筆記的入口在頁首與列表空狀態，同頁一個動作一個入口）。
+                清單是空的（沒有筆記，或搜尋／篩選沒結果）就沒東西可選：只留空紙、不寫「選一則筆記」（回修；說明交給左邊的空狀態） */}
             <div className="ns-notes-placeholder">
-              <p>選一則筆記，或記一句</p>
-              <CaptureButton variant="page" stub="note" />
+              {listEmpty ? null : <p>選一則筆記</p>}
             </div>
           </article>
         </div>
@@ -225,7 +229,7 @@ export function NoteContent({
           {route?.name ?? note.node_name ?? ""}
           {note.node_kind && note.node_kind !== "route" && note.node_name ? (
             <>
-              <span style={{ opacity: 0.6 }}> › </span>
+              <span className="ns-notes-metasep"> › </span>
               {note.node_name}
             </>
           ) : null}
@@ -265,6 +269,7 @@ export function NoteContent({
                 data-pop-toggle=""
                 aria-expanded={myPop === "date"}
                 disabled={!id}
+                ref={dateBtnRef}
                 title="改日期"
                 onClick={() => id && setPop(myPop === "date" ? null : { id, kind: "date" })}
               >
@@ -293,19 +298,17 @@ export function NoteContent({
                 />
               )}
               {myPop === "date" && note && (
-                <div style={{ position: "absolute", left: 110, top: 0 }}>
-                  <DatePop
-                    float
-                    label="改日期"
-                    value={day}
-                    max={today}
-                    onPick={(d) => {
-                      closePop();
-                      void useNotesStore.getState().setNoteDate(note.id, isoWithDay(note.noted_at, d));
-                    }}
-                    onClose={closePop}
-                  />
-                </div>
+                <DatePicker
+                  anchor={dateBtnRef.current}
+                  label="改日期"
+                  value={day}
+                  max={today}
+                  onPick={(d) => {
+                    closePop();
+                    void useNotesStore.getState().setNoteDate(note.id, isoWithDay(note.noted_at, d));
+                  }}
+                  onClose={closePop}
+                />
               )}
             </div>
 

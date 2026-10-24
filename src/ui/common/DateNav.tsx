@@ -17,7 +17,8 @@
  *
  * ARIA 與鍵盤：
  * - 外層 `role="group"`＋`aria-label`（預設「翻日期」）；標題 `aria-live="polite"`——按箭頭後讀屏念出新的日期。
- * - 每顆箭頭 `aria-label`＋`title`（依 `unit`：前一天／後一天、上一週／下一週、上個月／下個月；年＝上一年／下一年）。
+ * - 每顆箭頭 `aria-label`＋`title`（依 `unit`：前一天／後一天、上一週／下一週、上個月／下個月、上一年／下一年；« »＝上一年／下一年）。
+ *   `unit="year"`（UI 丙-5：售票口統計的年模式）＝‹ › 一下走一年；這時不要再給 onPrevYear／onNextYear（« » 會跟 ‹ › 同一個意思）。
  * - 標題是按鈕時帶 `aria-haspopup="dialog"`＋`aria-expanded`（由 `titleExpanded` 給）。
  * - 全部是原生 button：Tab 依序走、Enter／Space 觸發；不攔方向鍵（頁面的 ←→ 快捷鍵另在 hotkeys 表，不在這裡重綁）。
  */
@@ -25,12 +26,13 @@ import type { ReactNode } from "react";
 import { IconBack, IconChevron, IconFirst, IconLast } from "./icons";
 
 /** 箭頭一下走多遠（決定 aria-label／title 的字） */
-export type DateNavUnit = "day" | "week" | "month";
+export type DateNavUnit = "day" | "week" | "month" | "year";
 
 const UNIT_WORDS: Readonly<Record<DateNavUnit, readonly [string, string]>> = {
   day: ["前一天", "後一天"],
   week: ["上一週", "下一週"],
   month: ["上個月", "下個月"],
+  year: ["上一年", "下一年"],
 };
 
 export interface DateNavProps {

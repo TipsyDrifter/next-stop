@@ -5,19 +5,20 @@
  *   - entity 模式：掛在某個實體上（路線圖詳情「＋ 掛荷札」、之後的票卡 ⋯ →「荷札…」）。
  *     開的時候已掛的牌子就是「已選」；完成＝`setTags(type, id, 已選名稱)`——一個交易、一個 toast、一次復原（原型 9）。
  *   - insert 模式：筆記／日記編輯工具列的「#」。完成＝`onInsert(已選名稱)`（可能是空陣列：呼叫端把焦點放回打字框）。
- * 完成＝右上「完成」或點暗幕（原型 9：點暗幕也算完成）；Android 返回鍵同點暗幕（磨光① D-主-51）。
+ * 完成＝底部「完成」或點暗幕（原型 9：點暗幕也算完成）；Android 返回鍵、下滑拉柄同點暗幕（磨光① D-主-51）。
+ * UI 丙-6 S3：殼換共用 `MSheet height="full"`（90%；標題＝殼的襯線標題、「完成」在 foot 右、左邊是「已選 N 個」）。
+ *   殼的本文不捲：已選牌子、搜尋框固定，只有下面的清單（.ns-notes-mpkbody）捲——同舊抽屜（notes-mobile.css 12-7）。
  *
- * 由上而下：標題（「荷札・<名稱>」／insert 模式 `picker.title ?? "插入荷札"`）＋完成 → 已選的牌子（× 常駐）→ 搜尋（不用打 #）
+ * 由上而下：標題（「荷札・<名稱>」／insert 模式 `picker.title ?? "插入荷札"`）→ 已選的牌子（× 常駐）→ 搜尋（不用打 #）
  *   → 有字：「建立 ○○」、提示、`難度/` 的瀏覽標頭、結果列（勾選框＋名稱＋數量）
  *   → 沒字：「最近用過」一排（≤6）＋「全部荷札」樹（勾選；虛資料夾只能展開）；長按一列 500ms
  *     ⇒ 該列下方出「在 #○○ 底下建立…」⇒ 搜尋框填成 `○○/`、聚焦。
  * 樹的展開狀態是本元件自己的（不動荷札頁的 openKeys：點選器關掉，荷札頁的樹不該跟著變）。
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { createPortal } from "react-dom";
 import { flattenTree } from "../../../domain/tags";
 import { useTagStore, type TagPickerState } from "../../../store/tagStore";
-import { useBackLayer } from "../../mobile/backStack";
+import { MSheet } from "../../common/MSheet";
 import { IconPlus, IconSearch } from "./mobileDiaryBits";
 import { IconCaretRight, IconCheck, MTag, MTagLoading, TagGlyph, TagName, retryTagIndex, useTagIndexFailed } from "./mobileTagBits";
 import "../notes-mobile.css";
@@ -97,10 +98,6 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
     if (picker.entityType && picker.entityId) void setTags(picker.entityType, picker.entityId, names);
   };
 
-  // 磨光① 返回層：返回＝同點暗幕＝完成（D-主-51）；本元件只在 picker 開著時掛，所以一直 active。
-  //   可疊在時刻表面板上：比它晚開、序號大，返回先關這裡
-  useBackLayer("notes.tagPicker", true, finish);
-
   const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
     e.preventDefault();
@@ -143,195 +140,197 @@ export function MobileTagPicker({ picker }: { picker: TagPickerState }) {
   // insert 模式：呼叫端給了標題就用（時刻表塊面板「荷札・娛樂 23:20」，磨光③ 2-8），沒給照舊
   const title = picker.mode === "insert" ? (picker.title ?? "插入荷札") : `荷札・${picker.name}`;
 
-  return createPortal(
-    <div
-      className="ns-notes-mveil is-top"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) finish();
-      }}
-    >
-      <div className="ns-notes-mpicker" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="ns-notes-grip" aria-hidden />
-        <div className="ns-notes-mpkhead">
-          <h3>{title}</h3>
+  // 磨光① 返回層：返回＝同點暗幕＝完成（D-主-51）。UI 丙-6 S3：殼換 MSheet、由殼登記（backId "notes.tagPicker"）；
+  //   本元件只在 picker 開著時掛，所以一直 active。可疊在時刻表面板（z45）上 ⇒ backKind "dialog"（z47、返回先關這裡）
+  return (
+    <MSheet
+      title={title}
+      height="full"
+      backId="notes.tagPicker"
+      backKind="dialog"
+      className="ns-notes-mpksheet"
+      onClose={finish}
+      foot={
+        <>
+          <span className="ns-notes-mpkcount">
+            {sel.length > 0 ? `已選 ${sel.length} 個` : ""}
+          </span>
           <button type="button" className="ns-notes-mbtn ns-btn btn-seal" onClick={finish}>
             完成
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="ns-notes-mpkchips" aria-live="polite">
+        {sel.length === 0 ? (
+          <span className="empty">{picker.mode === "insert" ? "勾選要插入的荷札" : "還沒掛荷札"}</span>
+        ) : (
+          sel.map((s) => <MTag key={s.key} name={s.name} onRemove={() => toggle(s.key)} />)
+        )}
+      </div>
 
-        <div className="ns-notes-mpkchips" aria-live="polite">
-          {sel.length === 0 ? (
-            <span className="empty">{picker.mode === "insert" ? "勾選要插入的荷札" : "還沒掛荷札"}</span>
-          ) : (
-            sel.map((s) => <MTag key={s.key} name={s.name} onRemove={() => toggle(s.key)} />)
-          )}
-        </div>
+      <label className="ns-notes-mpksearch">
+        <IconSearch />
+        <input
+          ref={searchRef}
+          className="ns-notes-minput"
+          type="search"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setLp(null);
+          }}
+          onKeyDown={onSearchKey}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={() => {
+            composing.current = false;
+          }}
+          placeholder="搜尋或建立荷札（不用打 #）"
+          aria-label="搜尋或建立荷札"
+          autoComplete="off"
+          spellCheck={false}
+          enterKeyHint="done"
+        />
+      </label>
 
-        <label className="ns-notes-mpksearch">
-          <IconSearch />
-          <input
-            ref={searchRef}
-            className="ns-notes-minput"
-            type="search"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setLp(null);
-            }}
-            onKeyDown={onSearchKey}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-            placeholder="搜尋或建立荷札（不用打 #）"
-            aria-label="搜尋或建立荷札"
-            autoComplete="off"
-            spellCheck={false}
-            enterKeyHint="done"
-          />
-        </label>
-
-        <div className="ns-notes-mpkbody">
-          {res ? (
-            <>
-              {res.create && (
-                <button type="button" className="ns-notes-mpkrow create" onClick={create}>
-                  <IconPlus size={14} />
-                  <span className="nm">
-                    建立 <b>{res.create.name}</b>
-                  </span>
-                </button>
-              )}
-              {res.browse && res.items.length > 0 && <p className="ns-notes-mpkhint head">#{nameOf(res.browse)} 底下</p>}
-              {res.hint && <p className="ns-notes-mpkhint">{res.hint}{res.browse ? "——接著打下一層荷札的名稱就能建立" : ""}</p>}
-              {res.items.map((it) => (
-                <button
-                  key={it.key}
-                  type="button"
-                  className="ns-notes-mpkrow"
-                  role="checkbox"
-                  aria-checked={has(it.key)}
-                  onClick={() => toggle(it.key, it.name)}
-                >
-                  <CheckBox on={has(it.key)} />
-                  <span className="nm">
-                    <TagName name={it.name} hl={it.hl} />
-                  </span>
-                  <span className="n">{it.count}</span>
-                </button>
-              ))}
-              {!res.items.length && !res.create && !res.hint && <p className="ns-notes-mpkhint">找不到符合的荷札</p>}
-            </>
-          ) : (
-            <>
-              {recentRows.length > 0 && (
-                <>
-                  <p className="ns-notes-mpklabel">最近用過</p>
-                  <div className="ns-notes-mpkrecent">
-                    {recentRows.map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        className={"ns-notes-mpkrc" + (has(k) ? " on" : "")}
-                        aria-pressed={has(k)}
-                        onClick={() => toggle(k)}
+      <div className="ns-notes-mpkbody">
+        {res ? (
+          <>
+            {res.create && (
+              <button type="button" className="ns-notes-mpkrow create" onClick={create}>
+                <IconPlus size={14} />
+                <span className="nm">
+                  建立 <b>{res.create.name}</b>
+                </span>
+              </button>
+            )}
+            {res.browse && res.items.length > 0 && <p className="ns-notes-mpkhint head">#{nameOf(res.browse)} 底下</p>}
+            {res.hint && <p className="ns-notes-mpkhint">{res.hint}{res.browse ? "——接著打下一層荷札的名稱就能建立" : ""}</p>}
+            {res.items.map((it) => (
+              <button
+                key={it.key}
+                type="button"
+                className="ns-notes-mpkrow"
+                role="checkbox"
+                aria-checked={has(it.key)}
+                onClick={() => toggle(it.key, it.name)}
+              >
+                <CheckBox on={has(it.key)} />
+                <span className="nm">
+                  <TagName name={it.name} hl={it.hl} />
+                </span>
+                <span className="n">{it.count}</span>
+              </button>
+            ))}
+            {!res.items.length && !res.create && !res.hint && <p className="ns-notes-mpkhint">找不到符合的荷札</p>}
+          </>
+        ) : (
+          <>
+            {recentRows.length > 0 && (
+              <>
+                <p className="ns-notes-mpklabel">最近用過</p>
+                <div className="ns-notes-mpkrecent">
+                  {recentRows.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      className={"ns-notes-mpkrc" + (has(k) ? " on" : "")}
+                      aria-pressed={has(k)}
+                      onClick={() => toggle(k)}
+                    >
+                      {has(k) && <IconCheck size={11} />}
+                      <TagName name={nameOf(k)} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <p className="ns-notes-mpklabel">
+              全部荷札<span>長按可建立下一層</span>
+            </p>
+            {!index ? (
+              <MTagLoading className="ns-notes-mpkhint" failed={failed} onRetry={retryTagIndex} />
+            ) : rows.length === 0 ? (
+              <p className="ns-notes-mpkhint">還沒有荷札——在上方輸入名稱就能建立</p>
+            ) : (
+              <div className="ns-notes-mpktree" role="tree" aria-label="全部荷札">
+                {rows.map((r) => {
+                  const x = r.node;
+                  const toggleOpen = () => {
+                    setLp(null);
+                    setOpen((cur) => {
+                      const next = { ...cur };
+                      if (next[x.key]) delete next[x.key];
+                      else next[x.key] = 1;
+                      return next;
+                    });
+                  };
+                  return (
+                    <div key={x.key} role="none">
+                      <div
+                        className={"ns-notes-mpktrow" + (x.real ? "" : " virtual") + (lp === x.key ? " is-lp" : "")}
+                        style={{ ["--d" as string]: x.depth - 1 }}
+                        role="treeitem"
+                        aria-expanded={r.hasKids ? r.open : undefined}
+                        aria-selected={x.real ? has(x.key) : undefined}
+                        onPointerDown={pressStart(x.key)}
+                        onPointerMove={pressMove}
+                        onPointerUp={pressEnd}
+                        onPointerLeave={pressEnd}
+                        onPointerCancel={pressEnd}
+                        onContextMenu={(e) => e.preventDefault()}
                       >
-                        {has(k) && <IconCheck size={11} />}
-                        <TagName name={nameOf(k)} />
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-              <p className="ns-notes-mpklabel">
-                全部荷札<span>長按可建立下一層</span>
-              </p>
-              {!index ? (
-                <MTagLoading className="ns-notes-mpkhint" failed={failed} onRetry={retryTagIndex} />
-              ) : rows.length === 0 ? (
-                <p className="ns-notes-mpkhint">還沒有荷札——在上方輸入名稱就能建立</p>
-              ) : (
-                <div className="ns-notes-mpktree" role="tree" aria-label="全部荷札">
-                  {rows.map((r) => {
-                    const x = r.node;
-                    const toggleOpen = () => {
-                      setLp(null);
-                      setOpen((cur) => {
-                        const next = { ...cur };
-                        if (next[x.key]) delete next[x.key];
-                        else next[x.key] = 1;
-                        return next;
-                      });
-                    };
-                    return (
-                      <div key={x.key} role="none">
-                        <div
-                          className={"ns-notes-mpktrow" + (x.real ? "" : " virtual") + (lp === x.key ? " is-lp" : "")}
-                          style={{ ["--d" as string]: x.depth - 1 }}
-                          role="treeitem"
-                          aria-expanded={r.hasKids ? r.open : undefined}
-                          aria-selected={x.real ? has(x.key) : undefined}
-                          onPointerDown={pressStart(x.key)}
-                          onPointerMove={pressMove}
-                          onPointerUp={pressEnd}
-                          onPointerLeave={pressEnd}
-                          onPointerCancel={pressEnd}
-                          onContextMenu={(e) => e.preventDefault()}
-                        >
-                          {r.hasKids ? (
-                            <button
-                              type="button"
-                              className={"cr" + (r.open ? " open" : "")}
-                              aria-label={r.open ? `收合 #${x.name}` : `展開 #${x.name}`}
-                              onClick={() => {
-                                if (!swallow()) toggleOpen();
-                              }}
-                            >
-                              <IconCaretRight />
-                            </button>
-                          ) : (
-                            <span className="cr" aria-hidden />
-                          )}
+                        {r.hasKids ? (
                           <button
                             type="button"
-                            className="ln"
+                            className={"cr" + (r.open ? " open" : "")}
+                            aria-label={r.open ? `收合 #${x.name}` : `展開 #${x.name}`}
                             onClick={() => {
-                              if (swallow()) return;
-                              if (x.real) toggle(x.key, x.name);
-                              else toggleOpen();
+                              if (!swallow()) toggleOpen();
                             }}
                           >
-                            {x.real ? <CheckBox on={has(x.key)} /> : <TagGlyph real={false} />}
-                            <span className="nm">{x.seg}</span>
-                            {!x.real && <span className="vf">上層分類</span>}
+                            <IconCaretRight />
                           </button>
-                          <span className="n">{x.total}</span>
-                        </div>
-                        {lp === x.key && (
-                          <div className="ns-notes-mpklp" style={{ ["--d" as string]: x.depth }}>
-                            <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => createUnder(x.key)}>
-                              <IconPlus />在 #{x.name} 底下建立…
-                            </button>
-                          </div>
+                        ) : (
+                          <span className="cr" aria-hidden />
                         )}
+                        <button
+                          type="button"
+                          className="ln"
+                          onClick={() => {
+                            if (swallow()) return;
+                            if (x.real) toggle(x.key, x.name);
+                            else toggleOpen();
+                          }}
+                        >
+                          {x.real ? <CheckBox on={has(x.key)} /> : <TagGlyph real={false} />}
+                          <span className="nm">{x.seg}</span>
+                          {!x.real && <span className="vf">上層分類</span>}
+                        </button>
+                        <span className="n">{x.total}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-              <p className="ns-notes-mtreelegend">
-                <TagGlyph real={false} />
-                這只是上層分類，只能展開、不能勾選
-              </p>
-            </>
-          )}
-        </div>
+                      {lp === x.key && (
+                        <div className="ns-notes-mpklp" style={{ ["--d" as string]: x.depth }}>
+                          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={() => createUnder(x.key)}>
+                            <IconPlus />在 #{x.name} 底下建立…
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <p className="ns-notes-mtreelegend">
+              <TagGlyph real={false} />
+              這只是上層分類，只能展開、不能勾選
+            </p>
+          </>
+        )}
       </div>
-    </div>,
-    document.body,
+    </MSheet>
   );
 }
 

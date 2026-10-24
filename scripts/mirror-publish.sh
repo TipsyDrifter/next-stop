@@ -22,8 +22,8 @@
 #
 # 公開名單（白名單思維——沒列的一律不出去）：
 #   根目錄檔：README.md LICENSE package.json pnpm-lock.yaml pnpm-workspace.yaml index.html vite.config.ts tsconfig*.json .gitignore .gitattributes
-#   目錄：src/ src-tauri/ public/ scripts/（排除 scripts/probes/）docs/images/ docs/release-notes/ docs/發版流程.md
-#   不出去：docs/ 其餘、files/、prototypes/、.claude/、.vscode/、scripts/probes/、.sync/
+#   目錄：src/ src-tauri/ public/ scripts/（排除 scripts/probes/、scripts/verify/）docs/images/ docs/release-notes/ docs/發版流程.md
+#   不出去：docs/ 其餘、files/、prototypes/、.claude/、.vscode/、scripts/probes/、scripts/verify/、.sync/
 set -euo pipefail
 
 MIRROR_REPO="${MIRROR_REPO:-TipsyDrifter/next-stop}"
@@ -93,7 +93,7 @@ fi
 WHITELIST_FILES=(README.md LICENSE package.json pnpm-lock.yaml pnpm-workspace.yaml index.html vite.config.ts tsconfig.json tsconfig.node.json .gitignore .gitattributes)
 WHITELIST_DIRS=(src src-tauri public scripts docs/images docs/release-notes)
 WHITELIST_EXTRA=("docs/發版流程.md")
-EXCLUDE_INSIDE=(scripts/probes src-tauri/gen/android/app/build src-tauri/target)
+EXCLUDE_INSIDE=(scripts/probes scripts/verify src-tauri/gen/android/app/build src-tauri/target)
 
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 EXPORT="$WORK/export"; MIR="$WORK/mirror"

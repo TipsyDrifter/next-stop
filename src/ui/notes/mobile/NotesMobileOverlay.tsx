@@ -9,12 +9,13 @@
  * 車次③：荷札點選器（`tagStore.picker`，契約 §5.5）也畫在這裡——優先序 預覽 > 點選器 > 捕捉面板（同時只畫一件）；
  *   點選器開著時浮動鈕同樣收起。誰都能 `tagStore.openPicker(...)` 叫它（路線圖詳情、編輯工具列、之後的票卡 ⋯）。
  * 狀態全在 notesStore（桌機 NotesDesktopOverlay 同一份），兩殼永不同時渲染（useShell.ts）。
- * 磨光① 返回層（契約 §1.5）：預覽（full）與捕捉面板（sheet）登記在這裡（狀態的主人＝store，這裡是唯一畫它們的地方）；
- *   active 跟著「現在畫的是哪一件」走。點選器的返回要叫它自己的 finish()，登記在 MobileTagPicker。
+ * 磨光① 返回層（契約 §1.5）：原本預覽（full）與捕捉面板（sheet）登記在這裡。
+ * UI 丙-6 S1／S2：捕捉面板換共用 MSheet（backId "notes.capture"）、預覽換 MFullPage（backId "notes.preview"），
+ *   殼自己登記返回層、只在畫出來時啟用——三件互斥渲染本來就等於原本的 active 條件（`!hasPreview && !picker`），這裡不再登記。
+ *   點選器同樣是 MSheet（backId "notes.tagPicker"，返回＝它自己的 finish()）。
  */
 import { useNotesStore } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
-import { useBackLayer } from "../../mobile/backStack";
 import { MobileCaptureFab } from "./MobileCaptureFab";
 import { MobileCaptureSheet } from "./MobileCaptureSheet";
 import { MobileTodoPreview } from "./MobileTodoPreview";
@@ -28,9 +29,6 @@ export function NotesMobileOverlay() {
   const hasCapture = useNotesStore((s) => s.capture !== null);
   const hasPreview = useNotesStore((s) => s.preview !== null);
   const picker = useTagStore((s) => s.picker);
-  // 返回＝預覽的「取消」；捕捉框＝取消鈕／Esc（有內容時第一下只出提醒，第二下才關——兩段式照舊）
-  useBackLayer("notes.preview", hasPreview, () => useNotesStore.getState().cancelPreview(), "full");
-  useBackLayer("notes.capture", !hasPreview && !picker && hasCapture, () => useNotesStore.getState().escapeCapture());
   return (
     <>
       <MobileCaptureFab hidden={hasPreview || hasCapture || picker !== null} />

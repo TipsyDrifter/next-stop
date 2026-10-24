@@ -40,10 +40,10 @@ const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.diary.next", scope: "notes", chords: [{ key: "ArrowRight" }], label: "後一天", wired: true },
   { id: "notes.diary.fp.prev", scope: "notes", chords: [{ key: "ArrowLeft", shift: true }], label: "足跡：前一天", wired: true },
   { id: "notes.diary.fp.next", scope: "notes", chords: [{ key: "ArrowRight", shift: true }], label: "足跡：後一天", wired: true },
-  { id: "notes.diary.today", scope: "notes", chords: [{ key: "Home" }], label: "回到今天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.today", scope: "notes", chords: [{ key: "Home" }], label: "今天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.fp.back", scope: "notes", chords: [{ key: "b" }], label: "足跡回到本文那天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.pick", scope: "notes", chords: [{ key: "g" }], label: "跳到指定日期", wired: true, ignoreMods: [...SHIFT_LOOSE] },
-  { id: "notes.diary.write", scope: "notes", chords: [{ key: "w" }], label: "寫日記／補記／再寫一篇", wired: true, ignoreMods: [...SHIFT_LOOSE] },
+  { id: "notes.diary.write", scope: "notes", chords: [{ key: "w" }], label: "寫日記／補記", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.diary.save", scope: "notes", chords: [{ key: "Enter", ctrl: true }], label: "日記草稿存檔", wired: false },
   // 車次③（契約 §5.6）：荷札頁。只在荷札子畫面導航模式有效（NotesView 只在 section==="tags" 給這三個選填動作）；
   // Backspace 在沒有「回到剛才」時放行不吃

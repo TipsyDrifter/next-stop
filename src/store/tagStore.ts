@@ -11,11 +11,12 @@
  *   - `nameOf(key)`：index 裡的顯示名（沒有＝key）。
  *   - 磨光③：`TagPickerState.title`（insert 模式標題，2-8）；`loadError`（載入失敗給重試，2-12）；
  *     `ensureBackfill` 補到 0 個不跳提示（2-14）。
+ *   - UI 丙-6（☎-1）：`createTag(rawName)`＝荷札頁「＋ 新荷札」（桌機頁首小浮層、手機 MSheet 表單共用）。
  */
 import { create } from "zustand";
 import { tagRepo } from "../data/tagRepo";
 import { settingsRepo } from "../data";
-import { isEmptyReceipt, type AttachResult, type TagEntityType, type TagReceipt } from "../data/tagRepository";
+import { isEmptyReceipt, type AttachResult, type CreateTagResult, type TagEntityType, type TagReceipt } from "../data/tagRepository";
 import {
   TAGS_BACKFILL_KEY,
   buildIndex,
@@ -99,6 +100,12 @@ export interface TagStore {
   keysOf(entityType: TagEntityType, entityId: string): string[];
 
   /* 寫入（每支：repo → loadIndex → toast＋復原） */
+  /**
+   * UI 丙-6（☎-1）：單純建一個荷札（掛 0 處）→ loadIndex → 選中它（同 `select`：收起改名、清「回到剛才」、展開祖先）。
+   * 新建（含復活）toast「已建立 #X」＋復原（復原後 loadIndex 自己把選取退回總覽）；本來就有 toast「已經有 #X 了」（只選中、不寫）。
+   * 名稱不合法或寫入失敗 ⇒ toast 原因、回 null（UI 先用 normalizeName 擋，這裡是最後一道）。
+   */
+  createTag(rawName: string): Promise<CreateTagResult | null>;
   /** 失敗 toast 回 null；新建的才 toast 23；已存在的掛上不跳 */
   attach(entityType: TagEntityType, entityId: string, rawName: string): Promise<AttachResult | null>;
   /** toast 24＋復原 */
@@ -356,6 +363,29 @@ export const useTagStore = create<TagStore>((set, get) => {
     keysOf(entityType, entityId) {
       const idx = get().index;
       return idx ? keysOfEntity(idx, entityType, entityId) : [];
+    },
+
+    async createTag(rawName) {
+      let res: CreateTagResult;
+      try {
+        res = await tagRepo.create(rawName);
+      } catch (e) {
+        failToast(e);
+        return null;
+      }
+      await get().loadIndex();
+      get().select(res.key);
+      if (res.created && !isEmptyReceipt(res.receipt)) {
+        const receipt = res.receipt;
+        toast(
+          `已建立 #${res.name}`,
+          safeUndo(async () => {
+            await tagRepo.undo(receipt);
+            await get().loadIndex();
+          }),
+        );
+      } else toast(`已經有 #${res.name} 了`);
+      return res;
     },
 
     async attach(entityType, entityId, rawName) {

@@ -13,6 +13,7 @@
  *   清單以 portal 掛到 body、`position: fixed`——捕捉框的票面有遮罩（mask-image），畫在裡面會被裁掉；
  *   捲動時重量一次。快到視窗底就翻到游標上方。
  * - 鍵（先判 IME）：清單開著時 ↑↓ 選、Enter／Tab 補完、Esc **只收建議**（不離開編輯、不漏給外層）；回傳 true＝吃掉了。
+ *   被 Esc 收掉的那一段 `#q` 在字沒變之前不再自動打開（keyup／select 都會叫 update），所以下一下 Esc 才到得了外層。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -81,6 +82,8 @@ export function useInlineTagSuggest(
   const [sug, setSug] = useState<SugState | null>(null);
   const index = useTagStore((s) => s.index);
   const pendingCaret = useRef<number | null>(null);
+  /** 被 Esc 收掉的那一段 `#q`：同一段字沒變之前不再自動打開（不然 Esc 的 keyup 一跑 update 就又開回來） */
+  const dismissed = useRef<{ start: number; q: string } | null>(null);
 
   const update = useCallback(() => {
     const ta = taRef.current;
@@ -90,9 +93,16 @@ export function useInlineTagSuggest(
     }
     const hit = tagAtCaret(ta.value, ta.selectionStart);
     if (!hit) {
+      dismissed.current = null;
       setSug(null);
       return;
     }
+    const d = dismissed.current;
+    if (d && d.start === hit.start && d.q === hit.q) {
+      setSug(null);
+      return;
+    }
+    dismissed.current = null;
     const st = useTagStore.getState();
     if (!st.index) void st.loadIndex();
     const res = st.suggest(hit.q, { limit: 7 });
@@ -182,6 +192,7 @@ export function useInlineTagSuggest(
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        dismissed.current = { start: sug.start, q: sug.q };
         setSug(null);
         return true;
       }

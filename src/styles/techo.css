@@ -56,36 +56,36 @@
 
 .cover {
   position: relative; z-index: 3;
-  background-color: var(--color-book);
+  background-color: var(--color-book); /* 殼：書封 */
   /* 星空柄絨布：六枚星點 ＋ 斜紋壓紋（C2 逐字） */
   background-image:
-    radial-gradient(1px 1px at 38px 96px, rgba(255, 255, 255, .45) 50%, transparent 51%),
-    radial-gradient(1px 1px at 184px 58px, rgba(255, 255, 255, .4) 50%, transparent 51%),
-    radial-gradient(1.4px 1.4px at 150px 330px, rgba(255, 255, 255, .45) 50%, transparent 51%),
-    radial-gradient(1px 1px at 64px 470px, rgba(255, 255, 255, .38) 50%, transparent 51%),
-    radial-gradient(1px 1px at 206px 420px, rgba(255, 255, 255, .42) 50%, transparent 51%),
-    radial-gradient(1.2px 1.2px at 26px 560px, rgba(255, 255, 255, .36) 50%, transparent 51%),
-    repeating-linear-gradient(45deg, rgba(255, 255, 255, .014) 0 2px, transparent 2px 5px),
-    repeating-linear-gradient(-30deg, rgba(0, 0, 0, .06) 0 4px, transparent 4px 11px);
+    radial-gradient(1px 1px at 38px 96px, rgba(255, 255, 255, .45) 50%, transparent 51%), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    radial-gradient(1px 1px at 184px 58px, rgba(255, 255, 255, .4) 50%, transparent 51%), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    radial-gradient(1.4px 1.4px at 150px 330px, rgba(255, 255, 255, .45) 50%, transparent 51%), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    radial-gradient(1px 1px at 64px 470px, rgba(255, 255, 255, .38) 50%, transparent 51%), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    radial-gradient(1px 1px at 206px 420px, rgba(255, 255, 255, .42) 50%, transparent 51%), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    radial-gradient(1.2px 1.2px at 26px 560px, rgba(255, 255, 255, .36) 50%, transparent 51%), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .014) 0 2px, transparent 2px 5px), /* 字面值：書封星空柄絨布美術色（C2 逐字） */
+    repeating-linear-gradient(-30deg, rgba(0, 0, 0, .06) 0 4px, transparent 4px 11px); /* 字面值：書封星空柄絨布美術色（C2 逐字） */
   background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat;
   color: var(--color-book-ink);
-  box-shadow: inset -10px 0 22px rgba(0, 0, 0, .38);
+  box-shadow: inset -10px 0 22px rgba(0, 0, 0, .38); /* 字面值：陰影色（§1.1 例外） */
 }
 [data-theme="dark"] .cover { /* 月台：頂端一盞暖燈 ＋ 啞光板材直紋（C1 逐字） */
   background-image:
-    radial-gradient(190px 150px at 50% -24px, rgba(232, 205, 160, .08), transparent 70%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, .016) 0 1px, transparent 1px 6px),
-    linear-gradient(180deg, transparent 55%, rgba(0, 0, 0, .28));
+    radial-gradient(190px 150px at 50% -24px, rgba(232, 205, 160, .08), transparent 70%), /* 字面值：書封月台暖燈美術色（C1 逐字） */
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .016) 0 1px, transparent 1px 6px), /* 字面值：書封板材直紋美術色（C1 逐字） */
+    linear-gradient(180deg, transparent 55%, rgba(0, 0, 0, .28)); /* 字面值：書封下緣暗角美術色（C1 逐字） */
   background-repeat: no-repeat, repeat, no-repeat;
   box-shadow: none;
 }
 .cover::-webkit-scrollbar { width: 0; }
-.cover .brand h1 { text-shadow: 0 0 14px rgba(214, 189, 142, .18); }
+.cover .brand h1 { text-shadow: 0 0 14px rgba(214, 189, 142, .18); } /* 字面值：書封燙金字光暈（陰影色） */
 
 /* 燙金細線（書封分隔／腳註上緣） */
 .foil-rule {
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--color-gold) 18%, var(--color-gold) 82%, transparent);
+  background: linear-gradient(90deg, transparent, var(--color-gold) 18%, var(--color-gold) 82%, transparent); /* 書封燙金：燙金細線（只在書封） */
   opacity: .6;
 }
 .cover .foil-rule { margin: 18px 6px 0; opacity: .6; }
@@ -119,27 +119,24 @@
 }
 .page::before { /* 書溝陰影（緊貼書封右緣；left 走靜態位置＝側欄寬度） */
   content: ""; position: fixed; top: 0; bottom: 0; width: 16px;
-  background: linear-gradient(90deg, rgba(30, 30, 70, .30), transparent);
+  background: linear-gradient(90deg, rgba(30, 30, 70, .30), transparent); /* 字面值：陰影色（§1.1 例外）：書溝 */
   pointer-events: none; z-index: 2;
 }
 [data-theme="dark"] .page::before {
   width: 18px;
-  background: linear-gradient(90deg, rgba(0, 0, 0, .42), transparent);
+  background: linear-gradient(90deg, rgba(0, 0, 0, .42), transparent); /* 字面值：陰影色（§1.1 例外）：書溝 */
 }
 .page::-webkit-scrollbar { width: 10px; }
-.page::-webkit-scrollbar-thumb { background: rgba(42, 43, 73, .22); border-radius: var(--radius-pill); }
+.page::-webkit-scrollbar-thumb { background: rgba(42, 43, 73, .22); border-radius: var(--radius-pill); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 .page::-webkit-scrollbar-track { background: transparent; }
-[data-theme="dark"] .page::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); }
+[data-theme="dark"] .page::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 
 .sheet {
   position: relative; z-index: 1;
-  max-width: 880px; padding: 50px 56px 56px; margin: 0 0 0 24px;
+  max-width: 880px; padding: var(--page-pad-top) var(--page-pad-x) 56px; margin: 0 0 0 var(--page-gutter);
 }
-/* 側板開啟＝版面收緊 44/48（規格 §2 規則化，非碰巧）。
-   DetailPanel 關閉時整個 .panel 不進 DOM → :has() 版本現況即生效；
-   .ns-panel-open 是給整合席／未來頁面掛在任一祖先上的等價開關。 */
-.ns-panel-open .sheet,
-body:has(.panel) .sheet { padding: 44px 48px 56px; }
+/* 頁首外距吃 theme.css 的 --page-* 一組（50／56／24；側板開著 44／48 在 theme.css 整組換）。
+   時刻表、旅客筆記、售票口的頁根不是 .sheet，但吃同一組 token，六頁頁首左緣、上緣一致（UI 丙-7 T6）。 */
 
 /* ═══════════════════════════════════════════════════════
  * 三、頁首（header.day）
@@ -166,7 +163,7 @@ header.day::after { /* 手帳式雙細線 */
 [data-theme="dark"] .overline {
   font-family: var(--font-body); font-style: normal; font-weight: 500;
   font-size: var(--fs-micro); letter-spacing: .4em;
-  color: var(--color-gold);
+  color: var(--color-gold); /* 銀河規則：眉標燙金（銀河 --accent＝金） */
 }
 /* 聚焦麵包屑（.overline.crumbs）＝件一 .crumbs 逐字 */
 .crumbs {
@@ -178,7 +175,7 @@ header.day::after { /* 手帳式雙細線 */
 [data-theme="dark"] .crumbs {
   font-family: var(--font-body); font-style: normal;
   font-size: var(--fs-micro); letter-spacing: .32em;
-  color: var(--color-gold);
+  color: var(--color-gold); /* 銀河規則：麵包屑燙金（銀河 --accent＝金） */
 }
 .crumbs .sep { opacity: .5; margin: 0 .3em; }
 
@@ -239,18 +236,18 @@ header.day::after { /* 手帳式雙細線 */
   display: flex; align-items: stretch;
   border-radius: var(--radius-card);
   box-shadow:
-    0 0 0 1px rgba(60, 60, 120, .10),
-    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12);
+    0 0 0 1px rgba(60, 60, 120, .10), /* 字面值：陰影色（§1.1 例外） */
+    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12); /* 字面值：陰影色（§1.1 例外） */
   transition: transform .16s, box-shadow .16s;
 }
 .ticket:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 0 0 1px rgba(60, 60, 120, .14),
-    0 2px 4px rgba(50, 45, 100, .10), 0 12px 28px rgba(60, 50, 120, .16);
+    0 0 0 1px rgba(60, 60, 120, .14), /* 字面值：陰影色（§1.1 例外） */
+    0 2px 4px rgba(50, 45, 100, .10), 0 12px 28px rgba(60, 50, 120, .16); /* 字面值：陰影色（§1.1 例外） */
 }
-[data-theme="dark"] .ticket { box-shadow: 0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); }
-[data-theme="dark"] .ticket:hover { box-shadow: 0 2px 4px rgba(3, 6, 14, .45), 0 12px 28px rgba(3, 6, 14, .42); }
+[data-theme="dark"] .ticket { box-shadow: 0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); } /* 字面值：陰影色（§1.1 例外） */
+[data-theme="dark"] .ticket:hover { box-shadow: 0 2px 4px rgba(3, 6, 14, .45), 0 12px 28px rgba(3, 6, 14, .42); } /* 字面值：陰影色（§1.1 例外） */
 
 /* 材質層：霧面玻璃 ＋ 票根打孔（mask 打穿整張卡含邊框，洞裡看見天空） */
 .ticket::before {
@@ -273,10 +270,10 @@ header.day::after { /* 手帳式雙細線 */
   -webkit-backdrop-filter: none; backdrop-filter: none;
   border: 1px solid var(--color-line);
   box-shadow:
-    inset 0 1px 0 rgba(230, 236, 255, .09),
-    inset -1px 0 0 rgba(230, 236, 255, .035);
+    inset 0 1px 0 rgba(230, 236, 255, .09), /* 字面值：陰影色（§1.1 例外）：月光票紙上緣高光（同 --glass-hi） */
+    inset -1px 0 0 rgba(230, 236, 255, .035); /* 字面值：陰影色（§1.1 例外）：月光票紙側緣高光 */
 }
-[data-theme="dark"] .ticket:hover::before { border-color: rgba(222, 230, 250, .26); }
+[data-theme="dark"] .ticket:hover::before { border-color: rgba(222, 230, 250, .26); } /* 字面值：銀河票 hover 邊框（月光 26%，原型逐字） */
 
 /* 霧面顆粒（粉彩限定；月光票紙是啞光不加噪）——與材質層同一組 mask，打孔處不留噪點 */
 .ticket::after {
@@ -300,9 +297,9 @@ header.day::after { /* 手帳式雙細線 */
 .ticket.selected {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
-    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12);
+    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12); /* 字面值：陰影色（§1.1 例外） */
 }
-[data-theme="dark"] .ticket.selected { box-shadow: 0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); }
+[data-theme="dark"] .ticket.selected { box-shadow: 0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); } /* 字面值：陰影色（§1.1 例外） */
 
 /* —— 票根 —— */
 .stub {
@@ -361,8 +358,8 @@ header.day::after { /* 手帳式雙細線 */
   font-size: var(--fs-xs); letter-spacing: .08em; padding: 1px 7px;
   border: 1px solid var(--color-line); color: var(--color-ink-soft);
 }
-.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); }
-[data-theme="dark"] .chip.late { border-color: rgba(209, 155, 114, .38); }
+.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); } /* 字面值：赭框淡階（赭 40%，原型逐字） */
+[data-theme="dark"] .chip.late { border-color: rgba(209, 155, 114, .38); } /* 字面值：赭框淡階（銀河赭 38%，原型逐字） */
 
 /* 誤點註記：粉彩保留手寫「晚了 N 天」，銀河照 C1 用排印「延誤 N 天」（件一 687–690 逐字） */
 .late-hw {
@@ -434,9 +431,9 @@ header.day::after { /* 手帳式雙細線 */
 .ticket.done::before { background: var(--color-paper-used); }
 .ticket.done .title {
   color: var(--color-ink-faint); font-weight: 500;
-  text-decoration-color: rgba(42, 43, 73, .35);
+  text-decoration-color: rgba(42, 43, 73, .35); /* 字面值：已完成刪除線色（墨 35%，原型逐字） */
 }
-[data-theme="dark"] .ticket.done .title { text-decoration-color: rgba(228, 232, 243, .35); }
+[data-theme="dark"] .ticket.done .title { text-decoration-color: rgba(228, 232, 243, .35); } /* 字面值：已完成刪除線色（銀河墨 35%，原型逐字） */
 .ticket.done .status { display: none; }
 .ticket:not(.done) .done-label { display: none; }
 
@@ -445,18 +442,18 @@ header.day::after { /* 手帳式雙細線 */
  * ═══════════════════════════════════════════════════════ */
 
 .ticket.late-t::before {
-  background: linear-gradient(90deg, rgba(214, 130, 80, .15), rgba(214, 130, 80, 0) 46%), var(--color-paper-high);
+  background: linear-gradient(90deg, rgba(214, 130, 80, .15), rgba(214, 130, 80, 0) 46%), var(--color-paper-high); /* 字面值：延着左緣暖光美術色（原型逐字） */
 }
 [data-theme="dark"] .ticket.late-t::before {
-  background: linear-gradient(90deg, rgba(209, 155, 114, .08), rgba(209, 155, 114, 0) 46%), var(--color-paper-high);
-  border-color: rgba(209, 155, 114, .32);
+  background: linear-gradient(90deg, rgba(209, 155, 114, .08), rgba(209, 155, 114, 0) 46%), var(--color-paper-high); /* 字面值：延着左緣暖光美術色（銀河，原型逐字） */
+  border-color: rgba(209, 155, 114, .32); /* 字面值：延着票邊框（銀河赭 32%，原型逐字） */
 }
 .ticket.late-t {
   box-shadow:
-    0 0 0 1px rgba(160, 90, 50, .22),
-    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12);
+    0 0 0 1px rgba(160, 90, 50, .22), /* 字面值：陰影色（§1.1 例外）：延着票外環 */
+    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12); /* 字面值：陰影色（§1.1 例外） */
 }
-[data-theme="dark"] .ticket.late-t { box-shadow: 0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); }
+[data-theme="dark"] .ticket.late-t { box-shadow: 0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); } /* 字面值：陰影色（§1.1 例外） */
 .late-note { color: var(--color-late); }
 .late-seal {
   align-self: center; margin-right: 26px;
@@ -511,12 +508,12 @@ header.day::after { /* 手帳式雙細線 */
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
   backdrop-filter: blur(18px) saturate(1.15);
   border-left: 1px solid var(--glass-edge);
-  box-shadow: -12px 0 30px rgba(60, 50, 120, .14);
+  box-shadow: -12px 0 30px rgba(60, 50, 120, .14); /* 字面值：陰影色（§1.1 例外） */
 }
 [data-theme="dark"] .panel-sheet { /* 舉到月光下的更大一張票紙 */
   -webkit-backdrop-filter: none; backdrop-filter: none;
   border-left: 1px solid var(--color-line);
-  box-shadow: inset 0 1px 0 rgba(230, 236, 255, .09), -12px 0 30px rgba(3, 6, 14, .5);
+  box-shadow: inset 0 1px 0 rgba(230, 236, 255, .09), -12px 0 30px rgba(3, 6, 14, .5); /* 字面值：陰影色（§1.1 例外）＋月光上緣高光 */
 }
 .panel-sheet::after { /* 同款霧面顆粒（粉彩限定） */
   content: ""; position: absolute; inset: 0; z-index: 0;
@@ -527,9 +524,9 @@ header.day::after { /* 手帳式雙細線 */
 .panel-sheet > * { position: relative; z-index: 1; }
 
 .panel-scroll::-webkit-scrollbar { width: 8px; }
-.panel-scroll::-webkit-scrollbar-thumb { background: rgba(42, 43, 73, .22); border-radius: var(--radius-pill); }
+.panel-scroll::-webkit-scrollbar-thumb { background: rgba(42, 43, 73, .22); border-radius: var(--radius-pill); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 .panel-scroll::-webkit-scrollbar-track { background: transparent; }
-[data-theme="dark"] .panel-scroll::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); }
+[data-theme="dark"] .panel-scroll::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 
 /* ═══════════════════════════════════════════════════════
  * 十、覆蓋層共用件（dialog／confirm／快速跳轉／toast）——形制沿票面語彙，基調換新主題
@@ -541,24 +538,20 @@ header.day::after { /* 手帳式雙細線 */
 /* 浮層紙卡＝一張浮起的票（同票卡材質配方，只是不打孔）。視覺規範 §1.5「浮」：所有浮層一律 .techo-card——
    對話框、確認框、popover、選單、toast、Ctrl+P。材質全走語意層，兩主題由 token 換值，不再另寫銀河區塊：
    粉彩＝霧面玻璃 blur 14＋白邊，銀河＝月光票紙不 blur＋--color-line 邊＋上緣高光（--glass-hi）。
-   .ns-card＝退役別名（UI 丙-1）：舊的暖棕陰影小卡刪掉，還沒改名的掛載點（手機 sheet、復原碼對話框）先吃同一份材質；
-   各線改成 .techo-card、src/ui 裡 grep 不到 ns-card 之後，丙-7 刪掉這個別名與下面那條字的規則。 */
-.techo-card,
-.ns-card {
+   （UI 丙-3：退役別名 .ns-card 與它自帶的內文字級規則已刪——src 已 grep 不到用法。） */
+.techo-card {
   background-color: var(--float-bg);
   -webkit-backdrop-filter: var(--float-blur);
   backdrop-filter: var(--float-blur);
   border: 1px solid var(--glass-edge); border-radius: var(--radius-card);
   box-shadow: var(--glass-hi), var(--shadow-card-hover);
 }
-/* 舊卡自帶內文字級（手機 sheet 靠它定基準字）；.techo-card 不管字，所以別名這邊補回 */
-.ns-card { color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em; }
 
 /* 手帳式捲軸（快速跳轉結果列） */
 .techo-scroll::-webkit-scrollbar { width: 10px; }
-.techo-scroll::-webkit-scrollbar-thumb { background: rgba(42, 43, 73, .22); border-radius: var(--radius-pill); }
+.techo-scroll::-webkit-scrollbar-thumb { background: rgba(42, 43, 73, .22); border-radius: var(--radius-pill); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 .techo-scroll::-webkit-scrollbar-track { background: transparent; }
-[data-theme="dark"] .techo-scroll::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); }
+[data-theme="dark"] .techo-scroll::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 
 /* 眉標／標題／腳註（dialog 沿用；側板標題＝襯線文件級，件一 .panel-title 逐字） */
 .techo-overline {
@@ -568,7 +561,7 @@ header.day::after { /* 手帳式雙細線 */
 }
 [data-theme="dark"] .techo-overline {
   font-family: var(--font-body); font-style: normal; font-weight: 500;
-  font-size: var(--fs-micro); letter-spacing: .4em; color: var(--color-gold);
+  font-size: var(--fs-micro); letter-spacing: .4em; color: var(--color-gold); /* 銀河規則：眉標燙金（銀河 --accent＝金） */
 }
 .techo-title {
   font-family: var(--font-display); font-weight: 700;
@@ -589,7 +582,7 @@ header.day::after { /* 手帳式雙細線 */
 .btn-seal:disabled:hover { box-shadow: none; transform: none; }   /* 禁用不響應 hover（§1.8） */
 /* 書封上的主鈕：實心墨壓在書封上看不見 → 反白實心；焦點框照書封慣例用燙金（書封上靛看不見） */
 .btn-seal.on-cover { background: var(--color-book-ink); color: var(--color-book); border-color: var(--color-book-ink); }
-.btn-seal.on-cover:focus-visible { outline: 1px solid var(--color-gold); }
+.btn-seal.on-cover:focus-visible { outline: 1px solid var(--color-gold); } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
 .btn-ghost { border: 1px solid var(--color-dash); color: var(--color-ink-soft); background: transparent; letter-spacing: .12em; }
 .btn-ghost:hover { border-color: var(--accent); color: var(--color-ink); }
 /* 文字鈕（新）：無框、作用中色字、hover 底線——toast「復原」、空狀態第二行動、面板內「新增…」「管理…」 */

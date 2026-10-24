@@ -12,12 +12,14 @@
  *       └ div.ns-tt-sched-now    現在線（橫過三欄）
  *
  * 進頁捲動：今天＝現在往上約 2.6 小時；其他天＝第一張預定往上 0.6 小時（沒有就 08:00）。每一天只捲一次，之後照使用者的位置。
+ * UI 丙-4 D7：預定欄一張都沒有時的那句換成共用 EmptyState（inline）；照舊浮在欄中央、不吃指標（點下去仍落到欄上排時刻）。
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { hourTicks } from "../../schedule/timeGridModel";
 import { clockText, nowClockMinutes } from "../../../lib/date";
 import { fmtClock } from "../../../domain/timetable";
 import { TT_TEXT } from "../../../store/timetableStore";
+import { EmptyState } from "../../common/EmptyState";
 import { ActualColumn } from "./ActualColumn";
 import { PlanColumn, type CardLayout } from "./PlanColumn";
 import { SCHED_UI, minFrac, pct, snapFrac } from "./scheduleModel";
@@ -132,7 +134,9 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
             </>
           )}
           <PlanColumn page={page} layout={layout} hourPx={H} drag={drag} onDragStart={onDragStart} swallowClick={swallowClick} minAtY={minAtY} />
-          {grid && grid.date === date && grid.blocks.length === 0 && <p className="ns-tt-sched-pempty">{page.isPast ? SCHED_UI.emptyPast : TT_TEXT.schedEmpty}</p>}
+          {grid && grid.date === date && grid.blocks.length === 0 && (
+            <EmptyState inline tone="first" className="ns-tt-sched-pempty" title={page.isPast ? SCHED_UI.emptyPast : TT_TEXT.schedEmpty} />
+          )}
           {hintMin !== null && hintMin !== undefined && (
             <div className="ns-tt-sched-hint" style={{ top: pct(minFrac(hintMin, dayStartHour)) }} aria-hidden="true" />
           )}

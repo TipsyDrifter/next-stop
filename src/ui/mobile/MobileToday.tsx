@@ -6,14 +6,14 @@
  *   ⋯ 開的底部 sheet（本地 useState；不進 uiStore——它只活在這一頁，關頁就該消失）。
  *
  * **主線車次①（D-主-5、契約 §2.3-1）**：今日 tab 內分成「今日｜行程表」兩個子頁——根 Fragment 變成
- *   `<MobileSegmentedBar/>` ＋（子頁）`<TodaySub/>` 或 `<MobileSchedule/>`；子頁在 `scheduleUiStore.mobileSub`
+ *   （UI 丙-3 起分頁籤搬到頂帶下一列 MobileTopBand 的 tabsRow）＋（子頁）`<TodaySub/>` 或 `<MobileSchedule/>`；子頁在 `scheduleUiStore.mobileSub`
  *   （P4：同一次開啟期間記住、冷啟動回「今日」）。`useMobileToday()` 在**根**呼叫一次：今日切片兩個子頁都要
  *   （行程表的「誤點 N 件」沿今日切片算，§3.4），結果以參數傳給 TodaySub。
  *   `TodaySub` ＝ v1.1.0 的整段版面原封搬進來、結構不動，只有三處改：MobileTicket 改吃票卡模型（§3.7）、
  *   ⋯ sheet 換成兩子頁共用的 MobileTicketSheet（四項＋定期券運休，P11）、全済文案「到路線圖」→「到行程表」（P6）。
  *
  * 版面（由上而下，單欄滿版）：
- *   .m-sch-seg  兩段切換
+ *   （頂帶下一列 .ns-tabrow「今日｜行程表」分頁籤＝MobileTopBand 畫；UI 丙-3 F2 前是本頁第一個子節點 .m-sch-seg）
  *   .m-page.m-today  統計一行 → 誤點區（**置頂**＝r1 拍板）→「今天的列車」清單／空狀態
  *   .m-newticket  固定在 tab bar 之上的建票輸入列（不在 .m-page 內＝不跟著捲走；只有今日子頁有，D-主-8）
  *
@@ -34,7 +34,7 @@
  *
  * **磨光①（契約 §1.5、§2.4、§9.4、§9.5）**：
  *   返回層——行程表段＝子頁（返回＝切回今日段）；⋯ sheet（含子面板）＝一層 sheet（返回＝同按 ×）。
- *   ⋯ sheet 加改名…／記一句…／上移・下移／刪除（動作在 useMobileToday；上移下移只給 today 分區、沒時刻的票）。
+ *   ⋯ sheet 加改名…／記乘務記錄…／上移・下移／刪除（動作在 useMobileToday；上移下移只給 today 分區、沒時刻的票）。
  *   指出某張票（routeMapReveal 的 target "today"；打開車票、荷札頁、手機搜尋都走這裡）——找到票卡
  *   （`li[data-node-id]`；在收合的誤點區就先展開）→ 捲到畫面中間 → 閃一下底色約 1 秒 → consume。
  *
@@ -51,7 +51,8 @@ import type { TodayRow } from "../../data";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
 import { moveNodeTo } from "../common/moveTo";
-import { MobileSegmentedBar, useSubSwipe } from "./MobileSegmentedBar";
+import { EmptyState } from "../common/EmptyState";
+import { useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
 import { deleteTicket, logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
 import { useBackLayer } from "./backStack";
@@ -67,6 +68,8 @@ import { lineTodayStats } from "../../lines/runtime";
 const REVEAL_FLASH_MS = 1000;
 /** 要指的票不在今天的清單（或清單一直沒載好）時，等多久就放掉請求 */
 const REVEAL_GIVE_UP_MS = 1500;
+/** ⋯ sheet 整個流程的返回層 id（本頁登記、MobileTicketSheet 的每張 MSheet 用同一個 id 合併） */
+const TODAY_SHEET_LAYER = "core.todaySheet";
 
 export default function MobileToday() {
   const c = useMobileToday();
@@ -74,10 +77,8 @@ export default function MobileToday() {
   // 返回層（磨光① §1.5）：行程表段＝子頁，返回＝切回今日段（同段切換）
   useBackLayer("core.schedule", sub === "schedule", () => useScheduleUiStore.getState().setMobileSub("today"), "page");
   return (
-    <>
-      <MobileSegmentedBar />
-      {sub === "today" ? <TodaySub c={c} /> : <MobileSchedule />}
-    </>
+    // UI 丙-3 F2：「今日｜行程表」分頁籤畫在頂帶下一列（MobileTopBand 讀 mobileSub 自己畫，不經 MobileShell）
+    <>{sub === "today" ? <TodaySub c={c} /> : <MobileSchedule />}</>
   );
 }
 
@@ -95,9 +96,10 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   useSubSwipe(pageRef, "today");
   const now = useMinuteTick();
   const dayStartHour = useUiStore((s) => s.dayStartHour);
-  // 返回層（磨光① §1.5）：⋯ sheet 與它的子面板（選日期／幾點／改名／記一句）是同一層，返回＝整個流程結束（同按 ×）。
-  // active 看 sheetRow 而不是 sheetId：票在 sheet 開著時被刪／搬走，畫面上已經沒有 sheet，就不該再擋返回鍵
-  useBackLayer("core.todaySheet", sheetRow !== null, () => setSheetId(null));
+  // 返回層（磨光① §1.5）：⋯ sheet 與它的子面板（選日期／幾點／改名／記乘務記錄）是同一層，返回＝整個流程結束（同按 ×）。
+  // active 看 sheetRow 而不是 sheetId：票在 sheet 開著時被刪／搬走，畫面上已經沒有 sheet，就不該再擋返回鍵。
+  // UI 丙-3 F3：sheet 換成 MSheet 後它也會自己登記——同一個 id 傳進去（backId），refcount 合併成一層、返回鍵按一次就關
+  useBackLayer(TODAY_SHEET_LAYER, sheetRow !== null, () => setSheetId(null));
 
   /* ───────── 指出某張票（A7 今日半邊；routeMapReveal 的 target "today"）───────── */
   const reveal = useRevealStore((s) => (s.req?.target === "today" ? s.req : null));
@@ -259,13 +261,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
         {/* ═══ 今天的列車 ═══ */}
         {/* 磨光⑤ S10：第一次 loadToday 回來前清單區留白（不放骨架、不畫空狀態與慶祝） */}
         {!c.loaded ? null : c.empty ? (
-          <div className="m-empty">
-            <div className="sec">
-              <h3>今天還沒有班次</h3>
-              <span className="rule" />
-            </div>
-            <p className="m-empty-body">在下方輸入一件事，按「発券」就能開一張臨時車票。</p>
-          </div>
+          <EmptyState tone="first" title="今天還沒有班次" desc="在下方輸入一件事，按「発券」就能開一張臨時車票。" />
         ) : (
           <>
             {c.todayRows.length > 0 && (
@@ -283,13 +279,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
 
             {/* 1.0d 全完成慶祝（語氣與 1.0c 分開：這裡是收工，不是招募）——文案逐字同桌機 */}
             {allSettled && (
-              <div className="m-empty is-cheer">
-                <div className="sec">
-                  <h3>今天的班次都到站了</h3>
-                  <span className="rule" />
-                </div>
-                <p className="m-empty-body">剩下的時間是你的。明天的事，可以先去行程表排好。</p>
-              </div>
+              <EmptyState tone="done" title="今天的班次都到站了" desc="剩下的時間是你的。明天的事，可以先去行程表排好。" />
             )}
           </>
         )}
@@ -314,6 +304,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
             const ro = c.reorderOf(sheetRow.id);
             return ro && { ...ro, onMove: (d: -1 | 1) => c.move(sheetRow.id, d) };
           })()}
+          backId={TODAY_SHEET_LAYER}
           onClose={() => setSheetId(null)}
         />
       )}

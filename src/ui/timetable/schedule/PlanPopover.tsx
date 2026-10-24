@@ -4,7 +4,12 @@
  * 只是不走 DesktopSheetHost 的置中 DialogShell——那邊對 plan 回 null，這裡自己畫。
  *
  *   div.ns-tt-sched-veil（透明，點了關）
- *   div.ns-tt-sched-pop[role=dialog]：標題列（車票名＋×）＋ PlanPanel
+ *   div.ns-tt-sched-pop.techo-card[role=dialog]：標題列（車票名＋×）＋ PlanPanel（會捲）＋按鈕列（不捲）
+ *
+ * UI 丙-4 D4／C1：材質換成全 App 浮層同一張 `.techo-card`（霧面玻璃，同 Ctrl+P），刪掉 CSS 手抄的實心紙＋陰影；
+ * 按鈕列不再 sticky 在會捲的本文底（玻璃上要墊實心底才擋得住捲過去的字），改成本文之外的一列 `.ns-tt-sched-pop-f`——
+ * 跟 DialogShell／MSheet 的黏底 foot 同一個做法（`TtFootContext`，PlanPanel 的 `<Actions>` portal 進來）。
+ * × 帶 `data-tt-drop-draft`：時刻框打到一半按 × ＝丟掉草稿、不寫（同 PlanPanel 其他按鈕）。
  *
  * 位置：卡的左緣＋min(卡寬, 200)＋12，頂端對齊卡頂 −6；放不下往上收、往左收（視窗內留 12px）。
  * 時間軸捲動、視窗改大小時跟著重算；卡捲出可見範圍就貼在邊上（不關，免得打到一半被收掉）。Esc／×／點旁邊＝關。
@@ -14,6 +19,7 @@ import { createPortal } from "react-dom";
 import { useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
 import { PlanPanel } from "../panels/PlanPanel";
+import { TtFootContext, useTtFoot } from "../panels/controls";
 
 const W = 316;
 const MARGIN = 12;
@@ -28,6 +34,7 @@ export function PlanPopover({ planKey, rootRef, scrollRef }: { planKey: string; 
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [shown, setShown] = useState(false);
   const titleId = useId();
+  const { foot, el } = useTtFoot(true);
 
   useLayoutEffect(() => {
     const place = (): void => {
@@ -96,7 +103,7 @@ export function PlanPopover({ planKey, rootRef, scrollRef }: { planKey: string; 
       <div className="ns-tt-sched-veil" onPointerDown={closeSheet} aria-hidden="true" />
       <div
         ref={boxRef}
-        className={"ns-tt-sched-pop" + (shown && pos ? " is-open" : "")}
+        className={"ns-tt-sched-pop techo-card" + (shown && pos ? " is-open" : "")}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -105,13 +112,16 @@ export function PlanPopover({ planKey, rootRef, scrollRef }: { planKey: string; 
       >
         <div className="ns-tt-sched-pop-h">
           <b id={titleId}>{name}</b>
-          <button type="button" className="ns-close ns-close--sm" aria-label="關閉" onClick={closeSheet}>
+          <button type="button" className="ns-close ns-close--sm" aria-label="關閉" data-tt-drop-draft="" onClick={closeSheet}>
             ×
           </button>
         </div>
-        <div className="ns-tt-sched-pop-b">
-          <PlanPanel key={planKey} onDone={closeSheet} shell="desktop" />
-        </div>
+        <TtFootContext.Provider value={el}>
+          <div className="ns-tt-sched-pop-b">
+            <PlanPanel key={planKey} onDone={closeSheet} shell="desktop" />
+          </div>
+        </TtFootContext.Provider>
+        <div className="ns-tt-sched-pop-f">{foot}</div>
       </div>
     </>,
     document.body,

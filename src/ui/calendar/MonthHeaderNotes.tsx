@@ -1,9 +1,9 @@
 /**
  * MonthHeaderNotes——頁首的「頁邊手寫＋統計列」（M3 ⑤ WP5）。
  *
- * 擺放位置：本元件回傳的 fragment 掛在 `.date-line` 之內（CalendarView），`.margin-note` 因此自然
- *   接在「September」後面（原型 :887），`.month-stats` 由 calendar.css 的 `flex-basis:100%` 換到
- *   下一行（等效原型 :454 `margin-top:10px`）。樣式（含粉彩／銀河的分工）都在 calendar.css :446-463。
+ * 擺放位置（UI 丙-3 D1 起頁首是共用 PageHeader）：拆成兩支——
+ *   `MonthMarginNote`＝頁邊手寫，CalendarView 放進 PageHeader 的 `aside`（補述「2026年 October」右邊，同今日 P5）；
+ *   `MonthStats`＝統計列的內文，放進 PageHeader 的 `stats`（大標下一行）。樣式（含粉彩／銀河的分工）在 calendar.css。
  *
  * 手寫定量（規格 §6）：**粉彩只有頁邊手寫、銀河只有手寫統計**，兩者不重疊。
  *   - 頁邊手寫（粉彩，原型 :887「12日 mockup 締切」）＝本區間內今天（含）以後最近的一個未完成締切；
@@ -27,9 +27,9 @@ export interface MonthHeaderNotesProps {
 /** 頁邊是一行手寫，長票名會把日期行撐歪——超過就收尾（手寫本來就是簡寫） */
 const NOTE_MAX = 12;
 
-export function MonthHeaderNotes({ range, today }: MonthHeaderNotesProps) {
-  const { byDate, nodes, stats } = useCalendar();
-  const { total, done, open, dues } = stats;
+/** 頁邊手寫（粉彩；銀河由 calendar.css 隱藏）：區間內今天（含）以後最近的一個未完成締切；沒有就不畫 */
+export function MonthMarginNote({ range, today }: MonthHeaderNotesProps) {
+  const { byDate, nodes } = useCalendar();
 
   /** 區間內、今天（含）以後最近的一個未完成締切（`byDate.dues` 只含未完成，含無執行日的票） */
   const next = useMemo(() => {
@@ -47,27 +47,29 @@ export function MonthHeaderNotes({ range, today }: MonthHeaderNotesProps) {
     };
   }, [byDate.dues, nodes, range.from, range.to, today]);
 
+  if (!next) return null;
+  return (
+    <span className="margin-note" title={`${next.day}日 ${next.full} 締切`}>
+      {next.day}日 {next.name} 締切
+    </span>
+  );
+}
+
+/** 統計列內文（外層 <p> 由 PageHeader 的 stats 給）：粉彩排印／銀河手寫，各畫一份、CSS 擇一顯示 */
+export function MonthStats() {
+  const { total, done, open, dues } = useCalendar().stats;
   return (
     <>
-      {/* 頁邊手寫（粉彩；銀河由 calendar.css 隱藏） */}
-      {next && (
-        <span className="margin-note" title={`${next.day}日 ${next.full} 締切`}>
-          {next.day}日 {next.name} 締切
-        </span>
-      )}
-
-      <p className="month-stats">
-        <span className="theme-pastel-only">
-          完成{" "}
-          <b>
-            {done}/{total}
-          </b>
-          <span className="sep">・</span>締切 <b>{dues} 件</b>
-        </span>
-        <span className="theme-galaxy-only">
-          蓋了 <b>{done}</b> 張，還有 <b>{open}</b> 班<span className="sep">・</span>締切 <b>{dues}</b> 件
-        </span>
-      </p>
+      <span className="theme-pastel-only">
+        完成{" "}
+        <b>
+          {done}/{total}
+        </b>
+        <span className="sep">・</span>締切 <b>{dues} 件</b>
+      </span>
+      <span className="theme-galaxy-only">
+        蓋了 <b>{done}</b> 張，還有 <b>{open}</b> 班<span className="sep">・</span>締切 <b>{dues}</b> 件
+      </span>
     </>
   );
 }

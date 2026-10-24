@@ -33,15 +33,11 @@ export function EstimatePanel({ onDone }: PanelProps) {
   const cur = block?.estimate_min ?? null;
   const [v, setV] = useState<number | null>(cur);
 
+  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
   if (!block) {
     return (
       <div className="ns-tt-panel">
         <Sub>找不到這一班</Sub>
-        <Actions>
-          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-            關閉
-          </button>
-        </Actions>
       </div>
     );
   }
@@ -80,7 +76,7 @@ export function EstimatePanel({ onDone }: PanelProps) {
           ))}
         </Opts>
       </Row>
-      {v !== null && <Sub>超過預估時間會標上『誤點』並提醒你</Sub>}
+      {v !== null && <Sub>超過預估時間會標上「誤點」並提醒你</Sub>}
       <Actions>
         {cur !== null && (
           <button

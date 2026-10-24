@@ -1,25 +1,14 @@
 /**
- * 設定頁籤列（M3 ⑥ WP0）——**只放排版**。
- * 語彙全借 overlay.css 既有的 `.ns-choice`（原型 .status 式小字標籤，選中＝作用中 --sel-fg 的邊與字；UI 丙-1 前是燙金），
- * 一個新形狀都不發明（c13：原型沒有的控件只拼既有語彙）；顏色一律 token，不寫死色值。
+ * 設定頁（M3 ⑥ WP0）——**只放排版**，顏色一律 token，不寫死色值。
+ * UI 丙-3（E1）：籤列換共用 `Tabs`（樣式在 common/tabs.css），本檔舊的 `.ns-tabs`／`.ns-choice` 小框籤規則刪了；
+ *   主題三選與週首換共用 `Segmented`（同在 tabs.css）。這裡只留籤列與內容之間的間距、分頁內容的最小高度。
  */
 
-.ns-tabs {
+/* 籤列：桌機工具列形制（size="md"，不加底），籤列下緣拉一條 --color-line 細線＝分頁內容的上緣，底線滑塊壓在線上 */
+.ns-set-tabs {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 18px;
-}
-
-/* 還在施工的籤（⑥ 時「快捷鍵」掛過；⑦ 通車後三籤全開，規則留給日後的新籤）——淡出並讓游標說明它現在按不動
-   （UI 丙-1：禁用一律 --disabled，跟常駐淡態 --dim 分開；視覺規範 §1.8） */
-.ns-tabs .ns-choice:disabled {
-  opacity: var(--disabled);
-  cursor: not-allowed;
-}
-.ns-tabs .ns-choice:disabled:hover {
-  color: var(--color-ink-soft);
+  border-bottom: 1px solid var(--color-line);
+  margin-bottom: var(--sp-5);
 }
 
 /* 分頁內容：各籤高度不同，換籤時不讓 dialog 上緣跳動（最小高度＝一般籤的量體） */
@@ -66,7 +55,7 @@
 }
 .ns-bk-when {
   font-family: var(--font-latin);
-  font-size: 18px;
+  font-size: 18px; /* 字面值：上次備份時刻大字 18px；桌機字階沒有這一階（原型逐字） */
   letter-spacing: .06em;
   line-height: 1.35;
   color: var(--color-ink);
@@ -76,13 +65,13 @@
 /* 還沒有任何備份：不是時刻，回本文字體與注記墨階 */
 .ns-bk-when.is-none {
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 13px; /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
   letter-spacing: .04em;
   color: var(--color-ink-soft);
 }
 .ns-bk-err {
   margin-top: 3px;
-  font-size: 11.5px;
+  font-size: 11.5px; /* 字面值：11.5px；桌機字階沒有這一階（原型逐字） */
   line-height: 18px;
   letter-spacing: .04em;
   color: var(--ns-warn-text);
@@ -92,7 +81,7 @@
 /* ── ③ 第二位置：路徑一行（拉丁等寬感，過長截斷、title 給全文） ── */
 .ns-bk-path {
   font-family: var(--font-latin);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   letter-spacing: .02em;
   line-height: 20px;
   color: var(--color-ink);
@@ -131,21 +120,21 @@
   flex: none;
   min-width: 74px;
   font-family: var(--font-latin);
-  font-size: 12.5px;
+  font-size: 12.5px; /* 字面值：快照時刻 12.5px；CloudSnapshots 兩殼共用，--fs-ui 手機是 14，照原值留 */
   letter-spacing: .06em;
   color: var(--color-ink);
 }
 /* 同分鐘第 N 份的標記：借 `.ns-note` 的注記墨階，不新增顏色也不新增形狀 */
 .ns-bk-seq {
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: .04em;
   color: var(--color-ink-faint);
 }
 .ns-bk-size {
   flex: none;
   font-family: var(--font-latin);
-  font-size: 11px;
+  font-size: 11px; /* 字面值：快照大小 11px；CloudSnapshots 兩殼共用，照原值留 */
   letter-spacing: .06em;
   color: var(--color-ink-soft);
 }
@@ -253,7 +242,7 @@
 .ns-hk-label {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13px;
+  font-size: 13px; /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
   line-height: 20px;
   letter-spacing: .04em;
   color: var(--color-ink);
@@ -269,7 +258,7 @@
   margin-left: auto;
 }
 .ns-hk-or {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 18px;
   color: var(--color-ink-soft);
 }
@@ -311,7 +300,7 @@
 }
 .ns-sy-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ns-sy-field-label {
-  font-size: 10px;
+  font-size: var(--fs-micro);
   letter-spacing: .2em;
   color: var(--color-ink-faint);
   font-family: var(--font-latin);
@@ -319,7 +308,7 @@
 .ns-sy-input {
   width: 100%;
   font-family: var(--font-latin);
-  font-size: 12.5px;
+  font-size: var(--fs-ui);
   letter-spacing: .04em;
 }
 
@@ -345,7 +334,7 @@
   width: 100%;
   resize: none;
   font-family: var(--font-latin);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   letter-spacing: .02em;
   word-break: break-all;
@@ -424,7 +413,7 @@
 /* 列裡的「這台／另一台 A1B2」：借 `.ns-bk-seq` 的注記墨階（同一種「這一列的附註」），不新增顏色 */
 .ns-cl-who {
   flex: none;
-  font-size: 11px;
+  font-size: 11px; /* 字面值：快照來源 11px；CloudSnapshots 兩殼共用，照原值留 */
   letter-spacing: .04em;
   color: var(--color-ink-faint);
 }
@@ -476,7 +465,7 @@
   border: 0;
   border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   letter-spacing: .06em;
   color: var(--color-ink-soft);
   cursor: pointer;
@@ -489,7 +478,7 @@
 
 /* 復原碼那一欄：與對話框同一個長相（拉丁等寬感、放大一號、字距拉開），打起來就是抄在紙上的樣子 */
 .ns-recovery-input {
-  font-size: 15px;
+  font-size: 15px; /* 字面值：復原碼輸入放大一號 15px（同復原碼對話框）；桌機字階沒有這一階（原型逐字） */
   letter-spacing: .12em;
   text-transform: uppercase;
 }

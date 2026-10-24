@@ -80,7 +80,7 @@ const INDENT_MAX_DEPTH = 4;
 const STATUS_TEXT: Record<NodeStatus, string> = {
   todo: "未開始",
   doing: "進行中",
-  paused: "暫停",
+  paused: "途中下車",
   done: "已完成",
 };
 

@@ -19,6 +19,7 @@ import { monthOf, type EntryRow } from "../../domain/ticket";
 import { dayStep, isFilterActive } from "../../domain/ticketView";
 import { defaultFocusDay, useCalFocus } from "./view/TicketCalendar";
 import { switchView } from "./view/ViewSwitch";
+import { focusTicketSearch } from "./view/SearchBar";
 
 /** 焦點落到詳情板的金額欄（ticket.open；也給雙擊用） */
 export function focusPanelAmount(root: HTMLElement | null): void {
@@ -89,11 +90,7 @@ export function useTicketKeyboard(ref: RefObject<HTMLElement | null>): void {
         /* ── 第②階段（②契約 §5.4） ── */
         case "ticket.search": {
           s.openSearch(); // 月曆／統計 ⇒ 先切清單
-          setTimeout(() => {
-            const input = el.querySelector<HTMLInputElement>(".ns-tk-search input");
-            input?.focus();
-            input?.select();
-          }); // 切回清單後那一輪才畫得出搜尋框
+          focusTicketSearch(el); // 框在頁首下一列（UI 丙-5 A3）；搜尋剛打開那一輪還沒畫出來，setTimeout 等 commit
           break;
         }
         case "ticket.view.list":

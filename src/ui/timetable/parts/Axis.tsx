@@ -1,7 +1,7 @@
 /**
  * Axis——運行圖（車次①a 契約 §5.1；乙席）。＝原型 `axisMount`（v-a.js:40-120）。兩殼共用 DOM。
  * section.ns-tt-axis[.is-self|.is-page]：
- *   div.ns-tt-axis-nav（‹、「M 月 D 日（週X）」、「今天」、›；看今天時 › disabled）
+ *   DateNav.ns-tt-axis-nav（‹「M 月 D 日（週X）」› ＋「今天」；看今天時 › disabled；UI 丙-4 D9 換共用件）
  *   ＋ DaySummary ＋ div.ns-tt-sec「運行圖」＋「HH:00 起算」
  *   ＋ 每項一列 div.ns-tt-seg[.is-gap]（.ns-tt-seg-time 開始時刻／.ns-tt-seg-rail 線與站點／.ns-tt-seg-body）
  *       block ⇒ button.ns-tt-blk[.is-live][.is-long][.is-zero]（Badge sm＋名稱＋sub chips＋右側時長）
@@ -37,6 +37,7 @@ import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, dayWindow } from "../../../lib/date";
+import { DateNav } from "../../common/DateNav";
 import { CategoryBadge } from "../CategoryBadge";
 import { useMergeMarks } from "../panels/controls";
 import { DaySummary } from "./DaySummary";
@@ -136,18 +137,19 @@ export function Axis({ scroller }: AxisProps) {
 
   return (
     <section ref={ref} className={"ns-tt-axis is-" + scroller} aria-label="運行圖">
-      <div className="ns-tt-axis-nav">
-        <button type="button" className="ns-tt-axis-arrow" aria-label="前一天" onClick={() => void setDayKey(addDays(dayKey, -1))}>
-          ‹
-        </button>
-        <span className="ns-tt-axis-date">{dayLabel(dayKey)}</span>
-        <button type="button" className="ns-tt-axis-today" disabled={isToday} onClick={() => void setDayKey(todayKey)}>
-          今天
-        </button>
-        <button type="button" className="ns-tt-axis-arrow" aria-label="後一天" disabled={isToday} onClick={() => void setDayKey(addDays(dayKey, 1))}>
-          ›
-        </button>
-      </div>
+      {/* UI 丙-4 D9：自畫的 ‹ 今天 › 換共用 DateNav（同行程表、售票口）。動作＝鍵盤 ←／→／T 的同一支 setDayKey；
+          看今天時 › 停用（軸不記未來）；「今天」chip 照 DateNav 一律可按，已在今天就原地不動（不重載同一天） */}
+      <DateNav
+        className="ns-tt-dnav ns-tt-axis-nav"
+        title={dayLabel(dayKey)}
+        onPrev={() => void setDayKey(addDays(dayKey, -1))}
+        onNext={() => void setDayKey(addDays(dayKey, 1))}
+        nextDisabled={isToday}
+        onToday={() => {
+          if (!isToday) void setDayKey(todayKey);
+        }}
+        isToday={isToday}
+      />
 
       <DaySummary dayKey={dayKey} />
 
@@ -202,7 +204,7 @@ export function Axis({ scroller }: AxisProps) {
             <div className="ns-tt-seg-rail" />
             <div className="ns-tt-seg-body">
               <button type="button" className={cls} onClick={() => onBlock(it)}>
-                <CategoryBadge cat={cat} size="sm" />
+                <CategoryBadge cat={cat} size="sm" live={it.running} />
                 <span className="ns-tt-blk-main">
                   <span className={"ns-tt-blk-name" + (label !== null ? " ns-tt-link-has" : "")}>
                     {label === null ? (
@@ -215,12 +217,8 @@ export function Axis({ scroller }: AxisProps) {
                     )}
                   </span>
                   <span className="ns-tt-blk-sub">
-                    {it.running && (
-                      <>
-                        <span className="ns-tt-live-dot" aria-hidden="true" />
-                        <span>運行中</span>
-                      </>
-                    )}
+                    {/* UI 丙-7：呼吸點移到圓徽右上肩（CategoryBadge live），這裡只留字 */}
+                    {it.running && <span>運行中</span>}
                     {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
                     {/* 跨日界線往後一天延伸（沙盒回報 D2，調度裁定兩天都標「續」）：已結束的寫真實到着時刻；
                         運行中的沒有結束時刻，只標「續 ›」 */}

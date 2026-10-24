@@ -20,7 +20,7 @@
 /* ═══ 版面：串流時頁面本身不捲，捲的是 .ns-sch-scroll ═══ */
 .ns-calendar.is-stream { overflow: hidden; display: flex; flex-direction: column; }
 .ns-calendar.is-stream .sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.ns-calendar.is-stream header.day { flex: none; }
+.ns-calendar.is-stream .ns-pagehead { flex: none; }
 .ns-sch { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ns-sch-scroll {
   flex: 1 1 auto; min-height: 0;
@@ -29,9 +29,12 @@
 }
 /* 手帳式捲軸（techo.css:125-128 同款，前綴換這裡） */
 .ns-sch-scroll::-webkit-scrollbar { width: 10px; }
-.ns-sch-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 22%, transparent); border-radius: 5px; }
+.ns-sch-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 22%, transparent); border-radius: 5px; } /* 字面值：捲軸滑塊 5px 圓頭（寬 10 的一半） */
 .ns-sch-scroll::-webkit-scrollbar-track { background: transparent; }
 [data-theme="dark"] .ns-sch-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-ink) 16%, transparent); }
+
+/* 串流的空狀態（UI 丙-3 D3）：捲動內容頂端，下面照舊是今天那一段（草稿列開在那裡） */
+.ns-sch .ns-sch-empty { margin-block: var(--sp-6) var(--sp-5); }
 
 /* ═══ 一天 ═══ */
 .ns-sch-day { position: relative; padding-bottom: 6px; }
@@ -49,13 +52,13 @@
 }
 .ns-sch .sec h3 {
   margin: 0; white-space: nowrap;
-  font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .18em; color: var(--color-ink);
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .18em; color: var(--color-ink);
 }
-.ns-sch .sec h3 .dt { font-family: var(--font-body); font-weight: 500; font-size: 13px; letter-spacing: .06em; }
+.ns-sch .sec h3 .dt { font-family: var(--font-body); font-weight: 500; font-size: 13px; letter-spacing: .06em; } /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
 .ns-sch .sec h3 .rel + .dt { margin-left: .7em; color: var(--color-ink-soft); }
 .ns-sch .sec .rule { flex: 1; min-width: 12px; border-top: 1px dashed var(--color-dash); align-self: center; }
-.ns-sch .sec .note { font-size: 10px; letter-spacing: .14em; color: var(--color-ink-soft); white-space: nowrap; }
-.ns-sch .sec .note b { font-weight: 700; color: var(--color-ink); font-size: 11px; }
+.ns-sch .sec .note { font-size: var(--fs-micro); letter-spacing: .14em; color: var(--color-ink-soft); white-space: nowrap; }
+.ns-sch .sec .note b { font-weight: 700; color: var(--color-ink); font-size: var(--fs-xs); }
 .ns-sch .sec .note .left { color: var(--color-ink-faint); }
 .ns-sch .sec .note .late-n { color: var(--color-late); }
 /* 今天＝菱形（原型 :388-392 是金 ⇒ 換 --accent） */
@@ -84,10 +87,10 @@
 }
 .ns-sch-day.is-empty .sec h3,
 .ns-sch-run > .sec h3,
-.ns-sch .ns-sch-edge h3 { color: var(--color-ink-faint); font-weight: 600; font-size: 13px; }
+.ns-sch .ns-sch-edge h3 { color: var(--color-ink-faint); font-weight: 600; font-size: 13px; } /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
 .ns-sch-day.is-empty .sec h3 .dt,
 .ns-sch-run > .sec h3 .dt,
-.ns-sch .ns-sch-edge h3 .dt { font-size: 12.5px; color: var(--color-ink-faint); }
+.ns-sch .ns-sch-edge h3 .dt { font-size: var(--fs-ui); color: var(--color-ink-faint); }
 .ns-sch-day.is-empty .sec .note,
 .ns-sch-run > .sec .note,
 .ns-sch .ns-sch-edge .note { color: var(--color-ink-faint); letter-spacing: .1em; }
@@ -128,14 +131,14 @@
   background: transparent; border: 0; cursor: pointer; text-align: left;
   font: inherit; color: var(--color-late);
 }
-.ns-sch-latejump .lj-t { font-family: var(--font-display); font-weight: 700; font-size: 14px; letter-spacing: .18em; white-space: nowrap; }
+.ns-sch-latejump .lj-t { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .18em; white-space: nowrap; }
 .ns-sch-latejump .lj-t::before {
   content: ""; display: inline-block; width: 6px; height: 6px;
   background: var(--color-late); transform: rotate(45deg) translateY(-1px);
   margin-right: 9px; opacity: .85;
 }
 .ns-sch-latejump .rule { flex: 1; min-width: 12px; border-top: 1px dashed color-mix(in srgb, var(--color-late) 40%, transparent); }
-.ns-sch-latejump .lj-n { font-size: 10px; letter-spacing: .14em; white-space: nowrap; }
+.ns-sch-latejump .lj-n { font-size: var(--fs-micro); letter-spacing: .14em; white-space: nowrap; }
 .ns-sch-latejump .caret { display: inline-block; margin-left: .5em; transition: transform .2s ease-out; }
 .ns-sch-latejump:hover .lj-t {
   text-decoration: underline dashed color-mix(in srgb, var(--color-late) 45%, transparent);
@@ -147,14 +150,14 @@
 /* ═══ 締切小段（原型 .subhead :454-458） ═══ */
 .ns-sch-subhead {
   display: flex; align-items: center; gap: 8px;
-  margin: 10px 4px 6px; font-size: 10.5px; letter-spacing: .2em; color: var(--color-late);
+  margin: 10px 4px 6px; font-size: 10.5px; letter-spacing: .2em; color: var(--color-late); /* 字面值：締切小段 10.5px；桌機字階沒有這一階（原型逐字） */
 }
 .ns-sch-subhead::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--color-late) 35%, transparent); }
 
 /* ═══ 今日全交代（原型 .cheer :541-546） ═══ */
 .ns-sch-cheer {
   display: flex; align-items: center; gap: 9px; margin: 12px 4px 2px;
-  font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-soft);
+  font-family: var(--font-display); font-weight: 700; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-soft); /* 字面值：全済 13px；桌機字階沒有這一階（原型逐字） */
   animation: nsSchIn .4s ease-out;
 }
 .ns-sch-cheer::after { content: ""; flex: 1; border-top: 1px dashed var(--color-dash); }
@@ -176,21 +179,21 @@
 .ns-sch .prow { display: flex; align-items: center; gap: 9px; padding: 7px 0; }
 /* 原型沒有「選中列」的視覺：只在鍵盤流現身（同 DayCell 的處置） */
 .ns-sch .prow:focus { outline: none; }
-.ns-sch .prow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: 2px; }
+.ns-sch .prow:focus-visible { outline: var(--focus-ring); outline-offset: 1px; border-radius: var(--radius-ctl); }
 
 .ns-sch .roundel-s {
   width: 19px; height: 19px; flex: none; border-radius: 50%;
   display: grid; place-items: center;
-  font-family: var(--font-latin); font-weight: 600; font-size: 8.5px;
+  font-family: var(--font-latin); font-weight: 600; font-size: 8.5px; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
   color: var(--color-ink); letter-spacing: 0;
 }
 /* 磨光⑤：亮盤深字改讀 --color-on-ink（同值 #101217），跟朱脫鉤——這不是済 */
 [data-theme="dark"] .ns-sch .roundel-s { color: var(--color-on-ink); }
 /* 無路線＝襯線「臨」（承臨時車票的由來） */
-.ns-sch .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; }
+.ns-sch .roundel-s.serif { font-family: var(--font-display); font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 .ns-sch .prow .t {
-  flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em;
+  flex: 1; min-width: 0; font-size: 13px; letter-spacing: .04em; /* 字面值：列名 13px；桌機字階沒有這一階（原型逐字） */
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   text-decoration: line-through transparent 1px;
   transition: color .25s, text-decoration-color .25s;
@@ -214,7 +217,7 @@
    現身時只有標題（flex:1）讓出位置，右側推遲鈕與検印欄不動 */
 .ns-sch .prow .detail {
   display: none; flex: none; border: 0; background: transparent; padding: 2px 2px 2px 4px; cursor: pointer;
-  font-family: inherit; font-size: 9.5px; letter-spacing: .24em;
+  font-family: inherit; font-size: 9.5px; letter-spacing: .24em; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
   color: var(--color-ink-faint); transition: color .15s;
 }
 .ns-sch .prow:hover .detail,
@@ -225,14 +228,30 @@
 @media (prefers-reduced-motion: reduce) { .ns-sch .prow .detail { transition: none; } }
 
 .ns-sch .defer {
-  flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: 2px;
-  color: var(--ink-mid, var(--color-ink-soft)); font-size: 10px; letter-spacing: .14em;
+  flex: none; border: 1px solid var(--color-dash); background: transparent; border-radius: var(--radius-ctl);
+  color: var(--ink-mid, var(--color-ink-soft)); font-size: var(--fs-micro); letter-spacing: .14em;
   padding: 3px 7px 3px 9px; cursor: pointer; font-family: inherit;
   transition: color .15s, border-color .15s;
 }
 .ns-sch .defer:hover { color: var(--accent); border-color: var(--accent); }
 .ns-sch .defer:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-sch .prow.done .defer { display: none; }
+
+/* 每列常駐 ⋯（UI 丙-3 D5；視覺規範 §2.6）：.ns-iconbtn 的形縮到 22（列高 36 內），平時 --dim 淡態，
+   列 hover／鍵盤聚焦／選單開著變實。tabIndex=-1（鍵盤每一項都有自己的鍵），聚焦環照 --focus-ring */
+.ns-sch .prow .row-more {
+  flex: none; width: 22px; height: 22px; padding: 0; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  color: var(--color-ink-soft); opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.ns-sch .prow:hover .row-more,
+.ns-sch .prow:focus-within .row-more,
+.ns-sch .prow .row-more[aria-expanded="true"] { opacity: 1; }
+.ns-sch .prow .row-more:hover,
+.ns-sch .prow .row-more[aria-expanded="true"] { background: var(--hover-bg); color: var(--color-ink); }
+.ns-sch .prow .row-more:focus-visible { opacity: 1; outline: var(--focus-ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ns-sch .prow .row-more { transition: none; } }
 
 /* 迷你検印欄（＝今日票検印圈的縮小版） */
 .ns-sch .stamp-s {
@@ -252,7 +271,7 @@
   position: absolute; inset: -1px; border-radius: 50%;
   border: 2px solid var(--color-seal); color: var(--color-seal);
   display: grid; place-items: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  font-family: var(--font-display); font-weight: 700; font-size: 15px; /* 字面值：印章家族字級（照原型） */
   background: radial-gradient(circle at 36% 30%, color-mix(in srgb, var(--color-seal) 12%, transparent), transparent 62%);
   transform: rotate(-8deg); opacity: 0; pointer-events: none;
   filter: url(#inkbleed);
@@ -274,15 +293,15 @@
 
 /* 締切列 */
 .ns-sch .prow .sime-g {
-  flex: none; font-family: var(--font-display); font-weight: 600; font-size: 13px;
+  flex: none; font-family: var(--font-display); font-weight: 600; font-size: 13px; /* 字面值：〆 字 13px；桌機字階沒有這一階（原型逐字） */
   color: var(--color-late); transform: rotate(-6deg); line-height: 1;
 }
 .ns-sch .noexec {
-  flex: none; font-size: 9px; letter-spacing: .16em;
+  flex: none; font-size: 9px; letter-spacing: .16em; /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
   border: 1px solid var(--color-dash); color: var(--color-ink-faint);
   padding: 1px 4px 1px 6px;
 }
-.ns-sch .due-tag { flex: none; font-size: 10px; letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
+.ns-sch .due-tag { flex: none; font-size: var(--fs-micro); letter-spacing: .2em; text-indent: .2em; color: var(--color-late); }
 
 /* ═════════════════════════════════════════════════════
  * 主線階段②「車票預定時刻」（契約 §4.3、§4.4、§4.7 乙；原型 prototypes/主線-預定時刻.html :243-250、:324-335）
@@ -313,7 +332,7 @@
 .ns-daypop .prow .tm .once { letter-spacing: .14em; color: var(--accent); border-bottom: 1px dotted currentColor; margin-left: 3px; }
 .ns-today .ticket .tm .oob,
 .ns-sch .prow .tm .oob,
-.ns-daypop .prow .tm .oob { letter-spacing: .1em; color: var(--color-ink-faint); border: 1px dashed var(--color-dash); border-radius: 2px; padding: 0 3px; margin-left: 3px; font-size: 9.5px; }
+.ns-daypop .prow .tm .oob { letter-spacing: .1em; color: var(--color-ink-faint); border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); padding: 0 3px; margin-left: 3px; font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 .ns-today .ticket .tm.past, .ns-today .ticket .tm.past .hz,
 .ns-sch .prow .tm.past, .ns-sch .prow .tm.past .hz,
 .ns-daypop .prow .tm.past, .ns-daypop .prow .tm.past .hz { color: var(--color-late); }
@@ -321,21 +340,21 @@
 .ns-sch .prow.done .tm, .ns-sch .prow.done .tm .hz,
 .ns-daypop .prow.done .tm, .ns-daypop .prow.done .tm .hz { color: var(--color-ink-faint); }
 /* 今日票（原型字級）：13.5／10.5／10／9.5 */
-.ns-today .ticket .tm .hm { font-size: 13.5px; }
-.ns-today .ticket .tm .hz { font-size: 10.5px; }
-.ns-today .ticket .tm .nx { font-size: 10px; }
-.ns-today .ticket .tm .once { font-size: 9.5px; }
+.ns-today .ticket .tm .hm { font-size: 13.5px; } /* 字面值：今日票面時刻 13.5px；桌機字階沒有這一階（原型逐字） */
+.ns-today .ticket .tm .hz { font-size: 10.5px; } /* 字面值：時刻後綴 10.5px；桌機字階沒有這一階（原型逐字） */
+.ns-today .ticket .tm .nx { font-size: var(--fs-micro); }
+.ns-today .ticket .tm .once { font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 /* 串流列／浮層列（13px 票名那一列）：時刻在圓牌與票名之間，收小一號 */
 .ns-sch .prow .tm, .ns-daypop .prow .tm { flex: none; }
-.ns-sch .prow .tm .hm, .ns-daypop .prow .tm .hm { font-size: 12.5px; }
-.ns-sch .prow .tm .hz, .ns-daypop .prow .tm .hz { font-size: 10px; }
-.ns-sch .prow .tm .nx, .ns-daypop .prow .tm .nx { font-size: 9.5px; }
-.ns-sch .prow .tm .once, .ns-daypop .prow .tm .once { font-size: 9px; }
+.ns-sch .prow .tm .hm, .ns-daypop .prow .tm .hm { font-size: var(--fs-ui); }
+.ns-sch .prow .tm .hz, .ns-daypop .prow .tm .hz { font-size: var(--fs-micro); }
+.ns-sch .prow .tm .nx, .ns-daypop .prow .tm .nx { font-size: 9.5px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
+.ns-sch .prow .tm .once, .ns-daypop .prow .tm .once { font-size: 9px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 
 /* ② 今日頁：「未定時・照手排」小標（右側點線延伸）與現在線（赭：左端圓點＋實線＋「現在 15:10」；UI 丙-1 前是靛，視覺規範 §2.10） */
 .ns-today .ticket-list > .subgrp {
   list-style: none; display: flex; align-items: center; gap: 10px; margin: 6px 0 -2px;
-  font-size: 10.5px; letter-spacing: .24em; color: var(--color-ink-faint);
+  font-size: 10.5px; letter-spacing: .24em; color: var(--color-ink-faint); /* 字面值：分群小標 10.5px；桌機字階沒有這一階（原型逐字） */
 }
 .ns-today .ticket-list > .subgrp::after { content: ""; flex: 1; border-top: 1px dotted var(--color-dash); }
 .ns-today .ticket-list > .nowline {
@@ -347,17 +366,19 @@
 }
 .ns-today .ticket-list > .nowline::after { content: ""; flex: 1; border-top: 1.5px solid currentColor; opacity: .75; }
 .ns-today .ticket-list > .nowline span {
-  order: 2; font-family: var(--font-latin); font-size: 11px; letter-spacing: .1em; font-weight: 500;
+  order: 2; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .1em; font-weight: 500;
 }
-.ns-today .ticket-list > .nowline span::before { content: "現在 "; font-family: var(--font-body); font-size: 10px; letter-spacing: .2em; }
+.ns-today .ticket-list > .nowline span::before { content: "現在 "; font-family: var(--font-body); font-size: var(--fs-micro); letter-spacing: .2em; }
 /* 頁首「・下一班 16:30　票名」 */
 .ns-today .day-stats .next-run .tmx { font-family: var(--font-latin); font-weight: 600; color: var(--color-ink); letter-spacing: .03em; }
 
 /* ③ 行程表第四段「時段」：頁面不捲（同串流），畫布 .ns-tg 在月卡裡撐滿、自己捲 */
 .ns-calendar.is-time { overflow: hidden; display: flex; flex-direction: column; }
 .ns-calendar.is-time .sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.ns-calendar.is-time header.day,
+.ns-calendar.is-time .ns-pagehead,
 .ns-calendar.is-time .page-foot { flex: none; }
+/* UI 丙-3：格與時段畫布外面多包一層 .ns-cal-body（空狀態的定位框）——時段時它接手撐滿 */
+.ns-calendar.is-time .ns-cal-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ns-calendar .ns-sch-wtg {
   flex: 1 1 auto; min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;

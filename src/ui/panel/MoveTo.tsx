@@ -15,7 +15,7 @@ import type { AttachTarget } from "../../domain/notes";
 import { currentDest, moveTargetRule } from "../../domain/moveTo";
 import { nodeRepo } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
-import { AttachPicker } from "../notes/AttachPicker";
+import { AttachPicker } from "../common/AttachPicker";
 import { moveNodeTo, useMoveRequest } from "../common/moveTo";
 import "../notes/notes.css";
 import "../common/moveTo.css";

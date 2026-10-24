@@ -4,16 +4,22 @@
  * 只顯示、不寫入日記內文；沒寫日記的日子也看得到。可獨立翻日（不動本文），「回到 M 月 D 日」拉回本文那天。
  *   蓋了章的：済章（本線縮小版 .ns-notes-sumi，朱只給這一枚）＋票名＋路線色點；定期券班次 title「班次 M/D」
  *   寫下的：時刻＋手寫體內文＋票名（節點已刪＝「（原車票已刪除）」，repository 填好）
- *   心情：跟著済章讀的燈號（綠＝路線松葉色、黃＝金／粉彩用 --arc、紅＝赭 --late；不用朱）
+ *   心情：跟著済章讀的燈號；字與色同完成卡（complete/moods.ts：順暢／還行／吃力；色 --mood-good／-ok／-hard，不用朱）
  *   時間：dayBlocksProvider 填了才有（blocks !== null）；目前恆 null ⇒ 不畫（磨光③ 2-7 拿掉欄底「時刻表通車後…」那行；接時間塊留給下一輪 B1）
  * 足跡翻日不必先存日記（本文沒換），所以直接呼叫 store、不經 flushThen。
+ * 版面（UI 丙-6 K5）：本文右側一張區塊卡（紙材、--radius-card、--shadow-card；不全高、卡內捲）。翻日箭頭＝共用 `.ns-iconbtn`
+ *   （跟 DateNav 同一種箭頭；不用 DateNav 本身：它常駐「今天」chip，足跡要的是「回到本文那天」）；「回到 M 月 D 日」＝文字鈕（D5）。
  */
 import { useNotesStore } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { fmtMonthDay, hasFootprint, weekdayZh } from "../../domain/notes";
-import { IconLeft, IconRight, RouteDot, fmtShort, fmtTime } from "./notesBits";
+import { MOODS } from "../complete/moods";
+import { EmptyState } from "../common/EmptyState";
+import { IconBack, IconChevron } from "../common/icons";
+import { RouteDot, fmtShort, fmtTime } from "./notesBits";
 
-const MOOD_NAME = { green: "順暢", yellow: "還行", red: "吃力" } as const;
+/** 心情字（F1：讀完成卡那一份，不各自一張表） */
+const moodName = (m: string) => MOODS.find((o) => o.value === m)?.label ?? "";
 
 export function Footprints({ today }: { today: string }) {
   const fpDay = useNotesStore((s) => s.fpDay);
@@ -28,7 +34,7 @@ export function Footprints({ today }: { today: string }) {
 
   let body;
   if (!cur) body = null;
-  else if (!hasFootprint(cur)) body = <div className="ns-notes-fpempty">這天沒有留下足跡</div>;
+  else if (!hasFootprint(cur)) body = <EmptyState inline tone="first" className="ns-notes-fpempty" title="這天沒有留下足跡" />;
   else
     body = (
       <>
@@ -79,7 +85,7 @@ export function Footprints({ today }: { today: string }) {
             </h4>
             <div className="ns-notes-moods">
               {cur.moods.map((m, i) => (
-                <span key={i} className={`ns-notes-mood ${m}`} title={MOOD_NAME[m]} aria-label={MOOD_NAME[m]} />
+                <span key={i} className={`ns-notes-mood ${m}`} title={moodName(m)} aria-label={moodName(m)} />
               ))}
             </div>
           </section>
@@ -102,28 +108,28 @@ export function Footprints({ today }: { today: string }) {
         <div className="ns-notes-fpnav">
           <button
             type="button"
-            className="ns-notes-arrow sm"
+            className="ns-iconbtn"
             aria-label="足跡：前一天"
             title="足跡：前一天"
             onClick={() => st().stepFpDay(-1)}
           >
-            <IconLeft size={13} />
+            <IconBack />
           </button>
           <span className="d">
             {fmtShort(fpDay)}（{weekdayZh(fpDay)}）
           </span>
           <button
             type="button"
-            className="ns-notes-arrow sm"
+            className="ns-iconbtn"
             aria-label="足跡：後一天"
             title="足跡：後一天"
             disabled={fpDay >= today}
             onClick={() => st().stepFpDay(1)}
           >
-            <IconRight size={13} />
+            <IconChevron />
           </button>
           {fpDay !== diaryDay && (
-            <button type="button" className="ns-notes-fpback" onClick={() => st().fpBackToDiaryDay()}>
+            <button type="button" className="ns-btn ns-btn--sm btn-text ns-notes-fpback" onClick={() => st().fpBackToDiaryDay()}>
               回到 {fmtMonthDay(diaryDay)}
             </button>
           )}

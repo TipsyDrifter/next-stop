@@ -33,7 +33,7 @@
   height: var(--h); max-width: 100%; vertical-align: middle;
   background: var(--ns-tag-line);
   clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
-  transition: background .15s;
+  transition: background var(--dur-fast);
 }
 .ns-notes-tag::before { /* 牌面：內縮 1px、同一個切角 → 細框 */
   content: ""; position: absolute; inset: 1px;
@@ -42,12 +42,12 @@
 }
 .ns-notes-tag::after { /* 打孔小圓（金屬墊圈） */
   content: ""; position: absolute; left: 6px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
-  border-radius: 50%; border: 1px solid var(--ns-tag-eye); background: var(--ns-tag-hole); z-index: 1; pointer-events: none;
+  border-radius: var(--radius-pill); border: 1px solid var(--ns-tag-eye); background: var(--ns-tag-hole); z-index: 1; pointer-events: none;
 }
 .ns-notes-tag .ns-notes-tag-nm {
   position: relative; z-index: 1; display: inline-flex; align-items: center; min-width: 0;
   padding: 0 8px 0 16px; border: 0; background: transparent; cursor: pointer;
-  font-family: inherit; font-size: 12px; line-height: 1; letter-spacing: .04em; white-space: nowrap;
+  font-family: inherit; font-size: var(--fs-sm); line-height: 1; letter-spacing: .04em; white-space: nowrap;
   color: var(--color-ink-soft);
 }
 .ns-notes-tag .ns-notes-tag-nm > span { overflow: hidden; text-overflow: ellipsis; }
@@ -63,7 +63,7 @@
 .ns-notes-tag .ns-notes-tag-x {
   position: relative; z-index: 1; width: 0; margin-right: 0; overflow: hidden; opacity: 0;
   display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; color: var(--color-ink-faint);
-  transition: width .15s cubic-bezier(.2, .9, .3, 1.1), opacity .12s;
+  transition: width var(--dur-fast) var(--ease), opacity var(--dur-fast);
 }
 .ns-notes-tag:hover .ns-notes-tag-x, .ns-notes-tag .ns-notes-tag-x:focus-visible { width: 18px; margin-left: -5px; opacity: 1; }
 .ns-notes-tag .ns-notes-tag-x:hover { color: var(--color-late); }
@@ -74,14 +74,14 @@
 /* 行內小牌（內文；字級跟著段落） */
 .ns-notes-tag.sm { --h: 1.5em; --c: .36em; font-size: .84em; vertical-align: -.32em; margin: 0 .08em; }
 .ns-notes-tag.sm::after { left: .4em; width: .3em; height: .3em; margin-top: -.15em; border-width: .8px; }
-.ns-notes-tag.sm .ns-notes-tag-nm { font-size: 1em; padding: 0 .55em 0 1.05em; letter-spacing: .02em; }
+.ns-notes-tag.sm .ns-notes-tag-nm { font-size: inherit; padding: 0 .55em 0 1.05em; letter-spacing: .02em; }
 /* 頁頭大牌 */
 .ns-notes-tag.lg { --h: 42px; --c: 12px; }
 .ns-notes-tag.lg::after { left: 12px; width: 9px; height: 9px; margin-top: -4.5px; border-width: 1.3px; }
-.ns-notes-tag.lg .ns-notes-tag-nm { padding: 0 22px 0 32px; font-family: var(--font-display); font-weight: 700; font-size: 23px; letter-spacing: .06em; cursor: default; }
+.ns-notes-tag.lg .ns-notes-tag-nm { padding: 0 22px 0 32px; font-family: var(--font-display); font-weight: 700; font-size: 23px; letter-spacing: .06em; cursor: default; } /* 內容區大標：原型定值（介於 --fs-title 與 --fs-display） */
 .ns-notes-tag.lg .ns-notes-tag-nm .pa {
   font: inherit; font-weight: 600; color: var(--color-ink-faint); border: 0; background: transparent; cursor: pointer;
-  border-radius: 2px; padding: 0 2px; transition: color .15s, background .15s;
+  border-radius: var(--radius-ctl); padding: 0 2px; transition: color var(--dur-fast), background var(--dur-fast);
 }
 .ns-notes-tag.lg .ns-notes-tag-nm button.pa:hover { color: var(--color-ink); background: var(--ns-tag-wash); }
 .ns-notes-tag.lg .ns-notes-tag-nm button.pa:focus-visible { outline: var(--focus-ring); }
@@ -105,19 +105,19 @@
 .cover .ns-notes-aux h2.sub { margin-top: 16px; }
 .cover .ns-notes-aux .line-item { border: 0; background: transparent; }
 .cover .ns-notes-aux .line-item:hover, .cover .ns-notes-aux .line-item:focus-visible { background: var(--color-book-hover); }
-/* 四顆子畫面排成 2×2（契約風險 4：粉彩／矮視窗下書封高度不夠，樹只剩三四列——省下約 70px 給下面那一塊） */
-.cover .ns-notes-auxnav { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 4px; padding-top: 4px; }
-.cover .ns-notes-aux .line-item.ns-notes-auxitem { gap: 8px; padding: 6px 8px; font-size: 13px; letter-spacing: .08em; }
+/* 四顆子畫面排成縱列（UI 丙-3 C8；規範 §2.0／§2.2「書封子畫面縱列 .line-item，不排 2×2」——原型是縱列，2×2 是實作漂移） */
+.cover .ns-notes-auxnav { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
+.cover .ns-notes-aux .line-item.ns-notes-auxitem { gap: 8px; padding: 6px 8px; font-size: var(--fs-ui); letter-spacing: .08em; }
 .cover .ns-notes-auxitem { color: var(--book-muted); }
 .cover .ns-notes-auxitem.active { color: var(--color-book-ink); }
 .cover .ns-notes-auxitem .line-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cover .ns-notes-aux .line-item .n { margin-left: auto; font-family: var(--font-latin); font-size: 11px; letter-spacing: .04em; opacity: .7; }
+.cover .ns-notes-aux .line-item .n { margin-left: auto; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .04em; opacity: .7; }
 .cover .ns-notes-auxroute { color: color-mix(in srgb, var(--color-book-ink) 82%, transparent); }
 .cover .ns-notes-auxroute.active { color: var(--color-book-ink); }
 .cover .ns-notes-auxroute .line-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cover .ns-notes-aux .roundel.ns-notes-rdblank { visibility: hidden; }
 .cover .ns-notes-aux .roundel.empty { background: transparent; border: 1px dashed var(--book-muted); opacity: .8; }
-.cover .ns-notes-aux .line-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; }
+.cover .ns-notes-aux .line-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; } /* 書封燙金 */
 
 /* —— 近 12 週方格（D-筆-45；只分寫過／沒寫兩階） —— */
 .cover .ns-notes-weeks { padding: 0; }
@@ -126,143 +126,147 @@
   gap: 3px; padding: 8px 8px 0;
 }
 .cover .ns-notes-wk {
-  position: relative; width: 100%; height: 12px; padding: 0; border: 0; border-radius: 2px; cursor: pointer;
+  position: relative; width: 100%; height: 12px; padding: 0; border: 0; border-radius: var(--radius-ctl); cursor: pointer;
   background: var(--color-book-hover);
-  transition: background .12s;
+  transition: background var(--dur-fast);
 }
 .cover .ns-notes-wk.has { background: color-mix(in srgb, var(--color-book-ink) 70%, transparent); }
 .cover .ns-notes-wk:hover:not([disabled]) { background: color-mix(in srgb, var(--color-book-ink) 28%, transparent); }
 .cover .ns-notes-wk.has:hover:not([disabled]) { background: var(--color-book-ink); }
-.cover .ns-notes-wk.today { box-shadow: 0 0 0 1px var(--color-gold); }
+.cover .ns-notes-wk.today { box-shadow: 0 0 0 1px var(--color-gold); } /* 書封燙金 */
 /* 選中的那天：金菱形（書封唯一的「現在在這」語彙；格太密，放在格心） */
 .cover .ns-notes-wk.sel::after {
   content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
-  background: var(--color-gold); transform: rotate(45deg);
+  background: var(--color-gold); transform: rotate(45deg); /* 書封燙金 */
 }
 .cover .ns-notes-wk[disabled] { opacity: .22; cursor: default; }
-.cover .ns-notes-wk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; }
-.cover .ns-notes-weekfoot { padding: 10px 10px 0; font-size: 9.5px; letter-spacing: .08em; line-height: 1.7; color: var(--book-muted); }
+.cover .ns-notes-wk:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; } /* 書封燙金 */
+.cover .ns-notes-weekfoot { padding: 10px 10px 0; font-size: var(--fs-micro); letter-spacing: .08em; line-height: 1.7; color: var(--book-muted); }
 
 /* —— 荷札樹 —— */
 .cover .ns-notes-treefilter {
-  position: sticky; top: 0; z-index: 1; background: var(--color-book);
+  position: sticky; top: 0; z-index: 1; background: var(--color-book); /* 書封面：書封裡的黏頂列（同殼，§1.5） */
   display: flex; align-items: center; gap: 6px; margin: 0 10px 6px; padding-top: 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-book-ink) 22%, transparent); color: var(--book-muted);
 }
 .cover .ns-notes-treefilter input {
   flex: 1; min-width: 0; background: transparent; border: 0; outline: none; padding: 4px 0;
-  font-family: inherit; font-size: 12px; letter-spacing: .06em; color: var(--color-book-ink);
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-book-ink);
 }
 .cover .ns-notes-treefilter input::placeholder { color: var(--book-muted); }
-.cover .ns-notes-treefilter:focus-within { border-bottom-color: var(--color-gold); }
+.cover .ns-notes-treefilter:focus-within { border-bottom-color: var(--color-gold); } /* 書封燙金 */
 .cover .ns-notes-tree { display: flex; flex-direction: column; }
 .cover .ns-notes-treerow {
   position: relative; display: flex; align-items: center; gap: 0;
-  padding-left: calc(var(--d, 0) * 12px + 2px); border-radius: 2px; color: var(--book-muted);
+  padding-left: calc(var(--d, 0) * 12px + 2px); border-radius: var(--radius-ctl); color: var(--book-muted);
 }
 .cover .ns-notes-treerow .cr {
   width: 16px; height: 22px; flex: none; display: grid; place-items: center; padding: 0; border: 0; background: transparent;
-  color: inherit; opacity: .75; border-radius: 2px; cursor: pointer;
+  color: inherit; opacity: .75; border-radius: var(--radius-ctl); cursor: pointer;
 }
 .cover .ns-notes-treerow span.cr { cursor: default; }
-.cover .ns-notes-treerow .cr svg { transition: transform .16s cubic-bezier(.2, .9, .3, 1.1); }
+.cover .ns-notes-treerow .cr svg { transition: transform var(--dur-fast) var(--ease); }
 .cover .ns-notes-treerow .cr.open svg { transform: rotate(90deg); }
 .cover .ns-notes-treerow .cr:hover { color: var(--color-book-ink); }
 .cover .ns-notes-treerow .line-item.ns-notes-treenm {
-  flex: 1; min-width: 0; gap: 6px; padding: 5px 8px 5px 4px; font-size: 13px; letter-spacing: .06em;
+  flex: 1; min-width: 0; gap: 6px; padding: 5px 8px 5px 4px; font-size: var(--fs-ui); letter-spacing: .06em;
 }
 .cover .ns-notes-treenm .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cover .ns-notes-treerow.virtual .ns-notes-treenm { color: var(--book-muted); }
-.cover .ns-notes-treerow.active .ns-notes-treenm { background: color-mix(in srgb, var(--color-gold) 14%, transparent); }
+.cover .ns-notes-treerow.active .ns-notes-treenm { background: color-mix(in srgb, var(--color-gold) 14%, transparent); } /* 書封燙金 */
 .cover .ns-notes-treerow.active::before {
   content: ""; position: absolute; left: calc(var(--d, 0) * 12px - 6px); top: 50%; width: 5px; height: 5px; margin-top: -2.5px;
-  background: var(--color-gold); transform: rotate(45deg);
+  background: var(--color-gold); transform: rotate(45deg); /* 書封燙金 */
 }
-.cover .ns-notes-aux .ns-notes-tglyph { color: var(--color-gold-soft); }
+.cover .ns-notes-aux .ns-notes-tglyph { color: var(--color-gold-soft); } /* 書封燙金 */
 .cover .ns-notes-aux .ns-notes-tglyph.hollow { color: var(--book-muted); opacity: .9; }
-.cover .ns-notes-treeempty { padding: 10px 10px; font-size: 11.5px; letter-spacing: .06em; color: var(--book-muted); }
-.cover .ns-notes-treelegend { display: flex; align-items: center; gap: 5px; padding: 10px 10px 4px; font-size: 9.5px; letter-spacing: .08em; color: var(--book-muted); }
+.cover .ns-notes-treeempty { padding: 10px 10px; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--book-muted); }
+.cover .ns-notes-treelegend { display: flex; align-items: center; gap: 5px; padding: 10px 10px 4px; font-size: var(--fs-micro); letter-spacing: .08em; color: var(--book-muted); }
 
 /* ═══ 三、任務側板「荷札」欄（TagField；渲染在核心 FieldRow 裡） ═══ */
 .ns-notes-tagfield { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 26px; }
 .ns-notes-tagfield .ns-notes-tagadd {
   display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; cursor: pointer;
-  font-family: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); opacity: .75;
-  background: transparent; border: 1px dashed transparent; border-radius: 2px;
-  transition: opacity .15s, color .15s, border-color .15s;
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .1em; color: var(--color-ink-faint); opacity: .75;
+  background: transparent; border: 1px dashed transparent; border-radius: var(--radius-ctl);
+  transition: opacity var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 .ns-notes-tagfield .ns-notes-tagadd:hover, .ns-notes-tagfield .ns-notes-tagadd:focus-visible {
   opacity: 1; color: var(--color-ink); border-color: var(--color-dash); outline: none;
 }
 .ns-notes-taginput { display: inline-flex; align-items: center; gap: 2px; flex: 1 1 110px; min-width: 110px; border-bottom: 1px solid var(--accent); } /* 輸入中的底線＝聚焦底線（§2.5：--accent） */
-.ns-notes-taginput i { font-style: normal; font-family: var(--font-latin); color: var(--color-ink-faint); font-size: 13px; }
+.ns-notes-taginput i { font-style: normal; font-family: var(--font-latin); color: var(--color-ink-faint); font-size: var(--fs-ui); }
 /* .panel input（panel.css）是 0,1,1：這裡 0,2,1 蓋過，免得多一條底線 */
 .ns-notes-tagfield .ns-notes-taginput input, .ns-notes-mergepick .ns-notes-taginput input {
   flex: 1; min-width: 0; width: auto; display: block; background: transparent; border: 0; outline: none; padding: 3px 0;
-  font-family: inherit; font-size: 13px; letter-spacing: .03em; color: var(--color-ink);
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .03em; color: var(--color-ink);
 }
 .ns-notes-taginput input::placeholder { color: var(--color-ink-faint); }
 
 /* ═══ 四、建議清單（側板、內文游標、併入；內文那份掛在 body、position: fixed） ═══ */
 .ns-notes-sug {
   position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20;
-  max-height: 280px; overflow-y: auto; padding: 5px; border-radius: 4px;
+  max-height: 280px; overflow-y: auto; padding: 5px; border-radius: var(--radius-card);
   background: var(--ns-tag-float); border: 1px solid var(--color-line); box-shadow: var(--shadow-card-hover);
   -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
   color: var(--color-ink); font-family: var(--font-body); line-height: 1.5;
-  animation: nsTagSugIn .14s cubic-bezier(.2, .9, .3, 1.1);
+  animation: nsTagSugIn var(--dur) var(--ease);
 }
 @keyframes nsTagSugIn { from { opacity: 0; transform: translateY(-3px); } }
-[data-theme="dark"] .ns-notes-sug { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09); }
+[data-theme="dark"] .ns-notes-sug { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: var(--shadow-card-hover), var(--glass-hi); } /* 銀河 --glass-hi＝inset 0 1px 0 rgba(230,236,255,.09)，跟原本 rgba(var(--starlight),.09) 同值 */
 .ns-notes-sug.body { position: fixed; right: auto; width: 320px; z-index: 45; }
 .ns-notes-sug.static { position: relative; top: auto; margin-top: 8px; max-height: 300px; box-shadow: none; animation: none; background: transparent; border: 0; padding: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .ns-notes-sugrow {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; cursor: pointer;
-  min-height: 30px; padding: 4px 8px; border: 0; border-radius: 2px; background: transparent;
-  font-family: inherit; font-size: 13px; letter-spacing: .03em; color: var(--color-ink);
+  min-height: 30px; padding: 4px 8px; border: 0; border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .03em; color: var(--color-ink);
 }
 .ns-notes-sugrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-notes-sugrow .nm .pa { color: var(--color-ink-faint); }
 .ns-notes-sugrow .nm b { font-weight: 700; color: var(--color-ink); }
-.ns-notes-sugrow .n { flex: none; font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .04em; }
+.ns-notes-sugrow .n { flex: none; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .04em; }
 .ns-notes-sugrow:hover { background: var(--ns-tag-wash); }
 .ns-notes-sugrow.on { background: var(--ns-tag-sel); box-shadow: inset 2px 0 0 var(--accent); }
-.ns-notes-sugrow.create { color: var(--color-ink-soft); border-top: 1px dashed var(--color-line); margin-top: 3px; padding-top: 6px; border-radius: 0 0 2px 2px; }
+.ns-notes-sugrow.create { color: var(--color-ink-soft); border-top: 1px dashed var(--color-line); margin-top: 3px; padding-top: 6px; border-radius: 0 0 var(--radius-ctl) var(--radius-ctl); } /* 歸零：蓋掉繼承的圓角 */
 .ns-notes-sugrow.create:first-child { border-top: 0; margin-top: 0; }
 .ns-notes-sugrow.create svg { color: var(--color-ink-faint); margin: 0 1px; flex: none; }
 .ns-notes-sugrow.virtual .nm { color: var(--color-ink-faint); }
-.ns-notes-sughint { padding: 6px 8px; font-size: 11.5px; color: var(--color-ink-faint); letter-spacing: .05em; }
-.ns-notes-sughead { padding: 4px 8px 2px; font-size: 10px; letter-spacing: .2em; color: var(--ink-mid); }
+.ns-notes-sughint { padding: 6px 8px; font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .05em; }
+.ns-notes-sughead { padding: 4px 8px 2px; font-size: var(--fs-micro); letter-spacing: .2em; color: var(--ink-mid); }
 
 /* ═══ 五、荷札子畫面主欄（NotesTags） ═══ */
-.ns-notes-tagmain { flex: 1; min-width: 0; }
-.ns-notes-tagmain .ns-notes-measure { max-width: 46em; }
+/* UI 丙-6 H0／H4／K3：頁首（PageHeader）與 `.ns-notes-body` 是頁根的直接子節點，外距與主體內距由 notes.css〈H0〉統一給；
+ *   這裡只管荷札主體：一欄自己捲、**沒有整頁大紙**（§1.5：內容直接放天上，只有 TagList 那份密集清單包區塊卡）。
+ *   內容寬跟頁首同寬（頁首工具列的右緣＝清單卡的右緣）。左右各留 8px 讓卡的陰影不被捲動框切掉，負邊距吃回去（同日記本文欄）。 */
+.ns-notes .ns-notes-tagmain {
+  flex: 1; min-width: 0; height: auto; align-self: stretch;
+  padding: 0 8px var(--sp-6); margin: 0 -8px;
+}
+.ns-notes-tagmain .ns-notes-measure { max-width: none; }
+.ns-notes-tagmain .ns-errrow { margin-bottom: var(--sp-4); }
 .ns-notes .ns-notes-backlink {
   display: inline-flex; align-items: center; gap: 4px; margin: -8px 0 14px -6px; padding: 3px 8px 3px 4px; cursor: pointer;
-  border: 0; border-radius: 2px; background: transparent;
-  font-family: inherit; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-soft);
+  border: 0; border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .08em; color: var(--color-ink-soft);
 }
-.ns-notes .ns-notes-backlink span { color: var(--color-ink-faint); margin-left: 6px; font-size: 11px; }
+.ns-notes .ns-notes-backlink span { color: var(--color-ink-faint); margin-left: 6px; font-size: var(--fs-xs); }
 .ns-notes .ns-notes-backlink:hover { background: var(--ns-hover); color: var(--color-ink); }
 .ns-notes .ns-notes-backlink:focus-visible { outline: var(--focus-ring); }
 /* 通車提示（只出現一次） */
 .ns-notes-notice {
   display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding: 9px 10px 9px 14px;
-  border: 1px solid var(--color-line); border-radius: 3px; font-size: 12.5px; line-height: 1.7; letter-spacing: .04em; color: var(--color-ink-soft);
+  border: 1px solid var(--color-line); border-radius: var(--radius-card); font-size: var(--fs-sm); line-height: 1.7; letter-spacing: .04em; color: var(--color-ink-soft);
   background: color-mix(in srgb, var(--color-paper-high) 80%, transparent);
-  animation: nsTagSugIn .2s ease-out;
+  animation: nsTagSugIn var(--dur) var(--ease);
 }
 .ns-notes-notice > svg { flex: none; color: var(--ink-mid); }
 .ns-notes .ns-notes-notice .x {
   margin-left: auto; width: 24px; height: 24px; flex: none; display: grid; place-items: center; cursor: pointer;
-  border: 0; border-radius: 2px; background: transparent; color: var(--color-ink-faint);
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-ink-faint);
 }
 .ns-notes .ns-notes-notice .x:hover { background: var(--ns-hover); color: var(--color-ink); }
-/* 頁頭 */
-.ns-notes-taghead, .ns-notes-tagview { position: relative; padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid var(--color-line); }
-.ns-notes-taghead::after, .ns-notes-tagview::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; border-bottom: 1px solid var(--color-line); opacity: .5; }
-.ns-notes-taghead .ns-notes-overline, .ns-notes-tagview .ns-notes-overline { margin-bottom: 8px; }
-.ns-notes .ns-notes-taghead h1.techo-title { font-size: 30px; line-height: 1.15; letter-spacing: .08em; }
+/* 選了荷札＝內容區標題（大牌＋⋯＋計數）。UI 丙-6 H4：頁首不變、這裡不畫底線——一頁只有一條頁首線 */
+.ns-notes-tagview { position: relative; margin-bottom: var(--sp-5); }
 .ns-notes-tagtitle { position: relative; display: flex; align-items: center; gap: 12px; padding-left: 26px; min-height: 46px; }
 .ns-notes-tagtitle::before { /* 一截繩（墨色；形狀走 mask，顏色吃 token） */
   content: ""; position: absolute; left: 0; top: 50%; width: 30px; height: 22px; margin-top: -16px; pointer-events: none;
@@ -272,99 +276,108 @@
 }
 .ns-notes-tagtitle:has(.ns-notes-renamerow) { padding-left: 0; }
 .ns-notes-tagtitle:has(.ns-notes-renamerow)::before { display: none; }
-.ns-notes-tagcount { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 12px; font-size: 13px; letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-notes-tagcount { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 12px; font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-ink-soft); }
 .ns-notes-tagcount b { font-weight: 500; color: var(--color-ink); }
-.ns-notes-virt { display: inline-block; padding: 0 6px; margin-right: 4px; border: 1px dashed var(--color-dash); border-radius: 2px; font-size: 11px; color: var(--color-ink-faint); letter-spacing: .1em; }
+.ns-notes-virt { display: inline-block; padding: 0 6px; margin-right: 4px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .1em; }
 .ns-notes-cloud { display: flex; flex-wrap: wrap; gap: 10px 8px; }
-.ns-notes-tagempty { padding: 40px 0 20px; text-align: center; font-size: 13px; line-height: 1.9; color: var(--color-ink-faint); letter-spacing: .12em; }
-/* ⋯ 選單 */
+/* 第一次空（E11 總覽、E13 某荷札掛 0 處）：共用 EmptyState 頁級，上下留白 */
+.ns-notes-tagfirst, .ns-notes-tagnone { padding: var(--sp-6) 0; }
+/* ⋯（UI 丙-6 T1）：鈕＝共用 .ns-iconbtn、選單＝共用 PopMenu（portal 到 body）；這裡只留版位——
+ *   併入浮層 MergePick 還錨在這個盒子上（position: relative） */
 .ns-notes-menuwrap { position: relative; margin-left: auto; align-self: flex-start; }
-.ns-notes .ns-notes-dots {
-  width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer;
-  border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--color-ink-soft);
-}
-.ns-notes .ns-notes-dots:hover, .ns-notes .ns-notes-dots[aria-expanded="true"] { border-color: var(--color-dash); color: var(--color-ink); background: var(--ns-hover); }
-.ns-notes .ns-notes-dots:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
-.ns-notes-menu, .ns-notes-mergepick {
+.ns-notes-mergepick {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 25;
-  background: var(--ns-float); border: 1px solid var(--ns-glass); border-radius: 4px; box-shadow: var(--shadow-card-hover), var(--ns-hi);
+  background: var(--ns-float); border: 1px solid var(--ns-glass); border-radius: var(--radius-card); box-shadow: var(--shadow-card-hover), var(--ns-hi);
   -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-  animation: nsTagSugIn .14s cubic-bezier(.2, .9, .3, 1.1);
+  animation: nsTagSugIn var(--dur) var(--ease);
 }
-[data-theme="dark"] .ns-notes-menu, [data-theme="dark"] .ns-notes-mergepick { -webkit-backdrop-filter: none; backdrop-filter: none; }
-.ns-notes-menu { min-width: 148px; padding: 5px; }
-.ns-notes .ns-notes-menu button {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
-  padding: 6px 10px; border: 0; border-radius: 2px; background: transparent;
-  font-family: inherit; font-size: 13px; letter-spacing: .1em; color: var(--color-ink);
-}
-.ns-notes .ns-notes-menu button .ns-notes-kbd { margin-left: auto; }
-.ns-notes .ns-notes-menu button:hover, .ns-notes .ns-notes-menu button:focus-visible { background: var(--ns-hover); outline: none; }
-/* 破壞性項目最後且赭字（視覺規範 §2.4 PopMenu）；class 照危險鈕統一叫 .ns-btn-danger（UI 丙-1） */
-.ns-notes .ns-notes-menu button.ns-btn-danger { color: var(--danger); border-top: 1px dashed var(--color-line); margin-top: 3px; padding-top: 8px; border-radius: 0 0 2px 2px; }
-.ns-notes .ns-notes-menu button.ns-btn-danger:hover, .ns-notes .ns-notes-menu button.ns-btn-danger:focus-visible { background: var(--danger-bg); }
+[data-theme="dark"] .ns-notes-mergepick { -webkit-backdrop-filter: none; backdrop-filter: none; }
 .ns-notes-mergepick { width: 330px; padding: 12px 12px 8px; }
 .ns-notes-mergepick .ns-notes-taginput { width: 100%; }
 /* 改名列 */
 .ns-notes-renamerow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .ns-notes-renamerow .ns-notes-taginput.lg { flex: 1 1 auto; border-bottom: 0; }
-.ns-notes-renamerow .ns-notes-taginput.lg i { font-size: 22px; }
+.ns-notes-renamerow .ns-notes-taginput.lg i { font-size: 22px; } /* 內容區大標：原型定值（介於 --fs-title 與 --fs-display） */
 .ns-notes .ns-notes-renamerow input.techo-input {
-  flex: 1; min-width: 0; padding: 2px 0 4px; font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: .05em;
+  flex: 1; min-width: 0; padding: 2px 0 4px; font-family: var(--font-display); font-weight: 700; font-size: 22px; letter-spacing: .05em; /* 內容區大標：原型定值（介於 --fs-title 與 --fs-display） */
   border-bottom-width: 1.5px; border-bottom-color: var(--accent); /* 改名中＝聚焦底線（§2.5） */
 }
-.ns-notes-impact { font-size: 12px; line-height: 1.7; color: var(--color-ink-soft); letter-spacing: .04em; min-height: 1.7em; }
+.ns-notes-impact { font-size: var(--fs-sm); line-height: 1.7; color: var(--color-ink-soft); letter-spacing: .04em; min-height: 1.7em; }
 .ns-notes-impact.err { color: var(--color-late); }
 .ns-notes-impact .warn { color: var(--color-ink); }
 .ns-notes-renbtns { display: flex; align-items: center; gap: 8px; }
-.ns-notes-renbtns .hint { margin-left: 6px; font-size: 10.5px; color: var(--color-ink-faint); letter-spacing: .06em; }
+.ns-notes-renbtns .hint { margin-left: 6px; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .06em; }
+
+/* —— 新荷札小浮層（UI 丙-6 T2；NewTagPop，portal 到 body ⇒ 不加 .ns-notes 前綴、不用 --ns-*）——
+ *   底與框交給 .techo-card（§1.5 浮層一律它）；定位照 PopMenu（fixed、z 60） */
+.ns-notes-newtag { position: fixed; z-index: 60; width: 300px; padding: var(--sp-3) 14px 10px; }
+.ns-notes-newtag .ns-notes-newtag-head { margin: 0 0 var(--sp-2); }
+.ns-notes-newtag .ns-notes-taginput { display: flex; width: 100%; }
+.ns-notes-newtag .ns-notes-taginput input {
+  flex: 1; min-width: 0; background: transparent; border: 0; outline: none; padding: 3px 0;
+  font-family: inherit; font-size: var(--fs-body); letter-spacing: .03em; color: var(--color-ink);
+}
+.ns-notes-newtag-hint { margin: 6px 0 0; min-height: 1.6em; font-size: var(--fs-sm); line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-notes-newtag-hint.err { color: var(--color-late); }
+.ns-notes-newtag-foot { display: flex; justify-content: flex-end; margin-top: var(--sp-2); }
 
 /* —— 清單（TagList） —— */
+/* 區塊卡（UI 丙-6 K3）：荷札頁唯一的紙——紙材（霧面玻璃＋噪點＋--glass-edge）、--radius-card、--shadow-card、不全高（隨內容） */
+.ns-notes-tagcard {
+  position: relative; padding: var(--sp-4) var(--sp-5) var(--sp-5); border-radius: var(--radius-card);
+  background: var(--color-paper-high);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid var(--ns-glass); box-shadow: var(--ns-hi), var(--shadow-card);
+}
+[data-theme="dark"] .ns-notes-tagcard { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.ns-notes-tagcard::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--ns-noise); opacity: .045; mix-blend-mode: multiply; pointer-events: none; }
+[data-theme="dark"] .ns-notes-tagcard::after { display: none; }
+.ns-notes-tagcard > * { position: relative; z-index: 1; }
 .ns-notes-taggroup + .ns-notes-taggroup { margin-top: 26px; }
-.ns-notes-taggroup h4 { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 11px; font-weight: 500; letter-spacing: .26em; color: var(--ink-mid); }
+.ns-notes-taggroup h4 { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: var(--fs-xs); font-weight: 500; letter-spacing: .26em; color: var(--ink-mid); }
 .ns-notes-taggroup h4 .n { font-family: var(--font-latin); letter-spacing: .04em; color: var(--color-ink-faint); }
 .ns-notes-taggroup h4 .rule { flex: 1; border-top: 1px dashed var(--color-line); }
 .ns-notes-tagrows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ns-notes .ns-notes-tagitem {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
-  min-height: 42px; padding: 7px 10px; border: 0; border-bottom: 1px dashed var(--color-line); border-radius: 3px; background: transparent;
-  font-family: inherit; color: var(--color-ink); transition: background .12s;
+  min-height: 42px; padding: 7px 10px; border: 0; border-bottom: 1px dashed var(--color-line); border-radius: var(--radius-card); background: transparent;
+  font-family: inherit; color: var(--color-ink); transition: background var(--dur-fast);
 }
 .ns-notes .ns-notes-tagitem:hover { background: var(--ns-hover); }
 .ns-notes .ns-notes-tagitem.is-sel { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--sel-fg); } /* 左線＝--sel-line 的 2px 作用中色（內陰影畫，不擠列） */
 .ns-notes .ns-notes-tagitem:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-notes-tagitem.other { cursor: default; }
 .ns-notes-tagitem .main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
-.ns-notes-tagitem .nm { font-size: 14px; letter-spacing: .03em; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ns-notes-tagitem .kd { font-size: 10px; letter-spacing: .14em; color: var(--color-ink-faint); border: 1px solid var(--color-line); border-radius: 2px; padding: 0 4px; }
-.ns-notes-rel { display: inline-flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--color-ink-faint); }
+.ns-notes-tagitem .nm { font-size: var(--fs-body); letter-spacing: .03em; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-notes-tagitem .kd { font-size: var(--fs-micro); letter-spacing: .14em; color: var(--color-ink-faint); border: 1px solid var(--color-line); border-radius: var(--radius-ctl); padding: 0 4px; }
+.ns-notes-rel { display: inline-flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-xs); color: var(--color-ink-faint); }
 .ns-notes-reltag::before { content: "#"; opacity: .6; margin-right: 1px; }
 .ns-notes-reltag .pa { color: var(--color-ink-faint); }
 .ns-notes-reltag .la { color: var(--color-ink-soft); }
-.ns-notes-tagitem .sn { flex-basis: 100%; min-width: 0; font-size: 12.5px; color: var(--color-ink-soft); line-height: 1.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-notes-tagitem .sn { flex-basis: 100%; min-width: 0; font-size: var(--fs-sm); color: var(--color-ink-soft); line-height: 1.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ns-notes-tagitem .sn b { font-weight: 700; color: var(--color-ink); }
-.ns-notes-tagitem .dt { flex: none; font-family: var(--font-latin); font-size: 11px; color: var(--color-ink-faint); letter-spacing: .04em; }
+.ns-notes-tagitem .dt { flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .04em; }
 .ns-notes-tagitem .ns-notes-sumi, .ns-notes-tagitem .ns-notes-sumislot { flex: none; width: 22px; height: 22px; }
-.ns-notes-tagitem .ns-notes-sumi { font-size: 11px; }
+.ns-notes-tagitem .ns-notes-sumi { font-size: 11px; } /* 票券尺寸：照原型 */
 .ns-notes-tagitem.node.done .nm { color: var(--color-ink-faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--color-ink) 28%, transparent); }
 .ns-notes-tagitem.node.done { opacity: .78; }
 .ns-notes-tagitem.diary .bd { flex: none; width: 58px; display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
-.ns-notes-tagitem.diary .dd { font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: .02em; }
-.ns-notes-tagitem.diary .wk { font-size: 10px; color: var(--color-ink-faint); letter-spacing: .1em; margin-top: 2px; }
+.ns-notes-tagitem.diary .dd { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); letter-spacing: .02em; }
+.ns-notes-tagitem.diary .wk { font-size: var(--fs-micro); color: var(--color-ink-faint); letter-spacing: .1em; margin-top: 2px; }
 .ns-notes-tagitem.diary .sn { flex-basis: auto; flex: 1; }
 .ns-notes-donefold { margin-top: 8px; }
 .ns-notes-donefold > summary {
-  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px 4px 4px; border-radius: 2px; cursor: pointer; list-style: none;
-  font-size: 11.5px; letter-spacing: .14em; color: var(--color-ink-faint);
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px 4px 4px; border-radius: var(--radius-ctl); cursor: pointer; list-style: none;
+  font-size: var(--fs-sm); letter-spacing: .14em; color: var(--color-ink-faint);
 }
 .ns-notes-donefold > summary::-webkit-details-marker { display: none; }
 .ns-notes-donefold > summary:hover { background: var(--ns-hover); color: var(--color-ink-soft); }
 .ns-notes-donefold > summary:focus-visible { outline: var(--focus-ring); }
-.ns-notes-donefold > summary svg { transition: transform .16s; }
+.ns-notes-donefold > summary svg { transition: transform var(--dur-fast); }
 .ns-notes-donefold[open] > summary svg { transform: rotate(90deg); }
 .ns-notes-donefold > summary .n { font-family: var(--font-latin); }
 
 @media (prefers-reduced-motion: reduce) {
-  .ns-notes-tag, .ns-notes-tag .ns-notes-tag-x, .ns-notes-sug, .ns-notes-notice, .ns-notes-menu, .ns-notes-mergepick,
+  .ns-notes-tag, .ns-notes-tag .ns-notes-tag-x, .ns-notes-sug, .ns-notes-notice, .ns-notes-mergepick,
   .cover .ns-notes-wk, .cover .ns-notes-treerow .cr svg, .ns-notes-donefold > summary svg { transition: none; animation: none; }
 }

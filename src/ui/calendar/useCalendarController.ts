@@ -18,6 +18,14 @@
  *   - 「今天」＝`todayKey(dayStartHour)`（D9 日界線 03:00），沿 ③ 的每分鐘 timer（雷區 8）：
  *     key 變了才 setState，不變完全不動。
  *   - 資料一律由 `nodeStore.calendar` 來；本檔不自己查 repository。
+ *
+ * ── UI 丙-3（契約 §1 D2／D3／D4、§5 P4）──
+ *   - 浮層目標多帶 `draft`／`seq`：`addOn(day)`（格內「＋」）與 `addTicket()`（頁首「＋ 車票」）開的浮層底端直接是草稿列；
+ *     點格子本身照舊只開浮層（底端一顆「＋ 車票」文字鈕）。`seq` 讓「同一天再按一次＋」也重開草稿。
+ *   - `addTicket()`：今天不在目前的月／週 ⇒ 先回今天所在的月／週，等格畫好再開（`pendingDraft`；錨＝今天那一格）。
+ *   - 格改用共用 DayCell（點擊面是格內一顆 `.ns-daycell-hit`）：鍵盤落點與浮層錨一律走 `cellOf(day)`
+ *     （格裡的點擊面優先，找不到才退回 `[data-day]`——時段視圖的欄頭也掛 data-day）。
+ *   - `loaded`＝store 的日曆切片就是目前區間（載入完才判斷空狀態，規範 §1.8）；`empty`＝載入完、區間內沒有班次也沒有締切。
  */
 import {
   createContext,
@@ -66,6 +74,10 @@ function clamp(n: number, lo: number, hi: number): number {
 export interface CalendarDayTarget {
   day: string;
   anchor: HTMLElement | null;
+  /** 浮層開著就帶草稿列（格內「＋」、頁首「＋ 車票」；UI 丙-3 P4） */
+  draft?: boolean;
+  /** 每次開浮層遞增：同一天再按一次「＋」也要重開草稿 */
+  seq?: number;
 }
 
 /** 依日期分組的三張表（同一個 memo 出，WP3／WP4／WP5 共用） */
@@ -113,8 +125,14 @@ export interface CalendarControllerApi {
   selectDay(day: string | null): void;
 
   popTarget: CalendarDayTarget | null;
-  openDay(day: string, anchor: HTMLElement | null): void;
+  openDay(day: string, anchor: HTMLElement | null, opts?: { draft?: boolean }): void;
   closeDay(): void;
+  /** 格內「＋」：開那一天的浮層＋草稿列（錨＝那一格） */
+  addOn(day: string): void;
+  /** 頁首「＋ 車票」（月／週／時段）：開今天的浮層＋草稿列；今天不在目前區間就先回今天所在的月／週 */
+  addTicket(): void;
+  /** 那一天的格（共用 DayCell 的點擊面；沒有就 `[data-day]`）——鍵盤落點與浮層錨 */
+  cellOf(day: string): HTMLElement | null;
 
   tipTarget: CalendarDayTarget | null;
   showTip(day: string, anchor: HTMLElement | null): void;
@@ -134,6 +152,10 @@ export interface CalendarControllerApi {
   routeOf(nodeId: string): NodeRow | undefined;
 
   stats: CalendarStats;
+  /** store 的日曆切片＝目前區間（串流恆 false：串流自己管視窗） */
+  loaded: boolean;
+  /** 載入完、區間內沒有班次也沒有締切（D3 空狀態） */
+  empty: boolean;
   /** 三線的格內記號（`lineCalendarMarks()`，0-2 乙插槽）：日 key → 有記號的線（固定順序）；三線零登記＝恆空物件 */
   marks: Readonly<Record<string, readonly LineId[]>>;
   /** 欄序（`getDay()` 值，長度 7）：依 `uiStore.weekStart` 排；MonthGrid 的 wk-head、WeekGrid 的欄頭都讀這一份 */
@@ -228,6 +250,9 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   const [anchor, setAnchor] = useState(DEV_FLAGS.day ?? today);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [popTarget, setPopTarget] = useState<CalendarDayTarget | null>(null);
+  const popSeq = useRef(0);
+  /** 頁首「＋ 車票」要回到今天所在的月／週之後才開的那一天（格畫好、錨找得到才開） */
+  const [pendingDraft, setPendingDraft] = useState<string | null>(null);
   const [tipTarget, setTipTarget] = useState<CalendarDayTarget | null>(null);
   // 月／年跳轉小卡：一份 state 同時管「開沒開」與「錨在哪」（外層 null＝關；內層 anchor 可為 null＝置中落位）
   const [jump, setJump] = useState<{ anchor: HTMLElement | null } | null>(null);
@@ -317,6 +342,9 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     return { total, done, skipped, open: total - done - skipped, dues };
   }, [calendar.entries, calendar.dues, range.from, range.to]);
 
+  const loaded = view !== "stream" && calendar.from === range.from && calendar.to === range.to;
+  const empty = loaded && stats.total === 0 && stats.dues === 0;
+
   const routeOf = useCallback(
     (nodeId: string): NodeRow | undefined => {
       const rid = calendar.nodes[nodeId]?.route_id;
@@ -335,11 +363,24 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     focusContainer();
   }, [focusContainer]);
 
-  const openDay = useCallback((day: string, el: HTMLElement | null) => {
+  const openDay = useCallback((day: string, el: HTMLElement | null, opts?: { draft?: boolean }) => {
     setTipTarget(null); // 開浮層就收 tip（原型 :1147）
     setSelectedDay(day);
-    setPopTarget({ day, anchor: el });
+    setPopTarget({ day, anchor: el, draft: opts?.draft === true, seq: ++popSeq.current });
   }, []);
+
+  /** 那一天的格：共用 DayCell 的點擊面優先（它才是可聚焦、蓋滿整格的那顆），退回任何掛 data-day 的元素 */
+  const cellOf = useCallback(
+    (day: string): HTMLElement | null => {
+      const host = containerRef.current;
+      if (!host) return null;
+      const sel = `[data-day="${CSS.escape(day)}"]`;
+      return host.querySelector<HTMLElement>(`${sel} .ns-daycell-hit`) ?? host.querySelector<HTMLElement>(sel);
+    },
+    [containerRef],
+  );
+
+  const addOn = useCallback((day: string) => openDay(day, cellOf(day), { draft: true }), [openDay, cellOf]);
 
   const showTip = useCallback((day: string, el: HTMLElement | null) => setTipTarget({ day, anchor: el }), []);
   const hideTip = useCallback(() => setTipTarget(null), []);
@@ -438,6 +479,29 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     setSelectedDay(today);
   }, [view, today]);
 
+  const addTicket = useCallback(() => {
+    if (view === "stream") return; // 串流由 CalendarView 直接開今天的日列草稿
+    setTipTarget(null);
+    setJump(null);
+    if (today >= range.from && today <= range.to) {
+      openDay(today, cellOf(today), { draft: true });
+      return;
+    }
+    // 在別的月份／週：先回今天所在的月／週（P4），格畫好之後由下面的 effect 開
+    setPopTarget(null);
+    setAnchor(today);
+    setSelectedDay(today);
+    setPendingDraft(today);
+  }, [view, today, range.from, range.to, openDay, cellOf]);
+
+  // 回到今天的格畫好了（days 換成新區間）⇒ 開那一天的浮層＋草稿（錨找不到就置中落位）
+  useEffect(() => {
+    if (!pendingDraft) return;
+    if (pendingDraft < range.from || pendingDraft > range.to) return; // 區間還沒換過來
+    setPendingDraft(null);
+    openDay(pendingDraft, cellOf(pendingDraft), { draft: true });
+  }, [pendingDraft, days, range.from, range.to, openDay, cellOf]);
+
   /** 鍵盤移動的落點：選取格 → 今天（若在區間內）→ 區間第一天 */
   const cursorDay = useCallback((): string => {
     if (selectedDay && selectedDay >= range.from && selectedDay <= range.to) return selectedDay;
@@ -473,9 +537,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
 
   const openSelected = useCallback(() => {
     const day = cursorDay();
-    const el = containerRef.current?.querySelector<HTMLElement>(`[data-day="${day}"]`) ?? null;
-    openDay(day, el);
-  }, [cursorDay, containerRef, openDay]);
+    openDay(day, cellOf(day));
+  }, [cursorDay, cellOf, openDay]);
 
   const escape = useCallback(() => {
     if (popTarget) closeDay();
@@ -505,9 +568,11 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     const host = containerRef.current;
     const active = document.activeElement;
     if (!host || !(active === document.body || host.contains(active))) return;
-    const cell = host.querySelector<HTMLElement>(`[data-day="${selectedDay}"]`);
+    // 焦點在頁首分頁籤上（←→ 換排列＝days 換了）：留在籤上，不搶到格（UI 丙-3：分頁籤自己吃方向鍵）
+    if (active instanceof Element && active.closest('[role="tablist"]')) return;
+    const cell = cellOf(selectedDay);
     if (cell && cell !== active) cell.focus();
-  }, [selectedDay, days, containerRef]);
+  }, [selectedDay, days, containerRef, cellOf]);
 
   // 沒人持有焦點時把焦點給日曆頁，鍵盤流立刻可用（沿 useTodayController 的做法）
   useEffect(() => {
@@ -521,9 +586,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   useEffect(() => {
     if (devDayOpened.current || !DEV_FLAGS.day) return;
     devDayOpened.current = true;
-    const el = containerRef.current?.querySelector<HTMLElement>(`[data-day="${DEV_FLAGS.day}"]`) ?? null;
-    openDay(DEV_FLAGS.day, el);
-  }, [containerRef, openDay]);
+    openDay(DEV_FLAGS.day, cellOf(DEV_FLAGS.day));
+  }, [openDay, cellOf]);
 
   return {
     view,
@@ -540,6 +604,9 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     popTarget,
     openDay,
     closeDay,
+    addOn,
+    addTicket,
+    cellOf,
     tipTarget,
     showTip,
     hideTip,
@@ -552,6 +619,8 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     routes,
     routeOf,
     stats,
+    loaded,
+    empty,
     marks,
     weekOrder,
     // 覆蓋層開著＝格層鍵盤表整張停用只留 Esc（當日浮層／月年跳轉小卡各自吃自己的鍵）

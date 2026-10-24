@@ -1,239 +1,215 @@
 /**
- * TimeField——側板的「幾點」欄（主線階段②；契約 §4.1、§4.2）。視覺依據＝原型 `prototypes/主線-預定時刻.html`
- * `:381-400`（.tf 一族）、`:1008-1012`（tfHTML）、`:1504-1550`（openTF 的行為）。
+ * 側板的「幾點」欄（主線階段②；契約 §4.1、§4.2）——UI 丙-3 C5 起換成共用 `ClockInput`（視覺規範 §2.5「時間」：
+ * 全 App 一支；側板舊的 TimeField 是「三支 TimeField」之一，退役）。檔名沿用，元件改叫 `ClockField`。
  *
  * 兩態：
- *   顯示態  button.tf-show（點了就變輸入態）：span.pre 前綴（「本班」「每班」）＋span.hm 時刻＋span.nx「＝隔天 01:00」；空值 span.ph
- *   輸入態  input.tf-in（文字框，不是 <input type="time">——原生時間框打不出 25:00）＋下方 p.tf-hint **即時**顯示會存成什麼
+ *   沒排時刻  button.tf-show > span.ph「— 不排時刻」：點了才掛出 ClockInput（從「起點」開始：今天＝現在往後取整到 15 分、別天＝09:00）；
+ *            起點不算數——按 Enter 才存；動了（打字、±15）就照動過的存；什麼都沒做就離開＝收回「不排時刻」。
+ *   有時刻    span.pre 前綴（「本班」「每班」）＋ ClockInput（compact：只留 ±15；側板控制項欄約 220px 放不下四組微調）＋ × 清除。
+ * 值的換算（`./clockValue.ts`）：資料是營業日表記 "HH:MM"（"25:00"＝隔天 01:00），ClockInput 吃毫秒；
+ *   兩邊都以 `refDay`（這一天＝執行日；定期券本班＝那一班的日子）為基準，存回時算回 "25:00"，營業日語意不壞。
+ *   ClockInput 下方的說明行寫這個值的日期，跨到隔天赭字（取代舊欄位的「＝隔天 01:00」小字）。
+ * 寫回：ClockInput 每一步（±15、↑↓、打字確定）都叫 onChange；這裡先換畫面、400ms 去抖後才 onCommit（長按連跳不會每一格都寫庫），
+ *   離開這一欄、卸載時立刻送出。清除＝×（ClockInput 清空框會還原，不能用來清除）。
+ * 鍵盤：Enter＝確定（沒排時刻時＝就用起點）；Esc＝框裡有草稿先還原（ClockInput 自己攔）；沒草稿時——掛出來的輸入態
+ *   （起點、或「只改這班…」）收回、不讓側板跟著關；本來就有時刻的那一欄照舊交給側板（Esc 關側板）。
  *
- * 規則（照契約 §4.1）：
- *   Enter／點外面（blur）＝確定；空字串＝清除（onCommit(null)）；值沒變不叫 onCommit
- *   打錯：Enter ⇒ 還原成上一個已提交的值、整欄抖一下、留在輸入態；blur ⇒ 還原、回顯示態、抖一下
- *   Esc＝取消回顯示態（stopPropagation：不讓側板跟著關）
- *   IME：keydown 先判 isComposing／keyCode 229（三道護欄的第一道；側板鍵盤表遇 editable 整張停用是既有的）
- *   焦點中不吃外部 value（同 fields.tsx NumberField 的 focused 寫法）：打到一半同步進來，輸入框不被洗掉（契約 §7 #10）
- *
- * 另附兩個只給側板用的小件（同檔，免得 TaskFields／RepeatRuleEditor 為了它們多長一段）：
+ * 另附兩個只給側板用的小件（同檔）：
  *   ArrivalNote  「→ 15:30 着（隔天 01:30）」（D-主-12；預計欄右邊）
  *   RunTimeRow   定期券検印段的「本班」列（只改這班…／再改…／改回每班時刻）
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import type { NodeRow } from "../../domain";
-import { effectiveTime, isTimeOverridden, TIME_FORMAT_MSG } from "../../domain/scheduledTime";
-import { arrivalClock, clockRange, clockText, nextDayNote, parseClockInput } from "../../lib/date";
+import { effectiveTime, isTimeOverridden } from "../../domain/scheduledTime";
+import { arrivalClock, nextDayNote, todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { ClockInput } from "../common/ClockInput";
+import { useDebouncedCommit } from "../common/fields";
+import { IconClose } from "../common/icons";
+import { clockBounds, clockSeed, clockToMs, msToClock } from "./clockValue";
 
-export interface TimeFieldProps {
+export interface ClockFieldProps {
   value: string | null;
   /** 值變了才叫；null＝清除 */
   onCommit(v: string | null): void;
   dayStartHour: number;
+  /** 這一天（營業日 key）：換算與日期標籤的基準。一定要給——ClockInput 沒給會拿時刻表的檢視日來算 */
+  refDay: string;
   ariaLabel: string;
   /** 預設「— 不排時刻」 */
   placeholder?: string;
-  /** 顯示態前綴小字（.pre）：定期券本班欄「本班」、每班欄「每班」 */
+  /** 前綴小字（.pre）：定期券本班欄「本班」、每班欄「每班」 */
   prefix?: string;
-
-  // ── 契約 §4.1 之外、只加不改的選填項（給 RunTimeRow 的「只改這班…」用） ──
-  /** 一掛上就是輸入態（按了「只改這班…」才掛出來的那一格） */
+  /** 一掛上就是輸入態（RunTimeRow 按了「只改這班…」才掛出來的那一格） */
   startEditing?: boolean;
-  /** 離開輸入態時叫（確定、Esc、blur 都算）；RunTimeRow 用來收回輸入格。byKeyboard＝Enter／Esc 離開（要把焦點交給接手的鈕）；點外面為 false（焦點已經去別處，不搶） */
+  /** 離開輸入態時叫（Enter、Esc、清除、點外面都算）。byKeyboard＝鍵盤離開（要把焦點交給接手的鈕）；點外面為 false */
   onClose?(byKeyboard: boolean): void;
-  /** 清空時的提示字（預設「清空＝不排時刻」） */
-  clearHint?: string;
+  /** × 的說明（預設「清除時刻＝不排時刻」） */
+  clearTitle?: string;
 }
 
-const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
+const DEBOUNCE_MS = 400;
 
-type Verdict =
-  | { kind: "clear" }
-  | { kind: "ok"; value: string }
-  | { kind: "late"; max: string } // 格式對、但超過這一天的最後一分（日界線 06 ⇒ 29:59）
-  | { kind: "err" };
-
-/**
- * 判讀草稿。parseClockInput 對「看不懂」與「超出範圍」都回 null；兩者的提示不同（契約 §4.1），
- * 這裡用兩個極端的日界線再問一次來分辨：日界線 0 收 00:00–23:59、日界線 23 收 23:00–46:59（含 0–22 點進位），
- * 只要任一個認得就是「格式對、只是太晚」。不另抄一份解析規則。
- */
-function judge(raw: string, dayStartHour: number): Verdict {
-  if (raw.trim() === "") return { kind: "clear" };
-  const v = parseClockInput(raw, dayStartHour);
-  if (v !== null) return { kind: "ok", value: v };
-  if (parseClockInput(raw, 0) !== null || parseClockInput(raw, 23) !== null) {
-    return { kind: "late", max: clockText(clockRange(dayStartHour).max) ?? "" };
-  }
-  return { kind: "err" };
-}
-
-export function TimeField({
+export function ClockField({
   value,
   onCommit,
   dayStartHour,
+  refDay,
   ariaLabel,
   placeholder = "— 不排時刻",
   prefix,
   startEditing = false,
   onClose,
-  clearHint = "清空＝不排時刻",
-}: TimeFieldProps) {
+  clearTitle = "清除時刻＝不排時刻",
+}: ClockFieldProps) {
+  const { lo, hi } = useMemo(() => clockBounds(refDay, dayStartHour), [refDay, dayStartHour]);
   const [editing, setEditing] = useState(startEditing);
-  const [draft, setDraft] = useState(value ?? "");
-  const [shake, setShake] = useState(0);
-  const committed = useRef<string | null>(value);
-  /** 這一輪輸入已經結束（Enter／Esc 先收掉，緊接著的 blur 不再處理第二次） */
-  const settled = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  /** 畫面上的值（毫秒）；null＝跟著外面的值走 */
+  const [draft, setDraft] = useState<number | null>(null);
+  /** 掛出輸入態那一刻的起點（沒排時刻時才用） */
+  const [seed, setSeed] = useState<number>(() => clockSeed(refDay, todayKey(dayStartHour), dayStartHour));
+  /** 這一輪輸入態裡動過值沒（沒動過又沒按 Enter＝起點不算數） */
+  const touched = useRef(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const showRef = useRef<HTMLButtonElement>(null);
-  /** 離開輸入態後要不要把焦點還給顯示鈕（鍵盤離開＝要；點外面＝焦點已經去別處了，不搶） */
-  const refocus = useRef(false);
-  const hintId = useId();
+  const refocusShow = useRef(false);
 
-  // 焦點中不吃外部 value：只有顯示態才跟著外部值走
-  useEffect(() => {
-    if (!editing) committed.current = value;
-  }, [value, editing]);
+  const live = useRef({ value, onCommit });
+  live.current = { value, onCommit };
+  /** 有值在去抖中、還沒送出 */
+  const pending = useRef(false);
+  const { schedule, flush, cancel } = useDebouncedCommit<string>((t) => {
+    pending.current = false;
+    if (t !== live.current.value) live.current.onCommit(t);
+    else setDraft(null);
+  }, DEBOUNCE_MS);
 
-  // 進輸入態：聚焦＋全選（原型 inp.focus(); inp.select()）
+  // 外面的值換了（剛寫回的值回來了、別處改、同步、換一天）：沒有待送的草稿就跟著外面走
   useEffect(() => {
-    if (!editing) return;
-    settled.current = false;
-    const el = inputRef.current;
-    if (el) {
-      el.focus();
-      el.select();
-    }
-  }, [editing]);
+    if (!pending.current) setDraft(null);
+  }, [value, refDay]);
 
-  // 離開輸入態：鍵盤離開的把焦點還給顯示鈕，鍵盤流不斷
+  // 收回「不排時刻」之後，鍵盤離開的把焦點交給那顆鈕
   useEffect(() => {
-    if (editing || !refocus.current) return;
-    refocus.current = false;
+    if (!refocusShow.current || editing || value !== null) return;
+    refocusShow.current = false;
     showRef.current?.focus();
-  }, [editing]);
+  });
 
-  // 抖一下（.3s）：class 掛 320ms 就拿掉，下一次打錯再掛
-  useEffect(() => {
-    if (!shake) return;
-    const t = setTimeout(() => setShake(0), 320);
-    return () => clearTimeout(t);
-  }, [shake]);
+  const propMs = value !== null ? clockToMs(value, refDay) : null;
+  // 有草稿也算開著：剛寫回、外面的值還沒回來的那一拍，框不能先卸載再掛回（焦點會掉）
+  const open = value !== null || editing || draft !== null;
+  const shown = draft ?? propMs ?? seed;
 
-  const open = () => {
-    committed.current = value;
-    setDraft(value ?? "");
+  const begin = () => {
+    touched.current = false;
+    setSeed(clockSeed(refDay, todayKey(dayStartHour), dayStartHour));
     setEditing(true);
   };
 
   const leave = (byKeyboard: boolean) => {
-    settled.current = true;
-    refocus.current = byKeyboard;
+    flush();
+    touched.current = false;
+    if (byKeyboard && value === null) refocusShow.current = true;
     setEditing(false);
     onClose?.(byKeyboard);
   };
 
-  /** 確定；打錯回 false（呼叫端決定要留在輸入態還是離開） */
-  const commit = (byKeyboard: boolean): boolean => {
-    const r = judge(draft, dayStartHour);
-    if (r.kind === "late" || r.kind === "err") return false;
-    const next = r.kind === "clear" ? null : r.value;
-    leave(byKeyboard);
-    if (next !== committed.current) {
-      committed.current = next;
-      onCommit(next);
-    }
-    return true;
+  const change = (ms: number) => {
+    const t = msToClock(ms, refDay);
+    if (t === null) return;
+    touched.current = true;
+    pending.current = true;
+    setDraft(ms);
+    schedule(t);
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (!commit(true)) {
-        setDraft(committed.current ?? "");
-        setShake((n) => n + 1);
-        requestAnimationFrame(() => inputRef.current?.select());
+  const enter = () => {
+    flush();
+    // 沒排時刻、沒動過就按 Enter＝就用起點。先把起點留成草稿：寫回的值回來之前框不能卸載（焦點會掉到 body）
+    if (live.current.value === null && !touched.current) {
+      const t = msToClock(shown, refDay);
+      if (t !== null) {
+        setDraft(shown);
+        onCommit(t);
       }
-    } else if (e.key === "Escape") {
+    }
+    if (editing) leave(true);
+  };
+
+  const clear = () => {
+    cancel();
+    pending.current = false;
+    setDraft(null);
+    touched.current = false;
+    if (value !== null) onCommit(null);
+    refocusShow.current = true;
+    setEditing(false);
+    onClose?.(true);
+  };
+
+  // 焦點離開整欄（點到外面）：送出去抖中的值；掛出來的輸入態收回
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    const to = e.relatedTarget;
+    if (to instanceof Node && wrapRef.current?.contains(to)) return;
+    // 有的引擎點按鈕不給焦點（relatedTarget 為空）：下一拍再看焦點是不是還在欄裡
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && wrapRef.current?.contains(a)) return;
+      if (editing) leave(false);
+      else flush();
+    }, 0);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // ClockInput 有草稿時自己攔 Esc（還原＋stopPropagation），走到這裡＝沒草稿
+    if (e.key === "Escape" && editing) {
       e.preventDefault();
       e.stopPropagation();
       leave(true);
     }
   };
 
-  const onBlur = () => {
-    if (settled.current) return;
-    if (!commit(false)) {
-      leave(false);
-      setShake((n) => n + 1);
-    }
-  };
-
-  const nx = value ? nextDayNote(value) : null;
-
-  let hint: ReactNode = null;
-  let hintErr = false;
-  if (editing) {
-    const r = judge(draft, dayStartHour);
-    if (r.kind === "clear") hint = clearHint;
-    else if (r.kind === "ok") {
-      const n = nextDayNote(r.value);
-      hint = (
-        <>
-          會存成 <b className="hm">{r.value}</b>
-          {n && `＝${n}`}
-        </>
-      );
-    } else if (r.kind === "late") {
-      hintErr = true;
-      hint = `最晚到 ${r.max}——再晚就算隔天的班了（日界線 ${pad2(dayStartHour)}:00）`;
-    } else {
-      hintErr = true;
-      hint = TIME_FORMAT_MSG;
-    }
-  }
-
   return (
-    <div className={"tf" + (shake ? " shake" : "")}>
-      {editing ? (
-        <input
-          ref={inputRef}
-          className="tf-in"
-          type="text"
-          inputMode="numeric"
-          autoComplete="off"
-          spellCheck={false}
-          aria-label={ariaLabel}
-          aria-describedby={hintId}
-          placeholder="14、1400、14:00…"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={onBlur}
-        />
+    <div className="tf clockf" ref={wrapRef} onBlur={onBlur} onKeyDown={onKeyDown}>
+      {open ? (
+        <div className="clockf-row">
+          {prefix && <span className="pre">{prefix}</span>}
+          <ClockInput
+            variant="compact"
+            value={shown}
+            lo={lo}
+            hi={hi}
+            onChange={change}
+            onEnter={enter}
+            label={ariaLabel}
+            refDay={refDay}
+            autoFocus={editing}
+          />
+          <button
+            type="button"
+            className="ns-iconbtn clockf-clear"
+            aria-label={value === null ? `取消${ariaLabel}` : `清除${ariaLabel}`}
+            title={value === null ? "不排時刻" : clearTitle}
+            onClick={clear}
+          >
+            <IconClose />
+          </button>
+        </div>
       ) : (
         <button
           ref={showRef}
           type="button"
           className="tf-show"
-          aria-label={`${ariaLabel}：${value ?? "不排時刻"}（點了就能打字）`}
-          onClick={open}
+          aria-label={`${ariaLabel}：不排時刻（點了就能排）`}
+          onClick={begin}
         >
-          {value === null ? (
-            <span className="ph">{placeholder}</span>
-          ) : (
-            <>
-              {prefix && <span className="pre">{prefix}</span>}
-              <span className="hm">{value}</span>
-              {nx && <span className="nx">＝{nx}</span>}
-            </>
-          )}
+          {prefix && <span className="pre">{prefix}</span>}
+          <span className="ph">{placeholder}</span>
         </button>
       )}
-      <p id={hintId} className={"tf-hint" + (hintErr ? " err" : "")} aria-live="polite">
-        {hint}
-      </p>
     </div>
   );
 }
@@ -258,7 +234,7 @@ export function ArrivalNote({ time, estimateMin }: { time: string | null; estima
  * 定期券検印段的「本班」列（契約 §4.2 TeikiStampRow；原型 `:1038-1043`）。
  *   沒覆寫  07:00 照每班　只改這班…
  *   有覆寫  09:30〔＝隔天 …〕只改這班　再改…　改回每班時刻 07:00（覆寫是 null ⇒ 印「不排時刻」）
- * 寫入一律經 store：setRunTime（清空＝null＝本班無時刻，Q4 自決）／clearRunTime（改回每班）。
+ * 寫入一律經 store：setRunTime（清除＝null＝本班無時刻，Q4 自決）／clearRunTime（改回每班）。
  */
 export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
   const setRunTime = useNodeStore((s) => s.setRunTime);
@@ -295,7 +271,7 @@ export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
       <span className="lbl">本班</span>
       <div className="ov-wrap" ref={wrapRef}>
         {editing ? (
-          <TimeField
+          <ClockField
             value={shown}
             onCommit={(v) => {
               // 打回跟每班一樣的時刻＝不必留覆寫：有就刪（之後每班改時刻，這一班跟著走）、沒有就什麼都不做（手機 MobileTimeSheet 同一條）
@@ -306,6 +282,7 @@ export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
               void setRunTime(node.id, date, v);
             }}
             dayStartHour={dayStartHour}
+            refDay={date}
             ariaLabel="本班時刻"
             prefix="本班"
             startEditing
@@ -313,7 +290,7 @@ export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
               pendingFocus.current = byKeyboard;
               setEditing(false);
             }}
-            clearHint="清空＝這班不排時刻（固定時刻不動）"
+            clearTitle="這班不排時刻（每班時刻不動）"
           />
         ) : (
           <div className="ov">

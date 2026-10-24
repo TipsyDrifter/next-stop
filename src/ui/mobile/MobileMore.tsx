@@ -174,7 +174,7 @@ export default function MobileMore() {
               ))}
             </select>
           </span>
-          <p className="m2-note m2-day-start-note">熬夜到這個時間前，都算同一天。</p>
+          <p className="m2-note m2-day-start-note">熬夜到這個時間前都算前一天。</p>
         </div>
 
         {/* v1.1.1（WP8）：同步一列——右側直接寫現在的狀態（觸控沒有 hover，狀態得攤在字面上）。

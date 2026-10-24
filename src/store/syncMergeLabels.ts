@@ -19,7 +19,7 @@ import { useUiStore } from "./uiStore";
 /** 解出來的一列：`open` 由三線插槽給；核心 nodes 不給 open、改給 `node`，由 MergeNotices（UI 層）自己組 jumpToNode */
 export interface ResolvedMergeLabel extends SyncRowLabel {
   node?: NodeRow;
-  /** 泛稱（「一筆乘務記錄」「一個班次」「一項設定」）：清單列照印，但 toast 不拿它當名字（包進『』會變成像是某張票的名字） */
+  /** 泛稱（「一筆乘務記錄」「一個班次」「一項設定」）：清單列照印，但 toast 不拿它當名字（包進「」會變成像是某張票的名字） */
   generic?: boolean;
 }
 
@@ -40,7 +40,7 @@ export function coreCols(tbl: string): Readonly<Record<string, string>> | undefi
 }
 
 function nodeLabel(node: NodeRow, max: number): string {
-  return clipLabel(`${KIND_LABEL[node.kind] ?? "車票"}『${node.name}』`, max);
+  return clipLabel(`${KIND_LABEL[node.kind] ?? "車票"}「${node.name}」`, max);
 }
 
 async function findNode(rowId: string): Promise<NodeRow | null> {

@@ -9,10 +9,10 @@
  * 標題由 host 給：「{分類}已經跑了 {fmtDur}」（前置 live dot）。
  *
  * 車次①b（①b①c 契約 §5.5）：門檻改成 `thresholdOf(這一班的預估, 分類, 保險上限)`；門檻來自預估時副標改寫
- * 「預估 {門檻}，已經誤點 {超過}。其實到幾點？」、「別問了」的說明改成留『誤點』記號。
+ * 「預估 {門檻}，已經誤點 {超過}。其實到幾點？」、「別問了」的說明改成留「誤點」記號。
  *
  * 車次②（② 契約 §4.2-6 #9、§5.11；乙席）：門檻多一層任務的預計時間（`taskEstimateOf(block, linkInfo)`，預估之後、分類之前）；
- * 來源是 task ⇒ 副標「『{任務}』預計 {門檻}，已經誤點 {超過}。其實到幾點？」（estimate 那條的姊妹句），「別問了」一樣留『誤點』。
+ * 來源是 task ⇒ 副標「『{任務}』預計 {門檻}，已經誤點 {超過}。其實到幾點？」（estimate 那條的姊妹句），「別問了」一樣留「誤點」。
  */
 import { useState, type MouseEvent } from "react";
 import { MIN, durOf, fmtClock, fmtDur, blockThresholdOf, longRunDefaultEnd, msOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
@@ -21,7 +21,7 @@ import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryGrid } from "../parts/CategoryGrid";
 import { Actions, Opt, Opts, Row, Stepper, Sub, clamp, clockDraftsOk, useBlock, useNowOnce, usePanelRefDay, type PanelProps } from "./controls";
 
-export function LongRunPanel({ onDone }: PanelProps) {
+export function LongRunPanel(_props: PanelProps) {
   const now = useNowOnce();
   const sheet = useTimetableStore((s) => s.sheet);
   const blockId = sheet?.kind === "longRun" ? sheet.blockId : "";
@@ -48,15 +48,11 @@ export function LongRunPanel({ onDone }: PanelProps) {
   // 磨光⑤ 甲′：到着框下的日期跟這一班開始那天比（跑過夜的那班，到着在隔天＝赭）
   const refDay = usePanelRefDay(span ? span.start : now);
 
+  // UI 丙-4 C4：退路只寫一句，不放「關閉」字鈕（規範 §4：不改東西只是關＝×／返回／點暗幕）
   if (!block || !span) {
     return (
       <div className="ns-tt-panel">
         <Sub>找不到這一班</Sub>
-        <Actions>
-          <button type="button" className="ns-btn btn-ghost" onClick={onDone}>
-            關閉
-          </button>
-        </Actions>
       </div>
     );
   }
@@ -70,8 +66,8 @@ export function LongRunPanel({ onDone }: PanelProps) {
       : after === "cat"
         ? `${fmtClock(end)} 到${sp}${untilText}算成新選的分類。`
         : th?.source === "estimate" || th?.source === "task"
-          ? "這一班照跑；軸上會留一個『誤點』的記號。"
-          : "這一班照跑；軸上會留一個『長時間運行』的記號。";
+          ? "這一班照跑；軸上會留一個「誤點」的記號。"
+          : "這一班照跑；軸上會留一個「長時間運行」的記號。";
 
   const confirm = (e: MouseEvent<HTMLButtonElement>): void => {
     if (!clockDraftsOk(e.currentTarget)) return;

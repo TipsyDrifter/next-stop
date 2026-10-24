@@ -19,8 +19,13 @@
  *     不另畫一枚小號角印（印章家族單一原件）。
  *   - 列可聚焦（roving tabIndex）＝浮層鍵盤流的落點；選中沒有底色，只有 `:focus-visible` 的環
  *     （同 DayCell 的處置：原型沒有「選中列」這個視覺）。
+ *
+ * ── UI 丙-3 D5：每列常駐 ⋯（視覺規範 §2.6、§3.1-1）──
+ *   班次列在推遲鈕／rep 圖示之後、検印欄之前多一顆 ⋯（`--dim` 淡態，列 hover／聚焦／選單開著變實）；
+ *   點開＝PopMenu（眉標「這張車票 — Ticket」，同今日列），項目由呼叫端 `menu(anchor)` 開卡那一刻算
+ *   （scheduleActions.scheduleRowMenu）。原本列 hover 才現的「詳情」小字收進 ⋯（浮層窄，省一格）；締切列沒有 ⋯、「詳情」照舊。
  */
-import type { KeyboardEvent, MouseEvent } from "react";
+import { useCallback, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { NodeRow } from "../../domain";
 import { parseRule } from "../../domain";
 import type { DueEntry, ScheduleEntry } from "../../data";
@@ -28,7 +33,8 @@ import { isTimeOverridden } from "../../domain/scheduledTime";
 import { clockMinutes, isClockPast, nextDayNote } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { roundelStyle } from "../common/roundel";
-import { hotkeyCaps } from "../common/PopMenu";
+import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
+import { IconDots } from "../common/icons";
 import { SealSuspended } from "../stamps";
 // 時刻字（.tm）的樣式在 schedule.css（串流 .ns-sch 與當日清單浮層 .ns-daypop 兩個前綴都寫在那裡）
 import "../schedule/schedule.css";
@@ -150,6 +156,8 @@ export interface DayRowProps {
    * 選填——當日清單浮層（DayPopover，不准碰）不傳，就只印時刻、不判已過。
    */
   now?: number;
+  /** 列的 ⋯ 選單項目（UI 丙-3 D5）：開卡那一刻才算；anchor＝⋯ 鈕（「選日期…」的推遲小卡錨在它上面）。沒給＝不畫 ⋯ */
+  menu?: (anchor: HTMLElement | null) => PopMenuItem[];
 }
 
 /**
@@ -191,7 +199,7 @@ export function TicketTime({
   );
 }
 
-export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now }: DayRowProps) {
+export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu }: DayRowProps) {
   const name = row.node?.name ?? "";
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
@@ -264,7 +272,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       <span className="t" title={name}>
         {name}
       </span>
-      <DetailButton nodeId={row.node?.id} />
+      {!menu && <DetailButton nodeId={row.node?.id} />}
 
       {row.isRepeat ? (
         // 定期券：原型的 rep 圖示（:1075）。目前**與未來**班次那一列點得動＝叫出小卡定期券版
@@ -307,6 +315,8 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         </button>
       )}
 
+      {menu && <RowMore name={name} menu={menu} />}
+
       {canStamp ? (
         <button
           type="button"
@@ -333,6 +343,47 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * 列的 ⋯ 鈕＋小選單（UI 丙-3 D5；形狀同今日列 RowMore：IconDots、tabIndex=-1、mousedown 不搶焦點）。
+ * Esc 收卡後焦點回這一列（列是浮層／串流鍵盤流的落點），不回 ⋯ 鈕（它不在 Tab 序裡）。
+ */
+function RowMore({ name, menu }: { name: string; menu: (anchor: HTMLElement | null) => PopMenuItem[] }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const [items, setItems] = useState<PopMenuItem[] | null>(null);
+  const close = useCallback(() => setItems(null), []);
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        tabIndex={-1}
+        className="row-more"
+        aria-haspopup="menu"
+        aria-expanded={items !== null}
+        aria-label={`「${name}」的更多動作`}
+        title="更多動作"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e: MouseEvent<HTMLButtonElement>) => {
+          e.stopPropagation();
+          setItems((cur) => (cur ? null : menu(btn.current)));
+        }}
+      >
+        <IconDots size={14} />
+      </button>
+      {items && (
+        <PopMenu
+          anchor={btn.current}
+          overline={{ zh: "這張車票", latin: "Ticket" }}
+          label={`「${name}」的更多動作`}
+          items={items}
+          onClose={close}
+          returnFocus={() => btn.current?.closest<HTMLElement>(".prow") ?? null}
+        />
+      )}
+    </>
   );
 }
 

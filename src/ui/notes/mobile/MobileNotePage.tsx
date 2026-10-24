@@ -23,6 +23,8 @@
  *     點選器開著時打字框失焦不算離開編輯（插完把焦點與游標放回來）。
  *   - 離開編輯（返回／記成日記／打字框失焦）＝存檔鏈送完後 `tagStore.syncNoteTags(id, body)`：內文是正本，
  *     解析一次掛多的、摘少的（不是每一次去抖存檔都解析——打到一半的 `#難` 不建）。
+ *
+ * UI 丙-6 S9：「改日期」面板給 `backId`＝殼換 MSheet、跟本檔登記的 `notes.notePage.date` 合併成一層（返回鍵按一次只關面板、整頁還在）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -32,9 +34,9 @@ import { useTagStore } from "../../../store/tagStore";
 import { dayKeyOf, todayKey, addDays } from "../../../lib/date";
 import { fmtMonthDay } from "../../../domain/notes";
 import type { NoteListItem, NotePatch } from "../../../data/noteRepository";
-import { MobileAttachPicker, RouteRoundel } from "./MobileAttachPicker";
+import { MobileAttachPicker, RouteRoundel } from "../../common/MobileAttachPicker";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
-import { shiftIsoToDay } from "./MobileDatePick";
+import { shiftIsoToDay } from "./dayKeys";
 import { MobileMdBody } from "./MobileMdBody";
 import { MobileTagToolbar } from "./MobileTagToolbar";
 import { resolveLeaveNote } from "../leaveSync";
@@ -268,7 +270,7 @@ export function MobileNotePage({ onBack, onOpenTag }: MobileNotePageProps) {
   useBackLayer("notes.notePage", true, () => {
     if (!leaving.current) void back();
   }, "page");
-  useBackLayer("notes.notePage.date", pop === "date" && !!note, () => setPop(null));
+  useBackLayer("notes.notePage.date", pop === "date" && !!note, () => setPop(null), "sheet");
 
   const imeBusy = (e: KeyboardEvent) => e.nativeEvent.isComposing || e.keyCode === 229 || composing.current;
 
@@ -466,6 +468,8 @@ export function MobileNotePage({ onBack, onOpenTag }: MobileNotePageProps) {
             if (d !== day) void setNoteDate(note.id, shiftIsoToDay(note.noted_at, day, d));
           }}
           onClose={() => setPop(null)}
+          backId="notes.notePage.date"
+          backKind="sheet"
         />
       )}
     </div>

@@ -11,7 +11,7 @@
  *   │     .acts  暫停・編輯・刪除（.ns-tk-dmini＋.ns-btn--sm 次鈕；刪除＝危險鈕）
  *   ├─ h3「已暫停 N」 ul …[.is-paused]（.nx「已暫停」＋匯入的小字「財務管家下一班 11/16」；動作「開始」）
  *   ├─ 空狀態 .ns-tk-rm-empty
- *   └─ .ns-tk-dfoot.is-split  「＋ 新增」｜「關閉」
+ *   └─ .ns-tk-rm-add       文字鈕「＋ 新增定期帳」（UI 丙-5 E2：「關閉」拿掉——管理清單即時存，只留 ×／暗幕／Esc，視覺規範 §4）
  *
  * ⚠ 的判定看資料本身（帳戶／轉入帳戶／分類已刪、規則看不懂），再補上次實體化被擋的原因（store.repeatBlocked）——
  * 不用等下一次實體化跑過才出現。排序＝repeatOrder（進行中依下一班、已暫停依建立時間）。
@@ -24,6 +24,7 @@ import { shortDay } from "../../../domain/ticketView";
 import { nextOnText, parseFixedRule, repeatOrder, type RepeatRow } from "../../../domain/ticketPlan";
 import { acctLabel } from "../TicketLedger";
 import { repeatAmount, repeatNoteShown, repeatWarn } from "./repeatText";
+import { IconPlus } from "../../common/icons";
 
 interface Ctx {
   accounts: AccountRow[];
@@ -133,7 +134,7 @@ function RmRow({ r, ctx, warn, imported }: { r: RepeatRow; ctx: Ctx; warn: strin
   );
 }
 
-export function RepeatManager({ onDone }: { onDone(): void }) {
+export function RepeatManager(_props: { onDone(): void }) {
   const repeats = useTicketStore((s) => s.repeats);
   const blocked = useTicketStore((s) => s.repeatBlocked);
   const accounts = useTicketStore((s) => s.accounts);
@@ -163,13 +164,12 @@ export function RepeatManager({ onDone }: { onDone(): void }) {
     });
   };
 
+  // 新增＝清單尾一顆文字鈕（同時刻表分類管理「＋ 新增分類」；不是黏底按鈕列——即時存的面板沒有主鈕，§2.3）
   const foot = (
-    <div className="ns-tk-dfoot is-split">
-      <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={() => store().openRepeatEditor(null)}>
-        ＋ 新增
-      </button>
-      <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
-        關閉
+    <div className="ns-tk-rm-add">
+      <button type="button" className="ns-btn btn-text ns-btn--sm ns-tk-btn" onClick={() => store().openRepeatEditor(null)}>
+        <IconPlus />
+        新增定期帳
       </button>
     </div>
   );

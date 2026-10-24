@@ -1,11 +1,14 @@
 /**
  * NotesList——筆記列表欄（桌機；車次①契約 §5.1；D-筆-23 舒適密度、不做密度切換）。
  *
- *   頂：搜尋框（去抖 150ms 再 setNotesQuery）＋「新筆記」
+ * UI 丙-6 K4：整欄是一張**區塊卡**（紙材、--radius-card、--shadow-card、不全高；清單在卡內捲），浮在天上、不貼左邊。
+ *   「＋ 新筆記」搬到頁首（NotesView 的 PageHeader；H2／N6），卡頂只留搜尋框（工具列不放放大鏡，免同頁兩個搜尋）。
+ *   頂：搜尋框（去抖 150ms 再 setNotesQuery）
  *   列：月份分隔「2026 年 9 月」＋每則＝.t 標題一行（沒標題用內文第一行）／.x 兩行摘要／.m「M/D・●路線名（› 節點名）」
- *       選中 .is-active（燙金左邊線）。清單本身是鍵盤焦點容器（listbox，tabIndex=0）；列是 option 不是 button，
+ *       選中 .is-active（作用中色左邊線）。清單本身是鍵盤焦點容器（listbox，tabIndex=0）；列是 option 不是 button，
  *       這樣 Enter 才會走到頁面按鍵表的「進編輯」而不是被按鈕吃掉。
- *   空：無筆記「還沒有筆記」＋記一句／篩選無結果「這條路線還沒有筆記」／搜尋無結果「找不到『{q}』」
+ *   空（共用 EmptyState；進頁那一趟沒回來前不畫）：無筆記 first「還沒有筆記」＋「新筆記」（此時頁首的「＋」藏起來）／
+ *       篩選無結果 nores「這條路線還沒有筆記」＋「清除篩選」／搜尋無結果 nores「找不到「{q}」」＋「清除搜尋」
  *   分頁：預設 200 則（repository 的 limit）；捲到底且 notesHasMore ⇒ store.loadMoreNotes 接下一頁。
  */
 import { useEffect, useRef, useState, type ReactNode, type RefObject, type UIEvent } from "react";
@@ -15,17 +18,23 @@ import { useNotesStore } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { excerpt, fmtMonthHeader, monthKey, noteTitle } from "../../domain/notes";
-import { CaptureButton } from "./CaptureButton";
-import { IconPlus, IconSearch, Roundel, dayOf, fmtShort, highlight } from "./notesBits";
+import { EmptyState } from "../common/EmptyState";
+import { IconPlus } from "../common/icons";
+import { IconSearch, Roundel, dayOf, fmtShort, highlight } from "./notesBits";
 
 export interface NotesListProps {
   listRef: RefObject<HTMLUListElement | null>;
   searchRef: RefObject<HTMLInputElement | null>;
+  /** 進頁那一趟載入回來了沒：沒回來前清單空著也不畫空狀態 */
+  ready: boolean;
   onSelect(id: string): void;
+  /** 空狀態「新筆記」（＝頁首「＋ 新筆記」同一支） */
   onNew(): void;
+  /** 篩選無結果的「清除篩選」（NotesView 先存正在打的字再清） */
+  onClearFilter(): void;
 }
 
-export function NotesList({ listRef, searchRef, onSelect, onNew }: NotesListProps) {
+export function NotesList({ listRef, searchRef, ready, onSelect, onNew, onClearFilter }: NotesListProps) {
   const notes = useNotesStore((s) => s.notes);
   const q = useNotesStore((s) => s.notesQuery);
   const selectedId = useNotesStore((s) => s.selectedNoteId);
@@ -95,18 +104,25 @@ export function NotesList({ listRef, searchRef, onSelect, onNew }: NotesListProp
     );
   }
 
+  const clearSearch = () => {
+    setText("");
+    searchRef.current?.focus(); // 空狀態連同這顆鈕一起消失：焦點留在搜尋框，鍵盤表接得上
+  };
+
   let empty: ReactNode = null;
-  if (!notes.length) {
-    if (query) empty = <p>找不到『{query}』</p>;
-    else if (q.underNode) empty = <p>這裡還沒有筆記</p>;
-    else if (q.routeId) empty = <p>這條路線還沒有筆記</p>;
-    else
+  if (!notes.length && ready) {
+    if (query)
+      empty = <EmptyState tone="nores" title={`找不到「${query}」`} secondary={{ label: "清除搜尋", onClick: clearSearch }} />;
+    else if (q.underNode || q.routeId)
       empty = (
-        <>
-          <p>還沒有筆記</p>
-          <CaptureButton variant="page" stub="note" />
-        </>
+        <EmptyState
+          tone="nores"
+          stamp={null}
+          title={q.underNode ? "這裡還沒有筆記" : "這條路線還沒有筆記"}
+          secondary={{ label: "清除篩選", onClick: onClearFilter }}
+        />
       );
+    else empty = <EmptyState tone="first" title="還沒有筆記" action={{ label: "新筆記", icon: <IconPlus />, onClick: onNew }} />;
   }
 
   return (
@@ -139,15 +155,11 @@ export function NotesList({ listRef, searchRef, onSelect, onNew }: NotesListProp
             }}
           />
         </label>
-        <button type="button" className="ns-notes-newbtn ns-btn btn-ghost" onClick={onNew}>
-          <IconPlus size={11} />
-          新筆記
-        </button>
       </div>
       <div className="ns-notes-listscroll techo-scroll" onScroll={onScroll}>
         {empty ? (
           <div className="ns-notes-listempty">{empty}</div>
-        ) : (
+        ) : !notes.length ? null : (
           <ul
             ref={listRef}
             className="ns-notes-list"

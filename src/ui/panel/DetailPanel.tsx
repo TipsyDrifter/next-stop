@@ -11,16 +11,17 @@
  * 已知取捨：開啟時把焦點移進面板（鍵盤流 `.` 開板後 Tab 就能進欄位），關閉時若焦點無處可去則還給開板前的元素；
  * 以 flex 子項佔位（父層須為 flex row，例如緊接在大綱 <main> 之後）。
  */
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import type { NodeRow } from "../../domain";
 import { nodeRepo } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore, type PageId } from "../../store/uiStore";
-import { XIcon } from "./fields";
 import { NodePanel } from "./TaskFields";
 import { RoutePanel } from "./RoutePanel";
 import "./panel.css";
 import "../stamps";
+// 外框（焦點進出、Esc、關閉叉）丙-5 搬到 common/SidePanelFrame（售票口大票同殼；panel.css 仍由本檔載入）
+import { SidePanelFrame } from "../common/SidePanelFrame";
 
 export function DetailPanel() {
   const panelOpen = useUiStore((s) => s.panelOpen);
@@ -69,7 +70,7 @@ function PanelShell() {
   const hidden = !node && !NODE_PAGES.has(page);
 
   return (
-    <PanelFrame hidden={hidden} onClose={() => setPanelOpen(false)}>
+    <SidePanelFrame hidden={hidden} onClose={() => setPanelOpen(false)}>
       {node ? (
         <NodePanel key={node.id} node={node} />
       ) : route ? (
@@ -77,63 +78,12 @@ function PanelShell() {
       ) : (
         <EmptyHint />
       )}
-    </PanelFrame>
+    </SidePanelFrame>
   );
 }
 
 /** 有節點可選的頁（側板的 EmptyHint「在大綱裡選中…」只對這三頁有意義） */
 const NODE_PAGES: ReadonlySet<PageId> = new Set<PageId>(["today", "routemap", "calendar"]);
-
-/** 側板外框：焦點進出、Esc、關閉叉。`hidden`＝A12 的「這頁不畫空板」：不佔欄、不可聚焦 */
-function PanelFrame({ hidden, onClose, children }: { hidden: boolean; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLElement>(null);
-  const prevFocus = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!prevFocus.current && document.activeElement instanceof HTMLElement) prevFocus.current = document.activeElement;
-    ref.current?.focus({ preventScroll: true });
-    return () => {
-      const prev = prevFocus.current;
-      const active = document.activeElement;
-      if (prev && prev.isConnected && (active === null || active === document.body)) prev.focus({ preventScroll: true });
-    };
-  }, []);
-
-  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-    }
-  };
-
-  return (
-    <aside
-      ref={ref}
-      tabIndex={-1}
-      role="complementary"
-      aria-label="詳情側板"
-      onKeyDown={onKeyDown}
-      className="panel"
-      hidden={hidden}
-      style={hidden ? { display: "none" } : undefined}
-    >
-      <div className="panel-sheet">
-        <button
-          type="button"
-          aria-label="關閉詳情側板"
-          title="關閉（Esc）"
-          onClick={onClose}
-          className="panel-close"
-        >
-          <XIcon size={14} />
-        </button>
-        <div className="panel-scroll">{children}</div>
-      </div>
-    </aside>
-  );
-}
 
 function EmptyHint() {
   return (

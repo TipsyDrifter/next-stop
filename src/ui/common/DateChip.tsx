@@ -23,6 +23,7 @@
  * - chip：`aria-haspopup="dialog"`、`aria-expanded`、`aria-label`＝「{label}：10/22（四）」；Enter／Space 開關（原生 button）。
  * - 桌機浮層的鍵盤（方向鍵移日、PageUp／PageDown 換月、Enter 選、Esc 收、Tab 在卡內循環、收起還焦點給 chip）全在 DatePicker／DayGrid。
  * - 手機 sheet：Esc＝取消（MobileDatePicker）；返回鍵由本元件 `useBackLayer` 登記成 "dialog" 層（可疊在全螢幕頁之上）；收起後焦點還給 chip。
+ *   UI 丙-4 C6：同一個 id＋kind "dialog" 傳給 MobileDatePicker（換 MSheet 殼）⇒ refcount 合併成一層，返回鍵一次就關。
  * - 快選 chip 是 `aria-pressed` 的按鈕、在 `role="group"` 裡；× 有 `aria-label`＋`title`。
  */
 import { useCallback, useId, useRef, useState } from "react";
@@ -199,6 +200,8 @@ export function DateChip({
             today={today}
             onPick={(d) => pick(d)}
             onClose={closeSheet}
+            backId={layerId}
+            backKind="dialog"
           />
         ) : (
           <DatePicker

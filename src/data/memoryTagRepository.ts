@@ -31,6 +31,7 @@ import {
   taggingId,
   type AttachResult,
   type BackfillResult,
+  type CreateTagResult,
   type SyncBodyResult,
   type TagEntityType,
   type TaggedItem,
@@ -190,6 +191,17 @@ export class MemoryTagRepository implements TagRepository {
     const { row, created } = await this.ensureTag(n.name, n.key, now, r);
     const { already } = await this.ensureTagging(entityType, entityId, row.id, now, r);
     return { key: n.key, name: row.name, created, already, receipt: r };
+  }
+
+  /** ＝attach 去掉 assertAttachable 與 ensureTagging（UI 丙-6 ☎-1；與 SqliteTagRepository.create 逐條對齊）：
+   *  名稱不合法丟 RangeError、不存在就建、已刪除就復活（沿用先建的 name）、已存活不寫（收據空、created:false） */
+  async create(rawName: string): Promise<CreateTagResult> {
+    await this.ensureSeed();
+    const n = normalizeName(rawName);
+    if (!n.ok) throw new RangeError(n.reason);
+    const r = emptyReceipt();
+    const { row, created } = await this.ensureTag(n.name, n.key, nowUtcIso(), r);
+    return { key: n.key, name: row.name, created, receipt: r };
   }
 
   async detach(entityType: TagEntityType, entityId: string, key: string): Promise<TagReceipt> {

@@ -10,6 +10,8 @@
  * 資料唯一入口仍是 nodeStore（元件不碰 repository），動作逐條對應契約 §2.7 的表：
  *   蓋済／取消済／取消運休 → setCompleted／skipOccurrence（含「連同 N 個未完成子項」確認窗）
  *   改期（主線車次① P11）  → `defer(id, target)`：reschedule(target) ＋ showRescheduleToast（帶「復原」）；
+ *                            UI 丙-3 F5（E20 手機補記）：分流抽成 `pickDay.ts` 的 planPickDay——挑到今天以前＝
+ *                            updateNode(…, { backfill: true })（「已補記到 M/D」＋復原由 nodeStore 出），今天以後照舊；
  *                            target=null＝清除執行日：INBOX_TOAST＋「復原」放回原執行日（DeferPopover.tsx 同款）
  *   本班運休／取消運休     → `skip(id, skip)`：skipOccurrence(id, skip)（不帶 dueOn＝今日頁口徑）
  *   臨時車票／無日期票     → createNode({ scheduledOn: dateKey | null })，後者附 INBOX_TOAST 的「復原」
@@ -18,7 +20,7 @@
  *                            `setRunTime(id, time)`／`clearRunTime(id)`＝nodeStore 同名入口，班次日＝`occurrence?.due_on ?? scheduled_on`
  *                            （timeOfRow 的 railDate 同一把尺）；成功出收據（timeReceipt），失敗由 store 吐 reason
  *   上移／下移（磨光①）    → `reorderOf(id)`／`move(id, ±1)`＝moveToday（手排座標 manualOrderIds；守門同桌機 reorderSelected）
- *   改名／記一句／刪除      → 模組函式 `renameTicket`／`logTicket`／`deleteTicket`（行程表串流也用，所以不在 hook 裡）
+ *   改名／記乘務記錄／刪除      → 模組函式 `renameTicket`／`logTicket`／`deleteTicket`（行程表串流也用，所以不在 hook 裡）
  *
  * 三條重載時機（手機比桌機多一條）：
  *   ① 進頁與日界線設定變動  → loadToday(todayKey(dayStartHour))
@@ -38,6 +40,7 @@ import { dayCount } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
+import { planPickDay } from "./pickDay";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
 export const SETTLED_DEFER_MSG = "已蓋済——先取消済章才能推遲";
@@ -85,7 +88,7 @@ export interface MobileTodayApi {
 }
 
 /* ═══════════════════════════════════════════════════════
- * ⋯ sheet 的改名／記一句／刪除（磨光① 加工單 §2.4、§9.5）——今日子頁與行程表串流共用，所以是模組函式不是 hook 裡的閉包
+ * ⋯ sheet 的改名／記乘務記錄／刪除（磨光① 加工單 §2.4、§9.5）——今日子頁與行程表串流共用，所以是模組函式不是 hook 裡的閉包
  * ═══════════════════════════════════════════════════════ */
 
 /** 改名（空白由子面板擋；跟原名一樣就不寫）。失敗由 store 寫 error 列 */
@@ -95,7 +98,7 @@ export function renameTicket(id: string, name: string, prev: string): void {
   void useNodeStore.getState().updateNode(id, { name: next });
 }
 
-/** 記一句乘務記錄；成功 toast「記了」（同桌機行內輸入的回饋字）。addWorkLog 失敗不 throw、寫 error 列——看 error 有沒有變 */
+/** 記乘務記錄；成功 toast「記了」（同桌機行內輸入的回饋字）。addWorkLog 失敗不 throw、寫 error 列——看 error 有沒有變 */
 export function logTicket(id: string, body: string): void {
   const text = body.trim();
   if (!text) return;
@@ -129,7 +132,7 @@ export function deleteTicket(id: string, name: string, childTotal: number | null
     const removed = await ns().deleteNode(id);
     if (removed.length === 0) return; // 失敗：store 已寫 error 列
     ui().showToast({
-      message: `已刪除『${name}』${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
+      message: `已刪除「${name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
       actionLabel: "復原",
       onAction: () => void ns().undoDelete(),
     });
@@ -137,7 +140,7 @@ export function deleteTicket(id: string, name: string, childTotal: number | null
   if (childTotal === null) {
     // 子項數不知道（串流上沒載到的票）：寧可多問一次，也不要不問就連同一整串子項刪掉
     ui().askConfirm({
-      title: `刪除『${name}』？`,
+      title: `刪除「${name}」？`,
       body: "底下如果有子項會一起移除；6 秒內可從底部提示復原。",
       confirmLabel: "刪除",
       danger: true,
@@ -147,8 +150,8 @@ export function deleteTicket(id: string, name: string, childTotal: number | null
   }
   if (childTotal >= 5) {
     ui().askConfirm({
-      title: `連同底下 ${childTotal} 個子項一起刪除？`,
-      body: `『${name}』底下的節點會一起移除；6 秒內可從底部提示復原。`,
+      title: `連同 ${childTotal} 個子項一起刪除？`,
+      body: `「${name}」底下的節點會一起移除；6 秒內可從底部提示復原。`,
       confirmLabel: "刪除",
       danger: true,
       onConfirm: () => void run(),
@@ -262,33 +265,46 @@ export function useMobileToday(): MobileTodayApi {
   const defer = useCallback((id: string, target: string | null) => {
     const row = ns().today.byId[id];
     if (!row) return;
-    // 已蓋済／運休的票不能推遲（與桌機同款：TodayRow 對 settled 列不出「＋執行日」）——
-    // 2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，UI 隱藏之外這裡再守一道
-    if (isSettledRow(row)) {
-      toast(SETTLED_DEFER_MSG);
-      return;
-    }
-    // 定期券的班次由規則排定（D-④-3）——擋在 UI 這一層，不讓 store throw
-    if (parseRule(row.repeat_rule)) {
-      toast(REPEAT_RESCHEDULE_MSG);
-      return;
-    }
-    if (target === null) {
-      // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去（DeferPopover.tsx 同款）
-      const prevDay = row.scheduled_on;
-      void ns().reschedule(id, null);
-      ui().showToast({
-        message: INBOX_TOAST,
-        actionLabel: "復原",
-        onAction: () => void ns().reschedule(id, prevDay),
-      });
-      return;
-    }
-    const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
-    void ns().reschedule(id, target);
-    // 票一改期就離開今日清單，今天唯一的回饋是這張可反悔的收據（與桌機同款）；排回今天不出收據
     const key = ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour);
-    if (target !== key) showRescheduleToast(id, prev, target);
+    // 分流在 pickDay.ts（純函式、有單測）：済／運休與定期券的兩道守門照舊（2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，
+    // UI 隱藏之外這裡再守一道；定期券的班次由規則排定 D-④-3，擋在 UI 這一層、不讓 store throw）；
+    // UI 丙-3 F5（E20）：挑到今天以前＝補記（同桌機側板／大綱日期 chip，磨光⑦ D-主-67）
+    const plan = planPickDay({
+      target,
+      today: key,
+      current: row.scheduled_on,
+      settled: isSettledRow(row),
+      repeat: parseRule(row.repeat_rule) !== null,
+    });
+    switch (plan.kind) {
+      case "blocked":
+        toast(plan.why === "settled" ? SETTLED_DEFER_MSG : REPEAT_RESCHEDULE_MSG);
+        return;
+      case "noop":
+        return;
+      case "clear": {
+        // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去（DeferPopover.tsx 同款）
+        const prevDay = row.scheduled_on;
+        void ns().reschedule(id, null);
+        ui().showToast({
+          message: INBOX_TOAST,
+          actionLabel: "復原",
+          onAction: () => void ns().reschedule(id, prevDay),
+        });
+        return;
+      }
+      case "backfill":
+        // 收據「已補記到 M/D」＋復原由 nodeStore 出（repository 判條件：未済、非定期券、沒有未完成子票才蓋済；不成立就只是改期）
+        void ns().updateNode(id, { scheduled_on: plan.day }, { backfill: true });
+        return;
+      case "reschedule": {
+        const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
+        void ns().reschedule(id, plan.day);
+        // 票一改期就離開今日清單，今天唯一的回饋是這張可反悔的收據（與桌機同款）；排回今天不出收據
+        if (plan.receipt) showRescheduleToast(id, prev, plan.day);
+        return;
+      }
+    }
   }, []);
 
   /* ───────── 本班運休／取消運休（定期券版 sheet；今日頁口徑不帶 dueOn）───────── */

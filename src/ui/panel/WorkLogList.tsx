@@ -115,7 +115,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
         </ul>
       )}
       <p className="log-hint">
-        在今日視圖點選車票按 <kbd>L</kbd> 就能「記一句」，寫完會收進這裡。
+        在今日視圖點選車票按 <kbd>L</kbd> 就能記乘務記錄，寫完會收進這裡。
       </p>
     </div>
   );

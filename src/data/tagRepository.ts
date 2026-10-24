@@ -61,6 +61,13 @@ export interface AttachResult {
   already: boolean;
   receipt: TagReceipt;
 }
+/** `create` 的結果（UI 丙-6 ☎-1）：created＝新建或復活（主人眼中它原本不在）；false＝本來就活著、什麼都沒寫 */
+export interface CreateTagResult {
+  key: string;
+  name: string;
+  created: boolean;
+  receipt: TagReceipt;
+}
 export interface BackfillResult {
   tagCount: number;
   placeCount: number;
@@ -95,6 +102,9 @@ export interface TagRepository {
   /** 掛：名稱不合法 ⇒ RangeError(reason)；entityType==="node" 且節點 kind 不在 ticket/train/car ⇒ RangeError("這裡掛不上荷札")；
    *  tag 不存在就建（已刪除就復活、沿用先建的 name）；已掛著 ⇒ already:true、不寫 */
   attach(entityType: TagEntityType, entityId: string, rawName: string): Promise<AttachResult>;
+  /** 單純建一個荷札、不掛在任何東西上（荷札頁「＋ 新荷札」；UI 丙-6 ☎-1，只加不改）＝attach 去掉掛載那段：
+   *  名稱不合法 ⇒ RangeError(reason)；不存在就建、已刪除就復活（沿用先建的 name）；已存活 ⇒ created:false、不寫、收據空 */
+  create(rawName: string): Promise<CreateTagResult>;
   /** 摘：tagging soft delete；本來就沒掛 ⇒ 不寫、收據空 */
   detach(entityType: TagEntityType, entityId: string, key: string): Promise<TagReceipt>;
   /** 一次掛好幾個、摘好幾個（手機點選器「完成」；一個交易、一張收據） */

@@ -5,12 +5,15 @@
  * 欄位：名稱・群組（12 個，依財務管家順序；`lent` 顯示「借出／應收」）・幣別・期初餘額（可空；填了＝建立時同時生成一筆
  *   精算，備註「期初餘額」——store.createAccount 做）。「建立」成功才關；失敗 store 已吐 toast，欄位留著讓主人改。
  *   建完要不要接著記一筆／填回草稿看 `dialog.then`，store.createAccount 處理（磨光③ 2-16）；這裡只管建與關。
+ * 「取消・建立」包在 `<DialogFoot>`：桌機進 DialogShell 的黏底 foot（UI 丙-5 E3），手機照舊在本文最後；
+ *   按鈕在 <form> 外面時「建立」靠 `form={formId}` 送出。
  * 桌機外觀在 ticket.css §F、手機觸控尺寸在 ticket-mobile.css。
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { ACCOUNT_GROUPS, MAIN_CURRENCY, type AccountGroup } from "../../../domain/ticket";
 import { useImeGuard } from "./dialogBits";
+import { DialogFoot } from "./DialogFoot";
 
 export function NewAccountForm({ onDone }: { onDone(): void }) {
   const currencies = useTicketStore((s) => s.currencies);
@@ -20,6 +23,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
   const [currency, setCurrency] = useState(MAIN_CURRENCY);
   const [opening, setOpening] = useState("");
   const [busy, setBusy] = useState(false);
+  const formId = useId();
 
   const submit = async () => {
     if (busy || !name.trim()) return;
@@ -37,6 +41,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
 
   return (
     <form
+      id={formId}
       className="ns-tk-dialog ns-tk-dnew"
       onSubmit={(e) => {
         e.preventDefault();
@@ -91,14 +96,14 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
         />
       </label>
       <p className="ns-tk-dhint">填寫後會自動記一筆「精算」（期初餘額）；負債請填負數。</p>
-      <div className="ns-tk-dfoot">
+      <DialogFoot>
         <button type="button" className="ns-btn btn-ghost ns-tk-dbtn" onClick={onDone}>
           取消
         </button>
-        <button type="submit" className="ns-btn btn-seal ns-tk-dbtn" disabled={busy || !name.trim()}>
+        <button type="submit" form={formId} className="ns-btn btn-seal ns-tk-dbtn" disabled={busy || !name.trim()}>
           建立
         </button>
-      </div>
+      </DialogFoot>
     </form>
   );
 }

@@ -1,7 +1,7 @@
 /* ─────────────────────────────────────────────────────
  * datepicker.css — 共用日期挑選器（DatePicker 桌機小浮層／MobileDatePicker 手機底部面板；旅客筆記車次② D-筆-30）
  *
- * 視覺＝旅客筆記車次①的 DatePop（notes.css「小浮層」一節）與 MobileDatePick（notes-mobile.css 第十節「日期面板」），
+ * 視覺＝旅客筆記車次①的 DatePop（notes.css「小浮層」一節）與 MobileDatePick（當年 notes-mobile.css 第十節「日期面板」），
  * 原樣搬過來換成本檔自己的 class：`.ns-datepick*`（桌機）、`.ns-mdatepick*`（手機，每條掛 `[data-shell="mobile"]`）。
  * 不依賴任何一條線的 class 與區域變數：旅客筆記的 --ns-sel／--ns-float／--ns-glass／--ns-hi 在這裡以 theme.css token 就地重現。
  * 顏色只用 theme.css token；唯一的主題覆寫是霧面在銀河關掉。
@@ -18,27 +18,27 @@
 .ns-datepick {
   position: relative; z-index: 6;
   padding: 10px 12px 12px;
-  background: var(--color-paper-used); border: 1px solid var(--color-line); border-radius: 3px;
+  background: var(--color-paper-used); border: 1px solid var(--color-line); border-radius: 3px; /* 字面值：挑選器卡 3px 圓角（照原 DatePop；--radius-card 兩主題不同值，不能換） */
 }
 .ns-datepick.float {
   position: absolute; margin: 0; width: 300px; z-index: 30;
-  background: rgba(var(--starlight), .84);
+  background: rgba(var(--starlight), .84); /* 字面值：霧面玻璃底（星光 84%，原 DatePop 定值） */
   -webkit-backdrop-filter: blur(16px) saturate(1.15); backdrop-filter: blur(16px) saturate(1.15);
-  border: 1px solid rgba(var(--starlight), .78);
+  border: 1px solid var(--glass-edge);
   box-shadow: var(--shadow-card-hover);
 }
 [data-theme="dark"] .ns-datepick.float {
   background: var(--color-paper-high);
   -webkit-backdrop-filter: none; backdrop-filter: none;
   border-color: var(--color-line);
-  box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09);
+  box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09); /* 字面值：陰影色（§1.1 例外）：月光上緣高光 */
 }
-.ns-datepick-label { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); margin-bottom: 8px; }
+.ns-datepick-label { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); margin-bottom: 8px; } /* 字面值：小標 10px；DatePicker 被多支元件共用、判斷不了只在桌機，--fs-* 手機會換值，照原值留 */
 .ns-datepick-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ns-datepick-chip {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: transparent;
-  padding: 3px 10px; border: 1px solid var(--color-line); border-radius: 2px;
-  font-family: inherit; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-soft);
+  padding: 3px 10px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  font-family: inherit; font-size: 12px; letter-spacing: .08em; color: var(--color-ink-soft); /* 字面值：chip 12px；DatePicker 被多支元件共用、判斷不了只在桌機，--fs-* 手機會換值，照原值留 */
   transition: border-color .15s, color .15s, background .15s;
 }
 .ns-datepick-chip:hover { border-color: var(--accent); color: var(--color-ink); }
@@ -53,8 +53,8 @@
 /* 「清除」：月格下一行、靠右的淡字鈕（可清空的欄位才有） */
 .ns-datepick-foot { display: flex; justify-content: flex-end; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--color-dash); }
 .ns-datepick-clear {
-  padding: 2px 8px; background: transparent; border: 0; border-radius: 2px; cursor: pointer;
-  font-family: inherit; font-size: 11.5px; letter-spacing: .14em; color: var(--color-ink-faint);
+  padding: 2px 8px; background: transparent; border: 0; border-radius: var(--radius-ctl); cursor: pointer;
+  font-family: inherit; font-size: 11.5px; letter-spacing: .14em; color: var(--color-ink-faint); /* 字面值：「清除」11.5px；桌機字階沒有這一階（原型逐字） */
 }
 .ns-datepick-clear:hover { color: var(--color-ink); background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
 .ns-datepick-clear:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
@@ -75,7 +75,7 @@
 .panel .ns-datefield:hover { border-bottom-color: var(--color-ink-faint); }
 .panel .ns-datefield:focus-visible,
 .panel .ns-datefield[aria-expanded="true"] { outline: none; border-bottom-color: var(--accent); }
-.panel .st .meta .ns-datefield { font-size: 12px; padding: 0 0 1px; min-width: 0; }
+.panel .st .meta .ns-datefield { font-size: var(--fs-sm); padding: 0 0 1px; min-width: 0; }
 
 /* ── 桌機・自畫月格（旅客筆記車次③ 0-6 甲、D-筆-46 修訂；磨光⑤ S8 起每張挑選器都畫） ──
  * 記號＝數字下方一枚墨點（--stamp-ink；磨光⑤ 前是朱）；今天＝細框；選中（value）＝靛／金的淡底；min／max 外反灰。
@@ -84,21 +84,21 @@
 .ns-datepick-grid { margin-top: 10px; }
 .ns-datepick-chips:empty + .ns-datepick-grid { margin-top: 0; }
 .ns-datepick-gridhead { display: flex; align-items: center; justify-content: space-between; padding: 0 0 6px; }
-.ns-datepick-gridmonth { font-family: var(--font-display); font-weight: 600; font-size: 12.5px; letter-spacing: .14em; color: var(--color-ink); }
+.ns-datepick-gridmonth { font-family: var(--font-display); font-weight: 600; font-size: 12.5px; letter-spacing: .14em; color: var(--color-ink); } /* 字面值：月份 12.5px；DatePicker 被多支元件共用、判斷不了只在桌機，--fs-* 手機會換值，照原值留 */
 .ns-datepick-gridnav {
   display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
-  background: transparent; border: 0; border-radius: 2px; color: var(--color-ink-soft); cursor: pointer;
+  background: transparent; border: 0; border-radius: var(--radius-ctl); color: var(--color-ink-soft); cursor: pointer;
 }
 .ns-datepick-gridnav:hover:not([disabled]) { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
 .ns-datepick-gridnav:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .ns-datepick-gridnav[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 .ns-datepick-days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
-.ns-datepick-days .wd { text-align: center; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
+.ns-datepick-days .wd { text-align: center; font-size: 9.5px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; } /* 字面值：票券／圓牌專用微字（§2.9，不入字階） */
 .ns-datepick-days .blank { height: 30px; }
 .ns-datepick-days .day {
   position: relative; height: 30px; padding: 0 0 5px; margin: 0;
-  background: transparent; border: 0; border-radius: 2px;
-  font-family: var(--font-latin); font-size: 12.5px; font-variant-numeric: tabular-nums; line-height: 1;
+  background: transparent; border: 0; border-radius: var(--radius-ctl);
+  font-family: var(--font-latin); font-size: 12.5px; font-variant-numeric: tabular-nums; line-height: 1; /* 字面值：日數 12.5px；DatePicker 被多支元件共用、判斷不了只在桌機，--fs-* 手機會換值，照原值留 */
   color: var(--color-ink-soft); cursor: pointer;
 }
 .ns-datepick-days .day:hover:not([disabled]) { background: color-mix(in srgb, var(--color-ink) 6%, transparent); color: var(--color-ink); }
@@ -107,61 +107,26 @@
 .ns-datepick-days .day.mk { color: var(--color-ink); }
 .ns-datepick-days .day.today::before {
   content: ""; position: absolute; inset: 1px 3px; pointer-events: none;
-  border: 1px solid var(--color-ink-faint); border-radius: 3px;
+  border: 1px solid var(--color-ink-faint); border-radius: 3px; /* 字面值：今天框 3px 圓角（照原 DatePop） */
 }
 .ns-datepick-days .day.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--color-ink); font-weight: 600; }
 .ns-datepick-days .day .dot,
 .ns-datepick-gridlegend .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--stamp-ink); } /* 磨光⑤：記號不是済，朱改墨 */
 .ns-datepick-days .day .dot { position: absolute; bottom: 4px; left: 50%; margin-left: -2px; }
-.ns-datepick-gridlegend { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-datepick-gridlegend { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 10px; letter-spacing: .1em; color: var(--color-ink-faint); } /* 字面值：圖例 10px；DatePicker 被多支元件共用、判斷不了只在桌機，--fs-* 手機會換值，照原值留 */
 
-/* ═══ 手機：底部面板（z-index 48＝疊在捕捉面板 45／全螢幕預覽 46 之上、Toast 50 之下） ═══ */
-[data-shell="mobile"] .ns-mdatepick-veil {
-  position: fixed; left: 0; right: 0; top: 0; z-index: 48;
-  height: 100vh;
-  height: 100dvh;
-  height: var(--m-vvh, 100dvh);
-  display: flex; flex-direction: column; justify-content: flex-end;
-  background: color-mix(in srgb, var(--color-book) 35%, transparent);
-  animation: nsDatePickFade .18s ease-out;
-}
-@keyframes nsDatePickFade { from { opacity: 0; } }
-@keyframes nsDatePickUp { from { transform: translateY(100%); } }
-[data-shell="mobile"] .ns-mdatepick {
-  box-sizing: border-box; width: 100%;
-  max-height: calc(100% - var(--m-safe-top) - 8px);
-  display: flex; flex-direction: column;
-  padding: 8px 0 calc(var(--m-safe-bottom) + 6px);
-  border-radius: 12px 12px 0 0;
-  background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
-  border-top: 1px solid var(--color-line);
-  box-shadow: var(--shadow-card-hover);
-  animation: nsDatePickUp .22s cubic-bezier(.2, .9, .3, 1.04);
-}
-[data-shell="mobile"] .ns-mdatepick-grip {
-  width: 36px; height: 4px; border-radius: 2px;
-  margin: 0 auto 10px;
-  background: var(--color-dash);
-}
-[data-shell="mobile"] .ns-mdatepick-title {
-  flex: none; min-width: 0; margin: 0; padding: 4px var(--m-gutter) 10px;
-  border-bottom: 1px dashed var(--color-dash);
-  font-size: 12px; letter-spacing: .14em; color: var(--color-ink-faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-/* min-height:0＋內捲：磨光⑤ S8 起每張都有 6 列月格（約 330px），矮螢幕／橫放時月格在面板裡捲、「取消」留在底 */
-[data-shell="mobile"] .ns-mdatepick-body { padding: 14px var(--m-gutter) 4px; display: grid; gap: 14px; min-height: 0; overflow-y: auto; }
+/* ═══ 手機：日期面板的內容（殼＝common MSheet，見檔尾那段）═══ */
 [data-shell="mobile"] .ns-mdatepick-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 [data-shell="mobile"] .ns-mdatepick-chip {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 44px; padding: 0 14px;
   background: transparent;
-  border: 1px solid var(--color-line); border-radius: 2px;
-  font-family: inherit; font-size: 13.5px; letter-spacing: .08em;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  font-family: inherit; font-size: 13.5px; letter-spacing: .08em; /* 字面值：chip 13.5px；手機字階沒有這一階（原型逐字） */
   color: var(--color-ink-soft); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-[data-shell="mobile"] .ns-mdatepick-chip .sub { font-family: var(--font-latin); font-size: 11.5px; opacity: .65; letter-spacing: .04em; }
+[data-shell="mobile"] .ns-mdatepick-chip .sub { font-family: var(--font-latin); font-size: 11.5px; opacity: .65; letter-spacing: .04em; } /* 字面值：chip 副字 11.5px；手機字階沒有這一階（原型逐字） */
 [data-shell="mobile"] .ns-mdatepick-chip.on {
   border-color: var(--accent); color: var(--color-ink);
   background: color-mix(in srgb, var(--accent) 9%, transparent);
@@ -170,21 +135,21 @@
 [data-shell="mobile"] .ns-mdatepick-chips:empty { display: none; }
 /* ── 手機・自畫月格（同桌機那段；格高 44px＝拇指按得到） ── */
 [data-shell="mobile"] .ns-mdatepick-gridhead { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 4px; }
-[data-shell="mobile"] .ns-mdatepick-gridmonth { font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: .14em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-mdatepick-gridmonth { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-tab); letter-spacing: .14em; color: var(--color-ink); }
 [data-shell="mobile"] .ns-mdatepick-gridnav {
   display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0;
-  background: transparent; border: 0; border-radius: 2px; color: var(--color-ink-soft); cursor: pointer;
+  background: transparent; border: 0; border-radius: var(--radius-ctl); color: var(--color-ink-soft); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .ns-mdatepick-gridnav svg { width: 15px; height: 15px; }
 [data-shell="mobile"] .ns-mdatepick-gridnav[disabled] { opacity: var(--disabled); cursor: not-allowed; }
 [data-shell="mobile"] .ns-mdatepick-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-[data-shell="mobile"] .ns-mdatepick-days .wd { text-align: center; font-size: 11px; letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
+[data-shell="mobile"] .ns-mdatepick-days .wd { text-align: center; font-size: var(--fs-micro); letter-spacing: .1em; color: var(--color-ink-faint); padding-bottom: 4px; }
 [data-shell="mobile"] .ns-mdatepick-days .blank { height: 44px; }
 [data-shell="mobile"] .ns-mdatepick-days .day {
   position: relative; height: 44px; padding: 0 0 7px; margin: 0; min-width: 0;
-  background: transparent; border: 0; border-radius: 2px;
-  font-family: var(--font-latin); font-size: 15px; font-variant-numeric: tabular-nums; line-height: 1;
+  background: transparent; border: 0; border-radius: var(--radius-ctl);
+  font-family: var(--font-latin); font-size: var(--fs-body); font-variant-numeric: tabular-nums; line-height: 1;
   color: var(--color-ink-soft); cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -192,20 +157,18 @@
 [data-shell="mobile"] .ns-mdatepick-days .day.mk { color: var(--color-ink); }
 [data-shell="mobile"] .ns-mdatepick-days .day.today::before {
   content: ""; position: absolute; inset: 3px 4px; pointer-events: none;
-  border: 1px solid var(--color-ink-faint); border-radius: 4px;
+  border: 1px solid var(--color-ink-faint); border-radius: 4px; /* 字面值：今天框 4px 圓角（照原 MobileDatePick；--radius-card 銀河是 3，不能換） */
 }
 [data-shell="mobile"] .ns-mdatepick-days .day.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--color-ink); font-weight: 600; }
 [data-shell="mobile"] .ns-mdatepick-days .day .dot,
 [data-shell="mobile"] .ns-mdatepick-gridlegend .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--stamp-ink); } /* 磨光⑤：朱改墨 */
 [data-shell="mobile"] .ns-mdatepick-days .day .dot { position: absolute; bottom: 7px; left: 50%; margin-left: -2.5px; }
-[data-shell="mobile"] .ns-mdatepick-gridlegend { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-mdatepick-cancel {
-  display: block; width: 100%; min-height: 52px; margin-top: 8px;
-  background: transparent; border: 0; border-top: 1px solid var(--color-line);
-  font-family: inherit; font-size: 14px; letter-spacing: .08em; color: var(--color-ink-faint);
-  cursor: pointer;
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-shell="mobile"] .ns-mdatepick-veil,
-  [data-shell="mobile"] .ns-mdatepick { animation: none; }
-}
+[data-shell="mobile"] .ns-mdatepick-gridlegend { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 11.5px; letter-spacing: .1em; color: var(--color-ink-faint); } /* 字面值：圖例 11.5px；手機字階沒有這一階（原型逐字） */
+/* ═══ 手機・MSheet 殼（UI 丙-4 C6 起；丙-7 T5 舊殼刪掉後是唯一的殼）═══
+ * 殼本體全在 common/msheet.css；這裡只管內容與一條高度例外：
+ * MSheet auto 的初始高上限 60%（§2.4），但月格（6 列×44＋月份列＋週名列≈330）加快選 chip、標題、黏底取消，
+ * 在 375×812 上要約 66%——卡在 60% 月格最後一列會被切、得在 sheet 裡捲才看得到月底（實測 402/336）。
+ * 挑日期的 sheet 整張就是那個月，不該捲，所以這張放寬到「可拉到」的 90%（仍是跟內容走，不是固定 90%）。
+ * MSheet 沒有 className 插槽，用 :has 認自己的內容（WebView2／Android WebView 都是 Chromium ≥105）。 */
+[data-shell="mobile"] .ns-msheet:not(.is-expanded):has(> .ns-msheet-body > .ns-mdatepick-sheet) { max-height: 90%; }
+[data-shell="mobile"] .ns-mdatepick-sheet { display: grid; gap: var(--sp-3); }

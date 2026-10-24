@@ -24,7 +24,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 [data-shell="mobile"] .m-band-search svg { opacity: .85; display: block; }
-[data-shell="mobile"] .m-band-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .m-band-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; } /* 書封燙金：頂帶（書封色）上的聚焦框 */
 
 /* ═══════════ 二、手機搜尋面板 ═══════════ */
 
@@ -47,22 +47,22 @@
   display: flex; align-items: center; gap: 4px;
   padding: var(--m-safe-top) 4px 0 var(--m-gutter);
   min-height: calc(var(--m-band-h) + var(--m-safe-top));
-  background: var(--color-book);
+  background: var(--color-book); /* 殼：搜尋頂列（看起來是頂帶變成搜尋列） */
   color: var(--color-book-ink);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-gold) 26%, transparent); /* 書封燙金線（同頂帶） */
 }
 [data-shell="mobile"] .m-qj-field {
   flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 8px;
   height: 36px; padding: 0 4px 0 10px;
-  border-radius: 3px;
+  border-radius: 3px; /* 字面值：頂帶搜尋框 3px 圓角（照原值；--radius-card 兩主題不同值，不能換） */
   background: color-mix(in srgb, var(--color-book-ink) 12%, transparent);
 }
 [data-shell="mobile"] .m-qj-field svg { flex: none; opacity: .75; }
 [data-shell="mobile"] .m-qj-input {
   flex: 1; min-width: 0;
   padding: 0; border: 0; outline: none; background: transparent;
-  font-family: var(--font-body); font-size: 16px; letter-spacing: .03em;
+  font-family: var(--font-body); font-size: 16px; letter-spacing: .03em; /* 字面值：手機輸入框 16px 防 iOS 放大 */
   color: inherit;
 }
 [data-shell="mobile"] .m-qj-input::placeholder { color: color-mix(in srgb, var(--color-book-ink) 55%, transparent); }
@@ -70,19 +70,19 @@
   flex: none;
   width: 36px; height: 36px; padding: 0;
   background: transparent; border: 0;
-  font-size: 18px; line-height: 1; color: inherit; opacity: .7;
+  font-size: 18px; line-height: 1; color: inherit; opacity: .7; /* 字面值：清除 × 記號 18px（照原值） */
   cursor: pointer;
 }
 [data-shell="mobile"] .m-qj-cancel {
   flex: none;
   min-width: 44px; min-height: 44px; padding: 0 12px;
   background: transparent; border: 0;
-  font-family: inherit; font-size: 14px; letter-spacing: .12em; text-indent: .12em;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .12em; text-indent: .12em;
   color: inherit;
   cursor: pointer;
 }
 [data-shell="mobile"] .m-qj-cancel:focus-visible,
-[data-shell="mobile"] .m-qj-clear:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; }
+[data-shell="mobile"] .m-qj-clear:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -2px; } /* 書封燙金：頂帶（書封色）上的聚焦框 */
 
 [data-shell="mobile"] .m-qj-body {
   flex: 1 1 auto; min-height: 0;
@@ -93,13 +93,13 @@
 [data-shell="mobile"] .m-qj-note {
   margin: 0;
   padding: 16px var(--m-gutter);
-  font-size: 13px; line-height: 1.8; letter-spacing: .03em;
+  font-size: var(--fs-sm); line-height: 1.8; letter-spacing: .03em;
   color: var(--color-ink-soft);
 }
 [data-shell="mobile"] .m-qj-list { margin: 0; padding: 4px 0; list-style: none; }
 [data-shell="mobile"] .m-qj-group {
   padding: 12px var(--m-gutter) 4px;
-  font-size: 11px; letter-spacing: .12em;
+  font-size: var(--fs-micro); letter-spacing: .12em;
   color: var(--color-ink-faint);
 }
 [data-shell="mobile"] .m-qj-row {
@@ -117,7 +117,7 @@
 [data-shell="mobile"] .m-qj-name {
   flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--font-display); font-size: 15px; letter-spacing: .02em;
+  font-family: var(--font-display); font-size: var(--fs-ticket); letter-spacing: .02em;
 }
 [data-shell="mobile"] .m-qj-name.is-done {
   color: var(--color-ink-faint);
@@ -126,13 +126,13 @@
 }
 [data-shell="mobile"] .m-qj-done {
   flex: none;
-  font-family: var(--font-display); font-weight: 600; font-size: 12px;
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-xs);
   color: var(--color-seal);
 }
 [data-shell="mobile"] .m-qj-aside {
   flex: none; max-width: 38%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11px; letter-spacing: .06em;
+  font-size: var(--fs-micro); letter-spacing: .06em;
   color: var(--color-ink-faint);
 }
 

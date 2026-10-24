@@ -5,38 +5,30 @@
  * 視覺＝原型語彙 1:1：票頭＝.panel-head（件一 m3-ext-routemap.html；一字題② 拍板 2026-09-05 換 M3 票頭式，
  *   依路線身分裁減：徽章〔代碼、字色＝路線色；無代碼＝.badge.dashed 空章，點了去填代碼〕＋類型字「路線」，無票種無票號）＋.d 襯線名稱；
  * 區段 .sec「概要」「車站」；代碼輸入＝.serial 的 Fraunces；路線色＝原型 .roundel 小圓盤（選中 ink 邊、自訂＝虛線空盤藏 color picker）。
- * 已知取捨：自訂色 picker 連續觸發 → 400ms 去抖後寫回；色盤未選（null）時視同預設第 4 色（利休鼠）高亮。
+ * UI 丙-3：
+ *   - C3 路線色換共用 `ColorPicker palette="route" custom`（四格＋自訂入口，沒有色碼框）；自訂色在原生色盤關掉時才回呼，
+ *     舊的 400ms 去抖與 toPickerHex 一併拿掉。**null 色**（舊資料、沒挑過）照書封與票頭的畫法＝第 4 色利休鼠
+ *     （roundel.ts、本檔 `color`），所以挑色盤也亮利休鼠——畫面上看到哪一色就亮哪一格；不另存，使用者挑了才寫。
+ *   - 丙-7（使用者 10-24）：自訂入口退回丙-3 以前的虛線圓「＋」、色名（自訂色＝色碼）回到色列右邊——都在 ColorPicker 裡
+ *     （`showName`），新增路線彈窗同一個元件、同一種排法。
+ *   - C2「所屬幹線」欄（E12，使用者 10-22 定做）：幹線 ≥2 條才畫（只有一條沒得換）；選了就 `moveRouteToLine`
+ *     （接在新幹線最後＋toast「已移到幹線「X」」＋復原）。書封的分組在 store refresh 後立刻跟著變。
+ *   - 路線的編輯全在這裡（規範 §3.2「一個資料欄只在一個地方編」：名稱、代碼、色、幹線）；書封 ✎ 開的也是這個側板（C1／C6）。
  */
 import { useRef } from "react";
 import type { NodeRow } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { collectDeleteHints, withDeleteHints } from "../../lines/deleteHints";
-import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, SectionRule, useDebouncedCommit } from "./fields";
+import { ColorPicker, routePresetColor } from "../common/ColorPicker";
+import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, SectionRule } from "./fields";
+import { Choice } from "./Choice";
+import { moveRouteToLine } from "./moveRouteToLine";
 import { StationList } from "./StationList";
 import { LineRows } from "./TaskFields";
 
-/* 預設盤的和色名跟著 theme.css 的 --route-preset-N 走（M3 ② 換裝：值＝件一的四支路線色 E1／J／L2／無）。
-   第 2 格粉彩星空版是 #964468（梅紫）而非舊的洗朱，名字一併改正——標籤是給主人認色用的，對不上就沒用。 */
-const PRESETS = [
-  { n: 1, name: "藍鼠" },
-  { n: 2, name: "梅紫" },
-  { n: 3, name: "松葉" },
-  { n: 4, name: "利休鼠" },
-] as const;
-
-const presetVar = (n: number) => `var(--route-preset-${n})`;
-const HEX_RE = /^#[0-9a-f]{6}$/i;
-
-/** 把目前路線色換成 <input type=color> 吃得下的 #rrggbb（預設盤→讀 computed style；解析不到回空字串，交給瀏覽器自行 sanitize，僅作 picker 初值） */
-function toPickerHex(color: string | null): string {
-  if (color && HEX_RE.test(color)) return color;
-  const m = color?.match(/^var\((--[\w-]+)\)$/);
-  const resolved = getComputedStyle(document.documentElement)
-    .getPropertyValue(m ? m[1] : "--route-preset-4")
-    .trim();
-  return HEX_RE.test(resolved) ? resolved : "";
-}
+/** null 色＝第 4 色（利休鼠）——書封 roundel 與票頭都這樣畫 */
+const NULL_ROUTE_COLOR = routePresetColor(4);
 
 export function RoutePanel({ route }: { route: NodeRow }) {
   const updateNode = useNodeStore((s) => s.updateNode);
@@ -48,12 +40,9 @@ export function RoutePanel({ route }: { route: NodeRow }) {
   const setZoom = useUiStore((s) => s.setZoom);
   const select = useUiStore((s) => s.select);
 
-  const custom = route.color && HEX_RE.test(route.color) ? route.color : null;
-  const { schedule, flush } = useDebouncedCommit<string>((hex) => void updateNode(route.id, { color: hex }), 400);
+  const lines = useNodeStore((s) => s.lines);
 
-  const activePreset = PRESETS.find((p) => presetVar(p.n) === route.color)?.n ?? (route.color ? null : 4);
-  const colorLabel = custom ?? PRESETS.find((p) => p.n === activePreset)?.name ?? route.color ?? "";
-  const color = route.color ?? "var(--route-preset-4)";
+  const color = route.color ?? NULL_ROUTE_COLOR;
   const codeRef = useRef<HTMLDivElement>(null);
 
   const removeRoute = async () => {
@@ -143,42 +132,28 @@ export function RoutePanel({ route }: { route: NodeRow }) {
         </FieldRow>
 
         <FieldRow label="路線色">
-          <div className="swatches">
-            {PRESETS.map((p) => {
-              const v = presetVar(p.n);
-              const active = activePreset === p.n;
-              return (
-                <button
-                  key={p.n}
-                  type="button"
-                  aria-label={`路線色：${p.name}`}
-                  aria-pressed={active}
-                  title={p.name}
-                  onClick={() => void updateNode(route.id, { color: v })}
-                  className={`roundel ${active ? "on" : ""}`}
-                  style={{ background: v }}
-                />
-              );
-            })}
-            <label
-              title="自訂色"
-              className={`roundel custom ${custom ? "on" : ""}`}
-              style={custom ? { background: custom } : undefined}
-            >
-              <input
-                type="color"
-                aria-label="自訂路線色"
-                value={toPickerHex(route.color)}
-                onChange={(e) => schedule(e.target.value)}
-                onBlur={flush}
-              />
-              {!custom && <span aria-hidden>+</span>}
-            </label>
-            <span className="meta" style={{ marginTop: 0 }}>
-              {colorLabel}
-            </span>
-          </div>
+          {/* 色名（預設色名／自訂色碼）由 ColorPicker 寫在色列右邊，跟新增路線彈窗同一種排法 */}
+          <ColorPicker
+            palette="route"
+            custom
+            showName
+            className="route-color"
+            value={color}
+            onChange={(c) => void updateNode(route.id, { color: c })}
+          />
         </FieldRow>
+
+        {/* 所屬幹線（E12）：只有一條幹線就沒得換、不畫 */}
+        {lines.length >= 2 && route.line_id && (
+          <FieldRow label="所屬幹線">
+            <Choice
+              value={route.line_id}
+              options={lines.map((l) => ({ value: l.id, label: l.name }))}
+              onChange={(lineId) => void moveRouteToLine(route.id, lineId)}
+              ariaLabel="所屬幹線"
+            />
+          </FieldRow>
+        )}
 
         <FieldRow label="描述" top>
           <CommitTextarea

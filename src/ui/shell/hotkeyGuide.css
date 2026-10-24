@@ -48,7 +48,7 @@
   padding: 1px 0;
 }
 .ns-hkg-label {
-  font-size: 13px;
+  font-size: 13px; /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
   line-height: 20px;
   letter-spacing: .03em;
   color: var(--color-ink);
@@ -66,7 +66,7 @@
 .ns-hkg-path { display: inline-flex; align-items: center; gap: 6px; }
 /* 多條路徑之間的「／」：小字、注記墨 */
 .ns-hkg-or {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 18px;
   color: var(--color-ink-soft);
 }

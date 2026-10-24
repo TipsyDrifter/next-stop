@@ -18,7 +18,7 @@
  * ARIA：輸入框 role=combobox＋aria-expanded（有焦點才展開）＋aria-label「掛荷札」；建議清單 role=listbox＋aria-label「荷札建議」。
  * 鍵盤：見上（↑↓／Enter／Tab 補完／空白鍵／Esc 收起焦點回「掛荷札」鈕／空字 Backspace 兩下摘最後一個）。
  * 樣式：.ns-notes-tagfield／tagadd／taginput／sug 仍在 notes/notes-tags.css（荷札頁、捕捉框、時刻表共用），由 TagChip 帶入。
- *   原路徑 notes/tags/EntityTagField.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
+ *   原路徑 notes/tags/EntityTagField.tsx 的 re-export 殼在 UI 丙-7 T5 刪掉（呼叫端都改 import 本檔）。
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { TagEntityType } from "../../data/tagRepository";

@@ -2,9 +2,9 @@
  * RunDock——運行列（車次①a 契約 §5.1；D-時-22 甲案；乙席）。兩殼共用 DOM（手機固定在頁面與 tab bar 之間、桌機在左欄頂端），
  * 差異只在 CSS。＝原型 `mountDock`（shared.js:607-648）。自己讀 store。
  *
- * 運行中：div.ns-tt-dock[.is-long] > Badge ＋ div.ns-tt-dock-main（
+ * 運行中：div.ns-tt-dock[.is-long] > Badge（live：右上肩呼吸赭點，UI 丙-7）＋ div.ns-tt-dock-main（
  *   div.ns-tt-dock-name：分類名＋長時間運行未確認時 button.ns-tt-chip.is-late「⚠ 其實到幾點？」／已確認時 span.ns-tt-chip「長時間運行」；
- *   div.ns-tt-dock-meta：span.ns-tt-live-dot＋button.ns-tt-dock-start「HH:MM 発」（點了開改出發時間）＋b.ns-tt-dock-el（fmtHMS，每秒））
+ *   div.ns-tt-dock-meta：button.ns-tt-dock-start「HH:MM 発」（點了開改出發時間）＋b.ns-tt-dock-el（fmtHMS，每秒））
  *   ＋ button.ns-btn.btn-ghost「換車」＋ button.ns-btn.btn-seal「到着」。
  * 停車中：分類圓牌位置空、「目前沒有列車在跑」／「沒記到的時間，之後可以在軸上補」＋ button.btn-seal「発車」。
  * 桌機鈕上加 kbd.ns-tt-kbd（N／Enter）——鍵帽字一律 `formatChord(hotkeyById(id)!.chords[0])`（契約 §1-9，不手抄）。
@@ -140,7 +140,7 @@ export function RunDock({ variant }: RunDockProps) {
 
   return (
     <div className={"ns-tt-dock is-" + variant + (long ? " is-long" : "")}>
-      <CategoryBadge cat={cat} onPress={openEdit} />
+      <CategoryBadge cat={cat} onPress={openEdit} live />
       <div className="ns-tt-dock-main">
         <div className="ns-tt-dock-name">
           <span className="ns-tt-link-dock">
@@ -182,7 +182,6 @@ export function RunDock({ variant }: RunDockProps) {
           )}
         </div>
         <div className="ns-tt-dock-meta ns-tt-num">
-          <span className="ns-tt-live-dot" aria-hidden="true" />
           <button
             type="button"
             className="ns-tt-dock-start"

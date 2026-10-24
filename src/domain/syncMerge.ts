@@ -59,12 +59,15 @@ function clip(s: string, max: number): string {
 }
 
 /**
- * 清單列名字的截斷：名字長得像「車票『牙醫』」（前綴＋『名』）時只截『』裡面那段，括號留著；
+ * 清單列名字的截斷：名字長得像 車票「牙醫」（前綴＋「名」）時只截「」裡面那段，括號留著；
  * 其餘整段截。toast 用 12 字（#59 兩行上限，§0-1 第 14 條）。
+ * 括號在丙-7 由『』改成「」（視覺規範 §4：單層用「」）；label 只在執行時組、不入庫，舊資料不受影響。
+ * 認「前綴型」的條件跟 quoted() 同一條：前綴沒有空白、整段以 」 收尾。
+ * 時段列（10/18 讀「哈利波特」系列 09:00–10:00）分類名帶「」也不算，要整段截，不然會超過兩行。
  */
 export function clipLabel(label: string, max: number): string {
-  const m = /^([^『]*)『(.*)』([^』]*)$/u.exec(label);
-  if (m) return `${m[1]}『${clip(m[2], max)}』${m[3]}`;
+  const m = /^([^「\s]*)「(.*)」$/u.exec(label);
+  if (m) return `${m[1]}「${clip(m[2], max)}」`;
   return clip(label, max);
 }
 
@@ -268,9 +271,13 @@ export function mergeToastKey(list: readonly MergeNotice[]): string | null {
   return key;
 }
 
-/** toast 裡的名字：已經自帶『』（「車票『牙醫』」）就不再包一層 */
+/**
+ * toast 裡的名字：已經是「前綴「名」」的樣子（車票「牙醫」、分類「創作」）就不再包一層，其餘包「」。
+ * 認「整段以 」 收尾、前綴沒有空白」而不是「有沒有 「」：使用者取的名字比較常帶「」，
+ * 時段列（10/18 工作 09:00–10:00）的分類名就算帶「」，整段有空白、以時刻收尾，不會被誤認成已經包好。
+ */
 function quoted(label: string): string {
-  return label.includes("『") ? label : `『${label}』`;
+  return /^[^「\s]*「.*」$/u.test(label) ? label : `「${label}」`;
 }
 
 /** 一筆通知講的是哪一樣東西（表＋列）。toast 的數量一律數這個，不數通知筆數（接縫 #82：一塊兩欄被蓋＝兩筆通知、一樣東西） */

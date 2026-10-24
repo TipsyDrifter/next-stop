@@ -93,7 +93,7 @@ function showBackfillToast(id: string, day: string, before: Pick<NodeRow, "sched
       void (async () => {
         const st = useNodeStore.getState();
         await nodeRepo.setCompleted(id, false, { dateKey: currentDateKey(), dayStartHour: dayStart() });
-        // 取消完成一律寫 todo ⇒ 原本是進行中／擱置的放回去（評審 #2）
+        // 取消完成一律寫 todo ⇒ 原本是進行中／途中下車的放回去（評審 #2）
         await st.updateNode(id, {
           scheduled_on: before.scheduled_on,
           carried_from: before.carried_from,

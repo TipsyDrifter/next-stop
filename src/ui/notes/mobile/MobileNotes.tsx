@@ -21,9 +21,13 @@
  *   （清篩選→找到那則→開整頁），請求清回 null——「整頁開著」仍是本頁的 state。「筆記 N」改讀 store 的 `notesTotal`（0-16）。
  *
  * 磨光① A7：別處要指出收件匣的一張臨時票＝核心請求槽 `useRevealStore` 的 target "inbox"（routeMapReveal.ts `revealInbox`）；本頁接手。
+ *
+ * UI 丙-6（契約 §1 M1～M3、E）：頂部切換換成共用 `Tabs`（頁內 sticky 的 `.ns-tabrow`，同丙-4 時刻表／丙-5 售票口），
+ *   籤上的「收件匣 N／筆記 N／荷札 N」數字拿掉（M3；收件匣待整理數改寫在收件匣段頂那一行）。子頁（筆記整頁、荷札清單頁）照舊整條不畫（M2）。
+ *   `listsReady`：進頁那一趟收件匣＋筆記載完之前不畫兩段的空狀態（§1.8：資料未到不閃「沒有東西」）。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useNotesStore } from "../../../store/notesStore";
+import { useNotesStore, type NotesSection } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useRevealStore } from "../../mobile/routeMapReveal";
 import { noteTitle } from "../../../domain/notes";
@@ -33,17 +37,21 @@ import { MobileNotePage } from "./MobileNotePage";
 import { MobileDiary } from "./MobileDiary";
 import { MobileTags } from "./MobileTags";
 import { MobileTagPage } from "./MobileTagPage";
+import { Tabs, type TabItem } from "../../common/Tabs";
 import "../notes-mobile.css";
+
+/** 四段分頁籤（UI 丙-6 M1；籤字不帶數字＝M3） */
+const SECTION_TABS: readonly TabItem<NotesSection>[] = [
+  { key: "inbox", label: "收件匣" },
+  { key: "notes", label: "筆記" },
+  { key: "diary", label: "日記" },
+  { key: "tags", label: "荷札" },
+];
 
 export function MobileNotes() {
   const section = useNotesStore((s) => s.section);
   const tagKey = useTagStore((s) => s.selectedKey);
-  // 真荷札數（虛資料夾不算）——與桌機書封頁務件同口徑（NotesCoverAux）
-  const tagCount = useTagStore((s) => (s.index ? Object.values(s.index.byKey).filter((x) => x.real).length : null));
   const setSection = useNotesStore((s) => s.setSection);
-  const inboxCount = useNotesStore((s) => s.inboxNotes.length + s.inboxTickets.length);
-  // 「筆記 N」＝筆記總數（store 的 countNotes；階段④ 0-16——不再數已載入的頁）
-  const notesTotal = useNotesStore((s) => s.notesTotal);
   const mobileOpenNoteId = useNotesStore((s) => s.mobileOpenNoteId);
   const loadInbox = useNotesStore((s) => s.loadInbox);
   const loadNotes = useNotesStore((s) => s.loadNotes);
@@ -51,12 +59,19 @@ export function MobileNotes() {
   const startNewNote = useNotesStore((s) => s.startNewNote);
   const setNotesQuery = useNotesStore((s) => s.setNotesQuery);
   const [pageOpen, setPageOpen] = useState(false);
+  /** 進頁那一趟 loadInbox＋loadNotes 叫完了沒（store 的 loading 是共用旗標、首幀還是 false，不能拿來判斷「已載入且為空」） */
+  const [listsReady, setListsReady] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
 
   useEffect(() => {
-    void loadInbox();
-    void loadNotes();
+    let alive = true;
+    void Promise.all([loadInbox(), loadNotes()]).finally(() => {
+      if (alive) setListsReady(true);
+    });
+    return () => {
+      alive = false;
+    };
   }, [loadInbox, loadNotes]);
 
   // 通車補掛（每台一次；守門在 store）＝進旅客筆記頁就跑，不等第一次點「荷札」
@@ -183,50 +198,19 @@ export function MobileNotes() {
         <MobileTagPage onOpenNote={(id) => openPage(id)} />
       ) : (
         <>
-          <div className="ns-notes-mtabs" role="group" aria-label="收件匣・筆記・日記・荷札">
-            <div className="in">
-              <button
-                type="button"
-                className={section === "inbox" ? "on" : ""}
-                aria-pressed={section === "inbox"}
-                onClick={() => setSection("inbox")}
-              >
-                收件匣<span className="n">{inboxCount}</span>
-              </button>
-              <button
-                type="button"
-                className={section === "notes" ? "on" : ""}
-                aria-pressed={section === "notes"}
-                onClick={() => setSection("notes")}
-              >
-                筆記{notesTotal !== null && <span className="n">{notesTotal}</span>}
-              </button>
-              <button
-                type="button"
-                className={section === "diary" ? "on" : ""}
-                aria-pressed={section === "diary"}
-                onClick={() => setSection("diary")}
-              >
-                日記
-              </button>
-              <button
-                type="button"
-                className={section === "tags" ? "on" : ""}
-                aria-pressed={section === "tags"}
-                onClick={() => setSection("tags")}
-              >
-                荷札{tagCount !== null && <span className="n">{tagCount}</span>}
-              </button>
-            </div>
+          {/* UI 丙-6 M1～M3：自畫的四格切換退役，換成今日頂帶下一列同款 .ns-tabrow（共用 Tabs；跟丙-4 時刻表、丙-5 售票口
+              同一做法：頁內 sticky，不走 MobileTopBand 的 tabsRow 插槽）。籤上不帶數字（Tabs 只收字串；收件匣的待整理數在段內） */}
+          <div className="ns-notes-mtop ns-tabrow">
+            <Tabs items={SECTION_TABS} value={section} onChange={setSection} size="mobile" aria-label="旅客筆記分頁" />
           </div>
           {section === "inbox" ? (
-            <MobileNoteInbox />
+            <MobileNoteInbox ready={listsReady} />
           ) : section === "diary" ? (
             <MobileDiary />
           ) : section === "tags" ? (
             <MobileTags />
           ) : (
-            <MobileNoteList onOpen={(id) => openPage(id)} onNew={() => openPage(null)} />
+            <MobileNoteList ready={listsReady} onOpen={(id) => openPage(id)} onNew={() => openPage(null)} />
           )}
         </>
       )}

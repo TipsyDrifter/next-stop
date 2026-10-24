@@ -36,6 +36,9 @@
  *     兩個都沒給 ⇒ 不畫那一列，頂帶 DOM 與丙-1 逐字相同。給了 ⇒ 在 `<header class="m-band">` 後面多一個兄弟節點
  *     `.ns-tabrow`（樣式在 common/tabs.css，U1 席；只有「管理」沒有籤時的留白 `.ns-tabrow-fill` 在 common/msheet.css）。
  *     插槽列不在頂帶裡：頂帶是書封（深面），籤列是頁的一部分（玻璃），兩種材質分開兩列（§1.5、法則 01）。
+ * UI 丙-3 F2（契約 §1 F2；視覺規範 §2.2「手機今日｜行程表」）：今日 tab 的兩子頁切換接進 tabsRow——呼叫端（MobileShell，集中檔）
+ *   沒給 tabsRow 而且在今日 tab ⇒ 本元件自己讀 `scheduleUiStore.mobileSub` 畫共用 `Tabs`（今日｜行程表），舊的 `.m-sch-seg` 退役。
+ *   籤的長相、←→／Home／End、底線滑塊都歸 Tabs；左右滑換頁照舊在內容區（MobileSegmentedBar.tsx 的 useSubSwipe）。
  * ARIA／鍵盤：齒輪與放大鏡都是原生 <button>（Enter／Space），焦點框照書封慣例燙金（mobile.css）；分頁籤的 ←→ 由 Tabs 自己處理。
  */
 import { useState, type ReactNode } from "react";
@@ -45,8 +48,9 @@ import { todayKey } from "../../lib/date";
 import { DateSeal } from "../stamps";
 import { SyncDot } from "../common/SyncDot";
 import { IconGear } from "../common/icons";
+import { Tabs, type TabItem } from "../common/Tabs";
 import "../common/msheet.css";
-import { useScheduleUiStore } from "../schedule/scheduleUiStore";
+import { useScheduleUiStore, type MobileSub } from "../schedule/scheduleUiStore";
 import { renderTabIcon, type MobileTab, type MobileTabIcon } from "./tabs";
 import { MobileQuickJump } from "./MobileQuickJump";
 
@@ -63,6 +67,12 @@ export interface MobileTopBandProps {
   /** 籤列末端的「管理」文字鈕。省略＝不畫 */
   manage?: MobileTopBandManage;
 }
+
+/** 今日 tab 的兩子頁（UI 丙-3 F2） */
+const TODAY_SUBS: readonly TabItem<MobileSub>[] = [
+  { key: "today", label: "今日" },
+  { key: "schedule", label: "行程表" },
+];
 
 /** 頂帶日付印的尺寸（見檔頭「尺寸自決」） */
 const MOBILE_SEAL_SIZE = 46;
@@ -83,12 +93,16 @@ export function MobileTopBand({ tab, tabsRow, manage }: MobileTopBandProps) {
   const storedKey = useNodeStore((s) => s.today.dateKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const sub = useScheduleUiStore((s) => s.mobileSub);
+  const setMobileSub = useScheduleUiStore((s) => s.setMobileSub);
   const setMobileTab = useUiStore((s) => s.setMobileTab);
   const today = tab.key === "today";
   const dateKey = storedKey ?? todayKey(dayStartHour);
   const schedule = today && sub === "schedule";
   const [searching, setSearching] = useState(false);
-  const hasRow = tabsRow != null || manage != null;
+  // 今日 tab：呼叫端沒給籤列就畫「今日｜行程表」（UI 丙-3 F2）
+  const row =
+    tabsRow ?? (today ? <Tabs items={TODAY_SUBS} value={sub} onChange={setMobileSub} aria-label="今日分頁" /> : null);
+  const hasRow = row != null || manage != null;
 
   return (
     <>
@@ -122,10 +136,10 @@ export function MobileTopBand({ tab, tabsRow, manage }: MobileTopBandProps) {
         </div>
         {searching && <MobileQuickJump onClose={() => setSearching(false)} />}
       </header>
-      {/* UI 丙-2 插槽（本班不接線）：頂帶下一列＝分頁籤列＋末端「管理」文字鈕；都沒給就不畫（丙-1 版面逐字不變） */}
+      {/* UI 丙-2 插槽：頂帶下一列＝分頁籤列＋末端「管理」文字鈕；都沒有就不畫（丙-1 版面逐字不變）。今日 tab 有「今日｜行程表」（丙-3） */}
       {hasRow && (
         <div className="ns-tabrow">
-          {tabsRow ?? <span className="ns-tabrow-fill" aria-hidden="true" />}
+          {row ?? <span className="ns-tabrow-fill" aria-hidden="true" />}
           {manage && (
             <span className="mgr">
               <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={manage.onClick}>

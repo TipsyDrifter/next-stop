@@ -14,7 +14,7 @@
  *   - 收件匣車票「掛上路線」：depth="route"
  *   - 變待辦預覽／筆記整頁「掛在哪」：depth="node"、全部種類、routeSelectable（筆記另有「摘掉」）
  *
- * 以 portal 掛到 body（理由同 MobileDatePick 檔頭：從 `.m-page` 裡開的面板會被 tab bar 壓住）。
+ * 殼＝共用 `MSheet`（UI 丙-7 T5；它自己 portal 到 body，從 `.m-page` 裡開也不會被 tab bar 壓住）。
  *
  * 第四個用處（磨光⑤ B1「移動到…」，主線代改）：票卡 ⋯ 的搬遷。給 `excludeId` ＝搬遷模式——樹裡藏掉自己與整個子樹、
  * 只留挑得到的列與其群組頭；`currentNote`（「目前位置」）讓目前所在的父節點標出來、不可點。兩個都不給＝原本的行為。
@@ -23,21 +23,27 @@
  *
  * ── UI 丙-2 搬家（契約 §1 #18；2026-10-22）──
  * 用途：「掛到哪」挑選器（手機底部面板），收件匣、筆記整頁、變待辦預覽、票卡 ⋯「移動到…」共用；另 export RouteRoundel／RouteDot。
- * 規範：視覺規範 §2.4（手機底部 sheet；丙-3 起改掛 MSheet）、§2.10（選中 .on）。
- * ARIA：面板 role=dialog＋aria-modal＋aria-label＝標題；暗幕 role=presentation（點了＝取消）；「目前位置」那格 disabled。
- * 鍵盤／返回：Android 返回鍵＝第二層回「‹ 路線」、第一層＝取消（useBackLayer "notes.attachPicker"，本元件自己登記）。
- * 樣式：面板、清單列仍在 notes/notes-mobile.css（與捕捉框、荷札面板共用 .ns-notes-mveil／grip／minput／mbtn）；
- *   「目前位置」那格（.is-locked）在 common/attachpicker.css（src/index.css 集中 @import）。
- *   原路徑 notes/mobile/MobileAttachPicker.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
+ * 規範：視覺規範 §2.4（手機底部 sheet）、§2.10（選中 .on）。
+ * ── UI 丙-7 T5：殼換共用 MSheet ──
+ *   拉柄＋襯線標題（第一層＝呼叫端給的 title、第二層＝路線名）＋本文（搜尋列固定、清單自己捲）＋黏底 foot（取消｜摘掉）。
+ *   高度：depth="node" 給 full（90%：進路線看樹時不跳高；舊面板是固定 78%）、depth="route" 給 auto（跟內容、≤60%）。
+ *   「‹ 路線」從舊的標題列搬到搜尋列左邊（殼的標題列是拖曳把手，不放鈕）。
+ *   拖把手下滑／點暗幕／Esc＝取消（殼的四條路）；Android 返回鍵＝第二層回「‹ 路線」、第一層＝取消——
+ *   本元件用 useBackLayer "notes.attachPicker" 登記，MSheet 用同一個 backId＋backKind 合併成一層；子元件 MSheet 的 effect
+ *   先跑、本元件後登記，refcount 合併後「最後登記的 onBack」＝本元件這支（第二層先退一層）。
+ * ARIA：殼的 role=dialog＋aria-modal＋aria-labelledby→標題；「目前位置」那格 disabled。
+ * 樣式：舊的 .ns-notes-mveil／.ns-notes-mpick* 面板（notes-mobile.css §十）刪掉；清單列 .ns-notes-mnode* 與本文排版
+ *   .ns-mattach* 搬到 common/attachpicker.css（src/index.css 集中 @import）。搜尋框借 notes-mobile.css 的 .ns-notes-minput。
+ *   原路徑 notes/mobile/MobileAttachPicker.tsx 的 re-export 殼也在丙-7 T5 刪掉（呼叫端都改 import 本檔）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { NodeRow } from "../../domain";
 import type { AttachTarget } from "../../domain/notes";
 import { excludeSubtree, pruneToSelectable } from "../../domain/moveTo";
 import { roundelStyle } from "./roundel";
 import { useAttachOptions, type AttachKind, type AttachOption } from "../notes/useAttachOptions";
-import { useBackLayer, type BackKind } from "../mobile/backStack";
+import { useBackLayer } from "../mobile/backStack";
+import { MSheet } from "./MSheet";
 
 /* ───────── 共用小件 ───────── */
 
@@ -88,7 +94,7 @@ export interface MobileAttachPickerProps {
    * 返回層的種類（預設 "sheet"）。堆疊先比種類再比先後（dialog＞full＞sheet＞page），
    * 從全螢幕面板裡開的（變待辦預覽）要傳 "dialog"（疊在 full 上的子面板一律 dialog，契約 §9.1），不然返回會先關掉底下的全螢幕面板。
    */
-  backKind?: BackKind;
+  backKind?: "sheet" | "dialog";
   /** 搬遷模式（磨光⑤ B1）：不列這個節點與它的整個子樹，樹只留挑得到的列與其群組頭 */
   excludeId?: string;
   /** 有給＝`value` 那一格標這個字（「目前位置」）、不可點 */
@@ -210,162 +216,151 @@ export function MobileAttachPicker({
   const lockRoute = (r: NodeRow) => !!currentNote && value?.nodeKind === "route" && isOnRoute(r);
   const lockNode = (o: AttachOption) => !!currentNote && isOnNode(o);
 
-  return createPortal(
-    <div className="ns-notes-mveil is-top" role="presentation" onClick={onClose}>
-      <div
-        className={"ns-notes-mpick" + (depth === "node" ? " is-tall" : "")}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="ns-notes-grip" aria-hidden />
-        <div className="ns-notes-mpick-head">
-          {route ? (
-            <button
-              type="button"
-              className="ns-notes-mpick-back"
-              onClick={backToRoutes}
-            >
-              ‹ 路線
-            </button>
-          ) : null}
-          <p className="ns-notes-mpick-title">{route ? route.name : title}</p>
-        </div>
-        <div className="ns-notes-mpick-search">
-          <input
-            className="ns-notes-minput"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              route ? "搜尋這條路線的支線、列車、車廂…" : depth === "node" ? "搜尋路線、列車、車廂…" : "搜尋路線…"
-            }
-            aria-label="搜尋"
-            autoComplete="off"
-            spellCheck={false}
-            enterKeyHint="search"
-          />
-        </div>
-
-        <div className="ns-notes-mpick-list" ref={listRef}>
-          {!route ? (
-            <ul className="ns-notes-mnodes">
-              {routeHits.map((r) => (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    className={"ns-notes-mnode" + (isOnRoute(r) ? " on" : "") + (depth === "route" && lockRoute(r) ? " is-locked" : "")}
-                    disabled={depth === "route" && lockRoute(r)}
-                    onClick={() => (depth === "route" ? pickRoute(r) : setRouteId(r.id))}
-                  >
-                    <RouteRoundel route={r} className="ns-notes-mroundel" />
-                    <span className="nm">{r.name}</span>
-                    {depth === "node" ? (
-                      <span className="chev" aria-hidden>
-                        ›
-                      </span>
-                    ) : (
-                      <span className="path">{lockRoute(r) ? currentNote : "路線"}</span>
-                    )}
-                  </button>
-                </li>
-              ))}
-              {crossHits.map(({ route: r, opt }) => (
-                <li key={opt.id}>
-                  <button
-                    type="button"
-                    className={"ns-notes-mnode" + (isOnNode(opt) ? " on" : "") + (lockNode(opt) ? " is-locked" : "")}
-                    disabled={lockNode(opt)}
-                    onClick={() => pickNode(r, opt)}
-                  >
-                    <span className="kind" style={{ color: r.color ?? "var(--route-none)" }} aria-hidden>
-                      {KIND_GLYPH[opt.kind]}
-                    </span>
-                    <span className="nm">{opt.name}</span>
-                    <span className="path">{lockNode(opt) ? currentNote : r.name}</span>
-                  </button>
-                </li>
-              ))}
-              {routeHits.length === 0 && crossHits.length === 0 && (
-                <li className="empty">{routes.length === 0 ? "還沒有路線" : "找不到符合的路線或列車"}</li>
-              )}
-            </ul>
-          ) : (
-            <ul className="ns-notes-mnodes">
-              {routeSelectable && !q && (
-                <li>
-                  <button
-                    type="button"
-                    className={"ns-notes-mnode is-whole" + (isOnRoute(route) ? " on" : "") + (lockRoute(route) ? " is-locked" : "")}
-                    disabled={lockRoute(route)}
-                    onClick={() => pickRoute(route)}
-                  >
-                    <RouteRoundel route={route} className="ns-notes-mroundel" />
-                    <span className="nm">整條路線</span>
-                    <span className="path">{lockRoute(route) ? currentNote : moving ? "路線底下" : "只掛路線"}</span>
-                  </button>
-                </li>
-              )}
-              {treeErr ? (
-                <li className="empty">讀不到這條路線的列車，請再試一次</li>
-              ) : treeHits === null ? (
-                <li className="empty">載入中…</li>
-              ) : treeHits.length === 0 ? (
-                // 搬遷模式且路線本身能挑（搬列車）：上面那一格就是去處，不多一句
-                moving && routeSelectable && !q ? null : (
-                  <li className="empty">
-                    {q ? "找不到符合的列車或車廂" : moving ? "這條路線沒有可以放的地方" : "這條路線還沒有支線或列車"}
-                  </li>
-                )
-              ) : (
-                treeHits.map((o) =>
-                  o.selectable ? (
-                    <li key={o.id}>
-                      <button
-                        type="button"
-                        className={"ns-notes-mnode" + (isOnNode(o) ? " on" : "") + (lockNode(o) ? " is-locked" : "")}
-                        disabled={lockNode(o)}
-                        style={{ paddingLeft: `calc(var(--m-gutter) + ${q ? 0 : o.depth * 16}px)` }}
-                        onClick={() => pickNode(route, o)}
-                      >
-                        <span className="kind" style={{ color: route.color ?? "var(--route-none)" }} aria-hidden>
-                          {KIND_GLYPH[o.kind]}
-                        </span>
-                        <span className="nm">{o.name}</span>
-                        <span className="path">{lockNode(o) ? currentNote : KIND_NAME[o.kind]}</span>
-                      </button>
-                    </li>
-                  ) : (
-                    <li
-                      key={o.id}
-                      className="ns-notes-mnode-group"
-                      style={{ paddingLeft: `calc(var(--m-gutter) + ${q ? 0 : o.depth * 16}px)` }}
-                    >
-                      <span className="kind" aria-hidden>
-                        {KIND_GLYPH[o.kind]}
-                      </span>
-                      <span className="nm">{o.name}</span>
-                    </li>
-                  ),
-                )
-              )}
-            </ul>
-          )}
-        </div>
-
-        <div className="ns-notes-mpick-foot">
+  return (
+    <MSheet
+      title={route ? route.name : title}
+      backId="notes.attachPicker"
+      backKind={backKind}
+      height={depth === "node" ? "full" : "auto"}
+      className="ns-mattach"
+      onClose={onClose}
+      foot={
+        <>
+          <button type="button" className="ns-btn btn-ghost" onClick={onClose}>
+            取消
+          </button>
           {onClear && (
-            <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onClear}>
+            <button type="button" className="ns-btn btn-ghost" onClick={onClear}>
               {clearLabel}
             </button>
           )}
-          <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={onClose}>
-            取消
+        </>
+      }
+    >
+      <div className="ns-mattach-search">
+        {route ? (
+          <button type="button" className="ns-mattach-back" onClick={backToRoutes}>
+            ‹ 路線
           </button>
-        </div>
+        ) : null}
+        <input
+          className="ns-notes-minput"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={route ? "搜尋這條路線的支線、列車、車廂…" : depth === "node" ? "搜尋路線、列車、車廂…" : "搜尋路線…"}
+          aria-label="搜尋"
+          autoComplete="off"
+          spellCheck={false}
+          enterKeyHint="search"
+        />
       </div>
-    </div>,
-    document.body,
+
+      <div className="ns-mattach-list" ref={listRef}>
+        {!route ? (
+          <ul className="ns-notes-mnodes">
+            {routeHits.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  className={"ns-notes-mnode" + (isOnRoute(r) ? " on" : "") + (depth === "route" && lockRoute(r) ? " is-locked" : "")}
+                  disabled={depth === "route" && lockRoute(r)}
+                  onClick={() => (depth === "route" ? pickRoute(r) : setRouteId(r.id))}
+                >
+                  <RouteRoundel route={r} className="ns-notes-mroundel" />
+                  <span className="nm">{r.name}</span>
+                  {depth === "node" ? (
+                    <span className="chev" aria-hidden>
+                      ›
+                    </span>
+                  ) : (
+                    <span className="path">{lockRoute(r) ? currentNote : "路線"}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+            {crossHits.map(({ route: r, opt }) => (
+              <li key={opt.id}>
+                <button
+                  type="button"
+                  className={"ns-notes-mnode" + (isOnNode(opt) ? " on" : "") + (lockNode(opt) ? " is-locked" : "")}
+                  disabled={lockNode(opt)}
+                  onClick={() => pickNode(r, opt)}
+                >
+                  <span className="kind" style={{ color: r.color ?? "var(--route-none)" }} aria-hidden>
+                    {KIND_GLYPH[opt.kind]}
+                  </span>
+                  <span className="nm">{opt.name}</span>
+                  <span className="path">{lockNode(opt) ? currentNote : r.name}</span>
+                </button>
+              </li>
+            ))}
+            {routeHits.length === 0 && crossHits.length === 0 && (
+              <li className="empty">{routes.length === 0 ? "還沒有路線" : "找不到符合的路線或列車"}</li>
+            )}
+          </ul>
+        ) : (
+          <ul className="ns-notes-mnodes">
+            {routeSelectable && !q && (
+              <li>
+                <button
+                  type="button"
+                  className={"ns-notes-mnode is-whole" + (isOnRoute(route) ? " on" : "") + (lockRoute(route) ? " is-locked" : "")}
+                  disabled={lockRoute(route)}
+                  onClick={() => pickRoute(route)}
+                >
+                  <RouteRoundel route={route} className="ns-notes-mroundel" />
+                  <span className="nm">整條路線</span>
+                  <span className="path">{lockRoute(route) ? currentNote : moving ? "路線底下" : "只掛路線"}</span>
+                </button>
+              </li>
+            )}
+            {treeErr ? (
+              <li className="empty">讀不到這條路線的列車，請再試一次</li>
+            ) : treeHits === null ? (
+              <li className="empty">載入中…</li>
+            ) : treeHits.length === 0 ? (
+              // 搬遷模式且路線本身能挑（搬列車）：上面那一格就是去處，不多一句
+              moving && routeSelectable && !q ? null : (
+                <li className="empty">
+                  {q ? "找不到符合的列車或車廂" : moving ? "這條路線沒有可以放的地方" : "這條路線還沒有支線或列車"}
+                </li>
+              )
+            ) : (
+              treeHits.map((o) =>
+                o.selectable ? (
+                  <li key={o.id}>
+                    <button
+                      type="button"
+                      className={"ns-notes-mnode" + (isOnNode(o) ? " on" : "") + (lockNode(o) ? " is-locked" : "")}
+                      disabled={lockNode(o)}
+                      style={{ paddingLeft: `calc(var(--m-gutter) + ${q ? 0 : o.depth * 16}px)` }}
+                      onClick={() => pickNode(route, o)}
+                    >
+                      <span className="kind" style={{ color: route.color ?? "var(--route-none)" }} aria-hidden>
+                        {KIND_GLYPH[o.kind]}
+                      </span>
+                      <span className="nm">{o.name}</span>
+                      <span className="path">{lockNode(o) ? currentNote : KIND_NAME[o.kind]}</span>
+                    </button>
+                  </li>
+                ) : (
+                  <li
+                    key={o.id}
+                    className="ns-notes-mnode-group"
+                    style={{ paddingLeft: `calc(var(--m-gutter) + ${q ? 0 : o.depth * 16}px)` }}
+                  >
+                    <span className="kind" aria-hidden>
+                      {KIND_GLYPH[o.kind]}
+                    </span>
+                    <span className="nm">{o.name}</span>
+                  </li>
+                ),
+              )
+            )}
+          </ul>
+        )}
+      </div>
+    </MSheet>
   );
 }

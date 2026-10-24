@@ -96,7 +96,7 @@ export async function jumpToNodeMobile(node: NodeRow, opts: JumpMobileOptions = 
       ui.setMobileTab("today");
       const [, m, d] = node.scheduled_on.split("-");
       const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
-      ui.showToast({ message: `『${node.name}』${when}，今天還不會出現在清單裡` });
+      ui.showToast({ message: `「${node.name}」${when}，今天還不會出現在清單裡` });
       return;
     }
     revealOnToday(node.id);

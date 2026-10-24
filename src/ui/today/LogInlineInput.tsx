@@ -60,7 +60,7 @@ export function LogInlineInput({ nodeId, onDone, onCancel }: LogInlineInputProps
       <span className="lbl" aria-hidden>
         工作日誌</span>
       <InlineInput
-        placeholder="記一句（Enter 記下・Esc 取消）"
+        placeholder="記乘務記錄（Enter 記下・Esc 取消）"
         ariaLabel="工作日誌"
         focusKey={nodeId}
         className="techo-input hw"

@@ -2,7 +2,7 @@
  * DialogShell——置中小 dialog 的共用殼（2.3 路線 dialog／4.0 設定共用）：書封色暗幕（.techo-veil）＋浮層紙卡（.techo-card）
  * ＋標題列（overline 小標＋襯線大標＋×）＋撕線分隔（.ns-tear）；Esc／點暗幕關閉。
  * 視覺全借原型票面語彙（UI 丙-1：材質走 .techo-card 的語意層 token、字在 overlay.css 的 .ns-dialog、襯線標題）；沒有任何預設灰。
- * 取捨：桌面單窗、dialog 都很小，不做完整 focus trap（Tab 走得出去）；保證 Esc 可關、點暗幕可關、進場淡入（@starting-style）。
+ * 保證 Esc 可關、點暗幕可關、進場淡入（@starting-style）；Tab 不出卡（UI 丙-3，見下方 useTabTrap）。
  * 焦點（磨光⑤ #100）：紙卡 tabIndex=-1，三條規則——
  *   ① 開啟：焦點不在卡內就移到卡本身（子元件 autoFocus／自己的開場聚焦優先：子的 effect 先跑，這裡看到已在卡內就不搶）。
  *      落在卡上而不是第一顆鈕：第一顆是標題列的「×」，焦點在那裡按 Enter／Space 會直接關窗（OffPageSheetHost 檔頭同理）。
@@ -28,9 +28,19 @@
  *   - `foot`：黏底按鈕列（`.ns-dialog-foot`；取消在左、主鈕在右，host 照這個順序給）。它排在內捲的本文之外，
  *     本文怎麼捲按鈕列都在卡底——不必 position: sticky。即時存的面板不給（§2.3：即時存的表單沒有主鈕）。
  * ARIA：`role="dialog"`＋`aria-modal`＋`aria-labelledby`→標題。鍵盤：Esc 關（IME 組字中不攔）、開啟焦點落卡、關閉還焦點（磨光⑤ 第 100 號的三規則）。
- *   「Tab 不出卡」（規範 §2.4）本班不做：會改到既有 5 個 host 的 Tab 行為，留給丙-3 起套用時一併驗。
+ * Esc（UI 丙-7 T5，對齊 MSheet）：掛在 window，**別人已 preventDefault 就不關**——卡裡的子元件（輸入欄還原草稿、荷札建議收清單、
+ *   小浮層收起）自己吃掉的 Esc 不會連殼一起關，不必再 stopPropagation。疊了兩張殼（理論上 useGlobalHotkeys 會擋）只有最上面那張吃，
+ *   底下那張不搶也不 preventDefault（`escStack`：掛上的順序；監聽一次登記在掛上時，onClose 換了走 ref，順序不會亂）。
+ *
+ * ── UI 丙-3（契約 §0／G2）──
+ *   - `overline` 吃 `string | {zh, latin}`：物件＝PageHeader 同一種畫法（粉彩只畫拉丁斜體、銀河「中 — LATIN」，`<OverlineText>`）；
+ *     字串＝照字面（售票口、時刻表的舊呼叫端不用改）。新寫的呼叫端一律給物件。
+ *   - Tab 不出卡（規範 §2.4）：焦點在卡內循環——最後一個可聚焦元素按 Tab 回第一個、第一個（或卡本身）按 Shift+Tab 到最後一個；
+ *     卡內沒有可聚焦元素就停在卡上。中間的 Tab 交給瀏覽器（DOM 順序，roving tabindex＝-1 的籤自然跳過）。
+ *     只管 DOM 上在卡裡的焦點：portal 出去的浮層（PopMenu、日期小卡…）自己管鍵盤；疊在上面的另一個 dialog 由它自己的殼管。
  */
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { OverlineText, type Overline } from "./PageHeader";
 import "./overlay.css";
 
 /** 對話框寬度三檔（視覺規範 §2.4；9 種收 3） */
@@ -43,8 +53,8 @@ const TICKET_WIDTH = 600;
 
 interface DialogShellProps {
   title: string;
-  /** 標題上方的燙金小標（如「設定 — SETTINGS」）；省略則不顯示 */
-  overline?: string;
+  /** 標題上方的眉標：物件 `{zh:"設定", latin:"Settings"}`（新寫法）；字串照字面（舊呼叫端）；省略則不顯示 */
+  overline?: Overline;
   onClose: () => void;
   children: ReactNode;
   /** 寬度三檔（S 380／M 520／L 620）；給了就蓋過 `width` */
@@ -127,6 +137,75 @@ export function useDialogFocus(cardRef: RefObject<HTMLElement | null>, enabled =
   }, [opener, cardRef, enabled]);
 }
 
+/** 卡內可以 Tab 到的元素（DOM 順序）：可見、沒停用、tabIndex ≥ 0；同名 radio 只算一個 Tab stop（勾選的那顆，沒勾就第一顆） */
+const TABBABLE =
+  'a[href], area[href], button, input:not([type="hidden"]), select, textarea, iframe, summary, [tabindex], [contenteditable=""], [contenteditable="true"]';
+
+function tabbables(card: HTMLElement): HTMLElement[] {
+  const seenRadio = new Set<string>();
+  const all = Array.from(card.querySelectorAll<HTMLElement>(TABBABLE)).filter((el) => {
+    if (el.tabIndex < 0) return false;
+    if ((el as HTMLButtonElement).disabled) return false;
+    if (el.closest("[inert]")) return false;
+    if (el.getClientRects().length === 0) return false; // display:none／沒畫出來
+    return true;
+  });
+  return all.filter((el) => {
+    if (!(el instanceof HTMLInputElement) || el.type !== "radio" || !el.name) return true;
+    const key = el.name;
+    if (seenRadio.has(key)) return false;
+    const group = all.filter((o) => o instanceof HTMLInputElement && o.type === "radio" && o.name === key) as HTMLInputElement[];
+    const pick = group.find((o) => o.checked) ?? group[0];
+    if (pick !== el) return false;
+    seenRadio.add(key);
+    return true;
+  });
+}
+
+/**
+ * Tab 不出卡（規範 §2.4；UI 丙-3）：掛在帶 tabIndex=-1 的卡上（原生 keydown，只收 DOM 上在卡裡的事件——
+ * React portal 出去的子浮層冒上來的事件不經過這裡）。邊界才接手、中間交給瀏覽器；別人已 preventDefault 的不管；
+ * 事件來自卡裡另一個 dialog（巢狀）時交給那個 dialog 自己的殼。
+ */
+export function useTabTrap(cardRef: RefObject<HTMLElement | null>, enabled = true): void {
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card || !enabled) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Tab" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && t !== card && t.closest('[role="dialog"], [role="alertdialog"]') !== card) return; // 巢狀 dialog
+      const list = tabbables(card);
+      const active = document.activeElement as HTMLElement | null;
+      if (list.length === 0) {
+        e.preventDefault();
+        card.focus({ preventScroll: true });
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const onCard = active === card || !active || !card.contains(active);
+      if (e.shiftKey) {
+        if (onCard || active === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (onCard && active !== card) {
+        e.preventDefault();
+        first.focus();
+      } else if (active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    card.addEventListener("keydown", onKey);
+    return () => card.removeEventListener("keydown", onKey);
+  }, [cardRef, enabled]);
+}
+
+/** 掛著的 DialogShell，依掛上順序（最後一個＝最上面那張）；Esc 只給它 */
+const escStack: symbol[] = [];
+
 export function DialogShell({
   title,
   overline,
@@ -148,24 +227,38 @@ export function DialogShell({
 
   /* 磨光⑤ 第 100 號：焦點三條規則（見檔頭）；UI 丙-2 抽成上方的 useDialogFocus，行為不變 */
   useDialogFocus(cardRef);
+  /* UI 丙-3：Tab 不出卡（規範 §2.4） */
+  useTabTrap(cardRef);
 
+  /* Esc（UI 丙-7 T5）：看 defaultPrevented、只有最上面那張殼吃（見檔頭） */
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
+    const me = Symbol("dialog");
+    escStack.push(me);
     const onKey = (e: KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
+      if (e.key !== "Escape" || e.isComposing || e.keyCode === 229 || e.defaultPrevented) return;
+      if (escStack[escStack.length - 1] !== me) return;
+      e.preventDefault();
+      onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const i = escStack.indexOf(me);
+      if (i >= 0) escStack.splice(i, 1);
+    };
+  }, []);
 
   // 標題列與本文的 DOM 兩種皮共用（紙卡＝丙-1 現況逐字，只多一個 .ns-dialog-head 鉤子）；票皮的排版差在 overlay.css 的 .is-ticket
   const head = (
     <div className="ns-dialog-head ns-tear flex items-start justify-between gap-3 px-6 pt-5 pb-3.5">
       <div className="min-w-0">
-        {overline && <p className="techo-overline mb-1.5">{overline}</p>}
+        {overline && (
+          <p className="techo-overline mb-1.5">
+            <OverlineText value={overline} />
+          </p>
+        )}
         <h2 id={titleId} className="techo-title text-[19px] truncate">
           {title}
         </h2>

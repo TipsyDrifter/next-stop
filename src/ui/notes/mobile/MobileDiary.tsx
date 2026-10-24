@@ -15,7 +15,11 @@
  * 「今天」跟著日界線（useTodayKey；設定一變就重算、每分鐘看一次）；跨過日界線不替主人換掉正在看的日子（契約 0-6）。
  *
  * 搜尋：注音組字中不送，去抖 150ms 呼叫 store.setDiaryQuery；點一則＝openDiaryHit（跳到那天、選中那篇並捲進視野），
- *   此時搜尋字保留在框裡、本文換回日視圖，框下一行「回到『…』的結果」可再叫回清單；清除鈕或刪空字＝回日視圖。
+ *   此時搜尋字保留在框裡、本文換回日視圖，框下一行「回到「…」的結果」可再叫回清單；清除鈕或刪空字＝回日視圖。
+ *
+ * UI 丙-6（契約 §1 E16、S9）：搜尋沒結果＝共用 EmptyState nores＋「清除搜尋」；這天沒日記＝EmptyState first＋次鈕
+ *   「✎ 寫日記／✎ 補記」（頁內只有這一個寫日記入口；有篇時的「＋ 再寫一篇」手機照留＝手機沒有頁首 add，P9）。
+ *   日期面板給 `backId`＝殼換 MSheet、跟本檔登記的那層合併（返回鍵按一次只關面板）。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useUiStore } from "../../../store/uiStore";
@@ -30,6 +34,7 @@ import {
   weekdayZh,
 } from "../../../domain/notes";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { EmptyState } from "../../common/EmptyState";
 import { useBackLayer } from "../../mobile/backStack";
 import { useDiaryPickMarks } from "../useDiaryPickMarks";
 import { MobileDiaryStrip } from "./MobileDiaryStrip";
@@ -63,7 +68,8 @@ export function MobileDiary() {
   const [fpOpen, setFpOpen] = useState(true);
   const [pickDay, setPickDay] = useState(false);
   // 磨光① 返回層：日期面板＝同「取消」
-  useBackLayer("notes.diary.pickDay", pickDay, () => setPickDay(false));
+  //   UI 丙-6 S9：日期面板傳同一個 id＋kind（backId／backKind）⇒ MSheet 殼合併成這一層
+  useBackLayer("notes.diary.pickDay", pickDay, () => setPickDay(false), "sheet");
   /** 日期面板的自畫月格記號（車次③ 0-6 甲、D-筆-46 修訂「手機版同一套」） */
   const pickMarks = useDiaryPickMarks();
   const [q, setQ] = useState(diaryQuery);
@@ -171,7 +177,8 @@ export function MobileDiary() {
         >
           <IconRight />
         </button>
-        <button type="button" className="ns-notes-mtodaybtn" disabled={isToday} onClick={() => goDay(today)}>
+        {/* 一律可按、看今天時只標 aria-current（跟桌機 DateNav 的「今天」同，DiaryHeader 10-22 裁定；UI 丙-6 回修） */}
+        <button type="button" className="ns-notes-mtodaybtn" aria-current={isToday ? "date" : undefined} onClick={() => { if (!isToday) goDay(today); }}>
           今天
         </button>
       </div>
@@ -211,15 +218,13 @@ export function MobileDiary() {
       {hitQ && hitsHidden && (
         <button type="button" className="ns-notes-mhitsback" onClick={() => setHitsHidden(false)}>
           <IconLeft size={13} />
-          回到『{hitQ}』的 {hits.length} 則結果
+          回到「{hitQ}」的 {hits.length} 則結果
         </button>
       )}
 
       {showHits ? (
         hits.length === 0 ? (
-          <div className="ns-notes-mempty is-list">
-            <p>找不到『{hitQ}』</p>
-          </div>
+          <EmptyState tone="nores" title={`找不到「${hitQ}」`} secondary={{ label: "清除搜尋", onClick: clearQuery }} />
         ) : (
           <ul className="ns-notes-mdhits">
             {hits.map((n) => {
@@ -247,13 +252,13 @@ export function MobileDiary() {
           {draftOpen ? (
             <MobileDiaryDraft key={diaryDay} day={diaryDay} today={today} handle={draft} />
           ) : entries.length === 0 && !loading ? (
-            <div className="ns-notes-mnodiary">
-              <p>{empty.text}</p>
-              <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={openDiaryDraft}>
-                <IconPen />
-                {empty.button}
-              </button>
-            </div>
+            <EmptyState
+              tone="first"
+              stamp={null}
+              className="ns-notes-mnodiary"
+              title={empty.text}
+              action={{ label: empty.button, icon: <IconPen />, onClick: openDiaryDraft }}
+            />
           ) : (
             <div className="ns-notes-mmorebtn">
               <button type="button" className="ns-notes-mbtn ns-btn btn-ghost" onClick={openDiaryDraft}>
@@ -286,12 +291,15 @@ export function MobileDiary() {
           quick={[
             { label: "今天", day: today },
             { label: "昨天", day: addDays(today, -1) },
+            { label: "前天", day: addDays(today, -2) },
           ]}
           onPick={(d) => {
             setPickDay(false);
             if (d !== diaryDay) goDay(d);
           }}
           onClose={() => setPickDay(false)}
+          backId="notes.diary.pickDay"
+          backKind="sheet"
         />
       )}
     </div>

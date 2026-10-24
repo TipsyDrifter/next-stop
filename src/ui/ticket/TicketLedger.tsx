@@ -2,9 +2,13 @@
  * TicketLedger——售票口桌機頁的主欄「帳簿」（車次①契約 §5.1、0-1、0-2、0-4；乙席）。
  *
  *   main.ns-tk-ledger.is-compact（自己捲；緊湊密度 D-票-21）
- *   ├─ header.ns-tk-head    overline「售票口 — TICKET OFFICE」＋「＋ 記一筆 N」｜‹ 2026 年 10 月 › ＋ 右側本月合計（篩選＝全部時）
- *   │                        ＋ 篩選中 chip（原型 P-5 的延伸：篩選了哪個帳戶、× 清掉）
- *   └─ div.ns-tk-book（一張霧面紙，不打孔——帳簿行不是票卡）
+ *   ├─ PageHeader.ns-tk-pagehead（UI 丙-5 A1：身分式，跟其他五頁同一副骨架）
+ *   │     眉標 {售票口, Ticket Office}・大標 DateNav（‹ 10月 › 今天；統計年模式 unit="year"「‹ 2026 年 › 今年」；搜尋中＝「搜尋結果」）
+ *   │     補述 2026年（搜尋中＝文字鈕「‹ 回 10 月」）・stats 本月支出／收入（搜尋中＝找到 N 筆…）
+ *   │     工具列［清單｜月曆｜統計］［＋ 記一筆］［搜尋］［⚙ 管帳］（管帳＝共用 PopMenu，B1）
+ *   ├─ div.ns-tk-subbar（A4／P3 A 案：頁首下一列，清單視圖常駐；月曆／統計不畫）
+ *   │     左＝帳戶篩選 chip（書封點帳戶）／搜尋框＋FilterChips（搜尋開著）・右＝排序
+ *   └─ div.ns-tk-book（一張霧面紙，不打孔——帳簿行不是票卡）；空帳本＝EmptyState（A5，頁首此時不給「＋ 記一筆」）
  *       └─ ul.ns-tk-list（listbox，焦點容器 tabIndex=0；鍵盤表由頁根的 useTicketKeyboard 接）
  *           li.ns-tk-day（日付小字＋當日小計淡字）／li.ns-tk-row（帳簿行）／li.ns-tk-monthrule（往前接的月份）
  *           li.ns-tk-loadmore（捲到底自動接前一個月；IntersectionObserver）／空狀態 li.ns-tk-empty
@@ -12,13 +16,14 @@
  * 只讀 store、只叫 store 的動作（§2.5）；domain 的純函式直接用（moneyText／rowAmount／monthTitle…）。
  * 本檔另外 export 桌機三個元件共用的小件：`TkIcon`（1.3px 細線圖示）、`acctLabel`（同名帳戶加群組）、`TkRoundel`。
  *
- * 第②階段（②契約 §5.1、0-15、0-16；長相照原型 deskMain()）：
- *   頁首第一列多了 SearchBar；第二列＝‹ 月份 ›（統計年模式「‹ 2026 年 ›」）＋本月合計（只在清單）＋ ViewSwitch（最右）；
- *   搜尋作用中（清單＋有條件）⇒ 第二列換成「搜尋結果 ‹ 回 2026 年 10 月」、清單畫 resultDays（跨月、日分組頭印年、每頁 300 筆）；
- *   第三列 FilterChips（搜尋開著才出）。main 依 view 換成 TicketCalendar／TicketStats。
+ * 第②階段（②契約 §5.1、0-15、0-16）：搜尋作用中（清單＋有條件）⇒ 大標換成「搜尋結果」、清單畫 resultDays
+ *   （跨月、日分組頭印年、每頁 300 筆）。main 依 view 換成 TicketCalendar／TicketStats。
+ * UI 丙-5 A6：1280 寬開著大票（340）時主欄剛好 704、PageHeader 不切窄版；頁首實寬只剩約 644，
+ *   DateNav／「今天」不換行、年份補述在頁首窄於 720 時收起（container query）、stats 單行省略（ticket.css T1 區）。
+ *   UI 丙-7：頁首外距改吃 --page-pad-x 後頁首剩 600，全套工具列放不下 ⇒ 頁首 <720 一併強制 PageHeader 窄版（useHeadNarrow）。
  *   月曆跳回來（jumpToDay）⇒ store.pendingDay：捲到那一天的日分組頭、閃一下；那天沒帳 ⇒ 捲到最接近的日、帳簿頂端貼一行淡字「10/8 沒有紀錄」3 秒（sticky：頁首此時已捲出畫面）。
  *
- * 磨光⑥ 契約 §2-4（D-票-64）：頁首第二列（清單、沒在搜尋）多一顆「排序」（FilterChips 的 SortButton）；搜尋結果依 store.resultSort 畫——
+ * 磨光⑥ 契約 §2-4（D-票-64）：「排序」（FilterChips 的 SortButton；UI 丙-5 起在頁首下一列右端）；搜尋結果依 store.resultSort 畫——
  *   日期排序照舊日分組（舊到新＝組與組內都反過來，store 已排好）；金額排序＝平面清單 ul.is-flat：不分日、每列前面多一欄日期「10/21（三）」，
  *   沒有月份分隔與日小計（月曆跳日本來就會先關搜尋）。↑↓ 照 results 走（useTicketKeyboard），300 筆分頁照 results 切；
  *   選到還沒畫出來的那一頁（↑↓ 走過頭）⇒ 自動翻到那一頁。
@@ -50,10 +55,15 @@ import {
   type EntryRow,
 } from "../../domain/ticket";
 import type { NodeRow } from "../../domain/node";
-import { RESULT_PAGE, VIEW_TEXT, flatDayText, isAmountSort, isFilterActive, pageResults } from "../../domain/ticketView";
-// 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖——Stage 0 掛樁，乙席接手
-import { ViewSwitch } from "./view/ViewSwitch";
-import { SearchBar } from "./view/SearchBar";
+import { RESULT_PAGE, VIEW_TEXT, flatDayText, isAmountSort, isFilterActive, pageResults, resultSummary } from "../../domain/ticketView";
+import { PageHeader } from "../common/PageHeader";
+import { DateNav } from "../common/DateNav";
+import { PopMenu, type PopMenuItem } from "../common/PopMenu";
+import { EmptyState } from "../common/EmptyState";
+import { IconBack, IconClose, IconPlus } from "../common/icons";
+// 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖
+import { switchView, viewTabItems } from "./view/ViewSwitch";
+import { SearchBar, focusTicketSearch } from "./view/SearchBar";
 import { FilterChips, SortButton } from "./view/FilterChips";
 import { TicketCalendar } from "./view/TicketCalendar";
 import { TicketStats } from "./view/TicketStats";
@@ -70,17 +80,6 @@ const ICONS = {
     <>
       <circle cx="7" cy="7" r="4.6" />
       <path d="M10.6 10.6 14 14" />
-    </>
-  ),
-  // 管理入口＝滑桿（D-票-24；原型第二版 mgrSliders 逐字）
-  sliders: (
-    <>
-      <path d="M2.4 3.4h6.4M11.6 3.4h2" />
-      <circle cx="10.2" cy="3.4" r="1.4" />
-      <path d="M2.4 8h1.6M6.8 8h6.8" />
-      <circle cx="5.4" cy="8" r="1.4" />
-      <path d="M2.4 12.6h7.6M12.8 12.6h.8" />
-      <circle cx="11.4" cy="12.6" r="1.4" />
     </>
   ),
 } satisfies Record<string, ReactNode>;
@@ -175,6 +174,25 @@ export function EntryCat({ e }: { e: EntryRow }) {
 /** 連續幾個空月後停止自動往前接 */
 const AUTO_EMPTY_STOP = 3;
 
+/** 售票口頁首窄版門檻（頁首本身的寬）：同 ticket.css T1 區 `@container tk-head (max-width: 719px)` */
+const TK_HEAD_COMPACT_BELOW = 720;
+
+/** 量主欄裡 `.ns-tk-pagehead` 的寬：< below ⇒ true。側板開關、視窗拖拉即時跟上 */
+function useHeadNarrow(mainRef: RefObject<HTMLElement | null>, below: number): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useLayoutEffect(() => {
+    const head = mainRef.current?.querySelector<HTMLElement>(".ns-tk-pagehead");
+    if (!head) return;
+    const measure = () => setNarrow(head.getBoundingClientRect().width < below);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, [mainRef, below]);
+  return narrow;
+}
+
 export interface TicketLedgerProps {
   listRef: RefObject<HTMLUListElement | null>;
   /** 雙擊一行＝開這一筆（焦點進詳情板金額欄） */
@@ -211,6 +229,8 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
 
   const today = todayKey(dayStartHour);
   const thisMonth = monthOf(today);
+  // 頁首 stats 的月份字：看的是當月寫「本月」，翻到別的月份寫「9月」（跟大標的「9月」同寫法；年份大標旁邊已經有了）
+  const monthWord = month === thisMonth ? "本月" : `${Number(month.slice(5, 7))}月`;
   const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
   const routeById = useMemo(() => {
     const m: Record<string, NodeRow> = {};
@@ -257,6 +277,40 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const panelOpen = panel.kind === "entry";
   const searching = view === "list" && searchOpen && isFilterActive(filter); // 0-15：清單畫搜尋結果
   const yearMode = view === "stats" && span === "year";
+  const emptyBook = view === "list" && ready && !hasAny && !searching; // A5：EmptyState 出現時頁首不給「＋ 記一筆」
+  const tabItems = useMemo(() => viewTabItems(), []);
+
+  /* B1：頁首「⚙ 管帳」開共用 PopMenu（anchor＝那顆鈕；再點一次＝收） */
+  const [menuAt, setMenuAt] = useState<HTMLElement | null>(null);
+  const manageItems: PopMenuItem[] = [
+    { key: "categories", label: "分類管理", onSelect: () => store().openDialog({ kind: "categories" }) },
+    // 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序；第③階段（③契約 0-14）：預算…、定期帳…
+    { key: "accountOrder", label: "帳戶順序", onSelect: () => store().openDialog({ kind: "accountOrder" }) },
+    { key: "budgets", label: "預算…", onSelect: () => store().openDialog({ kind: "budgets" }) },
+    { key: "repeats", label: "定期帳…", onSelect: () => store().openDialog({ kind: "repeats" }) },
+    { key: "currencies", label: "幣別與匯率", onSelect: () => store().openDialog({ kind: "currencies" }) },
+    { key: "import", label: "從財務管家匯入…", cut: true, onSelect: () => void store().startImport("desktop") },
+  ];
+
+  /* A3：頁首放大鏡——沒開 ⇒ 開搜尋並聚焦框；開著但沒條件 ⇒ 收起；開著有條件 ⇒ 聚焦框（不丟掉條件） */
+  const onSearchBtn = () => {
+    const s = store();
+    if (s.searchOpen && !isFilterActive(s.filter)) {
+      s.closeSearch();
+      return;
+    }
+    s.openSearch();
+    focusTicketSearch();
+  };
+
+  /* 統計年模式「今年」：store 只有一步一年的 stepMonth，往後走到今年（年模式不動 month） */
+  const thisYear = thisMonth.slice(0, 4);
+  const toThisYear = async () => {
+    for (let n = 0; n < 50 && useTicketStore.getState().period.key < thisYear; n++) await store().stepMonth(1);
+    for (let n = 0; n < 50 && useTicketStore.getState().period.key > thisYear; n++) await store().stepMonth(-1);
+  };
+  const monthNo = `${Number(month.slice(5, 7))}月`;
+  const backLabel = month.slice(0, 4) === thisYear ? monthNo : monthTitle(month); // 「‹ 回 10 月」；別年才帶年
 
   /* 搜尋結果分頁（0-14：先畫 300 筆）；結果換了就回第一頁 */
   const [page, setPage] = useState(1);
@@ -292,6 +346,12 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     lastView.current = view;
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [view]);
+
+  /* UI 丙-7：頁首實寬 <720 ⇒ 強制窄版（分頁籤改下拉、記一筆收成圖示鈕）。
+     PageHeader 的自動窄版量主欄（<704 才收），但售票口大標是整組 DateNav（‹ 10月 › 今天），比別頁寬；
+     1280 開側板時主欄剛好 704、頁首只剩 600，全套擠不下、「今天」會壓到分頁籤。
+     門檻 720 跟 ticket.css T1 區的 container query（年份收起）同一條。頁首是區塊元素，寬度不隨窄版與否變，不會來回切。 */
+  const headNarrow = useHeadNarrow(mainRef, TK_HEAD_COMPACT_BELOW);
 
   /* 月曆跳回清單（0-16）／Ctrl+P 跳到一筆：捲到那一天、閃一下 */
   const [flashDay, setFlashDay] = useState<string | null>(null);
@@ -465,74 +525,120 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
 
   return (
     <main ref={mainRef} className="ns-tk-ledger techo-scroll is-compact" aria-label="帳簿" data-view={view}>
-      <header className="ns-tk-head">
-        <div className="ns-tk-headrow">
-          <span className="ns-tk-overline">售票口 — TICKET OFFICE</span>
-          <SearchBar />
-          <button type="button" className="ns-btn btn-ghost ns-tk-newbtn" onClick={() => store().openNew()} title="記一筆">
-            <TkIcon name="plus" size={11} />
-            記一筆
-            <kbd className="ns-tk-kbd">{capsOf("ticket.new")}</kbd>
-          </button>
-        </div>
-        <div className="ns-tk-headrow is-month is-views">
-          {searching ? (
-            <h1 className="techo-title is-search">
-              搜尋結果
-              <button
-                type="button"
-                className="ns-btn ns-btn--sm btn-ghost ns-tk-btn"
-                title={`回到月份清單（${capsOf("ticket.escape")}）`}
-                onMouseDown={(ev) => ev.preventDefault()}
-                onClick={() => store().closeSearch()}
-              >
-                <TkIcon name="left" size={11} />回 {monthTitle(month)}
-              </button>
-            </h1>
+      <PageHeader
+        variant="identity"
+        className="ns-tk-pagehead"
+        compact={headNarrow ? true : undefined}
+        overline={{ zh: "售票口", latin: "Ticket Office" }}
+        title={
+          searching ? (
+            "搜尋結果"
+          ) : yearMode ? (
+            <DateNav
+              unit="year"
+              label="翻年份"
+              title={`${period.key} 年`}
+              todayLabel="今年"
+              isToday={period.key === thisYear}
+              nextDisabled={period.key >= thisYear}
+              onPrev={() => void store().stepMonth(-1)}
+              onNext={() => void store().stepMonth(1)}
+              onToday={() => void toThisYear()}
+            />
           ) : (
-            <>
-              <button
-                type="button"
-                className="ns-tk-mnav"
-                aria-label={`${yearMode ? "上一年" : "上一個月"}（${capsOf("ticket.month.prev")}）`}
-                title={`${yearMode ? "上一年" : "上一個月"}（${capsOf("ticket.month.prev")}）`}
-                onClick={() => void store().stepMonth(-1)}
-              >
-                <TkIcon name="left" />
-              </button>
-              <h1 className="techo-title">{yearMode ? `${period.key} 年` : monthTitle(month)}</h1>
-              <button
-                type="button"
-                className="ns-tk-mnav"
-                aria-label={`${yearMode ? "下一年" : "下一個月"}（${capsOf("ticket.month.next")}）`}
-                title={`${yearMode ? "下一年" : "下一個月"}（${capsOf("ticket.month.next")}）`}
-                disabled={yearMode ? period.key >= thisMonth.slice(0, 4) : month >= thisMonth}
-                onClick={() => void store().stepMonth(1)}
-              >
-                <TkIcon name="right" />
-              </button>
-              {/* 搜尋列開著（條件還空著）時排序在 chips 那一顆，這裡不重複 */}
-              {view === "list" && !searchOpen && hasAny && <SortButton />}
-            </>
-          )}
-          {view === "list" && !searching && monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) && (
-            <span className="ns-tk-monthsum">
-              收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出{" "}
-              <b>{moneyText(monthSum.expense, mainDec)}</b>
-            </span>
-          )}
-          <ViewSwitch />
-        </div>
-        {filterAcc && (
-          <div className="ns-tk-filterchip">
-            篩選：{acctLabel(filterAcc, accounts)}
-            <button type="button" aria-label="清除篩選" title="清除篩選" onClick={() => void store().setFilter(null)}>
-              <TkIcon name="x" size={11} />
+            <DateNav
+              unit="month"
+              label="翻月份"
+              title={monthNo}
+              isToday={month === thisMonth}
+              nextDisabled={month >= thisMonth}
+              onPrev={() => void store().stepMonth(-1)}
+              onNext={() => void store().stepMonth(1)}
+              onToday={() => void store().setMonth(thisMonth)}
+            />
+          )
+        }
+        aside={
+          searching ? (
+            <button
+              type="button"
+              className="ns-btn ns-btn--sm btn-text ns-tk-backbtn"
+              title={`回到月份清單（${capsOf("ticket.escape")}）`}
+              aria-label={`回 ${backLabel}`}
+              onMouseDown={(ev) => ev.preventDefault()}
+              onClick={() => store().closeSearch()}
+            >
+              {/* 頁首窄（1280 開大票）時字收起、只剩「‹」，大標那一行才不折（ticket.css T1 區 container query） */}
+              <IconBack size={12} />
+              <span className="ns-tk-backlbl">回 {backLabel}</span>
             </button>
+          ) : yearMode ? undefined : (
+            <span className="ns-tk-headyear">{month.slice(0, 4)}年</span>
+          )
+        }
+        stats={
+          searching ? (
+            results ? resultSummary(results, mainDec) : "正在找…"
+          ) : view !== "stats" && monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) ? (
+            <>
+              {/* 「本月／9月」在頁首窄（1280 開大票）時收起，讓收入那段不被省略掉（ticket.css T1 區 container query） */}
+              <span className="ns-tk-statlbl">{monthWord}</span>支出 <b>{moneyText(monthSum.expense, mainDec)}</b> ・ 收入{" "}
+              <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b>
+            </>
+          ) : view !== "stats" && filterAcc ? (
+            // 篩帳戶時 store 不算本月收支（轉帳兩頭算不清）：改寫筆數，stats 行不消失、頁首高度不跳
+            <>
+              {monthWord} <b>{entries.filter((e) => monthOf(e.occurred_on) === month).length}</b> 筆
+            </>
+          ) : undefined
+        }
+        tabs={{ items: tabItems, value: view, onChange: switchView, "aria-label": "切換檢視" }}
+        add={emptyBook ? undefined : { label: "記一筆", title: `記一筆（${capsOf("ticket.new")}）`, onClick: () => store().openNew() }}
+        search={{ onOpen: onSearchBtn, title: `搜尋（${capsOf("ticket.search")}）`, expanded: searchOpen }}
+        manage={{
+          label: "管帳",
+          title: "管帳：分類、帳戶順序、預算、定期帳、幣別與匯率、匯入",
+          haspopup: "menu",
+          expanded: menuAt !== null,
+          onClick: (e) => setMenuAt(menuAt ? null : e.currentTarget),
+        }}
+      />
+      {menuAt && (
+        <PopMenu
+          anchor={menuAt}
+          overline={{ zh: "管帳", latin: "Manage" }}
+          label="管帳"
+          items={manageItems}
+          onClose={() => setMenuAt(null)}
+        />
+      )}
+
+      {/* A4／P3 A 案：頁首下一列（清單視圖常駐；月曆／統計不畫）。左＝帳戶篩選 chip／搜尋框＋條件 chip，右＝排序 */}
+      {view === "list" && !(error && !ready) && !(emptyBook && !filterAcc && !searchOpen) && (
+        <div className="ns-tk-subbar">
+          <div className="l">
+            {filterAcc && (
+              <span className="chip ns-chip is-on ns-tk-acctchip">
+                帳戶：{acctLabel(filterAcc, accounts)}
+                <button type="button" aria-label="清除帳戶篩選" title="清除帳戶篩選" onClick={() => void store().setFilter(null)}>
+                  <IconClose size={11} />
+                </button>
+              </span>
+            )}
+            {searchOpen && (
+              <>
+                <SearchBar />
+                <FilterChips />
+              </>
+            )}
           </div>
-        )}
-        <FilterChips />
-      </header>
+          {hasAny && (
+            <div className="r">
+              <SortButton />
+            </div>
+          )}
+        </div>
+      )}
 
       {error && !ready ? (
         <div className="ns-tk-error" role="alert">
@@ -547,15 +653,12 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <TicketStats />
       ) : ready && !hasAny && !searching ? (
         <div className="ns-tk-book is-empty">
-          <div className="ns-tk-empty is-book">
-            <p>這本帳還是空的</p>
-            <button type="button" className="ns-btn btn-seal ns-tk-btn" onClick={() => store().openNew()}>
-              記第一筆
-            </button>
-            <button type="button" className="ns-tk-emptylink" onClick={() => void store().startImport("desktop")}>
-              或從財務管家匯入…
-            </button>
-          </div>
+          <EmptyState
+            tone="first"
+            title="這本帳還是空的"
+            action={{ label: "記一筆", icon: <IconPlus />, onClick: () => store().openNew() }}
+            secondary={{ label: "從財務管家匯入…", onClick: () => void store().startImport("desktop") }}
+          />
         </div>
       ) : (
         <div className="ns-tk-book">

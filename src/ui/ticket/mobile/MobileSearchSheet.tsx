@@ -1,8 +1,13 @@
 /**
- * MobileSearchSheet——售票口手機的搜尋＋篩選 sheet（②契約 §5.3、0-14、0-15；丙席擁有）。由 MobileTicketOffice 合計帶的放大鏡開、自己持有開關。
+ * MobileSearchSheet——售票口手機的篩選 sheet（②契約 §5.3、0-14、0-15；丙席擁有）。由 MobileTicketOffice 開、自己持有開關。
  *
- * 骨架沿 MSheet（`.m-sheet-veil.techo-veil.ns-tk-mveil > .m-sheet.ns-tk-msheet`，portal 到 body）；頂部不放標題、放搜尋框：
- *   頂：搜尋框（autoFocus、inputmode=search、IME 組字中不查、去抖 150ms）＋「完成」
+ * UI 丙-5 H2／H4／E2（契約 §1、§5 P4 A 案）：入口從合計帶的放大鏡搬到「分頁籤列下一列」的「篩選」chip（手機搜尋只剩頂帶一顆，
+ *   E6）；殼換共用 `MSheet`（標題「篩選」、高 90%、黏底按鈕列＝清除全部｜看結果）；頂部「完成」拿掉（關＝下滑／暗幕／返回鍵，
+ *   都帶條件關上，同舊「完成」）。關鍵字欄留下來當條件之一（第一段，不再 autoFocus——開篩選不該先彈鍵盤）。
+ *   返回層：本檔 `useBackLayer("ticket.search")`＋MSheet `backId` 同 id 合併；挑日子的 MobileDatePicker 給 `backId`＋`backKind`
+ *   ＝本檔登記那一層（"ticket.search.date"／"dialog"）⇒ 走共用 MSheet 新殼，返回鍵一次關。
+ *
+ *   關鍵字：搜尋框（inputmode=search、IME 組字中不查、去抖 150ms；Enter＝看結果）
  *   五段：期間（全部／本月／今年／自訂＋兩個 MobileDatePicker）／帳戶（chips 橫捲，含「封存」分區）／
  *         分類（支出、收入兩組格子：主分類格整勾＝含子分類；格右 › 展開子分類單勾）／類型（四顆 toggle）／路線（全部／未掛／各路線）
  *         ＋排序（磨光⑥ 契約 §2-4；D-票-64）：日期・新到舊／日期・舊到新／金額・大到小／金額・小到大（還沒有條件時選非預設 ⇒ 期間＝現在看的月份）
@@ -11,13 +16,13 @@
  * 關 sheet（完成／暗幕／看結果）：有任何條件 ⇒ `openSearch`（切清單、清單畫結果，月份列換成 chips 列）；全空 ⇒ `closeSearch`。
  */
 import { useEffect, useRef, useState, type CompositionEvent, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { MSheet } from "../../common/MSheet";
 import { useBackLayer } from "../../mobile/backStack";
 import {
   UNCAT_EXPENSE_ID,
@@ -46,7 +51,7 @@ const KINDS: readonly { k: EntryKind; label: string }[] = [
   { k: "adjust", label: "校正" },
 ];
 
-/** 放大鏡（16 viewBox／1.3 筆觸，同 mobileBits 的圖示語彙）；合計帶的搜尋鈕也用這支 */
+/** 放大鏡（16 viewBox／1.3 筆觸，同 mobileBits 的圖示語彙）：關鍵字欄前面那顆 */
 export const IconSearch = ({ size = 18 }: { size?: number }) => (
   <svg
     width={size}
@@ -144,8 +149,9 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   };
   const [picking, setPicking] = useState<"from" | "to" | null>(null);
   // 磨光①（主線手機殼契約 §1.5、§9.3）：返回鍵＝暗幕／「看結果」（帶條件關上）。挑日子的面板疊在上面：
-  // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"
-  useBackLayer("ticket.search", true, () => void close(), "full");
+  // 要比這層高才會先關它 ⇒ 登記成 "dialog"。丙-5：這層跟 MSheet（backId 同 id）合併，kind 用 MSheet 的 "sheet"
+  // （backStack 以第一次登記為準、子元件先登記；原本的 "full" 只是為了壓過底下，"dialog" 的挑日子照樣在上面）
+  useBackLayer("ticket.search", true, () => void close());
   useBackLayer("ticket.search.date", picking !== null, () => setPicking(null), "dialog");
   const toIncl = filter.toExcl !== null ? dayStep(filter.toExcl, -1) : null;
 
@@ -227,26 +233,34 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
     return out;
   };
 
-  return createPortal(
-    <div className="m-sheet-veil techo-veil ns-tk-mveil" role="presentation" onClick={() => void close()}>
-      <div
-        className="m-sheet techo-card ns-tk-msheet ns-tk-msearch-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="搜尋與篩選"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="ns-tk-msheet-grip" aria-hidden />
-        <div className="ns-tk-ms-top">
+  return (
+    <MSheet
+      title="篩選"
+      height="full"
+      backId="ticket.search"
+      onClose={() => void close()}
+      className="ns-tk-msh ns-tk-msearch-sheet"
+      foot={
+        <>
+          <button type="button" className="ns-btn btn-ghost" onClick={clearAll} disabled={!isFilterActive(filter) && text === ""}>
+            清除全部
+          </button>
+          <button type="button" className="ns-btn btn-seal" onClick={() => void close()}>
+            看結果（{n}）
+          </button>
+        </>
+      }
+    >
+      <div className="ns-tk-ms-secs">
+        <Sec title="關鍵字">
           <label className="ns-tk-ms-field">
             <IconSearch size={15} />
             <input
               type="search"
               inputMode="search"
               enterKeyHint="search"
-              autoFocus
-              aria-label="搜尋"
-              placeholder="搜尋備註、分類、帳戶、金額…"
+              aria-label="關鍵字"
+              placeholder="備註、分類、帳戶、金額…"
               value={text}
               onChange={(e) => {
                 setText(e.target.value);
@@ -280,130 +294,117 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
               </button>
             )}
           </label>
-          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => void close()}>
-            完成
-          </button>
-        </div>
+        </Sec>
 
-        <div className="ns-tk-ms-body">
-          <Sec title="期間">
-            <div className="ns-tk-mchips">
-              {chip("all", periodKind === "all", "全部", () => setPeriod("all"))}
-              {chip("month", periodKind === "month", "本月", () => setPeriod("month"))}
-              {chip("year", periodKind === "year", "今年", () => setPeriod("year"))}
-              {chip("custom", periodKind === "custom", "自訂", () => setPeriod("custom"))}
+        <Sec title="期間">
+          <div className="ns-tk-mchips">
+            {chip("all", periodKind === "all", "全部", () => setPeriod("all"))}
+            {chip("month", periodKind === "month", "本月", () => setPeriod("month"))}
+            {chip("year", periodKind === "year", "今年", () => setPeriod("year"))}
+            {chip("custom", periodKind === "custom", "自訂", () => setPeriod("custom"))}
+          </div>
+          {periodKind === "custom" && (
+            <div className="ns-tk-ms-range">
+              <button type="button" className="ns-tk-ms-date" onClick={() => setPicking("from")}>
+                <small>從</small>
+                {filter.from ? `${filter.from.slice(0, 4)}/${shortDay(filter.from)}` : "最早"}
+              </button>
+              <span className="dash" aria-hidden>
+                –
+              </span>
+              <button type="button" className="ns-tk-ms-date" onClick={() => setPicking("to")}>
+                <small>到</small>
+                {toIncl ? `${toIncl.slice(0, 4)}/${shortDay(toIncl)}` : "今天"}
+              </button>
             </div>
-            {periodKind === "custom" && (
-              <div className="ns-tk-ms-range">
-                <button type="button" className="ns-tk-ms-date" onClick={() => setPicking("from")}>
-                  <small>從</small>
-                  {filter.from ? `${filter.from.slice(0, 4)}/${shortDay(filter.from)}` : "最早"}
-                </button>
-                <span className="dash" aria-hidden>
-                  –
-                </span>
-                <button type="button" className="ns-tk-ms-date" onClick={() => setPicking("to")}>
-                  <small>到</small>
-                  {toIncl ? `${toIncl.slice(0, 4)}/${shortDay(toIncl)}` : "今天"}
-                </button>
-              </div>
+          )}
+        </Sec>
+
+        <Sec title="帳戶">
+          <div className="ns-tk-mchips is-scroll">
+            {chip("all", filter.accountId === null, "全部", () => void patchFilter({ accountId: null }))}
+            {live.map((a) => chip(a.id, filter.accountId === a.id, a.name, () => void patchFilter({ accountId: filter.accountId === a.id ? null : a.id })))}
+            {archived.length > 0 && (
+              <span className="ns-tk-ms-sep" aria-hidden>
+                封存
+              </span>
             )}
-          </Sec>
+            {archived.map((a) =>
+              chip(
+                a.id,
+                filter.accountId === a.id,
+                <span className="is-arch">{a.name}</span>,
+                () => void patchFilter({ accountId: filter.accountId === a.id ? null : a.id }),
+              ),
+            )}
+          </div>
+        </Sec>
 
-          <Sec title="帳戶">
-            <div className="ns-tk-mchips is-scroll">
-              {chip("all", filter.accountId === null, "全部", () => void patchFilter({ accountId: null }))}
-              {live.map((a) => chip(a.id, filter.accountId === a.id, a.name, () => void patchFilter({ accountId: filter.accountId === a.id ? null : a.id })))}
-              {archived.length > 0 && (
-                <span className="ns-tk-ms-sep" aria-hidden>
-                  封存
-                </span>
-              )}
-              {archived.map((a) =>
-                chip(
-                  a.id,
-                  filter.accountId === a.id,
-                  <span className="is-arch">{a.name}</span>,
-                  () => void patchFilter({ accountId: filter.accountId === a.id ? null : a.id }),
-                ),
-              )}
-            </div>
-          </Sec>
+        <Sec title="分類">
+          <p className="ns-tk-ms-sub">支出</p>
+          <div className="ns-tk-ms-cats">{catGroup("expense")}</div>
+          <p className="ns-tk-ms-sub">收入</p>
+          <div className="ns-tk-ms-cats">{catGroup("income")}</div>
+        </Sec>
 
-          <Sec title="分類">
-            <p className="ns-tk-ms-sub">支出</p>
-            <div className="ns-tk-ms-cats">{catGroup("expense")}</div>
-            <p className="ns-tk-ms-sub">收入</p>
-            <div className="ns-tk-ms-cats">{catGroup("income")}</div>
-          </Sec>
+        <Sec title="類型">
+          <div className="ns-tk-mchips">{KINDS.map((x) => chip(x.k, filter.kinds.indexOf(x.k) >= 0, x.label, () => toggleKind(x.k)))}</div>
+        </Sec>
 
-          <Sec title="類型">
-            <div className="ns-tk-mchips">{KINDS.map((x) => chip(x.k, filter.kinds.indexOf(x.k) >= 0, x.label, () => toggleKind(x.k)))}</div>
-          </Sec>
+        <Sec title="路線">
+          <div className="ns-tk-mchips is-scroll">
+            {chip("all", filter.routeId === null, "全部", () => void patchFilter({ routeId: null }))}
+            {chip("none", filter.routeId === "none", "未掛", () => void patchFilter({ routeId: filter.routeId === "none" ? null : "none" }))}
+            {liveRoutes.map((r) =>
+              chip(
+                r.id,
+                filter.routeId === r.id,
+                <>
+                  <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
+                    {r.code ?? r.name.slice(0, 1)}
+                  </span>
+                  {r.name}
+                </>,
+                () => void patchFilter({ routeId: filter.routeId === r.id ? null : r.id }),
+              ),
+            )}
+          </div>
+        </Sec>
 
-          <Sec title="路線">
-            <div className="ns-tk-mchips is-scroll">
-              {chip("all", filter.routeId === null, "全部", () => void patchFilter({ routeId: null }))}
-              {chip("none", filter.routeId === "none", "未掛", () => void patchFilter({ routeId: filter.routeId === "none" ? null : "none" }))}
-              {liveRoutes.map((r) =>
-                chip(
-                  r.id,
-                  filter.routeId === r.id,
-                  <>
-                    <span className="roundel" aria-hidden style={roundelStyle(r.color)}>
-                      {r.code ?? r.name.slice(0, 1)}
-                    </span>
-                    {r.name}
-                  </>,
-                  () => void patchFilter({ routeId: filter.routeId === r.id ? null : r.id }),
-                ),
-              )}
-            </div>
-          </Sec>
-
-          <Sec title="排序">
-            <div className="ns-tk-mchips">{ENTRY_SORTS.map((k) => chip(k, resultSort === k, ENTRY_SORT_TEXT[k], () => resultSort !== k && chooseSort(k)))}</div>
-          </Sec>
-        </div>
-
-        <div className="ns-tk-ms-foot">
-          <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={clearAll} disabled={!isFilterActive(filter) && text === ""}>
-            清除全部
-          </button>
-          <button type="button" className="ns-btn btn-seal ns-tk-mbtn" onClick={() => void close()}>
-            看結果（{n}）
-          </button>
-        </div>
-        {/* 挑日子的面板 portal 到 body，但 React 事件仍沿這棵樹冒泡：放在 sheet 裡面，點它的暗幕才不會冒到外層暗幕、把整張 sheet 關掉 */}
-        {picking && (
-          <MobileDatePicker
-            title={picking === "from" ? "從哪一天" : "到哪一天"}
-            value={picking === "from" ? filter.from : toIncl}
-            max={today}
-            min={picking === "to" && filter.from ? filter.from : undefined}
-            quick={
-              picking === "from"
-                ? [
-                    { label: "本月 1 號", day: mr.from },
-                    { label: "今年 1/1", day: yr.from },
-                  ]
-                : [{ label: "今天", day: today }]
-            }
-            onPick={(day) => {
-              setPicking(null);
-              if (picking === "from") {
-                const p: Partial<EntryFilter> = { from: day };
-                // 從 晚於 到 ⇒ 到 跟著挪到同一天（不留空區間）
-                if (toIncl !== null && day > toIncl) p.toExcl = dayStep(day, 1);
-                void patchFilter(p);
-              } else void patchFilter({ toExcl: dayStep(day, 1) });
-            }}
-            onClose={() => setPicking(null)}
-          />
-        )}
+        <Sec title="排序">
+          <div className="ns-tk-mchips">{ENTRY_SORTS.map((k) => chip(k, resultSort === k, ENTRY_SORT_TEXT[k], () => resultSort !== k && chooseSort(k)))}</div>
+        </Sec>
       </div>
-    </div>,
-    document.body,
+      {/* 挑日子的面板 portal 到 body，但 React 事件仍沿這棵樹冒泡：放在 sheet 裡面（共用 MSheet 的暗幕是 sheet 的兄弟、不是祖先，冒上來也不會關） */}
+      {picking && (
+        <MobileDatePicker
+          title={picking === "from" ? "從哪一天" : "到哪一天"}
+          value={picking === "from" ? filter.from : toIncl}
+          max={today}
+          min={picking === "to" && filter.from ? filter.from : undefined}
+          quick={
+            picking === "from"
+              ? [
+                  { label: "本月 1 號", day: mr.from },
+                  { label: "今年 1/1", day: yr.from },
+                ]
+              : [{ label: "今天", day: today }]
+          }
+          onPick={(day) => {
+            setPicking(null);
+            if (picking === "from") {
+              const p: Partial<EntryFilter> = { from: day };
+              // 從 晚於 到 ⇒ 到 跟著挪到同一天（不留空區間）
+              if (toIncl !== null && day > toIncl) p.toExcl = dayStep(day, 1);
+              void patchFilter(p);
+            } else void patchFilter({ toExcl: dayStep(day, 1) });
+          }}
+          onClose={() => setPicking(null)}
+          backId="ticket.search.date"
+          backKind="dialog"
+        />
+      )}
+    </MSheet>
   );
 }
 
