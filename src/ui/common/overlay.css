@@ -104,6 +104,19 @@
   transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
 }
 .ns-qj-row.is-active { border-left: var(--sel-line); background: var(--color-paper-used); }
+/* 完整搜尋入口（D-主-111）：結果最底一列＝虛線撕線之下的文字鈕，右側鍵帽；空白狀態裡是一顆行內小字鈕 */
+.ns-qj-more {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+  padding: 9px 20px 10px; border: 0; border-top: 1px dashed var(--color-dash); background: transparent;
+  font: inherit; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--accent); text-align: left; cursor: pointer;
+}
+.ns-qj-more { border-left: 2px solid transparent; }
+.ns-qj-more:hover, .ns-qj-more:focus-visible { background: var(--color-paper-used); outline: none; }
+.ns-qj-more.is-active { border-left: var(--sel-line); background: var(--color-paper-used); }
+.ns-qj-more .kbd { margin-left: auto; flex: none; font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .14em; color: var(--color-ink-faint); }
+.ns-qj-more.is-inline { display: inline-flex; width: auto; margin-top: var(--sp-2); padding: 2px 0; border-top: 0; }
+.ns-qj-more.is-inline:hover, .ns-qj-more.is-inline:focus-visible { background: transparent; text-decoration: underline; }
+.ns-qj-more.is-inline .kbd { margin-left: var(--sp-2); }
 
 /* 結果列的類型徽章：原型 .badge 的小號版（臨時車票＝虛線「臨」，同 .badge.dashed） */
 .ns-kind-badge {

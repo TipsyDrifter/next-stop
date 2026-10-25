@@ -411,17 +411,131 @@ export interface FootprintLog {
   nodeMissing: boolean;
 }
 
-/** 時間塊（時刻表線通車後才有；本線自己的窄型別，0-8） */
+/** 時間塊（時刻表線通車後才有；本線自己的窄型別，0-8；日記足跡班擴欄，D-筆-68） */
 export interface FootprintBlock {
   id: string;
+  /** 主名稱＝link ?? catName（同時刻表實際欄：有連結以連結名為主） */
   label: string;
   glyph: string | null;
   colorIdx: number;
-  /** UTC ISO */
+  /** UTC ISO，已夾在日界線日之內 */
   from: string;
-  /** UTC ISO */
+  /** UTC ISO；運行中＝讀取當下 */
   to: string;
   running: boolean;
+  /** 分類 id（分類合計用） */
+  catId: string;
+  /** 分類名（分類已刪＝「？」，時刻表填好） */
+  catName: string;
+  /** 掛的車票／路線名；已刪＝時刻表那套字樣（provider 先算好）；沒連結＝null */
+  link: string | null;
+  /** 掛的節點（路線不算）；「花在這張票上的時間」用 */
+  nodeId: string | null;
+  /** 從前一天接過來／延到後一天（跨日界線） */
+  contFromPrev: boolean;
+  contToNext: boolean;
+}
+
+/** 時刻表 DayBlockSegment 的最小形狀（本檔零 import，所以寫一份窄型別；結構上與它相容） */
+export interface FootprintSegmentSrc {
+  blockId: string;
+  categoryId: string;
+  categoryName: string;
+  glyph: string | null;
+  colorIdx: number;
+  nodeId: string | null;
+  from: string;
+  to: string;
+  running: boolean;
+  contFromPrev: boolean;
+  contToNext: boolean;
+}
+
+/** 時刻表的一段 → 足跡的一塊；linkText＝連結名（provider 用時刻表的 linkLabelOf 算好；沒連結 null） */
+export function mapSegment(seg: FootprintSegmentSrc, linkText: string | null): FootprintBlock {
+  return {
+    id: seg.blockId,
+    label: linkText ?? seg.categoryName,
+    glyph: seg.glyph,
+    colorIdx: seg.colorIdx,
+    from: seg.from,
+    to: seg.to,
+    running: seg.running,
+    catId: seg.categoryId,
+    catName: seg.categoryName,
+    link: linkText,
+    nodeId: seg.nodeId,
+    contFromPrev: seg.contFromPrev,
+    contToNext: seg.contToNext,
+  };
+}
+
+/** 一塊的時長（毫秒；夾窗後） */
+export function blockMs(b: Pick<FootprintBlock, "from" | "to">): number {
+  return Math.max(0, Date.parse(b.to) - Date.parse(b.from));
+}
+
+/** 當天記錄總時長（毫秒）；null／空＝0 */
+export function blocksTotalMs(blocks: readonly FootprintBlock[] | null): number {
+  if (!blocks) return 0;
+  let t = 0;
+  for (const b of blocks) t += blockMs(b);
+  return t;
+}
+
+/** 時間段的一列：一個分類那天的合計（D-筆-69 C 案） */
+export interface FootprintCatTotal {
+  catId: string;
+  catName: string;
+  glyph: string | null;
+  colorIdx: number;
+  ms: number;
+  /** 這個分類有正在跑的那一塊 */
+  running: boolean;
+}
+
+/** 依分類合計，多的在前（同長依第一次出現）；null／空＝[] */
+export function blockCatTotals(blocks: readonly FootprintBlock[] | null): FootprintCatTotal[] {
+  if (!blocks) return [];
+  const by = new Map<string, FootprintCatTotal>();
+  for (const b of blocks) {
+    const t = by.get(b.catId);
+    if (t) {
+      t.ms += blockMs(b);
+      t.running ||= b.running;
+    } else by.set(b.catId, { catId: b.catId, catName: b.catName, glyph: b.glyph, colorIdx: b.colorIdx, ms: blockMs(b), running: b.running });
+  }
+  return [...by.values()].sort((a, b) => b.ms - a.ms);
+}
+
+const HOUR_MS = 3600_000;
+
+/**
+ * 日軸的範圍（D-筆-69 C 案）：預設當地 06:00–24:00，事件（時間塊、済章、手記）超出就往外擴到整點；不出日界線日的窗。
+ * dayZeroMs＝那天當地 00:00；winStart／winEnd＝日界線日的窗（dayWindow）。沒有事件＝null（不畫軸）。
+ */
+export function footprintAxisRange(
+  eventMs: readonly number[],
+  dayZeroMs: number,
+  winStart: number,
+  winEnd: number,
+): { from: number; to: number } | null {
+  if (eventMs.length === 0) return null;
+  const lo = Math.min(...eventMs);
+  const hi = Math.max(...eventMs);
+  const floorH = (ms: number) => dayZeroMs + Math.floor((ms - dayZeroMs) / HOUR_MS) * HOUR_MS;
+  const ceilH = (ms: number) => dayZeroMs + Math.ceil((ms - dayZeroMs) / HOUR_MS) * HOUR_MS;
+  const from = Math.max(winStart, Math.min(dayZeroMs + 6 * HOUR_MS, floorH(lo)));
+  const to = Math.min(winEnd, Math.max(dayZeroMs + 24 * HOUR_MS, ceilH(hi)));
+  return to > from ? { from, to } : null;
+}
+
+/** 那天掛在某張票上的時間合計（毫秒）；沒有＝0 */
+export function nodeMsOf(blocks: readonly FootprintBlock[] | null, nodeId: string): number {
+  if (!blocks) return 0;
+  let t = 0;
+  for (const b of blocks) if (b.nodeId === nodeId) t += blockMs(b);
+  return t;
 }
 
 /** 一天的足跡 */
@@ -434,7 +548,7 @@ export interface FootprintDay {
   logs: FootprintLog[];
   /** seals 裡非 null 的燈號，依完成時刻排 */
   moods: Mood[];
-  /** null＝時刻表尚未通車（足跡欄底顯示說明）；非 null（含空陣列）＝畫「時間」段 */
+  /** null＝沒接時間塊（provider 未填或讀取失敗）；非 null（含空陣列）＝畫時間塊 */
   blocks: FootprintBlock[] | null;
 }
 
@@ -529,15 +643,19 @@ export function groupFootprints(
 
 /** 有沒有足跡：済章／手記／心情任一非空。時間塊不算（避免時刻表通車後「每天都有足跡」） */
 export function hasFootprint(f: FootprintDay | null): boolean {
-  return !!f && (f.seals.length > 0 || f.logs.length > 0 || f.moods.length > 0);
+  return !!f && (f.seals.length > 0 || f.logs.length > 0 || f.moods.length > 0 || (f.blocks?.length ?? 0) > 0);
 }
 
-/** 手機足跡區收合時的一行：「N 枚済章・M 則手記」／「N 枚済章」／「M 則手記」／「沒有足跡」 */
-export function footprintSummary(f: FootprintDay | null): string {
+/**
+ * 手機足跡區收合時的一行：「N 枚済章・M 則手記」／「N 枚済章」／「M 則手記」／「沒有足跡」；
+ * blocksText（例「記錄 7h40m」，UI 用時刻表的 fmtDur 算好）非空就接在最後（日記足跡班）
+ */
+export function footprintSummary(f: FootprintDay | null, blocksText = ""): string {
   if (!f) return "沒有足跡";
   const parts: string[] = [];
   if (f.seals.length) parts.push(f.seals.length + " 枚済章");
   if (f.logs.length) parts.push(f.logs.length + " 則筆記");
+  if (blocksText) parts.push(blocksText);
   return parts.length ? parts.join("・") : "沒有足跡";
 }
 

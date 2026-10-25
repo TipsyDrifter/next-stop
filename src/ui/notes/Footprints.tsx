@@ -5,18 +5,22 @@
  *   蓋了章的：済章（本線縮小版 .ns-notes-sumi，朱只給這一枚）＋票名＋路線色點；定期券班次 title「班次 M/D」
  *   寫下的：時刻＋手寫體內文＋票名（節點已刪＝「（原車票已刪除）」，repository 填好）
  *   心情：跟著済章讀的燈號；字與色同完成卡（complete/moods.ts：順暢／還行／吃力；色 --mood-good／-ok／-hard，不用朱）
- *   時間：dayBlocksProvider 填了才有（blocks !== null）；目前恆 null ⇒ 不畫（磨光③ 2-7 拿掉欄底「時刻表通車後…」那行；接時間塊留給下一輪 B1）
+ *   時間（日記足跡班 D-筆-69 C 案，FootprintTime.tsx）：最上一條日軸（時間塊色塊＋済章朱點＋手記空心點），最後一段分類合計；
+ *     済章列尾補「這天花在這張票上的時間」。時刻表一寫入就重讀（useTimetableWriteReload）
  * 足跡翻日不必先存日記（本文沒換），所以直接呼叫 store、不經 flushThen。
  * 版面（UI 丙-6 K5）：本文右側一張區塊卡（紙材、--radius-card、--shadow-card；不全高、卡內捲）。翻日箭頭＝共用 `.ns-iconbtn`
  *   （跟 DateNav 同一種箭頭；不用 DateNav 本身：它常駐「今天」chip，足跡要的是「回到本文那天」）；「回到 M 月 D 日」＝文字鈕（D5）。
  */
 import { useNotesStore } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
+import { useUiStore } from "../../store/uiStore";
 import { fmtMonthDay, hasFootprint, weekdayZh } from "../../domain/notes";
 import { MOODS } from "../complete/moods";
 import { EmptyState } from "../common/EmptyState";
 import { IconBack, IconChevron } from "../common/icons";
 import { RouteDot, fmtShort, fmtTime } from "./notesBits";
+import { FootprintAxis, FootprintTimeSec, SealTime } from "./FootprintTime";
+import { useTimetableWriteReload } from "./useTimetableWriteReload";
 
 /** 心情字（F1：讀完成卡那一份，不各自一張表） */
 const moodName = (m: string) => MOODS.find((o) => o.value === m)?.label ?? "";
@@ -26,7 +30,9 @@ export function Footprints({ today }: { today: string }) {
   const diaryDay = useNotesStore((s) => s.diaryDay);
   const f = useNotesStore((s) => s.footprint);
   const routes = useNodeStore((s) => s.routes);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
   const st = useNotesStore.getState;
+  useTimetableWriteReload();
 
   // 還沒載到這一天（剛翻日）就先不畫內容，免得上一天的足跡閃一下
   const cur = f && f.day === fpDay ? f : null;
@@ -38,6 +44,7 @@ export function Footprints({ today }: { today: string }) {
   else
     body = (
       <>
+        <FootprintAxis f={cur} dayStartHour={dayStartHour} />
         {cur.seals.length > 0 && (
           <section className="ns-notes-fpsec">
             <h4>
@@ -53,6 +60,7 @@ export function Footprints({ today }: { today: string }) {
                       済
                     </span>
                     <span className="nm">{s.name}</span>
+                    <SealTime blocks={cur.blocks} nodeId={s.nodeId} />
                     <RouteDot route={route} />
                   </li>
                 );
@@ -90,14 +98,7 @@ export function Footprints({ today }: { today: string }) {
             </div>
           </section>
         )}
-        {cur.blocks !== null && (
-          <section className="ns-notes-fpsec">
-            <h4>
-              時間
-              <span className="rule" />
-            </h4>
-          </section>
-        )}
+        <FootprintTimeSec f={cur} sectionClass="ns-notes-fpsec" />
       </>
     );
 

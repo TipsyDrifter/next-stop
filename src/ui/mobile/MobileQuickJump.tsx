@@ -9,6 +9,8 @@
  * 各線提供者用 `lineQuickJumpProviders("mobile")`：只收手機通車、而且 `shells` 含 "mobile" 的（go() 自己分好殼的才登記）。
  * 點節點 ⇒ `jumpToNodeMobile`（今日／路線圖展開到它／收件匣；邊界規則同桌機 `jumpToNode`）；點別線的一列 ⇒ 它的 `go()`。
  * 返回層：開著就登記 full 層，返回＝關（同按「取消」）。
+ * 完整搜尋班（D-主-111／117）：空白時頂部一列「完整搜尋」、有字時清單底黏一列「看「X」的全部結果」；按下去把
+ *   MobileFullSearch 疊在這一層上（不動手機殼與頂帶）。那邊返回＝退回這裡（字帶回來），點一列＝兩層一起收再跳。
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -18,7 +20,10 @@ import { lineQuickJumpProviders } from "../../lines/runtime";
 import { ResultBadge, quickJumpContext, searchQuickJump, type QuickJumpRow } from "../common/QuickJump";
 import { useBackLayer } from "./backStack";
 import { jumpToNodeMobile } from "./routeMapReveal";
+import { useSearchStore } from "../../store/searchStore";
+import { MobileFullSearch } from "../search/MobileFullSearch";
 import "./mobile-quickjump.css";
+import "../search/full-search.css";
 
 /** 放大鏡（16 viewBox／1.3 筆觸，同頂帶與底部 tab 的圖示語彙） */
 function IconSearch({ size = 18 }: { size?: number }) {
@@ -73,6 +78,21 @@ export function MobileQuickJump({ onClose }: { onClose(): void }) {
     else void r.hit.go();
   };
 
+  /** 完整搜尋（D-主-111／117）：疊在這一層上面；返回＝退回這裡（把那邊改過的字帶回來） */
+  const [fullOpen, setFullOpen] = useState(false);
+  const moreOn = !!term && !prefixed.some((p) => term.startsWith(p.prefix!));
+  const openFull = (withTerm: boolean) => {
+    const s = useSearchStore.getState();
+    if (withTerm) s.openWith(term);
+    else s.refresh();
+    setFullOpen(true);
+  };
+  const backFromFull = () => {
+    setFullOpen(false);
+    const back = useSearchStore.getState().query;
+    if (back.trim()) setQ(back);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Escape") {
@@ -123,6 +143,14 @@ export function MobileQuickJump({ onClose }: { onClose(): void }) {
       </div>
 
       <div className="m-qj-body">
+        {!term && (
+          <button type="button" className="ns-fs-entry" onClick={() => openFull(false)}>
+            <span className="lbl">完整搜尋</span>
+            <span className="chev" aria-hidden>
+              ›
+            </span>
+          </button>
+        )}
         {!term ? (
           <p className="m-qj-note">
             輸入名稱，跳到路線、支線、列車、車廂或車票（含臨時車票）。
@@ -152,7 +180,27 @@ export function MobileQuickJump({ onClose }: { onClose(): void }) {
             )}
           </ul>
         )}
+        {/* 看全部（D-主-111）：黏在清單底——捲到最後就是最後一列，沒捲到也一直搆得到 */}
+        {moreOn && (
+          <button type="button" className="ns-fs-entry is-all" onClick={() => openFull(true)}>
+            <span className="lbl">
+              看「<em>{term}</em>」的全部結果
+            </span>
+            <span className="chev" aria-hidden>
+              ›
+            </span>
+          </button>
+        )}
       </div>
+      {fullOpen && (
+        <MobileFullSearch
+          onBack={backFromFull}
+          onPick={(node) => {
+            onClose();
+            void jumpToNodeMobile(node);
+          }}
+        />
+      )}
     </div>,
     document.body,
   );

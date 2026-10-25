@@ -9,6 +9,7 @@ import { clockInstant, compareClock, dayWindow, isInDay } from "../lib/date";
 // 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
 // UI 取這些值一律經 data/index.ts 的明列 export，不直接 import 本檔的值（主線②契約 §0-1 第 10 條）
 import { effectiveTime, timeOfRow } from "../domain/scheduledTime";
+import type { FullSearchHit } from "../domain/fullSearch";
 
 export interface CreateNodeInput {
   kind: NodeKind;
@@ -279,6 +280,12 @@ export interface NodeRepository {
    * 否則打 `%` 或 `_` 會列出全部；記憶體實作用 includes，本來就沒有萬用字元。
    */
   search(query: string, limit?: number): Promise<NodeRow[]>;
+  /**
+   * 完整搜尋（完整搜尋班 D-主-112）：名稱＋概要＋乘務記錄（只算手記、不含系統事件與已刪的記錄），**不設上限**。
+   * 範圍同 `search`：含臨時車票、不含幹線與已刪除。每個節點只回一筆、帶最好的命中欄（名稱 → 概要 → 乘務記錄）
+   * 與那一欄的原文（乘務記錄取最新一則命中的）；排序、篩選、摘錄在 domain/fullSearch.ts。query 是字面字串（同 `search`）。
+   */
+  searchFull(query: string): Promise<FullSearchHit[]>;
   /**
    * 收件匣的車票（旅客筆記 D-筆-17；車次①契約 0-7 甲案）：根層 ticket、無執行日、無路線標籤、
    * 未完成、未刪；created_at DESC。唯讀。

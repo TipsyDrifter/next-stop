@@ -970,6 +970,10 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"] .ns-notes-mfplist li + li { border-top: 1px dashed var(--color-line); }
 [data-shell="mobile"] .ns-notes-mfplist .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 [data-shell="mobile"] .ns-notes-mfplist .due { flex: none; font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint); }
+/* 時間塊（日記足跡班 D-筆-69 C 案；樣式本體在 notes.css 的 .ns-notes-fpaxis／.ns-notes-fpcats，這裡只放手機字階） */
+[data-shell="mobile"] .ns-notes-mfpbody .ns-notes-fpaxis { margin-top: 10px; }
+[data-shell="mobile"] .ns-notes-fpaxis .tk span { font-size: 10px; }
+[data-shell="mobile"] .ns-notes-fpcats > div { min-height: 36px; padding: 4px 0; }
 [data-shell="mobile"] .ns-notes-mfplog li {
   display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: baseline; gap: 2px 8px;
 }

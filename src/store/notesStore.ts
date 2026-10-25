@@ -283,7 +283,7 @@ export interface NotesStore {
   stepFpDay(dir: 1 | -1): void;
   /** fpDay = diaryDay */
   fpBackToDiaryDay(): void;
-  /** listFootprints(fpDay, h)；blocks＝footprintBlocks 插槽（本車次恆 null） */
+  /** listFootprints(fpDay, h)；blocks＝footprintBlocks 插槽（時刻表的時間塊；讀失敗＝null，不擋足跡） */
   loadFootprint(): Promise<void>;
   /* ── 車次②・記號 ── */
   /** 不可晚於今天的月；loadMarks */
@@ -618,10 +618,12 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           marksMonth: monthKey(today),
         });
       }
-      // 車票區與 JOIN 都依賴 nodes；足跡另看 work_logs／occurrences（車次② §3.6）
+      // 車票區與 JOIN 都依賴 nodes；足跡另看 work_logs／occurrences（車次② §3.6）與時間塊
       const lists = has("notes") || has("nodes");
       const diary = diaryTouched && has("notes");
-      const fp = diaryTouched && (has("nodes") || has("work_logs") || has("occurrences"));
+      const fp =
+        diaryTouched &&
+        (has("nodes") || has("work_logs") || has("occurrences") || has("time_blocks") || has("time_categories")); // 日記足跡班 D-筆-72：時間塊
       if (lists || diary || fp) {
         try {
           await Promise.all([
@@ -1326,7 +1328,13 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       const h = dayStartNow();
       try {
         const f = await noteRepo.listFootprints(day, h);
-        const blocks = dayBlocksProvider ? await dayBlocksProvider(day, h) : null;
+        // 時間塊是別線的資料：讀失敗只少那一塊，済章與手記照畫（日記足跡班契約 §2.1）
+        const blocks = dayBlocksProvider
+          ? await dayBlocksProvider(day, h).catch((e: unknown) => {
+              console.warn("足跡的時間塊讀取失敗", e);
+              return null;
+            })
+          : null;
         if (get().fpDay !== day) return;
         set({ footprint: { ...f, blocks } });
       } catch (e) {

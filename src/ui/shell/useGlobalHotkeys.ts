@@ -1,5 +1,5 @@
 /**
- * 全域快捷鍵（App 層）：Ctrl+1/2/3 全域導航、Ctrl+P 快速跳轉、Ctrl+. 詳情側板、Ctrl+, 設定、
+ * 全域快捷鍵（App 層）：Ctrl+1/2/3 全域導航、Ctrl+P 快速跳轉、Ctrl+Shift+F 完整搜尋、Ctrl+. 詳情側板、Ctrl+, 設定、
  * `?`／Ctrl+/ 快捷鍵指引（M3 ⑦）。
  * 除了 `?` 之外只處理 Ctrl／Cmd 組合鍵——單鍵導航快捷鍵歸各視圖容器（導航／編輯雙模式在那裡處理）。
  * IME 護欄：組字中一律不攔。
@@ -22,6 +22,7 @@ import { pageOfNavHotkey } from "./pages";
 // 查 `lines/runtime`、不 import `lines/mounts`：本 hook 在 App 的 import 清單裡排在核心元件之前，
 // 直接 import mounts 會把各線的元件樹提早求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）
 import { lineGlobalHotkeyHandler } from "../../lines/runtime";
+import { openFullSearch } from "../search/openFullSearch";
 
 /**
  * @param enabled 掛不掛這組鍵。預設 true＝桌機呼叫端一字不改、行為零差異（鐵則 1）；
@@ -54,6 +55,11 @@ export function useGlobalHotkeys(enabled = true) {
         case "global.quickjump":
           e.preventDefault();
           ui.setQuickJumpOpen(!ui.quickJumpOpen);
+          break;
+        case "global.fullsearch":
+          // 完整搜尋班 D-主-111：到完整搜尋頁、游標進搜尋框（已在這頁＝只把游標拉回去）
+          e.preventDefault();
+          openFullSearch();
           break;
         case "global.panel.toggle":
           e.preventDefault();

@@ -608,9 +608,10 @@ test("hasFootprint：null／全空 false；済章、手記、心情任一 true",
   assert.equal(hasFootprint(fday({ logs: [flog({})] })), true);
   assert.equal(hasFootprint(fday({ moods: ["yellow"] })), true);
 });
-test("hasFootprint：只有時間塊不算有足跡", () => {
-  const block = { id: "b", label: "讀書", glyph: null, colorIdx: 0, from: "x", to: "y", running: false };
-  assert.equal(hasFootprint(fday({ blocks: [block] })), false);
+test("hasFootprint：只有時間塊也算有足跡（日記足跡班；空陣列不算）", () => {
+  const block = { id: "b", label: "讀書", glyph: null, colorIdx: 1, from: "2026-10-08T01:00:00Z", to: "2026-10-08T02:00:00Z", running: false, catName: "讀書", link: null, nodeId: null, contFromPrev: false, contToNext: false };
+  assert.equal(hasFootprint(fday({ blocks: [block] })), true);
+  assert.equal(hasFootprint(fday({ blocks: [] })), false);
 });
 test("footprintSummary：済章＋手記／只有済章／沒有足跡", () => {
   assert.equal(footprintSummary(fday({ seals: [seal({}), seal({ id: "2", nodeId: "2" })], logs: [flog({})] })), "2 枚済章・1 則筆記");

@@ -1,7 +1,7 @@
 ﻿# restart-app.ps1 — 重開桌機正式安裝版 App（代驗用完 CDP 後讓它乾淨回來；或帶 -CdpPort 開偵錯埠）
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts/restart-app.ps1 [-CdpPort <埠>] [-IdleMinSeconds <秒>] [-WaitForIdle] [-WaitMaxSeconds <秒>] [-Force]
 # 使用者 2026-10-19 授權：「以後 CDP 你可以幫我重開」——只做「關 next-stop → silo 外重啟同一顆安裝版 exe」，不裝、不刪、不碰資料。
-# 關 App 前的禮貌檢查：鍵鼠閒置不到 -IdleMinSeconds（預設 120）＝使用者正在用，不關、exit code 3；-WaitForIdle 等到閒置（最多 -WaitMaxSeconds，預設 1800）；-Force 跳過。細節見 scripts/lib/idle-guard.ps1。
+# 關 App 前的禮貌檢查：使用者正在用 App（前景視窗是 next-stop）才擋——沒在用 App 就直接重開，不等鍵鼠閒置。在用時：不關、exit code 3；-WaitForIdle 等它離開前景（最多 -WaitMaxSeconds，預設 1800）；-Force 跳過；-IdleMinSeconds 保留相容、已不使用。細節見 scripts/lib/idle-guard.ps1。
 param([int]$CdpPort = 0, [int]$IdleMinSeconds = 120, [switch]$WaitForIdle, [int]$WaitMaxSeconds = 1800, [switch]$Force)
 $ErrorActionPreference = 'Stop'
 $appName = [string]([char]0x79C1 + [char]0x9435 + [char]0x624B + [char]0x5E33)  # 私鐵手帳

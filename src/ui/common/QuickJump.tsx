@@ -11,6 +11,8 @@
  *        定期券的 scheduled_on ＝引擎排出來的下一班，跳轉提示因此講「下一班 M/D」。
  * 磨光①（手機搜尋）：搜尋本身（`searchQuickJump`）、結果列型別、徽章與淡字抽成 export 給 `mobile/MobileQuickJump` 共用；
  *   桌機這個面板的行為不變。手機選了節點走 `jumpToNodeMobile`（routeMapReveal.ts），不走這裡的 `jumpToNode`。
+ * 完整搜尋班（D-主-111）：有字時結果區外常駐一列「在完整搜尋看全部「X」→」（↓ 走到底停在它；Ctrl+Enter 直達；
+ *   名稱裡找不到時 Enter 也去），空白時說明下一顆「完整搜尋」。前綴模式（只問某一線）不給。進頁走 `openFullSearch`。
  */
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { KIND_LABEL, parseRule, type NodeKind, type NodeRow } from "../../domain";
@@ -20,7 +22,13 @@ import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
 import { lineQuickJumpProviders } from "../../lines/runtime";
 import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
+import { formatChord, hotkeyById } from "../shell/hotkeys";
+import { openFullSearch } from "../search/openFullSearch";
 import "./overlay.css";
+
+/** 完整搜尋入口列的鍵帽（registry 一份真相；Mac 換 ⌘） */
+const FULL_SEARCH_CAPS = formatChord(hotkeyById("global.fullsearch")!.chords[0]).join("+");
+const CTRL_ENTER_CAPS = formatChord({ key: "Enter", ctrl: true }).join("+");
 
 /** 類型徽章上的單字（票根 badge 風格；臨時車票另用「臨」） */
 const KIND_GLYPH: Record<NodeKind, string> = {
@@ -188,6 +196,10 @@ function QuickJumpPanel() {
   /** 已登記的提供者（已攤平：一條線可有多組；通車狀態在開啟期間不變） */
   const providers = useMemo(() => lineQuickJumpProviders(), []);
   const prefixed = providers.filter((p) => p.prefix);
+  /** 打的字走某個提供者的前綴（只問那一線）＝不是節點搜尋，不給完整搜尋入口 */
+  const prefixMode = prefixed.some((p) => term.startsWith(p.prefix!));
+  /** 「在完整搜尋看全部」那一列在不在（D-主-111） */
+  const moreOn = !!term && !prefixMode;
 
   useEffect(() => {
     if (!term) {
@@ -232,21 +244,33 @@ function QuickJumpPanel() {
       close(false);
       return;
     }
+    // 完整搜尋班 D-主-111：Ctrl+Enter＝帶著這個字到完整搜尋；找不到時 Enter 也去（完整搜尋還會查概要與乘務記錄）
+    if (e.key === "Enter" && term && !prefixMode && (e.ctrlKey || e.metaKey || (!results.length && !pending))) {
+      e.preventDefault();
+      openFullSearch(term);
+      return;
+    }
     if (!results.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(a + 1, results.length - 1));
+      // 「看全部」那一列也在鍵盤環裡（索引＝results.length）
+      setActive((a) => Math.min(a + 1, results.length - (moreOn ? 0 : 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
+      if (moreOn && active === results.length) {
+        openFullSearch(term);
+        return;
+      }
       const r = results[active];
       if (r) choose(r);
     }
   };
 
-  const activeId = results[active] ? `${listId}-${results[active].key}` : undefined;
+  const moreActive = moreOn && results.length > 0 && active === results.length;
+  const activeId = moreActive ? `${listId}-more` : results[active] ? `${listId}-${results[active].key}` : undefined;
 
   return (
     <div
@@ -282,9 +306,13 @@ function QuickJumpPanel() {
                   開頭輸入 {p.prefix} 只找{p.group}。
                 </span>
               ))}
+              <br />
+              <button type="button" className="ns-qj-more is-inline" onClick={() => openFullSearch()}>
+                完整搜尋<span className="kbd">{FULL_SEARCH_CAPS}</span>
+              </button>
             </p>
           ) : results.length === 0 ? (
-            <p className="px-5 py-4 text-[12.5px] text-ink-soft">{pending ? "搜尋中…" : `找不到「${term}」`}</p>
+            <p className="px-5 py-4 text-[12.5px] text-ink-soft">{pending ? "搜尋中…" : `名稱裡找不到「${term}」`}</p>
           ) : (
             <ul ref={listRef} id={listId} role="listbox" aria-label="搜尋結果" className="py-1.5">
               {results.map((r, i) => {
@@ -334,6 +362,21 @@ function QuickJumpPanel() {
             </ul>
           )}
         </div>
+        {/* 完整搜尋的入口（D-主-111）：有字就常駐在結果區外、不跟著捲——完整搜尋不限列數、還查概要與乘務記錄。
+            ↓ 走到底會停在這一列（鍵盤環的最後一格） */}
+        {moreOn && (
+          <button
+            type="button"
+            id={`${listId}-more`}
+            tabIndex={-1}
+            className={`ns-qj-more${moreActive ? " is-active" : ""}`}
+            onMouseEnter={() => results.length && setActive(results.length)}
+            onClick={() => openFullSearch(term)}
+          >
+            <span className="min-w-0 truncate">在完整搜尋看全部「{term}」→</span>
+            <span className="kbd">{CTRL_ENTER_CAPS}</span>
+          </button>
+        )}
 
         <div className="techo-foot flex gap-4 px-5 py-2">
           <span>↑↓ 移動</span>

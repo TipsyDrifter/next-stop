@@ -69,6 +69,16 @@ function IconTicketOffice(size: number) {
   );
 }
 
+/** 完整搜尋頁（不進 gnav，D-主-110）：側欄不畫它；留一枚放大鏡給日後要列頁面圖示的地方 */
+function IconFullSearch(size: number) {
+  return (
+    <svg {...svgProps(size)}>
+      <circle cx="7" cy="7" r="4.6" />
+      <path d="M10.4 10.4l3.2 3.2" />
+    </svg>
+  );
+}
+
 export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   today: IconToday,
   routemap: IconRouteMap,
@@ -76,4 +86,5 @@ export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   notes: IconNotes,
   timetable: IconTimetable,
   ticket: IconTicketOffice,
+  search: IconFullSearch,
 };

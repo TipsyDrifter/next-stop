@@ -11,7 +11,7 @@
  * 已知取捨：開啟時把焦點移進面板（鍵盤流 `.` 開板後 Tab 就能進欄位），關閉時若焦點無處可去則還給開板前的元素；
  * 以 flex 子項佔位（父層須為 flex row，例如緊接在大綱 <main> 之後）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
 import { nodeRepo } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
@@ -41,25 +41,31 @@ function PanelShell() {
   const today = useNodeStore((s) => s.today);
   const occ = useNodeStore((s) => s.currentOccurrences);
   const [fetched, setFetched] = useState<NodeRow | null>(null);
+  /** 補撈回來的是哪一個 id（撈到 null＝已刪也算回來了） */
+  const [fetchedFor, setFetchedFor] = useState<string | null>(null);
   useEffect(() => {
     if (!selectedId || sliced) {
       setFetched(null);
+      setFetchedFor(null);
       return;
     }
     let alive = true;
-    void nodeRepo
-      .getNode(selectedId)
-      .then((n) => {
-        if (alive) setFetched(n && !n.deleted_at ? n : null);
-      })
-      .catch(() => {
-        if (alive) setFetched(null);
-      });
+    const done = (n: NodeRow | null) => {
+      if (!alive) return;
+      setFetched(n && !n.deleted_at ? n : null);
+      setFetchedFor(selectedId);
+    };
+    void nodeRepo.getNode(selectedId).then(done, () => done(null));
     return () => {
       alive = false;
     };
   }, [selectedId, sliced, tree, today, occ]);
-  const node = sliced ?? (fetched && fetched.id === selectedId ? fetched : undefined);
+  // 補撈還在路上（完整搜尋 ↑↓ 換選中的節點多半不在兩片切片裡）：先留著上一張，不讓側板在非節點頁閃收、主欄寬度跳
+  //   （完整搜尋班反方評審 #2）。撈回來是 null（已刪）就照常收。
+  const fetching = !!selectedId && !sliced && fetchedFor !== selectedId;
+  const lastShown = useRef<NodeRow | undefined>(undefined);
+  const node = sliced ?? (fetched && fetched.id === selectedId ? fetched : fetching ? lastShown.current : undefined);
+  if (!fetching) lastShown.current = node;
   const route = useNodeStore((s) => (s.routeId ? s.routes.find((r) => r.id === s.routeId) : undefined));
   const page = useUiStore((s) => s.page);
 

@@ -48,6 +48,7 @@ import type {
   SidebarData,
   TodayRow,
 } from "./nodeRepository";
+import type { FullSearchHit } from "../domain/fullSearch";
 import {
   backfillAtOf,
   buildCalendar,
@@ -325,6 +326,26 @@ export class MemoryNodeRepository implements NodeRepository {
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .slice(0, limit)
       .map(clone);
+  }
+
+  async searchFull(query: string): Promise<FullSearchHit[]> {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    // 每個節點最新一則命中的手記（系統事件 body 空或是 JSON，不算）
+    const logHit = new Map<string, WorkLog>();
+    for (const l of this.logs.values()) {
+      if (!isAlive(l) || l.event !== null || !l.body.toLowerCase().includes(q)) continue;
+      const prev = logHit.get(l.node_id);
+      if (!prev || l.logged_at > prev.logged_at) logHit.set(l.node_id, l);
+    }
+    const hits: FullSearchHit[] = [];
+    for (const n of this.alive()) {
+      if (n.kind === "line") continue;
+      if (n.name.toLowerCase().includes(q)) hits.push({ node: clone(n), field: "name", text: null });
+      else if (n.description?.toLowerCase().includes(q)) hits.push({ node: clone(n), field: "description", text: n.description });
+      else if (logHit.has(n.id)) hits.push({ node: clone(n), field: "log", text: logHit.get(n.id)!.body });
+    }
+    return hits;
   }
 
   async listInboxTickets(): Promise<NodeRow[]> {

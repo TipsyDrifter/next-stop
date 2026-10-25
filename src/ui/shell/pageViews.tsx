@@ -12,6 +12,7 @@ import { TodayView } from "../today/TodayView";
 import { Outline } from "../outline/Outline";
 import { CalendarView } from "../calendar/CalendarView";
 import { LINE_MOUNTS } from "../../lines/mounts";
+import { FullSearchView } from "../search/FullSearchView";
 
 export const PAGE_VIEWS: Record<PageId, ComponentType | null> = {
   today: TodayView,
@@ -20,4 +21,6 @@ export const PAGE_VIEWS: Record<PageId, ComponentType | null> = {
   notes: LINE_MOUNTS.notes.desktopView,
   timetable: LINE_MOUNTS.timetable.desktopView,
   ticket: LINE_MOUNTS.ticket.desktopView,
+  // 不進 gnav 的頁（pages.ts AUX_PAGES；完整搜尋班 D-主-110）
+  search: FullSearchView,
 };

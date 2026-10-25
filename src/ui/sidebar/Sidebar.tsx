@@ -280,7 +280,14 @@ export function Sidebar() {
           {lineSidebarTools().map(({ id, Tool }) => (
             <Tool key={id} />
           ))}
-          <button type="button" className="gnav-search" onClick={() => setQuickJumpOpen(true)} title={`搜尋・跳轉（${capsOf("global.quickjump")}）`}>
+          {/* 完整搜尋頁不進 gnav（D-主-110）：在那頁時這顆鈕亮著當「現在在這裡」；按下去照舊開 Ctrl+P */}
+          <button
+            type="button"
+            className={`gnav-search${page === "search" ? " active" : ""}`}
+            aria-current={page === "search" ? "page" : undefined}
+            onClick={() => setQuickJumpOpen(true)}
+            title={`搜尋・跳轉（${capsOf("global.quickjump")}）`}
+          >
             <IconSearch />
             搜尋
             <span className="kbd">{MOD_KBD} P</span>

@@ -43,6 +43,7 @@ export type CoreHotkeyScope =
   | "outline"
   | "calendar"
   | "daylist"
+  | "search"
   | "common"
   | "edit";
 
@@ -129,6 +130,15 @@ export const HOTKEYS: Hotkey[] = [
     label: "快速跳轉",
     wired: true,
     ignoreMods: GLOBAL_LOOSE,
+  },
+  {
+    // 完整搜尋班 D-主-111：Shift 必按（Ctrl+P 等全域鍵放寬 Shift，這顆不放寬，免得日後 Ctrl+F 被它吃掉）
+    id: "global.fullsearch",
+    scope: "global",
+    chords: [{ key: "f", ctrl: true, shift: true }],
+    label: "完整搜尋",
+    wired: true,
+    ignoreMods: ["alt"],
   },
   {
     id: "global.panel.toggle",
@@ -538,6 +548,36 @@ export const HOTKEYS: Hotkey[] = [
     label: "關閉彈出視窗",
     wired: true,
     ignoreMods: ALL_LOOSE,
+  },
+
+  /* ── 完整搜尋頁（FullSearchView 自帶一張表；只登錄不接線） ── */
+  {
+    id: "search.move.up",
+    scope: "search",
+    chords: [{ key: "ArrowUp" }],
+    label: "上移選取",
+    wired: false,
+  },
+  {
+    id: "search.move.down",
+    scope: "search",
+    chords: [{ key: "ArrowDown" }],
+    label: "下移選取",
+    wired: false,
+  },
+  {
+    id: "search.go",
+    scope: "search",
+    chords: [{ key: "Enter" }],
+    label: "前往這一項",
+    wired: false,
+  },
+  {
+    id: "search.clear",
+    scope: "search",
+    chords: [{ key: "Escape" }],
+    label: "清除搜尋字",
+    wired: false,
   },
 
   /* ── 日曆・當日清單浮層（DayPopover 自帶一張表；只登錄不接線） ── */

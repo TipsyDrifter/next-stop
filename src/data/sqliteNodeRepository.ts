@@ -24,6 +24,7 @@ import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow, todayKey } from "../lib/date";
 import { escapeLike } from "../lib/sql";
+import type { FullSearchHit } from "../domain/fullSearch";
 import {
   TIME_REPEAT_ONLY_MSG,
   assertClockWritable,
@@ -759,6 +760,32 @@ export class SqliteNodeRepository implements NodeRepository {
        ORDER BY updated_at DESC LIMIT $2`,
       // 接縫 #67：q 是字面字串——`%`、`_`、`\` 先跳脫，否則打 `%` 會列出全部
       [`%${escapeLike(q)}%`, limit],
+    );
+  }
+
+  async searchFull(query: string): Promise<FullSearchHit[]> {
+    const q = query.trim();
+    if (!q) return [];
+    const db = await getDb();
+    // 一個節點一列：名稱 → 概要 → 乘務記錄（只算手記、取最新一則命中的）；LIKE 字面比對同 search（接縫 #67）
+    const logHit = `(SELECT w.body FROM work_logs w
+        WHERE w.node_id = n.id AND w.deleted_at IS NULL AND w.event IS NULL AND w.body LIKE $1 ESCAPE '\\'
+        ORDER BY w.logged_at DESC LIMIT 1)`;
+    const rows = await db.select<(NodeRow & { fs_field: number; fs_log: string | null })[]>(
+      `SELECT * FROM (
+         SELECT n.*,
+           CASE WHEN n.name LIKE $1 ESCAPE '\\' THEN 0 WHEN n.description LIKE $1 ESCAPE '\\' THEN 1 ELSE 2 END AS fs_field,
+           ${logHit} AS fs_log
+         FROM nodes n WHERE n.deleted_at IS NULL AND n.kind != 'line'
+       ) WHERE fs_field < 2 OR fs_log IS NOT NULL`,
+      [`%${escapeLike(q)}%`],
+    );
+    return rows.map(({ fs_field, fs_log, ...node }): FullSearchHit =>
+      fs_field === 0
+        ? { node, field: "name", text: null }
+        : fs_field === 1
+          ? { node, field: "description", text: node.description }
+          : { node, field: "log", text: fs_log },
     );
   }
 

@@ -577,6 +577,33 @@
 .ns-notes-mood.green { color: var(--mood-good); }
 .ns-notes-mood.yellow { color: var(--mood-ok); }
 .ns-notes-mood.red { color: var(--mood-hard); }
+/* —— 時間塊（日記足跡班 D-筆-69 C 案；原型 prototypes/旅客筆記-日記足跡時間塊.html；桌機手機共用，手機字階在 notes-mobile.css） —— */
+/* 日軸：上排済章朱點／手記空心點、中間分類色塊、下排整點刻度（每 3 時一個數字） */
+.ns-notes-fpaxis { position: relative; margin: 14px 0 2px; }
+.ns-notes-fpaxis .mk { position: relative; height: 9px; }
+.ns-notes-fpaxis .mk i { position: absolute; bottom: 1px; width: 6px; height: 6px; margin-left: -3px; border-radius: var(--radius-pill); }
+.ns-notes-fpaxis .mk i.seal { background: var(--seal); opacity: .9; } /* 朱仍只給済章 */
+.ns-notes-fpaxis .mk i.log { border: 1.2px solid var(--color-ink-soft); }
+.ns-notes-fpaxis .bar { position: relative; height: 12px; border-radius: 2px; background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+.ns-notes-fpaxis .bar b { position: absolute; top: 0; bottom: 0; min-width: 1.5px; background: color-mix(in srgb, var(--c) 82%, transparent);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-paper-high) 70%, transparent); }
+.ns-notes-fpaxis .bar b.is-live { outline: 1px solid var(--late); z-index: 1; } /* 正在跑＝赭框（同時刻表 .is-live） */
+.ns-notes-fpaxis .bar .ns-tt-live-dot { position: absolute; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -1px; z-index: 2;
+  box-shadow: 0 0 0 2px var(--color-paper-high); }
+.ns-notes-fpaxis .tk { position: relative; height: 16px; }
+.ns-notes-fpaxis .tk i { position: absolute; top: 0; width: 1px; height: 3px; background: var(--color-dash); }
+.ns-notes-fpaxis .tk i.maj { height: 5px; }
+.ns-notes-fpaxis .tk span { position: absolute; top: 4px; transform: translateX(-50%); font-family: var(--font-latin); font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); } /* 刻度字＝時刻表塊上的 9.5 微字 */
+/* 「時間」段：分類合計兩欄 */
+.ns-notes-fpcats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 10px; }
+.ns-notes-fpcats > div { display: flex; align-items: center; gap: 5px; padding: 5px 0; font-size: var(--fs-ui); letter-spacing: .03em; min-width: 0; color: var(--color-ink); }
+.ns-notes-fpcats > div:nth-child(n+3) { border-top: 1px dashed var(--color-line); }
+.ns-notes-fpcats .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-notes-fpdur, .ns-notes-fptt { flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .02em; white-space: nowrap; }
+.ns-notes-fpdur { color: var(--color-ink-soft); }
+.ns-notes-fpdur.is-live { color: var(--color-ink); }
+.ns-notes-fptt { color: var(--color-ink-faint); } /* 済章列尾：這天花在這張票上的時間 */
+
 .ns-notes-fpbody .ns-notes-fpempty { padding: var(--sp-5) 0 var(--sp-2); } /* 這天沒有足跡＝共用 EmptyState inline（UI 丙-6 E） */
 
 /* 済章（迷你，足跡用；原型 styles.css:479-488）——朱只給這一枚 */

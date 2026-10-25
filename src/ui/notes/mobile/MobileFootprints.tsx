@@ -10,18 +10,22 @@
  *   蓋了章的 N：迷你済章（朱，唯一的朱）＋票名＋路線色點；定期券班次的 title 寫「班次 M/D」
  *   寫下的 N：時刻＋手寫體內文＋票名（節點已刪＝「（原車票已刪除）」，repository 已填好）
  *   心情：燈號一排（綠＝松葉 route-preset-3、黃＝--arc、紅＝赭 --late，不用朱）
- * 時間段（blocks）目前恆 null ⇒ 不畫（插槽見 footprintBlocks.ts；磨光③ 2-7 拿掉欄底「時刻表通車後…」那行，接時間塊留給下一輪 B1）。
+ * 時間塊（日記足跡班 D-筆-69 C 案，跟桌機同一套 FootprintTime.tsx）：翻日列下一條日軸、最後一段分類合計、済章列尾補票上時間；
+ *   收合摘要接「記錄 7h40m」。時刻表一寫入就重讀（useTimetableWriteReload）。
  *
  * UI 丙-6：心情字改讀核心 `complete/moods.ts`（F1：完成卡、側板、足跡同一張表）；顏色走 --mood-*（F2，CSS）；
  *   「這天沒有留下足跡」換共用 EmptyState 區段級（inline，E19）。
  */
 import { useNodeStore } from "../../../store/nodeStore";
+import { useUiStore } from "../../../store/uiStore";
 import { useBackLayer } from "../../mobile/backStack";
 import { footprintSummary, fmtMonthDay, fmtShortDay, hasFootprint, weekdayZh, type FootprintDay } from "../../../domain/notes";
 import { RouteDot } from "../../common/MobileAttachPicker";
 import { MOODS } from "../../complete/moods";
 import { EmptyState } from "../../common/EmptyState";
 import { IconCaret, IconLeft, IconRight, hhmm } from "./mobileDiaryBits";
+import { FootprintAxis, FootprintTimeSec, SealTime, blocksSummaryTail } from "../FootprintTime";
+import { useTimetableWriteReload } from "../useTimetableWriteReload";
 
 /** 心情燈號的讀名（順暢／還行／吃力）＝核心那一張表 */
 const moodName = (m: string) => MOODS.find((x) => x.value === m)?.label ?? m;
@@ -39,6 +43,8 @@ export interface MobileFootprintsProps {
 
 export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footprint, onStep, onBack }: MobileFootprintsProps) {
   const routes = useNodeStore((s) => s.routes);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  useTimetableWriteReload();
   // store 換日時舊的那一份還在：日子對不上的先當沒有（避免摘要寫成前一天的數字）
   const f = footprint && footprint.day === fpDay ? footprint : null;
   const routeOf = (id: string | null) => (id ? (routes.find((r) => r.id === id) ?? null) : null);
@@ -52,7 +58,7 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
         <h3>當天足跡</h3>
         {!open && (
           <span className="sum">
-            {fmtShortDay(fpDay)}・{footprintSummary(f)}
+            {fmtShortDay(fpDay)}・{footprintSummary(f, blocksSummaryTail(f))}
           </span>
         )}
         <span className="caret" aria-hidden>
@@ -85,6 +91,8 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
             )}
           </div>
 
+          {f && <FootprintAxis f={f} dayStartHour={dayStartHour} />}
+
           {f && !hasFootprint(f) && <EmptyState inline tone="first" className="ns-notes-mfpempty" title="這天沒有留下足跡" />}
 
           {f && f.seals.length > 0 && (
@@ -101,6 +109,7 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
                     </span>
                     <span className="nm">{s.name}</span>
                     {s.dueOn && <span className="due">班次 {fmtShortDay(s.dueOn)}</span>}
+                    <SealTime blocks={f.blocks} nodeId={s.nodeId} />
                     <RouteDot route={routeOf(s.routeId)} />
                   </li>
                 ))}
@@ -140,15 +149,7 @@ export function MobileFootprints({ open, onToggle, fpDay, diaryDay, today, footp
             </div>
           )}
 
-          {f && f.blocks !== null && (
-            <div className="ns-notes-mfpsec">
-              <h4>
-                時間
-                <span className="rule" />
-              </h4>
-              {/* 時刻表通車後的小車次填（契約 0-8）；本車次 blocks 恆 null，走不到這裡 */}
-            </div>
-          )}
+          {f && <FootprintTimeSec f={f} sectionClass="ns-notes-mfpsec" />}
         </div>
       )}
     </section>

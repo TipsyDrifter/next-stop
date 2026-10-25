@@ -62,6 +62,11 @@ export const SCENES: readonly Scene[] = [
     title: "行程表・當日清單與串流",
     note: "在行程表點開單日清單，或切到「串流」檢視時。",
   },
+  {
+    scope: "search",
+    title: "完整搜尋",
+    note: "在完整搜尋頁時（游標在搜尋框裡也能按）。",
+  },
   // 三條功能線的分組（各線 manifest 的 scenes）：插在頁面類之後、通用兩組之前。未通車的線是空的 ⇒ 仍是七組
   ...LINE_MANIFESTS.flatMap((m) => m.scenes),
   {

@@ -9,7 +9,7 @@
  *
  * 解析順序（決策 10）：
  *   1. NS_DEV_LINE（去頭尾空白、轉小寫）。五個合法值之一就用它；有值但不合法＝丟錯、不啟動
- *   2. 沒設 ⇒ 看分支名：`feat/(notes|timetable|ticket|core)-…` ⇒ 該線
+ *   2. 沒設 ⇒ 看分支名：`feat/` 或 `claude/`（桌面端自動加的前綴）底下，slug 開頭照 SLUG_SEATS 表對席位
  *   3. 其餘（main、feat/foundation、detached HEAD、不在 git 裡）⇒ main（主桌配額）
  * 為什麼要看分支名：agent 的 shell 環境變數不跨指令保留，漏設就會靜默用 1425／.dev 撞主桌。
  *
@@ -35,7 +35,18 @@ export const DEV_QUOTA: Record<DevLine, { port: number; identifier: string; conf
   core: { port: 1465, identifier: "app.shitetsu.nextstop.dev.core", conf: "src-tauri/tauri.dev.core.conf.json" },
 };
 
-const BRANCH_RE = /^feat\/(notes|timetable|ticket|core)-/;
+/**
+ * 分支 slug 開頭 → 席位。席位只有五個（配額＝port＋dev identifier＝隔離的沙盒），
+ * 班次比席位多時，新班借用當時閒置那條線的席位——借用關係寫在這裡，進度表的班表也記一份。
+ */
+const SLUG_SEATS: readonly (readonly [RegExp, DevLine])[] = [
+  [/^(?:notes|diary)-/, "notes"],
+  [/^(?:timetable|full-search)-/, "timetable"],
+  [/^(?:ticket|mcp)-/, "ticket"],
+  [/^core-/, "core"],
+];
+
+const BRANCH_PREFIX_RE = /^(?:feat|claude)\/(.+)$/;
 
 function isDevLine(v: string): v is DevLine {
   return (DEV_LINES as readonly string[]).includes(v);
@@ -73,8 +84,12 @@ export function resolveDevLine(
   const raw = env.NS_DEV_LINE;
   if (raw !== undefined && raw.trim() !== "") return { line: parseDevLine(raw), source: "env" };
   const b = branch === undefined ? currentBranch() : branch;
-  const m = b ? BRANCH_RE.exec(b) : null;
-  if (m) return { line: m[1] as DevLine, source: "branch" };
+  const m = b ? BRANCH_PREFIX_RE.exec(b) : null;
+  if (m) {
+    for (const [re, line] of SLUG_SEATS) {
+      if (re.test(m[1])) return { line, source: "branch" };
+    }
+  }
   return { line: "main", source: "default" };
 }
 

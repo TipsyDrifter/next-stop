@@ -132,6 +132,8 @@
 .cover .gnav-search:hover { background: var(--gnav-hover); color: var(--color-book-ink); border-color: rgba(228, 227, 243, .34); } /* 字面值：書封上的框線色 hover（原型逐字） */
 [data-theme="dark"] .cover .gnav-search:hover { border-color: rgba(216, 219, 227, .3); } /* 字面值：書封上的框線色 hover（銀河，原型逐字） */
 .cover .gnav-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
+/* 完整搜尋頁（D-主-110）：這顆鈕代表「現在在這頁」——同 .gnav-line.active 的書封墨字＋燙金（框代替菱形） */
+.cover .gnav-search.active { color: var(--color-book-ink); border-color: var(--color-gold); } /* 書封燙金：作用中 */
 
 /* ============ 書封腳文字鈕：設定入口＋「? 說明」（常駐；cover-foot 第一列，並排的版面在 sidebar.css .foot-btns） ============
    UI 丙-3 C7（規範 §2.0「底部『設定』『? 說明』兩者都是文字鈕，不是 span」）：兩顆同一副 .foot-set；
