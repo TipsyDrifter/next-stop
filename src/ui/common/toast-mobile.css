@@ -1,0 +1,17 @@
+/* ═══════════════════════════════════════════════════════
+ * toast-mobile.css——手機 toast 讓過錯誤列（手機殼班；點子 10-20 磨光①）。由 Toast.tsx import。
+ *
+ * 面板／對話框開著時 toast 落在頂端（mobile.css〈磨光①〉②：頂帶下方、讓過同步告警），
+ *   但根 div 裡還可能有一列 `.m-error`（`⚠ {error}`，MobileShell 掛在頂帶與同步告警之後）——toast 會壓在它上面。
+ *   有錯誤列時改貼在錯誤列下緣之下：`--m-error-bottom`（viewport px）由 Toast.tsx 量了寫在 toast 自己身上。
+ *   量下緣而不是量高：頂帶在今日 tab 還多一列「今日｜行程表」，② 的公式沒算它，加高度會差一列。
+ * 只在根 div 真的有錯誤列時命中（:has），特異度 (0,6,1) 贏過 ② 的 (0,5,1)；底部與全螢幕那兩種落點不受影響。
+ * ═══════════════════════════════════════════════════════ */
+
+html[data-m-layer="sheet"] [data-shell="mobile"]:has(> .m-error) .ns-toast.techo-card.fixed,
+html[data-m-layer="dialog"] [data-shell="mobile"]:has(> .m-error) .ns-toast.techo-card.fixed {
+  top: max(
+    calc(var(--m-safe-top) + var(--m-band-h) + var(--m-banner-h, 0px) + 8px),
+    calc(var(--m-error-bottom, 0px) + 8px)
+  );
+}

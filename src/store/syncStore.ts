@@ -243,8 +243,8 @@ export const START_OVER_TEXT = {
     regretDesktopJoined: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋，雲端備份則會保留兩週。",
     regretMobileJoined: "若想復原請趁早：雲端備份會保留兩週。",
     regretMobileAlone: "匯出的檔案僅供人工檢視，目前無法匯回 App。",
-    endDesktop: "完成後 App 會重新啟動。",
-    endMobile: "完成後 App 會關閉，請手動重開。",
+    // 手機殼班 B5：Android 也真的重啟了（ns-restart），兩殼同一句
+    end: "完成後 App 會重新啟動。",
   },
   /**
    * 修正席（產品評審 #3／工程評審 S-7）：開窗前就擋得下的情況，**逐字**用 Rust `START_OVER_ERR_*` 那幾句
@@ -291,7 +291,7 @@ export function startOverBody(scope: StartOverScope, shellName: SyncShell, joine
   const act = scope === "all_devices" ? c.actAll : j ? c.actThisJoined : c.actThisAlone;
   const regret =
     shellName === "desktop" ? (j ? c.regretDesktopJoined : c.regretDesktopAlone) : j ? c.regretMobileJoined : c.regretMobileAlone;
-  return keep + act + regret + (shellName === "desktop" ? c.endDesktop : c.endMobile);
+  return keep + act + regret + c.end;
 }
 
 /**
@@ -1034,10 +1034,11 @@ function otherActionToastShowing(): boolean {
  * listener，而白名單只有 `day_start_hour`）。
  *
  * 並行地基（契約 §5.3 T-4）：核心重載之後，走訪三條功能線的 `reload`（各線 mount 檔；null＝沒登記、跳過）。
+ * MCP 班起 export：外部助理寫入後走同一條重載（`src/mcp/McpBridge.tsx`）。
  * 一條線重載失敗不拖累別條。`wiped` 只由 `refreshAfterWipe` 傳 true（本機資料被整批換掉）。
  * 三線都沒登記時零次額外 await。
  */
-async function refreshAfterPull(
+export async function refreshAfterPull(
   report: Pick<PullReport, "changed_tables">,
   wiped = false,
 ): Promise<void> {
@@ -1613,15 +1614,11 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         ? "所有裝置都會改用這份備份，備份後的修改都會消失；其他裝置未同步的修改會另存成檔。"
         : "只有這台換成備份；其他裝置較新的修改（包含刪除）同步後會再蓋回來。";
     const keepCopy = shell === "desktop" ? "會先將目前的資料另存備份" : "會先將目前的資料備份到雲端";
-    // v1.1.4 修正席（工程評審 S-6）：**Android 的 `app.restart()` 實際上只是 `exit(0)`**
-    //（tauri 2.11 `process.rs`：在 Android 拿不到自己的執行檔，spawn 必定失敗，只寫一行 log 就結束行程）。
-    // 資料是安全的——還原標記已經落地，主人重開 App 時 boot 的 `finishRestore()` 會收尾——
-    // 但他眼裡看到的是「App 閃退」。所以手機講「App 會關閉，請重新打開」，不講「會重新啟動」。
-    const restartWord = shell === "desktop" ? "然後重新啟動" : "接著 App 會關閉，請手動重開";
+    // 手機殼班 B5：Android 的重啟改走 ns-restart（前景重啟任務），兩殼都是「重新啟動」
     useUiStore.getState().askConfirm({
       title: "要還原這份備份嗎？",
-      body: `來源：${label}。${keepCopy}，${restartWord}。${consequence}`,
-      confirmLabel: shell === "desktop" ? "還原並重新啟動" : "還原並關閉 App",
+      body: `來源：${label}。${keepCopy}，然後重新啟動。${consequence}`,
+      confirmLabel: "還原並重新啟動",
       danger: true,
       onConfirm: () => {
         set({ working: true, cloudError: null });

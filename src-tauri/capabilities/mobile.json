@@ -27,6 +27,7 @@
     "notification:allow-create-channel",
     "notification:allow-remove-active",
     "notification:allow-cancel",
-    "tt-notice:default"
+    "tt-notice:default",
+    "ns-restart:default"
   ]
 }

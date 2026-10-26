@@ -1,0 +1,115 @@
+/* ═══════════════════════════════════════════════════════
+ * route-manage.css——手機路線／幹線管理（手機殼班第四輪 D-主-84／85）。
+ * 由 MobileRouteMap.tsx（幹線抬頭 ⋯、＋ 新增幹線、路線抬頭 ⋯、空狀態）、routemap/MobileRouteForm.tsx（新增路線表單）、
+ *   detail/MobileRouteBody.tsx（路線詳情頁的代碼欄、色盤、車站列）import。
+ * 紀律同 routemap.css：每條選擇器 `[data-shell="mobile"]` 開頭、只吃 theme token；列與詳情頁的骨架沿既有
+ *   .m2-*（styles/mobile.css）與 .m-dt-*（detail/detail.css），這裡只補新長出來的件。
+ * ═══════════════════════════════════════════════════════ */
+
+/* ── 第一層：幹線抬頭＋右側 ⋯（⋯ 本體＝routemap.css .m2-more；底線從字搬到整列） ── */
+[data-shell="mobile"] .m2-trunk-row {
+  display: flex; align-items: center; gap: 4px;
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .m2-trunk-row .m2-trunk { flex: 1; min-width: 0; padding-bottom: 0; border-bottom: 0; }
+/* ⋯ 撐 44px 觸控高，但抬頭本來只有一行小字：上下各吃回 8px，不把幹線之間的間距撐大 */
+[data-shell="mobile"] .m2-trunk-row .m2-more { margin-block: -8px; }
+
+/* 清單最底「＋ 新增幹線」：文字鈕（同書封「＋ 幹線」的淡字語彙；手機沒有 hover ⇒ 常駐實字） */
+[data-shell="mobile"] .m2-add-line {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; min-height: 48px; margin-top: 20px; padding: 0 2px;
+  background: transparent; border: 0; border-top: 1px dashed var(--color-dash);
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .12em; color: var(--color-ink-soft);
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m2-add-line:active { background: var(--color-paper-used); }
+[data-shell="mobile"] .m2-add-line:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+/* 空狀態（共用 EmptyState 頁級）：上下留白，跟底下的幹線清單隔開 */
+[data-shell="mobile"] .m2-empty-state { padding: 28px 0 32px; }
+
+/* ── 第二層：路線抬頭右側 ⋯ ── */
+[data-shell="mobile"] .m2-head-row { display: flex; align-items: flex-start; gap: 4px; }
+[data-shell="mobile"] .m2-head-text { flex: 1; min-width: 0; }
+[data-shell="mobile"] .m2-head-row .m2-more { margin-right: -6px; }
+
+/* ── 新增路線表單（MobileRouteForm） ── */
+[data-shell="mobile"] .m-rf { display: flex; flex-direction: column; gap: 18px; padding-bottom: 4px; }
+[data-shell="mobile"] .m-rf-field { display: flex; flex-direction: column; gap: 6px; }
+[data-shell="mobile"] .m-rf-label { font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .m-rf-hint { letter-spacing: .04em; }
+[data-shell="mobile"] .m-rf-code {
+  width: 7em; font-family: var(--font-latin); text-transform: uppercase; letter-spacing: .16em;
+}
+[data-shell="mobile"] .m-rf-note { font-size: var(--fs-xs); line-height: 1.6; color: var(--color-ink-faint); }
+
+/* 路線色（共用 ColorPicker）：桌機格 23px 太小、手指點不準——表單與詳情頁的色盤放大到 30px、格距拉開（共用元件本身不動） */
+[data-shell="mobile"] .m-rf-colors { gap: 14px; min-height: 44px; }
+[data-shell="mobile"] .m-rf-colors .ns-sw,
+[data-shell="mobile"] .m-rf-colors .ns-sw-custom { width: 30px; height: 30px; }
+
+/* ── 路線詳情頁（MobileRouteBody） ── */
+[data-shell="mobile"] .m-rt .m-rt-code {
+  width: 100%; min-height: 44px; padding: 0 2px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: transparent; outline: none;
+  font-family: var(--font-latin); font-size: 16px; letter-spacing: .12em; color: var(--color-ink);
+}
+[data-shell="mobile"] .m-rt .m-rt-code:focus { border-bottom-color: var(--accent); }
+/* 代碼重複的淡提示接在輸入框底下（同新增表單 .m-rf-note） */
+[data-shell="mobile"] .m-rt .m-rt-code-wrap { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+[data-shell="mobile"] .m-rt .m-rt-code-note { padding: 0 2px 6px; }
+[data-shell="mobile"] .m-rt .m-rt-code::placeholder { font-family: var(--font-body); letter-spacing: .04em; color: var(--color-ink-faint); }
+
+/* 車站列：名稱｜到站章｜×；第二行預定日・着 日期 */
+[data-shell="mobile"] .m-rt-st-list { list-style: none; margin: 0; padding: 0; }
+[data-shell="mobile"] .m-rt-st {
+  display: grid; grid-template-columns: minmax(0, 1fr) 44px 44px; align-items: center;
+  padding: 2px 0 8px; border-bottom: 1px dashed var(--color-line);
+}
+[data-shell="mobile"] .m-rt-st .m-rt-st-name {
+  width: 100%; min-height: 44px; padding: 0 2px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: transparent; outline: none;
+  font-family: var(--font-body); font-size: 16px; letter-spacing: .04em; color: var(--color-ink);
+}
+[data-shell="mobile"] .m-rt-st .m-rt-st-name:focus { border-bottom-color: var(--accent); }
+[data-shell="mobile"] .m-rt-st.is-arrived .m-rt-st-name { color: var(--color-ink-faint); }
+
+/* 到站章：形制同桌機 .arr-seal（朱框「着」、斜 6 度）；未到站＝虛線淡章常駐（觸控沒有 hover） */
+[data-shell="mobile"] .m-rt-st-seal {
+  width: 44px; height: 44px; display: grid; place-items: center; padding: 0;
+  background: transparent; border: 0; border-radius: var(--radius-ctl); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m-rt-st-seal > span {
+  display: inline-block; padding: 3px 6px 3px 7px;
+  border: 1.6px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: .3em; text-indent: .3em; line-height: 1.2;
+  color: var(--color-ink-faint); transform: rotate(-6deg);
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m-rt-st-seal:active > span { border-color: var(--accent); color: var(--accent); }
+[data-shell="mobile"] .m-rt-st.is-arrived .m-rt-st-seal > span {
+  border-style: solid; border-color: var(--color-seal); color: var(--color-seal); opacity: .85;
+}
+[data-shell="mobile"] .m-rt-st-seal:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+[data-shell="mobile"] .m-rt-st.is-fresh .m-rt-st-seal > span { animation: m-rt-arr-in .4s cubic-bezier(.2, 1.5, .4, 1); }
+@keyframes m-rt-arr-in {
+  0%   { transform: scale(1.75) rotate(-24deg); opacity: 0; }
+  55%  { transform: scale(.9)   rotate(-4deg);  opacity: .96; }
+  100% { transform: scale(1)    rotate(-6deg);  opacity: .85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m-rt-st.is-fresh .m-rt-st-seal > span { animation: none; }
+}
+[data-shell="mobile"] .m-rt-st-x { width: 44px; height: 44px; color: var(--color-ink-faint); }
+
+[data-shell="mobile"] .m-rt-st-meta {
+  grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
+  padding-left: 2px; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .m-rt-st-arr { color: var(--color-seal); letter-spacing: .12em; white-space: nowrap; }
+[data-shell="mobile"] .m-rt-st-empty { padding: 4px 0 8px; }
+/* 新增列的「＋ 新增」：圖示與字同一行（鈕在 .m-dt-logadd 的 auto 欄，不給它擠成兩行） */
+[data-shell="mobile"] .m-rt-st-addbtn { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }

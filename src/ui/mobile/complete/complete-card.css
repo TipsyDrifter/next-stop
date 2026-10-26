@@ -1,0 +1,106 @@
+/* ═══════════════════════════════════════════════════════
+ * complete-card.css——手機完成卡（手機殼班 D-主-73／77；原型 Q3）。由 MobileCompleteCard.tsx import。
+ *
+ * 紀律同 mobile-polish.css：每一條選擇器以 `[data-shell="mobile"]` 開頭（桌機殼永遠不命中）；不往 mobile.css 追加；
+ *   顏色只用 theme token。材質沿桌機 `.complete-card`（techo.css 十一：浮層紙＋玻璃邊＋卡陰影），這裡只改版面。
+ *
+ * 落點（D-主-77「壓在建票列的位置」）：本元件在 DOM 裡排在 tab bar 之後（MobileShell 的掛點），
+ *   卡開著時把 tab bar 的 flex `order` 調到 1，卡（order 0）就排到 tab bar 上面、佔直欄的一段高——
+ *   `.m-page` 是 flex:1 的捲動區，自己縮，清單底部讓出卡的高度、最後一張票捲得到；不用 position:fixed，軟鍵盤彈出時
+ *   跟建票列一樣隨根 div 走（mobile.css WP1-E 的理由）。今日頁的建票列同時收起（display:none，打到一半的字不丟）。
+ *
+ * 讓位（卡高 `--m-cc-h` 由元件量了寫在 <html>）：
+ *   - 底部 toast：抬到卡之上（特異度 (0,5,0) 贏 S1 的 (0,4,0)；面板開著時頂端那兩條 (0,5,1) 照舊贏）。
+ *   - `--m-newticket-h`／`--m-page-dock-h`：建票列收起時，「底部輸入那一段」的高換成卡高——今日頁浮鈕與 S1 那條 toast 規則
+ *     吃的就是它們，不必在這裡點名別線的 class（同 notes-mobile.css〈一、浮動鈕〉的「頁面告訴浮鈕」約定）。
+ * ═══════════════════════════════════════════════════════ */
+
+[data-shell="mobile"]:has(> .m-cc-dock) {
+  --m-newticket-h: var(--m-cc-h, 0px);
+  --m-page-dock-h: var(--m-cc-h, 0px);
+}
+[data-shell="mobile"]:has(> .m-cc-dock) > .m-tabbar { order: 1; }
+[data-shell="mobile"]:has(> .m-cc-dock) > .m-newticket { display: none; }
+[data-shell="mobile"]:has(> .m-cc-dock) .ns-toast.techo-card.fixed {
+  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-cc-h, 0px) + var(--m-kb, 0px) + 12px);
+}
+
+/* 底部那一段：透明、左右留白同頁面；往上疊 6px 壓在清單底的留白上（.m-page 底 padding 18px），看起來是浮在清單上的一張票 */
+[data-shell="mobile"] .m-cc-dock {
+  flex: none;
+  position: relative; z-index: 2;
+  margin-top: -6px;
+  padding: 0 calc(var(--m-gutter) - 8px) 8px;
+}
+
+/* 卡本身：滿寬（桌機 480px 的定寬解除）；進場由下往上滑一點 */
+[data-shell="mobile"] .m-cc.complete-card {
+  width: auto; max-width: none;
+  transition: opacity .2s ease-out, translate .24s cubic-bezier(.2, .9, .3, 1);
+}
+@starting-style {
+  [data-shell="mobile"] .m-cc.complete-card { opacity: 0; translate: 0 10px; }
+}
+
+/* 済章欄：桌機 100px 寬 → 手機 64px，章縮成 46px */
+[data-shell="mobile"] .m-cc .stamp-zone { width: 64px; }
+[data-shell="mobile"] .m-cc .stamp { width: 46px; height: 46px; }
+[data-shell="mobile"] .m-cc .seal { font-size: 21px; }
+
+[data-shell="mobile"] .m-cc-body {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px 10px 14px;
+}
+
+/* 抬頭一行：「列車到站」小字＋票名（一行，太長省略） */
+[data-shell="mobile"] .m-cc-head {
+  display: flex; align-items: baseline; gap: 10px; min-width: 0; margin: 0;
+}
+[data-shell="mobile"] .m-cc-kind {
+  flex: none;
+  font-size: var(--fs-micro); letter-spacing: .24em;
+  color: var(--color-ink-mid, var(--color-ink-soft));
+}
+[data-shell="mobile"] .m-cc-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-body); font-weight: 600; letter-spacing: .04em; color: var(--color-ink);
+}
+
+/* 一行記錄：底線輸入（沿 .techo-input）；16px＝行動瀏覽器聚焦時不自動放大頁面（同建票列 .m-nt-input） */
+[data-shell="mobile"] .m-cc-input {
+  width: 100%; box-sizing: border-box; min-height: 40px;
+  padding: 4px 2px;
+  font-size: var(--fs-h3);
+}
+
+/* 心情三燈＋跳過／存入 */
+[data-shell="mobile"] .m-cc-row { display: flex; align-items: center; gap: 6px; }
+[data-shell="mobile"] .m-cc-moods { display: inline-flex; align-items: center; margin-right: auto; margin-left: -6px; }
+/* 觸控目標 44px，圓本身 30px（.badge 的票根徽章語彙；空心虛線＝未選、實線＋淡底＝選中，同桌機） */
+[data-shell="mobile"] .m-cc-mood {
+  display: grid; place-items: center;
+  width: 44px; height: 44px; padding: 0;
+  background: transparent; border: 0; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m-cc-mood .badge {
+  width: 30px; height: 30px; font-size: var(--fs-xs); border-width: 1.3px;
+  transition: background .15s, border-color .15s, transform .15s;
+}
+[data-shell="mobile"] .m-cc-mood:active .badge { transform: scale(.92); }
+[data-shell="mobile"] .m-cc-mood.on .badge {
+  border-style: solid;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}
+[data-shell="mobile"] .m-cc-mood:focus-visible { outline: none; }
+[data-shell="mobile"] .m-cc-mood:focus-visible .badge { outline: var(--focus-ring); outline-offset: 2px; }
+
+[data-shell="mobile"] .m-cc-btn {
+  flex: none; min-height: 44px; padding: 0 14px;
+  font-size: var(--fs-sm); letter-spacing: .12em; text-indent: .12em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m-cc.complete-card { transition: none; }
+}

@@ -8,17 +8,43 @@
  * 取捨：不做淡出（卸載即消失）——為了退場動畫多留一份 toast 狀態不划算。
  * 磨光① A1（契約 §9.3）：根元素多一個 `ns-toast` class，給手機 CSS 認（三種落點與不透明底都在 mobile.css）；
  *   UI 丙-1 起桌機也用它掛浮層的字（overlay.css `.ns-toast`，值同舊卡的內文字級）；手機的落點規則請認 `.ns-toast`／`.techo-card`。
+ * 手機殼班（點子 10-20 磨光①）：手機 toast 落在頂端（面板開著）時要讓過頂帶下的錯誤列 `.m-error`——
+ *   錯誤列的高隨字數折行、上面還隔著頂帶第二列（今日｜行程表）與同步告警，所以直接量它的下緣，寫成 toast 自己的
+ *   `--m-error-bottom`（沒錯誤列＝不寫），讓位規則在 toast-mobile.css。
  */
+import { useLayoutEffect, useRef } from "react";
 import { useUiStore } from "../../store/uiStore";
+import { useNodeStore } from "../../store/nodeStore";
 import "./overlay.css";
+import "./toast-mobile.css";
 
 export function Toast() {
   const toast = useUiStore((s) => s.toast);
   const hideToast = useUiStore((s) => s.hideToast);
+  // 錯誤列（MobileShell 的 `⚠ {error}`）的來源：有變就重量一次
+  const error = useNodeStore((s) => s.error);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const bar = document.querySelector<HTMLElement>('[data-shell="mobile"] > .m-error');
+    if (!bar) {
+      el.style.removeProperty("--m-error-bottom");
+      return;
+    }
+    const write = () => el.style.setProperty("--m-error-bottom", `${Math.round(bar.getBoundingClientRect().bottom)}px`);
+    write();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(write) : null;
+    ro?.observe(bar);
+    return () => ro?.disconnect();
+  }, [toast, error]);
+
   if (!toast) return null;
 
   return (
     <div
+      ref={ref}
       key={toast.message + (toast.sub ?? "")}
       role="status"
       aria-live="polite"

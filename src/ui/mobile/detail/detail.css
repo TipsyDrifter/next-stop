@@ -1,0 +1,233 @@
+/*
+ * 手機詳情頁（手機殼班 D-主-75；原型 prototypes/主線-手機殼班.html〈② 詳情內容〉`.dt*` 段＝視覺真相，class 換成 m-dt-* 前綴）。
+ * 只活在手機殼（MobileDetailHost 只在 MobileShell 掛），全部掛 .m-dt 底下、不動共用元件的樣式；外框（頂列、可捲本文）是 MFullPage 的 msheet.css。
+ * 色、字、間距一律吃既有 token（--color-*／--accent／--fs-*／--radius-*／--hover-bg／--sel-*），不另定值。
+ */
+
+.m-dt { display: flex; flex-direction: column; gap: 12px; }
+.m-dt > * { flex-shrink: 0; }
+
+/* ── 票根列：路線徽章・路線名・票號・票種 ── */
+.m-dt-stub {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: var(--fs-micro); letter-spacing: .1em; color: var(--color-ink-faint);
+}
+.m-dt-route {
+  display: inline-grid; place-items: center; min-width: 26px; height: 20px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 2px; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent);
+  background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c);
+  font-family: var(--font-latin); font-weight: 600; font-size: 11px; letter-spacing: .02em;
+}
+.m-dt-route.is-none { border-style: dashed; font-family: var(--font-body); }
+.m-dt-route-name { color: var(--color-ink-soft); letter-spacing: .14em; }
+.m-dt-serial { font-family: var(--font-latin); letter-spacing: .08em; }
+.m-dt-fare {
+  margin-left: auto; padding: 1px 6px; border: 1px solid var(--color-dash); border-radius: 2px;
+  font-size: 10px; letter-spacing: .3em; color: var(--color-ink-soft);
+}
+.m-dt-fare.is-teiki { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* ── 名稱（襯線大字）＋概要（虛線框多行） ── */
+.m-dt .m-dt-name,
+.m-dt-note textarea {
+  display: block; width: 100%; margin: 0; box-sizing: border-box; resize: none;
+  background: transparent; color: var(--color-ink); outline: none;
+  field-sizing: content;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+.m-dt .m-dt-name {
+  min-height: 0; padding: 2px 0 6px; border: 0; border-bottom: 1px solid transparent; border-radius: 0;
+  font-family: var(--font-display); font-weight: 700; font-size: 21px; line-height: 1.4; letter-spacing: .04em;
+}
+.m-dt .m-dt-name:focus { border-bottom-color: var(--accent); }
+.m-dt-note textarea {
+  min-height: 64px; padding: 8px 10px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, white 22%, transparent);
+  font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.7;
+}
+.m-dt-note textarea:focus { border-color: var(--accent); border-style: solid; }
+.m-dt-note textarea::placeholder { color: var(--color-ink-faint); }
+
+/* ── 欄位列（標籤 64px｜值） ── */
+.m-dt-group { border-top: 1px solid var(--color-line); }
+.m-dt-sec + .m-dt-group.is-after-sec { border-top: 0; margin-top: -12px; }
+.m-dt-row {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 8px;
+  min-height: 52px; padding: 4px 0; border-bottom: 1px solid var(--color-line);
+}
+.m-dt-label { font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); }
+.m-dt-val { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.m-dt-val > .ns-seg { flex: 1 1 auto; min-width: 0; }
+/* 做不到的那一格（有子項時的「定期券」）：淡掉、點了 toast 說為什麼——同票卡 ⋯ 的 .ns-msheet-item.is-off（不用 disabled：觸控看不到 title） */
+.m-dt-fare-seg.is-teiki-off > [role="radio"]:last-child,
+.m-dt-fare-seg.is-teiki-off > [role="radio"]:last-child:hover { color: var(--color-ink-faint); opacity: var(--disabled); }
+
+/* 整列可點的值（日期、時刻、路線） */
+.m-dt-pick {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px;
+  margin: 0; padding: 0 2px; border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-body); font-size: var(--fs-body); letter-spacing: .04em; color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-pick:active { background: var(--hover-bg); }
+.m-dt-pick:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.m-dt-pick .is-empty { color: var(--color-ink-faint); }
+.m-dt-chev { margin-left: auto; color: var(--color-ink-faint); font-size: 18px; line-height: 1; }
+.m-dt-hm { font-family: var(--font-latin); font-weight: 600; }
+.m-dt-sub { font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .04em; }
+.m-dt-locked { padding: 0 2px; font-size: var(--fs-body); letter-spacing: .04em; color: var(--color-ink-soft); }
+/* 日期列：整列鈕吃滿，有值時 × 疊在 › 左邊（鈕的右內距讓出 × 的 44px） */
+.m-dt-datepick { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.m-dt-datepick.has-clear .m-dt-pick { padding-right: 2px; }
+.m-dt-datepick.has-clear .m-dt-pick > span:first-child { margin-right: 48px; }
+.m-dt-clear { position: absolute; top: 50%; right: 22px; transform: translateY(-50%); color: var(--color-ink-faint); }
+
+/* ── 可收合段（重複）與一般段（乘務記錄） ── */
+.m-dt-sec { border-bottom: 1px solid var(--color-line); }
+.m-dt-sec-head {
+  width: 100%; min-height: 52px; display: flex; align-items: center; gap: 8px;
+  margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-sec-head.is-static { cursor: default; }
+.m-dt-sec-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.m-dt-sec-name,
+.m-dt-sec-title {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ui); letter-spacing: .18em; color: var(--color-ink);
+}
+.m-dt-sec-title { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; }
+.m-dt-sec-aside {
+  margin-left: auto; min-width: 0; text-align: right;
+  font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.m-dt-sec-aside.is-teiki { color: var(--accent); }
+.m-dt-caret { flex: none; font-size: 11px; color: var(--color-ink-faint); transition: transform var(--dur-fast) var(--ease); }
+.m-dt-sec-head[aria-expanded="true"] .m-dt-caret { transform: rotate(180deg); }
+.m-dt-sec-body { padding: 0 0 10px; animation: m-dt-fade .2s ease-out; }
+.m-dt-sec-body .m-dt-row { min-height: 48px; border-bottom: 1px dashed var(--color-line); }
+.m-dt-sec-body .m-dt-row:last-child { border-bottom: 0; }
+@keyframes m-dt-fade { from { opacity: 0; } }
+
+/* 星期七格 */
+.m-dt-wk7 { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 100%; }
+.m-dt-wk7 button {
+  min-height: 40px; padding: 0; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; cursor: pointer; font-family: var(--font-body); font-size: var(--fs-sm); color: var(--color-ink-soft);
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-wk7 button[aria-pressed="true"] { border-color: var(--accent); color: var(--sel-fg); background: var(--sel-bg); font-weight: 500; }
+.m-dt-wk7 button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
+/* − 數字 ＋ */
+.m-dt-step { display: inline-flex; align-items: center; gap: 4px; }
+.m-dt-step button {
+  width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; cursor: pointer; font-size: 17px; color: var(--color-ink-soft);
+}
+.m-dt-step button:active:not(:disabled) { background: var(--hover-bg); border-color: var(--accent); }
+.m-dt-step button:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.m-dt-step button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt-step input {
+  width: 3em; min-height: 40px; padding: 0; border: 0; border-bottom: 1px solid var(--color-dash); background: transparent; outline: none;
+  text-align: center; font-family: var(--font-latin); font-weight: 600; font-size: 16px; color: var(--color-ink);
+}
+.m-dt-step input:focus { border-bottom-color: var(--accent); }
+.m-dt-unit { font-size: var(--fs-sm); color: var(--color-ink-soft); margin-right: 4px; }
+
+/* ── 心情三燈（字與色＝complete/moods.ts；currentColor＝那一盞的色） ── */
+.m-dt-moods { display: inline-flex; align-items: center; }
+.m-dt-mood {
+  width: 44px; height: 44px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.m-dt-mood span {
+  width: 30px; height: 30px; display: grid; place-items: center; box-sizing: border-box;
+  border: 1px dashed currentColor; border-radius: 50%;
+  font-family: var(--font-display); font-size: var(--fs-sm); font-weight: 700; color: currentColor;
+  transition: transform var(--dur-fast) var(--ease-spring, var(--ease)), background-color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-mood[aria-pressed="true"] span { border-style: solid; background: color-mix(in srgb, currentColor 22%, transparent); transform: scale(1.08); }
+.m-dt-mood:focus-visible { outline: var(--focus-ring); outline-offset: -4px; }
+.m-dt-mood-word { margin-left: 4px; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+
+/* ── 各線欄位列（荷札、時間…；元件自己畫 dl） ── */
+.m-dt-lines { display: flex; flex-direction: column; gap: 4px; }
+
+/* ── 乘務記錄 ── */
+.m-dt-logs { list-style: none; margin: 0; padding: 0; }
+.m-dt-logs li {
+  display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 6px; padding: 7px 0;
+  border-bottom: 1px dashed var(--color-line); font-size: var(--fs-sm); line-height: 1.55;
+}
+.m-dt-tm { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .04em; color: var(--color-ink-faint); padding-top: 2px; }
+.m-dt-hw { overflow-wrap: anywhere; }
+.m-dt-evt { color: var(--color-ink-soft); letter-spacing: .2em; }
+.m-dt-empty { margin: 0 0 8px; font-size: var(--fs-sm); color: var(--color-ink-faint); }
+.m-dt-logadd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0 12px; }
+.m-dt-loginput {
+  width: 100%; min-height: 44px; padding: 4px 2px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; background: transparent; outline: none;
+  font-family: var(--font-body); font-size: 16px; color: var(--color-ink);
+}
+.m-dt-loginput:focus { border-bottom-color: var(--accent); }
+.m-dt-loginput::placeholder { color: var(--color-ink-faint); }
+
+/* ── 競合（灰字一列） ── */
+.m-dt-conflict {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: baseline;
+  padding: 12px 0; border-bottom: 1px solid var(--color-line);
+  font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-faint);
+}
+.m-dt-conflict ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.m-dt-conflict .m-dt-tm { margin-right: 6px; }
+
+/* ── 移動到…（整列連結）＋刪除 ── */
+.m-dt-link {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  width: 100%; min-height: 52px; margin: 0; padding: 0;
+  border: 0; border-bottom: 1px solid var(--color-line); background: transparent; cursor: pointer; text-align: left;
+  font-family: var(--font-body); font-size: var(--fs-body); letter-spacing: .08em; color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt-link:active { background: var(--hover-bg); }
+.m-dt-link:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.m-dt-link-aside {
+  justify-self: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.m-dt-delete { width: 100%; margin-top: 10px; }
+
+/* ── 反方評審 #3 補的列（MobileStateRows）：現況／検印／分量／完成於 ── */
+.m-dt-latin { font-family: var(--font-latin); letter-spacing: .04em; }
+/* 名稱下一行「完成於 …」（桌機票頭 .day-stats 同一個位置） */
+.m-dt-doneat { margin: -8px 0 0; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint); }
+.m-dt-doneat b { font-weight: 600; color: var(--color-ink-soft); }
+/* 現況：分段鈕＋底下一句指路（定期券） */
+.m-dt-stack { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.m-dt-stack > .ns-seg { width: 100%; }
+/* 検印列：章（44px，同路線圖列上那顆）＋一句＋運休鈕 */
+.m-dt-stamp-meta { flex: 1 1 auto; min-width: 0; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); }
+.m-dt-susp {
+  flex: none; min-height: 36px; padding: 0 12px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .12em; color: var(--color-ink-soft);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-susp:active { background: var(--hover-bg); border-color: var(--accent); }
+.m-dt-susp.is-on { border-style: solid; border-color: var(--color-ink-soft); color: var(--color-ink); }
+.m-dt-susp:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt-hint { margin: 0; padding: 6px 0 8px 72px; border-bottom: 1px solid var(--color-line); font-size: var(--fs-xs); color: var(--color-ink-faint); }
+/* 數字欄（花費／手動進度）：共用 NumberField 的 .num，手機放大到 44px 觸控高、16px 字（聚焦不自動放大頁面） */
+.m-dt-val > .num { display: inline-flex; align-items: center; gap: 4px; }
+.m-dt-val > .num input {
+  width: 4.5em; min-height: 40px; padding: 0 2px; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0;
+  background: transparent; outline: none; font-family: var(--font-latin); font-weight: 600; font-size: 16px; color: var(--color-ink);
+}
+.m-dt-val > .num input:focus { border-bottom-color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .m-dt-sec-body { animation: none; }
+  .m-dt-mood span, .m-dt-caret { transition: none; }
+}

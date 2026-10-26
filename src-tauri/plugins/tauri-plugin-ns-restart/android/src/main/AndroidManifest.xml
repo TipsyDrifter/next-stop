@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 手機殼班 B5：ns-restart 不需要任何權限——前景 startActivity 落在官方背景啟動限制的
+         「App 有可見視窗」例外內（查證 2026-09-29 §2.3），不用 SYSTEM_ALERT_WINDOW、不用 AlarmManager。 -->
+</manifest>

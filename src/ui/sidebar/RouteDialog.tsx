@@ -8,6 +8,8 @@
  *   editId 若指到路線（舊呼叫端）＝不開（回 null），免得長出第二個路線編輯器。
  * 刪除幹線：askConfirm（danger，寫明連同底下幾條路線）→ nodeStore.deleteNode（repository soft delete 整個子樹）
  *   → 若刪到目前路線所屬的幹線就切到剩餘第一條路線或 null → toast「復原」走 undoDelete。
+ * 手機殼班第四輪（D-主-84）：新增幹線／路線與刪除幹線的寫入、守門、文案搬到 panel/routeFlows（手機路線圖同一支），
+ *   本檔只剩表單狀態與畫面；行為與字一個不變。
  * 取捨：預設色存成 "var(--route-preset-N)" 字串（跟著主題換夜間色，側欄／大綱以 background 直接吃）；代碼重複只淡提示不擋；
  *       新增路線成功後直接切到該路線（接著就能鋪軌）。Enter 送出（名稱、代碼框）、Esc 關閉（殼層處理）、名稱空白不送。
  * 視覺：DialogShell M（表單）＋眉標 {zh, latin}（粉彩只畫拉丁斜體）；欄位 .techo-label／底線輸入 .techo-input；
@@ -16,8 +18,17 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore, type RouteDialogState } from "../../store/uiStore";
-import { collectDeleteHints, withDeleteHints } from "../../lines/deleteHints";
 import { ColorPicker, routePresetColor } from "../common/ColorPicker";
+import { createLine, createRoute, renameLine, requestDeleteLine } from "../panel/routeFlows";
+import {
+  childRouteCount as countChildRoutes,
+  codeInput,
+  codeTaken as isCodeTaken,
+  codeTakenNote,
+  codeValue,
+  defaultRouteColorIndex,
+  lineDeleteNote,
+} from "../panel/routeFlowRules";
 import { DialogShell } from "../common/DialogShell";
 import "../common/overlay.css";
 
@@ -41,17 +52,7 @@ function CloseStale() {
 function RouteDialogForm({ lineId, editId }: RouteDialogState) {
   const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
-  const currentRouteId = useNodeStore((s) => s.routeId);
-  const createNode = useNodeStore((s) => s.createNode);
-  const updateNode = useNodeStore((s) => s.updateNode);
-  const deleteNode = useNodeStore((s) => s.deleteNode);
-  const undoDelete = useNodeStore((s) => s.undoDelete);
-  const openRoute = useNodeStore((s) => s.openRoute);
   const close = useUiStore((s) => s.closeRouteDialog);
-  const setZoom = useUiStore((s) => s.setZoom);
-  const select = useUiStore((s) => s.select);
-  const askConfirm = useUiStore((s) => s.askConfirm);
-  const showToast = useUiStore((s) => s.showToast);
 
   /** 編輯中的幹線（只有幹線會走到編輯） */
   const editing = editId ? (lines.find((l) => l.id === editId) ?? null) : null;
@@ -60,41 +61,32 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
   const parentLineName = kind === "route" ? (lines.find((l) => l.id === lineId)?.name ?? null) : null;
 
   const [name, setName] = useState(editing?.name ?? "");
-  // 新增路線的預設色：前三格輪流（第 4 格利休鼠＝灰，不當預設）
-  const [color, setColor] = useState<string>(() => routePresetColor((routes.length % 3) + 1));
+  // 新增路線的預設色：前三格輪流（routeFlowRules.defaultRouteColorIndex）
+  const [color, setColor] = useState<string>(() => routePresetColor(defaultRouteColorIndex(routes.length)));
   const [code, setCode] = useState("");
   const [saving, setSaving] = useState(false);
 
   const trimmedName = name.trim();
-  const codeVal = code.trim().toUpperCase();
-  const codeTaken = kind === "route" && codeVal.length > 0 && routes.some((r) => r.code?.toUpperCase() === codeVal);
+  const codeTaken = kind === "route" && isCodeTaken(routes, code);
   const canSave = trimmedName.length > 0 && !saving;
 
   const title = editing ? "編輯幹線" : `新增${kindLabel}`;
   const overline = kind === "route" ? { zh: "路線", latin: "Route" } : { zh: "幹線", latin: "Line" };
 
   /** 幹線底下的路線數（刪除幹線的確認文案用） */
-  const childRouteCount = editing ? routes.filter((r) => r.line_id === editing.id).length : 0;
+  const childRouteCount = editing ? countChildRoutes(routes, editing.id) : 0;
 
   async function submit() {
     if (!canSave) return;
     setSaving(true);
     try {
       if (editing) {
-        await updateNode(editing.id, { name: trimmedName });
+        await renameLine(editing.id, trimmedName);
+      } else if (kind === "route" && lineId) {
+        // 建好直接切到該路線（routeFlows.createRoute）
+        await createRoute({ lineId, name: trimmedName, color, code: codeValue(code) });
       } else {
-        const row = await createNode({
-          kind,
-          name: trimmedName,
-          parentId: kind === "route" ? lineId : null,
-          color: kind === "route" ? color : null,
-          code: kind === "route" ? codeVal || null : null,
-        });
-        if (row && kind === "route") {
-          void openRoute(row.id);
-          setZoom(null);
-          select(null);
-        }
+        await createLine(trimmedName);
       }
       close();
     } finally {
@@ -102,42 +94,10 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
     }
   }
 
-  /** 刪除幹線（連同子樹；repository soft delete，6 秒內可由 toast 復原） */
-  async function requestDelete() {
+  /** 刪除幹線（連同子樹；確認＋別線附加句＋切走目前路線＋復原都在 routeFlows.requestDeleteLine）；按下確認先收起本框 */
+  function requestDelete() {
     if (!editing) return;
-    const target = editing;
-    // 刪到目前路線所屬的幹線 → 確認後要換路線
-    const affectsCurrent = routes.some((r) => r.line_id === target.id && r.id === currentRouteId);
-    const body =
-      childRouteCount > 0
-        ? `底下的 ${childRouteCount} 條路線與所有支線、列車、車廂、車票會一起刪除；6 秒內可復原。`
-        : "底下的所有內容會一起刪除；6 秒內可復原。";
-    // 別線的附加句（接縫 #62）：這裡沒載底下的樹 ⇒ descendantIds 傳 []，由該線自己補查；沒有線填＝空字串、框的字不變
-    const hints = await collectDeleteHints(target, []);
-    askConfirm({
-      title: `刪除幹線「${target.name}」？`,
-      body: withDeleteHints(body, hints),
-      confirmLabel: "刪除",
-      danger: true,
-      onConfirm: () => void performDelete(target.id, target.name, affectsCurrent),
-    });
-  }
-
-  async function performDelete(id: string, nodeName: string, affectsCurrent: boolean) {
-    close();
-    const ids = await deleteNode(id);
-    if (ids.length === 0) return; // 失敗：store 已記 error（App 殼顯示），不出復原 toast
-    if (affectsCurrent) {
-      const remaining = useNodeStore.getState().routes;
-      void openRoute(remaining[0]?.id ?? null);
-      setZoom(null);
-      select(null);
-    }
-    showToast({
-      message: `已刪除幹線「${nodeName}」`,
-      actionLabel: "復原",
-      onAction: () => void undoDelete(),
-    });
+    void requestDeleteLine(editing, { onConfirmed: close });
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -197,28 +157,21 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
               <input
                 id="route-dialog-code"
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 4))}
+                onChange={(e) => setCode(codeInput(e.target.value))}
                 onKeyDown={onKeyDown}
                 placeholder="E1"
                 maxLength={4}
                 spellCheck={false}
                 className="techo-input w-24 font-latin uppercase text-[14px] tracking-[0.16em]"
               />
-              {codeTaken && (
-                <p className="ns-note mt-1.5">
-                  已有其他路線使用「{codeVal}」——仍可儲存，只是圖示會重複。</p>
-              )}
+              {codeTaken && <p className="ns-note mt-1.5">{codeTakenNote(code)}</p>}
             </div>
           </>
         )}
 
         {editing && (
           <div className="flex items-center justify-between gap-4 pt-4 border-t border-dashed border-dash">
-            <p className="ns-note">
-              {childRouteCount > 0
-                ? `連同底下 ${childRouteCount} 條路線一起刪除；6 秒內可復原。`
-                : "刪除這條幹線；6 秒內可復原。"}
-            </p>
+            <p className="ns-note">{lineDeleteNote(childRouteCount)}</p>
             <button type="button" onClick={requestDelete} className="btn-ghost ns-btn-danger ns-btn ns-btn--sm shrink-0">
               刪除幹線
             </button>

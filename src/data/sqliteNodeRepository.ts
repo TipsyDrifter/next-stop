@@ -831,7 +831,7 @@ export class SqliteNodeRepository implements NodeRepository {
         `SELECT COUNT(*) AS c FROM nodes WHERE parent_id = $1 AND ${ALIVE}`,
         [id],
       );
-      if ((kids[0]?.c ?? 0) > 0) throw new Error("有子項的列車／車廂不能設重複（v1）");
+      if ((kids[0]?.c ?? 0) > 0) throw new Error("有子項的列車／車廂不能設重複");
       if (!parseRule(serializeRule(rule))) throw new Error("重複規則格式不正確");
     }
     const serialized = rule ? serializeRule(rule) : null;

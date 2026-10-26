@@ -13,6 +13,7 @@
  */
 import type { DueEntry, ScheduleBounds, ScheduleEntry } from "../../data/nodeRepository";
 import { addDays } from "../../lib/date.ts";
+import { lateCount, type LateCountRow } from "../../domain/dayCount.ts";
 
 export type { ScheduleBounds } from "../../data/nodeRepository";
 
@@ -328,44 +329,13 @@ export function sheetDeferItems(
 
 /* ───────────── 誤點列（P8，契約 §3.4） ───────────── */
 
-/** TodayRow 的子集（測試可手造） */
-export interface LateRowSeed {
-  bucket: "late" | "due" | "today";
-  status: string;
-  scheduled_on: string | null;
-  due_on: string | null;
-  occurrence: { status: string; due_on: string } | null;
-}
-
-/** ＝useTodayController.ts:73-75 `isSettledRow`（済或運休＝交代過） */
-function isSettledSeed(r: LateRowSeed): boolean {
-  return r.occurrence !== null || r.status === "done";
-}
-
-/** 這一列的「有效日」：late ⇒ 班次日（occurrence?.due_on ?? scheduled_on，compareTodayRows 同一把尺）；due ⇒ 締切 */
-function effectiveDateOf(r: LateRowSeed): string | null {
-  return r.bucket === "late" ? (r.occurrence?.due_on ?? r.scheduled_on) : r.due_on;
-}
+/** TodayRow 的子集（測試可手造）；形狀＝domain/dayCount 的 LateCountRow */
+export type LateRowSeed = LateCountRow;
 
 /**
- * 誤點列：取今日切片裡 `bucket !== "today"` 且**未交代**的列（＝useTodayController.ts:73-75 `isSettledRow` 取反：
- * `occurrence === null && status !== "done"`；這裡複寫一份是因為測試不能載 React 檔）。
- * count＝張數；earliest＝這些列「有效日」的最小值：late ⇒ `occurrence?.due_on ?? scheduled_on`、due ⇒ `due_on`。
- * 有效日晚於 today 的列不算（誤點／締切的定義本來就是「已過」，`todayBucketOf` 同一把尺；防切片過期）。
+ * 誤點列：張數與最早那天。算法收進 domain/dayCount 的 `lateCount`（手機殼班，接縫 #104：今日頁的「誤點 N 件」吃同一支），
+ * 這裡只留原名給串流與既有測試。
  */
-export function lateSummary(
-  rows: readonly LateRowSeed[],
-  today: string,
-): { count: number; earliest: string | null } {
-  let count = 0;
-  let earliest: string | null = null;
-  for (const r of rows) {
-    if (r.bucket === "today") continue;
-    if (isSettledSeed(r)) continue;
-    const eff = effectiveDateOf(r);
-    if (eff === null || eff > today) continue;
-    count++;
-    if (earliest === null || eff < earliest) earliest = eff;
-  }
-  return { count, earliest };
+export function lateSummary(rows: readonly LateRowSeed[], today: string): { count: number; earliest: string | null } {
+  return lateCount(rows, today);
 }

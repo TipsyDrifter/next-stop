@@ -67,6 +67,8 @@ import { RouteDialog } from "./ui/sidebar/RouteDialog";
 import { Outline } from "./ui/outline/Outline";
 import { PAGE_VIEWS } from "./ui/shell/pageViews";
 import { lineOverlays } from "./lines/mounts";
+// MCP 班：外部助理的 WebView 端接線（只掛桌機殼；畫面上什麼都不畫）
+import { McpBridge } from "./mcp/McpBridge";
 import { DetailPanel } from "./ui/panel/DetailPanel";
 import { CompleteCard } from "./ui/complete/CompleteCard";
 import { ConfirmDialog } from "./ui/common/ConfirmDialog";
@@ -165,6 +167,7 @@ export default function App() {
           <SettingsPanel />
           <HotkeyGuide />
           <RouteDialog />
+          <McpBridge />
           {lineOverlays("desktop").map(({ id, Overlay }) => (
             <Overlay key={id} />
           ))}

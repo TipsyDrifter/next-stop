@@ -1,0 +1,3 @@
+[default]
+description = "Android 真重啟：前景重啟任務再結束行程（還原／重新開始流程用；JS 只在沙盒原型觸發）"
+permissions = ["allow-restart-app"]

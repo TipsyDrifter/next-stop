@@ -518,7 +518,7 @@ export class MemoryNodeRepository implements NodeRepository {
       if (!REPEATABLE_KINDS.includes(node.kind)) {
         throw new Error(`${KIND_LABEL[node.kind]}不能設重複——只有車票與無子項的列車／車廂可以`);
       }
-      if (this.childrenOf(id).length) throw new Error("有子項的列車／車廂不能設重複（v1）");
+      if (this.childrenOf(id).length) throw new Error("有子項的列車／車廂不能設重複");
       if (!parseRule(serializeRule(rule))) throw new Error("重複規則格式不正確");
     }
     const now = this.now();

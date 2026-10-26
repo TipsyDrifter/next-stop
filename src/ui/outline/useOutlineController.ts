@@ -15,16 +15,17 @@ import {
   type NodeKind,
   type NodeRow,
 } from "../../domain";
-import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type CurrentOccurrence } from "../../data";
+import { REPEAT_RESCHEDULE_MSG } from "../../data";
 import {
   adaptKind,
   ancestorsOf,
   descendantCount,
-  openDescendantCount,
   siblingsOf,
   useNodeStore,
   type TreeIndex,
 } from "../../store/nodeStore";
+import { completeNodeFlow, suspendNodeFlow } from "./nodeFlows";
+import { DESKTOP_GUARD_WORDS, rowGuards } from "./rowGuards";
 import type { PopMenuItem } from "../common/PopMenu";
 import { requestMoveTo } from "../common/moveTo";
 import { moveTargetRule } from "../../domain/moveTo";
@@ -294,54 +295,16 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
    * 大綱補這個鍵是因為共用文案 REPEAT_RESCHEDULE_MSG 就寫著「跳過本班按 U」：
    * 補鍵而不是改文案，兩頁同義同鍵（M3 ④ 評審 should-6）。**只有定期券能運休**，其餘吐 REPEAT_ONLY_MSG。
    */
-  const suspendNode = async (id: string, skip?: boolean) => {
-    const n = ns().tree.byId[id];
-    if (!n) return;
-    if (!parseRule(n.repeat_rule)) {
-      toast(REPEAT_ONLY_MSG);
-      return;
-    }
-    const next = skip ?? ns().currentOccurrences[id]?.status !== "skipped";
-    const r = await ns().skipOccurrence(id, next);
-    if (!r.ok) toast(r.reason);
-  };
+  // 手機殼班：流程本體抽到 nodeFlows.ts（手機路線圖的検印鈕走同一支）
+  const suspendNode = (id: string, skip?: boolean) => suspendNodeFlow(id, skip);
 
-  /* ───────── F1 完成流（D2／D4） ───────── */
-  const completeNode = async (id: string) => {
-    const t = ns().tree;
-    const n = t.byId[id];
-    if (!n) return;
-    // 定期券：済蓋在「目前班次」上（repository 已分支），反悔＝撤這一班；nodes.status 一路是 todo。
-    const occ: CurrentOccurrence | undefined = ns().currentOccurrences[id];
-    // 運休中的班次：點在運休章上（或 Space）＝**取消運休**（A 原型 :60-62／:1061 的検印輪替最後一步），
-    // 要蓋済就再來一次。直接蓋會蓋到引擎已推走的「下一班」頭上，故先撤運休再說。
-    if (occ?.status === "skipped") {
-      await suspendNode(id, false);
-      return;
-    }
-    if (occ ? occ.status === "done" : n.status === "done") {
-      await ns().setCompleted(id, false);
-      return;
-    }
-    const finish = async (cascade: boolean) => {
-      setFreshId(id);
-      await ns().setCompleted(id, true, cascade ? true : undefined);
-      // 動畫結束事件是主要清除點；reduced-motion（animation:none 不發 animationend）用計時器兜底
-      setTimeout(() => setFreshId((cur) => (cur === id ? null : cur)), 800);
-      if (isTaskKind(n.kind)) ui().setCompleteCardFor(id);
-    };
-    const open = canHaveChildren(n.kind) ? openDescendantCount(t, id) : 0;
-    if (open > 0) {
-      ui().askConfirm({
-        title: `連同 ${open} 個未完成子項一起完成？`,
-        body: `「${n.name}」底下還有 ${open} 個未完成的子項，會一併蓋上済章。`,
-        confirmLabel: "一起完成",
-        onConfirm: () => void finish(true),
-      });
-      return;
-    }
-    await finish(false);
-  };
+  /* ───────── F1 完成流（D2／D4；本體在 nodeFlows.completeNodeFlow，兩殼同一支） ───────── */
+  const completeNode = (id: string) =>
+    completeNodeFlow(id, (fid) => {
+      setFreshId(fid);
+      // 動畫結束事件是主要清除點；reduced-motion（animation:none 不發 animationend）用計時器兜底（寫入完成後起算）
+      return () => setTimeout(() => setFreshId((cur) => (cur === fid ? null : cur)), 800);
+    });
 
   /* ───────── F3 刪除流（D3） ───────── */
   const deleteNodeFlow = (id: string) => {
@@ -677,27 +640,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const t = ns().tree;
     const { routeId: rid, zoom: z } = st.current;
     const n = t.byId[id];
-    if (!n) return [];
-    const { siblings, index } = siblingsOf(t, rid, id);
-    const prev = index > 0 ? t.byId[siblings[index - 1]] : undefined;
-    const indentWhy = !prev
-      ? "上面沒有可以掛靠的節點"
-      : !canHaveChildren(prev.kind)
-        ? "車票／車站底下不能掛東西"
-        : !adaptKind(n.kind, prev.kind)
-          ? "這種節點不能掛在那裡"
-          : null;
-    const parent = n.parent_id && n.parent_id !== rid ? t.byId[n.parent_id] : undefined;
-    const gpId = parent?.parent_id;
-    const gpKind: NodeKind = gpId && gpId !== rid && t.byId[gpId] ? t.byId[gpId].kind : "route";
-    const outdentWhy = !parent
-      ? "已經在路線最上層——要換路線，用下面的「移動到…」"
-      : z && n.parent_id === z.id
-        ? "已到聚焦範圍的頂層——先按 Esc 退出聚焦再升層"
-        : !adaptKind(n.kind, gpKind)
-          ? "這種節點不能升到那一層"
-          : null;
-    const ticketWhy = isTaskKind(n.kind) || n.kind === "ticket" ? null : "支線底下不能直接掛車票——先建一班列車";
+    // 停用理由與手機路線圖 ⋯ sheet 同一支（rowGuards.ts；手機殼班抽出，字一字不差）
+    const g = rowGuards(t, rid, z?.id ?? null, id, { siblingsOf, adaptKind }, DESKTOP_GUARD_WORDS);
+    if (!n || !g) return [];
+    const { indentWhy, outdentWhy, ticketWhy } = g;
     /** 先選中、焦點回大綱容器，再做（新增類會開草稿列、草稿自己拿焦點） */
     const run = (fn: () => void) => () => {
       ui().select(id);
@@ -732,8 +678,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       item("ticket", "新增車票", "outline.add.ticket", ticketWhy, keys.addTicket),
       item("indent", "降層", "outline.indent", indentWhy, keys.indentSelected, true),
       item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected),
-      item("up", "上移", "outline.reorder.up", index > 0 ? null : "已經在最上面", () => keys.reorderSelected(-1), true),
-      item("down", "下移", "outline.reorder.down", index >= 0 && index < siblings.length - 1 ? null : "已經在最下面", () => keys.reorderSelected(1)),
+      item("up", "上移", "outline.reorder.up", g.upWhy, () => keys.reorderSelected(-1), true),
+      item("down", "下移", "outline.reorder.down", g.downWhy, () => keys.reorderSelected(1)),
       item("rename", "改名", "outline.rename", null, keys.renameSelected, true),
       // 磨光⑤ B1（D-主-55）：跨路線搬遷。沒有快捷鍵（不給 hotkeyId）；挑選器開在側板（requestMoveTo＝選中＋開側板＋請它打開）
       // 種類搬不了（moveTargetRule 回 null）就不出——側板那顆鈕同一條規則，兩個入口不會一個有一個沒有

@@ -1,10 +1,18 @@
 /**
- * 同一天的完成數（磨光⑤ N11；src/domain/dayCount.ts）。
+ * 同一天的完成數（磨光⑤ N11；src/domain/dayCount.ts）＋誤點數（手機殼班，接縫 #104）。
  * 跑法：`node --test scripts/tests/day-count.test.ts`（node 24，型別剝除；零依賴）。
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { dayCount, dayCountParts, dayCountText, type DayCountItem } from "../../src/domain/dayCount.ts";
+import {
+  dayCount,
+  dayCountParts,
+  dayCountText,
+  lateCount,
+  lateCountText,
+  type DayCountItem,
+  type LateCountRow,
+} from "../../src/domain/dayCount.ts";
 
 const DONE: DayCountItem = { done: true, settled: true };
 const SKIP: DayCountItem = { done: false, settled: true };
@@ -52,5 +60,52 @@ describe("dayCount：済才算完成、済＋運休算結清", () => {
   test("parts 與 text 同一份數字", () => {
     const c = dayCount([DONE, OPEN]);
     assert.deepEqual(dayCountParts(c), { done: 1, total: 2, tail: "還有 1 張" });
+  });
+});
+
+const TODAY = "2026-10-25";
+const row = (o: Partial<LateCountRow>): LateCountRow => ({
+  bucket: "late",
+  status: "todo",
+  scheduled_on: "2026-10-20",
+  due_on: null,
+  occurrence: null,
+  ...o,
+});
+
+describe("lateCount：誤點＝還沒交代（今日頁與行程表同一支，接縫 #104）", () => {
+  test("接縫 #104 原案：誤點區 5 列、其中 1 張今天補済 ⇒ 兩頁都數 4", () => {
+    const rows = [
+      row({ scheduled_on: "2026-10-18" }),
+      row({ scheduled_on: "2026-10-19" }),
+      row({ scheduled_on: "2026-10-20", status: "done" }), // 今天補済、留在誤點區原位
+      row({ scheduled_on: "2026-10-21" }),
+      row({ bucket: "due", scheduled_on: null, due_on: "2026-10-24" }),
+      row({ bucket: "today", scheduled_on: TODAY }),
+    ];
+    assert.deepEqual(lateCount(rows, TODAY), { count: 4, earliest: "2026-10-18" });
+    assert.equal(lateCountText(lateCount(rows, TODAY)), "4 件");
+  });
+
+  test("定期券的誤點班次：済或運休都算交代；有效日＝班次日", () => {
+    const c = lateCount(
+      [
+        row({ occurrence: { status: "done", due_on: "2026-10-22" }, scheduled_on: "2026-10-27" }),
+        row({ occurrence: { status: "skipped", due_on: "2026-10-23" }, scheduled_on: "2026-10-27" }),
+        row({ scheduled_on: "2026-10-23" }),
+      ],
+      TODAY,
+    );
+    assert.deepEqual(c, { count: 1, earliest: "2026-10-23" });
+  });
+
+  test("有效日晚於今天的不算（今日切片過期的防線）", () => {
+    assert.deepEqual(lateCount([row({ scheduled_on: "2026-10-26" })], TODAY), { count: 0, earliest: null });
+  });
+
+  test("誤點區的票都交代了：0 ⇒「已交代」", () => {
+    const c = lateCount([row({ status: "done" })], TODAY);
+    assert.deepEqual(c, { count: 0, earliest: null });
+    assert.equal(lateCountText(c), "已交代");
   });
 });

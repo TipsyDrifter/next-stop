@@ -16,7 +16,7 @@
  * 樣式：.field／.lbl／.sec／.opts／.status／.date／.num 仍在 techo.css 與 panel/panel.css（側板範圍），本班不搬。
  *   原路徑 panel/fields.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
  */
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { DatePicker } from "./DatePicker";
@@ -135,13 +135,34 @@ interface CommitInputProps {
   autoFocus?: boolean;
   /** 標題用：改渲染成單列 textarea 讓長名稱折行（field-sizing:content），Enter 仍＝提交、不換行 */
   wrap?: boolean;
+  /** 打字當下就正規化草稿（例：路線代碼轉大寫、限 4 字） */
+  transform?: (raw: string) => string;
+  /** 草稿每次變動都回報（含 Esc 還原、外部值同步）——給「打字當下的提示」用（例：代碼重複的淡提示） */
+  onDraftChange?: (draft: string) => void;
+  /** 單行版的原生屬性（maxLength、autoCapitalize、spellCheck…） */
+  attrs?: Pick<InputHTMLAttributes<HTMLInputElement>, "maxLength" | "autoCapitalize" | "spellCheck" | "enterKeyHint">;
 }
 
 /** 單行文字：blur／Enter 提交（去前後空白）；Esc 在有改動時還原、否則放行（讓面板關閉） */
-export function CommitInput({ value, onCommit, ariaLabel, placeholder, required, className, autoFocus, wrap }: CommitInputProps) {
+export function CommitInput({
+  value,
+  onCommit,
+  ariaLabel,
+  placeholder,
+  required,
+  className,
+  autoFocus,
+  wrap,
+  transform,
+  onDraftChange,
+  attrs,
+}: CommitInputProps) {
   const [draft, setDraft] = useState(value);
   const focused = useRef(false);
   const committed = useRef(value);
+  const draftCb = useRef(onDraftChange);
+  draftCb.current = onDraftChange;
+  useEffect(() => draftCb.current?.(draft), [draft]);
 
   useEffect(() => {
     committed.current = value;
@@ -197,12 +218,13 @@ export function CommitInput({ value, onCommit, ariaLabel, placeholder, required,
   return (
     <input
       type="text"
+      {...attrs}
       aria-label={ariaLabel}
       placeholder={placeholder}
       autoFocus={autoFocus}
       className={className}
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => setDraft(transform ? transform(e.target.value) : e.target.value)}
       onFocus={onFocus}
       onBlur={onBlur}
       onKeyDown={onKeyDown}

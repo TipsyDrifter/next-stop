@@ -26,7 +26,7 @@
 import { useMemo } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { nodeRepo, REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
-import { useNodeStore } from "../../store/nodeStore";
+import { isSettling, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { canStampRow, dayRowModel, mmdd, type DayRowModel } from "../calendar/DayRow";
@@ -44,8 +44,9 @@ export type ScheduleTarget = { kind: "entry"; row: DayRowModel } | { kind: "due"
 export interface ScheduleActions {
   /** 済／取消済／取消運休。entry：canStampRow 守門，擋下時 toast 與 DayPopover.tsx:202-208 同一句；
    *  定期券運休中＝skipOccurrence(id, false, entry.date)；其餘 setCompleted(id, !done)。
-   *  桌機：蓋下去且 isTaskKind ⇒ setCompleteCardFor（DayPopover.tsx:224 同款）。
-   *  手機：不開完成卡；目標在今日切片（today.byId[id]）且有未完成直屬子項 ⇒ 先 askConfirm（useMobileToday.ts:136-145 同一句）。
+   *  蓋下去且 isTaskKind ⇒ setCompleteCardFor（DayPopover.tsx:224 同款；手機殼班起兩殼都開，D-主-73）。
+   *  手機：目標在今日切片（today.byId[id]）且有未完成直屬子項 ⇒ 先 askConfirm（useMobileToday.ts:136-145 同一句）；
+   *  取消済時那張的完成卡一起收起（桌機照舊不收）。
    *  回傳是否真的蓋下去（給呼叫端播 fresh 動畫）。 */
   stamp(t: ScheduleTarget): boolean;
   /** U／定期券版 sheet：skipOccurrence(id, !skipped, row.entry.date)；非定期券 ⇒ toast REPEAT_ONLY_MSG；失敗吐 reason */
@@ -92,12 +93,18 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
 
   /**
    * 蓋済的共用尾段：手機對今日切片裡有未完成直屬子項的票先問（useMobileToday.ts:136-145 同一句）；
-   * 桌機列車／車廂蓋章＋完成卡（a6／D4）。回傳是否「立刻」蓋下去（進確認窗＝還沒蓋，不播 fresh）。
+   * 列車／車廂蓋章＋完成卡（a6／D4；手機殼班 D-主-73 起手機也開，同一個槽）。回傳是否「立刻」蓋下去（進確認窗＝還沒蓋，不播 fresh）。
    */
+  /** 取消済：手機那張的完成卡一起收起（D-主-73；卡講的是「剛到站」）。桌機行為不動 */
+  const uncomplete = (id: string) => {
+    if (shell === "mobile" && ui().completeCardFor === id) ui().setCompleteCardFor(null);
+    void ns().setCompleted(id, false);
+  };
+
   const complete = (node: NodeRow): boolean => {
     const finish = (cascade: boolean) => {
       void ns().setCompleted(node.id, true, cascade ? true : undefined);
-      if (shell === "desktop" && isTaskKind(node.kind)) ui().setCompleteCardFor(node.id);
+      if (isTaskKind(node.kind)) ui().setCompleteCardFor(node.id);
     };
     if (shell === "mobile") {
       const tr = ns().today.byId[node.id];
@@ -119,11 +126,12 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
   return {
     stamp(t) {
       const node = nodeOf(t);
-      if (!node) return false;
+      // 上一下還在寫：畫面是舊的，照它判會再蓋一次（nodeStore.isSettling；store 也會擋，這裡先擋免得播章動畫）
+      if (!node || isSettling(node.id)) return false;
       if (t.kind === "due") {
         // 締切浮出來的單發票：済蓋在票本身（status），沒有班次層的鎖
         if (node.status === "done") {
-          void ns().setCompleted(node.id, false);
+          uncomplete(node.id);
           return false;
         }
         return complete(node);
@@ -148,7 +156,7 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
         return false;
       }
       if (row.done) {
-        void ns().setCompleted(node.id, false);
+        uncomplete(node.id);
         return false;
       }
       return complete(node);

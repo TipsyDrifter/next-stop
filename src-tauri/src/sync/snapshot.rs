@@ -823,11 +823,10 @@ pub async fn cloud_restore(
 
     // 7. 重啟（不回來）。
     //
-    // **Android 的真相（工程評審 S-6，翻過 `tauri-2.11.2/src/process.rs:74-89`）**：`restart()` 在 Android
-    // 等於 `exit(0)`——`current_binary()` 回的是 `app_process64`，`Command::spawn` 必定失敗、只寫一行 log，
-    // 接著行程就結束了。**資料是安全的**（標記檔已經落地，主人重開 App 時 boot 的 `finish_restore` 會收尾），
-    // 但主人眼裡看到的是「App 閃退」，所以手機端的確認窗文案寫的是「App 會關閉，請重新打開」。
-    app.restart()
+    // `app.restart()` 在 Android 等於 `exit(0)`（`current_binary()` 回 `app_process64`、spawn 必敗），主人看到的是閃退；
+    // 所以走 ns-restart：Android 前景重啟任務（AVD 實測白畫面長度與平常冷啟動相同），其餘平台照舊 `app.restart()`。
+    // 標記檔已經落地，就算 plugin 沒接上退回只退出，下次開 App 時 boot 的 `finish_restore` 照樣收尾。
+    tauri_plugin_ns_restart::restart_app(app)
 }
 
 /// 匯出到檔案（契約 §4 `sync_export_to_file`）。

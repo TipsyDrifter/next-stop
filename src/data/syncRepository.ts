@@ -560,7 +560,7 @@ export class TauriSyncRepository implements SyncRepository {
     await writeSyncMeta(await getDb(), "notif_asked", "1");
   }
   /* ── v1.1.6 ── */
-  /** 成功不會回來（Rust `app.restart()`；Android＝`exit(0)`）；沿 `cloudRestore` 的手法，回來了就當失敗 */
+  /** 成功不會回來（Rust `restart_app`：Android 前景重啟、其餘 `app.restart()`）；沿 `cloudRestore` 的手法，回來了就當失敗 */
   async startOver(scope: StartOverScope): Promise<never> {
     await invoke<void>(SYNC_COMMANDS.startOver, { scope });
     throw new Error("重新開始的指令回來了但 App 沒有重新啟動，請手動重開私鐵手帳確認資料。");

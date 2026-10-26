@@ -23,6 +23,9 @@
  *   Esc＝關（IME 組字中不攔；別人已 preventDefault 不搶；手機殼裡只有最上面那一層吃）；list 型 ↑↓ Home End 在動作列之間移動。
  * 返回層：預設 kind "sheet"；疊在全螢幕頁（MFullPage／"full"）上的子 sheet 傳 `backKind="dialog"`（backStack.ts 檔頭的規矩），
  *   同時 z-index 抬到全螢幕頁之上（.is-over）。返回鍵＝這一層自己的取消（onClose），不發明新語意。
+ *   沒給 backKind、開的那一刻返回堆疊裡已有 "full" ⇒ 自動當 "dialog"（手機殼班反方評審 #5）：全螢幕頁裡掛的別線欄位
+ *   （例：詳情頁筆記列「＋ 記一則」開的捕捉面板）不知道自己疊在全螢幕頁上，靠呼叫端記得傳 dialog 會漏——返回鍵先關底下的頁、面板留著。
+ *   明寫 "sheet" 的照舊（要跟自己登記的 sheet 層合併的那幾處）。
  * `inline`：dev 樣本頁（Gallery）用——畫在父框裡（父框要 position: relative）、不 portal、不登記返回層、不搶焦點、沒有進場動畫。
  *
  * ── UI 丙-5（契約 §0 MSheet 那列）──
@@ -57,7 +60,7 @@ export interface MSheetProps {
   ariaLabel?: string;
   /** 返回層 id（預設自動產生）；同一層有好幾個實例時給同一個 id 會合併（backStack refcount） */
   backId?: string;
-  /** 返回層種類：一般 "sheet"；疊在全螢幕頁上的子 sheet 用 "dialog" */
+  /** 返回層種類：一般 "sheet"；疊在全螢幕頁上的子 sheet 用 "dialog"。不給＝看開的那一刻底下有沒有全螢幕頁（檔頭） */
   backKind?: "sheet" | "dialog";
   /** dev 樣本頁用：畫在父框裡、不 portal、不登記返回層、不搶焦點 */
   inline?: boolean;
@@ -91,12 +94,16 @@ export function MSheet({
   children,
   ariaLabel,
   backId,
-  backKind = "sheet",
+  backKind: backKindProp,
   inline = false,
   dismissable = true,
   className,
 }: MSheetProps) {
   const autoId = useId();
+  // 沒給種類：看開的那一刻底下有沒有全螢幕頁，定下來就不改（之後底下的頁關掉也一樣——中途換種類會重登記、序號跑掉）。
+  // 呼叫端給了就照給的走（含會隨狀態換的，例：售票口 MobileSheetHost）
+  const [autoKind] = useState<"sheet" | "dialog">(() => (backStack.list().some((l) => l.kind === "full") ? "dialog" : "sheet"));
+  const backKind = backKindProp ?? autoKind;
   const layerId = backId ?? `common.msheet${autoId}`;
   const titleId = `${autoId}-title`;
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -269,16 +276,42 @@ export interface MSheetItemProps {
   cut?: boolean;
   /** 呼叫端自己的微調 class（UI 丙-7 T5：時刻表「発車」列的朱字、右側小字排版）；加在 .ns-msheet-item 後面 */
   className?: string;
+  /**
+   * 「做不到、但點了說為什麼」（手機殼班 D-主-76；觸控沒有 hover，`disabled`＋title 的理由看不到）：
+   * 淡掉（.is-off）＋`aria-disabled`，**onClick 照常觸發**——呼叫端在裡面吐理由（toast）、不做事。↑↓ 仍停得到。
+   * 淡字樣式目前由用它的呼叫端帶（MobileTicketSheet → mobile/routemap/ticket-sheet.css）。
+   */
+  off?: boolean;
+  /** 讀屏名稱（列面只有短字時補全句，例：排程格「明天」→「推遲到明天 10/11」） */
+  ariaLabel?: string;
 }
 
 /** 動作清單型 sheet 的一列（52px 列＝--row-menu 手機值；左對齊、底線分隔） */
-export function MSheetItem({ onClick, children, danger = false, disabled = false, title, cut = false, className }: MSheetItemProps) {
+export function MSheetItem({
+  onClick,
+  children,
+  danger = false,
+  disabled = false,
+  title,
+  cut = false,
+  className,
+  off = false,
+  ariaLabel,
+}: MSheetItemProps) {
   return (
     <button
       type="button"
-      className={"ns-msheet-item" + (danger ? " is-danger" : "") + (cut ? " is-cut" : "") + (className ? " " + className : "")}
+      className={
+        "ns-msheet-item" +
+        (danger ? " is-danger" : "") +
+        (cut ? " is-cut" : "") +
+        (off ? " is-off" : "") +
+        (className ? " " + className : "")
+      }
       onClick={onClick}
       disabled={disabled}
+      aria-disabled={off || undefined}
+      aria-label={ariaLabel}
       title={title}
     >
       {children}

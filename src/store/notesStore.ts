@@ -55,6 +55,7 @@ import {
   type TodoLine,
 } from "../domain/notes";
 import type { NoteListItem, NotePatch, NotesQuery } from "../data/noteRepository";
+import { isMobileShell } from "../lib/shell";
 
 export type InboxRef = { kind: "note"; id: string } | { kind: "ticket"; id: string };
 
@@ -875,9 +876,10 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         if (preset) set({ capturePreset: preset });
         return;
       }
-      // 互斥（契約 §5.2）：有輸入或決定的卡片開著就不開（Esc 會打架）；指引疊層與快速跳轉先關再開
+      // 互斥（契約 §5.2）：有輸入或決定的卡片開著就不開（Esc 會打架）；指引疊層與快速跳轉先關再開。
+      // 手機完成卡不算（D-主-73：它不擋操作，返回鍵與 Esc 由返回堆疊分層處理，不會打架）
       const ui = useUiStore.getState();
-      if (ui.confirm || ui.routeDialog || ui.completeCardFor || ui.settingsOpen) return;
+      if (ui.confirm || ui.routeDialog || (ui.completeCardFor && !isMobileShell()) || ui.settingsOpen) return;
       if (ui.quickJumpOpen) ui.setQuickJumpOpen(false);
       if (ui.hotkeyGuideOpen) ui.setHotkeyGuideOpen(false);
       set({

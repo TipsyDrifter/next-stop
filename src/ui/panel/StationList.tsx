@@ -9,26 +9,21 @@
  *   - 沒有車站＝`EmptyState inline`（區段級一行；不另給鈕——新增列就在下面，同一動作同一處一個入口）。
  *   - × 常駐淡態（--dim），列 hover／聚焦轉實（panel.css `.panel .x`）。
  *   - 預定日換共用 `DateChip`（allowPast：預定日本來就能挑過去，舊 DateField 也沒有 min）。
+ * 手機殼班第四輪（D-主-84）：新增、到站章、刪除＋復原的寫入搬到 ./routeFlows（手機路線詳情頁的車站段同一支）；改名、預定日照舊直接 updateNode。
  */
 import { useMemo, useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
-import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
-import { useUiStore } from "../../store/uiStore";
 import { DateChip } from "../common/DateChip";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
 import { CommitInput, SectionRule, XIcon } from "./fields";
 import { fmtDateKey } from "./format";
+import { addStation, removeStation, toggleStationArrived } from "./routeFlows";
 
 export function StationList({ routeId }: { routeId: string }) {
   const stations = useNodeStore((s) => s.stations);
-  const createNode = useNodeStore((s) => s.createNode);
   const updateNode = useNodeStore((s) => s.updateNode);
-  const deleteNode = useNodeStore((s) => s.deleteNode);
-  const undoDelete = useNodeStore((s) => s.undoDelete);
-  const dayStartHour = useUiStore((s) => s.dayStartHour);
-  const showToast = useUiStore((s) => s.showToast);
 
   const list = useMemo(() => stations.filter((s) => s.parent_id === routeId), [stations, routeId]);
   const arrivedCount = list.filter((s) => s.arrived_on).length;
@@ -44,7 +39,7 @@ export function StationList({ routeId }: { routeId: string }) {
     if (!name || busy) return;
     setBusy(true);
     try {
-      const row = await createNode({ kind: "station", name, parentId: routeId });
+      const row = await addStation(routeId, name);
       if (row) setDraft("");
     } finally {
       setBusy(false);
@@ -52,22 +47,11 @@ export function StationList({ routeId }: { routeId: string }) {
   };
 
   const toggleArrived = (st: NodeRow) => {
-    const next = !st.arrived_on;
+    const next = toggleStationArrived(st);
     setFreshId(next ? st.id : null);
-    void updateNode(st.id, { arrived_on: next ? todayKey(dayStartHour) : null });
   };
 
-  const remove = (st: NodeRow) => {
-    void (async () => {
-      const ids = await deleteNode(st.id);
-      if (!ids.length) return;
-      showToast({
-        message: `已刪除車站「${st.name}」`,
-        actionLabel: "復原",
-        onAction: () => void undoDelete(),
-      });
-    })();
-  };
+  const remove = (st: NodeRow) => void removeStation(st);
 
   return (
     <section>

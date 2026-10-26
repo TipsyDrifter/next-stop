@@ -7,6 +7,7 @@
  *   取消左框線、送出右實心墨）。輸入沿今日頁建票列那條底線輸入（.m-nt-input）。
  * 空白不給送（送出鈕 disabled、Enter 不動）。送出後由呼叫端關面板（成功與否的收據也在呼叫端）。
  * IME 守門照建票列三道（isComposing／229／composition 旗標）；Esc＝關由 MSheet 接（外接鍵盤；組字中不攔）。
+ * 手機殼班第四輪：也給路線清單的「新增幹線…」「幹線改名…」用；新增幹線沒有對象名 ⇒ `name` 可省，標題只寫「新增幹線」。
  */
 import { useRef, useState, type KeyboardEvent } from "react";
 import { MSheet } from "../common/MSheet";
@@ -15,8 +16,8 @@ import "./mobile-polish.css";
 export interface MobileTextSheetProps {
   /** 面板標題（例「改名」「記乘務記錄」） */
   title: string;
-  /** 票名（標題列「改名・票名」） */
-  name: string;
+  /** 票名（標題列「改名・票名」）；省略＝標題只有 title */
+  name?: string;
   /** 預填（改名＝原票名；記乘務記錄＝空） */
   initial: string;
   placeholder?: string;
@@ -61,7 +62,7 @@ export function MobileTextSheet({
 
   return (
     <MSheet
-      title={`${title}・${name}`}
+      title={name ? `${title}・${name}` : title}
       backId={backId}
       onClose={onClose}
       foot={

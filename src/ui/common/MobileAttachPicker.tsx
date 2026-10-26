@@ -18,6 +18,8 @@
  *
  * 第四個用處（磨光⑤ B1「移動到…」，主線代改）：票卡 ⋯ 的搬遷。給 `excludeId` ＝搬遷模式——樹裡藏掉自己與整個子樹、
  * 只留挑得到的列與其群組頭；`currentNote`（「目前位置」）讓目前所在的父節點標出來、不可點。兩個都不給＝原本的行為。
+ * 手機殼班（契約 §一F）：搬遷模式一打開就進 `value.routeId` 那條路線的第二層（同桌機側板挑選器），「‹ 路線」照樣退回第一層。
+ *   第二輪：返回鍵在「一打開就在」的那層＝關掉（使用者只開了一層；同桌機 Esc），自己點進去的第二層照舊退回路線清單。
  *
  * 也 export 路線小圓牌 `RouteRoundel`／路線色點 `RouteDot`，手機各元件共用（契約 §2.3 沒有另開 util 檔的位子）。
  *
@@ -121,7 +123,13 @@ export function MobileAttachPicker({
   currentNote,
 }: MobileAttachPickerProps) {
   const { routes, loadTree } = useAttachOptions();
-  const [routeId, setRouteId] = useState<string | null>(null);
+  // 搬遷模式（手機殼班，契約 §一F）：一打開就在目前所在那條路線的第二層，「目前位置」那格看得到（同桌機 AttachPicker 的 expanded 初值）；
+  //   其他用處照舊從路線清單開始
+  const [routeId, setRouteId] = useState<string | null>(() =>
+    excludeId !== undefined && depth === "node" && value?.routeId && routes.some((r) => r.id === value.routeId)
+      ? value.routeId
+      : null,
+  );
   const [query, setQuery] = useState("");
   const [tree, setTree] = useState<AttachOption[] | null>(null);
   const [treeErr, setTreeErr] = useState(false);
@@ -132,13 +140,20 @@ export function MobileAttachPicker({
   const route = routeId ? (routes.find((r) => r.id === routeId) ?? null) : null;
   const q = query.trim().toLowerCase();
 
+  /**
+   * 一打開就在的那條路線（搬遷模式的初值；其他用處 null）：使用者只開了一層，返回鍵在這一層＝關掉挑選器（同桌機 Esc 一律收起），
+   * 不跳到一個沒看過的路線清單（手機殼班第二輪，反方評審 parity minor）。一按「‹ 路線」就清掉——之後自己點進去的照舊退回清單。
+   * 「‹ 路線」鈕本身照舊退回清單（同桌機的「‹ 所有路線」列）：它是換路線的唯一入口，改成關閉就挑不到別條路線了。
+   */
+  const [homeRouteId, setHomeRouteId] = useState(routeId);
   const backToRoutes = () => {
     setRouteId(null);
     setQuery("");
+    setHomeRouteId(null);
   };
   // 磨光① 返回層：登記在挑選器自己身上（「‹ 路線」那一層只有這裡知道；呼叫端都是「開著才掛」，所以一直 active）。
-  //   返回＝在第二層 ⇒ 同「‹ 路線」；在第一層 ⇒ 同「取消」
-  useBackLayer("notes.attachPicker", true, () => (route ? backToRoutes() : onClose()), backKind);
+  //   返回＝在第二層 ⇒ 同「‹ 路線」（一打開就在的那層＝同「取消」）；在第一層 ⇒ 同「取消」
+  useBackLayer("notes.attachPicker", true, () => (route && routeId !== homeRouteId ? backToRoutes() : onClose()), backKind);
 
   // 第二層：進某條路線就載它的樹
   useEffect(() => {

@@ -30,6 +30,17 @@ mod tray;
 #[cfg(desktop)]
 mod capture;
 
+// MCP 接口班（契約 2026-10-25 §3；D-主-90）：外部助理的本機端點（127.0.0.1＋金鑰），工具在 WebView 執行。
+// 手機不編：Claude 手機版連不到手機本機（D-主-96）。
+#[cfg(desktop)]
+mod mcp;
+
+/// `main.rs` 看到 `--mcp-stdio` 就叫這支（Claude 桌面版的 stdio 轉接；D-主-91），回傳行程結束碼。
+#[cfg(desktop)]
+pub fn run_mcp_stdio() -> i32 {
+    mcp::run_stdio_bridge()
+}
+
 // G0 金樣（`sync/foundation_golden.rs`，凍結）以 `crate::lf` 呼叫——`lf()` 搬家後在原位置留一個別名。
 #[cfg(test)]
 use migrations::lf;
@@ -136,6 +147,15 @@ pub fn run() {
     // （Rust 端沒有 handler），所以 `invoke_handler` 不加項；ACL 在 capabilities/mobile.json 的 `tt-notice:default`。
     let builder = builder.plugin(tauri_plugin_tt_notice::init());
 
+    // 手機殼班 B5：本地 plugin ns-restart，**兩殼都掛**；桌機是空殼。還原／重新開始的重啟改叫
+    // `tauri_plugin_ns_restart::restart_app()`（Android 走 Kotlin 前景重啟，其餘平台原樣 app.restart()）。
+    // JS 平常不叫；ACL 在 capabilities/mobile.json 的 `ns-restart:default`（沙盒原型由 devtools 觸發用）。
+    let builder = builder.plugin(tauri_plugin_ns_restart::init());
+
+    // MCP 接口班：外部助理端點。setup 讀 mcp.json、起 127.0.0.1 server（埠被占用只記錯，App 照開）。
+    #[cfg(desktop)]
+    let builder = builder.plugin(mcp::init());
+
     #[cfg(not(mobile))]
     let builder = builder
         // 順序實證＋回歸護欄：這支空 plugin 排在 sql 之後，setup 時 `DbInstances` 必已就緒；
@@ -197,6 +217,13 @@ pub fn run() {
             tray::tray_set_status,
             // ── 售票口線插槽 ──
             ticket::ticket_import_read,
+            // ── MCP 插槽（桌機限定；手機那份不加——mcp mod 不編）──
+            mcp::commands::mcp_status,
+            mcp::commands::mcp_set_access,
+            mcp::commands::mcp_rotate_token,
+            mcp::commands::mcp_register_tools,
+            mcp::commands::mcp_reply,
+            mcp::commands::mcp_recent,
         ]);
 
     // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十四支（清單與桌機那份逐字相同）。

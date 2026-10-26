@@ -886,8 +886,8 @@ pub async fn backup_restore(app: AppHandle, path: String) -> Result<(), String> 
         eprintln!("[backup] 還原後收尾沒做完（不影響資料，重啟後會自動補 WAL）：{e}");
     }
 
-    // ⑦ 重啟（不會回來）
-    app.restart()
+    // ⑦ 重啟（不會回來）；Android 走 ns-restart 前景重啟（手機殼班 B5），其餘平台＝app.restart()
+    tauri_plugin_ns_restart::restart_app(&app)
 }
 
 /// 讀出目前 DB 的 `backup_%` 設定（走 plugin-sql 那條 pool，不另開連線搶鎖）。

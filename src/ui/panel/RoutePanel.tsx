@@ -14,16 +14,19 @@
  *   - C2「所屬幹線」欄（E12，使用者 10-22 定做）：幹線 ≥2 條才畫（只有一條沒得換）；選了就 `moveRouteToLine`
  *     （接在新幹線最後＋toast「已移到幹線「X」」＋復原）。書封的分組在 store refresh 後立刻跟著變。
  *   - 路線的編輯全在這裡（規範 §3.2「一個資料欄只在一個地方編」：名稱、代碼、色、幹線）；書封 ✎ 開的也是這個側板（C1／C6）。
+ * 手機殼班第四輪（D-主-84）：刪除路線的確認、切走、復原搬到 ./routeFlows 的 requestDeleteRoute（手機路線詳情頁同一支）。
+ *   代碼欄改跟新增表單同一條規矩（routeFlowRules：打字轉大寫・最多 4 字・撞到別條路線淡提示不擋）——
+ *   原本側板照打照存（小寫、超長都進得去），新增與編輯兩套標準；手機詳情頁同步。
  */
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
-import { useUiStore } from "../../store/uiStore";
-import { collectDeleteHints, withDeleteHints } from "../../lines/deleteHints";
 import { ColorPicker, routePresetColor } from "../common/ColorPicker";
 import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, SectionRule } from "./fields";
 import { Choice } from "./Choice";
 import { moveRouteToLine } from "./moveRouteToLine";
+import { requestDeleteRoute } from "./routeFlows";
+import { codeInput, codeTakenByOther, codeTakenNote, codeValue } from "./routeFlowRules";
 import { StationList } from "./StationList";
 import { LineRows } from "./TaskFields";
 
@@ -32,55 +35,17 @@ const NULL_ROUTE_COLOR = routePresetColor(4);
 
 export function RoutePanel({ route }: { route: NodeRow }) {
   const updateNode = useNodeStore((s) => s.updateNode);
-  const deleteNode = useNodeStore((s) => s.deleteNode);
-  const undoDelete = useNodeStore((s) => s.undoDelete);
-  const openRoute = useNodeStore((s) => s.openRoute);
-  const askConfirm = useUiStore((s) => s.askConfirm);
-  const showToast = useUiStore((s) => s.showToast);
-  const setZoom = useUiStore((s) => s.setZoom);
-  const select = useUiStore((s) => s.select);
 
   const lines = useNodeStore((s) => s.lines);
+  const routes = useNodeStore((s) => s.routes);
 
   const color = route.color ?? NULL_ROUTE_COLOR;
   const codeRef = useRef<HTMLDivElement>(null);
+  // 代碼欄的草稿（CommitInput 回報）：重複提示跟著打字走
+  const [codeDraft, setCodeDraft] = useState(route.code ?? "");
+  const codeTaken = codeTakenByOther(routes, route.id, codeDraft);
 
-  const removeRoute = async () => {
-    // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
-    const hints = await collectDeleteHints(
-      route,
-      Object.keys(useNodeStore.getState().tree.byId).filter((id) => id !== route.id),
-    );
-    askConfirm({
-      title: `刪除路線「${route.name}」？`,
-      body: withDeleteHints("底下的支線、列車、車票與車站會一起刪掉（6 秒內可復原）。", hints),
-      confirmLabel: "刪除路線",
-      danger: true,
-      onConfirm: () =>
-        void (async () => {
-          const ids = await deleteNode(route.id);
-          if (!ids.length) return;
-          const ns = useNodeStore.getState();
-          if (ns.routeId === route.id) {
-            const next = ns.routes.find((r) => r.id !== route.id) ?? null;
-            await openRoute(next ? next.id : null);
-            setZoom(null);
-            select(null);
-          }
-          showToast({
-            message: `已刪除路線「${route.name}」`,
-            actionLabel: "復原",
-            onAction: () =>
-              void (async () => {
-                await undoDelete();
-                await openRoute(route.id);
-                setZoom(null);
-                select(null);
-              })(),
-          });
-        })(),
-    });
-  };
+  const removeRoute = () => void requestDeleteRoute(route);
 
   return (
     <div>
@@ -123,11 +88,15 @@ export function RoutePanel({ route }: { route: NodeRow }) {
           <div ref={codeRef}>
             <CommitInput
               value={route.code ?? ""}
-              onCommit={(v) => void updateNode(route.id, { code: v || null })}
+              onCommit={(v) => void updateNode(route.id, { code: codeValue(v) })}
+              transform={codeInput}
+              onDraftChange={setCodeDraft}
+              attrs={{ maxLength: 4, spellCheck: false, autoCapitalize: "characters" }}
               ariaLabel="路線代碼"
               placeholder="如 E1"
               className="code"
             />
+            {codeTaken && <p className="ns-note mt-1.5">{codeTakenNote(codeDraft)}</p>}
           </div>
         </FieldRow>
 

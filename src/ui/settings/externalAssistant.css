@@ -1,0 +1,104 @@
+/* ═══════════════════════════════════════════════════════
+ * 設定〈外部助理〉籤（MCP 接口班；`ExternalAssistantTab.tsx`）——**只放排版**，顏色一律 token。
+ * 視覺真相＝`prototypes/MCP-外部助理設定.html` 方案 C（`.ns-ai-*` 逐字搬過來）。
+ * 形狀全借既有語彙：三段＝共用 Segmented（tabs.css `.ns-seg--sm`）、清單／時刻／路徑／動作列＝settings.css 的
+ * `.ns-bk-list`／`.ns-bk-time`／`.ns-bk-path`／`.ns-bk-actions`、撕線分段＝`.ns-sy-pair`、小字赭＝`--ns-warn-text`。
+ * 檔尾另有手機「更多」頁那一段（`.m2-ai`）。
+ * ═══════════════════════════════════════════════════════ */
+
+.ns-ai {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+  /* 小字赭：同備份／同步籤的那一階（settings.css 有說明為什麼要混本文墨） */
+  --ns-warn-text: color-mix(in srgb, var(--color-late) 74%, var(--color-ink));
+}
+.ns-ai > section { flex: none; }
+.ns-ai .ns-note.is-fail,
+.ns-ai .ns-bk-err { color: var(--ns-warn-text); }
+
+/* ── ① 五個功能：一列＝名稱＋淡字「能做什麼」（左）＋三段（右）；列間 1px dashed（同備份清單） ── */
+.ns-ai-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.ns-ai-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 2px;
+  border-bottom: 1px dashed var(--color-line);
+  min-width: 0;
+}
+.ns-ai-row:last-child { border-bottom: 0; }
+.ns-ai-txt { flex: 1 1 auto; min-width: 0; }
+.ns-ai-name {
+  font-size: 13px; /* 字面值：13px；桌機字階沒有這一階（原型逐字，同 .ns-bk-when.is-none） */
+  line-height: 20px;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+}
+.ns-ai-alias {
+  margin-left: 6px;
+  font-size: var(--fs-xs);
+  letter-spacing: .04em;
+  color: var(--color-ink-faint);
+}
+.ns-ai-can {
+  display: block;
+  font-size: var(--fs-xs);
+  line-height: 18px;
+  letter-spacing: .04em;
+  color: var(--color-ink-faint);
+}
+.ns-ai-can b { font-weight: 500; color: var(--color-ink-soft); }
+.ns-ai-ctl { flex: none; margin-left: auto; }
+
+/* ── ② 連線：兩列「標籤｜值｜小鈕」 ── */
+.ns-ai-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 10px 0 14px;
+}
+.ns-ai-kv .techo-label { line-height: 24px; }
+.ns-ai-kv .ns-bk-actions { gap: 6px; }
+.ns-ai-key {
+  font-family: var(--font-latin);
+  font-size: var(--fs-sm);
+  letter-spacing: .08em;
+  color: var(--color-ink);
+}
+.ns-ai .ns-bk-err { margin-top: 2px; }
+
+/* 複製後的一瞬回饋：鈕字換「已複製」1.6 秒（不另開 toast）。兩個字疊在同一格，鈕寬不跳 */
+.ns-ai .ns-btn.is-done { border-color: var(--sel-fg); color: var(--sel-fg); }
+.ns-ai-copy { display: inline-grid; }
+.ns-ai-copy > span { grid-area: 1 / 1; text-align: center; }
+.ns-ai-copy > .is-off { visibility: hidden; }
+
+/* ── ③ 最近紀錄：沿 .ns-bk-list；被擋下／出錯的一行＝赭 ── */
+.ns-ai-log li { padding: 4px 2px; }
+.ns-ai-log .ns-bk-time {
+  min-width: 46px;
+  font-size: 12px; /* 字面值：原型逐字 */
+  color: var(--color-ink-soft);
+}
+.ns-ai-log-t {
+  min-width: 0;
+  font-size: 12.5px; /* 字面值：原型逐字（同 .ns-bk-time 那一階） */
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+}
+.ns-ai-log li.is-denied .ns-ai-log-t,
+.ns-ai-log li.is-denied .ns-bk-time { color: var(--ns-warn-text); }
+.ns-ai-log-empty { margin-top: 4px; }
+
+/* ═══ 手機「更多」頁：〈外部助理〉＝一段 .m2-block，標籤＋一句 .m2-note，不可點（沿 .m2-row-link 上緣那道虛線） ═══ */
+[data-shell="mobile"] .m2-ai {
+  margin-top: 10px;
+  border-top: 1px dashed var(--color-dash);
+}
+[data-shell="mobile"] .m2-ai .m2-block-label { margin-bottom: 4px; }

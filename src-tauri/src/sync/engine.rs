@@ -6252,7 +6252,7 @@ pub(crate) async fn start_over_local(
     Ok(())
 }
 
-/// 重新開始（契約 §2.3；`sync_start_over`）。成功**不會回來**（`app.restart()`；Android＝`exit(0)`）。
+/// 重新開始（契約 §2.3；`sync_start_over`）。成功**不會回來**（`restart_app`：Android 前景重啟、其餘 `app.restart()`）。
 ///
 /// 失敗語意（契約 §0）：留底沒成功 ⇒ Err、**這台一個字都沒動**；清資料的交易失敗 ⇒ 回滾、Err
 /// （此時只多了一份留底）。任何一步都不會留下「資料清了、卻沒有任何一份備份」的狀態。
@@ -6329,7 +6329,7 @@ pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), St
             st.set_gate(None);
             st.clear_bucket_meta_done();
             // 5. 重啟（不回來）
-            app.restart()
+            tauri_plugin_ns_restart::restart_app(app)
         }
         StartOverScope::AllDevices => {
             // 1. 守門
@@ -6363,7 +6363,7 @@ pub async fn start_over(app: &AppHandle, scope: StartOverScope) -> Result<(), St
             // 7. 進程旗標
             st.set_gate(None);
             // 8. 重啟（不回來）；重啟後 `runCycle` 在 restore_pending 時不推不拉，boot 的 `finishRestore` 收尾
-            app.restart()
+            tauri_plugin_ns_restart::restart_app(app)
         }
     }
 }

@@ -23,6 +23,7 @@ import { Segmented, type SegmentedOption } from "../common/Segmented";
 import { BackupTab } from "./BackupTab";
 import { HotkeysTab } from "./HotkeysTab";
 import { SyncTab } from "./SyncTab";
+import { ExternalAssistantTab } from "./ExternalAssistantTab";
 import { AutostartRow } from "../notes/desktop";
 import { lineSettingsLinks } from "../../lines/runtime";
 import "../common/overlay.css";
@@ -46,12 +47,13 @@ const WEEK_STARTS: SegmentedOption<"1" | "0">[] = [
   { value: "0", label: "星期日" },
 ];
 
-/** 四籤；日後還在施工的籤可以掛 `disabled`＋`why`（Tabs 會淡出並在 title 說為什麼） */
+/** 五籤（第五籤〈外部助理〉＝MCP 接口班）；日後還在施工的籤可以掛 `disabled`＋`why`（Tabs 會淡出並在 title 說為什麼） */
 const TABS: TabItem<SettingsTab>[] = [
   { key: "general", label: "一般" },
   { key: "backup", label: "備份與還原" },
   { key: "hotkeys", label: "快捷鍵" },
   { key: "sync", label: "同步" },
+  { key: "assistant", label: "外部助理" },
 ];
 
 export function SettingsPanel() {
@@ -100,6 +102,7 @@ function SettingsForm() {
         {tab === "backup" && <BackupTab />}
         {tab === "hotkeys" && <HotkeysTab />}
         {tab === "sync" && <SyncTab />}
+        {tab === "assistant" && <ExternalAssistantTab />}
       </div>
     </DialogShell>
   );

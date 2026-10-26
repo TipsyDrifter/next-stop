@@ -45,6 +45,8 @@ import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } fr
 import MobileSync from "./MobileSync";
 import { useBackLayer } from "./backStack";
 import { lineSettingsLinks } from "../../lines/runtime";
+// 〈外部助理〉那一段的兩條排版規則跟桌機籤放在同一支 css（MCP 接口班的新檔，不動共用的 mobile.css）
+import "../settings/externalAssistant.css";
 // 版本號取 package.json 的 version（tsconfig resolveJsonModule 已開）——發版只改一處，這頁自動跟。
 // ⚠ 發版時 package.json 的 version 要與 tauri.conf.json 一起改成 1.1.0（WP3／整合席）。
 import { version as APP_VERSION } from "../../../package.json";
@@ -184,6 +186,12 @@ export default function MobileMore() {
           <span className="m2-planned-name">同步</span>
           <span className="m2-planned-note">{SYNC_PHASE_LABEL[syncPhase]}</span>
         </button>
+
+        {/* MCP 接口班（D-主-96）：手機不開外部助理——一段標籤＋一句話，不可點、沒有開關（原型方案 C 的手機段） */}
+        <div className="m2-block m2-ai">
+          <span className="m2-block-label">外部助理</span>
+          <p className="m2-note">外部助理只能在桌機上連。手機的資料會同步過去。</p>
+        </div>
 
         {/* 磨光③ 0-2：各線的設定住在自己頁面時在這裡指路；沒有任何線填＝什麼都不畫 */}
         {settingsLinks.length > 0 &&

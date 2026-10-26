@@ -293,7 +293,19 @@ interface NodeStore {
   clearRunTime: (id: string, dueOn: string) => Promise<ActionResult>;
   searchNodes: (query: string) => Promise<NodeRow[]>;
   loadWorkLogs: (nodeId: string) => Promise<void>;
-  addWorkLog: (nodeId: string, body: string) => Promise<void>;
+  /** 記一行乘務記錄；回寫進去了沒（空白＝false、失敗寫 error 列並回 false）——手機「記乘務記錄」與完成卡靠它判成功（手機殼班） */
+  addWorkLog: (nodeId: string, body: string) => Promise<boolean>;
+}
+
+/**
+ * 正在蓋済／取消済／運休的節點（手機殼班反方評審 #1）。呼叫端都是讀畫面上的狀態決定「蓋」還是「撤」，
+ * 上一筆寫完＋重載完之前畫面是舊的——連按兩下會照舊狀態再蓋一次；定期券第一下已把 scheduled_on 推到下一班，
+ * 第二下就蓋到下一班頭上（多一筆済事件、撤也撤不乾淨）。同一個節點同時只放一筆，後到的不理；重載完畫面才是真的，再按才算數。
+ */
+const settling = new Set<string>();
+/** 這個節點的蓋済／運休還在寫（流程開頭先問，免得播章動畫、開完成卡卻什麼都沒寫） */
+export function isSettling(id: string): boolean {
+  return settling.has(id);
 }
 
 function message(e: unknown): string {
@@ -594,12 +606,16 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   async setCompleted(id, done, cascade) {
+    if (settling.has(id)) return;
+    settling.add(id);
     try {
       // dateKey／dayStartHour 帶進去：定期券的済蓋在「今天這一班」上，日界線要與畫面同一把尺
       await nodeRepo.setCompleted(id, done, { cascade, dateKey: currentDateKey(), dayStartHour: dayStart() });
       await get().refresh();
     } catch (e) {
       set({ error: message(e) });
+    } finally {
+      settling.delete(id);
     }
   },
 
@@ -614,12 +630,17 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   async skipOccurrence(id, skip, dueOn) {
+    // 同 setCompleted：上一筆還在寫＝不理（不算失敗、不吐字）
+    if (settling.has(id)) return { ok: true };
+    settling.add(id);
     try {
       await nodeRepo.skipOccurrence(id, skip, currentDateKey(), dayStart(), dueOn);
       await get().refresh();
       return { ok: true };
     } catch (e) {
       return { ok: false, reason: message(e) };
+    } finally {
+      settling.delete(id);
     }
   },
 
@@ -666,12 +687,15 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   },
 
   async addWorkLog(nodeId, body) {
-    if (!body.trim()) return;
+    if (!body.trim()) return false;
     try {
       await nodeRepo.addWorkLog(nodeId, body);
-      await get().loadWorkLogs(nodeId);
     } catch (e) {
       set({ error: message(e) });
+      return false;
     }
+    // 寫進去就算成功：重載清單失敗由 loadWorkLogs 自己寫 error 列，不改這次的結果
+    await get().loadWorkLogs(nodeId);
+    return true;
   },
 }));

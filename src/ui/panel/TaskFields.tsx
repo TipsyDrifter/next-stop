@@ -1,5 +1,6 @@
 /**
  * 節點面板（UI Flow 2.1 · D1）：列車／車廂＝完整任務欄位＋工作日誌＋操作列；車票＝名稱・（臨時車票才有的）路線標籤・執行日・検印蓋章・工作日誌；支線＝名稱・描述・轉為列車。
+ * 列車／車廂／車票的票頭下也有「概要」（D-主-79，同支線那段；手機詳情頁同一個欄位）。
  * M3 ③ WP3 補到車票面板的兩段：**路線標籤選擇器**（a18–a21；只對 parent_id 為 null 的臨時車票顯示，
  * 走 nodeStore.setRouteTag，票根立刻換成該路線的色）與**工作日誌**（D-③-4 甲，直接掛既有 WorkLogList）。
  * 欄位 blur／Enter 才寫回（updateNode）；狀態改 done 走 setCompleted（父鏈重算；有未完成子項先問一次「連同 N 個子項？」），
@@ -13,16 +14,7 @@
  * 已知取捨：面板內改 done 不彈完成卡（心情／日誌就在同一面板）；車廂不給「轉為支線」（支線只能掛路線／支線下，setKind 必擋）。
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
-import {
-  KIND_LABEL,
-  isTaskKind,
-  parseRule,
-  type Mood,
-  type NodeKind,
-  type NodeRow,
-  type NodeStatus,
-  type Priority,
-} from "../../domain";
+import { KIND_LABEL, isTaskKind, parseRule, type Mood, type NodeRow } from "../../domain";
 import { autoProgress, descendantCount, openDescendantCount, serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
@@ -46,19 +38,10 @@ import { WorkLogList } from "./WorkLogList";
 import { useMoveTo } from "./MoveTo";
 import { lineNodeFields } from "../../lines/runtime";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
+import { changeStatusFlow, convertKindFlow, openKidsOf, panelStampFlow } from "../outline/nodeFlows";
+import { PRIORITY_OPTIONS, mdwText, stampViewOf, statusChoices, teikiState } from "./panelRules";
 
-const STATUS_OPTIONS: { value: NodeStatus; label: string }[] = [
-  { value: "todo", label: "未開始" },
-  { value: "doing", label: "進行中" },
-  { value: "done", label: "已完成" },
-  { value: "paused", label: "途中下車" },
-];
-
-const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
-  { value: "low", label: "低" },
-  { value: "mid", label: "中" },
-  { value: "high", label: "高" },
-];
+/* 現況／優先順序的選項、定期券三態、検印怎麼畫：手機詳情頁同一份（./panelRules）；寫入流程在 outline/nodeFlows（D-主-82） */
 
 /** 路線標籤選擇器的「無路線」哨兵值（Segmented 的 value 必須是 string，不能用 null 當選項） */
 const NO_ROUTE = "__none__";
@@ -166,9 +149,10 @@ export function LineRows({ node, section }: { node: NodeRow; section?: "status" 
 }
 
 function LockedDate({ value }: { value: string | null }) {
+  // 日期字照 panelRules.mdwText「10/26（週一）」（同検印段頭的本班日、手機詳情頁；第三輪——原本印原始的 2026-10-26）
   return (
     <div className="date">
-      <span className="latin">{value ?? "—"}</span>
+      <span className="latin">{value ? mdwText(value) : "—"}</span>
       <span className="empty" style={{ marginTop: 0 }}>
         依重複設定排班</span>
     </div>
@@ -195,13 +179,31 @@ function ScheduledChip({ node }: { node: NodeRow }) {
   );
 }
 
-/** 改名／刪除（F3 語彙）／轉型（setKind）——三個面板共用 */
+/**
+ * 「概要」段（description；blur 寫回、清空＝null）：支線起家，D-主-79 補到列車／車廂／車票——手機詳情頁一直都能看能改，
+ * 桌機缺的是編輯入口（雙端同等）。版位一律在票頭正下方。
+ */
+function SummarySection({ node, ariaLabel, placeholder }: { node: NodeRow; ariaLabel: string; placeholder: string }) {
+  const updateNode = useNodeStore((s) => s.updateNode);
+  return (
+    <>
+      <SectionRule title="概要" />
+      <CommitTextarea
+        value={node.description ?? ""}
+        onCommit={(v) => void updateNode(node.id, { description: v || null })}
+        ariaLabel={ariaLabel}
+        placeholder={placeholder}
+      />
+    </>
+  );
+}
+
+/** 改名／刪除（F3 語彙）／轉型（setKind；nodeFlows.convertKindFlow，手機詳情頁同一支）——三個面板共用 */
 function useNodeActions() {
   const tree = useNodeStore((s) => s.tree);
   const updateNode = useNodeStore((s) => s.updateNode);
   const deleteNode = useNodeStore((s) => s.deleteNode);
   const undoDelete = useNodeStore((s) => s.undoDelete);
-  const setKind = useNodeStore((s) => s.setKind);
   const askConfirm = useUiStore((s) => s.askConfirm);
   const showToast = useUiStore((s) => s.showToast);
   const select = useUiStore((s) => s.select);
@@ -237,20 +239,13 @@ function useNodeActions() {
     }
   };
 
-  const convert = async (node: NodeRow, kind: NodeKind) => {
-    const r = await setKind(node.id, kind);
-    if (!r.ok) showToast({ message: r.reason ?? `無法轉為${KIND_LABEL[kind]}` }, 4000);
-  };
-
-  return { updateNode, remove, convert };
+  return { updateNode, remove, convert: convertKindFlow };
 }
 
 /* ───────────── 列車／車廂 ───────────── */
 
 function TaskPanel({ node }: { node: NodeRow }) {
   const tree = useNodeStore((s) => s.tree);
-  const setCompleted = useNodeStore((s) => s.setCompleted);
-  const askConfirm = useUiStore((s) => s.askConfirm);
   // 只數主人手寫的那幾則；系統事件（発券／入鋏／済）不算「記録」（整合席：WP4 開的接口）
   const logCount = useNodeStore(
     (s) => s.workLogs[node.id]?.filter((l) => l.event === null).length ?? 0,
@@ -265,10 +260,10 @@ function TaskPanel({ node }: { node: NodeRow }) {
    * **退役的定期券（status='done'）不算**——它已經不發車了，再藏起「已完成」那一格會讓 Segmented 一格都不亮、
    * 検印區也讀不到班次（listCurrentOccurrences 跳過 done 節點），整個側板變死區（M3 ④ 評審 should-5）。
    */
-  const retired = parseRule(node.repeat_rule) !== null && done;
-  const teiki = parseRule(node.repeat_rule) !== null && !done;
+  const { teiki, retired } = teikiState(node);
   /** 掛著規則就不給直改執行日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
   const lockedDate = teiki || retired;
+  const status = statusChoices(node);
   const auto = autoProgress(tree, node.id);
   const total = descendantCount(tree, node.id);
   const doneCount = total - openDescendantCount(tree, node.id);
@@ -276,31 +271,9 @@ function TaskPanel({ node }: { node: NodeRow }) {
   const carsWord =
     total && (tree.childrenOf[node.id] ?? []).every((id) => tree.byId[id]?.kind === "ticket") ? "車票" : "子項";
 
-  const changeStatus = (next: NodeStatus) => {
-    if (next === node.status) return;
-    if (next === "done") {
-      const open = openDescendantCount(tree, node.id);
-      if (open > 0) {
-        askConfirm({
-          title: `連同 ${open} 個未完成子項一起完成？`,
-          body: "跟著一起完成的車票，不會自動產生下一張。",
-          confirmLabel: "一起完成",
-          onConfirm: () => void setCompleted(node.id, true, true),
-        });
-      } else {
-        void setCompleted(node.id, true);
-      }
-      return;
-    }
-    if (done) {
-      void (async () => {
-        await setCompleted(node.id, false);
-        if (next !== "todo") await updateNode(node.id, { status: next });
-      })();
-      return;
-    }
-    void updateNode(node.id, { status: next });
-  };
+  // 現況改值（nodeFlows.changeStatusFlow，手機詳情頁同一支）：未完成子孫數也同一支 openKidsOf——不在目前路線樹裡
+  // （從今日點開、路線圖開著別條線）數不清就先問（D-主-83；原本數樹、數到 0 就不問直接完成）
+  const changeStatus = (next: NodeRow["status"]) => changeStatusFlow(node, next, openKidsOf(node));
 
   return (
     <div>
@@ -316,17 +289,14 @@ function TaskPanel({ node }: { node: NodeRow }) {
         }
       />
 
+      <SummarySection node={node} ariaLabel={`${KIND_LABEL[node.kind]}概要`} placeholder="補一句要做到什麼程度……" />
+
       <SectionRule title="状態" />
       <div className="fields">
         <FieldRow label="現況">
           {/* 定期券：「已完成」＝退役（v1 不從這裡做），済要蓋在下面検印欄的那一班上 */}
-          <Choice
-            value={node.status}
-            options={teiki ? STATUS_OPTIONS.filter((o) => o.value !== "done") : STATUS_OPTIONS}
-            onChange={changeStatus}
-            ariaLabel="狀態"
-          />
-          {teiki && <p className="empty">定期券：在検印欄蓋班次</p>}
+          <Choice value={node.status} options={status.options} onChange={changeStatus} ariaLabel="狀態" />
+          {status.note && <p className="empty">{status.note}</p>}
         </FieldRow>
 
         <FieldRow label="優先順序">
@@ -381,7 +351,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
       {retired && (
         <>
           <SectionRule title="検印" />
-          <p className="empty">定期券已停用——更改狀態就會重新排班</p>
+          <p className="empty">{stampViewOf(node, undefined).retiredNote}</p>
         </>
       )}
 
@@ -508,7 +478,6 @@ function MoodLights({ value, onChange }: { value: Mood | null; onChange: (m: Moo
 /* ───────────── 車票 ───────────── */
 
 function TicketPanel({ node }: { node: NodeRow }) {
-  const setCompleted = useNodeStore((s) => s.setCompleted);
   const routes = useNodeStore((s) => s.routes);
   const setRouteTag = useNodeStore((s) => s.setRouteTag);
   // 只數主人手寫的那幾則；系統事件（発券／入鋏／済）不算「記録」（整合席：WP4 開的接口）
@@ -519,22 +488,22 @@ function TicketPanel({ node }: { node: NodeRow }) {
   const { updateNode, remove } = useNodeActions();
   const move = useMoveTo(node);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
-  const done = node.status === "done";
   /**
    * 定期券只認 parseRule（legacy 自由文字票＝乘車券）；検印區換成「本班：済／運休」。
    * 退役的定期券（status='done'，cascade 帶下來的）走**一般車票**那一套：済章蓋著、再點一次＝取消完成
    * ＝解除退役重新排班（沿既有反悔路徑），否則検印讀不到班次、按下去是空更新（M3 ④ 評審 should-5）。
    */
-  const retired = parseRule(node.repeat_rule) !== null && done;
-  const teiki = parseRule(node.repeat_rule) !== null && !done;
+  const { teiki, retired } = teikiState(node);
   /** 掛著規則就不給直改執行日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
   const lockedDate = teiki || retired;
+  /** 非定期券（含退役的）的検印＝済章；章旁那句、退役指路句與手機詳情頁同一份（panelRules.stampViewOf） */
+  const stampView = stampViewOf(node, undefined);
+  const done = stampView.done;
   // 只有「剛蓋」才播蓋章動畫（原型 .fresh）；取消完成時不播
   const [fresh, setFresh] = useState(false);
   const stamp = () => {
-    const next = !done;
-    setFresh(next);
-    void setCompleted(node.id, next);
+    const r = panelStampFlow(node, undefined);
+    if (r !== null) setFresh(r);
   };
 
   /**
@@ -566,6 +535,8 @@ function TicketPanel({ node }: { node: NodeRow }) {
             : undefined
         }
       />
+
+      <SummarySection node={node} ariaLabel="車票概要" placeholder="補一句要做到什麼程度……" />
 
       {isTemp && (
         <>
@@ -640,7 +611,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
           <div className={`stamp-row ${done ? "stamped" : ""} ${fresh ? "fresh" : ""}`}>
             <button
               type="button"
-              aria-label={done ? "取消完成" : "蓋章完成"}
+              aria-label={stampView.action}
               aria-pressed={done}
               title={done ? "再按一次取消完成" : "蓋章：完成／取消"}
               onClick={stamp}
@@ -650,19 +621,13 @@ function TicketPanel({ node }: { node: NodeRow }) {
               <span className="seal">済</span>
             </button>
             <span className="meta">
-              {done ? (
-                <>
-                  已完成
-                  {node.completed_at && <span className="latin" style={{ display: "block" }}>{fmtDateTime(node.completed_at)}</span>}
-                </>
-              ) : (
-                "點一下蓋章"
-              )}
+              {stampView.meta}
+              {done && node.completed_at && <span className="latin" style={{ display: "block" }}>{fmtDateTime(node.completed_at)}</span>}
             </span>
           </div>
           {/* 退役的定期券：済章就在上面，取消它＝解除退役、引擎重新排班（M3 ④ 評審 should-5）。
               車票面板沒有狀態 Segmented，指路就指到這裡唯一那個動作上。 */}
-          {retired && <p className="empty">定期券已停用——取消済章就會重新排班</p>}
+          {stampView.retiredNote && <p className="empty">{stampView.retiredNote}</p>}
         </>
       )}
 
@@ -708,13 +673,7 @@ function BranchPanel({ node }: { node: NodeRow }) {
         }
       />
 
-      <SectionRule title="概要" />
-      <CommitTextarea
-        value={node.description ?? ""}
-        onCommit={(v) => void updateNode(node.id, { description: v || null })}
-        ariaLabel="支線說明"
-        placeholder="這條支線負責什麼……"
-      />
+      <SummarySection node={node} ariaLabel="支線概要" placeholder="這條支線負責什麼……" />
 
       {/* 別線欄位列（插槽 nodeFields）：概要下自成一塊；沒有線登記支線欄位＝不出 DOM */}
       {lineFieldsFor(node).length > 0 && (

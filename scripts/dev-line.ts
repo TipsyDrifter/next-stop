@@ -43,7 +43,7 @@ const SLUG_SEATS: readonly (readonly [RegExp, DevLine])[] = [
   [/^(?:notes|diary)-/, "notes"],
   [/^(?:timetable|full-search)-/, "timetable"],
   [/^(?:ticket|mcp)-/, "ticket"],
-  [/^core-/, "core"],
+  [/^(?:core|sync)-/, "core"],
 ];
 
 const BRANCH_PREFIX_RE = /^(?:feat|claude)\/(.+)$/;

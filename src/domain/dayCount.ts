@@ -7,6 +7,7 @@
  * 「済＋運休」＝結清；left 為 0 且 total > 0 ⇒ 全部結清。
  *
  * 純函式、不碰 store／DOM；各殼把自己的列轉成 `DayCountItem` 再丟進來（判準函式各殼已有，這裡不重寫）。
+ * 手機殼班（接縫 #104）：誤點數 `lateCount` 也在這裡（檔尾），今日頁與行程表同一支。
  */
 
 /** 一張票在這一天的結局：done＝済；settled＝済或運休（done 一定 settled） */
@@ -45,4 +46,54 @@ export function dayCountParts(c: DayCount): { done: number; total: number; tail:
 export function dayCountText(c: DayCount): string {
   const p = dayCountParts(c);
   return p ? `完成 ${p.done}/${p.total}・${p.tail}` : "";
+}
+
+/* ───────────── 誤點數（手機殼班；接縫 #104）───────────── */
+
+/**
+ * 誤點數也收在這把尺上：之前今日頁數「誤點區有幾列」（今天補済的那張還留在原位，也被算進去），
+ * 行程表的誤點列數「還沒交代的」——同一天兩頁差一張。收成一支：**誤點＝還沒交代**（済或運休就不算，同上面 left 的口徑）。
+ * 今日頁誤點區裡今天剛補済的票照舊留在原位（結局上前、來歷退後），只是不再被數成誤點。
+ */
+
+/** 今日切片一列的子集（TodayRow 直接吃得進來；測試可手造） */
+export interface LateCountRow {
+  bucket: "late" | "due" | "today";
+  status: string;
+  scheduled_on: string | null;
+  due_on: string | null;
+  occurrence: { status: string; due_on: string } | null;
+}
+
+export interface LateCount {
+  /** 還沒交代的誤點張數 */
+  count: number;
+  /** 這些列「有效日」的最小值（跳到最早那天用）；count 為 0 ⇒ null */
+  earliest: string | null;
+}
+
+/**
+ * 誤點數：今日切片裡 `bucket !== "today"`、**沒交代**（＝useTodayController `isSettledRow` 取反：
+ * `occurrence === null && status !== "done"`；這裡不 import React 檔，所以照寫一份）的列。
+ * 有效日：late ⇒ 班次日（`occurrence?.due_on ?? scheduled_on`，compareTodayRows 同一把尺）；due ⇒ 締切日。
+ * 有效日晚於 today 的列不算（誤點／締切的定義本來就是「已過」；防今日切片過期）。
+ */
+export function lateCount(rows: readonly LateCountRow[], today: string): LateCount {
+  let count = 0;
+  let earliest: string | null = null;
+  for (const r of rows) {
+    if (r.bucket === "today") continue;
+    if (r.occurrence !== null || r.status === "done") continue;
+    // 走到這裡 occurrence 一定是 null（有班次記錄＝交代過），班次日 `occurrence?.due_on ?? scheduled_on` 就是 scheduled_on
+    const eff = r.bucket === "late" ? r.scheduled_on : r.due_on;
+    if (eff === null || eff > today) continue;
+    count++;
+    if (earliest === null || eff < earliest) earliest = eff;
+  }
+  return { count, earliest };
+}
+
+/** 誤點區標題的計數字：還有沒交代的 ⇒「N 件」；誤點區的票今天都交代了（區還在、票留原位）⇒「已交代」（同串流過去日的字） */
+export function lateCountText(c: LateCount): string {
+  return c.count > 0 ? `${c.count} 件` : "已交代";
 }

@@ -233,7 +233,7 @@ pub async fn sync_reset_local(app: AppHandle) -> Result<SyncStatus, String> {
 
 /// v1.1.6：〈備份與還原〉危險區「重新開始」（契約 §2）。
 /// JS：`invoke("sync_start_over", { scope: "this_device" | "all_devices" })`。
-/// 成功**不會回來**（`app.restart()`；Android＝`exit(0)`）；Err＝零改變（或只多了一份留底），字串是人話、TS 不再包一層。
+/// 成功**不會回來**（`restart_app`：Android 前景重啟、其餘 `app.restart()`）；Err＝零改變（或只多了一份留底），字串是人話、TS 不再包一層。
 /// 兩殼都註冊——桌機沒加入也要能「只清這台」（此時純本機、不打網路）。
 #[tauri::command]
 pub async fn sync_start_over(app: AppHandle, scope: StartOverScope) -> Result<(), String> {

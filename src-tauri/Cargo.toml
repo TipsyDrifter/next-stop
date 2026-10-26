@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.19.0"
+version = "1.20.0"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -72,6 +72,9 @@ tauri-plugin-notification = "~2.3.3"
 #   跑太久提醒（自己的 AlarmManager＋開機重建）。Kotlin 只碰通知／鬧鐘／自己的 SharedPreferences，不寫 SQLite。
 #   兩殼都掛；桌機是空殼（不註冊 Android 類別、沒有命令）。契約：docs/research/2026-10-13-時刻表-車次①b①c-契約.md §5.10。
 tauri-plugin-tt-notice = { path = "plugins/tauri-plugin-tt-notice" }
+# 手機殼班 B5（D-主-69 同班；A 10-25 放行集中檔）：Android 真重啟——app.restart() 在 Android＝exit(0)、像閃退。
+#   Kotlin 只做「前景重啟任務再結束行程」，不碰資料；桌機是空殼。契約：docs/research/2026-10-25-主線-手機殼班-契約.md §一E。
+tauri-plugin-ns-restart = { path = "plugins/tauri-plugin-ns-restart" }
 
 # keyring 只在桌機：Android／iOS 沒有 OS 憑證庫後端，走 app 私有檔（sync/credstore.rs 的 cfg 兩分支）。
 # **鎖 3 不升 4**：keyring 4 把各家後端拆成獨立 crate，`windows-native` 這個 feature 名字已經不存在。
@@ -86,6 +89,17 @@ tauri-plugin-single-instance = "2"
 # 沒有 npm 對應（只從 Rust 端用），不受 tauri-cli 的 crate／npm minor 一致檢查影響。
 tauri-plugin-global-shortcut = "~2.3.2"
 tauri-plugin-autostart = "~2.5.1"
+# MCP 接口班（契約 docs/research/2026-10-25-主線-MCP接口班-契約.md §3；D-主-90／91）：外部助理的本機端點，只在桌機。
+#  * rmcp ─ 官方 Rust MCP SDK 的 Streamable HTTP server。**鎖確切版本**：大版本變動快（查證報告 §3.2），3.7.0 已用 spike 實測
+#    （prototypes/mcp-spike/）。只開 server＋transport-streamable-http-server，不要 macros／auth。
+#  * axum ─ 掛 `/mcp`＋驗金鑰、擋 Origin 的 middleware。只開 http1＋tokio。
+#  * reqwest ─ `--mcp-stdio` 轉接打本機 HTTP 用；0.12.28 已在 lock（object_store 的傳遞依賴），不開 TLS、不多一份樹。
+rmcp = { version = "=3.7.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+reqwest = { version = "0.12", default-features = false }
+#  * tokio ─ tauri 本來就帶（lock 1.52.3），升為直接依賴才能用：綁埠（net）、stdio 轉接自建 runtime（rt、io-std、io-util）、
+#    oneshot／Mutex（sync）、逾時（time）、#[tokio::test]（macros）。
+tokio = { version = "1", features = ["rt", "net", "io-std", "io-util", "sync", "time", "macros"] }
 
 # 旅客筆記⑤（契約 §0-0 / D-筆-61；主對話 M-6 已准）：存檔後把前景還給原本的 App，要 GetForegroundWindow／
 # SetForegroundWindow。windows-sys 0.59.0 本來就在 Cargo.lock（間接依賴），這裡升為直接依賴、同版本，不多一棵樹；

@@ -1,0 +1,49 @@
+/* ═══════════════════════════════════════════════════════
+ * routemap.css——手機路線圖可編輯的列上件（手機殼班 D-主-71／72；原型 Q1 `.m2-stamp`／`.m2-slot`／`.m2-more`）。
+ * 由 MobileRouteMap.tsx import。樹列本體（.m2-row／.m2-caret／.m2-zoom／.m2-row-body）在 styles/mobile.css，
+ *   済圓印的外距 .m2-seal-done 在 mobile-quickjump.css；這裡只補「検印鈕」「⋯ 鈕」「空狀態的新增鈕」。
+ * 紀律同 mobile-polish.css：每條選擇器 `[data-shell="mobile"]` 開頭、只吃 theme token（紙面強調＝--accent）。
+ * 列寬帳（375 寬）：caret 44＋徽章 40＋検印 44＋⋯ 34 ＝ 162，票名還有 ~180px（第 5 層起不再縮排，最窄 ~128px）。
+ * ═══════════════════════════════════════════════════════ */
+
+/* 検印鈕：44×44 觸控目標；済＝SealDone small（34px）、運休＝方角印、未交代＝28px 虛線圓「検印」 */
+[data-shell="mobile"] .m2-stamp {
+  flex: none; width: 44px; min-height: 44px;
+  display: grid; place-items: center; padding: 0;
+  background: transparent; border: 0; border-radius: var(--radius-ctl);
+  font-family: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m2-stamp:active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+[data-shell="mobile"] .m2-stamp:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+/* 済圓印放進 44px 鈕裡：外距歸零（原本是列尾的獨立 span） */
+[data-shell="mobile"] .m2-stamp .m2-seal-done { margin: 0; }
+[data-shell="mobile"] .m2-stamp .m2-seal { margin: 0; }
+[data-shell="mobile"] .m2-slot {
+  width: 28px; height: 28px; box-sizing: border-box;
+  display: grid; place-items: center;
+  border: 1px dashed var(--color-dash); border-radius: 50%;
+  font-size: 9px; letter-spacing: 0; line-height: 1;   /* 票券專用（検印提示），同今日票卡 .m-tk-hint 的原型定值 */
+  color: var(--color-ink-faint);
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m2-stamp:hover .m2-slot,
+[data-shell="mobile"] .m2-stamp:active .m2-slot { border-color: var(--accent); color: var(--color-ink-soft); }
+
+/* ⋯＝底部 sheet 入口（同今日票卡 .m-tk-more 的字與色） */
+[data-shell="mobile"] .m2-more {
+  flex: none; width: 34px; min-height: 44px;
+  display: grid; place-items: center; padding: 0;
+  background: transparent; border: 0; border-radius: var(--radius-ctl);
+  color: var(--color-ink-faint); font-size: var(--fs-title); line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m2-more:hover,
+[data-shell="mobile"] .m2-more:active { color: var(--color-ink); }
+[data-shell="mobile"] .m2-more:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+
+/* 空狀態的「新增第一班…」：標題下一顆框線鈕（不是主鈕——空狀態不搶戲） */
+[data-shell="mobile"] .m2-empty-add { margin-top: var(--sp-3); }

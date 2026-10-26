@@ -25,7 +25,8 @@
  *      與 WP2 路線圖 zoom／收合的作法同一套。原本「不摺」的理由（誤點本來就該被看見）只對了一半——
  *      誤點 5 件時「今天的列車」第一張票要到 615dp 才出現，394×853 的首屏只剩一張半，
  *      主任務被推出畫面。折衷＝預設展開（一開啟仍看得見）、計數常駐、可收起。
- *   4. 不做拖曳排序、不開詳情側板、不開完成卡（契約 §2.7 的「不呼叫」清單）。
+ *   4. 不開詳情側板（契約 §2.7 的「不呼叫」清單；手機殼班改由 ⋯「詳情…」開全螢幕子頁）。
+ *      拖曳排序與完成卡在手機殼班補上（D-主-73／74），見檔尾〈手機殼班〉。
  *
  * **主線②（契約 §4.5-2、D-主-10）**：「今天的列車」有時刻的照幾點排在前（排序在 compareTodayRows，本檔只畫）——
  *   兩群之間插小標 `li.subgrp`「未定時・照手排」（兩群都有才畫）；有時刻那群插現在線 `li.nowline`「現在 15:10」
@@ -38,6 +39,13 @@
  *   指出某張票（routeMapReveal 的 target "today"；打開車票、荷札頁、手機搜尋都走這裡）——找到票卡
  *   （`li[data-node-id]`；在收合的誤點區就先展開）→ 捲到畫面中間 → 閃一下底色約 1 秒 → consume。
  *
+ * **手機殼班（契約 §一C、§一D）**：
+ *   長按拖曳排序（D-主-74）——「今天的列車」那張清單掛 useLongPressReorder：只有手排座標（today 分區、沒時刻）的票抬得起來，
+ *   有時刻的票長按抖一下＋toast 說為什麼（D-主-80）；放下走 useMobileToday.moveTo（同 ⋯ 上移／下移的 moveToday）＋「已調整順序」toast＋復原。
+ *   ⋯ 刪除的子項數走 liveChildCount（同行程表、詳情頁；第二輪——child_total 只數直屬，列車、車廂底下有車廂會少算）。
+ *   完成卡（D-主-73）不在本檔畫（MobileShell 掛 MobileCompleteCard）；它開著時建票列由 complete-card.css 收起，
+ *   本檔只是照常畫建票列（收的是 display，打到一半的字不丟）。
+ *
  * 空狀態文案沿桌機（TodayView 的 1.0c／1.0d 兩塊逐字）；只有操作提示那一句改寫成觸控說法
  *   （桌機原句是「按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）…按 T 排上今天」——手機沒有這些鍵）。
  */
@@ -45,8 +53,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
-import { timeOfRow } from "../../domain/scheduledTime";
-import { dayCountParts } from "../../domain/dayCount";
+import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
+import { dayCountParts, lateCountText } from "../../domain/dayCount";
 import type { TodayRow } from "../../data";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
@@ -54,7 +62,7 @@ import { moveNodeTo } from "../common/moveTo";
 import { EmptyState } from "../common/EmptyState";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
-import { deleteTicket, logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { deleteTicket, liveChildCount, logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
 import { useBackLayer } from "./backStack";
 import { useRevealStore } from "./routeMapReveal";
 import "./mobile-polish.css";
@@ -63,6 +71,8 @@ import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
 import { useMinuteTick } from "../schedule/useMinuteTick";
 import { lineTodayStats } from "../../lines/runtime";
+import { useLongPressReorder } from "./useLongPressReorder";
+import "./reorder-drag.css";
 
 /** 「指出這張票」的閃底色停多久（D-主-48；CSS 動畫 1s，計時器兜底 reduced-motion 的靜態底色） */
 const REVEAL_FLASH_MS = 1000;
@@ -94,6 +104,18 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const sheetRow = useNodeStore((s) => (sheetId ? (s.today.byId[sheetId] ?? null) : null));
   const pageRef = useRef<HTMLDivElement | null>(null);
   useSubSwipe(pageRef, "today");
+  /** 「今天的列車」清單（條件渲染，callback ref 拿元素——掛上來長按拖曳才綁得上事件） */
+  const [todayList, setTodayList] = useState<HTMLUListElement | null>(null);
+  // 長按拖曳（手機殼班 D-主-74）：手排座標＝manualOrderIds（同 ⋯ 上移／下移、同 moveToday）
+  useLongPressReorder({
+    list: todayList,
+    scrollRef: pageRef,
+    ids: manualOrderIds(c.todayRows),
+    nudgeable: (id) => c.todayRows.some((r) => r.id === id && timeOfRow(r) !== null),
+    // D-主-80：抖一下之外說為什麼（字同桌機今日拖有時刻的票、store moveToday 的那一句——同一個意思只一處）
+    onNudge: () => useUiStore.getState().showToast({ message: TIME_FIXED_ORDER_MSG }, 3600),
+    onDrop: c.moveTo,
+  });
   const now = useMinuteTick();
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   // 返回層（磨光① §1.5）：⋯ sheet 與它的子面板（選日期／幾點／改名／記乘務記錄）是同一層，返回＝整個流程結束（同按 ×）。
@@ -240,11 +262,12 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
               <button
                 type="button"
                 aria-expanded={lateOpen}
-                aria-label={`誤點 ${c.lateRows.length} 件，${lateOpen ? "收起" : "展開"}`}
+                aria-label={`誤點 ${lateCountText(c.late)}，${lateOpen ? "收起" : "展開"}`}
                 onClick={() => setLateOpen((v) => !v)}
                 className="note fold"
               >
-                {c.lateRows.length} 件
+                {/* 接縫 #104：數的是還沒交代的（今天補済、留在原位的那張不算），與行程表誤點列同一支 lateCount */}
+                {lateCountText(c.late)}
                 <span className="caret" aria-hidden>
                   ▾
                 </span>
@@ -271,7 +294,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
                   <span className="rule" />
                   <span className="note">{total} 張</span>
                 </div>
-                <ul className="m-tk-list" aria-label="今天的列車">
+                <ul className="m-tk-list is-reorderable" aria-label="今天的列車" ref={setTodayList}>
                   {todayItems}
                 </ul>
               </>
@@ -299,7 +322,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           onRename={(name) => renameTicket(sheetRow.id, name, sheetRow.name)}
           onLog={(body) => logTicket(sheetRow.id, body)}
           onMove={(dest) => void moveNodeTo(sheetRow.id, dest)}
-          onDelete={() => deleteTicket(sheetRow.id, sheetRow.name, sheetRow.child_total)}
+          onDelete={() => deleteTicket(sheetRow.id, sheetRow.name, liveChildCount(sheetRow.id))}
           reorder={(() => {
             const ro = c.reorderOf(sheetRow.id);
             return ro && { ...ro, onMove: (d: -1 | 1) => c.move(sheetRow.id, d) };

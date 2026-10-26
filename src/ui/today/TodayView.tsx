@@ -36,7 +36,7 @@ import { Fragment, useRef, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { timeOfRow } from "../../domain/scheduledTime";
-import { dayCountParts } from "../../domain/dayCount";
+import { dayCountParts, lateCount, lateCountText } from "../../domain/dayCount";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -306,13 +306,14 @@ export function TodayView() {
                 type="button"
                 tabIndex={-1}
                 aria-expanded={!c.lateCollapsed}
-                aria-label={`誤點 ${c.lateRows.length} 件，${c.lateCollapsed ? "展開" : "收起"}`}
+                aria-label={`誤點 ${lateCountText(lateCount(c.lateRows, c.dateKey))}，${c.lateCollapsed ? "展開" : "收起"}`}
                 title={c.lateCollapsed ? "展開誤點區" : "收起誤點區"}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={c.toggleLate}
                 className="note fold"
               >
-                {c.lateRows.length} 件
+                {/* 接縫 #104：數還沒交代的（今天補済、留在原位的那張不算），與行程表誤點列同一支 lateCount */}
+                {lateCountText(lateCount(c.lateRows, c.dateKey))}
                 <span className="caret" aria-hidden>
                   ▾
                 </span>

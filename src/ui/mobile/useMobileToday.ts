@@ -2,13 +2,17 @@
  * useMobileToday——今日視圖手機版的狀態機（v1.1.0；WP1）。MobileToday.tsx 只負責畫。
  *
  * 為什麼不直接用桌機的 useTodayController：那支扛的是鍵盤流（選取、Alt+↑↓ 排序、九張動作表）、
- *   三個桌機覆蓋層（草稿列／行內日誌／推遲小卡）與完成卡，手機一個都不要（契約 §2.7 的「不呼叫」清單）。
- *   共用它會把「拖曳排序／側板／完成卡」這些手機沒有的路徑一起帶進來，反而更難讀。
+ *   三個桌機覆蓋層（草稿列／行內日誌／推遲小卡），手機一個都不要（契約 §2.7 的「不呼叫」清單）。
+ *   共用它會把桌機的拖曳與側板路徑一起帶進來，反而更難讀。
+ *   手機殼班：完成卡（D-主-73）與長按拖曳（D-主-74）手機也有了——但走的是同一個槽（uiStore.completeCardFor）與同一支
+ *   moveToday，畫面各寫（MobileCompleteCard／useLongPressReorder），所以仍不共用桌機 controller。
  *   **判準函式不重寫**：isDoneRow／isSettledRow／showRescheduleToast／INBOX_TOAST 一律 import 桌機那一份，
  *   兩殼吃同一把尺（M3 ④ 定期券口徑：活著的定期券看班次結局、其餘看 nodes.status）。
  *
- * 資料唯一入口仍是 nodeStore（元件不碰 repository），動作逐條對應契約 §2.7 的表：
- *   蓋済／取消済／取消運休 → setCompleted／skipOccurrence（含「連同 N 個未完成子項」確認窗）
+ * 資料唯一入口仍是 nodeStore（元件不碰 repository；唯一例外＝刪除確認框的別線附加句，切片裡找不到節點才唯讀問一次 getNode），
+ * 動作逐條對應契約 §2.7 的表：
+ *   蓋済／取消済／取消運休 → setCompleted／skipOccurrence（含「連同 N 個未完成子項」確認窗）；
+ *                            列車／車廂蓋下去開完成卡（setCompleteCardFor，同桌機 completeRow 的第五分支；手機殼班），取消済時收起
  *   改期（主線車次① P11）  → `defer(id, target)`：reschedule(target) ＋ showRescheduleToast（帶「復原」）；
  *                            UI 丙-3 F5（E20 手機補記）：分流抽成 `pickDay.ts` 的 planPickDay——挑到今天以前＝
  *                            updateNode(…, { backfill: true })（「已補記到 M/D」＋復原由 nodeStore 出），今天以後照舊；
@@ -20,6 +24,8 @@
  *                            `setRunTime(id, time)`／`clearRunTime(id)`＝nodeStore 同名入口，班次日＝`occurrence?.due_on ?? scheduled_on`
  *                            （timeOfRow 的 railDate 同一把尺）；成功出收據（timeReceipt），失敗由 store 吐 reason
  *   上移／下移（磨光①）    → `reorderOf(id)`／`move(id, ±1)`＝moveToday（手排座標 manualOrderIds；守門同桌機 reorderSelected）
+ *   長按拖曳（手機殼班）    → `moveTo(id, at)`＝同一支 moveToday（at＝落點鄰居錨，寫入前對最新座標換 index）；
+ *                            放下後「已調整順序」＋「復原」（放回原本那兩張之間）
  *   改名／記乘務記錄／刪除      → 模組函式 `renameTicket`／`logTicket`／`deleteTicket`（行程表串流也用，所以不在 hook 裡）
  *
  * 三條重載時機（手機比桌機多一條）：
@@ -30,17 +36,20 @@
  *      loadToday 內部會先 syncRepeats 再聚合，重載一次就把定期券的班次也推到位。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { parseRule, type NodeRow } from "../../domain";
-import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
-import { useNodeStore } from "../../store/nodeStore";
+import { isTaskKind, parseRule, type NodeRow } from "../../domain";
+import { REPEAT_RESCHEDULE_MSG, nodeRepo, type TodayRow } from "../../data";
+import { descendantCount, isSettling, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
-import { dayCount } from "../../domain/dayCount";
+import { dayCount, lateCount, type LateCount } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
 import { planPickDay } from "./pickDay";
+import { anchorAt, indexOfAnchor, type DropAnchor } from "./reorderDrag";
+import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
+import { kidCountOf } from "../panel/panelRules";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
 export const SETTLED_DEFER_MSG = "已蓋済——先取消済章才能推遲";
@@ -59,6 +68,8 @@ export interface MobileTodayApi {
   routeOf(row: TodayRow): NodeRow | undefined;
   /** 頁首統計（口徑同桌機 c.stats：運休也算「已交代」） */
   stats: { total: number; done: number; left: number };
+  /** 誤點區標題的「N 件」＝還沒交代的誤點（domain/dayCount 的 lateCount，與行程表誤點列同一支；接縫 #104） */
+  late: LateCount;
 
   /** 済／取消済／取消運休——票右側印章區単擊 */
   complete(id: string): void;
@@ -82,6 +93,11 @@ export interface MobileTodayApi {
   reorderOf(id: string): { up: boolean; down: boolean } | null;
   /** 在手排座標裡往上（-1）／往下（+1）一格；失敗 toast reason */
   move(id: string, delta: -1 | 1): void;
+  /**
+   * 長按拖曳放下（手機殼班 D-主-74）：插在 `at` 那兩張之間——對**最新**手排座標換成 index 再交 moveToday（同一支、同一組守門；
+   * 拖曳中清單被重載也不落錯格，第二輪）。成功出「已調整順序」＋「復原」（放回原本那兩張之間）。換算後跟原位一樣＝不動、不出 toast。
+   */
+  moveTo(id: string, at: DropAnchor): void;
 
   /** 剛蓋章的那一列（播 stampIn） */
   freshId: string | null;
@@ -98,32 +114,39 @@ export function renameTicket(id: string, name: string, prev: string): void {
   void useNodeStore.getState().updateNode(id, { name: next });
 }
 
-/** 記乘務記錄；成功 toast「記了」（同桌機行內輸入的回饋字）。addWorkLog 失敗不 throw、寫 error 列——看 error 有沒有變 */
+/** 記乘務記錄；成功 toast「記了」（同桌機行內輸入的回饋字）。失敗由 store 寫 error 列（addWorkLog 回 false，手機殼班） */
 export function logTicket(id: string, body: string): void {
   const text = body.trim();
   if (!text) return;
-  const ns = useNodeStore.getState();
-  const before = ns.error;
-  void ns.addWorkLog(id, text).then(() => {
-    const after = useNodeStore.getState().error;
-    if (after === null || after === before) useUiStore.getState().showToast({ message: "記了" }, 2400);
-  });
+  void useNodeStore
+    .getState()
+    .addWorkLog(id, text)
+    .then((ok) => {
+      if (ok) useUiStore.getState().showToast({ message: "記了" }, 2400);
+    });
 }
 
 /**
- * 直屬子項數（刪除前要不要確認）：今日切片有這張就用它的 child_total，否則看已載入的路線樹（RepeatRuleEditor.useLiveChildCount 同一套退路）；
- * 都沒有＝null（行程表串流裡不在今天、也沒開過路線的票：不知道底下有幾個，刪除一律先問）
+ * 刪除會一起帶走的子孫數（刪除前要不要確認）——跟路線圖 ⋯、桌機側板同一把尺（descendantCount，算到底；手機殼班反方評審 #7）：
+ *   已載入的路線樹有這張＝descendantCount；否則今日切片的 child_total 只數直屬——列車、車廂底下都可能再套車廂
+ *   （車廂可以套車廂，第三輪更正「車廂底下只有車票」的舊假設），有子項就當「不知道」；兩邊都沒有這張＝null。
+ *   null＝刪除一律先問（行程表串流裡沒載到的票也是）。判準在 panelRules.kidCountOf（改已完成的 openKidsOf 同一支）。
  */
 export function liveChildCount(id: string): number | null {
   const ns = useNodeStore.getState();
+  const inTree = ns.tree.byId[id];
   const tr = ns.today.byId[id];
-  if (tr) return tr.child_total;
-  return ns.tree.byId[id] !== undefined ? (ns.tree.childrenOf[id]?.length ?? 0) : null;
+  const kind = inTree?.kind ?? tr?.kind;
+  if (!kind) return null;
+  return kidCountOf(kind, inTree ? descendantCount(ns.tree, id) : null, tr);
 }
 
 /**
- * 刪除（D-2）：呼叫端先關 ⋯ sheet 再叫這支 ⇒ 子項 ≥5 才出確認框 ⇒ 刪 ⇒ toast「已刪除『…』」＋「復原」。
+ * 刪除（D-2）：呼叫端先關 ⋯ sheet 再叫這支 ⇒ 子項 ≥5（或不知道）才出確認框 ⇒ 刪 ⇒ toast「已刪除『…』」＋「復原」。
  * 句子照桌機 useTodayController.deleteRow；手機不寫 selectedId（沒有選取游標，不重用 select(next) 那段）。
+ * 手機殼班第二輪（反方評審 parity minor）：路線圖 ⋯、詳情頁起手機刪得到整棵子樹，確認框對齊桌機大綱／側板——
+ *   別線的附加句（`collectDeleteHints`／`withDeleteHints`，桌機四個刪除入口同一支；例：旅客筆記「這裡掛了 N 則筆記…」）、
+ *   確認鈕「一起刪除」（同側板 useNodeActions.remove）。子孫 id 從已載入的路線樹拿；樹裡沒有＝傳 []（同路線對話框，線自己補查）。
  */
 export function deleteTicket(id: string, name: string, childTotal: number | null): void {
   const ns = () => useNodeStore.getState();
@@ -137,28 +160,43 @@ export function deleteTicket(id: string, name: string, childTotal: number | null
       onAction: () => void ns().undoDelete(),
     });
   };
-  if (childTotal === null) {
-    // 子項數不知道（串流上沒載到的票）：寧可多問一次，也不要不問就連同一整串子項刪掉
-    ui().askConfirm({
-      title: `刪除「${name}」？`,
-      body: "底下如果有子項會一起移除；6 秒內可從底部提示復原。",
-      confirmLabel: "刪除",
-      danger: true,
-      onConfirm: () => void run(),
-    });
+  if (childTotal !== null && childTotal < 5) {
+    void run();
     return;
   }
-  if (childTotal >= 5) {
-    ui().askConfirm({
-      title: `連同 ${childTotal} 個子項一起刪除？`,
-      body: `「${name}」底下的節點會一起移除；6 秒內可從底部提示復原。`,
-      confirmLabel: "刪除",
-      danger: true,
-      onConfirm: () => void run(),
-    });
-    return;
+  const ask = (hints: string) =>
+    ui().askConfirm(
+      childTotal === null
+        ? {
+            // 子項數不知道（串流上沒載到的票）：寧可多問一次，也不要不問就連同一整串子項刪掉
+            title: `刪除「${name}」？`,
+            body: withDeleteHints("底下如果有子項會一起移除；6 秒內可從底部提示復原。", hints),
+            confirmLabel: "刪除",
+            danger: true,
+            onConfirm: () => void run(),
+          }
+        : {
+            title: `連同 ${childTotal} 個子項一起刪除？`,
+            body: withDeleteHints(`「${name}」底下的 ${childTotal} 個項目會一起刪除；6 秒內可從底部提示復原。`, hints),
+            confirmLabel: "一起刪除",
+            danger: true,
+            onConfirm: () => void run(),
+          },
+    );
+  void deleteHintsOf(id).then(ask);
+}
+
+/** 別線的刪除附加句：節點從切片找（樹＞今日），都沒有才問 repository；查不到或出錯＝""（刪除不能卡在別線的查詢上） */
+async function deleteHintsOf(id: string): Promise<string> {
+  const s = useNodeStore.getState();
+  try {
+    const node = s.tree.byId[id] ?? s.today.byId[id] ?? (await nodeRepo.getNode(id));
+    if (!node) return "";
+    return await collectDeleteHints(node, s.tree.byId[id] ? descendantIdsOf(s.tree, id) : []);
+  } catch (e) {
+    console.warn("deleteTicket 附加句", e);
+    return "";
   }
-  void run();
 }
 
 export function useMobileToday(): MobileTodayApi {
@@ -215,12 +253,13 @@ export function useMobileToday(): MobileTodayApi {
     [routes],
   );
 
-  /* ───────── 蓋済（契約 §2.7 的四個分支；桌機的第五個分支「開完成卡」手機不做）───────── */
+  /* ───────── 蓋済（契約 §2.7 的四個分支＋手機殼班補上的第五個：列車／車廂開完成卡）───────── */
 
   const complete = useCallback((id: string) => {
     const run = async () => {
       const row = ns().today.byId[id];
-      if (!row) return;
+      // 上一下還在寫＝畫面是舊的，照它判會再蓋一次（定期券＝蓋到下一班）；store 也會擋，這裡先擋免得播章、開卡
+      if (!row || isSettling(id)) return;
 
       // ① 運休中的班次：点在運休章上＝取消運休（不能直接蓋済——引擎已把 scheduled_on 推到下一班）
       if (row.occurrence?.status === "skipped") {
@@ -233,8 +272,9 @@ export function useMobileToday(): MobileTodayApi {
         toast(RETIRED_RUN_MSG);
         return;
       }
-      // ② 已済＝取消済
+      // ② 已済＝取消済；那張的完成卡一起收起（D-主-73：卡講的是「剛到站」，章撤了就不成立）
       if (isDoneRow(row)) {
+        if (ui().completeCardFor === id) ui().setCompleteCardFor(null);
         await ns().setCompleted(id, false);
         return;
       }
@@ -244,6 +284,8 @@ export function useMobileToday(): MobileTodayApi {
         await ns().setCompleted(id, true, cascade ? true : undefined);
         // 印章動畫 .4s；0.8s 後清旗標（reduced-motion 不發 animationend，故一律用計時器兜底）
         setTimeout(() => setFreshId((cur) => (cur === id ? null : cur)), 800);
+        // 第五分支（同桌機 completeRow）：列車／車廂蓋章＋完成卡；車票純蓋章
+        if (isTaskKind(row.kind)) ui().setCompleteCardFor(id);
       };
       const open = row.child_total - row.child_done;
       if (open > 0) {
@@ -387,6 +429,39 @@ export function useMobileToday(): MobileTodayApi {
       });
   }, []);
 
+  /**
+   * 長按拖曳放下（手機殼班 D-主-74）：同 move 的 moveToday；拖完票還在眼前，但手指一滑容易放錯格——給一張可反悔的收據。
+   * 落點與復原都用鄰居錨、寫入那一刻才對最新座標換 index（reorderDrag DropAnchor；第二輪）：鄰居都不在了＝放棄（卡片退回原位）。
+   */
+  const moveTo = useCallback((id: string, at: DropAnchor) => {
+    const ids = manualOrderIds(ns().today.rows);
+    const from = ids.indexOf(id);
+    const to = indexOfAnchor(ids, id, at);
+    if (from < 0 || to === null || from === to) return;
+    const home = anchorAt(ids, id, from);
+    void ns()
+      .moveToday(id, to)
+      .then((r) => {
+        if (!r.ok) {
+          toast(r.reason);
+          return;
+        }
+        ui().showToast({
+          message: "已調整順序",
+          actionLabel: "復原",
+          onAction: () => {
+            const back = indexOfAnchor(manualOrderIds(ns().today.rows), id, home);
+            if (back === null) return;
+            void ns()
+              .moveToday(id, back)
+              .then((u) => {
+                if (!u.ok) toast(u.reason);
+              });
+          },
+        });
+      });
+  }, []);
+
   /* ───────── 建票（臨時券排今天／無日期票進收件匣）───────── */
 
   const createTicket = useCallback(async (raw: string, inbox: boolean): Promise<boolean> => {
@@ -428,6 +503,7 @@ export function useMobileToday(): MobileTodayApi {
     routeOf,
     // 磨光⑤ N11：與桌機今日同一把尺（domain/dayCount）
     stats: dayCount(todayRows.map(dayCountItem)),
+    late: lateCount(lateRows, dateKey),
     complete,
     defer,
     skip,
@@ -437,6 +513,7 @@ export function useMobileToday(): MobileTodayApi {
     clearRunTime,
     reorderOf,
     move,
+    moveTo,
     freshId,
   };
 }

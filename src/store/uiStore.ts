@@ -34,7 +34,7 @@ export type CalendarView = "month" | "week" | "time" | "stream";
  * M3 ⑥ 的失敗 toast／啟動橫幅按下去要直接落在「備份與還原」那一籤（不記憶，每次開都吃傳進來的值）。
  */
 // v1.1.1 加第四籤 "sync"（同步；契約席先把型別與籤位立好、SettingsPanel 先 disabled，WP8 通車時打開）
-export type SettingsTab = "general" | "backup" | "hotkeys" | "sync";
+export type SettingsTab = "general" | "backup" | "hotkeys" | "sync" | "assistant";
 
 export interface ToastState {
   message: string;

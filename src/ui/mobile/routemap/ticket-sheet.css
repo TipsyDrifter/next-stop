@@ -1,0 +1,76 @@
+/* ═══════════════════════════════════════════════════════
+ * ticket-sheet.css——票卡 ⋯ sheet 分組版（手機殼班 D-主-76；原型 Q1 B 版 `.m-sch`／`.m-grp`）。
+ * 由 MobileTicketSheet.tsx import（今日、行程表、路線圖三處同一支）。殼與列本體在 common/msheet.css、
+ *   列裡的小件（aside、說明列、一列兩格 .m-tks-pair）在 mobile-polish.css；這裡只補分組版多出來的件（含各線附加項的一列多格 .m-tks-lines）。
+ * 紀律同 mobile-polish.css：每條選擇器 `[data-shell="mobile"]` 開頭、只吃 theme token。
+ * ═══════════════════════════════════════════════════════ */
+
+/* ── 做不到、點了說為什麼（MSheetItem off）：淡字、不給按下底色（disabled 的同一種淡，但仍可點） ── */
+[data-shell="mobile"] .ns-msheet-item.is-off { color: var(--color-ink-faint); opacity: var(--disabled); }
+[data-shell="mobile"] .ns-msheet-item.is-off:hover,
+[data-shell="mobile"] .ns-msheet-item.is-off:active { background: transparent; }
+
+/* ── ① 排程一列多格（單發票四格、定期券兩三格）：方框小鈕，短字在上、M/D 小字在下 ── */
+[data-shell="mobile"] .m-tks-cells {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px;
+  padding: var(--sp-2) 12px;
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item {
+  flex-direction: column; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 1px;
+  min-height: var(--row-menu); padding: 4px 2px;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  text-align: center; font-size: var(--fs-ui); letter-spacing: .06em;
+  transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item:hover,
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item:active { border-color: var(--accent); }
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item:focus-visible { outline-offset: 1px; }
+[data-shell="mobile"] .m-tks-cell-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item small {
+  flex: none; max-width: 100%;
+  font-family: var(--font-latin); font-size: var(--fs-micro); line-height: 1.3; letter-spacing: .04em;
+  color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item small .hm { font-weight: 600; color: var(--color-ink-soft); }
+/* 時刻格的小字（「25:00・120 分」，D-主-81）比 M/D 長：字距收掉，375px 寬 4 格時放得下最長的樣子（量過：.04em 溢 2px、0 剩 3px）；
+   更窄的機型照殼的 small 規則截成刪節號 */
+[data-shell="mobile"] .m-tks-cells > .ns-msheet-item small:has(> .hm) { letter-spacing: 0; }
+
+/* 一列兩格前的撕線（新增那一組；單列用 MSheetItem cut） */
+[data-shell="mobile"] .m-tks-pair.is-cut { border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .ns-msheet-item:has(+ .m-tks-pair.is-cut),
+[data-shell="mobile"] .m-tks-pair:has(+ .m-tks-pair.is-cut) > .ns-msheet-item,
+[data-shell="mobile"] .m-tks-pair:has(+ .ns-msheet-item.is-cut) > .ns-msheet-item { border-bottom-color: transparent; }
+
+/* ── ⑤ 各線附加項兩項以上：一列多格（荷札…｜発車；第三輪）。格是別線畫的 MSheetItem，本檔只排版：
+ *    字置中、右側小字（荷札「已掛 N 個」、発車「● 正在跑」）換到字下第二行置中，放不下截成刪節號 ── */
+[data-shell="mobile"] .m-tks-lines { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+[data-shell="mobile"] .m-tks-lines > .ns-msheet-item {
+  min-width: 0; justify-content: center; flex-wrap: wrap; align-content: center; row-gap: 0;
+  padding: 4px var(--sp-2); text-align: center;
+}
+[data-shell="mobile"] .m-tks-lines > .ns-msheet-item + .ns-msheet-item { border-left: 1px dashed var(--color-dash); }
+/* 選擇器帶 button：比 mobile-polish.css 的 `.ns-msheet-item > .m-tks-aside` 高一級，不靠兩檔的載入順序 */
+[data-shell="mobile"] .m-tks-lines > button.ns-msheet-item > * {
+  flex: 0 0 100%; min-width: 0; margin-left: 0; padding-left: 0; justify-content: center;
+  font-size: var(--fs-xs); line-height: 1.4; overflow: hidden; text-overflow: ellipsis;
+}
+/* 刪除（撕線）緊接在下：這一列的實線讓位，不疊成兩道（同 msheet.css 單列的規則） */
+[data-shell="mobile"] .m-tks-lines:has(+ .ns-msheet-item.is-cut) > .ns-msheet-item { border-bottom-color: transparent; }
+
+/* ── ③「編排 ▾」：右側小字列出裡面有什麼、箭頭展開時翻轉；展開的群組墊一層淡墨、單列內縮 ── */
+[data-shell="mobile"] .m-tks-caret {
+  flex: none; margin-left: var(--sp-2);
+  font-size: var(--fs-micro); color: var(--color-ink-faint);
+  transition: transform var(--dur) var(--ease);
+}
+[data-shell="mobile"] .m-tks-grp[aria-expanded="true"] .m-tks-caret { transform: rotate(180deg); }
+[data-shell="mobile"] .m-tks-grp-body { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+[data-shell="mobile"] .m-tks-grp-body > * { animation: m-tks-grp-in var(--dur) var(--ease-soft); }
+[data-shell="mobile"] .m-tks-grp-body > .ns-msheet-item { padding-left: calc(var(--m-gutter) + var(--sp-4)); }
+@keyframes m-tks-grp-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m-tks-grp-body > * { animation: none; }
+  [data-shell="mobile"] .m-tks-caret { transition: none; }
+}

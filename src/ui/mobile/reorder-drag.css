@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════
+ * reorder-drag.css——手機今日長按拖曳排序（手機殼班 D-主-74；原型 Q4）。由 MobileToday.tsx import；行為在 useLongPressReorder.ts。
+ *
+ * 紀律同 mobile-polish.css：每一條選擇器以 `[data-shell="mobile"]` 開頭；顏色只用 theme token。
+ * 位移由 hook 寫在 li 上：抬起那張 `--m-drag-y`（跟手指）＋`--m-drop-y`（虛線落點，相對原位）；讓位的卡直接寫 transform。
+ * ═══════════════════════════════════════════════════════ */
+
+/* 長按不要選字、不要跳系統長按選單（Android／iOS 的 callout）；捲動照常（touch-action 不動） */
+[data-shell="mobile"] .m-tk-list.is-reorderable > .m-tk-li {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  position: relative;
+  transition: transform .2s cubic-bezier(.2, .8, .3, 1);
+}
+[data-shell="mobile"] .m-tk-list.is-reorderable > .m-tk-li > .m-tk {
+  transition: background .15s, border-color .15s, opacity .15s, transform .18s cubic-bezier(.2, .8, .3, 1), box-shadow .18s;
+}
+
+/* 按著還沒滿 400ms：微微下沉（告訴手指「有東西在等」） */
+[data-shell="mobile"] .m-tk-li.is-pressing > .m-tk { transform: scale(.985); }
+
+/* 抬起：跟著手指走（不吃過場＝不拖泥帶水）、陰影＋微放大、疊在其他卡上面 */
+[data-shell="mobile"] .m-tk-list.is-reorderable > .m-tk-li.is-lifted {
+  z-index: 5;
+  transform: translateY(var(--m-drag-y, 0px));
+  transition: none;
+}
+[data-shell="mobile"] .m-tk-li.is-lifted > .m-tk {
+  transform: scale(1.03);
+  box-shadow: var(--shadow-card-hover);
+}
+/* 放開落位：滑進虛線框（transform 有過場），陰影收回 */
+[data-shell="mobile"] .m-tk-list.is-reorderable > .m-tk-li.is-dropping {
+  z-index: 5;
+  transform: translateY(var(--m-drag-y, 0px));
+}
+
+/* 虛線框＝放開會落的位置：畫在抬起那張的 li 上，扣掉跟手指的位移，所以停在落點不動 */
+[data-shell="mobile"] .m-tk-li.is-lifted::before {
+  content: "";
+  position: absolute; left: 0; right: 0; height: 100%;
+  top: calc(var(--m-drop-y, 0px) - var(--m-drag-y, 0px));
+  box-sizing: border-box;
+  border: 1.5px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-high) 40%, transparent);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* 新順序畫好那一下：關掉所有過場一次清位移（hook 加了馬上拿掉） */
+[data-shell="mobile"] .m-tk-list.is-settling > .m-tk-li,
+[data-shell="mobile"] .m-tk-list.is-settling > .m-tk-li > .m-tk { transition: none; }
+
+/* 有時刻的票長按：抖一下（照時刻排、不能手排） */
+[data-shell="mobile"] .m-tk-li.is-nudge > .m-tk { animation: m-tk-nudge .36s ease-in-out; }
+@keyframes m-tk-nudge {
+  0%, 100% { translate: 0; }
+  20% { translate: -4px 0; }
+  45% { translate: 4px 0; }
+  70% { translate: -2px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m-tk-list.is-reorderable > .m-tk-li,
+  [data-shell="mobile"] .m-tk-list.is-reorderable > .m-tk-li > .m-tk { transition: none; }
+  [data-shell="mobile"] .m-tk-li.is-nudge > .m-tk { animation: none; outline: 1.5px dashed var(--color-dash); }
+}

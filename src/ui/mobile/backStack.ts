@@ -19,13 +19,10 @@ import { useEffect, useRef } from "react";
 import { BackBridge, BackStack, type BackKind, type BackListener, type BackResult } from "./backStackCore";
 
 export type { BackKind } from "./backStackCore";
+import { isMobileShell } from "../../lib/shell";
 
 /** 全 App 一份 */
 export const backStack = new BackStack();
-
-function isMobileShellNow(): boolean {
-  return typeof document !== "undefined" && document.documentElement.dataset.shell === "mobile";
-}
 
 /**
  * 登記一層。`active` 由 false 變 true 時推進、變回 false 或卸載時放掉；`onBack` 永遠叫最新的閉包。
@@ -35,7 +32,7 @@ export function useBackLayer(id: string, active: boolean, onBack: () => void, ki
   const ref = useRef(onBack);
   ref.current = onBack;
   useEffect(() => {
-    if (!active || !isMobileShellNow()) return;
+    if (!active || !isMobileShell()) return;
     return backStack.push(id, kind, () => ref.current());
   }, [id, active, kind]);
 }

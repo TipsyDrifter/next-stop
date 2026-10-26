@@ -46,6 +46,8 @@ import MobileRouteMap from "./MobileRouteMap";
 import MobileMore from "./MobileMore";
 import { SyncBanner } from "../common/SyncBanner";
 import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
+import { MobileDetailHost } from "./detail/MobileDetailHost";
+import { MobileCompleteCard } from "./complete/MobileCompleteCard";
 // UI 丙-2：`?mock=1&gallery=1` 頁面改畫共用元件樣本頁（DEV_FLAGS.gallery；lazy＝沒帶參數不載入）
 const Gallery = lazy(() => import("../dev/Gallery"));
 
@@ -105,6 +107,9 @@ export default function MobileShell() {
       )}
       {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <MobilePage tabKey={tabKey} />}
       <MobileTabBar />
+      {/* 手機殼班：完成卡浮在 tab bar 上方（D-主-73）；詳情全螢幕子頁蓋在整個殼上（D-主-75） */}
+      <MobileCompleteCard />
+      <MobileDetailHost />
       {lineOverlays("mobile").map(({ id, Overlay }) => (
         <Overlay key={id} />
       ))}

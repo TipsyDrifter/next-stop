@@ -50,6 +50,10 @@ export interface MobileDatePickerProps {
   backId: string;
   /** 呼叫端登記那一層時的 kind（預設 "sheet"）；疊在全螢幕頁上的（DateChip）是 "dialog"。必須跟呼叫端一樣 */
   backKind?: "sheet" | "dialog";
+  /** 給了＝foot「取消」旁多一顆清除鈕（可清空的欄位用；同桌機 DatePicker 的 onClear）。呼叫端自己收起面板 */
+  onClear?(): void;
+  /** 清除鈕的字（預設「清除」；票卡 ⋯ 的日期面板＝「清除執行日」） */
+  clearLabel?: string;
 }
 
 export function MobileDatePicker({
@@ -66,6 +70,8 @@ export function MobileDatePicker({
   today,
   backId,
   backKind = "sheet",
+  onClear,
+  clearLabel = "清除",
 }: MobileDatePickerProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const chips = (
@@ -99,6 +105,7 @@ export function MobileDatePicker({
   );
 
   // 即時生效（點一天就收）＝沒有主鈕，foot 只有一顆整寬「取消」（§2.3 即時存沒有主鈕；取消在殼上、位置跟別的 sheet 一樣）。
+  // 給了 onClear 才多一顆清除鈕，排在取消右邊、同為框線次鈕（同 MobileAttachPicker 的「取消｜摘掉」；手機殼班第二輪）。
   // 外包 .ns-mdatepick-sheet：讓 datepicker.css 把這張 sheet 的初始高放寬到裝得下整個月格（見那段的註解）
   return (
     <MSheet
@@ -107,9 +114,16 @@ export function MobileDatePicker({
       backKind={backKind}
       onClose={onClose}
       foot={
-        <button type="button" className="ns-btn btn-ghost" onClick={onClose}>
-          取消
-        </button>
+        <>
+          <button type="button" className="ns-btn btn-ghost" onClick={onClose}>
+            取消
+          </button>
+          {onClear && (
+            <button type="button" className="ns-btn btn-ghost" onClick={onClear}>
+              {clearLabel}
+            </button>
+          )}
+        </>
       }
     >
       <div className="ns-mdatepick-sheet">
