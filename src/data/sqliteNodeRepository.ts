@@ -28,11 +28,11 @@ import type { FullSearchHit } from "../domain/fullSearch";
 import {
   TIME_REPEAT_ONLY_MSG,
   assertClockWritable,
-  dropFutureOverrides,
   hasRepeatRule,
   manualOrderIds,
+  overrideId,
   parseTimeOverrides,
-  serializeTimeOverrides,
+  type TimeOverrideRow,
 } from "../domain/scheduledTime";
 import {
   KIND_LABEL,
@@ -65,6 +65,7 @@ import type {
   TodayRow,
 } from "./nodeRepository";
 import {
+  attachTimeOverrides,
   backfillAtOf,
   buildCalendar,
   buildRouteProgress,
@@ -75,6 +76,8 @@ import {
   pickTodayOccurrence,
   reorderIds,
   resolveSkipDate,
+  retiredScheduledOn,
+  retiredWasDueToday,
   toCurrentOccurrence,
   todayBucketOf,
   REPEATABLE_KINDS,
@@ -92,6 +95,17 @@ import {
 } from "./syncRepository";
 
 const ALIVE = "deleted_at IS NULL";
+
+/**
+ * 逐班時刻覆寫的同步表（D-主-120；migration 0012）。
+ * 型別斷言是過渡：表名登記進 `syncTables.ts` 的 CORE_SYNC_TABLES 之後 SyncTable 就認得它，這個 `as` 可以拿掉。
+ */
+const NTO = "node_time_overrides" satisfies SyncTable;
+
+/** 存量搬移（舊欄 JSON → 覆寫列）做過了沒；settings 的本地鍵（不在同步白名單，各台各記各的） */
+
+/** 守門用的「今天」：呼叫端沒帶營業日時退回日界線 3 點（只影響併發復活的未來非班次日覆寫，差幾小時無妨） */
+const guardToday = (): string => todayKey(3);
 
 // repeat_rule 不在這裡：寫規則的唯一入口是 setRepeatRule（update 收到會改道，M3 ④）
 const PATCHABLE = new Set<string>([
@@ -131,9 +145,12 @@ async function subtreeIds(db: Database, rootId: string): Promise<string[]> {
 export class SqliteNodeRepository implements NodeRepository {
   async listSidebar(): Promise<SidebarData> {
     const db = await getDb();
-    const rows = await db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE kind IN ('line','route','station') AND ${ALIVE}
+    const rows = await this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes WHERE kind IN ('line','route','station') AND ${ALIVE}
        ORDER BY position ASC, created_at ASC`,
+      ),
     );
     return {
       lines: rows.filter((r) => r.kind === "line"),
@@ -144,10 +161,13 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
     const db = await getDb();
-    return db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE route_id = $1 AND kind != 'station' AND ${ALIVE}
+    return this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes WHERE route_id = $1 AND kind != 'station' AND ${ALIVE}
        ORDER BY position ASC, created_at ASC`,
-      [routeId],
+        [routeId],
+      ),
     );
   }
 
@@ -165,7 +185,120 @@ export class SqliteNodeRepository implements NodeRepository {
   async getNode(id: string): Promise<NodeRow | null> {
     const db = await getDb();
     const rows = await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE id = $1`, [id]);
-    return rows[0] ?? null;
+    if (!rows[0]) return null;
+    return (await this.withOverrides(db, rows))[0];
+  }
+
+  async getTimeOverrideRef(id: string): Promise<{ nodeId: string; dueOn: string } | null> {
+    const db = await getDb();
+    // 含已軟刪的列（同步通知的對象常是被刪那一班）
+    const rows = await db.select<{ node_id: string; due_on: string }[]>(
+      `SELECT node_id, due_on FROM node_time_overrides WHERE id = $1`,
+      [id],
+    );
+    return rows[0] ? { nodeId: rows[0].node_id, dueOn: rows[0].due_on } : null;
+  }
+
+  // ───────────── 逐班時刻覆寫的列（D-主-120）─────────────
+
+  /** 存量搬移只跑一次（同一個 repository 實例內記住那個 Promise；失敗就放掉，下一次讀取再試） */
+  private overrideBackfill: Promise<void> | null = null;
+
+  /**
+   * 讀覆寫列（存活的）。一張就照 node_id 查（getNode 呼叫最頻繁）；多張就整表撈——
+   * 表很小（只有親手改過時刻的那幾班才有列），比組一長串 IN 划算。
+   */
+  private async overrideRows(db: Database, nodes: readonly { id: string }[]): Promise<TimeOverrideRow[]> {
+    await this.ensureOverrideBackfill(db);
+    if (!nodes.length) return [];
+    if (nodes.length === 1) {
+      return db.select<TimeOverrideRow[]>(
+        `SELECT node_id, due_on, hhmm FROM node_time_overrides WHERE node_id = $1 AND ${ALIVE}`,
+        [nodes[0].id],
+      );
+    }
+    return db.select<TimeOverrideRow[]>(`SELECT node_id, due_on, hhmm FROM node_time_overrides WHERE ${ALIVE}`);
+  }
+
+  /** 讀取面保形：把覆寫列摺回 NodeRow.time_overrides（舊欄的值一律蓋掉，見 attachTimeOverrides） */
+  private async withOverrides<T extends NodeRow>(db: Database, nodes: T[], today: string = guardToday()): Promise<T[]> {
+    return attachTimeOverrides(nodes, await this.overrideRows(db, nodes), today);
+  }
+
+  /**
+   * 軟刪一張票的覆寫列（班次日 ≥ from；沒給＝全部）：語句與 op 進呼叫端的批次。
+   * 只動這台看得到的存活列——另一台併發新設的列不在這裡，讀取守門（overrideKeepOf）負責收尾。
+   */
+  private async dropOverrides(db: Database, b: WriteBatch, nodeId: string, from?: string): Promise<void> {
+    await this.ensureOverrideBackfill(db);
+    const rows = await db.select<{ id: string }[]>(
+      from === undefined
+        ? `SELECT id FROM node_time_overrides WHERE node_id = $1 AND ${ALIVE}`
+        : `SELECT id FROM node_time_overrides WHERE node_id = $1 AND due_on >= $2 AND ${ALIVE}`,
+      from === undefined ? [nodeId] : [nodeId, from],
+    );
+    if (!rows.length) return;
+    const now = nowUtcIso();
+    b.stmts.push({
+      sql: `UPDATE node_time_overrides SET deleted_at = $1, updated_at = $1 WHERE id IN (${placeholders(rows.length, 2)})`,
+      args: [now, ...rows.map((r) => r.id)],
+    });
+    for (const r of rows) addOp(b, NTO, r.id, "delete", { deleted_at: now, updated_at: now });
+  }
+
+  private ensureOverrideBackfill(db: Database): Promise<void> {
+    this.overrideBackfill ??= this.backfillOverrides(db).catch((e: unknown) => {
+      // 搬不動不擋讀取（畫面只是暫時看不到舊覆寫）；放掉 Promise，下一次讀取再試
+      this.overrideBackfill = null;
+      console.warn("[nodes] 逐班時刻存量搬移失敗，下次再試", e);
+    });
+    return this.overrideBackfill;
+  }
+
+  /**
+   * 存量搬移（D-主-120）：把舊欄 `nodes.time_overrides` 的 JSON 展開成覆寫列，經正常 op 路徑入列，一台只做一次。
+   *
+   * 為什麼不在 migration 做：id 是 uuid v5（SQLite 算不了），而且得經 runWriteBatch 才有 outbox 與格子戳記——
+   * 對面那台要靠這些 op 才收得到。兩台各自搬：同一班算出同一個 id、同一個值，LWW 收斂到同一列，值相同不觸發競合通知。
+   * 已經有列的班（對面先搬過、或這班後來在新版改過／清過）不碰：那一列比舊欄新，拿舊欄蓋回去會把後來的修改吃掉。
+   * 只搬有規則的票——沒規則的票覆寫本來就沒人讀（B1），搬過去只是多一批要清的殘留。
+   *
+   * 不設持久旗標：旗標存 settings 會在「改用另一台的資料」「還原 0012 以前的快照」後留著 1、擋住重搬，
+   * 舊欄的覆寫就看不到了。`have` 集合本來就讓這支冪等，每個啟動掃一遍的代價只是一個 SELECT（定期券量小），
+   * 掃到零缺列就什麼都不寫。
+   */
+  private async backfillOverrides(db: Database): Promise<void> {
+    const legacy = await db.select<Pick<NodeRow, "id" | "repeat_rule" | "time_overrides">[]>(
+      `SELECT id, repeat_rule, time_overrides FROM nodes
+       WHERE ${ALIVE} AND repeat_rule IS NOT NULL AND time_overrides IS NOT NULL AND time_overrides != ''`,
+    );
+    const have = new Set(
+      (await db.select<{ id: string }[]>(`SELECT id FROM node_time_overrides`)).map((r) => r.id),
+    );
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const n of legacy) {
+      if (!hasRepeatRule(n.repeat_rule)) continue;
+      for (const [dueOn, hhmm] of Object.entries(parseTimeOverrides(n.time_overrides))) {
+        const oid = await overrideId(n.id, dueOn);
+        if (have.has(oid)) continue;
+        b.stmts.push({
+          sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$5) ON CONFLICT(id) DO NOTHING`,
+          args: [oid, n.id, dueOn, hhmm, now],
+        });
+        addOp(b, NTO, oid, "upsert", {
+          node_id: n.id,
+          due_on: dueOn,
+          hhmm,
+          deleted_at: null,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    }
+    if (!b.stmts.length) return; // 零缺列＝這台已搬齊，不開寫入交易
+    await runWriteBatch(db, b.stmts, b.ops);
   }
 
   async create(input: CreateNodeInput): Promise<NodeRow> {
@@ -293,19 +426,17 @@ export class SqliteNodeRepository implements NodeRepository {
       entries.push(["line_id", lineId]);
     }
 
-    // B1 封口：寫 scheduled_time 時，沒有規則的票順手清掉殘留的 time_overrides（同一句 UPDATE、同一筆 op；
-    // 有殘留才加，沒變的欄不進 op）。repeat_rule 若在同一個 patch，上面 setRepeatRule 已寫完，這裡讀到的是新規則
-    let clearStaleOverrides = false;
-    if (picked.some(([k]) => k === "scheduled_time")) {
-      const cur = await this.getNode(id);
-      if (cur && !hasRepeatRule(cur.repeat_rule) && cur.time_overrides !== null) {
-        clearStaleOverrides = true;
-        entries.push(["time_overrides", null]);
-      }
-    }
-
     const now = nowUtcIso();
     const b = newWriteBatch();
+
+    // B1 封口：寫 scheduled_time 時，沒有規則的票順手軟刪殘留的覆寫列（同一個交易；有殘留才寫）。
+    // D-主-120 起殘留住在 node_time_overrides，不再是 nodes 的一欄——舊欄不寫，免得舊版的整欄 LWW 又被喚醒。
+    // repeat_rule 若在同一個 patch，上面 setRepeatRule 已寫完，這裡讀到的是新規則
+    if (picked.some(([k]) => k === "scheduled_time")) {
+      const cur = await this.getNode(id);
+      if (cur && !hasRepeatRule(cur.repeat_rule) && cur.time_overrides !== null) await this.dropOverrides(db, b, id);
+    }
+
     const sets = entries.map(([k], i) => `${k} = $${i + 1}`);
     const vals: unknown[] = entries.map(([, v]) => (v === undefined ? null : v));
     vals.push(now, id);
@@ -316,7 +447,6 @@ export class SqliteNodeRepository implements NodeRepository {
     // op 只放 picked（主人真的改的欄）＋updated_at；順手算出來的 line_id 是快取，不進 oplog
     const cols: Record<string, unknown> = {};
     for (const [k, v] of picked) cols[k] = v === undefined ? null : v;
-    if (clearStaleOverrides) cols.time_overrides = null;
     cols.updated_at = now;
     addOp(b, "nodes", id, "upsert", cols);
 
@@ -522,8 +652,8 @@ export class SqliteNodeRepository implements NodeRepository {
       if (done && opts?.cascade) {
         const sub = (await subtreeIds(db, id)).filter((x) => x !== id);
         if (sub.length) {
-          const changed = await db.select<{ id: string }[]>(
-            `SELECT id FROM nodes WHERE id IN (${placeholders(sub.length, 1)}) AND status != 'done'`,
+          const changed = await db.select<{ id: string; repeat_rule: string | null }[]>(
+            `SELECT id, repeat_rule FROM nodes WHERE id IN (${placeholders(sub.length, 1)}) AND status != 'done'`,
             sub,
           );
           const cb = newWriteBatch();
@@ -537,6 +667,7 @@ export class SqliteNodeRepository implements NodeRepository {
             this.writeEvent(cb, r.id, "done", now);
           }
           await runWriteBatch(db, cb.stmts, cb.ops);
+          await this.syncRetired(db, changed, dateKey, dayStartHour);
           ids.push(...sub);
         }
       }
@@ -546,8 +677,8 @@ export class SqliteNodeRepository implements NodeRepository {
     if (done) {
       const ids = opts?.cascade ? await subtreeIds(db, id) : [id];
       // 先問「這一輪誰真的從未完成變成完成」，済只給他們（重複蓋章不會長出第二枚）
-      const changed = await db.select<{ id: string }[]>(
-        `SELECT id FROM nodes WHERE id IN (${placeholders(ids.length, 1)}) AND status != 'done'`,
+      const changed = await db.select<{ id: string; repeat_rule: string | null }[]>(
+        `SELECT id, repeat_rule FROM nodes WHERE id IN (${placeholders(ids.length, 1)}) AND status != 'done'`,
         ids,
       );
       const b = newWriteBatch();
@@ -562,6 +693,7 @@ export class SqliteNodeRepository implements NodeRepository {
         this.writeEvent(b, r.id, "done", now);
       }
       await runWriteBatch(db, b.stmts, b.ops);
+      await this.syncRetired(db, changed, dateKey, dayStartHour);
       return ids;
     }
 
@@ -604,6 +736,7 @@ export class SqliteNodeRepository implements NodeRepository {
                AND (
                     (r.scheduled_on IS NOT NULL AND r.scheduled_on <= $1)
                  OR (r.scheduled_on IS NULL AND r.due_on IS NOT NULL AND r.due_on <= $1)
+                 OR (r.repeat_rule IS NOT NULL AND r.scheduled_on IS NULL)
                ))
            OR (r.repeat_rule IS NOT NULL AND EXISTS (
                  SELECT 1 FROM occurrences o
@@ -613,6 +746,9 @@ export class SqliteNodeRepository implements NodeRepository {
          )`,
       [dateKey, start, end],
     );
+    await this.withOverrides(db, raw, dateKey);
+    // 第四條的第三個分支（D-主-122）：退役定期券一班都沒済過 ⇒ 執行日推導成 NULL（retiredScheduledOn）；
+    // 沒有締切的話前兩個分支都接不住，今天才一起完成的它會從今日完成數裡掉出去。
     // 第五條 OR＝定期券變體（r2 的定期券版）：蓋済／運休之後 scheduled_on 已被引擎推到下一班，
     // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡。活著的定期券 status 恆非 done，
     // 所以第四條（原樣）碰不到它。磨光⑦（接縫 #102，D-主-68）：**退役的也走第五條**——今天先済、同一天又被上層
@@ -623,7 +759,22 @@ export class SqliteNodeRepository implements NodeRepository {
     const repeatIds = raw.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id); // #102：退役的也配對（分區用那筆的班次日）
     const occByNode = await this.occurrencesByNode(db, repeatIds);
 
-    const rows: TodayRow[] = raw.map((n) => {
+    // 第四條第三支（退役、執行日 NULL）SQL 判不了「退役前是不是本來就在今天」，在這裡用規則補判（retiredWasDueToday）；
+    // 同一列若另有締切到期或第五條（今天交代過某班）的資格，照舊收
+    const touchedToday = (id: string) =>
+      (occByNode[id] ?? []).some((o) => {
+        const at = o.completed_at ?? o.updated_at;
+        return at >= start && at < end;
+      });
+    const hits = raw.filter(
+      (n) =>
+        !(n.repeat_rule !== null && n.status === "done" && n.scheduled_on === null) ||
+        (n.due_on !== null && n.due_on <= dateKey) ||
+        touchedToday(n.id) ||
+        retiredWasDueToday(n, occByNode[n.id] ?? [], dateKey, dayStartHour),
+    );
+
+    const rows: TodayRow[] = hits.map((n) => {
       const occ = repeatIds.includes(n.id)
         ? pickTodayOccurrence(occByNode[n.id] ?? [], n.scheduled_on, dateKey, dayStartHour)
         : null;
@@ -755,11 +906,14 @@ export class SqliteNodeRepository implements NodeRepository {
     const q = query.trim();
     if (!q) return [];
     const db = await getDb();
-    return db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND kind != 'line' AND name LIKE $1 ESCAPE '\\'
+    return this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes WHERE ${ALIVE} AND kind != 'line' AND name LIKE $1 ESCAPE '\\'
        ORDER BY updated_at DESC LIMIT $2`,
-      // 接縫 #67：q 是字面字串——`%`、`_`、`\` 先跳脫，否則打 `%` 會列出全部
-      [`%${escapeLike(q)}%`, limit],
+        // 接縫 #67：q 是字面字串——`%`、`_`、`\` 先跳脫，否則打 `%` 會列出全部
+        [`%${escapeLike(q)}%`, limit],
+      ),
     );
   }
 
@@ -780,6 +934,7 @@ export class SqliteNodeRepository implements NodeRepository {
        ) WHERE fs_field < 2 OR fs_log IS NOT NULL`,
       [`%${escapeLike(q)}%`],
     );
+    await this.withOverrides(db, rows);
     return rows.map(({ fs_field, fs_log, ...node }): FullSearchHit =>
       fs_field === 0
         ? { node, field: "name", text: null }
@@ -791,10 +946,13 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async listInboxTickets(): Promise<NodeRow[]> {
     const db = await getDb();
-    return db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND kind = 'ticket' AND parent_id IS NULL
+    return this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes WHERE ${ALIVE} AND kind = 'ticket' AND parent_id IS NULL
          AND scheduled_on IS NULL AND route_id IS NULL AND status != 'done'
        ORDER BY created_at DESC`,
+      ),
     );
   }
 
@@ -835,21 +993,17 @@ export class SqliteNodeRepository implements NodeRepository {
       if (!parseRule(serializeRule(rule))) throw new Error("重複規則格式不正確");
     }
     const serialized = rule ? serializeRule(rule) : null;
-    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清（票變回乘車券）；掛／換規則＝清班次日 ≥ 今天的覆寫（過去的留當歷史）。
-    // scheduled_time 兩種都留著。覆寫表與規則同一句 UPDATE、同一筆 op（規則和覆寫表都沒變才不進 op，免得憑空蓋一枚戳去壓對面的覆寫）
-    const overrides = rule
-      ? serializeTimeOverrides(dropFutureOverrides(parseTimeOverrides(node.time_overrides), dateKey))
-      : null;
     const now = nowUtcIso();
     const b = newWriteBatch();
+    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清（票變回乘車券）；掛／換規則＝清班次日 ≥ 今天的覆寫（過去的留當歷史）。
+    // scheduled_time 兩種都留著。D-主-120：清＝軟刪覆寫列（與規則同一個交易，每一列各一筆 delete op）。
+    // 對面那台在舊規則下併發新設的未來覆寫這裡刪不到（它不在這台）——落在新規則非班次日的由讀取守門忽略（overrideKeepOf）。
+    await this.dropOverrides(db, b, id, rule ? dateKey : undefined);
     b.stmts.push({
-      sql: `UPDATE nodes SET repeat_rule = $1, time_overrides = $2, updated_at = $3 WHERE id = $4`,
-      args: [serialized, overrides, now, id],
+      sql: `UPDATE nodes SET repeat_rule = $1, updated_at = $2 WHERE id = $3`,
+      args: [serialized, now, id],
     });
     const cols: Record<string, unknown> = { repeat_rule: serialized, updated_at: now };
-    // 規則真的換了（或清了）⇒ time_overrides 一律進 op，讓「換規則清未來覆寫」跨機也生效（對面那台在舊規則下設的未來覆寫會被這筆較新的戳蓋掉，LWW）；
-    // 規則沒變（同內容再存一次）而覆寫表也沒變 ⇒ 不進 op，免得憑空蓋一枚戳去壓對面剛設的覆寫
-    if (serialized !== node.repeat_rule || overrides !== node.time_overrides) cols.time_overrides = overrides;
     // 清規則＝票變回乘車券（D-④-5）：scheduled_on 從「引擎推導值」轉為主人資料，這一刻起要同步。
     // 值沒變，但對面那台從此不會再自己算它——所以得把現值帶過去一次（契約 §2.7 #23）。
     if (!rule) cols.scheduled_on = node.scheduled_on;
@@ -865,49 +1019,70 @@ export class SqliteNodeRepository implements NodeRepository {
     time: string | null,
     dayStartHour: number,
   ): Promise<void> {
-    await this.writeRunTime(id, dueOn, (o) => {
-      assertClockWritable(time, dayStartHour);
-      o[dueOn] = time;
-    });
+    await this.writeRunTime(id, dueOn, { time, dayStartHour });
   }
 
   async clearRunTime(id: string, dueOn: string): Promise<void> {
-    await this.writeRunTime(id, dueOn, (o) => {
-      delete o[dueOn];
-    });
+    await this.writeRunTime(id, dueOn, null);
   }
 
   /**
-   * setRunTime／clearRunTime 的核心：驗身分與日期 → 套用 → 一句 UPDATE＋一筆 op。過去班次的覆寫一律保留（歷史，D-主-32）。
-   * 覆寫表是整欄 LWW（自決 4），所以 op 帶的是整串 JSON。
+   * setRunTime／clearRunTime 的核心：驗身分與日期 → 那一班的覆寫列 upsert（set）或軟刪（clear）＋一筆 op。
+   * 過去班次的覆寫一律保留（歷史，D-主-32）。
+   *
+   * D-主-120：一班一列、id 由 (票, 班次日) 決定，兩台改不同班是不同列、互不干擾（#86 的根治）；改同一班照逐列 LWW。
+   * `nodes` 一個欄位都不寫（舊欄停用；也不戳 nodes.updated_at——那會讓「改了某班時刻」去壓對面對這張票本身的編輯）。
    */
   private async writeRunTime(
     id: string,
     dueOn: string,
-    apply: (o: Record<string, string | null>) => void,
+    set: { time: string | null; dayStartHour: number } | null,
   ): Promise<void> {
     const db = await getDb();
     const node = await this.getNode(id);
     if (!node || node.deleted_at !== null) throw new Error("節點不存在");
     if (!parseRule(node.repeat_rule)) throw new Error(TIME_REPEAT_ONLY_MSG);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) throw new Error("班次日格式不正確");
-    const next = parseTimeOverrides(node.time_overrides);
-    apply(next);
-    const json = serializeTimeOverrides(next);
+    if (set) assertClockWritable(set.time, set.dayStartHour);
+    const oid = await overrideId(id, dueOn);
+    const hit = (
+      await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM node_time_overrides WHERE id = $1`, [oid])
+    )[0];
     const now = nowUtcIso();
     const b = newWriteBatch();
-    b.stmts.push({
-      sql: `UPDATE nodes SET time_overrides = $1, updated_at = $2 WHERE id = $3`,
-      args: [json, now, id],
-    });
-    addOp(b, "nodes", id, "upsert", { time_overrides: json, updated_at: now });
+    if (set === null) {
+      if (!hit || hit.deleted_at !== null) return; // 這一班本來就沒覆寫：不寫、不進 op
+      b.stmts.push({
+        sql: `UPDATE node_time_overrides SET deleted_at = $1, updated_at = $1 WHERE id = $2`,
+        args: [now, oid],
+      });
+      addOp(b, NTO, oid, "delete", { deleted_at: now, updated_at: now });
+    } else {
+      b.stmts.push({
+        sql: `INSERT INTO node_time_overrides (id, node_id, due_on, hhmm, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$5)
+         ON CONFLICT(id) DO UPDATE SET hhmm = excluded.hhmm, deleted_at = NULL, updated_at = excluded.updated_at`,
+        args: [oid, id, dueOn, set.time, now],
+      });
+      // node_id／due_on 每次都帶：對面可能還沒有這一列（新設、或被它的清除之前從沒同步到），INSERT 要有必填欄。
+      // created_at 只在這台新建時帶——復活／改值不該改寫這一列的出生時刻
+      addOp(b, NTO, oid, "upsert", {
+        node_id: id,
+        due_on: dueOn,
+        hhmm: set.time,
+        deleted_at: null,
+        ...(hit ? {} : { created_at: now }),
+        updated_at: now,
+      });
+    }
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
   async syncRepeats(dateKey: string, dayStartHour = 3): Promise<string[]> {
     const db = await getDb();
+    // D-主-122：退役的也撈——它的執行日改成同步資料的純函數（retiredScheduledOn），各台每一輪自己重算才會收斂
     const rows = await db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND repeat_rule IS NOT NULL AND status != 'done'`,
+      `SELECT * FROM nodes WHERE ${ALIVE} AND repeat_rule IS NOT NULL`,
     );
     const changed: string[] = [];
     for (const node of rows) {
@@ -989,8 +1164,10 @@ export class SqliteNodeRepository implements NodeRepository {
     const db = await getDb();
     const dayStartHour = opts?.dayStartHour ?? 3;
     const today = opts?.todayDateKey ?? todayKey(dayStartHour);
-    const nodes = await db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`,
+    const nodes = await this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`),
+      today,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
     const occByNode = await this.occurrencesByNode(db, repeatIds);
@@ -1008,8 +1185,10 @@ export class SqliteNodeRepository implements NodeRepository {
     const dayStartHour = opts?.dayStartHour ?? 3;
     const today = opts?.todayDateKey ?? todayKey(dayStartHour);
     // 與 listSchedule 同一句、同一趟：締切層與節點表都從這批列裡摺出來，不再多打一次 SQL
-    const nodes = await db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`,
+    const nodes = await this.withOverrides(
+      db,
+      await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`),
+      today,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
     const occByNode = await this.occurrencesByNode(db, repeatIds);
@@ -1172,10 +1351,19 @@ export class SqliteNodeRepository implements NodeRepository {
     known?: NodeRow,
   ): Promise<boolean> {
     const node = known ?? (await this.getNode(id));
-    if (!node || node.deleted_at !== null || node.status === "done") return false;
+    if (!node || node.deleted_at !== null) return false;
     const rule = parseRule(node.repeat_rule);
     if (!rule) return false;
     const occs = await this.occurrencesOf(db, id);
+    if (node.status === "done") {
+      // 退役（D-主-122）：執行日＝最後一班済的班次日（沒済過＝NULL）。以前這裡直接 return，值凍在各台最後算到的那天、
+      // 兩台可能不同（#103）。**不碰 updated_at**：這是推導重算、不是內容修改（同 move() 的 S-8 原則）；
+      // 退役票的 updated_at 兩台本來相同，戳了就會各自不同。活票那條路照舊（它的 updated_at 本來就各台不同，另案）。
+      const f = retiredScheduledOn(occs);
+      if (f === node.scheduled_on) return false;
+      await runWriteBatch(db, [{ sql: `UPDATE nodes SET scheduled_on = $1 WHERE id = $2`, args: [f, id] }], []);
+      return true;
+    }
     const due = currentDue(rule, occs, dateKey, dayStartHour);
     if (due === null || due === node.scheduled_on) return false;
     await runWriteBatch(
@@ -1184,6 +1372,21 @@ export class SqliteNodeRepository implements NodeRepository {
       [],
     );
     return true;
+  }
+
+  /**
+   * 剛被一起完成（退役）的定期券當場重算執行日，不等下一輪 syncRepeats——
+   * 否則「先済再退役」那一列會帶著被推到明天的值，直到下次重整才回到最後一班（今日第四條吃這個值）。
+   */
+  private async syncRetired(
+    db: Database,
+    changed: readonly { id: string; repeat_rule: string | null }[],
+    dateKey: string,
+    dayStartHour: number,
+  ): Promise<void> {
+    for (const r of changed) {
+      if (parseRule(r.repeat_rule)) await this.syncNode(db, r.id, dateKey, dayStartHour);
+    }
   }
 
   // ───────────── 乘務記錄的系統事件（発券／入鋏／済）─────────────

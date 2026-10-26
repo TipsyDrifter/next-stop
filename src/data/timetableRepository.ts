@@ -71,7 +71,7 @@ export interface TimetableRepository {
   /** glyph：子分類＝name 的第一個字元（Array.from(name)[0]）；頂層組＝null。position＝同層最大值 +1 */
   createCategory(input: CreateCategoryInput): Promise<TimeCategoryRow>;
   updateCategory(id: string, patch: CategoryPatch): Promise<void>;
-  /** 同一層的新順序（position 依陣列重排 0..n-1；只對 position 真的變了的列送 op） */
+  /** 同一層的新順序：整組 0..n-1 全寫、與該層未刪未封存兄弟對帳（清單沒提到的接尾端）——每列都送 op，兩台競合時整組 LWW 單邊勝（#101，D-主-125） */
   reorderCategories(parentId: string | null, orderedIds: readonly string[]): Promise<void>;
 
   /* ── 時間塊：讀 ── */

@@ -471,17 +471,28 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const db = await getDb();
     const sibWhere = parentId === null ? `parent_id IS NULL` : `parent_id = $1`;
     const sibArgs = parentId === null ? [] : [parentId];
-    const rows = await db.select<{ id: string; position: number }[]>(
-      `SELECT id, position FROM time_categories WHERE ${sibWhere} AND ${ALIVE}`,
+    // 「組」＝顯示邊界（該層未刪、未封存）。封存的兄弟不進整組（顯示層用 created_at → id 決勝）
+    const rows = await db.select<{ id: string; position: number; created_at: string }[]>(
+      `SELECT id, position, created_at FROM time_categories WHERE ${sibWhere} AND archived_at IS NULL AND ${ALIVE}`,
       sibArgs,
     );
-    const posById = new Map<string, number>();
-    for (const r of rows) posById.set(r.id, r.position);
+    // 對帳：清單裡屬於這組的照清單序；清單沒提到的兄弟（並行新增、清單陳舊）接在尾端照原序。
+    // 整組 0..n-1 全寫（含值沒變的）——逐欄 LWW 下只送變的列，兩台各排一次會合出混合版本（#101）
+    const live = new Map(rows.map((r) => [r.id, r]));
+    const seen = new Set<string>();
+    const order: string[] = [];
+    for (const id of orderedIds) {
+      if (!live.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      order.push(id);
+    }
+    const rest = rows
+      .filter((r) => !seen.has(r.id))
+      .sort((a, c) => a.position - c.position || (a.created_at < c.created_at ? -1 : a.created_at > c.created_at ? 1 : 0) || (a.id < c.id ? -1 : a.id > c.id ? 1 : 0));
+    for (const r of rest) order.push(r.id);
     const now = nowUtcIso();
     const b = newWriteBatch();
-    orderedIds.forEach((id, i) => {
-      const cur = posById.get(id);
-      if (cur === undefined || cur === i) return; // 不在這一層、或 position 沒變 ⇒ 不送 op
+    order.forEach((id, i) => {
       b.stmts.push({ sql: `UPDATE time_categories SET position = $1, updated_at = $2 WHERE id = $3`, args: [i, now, id] });
       addOp(b, "time_categories", id, "upsert", { position: i, updated_at: now });
     });

@@ -937,14 +937,25 @@ export class MemoryTimetableRepository implements TimetableRepository {
   }
 
   async reorderCategories(parentId: string | null, orderedIds: readonly string[]): Promise<void> {
+    // 與 SQLite 版同語義：組＝該層未刪、未封存；清單序在前、沒提到的兄弟接尾端；整組 0..n-1 全寫（#101）
+    const live = this.sameLayer(parentId).filter((c) => c.archived_at === null);
+    const byId = new Map(live.map((c) => [c.id, c]));
+    const seen = new Set<string>();
+    const order: TimeCategoryRow[] = [];
+    for (const id of orderedIds) {
+      const c = byId.get(id);
+      if (!c || seen.has(id)) continue;
+      seen.add(id);
+      order.push(c);
+    }
+    const rest = live
+      .filter((c) => !seen.has(c.id))
+      .sort((a, c) => a.position - c.position || (a.created_at < c.created_at ? -1 : a.created_at > c.created_at ? 1 : 0) || (a.id < c.id ? -1 : a.id > c.id ? 1 : 0));
+    order.push(...rest);
     const now = nowUtcIso();
-    orderedIds.forEach((id, i) => {
-      const c = this.cats.get(id);
-      if (!c || !isAlive(c) || c.parent_id !== parentId) return;
-      if (c.position !== i) {
-        c.position = i;
-        c.updated_at = now;
-      }
+    order.forEach((c, i) => {
+      c.position = i;
+      c.updated_at = now;
     });
   }
 

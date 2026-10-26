@@ -60,6 +60,21 @@ pub fn next(prev: Option<&str>, now_ms: u64, device_id: &str) -> String {
     format(h, device_id)
 }
 
+/// 遠端 hlc 可以比本機時鐘「超前」多少還算可信（B2-6，D-主-126）：24 小時。
+///
+/// 為什麼要上限：種子只升不降——某台時鐘飛到未來（或被塞了惡意物件），它的 hlc 一旦進了別台的種子，
+/// 別台之後的每一筆寫入都跟著活在「未來」、再把污染推給第三台，沒有出口。
+/// 為什麼這麼寬：本機時鐘**落後**時，正常的遠端 op 看起來也全在未來；上限窄了會把好物件也擋在種子外。
+/// 與 TS 端 `src/data/syncRepository.ts` 的 `HLC_MAX_DRIFT_MS` 同值——改一邊要跟著改另一邊（兩端各守各的種子）。
+pub const MAX_DRIFT_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// `h` 的物理時間沒有超過 `now_ms + cap_ms`（含邊界）。形狀不對一律 false——看不懂的戳記本來就不該當種子。
+///
+/// 只拿來決定「納不納入種子」；op 照套、格子照戳（物件名與格子的單調性比漂移重要，契約已記偏差）。
+pub fn within_drift(h: &str, now_ms: u64, cap_ms: u64) -> bool {
+    parse(h).is_some_and(|x| x.ms <= now_ms.saturating_add(cap_ms))
+}
+
 /// 現在的毫秒（UTC epoch）。快照產 hlc 用。
 pub fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -114,6 +129,21 @@ mod tests {
         assert!(v[0].ends_with("-aaaaaaaa"));
         assert!(v[1].ends_with("-cccccccc"));
         assert_eq!(parse(&v[2]).unwrap().ms, 2_000_000_000_000);
+    }
+
+    #[test]
+    fn 偏差上限_超過now加cap才算越界() {
+        let now = 1_758_153_600_000u64;
+        let cap = MAX_DRIFT_MS;
+        let at = |ms: u64| next(None, ms, "devicexx");
+        assert!(within_drift(&at(now), now, cap), "現在");
+        assert!(within_drift(&at(now - 5 * cap), now, cap), "過去多久都可信（本機時鐘快、對方慢）");
+        assert!(within_drift(&at(now + cap), now, cap), "剛好 24h 算在內");
+        assert!(!within_drift(&at(now + cap + 1), now, cap), "超過 1ms 就不納入種子");
+        assert!(!within_drift("not-an-hlc", now, cap), "形狀不對不當種子");
+        assert!(!within_drift("", now, cap));
+        // now 接近上限也不溢位
+        assert!(within_drift(&at(now), u64::MAX, cap));
     }
 }
 

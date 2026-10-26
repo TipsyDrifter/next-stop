@@ -11,11 +11,10 @@ import { addDays, dayWindow, todayKey } from "../lib/date";
 import {
   TIME_REPEAT_ONLY_MSG,
   assertClockWritable,
-  dropFutureOverrides,
   hasRepeatRule,
   manualOrderIds,
   parseTimeOverrides,
-  serializeTimeOverrides,
+  type TimeOverrideRow,
 } from "../domain/scheduledTime";
 import {
   KIND_LABEL,
@@ -50,6 +49,7 @@ import type {
 } from "./nodeRepository";
 import type { FullSearchHit } from "../domain/fullSearch";
 import {
+  attachTimeOverrides,
   backfillAtOf,
   buildCalendar,
   buildRouteProgress,
@@ -60,6 +60,8 @@ import {
   pickTodayOccurrence,
   reorderIds,
   resolveSkipDate,
+  retiredScheduledOn,
+  retiredWasDueToday,
   toCurrentOccurrence,
   todayBucketOf,
   REPEATABLE_KINDS,
@@ -89,6 +91,16 @@ export class MemoryNodeRepository implements NodeRepository {
   private readonly logs = new Map<string, WorkLog>();
   /** 班次記錄（M3 ④）；反悔＝soft delete，同一班次可再蓋（同 occurrences 表的部分唯一索引） */
   private readonly occ = new Map<string, Occurrence>();
+  /**
+   * 逐班時刻覆寫列（D-主-120；同 node_time_overrides 表）。鍵＝`${node_id}|${due_on}`——SQLite 版的 id 是同一個 name 的
+   * uuid v5；記憶體版不同步，鍵本身就決定「同一班同一列」，不必真的算 uuid（那是 async，寫入核心是同步的）。
+   *
+   * 讀取面：`NodeRow.time_overrides` 在這裡當**推導快取**存著（列一變就重摺，見 refreshOverrides），讀取路徑照舊複製節點即可；
+   * SQLite 版則是每次讀取時從列摺（舊欄停用）。兩邊摺法同一支 attachTimeOverrides。
+   */
+  private readonly ovr = new Map<string, TimeOverrideRow & { created_at: string; updated_at: string }>();
+  /** 存量搬移做過了沒（SQLite 版是 settings 的本地鍵；記憶體版不持久化，記在實例上） */
+  private ovrBackfilled = false;
   /** 種子載入期間用的假時鐘（每筆 +1s，讓 created_at 有序、看起來像上週建的）；null＝用真實時間 */
   private seedClock: number | null = null;
 
@@ -233,7 +245,11 @@ export class MemoryNodeRepository implements NodeRepository {
       if (
         n.status === "done" && n.completed_at !== null && n.completed_at >= start && n.completed_at < end &&
         ((n.scheduled_on !== null && n.scheduled_on <= dateKey) ||
-          (n.scheduled_on === null && n.due_on !== null && n.due_on <= dateKey))
+          (n.scheduled_on === null && n.due_on !== null && n.due_on <= dateKey) ||
+          // D-主-122：退役定期券一班都沒済過 ⇒ 執行日推導成 NULL；沒締切的話前兩個分支接不住。
+          // 「退役前本來就在今天」改用規則補判（retiredWasDueToday；與 SQLite 版的 SQL＋補判同一個結果）
+          (n.repeat_rule !== null && n.scheduled_on === null &&
+            retiredWasDueToday(n, this.occurrencesOf(n.id), dateKey, dayStartHour)))
       ) return true;
       // 第五條＝定期券變體（r2 的定期券版）：蓋済／運休之後 scheduled_on 已被推到下一班，
       // 「今天交代過的那一班」只能靠 occurrence 的時刻戳留在清單裡（與 SQLite 版的第五條 OR 同源）；
@@ -374,8 +390,9 @@ export class MemoryNodeRepository implements NodeRepository {
 
   async syncRepeats(dateKey: string, dayStartHour = 3): Promise<string[]> {
     const changed: string[] = [];
+    // D-主-122：退役的也算（執行日＝同步資料的純函數，見 syncNode；與 SQLite 版同）
     for (const n of this.alive()) {
-      if (n.repeat_rule === null || n.status === "done") continue;
+      if (n.repeat_rule === null) continue;
       if (this.syncNode(n.id, dateKey, dayStartHour)) changed.push(n.id);
     }
     return changed;
@@ -481,33 +498,91 @@ export class MemoryNodeRepository implements NodeRepository {
     time: string | null,
     dayStartHour: number,
   ): Promise<void> {
-    this.writeRunTime(id, dueOn, (o) => {
-      assertClockWritable(time, dayStartHour);
-      o[dueOn] = time;
-    });
+    this.writeRunTime(id, dueOn, { time, dayStartHour });
   }
 
   async clearRunTime(id: string, dueOn: string): Promise<void> {
-    this.writeRunTime(id, dueOn, (o) => {
-      delete o[dueOn];
-    });
+    this.writeRunTime(id, dueOn, null);
   }
 
-  /** setRunTime／clearRunTime 的同步核心：驗身分與日期 → 套用 → 寫回（過去班次的覆寫一律保留）（與 SQLite 版同一套規則） */
+  /**
+   * setRunTime／clearRunTime 的同步核心：驗身分與日期 → 那一班的覆寫列 set／軟刪（過去班次的覆寫一律保留）
+   * （與 SQLite 版同一套規則；nodes 不動、updated_at 也不戳）
+   */
   private writeRunTime(
     id: string,
     dueOn: string,
-    apply: (o: Record<string, string | null>) => void,
+    set: { time: string | null; dayStartHour: number } | null,
   ): void {
     const node = this.nodes.get(id);
     if (!node || !isAlive(node)) throw new Error("節點不存在");
     if (!parseRule(node.repeat_rule)) throw new Error(TIME_REPEAT_ONLY_MSG);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) throw new Error("班次日格式不正確");
-    const next = parseTimeOverrides(node.time_overrides);
-    apply(next);
+    if (set) assertClockWritable(set.time, set.dayStartHour);
+    this.backfillOverrides();
+    const key = `${id}|${dueOn}`;
+    const hit = this.ovr.get(key);
     const now = this.now();
-    const json = serializeTimeOverrides(next);
-    this.mutate(id, (n) => ({ ...n, time_overrides: json, updated_at: now }));
+    if (set === null) {
+      if (!hit || hit.deleted_at) return;
+      this.ovr.set(key, { ...hit, deleted_at: now, updated_at: now });
+    } else {
+      this.ovr.set(key, {
+        node_id: id,
+        due_on: dueOn,
+        hhmm: set.time,
+        deleted_at: null,
+        created_at: hit?.created_at ?? now,
+        updated_at: now,
+      });
+    }
+    this.refreshOverrides(id);
+  }
+
+  async getTimeOverrideRef(id: string): Promise<{ nodeId: string; dueOn: string } | null> {
+    // mock 的列鍵就是 `node|date`（寫入核心是同步函式、不算 uuid）
+    const hit = this.ovr.get(id);
+    if (hit) return { nodeId: hit.node_id, dueOn: hit.due_on };
+    const [nodeId, dueOn] = id.split("|");
+    return nodeId && dueOn ? { nodeId, dueOn } : null;
+  }
+
+  /** 軟刪一張票的覆寫列（班次日 ≥ from；沒給＝全部），與 SQLite 版 dropOverrides 同語義 */
+  private dropOverrides(nodeId: string, from?: string): void {
+    this.backfillOverrides();
+    const now = this.now();
+    for (const [k, r] of this.ovr) {
+      if (r.node_id !== nodeId || r.deleted_at) continue;
+      if (from !== undefined && r.due_on < from) continue;
+      this.ovr.set(k, { ...r, deleted_at: now, updated_at: now });
+    }
+  }
+
+  /** 列一變就把 NodeRow.time_overrides 重摺一次（推導快取；摺法與守門同 SQLite 版的讀取面） */
+  private refreshOverrides(nodeId: string): void {
+    const node = this.nodes.get(nodeId);
+    if (!node) return;
+    const rows = [...this.ovr.values()].filter((r) => r.node_id === nodeId);
+    const [folded] = attachTimeOverrides([{ ...node }], rows, todayKey(3));
+    this.nodes.set(nodeId, { ...node, time_overrides: folded.time_overrides });
+  }
+
+  /**
+   * 存量搬移（與 SQLite 版 backfillOverrides 同語義）：有規則的票、快取欄有 JSON 但這一班還沒有列 ⇒ 展開成列。
+   * 記憶體版的「舊欄」就是這個快取欄——只有外部直接灌進來的值（例：模擬舊資料）會走到這裡。一個實例只做一次。
+   */
+  private backfillOverrides(): void {
+    if (this.ovrBackfilled) return;
+    this.ovrBackfilled = true;
+    const now = this.now();
+    for (const n of this.alive()) {
+      if (!hasRepeatRule(n.repeat_rule) || !n.time_overrides) continue;
+      for (const [dueOn, hhmm] of Object.entries(parseTimeOverrides(n.time_overrides))) {
+        const key = `${n.id}|${dueOn}`;
+        if (this.ovr.has(key)) continue;
+        this.ovr.set(key, { node_id: n.id, due_on: dueOn, hhmm, deleted_at: null, created_at: now, updated_at: now });
+      }
+    }
   }
 
   /** 掛／清規則的同步核心（驗證訊息與 SQLite 版逐字對齊） */
@@ -522,16 +597,15 @@ export class MemoryNodeRepository implements NodeRepository {
       if (!parseRule(serializeRule(rule))) throw new Error("重複規則格式不正確");
     }
     const now = this.now();
-    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清（票變回乘車券）；掛／換規則＝清班次日 ≥ 今天的覆寫（過去的留當歷史）。scheduled_time 兩種都留著
-    const overrides = rule
-      ? serializeTimeOverrides(dropFutureOverrides(parseTimeOverrides(node.time_overrides), dateKey))
-      : null;
+    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清（票變回乘車券）；掛／換規則＝清班次日 ≥ 今天的覆寫（過去的留當歷史）。scheduled_time 兩種都留著。
+    // D-主-120：清＝軟刪覆寫列（與 SQLite 版同）；規則寫好之後重摺快取（守門看的是新規則）
+    this.dropOverrides(id, rule ? dateKey : undefined);
     this.mutate(id, (n) => ({
       ...n,
       repeat_rule: rule ? serializeRule(rule) : null,
-      time_overrides: overrides,
       updated_at: now,
     }));
+    this.refreshOverrides(id);
     // 掛規則＝立刻算目前班次日；清規則＝scheduled_on 留現值（票變回乘車券，occurrences 留作歷史）
     if (rule) this.syncNode(id, dateKey, dayStartHour);
   }
@@ -542,9 +616,16 @@ export class MemoryNodeRepository implements NodeRepository {
    */
   private syncNode(id: string, dateKey: string, dayStartHour: number): boolean {
     const node = this.nodes.get(id);
-    if (!node || !isAlive(node) || node.status === "done") return false;
+    if (!node || !isAlive(node)) return false;
     const rule = parseRule(node.repeat_rule);
     if (!rule) return false;
+    if (node.status === "done") {
+      // 退役（D-主-122）：執行日＝最後一班済的班次日（沒済過＝null）；不碰 updated_at（理由見 SQLite 版）
+      const f = retiredScheduledOn(this.occurrencesOf(id));
+      if (f === node.scheduled_on) return false;
+      this.nodes.set(id, { ...node, scheduled_on: f });
+      return true;
+    }
     const due = currentDue(rule, this.occurrencesOf(id), dateKey, dayStartHour);
     if (due === null || due === node.scheduled_on) return false;
     const now = this.now();
@@ -761,10 +842,14 @@ export class MemoryNodeRepository implements NodeRepository {
     }
     if (!Object.keys(picked).length) return;
 
-    // B1 封口：寫 scheduled_time 時，沒有規則的票順手清掉殘留的 time_overrides（跨機並發「清規則」vs「設本班時刻」的遺跡）
+    // B1 封口：寫 scheduled_time 時，沒有規則的票順手軟刪殘留的覆寫列（跨機並發「清規則」vs「設本班時刻」的遺跡；與 SQLite 版同）
+    let clearStale = false;
     if ("scheduled_time" in picked) {
       const cur = this.nodes.get(id);
-      if (cur && !hasRepeatRule(cur.repeat_rule) && cur.time_overrides !== null) picked.time_overrides = null;
+      if (cur && !hasRepeatRule(cur.repeat_rule) && cur.time_overrides !== null) {
+        this.dropOverrides(id);
+        clearStale = true;
+      }
     }
 
     // route_id＝臨時車票的路線標籤：驗身分＋同步 line_id（與 SQLite 版同一套規則）
@@ -783,6 +868,7 @@ export class MemoryNodeRepository implements NodeRepository {
     }
 
     this.mutate(id, (n) => ({ ...n, ...(picked as Partial<NodeRow>), updated_at: this.now() }));
+    if (clearStale) this.refreshOverrides(id);
 
     // 入鋏：首次進 doing 才記一枚
     if (patch.status === "doing" && !this.hasEvent(id, "punched")) this.event(id, "punched", this.now());
@@ -825,6 +911,8 @@ export class MemoryNodeRepository implements NodeRepository {
           if (!before || before.status === "done") continue;
           this.mutate(sid, (n) => ({ ...n, status: "done", completed_at: now, updated_at: now }));
           this.event(sid, "done", now);
+          // 退役當場重算執行日（同 SQLite 版 syncRetired）
+          if (parseRule(before.repeat_rule)) this.syncNode(sid, dateKey, dayStartHour);
           ids.push(sid);
         }
       }
@@ -838,6 +926,7 @@ export class MemoryNodeRepository implements NodeRepository {
         if (!before || before.status === "done") continue;
         this.mutate(sid, (n) => ({ ...n, status: "done", completed_at: now, updated_at: now }));
         this.event(sid, "done", now); // 済
+        if (parseRule(before.repeat_rule)) this.syncNode(sid, dateKey, dayStartHour); // 退役當場重算執行日
       }
       return ids;
     }
@@ -1067,7 +1156,7 @@ export class MemoryNodeRepository implements NodeRepository {
     P(nightReport.id, { scheduled_time: "25:00", estimate_min: 30 }); // 25:00 排最後；「隔天 01:00」
     // 定期券：每班 07:00，今天這班覆寫成 09:30（繼承＋本班覆寫＋「本班」字）
     P(dailyVocab.id, { scheduled_time: "07:00" });
-    this.mutate(dailyVocab.id, (n) => ({ ...n, time_overrides: serializeTimeOverrides({ [today]: "09:30" }) }));
+    this.writeRunTime(dailyVocab.id, today, { time: "09:30", dayStartHour: SEED_DAY_START_HOUR });
     P(jog.id, { scheduled_time: "06:30" }); // 漏班兩天：誤點區照樣印原時刻（赭）
     // 時段視圖：長度、「長度未定」、同時刻並排
     P(closet.id, { scheduled_time: "14:00", estimate_min: 90 });
@@ -1108,6 +1197,7 @@ export class MemoryNodeRepository implements NodeRepository {
         }));
       });
       for (const o of this.occ.values()) this.dropOccurrence(o.id);
+      for (const n of this.nodes.values()) this.dropOverrides(n.id); // 覆寫列跟著規則一起清（同上的不變式）
     } else if (opts.allDone) {
       // 今日視窗的四條 OR 就是這三種：排今天／執行日過期／締切過期（完成的那條本來就是 done）
       this.alive()

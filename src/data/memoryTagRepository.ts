@@ -27,11 +27,15 @@ import type { MemoryNoteRepository } from "./memoryNoteRepository";
 import type { SettingsRepository } from "./settingsRepository";
 import {
   emptyReceipt,
+  followRename,
+  followRenamePlan,
+  recordTagBeforeWithRename,
   tagId,
   taggingId,
   type AttachResult,
   type BackfillResult,
   type CreateTagResult,
+  type RenameFollow,
   type SyncBodyResult,
   type TagEntityType,
   type TaggedItem,
@@ -44,6 +48,11 @@ import { byNameKey, pickNode, readRecent, recordTagBefore, recordTaggingBefore }
 import { otherEntityAliveMemory, uncountedTagEntityTypes } from "./tagEntityAlive";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
+
+/** 收據記改前值（連改名去向；同 sqlite 版） */
+function recordTag(r: TagReceipt, t: TagRow): void {
+  recordTagBeforeWithRename(r, t, recordTagBefore);
+}
 
 /** 種子荷札（虛構）：[名稱, 掛到第幾張可掛節點（-1＝不掛，只靠內文）] */
 const SEED_TAGS: [string, number[]][] = [
@@ -259,7 +268,7 @@ export class MemoryTagRepository implements TagRepository {
     if (plan.same) {
       const row = this.tags.get(await tagId(plan.oldKey));
       if (row && row.deleted_at === null && row.name !== plan.newName) {
-        recordTagBefore(r, row);
+        recordTag(r, row);
         row.name = plan.newName;
         row.updated_at = now;
       }
@@ -274,7 +283,8 @@ export class MemoryTagRepository implements TagRepository {
         this.softDeleteTagging(g, now, r);
       }
       const src = this.tags.get(fromId);
-      if (src && src.deleted_at === null) this.softDeleteTag(src, now, r);
+      // 併入同理：併入目標就是去向（D-主-121；同 sqlite 版）
+      if (src && src.deleted_at === null) this.softDeleteTag(src, now, r, target.id);
     }
     for (const x of await this.noteRepo.bodiesWithHash()) {
       const next = renameBody(x.body, plan);
@@ -318,7 +328,8 @@ export class MemoryTagRepository implements TagRepository {
     }
     for (const b of receipt.tagsBefore) {
       const t = this.tags.get(b.id);
-      if (t) Object.assign(t, { name: b.name, deleted_at: b.deleted_at, updated_at: now });
+      // 改名去向一起寫回（同 sqlite 版）
+      if (t) Object.assign(t, { name: b.name, deleted_at: b.deleted_at, renamed_to: b.renamed_to ?? null, updated_at: now });
     }
     for (const b of receipt.taggingsBefore) {
       const g = this.taggings.get(b.id);
@@ -330,6 +341,56 @@ export class MemoryTagRepository implements TagRepository {
   async pushRecent(key: string): Promise<void> {
     const list = await readRecent(this.settingsRepo);
     await this.settingsRepo.set(TAGS_RECENT_KEY, JSON.stringify(pushRecentKeys(list, key)));
+  }
+
+  /* ───────────── 同步引擎班（D-主-121；語義同 sqlite 版） ───────────── */
+
+  async getTagRow(id: string): Promise<TagRow | null> {
+    await this.ensureSeed();
+    const t = this.tags.get(id);
+    return t ? clone(t) : null;
+  }
+
+  async reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]> {
+    await this.ensureSeed();
+    const get = async (id: string) => this.tags.get(id) ?? null;
+    const live: string[] = [];
+    for (const t of this.aliveTags()) if (t.renamed_to && (await followRename(t.id, get))) live.push(t.id);
+    if (!live.length) return [];
+    if (opts?.beforeBodyRewrite && this.aliveTaggings().some((g) => g.entity_type === "note" && live.includes(g.tag_id))) {
+      await opts.beforeBodyRewrite();
+    }
+    const now = nowUtcIso();
+    const r = emptyReceipt(); // 整理不給復原；收據只是讓共用的寫法照走
+    const out: RenameFollow[] = [];
+    const plans: RenamePlan[] = [];
+    const noteIds = new Set<string>();
+    for (const id of live) {
+      const shell = this.tags.get(id);
+      if (!shell || shell.deleted_at !== null || !shell.renamed_to) continue;
+      const toId = await followRename(id, get);
+      const target = toId ? this.tags.get(toId) : undefined;
+      if (!target) continue;
+      let moved = 0;
+      for (const g of this.aliveTaggings()) {
+        if (g.tag_id !== id) continue;
+        await this.ensureTagging(g.entity_type, g.entity_id, target.id, now, r);
+        this.softDeleteTagging(g, now, r);
+        if (g.entity_type === "note") noteIds.add(g.entity_id);
+        moved++;
+      }
+      this.softDeleteTag(shell, now, r);
+      plans.push(followRenamePlan(shell, target));
+      out.push({ fromId: id, fromName: shell.name, toId: target.id, toKey: target.name_key, toName: target.name, moved });
+    }
+    if (noteIds.size) {
+      for (const x of await this.noteRepo.bodiesWithHash()) {
+        if (!noteIds.has(x.id)) continue;
+        const next = plans.reduce((b, p) => renameBody(b, p), x.body);
+        if (next !== x.body) this.noteRepo.setBodyRaw(x.id, next, now);
+      }
+    }
+    return out;
   }
 
   /* ───────────── 內部 ───────────── */
@@ -380,15 +441,17 @@ export class MemoryTagRepository implements TagRepository {
     const id = await tagId(key);
     const row = this.tags.get(id);
     if (!row) {
-      const fresh: TagRow = { id, name, name_key: key, created_at: now, updated_at: now, deleted_at: null };
+      const fresh: TagRow = { id, name, name_key: key, created_at: now, updated_at: now, deleted_at: null, renamed_to: null };
       this.tags.set(id, fresh);
       r.createdTagIds.push(id);
       return { row: fresh, created: true };
     }
     if (row.deleted_at !== null) {
-      recordTagBefore(r, row);
+      // 親手用回已刪的荷札＝刻意重建：改名去向清掉（D-主-121；同 sqlite 版）
+      recordTag(r, row);
       row.deleted_at = null;
       row.updated_at = now;
+      row.renamed_to = null;
       if (renameTo) row.name = name;
       return { row, created: true };
     }
@@ -428,10 +491,12 @@ export class MemoryTagRepository implements TagRepository {
     g.deleted_at = now;
     g.updated_at = now;
   }
-  private softDeleteTag(t: TagRow, now: string, r: TagReceipt): void {
-    recordTagBefore(r, t);
+  /** `renamedTo` 給了＝改名／併入的「刪舊」，記下去向（同 sqlite 版的 softDeleteTag） */
+  private softDeleteTag(t: TagRow, now: string, r: TagReceipt, renamedTo?: string): void {
+    recordTag(r, t);
     t.deleted_at = now;
     t.updated_at = now;
+    if (renamedTo !== undefined) t.renamed_to = renamedTo;
   }
 
   /** 內文→taggings 差集；`created` 給了就把新建（含復活）的 tag key 收進去 */

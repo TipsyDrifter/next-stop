@@ -3,6 +3,7 @@
 //! `prune_fk_violations`／`local_alive_count` **逐字搬**；G0 金樣（`sync/foundation_golden.rs`）逐位元組守著。
 //!
 //! 三條功能線不改這支檔——各線的表寫在自己的 `notes.rs`／`timetable.rs`／`ticket.rs`。
+//! 核心之後新加的表（同步引擎班 `node_time_overrides`）另成一組 `TIME_OVERRIDE_TABLES`，不進 `TABLES`（理由見該常數）。
 
 use super::{ConflictAnchor, Kind, OutboxQuery, RowsSpec, SyncTableSpec};
 use crate::sync::engine::db_err;
@@ -156,3 +157,47 @@ pub const TABLES: &[SyncTableSpec] = &[
 
 /// settings 只同步這幾把鑰匙（v1.1.1 契約 §2.2／D-1.1-3）
 pub const SETTINGS_KEYS: &[&str] = &["day_start_hour"];
+
+/// node_time_overrides 的「主人資料」欄（同步引擎班 D-主-120；migration 0012）。
+/// 一班一列、id 由 (node_id, due_on) 決定性算出（TS 端 `overrideId`，uuid v5），兩台同一班同一列——
+/// 逐班時刻從 `nodes.time_overrides` 整欄 JSON 拆出來，兩台改不同班才不會互吃（#86）。
+/// `nodes.time_overrides` 仍留在 `NODES_COLS`：舊版物件的整欄寫入照套到舊欄（沒人讀），拿掉會讓舊物件少套一欄。
+const NODE_TIME_OVERRIDES_COLS: &[(&str, bool)] = &[
+    ("node_id", false),
+    ("due_on", false),
+    ("hhmm", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// 核心新加的同步表（與上面四張分開一組）。
+///
+/// 為什麼不併進 `TABLES`：`Registry::core_only()` 只收 `TABLES`，G0 金樣（`foundation_golden.rs`）的臨時庫只跑
+/// 0001–0004＋0009、沒有這張表——併進去補戳／快照／匯出／清空全部會撞「no such table」，金樣也得重產。
+/// 分開一組、在生產登記表緊接核心之後串上（`tables/mod.rs` 的 `production_groups`），金樣照舊只鎖原本的四張。
+/// 順序：接在 core 之後、notes 之前——probe（`scripts/probes/registry.ts`）照檔案內 `name:` 的出現順序對帳。
+pub const TIME_OVERRIDE_TABLES: &[SyncTableSpec] = &[SyncTableSpec {
+    name: "node_time_overrides",
+    pk: "id",
+    columns: NODE_TIME_OVERRIDES_COLS,
+    // NOT NULL 且沒有 DEFAULT：node_id、due_on（0012）；hhmm 可 NULL（＝這一班清掉時刻）
+    required: &["node_id", "due_on"],
+    kind: Kind::Rows(RowsSpec {
+        stamp_filter: "",
+        outbox: OutboxQuery::Plain {
+            order_by: "due_on",
+            filter: "",
+        },
+        outbox_row_fix: None,
+        full_json_order: "due_on",
+        // node_id 指向 nodes 但沒宣告 FK（0012）：PRAGMA foreign_key_check 查不到東西，填 true 是空轉；
+        // 票被刪掉時的孤兒列＝沒人讀（讀取一律依票撈）
+        fk_checked: false,
+        // 不記競合日誌：逐班時刻的「誰蓋了誰」由 toast 講（哪張票哪一班），不另寫乘務記錄
+        conflict_anchor: ConflictAnchor::None,
+        // 2026-10-05 拍板：新同步表一律算進「這台有沒有資料」（覆寫列不會脫離票單獨存在，照規則填）
+        alive_filter: Some("deleted_at IS NULL"),
+        since: Some("time_overrides"),
+    }),
+}];

@@ -110,16 +110,19 @@ impl Registry {
         }
     }
 
-    fn production_groups() -> [(&'static [SyncTableSpec], &'static [&'static str]); 4] {
+    fn production_groups() -> [(&'static [SyncTableSpec], &'static [&'static str]); 5] {
         [
             (core::TABLES, core::SETTINGS_KEYS),
+            // 逐班時刻覆寫（0012）另立一組：core::TABLES 是 G0 金樣鎖住的核心四張，
+            // 新表不進 core_only 的臨時庫，金樣零接觸（D-主-120）。probe 照 name: 出現順序對帳，所以緊接在 core 之後。
+            (core::TIME_OVERRIDE_TABLES, &[]),
             (notes::TABLES, notes::SETTINGS_KEYS),
             (timetable::TABLES, timetable::SETTINGS_KEYS),
             (ticket::TABLES, ticket::SETTINGS_KEYS),
         ]
     }
 
-    /// 順序固定：core（nodes, work_logs, occurrences, settings）→ notes → timetable → ticket。建一次。
+    /// 順序固定：core（nodes, work_logs, occurrences, settings）→ node_time_overrides → notes → timetable → ticket。建一次。
     pub fn production() -> &'static Registry {
         static REG: OnceLock<Registry> = OnceLock::new();
         REG.get_or_init(|| Registry::build(&Registry::production_groups()))

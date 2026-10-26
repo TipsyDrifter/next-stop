@@ -63,7 +63,7 @@ describe("#102 今日清單收「今天済過、同一天又被上層一起完�
     await repo.setCompleted(train.id, true, { cascade: true, dateKey: TODAY, dayStartHour: H });
     const node = await repo.getNode(daily.id);
     assert.equal(node?.status, "done", "連帶完成＝退役");
-    assert.ok(node?.scheduled_on && node.scheduled_on > TODAY, "scheduled_on 已被推到明天（舊查詢第四條撈不到的原因）");
+    assert.equal(node?.scheduled_on, TODAY, "退役＝最後一班的班次日（D-主-122；舊行為是凍在被推到的明天）");
 
     const row = (await repo.listToday(TODAY, H)).find((r) => r.id === daily.id);
     assert.ok(row, "退役後今日清單還看得到");

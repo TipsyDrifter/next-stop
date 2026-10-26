@@ -27,6 +27,12 @@ export interface TagRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  /**
+   * 改名去向（同步引擎班 D-主-121，migration 0013）：改名／併入軟刪舊荷札時記新荷札的 id；NULL／沒有＝沒改過名。
+   * 「存活＋有去向」＝被另一台的併發掛載「編輯勝刪除」救回來的空殼，`reconcileRenamed` 會把它收掉。
+   * 選填只為了不動既有建列的地方（舊程式不帶這欄＝NULL，語義一樣）。
+   */
+  renamed_to?: string | null;
 }
 export interface TaggingRow {
   id: string;
@@ -82,7 +88,8 @@ export interface SyncBodyResult {
 export interface TagReceipt {
   createdTagIds: string[];
   createdTaggingIds: string[];
-  tagsBefore: Pick<TagRow, "id" | "name" | "deleted_at">[];
+  /** `renamed_to`：改前的改名去向（D-主-121；undo 要連它一起寫回，否則復原改名後舊荷札活著又帶去向＝被整理收掉） */
+  tagsBefore: (Pick<TagRow, "id" | "name" | "deleted_at"> & { renamed_to?: string | null })[];
   taggingsBefore: Pick<TaggingRow, "id" | "deleted_at">[];
   notesBefore: { id: string; body: string }[];
 }
@@ -121,6 +128,89 @@ export interface TagRepository {
   undo(receipt: TagReceipt): Promise<void>;
   /** 手機點選器用：把 key 推到最近用過的最前（裝置本地） */
   pushRecent(key: string): Promise<void>;
+
+  /* ── 同步引擎班（D-主-121，只加） ── */
+  /** 一列荷札（含已刪除）；沒有＝null。同步提示查名字與改名去向用 */
+  getTagRow(id: string): Promise<TagRow | null>;
+  /**
+   * 拉取後整理「改名跟到底」：存活而且有 `renamed_to` 的荷札（＝改名後被另一台的併發掛載救回來的空殼），
+   * 沿去向一路找到存活的終點（鏈式、最多 10 跳、繞圈就放棄），把殼上的存活掛載轉過去、殼再軟刪；
+   * 掛在筆記上的連內文的 `#舊名` 一起改（不改的話下次存那則筆記會把舊名掛回來）。
+   * 終點已經真的被刪了 ⇒ 不轉、殼留著（維持「編輯勝刪除」的本意）。一個交易；沒有殼＝不開交易、回空陣列。
+   * `beforeBodyRewrite`：真的要改內文之前叫一次（store 用來先存完正在打的字、退出編輯）。
+   */
+  reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]>;
+}
+
+/** `reconcileRenamed` 的一筆：哪個殼跟到哪裡、轉了幾處 */
+export interface RenameFollow {
+  fromId: string;
+  fromName: string;
+  toId: string;
+  toKey: string;
+  toName: string;
+  /** 轉過去的掛載數（含不算用量的，例如時刻表的單塊排除） */
+  moved: number;
+}
+
+/**
+ * 收據記改前值時連 `renamed_to` 一起記（共用的 `recordTagBefore` 只記 name／deleted_at）。
+ * 第一次記的那筆才補——之後再呼叫找到已有 `renamed_to` 鍵的就不動，跟「只記第一次的改前值」同一條規矩。
+ * 兩份實作用；`record` 傳 `tagRepoShared.recordTagBefore`（本檔不 import 它，免得型別檔反過來依賴實作工具）。
+ */
+export function recordTagBeforeWithRename(
+  r: TagReceipt,
+  t: Pick<TagRow, "id" | "name" | "deleted_at" | "renamed_to">,
+  record: (r: TagReceipt, t: Pick<TagRow, "id" | "name" | "deleted_at">) => void,
+): void {
+  record(r, t);
+  const b = r.tagsBefore.find((x) => x.id === t.id);
+  if (b && !("renamed_to" in b)) b.renamed_to = t.renamed_to ?? null;
+}
+
+/** 殼→終點那一次搬移的內文改寫計畫（＝`planRename` 只有一個 move 的形狀；`renameBody` 只讀 moves／oldKey／newName） */
+export function followRenamePlan(from: Pick<TagRow, "name" | "name_key">, to: Pick<TagRow, "name" | "name_key">): RenamePlan {
+  return {
+    ok: true,
+    same: false,
+    oldKey: from.name_key,
+    oldName: from.name,
+    newKey: to.name_key,
+    newName: to.name,
+    moves: [{ from: from.name_key, to: to.name_key, toName: to.name }],
+    conflicts: [],
+    rootConflict: null,
+    affected: { ticket: 0, train: 0, car: 0, note: 0, diary: 0, other: 0, total: 0 },
+    childCount: 0,
+    ownCount: 0,
+  };
+}
+
+/** 改名去向最多跟幾跳（A→B→C…）；超過或繞圈＝當作找不到終點 */
+export const RENAME_FOLLOW_MAX_HOPS = 10;
+
+/**
+ * 沿 `renamed_to` 找終點：途經的節點不論死活，只要還有去向就繼續；停在「存活且沒有去向」＝終點，
+ * 停在「已刪且沒有去向」或查不到＝終點已死（null）。兩份實作共用，語義只寫一次。
+ */
+export async function followRename(
+  startId: string,
+  get: (id: string) => Promise<Pick<TagRow, "id" | "deleted_at" | "renamed_to"> | null>,
+): Promise<string | null> {
+  const seen = new Set<string>([startId]);
+  let cur = (await get(startId))?.renamed_to ?? null;
+  for (let hop = 0; cur && hop < RENAME_FOLLOW_MAX_HOPS; hop++) {
+    if (seen.has(cur)) return null;
+    seen.add(cur);
+    const t = await get(cur);
+    if (!t) return null;
+    if (t.renamed_to) {
+      cur = t.renamed_to;
+      continue;
+    }
+    return t.deleted_at === null ? t.id : null;
+  }
+  return null;
 }
 
 /* ── 決定性 id（兩台同名同 id；契約 §3.1、0-18） ── */

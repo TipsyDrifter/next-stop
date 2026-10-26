@@ -31,11 +31,15 @@ import { newWriteBatch, runWriteBatch } from "./syncRepository";
 import { otherEntitiesAliveSql, uncountedTagEntityTypes } from "./tagEntityAlive";
 import {
   emptyReceipt,
+  followRename,
+  followRenamePlan,
+  recordTagBeforeWithRename,
   tagId,
   taggingId,
   type AttachResult,
   type BackfillResult,
   type CreateTagResult,
+  type RenameFollow,
   type SyncBodyResult,
   type TagEntityType,
   type TaggedItem,
@@ -51,6 +55,11 @@ type Db = Awaited<ReturnType<typeof getDb>>;
 const NODE_KINDS_SQL = TAG_ENTITY_NODE_KINDS.map((k) => `'${k}'`).join(",");
 /** backfill 每幾則一個交易（契約 §3.4 (j)） */
 const BACKFILL_CHUNK = 50;
+
+/** 收據記改前值（連改名去向；見 `recordTagBeforeWithRename`） */
+function recordTag(r: TagReceipt, t: TagRow): void {
+  recordTagBeforeWithRename(r, t, recordTagBefore);
+}
 
 function placeholders(count: number, start: number): string {
   return Array.from({ length: count }, (_, i) => `$${start + i}`).join(",");
@@ -100,29 +109,40 @@ class Stage {
     const row = await this.getTag(id);
     const now = this.now;
     if (!row) {
-      const fresh: TagRow = { id, name, name_key: key, created_at: now, updated_at: now, deleted_at: null };
+      const fresh: TagRow = { id, name, name_key: key, created_at: now, updated_at: now, deleted_at: null, renamed_to: null };
       this.tagCache.set(id, fresh);
       this.b.stmts.push({
         sql: `INSERT INTO tags (id, name, name_key, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)`,
         args: [id, name, key, now, now],
       });
-      this.b.ops.push({ tbl: "tags", row_id: id, op: "upsert", cols: { name, name_key: key, created_at: now, updated_at: now, deleted_at: null } });
+      this.b.ops.push({
+        tbl: "tags",
+        row_id: id,
+        op: "upsert",
+        cols: { name, name_key: key, renamed_to: null, created_at: now, updated_at: now, deleted_at: null },
+      });
       this.r.createdTagIds.push(id);
       this.liveTagOps.add(id);
       return { row: fresh, created: true };
     }
     if (row.deleted_at !== null) {
+      // 主人親手用到一枚已刪的荷札＝刻意重建，不是改名殘影：改名去向一起清掉（D-主-121），而且跟復活走同一筆 op——
+      // 否則對面（或這台下次拉取）的整理會把它當空殼收掉、掛載轉走
       this.liveTagOps.add(id);
-      recordTagBefore(this.r, row);
+      recordTag(this.r, row);
       row.deleted_at = null;
       row.updated_at = now;
+      row.renamed_to = null;
       if (renameTo && row.name !== name) {
         row.name = name;
-        this.b.stmts.push({ sql: `UPDATE tags SET deleted_at = NULL, name = $1, updated_at = $2 WHERE id = $3`, args: [name, now, id] });
-        this.b.ops.push({ tbl: "tags", row_id: id, op: "upsert", cols: { name, deleted_at: null, updated_at: now } });
+        this.b.stmts.push({
+          sql: `UPDATE tags SET deleted_at = NULL, renamed_to = NULL, name = $1, updated_at = $2 WHERE id = $3`,
+          args: [name, now, id],
+        });
+        this.b.ops.push({ tbl: "tags", row_id: id, op: "upsert", cols: { name, deleted_at: null, renamed_to: null, updated_at: now } });
       } else {
-        this.b.stmts.push({ sql: `UPDATE tags SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
-        this.b.ops.push({ tbl: "tags", row_id: id, op: "upsert", cols: { deleted_at: null, updated_at: now } });
+        this.b.stmts.push({ sql: `UPDATE tags SET deleted_at = NULL, renamed_to = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
+        this.b.ops.push({ tbl: "tags", row_id: id, op: "upsert", cols: { deleted_at: null, renamed_to: null, updated_at: now } });
       }
       return { row, created: true };
     }
@@ -189,17 +209,30 @@ class Stage {
     this.b.stmts.push({ sql: `UPDATE taggings SET deleted_at = $1, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL`, args: [this.now, g.id] });
     this.b.ops.push({ tbl: "taggings", row_id: g.id, op: "delete", cols: { deleted_at: this.now, updated_at: this.now } });
   }
-  softDeleteTag(t: TagRow): void {
+  /**
+   * 軟刪一枚荷札。`renamedTo` 給了＝改名／併入的「刪舊」：去向跟 deleted_at 走**同一筆 op**（D-主-121）——
+   * 對面只要收到這刀就一定也收到去向，被「編輯勝刪除」救回來的空殼才找得到該跟去哪。
+   */
+  softDeleteTag(t: TagRow, renamedTo?: string): void {
     if (t.deleted_at !== null) return;
-    recordTagBefore(this.r, t);
+    recordTag(this.r, t);
     t.deleted_at = this.now;
     t.updated_at = this.now;
+    if (renamedTo !== undefined) {
+      t.renamed_to = renamedTo;
+      this.b.stmts.push({
+        sql: `UPDATE tags SET deleted_at = $1, updated_at = $1, renamed_to = $2 WHERE id = $3 AND deleted_at IS NULL`,
+        args: [this.now, renamedTo, t.id],
+      });
+      this.b.ops.push({ tbl: "tags", row_id: t.id, op: "delete", cols: { deleted_at: this.now, renamed_to: renamedTo, updated_at: this.now } });
+      return;
+    }
     this.b.stmts.push({ sql: `UPDATE tags SET deleted_at = $1, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL`, args: [this.now, t.id] });
     this.b.ops.push({ tbl: "tags", row_id: t.id, op: "delete", cols: { deleted_at: this.now, updated_at: this.now } });
   }
   setTagName(t: TagRow, name: string): void {
     if (t.name === name) return;
-    recordTagBefore(this.r, t);
+    recordTag(this.r, t);
     t.name = name;
     t.updated_at = this.now;
     this.b.stmts.push({ sql: `UPDATE tags SET name = $1, updated_at = $2 WHERE id = $3`, args: [name, this.now, t.id] });
@@ -452,7 +485,8 @@ export class SqliteTagRepository implements TagRepository {
         st.softDeleteTagging(g);
       }
       const src = await st.getTag(fromId);
-      if (src) st.softDeleteTag(src);
+      // 併入同理：併入目標就是去向
+      if (src) st.softDeleteTag(src, target.id);
     }
     for (const x of await bodiesWithHash(db)) {
       const next = renameBody(x.body, plan);
@@ -498,8 +532,18 @@ export class SqliteTagRepository implements TagRepository {
       if (t) st.softDeleteTag(t);
     }
     for (const b of receipt.tagsBefore) {
-      st.b.stmts.push({ sql: `UPDATE tags SET name = $1, deleted_at = $2, updated_at = $3 WHERE id = $4`, args: [b.name, b.deleted_at, now, b.id] });
-      st.b.ops.push({ tbl: "tags", row_id: b.id, op: b.deleted_at === null ? "upsert" : "delete", cols: { name: b.name, deleted_at: b.deleted_at, updated_at: now } });
+      // 改名去向一起寫回（D-主-121）：復原改名＝舊荷札活回來、去向清掉——不清的話它就成了「活著又有去向」的空殼，下次整理被收掉
+      const renamed = b.renamed_to ?? null;
+      st.b.stmts.push({
+        sql: `UPDATE tags SET name = $1, deleted_at = $2, renamed_to = $3, updated_at = $4 WHERE id = $5`,
+        args: [b.name, b.deleted_at, renamed, now, b.id],
+      });
+      st.b.ops.push({
+        tbl: "tags",
+        row_id: b.id,
+        op: b.deleted_at === null ? "upsert" : "delete",
+        cols: { name: b.name, deleted_at: b.deleted_at, renamed_to: renamed, updated_at: now },
+      });
     }
     for (const b of receipt.taggingsBefore) {
       st.b.stmts.push({ sql: `UPDATE taggings SET deleted_at = $1, updated_at = $2 WHERE id = $3`, args: [b.deleted_at, now, b.id] });
@@ -516,6 +560,75 @@ export class SqliteTagRepository implements TagRepository {
   async pushRecent(key: string): Promise<void> {
     const list = await readRecent(settingsRepo);
     await settingsRepo.set(TAGS_RECENT_KEY, JSON.stringify(pushRecentKeys(list, key)));
+  }
+
+  /* ───────────── 同步引擎班（D-主-121） ───────────── */
+
+  async getTagRow(id: string): Promise<TagRow | null> {
+    const db = await getDb();
+    const rows = await db.select<TagRow[]>(`SELECT * FROM tags WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+
+  async reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]> {
+    const db = await getDb();
+    // 日常拉取幾乎都是零列：一句 SELECT 就回，不開交易
+    const shells = await db.select<{ id: string }[]>(`SELECT id FROM tags WHERE deleted_at IS NULL AND renamed_to IS NOT NULL`);
+    if (!shells.length) return [];
+    const readTag = async (id: string) => (await db.select<TagRow[]>(`SELECT * FROM tags WHERE id = $1`, [id]))[0] ?? null;
+    const live: string[] = [];
+    for (const s of shells) if (await followRename(s.id, readTag)) live.push(s.id);
+    if (!live.length) return [];
+    // 要改內文就先讓 store 存完正在打的字（存檔本身會動掛載，所以排在開 Stage 讀列之前）
+    if (opts?.beforeBodyRewrite) {
+      const hit = await db.select<{ n: number }[]>(
+        `SELECT COUNT(*) AS n FROM taggings WHERE deleted_at IS NULL AND entity_type = 'note' AND tag_id IN (${placeholders(live.length, 1)})`,
+        live,
+      );
+      if (Number(hit[0]?.n ?? 0) > 0) await opts.beforeBodyRewrite();
+    }
+    const st = new Stage(db, nowUtcIso());
+    const out: RenameFollow[] = [];
+    const plans: RenamePlan[] = [];
+    const noteIds = new Set<string>();
+    for (const id of live) {
+      // 重讀：上面存檔那一下可能剛好親手把它用回來（復活時已清掉去向）
+      const shell = await st.getTag(id);
+      if (!shell || shell.deleted_at !== null || !shell.renamed_to) continue;
+      const toId = await followRename(id, (x) => st.getTag(x));
+      const target = toId ? await st.getTag(toId) : null;
+      if (!target) continue;
+      const gs = await db.select<TaggingRow[]>(`SELECT * FROM taggings WHERE tag_id = $1 AND deleted_at IS NULL`, [id]);
+      st.primeTaggings(gs);
+      let moved = 0;
+      for (const g0 of gs) {
+        const g = await st.getTagging(g0.id);
+        if (!g || g.deleted_at !== null) continue;
+        // 決定性 id：兩台各自整理寫出的是同一列，收斂
+        await st.ensureTagging(g.entity_type, g.entity_id, target.id);
+        st.softDeleteTagging(g);
+        if (g.entity_type === "note") noteIds.add(g.entity_id);
+        moved++;
+      }
+      // 殼再刪一次：新的 hlc、這次沒有併發編輯，會傳播出去；去向不動（還是同一個）
+      st.softDeleteTag(shell);
+      plans.push(followRenamePlan(shell, target));
+      out.push({ fromId: id, fromName: shell.name, toId: target.id, toKey: target.name_key, toName: target.name, moved });
+    }
+    if (!out.length) return [];
+    if (noteIds.size) {
+      const ids = [...noteIds];
+      const bodies = await db.select<{ id: string; body: string }[]>(
+        `SELECT id, body FROM notes WHERE deleted_at IS NULL AND id IN (${placeholders(ids.length, 1)})`,
+        ids,
+      );
+      for (const x of bodies) {
+        const next = plans.reduce((b, p) => renameBody(b, p), x.body);
+        if (next !== x.body) st.noteBody(x.id, x.body, next);
+      }
+    }
+    await st.commit();
+    return out;
   }
 
   /* ───────────── 內部 ───────────── */

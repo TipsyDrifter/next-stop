@@ -85,7 +85,7 @@ import {
   mergeToastKey as latestMergeAt,
   mergeToastText,
 } from "../domain/syncMerge";
-import { resolveMergeNow, resolveToastParts } from "./syncMergeLabels";
+import { renameResidueKeys, resolveMergeNow, resolveToastParts } from "./syncMergeLabels";
 
 /** 拉取／推送節奏（P4）；去抖秒數見 Plan §6 */
 export const SYNC_INTERVAL_MS = 60_000;
@@ -992,9 +992,14 @@ async function maybeToastMerges(status: SyncStatus | null, afterCycle = false): 
   const since = mergeToastKey !== null && (mergeSeenKey === null || mergeToastKey > mergeSeenKey) ? mergeToastKey : mergeSeenKey;
   const fresh0 = mergeFreshSince(list, since);
   // 理論上新鍵一定帶得出新批；時鐘倒退之類的怪情況就講整張（不會是空句）
-  const fresh = fresh0.length ? fresh0 : list;
+  const fresh1 = fresh0.length ? fresh0 : list;
   const prevKey = mergeToastKey;
   mergeToastKey = key; // 先記鍵再 await：同時進來的第二份 status（boot 與 runCycle 連叫）看到同鍵就不重提
+  // 同步引擎班 #97：荷札的改名殘影（整理已經轉好、殼收掉了）不在這裡講——那句「已改名，東西跟過去了」由荷札的整理出，
+  // 這裡再說「你刪掉的荷札回來了／現在已經不在了」是反話。全是殘影＝這批不提（鍵照記，算提過）
+  const residue = await renameResidueKeys(fresh1);
+  const fresh = residue.size ? fresh1.filter((n) => !residue.has(mergeObjectKey(n))) : fresh1;
+  if (!fresh.length) return;
   const parts = await resolveToastParts(fresh, shell);
   // #81：刪改相撞的那幾樣，現在是不是又不在了（整理在同一趟又刪掉）——在的話照舊說「回來了／留著」。
   // 磨光② A4：兩邊都改了的那幾格也查現況——列不在了併進 gone、現值≠留下的值進 changed（查不到＝照舊句）
@@ -1015,7 +1020,7 @@ async function maybeToastMerges(status: SyncStatus | null, afterCycle = false): 
   }
   const toastShell = shell;
   const toast = {
-    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols, gone, changed),
+    message: mergeToastText(fresh, parts?.label ?? null, parts?.cols, gone, changed, parts?.fmt),
     actionLabel: MERGE_TEXT.look,
     onAction: () => useUiStore.getState().openSyncPage(toastShell),
   };
@@ -1219,8 +1224,13 @@ async function settleJoin(report: JoinReport): Promise<void> {
     await refreshStatusInner();
   }
   const outcome = report.outcome as Exclude<JoinOutcome, "needs_choice">;
-  useUiStore.getState().showToast({ message: report.message || JOIN_TOAST[outcome] });
+  // 同步引擎班 #84 同類洞：加入途中的那一趟拉取被信号待ち擋下＝「已下載／已改用」只到了一部分，句子要講實話（同 adoptEpoch）
+  const msg = report.message || JOIN_TOAST[outcome];
+  useUiStore.getState().showToast({ message: report.pull?.gated ? `${msg}${GATED_AFTER_WIPE_TAIL}` : msg });
 }
+
+/** 改用／加入之後那一趟拉取被信号待ち擋下時接在成功句後面（#84；adoptEpoch 與 settleJoin 共用） */
+const GATED_AFTER_WIPE_TAIL = "，但有較新版 App 寫的部分還拉不下來，請先更新這台的 App";
 
 /* ═══════════════════════════════════════════════════════════════════════
    store
@@ -1463,7 +1473,10 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
           ? `尚未同步的 ${report.orphan_ops} 筆修改已另存至 ${report.orphans_path ?? "本機"}`
           : null,
       ].filter(Boolean);
-      const done = isReset ? "已一起清空這台的資料" : "已改用該份資料";
+      // 同步引擎班 #84 TS 半邊：改用後第一趟就被信号待ち擋下＝那份資料有較新版 App 寫的部分沒拉下來，
+      // 不能只說「已改用」（主人會以為整份都到了）。Rust 半邊在 wipe 前就會先擋；這句是擋漏時的實話
+      const base = isReset ? "已一起清空這台的資料" : "已改用該份資料";
+      const done = pulled.gated ? `${base}${GATED_AFTER_WIPE_TAIL}` : base;
       useUiStore.getState().showToast({
         message: saved.length ? `${done}；${saved.join("；")}` : done,
       });

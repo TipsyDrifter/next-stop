@@ -16,7 +16,14 @@
 import { create } from "zustand";
 import { tagRepo } from "../data/tagRepo";
 import { settingsRepo } from "../data";
-import { isEmptyReceipt, type AttachResult, type CreateTagResult, type TagEntityType, type TagReceipt } from "../data/tagRepository";
+import {
+  isEmptyReceipt,
+  type AttachResult,
+  type CreateTagResult,
+  type RenameFollow,
+  type TagEntityType,
+  type TagReceipt,
+} from "../data/tagRepository";
 import {
   TAGS_BACKFILL_KEY,
   buildIndex,
@@ -131,7 +138,8 @@ export interface TagStore {
   confirmRemove(plan: DeletePlan): Promise<void>;
   openPicker(p: Omit<TagPickerState, "onInsert"> & { onInsert?: TagPickerState["onInsert"] }): void;
   closePicker(): void;
-  /** changed ∋ tags|taggings|notes|nodes ⇒ loadIndex；wiped ⇒ 清 selectedKey/back/renaming/picker/pendingPlan */
+  /** changed ∋ tags|taggings|notes|nodes ⇒ loadIndex；wiped ⇒ 清 selectedKey/back/renaming/picker/pendingPlan；
+   *  changed ∋ tags|taggings（或 wiped）⇒ 先跑改名跟到底的整理（D-主-121，`tagRepo.reconcileRenamed`） */
   reload(ctx: LineReloadContext): Promise<void>;
 }
 
@@ -185,6 +193,9 @@ let loadSeq = 0;
 /** ensureBackfill 不可重入 */
 let backfillRun: Promise<void> | null = null;
 
+/** 這個 App 行程跑過一次改名整理了沒（D-主-121；第一趟 reload 補掃上次沒整理完的殼） */
+let renamesSwept = false;
+
 interface BackfillRecord {
   done: string;
   tags: number;
@@ -232,6 +243,33 @@ export const useTagStore = create<TagStore>((set, get) => {
         await Promise.all([get().loadIndex(), reloadNoteViews()]);
       }),
     );
+  }
+
+  /**
+   * 拉取後的「改名跟到底」（D-主-121）：一台改名、另一台同時拿舊名掛東西 ⇒ 舊名被「編輯勝刪除」救回來成空殼；
+   * 這裡把殼上的掛載轉到新名、殼收掉（repo 做資料，這裡管 index、筆記畫面與 toast）。兩台各跑一次、決定性 id 收斂。
+   * 永不丟錯：整理失敗只 warn，下一趟拉到荷札變動再試（殼還在、資料沒壞，只是排除暫時掛在舊名上）。
+   * toast 帶「看看」：既能帶人去新荷札，也讓同一趟稍後的「兩台撞到」提示不蓋掉這句（它不蓋帶鈕的 toast）。
+   */
+  async function followRenames(): Promise<void> {
+    let res: RenameFollow[];
+    try {
+      res = await tagRepo.reconcileRenamed({ beforeBodyRewrite });
+    } catch (e) {
+      console.warn("tagStore 改名整理失敗", e);
+      return;
+    }
+    if (!res.length) return;
+    // index 由 reload 後半照常重載（changed 含 tags 才會走到這裡）；筆記內文可能被改寫成新名，畫面跟著重讀
+    await reloadNoteViews().catch((e) => console.warn("tagStore 改名整理後重載筆記失敗", e));
+    const shown = res.filter((x) => x.moved > 0);
+    if (!shown.length) return;
+    const first = shown[0];
+    const text =
+      shown.length === 1
+        ? `「#${first.fromName}」已改名為「#${first.toName}」，掛在上面的東西跟過去了`
+        : `「#${first.fromName}」等 ${shown.length} 枚荷札已改名，掛在上面的東西跟過去了`;
+    useUiStore.getState().showToast({ message: text, actionLabel: "看看", onAction: () => void get().openTagPage(first.toKey) });
   }
 
   return {
@@ -573,6 +611,13 @@ export const useTagStore = create<TagStore>((set, get) => {
       if (ctx.wiped) {
         set({ selectedKey: null, back: null, renaming: null, picker: null, pendingPlan: null });
         backfillRun = null;
+      }
+      // 同步引擎班 D-主-121「改名跟到底」：拉到荷札或掛載的變動 ⇒ 先把改名殘影整理掉，再重載 index。
+      // 不看 index 載了沒：這是資料的整理，不是畫面（沒開過荷札頁的那台也要收殼，排除才不會掛在空殼上失效）。
+      // 這個 App 行程的第一趟也跑一次：上次 pull 套完、整理前就被關掉的殼，不用等下一次荷札變動才收。
+      if (ctx.wiped || !renamesSwept || ctx.changed.includes("tags") || ctx.changed.includes("taggings")) {
+        renamesSwept = true;
+        await followRenames();
       }
       // 別線實體的表（時刻表⑥ 0-6 的 tagEntities.tables）也算：實體被刪或復活會改變荷札的計數；沒有任何線填＝原本四張
       const hit = ctx.wiped || ["tags", "taggings", "notes", "nodes", ...lineTagEntityTables()].some((t) => ctx.changed.includes(t));

@@ -408,6 +408,17 @@ test("A4 sameAsRecorded：120 字截斷照 Rust 規則比", () => {
   assert.equal(sameAsRecorded(`${"😀".repeat(120)}…`, emoji), true);
 });
 
+test("A4 sameAsRecorded：JSON 容器照 Rust 600 字上限比（沙盒 S2′：171 字的 scope 不該被當成「之後又被整理過」）", () => {
+  const scope = JSON.stringify({ categories: Array.from({ length: 5 }, (_, i) => `${i}`.repeat(36)) });
+  assert.ok(scope.length > 120 && scope.length <= 600);
+  assert.equal(sameAsRecorded(scope, scope), true, "≤600 的容器 Rust 不截，現值也不能被截");
+  const huge = `[${"字".repeat(700)}]`;
+  const recordedHuge = `${Array.from(huge).slice(0, 600).join("")}…`;
+  assert.equal(sameAsRecorded(recordedHuge, huge), true, ">600 照 Rust 截在 600＋…");
+  // 一般字串仍是 120
+  assert.equal(sameAsRecorded(`${"甲".repeat(120)}…`, `${"甲".repeat(130)}`), true);
+});
+
 test("A4 sameAsRecorded：數字字串對數字、null／undefined、其餘 JSON 比", () => {
   assert.equal(sameAsRecorded(3, "3"), true);
   assert.equal(sameAsRecorded("3", 3), true);

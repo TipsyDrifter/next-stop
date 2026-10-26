@@ -1435,6 +1435,14 @@ describe("E2. repository 層（memory／sqlite）", () => {
     assert.equal(ops[n0 + 2].cols.deleted_at, null);
     await repo.moveAccount(cash.id, 1);
     assert.equal(ops.length, n0 + 3, "到邊界 ⇒ 不送 op");
+    // #101：同群組有 2 列以上時，一次移動＝整組每列都送 {position, updated_at}（值沒變的也送）
+    const cash2 = await repo.createAccount(newAcc("零用金", "cash"));
+    const cash3 = await repo.createAccount(newAcc("錢包", "cash"));
+    const nm = ops.length;
+    await repo.moveAccount(cash3.id, -1);
+    const moveOps = ops.slice(nm);
+    assert.deepEqual(moveOps.map((o) => o.row_id).sort(), [cash.id, cash2.id, cash3.id].sort(), "整組 3 列都有 op");
+    for (const o of moveOps) assert.deepEqual(Object.keys(o.cols).sort(), ["position", "updated_at"]);
 
     // 刪過的幣別再建 ⇒ 同一個確定性 id 復活（created_at 保留）
     const usd = await repo.createCurrency({ code: "USD", name: "", decimals: 2, rate: "31.5" });

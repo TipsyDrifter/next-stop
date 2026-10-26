@@ -218,7 +218,11 @@ function pushUpdate(b: WriteBatch, tbl: TkTable, id: string, cols: Record<string
   addOp(b, tbl as SyncTable, id, "upsert", cols);
 }
 
-/** 鄰居互換（先把整組 position 攤成 0..n-1，再換；與 mock 的 swapIn 同義）⇒ 回真的要改的 { id, position } */
+/**
+ * 鄰居互換（先把整組 position 攤成 0..n-1，再換；與 mock 的 swapIn 同義）⇒ 回「整組」每列的 { id, position }。
+ * 值沒變的列也要回：逐欄 LWW 下只送變了的 2 列，兩台各排同一組時各拿走自己動過的列，合出來不是任何一台的版本（#101）；
+ * 整組每列同批同 hlc 都送，hlc 較大那台就在每一列都贏。順手把歷史撞號／間隙正規化成 0..n-1。
+ */
 function planSwap<T extends { id: string; position: number }>(list: T[], id: string, delta: 1 | -1): { id: string; position: number }[] {
   const i = list.findIndex((x) => x.id === id);
   const j = i + delta;
@@ -226,11 +230,7 @@ function planSwap<T extends { id: string; position: number }>(list: T[], id: str
   const next = list.map((_x, k) => k);
   next[i] = j;
   next[j] = i;
-  const out: { id: string; position: number }[] = [];
-  list.forEach((x, k) => {
-    if (x.position !== next[k]) out.push({ id: x.id, position: next[k] });
-  });
-  return out;
+  return list.map((x, k) => ({ id: x.id, position: next[k] }));
 }
 
 /** plugin-sql 對 INTEGER 回 number；EXISTS 回 0/1 */

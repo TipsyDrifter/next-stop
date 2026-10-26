@@ -62,6 +62,9 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(10, "0010_ticket_plan", "ticket plan: tk_budgets + tk_repeats + tk_entries.repeat_id (no data rows)"),
     // 施工期暫定號（時刻表③）。進驗收時由主對話發正式號：改這一行的版號＋檔名＋git mv，程式其餘地方不寫號碼
     mig!(11, "0011_timetable_goals", "timetable goals: time_goals (category-group hour targets: repeating day/week/month, since, until, range)"),
+    // 同步引擎班（D-主-120／121）；v1.21.0 起為正式號、已進 RELEASED 凍結表。
+    mig!(12, "0012_time_overrides", "sync engine: node_time_overrides (per-run time override rows; nodes.time_overrides column retired in place)"),
+    mig!(13, "0013_tag_rename", "sync engine: tags.renamed_to (rename destination for post-pull reconcile of revived shells)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -159,6 +162,16 @@ mod tests {
             11,
             "0011_timetable_goals",
             "a17d0b710f8ab6cf58aae67191e98a9fd7a850ef02759f15de733cf5c183f1728587d5800329b1c06bf8103f93abd10c",
+        ),
+        (
+            12,
+            "0012_time_overrides",
+            "5850934e94986b2cef5e7a90cd312eddf5060dada78db5a7bb7f5c550709e8e84028c6466ea51ba4b3247bda07eb9d7e",
+        ),
+        (
+            13,
+            "0013_tag_rename",
+            "3704c6dd05f039a5f684bf62169d63131d9515539de41cf441ac6ff454fa28547d0ce8c293ff166c0f7dc802c0fe520a",
         ),
     ];
 

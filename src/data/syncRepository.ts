@@ -1252,12 +1252,30 @@ export function nextHlc(nowMs: number = Date.now()): string {
   return `${String(hlcLastMs).padStart(13, "0")}${hlcLastCount.toString(16).padStart(4, "0")}`;
 }
 
-/** 以本機已知最大 hlc（完整 26 碼或前 17 碼皆可）餵種子，保證之後產生的都比它大 */
-export function seedHlc(maxHlc: string | null | undefined): void {
-  if (!maxHlc || maxHlc.length < 17) return;
+/**
+ * 種子能比本機時鐘超前多少（毫秒；同步引擎班 B2-6）。**與 Rust `src-tauri/src/sync/hlc.rs` 的 `MAX_DRIFT_MS` 同值**，改一邊要改兩邊。
+ * 為什麼要上限：種子只升不降——一台時鐘飛到未來（或一顆壞物件帶了未來時戳），吃進去之後這台往後每筆寫入都跟著在
+ * 「未來」，推上去又污染下一台，全家沒有出口。超過的照樣套用（不掉資料），只是不拿來當時鐘的種子。
+ * 放寬到一天：本機時鐘落後時，正常的遠端時戳看起來也像未來，窄了會誤擋。
+ */
+export const HLC_MAX_DRIFT_MS = 24 * 60 * 60 * 1000;
+
+/** hlc 的形狀：前 17 碼（13 位毫秒＋4 位小寫 hex）或完整 26 碼（再接 `-` 與 8 碼裝置尾碼）；同 Rust `hlc::is_valid` */
+const HLC_SEED_SHAPE = /^\d{13}[0-9a-f]{4}(-.{8})?$/;
+
+/**
+ * 以本機已知最大 hlc（完整 26 碼或前 17 碼皆可）餵種子，保證之後產生的都比它大。
+ * 形狀不對、或比 `nowMs + HLC_MAX_DRIFT_MS` 還遠的未來 ⇒ 不吃（B2-6；見 `HLC_MAX_DRIFT_MS`）。
+ */
+export function seedHlc(maxHlc: string | null | undefined, nowMs: number = Date.now()): void {
+  if (!maxHlc || !HLC_SEED_SHAPE.test(maxHlc)) return;
   const ms = Number(maxHlc.slice(0, 13));
   const count = parseInt(maxHlc.slice(13, 17), 16);
   if (!Number.isFinite(ms) || !Number.isFinite(count)) return;
+  if (ms > nowMs + HLC_MAX_DRIFT_MS) {
+    console.warn(`[next-stop] 時戳超前本機時鐘一天以上，不拿來當時鐘種子：${maxHlc}`);
+    return;
+  }
   if (ms > hlcLastMs || (ms === hlcLastMs && count > hlcLastCount)) {
     hlcLastMs = ms;
     hlcLastCount = count;

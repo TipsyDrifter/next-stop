@@ -8,6 +8,8 @@
  * 三線的表走插槽 `LineMount.syncRowLabel`（`lineSyncRowLabel(tbl, shell)`；未通車／沒填 ⇒ "fallback"＝印泛稱）。
  */
 import { nodeRepo, syncRepo } from "../data";
+import { tagRepo } from "../data/tagRepo";
+import { followRename } from "../data/tagRepository";
 import { MOCK_FIRST_TICKET, type MergeCellNow, type MergeNotice } from "../data/syncRepository";
 import { CONFLICT_COL_LABEL, KIND_LABEL, type NodeRow } from "../domain";
 import { clipLabel, mergeObjectKey } from "../domain/syncMerge";
@@ -57,6 +59,35 @@ async function findNode(rowId: string): Promise<NodeRow | null> {
 }
 
 /**
+ * 線的 `syncRowLabel` 插槽回這一顆（同一個物件，比的是參照）＝「這張表我沒有自己的叫法，照泛稱印」。
+ * 為什麼要它：插槽是「一條線一支函式」，填了就接走那條線**所有**表；只想替其中一張講人話（例：售票口的定期帳）時，
+ * 其餘的表回 null 會變成「（現在找不到了）」，回這顆才維持泛稱。插槽型別只認 `SyncRowLabel | null`，所以用哨兵物件不另開型別。
+ */
+export const SYNC_LABEL_FALLBACK: SyncRowLabel = Object.freeze({ label: "" });
+
+/**
+ * 荷札的名字（同步引擎班 #97：旅客筆記線的插槽沒填，句子只能說「1 枚荷札」）。旅客筆記線日後填了插槽就以插槽為準、這裡不再走。
+ * 已刪的照樣給名字（改名殘影、刪改相撞的那一枚多半是已刪的，「現在已經不在了」由 `gone` 判、不靠這裡回 null）；
+ * 表裡根本沒有那一列才回 null。名字用 `#名` 的寫法——跟荷札頁、改名 toast 同一個樣子。
+ */
+async function tagLabel(rowId: string): Promise<ResolvedMergeLabel | null> {
+  const t = await tagRepo.getTagRow(rowId);
+  if (!t) return null;
+  const out: ResolvedMergeLabel = { label: `#${t.name}`, cols: TAG_COL_LABEL };
+  // 改名殘影（已整理、殼收掉了）：清單那一列補一句去了哪（toast 不講，由荷札的整理那句講；`renameResidueKeys`）
+  if (t.renamed_to && t.deleted_at !== null) {
+    const toId = await followRename(t.id, (id) => tagRepo.getTagRow(id));
+    const to = toId ? await tagRepo.getTagRow(toId) : null;
+    if (to) out.note = `已改名為「#${to.name}」，掛在上面的東西跟過去了`;
+  }
+  return out;
+}
+const TAG_COL_LABEL: Readonly<Record<string, string>> = { name: "名稱", name_key: "名稱", renamed_to: "改名去向" };
+
+/** 逐班時刻覆寫的欄名（label 已帶「M/D 那班」，欄名只剩「時刻」就通順：「『票名 10/19 那班』的時刻兩台都改過」） */
+const NTO_COL_LABEL: Readonly<Record<string, string>> = { hhmm: "時刻", due_on: "班次日", node_id: "所屬車票" };
+
+/**
  * 解一列的名字：核心表自己來，三線走插槽；都沒有 ⇒ "fallback"。**永不 throw**。
  *   物件 ⇒ 用它；null ⇒ 「{名詞}（現在找不到了）」；"fallback" ⇒ `fallbackLabel(n)`。
  */
@@ -70,6 +101,16 @@ export async function resolveMergeLabel(
       if (!node) return null;
       return { label: nodeLabel(node, 24), cols: CONFLICT_COL_LABEL, node };
     }
+    // 逐班時刻覆寫（D-主-120）：講出「哪張票哪一班」——票已不在就退泛稱（而不是「找不到了」：覆寫的主人是票）
+    if (n.tbl === "node_time_overrides") {
+      const ref = await nodeRepo.getTimeOverrideRef(n.row_id);
+      const node = ref ? await findNode(ref.nodeId) : null;
+      if (!ref || !node) return { label: "一筆班次時刻", cols: NTO_COL_LABEL, generic: true };
+      const md = `${+ref.dueOn.slice(5, 7)}/${+ref.dueOn.slice(8, 10)}`;
+      // 名字短截、日期與「那班」必留（沙盒 F-1／F-7：clipLabel 只截「」裡的名，整串要自己管）——
+      // 「車票「名6字…」」4+7＋「12/31 那班」8 ＝ 最長 19，toast 的 20 字上限切不到尾巴
+      return { label: `${nodeLabel(node, 6)}${md} 那班`, cols: NTO_COL_LABEL, node };
+    }
     // 乘務記錄與班次不查列、不可點（它們的主人是那張票；細節在該票的乘務記錄）
     if (n.tbl === "work_logs") return { label: "一筆時間記錄", cols: CONFLICT_COL_LABEL, generic: true };
     if (n.tbl === "occurrences") return { label: "一個班次", cols: CONFLICT_COL_LABEL, generic: true };
@@ -78,11 +119,12 @@ export async function resolveMergeLabel(
       return { label: known ? SETTINGS_LABEL[n.row_id] : "一項設定", cols: SETTINGS_COL_LABEL, generic: !known };
     }
     const fn = lineSyncRowLabel(n.tbl, shell);
-    if (!fn) return "fallback";
+    if (!fn) return n.tbl === "tags" ? tagLabel(n.row_id) : "fallback";
     // 一條線丟錯（同步丟或 reject）都當作 null（契約 §3.3）
-    return await Promise.resolve()
+    const r = await Promise.resolve()
       .then(() => fn(n.tbl, n.row_id, shell))
       .catch(() => null);
+    return r === SYNC_LABEL_FALLBACK ? "fallback" : r;
   } catch (e) {
     // 本機 SQL 一時讀不到 ≠ 那筆不在了：印泛稱，不說「找不到了」
     console.warn("[next-stop] 同步清單列名解不出來：", e);
@@ -98,12 +140,15 @@ export async function resolveMergeLabel(
 export async function resolveToastParts(
   list: readonly MergeNotice[],
   shell: "desktop" | "mobile",
-): Promise<{ label: string; cols?: Readonly<Record<string, string>> } | null> {
+): Promise<{ label: string; cols?: Readonly<Record<string, string>>; fmt?: SyncRowLabel["fmt"] } | null> {
   if (list.length === 0 || new Set(list.map(mergeObjectKey)).size !== 1) return null;
   const r = await resolveMergeLabel(list[0], shell);
   // 泛稱不當名字：句子改用「1 筆乘務記錄」的句型（`mergeToastText` 的 singleLabel=null 那條）
   if (!r || r === "fallback" || r.generic) return null;
-  return { label: clipLabel(r.label, 12), cols: r.cols ?? coreCols(list[0].tbl) };
+  // 班次時刻的 label 尾端是「M/D 那班」——截 12 字會把日期切成「10/2…」讀成別天（沙盒 F-1），放寬到 20
+  const max = list[0].tbl === "node_time_overrides" ? 20 : 12;
+  // fmt 一起帶（#96）：集合欄（目標的分類）的 toast 要靠它把兩邊的差講成名字
+  return { label: clipLabel(r.label, max), cols: r.cols ?? coreCols(list[0].tbl), ...(r.fmt ? { fmt: r.fmt } : {}) };
 }
 
 /** 整理之後的現況（磨光② A4）：刪改相撞的那幾樣哪些不在了＋兩邊都改了的那幾格現在的樣子 */
@@ -124,6 +169,26 @@ export async function resolveMergeNow(list: readonly MergeNotice[]): Promise<Mer
     syncRepo.currentCells(list.filter((n) => n.kind === "overwritten")),
   ]);
   return { gone, cells };
+}
+
+/**
+ * 改名殘影（#97／D-主-121）：荷札的刪改相撞，那一枚其實是「改名刪舊」，而且拉取後的整理已經把掛載轉到新名、殼收掉了
+ * （＝有改名去向、現在是刪的）。回這些通知的 `mergeObjectKey`——toast 不再說「你刪掉的荷札回來了」（明明是改名），
+ * 改名那句由整理自己出（`tagStore` 的 followRenames）。去向的終點真的被刪了、殼留著的不算（照舊句：它真的回來了）。
+ * 查不到就當不是（照舊句）；永不 throw。
+ */
+export async function renameResidueKeys(list: readonly MergeNotice[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const n of list) {
+    if (n.tbl !== "tags" || n.kind === "overwritten") continue;
+    try {
+      const t = await tagRepo.getTagRow(n.row_id);
+      if (t && t.renamed_to && t.deleted_at !== null) out.add(mergeObjectKey(n));
+    } catch {
+      /* 查不到＝照舊句 */
+    }
+  }
+  return out;
 }
 
 /** toast 用：清單恰好一筆時解它的 label（截 12 字）；多筆或解不到 ⇒ null */

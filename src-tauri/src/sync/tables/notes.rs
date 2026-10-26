@@ -20,9 +20,12 @@ const NOTES_COLS: &[(&str, bool)] = &[
 ];
 
 /// tags 的「主人資料」欄（車次③契約 §3.2）。id 由 name_key 決定性算出（TS 端 `src/domain/tags.ts`），兩台同名同 id。
+/// `renamed_to`（同步引擎班 D-主-121，migration 0013）：改名軟刪舊荷札時記下去向，拉取後的整理靠它把「編輯勝刪除」
+/// 復活的空殼掛載轉到新名。不必填——舊版的白名單沒有它、收到靜默忽略（＝相容，只是舊版那台不會跟過去）。
 const TAGS_COLS: &[(&str, bool)] = &[
     ("name", false),
     ("name_key", false),
+    ("renamed_to", false),
     ("created_at", false),
     ("updated_at", false),
     ("deleted_at", false),

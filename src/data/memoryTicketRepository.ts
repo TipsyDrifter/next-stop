@@ -594,21 +594,17 @@ export class MemoryTicketRepository implements TicketRepository {
     return out;
   }
 
-  /** 同組鄰居互換（先依現順序把 position 攤成 0..n-1，再換） */
+  /** 同組鄰居互換（先依現順序把 position 攤成 0..n-1，再換）；整組每列都寫（含 updated_at），與 SQLite 的 planSwap 同義（#101） */
   private swapIn<T extends { id: string; position: number; updated_at: string }>(list: T[], id: string, delta: 1 | -1, nowIso: string): void {
     const i = list.findIndex((x) => x.id === id);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= list.length) return;
     list.forEach((x, k) => {
-      if (x.position !== k) {
-        x.position = k;
-        x.updated_at = nowIso;
-      }
+      x.position = k;
+      x.updated_at = nowIso;
     });
     list[i].position = j;
     list[j].position = i;
-    list[i].updated_at = nowIso;
-    list[j].updated_at = nowIso;
   }
 
   /* ───────── 起手 ───────── */

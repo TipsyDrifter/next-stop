@@ -211,6 +211,25 @@ struct OplogHead {
     schema: u32,
 }
 
+/// 這顆物件是不是「這台還讀不懂、該等對方」的較新版本（信号待ち的判準）。
+///
+/// 抽成一支（#84，D-主-124）：`pull_core` 的閘門與 wipe 前的 `probe_remote_schema` 必須是同一個判準——
+/// 兩處各寫一次，哪天一邊改成 `>=`、一邊沒改，就會出現「前探放行、拉下來卻被閘住」的空窗。
+fn head_blocks(head: &OplogHead) -> bool {
+    head.version > OPLOG_VERSION || head.schema > SCHEMA_VERSION
+}
+
+/// 物件連前兩個版號都解不開時的那句話（`pull_core` 與 `probe_remote_schema` 共用）
+const UNREADABLE_OBJECT: &str = "同步資料的格式看不懂（可能是較新版本產生的）。";
+
+/// wipe 前探到較新物件時的 Err（join「改用另一台的」；沿 `snapshot::validate_full_json_with` 的樣板）。
+/// 走既有表單錯誤通道：Err 時二選一畫面不關，主人可以改選「兩邊都保留」。
+const NEWER_REMOTE_JOIN: &str =
+    "另一台的資料有較新版 App 寫的部分——請先更新這台的 App 再改用，或改選『兩邊都保留』。";
+
+/// 同上，改正待ち的「改用那份」（`adopt_epoch`）。那個畫面沒有「兩邊都保留」可選，所以少後半句。
+const NEWER_REMOTE_ADOPT: &str = "另一台的資料有較新版 App 寫的部分——請先更新這台的 App 再改用。";
+
 /// `sync_status()` 的回傳（v1.1.3 契約 §4.3；`role` 已退場）
 #[derive(Debug, Clone, Serialize)]
 pub struct SyncStatus {
@@ -545,12 +564,21 @@ pub(crate) const MERGE_NOTICES_KEY: &str = "merge_notices";
 pub(crate) const MERGE_NOTICES_CAP: usize = 20;
 /// 通知裡單一字串值的上限（字元數，不是位元組）
 const MERGE_VALUE_CLIP: usize = 120;
+/// JSON 容器值（`{`／`[` 開頭）的上限放寬（同步引擎班沙盒 F-2）：`time_goals.scope` 這類集合欄
+/// 被截掉尾巴就解析不了，TS 的「這台原本多／少哪些分類」diff 直接失效、清單只好印原始 JSON。
+/// 3～8 個分類 id（uuid 36 字）約 150～350 字，600 連旗標都放得下；20 筆通知全是容器也才 ~24KB。
+const MERGE_JSON_CLIP: usize = 600;
 
-/// 值截斷：`Value::String` 超過 120 字 ⇒ 前 120 字＋「…」（`chars()` 切，不切壞 UTF-8）；其餘原樣
+/// 值截斷：`Value::String` 超過上限 ⇒ 截前段＋「…」（`chars()` 切，不切壞 UTF-8）；其餘原樣。
+/// 上限看形狀：JSON 容器 600、一般字串 120。
 fn clip_value(v: &Value) -> Value {
+    let cap = |s: &str| {
+        let t = s.trim_start();
+        if t.starts_with('{') || t.starts_with('[') { MERGE_JSON_CLIP } else { MERGE_VALUE_CLIP }
+    };
     match v {
-        Value::String(s) if s.chars().count() > MERGE_VALUE_CLIP => {
-            let mut t: String = s.chars().take(MERGE_VALUE_CLIP).collect();
+        Value::String(s) if s.chars().count() > cap(s) => {
+            let mut t: String = s.chars().take(cap(s)).collect();
             t.push('…');
             Value::String(t)
         }
@@ -793,7 +821,8 @@ pub async fn ack_merges(app: &AppHandle) -> Result<SyncStatus, String> {
 }
 
 /// device_id 的**唯一誕生點**（契約 §3）：首次呼叫 `sync_status()` 時 INSERT OR IGNORE。
-/// `sync_reset_local` 保留它——重設之後還是同一台車。
+/// `sync_reset_local` 會連它一起清掉（鑰匙圈＋整張 sync_meta，v1.1.3 §3.1）——重設後再加入＝換新身分的一台；
+/// 不保留的理由見 `join` 決定身分那段（複製資料夾不能讓兩台共用身分）。
 pub(crate) async fn ensure_device_id(pool: &Pool<Sqlite>) -> Result<String, String> {
     if let Some(row) = sqlx::query("SELECT value FROM sync_meta WHERE key = 'device_id'")
         .fetch_optional(pool)
@@ -2067,7 +2096,21 @@ async fn pull_inner(app: &AppHandle, pool: &Pool<Sqlite>, st: &SyncState) -> Res
             && m.get("locked").is_none_or(|v| v.is_empty())
             && m.get("join_pending").is_none_or(|v| v.is_empty());
         if idle && st.claim_sweep(&epoch) {
-            if let Err(e) = sweep_old_epochs(&client, &root, &epoch, SWEEP_KEEP_DEFAULT).await {
+            // B2-5（D-主-123）：目前紀元是換鑰匙開的（有 ROTATED 旗標）而且旗標已經放了超過時效
+            // ⇒ 換鑰匙那台多半死在步驟 6 之前，K1 加密的舊紀元會一直留在桶裡（拿到舊密語的人仍讀得到）。
+            // 這台替它收尾，用輪替自己的 `keep=1`。能跑到這裡＝我拆得開這個紀元＝手上是 K2＝輪替已過提交點。
+            // 未逾時就照常 keep=2：那台可能還在跑步驟 5、6；就算搶著掃也無害（掃地冪等、只刪 < 目前紀元）。
+            // 使用者 2026-10-26 ☎4 拍板「真撤銷優先於多留一份舊備份」（安全快照在 `snapshots/`，不受影響）。
+            let keep = match client.get_opt(&rotated_flag_key(&root, &epoch)).await {
+                Ok(Some(flag)) if rotation_flag_stale(&parse_rotated_flag(&flag), chrono::Utc::now()) => 1,
+                Ok(_) => SWEEP_KEEP_DEFAULT,
+                Err(e) => {
+                    // 讀旗標失敗＝當成沒旗標（保守：多留一份，下個進程再看）
+                    eprintln!("[sync:sweep] rotated flag: {e}");
+                    SWEEP_KEEP_DEFAULT
+                }
+            };
+            if let Err(e) = sweep_old_epochs(&client, &root, &epoch, keep).await {
                 // 失敗只 log、不影響這趟 pull 的回報（契約 §4.5）
                 eprintln!("[sync:sweep] {e}");
                 st.release_sweep();
@@ -2161,6 +2204,7 @@ pub(crate) async fn pull_core(
 
     let mut tables: BTreeSet<String> = BTreeSet::new();
     let mut gated_devices: BTreeSet<String> = BTreeSet::new();
+    let now_ms = hlc::now_ms();
     for (dev, object_key) in queue {
         // 信号待ち只擋**那一台**之後的物件，其他裝置照套
         if gated_devices.contains(&dev) {
@@ -2175,9 +2219,8 @@ pub(crate) async fn pull_core(
         // （未知欄整欄丟、缺欄吃 DEFAULT），舊物件照套才對。
         // 評審 S7：閘門排在**完整解析之前**——較新版本若真的改了 `ops` 的形狀，整包解析會先失敗，
         // 閘門就永遠到不了（見 `OplogHead` 的註解）。
-        let head: OplogHead = serde_json::from_slice(&plain)
-            .map_err(|_| "同步資料的格式看不懂（可能是較新版本產生的）。".to_string())?;
-        if head.version > OPLOG_VERSION || head.schema > SCHEMA_VERSION {
+        let head: OplogHead = serde_json::from_slice(&plain).map_err(|_| UNREADABLE_OBJECT.to_string())?;
+        if head_blocks(&head) {
             if let Some(st) = st {
                 st.set_gate(Some(head.schema));
             }
@@ -2186,8 +2229,7 @@ pub(crate) async fn pull_core(
             continue;
         }
 
-        let obj: OplogObject = serde_json::from_slice(&plain)
-            .map_err(|_| "同步資料的格式看不懂（可能是較新版本產生的）。".to_string())?;
+        let obj: OplogObject = serde_json::from_slice(&plain).map_err(|_| UNREADABLE_OBJECT.to_string())?;
 
         let (outcome, accepted) =
             apply_and_settle(pool, &dev, &obj, &object_key, me, &mut replay_until, persist_notices).await?;
@@ -2199,7 +2241,11 @@ pub(crate) async fn pull_core(
         report.conflicts += outcome.conflicts;
         tables.extend(outcome.changed);
         // §5：把這趟收到的最大 hlc 回報給 TS 當種子（時鐘偏差防護）
-        if report.max_hlc.as_deref().unwrap_or("") < obj.hlc_to.as_str() {
+        // B2-6（D-主-126）：超前本機時鐘 24h 以上的不回報——op 上面已經照套（不掉資料），
+        // 只是不讓一台飛到未來的時鐘經由 TS `seedHlc` 把全家拖過去。
+        if hlc::within_drift(&obj.hlc_to, now_ms, hlc::MAX_DRIFT_MS)
+            && report.max_hlc.as_deref().unwrap_or("") < obj.hlc_to.as_str()
+        {
             report.max_hlc = Some(obj.hlc_to.clone());
         }
     }
@@ -2220,6 +2266,44 @@ pub(crate) async fn pull_core(
     }
     report.changed_tables = tables.into_iter().collect();
     Ok(report)
+}
+
+/// #84（D-主-124）：「先清本機再拉」之前，先看雲端有沒有這台讀不懂的較新物件。回 true＝有、該擋。
+///
+/// 為什麼要前探：`pull_core` 的信号待ち是在 wipe **之後**才發生的——本機已經清空、被閘住的又只是
+/// 較新版裝置升級後推的那一段，畫面「缺最近一段」比全空更難察覺。所以嚴格版：任何一台的最後一顆較新就擋，
+/// 本機一根毛都不動（只差這台更新一下 App 而已）。
+///
+/// 為什麼只看每個裝置目錄**最後一顆**：物件的 `schema` 是推送當下那台的 `SCHEMA_VERSION`，而同一台的
+/// `SCHEMA_VERSION` 單調不減（`db_gate` 擋降版；`inflight_key` 重推用的是當下版號，也不會變小），
+/// 物件名又是單調的推送戳記 ⇒ 最後一顆就是那台寫過的最高版號。
+///
+/// `dirs`：呼叫端已經 `list_prefixes` 過就傳進來（省一次 Class B）；None＝這裡自己列。
+/// 沒有裝置目錄（reset 空紀元）＝沒東西可看、放行。判準與 `pull_core` 同一支 `head_blocks`；
+/// 連前兩個版號都解不開＝與 `pull_core` 同一句「格式看不懂」Err（一樣本機不動）。
+pub(crate) async fn probe_remote_schema(
+    client: &R2Client,
+    key: &[u8; crypto::KEY_LEN],
+    root: &str,
+    epoch: &str,
+    dirs: Option<Vec<String>>,
+) -> Result<bool, String> {
+    let dirs = match dirs {
+        Some(d) => d,
+        None => client.list_prefixes(&format!("{root}/{epoch}/")).await?,
+    };
+    for dir in dirs {
+        // list 沒有反向或 limit（見 r2.rs），要最後一顆只能整個目錄列完
+        let keys = client.list_after(&format!("{dir}/"), "").await?;
+        let Some(last) = keys.last() else { continue };
+        let blob = client.get(last).await?;
+        let plain = crypto::open(key, last, &blob)?;
+        let head: OplogHead = serde_json::from_slice(&plain).map_err(|_| UNREADABLE_OBJECT.to_string())?;
+        if head_blocks(&head) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// v1.1.1 的單一游標 `last_pull_key` → v1.1.2 的 `last_pull_key:<primary_device_id>`（契約 §2.2）。
@@ -2463,6 +2547,16 @@ pub(crate) fn parse_rotated_flag(bytes: &[u8]) -> RotatedFlag {
         device_id: String::new(),
         at: String::new(),
     })
+}
+
+/// 旗標已經放了 `ROTATION_LOCK_STALE_HOURS` 以上＝換鑰匙那台多半不會回來了。
+///
+/// 兩處共用：`join` 接手死掉的輪替（S-8）、日常掃地替它清舊紀元（B2-5）。`at` 空或解析不了一律**不算**逾時——
+/// 不知道何時放的就不敢接手（保守側：join 多等、掃地多留一份）。
+pub(crate) fn rotation_flag_stale(flag: &RotatedFlag, now: chrono::DateTime<chrono::Utc>) -> bool {
+    chrono::DateTime::parse_from_rfc3339(&flag.at)
+        .map(|t| (now - t.with_timezone(&chrono::Utc)).num_hours() >= ROTATION_LOCK_STALE_HOURS)
+        .unwrap_or(false)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2725,12 +2819,21 @@ pub(crate) async fn apply_object_with(
 
         let mut pending: Vec<PendingConflict> = Vec::new();
 
+        let local_was_deleted = existing
+            .as_ref()
+            .and_then(|r| r.get("deleted_at"))
+            .is_some_and(|v| !v.is_null());
+        let incoming_delete = op.cols.get("deleted_at").is_some_and(|v| !v.is_null());
+        // B2-7（#76，D-主-126）：兩台各自刪了同一列。這不是「編輯撞刪除」——各線刪除都會順手寫 `updated_at`，
+        // 以前 ② 第一支把那格當成「這台改過」而擋下對方的刪除，兩台於是各留各的 `deleted_at`、永遠不收斂。
+        // 本機已經刪了就沒有東西可以「勝」，`deleted_at` 走一般逐欄 LWW，兩台收斂到較晚那一刀。
+        let both_deleted = local_was_deleted && incoming_delete;
+
         // ② 編輯勝刪除（§3.3），兩個方向。只有既存的列才談得上。
         let mut resurrect = false;
         if op.tbl != "settings" {
             if let Some(row) = existing.as_ref() {
-                let incoming_delete = op.cols.get("deleted_at").is_some_and(|v| !v.is_null());
-                if incoming_delete {
+                if incoming_delete && !both_deleted {
                     // 收到刪除：本列若有「別台寫的、對方沒看過」的非 deleted_at 編輯 ⇒ 不套 deleted_at
                     // 主線③：判準不變，只把找到的那格留下來（第三台時 `by_me` 要看它是誰寫的）
                     // `cells` 是 HashMap，迭代順序不固定——這台與第三台都對這列有併發編輯時，`find` 會隨機拿到其中一格，
@@ -2803,6 +2906,10 @@ pub(crate) async fn apply_object_with(
                     if BOOKKEEPING_COLS.contains(col) {
                         continue;
                     }
+                    // 兩台都刪（B2-7）：誰的刪除時刻留下來沒有使用者故事，與雙蓋同班一樣不算競合
+                    if both_deleted && *col == "deleted_at" {
+                        continue;
+                    }
                     let Some(c) = cells.get(*col) else { continue };
                     if !concurrent(c) {
                         continue;
@@ -2829,7 +2936,7 @@ pub(crate) async fn apply_object_with(
                 // 判準＝「這一格是我寫的、而且我還沒把它推出去」（`hlc > last_push_hlc`）——
                 // 這正是「對方不可能看過、所以對方也判不出來」的充要條件，所以整體仍恰好一筆。
                 for (col, is_int, v) in &lost {
-                    if BOOKKEEPING_COLS.contains(col) {
+                    if BOOKKEEPING_COLS.contains(col) || (both_deleted && *col == "deleted_at") {
                         continue;
                     }
                     let Some(c) = cells.get(*col) else { continue };
@@ -2956,16 +3063,10 @@ pub(crate) async fn apply_object_with(
         //   (a) `Overwritten` 且 `deleted_at` 欄（兩台都刪、或明確復原撞刪除）＝結果沒有使用者故事，不進；
         //   (b) 同一個 op 已有 Revived／Kept 時，它的 Overwritten 不進——② 第二支只設 `resurrect`、不 `continue`，
         //       被復活的列若還有別的併發欄，同一 op 會同時產生 Revived 與 Overwritten；清單一列講「回來了」就夠。
-        //   (c) `Kept` 但本機這列早就刪了（兩台都刪）＝什麼都沒留著，不進。各線刪除都會順手寫 `updated_at`，
-        //       ② 第一支會把那格當成「這台改過」而擋下對方的刪除（既有行為，乘務記錄照記）；通知只是不跟著說錯話。
+        //   （以前還有一條 (c)「Kept 但本機早就刪了」——B2-7 之後兩台同刪不再進 ② 第一支，那種 Kept 已經不會產生。）
         let has_row_level = pending.iter().any(|p| p.kind != MergeKind::Overwritten);
-        let local_was_deleted = existing
-            .as_ref()
-            .and_then(|r| r.get("deleted_at"))
-            .is_some_and(|v| !v.is_null());
         for pc in &pending {
-            let skip_notice = (pc.kind == MergeKind::Overwritten && (pc.col == "deleted_at" || has_row_level))
-                || (pc.kind == MergeKind::Kept && local_was_deleted);
+            let skip_notice = pc.kind == MergeKind::Overwritten && (pc.col == "deleted_at" || has_row_level);
             if !skip_notice {
                 out.notices.push(MergeNotice {
                     kind: pc.kind,
@@ -3594,6 +3695,17 @@ pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
         return Err("沒有待換的紀元。".into());
     };
     let old_epoch = meta.get("epoch").cloned().unwrap_or_default();
+
+    // #84 同類洞（D-主-124）：這條也是「先清本機、TS 緊接著才拉」——新紀元裡有這台讀不懂的較新物件，
+    // 清完才被閘住就只剩一個缺了最近一段的本機。與 join 的「改用另一台的」同一支探頭、同一個判準，
+    // 放在留底與清空之前（手機的雲端安全快照也不必白拍）。代價是這條路從此要連得上雲端——
+    // 反正緊接著的 pull 本來就要。
+    {
+        let kc = keyed_client(app, &pool).await?;
+        if probe_remote_schema(&kc.client, &kc.data_key, &kc.root, &new_epoch, None).await? {
+            return Err(NEWER_REMOTE_ADOPT.into());
+        }
+    }
 
     // 產品評審 S2：桌機「改用那份」之前由 TS 拍一份 manual 備份，**手機沒有備份三件套**——
     // 舊碼只匯出 outbox 孤兒（未送出的那幾筆），這台原有的整份資料是靜默丟掉的。
@@ -5529,13 +5641,13 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     };
 
     // 這個紀元底下有沒有裝置目錄（§2.3「雲端有資料」）
-    let (remote_devices, remote_has_data) = match current_epoch.as_deref() {
-        Some(e) => {
-            let n = client.list_prefixes(&format!("{root}/{e}/")).await?.len() as u64;
-            (n, n > 0)
-        }
-        None => (0, false),
+    // 目錄清單本身留著：「改用另一台的」wipe 前的探頭（#84）要逐台看，不必再列一次
+    let remote_dirs: Vec<String> = match current_epoch.as_deref() {
+        Some(e) => client.list_prefixes(&format!("{root}/{e}/")).await?,
+        None => Vec::new(),
     };
+    let remote_devices = remote_dirs.len() as u64;
+    let remote_has_data = remote_devices > 0;
 
     // v1.1.6 修正席（工程評審 S-1）：目前紀元是另一台「所有裝置一起重新開始」開的**空紀元**（`EPOCH.bin.reason="reset"`、
     // 沒有任何裝置目錄）＝雲端「有一份」，只是那份是空的。以前這裡判 `remote_has_data=false` ⇒ 開第三個紀元（reason=first）
@@ -5570,14 +5682,7 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
     if let Some(e) = current_epoch.as_deref() {
         if !remote_has_data {
             if let Some(flag) = client.get_opt(&rotated_flag_key(&root, e)).await? {
-                let f = parse_rotated_flag(&flag);
-                let stale = chrono::DateTime::parse_from_rfc3339(&f.at)
-                    .map(|t| {
-                        (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_hours()
-                            >= ROTATION_LOCK_STALE_HOURS
-                    })
-                    .unwrap_or(false);
-                if !stale {
+                if !rotation_flag_stale(&parse_rotated_flag(&flag), chrono::Utc::now()) {
                     drop(_busy);
                     return Err("另一台正在換鑰匙，請稍後再加入。".into());
                 }
@@ -5626,6 +5731,17 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
             hlc::now_ms().max(floor).to_string()
         }
     };
+
+    // ⑧ʹ #84（D-主-124）：「改用另一台的」會在 ⑩ 把本機整批清掉、⑪ 才拉——拉的時候才發現有這台讀不懂的
+    // 較新物件就太晚了。趁本機與雲端都還沒動（⑨ 的舊血統封 KEY 也還沒寫）先探一次，有就整個停手。
+    // 只有這個模式要探：兩邊都保留／這台空都不清資料，拉到一半被閘住由既有的 `join_pending` 規則接住。
+    // `AdoptRemote` 走到這裡必定 `remote_occupied` ⇒ `epoch` 就是 ⑥ 的目前紀元、`remote_dirs` 正是它的目錄。
+    if args.mode == Some(JoinMode::AdoptRemote)
+        && probe_remote_schema(&client, &data_key, &root, &epoch, Some(remote_dirs)).await?
+    {
+        drop(_busy);
+        return Err(NEWER_REMOTE_JOIN.into());
+    }
 
     // ⑨ 網路動作先做完（存 credstore 之前失敗＝本機零改變）
     if need_put_salt {
@@ -5723,6 +5839,12 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
         .await
         .map_err(db_err)?;
     meta_set(&mut *tx, "joined", "1").await?;
+    // B2-1（D-主-126）：總開關與 `joined` 同一個交易落地。以前是 ⑪ 拉完快照完才設——中間關 App 或網路斷掉，
+    // 醒來就是「已加入但暫停」（鑰匙圈、joined、epoch 都在，總開關卻沒開；`push_inner`／`pull_inner`
+    // 開頭就回空，連 `join_pending` 補做都跑不到），只能等主人自己發現去開。現在半途斷掉＝游標已清、
+    // 開關已開，60 秒後的日常 cycle 自然從頭續拉（First／Merged 另由 `join_pending` 補快照）。
+    // ⑪ 之後的拉取／快照不看 `enabled`（`pull_core` 本來就不擋），BusyGuard 也還握著，提前設不會被日常 cycle 搶跑。
+    meta_set(&mut *tx, "enabled", "1").await?;
     meta_set(&mut *tx, "epoch", &epoch).await?;
     meta_set(&mut *tx, "salt", &salt_b64).await?;
     meta_set(&mut *tx, "root", &root).await?;
@@ -5803,7 +5925,6 @@ pub async fn join(app: &AppHandle, args: JoinArgs) -> Result<JoinReport, String>
             .await
             .map_err(db_err)?;
     }
-    meta_set(&pool, "enabled", "1").await?;
     // 被閘住 ⇒ 留著 `pull_core` 記下的對方 schema，加入當下狀態就是信号待ち；沒被閘住才清（清的是上一個進程留下的舊閘門）
     if !join_gated {
         st.set_gate(None);
@@ -8629,6 +8750,12 @@ mod tests {
         let long = format!("{}尾", "字".repeat(120));
         let clipped = clip_value(&Value::from(long));
         assert_eq!(clipped.as_str().unwrap().chars().count(), 121);
+        // JSON 容器放寬到 600（沙盒 F-2）：400 字的 scope JSON 原樣保留、601 字才截
+        let scope = format!("{{\"v\":2,\"cats\":[{}]}}", "\"x\",".repeat(95));
+        assert!(scope.chars().count() > 120 && scope.chars().count() <= 600);
+        assert_eq!(clip_value(&Value::from(scope.clone())), Value::from(scope), "容器 ≤600 不截");
+        let huge = format!("[{}]", "字".repeat(600));
+        assert_eq!(clip_value(&Value::from(huge)).as_str().unwrap().chars().count(), 601, "容器 >600 截在 600＋…");
     }
 
     #[test]
@@ -8666,7 +8793,7 @@ mod tests {
             drop_pool(dst, path).await;
 
             // 兩台都刪、本機刪除時順手寫了 updated_at（各線刪除的實際寫法）：
-            // ② 第一支會把 updated_at 當成併發編輯擋下對方的刪除（既有行為），但不能記成「留著」
+            // B2-7 以前 ② 第一支會把 updated_at 當成併發編輯擋下對方的刪除；現在走一般 LWW、收斂到較晚那刀
             let (dst, path) = make_pool("mg-del-both-upd").await;
             seed_note(&dst, "NT3", "x", Some("2026-10-17T01:00:00.000Z")).await;
             set_cell(&dst, "notes", "NT3", "deleted_at", H10, "dev-self").await;
@@ -8686,7 +8813,189 @@ mod tests {
             );
             let r = apply(&dst, &obj, "k3").await;
             assert!(r.notices.is_empty(), "兩台都刪（本機有 updated_at 格）：{:?}", r.notices);
+            assert_eq!(
+                text(&dst, "SELECT deleted_at FROM notes WHERE id='NT3'").await.as_deref(),
+                Some("2026-10-17T03:00:00.000Z"),
+                "B2-7：對方那刀較晚（H20）⇒ 收斂到它，不再被 updated_at 擋下"
+            );
+            assert_eq!(
+                text(&dst, "SELECT hlc FROM sync_cells WHERE tbl='notes' AND row_id='NT3' AND col='deleted_at'")
+                    .await
+                    .as_deref(),
+                Some(H20),
+                "格子跟著戳成對方那一版"
+            );
             drop_pool(dst, path).await;
+        });
+    }
+
+    /// 本機刪一張票（＝各線刪除的實際寫法：`deleted_at` 與 `updated_at` 一起寫、兩格一起戳）
+    async fn local_delete(pool: &Pool<Sqlite>, row_id: &str, at: &str, hlc: &str, dev: &str) {
+        sqlx::query("UPDATE nodes SET deleted_at = ?, updated_at = ? WHERE id = ?")
+            .bind(at)
+            .bind(at)
+            .bind(row_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        set_cell(pool, "nodes", row_id, "deleted_at", hlc, dev).await;
+        set_cell(pool, "nodes", row_id, "updated_at", hlc, dev).await;
+    }
+
+    /// B2-7（#76，D-主-126）：兩台各自刪了同一張票，互相收到對方的刪除。
+    /// 以前兩邊都把對方的刪除當成「撞到這台的編輯」擋下（成因是 `updated_at` 那格），各留各的墓碑、永不收斂。
+    /// 現在兩邊都走一般 LWW ⇒ 同一個墓碑（較晚那刀）；不記乘務記錄、不出通知（誰的刪除時刻留下來沒有使用者故事）。
+    #[test]
+    fn 兩台同刪_互收對方刪除_收斂到較晚那刀() {
+        tauri::async_runtime::block_on(async {
+            const AT_A: &str = "2026-10-26T01:00:00.000Z";
+            const AT_B: &str = "2026-10-26T03:00:00.000Z";
+            const HA: &str = "17581536000000010-aaaaaaaa"; // dev-a 的刪除（較早）
+            const HB: &str = "17581536000000020-bbbbbbbb"; // dev-b 的刪除（較晚）
+            let del = |dev: &str, h: &str, at: &str| {
+                make_obj(
+                    dev,
+                    vec![mk_op(
+                        h,
+                        "nodes",
+                        "N1",
+                        OpKind::Delete,
+                        &[("deleted_at", at.into()), ("updated_at", at.into())],
+                    )],
+                )
+            };
+
+            let (pa, path_a) = make_pool("b27-a").await;
+            let (pb, path_b) = make_pool("b27-b").await;
+            seed_one(&pa).await;
+            seed_one(&pb).await;
+            local_delete(&pa, "N1", AT_A, HA, "dev-a").await;
+            local_delete(&pb, "N1", AT_B, HB, "dev-b").await;
+
+            // 兩邊都沒看過對方（seen 空）＝最壞情況：一切都算併發
+            let ra = apply_object(&pa, &del("dev-b", HB, AT_B), "b/1", "dev-a").await.unwrap();
+            let rb = apply_object(&pb, &del("dev-a", HA, AT_A), "a/1", "dev-b").await.unwrap();
+
+            for (name, pool) in [("A", &pa), ("B", &pb)] {
+                assert_eq!(
+                    text(pool, "SELECT deleted_at FROM nodes WHERE id='N1'").await.as_deref(),
+                    Some(AT_B),
+                    "{name}：收斂到較晚那刀"
+                );
+                assert_eq!(
+                    text(pool, "SELECT hlc FROM sync_cells WHERE row_id='N1' AND col='deleted_at'")
+                        .await
+                        .as_deref(),
+                    Some(HB),
+                    "{name}：格子一致"
+                );
+                assert!(conflicts_of(pool, "N1").await.is_empty(), "{name}：兩台同刪不是競合");
+            }
+            assert_eq!(ra.applied, 1, "A 收到較晚的刪除＝照套");
+            assert_eq!(rb.applied, 0, "B 收到較早的刪除＝本機那刀比較新、整筆沒採用");
+            assert_eq!((ra.conflicts, rb.conflicts), (0, 0));
+            assert!(ra.notices.is_empty() && rb.notices.is_empty(), "{:?} {:?}", ra.notices, rb.notices);
+
+            drop_pool(pa, path_a).await;
+            drop_pool(pb, path_b).await;
+        });
+    }
+
+    /// #84：前探與信号待ち同一個判準——只擋比這台新的；較舊照套（前向相容）
+    #[test]
+    fn head_blocks_只擋比這台新的版號() {
+        let h = |version: u32, schema: u32| OplogHead { version, schema };
+        assert!(!head_blocks(&h(OPLOG_VERSION, SCHEMA_VERSION)), "同版放行");
+        assert!(!head_blocks(&h(OPLOG_VERSION, SCHEMA_VERSION - 1)), "較舊放行");
+        assert!(head_blocks(&h(OPLOG_VERSION, SCHEMA_VERSION + 1)), "schema 較新");
+        assert!(head_blocks(&h(OPLOG_VERSION + 1, SCHEMA_VERSION)), "物件格式較新");
+        // 只解前兩個版號：較新版本若把 ops 改了形狀，判準照樣到得了（評審 S7）
+        let plain = serde_json::json!({
+            "version": OPLOG_VERSION,
+            "schema": SCHEMA_VERSION + 1,
+            "ops": "較新版本的新形狀",
+        })
+        .to_string();
+        let head: OplogHead = serde_json::from_str(&plain).unwrap();
+        assert!(head_blocks(&head));
+    }
+
+    /// B2-5／S-8 共用：旗標逾時才接手；不知道何時放的一律不算逾時
+    #[test]
+    fn 輪替旗標逾時判定() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-26T12:00:00.000Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let f = |at: &str| RotatedFlag {
+            device_id: "dev-x".into(),
+            at: at.into(),
+        };
+        assert!(!rotation_flag_stale(&f("2026-10-26T00:00:00.000Z"), now), "12 小時：那台可能還在跑");
+        assert!(rotation_flag_stale(&f("2026-10-25T12:00:00.000Z"), now), "剛好 24 小時算逾時");
+        assert!(rotation_flag_stale(&f("2026-10-20T00:00:00.000Z"), now));
+        assert!(!rotation_flag_stale(&f(""), now), "空的 at");
+        assert!(!rotation_flag_stale(&parse_rotated_flag(b"{}"), now), "舊版的空旗標");
+        assert!(!rotation_flag_stale(&parse_rotated_flag(b"not json"), now), "壞 JSON");
+    }
+
+    /// #84：wipe 前探頭打真的 R2——沒目錄放行、同版放行、任一台最後一顆較新就擋、解不開前兩個版號回同一句 Err。
+    ///
+    /// 跑法（Git Bash）：
+    /// ```text
+    /// set -a && source "$LOCALAPPDATA/NextStop/r2.env" && set +a
+    /// cargo test --lib sync::engine::tests::sandbox_wipe前探頭 -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "需要 R2 憑證：source %LOCALAPPDATA%/NextStop/r2.env 後加 --ignored"]
+    fn sandbox_wipe前探頭() {
+        tauri::async_runtime::block_on(async {
+            let client = sandbox_client();
+            let root = sandbox_root();
+            let key = crypto::random_data_key().unwrap();
+            let e = hlc::now_ms().to_string();
+            let put_obj = |dev: &str, name: &str, schema: u32| {
+                let k = format!("{root}/{e}/{dev}/{name}.bin");
+                let mut o = make_obj(dev, vec![]);
+                o.schema = schema;
+                let blob = crypto::seal(&key, &k, &serde_json::to_vec(&o).unwrap()).unwrap();
+                (k, blob)
+            };
+
+            // ① reset 空紀元（沒有任何裝置目錄）⇒ 放行
+            assert!(!probe_remote_schema(&client, &key, &root, &e, None).await.unwrap());
+
+            // ② 兩台都是同版 ⇒ 放行
+            for (dev, name) in [("dev-sb-a", "0000000000001-a"), ("dev-sb-b", "0000000000002-b")] {
+                let (k, blob) = put_obj(dev, name, SCHEMA_VERSION);
+                client.put(&k, blob).await.unwrap();
+            }
+            assert!(!probe_remote_schema(&client, &key, &root, &e, None).await.unwrap());
+
+            // ③ b 升級後推了一顆較新的（排在它目錄最後）⇒ 擋；呼叫端傳進來的目錄清單也一樣
+            let (k, blob) = put_obj("dev-sb-b", "0000000000003-b", SCHEMA_VERSION + 1);
+            client.put(&k, blob).await.unwrap();
+            assert!(probe_remote_schema(&client, &key, &root, &e, None).await.unwrap());
+            let dirs = client.list_prefixes(&format!("{root}/{e}/")).await.unwrap();
+            assert_eq!(dirs.len(), 2);
+            assert!(probe_remote_schema(&client, &key, &root, &e, Some(dirs)).await.unwrap());
+
+            // ④ 另一個紀元：最後一顆連前兩個版號都解不開 ⇒ 與 pull_core 同一句 Err
+            let e2 = (hlc::now_ms() + 1_000).to_string();
+            let k = format!("{root}/{e2}/dev-sb-c/0000000000004-c.bin");
+            client
+                .put(&k, crypto::seal(&key, &k, b"[1,2,3]").unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                probe_remote_schema(&client, &key, &root, &e2, None).await.unwrap_err(),
+                UNREADABLE_OBJECT
+            );
+
+            // ⑤ 收工
+            for k in client.list_after(&format!("{root}/"), "").await.unwrap() {
+                client.delete(&k).await.unwrap();
+            }
+            assert!(client.list_after(&format!("{root}/"), "").await.unwrap().is_empty(), "沙盒根要清乾淨");
         });
     }
 

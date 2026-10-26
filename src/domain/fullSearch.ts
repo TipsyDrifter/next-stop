@@ -151,10 +151,15 @@ export function dateCell(
   today: string,
 ): DateCell | null {
   const year = today.slice(0, 4);
+  // 退役的定期券（D-主-122）：執行日＝最後一班済的那天（repository 推導；沒済過＝NULL）。照印、不赭、不講「今天」；
+  // NULL 就空白——不退到締切，免得空出來的執行日被締切頂上去、看起來像「這張票有截止日要趕」
+  if (node.repeat_rule && node.status === "done") {
+    return node.scheduled_on ? { tag: "", text: md(node.scheduled_on, year), late: false } : null;
+  }
   if (node.scheduled_on) {
-    // 還在跑的定期券（沒退役：nodes.status 不是 done）——今天那班還沒済寫「今天」，其餘寫「下一班」（沙盒 O5：
+    // 還在跑的定期券（退役的上面已經分流）——今天那班還沒済寫「今天」，其餘寫「下一班」（沙盒 O5：
     // 今天済了之後 scheduled_on 推到下一班，`done` 是看目前班次的，不能拿來判退役）
-    if (node.repeat_rule && node.status !== "done") {
+    if (node.repeat_rule) {
       if (node.scheduled_on === today && !done) return { tag: "", text: "今天", late: false };
       return { tag: "下一班", text: md(node.scheduled_on, year), late: false };
     }

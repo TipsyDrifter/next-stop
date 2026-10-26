@@ -8,7 +8,13 @@ import { currentDue, firstFixedDate, lastFixedDate, parseRule, projectAfter, pro
 import { clockInstant, compareClock, dayWindow, isInDay } from "../lib/date";
 // 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
 // UI 取這些值一律經 data/index.ts 的明列 export，不直接 import 本檔的值（主線②契約 §0-1 第 10 條）
-import { effectiveTime, timeOfRow } from "../domain/scheduledTime";
+import {
+  effectiveTime,
+  overridesFromRows,
+  serializeTimeOverrides,
+  timeOfRow,
+  type TimeOverrideRow,
+} from "../domain/scheduledTime";
 import type { FullSearchHit } from "../domain/fullSearch";
 
 export interface CreateNodeInput {
@@ -209,6 +215,8 @@ export interface NodeRepository {
    */
   listSerials(): Promise<Record<string, string>>;
   getNode(id: string): Promise<NodeRow | null>;
+  /** 逐班時刻覆寫列的身世（同步通知要講出「哪張票哪一班」用；查不到＝null，含已軟刪的列也給） */
+  getTimeOverrideRef(id: string): Promise<{ nodeId: string; dueOn: string } | null>;
   create(input: CreateNodeInput): Promise<NodeRow>;
   /**
    * 欄位補丁。`mood` 會鏡射到定期券的「目前班次」（D-④-2），故與 setCompleted 同款帶日界線參數：
@@ -307,12 +315,13 @@ export interface NodeRepository {
   /**
    * 定期券逐班時刻（主線②）：給 dueOn 這一班設時刻；time=null＝「本班無時刻」。
    * 驗：節點存活；parseRule 非 null（否則 throw TIME_REPEAT_ONLY_MSG）；dueOn 合 YYYY-MM-DD；time 非 null 時 isClockInRange。
-   * 寫法：parseTimeOverrides(現值) → 設 [dueOn] → serialize → 一句 UPDATE（time_overrides, updated_at）＋一筆 op（同兩欄）。
-   *       **過去班次的覆寫一律保留**（那是歷史，D-主-32；不在這裡 prune）；未來的由換規則時 dropFutureOverrides 清。
+   * 寫法（D-主-120）：`node_time_overrides` 的 (票, dueOn) 那一列 upsert（id＝overrideId，兩台同鍵同列）＋一筆 op；
+   *       `nodes` 一個欄位都不動。**過去班次的覆寫一律保留**（那是歷史，D-主-32；不在這裡 prune）；
+   *       未來的由換規則時軟刪（setRepeatRule）。
    * 不驗 dueOn 是不是規則日（對未來任何一天、或已運休的班寫都允許；那天沒班就沒人讀它）。
    */
   setRunTime(id: string, dueOn: string, time: string | null, dayStartHour: number): Promise<void>;
-  /** 改回每班時刻＝刪掉 [dueOn] 那一項（沒有＝照寫回）。驗同上（不驗 time） */
+  /** 改回每班時刻＝軟刪 [dueOn] 那一列（沒有＝什麼都不寫）。驗同上（不驗 time） */
   clearRunTime(id: string, dueOn: string): Promise<void>;
   /**
    * lazy 同步（D-④-7）：對所有存活、未退役、有規則的節點重算目前班次日，
@@ -479,6 +488,81 @@ export function pickTodayOccurrence<T extends OccurrenceSeed>(
   if (future) return future;
   if (scheduledOn === null) return null;
   return occurrences.find((o) => o.due_on === scheduledOn) ?? null;
+}
+
+/**
+ * 退役定期券的執行日（D-主-122，#103 ☎3 甲「最後一班」）＝最後一筆済的班次日；一班都沒済過 ⇒ null。
+ *
+ * 為什麼是同步資料的純函數：退役後引擎不再排班，舊做法讓 scheduled_on 凍在各台自己最後算到的值——
+ * 一台先済再退役（已推到明天）、另一台一次收到兩筆（停在今天），兩台從此不同。改成只吃 occurrences 的
+ * due_on／status（兩台同步後相同、與時區無關），各台 syncRepeats 自己算就自動收斂，不必進 oplog。
+ */
+export function retiredScheduledOn(occurrences: readonly Pick<OccurrenceSeed, "due_on" | "status">[]): string | null {
+  let last: string | null = null;
+  for (const o of occurrences) {
+    if (o.status === "done" && (last === null || o.due_on > last)) last = o.due_on;
+  }
+  return last;
+}
+
+/**
+ * 今日第四條「退役定期券、執行日 NULL（一班都沒済過）」那一支的資格（D-主-122；兩種實作共用）。
+ *
+ * 第四條的本意是「本來就在今天清單裡的票今天完成了」（否則列車一起完成時，從沒排進今天的子票會全部冒出來）。
+ * 以前退役票的 scheduled_on 凍在退役前的目前班次，靠 `scheduled_on <= 今天` 判得出來；改成「最後一班」之後
+ * 沒済過的退役票是 NULL，這個線索沒了——改用「依規則，今天退役那一刻它的目前班次是不是已經到了（≤ 今天）」補回來
+ * （退役就發生在今天，所以用今天算＝用退役當下算）。有締切到期、或今天交代過某一班的，原本的分支就收了，不必走這裡。
+ */
+export function retiredWasDueToday(
+  node: Pick<NodeRow, "repeat_rule">,
+  occurrences: readonly OccurrenceSeed[],
+  dateKey: string,
+  dayStartHour: number,
+): boolean {
+  const rule = parseRule(node.repeat_rule);
+  if (!rule) return false;
+  const due = currentDue(rule, occurrences, dateKey, dayStartHour);
+  return due !== null && due <= dateKey;
+}
+
+/**
+ * 覆寫列的讀取守門（D-主-120）：依「目前規則」決定哪些班次日的覆寫算數。
+ *
+ * 換規則只軟刪得到這台看過的未來列；另一台併發設的（或「編輯勝刪除」復活的）覆寫會活下來。
+ * 落在新規則**班次日**上的照舊生效（與整欄 LWW 時代的已知取捨相同）；落在**未來的非班次日**的在這裡忽略——
+ * 固定排程才判得出來（完成後間隔的班次日取決於何時完成，一律放行）。
+ * 今天以前的列一律放行：換規則只清 ≥ 今天的，過去的是歷史（D-主-32；舊規則的班次日不是新規則的班次日很正常）。
+ * `today` 差幾小時（日界線）無妨——守門只擋「併發復活、又落在未來非班次日」這種邊角。
+ */
+export function overrideKeepOf(repeatRule: string | null, today: string): ((dueOn: string) => boolean) | undefined {
+  const rule = parseRule(repeatRule);
+  if (!rule || rule.mode !== "fixed") return undefined;
+  return (d) => d < today || d < rule.start || firstFixedDate(rule, d) === d;
+}
+
+/**
+ * 把覆寫列摺回 `NodeRow.time_overrides`（讀取面保形：effectiveTime／UI 照舊讀那串 JSON）。
+ * 每一列都覆寫：舊欄 `nodes.time_overrides` 停止讀取——沒有列的票一律 null，不會漏出舊欄的殘值。
+ * 沒有規則的票也照實摺（B1 封口要看得到殘留；effectiveTime 對沒規則的票本來就不讀）。
+ * 原地改 `nodes` 並回傳同一個陣列（呼叫端剛從 DB／記憶體複製出來的列，不會污染別人）。
+ */
+export function attachTimeOverrides<T extends Pick<NodeRow, "id" | "repeat_rule" | "time_overrides">>(
+  nodes: T[],
+  rows: readonly TimeOverrideRow[],
+  today: string,
+): T[] {
+  const byNode = new Map<string, TimeOverrideRow[]>();
+  for (const r of rows) {
+    if (r.deleted_at) continue;
+    let list = byNode.get(r.node_id);
+    if (!list) byNode.set(r.node_id, (list = []));
+    list.push(r);
+  }
+  for (const n of nodes) {
+    const list = byNode.get(n.id);
+    n.time_overrides = list ? serializeTimeOverrides(overridesFromRows(list, overrideKeepOf(n.repeat_rule, today))) : null;
+  }
+  return nodes;
 }
 
 /** occurrence → 給 UI 的窄形狀（TodayRow.occurrence／listCurrentOccurrences 同一份） */
