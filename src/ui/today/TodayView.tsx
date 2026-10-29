@@ -401,6 +401,8 @@ export function TodayView() {
               {nowAt === c.todayRows.length && nowText !== null && <NowLine text={nowText} />}
               {c.draft && (
                 <TicketDraftRow
+                  // 收官磨光 A1：建票成功就換鍵＝輸入框重掛清空（不換的話字留著，連按 Enter／失焦會同名再建）
+                  key={c.draftSeq}
                   afterId={c.draft.afterId}
                   kind={c.draft.kind}
                   onCommit={c.commitDraft}

@@ -583,17 +583,32 @@ test("groupFootprints：同 nodeId＋at 去重（退役定期券的邊角）", (
   assert.equal(f.seals.length, 1);
 });
 test("groupFootprints：moods 只取非 null、依完成時刻", () => {
+  // 心情只跟著列車／車廂的済章（規格 §5）；車票的心情另一條測試鎖
   const f = groupFootprints(
     "2026-10-08",
     [
-      seal({ id: "c", nodeId: "c", at: "2026-10-08T06:00:00.000Z", mood: "red" }),
-      seal({ id: "a", nodeId: "a", at: "2026-10-08T01:00:00.000Z", mood: "green" }),
-      seal({ id: "b", nodeId: "b", at: "2026-10-08T03:00:00.000Z", mood: null }),
+      seal({ id: "c", nodeId: "c", kind: "train", at: "2026-10-08T06:00:00.000Z", mood: "red" }),
+      seal({ id: "a", nodeId: "a", kind: "car", at: "2026-10-08T01:00:00.000Z", mood: "green" }),
+      seal({ id: "b", nodeId: "b", kind: "train", at: "2026-10-08T03:00:00.000Z", mood: null }),
     ],
     [],
     null,
   );
   assert.deepEqual(f.moods, ["green", "red"]);
+});
+test("groupFootprints：車票的心情不認（收官磨光 Q1：車票沒有心情欄，舊值改不掉也清不掉，讀取面一律當沒有）", () => {
+  const f = groupFootprints(
+    "2026-10-08",
+    [
+      seal({ id: "t", nodeId: "t", kind: "ticket", at: "2026-10-08T02:00:00.000Z", mood: "red" }),
+      seal({ id: "r", nodeId: "r", kind: "train", at: "2026-10-08T04:00:00.000Z", mood: "green" }),
+    ],
+    [],
+    null,
+  );
+  assert.deepEqual(f.moods, ["green"]);
+  assert.equal(f.seals.find((s) => s.id === "t")?.mood, null);
+  assert.equal(f.seals.find((s) => s.id === "r")?.mood, "green");
 });
 test("groupFootprints：不改輸入陣列", () => {
   const seals = [seal({ id: "b", nodeId: "b", at: "2026-10-08T05:00:00.000Z" }), seal({ id: "a", nodeId: "a", at: "2026-10-08T02:00:00.000Z" })];

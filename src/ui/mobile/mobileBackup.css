@@ -1,0 +1,45 @@
+/**
+ * 手機「更多 › 備份與還原」（收官磨光 Q2-a；MobileBackup.tsx）自己的幾條排版。
+ * 形狀零發明：區塊、說明、二選一、鈕、清單全借既有的 `.m2-*`（mobile.css）與雲端清單手機版 `.m2-cl-list`；
+ * 這裡只補「上次成功備份」那一列（大字時刻＋領収章）與幾處間距。字級、色一律 token。
+ */
+@media (max-width: 767px), ((pointer: coarse) and (max-height: 767px)) {
+  /* 「上次成功備份」：左邊字、右邊領収章（同桌機 .ns-bk-status 的排法） */
+  [data-shell="mobile"] .m2-bk-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  [data-shell="mobile"] .m2-bk-status-text { min-width: 0; }
+  [data-shell="mobile"] .m2-bk-status .m2-block-label { margin-bottom: 4px; }
+  /* 時刻大字：同同步頁狀態那一行的字級（這一塊唯一的主詞） */
+  [data-shell="mobile"] .m2-bk-when {
+    font-family: var(--font-latin);
+    font-size: var(--fs-h3);
+    letter-spacing: .06em;
+    line-height: 1.35;
+    color: var(--color-ink);
+  }
+  [data-shell="mobile"] .m2-bk-when.is-fail { color: var(--ns-warn-text); }
+  [data-shell="mobile"] .m2-bk-status .m2-note { margin-top: 2px; }
+  [data-shell="mobile"] .m2-bk-seal { flex: none; }
+
+  [data-shell="mobile"] .m2-bk-alert { padding-top: 12px; }
+  [data-shell="mobile"] .m2-bk-keep-note { margin-top: 6px; }
+
+  /* 清單第一列不要上緣虛線（緊接在小標下面） */
+  [data-shell="mobile"] .m2-bk-list li:first-child { border-top: 0; }
+  [data-shell="mobile"] .m2-bk-seq {
+    margin-left: 8px;
+    font-family: var(--font-body);
+    font-size: var(--fs-micro);
+    letter-spacing: .08em;
+    color: var(--color-ink-faint);
+  }
+
+  [data-shell="mobile"] .m2-bk-save-note { margin-top: 10px; }
+
+  /* 「更多」頁那一列：上次備份失敗時右側字轉赭（同桌機狀態列失敗的字色） */
+  [data-shell="mobile"] .m2-bk-row-fail { color: var(--ns-warn-text); }
+}

@@ -22,7 +22,7 @@
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
-import { dayWindow, todayKey } from "../lib/date";
+import { dayWindow, parseDayStartHour, todayKey } from "../lib/date";
 import { escapeLike } from "../lib/sql";
 import type { FullSearchHit } from "../domain/fullSearch";
 import {
@@ -104,8 +104,15 @@ const NTO = "node_time_overrides" satisfies SyncTable;
 
 /** 存量搬移（舊欄 JSON → 覆寫列）做過了沒；settings 的本地鍵（不在同步白名單，各台各記各的） */
 
-/** 守門用的「今天」：呼叫端沒帶營業日時退回日界線 3 點（只影響併發復活的未來非班次日覆寫，差幾小時無妨） */
-const guardToday = (): string => todayKey(3);
+/**
+ * 守門用的「今天」（逐班覆寫的讀取面；影響併發復活的未來非班次日覆寫）：讀取面（listSidebar／listRouteTree／getNode／
+ * search／searchFull／listInboxTickets）沒有呼叫端帶營業日，就讀設定表的日界線（＝uiStore.dayStartHour 的同一個值、同步白名單鍵）。
+ * 收官磨光 A4（體檢 S2）：原本寫死 `todayKey(3)`，跟 App 預設 06:00 在 03–06 點這段差一天。
+ */
+async function guardToday(db: Database): Promise<string> {
+  const rows = await db.select<{ value: string }[]>(`SELECT value FROM settings WHERE key = 'day_start_hour'`);
+  return todayKey(parseDayStartHour(rows[0]?.value));
+}
 
 // repeat_rule 不在這裡：寫規則的唯一入口是 setRepeatRule（update 收到會改道，M3 ④）
 const PATCHABLE = new Set<string>([
@@ -221,8 +228,10 @@ export class SqliteNodeRepository implements NodeRepository {
   }
 
   /** 讀取面保形：把覆寫列摺回 NodeRow.time_overrides（舊欄的值一律蓋掉，見 attachTimeOverrides） */
-  private async withOverrides<T extends NodeRow>(db: Database, nodes: T[], today: string = guardToday()): Promise<T[]> {
-    return attachTimeOverrides(nodes, await this.overrideRows(db, nodes), today);
+  private async withOverrides<T extends NodeRow>(db: Database, nodes: T[], today?: string): Promise<T[]> {
+    const rows = await this.overrideRows(db, nodes);
+    // 守門日只在有覆寫列時才用得到（attachTimeOverrides 對沒列的節點不看它）——沒列就不多查一趟設定
+    return attachTimeOverrides(nodes, rows, rows.length ? (today ?? (await guardToday(db))) : "");
   }
 
   /**

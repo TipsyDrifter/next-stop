@@ -1,6 +1,6 @@
 /**
  * 日期工具——執行日／締切日一律用「本地日期 key」YYYY-MM-DD（date-only，不帶時區）。
- * 日界線（決策 D9；D-時-21 起 App 預設 06:00，來源 `uiStore.ts` 的 `DEFAULT_DAY_START_HOUR`）：現在本地時間尚未過日界線 → 算前一天。
+ * 日界線（決策 D9；D-時-21 起 App 預設 06:00，來源＝本檔的 `DEFAULT_DAY_START_HOUR`）：現在本地時間尚未過日界線 → 算前一天。
  * `todayKey` 的日界線必填：呼叫端一律傳 `useUiStore.getState().dayStartHour`（mock 種子用檔內常數，主線②契約 §0-1 第 7 條）。
  */
 export function toDateKey(d: Date): string {
@@ -8,6 +8,20 @@ export function toDateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * 日界線預設 06:00（主人 2026-10-06 拍板 D-時-21）。唯一定義在這裡（收官磨光 A4 從 uiStore 搬來、uiStore 轉出口）：
+ * data 層的讀取面守門要讀設定值，又不能 import store（data/ → store/ 循環）。
+ */
+export const DEFAULT_DAY_START_HOUR = 6;
+
+/**
+ * settings 的 `day_start_hour` 原字串 → 時；沒設／空字串／壞值＝DEFAULT_DAY_START_HOUR。"0"（午夜）是合法值
+ * （以前的 `Number(x) || 3` 會把它吃成預設）。uiStore.loadSettings 與 SQLite 讀取面的守門日共用這一份（收官磨光 A4）。
+ */
+export function parseDayStartHour(raw: string | null | undefined): number {
+  return raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : DEFAULT_DAY_START_HOUR;
 }
 
 export function todayKey(dayStartHour: number, now: Date = new Date()): string {

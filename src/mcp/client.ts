@@ -8,7 +8,7 @@
  * 三種環境：
  *   - 桌機 Tauri：直接 invoke。
  *   - `?mock=1`（瀏覽器預覽）：記憶體假狀態（埠 18920、假金鑰、全關、幾筆假紀錄），分頁才看得到東西；
- *     `?mock=1&mcp=busy` 模擬連接埠被占用（截圖與檢查錯誤列用）。
+ *     `?mock=1&mcp=busy` 模擬連接埠被占用（截圖與檢查錯誤列用）；`?mock=1&mcp=starting` 模擬還在等埠空出來（收官磨光 A2）。
  *   - Android：Rust 端編譯期就沒有 mcp 模組（`#[cfg(desktop)]`），一律不呼叫，直接回錯（手機殼本來也不畫這一籤）。
  */
 import { invoke } from "@tauri-apps/api/core";
@@ -81,14 +81,16 @@ let mock: { status: McpStatus; recent: McpRecent[] } | null = null;
 function mockState() {
   if (mock) return mock;
   const busy = urlFlag("mcp") === "busy";
+  const starting = urlFlag("mcp") === "starting";
   const url = `http://127.0.0.1:${MOCK_PORT}/mcp`;
   mock = {
     status: {
       port: MOCK_PORT,
       url,
       token: "mock0000000000000000000000000000000000000000003f9c",
-      listening: !busy,
-      error: busy ? `連接埠 ${MOCK_PORT} 被占用，外部助理連不進來。` : null,
+      listening: !busy && !starting,
+      // 字同 Rust server.rs 的 bind_error_message（收官磨光 A2 改過）
+      error: busy ? `連接埠 ${MOCK_PORT} 已被占用，外部助理連不進來。完全結束私鐵手帳（系統匣圖示 →「結束」）再打開試試。` : null,
       access: Object.fromEntries(MCP_MODULES.map((m) => [m, "off"])) as Record<McpModule, McpAccess>,
       toolCount: 38,
       exePath: "C:\\Users\\you\\AppData\\Local\\私鐵手帳\\私鐵手帳.exe",

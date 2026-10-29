@@ -111,11 +111,21 @@ export interface BackupRepository {
   /** 選第二備份位置的資料夾（dialog plugin）；取消＝null。 */
   pickDirectory(): Promise<string | null>;
 
-  /** 「從檔案還原…」選任意 `.db`（dialog plugin，filter `db`）；取消＝null。 */
+  /**
+   * 「從檔案還原…」選任意 `.db`（dialog plugin，filter `db`）；取消＝null。
+   * 收官磨光 Q2-a：Android 的選擇器回 `content://` URI——實作在裡面先叫 Rust 抄進 App 暫存並驗好，
+   * 回的是那份暫存的**本機路徑**（呼叫端照舊交給 validateFile／restore，不用分殼）。
+   */
   pickDbFile(): Promise<string | null>;
 
-  /** 在檔案總管開啟備份資料夾（opener 的 revealItemInDir）。 */
+  /** 在檔案總管開啟備份資料夾（opener 的 revealItemInDir）。手機沒有這個（打不開 App 私有目錄）。 */
   revealBackupsDir(): Promise<void>;
+
+  /**
+   * 手機「另存一份…」（收官磨光 Q2-a；代替桌機的第二備份位置與開啟資料夾）：讓主人用系統的存檔畫面（SAF）挑位置，
+   * 把清單裡那一份 `path` 抄過去。true＝存好了；false＝主人取消。寫不進去 reject（人話）。
+   */
+  saveCopy(path: string, fileName: string): Promise<boolean>;
 
   /** ⑧ 清場步驟二：清空 nodes／occurrences／work_logs 但保留 settings。**DEV 限定**，正式版無此 UI。 */
   resetDatabaseKeepSettings?(): Promise<void>;
@@ -223,7 +233,15 @@ export const BACKUP_COMMANDS = {
   validateFile: "backup_validate_file",
   restore: "backup_restore",
   resetDatabaseKeepSettings: "reset_database_keep_settings",
+  // 收官磨光 Q2-a：手機（SAF）兩支
+  importPicked: "backup_import_picked",
+  exportPicked: "backup_export_picked",
 } as const;
+
+/** Android（真平台，不看殼寬）：檔案選擇器回 content:// URI、存檔走 SAF（同 mcp/client.ts 的判斷） */
+function onAndroid(): boolean {
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+}
 
 /**
  * 真機實作（WP1 填）。每支對應一次 `invoke`，參數名即 args 物件的鍵（Rust 端同名參數）。
@@ -273,6 +291,17 @@ export class TauriBackupRepository implements BackupRepository {
 
   async pickDbFile(): Promise<string | null> {
     const { open } = await import("@tauri-apps/plugin-dialog");
+    if (onAndroid()) {
+      // Android：副檔名 filter 會被換成 MIME（`db` 對不到任何 MIME，選擇器就什麼都不給選）——不設 filter，選了再驗
+      const uri = await open({ multiple: false, directory: false, title: "選一個備份檔還原" }).catch((e: unknown) => {
+        // 主人按返回＝plugin reject「cancelled」，當成取消
+        if (String(e).toLowerCase().includes("cancel")) return null;
+        throw e;
+      });
+      if (typeof uri !== "string") return null;
+      const imported = await invoke<{ path: string; file_name: string }>(BACKUP_COMMANDS.importPicked, { uri });
+      return imported.path;
+    }
     const picked = await open({
       multiple: false,
       directory: false,
@@ -280,6 +309,24 @@ export class TauriBackupRepository implements BackupRepository {
       filters: [{ name: "備份檔", extensions: ["db"] }],
     });
     return typeof picked === "string" ? picked : null;
+  }
+
+  async saveCopy(path: string, fileName: string): Promise<boolean> {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const target = await save({
+      title: "另存一份備份",
+      defaultPath: fileName,
+      // Android 的 filter 收 MIME（含「/」就原樣用）：.db 沒有標準 MIME，用 octet-stream 讓存檔畫面接受任何位置
+      filters: onAndroid()
+        ? [{ name: "備份檔", extensions: ["application/octet-stream"] }]
+        : [{ name: "備份檔", extensions: ["db"] }],
+    }).catch((e: unknown) => {
+      if (String(e).toLowerCase().includes("cancel")) return null;
+      throw e;
+    });
+    if (!target) return false;
+    await invoke<void>(BACKUP_COMMANDS.exportPicked, { path, target });
+    return true;
   }
 
   /**
@@ -401,6 +448,11 @@ export class MemoryBackupRepository implements BackupRepository {
 
   async revealBackupsDir(): Promise<void> {
     console.info("[next-stop] （假資料）開啟備份資料夾：", MOCK_PRIMARY_DIR);
+  }
+
+  async saveCopy(path: string, fileName: string): Promise<boolean> {
+    console.info("[next-stop] （假資料）另存一份：", fileName, "←", path);
+    return true;
   }
 
   async resetDatabaseKeepSettings(): Promise<void> {

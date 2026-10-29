@@ -26,6 +26,7 @@ import {
 } from "../data";
 import { useSyncStore } from "./syncStore";
 import { useUiStore } from "./uiStore";
+import { isMobileShell } from "../lib/shell";
 
 /**
  * 目前正在飛的動作（給 WP3 禁用按鈕／顯示「…中」用）。
@@ -145,6 +146,12 @@ interface BackupStore {
   revealBackupsDir: () => Promise<void>;
   /** 「從檔案還原…」：選任意 `.db` → 驗檔 → 走同一條 restore 確認流程。 */
   restoreFromFile: (choice?: RestoreChoice) => Promise<void>;
+  /**
+   * 手機「另存一份…」（收官磨光 Q2-a；代替桌機的第二備份位置與開啟備份資料夾）：
+   * 先拍一份手動備份（＝桌機「立即備份」同一條），再讓主人用系統存檔畫面挑位置抄過去（下載、雲端硬碟…）。
+   * 換手機時在新手機用「從檔案還原…」選那份檔。
+   */
+  saveCopy: () => Promise<void>;
   /** ⑧ 清場步驟二（DEV 限定）：清空資料但保留 settings。 */
   resetDatabaseKeepSettings: () => Promise<void>;
 }
@@ -366,7 +373,8 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
 
   async restoreFromFile(choice) {
     const path = await backupRepo.pickDbFile().catch((e: unknown) => {
-      useUiStore.getState().showToast({ message: `選不到檔案：${messageOf(e)}` });
+      // 手機的 pickDbFile 會順手把選的檔抄進暫存並驗檔（收官磨光 Q2-a），驗不過的人話也從這裡出來
+      useUiStore.getState().showToast({ message: `這個檔案不能用來還原：${messageOf(e)}` });
       return null;
     });
     if (!path) return;
@@ -377,6 +385,37 @@ export const useBackupStore = create<BackupStore>((set, get) => ({
       return;
     }
     get().restore(path, undefined, choice);
+  },
+
+  async saveCopy() {
+    const { keep, secondaryDir } = get();
+    set({ status: "backing-up" });
+    try {
+      let report: BackupReport;
+      try {
+        report = await backupRepo.backupNow(keep, secondaryDir);
+      } catch (e) {
+        report = { status: "error", message: messageOf(e) };
+      }
+      const failed = await recordReport(report, set, get);
+      await loadList(secondaryDir, set);
+      if (report.status !== "ok") {
+        if (failed) toastBackupFailed();
+        else useUiStore.getState().showToast({ message: "還沒有資料可以備份" });
+        return;
+      }
+      const path = report.path;
+      const fileName = path.split(/[\\/]/).pop() ?? path;
+      try {
+        const saved = await backupRepo.saveCopy(path, fileName);
+        // 取消＝什麼都不說（手動備份已經拍好、在清單裡看得到）
+        if (saved) useUiStore.getState().showToast({ message: "已另存一份備份到你選的位置" });
+      } catch (e) {
+        useUiStore.getState().showToast({ message: `另存失敗：${messageOf(e)}（這台的備份已經拍好，在清單裡）` });
+      }
+    } finally {
+      set({ status: "idle" });
+    }
   },
 
   async resetDatabaseKeepSettings() {
@@ -486,7 +525,7 @@ async function runPolicy(
     useUiStore.getState().showToast({
       message: BACKUP_TOAST.secondaryFailed,
       actionLabel: BACKUP_TOAST.action,
-      onAction: () => useUiStore.getState().openSettings("backup"),
+      onAction: openBackupPage,
     });
   }
 }
@@ -501,11 +540,15 @@ async function loadList(secondaryDir: string | null, set: SetState): Promise<voi
   }
 }
 
-/** 失敗 toast：帶「看原因」動作鈕，直接開設定的備份分頁 */
+/** 失敗 toast：帶「看原因」動作鈕，直接開備份頁（桌機＝設定的備份分頁；手機＝更多 › 備份與還原，收官磨光 Q2-a） */
 function toastBackupFailed(): void {
   useUiStore.getState().showToast({
     message: BACKUP_TOAST.failed,
     actionLabel: BACKUP_TOAST.action,
-    onAction: () => useUiStore.getState().openSettings("backup"),
+    onAction: openBackupPage,
   });
+}
+
+function openBackupPage(): void {
+  useUiStore.getState().openBackupPage(isMobileShell() ? "mobile" : "desktop");
 }

@@ -376,7 +376,12 @@ export const TT_TEXT = {
     pendingTip: "點開逐一確認，修好就會歸入分類",
     pendingNone: "沒有跑太久、待確認的時間塊",
     cmpRecorded: "已記錄",
-    cmpWhole: (name: string) => `上一期：${name}`,
+    /**
+     * 環比總述下一行（收官磨光 A4／體檢 S6）：講白話「比的是哪一段」，不只丟一串起訖。
+     * 同期＝「比的是上週同一段時間：10/19（一）06:00 – 10/21（三）18:22」；整期＝「比的是上週整週：10/12–10/18」
+     */
+    cmpSame: (p: StatsPeriod, span: string) => `比的是${p === "day" ? "昨天" : p === "week" ? "上週" : "上個月"}同一段時間：${span}`,
+    cmpWhole: (p: StatsPeriod, name: string) => `比的是${p === "day" ? "昨天整天" : p === "week" ? "上週整週" : "上個月整月"}：${name}`,
     /** 環比的滑過／點開說明（〈原型定案〉1：「多 3h10m（上期 18h）」） */
     deltaTip: (ms: number, prevMs: number) =>
       Math.abs(ms) < MIN ? `持平（上期 ${fmtDur(prevMs)}）` : `${ms > 0 ? "多" : "少"} ${fmtDur(Math.abs(ms))}（上期 ${fmtDur(prevMs)}）`,

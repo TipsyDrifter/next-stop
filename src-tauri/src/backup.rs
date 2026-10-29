@@ -811,6 +811,118 @@ pub async fn backup_validate_file(_app: AppHandle, path: String) -> Result<FileI
     validate(Path::new(&path)).await
 }
 
+/* ── 手機（SAF）的兩支：收官磨光 Q2-a（雙端同等；桌機 UI 不叫，但一般路徑一樣走得通）── */
+
+/// 從檔案還原的來源上限：主人的 DB 一般幾 MB；擋住誤選的大檔，不整個抄進暫存
+const IMPORT_MAX_BYTES: u64 = 512 * 1024 * 1024;
+
+/// 匯入暫存檔的檔名＝主人選的檔名，去掉路徑分隔與 Windows 不收的字元；剩空或只剩點＝`picked.db`
+fn import_file_name(display: &str) -> String {
+    let safe: String = display
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
+        .collect();
+    let safe = safe.trim().trim_matches('.').to_string();
+    if safe.is_empty() { "picked.db".into() } else { safe }
+}
+
+/// `path` 實際（解掉 `..`／捷徑後）在 `root` 底下才放行，回解好的路徑；不在＝人話錯誤。
+fn inside_dir(path: &Path, root: &Path) -> Result<PathBuf, String> {
+    let canon = fs::canonicalize(path).map_err(|e| io_msg("讀取備份檔", path, &e))?;
+    let canon_root = fs::canonicalize(root).map_err(|e| io_msg("讀取備份資料夾", root, &e))?;
+    if canon.starts_with(&canon_root) && canon != canon_root {
+        Ok(canon)
+    } else {
+        Err("只能另存備份清單裡的檔。".into())
+    }
+}
+
+/// `backup_import_picked` 的回傳：暫存路徑（交給 validate／restore）＋給人看的檔名
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportedFile {
+    pub path: String,
+    pub file_name: String,
+}
+
+/// 手機「從檔案還原…」的第一步：Android 的 SAF 給 `content://` URI，`std::fs` 開不了（只有 plugin-fs 的
+/// `Fs::open` 會走 ContentResolver 拿 fd，同售票口匯入 `mmbak::copy_to_cache`）——先抄進
+/// `app_cache_dir()/backup-import/<主人選的檔名>` 並驗好，回暫存路徑；之後走跟桌機同一條 `backup_restore`。
+/// 錯誤句裡的暫存路徑換成主人選的檔名（主人看不懂 App 私有目錄）。上一次的暫存在這裡清掉
+/// （還原成功會重啟、用不到了；失敗或取消就留到下一次進來）。JS 參數：`{ uri }`
+#[tauri::command]
+pub async fn backup_import_picked(app: AppHandle, uri: String) -> Result<ImportedFile, String> {
+    use std::str::FromStr;
+    use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+
+    // 真檔名：Android 的 content URI 最後一段是文件編號，要問 ContentResolver（tauri 2.11 的 path().file_name）
+    let file_name = app
+        .path()
+        .file_name(&uri)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "你選的檔案".to_string());
+    let fp = FilePath::from_str(&uri).map_err(|_| "讀不到你選的檔案：位置看不懂。".to_string())?;
+    let mut opts = OpenOptions::new();
+    opts.read(true);
+    let src = app
+        .fs()
+        .open(fp, opts)
+        .map_err(|e| format!("讀不到你選的檔案：{e}"))?;
+
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("找不到暫存資料夾（{e}）。"))?
+        .join("backup-import");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).map_err(|e| io_msg("建立暫存資料夾", &dir, &e))?;
+    // 暫存檔用主人選的檔名：還原確認窗講的是「next-stop-v2_…_manual.db：會先把…」，不是暫存的名字（AVD 沙盒實測補）
+    let dest = dir.join(import_file_name(&file_name));
+
+    let copied = {
+        let mut out = fs::File::create(&dest).map_err(|e| io_msg("建立暫存檔", &dest, &e))?;
+        io::copy(&mut io::Read::take(src, IMPORT_MAX_BYTES + 1), &mut out)
+            .map_err(|e| format!("讀不到你選的檔案：{e}"))?
+    };
+    if copied > IMPORT_MAX_BYTES {
+        let _ = fs::remove_file(&dest);
+        return Err(format!("「{file_name}」太大了（超過 512 MB），不像私鐵手帳的備份檔。"));
+    }
+
+    match validate(&dest).await {
+        Ok(_) => Ok(ImportedFile { path: dest.to_string_lossy().to_string(), file_name }),
+        Err(e) => {
+            let _ = fs::remove_file(&dest);
+            Err(e.replace(&dest.display().to_string(), &format!("「{file_name}」")))
+        }
+    }
+}
+
+/// 手機「另存一份…」：把備份清單裡的一份抄到主人用 SAF 選的位置（下載、雲端硬碟…；`content://`）。
+/// 代替桌機的「第二備份位置」與「開啟備份資料夾」——Android 給不了資料夾路徑、也打不開 App 私有目錄。
+/// 只認備份資料夾（含保險份）裡的檔：這支不是通用的檔案複製。JS 參數：`{ path, target }`
+#[tauri::command]
+pub async fn backup_export_picked(app: AppHandle, path: String, target: String) -> Result<(), String> {
+    use std::io::Write;
+    use std::str::FromStr;
+    use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+
+    let src = PathBuf::from(&path);
+    let root = backups_dir(&app)?;
+    let canon_src = inside_dir(&src, &root)?;
+    let mut input = fs::File::open(&canon_src).map_err(|e| io_msg("讀取備份檔", &src, &e))?;
+
+    let fp = FilePath::from_str(&target).map_err(|_| "看不懂這個存檔位置。".to_string())?;
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    let mut out = app
+        .fs()
+        .open(fp, opts)
+        .map_err(|e| format!("打不開你選的位置：{e}"))?;
+    io::copy(&mut input, &mut out).map_err(|e| format!("寫入你選的位置失敗：{e}"))?;
+    out.flush().map_err(|e| format!("寫入你選的位置失敗：{e}"))
+}
+
 /// 還原：驗檔→另存保險份→關 pool（`DbInstances`）→清 `-wal`／`-shm`→換檔→`app.restart()`。
 /// **成功不會回來**（進程重啟）；失敗回 `Err(人話)` 且 DB 檔未動。
 /// JS 參數：`{ path }`
@@ -1028,7 +1140,9 @@ pub(crate) async fn safety_snapshot(app: &AppHandle) -> Result<String, String> {
 /// ⑧ 清場步驟二：清空 nodes／occurrences／work_logs 但保留 settings。
 /// **DEV 限定**——`tauri::generate_handler!` 不吃 `#[cfg]`，故 command 恆註冊、以 `cfg!` 在 body 擋下；
 /// 正式打包時呼叫會拿到錯誤，且設定頁的那顆鈕本來就只在 DEV 出現。
+/// 收官磨光 Q2-a：手機那份 handler 不掛它（清場是桌機沙盒腳本的事），手機 build 不算它沒用到。
 #[tauri::command]
+#[cfg_attr(mobile, allow(dead_code))]
 pub async fn reset_database_keep_settings(app: AppHandle) -> Result<(), String> {
     if !cfg!(debug_assertions) {
         return Err("這支指令只在開發模式可用".into());
@@ -1054,6 +1168,7 @@ pub async fn reset_database_keep_settings(app: AppHandle) -> Result<(), String> 
 
 /// 清場要跑的 SQL（並行地基 B-1）：同步表登記表的 Rows 表**子先父後**（occurrences／work_logs 指向 nodes），
 /// 最後 `VACUUM`；settings 完全不動。**不清** `sync_outbox`／`sync_cells`——與 `wipe_local_data` 的差異是原本就有的，保留。
+#[cfg_attr(mobile, allow(dead_code))]
 pub(crate) fn reset_statements() -> Vec<String> {
     let mut v: Vec<String> = crate::sync::tables::Registry::production()
         .rows_rev()
@@ -1151,6 +1266,38 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// 收官磨光 Q2-a：匯入暫存檔用主人選的檔名（確認窗講得出是哪一份），路徑字元換掉、空的退回 picked.db
+    #[test]
+    fn 匯入暫存檔名沿用主人選的檔名() {
+        assert_eq!(import_file_name("next-stop-v2_2026-10-28_1154_manual.db"), "next-stop-v2_2026-10-28_1154_manual.db");
+        assert_eq!(import_file_name("../../evil.db"), "_.._evil.db");
+        assert_eq!(import_file_name("a:b?.db"), "a_b_.db");
+        assert_eq!(import_file_name("你選的檔案"), "你選的檔案");
+        assert_eq!(import_file_name(""), "picked.db");
+        assert_eq!(import_file_name(".."), "picked.db");
+    }
+
+    /// 收官磨光 Q2-a：「另存一份」只認備份資料夾裡的檔（`..` 繞出去、資料夾本身、外面的檔都擋）
+    #[test]
+    fn 另存一份只認備份資料夾裡的檔() {
+        let base = temp_dir("inside");
+        let root = base.join("backups");
+        fs::create_dir_all(root.join("safety")).unwrap();
+        let ok = root.join("next-stop-v2_2026-10-28_1830_manual.db");
+        let safety = root.join("safety").join("next-stop-v2_2026-10-28_1831_safety.db");
+        let outside = base.join("next-stop-v2.db");
+        for p in [&ok, &safety, &outside] {
+            fs::write(p, b"x").unwrap();
+        }
+        assert!(inside_dir(&ok, &root).is_ok());
+        assert!(inside_dir(&safety, &root).is_ok(), "保險份也在清單裡");
+        assert!(inside_dir(&outside, &root).is_err(), "主庫在資料夾外，不准抄");
+        assert!(inside_dir(&root.join("..").join("next-stop-v2.db"), &root).is_err(), "`..` 繞出去要擋");
+        assert!(inside_dir(&root, &root).is_err(), "資料夾本身不是檔");
+        assert!(inside_dir(&root.join("沒有這份.db"), &root).is_err(), "不存在的檔");
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// 建一個 WAL 模式的測試 DB，**連線故意不關**——模擬「App 開著、-wal 有未 checkpoint 的資料」

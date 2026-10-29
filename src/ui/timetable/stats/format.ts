@@ -67,10 +67,19 @@ export function trendLabel(p: StatsPeriod, key: string): string {
   return T.monthName(y, m);
 }
 
-/** 環比總述下一行的淡字：同期＝「10/5（一）06:00 → 10/9（五）15:42」；整期＝上一期的期名 */
+/**
+ * 環比總述下一行的淡字（收官磨光 A4／體檢 S6 改成一句白話）：
+ *   同期＝「比的是上週同一段時間：10/5（一）06:00 – 10/9（五）15:42」（同一天的起訖只寫一次日期：「10/27（二）06:00 – 18:22」）；
+ *   整期＝「比的是上週整週：10/12–10/18」
+ */
 export function compareSpanText(p: StatsPeriod, prev: { start: number; end: number }, same: boolean, prevKey: string): string {
-  if (same) return `${mdwOfMs(prev.start)} ${fmtClock(prev.start)} → ${mdwOfMs(prev.end - 1)} ${fmtClock(prev.end)}`;
-  return T.cmpWhole(trendLabel(p, prevKey));
+  if (same) {
+    const d0 = mdwOfMs(prev.start);
+    const d1 = mdwOfMs(prev.end - 1);
+    const to = d1 === d0 ? fmtClock(prev.end) : `${d1} ${fmtClock(prev.end)}`;
+    return T.cmpSame(p, `${d0} ${fmtClock(prev.start)} – ${to}`);
+  }
+  return T.cmpWhole(p, trendLabel(p, prevKey));
 }
 
 /** 目標的期間與方向（§5.2-5）：「每週至多 20h」「自 10/1 起至少 180h」「到 12/31 為止至少 60h」「11/1–11/30 至少 40h」 */

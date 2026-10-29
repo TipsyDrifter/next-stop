@@ -18,6 +18,7 @@
  */
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { MIN, addCut, colorSlot, defaultCuts, fmtClock, fmtDur, msOf } from "../../../domain/timetable";
+import { clockRangeLabel } from "../../../domain/timetableClockInput";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { CategoryBadge } from "../CategoryBadge";
 import { CategoryGrid } from "../parts/CategoryGrid";
@@ -167,7 +168,8 @@ export function SplitPanel({ onDone }: PanelProps) {
   return (
     <div className="ns-tt-panel ns-tt-panel-split">
       <Sub num>
-        {fmtClock(start)} – {endLabel}　{name1}・{fmtDur(end - start)}
+        {/* 收官磨光 組四 b：同改一塊／補記的副標——跨日曆日的端點帶日期（運行中尾端照舊寫「現在」） */}
+        {live ? `${fmtClock(start)} – ${endLabel}` : clockRangeLabel(start, end, refDay)}　{name1}・{fmtDur(end - start)}
         {live && "（運行中）"}
       </Sub>
       {tooShort ? (

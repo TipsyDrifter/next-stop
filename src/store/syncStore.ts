@@ -208,7 +208,8 @@ export const JOIN_CHOICE_TEXT = {
  */
 export const START_OVER_TEXT = {
   sectionTitle: "危險區",
-  lead: "會清掉這台的全部資料：車票、班次、筆記、日記、工作日誌、時刻表的紀錄與目標、帳本、預算、定期帳；只留主題等設定。清掉之前會先留一份備份。",
+  // 收官磨光 Q2-a：手機也真的會先留本機備份了（之前手機這句不照實）；補一句去哪裡找
+  lead: "會清掉這台的全部資料：車票、班次、筆記、日記、工作日誌、時刻表的紀錄與目標、帳本、預算、定期帳；只留主題等設定。清掉之前會先在這台留一份備份（備份清單裡看得到）。",
   thisDevice: {
     label: "只清這台",
     noteJoined: "先拿掉這台的同步設定，再清資料——其他裝置與雲端上的資料都不動；之後想再同步就按「加入同步」，會把雲端那份拉回來。",
@@ -225,13 +226,10 @@ export const START_OVER_TEXT = {
     confirmLabel: "清空",
     titleThis: "把這台清空？",
     titleAll: "所有裝置一起重新開始？",
-    // body 由三段拼：留底句（分殼、分加入與否）＋動作句＋收尾句
-    keepDesktopAlone: "會先在這台備份一份，",
-    keepDesktopJoined: "會先在這台與雲端各備份一份，",
-    keepMobileJoined: "會先備份一份到雲端，",
-    // 修正席（工程評審 S-5）：手機未加入時先走 SAF 讓主人自己選位置（例如「下載」）——Rust 的預設落點
-    // `download_dir()` 在 Android 是 App 私有目錄，主人看不到、移除 App 就消失。
-    keepMobileAlone: "會先讓你選擇位置，將整份資料匯出成檔案，",
+    // body 由三段拼：留底句（分加入與否）＋動作句＋收尾句。
+    // 收官磨光 Q2-a：手機也有本機備份了，留底兩殼同一份（之前手機分成「備份到雲端」／「選位置匯出 JSON」兩句）
+    keepAlone: "會先在這台備份一份，",
+    keepJoined: "會先在這台與雲端各備份一份，",
     // 修正席（產品評審 #2）：已加入版補一句「雲端與別台都還在」——主人想「整個清乾淨」時會先按這顆較溫和的鈕，
     // 清完再加入又全拉回來；桌機這句原本只在 hover 的 title 裡。
     actThisJoined: "接著解除這台的同步，並清空所有車票、筆記與記錄（保留設定）。雲端與其他裝置的資料都在，之後重新加入同步即可載回。",
@@ -239,10 +237,8 @@ export const START_OVER_TEXT = {
     actAll: "接著清空這台與雲端的資料。其他裝置下次同步時，會詢問是否一起清空。",
     // 修正席（工程評審 S-4）：留底會過期，講白。本機 manual 與每日 auto 共用保留份數（重新開始後每天拍的是空庫）；
     // 雲端階梯清理 14 天內全留、之後每週只留最新一份（那週之後的每日空庫快照會取代那顆保險）。
-    regretDesktopAlone: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋。",
-    regretDesktopJoined: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋，雲端備份則會保留兩週。",
-    regretMobileJoined: "若想復原請趁早：雲端備份會保留兩週。",
-    regretMobileAlone: "匯出的檔案僅供人工檢視，目前無法匯回 App。",
+    regretAlone: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋。",
+    regretJoined: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋，雲端備份則會保留兩週。",
     // 手機殼班 B5：Android 也真的重啟了（ns-restart），兩殼同一句
     end: "完成後 App 會重新啟動。",
   },
@@ -256,10 +252,6 @@ export const START_OVER_TEXT = {
   blockedUnsettledAll: "同步狀態異常（改正待ち／鍵違い／換鑰匙中）——請先到同步頁處理，再重新開始。",
   /** 修正席（工程評審 S-6）：按下「清空」時背景那一趟還在飛、等了一陣仍沒完（與 Rust BusyGuard 的句子同） */
   busy: "正在同步中，請稍候再試。",
-  /** 修正席（工程評審 S-5）：手機未加入、SAF 選位置時按了取消／寫不進去 */
-  exportCancelled: "未選擇匯出位置，已取消操作（資料未變動）。",
-  exportFellBack: (path: string) =>
-    `無法寫入你選的位置（資料未變動；已另存備份於 ${path}，原位置若留下空檔可手動刪除）。`,
   failed: (e: string) => `未能重新開始：${e}`,
 } as const;
 
@@ -282,15 +274,16 @@ export function startOverThisNote(joined: boolean): string {
   return joined ? START_OVER_TEXT.thisDevice.noteJoined : START_OVER_TEXT.thisDevice.noteAlone;
 }
 
-/** v1.1.6：確認窗 body＝留底句＋動作句＋收尾句（契約 §7 的拼法；「所有裝置一起」必然已加入） */
-export function startOverBody(scope: StartOverScope, shellName: SyncShell, joined: boolean): string {
+/**
+ * v1.1.6：確認窗 body＝留底句＋動作句＋收尾句（契約 §7 的拼法；「所有裝置一起」必然已加入）。
+ * 收官磨光 Q2-a：兩殼的留底一樣了（都先拍本機手動備份；加入了同步另拍雲端），不再分殼。
+ */
+export function startOverBody(scope: StartOverScope, joined: boolean): string {
   const c = START_OVER_TEXT.confirm;
   const j = scope === "all_devices" || joined;
-  const keep =
-    shellName === "desktop" ? (j ? c.keepDesktopJoined : c.keepDesktopAlone) : j ? c.keepMobileJoined : c.keepMobileAlone;
+  const keep = j ? c.keepJoined : c.keepAlone;
   const act = scope === "all_devices" ? c.actAll : j ? c.actThisJoined : c.actThisAlone;
-  const regret =
-    shellName === "desktop" ? (j ? c.regretDesktopJoined : c.regretDesktopAlone) : j ? c.regretMobileJoined : c.regretMobileAlone;
+  const regret = j ? c.regretJoined : c.regretAlone;
   return keep + act + regret + c.end;
 }
 
@@ -1175,6 +1168,15 @@ async function pickExportTarget(title: string): Promise<string | null | undefine
  */
 async function backupBeforeWipe(): Promise<boolean> {
   if (shell !== "desktop") return true;
+  return takeLocalBackup();
+}
+
+/**
+ * 本機 manual 備份（拍不成回 false、人話放 formError）。收官磨光 Q2-a：手機也有本機備份了——
+ * 「重新開始」的留底兩殼都走這條（危險區那句「清掉之前會先留一份備份」在手機上也照實，備份清單看得到）；
+ * 「改用另一台的」那幾處仍只在桌機拍（手機照舊由 Rust 先拍雲端快照，字也是那樣講的，這班不動）。
+ */
+async function takeLocalBackup(): Promise<boolean> {
   await useBackupStore.getState().backupNow().catch(() => undefined);
   const backup = useBackupStore.getState();
   if (backup.lastError) {
@@ -1768,7 +1770,7 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
     const c = START_OVER_TEXT.confirm;
     useUiStore.getState().askConfirm({
       title: scope === "all_devices" ? c.titleAll : c.titleThis,
-      body: startOverBody(scope, shell, joined),
+      body: startOverBody(scope, joined),
       confirmLabel: c.confirmLabel,
       danger: true,
       typeToConfirm: c.typeWord,
@@ -1787,7 +1789,6 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
             useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(again) });
             return;
           }
-          const joinedNow = !!get().status?.configured;
           set({ working: true, formError: null, pendingChoice: null });
           pendingJoinInput = null;
           pendingRejoinPass = null;
@@ -1795,30 +1796,14 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
           // 拆掉之後這段期間不會再起跑新的一趟。失敗（這台一個字都沒動）時接回去。
           detachSchedule();
           try {
-            // ① 留底（桌機）：manual 本機備份——**未加入的桌機這是唯一一份**；拍不成就停（人話在 formError）
-            if (!(await backupBeforeWipe())) {
+            // ① 留底：manual 本機備份——**未加入的那台這是唯一一份**；拍不成就停（人話在 formError）。
+            // 收官磨光 Q2-a：手機也有本機備份了，兩殼同一條（之前手機未加入要先走 SAF 匯出一份「只能看、匯不回」的 JSON；
+            // 現在這份手動備份在〈備份與還原〉清單裡、按「還原到這份」就回得來，要帶走就用「另存一份…」）
+            if (!(await takeLocalBackup())) {
               const why = get().formError ?? "備份失敗";
               useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(why) });
               attachSchedule();
               return;
-            }
-            // ①' 留底（手機未加入；工程評審 S-5）：先讓主人用 SAF 選位置匯出一份看得到、帶得走的檔。
-            // 取消或寫不進選的位置 ⇒ 停（零改變）；選擇器開不了 ⇒ 退回 Rust 那份（App 私有目錄）。
-            if (shell === "mobile" && scope === "this_device" && !joinedNow) {
-              const target = await pickExportTarget("重新開始前先匯出備份");
-              if (target === null) {
-                useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.exportCancelled) });
-                attachSchedule();
-                return;
-              }
-              if (target !== undefined) {
-                const rep = await syncRepo.exportToFile(target);
-                if (!rep.picked) {
-                  useUiStore.getState().showToast({ message: START_OVER_TEXT.failed(START_OVER_TEXT.exportFellBack(rep.path)) });
-                  attachSchedule();
-                  return;
-                }
-              }
             }
             // ② Rust：雲端 Safety 快照（已加入）／手機匯出（未加入）→ 清 → 重啟。成功不會回來。
             await syncRepo.startOver(scope);

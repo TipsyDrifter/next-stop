@@ -17,6 +17,7 @@ import type { NoteListItem } from "../../data/noteRepository";
 import type { InboxRef } from "../../store/notesStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNotesStore } from "../../store/notesStore";
+import { serialOf, useNodeStore } from "../../store/nodeStore";
 import { addDays, todayKey } from "../../lib/date";
 import { lineCount } from "../../domain/notes";
 import { UketsukeSeal } from "./UketsukeSeal";
@@ -137,6 +138,7 @@ function InboxRow({
 }: NotesInboxProps & { it: InboxItem; today: string; dayStartHour: number }) {
   const sel = selectedId === it.id;
   const fresh = useNotesStore((s) => s.freshNoteId === it.id); // 剛從捕捉框存進來的那一則：受付章蓋下去的動畫
+  const serials = useNodeStore((s) => s.serials); // 收官磨光 A3：臨時券的票號（全站一把尺）
   const cls = `ns-notes-iitem${sel ? " is-sel" : ""}${leavingId === it.id ? " is-leaving" : ""}`;
   const day = dayOf(it.at, dayStartHour);
   const myPop = pop && pop.id === it.id ? pop.kind : null;
@@ -262,7 +264,9 @@ function InboxRow({
   }
 
   const t = it.ticket;
-  const serial = `No.${day.slice(5).replace("-", "")}-${t.id.slice(0, 2).toUpperCase()}`;
+  // 收官磨光 A3（體檢 N1）：票號讀全站票號表（formatSerial：No.MMDD-當日發券序），同側板／大綱／今日列一把尺；
+  // 原本自拼 `MMDD-<id 前兩碼>`，同一張票同框兩個號。表還沒載到＝先留白（同側板 NameBlock），不編假號
+  const serial = serialOf(serials, t.id);
   return (
     <li
       id={`ns-notes-i-${it.id}`}
@@ -279,7 +283,7 @@ function InboxRow({
               臨
             </span>
             <span className="line-name">無路線</span>
-            <span className="serial">{serial}</span>
+            <span className="serial">{serial ? `No.${serial}` : ""}</span>
           </div>
           <div className="body">
             <span className="fare-class" aria-hidden>
@@ -291,7 +295,9 @@ function InboxRow({
               <span className="sep">・</span>
               <span>沒有日期</span>
               <span className="sep">・</span>
-              <span>{fmtShort(day)}變車票</span>
+              {/* 收官磨光 A3（體檢 N4）：原「10/27變車票」黏字，而且直接建的票（Shift+Enter／完整搜尋／外部助理）從來沒「變」過——
+                  資料裡分不出是哪一種，一律寫照實的「建立」（變待辦的票也是那天建立的） */}
+              <span>{fmtShort(day)} 建立</span>
             </div>
           </div>
           <div className="stamp-zone">

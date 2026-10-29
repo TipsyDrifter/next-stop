@@ -1,8 +1,8 @@
-// v1.1.0 D-1.1-1 甲：Android 不做備份。backup.rs 用 sqlx 直連＋`VACUUM INTO`＋app_config_dir，
-// 這些在 Android 上要嘛沒意義（沒有「另一顆磁碟」的第二備份位置）、要嘛靠 dialog 選資料夾（Android 不支援）。
-// 整支 mod 在 mobile target 直接不編——少一組依賴、少一組會 reject 的 invoke。
-// `mobile` cfg 由 tauri-build 在 Android／iOS target 自動設定（與下面 `#[cfg_attr(mobile, …)]` 同一個旗標）。
-#[cfg(not(mobile))]
+// 備份三件套（M3 ⑥）。v1.1.0 D-1.1-1 甲曾讓 Android 整組不編；收官磨光 Q2-a（使用者 10-28：雙端同等，
+// 「不該有電腦有手機卻沒有的功能」）起**兩殼都編**：sqlx 直連＋`VACUUM INTO`＋app_config_dir 在 Android 一樣成立
+// （plugin-sql 兩殼的 DB 都在 app_config_dir，見 db_gate::DB_FILE）。Android 做不到的兩件改用手機的做法：
+// 第二備份位置（SAF 給的是 content:// URI，不是資料夾路徑）→「另存一份…」（backup_export_picked）；
+// 從檔案還原的 content:// URI → 先複製進 App 暫存（backup_import_picked）再走同一條驗檔／還原。
 mod backup;
 
 // v1.1.1 同步地基（契約席 2026-09-18 立骨架、WP7 2026-09-18 填實作）：兩端都編（手機是 replica、桌機是 primary）。
@@ -112,7 +112,7 @@ pub fn run() {
 
     // M3 ⑥：備份 plugin 必須排在 sql plugin **之前**——PluginStore 是 Vec、依註冊順序
     // initialize_all，所以只有排在前面才能在 migration 跑之前拍到前一版 schema 的快照。
-    #[cfg(not(mobile))]
+    // 收官磨光 Q2-a：兩殼都掛（手機也有開機自動備份）。
     let builder = builder.plugin(backup::init());
 
     let builder = builder.plugin(
@@ -173,6 +173,10 @@ pub fn run() {
             backup::backup_validate_file,
             backup::backup_restore,
             backup::reset_database_keep_settings,
+            // 收官磨光 Q2-a：手機「從檔案還原／另存一份」的 SAF 兩支。桌機的 UI 不叫（桌機有第二位置與開資料夾），
+            // 但一般路徑一樣走得通（FsExt 在桌機就是 std::fs）——兩殼同一份清單，沙盒也能在桌機上驗這兩支
+            backup::backup_import_picked,
+            backup::backup_export_picked,
             // v1.1.3 契約 §4.1：configure／apply_pairing_code／begin_new_epoch 退場，
             // 換成 join／decode_pairing_code／finish_restore，另加 change_passphrase／restore_choice。
             sync::commands::sync_status,
@@ -226,9 +230,20 @@ pub fn run() {
             mcp::commands::mcp_recent,
         ]);
 
-    // 手機沒有 backup 那七支（D-1.1-1 甲），只掛同步二十四支（清單與桌機那份逐字相同）。
+    // 手機：同步二十四支（清單與桌機那份逐字相同）＋收官磨光 Q2-a 起的備份六支（重置那支是桌機 DEV 清場用，不掛）
+    // ＋手機專用的 SAF 兩支（import／export_picked）。order_probe 同桌機：排在 sql 之後，證明註冊順序。
+    #[cfg(mobile)]
+    let builder = builder.plugin(backup::order_probe());
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        backup::backup_startup_report,
+        backup::backup_now,
+        backup::backup_apply_policy,
+        backup::backup_list,
+        backup::backup_validate_file,
+        backup::backup_restore,
+        backup::backup_import_picked,
+        backup::backup_export_picked,
         sync::commands::sync_status,
         sync::commands::sync_join,
         sync::commands::sync_rejoin,

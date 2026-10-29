@@ -11,7 +11,7 @@
  * 做不到的選項（有子項時的「定期券」）＝淡掉、點了 toast 說為什麼（觸控看不到 title；同票卡 ⋯ 的 MSheetItem off，D-主-76）。
  * 欄位（由上而下＝原型 Q2 A）：票根列（路線徽章・路線名・票號・票種）→ 名稱（襯線大字，blur／Enter 存）→ 概要（多行，blur 存）
  *   → 路線（只有臨時車票；= 桌機「所屬路線」）→ 票種（乘車券⇄定期券；切定期券展開重複規則、切回清掉規則）→ 執行日 → 締切日 → 時刻＋預計
- *   → 重複（可收合段）→ 心情三燈 → 各線 nodeFields 的 Mobile 列（荷札…）→ 乘務記錄清單＋記一句 → 競合 → 移動到… → 刪除。
+ *   → 重複（可收合段）→ 心情三燈（只給列車／車廂；收官磨光 Q1 起車票不畫，規格 §5）→ 各線 nodeFields 的 Mobile 列（荷札…）→ 乘務記錄清單＋記一句 → 競合 → 移動到… → 刪除。
  *   支線＝名稱・概要・各線欄位・移動到…・轉為列車・刪除（同桌機 BranchPanel）；其他種類只給名稱・移動到…・刪除。
  *   反方評審 #3 補齊桌機側板有、清單漏掉的（MobileStateRows）：名稱下「完成於」；重複段之後＝検印（車票済章／定期券本班済・運休・本班時刻）；
  *   心情那一組前面加現況・優先順序（列車／車廂）；之後分量（花費・進度）；移動到…之後「轉為支線」（列車）。
@@ -449,9 +449,12 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           }}
         />
         {isTaskKind(node.kind) && <StatusRows node={node} />}
-        <Row label="心情">
-          <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
-        </Row>
+        {/* 收官磨光 Q1（規格 §5：心情只在列車／車廂的完成卡選填、跟著済章；車票沒有心情欄）——車票不畫，同桌機車票側板 */}
+        {node.kind !== "ticket" && (
+          <Row label="心情">
+            <MoodLights value={node.mood} onChange={(m) => void updateNode(node.id, { mood: m })} />
+          </Row>
+        )}
         <AmountRows node={node} />
       </div>
 

@@ -109,6 +109,20 @@ export function clockDateLabel(ms: number, refDay: string): { text: string; othe
   return { text: `${d.getMonth() + 1}/${d.getDate()}（${WEEK_ZH[d.getDay()]}）`, other };
 }
 
+/**
+ * 面板副標的起訖（收官磨光 組四 b）：「17:00 – 03:00」跨了日曆日就看不出是隔天——端點不在參考日那一天時，
+ * 時刻前面帶日期（格式同時刻框旁的日期標籤「10/28（三）」）：
+ *   起點跟參考日不同天 ⇒ 起點帶日期；終點跟「起點那一天」不同天 ⇒ 終點帶日期（同一天不重寫）。
+ *   例：參考日 10/27、13:00→隔天 03:00 ⇒「13:00 – 10/28（三）03:00」；整塊都在隔天凌晨 ⇒「10/28（三）03:10 – 04:50」。
+ */
+export function clockRangeLabel(start: number, end: number, refDay: string): string {
+  const a = clockDateLabel(start, refDay);
+  const b = clockDateLabel(end, toDateKey(new Date(start)));
+  const from = a.other ? `${a.text}${fmtClock(start)}` : fmtClock(start);
+  const to = b.other ? `${b.text}${fmtClock(end)}` : fmtClock(end);
+  return `${from} – ${to}`;
+}
+
 /** 一塊超過這個長度，存檔前要確認（D-主-64；睡眠常見 8～10 小時，12 已夠寬） */
 export const LONG_BLOCK_MS = 12 * 60 * MIN;
 

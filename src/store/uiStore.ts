@@ -12,6 +12,7 @@ import { settingsRepo, DEV_FLAGS, MOCK_MODE } from "../data";
 import type { MobileTabKey } from "../ui/mobile/tabs";
 // 頁面登記表（並行地基・契約 §6）：純資料模組，不拉 React／DOM
 import { DEFAULT_PAGE, pageById, type PageId } from "../ui/shell/pages";
+import { DEFAULT_DAY_START_HOUR, parseDayStartHour } from "../lib/date";
 
 export type ThemePref = "pastel" | "galaxy" | "system";
 
@@ -74,8 +75,9 @@ const KEY_DAY_START = "day_start_hour";
 /**
  * 日界線預設 06:00（主人 2026-10-06 拍板 D-時-21；由時刻表線①a 順帶改，契約 §6.2-3）。
  * 之前是 03:00；`src/lib/date.ts` 等處的 `dayStartHour = 3` 參數預設值不動（呼叫端都有傳）。
+ * 收官磨光 A4：定義搬到 lib/date（data 層的讀取面守門也要讀它），這裡轉出口、呼叫端 import 不動。
  */
-export const DEFAULT_DAY_START_HOUR = 6;
+export { DEFAULT_DAY_START_HOUR };
 /** 今日視圖誤點區的摺疊狀態（r1「誤點 N 件」可摺疊、**記憶狀態**）；"1"＝收起 */
 const KEY_LATE_COLLAPSED = "today_late_collapsed";
 /** 日曆視圖形態（r4「預設月視圖＋記憶切換」，D-⑤-1）；"week"＝週／"time"＝時段／"stream"＝串流，其餘一律月 */
@@ -199,8 +201,9 @@ interface UiStore {
   /**
    * v1.1.5：手機殼「前往同步」的深連結——橫幅在任何 tab 都可能出現，要能一鍵落到「更多 › 同步」。
    * MobileMore 掛載／看到它非 null 就切到 `MobileSync` 並清掉（消費一次）。桌機用 `openSettings("sync")`，不走這個。
+   * 收官磨光 Q2-a：多一種 "backup"（備份失敗 toast 的「看原因」落到「更多 › 備份與還原」）。
    */
-  mobileMoreRequest: "sync" | null;
+  mobileMoreRequest: "sync" | "backup" | null;
   /**
    * 日曆格內記號的「請重查」計數（接縫 #62；旅客筆記車次④ 0-14）：`useCalendarController` 的記號 effect 把它列進依賴；
    * 線在日記資料變了（同步拉到、本機寫了日記）時呼叫 `bumpCalendarMarks()` ⇒ 目前這個區間的記號重查一次。
@@ -246,6 +249,8 @@ interface UiStore {
   dismissSyncBanner: () => void;
   /** 「前往同步」：桌機開設定落在同步籤；手機切到「更多」並請 MobileMore 進同步子頁 */
   openSyncPage: (shell: "desktop" | "mobile") => void;
+  /** 收官磨光 Q2-a：備份頁的深連結——桌機＝設定〈備份與還原〉籤；手機＝「更多 › 備份與還原」 */
+  openBackupPage: (shell: "desktop" | "mobile") => void;
   /** MobileMore 消費掉深連結 */
   consumeMobileMoreRequest: () => void;
   /** 日曆格內記號請重查（見 `calendarMarksTick`） */
@@ -364,6 +369,14 @@ export const useUiStore = create<UiStore>((set, get) => ({
         : { settingsOpen: true, settingsTab: "sync", hotkeyGuideOpen: false, syncBannerDismissed: s.syncBanner },
     );
   },
+  openBackupPage: (shell) => {
+    get().hideToast();
+    if (shell === "desktop") {
+      get().openSettings("backup");
+      return;
+    }
+    set({ mobileTab: "more", mobileMoreRequest: "backup", hotkeyGuideOpen: false, quickJumpOpen: false });
+  },
   consumeMobileMoreRequest: () => set({ mobileMoreRequest: null }),
   bumpCalendarMarks: () => set((s) => ({ calendarMarksTick: s.calendarMarksTick + 1 })),
 
@@ -414,11 +427,9 @@ export const useUiStore = create<UiStore>((set, get) => ({
       applyTheme(pref);
       set({
         theme: pref,
-        // 設定值 "0"（午夜）也是合法值：以前的 `Number(x) || 3` 會把它吃成預設（既有 bug，契約 §6.2-3 順帶修）
-        dayStartHour:
-          dayStart !== null && dayStart !== "" && Number.isFinite(Number(dayStart))
-            ? Number(dayStart)
-            : DEFAULT_DAY_START_HOUR,
+        // 設定值 "0"（午夜）也是合法值：以前的 `Number(x) || 3` 會把它吃成預設（既有 bug，契約 §6.2-3 順帶修）；
+        // 解析搬到 lib/date（SQLite 讀取面的守門日讀同一個設定、同一套解析，收官磨光 A4）
+        dayStartHour: parseDayStartHour(dayStart),
         lateCollapsed: lateCollapsed === "1",
         // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）
         calendarView: DEV_FLAGS.view ?? (calendarView === "week" || calendarView === "time" || calendarView === "stream" ? calendarView : "month"),

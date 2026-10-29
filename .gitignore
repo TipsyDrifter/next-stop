@@ -62,3 +62,6 @@ files/*.xapk
 
 # 財務管家備份（個人財務資料，供售票口線盲探解析格式）
 files/*.mmbak
+# 由 .mmbak 轉出的分析用 CSV（同樣是個人財務資料）
+output/記帳分析/*.csv
+output/

@@ -1,7 +1,7 @@
 /**
  * DaySummary——軸頂端的本日合計（車次①a 契約 §5.1；乙席）。＝原型 v-a.js:49-61（day 卡＋編成條＋本週各頂層合計）。
  * section.ns-tt-day：
- *   div.ns-tt-day-top（「本日已記錄」大字＋右側「未記錄 Xh」赭字或「沒有空白」；看今天且剛過日界線一小時內多一顆「昨日 ›」）
+ *   div.ns-tt-day-top（「今日已記錄」／翻到別天「10/26（一） 已記錄」＋大字＋右側「未記錄 Xh」赭字或「沒有空白」；看今天且剛過日界線一小時內多一顆「昨日 ›」）
  *   div.ns-tt-consist（編成條：每項一個 i，flex: 時長；gap 為 .is-gap 赭斜紋）
  *   div.ns-tt-day-cats（今日各分類合計，依時長遞減，最多 8 個、其餘併「其他」）
  *   div.ns-tt-day-week（三個頂層組＋右側「本週」）
@@ -27,6 +27,7 @@ import { useTimetableStore, yesterdayKey } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
 import { CategoryBadge } from "../CategoryBadge";
+import { mdw } from "../stats/format";
 import { useNow } from "../useNow";
 
 export interface DaySummaryProps {
@@ -80,12 +81,14 @@ export function DaySummary({ dayKey }: DaySummaryProps) {
 
   const isToday = dayKey === todayKey;
   const showYesterday = isToday && now - w.start < 60 * MIN;
+  // 收官磨光 A4（體檢 N3）：翻到別天看時不寫「今日」——寫那一天（同時刻表日期列的「10/26（一）」格式）
+  const dayWord = isToday ? "今日" : mdw(dayKey);
 
   return (
-    <section className="ns-tt-day" aria-label="今日合計">
+    <section className="ns-tt-day" aria-label={`${dayWord}合計`}>
       <div className="ns-tt-day-top">
         <div>
-          <div className="ns-tt-day-lbl">今日已記錄</div>
+          <div className="ns-tt-day-lbl">{isToday ? "今日已記錄" : `${dayWord} 已記錄`}</div>
           <div className="ns-tt-day-big ns-tt-num">{fmtDur(recorded)}</div>
         </div>
         <div className="ns-tt-day-right">

@@ -36,21 +36,74 @@ import {
   repeatAside,
   repeatKidsWhy,
   stampViewOf,
+  switchFare,
   switchMode,
   toggleWeekday,
+  type RepeatDraft,
 } from "./panelRules";
 import { useLiveChildCount, useRepeatDraft } from "./useRepeatDraft";
+import { fareClass } from "../outline/OutlineRow";
+
+/* ───────────── 票種＋重複（草稿共用） ───────────── */
+
+/**
+ * 側板的重複規則草稿＋子項數（收官磨光 Q1）：「票種」列與「重複」段吃同一份草稿——兩份各自去抖寫回會互相蓋掉。
+ * 手機詳情頁同一個形狀（TaskFields 呼叫 useRepeatDraft、往下傳給票種列與 MobileRepeatSection）。
+ */
+export function usePanelRepeat(node: NodeRow): PanelRepeat {
+  const kidCount = useLiveChildCount(node.id);
+  const { draft, push } = useRepeatDraft(node);
+  return { draft, push, kidCount };
+}
+
+export interface PanelRepeat {
+  draft: RepeatDraft;
+  push(next: RepeatDraft): void;
+  /** 存活的直屬子項數（有子項的列車／車廂不能設重複） */
+  kidCount: number;
+}
+
+/**
+ * 「票種」列（收官磨光 Q1；語義＝手機詳情頁的票種分段鈕）：乘車券／臨時券⇄定期券＝有沒有重複規則。
+ * 切定期券＝草稿換成「固定排程」（switchFare，手機同一支），下面的重複段跟著展開；切回＝清規則（toast「已改回乘車券…」）。
+ * 有子項時「定期券」做不到：點了吐手機同一句（repeatKidsWhy），不切。不可重複的 kind（支線／路線…）不畫。
+ */
+export function FareRow({ node, repeat }: { node: NodeRow; repeat: PanelRepeat }) {
+  if (!REPEATABLE_KINDS.includes(node.kind)) return null;
+  const { draft, push, kidCount } = repeat;
+  // 一般那一格的字＝大綱那支共用的 fareClass（臨時券／乘車券），手機同一份
+  const plain = fareClass({ ...node, repeat_rule: null }).label;
+  return (
+    <FieldRow label="票種">
+      <Choice
+        value={draft.mode === "none" ? "plain" : "teiki"}
+        options={[
+          { value: "plain", label: plain },
+          { value: "teiki", label: "定期券", title: kidCount > 0 ? repeatKidsWhy(node.kind) : undefined },
+        ]}
+        onChange={(v) => {
+          const teiki = v === "teiki";
+          if (teiki && kidCount > 0) {
+            useUiStore.getState().showToast({ message: repeatKidsWhy(node.kind) }, 3600);
+            return;
+          }
+          push(switchFare(draft, teiki));
+        }}
+        ariaLabel="票種"
+      />
+    </FieldRow>
+  );
+}
 
 /* ───────────── 重複區段 ───────────── */
 
 /**
  * 「重複」區段。列車／車廂有存活子項時整段換成一句灰字（panelRules.repeatKidsWhy，手機同一句；repository 也會擋）。
- * 不可重複的 kind（支線／路線…）直接不畫。
+ * 不可重複的 kind（支線／路線…）直接不畫。草稿由呼叫端的 usePanelRepeat 給（與「票種」列共用一份）。
  */
-export function RepeatSection({ node }: { node: NodeRow }) {
+export function RepeatSection({ node, repeat }: { node: NodeRow; repeat: PanelRepeat }) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
-  const kidCount = useLiveChildCount(node.id);
-  const { draft, push } = useRepeatDraft(node);
+  const { draft, push, kidCount } = repeat;
 
   if (!REPEATABLE_KINDS.includes(node.kind)) return null;
 

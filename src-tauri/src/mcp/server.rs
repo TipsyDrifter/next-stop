@@ -297,16 +297,50 @@ async fn gate(State(state): State<Arc<McpState>>, req: Request, next: Next) -> R
 
 fn bind_error_message(port: u16, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::AddrInUse {
-        format!("連接埠 {port} 被其他程式占用，外部助理連不進來。")
+        // 收官磨光 A2：不再說「其他程式」——體檢實測卡住它的是 App 自己重啟前的殘留（已修，見 bind_listener），
+        // 真遇到時先指路最常見的解法
+        format!("連接埠 {port} 已被占用，外部助理連不進來。完全結束私鐵手帳（系統匣圖示 →「結束」）再打開試試。")
     } else {
         format!("連接埠 {port} 開不起來（{e}），外部助理連不進來。")
+    }
+}
+
+/// 埠被占用時重試幾次、隔多久（≈ 10 秒）：自我重啟是「先 spawn 新行程、舊行程才結束」，新的起來那一刻舊的可能還沒放手
+const BIND_RETRIES: u32 = 20;
+const BIND_RETRY_GAP: Duration = Duration::from_millis(500);
+
+/// 用 std 綁、再交給 tokio（收官磨光 A2／體檢 B2）。
+///
+/// 實證（讀原始碼，不是推測）：tokio 1.52 的 `TcpListener::bind` 走 mio 1.2，Windows 上 mio 用 winsock `socket()` 建
+/// socket——**預設可被子行程繼承**；std 的 `TcpListener::bind` 用 `WSASocketW(…, WSA_FLAG_NO_HANDLE_INHERIT)`。
+/// 而 App 自我重啟（還原備份／重新開始／雲端還原 → `restart_app` → tauri `process::restart`）是 `Command::spawn`
+/// （CreateProcessW bInheritHandles=TRUE）：新行程繼承了舊行程的 listener，舊行程結束後埠仍由「已不存在的 PID」佔著
+/// LISTEN，新行程自己卻綁不回來，外部助理一路斷到使用者手動全關重開。
+pub(crate) fn bind_listener(port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    let l = std::net::TcpListener::bind(("127.0.0.1", port))?;
+    l.set_nonblocking(true)?;
+    tokio::net::TcpListener::from_std(l)
+}
+
+/// `bind_listener`＋埠被占用時短暫重試；其他錯誤（權限等）直接回
+async fn bind_with_retry(port: u16, retries: u32, gap: Duration) -> std::io::Result<tokio::net::TcpListener> {
+    let mut left = retries;
+    loop {
+        match bind_listener(port) {
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && left > 0 => {
+                left -= 1;
+                tokio::time::sleep(gap).await;
+            }
+            other => return other,
+        }
     }
 }
 
 /// 在 Tauri 的 async runtime 上跑（`mod.rs` 的 setup spawn）；回來＝不再聽（錯誤已記進狀態）
 pub async fn serve(state: Arc<McpState>, emit: Emit) {
     let port = state.port();
-    let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+    // 重試期間狀態是「還沒在聽、也還沒有錯」，設定頁寫「正在開啟連線」（不是紅字的被占用）
+    let listener = match bind_with_retry(port, BIND_RETRIES, BIND_RETRY_GAP).await {
         Ok(l) => l,
         Err(e) => {
             let msg = bind_error_message(port, &e);
@@ -592,5 +626,75 @@ mod tests {
     fn 截斷() {
         assert_eq!(clip("一二三", 5), "一二三");
         assert_eq!(clip("一二三四五六", 5), "一二三四五…");
+    }
+
+    /* ── 收官磨光 A2（體檢 B2）：自我重啟後埠卡死 ── */
+
+    #[tokio::test]
+    async fn 埠被占用時重試_對方放手就綁上() {
+        let holder = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = holder.local_addr().unwrap().port();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            drop(holder);
+        });
+        let l = bind_with_retry(port, 40, Duration::from_millis(50)).await;
+        release.await.unwrap();
+        assert!(l.is_ok(), "對方放手後應該綁得上：{:?}", l.err());
+    }
+
+    #[tokio::test]
+    async fn 一直被占用就回_addr_in_use() {
+        let holder = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = holder.local_addr().unwrap().port();
+        let r = bind_with_retry(port, 2, Duration::from_millis(10)).await;
+        assert_eq!(r.unwrap_err().kind(), std::io::ErrorKind::AddrInUse);
+        drop(holder);
+    }
+
+    /// 模擬 tauri `process::restart`：`Command::spawn`（bInheritHandles=TRUE）起一個還活著的子行程，
+    /// 然後舊行程放掉 listener——再綁同一個埠要綁得上（子行程沒繼承到 listener）。
+    /// 對照組（tokio 原生 bind，mio 用 winsock `socket()`）只印結果、不斷言：那是上游行為，改了也不該讓這支測試紅。
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn 自我重啟的子行程不會卡住埠() {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
+
+        let inheritable = |raw: u64| -> bool {
+            let mut flags: u32 = 0;
+            let ok = unsafe { GetHandleInformation(raw as usize as HANDLE, &mut flags) };
+            assert_ne!(ok, 0, "GetHandleInformation 失敗");
+            flags & HANDLE_FLAG_INHERIT != 0
+        };
+        let spawn_child = || {
+            std::process::Command::new("cmd")
+                .args(["/C", "ping -n 4 127.0.0.1 > NUL"])
+                .spawn()
+                .expect("起子行程")
+        };
+
+        // 我們的綁法：不可繼承 → 子行程活著、舊 listener 放掉後立刻綁得回來
+        let ours = bind_listener(0).unwrap();
+        let port = ours.local_addr().unwrap().port();
+        assert!(!inheritable(ours.as_raw_socket()), "listener 可被繼承：App 自我重啟後新行程會卡在這個埠");
+        let mut child = spawn_child();
+        drop(ours);
+        let again = bind_listener(port);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(again.is_ok(), "子行程繼承了 listener、埠還被佔著：{:?}", again.err());
+        drop(again);
+
+        // 對照組：tokio 原生 bind（體檢 B2 的根因）——只印
+        let theirs = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port2 = theirs.local_addr().unwrap().port();
+        let inh = inheritable(theirs.as_raw_socket());
+        let mut child2 = spawn_child();
+        drop(theirs);
+        let stuck = std::net::TcpListener::bind(("127.0.0.1", port2)).is_err();
+        let _ = child2.kill();
+        let _ = child2.wait();
+        eprintln!("[對照] tokio::net::TcpListener::bind：可繼承={inh}；子行程活著時舊埠綁不回來={stuck}");
     }
 }

@@ -551,6 +551,8 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           !sel ||
           (sel.kind === "note" ? inboxNotes.some((n) => n.id === sel.id) : inboxTickets.some((t) => t.id === sel.id));
         set({ inboxNotes, inboxTickets, loading: false, error: null, ...(stillThere ? {} : { inboxSelected: null }) });
+        // 收官磨光 A3：收件匣的票號讀全站票號表（同側板／大綱／今日列一把尺）；路線樹沒開過時表是空的，順手載一次
+        if (inboxTickets.length) void useNodeStore.getState().refreshSerials();
       } catch (e) {
         console.warn("notesStore.loadInbox 失敗", e);
         set({ loading: false, error: message(e) });

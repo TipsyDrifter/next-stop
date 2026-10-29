@@ -20,12 +20,16 @@
  *             ——只換提示語與 placeholder，建票規則在 controller 那一側
  *   onKindChange（磨光⑤ K3，選填）給了才畫 meta 最右的「無日期」切換
  */
-import { InlineInput } from "../outline/InlineInput";
+import { InlineInput, type CommitVia } from "../outline/InlineInput";
 
 export interface TicketDraftRowProps {
   /** 插在這張票之後；null＝清單末尾 */
   afterId: string | null;
-  onCommit(title: string): Promise<void>;
+  /**
+   * via＝Enter 還是失焦。**連打清空靠呼叫端換 key 重掛本列**（本列不自己清字——建失敗時字要留著）：
+   * 今日頁＝controller.draftSeq、串流＝StreamView.draftSeq（收官磨光 A1）。
+   */
+  onCommit(title: string, via: CommitVia): Promise<void>;
   onCancel(): void;
   /** today＝排今天的臨時券（Enter）／inbox＝無日期票（Shift+Enter，流入收件匣） */
   kind?: "today" | "inbox";
@@ -62,7 +66,7 @@ export function TicketDraftRow({ afterId, onCommit, onCancel, kind = "today", on
             ariaLabel={inbox ? "輸入收件匣車票名稱" : "輸入臨時車票名稱"}
             focusKey={`${kind}:${afterId ?? "$end"}`}
             className="title"
-            onCommit={(text) => void onCommit(text)}
+            onCommit={(text, via) => void onCommit(text, via)}
             onCancel={onCancel}
             onTab={() => onCancel()}
           />

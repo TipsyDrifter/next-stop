@@ -27,7 +27,7 @@ import {
   NumberField,
   SectionRule,
 } from "./fields";
-import { RepeatSection, TeikiStampRow } from "./RepeatRuleEditor";
+import { FareRow, RepeatSection, TeikiStampRow, usePanelRepeat } from "./RepeatRuleEditor";
 import { ArrivalNote, ClockField } from "./TimeField";
 import { Choice } from "./Choice";
 import { DateChip } from "../common/DateChip";
@@ -253,6 +253,8 @@ function TaskPanel({ node }: { node: NodeRow }) {
   const { updateNode, remove, convert } = useNodeActions();
   const move = useMoveTo(node);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  // 票種列與重複段共用一份草稿（收官磨光 Q1）
+  const repeat = usePanelRepeat(node);
 
   const done = node.status === "done";
   /**
@@ -317,6 +319,9 @@ function TaskPanel({ node }: { node: NodeRow }) {
 
       <SectionRule title="時刻" />
       <div className="fields">
+        {/* 票種（收官磨光 Q1）：手機詳情頁有、桌機原本沒有——雙端同等補上，位置同手機（執行日之前） */}
+        <FareRow node={node} repeat={repeat} />
+
         <FieldRow label="執行日">
           {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
         </FieldRow>
@@ -345,7 +350,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
       </div>
 
       {/* 重複＝獨立區段（M3 ④ WP3）；舊的自由文字 CommitInput 退場 */}
-      <RepeatSection node={node} />
+      <RepeatSection node={node} repeat={repeat} />
 
       {teiki && <TeikiStampRow node={node} />}
       {retired && (
@@ -488,6 +493,8 @@ function TicketPanel({ node }: { node: NodeRow }) {
   const { updateNode, remove } = useNodeActions();
   const move = useMoveTo(node);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  // 票種列與重複段共用一份草稿（收官磨光 Q1）
+  const repeat = usePanelRepeat(node);
   /**
    * 定期券只認 parseRule（legacy 自由文字票＝乘車券）；検印區換成「本班：済／運休」。
    * 退役的定期券（status='done'，cascade 帶下來的）走**一般車票**那一套：済章蓋著、再點一次＝取消完成
@@ -569,8 +576,22 @@ function TicketPanel({ node }: { node: NodeRow }) {
 
       <SectionRule title="時刻" />
       <div className="fields">
+        {/* 收官磨光 Q1（使用者定案「車票欄位雙端同等」）：票種、締切日——手機詳情頁一直有、桌機車票側板原本沒有
+            （收件匣的臨時票在桌機因此沒有任何地方能設締切）。順序同手機：票種 → 執行日 → 締切日 → 時刻 */}
+        <FareRow node={node} repeat={repeat} />
+
         <FieldRow label="執行日">
           {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
+        </FieldRow>
+
+        <FieldRow label="締切日">
+          <DateChip
+            date={node.due_on}
+            onPick={(v) => void updateNode(node.id, { due_on: v })}
+            allowPast
+            clearable
+            label="締切日"
+          />
         </FieldRow>
 
         {/* 預定時刻與預計（主線② D-主-12）：車票側板從此也有「預計」；定期券＝每班時刻，逐班改在検印段的「本班」 */}
@@ -600,7 +621,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
       </div>
 
       {/* 重複＝獨立區段（M3 ④ WP3）；掛上規則票頭立刻變「定期券」，検印欄改蓋班次 */}
-      <RepeatSection node={node} />
+      <RepeatSection node={node} repeat={repeat} />
 
       {teiki ? (
         <TeikiStampRow node={node} />

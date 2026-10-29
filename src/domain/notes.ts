@@ -634,7 +634,9 @@ export function groupFootprints(
     const k = s.nodeId + "\u0000" + s.at;
     if (seen.has(k)) continue;
     seen.add(k);
-    outSeals.push(s);
+    // 收官磨光 Q1（規格 §5：車票沒有心情欄）：手機詳情頁以前能替車票點心情，欄位拿掉後舊值就改不掉也清不掉——
+    // 讀取面一律不認車票的心情（mock 與 SQLite 都經過這裡；外部助理的日記工具讀的也是這份）
+    outSeals.push(s.kind === "ticket" && s.mood ? { ...s, mood: null } : s);
   }
   const moods: Mood[] = [];
   for (const s of outSeals) if (s.mood) moods.push(s.mood);

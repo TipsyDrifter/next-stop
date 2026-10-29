@@ -38,6 +38,7 @@ import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { lineTodayHotkey } from "../../lines/runtime";
 import { requestMoveTo } from "../common/moveTo";
+import type { CommitVia } from "../common/InlineInput";
 import type { PopMenuItem } from "../common/PopMenu";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
@@ -139,9 +140,16 @@ export interface TodayControllerApi {
   moveSel(dir: 1 | -1): void;
 
   draft: TodayDraft | null;
+  /**
+   * 草稿列的重掛鍵（收官磨光 A1）：Enter 建票成功就 +1，TodayView 拿它當 TicketDraftRow 的 key——
+   * 輸入框重掛＝清空並重新聚焦（連打）。沒有它，同一顆輸入框留著剛送出的字，連按 Enter／失焦會同名再建。
+   * 「無日期」切換不動它（打到一半的字要留著）。同 StreamView 的 draftSeq。
+   */
+  draftSeq: number;
   openDraft(): void;
   closeDraft(): void;
-  commitDraft(title: string): Promise<void>;
+  /** via＝"blur"（點去別處）：有字照建、建完收草稿，不搶回焦點與選取（同大綱 draftCommit） */
+  commitDraft(title: string, via?: CommitVia): Promise<void>;
 
   logTarget: string | null;
   openLog(id: string): void;
@@ -192,6 +200,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
   const setLateCollapsed = useUiStore((s) => s.setLateCollapsed);
 
   const [draft, setDraftState] = useState<TodayDraft | null>(null);
+  const [draftSeq, setDraftSeq] = useState(0);
   const [logTarget, setLogTarget] = useState<string | null>(null);
   const [deferTarget, setDeferTarget] = useState<DeferTarget | null>(null);
   const [freshId, setFreshId] = useState<string | null>(null);
@@ -201,6 +210,11 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     draftRef.current = d;
     setDraftState(d);
   }, []);
+  // 收官磨光 A1：Enter 建票成功後，重入鎖要等「清空的新輸入框」掛上去才放（draftSeq 變了＝新的那顆已 commit）。
+  // 若在 createNode 回來那一刻就放，舊輸入框（字還在）在 React 重畫前收到的 Enter／失焦會再建一張同名票。
+  useEffect(() => {
+    busyRef.current = false;
+  }, [draftSeq]);
 
   const dateKey = today.dateKey ?? todayKey(dayStartHour);
   const rows = today.rows;
@@ -353,15 +367,18 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
   };
 
   /* ───────── 臨時車票（a18–a21／決策 6／M3-6） ───────── */
-  const commitDraft = async (text: string) => {
+  const commitDraft = async (text: string, via: CommitVia = "enter") => {
     const d = draftRef.current;
     if (!d || busyRef.current) return;
     const name = text.trim();
     if (!name) {
-      closeDraft();
+      // 空白失焦＝使用者點去別處：收草稿但不把焦點搶回今日頁（同大綱 cancelEdit(via === "enter")）
+      if (via === "enter") closeDraft();
+      else setDraft(null);
       return;
     }
     busyRef.current = true;
+    let holdLock = false; // true＝鎖交給上面的 draftSeq effect 放（見那裡的註解）
     try {
       const row = await ns().createNode({
         kind: "ticket",
@@ -376,7 +393,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       }
       if (d.kind === "inbox") {
         setDraft(null);
-        focusContainer();
+        if (via === "enter") focusContainer();
         // 票立刻離開今日（沒有執行日就不在聚合裡），畫面上什麼都不會發生 →
         // toast 是唯一的收據，並且要能反悔（WP3：拍板「可 undo」）。這裡的 undo＝把剛建的票收回去。
         ui().showToast({
@@ -386,10 +403,16 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         });
         return;
       }
+      if (via === "blur") {
+        setDraft(null); // 失焦提交：使用者已點去別處——建好就收，選取與焦點都不動（同大綱 draftCommit）
+        return;
+      }
       ui().select(row.id);
-      setDraft({ afterId: row.id, kind: "today" }); // 連打
+      setDraft({ afterId: row.id, kind: "today" });
+      setDraftSeq((n) => n + 1); // 連打：草稿列重掛＝清空、重新聚焦
+      holdLock = true;
     } finally {
-      busyRef.current = false;
+      if (!holdLock) busyRef.current = false;
     }
   };
 
@@ -611,6 +634,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     moveSel: (dir) => keys.moveSelection(dir),
 
     draft,
+    draftSeq,
     openDraft,
     closeDraft,
     commitDraft,

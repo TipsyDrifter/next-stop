@@ -46,6 +46,7 @@ import { useCalendar } from "../calendar/useCalendarController";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
 import { TicketDraftRow } from "../today/TicketDraftRow";
 import { EmptyState } from "../common/EmptyState";
+import type { CommitVia } from "../common/InlineInput";
 import { IconPlus } from "../common/icons";
 import type { PopMenuItem } from "../common/PopMenu";
 import { makeScheduleActions, scheduleRowMenu } from "./scheduleActions";
@@ -298,13 +299,29 @@ export function StreamView() {
     useScheduleUiStore.getState().setDraftDay(date);
   }, []);
   const closeDraft = useCallback(() => useScheduleUiStore.getState().setDraftDay(null), []);
+  // 收官磨光 A1（與今日頁同一把鎖）：建成後要等清空的新輸入框掛上去才放——createOn 自己的 busy 在回來那一刻就放了，
+  // 舊輸入框（字還在）在重畫前收到的 Enter／失焦會再建一張同名票。
+  const draftLock = useRef(false);
+  useEffect(() => {
+    draftLock.current = false;
+  }, [draftSeq]);
   const commitDraft = useCallback(
-    async (date: string, name: string) => {
+    async (date: string, name: string, via: CommitVia) => {
+      if (draftLock.current) return;
       if (!name.trim()) {
         closeDraft(); // 空白 Enter＝收掉草稿（與今日頁同）
         return;
       }
-      if (await actions.createOn(date, name)) setDraftSeq((n) => n + 1); // 成功：清空輸入、草稿列留著（連打）
+      draftLock.current = true;
+      const ok = await actions.createOn(date, name);
+      if (ok && via === "blur") {
+        draftLock.current = false;
+        closeDraft(); // 失焦提交：使用者已點去別處——建好就收，不讓重掛的輸入框把焦點搶回來（同今日頁／大綱）
+      } else if (ok) {
+        setDraftSeq((n) => n + 1); // 成功：清空輸入、草稿列留著（連打）；鎖交給上面的 effect 放
+      } else {
+        draftLock.current = false; // 失敗：字留著讓主人再按一次
+      }
     },
     [actions, closeDraft],
   );
@@ -574,7 +591,7 @@ interface DaySectionProps {
   onDefer(row: DayRowModel, anchor: HTMLElement): void;
   onFreshEnd(key: string): void;
   onHeadClick(date: string): void;
-  onDraftCommit(date: string, name: string): Promise<void>;
+  onDraftCommit(date: string, name: string, via: CommitVia): Promise<void>;
   onDraftCancel(): void;
   onLateJump(): void;
   onMenu(row: DayRowModel, anchor: HTMLElement | null): PopMenuItem[];
@@ -709,7 +726,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
             key={p.draftSeq}
             afterId={null}
             kind="today"
-            onCommit={(name) => p.onDraftCommit(sec.date, name)}
+            onCommit={(name, via) => p.onDraftCommit(sec.date, name, via)}
             onCancel={p.onDraftCancel}
           />
         </ul>

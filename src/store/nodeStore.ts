@@ -240,6 +240,11 @@ interface NodeStore {
   loadSidebar: () => Promise<void>;
   openRoute: (routeId: string | null) => Promise<void>;
   reloadRoute: () => Promise<void>;
+  /**
+   * 只重載全站票號表（收官磨光 A3）：路線樹沒開的畫面（收件匣）也要拿得到同一把尺的票號——
+   * 原本只有 reloadRoute 會載，收件匣只好自己拼 `MMDD-<id 前兩碼>`，同一張票兩個號。失敗＝留著舊表。
+   */
+  refreshSerials: () => Promise<void>;
   /** 重載今日聚合；省略 dateKey＝依日界線的今天（跨 03:00 由 App 層帶新 key 進來） */
   loadToday: (dateKey?: string) => Promise<void>;
   /**
@@ -356,6 +361,14 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       set({ tree: indexTree(rows, routeId), serials, currentOccurrences, loading: false, error: null });
     } catch (e) {
       set({ loading: false, error: message(e) });
+    }
+  },
+
+  async refreshSerials() {
+    try {
+      set({ serials: await nodeRepo.listSerials() });
+    } catch (e) {
+      console.warn("nodeStore.refreshSerials 失敗", e);
     }
   },
 

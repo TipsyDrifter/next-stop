@@ -113,8 +113,7 @@ export default function App() {
   useEffect(() => {
     ensureStampDefs();
     // 備份 boot 要讀 settings 表，所以排在 loadSettings 之後（同一條 promise 鏈，不靠時序碰運氣）。
-    // 手機端**不叫 boot**（D-1.1-1 甲：Android 不掛 backup plugin）——invoke 會 reject，
-    // boot 會把它記成一次失敗、累計 backup_fail_streak，並往 settings 表多寫三個 key。不會壞但會髒。
+    // 收官磨光 Q2-a 起兩殼都叫（手機也掛了 backup plugin：開機自動備份、清單、還原；使用者 10-28 雙端同等）。
     //
     // v1.1.1 同步接線（契約 §9.4）：`syncStore.boot(shell)` 也排在 loadSettings 之後——
     // 兩殼都叫（桌機＝primary 推、手機＝replica 拉），沒啟用時 boot 只問一次狀態就停手
@@ -128,7 +127,7 @@ export default function App() {
       .then(() => (MOCK_MODE ? true : dbUsable()))
       .then((usable) => {
         if (!usable) return;
-        if (!mobile) void useBackupStore.getState().boot();
+        void useBackupStore.getState().boot();
         return useSyncStore.getState().boot(shell);
       });
     void loadSidebar();

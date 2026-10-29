@@ -72,7 +72,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEve
 import { MIN, findBlockIn, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
 import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
-import { clockDateLabel, longBlockAsk } from "../../../domain/timetableClockInput";
+import { clockDateLabel, clockRangeLabel, longBlockAsk } from "../../../domain/timetableClockInput";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
@@ -556,7 +556,7 @@ export function BlockPanel({ onDone }: PanelProps) {
     return (
       <div className="ns-tt-panel ns-tt-panel-block is-merging">
         <Sub num>
-          {catName(block.category_id)}　{fmtClock(init.start)} – {fmtClock(init.end)}　・　{fmtDur(init.end - init.start)}
+          {catName(block.category_id)}　{clockRangeLabel(init.start, init.end, refDay)}　・　{fmtDur(init.end - init.start)}
         </Sub>
         {mergeRow}
       </div>
@@ -588,8 +588,9 @@ export function BlockPanel({ onDone }: PanelProps) {
           </span>
         </Sub>
       ) : (
+        // 收官磨光 組四 b：跨日曆日的端點帶日期（同時刻框旁的「10/28（三）」），免得「17:00 – 03:00」看不出是隔天
         <Sub num>
-          {fmtClock(start)} – {fmtClock(end)}　・　{fmtDur(end - start)}
+          {clockRangeLabel(start, end, refDay)}　・　{fmtDur(end - start)}
         </Sub>
       )}
       {arrived && <Sub warn>{TT_TEXT.justArrived}</Sub>}

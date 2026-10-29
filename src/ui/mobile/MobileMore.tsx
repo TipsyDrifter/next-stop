@@ -38,11 +38,17 @@
  *
  * 磨光①（契約 `docs/research/2026-10-20-主線-磨光①手機殼-契約.md` §1.5、§9.5 N10）：同步子頁登記返回層（page）；
  *   週起點下面補「一天的開始時間」（上面 v1.1.0「不出現」那條的日界線，同步早已做進手機，這裡補上入口）。
+ *
+ * 收官磨光 Q2-a（使用者 10-28：雙端同等）：上面 v1.1.0「不出現」那條的備份與還原也補上了——同步那一列之前多一列
+ * 「備份與還原」，點了切子頁 `MobileBackup`（本地 state，同同步子頁；深連結 `uiStore.openBackupPage("mobile")`）。
+ * 危險區照舊在頁尾；它那句「清掉之前會先留一份備份」在手機上從此也照實（重新開始前先拍本機手動備份）。
  */
 import { useEffect, useState } from "react";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
+import MobileBackup from "./MobileBackup";
+import { useBackupStore } from "../../store/backupStore";
 import { useBackLayer } from "./backStack";
 import { lineSettingsLinks } from "../../lines/runtime";
 // 〈外部助理〉那一段的兩條排版規則跟桌機籤放在同一支 css（MCP 接口班的新檔，不動共用的 mobile.css）
@@ -67,6 +73,15 @@ const WEEK_STARTS: { value: 0 | 1; label: string; note: string }[] = [
 /** 一天的開始時間（uiStore.dayStartHour；同 SettingsPanel.tsx 的 HOURS） */
 const DAY_START_HOURS = [0, 1, 2, 3, 4, 5, 6];
 
+/** 「備份與還原」那一列右側的時刻：同年 `10/28 03:12`、跨年補年份（同備份頁） */
+function fmtBackupStamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  return d.getFullYear() === new Date().getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}/${md} ${hm}`;
+}
+
 export default function MobileMore() {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
@@ -82,13 +97,16 @@ export default function MobileMore() {
   const startOver = useSyncStore((s) => s.startOver);
   const moreRequest = useUiStore((s) => s.mobileMoreRequest);
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
-  const [view, setView] = useState<"more" | "sync">(() => (moreRequest === "sync" ? "sync" : "more"));
+  // 收官磨光 Q2-a：多一個子頁 "backup"（備份與還原）；深連結同 sync 那一套（備份失敗 toast 的「看原因」）
+  const [view, setView] = useState<"more" | "sync" | "backup">(() => moreRequest ?? "more");
   const settingsLinks = lineSettingsLinks("mobile");
+  const backupOkAt = useBackupStore((s) => s.lastOkAt);
+  const backupFailed = useBackupStore((s) => !!s.lastError);
 
   // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
   useEffect(() => {
-    if (moreRequest !== "sync") return;
-    setView("sync");
+    if (!moreRequest) return;
+    setView(moreRequest);
     consumeMoreRequest();
   }, [moreRequest, consumeMoreRequest]);
 
@@ -100,8 +118,11 @@ export default function MobileMore() {
 
   // 磨光① A3（契約 §1.5）：同步子頁是一層 page——返回＝回「更多」清單（同「← 更多」）
   useBackLayer("core.more-sync", view === "sync", () => setView("more"), "page");
+  // 收官磨光 Q2-a：備份與還原子頁同一種返回層
+  useBackLayer("core.more-backup", view === "backup", () => setView("more"), "page");
 
   if (view === "sync") return <MobileSync onBack={() => setView("more")} />;
+  if (view === "backup") return <MobileBackup onBack={() => setView("more")} />;
 
   return (
     <div className="m-page m2-page" aria-label="更多">
@@ -182,6 +203,15 @@ export default function MobileMore() {
         {/* v1.1.1（WP8）：同步一列——右側直接寫現在的狀態（觸控沒有 hover，狀態得攤在字面上）。
             形狀沿當年下面那列「售票口」的 `.m2-row-planned`（車次①已拿掉），只是這一列可點：故另立 `.m2-row-link`
             （同樣的排版、不吃 .42 的灰度、撐到 48px 觸控目標）。 */}
+        {/* 收官磨光 Q2-a（雙端同等）：備份與還原——順序同桌機設定籤（一般 → 備份與還原 → 同步）；
+            右側攤上次成功備份的時刻（觸控沒有 hover），失敗時直接寫「上次備份失敗」 */}
+        <button type="button" className="m2-row-link" onClick={() => setView("backup")}>
+          <span className="m2-planned-name">備份與還原</span>
+          <span className={"m2-planned-note" + (backupFailed ? " m2-bk-row-fail" : "")}>
+            {backupFailed ? "上次備份失敗" : backupOkAt ? `上次 ${fmtBackupStamp(backupOkAt)}` : "還沒有備份"}
+          </span>
+        </button>
+
         <button type="button" className="m2-row-link" onClick={() => setView("sync")}>
           <span className="m2-planned-name">同步</span>
           <span className="m2-planned-note">{SYNC_PHASE_LABEL[syncPhase]}</span>

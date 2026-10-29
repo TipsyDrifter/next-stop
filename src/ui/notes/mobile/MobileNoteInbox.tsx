@@ -194,7 +194,8 @@ function TicketCard({
             <span className="ns-notes-mmeta">
               <span>沒有日期</span>
               <span className="sep">・</span>
-              <span>{shortDay(day)}變車票</span>
+              {/* 收官磨光 A3（體檢 N4）：同桌機——不黏字、不寫「變」（直接建的票沒變過，資料分不出來，一律照實寫建立） */}
+              <span>{shortDay(day)} 建立</span>
             </span>
           </span>
           <span className="ns-notes-mtk-stamp">

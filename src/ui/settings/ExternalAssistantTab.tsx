@@ -74,14 +74,27 @@ export function ExternalAssistantTab() {
     }
   }, []);
 
-  // 開籤：狀態＋紀錄各問一次；之後每 5 秒刷紀錄，關籤（元件卸載）就停
+  // 開籤：狀態＋紀錄各問一次；之後每 5 秒刷紀錄，關籤（元件卸載）就停。
+  // 收官磨光 A2：連線還沒開好（沒在聽、也沒有錯）時狀態也一起重問——不然開籤那一刻的「正在開啟」會一直掛著
+  /** 狀態已定（在聽，或已確定失敗）＝不必重問；還沒拿到第一份狀態時交給上面那一趟 */
+  const settledRef = useRef(true);
+  settledRef.current = !status || status.listening || !!status.error;
   useEffect(() => {
     let alive = true;
     mcpStatus()
       .then((s) => alive && setStatus(s))
       .catch((e) => alive && setLoadError(errText(e)));
     void refreshRecent();
-    const id = window.setInterval(() => void refreshRecent(), RECENT_POLL_MS);
+    const id = window.setInterval(() => {
+      void refreshRecent();
+      if (!settledRef.current) {
+        mcpStatus()
+          .then((s) => alive && setStatus(s))
+          .catch(() => {
+            /* 重問失敗不打擾：下一輪再問 */
+          });
+      }
+    }, RECENT_POLL_MS);
     return () => {
       alive = false;
       window.clearInterval(id);
@@ -172,11 +185,15 @@ export function ExternalAssistantTab() {
       <section className="ns-sy-pair">
         <span className="techo-label block mb-1">連線</span>
         <p className="ns-note">只在這台電腦、App 開著時有效（縮到系統匣也算）。</p>
-        {/* Rust 的 error 是給人看的一句（埠被占用、設定檔讀寫失敗）；聽著但有錯（設定檔）也要說 */}
-        {(status.error || !status.listening) && (
+        {/* Rust 的 error 是給人看的一句（埠被占用、設定檔讀寫失敗）；聽著但有錯（設定檔）也要說。
+            收官磨光 A2：沒在聽、也還沒有錯＝Rust 還在等埠空出來（自我重啟時舊行程剛放手，最多重試約 10 秒）——
+            寫「正在開啟」淡字，不再預設成紅字的「被占用」；狀態每 5 秒跟著紀錄一起重問，開好或確定失敗就換掉 */}
+        {status.error ? (
           <p className="ns-bk-err" role="alert">
-            {status.error ?? `連接埠 ${status.port} 被占用，外部助理連不進來。`}
+            {status.error}
           </p>
+        ) : (
+          !status.listening && <p className="ns-note">正在開啟外部助理的連線…</p>
         )}
         <div className="ns-ai-kv">
           <span className="techo-label">網址</span>
