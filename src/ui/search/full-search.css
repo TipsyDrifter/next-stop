@@ -12,7 +12,8 @@
 
 /* ═══════════ 桌機頁 ═══════════ */
 .page.ns-fs { display: flex; flex-direction: column; overflow: hidden; }
-.ns-fs-head { flex: none; padding: var(--page-pad-top) var(--page-pad-x) 0 var(--page-gutter); max-width: calc(880px + var(--page-gutter)); }
+/* 寬度規範（丁 D-主-231）：完整搜尋是清單型——頁首、清單、腳註都是內容 848 在主欄置中（原本左緣 24、全 App 唯一的例外） */
+.ns-fs-head { flex: none; padding: var(--page-pad-top) var(--read-inset) 0; }
 .ns-fs-field {
   display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); height: 54px;
   border-bottom: 1px solid var(--color-dash); color: var(--color-ink-faint);
@@ -72,14 +73,15 @@
 .ns-fs-stats .btn-text { font-size: var(--fs-xs); }
 
 /* 清單（自己捲） */
-.ns-fs-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px var(--page-pad-x) 0 calc(var(--page-gutter) - 8px); scroll-padding: 12px 0; }
-.ns-fs-list { list-style: none; margin: 0; padding: 0 0 8px; max-width: calc(880px + 8px); }
+/* 清單欄兩側各一條捲軸寬（捲軸在不在都左右相等）；列的 hover 底往左右各多吃 8px（同原本），字仍對齊頁首 */
+.ns-fs-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: 10px calc(var(--read-inset) - 18px) 0; scroll-padding: 12px 0; }
+.ns-fs-list { list-style: none; margin: 0; padding: 0 0 8px; }
 .ns-fs-list.is-stale { opacity: .55; transition: opacity var(--dur) var(--ease-soft); }
-.ns-fs-hint { margin: var(--sp-5) 0 0; font-size: var(--fs-sm); line-height: 1.9; letter-spacing: .04em; color: var(--color-ink-soft); max-width: 880px; }
+.ns-fs-hint { margin: var(--sp-5) 8px 0; font-size: var(--fs-sm); line-height: 1.9; letter-spacing: .04em; color: var(--color-ink-soft); }
 .ns-fs-more { display: flex; align-items: center; justify-content: center; height: 46px; font-size: var(--fs-xs); letter-spacing: .2em; color: var(--color-ink-faint); }
 .ns-fs-end { display: flex; align-items: center; gap: var(--sp-3); padding: 18px 0 26px; font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-faint); }
 .ns-fs-end::before, .ns-fs-end::after { content: ""; flex: 1; border-top: 1px dashed var(--color-line); }
-.ns-fs-foot { flex: none; display: flex; gap: 18px; margin: 0 var(--page-pad-x) 0 var(--page-gutter); padding: 9px 0 12px; }
+.ns-fs-foot { flex: none; display: flex; gap: 18px; margin: 0 var(--read-inset); padding: 9px 0 12px; }
 
 /* 結果列（桌機）：徽章｜名稱＋済（済緊跟名稱，整排朱字擺成一欄太搶）｜淡字路線｜日期；命中在概要／乘務記錄 ⇒ 第二行摘錄 */
 .ns-fs-row {

@@ -32,6 +32,7 @@ import { MSheet, MSheetItem } from "../../common/MSheet";
 import { fmtDateKey } from "../../panel/format";
 import { moveRouteToLine } from "../../panel/moveRouteToLine";
 import { addStation, removeStation, requestDeleteRoute, toggleStationArrived } from "../../panel/routeFlows";
+import { requestArrive, requestDepart } from "../../panel/arrivalFlows";
 import { codeInput, codeTakenByOther, codeTakenNote, codeValue } from "../../panel/routeFlowRules";
 import { revealOnRouteMap } from "../routeMapReveal";
 import { Row } from "./MobileStateRows";
@@ -43,9 +44,11 @@ const NULL_ROUTE_COLOR = routePresetColor(4);
 
 export function MobileRouteBody({ route, onClose }: { route: NodeRow; onClose: () => void }) {
   const updateNode = useNodeStore((s) => s.updateNode);
-  const lines = useNodeStore((s) => s.lines);
+  // 所屬幹線只挑還在跑的幹線（車庫與回顧 D-主-206 #16）；票根的幹線名照查全部
+  const allLines = useNodeStore((s) => s.lines);
+  const lines = useNodeStore((s) => s.liveLines);
   const routes = useNodeStore((s) => s.routes);
-  const line = lines.find((l) => l.id === route.line_id);
+  const line = allLines.find((l) => l.id === route.line_id);
   const color = route.color ?? NULL_ROUTE_COLOR;
   const [linePick, setLinePick] = useState(false);
   // 代碼欄的草稿（CommitInput 回報）：重複提示跟著打字走
@@ -112,7 +115,7 @@ export function MobileRouteBody({ route, onClose }: { route: NodeRow; onClose: (
           />
         </Row>
         {/* 所屬幹線（E12）：只有一條幹線就沒得換、不畫（同桌機） */}
-        {lines.length >= 2 && route.line_id && (
+        {lines.length >= 2 && route.line_id && !route.arrived_on && (
           <Row label="所屬幹線">
             <button type="button" className="m-dt-pick" onClick={() => setLinePick(true)}>
               <span>{line?.name ?? "—"}</span>
@@ -126,6 +129,17 @@ export function MobileRouteBody({ route, onClose }: { route: NodeRow; onClose: (
 
       <RouteLineFields route={route} />
       <Stations routeId={route.id} />
+
+      {/* 車庫與回顧 D-主-207（同桌機路線側板）：到站＝收進車庫；已到站的換「回到運行」 */}
+      {route.arrived_on ? (
+        <button type="button" className="ns-btn btn-ghost m-dt-delete" onClick={() => void requestDepart(route.id)}>
+          回到運行
+        </button>
+      ) : (
+        <button type="button" className="ns-btn btn-ghost m-dt-delete" onClick={() => void requestArrive(route.id, { onConfirmed: onClose })}>
+          到站・收進車庫
+        </button>
+      )}
 
       <button type="button" className="ns-btn btn-ghost ns-btn-danger m-dt-delete" onClick={remove}>
         刪除路線

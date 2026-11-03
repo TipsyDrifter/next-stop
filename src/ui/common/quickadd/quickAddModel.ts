@@ -141,6 +141,12 @@ export function resolveQuickTarget(dest: QuickDest, routeKind: RouteKind): Quick
   const parentId = dest.nodeId ?? dest.routeId;
   const parentKind: NodeKind = dest.nodeId ? (dest.nodeKind && dest.nodeKind !== "route" ? dest.nodeKind : "train") : "route";
   const allowed = allowedChildKinds(parentKind);
+  // 丁 D-主-245：支線底下列車與車票都能直接放 ⇒ 兩種任選（車票就掛在支線底下，不是路線標籤）
+  if (allowed.includes("ticket") && allowed.includes("train")) {
+    return routeKind === "ticket"
+      ? { kind: "ticket", parentId, routeTagId: null, canChoose: true }
+      : { kind: "train", parentId, routeTagId: null, canChoose: true };
+  }
   if (allowed.includes("ticket")) return { kind: "ticket", parentId, routeTagId: null, canChoose: false };
   // 路線／支線：底下放列車；或建成掛這條路線標籤的臨時車票（現行規則：車票不直接掛在路線底下）
   const inner: NodeKind | undefined = allowed.includes("train") ? "train" : allowed.find((k) => k !== "station");

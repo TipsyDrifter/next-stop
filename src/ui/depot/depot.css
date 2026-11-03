@@ -1,0 +1,412 @@
+/* ─────────────────────────────────────────────────────
+ * depot.css — 車庫頁（第五本第一梯 ③ 車庫與回顧；契約 docs/research/2026-11-02-主線-車庫與回顧-契約.md §三）
+ * 視覺真相＝prototypes/design-stats-review-車庫.html（方案 G-A）的 <style>，逐段移植：
+ *   書架（.spine／.tgroup／.shelf）、還在跑（.running）、印譜帳（.album／.apage）、年鑑（.ago／.yb）、
+ *   記錄簿（.bk-／.facts／.stl）、印章家族（.imp）。class 一律 `ns-depot-` 前綴，免得跟別頁撞名。
+ * 規則：顏色只吃 theme.css 的 token；字級一律 var(--fs-*)（原型的幾個票券／印章專用小字照逐字、行尾註明）；
+ *   手機規則掛 [data-shell="mobile"]（記錄簿子頁 MFullPage 會 portal 到 body，所以記錄簿的規則不依賴 .ns-depot 祖先）。
+ * 守則（不遊戲化）：書背一律等厚（寬高寫死、不跟數字走）；沒有進度條、灰格。
+ * ───────────────────────────────────────────────────── */
+
+.ns-depot,
+.ns-depot-book {
+  /* 車站白點的填色（原型 --dot-fill；theme.css 沒有這支，只在本頁用） */
+  --ns-depot-dot: #fff; /* 字面值：原型 --dot-fill（粉彩票紙白點） */
+}
+[data-theme="dark"] .ns-depot,
+[data-theme="dark"] .ns-depot-book {
+  --ns-depot-dot: var(--color-paper-high);
+}
+
+/* ═══════════ 紙（原型 .paper：霧面玻璃＋噪點；銀河月光票紙不加噪） ═══════════ */
+.ns-depot-paper {
+  position: relative; isolation: isolate;
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge); border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+}
+.ns-depot-paper::after { /* 霧面顆粒（粉彩限定）——噪點 SVG 是 §9 probe 的例外，同 listbits.css .ns-errrow */
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .055; mix-blend-mode: multiply;
+}
+[data-theme="dark"] .ns-depot-paper::after { display: none; }
+
+/* ═══════════ 頁首補述（桌機 PageHeader aside）／手機摘要 ═══════════ */
+.ns-depot-aside,
+.ns-depot-sum {
+  font-family: var(--font-body); font-weight: 400; font-size: var(--fs-ui);
+  color: var(--color-ink-soft); letter-spacing: .06em;
+}
+.ns-depot-aside b,
+.ns-depot-sum b {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ticket);
+  color: var(--color-ink); margin: 0 2px;
+}
+.ns-depot-sum { margin: 0; }
+
+/* ═══════════ 路線徽（票根同款外框圓；--rc＝路線色） ═══════════ */
+.ns-depot-badge {
+  width: 28px; height: 28px; flex: none; border-radius: 50%;
+  border: 1.6px solid var(--rc); color: var(--rc); background: transparent;
+  display: inline-grid; place-items: center;
+  font-family: var(--font-latin); font-weight: 600; font-size: 11.5px; /* 字面值：票券專用（路線徽字），原型定值 */
+  letter-spacing: 0; line-height: 1;
+}
+.ns-depot-badge.is-sm { width: 22px; height: 22px; border-width: 1.4px; font-size: 9.5px; } /* 字面值：票券專用（小路線徽字），原型定值 */
+.ns-depot-badge > i { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); }
+
+/* 運行中膠囊（§2.9：淡赭底＋赭框＋赭字） */
+.ns-depot-pill {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 9px; flex: none;
+  border-radius: var(--radius-pill); border: 1px solid color-mix(in srgb, var(--late) 55%, transparent);
+  background: var(--danger-bg); color: var(--late);
+  font-family: var(--font-body); font-weight: 500; font-size: var(--fs-xs);
+  letter-spacing: .14em; text-indent: .14em; white-space: nowrap; line-height: 1;
+}
+
+/* 書背的小済印（朱只給済） */
+.ns-depot-mini-sumi {
+  display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%;
+  border: 1.3px solid var(--seal); color: var(--seal);
+  font-family: var(--font-display); font-weight: 700; font-size: 8.5px; /* 字面值：印章家族（小済印），原型定值 */
+  line-height: 1; transform: rotate(-8deg); opacity: .9; filter: url(#inkbleed-fine);
+}
+
+/* ═══════════ 印章家族（viewBox 100；原型 .imp） ═══════════ */
+.ns-depot-imp {
+  --rot: -6deg;
+  display: inline-grid; place-items: center; flex: none; line-height: 0;
+  transform: rotate(var(--rot)); opacity: .9; border-radius: 50%;
+}
+.ns-depot-imp.is-ink { color: var(--stamp-ink); }
+.ns-depot-imp.is-seal { color: var(--seal); }
+.ns-depot-imp svg { display: block; overflow: visible; }
+.ns-depot-imp text { fill: currentColor; stroke: none; text-anchor: middle; }
+.ns-depot-imp circle,
+.ns-depot-imp path,
+.ns-depot-imp line { fill: none; stroke: currentColor; }
+.ns-depot-imp .ns-i-gold { stroke: var(--arc); }
+.ns-depot-imp .ns-i-fill { fill: currentColor; stroke: none; }
+.ns-depot-imp .ns-i-wash { fill: currentColor; stroke: none; opacity: .07; }
+.ns-depot-imp .ns-i-t { font-family: var(--font-display); font-weight: 700; }
+.ns-depot-imp .ns-i-f { font-family: var(--font-display); font-weight: 600; }
+.ns-depot-imp .ns-i-s { font-family: var(--font-body); font-weight: 500; }
+.ns-depot-imp .ns-i-l { font-family: var(--font-latin); font-weight: 500; }
+.ns-depot-imp[role="button"] {
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease-spring), opacity var(--dur-fast) var(--ease-soft);
+}
+.ns-depot-imp[role="button"]:hover { transform: rotate(var(--rot)) scale(1.06); opacity: 1; }
+.ns-depot-imp[role="button"]:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.ns-depot-imp.is-fresh { animation: ns-depot-stamp-in .42s cubic-bezier(.2, 1.5, .4, 1) both; }
+@keyframes ns-depot-stamp-in {
+  0%   { transform: rotate(calc(var(--rot) - 18deg)) scale(1.75); opacity: 0; }
+  55%  { transform: rotate(calc(var(--rot) + 2deg)) scale(.9); opacity: .97; }
+  100% { transform: rotate(var(--rot)) scale(1); opacity: .9; }
+}
+
+/* ═══════════ 乘車記錄：車庫（書架＋還在跑） ═══════════ */
+.ns-depot-garage { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 24px 36px; }
+.ns-depot-garage > .ns-empty-row { flex: 1 1 100%; }
+
+/* 書架可橫捲（路線多了也不撐破頁）；上緣留空給書背抬起 */
+.ns-depot-shelfwrap {
+  flex: 0 1 auto; min-width: 0; max-width: 100%;
+  overflow-x: auto; overflow-y: hidden; padding-top: 14px;
+  scrollbar-width: thin; scrollbar-color: var(--color-dash) transparent;
+}
+.ns-depot-shelfin { display: inline-block; min-width: 100%; vertical-align: bottom; }
+.ns-depot-shelf { display: flex; align-items: flex-end; gap: 10px; padding: 0 16px; }
+.ns-depot-board {
+  height: 12px; margin-top: -1px; border-top: 1px solid var(--color-dash);
+  background: linear-gradient(180deg, var(--hover-bg), transparent);
+  border-radius: 0 0 var(--radius-ctl) var(--radius-ctl); /* 字面值：書架板只圓下緣 */
+}
+
+/* 書背：一律等厚（--w／--h 寫死；厚度跟著數字走就成了比大小） */
+.ns-depot-spine {
+  --h: 212px; --w: 62px;
+  position: relative; width: var(--w); height: var(--h); flex: none;
+  display: flex; flex-direction: column; align-items: center; padding: 0 0 10px; overflow: hidden;
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge); border-radius: var(--radius-card) var(--radius-card) 1px 1px;
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  color: var(--color-ink); text-align: center; cursor: pointer; font: inherit;
+  transition: transform var(--dur-slow) var(--ease-spring), box-shadow var(--dur) var(--ease);
+}
+.ns-depot-spine::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 12px; background: var(--rc); }
+.ns-depot-spine::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--rc); opacity: .85; }
+.ns-depot-spine .ns-depot-badge { margin-top: 24px; }
+.ns-depot-sp-name {
+  flex: 1; min-height: 0; margin-top: 12px; writing-mode: vertical-rl; text-orientation: upright;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ticket);
+  letter-spacing: .2em; line-height: 1.25; overflow: hidden; text-align: start;
+}
+.ns-depot-sp-n {
+  display: flex; align-items: center; gap: 3px; margin-top: 6px;
+  font-family: var(--font-latin); font-size: var(--fs-sm); font-weight: 500; color: var(--color-ink-soft);
+}
+.ns-depot-sp-d {
+  margin-top: 2px; font-family: var(--font-latin); letter-spacing: .04em; color: var(--color-ink-faint);
+  font-size: 10.5px; /* 字面值：票券專用（書背日期＝圓牌字級），原型定值 */
+}
+.ns-depot-spine:hover { transform: translateY(-5px); box-shadow: var(--glass-hi), var(--shadow-card-hover); }
+.ns-depot-spine:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+
+/* 書擋夾成一組（同一條已到站的幹線）＋上方名牌 */
+.ns-depot-tgroup { display: flex; flex-direction: column; align-items: stretch; flex: none; }
+.ns-depot-tplate {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  margin: 0 0 8px; padding: 0 4px 5px; line-height: 1.35; border-bottom: 1px solid var(--color-ink-soft);
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ui);
+  letter-spacing: .14em; white-space: nowrap; color: var(--color-ink);
+}
+.ns-depot-tplate::before,
+.ns-depot-tplate::after { content: ""; position: absolute; bottom: -1px; width: 1px; height: 7px; background: var(--color-ink-soft); }
+.ns-depot-tplate::before { left: 0; }
+.ns-depot-tplate::after { right: 0; }
+.ns-depot-tplate .k { font-family: var(--font-body); font-weight: 400; font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); }
+.ns-depot-tplate time {
+  font-family: var(--font-latin); font-weight: 500; letter-spacing: .04em; color: var(--color-ink-soft);
+  font-size: 10.5px; /* 字面值：票券專用（名牌日期＝圓牌字級），原型定值 */
+}
+.ns-depot-tbooks { display: flex; align-items: flex-end; gap: 6px; }
+.ns-depot-bookend {
+  position: relative; width: 3px; height: 118px; flex: none; background: var(--color-ink-soft); opacity: .75;
+  border-radius: 1px; /* 字面值：書擋（細鐵片），原型定值 */
+}
+.ns-depot-bookend::after {
+  content: ""; position: absolute; bottom: 0; left: 0; width: 13px; height: 3px; background: inherit;
+  border-radius: 1px; /* 字面值：書擋（細鐵片），原型定值 */
+}
+.ns-depot-bookend.is-r::after { left: auto; right: 0; }
+
+/* 還在跑 */
+.ns-depot-running { flex: 1 1 300px; min-width: 0; padding-bottom: 12px; }
+.ns-depot-run-h {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 6px;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-tab); letter-spacing: .2em;
+}
+.ns-depot-run-row {
+  width: 100%; display: flex; align-items: center; gap: 10px; min-height: var(--row-list); padding: 4px 6px;
+  text-align: left; color: var(--color-ink); background: transparent; border: 0; cursor: pointer; font: inherit;
+  border-bottom: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-depot-run-row:hover { background: var(--hover-bg); }
+.ns-depot-run-row:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-depot-run-row .nm {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--fs-body); font-weight: 500; letter-spacing: .06em; white-space: nowrap;
+}
+.ns-depot-run-row .d { margin-left: auto; flex: none; font-size: var(--fs-sm); color: var(--color-ink-soft); white-space: nowrap; }
+.ns-depot-run-row .chev { flex: none; width: 12px; text-align: right; color: var(--color-ink-faint); font-size: var(--fs-ticket); }
+
+/* ═══════════ 印譜帳 ═══════════ */
+.ns-depot-pager { display: flex; gap: 2px; align-self: center; margin: -8px -6px -8px 0; }
+.ns-depot-pager .ns-iconbtn { font-family: var(--font-latin); font-size: var(--fs-ticket); line-height: 1; }
+.ns-depot-album {
+  display: flex; align-items: flex-start; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory;
+  padding: 6px 2px 16px; scroll-behavior: smooth;
+  scrollbar-width: thin; scrollbar-color: var(--color-dash) transparent;
+}
+.ns-depot-apage {
+  flex: 0 0 calc((100% - 32px) / 3); min-width: 232px; scroll-snap-align: end; padding: 14px 12px 16px;
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.4px); background-size: 14px 14px;
+}
+.ns-depot-apage-h {
+  display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; padding: 0 4px 8px;
+  border-bottom: 1px dashed var(--color-dash);
+}
+.ns-depot-apage-h b { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); letter-spacing: .1em; }
+.ns-depot-apage-h .yr { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .08em; }
+.ns-depot-apage-h .cnt { margin-left: auto; font-size: var(--fs-xs); color: var(--color-ink-soft); letter-spacing: .14em; }
+.ns-depot-astamps { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 6px; }
+.ns-depot-acell { width: var(--cw, 72px); display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 0 2px; }
+.ns-depot-acell .dt {
+  font-family: var(--font-latin); color: var(--color-ink-soft); letter-spacing: .04em;
+  font-size: 10.5px; /* 字面值：票券專用（印章下的日期＝圓牌字級），原型定值 */
+}
+
+/* ═══════════ 年鑑 ═══════════ */
+.ns-depot-ago { padding: 16px 18px 12px; margin: var(--sp-5) 0 4px; }
+.ns-depot-ago-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ns-depot-ago-h .k { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; }
+.ns-depot-ago-h .d { font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; }
+.ns-depot-ago-q { margin: 8px 0 0; font-family: var(--font-display); font-weight: 600; font-size: var(--fs-h3); line-height: 1.7; letter-spacing: .06em; }
+.ns-depot-ago-f { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.ns-depot-tag {
+  padding: 0 7px; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-soft);
+}
+
+.ns-depot-yb { display: grid; grid-template-columns: 92px 1fr; gap: 20px; padding: 22px 0; border-bottom: 1px dashed var(--color-dash); }
+.ns-depot-yb:last-child { border-bottom: 0; }
+.ns-depot-yb-m b {
+  display: block; font-family: var(--font-display); font-weight: 700; letter-spacing: .06em; line-height: 1.1;
+  font-size: calc(var(--fs-display) - 4px); /* 原型：桌機 26／手機 22 */
+}
+.ns-depot-yb-m span { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .1em; }
+.ns-depot-yb-m .now { font-family: var(--font-body); color: var(--late); letter-spacing: .14em; }
+.ns-depot-yb-c { min-width: 0; }
+.ns-depot-yb-facts { display: flex; gap: 22px; flex-wrap: wrap; margin: 0; font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; }
+.ns-depot-yb-facts b { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); color: var(--color-ink); margin: 0 3px; }
+.ns-depot-yb-arr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 10px; }
+.ns-depot-yb-arr .k { font-size: var(--fs-xs); letter-spacing: .2em; color: var(--color-ink-soft); }
+.ns-depot-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 4px;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  color: var(--color-ink); font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .06em; cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-depot-chip:hover { border-color: var(--accent); background: var(--hover-bg); }
+.ns-depot-chip:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-depot-chip time { font-family: var(--font-latin); color: var(--color-ink-faint); font-size: var(--fs-xs); }
+.ns-depot-chip.is-trunk { padding-left: 10px; cursor: default; }
+.ns-depot-chip.is-trunk:hover { border-color: var(--color-dash); background: transparent; }
+.ns-depot-chip .tk { font-size: var(--fs-micro); letter-spacing: .2em; color: var(--color-ink-faint); }
+.ns-depot-yb-st { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 12px; }
+.ns-depot-yb-q { margin: 12px 0 0; font-family: var(--font-display); font-weight: 600; font-size: var(--fs-ticket); line-height: 1.7; letter-spacing: .05em; }
+.ns-depot-yb-q cite {
+  display: block; font-family: var(--font-body); font-style: normal; font-weight: 400;
+  font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .1em;
+}
+
+/* ═══════════ 乘車記錄簿（兩殼共用內容；桌機＝頁、手機＝MFullPage 子頁） ═══════════ */
+.ns-depot-backrow { margin: -18px 0 18px; }
+.ns-depot-back {
+  display: inline-flex; align-items: center; gap: 2px; min-height: var(--ctl-h-sm); padding: 0 8px 0 2px; margin-left: -4px;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-ui); letter-spacing: .12em; color: var(--color-ink-soft);
+  transition: color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-depot-back:hover { color: var(--color-ink); background: var(--hover-bg); }
+.ns-depot-back:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+.ns-depot-book { max-width: 720px; }
+/* 桌機頁：頁首照 PageHeader（身分式），終點章放日付印位 */
+.ns-depot-book .ns-pagehead-title { display: inline-flex; align-items: center; gap: 12px; }
+.ns-depot-book .ns-pagehead-stats { max-width: none; }
+.ns-depot-book .ns-pagehead-stats .k { font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); margin-right: 6px; }
+.ns-depot-book .ns-pagehead-stats time { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); margin-left: 6px; }
+
+/* 手機子頁：原型 .bk-head（標題列＋右上一枚終點章） */
+.ns-depot-bk-head { position: relative; padding-right: 84px; min-height: 94px; }
+.ns-depot-bk-head.is-run { padding-right: 0; min-height: 0; }
+.ns-depot-bk-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ns-depot-bk-title h2 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); letter-spacing: .1em; line-height: 1.3; }
+.ns-depot-bk-span { margin: 8px 0 0; font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; }
+.ns-depot-bk-trunk { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 0; font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .08em; }
+.ns-depot-bk-trunk .k { font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); }
+.ns-depot-bk-trunk time { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); }
+.ns-depot-bk-term { position: absolute; right: -6px; top: -6px; }
+
+/* 四格事實：桌機一列四格、手機 2×2 */
+.ns-depot-facts {
+  display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 22px;
+  border-top: 1px solid var(--color-line); border-left: 1px solid var(--color-line);
+}
+.ns-depot-fact {
+  display: flex; flex-direction: column; align-items: flex-start; padding: 9px 12px 8px; text-align: left;
+  border: 0; border-right: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line);
+  background: transparent; color: var(--color-ink); cursor: pointer; font: inherit;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-depot-fact:hover { background: var(--hover-bg); }
+.ns-depot-fact:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.ns-depot-fact .k { display: flex; width: 100%; font-size: var(--fs-xs); letter-spacing: .16em; color: var(--color-ink-soft); }
+.ns-depot-fact .k::after { content: "›"; margin-left: auto; color: var(--color-ink-faint); opacity: var(--dim); }
+.ns-depot-fact:hover .k::after { opacity: 1; }
+.ns-depot-fact .v {
+  font-family: var(--font-display); font-weight: 700; line-height: 1.3; letter-spacing: .02em;
+  font-size: calc(var(--fs-title) + 3px); /* 原型 22（金額＝文件級襯線） */
+}
+.ns-depot-fact .v.l { font-family: var(--font-latin); font-weight: 500; }
+.ns-depot-fact .v small { font-family: var(--font-body); font-weight: 400; font-size: var(--fs-sm); color: var(--color-ink-soft); margin-left: 3px; letter-spacing: .06em; }
+.ns-depot-fact .v.is-pending { color: var(--color-ink-faint); }
+
+.ns-depot-book .sec.is-sm { margin: 22px 0 10px; }
+.ns-depot-book .sec.is-sm h3 { font-size: var(--fs-tab); letter-spacing: .2em; }
+
+/* 經過的車站（時間軸：路線色實線；運行中＝虛線收尾） */
+.ns-depot-stl { position: relative; margin: 0; padding: 0 0 0 30px; list-style: none; }
+.ns-depot-stl::before {
+  content: ""; position: absolute; left: 10px; top: 16px; bottom: 16px; width: 4px;
+  border-radius: var(--radius-ctl); background: var(--rc);
+}
+.ns-depot-stl.is-run::before { bottom: 6px; background: repeating-linear-gradient(180deg, var(--rc) 0 7px, transparent 7px 12px); }
+.ns-depot-stl li {
+  position: relative; display: flex; align-items: baseline; gap: 8px; min-height: var(--row-list); padding: 7px 0;
+  border-bottom: 1px dashed var(--color-line);
+}
+.ns-depot-stl li:last-child { border-bottom: 0; }
+.ns-depot-stl li::before {
+  content: ""; position: absolute; left: -26px; top: 50%; width: 12px; height: 12px; margin-top: -6px;
+  border-radius: 50%; background: var(--ns-depot-dot); border: 2px solid var(--color-ink); box-sizing: border-box;
+}
+.ns-depot-stl li.is-start::before { width: 10px; height: 4px; left: -25px; margin-top: -2px; border: 0; border-radius: 1px; background: var(--color-ink); } /* 字面值：起點橫槓的小圓角 */
+.ns-depot-stl li.is-term::before {
+  width: 16px; height: 16px; left: -28px; margin-top: -8px; border: 2px solid var(--color-ink);
+  box-shadow: inset 0 0 0 3px var(--ns-depot-dot), inset 0 0 0 8px var(--color-ink);
+}
+.ns-depot-stl li.is-now::before { display: none; }
+.ns-depot-stl .nm { font-size: var(--fs-body); letter-spacing: .06em; min-width: 0; overflow-wrap: anywhere; }
+.ns-depot-stl li.is-start .nm,
+.ns-depot-stl li.is-now .nm { font-size: var(--fs-sm); color: var(--color-ink-soft); }
+.ns-depot-stl li.is-now .nm { color: var(--late); }
+.ns-depot-stl time { margin-left: auto; flex: none; font-family: var(--font-latin); font-size: var(--fs-ui); color: var(--color-ink-soft); }
+.ns-depot-stl .ns-depot-tag { align-self: center; flex: none; }
+
+.ns-depot-bk-stamps { display: flex; flex-wrap: wrap; gap: 4px 5px; padding: 2px 0 0; }
+.ns-depot-bk-stamps .ns-depot-acell { --cw: 63px; padding-top: 4px; }
+
+.ns-depot-bk-notes { margin: 0; padding: 0; list-style: none; }
+.ns-depot-bk-notes li { border-bottom: 1px dashed var(--color-line); }
+.ns-depot-bk-note {
+  display: flex; gap: 12px; width: 100%; padding: 8px 2px; text-align: left; border: 0; background: transparent; cursor: pointer;
+  color: var(--color-ink); font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.55; letter-spacing: .02em;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-depot-bk-note:hover { background: var(--hover-bg); }
+.ns-depot-bk-note:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.ns-depot-bk-note time { flex: none; width: 38px; padding-top: 2px; font-family: var(--font-latin); font-size: var(--fs-sm); color: var(--color-ink-faint); }
+.ns-depot-bk-note span { min-width: 0; overflow-wrap: anywhere; }
+.ns-depot-bk-more { margin-top: 4px; }
+.ns-depot-bk-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 26px; }
+
+/* ═══════════ 手機殼 ═══════════ */
+[data-shell="mobile"] .ns-depot-m { padding-bottom: 30px; }
+[data-shell="mobile"] .ns-depot .sec { margin: 26px 0 12px; }
+[data-shell="mobile"] .ns-depot-garage { flex-direction: column; align-items: stretch; gap: 22px; }
+[data-shell="mobile"] .ns-depot-shelfwrap { flex: none; scrollbar-width: none; }
+[data-shell="mobile"] .ns-depot-shelfwrap::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-depot-shelf { gap: 6px; padding: 0 4px; justify-content: center; }
+[data-shell="mobile"] .ns-depot-spine { --w: 58px; --h: 206px; }
+[data-shell="mobile"] .ns-depot-tbooks { gap: 4px; }
+[data-shell="mobile"] .ns-depot-sp-name { font-size: var(--fs-body); letter-spacing: .12em; }
+[data-shell="mobile"] .ns-depot-spine .ns-depot-badge { margin-top: 20px; }
+[data-shell="mobile"] .ns-depot-running { flex: none; padding-bottom: 0; }
+[data-shell="mobile"] .ns-depot-pager { margin: -14px -10px -14px -6px; }
+[data-shell="mobile"] .ns-depot-apage { flex: 0 0 100%; min-width: 0; }
+[data-shell="mobile"] .ns-depot-album { scrollbar-width: none; }
+[data-shell="mobile"] .ns-depot-album::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-depot-astamps { gap: 2px 8px; }
+[data-shell="mobile"] .ns-depot-yb { grid-template-columns: 58px 1fr; gap: 12px; }
+[data-shell="mobile"] .ns-depot-yb-facts { gap: 14px; }
+[data-shell="mobile"] .ns-depot-ago { margin-top: 14px; }
+[data-shell="mobile"] .ns-depot-chip { height: 40px; }
+[data-shell="mobile"] .ns-depot-book { max-width: none; padding: 16px var(--m-gutter) 30px; }
+[data-shell="mobile"] .ns-depot-book .sec { margin: 26px 0 12px; }
+[data-shell="mobile"] .ns-depot-facts { grid-template-columns: 1fr 1fr; margin-top: 16px; }
+[data-shell="mobile"] .ns-depot-fact { min-height: 64px; }
+[data-shell="mobile"] .ns-depot-bk-note { min-height: 44px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-depot-imp.is-fresh { animation: none; }
+  .ns-depot-spine,
+  .ns-depot-imp[role="button"] { transition: none; }
+  .ns-depot-album { scroll-behavior: auto; }
+}

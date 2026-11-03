@@ -18,10 +18,13 @@ import {
   buildEntryRow,
   applyEntryPatch,
   catKey,
+  categoryArchivedUp,
+  categoryForest,
   categoryLabel,
-  categoryTree,
+  categoryPath,
   currencyCode,
   defaultAccountId,
+  flattenForest,
   isLiability,
   localTime,
   moneyText,
@@ -161,9 +164,9 @@ function categoryOrThrow(m: Meta, id: string, kind: CategoryKind, at: string, ke
   const c = m.ectx.catById[id];
   if (!c || c.deleted_at !== null) throw new McpUserError(`${at}：找不到分類 ${id}（先用 find-ledger-categories 查 id）`);
   if (c.kind !== kind) throw new McpUserError(`${at}：分類「${c.name}」是${KIND_LABEL[c.kind]}分類，不能用在${KIND_LABEL[kind]}`);
-  // 分類選單不列封存分類（categoryTree includeArchived:false）
+  // 分類選單不列封存分類（categoryForest includeArchived:false；上層封存＝整棵算封存，D-票-78）
   // 那筆原本就掛著的封存分類照留（同帳戶 allowArchived）
-  if (c.archived_at !== null && id !== keepArchived) throw new McpUserError(`${at}：分類「${c.name}」已封存`);
+  if (categoryArchivedUp(c, m.ectx.catById) && id !== keepArchived) throw new McpUserError(`${at}：分類「${categoryLabel(c, m.ectx.catById)}」已封存`);
   return id;
 }
 
@@ -300,7 +303,8 @@ const findAccounts: McpTool = {
 const findCategories: McpTool = {
   name: "find-ledger-categories",
   title: "查帳目分類",
-  description: "列出收支分類（兩層：主分類 › 子分類），記帳前用這支拿 categoryId。kind：expense 支出、income 收入。「未分類」也在清單裡。",
+  description:
+    "列出收支分類（可以有好幾層，name 是完整路徑「食物 › 外食 › 拉麵」，parentId＝上一層），記帳前用這支拿 categoryId。kind：expense 支出、income 收入。「未分類」也在清單裡。",
   inputSchema: {
     type: "object",
     properties: {
@@ -320,14 +324,15 @@ const findCategories: McpTool = {
     const m = await loadMeta(ctx);
     const out: Record<string, unknown>[] = [];
     for (const k of kind ? [kind] : (["expense", "income"] as const)) {
-      for (const t of categoryTree(m.categories, k, { includeArchived })) {
-        for (const c of [t.parent, ...t.children]) {
-          if (q && !catKey(c.name).includes(q) && !(c !== t.parent && catKey(t.parent.name).includes(q))) continue;
-          const row: Record<string, unknown> = { id: c.id, kind: c.kind, name: categoryLabel(c, m.ectx.catById) };
-          if (c !== t.parent) row.parentId = t.parent.id;
-          if (c.archived_at !== null) row.archived = true;
-          out.push(row);
-        }
+      // 前序（＝App 裡的樹順序）；關鍵字比自己與每一層上層的名字（搜「食物」連底下整棵都列）
+      for (const n of flattenForest(categoryForest(m.categories, k, { includeArchived }))) {
+        const c = n.cat;
+        const path = categoryPath(c, m.ectx.catById);
+        if (q && !path.some((x) => catKey(x.name).includes(q))) continue;
+        const row: Record<string, unknown> = { id: c.id, kind: c.kind, name: path.map((x) => x.name).join(" › ") };
+        if (path.length > 1) row.parentId = path[path.length - 2].id;
+        if (c.archived_at !== null) row.archived = true;
+        out.push(row);
       }
     }
     const cut = out.length > CATEGORY_LIMIT;
@@ -342,14 +347,14 @@ const findEntries: McpTool = {
   name: "find-ledger-entries",
   title: "查帳",
   description:
-    "依日期區間（最多 92 天）、帳戶、分類、種類、關鍵字查帳，新到舊，最多 100 筆。省略日期＝到今天為止的 30 天。分類給主分類會連子分類一起查。關鍵字比備註、分類、帳戶名，純數字比金額。",
+    "依日期區間（最多 92 天）、帳戶、分類、種類、關鍵字查帳，新到舊，最多 100 筆。省略日期＝到今天為止的 30 天。給一個分類會連它底下每一層一起查。關鍵字比備註、分類、帳戶名，純數字比金額。",
   inputSchema: {
     type: "object",
     properties: {
       from: { ...S_DATE, description: "起日 YYYY-MM-DD（含）" },
       to: { ...S_DATE, description: "迄日 YYYY-MM-DD（含）" },
       accountId: { type: "string", description: "只看這個帳戶（含轉入）" },
-      categoryId: { type: "string", description: "分類 id；主分類含子分類" },
+      categoryId: { type: "string", description: "分類 id；含它底下每一層" },
       kind: { type: "string", enum: ["expense", "income", "transfer", "adjust"], description: "adjust＝餘額調整" },
       query: { type: "string", description: "關鍵字（空白分隔＝都要符合）" },
       limit: { type: "integer", minimum: 1, maximum: LIST_LIMIT, description: "預設 100" },
@@ -420,6 +425,7 @@ function breakdownView(b: { rows: BreakdownRow[]; refunds: BreakdownRow[] }, dec
       sharePct: Math.round(r.share * 100),
       count: r.count,
     };
+    if (r.deeper) out.deeper = true; // 底下還有更深的分類：給 categoryId＝這一列再問一次（同統計頁「進入」）
     if (r.children) out.children = r.children.map(one);
     return out;
   };
@@ -430,12 +436,14 @@ const getSummary: McpTool = {
   name: "get-spending-summary",
   title: "收支統計",
   description:
-    "某個月（或某一年）的收入、支出、淨額，各分類合計與占比（同 App 統計頁），月模式另附預算使用（預算、已用、剩餘、時間進度）。省略＝本月。金額一律主幣別。",
+    "某個月（或某一年）的收入、支出、淨額，各分類合計與占比（同 App 統計頁），月模式另附預算使用（預算、已用、剩餘、時間進度）。省略＝本月。金額一律主幣別。" +
+    "分類一次列兩層；標 deeper 的列底下還有，給 categoryId 就以那個分類為根再列兩層（同統計頁「進入」）。",
   inputSchema: {
     type: "object",
     properties: {
       month: { type: "string", pattern: "^\\d{4}-\\d{2}$", description: "YYYY-MM" },
       year: { type: "string", pattern: "^\\d{4}$", description: "YYYY（整年；不附預算）" },
+      categoryId: { type: "string", description: "只看這個分類底下（以它為根；find-ledger-categories 或上一次回的 deeper 列）；省略＝全部分類" },
     },
     additionalProperties: false,
   },
@@ -445,6 +453,7 @@ const getSummary: McpTool = {
   async run(args: Args, ctx: McpCtx): Promise<McpOutcome> {
     const month = str(args, "month");
     const year = str(args, "year");
+    const rootId = str(args, "categoryId");
     if (month && year) throw new McpUserError("month 和 year 只能給一個");
     if (month !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new McpUserError(`month 要是 YYYY-MM，收到「${month}」`);
     if (year !== undefined && !/^\d{4}$/.test(year)) throw new McpUserError(`year 要是 YYYY，收到「${year}」`);
@@ -466,9 +475,20 @@ const getSummary: McpTool = {
       expense: num(ov.expense, dec),
       net: num(ov.net, dec),
       count: ov.count,
-      expenseByCategory: breakdownView(breakdown(entries, r, "category", "expense", vctx), dec),
-      incomeByCategory: breakdownView(breakdown(entries, r, "category", "income", vctx), dec),
     };
+    if (rootId === undefined) {
+      data.expenseByCategory = breakdownView(breakdown(entries, r, "category", "expense", vctx), dec);
+      data.incomeByCategory = breakdownView(breakdown(entries, r, "category", "income", vctx), dec);
+    } else {
+      // 以某分類為根：只列它那個收支類型；最後一列 categoryId null＝直接記在它本身的帳（統計頁的「未細分」）
+      const root = m.ectx.catById[rootId];
+      if (!root || root.deleted_at !== null) throw new McpUserError(`categoryId：找不到分類 ${rootId}（先用 find-ledger-categories 查 id）`);
+      data.rootCategory = categoryLabel(root, m.ectx.catById);
+      data[root.kind === "expense" ? "expenseByCategory" : "incomeByCategory"] = breakdownView(
+        breakdown(entries, r, "category", root.kind, vctx, { catRoot: rootId }),
+        dec,
+      );
+    }
     let budgetNote = "";
     if (period.span === "month") {
       // 同統計頁預算卡（ticketStore.computeBudgetLines）：budgetLines(預算, 帳, 月, 分類, 今天, ctx)

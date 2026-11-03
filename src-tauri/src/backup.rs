@@ -845,7 +845,7 @@ pub struct ImportedFile {
 }
 
 /// 手機「從檔案還原…」的第一步：Android 的 SAF 給 `content://` URI，`std::fs` 開不了（只有 plugin-fs 的
-/// `Fs::open` 會走 ContentResolver 拿 fd，同售票口匯入 `mmbak::copy_to_cache`）——先抄進
+/// `Fs::open` 會走 ContentResolver 拿 fd）——先抄進
 /// `app_cache_dir()/backup-import/<主人選的檔名>` 並驗好，回暫存路徑；之後走跟桌機同一條 `backup_restore`。
 /// 錯誤句裡的暫存路徑換成主人選的檔名（主人看不懂 App 私有目錄）。上一次的暫存在這裡清掉
 /// （還原成功會重啟、用不到了；失敗或取消就留到下一次進來）。JS 參數：`{ uri }`

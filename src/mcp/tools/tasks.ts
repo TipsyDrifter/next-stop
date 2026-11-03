@@ -224,14 +224,23 @@ export function parseRescheduleItem(a: Args, where: string, idKey = "id"): Resch
 const findRoutes: McpTool = {
   name: "find-routes",
   title: "列出路線",
-  description: "列出幹線與底下的路線（路線＝project），附進度（任務済數／總數、車站到站數）。要看某條路線的車票用 find-tasks 帶 routeId。",
-  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  description:
+    "列出幹線與底下的路線（路線＝project），附進度（任務済數／總數、車站到站數）。預設只列還在跑的路線；inDepot:true＝改列已到站、收進車庫的路線（附到站日 arrivedOn）。要看某條路線的車票用 find-tasks 帶 routeId。",
+  inputSchema: {
+    type: "object",
+    properties: { inDepot: { type: "boolean", description: "改列收進車庫（已到站）的路線" } },
+    additionalProperties: false,
+  },
   module: "tasks",
   access: "read",
   annotations: READ,
-  async run(_args, ctx) {
+  async run(args, ctx) {
     const repo = ctx.deps.nodeRepo;
-    const { lines, routes } = await repo.listSidebar();
+    const side = await repo.listSidebar();
+    // 車庫與回顧 D-主-206 #11：預設只列還在跑的；inDepot 只列車庫裡的
+    const depot = bool(args, "inDepot") === true;
+    const routes = side.routes.filter((r) => (depot ? r.arrived_on !== null : r.arrived_on === null));
+    const lines = side.lines.filter((l) => routes.some((r) => r.line_id === l.id) || (!depot && l.arrived_on === null));
     const shown = routes.slice(0, LIST_LIMIT);
     const progress = await Promise.all(shown.map((r) => repo.routeProgress(r.id)));
     const byLine = new Map<string | null, unknown[]>();
@@ -244,13 +253,14 @@ const findRoutes: McpTool = {
         status: r.status !== "todo" ? r.status : null,
         tasks: `${p.nodes_done}/${p.nodes_total}`,
         stations: p.stations_total ? `${p.stations_arrived}/${p.stations_total}` : null,
+        arrivedOn: r.arrived_on,
       });
       const key = r.parent_id;
       byLine.set(key, [...(byLine.get(key) ?? []), entry]);
     });
     const data = lines.map((l) => ({ id: l.id, name: l.name, routes: byLine.get(l.id) ?? [] }));
     const cut = routes.length > shown.length ? `（只列前 ${LIST_LIMIT} 條）` : "";
-    return { summary: `${lines.length} 條幹線、${routes.length} 條路線${cut}`, data };
+    return { summary: `${depot ? "車庫裡：" : ""}${lines.length} 條幹線、${routes.length} 條路線${cut}`, data };
   },
 };
 
@@ -440,7 +450,7 @@ const addTasks: McpTool = {
   name: "add-tasks",
   title: "建立車票",
   description:
-    "建立車票（最多 50 張）。不給 parentId＝臨時車票，可用 routeId 掛路線標籤；要放進路線大綱用 parentId（路線底下放 train 列車，列車／車廂底下放 ticket 或 car）。scheduledOn＝執行日（不能早於今天）、dueOn＝締切、scheduledTime＝預定時刻 HH:MM（營業日表記：過了午夜、還沒到日界線的凌晨寫成 24 以上，例 25:00＝凌晨 1 點）。",
+    "建立車票（最多 50 張）。不給 parentId＝臨時車票，可用 routeId 掛路線標籤；要放進路線大綱用 parentId（路線底下放 train 列車或 branch 支線；支線底下放 branch、train 或 ticket；列車／車廂底下放 ticket 或 car；路線底下的車票＝不給 parentId、用 routeId 掛路線標籤）。scheduledOn＝執行日（不能早於今天）、dueOn＝締切、scheduledTime＝預定時刻 HH:MM（營業日表記：過了午夜、還沒到日界線的凌晨寫成 24 以上，例 25:00＝凌晨 1 點）。",
   inputSchema: {
     type: "object",
     properties: {
@@ -488,6 +498,7 @@ const addTasks: McpTool = {
       if (scheduledOn && kind === "branch") throw new McpUserError(`${where}：支線沒有執行日`);
       const time = nullableClock(a, "scheduledTime", where);
       if (time && kind === "branch") throw new McpUserError(`${where}：支線沒有預定時刻`);
+      if (a.dueOn !== undefined && a.dueOn !== null && kind === "branch") throw new McpUserError(`${where}：支線沒有締切`);
       assertClock(time, ctx, `${where}.scheduledTime`);
       const patch: NodePatch = compact({
         due_on: date(a, "dueOn", { where }),

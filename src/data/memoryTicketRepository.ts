@@ -2,7 +2,7 @@
  * 售票口線的記憶體實作（車次①契約 §3.7；甲席 Stage 0 全文）——`?mock=1` 純瀏覽器預覽用，乙丙席開發靠它。
  *
  * - 資料存 `Map`，進出一律複製（同 `memoryTimetableRepository.ts`）。所有寫入走**同一套 domain 函式**
- *   （`buildEntryRow`／`applyEntryPatch`／`adjustRow`／`materializeImport`），`balances` 用 `balancesOf`——mock 與真機語義一致。
+ *   （`buildEntryRow`／`applyEntryPatch`／`adjustRow`），`balances` 用 `balancesOf`——mock 與真機語義一致。
  * - `ensureStarterRows` 照真機（`?mock=1&wiped=1` 也種：它是空庫第一次開）。
  * - 示範資料（`seedDemo`，第一次讀取時 lazy 種；固定種子的 PRNG，截圖穩定）：帳戶＝樣本格式 §三的 7 個名稱與群組；
  *   分類＝樣本格式 §四的現用樹（名稱照搬含 emoji）；幣別 TWD＋USD（31.549671）＋CNY（4.35）；帳＝今天往前 62 天、
@@ -10,26 +10,26 @@
  * - 評審端點（本檔自己讀 `location.search`，不經 `DEV_FLAGS`——那是集中檔）：
  *     `&tk=empty`     帳戶與分類樹照種、一筆帳都沒有（「這本帳還是空的」）
  *     `&tk=noaccount` 只有起手三列（捕捉框報「還沒有帳戶」）
- *     `&tk=badschema` `readImport` 回 `{ missing: ["ASSETS"], dump: null }`
- *     `&tk=import2`   同一頁第二次起的 `readImport` 回「其中 2 筆 UTIME＋1、備註改字」的版本（驗「已修改 2」）
  *     `&tk=routes`    （②契約 §3.3）mock 路線 id 對齊主線 mock 路線——本檔**預設就對齊**，這個值只是明寫出來（同預設）
  * - 第②階段（②契約 §3.3）：示範支出約三成掛路線（另一顆固定種子的 PRNG 挑，不動 ①示範帳的亂數序列）＋一筆掛「已刪除的路線」；
  *   掛的是三個固定假 id，第一次讀帳時去問主線的 mock `nodeRepo.listSidebar()`、依側欄順序換成真的路線 id
  *   （主線 mock 路線 id 是 uuid() 隨機產生，`memoryRepository.ts` 不改；對不上＝顯示「（路線已刪除）」，不算錯）。
  *   `queryEntries`／`routeSpend` 用 `ticketView.ts` 的純函式算（`matchesQuery`／`routeSpendOf`），與 SQL 同義、測試互證。
- * - 匯入：`pickImportFile` 回 `"mock.mmbak"`；`readImport` 回 fixture dump（`mockImportDump`；與示範資料同一棵樹）。
  * - 第③階段（③契約 §3.7、0-15）：預算與定期規則各一個 Map；所有寫入走 `ticketPlan.ts` 同一套純函式
- *   （`budgetRow`／`buildRepeatRow`／`applyRepeatPatch`／`planMaterialize`／`withSkipped`／`resumeNextOn`／`planImportAll` 的產物），與真機語義一致。
+ *   （`budgetRow`／`buildRepeatRow`／`applyRepeatPatch`／`planMaterialize`／`withSkipped`／`resumeNextOn` 的產物），與真機語義一致。
  *     `&tk=plan`    示範資料外加 3 個預算（總預算＋🍜 食物＋午餐；總預算本月有覆寫、而且本月已用 > 覆寫 ⇒ 超支條與月曆「超」格）
- *                   ＋ 5 條規則（每日、每週一三五、每月 1 日、一條匯入的已暫停、一條指到已刪帳戶的 ⚠）；過去的班在種子裡先記到昨天，
+ *                   ＋ 5 條規則（每日、每週一三五、每月 1 日、一條早期匯入的已暫停、一條指到已刪帳戶的 ⚠）；過去的班在種子裡先記到昨天，
  *                   今天那一班留給啟動時（或 `__nsTicket.materializeNow()`）的實體化
- *     `&tk=import3` 匯入 fixture 多三張表（3 預算＋2 覆寫＋1 條 PERIOD_TYPE=3；4 條每月規則＋1 條 REPEAT_TYPE=9）
+ * - 售票口④（Stage 0 資料席）：願望與常用票種各一個 Map；寫入走 `ticketAids.ts` 同一套純函式，「搬到第 k 個」走 `planMoveTo`
+ *   （整組寫，與 SQLite 同義）。示範資料（`seedDemo`、不是 `tk=empty／noaccount`）多 4 個願望（其中 1 個已買、連到一筆示範帳）
+ *   與 3 個常用票種，乙丙席開 `?mock=1` 就看得到願望分頁與記一筆最上面那排小卡。
+ * - 售票口④ 第二輪：分類不限層數——createCategory 不再擋第三層、`moveCategoryUnder`／`setCategoryArchived` 走 domain 的
+ *   `planMoveUnder`／`categorySubtreeIds`（與 SQLite 同義）；示範資料在「🍜 食物 › 午餐」底下多「便當」「學餐」兩個第三層（`seedDeep`）。
  */
 import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, todayKey } from "../lib/date";
 import {
   CURRENCY_NAMES,
-  IMPORT_CHUNK,
   STARTER_CATEGORIES,
   STARTER_CURRENCY,
   UNCAT_EXPENSE_ID,
@@ -38,13 +38,16 @@ import {
   applyEntryPatch,
   balancesOf,
   buildEntryRow,
+  categoryArchivedUp,
+  categorySubtreeIds,
   currencyCode,
   effectiveParentId,
-  materializeImport,
   minorFromDecimal,
   orderAccounts,
   parseRate,
   planAdjust,
+  planMoveTo,
+  planMoveUnder,
   ticketId,
   type AccountRow,
   type CategoryKind,
@@ -53,13 +56,6 @@ import {
   type EntryCtx,
   type EntryPatch,
   type EntryRow,
-  type ImportChoice,
-  type ImportLocal,
-  type ImportOutcome,
-  type ImportPlan,
-  type MmbakDump,
-  type MmbakReadResult,
-  type MmTx,
   type NewEntryInput,
   type UsageSince,
 } from "../domain/ticket";
@@ -70,7 +66,6 @@ import {
   budgetId,
   budgetRow,
   buildRepeatRow,
-  neverStarted,
   planMaterialize,
   repeatOrder,
   resumeNextOn,
@@ -80,18 +75,31 @@ import {
   withSkipped,
   type BudgetRow,
   type BudgetScope,
-  type MmBudget,
-  type MmBudgetAmount,
-  type MmRepeat,
   type NewRepeatInput,
-  type PlanImportPart,
   type RepeatPatch,
   type RepeatRow,
 } from "../domain/ticketPlan";
 import { fixedRule } from "../domain/repeat";
+import {
+  AIDS_TEXT,
+  applyTemplatePatch,
+  applyWishPatch,
+  buildTemplateRow,
+  buildWishRow,
+  byPosition,
+  wishBought,
+  type NewTemplateInput,
+  type NewWishInput,
+  type NoteUse,
+  type TemplatePatch,
+  type TemplateRow,
+  type WishPatch,
+  type WishRow,
+} from "../domain/ticketAids";
 import type {
   AccountPatch,
   CurrencyPatch,
+  MaterializedRow,
   NewAccountInput,
   NewCategoryInput,
   NewCurrencyInput,
@@ -106,14 +114,14 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const recency = (a: EntryRow, b: EntryRow): number =>
   cmp(a.created_at, b.created_at) || cmp(a.occurred_on, b.occurred_on) || cmp(a.occurred_at, b.occurred_at) || cmp(a.id, b.id);
 
-type TkMode = "empty" | "noaccount" | "badschema" | "import2" | "routes" | "plan" | "import3" | null;
+type TkMode = "empty" | "noaccount" | "routes" | "plan" | null;
 
-/** 評審端點：`&tk=empty|noaccount|badschema|import2|routes|plan|import3` */
+/** 評審端點：`&tk=empty|noaccount|routes|plan` */
 function tkMode(): TkMode {
   if (typeof window === "undefined") return null;
   try {
     const v = new URLSearchParams(window.location.search).get("tk");
-    return v === "empty" || v === "noaccount" || v === "badschema" || v === "import2" || v === "routes" || v === "plan" || v === "import3"
+    return v === "empty" || v === "noaccount" || v === "routes" || v === "plan"
       ? v
       : null;
   } catch {
@@ -168,165 +176,8 @@ export const MOCK_ROUTE_IDS = ["mock-route-1", "mock-route-2", "mock-route-3"] a
 /** 一筆掛在「已刪除的路線」上的帳（占比出「（路線已刪除）」一列） */
 export const MOCK_ROUTE_GONE = "mock-route-gone";
 
-/* ───────── 匯入 fixture（與示範資料同一棵樹；~120 筆；UTIME 固定） ───────── */
-
-const MM_GROUPS = ["現金", "帳戶", "信用卡", "扣帳卡", "定期存款", "電子貨幣", "投資", "信用額度", "貸款", "保險", "其他"];
-const MM_ACC: { uid: string; name: string; group: string }[] = [
-  { uid: "mm-a1", name: "現金", group: "現金" },
-  { uid: "mm-a2", name: "帳戶", group: "帳戶" },
-  { uid: "mm-a3", name: "學生證", group: "帳戶" },
-  { uid: "mm-a4", name: "出借貸款", group: "投資" },
-  { uid: "mm-a5", name: "悠遊卡", group: "帳戶" },
-  { uid: "mm-a6", name: "悠遊卡", group: "扣帳卡" },
-  { uid: "mm-a7", name: "信用卡", group: "信用卡" },
-];
-const MM_UTIME = 1759276800000; // 固定（2025-10-01T00:00:00Z）
-
-/** 第③階段 fixture 的三張表（`&tk=import3`；③契約 0-15）：分類 uid 對齊 mockImportDump 的樹（mm-ce0＝🍜 食物、mm-ce0-4＝點心） */
-export function mockPlanTables(): Pick<MmbakDump, "budgets" | "budget_amounts" | "repeats"> {
-  const md = MM_UTIME;
-  const budgets: MmBudget[] = [
-    { uid: "_1_1_0_6", target_uid: null, do_type: 1, period_type: 6, is_total: true, is_del: false, transfer_type: 0, modify_date: md },
-    { uid: "mm-ce0_1_0_0_6", target_uid: "mm-ce0", do_type: 1, period_type: 6, is_total: false, is_del: false, transfer_type: 0, modify_date: md },
-    { uid: "mm-ce0-4_1_0_0_6", target_uid: "mm-ce0-4", do_type: 1, period_type: 6, is_total: false, is_del: false, transfer_type: 0, modify_date: md },
-    { uid: "mm-ce1_1_0_0_3", target_uid: "mm-ce1", do_type: 1, period_type: 3, is_total: false, is_del: false, transfer_type: 0, modify_date: md },
-  ];
-  const budget_amounts: MmBudgetAmount[] = [
-    { uid: "mm-ba1", budget_uid: "_1_1_0_6", is_del: false, amount: "15000.0", budget_period: 0, modify_date: md },
-    { uid: "mm-ba2", budget_uid: "mm-ce0_1_0_0_6", is_del: false, amount: "6000.0", budget_period: 0, modify_date: md },
-    { uid: "mm-ba3", budget_uid: "mm-ce0-4_1_0_0_6", is_del: false, amount: "800.0", budget_period: 0, modify_date: md },
-    { uid: "mm-ba4", budget_uid: "_1_1_0_6", is_del: false, amount: "12000.0", budget_period: 202601, modify_date: md },
-    { uid: "mm-ba5", budget_uid: "mm-ce0_1_0_0_6", is_del: false, amount: "5000.0", budget_period: 202601, modify_date: md },
-    { uid: "mm-ba6", budget_uid: "mm-ce1_1_0_0_3", is_del: false, amount: "300.0", budget_period: 0, modify_date: md },
-  ];
-  const at = (y: number, m: number, d: number, h: number, mi: number): number => new Date(y, m - 1, d, h, mi).getTime();
-  const rep = (p: Partial<MmRepeat> & { uid: string; do_type: number; next_date: number; amount_sub: string }): MmRepeat => ({
-    is_del: false,
-    usetime: md,
-    end_date: 0,
-    repeat_type: 1,
-    asset_uid: "mm-a2",
-    to_asset_uid: null,
-    ctg_uid: null,
-    currency_uid: "mm-c1",
-    memo: "",
-    payee: "",
-    ...p,
-  });
-  const repeats: MmRepeat[] = [
-    rep({ uid: "mm-r1", do_type: 1, next_date: at(2026, 11, 3, 9, 30), amount_sub: "300.0", ctg_uid: "mm-ce2-6", payee: "雲端硬碟" }),
-    rep({ uid: "mm-r2", do_type: 0, next_date: at(2026, 10, 20, 8, 0), amount_sub: "6000.0", ctg_uid: "mm-ci0", payee: "生活費" }),
-    rep({ uid: "mm-r3", do_type: 1, next_date: at(2026, 10, 16, 21, 15), amount_sub: "10.0", ctg_uid: "mm-ce2-6", currency_uid: "mm-c2", payee: "線上服務" }),
-    rep({ uid: "mm-r4", do_type: 1, next_date: at(2026, 11, 1, 10, 0), amount_sub: "8000.0", ctg_uid: "mm-ce2-0", asset_uid: "mm-a1", memo: "房租" }),
-    rep({ uid: "mm-r5", do_type: 1, next_date: at(2026, 11, 5, 12, 0), amount_sub: "50.0", ctg_uid: "mm-ce0-5", repeat_type: 9, payee: "每週飲料" }),
-  ];
-  return { budgets, budget_amounts, repeats };
-}
-
-/** 匯入 fixture；variant＝"import2" ⇒ 其中 2 筆 UTIME＋1、備註改字；withPlan ⇒ 三張第③階段的表有內容（否則空陣列） */
-export function mockImportDump(variant: "base" | "import2", withPlan = false): MmbakDump {
-  const rnd = prng(20261011);
-  const groups = MM_GROUPS.map((name, i) => ({ uid: `mm-g${i + 1}`, type_code: i + 1, name }));
-  const groupUid = (name: string) => groups.find((g) => g.name === name)?.uid ?? null;
-  const currencies = [
-    { uid: "mm-c1", iso: "TWD", is_main: true, rate: "1", decimals: 2 },
-    { uid: "mm-c2", iso: "USD", is_main: false, rate: "31.549671", decimals: 2 },
-    { uid: "mm-c3", iso: "CNY", is_main: false, rate: "4.35", decimals: 2 },
-  ];
-  const accounts = MM_ACC.map((a) => ({ uid: a.uid, name: a.name, group_uid: groupUid(a.group), currency_uid: "mm-c1", is_del: false }));
-  const categories: MmbakDump["categories"] = [];
-  DEMO_INCOME.forEach((name, i) => categories.push({ uid: `mm-ci${i}`, type_code: 0, name, parent_uid: null, status: 0, is_del: false }));
-  const expenseLeaves: string[] = [];
-  DEMO_EXPENSE.forEach((p, i) => {
-    categories.push({ uid: `mm-ce${i}`, type_code: 1, name: p.name, parent_uid: null, status: 0, is_del: false });
-    p.children.forEach((c, j) => {
-      const uid = `mm-ce${i}-${j}`;
-      categories.push({ uid, type_code: 1, name: c, parent_uid: `mm-ce${i}`, status: 2, is_del: false });
-      expenseLeaves.push(uid);
-    });
-  });
-  // 一個被指到的已刪分類、一個沒被指到的已刪分類
-  categories.push({ uid: "mm-cdel1", type_code: 1, name: "🎮 舊遊戲", parent_uid: null, status: 0, is_del: true });
-  categories.push({ uid: "mm-cdel2", type_code: 1, name: "舊分類", parent_uid: null, status: 0, is_del: true });
-
-  const txs: MmTx[] = [];
-  let n = 0;
-  const day = (i: number): string => addDays("2026-07-01", i);
-  const zdate = (d: string, h: number): string => {
-    const [y, m, dd] = d.split("-").map((s) => parseInt(s, 10));
-    return String(new Date(y, m - 1, dd, h, Math.floor(rnd() * 60)).getTime());
-  };
-  const push = (t: Partial<MmTx> & { do_type: string; wdate: string; zmoney: string; asset_uid: string | null }) => {
-    n++;
-    txs.push({
-      uid: t.uid ?? `mm-t${n}`,
-      do_type: t.do_type,
-      asset_uid: t.asset_uid,
-      to_asset_uid: t.to_asset_uid ?? null,
-      tx_uid_trans: t.tx_uid_trans ?? null,
-      ctg_uid: t.ctg_uid ?? null,
-      zmoney: t.zmoney,
-      in_zmoney: t.in_zmoney === undefined ? t.zmoney : t.in_zmoney,
-      currency_uid: t.currency_uid ?? "mm-c1",
-      wdate: t.wdate,
-      zdate: t.zdate ?? zdate(t.wdate, 12),
-      content: t.content ?? "",
-      utime: t.utime ?? MM_UTIME,
-      is_del: t.is_del ?? false,
-    });
-  };
-  const spendAcc = ["mm-a1", "mm-a1", "mm-a2", "mm-a3", "mm-a3", "mm-a5"];
-  for (let i = 0; i < 100; i++) {
-    const d = day(Math.floor(i * 0.9));
-    if (i % 12 === 0) {
-      push({ do_type: "0", wdate: d, zmoney: String(2000 + Math.floor(rnd() * 60) * 50), asset_uid: "mm-a2", ctg_uid: `mm-ci${i % 3}` });
-    } else {
-      const leaf = expenseLeaves[Math.floor(rnd() * expenseLeaves.length)];
-      push({
-        do_type: "1",
-        wdate: d,
-        zdate: zdate(d, 8 + Math.floor(rnd() * 14)),
-        zmoney: String(30 + Math.floor(rnd() * 470)) + (rnd() < 0.15 ? ".5" : ".0"),
-        asset_uid: spendAcc[Math.floor(rnd() * spendAcc.length)],
-        ctg_uid: leaf,
-        content: DEMO_NOTES[Math.floor(rnd() * DEMO_NOTES.length)],
-      });
-    }
-  }
-  // 3 對轉帳＋1 條缺腿
-  const transfer = (key: string, d: string, from: string, to: string, amt: string) => {
-    push({ do_type: "3", wdate: d, zmoney: amt, asset_uid: from, to_asset_uid: to, tx_uid_trans: key, content: "儲值" });
-    push({ do_type: "4", wdate: d, zmoney: amt, asset_uid: to, to_asset_uid: from, tx_uid_trans: key });
-  };
-  transfer("mm-tr1", day(5), "mm-a2", "mm-a3", "500");
-  transfer("mm-tr2", day(35), "mm-a2", "mm-a1", "1000");
-  transfer("mm-tr3", day(70), "mm-a1", "mm-a5", "300");
-  push({ do_type: "3", wdate: day(80), zmoney: "200", asset_uid: "mm-a2", to_asset_uid: "mm-a3", tx_uid_trans: "mm-tr-lonely" });
-  // 4 筆差別
-  push({ do_type: "7", wdate: day(10), zmoney: "120", asset_uid: "mm-a1" });
-  push({ do_type: "8", wdate: day(40), zmoney: "37", asset_uid: "mm-a1" });
-  push({ do_type: "7", wdate: day(20), zmoney: "15000", asset_uid: "mm-a2" });
-  push({ do_type: "8", wdate: day(60), zmoney: "2000", asset_uid: "mm-a4" });
-  // 孤兒、被指到的已刪分類、USD、CNY、一筆已刪
-  push({ do_type: "1", wdate: day(12), zmoney: "99", asset_uid: "mm-a1", ctg_uid: "mm-cmissing", content: "分類被硬刪的那筆" });
-  push({ do_type: "1", wdate: day(14), zmoney: "450", asset_uid: "mm-a2", ctg_uid: "mm-cdel1", content: "舊遊戲" });
-  // 外幣列：zmoney＝帳戶幣別（TWD）額、in_zmoney＝原幣額
-  push({ do_type: "1", wdate: day(16), zmoney: "315.5", in_zmoney: "10", asset_uid: "mm-a2", ctg_uid: expenseLeaves[40], currency_uid: "mm-c2", content: "App Store" });
-  push({ do_type: "1", wdate: day(18), zmoney: "152.25", in_zmoney: "35", asset_uid: "mm-a1", ctg_uid: expenseLeaves[1], currency_uid: "mm-c3", content: "上海午餐" });
-  push({ do_type: "1", wdate: day(19), zmoney: "60", asset_uid: "mm-a1", ctg_uid: expenseLeaves[0], is_del: true });
-
-  if (variant === "import2") {
-    for (const uid of ["mm-t2", "mm-t3"]) {
-      const t = txs.find((x) => x.uid === uid);
-      if (t) {
-        t.utime += 1;
-        t.content = (t.content ? t.content + " " : "") + "（財務管家改過）";
-      }
-    }
-  }
-  const plan = withPlan ? mockPlanTables() : { budgets: [], budget_amounts: [], repeats: [] };
-  return { file_name: "mock.mmbak", currencies, groups, accounts, categories, transactions: txs, ...plan, plan_missing: [] };
-}
+/** 示範用的「早期從財務管家匯入、已暫停」規則（`&tk=plan`）的 import_utime；固定（2025-10-01T00:00:00Z） */
+const MM_UTIME = 1759276800000;
 
 /* ───────── 實作 ───────── */
 
@@ -337,9 +188,10 @@ export class MemoryTicketRepository implements TicketRepository {
   private readonly ent = new Map<string, EntryRow>();
   private readonly bud = new Map<string, BudgetRow>(); // 第③階段
   private readonly rep = new Map<string, RepeatRow>(); // 第③階段
+  private readonly wis = new Map<string, WishRow>(); // 售票口④
+  private readonly tpl = new Map<string, TemplateRow>(); // 售票口④
   private readonly seedDemo: boolean;
   private demoSeeded = false;
-  private readCount = 0;
 
   constructor(opts: { seedDemo: boolean }) {
     this.seedDemo = opts.seedDemo;
@@ -482,7 +334,54 @@ export class MemoryTicketRepository implements TicketRepository {
       }
     }
 
+    this.seedDeep(leafIds[1], nowIso);
+    this.seedAids(accId, leafIds, nowIso);
     if (mode === "plan") this.seedPlan(today, accId, incomeIds, leafIds, nowIso);
+  }
+
+  /**
+   * 售票口④ 第二輪（D-票-78）示範第三層：「🍜 食物 › 午餐」底下加「便當」「學餐」，備註是這兩個字的午餐帳搬過去
+   * （不動 rnd 序列；其餘午餐留在午餐本身＝統計「未細分」）。只在有示範帳時種。
+   */
+  private seedDeep(lunchId: string | undefined, nowIso: string): void {
+    if (!lunchId) return;
+    const stamp = { device_id: null, created_at: nowIso, updated_at: nowIso, synced_at: null, deleted_at: null };
+    const ids: Record<string, string> = {};
+    ["便當", "學餐"].forEach((name, i) => {
+      const id = uuid();
+      ids[name] = id;
+      this.cat.set(id, { id, kind: "expense", name, parent_id: lunchId, position: i, archived_at: null, ...stamp });
+    });
+    for (const e of this.ent.values()) if (e.category_id === lunchId && ids[e.note]) e.category_id = ids[e.note];
+  }
+
+  /**
+   * 售票口④ 示範：4 個願望（3 個想買、1 個已買＝連到最近一筆 5 天前以前的支出）＋3 個常用票種（午餐、捷運、儲值）。
+   * 分類用示範樹的子分類（leafIds：1 午餐、9 捷運、21 電子用品）；只在有示範帳時種（tk=empty 不種）。
+   */
+  private seedAids(accId: Record<string, string>, leafIds: string[], nowIso: string): void {
+    const at = (i: number): string => new Date(Date.parse(nowIso) + i).toISOString();
+    const wish = (i: number, name: string, amount: number | null, categoryId: string | null, note = ""): WishRow =>
+      buildWishRow({ name, amountMinor: amount, note, categoryId }, { id: uuid(), position: i, nowIso: at(i) });
+    const bought = Array.from(this.ent.values())
+      .filter((e) => e.kind === "expense" && e.amount_minor > 0 && e.occurred_on <= addDays(todayKey(3), -5))
+      .sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : a.occurred_on > b.occurred_on ? -1 : 0))[0];
+    const rows = [
+      wish(0, "降噪耳機", 780000, leafIds[21] ?? null, "等特價"),
+      wish(1, "登山背包", 350000, null),
+      wish(2, "手沖壺", null, null),
+    ];
+    if (bought) rows.push({ ...wish(3, bought.note || "行動電源", bought.amount_minor, bought.category_id), entry_id: bought.id, bought_at: bought.created_at });
+    for (const w of rows) this.wis.set(w.id, w);
+    const tpl = (i: number, input: NewTemplateInput): TemplateRow => buildTemplateRow(input, { id: uuid(), position: i, nowIso: at(10 + i) });
+    const base = { currency: "TWD", toAccountId: null, routeId: null };
+    for (const t of [
+      tpl(0, { ...base, name: "午餐", kind: "expense", amountMinor: 12000, accountId: accId.student, categoryId: leafIds[1] ?? null, note: "學餐" }),
+      tpl(1, { ...base, name: "捷運", kind: "expense", amountMinor: 3000, accountId: accId.easy, categoryId: leafIds[9] ?? null, note: "" }),
+      tpl(2, { ...base, name: "儲值", kind: "transfer", amountMinor: 50000, accountId: accId.bank, toAccountId: accId.easy, categoryId: null, note: "儲值" }),
+    ]) {
+      this.tpl.set(t.id, t);
+    }
   }
 
   /**
@@ -859,9 +758,30 @@ export class MemoryTicketRepository implements TicketRepository {
 
   async moveAccount(id: string, delta: 1 | -1): Promise<void> {
     this.ensureDemo();
+    this.swapIn(this.accountSibs(id), id, delta, nowUtcIso());
+  }
+
+  async moveAccountTo(id: string, index: number): Promise<void> {
+    this.ensureDemo();
+    this.applyMoves(this.acc, planMoveTo(this.accountSibs(id), id, index));
+  }
+
+  /** 同群組、未封存的帳戶（顯示順序） */
+  private accountSibs(id: string): AccountRow[] {
     const a = this.accountOrThrow(id);
-    const list = orderAccounts(Array.from(this.acc.values()).filter((x) => isAlive(x) && x.archived_at === null && x.group_key === a.group_key));
-    this.swapIn(list, id, delta, nowUtcIso());
+    return orderAccounts(Array.from(this.acc.values()).filter((x) => isAlive(x) && x.archived_at === null && x.group_key === a.group_key));
+  }
+
+  /** 整組寫（planMoveTo 的結果；每列都寫 position＋updated_at，與 SQLite 的 writePositions 同義） */
+  private applyMoves<T extends { position: number; updated_at: string }>(map: Map<string, T>, moves: readonly { id: string; position: number }[]): void {
+    if (!moves.length) return;
+    const now = nowUtcIso();
+    for (const m of moves) {
+      const r = map.get(m.id);
+      if (!r) continue;
+      r.position = m.position;
+      r.updated_at = now;
+    }
   }
 
   async adjustBalance(accountId: string, targetMinor: number, occurredOn: string, note: string): Promise<EntryRow | null> {
@@ -884,12 +804,15 @@ export class MemoryTicketRepository implements TicketRepository {
       if (isUncat(input.parentId)) throw new RangeError("「未分類」下面不能建子分類");
       const p = this.categoryOrThrow(input.parentId);
       if (p.kind !== input.kind) throw new RangeError("這個分類不屬於目前的收支類型");
-      if (p.parent_id !== null) throw new RangeError("分類只有兩層");
     }
+    // 不限層數（售票口④ 第二輪 D-票-78）；排在那一層（實際的樹，含父已不在而升上來的）最後
+    const all = Array.from(this.cat.values()).filter((c) => isAlive(c) && c.kind === input.kind);
+    const byId: Record<string, CategoryRow> = {};
+    for (const c of all) byId[c.id] = c;
+    const pRow = input.parentId === null ? null : byId[input.parentId];
+    if (pRow && categoryArchivedUp(pRow, byId)) throw new RangeError("封存的分類底下不能建子分類");
     let position = -1;
-    for (const c of this.cat.values()) {
-      if (isAlive(c) && !isUncat(c.id) && c.kind === input.kind && c.parent_id === input.parentId) position = Math.max(position, c.position);
-    }
+    for (const c of all) if (!isUncat(c.id) && effectiveParentId(c, byId) === input.parentId) position = Math.max(position, c.position);
     const nowIso = nowUtcIso();
     const row: CategoryRow = {
       id: uuid(), kind: input.kind, name, parent_id: input.parentId, position: position + 1, archived_at: null,
@@ -915,7 +838,12 @@ export class MemoryTicketRepository implements TicketRepository {
     if (isUncat(id)) throw new RangeError("「未分類」不能改名或封存");
     const c = this.categoryOrThrow(id);
     const now = nowUtcIso();
-    const kids = Array.from(this.cat.values()).filter((x) => isAlive(x) && x.parent_id === id);
+    // 底下整棵（不限層數，D-票-78）：實際的樹（effectiveParentId），不含自己
+    const all = Array.from(this.cat.values()).filter((x) => isAlive(x) && x.kind === c.kind);
+    const kids = categorySubtreeIds(id, all)
+      .slice(1)
+      .map((k) => this.cat.get(k))
+      .filter((k): k is CategoryRow => !!k);
     if (archived) {
       if (c.archived_at !== null) return;
       c.archived_at = now;
@@ -941,16 +869,47 @@ export class MemoryTicketRepository implements TicketRepository {
   async moveCategory(id: string, delta: 1 | -1): Promise<void> {
     this.ensureDemo();
     if (isUncat(id)) return;
+    this.swapIn(this.categorySibs(id), id, delta, nowUtcIso());
+  }
+
+  async moveCategoryTo(id: string, index: number): Promise<void> {
+    this.ensureDemo();
+    if (isUncat(id)) return;
+    this.applyMoves(this.cat, planMoveTo(this.categorySibs(id), id, index));
+  }
+
+  async moveCategoryUnder(id: string, newParentId: string | null, index?: number): Promise<void> {
+    this.ensureDemo();
+    const c = isUncat(id) ? null : this.categoryOrThrow(id);
+    const all = c ? Array.from(this.cat.values()).filter(isAlive) : []; // 各 kind 都給：目標別 kind 要報對原因
+    // 推導與檢查全在 domain（sqlite 同一支）；未分類 ⇒ planMoveUnder 丟「「未分類」不能移動」
+    const plan = planMoveUnder(all, id, newParentId, index);
+    if (plan.parent !== undefined && c) {
+      c.parent_id = plan.parent;
+      c.updated_at = nowUtcIso();
+    }
+    // 斷環：同步合出的環上、畫面已當頂層的那個寫回 parent＝null（planMoveUnder 註解）
+    for (const bid of plan.breaks) {
+      const x = this.cat.get(bid);
+      if (x) {
+        x.parent_id = null;
+        x.updated_at = nowUtcIso();
+      }
+    }
+    this.applyMoves(this.cat, plan.moves);
+  }
+
+  /** 同 kind、同層（effectiveParentId）、未封存的分類（顯示順序） */
+  private categorySibs(id: string): CategoryRow[] {
     const c = this.categoryOrThrow(id);
-    // 找兄弟看「實際掛在哪一層」（D-票-62）：父列已不在的子分類跟主分類同一層，與 categoryTree 的顯示一致
+    // 找兄弟看「實際掛在哪一層」（D-票-62）：父列已不在的子分類跟主分類同一層，與 categoryForest 的顯示一致
     const all = Array.from(this.cat.values()).filter((x) => isAlive(x) && !isUncat(x.id) && x.kind === c.kind);
     const byId: Record<string, CategoryRow> = {};
     for (const x of all) byId[x.id] = x;
     const level = effectiveParentId(c, byId);
-    const list = all
+    return all
       .filter((x) => x.archived_at === null && effectiveParentId(x, byId) === level)
       .sort((a, b) => a.position - b.position || cmp(a.created_at, b.created_at) || cmp(a.id, b.id));
-    this.swapIn(list, id, delta, nowUtcIso());
   }
 
   /* ───────── 寫：幣別 ───────── */
@@ -1071,7 +1030,7 @@ export class MemoryTicketRepository implements TicketRepository {
     return clone(res.row);
   }
 
-  /** 開始：手建的明天起、從沒開始過的匯入規則接著 next_on（resumeNextOn，✎-8） */
+  /** 開始：手建的明天起、早期匯入且從沒開始過的規則接著 next_on（resumeNextOn，✎-8） */
   private resumeOne(r: RepeatRow, today: string, now: string): void {
     r.next_on = resumeNextOn(r, Array.from(this.ent.values()), today);
     r.paused_at = null;
@@ -1087,34 +1046,6 @@ export class MemoryTicketRepository implements TicketRepository {
       r.paused_at = now;
       r.updated_at = now;
     } else this.resumeOne(r, today, now);
-  }
-
-  /** 暫停中、從沒開始過的匯入規則（看帳含墓碑；與 sqlite 同一個判法），依建立順序 */
-  private unstartedRepeats(): RepeatRow[] {
-    const all = Array.from(this.ent.values());
-    return Array.from(this.rep.values())
-      .filter((r) => isAlive(r) && r.paused_at !== null && neverStarted(r, all))
-      .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  }
-
-  async listUnstartedRepeatIds(): Promise<string[]> {
-    this.ensureDemo();
-    return this.unstartedRepeats().map((r) => r.id);
-  }
-
-  /** 全部開始：只開始從沒開始過的匯入規則（手動暫停的、開始過的不動） */
-  async resumeAllRepeats(today: string): Promise<number> {
-    this.ensureDemo();
-    const now = nowUtcIso();
-    const list = this.unstartedRepeats();
-    // 先全部算好再寫（同一批：其中一條規則看不懂 ⇒ 整批不動）
-    const next = list.map((r) => resumeNextOn(r, Array.from(this.ent.values()), today));
-    list.forEach((r, i) => {
-      r.next_on = next[i];
-      r.paused_at = null;
-      r.updated_at = now;
-    });
-    return list.length;
   }
 
   async softDeleteRepeat(id: string): Promise<void> {
@@ -1147,7 +1078,7 @@ export class MemoryTicketRepository implements TicketRepository {
   async materializeRepeats(
     today: string,
     dayStartHour: number,
-  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[] }> {
+  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[]; rows: MaterializedRow[] }> {
     // 「今天」已由呼叫端用日界線算好（0-6-6）；dayStartHour 給 planMaterialize 算帳的時刻（手建套日界線、匯入字面時刻，✎-7 改）
     await this.alignRoutes();
     const now = nowUtcIso();
@@ -1163,10 +1094,12 @@ export class MemoryTicketRepository implements TicketRepository {
       reconciled++;
     }
     let inserted = 0;
+    const rows: MaterializedRow[] = [];
     for (const row of plan.inserts) {
       if (this.ent.has(row.id)) continue; // ON CONFLICT(id) DO NOTHING、且不對已存在的 id 發 op
       this.ent.set(row.id, clone(row));
       inserted++;
+      rows.push({ id: row.id, repeat_id: row.repeat_id as string });
     }
     for (const c of plan.cursors) {
       const r = this.rep.get(c.id);
@@ -1174,107 +1107,166 @@ export class MemoryTicketRepository implements TicketRepository {
       r.next_on = c.next_on;
       r.updated_at = now;
     }
-    return { inserted, reconciled, blocked: plan.blocked };
+    return { inserted, reconciled, blocked: plan.blocked, rows };
   }
 
-  /* ───────── 匯入 ───────── */
+  /* ═════════ 售票口④（契約 §5、§6、§8） ═════════ */
 
-  async pickImportFile(_shell: "desktop" | "mobile"): Promise<string | null> {
-    return "mock.mmbak";
-  }
-
-  async readImport(_path: string): Promise<MmbakReadResult> {
-    this.readCount++;
-    const mode = tkMode();
-    if (mode === "badschema") return { missing: ["ASSETS"], dump: null };
-    return { missing: [], dump: mockImportDump(mode === "import2" && this.readCount > 1 ? "import2" : "base", mode === "import3") };
-  }
-
-  async loadImportLocal(): Promise<ImportLocal> {
+  async listNoteUses(): Promise<NoteUse[]> {
     this.ensureDemo();
-    return {
-      currencies: Array.from(this.cur.values()).map(clone),
-      accounts: Array.from(this.acc.values()).map(clone),
-      categories: Array.from(this.cat.values()).map(clone),
-      entries: Array.from(this.ent.values()).map(clone),
-      budgets: Array.from(this.bud.values()).map(clone),
-      repeats: Array.from(this.rep.values()).map(clone),
-    };
+    const rows: EntryRow[] = [];
+    for (const e of this.ent.values()) {
+      if (!isAlive(e) || e.kind === "adjust" || e.note.trim() === "") continue; // 精算的備註是系統寫的，不列（同 SQLite）
+      rows.push(e);
+    }
+    // 照時間排（同 SQLite 的 ORDER BY occurred_on, occurred_at, id）
+    rows.sort((a, b) => cmp(a.occurred_on, b.occurred_on) || cmp(a.occurred_at, b.occurred_at) || cmp(a.id, b.id));
+    return rows.map((e) => ({ note: e.note, occurred_on: e.occurred_on, kind: e.kind, category_id: e.category_id }));
   }
 
-  async applyImport(
-    plan: ImportPlan,
-    choices: Readonly<Record<string, ImportChoice>>,
-    part: PlanImportPart,
-    onProgress: (done: number, total: number) => void,
-  ): Promise<ImportOutcome> {
+  async getEntries(ids: readonly string[]): Promise<EntryRow[]> {
     this.ensureDemo();
-    const nowIso = nowUtcIso();
-    const m = materializeImport(plan, choices, nowIso);
-    // 第 1 批：幣別＋帳戶＋分類（INSERT … ON CONFLICT(id) DO NOTHING）
-    for (const c of plan.currencies) if (!this.cur.has(c.id)) this.cur.set(c.id, clone(c));
-    for (const a of plan.accounts) if (!this.acc.has(a.id)) this.acc.set(a.id, clone(a));
-    for (const c of plan.categories) if (!this.cat.has(c.id)) this.cat.set(c.id, clone(c));
-    // 第③階段（③契約 §3.5-8）：第 1 批尾端接預算與規則（父先：分類已在前面）。預算 insert＝DO UPDATE（重設同一個預算）、規則 insert＝DO NOTHING
-    let budgets = 0;
-    let repeats = 0;
-    for (const b of part.budgets.inserts) {
-      const prev = this.bud.get(b.id);
-      if (prev) Object.assign(prev, { amount_minor: b.amount_minor, deleted_at: null, updated_at: b.updated_at });
-      else this.bud.set(b.id, clone(b));
-      budgets++;
+    const out: EntryRow[] = [];
+    for (const id of new Set(ids)) {
+      const e = this.ent.get(id);
+      if (e && isAlive(e)) out.push(clone(e));
     }
-    for (const u of part.budgets.updates) {
-      const row = this.bud.get(u.id);
-      if (row && isAlive(row)) {
-        Object.assign(row, u.cols);
-        budgets++;
-      }
-    }
-    for (const r of part.repeats.inserts) {
-      if (this.rep.has(r.id)) continue;
-      this.rep.set(r.id, clone(r));
-      repeats++;
-    }
-    for (const u of part.repeats.updates) {
-      const row = this.rep.get(u.id);
-      if (row && isAlive(row)) {
-        Object.assign(row, u.cols);
-        repeats++;
-      }
-    }
-    // kept＝「留 Next Stop 的」只蓋 import_utime／updated_at 的記號（不算 updated）
-    type Op = { kind: "insert"; row: EntryRow } | { kind: "update"; id: string; cols: Record<string, unknown>; kept?: true };
-    const ops: Op[] = [
-      ...m.entryInserts.map((row): Op => ({ kind: "insert", row })),
-      ...m.entryUpdates.map((u): Op => ({ kind: "update", id: u.id, cols: u.cols })),
-      ...m.entryKept.map((u): Op => ({ kind: "update", id: u.id, cols: u.cols, kept: true })),
-    ];
-    const total = ops.length;
-    let done = 0;
-    let inserted = 0;
-    let updated = 0;
-    onProgress(0, total);
-    for (let i = 0; i < ops.length; i += IMPORT_CHUNK) {
-      for (const op of ops.slice(i, i + IMPORT_CHUNK)) {
-        if (op.kind === "insert") {
-          if (!this.ent.has(op.row.id)) {
-            this.ent.set(op.row.id, clone(op.row));
-            inserted++;
-          }
-        } else {
-          const row = this.ent.get(op.id);
-          if (row && isAlive(row)) {
-            Object.assign(row, op.cols);
-            if (!op.kept) updated++;
-          }
-        }
-        done++;
-      }
-      onProgress(done, total);
-      await new Promise((r) => setTimeout(r, 0)); // 讓進度列畫得出來（同真機分批的節奏）
-    }
-    const e = plan.entries;
-    return { inserted, updated, skipped: e.unchanged + e.tombstoned + e.invalid.length + m.keptLocal, budgets, repeats };
+    return out;
   }
+
+  /* ── 願望 ── */
+
+  async listWishes(): Promise<WishRow[]> {
+    this.ensureDemo();
+    return Array.from(this.wis.values()).filter(isAlive).sort(byPosition).map(clone);
+  }
+
+  private wishOrThrow(id: string): WishRow {
+    const w = this.wis.get(id);
+    if (!w || !isAlive(w)) throw new RangeError(AIDS_TEXT.wishGone);
+    return w;
+  }
+
+  async createWish(input: NewWishInput): Promise<WishRow> {
+    this.ensureDemo();
+    if (input.categoryId !== null) this.categoryOrThrow(input.categoryId);
+    let min = 1;
+    for (const w of this.wis.values()) if (isAlive(w)) min = Math.min(min, w.position);
+    const row = buildWishRow(input, { id: uuid(), position: min - 1, nowIso: nowUtcIso() });
+    this.wis.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateWish(id: string, patch: WishPatch): Promise<WishRow> {
+    this.ensureDemo();
+    const w = this.wishOrThrow(id);
+    if (patch.categoryId !== undefined && patch.categoryId !== null && patch.categoryId !== w.category_id) this.categoryOrThrow(patch.categoryId);
+    const res = applyWishPatch(w, patch, nowUtcIso());
+    if (!Object.keys(res.cols).length) return clone(w);
+    this.wis.set(id, res.row);
+    return clone(res.row);
+  }
+
+  async setWishBought(id: string, entryId: string | null): Promise<void> {
+    this.ensureDemo();
+    const w = this.wishOrThrow(id);
+    if (w.entry_id === entryId) return;
+    const now = nowUtcIso();
+    w.entry_id = entryId;
+    w.bought_at = entryId === null ? null : now;
+    w.updated_at = now;
+  }
+
+  async softDeleteWish(id: string): Promise<void> {
+    this.ensureDemo();
+    softDelete(this.wis.get(id));
+  }
+
+  async restoreWish(id: string): Promise<void> {
+    this.ensureDemo();
+    restore(this.wis.get(id));
+  }
+
+  async moveWishTo(id: string, index: number): Promise<void> {
+    this.ensureDemo();
+    this.wishOrThrow(id);
+    const alive: Record<string, EntryRow> = {};
+    for (const e of this.ent.values()) if (isAlive(e)) alive[e.id] = e;
+    const want = Array.from(this.wis.values())
+      .filter((w) => isAlive(w) && !wishBought(w, alive))
+      .sort(byPosition);
+    this.applyMoves(this.wis, planMoveTo(want, id, index));
+  }
+
+  /* ── 常用票種 ── */
+
+  async listTemplates(): Promise<TemplateRow[]> {
+    this.ensureDemo();
+    return Array.from(this.tpl.values()).filter(isAlive).sort(byPosition).map(clone);
+  }
+
+  private templateOrThrow(id: string): TemplateRow {
+    const t = this.tpl.get(id);
+    if (!t || !isAlive(t)) throw new RangeError(AIDS_TEXT.templateGone);
+    return t;
+  }
+
+  /** 外鍵指的帳戶／分類要在（與 SQLite 的 checkTemplateRefs 同義） */
+  private checkTemplateRefs(p: TemplatePatch): void {
+    if (p.accountId) this.accountOrThrow(p.accountId);
+    if (p.toAccountId) this.accountOrThrow(p.toAccountId);
+    if (p.categoryId) this.categoryOrThrow(p.categoryId);
+  }
+
+  async createTemplate(input: NewTemplateInput): Promise<TemplateRow> {
+    this.ensureDemo();
+    this.checkTemplateRefs(input);
+    let max = -1;
+    for (const t of this.tpl.values()) if (isAlive(t)) max = Math.max(max, t.position);
+    const row = buildTemplateRow(input, { id: uuid(), position: max + 1, nowIso: nowUtcIso() });
+    this.tpl.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateTemplate(id: string, patch: TemplatePatch): Promise<TemplateRow> {
+    this.ensureDemo();
+    const t = this.templateOrThrow(id);
+    this.checkTemplateRefs(patch);
+    const res = applyTemplatePatch(t, patch, nowUtcIso());
+    if (!Object.keys(res.cols).length) return clone(t);
+    this.tpl.set(id, res.row);
+    return clone(res.row);
+  }
+
+  async softDeleteTemplate(id: string): Promise<void> {
+    this.ensureDemo();
+    softDelete(this.tpl.get(id));
+  }
+
+  async restoreTemplate(id: string): Promise<void> {
+    this.ensureDemo();
+    restore(this.tpl.get(id));
+  }
+
+  async moveTemplateTo(id: string, index: number): Promise<void> {
+    this.ensureDemo();
+    this.templateOrThrow(id);
+    const all = Array.from(this.tpl.values()).filter(isAlive).sort(byPosition);
+    this.applyMoves(this.tpl, planMoveTo(all, id, index));
+  }
+}
+
+/** 軟刪（已刪或不存在＝不動） */
+function softDelete(r: { deleted_at: string | null; updated_at: string } | undefined): void {
+  if (!r || !isAlive(r)) return;
+  const now = nowUtcIso();
+  r.deleted_at = now;
+  r.updated_at = now;
+}
+
+/** 復原（沒刪或不存在＝不動） */
+function restore(r: { deleted_at: string | null; updated_at: string } | undefined): void {
+  if (!r || isAlive(r)) return;
+  r.deleted_at = null;
+  r.updated_at = nowUtcIso();
 }

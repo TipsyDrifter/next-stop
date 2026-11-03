@@ -281,7 +281,8 @@ export interface LinkPickerProps {
 
 export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
   const rows = useTodayTicketRows(true);
-  const routes = useNodeStore((s) => s.routes);
+  // 「只連路線」只列還在跑的路線（車庫與回顧 D-主-206 #12：收進車庫的不再新掛）
+  const routes = useNodeStore((s) => s.liveRoutes);
   const routeById = useRouteById();
   const catById = useTimetableStore((s) => s.catById);
   const cur = value && (value.nodeId !== null || value.routeId !== null) ? value : null;

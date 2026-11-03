@@ -16,8 +16,8 @@
 import type { HotkeyScope } from "./hotkeys";
 import { LINE_MANIFESTS, type LineHotkeyScope, type LineId } from "../../lines/index.ts";
 
-/** 核心頁：gnav 上排三頁＋第三排「回顧」（② 運行報告 D-主-182；③ 車庫接在同一組） */
-export type CorePageId = "today" | "routemap" | "calendar" | "report";
+/** 核心頁：gnav 上排三頁＋第三排「回顧」（② 運行報告 D-主-182；③ 車庫 D-主-215） */
+export type CorePageId = "today" | "routemap" | "calendar" | "report" | "depot";
 /** 不進 gnav 的頁（完整搜尋班 D-主-110）：由入口叫出、側欄沒有它的頁籤，不配 Ctrl+數字 */
 export type AuxPageId = "search";
 export type PageId = CorePageId | LineId | AuxPageId;
@@ -76,8 +76,9 @@ const LINE_PAGES: readonly PageDef[] = LINE_MANIFESTS.map((m) => ({
 
 /**
  * gnav 第三排「回顧」（② 運行報告 D-主-182；視覺真相 prototypes/design-stats-review-運行報告.html）：
- * 跟上兩排共用三欄格線、數字鍵接在三條功能線之後。③ 的車庫（navDigit 8）加在這一組。
- * 這幾頁沒有自己的快捷鍵：`hotkeyScope` 給 global，`?` 情境卡只畫全域那一段（HotkeyGuide）。
+ * 跟上兩排共用三欄格線、數字鍵接在三條功能線之後。③ 的車庫（navDigit 8，車庫與回顧 D-主-215）接在後面。
+ * 運行報告沒有自己的快捷鍵：`hotkeyScope` 給 global，`?` 情境卡只畫全域那一段（HotkeyGuide）；
+ * 車庫有一顆（記錄簿開著時 Esc 回車庫），scope `depot`。
  */
 const REVIEW_PAGES: readonly PageDef[] = [
   {
@@ -89,9 +90,18 @@ const REVIEW_PAGES: readonly PageDef[] = [
     hotkeyScope: "global",
     guideTitle: "運行報告的快捷鍵",
   },
+  {
+    id: "depot",
+    label: "車庫",
+    status: "open",
+    navDigit: "8",
+    navHotkeyId: "global.nav.depot",
+    hotkeyScope: "depot",
+    guideTitle: "車庫的快捷鍵",
+  },
 ];
 
-/** 順序＝gnav 的顯示順序：今日、路線圖、日曆、旅客筆記、時刻表、售票口、（回顧）運行報告 */
+/** 順序＝gnav 的顯示順序：今日、路線圖、日曆、旅客筆記、時刻表、售票口、（回顧）運行報告、車庫 */
 export const PAGES: readonly PageDef[] = [...CORE_PAGES, ...LINE_PAGES, ...REVIEW_PAGES];
 
 /**
@@ -139,7 +149,7 @@ export function linePages(): readonly PageDef[] {
   return LINE_PAGES;
 }
 
-/** gnav 第三排「回顧」的頁（② 運行報告；③ 車庫接在後面） */
+/** gnav 第三排「回顧」的頁（② 運行報告、③ 車庫） */
 export function reviewPages(): readonly PageDef[] {
   return REVIEW_PAGES;
 }

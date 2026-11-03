@@ -80,7 +80,8 @@ export function rowGuards(
       : !deps.adaptKind(n.kind, gpKind)
         ? "這種節點不能升到那一層"
         : null;
-  const ticketWhy = isTaskKind(n.kind) || n.kind === "ticket" ? null : "支線底下不能直接掛車票——先建一班列車";
+  // 丁 D-主-245：支線底下可以直接放車票（剩下車站之類才不行）
+  const ticketWhy = isTaskKind(n.kind) || n.kind === "ticket" || n.kind === "branch" ? null : "這裡不能新增車票";
   return {
     indentWhy,
     outdentWhy,

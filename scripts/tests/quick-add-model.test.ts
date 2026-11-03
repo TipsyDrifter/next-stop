@@ -34,6 +34,9 @@ describe("resolveQuickTarget：掛到決定建成什麼", () => {
   test("支線＝列車掛在支線底下", () => {
     assert.deepEqual(resolveQuickTarget(BRANCH, "train"), { kind: "train", parentId: "b1", routeTagId: null, canChoose: true });
   });
+  test("支線＋車票＝車票直接掛在支線底下（丁 D-主-245）", () => {
+    assert.deepEqual(resolveQuickTarget(BRANCH, "ticket"), { kind: "ticket", parentId: "b1", routeTagId: null, canChoose: true });
+  });
   test("列車＝車票（不給選）", () => {
     assert.deepEqual(resolveQuickTarget(TRAIN, "train"), { kind: "ticket", parentId: "t1", routeTagId: null, canChoose: false });
   });

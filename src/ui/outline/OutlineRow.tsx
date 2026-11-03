@@ -36,6 +36,9 @@ import { InlineInput } from "../common/InlineInput";
 import { NO_DEST, QuickAddRow, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import type { EditHandlers, RowActions } from "./useOutlineController";
 import { rowContextMenu } from "../common/contextMenu";
+import { ProgressRing } from "./ProgressRing";
+import { chapterParts, type ChapterCount } from "../../domain/chapterCount";
+import "./structure.css";
 import { PriorityMark } from "../common/PriorityMark";
 
 /** 層級縮排（票的 margin-left）：每層 28px */
@@ -292,6 +295,8 @@ export interface OutlineRowProps {
   onFreshEnd(): void;
   /** 列的 ⋯ 選單項目（10-20 磨光②）：開卡那一刻才算，停用狀態跟著當下的樹 */
   menu?: () => PopMenuItem[];
+  /** 支線章節列尾的數字（丁 D-主-247；只有支線用）：直屬的班／張／條與済數 */
+  chapter?: ChapterCount | null;
 }
 
 /**
@@ -356,6 +361,7 @@ export function OutlineRow({
   actions,
   onFreshEnd,
   menu,
+  chapter,
 }: OutlineRowProps) {
   const ref = useRef<HTMLLIElement>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -398,6 +404,13 @@ export function OutlineRow({
   const railPrefix = schedLate ? "原定" : occurrence ? "下一班" : "執行";
   const fare = fareClass(node);
   const status = STATUS_LABEL[node.status];
+  /**
+   * 丁 D-主-248：有子項的列車／車廂，検印欄位置畫進度圈（直屬子項 d/t，同車廂格算法）；有圈時 meta 的車廂格拿掉。
+   * **不自動完成**：全済時圈畫滿、旁邊淡字「可以蓋済」，點圈＝照舊手動蓋（蓋了才跳完成卡、圈換成済章）。
+   */
+  const ring = (node.kind === "train" || node.kind === "car") && !!cars && cars.total > 0 && !settled ? cars : null;
+  /** 支線＝章節標題（D-主-247），不是票 */
+  const isChapter = node.kind === "branch";
 
   const metaItems: ReactNode[] = [
     // 狀態（done／運休時 CSS 隱藏 .status、改顯示 .done-label／.susp-label——與原型同一套規則）
@@ -421,7 +434,7 @@ export function OutlineRow({
         {node.repeat_rule}
       </span>
     ) : null,
-    cars && cars.total > 0 ? <Cars {...cars} /> : null,
+    cars && cars.total > 0 && !ring ? <Cars {...cars} /> : null,
     node.estimate_min ? <span>預計 {node.estimate_min} 分</span> : null,
     // 執行日：定期券唯讀（班次由規則排定），其餘可直改
     chipDate ? (
@@ -481,7 +494,7 @@ export function OutlineRow({
       // 列裡的按鈕、行內改名的輸入框按下去不會起拖（元件自己略過）
       data-drag-id={rename ? undefined : node.id}
       style={{ marginLeft: indentPx(depth) }}
-      className="ticket-li"
+      className={isChapter ? "ticket-li ch-li" : "ticket-li"}
       onMouseDown={(e) => {
         if ((e.target as HTMLElement).closest("input")) return; // 行內輸入框要自己的 caret
         e.preventDefault(); // 不讓列內按鈕搶焦點、不選字
@@ -526,6 +539,81 @@ export function OutlineRow({
           <Chevron open={!collapsed} size={14} />
         </button>
       )}
+      {isChapter ? (
+        <div
+          className={"ns-chapter" + (selected ? " selected" : "") + (picked ? " picked" : "")}
+          style={accent ? { color: accent } : undefined}
+          onDoubleClick={(e) => {
+            if (!hasChildren) return;
+            e.stopPropagation();
+            actions.toggleCollapse(node.id);
+          }}
+        >
+          <button
+            type="button"
+            tabIndex={-1}
+            className="ch-badge"
+            aria-label={`聚焦「${node.name}」（支線）`}
+            title="聚焦這條支線"
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.zoomInto(node.id);
+            }}
+          >
+            支
+          </button>
+          {rename ? (
+            <InlineInput
+              initial={node.name}
+              ariaLabel={`改名「${node.name}」`}
+              focusKey={depth}
+              onCommit={rename.commit}
+              onCancel={rename.cancel}
+              onTab={rename.tab}
+              className="ch-title"
+            />
+          ) : (
+            <span
+              className="ch-title"
+              title="雙擊改名（F2）"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                actions.rename(node.id);
+              }}
+            >
+              {node.name}
+            </span>
+          )}
+          <button
+            type="button"
+            tabIndex={-1}
+            className="ch-kind"
+            title="詳情（.）"
+            aria-label="打開詳情側板"
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.openPanel(node.id);
+            }}
+          >
+            支線
+          </button>
+          <span className="ch-rule" aria-hidden />
+          <span className="ch-count">
+            {chapterParts(chapter ?? { trains: 0, tickets: 0, branches: 0, done: 0 }).join("・")}
+            {chapter && chapter.done > 0 && (
+              <>
+                {"・"}
+                <span className="s">済</span>
+                {chapter.done}
+              </>
+            )}
+            {hasChildren && collapsed && <span className="ch-fold">・已收合</span>}
+          </span>
+          {/* 既有已済的支線（舊版能蓋）照樣標出來，只是不再給按 */}
+          {node.status === "done" && <span className="ch-done">済</span>}
+          {menu && <RowMore name={node.name} menu={menu} onReturnFocus={actions.focusContainer} />}
+        </div>
+      ) : (
       <article
         className={
           "ticket" +
@@ -629,8 +717,25 @@ export function OutlineRow({
         {/* 誤點票的延着角印（B4；同今日列的位置：票面與検印欄之間，検印欄留空）；有結局後退右下小號（CSS） */}
         {lateSeal && <span className="late-seal">延着</span>}
 
-        {/* 検印欄：「済」章（完成流）；定期券本班運休＝墨色角印蓋在同一個位置（語彙同今日列） */}
+        {/* 検印欄：「済」章（完成流）；定期券本班運休＝墨色角印蓋在同一個位置（語彙同今日列）。
+            丁 D-主-248：有子項、還沒済的列車／車廂＝進度圈（點了一樣是蓋章；全済時旁邊淡字「可以蓋済」） */}
         <div className="stamp-zone">
+          {ring ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              className="ns-ring-wrap"
+              aria-label={`子項 ${ring.done}／${ring.total} 済——蓋章完成`}
+              title="蓋章：完成（Space）——不會自動済，要自己蓋"
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.complete(node.id);
+              }}
+            >
+              <ProgressRing done={ring.done} total={ring.total} />
+              {ring.done === ring.total && <span className="can-stamp">可以蓋済</span>}
+            </button>
+          ) : (
           <button
             type="button"
             tabIndex={-1}
@@ -650,6 +755,7 @@ export function OutlineRow({
               済
             </span>
           </button>
+          )}
           {suspended && (
             <span className="stopover-slot">
               <SealSuspended title="運休（本班暫停）" />
@@ -658,6 +764,7 @@ export function OutlineRow({
         </div>
         {menu && <RowMore name={node.name} menu={menu} onReturnFocus={actions.focusContainer} />}
       </article>
+      )}
     </li>
   );
 }

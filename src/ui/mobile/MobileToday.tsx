@@ -89,6 +89,7 @@ import { batchDragIds, isSelecting, pressSelect, tapSelect, usePressedSwipe, use
 import { MobileSelectionBar } from "./MobileSelectionBar";
 import { sheetDeferItems } from "../schedule/streamModel";
 import { TodayBrief } from "../report/TodayBrief";
+import { MobileWeekAims } from "../weekAims/MobileWeekAims";
 
 /** 「指出這張票」的閃底色停多久（D-主-48；CSS 動畫 1s，計時器兜底 reduced-motion 的靜態底色） */
 const REVEAL_FLASH_MS = 1000;
@@ -324,14 +325,15 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           <p className="m-today-stats">
             完成 <b>{countParts.done}</b>/<b>{countParts.total}</b>
             <span className="m-today-left">・{countParts.tail}</span>
+            {/* 各線的統計段插在「下一班」前面（同桌機 TodayView；D-票-72：接在長短不一的「下一班」後面位置會飄） */}
+            {stats.map((S, i) => (
+              <S key={i} shell="mobile" dateKey={c.dateKey} lead wrap={false} />
+            ))}
             {next && (
               <span className="m-today-next">
                 {"　"}下一班 <b className="tmx">{timeOfRow(next)}</b>
               </span>
             )}
-            {stats.map((S, i) => (
-              <S key={i} shell="mobile" dateKey={c.dateKey} lead wrap={false} />
-            ))}
           </p>
         ) : (
           // 今天沒有車票：核心不畫統計列；線的統計段有內容時自己包 `.m-today-stats`（wrap），沒內容回 null——不留空的 <p>
@@ -340,6 +342,9 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
 
         {/* ② 運行報告 D-主-184：「今日小結」一行（點了進運行報告）——統計列之後、清單之前（原型 scr=today&device=mob 的位置） */}
         <TodayBrief shell="mobile" />
+
+        {/* 週方針（戊 D-主-262）：今日分頁頂端一行（排在今日小結之下），點開底部面板 */}
+        <MobileWeekAims />
 
         {/* ═══ 誤點區（置頂＝r1 拍板；含 D-③-7 浮上來的締切段）═══ */}
         {c.lateRows.length > 0 && (

@@ -127,6 +127,8 @@ export interface MobileTicketSheetProps {
     siblingKind: NodeKind;
     onSibling(name: string): void;
     ticket?: { why: string | null; onTicket(name: string): void } | null;
+    /** 丁 D-主-249：「新增支線（主題）…」（路線圖給；列車裡的列會接到它所在的那一層） */
+    branch?: { onBranch(name: string): void } | null;
   } | null;
   /** 「詳情…」（開手機詳情頁）；預設出，false＝不出 */
   detail?: boolean;
@@ -159,7 +161,7 @@ export function MobileTicketSheet({
   /** 「幾點…」「每班時刻…」（rule）／「本班改時刻…」（run）按下去：改畫時刻 sheet */
   const [timeMode, setTimeMode] = useState<"rule" | "run" | null>(null);
   /** 「改名…」／「記乘務記錄…」／「同層新增…」／「新增車票…」按下去：改畫一行輸入子面板 */
-  const [textMode, setTextMode] = useState<"rename" | "log" | "sibling" | "ticket" | null>(null);
+  const [textMode, setTextMode] = useState<"rename" | "log" | "sibling" | "ticket" | "branch" | null>(null);
   /** 「編排 ▾」展開了沒（每次開 sheet 都從收合開始） */
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const arrangeId = useId();
@@ -244,9 +246,9 @@ export function MobileTicketSheet({
   }
 
   // 新增（手機殼班 D-主-72）：同改名的接法，標題「同層新增列車・票名」／「新增車票・票名」，送出後由呼叫端建、本流程結束
-  if ((textMode === "sibling" || (textMode === "ticket" && add?.ticket)) && add) {
+  if ((textMode === "sibling" || (textMode === "ticket" && add?.ticket) || (textMode === "branch" && add?.branch)) && add) {
     const sibling = textMode === "sibling";
-    const kindLabel = KIND_LABEL[sibling ? add.siblingKind : "ticket"];
+    const kindLabel = KIND_LABEL[sibling ? add.siblingKind : textMode === "branch" ? "branch" : "ticket"];
     return (
       <MobileTextSheet
         title={sibling ? `同層新增${kindLabel}` : `新增${kindLabel}`}
@@ -259,6 +261,7 @@ export function MobileTicketSheet({
         onSubmit={(name) => {
           onClose();
           if (sibling) add.onSibling(name);
+          else if (textMode === "branch") add.branch?.onBranch(name);
           else add.ticket?.onTicket(name);
         }}
         onClose={onClose}
@@ -350,7 +353,10 @@ export function MobileTicketSheet({
 
   /* ── ① 排程 ── */
   let schedule: ReactNode;
-  if (card.isRepeat && !card.readOnly) {
+  if (card.kind === "branch") {
+    // 丁 D-主-247：支線是主題、沒有日期——排程那組不出
+    schedule = null;
+  } else if (card.isRepeat && !card.readOnly) {
     // 定期券：本班改時刻…（有班次日才出）／每班時刻…／本班運休（取消運休）——分支語義照舊，只是排成一列
     const runSub = card.timeOverridden ? (
       <>本班 {card.time !== null ? hm(card.time) : "不排"}</>
@@ -489,6 +495,14 @@ export function MobileTicketSheet({
         同層新增{KIND_LABEL[add.siblingKind]}…
       </MSheetItem>
     );
+    if (add.branch && add.siblingKind !== "branch") {
+      adds = (
+        <>
+          {adds}
+          <MSheetItem onClick={() => setTextMode("branch")}>新增支線（主題）…</MSheetItem>
+        </>
+      );
+    }
   }
 
   /* ── ⑤ 各線附加項 ── */

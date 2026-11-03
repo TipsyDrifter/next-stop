@@ -5,14 +5,14 @@
  *   ├ .ns-tk-mbe-head   ‹ 2026 年 10 月 ›（只換「覆寫」格看的月；預設不變）＋小字「預設套用沒有覆寫的每個月」
  *   ├ .ns-tk-mbe-blk × N 一個對象一塊（總預算固定第一塊、之後照 budgetScopes 順序；加了還沒存的分類接在最後）
  *   │    塊頭：名稱＋（分類）「移除」；塊身 **兩格並排**（原型結論：一塊 114px，上下疊要 145px）：「預設」｜「10 月覆寫」（×）
- *   └ 「＋ 加分類預算」⇒ 疊一層 sheet：支出兩層格子（主分類一格、有子分類的點開在那一列下方展開；未分類不列；封存的另一區）
+ *   └ 「＋ 加分類預算」⇒ 疊一層 sheet：支出格子一層一層點進去（MobileCatDrill；每一層「選這一層」；未分類不列；封存的另一區）
  * UI 丙-5 E2／H4：底部「完成」拿掉（即時存的 sheet 只留下滑／暗幕／返回鍵，規範 §4）；「加分類預算」換共用 MSheet
  *   （疊在預算 sheet 上 ⇒ backKind "dialog"、z 47；返回層跟本檔那行同 id 合併，返回鍵一次關）。
  * 輸入：失焦或 Enter ⇒ setBudget（parseAmount：主幣別、不允許負與 0）；清空預設 ⇒ askConfirm 後 removeBudget(scope, null)（連同覆寫）；
  *   清空覆寫或按 × ⇒ removeBudget(scope, month)。沒聚焦時顯示千分位，聚焦時換成可直接改的數字。
  * UI 只讀 store、只叫 store 的動作（①§2.5-2）。
  */
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTicketStore } from "../../../../store/ticketStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { todayKey } from "../../../../lib/date";
@@ -21,8 +21,9 @@ import {
   UNCAT_EXPENSE_ID,
   addMonths,
   bareName,
+  categoryArchivedUp,
   categoryLabel,
-  categoryTree,
+  categoryPath,
   monthOf,
   monthTitle,
   moneyText,
@@ -32,6 +33,7 @@ import { amountInputText, budgetScopes, scopeKey, scopeOf, type BudgetRow, type 
 import { useBackLayer } from "../../../mobile/backStack";
 import { MSheet } from "../../../common/MSheet";
 import { IconLeft, IconPlus, IconRight, useImeGuard } from "../mobileBits";
+import { MobileCatDrill } from "../MobileCatDrill";
 
 // onDone：宿主的介面照留（兩殼本體同一種 props）；丙-5 拿掉「完成」後本體不再自己關
 export function MobileBudgetSheet(_props: { onDone(): void }) {
@@ -110,7 +112,7 @@ export function MobileBudgetSheet(_props: { onDone(): void }) {
 function catName(id: string, catById: Readonly<Record<string, CategoryRow>>): string {
   const c = catById[id];
   if (!c || c.deleted_at !== null) return "（分類已刪除）";
-  return categoryLabel(c, catById) + (c.archived_at ? "（已封存）" : "");
+  return categoryLabel(c, catById) + (categoryArchivedUp(c, catById) ? "（已封存）" : "");
 }
 
 /* ───────── 一個對象一塊 ───────── */
@@ -318,69 +320,36 @@ function AmountField({
   );
 }
 
-/* ───────── 加分類預算：支出兩層格子（疊在預算 sheet 上） ───────── */
+/* ───────── 加分類預算：支出格子一層一層點進去（疊在預算 sheet 上） ───────── */
 
 function CategoryPick({ taken, onPick, onClose }: { taken: ReadonlySet<string>; onPick(id: string): void; onClose(): void }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
-  const [open, setOpen] = useState<string | null>(null);
-  const tree = useMemo(
-    () => categoryTree(categories, "expense", { includeArchived: false }).filter((t) => t.parent.id !== UNCAT_EXPENSE_ID),
-    [categories],
-  );
-  // 封存的（✎-14：含封存，列在「封存」區）：主分類或子分類，平鋪；子分類帶主分類小字
+  const [level, setLevel] = useState<string | null>(null);
+  // 封存的（✎-14：含封存，列在「封存」區）：自己封存的那一個（底下跟著封存的不另列——設在上層就含它們），平鋪；小字＝上層路徑
   const archived = useMemo(
-    () => categories.filter((c) => c.kind === "expense" && c.deleted_at === null && c.archived_at !== null && c.id !== UNCAT_EXPENSE_ID),
-    [categories],
+    () =>
+      categories.filter((c) => {
+        if (c.kind !== "expense" || c.deleted_at !== null || c.archived_at === null || c.id === UNCAT_EXPENSE_ID) return false;
+        const path = categoryPath(c, catById);
+        return !path.slice(0, -1).some((x) => x.archived_at !== null);
+      }),
+    [categories, catById],
   );
 
-  const cell = (c: CategoryRow, label?: string, sub?: string) => {
+  const cell = (c: CategoryRow) => {
     const done = taken.has(c.id);
+    const path = categoryPath(c, catById);
+    const sub = path.length > 1 ? path.slice(0, -1).map((x) => bareName(x.name) || x.name).join(" › ") : undefined;
     return (
       <button key={c.id} type="button" className={"ns-tk-mcell" + (done ? " is-taken" : "")} disabled={done} onClick={() => onPick(c.id)}>
         <span>
-          {label ?? c.name}
+          {c.name}
           {done ? <small>已設</small> : sub ? <small>{sub}</small> : null}
         </span>
       </button>
     );
   };
-
-  const cells: ReactElement[] = [];
-  const openIdx = tree.findIndex((t) => t.parent.id === open);
-  const rowEnd = openIdx < 0 ? -1 : Math.min(tree.length - 1, Math.floor(openIdx / 4) * 4 + 3);
-  tree.forEach((t, i) => {
-    const p = t.parent;
-    if (t.children.length === 0) cells.push(cell(p));
-    else {
-      cells.push(
-        <button
-          key={p.id}
-          type="button"
-          className={"ns-tk-mcell has-kids" + (open === p.id ? " open" : "")}
-          aria-expanded={open === p.id}
-          onClick={() => setOpen(open === p.id ? null : p.id)}
-        >
-          <span>
-            {p.name}
-            <small>{taken.has(p.id) ? "主分類已設" : `${t.children.length} 個子分類`}</small>
-          </span>
-        </button>,
-      );
-    }
-    if (i === rowEnd && tree[openIdx].children.length > 0) {
-      const op = tree[openIdx];
-      cells.push(
-        <div key={"subs-" + op.parent.id} className="ns-tk-msubs">
-          <div className="hd">{op.parent.name} ›</div>
-          <div className="ns-tk-mgrid">
-            {cell(op.parent, "整個" + (bareName(op.parent.name) || op.parent.name), "含子分類")}
-            {op.children.map((c) => cell(c))}
-          </div>
-        </div>,
-      );
-    }
-  });
 
   return (
     <MSheet
@@ -396,20 +365,27 @@ function CategoryPick({ taken, onPick, onClose }: { taken: ReadonlySet<string>; 
         </button>
       }
     >
-      <p className="ns-tk-mbe-pickhint">主分類的預算會包含底下的子分類</p>
+      <p className="ns-tk-mbe-pickhint">分類的預算會包含底下的分類</p>
       <div className="ns-tk-mf-cats ns-tk-mbe-pick">
-        <div className="ns-tk-mgrid">{cells}</div>
+        {/* 售票口④ 第二輪（D-票-78）：有下一層的點了走進去，每一層都能「選這一層」 */}
+        <MobileCatDrill
+          kind="expense"
+          level={level}
+          onLevel={setLevel}
+          picked={[]}
+          taken={taken}
+          hideUncat
+          onPick={(c) => onPick(c.id)}
+          rootLabel="支出"
+          backId="ticket.budget.pick.cat"
+          backKind="dialog"
+        />
       </div>
       {archived.length > 0 && (
         <>
           <p className="ns-tk-mf-lbl">封存</p>
           <div className="ns-tk-mf-cats ns-tk-mbe-pick">
-            <div className="ns-tk-mgrid">
-              {archived.map((c) => {
-                const p = c.parent_id ? catById[c.parent_id] : undefined;
-                return cell(c, c.name, p ? p.name : undefined);
-              })}
-            </div>
+            <div className="ns-tk-mgrid">{archived.map(cell)}</div>
           </div>
         </>
       )}

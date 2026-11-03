@@ -9,7 +9,7 @@
  *   div.ns-tk-dialog.ns-tk-re
  *   ├─（從大票帶來的）.ns-tk-re-from「從 10/19 那筆帶過來的；那筆本身不會被重記」
  *   ├─ .ns-tk-re-cols
- *   │   ├─ 左「記什麼」 類型 Segmented 三段・.ns-tk-re-amt（前綴＋金額＋幣別 chip）・.ns-tk-fields.is-re 帳戶／轉入或分類／備註／路線
+ *   │   ├─ 左「記什麼」 類型 Segmented 三段・.ns-tk-re-amt（前綴＋金額＋幣別 chip）・.ns-tk-fields.is-re 帳戶／轉入或分類／備註／路線／荷札
  *   │   └─ 右「什麼時候」頻率 Segmented 每日｜每週｜每月 → 每週 7 顆星期、每月 1–31 格（7×5；選了 29–31 才出「小月記在月底」）
  *   │                    → 起算日（新規則起算日在過去 ⇒「會補記」提示）・時刻・終止日（選填）
  *   │                    時刻＝共用 ClockInput compact（丙-5 F2，跟大票同一支、同一套換算 ticketClock.ts）：規則沒有「那一天」，
@@ -19,6 +19,11 @@
  *
  * 帳戶／分類／路線／幣別的挑選元件借大票的（TicketPanel 的 AcctPick／CategoryCombo／RoutePop／Pop），鍵盤與 IME 行為一致。
  * 日期浮層往上開（.ns-dialog-body 是內捲容器，往下開會被裁）。
+ * 售票口④（D-票-71；桌機席）：備註換共用 RecallInput（備註記憶，候選＝store.noteRecall，第一次聚焦才載）；Enter 照舊＝存規則
+ * （清單選中某一列時 Enter＝選那一列，不存）。組字中的 Enter 由外層 span 的 composition 旗標擋（useImeGuard）。
+ * 荷札（代驗 G1，2026-11-03）：EntityTagField 受控模式，草稿在 store `repeatTags`（打開時讀：既有規則＝它掛的、從帳來＝那筆帳的、
+ * 全新＝空；讀回來之前格子留白）；存規則時整份寫 ticket:repeat——之後記出來的帳帶新的，已記的不追溯。建議清單往下推開
+ * （.ns-dialog-body 內捲，浮層會被裁）。荷札欄空著、沒選列時的 Enter 它不攔 ⇒ 照舊＝存規則（同大票）。
  */
 import { useRef, useState, type ReactNode } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
@@ -26,6 +31,8 @@ import { useUiStore } from "../../../store/uiStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { todayKey } from "../../../lib/date";
 import { DatePicker } from "../../common/DatePicker";
+import { RecallInput } from "../../common/RecallInput";
+import { EntityTagField } from "../../common/EntityTagField";
 import { moneyText, parseAmount, type AccountRow } from "../../../domain/ticket";
 import { shortDay } from "../../../domain/ticketView";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER, firstFixedDate, nextFixedDate, serializeRule } from "../../../domain/repeat";
@@ -37,6 +44,7 @@ import { AcctPick, CategoryCombo, Pop, RoutePop } from "../TicketPanel";
 import { ClockInput, clockDraftsOkIn } from "../../common/ClockInput";
 import { Segmented } from "../../common/Segmented";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../ticketClock";
+import "../ticket-4.css";
 
 type PopKind = "acct" | "toacct" | "cur" | "route" | "start" | "until" | null;
 
@@ -64,9 +72,9 @@ function prettyAmount(text: string, cur: { code: string; decimals: number }): st
   }
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className="field">
+    <div className={className ? `field ${className}` : "field"}>
       <span className="lbl">{label}</span>
       <div style={{ minWidth: 0 }}>{children}</div>
     </div>
@@ -75,6 +83,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 export function RepeatEditor({ onDone }: { onDone(): void }) {
   const draft = useTicketStore((s) => s.repeatDraft);
+  const repeatTags = useTicketStore((s) => s.repeatTags);
   const dialog = useTicketStore((s) => s.dialog);
   const repeats = useTicketStore((s) => s.repeats);
   const accById = useTicketStore((s) => s.accById);
@@ -83,7 +92,10 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const currencies = useTicketStore((s) => s.currencies);
   const balances = useTicketStore((s) => s.balances);
   const entries = useTicketStore((s) => s.entries);
+  const noteRecall = useTicketStore((s) => s.noteRecall);
   const routes = useNodeStore((s) => s.routes);
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13）
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [pop, setPop] = useState<PopKind>(null);
   const [busy, setBusy] = useState(false);
@@ -252,15 +264,18 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
           </Field>
         )}
         <Field label="備註">
-          <input
-            className="ns-tk-textin"
-            placeholder="備註"
-            aria-label="備註"
-            autoComplete="off"
-            value={d.note}
-            onChange={(e) => set({ note: e.target.value })}
-            {...ime}
-          />
+          <span className="ns-tk-recallwrap" onCompositionStart={ime.onCompositionStart} onCompositionEnd={ime.onCompositionEnd}>
+            <RecallInput
+              className="ns-tk-textin"
+              placeholder="備註"
+              ariaLabel="備註"
+              value={d.note}
+              items={noteRecall}
+              onNeedItems={() => void store().loadNoteRecall()}
+              onChange={(note) => set({ note })}
+              onKeyDown={ime.onKeyDown}
+            />
+          </span>
         </Field>
         <Field label="路線">
           <button
@@ -282,7 +297,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
           </button>
           {pop === "route" && (
             <RoutePop
-              routes={routes}
+              routes={liveRoutes}
               current={d.routeId}
               onClose={() => setPop(null)}
               onPick={(id) => {
@@ -290,6 +305,20 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
                 set({ routeId: id });
               }}
             />
+          )}
+        </Field>
+        <Field label="荷札" className="is-tags">
+          {repeatTags && (
+            // 輸入框的 Enter：掛荷札的已被它 preventDefault；沒攔的（空著、沒選列）＝存規則。牌子 ×、「掛荷札」鈕的 Enter 照按鈕
+            <div
+              onKeyDown={(e) => {
+                if (!e.defaultPrevented && (e.target as HTMLElement).tagName === "INPUT") ime.onKeyDown(e);
+              }}
+              onCompositionStart={ime.onCompositionStart}
+              onCompositionEnd={ime.onCompositionEnd}
+            >
+              <EntityTagField value={repeatTags.names} onChange={(names) => store().setRepeatTags(names)} resetKey={editingId ?? "new"} suggestInline />
+            </div>
           )}
         </Field>
       </div>

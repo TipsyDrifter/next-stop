@@ -60,7 +60,8 @@ const CONFIRM_DISCARD = "還沒存檔——再按一次就放棄";
 export function CaptureOverlay() {
   const capture = useNotesStore((s) => s.capture);
   const preset = useNotesStore((s) => s.capturePreset);
-  const routes = useNodeStore((s) => s.routes);
+  // 車庫與回顧 D-主-206 #14：路線前綴只認還在跑的路線
+  const routes = useNodeStore((s) => s.liveRoutes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const tearRef = useRef<HTMLDivElement>(null);

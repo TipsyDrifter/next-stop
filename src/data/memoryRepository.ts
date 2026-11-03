@@ -19,6 +19,7 @@ import {
 import {
   KIND_LABEL,
   allowedChildKinds,
+  childKindSwaps,
   afterRule,
   currentDue,
   fixedRule,
@@ -43,12 +44,14 @@ import type {
   RescheduleOpts,
   RescheduleResult,
   RouteProgress,
+  RouteMemberRow,
   ScheduleBounds,
   ScheduleEntry,
   SidebarData,
   TodayRow,
 } from "./nodeRepository";
 import type { FullSearchHit } from "../domain/fullSearch";
+import { depotRouteIds, inDepot, type ArrivalWrite } from "../domain/depot";
 import {
   compareCreated,
   compareSiblings,
@@ -140,6 +143,13 @@ export class MemoryNodeRepository implements NodeRepository {
     };
   }
 
+  /** 丁 D-主-241：同 SQLite 版（路線樹裡活著的節點，四欄） */
+  async listRouteMembers(): Promise<RouteMemberRow[]> {
+    return this.alive()
+      .filter((n) => n.route_id !== null && n.kind !== "station")
+      .map((n) => ({ id: n.id, kind: n.kind, status: n.status, route_id: n.route_id }));
+  }
+
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
     this.backfillSortKeys();
     return this.alive()
@@ -179,8 +189,17 @@ export class MemoryNodeRepository implements NodeRepository {
     if (!allowedChildKinds(parent ? parent.kind : null).includes(kind)) {
       throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${parent ? KIND_LABEL[parent.kind] : "根層"} 底下`);
     }
-    this.assertChildrenFit(id, kind, "轉為");
-    this.nodes.set(id, { ...node, kind, updated_at: this.now() });
+    // 丁 D-主-246：同 SQLite 版——直屬子項跟著換（車廂⇄列車），轉成支線清掉日期、時刻、重複
+    const kids = this.alive().filter((n) => n.parent_id === id);
+    const plan = childKindSwaps(kind, kids.map((k) => k.kind));
+    if ("why" in plan) throw new Error(plan.why);
+    const now = this.now();
+    const cleared = kind === "branch" ? { scheduled_on: null, due_on: null, scheduled_time: null, repeat_rule: null } : {};
+    this.nodes.set(id, { ...node, kind, ...cleared, updated_at: now });
+    for (const k of kids) {
+      const to = plan.swaps[k.kind];
+      if (to) this.nodes.set(k.id, { ...k, kind: to, updated_at: now });
+    }
   }
 
   async move(id: string, newParentId: string | null, index: number, newKind?: NodeKind): Promise<void> {
@@ -329,7 +348,8 @@ export class MemoryNodeRepository implements NodeRepository {
   /** 語義與 SQLite 版逐條對齊（四條 OR＋分區＋排序＋lazy 指派今日序），見 nodeRepository.listToday */
   async listToday(dateKey: string, dayStartHour = 3): Promise<TodayRow[]> {
     const { start, end } = dayWindow(dateKey, dayStartHour);
-    const hit = this.alive().filter((n) => {
+    // 車庫與回顧 D-主-206 #4：收進車庫的路線（與掛它標籤的臨時票）不進今日（同 SQLite 版的 inDepotSql）
+    const hit = this.active().filter((n) => {
       if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
       // 磨光⑦ 沙盒 F1：退役的定期券不走第一條（scheduled_on 是各台推算、退役後凍住的值；與 SQLite 版同）
       if (n.scheduled_on === dateKey && !(n.repeat_rule !== null && n.status === "done")) return true;
@@ -488,8 +508,8 @@ export class MemoryNodeRepository implements NodeRepository {
 
   async syncRepeats(dateKey: string, dayStartHour = 3): Promise<string[]> {
     const changed: string[] = [];
-    // D-主-122：退役的也算（執行日＝同步資料的純函數，見 syncNode；與 SQLite 版同）
-    for (const n of this.alive()) {
+    // D-主-122：退役的也算（執行日＝同步資料的純函數，見 syncNode；與 SQLite 版同）。車庫裡的停止發班（D-主-204）
+    for (const n of this.active()) {
       if (n.repeat_rule === null) continue;
       if (this.syncNode(n.id, dateKey, dayStartHour)) changed.push(n.id);
     }
@@ -551,7 +571,7 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const o of this.occ.values()) {
       if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
     }
-    return buildSchedule(this.alive(), byNode, from, to, today, h, { projectAfter: opts?.projectAfter });
+    return buildSchedule(this.active(), byNode, from, to, today, h, { projectAfter: opts?.projectAfter });
   }
 
   async listCalendar(
@@ -565,7 +585,7 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const o of this.occ.values()) {
       if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
     }
-    return buildCalendar(this.alive(), byNode, from, to, today, h);
+    return buildCalendar(this.active(), byNode, from, to, today, h);
   }
 
   async scheduleBounds(): Promise<ScheduleBounds> {
@@ -574,7 +594,7 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const o of this.occ.values()) {
       if (isAlive(o)) (byNode[o.node_id] ??= []).push(o);
     }
-    return buildScheduleBounds(this.alive(), byNode);
+    return buildScheduleBounds(this.active(), byNode);
   }
 
   async routeProgress(routeId: string): Promise<RouteProgress> {
@@ -583,6 +603,33 @@ export class MemoryNodeRepository implements NodeRepository {
       routeId,
       this.alive().filter((n) => n.parent_id === routeId || n.route_id === routeId),
     );
+  }
+
+  async setArrival(writes: readonly ArrivalWrite[]): Promise<void> {
+    if (!writes.length) return;
+    for (const w of writes) {
+      const n = this.nodes.get(w.id);
+      if (!n || !isAlive(n)) throw new Error("節點不存在");
+      if (n.kind !== "line" && n.kind !== "route") throw new Error("只有路線和幹線能到站");
+    }
+    const now = this.now();
+    for (const w of writes) this.mutate(w.id, (n) => ({ ...n, arrived_on: w.arrived_on, status: w.status, updated_at: now }));
+  }
+
+  /** 存活、而且不在車庫的節點（今日、行程表、發班看這一份；D-主-203） */
+  private active(): NodeRow[] {
+    const alive = this.alive();
+    const depot = depotRouteIds(alive.filter((n) => n.kind === "route"));
+    return depot.size ? alive.filter((n) => !inDepot(n, depot)) : alive;
+  }
+
+  /** 車庫（memoryDepotRepository）用：全部節點、班次、乘務記錄（含已刪的；複本） */
+  depotDump(): { nodes: NodeRow[]; occurrences: Occurrence[]; logs: WorkLog[] } {
+    return {
+      nodes: [...this.nodes.values()].map(clone),
+      occurrences: [...this.occ.values()].map(clone),
+      logs: [...this.logs.values()].map(clone),
+    };
   }
 
   async routeOpenCounts(): Promise<Record<string, number>> {

@@ -46,6 +46,8 @@ export type InboxPopKind = "someday" | "attach" | "route";
 
 export interface NotesInboxProps {
   items: InboxItem[];
+  /** 被書封「篩選・種類」藏起來的則數（丁 D-主-237）；0＝沒篩或沒藏 */
+  hidden?: number;
   /** 進頁那一趟載入回來了沒：沒回來前清單空著也不畫空狀態（免得開頁先閃「都整理完了」） */
   ready: boolean;
   selectedId: string | null;
@@ -65,6 +67,8 @@ export function NotesInbox(p: NotesInboxProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
   const n = p.items.length;
+  const hidden = p.hidden ?? 0;
+  const showAll = () => useNotesStore.getState().setInboxKind("all");
 
   // 選取換了就把那一則捲進視野（鍵盤 ↑↓、從 Ctrl+P 跳來）
   useEffect(() => {
@@ -81,8 +85,8 @@ export function NotesInbox(p: NotesInboxProps) {
         variant="name"
         overline={{ zh: "收件匣", latin: "Inbox" }}
         title="收件匣"
-        stats={n > 0 ? <>待整理 <b>{n}</b> 則</> : undefined}
-        add={n > 0 ? { label: "記一句", onClick: capture, title: `記一句（${capsOf("notes.capture")}）` } : undefined}
+        stats={n + hidden > 0 ? <>待整理 <b>{n + hidden}</b> 則{hidden > 0 && <>・篩選中顯示 {n} 則</>}</> : undefined}
+        add={n + hidden > 0 ? { label: "記一句", onClick: capture, title: `記一句（${capsOf("notes.capture")}）` } : undefined}
       />
       <div className="ns-notes-body">
         <section className="ns-notes-inbox ns-notes-col techo-scroll" aria-label="收件匣">
@@ -104,6 +108,15 @@ export function NotesInbox(p: NotesInboxProps) {
                 <p className="ns-notes-foothint">
                   {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理</p>
               </>
+            ) : p.ready && hidden > 0 ? (
+              // 丁 D-主-237：不是整理完了，是篩選把這一種都藏起來了
+              <EmptyState
+                tone="nores"
+                stamp={null}
+                title="這一種沒有待整理的"
+                desc={`另一種還有 ${hidden} 則`}
+                secondary={{ label: "看全部", onClick: showAll }}
+              />
             ) : p.ready ? (
               // 完成語氣＋受付章（丙-6 §5 P6）；這時頁首「＋ 記一句」藏起來，入口只留這一顆（規範 §2.7）
               <EmptyState

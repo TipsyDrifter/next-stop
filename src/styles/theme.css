@@ -456,6 +456,20 @@
   --page-pad-top: 50px; /* 頁首上緣 */
   --page-pad-x: 56px;   /* 版心左右內距 */
 
+  /* 寬度規範（丁 D-主-231；視覺規範 §1.3）：全 App 兩種頁型，一律在主欄裡置中、左右空白相等。
+   *   清單型（今日、路線大綱、路線一覽、售票口清單、完整搜尋、時刻表只看軸）＝內容寬 --read-w；
+   *   畫布型（行程表、時刻表其他視圖、旅客筆記、售票口月曆統計）＝滿版、最寬 --canvas-w。
+   *   窄的時候兩種都退到左右各 --page-side（＝現行頁首左緣 80；側板開著 72）。
+   *   下面四個帶 100% 的值只能用在「containing block＝主欄那一層」的 padding／margin（百分比照用的地方算）；
+   *   側板開著時 --page-pad-x 會換值，所以這組在下面的側板段再宣告一次（自訂屬性在宣告處就把 var() 換掉）。 */
+  --read-w: 848px;
+  --canvas-w: 1440px;
+  --page-side: calc(var(--page-gutter) + var(--page-pad-x));
+  --read-inset: max(var(--page-side), calc((100% - var(--read-w)) / 2));       /* 清單型：左右內距／外距 */
+  --canvas-inset: max(var(--page-side), calc((100% - var(--canvas-w)) / 2));   /* 畫布型：左右內距／外距 */
+  --read-margin: max(var(--page-gutter), calc((100% - var(--read-w)) / 2 - var(--page-pad-x)));     /* .sheet（自帶 pad-x）的左右外距 */
+  --canvas-margin: max(var(--page-gutter), calc((100% - var(--canvas-w)) / 2 - var(--page-pad-x)));
+
   /* 圓角（§1.4；--radius-card／--radius-pill 在上方原色層） */
   --radius-ctl: 2px;    /* 按鈕、輸入框、分段鈕、chip（現值 overlay.css:60 .ns-btn） */
   --radius-sheet: 12px; /* 手機底部 sheet 的上緣 */
@@ -489,6 +503,12 @@
 body:has(.panel) {
   --page-pad-top: 44px;
   --page-pad-x: 48px;
+  /* 寬度規範的衍生值跟著 --page-pad-x 重算（同上方的定義，一字不差） */
+  --page-side: calc(var(--page-gutter) + var(--page-pad-x));
+  --read-inset: max(var(--page-side), calc((100% - var(--read-w)) / 2));
+  --canvas-inset: max(var(--page-side), calc((100% - var(--canvas-w)) / 2));
+  --read-margin: max(var(--page-gutter), calc((100% - var(--read-w)) / 2 - var(--page-pad-x)));
+  --canvas-margin: max(var(--page-gutter), calc((100% - var(--canvas-w)) / 2 - var(--page-pad-x)));
 }
 
 /* 手機殼：App 根 div 與 <html> 都帶 data-shell（useShell 同步），portal 進 <body> 的 sheet 也吃得到。

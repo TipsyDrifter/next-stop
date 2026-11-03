@@ -4,12 +4,15 @@
  * 長相、class、鍵盤規則逐字是原本的 `TagField`（車次③契約 §5.3；說明見 `TagField.tsx` 檔頭）：
  *   牌子一排（點牌＝進荷札頁；hover 出 × 摘）＋「＋ 掛荷札」⇒ 輸入框＋建議清單；
  *   ↑↓ 選列・Enter 掛・Tab 補完・空白鍵＝照打的字掛上・Esc 收起（不漏給外層；焦點回「掛荷札」鈕）・空著按 Backspace 兩下摘最後一個。
+ *   選中列（售票口④ P1，2026-11-03；規則在 `entityTagKeys.ts`）：打了字或用 ↑↓ 動過才有。欄位空著、沒動過 ⇒ 清單照列常用荷札但
+ *   不反白任何一列，Enter／Tab 不攔、交給外層（例：售票口新的一筆＝存檔；以前會悄悄掛上第一個建議）。
  *
  * 兩種用法：
  *   - **實體模式**（`entityType`＋`entityId`）：掛／摘立刻寫（`tagStore.attach／detach`，toast＋復原）——原本 TagField 的行為。
  *   - **受控模式**（`value`＋`onChange`）：只改草稿（名稱陣列），不寫資料；給「按『改好了』才存」的面板用。
  *     牌子不能點（點了會離開面板、草稿就丟了）：TagChip 不給 onOpen ⇒ 名字畫成 span。
- * 選填：`exclude`＝建議清單多排除的 key；`suggestInline`＝建議清單往下推開（`.ns-notes-sug.static`）而不是浮層；
+ * 選填：`exclude`＝建議清單多排除的 key；`suggestInline`＝建議清單往下推開（`.ns-notes-sug.static`）而不是浮層
+ *         （按著滑鼠點到別處造成的失焦，等放開才收清單——先收的話下面的列往上跳，那一下會點空；售票口④ O1）；
  *       `backRef`＋`afterOpen`＝點牌進荷札頁時的「回到剛才」與之後要做的事。都不給＝原本 TagField 的樣子。
  *
  * ── UI 丙-2 搬家（契約 §1 #18；2026-10-22）──
@@ -27,7 +30,8 @@ import { useTagStore, type TagBackRef } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { IconPlus } from "../notes/notesBits";
 import { TagChip } from "../notes/tags/TagChip";
-import { TagSuggestRows, moveAct, suggestCount, suggestPick } from "../notes/tags/TagSuggest";
+import { TagSuggestRows, suggestCount, suggestPick } from "../notes/tags/TagSuggest";
+import { arrowAct, enterAction, hasPick } from "./entityTagKeys";
 
 const NO_KEYS: readonly string[] = [];
 
@@ -83,12 +87,16 @@ export function EntityTagField(props: EntityTagFieldProps) {
   const [focused, setFocused] = useState(false);
   const [q, setQ] = useState("");
   const [act, setAct] = useState(0);
+  /** 這次打字之後用 ↑↓ 動過選列沒（選中列的規則見檔頭） */
+  const [moved, setMoved] = useState(false);
   const [armed, setArmed] = useState(false);
   const inRef = useRef<HTMLInputElement>(null);
   const addRef = useRef<HTMLButtonElement>(null);
   /** Esc 收起後焦點回「掛荷札」鈕（磨光③ 2-9）；空字失焦收起不搶（使用者是點去別處） */
   const focusAddAfterClose = useRef(false);
   const busy = useRef(false);
+  /** 正按著滑鼠（suggestInline 的失焦看它：見 onBlur） */
+  const pressing = useRef(false);
 
   useEffect(() => {
     if (!useTagStore.getState().index) void useTagStore.getState().loadIndex();
@@ -98,6 +106,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
     setOpen(false);
     setQ("");
     setAct(0);
+    setMoved(false);
     setArmed(false);
   }, [resetKey]);
   useEffect(() => {
@@ -107,6 +116,21 @@ export function EntityTagField(props: EntityTagFieldProps) {
       addRef.current?.focus({ preventScroll: true });
     }
   }, [open]);
+  const inline = !!props.suggestInline;
+  useEffect(() => {
+    if (!open || !inline) return;
+    const down = () => (pressing.current = true);
+    const up = () => (pressing.current = false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      pressing.current = false;
+    };
+  }, [open, inline]);
 
   const exclude = props.exclude;
   const res = useMemo(
@@ -116,6 +140,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
   );
   const n = res ? suggestCount(res) : 0;
   const curAct = Math.min(act, Math.max(0, n - 1));
+  const picked = hasPick(q, moved);
 
   const attach = async (raw: string | null) => {
     const name = (raw ?? "").trim();
@@ -129,6 +154,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
       if (!keys.includes(nn.key)) props.onChange([...(draft ?? []).map((x) => x.name), nn.name]);
       setQ("");
       setAct(0);
+      setMoved(false);
       inRef.current?.focus({ preventScroll: true });
       return;
     }
@@ -138,6 +164,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
       if (r) {
         setQ("");
         setAct(0);
+        setMoved(false);
       }
     } finally {
       busy.current = false;
@@ -172,18 +199,23 @@ export function EntityTagField(props: EntityTagFieldProps) {
       case "ArrowDown":
       case "ArrowUp":
         e.preventDefault();
-        setAct(moveAct(curAct, e.key === "ArrowDown" ? 1 : -1, n));
+        setAct(arrowAct(curAct, e.key === "ArrowDown" ? 1 : -1, n, picked));
+        setMoved(true);
         return;
-      case "Enter":
+      case "Enter": {
+        const how = enterAction(q, moved, n);
+        if (how === "pass") return; // 空著、沒選列：不攔，交給外層
         e.preventDefault();
-        void attach(n ? suggestPick(res, curAct) : q);
+        void attach(how === "pick" ? suggestPick(res, curAct) : q);
         return;
+      }
       case "Tab": {
-        const it = res.items[curAct];
+        const it = picked ? res.items[curAct] : undefined;
         if (it) {
           e.preventDefault();
           setQ(completeTab(it, res.browse));
           setAct(0);
+          setMoved(false);
         }
         return;
       }
@@ -197,6 +229,7 @@ export function EntityTagField(props: EntityTagFieldProps) {
         focusAddAfterClose.current = true;
         setOpen(false);
         setQ("");
+        setMoved(false);
         return;
       case "Backspace":
         if (q || !keys.length) return;
@@ -236,20 +269,45 @@ export function EntityTagField(props: EntityTagFieldProps) {
               onChange={(e) => {
                 setQ(e.target.value);
                 setAct(0);
+                setMoved(false);
                 setArmed(false);
               }}
               onKeyDown={onKeyDown}
               onFocus={() => setFocused(true)}
               onBlur={() => {
-                setFocused(false);
-                setArmed(false);
-                if (!q.trim()) setOpen(false);
+                const settle = () => {
+                  if (document.activeElement === inRef.current) return; // 又回到這一格了
+                  setFocused(false);
+                  setArmed(false);
+                  setMoved(false);
+                  if (!q.trim()) setOpen(false);
+                };
+                if (!inline || !pressing.current) {
+                  settle();
+                  return;
+                }
+                // 往下推開的清單：按下去就收，下面的列會往上跳、放開時已經不在指標底下（click 落空）。
+                // 等放開——mouseup 與 click 同一輪派送，排到下一個 task 才收
+                const after = () => {
+                  window.removeEventListener("pointerup", after, true);
+                  window.removeEventListener("pointercancel", after, true);
+                  window.setTimeout(settle, 0);
+                };
+                window.addEventListener("pointerup", after, true);
+                window.addEventListener("pointercancel", after, true);
               }}
             />
           </span>
           {focused && res && (
             <div className={"ns-notes-sug" + (props.suggestInline ? " static" : "")} role="listbox" aria-label="荷札建議">
-              <TagSuggestRows res={res} act={curAct} onPick={(i) => void attach(suggestPick(res, i))} onHover={setAct} nameOf={nameOf} />
+              <TagSuggestRows
+                res={res}
+                act={picked ? curAct : -1}
+                onPick={(i) => void attach(suggestPick(res, i))}
+                // 還沒有選中列時，滑過只有 :hover 的底色、不變成選中列（不然 Enter 會掛上滑鼠剛好停著的那一列）
+                onHover={picked ? setAct : undefined}
+                nameOf={nameOf}
+              />
             </div>
           )}
         </>

@@ -52,6 +52,7 @@ export function NotesView() {
   const section = useNotesStore((s) => s.section);
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
+  const inboxKind = useNotesStore((s) => s.inboxKind);
   const inboxSelected = useNotesStore((s) => s.inboxSelected);
   const uiSelectedId = useUiStore((s) => s.selectedId);
   const notesCount = useNotesStore((s) => s.notes.length);
@@ -72,7 +73,12 @@ export function NotesView() {
   const flushRef = useRef<(() => Promise<void>) | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const items = useMemo(() => inboxItemsOf(inboxNotes, inboxTickets), [inboxNotes, inboxTickets]);
+  // 丁 D-主-237：書封「篩選・種類」只看筆記／只看車票（鍵盤 ↑↓ 也只走篩過的那一份）
+  const items = useMemo(
+    () => inboxItemsOf(inboxKind === "ticket" ? [] : inboxNotes, inboxKind === "note" ? [] : inboxTickets),
+    [inboxNotes, inboxTickets, inboxKind],
+  );
+  const inboxHidden = inboxNotes.length + inboxTickets.length - items.length;
 
   /* ── 進頁：載兩份清單＋本月日記記號；焦點給目前子畫面的清單 ── */
   useEffect(() => {
@@ -459,6 +465,7 @@ export function NotesView() {
       ) : section === "inbox" ? (
         <NotesInbox
           items={items}
+          hidden={inboxHidden}
           ready={ready.inbox}
           selectedId={inboxSelected?.id ?? null}
           leavingId={leaving}

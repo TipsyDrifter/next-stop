@@ -41,6 +41,8 @@ export interface PopMenuItem {
   danger?: boolean;
   /** 收進可展開群組的名字（例「編排」）：同名的連續項目畫成一列「編排 ▾」，點開才列出 */
   group?: string;
+  /** 項目下面一句淡字用途（丁 D-主-249：「＋ 新增 ▾」三種各寫一句，例「一件要做的事，可拆成車廂與車票」） */
+  hint?: string;
   onSelect: () => void;
 }
 
@@ -180,13 +182,20 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus, 
           role="menuitem"
           data-menu-item
           disabled={it.disabled}
-          className={it.danger ? "ns-popmenu-item is-danger" : "ns-popmenu-item"}
+          className={(it.danger ? "ns-popmenu-item is-danger" : "ns-popmenu-item") + (it.hint ? " has-hint" : "")}
           onClick={() => {
             close(false);
             it.onSelect();
           }}
         >
-          <span>{it.label}</span>
+          {it.hint ? (
+            <span className="ns-popmenu-two">
+              <span>{it.label}</span>
+              <small className="hint">{it.hint}</small>
+            </span>
+          ) : (
+            <span>{it.label}</span>
+          )}
           {caps && <kbd className="caps">{caps}</kbd>}
         </button>
       </li>

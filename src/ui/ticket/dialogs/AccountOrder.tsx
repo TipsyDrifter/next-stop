@@ -5,10 +5,13 @@
  * 長相與寫法照 CategoryManager（同一套 class）：依群組分區（`groupAccounts`：群組序固定＝ACCOUNT_GROUPS，只列未封存帳戶），
  * 每列右邊 ↑／↓（群組頭尾那一格 disabled），列上 Alt+↑↓ 同義；呼叫既有的 `moveAccount`（同群組鄰居互換、走同步）。
  * 群組之間的順序不能改，只在群組內排。移動後焦點跟著那一列走（列是同一個 key，React 只換位置）。
+ * 售票口④（契約 §5；桌機席）：每個群組一份共用拖曳（common/dragReorder），放開對最新清單換算 indexOfAnchor → `moveAccountTo`
+ * （整組寫）；拖不出群組（每組各自一份清單）。↑↓ 與 Alt+↑↓ 照留（鍵盤與讀屏的入口，拖曳是加速）。
  */
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { groupAccounts, type AccountRow } from "../../../domain/ticket";
+import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
 import { acctLabel } from "../TicketLedger";
 
 // 即時存（moveAccount 按一下就寫）⇒ 沒有「完成」鈕：關閉走 DialogShell 的 ×／暗幕／Esc、手機 sheet 的暗幕／返回鍵（UI 丙-1，視覺規範 §6）。
@@ -25,17 +28,38 @@ export function AccountOrder(_props: { onDone(): void }) {
         groups.map(({ group, accounts: list }) => (
           <section key={group.key} className="ns-tk-dorder-grp" aria-label={group.label}>
             <h3 className="lbl">{group.label}</h3>
-            <ul className="ns-tk-dtree">
-              {list.map((a, i) => (
-                <li key={a.id} className="ns-tk-dmain">
-                  <AcctRow account={a} label={acctLabel(a, accounts)} first={i === 0} last={i === list.length - 1} />
-                </li>
-              ))}
-            </ul>
+            <GroupList groupKey={group.key} list={list} accounts={accounts} />
           </section>
         ))
       )}
     </div>
+  );
+}
+
+/* ───────── 一個群組的清單（各自一份拖曳） ───────── */
+
+function GroupList({ groupKey, list, accounts }: { groupKey: string; list: AccountRow[]; accounts: AccountRow[] }) {
+  const moveAccountTo = useTicketStore((s) => s.moveAccountTo);
+  const [root, setRoot] = useState<HTMLUListElement | null>(null);
+  useDragReorder({
+    root,
+    items: list.map((a) => ({ id: a.id })),
+    onDrop: (ids, place) => {
+      if (place.kind !== "slot") return;
+      const latest = groupAccounts(useTicketStore.getState().accounts).find((g) => g.group.key === groupKey)?.accounts.map((a) => a.id) ?? [];
+      const at = indexOfAnchor(latest, ids[0], place);
+      if (at === null) return;
+      void moveAccountTo(ids[0], at);
+    },
+  });
+  return (
+    <ul ref={setRoot} className="ns-tk-dtree">
+      {list.map((a, i) => (
+        <li key={a.id} className="ns-tk-dmain" data-drag-id={a.id}>
+          <AcctRow account={a} label={acctLabel(a, accounts)} first={i === 0} last={i === list.length - 1} />
+        </li>
+      ))}
+    </ul>
   );
 }
 

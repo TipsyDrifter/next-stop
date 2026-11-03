@@ -209,7 +209,7 @@
 [data-shell="mobile"] .ns-tk-mf-toamt input { flex: 1; min-width: 0; min-height: 40px; background: transparent; border: 0; outline: none; font-family: var(--font-display); font-weight: 600; font-size: 18px; color: var(--color-ink); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 [data-shell="mobile"] .ns-tk-mf-toamt small { font-family: var(--font-latin); font-size: 11px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
 
-/* 分類格子：最近 8 格＋完整兩層（主分類一格一格、展開的子分類插在那一列下方） */
+/* 分類格子：常用一排＋完整格子（售票口④ 第二輪起一層一層點進去：MobileCatDrill，樣式在 ticket-4b-mobile.css） */
 [data-shell="mobile"] .ns-tk-mf-cats { padding: 0 14px; }
 [data-shell="mobile"] .ns-tk-mgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 [data-shell="mobile"] .ns-tk-mcell {
@@ -220,11 +220,7 @@
 }
 [data-shell="mobile"] .ns-tk-mcell small { display: block; font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); } /* 字面值：9.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mcell.on { outline: var(--sel-line); outline-offset: -1px; background: var(--ns-tk-sel); font-weight: 500; }
-[data-shell="mobile"] .ns-tk-mcell.open { border-color: var(--color-dash); background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-mcell:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-msubs { grid-column: 1 / -1; padding: 8px; border: 1px dashed var(--color-dash); border-radius: 3px; animation: nsTkMFade .16s ease-out; } /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
-[data-shell="mobile"] .ns-tk-msubs .hd { padding: 0 2px 6px; font-size: var(--fs-micro); letter-spacing: .1em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-msubs .ns-tk-mcell { min-height: 40px; }
 
 /* 更多欄位（折疊） */
 [data-shell="mobile"] .ns-tk-mf-more { margin: 14px 18px 0; border-top: 1px dashed var(--color-dash); }
@@ -460,27 +456,6 @@
 [data-shell="mobile"] .ns-tk-ms-date small { font-family: var(--font-body); font-weight: 400; font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：10px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-ms-date:active { background: var(--ns-tk-hover); }
 [data-shell="mobile"] .ns-tk-ms-range .dash { color: var(--color-ink-faint); }
-/* 分類：三欄格子；主分類格＝整勾（含子分類），格右 › 展開子分類單勾 */
-[data-shell="mobile"] .ns-tk-ms-cats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-[data-shell="mobile"] .ns-tk-msc {
-  display: flex; min-width: 0; min-height: 48px; box-sizing: border-box; overflow: hidden;
-  border: 1px solid var(--color-line); border-radius: 3px; background: color-mix(in srgb, var(--color-paper-used) 50%, transparent); /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
-  transition: border-color .15s, background .15s;
-}
-[data-shell="mobile"] .ns-tk-msc .pick {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px;
-  text-align: center; line-height: 1.25; font-family: inherit; color: var(--color-ink); background: transparent; border: 0;
-}
-[data-shell="mobile"] .ns-tk-msc .nm { max-width: 100%; font-size: var(--fs-sm); letter-spacing: .02em; overflow-wrap: anywhere; }
-[data-shell="mobile"] .ns-tk-msc .pick small { font-size: 9.5px; letter-spacing: .02em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：9.5px 不在手機字階，照原型 */
-[data-shell="mobile"] .ns-tk-msc .more { flex: none; width: 26px; display: grid; place-items: center; border: 0; border-left: 1px dashed var(--color-line); background: transparent; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-msc .more svg { transition: transform .22s cubic-bezier(.3, 1.4, .5, 1); }
-[data-shell="mobile"] .ns-tk-msc.open .more { background: var(--ns-tk-hover); color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-msc.open .more svg { transform: rotate(90deg); }
-[data-shell="mobile"] .ns-tk-msc :is(.pick, .more):active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-msc :is(.pick, .more):focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
-[data-shell="mobile"] .ns-tk-msc.on { outline: var(--sel-line); outline-offset: -1px; background: var(--ns-tk-sel); }
-[data-shell="mobile"] .ns-tk-msc.on .nm { font-weight: 500; }
 [data-shell="mobile"] .ns-tk-msearch-sheet .ns-tk-mgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 /* ═══ 路線列尾小字 .ns-tk-maside（丙；掛在主線的 .m2-route 裡：[data-shell="mobile"] .m2-route .ns-tk-maside）═══ */
@@ -582,21 +557,12 @@
 [data-shell="mobile"] .ns-tk-mbe-f .clr { position: absolute; right: -6px; top: 0; width: 36px; height: 44px; display: grid; place-items: center; color: var(--color-ink-faint); background: transparent; border: 0; -webkit-tap-highlight-color: transparent; }
 [data-shell="mobile"] .ns-tk-mbe-f .clr:active { color: var(--color-ink); }
 [data-shell="mobile"] .ns-tk-mbe-add { width: 100%; margin: 6px 0 2px; }
-/* 加分類預算（疊一層的 sheet）：支出兩層格子；已設的淡掉、不能點 */
+/* 加分類預算（疊一層的 sheet）：支出格子（MobileCatDrill；已設的淡掉、不能點＝ticket-4b-mobile.css 的 .is-taken） */
 [data-shell="mobile"] .ns-tk-mbe-pickhint { margin: 0; padding: 0 18px 8px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mbe-pick { padding-bottom: 6px; }
-[data-shell="mobile"] .ns-tk-mbe-pick .ns-tk-mcell.has-kids small { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mbe-pick .ns-tk-mcell.is-taken { opacity: var(--disabled); cursor: not-allowed; }
 
 /* ═══ 定期帳 sheet .ns-tk-mrm*（丙）═══ */
-/* 原型題四手機：橫幅（金，是提醒不是錯誤）→「進行中」「已暫停」兩區 → 一條兩行；列尾只留「暫停／開始」 */
-[data-shell="mobile"] .ns-tk-mrm-banner { margin: 8px 0 4px; padding: 10px 12px; border-radius: 2px; background: var(--color-paper-used); border: 1px dashed var(--color-dash); } /* 頁內資訊卡＝紙材質（§2.8；不再金底金框） */
-[data-shell="mobile"] .ns-tk-mrm-banner p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.6; letter-spacing: .03em; color: var(--color-ink-soft); } /* 字面值：12.5px 不在手機字階，照原型 */
-[data-shell="mobile"] .ns-tk-mrm-banner b { font-family: var(--font-display); color: var(--color-ink); }
-[data-shell="mobile"] .ns-tk-mrm-banner .ns-tk-mbtn { width: 100%; }
-/* 匯入結果卡「去定期帳 ›」（ImportCard 兩殼共用、桌機樣式 ticket.css §O）：手機觸控高 44，用負外距吃回去不把卡撐高 */
-[data-shell="mobile"] .ns-tk-im-note.is-plan { align-items: center; }
-[data-shell="mobile"] .ns-tk-im-note.is-plan .ns-tk-btn { min-height: var(--ctl-h); margin-block: -8px; } /* 文字鈕撐到觸控 44，上下負外距吃回去不把卡撐高 */
+/* 原型題四手機：「進行中」「已暫停」兩區 → 一條兩行；列尾只留「暫停／開始」 */
 [data-shell="mobile"] .ns-tk-mrm-h { margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); } /* 字面值：10.5px 不在手機字階，照原型 */
 [data-shell="mobile"] .ns-tk-mrm-h .n { font-family: var(--font-latin); letter-spacing: .06em; }
 [data-shell="mobile"] .ns-tk-mrm ul { margin: 0; padding: 0; list-style: none; }
@@ -671,8 +637,8 @@
 
 /* ═══ 減量動態 ═══ */
 @media (prefers-reduced-motion: reduce) {
-  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-msubs, .ns-tk-mday, .ns-tk-mnotice, .ns-tk-mst-rows .row > button) { animation: none; }
-  [data-shell="mobile"] :is(.ns-tk-mst-rows .bar i, .ns-tk-mst-rows .c svg, .ns-tk-msc .more svg) { transition: none; }
+  [data-shell="mobile"] :is(.ns-tk-mform, .ns-tk-macct, .ns-tk-mday, .ns-tk-mnotice, .ns-tk-mst-rows .row > button) { animation: none; }
+  [data-shell="mobile"] :is(.ns-tk-mst-rows .bar i, .ns-tk-mst-rows .c svg) { transition: none; }
   [data-shell="mobile"] .ns-tk-mf-moretog svg { transition: none; }
 }
 
@@ -754,13 +720,12 @@
 [data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-dcats, .ns-tk-dorder, .ns-tk-dcur, .ns-tk-mbe) { padding-bottom: calc(var(--m-safe-bottom, 0px) + var(--sp-4)); }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfield { min-height: 48px; }
 [data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-din, .ns-tk-dname, .ns-tk-dselect) { min-height: var(--ctl-input); font-size: var(--fs-h3); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-dfoot, .ns-tk-im-foot) {
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfoot {
   position: sticky; bottom: 0;
   margin: var(--sp-3) calc(-1 * var(--m-gutter)) 0; padding: 10px var(--m-gutter) calc(var(--m-safe-bottom, 0px) + 6px);
   background: var(--ns-tk-mpaper);
 }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfoot { border-top: 1px dashed var(--color-dash); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-foot { margin-top: var(--sp-4); }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfoot .ns-tk-dbtn { flex: 1; }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dmini { min-height: var(--ctl-h); min-width: var(--ctl-h); } /* 列內小鈕撐到觸控目標（緊湊鈕 36 不夠） */
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-drow { min-height: 48px; }
@@ -769,14 +734,6 @@
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcurrow .rate { grid-column: 2 / -1; }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcuradd { grid-template-columns: 76px minmax(0, 1fr); }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcuradd :is(.ns-tk-dselect, .ns-tk-drate, .ns-tk-dbtn) { grid-column: 1 / -1; }
-/* 匯入票（ImportCard 本體，ticket.css §G）：單欄、寬度吃滿；餘額對帳七列直排（§5.3） */
-[data-shell="mobile"] .ns-tk-msh.is-import > .ns-msheet-body > * { max-width: 100%; box-sizing: border-box; }
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-recon { grid-template-columns: minmax(0, 1fr); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-recon label { grid-template-columns: minmax(0, 1fr) 132px 16px; min-height: 48px; font-size: var(--fs-ui); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-recon input { min-height: 40px; font-size: var(--fs-h3); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-mod { grid-template-columns: minmax(0, 1fr); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-mod .ns-tk-im-pick { grid-column: 1; grid-row: auto; margin-top: var(--sp-1); } /* Segmented 手機殼本來就撐滿一列 */
-[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-im-table { font-size: var(--fs-sm); }
 /* ==== end T4 ==== */
 
 /* ==== 丙-5 T5 手機表單 ==== */

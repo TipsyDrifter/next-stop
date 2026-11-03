@@ -26,6 +26,7 @@ import { ActionButton, ActionsRow, CommitInput, CommitTextarea, FieldRow, Sectio
 import { Choice } from "./Choice";
 import { moveRouteToLine } from "./moveRouteToLine";
 import { requestDeleteRoute } from "./routeFlows";
+import { requestArrive, requestDepart } from "./arrivalFlows";
 import { codeInput, codeTakenByOther, codeTakenNote, codeValue } from "./routeFlowRules";
 import { StationList } from "./StationList";
 import { LineRows } from "./TaskFields";
@@ -36,7 +37,8 @@ const NULL_ROUTE_COLOR = routePresetColor(4);
 export function RoutePanel({ route }: { route: NodeRow }) {
   const updateNode = useNodeStore((s) => s.updateNode);
 
-  const lines = useNodeStore((s) => s.lines);
+  // 所屬幹線只給還在跑的幹線（車庫與回顧 D-主-206 #16）
+  const lines = useNodeStore((s) => s.liveLines);
   const routes = useNodeStore((s) => s.routes);
 
   const color = route.color ?? NULL_ROUTE_COLOR;
@@ -113,7 +115,7 @@ export function RoutePanel({ route }: { route: NodeRow }) {
         </FieldRow>
 
         {/* 所屬幹線（E12）：只有一條幹線就沒得換、不畫 */}
-        {lines.length >= 2 && route.line_id && (
+        {lines.length >= 2 && route.line_id && !route.arrived_on && (
           <FieldRow label="所屬幹線">
             <Choice
               value={route.line_id}
@@ -139,7 +141,19 @@ export function RoutePanel({ route }: { route: NodeRow }) {
 
       <StationList routeId={route.id} />
 
+      {/* 車庫與回顧 D-主-207：到站＝收進車庫（已到站的路線在這裡換成「回到運行」；側板通常只開得到還在跑的，從記錄簿「在路線圖打開」才會看到已到站的） */}
       <ActionsRow
+        left={
+          route.arrived_on ? (
+            <ActionButton ariaLabel="回到運行" title="從車庫拿出來，回到我的路線" onClick={() => void requestDepart(route.id)}>
+              回到運行
+            </ActionButton>
+          ) : (
+            <ActionButton ariaLabel="到站・收進車庫" title="這條路線跑完了：收進車庫（可復原）" onClick={() => void requestArrive(route.id)}>
+              到站・收進車庫
+            </ActionButton>
+          )
+        }
         right={
           <ActionButton ariaLabel="刪除路線" title="刪除這條路線（6 秒內可復原）" tone="danger" onClick={removeRoute}>
             刪除路線

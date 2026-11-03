@@ -91,7 +91,12 @@ export const KIND_LABEL: Record<NodeKind, string> = {
   station: "車站",
 };
 
-/** 某種父節點底下允許出現的子節點種類（parent=null ＝ 根層：幹線；臨時車票）。 */
+/**
+ * 某種父節點底下允許出現的子節點種類（parent=null ＝ 根層：幹線；臨時車票）。
+ * 丁 D-主-245（設計題丙題一 A）：支線底下可以直接放車票（支線＝主題，不必先建一班「雜項」列車）。
+ * 「路線底下的車票」沿用既有的寫法＝掛這條路線標籤的根層臨時車票（parent_id 為 null、route_id＝路線），
+ * 不另開 parent_id＝路線 的第二種存法（同一件事兩種存法，搜尋、今日、同步都得多認一種）。
+ */
 export function allowedChildKinds(parent: NodeKind | null): NodeKind[] {
   switch (parent) {
     case null:
@@ -101,7 +106,7 @@ export function allowedChildKinds(parent: NodeKind | null): NodeKind[] {
     case "route":
       return ["branch", "train", "station"];
     case "branch":
-      return ["branch", "train"];
+      return ["branch", "train", "ticket"];
     case "train":
     case "car":
       return ["car", "ticket"];
@@ -110,6 +115,26 @@ export function allowedChildKinds(parent: NodeKind | null): NodeKind[] {
       return [];
   }
 }
+
+/**
+ * 轉種類時直屬子項跟著換（丁 D-主-246）：有子項的列車轉支線＝直屬車廂改列車；支線轉列車＝直屬列車改車廂。
+ * 回 `{ swaps }`＝要改種類的子項種類對照（只有列車⇄車廂兩種）；換不了（支線裡還有支線要轉列車）＝回一句理由。
+ * 純函式；兩個 repository 的 setKind 共用。
+ */
+export function childKindSwaps(target: NodeKind, kids: readonly NodeKind[]): { swaps: Partial<Record<NodeKind, NodeKind>> } | { why: string } {
+  const ok = allowedChildKinds(target);
+  const swaps: Partial<Record<NodeKind, NodeKind>> = {};
+  for (const k of new Set(kids)) {
+    if (ok.includes(k)) continue;
+    if (k === "car" && ok.includes("train")) swaps.car = "train";
+    else if (k === "train" && ok.includes("car")) swaps.train = "car";
+    else return { why: `裡面還有${KIND_LABEL[k]}，先把它移出來或改種類，才能轉成${KIND_LABEL[target]}` };
+  }
+  return { swaps };
+}
+
+/** 轉成支線時清掉的欄（支線是主題，沒有日期、時刻、重複；丁 D-主-246） */
+export const BRANCH_CLEARED_FIELDS = ["scheduled_on", "due_on", "scheduled_time", "repeat_rule"] as const;
 
 /** Tab 降層時的類型推導（D 定案：路線／支線下→列車；列車／車廂下→車廂）。 */
 export function defaultChildKind(parent: NodeKind): NodeKind | null {

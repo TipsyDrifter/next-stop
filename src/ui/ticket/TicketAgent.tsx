@@ -3,8 +3,6 @@
  *
  * 掛在 mount 的 `desktopOverlay` 與 `mobileOverlay`（兩殼永不同時渲染 ⇒ 只會有一個實例、一組計時器）：
  *   - App 一啟動就 `warm()`：起手三列、帳戶名（捕捉框的落點「售票口 · 現金」才寫得出來）
- *   - 掛沙盒除錯入口 `window.__nsTicket.importFromPath(path)`（0-34）：＝對話框選完之後的同一條路，
- *     CDP 進不了原生選檔對話框，沙盒席以它帶複本路徑。權限與對話框相同（Rust command 本來就收任意路徑）。
  *   - 第③階段（③契約 0-6、§3.9）：定期帳的實體化排程。觸發點：
  *       (a) 啟動（warm 之後；**先拉後記**：有加入同步 ⇒ 等第一趟拉完（`last_sync_at` 變）或 30 秒逾時才跑，沒加入就直接跑）
  *       (b) 同步拉完（mount 的 `afterPull`，整合席填）
@@ -21,7 +19,7 @@ import { useOnResume } from "./resume";
 
 declare global {
   interface Window {
-    __nsTicket?: { importFromPath(p: string): Promise<void>; materializeNow(): Promise<void> };
+    __nsTicket?: { materializeNow(): Promise<void> };
   }
 }
 
@@ -105,10 +103,6 @@ export function TicketAgent() {
       })
       .catch((e) => console.warn("[ticket] warm 失敗", e));
     window.__nsTicket = {
-      importFromPath: (p: string) => {
-        store().openDialog({ kind: "import" });
-        return store().importFromPath(p);
-      },
       materializeNow: () => store().materialize("manual"),
     };
     const timer = window.setInterval(tick, DAY_TICK_MS);

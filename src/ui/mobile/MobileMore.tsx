@@ -45,6 +45,7 @@
  */
 import { useEffect, useState } from "react";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
+import { useNodeStore } from "../../store/nodeStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
 import MobileBackup from "./MobileBackup";
@@ -104,6 +105,7 @@ export default function MobileMore() {
   const settingsLinks = lineSettingsLinks("mobile");
   const backupOkAt = useBackupStore((s) => s.lastOkAt);
   const backupFailed = useBackupStore((s) => !!s.lastError);
+  const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
 
   // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
   useEffect(() => {
@@ -128,7 +130,7 @@ export default function MobileMore() {
 
   return (
     <div className="m-page m2-page" aria-label="更多">
-      {/* ② 運行報告（D-主-183）：最上面一段「回顧」＝桌機書封第三排；③ 的車庫接在同一段 */}
+      {/* ② 運行報告（D-主-183）：最上面一段「回顧」＝桌機書封第三排；③ 的車庫接在同一段（D-主-215） */}
       <section className="m2-sec" aria-labelledby="m2-sec-review">
         <h2 id="m2-sec-review" className="m2-sec-title">
           回顧
@@ -139,6 +141,13 @@ export default function MobileMore() {
             運行報告
           </span>
           <span className="m2-planned-note">今天與每日運行實績</span>
+        </button>
+        <button type="button" className="m2-row-link" onClick={() => setMobileTab("depot")}>
+          <span className="m2-planned-name m2-row-icon">
+            {GNAV_ICONS.depot(16)}
+            車庫
+          </span>
+          <span className="m2-planned-note">{depotCount > 0 ? `${depotCount} 條路線到站` : "還沒有到站的路線"}</span>
         </button>
       </section>
 

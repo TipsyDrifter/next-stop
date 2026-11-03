@@ -62,7 +62,8 @@ export function useAttachOptions(): {
   routes: NodeRow[];
   loadTree(routeId: string, kinds?: readonly AttachKind[]): Promise<AttachOption[]>;
 } {
-  const routes = useNodeStore((s) => s.routes);
+  // 車庫與回顧 D-主-206 #14：收進車庫的路線不再能新掛筆記
+  const routes = useNodeStore((s) => s.liveRoutes);
   const loadTree = useCallback(async (routeId: string, kinds?: readonly AttachKind[]) => {
     const rows = await nodeRepo.listRouteTree(routeId);
     return flattenAttachTree(routeId, rows, kinds);

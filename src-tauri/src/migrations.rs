@@ -69,6 +69,12 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(14, "0014_node_sort_key", "nodes sort key: nodes.sort_key (fractional index; nodes.position retired in place, backfilled by the app)"),
     // 時刻表⑦（D-時-156～166）；正式號 0015（主對話 11-01 發）
     mig!(15, "0015_timetable_plans", "timetable plans: time_blocks.note + time_routines (weekday-auto routine templates) + time_plans (per-day plan rows: materialized routine segments, extra ticket slots)"),
+    // 售票口④（D-票-76）；正式號 0016（主對話 11-03 發，v1.24.0 合併）
+    mig!(16, "0016_ticket_wish", "ticket wish: tk_wishes (wish list; bought = entry_id points at an alive entry) + tk_templates (manual entry bookmarks) (no data rows)"),
+    // 第五本第一梯 ③ 車庫與回顧（D-主-208～214）；正式號 0017（主對話 11-03 發，v1.24.0 合併）
+    mig!(17, "0017_stamps", "depot: stamps (station stamps for things that happened: opening, station/route/line arrivals, anniversaries, sparse milestones; deterministic ids)"),
+    // 週方針（戊，D-主-251）；正式號 0018（主對話 11-03 發，v1.24.0 合併）
+    mig!(18, "0018_week_aims", "week aims: week_aims (3-5 weekly direction lines per week; optional route attach; done stamp; carried_from = source aim id)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -186,6 +192,21 @@ mod tests {
             15,
             "0015_timetable_plans",
             "5b18822b1883dd3bec602098403b96f70f4a2f5cc3df6a925eec9af934a765271e6c734d2ba7b28d876bb9d87e34f714",
+        ),
+        (
+            16,
+            "0016_ticket_wish",
+            "888d75b240e4f4c2b413a8796138d092da21daa9f2b12805c454c5e9070b5d338b2a295a5b48455f5f2a0faf1ea20486",
+        ),
+        (
+            17,
+            "0017_stamps",
+            "7030db7acd25350bd5656262a07095107ff858f4071fa1934f1020ad97fc5793713e6e9d262c53e38e918dc7bf14b027",
+        ),
+        (
+            18,
+            "0018_week_aims",
+            "a3d14ad7c1a90b46ad5c902ea401e2b7efda85257b91d671ca51158221c06c5fc69698ce509046c450f6a5576f3d7c91",
         ),
     ];
 

@@ -22,6 +22,7 @@
  * 存活條件、荷札頁列字與跳轉都在 `timetableTagEntities.ts`）。
  * 磨光③（契約 0-2、§2-3；時刻表雜項席）：加填 settingsLinks 一筆（全域設定頁指路到「分類與設定」的〈通知〉）。
  * 車次⑦（⑦ 契約 §2）：reload 多叫 `timetablePlanStore`（作息範本、預定）；syncRowLabel 多認 time_routines／time_plans。
+ * 丁（結構與版面 D-主-236）：加填 sidebarAux＝TimetableCoverAux（書封頁務件）。
  */
 import type { LineMount } from "./types";
 import { TimetableDesktopAgent, TimetableView } from "../ui/timetable/desktop";
@@ -50,6 +51,7 @@ import { slotsOfNode } from "../domain/timetableRoutine";
 import type { SyncRowLabel } from "./types";
 import { TIMETABLE_TAG_ENTITIES, gotoTimetable } from "./timetableTagEntities";
 import { TIMETABLE_QUICK_JUMP } from "../ui/timetable/quickJump";
+import { TimetableCoverAux } from "../ui/timetable/TimetableCoverAux";
 import { timetableReportJump } from "./timetableReport";
 
 export const TIMETABLE_MOUNT: LineMount = {
@@ -62,6 +64,9 @@ export const TIMETABLE_MOUNT: LineMount = {
   },
   // 桌機全域代理：系統匣顯示運行中（回 null、零 DOM）
   desktopOverlay: TimetableDesktopAgent,
+  // 丁 D-主-236：書封頁務件＝時刻表自己的目錄（運行中、今天三組、本週目標、分類清單；點分類＝統計只看它）。
+  // 之前沒掛，書封畫我的路線、點了會跳去路線圖
+  sidebarAux: TimetableCoverAux,
   // 手機全域代理：回前景重貼常駐通知、重排試驗提醒、記下待問（回 null、零 DOM）
   mobileOverlay: TimetableMobileAgent,
   // ①b 運行中標記（接縫 #58）：書封「時刻表」與手機 tab 右上的分類小圓牌；桌機 tooltip 尾巴「・創作 14:35 発」

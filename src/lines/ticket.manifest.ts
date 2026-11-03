@@ -9,6 +9,9 @@
  * 第②階段（②契約 §3.5、0-24 解凍）：加搜尋、三視圖、月曆方向鍵共 6 鍵（Stage 0 由甲席寫入，之後凍結）；
  * ticket.move.up／down 標籤補月曆的意思；scene note 補一句。hotkeyScopes／syncTables／hotkeyFiles 不動。
  * 第③階段（③契約 §3.10）：加兩張同步表 tk_budgets／tk_repeats（順序與 ticket.rs 一致；Stage 0 由甲席寫入，之後凍結）；hotkeys 不動。
+ * 售票口④（D-票-76）：加兩張同步表 tk_wishes／tk_templates（順序與 ticket.rs 一致；Stage 0 資料席寫入）；hotkeys 由桌機席另加：
+ * ticket.view.wish＝5（D-票-77：頁首五格「清單｜月曆｜統計｜帳戶｜願望」，4 留給帳戶分頁）。
+ * 售票口④ 第二輪（D-票-79；桌機席）：ticket.view.accounts＝4（帳戶分頁）。
  */
 import type { LineManifest } from "./types";
 import type { Hotkey } from "../ui/shell/hotkeys";
@@ -31,6 +34,8 @@ const TICKET_HOTKEYS: Hotkey[] = [
   { id: "ticket.view.list", scope: "ticket", chords: [{ key: "1" }], label: "清單", wired: true },
   { id: "ticket.view.calendar", scope: "ticket", chords: [{ key: "2" }], label: "月曆", wired: true },
   { id: "ticket.view.stats", scope: "ticket", chords: [{ key: "3" }], label: "統計", wired: true },
+  { id: "ticket.view.accounts", scope: "ticket", chords: [{ key: "4" }], label: "帳戶", wired: true },
+  { id: "ticket.view.wish", scope: "ticket", chords: [{ key: "5" }], label: "願望", wired: true },
   { id: "ticket.day.left", scope: "ticket", chords: [{ key: "ArrowLeft" }], label: "月曆：前一天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "ticket.day.right", scope: "ticket", chords: [{ key: "ArrowRight" }], label: "月曆：後一天", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "ticket.escape", scope: "ticket", chords: [{ key: "Escape" }], label: "收起", wired: true, ignoreMods: [...ALL_LOOSE] },
@@ -54,6 +59,6 @@ export const TICKET = {
   hotkeys: TICKET_HOTKEYS,
   scenes: TICKET_SCENES,
   hotkeyFiles: { ticket: "ui/ticket/useTicketKeyboard.ts" },
-  syncTables: ["tk_currencies", "tk_accounts", "tk_categories", "tk_entries", "tk_budgets", "tk_repeats"],
+  syncTables: ["tk_currencies", "tk_accounts", "tk_categories", "tk_entries", "tk_budgets", "tk_repeats", "tk_wishes", "tk_templates"],
   syncSettingsKeys: [],
 } as const satisfies LineManifest;

@@ -26,12 +26,13 @@ export interface MoveTargetRule {
 
 /**
  * 依「要搬的節點」種類決定能挑的新父節點（與 `allowedChildKinds` 對齊，測試會逐條核）：
- *   車票、車廂 → 列車／車廂；列車、支線 → 路線／支線；站 → 路線。
+ *   車票 → 路線／支線／列車／車廂（丁 D-主-245：路線＝掛那條路線標籤的根層車票）；車廂 → 列車／車廂；列車、支線 → 路線／支線；站 → 路線。
  * 幹線、路線不在這裡搬（路線換幹線走路線對話框）⇒ null＝不出「移動到…」。
  */
 export function moveTargetRule(kind: NodeKind): MoveTargetRule | null {
   switch (kind) {
     case "ticket":
+      return { depth: "node", kinds: ["branch", "train", "car"], routeSelectable: true, label: "移到哪條路線、支線或列車" };
     case "car":
       return { depth: "node", kinds: ["train", "car"], routeSelectable: false, label: "移到哪一班列車或車廂" };
     case "train":

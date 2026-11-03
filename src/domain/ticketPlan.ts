@@ -1,20 +1,18 @@
 /**
  * 售票口線・第③階段「管帳」的純函式（契約 2026-10-19 §4；甲席 Stage 0 全文實作）。
  *
- * 預算（按月；總額／分類；預設＋單月覆寫；只管支出）、定期帳（規則 → 到期實體化成一般帳目）、第二次匯入
- * （`BUDGET`／`BUDGET_AMOUNT`／`REPEATTRANSACTION` 三張表）。
+ * 預算（按月；總額／分類；預設＋單月覆寫；只管支出）、定期帳（規則 → 到期實體化成一般帳目）。
  *
  * 鐵則同 ①②：只用可剝除語法；金額一律最小單位整數（`share`／`pace` 是比例才用浮點）；日 key 字串運算不經 `Date.parse`；
  * lib 目標 ES2020。`import` 只自 `./ticket`、`./ticketView`、`./repeat`（契約 0-10；`repeat.ts` 是主線的，只 import 不改）；
  * 不 import `lib/date`、不產生隨機 id（隨機 id 只在 repository 產生）。
  *
  * 數字口徑（契約 ✎-10）＝②的 0-7：預算的「已用」＝該月 expense 的 `main_minor` 合計（退款抵回、轉帳校正不算、封存照算）；
- * 主分類預算含子分類（`categoryIdsIncluding`）、子分類只算自己；`budgetUsed(total) ≡ statsOverview(…).expense`（測試互證）。
+ * 分類預算含它底下所有子孫（`categoryIdsIncluding`；售票口④ 第二輪不限層數，葉子＝只算自己）；`budgetUsed(total) ≡ statsOverview(…).expense`（測試互證）。
  *
  * 內容：
- *   §4.1 型別與常數（BudgetRow／RepeatRow／Mm* 定義在 ticket.ts——ImportLocal／MmbakDump 要用、ticket.ts 零 import——這裡 re-export）
+ *   §4.1 型別與常數（BudgetRow／RepeatRow 定義在 ticket.ts——ticket.ts 零 import——這裡 re-export）
  *   §4.2 預算         §4.3 定期帳（含實體化計畫 planMaterialize）
- *   §4.4 匯入（planImportAll 包住 ①的 planImport）
  */
 import {
   IMPORT_SOURCE_MM,
@@ -24,15 +22,12 @@ import {
   UNCAT_NAME,
   atOf,
   buildEntryRow,
+  categoryArchivedUp,
   categoryLabel,
-  convertMinor,
-  importRate,
-  minorFromDecimal,
   moneyText,
   monthOf,
   monthRange,
   parseAmount,
-  planImport,
   quickAmountText,
   ticketId,
   type AccountRow,
@@ -40,11 +35,6 @@ import {
   type CategoryRow,
   type EntryCtx,
   type EntryRow,
-  type ImportLocal,
-  type ImportPlan,
-  type MmbakDump,
-  type MmBudget,
-  type MmRepeat,
   type NewEntryInput,
   type RepeatRow,
 } from "./ticket";
@@ -61,17 +51,13 @@ import {
   type RepeatFreq,
 } from "./repeat";
 
-export type { BudgetRow, RepeatRow, MmBudget, MmBudgetAmount, MmRepeat } from "./ticket";
+export type { BudgetRow, RepeatRow } from "./ticket";
 
 /* ───────────────────────── §4.1 型別與常數 ───────────────────────── */
 
 export const REPEAT_HHMM_DEFAULT = "09:00";
 /** projectFixed 的上限，再多留給下一輪（0-6-5） */
 export const REPEAT_SCAN_MAX = 400;
-/** 財務管家 PERIOD_TYPE＝月（實證：樣本只有這個值） */
-export const MM_PERIOD_MONTH = 6;
-/** 財務管家 REPEAT_TYPE＝每月（強證據，0-9） */
-export const MM_REPEAT_MONTHLY = 1;
 /** 預算列的 name 前綴（0-4） */
 const BUDGET_NAME = "budget:";
 
@@ -80,7 +66,7 @@ export type BudgetScope = { kind: "total" } | { kind: "category"; categoryId: st
 export interface BudgetLine {
   scope: BudgetScope;
   key: string; // "total" | "cat:<id>"
-  label: string; // 「總預算」／分類名（子分類＝「食物 › 點心」）
+  label: string; // 「總預算」／分類完整路徑（「食物 › 點心」「食物 › 外食 › 拉麵」）
   budget: number; // 主幣別
   used: number;
   remaining: number; // budget − used（可負）
@@ -125,26 +111,6 @@ export interface NewRepeatInput {
 }
 export type RepeatPatch = Partial<NewRepeatInput>;
 
-export interface PlanImportPart {
-  budgets: {
-    inserts: BudgetRow[];
-    updates: { id: string; cols: Record<string, unknown> }[];
-    unchanged: number;
-    tombstoned: number;
-    invalid: { uid: string; reason: string }[];
-    overrides: number;
-    scopes: number;
-  };
-  repeats: {
-    inserts: RepeatRow[];
-    updates: { id: string; cols: Record<string, unknown> }[];
-    unchanged: number;
-    tombstoned: number;
-    invalid: { uid: string; reason: string }[];
-  };
-  missing: string[]; // dump.plan_missing 照抄（預覽卡那一行）
-}
-
 export const PLAN_TEXT = {
   total: "總預算",
   ruleBad: "重複規則有誤",
@@ -157,20 +123,11 @@ export const PLAN_TEXT = {
   monthNone: "每月至少選一天",
   startBad: "開始日期格式有誤",
   untilBad: "結束日期要在開始日期之後",
-  budgetLine: (scopes: number, overrides: number) => `預算 ${scopes} 個${overrides > 0 ? `（${overrides} 個單月覆寫）` : ""}`,
-  repeatLine: (n: number) => `定期帳 ${n} 筆`,
-  skipLine: (n: number, reasons: string) => `略過 ${n}：${reasons}`,
-  /** 本機刪過（墓碑）而跳過的預算列／定期規則（沙盒代驗 D2）；兩個都 0 ⇒ 不出。單位和上一行同：預算「個」、定期「條」 */
-  tombLine: (budgets: number, repeats: number) =>
-    budgets + repeats === 0
-      ? null
-      : `略過 ${[budgets > 0 ? `${budgets} 個` : "", repeats > 0 ? `${repeats} 條` : ""].filter(Boolean).join(" · ")}（已在這台裝置刪除）`,
 } as const;
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const cmpStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const isUncat = (id: string | null): boolean => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
-const pad2 = (n: number): string => (n < 10 ? "0" : "") + n;
 
 /* ───────────────────────── §4.2 預算 ───────────────────────── */
 
@@ -225,7 +182,7 @@ export function effectiveBudget(
   return def ? { row: def, override: false } : null;
 }
 
-/** 該月支出淨額（0-7 口徑）；category ⇒ 主分類含子、子只算自己 */
+/** 該月支出淨額（0-7 口徑）；category ⇒ 含它底下所有子孫（D-票-42、78） */
 export function budgetUsed(entries: readonly EntryRow[], scope: BudgetScope, month: string, cats: readonly CategoryRow[]): number {
   const r = monthRange(month);
   const ids = scope.kind === "category" ? new Set(categoryIdsIncluding([scope.categoryId], cats)) : null;
@@ -275,7 +232,8 @@ export function budgetLines(
       const cat = ctx.catById[scope.categoryId] ?? null;
       gone = cat === null || cat.deleted_at !== null;
       label = categoryLabel(gone ? null : cat, ctx.catById);
-      archived = !gone && cat !== null && cat.archived_at !== null;
+      // 上層封存也算（選單裡看不到的那些，同 categoryArchivedUp 的其他用處）
+      archived = !gone && cat !== null && categoryArchivedUp(cat, ctx.catById);
     }
     out.push({
       scope,
@@ -813,381 +771,181 @@ export function repeatOrder(a: RepeatRow, b: RepeatRow): number {
   return pa - pb || cmpStr(a.next_on ?? "9999-99-99", b.next_on ?? "9999-99-99") || cmpStr(a.created_at, b.created_at) || cmpStr(a.id, b.id);
 }
 
-/* ───────────────────────── §4.4 匯入 ───────────────────────── */
+/* ───────────────────────── §4.4 售票口④：記一筆就能設「定期」（D-票-66） ───────────────────────── */
 
-/** 財務管家 BUDGET_PERIOD：0 ⇒ null（預設）；YYYYMM 且月 01–12 ⇒ "YYYY-MM"；其他 ⇒ undefined（看不懂） */
-export function mmMonth(period: number): string | null | undefined {
-  if (period === 0) return null;
-  if (!Number.isInteger(period) || period < 100001 || period > 999912) return undefined;
-  const y = Math.floor(period / 100);
-  const m = period - y * 100;
-  if (m < 1 || m > 12) return undefined;
-  return `${String(y).padStart(4, "0")}-${pad2(m)}`;
+/**
+ * 表單內「定期」那一列的狀態（「不重複｜每日｜每週｜每月」四顆＋可點改的星期幾／幾號＋可選結束日）。
+ * 規則從記帳那天推：每週＝那天星期幾、每月＝那天幾號（31 號遇到小月照 repeat.ts 夾到月底）；
+ * **起算＝下一班**（rule.start＝記帳日的隔天——這筆自己照記、不會被規則重記，同「設成定期…」的 ruleFromEntry）。
+ * 存檔產出跟完整編輯器同一套 `RepeatDraft`（`quickRepeatDraft`）→ `draftToRepeatInput`，驗證與錯誤字一致。
+ */
+export type RepeatQuickFreq = "none" | "daily" | "weekly" | "monthly";
+export interface RepeatQuick {
+  freq: RepeatQuickFreq;
+  /** 每週的星期幾（0＝日）；其他頻率照樣帶著（切回每週時不用重算） */
+  weekday: number;
+  /** 每月的幾號（1–31） */
+  monthday: number;
+  /** 結束日（含）；null＝不設 */
+  until: string | null;
+}
+export const REPEAT_QUICK_FREQS: readonly RepeatQuickFreq[] = ["none", "daily", "weekly", "monthly"];
+/** 四顆小鈕的字（原型 1A；兩殼同一份） */
+export const REPEAT_QUICK_TEXT: Readonly<Record<RepeatQuickFreq, string>> = { none: "不重複", daily: "每日", weekly: "每週", monthly: "每月" };
+
+const WEEK_CHAR = ["日", "一", "二", "三", "四", "五", "六"];
+
+function weekdayOfKey(dayKey: string): number {
+  const y = parseInt(dayKey.slice(0, 4), 10);
+  const m = parseInt(dayKey.slice(5, 7), 10);
+  const d = parseInt(dayKey.slice(8, 10), 10);
+  return new Date(y, m - 1, d).getDay();
 }
 
-function mainDecimals(dump: MmbakDump): number {
-  const main = dump.currencies.find((c) => c.is_main);
-  return main && Number.isInteger(main.decimals) && main.decimals >= 0 && main.decimals <= 8 ? main.decimals : 2;
+/** 選了某個頻率：星期幾／幾號都從記帳那天帶 */
+export function quickRepeat(freq: RepeatQuickFreq, dayKey: string, until: string | null = null): RepeatQuick {
+  return { freq, weekday: weekdayOfKey(dayKey), monthday: parseInt(dayKey.slice(8, 10), 10), until };
 }
 
-/** 預算三張表的計畫（0-9）：預算是單例，id＝budgetId(對象, 月)；雙軌期以財務管家為準（新的 MODIFY_DATE 且金額不同 ⇒ 更新） */
-export function planBudgetImport(
-  dump: MmbakDump,
-  plan: Pick<ImportPlan, "categoryIdOf">,
-  localBudgets: readonly BudgetRow[],
-  nowIso: string,
-): PlanImportPart["budgets"] {
-  const out: PlanImportPart["budgets"] = { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [], overrides: 0, scopes: 0 };
-  const budgets = dump.budgets ?? null;
-  const amounts = dump.budget_amounts ?? null;
-  if (budgets === null || amounts === null) return out;
-  const byUid: Record<string, MmBudget> = {};
-  for (const b of budgets) byUid[b.uid] = b;
-  const mmCatType: Record<string, number> = {};
-  for (const c of dump.categories) mmCatType[c.uid] = c.type_code;
-  const dec = mainDecimals(dump);
-  const local: Record<string, BudgetRow> = {};
-  let pos = -1;
-  for (const b of localBudgets) {
-    local[b.id] = b;
-    if (b.deleted_at === null && b.position > pos) pos = b.position;
-  }
-  // 同一個 id 在備份出現兩次（理論上不會）⇒ 留 MODIFY_DATE 大的那筆
-  const cand: Record<string, { scope: BudgetScope; month: string | null; amount: number; uid: string; mtime: number }> = {};
-  const order: string[] = [];
-  for (const a of amounts) {
-    if (a.is_del) continue;
-    const b = byUid[a.budget_uid];
-    if (!b) {
-      out.invalid.push({ uid: a.uid, reason: "找不到設預算的分類" });
-      continue;
-    }
-    if (b.is_del) continue;
-    if (b.do_type !== 1) {
-      out.invalid.push({ uid: a.uid, reason: "收入預算（目前只支援支出預算）" });
-      continue;
-    }
-    if (b.period_type !== MM_PERIOD_MONTH) {
-      out.invalid.push({ uid: a.uid, reason: "目前只支援每月預算" });
-      continue;
-    }
-    if (b.transfer_type !== 0) {
-      out.invalid.push({ uid: a.uid, reason: "不支援這種預算類型" });
-      continue;
-    }
-    let scope: BudgetScope;
-    if (b.is_total) scope = { kind: "total" };
-    else {
-      const t = b.target_uid ?? "";
-      const cid = t ? plan.categoryIdOf[t] : undefined;
-      if (!cid) {
-        out.invalid.push({ uid: a.uid, reason: "找不到這個分類" });
-        continue;
-      }
-      if (isUncat(cid)) {
-        out.invalid.push({ uid: a.uid, reason: "「未分類」不能設預算" });
-        continue;
-      }
-      if (mmCatType[t] !== undefined && mmCatType[t] !== 1) {
-        out.invalid.push({ uid: a.uid, reason: "這個分類不屬於目前的收支類型" });
-        continue;
-      }
-      scope = { kind: "category", categoryId: cid };
-    }
-    const month = mmMonth(a.budget_period);
-    if (month === undefined) {
-      out.invalid.push({ uid: a.uid, reason: "時間範圍格式有誤" });
-      continue;
-    }
-    let amount: number;
-    try {
-      amount = minorFromDecimal(a.amount, dec, "round");
-    } catch {
-      out.invalid.push({ uid: a.uid, reason: "金額格式有誤" });
-      continue;
-    }
-    if (amount <= 0) {
-      out.invalid.push({ uid: a.uid, reason: "金額格式有誤" });
-      continue;
-    }
-    const id = budgetId(scope, month);
-    const prev = cand[id];
-    if (!prev) order.push(id);
-    if (!prev || a.modify_date >= prev.mtime) cand[id] = { scope, month, amount, uid: a.uid, mtime: a.modify_date };
-  }
-  const kept = new Set<string>();
-  for (const id of order) {
-    const c = cand[id];
-    const l = local[id];
-    if (!l) {
-      const row = budgetRow(c.scope, c.month, c.amount, ++pos, nowIso);
-      row.import_id = c.uid;
-      row.import_source = IMPORT_SOURCE_MM;
-      row.import_utime = c.mtime;
-      out.inserts.push(row);
-    } else if (l.deleted_at !== null) {
-      out.tombstoned++;
-      continue;
-    } else if (c.mtime > (l.import_utime ?? -1) && c.amount !== l.amount_minor) {
-      out.updates.push({
-        id,
-        cols: { amount_minor: c.amount, import_id: c.uid, import_source: IMPORT_SOURCE_MM, import_utime: c.mtime, updated_at: nowIso },
-      });
-    } else {
-      out.unchanged++;
-      continue;
-    }
-    // scopes／overrides 只算這次有變動的（inserts∪updates；修正-資料，評審：和「定期 N 條」同一個口徑、和結果卡對得上）
-    kept.add(scopeKey(c.scope));
-    if (c.month !== null) out.overrides++;
-  }
-  out.scopes = kept.size;
-  out.invalid.sort((a, b) => cmpStr(a.uid, b.uid) || cmpStr(a.reason, b.reason));
+/** 「不重複」（記一筆打開時的預設） */
+export function noRepeat(dayKey: string): RepeatQuick {
+  return quickRepeat("none", dayKey);
+}
+
+/**
+ * 記帳日改了：星期幾／幾號還是舊日子帶的（沒被主人點改過）⇒ 跟著新日子走；點改過的不動。
+ * 結束日早於新的起算日 ⇒ 清掉（不然存檔才報錯）。
+ */
+export function quickFollowDay(q: RepeatQuick, prevDay: string, nextDay: string): RepeatQuick {
+  if (prevDay === nextDay) return q;
+  const out: RepeatQuick = { ...q };
+  if (q.weekday === weekdayOfKey(prevDay)) out.weekday = weekdayOfKey(nextDay);
+  if (q.monthday === parseInt(prevDay.slice(8, 10), 10)) out.monthday = parseInt(nextDay.slice(8, 10), 10);
+  if (out.until !== null && out.until < dayStep(nextDay, 1)) out.until = null;
   return out;
 }
 
-/** REPEAT_TYPE → 規則（只認每月；start＝NEXT_DATE 本地日、日號＝它的日號；END_DATE ⇒ until） */
-export function mmRepeatRule(repeatType: number, nextDay: string, endDay: string | null): FixedRepeatRule | null {
-  if (repeatType !== MM_REPEAT_MONTHLY || !DAY_RE.test(nextDay)) return null;
-  const rule = fixedRule("monthly", nextDay, { bymonthday: [parseInt(nextDay.slice(8, 10), 10)] });
-  rule.until = endDay !== null && DAY_RE.test(endDay) ? endDay : null;
+/** 快設 → 固定規則；「不重複」＝null。start＝記帳日隔天（起算＝下一班） */
+export function quickRepeatRule(q: RepeatQuick, dayKey: string): FixedRepeatRule | null {
+  if (q.freq === "none") return null;
+  const rule = fixedRule(q.freq, dayStep(dayKey, 1), { byweekday: [q.weekday], bymonthday: [q.monthday] });
+  rule.until = q.until;
   return rule;
 }
 
-/** 毫秒 → 本地日 key；ms ≤ 0 或看不懂 ⇒ ""（呼叫端當無） */
-export function localDayOf(ms: number): string {
-  if (!(ms > 0)) return "";
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${String(d.getFullYear()).padStart(4, "0")}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+/** 第一班（「12/5 起自動記」）；不重複或結束日之前沒有班 ⇒ null */
+export function quickFirstRun(q: RepeatQuick, dayKey: string): string | null {
+  const rule = quickRepeatRule(q, dayKey);
+  return rule ? firstFixedDate(rule, rule.start) : null;
 }
 
-/** 毫秒 → 本地 HH:MM；看不懂 ⇒ 預設 09:00 */
-export function localHhmmOf(ms: number): string {
-  if (!(ms > 0)) return REPEAT_HHMM_DEFAULT;
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return REPEAT_HHMM_DEFAULT;
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+/** 一句話：「不重複」「每天」「每週四」「每月 5 日」（D-票-66 原話的寫法；完整編輯器的 describeRule 寫「號」，這裡照契約寫「日」） */
+export function quickRepeatLabel(q: RepeatQuick): string {
+  switch (q.freq) {
+    case "none":
+      return REPEAT_QUICK_TEXT.none;
+    case "daily":
+      return "每天";
+    case "weekly":
+      return `每週${WEEK_CHAR[q.weekday] ?? "?"}`;
+    default:
+      return `每月 ${q.monthday} 日`;
+  }
 }
 
 /**
- * 定期規則的計畫（0-9、0-1）：匯入的規則 id＝ticketId("moneymanager:repeat:<uid>")；
- * pauseImported ⇒ paused_at＝nowIso（0-1 (a)，D-票-31）；next_on＝NEXT_DATE 本地日（＝財務管家下一班還沒記的那天）。
- * 重跑：USETIME 較新 ⇒ 只比模板欄（不動 paused_at／next_on／skipped_days）；**例外（✎-8）**：本機規則還在暫停且從沒開始過
- * ⇒ 備份的 NEXT_DATE 比本機 next_on **晚**才算有差、一併刷成它（rule 的 start 跟著它，也一起刷；只往前、不倒回）——不看 USETIME：
- * 財務管家記一班會推 NEXT_DATE，USETIME 動不動沒實證（§9-4）。
- * opts.accounts／entries＝本機帳戶（帳戶幣別）與帳（判斷「從沒開始過」）。
+ * 固定規則能不能用快設表示（interval 1、每週只有一天、每月只有一天）⇒ 回對應的 RepeatQuick；不能（進階規則）⇒ null。
+ * 既有帳連著規則時，那一列的字用 `repeatLineText`。
  */
-export function planRepeatImport(
-  dump: MmbakDump,
-  plan: Pick<ImportPlan, "accountIdOf" | "categoryIdOf" | "accounts">,
-  localRepeats: readonly RepeatRow[],
-  nowIso: string,
-  opts: { pauseImported: boolean; accounts: readonly AccountRow[]; entries: readonly Pick<EntryRow, "repeat_id">[] },
-): PlanImportPart["repeats"] {
-  const out: PlanImportPart["repeats"] = { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [] };
-  const repeats: MmRepeat[] | null = dump.repeats ?? null;
-  if (repeats === null) return out;
-  const accCur: Record<string, string> = {};
-  for (const a of opts.accounts) accCur[a.id] = a.currency;
-  for (const a of plan.accounts) accCur[a.id] = a.currency;
-  const curByUid: Record<string, { iso: string; decimals: number; rate: string; is_main: boolean }> = {};
-  const curByIso: Record<string, { decimals: number; rate: string; is_main: boolean }> = {};
-  // 和①的 planImport 同一把篩子（評審 R8b）：ISO 不是三個英文字母、或匯率看不懂的幣別①不會建 ⇒ 指到它的規則進 invalid「幣別看不懂」
-  const badCurUid = new Set<string>();
-  for (const c of dump.currencies) {
-    const iso = c.iso.trim().toUpperCase();
-    let curOk = /^[A-Z]{3}$/.test(iso);
-    if (curOk && !c.is_main) {
-      try {
-        importRate(c.rate);
-      } catch {
-        curOk = false;
-      }
-    }
-    if (!curOk) {
-      badCurUid.add(c.uid);
-      continue;
-    }
-    const decimals = Number.isInteger(c.decimals) && c.decimals >= 0 && c.decimals <= 8 ? c.decimals : 2;
-    curByUid[c.uid] = { iso, decimals, rate: c.rate, is_main: c.is_main };
-    if (!curByIso[iso]) curByIso[iso] = { decimals, rate: c.rate, is_main: c.is_main };
-  }
-  const mmCatType: Record<string, number> = {};
-  for (const c of dump.categories) mmCatType[c.uid] = c.type_code;
-  const local: Record<string, RepeatRow> = {};
-  let pos = -1;
-  for (const r of localRepeats) {
-    local[r.id] = r;
-    if (r.deleted_at === null && r.position > pos) pos = r.position;
-  }
-  const seen = new Set<string>();
-  for (const t of repeats) {
-    if (t.is_del) continue;
-    let kind: RepeatRow["kind"];
-    if (t.do_type === 0) kind = "income";
-    else if (t.do_type === 1) kind = "expense";
-    else if (t.do_type === 3 && t.to_asset_uid) kind = "transfer";
-    else {
-      out.invalid.push({ uid: t.uid, reason: `不支援的類型：${t.do_type}` });
-      continue;
-    }
-    const accountId = t.asset_uid ? plan.accountIdOf[t.asset_uid] : undefined;
-    if (!accountId || !accCur[accountId]) {
-      out.invalid.push({ uid: t.uid, reason: "找不到這個帳戶" });
-      continue;
-    }
-    let toAccountId: string | null = null;
-    if (kind === "transfer") {
-      toAccountId = (t.to_asset_uid && plan.accountIdOf[t.to_asset_uid]) || null;
-      if (!toAccountId) {
-        out.invalid.push({ uid: t.uid, reason: "找不到這個帳戶" });
-        continue;
-      }
-      if (toAccountId === accountId) {
-        out.invalid.push({ uid: t.uid, reason: "轉出和轉入不能是同一個帳戶" });
-        continue;
-      }
-    }
-    let categoryId: string | null = null;
-    if (kind !== "transfer" && t.ctg_uid) {
-      const cid = plan.categoryIdOf[t.ctg_uid];
-      const want = kind === "income" ? 0 : 1;
-      if (cid && !isUncat(cid) && (mmCatType[t.ctg_uid] === undefined || mmCatType[t.ctg_uid] === want)) categoryId = cid;
-    }
-    const accCode = accCur[accountId];
-    if (t.currency_uid && badCurUid.has(t.currency_uid) && !curByUid[t.currency_uid]) {
-      out.invalid.push({ uid: t.uid, reason: "不支援這個幣別" });
-      continue;
-    }
-    const txCur = t.currency_uid ? curByUid[t.currency_uid] : undefined;
-    let currency = txCur ? txCur.iso : accCode;
-    const decOf = (iso: string): number => (curByIso[iso] ? curByIso[iso].decimals : 2);
-    let amount: number;
-    try {
-      amount = minorFromDecimal(t.amount_sub, decOf(currency), "round");
-      if (kind === "transfer" && currency !== accCode) {
-        // 轉帳的幣別跟著轉出帳戶（§4.3）：以備份匯率折成帳戶幣別（同①修正席步驟 5）
-        const from = curByIso[currency];
-        const to = curByIso[accCode];
-        if (!from || !to) throw new RangeError("不支援這個幣別");
-        amount = convertMinor(
-          amount,
-          { decimals: from.decimals, rate_to_main: from.is_main ? "1" : importRate(from.rate) },
-          { decimals: to.decimals, rate_to_main: to.is_main ? "1" : importRate(to.rate) },
-        );
-        currency = accCode;
-      }
-    } catch {
-      out.invalid.push({ uid: t.uid, reason: "金額格式有誤" });
-      continue;
-    }
-    if (amount === 0 || (amount < 0 && kind !== "expense")) {
-      out.invalid.push({ uid: t.uid, reason: "金額格式有誤" });
-      continue;
-    }
-    const nextDay = localDayOf(t.next_date);
-    if (!nextDay) {
-      out.invalid.push({ uid: t.uid, reason: "下一班日期格式有誤" });
-      continue;
-    }
-    const rule = mmRepeatRule(t.repeat_type, nextDay, t.end_date > 0 ? localDayOf(t.end_date) || null : null);
-    if (!rule) {
-      out.invalid.push({ uid: t.uid, reason: `不支援的重複週期：${t.repeat_type}` });
-      continue;
-    }
-    const id = ticketId("moneymanager:repeat:" + t.uid);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const row: RepeatRow = {
-      id,
-      kind,
-      account_id: accountId,
-      to_account_id: toAccountId,
-      category_id: categoryId,
-      amount_minor: amount,
-      currency,
-      note: t.payee.trim() || t.memo.trim(),
-      route_id: null,
-      rule: serializeRule(rule),
-      hhmm: localHhmmOf(t.next_date),
-      next_on: nextDay,
-      paused_at: opts.pauseImported ? nowIso : null,
-      skipped_days: "[]",
-      position: 0,
-      import_id: t.uid,
-      import_source: IMPORT_SOURCE_MM,
-      import_utime: t.usetime,
-      device_id: null,
-      created_at: nowIso,
-      updated_at: nowIso,
-      synced_at: null,
-      deleted_at: null,
-    };
-    const l = local[id];
-    if (!l) {
-      row.position = ++pos;
-      out.inserts.push(row);
-      continue;
-    }
-    if (l.deleted_at !== null) {
-      out.tombstoned++;
-      continue;
-    }
-    const cols: Record<string, unknown> = {};
-    const newer = t.usetime > (l.import_utime ?? -1);
-    if (newer) for (const c of REPEAT_TEMPLATE_COLS) if (row[c] !== l[c]) cols[c] = row[c];
-    // ✎-8 的游標刷新**只往前**（評審 R9b）：比較舊的備份（NEXT_DATE 較早）不能把游標／規則倒回去，否則「全部開始」從舊日子補記、
-    // 和上一次匯入帶進來的那筆重複（0-1 要防的雙記）。財務管家記一班只會把 NEXT_DATE 往後推。
-    if (l.paused_at !== null && neverStarted(l, opts.entries) && (l.next_on === null || nextDay > l.next_on)) {
-      cols.next_on = nextDay;
-      if (l.rule !== row.rule) cols.rule = row.rule;
-    }
-    if (Object.keys(cols).length === 0) {
-      out.unchanged++;
-      continue;
-    }
-    if (newer) cols.import_utime = t.usetime;
-    cols.updated_at = nowIso;
-    out.updates.push({ id, cols });
-  }
-  out.invalid.sort((a, b) => cmpStr(a.uid, b.uid) || cmpStr(a.reason, b.reason));
-  return out;
+export function quickOfRule(rule: FixedRepeatRule): RepeatQuick | null {
+  if (rule.interval !== 1) return null;
+  const base = quickRepeat(rule.freq, rule.start, rule.until);
+  if (rule.freq === "daily") return base;
+  if (rule.freq === "weekly") return rule.byweekday && rule.byweekday.length === 1 ? { ...base, weekday: rule.byweekday[0] } : null;
+  return rule.bymonthday && rule.bymonthday.length === 1 ? { ...base, monthday: rule.bymonthday[0] } : null;
 }
 
-/** ①的 planImport＋第③階段的兩段（store 改叫這支；ticket.ts 不反向 import，不成環） */
-export function planImportAll(
-  dump: MmbakDump,
-  local: ImportLocal,
-  opts: { balanceText: Readonly<Record<string, string>>; nowIso: string; pauseImported: boolean },
-): { plan: ImportPlan; part: PlanImportPart } {
-  const plan = planImport(dump, local, { balanceText: opts.balanceText, nowIso: opts.nowIso });
-  const part: PlanImportPart = {
-    budgets: planBudgetImport(dump, plan, local.budgets ?? [], opts.nowIso),
-    repeats: planRepeatImport(dump, plan, local.repeats ?? [], opts.nowIso, {
-      pauseImported: opts.pauseImported,
-      accounts: local.accounts,
-      entries: local.entries,
-    }),
-    missing: (dump.plan_missing ?? []).slice(),
-  };
-  return { plan, part };
+/** 既有帳那一列（連著規則）：「每月 1 日 · 下一班 12/1」；進階規則用 describeRule；暫停／結束照 nextOnText */
+export function repeatLineText(r: Pick<RepeatRow, "rule" | "paused_at" | "next_on">): string {
+  const rule = parseFixedRule(r.rule);
+  if (!rule) return PLAN_TEXT.ruleBad;
+  const q = quickOfRule(rule);
+  return `${q ? quickRepeatLabel(q) : describeRule(rule)} · ${nextOnText(r)}`;
+}
+
+/** 記一筆的草稿裡建規則要的欄（＝EntryDraft 的子集；store 的 TicketDraft 直接傳） */
+export interface QuickRepeatSource {
+  kind: "expense" | "income" | "transfer";
+  amountText: string;
+  currency: string;
+  accountId: string | null;
+  toAccountId: string | null;
+  categoryId: string | null;
+  note: string;
+  routeId: string | null;
+  dayKey: string;
+  time: string;
 }
 
 /**
- * 預覽卡／結果卡文字（§5.6）：budgetLine「預算 3 個（2 個單月覆寫）」、repeatLine「定期 4 條」、skipLine「略過 N：原因、原因」或 null、
- * tombLine「略過 N 個（這台刪過）」／「略過 M 條（這台刪過）」／「略過 N 個 · M 條（這台刪過）」或 null（墓碑照舊不復活，只是說出來；D2）
+ * 快設＋草稿 → 完整編輯器的 RepeatDraft（存檔流程沿用 draftToRepeatInput → createRepeat → linkEntryToRepeat → 實體化）。
+ * hhmm＝這筆的時刻；fromEntryId 由呼叫端在建好帳之後填。不重複 ⇒ null。
  */
-export function partSummary(part: PlanImportPart): { budgetLine: string; repeatLine: string; skipLine: string | null; tombLine: string | null } {
-  const b = part.budgets;
-  const r = part.repeats;
-  const invalid = [...b.invalid, ...r.invalid];
-  const reasons: string[] = [];
-  for (const x of invalid) if (reasons.indexOf(x.reason) < 0) reasons.push(x.reason);
+export function quickRepeatDraft(d: QuickRepeatSource, q: RepeatQuick, fromEntryId: string | null): RepeatDraft | null {
+  if (q.freq === "none") return null;
   return {
-    budgetLine: PLAN_TEXT.budgetLine(b.scopes, b.overrides),
-    repeatLine: PLAN_TEXT.repeatLine(r.inserts.length + r.updates.length),
-    skipLine: invalid.length ? PLAN_TEXT.skipLine(invalid.length, reasons.join("、")) : null,
-    tombLine: PLAN_TEXT.tombLine(b.tombstoned, r.tombstoned),
+    kind: d.kind,
+    amountText: d.amountText,
+    currency: d.currency,
+    accountId: d.accountId,
+    toAccountId: d.toAccountId,
+    categoryId: d.categoryId,
+    note: d.note,
+    routeId: d.routeId,
+    freq: q.freq,
+    byweekday: [q.weekday],
+    bymonthday: [q.monthday],
+    start: dayStep(d.dayKey, 1),
+    until: q.until,
+    hhmm: d.time,
+    fromEntryId,
   };
+}
+
+/** 既有帳（還沒連規則）→ 快設要的欄；精算不能設（回 null） */
+export function quickSourceOfEntry(e: EntryRow, decimals: number, hhmm: string): QuickRepeatSource | null {
+  if (e.kind === "adjust") return null;
+  return {
+    kind: e.kind,
+    amountText: amountInputText(e.amount_minor, decimals),
+    currency: e.currency,
+    accountId: e.account_id,
+    toAccountId: e.to_account_id,
+    categoryId: e.category_id,
+    note: e.note,
+    routeId: e.route_id,
+    dayKey: e.occurred_on,
+    time: hhmm,
+  };
+}
+
+/**
+ * 這筆是不是定期規則**記出來**的（今日頁「定期 N 筆」用）：repeat_id 非空、而且 id＝materializeId(repeat_id, occurred_on)。
+ * 「設成定期…」連上的來源那筆（id 是 uuid）不算；被主人改過日期的那筆也不算（它已經不在原本的班次日）。
+ */
+export function isRepeatMade(e: Pick<EntryRow, "id" | "repeat_id" | "occurred_on">): boolean {
+  return e.repeat_id !== null && materializeId(e.repeat_id, e.occurred_on) === e.id;
+}
+
+/** 今日頁提示的數字：筆數（全部）、淨額＝收入 − 支出（主幣別；轉帳校正不入，同 0-7 口徑） */
+export function repeatDaySum(entries: readonly EntryRow[]): { count: number; net: number } {
+  let net = 0;
+  let count = 0;
+  for (const e of entries) {
+    if (e.deleted_at !== null) continue;
+    count++;
+    if (e.kind === "income") net += e.main_minor;
+    else if (e.kind === "expense") net -= e.main_minor;
+  }
+  return { count, net };
 }

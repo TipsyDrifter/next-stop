@@ -29,6 +29,10 @@
   transition: color .15s, background .15s;
 }
 .ns-popmenu .ns-popmenu-item:hover:not(:disabled) { color: var(--accent); background: var(--color-paper-used); }
+/* 帶一句用途的項目（丁 D-主-249）：名字下一行淡字，兩行齊左 */
+.ns-popmenu .ns-popmenu-item.has-hint { align-items: center; white-space: normal; }
+.ns-popmenu .ns-popmenu-item .ns-popmenu-two { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ns-popmenu .ns-popmenu-item .hint { font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); }
 .ns-popmenu .ns-popmenu-item:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 /* 破壞性項目（UI 丙-3 G2；§0 法則 02：刪除是赭）：字 --danger；hover 與鍵盤聚焦都鋪 --danger-bg、字維持赭（不轉 --accent），
  *   聚焦框照 --focus-ring——赭字＋淡赭底＋框，鍵盤走到它時一眼看得出是「刪除」那一格。禁用時照 §1.8 整列 .3。 */

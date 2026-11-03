@@ -1,0 +1,97 @@
+/* 路線一覽（丁 D-主-240；RouteOverview.tsx；視覺真相＝prototypes/design-structure-獨立頁.html「路線 A」）。
+ * 版心照清單型（.sheet，內容 848 置中）；卡片材質＝紙卡（--color-paper-high＋玻璃邊＋--shadow-card），路線色只畫卡片頂端的色帶。
+ * 顏色一律 token；路線色經 --rc（行內 style 帶進來，值＝路線存的色）。 */
+
+/* 幹線段標：「幹線 學習 ┄┄┄ 2 條 ⋯」（同 .sec 的骨架：襯線名＋虛線 rule＋右側小字） */
+.ns-ov-line { margin-top: var(--sp-6); }
+.ns-ov-linehead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.ns-ov-linehead .k { font-size: var(--fs-xs); letter-spacing: .24em; color: var(--color-ink-faint); }
+.ns-ov-linehead h2 { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; color: var(--color-ink); }
+.ns-ov-linehead .rule { flex: 1; border-top: 1px dashed var(--color-dash); align-self: center; }
+.ns-ov-linehead .n { font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-soft); }
+
+/* ⋯（常駐淡態，規範法則 05） */
+.ns-ov-more {
+  flex: none; width: var(--ctl-icon); height: var(--ctl-icon); display: grid; place-items: center; align-self: center;
+  border: 0; border-radius: var(--radius-ctl); background: none; cursor: pointer; color: var(--dim, var(--color-ink-faint)); opacity: .7;
+  transition: opacity var(--dur-fast), background-color var(--dur-fast);
+}
+.ns-ov-more:hover, .ns-ov-more:focus-visible, .ns-ov-more[aria-expanded="true"] { opacity: 1; background: var(--hover-bg); color: var(--color-ink); }
+.ns-ov-more:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
+/* 兩欄卡片 */
+.ns-ov-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@container (max-width: 560px) { .ns-ov-grid { grid-template-columns: minmax(0, 1fr); } }
+.ns-ov { container-type: inline-size; }
+.ns-ov-card {
+  position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  padding: 16px 18px 14px; border-radius: var(--radius-card); cursor: pointer;
+  background: var(--color-paper-high); border: 1px solid var(--glass-edge); border-top: 3px solid var(--rc);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.ns-ov-card:hover { transform: translateY(-1px); box-shadow: var(--glass-hi), var(--shadow-card-hover); }
+.ns-ov-card:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-ov-cardhead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ns-ov-cardhead h3 {
+  flex: 1; min-width: 0; margin: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title);
+  letter-spacing: .12em; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ns-ov-roundel {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--font-latin); font-weight: 600; font-size: 11px; color: var(--on-roundel); letter-spacing: 0; /* 字面值：票券／圓牌專用微字（§2.9） */
+}
+.ns-ov-next { display: flex; align-items: center; gap: 6px; margin: 0; min-width: 0; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-ov-next svg { flex: none; opacity: .8; }
+.ns-ov-next b { font-weight: 500; color: var(--color-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-ov-next .d { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); white-space: nowrap; }
+
+/* 車站進度線：實線（到站）＋虛線（還沒到）＋終點 ◎ */
+.ns-ov-track { position: relative; height: 12px; margin: 2px 8px 2px 0; }
+.ns-ov-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--color-dash); }
+.ns-ov-track .done { position: absolute; left: 0; top: 50%; height: 3px; margin-top: -1px; border-radius: 2px; background: var(--rc); }
+.ns-ov-track .dot {
+  position: absolute; top: 50%; width: 9px; height: 9px; margin: -4px 0 0 -4px; border-radius: 50%;
+  background: var(--color-paper-high); border: 2px solid var(--rc); box-sizing: border-box;
+}
+.ns-ov-track .end {
+  position: absolute; right: -8px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%;
+  border: 1px solid var(--color-ink-soft); box-sizing: border-box; background: var(--color-paper-high);
+}
+.ns-ov-track .end::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; border: 1px solid var(--color-ink-soft); }
+
+/* 下排四格 */
+.ns-ov-stats { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 4px 0 0; padding-top: 10px; border-top: 1px dashed var(--color-line); }
+.ns-ov-stats dt { font-size: var(--fs-micro); letter-spacing: .2em; color: var(--color-ink-faint); }
+.ns-ov-stats dd { margin: 2px 0 0; font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-title); color: var(--color-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ns-ov-stats dd small { margin-left: 2px; font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; color: var(--color-ink-soft); }
+.ns-ov-stats .is-late dt, .ns-ov-stats .is-late dd { color: var(--color-late); }
+.ns-ov-stats .is-late dd i { font-style: normal; font-size: var(--fs-xs); margin-right: 4px; }
+
+/* 段尾「＋ 路線」與空幹線的虛線框 */
+.ns-ov-addroute {
+  display: inline-flex; margin-top: 10px; padding: 4px 6px; border: 0; background: none; cursor: pointer;
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .14em; color: var(--color-ink-faint);
+  border-radius: var(--radius-ctl); transition: color var(--dur-fast), background-color var(--dur-fast);
+}
+.ns-ov-addroute:hover, .ns-ov-addroute:focus-visible { color: var(--color-ink); background: var(--hover-bg); outline: none; }
+.ns-ov-emptyline {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: 14px 18px; border: 1px dashed var(--color-dash); border-radius: var(--radius-card);
+  font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
+}
+
+/* 頁底「車庫 N 條 ›」（接縫班 D-主-282；原型 design-structure-獨立頁 .garage） */
+.ns-ov-garage {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 28px; padding: 14px 4px;
+  border: 0; border-top: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line); background: none;
+  cursor: pointer; text-align: left; font-family: inherit; color: var(--color-ink-soft);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+.ns-ov-garage:hover, .ns-ov-garage:focus-visible { background: var(--hover-bg); color: var(--color-ink); outline: none; }
+.ns-ov-garage > svg { flex: none; color: var(--color-ink-faint); }
+.ns-ov-garage .gt { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; color: var(--color-ink); }
+.ns-ov-garage .gs { font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-faint); }
+.ns-ov-garage .gn { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font-size: var(--fs-sm); letter-spacing: .1em; }
+.ns-ov-garage .gn b { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-h3); color: var(--color-ink); margin: 0 3px; }

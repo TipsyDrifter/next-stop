@@ -29,7 +29,7 @@
  * `inline`：dev 樣本頁（Gallery）用——畫在父框裡（父框要 position: relative）、不 portal、不登記返回層、不搶焦點、沒有進場動畫。
  *
  * ── UI 丙-5（契約 §0 MSheet 那列）──
- *   - `dismissable={false}`：暫時不給關（售票口匯入寫入中）——點暗幕、下滑把手、返回鍵、Esc 都不關；返回層照登記、
+ *   - `dismissable={false}`：暫時不給關（給寫入中這類不能中斷的流程用）——點暗幕、下滑把手、返回鍵、Esc 都不關；返回層照登記、
  *     返回鍵與 Esc 被這一層吃掉（不漏到底下那層），把手仍可上拉展開。list 型的「取消」列跟著禁用。換回 true 就恢復。
  *   - `className`：加在 sheet 外框（.ns-msheet）上，給呼叫端自己的微調（例：售票口對話框宿主的 is-dialog is-<kind>）。
  *   - `MSheetItem cut`：這一列之前一道虛線撕線（同 PopMenuItem.cut）。

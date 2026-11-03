@@ -205,6 +205,9 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   font-size: var(--fs-xs); line-height: 1.7; letter-spacing: .06em; color: var(--color-ink-soft);
 }
 [data-shell="mobile"] .ns-notes-mlede b { font-family: var(--font-latin); font-weight: 600; color: var(--color-ink); }
+/* 丁 D-主-237：段頂右邊「全部／筆記／車票」三顆選項 chip（桌機書封「篩選・種類」的手機版） */
+[data-shell="mobile"] .ns-notes-mlede:has(.ns-notes-mkinds) { display: flex; align-items: center; gap: var(--sp-2); }
+[data-shell="mobile"] .ns-notes-mkinds { display: inline-flex; gap: 6px; margin-left: auto; }
 
 /* 空狀態（UI 丙-6 E：收件匣、筆記列表、日記都換共用 EmptyState，長相在 common/listbits.css）；這裡只給頁級那款上方留白 */
 [data-shell="mobile"] .ns-notes-m > .ns-empty,

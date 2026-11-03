@@ -1,0 +1,130 @@
+/**
+ * 售票口④ 第二輪・手機樣式（手機席；D-票-77～79，原型 prototypes/design-structure-分類多層.html 手機段、design-structure-獨立頁.html 帳戶手機）。
+ * 只由 mobile/MobileTicketOffice.tsx import（表單、sheet 都在它的樹裡）；**每條規則前綴 `[data-shell="mobile"]`**。
+ *   一、分類格子一層一層點進去（MobileCatDrill：`.ns-tk-mdrill`／`.ns-tk-mcrumb`／`.ns-tk-mthis`；格子沿用 ticket-mobile.css 的 `.ns-tk-mgrid`／`.ns-tk-mcell`）
+ *   二、分類小標的路徑淡字、新增分類 sheet 的「建在…底下」（`.ns-tk-m4b-*`）
+ *   三、統計以某分類為根（`.ns-tk-mst-crumb`、子列「進入 ›」）
+ *   四、帳戶分頁（MobileAccountsView：`.ns-tk-mac*`）
+ * 色只用 theme.css token 與 ticket-mobile.css 的區域變數（--ns-tk-sel／--ns-tk-hover／--ns-tk-mglass…）；收入「＋」的金字是售票口的例外（同帳本）。
+ * 觸控目標至少 44px。
+ */
+
+/* ═══ 一、分類格子：一層一層點進去 ═══ */
+/* 有下一層的格子：小字「N 個 ›」用強調色（原型 .mcell.has-kids small）——看得出點了會走進去 */
+[data-shell="mobile"] .ns-tk-mcell.has-kids small { color: var(--accent); }
+[data-shell="mobile"] .ns-tk-mcell.is-taken { opacity: var(--disabled); cursor: not-allowed; }
+/* 換層時格子淡入（key＝那一層，React 整格重畫） */
+[data-shell="mobile"] .ns-tk-mgrid.is-in { animation: nsTkMFade .16s ease-out; }
+/* 走進去之後整塊框成虛線卡（原型 .mdrill；卡 3px 同 .ns-tk-msubs） */
+[data-shell="mobile"] .ns-tk-mdrill { padding: 4px 8px 8px; border: 1px dashed var(--color-dash); border-radius: 3px; } /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
+/* 麵包屑：‹ 支出 › 食物 › 外食；每一段都是 44px 高的點擊區，太長就換行 */
+[data-shell="mobile"] .ns-tk-mcrumb { display: flex; flex-wrap: wrap; align-items: center; min-height: 44px; margin: 0 0 4px -4px; font-size: var(--fs-sm); letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tk-mcrumb .part { display: inline-flex; align-items: center; min-width: 0; }
+[data-shell="mobile"] .ns-tk-mcrumb .back {
+  width: 40px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; background: transparent;
+  color: var(--color-ink-soft); border-radius: var(--radius-ctl); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mcrumb .seg {
+  min-height: 44px; padding: 0 4px; border: 0; background: transparent; font: inherit; letter-spacing: inherit;
+  color: var(--accent); border-radius: var(--radius-ctl); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mcrumb :is(.back, .seg):active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mcrumb :is(.back, .seg):focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mcrumb .sl { margin: 0 1px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mcrumb b { padding: 0 4px; font-weight: 600; color: var(--color-ink); }
+/* 「選這一層「外食」」：整列寬的虛線鈕；選中＝同格子的選中態 */
+[data-shell="mobile"] .ns-tk-mthis {
+  display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin-top: 8px; padding: 0 10px; box-sizing: border-box;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; font-size: 13px; letter-spacing: .1em; color: var(--color-ink-soft); -webkit-tap-highlight-color: transparent; /* 字面值：13px 照原型 .mthis */
+}
+[data-shell="mobile"] .ns-tk-mthis b { font-weight: 600; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mthis:active:not(:disabled) { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mthis:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mthis.on { border-style: solid; border-color: var(--color-line); outline: var(--sel-line); outline-offset: -1px; background: var(--ns-tk-sel); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mthis:disabled { opacity: var(--disabled); cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .ns-tk-mgrid.is-in { animation: none; }
+}
+
+/* ═══ 二、分類小標的路徑淡字（「食物 › 外食 ›」午餐）、新增分類「建在…底下」 ═══ */
+[data-shell="mobile"] .ns-tk-m4b-pa { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4b-under { margin: 0; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); }
+
+/* ═══ 三、統計：以某分類為根 ═══ */
+/* 卡頂一列：‹ 全部分類 › 食物 › 外食　……　合計 3,212　看明細 */
+[data-shell="mobile"] .ns-tk-mst-crumb { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; margin: -4px 0 4px; }
+[data-shell="mobile"] .ns-tk-mst-crumb nav { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; margin-left: -6px; font-size: var(--fs-sm); letter-spacing: .06em; }
+[data-shell="mobile"] .ns-tk-mst-crumb .part { display: inline-flex; align-items: center; }
+[data-shell="mobile"] .ns-tk-mst-crumb .back {
+  width: 36px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; background: transparent;
+  color: var(--color-ink-soft); border-radius: var(--radius-ctl); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mst-crumb .seg {
+  min-height: 44px; padding: 0 4px; border: 0; background: transparent; font: inherit; letter-spacing: inherit;
+  color: var(--accent); border-radius: var(--radius-ctl); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mst-crumb :is(.back, .seg):active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mst-crumb :is(.back, .seg):focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mst-crumb .sl { margin: 0 1px; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-crumb b { padding: 0 4px; font-weight: 600; color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mst-crumb .sum { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mst-crumb .sum .ns-btn { min-height: var(--ctl-h); } /* ns-btn--sm 在手機殼是 36，觸控目標補到 44 */
+/* 子列底下還有更深的帳：名字後面「進入 ›」（點整列＝以它為根） */
+[data-shell="mobile"] .ns-tk-mst-rows .n .go { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--accent); }
+
+/* ═══ 四、帳戶分頁（原型 sceneAcctM：.m-subbar／.m-grp／.m-acard／.m-arch） ═══ */
+[data-shell="mobile"] .ns-tk-mac { touch-action: pan-y; padding-bottom: 12px; }
+[data-shell="mobile"] .ns-tk-mac-sub { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mac-sub > span { flex: 1; min-width: 0; }
+[data-shell="mobile"] .ns-tk-mac-sub .ns-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: var(--ctl-h); } /* ns-btn--sm 是 36，補到 44 */
+/* 群組段頭：名稱（負債群組多一個小框「負債」）＋右端合計 */
+[data-shell="mobile"] .ns-tk-mac-grp .hd {
+  display: flex; align-items: baseline; gap: 8px; margin: 16px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--color-line);
+  font-size: var(--fs-micro); font-weight: 400; letter-spacing: .28em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .ns-tk-mac-grp .hd .lia { padding: 0 4px 0 6px; border: 1px solid var(--color-line); letter-spacing: .2em; }
+[data-shell="mobile"] .ns-tk-mac-grp .hd .s { margin-left: auto; font-family: var(--font-display); font-size: var(--fs-sm); letter-spacing: .02em; color: var(--color-ink-soft); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mac-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 10px 0 0; padding: 0; }
+[data-shell="mobile"] .ns-tk-mac-list > li { list-style: none; }
+/* 一張卡：左欄名稱＋餘額、右欄 96×30 走勢、下一行本月進出、右端 › */
+[data-shell="mobile"] .ns-tk-mac-card {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 96px; grid-template-rows: auto auto auto; column-gap: 12px;
+  min-height: 44px; padding: 10px 36px 10px 14px; box-sizing: border-box; text-align: left; cursor: pointer;
+  background: var(--color-paper-high); -webkit-backdrop-filter: blur(14px) saturate(1.15); backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid var(--ns-tk-mglass); border-radius: 3px; /* 字面值：卡 3px 照原型（--radius-card 粉彩是 4，換了會變） */
+  box-shadow: var(--ns-tk-mhi), 0 1px 2px color-mix(in srgb, var(--color-book) 8%, transparent);
+  -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none;
+}
+[data-theme="dark"] [data-shell="mobile"] .ns-tk-mac-card, [data-theme="dark"][data-shell="mobile"] .ns-tk-mac-card { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: var(--ns-tk-mhi); }
+[data-shell="mobile"] .ns-tk-mac-card:active { background: var(--color-paper-used); }
+[data-shell="mobile"] .ns-tk-mac-card:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mac-card .n { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：13.5px 照原型 .m-acard .n */
+[data-shell="mobile"] .ns-tk-mac-card .b { grid-column: 1; font-family: var(--font-display); font-weight: 600; font-size: 20px; line-height: 1.25; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
+[data-shell="mobile"] .ns-tk-mac-card .b small { margin-left: 4px; font-family: var(--font-latin); font-weight: 500; font-size: 10px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：帳本金額襯線（含幣別小字）照原型 */
+[data-shell="mobile"] .ns-tk-mac-card .b.is-zero { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mac-card .sp { grid-column: 2; grid-row: 1 / 3; align-self: center; width: 96px; height: 30px; overflow: visible; }
+[data-shell="mobile"] .ns-tk-mac-card .sp .ln { fill: none; stroke: var(--color-ink-soft); stroke-width: 1.2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+[data-shell="mobile"] .ns-tk-mac-card .sp .base { stroke: var(--color-line); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+[data-shell="mobile"] .ns-tk-mac-card .sp .pt { fill: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mac-card .io { grid-column: 1 / 3; margin-top: 3px; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mac-card .io .it { margin-left: 10px; white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mac-card .io b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink-soft); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mac-card .io b.pos { color: var(--color-gold-ink); }
+[data-shell="mobile"] .ns-tk-mac-card .go { position: absolute; top: 0; right: 0; bottom: 0; width: 34px; display: grid; place-items: center; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mac-card.is-arch { background: transparent; box-shadow: none; border-style: dashed; border-color: var(--color-dash); -webkit-backdrop-filter: none; backdrop-filter: none; }
+[data-shell="mobile"] .ns-tk-mac-card.is-arch :is(.n, .b) { color: var(--color-ink-faint); }
+/* 封存 N（預設收；攤開＝同樣的卡、虛線框） */
+[data-shell="mobile"] .ns-tk-mac-arch { margin-top: 14px; border-top: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mac-arch .tog {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 2px; border: 0; background: transparent;
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .2em; color: var(--color-ink-faint); text-align: left; -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mac-arch .tog svg { transition: transform .2s cubic-bezier(.2, .9, .3, 1.04); }
+[data-shell="mobile"] .ns-tk-mac-arch .tog[aria-expanded="true"] svg { transform: rotate(90deg); }
+[data-shell="mobile"] .ns-tk-mac-arch .tog:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mac-arch .tog:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .ns-tk-mac-arch .ns-tk-mac-list { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .ns-tk-mac-arch .tog svg { transition: none; }
+}

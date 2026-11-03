@@ -139,7 +139,7 @@ export interface TagStore {
   openPicker(p: Omit<TagPickerState, "onInsert"> & { onInsert?: TagPickerState["onInsert"] }): void;
   closePicker(): void;
   /** changed ∋ tags|taggings|notes|nodes ⇒ loadIndex；wiped ⇒ 清 selectedKey/back/renaming/picker/pendingPlan；
-   *  changed ∋ tags|taggings（或 wiped）⇒ 先跑改名跟到底的整理（D-主-121，`tagRepo.reconcileRenamed`） */
+   *  changed ∋ tags|taggings|notes（或 wiped）⇒ 先跑改名跟到底的整理（D-主-121、接縫 #109，`tagRepo.reconcileRenamed`） */
   reload(ctx: LineReloadContext): Promise<void>;
 }
 
@@ -246,8 +246,9 @@ export const useTagStore = create<TagStore>((set, get) => {
   }
 
   /**
-   * 拉取後的「改名跟到底」（D-主-121）：一台改名、另一台同時拿舊名掛東西 ⇒ 舊名被「編輯勝刪除」救回來成空殼；
-   * 這裡把殼上的掛載轉到新名、殼收掉（repo 做資料，這裡管 index、筆記畫面與 toast）。兩台各跑一次、決定性 id 收斂。
+   * 拉取後的「改名跟到底」（D-主-121、接縫 #109）：一台改名、另一台同時拿舊名掛東西 ⇒ 掛載留在舊名上（舊名被「編輯勝刪除」
+   * 救回來成空殼，或刪除贏了、舊名是死的但掛載活著）；這裡把掛載轉到新名、活著的殼收掉（repo 做資料，這裡管 index、
+   * 筆記畫面與 toast）。兩台各跑一次、決定性 id 收斂。
    * 永不丟錯：整理失敗只 warn，下一趟拉到荷札變動再試（殼還在、資料沒壞，只是排除暫時掛在舊名上）。
    * toast 帶「看看」：既能帶人去新荷札，也讓同一趟稍後的「兩台撞到」提示不蓋掉這句（它不蓋帶鈕的 toast）。
    */
@@ -260,7 +261,7 @@ export const useTagStore = create<TagStore>((set, get) => {
       return;
     }
     if (!res.length) return;
-    // index 由 reload 後半照常重載（changed 含 tags 才會走到這裡）；筆記內文可能被改寫成新名，畫面跟著重讀
+    // index 由 reload 後半照常重載（changed 含 tags／taggings／notes 才會走到這裡）；筆記內文可能被改寫成新名，畫面跟著重讀
     await reloadNoteViews().catch((e) => console.warn("tagStore 改名整理後重載筆記失敗", e));
     const shown = res.filter((x) => x.moved > 0);
     if (!shown.length) return;
@@ -615,7 +616,8 @@ export const useTagStore = create<TagStore>((set, get) => {
       // 同步引擎班 D-主-121「改名跟到底」：拉到荷札或掛載的變動 ⇒ 先把改名殘影整理掉，再重載 index。
       // 不看 index 載了沒：這是資料的整理，不是畫面（沒開過荷札頁的那台也要收殼，排除才不會掛在空殼上失效）。
       // 這個 App 行程的第一趟也跑一次：上次 pull 套完、整理前就被關掉的殼，不用等下一次荷札變動才收。
-      if (ctx.wiped || !renamesSwept || ctx.changed.includes("tags") || ctx.changed.includes("taggings")) {
+      // 拉到筆記也算（接縫 #109）：另一台較晚的編輯可能把內文蓋回改名前的 #舊名，不改的話這台一存就把舊名掛回來。
+      if (ctx.wiped || !renamesSwept || ["tags", "taggings", "notes"].some((t) => ctx.changed.includes(t))) {
         renamesSwept = true;
         await followRenames();
       }

@@ -14,6 +14,10 @@
 /* ═══ 分頁籤 Tabs：文字籤、襯線 700、段間虛線、選中＝底線滑塊＋--sel-fg 字 ═══ */
 .ns-tabs {
   position: relative; display: inline-flex; flex: none; align-items: stretch; max-width: 100%;
+  /* 獨立一列的籤內距：平分時每邊至少 --tab-pad-min（再由 flex 撐滿）；露半格時 --tab-pad-peek＋JS 補的 --tab-pad-x。
+     Tabs.tsx 讀這兩個值判斷放不放得下（tabRowLayout），改值兩邊自動一致 */
+  --tab-pad-min: var(--sp-3);
+  --tab-pad-peek: var(--sp-4);
 }
 /* 橫捲（scroll）：捲軸藏起來；只橫不直（底線滑塊因此收進框內，bottom 0） */
 .ns-tabs.is-scroll {
@@ -62,7 +66,8 @@
   .ns-tabs-ink { transition: none; }
 }
 
-/* 獨立一列（手機殼預設；size="mobile" 在任何殼強制）：整列霧面玻璃底＋底線、撐滿、每籤平分。
+/* 獨立一列（手機殼預設；size="mobile" 在任何殼強制）：整列霧面玻璃底＋底線、撐滿、每籤平分
+   （每邊內距從 --tab-pad-min 起、多的寬由 flex 均分——兩字籤在 375 寬放五格也不遮字）。
    size="md" 在手機殼強制留在行內形制（例：區段標題右側的 日｜週｜月）。 */
 [data-shell="mobile"] .ns-tabs:not(.ns-tabs--md),
 .ns-tabs.ns-tabs--mobile {
@@ -72,13 +77,16 @@
   border-bottom: 1px solid var(--color-line);
 }
 [data-shell="mobile"] .ns-tabs:not(.ns-tabs--md) > [role="tab"],
-.ns-tabs.ns-tabs--mobile > [role="tab"] { flex: 1 0 auto; }
-/* 超過 4 段（.is-peek）：不撐滿，改由 Tabs.tsx 量自然寬後均勻補左右內距 --tab-pad-x，
-   讓一列剛好 4 格＋第 5 格露一半＝「還能捲」的提示（§2.2 段數欄；算法見 Tabs.tsx peekPad） */
+.ns-tabs.ns-tabs--mobile > [role="tab"] { flex: 1 0 auto; padding: 0 var(--tab-pad-min); }
+/* 超過 4 段且放不下（.is-peek；放得下就照上一條平分，判斷在 Tabs.tsx tabRowLayout）：不撐滿，
+   改由 Tabs.tsx 量自然寬後均勻補左右內距 --tab-pad-x，讓一列剛好 4 格＋第 5 格露一半＝「還能捲」的提示
+   （§2.2 段數欄；算法見 tabsLayout.ts peekPad） */
 [data-shell="mobile"] .ns-tabs.is-peek:not(.ns-tabs--md) > [role="tab"],
 .ns-tabs.ns-tabs--mobile.is-peek > [role="tab"] {
-  flex: none; padding: 0 calc(var(--sp-4) + var(--tab-pad-x, 0px));
+  flex: none; padding: 0 calc(var(--tab-pad-peek) + var(--tab-pad-x, 0px));
 }
+/* 量字寬用（Tabs.tsx 同步掛上、讀完立刻拿掉，不會畫出來）：籤不伸縮、內距 0，蓋過上面任一形制 */
+.ns-tabs.is-measure > [role="tab"] { flex: none !important; padding-left: 0 !important; padding-right: 0 !important; }
 
 /* 手機頂帶下一列（MobileTopBand 的 tabsRow 插槽）：籤列＋末端「管理」文字鈕，兩段同一片玻璃 */
 .ns-tabrow { display: flex; align-items: stretch; }

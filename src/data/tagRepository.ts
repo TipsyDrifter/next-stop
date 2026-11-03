@@ -14,7 +14,7 @@
 import type { NoteRow } from "../domain/notes";
 import type { NodeRow } from "../domain";
 import type { DeletePlan, RenamePlan, TagIndexSource } from "../domain/tags";
-import { TAG_ID_NAMESPACE, TAGGING_ID_NAMESPACE } from "../domain/tags.ts";
+import { TAG_ID_NAMESPACE, TAGGING_ID_NAMESPACE, tagKeysIn } from "../domain/tags.ts";
 import { uuidv5 } from "../lib/uuidv5.ts";
 
 /** 本線 'node'／'note'；別線用 '<頁面id>:<自訂>'（例 'timetable:block'），不可用裸 'ticket' */
@@ -29,7 +29,9 @@ export interface TagRow {
   deleted_at: string | null;
   /**
    * 改名去向（同步引擎班 D-主-121，migration 0013）：改名／併入軟刪舊荷札時記新荷札的 id；NULL／沒有＝沒改過名。
-   * 「存活＋有去向」＝被另一台的併發掛載「編輯勝刪除」救回來的空殼，`reconcileRenamed` 會把它收掉。
+   * 有去向的荷札不論死活，身上還有存活的掛載就是「沒跟上改名」：「存活＋有去向」＝被另一台的併發掛載「編輯勝刪除」
+   * 救回來的空殼；「已刪＋有去向」卻還有存活掛載＝另一台的掛載比改名早、刪除贏了但掛載活著（接縫 #109）。
+   * `reconcileRenamed` 把兩種都跟到去向，活著的殼再收掉。
    * 選填只為了不動既有建列的地方（舊程式不帶這欄＝NULL，語義一樣）。
    */
   renamed_to?: string | null;
@@ -133,10 +135,12 @@ export interface TagRepository {
   /** 一列荷札（含已刪除）；沒有＝null。同步提示查名字與改名去向用 */
   getTagRow(id: string): Promise<TagRow | null>;
   /**
-   * 拉取後整理「改名跟到底」：存活而且有 `renamed_to` 的荷札（＝改名後被另一台的併發掛載救回來的空殼），
-   * 沿去向一路找到存活的終點（鏈式、最多 10 跳、繞圈就放棄），把殼上的存活掛載轉過去、殼再軟刪；
-   * 掛在筆記上的連內文的 `#舊名` 一起改（不改的話下次存那則筆記會把舊名掛回來）。
-   * 終點已經真的被刪了 ⇒ 不轉、殼留著（維持「編輯勝刪除」的本意）。一個交易；沒有殼＝不開交易、回空陣列。
+   * 拉取後整理「改名跟到底」（D-主-121；接縫 #109 補齊）：**任何存活的掛載指向一枚有 `renamed_to` 的荷札，不論它活著或已刪**，
+   * 都沿去向一路找到存活的終點（鏈式、最多 10 跳、繞圈就放棄），把掛載轉過去；活著的殼（被併發掛載救回來的）再軟刪，
+   * 本來就刪了的不動。掛在筆記上的連內文的 `#舊名` 一起改（不改的話下次存那則筆記會把舊名掛回來）。
+   * 另補「只差內文」那格：筆記內文還寫著 `#舊名`、掛載卻已經在舊名或去向上（內文被另一台較晚的編輯蓋回舊字、
+   * 垃圾桶還原）⇒ 內文改成新名、確保掛在終點。內文寫著 `#舊名` 但兩邊都沒掛的不碰（＝正在打、還沒存的親手重建）。
+   * 終點已經真的被刪了 ⇒ 不轉、殼留著（維持「編輯勝刪除」的本意）。一個交易；沒有要跟的＝不開交易、回空陣列。
    * `beforeBodyRewrite`：真的要改內文之前叫一次（store 用來先存完正在打的字、退出編輯）。
    */
   reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]>;
@@ -149,7 +153,7 @@ export interface RenameFollow {
   toId: string;
   toKey: string;
   toName: string;
-  /** 轉過去的掛載數（含不算用量的，例如時刻表的單塊排除） */
+  /** 轉過去的掛載數（含不算用量的，例如時刻表的單塊排除）＋只改內文就跟上的筆記數 */
   moved: number;
 }
 
@@ -211,6 +215,26 @@ export async function followRename(
     return t.deleted_at === null ? t.id : null;
   }
   return null;
+}
+
+/**
+ * 「只差內文」那格（接縫 #109）：一則筆記內文裡的 `#名` 有哪些是改名前的舊名、該跟到去向——
+ * 條件是那枚荷札有去向、找得到存活的終點，而且這則筆記現在掛在舊名或終點上（`noteTagIds`＝它存活掛載的 tag id）。
+ * 兩邊都沒掛＝內文剛打、還沒存（存了會走 `ensureTag` 的親手重建、清掉去向），不算。回舊荷札的 id（去重、照出現順序）。
+ * `resolve`＝`followRename` 綁好讀列的那一支。兩份實作共用。
+ */
+export async function staleBodyRenames(
+  body: string,
+  noteTagIds: ReadonlySet<string>,
+  resolve: (tagIdValue: string) => Promise<string | null>,
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const k of tagKeysIn(body)) {
+    const id = await tagId(k);
+    const to = await resolve(id);
+    if (to && (noteTagIds.has(id) || noteTagIds.has(to))) out.push(id);
+  }
+  return out;
 }
 
 /* ── 決定性 id（兩台同名同 id；契約 §3.1、0-18） ── */

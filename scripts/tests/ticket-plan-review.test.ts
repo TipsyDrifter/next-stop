@@ -3,7 +3,7 @@
  * 跑法：`node --test scripts/tests/ticket-plan-review.test.ts`（node 24，型別剝除預設開；零依賴）。
  *
  * 每一條 test 名稱開頭是 R 編號；**紅的＝評審認為產品碼有問題**（對應回報裡的 finding）。綠的＝反例守住了。
- * 契約列的九個反例：R1～R9；評審自己找的：R10～R16。
+ * 契約列的九個反例：R1～R9；評審自己找的：R10～R16。測匯入的 R7～R9、R11、D2 隨「從財務管家匯入」拿掉。
  *
  * 載入與 sqlite 替身照 ticket-plan-logic.test.ts（registerHooks 之後才動態載入 src；node:sqlite 套真的 0007＋0010 DDL）。
  * 時區：測資一律用 `new Date(y, m-1, d, h, mi)` 造本地時刻。金額一律合成。不碰任何真實資料。
@@ -43,7 +43,7 @@ registerHooks({
   },
 });
 
-import type { AccountRow, CategoryRow, CurrencyRow, EntryCtx, EntryRow, ImportLocal, MmbakDump } from "../../src/domain/ticket.ts";
+import type { AccountRow, CategoryRow, CurrencyRow, EntryCtx, EntryRow } from "../../src/domain/ticket.ts";
 import type { BudgetRow, RepeatRow } from "../../src/domain/ticketPlan.ts";
 
 const T = await import("../../src/domain/ticket.ts");
@@ -54,7 +54,7 @@ const M = await import("../../src/data/memoryTicketRepository.ts");
 const S = await import("../../src/data/sqliteTicketRepository.ts");
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const { ticketId, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, STARTER_CATEGORIES, STARTER_CURRENCY, atOf, localTime } = T;
+const { ticketId, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, atOf, localTime } = T;
 const { fixedRule, serializeRule } = R;
 
 /* ───────── fixture（小，只放反例要的） ───────── */
@@ -130,18 +130,6 @@ function daysBetween(from: string, toIncl: string): string[] {
   for (let d = from; d <= toIncl; d = V.dayStep(d, 1)) out.push(d);
   return out;
 }
-function emptyLocal(): ImportLocal {
-  return {
-    currencies: [{ ...STARTER_CURRENCY, ...SYNC }],
-    accounts: [],
-    categories: STARTER_CATEGORIES.map((c) => ({ ...c, archived_at: null, ...SYNC })),
-    entries: [],
-    budgets: [],
-    repeats: [],
-  };
-}
-const planOpts = (pause = true) => ({ balanceText: {}, nowIso: NOW, pauseImported: pause });
-const dump3 = (): MmbakDump => M.mockImportDump("base", true);
 
 /* ───────── sqlite 替身＋兩個實作（照 ticket-plan-logic.test.ts） ───────── */
 
@@ -206,8 +194,14 @@ const dailyInput = (accountId: string, categoryId: string, start: string, extra:
   kind: "expense", accountId, toAccountId: null, categoryId, amountMinor: 8000, currency: "TWD", note: "早餐", routeId: null,
   rule: fixedRule("daily", start), hhmm: "09:00", ...extra,
 });
+/** 含墓碑的全部帳（測試直讀：memory 讀內部 Map、sqlite 直接 SELECT；repo 沒有「讀含墓碑全表」的公開介面） */
+async function allEntries(repo: any): Promise<EntryRow[]> {
+  if (repo instanceof M.MemoryTicketRepository) return Array.from((repo as unknown as { ent: Map<string, EntryRow> }).ent.values()).map((x) => ({ ...x }));
+  const db = (globalThis as { __tkDb?: TestDb }).__tkDb!;
+  return (await db.select("SELECT * FROM tk_entries")) as unknown as EntryRow[];
+}
 async function entryAny(repo: any, id: string): Promise<EntryRow | undefined> {
-  return ((await repo.loadImportLocal()).entries as EntryRow[]).find((e) => e.id === id);
+  return (await allEntries(repo)).find((e) => e.id === id);
 }
 /** 模擬同步引擎把某欄改掉（LWW 套上另一台的值）；兩個實作各用自己的後門 */
 async function forceRepeatCols(repo: any, db: TestDb | null, id: string, cols: Partial<RepeatRow>): Promise<void> {
@@ -255,7 +249,7 @@ describe("契約九個反例", () => {
       const res = await repo.materializeRepeats(TODAY, 6);
       assert.deepEqual([res.inserted, res.reconciled], [0, 0]);
       assert.notEqual((await entryAny(repo, gone))!.deleted_at, null, "墓碑還在");
-      const live = ((await repo.loadImportLocal()).entries as EntryRow[]).filter((e) => e.repeat_id === r.id && e.deleted_at === null);
+      const live = (await allEntries(repo)).filter((e) => e.repeat_id === r.id && e.deleted_at === null);
       assert.equal(live.length, 9);
       assert.equal((await repo.listRepeats())[0].next_on, "2026-10-20");
       if (db) assert.deepEqual(db.ops.slice(m0).map((o) => [o.tbl, Object.keys(o.cols).join(",")]), [["tk_repeats", "next_on,updated_at"]]);
@@ -326,61 +320,6 @@ describe("契約九個反例", () => {
     assert.equal(P.overBudgetDay(es2, "2026-10", 100000), "2026-10-10");
   });
 
-  test("R7. BUDGET_PERIOD 202613 與鄰居 ⇒ 時間範圍格式有誤；同一份備份其餘預算照匯", () => {
-    for (const bad of [202613, 202600, 999913, 1, -202601, 2026010, 2026.5]) assert.equal(P.mmMonth(bad), undefined, String(bad));
-    assert.equal(P.mmMonth(202612), "2026-12");
-    assert.equal(P.mmMonth(100001), "1000-01");
-    const d = dump3();
-    d.budget_amounts!.push({ uid: "x-13", budget_uid: "_1_1_0_6", is_del: false, amount: "100", budget_period: 202613, modify_date: 1 });
-    const { part } = P.planImportAll(d, emptyLocal(), planOpts());
-    assert.ok(part.budgets.invalid.some((x) => x.uid === "x-13" && x.reason === "時間範圍格式有誤"));
-    assert.equal(part.budgets.inserts.length, 5, "其餘 5 列照匯");
-  });
-
-  test("R8a. REPEATTRANSACTION.currencyUid 對不到備份的任何幣別 ⇒ 用帳戶幣別（契約 §4.4），金額照帳戶幣別小數位", () => {
-    const d = dump3();
-    d.repeats![2].currency_uid = "mm-c-nope"; // mm-r3（原本是 USD）
-    const { plan, part } = P.planImportAll(d, emptyLocal(), planOpts());
-    const r3 = part.repeats.inserts.find((x) => x.import_id === "mm-r3")!;
-    const accCur = plan.accounts.find((a) => a.id === r3.account_id)!.currency;
-    assert.deepEqual([r3.currency, r3.amount_minor], [accCur, 1000]);
-  });
-
-  test("R8b. currencyUid 對到一個 ①匯入會丟掉的幣別（匯率看不懂）⇒ 規則的幣別必須是本機會有的幣別（否則全部開始後永遠 blocked）", () => {
-    const d = dump3();
-    d.currencies.push({ uid: "mm-c9", iso: "JPY", is_main: false, rate: "abc", decimals: 0 });
-    d.repeats![2].currency_uid = "mm-c9";
-    const local = emptyLocal();
-    const { plan, part } = P.planImportAll(d, local, planOpts());
-    const known = new Set([...local.currencies.map((c) => c.code), ...plan.currencies.map((c) => c.code)]);
-    assert.equal(known.has("JPY"), false, "前提：①的 planImport 不建 JPY（匯率看不懂）");
-    const r3 = part.repeats.inserts.find((x) => x.import_id === "mm-r3");
-    const bad = part.repeats.invalid.find((x) => x.uid === "mm-r3");
-    assert.ok(bad || (r3 && known.has(r3.currency)), `mm-r3 進來的幣別是 ${r3?.currency}，本機沒有這個幣別`);
-  });
-
-  test("R9a. 同一個備份匯兩次、第二次 USETIME／MODIFY_DATE 變小（其餘相同）⇒ 預算與規則都 unchanged", () => {
-    const first = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = { ...emptyLocal(), budgets: first.part.budgets.inserts, repeats: first.part.repeats.inserts };
-    const d = dump3();
-    for (const a of d.budget_amounts!) a.modify_date -= 1000;
-    for (const r of d.repeats!) r.usetime -= 1000;
-    d.budget_amounts![0].amount = "99999"; // 金額不同但比較舊 ⇒ 不能蓋
-    const again = P.planImportAll(d, local, planOpts());
-    assert.deepEqual([again.part.budgets.updates.length, again.part.budgets.inserts.length], [0, 0]);
-    assert.deepEqual([again.part.repeats.updates.length, again.part.repeats.inserts.length], [0, 0]);
-  });
-
-  test("R9b. 匯一份比較舊的備份（USETIME 變小、NEXT_DATE 早一個月）⇒ 從沒開始過的暫停規則不能被倒回舊游標／舊規則", () => {
-    const first = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = { ...emptyLocal(), budgets: first.part.budgets.inserts, repeats: first.part.repeats.inserts };
-    const d = dump3();
-    d.repeats![0].usetime -= 1000; // mm-r1：比較舊的備份
-    d.repeats![0].next_date = new Date(2026, 9, 3, 9, 30).getTime(); // 11/3 → 10/3（財務管家那時候還沒記 10/3）
-    const again = P.planImportAll(d, local, planOpts());
-    const up = again.part.repeats.updates.find((u) => u.id === ticketId("moneymanager:repeat:mm-r1"));
-    assert.equal(up, undefined, `舊備份把游標倒回：${JSON.stringify(up?.cols)}——全部開始後會從 10/3 補記，和最新那次匯入帶進來的 10/3 那筆重複`);
-  });
 });
 
 /* ═════════════════════════ 評審自己找的 ═════════════════════════ */
@@ -404,33 +343,6 @@ describe("評審自己找的", () => {
     const mine = byId(base.inserts);
     for (const e of other.inserts) assert.deepEqual(strip(e), strip(mine[e.id]), e.id);
   });
-
-  for (const impl of IMPLS) {
-    test(`R11. neverStarted 刷新：開始過、記的帳又被刪光（只剩墓碑）⇒ 再暫停＋重匯不能把游標刷回財務管家的（${impl.name}）`, async () => {
-      const { repo } = await impl.make();
-      await repo.ensureStarterRows();
-      const a1 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      await repo.applyImport(a1.plan, T.defaultChoices(a1.plan), a1.part, () => {});
-      await repo.resumeAllRepeats(TODAY);
-      assert.equal((await repo.materializeRepeats(TODAY, 6)).inserted, 1, "mm-r3 補記 10/16");
-      const r3 = (await repo.listRepeats()).find((x: RepeatRow) => x.import_id === "mm-r3")!;
-      await repo.softDeleteEntry(P.materializeId(r3.id, "2026-10-16"));
-      await repo.setRepeatPaused(r3.id, true, TODAY);
-      const before = (await repo.listRepeats()).find((x: RepeatRow) => x.id === r3.id)!.next_on;
-      const d = dump3();
-      d.repeats![2].next_date = new Date(2026, 11, 16, 21, 15).getTime();
-      d.repeats![2].usetime += 1;
-      const a2 = P.planImportAll(d, await repo.loadImportLocal(), planOpts());
-      const up = a2.part.repeats.updates.find((u) => u.id === r3.id);
-      assert.ok(!up || !("next_on" in up.cols), "開始過（有墓碑指向它）⇒ next_on 不刷");
-      await repo.applyImport(a2.plan, T.defaultChoices(a2.plan), a2.part, () => {});
-      assert.equal((await repo.listRepeats()).find((x: RepeatRow) => x.id === r3.id)!.next_on, before);
-      // 開始 ⇒ 手建語義（明天起），不是接財務管家
-      await repo.setRepeatPaused(r3.id, false, TODAY);
-      const after = (await repo.listRepeats()).find((x: RepeatRow) => x.id === r3.id)!;
-      assert.equal(after.next_on, R.nextFixedDate(P.parseFixedRule(after.rule)!, TODAY));
-    });
-  }
 
   for (const impl of IMPLS) {
     test(`R12. 墓碑不復活：刪一筆 → skipped_days 被 LWW 蓋空 → 規則刪了又復原 → 重匯 ⇒ 那筆還是墓碑、帳 0 op（${impl.name}）`, async () => {
@@ -563,80 +475,7 @@ describe("評審自己找的", () => {
   });
 });
 
-/* ═════════ 沙盒代驗（2026-10-19）之後的小修：D2、O1 ═════════ */
-
-describe("沙盒代驗後：D2 匯入跳過的墓碑要說出來", () => {
-  test("D2a. 純函式：墓碑列不算進 scopes／overrides；tombLine 三種寫法、0 個不出", () => {
-    const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = part.budgets.inserts;
-    // 點心只有預設一列 ⇒ 刪了就少一個對象
-    const snackId = plan.categoryIdOf["mm-ce0-4"];
-    const snackTomb = local.filter((x) => x.category_id === snackId).map((x) => ({ ...x, deleted_at: NOW }));
-    const again = P.planBudgetImport(dump3(), plan, snackTomb, NOW);
-    assert.deepEqual([again.tombstoned, again.inserts.length, again.scopes, again.overrides], [1, 4, 2, 2]);
-    // 食物的預設＋覆寫都刪 ⇒ 對象少一個、覆寫少一個
-    const foodId = plan.categoryIdOf["mm-ce0"];
-    const foodTomb = local.filter((x) => x.category_id === foodId).map((x) => ({ ...x, deleted_at: NOW }));
-    const f = P.planBudgetImport(dump3(), plan, foodTomb, NOW);
-    assert.deepEqual([f.tombstoned, f.inserts.length, f.scopes, f.overrides], [2, 3, 2, 1]);
-    // 文案
-    assert.equal(P.PLAN_TEXT.tombLine(0, 0), null);
-    assert.equal(P.PLAN_TEXT.tombLine(2, 0), "略過 2 個（已在這台裝置刪除）");
-    assert.equal(P.PLAN_TEXT.tombLine(0, 1), "略過 1 條（已在這台裝置刪除）");
-    assert.equal(P.PLAN_TEXT.tombLine(1, 3), "略過 1 個 · 3 條（已在這台裝置刪除）");
-    assert.equal(P.partSummary(part).tombLine, null, "乾淨庫 ⇒ 不出");
-  });
-
-  for (const impl of IMPLS) {
-    test(`D2b. 沙盒重現：設總預算 → 移除 → 匯入 ⇒ 總預算預設不復活、預覽不算它、有「略過 1 個（已在這台裝置刪除）」；寫入後結果卡同一行（${impl.name}）`, async () => {
-      const { repo } = await impl.make();
-      await repo.ensureStarterRows();
-      await repo.setBudget({ kind: "total" }, null, 2000000);
-      await repo.removeBudget({ kind: "total" }, null);
-      assert.equal((await repo.listBudgets()).length, 0);
-      const a = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      const b = a.part.budgets;
-      const totalDefault = P.budgetId({ kind: "total" }, null);
-      assert.equal(b.tombstoned, 1);
-      assert.ok(!b.inserts.some((x) => x.id === totalDefault) && !b.updates.some((x) => x.id === totalDefault), "墓碑不復活");
-      assert.equal(b.inserts.length, 4);
-      // 總預算這個對象還有 2026-01 的覆寫要進來 ⇒ 對象仍是 3 個；墓碑那一列（預設，不是覆寫）不算
-      assert.deepEqual([b.scopes, b.overrides], [3, 2]);
-      const sum = P.partSummary(a.part);
-      assert.equal(sum.budgetLine, "預算 3 個（2 個單月覆寫）");
-      assert.equal(sum.tombLine, "略過 1 個（已在這台裝置刪除）");
-      const out = await repo.applyImport(a.plan, T.defaultChoices(a.plan), a.part, () => {});
-      assert.equal(out.budgets, 4);
-      const live = await repo.listBudgets();
-      assert.equal(live.length, 4);
-      assert.ok(!live.some((x: BudgetRow) => x.id === totalDefault), "寫入後總預算預設仍是墓碑");
-      // 再匯一次：墓碑還在 ⇒ 照樣說；其餘 unchanged
-      const a2 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      assert.deepEqual([a2.part.budgets.tombstoned, a2.part.budgets.unchanged, a2.part.budgets.scopes], [1, 4, 0]);
-      assert.equal(P.partSummary(a2.part).tombLine, "略過 1 個（已在這台裝置刪除）");
-    });
-  }
-
-  for (const impl of IMPLS) {
-    test(`D2c. 定期規則比照：匯入後刪一條 → 重匯 ⇒ 不復活、「略過 1 條（已在這台裝置刪除）」；和預算一起 ⇒「略過 1 個 · 1 條」（${impl.name}）`, async () => {
-      const { repo } = await impl.make();
-      await repo.ensureStarterRows();
-      const a1 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      await repo.applyImport(a1.plan, T.defaultChoices(a1.plan), a1.part, () => {});
-      const r1 = (await repo.listRepeats()).find((x: RepeatRow) => x.import_id === "mm-r1")!;
-      await repo.softDeleteRepeat(r1.id);
-      const a2 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      assert.deepEqual([a2.part.repeats.tombstoned, a2.part.repeats.inserts.length, a2.part.repeats.updates.length], [1, 0, 0]);
-      assert.equal(P.partSummary(a2.part).repeatLine, "定期帳 0 筆");
-      assert.equal(P.partSummary(a2.part).tombLine, "略過 1 條（已在這台裝置刪除）");
-      await repo.removeBudget({ kind: "category", categoryId: a1.plan.categoryIdOf["mm-ce0-4"] }, null);
-      const a3 = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      assert.equal(P.partSummary(a3.part).tombLine, "略過 1 個 · 1 條（已在這台裝置刪除）");
-      await repo.applyImport(a3.plan, T.defaultChoices(a3.plan), a3.part, () => {});
-      assert.ok(!(await repo.listRepeats()).some((x: RepeatRow) => x.id === r1.id), "規則墓碑不復活");
-    });
-  }
-});
+/* ═════════ 沙盒代驗（2026-10-19）之後的小修：O1（D2 測匯入，已隨匯入拿掉） ═════════ */
 
 describe("沙盒代驗後：O1 月曆「超」和預算卡對齊", () => {
   const B = 100000; // 總預算 1,000

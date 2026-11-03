@@ -34,6 +34,7 @@ import { addDays } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { hotkeyCaps } from "../common/PopMenu";
 import { PageHeader } from "../common/PageHeader";
+import { WeekAimsBand } from "../weekAims/WeekAimsBand";
 import { DateNav } from "../common/DateNav";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
@@ -192,6 +193,9 @@ export function CalendarView() {
             add={empty ? undefined : { label: "車票", onClick: addTicket, title: "在今天新增車票" }}
             search={{ onOpen: openSearch, title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
           />
+
+          {/* 週方針（戊 D-主-262）：只在「週」檢視，看畫面上那一週 */}
+          {c.view === "week" && <WeekAimsBand day={c.cursor} wide />}
 
           {/* ═══ 月間頁／週視圖／時段／串流 ═══ */}
           {stream ? (

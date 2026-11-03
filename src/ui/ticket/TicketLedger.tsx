@@ -5,7 +5,7 @@
  *   ├─ PageHeader.ns-tk-pagehead（UI 丙-5 A1：身分式，跟其他五頁同一副骨架）
  *   │     眉標 {售票口, Ticket Office}・大標 DateNav（‹ 10月 › 今天；統計年模式 unit="year"「‹ 2026 年 › 今年」；搜尋中＝「搜尋結果」）
  *   │     補述 2026年（搜尋中＝文字鈕「‹ 回 10 月」）・stats 本月支出／收入（搜尋中＝找到 N 筆…）
- *   │     工具列［清單｜月曆｜統計］［＋ 記一筆］［搜尋］［⚙ 管帳］（管帳＝共用 PopMenu，B1）
+ *   │     工具列［清單｜月曆｜統計｜帳戶｜願望］［＋ 記一筆］［搜尋］［⚙ 管帳］（管帳＝共用 PopMenu，B1）
  *   ├─ div.ns-tk-subbar（A4／P3 A 案：頁首下一列，清單視圖常駐；月曆／統計不畫）
  *   │     左＝帳戶篩選 chip（書封點帳戶）／搜尋框＋FilterChips（搜尋開著）・右＝排序
  *   └─ div.ns-tk-book（一張霧面紙，不打孔——帳簿行不是票卡）；空帳本＝EmptyState（A5，頁首此時不給「＋ 記一筆」）
@@ -28,6 +28,10 @@
  *   沒有月份分隔與日小計（月曆跳日本來就會先關搜尋）。↑↓ 照 results 走（useTicketKeyboard），300 筆分頁照 results 切；
  *   選到還沒畫出來的那一頁（↑↓ 走過頭）⇒ 自動翻到那一頁。
  *
+ * 售票口④ 第二輪（D-票-79；桌機席）：view＝accounts ⇒ 主欄畫 AccountsView；頁首大標「帳戶」、stats 行「N 個帳戶・資產 X・負債 Y」
+ *   （主幣別，同書封合計）、「＋ 帳戶」（新增帳戶對話框）。「⚙ 管帳 › 帳戶順序」照舊開對話框（↑↓ 鈕；兩殼同一項同一件事），
+ *   帳戶頁的拖曳是加速。
+ *
  * 往前接月份的停點：store 沒有「最早一筆在哪個月」，所以連續 3 個月都空就停止自動接、改成手按「繼續往前」
  * （不然沒有更早的帳時會一路往前載空月）。見回報 needs。
  */
@@ -45,6 +49,8 @@ import {
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   addMonths,
+  categoryLabel,
+  categoryPath,
   monthOf,
   monthTitle,
   moneyText,
@@ -67,6 +73,9 @@ import { SearchBar, focusTicketSearch } from "./view/SearchBar";
 import { FilterChips, SortButton } from "./view/FilterChips";
 import { TicketCalendar } from "./view/TicketCalendar";
 import { TicketStats } from "./view/TicketStats";
+// 售票口④（D-票-69）：願望分頁；第二輪（D-票-79）：帳戶分頁
+import { WishHeadStats, WishPage } from "./wish/WishPage";
+import { AccountsView } from "./view/AccountsView";
 
 /* ───────── 共用小件（桌機三個元件共用） ───────── */
 
@@ -80,6 +89,25 @@ const ICONS = {
     <>
       <circle cx="7" cy="7" r="4.6" />
       <path d="M10.6 10.6 14 14" />
+    </>
+  ),
+  // 售票口④：定期（記一筆「定期」列的說明行）、拖曳把手（願望清單）
+  repeat: (
+    <>
+      <path d="M12.6 6.2A4.8 4.8 0 0 0 3.8 5" />
+      <path d="M3.4 2.6v2.7h2.7" />
+      <path d="M3.4 9.8a4.8 4.8 0 0 0 8.8 1.2" />
+      <path d="M12.6 13.4v-2.7H9.9" />
+    </>
+  ),
+  grip: (
+    <>
+      <circle cx="6" cy="4" r=".6" />
+      <circle cx="10" cy="4" r=".6" />
+      <circle cx="6" cy="8" r=".6" />
+      <circle cx="10" cy="8" r=".6" />
+      <circle cx="6" cy="12" r=".6" />
+      <circle cx="10" cy="12" r=".6" />
     </>
   ),
 } satisfies Record<string, ReactNode>;
@@ -133,7 +161,10 @@ export function capsOf(id: string): string {
 
 const isUncat = (id: string | null): boolean => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
 
-/** 帳簿行的「分類」欄（0-2／§5.1：主 › 子；轉帳＝帳戶 → 帳戶；校正＝墨小字「精算」＋帳戶） */
+/**
+ * 帳簿行的「分類」欄（0-2／§5.1：主 › 子；轉帳＝帳戶 → 帳戶；校正＝墨小字「精算」＋帳戶）。
+ * 售票口④ 第二輪（D-票-78）：分類不限層數，列上只寫最後兩段「外食 › 拉麵」；三層以上完整路徑放滑過（`entryCatTitle`，掛在 .ns-tk-cat 上）。
+ */
 export function EntryCat({ e }: { e: EntryRow }) {
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
@@ -158,7 +189,8 @@ export function EntryCat({ e }: { e: EntryRow }) {
   if (!e.category_id || isUncat(e.category_id)) return <span className="unc">未分類</span>;
   const c: CategoryRow | undefined = catById[e.category_id];
   if (!c) return <span className="unc">（分類已刪除）</span>;
-  const p = c.parent_id ? catById[c.parent_id] : undefined;
+  const path = categoryPath(c, catById);
+  const p = path.length > 1 ? path[path.length - 2] : undefined;
   if (!p) return <>{c.name}</>;
   return (
     <>
@@ -167,6 +199,13 @@ export function EntryCat({ e }: { e: EntryRow }) {
       {c.name}
     </>
   );
+}
+
+/** 帳簿行分類欄的滑過字：分類三層以上（列上被截成最後兩段）才給完整路徑；其餘 undefined */
+export function entryCatTitle(e: EntryRow, catById: Readonly<Record<string, CategoryRow>>): string | undefined {
+  if (e.kind === "transfer" || e.kind === "adjust" || !e.category_id) return undefined;
+  const c = catById[e.category_id];
+  return c && categoryPath(c, catById).length > 2 ? categoryLabel(c, catById) : undefined;
 }
 
 /* ───────── 帳簿 ───────── */
@@ -213,6 +252,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const panel = useTicketStore((s) => s.panel);
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
+  const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const routes = useNodeStore((s) => s.routes);
@@ -226,6 +266,8 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const resultSort = useTicketStore((s) => s.resultSort);
   const pendingDay = useTicketStore((s) => s.pendingDay);
   const dayNotice = useTicketStore((s) => s.dayNotice);
+  const wish = useTicketStore((s) => s.wish);
+  const totals = useTicketStore((s) => s.totals);
 
   const today = todayKey(dayStartHour);
   const thisMonth = monthOf(today);
@@ -277,6 +319,9 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const panelOpen = panel.kind === "entry";
   const searching = view === "list" && searchOpen && isFilterActive(filter); // 0-15：清單畫搜尋結果
   const yearMode = view === "stats" && span === "year";
+  const wishMode = view === "wish"; // 售票口④（D-票-69）：願望分頁——大標「願望清單」、頁首那行「想買 N 件・合計約 X」、不放「＋ 記一筆」
+  const acctMode = view === "accounts"; // 第二輪（D-票-79）：帳戶分頁——大標「帳戶」、頁首那行帳戶數與資產負債、「＋ 帳戶」
+  const liveAccounts = accounts.filter((a) => a.deleted_at === null && a.archived_at === null).length;
   const emptyBook = view === "list" && ready && !hasAny && !searching; // A5：EmptyState 出現時頁首不給「＋ 記一筆」
   const tabItems = useMemo(() => viewTabItems(), []);
 
@@ -285,11 +330,13 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const manageItems: PopMenuItem[] = [
     { key: "categories", label: "分類管理", onSelect: () => store().openDialog({ kind: "categories" }) },
     // 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序；第③階段（③契約 0-14）：預算…、定期帳…
+    // 售票口④ 第二輪：帳戶頁的拖曳是加速；看得到的非拖曳入口照舊是這個對話框（↑↓ 鈕；手機同一項）
     { key: "accountOrder", label: "帳戶順序", onSelect: () => store().openDialog({ kind: "accountOrder" }) },
     { key: "budgets", label: "預算…", onSelect: () => store().openDialog({ kind: "budgets" }) },
     { key: "repeats", label: "定期帳…", onSelect: () => store().openDialog({ kind: "repeats" }) },
+    // 售票口④（D-票-68）：常用票種的改名、刪除、排序
+    { key: "templates", label: "常用票種…", onSelect: () => store().openDialog({ kind: "templates" }) },
     { key: "currencies", label: "幣別與匯率", onSelect: () => store().openDialog({ kind: "currencies" }) },
-    { key: "import", label: "從財務管家匯入…", cut: true, onSelect: () => void store().startImport("desktop") },
   ];
 
   /* A3：頁首放大鏡——沒開 ⇒ 開搜尋並聚焦框；開著但沒條件 ⇒ 收起；開著有條件 ⇒ 聚焦框（不丟掉條件） */
@@ -406,7 +453,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         </span>
         {day !== undefined && <span className="ns-tk-rday">{day}</span>}
         <span className="ns-tk-main">
-          <span className="ns-tk-cat">
+          <span className="ns-tk-cat" title={entryCatTitle(e, catById)}>
             <EntryCat e={e} />
           </span>
           {/* 第③階段（③契約 §5.4、✎-5）：定期記的帳（規則已刪也照標） */}
@@ -533,6 +580,10 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         title={
           searching ? (
             "搜尋結果"
+          ) : wishMode ? (
+            "願望清單"
+          ) : acctMode ? (
+            "帳戶"
           ) : yearMode ? (
             <DateNav
               unit="year"
@@ -572,13 +623,21 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
               <IconBack size={12} />
               <span className="ns-tk-backlbl">回 {backLabel}</span>
             </button>
-          ) : yearMode ? undefined : (
+          ) : yearMode || wishMode || acctMode ? undefined : (
             <span className="ns-tk-headyear">{month.slice(0, 4)}年</span>
           )
         }
         stats={
           searching ? (
             results ? resultSummary(results, mainDec) : "正在找…"
+          ) : wishMode ? (
+            wish.want.length > 0 ? <WishHeadStats /> : undefined
+          ) : acctMode ? (
+            liveAccounts > 0 ? (
+              <>
+                <b>{liveAccounts}</b> 個帳戶 ・ 資產 <b>{moneyText(totals.asset, mainDec)}</b> ・ 負債 <b>{moneyText(totals.liability, mainDec)}</b>
+              </>
+            ) : undefined
           ) : view !== "stats" && monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) ? (
             <>
               {/* 「本月／9月」在頁首窄（1280 開大票）時收起，讓收入那段不被省略掉（ticket.css T1 區 container query） */}
@@ -593,11 +652,17 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
           ) : undefined
         }
         tabs={{ items: tabItems, value: view, onChange: switchView, "aria-label": "切換檢視" }}
-        add={emptyBook ? undefined : { label: "記一筆", title: `記一筆（${capsOf("ticket.new")}）`, onClick: () => store().openNew() }}
+        add={
+          emptyBook || wishMode
+            ? undefined
+            : acctMode
+              ? { label: "帳戶", title: "新增帳戶", onClick: () => store().openDialog({ kind: "newAccount" }) }
+              : { label: "記一筆", title: `記一筆（${capsOf("ticket.new")}）`, onClick: () => store().openNew() }
+        }
         search={{ onOpen: onSearchBtn, title: `搜尋（${capsOf("ticket.search")}）`, expanded: searchOpen }}
         manage={{
           label: "管帳",
-          title: "管帳：分類、帳戶順序、預算、定期帳、幣別與匯率、匯入",
+          title: "管帳：分類、帳戶順序、預算、定期帳、常用票種、幣別與匯率",
           haspopup: "menu",
           expanded: menuAt !== null,
           onClick: (e) => setMenuAt(menuAt ? null : e.currentTarget),
@@ -651,13 +716,18 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <TicketCalendar />
       ) : view === "stats" ? (
         <TicketStats />
+      ) : wishMode ? (
+        <div className="ns-tk-book ns-tk-wishbook">
+          <WishPage />
+        </div>
+      ) : acctMode ? (
+        <AccountsView />
       ) : ready && !hasAny && !searching ? (
         <div className="ns-tk-book is-empty">
           <EmptyState
             tone="first"
             title="這本帳還是空的"
             action={{ label: "記一筆", icon: <IconPlus />, onClick: () => store().openNew() }}
-            secondary={{ label: "從財務管家匯入…", onClick: () => void store().startImport("desktop") }}
           />
         </div>
       ) : (

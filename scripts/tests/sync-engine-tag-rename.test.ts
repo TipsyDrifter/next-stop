@@ -7,6 +7,10 @@
  *   主人親手用回已刪的荷札＝去向清掉（同一筆 op）；復原改名＝去向一起寫回；
  *   拉取後整理：空殼的掛載轉到終點、殼再刪、筆記內文 #舊名 跟著改；鏈式（A→B→C）跟到底；繞圈與終點已死都不轉、殼留著；
  *   沒有殼＝不開交易。
+ *   接縫 #109 補齊的全集（契約 `docs/research/2026-11-03-主線-接縫109-荷札改名跟到底-契約.md` §2 的表）：
+ *   舊荷札已刪＋有去向、掛載卻活著（另一台的掛載比改名早，刪除贏）⇒ 一樣跟到去向（非筆記／筆記內文／鏈式／終點已死）；
+ *   內文還寫 #舊名、掛載已經在終點（另一台較晚的編輯蓋回舊字、垃圾桶還原）⇒ 內文改新名；兩邊都沒掛的不碰；
+ *   親手重建舊名之後不再跟；ASCII 大小寫；tagStore 拉到 notes 也整理。
  * 「另一台的併發掛載把舊名救回來」由測試直接改列模擬（引擎的編輯勝刪除在 Rust 端，不在這裡驗）。
  * SQLite：node:sqlite 記憶體庫＋`src-tauri/migrations` 全部依序跑；`../lib/db`、`./syncRepository`、`./index` 換替身
  * （載入法同 `tag-repo-create.test.ts`；假批次把 op 收進 `db.ops` 給測試看）。
@@ -111,11 +115,11 @@ type Repo = any;
 
 /** 記憶體版的筆記替身（reconcile 改內文用）：bodiesWithHash／setBodyRaw／getNote */
 function memNotes() {
-  const notes = new Map<string, { id: string; kind: string; body: string; title: null; entry_date: null; noted_at: string }>();
+  const notes = new Map<string, { id: string; kind: string; body: string; title: null; entry_date: null; noted_at: string; deleted?: boolean }>();
   return {
     notes,
     getNote: async (id: string) => notes.get(id) ?? null,
-    bodiesWithHash: async () => [...notes.values()].filter((x) => x.body.includes("#")).map((x) => ({ id: x.id, body: x.body })),
+    bodiesWithHash: async () => [...notes.values()].filter((x) => !x.deleted && x.body.includes("#")).map((x) => ({ id: x.id, body: x.body })),
     setBodyRaw: (id: string, body: string) => {
       const x = notes.get(id);
       if (x) x.body = body;
@@ -135,6 +139,12 @@ interface Harness {
   /** 模擬「另一台真的刪了這枚」（沒有去向） */
   hardDelete: (key: string) => Promise<void>;
   addNote: (id: string, body: string) => Promise<void>;
+  /** 模擬「另一台的掛載比改名早」：掛載直接寫進來、荷札列不動（刪除贏了，舊名還是死的） */
+  attachRaw: (key: string, entityType: string, entityId: string) => Promise<void>;
+  /** 內文直接寫（不推導掛載）：另一台較晚的編輯蓋過來／新建一則筆記但掛載另外給 */
+  setBody: (id: string, body: string) => Promise<void>;
+  /** 筆記丟垃圾桶／還原（只動 deleted_at；掛載不連動，同真機） */
+  trash: (id: string, deleted: boolean) => Promise<void>;
   noteBody: (id: string) => Promise<string>;
   aliveTaggingsOf: (key: string) => Promise<{ entity_type: string; entity_id: string }[]>;
 }
@@ -169,6 +179,20 @@ const makers: [string, () => Harness][] = [
         addNote: async (id, body) => {
           nr.notes.set(id, { id, kind: "note", body, title: null, entry_date: null, noted_at: "2026-10-26T00:00:00.000Z" });
           await repo.syncBodyTags(id, body);
+        },
+        attachRaw: async (key, entityType, entityId) => {
+          const tid = await tagId(key);
+          const id = await taggingId(entityType as never, entityId, tid);
+          inner.taggings.set(id, { id, entity_type: entityType, entity_id: entityId, tag_id: tid, created_at: "x", updated_at: "x", deleted_at: null });
+        },
+        setBody: async (id, body) => {
+          const x = nr.notes.get(id);
+          if (x) x.body = body;
+          else nr.notes.set(id, { id, kind: "note", body, title: null, entry_date: null, noted_at: "2026-10-26T00:00:00.000Z" });
+        },
+        trash: async (id, deleted) => {
+          const x = nr.notes.get(id);
+          if (x) x.deleted = deleted;
         },
         noteBody: async (id) => nr.notes.get(id)?.body ?? "",
         aliveTaggingsOf: async (key) => {
@@ -209,6 +233,24 @@ const makers: [string, () => Harness][] = [
             .prepare(`INSERT INTO notes (id, kind, body, noted_at, created_at, updated_at) VALUES ($1,'note',$2,'2026-10-26T00:00:00.000Z','x','x')`)
             .run({ $1: id, $2: body } as never);
           await repo.syncBodyTags(id, body);
+        },
+        attachRaw: async (key, entityType, entityId) => {
+          const tid = await tagId(key);
+          const id = await taggingId(entityType as never, entityId, tid);
+          db.raw
+            .prepare(`INSERT INTO taggings (id, entity_type, entity_id, tag_id, created_at, updated_at) VALUES ($1,$2,$3,$4,'x','x')`)
+            .run({ $1: id, $2: entityType, $3: entityId, $4: tid } as never);
+        },
+        setBody: async (id, body) => {
+          db.raw
+            .prepare(
+              `INSERT INTO notes (id, kind, body, noted_at, created_at, updated_at) VALUES ($1,'note',$2,'2026-10-26T00:00:00.000Z','x','x')
+               ON CONFLICT(id) DO UPDATE SET body = excluded.body`,
+            )
+            .run({ $1: id, $2: body } as never);
+        },
+        trash: async (id, deleted) => {
+          db.raw.prepare(`UPDATE notes SET deleted_at = $1 WHERE id = $2`).run({ $1: deleted ? "2026-10-26T10:00:00.000Z" : null, $2: id } as never);
         },
         noteBody: async (id) => ((await db.select(`SELECT body FROM notes WHERE id = $1`, [id]))[0] as { body: string }).body,
         aliveTaggingsOf: async (key) =>
@@ -382,6 +424,173 @@ for (const [name, make] of makers) {
       assert.deepEqual(await h.aliveTaggingsOf("讀書"), [{ entity_type: "timetable:block-off", entity_id: "b7" }]);
     });
   });
+
+  describe(`${name}：接縫 #109——舊名已刪、掛載卻活著（另一台的掛載比改名早）`, () => {
+    test("F-1 非筆記（帳目）：掛載跟到新名、舊掛載軟刪；舊荷札維持已刪、不再發它的 op；冪等", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "dinner", "京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.attachRaw("京都", "ticket:txn", "lunch"); // a 離線先掛、b 的改名較晚：刪除贏、掛載活著
+      const old = await h.tag("京都");
+      assert.notEqual(old?.deleted_at, null, "前提：舊名是死的");
+      const before = h.ops()?.length ?? 0;
+      const res = await h.repo.reconcileRenamed();
+      assert.equal(res.length, 1);
+      assert.deepEqual(
+        { from: res[0].fromName, to: res[0].toName, key: res[0].toKey, moved: res[0].moved },
+        { from: "京都", to: "旅行/京都", key: "旅行/京都", moved: 1 },
+      );
+      assert.deepEqual(await h.aliveTaggingsOf("京都"), []);
+      assert.deepEqual((await h.aliveTaggingsOf("旅行/京都")).map((g) => g.entity_id).sort(), ["dinner", "lunch"]);
+      const after = await h.tag("京都");
+      assert.equal(after?.deleted_at, old?.deleted_at, "舊荷札不動");
+      assert.equal(after?.renamed_to, (await h.tag("旅行/京都"))?.id, "去向不動");
+      const ops = h.ops();
+      if (ops) {
+        const mine = ops.slice(before);
+        assert.ok(!mine.some((o) => o.tbl === "tags" && o.row_id === old!.id), "已刪的舊荷札不必再刪一次");
+        const tgId = await taggingId("ticket:txn", "lunch", (await h.tag("旅行/京都"))!.id);
+        assert.ok(mine.some((o) => o.tbl === "taggings" && o.row_id === tgId && o.op === "upsert"), "新掛載的 id 由 (type,entity,tag) 算出，兩台收斂");
+      }
+      const n = h.batches();
+      assert.deepEqual(await h.repo.reconcileRenamed(), [], "再跑一次：冪等");
+      if (n !== null) assert.equal(h.batches(), n, "不開交易");
+    });
+
+    test("F-1 筆記：掛載跟過去、內文 #舊名 一起改；先叫 beforeBodyRewrite", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "dinner", "京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.setBody("n1", "午餐在 #京都 吃拉麵");
+      await h.attachRaw("京都", "note", "n1");
+      let flushed = 0;
+      const res = await h.repo.reconcileRenamed({ beforeBodyRewrite: async () => void flushed++ });
+      assert.equal(flushed, 1);
+      assert.equal(res.length, 1);
+      assert.equal(res[0].moved, 1);
+      assert.equal(await h.noteBody("n1"), "午餐在 #旅行/京都 吃拉麵");
+      assert.ok((await h.aliveTaggingsOf("旅行/京都")).some((g) => g.entity_type === "note" && g.entity_id === "n1"));
+      assert.deepEqual(await h.aliveTaggingsOf("京都"), []);
+    });
+
+    test("F-1 鏈式：甲→乙→丙，掛載活在已刪的甲（與乙）上 ⇒ 跟到丙", async () => {
+      const h = make();
+      await h.repo.attach("timetable:block", "b1", "甲");
+      await rename(h.repo, "甲", "乙");
+      await rename(h.repo, "乙", "丙");
+      await h.attachRaw("甲", "timetable:block-off", "b2");
+      await h.attachRaw("乙", "timetable:block", "b3"); // 鏈中間那枚上也有
+      const res = await h.repo.reconcileRenamed();
+      assert.deepEqual(res.map((x) => [x.fromName, x.toName, x.moved]).sort(), [["乙", "丙", 1], ["甲", "丙", 1]]);
+      assert.deepEqual((await h.aliveTaggingsOf("丙")).map((g) => g.entity_id).sort(), ["b1", "b2", "b3"]);
+      assert.notEqual((await h.tag("甲"))?.deleted_at, null);
+      assert.notEqual((await h.tag("乙"))?.deleted_at, null);
+    });
+
+    test("F-1 終點已死（新名後來被真的刪了）：不轉、不開交易，照真刪的既有規則", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "dinner", "京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.attachRaw("京都", "ticket:txn", "lunch");
+      await h.hardDelete("旅行/京都");
+      const n = h.batches();
+      assert.deepEqual(await h.repo.reconcileRenamed(), []);
+      if (n !== null) assert.equal(h.batches(), n, "不開交易");
+      assert.deepEqual(await h.aliveTaggingsOf("京都"), [{ entity_type: "ticket:txn", entity_id: "lunch" }]);
+    });
+
+    test("沒有去向的真刪×早掛：不在整理範圍（照舊）", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "dinner", "京都");
+      await h.hardDelete("京都");
+      await h.attachRaw("京都", "ticket:txn", "lunch");
+      assert.deepEqual(await h.repo.reconcileRenamed(), []);
+    });
+
+    test("改名後親手重建同名舊荷札（S3b）：去向清掉、早到的掛載留在新的 #舊名、不轉走", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "dinner", "京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.attachRaw("京都", "ticket:txn", "lunch");
+      await h.repo.create("京都"); // 主人知道改過名、刻意再建一枚
+      assert.equal((await h.tag("京都"))?.renamed_to ?? null, null);
+      assert.deepEqual(await h.repo.reconcileRenamed(), []);
+      assert.deepEqual(await h.aliveTaggingsOf("京都"), [{ entity_type: "ticket:txn", entity_id: "lunch" }]);
+    });
+  });
+
+  describe(`${name}：接縫 #109——內文還寫著 #舊名`, () => {
+    test("掛載已經在新名、內文被另一台較晚的編輯蓋回 #舊名 ⇒ 內文改成新名、算一處", async () => {
+      const h = make();
+      await h.addNote("n1", "今天 #京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      assert.equal(await h.noteBody("n1"), "今天 #旅行/京都", "前提：本機改名改了內文");
+      await h.setBody("n1", "今天 #京都 晚上吃湯豆腐"); // 另一台的較晚編輯（還沒看到改名）贏了內文
+      let flushed = 0;
+      const res = await h.repo.reconcileRenamed({ beforeBodyRewrite: async () => void flushed++ });
+      assert.equal(flushed, 1);
+      assert.deepEqual(res.map((x) => [x.fromName, x.toName, x.moved]), [["京都", "旅行/京都", 1]]);
+      assert.equal(await h.noteBody("n1"), "今天 #旅行/京都 晚上吃湯豆腐");
+      assert.deepEqual(await h.aliveTaggingsOf("京都"), []);
+      assert.deepEqual(await h.aliveTaggingsOf("旅行/京都"), [{ entity_type: "note", entity_id: "n1" }]);
+      assert.deepEqual(await h.repo.reconcileRenamed(), [], "冪等");
+    });
+
+    test("垃圾桶還原：丟掉時沒被改到的內文，還原後跟上", async () => {
+      const h = make();
+      await h.addNote("n1", "#京都 的回憶");
+      await h.trash("n1", true);
+      await rename(h.repo, "京都", "旅行/京都");
+      assert.equal(await h.noteBody("n1"), "#京都 的回憶", "前提：垃圾桶裡的內文改名不碰");
+      assert.deepEqual(await h.repo.reconcileRenamed(), [], "還在垃圾桶：不碰");
+      await h.trash("n1", false);
+      const res = await h.repo.reconcileRenamed();
+      assert.equal(res.length, 1);
+      assert.equal(await h.noteBody("n1"), "#旅行/京都 的回憶");
+    });
+
+    test("內文寫著 #舊名、但兩邊都沒掛（正在打、還沒存的親手重建）⇒ 不碰", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "dinner", "京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.setBody("n2", "想再建一次 #京都");
+      assert.deepEqual(await h.repo.reconcileRenamed(), []);
+      assert.equal(await h.noteBody("n2"), "想再建一次 #京都");
+    });
+
+    test("活著的殼＋內文那半：同一則筆記掛在終點、內文寫舊名 ⇒ 內文改、殼收掉", async () => {
+      const h = make();
+      await h.addNote("n1", "#京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.setBody("n1", "#京都 再訪");
+      await h.reviveWithTagging("京都", "timetable:block-off", "b7");
+      const res = await h.repo.reconcileRenamed();
+      assert.deepEqual(res.map((x) => [x.fromName, x.moved]), [["京都", 2]]);
+      assert.equal(await h.noteBody("n1"), "#旅行/京都 再訪");
+      assert.notEqual((await h.tag("京都"))?.deleted_at, null, "殼收掉");
+    });
+
+    test("ASCII 大小寫：內文寫 #KYOTO、荷札名 Kyoto ⇒ 一樣認得", async () => {
+      const h = make();
+      await h.addNote("n1", "#Kyoto trip");
+      await rename(h.repo, "kyoto", "旅行/Kyoto");
+      await h.setBody("n1", "#KYOTO trip day 2");
+      const res = await h.repo.reconcileRenamed();
+      assert.equal(res.length, 1);
+      assert.equal(await h.noteBody("n1"), "#旅行/Kyoto trip day 2");
+    });
+
+    test("只改那則筆記跟上的那枚：別枚改名殘影的字不順手改", async () => {
+      const h = make();
+      await h.repo.attach("ticket:txn", "t1", "奈良");
+      await rename(h.repo, "奈良", "旅行/奈良");
+      await h.addNote("n1", "#京都");
+      await rename(h.repo, "京都", "旅行/京都");
+      await h.setBody("n1", "#京都 順便想去 #奈良"); // #奈良 兩邊都沒掛＝正在打的親手重建
+      await h.repo.reconcileRenamed();
+      assert.equal(await h.noteBody("n1"), "#旅行/京都 順便想去 #奈良");
+    });
+  });
 }
 
 describe("followRename：繞圈與跳數上限", () => {
@@ -432,8 +641,8 @@ describe("tagStore.reload：拉到荷札變動 ⇒ 整理＋toast", async () => 
     inner.taggings.set(gid, { id: gid, entity_type: "timetable:block-off", entity_id: "b7", tag_id: tid, created_at: "x", updated_at: "x", deleted_at: null });
 
     toasts.length = 0;
-    await useTagStore.getState().reload({ changed: ["notes"], wiped: false, shell: "desktop" });
-    assert.equal(toasts.length, 0, "沒拉到 tags／taggings 不整理");
+    await useTagStore.getState().reload({ changed: ["nodes"], wiped: false, shell: "desktop" });
+    assert.equal(toasts.length, 0, "沒拉到 tags／taggings／notes 不整理");
     assert.equal(inner.tags.get(tid).deleted_at, null);
 
     await useTagStore.getState().reload({ changed: ["taggings"], wiped: false, shell: "desktop" });
@@ -446,5 +655,41 @@ describe("tagStore.reload：拉到荷札變動 ⇒ 整理＋toast", async () => 
     toasts.length = 0;
     await useTagStore.getState().reload({ changed: ["tags"], wiped: false, shell: "desktop" });
     assert.equal(toasts.length, 0, "整理過了，再拉不重提");
+  });
+});
+
+describe("tagStore.reload：接縫 #109", async () => {
+  type Toast = { message: string; actionLabel?: string };
+  const g = globalThis as Record<string, unknown>;
+  const { useTagStore } = await import("../../src/store/tagStore.ts");
+
+  test("F-1：拉到掛載（舊名已刪）⇒ 整理＋同一句 toast；拉到筆記（內文蓋回舊名）也整理", async () => {
+    // 環境在 test 裡才換：describe 本體在登記時就跑，換早了會蓋掉上一組的 repo
+    const toasts: Toast[] = [];
+    g.__seToasts = toasts;
+    const nr = memNotes();
+    const settingsRepo = { get: async () => null, set: async () => undefined };
+    const repo = new MemoryTagRepository({ getNode: async () => null } as never, nr as never, settingsRepo as never, { seed: false });
+    g.__seStoreRepo = repo;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inner = repo as any;
+    await repo.attach("ticket:txn", "dinner", "京都");
+    await rename(repo, "京都", "旅行/京都");
+    const tid = await tagId("京都");
+    const gid = await taggingId("ticket:txn", "lunch", tid);
+    inner.taggings.set(gid, { id: gid, entity_type: "ticket:txn", entity_id: "lunch", tag_id: tid, created_at: "x", updated_at: "x", deleted_at: null });
+    await useTagStore.getState().reload({ changed: ["taggings"], wiped: false, shell: "desktop" });
+    assert.deepEqual(
+      toasts.map((t) => [t.message, t.actionLabel]),
+      [["「#京都」已改名為「#旅行/京都」，掛在上面的東西跟過去了", "看看"]],
+    );
+
+    toasts.length = 0;
+    nr.notes.set("n1", { id: "n1", kind: "note", body: "#旅行/京都", title: null, entry_date: null, noted_at: "x" });
+    await repo.syncBodyTags("n1", "#旅行/京都");
+    nr.notes.get("n1")!.body = "#京都 again"; // 另一台較晚的編輯蓋回舊字
+    await useTagStore.getState().reload({ changed: ["notes"], wiped: false, shell: "desktop" });
+    assert.equal(nr.notes.get("n1")!.body, "#旅行/京都 again");
+    assert.equal(toasts.length, 1);
   });
 });

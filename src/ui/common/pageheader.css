@@ -61,6 +61,9 @@
 /* 窄退的 stats 列尾：「・」＋28px 小章＋字（原型 ui-c3 方案 C 的 .c3-mini／.sep 逐值） */
 .ns-pagehead-stats .ns-pagehead-sep { margin: 0 .35em; color: var(--color-ink-faint); }
 .ns-pagehead-emblem-c { white-space: nowrap; }
+/* 統計列的各段（.stat-part 與窄退的紀念章小樣）做成 inline-block：段與段之間才有換行點。
+ * 每段都以「・」開頭，「・」照日文禁則不能放行首，inline 排的話整列永遠擠成一行、溢出頁首（丁：寬度規範收窄後在 1280＋側板的銀河手寫字看得到） */
+.ns-pagehead-stats .stat-part, .ns-pagehead-stats .ns-pagehead-emblem-c { display: inline-block; }
 .ns-pagehead-emblem-mini { display: inline-block; vertical-align: middle; margin: -6px 5px -4px 0; transform: rotate(5deg); }
 
 /* ⑤ 右側工具列：固定順序［分頁籤］［＋ 新增］［搜尋］［管理］；margin-top 讓它跟大標同一列 */

@@ -29,6 +29,7 @@ import { DESKTOP_GUARD_WORDS, rowGuards } from "./rowGuards";
 import type { PopMenuItem } from "../common/PopMenu";
 import { requestMoveTo } from "../common/moveTo";
 import { moveTargetRule } from "../../domain/moveTo";
+import { PARKED_ADD_WHY } from "../../domain/depot";
 import { useUiStore } from "../../store/uiStore";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { addDays, todayKey } from "../../lib/date";
@@ -376,7 +377,15 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   };
 
   /* ───────── F2 新增流：草稿 ───────── */
-  const startDraft = (d: Omit<DraftEdit, "mode">) => setEdit({ mode: "draft", ...d });
+  // O-3：已到站的路線不開草稿（Enter／Tab／選單都走這裡）；說一句怎麼加
+  const parked = !!route?.arrived_on;
+  const startDraft = (d: Omit<DraftEdit, "mode">) => {
+    if (parked) {
+      ui().showToast({ message: PARKED_ADD_WHY }, 3600);
+      return;
+    }
+    setEdit({ mode: "draft", ...d });
+  };
 
   /** viaKeyboard：Esc／空白 Enter 取消＝選取回錨點、焦點還給容器；blur 取消代表使用者點去別處——不動選取、不搶焦點 */
   const cancelEdit = (viaKeyboard = true) => {
@@ -562,7 +571,35 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         startDraft({ parentId: parentKey(n), afterId: n.id, kind: "ticket", anchorId: n.id });
         return;
       }
-      toast("支線底下不能直接掛車票——先建一班列車");
+      // 丁 D-主-245：支線底下可以直接放車票（加在支線裡的最後）
+      if (target.kind === "branch") {
+        ui().setCollapsed(target.id, false);
+        startDraft({ parentId: target.id, afterId: null, kind: "ticket", anchorId: n?.id ?? null });
+        return;
+      }
+      toast("這裡不能新增車票");
+    },
+    addBranch() {
+      // 丁 D-主-249：新增落點＝有選中的列：它後面同一層（那一層放不下支線〔在列車裡〕就往上找到能放的那一層、接在那一列後面）；
+      //   沒選中：聚焦在支線＝支線裡的最後；聚焦在列車／車廂＝放不進；其餘＝路線最後
+      const { rootId: root, zoom: z, routeId: rid } = st.current;
+      if (!root) return;
+      const t = ns().tree;
+      const holds = (parentId: string) => {
+        const k = parentId === rid ? "route" : t.byId[parentId]?.kind;
+        return k === "route" || k === "branch";
+      };
+      let n = selNode();
+      while (n && !holds(parentKey(n))) n = t.byId[parentKey(n)];
+      if (n) {
+        startDraft({ parentId: parentKey(n), afterId: n.id, kind: "branch", anchorId: n.id });
+        return;
+      }
+      if (z && z.kind !== "branch") {
+        toast(`${KIND_LABEL[z.kind]}裡不能放支線——支線放在路線或支線底下`);
+        return;
+      }
+      startDraft({ parentId: root, afterId: null, kind: "branch", anchorId: null });
     },
     indentSelected() {
       const n = selNode();
@@ -583,6 +620,11 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     scheduleSelected(offset) {
       const n = selNode();
       if (!n) return;
+      // 丁 D-主-247：支線沒有日期（T／Shift+T 對支線不作用，說一句理由）
+      if (n.kind === "branch") {
+        toast("支線是主題，沒有執行日——裡面的列車和車票各自排");
+        return;
+      }
       // 定期券的班次由規則排定，單次改期一律擋下（D-④-3；repository 也會 throw，這裡先給一句話）
       if (parseRule(n.repeat_rule)) {
         toast(REPEAT_RESCHEDULE_MSG);
@@ -618,7 +660,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       if (next) ui().select(next);
     },
     switchRoute(dir) {
-      const { routes: rs, routeId: cur } = ns(); // 讀 store 即時值——連按兩下也不會算到舊路線
+      // 讀 store 即時值——連按兩下也不會算到舊路線。只在還在跑的路線之間切（車庫與回顧 D-主-206）
+      const { liveRoutes: rs, routeId: cur } = ns();
       if (!rs.length) return;
       const i = rs.findIndex((r) => r.id === cur);
       const j = i < 0 ? 0 : (i + dir + rs.length) % rs.length;
@@ -717,8 +760,12 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const teiki = parseRule(n.repeat_rule) !== null;
     const occ = ns().currentOccurrences[id];
     return [
-      { ...item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", null, keys.addSibling), group: "新增" },
-      { ...item("ticket", "新增車票", "outline.add.ticket", ticketWhy, keys.addTicket), group: "新增" },
+      { ...item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", parked ? PARKED_ADD_WHY : null, keys.addSibling), group: "新增" },
+      { ...item("ticket", "新增車票", "outline.add.ticket", parked ? PARKED_ADD_WHY : ticketWhy, keys.addTicket), group: "新增" },
+      // 丁 D-主-249：新增支線（主題）——列車、車廂裡放不下，會接到它所在的那一層（keys.addBranch 往上找）；車庫裡的路線淡掉（O-3）
+      ...(n.kind === "branch"
+        ? []
+        : [{ key: "branch", label: "新增支線（主題）", group: "新增", disabled: parked, why: parked ? PARKED_ADD_WHY : undefined, onSelect: run(keys.addBranch) } as PopMenuItem]),
       // 鏡射「.」：選中＋開側板（單擊票面也會開；這裡是 ⋯ 的可點入口）
       { key: "panel", label: "詳情", hotkeyId: "outline.panel", cut: true, onSelect: () => row.openPanel(id) },
       item("rename", "改名", "outline.rename", null, keys.renameSelected),
@@ -736,7 +783,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         },
       },
       // 排程（鏡射 T／Shift+T＝keys.scheduleSelected）：定期券的班次由規則排定（D-④-3）⇒ 改給運休（鏡射 U＝keys.suspendSelected）
-      ...(teiki
+      // 丁 D-主-247：支線是主題，沒有日期 ⇒ 不出排程
+      ...(n.kind === "branch"
+        ? []
+        : teiki
         ? [
             item(
               "suspend",
@@ -786,6 +836,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   return {
     routeId,
     route,
+    /** 這條路線已收進車庫：不發券（O-3） */
+    parked,
     line,
     tree,
     currentOccurrences,

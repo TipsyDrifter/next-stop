@@ -44,6 +44,7 @@ export type CoreHotkeyScope =
   | "calendar"
   | "daylist"
   | "search"
+  | "depot"
   | "common"
   | "edit";
 
@@ -622,6 +623,16 @@ export const HOTKEYS: Hotkey[] = [
     chords: [{ key: "Escape" }],
     label: "清除搜尋字",
     wired: false,
+  },
+
+  /* ── 車庫頁（車庫與回顧 D-主-215；useDepotKeyboard） ── */
+  {
+    id: "depot.back",
+    scope: "depot",
+    chords: [{ key: "Escape" }],
+    label: "關上記錄簿、回車庫",
+    wired: true,
+    ignoreMods: ALL_LOOSE,
   },
 
   /* ── 日曆・當日清單浮層（DayPopover 自帶一張表；只登錄不接線） ── */

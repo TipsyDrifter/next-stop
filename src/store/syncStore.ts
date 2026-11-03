@@ -70,6 +70,7 @@ import { askNotificationPermissionOnce, notifyOnce, rearmNotify } from "../lib/n
 import { useBackupStore } from "./backupStore";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
+import { useWeekAimStore } from "./weekAimStore";
 // 並行地基（契約 §5.3 T-4／T-5）：三條功能線的同步後重載掛點與同步表名。
 // 重載掛點查 `lines/runtime`、**不 import `lines/mounts`**——後者會把各線的元件樹拉進 store 層、
 // 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
@@ -1065,6 +1066,8 @@ export async function refreshAfterPull(
   } catch (e) {
     console.warn("[next-stop] 同步後重載失敗：", messageOf(e));
   }
+  // 週方針（戊 D-主-263）：拉到 week_aims、或本機資料被整批換掉 ⇒ 載過的週重載（reloadAll 自己接錯）
+  if (wiped || report.changed_tables.includes("week_aims")) await useWeekAimStore.getState().reloadAll();
   for (const { id, reload } of lineReloads()) {
     try {
       await reload({ changed: report.changed_tables, wiped, shell });
@@ -1108,7 +1111,7 @@ async function refreshAfterWipe(pulled: Pick<PullReport, "changed_tables"> | nul
   ui.select(null);
   ui.setZoom(null);
   if (node.routeId && !node.routes.some((r) => r.id === node.routeId)) {
-    await node.openRoute(node.routes[0]?.id ?? null).catch(() => undefined);
+    await node.openRoute(node.liveRoutes[0]?.id ?? null, { keepView: true }).catch(() => undefined); // 第一條還在跑的（車庫與回顧）；保留路線一覽／大綱（丁）
   }
 }
 

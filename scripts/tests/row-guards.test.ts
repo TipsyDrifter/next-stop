@@ -100,12 +100,12 @@ describe("升層", () => {
 });
 
 describe("新增車票、上移、下移", () => {
-  test("列車／車廂／車票可以；支線、車站不行（同一句）", () => {
+  test("列車／車廂／車票／支線可以（丁 D-主-245 支線底下可直接放車票）；車站不行", () => {
     assert.equal(g("T1")?.ticketWhy, null);
     assert.equal(g("C1")?.ticketWhy, null);
     assert.equal(g("a")?.ticketWhy, null);
-    assert.equal(g("B1")?.ticketWhy, "支線底下不能直接掛車票——先建一班列車");
-    assert.equal(g("s")?.ticketWhy, "支線底下不能直接掛車票——先建一班列車");
+    assert.equal(g("B1")?.ticketWhy, null);
+    assert.equal(g("s")?.ticketWhy, "這裡不能新增車票");
   });
   test("到頂／到底", () => {
     assert.deepEqual([g("T1")?.upWhy, g("T1")?.downWhy], ["已經在最上面", null]);

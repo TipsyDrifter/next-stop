@@ -19,6 +19,8 @@ export interface OutlineKeyActions {
   collapseSelected(): void;
   addSibling(): void;
   addTicket(): void;
+  /** 丁 D-主-249：新增支線（主題）——頁首「＋ 新增 ▾」與列 ⋯ 的入口（沒有快捷鍵） */
+  addBranch(): void;
   indentSelected(): void;
   outdentSelected(): void;
   completeSelected(): void;

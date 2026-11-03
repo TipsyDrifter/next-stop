@@ -1,0 +1,177 @@
+/**
+ * 售票口④・手機樣式（手機席；D-票-66～70、74，原型 prototypes/售票口④-src/proto.css 手機段）。
+ * 只由 mobile/MobileTicketOffice.tsx import（表單、sheet 都在它的樹裡）；**每條規則前綴 `[data-shell="mobile"]`**，
+ *   本班新 class 一律 `.ns-tk-m4-*`（表單新件）、`.ns-tk-mw-*`（願望頁）、`.ns-tk-mtag`（荷札牌）——不跟桌機的 `.ns-tk-wish*` 共用。
+ * 色只用 theme.css token 與 ticket-mobile.css 的區域變數（--ns-tk-sel／--ns-tk-hover…）；收入「＋」的金字是售票口的例外（同帳本）。
+ * 觸控目標至少 44px：小字鈕（復原、更多設定…、chip）用 ::after 撐開點擊區，不撐大字。
+ */
+
+/* ═══ 一、記一筆：常用票種小卡（D-票-68；原型 5-mobile）═══ */
+[data-shell="mobile"] .ns-tk-m4-marks { display: flex; gap: 6px; padding: 12px 18px 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+[data-shell="mobile"] .ns-tk-m4-marks::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-tk-m4-mark {
+  flex: none; display: grid; justify-items: start; align-content: center; min-width: 70px; min-height: 44px; padding: 4px 12px 3px; box-sizing: border-box; text-align: left;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--color-paper-used) 60%, transparent);
+  font-family: var(--font-body); color: var(--color-ink); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-m4-mark .n { font-size: 12.5px; letter-spacing: .08em; line-height: 1.4; color: var(--color-ink-soft); white-space: nowrap; } /* 字面值：12.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-m4-mark .v { font-family: var(--font-display); font-weight: 600; font-size: 15px; line-height: 1.3; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; } /* 字面值：帳本金額襯線照原型 */
+[data-shell="mobile"] .ns-tk-m4-mark[data-kind="income"] .v { color: var(--color-gold-ink); }
+[data-shell="mobile"] .ns-tk-m4-mark:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-m4-mark.on { outline: var(--sel-line); outline-offset: -1px; background: var(--ns-tk-sel); }
+
+/* ═══ 二、分類小標旁的「照上次 · 復原」（D-票-70）═══ */
+[data-shell="mobile"] .ns-tk-m4-catlbl .auto {
+  flex: none; padding: 0 5px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: var(--ns-tk-sel);
+  font-size: 10.5px; letter-spacing: .08em; color: var(--color-ink-soft); /* 字面值：10.5px 不在手機字階，照原型 */
+}
+[data-shell="mobile"] .ns-tk-m4-catlbl .undo {
+  position: relative; flex: none; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 11.5px; letter-spacing: .06em; color: var(--color-ink-faint); /* 字面值：11.5px 同小標的值字 */
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+[data-shell="mobile"] .ns-tk-m4-catlbl .undo::after { content: ""; position: absolute; inset: -14px -10px; }
+
+/* ═══ 三、折疊外的備註與定期（D-票-67；原型 3-二-mobile＋定期）═══ */
+[data-shell="mobile"] .ns-tk-m4-out { margin: 10px 18px 0; border-top: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-m4-out > .ns-tk-mf-field:last-child,
+[data-shell="mobile"] .ns-tk-m4-out > .ns-tk-m4-rep:last-child > .ns-tk-mf-field { border-bottom: 0; }
+/* 備註：RecallInput 的外層佔欄位的值那一格；手機清單推開在欄位下面（recall.css） */
+[data-shell="mobile"] .ns-tk-m4-recall { grid-column: 2 / -1; min-width: 0; }
+[data-shell="mobile"] .ns-tk-m4-recall .ns-recall-list { margin: 0 0 8px; }
+
+/* 定期列：四顆小鈕撐滿值那一格；選了以後的「每月 [5 日] · 結束日 [不設]」與說明對齊值的左緣（44 標籤＋12 間距） */
+[data-shell="mobile"] .ns-tk-m4-rep > .ns-tk-mf-field { padding: 6px 0; }
+[data-shell="mobile"] .ns-tk-m4-rep .seg { grid-column: 2 / -1; min-width: 0; }
+[data-shell="mobile"] .ns-tk-m4-rep .seg .ns-seg { display: flex; width: 100%; }
+[data-shell="mobile"] .ns-tk-m4-rep .seg .ns-seg > [role="radio"] { flex: 1 1 0; min-width: 0; padding: 0 4px; }
+[data-shell="mobile"] .ns-tk-m4-repbox { display: grid; justify-items: start; gap: 8px; padding: 2px 0 12px calc(44px + 12px); border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-m4-rep:last-child .ns-tk-m4-repbox { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-m4-repbox .when { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-m4-repbox .when .sep { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-repchip {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 8px 0 12px; box-sizing: border-box;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: transparent;
+  font: inherit; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-m4-repchip::after { content: ""; position: absolute; inset: -4px -2px; }
+[data-shell="mobile"] .ns-tk-m4-repchip svg { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-repchip.is-empty { border-style: dashed; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-repchip:active { border-color: var(--accent); }
+[data-shell="mobile"] .ns-tk-m4-repbox .hint { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在手機字階，照原型 */
+[data-shell="mobile"] .ns-tk-m4-repbox .more { position: relative; margin-left: -10px; }
+[data-shell="mobile"] .ns-tk-m4-repbox .more::after { content: ""; position: absolute; inset: -6px 0; }
+/* 舊票沒連規則：「不重複」淡字 */
+[data-shell="mobile"] .ns-tk-mf-rep .v.is-none { color: var(--color-ink-faint); }
+/* 星期／日格面板（共用 .ns-tk-mre-wk／.ns-tk-mre-days 的格子） */
+[data-shell="mobile"] .ns-tk-m4-pick .ns-tk-mre-hint { margin-top: 10px; }
+
+/* ═══ 四、荷札列與荷札牌（D-票-74；原型 4-mobile）═══ */
+[data-shell="mobile"] .ns-tk-m4-tagrow { padding: 6px 0; }
+[data-shell="mobile"] .ns-tk-m4-tagrow .tags { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+[data-shell="mobile"] .ns-tk-m4-tagrow .none { font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-m4-tagadd {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; box-sizing: border-box;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font: inherit; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-soft); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-m4-tagadd::after { content: ""; position: absolute; inset: -8px -2px; }
+[data-shell="mobile"] .ns-tk-m4-tagadd:active { border-color: var(--accent); color: var(--color-ink); }
+/* 牌子：細框（.face 底＝框色、牌面內縮 1px）、左端切角、打孔小圓；沒有顏色（--tag-* 與旅客筆記、時刻表同一組 token）。
+   切角的 clip-path 只裁 .face（牌面）：外層不裁，× 的觸控區才撐得出牌子外面 */
+[data-shell="mobile"] .ns-tk-mtag {
+  --h: 28px; --c: 7px;
+  position: relative; display: inline-flex; align-items: stretch; flex: none; height: var(--h); max-width: 100%;
+}
+[data-shell="mobile"] .ns-tk-mtag .face {
+  position: absolute; inset: 0; pointer-events: none;
+  background: var(--tag-line);
+  clip-path: polygon(var(--c) 0, 100% 0, 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+[data-shell="mobile"] .ns-tk-mtag .face::before {
+  content: ""; position: absolute; inset: 1px; background: var(--tag-fill);
+  clip-path: polygon(calc(var(--c) - .45px) 0, 100% 0, 100% 100%, calc(var(--c) - .45px) 100%, 0 calc(100% - var(--c) + .45px), 0 calc(var(--c) - .45px));
+}
+[data-shell="mobile"] .ns-tk-mtag::after {
+  content: ""; position: absolute; left: 7px; top: 50%; z-index: 1; width: 5px; height: 5px; margin-top: -2.5px; box-sizing: border-box;
+  border-radius: var(--radius-pill); border: 1px solid var(--tag-eye); background: var(--tag-hole); pointer-events: none;
+}
+[data-shell="mobile"] .ns-tk-mtag .nm {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; min-width: 0; padding: 0 10px 0 18px;
+  font-size: var(--fs-sm); line-height: 1; letter-spacing: .04em; white-space: nowrap; color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .ns-tk-mtag:has(.x) .nm { padding-right: 4px; }
+[data-shell="mobile"] .ns-tk-mtag .pa { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mtag .la { color: var(--color-ink); }
+[data-shell="mobile"] .ns-tk-mtag .sl { font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7; }
+[data-shell="mobile"] .ns-tk-mtag .x {
+  position: relative; z-index: 1; display: grid; place-items: center; flex: none; width: 28px; padding: 0; border: 0; background: transparent;
+  color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mtag .x::after { content: ""; position: absolute; inset: -8px; } /* 28 → 44 */
+[data-shell="mobile"] .ns-tk-mtag .x:active { color: var(--danger); }
+
+/* ═══ 五、願望頁（D-票-69；原型 6a-mobile）═══ */
+[data-shell="mobile"] .ns-tk-mw { touch-action: pan-y; padding-bottom: 12px; }
+[data-shell="mobile"] .ns-tk-mw-sum { margin: 2px 2px 10px; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mw-sum .un { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mw-card { padding: 2px 14px 4px; }
+/* 頂端加一列：名稱｜大概多少｜＋ 加入 */
+[data-shell="mobile"] .ns-tk-mw-add { display: grid; grid-template-columns: minmax(0, 1fr) 76px auto; align-items: center; gap: 8px; padding: 8px 0 10px; border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mw-add input {
+  width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 3px 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
+  font: inherit; font-size: 16px; letter-spacing: .04em; color: var(--color-ink); /* 字面值：手機輸入框 16px 防放大 */
+}
+[data-shell="mobile"] .ns-tk-mw-add input:focus { border-bottom-color: var(--accent); }
+[data-shell="mobile"] .ns-tk-mw-add input::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mw-add input.amt { text-align: right; font-family: var(--font-display); }
+[data-shell="mobile"] .ns-tk-mw-add .add { display: inline-flex; align-items: center; gap: 3px; padding: 0 10px; white-space: nowrap; }
+/* 想買清單：抓手｜名稱、備註、約多少｜買了 */
+[data-shell="mobile"] .ns-tk-mw-list { list-style: none; margin: 0; padding: 0; }
+[data-shell="mobile"] .ns-tk-mw-row { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 6px 0; }
+[data-shell="mobile"] .ns-tk-mw-row + .ns-tk-mw-row { border-top: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-mw-row .grip { display: grid; place-items: center; color: var(--color-ink-faint); opacity: .7; }
+[data-shell="mobile"] .ns-tk-mw-row .main { min-width: 0; min-height: 44px; display: grid; align-content: center; gap: 3px; padding: 6px 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+[data-shell="mobile"] .ns-tk-mw-row .main:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+[data-shell="mobile"] .ns-tk-mw-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; letter-spacing: .05em; color: var(--color-ink); } /* 字面值：15px＝--fs-body 手機值，照原型 */
+[data-shell="mobile"] .ns-tk-mw-row .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mw-row .amt { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
+[data-shell="mobile"] .ns-tk-mw-row .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mw-row .amt small.none { margin-right: 0; }
+[data-shell="mobile"] .ns-tk-mw-row .main:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mw-row .buy { padding: 0 14px; white-space: nowrap; }
+/* 已買（摺起）：「已買 N 件 ›　花了 X」；攤開每列點了跳那一筆 */
+[data-shell="mobile"] .ns-tk-mw-bought { border-top: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tk-mw-bought .tog {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0; background: none; border: 0; text-align: left;
+  font: inherit; font-size: var(--fs-sm); letter-spacing: .12em; color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mw-bought .tog .chev { transition: transform .2s cubic-bezier(.2, .9, .3, 1.04); }
+[data-shell="mobile"] .ns-tk-mw-bought .tog[aria-expanded="true"] .chev { transform: rotate(90deg); }
+[data-shell="mobile"] .ns-tk-mw-bought .tog .r { margin-left: auto; letter-spacing: .04em; }
+[data-shell="mobile"] .ns-tk-mw-bought ul { list-style: none; margin: 0 0 6px; padding: 0; }
+[data-shell="mobile"] .ns-tk-mw-bought li button {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; width: 100%; min-height: 44px; padding: 0 0 0 20px; box-sizing: border-box;
+  background: none; border: 0; text-align: left; font: inherit; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-tk-mw-bought li button:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mw-bought li .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mw-bought li .d { color: var(--color-ink-soft); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mw-bought li .d b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
+/* 改願望的面板（也給「存成常用」的名稱欄用 .ns-tk-mw-in） */
+[data-shell="mobile"] .ns-tk-mw-in {
+  grid-column: 2 / -1; width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 0; background: transparent; border: 0; outline: none;
+  font-family: var(--font-body); font-size: 16px; letter-spacing: .03em; color: var(--color-ink); /* 字面值：手機輸入框 16px 防放大 */
+}
+[data-shell="mobile"] .ns-tk-mw-in.is-amt { font-family: var(--font-display); font-weight: 600; }
+[data-shell="mobile"] .ns-tk-mw-in::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mw-order .btns { grid-column: 2 / -1; display: flex; gap: 8px; }
+[data-shell="mobile"] .ns-tk-mw-sheet .ns-tk-mf-field:last-child { border-bottom: 0; }
+
+/* ═══ 六、「存成常用」取名面板（D-票-68；原型 5-mobile-存成常用；管帳「常用票種」用兩殼共用的 dialogs/TemplateManager）═══ */
+[data-shell="mobile"] .ns-tk-m4-savetpl .ns-tk-mf-field { border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-tk-m4-savetpl .ns-tk-mre-from { padding: 10px 0 0; line-height: 1.7; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .ns-tk-mw-bought .tog .chev { transition: none; }
+}

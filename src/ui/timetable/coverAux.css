@@ -1,0 +1,37 @@
+/* 時刻表的書封頁務件（丁 D-主-236；TimetableCoverAux.tsx）。骨架借 sidebar.css〈頁務件的共用骨架〉（.page-aux），
+ * 這裡只補自己的幾塊；顏色一律書封系 token（--color-book-ink、--book-muted、--color-book-hover、燙金 --color-gold）。 */
+
+
+/* 運行中那班：赭框（同全 App「正在跑」的畫法：赭實線框＋圓徽呼吸點） */
+.cover .ns-tt-cover-run {
+  display: flex; align-items: center; gap: 10px; width: calc(100% - 4px); margin: 10px 2px 0; padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-late) 75%, transparent); border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-late) 10%, transparent); color: var(--color-book-ink);
+  font-family: inherit; text-align: left; cursor: pointer;
+}
+.cover .ns-tt-cover-run:hover, .cover .ns-tt-cover-run:focus-visible { background: color-mix(in srgb, var(--color-late) 18%, transparent); outline: none; }
+.cover .ns-tt-cover-run .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.cover .ns-tt-cover-run .nm b { font-weight: 600; font-size: var(--fs-ui); letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cover .ns-tt-cover-run .nm small { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--book-muted); }
+.cover .ns-tt-cover-run .el { flex: none; font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-body); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+
+/* 今天三組：編成條＋三格數字 */
+.cover .ns-tt-cover-today { padding: 8px 10px 2px; }
+.cover .ns-tt-cover-today .bar { display: flex; gap: 2px; height: 5px; margin-bottom: 8px; }
+.cover .ns-tt-cover-today .bar i { display: block; height: 100%; border-radius: 1px; background: var(--c); }
+.cover .ns-tt-cover-today dl { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; }
+.cover .ns-tt-cover-today dt { display: flex; align-items: center; gap: 5px; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--book-muted); }
+.cover .ns-tt-cover-today dt i { width: 7px; height: 7px; border-radius: 1px; background: var(--c); }
+.cover .ns-tt-cover-today dd { margin: 1px 0 0; font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-body); color: var(--color-book-ink); font-variant-numeric: tabular-nums; }
+
+/* 本週目標：收合一行；展開＝每個目標一列＋細條 */
+.cover .ns-tt-cover-goalbtn { margin-top: 14px; color: var(--book-muted); letter-spacing: .14em; }
+.cover .ns-tt-cover-goals .none { padding: 2px 10px 6px; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--book-muted); }
+.cover .ns-tt-cover-goal { flex-direction: column; align-items: stretch; gap: 5px; }
+.cover .ns-tt-cover-goal .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cover .ns-tt-cover-goal .track { display: block; height: 2px; background: color-mix(in srgb, var(--color-book-ink) 16%, transparent); }
+.cover .ns-tt-cover-goal .track i { display: block; height: 100%; background: var(--color-gold-soft); } /* 書封燙金 */
+
+/* 分類清單：選中（統計正只看它）＝金菱形（書封唯一的「現在在這」語彙） */
+.cover .ns-tt-cover-cats { padding-bottom: 14px; }
+.cover .ns-tt-cover-cat .line-name { color: var(--color-book-ink); }

@@ -4,12 +4,18 @@
  * **UI 只讀 store、只叫 store 的動作，不直接碰 repository**（契約 §2.5-2；§8 有 grep 牙齒）。兩殼共用一份
  * （篩選帳戶、月份、選取、表單草稿），兩殼永不同時渲染。
  *
- * - serial 佇列（同 timetableStore）：所有寫入、`refresh`、匯入寫入、捕捉框的 `addQuickEntry` 都經 `serial()`。
+ * - serial 佇列（同 timetableStore）：所有寫入、`refresh`、捕捉框的 `addQuickEntry` 都經 `serial()`。
  *   `refresh` 本身不排隊（呼叫端包 `serial(() => get().refresh())`），排進佇列的函式裡不得再呼叫 `serial`（會互等）。
  * - 時間：日＝`todayKey(useUiStore.getState().dayStartHour)`；時刻＝`new Date().toISOString()`；改時刻用 domain 的 `atOf`。
  * - 錯誤：寫入失敗 toast（`RangeError` 吐它的 message，其餘 `TK_TEXT.saveFail`），回 `false`／不改狀態；
  *   `error` 只給 `init`／`refresh` 載入失敗。
  * - toast 與固定文案集中在 `TK_TEXT`（契約 §5.7、0-33）；顯示端不手抄。
+ * - 售票口④（Stage 0 資料席）：荷札（帳／定期帳規則／願望／常用票種，實體 `ticket:*`）經 `tagRepo` 寫、讀 `tagStore.index`；
+ *   本機寫過荷札 ⇒ refresh 開頭重載 index（tagStore.reload 只認同步的 changed，同時刻表⑥）。記一筆草稿是 `TicketDraft`
+ *   （多荷札、定期快設、從哪個願望／常用票種來）；備註記憶懶載；願望與常用票種跟預算／規則一起在 warm／refresh 重讀。
+ * - 售票口④ 第二輪（Stage 0 資料席）：分類不限層數——統計以某分類為根（`statsRoot`／`setStatsRoot`，「進入 ›」與麵包屑）、
+ *   「移到…」（`moveCategoryUnder`）、「常用」與備註帶分類排除上層封存的（`categoryArchivedUp`）；帳戶頁（`view === "accounts"`，
+ *   `accountCards` 在進頁與 refresh 時一次查完）。
  */
 import { create } from "zustand";
 import { ticketRepo } from "../data/ticketRepository";
@@ -19,7 +25,6 @@ import { useNodeStore } from "./nodeStore";
 import { addDays, todayKey } from "../lib/date";
 import type { LineReloadContext, CaptureSaveInput, CaptureSaveResult, CaptureRouteRef } from "../lines/types";
 import {
-  IMPORT_CHUNK,
   MAIN_CURRENCY,
   USAGE_DAYS,
   UNCAT_EXPENSE_ID,
@@ -28,14 +33,13 @@ import {
   accountTotals,
   addMonths,
   bareName,
+  categoryArchivedUp,
   defaultAccountId,
-  defaultChoices,
   draftToInput,
   frequentAccountIds,
   frequentCategoryIds,
   groupByDay,
   localTime,
-  missingText,
   moneyText,
   monthOf,
   monthRange,
@@ -57,12 +61,6 @@ import {
   type CategoryKind,
   type DayGroup,
   type EntryCtx,
-  type MmbakDump,
-  type ImportLocal,
-  type ImportPlan,
-  type ImportChoice,
-  type ImportOutcome,
-  type BalanceCheck,
   type QuickCtx,
 } from "../domain/ticket";
 import {
@@ -71,6 +69,8 @@ import {
   GONE_KEY,
   UNSPLIT_KEY,
   VIEW_TEXT,
+  accountCards,
+  accountsRange,
   breakdown,
   calendarCells,
   facetAllowed,
@@ -91,6 +91,7 @@ import {
   stepPeriod,
   trendMonths,
   trendRange,
+  type AccountCard,
   type CalendarCell,
   type EntryFilter,
   type EntrySort,
@@ -110,49 +111,90 @@ import {
   overBudgetDay,
   parseBudgetAmount,
   parseFixedRule,
-  planImportAll,
   ruleFromEntry,
   type BudgetLine,
   type BudgetRow,
   type BudgetScope,
-  type PlanImportPart,
   type RepeatDraft,
   type RepeatRow,
 } from "../domain/ticketPlan";
 import { describeRule, type FixedRepeatRule } from "../domain/repeat";
+import {
+  isRepeatMade,
+  noRepeat,
+  quickFollowDay,
+  quickRepeat,
+  quickRepeatDraft,
+  quickRepeatLabel,
+  quickSourceOfEntry,
+  type RepeatQuick,
+  type RepeatQuickFreq,
+} from "../domain/ticketPlan";
+import { NO_TAG_KEY, matchesTagFilter } from "../domain/ticketView";
+import {
+  TK_TAG_ENTRY,
+  TK_TAG_REPEAT,
+  TK_TAG_TEMPLATE,
+  TK_TAG_WISH,
+  cleanTagNames,
+  entityTagMap,
+  splitQuickTags,
+  tagNameOf,
+  type TicketTagType,
+} from "../domain/ticketTags";
+import {
+  AIDS_TEXT,
+  EMPTY_WISH_VIEW,
+  lastCategoryForNote as lastCategoryOf,
+  noteRecallItems,
+  templateDraftSeed,
+  templateFromEntry,
+  wishDraftSeed,
+  wishView,
+  type NoteUse,
+  type TemplateRow,
+  type WishRow,
+  type WishView,
+} from "../domain/ticketAids";
+import type { RecallItem } from "../domain/recall";
+import { keyOf } from "../domain/tags";
+import { tagRepo } from "../data/tagRepo";
+import { useTagStore } from "./tagStore";
 
 export type TicketShell = "desktop" | "mobile";
+
+/**
+ * 記一筆的草稿（售票口④）：EntryDraft（存成帳的那些欄）＋
+ *   tags          荷札名稱（存檔後 `tagRepo.setTags('ticket:entry')`；有定期也掛到規則上）
+ *   repeat        「定期」那一列（不重複｜每日｜每週｜每月＋星期幾／幾號＋結束日；D-票-66）
+ *   wishId        從願望「買了」開的（存了把願望標成已買）
+ *   fromTemplateId 從哪個常用票種填的（只給畫面標示；存檔不用）
+ * 改記帳日時，星期幾／幾號沒被點改過就跟著新日子走（setDraft 內 quickFollowDay）。
+ */
+export interface TicketDraft extends EntryDraft {
+  tags: string[];
+  repeat: RepeatQuick;
+  wishId: string | null;
+  fromTemplateId: string | null;
+}
 /** 詳情板（桌機右側）／全螢幕面板（手機）現在畫什麼；兩殼共用 */
 export type TicketPanel = { kind: "none" } | { kind: "new" } | { kind: "entry"; id: string } | { kind: "account"; id: string };
 export type TicketDialog =
   /* then（磨光③ 2-16、D-票-60）：建好之後接著做什麼——意圖放在 dialog 本身，被別的對話框蓋掉或取消就跟著消失。
      new＝openNew 因為沒帳戶才開這裡 ⇒ 建完直接打開記一筆、帳戶選好（seed＝原本 openNew 帶的，例如某一天）；
      pick＝從帳戶選單開的 ⇒ 建完選上它（填回草稿） */
-  | { kind: "newAccount"; then?: { new: Partial<EntryDraft> } | { pick(accountId: string): void } }
+  | { kind: "newAccount"; then?: { new: Partial<TicketDraft> } | { pick(accountId: string): void } }
   | { kind: "categories" }
   /* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序（群組內 ↑↓，兩殼共用本體 dialogs/AccountOrder） */
   | { kind: "accountOrder" }
   | { kind: "currencies" }
-  | { kind: "import" }
   /* 第③階段（③契約 §3.8）：預算對話框、定期帳管理、規則編輯器（id null＝新建；seed＝「設成定期…」帶的預填） */
   | { kind: "budgets" }
   | { kind: "repeats" }
-  | { kind: "repeat"; id: string | null; seed?: Partial<RepeatDraft> };
-
-export interface ImportState {
-  phase: "idle" | "reading" | "unknown" | "preview" | "writing" | "done" | "error";
-  missing: string[]; // unknown 時
-  dump: MmbakDump | null;
-  local: ImportLocal | null;
-  balanceText: Record<string, string>; // 財務管家帳戶 uid → 主人抄的餘額
-  plan: ImportPlan | null; // 每次 balanceText 變動就重算（純函式，即時）
-  part: PlanImportPart | null; // 第③階段：預算與定期規則的計畫（planImportAll 與 plan 一起算；③契約 §4.4）
-  choices: Record<string, ImportChoice>; // entry id → "theirs" | "ours"（預設 theirs）
-  progress: { done: number; total: number } | null;
-  outcome: ImportOutcome | null;
-  after: BalanceCheck[] | null; // done 時：匯入後 Next Stop 實際餘額 vs 主人抄的（結果卡對照表）
-  message: string | null; // error 時
-}
+  | { kind: "repeat"; id: string | null; seed?: Partial<RepeatDraft> }
+  /* 售票口④（D-票-68）：管帳「常用票種…」（改名、刪除、排序）；帳目詳情「存成常用…」取名（entryId＝來源那筆） */
+  | { kind: "templates" }
+  | { kind: "saveTemplate"; entryId: string };
 
 export interface TicketStore {
   ready: boolean; // init 完成
@@ -176,14 +218,13 @@ export interface TicketStore {
   filterAccountId: string | null;
   selectedId: string | null;
   panel: TicketPanel;
-  draft: EntryDraft | null; // panel.kind === "new" 時
+  draft: TicketDraft | null; // panel.kind === "new" 時（售票口④：多 tags／repeat／wishId／fromTemplateId）
   savedAt: number | null; // 舊票即時存成功的時間（「已存」淡字）
   lastAccountId: string | null;
   recent: { income: string[]; expense: string[] }; // 最近用過 8 個
   /** 記一筆的「常用」（磨光⑥ §2-3；只改顯示順序）：分類＝30 天次數多的在前、不滿 8 個用 recent 補；帳戶＝30 天前 3 名（帳戶 ≤ 3 個時空）。warm／refresh 跟 recent 一起重讀 */
   frequent: { income: string[]; expense: string[]; accounts: string[] };
   dialog: TicketDialog | null;
-  imp: ImportState;
 
   /* 載入 */
   warm(): Promise<void>; // 冪等：ensureStarterRows → 幣別／帳戶／分類 → lastAccountId → recent（App 一啟動由 TicketAgent 叫）
@@ -202,9 +243,14 @@ export interface TicketStore {
   requestEscape(): void; // 新票有內容 ⇒ askConfirm「放棄這一筆？」；否則 panel none／取消選取
 
   /* 記一筆（新票：明確存檔，0-8） */
-  openNew(seed?: Partial<EntryDraft>): void; // 預設：expense、帳戶＝defaultAccountId、今天（日界線）、現在、帳戶幣別
-  setDraft(patch: Partial<EntryDraft>): void; // 換帳戶 ⇒ 幣別跟著換（收支）；kind 換成 transfer ⇒ categoryId 清空
-  saveDraft(opts: { again: boolean }): Promise<boolean>; // draftToInput → createEntry → toast；again ⇒ 留 kind／帳戶／分類／日期，清金額與備註
+  openNew(seed?: Partial<TicketDraft>): void; // 預設：expense、帳戶＝defaultAccountId、今天（日界線）、現在、帳戶幣別；④：沒荷札、不重複
+  setDraft(patch: Partial<TicketDraft>): void; // 換帳戶 ⇒ 幣別跟著換（收支）；kind 換成 transfer ⇒ categoryId 清空；④：改日期 ⇒ 定期的星期幾／幾號跟著走（沒點改過的話）
+  /**
+   * saveDraft（④）：先驗（帳、荷札名稱、定期規則都合法才寫）→ 建帳 → setTags('ticket:entry') → 有定期 ⇒ 建規則（從下一班起）＋
+   * 掛同一組荷札（'ticket:repeat'）＋連上這筆 → 有 wishId ⇒ 願望標成已買 → 實體化一次（起算在過去才會補記）→ toast（復原＝刪這筆＋刪剛建的規則）。
+   * again ⇒ 留 kind／帳戶／分類／日期，清金額、備註、荷札、定期（回不重複）、wishId、fromTemplateId
+   */
+  saveDraft(opts: { again: boolean }): Promise<boolean>;
   /* 舊票：即時存（UI 用 panel/fields.tsx:76 useDebouncedCommit 去抖後呼叫） */
   openEntry(id: string): void;
   openAccount(id: string): void;
@@ -232,14 +278,7 @@ export interface TicketStore {
 
   /* 對話框 */
   openDialog(d: TicketDialog): void;
-  closeDialog(): void; // 關 import ⇒ imp 回 idle
-
-  /* 匯入（①b） */
-  startImport(shell: TicketShell): Promise<void>; // dialog＝import → pickImportFile → 取消就關 → importFromPath
-  importFromPath(path: string): Promise<void>; // reading → readImport → missing ⇒ unknown；否則 loadImportLocal → planImport → defaultChoices → preview
-  setImportBalance(mmAccountUid: string, text: string): void; // 重算 plan；choices 對還在 changed 裡的 id 保留
-  setImportChoice(entryId: string, c: ImportChoice): void;
-  runImport(): Promise<void>; // writing → applyImport（progress）→ refresh → after＝實際餘額對照 → done；失敗 ⇒ error（plan 留著可重試）
+  closeDialog(): void;
 
   /* 捕捉目的地（§3.10） */
   addQuickEntry(input: CaptureSaveInput): Promise<CaptureSaveResult>;
@@ -248,8 +287,8 @@ export interface TicketStore {
   /* ═══ 第②階段「看帳」（②契約 §3.4；①的欄位與動作一個都不改） ═══ */
 
   /* 視圖（0-10、0-17：不持久化，冷啟動回清單） */
-  view: TicketView; // "list" | "calendar" | "stats"
-  setView(v: TicketView): Promise<void>; // 進 stats ⇒ 載 statsEntries；離開清單 ⇒ 詳情板（entry／account）收起
+  view: TicketView; // "list" | "calendar" | "stats" | "accounts" | "wish"（頁首五格，D-票-77）
+  setView(v: TicketView): Promise<void>; // 進 stats ⇒ 載 statsEntries；進 accounts ⇒ 載 accountCards；離開清單 ⇒ 詳情板（entry／account）收起
   /* 統計（0-6～0-9） */
   span: StatsSpan; // "month" | "year"
   setSpan(s: StatsSpan): Promise<void>;
@@ -260,6 +299,12 @@ export interface TicketStore {
   setFacetKind(k: "expense" | "income"): void;
   drill: string | null; // 展開中的主分類 key
   setDrill(key: string | null): void;
+  /**
+   * 售票口④ 第二輪（D-票-78）：統計分類切面以哪個分類為根（null＝全部分類）。`setStatsRoot(id)`＝「進入 ›」／麵包屑回某一層
+   * （同時收起 drill、重算 stats）；麵包屑的字用 `statsCrumbs(statsRoot, catById)`。換切面、換收支、那個分類不在了 ⇒ 回 null；換期間保留
+   */
+  statsRoot: string | null;
+  setStatsRoot(id: string | null): void;
   statsEntries: EntryRow[]; // trendRange(period) 的帳（已套 filterAccountId）
   stats: StatsData | null; // 純函式從 statsEntries 算
   /* 月曆（0-2、0-16） */
@@ -301,8 +346,6 @@ export interface TicketStore {
   removeBudget(scope: BudgetScope, month: string | null): Promise<void>;
   /* 定期帳（0-6～0-8） */
   repeats: RepeatRow[]; // warm／refresh 重讀（含暫停）
-  /** 暫停中、從沒開始過的匯入規則 id（repo.listUnstartedRepeatIds，看帳含墓碑）：橫幅、確認窗的 N、「全部開始」開始的就是這幾條（收尾修正） */
-  repeatUnstarted: string[];
   repeatBlocked: Record<string, string>; // 上次實體化被擋的規則 id → 原因（記憶體）
   repeatDraft: RepeatDraft | null; // dialog.kind === "repeat" 時
   openRepeatEditor(id: string | null, seed?: Partial<RepeatDraft>): void; // id ⇒ 從列建草稿；null ⇒ 預設（expense、defaultAccountId、每月今天的日號、start 今天、09:00）
@@ -312,10 +355,79 @@ export interface TicketStore {
   saveRepeatDraft(): Promise<boolean>; // draftToRepeatInput → create／update →（新建且有 fromEntryId ⇒ linkEntryToRepeat）→ 實體化一次 → refresh → toast「已設定期：每月 1 日 · 房租」
   pauseRepeat(id: string): Promise<void>;
   resumeRepeat(id: string): Promise<void>;
-  resumeAllRepeats(): Promise<void>; // 只開始 repeatUnstarted 那幾條（手動暫停的不動）；toast「已開始 N 條，接著財務管家的下一班記」
   deleteRepeat(id: string): Promise<void>; // 軟刪＋toast「已刪除這條規則」帶「復原」
   makeRepeatFromEntry(id: string): void; // 大票「設成定期…」：seed＝那筆（ruleFromEntry）＋ fromEntryId ⇒ openRepeatEditor(null, seed)
-  materialize(reason: "startup" | "afterPull" | "day" | "manual"): Promise<void>; // serial(repo.materializeRepeats(today(), dayStart())) → 有插入或補刪 ⇒ refresh；blocked 寫進 repeatBlocked
+  materialize(reason: "startup" | "afterPull" | "day" | "manual"): Promise<void>; // serial(repo.materializeRepeats(today(), dayStart())) → 有插入或補刪 ⇒ refresh；blocked 寫進 repeatBlocked；④：記出來的每筆帶規則的荷札
+
+  /* ═══ 售票口④（契約 §1～§6；Stage 0 資料席。①②③的欄位與動作語義不變，只加） ═══ */
+
+  /** 帳的資料變了幾次（refresh、實體化各 +1）；今日頁的定期提示拿它當重查的依據 */
+  entriesVersion: number;
+
+  /* 記一筆的「定期」（D-票-66） */
+  /** 點「不重複｜每日｜每週｜每月」：星期幾／幾號從草稿的記帳日帶，結束日保留 */
+  setDraftRepeat(freq: RepeatQuickFreq): void;
+  /** 既有帳「不重複　設成定期…」那列的快設：沒連規則的帳直接從這筆建規則（從下一班起、帶這筆的荷札）、不開編輯器；已連規則 ⇒ 不動、回 false */
+  setEntryRepeatQuick(entryId: string, quick: RepeatQuick): Promise<boolean>;
+  /** 今日頁提示（D-票-72）：那天由定期規則記出來、還在的帳（isRepeatMade）。dayKey＝日界線日＝帳的 occurred_on（同一口徑，不換算） */
+  repeatEntriesOn(dayKey: string): Promise<EntryRow[]>;
+  /** 今日頁點「定期 N 筆」（代驗 O5）：選中並攤開那天第一筆定期帳（jumpToEntry）；那天已經沒有 ⇒ 退回 jumpToDay */
+  jumpToRepeatDay(dayKey: string): Promise<void>;
+
+  /* 定期帳規則的荷札（代驗 G1；ticket:repeat） */
+  /**
+   * 規則編輯器的荷札草稿：names＝畫面上的、orig＝打開時讀到的（改過沒＝兩者比）。openRepeatEditor 時讀：
+   * 改既有規則＝它現在掛的；從帳「設成定期…」＝那筆帳的；全新＝空。null＝還在讀或讀不到（荷札列不畫、存檔不動規則的荷札）。
+   * 存規則時整份寫進 ticket:repeat（在實體化之前：當場補記的就帶新的）；已經記出來的帳不追溯。
+   */
+  repeatTags: { names: string[]; orig: string[] } | null;
+  setRepeatTags(names: string[]): void;
+
+  /* 備註記憶（D-票-70、71） */
+  /** 候選（自己所有還在的帳的備註；次數＋最近一次）；null＝還沒載。存檔／刪除／同步後（refresh）背景重載 */
+  noteRecall: RecallItem[] | null;
+  /** 第一次聚焦備註欄時叫；已載就不動 */
+  loadNoteRecall(): Promise<void>;
+  /** 選了以前的備註：同 kind 上次那筆的分類（還在、沒封存、不是未分類）；沒有＝null。呼叫端只在分類還空著時帶 */
+  lastCategoryForNote(kind: CategoryKind, text: string): string | null;
+
+  /* 常用票種（D-票-68） */
+  templates: TemplateRow[]; // warm／refresh 重讀；position 順序
+  /** 點小卡：整張填進草稿（類型、金額、帳戶、分類、備註、路線、荷札）；沒開草稿就開一張。帳戶／分類已不在就不填那欄 */
+  applyTemplate(id: string): Promise<void>;
+  /** 帳目詳情「存成常用…」：整筆照抄＋荷札；toast「已存成常用「午餐」」；dialog 是 saveTemplate 就關掉。失敗 toast、回 null */
+  saveTemplateFromEntry(entryId: string, name: string): Promise<TemplateRow | null>;
+  renameTemplate(id: string, name: string): Promise<void>;
+  /** 軟刪＋toast「已刪除這個常用票種」帶「復原」 */
+  deleteTemplate(id: string): Promise<void>;
+  moveTemplateTo(id: string, index: number): Promise<void>;
+
+  /* 願望清單（D-票-69） */
+  wishes: WishRow[]; // 未刪（含已買）
+  /** 派生：想買（position 順序）／已買（那筆的日期新到舊、實際花了多少）／合計 */
+  wish: WishView;
+  /** 頂端那列直接加（排在想買最上面）；amountText 空＝沒估（主幣別）；tags 掛 'ticket:wish'。失敗 toast、回 null */
+  createWish(input: { name: string; amountText: string; note?: string; categoryId?: string | null; tags?: string[] }): Promise<WishRow | null>;
+  updateWish(id: string, patch: { name?: string; amountText?: string; note?: string; categoryId?: string | null }): Promise<void>;
+  /** 軟刪＋toast「已刪除這個願望」帶「復原」 */
+  deleteWish(id: string): Promise<void>;
+  /** 在「想買」那一組裡搬到第 index 個（拖曳） */
+  moveWishTo(id: string, index: number): Promise<void>;
+  /** 「買了」：開記一筆（支出、金額＝預估、備註＝名稱、分類、願望的荷札、wishId）；存了那一項移到已買 */
+  buyWish(id: string): Promise<void>;
+
+  /* 帳戶與分類拖曳（契約 §5）：搬到第 index 個（0 起算；群組內／同層）。上下移照舊 moveAccount／moveCategory */
+  moveAccountTo(id: string, index: number): Promise<void>;
+  moveCategoryTo(id: string, index: number): Promise<void>;
+
+  /* ═══ 售票口④ 第二輪（Stage 0 資料席） ═══ */
+  /**
+   * 「移到…」換上層、拖曳換歸屬（D-票-78）：parentId null＝頂層；index＝在新那一層排第幾（省略＝最後）。
+   * 不能移（防環、別 kind、未分類、封存）⇒ toast 原因、回 false。能不能移由 UI 先用 domain 的 `moveUnderError` 判斷（灰掉目標）
+   */
+  moveCategoryUnder(id: string, parentId: string | null, index?: number): Promise<boolean>;
+  /** 帳戶頁（D-票-79）每個帳戶（含封存）的卡片數字；`setView("accounts")` 時載，之後每次 refresh 重算；沒載過＝null */
+  accountCards: Record<string, AccountCard> | null;
 }
 
 export const TK_TEXT = {
@@ -334,10 +446,6 @@ export const TK_TEXT = {
   discardTitle: "放棄這一筆？",
   discardConfirm: "放棄",
   saveFail: "存檔失敗——請再試一次", // RangeError 改吐 message
-  importReading: "正在讀取備份…", // §5.2
-  importWriting: (done: number, total: number) => `正在匯入 ${done}/${total}`, // §5.2；分母見 0-24
-  importResult: (n: number, m: number, k: number) => `已匯入 ${n} 筆 · 更新 ${m} 筆 · 略過 ${k} 筆`, // §5.7
-  importUnknown: (missing: readonly string[]) => `無法讀取這個版本的備份（缺少 ${missingText(missing)}）`, // §5.7；missingText 在 §4.7
   destBase: "售票口",
   /* 第②階段（②契約 §3.4、§5.5）：字串本體在 domain 的 VIEW_TEXT（純函式也要用同一份） */
   found: VIEW_TEXT.found,
@@ -363,40 +471,30 @@ export const TK_TEXT = {
   repeatPaused: "已暫停",
   repeatResumed: "已開始，明天起算",
   repeatResumedNext: (d: string) => `已開始，下一班 ${d}`, // 修正-資料：直接帶下一班（每週規則不一定是明天；評審 nit）
-  repeatResumedImported: "已開始，接著財務管家的下一班記", // Stage 0 加：單條開始一條從沒開始過的匯入規則（✎-8）
-  repeatResumedAll: (n: number) => `已開始 ${n} 條，接著財務管家的下一班記`,
   repeatBlocked: (why: string) => `這筆定期帳無法入帳：${why}`,
   materialized: (n: number) => `定期帳記了 ${n} 筆`,
   budgetAllAccounts: "預算看全部帳戶",
-  importPaused: "從財務管家匯入的定期帳已先暫停；等你停用財務管家那天，再到「定期帳」按「全部開始」",
+  /* 售票口④ */
+  savedRepeat: (label: string) => ` · 定期：${label}`, // 接在 saved 後面（記一筆時順便設了定期）
+  savedWish: " · 已移到「已買」", // 接在 saved 後面（從願望「買了」記的）
+  tagsFail: "荷札沒掛上——帳已經記好了，可以在詳情再掛一次",
+  repeatFail: "定期沒設上——帳已經記好了，可以在詳情再設一次", // 記一筆時順便設定期、規則那一步失敗
+  repeatTagsFail: "荷札沒掛上——定期帳已經存好了，可以再打開改一次", // 規則編輯器存檔、荷札那一步失敗
+  wishFail: "帳已經記好了，但願望沒移到「已買」（可能已經刪了）",
+  templateSaved: (name: string) => `已存成常用「${name}」`,
+  templateDeleted: "已刪除這個常用票種",
+  wishDeleted: "已刪除這個願望",
+  wishHead: AIDS_TEXT.wishHead,
+  boughtHead: AIDS_TEXT.boughtHead,
 } as const;
-
-/** 0-1 (a)（D-票-31）：匯入的定期規則一律以暫停狀態進來；答 (b) 改 false（§4.5） */
-export const IMPORT_REPEATS_PAUSED = true;
 
 /* ───────── §3.8.3 常數與模組層狀態 ───────── */
 
 export const RECENT_LIMIT = 8;
 /** 搜尋結果排序的本機設定鍵（手機加 `_mobile`；不同步） */
 export const KEY_RESULT_SORT = "ticket_result_sort";
-export { IMPORT_CHUNK };
 export const DEFAULT_KIND = "expense" as const;
-export const IMPORT_IDLE: ImportState = {
-  phase: "idle",
-  missing: [],
-  dump: null,
-  local: null,
-  balanceText: {},
-  plan: null,
-  part: null,
-  choices: {},
-  progress: null,
-  outcome: null,
-  after: null,
-  message: null,
-};
-
-/** serial 佇列：寫入、refresh、匯入寫入不交錯 */
+/** serial 佇列：寫入、refresh 不交錯 */
 let chain: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
   const next = chain.then(fn, fn);
@@ -407,8 +505,6 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 let warmPromise: Promise<void> | null = null;
 let initPromise: Promise<void> | null = null;
 let lastShell: TicketShell = "desktop";
-/** 匯入流程的代號：關掉對話框或重開一次後，舊流程的非同步結果不再寫回 imp */
-let importToken = 0;
 /** 路線花費的世代：refresh 清空 routeSpend 時 +1，舊世代還在路上的查詢結果丟掉（不把寫入前的數字蓋回去） */
 let routeSpendGen = 0;
 /** routeSpend 目前算的是哪個月的「本月」（跨月時 loadRouteSpend 把整批作廢重查） */
@@ -416,8 +512,55 @@ let routeSpendMonth = "";
 const routeSpendInflight = new Set<string>();
 /** 第③階段：規則編輯器從哪裡開的（「取消」回去的地方；管理頁＝repeats、大票＝null） */
 let repeatBack: TicketDialog | null = null;
+/** 規則編輯器荷札的讀取世代：每次打開 +1，讀回來時世代不同（已關、又開了別條）就丟掉 */
+let repeatTagGen = 0;
 
-const isUnfilterableKey = (k: string | null | undefined): boolean => k === GONE_KEY || k === UNSPLIT_KEY;
+/* ───────── 售票口④ 的模組層狀態與荷札工具 ───────── */
+
+/** 本機經 tagRepo 寫過售票口的荷札、還沒重載 index（refresh 開頭看；同時刻表⑥ 的 blockTagsWritten） */
+let ticketTagsWritten = false;
+/** 備註歷史（listNoteUses 的原始列；lastCategoryForNote 查表用）；null＝沒載 */
+let noteUses: NoteUse[] | null = null;
+/** 備註記憶的世代：作廢時 +1，舊世代還在路上的結果丟掉 */
+let noteGen = 0;
+
+/** setTags 的收據有沒有真的寫（空收據＝本來就是這樣） */
+function receiptWrote(r: { createdTagIds: string[]; createdTaggingIds: string[]; tagsBefore: unknown[]; taggingsBefore: unknown[] }): boolean {
+  return r.createdTagIds.length > 0 || r.createdTaggingIds.length > 0 || r.tagsBefore.length > 0 || r.taggingsBefore.length > 0;
+}
+
+/** 整份換掉某個售票口實體的荷札（名稱已 cleanTagNames 過）；寫了就記一筆「index 要重載」。失敗往上丟 */
+async function writeTags(type: TicketTagType, id: string, names: readonly string[]): Promise<void> {
+  const r = await tagRepo.setTags(type, id, names);
+  if (receiptWrote(r.receipt)) ticketTagsWritten = true;
+}
+
+/** 某個售票口實體現在掛的荷札名稱（直接問 repository：index 可能還沒載或還沒重載） */
+async function tagNamesFor(type: TicketTagType, id: string): Promise<string[]> {
+  return (await tagRepo.listTagsOf(type, id)).map((t) => t.name);
+}
+
+/** 篩選／統計要用荷札時先確定 index 載過（荷札頁沒開過時是 null） */
+async function ensureTagIndex(): Promise<void> {
+  const ts = useTagStore.getState();
+  if (!ts.index) await ts.loadIndex();
+}
+
+/** refresh 開頭：本機寫過荷札而且 index 已經載過 ⇒ 重載（沒載過的留給要用的人第一次載） */
+async function syncTagIndex(): Promise<void> {
+  if (!ticketTagsWritten) return;
+  ticketTagsWritten = false;
+  const ts = useTagStore.getState();
+  if (ts.index) await ts.loadIndex();
+}
+
+/** 看帳的荷札情境（ViewCtx 的 entryTags／tagName；index 沒載＝都沒掛） */
+function tagCtx(): { entryTags: Record<string, string[]>; tagName: (key: string) => string } {
+  const idx = useTagStore.getState().index;
+  return { entryTags: entityTagMap(idx, TK_TAG_ENTRY), tagName: tagNameOf(idx) };
+}
+
+const isUnfilterableKey = (k: string | null | undefined): boolean => k === GONE_KEY || k === UNSPLIT_KEY || k === NO_TAG_KEY;
 
 const dayStart = (): number => useUiStore.getState().dayStartHour;
 const today = (): string => todayKey(dayStart());
@@ -450,14 +593,16 @@ function byCode(rows: readonly CurrencyRow[]): Record<string, CurrencyRow> {
  */
 let draftBaseCategoryId: string | null = null;
 
-function draftHasContent(d: EntryDraft | null): boolean {
+function draftHasContent(d: TicketDraft | null): boolean {
   if (!d) return false;
   return (
     d.amountText.trim() !== "" ||
     d.note.trim() !== "" ||
     d.categoryId !== draftBaseCategoryId ||
     d.mainOverrideText !== null ||
-    d.toAmountText !== null
+    d.toAmountText !== null ||
+    d.tags.length > 0 || // 售票口④
+    d.repeat.freq !== "none"
   );
 }
 
@@ -474,11 +619,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       ticketRepo.usageSince(addDays(today(), 1 - USAGE_DAYS)), // 含今天共 30 天（日界線日）
     ]);
     const kindOf = byId(categories);
-    // 父分類已封存的子分類在完整分類樹裡看不到（categoryTree 藏起來）⇒「常用」也不列，免得列得到卻找不到
+    // 任何一層上層封存了的分類在完整分類樹裡看不到（categoryForest 連整棵藏起來）⇒「常用」也不列，免得列得到卻找不到（D-票-63、78）
     const hiddenUnderArchived = (id: string): boolean => {
       const c = kindOf[id];
-      const p = c?.parent_id ? kindOf[c.parent_id] : undefined;
-      return !!p && p.kind === c?.kind && p.archived_at !== null;
+      return !!c && categoryArchivedUp(c, kindOf);
     };
     const usedBy = (k: CategoryKind) => usage.categories.filter((u) => kindOf[u.id]?.kind === k && !hiddenUnderArchived(u.id));
     const recentOf = (ids: string[]) => ids.filter((id) => !hiddenUnderArchived(id));
@@ -497,6 +641,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         accounts: frequentAccountIds(usage.accounts, accounts),
       },
     });
+    // 統計的根已不在（同步刪掉）⇒ 回全部分類
+    const root = get().statsRoot;
+    if (root !== null && !kindOf[root]) set({ statsRoot: null, drill: null });
   }
 
   /** domain 要的情境（含封存；store 的列都是未刪的） */
@@ -538,9 +685,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     return TK_TEXT.saved(amount, label, acc);
   }
 
-  /** 看帳的情境：entryCtx＋路線（nodeStore.routes，側欄順序） */
+  /** 看帳的情境：entryCtx＋路線（nodeStore.routes，側欄順序）＋荷札（售票口④；tagStore.index，沒載＝都沒掛） */
   function viewCtx(): ViewCtx {
-    return { ...entryCtx(), ...routeCtx(useNodeStore.getState().routes) };
+    return { ...entryCtx(), ...routeCtx(useNodeStore.getState().routes), ...tagCtx() };
   }
 
   /** 從 statsEntries 重算 stats（純函式；不讀 repo） */
@@ -551,8 +698,17 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       period: s.period,
       overview: statsOverview(s.statsEntries, r),
       trend: monthlyTrend(s.statsEntries, trendMonths(s.period)),
-      breakdown: breakdown(s.statsEntries, r, facetAllowed(s.facet, s.filterAccountId), s.facetKind, viewCtx()),
+      breakdown: breakdown(s.statsEntries, r, facetAllowed(s.facet, s.filterAccountId), s.facetKind, viewCtx(), { catRoot: s.statsRoot }),
     };
+  }
+
+  /** 帳戶頁：讀走勢第一個月起到最後的帳（全部帳戶、一次），配現在的餘額算每張卡。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
+  async function loadAccountCards(): Promise<void> {
+    const month = monthOf(today());
+    const r = accountsRange(month);
+    const entries = await ticketRepo.listEntries(r.from, r.toExcl, null);
+    const s = get();
+    set({ accountCards: accountCards(s.accounts, s.balances, entries, month) });
   }
 
   /** 讀 trendRange(period) 的帳＋重算 stats。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
@@ -579,10 +735,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     }
     // 側欄選了帳戶（0-10：三個視圖都只看該帳戶）⇒ 搜尋沒自己指定帳戶時沿用它；不放進 filter（不出 chip、文字清空就回一般清單）
     const rows = await ticketRepo.queryEntries(filterToQuery(f.accountId === null ? { ...f, accountId: get().filterAccountId } : f, get().categories));
-    if (get().filter !== f) return; // 查的途中 filter 又變了：讓排在後面的那一次寫
     const tokens = keywordTokens(f.text);
+    // 售票口④：篩荷札、或關鍵字要比對荷札名 ⇒ 先確定荷札 index 載過（載不到就當都沒掛，不擋搜尋）
+    const tagKeys = f.tagKeys ?? [];
+    if (tagKeys.length > 0 || tokens.length > 0) await ensureTagIndex().catch(() => undefined);
+    if (get().filter !== f) return; // 查的途中 filter 又變了：讓排在後面的那一次寫
     const ctx = viewCtx();
-    setResults(rows.filter((e) => matchesKeyword(e, tokens, ctx)), get().resultSort);
+    setResults(rows.filter((e) => matchesKeyword(e, tokens, ctx) && matchesTagFilter(e, tagKeys, ctx)), get().resultSort);
   }
 
   /** 結果依 sort 排好寫進 store；日期排序按日分組（舊到新＝groupByDay 依輸入順序開組），金額排序是平面清單 */
@@ -614,12 +773,6 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     if (r) setResults(r, sort);
   }
 
-  /** 匯入流程的 imp 寫回（代號不符＝流程已被關掉或重開，丟掉） */
-  function setImp(token: number, patch: Partial<ImportState>): void {
-    if (token !== importToken) return;
-    set({ imp: { ...get().imp, ...patch } });
-  }
-
   /* ───────── 第③階段的內部工具（③契約 §3.8） ───────── */
 
   /**
@@ -628,12 +781,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
    */
   async function loadPlan(): Promise<void> {
     try {
-      const [budgets, repeats, repeatUnstarted] = await Promise.all([
-        ticketRepo.listBudgets(),
-        ticketRepo.listRepeats(),
-        ticketRepo.listUnstartedRepeatIds(),
-      ]);
-      set({ budgets, repeats, repeatUnstarted });
+      const [budgets, repeats] = await Promise.all([ticketRepo.listBudgets(), ticketRepo.listRepeats()]);
+      set({ budgets, repeats });
     } catch (e) {
       console.warn("[ticket] 讀預算／定期帳失敗", e);
     }
@@ -697,23 +846,100 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   /**
    * 實體化一次（0-6-3）：serial 裡叫 repo；blocked 寫進 repeatBlocked；有插入或補刪 ⇒ 重讀（ready 才整頁 refresh，否則只重讀規則）。
    * 回插入幾筆；失敗回 null（呼叫端決定要不要出聲）。
+   * 售票口④：記出來的每一筆帶規則的荷札（同一個 serial 節裡、refresh 之前）。taggings 的 id＝uuid v5(type|帳 id|荷札 id)，
+   * 帳 id 又是 materializeId(規則, 班次日)——兩台各記也是同一列，同步後只有一份。
    */
   async function runMaterialize(): Promise<number | null> {
     try {
       await get().warm();
-      const res = await serial(() => ticketRepo.materializeRepeats(today(), dayStart()));
+      const res = await serial(async () => {
+        const r = await ticketRepo.materializeRepeats(today(), dayStart());
+        await carryRepeatTags(r.rows);
+        return r;
+      });
       const blocked: Record<string, string> = {};
       for (const b of res.blocked) blocked[b.id] = b.reason;
       set({ repeatBlocked: blocked });
       if (res.inserted > 0 || res.reconciled > 0) {
         if (get().ready) await serial(() => get().refresh());
-        else await loadPlan();
+        else {
+          await loadPlan();
+          set({ entriesVersion: get().entriesVersion + 1 });
+        }
       } else await loadPlan(); // 游標可能推了（沒插入也會推）
       return res.inserted;
     } catch (e) {
       console.warn("[ticket] 定期帳實體化失敗", e);
       return null;
     }
+  }
+
+  /* ───────── 售票口④ 的內部工具 ───────── */
+
+  /** 實體化記出來的帳掛上規則的荷札（規則沒掛就不寫）；失敗只 warn——帳已經記好，荷札之後可以在詳情補 */
+  async function carryRepeatTags(rows: readonly { id: string; repeat_id: string }[]): Promise<void> {
+    if (!rows.length) return;
+    const byRepeat = new Map<string, string[]>();
+    for (const r of rows) {
+      const list = byRepeat.get(r.repeat_id);
+      if (list) list.push(r.id);
+      else byRepeat.set(r.repeat_id, [r.id]);
+    }
+    for (const [repeatId, ids] of byRepeat) {
+      try {
+        const names = await tagNamesFor(TK_TAG_REPEAT, repeatId);
+        if (!names.length) continue;
+        for (const id of ids) await writeTags(TK_TAG_ENTRY, id, names);
+      } catch (e) {
+        console.warn("[ticket] 定期帳記出來的帳沒掛上規則的荷札", e);
+      }
+    }
+  }
+
+  /** 願望＋常用票種（warm 與 refresh 共用；讀不到只 warn、保留舊值——同 loadPlan） */
+  async function loadAids(): Promise<void> {
+    try {
+      const [wishes, templates] = await Promise.all([ticketRepo.listWishes(), ticketRepo.listTemplates()]);
+      const linked = wishes.filter((w) => w.entry_id !== null).map((w) => w.entry_id as string);
+      const entries = linked.length ? await ticketRepo.getEntries(linked) : [];
+      set({ wishes, templates, wish: wishView(wishes, byId(entries)) });
+    } catch (e) {
+      console.warn("[ticket] 讀願望／常用票種失敗", e);
+    }
+  }
+
+  /** 備註記憶作廢：載過的話背景重載（不擋 refresh；世代對不上的結果丟掉） */
+  function invalidateNoteRecall(): void {
+    noteGen++;
+    if (noteUses === null) return;
+    noteUses = null;
+    void get().loadNoteRecall();
+  }
+
+  /** 草稿的荷札名稱：不合法 ⇒ RangeError「#名稱：理由」（整筆不寫） */
+  /** 兩份荷札名稱指的是同一組荷札（比 key、不管順序；名稱已 cleanTagNames 過或是 repository 讀的） */
+  function sameNames(a: readonly string[], b: readonly string[]): boolean {
+    if (a.length !== b.length) return false;
+    const k = new Set(a.map((x) => keyOf(x) ?? x));
+    return b.every((x) => k.has(keyOf(x) ?? x));
+  }
+
+  function draftTagNames(names: readonly string[]): string[] {
+    const r = cleanTagNames(names);
+    if (!r.ok) throw new RangeError(`#${r.name.replace(/^#/, "")}：${r.reason}`);
+    return r.names;
+  }
+
+  /** 主幣別的金額欄（願望用；空＝null） */
+  function mainAmountOrNull(text: string): number | null {
+    if (text.trim() === "") return null;
+    const main = mainCur();
+    return parseAmount(text, main, { allowNegative: false, allowZero: true });
+  }
+
+  /** 要拿來寫資料的那一筆：排在寫入佇列後面直接問 repository（畫面快取可能是舊的，例如統計頁載過的那份） */
+  function freshEntry(id: string): Promise<EntryRow | null> {
+    return serial(() => ticketRepo.getEntry(id));
   }
 
   return {
@@ -743,13 +969,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     recent: { income: [], expense: [] },
     frequent: { income: [], expense: [], accounts: [] },
     dialog: null,
-    imp: IMPORT_IDLE,
     view: "list",
     span: "month",
     period: periodOf(monthOf(todayKey(useUiStore.getState().dayStartHour)), "month"),
     facet: "category",
     facetKind: "expense",
     drill: null,
+    statsRoot: null,
     statsEntries: [],
     stats: null,
     calendar: null,
@@ -765,9 +991,15 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     budgetLines: null,
     overDay: null,
     repeats: [],
-    repeatUnstarted: [],
     repeatBlocked: {},
     repeatDraft: null,
+    repeatTags: null,
+    entriesVersion: 0,
+    noteRecall: null,
+    templates: [],
+    wishes: [],
+    wish: EMPTY_WISH_VIEW,
+    accountCards: null,
 
     /* ───────── 載入 ───────── */
 
@@ -775,7 +1007,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (!warmPromise) {
         warmPromise = (async () => {
           await serial(() => ticketRepo.ensureStarterRows());
-          await Promise.all([loadMeta(), loadPlan()]); // 第③階段：預算＋規則（讀不到不擋 warm）
+          await Promise.all([loadMeta(), loadPlan(), loadAids()]); // 第③階段：預算＋規則；④：願望＋常用票種（讀不到都不擋 warm）
         })().catch((e) => {
           warmPromise = null; // 失敗可重試
           throw e;
@@ -812,12 +1044,14 @@ export const useTicketStore = create<TicketStore>((set, get) => {
 
     async refresh() {
       try {
+        await syncTagIndex().catch(() => undefined); // 售票口④：本機寫過荷札 ⇒ index 重載（篩選／統計／搜尋用的是它）
         const s0 = get();
         const months = s0.loadedMonths.length ? s0.loadedMonths : [s0.month];
         const filter = s0.filterAccountId;
-        const [, , balances, hasAny, ...lists] = await Promise.all([
+        const [, , , balances, hasAny, ...lists] = await Promise.all([
           loadMeta(),
           loadPlan(), // 第③階段
+          loadAids(), // 售票口④
           ticketRepo.balances(),
           ticketRepo.hasAnyEntry(),
           ...months.map((m) => {
@@ -855,7 +1089,11 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         // 第③階段（③契約 §3.8）：月曆「超」格重算；統計預算卡在 loadStats 裡一起算
         set({ overDay: computeOverDay(entries, get().month) });
         if (get().view === "stats") await loadStats();
+        if (get().view === "accounts") await loadAccountCards(); // 售票口④ 第二輪：帳戶頁開著才重查（沒開過＝不查）
         if (isFilterActive(get().filter)) await runQuery();
+        // 售票口④：帳變了 ⇒ 備註記憶作廢（載過就背景重載）、今日頁的定期提示重查
+        invalidateNoteRecall();
+        set({ entriesVersion: get().entriesVersion + 1 });
       } catch (e) {
         set({ error: errText(e) });
       }
@@ -865,17 +1103,21 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const touched = ctx.wiped || ctx.changed.some((t) => t.startsWith("tk_"));
       if (!touched) return;
       if (ctx.wiped) {
-        importToken++;
-        set({ panel: { kind: "none" }, draft: null, selectedId: null, dialog: null, imp: IMPORT_IDLE, filterAccountId: null, ready: false });
+        set({ panel: { kind: "none" }, draft: null, selectedId: null, dialog: null, filterAccountId: null, ready: false });
         // 第②階段：視圖回清單、搜尋清空、統計與路線花費作廢（②契約 §3.4）
         routeSpendGen++;
         set({
-          view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT, drill: null,
+          view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT, drill: null, statsRoot: null, accountCards: null,
           statsEntries: [], stats: null, pendingDay: null, dayNotice: null, routeSpend: {},
         });
         // 第③階段：草稿與預算／規則作廢（實體化不在 reload 裡，在 afterPull，③契約 §3.8）
         repeatBack = null;
-        set({ repeatDraft: null, budgets: [], budgetLines: null, overDay: null, repeats: [], repeatUnstarted: [], repeatBlocked: {} });
+        repeatTagGen++;
+        set({ repeatDraft: null, repeatTags: null, budgets: [], budgetLines: null, overDay: null, repeats: [], repeatBlocked: {} });
+        // 售票口④：願望、常用票種、備註記憶作廢
+        noteUses = null;
+        noteGen++;
+        set({ wishes: [], templates: [], wish: EMPTY_WISH_VIEW, noteRecall: null });
         warmPromise = null; // 整批換掉：重走 warm（起手三列可能要重種）＋init
         initPromise = null;
         await get().init(lastShell);
@@ -978,19 +1220,25 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         return;
       }
       const currency = (accountId && s.accById[accountId]?.currency) || MAIN_CURRENCY;
-      const draft: EntryDraft = {
+      const dayKey = seed?.dayKey ?? today();
+      const draft: TicketDraft = {
         kind: DEFAULT_KIND,
         amountText: "",
         currency,
         accountId,
         toAccountId: null,
         categoryId: null,
-        dayKey: today(),
+        dayKey,
         time: localTime(new Date().toISOString()),
         note: "",
         routeId: null,
         mainOverrideText: null,
         toAmountText: null,
+        // 售票口④
+        tags: [],
+        repeat: noRepeat(dayKey),
+        wishId: null,
+        fromTemplateId: null,
         ...seed,
       };
       draftBaseCategoryId = null;
@@ -1000,7 +1248,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     setDraft(patch) {
       const s = get();
       if (!s.draft) return;
-      const d: EntryDraft = { ...s.draft, ...patch };
+      const d: TicketDraft = { ...s.draft, ...patch };
       const acc = d.accountId ? s.accById[d.accountId] : undefined;
       if (d.kind === "transfer") {
         d.categoryId = null;
@@ -1015,6 +1263,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         if (cat && cat.kind !== d.kind) d.categoryId = null;
       }
       if (patch.currency !== undefined && patch.currency !== s.draft.currency) d.mainOverrideText = patch.mainOverrideText ?? null;
+      // 售票口④：改記帳日 ⇒ 定期的星期幾／幾號（沒點改過的）跟著走
+      if (patch.dayKey !== undefined && patch.repeat === undefined) d.repeat = quickFollowDay(s.draft.repeat, s.draft.dayKey, d.dayKey);
       set({ draft: d });
     },
 
@@ -1022,28 +1272,113 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const d = get().draft;
       if (!d) return false;
       try {
+        // 先驗完再寫（任何一項不合法 ⇒ 整筆不寫）：帳、荷札名稱、定期規則（從下一班起；同一套 draftToRepeatInput）
         const input = draftToInput(d, entryCtx(), dayStart());
-        const row = await serial(() => ticketRepo.createEntry(input));
+        const names = draftTagNames(d.tags);
+        const rd = quickRepeatDraft(d, d.repeat, null);
+        const repInput = rd ? draftToRepeatInput(rd, entryCtx()) : null;
+        const res = await serial(async () => {
+          const row = await ticketRepo.createEntry(input);
+          let tagFail = false;
+          if (names.length) {
+            try {
+              await writeTags(TK_TAG_ENTRY, row.id, names);
+            } catch (e) {
+              console.warn("[ticket] 帳的荷札沒掛上", e);
+              tagFail = true;
+            }
+          }
+          // 帳已寫入：之後每一步失敗都只記下來、不往外丟（往外丟＝回報「沒存」、草稿留著，再按一次就重複記帳）
+          let repeatId: string | null = null;
+          let repeatFail = false;
+          if (repInput) {
+            let rep: RepeatRow | null = null;
+            try {
+              rep = await ticketRepo.createRepeat(repInput);
+              await ticketRepo.linkEntryToRepeat(row.id, rep.id);
+              repeatId = rep.id;
+            } catch (e) {
+              console.warn("[ticket] 記一筆時的定期規則沒設上", e);
+              repeatFail = true;
+              // 規則建了卻沒連上 ⇒ 收回，不留一條使用者不知道、會一直記帳的規則
+              if (rep) await ticketRepo.softDeleteRepeat(rep.id).catch((err) => console.warn("[ticket] 收回沒連上的規則失敗", err));
+            }
+            if (repeatId && names.length) {
+              try {
+                await writeTags(TK_TAG_REPEAT, repeatId, names);
+              } catch (e) {
+                console.warn("[ticket] 定期帳規則的荷札沒掛上", e);
+                tagFail = true;
+              }
+            }
+          }
+          let wishFail = false;
+          if (d.wishId) {
+            try {
+              await ticketRepo.setWishBought(d.wishId, row.id);
+            } catch (e) {
+              console.warn("[ticket] 願望沒移到已買（可能已經刪了）", e);
+              wishFail = true;
+            }
+          }
+          return { row, repeatId, tagFail, repeatFail, wishFail };
+        });
+        const row = res.row;
         set({ lastAccountId: row.kind === "adjust" ? get().lastAccountId : row.account_id, hasAny: true });
         if (again) {
           draftBaseCategoryId = d.categoryId;
-          set({ draft: { ...d, amountText: "", note: "", mainOverrideText: null, toAmountText: null } });
+          set({
+            draft: {
+              ...d,
+              amountText: "",
+              note: "",
+              mainOverrideText: null,
+              toAmountText: null,
+              tags: [],
+              repeat: noRepeat(d.dayKey),
+              wishId: null,
+              fromTemplateId: null,
+            },
+          });
         } else {
           const m = monthOf(row.occurred_on);
           if (get().loadedMonths.indexOf(m) < 0) set({ month: m, loadedMonths: [m], period: periodOf(m, get().span) }); // 換月一律連 period 一起換（同 setMonth）
           set({ draft: null, selectedId: row.id, panel: { kind: "entry", id: row.id }, savedAt: null });
         }
+        // 有定期：起算是記帳日隔天，記帳日在過去就當場補記（同 saveRepeatDraft）；runMaterialize 自己會 refresh
+        const filled = res.repeatId ? await runMaterialize() : null;
         await serial(() => get().refresh());
-        toast(savedText(row), TK_TEXT.undo, () => {
-          void (async () => {
-            try {
-              await serial(() => ticketRepo.softDeleteEntry(row.id));
-              await serial(() => get().refresh());
-            } catch (e) {
-              failToast(e);
-            }
-          })();
-        });
+        if (res.repeatFail) toast(TK_TEXT.repeatFail);
+        else if (res.tagFail) toast(TK_TEXT.tagsFail);
+        else if (res.wishFail) toast(TK_TEXT.wishFail);
+        else {
+          let text = savedText(row);
+          if (res.repeatId) text += TK_TEXT.savedRepeat(quickRepeatLabel(d.repeat)) + (filled ? TK_TEXT.repeatSavedFilled(filled) : "");
+          if (d.wishId) text += TK_TEXT.savedWish;
+          const repeatId = res.repeatId;
+          toast(text, TK_TEXT.undo, () => {
+            void (async () => {
+              try {
+                // 復原＝刪這筆（願望讀的時候就回到想買）＋刪剛建的規則（補記的那幾筆一起刪）
+                await serial(async () => {
+                  await ticketRepo.softDeleteEntry(row.id);
+                  if (repeatId) {
+                    // 先刪規則再刪補記的帳：規則已刪 ⇒ 那幾天不會被記進 skipped_days（touchSkipped 只碰還在的規則）
+                    await ticketRepo.softDeleteRepeat(repeatId);
+                    if (filled) {
+                      for (const e of await ticketRepo.listEntries(addDays(row.occurred_on, 1), addDays(today(), 1), null)) {
+                        if (e.repeat_id === repeatId && isRepeatMade(e)) await ticketRepo.softDeleteEntry(e.id);
+                      }
+                    }
+                  }
+                });
+                await serial(() => get().refresh());
+              } catch (e) {
+                failToast(e);
+              }
+            })();
+          });
+        }
         return true;
       } catch (e) {
         failToast(e);
@@ -1176,6 +1511,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       await write(() => ticketRepo.moveCategory(id, delta));
     },
 
+    async moveCategoryUnder(id, parentId, index) {
+      return write(() => ticketRepo.moveCategoryUnder(id, parentId, index));
+    },
+
     async createCurrency(input) {
       try {
         const rate = parseRate(input.rateText);
@@ -1205,99 +1544,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     closeDialog() {
-      if (get().dialog?.kind === "import") {
-        importToken++;
-        set({ dialog: null, imp: IMPORT_IDLE });
-        return;
-      }
       if (get().dialog?.kind === "repeat") {
         repeatBack = null;
-        set({ dialog: null, repeatDraft: null });
+        repeatTagGen++;
+        set({ dialog: null, repeatDraft: null, repeatTags: null });
         return;
       }
       set({ dialog: null });
-    },
-
-    /* ───────── 匯入（①b） ───────── */
-
-    async startImport(shell) {
-      const token = ++importToken;
-      set({ dialog: { kind: "import" }, imp: { ...IMPORT_IDLE, phase: "reading" } });
-      let path: string | null;
-      try {
-        path = await ticketRepo.pickImportFile(shell);
-      } catch (e) {
-        setImp(token, { phase: "error", message: errText(e) });
-        return;
-      }
-      if (token !== importToken) return;
-      if (path === null) {
-        get().closeDialog();
-        return;
-      }
-      await get().importFromPath(path);
-    },
-
-    async importFromPath(path) {
-      const token = ++importToken;
-      set({ imp: { ...IMPORT_IDLE, phase: "reading" } });
-      try {
-        await get().warm(); // 起手三列要在（孤兒帳落到未分類）
-        const res = await ticketRepo.readImport(path);
-        if (res.missing.length || !res.dump) {
-          setImp(token, { phase: "unknown", missing: res.missing.length ? res.missing : ["INOUTCOME"] });
-          return;
-        }
-        const local = await ticketRepo.loadImportLocal();
-        // 第③階段（③契約 §4.4）：planImportAll＝①的 planImport＋預算與定期規則兩段
-        const { plan, part } = planImportAll(res.dump, local, { balanceText: {}, nowIso: new Date().toISOString(), pauseImported: IMPORT_REPEATS_PAUSED });
-        setImp(token, { phase: "preview", dump: res.dump, local, plan, part, choices: defaultChoices(plan), balanceText: {} });
-      } catch (e) {
-        setImp(token, { phase: "error", message: errText(e) });
-      }
-    },
-
-    setImportBalance(mmAccountUid, text) {
-      const imp = get().imp;
-      if (!imp.dump || !imp.local) return;
-      const balanceText = { ...imp.balanceText, [mmAccountUid]: text };
-      const { plan, part } = planImportAll(imp.dump, imp.local, { balanceText, nowIso: new Date().toISOString(), pauseImported: IMPORT_REPEATS_PAUSED });
-      const choices: Record<string, ImportChoice> = {};
-      for (const c of plan.entries.changed) choices[c.id] = imp.choices[c.id] ?? "theirs";
-      set({ imp: { ...imp, balanceText, plan, part, choices } });
-    },
-
-    setImportChoice(entryId, c) {
-      const imp = get().imp;
-      set({ imp: { ...imp, choices: { ...imp.choices, [entryId]: c } } });
-    },
-
-    async runImport() {
-      const imp0 = get().imp;
-      const plan = imp0.plan;
-      if (!plan || plan.unsupported !== null || (imp0.phase !== "preview" && imp0.phase !== "error")) return;
-      const token = importToken;
-      const choices = imp0.choices;
-      const part: PlanImportPart = imp0.part ?? {
-        budgets: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [], overrides: 0, scopes: 0 },
-        repeats: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [] },
-        missing: [],
-      };
-      setImp(token, { phase: "writing", progress: { done: 0, total: 0 }, message: null });
-      try {
-        const outcome = await serial(() =>
-          ticketRepo.applyImport(plan, choices, part, (done, total) => setImp(token, { progress: { done, total } })),
-        );
-        await serial(() => get().refresh());
-        const balances = get().balances;
-        const after: BalanceCheck[] = plan.checks.map((c) => {
-          const actual = balances[c.accountId] ?? 0;
-          return { ...c, computedMinor: actual, ok: c.inputMinor === null ? null : c.inputMinor === actual };
-        });
-        setImp(token, { phase: "done", outcome, after, progress: null });
-      } catch (e) {
-        setImp(token, { phase: "error", message: errText(e), progress: null });
-      }
     },
 
     /* ───────── 捕捉目的地（§3.10） ───────── */
@@ -1307,7 +1560,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const { row, q, ctx } = await serial(async () => {
         const s = get();
         const qctx: QuickCtx = { accById: s.accById, catById: s.catById, curByCode: s.curByCode, lastAccountId: s.lastAccountId };
-        const parsed = parseQuickEntry(input.body, qctx);
+        // 售票口④（D-票-74）：一行裡的 #名稱 抽成荷札、不進備註（色碼、純數字不算——旅客筆記的 parseTags）
+        const split = splitQuickTags(input.body);
+        const parsed = parseQuickEntry(split.body, qctx);
         const created = await ticketRepo.createEntry({
           kind: parsed.kind,
           amountMinor: parsed.amountMinor,
@@ -1320,10 +1575,18 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           note: parsed.note,
           routeId: input.routeId,
         });
+        if (split.names.length) {
+          try {
+            await writeTags(TK_TAG_ENTRY, created.id, split.names);
+          } catch (e) {
+            console.warn("[ticket] 捕捉框記的帳沒掛上荷札", e); // 帳已經記好；荷札可以在詳情補
+          }
+        }
         return { row: created, q: parsed, ctx: qctx };
       });
       set({ lastAccountId: row.account_id, hasAny: true });
       if (get().ready) await serial(() => get().refresh());
+      else await syncTagIndex().catch(() => undefined); // 售票口④：沒開過售票口也讓荷札頁看得到剛掛的
       return {
         toast: quickToast(q, ctx),
         undo: async () => {
@@ -1362,6 +1625,14 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           set({ error: errText(e) });
         }
       }
+      if (v === "accounts") {
+        // 售票口④ 第二輪（D-票-79）：每次進來重查（本月跨月、餘額在別頁被改過都跟得上）
+        try {
+          await serial(loadAccountCards);
+        } catch (e) {
+          set({ error: errText(e) });
+        }
+      }
     },
 
     async setSpan(sp) {
@@ -1376,17 +1647,28 @@ export const useTicketStore = create<TicketStore>((set, get) => {
 
     setFacet(f) {
       const facet = facetAllowed(f, get().filterAccountId);
-      set({ facet, drill: null });
+      set({ facet, drill: null, statsRoot: null });
       if (get().stats) set({ stats: computeStats() });
+      // 售票口④：依荷札要 index；沒載過先載，載好由下面的 tagStore 訂閱重算
+      if (facet === "tag") void ensureTagIndex().catch(() => undefined);
     },
 
     setFacetKind(k) {
-      set({ facetKind: k, drill: null });
+      set({ facetKind: k, drill: null, statsRoot: null }); // 根是那個 kind 的分類，換收支就回全部分類
       if (get().stats) set({ stats: computeStats() });
     },
 
     setDrill(key) {
       set({ drill: key });
+    },
+
+    setStatsRoot(id) {
+      const s = get();
+      const c = id === null ? null : s.catById[id];
+      // 不在了、未分類（底下沒東西）、別 kind ⇒ 回全部分類
+      const root = c && !isUncat(c.id) && c.kind === s.facetKind ? c.id : null;
+      set({ statsRoot: root, drill: null });
+      if (s.stats) set({ stats: computeStats() });
     },
 
     async jumpToDay(dayKey) {
@@ -1468,7 +1750,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
 
     async drillToList(p) {
       // 「未細分」「（…已不在）」沒有對應的篩選條件（categoryIds 傳主分類 id 會展開成含全部子分類）⇒ 不下鑽；UI 應把這幾列畫成不可點
-      if (p.categoryIds?.some(isUnfilterableKey) || isUnfilterableKey(p.accountId) || isUnfilterableKey(p.routeId)) return;
+      if (p.categoryIds?.some(isUnfilterableKey) || isUnfilterableKey(p.accountId) || isUnfilterableKey(p.routeId) || p.tagKeys?.some(isUnfilterableKey)) return;
       const s = get();
       const r = periodRange(s.period);
       if (s.view !== "list") await get().setView("list");
@@ -1599,13 +1881,31 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       }
       const cur = s.dialog;
       repeatBack = cur && cur.kind === "repeats" ? cur : null;
-      set({ dialog: { kind: "repeat", id, seed }, repeatDraft: draft });
+      // 荷札：改既有規則＝它現在掛的；從帳來的＝那筆帳的；全新＝空（G1）。直接問 repository（index 可能沒載或還沒重載）
+      const gen = ++repeatTagGen;
+      const src: { type: TicketTagType; id: string } | null =
+        id !== null ? { type: TK_TAG_REPEAT, id } : draft.fromEntryId ? { type: TK_TAG_ENTRY, id: draft.fromEntryId } : null;
+      set({ dialog: { kind: "repeat", id, seed }, repeatDraft: draft, repeatTags: src ? null : { names: [], orig: [] } });
+      if (src) {
+        tagNamesFor(src.type, src.id).then(
+          (names) => {
+            if (gen === repeatTagGen) set({ repeatTags: { names, orig: names } });
+          },
+          (e: unknown) => console.warn("[ticket] 讀定期帳的荷札失敗", e), // 讀不到＝不畫荷札列、存檔不動它
+        );
+      }
     },
 
     closeRepeatEditor() {
       const back = repeatBack;
       repeatBack = null;
-      set({ dialog: back, repeatDraft: null });
+      repeatTagGen++;
+      set({ dialog: back, repeatDraft: null, repeatTags: null });
+    },
+
+    setRepeatTags(names) {
+      const t = get().repeatTags;
+      if (t) set({ repeatTags: { names, orig: t.orig } });
     },
 
     setRepeatDraft(patch) {
@@ -1632,18 +1932,39 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (!d || !dlg || dlg.kind !== "repeat") return false;
       try {
         const input = draftToRepeatInput(d, entryCtx());
+        // 荷札（G1）：先驗名稱（不合法 ⇒ 整條不寫，同記一筆）。改既有規則只在改過時寫；新的有掛才寫。
+        // 還沒讀到（null）＝不動——從帳來的新規則改在存的時候讀那筆帳的（同 setEntryRepeatQuick）
+        const t = s.repeatTags;
+        const names = t ? draftTagNames(t.names) : null;
+        const tagsChanged = t !== null && names !== null && (dlg.id === null ? names.length > 0 : !sameNames(names, t.orig));
+        let tagFail = false;
         const row = await serial(async () => {
-          if (dlg.id !== null) return ticketRepo.updateRepeat(dlg.id, input, today());
-          const created = await ticketRepo.createRepeat(input);
-          if (d.fromEntryId) await ticketRepo.linkEntryToRepeat(d.fromEntryId, created.id);
-          return created;
+          let rep: RepeatRow;
+          if (dlg.id !== null) rep = await ticketRepo.updateRepeat(dlg.id, input, today());
+          else {
+            rep = await ticketRepo.createRepeat(input);
+            if (d.fromEntryId) await ticketRepo.linkEntryToRepeat(d.fromEntryId, rep.id);
+          }
+          // 規則已寫入：荷札失敗只記下來（往外丟＝回報「沒存」、再按一次會多建一條規則）
+          try {
+            if (tagsChanged && names) await writeTags(TK_TAG_REPEAT, rep.id, names);
+            else if (t === null && dlg.id === null && d.fromEntryId) {
+              const from = await tagNamesFor(TK_TAG_ENTRY, d.fromEntryId);
+              if (from.length) await writeTags(TK_TAG_REPEAT, rep.id, from);
+            }
+          } catch (e) {
+            console.warn("[ticket] 定期帳規則的荷札沒掛上", e);
+            tagFail = true;
+          }
+          return rep;
         });
-        // 起算日在過去 ⇒ 當場補記（§5.3「會補記從那天起的每一班」；§6 #10「存完立刻」）
+        // 起算日在過去 ⇒ 當場補記（§5.3「會補記從那天起的每一班」；§6 #10「存完立刻」）；荷札已經寫好，補記的帶新的
         const n = await runMaterialize();
         await serial(() => get().refresh());
         get().closeRepeatEditor();
         const rule = parseFixedRule(row.rule) ?? input.rule;
-        toast(TK_TEXT.repeatSaved(repeatDesc(rule, row.kind, row.account_id, row.to_account_id, row.category_id, row.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
+        if (tagFail) toast(TK_TEXT.repeatTagsFail);
+        else toast(TK_TEXT.repeatSaved(repeatDesc(rule, row.kind, row.account_id, row.to_account_id, row.category_id, row.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
         return true;
       } catch (e) {
         failToast(e);
@@ -1659,27 +1980,11 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     async resumeRepeat(id) {
-      const imported = get().repeatUnstarted.indexOf(id) >= 0; // 從沒開始過的匯入規則（與橫幅同一份，看帳含墓碑）
       const ok = await write(() => ticketRepo.setRepeatPaused(id, false, today()));
       if (!ok) return;
-      await runMaterialize(); // 匯入規則的 NEXT_DATE 已過 ⇒ 照常補記到今天（✎-8）
-      if (imported) {
-        toast(TK_TEXT.repeatResumedImported);
-        return;
-      }
+      await runMaterialize(); // 早期匯入、從沒開始過的規則 NEXT_DATE 已過 ⇒ 照常補記到今天（✎-8）
       const next = get().repeats.find((x) => x.id === id)?.next_on ?? null;
       toast(next !== null ? TK_TEXT.repeatResumedNext(shortDay(next)) : TK_TEXT.repeatResumed);
-    },
-
-    async resumeAllRepeats() {
-      try {
-        const n = await serial(() => ticketRepo.resumeAllRepeats(today()));
-        await serial(() => get().refresh());
-        await runMaterialize();
-        toast(TK_TEXT.repeatResumedAll(n));
-      } catch (e) {
-        failToast(e);
-      }
     },
 
     async deleteRepeat(id) {
@@ -1724,6 +2029,239 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (n === null) return; // 失敗只 console.warn、不 toast（使用者沒按任何東西，§3.9）
       if (reason === "manual" || (n >= 1 && onTicketPage())) toast(TK_TEXT.materialized(n));
     },
+
+    /* ═══════════ 售票口④（Stage 0 資料席） ═══════════ */
+
+    /* ───────── 記一筆的「定期」 ───────── */
+
+    setDraftRepeat(freq) {
+      const d = get().draft;
+      if (!d) return;
+      const next = quickRepeat(freq, d.dayKey, d.repeat.until);
+      set({ draft: { ...d, repeat: next } });
+    },
+
+    async setEntryRepeatQuick(entryId, quick) {
+      try {
+        if (quick.freq === "none") return false;
+        const e = await freshEntry(entryId);
+        if (!e) throw new RangeError("這一筆已經刪除了");
+        if (e.repeat_id !== null) return false; // 已連規則：管理在「管理 ›」（完整編輯器）
+        const src = quickSourceOfEntry(e, decimalsOf(e.currency), localTime(e.occurred_at));
+        if (!src) throw new RangeError("精算不能設成定期");
+        const rd = quickRepeatDraft(src, quick, e.id);
+        if (!rd) return false;
+        const input = draftToRepeatInput(rd, entryCtx());
+        const rep = await serial(async () => {
+          const created = await ticketRepo.createRepeat(input);
+          try {
+            await ticketRepo.linkEntryToRepeat(e.id, created.id);
+          } catch (err) {
+            // 沒連上就收回規則（同 saveDraft）：不留一條沒連到這筆、卻會一直記帳的規則
+            await ticketRepo.softDeleteRepeat(created.id).catch((x) => console.warn("[ticket] 收回沒連上的規則失敗", x));
+            throw err;
+          }
+          // 規則帶這筆的荷札（它記出來的每一筆就會帶）
+          try {
+            const names = await tagNamesFor(TK_TAG_ENTRY, e.id);
+            if (names.length) await writeTags(TK_TAG_REPEAT, created.id, names);
+          } catch (err) {
+            console.warn("[ticket] 定期帳規則的荷札沒掛上", err);
+          }
+          return created;
+        });
+        const n = await runMaterialize();
+        await serial(() => get().refresh());
+        const rule = parseFixedRule(rep.rule) ?? input.rule;
+        toast(TK_TEXT.repeatSaved(repeatDesc(rule, rep.kind, rep.account_id, rep.to_account_id, rep.category_id, rep.note)) + (n ? TK_TEXT.repeatSavedFilled(n) : ""));
+        return true;
+      } catch (err) {
+        failToast(err);
+        return false;
+      }
+    },
+
+    async jumpToRepeatDay(dayKey) {
+      let first: EntryRow | undefined;
+      try {
+        first = (await get().repeatEntriesOn(dayKey))[0]; // 順序同帳簿（listEntries）＝今日頁浮層列的順序
+      } catch (e) {
+        console.warn("[ticket] 讀那天的定期帳失敗", e);
+      }
+      if (first) {
+        await get().jumpToEntry(first.id);
+        if (get().selectedId === first.id) return;
+      }
+      await get().jumpToDay(dayKey);
+    },
+
+    async repeatEntriesOn(dayKey) {
+      // 今日頁的 dayKey＝todayKey(日界線)＝記帳日；帳的 occurred_on 也是記帳日（draftToInput 的 dayKey、實體化的班次日；
+      // 日界線前的凌晨由 atOf 記在前一個帳日）——同一個口徑，直接比 occurred_on，不換算
+      await get().warm();
+      const rows = await ticketRepo.listEntries(dayKey, addDays(dayKey, 1), null);
+      return rows.filter(isRepeatMade);
+    },
+
+    /* ───────── 備註記憶 ───────── */
+
+    async loadNoteRecall() {
+      if (noteUses !== null) return;
+      const gen = noteGen;
+      try {
+        const uses = await ticketRepo.listNoteUses();
+        if (gen !== noteGen) return; // 讀的途中又作廢了：讓下一次讀
+        noteUses = uses;
+        set({ noteRecall: noteRecallItems(uses) });
+      } catch (e) {
+        console.warn("[ticket] 讀備註記憶失敗", e); // 讀不到＝沒有候選，欄位照常能打字
+      }
+    },
+
+    lastCategoryForNote(kind, text) {
+      if (noteUses === null) return null;
+      const s = get();
+      // 任何一層上層封存的分類在完整分類樹裡看不到 ⇒ 也不帶（同「常用」的 hiddenUnderArchived；D-票-78）
+      const usable = (id: string): boolean => {
+        const c = s.catById[id];
+        return !!c && c.kind === kind && !categoryArchivedUp(c, s.catById);
+      };
+      return lastCategoryOf(noteUses, kind, text, usable);
+    },
+
+    /* ───────── 常用票種 ───────── */
+
+    async applyTemplate(id) {
+      const t = get().templates.find((x) => x.id === id);
+      if (!t) return;
+      const seed = templateDraftSeed(t, entryCtx());
+      // 路線已刪 ⇒ 不掛（seed 不知道路線在不在）
+      if (seed.routeId !== null && !useNodeStore.getState().routes.some((r) => r.id === seed.routeId && r.deleted_at === null)) seed.routeId = null;
+      let tags: string[] = [];
+      try {
+        tags = await tagNamesFor(TK_TAG_TEMPLATE, id);
+      } catch (e) {
+        console.warn("[ticket] 讀常用票種的荷札失敗", e);
+      }
+      // 點書籤＝整張換成書籤那筆：從願望「買了」帶來的關聯一起放掉（不然存了會把願望標成已買、金額卻是書籤的；C 11-02 定）
+      const patch: Partial<TicketDraft> = { ...seed, tags, mainOverrideText: null, toAmountText: null, wishId: null };
+      if (get().draft && get().panel.kind === "new") get().setDraft(patch);
+      else get().openNew(patch);
+    },
+
+    async saveTemplateFromEntry(entryId, name) {
+      try {
+        const e = await freshEntry(entryId);
+        if (!e) throw new RangeError("這一筆已經刪除了");
+        const input = templateFromEntry(e, name);
+        const row = await serial(async () => {
+          const created = await ticketRepo.createTemplate(input);
+          try {
+            const names = await tagNamesFor(TK_TAG_ENTRY, e.id);
+            if (names.length) await writeTags(TK_TAG_TEMPLATE, created.id, names);
+          } catch (err) {
+            console.warn("[ticket] 常用票種的荷札沒掛上", err);
+          }
+          return created;
+        });
+        await serial(() => get().refresh());
+        if (get().dialog?.kind === "saveTemplate") set({ dialog: null });
+        toast(TK_TEXT.templateSaved(row.name));
+        return row;
+      } catch (err) {
+        failToast(err);
+        return null;
+      }
+    },
+
+    async renameTemplate(id, name) {
+      await write(() => ticketRepo.updateTemplate(id, { name }));
+    },
+
+    async deleteTemplate(id) {
+      await write(
+        () => ticketRepo.softDeleteTemplate(id),
+        () =>
+          toast(TK_TEXT.templateDeleted, TK_TEXT.undo, () => {
+            void write(() => ticketRepo.restoreTemplate(id));
+          }),
+      );
+    },
+
+    async moveTemplateTo(id, index) {
+      await write(() => ticketRepo.moveTemplateTo(id, index));
+    },
+
+    /* ───────── 願望清單 ───────── */
+
+    async createWish(input) {
+      try {
+        const names = draftTagNames(input.tags ?? []);
+        const amountMinor = mainAmountOrNull(input.amountText);
+        const row = await serial(async () => {
+          const created = await ticketRepo.createWish({ name: input.name, amountMinor, note: input.note ?? "", categoryId: input.categoryId ?? null });
+          if (names.length) {
+            try {
+              await writeTags(TK_TAG_WISH, created.id, names);
+            } catch (e) {
+              console.warn("[ticket] 願望的荷札沒掛上", e);
+            }
+          }
+          return created;
+        });
+        await serial(() => get().refresh());
+        return row;
+      } catch (e) {
+        failToast(e);
+        return null;
+      }
+    },
+
+    async updateWish(id, patch) {
+      try {
+        const amountMinor = patch.amountText !== undefined ? mainAmountOrNull(patch.amountText) : undefined;
+        await serial(() => ticketRepo.updateWish(id, { name: patch.name, amountMinor, note: patch.note, categoryId: patch.categoryId }));
+        await serial(() => get().refresh());
+      } catch (e) {
+        failToast(e);
+      }
+    },
+
+    async deleteWish(id) {
+      await write(
+        () => ticketRepo.softDeleteWish(id),
+        () =>
+          toast(TK_TEXT.wishDeleted, TK_TEXT.undo, () => {
+            void write(() => ticketRepo.restoreWish(id));
+          }),
+      );
+    },
+
+    async moveWishTo(id, index) {
+      await write(() => ticketRepo.moveWishTo(id, index));
+    },
+
+    async buyWish(id) {
+      const w = get().wish.want.find((x) => x.id === id) ?? get().wishes.find((x) => x.id === id);
+      if (!w) return;
+      let tags: string[] = [];
+      try {
+        tags = await tagNamesFor(TK_TAG_WISH, id);
+      } catch (e) {
+        console.warn("[ticket] 讀願望的荷札失敗", e);
+      }
+      get().openNew({ ...wishDraftSeed(w, entryCtx(), mainCur()), tags });
+    },
+
+    /* ───────── 帳戶與分類拖曳 ───────── */
+
+    async moveAccountTo(id, index) {
+      await write(() => ticketRepo.moveAccountTo(id, index));
+    },
+
+    async moveCategoryTo(id, index) {
+      await write(() => ticketRepo.moveCategoryTo(id, index));
+    },
   };
 });
 
@@ -1741,8 +2279,19 @@ useNodeStore.subscribe((s, prev) => {
   const t = useTicketStore.getState();
   if (!t.stats) return;
   const r = periodRange(t.period);
-  const ctx: ViewCtx = { accById: t.accById, catById: t.catById, curByCode: t.curByCode, ...routeCtx(s.routes) };
+  const ctx: ViewCtx = { accById: t.accById, catById: t.catById, curByCode: t.curByCode, ...routeCtx(s.routes), ...tagCtx() };
   useTicketStore.setState({
     stats: { ...t.stats, breakdown: breakdown(t.statsEntries, r, facetAllowed(t.facet, t.filterAccountId), t.facetKind, ctx) },
   });
+});
+/* 售票口④：荷札 index 換了（荷札頁改名／刪除、同步拉到 taggings、本機掛了荷札）⇒ 依荷札統計就地重算、篩荷札或打了字的搜尋重查 */
+useTagStore.subscribe((s, prev) => {
+  if (s.index === prev.index) return;
+  const t = useTicketStore.getState();
+  if (t.stats && t.facet === "tag") {
+    const r = periodRange(t.period);
+    const ctx: ViewCtx = { accById: t.accById, catById: t.catById, curByCode: t.curByCode, ...routeCtx(useNodeStore.getState().routes), ...tagCtx() };
+    useTicketStore.setState({ stats: { ...t.stats, breakdown: breakdown(t.statsEntries, r, "tag", t.facetKind, ctx) } });
+  }
+  if (t.results !== null && ((t.filter.tagKeys ?? []).length > 0 || keywordTokens(t.filter.text).length > 0)) void t.patchFilter({});
 });

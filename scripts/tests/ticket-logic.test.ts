@@ -4,9 +4,9 @@
  * 放 `scripts/` 而不是 `src/`：tsconfig 的 include 只有 src，不會去找 node:test 的型別。
  *
  * 時區：測資一律用 `new Date(y, m-1, d, h, mi)` 造本地時刻，不寫 UTC 字面值。
- * fixture dump 的名稱用樣本格式文件已公開的帳戶／分類名，金額一律合成。
+ * 測資名稱用樣本格式文件已公開的帳戶／分類名，金額一律合成。
  *
- * Stage 0（甲席）：A～K 共 50 條。Stage 1 補 17b／17c：repository 層（memory 與 sqlite 兩個實作）——
+ * Stage 0（甲席）：A～I（J 匯入、K solveAdjustSigns 隨「從財務管家匯入」拿掉）。Stage 1 補 17b／17c：repository 層（memory 與 sqlite 兩個實作）——
  * 用 `module.registerHooks` 把 `src/` 裡沒寫副檔名的相對 import 補上 `.ts`，並把 `../lib/db`、`./syncRepository`、
  * `@tauri-apps/api/core` 換成測試替身（data: URL）；sqlite 實作跑在 `node:sqlite` 記憶體 DB 上（套真的 0007 DDL、
  * 開外鍵），`runWriteBatch` 替身＝一個交易逐句執行＋把 op 收進陣列，讓測試看得到 op 的 cols。
@@ -65,26 +65,21 @@ import {
   buildEntryRow,
   catKey,
   categoryLabel,
-  categoryTree,
+  categoryForest,
   convertMinor,
   currencyCode,
   dayLabel,
   daySubtotalText,
   defaultAccountId,
-  defaultChoices,
   deriveAmounts,
   draftToInput,
   effectiveParentId,
   frequentAccountIds,
   frequentCategoryIds,
   groupByDay,
-  importRate,
   matchAccount,
   matchCategories,
-  materializeImport,
   minorFromDecimal,
-  missingText,
-  mmSummary,
   moneyText,
   monthRange,
   monthSum,
@@ -93,11 +88,9 @@ import {
   parseQuickEntry,
   parseRate,
   planAdjust,
-  planImport,
   quickToast,
   rowAmount,
   serialOf,
-  solveAdjustSigns,
   ticketId,
   uuidV5,
   type AccountRow,
@@ -107,9 +100,6 @@ import {
   type EntryCtx,
   type EntryDraft,
   type EntryRow,
-  type ImportLocal,
-  type MmbakDump,
-  type MmTx,
   type NewEntryInput,
   type QuickCtx,
 } from "../../src/domain/ticket.ts";
@@ -576,15 +566,15 @@ describe("H. 分類與帳戶", () => {
     assert.deepEqual(names(""), []);
   });
 
-  test("32. categoryTree：未分類最後、封存隱藏；categoryLabel 三種", () => {
+  test("32. categoryForest：未分類最後、封存隱藏；categoryLabel 三種", () => {
     const cats = demoCats().map((c) => (c.id === "c:🚖 交通" ? { ...c, archived_at: NOW } : c));
-    const t = categoryTree(cats, "expense", { includeArchived: false });
-    assert.equal(t[t.length - 1].parent.id, UNCAT_EXPENSE_ID);
-    assert.ok(!t.some((x) => x.parent.id === "c:🚖 交通"));
-    assert.ok(!t.some((x) => x.children.some((k) => k.parent_id === "c:🚖 交通")));
-    const all = categoryTree(cats, "expense", { includeArchived: true });
-    assert.equal(all.find((x) => x.parent.id === "c:🚖 交通")?.children.length, 2);
-    assert.deepEqual(t[0].children.map((c) => c.name), ["早餐", "午餐", "晚餐", "宵夜", "點心", "飲料"]);
+    const t = categoryForest(cats, "expense", { includeArchived: false });
+    assert.equal(t[t.length - 1].cat.id, UNCAT_EXPENSE_ID);
+    assert.ok(!t.some((x) => x.cat.id === "c:🚖 交通"));
+    assert.ok(!t.some((x) => x.children.some((k) => k.cat.parent_id === "c:🚖 交通")));
+    const all = categoryForest(cats, "expense", { includeArchived: true });
+    assert.equal(all.find((x) => x.cat.id === "c:🚖 交通")?.children.length, 2);
+    assert.deepEqual(t[0].children.map((c) => c.cat.name), ["早餐", "午餐", "晚餐", "宵夜", "點心", "飲料"]);
     const byIdCats = byId(cats);
     assert.equal(categoryLabel(byIdCats["c:🍜 食物/午餐"], byIdCats), "🍜 食物 › 午餐");
     assert.equal(categoryLabel(byIdCats["c:🍜 食物"], byIdCats), "🍜 食物");
@@ -659,407 +649,6 @@ describe("I. parseQuickEntry", () => {
   });
 });
 
-/* ═════════════════════════ J. 匯入 ═════════════════════════ */
-
-/** fixture：7 帳戶（含兩個悠遊卡）、兩層分類（1 個被指到的已刪、1 個沒被指到的已刪）、TWD／USD／CNY、
- *  30 筆交易（3 對轉帳＋1 條缺腿、4 筆差別、1 筆孤兒、1 筆 USD）＋1 筆已刪交易 */
-function fixtureDump(): MmbakDump {
-  const groups = ["現金", "帳戶", "信用卡", "扣帳卡", "定期存款", "電子貨幣", "投資", "信用額度", "貸款", "保險", "其他"].map((name, i) => ({
-    uid: `g${i + 1}`, type_code: i + 1, name,
-  }));
-  const G = (name: string) => groups.find((g) => g.name === name)!.uid;
-  const accounts = [
-    ["a1", "現金", "現金"], ["a2", "帳戶", "帳戶"], ["a3", "學生證", "帳戶"], ["a4", "出借貸款", "投資"],
-    ["a5", "悠遊卡", "帳戶"], ["a6", "悠遊卡", "扣帳卡"], ["a7", "信用卡", "信用卡"],
-  ].map(([uid, name, g]) => ({ uid, name, group_uid: G(g), currency_uid: "c1", is_del: false }));
-  const C = (uid: string, type: number, name: string, parent: string | null, isDel = false) => ({
-    uid, type_code: type, name, parent_uid: parent, status: parent ? 2 : 0, is_del: isDel,
-  });
-  const categories = [
-    C("ci1", 0, "💴 補貼", null), C("ci2", 0, "💵 生活費", null),
-    C("ce1", 1, "🍜 食物", null), C("ce1a", 1, "午餐", "ce1"), C("ce1b", 1, "晚餐", "ce1"),
-    C("ce2", 1, "🚖 交通", null), C("ce2a", 1, "捷運", "ce2"),
-    C("cdel1", 1, "🎮 舊遊戲", null, true), C("cdel2", 1, "舊分類", "ce2", true),
-  ];
-  const txs: MmTx[] = [];
-  const T = (uid: string, do_type: string, asset: string, money: string, day: number, extra: Partial<MmTx> = {}) =>
-    txs.push({
-      uid, do_type, asset_uid: asset, to_asset_uid: null, tx_uid_trans: null, ctg_uid: null, zmoney: money, in_zmoney: money, currency_uid: "c1",
-      wdate: `2026-09-${String(day).padStart(2, "0")}`, zdate: String(new Date(2026, 8, day, 12, 30).getTime()), content: "",
-      utime: 1759276800000, is_del: false, ...extra,
-    });
-  T("t1", "0", "a2", "3000", 1, { ctg_uid: "ci1" });
-  T("t2", "0", "a2", "2000", 15, { ctg_uid: "ci2" });
-  const ex: [string, string, number, string][] = [
-    ["a1", "120", 2, "ce1a"], ["a1", "80", 3, "ce1a"], ["a1", "200", 3, "ce1b"], ["a3", "25", 4, "ce2a"], ["a3", "25", 5, "ce2a"],
-    ["a1", "150", 6, "ce1b"], ["a1", "90", 7, "ce1a"], ["a2", "450", 8, "cdel1"], ["a5", "30", 9, "ce2a"], ["a1", "60", 10, "ce1"],
-    ["a3", "25", 11, "ce2a"], ["a1", "110", 12, "ce1a"], ["a1", "70", 13, "ce1b"], ["a2", "300", 14, "ce2"], ["a1", "40", 16, "ce1a"],
-  ];
-  ex.forEach(([a, m, d, c], i) => T(`e${i + 1}`, "1", a, m, d, { ctg_uid: c, content: i === 0 ? "便當" : "" }));
-  T("o1", "1", "a1", "99", 17, { ctg_uid: "cmissing" });
-  // 財務管家語意：ZMONEY＝帳戶幣別（TWD）額、IN_ZMONEY＝原幣（USD）額；ZMONEY / IN_ZMONEY ＝ 備份匯率
-  T("u1", "1", "a2", "315.5", 18, { ctg_uid: "ce1b", currency_uid: "c2", in_zmoney: "10" });
-  const tr = (key: string, from: string, to: string, money: string, day: number) => {
-    T(`${key}-3`, "3", from, money, day, { to_asset_uid: to, tx_uid_trans: key, content: "儲值" });
-    T(`${key}-4`, "4", to, money, day, { to_asset_uid: from, tx_uid_trans: key });
-  };
-  tr("tr1", "a2", "a3", "500", 5);
-  tr("tr2", "a2", "a1", "1000", 10);
-  tr("tr3", "a1", "a5", "300", 20);
-  T("m1", "3", "a2", "200", 21, { to_asset_uid: "a3", tx_uid_trans: "tr-lonely" });
-  T("d1", "7", "a1", "120", 22);
-  T("d2", "8", "a1", "37", 23);
-  T("d3", "7", "a2", "1500", 24);
-  T("d4", "8", "a4", "2000", 25);
-  T("x1", "1", "a1", "60", 26, { ctg_uid: "ce1a", is_del: true });
-  return {
-    file_name: "fixture.mmbak",
-    currencies: [
-      { uid: "c1", iso: "TWD", is_main: true, rate: "1", decimals: 2 },
-      { uid: "c2", iso: "USD", is_main: false, rate: "31.549671", decimals: 2 },
-      { uid: "c3", iso: "CNY", is_main: false, rate: "4.35", decimals: 2 },
-    ],
-    groups,
-    accounts,
-    categories,
-    transactions: txs,
-  };
-}
-
-/** 本機只有起手三列（＋可選的列） */
-function emptyLocal(extra: Partial<ImportLocal> = {}): ImportLocal {
-  return {
-    currencies: [{ ...TWD, id: CURRENCY_TWD_ID }, ...(extra.currencies ?? [])],
-    accounts: extra.accounts ?? [],
-    categories: [cat(UNCAT_INCOME_ID, "income", "未分類", null, 9999), cat(UNCAT_EXPENSE_ID, "expense", "未分類", null, 9999), ...(extra.categories ?? [])],
-    entries: extra.entries ?? [],
-  };
-}
-
-const mmId = (uid: string) => ticketId("moneymanager:" + uid);
-const plan0 = (local = emptyLocal(), balanceText: Record<string, string> = {}, dump = fixtureDump()) =>
-  planImport(dump, local, { balanceText, nowIso: NOW });
-
-describe("J. 匯入", () => {
-  test("40. mmSummary：帳戶 7、交易＝未刪原始列數、分類＝用到的、日期範圍", () => {
-    assert.deepEqual(mmSummary(fixtureDump()), { accounts: 7, categories: 8, transactions: 30, from: "2026-09-01", to: "2026-09-25" });
-  });
-
-  test("40b. mmSummary「分類 N」口徑定案（契約 0-24）：只算存在的分類、孤兒 uid 不算、收支跨類型去重", () => {
-    const base = fixtureDump();
-    // 孤兒：fixture 的 o1 指到不存在的 "cmissing"（支出）——8 裡本來就不含它
-    assert.ok(base.transactions.some((t) => t.ctg_uid === "cmissing" && !t.is_del));
-    assert.ok(!base.categories.some((c) => c.uid === "cmissing"));
-    assert.equal(mmSummary(base).categories, 8);
-    // 孤兒再出現在收入一次也不算（不是「收支各算一次」＝不是 +2）
-    const d = fixtureDump();
-    d.transactions.push({ ...d.transactions.find((t) => t.uid === "o1")!, uid: "o2", do_type: "0" });
-    assert.equal(mmSummary(d).categories, 8);
-    // 同一個存在的分類 uid 同時出現在收入與支出 ⇒ 只算 1（跨類型去重）
-    const e = fixtureDump();
-    e.transactions.push({ ...e.transactions.find((t) => t.uid === "e1")!, uid: "e1-inc", do_type: "0" });
-    assert.equal(mmSummary(e).categories, 8);
-    // 已刪除的交易不帶入
-    const f = fixtureDump();
-    f.transactions.push({ ...f.transactions.find((t) => t.uid === "e1")!, uid: "ghost", do_type: "0", ctg_uid: "ci1", is_del: true });
-    assert.equal(mmSummary(f).categories, 8);
-  });
-
-  test("41. 帳戶：確定性 id、兩個悠遊卡分開、本機同名同群組同幣別的手記帳戶 ⇒ 對到它", () => {
-    const p = plan0();
-    assert.equal(p.accounts.length, 7);
-    assert.equal(p.accountIdOf.a5, mmId("a5"));
-    assert.notEqual(p.accountIdOf.a5, p.accountIdOf.a6);
-    assert.deepEqual([p.accounts[4].group_key, p.accounts[5].group_key], ["bank", "debit"]);
-    assert.equal(p.accounts[3].group_key, "investment"); // 出借貸款（0-19）
-    const manual = acc("my-cash", "現金", "cash");
-    const q = plan0(emptyLocal({ accounts: [manual] }));
-    assert.equal(q.accountIdOf.a1, "my-cash");
-    assert.equal(q.accounts.length, 6);
-  });
-
-  test("42. 分類：現用樹全建（父先子後）、被指到的已刪分類建並封存、沒被指到的不建、孤兒 ⇒ 未分類", () => {
-    const p = plan0();
-    assert.deepEqual(p.categories.map((c) => c.name), ["💴 補貼", "💵 生活費", "🍜 食物", "🚖 交通", "🎮 舊遊戲", "午餐", "晚餐", "捷運"]);
-    assert.equal(p.categories.find((c) => c.name === "🎮 舊遊戲")?.archived_at, NOW);
-    assert.equal(p.categories.find((c) => c.name === "午餐")?.parent_id, mmId("ce1"));
-    assert.ok(!p.categories.some((c) => c.name === "舊分類"));
-    const orphan = p.entries.inserts.find((e) => e.import_id === "o1");
-    assert.equal(orphan?.category_id, UNCAT_EXPENSE_ID);
-  });
-
-  test("43. 轉帳：3 對合成 3 筆、id、轉出轉入、缺腿進 invalid", () => {
-    const p = plan0();
-    const trs = p.entries.inserts.filter((e) => e.kind === "transfer");
-    assert.equal(trs.length, 3);
-    const t1 = trs.find((e) => e.id === ticketId("moneymanager:transfer:tr1"));
-    assert.ok(t1);
-    assert.deepEqual([t1.account_id, t1.to_account_id, t1.amount_minor, t1.to_amount_minor, t1.import_id, t1.note], [mmId("a2"), mmId("a3"), 50000, 50000, "transfer:tr1", "儲值"]);
-    assert.deepEqual(p.entries.invalid, [{ uid: "m1", reason: "轉帳資料不完整（缺轉出或轉入紀錄）" }]);
-    assert.equal(p.entries.inserts.length, 30 - 6 + 3 - 1);
-  });
-
-  test("44. occurred_on＝wdate、occurred_at＝ISO(zdate)；USD 用備份匯率（本機匯率不同時仍用備份的）", () => {
-    const local = emptyLocal({ currencies: [{ ...USD, rate_to_main: "30" }] });
-    const p = plan0(local);
-    const e1 = p.entries.inserts.find((e) => e.import_id === "e1")!;
-    assert.equal(e1.occurred_on, "2026-09-02");
-    assert.equal(e1.occurred_at, new Date(2026, 8, 2, 12, 30).toISOString());
-    assert.equal(e1.note, "便當");
-    const u1 = p.entries.inserts.find((e) => e.import_id === "u1")!;
-    assert.deepEqual([u1.currency, u1.amount_minor, u1.main_minor, u1.account_minor], ["USD", 1000, 31550, 31550]);
-    assert.ok(!p.currencies.some((c) => c.code === "USD")); // 本機已有 ⇒ 不新建
-    assert.ok(p.currencies.some((c) => c.code === "CNY"));
-  });
-
-  test("44a. 外幣列：ZMONEY 已是帳戶幣別額、IN_ZMONEY 才是原幣額——不再把 ZMONEY 換算第二次（回歸）", () => {
-    const mk = (uid: string, money: string, inMoney: string | null, cur = "c2", day = 19): MmTx => ({
-      uid, do_type: "1", asset_uid: "a2", to_asset_uid: null, tx_uid_trans: null, ctg_uid: "ce1a", zmoney: money, in_zmoney: inMoney,
-      currency_uid: cur, wdate: `2026-09-${day}`, zdate: String(new Date(2026, 8, day, 9, 0).getTime()), content: "",
-      utime: 1759276800000, is_del: false,
-    });
-    const before = balancesOf(plan0().entries.inserts)[mmId("a2")];
-    const balAfter = (d: MmbakDump) => balancesOf(plan0(undefined, {}, d).entries.inserts)[mmId("a2")];
-
-    // 100 USD 花在 TWD 帳戶：備份 ZMONEY＝3155.0（TWD）、IN_ZMONEY＝100.0（USD）、匯率 31.55
-    const d1 = fixtureDump();
-    d1.currencies.find((c) => c.uid === "c2")!.rate = "31.55";
-    d1.transactions.push(mk("fx1", "3155.0", "100.0"));
-    const e1 = plan0(undefined, {}, d1).entries.inserts.find((e) => e.import_id === "fx1")!;
-    assert.deepEqual(
-      [e1.currency, e1.amount_minor, e1.account_minor, e1.main_minor],
-      ["USD", 10000, 315500, 315500],
-    );
-    assert.equal(balAfter(d1) - before, -315500); // 舊程式會多換算一次、約 −99,540 元
-
-    // TWD 列不變（IN_ZMONEY＝ZMONEY；同幣別不看 IN_ZMONEY，連它是 null 也一樣）
-    const d2 = fixtureDump();
-    d2.transactions.push(mk("tw1", "250.5", "250.5", "c1"), mk("tw2", "10", null, "c1", 20));
-    const p2 = plan0(undefined, {}, d2);
-    const tw1 = p2.entries.inserts.find((e) => e.import_id === "tw1")!;
-    assert.deepEqual([tw1.currency, tw1.amount_minor, tw1.account_minor, tw1.main_minor], ["TWD", 25050, 25050, 25050]);
-    const tw2 = p2.entries.inserts.find((e) => e.import_id === "tw2")!;
-    assert.deepEqual([tw2.currency, tw2.amount_minor, tw2.account_minor, tw2.main_minor], ["TWD", 1000, 1000, 1000]);
-
-    // IN_ZMONEY 缺（null／空字串／看不懂／0）的外幣列 ⇒ 保守退回記成帳戶幣別，餘額照樣對
-    for (const bad of [null, "", "abc", "0"]) {
-      const d3 = fixtureDump();
-      d3.currencies.find((c) => c.uid === "c2")!.rate = "31.55";
-      d3.transactions.push(mk("fx2", "3155.0", bad));
-      const e3 = plan0(undefined, {}, d3).entries.inserts.find((e) => e.import_id === "fx2")!;
-      assert.deepEqual([e3.currency, e3.amount_minor, e3.account_minor, e3.main_minor], ["TWD", 315500, 315500, 315500], `in_zmoney=${bad}`);
-      assert.equal(balAfter(d3) - before, -315500);
-    }
-  });
-
-  test("45. 差別：A／B／solved／default（解不出 ok:false、都沒填 ok:null）；plus／minus", () => {
-    // 不含差別的基礎：a1 −31900、a2 243450、a4 0（見 fixtureDump 的金額）
-    const A = plan0(undefined, { a1: "-236", a2: "3934.5", a4: "-2000" });
-    assert.deepEqual(A.adjust, { total: 4, plus: 2, minus: 2, rule: "A" });
-    assert.ok(A.checks.filter((c) => c.inputMinor !== null).every((c) => c.ok === true));
-    const B = plan0(undefined, { a1: "-402", a2: "934.5", a4: "2000" });
-    assert.equal(B.adjust.rule, "B");
-    const S = plan0(undefined, { a1: "-236", a2: "934.5" });
-    assert.equal(S.adjust.rule, "solved");
-    assert.deepEqual(S.checks.filter((c) => c.inputMinor !== null).map((c) => c.ok), [true, true]);
-    const d3 = S.entries.inserts.find((e) => e.import_id === "d3")!;
-    assert.equal(d3.amount_minor, -150000);
-    const D = plan0(undefined, { a1: "-300" });
-    assert.equal(D.adjust.rule, "default");
-    assert.equal(D.checks.find((c) => c.mmUid === "a1")?.ok, false);
-    const N = plan0();
-    assert.equal(N.adjust.rule, "default");
-    assert.ok(N.checks.every((c) => c.ok === null));
-    assert.equal(N.checks.length, 7);
-    assert.equal(N.checks.find((c) => c.mmUid === "a1")?.computedMinor, -23600); // 預設 A
-  });
-
-  test("46. 重跑：照第一次結果 ⇒ 0／0；改一筆 ⇒ changed 1；墓碑；本機改備註不覆寫；本機手記 ⇒ extraLocal", () => {
-    const local = emptyLocal();
-    const p = plan0(local);
-    const m = materializeImport(p, defaultChoices(p), NOW);
-    const local2: ImportLocal = {
-      currencies: [...local.currencies, ...p.currencies],
-      accounts: [...local.accounts, ...p.accounts],
-      categories: [...local.categories, ...p.categories],
-      entries: m.entryInserts,
-    };
-    const again = plan0(local2);
-    assert.equal(again.entries.inserts.length, 0);
-    assert.equal(again.entries.changed.length, 0);
-    assert.equal(again.currencies.length + again.accounts.length + again.categories.length, 0);
-
-    const dump2 = fixtureDump();
-    const t = dump2.transactions.find((x) => x.uid === "e2")!;
-    t.utime += 1;
-    t.content = "改過的備註";
-    const bumped = plan0(local2, {}, dump2);
-    assert.equal(bumped.entries.changed.length, 1);
-    assert.ok(bumped.entries.changed[0].cols.includes("note"));
-    assert.deepEqual(defaultChoices(bumped), { [mmId("e2")]: "theirs" });
-
-    const tomb = { ...local2, entries: local2.entries.map((e) => (e.import_id === "e3" ? { ...e, deleted_at: NOW } : e)) };
-    const pt = plan0(tomb);
-    assert.equal(pt.entries.tombstoned, 1);
-    assert.ok(!pt.entries.inserts.some((e) => e.import_id === "e3"));
-
-    const edited = { ...local2, entries: local2.entries.map((e) => (e.import_id === "e4" ? { ...e, note: "我自己改的" } : e)) };
-    const pe = plan0(edited);
-    assert.equal(pe.entries.changed.length, 0);
-
-    const extra = { ...local2, entries: [...local2.entries, entry({ id: "mine", account_id: mmId("a1") })] };
-    assert.equal(plan0(extra).extraLocal, 1);
-  });
-
-  test("47. materializeImport：update cols 不含 route_id；選 ours ⇒ 不寫、計入 keptLocal", () => {
-    const local = emptyLocal();
-    const p = plan0(local);
-    const m = materializeImport(p, {}, NOW);
-    const local2: ImportLocal = {
-      currencies: [...local.currencies, ...p.currencies],
-      accounts: p.accounts,
-      categories: [...local.categories, ...p.categories],
-      entries: m.entryInserts.map((e) => (e.import_id === "e2" ? { ...e, route_id: "route-1" } : e)),
-    };
-    const dump2 = fixtureDump();
-    const t = dump2.transactions.find((x) => x.uid === "e2")!;
-    t.utime += 1;
-    t.content = "改過的備註";
-    const b = plan0(local2, {}, dump2);
-    const theirs = materializeImport(b, defaultChoices(b), NOW);
-    assert.equal(theirs.entryUpdates.length, 1);
-    assert.ok(!("route_id" in theirs.entryUpdates[0].cols));
-    assert.equal(theirs.entryUpdates[0].cols.note, "改過的備註");
-    assert.equal(theirs.entryUpdates[0].cols.import_utime, t.utime);
-    const ours = materializeImport(b, { [mmId("e2")]: "ours" }, NOW);
-    assert.deepEqual([ours.entryUpdates.length, ours.keptLocal], [0, 1]);
-    // 選 ours ⇒ 只送一個記號 update：import_utime＝這次備份的 UTIME＋updated_at，不碰內容欄
-    assert.deepEqual(ours.entryKept, [{ id: mmId("e2"), cols: { import_utime: t.utime, updated_at: NOW } }]);
-    assert.deepEqual(theirs.entryKept, []);
-  });
-
-  test("48. 主幣別不是 TWD ⇒ unsupported 逐字；missingText 兩種格式", () => {
-    const d = fixtureDump();
-    d.currencies = d.currencies.map((c) => ({ ...c, is_main: c.iso === "USD" }));
-    assert.equal(plan0(undefined, {}, d).unsupported, "這個備份的主幣別是 USD，Next Stop 目前只支援新台幣");
-    assert.equal(plan0().unsupported, null);
-    assert.equal(missingText(["ASSETS"]), "ASSETS 表");
-    assert.equal(missingText(["INOUTCOME.txUidTrans"]), "INOUTCOME.txUidTrans 欄");
-    assert.equal(missingText(["A", "B", "C.d", "E"]), "A 表、B 表、C.d 欄等");
-  });
-
-  test("49. 決定性：交易順序打亂 10 次 ⇒ planImport 輸出 deepEqual", () => {
-    const want = plan0(undefined, { a1: "-236" });
-    let s = 7;
-    const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
-    for (let k = 0; k < 10; k++) {
-      const d = fixtureDump();
-      const arr = d.transactions;
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(rnd() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-      assert.deepEqual(plan0(undefined, { a1: "-236" }, d), want);
-    }
-  });
-
-  /* ── 修正席 10-12（評審 must／should）── */
-
-  test("43b. 跨幣別轉帳（腿 3 幣別 ≠ 轉出帳戶）⇒ 存成轉出帳戶幣別；之後只改備註 cols 只有 note＋updated_at", () => {
-    const d = fixtureDump();
-    d.accounts.push({ uid: "a8", name: "美金帳", group_uid: "g2", currency_uid: "c2", is_del: false });
-    d.transactions.push(
-      { uid: "x-3", do_type: "3", asset_uid: "a2", to_asset_uid: "a8", tx_uid_trans: "trx", ctg_uid: null, zmoney: "10", in_zmoney: "10", currency_uid: "c2",
-        wdate: "2026-09-19", zdate: String(new Date(2026, 8, 19, 9, 0).getTime()), content: "換匯", utime: 1759276800000, is_del: false },
-      { uid: "x-4", do_type: "4", asset_uid: "a8", to_asset_uid: "a2", tx_uid_trans: "trx", ctg_uid: null, zmoney: "10", in_zmoney: "10", currency_uid: "c2",
-        wdate: "2026-09-19", zdate: String(new Date(2026, 8, 19, 9, 0).getTime()), content: "", utime: 1759276800000, is_del: false },
-    );
-    const p = plan0(undefined, {}, d);
-    const t = p.entries.inserts.find((e) => e.import_id === "transfer:trx")!;
-    // TWD 帳戶轉 10 USD（備份匯率 31.549671）⇒ TWD 315.50；轉入 USD 帳戶 10
-    assert.deepEqual([t.currency, t.amount_minor, t.account_minor, t.main_minor, t.to_amount_minor], ["TWD", 31550, 31550, 31550, 1000]);
-    const usd8 = p.accounts.find((a) => a.id === mmId("a8"))!;
-    assert.equal(usd8.currency, "USD");
-    const ctx = ctxOf([...p.accounts], demoCats(), [TWD, USD]);
-    const r = applyEntryPatch(t, { note: "換匯（改）" }, ctx, NOW);
-    assert.deepEqual(Object.keys(r.cols).sort(), ["note", "updated_at"]);
-    // 防線：舊列若幣別不是轉出帳戶的，只改備註不准偷換幣別（擋下而不是改錯）
-    throwsMsg(() => applyEntryPatch({ ...t, currency: "USD", amount_minor: 1000 }, { note: "x" }, ctx, NOW), "轉帳幣別會跟著轉出帳戶");
-  });
-
-  test("44b. 匯率超過 10 位小數 ⇒ 半進位到 10 位；看不懂的匯率不退回主幣別、帳戶與帳進 invalid", () => {
-    assert.equal(importRate("0.210526315789474"), "0.2105263158");
-    assert.equal(importRate("31.549671"), "31.549671");
-    assert.equal(importRate("1.234e-5"), "0.00001234");
-    assert.equal(importRate("4.350"), "4.35");
-    throwsMsg(() => importRate("0.00000000001"), "匯率要大於 0");
-    throwsMsg(() => importRate("abc"), "匯率要大於 0");
-
-    const d = fixtureDump();
-    d.currencies.push({ uid: "c4", iso: "JPY", is_main: false, rate: "0.210526315789474", decimals: 0 });
-    d.accounts.push({ uid: "a9", name: "日圓錢包", group_uid: "g1", currency_uid: "c4", is_del: false });
-    d.transactions.push({
-      uid: "j1", do_type: "1", asset_uid: "a9", to_asset_uid: null, tx_uid_trans: null, ctg_uid: "ce1a", zmoney: "500", in_zmoney: "500", currency_uid: null,
-      wdate: "2026-09-19", zdate: String(new Date(2026, 8, 19, 9, 0).getTime()), content: "", utime: 1759276800000, is_del: false,
-    });
-    const p = plan0(undefined, {}, d);
-    assert.equal(p.accounts.find((a) => a.id === mmId("a9"))?.currency, "JPY");
-    const j1 = p.entries.inserts.find((e) => e.import_id === "j1")!;
-    assert.deepEqual([j1.currency, j1.amount_minor, j1.main_minor], ["JPY", 500, 10526]);
-
-    const bad = fixtureDump();
-    bad.currencies.push({ uid: "c4", iso: "JPY", is_main: false, rate: "0", decimals: 0 });
-    bad.accounts.push({ uid: "a9", name: "日圓錢包", group_uid: "g1", currency_uid: "c4", is_del: false });
-    bad.transactions.push({ ...d.transactions[d.transactions.length - 1] });
-    const q = plan0(undefined, {}, bad);
-    assert.ok(!q.accounts.some((a) => a.name === "日圓錢包"));
-    assert.ok(!q.entries.inserts.some((e) => e.import_id === "j1"));
-    assert.deepEqual(q.entries.invalid.find((x) => x.uid === "j1"), { uid: "j1", reason: "不支援這個幣別" });
-  });
-
-  test("46b. 第一次按名稱對上手建帳戶／分類，主人改名後重跑 ⇒ 沿用原對應、不多建", () => {
-    const manualAcc = acc("my-cash", "現金", "cash");
-    const manualCat = cat("my-food", "expense", "🍜 食物", null, 0);
-    const local = emptyLocal({ accounts: [manualAcc], categories: [manualCat] });
-    const p = plan0(local);
-    assert.equal(p.accountIdOf.a1, "my-cash");
-    assert.ok(!p.categories.some((c) => c.name === "🍜 食物"));
-    const m = materializeImport(p, defaultChoices(p), NOW);
-    const local2: ImportLocal = {
-      currencies: [...local.currencies, ...p.currencies],
-      accounts: [{ ...manualAcc, name: "皮夾" }, ...p.accounts],
-      categories: [...local.categories.map((c) => (c.id === "my-food" ? { ...c, name: "吃飯" } : c)), ...p.categories],
-      entries: m.entryInserts,
-    };
-    const dump2 = fixtureDump();
-    dump2.transactions.push({ ...dump2.transactions.find((x) => x.uid === "e1")!, uid: "e99", wdate: "2026-09-19", ctg_uid: "ce1" });
-    const again = plan0(local2, {}, dump2);
-    assert.deepEqual(again.accounts, []);
-    assert.deepEqual(again.categories, []);
-    assert.equal(again.accountIdOf.a1, "my-cash");
-    const e99 = again.entries.inserts.find((e) => e.import_id === "e99")!;
-    assert.deepEqual([e99.account_id, e99.category_id], ["my-cash", "my-food"]);
-  });
-});
-
-/* ═════════════════════════ K. solveAdjustSigns ═════════════════════════ */
-
-describe("K. solveAdjustSigns", () => {
-  test("50. 唯一解／多解／無解／超過上限／空陣列", () => {
-    assert.deepEqual(solveAdjustSigns([5, 3, 2], 4), [1, -1, 1]);
-    assert.equal(solveAdjustSigns([1, 1], 0), null);
-    assert.equal(solveAdjustSigns([5], 3), null);
-    assert.equal(solveAdjustSigns(new Array(23).fill(1), 1), null);
-    assert.deepEqual(solveAdjustSigns([], 0), []);
-    assert.equal(solveAdjustSigns([], 5), null);
-    const amounts = [101, 203, 307, 401, 503, 601, 701, 809, 907, 1009, 1103, 1201, 1301, 1409, 1511, 1601, 1709, 1801, 1901, 2003, 2111, 2203];
-    const signs = amounts.map((_, i) => (i % 3 === 0 ? -1 : 1) as 1 | -1);
-    const need = amounts.reduce((s, a, i) => s + signs[i] * a, 0);
-    const got = solveAdjustSigns(amounts, need);
-    if (got) assert.equal(got.reduce((s, x, i) => s + x * amounts[i], 0), need); // 22 筆：有解就要對得上
-  });
-});
-
 /* ═════════════════════════ E2. repository 層（memory／sqlite 兩個實作；Stage 1） ═════════════════════════ */
 
 /** node:sqlite 記憶體 DB＋plugin-sql 形狀的轉接（select／execute 用 `$1..$n`）；`runBatch`＝一個交易＋收 op */
@@ -1106,13 +695,6 @@ function rustCols(name: string): string[] {
   assert.ok(m, `ticket.rs 找不到 ${name}`);
   return Array.from(m[1].matchAll(/\("(\w+)",/g), (x) => x[1]);
 }
-
-/** 第③階段 applyImport 多一個 part（③契約 §3.4）；①的匯入測試不帶預算／規則 */
-const EMPTY_PART = {
-  budgets: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [], overrides: 0, scopes: 0 },
-  repeats: { inserts: [], updates: [], unchanged: 0, tombstoned: 0, invalid: [] },
-  missing: [],
-};
 
 const rejectsMsg = (p: Promise<unknown>, msg: string) =>
   assert.rejects(p, (e: unknown) => e instanceof RangeError && e.message === msg, `應丟「${msg}」`);
@@ -1189,7 +771,9 @@ describe("E2. repository 層（memory／sqlite）", () => {
       await rejectsMsg(repo.createCategory({ kind: "expense", name: "  ", parentId: null }), "分類名稱不能是空的");
       const food = await repo.createCategory({ kind: "expense", name: "🍜 食物", parentId: null });
       const lunch = await repo.createCategory({ kind: "expense", name: "午餐", parentId: food.id });
-      await rejectsMsg(repo.createCategory({ kind: "expense", name: "便當", parentId: lunch.id }), "分類只有兩層");
+      // 售票口④ 第二輪（D-票-78）：不限層數——第三層建得起來（原本是「分類只有兩層」）；封存的分類底下不能建
+      const bento = await repo.createCategory({ kind: "expense", name: "便當", parentId: lunch.id });
+      assert.equal(bento.parent_id, lunch.id);
       await rejectsMsg(repo.createCategory({ kind: "income", name: "x", parentId: food.id }), "這個分類不屬於目前的收支類型");
       await rejectsMsg(repo.createCategory({ kind: "expense", name: "x", parentId: UNCAT_EXPENSE_ID }), "「未分類」下面不能建子分類");
       await rejectsMsg(repo.renameCategory(UNCAT_EXPENSE_ID, "雜項"), "「未分類」不能改名或封存");
@@ -1202,7 +786,7 @@ describe("E2. repository 層（memory／sqlite）", () => {
       await rejectsMsg(repo.updateEntry(e.id, { note: "x" }), "這一筆已經刪除了");
     });
 
-    test(`17c. repository 行為：餘額、清單、刪除復原、調整、排序、封存、匯入重跑（${impl.name}）`, async () => {
+    test(`17c. repository 行為：餘額、清單、刪除復原、調整、排序、封存（${impl.name}）`, async () => {
       const { repo } = await impl.make();
       await repo.ensureStarterRows();
       const cash = await repo.createAccount(newAcc("現金", "cash", "TWD", 100000));
@@ -1230,8 +814,7 @@ describe("E2. repository 層（memory／sqlite）", () => {
         [usdAcc.id]: 0,
       };
       assert.deepEqual(await repo.balances(), want);
-      const local0: ImportLocal = await repo.loadImportLocal();
-      const pure = balancesOf(local0.entries);
+      const pure = balancesOf(await repo.listEntries("0000-01-01", "9999-12-31", null));
       for (const id of Object.keys(want)) assert.equal(pure[id] ?? 0, want[id], "SQL 聚合與 balancesOf 同義（§3.5-3）");
 
       const cashList: EntryRow[] = await repo.listEntries(REPO_DAY, "2026-10-13", cash.id);
@@ -1293,60 +876,6 @@ describe("E2. repository 層（memory／sqlite）", () => {
       const tops = (await repo.listCategories()).filter((c: CategoryRow) => c.kind === "expense" && c.parent_id === null);
       assert.deepEqual(tops.map((c: CategoryRow) => c.id), [traffic.id, food.id, UNCAT_EXPENSE_ID]);
 
-      // 匯入：第一次全寫、重跑新增 0、import2 已修改 2
-      const { mockImportDump } = await import("../../src/data/memoryTicketRepository.ts");
-      const dump: MmbakDump = mockImportDump("base");
-      const plan = planImport(dump, await repo.loadImportLocal(), { balanceText: {}, nowIso: NOW });
-      const progress: [number, number][] = [];
-      const out = await repo.applyImport(plan, defaultChoices(plan), EMPTY_PART, (d: number, t: number) => progress.push([d, t]));
-      const n = plan.entries.inserts.length;
-      assert.ok(n > 100);
-      assert.deepEqual(out, {
-        inserted: n,
-        updated: 0,
-        skipped: plan.entries.unchanged + plan.entries.tombstoned + plan.entries.invalid.length,
-        budgets: 0,
-        repeats: 0,
-      });
-      assert.deepEqual(progress[0], [0, n]);
-      assert.deepEqual(progress[progress.length - 1], [n, n]);
-      const local1: ImportLocal = await repo.loadImportLocal();
-      assert.equal(local1.entries.filter((x) => x.import_source === "moneymanager").length, n);
-      const again = planImport(dump, local1, { balanceText: {}, nowIso: NOW });
-      assert.deepEqual([again.entries.inserts.length, again.entries.changed.length], [0, 0]);
-      const plan2 = planImport(mockImportDump("import2"), local1, { balanceText: {}, nowIso: NOW });
-      assert.equal(plan2.entries.changed.length, 2);
-      const out2 = await repo.applyImport(plan2, defaultChoices(plan2), EMPTY_PART, () => {});
-      assert.equal(out2.updated, 2);
-      const plan3 = planImport(mockImportDump("import2"), await repo.loadImportLocal(), { balanceText: {}, nowIso: NOW });
-      assert.equal(plan3.entries.changed.length, 0);
-      // 匯入後 SQL 聚合仍與 balancesOf 同義
-      const pure2 = balancesOf((await repo.loadImportLocal()).entries);
-      const sql2: Record<string, number> = await repo.balances();
-      for (const id of Object.keys(sql2)) assert.equal(sql2[id], pure2[id] ?? 0);
-    });
-
-    test(`17e. 匯入「已修改」選留 Next Stop 的 ⇒ 蓋 import_utime 記號、下次重跑不再列、內容不動（${impl.name}）`, async () => {
-      const { repo } = await impl.make();
-      await repo.ensureStarterRows();
-      const { mockImportDump } = await import("../../src/data/memoryTicketRepository.ts");
-      const plan = planImport(mockImportDump("base"), await repo.loadImportLocal(), { balanceText: {}, nowIso: NOW });
-      await repo.applyImport(plan, defaultChoices(plan), EMPTY_PART, () => {});
-      const local1: ImportLocal = await repo.loadImportLocal();
-      const plan2 = planImport(mockImportDump("import2"), local1, { balanceText: {}, nowIso: NOW });
-      assert.equal(plan2.entries.changed.length, 2);
-      const [keep, take] = plan2.entries.changed;
-      const out = await repo.applyImport(plan2, { [keep.id]: "ours", [take.id]: "theirs" }, EMPTY_PART, () => {});
-      assert.equal(out.updated, 1, "留本機的不算 updated");
-      const local2: ImportLocal = await repo.loadImportLocal();
-      const keptRow = local2.entries.find((x) => x.id === keep.id)!;
-      const keptBefore = local1.entries.find((x) => x.id === keep.id)!;
-      assert.equal(keptRow.import_utime, keep.incoming.import_utime, "記號＝這次備份的 UTIME");
-      assert.notEqual(keptRow.updated_at, keptBefore.updated_at);
-      assert.deepEqual({ ...keptRow, import_utime: 0, updated_at: "" }, { ...keptBefore, import_utime: 0, updated_at: "" }, "留本機 ⇒ 內容欄不變");
-      assert.equal(local2.entries.find((x) => x.id === take.id)!.note, take.incoming.note);
-      const plan3 = planImport(mockImportDump("import2"), local2, { balanceText: {}, nowIso: NOW });
-      assert.equal(plan3.entries.changed.length, 0, "同一版重跑不再列為已修改");
     });
 
     test(`17f. 「上一筆帳戶」「最近分類」在 created_at 全同（匯入）時有決定性次序（${impl.name}）`, async () => {
@@ -1544,7 +1073,7 @@ describe("E3. repository：孤兒子分類排序、用量（memory／sqlite）",
       await tombstoneCategory(repo, db, P.id);
 
       const order = async (kind: CategoryKind = "expense") =>
-        categoryTree(await repo.listCategories(), kind, { includeArchived: false }).map((t) => t.parent.id);
+        categoryForest(await repo.listCategories(), kind, { includeArchived: false }).map((t) => t.cat.id);
       // 孤兒 k1、k2 升成主分類（position 0、1 和 A、B 撞號——排序靠 position→created_at→id）
       const before = await order();
       assert.deepEqual(before.filter((id) => id !== UNCAT_EXPENSE_ID).sort(), [A.id, B.id, k1.id, k2.id, Q.id].sort(), "孤兒出現在主分類層");

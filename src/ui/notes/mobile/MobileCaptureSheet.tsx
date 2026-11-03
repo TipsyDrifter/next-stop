@@ -68,7 +68,8 @@ function stubText(k: CaptureStub): { label: string; hint: string } | null {
 export function MobileCaptureSheet() {
   const capture = useNotesStore((s) => s.capture);
   const preset = useNotesStore((s) => s.capturePreset);
-  const routes = useNodeStore((s) => s.routes);
+  // 車庫與回顧 D-主-206 #14：路線前綴只認還在跑的路線
+  const routes = useNodeStore((s) => s.liveRoutes);
   const setCaptureText = useNotesStore((s) => s.setCaptureText);
   const setCaptureStub = useNotesStore((s) => s.setCaptureStub);
   const dismissRoute = useNotesStore((s) => s.dismissRoute);

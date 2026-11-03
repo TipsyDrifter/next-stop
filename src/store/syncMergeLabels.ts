@@ -9,6 +9,7 @@
  */
 import { nodeRepo, syncRepo } from "../data";
 import { tagRepo } from "../data/tagRepo";
+import { weekAimRepo } from "../data/weekAimRepository";
 import { followRename } from "../data/tagRepository";
 import { MOCK_FIRST_TICKET, type MergeCellNow, type MergeNotice } from "../data/syncRepository";
 import { CONFLICT_COL_LABEL, KIND_LABEL, type NodeRow } from "../domain";
@@ -87,6 +88,16 @@ const TAG_COL_LABEL: Readonly<Record<string, string>> = { name: "名稱", name_k
 /** 逐班時刻覆寫的欄名（label 已帶「M/D 那班」，欄名只剩「時刻」就通順：「『票名 10/19 那班』的時刻兩台都改過」） */
 const NTO_COL_LABEL: Readonly<Record<string, string>> = { hhmm: "時刻", due_on: "班次日", node_id: "所屬車票" };
 
+/** 週方針的欄名（戊） */
+const WEEK_AIM_COL_LABEL: Readonly<Record<string, string>> = {
+  text: "內容",
+  node_id: "掛的路線",
+  done_at: "済",
+  position: "順序",
+  week_on: "哪一週",
+  carried_from: "從哪句帶來",
+};
+
 /**
  * 解一列的名字：核心表自己來，三線走插槽；都沒有 ⇒ "fallback"。**永不 throw**。
  *   物件 ⇒ 用它；null ⇒ 「{名詞}（現在找不到了）」；"fallback" ⇒ `fallbackLabel(n)`。
@@ -114,6 +125,12 @@ export async function resolveMergeLabel(
     // 乘務記錄與班次不查列、不可點（它們的主人是那張票；細節在該票的乘務記錄）
     if (n.tbl === "work_logs") return { label: "一筆時間記錄", cols: CONFLICT_COL_LABEL, generic: true };
     if (n.tbl === "occurrences") return { label: "一個班次", cols: CONFLICT_COL_LABEL, generic: true };
+    // 週方針（戊 D-主-263）：「方針「…」」；已刪的照樣給名字（刪改相撞多半是已刪的那句，「不在了」由 gone 判）
+    if (n.tbl === "week_aims") {
+      const aim = await weekAimRepo.getAim(n.row_id, { withDeleted: true });
+      if (!aim) return null;
+      return { label: clipLabel(`方針「${aim.text}」`, 20), cols: WEEK_AIM_COL_LABEL };
+    }
     if (n.tbl === "settings") {
       const known = Object.prototype.hasOwnProperty.call(SETTINGS_LABEL, n.row_id);
       return { label: known ? SETTINGS_LABEL[n.row_id] : "一項設定", cols: SETTINGS_COL_LABEL, generic: !known };

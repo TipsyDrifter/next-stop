@@ -4,7 +4,7 @@
  */
 export type { SyncFields } from "./sync";
 export type { NodeKind, NodeStatus, Priority, Mood, WorkLogEvent, NodeRow, WorkLog, ConflictBody } from "./node";
-export { KIND_LABEL, WORK_LOG_EVENT_LABEL, CONFLICT_COL_LABEL, describeConflict, allowedChildKinds, defaultChildKind, canHaveChildren, isTaskKind } from "./node";
+export { KIND_LABEL, WORK_LOG_EVENT_LABEL, CONFLICT_COL_LABEL, describeConflict, allowedChildKinds, childKindSwaps, BRANCH_CLEARED_FIELDS, defaultChildKind, canHaveChildren, isTaskKind } from "./node";
 export type {
   RepeatMode,
   RepeatFreq,

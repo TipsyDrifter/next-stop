@@ -76,6 +76,7 @@ import { isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection
 import { IconPlus } from "../common/icons";
 import { MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import "../schedule/schedule-mobile.css";
+import { MobileWeekAims } from "../weekAims/MobileWeekAims";
 
 /**
  * 行程表清單的拖曳／多選／滑動（回饋乙）：MobileSchedule 做一份穩定的物件（函式讀 ref 裡的最新狀態），每天的 DragList 吃它。
@@ -518,6 +519,8 @@ export function MobileSchedule() {
         onLayout={onLayout}
         visibleDays={isTime ? tgVisible : null}
       />
+      {/* 週方針（戊 D-主-262）：週條下方一行，看週條那一週 */}
+      <MobileWeekAims day={shownFocus ?? today} />
       <div className="m-sch-main">
         <div
           className={"m-sch-stream" + (isTime ? " is-under" : "")}

@@ -174,10 +174,11 @@
 }
 .ns-outline .ns-outline-titlebtn:hover { border-bottom-color: var(--color-ink-faint); }
 .ns-outline .ns-outline-titlebtn:focus-visible { outline: var(--focus-ring); outline-offset: 3px; border-radius: var(--radius-ctl); }
-/* 聚焦時麵包屑取代眉標：PageHeader 的兩段眉標字收掉（Breadcrumb 由 Outline.tsx portal 進同一個 <p>）。
+/* 麵包屑取代眉標：PageHeader 的兩段眉標字收掉（Breadcrumb 由 Outline.tsx portal 進同一個 <p>）。
    麵包屑兩主題都用正體黑體（粉彩的拉丁斜體套中文會合成假斜體），色沿用眉標（粉彩靛藍、銀河金）；放不下就換行。 */
-.ns-outline .ns-pagehead.is-zoomed .ns-pagehead-overline > .ns-ovl-zh,
-.ns-outline .ns-pagehead.is-zoomed .ns-pagehead-overline > .ns-ovl-latin { display: none; }
+/* 丁 D-主-243：不聚焦也畫麵包屑（「路線圖 › 路線名」，第一段回路線一覽），所以 class 從 .is-zoomed 改成 .is-crumbed */
+.ns-outline .ns-pagehead.is-crumbed .ns-pagehead-overline > .ns-ovl-zh,
+.ns-outline .ns-pagehead.is-crumbed .ns-pagehead-overline > .ns-ovl-latin { display: none; }
 .ns-outline .ns-outline-crumbs {
   display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 .6em; white-space: normal;
   font-family: var(--font-body); font-style: normal; font-weight: 500; font-size: var(--fs-xs);

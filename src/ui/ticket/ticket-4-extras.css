@@ -1,0 +1,46 @@
+/**
+ * 售票口④ 雜項席的樣式（今日頁定期提示、統計「依荷札」）。一律 `.ns-tk-*`；色只用 theme.css token，不得出現色碼字面值。
+ * 由 today/TodayRepeat、view/TicketStats、mobile/MobileTicketStats 各自 import（vite 只注入一次）。
+ * 今日頁不一定載過 ticket.css ⇒ 今日提示的浮層不借 `.ns-tk-pop`（它的變數掛在 `.ns-tk` 底下），直接吃語意層 token。
+ */
+
+/* ═══ 一、今日頁「定期 N 筆 −X」（D-票-72；原型 proto.css 題七）═══ */
+.ns-tk-todayrep-wrap { position: relative; display: inline-block; }
+.ns-tk-todayrep {
+  display: inline; padding: 0; margin: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; letter-spacing: inherit; color: inherit; border-bottom: 1px dotted var(--color-ink-faint);
+}
+.ns-tk-todayrep b { font-weight: 500; color: var(--color-ink); }
+.ns-tk-todayrep:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 浮層：浮層材質（同 .ns-tk-pop 的玻璃），寬 272 照原型 */
+.ns-tk-todaytip {
+  position: absolute; left: -12px; top: calc(100% + 8px); z-index: 30; width: 272px; padding: 8px 10px;
+  display: block; white-space: normal; text-align: left;
+  background: var(--float-bg); -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge); border-radius: 3px; box-shadow: var(--glass-hi), var(--shadow-card-hover); /* 字面值：卡 3px 同 .ns-tk-pop */
+  color: var(--color-ink); font-family: var(--font-body); font-size: var(--fs-ui); font-weight: 400; letter-spacing: .04em;
+}
+/* 滑鼠從字移到浮層要跨 8px 空隙：透明橋接，免得半路收起 */
+.ns-tk-todaytip::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; height: 9px; }
+.ns-tk-todaytip .hd { display: block; padding: 0 0 6px; font-size: 9.5px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：9.5px 同 .ns-tk-pop .hd */
+.ns-tk-todaytip .li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; padding: 6px 0;
+  border-top: 1px dashed var(--color-line); color: var(--color-ink);
+}
+.ns-tk-todaytip .li .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tk-todaytip .li b { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-ui); white-space: nowrap; }
+.ns-tk-todaytip .li small { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+.ns-tk-todaytip .go { display: block; padding-top: 6px; border-top: 1px dashed var(--color-line); font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint); }
+/* 銀河：頁首統計列是手寫字（today.css 把 b 放大到 17.5px），浮層照常用內文字——抬特異度蓋過去，不靠載入順序 */
+[data-theme="dark"] .ns-tk-todayrep-wrap .ns-tk-todaytip .li b { font-weight: 600; font-size: var(--fs-ui); }
+/* 手機：點擊區撐到 44px（上下各外擴，視覺不變） */
+[data-shell="mobile"] .ns-tk-todayrep { position: relative; display: inline-block; line-height: inherit; }
+[data-shell="mobile"] .ns-tk-todayrep::after { content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 44px; transform: translateY(-50%); }
+[data-shell="mobile"] .ns-tk-todayrep:active { background: var(--hover-bg); }
+
+/* ═══ 二、統計「依荷札」（D-票-73）═══ */
+/* 頁上那行說明（VIEW_TEXT.tagNote） */
+.ns-tk-st-tagnote { margin: -2px 0 8px; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-tagnote { margin: 0 0 8px; font-size: var(--fs-micro); line-height: 1.6; letter-spacing: .06em; color: var(--color-ink-faint); }
+/* 手機切面四格：375 寬跟「支出｜收入」擠一列，每格左右各收 3px（觸控高不變） */
+[data-shell="mobile"] .ns-tk-mseg.is-4 button { padding: 0 10px; }

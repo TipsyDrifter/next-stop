@@ -11,6 +11,7 @@
  * 不填 globalHotkeyHandlers、sidebarTool、calendarDayMarks。
  * 第②階段（②契約 §3.5）起再填 nodeFields／quickJump／routeListAside（整合席）。`desktopView`／`mobileView` 的欄位與值寫同一行（probe 牙齒 9）。
  * 第③階段（③契約 §3.10）：再填 afterPull（整合席）；calendarDayMarks 照舊不填（D-票-32）。
+ * 售票口④：再填 tagEntities（帳目、定期帳規則、願望、常用票種的荷札；`ticketTagEntities.ts`）；同步清單列多講願望與常用票種。
  * 此後凍結，只有整合席能改。
  */
 import type { LineMount, NodeFieldSpec, SyncRowLabel } from "./types";
@@ -21,7 +22,9 @@ import { TICKET_CAPTURE } from "../ui/ticket/capture";
 import { useTicketStore } from "../store/ticketStore";
 import { ticketRepo } from "../data/ticketRepository";
 import { SYNC_LABEL_FALLBACK } from "../store/syncMergeLabels";
-import { repeatSyncLabel } from "./ticketSyncLabel";
+import { repeatSyncLabel, templateSyncLabel, wishSyncLabel } from "./ticketSyncLabel";
+import { TICKET_TAG_ENTITIES } from "./ticketTagEntities";
+import { TodayRepeat } from "../ui/ticket/today/TodayRepeat";
 import { ticketReportJump } from "./ticketReport";
 
 /**
@@ -39,13 +42,22 @@ async function ticketSyncRowLabel(tbl: string, rowId: string): Promise<SyncRowLa
     const row = (await ticketRepo.listCategories()).find((c) => c.id === rowId);
     return row ? { label: `分類「${row.name}」`, cols: CATEGORY_COLS } : null;
   }
-  if (tbl !== "tk_repeats") return SYNC_LABEL_FALLBACK;
-  const [repeats, accounts, categories] = await Promise.all([ticketRepo.listRepeats(), ticketRepo.listAccounts(), ticketRepo.listCategories()]);
-  const row = repeats.find((r) => r.id === rowId);
-  if (!row) return null;
+  if (tbl !== "tk_repeats" && tbl !== "tk_wishes" && tbl !== "tk_templates") return SYNC_LABEL_FALLBACK;
+  const [accounts, categories] = await Promise.all([ticketRepo.listAccounts(), ticketRepo.listCategories()]);
   const acc = new Map(accounts.map((a) => [a.id, a.name]));
   const cat = new Map(categories.map((c) => [c.id, c.name]));
-  return repeatSyncLabel(row, { accountName: (id) => acc.get(id) ?? null, categoryName: (id) => cat.get(id) ?? null });
+  const look = { accountName: (id: string) => acc.get(id) ?? null, categoryName: (id: string) => cat.get(id) ?? null };
+  // 售票口④：願望「降噪耳機」、常用票種「午餐」
+  if (tbl === "tk_wishes") {
+    const w = (await ticketRepo.listWishes()).find((x) => x.id === rowId);
+    return w ? wishSyncLabel(w, look) : null;
+  }
+  if (tbl === "tk_templates") {
+    const t = (await ticketRepo.listTemplates()).find((x) => x.id === rowId);
+    return t ? templateSyncLabel(t, look) : null;
+  }
+  const row = (await ticketRepo.listRepeats()).find((r) => r.id === rowId);
+  return row ? repeatSyncLabel(row, look) : null;
 }
 
 const ACCOUNT_COLS: Readonly<Record<string, string>> = { position: "順序", name: "名稱", group_key: "群組", currency: "幣別", archived_at: "封存" };
@@ -75,6 +87,10 @@ export const TICKET_MOUNT: LineMount = {
   afterPull: () => void useTicketStore.getState().materialize("afterPull"),
   // 同步引擎班順手：同步頁清單／toast 的定期帳講人話（其餘表照舊泛稱）
   syncRowLabel: ticketSyncRowLabel,
+  // 售票口④（契約 §1）：帳目、定期帳規則掛荷札，荷札頁「別處」列「售票口」一段
+  tagEntities: TICKET_TAG_ENTITIES,
+  // 售票口④（D-票-72）：今日頁統計列「定期 N 筆 −X」（今天由定期規則記出來、還在的帳；沒有就整段不出）
+  todayStats: TodayRepeat,
   // calendarDayMarks 不填（D-票-29；③的 0-2 答 (a)，D-票-32：主線日曆不標超支）
   // ② 運行報告：卡片小元件與表格某一天點下去的去處（D-主-188；跳法在 ticketReport.ts）
   reportJump: ticketReportJump,

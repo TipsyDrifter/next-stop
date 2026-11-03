@@ -58,6 +58,7 @@ import { hotkeyCaps } from "../common/PopMenu";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
+import { WeekAimsBand } from "../weekAims/WeekAimsBand";
 import "./today.css";
 // 票面時刻（.tm）、「未定時・照手排」小標、現在線、頁首「下一班」的樣式寫在 schedule.css（today.css 本班不准碰）
 import "../schedule/schedule.css";
@@ -220,9 +221,10 @@ export function TodayView() {
   /** 別線的統計段（插槽 todayStats，接縫 #66）；沒有線填＝空陣列，頁首照舊畫核心「專注」 */
   const lineStats = lineTodayStats("desktop");
 
-  // 紀念章：全部路線中「預定到站日最近且未到站」的車站（D-③-2 甲；沒有就不畫）
+  // 紀念章：全部路線中「預定到站日最近且未到站」的車站（D-③-2 甲；沒有就不畫）。
+  // 車庫與回顧 D-主-206 #10：只看還在跑的路線（收進車庫的路線的車站不再預告）
   const nextStation: NodeRow | undefined = stations
-    .filter((s) => !s.arrived_on && s.expected_on)
+    .filter((s) => !s.arrived_on && s.expected_on && routes.some((r) => r.id === s.parent_id && !r.arrived_on))
     .sort((a, b) => (a.expected_on ?? "").localeCompare(b.expected_on ?? ""))[0];
   const stationRoute = nextStation ? routes.find((r) => r.id === nextStation.parent_id) : undefined;
   const routeStations = nextStation ? stations.filter((s) => s.parent_id === nextStation.parent_id) : [];
@@ -362,6 +364,9 @@ export function TodayView() {
           search={{ onOpen: () => setQuickJumpOpen(true), title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
         />
 
+        {/* 週方針（戊 D-主-262）：頁首下方一張告示；落點等甲、② 的頁首改動合進來再對 */}
+        <WeekAimsBand />
+
         {/* ═══ 誤點區（置頂＝r1；含 D-③-7 浮上來的締切段） ═══ */}
         {c.lateRows.length > 0 && (
           <>
@@ -428,7 +433,7 @@ export function TodayView() {
             title="今天還沒有班次"
             desc="寫一張車票，或從路線圖挑一班。"
             action={{ label: "車票", icon: <IconPlus />, onClick: c.openDraft }}
-            secondary={{ label: "去路線圖", onClick: () => useUiStore.getState().setPage("routemap") }}
+            secondary={{ label: "去路線圖", onClick: () => useUiStore.getState().openRouteMap() }}
           />
         ) : (
           <>

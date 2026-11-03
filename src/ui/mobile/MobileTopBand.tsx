@@ -31,7 +31,7 @@
  *     （全域設定在裡面）、在「更多」頁時 `aria-pressed="true"`；class 仍是 `.m-band-more`（樣式、截圖場景都認它）、
  *     aria-label 仍是「更多」（＝它開的那一頁的名字），補 `title`（§2.3：圖示鈕一定有 aria-label＋title）。
  *   - 新增兩個插槽（本班只加插槽、不接線，丙-3 起各頁接）：
- *       `tabsRow?: ReactNode`＝頂帶下一列的分頁籤列（放 common/Tabs，≤4 段一列、超過橫捲露半格——Tabs 自己管）；
+ *       `tabsRow?: ReactNode`＝頂帶下一列的分頁籤列（放 common/Tabs，放得下就平分、放不下才橫捲露半格——Tabs 自己量）；
  *       `manage?: {label, onClick}`＝那一列末端的「管理」文字鈕（`.ns-btn.btn-text.ns-btn--sm`，開線內管理的 sheet 清單）。
  *     兩個都沒給 ⇒ 不畫那一列，頂帶 DOM 與丙-1 逐字相同。給了 ⇒ 在 `<header class="m-band">` 後面多一個兄弟節點
  *     `.ns-tabrow`（樣式在 common/tabs.css，U1 席；只有「管理」沒有籤時的留白 `.ns-tabrow-fill` 在 common/msheet.css）。
@@ -52,6 +52,8 @@ import { Tabs, type TabItem } from "../common/Tabs";
 import "../common/msheet.css";
 import { useScheduleUiStore, type MobileSub } from "../schedule/scheduleUiStore";
 import { renderTabIcon, type MobileTab, type MobileTabIcon } from "./tabs";
+import { useDepotStore } from "../../store/depotStore";
+import { DEPOT_TABS } from "../depot/depotTabs";
 import { MobileQuickJump } from "./MobileQuickJump";
 
 /** 頂帶下一列末端的「管理」文字鈕（§2.0、§2.1：線內管理 → sheet 清單） */
@@ -104,9 +106,19 @@ export function MobileTopBand({ tab, tabsRow, manage, onBack }: MobileTopBandPro
   const dateKey = storedKey ?? todayKey(dayStartHour);
   const schedule = today && sub === "schedule";
   const [searching, setSearching] = useState(false);
+  // 車庫與回顧 D-主-216：車庫頁的分頁籤（乘車記錄｜走行圖｜年鑑）；記錄簿子頁開著時不畫（子頁有自己的返回列）
+  const depot = tab.key === "depot";
+  const depotTab = useDepotStore((s) => s.tab);
+  const depotBook = useDepotStore((s) => s.bookId);
+  const setDepotTab = useDepotStore((s) => s.setTab);
   // 今日 tab：呼叫端沒給籤列就畫「今日｜行程表」（UI 丙-3 F2）
   const row =
-    tabsRow ?? (today ? <Tabs items={TODAY_SUBS} value={sub} onChange={setMobileSub} aria-label="今日分頁" /> : null);
+    tabsRow ??
+    (today ? (
+      <Tabs items={TODAY_SUBS} value={sub} onChange={setMobileSub} aria-label="今日分頁" />
+    ) : depot && !depotBook ? (
+      <Tabs items={DEPOT_TABS} value={depotTab} onChange={setDepotTab} aria-label="車庫分頁" />
+    ) : null);
   const hasRow = row != null || manage != null;
 
   return (

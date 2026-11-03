@@ -28,10 +28,20 @@
  *   → 帳簿；空帳本＝共用 EmptyState（這時月份列不給「＋ 記一筆」：同一動作同頁一個入口）
  *   管帳／排序／封存的帳戶三張 sheet 換共用 MSheet（list 型）；返回層＝本檔 useBackLayer("ticket.office.sheet")＋MSheet `backId` 同 id 合併。
  *
+ * 售票口④（手機席；D-票-68、69）：分頁籤列第四格「願望」——願望頁（MobileWishList）不畫合計帶、帳戶卡、月份列，
+ *   分頁籤列下面直接是「想買 N 件・合計約 X」與清單；管帳 sheet 多一列「常用票種」（改名、刪除、排序；MobileTemplateSheet）。
+ *
+ * 售票口④ 第二輪（手機席；D-票-77、79）：分頁籤列五格「清單｜月曆｜統計｜帳戶｜願望」——帳戶頁（MobileAccountsView）留合計帶、
+ *   不畫帳戶卡橫捲列與月份列（那一頁本身就是完整的帳戶目錄、沒有月份可翻）。橫捲列在清單／月曆／統計照留：它是這幾頁的目錄
+ *   （點＝篩這個帳戶，同桌機側欄頁務件，側欄不動 ⇒ 手機也不動），帳戶頁管的是帳戶本身（餘額走勢、新增、排序、封存的）。
+ *   帳簿列分類只寫最後兩段（D-票-78）。
+ *
  * UI 只讀 store、只叫 store 的動作；金額顯示走 domain 的純函式（moneyText／rowAmount…），不經浮點。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
+import { useTagStore } from "../../../store/tagStore";
+import { tagNameOf } from "../../../domain/ticketTags";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
@@ -43,7 +53,8 @@ import {
   UNCAT_INCOME_ID,
   addMonths,
   archivedAccounts,
-  categoryTree,
+  categoryForest,
+  categoryPath,
   groupAccounts,
   isLiability,
   monthOf,
@@ -64,6 +75,8 @@ import { MobileViewBar, useViewSwipe } from "./MobileViewBar";
 import { MobileTicketCalendar } from "./MobileTicketCalendar";
 import { MobileTicketStats } from "./MobileTicketStats";
 import { MobileSearchSheet } from "./MobileSearchSheet";
+import { MobileWishList } from "./wish/MobileWishList";
+import { MobileAccountsView } from "./MobileAccountsView";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { DateNav } from "../../common/DateNav";
 import { EmptyState } from "../../common/EmptyState";
@@ -88,6 +101,8 @@ import { budgetScopes, effectiveBudget } from "../../../domain/ticketPlan";
 import { chooseSort } from "../view/sortChoice";
 import "../ticket.css";
 import "../ticket-mobile.css";
+import "../ticket-4-mobile.css";
+import "../ticket-4b-mobile.css";
 
 const LONG_PRESS_MS = 520;
 
@@ -146,7 +161,6 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const openNew = useTicketStore((s) => s.openNew);
   const openAccount = useTicketStore((s) => s.openAccount);
   const openDialog = useTicketStore((s) => s.openDialog);
-  const startImport = useTicketStore((s) => s.startImport);
   const view = useTicketStore((s) => s.view);
   const span = useTicketStore((s) => s.span);
   const period = useTicketStore((s) => s.period);
@@ -155,6 +169,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const dayNotice = useTicketStore((s) => s.dayNotice);
   const budgets = useTicketStore((s) => s.budgets);
   const repeats = useTicketStore((s) => s.repeats);
+  const templates = useTicketStore((s) => s.templates);
   const setMonth = useTicketStore((s) => s.setMonth);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
 
@@ -204,8 +219,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   }, [searching, page]);
 
   const catCount = (kind: "income" | "expense") =>
-    categoryTree(categories, kind, { includeArchived: false }).filter((t) => t.parent.id !== UNCAT_INCOME_ID && t.parent.id !== UNCAT_EXPENSE_ID)
-      .length;
+    categoryForest(categories, kind, { includeArchived: false }).filter((n) => n.cat.id !== UNCAT_INCOME_ID && n.cat.id !== UNCAT_EXPENSE_ID).length;
 
   // 第③階段：管理 sheet 兩列的小字（0-14）——「總預算 15,000 · 分類 2」／「進行中 3 · 已暫停 1」；都沒有 ⇒「還沒有」
   const budgetScopeList = budgetScopes(budgets);
@@ -227,102 +241,112 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
         <FilterRow searching={searching} sheetOpen={searchSheet} sortOpen={sheet === "sort"} onEdit={() => setSearchSheet(true)} onSort={() => setSheet("sort")} />
       )}
 
-      {/* 合計帶：只留三格數字（丙-5 B2：放大鏡與滑桿鈕拿掉——搜尋在頂帶、篩選在篩選列、管帳在分頁籤列末端） */}
-      <div className="ns-tk-mtotal">
-        <div className="ns-tk-mstat">
-          <span>資產</span>
-          <b>{moneyText(totals.asset, mainDec)}</b>
-        </div>
-        <div className="ns-tk-mstat">
-          <span>負債</span>
-          <b>{moneyText(totals.liability, mainDec)}</b>
-        </div>
-        <div className="ns-tk-mstat sum">
-          <span>合計</span>
-          <b>{moneyText(totals.net, mainDec)}</b>
-        </div>
-      </div>
-
-      <div className="ns-tk-mcards" role="group" aria-label="帳戶">
-        <div className={"ns-tk-mcard all" + (filterAccountId === null ? " on" : "")}>
-          <button type="button" className="hit" aria-pressed={filterAccountId === null} onClick={() => void setFilter(null)}>
-            <span className="n">全部</span>
-            <span className="g">{liveCount} 個帳戶</span>
-            <span className="b" />
-          </button>
-        </div>
-        {live.map(({ group, accounts: list }) =>
-          list.map((a) => (
-            <AccountCard
-              key={a.id}
-              account={a}
-              groupLabel={group.label + (group.liability ? " · 負債" : "")}
-              balanceText={moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2)}
-              code={a.currency !== MAIN_CURRENCY ? a.currency : null}
-              zero={(balances[a.id] ?? 0) === 0}
-              on={filterAccountId === a.id}
-              onPick={() => void setFilter(filterAccountId === a.id ? null : a.id)}
-              onOpen={() => openAccount(a.id)}
-            />
-          )),
-        )}
-        {archived.length > 0 && (
-          <div className="ns-tk-mcard arch">
-            <button type="button" className="hit" onClick={() => setSheet("archived")} aria-haspopup="dialog">
-              <span className="n">封存</span>
-              <span className="g">{archived.length} 個帳戶</span>
-              <span className="b" />
-            </button>
+      {view !== "wish" && (
+        <>
+          {/* 合計帶：只留三格數字（丙-5 B2：放大鏡與滑桿鈕拿掉——搜尋在頂帶、篩選在篩選列、管帳在分頁籤列末端） */}
+          <div className="ns-tk-mtotal">
+            <div className="ns-tk-mstat">
+              <span>資產</span>
+              <b>{moneyText(totals.asset, mainDec)}</b>
+            </div>
+            <div className="ns-tk-mstat">
+              <span>負債</span>
+              <b>{moneyText(totals.liability, mainDec)}</b>
+            </div>
+            <div className="ns-tk-mstat sum">
+              <span>合計</span>
+              <b>{moneyText(totals.net, mainDec)}</b>
+            </div>
           </div>
-        )}
-        <div className="ns-tk-mcard add">
-          <button type="button" className="hit" aria-label="新增帳戶" onClick={() => openDialog({ kind: "newAccount" })}>
-            <IconPlus size={16} />
-          </button>
-        </div>
-      </div>
 
-      {searching ? (
-        <p className="ns-tk-mmsum ns-tk-mfound" role="status">
-          <FoundText />
-        </p>
-      ) : (
-        <div className="ns-tk-mmonth">
-          <DateNav
-            className="ns-tk-mdnav"
-            unit={yearMode ? "year" : "month"}
-            title={yearMode ? periodTitle(period) : navMonthTitle(month, thisYear)}
-            todayLabel={yearMode ? "今年" : "今天"}
-            isToday={yearMode ? period.key === thisYear : month === thisMonth}
-            label={yearMode ? "翻年份" : "翻月份"}
-            onPrev={() => void stepMonth(-1)}
-            onNext={() => void stepMonth(1)}
-            nextDisabled={yearMode ? period.key >= thisYear : month >= thisMonth}
-            // 回本月：setMonth 連 period 一起換（年模式下 periodOf(本月, "year")＝今年），refresh 在統計視圖會重算統計
-            onToday={() => {
-              if (yearMode ? period.key !== thisYear : month !== thisMonth) void setMonth(thisMonth);
-            }}
-          />
-          {!emptyBook && (
-            <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-tk-madd" onClick={add}>
-              <IconPlus />
-              記一筆
-            </button>
+          {view !== "accounts" && (
+            <div className="ns-tk-mcards" role="group" aria-label="帳戶">
+              <div className={"ns-tk-mcard all" + (filterAccountId === null ? " on" : "")}>
+                <button type="button" className="hit" aria-pressed={filterAccountId === null} onClick={() => void setFilter(null)}>
+                  <span className="n">全部</span>
+                  <span className="g">{liveCount} 個帳戶</span>
+                  <span className="b" />
+                </button>
+              </div>
+              {live.map(({ group, accounts: list }) =>
+                list.map((a) => (
+                  <AccountCard
+                    key={a.id}
+                    account={a}
+                    groupLabel={group.label + (group.liability ? " · 負債" : "")}
+                    balanceText={moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2)}
+                    code={a.currency !== MAIN_CURRENCY ? a.currency : null}
+                    zero={(balances[a.id] ?? 0) === 0}
+                    on={filterAccountId === a.id}
+                    onPick={() => void setFilter(filterAccountId === a.id ? null : a.id)}
+                    onOpen={() => openAccount(a.id)}
+                  />
+                )),
+              )}
+              {archived.length > 0 && (
+                <div className="ns-tk-mcard arch">
+                  <button type="button" className="hit" onClick={() => setSheet("archived")} aria-haspopup="dialog">
+                    <span className="n">封存</span>
+                    <span className="g">{archived.length} 個帳戶</span>
+                    <span className="b" />
+                  </button>
+                </div>
+              )}
+              <div className="ns-tk-mcard add">
+                <button type="button" className="hit" aria-label="新增帳戶" onClick={() => openDialog({ kind: "newAccount" })}>
+                  <IconPlus size={16} />
+                </button>
+              </div>
+            </div>
           )}
-        </div>
-      )}
-      {view === "list" && !searching && monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
-        <p className="ns-tk-mmsum">
-          收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出 <b>{moneyText(monthSum.expense, mainDec)}</b>
-        </p>
-      )}
-      {view === "list" && dayNotice && (
-        <p className="ns-tk-mnotice" role="status">
-          {dayNotice}
-        </p>
+
+          {view === "accounts" ? null : searching ? (
+            <p className="ns-tk-mmsum ns-tk-mfound" role="status">
+              <FoundText />
+            </p>
+          ) : (
+            <div className="ns-tk-mmonth">
+              <DateNav
+                className="ns-tk-mdnav"
+                unit={yearMode ? "year" : "month"}
+                title={yearMode ? periodTitle(period) : navMonthTitle(month, thisYear)}
+                todayLabel={yearMode ? "今年" : "今天"}
+                isToday={yearMode ? period.key === thisYear : month === thisMonth}
+                label={yearMode ? "翻年份" : "翻月份"}
+                onPrev={() => void stepMonth(-1)}
+                onNext={() => void stepMonth(1)}
+                nextDisabled={yearMode ? period.key >= thisYear : month >= thisMonth}
+                // 回本月：setMonth 連 period 一起換（年模式下 periodOf(本月, "year")＝今年），refresh 在統計視圖會重算統計
+                onToday={() => {
+                  if (yearMode ? period.key !== thisYear : month !== thisMonth) void setMonth(thisMonth);
+                }}
+              />
+              {!emptyBook && (
+                <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-tk-madd" onClick={add}>
+                  <IconPlus />
+                  記一筆
+                </button>
+              )}
+            </div>
+          )}
+          {view === "list" && !searching && monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
+            <p className="ns-tk-mmsum">
+              收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出 <b>{moneyText(monthSum.expense, mainDec)}</b>
+            </p>
+          )}
+          {view === "list" && dayNotice && (
+            <p className="ns-tk-mnotice" role="status">
+              {dayNotice}
+            </p>
+          )}
+        </>
       )}
 
-      {view === "calendar" ? (
+      {view === "wish" ? (
+        <MobileWishList />
+      ) : view === "accounts" ? (
+        <MobileAccountsView />
+      ) : view === "calendar" ? (
         <MobileTicketCalendar />
       ) : view === "stats" ? (
         <MobileTicketStats />
@@ -336,14 +360,13 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           className="ns-tk-mblank"
           title="這本帳還是空的"
           action={{ label: "記一筆", icon: <IconPlus />, onClick: add }}
-          secondary={{ label: "從財務管家匯入…", onClick: () => void startImport("mobile") }}
         />
       )}
 
       {searchSheet && <MobileSearchSheet onClose={() => setSearchSheet(false)} />}
 
       {sheet === "manage" && (
-        // 管帳（B2）：共用 MSheet 動作清單型；每列下一行淡字摘要（<small>），匯入前一道撕線（同桌機 PopMenu 的 cut）
+        // 管帳（B2）：共用 MSheet 動作清單型；每列下一行淡字摘要（<small>）
         <MSheet list title="管帳" backId="ticket.office.sheet" onClose={closeSheet}>
           <MSheetItem onClick={thenOpen(() => openDialog({ kind: "categories" }))}>
             分類管理<small>支出 {catCount("expense")} · 收入 {catCount("income")}</small>
@@ -359,11 +382,12 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
           <MSheetItem onClick={thenOpen(() => openDialog({ kind: "repeats" }))}>
             定期帳<small>{repeatSummary}</small>
           </MSheetItem>
+          {/* 售票口④ D-票-68：常用票種（記一筆最上面那排小卡；從帳目「存成常用…」來） */}
+          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "templates" }))}>
+            常用票種<small>{templates.length ? `${templates.length} 個` : "還沒有"}</small>
+          </MSheetItem>
           <MSheetItem onClick={thenOpen(() => openDialog({ kind: "currencies" }))}>
             幣別與匯率<small>{currencies.map((c) => c.code).join(" · ")}</small>
-          </MSheetItem>
-          <MSheetItem cut onClick={thenOpen(() => void startImport("mobile"))}>
-            從財務管家匯入…<small>.mmbak</small>
           </MSheetItem>
         </MSheet>
       )}
@@ -642,9 +666,13 @@ function FilterRow({
   const closeSearch = useTicketStore((s) => s.closeSearch);
   const resultSort = useTicketStore((s) => s.resultSort);
   const routes = useNodeStore((s) => s.routes);
+  const tagIndex = useTagStore((s) => s.index); // 售票口④：荷札條件的字（「荷札 #京都」）要 index 的名稱
   const text = filter.text.trim();
   const labels = searching
-    ? [...(text !== "" ? [`「${text}」`] : []), ...filterChips(filter, { accById, catById, curByCode, ...routeCtx(routes) }).map((c) => c.label)]
+    ? [
+        ...(text !== "" ? [`「${text}」`] : []),
+        ...filterChips(filter, { accById, catById, curByCode, ...routeCtx(routes), tagName: tagNameOf(tagIndex) }).map((c) => c.label),
+      ]
     : [];
   const sort: EntrySort = searching ? resultSort : DEFAULT_ENTRY_SORT;
   const sortOn = sort !== DEFAULT_ENTRY_SORT;
@@ -773,7 +801,9 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
   } else {
     const c = e.category_id ? catById[e.category_id] : undefined;
     const uncat = !c || c.id === UNCAT_INCOME_ID || c.id === UNCAT_EXPENSE_ID;
-    const p = c?.parent_id ? catById[c.parent_id] : undefined;
+    // 售票口④ 第二輪（D-票-78）：只寫最後兩段「外食 › 午餐」；完整路徑在這一筆的表單（「分類」小標）
+    const path = c && !uncat ? categoryPath(c, catById) : [];
+    const p = path.length > 1 ? path[path.length - 2] : undefined;
     cat = uncat ? (
       <span className="unc">{c ? c.name : "（分類已刪除）"}</span>
     ) : p ? (

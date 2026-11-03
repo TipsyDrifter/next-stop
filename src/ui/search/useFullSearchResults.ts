@@ -89,7 +89,8 @@ export function useFullSearchResults() {
     if (picked && !count.has(picked)) count.set(picked, 0);
     return routes
       .filter((r) => count.has(r.id))
-      .map((r) => ({ id: r.id, name: r.name, count: count.get(r.id)! }))
+      // 車庫與回顧 D-主-223：收進車庫的路線照樣篩得到，名字後面標「車庫」
+      .map((r) => ({ id: r.id, name: r.arrived_on ? `${r.name}・車庫` : r.name, count: count.get(r.id)! }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [hits, filter, isDone, routes]);
 

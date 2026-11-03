@@ -18,6 +18,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { KIND_LABEL, parseRule, type NodeKind, type NodeRow } from "../../domain";
 import { ancestorsOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { useDepotStore } from "../../store/depotStore";
 import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
 import { lineQuickJumpProviders } from "../../lines/runtime";
@@ -89,9 +90,16 @@ export function searchQuickJump(term: string, providers: readonly QuickJumpProvi
 
 /** 結果列右側的淡字：路線＝所屬幹線名；臨時車票＝「臨時車票」；其餘＝所屬路線名 */
 export function quickJumpContext(node: NodeRow, routes: readonly NodeRow[], lines: readonly NodeRow[]): string {
-  if (node.kind === "route") return lines.find((l) => l.id === node.line_id)?.name ?? "";
-  if (node.kind === "ticket" && !node.parent_id) return "臨時車票";
-  return routes.find((r) => r.id === node.route_id)?.name ?? "";
+  // 車庫與回顧 D-主-223：收進車庫的路線（與它底下的票）結果照列，淡字多一個「車庫」
+  const depot = (s: string) => (s ? `${s}・車庫` : "車庫");
+  if (node.kind === "route") {
+    const line = lines.find((l) => l.id === node.line_id)?.name ?? "";
+    return node.arrived_on ? depot(line) : line;
+  }
+  const route = node.route_id ? routes.find((r) => r.id === node.route_id) : undefined;
+  if (node.kind === "ticket" && !node.parent_id) return route?.arrived_on ? depot("臨時車票") : "臨時車票";
+  if (!route) return "";
+  return route.arrived_on ? depot(route.name) : route.name;
 }
 
 /** 跳到一個節點（Ctrl+P 選中、別線清單點車票共用；車次①偏差記錄的邊界全在這一支） */
@@ -100,6 +108,14 @@ export async function jumpToNode(node: NodeRow) {
   const ns = useNodeStore.getState();
   ui.setQuickJumpOpen(false);
 
+  // 車庫與回顧 D-主-223：收進車庫的路線＝開它的乘車記錄簿（底下的票照舊開路線圖，頂上有「已收進車庫」那一行）
+  if (node.kind === "route" && node.arrived_on) {
+    ui.setPage("depot");
+    useDepotStore.getState().openBook(node.id);
+    return;
+  }
+  // 掛在車庫路線上的臨時票不在今日／收件匣：家是那條路線的大綱（照下面「開所屬路線」那段走）
+  const depotRoute = node.route_id ? ns.routes.some((r) => r.id === node.route_id && r.arrived_on) : false;
   if (node.kind === "route") {
     await ns.openRoute(node.id);
     ui.setPage("routemap"); // 樹裡的東西家在路線圖頁；從今日頁跳過來要跟著換頁（整合席）
@@ -113,6 +129,7 @@ export async function jumpToNode(node: NodeRow) {
   //   沒有執行日、掛了路線標籤 → 不算收件匣（D-筆-17），家在該路線大綱頂層（D-筆-26）：落到下面「開所屬路線」那段
   //   沒有執行日、沒路線、但已蓋済 → 收件匣濾掉 done，它的家是日後的 Logbook：不導向旅客筆記，走改前原路（調度 10-08 裁示）
   if (
+    !depotRoute &&
     node.kind === "ticket" &&
     !node.parent_id &&
     !(node.route_id && !node.scheduled_on) &&

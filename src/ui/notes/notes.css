@@ -70,7 +70,8 @@
    右 40、下 --sp-5 同時刻表；主體 .ns-notes-body、日記搜尋列的左內距跟頁首同一條。
    窄寬：一列放不下時工具列整排換到下一列、靠右（同時刻表；大標不准斷字）。窄版（<704 收圖示鈕）由 PageHeader 量 App 的 <main>。 */
 .page.ns-notes { display: flex; flex-direction: column; overflow: hidden; }
-.page.ns-notes .ns-pagehead { flex: none; margin: var(--page-pad-top) 40px var(--sp-5) calc(var(--page-gutter) + var(--page-pad-x)); flex-wrap: wrap; row-gap: 0; }
+/* 寬度規範（丁 D-主-231）：旅客筆記四頁是畫布型——頁首、主體、日記搜尋列左右都吃 --canvas-inset（最寬 1440、左右相等） */
+.page.ns-notes .ns-pagehead { flex: none; margin: var(--page-pad-top) var(--canvas-inset) var(--sp-5); flex-wrap: wrap; row-gap: 0; }
 /* 四頁同一條底線：頁名式＋統計列自然高約 109～110（銀河／粉彩眉標行高不同），沒統計（空狀態）約 81、日記身分式約 99——
    一律墊到 112，換子畫面、清單清空時底線不跳（實量 10-24，1280 寬）。工具列換到下一列時照內容長高，不受這條限制 */
 .page.ns-notes .ns-pagehead { min-height: 112px; }
@@ -78,7 +79,7 @@
 .page.ns-notes .ns-pagehead .ns-pagehead-title { white-space: nowrap; }
 .page.ns-notes .ns-pagehead .ns-toolbar { margin-left: auto; }
 .page.ns-notes > :not(.ns-pagehead) { flex: 1 1 auto; min-height: 0; }
-.ns-notes-body { display: flex; gap: var(--sp-5); padding: 0 40px 0 calc(var(--page-gutter) + var(--page-pad-x)); }
+.ns-notes-body { display: flex; gap: var(--sp-5); padding: 0 var(--canvas-inset); }
 .ns-notes .ns-notes-col { height: 100%; min-height: 0; overflow-y: auto; }
 
 /* 共用小件 */
@@ -488,7 +489,7 @@
 /* 搜尋列（頁首放大鏡點了才展開，§5 P2）：頁首下一列、通欄（頁根的直接子節點；左右內距同 .ns-notes-body），兩欄一起往下推、卡頂仍對齊。
    `.page.ns-notes >` 那條 H0 規則會叫直接子節點吃剩下的高度，這裡同權重、寫在後面蓋回 flex:none */
 .ns-notes-dsubbar { flex: none; display: flex; align-items: center; min-height: var(--ctl-h); margin-bottom: var(--sp-3); }
-.page.ns-notes > .ns-notes-dsubbar { flex: none; padding: 0 40px 0 calc(var(--page-gutter) + var(--page-pad-x)); }
+.page.ns-notes > .ns-notes-dsubbar { flex: none; padding: 0 var(--canvas-inset); }
 .ns-notes-dsearch { max-width: 260px; }
 /* 本文欄自己捲：高度交給 flex（不吃 .ns-notes-col 的 100%，上面可能多一列搜尋列）；
    左右各留 8px 讓大紙的陰影不被捲動框切掉，負邊距吃回去，紙的左緣仍對齊頁首 */

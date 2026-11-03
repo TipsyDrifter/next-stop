@@ -203,3 +203,82 @@ pub const TIME_OVERRIDE_TABLES: &[SyncTableSpec] = &[SyncTableSpec {
         since: Some("time_overrides"),
     }),
 }];
+
+/// stamps 的「主人資料」欄（第五本第一梯 ③ 車庫與回顧 D-主-208～214；migration stamps）。
+/// 一枚章一列、id 由 (kind, subject_id, value) 決定性算出（TS 端 `stampId`，uuid v5）——兩台各自蓋同一枚＝同一列，逐欄 LWW 收斂。
+const STAMPS_COLS: &[(&str, bool)] = &[
+    ("kind", false),
+    ("subject_id", false),
+    ("value", true),
+    ("label", false),
+    ("stamped_on", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// 駅スタンプ（D-主-214）。為什麼另立一組、不併進 `TABLES`：同 `TIME_OVERRIDE_TABLES`（G0 金樣的臨時庫沒有這張表）。
+/// 順序：接在 node_time_overrides 之後、notes 之前（probe 照 `name:` 出現順序對帳；TS `CORE_SYNC_TABLES` 尾端同序）。
+pub const STAMP_TABLES: &[SyncTableSpec] = &[SyncTableSpec {
+    name: "stamps",
+    pk: "id",
+    columns: STAMPS_COLS,
+    // NOT NULL 且沒有 DEFAULT：kind、label、stamped_on（created_at／updated_at 有 DEFAULT）
+    required: &["kind", "label", "stamped_on"],
+    kind: Kind::Rows(RowsSpec {
+        stamp_filter: "",
+        outbox: OutboxQuery::Plain {
+            order_by: "stamped_on",
+            filter: "",
+        },
+        outbox_row_fix: None,
+        full_json_order: "stamped_on",
+        // subject_id 指 nodes 或 time_categories、沒宣告 FK：外鍵檢查是空轉
+        fk_checked: false,
+        // 不記競合日誌：章是從別的資料推導的，兩台蓋同一枚只差日期，照 LWW 收斂就好
+        conflict_anchor: ConflictAnchor::None,
+        // 照 2026-10-05 規則算進「這台有沒有資料」：章只會跟著別的資料一起存在，算進去無害
+        alive_filter: Some("deleted_at IS NULL"),
+        since: Some("stamps"),
+    }),
+}];
+
+/// week_aims 的「主人資料」欄（週方針 戊，D-主-263；migration `week_aims`）。一句一列、逐欄 LWW：
+/// 一台蓋済（done_at）、一台改字（text）兩格都留。帶到下週那列的 id 由 TS 決定性算出（兩台各帶同一句＝同一列）。
+const WEEK_AIMS_COLS: &[(&str, bool)] = &[
+    ("week_on", false),
+    ("text", false),
+    ("node_id", false),
+    ("position", true),
+    ("done_at", false),
+    ("carried_from", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// 週方針（戊）另一組：理由同 `TIME_OVERRIDE_TABLES`（G0 金樣鎖住的核心四張不動、core_only 臨時庫沒有這張表）。
+/// 順序：接在駅スタンプ（STAMP_TABLES）之後、notes 之前（`tables/mod.rs` 的 `production_groups`；probe 照 `name:` 出現順序對帳）。
+pub const WEEK_AIM_TABLES: &[SyncTableSpec] = &[SyncTableSpec {
+    name: "week_aims",
+    pk: "id",
+    columns: WEEK_AIMS_COLS,
+    // NOT NULL 且沒有 DEFAULT：week_on、text（position 有 DEFAULT）
+    required: &["week_on", "text"],
+    kind: Kind::Rows(RowsSpec {
+        stamp_filter: "",
+        outbox: OutboxQuery::Plain {
+            order_by: "week_on, position",
+            filter: "",
+        },
+        outbox_row_fix: None,
+        full_json_order: "week_on",
+        // node_id／carried_from 都沒宣告 FK：foreign_key_check 查不到東西
+        fk_checked: false,
+        // 不記競合日誌（同 time_plans）：兩台改同一句＝逐欄 LWW 就收斂
+        conflict_anchor: ConflictAnchor::None,
+        // 新同步表一律算進「這台有沒有資料」（2026-10-05 拍板）
+        alive_filter: Some("deleted_at IS NULL"),
+        since: Some("week_aims"),
+    }),
+}];

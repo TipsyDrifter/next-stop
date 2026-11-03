@@ -17,9 +17,12 @@
  *   （`notesQuery.underNode`，P5）在路線群組最上面多一列「› 節點名」＋×（× ＝清掉、回到全部）；此時「全部」與路線列都不亮。
  * 換子畫面／篩選／換日一律先 `await notesFlush.fn?.()`（書封拿不到 NotesView 的 ref；0-17 的模組級橋）。
  * 粉彩書封腳的月亮：本線 notes-tags.css 以 `.cover:has(.ns-notes-aux) .cover-moon { display: none }` 收起（零集中檔）。
+ * 丁 D-主-237（頁務件＝這一頁的目錄或篩選；原型 design-structure-側欄.html A2）：四段切換下面一行小標說明下面那塊是什麼——
+ *   收件匣「篩選・種類」（新：全部／筆記／車票＋則數，`notesStore.inboxKind`）、筆記「篩選・路線」、日記「翻日・近 12 週」、荷札「目錄・荷札」。
+ *   原本的「路線 ROUTES」「荷札 TAGS」小標換成這一行（同一個位置、說得更清楚）。
  */
 import type { ReactNode } from "react";
-import { useNotesStore, type NotesSection } from "../../store/notesStore";
+import { useNotesStore, type InboxKind, type NotesSection } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useTagStore } from "../../store/tagStore";
 import { IconX, Roundel } from "./notesBits";
@@ -42,7 +45,10 @@ async function goFilter(routeId: string | "none" | undefined): Promise<void> {
 
 export function NotesCoverAux() {
   const section = useNotesStore((s) => s.section);
-  const inboxCount = useNotesStore((s) => s.inboxNotes.length + s.inboxTickets.length);
+  const inboxNoteCount = useNotesStore((s) => s.inboxNotes.length);
+  const inboxTicketCount = useNotesStore((s) => s.inboxTickets.length);
+  const inboxCount = inboxNoteCount + inboxTicketCount;
+  const inboxKind = useNotesStore((s) => s.inboxKind);
   const notesTotal = useNotesStore((s) => s.notesTotal);
   const q = useNotesStore((s) => s.notesQuery);
   const diaryCount = useNotesStore((s) => Object.values(s.diaryMarks).reduce((a, b) => a + b, 0));
@@ -81,6 +87,19 @@ export function NotesCoverAux() {
     );
   };
 
+  const kindBtn = (k: InboxKind, label: string, n: number) => (
+    <button
+      key={k}
+      type="button"
+      className={`line-item ns-notes-auxroute${inboxKind === k ? " active" : ""}`}
+      aria-pressed={inboxKind === k}
+      onClick={() => useNotesStore.getState().setInboxKind(k)}
+    >
+      <span className="line-name">{label}</span>
+      <span className="n">{n}</span>
+    </button>
+  );
+
   return (
     <div className="lines ns-notes-aux" aria-label="旅客筆記工具">
       <h2>旅客筆記 NOTES</h2>
@@ -92,9 +111,18 @@ export function NotesCoverAux() {
       </nav>
 
       <div className="ns-notes-auxbody">
+        {section === "inbox" && (
+          <div className="ns-notes-auxroutes" role="group" aria-label="依種類篩選">
+            <AuxCaption k="篩選" v="種類" />
+            {kindBtn("all", "全部", inboxCount)}
+            {kindBtn("note", "筆記", inboxNoteCount)}
+            {kindBtn("ticket", "車票", inboxTicketCount)}
+          </div>
+        )}
+
         {section === "notes" && (
           <div className="ns-notes-auxroutes" role="group" aria-label="依路線篩選">
-            <h2 className="sub">路線 ROUTES</h2>
+            <AuxCaption k="篩選" v="路線" />
             {q.underNode && (
               <div className="line-item ns-notes-auxroute active ns-notes-auxunder" title={`只看掛在「${q.underNode.label}」與它底下的筆記`}>
                 <span aria-hidden className="roundel ns-notes-rdblank" />
@@ -120,11 +148,20 @@ export function NotesCoverAux() {
 
         {section === "tags" && (
           <>
-            <h2 className="sub">荷札 TAGS</h2>
+            <AuxCaption k="目錄" v="荷札" />
             <TagTree />
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/** 子畫面切換下面那一行小標：「篩選・種類」——說明下面那塊是篩選、翻日還是目錄（丁 D-主-237） */
+function AuxCaption({ k, v }: { k: string; v: string }) {
+  return (
+    <h2 className="sub ns-notes-auxcap">
+      <b>{k}</b>・{v}
+    </h2>
   );
 }

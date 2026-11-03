@@ -57,6 +57,8 @@ import { useNodeStore } from "./store/nodeStore";
 import { useUiStore } from "./store/uiStore";
 import { useBackupStore, BACKUP_FAIL_BANNER_STREAK } from "./store/backupStore";
 import { useSyncStore } from "./store/syncStore";
+import { useDepotStore } from "./store/depotStore";
+import { StampNotifier } from "./ui/depot/StampNotifier";
 import { DEV_FLAGS, MOCK_MODE } from "./data";
 import { dbUsable } from "./lib/db";
 import { useGlobalHotkeys } from "./ui/shell/useGlobalHotkeys";
@@ -90,7 +92,8 @@ const Gallery = lazy(() => import("./ui/dev/Gallery"));
 export default function App() {
   const loadSidebar = useNodeStore((s) => s.loadSidebar);
   const openRoute = useNodeStore((s) => s.openRoute);
-  const routes = useNodeStore((s) => s.routes);
+  // 車庫與回顧 D-主-206：啟動自動開的是第一條還在跑的路線（收進車庫的不算）
+  const routes = useNodeStore((s) => s.liveRoutes);
   const routeId = useNodeStore((s) => s.routeId);
   const error = useNodeStore((s) => s.error);
   const loadSettings = useUiStore((s) => s.loadSettings);
@@ -129,17 +132,20 @@ export default function App() {
       .then((usable) => {
         if (!usable) return;
         void useBackupStore.getState().boot();
+        // 車庫與回顧 D-主-210：駅スタンプ偵測（兩殼；要讀日界線，排在 loadSettings 之後）
+        useDepotStore.getState().boot();
         return useSyncStore.getState().boot(shell);
       });
     void loadSidebar();
     return () => {
       useSyncStore.getState().stop();
+      useDepotStore.getState().stop();
     };
   }, [loadSettings, loadSidebar, mobile, shell]);
 
-  // 啟動時自動開第一條路線（有路線但尚未選取）
+  // 啟動時自動開第一條路線（有路線但尚未選取）；不是使用者要看它，桌機路線一覽照舊（丁 D-主-239 keepView）
   useEffect(() => {
-    if (!routeId && routes.length > 0) void openRoute(routes[0].id);
+    if (!routeId && routes.length > 0) void openRoute(routes[0].id, { keepView: true });
   }, [routeId, routes, openRoute]);
 
   return (
@@ -178,6 +184,8 @@ export default function App() {
       <RecoveryCodeDialog />
       <ConfirmDialog />
       <Toast />
+      {/* 車庫與回顧 D-主-212：蓋章那一刻的 toast 畫法（零 DOM） */}
+      <StampNotifier />
     </div>
   );
 }

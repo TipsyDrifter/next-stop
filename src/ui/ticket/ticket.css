@@ -187,8 +187,10 @@
 /* 頁根：三欄 flex、各欄自己捲（.page 本來整頁捲動；抬特異度蓋過 techo.css 的 .page） */
 .page.ns-tk { display: flex; overflow: hidden; height: 100%; }
 /* 上緣、左緣吃 theme.css 的頁首外距 token（同今日系 .sheet：上 50、左＝24＋56；詳情板開著 44／24＋48；UI 丙-7 T6）；右 28、下 40 照舊 */
-.ns-tk-ledger { flex: 1; min-width: 0; height: 100%; overflow-y: auto; padding: var(--page-pad-top) 28px 40px calc(var(--page-gutter) + var(--page-pad-x)); }
-.ns-tk-ledger > * { max-width: 820px; }
+/* 寬度規範（丁 D-主-231）：帳簿欄左右各留 --page-side、兩側各一條捲軸寬（捲軸在不在都左右相等）；
+   每一塊（頁首、日分組…）照頁型封頂、在欄裡置中——清單＝--read-w（848），月曆統計＝--canvas-w（1440，見 §H 段） */
+.ns-tk-ledger { flex: 1; min-width: 0; height: 100%; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: var(--page-pad-top) var(--page-side) 40px; }
+.ns-tk-ledger > * { max-width: var(--read-w); margin-left: auto; margin-right: auto; }
 
 /* 頁首＝共用 PageHeader（UI 丙-5 A1，排版補在檔尾 T1 區）。‹ › 小鈕只剩預算的月份頭在用（BudgetEditor、MobileBudgetSheet） */
 .ns-tk-mnav {
@@ -462,97 +464,16 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-drate .ns-tk-din { flex: 1; }
 .ns-tk-dcuradd > .ns-tk-dbtn { grid-column: 3; }
 
-/* ═══ §G 匯入票四態（乙；手機單欄的微調寫在 ticket-mobile.css）═══ */
-/* 卡殼＝DialogShell（.techo-card，寬 620）；本體 .ns-tk-import 只排內容。 */
-.ns-tk-import { font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); } /* 字面值：兩殼共用規則，兩殼都是 13.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-wait { padding: 26px 0 22px; text-align: center; font-size: 13px; letter-spacing: .2em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 13px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-unknown, .ns-tk-im-error { padding: 14px 0 6px; font-size: 14px; line-height: 1.7; letter-spacing: .06em; } /* 字面值：兩殼共用規則，兩殼都是 14px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-error { color: var(--color-late); }
-.ns-tk-im-head { padding-bottom: 12px; border-bottom: 1px dashed var(--color-dash); }
-.ns-tk-im-head .file { font-family: var(--font-latin); font-size: 11px; letter-spacing: .06em; color: var(--color-ink-faint); word-break: break-all; } /* 字面值：兩殼共用規則，兩殼都是 11px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-sum { margin-top: 6px; font-size: 13px; letter-spacing: .06em; color: var(--color-ink-soft); } /* 字面值：兩殼共用規則，兩殼都是 13px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-sum b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
-.ns-tk-im-rows { margin-top: 4px; }
-.ns-tk-im-row {
-  display: grid; grid-template-columns: 20px 1fr auto; align-items: baseline; column-gap: 8px; padding: 9px 0;
-  border-bottom: 1px dashed var(--color-line); font-size: 13.5px; letter-spacing: .05em; /* 字面值：兩殼共用規則，兩殼都是 13.5px（--fs-* 手機會換值，換了手機會變） */
-}
-.ns-tk-im-row.is-faint { color: var(--color-ink-soft); }
-.ns-tk-im-row .ic { font-family: var(--font-display); font-weight: 600; text-align: center; color: var(--color-ink-faint); }
-.ns-tk-im-row .n { font-family: var(--font-display); font-weight: 600; font-size: 15px; font-variant-numeric: tabular-nums; } /* 字面值：兩殼共用規則，兩殼都是 15px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-row .hint { grid-column: 2 / 4; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 11.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-row .tog { margin-left: 8px; font-size: 11.5px; color: var(--color-ink-faint); background: none; cursor: pointer; border-bottom: 1px dashed var(--color-dash); } /* 字面值：兩殼共用規則，兩殼都是 11.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-row .tog:hover { color: var(--color-ink); }
-.ns-tk-im-mods { grid-column: 2 / 4; margin-top: 6px; max-height: 240px; overflow-y: auto; }
-.ns-tk-im-mod {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 7px 10px; margin-top: 4px;
-  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--color-paper-used) 60%, transparent); font-size: 12px; /* 字面值：兩殼共用規則，兩殼都是 12px（--fs-* 手機會換值，換了手機會變） */
-}
-.ns-tk-im-mod .t { color: var(--color-ink); font-family: var(--font-display); }
-.ns-tk-im-mod .t small { margin-right: 6px; font-family: var(--font-latin); color: var(--color-ink-faint); }
-.ns-tk-im-mod .t em { margin-left: 8px; font-family: var(--font-body); font-style: normal; font-size: 11px; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 11px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-mod .diff { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-faint); }
-.ns-tk-im-mod .diff s { opacity: .8; }
-.ns-tk-im-mod .ns-tk-im-pick { grid-column: 2; grid-row: 1 / 3; align-self: center; } /* 用哪一邊＝共用 Segmented compact */
-.ns-tk-im-sec { margin-top: 18px; display: flex; align-items: baseline; gap: 10px; }
-.ns-tk-im-sec h3 { font-family: var(--font-display); font-size: 13.5px; font-weight: 700; letter-spacing: .16em; } /* 字面值：兩殼共用規則，兩殼都是 13.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-sec .rule { flex: 1; border-top: 1px dashed var(--color-dash); transform: translateY(-4px); }
-.ns-tk-im-desc { margin-top: 6px; font-size: 12px; line-height: 1.7; letter-spacing: .04em; color: var(--color-ink-soft); } /* 字面值：兩殼共用規則，兩殼都是 12px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-recon { display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 2px; margin-top: 8px; }
-.ns-tk-recon label {
-  display: grid; grid-template-columns: minmax(0, 1fr) 112px 14px; align-items: center; gap: 8px; min-height: 34px;
-  font-size: 13px; letter-spacing: .05em; border-bottom: 1px dashed var(--color-line); /* 字面值：兩殼共用規則，兩殼都是 13px（--fs-* 手機會換值，換了手機會變） */
-}
-.ns-tk-recon .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ns-tk-recon .nm small { margin-left: 4px; font-size: 10.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 10.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-recon input {
-  width: 100%; text-align: right; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); outline: none; padding: 2px 0;
-  font-family: var(--font-display); font-size: 14px; color: var(--color-ink); font-variant-numeric: tabular-nums; /* 字面值：帳本金額襯線（含幣別小字）照原型 */
-}
-.ns-tk-recon input:focus { border-bottom-color: var(--accent); }
-.ns-tk-recon input::placeholder { color: var(--color-ink-faint); opacity: .6; font-family: var(--font-body); font-size: 11.5px; } /* 字面值：兩殼共用規則，兩殼都是 11.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-recon .ck { font-size: 11px; text-align: center; color: var(--color-ink-soft); } /* 字面值：兩殼共用規則，兩殼都是 11px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-recon .ck.bad { color: var(--color-late); }
-.ns-tk-verdict {
-  margin-top: 12px; padding: 8px 12px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
-  font-size: 12.5px; letter-spacing: .05em; color: var(--color-ink-soft); /* 字面值：兩殼共用規則，兩殼都是 12.5px（--fs-* 手機會換值，換了手機會變） */
-}
-.ns-tk-verdict b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
-.ns-tk-verdict.ok { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.ns-tk-verdict.bad { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 45%, transparent); }
-.ns-tk-im-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--color-dash); }
-.ns-tk-im-foot .note { margin-right: auto; font-size: 11px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 11px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-writing { display: grid; gap: 10px; padding: 18px 0 8px; }
-.ns-tk-im-writing p { font-family: var(--font-display); font-size: 15px; letter-spacing: .1em; font-variant-numeric: tabular-nums; } /* 字面值：兩殼共用規則，兩殼都是 15px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-writing small { font-size: 11px; letter-spacing: .08em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 11px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-bar { height: 3px; border-radius: var(--radius-ctl); background: var(--color-line); overflow: hidden; }
-.ns-tk-im-bar i { display: block; height: 100%; background: var(--accent); transition: width .3s cubic-bezier(.2, .9, .3, 1); }
-.ns-tk-im-donehead { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; padding-right: 64px; }
-.ns-tk-im-result { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-h3); letter-spacing: .06em; }
-.ns-tk-im-seal { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
-.ns-tk-im-table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; letter-spacing: .04em; } /* 字面值：兩殼共用規則，兩殼都是 13px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-table th, .ns-tk-im-table td { padding: 6px 4px; border-bottom: 1px dashed var(--color-line); text-align: right; font-weight: 400; }
-.ns-tk-im-table thead th { font-size: 10px; letter-spacing: .3em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 10px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-table th[scope="row"], .ns-tk-im-table thead th:first-child { text-align: left; }
-.ns-tk-im-table th small { margin-left: 4px; font-size: 10.5px; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 10.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-table td { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
-.ns-tk-im-table td.ck { width: 24px; text-align: center; font-family: var(--font-body); font-size: 11px; color: var(--color-ink-soft); } /* 字面值：兩殼共用規則，兩殼都是 11px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-table tr.is-bad td { color: var(--color-late); }
-.ns-tk-im-note { margin-top: 10px; font-size: 12px; line-height: 1.7; letter-spacing: .04em; color: var(--color-ink-soft); } /* 字面值：兩殼共用規則，兩殼都是 12px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-note.is-bad { color: var(--color-late); }
-
 /* ─────────── 第②階段「看帳」（②契約 §2.7）：每席只在自己的分區加規則 ─────────── */
 
 /* ═══ §H 搜尋框 .ns-tk-search、統計小切換 .ns-tk-seg、篩選 chips .ns-tk-filters、結果摘要（乙）═══ */
 /* 值照原型 view.css §B（使用者看過的長相）；色只用 token 與 §A／§B 的區域變數 */
 
-/* 日曆／統計視圖右側板收起（§5.1），主欄放寬到 1040（清單照①的 820）；頁首跟著同寬才對得齊 */
+/* 日曆／統計視圖＝畫布型（丁 D-主-231；原本 1040 靠左）；頁首跟著同寬才對得齊 */
 .ns-tk-ledger[data-view="calendar"] > *,
-.ns-tk-ledger[data-view="stats"] > * { max-width: 1040px; }
-/* 銀河主題右上角有月牙（ambience.css .sky-moon：距右 52px、寬 22px）。放寬後主欄在窄視窗會頂到右緣，
-   頁首「記一筆」壓到月牙 ⇒ 這兩個視圖把右內距加到 92（月牙左緣 = 右緣 74px，無捲軸時留 18px、有捲軸再多 10）。
-   只在月牙存在時生效；視窗夠寬時主欄被 1040 封頂、靠左，多出的內距看不出來；清單視圖不受影響 */
-body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]) { padding-right: 92px; }
+.ns-tk-ledger[data-view="stats"] > * { max-width: var(--canvas-w); }
+/* 銀河右上角的月牙（ambience.css .sky-moon：距右 52px、寬 22px，左緣＝右緣 74px）：寬度規範之後帳簿欄左右都留 --page-side（80），
+   頁首「記一筆」碰不到月牙，原本月曆／統計把右內距加到 92 的那條規則退場（丁 D-主-231）。 */
 
 /* 搜尋框：底線框、聚焦金線（UI 丙-5 A3 起住在頁首下一列 .ns-tk-subbar，寬度在 T1 區） */
 .ns-tk-search {
@@ -837,19 +758,10 @@ body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]
 /* 分類挑選：照文流開在表格下方（.ns-dialog-body 是內捲容器，絕對定位開在底部會被裁、撐出捲軸）；外觀同 .ns-tk-pop */
 .ns-tk-pop.ns-tk-be-pop { position: relative; z-index: auto; max-width: none; width: 240px; max-height: 240px; margin: 0 0 4px; animation-name: nsTkPop; }
 .ns-tk-be-pop .opt .r { font-family: var(--font-body); font-size: 10.5px; letter-spacing: .12em; } /* 字面值：10.5px 不在桌機字階，照原型 */
-.ns-tk-be-pop .opt.is-sub { padding-left: 22px; font-size: var(--fs-ui); color: var(--color-ink-soft); }
 .ns-tk-be-pop .opt[disabled] { cursor: default; color: var(--color-ink-faint); }
 
-/* ═══ §N 定期帳管理 .ns-tk-rm*、規則編輯器 .ns-tk-re*：頻率 chip、日格、暫停橫幅（乙）═══ */
+/* ═══ §N 定期帳管理 .ns-tk-rm*、規則編輯器 .ns-tk-re*：頻率 chip、日格（乙）═══ */
 /* 管理 .ns-tk-rm（DialogShell 寬 620） */
-.ns-tk-rm-banner {
-  display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 10px 12px 10px 14px; border-radius: var(--radius-ctl);
-  background: var(--color-paper-used); border: 1px dashed var(--color-dash); /* 頁內資訊卡＝紙材質（§2.8；UI 丙-1 起不再金底金框） */
-}
-.ns-tk-rm-banner p { flex: 1; font-size: var(--fs-ui); line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-soft); }
-.ns-tk-rm-banner b { font-family: var(--font-display); color: var(--color-ink); }
-/* 橫幅裡的鈕＝次鈕（§2.8：橫幅 ≤2 顆次鈕；UI 丙-1 起不再是金框鈕） */
-.ns-tk-rm-banner .ns-tk-dbtn { flex: none; }
 .ns-tk-rm-h { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 0; padding: 0 0 5px; font-size: 10.5px; font-weight: 400; letter-spacing: .32em; color: var(--color-ink-faint); border-bottom: 1px solid var(--color-line); } /* 字面值：10.5px 不在桌機字階，照原型 */
 .ns-tk-rm-h small { font-family: var(--font-latin); letter-spacing: .04em; }
 .ns-tk-rm-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: 14px; min-height: 52px; padding: 6px 0; border-bottom: 1px dashed var(--color-line); }
@@ -929,10 +841,6 @@ body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]
 .ns-tk-repfield .ns-tk-btn { margin-left: auto; } /* 「管理定期 ›」＝文字鈕（.ns-btn--sm.btn-text 給尺寸） */
 /* 月曆「超」（✎-6）：UI 丙-5 J1 起在 DayCell 右上角，樣式在檔尾 T6 區 */
 .ns-tk-repfield .t.is-gone { color: var(--color-ink-faint); }
-/* 匯入票（§G 的卡）第③階段多的兩行：預算／定期計畫、略過與缺欄小字、結果卡「去定期帳」 */
-.ns-tk-im-sum.is-plan { margin-top: 2px; }
-.ns-tk-im-plannote { margin-top: 3px; font-size: 11.5px; line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 11.5px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-im-note.is-plan { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
 
 /* ═══ 磨光⑥ 售票口排序（契約 §2-1、§2-4；D-票-61、D-票-64）═══ */
 /* 帳戶順序：照分類管理的一列（.ns-tk-drow），依群組分區；群組小標沿 .ns-tk-dialog .lbl */
@@ -1054,9 +962,6 @@ body:has(.sky-moon) .ns-tk-ledger:is([data-view="calendar"], [data-view="stats"]
 /* E1 分類管理：支出｜收入分段鈕 → 一張 ManagerList（列樣式在 common/listbits.css）→ 新增主分類 → 封存區 */
 .ns-tk-dkind { margin-bottom: var(--sp-3); }
 .ns-tk-dcatlist { border-block: 1px solid var(--color-line); }
-/* 子分類名稱淡一階（主分類有 emoji 開頭，子分類縮排＋淡墨＝一眼看得出層級；同舊樹的 .is-sub） */
-.ns-tk-dcatlist .ns-mgr-row.is-sub .ns-mgr-name { color: var(--color-ink-soft); }
-.ns-tk-dcatlist .ns-mgr-row.is-sub .ns-mgr-name:focus { color: var(--color-ink); }
 /* 「新增子分類…」開的那一列：跟子列名稱同一個左緣（listbits.css .is-sub 的 --sp-5） */
 .ns-tk-dcat-addli { padding: var(--sp-1) 0 var(--sp-2) var(--sp-5); border-bottom: 1px dashed var(--color-line); }
 .ns-tk-dcat-addli .ns-tk-dadd { margin: 0; }

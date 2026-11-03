@@ -11,8 +11,10 @@
  *   （桌機 36、手機 44，token 由 [data-shell="mobile"] 整組換）。
  *   `size`：省略＝跟殼走（手機殼自動成「獨立一列」：整列霧面玻璃底＋底線、撐滿）；"md"＝強制桌機形制（工具列內、不加底）；
  *   "mobile"＝強制獨立一列形制（高度仍跟殼的 token）。
- *   `scroll`：籤太多時橫捲（捲軸隱藏）；獨立一列形制且超過 4 段時，JS 量各籤自然寬、均勻補左右內距（`--tab-pad-x`），
- *   讓一列剛好「4 格＋第 5 格露一半」（籤字寬時退成 3 格半…）＝「還能捲」的提示（`peekPad`）；選中籤換了會自動捲進視野。
+ *   `scroll`：籤太多時橫捲（捲軸隱藏）；獨立一列形制且超過 4 段時，JS 量各籤字寬（`tabRowLayout`，D-主-285）：
+ *   字寬＋每邊最小內距（`--tab-pad-min`）加總放得下列寬（`.ns-tabrow` 同列的「管理」鈕已扣掉＝量 tablist 自己的 clientWidth）
+ *   ⇒ 平分撐滿、不露半格；放不下 ⇒ 均勻補左右內距（`--tab-pad-x`），讓一列剛好「4 格＋第 5 格露一半」
+ *   （籤字寬時退成 3 格半…）＝「還能捲」的提示（`peekPad`）。視窗寬變了（ResizeObserver）會重判。選中籤換了會自動捲進視野。
  *   底線滑塊：JS 量選中籤的中心寫進 `--ink-x`，換籤時滑過去（`--dur`／`--ease`；減少動態時不滑）；
  *   量不到（測試環境、未排版）時退回選中籤自己畫一條（CSS `::after`），不會沒有選中態。
  *   快捷鍵不內嵌鍵帽：放 `hotkeyTitle`（滑過的 title）與「?」指引（§2.2 鍵帽列）。
@@ -34,6 +36,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
+import { MOBILE_TABS_PER_ROW, tabRowLayout } from "./tabsLayout";
 
 export interface TabItem<K extends string = string> {
   key: K;
@@ -52,7 +55,7 @@ export interface TabsProps<K extends string = string> {
   onChange: (key: K) => void;
   /** 省略＝跟殼走；"md"＝工具列內（不加底）；"mobile"＝獨立一列（整列玻璃） */
   size?: "md" | "mobile";
-  /** 籤多時橫捲；手機殼超過 4 段末段露半格 */
+  /** 籤多時橫捲；手機殼超過 4 段：一列放得下就平分、放不下才末段露半格 */
   scroll?: boolean;
   /** 讀屏用名稱（預設「切換檢視」） */
   "aria-label"?: string;
@@ -61,8 +64,7 @@ export interface TabsProps<K extends string = string> {
   className?: string;
 }
 
-/** 手機殼一列放得下幾段；超過就橫捲、末段露半格（§2.2 段數欄） */
-export const MOBILE_TABS_PER_ROW = 4;
+export { MOBILE_TABS_PER_ROW, peekPad, tabRowLayout } from "./tabsLayout";
 
 /**
  * 漫遊焦點的下一格（Tabs／Segmented 共用，純函式）：從 `from` 往 `dir` 找下一個沒禁用的位置，循環；
@@ -86,23 +88,6 @@ export function stepRoving(
     if (!disabled[i]) return i;
   }
   return -1;
-}
-
-/**
- * 末段露半格的補白（純函式）：籤的自然寬 `widths`（不含補白）、列寬 `rowW`，回每籤左右各要再補幾 px，
- * 讓第 k 籤（k ≤ perRow，取放得下的最大 k）剛好在列的右緣被切一半——前 k 格完整、第 k+1 格露半格。
- * 解 Σ_{i<k}(w_i+2p) + (w_k+2p)/2 = rowW ⇒ p = (rowW − Σ_{i<k} w_i − w_k/2) / (2k+1)；k 從大到小找第一個 p ≥ 0。
- * 籤數 ≤ perRow 或連第一格都放不下半格時回 0（照自然寬捲）。
- */
-export function peekPad(widths: readonly number[], rowW: number, perRow = MOBILE_TABS_PER_ROW): number {
-  if (widths.length <= perRow || rowW <= 0) return 0;
-  for (let k = Math.min(perRow, widths.length - 1); k >= 1; k--) {
-    let before = 0;
-    for (let i = 0; i < k; i++) before += widths[i];
-    const p = (rowW - before - widths[k] / 2) / (2 * k + 1);
-    if (p >= 0) return p;
-  }
-  return 0;
 }
 
 /** 方向鍵 → stepRoving 的方向；`vertical` 連 ↑↓ 一起收（Segmented 照 radiogroup 慣例） */
@@ -139,28 +124,42 @@ export function Tabs<K extends string = string>({
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
   /** 選中籤的中心（px，相對 tablist）；null＝量不到，退回 CSS ::after */
   const [inkX, setInkX] = useState<number | null>(null);
-  /** 末段露半格：每籤左右各補的 px（只在手機獨立一列＋超過 4 段時非 0；寫進 --tab-pad-x） */
+  /** 末段露半格：每籤左右各補的 px（只在手機獨立一列＋超過 4 段且放不下時非 0；寫進 --tab-pad-x） */
   const [padX, setPadX] = useState(0);
   const padRef = useRef(0);
   padRef.current = padX;
-  const peek = scroll && items.length > MOBILE_TABS_PER_ROW;
+  /** 超過 4 段但量過放得下：平分撐滿、不露半格（tabRowLayout）；量之前先當放不下（露半格＝照舊捲，最保守） */
+  const [fit, setFit] = useState(false);
+  const fitRef = useRef(false);
+  fitRef.current = fit;
+  const many = scroll && items.length > MOBILE_TABS_PER_ROW;
+  const peek = many && !fit;
 
   const place = useCallback(() => {
     const list = listRef.current;
     if (!list) return;
-    // 露半格只在「獨立一列」形制成立（跟 tabs.css 的 .is-peek 規則同一個條件）
+    // 平分／露半格只在「獨立一列」形制判斷（跟 tabs.css 的 .is-peek 規則同一個條件）
     const rowForm =
       size === "mobile" ||
       (size !== "md" && list.closest("[data-shell]")?.getAttribute("data-shell") === "mobile");
-    if (peek && rowForm) {
-      const cur = padRef.current;
-      const widths = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]'), (t) =>
-        Math.max(0, t.getBoundingClientRect().width - 2 * cur),
-      );
-      const next = Math.floor(peekPad(widths, list.clientWidth) * 10) / 10;
-      if (Math.abs(next - cur) >= 0.5) setPadX(next); // 補白一變籤寬就變，ResizeObserver 會再叫一次 place 量滑塊
-    } else if (padRef.current !== 0) {
-      setPadX(0);
+    if (many && rowForm) {
+      // 量字寬：暫掛 .is-measure（籤不伸縮、內距 0）讀完就拿掉——同一輪同步排版，畫面不會閃；
+      // 量的時候列變窄會把 scrollLeft 夾回 0，量完放回去
+      const sl = list.scrollLeft;
+      list.classList.add("is-measure");
+      const content = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]'), (t) => t.getBoundingClientRect().width);
+      list.classList.remove("is-measure");
+      list.scrollLeft = sl;
+      const cs = getComputedStyle(list);
+      const minPad = parseFloat(cs.getPropertyValue("--tab-pad-min")) || 12;
+      const peekBase = parseFloat(cs.getPropertyValue("--tab-pad-peek")) || 16;
+      const lay = tabRowLayout(content, list.clientWidth, minPad, peekBase);
+      if (lay.fit !== fitRef.current) setFit(lay.fit); // 形制一換籤寬就變，ResizeObserver 會再叫一次 place 量滑塊
+      const next = lay.fit ? 0 : Math.floor(lay.pad * 10) / 10;
+      if (Math.abs(next - padRef.current) >= 0.5 || (next === 0 && padRef.current !== 0)) setPadX(next);
+    } else {
+      if (padRef.current !== 0) setPadX(0);
+      if (fitRef.current) setFit(false);
     }
     const sel = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
     if (!sel || !sel.offsetWidth) {
@@ -175,7 +174,7 @@ export function Tabs<K extends string = string>({
       if (l < list.scrollLeft) list.scrollLeft = l;
       else if (r > list.scrollLeft + list.clientWidth) list.scrollLeft = r - list.clientWidth;
     }
-  }, [peek, size]);
+  }, [many, size]);
 
   // items 常是呼叫端每次渲染新建的陣列：用內容簽名當依賴，避免每次渲染都重掛 ResizeObserver
   const sig = JSON.stringify(items.map((it) => [it.key, it.label, !!it.disabled]));

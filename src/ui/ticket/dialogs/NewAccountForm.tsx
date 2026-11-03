@@ -2,7 +2,7 @@
  * NewAccountForm——「新增帳戶」對話框本體（車次①契約 §5.1、§2.5-4；兩殼共用；丙席）。
  * props `{ onDone(): void }`（確認或取消後由 host 關）；自己讀 store。標題由 host 依 `store.dialog.kind` 給。
  *
- * 欄位：名稱・群組（12 個，依財務管家順序；`lent` 顯示「借出／應收」）・幣別・期初餘額（可空；填了＝建立時同時生成一筆
+ * 欄位：名稱・群組（12 個，依 ACCOUNT_GROUPS 順序；`lent` 顯示「借出／應收」）・幣別・期初餘額（可空；填了＝建立時同時生成一筆
  *   精算，備註「期初餘額」——store.createAccount 做）。「建立」成功才關；失敗 store 已吐 toast，欄位留著讓主人改。
  *   建完要不要接著記一筆／填回草稿看 `dialog.then`，store.createAccount 處理（磨光③ 2-16）；這裡只管建與關。
  * 「取消・建立」包在 `<DialogFoot>`：桌機進 DialogShell 的黏底 foot（UI 丙-5 E3），手機照舊在本文最後；

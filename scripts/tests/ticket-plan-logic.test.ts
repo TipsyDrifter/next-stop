@@ -2,7 +2,7 @@
  * 售票口線・第③階段「管帳」單元測試（③契約 §4.7；甲席 Stage 0）。
  * 跑法：`node --test scripts/tests/ticket-plan-logic.test.ts`（node 24，型別剝除預設開；零依賴）。
  *
- * A～F：domain（`src/domain/ticketPlan.ts`）全部真斷言。G：repository 對帳——memory 與 sqlite 兩個實作各跑一遍 38～42c
+ * A～F：domain（`src/domain/ticketPlan.ts`）全部真斷言。G：repository 對帳——memory 與 sqlite 兩個實作各跑一遍 38～42c（42 測匯入，隨「從財務管家匯入」拿掉）
  * （sqlite 跑在 `node:sqlite` 記憶體 DB、套**真的** 0007＋0010 DDL、開外鍵；`runBatch` 替身收 op，驗 op 的種類與 cols），
  * 43＝同一組操作在兩個實作逐列相同（甲席 Stage 1 補完）。
  *
@@ -46,7 +46,7 @@ registerHooks({
   },
 });
 
-import type { AccountRow, CategoryRow, CurrencyRow, EntryCtx, EntryRow, ImportLocal, MmbakDump } from "../../src/domain/ticket.ts";
+import type { AccountRow, CategoryRow, CurrencyRow, EntryCtx, EntryRow } from "../../src/domain/ticket.ts";
 import type { BudgetRow, RepeatRow } from "../../src/domain/ticketPlan.ts";
 
 const T = await import("../../src/domain/ticket.ts");
@@ -58,7 +58,7 @@ const S = await import("../../src/data/sqliteTicketRepository.ts");
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-const { ticketId, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, STARTER_CATEGORIES, STARTER_CURRENCY, atOf } = T;
+const { ticketId, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, atOf } = T;
 const { fixedRule, afterRule, serializeRule, nextFixedDate } = R;
 
 /* ───────── fixture ───────── */
@@ -553,179 +553,19 @@ describe("E. skipped", () => {
 
 /* ═════════════════════════ F. 匯入 ═════════════════════════ */
 
-function emptyLocal(): ImportLocal {
-  return {
-    currencies: [{ ...STARTER_CURRENCY, ...SYNC }],
-    accounts: [],
-    categories: STARTER_CATEGORIES.map((c) => ({ ...c, archived_at: null, ...SYNC })),
-    entries: [],
-    budgets: [],
-    repeats: [],
-  };
-}
-const planOpts = (pause = true) => ({ balanceText: {}, nowIso: NOW, pauseImported: pause });
-const dump3 = (): MmbakDump => M.mockImportDump("base", true);
-
-describe("F. 匯入", () => {
-  test("29. mmMonth 四種", () => {
-    assert.equal(P.mmMonth(0), null);
-    assert.equal(P.mmMonth(202601), "2026-01");
-    assert.equal(P.mmMonth(202613), undefined);
-    assert.equal(P.mmMonth(2026), undefined);
-  });
-  test("30. mmRepeatRule：每月＋until、未知碼 null", () => {
-    const r = P.mmRepeatRule(1, "2026-11-03", "2027-06-30");
-    assert.deepEqual([r?.freq, r?.bymonthday, r?.start, r?.until], ["monthly", [3], "2026-11-03", "2027-06-30"]);
-    assert.equal(P.mmRepeatRule(9, "2026-11-03", null), null);
-  });
-  test("31. planBudgetImport：總＋主＋子、預設＋覆寫 ⇒ 5 列、scopes 3、overrides 2；各 invalid 原因逐字", () => {
-    const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const b = part.budgets;
-    assert.equal(b.inserts.length, 5);
-    assert.equal(b.scopes, 3);
-    assert.equal(b.overrides, 2);
-    assert.deepEqual(b.invalid, [{ uid: "mm-ba6", reason: "目前只支援每月預算" }]);
-    const total = b.inserts.find((x) => x.kind === "total" && x.month === null)!;
-    assert.equal(total.id, P.budgetId({ kind: "total" }, null));
-    assert.equal(total.amount_minor, 1500000);
-    assert.deepEqual([total.import_id, total.import_source], ["mm-ba1", "moneymanager"]);
-    const snack = b.inserts.find((x) => x.category_id === plan.categoryIdOf["mm-ce0-4"])!;
-    assert.equal(snack.amount_minor, 80000);
-    // 其餘 invalid
-    const d = dump3();
-    d.budgets!.push(
-      { uid: "inc", target_uid: null, do_type: 0, period_type: 6, is_total: true, is_del: false, transfer_type: 0, modify_date: 1 },
-      { uid: "tt", target_uid: null, do_type: 1, period_type: 6, is_total: true, is_del: false, transfer_type: 1, modify_date: 1 },
-      { uid: "uncat", target_uid: "mm-uncat", do_type: 1, period_type: 6, is_total: false, is_del: false, transfer_type: 0, modify_date: 1 },
-    );
-    d.budget_amounts!.push(
-      { uid: "x-inc", budget_uid: "inc", is_del: false, amount: "100", budget_period: 0, modify_date: 1 },
-      { uid: "x-tt", budget_uid: "tt", is_del: false, amount: "100", budget_period: 0, modify_date: 1 },
-      { uid: "x-13", budget_uid: "_1_1_0_6", is_del: false, amount: "100", budget_period: 202613, modify_date: 1 },
-      { uid: "x-zero", budget_uid: "_1_1_0_6", is_del: false, amount: "0", budget_period: 202602, modify_date: 1 },
-      { uid: "x-uncat", budget_uid: "uncat", is_del: false, amount: "100", budget_period: 0, modify_date: 1 },
-      { uid: "x-nobud", budget_uid: "nope", is_del: false, amount: "100", budget_period: 0, modify_date: 1 },
-    );
-    const plan2 = { categoryIdOf: { ...plan.categoryIdOf, "mm-uncat": UNCAT_EXPENSE_ID } };
-    const inv = P.planBudgetImport(d, plan2, [], NOW).invalid;
-    assert.deepEqual(inv, [
-      { uid: "mm-ba6", reason: "目前只支援每月預算" },
-      { uid: "x-13", reason: "時間範圍格式有誤" },
-      { uid: "x-inc", reason: "收入預算（目前只支援支出預算）" },
-      { uid: "x-nobud", reason: "找不到設預算的分類" },
-      { uid: "x-tt", reason: "不支援這種預算類型" },
-      { uid: "x-uncat", reason: "「未分類」不能設預算" },
-      { uid: "x-zero", reason: "金額格式有誤" },
-    ]);
-  });
-  test("32. 重跑：結果當 local ⇒ 0／0；MODIFY_DATE+1 且金額變 ⇒ updates 1；金額沒變 ⇒ unchanged；本機墓碑 ⇒ tombstoned", () => {
-    const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = part.budgets.inserts;
-    const again = P.planBudgetImport(dump3(), plan, local, NOW);
-    assert.deepEqual([again.inserts.length, again.updates.length, again.unchanged], [0, 0, 5]);
-    const d = dump3();
-    d.budget_amounts![0].modify_date += 1;
-    d.budget_amounts![0].amount = "16000";
-    d.budget_amounts![1].modify_date += 1; // 金額沒變
-    const r = P.planBudgetImport(d, plan, local, NOW);
-    assert.equal(r.updates.length, 1);
-    assert.deepEqual(r.updates[0].cols, { amount_minor: 1600000, import_id: "mm-ba1", import_source: "moneymanager", import_utime: d.budget_amounts![0].modify_date, updated_at: NOW });
-    assert.equal(r.unchanged, 4);
-    const tomb = local.map((x) => (x.month === null && x.kind === "total" ? { ...x, deleted_at: NOW } : x));
-    assert.equal(P.planBudgetImport(dump3(), plan, tomb, NOW).tombstoned, 1);
-  });
-  test("33. planRepeatImport：四條、USD、hhmm、PAYEE 優先、未知週期碼、轉帳、不認得的類型", () => {
-    const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const r = part.repeats;
-    assert.equal(r.inserts.length, 4);
-    assert.deepEqual(r.invalid, [{ uid: "mm-r5", reason: "不支援的重複週期：9" }]);
-    const byUid = (u: string) => r.inserts.find((x) => x.import_id === u)!;
-    assert.equal(byUid("mm-r1").id, ticketId("moneymanager:repeat:mm-r1"));
-    assert.equal(byUid("mm-r1").hhmm, "09:30");
-    assert.equal(byUid("mm-r1").next_on, "2026-11-03");
-    assert.equal(byUid("mm-r1").note, "雲端硬碟");
-    assert.equal(byUid("mm-r4").note, "房租", "PAYEE 空 ⇒ MEMO");
-    assert.deepEqual([byUid("mm-r3").currency, byUid("mm-r3").amount_minor], ["USD", 1000]);
-    assert.equal(byUid("mm-r2").kind, "income");
-    assert.equal(byUid("mm-r2").category_id, plan.categoryIdOf["mm-ci0"]);
-    assert.equal(byUid("mm-r1").rule, serializeRule(P.mmRepeatRule(1, "2026-11-03", null)!));
-    assert.equal(byUid("mm-r1").account_id, plan.accountIdOf["mm-a2"]);
-    const d = dump3();
-    const nd = new Date(2026, 10, 7, 9, 0).getTime();
-    d.repeats!.push(
-      { ...d.repeats![0], uid: "mm-tr", do_type: 3, to_asset_uid: "mm-a3", ctg_uid: null, next_date: nd, amount_sub: "500" },
-      { ...d.repeats![0], uid: "mm-x5", do_type: 5 },
-    );
-    const r2 = P.planImportAll(d, emptyLocal(), planOpts()).part.repeats;
-    const tr = r2.inserts.find((x) => x.import_id === "mm-tr")!;
-    assert.deepEqual([tr.kind, tr.to_account_id, tr.category_id, tr.amount_minor], ["transfer", plan.accountIdOf["mm-a3"], null, 50000]);
-    assert.ok(r2.invalid.some((x) => x.uid === "mm-x5" && x.reason === "不支援的類型：5"));
-  });
-  test("34. 0-1 兩種：pauseImported true ⇒ paused_at 非 null；false ⇒ null、next_on＝nextDay", () => {
-    const a = P.planImportAll(dump3(), emptyLocal(), planOpts(true)).part.repeats.inserts;
-    assert.ok(a.every((x) => x.paused_at === NOW));
-    const b = P.planImportAll(dump3(), emptyLocal(), planOpts(false)).part.repeats.inserts;
-    assert.ok(b.every((x) => x.paused_at === null));
-    assert.equal(b.find((x) => x.import_id === "mm-r2")!.next_on, "2026-10-20");
-  });
-  test("35. 重跑規則：USETIME+1 且 AMOUNT_SUB 變 ⇒ updates（不含 paused_at／next_on）；本機已暫停 ⇒ 更新後仍暫停", () => {
-    const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = part.repeats.inserts;
-    const same = P.planRepeatImport(dump3(), plan, local, NOW, { pauseImported: true, accounts: plan.accounts, entries: [] });
-    assert.deepEqual([same.inserts.length, same.updates.length, same.unchanged], [0, 0, 4]);
-    const d = dump3();
-    d.repeats![0].usetime += 1;
-    d.repeats![0].amount_sub = "350";
-    const r = P.planRepeatImport(d, plan, local, NOW, { pauseImported: true, accounts: plan.accounts, entries: [] });
-    assert.equal(r.updates.length, 1);
-    assert.deepEqual(r.updates[0].cols, { amount_minor: 35000, import_utime: d.repeats![0].usetime, updated_at: NOW });
-    assert.ok(!("paused_at" in r.updates[0].cols) && !("next_on" in r.updates[0].cols));
-    // USETIME 沒變 ⇒ 不比模板
-    const d2 = dump3();
-    d2.repeats![0].amount_sub = "350";
-    assert.equal(P.planRepeatImport(d2, plan, local, NOW, { pauseImported: true, accounts: plan.accounts, entries: [] }).updates.length, 0);
-  });
-  test("35b. 游標刷新（✎-8）：暫停且從沒開始過 ⇒ 重匯 NEXT_DATE 往後一個月 ⇒ updates 含 next_on；開始過 ⇒ 不動；resume 兩種", () => {
-    const { plan, part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = part.repeats.inserts;
-    const d = dump3();
-    d.repeats![0].next_date = new Date(2026, 11, 3, 9, 30).getTime(); // 11/3 → 12/3
-    const opts = { pauseImported: true, accounts: plan.accounts, entries: [] as Pick<EntryRow, "repeat_id">[] };
-    const r = P.planRepeatImport(d, plan, local, NOW, opts);
-    assert.equal(r.updates.length, 1);
-    assert.equal(r.updates[0].cols.next_on, "2026-12-03");
-    assert.equal(r.updates[0].cols.rule, serializeRule(P.mmRepeatRule(1, "2026-12-03", null)!));
-    const id = r.updates[0].id;
-    const started = P.planRepeatImport(d, plan, local, NOW, { ...opts, entries: [{ repeat_id: id }] });
-    assert.equal(started.updates.length, 0, "開始過（有帳指向它）⇒ next_on 不動");
-    // resume：從沒開始過的匯入規則 ⇒ next_on 不變；手建 ⇒ 明天起
-    const imp = local.find((x) => x.id === id)!;
+describe("F. 開始（resumeNextOn；匯入已拿掉，早期匯入的規則照舊）", () => {
+  test("35b. 早期匯入、從沒開始過 ⇒ next_on 不變（已過也保持，實體化照常補記到今天）；開始過或手建 ⇒ 明天起", () => {
+    const mm = { import_source: "moneymanager", import_id: "mm-r1", import_utime: 1 };
+    const imp = rep("ri", fixedRule("daily", "2026-10-01"), { ...mm, paused_at: NOW, next_on: "2026-11-03" });
     assert.equal(P.neverStarted(imp, []), true);
     assert.equal(P.resumeNextOn(imp, [], TODAY), "2026-11-03");
-    const pastImp = { ...local.find((x) => x.import_id === "mm-r3")! };
+    const pastImp = rep("rp", fixedRule("daily", "2026-10-01"), { ...mm, import_id: "mm-r3", paused_at: NOW, next_on: "2026-10-16" });
     assert.equal(P.resumeNextOn(pastImp, [], TODAY), "2026-10-16", "NEXT_DATE 已過也保持——實體化照常補記到今天");
     const manual = rep("rm", fixedRule("daily", "2026-10-01"), { paused_at: NOW, next_on: "2026-10-03" });
+    assert.equal(P.neverStarted(manual, []), false);
     assert.equal(P.resumeNextOn(manual, [], TODAY), "2026-10-20");
-    assert.equal(P.resumeNextOn(imp, [{ repeat_id: id }], TODAY), nextFixedDate(P.parseFixedRule(imp.rule)!, TODAY));
-  });
-  test("36. plan_missing 非空 ⇒ 三個陣列 null ⇒ part 全空、missing 照抄", () => {
-    const d = { ...dump3(), budgets: null, budget_amounts: null, repeats: null, plan_missing: ["BUDGET.targetUid"] };
-    const { part } = P.planImportAll(d, emptyLocal(), planOpts());
-    assert.deepEqual([part.budgets.inserts.length, part.repeats.inserts.length, part.budgets.scopes], [0, 0, 0]);
-    assert.deepEqual(part.missing, ["BUDGET.targetUid"]);
-    // 舊版 Rust（四個欄位都沒有）也不炸
-    const old: any = { ...dump3() };
-    delete old.budgets;
-    delete old.budget_amounts;
-    delete old.repeats;
-    delete old.plan_missing;
-    assert.deepEqual(P.planImportAll(old, emptyLocal(), planOpts()).part.missing, []);
-  });
-  test("37. partSummary 文字逐字", () => {
-    const { part } = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    assert.deepEqual(P.partSummary(part), { budgetLine: "預算 3 個（2 個單月覆寫）", repeatLine: "定期帳 4 筆", skipLine: "略過 2：目前只支援每月預算、不支援的重複週期：9", tombLine: null });
-    const { part: empty } = P.planImportAll(M.mockImportDump("base"), emptyLocal(), planOpts());
-    assert.deepEqual(P.partSummary(empty), { budgetLine: "預算 0 個", repeatLine: "定期帳 0 筆", skipLine: null, tombLine: null });
+    assert.equal(P.neverStarted(imp, [{ repeat_id: imp.id }]), false, "有帳（含墓碑）指向它＝開始過");
+    assert.equal(P.resumeNextOn(imp, [{ repeat_id: imp.id }], TODAY), nextFixedDate(P.parseFixedRule(imp.rule)!, TODAY));
   });
 });
 
@@ -806,9 +646,18 @@ const dailyInput = (accountId: string, categoryId: string, start: string): any =
   kind: "expense", accountId, toAccountId: null, categoryId, amountMinor: 8000, currency: "TWD", note: "早餐", routeId: null,
   rule: fixedRule("daily", start), hhmm: "09:00",
 });
-/** 沒存活的帳也讀得到（含墓碑）：兩個實作都走 loadImportLocal */
+/** 含墓碑的整張表（測試直讀：memory 讀內部 Map、sqlite 直接 SELECT；repo 沒有「讀含墓碑全表」的公開介面） */
+async function allRows<Row>(repo: any, table: "tk_entries" | "tk_budgets" | "tk_repeats"): Promise<Row[]> {
+  if (repo instanceof M.MemoryTicketRepository) {
+    const key = { tk_entries: "ent", tk_budgets: "bud", tk_repeats: "rep" }[table];
+    return Array.from((repo as unknown as Record<string, Map<string, Row>>)[key].values()).map((x) => ({ ...x }));
+  }
+  const db = (globalThis as { __tkDb?: TestDb }).__tkDb!;
+  return (await db.select(`SELECT * FROM ${table}`)) as unknown as Row[];
+}
+/** 沒存活的帳也讀得到（含墓碑） */
 async function entryAny(repo: any, id: string): Promise<EntryRow | undefined> {
-  return ((await repo.loadImportLocal()).entries as EntryRow[]).find((e) => e.id === id);
+  return (await allRows<EntryRow>(repo, "tk_entries")).find((e) => e.id === id);
 }
 const opsOf = (db: TestDb | null, from: number) => (db ? db.ops.slice(from) : []);
 
@@ -873,7 +722,13 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       const r = await repo.createRepeat(dailyInput(acc.id, lunch.id, V.dayStep(TODAY, -3)));
       const m0 = db ? db.ops.length : 0;
       const first = await repo.materializeRepeats(TODAY, 6);
-      assert.deepEqual(first, { inserted: 4, reconciled: 0, blocked: [] });
+      const { rows: firstRows, ...firstCounts } = first;
+      assert.deepEqual(firstCounts, { inserted: 4, reconciled: 0, blocked: [] });
+      // 售票口④：多回記出來的那幾筆（store 拿它帶規則的荷札）
+      assert.deepEqual(
+        firstRows.map((x: { id: string; repeat_id: string }) => [x.id, x.repeat_id]).sort(),
+        [-3, -2, -1, 0].map((d) => [P.materializeId(r.id, V.dayStep(TODAY, d)), r.id]).sort(),
+      );
       assert.equal((await repo.listRepeats())[0].next_on, V.dayStep(TODAY, 1));
       if (db) {
         const ops = opsOf(db, m0);
@@ -966,60 +821,6 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       assert.equal((await repo.materializeRepeats(TODAY, 6)).reconciled, 1);
     });
 
-    test(`42. applyImport 含 part ⇒ 預算與規則落庫、第二次 inserts 0；全部開始接著 NEXT_DATE（${impl.name}）`, async () => {
-      const { repo, db } = await impl.make();
-      await repo.ensureStarterRows();
-      const d = dump3();
-      const a1 = P.planImportAll(d, await repo.loadImportLocal(), planOpts());
-      const m0 = db ? db.ops.length : 0;
-      const out = await repo.applyImport(a1.plan, T.defaultChoices(a1.plan), a1.part, () => {});
-      assert.deepEqual([out.budgets, out.repeats], [5, 4]);
-      if (db) {
-        const ops = opsOf(db, m0);
-        const bud = ops.filter((o) => o.tbl === "tk_budgets");
-        const rep = ops.filter((o) => o.tbl === "tk_repeats");
-        assert.deepEqual([bud.length, rep.length], [5, 4]);
-        assert.deepEqual(Object.keys(bud[0].cols), rustCols("TK_BUDGETS_COLS"));
-        assert.deepEqual(Object.keys(rep[0].cols), rustCols("TK_REPEATS_COLS"));
-        // 外鍵父先子後：第 1 批裡分類在預算之前、帳戶在規則之前
-        const firstBud = ops.findIndex((o) => o.tbl === "tk_budgets");
-        const lastCat = ops.map((o) => o.tbl).lastIndexOf("tk_categories");
-        assert.ok(lastCat < firstBud);
-      }
-      assert.equal((await repo.listBudgets()).length, 5);
-      const reps: RepeatRow[] = await repo.listRepeats();
-      assert.equal(reps.length, 4);
-      assert.ok(reps.every((x) => x.paused_at !== null));
-      const a2 = P.planImportAll(d, await repo.loadImportLocal(), planOpts());
-      assert.deepEqual(
-        [a2.part.budgets.inserts.length, a2.part.repeats.inserts.length, a2.part.budgets.updates.length, a2.part.repeats.updates.length],
-        [0, 0, 0, 0],
-      );
-      // 重跑時 MODIFY_DATE／USETIME 變新且值變 ⇒ updates 落庫
-      const d3 = dump3();
-      d3.budget_amounts![0].modify_date += 1;
-      d3.budget_amounts![0].amount = "16000";
-      d3.repeats![0].usetime += 1;
-      d3.repeats![0].amount_sub = "350";
-      const a3 = P.planImportAll(d3, await repo.loadImportLocal(), planOpts());
-      const out3 = await repo.applyImport(a3.plan, T.defaultChoices(a3.plan), a3.part, () => {});
-      assert.deepEqual([out3.budgets, out3.repeats], [1, 1]);
-      assert.equal((await repo.listBudgets()).find((b: BudgetRow) => b.import_id === "mm-ba1")!.amount_minor, 1600000);
-      const r1 = (await repo.listRepeats()).find((x: RepeatRow) => x.import_id === "mm-r1")!;
-      assert.deepEqual([r1.amount_minor, r1.import_utime, r1.paused_at !== null], [35000, d3.repeats![0].usetime, true], "更新後仍暫停");
-      // 全部開始：從沒開始過的匯入規則接著 NEXT_DATE；已過的那條（10/16）實體化補記到今天
-      const n = await repo.resumeAllRepeats(TODAY);
-      assert.equal(n, 4);
-      const afterResume: RepeatRow[] = await repo.listRepeats();
-      assert.ok(afterResume.every((x) => x.paused_at === null));
-      assert.equal(afterResume.find((x) => x.import_id === "mm-r3")!.next_on, "2026-10-16");
-      assert.equal(afterResume.find((x) => x.import_id === "mm-r1")!.next_on, "2026-11-03");
-      const m = await repo.materializeRepeats(TODAY, 6);
-      assert.equal(m.inserted, 1, "只有 mm-r3（10/16）到期");
-      assert.equal((await repo.listRepeats()).find((x: RepeatRow) => x.import_id === "mm-r3")!.next_on, "2026-11-16");
-      assert.equal(await repo.resumeAllRepeats(TODAY), 0, "沒有暫停的 ⇒ 0、不寫");
-    });
-
     test(`42b. 規則的寫入：建／改（rule 變 ⇒ next_on 重算、只改模板 ⇒ 不動）／暫停開始（手建明天起）／刪復原／連帳（${impl.name}）`, async () => {
       const { repo, db, acc, lunch, food } = await setup(impl);
       const r = await repo.createRepeat(dailyInput(acc.id, lunch.id, V.dayStep(TODAY, -2)));
@@ -1093,18 +894,23 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
 
   test("43. memory 與 sqlite 對同一組操作 ⇒ listBudgets／listRepeats／tk_entries（含墓碑）逐列相同", async () => {
     const snap: Record<string, unknown>[] = [];
+    // 兩個實作的 uuid 都走 crypto.randomUUID：這一題換成每個實作從 1 數起的計數器，同一組操作就產生同一組 id（逐列比得起來）
+    const realUuid = crypto.randomUUID.bind(crypto);
+    try {
     for (const impl of IMPLS) {
+      let k = 0;
+      (crypto as { randomUUID: () => string }).randomUUID = () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`;
       const { repo } = await impl.make();
       const idMap: Record<string, string> = {};
       const res: unknown[] = [];
       await repo.ensureStarterRows();
-      const a = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      await repo.applyImport(a.plan, T.defaultChoices(a.plan), a.part, () => {});
-      const accs: AccountRow[] = await repo.listAccounts();
-      const cats: CategoryRow[] = (await repo.listCategories()).filter((c: CategoryRow) => c.kind === "expense" && c.id !== UNCAT_EXPENSE_ID);
-      const acc0 = accs[0].id;
-      const leaf = cats.find((c) => c.parent_id !== null)!.id;
-      const root = cats.find((c) => c.parent_id === null)!.id;
+      const acc0 = (await repo.createAccount({ name: "現金", group: "cash", currency: "TWD", openingMinor: null, occurredOn: TODAY })).id;
+      const root = (await repo.createCategory({ kind: "expense", name: "🍜 食物", parentId: null })).id;
+      const leaf = (await repo.createCategory({ kind: "expense", name: "午餐", parentId: root })).id;
+      await repo.createEntry({
+        kind: "expense", accountId: acc0, toAccountId: null, categoryId: leaf, amountMinor: 12000, currency: "TWD",
+        note: "便當", occurredOn: V.dayStep(TODAY, -5), occurredAt: new Date(2026, 9, 14, 12, 0).toISOString(), routeId: null,
+      });
       await repo.setBudget({ kind: "total" }, "2026-11", 300000);
       await repo.setBudget({ kind: "total" }, "2026-11", 310000);
       await repo.setBudget({ kind: "category", categoryId: leaf }, null, 40000);
@@ -1114,7 +920,6 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       const r2 = await repo.createRepeat({ ...dailyInput(acc0, leaf, V.dayStep(TODAY, -10)), rule: fixedRule("weekly", V.dayStep(TODAY, -10), { byweekday: [1, 3, 5] }) });
       idMap[r1.id] = "R1";
       idMap[r2.id] = "R2";
-      res.push(await repo.resumeAllRepeats(TODAY));
       res.push(await repo.materializeRepeats(TODAY, 6));
       await repo.softDeleteEntry(P.materializeId(r1.id, V.dayStep(TODAY, -1)));
       await repo.softDeleteEntry(P.materializeId(r1.id, V.dayStep(TODAY, -2)));
@@ -1124,11 +929,12 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
       await repo.updateRepeat(r2.id, { note: "通勤" }, TODAY);
       await repo.setRepeatPaused(r2.id, false, TODAY);
       res.push(await repo.materializeRepeats(TODAY, 6));
-      const imported: RepeatRow[] = (await repo.listRepeats()).filter((x: RepeatRow) => x.import_source !== null);
-      await repo.softDeleteRepeat(imported[0].id);
-      await repo.softDeleteRepeat(imported[1].id);
-      await repo.restoreRepeat(imported[1].id);
-      const plainIds = ((await repo.loadImportLocal()).entries as EntryRow[]).filter((e) => e.deleted_at === null && e.repeat_id === null).map((e) => e.id).sort();
+      const r3 = await repo.createRepeat({ ...dailyInput(acc0, leaf, V.dayStep(TODAY, 3)), note: "刪掉的" });
+      const r4 = await repo.createRepeat({ ...dailyInput(acc0, leaf, V.dayStep(TODAY, 5)), note: "刪了又復原" });
+      await repo.softDeleteRepeat(r3.id);
+      await repo.softDeleteRepeat(r4.id);
+      await repo.restoreRepeat(r4.id);
+      const plainIds = (await allRows<EntryRow>(repo, "tk_entries")).filter((e) => e.deleted_at === null && e.repeat_id === null).map((e) => e.id).sort();
       await repo.linkEntryToRepeat(plainIds[0], r1.id);
       await repo.softDeleteEntry(plainIds[0]); // 連上的帳刪掉也寫進 skipped_days（0-7-4 (iii)，無害）
       res.push(await repo.materializeRepeats(TODAY, 6));
@@ -1141,8 +947,12 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
         if ("paused_at" in o) x.paused_at = o.paused_at !== null;
         return x;
       };
-      const local = await repo.loadImportLocal();
-      const entries = (local.entries as EntryRow[])
+      const local = {
+        entries: await allRows<EntryRow>(repo, "tk_entries"),
+        budgets: await allRows<BudgetRow>(repo, "tk_budgets"),
+        repeats: await allRows<RepeatRow>(repo, "tk_repeats"),
+      };
+      const entries = local.entries
         .map((e) => {
           const x = strip(e as unknown as Record<string, unknown>);
           if (e.repeat_id !== null && e.id === P.materializeId(e.repeat_id, e.occurred_on)) x.id = `m:${nid(e.repeat_id)}:${e.occurred_on}`;
@@ -1158,6 +968,9 @@ describe("G. repository 對帳（memory／sqlite 兩個實作；sqlite 跑 node:
         repeatsAll: (local.repeats as RepeatRow[]).map((r) => ({ ...strip(r as unknown as Record<string, unknown>), id: nid(r.id) })).sort((p, q) => ((p.id as string) < (q.id as string) ? -1 : 1)),
         entries,
       });
+    }
+    } finally {
+      (crypto as { randomUUID: () => string }).randomUUID = realUuid;
     }
     const [mem, sql] = snap;
     assert.deepEqual(sql.res, mem.res, "回傳值相同");
@@ -1208,95 +1021,12 @@ describe("G. 修正-資料（評審 findings 的回歸；R 編號對 ticket-plan
     assert.equal(P.budgetText(line(1001, 1000), 0).rest, "超支 1");
   });
 
-  test("G4. 預算的 scopes／overrides 只算有變動的：同一份備份再匯一次 ⇒ 0／0（和「定期 N 條」同一個口徑）", () => {
-    const first = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    assert.deepEqual([first.part.budgets.scopes, first.part.budgets.overrides], [3, 2]);
-    const local = { ...emptyLocal(), budgets: first.part.budgets.inserts, repeats: first.part.repeats.inserts };
-    const again = P.planImportAll(dump3(), local, planOpts());
-    assert.deepEqual([again.part.budgets.scopes, again.part.budgets.overrides, again.part.budgets.unchanged], [0, 0, 5]);
-    assert.equal(P.partSummary(again.part).budgetLine, "預算 0 個");
-  });
-
-  test("G5. 規則指到①會丟掉的幣別（匯率看不懂／代碼不是三個字母）⇒ invalid「不支援這個幣別」；對不到任何幣別仍用帳戶幣別", () => {
-    for (const bad of [{ iso: "JPY", rate: "abc" }, { iso: "J1", rate: "0.2" }]) {
-      const d = dump3();
-      d.currencies.push({ uid: "mm-c9", iso: bad.iso, is_main: false, rate: bad.rate, decimals: 0 });
-      d.repeats![2].currency_uid = "mm-c9";
-      const { part } = P.planImportAll(d, emptyLocal(), planOpts());
-      assert.ok(part.repeats.invalid.some((x) => x.uid === "mm-r3" && x.reason === "不支援這個幣別"), bad.iso);
-      assert.equal(part.repeats.inserts.some((x) => x.import_id === "mm-r3"), false);
-    }
-  });
-
-  test("G6. ✎-8 游標刷新只往前：舊備份（NEXT_DATE 較早）不刷；新備份（較晚）照刷 next_on＋rule", () => {
-    const first = P.planImportAll(dump3(), emptyLocal(), planOpts());
-    const local = { ...emptyLocal(), budgets: first.part.budgets.inserts, repeats: first.part.repeats.inserts };
-    const id = ticketId("moneymanager:repeat:mm-r1");
-    const older = dump3();
-    older.repeats![0].next_date = new Date(2026, 9, 3, 9, 30).getTime();
-    assert.equal(P.planImportAll(older, local, planOpts()).part.repeats.updates.find((u) => u.id === id), undefined);
-    const newer = dump3();
-    newer.repeats![0].next_date = new Date(2026, 11, 3, 9, 30).getTime();
-    const up = P.planImportAll(newer, local, planOpts()).part.repeats.updates.find((u) => u.id === id);
-    assert.ok(up && up.cols.next_on === "2026-12-03" && typeof up.cols.rule === "string");
-  });
 });
 
 /* ═════════════════════════ H. 收尾修正（主 session 10-19 定的五件） ═════════════════════════ */
 
 describe("H. 收尾修正", () => {
   for (const impl of IMPLS) {
-    test(`H1. 「全部開始」只開始匯入且從沒開始過的規則：手動暫停的手建規則、開始過又暫停的匯入規則都不動；listUnstartedRepeatIds＝開始的那幾條（${impl.name}）`, async () => {
-      const { repo, db } = await impl.make();
-      await repo.ensureStarterRows();
-      const a = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      await repo.applyImport(a.plan, T.defaultChoices(a.plan), a.part, () => {});
-      const accs: AccountRow[] = await repo.listAccounts();
-      const leaf = (await repo.listCategories()).find((c: CategoryRow) => c.kind === "expense" && c.parent_id !== null)!.id;
-      // 手建規則、手動暫停
-      const hand = await repo.createRepeat(dailyInput(accs[0].id, leaf, V.dayStep(TODAY, 1)));
-      await repo.setRepeatPaused(hand.id, true, TODAY);
-      // 匯入規則 mm-r3：單條開始 → 補記 10/16 → 再暫停（開始過了）
-      const r3 = (await repo.listRepeats()).find((x: RepeatRow) => x.import_id === "mm-r3")!;
-      await repo.setRepeatPaused(r3.id, false, TODAY);
-      assert.equal((await repo.materializeRepeats(TODAY, DSH)).inserted, 1);
-      await repo.setRepeatPaused(r3.id, true, TODAY);
-      const fresh = (await repo.listRepeats()).filter((x: RepeatRow) => x.import_source !== null && x.id !== r3.id).map((x: RepeatRow) => x.id);
-      assert.equal(fresh.length, 3);
-      const ids: string[] = await repo.listUnstartedRepeatIds();
-      assert.deepEqual(ids.slice().sort(), fresh.slice().sort(), "只有三條從沒開始過的匯入規則");
-      const snapHand = (await repo.listRepeats()).find((x: RepeatRow) => x.id === hand.id)!;
-      const snapR3 = (await repo.listRepeats()).find((x: RepeatRow) => x.id === r3.id)!;
-      const mark = db ? db.ops.length : 0;
-      assert.equal(await repo.resumeAllRepeats(TODAY), 3, "回的 N＝listUnstartedRepeatIds 的長度");
-      const after: RepeatRow[] = await repo.listRepeats();
-      for (const id of fresh) assert.equal(after.find((x) => x.id === id)!.paused_at, null, "匯入、從沒開始過 ⇒ 開始");
-      assert.deepEqual(after.find((x) => x.id === hand.id), snapHand, "手動暫停的手建規則一欄都不動");
-      assert.deepEqual(after.find((x) => x.id === r3.id), snapR3, "開始過又暫停的匯入規則一欄都不動");
-      if (db) {
-        const ops = opsOf(db, mark);
-        assert.deepEqual(ops.map((o) => o.row_id).sort(), fresh.slice().sort(), "只對那三條發 op");
-      }
-      assert.deepEqual(await repo.listUnstartedRepeatIds(), []);
-      assert.equal(await repo.resumeAllRepeats(TODAY), 0, "沒有從沒開始過的 ⇒ 0；手動暫停的照舊不動");
-      assert.notEqual((await repo.listRepeats()).find((x: RepeatRow) => x.id === hand.id)!.paused_at, null);
-    });
-
-    test(`H2. 開始過的匯入規則、記的帳又被刪光（只剩墓碑）⇒ 不算從沒開始過（listUnstartedRepeatIds 看墓碑；${impl.name}）`, async () => {
-      const { repo } = await impl.make();
-      await repo.ensureStarterRows();
-      const a = P.planImportAll(dump3(), await repo.loadImportLocal(), planOpts());
-      await repo.applyImport(a.plan, T.defaultChoices(a.plan), a.part, () => {});
-      const r3 = (await repo.listRepeats()).find((x: RepeatRow) => x.import_id === "mm-r3")!;
-      await repo.setRepeatPaused(r3.id, false, TODAY);
-      await repo.materializeRepeats(TODAY, DSH);
-      await repo.softDeleteEntry(P.materializeId(r3.id, "2026-10-16"));
-      await repo.setRepeatPaused(r3.id, true, TODAY);
-      const ids: string[] = await repo.listUnstartedRepeatIds();
-      assert.equal(ids.indexOf(r3.id), -1);
-      assert.equal(ids.length, 3);
-    });
-
     test(`H3. materializeRepeats 把 dayStartHour 傳下去：手建規則 03:00、日界線 6 ⇒ 帳日的隔一個日曆日 03:00（${impl.name}）`, async () => {
       const { repo, acc, lunch } = await setup(impl);
       const r = await repo.createRepeat({ ...dailyInput(acc.id, lunch.id, TODAY), hhmm: "03:00" });

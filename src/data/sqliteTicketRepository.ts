@@ -2,19 +2,23 @@
  * 售票口線的 SQLite 實作（車次①契約 §3.5；甲席）。
  *
  * 寫法照 `sqliteTimetableRepository.ts`（`newWriteBatch → b.stmts.push → addOp → runWriteBatch`）：每支公開寫入＝
- * 讀現況 → domain 純函式推導（`buildEntryRow`／`applyEntryPatch`／`adjustRow`／`materializeImport`，與 mock 同一套）→
+ * 讀現況 → domain 純函式推導（`buildEntryRow`／`applyEntryPatch`／`adjustRow`，與 mock 同一套）→
  * 一個 `WriteBatch` 落。資料語句與 op 同批、軟刪除、時間一律 `nowUtcIso()`（24 字元 ISO）。
  *
  * - op 的 cols（§3.5-1）：新列＝§3.2 白名單**完整列**（`deleted_at: null`）；改列＝真的改到的欄＋`updated_at`
  *   （值相同的欄不寫、不送 op；全部相同整筆跳過——逐欄 LWW，重新戳沒改的欄會蓋掉另一台的改動）；
  *   軟刪＝`delete` op `{ deleted_at, updated_at }`；復原＝`upsert` op `{ deleted_at: null, updated_at }`。
- * - 外鍵父先子後（0-15）：同一批內帳戶先於帳、主分類先於子分類；匯入第 1 批＝幣別＋帳戶＋分類，帳每 `IMPORT_CHUNK` 筆一批（0-21）。
+ * - 外鍵父先子後（0-15）：同一批內帳戶先於帳、主分類先於子分類；定期帳實體化的帳每 `IMPORT_CHUNK` 筆一批（0-21）。
  * - 起手三列（0-17）：依 id 查（含墓碑），缺幾列補幾列，幣別在前。
  * - 對 `./ticketRepository` 只用 `import type`（執行期不循環）。
  * - 第③階段（③契約 §3.5；甲席 Stage 1）：預算 upsert（`BUDGET_UPSERT`）、定期規則的寫入、實體化（reconcile → 查既有含墓碑 →
  *   只插沒有的 → 推游標）、`softDeleteEntry`／`restoreEntry` 同一批連動 `skipped_days`——推導全走 `ticketPlan.ts` 的純函式，與 mock 同義。
+ * - 售票口④（Stage 0 資料席）：願望（tk_wishes）與常用票種（tk_templates）的讀寫、帳戶／分類／願望／常用票種的「搬到第 k 個」
+ *   （`planMoveTo`，與 planSwap 同一個整組寫骨架）、備註歷史 `listNoteUses`；實體化多回記出來的那幾筆（store 帶規則的荷札）。
+ *   推導走 `ticketAids.ts`（`buildWishRow`／`applyWishPatch`／`buildTemplateRow`／`applyTemplatePatch`），與 mock 同義。
+ * - 售票口④ 第二輪（D-票-78）：分類不限層數（createCategory 不再擋第三層）；「移到…」`moveCategoryUnder` 與封存連帶整棵的推導
+ *   走 domain（`planMoveUnder`／`categorySubtreeIds`），與 mock 同義。0 migration。
  */
-import { invoke } from "@tauri-apps/api/core";
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
@@ -29,11 +33,14 @@ import {
   applyEntryPatch,
   buildEntryRow,
   currencyCode,
+  categoryArchivedUp,
+  categorySubtreeIds,
   effectiveParentId,
-  materializeImport,
   orderAccounts,
   parseRate,
   planAdjust,
+  planMoveTo,
+  planMoveUnder,
   ticketId,
   type AccountRow,
   type CategoryKind,
@@ -42,11 +49,6 @@ import {
   type EntryCtx,
   type EntryPatch,
   type EntryRow,
-  type ImportChoice,
-  type ImportLocal,
-  type ImportOutcome,
-  type ImportPlan,
-  type MmbakReadResult,
   type NewEntryInput,
   type UsageSince,
 } from "../domain/ticket";
@@ -57,7 +59,6 @@ import {
   budgetRow,
   buildRepeatRow,
   materializeId,
-  neverStarted,
   parseFixedRule,
   parseSkipped,
   planMaterialize,
@@ -70,17 +71,32 @@ import {
   type BudgetRow,
   type BudgetScope,
   type NewRepeatInput,
-  type PlanImportPart,
   type RepeatPatch,
   type RepeatRow,
 } from "../domain/ticketPlan";
 import { projectFixed } from "../domain/repeat";
+import {
+  AIDS_TEXT,
+  applyTemplatePatch,
+  applyWishPatch,
+  buildTemplateRow,
+  buildWishRow,
+  byPosition,
+  type NewTemplateInput,
+  type NewWishInput,
+  type NoteUse,
+  type TemplatePatch,
+  type TemplateRow,
+  type WishPatch,
+  type WishRow,
+} from "../domain/ticketAids";
 import { todayKey } from "../lib/date";
 import { matchesQuery } from "../domain/ticketView";
 import type {
   AccountPatch,
   CurrencyPatch,
   EntryQuery,
+  MaterializedRow,
   NewAccountInput,
   NewCategoryInput,
   NewCurrencyInput,
@@ -154,7 +170,25 @@ const REP_COLS = [
   "deleted_at",
 ] as const;
 
-type TkTable = "tk_currencies" | "tk_accounts" | "tk_categories" | "tk_entries" | "tk_budgets" | "tk_repeats";
+/** 售票口④（0016）：與 ticket.rs 的 TK_WISHES_COLS／TK_TEMPLATES_COLS 逐字相同 */
+const WISH_COLS = ["name", "amount_minor", "note", "category_id", "position", "entry_id", "bought_at", "created_at", "updated_at", "deleted_at"] as const;
+const TPL_COLS = [
+  "name",
+  "kind",
+  "amount_minor",
+  "currency",
+  "account_id",
+  "to_account_id",
+  "category_id",
+  "note",
+  "route_id",
+  "position",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+] as const;
+
+type TkTable = "tk_currencies" | "tk_accounts" | "tk_categories" | "tk_entries" | "tk_budgets" | "tk_repeats" | "tk_wishes" | "tk_templates";
 
 const COLS_OF: Record<TkTable, readonly string[]> = {
   tk_currencies: CUR_COLS,
@@ -163,10 +197,14 @@ const COLS_OF: Record<TkTable, readonly string[]> = {
   tk_entries: ENT_COLS,
   tk_budgets: BUD_COLS,
   tk_repeats: REP_COLS,
+  tk_wishes: WISH_COLS,
+  tk_templates: TPL_COLS,
 };
 /** 預算的 upsert（③契約 §3.5-2）：重設同一個預算＝同一列、復活墓碑 */
 const BUDGET_UPSERT = "DO UPDATE SET amount_minor = excluded.amount_minor, deleted_at = NULL, updated_at = excluded.updated_at";
 const REPEAT_GONE = "這筆定期帳已經刪除了";
+const WISH_GONE = AIDS_TEXT.wishGone;
+const TEMPLATE_GONE = AIDS_TEXT.templateGone;
 
 /** 陣列切段（`IN (…)` 不超過 `IN_LIMIT` 個參數、寫入每 `IMPORT_CHUNK` 筆一批） */
 function chunks<T>(list: readonly T[], size: number): T[][] {
@@ -193,7 +231,7 @@ function fullCols(tbl: TkTable, row: object): Record<string, unknown> {
 
 /**
  * 新列：`INSERT (id, 白名單欄) … ON CONFLICT(id) <onConflict>`＋完整列 upsert op。
- * `onConflict` 預設 `DO NOTHING`（確定性 id 的列兩台各建只留一列；匯入第 1 批與起手三列）。
+ * `onConflict` 預設 `DO NOTHING`（確定性 id 的列兩台各建只留一列；起手三列、定期帳實體化）。
  */
 function pushInsert<T extends { id: string }>(b: WriteBatch, tbl: TkTable, row: T, onConflict = "DO NOTHING"): void {
   const cols = fullCols(tbl, row);
@@ -631,19 +669,33 @@ export class SqliteTicketRepository implements TicketRepository {
     await this.commit(db, b);
   }
 
-  async moveAccount(id: string, delta: 1 | -1): Promise<void> {
-    const db = await getDb();
+  /** 同群組、未封存的帳戶（顯示順序）——moveAccount／moveAccountTo 共用 */
+  private async accountSibs(db: Database, id: string): Promise<AccountRow[]> {
     const a = await this.accountOrThrow(db, id);
     const sibs = await db.select<AccountRow[]>(
       `SELECT * FROM tk_accounts WHERE ${ALIVE} AND archived_at IS NULL AND group_key = $1`,
       [a.group_key],
     );
-    const moves = planSwap(orderAccounts(sibs), id, delta);
+    return orderAccounts(sibs);
+  }
+
+  /** 整組寫 position（#101）：每列一個 upsert op、同一批；moves 空＝不寫 */
+  private async writePositions(db: Database, tbl: TkTable, moves: readonly { id: string; position: number }[]): Promise<void> {
     if (!moves.length) return;
     const now = nowUtcIso();
     const b = newWriteBatch();
-    for (const m of moves) pushUpdate(b, "tk_accounts", m.id, { position: m.position, updated_at: now });
+    for (const m of moves) pushUpdate(b, tbl, m.id, { position: m.position, updated_at: now });
     await this.commit(db, b);
+  }
+
+  async moveAccount(id: string, delta: 1 | -1): Promise<void> {
+    const db = await getDb();
+    await this.writePositions(db, "tk_accounts", planSwap(await this.accountSibs(db, id), id, delta));
+  }
+
+  async moveAccountTo(id: string, index: number): Promise<void> {
+    const db = await getDb();
+    await this.writePositions(db, "tk_accounts", planMoveTo(await this.accountSibs(db, id), id, index));
   }
 
   async adjustBalance(accountId: string, targetMinor: number, occurredOn: string, note: string): Promise<EntryRow | null> {
@@ -669,23 +721,22 @@ export class SqliteTicketRepository implements TicketRepository {
       if (isUncat(input.parentId)) throw new RangeError("「未分類」下面不能建子分類");
       const p = await this.categoryOrThrow(db, input.parentId);
       if (p.kind !== input.kind) throw new RangeError("這個分類不屬於目前的收支類型");
-      if (p.parent_id !== null) throw new RangeError("分類只有兩層");
     }
-    const parentWhere = input.parentId === null ? "parent_id IS NULL" : "parent_id = $4";
-    const args: unknown[] = [input.kind, UNCAT_INCOME_ID, UNCAT_EXPENSE_ID];
-    if (input.parentId !== null) args.push(input.parentId);
-    const max = await db.select<{ m: number | null }[]>(
-      `SELECT MAX(position) AS m FROM tk_categories
-       WHERE ${ALIVE} AND kind = $1 AND id NOT IN ($2, $3) AND ${parentWhere}`,
-      args,
-    );
+    // 不限層數（售票口④ 第二輪 D-票-78）；排在那一層（實際的樹，含父已不在而升上來的）最後
+    const all = await db.select<CategoryRow[]>(`SELECT * FROM tk_categories WHERE ${ALIVE} AND kind = $1`, [input.kind]);
+    const byId: Record<string, CategoryRow> = {};
+    for (const x of all) byId[x.id] = x;
+    const pRow = input.parentId === null ? null : byId[input.parentId];
+    if (pRow && categoryArchivedUp(pRow, byId)) throw new RangeError("封存的分類底下不能建子分類");
+    let max = -1;
+    for (const x of all) if (!isUncat(x.id) && effectiveParentId(x, byId) === input.parentId) max = Math.max(max, x.position);
     const nowIso = nowUtcIso();
     const row: CategoryRow = {
       id: uuid(),
       kind: input.kind,
       name,
       parent_id: input.parentId,
-      position: (max[0]?.m ?? -1) + 1,
+      position: max + 1,
       archived_at: null,
       device_id: null,
       created_at: nowIso,
@@ -715,12 +766,16 @@ export class SqliteTicketRepository implements TicketRepository {
     if (isUncat(id)) throw new RangeError("「未分類」不能改名或封存");
     const db = await getDb();
     const c = await this.categoryOrThrow(db, id);
-    const kids = await db.select<CategoryRow[]>(`SELECT * FROM tk_categories WHERE ${ALIVE} AND parent_id = $1`, [id]);
+    // 底下整棵（不限層數，D-票-78）：實際的樹（effectiveParentId），不含自己
+    const all = await db.select<CategoryRow[]>(`SELECT * FROM tk_categories WHERE ${ALIVE} AND kind = $1`, [c.kind]);
+    const byId: Record<string, CategoryRow> = {};
+    for (const x of all) byId[x.id] = x;
+    const kids = categorySubtreeIds(id, all).slice(1).map((k) => byId[k]).filter((k): k is CategoryRow => !!k);
     const now = nowUtcIso();
     const b = newWriteBatch();
     if (archived) {
       if (c.archived_at !== null) return;
-      // 它與它未封存的子分類同一個 archived_at（取消封存時靠這個值認出「連帶封存」的那些）
+      // 它與它未封存的子孫同一個 archived_at（取消封存時靠這個值認出「連帶封存」的那些）
       pushUpdate(b, "tk_categories", id, { archived_at: now, updated_at: now });
       for (const k of kids) if (k.archived_at === null) pushUpdate(b, "tk_categories", k.id, { archived_at: now, updated_at: now });
     } else {
@@ -735,8 +790,42 @@ export class SqliteTicketRepository implements TicketRepository {
   async moveCategory(id: string, delta: 1 | -1): Promise<void> {
     if (isUncat(id)) return;
     const db = await getDb();
+    await this.writePositions(db, "tk_categories", planSwap(await this.categorySibs(db, id), id, delta));
+  }
+
+  async moveCategoryTo(id: string, index: number): Promise<void> {
+    if (isUncat(id)) return;
+    const db = await getDb();
+    await this.writePositions(db, "tk_categories", planMoveTo(await this.categorySibs(db, id), id, index));
+  }
+
+  async moveCategoryUnder(id: string, newParentId: string | null, index?: number): Promise<void> {
+    const db = await getDb();
+    const c = isUncat(id) ? null : await this.categoryOrThrow(db, id);
+    // 各 kind 都讀：目標是別 kind 的要報「不屬於目前的收支類型」，不是「不在了」
+    const all = c ? await db.select<CategoryRow[]>(`SELECT * FROM tk_categories WHERE ${ALIVE}`) : [];
+    // 推導與檢查全在 domain（mock 同一支）；未分類 ⇒ planMoveUnder 丟「「未分類」不能移動」
+    const plan = planMoveUnder(all, id, newParentId, index);
+    const now = nowUtcIso();
+    // 每一列併成一筆 update：搬的那個（parent）、斷環的那幾個（parent＝null，planMoveUnder 註解）、兩邊兄弟組的 position
+    const rows = new Map<string, Record<string, unknown>>();
+    const colsOf = (rid: string): Record<string, unknown> => {
+      let cols = rows.get(rid);
+      if (!cols) rows.set(rid, (cols = { updated_at: now }));
+      return cols;
+    };
+    if (plan.parent !== undefined) colsOf(id).parent_id = plan.parent;
+    for (const bid of plan.breaks) colsOf(bid).parent_id = null;
+    for (const m of plan.moves) colsOf(m.id).position = m.position;
+    const b = newWriteBatch();
+    for (const [rid, cols] of rows) pushUpdate(b, "tk_categories", rid, cols);
+    await this.commit(db, b);
+  }
+
+  /** 同 kind、同層（effectiveParentId）、未封存的分類（顯示順序）——moveCategory／moveCategoryTo 共用 */
+  private async categorySibs(db: Database, id: string): Promise<CategoryRow[]> {
     const c = await this.categoryOrThrow(db, id);
-    // 找兄弟看「實際掛在哪一層」（D-票-62）：父列已不在的子分類跟主分類同一層，與 categoryTree 的顯示一致
+    // 找兄弟看「實際掛在哪一層」（D-票-62）：父列已不在的子分類跟主分類同一層，與 categoryForest 的顯示一致
     const all = await db.select<CategoryRow[]>(
       `SELECT * FROM tk_categories WHERE ${ALIVE} AND kind = $1 AND id NOT IN ($2, $3)`,
       [c.kind, UNCAT_INCOME_ID, UNCAT_EXPENSE_ID],
@@ -746,12 +835,7 @@ export class SqliteTicketRepository implements TicketRepository {
     const level = effectiveParentId(c, byId);
     const sibs = all.filter((x) => x.archived_at === null && effectiveParentId(x, byId) === level);
     sibs.sort((a, b) => a.position - b.position || cmp(a.created_at, b.created_at) || cmp(a.id, b.id));
-    const moves = planSwap(sibs, id, delta);
-    if (!moves.length) return;
-    const now = nowUtcIso();
-    const b = newWriteBatch();
-    for (const m of moves) pushUpdate(b, "tk_categories", m.id, { position: m.position, updated_at: now });
-    await this.commit(db, b);
+    return sibs;
   }
 
   /* ───────── 寫：幣別 ───────── */
@@ -811,93 +895,6 @@ export class SqliteTicketRepository implements TicketRepository {
     const b = newWriteBatch();
     pushUpdate(b, "tk_currencies", id, cols);
     await this.commit(db, b);
-  }
-
-  /* ───────── 匯入 ───────── */
-
-  async pickImportFile(shell: "desktop" | "mobile"): Promise<string | null> {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    // 手機不帶 filters：Android 的 showFilePicker 設了 filter 就只列得到 MIME 對得上的（.mmbak 的 MIME 不明，probe §2）
-    const picked =
-      shell === "desktop"
-        ? await open({
-            multiple: false,
-            directory: false,
-            title: "選財務管家的備份檔",
-            filters: [{ name: "財務管家備份", extensions: ["mmbak"] }],
-          })
-        : await open({ multiple: false, directory: false, title: "選財務管家的備份檔" });
-    return typeof picked === "string" ? picked : null;
-  }
-
-  async readImport(path: string): Promise<MmbakReadResult> {
-    // 錯誤字串原樣往上丟（store 包成 toast）
-    return invoke<MmbakReadResult>("ticket_import_read", { path });
-  }
-
-  async loadImportLocal(): Promise<ImportLocal> {
-    const db = await getDb();
-    const [currencies, accounts, categories, entries, budgets, repeats] = await Promise.all([
-      db.select<CurrencyRow[]>(`SELECT * FROM tk_currencies`),
-      db.select<AccountRow[]>(`SELECT * FROM tk_accounts`),
-      db.select<CategoryRow[]>(`SELECT * FROM tk_categories`),
-      db.select<EntryRow[]>(`SELECT * FROM tk_entries`),
-      db.select<BudgetRow[]>(`SELECT * FROM tk_budgets`),
-      db.select<RepeatRow[]>(`SELECT * FROM tk_repeats`),
-    ]);
-    return { currencies, accounts, categories, entries, budgets, repeats };
-  }
-
-  async applyImport(
-    plan: ImportPlan,
-    choices: Readonly<Record<string, ImportChoice>>,
-    part: PlanImportPart,
-    onProgress: (done: number, total: number) => void,
-  ): Promise<ImportOutcome> {
-    const db = await getDb();
-    const m = materializeImport(plan, choices, nowUtcIso());
-
-    // 第 1 批：幣別 → 帳戶 → 分類（plan.categories 已是父先子後）
-    const first = newWriteBatch();
-    for (const c of plan.currencies) pushInsert(first, "tk_currencies", c);
-    for (const a of plan.accounts) pushInsert(first, "tk_accounts", a);
-    for (const c of plan.categories) pushInsert(first, "tk_categories", c);
-    // 第③階段（③契約 §3.5-8）：第 1 批尾端接預算與規則（父先：分類已在同批前面）
-    for (const b of part.budgets.inserts) pushInsert(first, "tk_budgets", b, BUDGET_UPSERT);
-    for (const u of part.budgets.updates) pushUpdate(first, "tk_budgets", u.id, u.cols, ` AND ${ALIVE}`);
-    for (const r of part.repeats.inserts) pushInsert(first, "tk_repeats", r);
-    for (const u of part.repeats.updates) pushUpdate(first, "tk_repeats", u.id, u.cols, ` AND ${ALIVE}`);
-    await this.commit(db, first);
-
-    // 之後：帳每 IMPORT_CHUNK 筆一批（0-21）；中途失敗＝前幾批已落，重跑同一個檔會補完（確定性 id）
-    type Op = { kind: "insert"; row: EntryRow } | { kind: "update"; id: string; cols: Record<string, unknown> };
-    const ops: Op[] = [
-      ...m.entryInserts.map((row): Op => ({ kind: "insert", row })),
-      ...m.entryUpdates.map((u): Op => ({ kind: "update", id: u.id, cols: u.cols })),
-      // 「留 Next Stop 的」：只蓋 import_utime／updated_at 的記號（不算 updated）
-      ...m.entryKept.map((u): Op => ({ kind: "update", id: u.id, cols: u.cols })),
-    ];
-    const total = ops.length;
-    let done = 0;
-    onProgress(0, total);
-    for (let i = 0; i < ops.length; i += IMPORT_CHUNK) {
-      const b = newWriteBatch();
-      for (const op of ops.slice(i, i + IMPORT_CHUNK)) {
-        if (op.kind === "insert") pushInsert(b, "tk_entries", op.row);
-        else pushUpdate(b, "tk_entries", op.id, op.cols, ` AND ${ALIVE}`);
-      }
-      await this.commit(db, b);
-      done = Math.min(total, i + IMPORT_CHUNK);
-      onProgress(done, total);
-    }
-    const e = plan.entries;
-    return {
-      inserted: m.entryInserts.length,
-      updated: m.entryUpdates.length,
-      skipped: e.unchanged + e.tombstoned + e.invalid.length + m.keptLocal,
-      budgets: part.budgets.inserts.length + part.budgets.updates.length,
-      repeats: part.repeats.inserts.length + part.repeats.updates.length,
-    };
   }
 
   /* ───────── 第③階段「管帳」：預算（③契約 §3.4、§3.5-2） ───────── */
@@ -1002,7 +999,7 @@ export class SqliteTicketRepository implements TicketRepository {
     return out;
   }
 
-  /** 開始一條：手建的（或開始過的）明天起、從沒開始過的匯入規則接著 next_on（resumeNextOn，✎-8）；next_on 沒變就不寫那欄 */
+  /** 開始一條：手建的（或開始過的）明天起、早期匯入且從沒開始過的規則接著 next_on（resumeNextOn，✎-8）；next_on 沒變就不寫那欄 */
   private resumeCols(r: RepeatRow, refs: readonly { repeat_id: string | null }[], today: string, now: string): Record<string, unknown> {
     const next = resumeNextOn(r, refs, today); // 規則看不懂 ⇒ RangeError
     const cols: Record<string, unknown> = { paused_at: null };
@@ -1020,37 +1017,6 @@ export class SqliteTicketRepository implements TicketRepository {
     const b = newWriteBatch();
     pushUpdate(b, "tk_repeats", id, cols, ` AND ${ALIVE}`);
     await this.commit(db, b);
-  }
-
-  /** 暫停中、從沒開始過的匯入規則＋它們的 refs（listUnstartedRepeatIds／resumeAllRepeats 共用同一個判法） */
-  private async unstartedRepeats(db: Database): Promise<{ list: RepeatRow[]; refs: { repeat_id: string | null }[] }> {
-    const paused = await db.select<RepeatRow[]>(
-      `SELECT * FROM tk_repeats WHERE ${ALIVE} AND paused_at IS NOT NULL AND import_source IS NOT NULL ORDER BY created_at, id`,
-    );
-    if (!paused.length) return { list: [], refs: [] };
-    const refs = await this.repeatRefs(
-      db,
-      paused.map((r) => r.id),
-    );
-    return { list: paused.filter((r) => neverStarted(r, refs)), refs };
-  }
-
-  async listUnstartedRepeatIds(): Promise<string[]> {
-    const db = await getDb();
-    return (await this.unstartedRepeats(db)).list.map((r) => r.id);
-  }
-
-  /** 全部開始（0-1）：只開始從沒開始過的匯入規則；先全部算好再寫（其中一條規則看不懂 ⇒ 丟錯、整批不動）；同一批；回開始了幾條 */
-  async resumeAllRepeats(today: string): Promise<number> {
-    const db = await getDb();
-    const { list, refs } = await this.unstartedRepeats(db);
-    if (!list.length) return 0;
-    const now = nowUtcIso();
-    const all = list.map((r) => ({ id: r.id, cols: this.resumeCols(r, refs, today, now) }));
-    const b = newWriteBatch();
-    for (const x of all) pushUpdate(b, "tk_repeats", x.id, x.cols, ` AND ${ALIVE}`);
-    await this.commit(db, b);
-    return list.length;
   }
 
   async softDeleteRepeat(id: string): Promise<void> {
@@ -1100,10 +1066,10 @@ export class SqliteTicketRepository implements TicketRepository {
   async materializeRepeats(
     today: string,
     dayStartHour: number,
-  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[] }> {
+  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[]; rows: MaterializedRow[] }> {
     const db = await getDb();
     const repeats = await db.select<RepeatRow[]>(`SELECT * FROM tk_repeats WHERE ${ALIVE} ORDER BY position, created_at, id`);
-    if (!repeats.length) return { inserted: 0, reconciled: 0, blocked: [] };
+    if (!repeats.length) return { inserted: 0, reconciled: 0, blocked: [], rows: [] };
 
     // (b) 候選 id：reconcile 的日子＋每條進行中規則要掃的班次
     const cand = new Set<string>();
@@ -1155,6 +1121,182 @@ export class SqliteTicketRepository implements TicketRepository {
       }
       await this.commit(db, b);
     }
-    return { inserted: inserts.length, reconciled: reconcile.length, blocked: plan.blocked };
+    return {
+      inserted: inserts.length,
+      reconciled: reconcile.length,
+      blocked: plan.blocked,
+      rows: inserts.map((row) => ({ id: row.id, repeat_id: row.repeat_id as string })),
+    };
+  }
+
+  /* ═════════ 售票口④（契約 §5、§6、§8） ═════════ */
+
+  /* ── 讀 ── */
+
+  async listNoteUses(): Promise<NoteUse[]> {
+    const db = await getDb();
+    // 精算（adjust）的備註是系統寫的「餘額調整」「期初餘額」，不是主人打的字，不列
+    // 照時間排（同一天後記的在後）：lastCategoryForNote 靠順序分同一天的先後，兩份 repository 要一致
+    return db.select<NoteUse[]>(
+      `SELECT note, occurred_on, kind, category_id FROM tk_entries WHERE ${ALIVE} AND kind <> 'adjust' AND TRIM(note) <> '' ORDER BY occurred_on, occurred_at, id`,
+    );
+  }
+
+  async getEntries(ids: readonly string[]): Promise<EntryRow[]> {
+    const db = await getDb();
+    const out: EntryRow[] = [];
+    for (const part of chunks(Array.from(new Set(ids)), IN_LIMIT)) {
+      const ph = part.map((_, i) => `$${i + 1}`).join(", ");
+      for (const r of await db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE} AND id IN (${ph})`, part as unknown[])) out.push(r);
+    }
+    return out;
+  }
+
+  /* ── 願望 ── */
+
+  async listWishes(): Promise<WishRow[]> {
+    const db = await getDb();
+    return db.select<WishRow[]>(`SELECT * FROM tk_wishes WHERE ${ALIVE} ORDER BY position, created_at, id`);
+  }
+
+  private async wishOrThrow(db: Database, id: string): Promise<WishRow> {
+    const rows = await db.select<WishRow[]>(`SELECT * FROM tk_wishes WHERE id = $1 AND ${ALIVE}`, [id]);
+    if (!rows[0]) throw new RangeError(WISH_GONE);
+    return rows[0];
+  }
+
+  async createWish(input: NewWishInput): Promise<WishRow> {
+    const db = await getDb();
+    if (input.categoryId !== null) await this.categoryOrThrow(db, input.categoryId); // 外鍵：分類要在
+    // 新的排在最上面（頂端一列直接加，加完就看得到）：現有最小 − 1
+    const min = await db.select<{ m: number | null }[]>(`SELECT MIN(position) AS m FROM tk_wishes WHERE ${ALIVE}`);
+    const row = buildWishRow(input, { id: uuid(), position: (min[0]?.m ?? 1) - 1, nowIso: nowUtcIso() });
+    const b = newWriteBatch();
+    pushInsert(b, "tk_wishes", row);
+    await this.commit(db, b);
+    return row;
+  }
+
+  async updateWish(id: string, patch: WishPatch): Promise<WishRow> {
+    const db = await getDb();
+    const w = await this.wishOrThrow(db, id);
+    if (patch.categoryId !== undefined && patch.categoryId !== null && patch.categoryId !== w.category_id) await this.categoryOrThrow(db, patch.categoryId);
+    const res = applyWishPatch(w, patch, nowUtcIso());
+    if (!Object.keys(res.cols).length) return w;
+    const b = newWriteBatch();
+    pushUpdate(b, "tk_wishes", id, res.cols, ` AND ${ALIVE}`);
+    await this.commit(db, b);
+    return res.row;
+  }
+
+  async setWishBought(id: string, entryId: string | null): Promise<void> {
+    const db = await getDb();
+    const w = await this.wishOrThrow(db, id);
+    if (w.entry_id === entryId) return;
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    pushUpdate(b, "tk_wishes", id, { entry_id: entryId, bought_at: entryId === null ? null : now, updated_at: now }, ` AND ${ALIVE}`);
+    await this.commit(db, b);
+  }
+
+  async softDeleteWish(id: string): Promise<void> {
+    await this.softDeleteIn("tk_wishes", id);
+  }
+
+  async restoreWish(id: string): Promise<void> {
+    await this.restoreIn("tk_wishes", id);
+  }
+
+  async moveWishTo(id: string, index: number): Promise<void> {
+    const db = await getDb();
+    await this.wishOrThrow(db, id);
+    // 想買那一組＝entry_id 沒指到還在的帳（已買的照那筆的日期排、不參與）
+    const want = await db.select<WishRow[]>(
+      `SELECT w.* FROM tk_wishes w
+       WHERE w.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM tk_entries e WHERE e.id = w.entry_id AND e.deleted_at IS NULL)
+       ORDER BY w.position, w.created_at, w.id`,
+    );
+    await this.writePositions(db, "tk_wishes", planMoveTo(want, id, index));
+  }
+
+  /* ── 常用票種 ── */
+
+  async listTemplates(): Promise<TemplateRow[]> {
+    const db = await getDb();
+    return db.select<TemplateRow[]>(`SELECT * FROM tk_templates WHERE ${ALIVE} ORDER BY position, created_at, id`);
+  }
+
+  private async templateOrThrow(db: Database, id: string): Promise<TemplateRow> {
+    const rows = await db.select<TemplateRow[]>(`SELECT * FROM tk_templates WHERE id = $1 AND ${ALIVE}`, [id]);
+    if (!rows[0]) throw new RangeError(TEMPLATE_GONE);
+    return rows[0];
+  }
+
+  /** 外鍵指的帳戶／分類要在（含封存；同 buildEntryRow「已刪就擋」） */
+  private async checkTemplateRefs(db: Database, p: TemplatePatch): Promise<void> {
+    if (p.accountId) await this.accountOrThrow(db, p.accountId);
+    if (p.toAccountId) await this.accountOrThrow(db, p.toAccountId);
+    if (p.categoryId) await this.categoryOrThrow(db, p.categoryId);
+  }
+
+  async createTemplate(input: NewTemplateInput): Promise<TemplateRow> {
+    const db = await getDb();
+    await this.checkTemplateRefs(db, input);
+    const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM tk_templates WHERE ${ALIVE}`);
+    const row = buildTemplateRow(input, { id: uuid(), position: (max[0]?.m ?? -1) + 1, nowIso: nowUtcIso() });
+    const b = newWriteBatch();
+    pushInsert(b, "tk_templates", row);
+    await this.commit(db, b);
+    return row;
+  }
+
+  async updateTemplate(id: string, patch: TemplatePatch): Promise<TemplateRow> {
+    const db = await getDb();
+    const t = await this.templateOrThrow(db, id);
+    await this.checkTemplateRefs(db, patch);
+    const res = applyTemplatePatch(t, patch, nowUtcIso());
+    if (!Object.keys(res.cols).length) return t;
+    const b = newWriteBatch();
+    pushUpdate(b, "tk_templates", id, res.cols, ` AND ${ALIVE}`);
+    await this.commit(db, b);
+    return res.row;
+  }
+
+  async softDeleteTemplate(id: string): Promise<void> {
+    await this.softDeleteIn("tk_templates", id);
+  }
+
+  async restoreTemplate(id: string): Promise<void> {
+    await this.restoreIn("tk_templates", id);
+  }
+
+  async moveTemplateTo(id: string, index: number): Promise<void> {
+    const db = await getDb();
+    await this.templateOrThrow(db, id);
+    const all = (await db.select<TemplateRow[]>(`SELECT * FROM tk_templates WHERE ${ALIVE}`)).sort(byPosition);
+    await this.writePositions(db, "tk_templates", planMoveTo(all, id, index));
+  }
+
+  /** 軟刪（delete op）；已刪或不存在＝不寫 */
+  private async softDeleteIn(tbl: "tk_wishes" | "tk_templates", id: string): Promise<void> {
+    const db = await getDb();
+    const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM ${tbl} WHERE id = $1`, [id]);
+    if (!rows[0] || rows[0].deleted_at !== null) return;
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE ${tbl} SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, tbl, id, "delete", { deleted_at: now, updated_at: now });
+    await this.commit(db, b);
+  }
+
+  /** 復原（upsert op { deleted_at: null, updated_at }）；沒刪或不存在＝不寫 */
+  private async restoreIn(tbl: "tk_wishes" | "tk_templates", id: string): Promise<void> {
+    const db = await getDb();
+    const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM ${tbl} WHERE id = $1`, [id]);
+    if (!rows[0] || rows[0].deleted_at === null) return;
+    const b = newWriteBatch();
+    pushUpdate(b, tbl, id, { deleted_at: null, updated_at: nowUtcIso() });
+    await this.commit(db, b);
   }
 }

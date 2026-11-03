@@ -15,7 +15,7 @@
  *   「切回時未來日拉回今天」的排除清單不含 grid（方眼照軸，不能記未來）。
  * 磨光③ 2-3：頂端切換列右邊（六格之外）固定一顆 button.ns-tt-msetbtn「設定」（aria-label／title「分類與設定」）開分類與設定。
  * UI 丙-4 F1：頂端切換列換成今日頂帶下一列同款 `.ns-tabrow`——<Tabs scroll>（發車台／軸／週／統計／日程／方眼；
- *   超過 4 段末段露半格＝還能捲）＋末端 span.mgr 文字鈕「管理」（＝手機唯一的分類與設定入口，A3）。
+ *   超過 4 段：放得下就平分、放不下才末段露半格＝還能捲；D-主-285）＋末端 span.mgr 文字鈕「管理」（＝手機唯一的分類與設定入口，A3）。
  *   籤列仍住在頁內 sticky 的 div.ns-tt-mtop（不走 MobileTopBand 的 tabsRow 插槽：那要改集中檔 MobileShell）。
  *   舊方格切換鈕與 .ns-tt-msetbtn 退役。
  */

@@ -9,14 +9,18 @@
  *
  *   關鍵字：搜尋框（inputmode=search、IME 組字中不查、去抖 150ms；Enter＝看結果）
  *   五段：期間（全部／本月／今年／自訂＋兩個 MobileDatePicker）／帳戶（chips 橫捲，含「封存」分區）／
- *         分類（支出、收入兩組格子：主分類格整勾＝含子分類；格右 › 展開子分類單勾）／類型（四顆 toggle）／路線（全部／未掛／各路線）
+ *         分類（支出、收入兩組格子；售票口④ 第二輪＝MobileCatDrill 多選：有下一層的點了走進去、沒有的點了勾／取消，
+ *           每一層「選這一層（含底下）」；選一個＝含子孫）／類型（四顆 toggle）／路線（全部／未掛／各路線）
+ *         ＋荷札（售票口④ D-票-74，原型 4-mobile-篩選：帳上掛過的荷札一顆一顆、多選＝任一、選父含子；沒有帳掛荷札就整段不出）
  *         ＋排序（磨光⑥ 契約 §2-4；D-票-64）：日期・新到舊／日期・舊到新／金額・大到小／金額・小到大（還沒有條件時選非預設 ⇒ 期間＝現在看的月份）
  *   底：「清除全部」・「看結果（N）」
  * 條件一改 store 就查（`patchFilter`／`setFilterText`），N＝`results.length`。
  * 關 sheet（完成／暗幕／看結果）：有任何條件 ⇒ `openSearch`（切清單、清單畫結果，月份列換成 chips 列）；全空 ⇒ `closeSearch`。
  */
-import { useEffect, useRef, useState, type CompositionEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CompositionEvent, type ReactNode } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
+import { useTagStore } from "../../../store/tagStore";
+import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
@@ -25,10 +29,7 @@ import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { MSheet } from "../../common/MSheet";
 import { useBackLayer } from "../../mobile/backStack";
 import {
-  UNCAT_EXPENSE_ID,
-  UNCAT_INCOME_ID,
   archivedAccounts,
-  categoryTree,
   groupAccounts,
   monthOf,
   monthRange,
@@ -37,7 +38,7 @@ import {
 } from "../../../domain/ticket";
 import { EMPTY_FILTER, ENTRY_SORTS, ENTRY_SORT_TEXT, dayStep, isFilterActive, shortDay, type EntryFilter } from "../../../domain/ticketView";
 import { chooseSort } from "../view/sortChoice";
-import { IconRight } from "./mobileBits";
+import { MobileCatDrill } from "./MobileCatDrill";
 
 export interface MobileSearchSheetProps {
   onClose(): void;
@@ -75,7 +76,6 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   const filter = useTicketStore((s) => s.filter);
   const results = useTicketStore((s) => s.results);
   const accounts = useTicketStore((s) => s.accounts);
-  const categories = useTicketStore((s) => s.categories);
   const patchFilter = useTicketStore((s) => s.patchFilter);
   const setFilterText = useTicketStore((s) => s.setFilterText);
   const resultSort = useTicketStore((s) => s.resultSort);
@@ -158,7 +158,7 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   /* ── 帳戶／分類／路線 ── */
   const live = groupAccounts(accounts).flatMap((g) => g.accounts);
   const archived = archivedAccounts(accounts);
-  const [openCat, setOpenCat] = useState<string | null>(null);
+  const [catLevel, setCatLevel] = useState<Record<CategoryKind, string | null>>({ expense: null, income: null });
   const toggleCat = (id: string) => {
     const has = filter.categoryIds.indexOf(id) >= 0;
     void patchFilter({ categoryIds: has ? filter.categoryIds.filter((x) => x !== id) : [...filter.categoryIds, id] });
@@ -169,6 +169,29 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
   };
   const liveRoutes = routes.filter((r) => r.deleted_at === null);
 
+  /* ── 荷札（售票口④）：帳上掛過的荷札連同它的上層（選父含子，同桌機浮層），加上已選的，照名稱排；index 沒載過就載一次 ── */
+  const tagIndex = useTagStore((s) => s.index);
+  useEffect(() => {
+    const ts = useTagStore.getState();
+    if (!ts.index && !ts.loading) void ts.loadIndex();
+  }, []);
+  const tagKeys = filter.tagKeys ?? [];
+  const usedTags = useMemo(() => {
+    const keys = new Set<string>();
+    for (const ks of Object.values(entityTagMap(tagIndex, TK_TAG_ENTRY))) {
+      for (const k of ks) {
+        for (let cur: string | null = k; cur && !keys.has(cur); cur = tagIndex?.byKey[cur]?.parent ?? null) keys.add(cur);
+      }
+    }
+    for (const k of tagKeys) keys.add(k);
+    return [...keys].sort();
+  }, [tagIndex, tagKeys]);
+  const tagLabel = tagNameOf(tagIndex);
+  const toggleTag = (k: string) => {
+    const has = tagKeys.indexOf(k) >= 0;
+    void patchFilter({ tagKeys: has ? tagKeys.filter((x) => x !== k) : [...tagKeys, k] });
+  };
+
   const n = isFilterActive(filter) ? (results?.length ?? 0) : 0;
 
   const chip = (key: string, on: boolean, label: ReactNode, onClick: () => void) => (
@@ -177,61 +200,20 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
     </button>
   );
 
-  const catGroup = (kind: CategoryKind) => {
-    const tree = categoryTree(categories, kind, { includeArchived: false });
-    // 未分類排最後（同統計：未分類固定最後）
-    const uncat = tree.filter((t) => t.parent.id === UNCAT_EXPENSE_ID || t.parent.id === UNCAT_INCOME_ID);
-    const main = tree.filter((t) => t.parent.id !== UNCAT_EXPENSE_ID && t.parent.id !== UNCAT_INCOME_ID).concat(uncat);
-    const out: ReactNode[] = [];
-    const cols = 3;
-    main.forEach((t, i) => {
-      const on = filter.categoryIds.indexOf(t.parent.id) >= 0;
-      const subsOn = t.children.filter((c) => filter.categoryIds.indexOf(c.id) >= 0).length;
-      out.push(
-        <div key={t.parent.id} className={"ns-tk-msc" + (on ? " on" : "") + (openCat === t.parent.id ? " open" : "")}>
-          <button type="button" className="pick" aria-pressed={on} onClick={() => toggleCat(t.parent.id)}>
-            <span className="nm">{t.parent.name}</span>
-            {t.children.length > 0 && <small>{on ? "含子分類" : subsOn ? `已勾 ${subsOn} 個子分類` : `${t.children.length} 個子分類`}</small>}
-          </button>
-          {t.children.length > 0 && (
-            <button
-              type="button"
-              className="more"
-              aria-label={`${t.parent.name}的子分類`}
-              aria-expanded={openCat === t.parent.id}
-              onClick={() => setOpenCat(openCat === t.parent.id ? null : t.parent.id)}
-            >
-              <IconRight size={11} />
-            </button>
-          )}
-        </div>,
-      );
-      // 展開的子分類插在那一列的下方（整列寬）
-      const rowEnd = i % cols === cols - 1 || i === main.length - 1;
-      if (rowEnd) {
-        const rowStart = i - (i % cols);
-        const opened = main.slice(rowStart, i + 1).find((x) => x.parent.id === openCat && x.children.length > 0);
-        if (opened) {
-          out.push(
-            <div key={"subs-" + opened.parent.id} className="ns-tk-msubs">
-              <p className="hd">{opened.parent.name} › 單選子分類</p>
-              <div className="ns-tk-mgrid">
-                {opened.children.map((c) => {
-                  const cOn = filter.categoryIds.indexOf(c.id) >= 0;
-                  return (
-                    <button key={c.id} type="button" className={"ns-tk-mcell" + (cOn ? " on" : "")} aria-pressed={cOn} onClick={() => toggleCat(c.id)}>
-                      {c.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>,
-          );
-        }
-      }
-    });
-    return out;
-  };
+  /* 分類（售票口④ 第二輪 D-票-78）：一層一層點進去，選一個＝含底下全部；支出、收入各一份，各自記在哪一層、各自一層返回 */
+  const catGroup = (kind: CategoryKind) => (
+    <MobileCatDrill
+      kind={kind}
+      level={catLevel[kind]}
+      onLevel={(id) => setCatLevel((m) => ({ ...m, [kind]: id }))}
+      picked={filter.categoryIds}
+      multi
+      onPick={(c) => toggleCat(c.id)}
+      rootLabel={kind === "income" ? "收入" : "支出"}
+      backId={"ticket.search.cat." + kind}
+      backKind="sheet"
+    />
+  );
 
   return (
     <MSheet
@@ -342,9 +324,9 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
 
         <Sec title="分類">
           <p className="ns-tk-ms-sub">支出</p>
-          <div className="ns-tk-ms-cats">{catGroup("expense")}</div>
+          {catGroup("expense")}
           <p className="ns-tk-ms-sub">收入</p>
-          <div className="ns-tk-ms-cats">{catGroup("income")}</div>
+          {catGroup("income")}
         </Sec>
 
         <Sec title="類型">
@@ -370,6 +352,16 @@ export function MobileSearchSheet({ onClose }: MobileSearchSheetProps) {
             )}
           </div>
         </Sec>
+
+        {usedTags.length > 0 && (
+          <Sec title="荷札">
+            <div className="ns-tk-mchips">
+              {chip("all", tagKeys.length === 0, "全部", () => void patchFilter({ tagKeys: [] }))}
+              {/* 名稱照「父 / 子」寫（同荷札牌的分隔）；牌上不印 # */}
+              {usedTags.map((k) => chip("t-" + k, tagKeys.indexOf(k) >= 0, tagLabel(k).split(/[/／]/).join(" / "), () => toggleTag(k)))}
+            </div>
+          </Sec>
+        )}
 
         <Sec title="排序">
           <div className="ns-tk-mchips">{ENTRY_SORTS.map((k) => chip(k, resultSort === k, ENTRY_SORT_TEXT[k], () => resultSort !== k && chooseSort(k)))}</div>

@@ -17,6 +17,7 @@ import {
 } from "../domain/scheduledTime";
 import type { FullSearchHit } from "../domain/fullSearch";
 import type { SlotAnchor } from "../domain/nodeOrder";
+import type { ArrivalWrite } from "../domain/depot";
 
 export interface CreateNodeInput {
   kind: NodeKind;
@@ -224,11 +225,24 @@ export interface SidebarData {
   stations: NodeRow[];
 }
 
+/** `listRouteMembers` 的一列（丁 D-主-241） */
+export interface RouteMemberRow {
+  id: string;
+  kind: NodeKind;
+  status: NodeRow["status"];
+  route_id: string | null;
+}
+
 export interface NodeRepository {
   /** 側欄：幹線／路線／車站（依兄弟順序排好：domain/nodeOrder.ts 的 compareSiblings） */
   listSidebar(): Promise<SidebarData>;
   /** 某條路線的整棵大綱（支線／列車／車廂／車票，不含車站），依兄弟順序排好（同上） */
   listRouteTree(routeId: string): Promise<NodeRow[]>;
+  /**
+   * 路線一覽（丁 D-主-241）：所有路線樹裡活著的節點的最小形狀（不含車站、不含幹線與路線本身；含掛路線標籤的臨時車票）。
+   * 一句查完、不建樹——卡片的車票済數與「時間塊連到哪條路線」都從這份算。
+   */
+  listRouteMembers(): Promise<RouteMemberRow[]>;
   /**
    * 全站票號表（id →「MMDD-NN」）＝當日全域發券序（規則見 buildSerialMap）。
    * 大綱票根與側板票頭吃這張表；今日列的 serial 也由同一張表蓋上去（四處同一把尺）。
@@ -419,6 +433,12 @@ export interface NodeRepository {
    * 不存在／不是路線的 id 回四個 0（呼叫端不必先查存在）。
    */
   routeProgress(routeId: string): Promise<RouteProgress>;
+  /**
+   * 路線／幹線到站與回到運行（車庫與回顧 D-主-201）：每列寫 `arrived_on`＋`status`，一個交易、一次同步。
+   * 只收 line／route（其他種類或不存在 ⇒ throw，整批不寫）；計畫由純函式 `planArrival`／`planDeparture`（domain/depot.ts）給。
+   * 子樹的票一個欄位都不動——「在不在車庫」看票的 route_id 指到的路線（D-主-203／204）。
+   */
+  setArrival(writes: readonly ArrivalWrite[]): Promise<void>;
   /**
    * 每條路線的未完成末端項目數（回饋甲 D-主-130；側欄與手機路線清單列尾的淡色數字）。唯讀；語義＝純函式 `buildRouteOpenCounts`。
    * 回 { 路線 id: 數 }，0 的路線不出現。

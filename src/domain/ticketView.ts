@@ -14,6 +14,10 @@
  *   §4.2 期間          §4.3 統計（總覽、趨勢、占比）
  *   §4.4 月曆          §4.5 搜尋與篩選（結構五欄＋關鍵字）
  *   §4.6 路線花費
+ *   售票口④：視圖多「願望」、統計多「依荷札」切面、搜尋篩選多「荷札」（選父含子、多選＝任一）、關鍵字也比對荷札名。
+ *   售票口④ 第二輪：分類不限層數（占比以某分類為根 `breakdown(…, { catRoot })`＋`statsCrumbs`、含子孫的口徑走 `categorySubtreeIds`）；
+ *   §4.7 帳戶頁（視圖多「帳戶」；`accountCards`：餘額、本月進出、近六個月月底餘額）。
+ *   荷札資料不在帳列上：呼叫端把 tagStore.index 換成 `ViewCtx.entryTags`（帳 id → 荷札 keys）與 `tagName` 傳進來（`ticketTags.ts` 的 `entryTagMap`）。
  */
 import {
   MAIN_CURRENCY,
@@ -21,14 +25,19 @@ import {
   UNCAT_INCOME_ID,
   addMonths,
   catKey,
+  categoryForest,
   categoryLabel,
-  categoryTree,
+  categoryParentMap,
+  categoryPath,
+  categorySubtreeIds,
+  flattenForest,
   monthOf,
   monthRange,
   monthTitle,
   moneyText,
   normalizeInput,
   orderAccounts,
+  type AccountRow,
   type CategoryRow,
   type DayGroup,
   type EntryCtx,
@@ -36,12 +45,15 @@ import {
   type EntryRow,
 } from "./ticket";
 import type { NodeRow } from "./node";
+import { isUnder, lastSeg, segsOf } from "./tags";
 
 /* ───────────────────────── §4.1 型別與常數 ───────────────────────── */
 
-export type TicketView = "list" | "calendar" | "stats";
+/** 售票口④（D-票-69）：「願望」；第二輪（D-票-77）：「帳戶」——頁首五格順序「清單｜月曆｜統計｜帳戶｜願望」 */
+export type TicketView = "list" | "calendar" | "stats" | "accounts" | "wish";
 export type StatsSpan = "month" | "year";
-export type Facet = "category" | "account" | "route";
+/** 售票口④（D-票-73）：多「依荷札」 */
+export type Facet = "category" | "account" | "route" | "tag";
 /** key：月＝"2026-10"、年＝"2026" */
 export interface Period {
   span: StatsSpan;
@@ -52,7 +64,8 @@ export const RESULT_PAGE = 300; // 0-14 一次畫幾筆
 export const COMPACT_FROM = 100_000; // 0-22：主單位 ≥ 這個數就縮寫
 export const NO_ROUTE_KEY = "__none__";
 export const GONE_KEY = "__gone__"; // 分類／帳戶／路線已不在
-export const UNSPLIT_KEY = "__unsplit__"; // 直接記在主分類本身
+export const UNSPLIT_KEY = "__unsplit__"; // 直接記在主分類本身（荷札切面：直接掛在父荷札本身）
+export const NO_TAG_KEY = "__notag__"; // 荷札切面：沒掛任何荷札的帳
 
 /** 路線的最小形狀（從 nodeStore.routes 抄過來；不依賴 NodeRow 全欄） */
 export interface RouteRef {
@@ -64,6 +77,10 @@ export interface RouteRef {
 export interface ViewCtx extends EntryCtx {
   routeById: Readonly<Record<string, RouteRef>>;
   routeOrder: readonly string[];
+  /** 售票口④：帳 id → 掛的荷札 keys（沒給＝當作都沒掛；篩選荷札、依荷札統計、關鍵字比對荷札名要用） */
+  entryTags?: Readonly<Record<string, readonly string[]>>;
+  /** 售票口④：荷札 key → 顯示名（沒給＝用 key） */
+  tagName?: (key: string) => string;
 }
 
 /** 主幣別；count＝收支筆數（轉帳校正不算） */
@@ -86,6 +103,8 @@ export interface BreakdownRow {
   count: number;
   children?: BreakdownRow[]; // 分類切面、且有子分類列的主分類才有（含 UNSPLIT_KEY 那列）
   color?: string | null; // 路線切面給路線色
+  /** 分類切面（售票口④ 第二輪 D-票-78）：這一列的分類底下還有更深的帳（記在它的子孫上）⇒ UI 畫「進入 ›」，以它為根（`setStatsRoot`） */
+  deeper?: boolean;
 }
 /** total＝分母（所有淨額 > 0 的主列合計）；refunds＝淨額 ≤ 0 的主列（淨退回小字區） */
 export interface Breakdown {
@@ -115,6 +134,8 @@ export interface EntryFilter {
   categoryIds: readonly string[]; // 使用者勾的（主分類勾＝只存主分類 id；給 SQL 時用 categoryIdsIncluding 展開）
   kinds: readonly EntryKind[];
   routeId: string | null | "none";
+  /** 售票口④：荷札 keys（選父含子、多選＝任一）；不進 SQL，查完在 TS 篩（`matchesTagFilter`） */
+  tagKeys: readonly string[];
 }
 /** 結構條件的查詢（契約 §3.2；`TicketRepository.queryEntries` 的參數）。全部為空＝全部未刪的帳 */
 export interface EntryQuery {
@@ -140,6 +161,7 @@ export const EMPTY_FILTER: EntryFilter = {
   categoryIds: [],
   kinds: [],
   routeId: null,
+  tagKeys: [],
 };
 
 /** 看帳的文案（契約 §3.4 TK_TEXT 新鍵、§5.5）；store 的 TK_TEXT 引用這一份，顯示端不手抄 */
@@ -155,10 +177,16 @@ export const VIEW_TEXT = {
   catGone: "（分類已刪除）",
   accGone: "（帳戶已刪除）",
   unsplit: "未細分",
+  /** 售票口④ 第二輪：統計麵包屑的第一段（D-票-78） */
+  allCats: "全部分類",
   refunds: "退回",
   emptyStats: "這段期間沒有收支",
   emptyResults: "沒有符合的帳",
   more: (n: number) => `再顯示 ${n} 筆`,
+  /* 售票口④ */
+  noTag: "沒掛荷札",
+  /** 依荷札的說明（D-票-73：一筆掛多個荷札各算一次） */
+  tagNote: (kind: "expense" | "income") => `一筆掛了幾個荷札就各算一次，加起來可能比總${kind === "income" ? "收入" : "支出"}多`,
 } as const;
 
 const KIND_LABEL: Readonly<Record<EntryKind, string>> = { expense: "支出", income: "收入", transfer: "轉帳", adjust: "校正" };
@@ -276,6 +304,8 @@ interface Acc {
   count: number;
   color?: string | null;
   kids?: Record<string, Acc>;
+  /** 分類切面：底下還有更深的帳（→ BreakdownRow.deeper） */
+  deep?: boolean;
   /** 同額時的自然順序（越小越前） */
   order: number;
   /** 0＝一般、1＝未分類、2＝GONE（分類切面固定排在最後；其他切面恆 0） */
@@ -305,29 +335,50 @@ function toRow(a: Acc, total: number, positiveParent: boolean): BreakdownRow {
     count: a.count,
   };
   if (a.color !== undefined) row.color = a.color;
+  if (a.deep) row.deeper = true;
   return row;
 }
 
 /**
  * 占比（0-8）：只取 `kind` 那種、期間內、未刪的帳，依切面分組。
- * 分類切面兩層（主分類列＝自己＋子分類；有子分類列時另出「未細分」＝直接記在主分類本身的帳）；
- * 未分類固定在一般列之後、GONE 在未分類之後；其他切面金額大到小、同額照自然順序。
- * total＝所有 minor > 0 的主列合計；minor ≤ 0 的主列（連同 children）移到 refunds、share 0。
+ * 分類切面（售票口④ 第二輪 D-票-78：不限層數）：主列＝這一層的分類（含底下所有子孫的帳）、children＝它的直屬下一層
+ * （更深的併進那一層；直接記在主列本身的另出「未細分」，只有它一種就不出）；某列底下還有更深的帳 ⇒ `deeper`（UI 畫「進入 ›」）。
+ * `opts.catRoot`（「進入 ›」以那層為根）：只算那個分類整棵的帳，主列＝它的直屬下一層，直接記在它本身的帳是最後一列「未細分」
+ * （排在一般列之後）；沒給或 null＝全部分類：主列＝頂層，未分類固定在一般列之後、GONE 在未分類之後。
+ * 其他切面金額大到小、同額照自然順序。
+ * total＝所有 minor > 0 的主列合計（以某分類為根時＝那一層的合計）；minor ≤ 0 的主列（連同 children）移到 refunds、share 0。
  */
-export function breakdown(entries: readonly EntryRow[], r: { from: string; toExcl: string }, facet: Facet, kind: "expense" | "income", ctx: ViewCtx): Breakdown {
+export function breakdown(
+  entries: readonly EntryRow[],
+  r: { from: string; toExcl: string },
+  facet: Facet,
+  kind: "expense" | "income",
+  ctx: ViewCtx,
+  opts?: { catRoot?: string | null },
+): Breakdown {
+  if (facet === "tag") return tagBreakdown(entries, r, kind, ctx);
   const map: Record<string, Acc> = {};
   const big = Number.MAX_SAFE_INTEGER;
 
-  // 自然順序
+  // 自然順序（分類＝樹的前序）；分類的路徑（頂層 → 自己的 id 串）
   const catOrder: Record<string, number> = {};
+  const pathCache: Record<string, string[]> = {};
+  let parentOf: Record<string, string | null> = {};
   if (facet === "category") {
-    const tree = categoryTree(Object.keys(ctx.catById).map((k) => ctx.catById[k]), kind, { includeArchived: true });
-    let i = 0;
-    for (const t of tree) {
-      catOrder[t.parent.id] = i++;
-      for (const c of t.children) catOrder[c.id] = i++;
-    }
+    const cats = Object.keys(ctx.catById).map((k) => ctx.catById[k]);
+    flattenForest(categoryForest(cats, kind, { includeArchived: true })).forEach((n, i) => (catOrder[n.cat.id] = i));
+    parentOf = categoryParentMap(cats);
   }
+  const pathOf = (id: string): string[] => {
+    let p = pathCache[id];
+    if (!p) {
+      p = [id];
+      for (let x = parentOf[id] ?? null, guard = 0; x !== null && guard < 64; x = parentOf[x] ?? null, guard++) p.unshift(x);
+      pathCache[id] = p;
+    }
+    return p;
+  };
+  const catRoot = facet === "category" && opts?.catRoot ? opts.catRoot : null;
   const accOrder: Record<string, number> = {};
   if (facet === "account") {
     orderAccounts(Object.keys(ctx.accById).map((k) => ctx.accById[k])).forEach((a, i) => (accOrder[a.id] = i));
@@ -341,19 +392,34 @@ export function breakdown(entries: readonly EntryRow[], r: { from: string; toExc
     if (facet === "category") {
       const cat = e.category_id ? ctx.catById[e.category_id] : undefined;
       if (!cat) {
-        bump(map, GONE_KEY, () => ({ key: GONE_KEY, label: VIEW_TEXT.catGone, order: big, tail: 2 }), v);
+        if (catRoot === null) bump(map, GONE_KEY, () => ({ key: GONE_KEY, label: VIEW_TEXT.catGone, order: big, tail: 2 }), v);
         continue;
       }
-      const parent = cat.parent_id ? ctx.catById[cat.parent_id] : undefined;
-      if (!parent || isUncat(parent.id)) {
-        // 主分類本身（父已不在的子分類比照 categoryTree 升為主分類）
-        const main = bump(map, cat.id, () => ({ key: cat.id, label: cat.name, order: catOrder[cat.id] ?? big, tail: isUncat(cat.id) ? 1 : 0 }), v);
-        const kids = (main.kids = main.kids ?? {});
+      // 主列在路徑上的位置：全部分類＝頂層（0）；以 catRoot 為根＝它的下一層（父已不在的比照 categoryForest 升為頂層）
+      const path = pathOf(cat.id);
+      let at = 0;
+      if (catRoot !== null) {
+        const j = path.indexOf(catRoot);
+        if (j < 0) continue;
+        at = j + 1;
+      }
+      if (at >= path.length) {
+        // 直接記在根本身
+        bump(map, UNSPLIT_KEY, () => ({ key: UNSPLIT_KEY, label: VIEW_TEXT.unsplit, order: big, tail: 1 }), v);
+        continue;
+      }
+      const mid = path[at];
+      const mc = ctx.catById[mid];
+      const main = bump(map, mid, () => ({ key: mid, label: mc ? mc.name : VIEW_TEXT.catGone, order: catOrder[mid] ?? big, tail: isUncat(mid) ? 1 : 0 }), v);
+      const kids = (main.kids = main.kids ?? {});
+      if (at + 1 >= path.length) {
         bump(kids, UNSPLIT_KEY, () => ({ key: UNSPLIT_KEY, label: VIEW_TEXT.unsplit, order: big, tail: 0 }), v);
       } else {
-        const main = bump(map, parent.id, () => ({ key: parent.id, label: parent.name, order: catOrder[parent.id] ?? big, tail: isUncat(parent.id) ? 1 : 0 }), v);
-        const kids = (main.kids = main.kids ?? {});
-        bump(kids, cat.id, () => ({ key: cat.id, label: cat.name, order: catOrder[cat.id] ?? big - 1, tail: 0 }), v);
+        const kid = path[at + 1];
+        const kc = ctx.catById[kid];
+        const k = bump(kids, kid, () => ({ key: kid, label: kc ? kc.name : VIEW_TEXT.catGone, order: catOrder[kid] ?? big - 1, tail: 0 }), v);
+        main.deep = true;
+        if (at + 2 < path.length) k.deep = true;
       }
     } else if (facet === "account") {
       const a = ctx.accById[e.account_id];
@@ -373,7 +439,11 @@ export function breakdown(entries: readonly EntryRow[], r: { from: string; toExc
   const mains = Object.keys(map).map((k) => map[k]);
   let total = 0;
   for (const a of mains) if (a.minor > 0) total += a.minor;
+  return finishBreakdown(mains, total);
+}
 
+/** 主列 → 排序、分 rows／refunds、帶 children（breakdown 與 tagBreakdown 共用） */
+function finishBreakdown(mains: Acc[], total: number): Breakdown {
   const rows: BreakdownRow[] = [];
   const refunds: BreakdownRow[] = [];
   for (const a of mains.slice().sort(byAmount)) {
@@ -392,6 +462,49 @@ export function breakdown(entries: readonly EntryRow[], r: { from: string; toExc
   return { rows, total, refunds };
 }
 
+/**
+ * 依荷札（售票口④ D-票-73）：主列＝最上層荷札（父荷札含子：掛 #旅行/京都 也算進 #旅行）、children＝下一層
+ * （更深的併進那一層；直接掛在父荷札本身的另出「未細分」，只有它一種就不出）。一筆掛多個荷札各算一次——同一個
+ * 主列（或同一個子列）裡一筆只算一次。沒掛荷札的帳一列「沒掛荷札」排在最後。
+ * total＝期間內這種 kind 的帳的淨額（每筆只算一次）；share＝列淨額 ÷ total（夾到 1），所以各列加總可能超過 100%（頁上寫 tagNote）。
+ */
+export function tagBreakdown(entries: readonly EntryRow[], r: { from: string; toExcl: string }, kind: "expense" | "income", ctx: ViewCtx): Breakdown {
+  const map: Record<string, Acc> = {};
+  const big = Number.MAX_SAFE_INTEGER;
+  const tagsOf = ctx.entryTags ?? {};
+  const nameOf = (k: string): string => (ctx.tagName ? ctx.tagName(k) : k);
+  let total = 0;
+  for (const e of entries) {
+    if (e.deleted_at !== null || e.kind !== kind || !inRange(e.occurred_on, r)) continue;
+    const v = e.main_minor;
+    total += v;
+    const keys = tagsOf[e.id] ?? [];
+    if (!keys.length) {
+      bump(map, NO_TAG_KEY, () => ({ key: NO_TAG_KEY, label: VIEW_TEXT.noTag, order: big, tail: 1 }), v);
+      continue;
+    }
+    const byRoot: Record<string, Record<string, true>> = {};
+    for (const k of keys) {
+      const segs = segsOf(k);
+      const root = segs[0];
+      const kid = segs.length > 1 ? `${root}/${segs[1]}` : UNSPLIT_KEY;
+      (byRoot[root] = byRoot[root] ?? {})[kid] = true;
+    }
+    for (const root of Object.keys(byRoot)) {
+      const main = bump(map, root, () => ({ key: root, label: nameOf(root), order: 0, tail: 0 }), v);
+      const kids = (main.kids = main.kids ?? {});
+      for (const kid of Object.keys(byRoot[root])) {
+        if (kid === UNSPLIT_KEY) bump(kids, UNSPLIT_KEY, () => ({ key: UNSPLIT_KEY, label: VIEW_TEXT.unsplit, order: big, tail: 0 }), v);
+        else bump(kids, kid, () => ({ key: kid, label: lastSeg(nameOf(kid)), order: 0, tail: 0 }), v);
+      }
+    }
+  }
+  return finishBreakdown(
+    Object.keys(map).map((k) => map[k]),
+    total > 0 ? total : 0,
+  );
+}
+
 /** 四捨五入到整數；0 < share < 0.5% ⇒ "<1%"；0 ⇒ "0%" */
 export function shareText(share: number): string {
   if (share <= 0) return "0%";
@@ -399,29 +512,31 @@ export function shareText(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-/** 主分類 id 展開成它＋未刪的子分類 id（含封存的子）；子分類 id 原樣；去重、照輸入順序 */
+/**
+ * 每個 id 展開成它＋底下所有未刪的子孫（含封存的；D-票-78「選一個分類＝含子孫」，任何一層都一樣，葉子＝只有自己）；
+ * 去重、照輸入順序（各自的子孫照前序跟在後面）
+ */
 export function categoryIdsIncluding(ids: readonly string[], cats: readonly CategoryRow[]): string[] {
-  const byId: Record<string, CategoryRow> = {};
-  const kids: Record<string, CategoryRow[]> = {};
-  for (const c of cats) {
-    if (c.deleted_at !== null) continue;
-    byId[c.id] = c;
-    if (c.parent_id) (kids[c.parent_id] = kids[c.parent_id] ?? []).push(c);
-  }
   const out: string[] = [];
   const seen = new Set<string>();
-  const push = (id: string) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    out.push(id);
-  };
   for (const id of ids) {
-    push(id);
-    const c = byId[id];
-    if (!c || c.parent_id !== null) continue;
-    const list = (kids[id] ?? []).slice().sort((a, b) => a.position - b.position || cmpStr(a.created_at, b.created_at) || cmpStr(a.id, b.id));
-    for (const k of list) push(k.id);
+    for (const x of categorySubtreeIds(id, cats)) {
+      if (seen.has(x)) continue;
+      seen.add(x);
+      out.push(x);
+    }
   }
+  return out;
+}
+
+/**
+ * 統計「進入 ›」的麵包屑（D-票-78）：第一段「全部分類」（id null）、接著從頂層到 root 的每一層（label＝那一層自己的名字）。
+ * root null 或已不在 ⇒ 只有「全部分類」。
+ */
+export function statsCrumbs(root: string | null, catById: Readonly<Record<string, CategoryRow>>): { id: string | null; label: string }[] {
+  const out: { id: string | null; label: string }[] = [{ id: null, label: VIEW_TEXT.allCats }];
+  const r = root ? catById[root] : undefined;
+  if (r) for (const c of categoryPath(r, catById)) out.push({ id: c.id, label: c.name });
   return out;
 }
 
@@ -573,7 +688,8 @@ export function isFilterActive(f: EntryFilter): boolean {
     f.accountId !== null ||
     f.categoryIds.length > 0 ||
     f.kinds.length > 0 ||
-    f.routeId !== null
+    f.routeId !== null ||
+    (f.tagKeys ?? []).length > 0 // 舊呼叫端（測試、早期存的物件）沒有這欄＝不限
   );
 }
 
@@ -692,16 +808,12 @@ export function keywordTokens(text: string): KeywordToken[] {
   return out;
 }
 
-/** 全部 token 都要命中（AND）。文字：備註、分類名與主分類名、帳戶名與轉入帳戶名、路線名與代碼——包含即中；數字另比金額（完全相符） */
+/** 全部 token 都要命中（AND）。文字：備註、分類名與每一層上層的名字、帳戶名與轉入帳戶名、路線名與代碼——包含即中；數字另比金額（完全相符） */
 export function matchesKeyword(e: EntryRow, tokens: readonly KeywordToken[], ctx: ViewCtx): boolean {
   if (!tokens.length) return true;
   const hay: string[] = [catKey(e.note)];
   const cat = e.category_id ? ctx.catById[e.category_id] : undefined;
-  if (cat) {
-    hay.push(catKey(cat.name));
-    const p = cat.parent_id ? ctx.catById[cat.parent_id] : undefined;
-    if (p) hay.push(catKey(p.name));
-  }
+  if (cat) for (const c of categoryPath(cat, ctx.catById)) hay.push(catKey(c.name)); // 自己與每一層上層（D-票-78）
   const acc = ctx.accById[e.account_id];
   if (acc) hay.push(catKey(acc.name));
   const to = e.to_account_id ? ctx.accById[e.to_account_id] : undefined;
@@ -711,6 +823,9 @@ export function matchesKeyword(e: EntryRow, tokens: readonly KeywordToken[], ctx
     hay.push(catKey(rt.name));
     if (rt.code) hay.push(catKey(rt.code));
   }
+  // 售票口④：荷札名也比（「京都」找得到掛 #旅行/京都 的帳）
+  const tags = ctx.entryTags ? ctx.entryTags[e.id] : undefined;
+  if (tags) for (const k of tags) hay.push(catKey(ctx.tagName ? ctx.tagName(k) : k));
   let amounts: string[] | null = null;
   for (const t of tokens) {
     let hit = false;
@@ -734,14 +849,26 @@ export function matchesKeyword(e: EntryRow, tokens: readonly KeywordToken[], ctx
   return true;
 }
 
-/** 結構五欄＋關鍵字一次做完（mock 與測試用；≡ queryEntries(filterToQuery(f)) 再 matchesKeyword）；新到舊 */
+/**
+ * 荷札篩選（售票口④）：want 空＝不限；否則這筆掛的任一個荷札在 want 任一個之下（含它自己；選父含子）就算。
+ * 帳的荷札從 ctx.entryTags 讀（沒給＝都沒掛 ⇒ 有 want 就一律不中）。
+ */
+export function matchesTagFilter(e: Pick<EntryRow, "id">, want: readonly string[], ctx: Pick<ViewCtx, "entryTags">): boolean {
+  if (!want.length) return true;
+  const keys = ctx.entryTags ? ctx.entryTags[e.id] : undefined;
+  if (!keys || !keys.length) return false;
+  for (const k of keys) for (const w of want) if (isUnder(k, w)) return true;
+  return false;
+}
+
+/** 結構五欄＋關鍵字＋荷札一次做完（mock 與測試用；≡ queryEntries(filterToQuery(f)) 再 matchesKeyword、matchesTagFilter）；新到舊 */
 export function filterEntries(entries: readonly EntryRow[], f: EntryFilter, ctx: ViewCtx): EntryRow[] {
   const q = filterToQuery(
     f,
     Object.keys(ctx.catById).map((k) => ctx.catById[k]),
   );
   const tokens = keywordTokens(f.text);
-  return entries.filter((e) => matchesQuery(e, q) && matchesKeyword(e, tokens, ctx)).sort(newestFirst);
+  return entries.filter((e) => matchesQuery(e, q) && matchesKeyword(e, tokens, ctx) && matchesTagFilter(e, f.tagKeys ?? [], ctx)).sort(newestFirst);
 }
 
 /** 「找到 N 筆 · 支出 X · 收入 Y」：N＝全部筆數（含轉帳校正）、支出／收入照 0-7 */
@@ -772,7 +899,8 @@ export function filterChips(f: EntryFilter, ctx: ViewCtx): { key: keyof EntryFil
     out.push({ key: "accountId", label: `帳戶 ${a ? a.name : VIEW_TEXT.accGone}` });
   }
   if (f.categoryIds.length === 1) {
-    out.push({ key: "categoryIds", label: `分類 ${categoryLabel(ctx.catById[f.categoryIds[0]] ?? null, ctx.catById)}` });
+    // chip 擠：只寫最後兩段（D-票-78；兩層時與完整路徑相同）
+    out.push({ key: "categoryIds", label: `分類 ${categoryLabel(ctx.catById[f.categoryIds[0]] ?? null, ctx.catById, { short: true })}` });
   } else if (f.categoryIds.length > 1) {
     out.push({ key: "categoryIds", label: `分類 ${f.categoryIds.length} 個` });
   }
@@ -784,6 +912,12 @@ export function filterChips(f: EntryFilter, ctx: ViewCtx): { key: keyof EntryFil
   } else if (f.routeId !== null) {
     const rt = ctx.routeById[f.routeId];
     out.push({ key: "routeId", label: `路線 ${rt ? (rt.code ? `●${rt.code} ${rt.name}` : rt.name) : VIEW_TEXT.routeGone}` });
+  }
+  const tagKeys = f.tagKeys ?? [];
+  if (tagKeys.length === 1) {
+    out.push({ key: "tagKeys", label: `荷札 #${ctx.tagName ? ctx.tagName(tagKeys[0]) : tagKeys[0]}` });
+  } else if (tagKeys.length > 1) {
+    out.push({ key: "tagKeys", label: `荷札 ${tagKeys.length} 個` });
   }
   return out;
 }
@@ -815,4 +949,127 @@ export function spendText(inRangeMinor: number, allTimeMinor: number, decimals: 
 /** 手機路線列尾：0 ⇒ null；否則「本月花 1,230」 */
 export function asideText(inRangeMinor: number, decimals: number): string | null {
   return inRangeMinor === 0 ? null : VIEW_TEXT.aside(moneyText(inRangeMinor, decimals));
+}
+
+/* ───────────────────────── §4.7 帳戶頁（售票口④ 第二輪 D-票-77、79） ───────────────────────── */
+
+/** 帳戶卡的走勢看幾個月（含本月） */
+export const ACCOUNT_TREND_MONTHS = 6;
+/** 「到最後」的日 key 上界（比任何 YYYY-MM-DD 都大）：帳戶頁要讀到未來日的帳，月底餘額才扣得對 */
+export const FAR_DAY = "9999-99-99";
+
+/**
+ * 一個帳戶在一段期間的進出（同一種幣別）。口徑：
+ * - income／expense＝記在這個帳戶上的收支（＝統計 0-7 的收支口徑：退款是負的、自然抵回；轉帳與校正不算收支）；
+ * - transferOut＝從這個帳戶轉出（來源那一頭）、transferIn＝轉進這個帳戶（目的那一頭）——同一筆轉帳兩頭各記一次，
+ *   各在自己的帳戶上；整體統計裡轉帳兩頭互相抵消、不入收支，帳戶頁才分開給；
+ * - adjust＝餘額調整（精算、初始餘額；帶正負號）。
+ * 帳戶幣別（own）：收支與轉出用 `account_minor`、轉入用 `to_amount_minor`——跟餘額公式（balancesOf）一致；
+ * 主幣別（main）：一律用那筆的 `main_minor`（轉帳兩頭同一個值）。
+ */
+export interface AccountFlow {
+  income: number;
+  expense: number;
+  transferIn: number;
+  transferOut: number;
+  adjust: number;
+}
+export interface AccountCard {
+  id: string;
+  /** 現在的餘額（帳戶幣別；＝store.balances，含未來日的帳） */
+  balance: number;
+  /** 本月（呼叫端給的 month）的進出：帳戶幣別與主幣別 */
+  month: { own: AccountFlow; main: AccountFlow };
+  /** 近 ACCOUNT_TREND_MONTHS 個月每月**月底餘額**（帳戶幣別），舊到新；最後一點＝本月底（本月之後沒有帳時＝balance） */
+  trend: { month: string; balance: number }[];
+}
+
+const zeroFlow = (): AccountFlow => ({ income: 0, expense: 0, transferIn: 0, transferOut: 0, adjust: 0 });
+
+/**
+ * 帳戶卡「本月」那一行要印的幾項（兩殼同一套）：收、支、轉入、轉出、調整，照這個順序；是 0 的那項不印，全空＝「本月沒有進出」。
+ * 轉帳要印：信用卡、銀行帳戶的變動大多是轉帳（繳卡費、提款），只印收支會寫「沒有進出」但餘額明明動了；調整（精算、開帳）同理。
+ */
+export function accountFlowParts(flow: AccountFlow): { key: keyof AccountFlow; label: string; minor: number }[] {
+  const all: { key: keyof AccountFlow; label: string }[] = [
+    { key: "income", label: "收" },
+    { key: "expense", label: "支" },
+    { key: "transferIn", label: "轉入" },
+    { key: "transferOut", label: "轉出" },
+    { key: "adjust", label: "調整" },
+  ];
+  return all.filter((p) => flow[p.key] !== 0).map((p) => ({ ...p, minor: flow[p.key] }));
+}
+
+/** 帳戶頁要讀的帳：走勢第一個月的月初到最後（含未來日；月底餘額＝現在的餘額扣回之後的帳） */
+export function accountsRange(month: string): { from: string; toExcl: string } {
+  return { from: monthRange(addMonths(month, 1 - ACCOUNT_TREND_MONTHS)).from, toExcl: FAR_DAY };
+}
+
+/** 一筆帳對某帳戶餘額的影響（帳戶幣別；＝balancesOf 的公式） */
+function balanceDelta(e: EntryRow, accountId: string): number {
+  let d = 0;
+  if (e.account_id === accountId) d += e.kind === "expense" || e.kind === "transfer" ? -e.account_minor : e.account_minor;
+  if (e.kind === "transfer" && e.to_account_id === accountId) d += e.to_amount_minor ?? 0;
+  return d;
+}
+
+/**
+ * 帳戶頁每張卡的數字（一次算完所有帳戶，不逐帳戶查）：`entries`＝`accountsRange(month)` 讀出來的帳（全部帳戶），
+ * `balances`＝現在的餘額（repository.balances）。走勢選**月底餘額**而不是每月淨額：卡片的主角就是餘額，
+ * 小圖說的是「這個數字怎麼走到現在」；負債帳戶（信用卡）也直接看得出欠款升降；淨額每月跳上跳下，小圖讀不出東西。
+ * 月底餘額＝現在的餘額 − 那個月之後的帳的影響（所以要讀到最後、含未來日）。含封存帳戶（分組由 UI 用 groupAccounts／archivedAccounts）。
+ */
+export function accountCards(
+  accounts: readonly AccountRow[],
+  balances: Readonly<Record<string, number>>,
+  entries: readonly EntryRow[],
+  month: string,
+): Record<string, AccountCard> {
+  const months: string[] = [];
+  for (let i = ACCOUNT_TREND_MONTHS - 1; i >= 0; i--) months.push(addMonths(month, -i));
+  const ends = months.map((m) => monthRange(m).toExcl);
+  const cur = monthRange(month);
+  const out: Record<string, AccountCard> = {};
+  // after[id][i]＝occurred_on ≥ ends[i] 的帳對它的影響合計
+  const after: Record<string, number[]> = {};
+  for (const a of accounts) {
+    if (a.deleted_at !== null) continue;
+    out[a.id] = { id: a.id, balance: balances[a.id] ?? 0, month: { own: zeroFlow(), main: zeroFlow() }, trend: [] };
+    after[a.id] = months.map(() => 0);
+  }
+  const touch = (e: EntryRow, id: string | null): void => {
+    if (id === null || !out[id]) return;
+    const d = balanceDelta(e, id);
+    const acc = after[id];
+    for (let i = 0; i < ends.length; i++) if (e.occurred_on >= ends[i]) acc[i] += d;
+    if (!inRange(e.occurred_on, cur)) return;
+    const own = out[id].month.own;
+    const main = out[id].month.main;
+    if (e.kind === "transfer") {
+      if (e.account_id === id) {
+        own.transferOut += e.account_minor;
+        main.transferOut += e.main_minor;
+      }
+      if (e.to_account_id === id) {
+        own.transferIn += e.to_amount_minor ?? 0;
+        main.transferIn += e.main_minor;
+      }
+    } else if (e.account_id === id) {
+      const k = e.kind === "adjust" ? "adjust" : e.kind;
+      own[k] += e.account_minor;
+      main[k] += e.main_minor;
+    }
+  };
+  for (const e of entries) {
+    if (e.deleted_at !== null) continue;
+    touch(e, e.account_id);
+    // 自己轉給自己（理論上表單擋掉）只算一次
+    if (e.kind === "transfer" && e.to_account_id !== e.account_id) touch(e, e.to_account_id);
+  }
+  for (const id in out) {
+    const c = out[id];
+    c.trend = months.map((m, i) => ({ month: m, balance: c.balance - after[id][i] }));
+  }
+  return out;
 }

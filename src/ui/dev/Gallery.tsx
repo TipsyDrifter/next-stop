@@ -304,7 +304,7 @@ function HeaderSection({ today, phone }: { today: string; phone: boolean }) {
         </div>
         <FakeRows rows={FAKE_TICKETS.slice(0, 2)} />
       </Phone>
-      <Phone cap="時刻表：6 段 scroll 橫捲、末段露半格＋「管理」">
+      <Phone cap="時刻表：6 段 scroll（放不下才橫捲、末段露半格）＋「管理」">
         <BandLook title="時刻表" latin="TIMETABLE" />
         <div className="ns-tabrow">
           <Tabs items={TT_TABS} value={mt} onChange={setMt} scroll aria-label="時刻表檢視" />
@@ -319,7 +319,7 @@ function HeaderSection({ today, phone }: { today: string; phone: boolean }) {
     </div>
   );
   const phoneSpec = [
-    ["手機", <>手機殼不用 PageHeader（§2.0）：頁首＝頂帶 <code>MobileTopBand</code>（頁名＋拉丁小字、今日頁蓋日付印、右上搜尋＋<b>齒輪</b>）＋頂帶下一列的 <code>tabsRow</code>／<code>manage</code> 插槽＝<code>.ns-tabrow</code>（整列玻璃、≤4 段一列；超過橫捲、末段露半格；末端「管理」文字鈕）。框裡的頂帶是靜態複本，真的看手機殼頁頂。</>],
+    ["手機", <>手機殼不用 PageHeader（§2.0）：頁首＝頂帶 <code>MobileTopBand</code>（頁名＋拉丁小字、今日頁蓋日付印、右上搜尋＋<b>齒輪</b>）＋頂帶下一列的 <code>tabsRow</code>／<code>manage</code> 插槽＝<code>.ns-tabrow</code>（整列玻璃、放得下就平分，放不下才橫捲、末段露半格；末端「管理」文字鈕）。框裡的頂帶是靜態複本，真的看手機殼頁頂。</>],
   ] as const;
 
   if (phone) {

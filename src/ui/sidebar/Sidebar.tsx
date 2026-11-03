@@ -54,10 +54,13 @@ import { MOD_KBD, formatChord, hotkeyById } from "../shell/hotkeys";
 import { SyncDot } from "../common/SyncDot";
 // 頁面登記表與 gnav 圖示（並行地基・契約 §6）
 import { corePages, linePages, openPages, reviewPages } from "../shell/pages";
+import { requestArrive } from "../panel/arrivalFlows";
 import { GNAV_ICONS, svgProps } from "./gnavIcons";
 // 側欄工具插槽（通車的線的 mount `sidebarTool`）與頁務件插槽（`sidebarAux`，接縫 #50）：查 `lines/runtime`、不 import `lines/mounts`——
 // 本元件在 App 的 import 清單裡排在 pageViews 之前，import mounts 會把線的元件樹與 CSS 提早求值（理由見 runtime.ts 檔頭）
 import { lineNavBadge, lineSidebarAux, lineSidebarTools } from "../../lines/runtime";
+// 核心頁的頁務件（丁 D-主-235）：表由 pageViews.tsx 裝進來，這裡只在執行期查
+import { MY_LINES_PAGES, pageSidebarAux } from "../shell/pageAux";
 import type { LineId } from "../../lines/types";
 import "./sidebar.css";
 import { IconDots } from "../common/icons";
@@ -215,14 +218,19 @@ const LINE_OV = { zh: "這條幹線", latin: "Line" };
 const ROUTE_OV = { zh: "這條路線", latin: "Route" };
 
 export function Sidebar() {
-  const lines = useNodeStore((s) => s.lines);
-  const routes = useNodeStore((s) => s.routes);
+  // 車庫與回顧 D-主-206 #1：書封只列還在跑的幹線與路線；收進車庫的在清單最底「車庫 N 條」進去看
+  const lines = useNodeStore((s) => s.liveLines);
+  const routes = useNodeStore((s) => s.liveRoutes);
+  const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
   const stations = useNodeStore((s) => s.stations);
   const routeId = useNodeStore((s) => s.routeId);
   const openRoute = useNodeStore((s) => s.openRoute);
 
   const page = useUiStore((s) => s.page);
-  const Aux = lineSidebarAux(page);
+  const overview = useUiStore((s) => s.routeOverview);
+  // 丁 D-主-234：頁務件＝這一頁的目錄或篩選。線的頁走 mount、核心頁走 pageAux；都沒有時只有任務三頁畫「我的路線」
+  const Aux = lineSidebarAux(page) ?? pageSidebarAux(page);
+  const showMyLines = !Aux && MY_LINES_PAGES.has(page);
   const setPage = useUiStore((s) => s.setPage);
   const setZoom = useUiStore((s) => s.setZoom);
   const select = useUiStore((s) => s.select);
@@ -281,6 +289,8 @@ export function Sidebar() {
       { key: "up", label: "上移", cut: true, disabled: i <= 0, why: "已經在最上面", onSelect: () => shift(line.id, null, lineIds, -1) },
       { key: "down", label: "下移", disabled: i >= lineIds.length - 1, why: "已經在最下面", onSelect: () => shift(line.id, null, lineIds, 1) },
       { key: "add", label: "新增路線", cut: true, onSelect: () => openRouteDialog({ lineId: line.id, editId: null }) },
+      // 車庫與回顧 D-主-207：幹線到站＝底下還在跑的路線一起收進車庫
+      { key: "arrive", label: "到站・收進車庫", cut: true, onSelect: () => void requestArrive(line.id) },
     ];
   };
   const routeMenu = (route: NodeRow): PopMenuItem[] => {
@@ -301,6 +311,8 @@ export function Sidebar() {
           onSelect: () => void moveWithUndo([route.id], l.id, APPEND, `「${route.name}」已換到「${l.name}」幹線`),
         }),
       ),
+      // 車庫與回顧 D-主-207
+      { key: "arrive", label: "到站・收進車庫", cut: true, onSelect: () => void requestArrive(route.id) },
     ];
   };
 
@@ -367,7 +379,8 @@ export function Sidebar() {
                 className={`gnav-item${page === p.id ? " active" : ""}`}
                 aria-current={page === p.id ? "page" : undefined}
                 title={`${p.label}（${capsOf(p.navHotkeyId)}）${hint ? `・${hint}` : ""}`}
-                onClick={() => setPage(p.id)}
+                // 丁 D-主-239：「路線圖」＝路線一覽（最上層）；書封點路線才直進大綱
+                onClick={() => (p.id === "routemap" ? useUiStore.getState().openRouteMap() : setPage(p.id))}
               >
                 {GNAV_ICONS[p.id](17)}
                 {p.label}
@@ -471,9 +484,12 @@ export function Sidebar() {
         </div>
       </nav>
 
-      {/* 頁務件插槽（接縫 #50）：當前頁是通車的線、且它填了 sidebarAux → 整段換成該線的頁務件；否則照舊畫我的路線 */}
+      {/* 頁務件插槽（接縫 #50；丁 D-主-234／235）：線的 sidebarAux 或核心頁登記的頁務件 → 整段換成它；
+          任務三頁（今日、路線圖、行程表）畫我的路線；其他頁只留一塊空白撐住書封腳 */}
       {Aux ? (
         <Aux />
+      ) : !showMyLines ? (
+        <div className="lines-scroll" />
       ) : (
         <div className="lines-scroll">
           {/* 我的路線（件一 .lines）：h2 一枚總標＋每條幹線一段 .trunk「幹線・○○」＋路線列＋車站注記 */}
@@ -492,7 +508,8 @@ export function Sidebar() {
                     <SideMore label={`幹線「${line.name}」的動作`} overline={LINE_OV} items={() => lineMenu(line)} />
                   </div>
                   {lineRoutes.map((route) => {
-                    const current = route.id === routeId;
+                    // 路線圖頁在看路線一覽時沒有「目前這條」（丁 D-主-239）
+                    const current = route.id === routeId && !(page === "routemap" && overview);
                     const note = stationNote[route.id];
                     const open = routeOpenCounts[route.id] ?? 0;
                     const openText = open > 0 ? `・未完成 ${open} 項` : "";
@@ -542,6 +559,14 @@ export function Sidebar() {
                 </section>
               );
             })}
+            {/* 車庫與回顧 D-主-208：收進車庫的路線從這裡進（沒有就不畫） */}
+            {depotCount > 0 && (
+              <button type="button" className="line-depot" onClick={() => setPage("depot")} title="到站的路線收在車庫">
+                {GNAV_ICONS.depot(13)}
+                <span className="ld-t">車庫</span>
+                <span className="ld-n">{depotCount} 條 ›</span>
+              </button>
+            )}
             <button
               type="button"
               className={`line-add${lines.length ? " line-add--line" : ""}`}

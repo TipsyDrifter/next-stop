@@ -34,6 +34,7 @@ import {
   followRename,
   followRenamePlan,
   recordTagBeforeWithRename,
+  staleBodyRenames,
   tagId,
   taggingId,
   type AttachResult,
@@ -572,31 +573,74 @@ export class SqliteTagRepository implements TagRepository {
 
   async reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]> {
     const db = await getDb();
-    // 日常拉取幾乎都是零列：一句 SELECT 就回，不開交易
-    const shells = await db.select<{ id: string }[]>(`SELECT id FROM tags WHERE deleted_at IS NULL AND renamed_to IS NOT NULL`);
-    if (!shells.length) return [];
     const readTag = async (id: string) => (await db.select<TagRow[]>(`SELECT * FROM tags WHERE id = $1`, [id]))[0] ?? null;
-    const live: string[] = [];
-    for (const s of shells) if (await followRename(s.id, readTag)) live.push(s.id);
-    if (!live.length) return [];
-    // 要改內文就先讓 store 存完正在打的字（存檔本身會動掛載，所以排在開 Stage 讀列之前）
-    if (opts?.beforeBodyRewrite) {
-      const hit = await db.select<{ n: number }[]>(
-        `SELECT COUNT(*) AS n FROM taggings WHERE deleted_at IS NULL AND entity_type = 'note' AND tag_id IN (${placeholders(live.length, 1)})`,
-        live,
+    const resolve = (id: string) => followRename(id, readTag);
+    /** 找要跟的：殼（掛載那半）與內文還寫舊名的筆記（內文那半）；日常拉取幾乎都是兩句 SELECT 零列就回，不開交易 */
+    const scan = async () => {
+      // 有去向而且還有存活掛載的荷札（不論死活；接縫 #109），加上活著的殼（沒掛載也要收）
+      const shells = await db.select<{ id: string }[]>(
+        `SELECT t.id FROM tags t WHERE t.renamed_to IS NOT NULL AND (t.deleted_at IS NULL OR EXISTS
+           (SELECT 1 FROM taggings g WHERE g.tag_id = t.id AND g.deleted_at IS NULL))`,
       );
-      if (Number(hit[0]?.n ?? 0) > 0) await opts.beforeBodyRewrite();
+      // 內文裡出現某個有去向荷札的 #名（ASCII 大小寫不分＝lowerAscii；細篩交給 parseTags）
+      const bodies = await db.select<{ id: string; body: string }[]>(
+        `SELECT n.id, n.body FROM notes n WHERE n.deleted_at IS NULL AND n.body LIKE '%#%' AND EXISTS
+           (SELECT 1 FROM tags t WHERE t.renamed_to IS NOT NULL AND instr(lower(n.body), '#' || t.name_key) > 0)`,
+      );
+      const live: string[] = [];
+      for (const x of shells) if (await resolve(x.id)) live.push(x.id);
+      const stale = new Map<string, string[]>();
+      for (const n of bodies) {
+        const have = await db.select<{ tag_id: string }[]>(
+          `SELECT tag_id FROM taggings WHERE entity_type = 'note' AND entity_id = $1 AND deleted_at IS NULL`,
+          [n.id],
+        );
+        const froms = await staleBodyRenames(n.body, new Set(have.map((r) => r.tag_id)), resolve);
+        if (froms.length) stale.set(n.id, froms);
+      }
+      return { live, stale };
+    };
+    let found = await scan();
+    if (!found.live.length && !found.stale.size) return [];
+    // 要改內文就先讓 store 存完正在打的字（存檔本身會動掛載與內文，所以存完重掃一次、排在開 Stage 讀列之前）
+    if (opts?.beforeBodyRewrite) {
+      let hit = found.stale.size > 0;
+      if (!hit && found.live.length) {
+        const n = await db.select<{ n: number }[]>(
+          `SELECT COUNT(*) AS n FROM taggings WHERE deleted_at IS NULL AND entity_type = 'note' AND tag_id IN (${placeholders(found.live.length, 1)})`,
+          found.live,
+        );
+        hit = Number(n[0]?.n ?? 0) > 0;
+      }
+      if (hit) {
+        await opts.beforeBodyRewrite();
+        found = await scan();
+        if (!found.live.length && !found.stale.size) return [];
+      }
     }
     const st = new Stage(db, nowUtcIso());
-    const out: RenameFollow[] = [];
-    const plans: RenamePlan[] = [];
-    const noteIds = new Set<string>();
-    for (const id of live) {
+    const follows = new Map<string, RenameFollow>();
+    /** 筆記 id → 要套的改名（舊荷札 id → 計畫）；只套這則筆記真的跟上的那幾枚 */
+    const notePlans = new Map<string, Map<string, RenamePlan>>();
+    const planFor = (noteId: string, from: TagRow, to: TagRow) => {
+      let m = notePlans.get(noteId);
+      if (!m) notePlans.set(noteId, (m = new Map()));
+      if (!m.has(from.id)) m.set(from.id, followRenamePlan(from, to));
+    };
+    const followOf = (from: TagRow, to: TagRow): RenameFollow => {
+      let f = follows.get(from.id);
+      if (!f) follows.set(from.id, (f = { fromId: from.id, fromName: from.name, toId: to.id, toKey: to.name_key, toName: to.name, moved: 0 }));
+      return f;
+    };
+    const targetOf = async (fromId: string) => {
+      const toId = await followRename(fromId, (x) => st.getTag(x));
+      return toId ? st.getTag(toId) : null;
+    };
+    for (const id of found.live) {
       // 重讀：上面存檔那一下可能剛好親手把它用回來（復活時已清掉去向）
       const shell = await st.getTag(id);
-      if (!shell || shell.deleted_at !== null || !shell.renamed_to) continue;
-      const toId = await followRename(id, (x) => st.getTag(x));
-      const target = toId ? await st.getTag(toId) : null;
+      if (!shell || !shell.renamed_to) continue;
+      const target = await targetOf(id);
       if (!target) continue;
       const gs = await db.select<TaggingRow[]>(`SELECT * FROM taggings WHERE tag_id = $1 AND deleted_at IS NULL`, [id]);
       st.primeTaggings(gs);
@@ -607,28 +651,43 @@ export class SqliteTagRepository implements TagRepository {
         // 決定性 id：兩台各自整理寫出的是同一列，收斂
         await st.ensureTagging(g.entity_type, g.entity_id, target.id);
         st.softDeleteTagging(g);
-        if (g.entity_type === "note") noteIds.add(g.entity_id);
+        if (g.entity_type === "note") planFor(g.entity_id, shell, target);
         moved++;
       }
-      // 殼再刪一次：新的 hlc、這次沒有併發編輯，會傳播出去；去向不動（還是同一個）
-      st.softDeleteTag(shell);
-      plans.push(followRenamePlan(shell, target));
-      out.push({ fromId: id, fromName: shell.name, toId: target.id, toKey: target.name_key, toName: target.name, moved });
+      if (shell.deleted_at === null) {
+        // 活著的殼再刪一次：新的 hlc、這次沒有併發編輯，會傳播出去；去向不動（還是同一個）
+        st.softDeleteTag(shell);
+      } else if (!moved) {
+        continue; // 本來就刪了、掛載也已經不在了：沒事可做
+      }
+      followOf(shell, target).moved += moved;
     }
-    if (!out.length) return [];
-    if (noteIds.size) {
-      const ids = [...noteIds];
-      const bodies = await db.select<{ id: string; body: string }[]>(
+    for (const [noteId, froms] of found.stale) {
+      for (const fromId of froms) {
+        if (notePlans.get(noteId)?.has(fromId)) continue; // 掛載那半已經帶著內文一起跟了
+        const from = await st.getTag(fromId);
+        const target = from?.renamed_to ? await targetOf(fromId) : null;
+        if (!from || !target) continue;
+        // 只差內文：掛載已經在舊名或終點上（舊名那筆上面轉過了）；確保掛在終點，內文跟著改
+        await st.ensureTagging("note", noteId, target.id);
+        planFor(noteId, from, target);
+        followOf(from, target).moved++;
+      }
+    }
+    if (!follows.size) return [];
+    if (notePlans.size) {
+      const ids = [...notePlans.keys()];
+      const rows = await db.select<{ id: string; body: string }[]>(
         `SELECT id, body FROM notes WHERE deleted_at IS NULL AND id IN (${placeholders(ids.length, 1)})`,
         ids,
       );
-      for (const x of bodies) {
-        const next = plans.reduce((b, p) => renameBody(b, p), x.body);
+      for (const x of rows) {
+        const next = [...(notePlans.get(x.id)?.values() ?? [])].reduce((b, p) => renameBody(b, p), x.body);
         if (next !== x.body) st.noteBody(x.id, x.body, next);
       }
     }
     await st.commit();
-    return out;
+    return [...follows.values()];
   }
 
   /* ───────────── 內部 ───────────── */

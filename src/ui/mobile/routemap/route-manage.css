@@ -27,6 +27,21 @@
 [data-shell="mobile"] .m2-add-line:active { background: var(--color-paper-used); }
 [data-shell="mobile"] .m2-add-line:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 
+/* 車庫入口（車庫與回顧 D-主-208；丙原型 design-structure-獨立頁 的 .m2-garage）：清單最底、新增幹線之前一列 */
+[data-shell="mobile"] .m2-garage {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 52px; margin-top: 20px; padding: 0 2px;
+  background: transparent; border: 0; border-top: 1px solid var(--color-line); border-bottom: 1px solid var(--color-line);
+  font-family: inherit; text-align: left; cursor: pointer; color: var(--color-ink-soft);
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m2-garage svg { flex: none; color: var(--color-ink-faint); }
+[data-shell="mobile"] .m2-garage .gt { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); letter-spacing: .22em; color: var(--color-ink); }
+[data-shell="mobile"] .m2-garage .gn { margin-left: auto; font-size: var(--fs-sm); letter-spacing: .1em; }
+[data-shell="mobile"] .m2-garage:active { background: var(--color-paper-used); }
+[data-shell="mobile"] .m2-garage:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .m2-garage + .m2-add-line { margin-top: 0; border-top: 0; }
+
 /* 空狀態（共用 EmptyState 頁級）：上下留白，跟底下的幹線清單隔開 */
 [data-shell="mobile"] .m2-empty-state { padding: 28px 0 32px; }
 

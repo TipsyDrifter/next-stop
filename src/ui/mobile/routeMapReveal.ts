@@ -16,6 +16,7 @@ import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
+import { useDepotStore } from "../../store/depotStore";
 
 export interface RevealRequest {
   target: "routemap" | "today" | "inbox";
@@ -77,8 +78,19 @@ export async function jumpToNodeMobile(node: NodeRow, opts: JumpMobileOptions = 
     ui.showToast({ message: "找不到這張票（可能已經刪除）" });
     return;
   }
+  // 車庫與回顧 D-主-206 #9／D-主-223：收進車庫的路線＝開它的乘車記錄簿；它底下的票（含掛它標籤的臨時票）＝路線圖第二層（頂上有「已收進車庫」）
+  if (node.kind === "route" && node.arrived_on) {
+    useDepotStore.getState().openBook(node.id);
+    ui.setMobileTab("depot");
+    return;
+  }
   if (node.kind === "route") {
     revealOnRouteMap(node.id, null);
+    return;
+  }
+  const inDepotRoute = node.route_id ? useNodeStore.getState().routes.find((r) => r.id === node.route_id && r.arrived_on) : undefined;
+  if (inDepotRoute) {
+    revealOnRouteMap(inDepotRoute.id, node.kind === "station" ? null : node.id);
     return;
   }
   if (

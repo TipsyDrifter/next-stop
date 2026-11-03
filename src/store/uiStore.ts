@@ -7,6 +7,7 @@
  * settings 表裡的 M2 舊值（light／dark）啟動時自動遷移成新值（見 normalizeTheme）。
  */
 import { create } from "zustand";
+import type { ReactNode } from "react";
 import { settingsRepo, DEV_FLAGS, MOCK_MODE } from "../data";
 // type-only import：不產生執行期依賴，store 不會因此被拉進 ui 層（registry 的真相仍在 tabs.ts）
 import type { MobileTabKey } from "../ui/mobile/tabs";
@@ -43,6 +44,8 @@ export interface ToastState {
   sub?: string;
   actionLabel?: string;
   onAction?: () => void;
+  /** 訊息左邊的小圖（車庫與回顧 D-主-212：蓋章 toast 帶一枚小章）；沒有＝不畫 */
+  lead?: ReactNode;
 }
 
 export interface ConfirmState {
@@ -152,6 +155,12 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 interface UiStore {
   page: PageId;
   /**
+   * 桌機路線圖頁正在看「路線一覽」（丁 D-主-239）：true＝一覽、false＝目前那條路線的大綱。不存設定。
+   * gnav「路線圖」、Ctrl+2、大綱麵包屑「路線圖」＝`openRouteMap()`（進一覽）；`nodeStore.openRoute(id)`＝看那條路線（離開一覽，
+   * 開 App 自動開第一條、同步或刪除後換路線帶 `keepView` 不動它）。手機的第一層是 MobileRouteMap 自己記的，不看這個。
+   */
+  routeOverview: boolean;
+  /**
    * 手機殼底部 tab 的落點（v1.1.0 D-1.1-2；值域＝tabs.ts 的 registry key）。
    *
    * 為什麼與桌機 `page` 分成兩個欄位：PageId 沒有 notes／timetable／more，硬共用會讓 setPage
@@ -219,6 +228,9 @@ interface UiStore {
   calendarMarksTick: number;
 
   setPage: (page: PageId) => void;
+  /** 進路線一覽（丁 D-主-239）：切到路線圖頁＋一覽，收掉聚焦、選取與側板（一覽沒有選中的東西） */
+  openRouteMap: () => void;
+  setRouteOverview: (on: boolean) => void;
   setMobileTab: (tab: MobileTabKey) => void;
   select: (id: string | null) => void;
   setZoom: (id: string | null) => void;
@@ -267,6 +279,7 @@ interface UiStore {
 export const useUiStore = create<UiStore>((set, get) => ({
   // 起始頁＝today（決策 #12）；`?page=` 只在 dev／mock 生效（DEV_FLAGS，見 data/index.ts）
   page: DEV_FLAGS.page ?? DEFAULT_PAGE,
+  routeOverview: false,
   // ＝tabs.ts 的 DEFAULT_MOBILE_TAB；這裡寫字面值而不 import 常數，是為了讓 store 只吃 type-only import
   mobileTab: "today",
   selectedId: null,
@@ -300,6 +313,13 @@ export const useUiStore = create<UiStore>((set, get) => ({
     if (pageById(page).status !== "open") return;
     if (page !== get().page) get().hideToast();
     set({ page });
+  },
+  openRouteMap: () => {
+    get().setPage("routemap");
+    set({ routeOverview: true, zoomId: null, selectedId: null, panelOpen: false });
+  },
+  setRouteOverview: (on) => {
+    if (on !== get().routeOverview) set({ routeOverview: on });
   },
   // 切頁順手收掉桌機專屬疊層：手機殼本來就不掛它們，這是保險不是功能（藍牙鍵盤按到 ? 或 Ctrl+P 時）；toast 同 setPage
   setMobileTab: (tab) => {

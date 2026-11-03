@@ -11,9 +11,16 @@
  *   → 占比列（名稱｜金額｜%，條在下一行全寬；觸控高 ≥ 44）：主分類點＝展開／收起子分類（store.drill，一次一個）；
  *      其他列點＝drillToList（切清單＋帶篩選）
  *   → 淨退回區
+ * 售票口④（D-票-73；雜項席）：切面多「荷札」（四格時每格收窄，375 寬仍跟「支出｜收入」同一列）。有子荷札的主列點了展開，
+ *   最細一層 ⇒ drillToList({ tagKeys })（「未細分」近似帶上層荷札，同分類）；「沒掛荷札」不可點；卡內頂端一行淡字 VIEW_TEXT.tagNote。
+ * 售票口④ 第二輪（D-票-78；手機席；原型 design-structure-分類多層 a-stats）：分類不限層數——主列點了照舊原地展開一層；
+ *   展開的子列底下還有更深的帳（`row.deeper`）⇒ 列尾「進入 ›」，點整列＝以它為根（`setStatsRoot`）。手機一列只放得下一個點擊目標，
+ *   所以這種列不再直接下鑽清單；以某分類為根時卡頂一列麵包屑「‹ 全部分類 › 食物 › 外食」（點哪一段回到那一層）＋「看明細」
+ *   （＝drillToList 那整棵）補回「看這些帳」。返回鍵在裡面時＝回上一層（"ticket.stats.root"，page）。
  * 每個數字的出處：overview＝statsOverview、trend＝monthlyTrend、列＝breakdown（store.stats，純函式算好）。
  */
 import { useEffect, useRef, useState } from "react";
+import { useBackLayer } from "../../mobile/backStack";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -23,19 +30,22 @@ import { MAIN_CURRENCY, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, monthOf, moneyText } 
 import {
   GONE_KEY,
   NO_ROUTE_KEY,
+  NO_TAG_KEY,
   UNSPLIT_KEY,
   VIEW_TEXT,
   compactMoney,
   shareText,
+  statsCrumbs,
   type BreakdownRow,
   type EntryFilter,
   type Facet,
   type StatsData,
 } from "../../../domain/ticketView";
-import { IconRight } from "./mobileBits";
+import { IconLeft, IconRight } from "./mobileBits";
 import { useViewSwipe } from "./MobileViewBar";
 import { MobileBudgetCard } from "./plan/MobileBudgetCard";
 import { Tabs, type TabItem } from "../../common/Tabs";
+import "../ticket-4-extras.css";
 
 /** 統計期間（月｜年）：分頁籤的兩段（同桌機 TicketStats；不跨殼 import 桌機視圖檔） */
 const SPAN_TABS: readonly TabItem<"month" | "year">[] = [
@@ -240,6 +250,7 @@ const FACETS: readonly { key: Facet; label: string }[] = [
   { key: "category", label: "分類" },
   { key: "account", label: "帳戶" },
   { key: "route", label: "路線" },
+  { key: "tag", label: "荷札" }, // 售票口④ D-票-73
 ];
 
 function Facets() {
@@ -248,10 +259,11 @@ function Facets() {
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const setFacet = useTicketStore((s) => s.setFacet);
   const setFacetKind = useTicketStore((s) => s.setFacetKind);
+  const shown = FACETS.filter((f) => !(f.key === "account" && filterAccountId !== null));
   return (
     <div className="ns-tk-mst-facets">
-      <span className="ns-tk-mseg" role="group" aria-label="切面">
-        {FACETS.filter((f) => !(f.key === "account" && filterAccountId !== null)).map((f) => (
+      <span className={"ns-tk-mseg" + (shown.length > 3 ? " is-4" : "")} role="group" aria-label="切面">
+        {shown.map((f) => (
           <button key={f.key} type="button" aria-pressed={facet === f.key} onClick={() => setFacet(f.key)}>
             {f.label}
           </button>
@@ -276,10 +288,62 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
   const drill = useTicketStore((s) => s.drill);
   const setDrill = useTicketStore((s) => s.setDrill);
   const drillToList = useTicketStore((s) => s.drillToList);
+  const statsRoot = useTicketStore((s) => s.statsRoot);
+  const setStatsRoot = useTicketStore((s) => s.setStatsRoot);
+  const catById = useTicketStore((s) => s.catById);
   const routes = useNodeStore((s) => s.routes);
   const bd = stats.breakdown;
 
-  if (!bd.rows.length && !bd.refunds.length) return <p className="ns-tk-mst-empty">{VIEW_TEXT.emptyStats}</p>;
+  /* 以某分類為根（D-票-78）：麵包屑＋返回鍵回上一層 */
+  const root = facet === "category" ? statsRoot : null;
+  const crumbs = root !== null ? statsCrumbs(root, catById) : [];
+  const upId = crumbs.length > 1 ? crumbs[crumbs.length - 2].id : null;
+  useBackLayer("ticket.stats.root", root !== null, () => setStatsRoot(upId), "page");
+  const crumbBar =
+    root !== null ? (
+      <div className="ns-tk-mst-crumb">
+        <nav aria-label="分類的層">
+          <button type="button" className="back" aria-label="回上一層" onClick={() => setStatsRoot(upId)}>
+            <IconLeft size={15} />
+          </button>
+          {crumbs.map((c, i) =>
+            i < crumbs.length - 1 ? (
+              <span key={c.id ?? "all"} className="part">
+                {i > 0 && (
+                  <span className="sl" aria-hidden>
+                    ›
+                  </span>
+                )}
+                <button type="button" className="seg" onClick={() => setStatsRoot(c.id)}>
+                  {c.label}
+                </button>
+              </span>
+            ) : (
+              <span key={c.id ?? "all"} className="part">
+                <span className="sl" aria-hidden>
+                  ›
+                </span>
+                <b aria-current="location">{c.label}</b>
+              </span>
+            ),
+          )}
+        </nav>
+        <span className="sum">
+          合計 {compactMoney(bd.total, dec)}
+          <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={() => void drillToList({ categoryIds: [root], kinds: [facetKind] })}>
+            看明細
+          </button>
+        </span>
+      </div>
+    ) : null;
+
+  if (!bd.rows.length && !bd.refunds.length)
+    return (
+      <>
+        {crumbBar}
+        <p className="ns-tk-mst-empty">{VIEW_TEXT.emptyStats}</p>
+      </>
+    );
 
   const max = Math.max(0.0001, ...bd.rows.map((r) => r.share));
 
@@ -288,16 +352,24 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
     if (r.key === GONE_KEY) return null;
     const kinds = [facetKind] as const;
     if (facet === "category") {
-      // 「未細分」＝直接記在主分類本身；EntryFilter 沒有「只要主分類本身」這一格，帶主分類（含子分類）——近似，記在回報
-      const id = r.key === UNSPLIT_KEY ? parentKey : r.key;
+      // 「未細分」＝直接記在主分類本身；EntryFilter 沒有「只要主分類本身」這一格，帶主分類（含子分類）——近似，記在回報。
+      // 以某分類為根時主列的「未細分」＝直接記在根本身 ⇒ 同理帶根
+      const id = r.key === UNSPLIT_KEY ? (parentKey ?? root) : r.key;
       return id ? { categoryIds: [id], kinds } : null;
+    }
+    if (facet === "tag") {
+      // 「沒掛荷札」篩不出來；「未細分」＝直接掛在上層荷札本身，同分類近似帶上層（含子荷札）
+      if (r.key === NO_TAG_KEY) return null;
+      const key = r.key === UNSPLIT_KEY ? parentKey : r.key;
+      return key ? { tagKeys: [key], kinds } : null;
     }
     if (facet === "account") return { accountId: r.key, kinds };
     return { routeId: r.key === NO_ROUTE_KEY ? "none" : r.key, kinds };
   };
 
   const name = (r: BreakdownRow, child: boolean) => {
-    const faint = r.key === UNSPLIT_KEY || r.key === GONE_KEY || r.key === NO_ROUTE_KEY || r.key === UNCAT_EXPENSE_ID || r.key === UNCAT_INCOME_ID;
+    const faint =
+      r.key === UNSPLIT_KEY || r.key === GONE_KEY || r.key === NO_ROUTE_KEY || r.key === NO_TAG_KEY || r.key === UNCAT_EXPENSE_ID || r.key === UNCAT_INCOME_ID;
     if (facet === "route" && !child) {
       const rt = routes.find((x) => x.id === r.key);
       return (
@@ -319,24 +391,38 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
   const row = (r: BreakdownRow, child: boolean, parentKey: string | null) => {
     const isParent = !child && !!r.children && r.children.length > 0;
     const open = isParent && drill === r.key;
-    const target = isParent ? null : drillOf(r, parentKey);
+    // 子列底下還有更深的帳 ⇒ 點整列＝「進入 ›」以它為根（檔頭：一列一個點擊目標）
+    const enter = facet === "category" && child && !!r.deeper && r.key !== UNSPLIT_KEY && r.key !== GONE_KEY;
+    const target = isParent || enter ? null : drillOf(r, parentKey);
     const w = (r.share / max) * 100;
     return (
-      <li key={(child ? parentKey + "/" : "") + r.key} className={"row" + (isParent ? " is-parent" : "") + (open ? " is-open" : "") + (child ? " is-child" : "")}>
+      <li
+        key={(child ? parentKey + "/" : "") + r.key}
+        className={"row" + (isParent ? " is-parent" : "") + (open ? " is-open" : "") + (child ? " is-child" : "") + (enter ? " is-deeper" : "")}
+      >
         <button
           type="button"
           aria-expanded={isParent ? open : undefined}
-          disabled={!isParent && target === null}
-          title={isParent ? (open ? "收起子分類" : "展開子分類") : target ? "到清單看這些帳" : undefined}
+          disabled={!isParent && !enter && target === null}
+          title={isParent ? `${open ? "收起" : "展開"}子${facet === "tag" ? "荷札" : "分類"}` : enter ? "進入這一層" : target ? "到清單看這些帳" : undefined}
           onClick={() => {
             if (isParent) setDrill(open ? null : r.key);
+            else if (enter) setStatsRoot(r.key);
             else if (target) void drillToList(target);
           }}
         >
           <span className="c" aria-hidden>
             {isParent && <IconRight size={10} />}
           </span>
-          <span className="n">{name(r, child)}</span>
+          <span className="n">
+            {name(r, child)}
+            {enter && (
+              <span className="go">
+                進入
+                <IconRight size={9} />
+              </span>
+            )}
+          </span>
           <span className="v">{compactMoney(r.minor, dec)}</span>
           <span className="p">{shareText(r.share)}</span>
           <span className="bar" aria-hidden>
@@ -355,6 +441,12 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
 
   return (
     <>
+      {crumbBar}
+      {facet === "tag" && bd.rows.length > 0 && (
+        <p className="ns-tk-mst-tagnote">
+          {VIEW_TEXT.tagNote(facetKind)}
+        </p>
+      )}
       {bd.rows.length > 0 ? (
         <ul className={"ns-tk-mst-rows is-" + facetKind} aria-label="占比">
           {items}

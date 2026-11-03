@@ -40,10 +40,10 @@
   --cal-out-ink: rgba(228, 232, 243, .30); /* 字面值：月外日的字色・銀河（原型定值） */
 }
 
-/* ═══ 版心：日曆是唯一流動寬度的頁（M3 ⑤-b 追加 2） ═══
- * techo.css 的 `.sheet{max-width:880px}` 是清單頁的閱讀寬——日曆是格子，大螢幕下格子放大才看得見班次。
- *   上限 1200px；下限＝主欄減 `.sheet` 的 margin-left（--page-gutter，24px）（不扣掉會多出橫向捲軸）。字級、留白、格高下限一律不縮。 */
-.ns-calendar .sheet { max-width: min(1200px, calc(100% - var(--page-gutter))); }
+/* ═══ 版心：行程表是畫布型（丁 D-主-231） ═══
+ * techo.css 的 `.sheet` 是清單型（內容 848）——行程表是格子，大螢幕下格子放大才看得見班次：
+ *   滿版、左右空白相等、內容最寬 --canvas-w（1440）。字級、留白、格高下限一律不縮。 */
+.ns-calendar .sheet { margin-inline: var(--canvas-margin); }
 
 /* ═══ 頁首（PageHeader 身分式；骨架在 common/pageheader.css） ═══ */
 /* 頁首與月卡之間（舊 header.day 的 margin-bottom 26 收成 --sp-5） */

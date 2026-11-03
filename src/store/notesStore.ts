@@ -98,6 +98,8 @@ export interface CapturePreset {
 
 /** 旅客筆記的子畫面（車次②加 "diary"；車次③加 "tags"） */
 export type NotesSection = "inbox" | "notes" | "diary" | "tags";
+/** 收件匣的種類篩選（丁 D-主-237：書封頁務件「篩選・種類」、手機收件匣頂端一列）；不存設定，換頁回來照舊 */
+export type InboxKind = "all" | "note" | "ticket";
 
 export interface NotesStore {
   /* ── 子畫面與列表 ── */
@@ -105,6 +107,8 @@ export interface NotesStore {
   inboxNotes: NoteListItem[];
   inboxTickets: NodeRow[];
   inboxSelected: InboxRef | null;
+  /** 收件匣只看哪一種（丁 D-主-237） */
+  inboxKind: InboxKind;
   notes: NoteListItem[];
   /** { routeId?: string|"none"; query?: string } */
   notesQuery: NotesQuery;
@@ -167,6 +171,8 @@ export interface NotesStore {
 
   /* ── 載入 ── */
   setSection(s: NotesSection): void;
+  /** 收件匣的種類篩選；選中的那一則被篩掉就放掉選取 */
+  setInboxKind(k: InboxKind): void;
   /** Promise.all([noteRepo.listInbox(), noteRepo.listInboxTickets()]) */
   loadInbox(): Promise<void>;
   /** noteRepo.listNotes(notesQuery) */
@@ -327,7 +333,8 @@ export function captureRouteOf(c: CaptureState, routes: readonly RouteLike[]): R
 /** 筆記列表一頁幾則（契約 §5.1：預設 200，捲到底再載下一頁） */
 const NOTES_PAGE = 200;
 
-const routesNow = (): readonly NodeRow[] => useNodeStore.getState().routes;
+// 車庫與回顧 D-主-206 #14：路線前綴與掛路線只認還在跑的路線
+const routesNow = (): readonly NodeRow[] => useNodeStore.getState().liveRoutes;
 const todayNow = (): string => todayKey(useUiStore.getState().dayStartHour);
 const routeName = (id: string | null | undefined): string =>
   (id && routesNow().find((r) => r.id === id)?.name) || "";
@@ -509,6 +516,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     weekMarks: {},
     inboxNotes: [],
     inboxTickets: [],
+    inboxKind: "all",
     inboxSelected: null,
     notes: [],
     notesQuery: {},
@@ -527,6 +535,10 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     capturePreset: null,
 
     /* ── 載入 ── */
+    setInboxKind(k) {
+      const sel = get().inboxSelected;
+      set({ inboxKind: k, ...(sel && k !== "all" && sel.kind !== k ? { inboxSelected: null } : {}) });
+    },
     setSection(s) {
       set({ section: s });
       // 第一次進日記：以「當下」的日界線設定重算今天再載（store 建立時 loadSettings 可能還沒回來）

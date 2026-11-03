@@ -9,6 +9,17 @@
  *   │                              選中月 .is-cur；點一根 ⇒ 切到那個月（年模式點 ⇒ 回月模式並選那個月）；未來的月不能點
  *   └─ section.ns-tk-st-card     「占比」：.ns-tk-st-facets（分類｜帳戶｜路線・支出｜收入）＋ ul.ns-tk-st-rows 橫條排名＋淨退回
  *         主分類（有子分類）⇒ 點展開（store.drill，一次一個）；其餘列 ⇒ drillToList（切清單＋帶篩選，0-15）
+ *   售票口④（D-票-73；雜項席）：切面多「荷札」。列＝tagBreakdown（主列＝最上層荷札、有子荷札的點了展開，同分類的下鑽）；
+ *         最細一層 ⇒ drillToList({ tagKeys })（「未細分」近似帶上層荷札，同分類）；「沒掛荷札」不可點；
+ *         切面列下一行淡字 VIEW_TEXT.tagNote（一筆掛幾個荷札就各算一次）。
+ *   售票口④ 第二輪（D-票-78；原型 design-structure-分類多層 場景 a-stats）：分類不限層數。
+ *         點有子分類的列＝原地展開一層（照舊）；底下還有更深一層的列尾多「進入 ›」（另一顆鈕）＝以那一層為根重畫
+ *         （store.setStatsRoot）：主列換成它的下一層、最後一列「未細分」＝直接記在它本身的帳。
+ *         「進入 ›」只畫在子列、而且進去之後還有東西可以展開（row.deeper；同原型與手機）——兩層的分類點開就看完了，
+ *         不多一顆鈕（只有兩層時畫面跟以前一模一樣）；主列點了本來就原地展開下一層，不另給「進入」。
+ *         換根之後焦點放到麵包屑最後一段（按的那顆鈕被重畫掉了）；Esc 退一層（useTicketKeyboard，同手機返回鍵）。
+ *         切面列下面一行麵包屑「‹ 全部分類 › 食物 › 外食」：點哪段回哪一層、‹ 回上一層；右邊淡字「比例＝占「食物」3,212」。
+ *         只在已經進去、或這一層有「進入 ›」時才畫。最細一層照舊帶條件跳回清單（任何一層都含子孫）。
  *
  * 每個數字的來源：三數＝statsOverview、12 根＝monthlyTrend、橫條＝breakdown（全在 store.stats，純函式算好）。
  * 橫條長度＝該列 share ÷ 最大那列 share（原型做法：最大的一列畫滿，比例仍是 share 的比例）；% 字是 shareText(share)。
@@ -23,10 +34,12 @@ import { MAIN_CURRENCY, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, monthOf, moneyText } 
 import {
   GONE_KEY,
   NO_ROUTE_KEY,
+  NO_TAG_KEY,
   UNSPLIT_KEY,
   VIEW_TEXT,
   compactMoney,
   shareText,
+  statsCrumbs,
   type BreakdownRow,
   type EntryFilter,
   type Facet,
@@ -37,12 +50,16 @@ import type { NodeRow } from "../../../domain/node";
 import { TkIcon, TkRoundel } from "../TicketLedger";
 import { BudgetCard } from "../plan/BudgetCard";
 import { Tabs, type TabItem } from "../../common/Tabs";
+import "../ticket-4-extras.css";
+import "../ticket-4b.css";
 
 const FACETS: readonly [Facet, string][] = [
   ["category", "分類"],
   ["account", "帳戶"],
   ["route", "路線"],
+  ["tag", "荷札"], // 售票口④ D-票-73
 ];
+
 const KINDS: readonly ["expense" | "income", string][] = [
   ["expense", "支出"],
   ["income", "收入"],
@@ -188,12 +205,21 @@ function drillOf(facet: Facet, key: string, parentKey: string | null): Partial<E
     if (key === UNSPLIT_KEY) return parentKey ? { categoryIds: [parentKey] } : null;
     return { categoryIds: [key] };
   }
+  if (facet === "tag") {
+    // 「沒掛荷札」篩不出來；「未細分」＝直接掛在上層荷札本身，同分類近似帶上層（含子荷札）
+    if (key === NO_TAG_KEY) return null;
+    if (key === UNSPLIT_KEY) return parentKey ? { tagKeys: [parentKey] } : null;
+    return { tagKeys: [key] };
+  }
   if (facet === "account") return { accountId: key };
   return { routeId: key === NO_ROUTE_KEY ? "none" : key };
 }
 
+/** 切面的名詞（展開鈕、淨退回說明用） */
+const FACET_NOUN: Record<Facet, string> = { category: "分類", account: "帳戶", route: "路線", tag: "荷札" };
+
 function RowName({ row, facet, routeById }: { row: BreakdownRow; facet: Facet; routeById: Record<string, NodeRow> }) {
-  const faint = row.key === UNSPLIT_KEY || row.key === GONE_KEY || isUncat(row.key);
+  const faint = row.key === UNSPLIT_KEY || row.key === GONE_KEY || row.key === NO_TAG_KEY || isUncat(row.key);
   if (facet === "route") {
     return (
       <>
@@ -205,7 +231,85 @@ function RowName({ row, facet, routeById }: { row: BreakdownRow; facet: Facet; r
   return <span className={"t" + (faint ? " is-faint" : "")}>{row.label}</span>;
 }
 
-function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Facet; kind: "expense" | "income"; drill: string | null; dec: number }) {
+/** 分類切面：這一列能不能「進入 ›」（子列、進去之後還有東西可以展開；只有兩層時一律沒有） */
+function canEnter(r: BreakdownRow, parent: BreakdownRow | null): boolean {
+  if (!parent || r.key === UNSPLIT_KEY || r.key === GONE_KEY || isUncat(r.key)) return false;
+  return !!r.deeper;
+}
+
+/**
+ * 「進入 ›」之後的麵包屑：‹ 回上一層・全部分類 › 食物 › 外食（最後一段粗體、其餘可點）・右邊「比例＝占…」。
+ * `what`＝根是全部分類時的分母說法（「本月支出」）。
+ */
+function Crumbs({ root, total, what, dec }: { root: string | null; total: number; what: string; dec: number }) {
+  const catById = useTicketStore((s) => s.catById);
+  const crumbs = statsCrumbs(root, catById);
+  const store = useTicketStore.getState;
+  const last = crumbs[crumbs.length - 1];
+  // 換根（進入、點麵包屑、‹）之後按的那顆鈕被重畫掉、焦點掉到 body：放到最後一段（＝現在在哪），鍵盤從這裡接著走
+  const here = useRef<HTMLElement>(null);
+  const prevRoot = useRef(root);
+  useEffect(() => {
+    if (prevRoot.current === root) return;
+    prevRoot.current = root;
+    const a = document.activeElement;
+    if (!a || a === document.body) here.current?.focus({ preventScroll: true });
+  }, [root]);
+  return (
+    <nav className="ns-tk-st-crumbs" aria-label="分類層級">
+      {crumbs.length > 1 && (
+        <button
+          type="button"
+          className="ns-iconbtn back"
+          aria-label={`回上一層：${crumbs[crumbs.length - 2].label}`}
+          title="回上一層"
+          onClick={() => store().setStatsRoot(crumbs[crumbs.length - 2].id)}
+        >
+          <TkIcon name="left" size={13} />
+        </button>
+      )}
+      {crumbs.map((c, i) =>
+        i < crumbs.length - 1 ? (
+          <span key={c.id ?? "all"} className="seg">
+            <button type="button" className="lk" onClick={() => store().setStatsRoot(c.id)}>
+              {c.label}
+            </button>
+            <span className="sl" aria-hidden>
+              ›
+            </span>
+          </span>
+        ) : (
+          <b key={c.id ?? "all"} ref={here} tabIndex={-1} aria-current="location">
+            {c.label}
+          </b>
+        ),
+      )}
+      <span className="note">
+        比例＝占{last.id === null ? what : `「${last.label}」`} {moneyText(total, dec)}
+      </span>
+    </nav>
+  );
+}
+
+function Bars({
+  stats,
+  facet,
+  kind,
+  drill,
+  dec,
+  root,
+  what,
+}: {
+  stats: StatsData;
+  facet: Facet;
+  kind: "expense" | "income";
+  drill: string | null;
+  dec: number;
+  /** 分類切面以哪個分類為根（store.statsRoot） */
+  root: string | null;
+  /** 根是全部分類時麵包屑的分母說法（「本月支出」） */
+  what: string;
+}) {
   const routes = useNodeStore((s) => s.routes);
   const routeById = useMemo(() => {
     const m: Record<string, NodeRow> = {};
@@ -213,22 +317,44 @@ function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Fac
     return m;
   }, [routes]);
   const bd = stats.breakdown;
-  if (!bd.rows.length && !bd.refunds.length) return <p className="ns-tk-empty">{VIEW_TEXT.emptyStats}</p>;
-  const max = Math.max(0.0001, ...bd.rows.map((r) => r.share));
   const store = useTicketStore.getState;
+  // 麵包屑：已經進去了、或這一層有列可以「進入 ›」才畫（只有兩層時不多這一行）
+  const showCrumbs = facet === "category" && (root !== null || bd.rows.some((r) => canEnter(r, null) || !!r.children?.some((k) => canEnter(k, r))));
+  const crumbs = showCrumbs ? <Crumbs root={root} total={bd.total} what={what} dec={dec} /> : null;
+  if (!bd.rows.length && !bd.refunds.length)
+    return (
+      <>
+        {crumbs}
+        <p className="ns-tk-empty">{VIEW_TEXT.emptyStats}</p>
+      </>
+    );
+  const max = Math.max(0.0001, ...bd.rows.map((r) => r.share));
 
   const li = (r: BreakdownRow, parent: BreakdownRow | null) => {
     const isParent = !parent && !!r.children && r.children.length > 0;
     const open = isParent && drill === r.key;
-    const target = isParent ? null : drillOf(facet, r.key, parent ? parent.key : null);
+    // 主列的「未細分」（以某分類為根時＝直接記在根本身）近似帶根（含子孫），同子列的未細分帶主列
+    const target = isParent ? null : drillOf(facet, r.key, parent ? parent.key : root);
     const kindLabel = kind === "expense" ? "支出" : "收入";
+    const go = facet === "category" && canEnter(r, parent);
     return (
-      <li key={(parent ? parent.key + "/" : "") + r.key} className={"ns-tk-st-row" + (isParent ? " is-parent" : "") + (open ? " is-open" : "") + (parent ? " is-child" : "")}>
+      <li
+        key={(parent ? parent.key + "/" : "") + r.key}
+        className={"ns-tk-st-row" + (isParent ? " is-parent" : "") + (open ? " is-open" : "") + (parent ? " is-child" : "") + (go ? " has-go" : "")}
+      >
         <button
           type="button"
           aria-expanded={isParent ? open : undefined}
           disabled={!isParent && target === null}
-          title={isParent ? (open ? "收起子分類" : "展開子分類") : target ? `到清單看這些帳（${kindLabel}）` : "這些帳的分類、帳戶或路線已刪除，無法篩選"}
+          title={
+            isParent
+              ? `${open ? "收起" : "展開"}子${FACET_NOUN[facet]}`
+              : target
+                ? `到清單看這些帳（${kindLabel}）`
+                : r.key === NO_TAG_KEY
+                  ? "沒掛荷札的帳沒辦法用荷札篩選"
+                  : "這些帳的分類、帳戶或路線已刪除，無法篩選"
+          }
           onClick={() => {
             if (isParent) store().setDrill(open ? null : r.key);
             else if (target) void store().drillToList({ ...target, kinds: [kind] });
@@ -244,12 +370,25 @@ function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Fac
           <span className="v">{moneyText(r.minor, dec)}</span>
           <span className="p">{shareText(r.share)}</span>
         </button>
+        {go && (
+          <button
+            type="button"
+            className="ns-tk-st-go"
+            aria-label={`進入「${r.label}」`}
+            title={`看「${r.label}」底下的分類`}
+            onClick={() => store().setStatsRoot(r.key)}
+          >
+            進入
+            <TkIcon name="right" size={9} />
+          </button>
+        )}
       </li>
     );
   };
 
   return (
     <>
+      {crumbs}
       <ul className={"ns-tk-st-rows is-" + kind}>
         {bd.rows.map((r) => [li(r, null), ...(drill === r.key && r.children ? r.children.map((k) => li(k, r)) : [])])}
       </ul>
@@ -261,7 +400,7 @@ function Bars({ stats, facet, kind, drill, dec }: { stats: StatsData; facet: Fac
               {r.label} <b>{moneyText(r.minor, dec)}</b>
             </span>
           ))}
-          <small>退款大於支出的{facet === "category" ? "分類" : facet === "account" ? "帳戶" : "路線"}不計入圖表與總額</small>
+          <small>退款大於支出的{FACET_NOUN[facet]}不計入圖表與總額</small>
         </div>
       )}
     </>
@@ -283,6 +422,8 @@ export function TicketStats() {
   const facet = useTicketStore((s) => s.facet);
   const facetKind = useTicketStore((s) => s.facetKind);
   const drill = useTicketStore((s) => s.drill);
+  const statsRoot = useTicketStore((s) => s.statsRoot);
+  const period = useTicketStore((s) => s.period);
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -298,6 +439,9 @@ export function TicketStats() {
   }
   const facets = FACETS.filter(([k]) => !(k === "account" && filterAccountId !== null)); // 0-8：已篩帳戶 ⇒ 帳戶切面沒意義
   const cur = month; // 年模式也標出 month 那一根（原型同；回清單就是那個月）
+  // 麵包屑分母的期間說法：本月／10月／今年／2025 年
+  const periodWord =
+    span === "year" ? (period.key === thisMonth.slice(0, 4) ? "今年" : `${period.key} 年`) : month === thisMonth ? "本月" : `${Number(month.slice(5, 7))}月`;
 
   return (
     <div className="ns-tk-stats">
@@ -326,7 +470,9 @@ export function TicketStats() {
       <section className="ns-tk-st-card" aria-label="占比">
         <div className="ns-tk-st-h">
           <h2>占比</h2>
-          <small>{facet === "category" ? "點主分類可展開，點子分類可看明細" : "點任一列可看明細"}</small>
+          <small>
+            {facet === "category" ? "點主分類可展開，點子分類可看明細" : facet === "tag" ? "點上層荷札可展開，點子荷札可看明細" : "點任一列可看明細"}
+          </small>
         </div>
         <div className="ns-tk-st-facets">
           <span className="ns-tk-seg" role="group" aria-label="切面">
@@ -344,7 +490,8 @@ export function TicketStats() {
             ))}
           </span>
         </div>
-        <Bars stats={stats} facet={facet} kind={facetKind} drill={drill} dec={dec} />
+        {facet === "tag" && stats.breakdown.rows.length > 0 && <p className="ns-tk-st-tagnote">{VIEW_TEXT.tagNote(facetKind)}</p>}
+        <Bars stats={stats} facet={facet} kind={facetKind} drill={drill} dec={dec} root={statsRoot} what={periodWord + (facetKind === "expense" ? "支出" : "收入")} />
       </section>
     </div>
   );

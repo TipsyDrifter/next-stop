@@ -140,6 +140,19 @@
 }
 .cover .line-add:hover, .cover .line-add:focus-visible { opacity: 1; color: var(--color-book-ink); background: var(--color-book-hover); outline: none; }
 .cover .line-add--line { margin-top: 6px; }
+/* 車庫入口（車庫與回顧 D-主-208）：清單最底一列「車庫 N 條 ›」——常駐（不淡），是導航不是新增；虛線上緣跟路線分開 */
+.cover .line-depot {
+  display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 10px;
+  padding: 8px 10px 7px; border: 0; border-top: 1px dashed rgba(228, 227, 243, .18); /* 字面值：書封虛線（同 .lines h2） */
+  border-radius: 0; background: transparent; cursor: pointer; text-align: left; font-family: inherit;
+  font-size: var(--fs-xs); letter-spacing: .2em; color: var(--book-muted);
+  transition: color .15s, background .15s;
+}
+[data-theme="dark"] .cover .line-depot { border-top-color: rgba(216, 219, 227, .16); } /* 字面值：書封虛線・銀河 */
+.cover .line-depot svg { flex: none; opacity: .85; }
+.cover .line-depot .ld-n { margin-left: auto; font-family: var(--font-latin); letter-spacing: .12em; }
+.cover .line-depot:hover { color: var(--color-book-ink); background: var(--color-book-hover); }
+.cover .line-depot:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：聚焦框 */
 
 /* 書封腳（件一 .cover-foot 逐字）：設定入口 → 月亮 → 燙金細線 → 主題名（銀河才顯示）
    UI 丙-3 C7：第一列是兩顆文字鈕並排（設定｜? 說明，樣式在 gnav.css .foot-set） */
@@ -163,3 +176,28 @@
 /* hover 底改吃 --color-book-hover（＝件一 --cover-hover），兩主題各自給值 → 這裡不用再覆寫 */
 [data-theme="dark"] .cover .line-more:hover { background: rgba(230, 236, 255, .07); } /* 字面值：書封上的 hover 底・銀河（星光 7%，原型定值） */
 [data-theme="dark"] .cover .lines h2 { border-bottom-color: rgba(216, 219, 227, .16); } /* 字面值：書封虛線・銀河（原型定值） */
+
+/* ============ 頁務件的共用骨架（丁 D-主-234／235：頁務件＝這一頁的目錄或篩選，點了留在這頁） ============
+   核心頁與功能線新掛的頁務件（時刻表、完整搜尋…）都長這樣：div.lines.page-aux（h2 總標固定在上）＋ .page-aux-body 自己捲；
+   列＝.line-item（button），列尾數字 .n；分組小字借 .trunk；目前選中＝.active 金菱形（同路線列）。
+   旅客筆記的 .ns-notes-aux 早於這段、自己有一份同款規則，不改。 */
+.cover .page-aux { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cover .page-aux > h2 { flex: none; }
+/* 頁務件要整條高度：粉彩書封腳的月亮收起（同旅客筆記 .ns-notes-aux 的做法） */
+.cover:has(.page-aux) .cover-moon { display: none; }
+.cover .page-aux-body {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: 14px;
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--book-muted) 45%, transparent) transparent;
+}
+.cover .page-aux h2.sub { margin-top: 16px; }
+/* 小標「篩選・種類」「目錄・荷札」：前兩個字＝這塊是什麼（燙金淡），後面＝依什麼切（原型 design-structure-側欄.html A2） */
+.cover .lines h2.sub b { font-weight: 600; color: var(--color-gold-soft); } /* 書封燙金 */
+.cover .page-aux .trunk { margin-top: 10px; }
+.cover .page-aux .line-item { border: 0; background: transparent; font-size: var(--fs-ui); gap: 9px; padding: 6px 10px; }
+.cover .page-aux .line-item:hover, .cover .page-aux .line-item:focus-visible { background: var(--color-book-hover); }
+.cover .page-aux .line-item:focus-visible { outline: 1px solid var(--color-gold); outline-offset: -1px; } /* 書封燙金 */
+.cover .page-aux .line-item .n {
+  margin-left: auto; flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .04em; color: var(--book-muted);
+}
+.cover .page-aux .roundel { width: 19px; height: 19px; font-size: 9px; } /* 字面值：頁務件的小圓牌（同 §2.9 圓牌微字） */
+.cover .page-aux .roundel.is-blank { border: 1px dashed color-mix(in srgb, var(--book-muted) 70%, transparent); }

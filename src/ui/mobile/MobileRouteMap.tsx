@@ -87,8 +87,15 @@ import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
 import { MSheet, MSheetItem } from "../common/MSheet";
 import { createLine, renameLine, requestDeleteLine } from "../panel/routeFlows";
+import { requestArrive } from "../panel/arrivalFlows";
+import { GNAV_ICONS } from "../sidebar/gnavIcons";
+import { DepotBanner } from "../depot/DepotBanner";
+import { PARKED_ADD_WHY } from "../../domain/depot";
 import { Chevron } from "../common/Chevron";
-import { lineNodeFields, lineRouteListAsides } from "../../lines/runtime";
+import { lineNodeFields } from "../../lines/runtime";
+import type { RouteSummary } from "../../domain/routeOverview";
+import { OVERVIEW_DAYS, useRouteOverview } from "../outline/useRouteOverview";
+import { headParts, mdw, summaryParts } from "../outline/routeSummaryText";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
 import { completeNodeFlow, suspendNodeFlow } from "../outline/nodeFlows";
@@ -118,6 +125,7 @@ import {
   reorderRow,
   siblingPlan,
   ticketPlan,
+  branchPlan,
   type AddPlan,
 } from "./routemap/routeMapActions";
 import { useDragReorder, type DropPlace } from "../common/dragReorder";
@@ -129,6 +137,10 @@ import { moveNodesWithUndo, stepAnchor } from "./mobileMoves";
 import "./mobile-quickjump.css";
 import "./routemap/routemap.css";
 import "./routemap/route-manage.css";
+import "./routemap/route-summary.css";
+import "../outline/structure.css";
+import { ProgressRing } from "../outline/ProgressRing";
+import { chapterCount, chapterParts } from "../../domain/chapterCount";
 
 /** ⋯ sheet 整個流程（含子面板、空狀態的新增面板）的返回層 id；MobileTicketSheet 的每張 MSheet 用同一個 id 合併成一層 */
 const ROUTEMAP_SHEET_LAYER = "core.routemapSheet";
@@ -244,6 +256,38 @@ function RouteRoundel({ route }: { route: NodeRow }) {
 
 /* ═══════════════ 第一層：我的路線 ═══════════════ */
 
+/** 第一層每條路線：名字＋「◎ 下一站 名稱 12/6（日）」＋「車票 3/9 済・近 30 天 3h20m・花 3,117・誤點 2」（丁 D-主-244） */
+function RouteSummaryLines({ route, s, decimals }: { route: NodeRow; s: RouteSummary | null; decimals: number }) {
+  const parts = s ? summaryParts(s, decimals, OVERVIEW_DAYS) : [];
+  return (
+    <span className="m2-route-main">
+      <span className="m2-route-name">{route.name}</span>
+      {s && (
+        <span className="m2-route-next">
+          <span aria-hidden>◎</span>
+          {s.nextStation ? (
+            <>
+              下一站 {s.nextStation.name}
+              {s.nextStation.expectedOn && <span className="d">{mdw(s.nextStation.expectedOn)}</span>}
+            </>
+          ) : (
+            "還沒有下一站"
+          )}
+        </span>
+      )}
+      {parts.length > 0 && (
+        <span className="m2-route-stats">
+          {parts.map((p, i) => (
+            <span key={i} className={p.late ? "is-late" : undefined}>
+              {p.text}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** 第一層的面板：哪一條幹線的 ⋯、改名、新增路線、新增幹線（同一時間一張） */
 type ListSheet =
   | { kind: "menu"; line: NodeRow }
@@ -255,8 +299,10 @@ type ListSheet =
 const LIST_INDENT = 18;
 
 function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
-  const lines = useNodeStore((s) => s.lines);
-  const routes = useNodeStore((s) => s.routes);
+  // 車庫與回顧 D-主-206 #2：只列還在跑的；收進車庫的在清單最底「車庫 N 條」進去看（D-主-208）
+  const lines = useNodeStore((s) => s.liveLines);
+  const routes = useNodeStore((s) => s.liveRoutes);
+  const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
   const lineIds = new Set(lines.map((l) => l.id));
   // 攤平：幹線（depth 0）→ 它的路線（depth 1）；拖幹線時它的路線一起走
@@ -287,8 +333,11 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
       void moveNodesWithUndo([id], target, { after: place.after, before: place.before }, moved ? `已移到幹線「${moved.name}」` : "已調整順序");
     },
   });
-  // 接縫 #63：路線列尾的別線小字；沒有任何線填值＝空陣列＝DOM 不變
-  const asides = lineRouteListAsides();
+  // 丁 D-主-244：每條路線補「◎ 下一站」與「車票 d/t 済・近 30 天…・花…・誤點」（同桌機路線一覽卡片的數字、同一支 hook）。
+  //   原本列尾的別線小字（接縫 #63 routeListAside：時刻表本月時數、售票口本月花費）由這一行取代——同一件事兩種期間會打架。
+  const ov = useRouteOverview();
+  const decimals = ov?.decimals ?? 2;
+  const liveRoutes = routes.filter((r) => !r.arrived_on);
   const [sheet, setSheet] = useState<ListSheet | null>(null);
   const close = () => setSheet(null);
   useBackLayer(LINES_SHEET_LAYER, sheet !== null, close);
@@ -300,7 +349,25 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
 
   /** 空狀態（D-主-85；同桌機大綱 NoRouteEmpty 兩種）：沒幹線＝先建幹線；有幹線沒路線＝在第一條幹線底下開路線 */
   let empty: ReactNode = null;
-  if (!lines.length) {
+  if (!routes.length && depotCount > 0) {
+    // 車庫與回顧 D-主-208（AVD F-2）：路線都收進車庫了——同桌機路線圖空狀態，教去車庫看或開新路線
+    const first = lines[0];
+    empty = (
+      <EmptyState
+        tone="done"
+        stamp={EMPTY_STAMP}
+        title="路線都收進車庫了"
+        desc="跑完的路線停在車庫；要開始新的，就開一條新路線。"
+        action={{ label: "看車庫", onClick: () => useUiStore.getState().setMobileTab("depot") }}
+        secondary={
+          first
+            ? { label: "新增路線", onClick: () => setSheet({ kind: "route", line: first }) }
+            : { label: "新增幹線", onClick: () => setSheet({ kind: "line" }) }
+        }
+        className="m2-empty-state"
+      />
+    );
+  } else if (!lines.length) {
     empty = (
       <EmptyState
         tone="first"
@@ -328,6 +395,11 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <>
       {empty}
+      {lines.length > 0 && liveRoutes.length > 0 && (
+        <p className="m2-ov-head">
+          {headParts(liveRoutes.length, ov?.totalTimeMs ?? 0, ov?.totalSpendMinor ?? 0, decimals, OVERVIEW_DAYS, true).join("・")}
+        </p>
+      )}
       {lines.length > 0 && (
         <div className="m2-lines" ref={setListEl}>
           {lines.map((line) => {
@@ -367,11 +439,8 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
                         >
                           <span aria-hidden className="m2-band" style={{ background: route.color ?? "var(--route-preset-4)" }} />
                           <RouteRoundel route={route} />
-                          <span className="m2-route-name">{route.name}</span>
-                          {asides.map((A, i) => (
-                            <A key={i} route={route} />
-                          ))}
-                          {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字；0 不畫），同桌機側欄路線列尾 */}
+                          <RouteSummaryLines route={route} s={ov?.byRoute[route.id] ?? null} decimals={decimals} />
+                          {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字；0 不畫），同桌機側欄路線列尾；丁的新列結構下放在 .m2-route-go 前 */}
                           <RouteOpenCount routeId={route.id} />
                           <span aria-hidden className="m2-route-go">
                             <CaretRight />
@@ -384,6 +453,14 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
               </section>
             );
           })}
+          {/* 車庫與回顧 D-主-208（丙原型 design-structure-獨立頁 的 m2-garage）：收進車庫的路線從這裡進 */}
+          {depotCount > 0 && (
+            <button type="button" className="m2-garage" onClick={() => useUiStore.getState().setMobileTab("depot")}>
+              {GNAV_ICONS.depot(18)}
+              <span className="gt">車庫</span>
+              <span className="gn">{depotCount} 條 ›</span>
+            </button>
+          )}
           {/* 新增幹線（同桌機書封最底「＋ 幹線」）；沒有幹線時改由空狀態的鈕當唯一入口（同頁一個入口） */}
           <button type="button" className="m2-add-line" onClick={() => setSheet({ kind: "line" })}>
             <IconPlus />
@@ -397,6 +474,16 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
         <MSheet list title={`幹線・${sheet.line.name}`} backId={LINES_SHEET_LAYER} onClose={close}>
           <MSheetItem onClick={() => setSheet({ kind: "rename", line: sheet.line })}>改名…</MSheetItem>
           <MSheetItem onClick={() => setSheet({ kind: "route", line: sheet.line })}>新增路線…</MSheetItem>
+          {/* 車庫與回顧 D-主-207：幹線到站＝底下還在跑的路線一起收進車庫 */}
+          <MSheetItem
+            onClick={() => {
+              const line = sheet.line;
+              close();
+              void requestArrive(line.id);
+            }}
+          >
+            到站・收進車庫
+          </MSheetItem>
           {lines.length > 1 && (
             <StepPair
               order={lines.map((l) => l.id)}
@@ -648,6 +735,8 @@ export default function MobileRouteMap() {
 
   const route = openedId ? routes.find((r) => r.id === openedId) : undefined;
   const line = route ? lines.find((l) => l.id === route.line_id) : undefined;
+  /** 這條路線已收進車庫：不發券（O-3；同桌機大綱）——頁底建票列、空狀態新增鈕、⋯ 的新增項都收起來 */
+  const parked = !!route?.arrived_on;
   /** 樹是「store 目前開著的那條路線」的；換路線的載入完成前不能拿來畫（會畫到上一條的樹） */
   const treeReady = openedId !== null && storeRouteId === openedId;
   const showLoading = useDelayedFlag(openedId !== null && (loading || !treeReady), 200);
@@ -657,6 +746,12 @@ export default function MobileRouteMap() {
   useEffect(() => {
     if (openedId && !routes.some((r) => r.id === openedId)) setOpenedId(null);
   }, [openedId, routes]);
+  // 車庫與回顧 D-主-205（AVD F-1）：開著的路線剛被收進車庫——store 已切到下一條還在跑的路線，這裡跟著退回清單
+  //（從記錄簿「在路線圖打開」進來的已到站路線 store 也開著它，storeRouteId === openedId，不會被退回）
+  useEffect(() => {
+    if (!openedId || storeRouteId === openedId) return;
+    if (routes.some((r) => r.id === openedId && r.arrived_on !== null)) setOpenedId(null);
+  }, [openedId, storeRouteId, routes]);
 
   const zoom: NodeRow | null = zoomId && treeReady ? (tree.byId[zoomId] ?? null) : null;
   const rootChildren = zoom ? (tree.childrenOf[zoom.id] ?? EMPTY) : tree.roots;
@@ -922,14 +1017,26 @@ export default function MobileRouteMap() {
             onOutdent: () => void outdentRow(n.id).then((ok) => ok && revealRow(n.id)),
           }
         }
-        add={{
-          siblingKind: n.kind,
-          onSibling: (name) => void create(siblingPlan(t, rid, n), name),
-          // 車票／車站列不出「新增車票…」（跟「同層新增車票…」重複；原型 Q1）；支線出但淡掉、點了說原因
-          ticket: canHaveChildren(n.kind)
-            ? { why: g?.ticketWhy ?? null, onTicket: (name) => void create(ticketPlan(t, rid, n), name) }
-            : null,
-        }}
+        // 車庫裡的路線不給新增（O-3）：整組新增項不出
+        add={
+          parked
+            ? undefined
+            : {
+                siblingKind: n.kind,
+                onSibling: (name) => void create(siblingPlan(t, rid, n), name),
+                // 車票／車站列不出「新增車票…」（跟「同層新增車票…」重複；原型 Q1）；支線出但淡掉、點了說原因
+                ticket: canHaveChildren(n.kind)
+                  ? { why: g?.ticketWhy ?? null, onTicket: (name) => void create(ticketPlan(t, rid, n), name) }
+                  : null,
+                // 丁 D-主-249：新增支線（主題）；支線列本身用「同層新增支線」就好
+                branch: {
+                  onBranch: (name) => {
+                    const p = branchPlan(t, rid, n);
+                    if (p) void create(p, name);
+                  },
+                },
+              }
+        }
         backId={ROUTEMAP_SHEET_LAYER}
         onClose={() => setSheetId(null)}
       />
@@ -1006,6 +1113,9 @@ export default function MobileRouteMap() {
         </header>
       )}
 
+      {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿打開的）頂上一行＋「回到運行」 */}
+      {!zoom && route && <DepotBanner route={route} />}
+
       {/* 別線登記的「路線」欄位列（插槽 `nodeFields`，kinds 含 route；接縫 #62）：路線在手機沒有 RowDetail，放在抬頭之下、樹之上；沒有線填＝什麼都不畫 */}
       {!zoom &&
         route &&
@@ -1016,7 +1126,7 @@ export default function MobileRouteMap() {
       {/* 回饋甲 D-主-131：區段標＋右側「済 N・隱藏／顯示」（桌機大綱「列車 ── M 項 ［済］」同款；聚焦時標題換成那一層的名字） */}
       {treeReady && (rows.length > 0 || built.doneHidden > 0) && (
         <div className="sec m2-sec">
-          <h3>{zoom ? zoom.name : "列車"}</h3>
+          <h3>{zoom ? zoom.name : "大綱" /* 丁 D-主-250：混了支線、列車、車票，不再寫「列車」 */}</h3>
           <span className="rule" />
           {built.doneHidden + built.doneShown > 0 && (
             <DoneToggleChip
@@ -1043,10 +1153,15 @@ export default function MobileRouteMap() {
       ) : rows.length === 0 ? (
         <div className="m2-empty">
           <p className="m2-empty-title">{zoom ? "這裡底下還沒有東西" : "這條路線還沒有車票"}</p>
-          {/* D-主-72：空狀態的新增鈕（路線頂層＝第一班列車；縮放進去＝那一層的預設子種類） */}
-          <button type="button" className="ns-btn btn-ghost m2-empty-add" onClick={() => setFirstAdd(firstPlan(openedId, zoom))}>
-            {zoom ? `新增${KIND_LABEL[firstPlan(openedId, zoom).kind]}…` : "新增第一班…"}
-          </button>
+          {/* D-主-72：空狀態的新增鈕（路線頂層＝第一班列車；縮放進去＝那一層的預設子種類）。
+              車庫裡的路線不發券（O-3）：改說一句，回到運行的鈕在頂上那一行 */}
+          {parked ? (
+            <p className="m2-note">{PARKED_ADD_WHY}。</p>
+          ) : (
+            <button type="button" className="ns-btn btn-ghost m2-empty-add" onClick={() => setFirstAdd(firstPlan(openedId, zoom))}>
+              {zoom ? `新增${KIND_LABEL[firstPlan(openedId, zoom).kind]}…` : "新增第一班…"}
+            </button>
+          )}
         </div>
       ) : (
         // data-no-fab：每一列右側都是常駐検印／⋯，「記一句」浮鈕停在哪都蓋住某一列的按鈕（第二輪；同時刻表方眼的取捨，
@@ -1071,8 +1186,20 @@ export default function MobileRouteMap() {
               if (!tapSelect("outline", id, rowOrder)) setDetailId((cur) => (cur === id ? null : id));
             };
 
+            // 丁 D-主-247／248：支線＝章節樣子（沒有検印）；有子項、還沒済的列車／車廂＝検印位置畫進度圈（直屬子項 d/t）
+            const isChapter = node.kind === "branch";
+            const kidNodes = kids.map((k) => tree.byId[k]).filter((x): x is NodeRow => !!x);
+            const kidDone = kidNodes.filter((k) => isRouteNodeDone(k, currentOccurrences)).length;
+            const ring = (node.kind === "train" || node.kind === "car") && hasKids && !done && !suspended;
+            const chapterText = isChapter
+              ? (() => {
+                  const cc = chapterCount(kidNodes, (k) => isRouteNodeDone(k, currentOccurrences));
+                  return `支線・${chapterParts(cc).join("・")}${cc.done ? `・済 ${cc.done}` : ""}`;
+                })()
+              : null;
+
             return (
-              <li key={id} className="m2-item" data-drag-id={id}>
+              <li key={id} className={isChapter ? "m2-item m2-chapter" : "m2-item"} data-drag-id={id}>
                 <div
                   data-node-id={id}
                   className={
@@ -1144,10 +1271,14 @@ export default function MobileRouteMap() {
                       {node.name}
                     </span>
                     <span className="m2-meta">
-                      {KIND_LABEL[node.kind]}
-                      {total > 0 ? `・${childDone}/${total}` : ""}
-                      {rule ? "・定期券" : ""}
-                      {node.scheduled_on ? `・${node.scheduled_on.slice(5)}` : ""}
+                      {chapterText ?? (
+                        <>
+                          {KIND_LABEL[node.kind]}
+                          {total > 0 && !ring ? `・${childDone}/${total}` : ""}
+                          {rule ? "・定期券" : ""}
+                          {node.scheduled_on ? `・${node.scheduled_on.slice(5)}` : ""}
+                        </>
+                      )}
                     </span>
                     {/* 済／運休在視覺上是右邊那枚角印（aria-hidden）；語意補在這裡，
                         讀屏使用者不必展開詳情才知道這張票交代過了。畫面上不重複印字。 */}
@@ -1158,6 +1289,10 @@ export default function MobileRouteMap() {
                    * 検印鈕（D-主-71；常駐）：単擊＝済／取消済／運休中＝取消運休（桌機大綱同一支 completeNodeFlow）。
                    * N9：済＝圓印（定案，同手機今日票卡）；運休＝方角印（運行狀態告示）；未交代＝虛線圓「検印」。
                    */}
+                  {isChapter ? (
+                    // 支線不蓋済（主題）：留同寬的空位，⋯ 對齊別列
+                    <span className="m2-stamp is-empty" aria-hidden />
+                  ) : (
                   <button
                     type="button"
                     className="m2-stamp"
@@ -1172,12 +1307,15 @@ export default function MobileRouteMap() {
                       </span>
                     ) : done ? (
                       <SealDone small fresh={freshId === id} className="m2-seal-done" />
+                    ) : ring ? (
+                      <ProgressRing done={kidDone} total={kidNodes.length} size={30} className="ns-ring is-sm" />
                     ) : (
                       <span className="m2-slot" aria-hidden>
                         検印
                       </span>
                     )}
                   </button>
+                  )}
                   <button
                     type="button"
                     className="m2-more"
@@ -1208,6 +1346,20 @@ export default function MobileRouteMap() {
           >
             路線詳情…
           </MSheetItem>
+          {/* 丁 D-主-249：新增支線（主題）——不必先選一列；聚焦在支線＝放進那條支線，聚焦在列車／車廂＝放不進 */}
+          <MSheetItem
+            off={!!zoom && zoom.kind !== "branch"}
+            onClick={() => {
+              setHeadMenu(false);
+              if (zoom && zoom.kind !== "branch") {
+                useUiStore.getState().showToast({ message: `${KIND_LABEL[zoom.kind]}裡不能放支線` }, 3600);
+                return;
+              }
+              setFirstAdd({ kind: "branch", parentId: zoom ? zoom.id : openedId, afterId: null });
+            }}
+          >
+            新增支線（主題）…
+          </MSheetItem>
           {/* 回饋乙：路線在幹線裡的順序（第一層長按拖曳的可點替代；這裡只有一項、不擠） */}
           {(() => {
             const sibs = routes.filter((r) => r.line_id === route.line_id).map((r) => r.id);
@@ -1235,15 +1387,18 @@ export default function MobileRouteMap() {
         />
       )}
     </div>
-    {/* 回饋甲 D-主-128：頁底建票列（殼根節點的直接子節點，同今日頁的 .m-newticket；選取列／完成卡開著時由它們的 css 收起） */}
-    <MobileQuickAdd
-      defaults={qaDefaults}
-      here={qaHere}
-      routeKind="train"
-      onCreated={(row, stays) => {
-        if (stays) revealRow(row.id);
-      }}
-    />
+    {/* 回饋甲 D-主-128：頁底建票列（殼根節點的直接子節點，同今日頁的 .m-newticket；選取列／完成卡開著時由它們的 css 收起）。
+        車庫裡的路線不畫（O-3） */}
+    {!parked && (
+      <MobileQuickAdd
+        defaults={qaDefaults}
+        here={qaHere}
+        routeKind="train"
+        onCreated={(row, stays) => {
+          if (stays) revealRow(row.id);
+        }}
+      />
+    )}
     {/* 選取列：殼根節點的直接子節點（排在頁面之後、tab bar 之前；mobile-select.css） */}
     <MobileSelectionBar scope="outline" />
     </>

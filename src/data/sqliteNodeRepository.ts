@@ -27,6 +27,7 @@ import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow, parseDayStartHour, todayKey } from "../lib/date";
 import { escapeLike } from "../lib/sql";
 import type { FullSearchHit } from "../domain/fullSearch";
+import { inDepotSql, type ArrivalWrite } from "../domain/depot";
 import {
   SIBLING_ORDER_SQL,
   compareCreated,
@@ -50,6 +51,7 @@ import {
 import {
   KIND_LABEL,
   allowedChildKinds,
+  childKindSwaps,
   currentDue,
   parseRule,
   serializeRule,
@@ -73,6 +75,7 @@ import type {
   RescheduleResult,
   RouteProgress,
   RouteProgressSeed,
+  RouteMemberRow,
   ScheduleBounds,
   ScheduleEntry,
   SidebarData,
@@ -215,6 +218,14 @@ export class SqliteNodeRepository implements NodeRepository {
       routes: rows.filter((r) => r.kind === "route"),
       stations: rows.filter((r) => r.kind === "station"),
     };
+  }
+
+  /** 丁 D-主-241：路線一覽用的最小形狀（同 listRouteTree 的範圍，只是全部路線一次、只帶四欄；不需要逐班覆寫） */
+  async listRouteMembers(): Promise<RouteMemberRow[]> {
+    const db = await getDb();
+    return db.select<RouteMemberRow[]>(
+      `SELECT id, kind, status, route_id FROM nodes WHERE route_id IS NOT NULL AND kind != 'station' AND ${ALIVE}`,
+    );
   }
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
@@ -633,17 +644,31 @@ export class SqliteNodeRepository implements NodeRepository {
     if (!allowedChildKinds(parent ? parent.kind : null).includes(kind)) {
       throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${parent ? KIND_LABEL[parent.kind] : "根層"} 底下`);
     }
-    const kids = await db.select<{ kind: NodeKind }[]>(
-      `SELECT DISTINCT kind FROM nodes WHERE parent_id = $1 AND ${ALIVE}`,
+    // 丁 D-主-246：直屬子項跟著換（車廂⇄列車）；換不了才擋。轉成支線順手清掉日期、時刻、重複（支線沒有這些欄）。一個交易寫完
+    const kids = await db.select<{ id: string; kind: NodeKind }[]>(
+      `SELECT id, kind FROM nodes WHERE parent_id = $1 AND ${ALIVE}`,
       [id],
     );
-    const ok = allowedChildKinds(kind);
-    const bad = kids.find((k) => !ok.includes(k.kind));
-    if (bad) throw new Error(`底下還有${KIND_LABEL[bad.kind]}，不能轉為${KIND_LABEL[kind]}`);
+    const plan = childKindSwaps(kind, kids.map((k) => k.kind));
+    if ("why" in plan) throw new Error(plan.why);
     const now = nowUtcIso();
     const b = newWriteBatch();
-    b.stmts.push({ sql: `UPDATE nodes SET kind = $1, updated_at = $2 WHERE id = $3`, args: [kind, now, id] });
-    addOp(b, "nodes", id, "upsert", { kind, updated_at: now });
+    if (kind === "branch") {
+      b.stmts.push({
+        sql: `UPDATE nodes SET kind = $1, scheduled_on = NULL, due_on = NULL, scheduled_time = NULL, repeat_rule = NULL, updated_at = $2 WHERE id = $3`,
+        args: [kind, now, id],
+      });
+      addOp(b, "nodes", id, "upsert", { kind, scheduled_on: null, due_on: null, scheduled_time: null, repeat_rule: null, updated_at: now });
+    } else {
+      b.stmts.push({ sql: `UPDATE nodes SET kind = $1, updated_at = $2 WHERE id = $3`, args: [kind, now, id] });
+      addOp(b, "nodes", id, "upsert", { kind, updated_at: now });
+    }
+    for (const k of kids) {
+      const to = plan.swaps[k.kind];
+      if (!to) continue;
+      b.stmts.push({ sql: `UPDATE nodes SET kind = $1, updated_at = $2 WHERE id = $3`, args: [to, now, k.id] });
+      addOp(b, "nodes", k.id, "upsert", { kind: to, updated_at: now });
+    }
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
@@ -928,6 +953,7 @@ export class SqliteNodeRepository implements NodeRepository {
        FROM nodes r
        WHERE r.${ALIVE}
          AND r.kind IN ('train','car','ticket')
+         AND NOT ${inDepotSql("r")}
          AND (
               (r.scheduled_on = $1 AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
            OR (r.scheduled_on IS NOT NULL AND r.scheduled_on < $1 AND r.status != 'done')
@@ -1283,7 +1309,8 @@ export class SqliteNodeRepository implements NodeRepository {
     const db = await getDb();
     // D-主-122：退役的也撈——它的執行日改成同步資料的純函數（retiredScheduledOn），各台每一輪自己重算才會收斂
     const rows = await db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND repeat_rule IS NOT NULL`,
+      // 車庫與回顧 D-主-204：收進車庫的定期券停止發班（回到運行後照規則收斂）
+      `SELECT * FROM nodes n WHERE n.${ALIVE} AND n.repeat_rule IS NOT NULL AND NOT ${inDepotSql("n")}`,
     );
     const changed: string[] = [];
     for (const node of rows) {
@@ -1367,7 +1394,9 @@ export class SqliteNodeRepository implements NodeRepository {
     const today = opts?.todayDateKey ?? todayKey(dayStartHour);
     const nodes = await this.withOverrides(
       db,
-      await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`),
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes n WHERE n.${ALIVE} AND n.kind IN ('train','car','ticket') AND NOT ${inDepotSql("n")}`,
+      ),
       today,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
@@ -1388,7 +1417,9 @@ export class SqliteNodeRepository implements NodeRepository {
     // 與 listSchedule 同一句、同一趟：締切層與節點表都從這批列裡摺出來，不再多打一次 SQL
     const nodes = await this.withOverrides(
       db,
-      await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`),
+      await db.select<NodeRow[]>(
+        `SELECT * FROM nodes n WHERE n.${ALIVE} AND n.kind IN ('train','car','ticket') AND NOT ${inDepotSql("n")}`,
+      ),
       today,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
@@ -1400,7 +1431,7 @@ export class SqliteNodeRepository implements NodeRepository {
     const db = await getDb();
     // 與 listCalendar 同一句、同一趟（主線車次① P5）：邊界只看會進日曆的那批列
     const nodes = await db.select<NodeRow[]>(
-      `SELECT * FROM nodes WHERE ${ALIVE} AND kind IN ('train','car','ticket')`,
+      `SELECT * FROM nodes n WHERE n.${ALIVE} AND n.kind IN ('train','car','ticket') AND NOT ${inDepotSql("n")}`,
     );
     const repeatIds = nodes.filter((n) => parseRule(n.repeat_rule)).map((n) => n.id);
     const occByNode = await this.occurrencesByNode(db, repeatIds);
@@ -1417,6 +1448,31 @@ export class SqliteNodeRepository implements NodeRepository {
       [routeId, routeId],
     );
     return buildRouteProgress(routeId, rows);
+  }
+
+  async setArrival(writes: readonly ArrivalWrite[]): Promise<void> {
+    if (!writes.length) return;
+    const db = await getDb();
+    const rows = await db.select<{ id: string; kind: NodeKind }[]>(
+      `SELECT id, kind FROM nodes WHERE id IN (${placeholders(writes.length, 1)}) AND ${ALIVE}`,
+      writes.map((w) => w.id),
+    );
+    const kindOf = new Map(rows.map((r) => [r.id, r.kind] as const));
+    for (const w of writes) {
+      const k = kindOf.get(w.id);
+      if (!k) throw new Error("節點不存在");
+      if (k !== "line" && k !== "route") throw new Error("只有路線和幹線能到站");
+    }
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const w of writes) {
+      b.stmts.push({
+        sql: `UPDATE nodes SET arrived_on = $1, status = $2, updated_at = $3 WHERE id = $4`,
+        args: [w.arrived_on, w.status, now, w.id],
+      });
+      addOp(b, "nodes", w.id, "upsert", { arrived_on: w.arrived_on, status: w.status, updated_at: now });
+    }
+    await runWriteBatch(db, b.stmts, b.ops);
   }
 
   async routeOpenCounts(): Promise<Record<string, number>> {

@@ -30,6 +30,7 @@ import {
   followRename,
   followRenamePlan,
   recordTagBeforeWithRename,
+  staleBodyRenames,
   tagId,
   taggingId,
   type AttachResult,
@@ -354,43 +355,90 @@ export class MemoryTagRepository implements TagRepository {
   async reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]> {
     await this.ensureSeed();
     const get = async (id: string) => this.tags.get(id) ?? null;
-    const live: string[] = [];
-    for (const t of this.aliveTags()) if (t.renamed_to && (await followRename(t.id, get))) live.push(t.id);
-    if (!live.length) return [];
-    if (opts?.beforeBodyRewrite && this.aliveTaggings().some((g) => g.entity_type === "note" && live.includes(g.tag_id))) {
-      await opts.beforeBodyRewrite();
+    const resolve = (id: string) => followRename(id, get);
+    const scan = async () => {
+      // 有去向而且還有存活掛載的荷札（不論死活；接縫 #109），加上活著的殼（沒掛載也要收）
+      const withTagging = new Set(this.aliveTaggings().map((g) => g.tag_id));
+      const live: string[] = [];
+      for (const t of this.tags.values()) {
+        if (t.renamed_to && (t.deleted_at === null || withTagging.has(t.id)) && (await resolve(t.id))) live.push(t.id);
+      }
+      // 內文還寫著有去向荷札的 #舊名、掛載卻在舊名或終點上（同 sqlite 版；這裡不需要 SQL 粗篩）
+      const stale = new Map<string, string[]>();
+      if ([...this.tags.values()].some((t) => t.renamed_to)) {
+        for (const n of await this.noteRepo.bodiesWithHash()) {
+          const have = new Set(this.aliveTaggings().filter((g) => g.entity_type === "note" && g.entity_id === n.id).map((g) => g.tag_id));
+          const froms = await staleBodyRenames(n.body, have, resolve);
+          if (froms.length) stale.set(n.id, froms);
+        }
+      }
+      return { live, stale };
+    };
+    let found = await scan();
+    if (!found.live.length && !found.stale.size) return [];
+    if (opts?.beforeBodyRewrite) {
+      const hit = found.stale.size > 0 || this.aliveTaggings().some((g) => g.entity_type === "note" && found.live.includes(g.tag_id));
+      if (hit) {
+        await opts.beforeBodyRewrite();
+        found = await scan();
+        if (!found.live.length && !found.stale.size) return [];
+      }
     }
     const now = nowUtcIso();
     const r = emptyReceipt(); // 整理不給復原；收據只是讓共用的寫法照走
-    const out: RenameFollow[] = [];
-    const plans: RenamePlan[] = [];
-    const noteIds = new Set<string>();
-    for (const id of live) {
+    const follows = new Map<string, RenameFollow>();
+    const notePlans = new Map<string, Map<string, RenamePlan>>();
+    const planFor = (noteId: string, from: TagRow, to: TagRow) => {
+      let m = notePlans.get(noteId);
+      if (!m) notePlans.set(noteId, (m = new Map()));
+      if (!m.has(from.id)) m.set(from.id, followRenamePlan(from, to));
+    };
+    const followOf = (from: TagRow, to: TagRow): RenameFollow => {
+      let f = follows.get(from.id);
+      if (!f) follows.set(from.id, (f = { fromId: from.id, fromName: from.name, toId: to.id, toKey: to.name_key, toName: to.name, moved: 0 }));
+      return f;
+    };
+    const targetOf = async (fromId: string) => {
+      const toId = await resolve(fromId);
+      return toId ? (this.tags.get(toId) ?? null) : null;
+    };
+    for (const id of found.live) {
       const shell = this.tags.get(id);
-      if (!shell || shell.deleted_at !== null || !shell.renamed_to) continue;
-      const toId = await followRename(id, get);
-      const target = toId ? this.tags.get(toId) : undefined;
+      if (!shell || !shell.renamed_to) continue;
+      const target = await targetOf(id);
       if (!target) continue;
       let moved = 0;
       for (const g of this.aliveTaggings()) {
         if (g.tag_id !== id) continue;
         await this.ensureTagging(g.entity_type, g.entity_id, target.id, now, r);
         this.softDeleteTagging(g, now, r);
-        if (g.entity_type === "note") noteIds.add(g.entity_id);
+        if (g.entity_type === "note") planFor(g.entity_id, shell, target);
         moved++;
       }
-      this.softDeleteTag(shell, now, r);
-      plans.push(followRenamePlan(shell, target));
-      out.push({ fromId: id, fromName: shell.name, toId: target.id, toKey: target.name_key, toName: target.name, moved });
+      if (shell.deleted_at === null) this.softDeleteTag(shell, now, r);
+      else if (!moved) continue;
+      followOf(shell, target).moved += moved;
     }
-    if (noteIds.size) {
+    for (const [noteId, froms] of found.stale) {
+      for (const fromId of froms) {
+        if (notePlans.get(noteId)?.has(fromId)) continue;
+        const from = this.tags.get(fromId);
+        const target = from?.renamed_to ? await targetOf(fromId) : null;
+        if (!from || !target) continue;
+        await this.ensureTagging("note", noteId, target.id, now, r);
+        planFor(noteId, from, target);
+        followOf(from, target).moved++;
+      }
+    }
+    if (notePlans.size) {
       for (const x of await this.noteRepo.bodiesWithHash()) {
-        if (!noteIds.has(x.id)) continue;
-        const next = plans.reduce((b, p) => renameBody(b, p), x.body);
+        const plans = notePlans.get(x.id);
+        if (!plans) continue;
+        const next = [...plans.values()].reduce((b, p) => renameBody(b, p), x.body);
         if (next !== x.body) this.noteRepo.setBodyRaw(x.id, next, now);
       }
     }
-    return out;
+    return [...follows.values()];
   }
 
   /* ───────────── 內部 ───────────── */

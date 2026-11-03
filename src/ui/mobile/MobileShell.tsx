@@ -46,6 +46,8 @@ import MobileRouteMap from "./MobileRouteMap";
 import MobileMore from "./MobileMore";
 // ② 運行報告（D-主-183）：不在 tab bar 上的頁，同「更多」
 import MobileReport from "../report/MobileReport";
+// ③ 車庫（車庫與回顧 D-主-215）：同上
+import MobileDepot from "../depot/MobileDepot";
 import { SyncBanner } from "../common/SyncBanner";
 import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
 import { MobileDetailHost } from "./detail/MobileDetailHost";
@@ -59,10 +61,16 @@ const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
   routemap: MobileRouteMap,
   more: MobileMore,
   report: MobileReport,
+  // 車庫與回顧 D-主-215：「更多」頁「回顧」一組進來（不在 tab bar 上）
+  depot: MobileDepot,
   notes: LINE_MOUNTS.notes.mobileView,
   timetable: LINE_MOUNTS.timetable.mobileView,
   ticket: LINE_MOUNTS.ticket.mobileView,
 };
+
+/** 不在 tab bar 上、返回＝回進來前那一格的頁（更多、② 運行報告、③ 車庫） */
+type PageTab = "more" | "report" | "depot";
+const isPageTab = (k: MobileTabKey): k is PageTab => k === "more" || k === "report" || k === "depot";
 
 function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
   const tab = mobileTabByKey(tabKey);
@@ -82,24 +90,25 @@ export default function MobileShell() {
   //   「進來前那一格」記在本檔的 ref，不動 uiStore（§0-1）；直接開在「更多」（沒有前一格）就回今日。
   //   ② 運行報告：「運行報告」頁同「更多」——返回回進來前那一格（從更多頁進來＝回更多頁）；頂帶左邊的「‹」同一件事。
   const lastTabRef = useRef<MobileTabKey>(tabKey);
-  const beforeRef = useRef<Record<"more" | "report", MobileTabKey>>({ more: "today", report: "today" });
+  // ③ 車庫同運行報告：返回回進來前那一格、頂帶左邊「‹」同一件事
+  const beforeRef = useRef<Record<PageTab, MobileTabKey>>({ more: "today", report: "today", depot: "today" });
   if (lastTabRef.current !== tabKey) {
     const from = lastTabRef.current;
     // 從另一頁「退回來」（例：更多 → 運行報告 → ‹ 回更多）不算往前走：不覆蓋，否則返回會在兩頁之間來回（AVD 實測）
-    const returning = (from === "more" || from === "report") && beforeRef.current[from] === tabKey;
-    if ((tabKey === "more" || tabKey === "report") && !returning) beforeRef.current[tabKey] = from;
+    const returning = isPageTab(from) && beforeRef.current[from] === tabKey;
+    if (isPageTab(tabKey) && !returning) beforeRef.current[tabKey] = from;
     lastTabRef.current = tabKey;
   }
   const backFromPage = () => {
     const { mobileTab, setMobileTab } = useUiStore.getState();
-    if (mobileTab === "more" || mobileTab === "report") setMobileTab(beforeRef.current[mobileTab]);
+    if (isPageTab(mobileTab)) setMobileTab(beforeRef.current[mobileTab]);
   };
   useAndroidBack(
     () => {
       // 讀 store 的現值：返回鍵事件可能比 re-render 早到
       const { mobileTab, setMobileTab } = useUiStore.getState();
       if (mobileTab === "today") return null;
-      if (mobileTab === "more" || mobileTab === "report") return () => setMobileTab(beforeRef.current[mobileTab]);
+      if (isPageTab(mobileTab)) return () => setMobileTab(beforeRef.current[mobileTab]);
       return () => setMobileTab("today");
     },
     tabKey,
@@ -108,7 +117,7 @@ export default function MobileShell() {
 
   return (
     <>
-      <MobileTopBand tab={tab} onBack={tabKey === "report" ? backFromPage : undefined} />
+      <MobileTopBand tab={tab} onBack={tabKey === "report" || tabKey === "depot" ? backFromPage : undefined} />
       <SyncBanner shell="mobile" />
       {/* 磨光① A2（契約 §2.2）：同桌機那列，同一個來源與文案；下一次成功載入自己清掉 */}
       {error && (

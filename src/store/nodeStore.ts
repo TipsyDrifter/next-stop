@@ -26,6 +26,7 @@ import {
 } from "../data";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds } from "../domain/scheduledTime";
 import type { SlotAnchor } from "../domain/nodeOrder";
+import { liveLinesOf, liveRoutesOf, type ArrivalWrite } from "../domain/depot";
 import { todayKey } from "../lib/date";
 import { useUiStore } from "./uiStore";
 
@@ -216,9 +217,16 @@ export interface ActionResult {
 }
 
 interface NodeStore {
+  /** 全部幹線／路線／車站（含收進車庫的；查名字、標籤、帳與時間塊的路線名用） */
   lines: NodeRow[];
   routes: NodeRow[];
   stations: NodeRow[];
+  /**
+   * 還在跑的幹線／路線（車庫與回顧 D-主-203／205）：書封、路線清單、各種「挑一條路線」的選單用這兩份；
+   * `loadSidebar` 跟 lines／routes 一起算好（同一個參考，選取器不必自己 filter）。
+   */
+  liveLines: NodeRow[];
+  liveRoutes: NodeRow[];
   /** 每條路線的未完成末端項目數（回饋甲 D-主-130；側欄與手機路線清單列尾）。0 的路線不在表裡 */
   routeOpenCounts: Record<string, number>;
   routeId: string | null;
@@ -244,7 +252,11 @@ interface NodeStore {
   loadSidebar: () => Promise<void>;
   /** 只重載路線列尾的未完成數（loadSidebar 結尾會叫） */
   loadRouteOpenCounts: () => Promise<void>;
-  openRoute: (routeId: string | null) => Promise<void>;
+  /**
+   * 切到某條路線。桌機路線圖頁會跟著離開「路線一覽」去看這條路線的大綱（丁 D-主-239）；
+   * `keepView`＝不是使用者要看這條路線（開 App 自動開第一條、同步或刪除後換路線），一覽照舊。
+   */
+  openRoute: (routeId: string | null, opts?: { keepView?: boolean }) => Promise<void>;
   reloadRoute: () => Promise<void>;
   /**
    * 只重載全站票號表（收官磨光 A3）：路線樹沒開的畫面（收件匣）也要拿得到同一把尺的票號——
@@ -320,6 +332,11 @@ interface NodeStore {
   /** 改回每班時刻＝拿掉 dueOn 那一班的覆寫 */
   clearRunTime: (id: string, dueOn: string) => Promise<ActionResult>;
   searchNodes: (query: string) => Promise<NodeRow[]>;
+  /**
+   * 路線／幹線到站或回到運行（車庫與回顧 D-主-201）：寫入計畫由 `planArrival`／`planDeparture` 給。
+   * 目前開著的路線被收進車庫 ⇒ 切到第一條還在跑的路線（同刪除路線）；寫完整個 refresh。
+   */
+  setArrival: (writes: readonly ArrivalWrite[]) => Promise<ActionResult>;
   loadWorkLogs: (nodeId: string) => Promise<void>;
   /** 記一行乘務記錄；回寫進去了沒（空白＝false、失敗寫 error 列並回 false）——手機「記乘務記錄」與完成卡靠它判成功（手機殼班） */
   addWorkLog: (nodeId: string, body: string) => Promise<boolean>;
@@ -344,6 +361,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   lines: [],
   routes: [],
   stations: [],
+  liveLines: [],
+  liveRoutes: [],
   routeOpenCounts: {},
   routeId: null,
   tree: EMPTY_TREE,
@@ -359,7 +378,14 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async loadSidebar() {
     try {
       const data = await nodeRepo.listSidebar();
-      set({ lines: data.lines, routes: data.routes, stations: data.stations, error: null });
+      set({
+        lines: data.lines,
+        routes: data.routes,
+        stations: data.stations,
+        liveLines: liveLinesOf(data.lines, data.routes),
+        liveRoutes: liveRoutesOf(data.routes),
+        error: null,
+      });
     } catch (e) {
       set({ error: message(e) });
     }
@@ -375,7 +401,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
   },
 
-  async openRoute(routeId) {
+  async openRoute(routeId, opts) {
+    if (routeId && !opts?.keepView) useUiStore.getState().setRouteOverview(false);
     set({ routeId, tree: EMPTY_TREE });
     if (routeId) await get().reloadRoute();
   },
@@ -504,6 +531,22 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       get().loadToday(get().today.dateKey ?? undefined),
       cal.from && cal.to ? get().loadCalendar(cal.from, cal.to) : Promise.resolve(),
     ]);
+  },
+
+  async setArrival(writes) {
+    if (!writes.length) return { ok: true };
+    try {
+      await nodeRepo.setArrival(writes);
+    } catch (e) {
+      return { ok: false, reason: message(e) };
+    }
+    const cur = get().routeId;
+    const leaving = cur !== null && writes.some((w) => w.id === cur && w.arrived_on !== null);
+    await get().loadSidebar();
+    // 換路線不是使用者要看那條（接縫班 D-主-282）：從路線一覽收進車庫時留在一覽
+    if (leaving) await get().openRoute(get().liveRoutes[0]?.id ?? null, { keepView: true });
+    await get().refresh();
+    return { ok: true };
   },
 
   async createNode(input) {

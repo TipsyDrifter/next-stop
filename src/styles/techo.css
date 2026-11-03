@@ -131,12 +131,17 @@
 .page::-webkit-scrollbar-track { background: transparent; }
 [data-theme="dark"] .page::-webkit-scrollbar-thumb { background: rgba(222, 230, 250, .16); } /* 字面值：捲軸色（墨／月光淡階，原型逐字） */
 
+/* 紙頁兩側各留一條捲軸寬（10px）：捲軸出現與否、內容都在主欄正中，左右空白相等（丁 D-主-231） */
+.page { scrollbar-gutter: stable both-edges; }
+
 .sheet {
   position: relative; z-index: 1;
-  max-width: 880px; padding: var(--page-pad-top) var(--page-pad-x) 56px; margin: 0 0 0 var(--page-gutter);
+  padding: var(--page-pad-top) var(--page-pad-x) 56px; margin: 0 var(--read-margin);
 }
 /* 頁首外距吃 theme.css 的 --page-* 一組（50／56／24；側板開著 44／48 在 theme.css 整組換）。
-   時刻表、旅客筆記、售票口的頁根不是 .sheet，但吃同一組 token，六頁頁首左緣、上緣一致（UI 丙-7 T6）。 */
+   寬度規範（丁 D-主-231）：.sheet 是清單型——內容寬 --read-w（848）在主欄置中，窄了退到左右各 --page-side（80）；
+   畫布型的頁（行程表）在自己的 CSS 換 --canvas-margin。時刻表、旅客筆記、售票口、完整搜尋的頁根不是 .sheet，
+   吃同一組 token（--read-inset／--canvas-inset），全 App 頁首上緣一致、左右空白相等。 */
 
 /* ═══════════════════════════════════════════════════════
  * 三、頁首（header.day）

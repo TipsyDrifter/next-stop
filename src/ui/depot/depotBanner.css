@@ -1,0 +1,16 @@
+/* 路線圖看已到站路線時頂上那一行（車庫與回顧 D-主-206 #3）：頁級資訊列＝紙材質、墨字，跟同步橫幅同一種量級 */
+.ns-depot-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 0 0 14px; padding: 8px 12px 8px 14px;
+  background: var(--color-paper-high); border: 1px dashed var(--color-dash); border-radius: var(--radius-card);
+  font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
+}
+.ns-depot-banner .t { flex: 1; min-width: 0; }
+[data-shell="mobile"] .ns-depot-banner { margin: 8px 16px 12px; }
+
+/* 車庫頁的書封頁務件（DepotCoverAux）：總數一行、到站月淡字；其餘借書封 .lines／.trunk／.line-item */
+.cover .ns-depot-aux-total { display: flex; gap: 14px; margin: 10px 10px 4px; font-size: var(--fs-xs); letter-spacing: .14em; color: var(--book-muted); }
+.cover .ns-depot-aux-total b { font-family: var(--font-display); font-weight: 600; font-size: var(--fs-ui); color: var(--color-book-ink); margin-right: 3px; }
+.cover .ns-depot-aux-empty { margin: 10px; font-size: var(--fs-xs); letter-spacing: .14em; color: var(--book-muted); }
+.cover .ns-depot-aux .line-item { width: 100%; text-align: left; font-family: inherit; }
+.cover .ns-depot-aux-when { margin-left: auto; font-size: var(--fs-micro); letter-spacing: .12em; color: var(--book-muted); }

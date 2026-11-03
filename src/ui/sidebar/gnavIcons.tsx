@@ -89,6 +89,18 @@ function IconFullSearch(size: number) {
   );
 }
 
+/** 車庫（車庫與回顧；設計題① 原型 `i-garage` 逐字：屋頂＋兩根柱＋車庫門） */
+export function IconDepot(size: number) {
+  return (
+    <svg {...svgProps(size)} strokeLinejoin="round">
+      <path d="M1.6 6.4 8 2.4l6.4 4" />
+      <path d="M2.9 5.6v8M13.1 5.6v8" />
+      <path d="M5.2 13.6V8.2h5.6v5.4" />
+      <path d="M8 8.2v5.4" />
+    </svg>
+  );
+}
+
 export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   today: IconToday,
   routemap: IconRouteMap,
@@ -97,5 +109,6 @@ export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   timetable: IconTimetable,
   ticket: IconTicketOffice,
   report: IconReport,
+  depot: IconDepot,
   search: IconFullSearch,
 };

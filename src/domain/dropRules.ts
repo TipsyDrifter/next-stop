@@ -4,8 +4,8 @@
  * 規則＝「移動到…」的種類限制（車票、車廂→列車／車廂；列車、支線→路線／支線），種類轉換同升降層（adaptKind：
  *   車廂到路線層變列車、列車進列車變車廂）。另外兩條：
  *   - 不能放進自己或自己的子孫底下（元件已把子孫藏起來，這裡再擋一次）；
- *   - 車票放到路線最上層：只有本來就在最上層的臨時車票（掛路線標籤、沒有父節點）可以——它在那份清單裡重排；
- *     列車裡的車票拖上來會變成臨時票，這不是使用者要的「移動」，擋下並說理由（同「移動到…」車票只能進列車或車廂）。
+ *   - 車票放到路線最上層：丁 D-主-245 起可以——路線底下的車票就是掛這條路線標籤的根層臨時車票（資料層 moveToAnchor 換成這種存法）。
+ *     （之前只准本來就在最上層的臨時車票重排、列車裡的車票拖上來會被擋；巢狀放寬後「路線與支線底下可以直接放車票」。）
  * 回傳的 parentId 照 nodeStore.moveToAnchor 的慣例：路線 id＝路線最上層、其他節點 id＝放進它底下。
  *
  * 零 runtime import（型別只用 import type）：scripts/tests/drop-rules.test.ts 直接載入。
@@ -26,7 +26,7 @@ export function childKinds(parent: NodeKind): NodeKind[] {
     case "route":
       return ["branch", "train", "station"];
     case "branch":
-      return ["branch", "train"];
+      return ["branch", "train", "ticket"];
     case "train":
     case "car":
       return ["car", "ticket"];
@@ -48,7 +48,7 @@ const KIND_WORD: Partial<Record<NodeKind, string>> = { train: "列車", car: "�
 
 /** 為什麼放不下（一句話，顯示在指標旁） */
 function whyNot(kind: NodeKind, parentKind: NodeKind): string {
-  if (kind === "ticket") return "車票要放在列車或車廂裡";
+  if (kind === "ticket") return "車票要放在路線、支線、列車或車廂裡";
   if (kind === "branch") return parentKind === "route" || parentKind === "branch" ? "" : "支線要放在路線或支線底下";
   return `${KIND_WORD[kind] ?? "這一項"}放不進${KIND_WORD[parentKind] ?? "這裡"}`;
 }
@@ -79,11 +79,8 @@ export function dropVerdict(
     const n = tree.byId[id];
     if (!n) return { ok: false, why: "要搬的項目已經不在了" };
     if (id === parentId || isInside(tree, parentId, id)) return { ok: false, why: "不能放進自己底下" };
-    if (n.kind === "ticket" && parentKind === "route") {
-      // 臨時車票（沒有父節點、掛路線標籤）在最上層重排；其他車票不准拖上來變臨時票
-      if (n.parent_id === null) continue;
-      return { ok: false, why: "車票要放在列車或車廂裡" };
-    }
+    // 丁 D-主-245：車票放到路線最上層＝掛這條路線標籤的根層臨時車票（資料層 moveToAnchor 換存法）
+    if (n.kind === "ticket" && parentKind === "route") continue;
     if (!adaptTo(n.kind, parentKind)) return { ok: false, why: whyNot(n.kind, parentKind) || "放不進這裡" };
   }
   return { ok: true, parentId };

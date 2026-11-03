@@ -33,14 +33,15 @@ const ui = () => useUiStore.getState();
 /**
  * 切到某條路線（或 null）並把 zoom／選取歸零（桌機大綱的狀態；手機殼不讀它們，歸零無害）。
  * 兩種時序照桌機原本的寫法各留一支：新增路線、刪幹線＝不等樹載完就歸零；刪路線與它的復原＝等 openRoute 完才歸零。
+ * `keepView`（丁 D-主-239）：刪除後換路線、復原不是「要看那條路線」，桌機路線一覽照舊；新增路線＝進去看它。
  */
-function switchRouteNow(routeId: string | null): void {
-  void ns().openRoute(routeId);
+function switchRouteNow(routeId: string | null, keepView = false): void {
+  void ns().openRoute(routeId, { keepView });
   ui().setZoom(null);
   ui().select(null);
 }
-async function switchRoute(routeId: string | null): Promise<void> {
-  await ns().openRoute(routeId);
+async function switchRoute(routeId: string | null, keepView = false): Promise<void> {
+  await ns().openRoute(routeId, { keepView });
   ui().setZoom(null);
   ui().select(null);
 }
@@ -86,7 +87,7 @@ async function performDeleteLine(id: string, name: string, affectsCurrent: boole
   opts.onConfirmed?.();
   const ids = await ns().deleteNode(id);
   if (ids.length === 0) return; // 失敗：store 已記 error（App 殼顯示），不出復原 toast
-  if (affectsCurrent) switchRouteNow(nextRouteAfterDelete(ns().routes, null));
+  if (affectsCurrent) switchRouteNow(nextRouteAfterDelete(ns().liveRoutes, null), true); // 只切到還在跑的路線（車庫與回顧）
   ui().showToast({
     message: lineDeletedToast(name),
     actionLabel: "復原",
@@ -145,14 +146,14 @@ export async function requestDeleteRoute(route: NodeRow, opts: DeleteRouteOption
         const ids = await ns().deleteNode(route.id);
         if (!ids.length) return;
         const s = ns();
-        if (s.routeId === route.id) await switchRoute(nextRouteAfterDelete(s.routes, route.id));
+        if (s.routeId === route.id) await switchRoute(nextRouteAfterDelete(s.liveRoutes, route.id), true);
         ui().showToast({
           message: routeDeletedToast(route.name),
           actionLabel: "復原",
           onAction: () =>
             void (async () => {
               await ns().undoDelete();
-              await switchRoute(route.id);
+              await switchRoute(route.id, true);
               opts.onRestored?.(route.id);
             })(),
         });

@@ -102,13 +102,56 @@ const TK_REPEATS_COLS: &[(&str, bool)] = &[
     ("deleted_at", false),
 ];
 
+/// tk_wishes 的「主人資料」欄（售票口④，0016）。amount_minor 是主幣別、可 NULL；entry_id 不設外鍵（那筆被刪＝回到想買）。
+const TK_WISHES_COLS: &[(&str, bool)] = &[
+    ("name", false),
+    ("amount_minor", true),
+    ("note", false),
+    ("category_id", false),
+    ("position", true),
+    ("entry_id", false),
+    ("bought_at", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// tk_templates 的「主人資料」欄（售票口④，0016）：常用票種＝手動書籤。amount_minor／currency／account_id 可 NULL。
+const TK_TEMPLATES_COLS: &[(&str, bool)] = &[
+    ("name", false),
+    ("kind", false),
+    ("amount_minor", true),
+    ("currency", false),
+    ("account_id", false),
+    ("to_account_id", false),
+    ("category_id", false),
+    ("note", false),
+    ("route_id", false),
+    ("position", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
 /// 起手列不算「這台有沒有資料」（契約 0-16）：每台都會自動種 TWD 與收／支兩個「未分類」。
 /// id 與 `src/domain/ticket.ts` 的 `CURRENCY_TWD_ID`／`UNCAT_INCOME_ID`／`UNCAT_EXPENSE_ID` 逐字相同（`scripts/tests/ticket-logic.test.ts` 對帳）。
 const TK_CURRENCIES_ALIVE: &str = "deleted_at IS NULL AND id <> '0fd3bc2e-78d6-5e66-8e08-42d0006b659c'";
 const TK_CATEGORIES_ALIVE: &str = "deleted_at IS NULL AND id NOT IN (\
 'aa25f94b-7093-5bd4-afe2-e3266219e74d','a6006f3b-a58a-502f-8164-98305b88fd1c')";
 
-/// 售票口線的同步表。只有售票口線改這個檔。順序＝外鍵的父先子後：currencies → accounts → categories → entries → budgets → repeats（第③階段；兩張只指父表、彼此不指）。
+/// tk_categories 的快照查詢：父先子後（D-票-78 分類不限層數之後，`(parent_id IS NOT NULL), position` 只保證兩層）。
+/// 每一列往上走到頂、取最大深度排序：父一定排在子前面；父不在的當頂層（深度 0）；同步合出的環
+/// （A→B→A）走到護欄 50 停、排在最後，不漏列。快照被切成好幾個物件時，孫輩才不會先到、被收到方的外鍵救援撤掉。
+const TK_CATEGORIES_OUTBOX_CTE: &str = "WITH RECURSIVE up(id, anc, d) AS ( \
+            SELECT id, parent_id, 0 FROM tk_categories \
+            UNION ALL \
+            SELECT up.id, c.parent_id, up.d + 1 FROM up JOIN tk_categories c ON c.id = up.anc WHERE up.d < 50 \
+         ) \
+         SELECT t.*, u.depth AS _depth FROM tk_categories t \
+         JOIN (SELECT id, MAX(d) AS depth FROM up GROUP BY id) u ON u.id = t.id ORDER BY u.depth, t.position";
+
+/// 售票口線的同步表。只有售票口線改這個檔。順序＝外鍵的父先子後：currencies → accounts → categories → entries → budgets → repeats（第③階段；兩張只指父表、彼此不指）
+/// → wishes → templates（售票口④；同樣只指帳戶／分類）。
 pub const TABLES: &[SyncTableSpec] = &[
     SyncTableSpec {
         name: "tk_currencies",
@@ -158,11 +201,8 @@ pub const TABLES: &[SyncTableSpec] = &[
         required: &["kind", "name"],
         kind: Kind::Rows(RowsSpec {
             stamp_filter: "",
-            // 父先子後：主分類（parent_id IS NULL → 0）排前面
-            outbox: OutboxQuery::Plain {
-                order_by: "(parent_id IS NOT NULL), position",
-                filter: "",
-            },
+            // 父先子後（不限層數）：見 `TK_CATEGORIES_OUTBOX_CTE`
+            outbox: OutboxQuery::Custom(TK_CATEGORIES_OUTBOX_CTE),
             outbox_row_fix: None,
             full_json_order: "created_at",
             fk_checked: true, // parent_id 自我參照外鍵
@@ -230,6 +270,47 @@ pub const TABLES: &[SyncTableSpec] = &[
             conflict_anchor: ConflictAnchor::None,
             alive_filter: Some("deleted_at IS NULL"),
             since: Some("ticket_plan"),
+        }),
+    },
+    SyncTableSpec {
+        name: "tk_wishes",
+        pk: "id",
+        columns: TK_WISHES_COLS,
+        // NOT NULL 且沒有 DEFAULT：name（note／position 有 DEFAULT）
+        required: &["name"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            // 排序整組寫（#101）：每次搬動整組 position 同批送，跟帳戶／分類一樣
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "created_at",
+            fk_checked: true, // category_id → tk_categories（entry_id 不設外鍵）
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("ticket_wish"),
+        }),
+    },
+    SyncTableSpec {
+        name: "tk_templates",
+        pk: "id",
+        columns: TK_TEMPLATES_COLS,
+        // NOT NULL 且沒有 DEFAULT：name、kind（note／position 有 DEFAULT）
+        required: &["name", "kind"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "created_at",
+            fk_checked: true, // account_id／to_account_id → tk_accounts；category_id → tk_categories
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("ticket_wish"),
         }),
     },
 ];

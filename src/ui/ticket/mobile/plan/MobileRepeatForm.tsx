@@ -9,8 +9,10 @@
  *   →（從一筆帳「設成定期…」來的）一行淡字「從 10/19 那筆帶過來的；那筆本身不會被重記」
  *   → 金額大字＋幣別 chip
  *   → 頻率區（固定展開）：「頻率 每月 5 日」・每日｜每週｜每月・星期 7 格／1–31 日格（7 欄）・起算日
- *   → 帳戶 chips（轉帳＝從／到）→ 分類兩層格子（收支）
+ *   → 帳戶 chips（轉帳＝從／到）→ 分類格子（收支；售票口④ 第二輪＝MobileCatDrill 一層一層點進去，返回鍵退一層）
  *   → 「更多欄位」折疊：時刻（ClockInput mobile；規則沒有「那一天」，說明行不寫日期，丙-5 F3）・終止日（選填）・備註・路線
+ *     （售票口④：備註換 RecallInput＝MobileEntryParts.MobileNoteField，候選同記一筆）・荷札（代驗 G1：同記一筆的 TagDraftRow，
+ *     草稿在 store `repeatTags`，讀回來之前不畫；存規則時寫 ticket:repeat，之後記出來的帳帶新的、已記的不追溯）
  *   → 預覽一行（repeatLabel＋「第一班／下一班／從 X 起補記」）
  *   → 底部：編輯既有規則時「刪除這條規則」
  * 草稿在 store（`repeatDraft`／`setRepeatDraft`／`saveRepeatDraft`）；「取消」＝`onDone`（宿主接 `closeRepeatEditor`：從管理 sheet 開的回管理 sheet）。
@@ -18,7 +20,7 @@
  * 返回層：MFullPage 給 backId "ticket.dialog"——跟宿主那一行 useBackLayer 同一個 id ⇒ 合併成一層；onBack 用最後登記的（宿主，
  *   effect 父後於子），宿主的語意（closeRepeatEditor）跟本頁左鈕 `onDone` 是同一件事。
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTicketStore } from "../../../../store/ticketStore";
 import { useNodeStore } from "../../../../store/nodeStore";
 import { useUiStore } from "../../../../store/uiStore";
@@ -33,8 +35,6 @@ import { useBackLayer } from "../../../mobile/backStack";
 import { shortDayKey } from "../../../common/DatePicker";
 import {
   MAIN_CURRENCY,
-  categoryLabel,
-  categoryTree,
   orderAccounts,
   parseAmount,
   type AccountRow,
@@ -52,6 +52,8 @@ import {
   type FixedRepeatRule,
 } from "../../../../domain/repeat";
 import { IconCaret, IconRight, groupLabelOf, useImeGuard } from "../mobileBits";
+import { MobileNoteField, TagDraftRow, tagSummary } from "../MobileEntryParts";
+import { CatPathText, MobileCatDrill, levelFor } from "../MobileCatDrill";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../../ticketClock";
 
 const KINDS: { key: RepeatDraft["kind"]; label: string }[] = [
@@ -94,15 +96,18 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const deleteRepeat = useTicketStore((s) => s.deleteRepeat);
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
-  const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
   const repeats = useTicketStore((s) => s.repeats);
+  const repeatTags = useTicketStore((s) => s.repeatTags);
+  const setRepeatTags = useTicketStore((s) => s.setRepeatTags);
   const fromEntry = useTicketStore((s) =>
     d.fromEntryId ? (s.entries.find((e) => e.id === d.fromEntryId) ?? s.statsEntries.find((e) => e.id === d.fromEntryId) ?? null) : null,
   );
   const routes = useNodeStore((s) => s.routes);
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13）
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
   const isNew = editId === null;
@@ -133,10 +138,9 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   }, [accounts, accById, d.accountId, d.toAccountId]);
   const dupName = (a: AccountRow) => accounts.filter((x) => x.name === a.name && x.deleted_at === null).length > 1;
 
-  /* 分類兩層格子（同記一筆表單） */
-  const tree = useMemo(() => categoryTree(categories, catKind, { includeArchived: false }), [categories, catKind]);
+  /* 分類格子（同記一筆表單；售票口④ 第二輪 D-票-78：一層一層點進去，打開時停在選中那一個所在的層） */
   const selCat = d.categoryId ? (catById[d.categoryId] ?? null) : null;
-  const [openMain, setOpenMain] = useState<string | null>(() => (selCat ? (selCat.parent_id ?? selCat.id) : null));
+  const [catLevel, setCatLevel] = useState<string | null>(() => levelFor(d.categoryId, catById));
 
   /* 選中的 chip 捲進橫捲列的可視範圍（只動水平） */
   useEffect(() => {
@@ -236,56 +240,6 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   })();
 
   const pickCat = (c: CategoryRow) => setDraft({ categoryId: c.id });
-  const mainCell = (p: CategoryRow, hasKids: boolean) => {
-    const selIn = !!selCat && (selCat.id === p.id || selCat.parent_id === p.id);
-    return (
-      <button
-        key={p.id}
-        type="button"
-        className={"ns-tk-mcell" + (selIn ? " on" : "") + (p.id === openMain && !selIn ? " open" : "")}
-        aria-expanded={hasKids ? p.id === openMain : undefined}
-        aria-pressed={selIn}
-        onClick={() => {
-          pickCat(p);
-          if (hasKids) setOpenMain(openMain === p.id ? null : p.id);
-          else setOpenMain(null);
-        }}
-      >
-        {p.name}
-      </button>
-    );
-  };
-  const fullGrid = () => {
-    const cells: ReactNode[] = [];
-    const openIdx = tree.findIndex((t) => t.parent.id === openMain);
-    const rowEnd = openIdx < 0 ? -1 : Math.min(tree.length - 1, Math.floor(openIdx / 4) * 4 + 3);
-    tree.forEach((t, i) => {
-      cells.push(mainCell(t.parent, t.children.length > 0));
-      if (i === rowEnd && tree[openIdx].children.length > 0) {
-        const op = tree[openIdx];
-        cells.push(
-          <div key={"subs-" + op.parent.id} className="ns-tk-msubs">
-            <div className="hd">{op.parent.name} ›</div>
-            <div className="ns-tk-mgrid">
-              {op.children.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={"ns-tk-mcell" + (selCat?.id === c.id ? " on" : "")}
-                  aria-pressed={selCat?.id === c.id}
-                  onClick={() => pickCat(c)}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          </div>,
-        );
-      }
-    });
-    return <div className="ns-tk-mgrid">{cells}</div>;
-  };
-
   const chips = (which: "from" | "to") => {
     const cur = which === "from" ? d.accountId : d.toAccountId;
     const list = which === "to" ? chipAccounts.filter((a) => a.id !== d.accountId) : chipAccounts;
@@ -314,6 +268,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
     d.until ? `到 ${shortDayKey(d.until)} 止` : null,
     d.note.trim() ? "有備註" : "無備註",
     route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線",
+    repeatTags ? tagSummary(repeatTags.names) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -420,9 +375,20 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
             </p>
             {chips("from")}
             <p className="ns-tk-mf-lbl">
-              分類<em>{selCat ? categoryLabel(selCat, catById) + (selCat.archived_at ? "（已封存）" : "") : "未選"}</em>
+              分類<em>{selCat ? <CatPathText cat={selCat} /> : "未選"}</em>
             </p>
-            <div className="ns-tk-mf-cats">{fullGrid()}</div>
+            <div className="ns-tk-mf-cats">
+              <MobileCatDrill
+                kind={catKind}
+                level={catLevel}
+                onLevel={setCatLevel}
+                picked={d.categoryId ? [d.categoryId] : []}
+                onPick={pickCat}
+                rootLabel={catKind === "income" ? "收入" : "支出"}
+                backId="ticket.repeat.cat"
+                backKind="full"
+              />
+            </div>
           </>
         )}
 
@@ -458,10 +424,8 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                   </button>
                 )}
               </div>
-              <label className="ns-tk-mf-field top">
-                <span className="lbl">備註</span>
-                <textarea className="ns-tk-mf-note" rows={2} value={d.note} placeholder="備註" onChange={(e) => setDraft({ note: e.target.value })} />
-              </label>
+              {/* 售票口④ D-票-71：備註換會記得以前寫過的欄位（候選同記一筆；D-票-70 的順手帶分類只在記一筆） */}
+              <MobileNoteField value={d.note} onChange={(note) => setDraft({ note })} rows={2} />
               <div className="ns-tk-mf-field">
                 <span className="lbl">路線</span>
                 <div className="ns-tk-mf-accts in-field" role="group" aria-label="路線">
@@ -473,7 +437,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                   >
                     不掛
                   </button>
-                  {routes.map((r) => (
+                  {liveRoutes.map((r) => (
                     <button
                       key={r.id}
                       type="button"
@@ -489,6 +453,8 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                   ))}
                 </div>
               </div>
+              {/* 代驗 G1：荷札（草稿；按「存」才寫，同記一筆） */}
+              {repeatTags && <TagDraftRow value={repeatTags.names} onChange={setRepeatTags} title="荷札・定期帳" />}
             </div>
           )}
         </div>

@@ -83,11 +83,25 @@ export function siblingPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPl
   return { kind: n.kind, parentId: parentKey(tree, routeId, n), afterId: n.id };
 }
 
-/** 新增車票：列車／車廂＝掛在底下最後一張；車票＝接在自己後面（大綱 keys.addTicket；能不能做由 guards.ticketWhy 先擋） */
+/** 新增車票：列車／車廂／支線＝掛在底下最後一張（丁 D-主-245 支線也行）；車票＝接在自己後面（大綱 keys.addTicket；能不能做由 guards.ticketWhy 先擋） */
 export function ticketPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPlan {
-  return isTaskKind(n.kind)
+  return isTaskKind(n.kind) || n.kind === "branch"
     ? { kind: "ticket", parentId: n.id, afterId: null }
     : { kind: "ticket", parentId: parentKey(tree, routeId, n), afterId: n.id };
+}
+
+/**
+ * 新增支線（丁 D-主-249）：接在這一列後面同一層；這一層放不下支線（在列車／車廂裡）就往上找到能放的那一層、接在那一列後面
+ * （同桌機 keys.addBranch）。找不到（不會發生：路線最上層一定能放）＝null。
+ */
+export function branchPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPlan | null {
+  const holds = (pid: string) => {
+    const k = pid === routeId ? "route" : tree.byId[pid]?.kind;
+    return k === "route" || k === "branch";
+  };
+  let cur: NodeRow | undefined = n;
+  while (cur && !holds(parentKey(tree, routeId, cur))) cur = tree.byId[parentKey(tree, routeId, cur)];
+  return cur ? { kind: "branch", parentId: parentKey(tree, routeId, cur), afterId: cur.id } : null;
 }
 
 /** 空路線／空縮放層的「新增第一班」：路線頂層＝列車；縮放進去＝那一層的預設子種類（大綱沒有選取時的 addSibling） */

@@ -58,6 +58,11 @@ export async function completeNodeFlow(
   const t = ns().tree;
   const n = t.byId[id];
   if (!n) return;
+  // 丁 D-主-247：支線是主題、不蓋済（既有已済的支線照樣顯示，只是不再給蓋／撤；鍵盤 Space 也走這裡）
+  if (n.kind === "branch") {
+    ui().showToast({ message: "支線是主題，不蓋済——裡面的列車和車票各自蓋" }, 3600);
+    return;
+  }
   // 定期券：済蓋在「目前班次」上（repository 已分支），反悔＝撤這一班；nodes.status 一路是 todo。
   const occ: CurrentOccurrence | undefined = ns().currentOccurrences[id];
   // 運休中的班次：點在運休章上（或 Space）＝**取消運休**（A 原型 :60-62／:1061 的検印輪替最後一步），

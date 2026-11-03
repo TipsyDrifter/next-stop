@@ -1,0 +1,12 @@
+/* ═══ 手機路線圖第一層的路線摘要（丁 D-主-244；同桌機路線一覽卡片的數字，useRouteOverview）═══
+ * 由 MobileRouteMap.tsx import。紀律同 routemap.css：每條選擇器 `[data-shell="mobile"]` 開頭、只吃 theme token。
+ * 頁頂一句「3 條路線・近 30 天 6h50m・花 4,357」；每條路線＝名字＋「◎ 下一站 名稱 12/6（日）」＋「車票 3/9 済　近 30 天 3h20m　花 3,117　誤點 2」。 */
+[data-shell="mobile"] .m2-ov-head { margin: 4px 2px 14px; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .m2-route-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+[data-shell="mobile"] .m2-route-main .m2-route-name { flex: none; }
+[data-shell="mobile"] .m2-route-next,
+[data-shell="mobile"] .m2-route-stats { font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .m2-route-next { display: flex; gap: 5px; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-shell="mobile"] .m2-route-next .d { color: var(--color-ink-faint); }
+[data-shell="mobile"] .m2-route-stats { display: flex; flex-wrap: wrap; gap: 0 12px; }
+[data-shell="mobile"] .m2-route-stats .is-late { color: var(--color-late); }

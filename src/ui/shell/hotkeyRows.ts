@@ -67,6 +67,11 @@ export const SCENES: readonly Scene[] = [
     title: "完整搜尋",
     note: "在完整搜尋頁時（游標在搜尋框裡也能按）。",
   },
+  {
+    scope: "depot",
+    title: "車庫",
+    note: "在車庫頁打開乘車記錄簿時。",
+  },
   // 三條功能線的分組（各線 manifest 的 scenes）：插在頁面類之後、通用兩組之前。未通車的線是空的 ⇒ 仍是七組
   ...LINE_MANIFESTS.flatMap((m) => m.scenes),
   {

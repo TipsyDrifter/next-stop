@@ -14,7 +14,6 @@
  *   §4.4 顯示與彙總
  *   §4.5 分類與帳戶
  *   §4.6 捕捉框一行語法 `parseQuickEntry`（0-7、0-29）
- *   §4.7 匯入計畫（①b；0-19、0-22～0-24）
  */
 
 /* ───────────────────────── §4.1 型別與常數 ───────────────────────── */
@@ -27,10 +26,9 @@ export const UNCAT_INCOME_ID = "aa25f94b-7093-5bd4-afe2-e3266219e74d";
 export const UNCAT_EXPENSE_ID = "a6006f3b-a58a-502f-8164-98305b88fd1c";
 export const UNCAT_NAME = "未分類";
 export const UNCAT_POSITION = 9999;
+/** 早期從財務管家匯入的列（import_source 欄的值）；匯入已拿掉，只留給既有的定期規則判斷用 */
 export const IMPORT_SOURCE_MM = "moneymanager";
-export const IMPORT_CHUNK = 200; // 0-21
-export const TICKET_MM_DIFF_DEFAULT: "A" | "B" = "A"; // 0-23；未證實
-export const SOLVE_MAX = 22; // 0-23 窮舉上限
+export const IMPORT_CHUNK = 200; // 0-21；寫入每批的筆數（定期帳實體化在用，名字沿用）
 export const MAX_MINOR = 9_000_000_000_000_000; // 0-31（< Number.MAX_SAFE_INTEGER）
 
 export type EntryKind = "income" | "expense" | "transfer" | "adjust";
@@ -50,23 +48,23 @@ export type AccountGroup =
   | "other";
 export type Prefix = "" | "＋" | "⇄" | "±";
 
-/** 0-19：財務管家的 11 群組依其順序＋lent；mmName＝財務管家的群組名（匯入對應用） */
-export const ACCOUNT_GROUPS: readonly { key: AccountGroup; label: string; liability: boolean; mmName: string | null }[] = [
-  { key: "cash", label: "現金", liability: false, mmName: "現金" },
-  { key: "bank", label: "帳戶", liability: false, mmName: "帳戶" },
-  { key: "card", label: "信用卡", liability: true, mmName: "信用卡" },
-  { key: "debit", label: "簽帳卡", liability: false, mmName: "扣帳卡" },
-  { key: "deposit", label: "定存", liability: false, mmName: "定期存款" },
-  { key: "emoney", label: "電子支付", liability: false, mmName: "電子貨幣" },
-  { key: "investment", label: "投資", liability: false, mmName: "投資" },
-  { key: "lent", label: "借出／應收", liability: false, mmName: null },
-  { key: "credit", label: "信用額度", liability: true, mmName: "信用額度" },
-  { key: "loan", label: "貸款", liability: true, mmName: "貸款" },
-  { key: "insurance", label: "保險", liability: false, mmName: "保險" },
-  { key: "other", label: "其他", liability: false, mmName: "其他" },
+/** 0-19：帳戶群組（排序依此） */
+export const ACCOUNT_GROUPS: readonly { key: AccountGroup; label: string; liability: boolean }[] = [
+  { key: "cash", label: "現金", liability: false },
+  { key: "bank", label: "帳戶", liability: false },
+  { key: "card", label: "信用卡", liability: true },
+  { key: "debit", label: "簽帳卡", liability: false },
+  { key: "deposit", label: "定存", liability: false },
+  { key: "emoney", label: "電子支付", liability: false },
+  { key: "investment", label: "投資", liability: false },
+  { key: "lent", label: "借出／應收", liability: false },
+  { key: "credit", label: "信用額度", liability: true },
+  { key: "loan", label: "貸款", liability: true },
+  { key: "insurance", label: "保險", liability: false },
+  { key: "other", label: "其他", liability: false },
 ];
 
-/** 新幣別／匯入幣別的預設顯示名；查不到＝代碼本身（0-14） */
+/** 新幣別的預設顯示名；查不到＝代碼本身（0-14） */
 export const CURRENCY_NAMES: Readonly<Record<string, string>> = {
   TWD: "新台幣",
   USD: "美元",
@@ -170,6 +168,35 @@ export interface RepeatRow extends TkSyncCols {
   import_utime: number | null;
 }
 
+/**
+ * 售票口④ 的兩張表（0016；與 SQLite 列逐字相同）。純函式在 `ticketAids.ts`，列型別放這裡跟其他表一起（理由同上）。
+ * 願望「買了沒」不存狀態：entry_id 指到的帳還在＝已買（`wishBought`）；bought_at 只給顯示。
+ */
+export interface WishRow extends TkSyncCols {
+  id: string;
+  name: string;
+  amount_minor: number | null; // 主幣別；NULL＝沒估
+  note: string;
+  category_id: string | null;
+  position: number;
+  entry_id: string | null;
+  bought_at: string | null;
+}
+/** 常用票種（手動書籤）：除了 name 與 kind，每一欄都可以空著（空＝填表時不動那一欄） */
+export interface TemplateRow extends TkSyncCols {
+  id: string;
+  name: string;
+  kind: "income" | "expense" | "transfer";
+  amount_minor: number | null; // 原幣
+  currency: string | null; // NULL＝跟著帳戶
+  account_id: string | null;
+  to_account_id: string | null;
+  category_id: string | null;
+  note: string;
+  route_id: string | null;
+  position: number;
+}
+
 /** 起手三列（不含時間戳；§3.3） */
 export const STARTER_CURRENCY: Readonly<
   Pick<CurrencyRow, "id" | "code" | "name" | "decimals" | "rate_to_main" | "is_main" | "position">
@@ -194,7 +221,7 @@ export interface AmountOverride {
   toAmountMinor?: number;
 }
 export interface NewEntryInput {
-  kind: "income" | "expense" | "transfer"; // adjust 只經 adjustRow（期初、調整餘額、匯入）
+  kind: "income" | "expense" | "transfer"; // adjust 只經 adjustRow（期初、調整餘額）
   amountMinor: number;
   currency: string;
   accountId: string;
@@ -243,157 +270,7 @@ export interface RowAmount {
   convMain: number | null;
 }
 
-/* ── 匯入（Rust `ticket_import_read` 的回傳，欄名與 mmbak.rs 的 serde 逐字相同） ── */
-export interface MmbakReadResult {
-  missing: string[];
-  dump: MmbakDump | null;
-}
-export interface MmbakDump {
-  file_name: string;
-  currencies: MmCurrency[];
-  groups: MmGroup[];
-  accounts: MmAccount[];
-  categories: MmCategory[];
-  transactions: MmTx[];
-  /** 第③階段（③契約 §3.6、0-17）：三張表缺欄 ⇒ 對應陣列 null、plan_missing 列「表.欄」。舊版 Rust 不送這四欄（執行期 undefined，讀的人一律 ?? 退回） */
-  budgets: MmBudget[] | null;
-  budget_amounts: MmBudgetAmount[] | null;
-  repeats: MmRepeat[] | null;
-  plan_missing: string[];
-}
-export interface MmCurrency {
-  uid: string;
-  iso: string;
-  is_main: boolean;
-  rate: string;
-  decimals: number;
-}
-export interface MmGroup {
-  uid: string;
-  type_code: number | null;
-  name: string;
-}
-export interface MmAccount {
-  uid: string;
-  name: string;
-  group_uid: string | null;
-  currency_uid: string | null;
-  is_del: boolean;
-}
-export interface MmCategory {
-  uid: string;
-  type_code: number;
-  name: string;
-  parent_uid: string | null;
-  status: number;
-  is_del: boolean;
-}
-export interface MmTx {
-  uid: string;
-  do_type: string;
-  asset_uid: string | null;
-  to_asset_uid: string | null;
-  tx_uid_trans: string | null;
-  ctg_uid: string | null;
-  /** **帳戶幣別**的金額（不是原幣）；外幣列 `zmoney / in_zmoney ＝ 備份匯率`，台幣列兩者相等 */
-  zmoney: string;
-  currency_uid: string | null;
-  wdate: string;
-  zdate: string;
-  content: string;
-  utime: number;
-  is_del: boolean;
-  /** 交易幣別（`currency_uid`）**原幣**的金額；備份沒有 `IN_ZMONEY` 欄或這列為 NULL ⇒ null */
-  in_zmoney: string | null;
-}
-/** Rust MmbakDump 的三個新陣列（第③階段，③契約 §4.1；欄名與 mmbak.rs 逐字相同） */
-export interface MmBudget {
-  uid: string;
-  target_uid: string | null;
-  do_type: number;
-  period_type: number;
-  is_total: boolean;
-  is_del: boolean;
-  transfer_type: number;
-  modify_date: number;
-}
-export interface MmBudgetAmount {
-  uid: string;
-  budget_uid: string;
-  is_del: boolean;
-  amount: string;
-  budget_period: number;
-  modify_date: number;
-}
-export interface MmRepeat {
-  uid: string;
-  is_del: boolean;
-  usetime: number;
-  end_date: number;
-  next_date: number;
-  do_type: number;
-  repeat_type: number;
-  asset_uid: string | null;
-  to_asset_uid: string | null;
-  ctg_uid: string | null;
-  currency_uid: string | null;
-  amount_sub: string;
-  memo: string;
-  payee: string;
-}
-/** 六張表含墓碑的全部列（planImport 的 local；budgets／repeats 是第③階段加的，planImport 本身不讀） */
-export interface ImportLocal {
-  currencies: CurrencyRow[];
-  accounts: AccountRow[];
-  categories: CategoryRow[];
-  entries: EntryRow[];
-  budgets: BudgetRow[];
-  repeats: RepeatRow[];
-}
-export type ImportChoice = "theirs" | "ours";
-export interface ImportChange {
-  id: string;
-  local: EntryRow;
-  incoming: EntryRow;
-  cols: string[];
-}
-export interface BalanceCheck {
-  mmUid: string;
-  name: string;
-  accountId: string;
-  currency: string;
-  inputMinor: number | null;
-  computedMinor: number;
-  ok: boolean | null;
-}
-export interface ImportPlan {
-  summary: { accounts: number; categories: number; transactions: number; from: string | null; to: string | null };
-  unsupported: string | null;
-  currencies: CurrencyRow[]; // 要新建的完整列
-  accounts: AccountRow[];
-  categories: CategoryRow[]; // 父先子後
-  accountIdOf: Record<string, string>; // 財務管家帳戶 uid → 本機帳戶 id
-  categoryIdOf: Record<string, string>; // 財務管家分類 uid → 本機分類 id（第③階段：預算與定期規則的分類對應，③契約 0-12）
-  entries: {
-    inserts: EntryRow[];
-    changed: ImportChange[];
-    unchanged: number;
-    tombstoned: number;
-    invalid: { uid: string; reason: string }[];
-  };
-  extraLocal: number; // Next Stop 有、備份沒有 K
-  adjust: { total: number; plus: number; minus: number; rule: "A" | "B" | "solved" | "default" };
-  checks: BalanceCheck[];
-}
-export interface ImportOutcome {
-  inserted: number;
-  updated: number;
-  skipped: number;
-  budgets: number; // 第③階段（③契約 §3.4）：寫入的預算列數（新增＋更新）
-  repeats: number; // 第③階段：寫入的規則數（新增＋更新）
-}
-
-/** 換算只需要的幣別欄（匯入時用備份匯率組的假列也能餵） */
+/** 換算只需要的幣別欄 */
 type CurLike = Pick<CurrencyRow, "code" | "decimals" | "rate_to_main" | "is_main">;
 
 /* ───────────────────────── §4.2 id 與金額解析 ───────────────────────── */
@@ -572,30 +449,6 @@ export function parseRate(text: string): string {
   const frac = (m[2] ?? "").replace(/0+$/, "");
   if (/^0+$/.test(intPart) && frac === "") throw new RangeError(RATE_ERR);
   return frac ? `${intPart}.${frac}` : intPart;
-}
-
-/**
- * 匯入用的容錯匯率：備份的 RATE 是 REAL，Rust 端 CAST 出來常超過 10 位小數（`"0.210526315789474"`），
- * 也防一手科學記號——先絕對值半進位到 10 位小數再交給 `parseRate`；進位後是 0 或看不懂 ⇒ RangeError
- */
-export function importRate(text: string): string {
-  const s = normalizeInput(text).trim();
-  const m = /^(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d{1,3}))?$/.exec(s);
-  if (!m) throw new RangeError(RATE_ERR);
-  let digits = m[1] + (m[2] ?? "");
-  let point = m[1].length + (m[3] ? Number(m[3]) : 0); // 小數點在 digits 的第幾位之後
-  if (point < 0) {
-    digits = "0".repeat(-point) + digits;
-    point = 0;
-  }
-  while (digits.length < point) digits += "0";
-  const intPart = digits.slice(0, point) || "0";
-  const frac = digits.slice(point);
-  if (frac.length <= 10) return parseRate(frac ? `${intPart}.${frac}` : intPart);
-  let v = BigInt(intPart + frac.slice(0, 10));
-  if (frac.charCodeAt(10) >= 53) v += ONE;
-  const str = v.toString().padStart(11, "0");
-  return parseRate(`${str.slice(0, -10)}.${str.slice(-10)}`);
 }
 
 /** 匯率字串 → 有理數 [分子, 分母]（不做 > 0 檢查以外的正規化） */
@@ -1213,47 +1066,199 @@ const byPosThenCreated = (a: CategoryRow | AccountRow, b: CategoryRow | AccountR
 
 const isUncat = (id: string): boolean => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
 
-/** 兩層樹：主分類依 position、created_at；子分類同；未分類固定最後；封存的不列時連子分類一起不列 */
-export function categoryTree(
-  cats: readonly CategoryRow[],
-  kind: CategoryKind,
-  opts: { includeArchived: boolean },
-): { parent: CategoryRow; children: CategoryRow[] }[] {
-  const alive = cats.filter((c) => c.deleted_at === null && c.kind === kind && (opts.includeArchived || c.archived_at === null));
-  const ids = new Set(alive.map((c) => c.id));
-  // 父列不在（被刪、別 kind、或封存而不列）：父被封存 ⇒ 子也不列；父不在了 ⇒ 子升為主分類（不讓它消失）
-  const allById: Record<string, CategoryRow> = {};
-  for (const c of cats) allById[c.id] = c;
-  const roots: CategoryRow[] = [];
-  const kids: Record<string, CategoryRow[]> = {};
-  for (const c of alive) {
-    if (c.parent_id && ids.has(c.parent_id) && !isUncat(c.parent_id)) {
-      (kids[c.parent_id] = kids[c.parent_id] ?? []).push(c);
-    } else if (c.parent_id && !opts.includeArchived) {
-      const p = allById[c.parent_id];
-      if (p && p.deleted_at === null && p.kind === kind && p.archived_at !== null) continue; // 封存主分類的子分類
-      roots.push(c);
-    } else {
-      roots.push(c);
-    }
-  }
-  roots.sort((a, b) => {
-    const ua = isUncat(a.id) ? 1 : 0;
-    const ub = isUncat(b.id) ? 1 : 0;
-    return ua - ub || byPosThenCreated(a, b);
-  });
-  return roots.map((p) => ({ parent: p, children: isUncat(p.id) ? [] : (kids[p.id] ?? []).slice().sort(byPosThenCreated) }));
+/* ── 分類樹（售票口④ 第二輪 D-票-78：不限層數；0 migration——tk_categories.parent_id 本來就自我參照、沒有 CHECK） ──
+ * 判準一律走「實際的上層」（`effectiveParentId`）：父列不在了（已刪、別 kind、這張表沒有）或父是「未分類」⇒ 頂層；
+ * 同步可能造出環（兩台離線各把對方搬到自己底下：A→B→A），環上 id 最小的那個當頂層、其餘照掛——兩台算出來一樣。
+ * 封存一個分類＝它底下整棵都算封存（`categoryArchivedUp`）：不列在選單、不進「常用」；統計與預算照算（封存照算，0-7）。 */
+
+/** 樹的一個節點：depth 0＝頂層；children 照 position、created_at */
+export interface CategoryNode {
+  cat: CategoryRow;
+  depth: number;
+  children: CategoryNode[];
 }
 
-/**
- * 分類實際掛在哪一層（跟 `categoryTree` 的顯示一致；磨光⑥ 契約 §2-2；D-票-62）：
- * 父列不在了（已刪、別 kind、這張表沒有）或父是「未分類」⇒ 主分類層（null）；其餘＝它的 parent_id（父封存也算在，子分類跟著被藏）。
- * repository 的 `moveCategory` 用它找「兄弟」，孤兒子分類才會和主分類一起排。`byId` 要含父可能的列（同 kind、未刪即可，封存的也要）。
- */
-export function effectiveParentId(c: CategoryRow, byId: Readonly<Record<string, CategoryRow>>): string | null {
+/** 不看環的一步：parent_id 指到還在、同 kind、不是未分類的列 ⇒ 它；否則 null */
+function rawParentId(c: CategoryRow, byId: Readonly<Record<string, CategoryRow>>): string | null {
   if (!c.parent_id || isUncat(c.parent_id)) return null;
   const p = byId[c.parent_id];
   return p && p.deleted_at === null && p.kind === c.kind ? p.id : null;
+}
+
+/**
+ * 分類實際掛在哪一層（跟 `categoryForest` 的顯示一致；磨光⑥ 契約 §2-2；D-票-62）：
+ * 父列不在了（已刪、別 kind、這張表沒有）或父是「未分類」⇒ 頂層（null）；其餘＝它的 parent_id（父封存也算在，底下跟著被藏）。
+ * 在環上（同步造出的 A→B→A）且是環上 id 最小的那個 ⇒ null（環斷在這裡）。
+ * repository 用它找「兄弟」，孤兒才會和頂層一起排。`byId` 要含父可能的列（同 kind、未刪即可，封存的也要）。
+ */
+export function effectiveParentId(c: CategoryRow, byId: Readonly<Record<string, CategoryRow>>): string | null {
+  const p = rawParentId(c, byId);
+  if (p === null) return null;
+  // 往上走：回到自己 ⇒ 自己在環上、經過的就是整個環；先碰到走過的（自己不在那個環上）或走到頂 ⇒ 照掛
+  let minId = c.id;
+  const seen = new Set<string>([c.id]);
+  for (let cur: string | null = p; cur !== null; ) {
+    if (cur === c.id) return minId === c.id ? null : p;
+    if (seen.has(cur)) return p;
+    seen.add(cur);
+    if (cur < minId) minId = cur;
+    const row: CategoryRow | undefined = byId[cur];
+    cur = row ? rawParentId(row, byId) : null;
+  }
+  return p;
+}
+
+/** 每個未刪分類（各 kind）→ 實際的上層 id（`effectiveParentId`）；一次算完給樹、路徑、子孫共用 */
+export function categoryParentMap(cats: readonly CategoryRow[]): Record<string, string | null> {
+  const byId: Record<string, CategoryRow> = {};
+  for (const c of cats) if (c.deleted_at === null) byId[c.id] = c;
+  const out: Record<string, string | null> = {};
+  for (const id in byId) out[id] = effectiveParentId(byId[id], byId);
+  return out;
+}
+
+/**
+ * 任意深度的分類樹（D-票-78）：頂層與每一層都照 position、created_at；未分類固定在頂層最後、底下不掛東西。
+ * `includeArchived: false` ⇒ 封存的分類連同它底下整棵不列（封存父分類＝底下整棵都算封存，推廣自兩層時的「子分類同時封存」）。
+ */
+export function categoryForest(cats: readonly CategoryRow[], kind: CategoryKind, opts: { includeArchived: boolean }): CategoryNode[] {
+  const parentOf = categoryParentMap(cats);
+  const kids: Record<string, CategoryRow[]> = {};
+  const roots: CategoryRow[] = [];
+  for (const c of cats) {
+    if (c.deleted_at !== null || c.kind !== kind) continue;
+    const p = parentOf[c.id];
+    if (p === null) roots.push(c);
+    else (kids[p] = kids[p] ?? []).push(c);
+  }
+  roots.sort((a, b) => (isUncat(a.id) ? 1 : 0) - (isUncat(b.id) ? 1 : 0) || byPosThenCreated(a, b));
+  const shown = (c: CategoryRow): boolean => opts.includeArchived || c.archived_at === null;
+  const build = (c: CategoryRow, depth: number): CategoryNode => ({
+    cat: c,
+    depth,
+    children: isUncat(c.id) ? [] : (kids[c.id] ?? []).filter(shown).sort(byPosThenCreated).map((k) => build(k, depth + 1)),
+  });
+  return roots.filter(shown).map((c) => build(c, 0));
+}
+
+/** 樹攤成前序（＝顯示順序），每個節點帶 depth */
+export function flattenForest(nodes: readonly CategoryNode[]): CategoryNode[] {
+  const out: CategoryNode[] = [];
+  const walk = (list: readonly CategoryNode[]): void => {
+    for (const n of list) {
+      out.push(n);
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/** 從頂層到自己的那一串（含自己）；走實際的上層（`effectiveParentId`） */
+export function categoryPath(cat: CategoryRow, byId: Readonly<Record<string, CategoryRow>>): CategoryRow[] {
+  const out: CategoryRow[] = [cat];
+  for (let p = effectiveParentId(cat, byId), guard = 0; p !== null && guard < 64; guard++) {
+    const row: CategoryRow | undefined = byId[p];
+    if (!row) break;
+    out.unshift(row);
+    p = effectiveParentId(row, byId);
+  }
+  return out;
+}
+
+/** 自己或任何一層上層封存了 ⇒ true（選單、「常用」、帶分類都當它不能用；統計與預算照算） */
+export function categoryArchivedUp(cat: CategoryRow, byId: Readonly<Record<string, CategoryRow>>): boolean {
+  return categoryPath(cat, byId).some((c) => c.archived_at !== null);
+}
+
+/**
+ * 自己＋底下所有子孫的 id（未刪，含封存）：前序、每層照 position。統計、預算、篩選「選一個分類＝含子孫」都走這裡。
+ * id 不在 cats 裡 ⇒ 只回 [id]。
+ */
+export function categorySubtreeIds(id: string, cats: readonly CategoryRow[]): string[] {
+  const parentOf = categoryParentMap(cats);
+  const kids: Record<string, CategoryRow[]> = {};
+  for (const c of cats) {
+    if (c.deleted_at !== null) continue;
+    const p = parentOf[c.id];
+    if (p !== null) (kids[p] = kids[p] ?? []).push(c);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const walk = (x: string): void => {
+    if (seen.has(x)) return;
+    seen.add(x);
+    out.push(x);
+    for (const k of (kids[x] ?? []).slice().sort(byPosThenCreated)) walk(k.id);
+  };
+  walk(id);
+  return out;
+}
+
+/**
+ * 「移到…」能不能把 id 放到 newParentId 底下（null＝頂層）：能 ⇒ null，不能 ⇒ 人話原因（repository 丟 RangeError 用同一句；
+ * UI 拿來把不能選的目標畫成灰的）。規則：未分類不能動、也不能當上層；封存的不能動；目標要在、同 kind；
+ * 不能是自己或自己的子孫（防環）；目標或它的上層封存了也不行（放進去就看不到了）。`byId` 含未刪的列（封存的也要）。
+ */
+export function moveUnderError(id: string, newParentId: string | null, byId: Readonly<Record<string, CategoryRow>>): string | null {
+  if (isUncat(id)) return "「未分類」不能移動";
+  const c = byId[id];
+  if (!c || c.deleted_at !== null) return "這個分類已經不在了";
+  if (c.archived_at !== null) return "封存的分類不能移動";
+  if (newParentId === null) return null;
+  if (isUncat(newParentId)) return "「未分類」底下不能放分類";
+  const p = byId[newParentId];
+  if (!p || p.deleted_at !== null) return "要移去的分類已經不在了";
+  if (p.kind !== c.kind) return "這個分類不屬於目前的收支類型";
+  // 子孫用 categorySubtreeIds 判（靠 seen、不靠 categoryPath 的 64 層護欄：再深的鏈也抓得到，不會寫出真環）
+  if (categorySubtreeIds(id, Object.values(byId)).includes(newParentId)) return "不能移到自己或自己底下的分類";
+  if (categoryPath(p, byId).some((x) => x.archived_at !== null)) return "封存的分類底下不能放分類";
+  return null;
+}
+
+/**
+ * 「移到…」的寫入計畫（D-票-78；repository 兩份共用）：`cats`＝未刪的分類（含封存；別 kind 的會被略過）。
+ * - 換上層：parent＝newParentId；**兩邊兄弟組都整組重寫 position**（#101：兩台各排同一組時 hlc 大的那台每一列都贏）——
+ *   原本那組少了它、從 0 重編；新的那組插在第 index 個（省略＝最後）、從 0 重編。底下的子孫跟著它走（它們的 parent_id 不用動）。
+ * - 上層沒變：等於「搬到第 index 個」（省略＝不動）。父列已不在、本來就算頂層又移到頂層 ⇒ parent＝null（順手把 parent_id 擦乾淨）。
+ * - 斷環寫回資料（`breaks`）：同 kind 裡同步合出的環（A→B→A），環上 id 最小的那個（畫面上已經當頂層的）一起寫 parent＝null。
+ *   寫進去的就是畫面上原本的樣子：搬環上別的那個時，頂層那個不會翻到它底下；兩台各修也是同一個值；舊版 App 也看得到它們。
+ * 不能移 ⇒ RangeError（`moveUnderError` 那句）。parent：要寫進它 parent_id 的值；undefined＝不用寫。
+ */
+export function planMoveUnder(
+  cats: readonly CategoryRow[],
+  id: string,
+  newParentId: string | null,
+  index?: number,
+): { parent: string | null | undefined; moves: { id: string; position: number }[]; breaks: string[] } {
+  const byId: Record<string, CategoryRow> = {};
+  for (const c of cats) if (c.deleted_at === null) byId[c.id] = c;
+  const err = moveUnderError(id, newParentId, byId);
+  if (err) throw new RangeError(err);
+  const c = byId[id];
+  const level = (p: string | null): CategoryRow[] =>
+    Object.keys(byId)
+      .map((k) => byId[k])
+      .filter((x) => !isUncat(x.id) && x.kind === c.kind && x.archived_at === null && effectiveParentId(x, byId) === p)
+      .sort(byPosThenCreated);
+  // parent_id 指到還在的上層、實際卻算頂層 ⇒ 只有「環上 id 最小的那個」這一種（effectiveParentId）
+  const breaks = Object.keys(byId).filter((k) => {
+    const x = byId[k];
+    return k !== id && x.kind === c.kind && rawParentId(x, byId) !== null && effectiveParentId(x, byId) === null;
+  });
+  const cur = effectiveParentId(c, byId);
+  if (cur === newParentId) {
+    const moves = index === undefined ? [] : planMoveTo(level(cur), id, index);
+    return { parent: c.parent_id === newParentId ? undefined : newParentId, moves, breaks };
+  }
+  const from = level(cur).filter((x) => x.id !== id);
+  const to = level(newParentId).filter((x) => x.id !== id);
+  const at = index === undefined ? to.length : Math.max(0, Math.min(to.length, Math.floor(index)));
+  to.splice(at, 0, c);
+  const moves: { id: string; position: number }[] = [];
+  from.forEach((x, i) => moves.push({ id: x.id, position: i }));
+  to.forEach((x, i) => moves.push({ id: x.id, position: i }));
+  return { parent: newParentId, moves, breaks };
 }
 
 /* ── 記一筆的「常用」（磨光⑥ 契約 §2-3；D-票-63）：只改顯示順序、不寫資料 ── */
@@ -1323,38 +1328,47 @@ export function frequentAccountIds(usage: readonly AccountUsage[], accounts: rea
     .map((u) => u.id);
 }
 
-/** "🍜 食物 › 午餐"／"🍜 食物"／"未分類"；null ⇒ "（分類已不在）" */
-export function categoryLabel(cat: CategoryRow | null, catById: Readonly<Record<string, CategoryRow>>): string {
+/**
+ * 完整路徑「🍜 食物 › 外食 › 拉麵」／頂層「🍜 食物」／「未分類」；null ⇒「（分類已刪除）」。
+ * `short`（帳簿列、篩選 chip）：只寫最後兩段「外食 › 拉麵」——兩層時與完整路徑相同；完整路徑放滑過（D-票-78）。
+ */
+export function categoryLabel(cat: CategoryRow | null, catById: Readonly<Record<string, CategoryRow>>, opts?: { short?: boolean }): string {
   if (!cat) return "（分類已刪除）";
-  const p = cat.parent_id ? catById[cat.parent_id] : undefined;
-  return p ? `${p.name} › ${cat.name}` : cat.name;
+  const names = categoryPath(cat, catById).map((c) => c.name);
+  return (opts?.short ? names.slice(-2) : names).join(" › ");
 }
 
-/** 0-29：完全相符 → 前綴 → 包含；各級子先主後、同級照樹順序；排除封存、未分類、別 kind */
+/**
+ * 0-29：完全相符 → 前綴 → 包含（比的是**末段名字**，不比路徑）；排除封存（含封存分類底下整棵）、未分類、別 kind。
+ * 同一級裡：深的在前（兩層時的「子先主後」推廣：越細越可能是想記的那個），同深度照樹順序；
+ * **同名的**（catKey 相同，例：頂層「午餐」與「食物 › 外食 › 午餐」）排在一起、路徑短的在前（D-票-78）。
+ */
 export function matchCategories(query: string, cats: readonly CategoryRow[], kind: CategoryKind): CategoryRow[] {
   const q = catKey(query);
   if (!q) return [];
-  const tree = categoryTree(cats, kind, { includeArchived: false }).filter((t) => !isUncat(t.parent.id));
-  const children: CategoryRow[] = [];
-  const parents: CategoryRow[] = [];
-  for (const t of tree) {
-    parents.push(t.parent);
-    for (const c of t.children) children.push(c);
-  }
+  const flat = flattenForest(categoryForest(cats, kind, { includeArchived: false })).filter((n) => !isUncat(n.cat.id));
+  const idx: Record<string, number> = {};
+  flat.forEach((n, i) => (idx[n.cat.id] = i));
+  const deepFirst = flat.slice().sort((a, b) => b.depth - a.depth || idx[a.cat.id] - idx[b.cat.id]);
   const tests: ((k: string) => boolean)[] = [(k) => k === q, (k) => k.startsWith(q), (k) => k.indexOf(q) >= 0];
   const out: CategoryRow[] = [];
   const seen = new Set<string>();
   for (const t of tests) {
-    for (const list of [children, parents]) {
-      for (const c of list) {
-        if (seen.has(c.id)) continue;
-        const k = catKey(c.name);
-        if (k && t(k)) {
-          seen.add(c.id);
-          out.push(c);
-        }
+    // 這一級命中的，照「名字第一次出現」分組；組內路徑短的在前
+    const groups: Record<string, CategoryNode[]> = {};
+    const keys: string[] = [];
+    for (const n of deepFirst) {
+      if (seen.has(n.cat.id)) continue;
+      const k = catKey(n.cat.name);
+      if (!k || !t(k)) continue;
+      seen.add(n.cat.id);
+      if (!groups[k]) {
+        groups[k] = [];
+        keys.push(k);
       }
+      groups[k].push(n);
     }
+    for (const k of keys) for (const n of groups[k].sort((a, b) => a.depth - b.depth || idx[a.cat.id] - idx[b.cat.id])) out.push(n.cat);
   }
   return out;
 }
@@ -1367,6 +1381,22 @@ function groupIndex(groupKey: string): number {
 /** ACCOUNT_GROUPS 順序（不認得的 group_key 當 other）→ position → created_at */
 export function orderAccounts(accounts: readonly AccountRow[]): AccountRow[] {
   return accounts.slice().sort((a, b) => groupIndex(a.group_key) - groupIndex(b.group_key) || byPosThenCreated(a, b));
+}
+
+/**
+ * 「搬到第 index 個」（售票口④；拖曳用，契約 §5）：list＝已照顯示順序排好的整組；把 id 拿出來插到 index（夾在 0..n-1），
+ * 回「整組」每列的 { id, position: 0..n-1 }——跟 repository 的 planSwap 同一個整組寫骨架（#101：兩台各排同一組時
+ * hlc 大的那台在每一列都贏，完整採用其中一台）。id 不在 list、或位置沒變 ⇒ 空陣列（不寫）。
+ */
+export function planMoveTo<T extends { id: string }>(list: readonly T[], id: string, index: number): { id: string; position: number }[] {
+  const i = list.findIndex((x) => x.id === id);
+  if (i < 0 || !Number.isInteger(index)) return [];
+  const j = Math.max(0, Math.min(list.length - 1, index));
+  if (i === j) return [];
+  const ids = list.map((x) => x.id);
+  ids.splice(i, 1);
+  ids.splice(j, 0, id);
+  return ids.map((x, k) => ({ id: x, position: k }));
 }
 
 /** 只含未封存、至少一個帳戶的群組 */
@@ -1467,708 +1497,4 @@ export function quickToast(q: QuickEntry, ctx: QuickCtx): string {
   const label = q.categoryMatched && cat ? bareName(cat.name) : q.note ? Array.from(q.note).slice(0, 12).join("") : UNCAT_NAME;
   const acc = ctx.accById[q.accountId];
   return `已記 ${amount} ${label} · ${acc ? acc.name : ""}${q.categoryMatched ? "" : "（分類待補）"}`;
-}
-
-/* ───────────────────────── §4.7 匯入計畫 ───────────────────────── */
-
-const isIncExp = (t: string): boolean => t === "0" || t === "1";
-
-/** 0-24 的口徑 */
-export function mmSummary(dump: MmbakDump): ImportPlan["summary"] {
-  const live = dump.transactions.filter((t) => !t.is_del);
-  const catUids = new Set(dump.categories.map((c) => c.uid));
-  const used = new Set<string>();
-  let from: string | null = null;
-  let to: string | null = null;
-  for (const t of live) {
-    if (isIncExp(t.do_type) && t.ctg_uid && catUids.has(t.ctg_uid)) used.add(t.ctg_uid);
-    if (DAY_RE.test(t.wdate)) {
-      if (from === null || t.wdate < from) from = t.wdate;
-      if (to === null || t.wdate > to) to = t.wdate;
-    }
-  }
-  return { accounts: dump.accounts.filter((a) => !a.is_del).length, categories: used.size, transactions: live.length, from, to };
-}
-
-/** ACCOUNT_GROUPS 依 mmName 完全相符；查不到 ⇒ other */
-export function mmGroupKey(groupName: string | null): AccountGroup {
-  if (groupName === null) return "other";
-  const g = ACCOUNT_GROUPS.find((x) => x.mmName !== null && x.mmName === groupName.trim());
-  return g ? g.key : "other";
-}
-
-/** 表 ⇒「X 表」、表.欄 ⇒「X.y 欄」；以「、」連接、最多 3 項，多的加「等」 */
-export function missingText(missing: readonly string[]): string {
-  const items = missing.map((m) => (m.indexOf(".") >= 0 ? `${m} 欄` : `${m} 表`));
-  return items.slice(0, 3).join("、") + (items.length > 3 ? "等" : "");
-}
-
-/** 窮舉正負號使 Σ sᵢ·aᵢ = needed；**恰好一組解**才回（meet-in-the-middle，2^11×2） */
-export function solveAdjustSigns(amounts: readonly number[], needed: number, max = SOLVE_MAX): (1 | -1)[] | null {
-  const n = amounts.length;
-  if (n > max) return null;
-  if (n === 0) return needed === 0 ? [] : null;
-  const half = n >> 1;
-  const left = amounts.slice(0, half);
-  const right = amounts.slice(half);
-  const sumOf = (arr: readonly number[], mask: number): number => {
-    let s = 0;
-    for (let i = 0; i < arr.length; i++) s += mask & (1 << i) ? -arr[i] : arr[i];
-    return s;
-  };
-  const leftMap = new Map<number, { count: number; mask: number }>();
-  for (let mask = 0; mask < 1 << left.length; mask++) {
-    const s = sumOf(left, mask);
-    const hit = leftMap.get(s);
-    if (hit) hit.count++;
-    else leftMap.set(s, { count: 1, mask });
-  }
-  let total = 0;
-  let found: { l: number; r: number } | null = null;
-  for (let mask = 0; mask < 1 << right.length; mask++) {
-    const hit = leftMap.get(needed - sumOf(right, mask));
-    if (!hit) continue;
-    total += hit.count;
-    if (total > 1) return null;
-    found = { l: hit.mask, r: mask };
-  }
-  if (total !== 1 || !found) return null;
-  const out: (1 | -1)[] = [];
-  for (let i = 0; i < left.length; i++) out.push(found.l & (1 << i) ? -1 : 1);
-  for (let i = 0; i < right.length; i++) out.push(found.r & (1 << i) ? -1 : 1);
-  return out;
-}
-
-export function defaultChoices(plan: ImportPlan): Record<string, ImportChoice> {
-  const out: Record<string, ImportChoice> = {};
-  for (const c of plan.entries.changed) out[c.id] = "theirs";
-  return out;
-}
-
-/** 比對的欄（不比 route_id、時間戳） */
-const DIFF_COLS = [
-  "kind",
-  "occurred_on",
-  "occurred_at",
-  "account_id",
-  "to_account_id",
-  "category_id",
-  "amount_minor",
-  "currency",
-  "main_minor",
-  "account_minor",
-  "to_amount_minor",
-  "note",
-] as const;
-
-export function entryDiffCols(local: EntryRow, incoming: EntryRow): string[] {
-  return DIFF_COLS.filter((c) => local[c] !== incoming[c]);
-}
-
-/**
- * inserts 原樣；changed 選 theirs ⇒ cols＋import_utime＋updated_at（不含 route_id，0-22）；
- * 選 ours ⇒ 計入 keptLocal，且對那筆送 entryKept（只寫 import_utime＝這次備份的 UTIME＋updated_at，表示這版已裁決，
- * 下次重跑同一版不再列為已修改；不改內容欄，也不算 updated）
- */
-export function materializeImport(
-  plan: ImportPlan,
-  choices: Readonly<Record<string, ImportChoice>>,
-  nowIso: string,
-): {
-  entryInserts: EntryRow[];
-  entryUpdates: { id: string; cols: Record<string, unknown> }[];
-  entryKept: { id: string; cols: Record<string, unknown> }[];
-  keptLocal: number;
-} {
-  const entryUpdates: { id: string; cols: Record<string, unknown> }[] = [];
-  const entryKept: { id: string; cols: Record<string, unknown> }[] = [];
-  let keptLocal = 0;
-  for (const ch of plan.entries.changed) {
-    if ((choices[ch.id] ?? "theirs") === "ours") {
-      keptLocal++;
-      entryKept.push({ id: ch.id, cols: { import_utime: ch.incoming.import_utime, updated_at: nowIso } });
-      continue;
-    }
-    const cols: Record<string, unknown> = {};
-    for (const c of ch.cols) cols[c] = (ch.incoming as unknown as Record<string, unknown>)[c];
-    delete cols.route_id;
-    cols.import_utime = ch.incoming.import_utime;
-    cols.updated_at = nowIso;
-    entryUpdates.push({ id: ch.id, cols });
-  }
-  return { entryInserts: plan.entries.inserts.slice(), entryUpdates, entryKept, keptLocal };
-}
-
-/** zdate（毫秒字串）→ ISO；不是有限數字 ⇒ wdate 本地中午 */
-function isoFromZdate(zdate: string, wdate: string): string {
-  const ms = Number(zdate);
-  if (zdate.trim() !== "" && Number.isFinite(ms)) {
-    const d = new Date(ms);
-    if (!Number.isNaN(d.getTime())) return d.toISOString();
-  }
-  const [y, m, d] = splitDay(wdate);
-  return new Date(y, m - 1, d, 12, 0).toISOString();
-}
-
-/** 一筆帳對各帳戶餘額的效果（balancesOf 口徑，未刪） */
-function addEffect(acc: Record<string, number>, e: EntryRow): void {
-  const d = e.kind === "expense" || e.kind === "transfer" ? -e.account_minor : e.account_minor;
-  acc[e.account_id] = (acc[e.account_id] ?? 0) + d;
-  if (e.kind === "transfer" && e.to_account_id) acc[e.to_account_id] = (acc[e.to_account_id] ?? 0) + (e.to_amount_minor ?? 0);
-}
-
-const entrySort = (a: EntryRow, b: EntryRow): number =>
-  cmpStr(a.occurred_on, b.occurred_on) || cmpStr(a.occurred_at, b.occurred_at) || cmpStr(a.id, b.id);
-
-/**
- * 從本機已匯入的帳推回「財務管家 uid → 本機 id」（補 §4.7-3／4 沒寫到的情境：第一次按名稱對上主人手建的帳戶／分類、
- * 之後主人改了名，重跑時不能再靠名稱）。依 import_id 找回備份裡的那筆交易：帳戶看 account_id／to_account_id，
- * 收支的分類看 category_id（未分類不算）。同一個 uid 指到多個本機 id（主人搬過帳）⇒ 多數決、平手取 id 小的。含墓碑。
- */
-function priorMapping(dump: MmbakDump, entries: readonly EntryRow[]): { acc: Record<string, string>; cat: Record<string, string> } {
-  const txByUid: Record<string, MmTx> = {};
-  const legsByKey: Record<string, MmTx[]> = {};
-  for (const t of dump.transactions) {
-    txByUid[t.uid] = t;
-    const key = (t.tx_uid_trans ?? "").trim();
-    if (key && (t.do_type === "3" || t.do_type === "4")) (legsByKey[key] = legsByKey[key] ?? []).push(t);
-  }
-  const accVotes: Record<string, Record<string, number>> = {};
-  const catVotes: Record<string, Record<string, number>> = {};
-  const vote = (box: Record<string, Record<string, number>>, uid: string | null | undefined, id: string | null) => {
-    if (!uid || !id) return;
-    const b = (box[uid] = box[uid] ?? {});
-    b[id] = (b[id] ?? 0) + 1;
-  };
-  for (const e of entries) {
-    if (e.import_source !== IMPORT_SOURCE_MM || !e.import_id) continue;
-    if (e.import_id.indexOf("transfer:") === 0) {
-      const legs = legsByKey[e.import_id.slice("transfer:".length)] ?? [];
-      const l3 = legs.find((t) => t.do_type === "3");
-      const l4 = legs.find((t) => t.do_type === "4");
-      if (!l3) continue;
-      vote(accVotes, l3.asset_uid, e.account_id);
-      vote(accVotes, l3.to_asset_uid || (l4 ? l4.asset_uid : null), e.to_account_id);
-      continue;
-    }
-    const t = txByUid[e.import_id];
-    if (!t) continue;
-    vote(accVotes, t.asset_uid, e.account_id);
-    if ((e.kind === "income" || e.kind === "expense") && e.category_id && !isUncat(e.category_id)) vote(catVotes, t.ctg_uid, e.category_id);
-  }
-  const pick = (box: Record<string, Record<string, number>>): Record<string, string> => {
-    const out: Record<string, string> = {};
-    for (const uid of Object.keys(box)) {
-      let best: string | null = null;
-      for (const id of Object.keys(box[uid])) {
-        if (best === null || box[uid][id] > box[uid][best] || (box[uid][id] === box[uid][best] && id < best)) best = id;
-      }
-      if (best !== null) out[uid] = best;
-    }
-    return out;
-  };
-  return { acc: pick(accVotes), cat: pick(catVotes) };
-}
-
-export function planImport(
-  dump: MmbakDump,
-  local: ImportLocal,
-  opts: { balanceText: Readonly<Record<string, string>>; nowIso: string },
-): ImportPlan {
-  const nowIso = opts.nowIso;
-  const summary = mmSummary(dump);
-  const stamp = { device_id: null, created_at: nowIso, updated_at: nowIso, synced_at: null, deleted_at: null };
-
-  /* 1. 主幣別 */
-  const mainMm = dump.currencies.find((c) => c.is_main);
-  const mainIso = mainMm ? mainMm.iso.trim().toUpperCase() : MAIN_CURRENCY;
-  const unsupported = mainIso !== MAIN_CURRENCY ? `這個備份的主幣別是 ${mainIso}，Next Stop 目前只支援新台幣` : null;
-
-  /* 2. 幣別：本機（含墓碑）沒有才新建；換算一律用備份的 RATE */
-  const localCurById: Record<string, CurrencyRow> = {};
-  let curPos = -1;
-  for (const c of local.currencies) {
-    localCurById[c.id] = c;
-    if (c.position > curPos) curPos = c.position;
-  }
-  const mmCur: Record<string, CurLike> = {};
-  const convCur: Record<string, CurLike> = {};
-  for (const c of local.currencies) if (c.deleted_at === null) convCur[c.code] = c;
-  const newCurrencies: CurrencyRow[] = [];
-  for (const c of dump.currencies) {
-    const iso = c.iso.trim().toUpperCase();
-    if (!/^[A-Z]{3}$/.test(iso)) continue;
-    let rate: string;
-    try {
-      rate = c.is_main ? "1" : importRate(c.rate);
-    } catch {
-      continue; // 匯率看不懂 ⇒ 這個幣別對不上；用到它的帳戶與帳列進 invalid「幣別看不懂」（步驟 3、5、6）
-    }
-    const decimals = Number.isInteger(c.decimals) && c.decimals >= 0 && c.decimals <= 8 ? c.decimals : 2;
-    const cl: CurLike = { code: iso, decimals, rate_to_main: rate, is_main: c.is_main ? 1 : 0 };
-    mmCur[c.uid] = cl;
-    convCur[iso] = cl;
-    const id = ticketId("currency:" + iso);
-    if (!localCurById[id] && !newCurrencies.some((x) => x.id === id)) {
-      newCurrencies.push({ id, code: iso, name: CURRENCY_NAMES[iso] ?? iso, decimals, rate_to_main: rate, is_main: c.is_main ? 1 : 0, position: ++curPos, ...stamp });
-    }
-  }
-  if (!convCur[MAIN_CURRENCY]) convCur[MAIN_CURRENCY] = FALLBACK_MAIN;
-
-  const liveTx = dump.transactions.filter((t) => !t.is_del);
-
-  /* 3. 帳戶：保留＝未刪的＋被交易指到的已刪帳戶（建並封存） */
-  const refAcc = new Set<string>();
-  for (const t of liveTx) {
-    if (t.asset_uid) refAcc.add(t.asset_uid);
-    if (t.to_asset_uid) refAcc.add(t.to_asset_uid);
-  }
-  const groupName: Record<string, string> = {};
-  for (const g of dump.groups) groupName[g.uid] = g.name;
-  const keptAcc = dump.accounts.filter((a) => !a.is_del || refAcc.has(a.uid));
-  const localAccById: Record<string, AccountRow> = {};
-  const accPos: Record<string, number> = {};
-  for (const a of local.accounts) {
-    localAccById[a.id] = a;
-    if (a.deleted_at === null) accPos[a.group_key] = Math.max(accPos[a.group_key] ?? -1, a.position);
-  }
-  const accountIdOf: Record<string, string> = {};
-  const accCurOf: Record<string, string> = {}; // 本機帳戶 id → 幣別 code
-  const claimed = new Set<string>();
-  for (const a of keptAcc) {
-    const id = ticketId("moneymanager:" + a.uid);
-    if (localAccById[id]) {
-      accountIdOf[a.uid] = id;
-      accCurOf[id] = localAccById[id].currency;
-      claimed.add(id);
-    }
-  }
-  // 確定性 id 之後、名稱之前：本機已匯入的帳指到哪個帳戶就沿用（主人改過名也對得上）
-  const prior = priorMapping(dump, local.entries);
-  for (const a of keptAcc) {
-    if (accountIdOf[a.uid]) continue;
-    const id = prior.acc[a.uid];
-    const l = id ? localAccById[id] : undefined;
-    if (!l || l.deleted_at !== null || claimed.has(l.id)) continue;
-    accountIdOf[a.uid] = l.id;
-    accCurOf[l.id] = l.currency;
-    claimed.add(l.id);
-  }
-  const badCurAcc = new Set<string>(); // 帳戶的幣別有值、匯率卻看不懂 ⇒ 不建（不退回主幣別），它的帳進 invalid「幣別看不懂」
-  const newAccounts: AccountRow[] = [];
-  for (const a of keptAcc) {
-    if (accountIdOf[a.uid]) continue;
-    if (a.currency_uid && !mmCur[a.currency_uid]) {
-      badCurAcc.add(a.uid);
-      continue;
-    }
-    const gk = mmGroupKey(a.group_uid ? (groupName[a.group_uid] ?? null) : null);
-    const curCode = a.currency_uid ? mmCur[a.currency_uid].code : mainIso;
-    const match = local.accounts.find(
-      (l) => l.deleted_at === null && !claimed.has(l.id) && l.name === a.name && l.group_key === gk && l.currency === curCode,
-    );
-    if (match) {
-      accountIdOf[a.uid] = match.id;
-      accCurOf[match.id] = match.currency;
-      claimed.add(match.id);
-      continue;
-    }
-    const id = ticketId("moneymanager:" + a.uid);
-    accPos[gk] = (accPos[gk] ?? -1) + 1;
-    newAccounts.push({ id, name: a.name, group_key: gk, currency: curCode, position: accPos[gk], archived_at: a.is_del ? nowIso : null, ...stamp });
-    accountIdOf[a.uid] = id;
-    accCurOf[id] = curCode;
-    claimed.add(id);
-  }
-
-  /* 4. 分類 */
-  const kindOfType = (t: number): CategoryKind | null => (t === 0 ? "income" : t === 1 ? "expense" : null);
-  const mmCatByUid: Record<string, MmCategory> = {};
-  for (const c of dump.categories) mmCatByUid[c.uid] = c;
-  const usedCat = new Set<string>();
-  for (const t of liveTx) if (isIncExp(t.do_type) && t.ctg_uid) usedCat.add(t.ctg_uid);
-  const keep = new Set<string>();
-  for (const c of dump.categories) if (kindOfType(c.type_code) && (!c.is_del || usedCat.has(c.uid))) keep.add(c.uid);
-  const parentOf = (c: MmCategory): MmCategory | null => {
-    if (c.status !== 2 || !c.parent_uid) return null;
-    const p = mmCatByUid[c.parent_uid];
-    if (!p || p.status === 2 || kindOfType(p.type_code) !== kindOfType(c.type_code)) return null;
-    return p;
-  };
-  for (const c of dump.categories) {
-    if (!keep.has(c.uid)) continue;
-    const p = parentOf(c);
-    if (p) keep.add(p.uid);
-  }
-  const keptCats = dump.categories.filter((c) => keep.has(c.uid));
-  const orderedCats = [...keptCats.filter((c) => !parentOf(c)), ...keptCats.filter((c) => !!parentOf(c))];
-  const localCatById: Record<string, CategoryRow> = {};
-  const catPos: Record<string, number> = {};
-  for (const c of local.categories) {
-    localCatById[c.id] = c;
-    if (c.deleted_at === null && !isUncat(c.id)) {
-      const k = `${c.kind}|${c.parent_id ?? ""}`;
-      catPos[k] = Math.max(catPos[k] ?? -1, c.position);
-    }
-  }
-  const categoryIdOf: Record<string, string> = {};
-  const catKindOf: Record<string, CategoryKind> = {};
-  const catClaimed = new Set<string>();
-  for (const c of orderedCats) {
-    const id = ticketId("moneymanager:" + c.uid);
-    if (localCatById[id]) {
-      categoryIdOf[c.uid] = id;
-      catKindOf[id] = localCatById[id].kind;
-      catClaimed.add(id);
-    }
-  }
-  // 確定性 id 之後、名稱之前：本機已匯入的帳用的分類就沿用（同帳戶的理由）
-  for (const c of orderedCats) {
-    if (categoryIdOf[c.uid]) continue;
-    const id = prior.cat[c.uid];
-    const l = id ? localCatById[id] : undefined;
-    if (!l || l.deleted_at !== null || isUncat(l.id) || catClaimed.has(l.id) || l.kind !== kindOfType(c.type_code)) continue;
-    categoryIdOf[c.uid] = l.id;
-    catKindOf[l.id] = l.kind;
-    catClaimed.add(l.id);
-  }
-  const newCategories: CategoryRow[] = [];
-  for (const c of orderedCats) {
-    if (categoryIdOf[c.uid]) continue;
-    const kind = kindOfType(c.type_code) as CategoryKind;
-    const p = parentOf(c);
-    const parentId = p ? (categoryIdOf[p.uid] ?? null) : null;
-    const match = local.categories.find(
-      (l) => l.deleted_at === null && !catClaimed.has(l.id) && !isUncat(l.id) && l.kind === kind && l.name === c.name && l.parent_id === parentId,
-    );
-    if (match) {
-      categoryIdOf[c.uid] = match.id;
-      catKindOf[match.id] = match.kind;
-      catClaimed.add(match.id);
-      continue;
-    }
-    const id = ticketId("moneymanager:" + c.uid);
-    const k = `${kind}|${parentId ?? ""}`;
-    catPos[k] = (catPos[k] ?? -1) + 1;
-    newCategories.push({ id, kind, name: c.name, parent_id: parentId, position: catPos[k], archived_at: c.is_del ? nowIso : null, ...stamp });
-    categoryIdOf[c.uid] = id;
-    catKindOf[id] = kind;
-    catClaimed.add(id);
-  }
-
-  /* 5.＋6. 交易 → 帳列 */
-  const invalid: { uid: string; reason: string }[] = [];
-  const incoming: EntryRow[] = [];
-  const adjustMeta: Record<string, { mmAccUid: string; type: "7" | "8" }> = {};
-  const curCodeOf = (t: MmTx, accId: string): string | null => {
-    if (t.currency_uid) return mmCur[t.currency_uid] ? mmCur[t.currency_uid].code : null;
-    return accCurOf[accId] ?? mainIso;
-  };
-  const baseRow = (id: string, t: MmTx): Omit<EntryRow, "kind" | "account_id" | "to_account_id" | "category_id" | "amount_minor" | "currency" | "main_minor" | "account_minor" | "to_amount_minor"> => ({
-    id,
-    occurred_on: t.wdate,
-    occurred_at: isoFromZdate(t.zdate, t.wdate),
-    note: t.content ?? "",
-    route_id: null,
-    repeat_id: null,
-    import_id: t.uid,
-    import_source: IMPORT_SOURCE_MM,
-    import_utime: t.utime,
-    ...stamp,
-  });
-
-  // 5. 轉帳配對
-  const legs: Record<string, MmTx[]> = {};
-  for (const t of liveTx) {
-    if (t.do_type !== "3" && t.do_type !== "4") continue;
-    const key = (t.tx_uid_trans ?? "").trim();
-    if (!key) {
-      invalid.push({ uid: t.uid, reason: "轉帳資料不完整（缺轉出或轉入紀錄）" });
-      continue;
-    }
-    (legs[key] = legs[key] ?? []).push(t);
-  }
-  for (const key of Object.keys(legs).sort()) {
-    const group = legs[key];
-    const l3s = group.filter((t) => t.do_type === "3");
-    const l4s = group.filter((t) => t.do_type === "4");
-    const bad = (reason: string) => {
-      for (const t of group) invalid.push({ uid: t.uid, reason });
-    };
-    if (l3s.length !== 1 || l4s.length !== 1) {
-      bad("轉帳資料不完整（缺轉出或轉入紀錄）");
-      continue;
-    }
-    const l3 = l3s[0];
-    const l4 = l4s[0];
-    const fromId = l3.asset_uid ? accountIdOf[l3.asset_uid] : undefined;
-    const toUid = l3.to_asset_uid || l4.asset_uid;
-    const toId = toUid ? accountIdOf[toUid] : undefined;
-    if (!fromId || !toId) {
-      bad((l3.asset_uid && badCurAcc.has(l3.asset_uid)) || (toUid && badCurAcc.has(toUid)) ? "不支援這個幣別" : "找不到轉帳的帳戶");
-      continue;
-    }
-    if (fromId === toId) {
-      bad("轉出和轉入不能是同一個帳戶");
-      continue;
-    }
-    if (!DAY_RE.test(l3.wdate)) {
-      bad("日期格式有誤");
-      continue;
-    }
-    const cur3 = curCodeOf(l3, fromId);
-    const cur4 = curCodeOf(l4, toId);
-    if (!cur3 || !cur4) {
-      bad("不支援這個幣別");
-      continue;
-    }
-    try {
-      // 外幣轉帳（腿的幣別 ≠ 帳戶幣別）沒有備份樣本可驗證 ZMONEY／IN_ZMONEY 的語意（單幣別資料裡轉帳全是 TWD），
-      // 這段維持原本的算法；有樣本再對照一般交易的「ZMONEY＝帳戶幣別額」改。
-      const amount = minorFromDecimal(l3.zmoney, convCur[cur3].decimals, "round");
-      const fromCur = accCurOf[fromId];
-      const toCur = accCurOf[toId];
-      const conv = convAmounts(amount, cur3, fromCur, convCur);
-      const toAmount =
-        cur4 === toCur ? minorFromDecimal(l4.zmoney, convCur[cur4].decimals, "round") : convertMinor(amount, convCur[cur3], convCur[toCur]);
-      const id = ticketId("moneymanager:transfer:" + key);
-      // 腿 3 幣別 ≠ 轉出帳戶幣別（跨幣別轉帳）⇒ 存成轉出帳戶幣別、金額＝以備份匯率折好的帳戶額：
-      // 守住 §4.3「轉帳的幣別跟著轉出帳戶」，之後只改備註才不會動到幣別與餘額（偏離 §4.7-5 字面，修正席 10-12）
-      incoming.push({
-        ...baseRow(id, l3),
-        note: l3.content ? l3.content : (l4.content ?? ""),
-        import_id: "transfer:" + key,
-        import_utime: Math.max(l3.utime, l4.utime),
-        kind: "transfer",
-        account_id: fromId,
-        to_account_id: toId,
-        category_id: null,
-        amount_minor: cur3 === fromCur ? amount : conv.account,
-        currency: fromCur,
-        main_minor: conv.main,
-        account_minor: conv.account,
-        to_amount_minor: toAmount,
-      });
-    } catch {
-      bad("金額格式有誤");
-    }
-  }
-
-  // 6. 其他交易
-  for (const t of liveTx) {
-    if (t.do_type === "3" || t.do_type === "4") continue;
-    let kind: EntryKind;
-    if (t.do_type === "0") kind = "income";
-    else if (t.do_type === "1") kind = "expense";
-    else if (t.do_type === "7" || t.do_type === "8") kind = "adjust";
-    else {
-      invalid.push({ uid: t.uid, reason: `不支援的類型：${t.do_type}` });
-      continue;
-    }
-    const accId = t.asset_uid ? accountIdOf[t.asset_uid] : undefined;
-    if (!accId) {
-      invalid.push({ uid: t.uid, reason: t.asset_uid && badCurAcc.has(t.asset_uid) ? "不支援這個幣別" : "找不到這個帳戶" });
-      continue;
-    }
-    if (!DAY_RE.test(t.wdate)) {
-      invalid.push({ uid: t.uid, reason: "日期格式有誤" });
-      continue;
-    }
-    const cur = curCodeOf(t, accId);
-    if (!cur) {
-      invalid.push({ uid: t.uid, reason: "不支援這個幣別" });
-      continue;
-    }
-    // 財務管家的 ZMONEY 已經是**帳戶幣別**的金額（外幣列 ZMONEY / IN_ZMONEY ＝ 備份匯率），不能再換算第二次；
-    // IN_ZMONEY 才是交易幣別（currencyUid）的原幣額。帳戶額直接用 ZMONEY，主幣別額由帳戶額折算。
-    const accCode = accCurOf[accId];
-    let amount: number;
-    let entryCur = cur;
-    let conv: { main: number; account: number };
-    try {
-      const accountMinor = minorFromDecimal(t.zmoney, convCur[accCode].decimals, "round");
-      conv = convAmounts(accountMinor, accCode, accCode, convCur);
-      amount = accountMinor;
-      if (cur !== accCode) {
-        // 外幣列：原幣額取 IN_ZMONEY；缺、空、看不懂、或原幣是 0 而帳戶額不是 0 ⇒ 保守退回記成帳戶幣別（餘額不受影響）
-        let orig: number | null = null;
-        if (t.in_zmoney != null && t.in_zmoney.trim() !== "") {
-          try {
-            orig = minorFromDecimal(t.in_zmoney, convCur[cur].decimals, "round");
-          } catch {
-            orig = null;
-          }
-        }
-        if (orig !== null && !(orig === 0 && accountMinor !== 0)) {
-          amount = orig;
-        } else entryCur = accCode;
-      }
-    } catch {
-      invalid.push({ uid: t.uid, reason: "金額格式有誤" });
-      continue;
-    }
-    let categoryId: string | null = null;
-    if (kind === "income" || kind === "expense") {
-      const mapped = t.ctg_uid ? categoryIdOf[t.ctg_uid] : undefined;
-      categoryId = mapped && catKindOf[mapped] === kind ? mapped : uncatIdOf(kind);
-    }
-    const id = ticketId("moneymanager:" + t.uid);
-    if (kind === "adjust") adjustMeta[id] = { mmAccUid: t.asset_uid as string, type: t.do_type as "7" | "8" };
-    incoming.push({
-      ...baseRow(id, t),
-      kind,
-      account_id: accId,
-      to_account_id: null,
-      category_id: categoryId,
-      amount_minor: amount,
-      currency: entryCur,
-      main_minor: conv.main,
-      account_minor: conv.account,
-      to_amount_minor: null,
-    });
-  }
-  incoming.sort(entrySort);
-  invalid.sort((a, b) => cmpStr(a.uid, b.uid) || cmpStr(a.reason, b.reason));
-
-  /* 7. 差別的方向（0-23） */
-  const liveMmAcc = dump.accounts.filter((a) => !a.is_del && accountIdOf[a.uid]);
-  const base: Record<string, number> = {};
-  for (const e of incoming) if (e.kind !== "adjust") addEffect(base, e);
-  const adjByAcc: Record<string, EntryRow[]> = {};
-  for (const e of incoming) if (e.kind === "adjust") (adjByAcc[e.account_id] = adjByAcc[e.account_id] ?? []).push(e);
-  const inputOf: Record<string, number | null> = {};
-  for (const a of liveMmAcc) {
-    const text = (opts.balanceText[a.uid] ?? "").trim();
-    let v: number | null = null;
-    if (text !== "") {
-      const accCur = convCur[accCurOf[accountIdOf[a.uid]]] ?? FALLBACK_MAIN;
-      try {
-        v = minorFromDecimal(text, accCur.decimals, "strict", accCur.code);
-      } catch {
-        v = null; // 格式錯 ⇒ 當沒填
-      }
-    }
-    inputOf[a.uid] = v;
-  }
-  const signOf = (hyp: "A" | "B", type: "7" | "8"): 1 | -1 => ((hyp === "A") === (type === "7") ? 1 : -1);
-  const filled = liveMmAcc.filter((a) => inputOf[a.uid] !== null);
-  const sumUnder = (accId: string, hyp: "A" | "B"): number => {
-    let s = base[accId] ?? 0;
-    for (const e of adjByAcc[accId] ?? []) s += signOf(hyp, adjustMeta[e.id].type) * e.account_minor;
-    return s;
-  };
-  const fits = (hyp: "A" | "B") => filled.every((a) => sumUnder(accountIdOf[a.uid], hyp) === inputOf[a.uid]);
-  let rule: ImportPlan["adjust"]["rule"] = "default";
-  const signs: Record<string, 1 | -1> = {};
-  const applyHyp = (hyp: "A" | "B", accIds: readonly string[] | null) => {
-    for (const e of incoming) {
-      if (e.kind !== "adjust") continue;
-      if (accIds && accIds.indexOf(e.account_id) < 0) continue;
-      signs[e.id] = signOf(hyp, adjustMeta[e.id].type);
-    }
-  };
-  if (filled.length > 0 && fits("A")) {
-    rule = "A";
-    applyHyp("A", null);
-  } else if (filled.length > 0 && fits("B")) {
-    rule = "B";
-    applyHyp("B", null);
-  } else {
-    let solvedAll = filled.length > 0;
-    const solved: Record<string, 1 | -1> = {};
-    for (const a of filled) {
-      if (!solvedAll) break;
-      const accId = accountIdOf[a.uid];
-      const rows = adjByAcc[accId] ?? [];
-      const res = solveAdjustSigns(
-        rows.map((e) => e.account_minor),
-        (inputOf[a.uid] as number) - (base[accId] ?? 0),
-      );
-      if (!res) solvedAll = false;
-      else rows.forEach((e, i) => (solved[e.id] = res[i]));
-    }
-    if (solvedAll) {
-      rule = "solved";
-      applyHyp("A", null); // 沒填的帳戶照 A
-      for (const id of Object.keys(solved)) signs[id] = solved[id];
-    } else {
-      rule = "default";
-      applyHyp(TICKET_MM_DIFF_DEFAULT, null);
-    }
-  }
-  let plus = 0;
-  let minus = 0;
-  for (const e of incoming) {
-    if (e.kind !== "adjust") continue;
-    const s = signs[e.id] ?? 1;
-    if (s < 0) {
-      e.amount_minor = -e.amount_minor;
-      e.account_minor = -e.account_minor;
-      e.main_minor = -e.main_minor;
-      minus++;
-    } else plus++;
-  }
-
-  /* 8. 與本機比對（0-22） */
-  const localEntryById: Record<string, EntryRow> = {};
-  for (const e of local.entries) localEntryById[e.id] = e;
-  const inserts: EntryRow[] = [];
-  const changed: ImportChange[] = [];
-  let unchanged = 0;
-  let tombstoned = 0;
-  const incomingIds = new Set<string>();
-  for (const e of incoming) {
-    incomingIds.add(e.id);
-    const l = localEntryById[e.id];
-    if (!l) {
-      inserts.push(e);
-      continue;
-    }
-    if (l.deleted_at !== null) {
-      tombstoned++;
-      continue;
-    }
-    const signFlip = e.kind === "adjust" && Math.sign(l.amount_minor) !== Math.sign(e.amount_minor);
-    if ((e.import_utime ?? 0) > (l.import_utime ?? -1) || signFlip) {
-      const cols = entryDiffCols(l, e);
-      if (cols.length) changed.push({ id: e.id, local: l, incoming: e, cols });
-      else unchanged++;
-    } else unchanged++;
-  }
-
-  /* 9. K */
-  let extraLocal = 0;
-  for (const e of local.entries) if (e.deleted_at === null && !incomingIds.has(e.id)) extraLocal++;
-
-  /* 10. checks */
-  const after: Record<string, number> = {};
-  for (const e of incoming) addEffect(after, e);
-  const checks: BalanceCheck[] = liveMmAcc.map((a) => {
-    const accountId = accountIdOf[a.uid];
-    const inputMinor = inputOf[a.uid];
-    const computedMinor = after[accountId] ?? 0;
-    return {
-      mmUid: a.uid,
-      name: a.name,
-      accountId,
-      currency: accCurOf[accountId],
-      inputMinor,
-      computedMinor,
-      ok: inputMinor === null ? null : inputMinor === computedMinor,
-    };
-  });
-
-  return {
-    summary,
-    unsupported,
-    currencies: newCurrencies,
-    accounts: newAccounts,
-    categories: newCategories,
-    accountIdOf,
-    categoryIdOf,
-    entries: { inserts, changed, unchanged, tombstoned, invalid },
-    extraLocal,
-    adjust: { total: plus + minus, plus, minus, rule },
-    checks,
-  };
 }

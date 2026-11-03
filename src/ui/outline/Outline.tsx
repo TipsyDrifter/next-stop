@@ -34,12 +34,15 @@ import {
   type RouteKind,
 } from "../common/quickadd";
 import { Breadcrumb } from "./Breadcrumb";
+import { chapterCount } from "../../domain/chapterCount";
 import { DraftRow, OutlineRow, type CarStats } from "./OutlineRow";
 import { useOutlineController } from "./useOutlineController";
 import { useOutlineKeyboard } from "./useOutlineKeyboard";
 import { useOutlineDrag } from "./useOutlineDrag";
 import { useSelectionStore } from "../../store/selectionStore";
 import { SelectionBar } from "../common/selection/SelectionBar";
+import { DepotBanner } from "../depot/DepotBanner";
+import { PARKED_ADD_WHY } from "../../domain/depot";
 import "./outline.css";
 
 /** 情境 5：載入 >200ms 才顯示安靜指示，避免閃爍 */
@@ -71,6 +74,9 @@ function stampName(name: string): string {
   return name.length > 6 ? `${name.slice(0, 5)}…` : name;
 }
 
+/** 麵包屑第一段「路線圖」的 id（回路線一覽；丁 D-主-243） */
+const OVERVIEW_CRUMB = "#overview";
+
 /** 新增入口的選單上限（視覺規範 §2.4：一層 ≤7 項）＝幹線最多 6 條＋「新增幹線」 */
 const ADD_MENU_LINES = 6;
 
@@ -97,16 +103,26 @@ function addMenuItems(lines: NodeRow[], currentLineId: string | null): PopMenuIt
 function newMenuItems(o: {
   addTrain: PopMenuItem["onSelect"];
   addTicket: PopMenuItem["onSelect"];
+  /** 丁 D-主-249：新增支線（主題） */
+  addBranch: PopMenuItem["onSelect"];
+  /** 放不進支線（聚焦在列車／車廂裡）＝為什麼 */
+  branchWhy: string | null;
   /** 現在的範圍放不進列車（聚焦在列車／車廂裡）＝為什麼 */
   trainWhy: string | null;
+  /** 這條路線已收進車庫＝為什麼不能發券（O-3）；在跑＝null */
+  parkedWhy: string | null;
   lines: NodeRow[];
   currentLineId: string | null;
 }): PopMenuItem[] {
   const routeItems = addMenuItems(o.lines, o.currentLineId);
   if (routeItems.length) routeItems[0] = { ...routeItems[0], cut: true };
+  const trainWhy = o.parkedWhy ?? o.trainWhy;
+  const branchWhy = o.parkedWhy ?? o.branchWhy;
   return [
-    { key: "train", label: "新增列車", disabled: !!o.trainWhy, why: o.trainWhy ?? undefined, onSelect: o.addTrain },
-    { key: "ticket", label: "新增車票", onSelect: o.addTicket },
+    // 丁 D-主-249：三種各附一句用途（設計題丙題五：把三種的差別寫在入口上）；車庫裡的路線三種都淡掉（③ O-3）
+    { key: "train", label: "列車", hint: "一件要做的事，可拆成車廂與車票", disabled: !!trainWhy, why: trainWhy ?? undefined, onSelect: o.addTrain },
+    { key: "ticket", label: "車票", hint: "最小的待辦", disabled: !!o.parkedWhy, why: o.parkedWhy ?? undefined, onSelect: o.addTicket },
+    { key: "branch", label: "支線（主題）", hint: "裝相關事項的主題，沒有日期", disabled: !!branchWhy, why: branchWhy ?? undefined, onSelect: o.addBranch },
     ...routeItems,
   ];
 }
@@ -143,9 +159,25 @@ const EMPTY_STAMP = (
  *   有路線但沒選（理論上不會）⇒ 原句。這時沒有頁首（沒有路線可當大標），頁首的「＋ 路線」自然不在——同頁一個入口（§2.7）。
  */
 function NoRouteEmpty() {
-  const lines = useNodeStore((s) => s.lines);
-  const routes = useNodeStore((s) => s.routes);
+  const lines = useNodeStore((s) => s.liveLines);
+  const routes = useNodeStore((s) => s.liveRoutes);
+  const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
   const openRouteDialog = useUiStore((s) => s.openRouteDialog);
+  // 車庫與回顧 D-主-208：路線都收進車庫了——教去車庫看，或開新路線
+  if (!routes.length && depotCount > 0) {
+    return (
+      <EmptyState
+        tone="done"
+        stamp={EMPTY_STAMP}
+        title="路線都收進車庫了"
+        desc="跑完的路線停在車庫；要開始新的，就開一條新路線。"
+        action={{ label: "看車庫", onClick: () => useUiStore.getState().setPage("depot") }}
+        secondary={
+          lines.length ? { label: "新增路線", onClick: () => openRouteDialog({ lineId: lines[0].id, editId: null }) } : undefined
+        }
+      />
+    );
+  }
   if (!lines.length) {
     return (
       <EmptyState
@@ -200,16 +232,18 @@ export function Outline() {
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
   const stations = useNodeStore((s) => s.stations);
   const serials = useNodeStore((s) => s.serials);
-  const lines = useNodeStore((s) => s.lines);
+  // 「＋ 路線 ▾」只列還在跑的幹線（車庫與回顧 D-主-206 #16）
+  const lines = useNodeStore((s) => s.liveLines);
   const showLoading = useDelayedFlag(c.loading, 200);
   const doy = dayOfYear();
-  const { headRef, slot: crumbSlot } = useOverlineSlot(!!c.zoom && !!c.routeId);
+  // 丁 D-主-243：眉標一律是麵包屑「路線圖 › 路線名」（聚焦時延伸到節點）；「路線圖」＝回路線一覽
+  const { headRef, slot: crumbSlot } = useOverlineSlot(!!c.routeId);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   /** 清單尾的建票列（回饋甲）：null＝收著（畫「＋ 新增列車…」常駐列） */
   const [composer, setComposer] = useState<ComposerState | null>(null);
   // 換路線、換聚焦＝範圍換了，建票列收起（預設掛到跟著範圍走）
   const zoomId = c.zoom?.id ?? null;
-  useEffect(() => setComposer(null), [c.routeId, zoomId]);
+  useEffect(() => setComposer(null), [c.routeId, zoomId, c.parked]);
   // 回饋乙：拖曳（樹）＋多選
   const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
   const picked = useSelectionStore((s) => (s.scope === "outline" ? s.ids : null));
@@ -281,20 +315,14 @@ export function Outline() {
   const head = routeHeadStats(flattenSubtrees(c.tree, c.rootChildren), c.isDoneNode);
   const { ticketTotal, ticketDone, items: total } = head;
   const ticketPct = head.pct;
-  // 整條路線的進度（車站紀念章的進度弧）
-  let routeTotal = 0;
-  let routeOpen = 0;
-  for (const id of c.tree.roots) {
-    const cc = c.counts[id];
-    const n = c.tree.byId[id];
-    routeTotal += 1 + (cc?.total ?? 0);
-    routeOpen += (n?.status === "done" ? 0 : 1) + (cc?.open ?? 0);
-  }
-  const routePct = Math.round((routeTotal > 0 ? (routeTotal - routeOpen) / routeTotal : 0) * 100);
+  // 紀念章的進度弧＝到站站數÷車站數（車庫與回顧 D-主-222：跟今日頁同一個意思；大綱完成率在頁首統計那一行）
+  const routeStations = stations.filter((s) => s.parent_id === c.routeId);
+  const routePct = routeStations.length
+    ? Math.round((routeStations.filter((s) => s.arrived_on).length / routeStations.length) * 100)
+    : 0;
   // 下一站：這條路線尚未到站的第一個車站
-  const nextStation = stations
-    .filter((s) => s.parent_id === c.routeId && !s.arrived_on)
-    .sort(compareSiblings)[0];
+  // 收進車庫的路線不再預告下一站（D-主-206 #10）
+  const nextStation = c.route?.arrived_on ? undefined : routeStations.filter((s) => !s.arrived_on).sort(compareSiblings)[0];
 
   /** 票號＝store 的 serials 表（當日全域發券序；大綱票根／側板票頭／今日列同一枚號碼） */
   const serial = (node: NodeRow): string => serialOf(serials, node.id);
@@ -319,7 +347,10 @@ export function Outline() {
   // 空狀態（B2：EmptyState 三種；載入中不判斷，§1.8）。這裡頁首的「＋ 路線」照留：空的是列車不是路線，同頁沒有兩個同一動作的入口
   let empty: ReactNode = null;
   if (c.rows.length === 0 && !draft && !composer && !c.loading) {
-    if (!hasAnyNode && c.zoom) {
+    if (c.parked && !hasAnyNode) {
+      // O-3：車庫裡的路線不發券——頂上的「已收進車庫〔回到運行〕」就是下一步
+      empty = <EmptyState tone="first" stamp={EMPTY_STAMP} title="這條路線沒有列車" desc={`${PARKED_ADD_WHY}。`} />;
+    } else if (!hasAnyNode && c.zoom) {
       empty = (
         <EmptyState
           tone="first"
@@ -348,9 +379,11 @@ export function Outline() {
           desc="打開就能看到它們。"
           // 回饋甲 D-主-128：這裡也要能直接開下一班（同頁首「新增列車」／清單尾常駐列）
           action={
-            topMakesTrain
-              ? { label: "新增列車", icon: <IconPlus />, onClick: addTrain }
-              : { label: "新增車票", icon: <IconPlus />, onClick: addTicket }
+            c.parked
+              ? undefined
+              : topMakesTrain
+                ? { label: "新增列車", icon: <IconPlus />, onClick: addTrain }
+                : { label: "新增車票", icon: <IconPlus />, onClick: addTicket }
           }
           secondary={{ label: "顯示已完成", onClick: toggleHideDone }}
         />
@@ -400,7 +433,7 @@ export function Outline() {
         <div ref={headRef} className="ns-outline-head">
           <PageHeader
             variant="identity"
-            className={c.zoom ? "is-zoomed" : undefined}
+            className="is-crumbed"
             overline={{ zh: c.line?.name ?? "路線圖", latin: code ? `${code} Line` : "Route Map" }}
             title={
               <button
@@ -429,7 +462,17 @@ export function Outline() {
             search={{ onOpen: () => setQuickJumpOpen(true), title: `搜尋・跳轉（${hotkeyCaps("global.quickjump")}）` }}
           />
         </div>
-        {crumbSlot && createPortal(<Breadcrumb items={c.crumbs} onJump={c.zoomTo} />, crumbSlot)}
+        {crumbSlot &&
+          createPortal(
+            <Breadcrumb
+              items={[
+                { id: OVERVIEW_CRUMB, label: "路線圖" },
+                ...(c.crumbs.length ? c.crumbs : [{ id: null, label: c.route?.name ?? "路線" }]),
+              ]}
+              onJump={(id) => (id === OVERVIEW_CRUMB ? useUiStore.getState().openRouteMap() : c.zoomTo(id))}
+            />,
+            crumbSlot,
+          )}
         {addAnchor && (
           <PopMenu
             anchor={addAnchor}
@@ -438,13 +481,22 @@ export function Outline() {
             items={newMenuItems({
               addTrain,
               addTicket,
+              addBranch: () => {
+                containerRef.current?.focus();
+                c.keys.addBranch();
+              },
+              branchWhy: c.zoom && c.zoom.kind !== "branch" ? `${KIND_LABEL[c.zoom.kind]}裡不能放支線` : null,
               trainWhy: topMakesTrain ? null : `${c.zoom ? KIND_LABEL[c.zoom.kind] : "這裡"}裡不能再放列車——用「新增車票」`,
+              parkedWhy: c.parked ? PARKED_ADD_WHY : null,
               lines,
               currentLineId: c.route?.line_id ?? null,
             })}
             onClose={() => setAddAnchor(null)}
           />
         )}
+
+        {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿「在路線圖打開」）頂上一行＋「回到運行」 */}
+        {!c.zoom && c.route && <DepotBanner route={c.route} />}
 
         {showLoading && c.rows.length === 0 && (
           <div className="sec">
@@ -456,7 +508,8 @@ export function Outline() {
         {empty ?? (
           <>
             <div className="sec">
-              <h3>列車</h3>
+              {/* 丁 D-主-250：清單裡混了支線、列車、車票，區段標不再寫「列車」 */}
+              <h3>大綱</h3>
               <span className="rule" />
               {/* 回饋甲 G：跟頁首「項 M」同一把尺 */}
               <span className="note">{total} 項</span>
@@ -495,6 +548,14 @@ export function Outline() {
                     fresh={c.freshId === r.id}
                     today={c.today}
                     cars={carsOf(r.id, node.kind)}
+                    chapter={
+                      node.kind === "branch"
+                        ? chapterCount(
+                            (c.tree.childrenOf[r.id] ?? []).map((k) => c.tree.byId[k]).filter((x): x is NodeRow => !!x),
+                            c.isDoneNode,
+                          )
+                        : null
+                    }
                     accent={accent}
                     serial={serial(node)}
                     occurrence={c.currentOccurrences[r.id] ?? null}
@@ -506,7 +567,9 @@ export function Outline() {
                 );
               })}
             </ul>
-            {/* 清單尾：常駐「＋ 新增列車…」／建票列（回饋甲 D-主-128）。不放進上面的 tree（不是樹的一項） */}
+            {/* 清單尾：常駐「＋ 新增列車…」／建票列（回饋甲 D-主-128）。不放進上面的 tree（不是樹的一項）。
+                車庫裡的路線不畫（O-3：要加先回到運行，頂上那一行就有鈕） */}
+            {!c.parked && (
             <ul className="ticket-list ns-outline-tail">
               {composer ? (
                 <QuickAddRow
@@ -523,6 +586,7 @@ export function Outline() {
                 <QuickAddLauncher label={topMakesTrain ? "新增列車…" : "新增車票…"} onOpen={addTrain} />
               )}
             </ul>
+            )}
           </>
         )}
 

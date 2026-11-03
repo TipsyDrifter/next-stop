@@ -53,6 +53,17 @@ export const settingsRepo = {
   async set(k, v) { if (globalThis.__settingsFail) throw new Error("寫不進去"); globalThis.__settings.set(k, v); },
 };
 `;
+/** 售票口④：store 會 import 荷札的 repository 與 store（真的那兩支會載到 ./index，node 碰到 import.meta.env）——換成不寫任何東西的替身 */
+const FAKE_TAG_REPO = `
+const empty = () => ({ createdTagIds: [], createdTaggingIds: [], tagsBefore: [], taggingsBefore: [], notesBefore: [] });
+export const tagRepo = {
+  async listTagsOf() { return []; },
+  async setTags() { return { receipt: empty(), created: [] }; },
+};
+`;
+const FAKE_TAG_STORE = `${MINI_STORE}
+export const useTagStore = mk({ index: null, async loadIndex() {} });
+`;
 const dataUrl = (src: string) => "data:text/javascript," + encodeURIComponent(src);
 
 registerHooks({
@@ -67,6 +78,8 @@ registerHooks({
         if (specifier === "../data") return { url: dataUrl(FAKE_DATA), shortCircuit: true };
         if (specifier === "./uiStore") return { url: dataUrl(FAKE_UI), shortCircuit: true };
         if (specifier === "./nodeStore") return { url: dataUrl(FAKE_NODE), shortCircuit: true };
+        if (specifier === "../data/tagRepo") return { url: dataUrl(FAKE_TAG_REPO), shortCircuit: true };
+        if (specifier === "./tagStore") return { url: dataUrl(FAKE_TAG_STORE), shortCircuit: true };
       }
       if (specifier.startsWith(".") && !/\.[a-z]+$/i.test(specifier)) return nextResolve(specifier + ".ts", context);
     }
@@ -183,9 +196,6 @@ const repo = {
     return [];
   },
   async listRepeats() {
-    return [];
-  },
-  async listUnstartedRepeatIds() {
     return [];
   },
 };

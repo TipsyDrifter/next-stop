@@ -9,9 +9,11 @@
  *   ├─ span.ns-tk-chipwrap × 5   button.ns-tk-fchip[.is-on]「期間 <b>10/1–10/31</b> ▾」→ 點開 div.ns-tk-pop.ns-tk-fpop 小浮層
  *   │     期間：快選「全部／本月／今年／自訂」＋自訂時兩顆日期 chip（DatePicker）
  *   │     帳戶：全部帳戶＋未封存帳戶（orderAccounts）＋「封存」分區
- *   │     分類：支出／收入兩棵樹；勾主分類＝含全部子分類（只存主分類 id）；子分類可單勾
+ *   │     分類：支出／收入兩棵可展開的樹（售票口④ 第二輪：不限層數）；勾一個＝含它底下所有分類（只存那一個 id）；底下的可單勾
  *   │     類型：支出／收入／轉帳／校正（多選）
  *   │     路線：任一條／未掛路線／各路線（roundel＋名）
+ *   │     荷札（售票口④ D-票-74；原型 4-desktop-篩選）：有帳掛過的荷札攤平成一排（全路徑、父段淡字）＋「N 筆」；可多選＝掛了任一個就算；
+ *   │       選父含子（store／domain 的 matchesTagFilter 判）。荷札 index 沒載就先載
  *   └─ 有條件 ⇒「清除」；沒有條件 ⇒ 淡字提示
  *
  * chip 上的值字取自 domain `filterChips`（與手機同一份字）。浮層鍵盤：↑↓ 移、Enter 選、Esc 收（自理，不漏給頁面鍵盤表）。
@@ -23,16 +25,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
+import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { DatePicker } from "../../common/DatePicker";
 import {
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
-  categoryTree,
+  categoryForest,
+  categoryPath,
+  categorySubtreeIds,
   monthOf,
   monthRange,
   orderAccounts,
+  type CategoryNode,
   type CategoryRow,
   type EntryKind,
 } from "../../../domain/ticket";
@@ -49,10 +55,13 @@ import {
   type ViewCtx,
 } from "../../../domain/ticketView";
 import type { NodeRow } from "../../../domain/node";
+import type { TagIndex } from "../../../domain/tags";
+import { TK_TAG_ENTRY, tagNameOf } from "../../../domain/ticketTags";
 import { TkIcon, TkRoundel, acctLabel } from "../TicketLedger";
 import { chooseSort } from "./sortChoice";
+import { CatTreeRow, ancestorIds, findNode, useCatOpen, visibleNodes } from "./catTree";
 
-type ChipKey = "period" | "acct" | "cat" | "kind" | "route";
+type ChipKey = "period" | "acct" | "cat" | "kind" | "route" | "tag";
 
 const CHIPS: readonly { key: ChipKey; label: string; field: keyof EntryFilter }[] = [
   { key: "period", label: "期間", field: "from" },
@@ -60,6 +69,7 @@ const CHIPS: readonly { key: ChipKey; label: string; field: keyof EntryFilter }[
   { key: "cat", label: "分類", field: "categoryIds" },
   { key: "kind", label: "類型", field: "kinds" },
   { key: "route", label: "路線", field: "routeId" },
+  { key: "tag", label: "荷札", field: "tagKeys" },
 ];
 
 const KINDS: readonly { k: EntryKind; label: string }[] = [
@@ -264,43 +274,63 @@ function AcctPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
   );
 }
 
+/**
+ * 分類浮層（售票口④ 第二輪 D-票-78：不限層數）：支出／收入兩棵可展開的樹（catTree；› 展開、→／← 鍵盤）。
+ * 勾一個分類＝含它底下所有分類（只存那一個 id；勾下去時把它底下已勾的拿掉，免得重複）；底下的列跟著亮。
+ * 祖先勾著時點底下某一列＝「除了它都要」：拿掉祖先，改勾從祖先到它這一路上每一層的其他兄弟（推廣自兩層時的「拆成其他子分類各自勾」）。
+ * 打開時展開到看得見每個已勾的分類。
+ */
 function CatPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
   const categories = useTicketStore((s) => s.categories);
+  const catById = useTicketStore((s) => s.catById);
   const sel = f.categoryIds;
+  const [open, toggle] = useCatOpen(() => sel.flatMap((id) => ancestorIds(catById[id], catById)));
   const set = (ids: string[]) => void useTicketStore.getState().patchFilter({ categoryIds: ids });
-  const toggleMain = (p: CategoryRow, kids: readonly CategoryRow[]) => {
-    const kidIds = new Set(kids.map((k) => k.id));
-    const rest = sel.filter((id) => id !== p.id && !kidIds.has(id));
-    set(sel.indexOf(p.id) >= 0 ? rest : [...rest, p.id]);
+  const forests = useMemo(
+    () => ({
+      expense: categoryForest(categories, "expense", { includeArchived: false }),
+      income: categoryForest(categories, "income", { includeArchived: false }),
+    }),
+    [categories],
+  );
+  /** 勾著的祖先（最靠近的那一個；沒有＝null） */
+  const pickedAbove = (c: CategoryRow): string | null => {
+    const up = ancestorIds(c, catById);
+    for (let i = up.length - 1; i >= 0; i--) if (sel.indexOf(up[i]) >= 0) return up[i];
+    return null;
   };
-  const toggleSub = (p: CategoryRow, kids: readonly CategoryRow[], c: CategoryRow) => {
-    if (sel.indexOf(p.id) >= 0) {
-      // 主分類勾著（＝全部子分類）⇒ 拆成「其他子分類各自勾」
-      set([...sel.filter((id) => id !== p.id), ...kids.filter((k) => k.id !== c.id).map((k) => k.id)]);
+  const togglePick = (n: CategoryNode) => {
+    const id = n.cat.id;
+    const above = pickedAbove(n.cat);
+    if (above) {
+      // 祖先勾著（＝這一列也算在內）⇒ 拆開：祖先拿掉，從祖先到它這一路上每一層的其他兄弟各自勾
+      const forest = forests[n.cat.kind];
+      const path = categoryPath(n.cat, catById).map((c) => c.id);
+      const adds: string[] = [];
+      for (let k = path.indexOf(above); k >= 0 && k < path.length - 1; k++) {
+        const kids = findNode(forest, path[k])?.children ?? [];
+        for (const kid of kids) if (kid.cat.id !== path[k + 1]) adds.push(kid.cat.id);
+      }
+      set([...sel.filter((x) => x !== above), ...adds]);
       return;
     }
-    set(sel.indexOf(c.id) >= 0 ? sel.filter((id) => id !== c.id) : [...sel, c.id]);
+    if (sel.indexOf(id) >= 0) {
+      set(sel.filter((x) => x !== id));
+      return;
+    }
+    const under = new Set(categorySubtreeIds(id, categories));
+    set([...sel.filter((x) => !under.has(x)), id]);
   };
   const tree = (kind: "expense" | "income") =>
-    categoryTree(categories, kind, { includeArchived: false }).map(({ parent: p, children }) => {
-      const mainOn = sel.indexOf(p.id) >= 0;
-      const open = children.length > 0 && (mainOn || children.some((c) => sel.indexOf(c.id) >= 0));
+    visibleNodes(forests[kind], open).map((n) => {
+      const on = sel.indexOf(n.cat.id) >= 0 || pickedAbove(n.cat) !== null;
       return (
-        <div key={p.id}>
-          <Opt on={mainOn} onPick={() => toggleMain(p, children)}>
-            {isUncat(p.id) ? <span className="unc">未分類</span> : p.name}
-            {children.length > 0 && <span className="r">{children.length} 個子分類</span>}
+        <CatTreeRow key={n.cat.id} node={n} open={open.has(n.cat.id)} onToggle={toggle}>
+          <Opt on={on} onPick={() => togglePick(n)}>
+            {isUncat(n.cat.id) ? <span className="unc">未分類</span> : <span className="t">{n.cat.name}</span>}
+            {n.children.length > 0 && <span className="r">{n.children.length} 個子分類</span>}
           </Opt>
-          {open && (
-            <div className="ns-tk-subopts">
-              {children.map((c) => (
-                <Opt key={c.id} on={mainOn || sel.indexOf(c.id) >= 0} onPick={() => toggleSub(p, children, c)}>
-                  {c.name}
-                </Opt>
-              ))}
-            </div>
-          )}
-        </div>
+        </CatTreeRow>
       );
     });
   return (
@@ -309,7 +339,7 @@ function CatPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
       {tree("expense")}
       <p className="hd">收入</p>
       {tree("income")}
-      <p className="ns-tk-pop-note">勾主分類會包含所有子分類{sel.length > 0 && " · "}</p>
+      <p className="ns-tk-pop-note">勾一個分類會包含它底下所有分類{sel.length > 0 && " · "}</p>
       {sel.length > 0 && (
         <Opt on={false} onPick={() => set([])} className="is-quiet">
           清除分類</Opt>
@@ -357,6 +387,75 @@ function RoutePop({ f, onClose, routes }: { f: EntryFilter; onClose(): void; rou
           {r.name}
         </Opt>
       ))}
+    </FPop>
+  );
+}
+
+/** 荷札篩選的選項：樹的先序（父在子前），只列有帳掛過（含子孫）或已勾的；n＝掛了它（含子孫）的帳數（同一筆只算一次） */
+function tagOptions(idx: TagIndex, sel: readonly string[]): { key: string; name: string; n: number }[] {
+  const count: Record<string, number> = {};
+  for (const e of idx.ents) {
+    if (e.type !== TK_TAG_ENTRY) continue;
+    const seen = new Set<string>();
+    for (const k of e.keys) {
+      for (let cur: string | null = k; cur && !seen.has(cur); cur = idx.byKey[cur]?.parent ?? null) seen.add(cur);
+    }
+    seen.forEach((k) => (count[k] = (count[k] ?? 0) + 1));
+  }
+  const out: { key: string; name: string; n: number }[] = [];
+  const walk = (key: string) => {
+    const node = idx.byKey[key];
+    if (!node) return;
+    const n = count[key] ?? 0;
+    if (n > 0 || sel.indexOf(key) >= 0) out.push({ key, name: node.name, n }); // 虛資料夾（只在路徑中段）也列：勾它＝底下全部
+    node.children.forEach(walk);
+  };
+  idx.roots.forEach(walk);
+  return out;
+}
+
+function TagPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
+  const index = useTagStore((s) => s.index);
+  useEffect(() => {
+    const st = useTagStore.getState();
+    if (!st.index && !st.loading) void st.loadIndex();
+  }, []);
+  const sel = f.tagKeys ?? [];
+  const set = (keys: string[]) => void useTicketStore.getState().patchFilter({ tagKeys: keys });
+  const opts = useMemo(() => (index ? tagOptions(index, sel) : []), [index, sel]);
+  return (
+    <FPop label="荷札" onClose={onClose} tall>
+      <p className="hd">荷札（可多選）</p>
+      {index === null ? (
+        <p className="ns-tk-pop-note">正在讀荷札…</p>
+      ) : opts.length === 0 ? (
+        <p className="ns-tk-pop-note">還沒有帳掛荷札</p>
+      ) : (
+        opts.map((o) => {
+          const on = sel.indexOf(o.key) >= 0;
+          const segs = o.name.split("/");
+          return (
+            <Opt key={o.key} on={on} className="is-tag" onPick={() => set(on ? sel.filter((k) => k !== o.key) : [...sel, o.key])}>
+              <span className={"ck" + (on ? " on" : "")} aria-hidden />
+              <span className="tg">
+                {segs.map((seg, i) => (
+                  <span key={i}>
+                    {i > 0 && <i className="sl">/</i>}
+                    <span className={i < segs.length - 1 ? "pa" : "la"}>{seg}</span>
+                  </span>
+                ))}
+              </span>
+              <span className="r">{o.n} 筆</span>
+            </Opt>
+          );
+        })
+      )}
+      <p className="ns-tk-pop-note">勾兩個以上＝掛了其中一個就算</p>
+      {sel.length > 0 && (
+        <Opt on={false} onPick={() => set([])} className="is-quiet">
+          清除荷札
+        </Opt>
+      )}
     </FPop>
   );
 }
@@ -433,7 +532,11 @@ export function FilterChips() {
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
   const routes = useNodeStore((s) => s.routes);
-  const ctx: ViewCtx = useMemo(() => ({ accById, catById, curByCode, ...routeCtx(routes) }), [accById, catById, curByCode, routes]);
+  const tagIndex = useTagStore((s) => s.index);
+  const ctx: ViewCtx = useMemo(
+    () => ({ accById, catById, curByCode, ...routeCtx(routes), tagName: tagNameOf(tagIndex) }),
+    [accById, catById, curByCode, routes, tagIndex],
+  );
   const [pop, setPop] = useState<ChipKey | null>(null);
   const close = useCallback(() => setPop(null), []);
   useEffect(() => {
@@ -456,7 +559,7 @@ export function FilterChips() {
 
   // chip 上的值：domain filterChips 的字去掉欄名前綴（「未掛路線」本身就是值）
   const vals: Partial<Record<keyof EntryFilter, string>> = {};
-  for (const c of filterChips(filter, ctx)) vals[c.key] = c.label.replace(/^(期間|帳戶|分類|類型|路線) /, "");
+  for (const c of filterChips(filter, ctx)) vals[c.key] = c.label.replace(/^(期間|帳戶|分類|類型|路線|荷札) #?/, "");
   const routeVal = filter.routeId !== null && filter.routeId !== "none" ? routes.find((r) => r.id === filter.routeId) : undefined;
   const active = isFilterActive(filter);
 
@@ -494,6 +597,7 @@ export function FilterChips() {
             {pop === "cat" && c.key === "cat" && <CatPop f={filter} onClose={close} />}
             {pop === "kind" && c.key === "kind" && <KindPop f={filter} onClose={close} />}
             {pop === "route" && c.key === "route" && <RoutePop f={filter} onClose={close} routes={routes} />}
+            {pop === "tag" && c.key === "tag" && <TagPop f={filter} onClose={close} />}
           </span>
         );
       })}
@@ -502,7 +606,7 @@ export function FilterChips() {
           type="button"
           className="ns-btn ns-btn--sm btn-text ns-tk-btn ns-tk-fclear"
           title="清除全部條件"
-          onClick={() => void useTicketStore.getState().patchFilter({ text: "", from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null })}
+          onClick={() => void useTicketStore.getState().patchFilter({ text: "", from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null, tagKeys: [] })}
         >
           清除
         </button>

@@ -19,17 +19,34 @@
  * 時刻框（.ns-clock）裡的 Enter 讓給 ClockInput：看得懂才叫 onEnter 存檔，打錯只還原、不存（丙-5 F1／風險 1）。
  * Esc（C2）：殼的 onEscape＝requestEscape（新票有內容先問；不直接關）；× 也走同一條。
  * 只讀 store、只叫 store 的動作（§2.5）；domain 的純函式直接用。
+ *
+ * 售票口④（D-票-66、68～70、74；桌機席；原型 prototypes/售票口④-src/questions.js 題一、二、四、五、六）：
+ *   - 新票最上面一排常用票種小卡（.ns-tk-marks，可橫捲、右緣淡出；點了 store.applyTemplate 整張填好；右鍵＝templateMenu）
+ *   - 「從願望清單帶入「X」· 存了就移到「已買」」：撕線下一行淡字（draft.wishId）
+ *   - 備註換 RecallInput（備註記憶）：新票接草稿；舊票照舊「離開才存」（Esc 還原、Ctrl+Enter 存），選了以前的備註就存。
+ *     分類還空著時選了 ⇒ 順便帶上次那筆的分類，分類欄右端「照上次 · 復原」（D-票-70）
+ *   - 「路線」下面一列「荷札」：新票＝EntityTagField 受控（存檔才寫）；舊票＝實體模式 ticket:entry（立刻寫）；
+ *     建議清單往下推開（suggestInline；浮層會蓋住下面的「定期」列）
+ *   - 「定期」一列（D-票-66）：新票＝「不重複｜每日｜每週｜每月」常駐＋選了之後「每月 [5 日] · 結束日 [不設]」與說明行；
+ *     舊票連著規則＝「每月 1 日 · 下一班 12/1　管理 ›」，沒連＝「不重複　設成定期…」（原本底部的淡字鈕搬進來；
+ *     按了就地攤開同一組快設＋「更多設定…」（完整編輯器）、取消、設定）；精算不出這一列
+ *   - 舊票底部「存成常用…」：大票底部浮起小卡（dialogs/SaveTemplate），取名、列出會帶入什麼
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../store/ticketStore";
+import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { todayKey } from "../../lib/date";
-import { CommitInput, CommitTextarea, FieldRow, useDebouncedCommit } from "../common/fields";
+import { CommitInput, FieldRow, useDebouncedCommit } from "../common/fields";
 import { SidePanelFrame } from "../common/SidePanelFrame";
 import { Segmented } from "../common/Segmented";
 import { DateChip } from "../common/DateChip";
 import { ClockInput, clockDraftsOkIn } from "../common/ClockInput";
+import { DatePicker } from "../common/DatePicker";
+import { RecallInput } from "../common/RecallInput";
+import { EntityTagField } from "../common/EntityTagField";
+import { rowContextMenu } from "../common/contextMenu";
 import {
   ACCOUNT_GROUPS,
   MAIN_CURRENCY,
@@ -37,6 +54,8 @@ import {
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   atOf,
+  categoryArchivedUp,
+  categoryForest,
   categoryLabel,
   convertMinor,
   groupAccounts,
@@ -55,12 +74,31 @@ import {
   type EntryPatch,
   type EntryRow,
   type Prefix,
+  type TemplateRow,
 } from "../../domain/ticket";
 import type { NodeRow } from "../../domain/node";
+import { WEEKDAY_LABEL, WEEKDAY_ORDER } from "../../domain/repeat";
+import {
+  REPEAT_QUICK_FREQS,
+  REPEAT_QUICK_TEXT,
+  quickFirstRun,
+  quickRepeat,
+  repeatLabel,
+  repeatLineText,
+  type RepeatQuick,
+  type RepeatQuickFreq,
+} from "../../domain/ticketPlan";
+import { dayStep, shortDay } from "../../domain/ticketView";
+import { TK_TAG_ENTRY, TK_TAG_TEMPLATE, tagNamesOf } from "../../domain/ticketTags";
 import { Money } from "./parts/Money";
 import { TicketSeal } from "./parts/TicketSeal";
 import { TkIcon, TkRoundel, acctLabel, capsOf, groupLabel } from "./TicketLedger";
-import { RepeatField, RepeatMakeButton, useLinkedRepeat } from "./plan/RepeatField";
+import { useLinkedRepeat } from "./plan/RepeatField";
+import { SaveTemplatePop } from "./dialogs/SaveTemplate";
+import { templateMenu } from "./dialogs/TemplateManager";
+import { templateWhat } from "./dialogs/templateText";
+import { CatShortName, CatTreeRow, ancestorIds, useCatOpen, visibleNodes } from "./view/catTree";
+import "./ticket-4.css";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "./ticketClock";
 
 /* ───────── 小工具 ───────── */
@@ -241,13 +279,23 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const balances = useTicketStore((s) => s.balances);
   const entries = useTicketStore((s) => s.entries);
   const savedAt = useTicketStore((s) => s.savedAt);
-  const linkedRepeat = useLinkedRepeat(row); // 第③階段：連著還在的規則才出「定期」列（規則已刪 ⇒ 底部出「設成定期…」）
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const routes = useNodeStore((s) => s.routes);
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13：舊帳掛已到站路線照樣顯示名字，只是不能新掛）
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const [pop, setPop] = useState<PopKind>(null);
   const amtRef = useRef<HTMLInputElement>(null);
   const store = useTicketStore.getState;
   const today = todayKey(dayStartHour);
+  /* 售票口④：備註帶上次分類（「照上次 · 復原」）、「存成常用…」小浮層 */
+  const [autoCat, setAutoCat] = useState<{ id: string; prev: string | null } | null>(null);
+  const [savePop, setSavePop] = useState(false);
+  const saveBtnRef = useRef<HTMLButtonElement>(null);
+  // 荷札欄的建議清單要 index（沒載就載一次；寫入後 tagStore 自己重載）
+  useEffect(() => {
+    const st = useTagStore.getState();
+    if (!st.index && !st.loading) void st.loadIndex();
+  }, []);
 
   const vm: Vm = row
     ? {
@@ -419,6 +467,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const save = async (again: boolean) => {
     if (!clockDraftsOkIn(ticketRef.current)) return;
     const ok = await store().saveDraft({ again });
+    if (ok) setAutoCat(null);
     if (ok && again) amtRef.current?.focus();
   };
   const onTicketKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -428,6 +477,9 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     if (isNew && e.key === "Enter" && editable && !e.shiftKey && !e.altKey) {
       // 時刻框：Enter 由 ClockInput 自己判（看得懂才 onEnter＝存檔；打錯只還原、不存）——它只 preventDefault、會冒到這裡
       if (t.closest(".ns-tk-pop, .ns-datepick, .ns-clock")) return;
+      // 荷札欄：打了字或用 ↑↓ 選了列時 Enter＝掛上那個荷札（它 preventDefault 不 stopPropagation），讓路；
+      // 空欄、沒選列的 Enter 它不攔（售票口④ P1）⇒ 照舊存檔
+      if (t.closest(".ns-notes-tagfield") && e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
       void save(e.ctrlKey || e.metaKey);
@@ -441,6 +493,35 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
       if (useTicketStore.getState().panel.kind === "none") onBackToList();
     }
   };
+
+  /* ── 備註記憶（D-票-70）：選了以前的備註，分類還空著 ⇒ 帶上次那筆的分類（金額不帶）；「復原」退回原本的（未分類） ── */
+  const carryCat = (text: string): string | null => {
+    if (vm.kind !== "expense" && vm.kind !== "income") return null;
+    if (vm.categoryId && !isUncat(vm.categoryId)) return null;
+    return store().lastCategoryForNote(vm.kind, text);
+  };
+  const pickNote = (text: string) => {
+    const c = carryCat(text);
+    const p = c ? { note: text, categoryId: c } : { note: text };
+    if (isNew) store().setDraft(p);
+    else patch(p);
+    if (c) setAutoCat({ id: c, prev: vm.categoryId });
+  };
+  const undoAutoCat = () => {
+    if (!autoCat) return;
+    if (isNew) store().setDraft({ categoryId: autoCat.prev });
+    else patch({ categoryId: autoCat.prev });
+    setAutoCat(null);
+  };
+  const autoTag =
+    autoCat && autoCat.id === vm.categoryId ? (
+      <span className="ns-tk-autotag">
+        <i>照上次</i>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={undoAutoCat}>
+          復原
+        </button>
+      </span>
+    ) : null;
 
   /* 撕線左端的孔：打在 .panel-sheet 上（mask，見 ticket.css T2 區），位置＝撕線在紙上的 y；內容捲動時跟著撕線走 */
   const ticketRef = useRef<HTMLElement>(null);
@@ -481,6 +562,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
       }}
       onKeyDown={onTicketKeyDown}
     >
+      {isNew && <TemplateMarks activeId={draft?.fromTemplateId ?? null} />}
       <div className="ns-tk-bt-stub">
         {vm.kind === "adjust" ? (
           <span className="ns-tk-kind is-locked" title="精算不能改類型">
@@ -498,6 +580,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
         <span className="ns-tk-serial">{serial}</span>
       </div>
       <div className="ns-tk-bt-tear" aria-hidden />
+      {isNew && draft?.wishId && <FromWish id={draft.wishId} />}
 
       <div className="ns-tk-bt-face">
         <div className="ns-tk-bt-amt">
@@ -639,7 +722,9 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               <CategoryCombo
                 kind={vm.kind}
                 categoryId={vm.categoryId}
+                extra={autoTag}
                 onPick={(id) => {
+                  setAutoCat(null);
                   if (isNew) store().setDraft({ categoryId: id });
                   else patch({ categoryId: id });
                 }}
@@ -687,18 +772,12 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             </span>
           </FieldRow>
           <FieldRow label="備註" top>
+            {/* 售票口④（D-票-70、71）：備註記憶。新票改草稿；舊票離開才存、選了就存 */}
             {isNew ? (
-              <textarea
-                className="ns-tk-textin"
-                rows={1}
-                placeholder="備註"
-                aria-label="備註"
-                value={vm.note}
-                onChange={(e) => store().setDraft({ note: e.target.value })}
-              />
+              <NoteRecall value={vm.note} onChange={(note) => store().setDraft({ note })} onPick={pickNote} />
             ) : (
               <div className="ns-tk-notewrap">
-                <CommitTextarea value={vm.note} rows={1} ariaLabel="備註" placeholder="備註" onCommit={(note) => patch({ note })} />
+                <NoteRecallCommit value={vm.note} onCommit={(note) => patch({ note })} onPick={pickNote} />
               </div>
             )}
           </FieldRow>
@@ -723,7 +802,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               </button>
               {pop === "route" && (
                 <RoutePop
-                  routes={routes}
+                  routes={liveRoutes}
                   current={vm.routeId}
                   onClose={() => setPop(null)}
                   onPick={(id) => {
@@ -735,11 +814,28 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               )}
             </FieldRow>
           )}
-          {/* 第③階段（③契約 §5.4）：定期記的（或「設成定期」連上的）帳多一列「定期」；規則已刪的不出（收尾修正） */}
-          {row && linkedRepeat && (
-            <FieldRow label="定期">
-              <RepeatField entry={row} />
-            </FieldRow>
+          {/* 售票口④（D-票-74）：荷札。新票＝草稿（存檔才寫）；舊票＝實體模式（立刻寫，toast＋復原）。
+              建議清單往下推開（suggestInline）：浮層會蓋住下面的「定期」列，點「每日」點到的是建議（代驗 O1） */}
+          <FieldLine label="荷札" className="is-tags">
+            {isNew ? (
+              <EntityTagField value={draft?.tags ?? []} onChange={(tags) => store().setDraft({ tags })} resetKey="new" suggestInline />
+            ) : (
+              row && <EntityTagField entityType={TK_TAG_ENTRY} entityId={row.id} suggestInline />
+            )}
+          </FieldLine>
+          {/* 售票口④（D-票-66）：定期。新票＝快設；舊票＝連著規則的那行字／「設成定期…」（精算不出）。
+              第③階段的 RepeatField（「管理定期 ›」開清單）退場：「管理 ›」直接開那條規則 */}
+          {isNew && draft ? (
+            <FieldLine label="定期" top className="is-rep">
+              <DraftRepeat q={draft.repeat} dayKey={vm.dayKey} today={today} />
+            </FieldLine>
+          ) : (
+            row &&
+            row.kind !== "adjust" && (
+              <FieldLine label="定期" top className="is-rep">
+                <EntryRepeat row={row} today={today} />
+              </FieldLine>
+            )
           )}
         </div>
       </div>
@@ -759,7 +855,32 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
             </>
           ) : (
             <>
-              {row && <RepeatMakeButton entry={row} />}
+              {/* 售票口④（D-票-68）：存成常用…（精算不能存）；「設成定期…」已搬進「定期」那一列 */}
+              {row && row.kind !== "adjust" && (
+                <button
+                  ref={saveBtnRef}
+                  type="button"
+                  className="ns-btn btn-text ns-tk-btn"
+                  aria-haspopup="dialog"
+                  aria-expanded={savePop}
+                  data-pop-toggle
+                  onClick={() => setSavePop(!savePop)}
+                >
+                  存成常用…
+                </button>
+              )}
+              {savePop && row && (
+                <SaveTemplatePop
+                  entry={row}
+                  onClose={() => {
+                    setSavePop(false);
+                    setTimeout(() => {
+                      const a = document.activeElement;
+                      if (a === null || a === document.body) saveBtnRef.current?.focus({ preventScroll: true });
+                    });
+                  }}
+                />
+              )}
               <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => row && void store().deleteEntry(row.id)}>
                 刪除<kbd className="ns-tk-kbd">{capsOf("ticket.delete")}</kbd>
               </button>
@@ -908,17 +1029,25 @@ export function RoutePop({ routes, current, onClose, onPick }: { routes: NodeRow
    建在目前類型下、主分類，建完直接選上；沒打字 ⇒ 點了把焦點放回欄上、提示打名字）與「管理…」（分類管理對話框）。
    兩列也在 ↑↓ 的輪替裡。打的字找不到任何分類時反白不自動落在「新增」：要 ↓ 或點擊才建（分類只能封存、不能刪，
    打錯字按 Enter 就多一個清不掉的分類——評審 R1）；這時 Enter 照舊交給新票存檔。
-   `manage={false}`：已經在對話框裡（定期帳規則編輯器）——開分類管理會把那個對話框換掉，不給這一列。 ── */
+   `manage={false}`：已經在對話框裡（定期帳規則編輯器）——開分類管理會把那個對話框換掉，不給這一列。
+   售票口④ 第二輪（D-票-78；原型 design-structure-分類多層 場景 a-pick／a-search）：
+   - 打字比對與「常用」：每一筆寫路徑的短寫（直屬上層淡字＋自己，同帳簿列），滑過＝完整路徑。
+   - 沒打字：「常用」照舊在最上面，下面接「全部分類」可展開的樹（catTree：› 展開、點名字＝選它，中間層也能選）；
+     打開時展開到看得見目前選的那個。↑↓ 照畫面上看得到的列走（常用 → 樹 → 新增／管理），反白在樹上時 → 展開、← 收起。
+   - 選好之後欄位寫完整路徑（categoryLabel），太長被截時滑過看全寫。 ── */
 export function CategoryCombo({
   kind,
   categoryId,
   onPick,
   manage = true,
+  extra,
 }: {
   kind: "income" | "expense";
   categoryId: string | null;
   onPick(id: string | null): void;
   manage?: boolean;
+  /** 售票口④：欄位右端的小字（浮層收著時才畫；大票的「照上次 · 復原」） */
+  extra?: ReactNode;
 }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
@@ -930,22 +1059,45 @@ export function CategoryCombo({
   const [busy, setBusy] = useState(false);
   const navved = useRef(false); // 反白是 ↑↓ 挑的（不是打字自動落的）
   const wrapRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useOutside(wrapRef, () => setOpen(false));
 
   const cat = categoryId && !isUncat(categoryId) ? catById[categoryId] : undefined;
   const label = cat ? categoryLabel(cat, catById) : "";
+  const [treeOpen, toggleTree, resetTree] = useCatOpen();
+  // 打開浮層：樹展開到看得見目前選的那個
+  const openPop = () => {
+    setOpen(true);
+    setQ("");
+    setKb(-1);
+    resetTree(ancestorIds(cat, catById));
+  };
   const options: CategoryRow[] = useMemo(() => {
     if (q.trim()) return matchCategories(q, categories, kind).slice(0, 12);
-    return recent.map((id) => catById[id]).filter((c): c is CategoryRow => !!c && c.deleted_at === null && c.archived_at === null && c.kind === kind);
+    return recent.map((id) => catById[id]).filter((c): c is CategoryRow => !!c && c.deleted_at === null && c.kind === kind && !categoryArchivedUp(c, catById));
   }, [q, categories, kind, recent, catById]);
   const name = q.trim();
+  // 沒打字：常用下面接「全部分類」樹（未分類不列：要改回未分類走「改回未分類」）
+  const tree = useMemo(
+    () => (name ? [] : visibleNodes(categoryForest(categories, kind, { includeArchived: false }).filter((n) => !isUncat(n.cat.id)), treeOpen)),
+    [name, categories, kind, treeOpen],
+  );
   // 同類型、沒刪的已有同名（含封存：repository 會擋重名，別讓人按了才吃 toast）⇒ 不給「新增「字」」
   const taken = name !== "" && categories.some((c) => c.kind === kind && c.deleted_at === null && c.name.trim() === name);
   type Act = "add" | "manage";
   const acts: Act[] = [...(taken ? [] : (["add"] as Act[])), ...(manage ? (["manage"] as Act[]) : [])];
-  const total = options.length + acts.length;
-  const actAt = (i: number): Act | null => (i >= options.length && i < total ? acts[i - options.length] : null);
+  const nOpt = options.length;
+  const nTree = tree.length;
+  const total = nOpt + nTree + acts.length;
+  const actAt = (i: number): Act | null => (i >= nOpt + nTree && i < total ? acts[i - nOpt - nTree] : null);
+  const treeAt = (i: number) => (i >= nOpt && i < nOpt + nTree ? tree[i - nOpt] : null);
+
+  // 反白的那一列捲進浮層的可見範圍（樹長了會超過浮層高度）
+  useEffect(() => {
+    if (kb < 0) return;
+    popRef.current?.querySelector<HTMLElement>(".opt.kb")?.scrollIntoView({ block: "nearest" });
+  }, [kb]);
 
   // 挑完只收浮層、焦點留在欄上（不 blur：焦點掉到 body 會讓 Enter 存檔／Esc 放棄／Tab 移欄全接不到）
   const pick = (id: string | null) => {
@@ -981,13 +1133,30 @@ export function CategoryCombo({
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    const node = open ? treeAt(kb) : null;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       e.stopPropagation();
-      if (!open) setOpen(true);
+      if (!open) openPop();
       navved.current = true;
       const n = total;
       if (n) setKb((i) => (i < 0 ? (e.key === "ArrowDown" ? 0 : n - 1) : (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n));
+    } else if ((e.key === "ArrowRight" || e.key === "ArrowLeft") && node) {
+      // 反白在樹上（沒打字，輸入框的游標不用動）：→ 展開、← 收起（已收起＝反白跳到上一層那一列）
+      e.preventDefault();
+      e.stopPropagation();
+      const isOpen = treeOpen.has(node.cat.id);
+      if (e.key === "ArrowRight") {
+        if (node.children.length && !isOpen) toggleTree(node.cat.id, true);
+      } else if (node.children.length && isOpen) toggleTree(node.cat.id, false);
+      else {
+        for (let j = kb - nOpt - 1; j >= 0; j--) {
+          if (tree[j].depth < node.depth) {
+            setKb(nOpt + j);
+            break;
+          }
+        }
+      }
     } else if (e.key === "Enter" && open && kb >= 0 && kb < total) {
       // 打了字或用 ↑↓ 挑過：Enter＝做反白那一列（新票的「Enter 存檔」要等分類挑完）
       const a = actAt(kb);
@@ -996,7 +1165,7 @@ export function CategoryCombo({
       e.preventDefault();
       e.stopPropagation();
       if (a) run(a);
-      else pick(options[kb].id);
+      else pick(node ? node.cat.id : options[kb].id);
     } else if (e.key === "Escape" && open) {
       e.preventDefault();
       e.stopPropagation();
@@ -1017,19 +1186,12 @@ export function CategoryCombo({
         aria-label="分類"
         autoComplete="off"
         placeholder={askName ? "打新分類的名字" : cat ? "" : "打字搜尋，或選常用的"}
+        title={!open && cat ? label : undefined}
         value={open ? q : label}
-        onFocus={() => {
-          setOpen(true);
-          setQ("");
-          setKb(-1);
-        }}
+        onFocus={openPop}
         onClick={() => {
           // 挑完焦點還在欄上：再點一下重開浮層（onFocus 不會再觸發）
-          if (!open) {
-            setOpen(true);
-            setQ("");
-            setKb(-1);
-          }
+          if (!open) openPop();
         }}
         onChange={(e) => {
           setQ(e.target.value);
@@ -1047,32 +1209,56 @@ export function CategoryCombo({
         }}
         onKeyDown={onKeyDown}
       />
+      {!open && extra}
       {open && (
-        <div className="ns-tk-pop is-cat" role="listbox" aria-label="分類選項" onMouseDown={(e) => e.preventDefault()}>
-          {options.length > 0 ? (
+        <div ref={popRef} className="ns-tk-pop is-cat is-tree" role="listbox" aria-label="分類選項" onMouseDown={(e) => e.preventDefault()}>
+          {nOpt > 0 ? (
             <>
               <div className="hd">{name ? "符合" : "常用"}</div>
-              {options.map((c, i) => {
-                const p = c.parent_id ? catById[c.parent_id] : undefined;
+              {options.map((c, i) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === kb}
+                  tabIndex={-1}
+                  title={categoryLabel(c, catById)}
+                  className={`opt${i === kb ? " kb" : ""}${c.id === categoryId ? " on" : ""}`}
+                  onClick={() => pick(c.id)}
+                >
+                  <CatShortName cat={c} catById={catById} />
+                </button>
+              ))}
+            </>
+          ) : name ? (
+            <div className="hd">找不到「{name}」</div>
+          ) : null}
+          {nTree > 0 && (
+            <>
+              {nOpt > 0 && <div className="sep" />}
+              <div className="hd">全部分類</div>
+              {tree.map((n, j) => {
+                const i = nOpt + j;
                 return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    role="option"
-                    aria-selected={i === kb}
-                    tabIndex={-1}
-                    className={`opt${i === kb ? " kb" : ""}${c.id === categoryId ? " on" : ""}`}
-                    onClick={() => pick(c.id)}
-                  >
-                    {p && <span className="path">{p.name} ›</span>}
-                    {c.name}
-                  </button>
+                  <CatTreeRow key={n.cat.id} node={n} open={treeOpen.has(n.cat.id)} onToggle={toggleTree}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={i === kb}
+                      aria-level={n.depth + 1}
+                      tabIndex={-1}
+                      className={`opt${i === kb ? " kb" : ""}${n.cat.id === categoryId ? " on" : ""}`}
+                      onClick={() => pick(n.cat.id)}
+                    >
+                      <span className="t">{n.cat.name}</span>
+                      {n.children.length > 0 && <span className="r">{n.children.length} 個</span>}
+                    </button>
+                  </CatTreeRow>
                 );
               })}
             </>
-          ) : (
-            <div className="hd">{name ? `找不到「${name}」` : "打字搜尋分類"}</div>
           )}
+          {!name && nOpt === 0 && nTree === 0 && <div className="hd">打字搜尋分類</div>}
           {(cat || acts.length > 0) && <div className="sep" />}
           {cat && (
             <button type="button" tabIndex={-1} className="opt is-quiet" onClick={() => pick(null)}>
@@ -1080,7 +1266,7 @@ export function CategoryCombo({
             </button>
           )}
           {acts.map((a, j) => {
-            const i = options.length + j;
+            const i = nOpt + nTree + j;
             return (
               <button
                 key={a}
@@ -1167,6 +1353,378 @@ function ToAmountField(props: {
       />
       <small>{props.currency}</small>
     </span>
+  );
+}
+
+/* ───────── 售票口④ ───────── */
+
+/** 欄位列（同 FieldRow，多一個 class 給 is-rep／is-tags） */
+function FieldLine({ label, top, className, children }: { label: string; top?: boolean; className?: string; children: ReactNode }) {
+  return (
+    <div className={`field${top ? " top" : ""}${className ? ` ${className}` : ""}`}>
+      <span className="lbl">{label}</span>
+      <div style={{ minWidth: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+/** 記一筆最上面一排常用票種（D-票-68；原型 5-desktop）：點了整張填好、只差存檔；右鍵＝templateMenu（同管帳對話框的 ⋯） */
+function TemplateMarks({ activeId }: { activeId: string | null }) {
+  const templates = useTicketStore((s) => s.templates);
+  const accounts = useTicketStore((s) => s.accounts);
+  const accById = useTicketStore((s) => s.accById);
+  const catById = useTicketStore((s) => s.catById);
+  const curByCode = useTicketStore((s) => s.curByCode);
+  const routes = useNodeStore((s) => s.routes);
+  const index = useTagStore((s) => s.index);
+  if (!templates.length) return null; // 還沒存過：入口在帳目詳情的「存成常用…」
+  const ctx = { accounts, accById, catById, curByCode, routes };
+  const sign = (t: TemplateRow) => (t.kind === "income" ? "＋" : t.kind === "transfer" ? "⇄" : "−");
+  return (
+    <div className="ns-tk-marks" role="group" aria-label="常用票種">
+      {templates.map((t) => {
+        const acc = t.account_id ? accById[t.account_id] : undefined;
+        const dec = curByCode[t.currency ?? acc?.currency ?? MAIN_CURRENCY]?.decimals ?? 2;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            className={`ns-tk-mark${t.id === activeId ? " on" : ""}`}
+            data-kind={t.kind}
+            aria-pressed={t.id === activeId}
+            title={`點一下就帶入：${templateWhat(t, ctx, tagNamesOf(index, TK_TAG_TEMPLATE, t.id))}`}
+            onClick={() => void useTicketStore.getState().applyTemplate(t.id)}
+            onContextMenu={rowContextMenu(() => ({ overline: { zh: "常用票種", latin: "Presets" }, label: t.name, items: templateMenu(t) }))}
+          >
+            <span className="n">{t.name}</span>
+            {t.amount_minor !== null && (
+              <span className="v">
+                {sign(t)}
+                {moneyText(Math.abs(t.amount_minor), dec)}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 從願望「買了」開的記一筆：撕線下一行淡字（D-票-69；原型 6-買了-desktop） */
+function FromWish({ id }: { id: string }) {
+  const w = useTicketStore((s) => s.wishes.find((x) => x.id === id));
+  if (!w) return null;
+  return (
+    <p className="ns-tk-fromwish">
+      從願望清單帶入<b>「{w.name}」</b>· 存了就移到「已買」
+    </p>
+  );
+}
+
+/* ── 備註記憶（D-票-70、71）：新票＝草稿；舊票＝離開才存（Esc 還原、Ctrl+Enter 存）、選了以前的就存 ── */
+
+function NoteRecall({ value, onChange, onPick }: { value: string; onChange(text: string): void; onPick(text: string): void }) {
+  const items = useTicketStore((s) => s.noteRecall);
+  return (
+    <RecallInput
+      multiline
+      rows={1}
+      className="ns-tk-textin"
+      ariaLabel="備註"
+      placeholder="備註"
+      value={value}
+      items={items}
+      onNeedItems={() => void useTicketStore.getState().loadNoteRecall()}
+      onChange={onChange}
+      onPick={(it) => onPick(it.text)}
+    />
+  );
+}
+
+function NoteRecallCommit({ value, onCommit, onPick }: { value: string; onCommit(text: string): void; onPick(text: string): void }) {
+  const items = useTicketStore((s) => s.noteRecall);
+  const [draft, setDraft] = useState(value);
+  const focused = useRef(false);
+  const committed = useRef(value);
+  useEffect(() => {
+    committed.current = value;
+    if (!focused.current) setDraft(value);
+  }, [value]);
+  const commit = (text: string) => {
+    const next = text.trim();
+    if (next === committed.current) {
+      setDraft(committed.current);
+      return;
+    }
+    committed.current = next;
+    setDraft(next);
+    onCommit(next);
+  };
+  return (
+    <RecallInput
+      multiline
+      rows={1}
+      ariaLabel="備註"
+      placeholder="備註"
+      value={draft}
+      items={items}
+      onNeedItems={() => void useTicketStore.getState().loadNoteRecall()}
+      onChange={setDraft}
+      onPick={(it) => {
+        // 選了就存（連同順便帶的分類一次寫）：先記成已送出，之後失焦不再送一次
+        const t = it.text.trim();
+        committed.current = t;
+        setDraft(t);
+        onPick(t);
+      }}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        commit(draft);
+      }}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          commit(draft);
+        } else if (e.key === "Escape" && draft !== committed.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          setDraft(committed.current);
+        }
+      }}
+    />
+  );
+}
+
+/* ── 定期（D-票-66；原型 1A） ── */
+
+/** 說明行：「存檔＝這筆照記，12/5 起自動記」（舊票：「從 12/5 起自動記」）；第一班在過去 ⇒ 會補記到今天 */
+function quickHint(q: RepeatQuick, dayKey: string, today: string, isNew: boolean): string {
+  const first = quickFirstRun(q, dayKey);
+  if (!first) return "結束日之前沒有下一班";
+  const head = isNew ? "存檔＝這筆照記，" : "從 ";
+  if (first < today) return `${head}${shortDay(first)} 起的會補記到今天`;
+  if (first === today) return `${head}今天起自動記`;
+  return `${head}${shortDay(first)} 起自動記`;
+}
+
+/** 星期幾／幾號的小浮層（每週＝一…日；每月＝1～31） */
+function DayPop({ q, onPick, onClose }: { q: RepeatQuick; onPick(p: Partial<RepeatQuick>): void; onClose(): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useOutside(ref, onClose);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>("[aria-pressed='true']")?.focus({ preventScroll: true });
+  }, []);
+  const weekly = q.freq === "weekly";
+  return (
+    <div
+      ref={ref}
+      className="ns-tk-pop ns-tk-daypop"
+      role="dialog"
+      aria-label={weekly ? "星期幾" : "每月幾日"}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      {weekly ? (
+        <div className="ns-tk-re-wk" role="group">
+          {WEEKDAY_ORDER.map((d) => (
+            <button key={d} type="button" aria-pressed={q.weekday === d} onClick={() => onPick({ weekday: d })}>
+              {WEEKDAY_LABEL[d]}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="ns-tk-re-days" role="group">
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((n) => (
+              <button key={n} type="button" aria-pressed={q.monthday === n} onClick={() => onPick({ monthday: n })}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="ns-tk-pop-note">遇到月底沒有這天，就記在當月最後一天</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 「每月 [5 日] · 結束日 [不設]」（每日只有「每日」）；日子 chip 開 DayPop、結束日開日期挑選器（可清除） */
+function QuickWhen({ q, dayKey, onChange }: { q: RepeatQuick; dayKey: string; onChange(q: RepeatQuick): void }) {
+  const [pop, setPop] = useState<"day" | "until" | null>(null);
+  const untilRef = useRef<HTMLButtonElement>(null);
+  return (
+    <div className="ns-tk-repset-when">
+      {q.freq === "daily" ? (
+        <span>每日</span>
+      ) : (
+        <>
+          {q.freq === "weekly" ? "每週" : "每月"}
+          <span className="ns-tk-repset-chipwrap">
+            <button
+              type="button"
+              className="ns-tk-repset-chip"
+              aria-haspopup="dialog"
+              aria-expanded={pop === "day"}
+              data-pop-toggle
+              onClick={() => setPop(pop === "day" ? null : "day")}
+            >
+              {q.freq === "weekly" ? WEEKDAY_LABEL[q.weekday] : `${q.monthday} 日`}
+              <TkIcon name="caret" size={10} />
+            </button>
+            {pop === "day" && (
+              <DayPop
+                q={q}
+                onClose={() => setPop(null)}
+                onPick={(p) => {
+                  setPop(null);
+                  onChange({ ...q, ...p });
+                }}
+              />
+            )}
+          </span>
+        </>
+      )}
+      <span className="sep">·</span>
+      結束日
+      <span className="ns-tk-repset-chipwrap">
+        <button
+          ref={untilRef}
+          type="button"
+          className={`ns-tk-repset-chip${q.until ? "" : " is-empty"}`}
+          aria-haspopup="dialog"
+          aria-expanded={pop === "until"}
+          data-pop-toggle
+          onClick={() => setPop(pop === "until" ? null : "until")}
+        >
+          {q.until ? q.until.replace(/-/g, "/") : "不設"}
+          <TkIcon name="caret" size={10} />
+        </button>
+        {pop === "until" && (
+          <DatePicker
+            label="結束日"
+            value={q.until}
+            markValue
+            min={dayStep(dayKey, 1)}
+            anchor={untilRef.current}
+            onPick={(d) => {
+              setPop(null);
+              onChange({ ...q, until: d });
+            }}
+            onClear={
+              q.until
+                ? () => {
+                    setPop(null);
+                    onChange({ ...q, until: null });
+                  }
+                : undefined
+            }
+            onClose={() => setPop(null)}
+          />
+        )}
+      </span>
+    </div>
+  );
+}
+
+const FREQ_OPTIONS = REPEAT_QUICK_FREQS.map((f) => ({ value: f, label: REPEAT_QUICK_TEXT[f] }));
+
+/** 新票的「定期」：四顆常駐；選了每日／每週／每月才出日子與說明（存檔＝這筆照記＋從下一班建規則，store.saveDraft） */
+function DraftRepeat({ q, dayKey, today }: { q: RepeatQuick; dayKey: string; today: string }) {
+  const store = useTicketStore.getState;
+  return (
+    <div className="ns-tk-repset">
+      <Segmented<RepeatQuickFreq> compact className="ns-tk-repseg" aria-label="定期" options={FREQ_OPTIONS} value={q.freq} onChange={(f) => store().setDraftRepeat(f)} />
+      {q.freq !== "none" && (
+        <>
+          <QuickWhen q={q} dayKey={dayKey} onChange={(repeat) => store().setDraft({ repeat })} />
+          <p className="ns-tk-repset-hint">
+            <TkIcon name="repeat" size={12} />
+            {quickHint(q, dayKey, today, true)}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 舊票的「定期」：連著規則＝那行字＋「管理 ›」（完整編輯器）；沒連＝「不重複　設成定期…」，按了就地攤開同一組快設
+ * （預設每月、日子從這筆帶）＋「更多設定…」（完整編輯器，每 N 週、好幾天）・取消・設定（store.setEntryRepeatQuick：從下一班起建規則、連上這筆）。
+ */
+function EntryRepeat({ row, today }: { row: EntryRow; today: string }) {
+  const rule = useLinkedRepeat(row);
+  const accById = useTicketStore((s) => s.accById);
+  const catById = useTicketStore((s) => s.catById);
+  const curByCode = useTicketStore((s) => s.curByCode);
+  const [q, setQ] = useState<RepeatQuick | null>(null); // null＝收著
+  const [busy, setBusy] = useState(false);
+  const store = useTicketStore.getState;
+  if (rule) {
+    return (
+      <span className="ns-tk-repfield">
+        <span className="t" title={repeatLabel(rule, { accById, catById, curByCode })}>
+          {repeatLineText(rule)}
+        </span>
+        <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-btn" onClick={() => store().openRepeatEditor(rule.id)}>
+          管理 ›
+        </button>
+      </span>
+    );
+  }
+  if (!q) {
+    return (
+      <span className="ns-tk-repfield">
+        <span className="t is-none">不重複</span>
+        <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-btn" onClick={() => setQ(quickRepeat("monthly", row.occurred_on))}>
+          設成定期…
+        </button>
+      </span>
+    );
+  }
+  const apply = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (await store().setEntryRepeatQuick(row.id, q)) setQ(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="ns-tk-repset">
+      <Segmented<RepeatQuickFreq>
+        compact
+        className="ns-tk-repseg"
+        aria-label="定期"
+        options={FREQ_OPTIONS.filter((o) => o.value !== "none")}
+        value={q.freq}
+        onChange={(f) => setQ(quickRepeat(f, row.occurred_on, q.until))}
+      />
+      <QuickWhen q={q} dayKey={row.occurred_on} onChange={setQ} />
+      <p className="ns-tk-repset-hint">
+        <TkIcon name="repeat" size={12} />
+        {quickHint(q, row.occurred_on, today, false)}
+      </p>
+      <div className="ns-tk-repset-btns">
+        <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-btn" title="每幾週一次、一週好幾天…" onClick={() => store().makeRepeatFromEntry(row.id)}>
+          更多設定…
+        </button>
+        <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-btn" onClick={() => setQ(null)}>
+          取消
+        </button>
+        <button type="button" className="ns-btn ns-btn--sm btn-seal ns-tk-btn" disabled={busy} onClick={() => void apply()}>
+          設定
+        </button>
+      </div>
+    </div>
   );
 }
 

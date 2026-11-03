@@ -10655,3 +10655,8 @@ mod join_message_tests {
         assert_eq!(join_message(&JoinOutcome::Merged, false), "已加入——兩邊的資料已合併，較晚改的為準。");
     }
 }
+
+// 車庫與回顧 D-主-214：stamps 表走一遍同步引擎（掛在 engine 底下才讀得到私有函式，同 foundation_checks）
+#[cfg(test)]
+#[path = "stamps_checks.rs"]
+mod stamps_checks;

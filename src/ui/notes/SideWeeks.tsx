@@ -1,7 +1,7 @@
 /**
  * SideWeeks——書封頁務件裡的「近 12 週」方格（桌機；旅客筆記車次③契約 §5.1、D-筆-45；示意＝prototypes/旅客筆記-日記選日期-參考圖.html）。
  *
- *   h2.sub「近 12 週 RECENT」＋ `div.ns-notes-weekgrid`：一欄一週（12 欄）、由上到下照 `uiStore.weekStart` 排七天；格 12×12、間距 3
+ *   h2.sub「翻日・近 12 週」（丁 D-主-237；原「近 12 週 RECENT」）＋ `div.ns-notes-weekgrid`：一欄一週（12 欄）、由上到下照 `uiStore.weekStart` 排七天；格 12×12、間距 3
  *   格＝`button.ns-notes-wk[.has][.today][.sel]`（未來 disabled）：寫過＝填墨、沒寫＝書封 hover 底、今天外框金、選中金菱形在格下
  *   aria-label「10 月 5 日，有日記」；只分「寫過／沒寫」兩階（不分深淺）
  *   點格＝ await notesFlush（存正在打的字、非空草稿）→ `setDiaryDay(day)`
@@ -68,7 +68,10 @@ export function SideWeeks() {
 
   return (
     <div className="ns-notes-weeks" role="group" aria-label="近 12 週的日記">
-      <h2 className="sub">近 12 週 RECENT</h2>
+      {/* 丁 D-主-237：小標說明這塊是什麼（同收件匣「篩選・種類」、荷札「目錄・荷札」的寫法） */}
+      <h2 className="sub ns-notes-auxcap">
+        <b>翻日</b>・近 12 週
+      </h2>
       <div ref={gridRef} className="ns-notes-weekgrid" onKeyDown={onKeyDown}>
         {days.map((d) => {
           const has = (marks[d] ?? 0) > 0;

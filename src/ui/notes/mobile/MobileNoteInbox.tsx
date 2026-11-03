@@ -15,10 +15,12 @@
  * UI 丙-6：段頂一行改寫「待整理 N 則」（M3：分頁籤上的數字拿掉、搬到這裡；原說明句照 10-20 文案規則拿掉）；
  *   空狀態換共用 EmptyState（E14：完成語氣 done＋淡受付章＋次鈕「記一句」；`ready` 之前不畫，免得進頁閃一下）；
  *   「排某天」日期面板給 `backId`（S9）＝殼換 MSheet，跟本檔登記的那層合併成一層（返回鍵按一次只關日期面板）。
+ * 丁 D-主-237：段頂那一行右邊三顆選項 chip「全部／筆記／車票」＝桌機書封「篩選・種類」的手機版（同一份 `notesStore.inboxKind`）；
+ *   兩種都有、或正在篩的時候才出現（只有一種時篩了也一樣）。
  */
 import { useState } from "react";
 import { useUiStore } from "../../../store/uiStore";
-import { useNotesStore, type InboxRef } from "../../../store/notesStore";
+import { useNotesStore, type InboxKind, type InboxRef } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
 import { addDays, dayKeyOf, todayKey } from "../../../lib/date";
 import { lineCount } from "../../../domain/notes";
@@ -44,6 +46,8 @@ type Pop = { id: string; kind: "someday" | "attach" | "route" } | null;
 export function MobileNoteInbox({ ready }: { ready: boolean }) {
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
+  const inboxKind = useNotesStore((s) => s.inboxKind);
+  const setInboxKind = useNotesStore((s) => s.setInboxKind);
   const selected = useNotesStore((s) => s.inboxSelected);
   const selectInbox = useNotesStore((s) => s.selectInbox);
   const openCapture = useNotesStore((s) => s.openCapture);
@@ -54,9 +58,23 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
   useBackLayer("notes.inbox.someday", pop?.kind === "someday", () => setPop(null), "sheet");
 
   const items: Item[] = [
-    ...inboxNotes.map((n): Item => ({ kind: "note", id: n.id, at: n.noted_at, note: n })),
-    ...inboxTickets.map((t): Item => ({ kind: "ticket", id: t.id, at: t.created_at, ticket: t })),
+    ...(inboxKind === "ticket" ? [] : inboxNotes).map((n): Item => ({ kind: "note", id: n.id, at: n.noted_at, note: n })),
+    ...(inboxKind === "note" ? [] : inboxTickets).map((t): Item => ({ kind: "ticket", id: t.id, at: t.created_at, ticket: t })),
   ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const total = inboxNotes.length + inboxTickets.length;
+  const showKinds = inboxKind !== "all" || (inboxNotes.length > 0 && inboxTickets.length > 0);
+  const kindChip = (k: InboxKind, label: string) => (
+    <button key={k} type="button" className="chip ns-chip" aria-pressed={inboxKind === k} onClick={() => setInboxKind(k)}>
+      {label}
+    </button>
+  );
+  const kinds = showKinds && (
+    <span className="ns-notes-mkinds" role="group" aria-label="只看哪一種">
+      {kindChip("all", "全部")}
+      {kindChip("note", "筆記")}
+      {kindChip("ticket", "車票")}
+    </span>
+  );
 
   const isSel = (it: Item) => !!selected && selected.kind === it.kind && selected.id === it.id;
   const toggle = (it: Item) => {
@@ -67,7 +85,15 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
 
   return (
     <>
-      {items.length === 0 ? (
+      {items.length === 0 && total > 0 ? (
+        // 篩選把這一種都藏起來了（不是整理完了）
+        <>
+          <p className="ns-notes-mlede">
+            待整理 <b>{total}</b> 則{kinds}
+          </p>
+          <EmptyState tone="nores" stamp={null} title="這一種沒有待整理的" secondary={{ label: "看全部", onClick: () => setInboxKind("all") }} />
+        </>
+      ) : items.length === 0 ? (
         ready && (
           <EmptyState
             tone="done"
@@ -80,7 +106,7 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
       ) : (
         <>
           <p className="ns-notes-mlede">
-            待整理 <b>{items.length}</b> 則
+            待整理 <b>{total}</b> 則{kinds}
           </p>
           <ul className="ns-notes-milist">
             {items.map((it) =>

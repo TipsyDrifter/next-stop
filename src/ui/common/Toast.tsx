@@ -50,6 +50,11 @@ export function Toast() {
       aria-live="polite"
       className="techo-card ns-toast fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-max max-w-[min(92vw,560px)] flex items-center gap-3 pl-4 pr-1.5 py-1.5 transition duration-200 ease-out starting:opacity-0 starting:translate-y-2"
     >
+      {toast.lead && (
+        <span className="shrink-0 grid place-items-center" aria-hidden>
+          {toast.lead}
+        </span>
+      )}
       {toast.sub ? (
         <span className="min-w-0 flex flex-col gap-0.5 py-0.5">
           <span className="break-words line-clamp-2">{toast.message}</span>

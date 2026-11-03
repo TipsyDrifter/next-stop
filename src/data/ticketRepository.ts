@@ -1,13 +1,13 @@
 /**
  * 售票口線的資料層介面（車次①契約 §3.4；甲席 Stage 0 介面先行）。
  *
- * 兩個實作：`SqliteTicketRepository`（真機；前端直連 SQL＋讀備份一支 Rust command）與
+ * 兩個實作：`SqliteTicketRepository`（真機；前端直連 SQL）與
  * `MemoryTicketRepository`（`?mock=1`）。兩者對本檔**只用 `import type`**，執行期不循環；
  * `./index` 不 import 本線任何檔（地基契約 10-3：不經 barrel）。
  *
  * **只有 store（與 memory／sqlite 實作）能 import 本檔**；UI 只讀 store、只叫 store 的動作（契約 §2.5-2、§8 牙齒）。
  * 錯誤慣例：輸入不合法一律 `throw new RangeError("<人話>")`（全文契約 §4.3），store 接住後 toast `e.message`。
- * 寫入慣例：驗證與欄值推導**都呼叫 domain**（`buildEntryRow`／`applyEntryPatch`／…）；每支公開寫入＝一個 WriteBatch（匯入分批，0-21）。
+ * 寫入慣例：驗證與欄值推導**都呼叫 domain**（`buildEntryRow`／`applyEntryPatch`／…）；每支公開寫入＝一個 WriteBatch（定期帳實體化分批，0-21）。
  */
 import type {
   AccountGroup,
@@ -18,15 +18,11 @@ import type {
   EntryRow,
   EntryPatch,
   NewEntryInput,
-  MmbakReadResult,
-  ImportLocal,
-  ImportPlan,
-  ImportChoice,
-  ImportOutcome,
   UsageSince,
 } from "../domain/ticket";
 import type { EntryQuery } from "../domain/ticketView";
-import type { BudgetRow, BudgetScope, NewRepeatInput, PlanImportPart, RepeatPatch, RepeatRow } from "../domain/ticketPlan";
+import type { BudgetRow, BudgetScope, NewRepeatInput, RepeatPatch, RepeatRow } from "../domain/ticketPlan";
+import type { NewTemplateInput, NewWishInput, NoteUse, TemplatePatch, TemplateRow, WishPatch, WishRow } from "../domain/ticketAids";
 import { MOCK_MODE, WIPED_MODE } from "./index";
 import { SqliteTicketRepository } from "./sqliteTicketRepository";
 import { MemoryTicketRepository } from "./memoryTicketRepository";
@@ -36,6 +32,14 @@ export type { NewEntryInput, EntryPatch } from "../domain/ticket";
 export type { EntryQuery } from "../domain/ticketView";
 /** 第③階段（③契約 §3.4）：規則的輸入定義在 domain（draftToRepeatInput 產生它），這裡 re-export */
 export type { NewRepeatInput, RepeatPatch, BudgetScope } from "../domain/ticketPlan";
+/** 售票口④：願望、常用票種、備註歷史的輸入與列定義在 domain（ticketAids.ts），這裡 re-export */
+export type { NewWishInput, WishPatch, WishRow, NewTemplateInput, TemplatePatch, TemplateRow, NoteUse } from "../domain/ticketAids";
+
+/** 實體化記出來的一筆（售票口④：store 拿它把規則的荷札帶到這筆上） */
+export interface MaterializedRow {
+  id: string;
+  repeat_id: string;
+}
 
 export interface NewAccountInput {
   name: string; // trim 後非空，否則 RangeError（§4.3）
@@ -52,7 +56,7 @@ export interface AccountPatch {
 export interface NewCategoryInput {
   kind: CategoryKind;
   name: string;
-  parentId: string | null; // parent 必須是同 kind 的主分類
+  parentId: string | null; // parent 必須是同 kind、還在、沒封存（含上層）的分類；不限層數（售票口④ 第二輪 D-票-78）
 }
 export interface NewCurrencyInput {
   code: string;
@@ -122,7 +126,10 @@ export interface TicketRepository {
   adjustBalance(accountId: string, targetMinor: number, occurredOn: string, note: string): Promise<EntryRow | null>;
   createCategory(input: NewCategoryInput): Promise<CategoryRow>;
   renameCategory(id: string, name: string): Promise<void>;
-  /** 封存主分類 ⇒ 子分類一起；取消封存主分類 ⇒ 與它同一刻被連帶封存的子分類一起回來；未分類 ⇒ RangeError */
+  /**
+   * 封存 ⇒ 它底下所有子孫（實際的樹，`categorySubtreeIds`）中還沒封存的一起、同一個 archived_at；取消封存 ⇒ 它＋與它同一刻被連帶封存的子孫
+   * 一起回來（先前各自封存的不動）；未分類 ⇒ RangeError。分類沒有刪除（只有封存）；父列被同步刪掉的子孫當頂層（D-票-62）。
+   */
   setCategoryArchived(id: string, archived: boolean): Promise<void>;
   /** 同 kind、同層、未封存的鄰居互換 position（未分類不參與）；父分類已不在的子分類當主分類那一層（`effectiveParentId`，D-票-62） */
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
@@ -149,16 +156,9 @@ export interface TicketRepository {
   updateRepeat(id: string, patch: RepeatPatch, today: string): Promise<RepeatRow>;
   /**
    * 暫停：paused_at = now；開始：paused_at = NULL＋next_on＝resumeNextOn——手建的（或開始過的）＝nextFixedDate(rule, today)（明天起）、
-   * 從沒開始過的匯入規則 next_on 不動（＝最後一次匯入帶進來的 NEXT_DATE，✎-8）。「從沒開始過」＝neverStarted(repeat, entries)（含墓碑）
+   * 早期從財務管家匯入、從沒開始過的規則 next_on 不動（＝當時匯入帶進來的 NEXT_DATE，✎-8；匯入功能已拿掉，既有的列照舊）。「從沒開始過」＝neverStarted(repeat, entries)（含墓碑）
    */
   setRepeatPaused(id: string, paused: boolean, today: string): Promise<void>;
-  /**
-   * 「全部開始」的對象（0-1；收尾修正）：未刪、暫停中、從沒開始過的匯入規則（neverStarted，看帳含墓碑）的 id。
-   * 橫幅「N 條還在暫停」、確認窗「開始 N 條？」都數這一份；resumeAllRepeats 開始的也是同一個判法
-   */
-  listUnstartedRepeatIds(): Promise<string[]>;
-  /** 全部開始（0-1）：只開始 listUnstartedRepeatIds 那幾條（手動暫停的、開始過的不動），同一批照上面開始；回開始了幾條 */
-  resumeAllRepeats(today: string): Promise<number>;
   softDeleteRepeat(id: string): Promise<void>;
   restoreRepeat(id: string): Promise<void>;
   /** 把一筆既有的帳連到規則（「設成定期」後）：tk_entries.repeat_id = id */
@@ -171,25 +171,54 @@ export interface TicketRepository {
   materializeRepeats(
     today: string,
     dayStartHour: number,
-  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[] }>;
+  ): Promise<{ inserted: number; reconciled: number; blocked: { id: string; reason: string }[]; rows: MaterializedRow[] }>;
 
-  /* ── 匯入（①b） ── */
-  /** plugin-dialog open()；桌機帶 `.mmbak` 篩選、手機不帶（MIME 不明，probe §2）；取消＝null */
-  pickImportFile(shell: "desktop" | "mobile"): Promise<string | null>;
-  /** invoke("ticket_import_read", { path })（§3.6） */
-  readImport(path: string): Promise<MmbakReadResult>;
-  /** 六張表**含墓碑**的全部列（planImport 的 local；第③階段多 budgets／repeats） */
-  loadImportLocal(): Promise<ImportLocal>;
+  /* ═══ 售票口④（契約 §5、§6、§8；Stage 0 資料席） ═══ */
+
+  /* ── 排序：搬到第 index 個（拖曳用；上下移照舊 moveAccount／moveCategory）。整組寫（#101，同 planSwap 的骨架） ── */
+  /** 同群組、未封存的帳戶裡搬到第 index 個（0 起算、夾到範圍內）；位置沒變＝不寫 */
+  moveAccountTo(id: string, index: number): Promise<void>;
+  /** 同 kind、同層、未封存的分類裡搬到第 index 個（層＝effectiveParentId，同 moveCategory）；未分類不動 */
+  moveCategoryTo(id: string, index: number): Promise<void>;
   /**
-   * materializeImport（§4.7）→ 第 1 批（幣別＋帳戶＋分類，第③階段尾端接預算與規則：預算 insert＝DO UPDATE、規則 insert＝DO NOTHING、
-   * updates 走 UPDATE）＋帳每 IMPORT_CHUNK 筆一批（0-21）；每批後 onProgress(已寫帳筆數, 帳總筆數)
+   * 「移到…」換上層（售票口④ 第二輪 D-票-78；拖曳換歸屬也走這支）：newParentId null＝頂層；index＝在新的那一層排第幾（省略＝最後）。
+   * 推導照 `planMoveUnder`（domain，兩份 repo 共用）：防環（不能移到自己或自己的子孫底下）、同 kind、未分類不能動也不能當上層、
+   * 封存的不能動也不能當上層（含上層封存）——不合 ⇒ RangeError（`moveUnderError` 那句）。一個 WriteBatch：它的 parent_id＋
+   * 兩邊兄弟組整組 position（#101）。上層沒變＝等於 moveCategoryTo(id, index)。
    */
-  applyImport(
-    plan: ImportPlan,
-    choices: Readonly<Record<string, ImportChoice>>,
-    part: PlanImportPart,
-    onProgress: (done: number, total: number) => void,
-  ): Promise<ImportOutcome>;
+  moveCategoryUnder(id: string, newParentId: string | null, index?: number): Promise<void>;
+
+  /* ── 讀 ── */
+  /** 還在的帳、備註非空（TRIM 後）、不是精算（系統寫的備註）：note、occurred_on、kind、category_id（備註記憶的來源；順序不保證） */
+  listNoteUses(): Promise<NoteUse[]>;
+  /** 依 id 讀還在的帳（願望「已買」要那筆的日期與金額）；不在的不回；順序不保證 */
+  getEntries(ids: readonly string[]): Promise<EntryRow[]>;
+
+  /* ── 願望（tk_wishes；每支一個 WriteBatch） ── */
+  /** 未刪的願望（含已買）；position、created_at、id */
+  listWishes(): Promise<WishRow[]>;
+  /** 新的排在想買清單最上面（position＝現有最小 − 1）；名稱空 ⇒ RangeError */
+  createWish(input: NewWishInput): Promise<WishRow>;
+  /** 只寫真的變了的欄；沒變＝不寫、回原列 */
+  updateWish(id: string, patch: WishPatch): Promise<WishRow>;
+  /** 買了：entry_id＝那筆、bought_at＝現在；entryId null＝清掉（回到想買） */
+  setWishBought(id: string, entryId: string | null): Promise<void>;
+  softDeleteWish(id: string): Promise<void>;
+  restoreWish(id: string): Promise<void>;
+  /** 在「想買」那一組（entry_id 沒指到還在的帳）裡搬到第 index 個；整組寫 */
+  moveWishTo(id: string, index: number): Promise<void>;
+
+  /* ── 常用票種（tk_templates；每支一個 WriteBatch） ── */
+  /** 未刪的常用票種；position、created_at、id */
+  listTemplates(): Promise<TemplateRow[]>;
+  /** 排在最後（position＝現有最大 + 1）；名稱空、kind 不對 ⇒ RangeError */
+  createTemplate(input: NewTemplateInput): Promise<TemplateRow>;
+  /** 只寫真的變了的欄；沒變＝不寫、回原列 */
+  updateTemplate(id: string, patch: TemplatePatch): Promise<TemplateRow>;
+  softDeleteTemplate(id: string): Promise<void>;
+  restoreTemplate(id: string): Promise<void>;
+  /** 搬到第 index 個；整組寫 */
+  moveTemplateTo(id: string, index: number): Promise<void>;
 }
 
 export const ticketRepo: TicketRepository = MOCK_MODE

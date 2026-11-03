@@ -1,0 +1,58 @@
+/* 支線＝章節標題、列車進度圈（丁 D-主-247／248；視覺真相＝prototypes/design-structure-節點種類.html 方案 A）。
+ * 桌機大綱與手機路線圖第二層都 import 本檔；手機那幾條掛 `[data-shell="mobile"]`。顏色只用 token。 */
+
+/* ── 支線章節列（桌機）：不是票。徽章（虛線＝容器，同票根語彙）＋襯線名＋「支線」小字＋虛線＋「4 班・済 1」＋常駐淡態 ⋯ ── */
+.ticket-li.ch-li { margin-top: 10px; }
+.ticket-li.ch-li:first-child { margin-top: 0; }
+.ticket-li.ch-li > .row-fold { top: 12px; }
+.ns-chapter {
+  position: relative; display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 8px 6px 6px 2px;
+  border-bottom: 1px solid var(--color-line); cursor: pointer;
+}
+.ns-chapter .ch-badge {
+  width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1.4px dashed currentColor; display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 600; font-size: var(--fs-xs);
+}
+.ns-chapter .ch-title {
+  min-width: 0; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); letter-spacing: .16em; color: var(--color-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ns-chapter .ch-badge { background: transparent; color: inherit; padding: 0; cursor: pointer; }
+.ns-chapter .ch-kind {
+  font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); white-space: nowrap; margin-left: -4px;
+  background: none; border: 0; padding: 2px 0; cursor: pointer; font-family: inherit;
+}
+.ns-chapter .ch-kind:hover { color: var(--color-ink); text-decoration: underline dotted; text-underline-offset: 3px; }
+.ns-chapter .ch-fold { color: var(--color-ink-faint); }
+.ns-chapter .ch-rule { flex: 1; border-top: 1px dashed var(--color-dash); align-self: center; min-width: 24px; }
+.ns-chapter .ch-count { font-size: var(--fs-sm); letter-spacing: .1em; color: var(--color-ink-soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ns-chapter .ch-count .s { color: var(--color-seal); font-family: var(--font-display); font-weight: 600; margin-right: 2px; }
+.ns-chapter .ch-done { font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-seal); }
+.ns-chapter.selected { background: var(--sel-bg); border-bottom-color: var(--accent); }
+.ns-chapter.picked { background: var(--sel-bg); }
+.ns-chapter .row-more { position: static; opacity: var(--dim, .55); }
+.ns-chapter:hover .row-more, .ns-chapter.selected .row-more { opacity: 1; }
+.ns-chapter .ns-inline-input { flex: 1; min-width: 0; }
+
+/* ── 進度圈（有子項的列車／車廂，検印欄位置）：54 同検印圈 ── */
+.ns-ring { position: relative; display: grid; place-items: center; flex: none; }
+.ns-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ns-ring .trk { fill: none; stroke: var(--color-dash); stroke-width: 1.6; stroke-dasharray: 3 3.2; }
+.ns-ring .val { fill: none; stroke: var(--arc, var(--accent)); stroke-width: 2.6; stroke-linecap: round; }
+.ns-ring .rt { position: relative; font-family: var(--font-latin); font-size: 13px; letter-spacing: .02em; color: var(--color-ink-soft); line-height: 1; } /* 字面值：進度圈裡的數字（同検印圈內字，§2.9） */
+.ns-ring .rt b { font-weight: 600; color: var(--color-ink); font-size: 15px; } /* 字面值：同上 */
+.stamp-zone .ns-ring-wrap { position: relative; display: grid; place-items: center; cursor: pointer; }
+.stamp-zone .can-stamp {
+  position: absolute; right: 100%; top: 50%; transform: translateY(-50%); margin-right: 6px;
+  font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); white-space: nowrap; pointer-events: none;
+}
+
+/* ── 手機：支線列＝章節樣子；進度圈 30 ── */
+[data-shell="mobile"] .m2-item.m2-chapter { border-bottom-color: var(--color-dash); }
+[data-shell="mobile"] .m2-chapter .m2-row { min-height: 52px; padding-top: 6px; }
+[data-shell="mobile"] .m2-chapter .m2-name { font-family: var(--font-display); font-weight: 700; letter-spacing: .12em; }
+[data-shell="mobile"] .m2-chapter .m2-meta { letter-spacing: .2em; }
+[data-shell="mobile"] .ns-ring.is-sm .trk { stroke-width: 1.3; stroke-dasharray: 2 2.2; }
+[data-shell="mobile"] .ns-ring.is-sm .val { stroke-width: 2.2; }
+[data-shell="mobile"] .ns-ring.is-sm .rt { font-size: 9.5px; letter-spacing: 0; } /* 字面值：手機小圈數字 */
+[data-shell="mobile"] .ns-ring.is-sm .rt b { font-size: 9.5px; }

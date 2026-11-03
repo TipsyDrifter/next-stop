@@ -370,19 +370,20 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 
 /* 頁首：UI 丙-4 A1 換共用 PageHeader（舊 .ns-tt-head／.ns-tt-switch 刪了；外距在檔尾〈丙-4 T1〉） */
 
-.ns-tt-error { flex: none; margin: 0; padding: 0 40px 10px calc(var(--page-gutter) + var(--page-pad-x)); font-size: var(--fs-ui); color: var(--color-late); }
+.ns-tt-error { flex: none; margin: 0; padding: 0 var(--canvas-inset) 10px; font-size: var(--fs-ui); color: var(--color-late); }
 
 /* 兩欄：左 380px（運行列＋發車台）、右軸；各欄自己捲 */
 .ns-tt-cols {
   flex: 1; min-height: 0;
   display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 26px;
-  padding: 0 40px 24px calc(var(--page-gutter) + var(--page-pad-x)); /* 左緣跟頁首同一條（theme.css 頁首外距 token） */
+  padding: 0 var(--canvas-inset) 24px; /* 寬度規範（丁 D-主-231）：畫布型，左右跟頁首同一條（--canvas-inset） */
 }
 .page.ns-tt[data-view="axis"] .ns-tt-cols { grid-template-columns: minmax(0, 1fr); }
+/* 只看軸＝清單型（一條軸讀下去）：主體與頁首都換 --read-inset（內容 848 置中） */
+.page.ns-tt[data-view="axis"] .ns-tt-cols, .page.ns-tt[data-view="axis"] .ns-tt-error { padding-left: var(--read-inset); padding-right: var(--read-inset); }
 .ns-tt-col { min-height: 0; display: flex; flex-direction: column; }
 .ns-tt-col.is-left { overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 .ns-tt-col.is-right { min-height: 0; }
-.ns-tt-col.is-full { max-width: 880px; }
 .ns-tt-axis.is-self { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 .ns-tt-col.is-left::-webkit-scrollbar, .ns-tt-axis.is-self::-webkit-scrollbar { width: 8px; }
 .ns-tt-col.is-left::-webkit-scrollbar-thumb, .ns-tt-axis.is-self::-webkit-scrollbar-thumb { background: var(--color-dash); border-radius: var(--radius-card); }
@@ -2793,7 +2794,8 @@ button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%,
  *   下面 .ns-tt-cols、.ns-tt-error 的左內距同一條；右 40、下距同行程表（--sp-5）；直欄不准把它壓扁（flex: none）。
  * F1：手機 .ns-tt-mtop＝.ns-tabrow 同款（Tabs 獨立一列＋末端 .mgr「管理」，兩段各自畫玻璃底＋底線，tabs.css）＝
  *   今日頂帶下一列的長相；這裡只留 sticky 與滿版（負 gutter 吃掉 .m-page 的左右內距），自己不再畫底、內距、底線。 */
-.page.ns-tt > .ns-tt-pagehead { flex: none; margin: var(--page-pad-top) 40px var(--sp-5) calc(var(--page-gutter) + var(--page-pad-x)); }
+.page.ns-tt > .ns-tt-pagehead { flex: none; margin: var(--page-pad-top) var(--canvas-inset) var(--sp-5); }
+.page.ns-tt[data-view="axis"] > .ns-tt-pagehead { margin-left: var(--read-inset); margin-right: var(--read-inset); }
 /* 六籤的工具列整排約 666px：標題同列放不下時整排換到下一列、靠右（同行程表 .ns-cal-head 的做法），不把主欄撐出橫捲。
  * 列距歸零：換下來的工具列靠自己的 margin-top（--sp-5）跟標題隔開。更窄（根 <760）由 TimetableView 強制窄版。 */
 .page.ns-tt > .ns-tt-pagehead { flex-wrap: wrap; row-gap: 0; }

@@ -8,10 +8,20 @@
  *   → 金額大字（inputmode=decimal 系統鍵盤，不自建數字鍵盤；右側幣別 chip 開 sheet）；外幣時下一行「≈ NT$ … · 匯率 …」可改折算額
  *   → 帳戶 chips 橫捲（轉帳＝「從」「到」兩列；不同幣別時多一欄「轉入金額」）——磨光⑥ 契約 §2-3（D-票-63）：最前面是「常用」
  *     （30 天次數前 3；帳戶 ≤ 3 個時沒有），小標與虛線隔開，後面照舊是手動順序的完整清單；最後一顆「＋ 新增帳戶」（丙-5 D3）
- *   → （收支）「常用」格子（磨光⑥ §2-3：30 天次數，不滿 8 個用最近用過補；原本叫「最近」）＋完整兩層格子（主分類一格一格、點開在那一列下方展子分類）；
- *     完整格子最後一格「＋ 新增…」開小 sheet：打名字建在目前類型下、建完選上；sheet 裡的「管理分類…」開分類管理（丙-5 D3，規範 §2.5）
- *   → 「更多欄位」折疊：日期（MobileDatePicker）・時刻（ClockInput mobile，丙-5 F3）・備註・路線・（舊票，第③階段）定期——「設成定期… ›」或唯讀「每月 1 日 · 管理 ›」
- *   → 底部：新票「存並繼續」（存後清金額與備註、留帳戶分類）／舊票「刪除」
+ *   → （收支）「常用」格子（磨光⑥ §2-3：30 天次數，不滿 8 個用最近用過補；原本叫「最近」）＋完整格子（售票口④ 第二輪 D-票-78：
+ *     MobileCatDrill 一層一層點進去＋「選這一層」；返回鍵退一層＝"ticket.form.cat"）；
+ *     每一層最後一格「＋ 新增…」開小 sheet：打名字建在目前類型、那一層底下，建完選上；sheet 裡的「管理分類…」開分類管理（丙-5 D3，規範 §2.5）
+ *   → 「更多欄位」折疊：日期（MobileDatePicker）・時刻（ClockInput mobile，丙-5 F3）・路線・荷札
+ *   → 底部：新票「存並繼續」（存後清金額與備註、留帳戶分類）／舊票「存成常用…」「刪除」
+ *
+ * 售票口④（手機席；D-票-66～70、74，原型 3-二-mobile-收合常用、1A、4、5、6-買了）：
+ *   - 新票最上面一排常用票種小卡（點了整張填好）；從願望「買了」開的，類型下面一行「從願望清單帶入「X」· 存了就移到「已買」」
+ *   - 常用分類只留一排 4 格（完整格子照舊在下面）；**備註與定期拿到「更多欄位」外**（分類格子下面，D-票-67）
+ *   - 備註換 RecallInput（MobileEntryParts.MobileNoteField）：選了以前寫過的、分類還空著 ⇒ 帶上次那筆的分類，
+ *     「分類」小標旁出「照上次」＋「復原」（D-票-70）
+ *   - 定期列：新票＝草稿的 repeat（四顆小鈕常駐，存檔＝這筆照記＋從下一班建規則）；舊票連著規則＝「每月 1 日 · 下一班 12/1　管理 ›」
+ *     （開完整規則編輯器）；沒連＝「不重複　設成定期…」，點了攤開同一組小鈕，按「存」時直接建規則（store.setEntryRepeatQuick）
+ *   - 「更多欄位」裡多一列荷札：新票、舊票都是草稿（點選器 insert 模式交回名稱，按「存」才寫；舊票經 tagStore.setTags，它自己 toast＋復原）
  *
  * 新票＝store 的 `draft`（`openNew`／`setDraft`／`saveDraft`）。舊票＝本地草稿，按「存」才送一次 `updateEntry`
  *   （手機的頂列有明確的「取消／存」，與原型 A 相同；桌機詳情板的即時存是另一種殼的作法——偏離 0-8 字面，見回報）。
@@ -20,8 +30,9 @@
  *   返回鍵＝左鈕＝取消）。疊在表單上的 sheet（幣別、日期、新增分類）共用 "ticket.form.pick"（"dialog"）；「＋ 新增帳戶」與「管理分類…」
  *   走 store 的 openDialog，由 MobileSheetHost 疊在表單上面（表單開著時它登記成 "dialog"）。
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useTicketStore, type TicketDraft } from "../../../store/ticketStore";
+import { useTagStore } from "../../../store/tagStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, todayKey } from "../../../lib/date";
@@ -38,8 +49,7 @@ import {
   MAIN_SYMBOL,
   atOf,
   bareName,
-  categoryLabel,
-  categoryTree,
+  categoryPath,
   convertMinor,
   localTime,
   moneyText,
@@ -53,9 +63,20 @@ import {
 } from "../../../domain/ticket";
 import { IconCaret, IconRight, groupLabelOf, nextDraft, useImeGuard } from "./mobileBits";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../ticketClock";
-import { parseFixedRule } from "../../../domain/ticketPlan";
+import { quickFollowDay, quickRepeat, repeatLineText, type RepeatQuick, type RepeatQuickFreq } from "../../../domain/ticketPlan";
+import { TK_TAG_ENTRY, cleanTagNames, tagNamesOf } from "../../../domain/ticketTags";
+import { keyOf } from "../../../domain/tags";
 import { useLinkedRepeat } from "../plan/RepeatField";
-import { describeRule } from "../../../domain/repeat";
+import { CatPathText, MobileCatDrill, levelFor } from "./MobileCatDrill";
+import {
+  MobileNoteField,
+  RepeatPickSheets,
+  RepeatQuickRow,
+  TagDraftRow,
+  TemplateCards,
+  tagSummary,
+  type RepeatPick,
+} from "./MobileEntryParts";
 
 type Mode = "new" | "edit";
 
@@ -78,11 +99,13 @@ export function MobileEntryForm() {
 
 /* ═══════════ 新票（store 的 draft） ═══════════ */
 
-function NewEntry({ draft }: { draft: EntryDraft }) {
+function NewEntry({ draft }: { draft: TicketDraft }) {
   const setDraft = useTicketStore((s) => s.setDraft);
+  const setDraftRepeat = useTicketStore((s) => s.setDraftRepeat);
   const saveDraft = useTicketStore((s) => s.saveDraft);
   const closePanel = useTicketStore((s) => s.closePanel);
   const requestEscape = useTicketStore((s) => s.requestEscape);
+  const wishName = useTicketStore((s) => (draft.wishId ? (s.wishes.find((w) => w.id === draft.wishId)?.name ?? null) : null));
   const amtRef = useRef<HTMLInputElement | null>(null);
   const busy = useRef(false);
 
@@ -108,6 +131,13 @@ function NewEntry({ draft }: { draft: EntryDraft }) {
       onPatch={setDraft}
       onSave={(again) => void save(again)}
       onCancel={requestEscape}
+      tags={draft.tags}
+      onTags={(tags) => setDraft({ tags })}
+      quick={draft.repeat}
+      onQuickFreq={setDraftRepeat}
+      onQuick={(repeat) => setDraft({ repeat })}
+      templateId={draft.fromTemplateId}
+      wishName={wishName}
     />
   );
 }
@@ -131,37 +161,85 @@ function draftFromRow(row: EntryRow, dec: number): EntryDraft {
   };
 }
 
+/** 兩份荷札名稱是不是同一組（比 key，不管順序與大小寫） */
+function sameTags(a: readonly string[], b: readonly string[]): boolean {
+  const ka = a.map((n) => keyOf(n) ?? n).sort();
+  const kb = b.map((n) => keyOf(n) ?? n).sort();
+  return ka.length === kb.length && ka.every((k, i) => k === kb[i]);
+}
+
 function EditEntry({ row }: { row: EntryRow }) {
   const accById = useTicketStore((s) => s.accById);
   const curByCode = useTicketStore((s) => s.curByCode);
   const updateEntry = useTicketStore((s) => s.updateEntry);
   const deleteEntry = useTicketStore((s) => s.deleteEntry);
   const closePanel = useTicketStore((s) => s.closePanel);
+  const setEntryRepeatQuick = useTicketStore((s) => s.setEntryRepeatQuick);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const showToast = useUiStore((s) => s.showToast);
+  const tagIndex = useTagStore((s) => s.index);
   const adjust = row.kind === "adjust";
+  const linked = useLinkedRepeat(row);
   const [d, setD] = useState<EntryDraft>(() => draftFromRow(row, curByCode[row.currency]?.decimals ?? 2));
+  /* 荷札草稿（售票口④）：index 載好才知道原本掛了什麼；null＝還不知道（這時按「存」不碰荷札） */
+  const [tags, setTags] = useState<string[] | null>(() => (tagIndex ? tagNamesOf(tagIndex, TK_TAG_ENTRY, row.id) : null));
+  const origTags = useRef<string[] | null>(tags);
+  useEffect(() => {
+    const ts = useTagStore.getState();
+    if (!ts.index && !ts.loading) void ts.loadIndex();
+  }, []);
+  useEffect(() => {
+    if (!tagIndex || origTags.current !== null) return;
+    const now = tagNamesOf(tagIndex, TK_TAG_ENTRY, row.id);
+    origTags.current = now;
+    setTags(now);
+  }, [tagIndex, row.id]);
+  /* 定期快設（還沒連規則的帳按了「設成定期…」才有；null＝收著） */
+  const [quick, setQuick] = useState<RepeatQuick | null>(null);
   const busy = useRef(false);
+
+  const onPatch = (p: Partial<EntryDraft>) => {
+    // 讀 store 的最新表：「＋ 新增帳戶」建完回填時，新帳戶不在這一次 render 的 accById 裡（幣別才跟得上）
+    setD((prev) => nextDraft(prev, p, useTicketStore.getState().accById, useTicketStore.getState().catById));
+    // 改記帳日 ⇒ 定期的星期幾／幾號（沒點改過的）跟著走（同新票 store.setDraft）
+    const to = p.dayKey;
+    if (to !== undefined && to !== d.dayKey) setQuick((q) => (q ? quickFollowDay(q, d.dayKey, to) : q));
+  };
 
   const save = async () => {
     if (busy.current) return;
     let patch: EntryPatch;
+    let names: string[] | null = null;
     try {
       patch = buildPatch(row, d, adjust, { accById, curByCode }, dayStartHour);
+      if (tags !== null && origTags.current !== null && !sameTags(tags, origTags.current)) {
+        // 先驗名稱（不合法 ⇒ 整筆不寫，同新票）
+        const r = cleanTagNames(tags);
+        if (!r.ok) throw new RangeError(`#${r.name.replace(/^#/, "")}：${r.reason}`);
+        names = r.names;
+      }
     } catch (e) {
       showToast({ message: e instanceof Error ? e.message : String(e) });
       return;
     }
-    if (Object.keys(patch).length === 0) {
+    const wantRepeat = !adjust && !linked && quick !== null && quick.freq !== "none" ? quick : null;
+    if (Object.keys(patch).length === 0 && names === null && !wantRepeat) {
       closePanel();
       return;
     }
     busy.current = true;
     try {
-      const before = useTicketStore.getState().savedAt;
-      await updateEntry(row.id, patch);
-      // updateEntry 失敗只吐 toast、不改 savedAt：成功才收起，失敗留著讓主人改
-      if (useTicketStore.getState().savedAt !== before) closePanel();
+      if (Object.keys(patch).length > 0) {
+        const before = useTicketStore.getState().savedAt;
+        await updateEntry(row.id, patch);
+        // updateEntry 失敗只吐 toast、不改 savedAt：成功才往下，失敗留著讓主人改
+        if (useTicketStore.getState().savedAt === before) return;
+      }
+      // 荷札：tagStore.setTags 一次寫完（它自己 toast「已掛上／摘下…」＋復原）；失敗它也自己說，帳已經存好就不回捲
+      if (names !== null) await useTagStore.getState().setTags(TK_TAG_ENTRY, row.id, names);
+      // 定期：從這筆（已存好的樣子）建規則、從下一班起、帶這筆的荷札；toast「已設定期：…」
+      if (wantRepeat) await setEntryRepeatQuick(row.id, wantRepeat);
+      closePanel();
     } finally {
       busy.current = false;
     }
@@ -173,11 +251,17 @@ function EditEntry({ row }: { row: EntryRow }) {
       adjust={adjust}
       entry={row}
       draft={d}
-      // 讀 store 的最新表：「＋ 新增帳戶」建完回填時，新帳戶不在這一次 render 的 accById 裡（幣別才跟得上）
-      onPatch={(p) => setD((prev) => nextDraft(prev, p, useTicketStore.getState().accById, useTicketStore.getState().catById))}
+      onPatch={onPatch}
       onSave={() => void save()}
       onCancel={closePanel}
       onDelete={() => void deleteEntry(row.id)}
+      tags={tags ?? []}
+      onTags={(next) => setTags(next)}
+      quick={quick}
+      onQuickFreq={(f) => setQuick((q) => quickRepeat(f, d.dayKey, q?.until ?? null))}
+      onQuick={setQuick}
+      // 點「設成定期…」＝想設：先選好「每月（記帳那天）」，不想要再點「不重複」
+      onQuickOpen={() => setQuick(quickRepeat("monthly", d.dayKey))}
     />
   );
 }
@@ -244,10 +328,18 @@ function FormShell({
   onSave: onSaveRaw,
   onCancel,
   onDelete,
+  tags,
+  onTags,
+  quick,
+  onQuickFreq,
+  onQuick,
+  onQuickOpen,
+  templateId = null,
+  wishName = null,
 }: {
   mode: Mode;
   adjust: boolean;
-  /** 舊票那一列（第③階段「更多欄位」的「定期」列要看它的 repeat_id）；新票 undefined */
+  /** 舊票那一列（「定期」列要看它的 repeat_id、「存成常用…」要它的 id）；新票 undefined */
   entry?: EntryRow;
   draft: EntryDraft;
   amtRef?: RefObject<HTMLInputElement | null>;
@@ -255,15 +347,30 @@ function FormShell({
   onSave(again: boolean): void;
   onCancel(): void;
   onDelete?(): void;
+  /* 售票口④ */
+  /** 荷札草稿（名稱；按「存」才寫） */
+  tags: readonly string[];
+  onTags(names: string[]): void;
+  /** 定期快設：新票＝草稿的 repeat；舊票＝按了「設成定期…」才有（null＝收著） */
+  quick: RepeatQuick | null;
+  onQuickFreq(f: RepeatQuickFreq): void;
+  onQuick(q: RepeatQuick): void;
+  /** 舊票「設成定期…」：攤開快設 */
+  onQuickOpen?(): void;
+  /** 從哪張常用票種小卡填的（那張亮起） */
+  templateId?: string | null;
+  /** 從願望「買了」開的：願望名稱（類型下面那一行） */
+  wishName?: string | null;
 }) {
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
-  const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
   const frequent = useTicketStore((s) => s.frequent);
   const routes = useNodeStore((s) => s.routes);
+  // 路線選單只列還在跑的（車庫與回顧 D-主-206 #13）
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
 
@@ -273,9 +380,13 @@ function FormShell({
   // 幣別／日期／新增分類 sheet 疊在全螢幕表單上：權重要比 "full" 高才會先關它，所以登記成 "dialog"（toast 也跟著移到頂帶下方，不壓在 sheet 上）；
   // 三支 sheet 都給同一個 backId ⇒ 跟這一行合併成一層，返回鍵按一次就關
   useBackLayer("ticket.form.pick", sheet !== null, () => setSheet(null), "dialog");
+  // 售票口④：定期列的星期幾／幾號／結束日面板（同樣疊在表單上＝"dialog"）
+  const [repPick, setRepPick] = useState<RepeatPick | null>(null);
+  useBackLayer("ticket.form.rep", repPick !== null, () => setRepPick(null), "dialog");
   const openDialog = useTicketStore((s) => s.openDialog);
   const createCategory = useTicketStore((s) => s.createCategory);
-  const [more, setMore] = useState(mode === "edit" && (d.note !== "" || d.routeId !== null));
+  // 備註搬到折疊外之後（D-票-67），舊票有掛路線或荷札才預設攤開
+  const [more, setMore] = useState(mode === "edit" && (d.routeId !== null || tags.length > 0));
   const [editConv, setEditConv] = useState(false);
   const isNew = mode === "new";
   const kind = d.kind;
@@ -298,17 +409,19 @@ function FormShell({
   const dupName = (a: AccountRow) => accounts.filter((x) => x.name === a.name && x.deleted_at === null).length > 1;
 
   /* 分類 */
-  const tree = useMemo(() => categoryTree(categories, catKind, { includeArchived: false }), [categories, catKind]);
   const recentCats = useMemo(
     () =>
       frequent[catKind]
         .map((id) => catById[id])
         .filter((c): c is CategoryRow => !!c && c.deleted_at === null && c.archived_at === null && c.kind === catKind)
-        .slice(0, 8),
+        .slice(0, 4), // 售票口④ D-票-67：常用只留一排 4 格（備註與定期拿到折疊外，第一屏放得下）
     [frequent, catKind, catById],
   );
   const selCat = d.categoryId ? (catById[d.categoryId] ?? null) : null;
-  const [openMain, setOpenMain] = useState<string | null>(() => (selCat ? (selCat.parent_id ?? selCat.id) : null));
+  // 售票口④ 第二輪（D-票-78）：格子一層一層點進去；打開改一筆時停在選中那一個所在的層
+  const [catLevel, setCatLevel] = useState<string | null>(() => levelFor(d.categoryId, catById));
+  // 新增分類 sheet 建在哪一層底下（按「＋ 新增…」時所在的那一層）
+  const [newCatUnder, setNewCatUnder] = useState<string | null>(null);
 
   /* 金額與折算 */
   const acc = d.accountId ? accById[d.accountId] : undefined;
@@ -333,22 +446,30 @@ function FormShell({
   const clockMs = ticketClockValue(d.dayKey, d.time, dayStartHour) ?? clockLo;
 
   const route = d.routeId ? (routes.find((r) => r.id === d.routeId) ?? null) : null;
-  const linkedRule = useLinkedRepeat(entry); // 第③階段：連著還在的規則（規則已刪 ⇒ null，當成沒連）
+  const linkedRule = useLinkedRepeat(entry); // 連著還在的規則（規則已刪 ⇒ null，當成沒連）
+  // 備註與定期在折疊外（D-票-67）⇒ 摘要只寫折疊裡的：日期時刻 · 路線 · 荷札
+  const tagSum = tagSummary(tags);
   const moreSum =
-    `${d.dayKey === today ? "今天" : shortDayKey(d.dayKey)} ${d.time} · ${d.note.trim() ? "有備註" : "無備註"} · ${
-      route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線"
-    }` + (linkedRule ? " · 定期" : "");
+    `${d.dayKey === today ? "今天" : shortDayKey(d.dayKey)} ${d.time} · ${route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線"}` +
+    (tagSum ? ` · ${tagSum}` : "");
 
-  /* 第③階段（③契約 §5.5、✎-4）：舊票「更多欄位」最後一列＝「定期」——連著還在的規則的唯讀「每月 1 日 · 管理 ›」，
-     沒連的、或規則已刪的（收尾修正）「設成定期… ›」 */
+  /* 定期列（D-票-66）：舊票連著規則「每月 1 日 · 下一班 12/1　管理 ›」開完整規則編輯器（疊在表單上，存完回到這一筆）；
+     沒連的「不重複　設成定期…」攤開快設，按「存」才建規則；進階規則走快設裡的「更多設定…」（原本的 makeRepeatFromEntry） */
+  const openRepeatEditor = useTicketStore((s) => s.openRepeatEditor);
   const makeRepeatFromEntry = useTicketStore((s) => s.makeRepeatFromEntry);
-  const linkedRuleObj = linkedRule ? parseFixedRule(linkedRule.rule) : null;
-  const openRepeats = () => {
-    // 定期帳 sheet（z 45）在全螢幕表單（z 46）底下：先收起表單（沒按「存」的改動放掉，同「取消」）
-    const st = useTicketStore.getState();
-    st.closePanel();
-    st.openDialog({ kind: "repeats" });
+
+  /* 備註記憶（D-票-70）：選了以前寫過的、分類還空著 ⇒ 帶上次那筆的分類；`autoCat`＝帶上的那個（「照上次 · 復原」） */
+  const lastCategoryForNote = useTicketStore((s) => s.lastCategoryForNote);
+  const [autoCat, setAutoCat] = useState<string | null>(null);
+  const onNotePick = (text: string) => {
+    if (adjust || transfer || d.categoryId) return;
+    const id = lastCategoryForNote(catKind, text);
+    if (!id) return;
+    onPatch({ categoryId: id });
+    setAutoCat(id);
+    setCatLevel(levelFor(id, catById));
   };
+  const showAuto = autoCat !== null && d.categoryId === autoCat;
 
   /* 選中的帳戶／路線 chip 捲進橫捲列的可視範圍（只動水平，不讓表單上下跳） */
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -385,71 +506,37 @@ function FormShell({
     onSave(false);
   });
 
-  const pickCat = (c: CategoryRow) => onPatch({ categoryId: c.id });
-  const mainCell = (p: CategoryRow, hasKids: boolean) => {
-    const selIn = !!selCat && (selCat.id === p.id || selCat.parent_id === p.id);
-    return (
-      <button
-        key={p.id}
-        type="button"
-        className={"ns-tk-mcell" + (selIn ? " on" : "") + (p.id === openMain && !selIn ? " open" : "")}
-        aria-expanded={hasKids ? p.id === openMain : undefined}
-        aria-pressed={selIn}
-        onClick={() => {
-          // 點主分類＝選它；有子分類的另外在下方展開（再點一次已展開的＝收起）
-          pickCat(p);
-          if (hasKids) setOpenMain(openMain === p.id ? null : p.id);
-          else setOpenMain(null);
-        }}
-      >
-        {p.name}
-      </button>
-    );
+  const pickCat = (c: CategoryRow) => {
+    setAutoCat(null);
+    onPatch({ categoryId: c.id });
   };
-
-  /* 完整格子：四欄；展開的子分類區塊插在「那一列」的最後一格之後。
-     最後一格固定「＋ 新增…」（規範 §2.5：分類選擇最後一格「＋ 新增…／管理…」；管理在開出來的 sheet 裡）——它也算一格，
-     展開區塊照樣插在它那一列之後，不會把一列切成兩半 */
-  const fullGrid = () => {
-    const cells: ReactNode[] = [];
-    const n = tree.length + 1;
-    const openIdx = tree.findIndex((t) => t.parent.id === openMain);
-    const rowEnd = openIdx < 0 || tree[openIdx].children.length === 0 ? -1 : Math.min(n - 1, Math.floor(openIdx / 4) * 4 + 3);
-    for (let i = 0; i < n; i++) {
-      const t = tree[i];
-      cells.push(
-        t ? (
-          mainCell(t.parent, t.children.length > 0)
-        ) : (
-          <button key="add" type="button" className="ns-tk-mcell is-add" aria-haspopup="dialog" onClick={() => setSheet("newCat")}>
-            ＋ 新增…
-          </button>
-        ),
-      );
-      if (i === rowEnd) {
-        const op = tree[openIdx];
-        cells.push(
-          <div key={"subs-" + op.parent.id} className="ns-tk-msubs">
-            <div className="hd">{op.parent.name} ›</div>
-            <div className="ns-tk-mgrid">
-              {op.children.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={"ns-tk-mcell" + (selCat?.id === c.id ? " on" : "")}
-                  aria-pressed={selCat?.id === c.id}
-                  onClick={() => pickCat(c)}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          </div>,
-        );
-      }
-    }
-    return <div className="ns-tk-mgrid">{cells}</div>;
-  };
+  /* 分類格子（D-票-78）：一層一層點進去；每一層最後一格「＋ 新增…」（規範 §2.5），建在那一層底下 */
+  const catGrid = (
+    <MobileCatDrill
+      kind={catKind}
+      level={catLevel}
+      onLevel={setCatLevel}
+      picked={d.categoryId ? [d.categoryId] : []}
+      onPick={pickCat}
+      rootLabel={catKind === "income" ? "收入" : "支出"}
+      backId="ticket.form.cat"
+      backKind="full"
+      tail={(lv) => (
+        <button
+          key="add"
+          type="button"
+          className="ns-tk-mcell is-add"
+          aria-haspopup="dialog"
+          onClick={() => {
+            setNewCatUnder(lv);
+            setSheet("newCat");
+          }}
+        >
+          ＋ 新增…
+        </button>
+      )}
+    />
+  );
 
   const chips = (which: "from" | "to") => {
     const cur = which === "from" ? d.accountId : d.toAccountId;
@@ -507,6 +594,8 @@ function FormShell({
     <MFullPage title={isNew ? "記一筆" : "這一筆"} left={{ label: "取消", onClick: onCancel }} right={{ label: "存", onClick: () => onSave(false) }} backId="ticket.form">
     <div ref={rootRef} className="ns-tk-mform" data-kind={adjust ? "adjust" : kind}>
       <div className="ns-tk-mf-scroll">
+        {/* 售票口④ D-票-68：常用票種小卡（只在新票；點了整張填好、只差存檔） */}
+        {isNew && <TemplateCards activeId={templateId} />}
         {/* 類型＝內文第一列（P5 A 案）；校正票不能改類型，只寫「精算」 */}
         <div className="ns-tk-mf-kind">
           {adjust ? (
@@ -515,6 +604,8 @@ function FormShell({
             <Segmented options={KIND_OPTIONS} value={kind} onChange={(k) => onPatch({ kind: k })} aria-label="類型" />
           )}
         </div>
+        {/* 售票口④ D-票-69：從願望「買了」開的 */}
+        {wishName !== null && <p className="ns-tk-mre-from">從願望清單帶入「{wishName}」· 存了就移到「已買」</p>}
         <div className="ns-tk-mf-amt">
           <span className="sg">{adjust ? "±" : SIGN[kind]}</span>
           <input
@@ -607,7 +698,9 @@ function FormShell({
                 <div className="ns-tk-mf-cats">
                   <div className="ns-tk-mgrid">
                     {recentCats.map((c) => {
-                      const p = c.parent_id ? catById[c.parent_id] : undefined;
+                      // 小字＝上一層（多層時只寫直屬那一層；完整路徑在「分類」小標）
+                      const path = categoryPath(c, catById);
+                      const p = path.length > 1 ? path[path.length - 2] : undefined;
                       return (
                         <button
                           key={c.id}
@@ -616,7 +709,7 @@ function FormShell({
                           aria-pressed={selCat?.id === c.id}
                           onClick={() => {
                             pickCat(c);
-                            setOpenMain(c.parent_id ?? c.id);
+                            setCatLevel(levelFor(c.id, catById));
                           }}
                         >
                           <span>
@@ -630,12 +723,68 @@ function FormShell({
                 </div>
               </>
             )}
-            <p className="ns-tk-mf-lbl">
-              分類<em>{selCat ? categoryLabel(selCat, catById) + (selCat.archived_at ? "（已封存）" : "") : "未選"}</em>
+            <p className="ns-tk-mf-lbl ns-tk-m4-catlbl">
+              分類<em>{selCat ? <CatPathText cat={selCat} /> : "未選"}</em>
+              {/* D-票-70：選了以前的備註順手帶上的分類 */}
+              {showAuto && (
+                <>
+                  <span className="auto">照上次</span>
+                  <button
+                    type="button"
+                    className="undo"
+                    onClick={() => {
+                      setAutoCat(null);
+                      onPatch({ categoryId: null });
+                    }}
+                  >
+                    復原
+                  </button>
+                </>
+              )}
             </p>
-            <div className="ns-tk-mf-cats">{fullGrid()}</div>
+            <div className="ns-tk-mf-cats">{catGrid}</div>
           </>
         )}
+
+        {/* 售票口④ D-票-67：備註與定期在「更多欄位」外面（分類格子下面） */}
+        <div className="ns-tk-m4-out">
+          <MobileNoteField value={d.note} onChange={(note) => onPatch({ note })} onPick={onNotePick} />
+          {adjust ? null : isNew && quick ? (
+            <RepeatQuickRow
+              value={quick}
+              dayKey={d.dayKey}
+              lead="存檔＝這筆照記，"
+              onFreq={onQuickFreq}
+              onPick={setRepPick}
+            />
+          ) : entry && linkedRule ? (
+            <div className="ns-tk-mf-field ns-tk-mf-rep is-ro">
+              <span className="lbl">定期</span>
+              <span className="v">{repeatLineText(linkedRule)}</span>
+              <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={() => openRepeatEditor(linkedRule.id)}>
+                管理
+                <IconRight size={11} />
+              </button>
+            </div>
+          ) : entry && quick ? (
+            <RepeatQuickRow
+              value={quick}
+              dayKey={d.dayKey}
+              lead="按「存」之後，"
+              onFreq={onQuickFreq}
+              onPick={setRepPick}
+              onMore={() => makeRepeatFromEntry(entry.id)}
+            />
+          ) : entry ? (
+            <div className="ns-tk-mf-field ns-tk-mf-rep">
+              <span className="lbl">定期</span>
+              <span className="v is-none">不重複</span>
+              <button type="button" className="ns-tk-mf-pick" onClick={onQuickOpen}>
+                設成定期…
+              </button>
+            </div>
+          ) : null}
+        </div>
 
         <div className="ns-tk-mf-more">
           <button type="button" className="ns-tk-mf-moretog" aria-expanded={more} onClick={() => setMore(!more)}>
@@ -666,16 +815,6 @@ function FormShell({
                   onChange={(ms) => onPatch({ time: msToWallHHMM(ms) })}
                 />
               </div>
-              <label className="ns-tk-mf-field top">
-                <span className="lbl">備註</span>
-                <textarea
-                  className="ns-tk-mf-note"
-                  rows={2}
-                  value={d.note}
-                  placeholder="備註"
-                  onChange={(e) => onPatch({ note: e.target.value })}
-                />
-              </label>
               <div className="ns-tk-mf-field">
                 <span className="lbl">路線</span>
                 <div className="ns-tk-mf-accts in-field" role="group" aria-label="路線">
@@ -687,7 +826,7 @@ function FormShell({
                   >
                     不掛
                   </button>
-                  {routes.map((r) => (
+                  {liveRoutes.map((r) => (
                     <button
                       key={r.id}
                       type="button"
@@ -703,24 +842,8 @@ function FormShell({
                   ))}
                 </div>
               </div>
-              {entry && !adjust && linkedRule ? (
-                <div className="ns-tk-mf-field ns-tk-mf-rep is-ro">
-                  <span className="lbl">定期</span>
-                  <span className="v">{linkedRuleObj ? describeRule(linkedRuleObj) : "重複規則有誤"}</span>
-                  <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={openRepeats}>
-                    管理
-                    <IconRight size={11} />
-                  </button>
-                </div>
-              ) : entry && !adjust ? (
-                <div className="ns-tk-mf-field ns-tk-mf-rep">
-                  <span className="lbl">定期</span>
-                  <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={() => makeRepeatFromEntry(entry.id)}>
-                    設成定期…
-                    <IconRight size={11} />
-                  </button>
-                </div>
-              ) : null}
+              {/* 售票口④ D-票-74：荷札（草稿；按「存」才寫） */}
+              <TagDraftRow value={tags} onChange={onTags} title={isNew ? "荷札・記一筆" : "荷札・這一筆"} />
             </div>
           )}
         </div>
@@ -732,9 +855,22 @@ function FormShell({
           <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => onSave(true)}>
             存並再記</button>
         ) : (
-          <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={onDelete}>
-            刪除
-          </button>
+          <>
+            {/* 售票口④ D-票-68：存成常用（取名的小面板由 MobileSheetHost 疊上來）；精算不能存 */}
+            {entry && !adjust && (
+              <button
+                type="button"
+                className="ns-btn btn-ghost ns-tk-mbtn"
+                aria-haspopup="dialog"
+                onClick={() => openDialog({ kind: "saveTemplate", entryId: entry.id })}
+              >
+                存成常用…
+              </button>
+            )}
+            <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={onDelete}>
+              刪除
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -765,12 +901,14 @@ function FormShell({
       {sheet === "newCat" && (
         <NewCategorySheet
           kind={catKind}
+          under={newCatUnder ? (catById[newCatUnder] ?? null) : null}
           onClose={() => setSheet(null)}
           onCreate={async (name) => {
-            const row = await createCategory({ kind: catKind, name, parentId: null });
+            const parent = newCatUnder && catById[newCatUnder]?.kind === catKind ? newCatUnder : null;
+            const row = await createCategory({ kind: catKind, name, parentId: parent });
             if (!row) return false; // 失敗 store 已吐 toast；sheet 留著讓主人改名
             pickCat(row);
-            setOpenMain(null);
+            setCatLevel(parent); // 留在那一層，看得到剛建好、已選上的那一格
             setSheet(null);
             return true;
           }}
@@ -799,6 +937,9 @@ function FormShell({
           backKind="dialog"
         />
       )}
+      {quick && (
+        <RepeatPickSheets which={repPick} value={quick} dayKey={d.dayKey} backId="ticket.form.rep" onChange={onQuick} onClose={() => setRepPick(null)} />
+      )}
     </MFullPage>
   );
 }
@@ -806,16 +947,20 @@ function FormShell({
 /* ═══════════ 新增分類 sheet（丙-5 D3） ═══════════ */
 
 /**
- * 分類格最後一格「＋ 新增…」開的小 sheet：一個名稱欄＋黏底「取消｜新增」；建在目前類型（支出／收入）的主分類，建完由呼叫端選上。
+ * 分類格最後一格「＋ 新增…」開的小 sheet：一個名稱欄＋黏底「取消｜新增」；建在目前類型（支出／收入）、格子所在的那一層底下
+ * （售票口④ 第二輪：頂層＝主分類；走進「外食」裡按的＝建在外食底下，名稱欄上一行淡字寫在哪），建完由呼叫端選上。
  * 「管理分類…」（文字鈕，規範 §2.3「面板內『新增…』『管理…』」）關掉自己、開分類管理。疊在全螢幕表單上＝"dialog"（z 47）。
  */
 function NewCategorySheet({
   kind,
+  under,
   onClose,
   onCreate,
   onManage,
 }: {
   kind: "expense" | "income";
+  /** 建在哪一個分類底下（null＝頂層） */
+  under: CategoryRow | null;
   onClose(): void;
   /** 回 true＝建好了（呼叫端收 sheet）；false＝失敗，留著 */
   onCreate(name: string): Promise<boolean>;
@@ -854,6 +999,11 @@ function NewCategorySheet({
         </>
       }
     >
+      {under && (
+        <p className="ns-tk-m4b-under">
+          建在「<CatPathText cat={under} />」底下
+        </p>
+      )}
       <input
         className="techo-input ns-tk-mf-catname"
         value={name}

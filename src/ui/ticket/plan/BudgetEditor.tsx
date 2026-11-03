@@ -6,7 +6,7 @@
  *   ├─ .ns-tk-be-head      ‹ 2026 年 10 月 ›（只換「覆寫」欄看的月；預設不變）・小字「預設套用沒有覆寫的每個月」
  *   ├─ table.ns-tk-be-table   對象｜預設｜10 月覆寫｜（移除）
  *   │    tr.is-total 總預算（固定第一列，沒設也在）；之後每個分類預算一列（budgetScopes 的順序）
- *   │    tr.is-add「＋ 加分類預算」⇒ 分類挑選（支出兩層樹、未分類不列、封存分區、已設的灰掉）
+ *   │    tr.is-add「＋ 加分類預算」⇒ 分類挑選（支出整棵可展開的樹、任何一層都能設；未分類不列、封存分區、已設的灰掉）
  *   └─ .ns-tk-dhint        金額是主幣別…清空「預設」＝移除
  *   （UI 丙-5 E2：「關閉」鈕拿掉——即時存、不改東西的對話框只留 ×／暗幕／Esc，視覺規範 §4；onDone 留作宿主介面）
  *
@@ -23,7 +23,8 @@ import {
   UNCAT_INCOME_ID,
   addMonths,
   categoryLabel,
-  categoryTree,
+  categoryForest,
+  categoryPath,
   moneyText,
   type CategoryRow,
 } from "../../../domain/ticket";
@@ -31,6 +32,7 @@ import { budgetScopes, scopeKey, type BudgetRow, type BudgetScope } from "../../
 import { useImeGuard } from "../dialogs/dialogBits";
 import { TkIcon } from "../TicketLedger";
 import { useOutside } from "../TicketPanel";
+import { CatTreeRow, useCatOpen, visibleNodes } from "../view/catTree";
 
 const TOTAL: BudgetScope = { kind: "total" };
 const isUncat = (id: string): boolean => id === UNCAT_EXPENSE_ID || id === UNCAT_INCOME_ID;
@@ -279,22 +281,47 @@ function AmountInput(props: {
   );
 }
 
-/* ── 分類挑選（照文流開在表格下；↑↓ 移動、Esc 收起、點外面收起） ── */
+/* ── 分類挑選（照文流開在表格下；↑↓ 移動、Esc 收起、點外面收起）
+   售票口④ 第二輪（D-票-78）：支出整棵可展開的樹（catTree；→／← 展開收起），任何一層都能設（分類預算含它底下所有分類）；
+   封存區寫路徑（短寫，滑過全寫）。 ── */
 function CatPicker({ categories, used, onPick, onClose }: { categories: CategoryRow[]; used: Set<string>; onPick(id: string): void; onClose(): void }) {
+  const catById = useTicketStore((s) => s.catById);
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose);
   useEffect(() => {
     const el = ref.current;
-    el?.querySelector<HTMLElement>(".opt:not([disabled])")?.focus({ preventScroll: true });
+    el?.querySelector<HTMLElement>(".opt:not([disabled]):not([aria-disabled=\"true\"])")?.focus({ preventScroll: true });
     el?.scrollIntoView({ block: "nearest" });
   }, []);
-  const tree = categoryTree(categories, "expense", { includeArchived: false }).filter((t) => !isUncat(t.parent.id));
-  const archived = categories.filter((c) => c.kind === "expense" && c.deleted_at === null && c.archived_at !== null && !isUncat(c.id));
-  const opt = (c: CategoryRow, sub: boolean) => {
+  const [open, toggle] = useCatOpen();
+  const forest = categoryForest(categories, "expense", { includeArchived: false }).filter((n) => !isUncat(n.cat.id));
+  const rows = visibleNodes(forest, open);
+  // 封存區：自己封存、上層都還在的（上層封存的跟著上層一起列）
+  const archived = categories.filter(
+    (c) =>
+      c.kind === "expense" &&
+      c.deleted_at === null &&
+      c.archived_at !== null &&
+      !isUncat(c.id) &&
+      !categoryPath(c, catById)
+        .slice(0, -1)
+        .some((p) => p.archived_at !== null),
+  );
+  // 「已設」的不能選，但用 aria-disabled 而不是 disabled：鍵盤還聚焦得到它，→／← 才展開得了底下的子分類
+  const opt = (c: CategoryRow, text: string, title?: string) => {
     const on = used.has(c.id);
     return (
-      <button key={c.id} type="button" role="option" aria-selected={false} className={`opt${sub ? " is-sub" : ""}`} disabled={on} onClick={() => onPick(c.id)}>
-        {c.name}
+      <button
+        key={c.id}
+        type="button"
+        role="option"
+        aria-selected={false}
+        aria-disabled={on || undefined}
+        className="opt"
+        title={title}
+        onClick={() => !on && onPick(c.id)}
+      >
+        <span className="t">{text}</span>
         {on && <span className="r">已設</span>}
       </button>
     );
@@ -318,12 +345,16 @@ function CatPicker({ categories, used, onPick, onClose }: { categories: Category
   return (
     <div ref={ref} className="ns-tk-pop ns-tk-be-pop" role="listbox" aria-label="選一個支出分類" onKeyDown={onKeyDown}>
       <div className="hd">支出</div>
-      {tree.map((t) => [opt(t.parent, false), ...t.children.map((c) => opt(c, true))])}
-      {tree.length === 0 && <p className="ns-tk-pop-note">還沒有支出分類</p>}
+      {rows.map((n) => (
+        <CatTreeRow key={n.cat.id} node={n} open={open.has(n.cat.id)} onToggle={toggle}>
+          {opt(n.cat, n.cat.name, categoryLabel(n.cat, catById))}
+        </CatTreeRow>
+      ))}
+      {forest.length === 0 && <p className="ns-tk-pop-note">還沒有支出分類</p>}
       {archived.length > 0 && (
         <>
           <div className="hd">封存</div>
-          {archived.map((c) => opt(c, !!c.parent_id))}
+          {archived.map((c) => opt(c, categoryLabel(c, catById, { short: true }), categoryLabel(c, catById)))}
         </>
       )}
     </div>

@@ -3,11 +3,11 @@
  *
  * 為什麼只做定期帳：它的 `skipped_days`（刪掉的班次日集合）是整欄一格，兩台各刪一班會互蓋，提示原本印成
  * 「一筆資料（a1b2）的 skipped_days」——欄名、列名都不是人話。售票口其餘的表照舊印泛稱（`ticket.mount.tsx` 回
- * `SYNC_LABEL_FALLBACK`）。
+ * `SYNC_LABEL_FALLBACK`）。售票口④ 加願望（tk_wishes）與常用票種（tk_templates）：兩張都有名字欄，列名直接用名字。
  *
  * **純函式**：只准 import 型別（`scripts/tests/sync-engine-labels.test.ts` 以 node 直接載入）；查列、查名字由呼叫端注入。
  */
-import type { RepeatRow } from "../domain/ticket.ts";
+import type { RepeatRow, TemplateRow, WishRow } from "../domain/ticket.ts";
 import type { SyncRowLabel } from "./types.ts";
 
 /** 呼叫端注入的查名字（查不到回 null） */
@@ -89,6 +89,68 @@ export function repeatSyncLabel(row: RepeatRow, look: TicketLabelLookup): SyncRo
           return v === null || v === undefined ? "沒有下一班" : md(v);
         case "paused_at":
           return v === null || v === undefined ? "進行中" : "暫停";
+        default:
+          return null;
+      }
+    },
+  };
+}
+
+/* ── 售票口④：願望與常用票種（兩張都有名字欄，列名直接用它） ── */
+
+export const WISH_COLS: Readonly<Record<string, string>> = {
+  name: "名稱",
+  amount_minor: "預估金額",
+  note: "備註",
+  category_id: "分類",
+  position: "順序",
+  entry_id: "買了那筆",
+  bought_at: "買了",
+};
+
+export const TEMPLATE_COLS: Readonly<Record<string, string>> = {
+  name: "名稱",
+  kind: "種類",
+  amount_minor: "金額",
+  currency: "幣別",
+  account_id: "帳戶",
+  to_account_id: "轉入帳戶",
+  category_id: "分類",
+  note: "備註",
+  route_id: "路線",
+  position: "順序",
+};
+
+/** 願望「降噪耳機」 */
+export function wishSyncLabel(row: Pick<WishRow, "name" | "category_id">, look: TicketLabelLookup): SyncRowLabel {
+  return {
+    label: `願望「${row.name.trim() || "沒有名字"}」`,
+    cols: WISH_COLS,
+    fmt: (col, v) => {
+      if (col === "category_id") return v === null || v === undefined ? "（沒選）" : typeof v === "string" ? (look.categoryName(v) ?? "已刪除的分類") : null;
+      if (col === "entry_id") return v === null || v === undefined ? "還沒買" : "已買";
+      if (col === "bought_at") return v === null || v === undefined ? "還沒買" : null;
+      return null;
+    },
+  };
+}
+
+/** 常用票種「午餐」 */
+export function templateSyncLabel(row: Pick<TemplateRow, "name">, look: TicketLabelLookup): SyncRowLabel {
+  return {
+    label: `常用票種「${row.name.trim() || "沒有名字"}」`,
+    cols: TEMPLATE_COLS,
+    fmt: (col, v) => {
+      switch (col) {
+        case "kind":
+          return typeof v === "string" && Object.prototype.hasOwnProperty.call(KIND_WORD, v) ? KIND_WORD[v] : null;
+        case "account_id":
+        case "to_account_id":
+          if (v === null || v === undefined) return "（沒有）";
+          return typeof v === "string" ? (look.accountName(v) ?? "已刪除的帳戶") : null;
+        case "category_id":
+          if (v === null || v === undefined) return "（沒選）";
+          return typeof v === "string" ? (look.categoryName(v) ?? "已刪除的分類") : null;
         default:
           return null;
       }

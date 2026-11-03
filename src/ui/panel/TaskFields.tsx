@@ -584,7 +584,10 @@ function TicketPanel({ node }: { node: NodeRow }) {
                 value={node.route_id ?? NO_ROUTE}
                 options={[
                   { value: NO_ROUTE, label: "無路線" },
-                  ...routes.map((r) => ({ value: r.id, label: r.code ? `${r.code}・${r.name}` : r.name })),
+                  // 車庫與回顧 D-主-206 #15：只列還在跑的路線＋目前掛的那條（就算已收進車庫，也照樣顯示）
+                  ...routes
+                    .filter((r) => !r.arrived_on || r.id === node.route_id)
+                    .map((r) => ({ value: r.id, label: r.code ? `${r.code}・${r.name}` : r.name })),
                 ]}
                 onChange={(v) => void tag(v === NO_ROUTE ? null : v)}
                 ariaLabel="所屬路線"

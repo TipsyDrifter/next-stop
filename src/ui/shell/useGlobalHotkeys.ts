@@ -41,7 +41,9 @@ export function useGlobalHotkeys(enabled = true) {
       const navPage = pageOfNavHotkey(hit.id);
       if (navPage) {
         e.preventDefault();
-        ui.setPage(navPage);
+        // 丁 D-主-239：Ctrl+2 ＝路線圖最上層（路線一覽），同 gnav「路線圖」
+        if (navPage === "routemap") ui.openRouteMap();
+        else ui.setPage(navPage);
         return;
       }
       // 三條功能線登記的全域快捷鍵（增補二）：三線都沒登記時恆 null ⇒ 不攔任何鍵

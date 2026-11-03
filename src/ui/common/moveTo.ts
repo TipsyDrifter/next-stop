@@ -13,6 +13,7 @@ import { appendIndex, destParentId, isSameParent, moveToastText, type MoveDest }
 import { anchorAround } from "../../domain/nodeOrder";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { APPEND } from "../../store/batchActions";
 
 const toast = (message: string) => useUiStore.getState().showToast({ message }, 4000);
 
@@ -46,7 +47,11 @@ export async function moveNodeTo(id: string, dest: MoveDest): Promise<boolean> {
   // 原父節點：根層車票＝它的路線標籤（moveToAnchor 的慣例：路線 id＝掛這條路線的臨時車票，null＝收件匣）
   const anchor = anchorAround(await nodeRepo.listSiblingIds(id), id);
   const origParent = node.parent_id ?? (node.kind === "ticket" ? node.route_id : null);
-  const r = await ns().moveNode(id, parentId, index);
+  // 丁 D-主-245：車票搬到「路線」＝掛那條路線標籤的根層車票（路線底下的車票就是這種存法；moveToAnchor 換標籤）
+  const r =
+    node.kind === "ticket" && dest.nodeId === null
+      ? await ns().moveToAnchor([id], dest.routeId, APPEND)
+      : await ns().moveNode(id, parentId, index);
   if (!r.ok) {
     toast(r.reason ?? "沒有搬成功——請再試一次");
     return false;

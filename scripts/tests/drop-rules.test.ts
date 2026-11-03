@@ -31,11 +31,16 @@ const tree: DropTree = {
 };
 const top = { id: "R", kind: "route" as NodeKind };
 
-test("車票：進列車可以、拖上路線最上層不行（臨時票例外）", () => {
+test("車票：進列車、進支線、拖上路線最上層都可以（丁 D-主-245；路線最上層＝掛路線標籤的根層車票）", () => {
   assert.deepEqual(dropVerdict(tree, top, ["k1"], "T2"), { ok: true, parentId: "T2" });
-  assert.deepEqual(dropVerdict(tree, top, ["k1"], null), { ok: false, why: "車票要放在列車或車廂裡" });
+  assert.deepEqual(dropVerdict(tree, top, ["k1"], null), { ok: true, parentId: "R" });
   assert.deepEqual(dropVerdict(tree, top, ["X"], null), { ok: true, parentId: "R" });
-  assert.equal(dropVerdict(tree, top, ["k1"], "B1").ok, false);
+  assert.deepEqual(dropVerdict(tree, top, ["k1"], "B1"), { ok: true, parentId: "B1" });
+});
+
+test("車票底下放不了東西；支線不能進列車", () => {
+  assert.equal(dropVerdict(tree, top, ["T1"], "k1").ok, false);
+  assert.equal(dropVerdict(tree, top, ["B1"], "T1").ok, false);
 });
 
 test("列車進支線、支線進支線可以；不能放進自己底下", () => {
@@ -49,5 +54,5 @@ test("聚焦時最上層＝聚焦的節點", () => {
 });
 
 test("多張一起：有一張放不下就整批不行", () => {
-  assert.equal(dropVerdict(tree, top, ["T1", "k1"], null).ok, false);
+  assert.equal(dropVerdict(tree, top, ["T2", "B1"], "T1").ok, false);
 });
