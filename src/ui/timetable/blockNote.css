@@ -1,0 +1,47 @@
+/* ─────────────────────────────────────────────────────
+ * blockNote.css — 時刻表⑦ 時間塊備註（A 席；契約 §5、原型 prototypes/時刻表-⑦.html 提案 ⑤）
+ *
+ * - BlockPanel「備註」列：底線輸入框（同面板裡其他欄的紙面寫法，不畫框）；RecallInput 的清單桌機浮在欄位下、蓋住分類格
+ *   （這一列抬一層 z-index），手機推開（recall.css 的 .is-mobile）。
+ * - 軸的塊：名稱下一行淡字、一行省略（.ns-tt-blk-note）。
+ * - 桌機運行列：連結、荷札之後淡字，放不下先省略（flex-shrink 比別人大很多）。
+ * - 週視圖 tooltip 第二行、方眼色帶的原生 title（桌機色帶要吃得到滑鼠才出得來）。
+ * ───────────────────────────────────────────────────── */
+
+/* BlockPanel 備註列 */
+.ns-tt-noterow { position: relative; z-index: 5; }
+.ns-tt-noterow .ns-tt-row-v { display: block; }
+/* 標籤跟輸入框同一條中線（同 .is-time 的時刻列；手機框 44px） */
+.ns-tt-row.is-top.ns-tt-noterow .ns-tt-row-k { padding-top: 0; line-height: var(--ctl-input); }
+input.ns-tt-note-in {
+  width: 100%; height: var(--ctl-input); padding: 0 2px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; background: transparent;
+  font-family: inherit; font-size: var(--fs-body); letter-spacing: .04em; color: var(--color-ink); outline: none;
+  transition: border-color var(--dur) var(--ease);
+}
+input.ns-tt-note-in:focus { border-bottom-color: var(--accent); }
+input.ns-tt-note-in::placeholder { color: var(--color-ink-faint); }
+
+/* 軸的塊：名稱下那一行（沒有小牌時就是那一行；有小牌另起一行） */
+.ns-tt-blk-note {
+  flex: 0 1 auto; min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--color-ink-faint); letter-spacing: .03em;
+}
+
+/* 桌機運行列：放不下時備註先縮到沒有，名稱、連結、荷札才開始省略（shrink 要比按寬度加權後的別人大好幾個數量級） */
+.ns-tt-dock-note {
+  flex: 0 10000 auto; min-width: 0; margin-left: 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .82em; letter-spacing: .03em; color: var(--color-ink-faint);
+}
+
+/* 週視圖 tooltip 第二行 */
+.ns-tt-week-tip-note {
+  display: block; max-width: 22em; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--color-ink-soft); letter-spacing: .03em;
+}
+
+/* 方眼：桌機色帶吃滑鼠（原生 title）；拖曳照舊由 .ns-tt-grid-rows 收（target 在 track 裡就算） */
+.ns-tt-grid-sheet.is-desk .ns-tt-grid-band { pointer-events: auto; }

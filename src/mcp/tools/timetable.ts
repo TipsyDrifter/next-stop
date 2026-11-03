@@ -7,7 +7,7 @@
  * 長度門檻（待確認）用的全域上限＝`ctx.longRunMaxMin`（bridge 每次從 settings 讀，與統計頁同一個值）。
  */
 import { MCP_BATCH_LIMIT, McpUserError, type JsonSchema, type McpCtx, type McpTool } from "../types";
-import { batch, bool, idList, int, range, str } from "../args";
+import { batch, bool, idList, int, nullableStr, range, str } from "../args";
 import {
   MIN,
   blockThresholdOf,
@@ -166,6 +166,8 @@ interface BlockView {
   estimateMin?: number;
   task?: { id: string; name?: string; deleted?: true };
   route?: { id: string; name?: string; deleted?: true };
+  /** ⑦：一句備註（沒寫＝沒有這個鍵） */
+  note?: string;
 }
 
 async function viewOf(
@@ -199,6 +201,7 @@ async function viewOf(
   };
   if (r.node_id !== null) v.task = await linkOf(r.node_id);
   else if (r.route_id !== null) v.route = await linkOf(r.route_id);
+  if (r.note) v.note = r.note; // ⑦
   return v;
 }
 
@@ -520,6 +523,7 @@ const addTimeBlocks: McpTool = {
             start: timeProp("開始"),
             end: timeProp("結束"),
             taskId: { type: "string", description: "連到的車票 id（選填）" },
+            note: { type: "string", description: "一句備註（選填；單行，換行會變成空白）" },
             confirmLong: { type: "boolean", description: "超過 12 小時、使用者確認過才給 true" },
           },
           required: ["categoryId", "start", "end"],
@@ -538,7 +542,7 @@ const addTimeBlocks: McpTool = {
     const items = batch(a, "blocks");
     const cats = await categoryMap(ctx);
     // 先全部驗過再寫（參數錯不會寫一半）
-    const plan: { categoryId: string; start: number; end: number; link: BlockLink | null; ack: boolean }[] = [];
+    const plan: { categoryId: string; start: number; end: number; link: BlockLink | null; ack: boolean; note: string | null }[] = [];
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const where = `blocks[${i}]`;
@@ -554,7 +558,8 @@ const addTimeBlocks: McpTool = {
       const taskId = str(it, "taskId", { where });
       const task = taskId ? await linkableNode(ctx, taskId, `${where}.taskId`) : null;
       // ＝BlockPanel：走「確定記這麼長」存的長塊一併記成已確認（ackLong＝ask && longOk）
-      plan.push({ categoryId, start, end, link: task ? { nodeId: task.id, routeId: null } : null, ack: end - start > LONG_BLOCK_MS && !!confirmLong });
+      const note = str(it, "note", { where }) || null; // ⑦：空字串＝沒寫
+      plan.push({ categoryId, start, end, link: task ? { nodeId: task.id, routeId: null } : null, ack: end - start > LONG_BLOCK_MS && !!confirmLong, note });
     }
     const repo = ctx.deps.timetableRepo;
     const node = nodeCache(ctx);
@@ -562,8 +567,8 @@ const addTimeBlocks: McpTool = {
     const added: TimeBlockRow[] = [];
     for (let i = 0; i < plan.length; i++) {
       const p = plan[i];
-      // ＝store fill：fill(分類, 起, 訖, { link, ack: longOk === true })
-      const r = await guard(() => repo.fill(p.categoryId, isoOf(p.start), isoOf(p.end), { link: p.link, ack: p.ack }), { index: i, key: "blocks" });
+      // ＝store fill：fill(分類, 起, 訖, { link, ack: longOk === true, note })
+      const r = await guard(() => repo.fill(p.categoryId, isoOf(p.start), isoOf(p.end), { link: p.link, ack: p.ack, note: p.note }), { index: i, key: "blocks" });
       cover = addCover(cover, r.summary);
       added.push(r.block);
     }
@@ -581,7 +586,7 @@ const updateTimeBlocks: McpTool = {
   name: "update-time-blocks",
   title: "改時間塊",
   description:
-    "改時間塊的分類或起訖（一次最多 50 筆；沒給的欄位不動）。運行中的那班只能改分類與 start（要結束用 stop-time-block）。蓋到別塊時以改的這塊為準。改完超過 12 小時的要先跟使用者確認、再加 confirmLong:true。",
+    "改時間塊的分類、起訖或備註（一次最多 50 筆；沒給的欄位不動；note 給 null 或空字串＝清掉備註）。運行中的那班只能改分類與 start（要結束用 stop-time-block）。蓋到別塊時以改的這塊為準。改完超過 12 小時的要先跟使用者確認、再加 confirmLong:true。",
   inputSchema: {
     type: "object",
     properties: {
@@ -596,6 +601,7 @@ const updateTimeBlocks: McpTool = {
             categoryId: { type: "string", description: "新分類 id" },
             start: timeProp("新的開始"),
             end: timeProp("新的結束"),
+            note: { type: ["string", "null"], description: "新的備註（單行）；null 或空字串＝清掉" },
             confirmLong: { type: "boolean", description: "改完超過 12 小時、使用者確認過才給 true" },
           },
           required: ["id"],
@@ -614,7 +620,7 @@ const updateTimeBlocks: McpTool = {
     const repo = ctx.deps.timetableRepo;
     const items = batch(a, "blocks");
     const cats = await categoryMap(ctx);
-    type Edit = { id: string; running: boolean; categoryId: string; start: number; end: number; ack?: true };
+    type Edit = { id: string; running: boolean; categoryId: string; start: number; end: number; ack?: true; note?: string | null };
     const plan: Edit[] = [];
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
@@ -625,7 +631,11 @@ const updateTimeBlocks: McpTool = {
       const categoryId = str(it, "categoryId", { where });
       const start = instant(it, "start", { where });
       const end = instant(it, "end", { where });
-      if (categoryId === undefined && start === undefined && end === undefined) throw new McpUserError(`${where} 至少要給 categoryId、start、end 其中之一`);
+      const noteRaw = nullableStr(it, "note", where); // ⑦：undefined＝不動
+      const note = noteRaw === undefined ? undefined : noteRaw || null;
+      if (categoryId === undefined && start === undefined && end === undefined && note === undefined) {
+        throw new McpUserError(`${where} 至少要給 categoryId、start、end、note 其中之一`);
+      }
       // 換分類才驗（原本的分類已封存，只改起訖照樣可以；＝BlockPanel 帶著原分類存）
       if (categoryId !== undefined && categoryId !== cur.category_id) usableCategory(cats, categoryId, `${where}.categoryId`);
       const confirmLong = bool(it, "confirmLong", where);
@@ -637,7 +647,7 @@ const updateTimeBlocks: McpTool = {
         if (s > now) throw new McpUserError(`${where} 的 start 不能晚於現在`);
         if (s < s0 - 24 * 60 * MIN) throw new McpUserError(`${where} 運行中那班的 start 最多往前改 24 小時；更早的那段請用 add-time-blocks 補記`);
         if (s !== s0) needLongConfirm(s, now, confirmLong, where);
-        plan.push({ id, running: true, categoryId: categoryId ?? cur.category_id, start: s, end: now });
+        plan.push({ id, running: true, categoryId: categoryId ?? cur.category_id, start: s, end: now, ...(note !== undefined ? { note } : {}) });
         continue;
       }
       const e0 = msOf(cur.ended_at);
@@ -650,15 +660,23 @@ const updateTimeBlocks: McpTool = {
       const changed = s !== s0 || e !== e0;
       const ask = changed && e - s > LONG_BLOCK_MS;
       if (changed) needLongConfirm(s, e, confirmLong, where);
-      plan.push({ id, running: false, categoryId: categoryId ?? cur.category_id, start: s, end: e, ...(ask && confirmLong ? { ack: true as const } : {}) });
+      plan.push({
+        id,
+        running: false,
+        categoryId: categoryId ?? cur.category_id,
+        start: s,
+        end: e,
+        ...(ask && confirmLong ? { ack: true as const } : {}),
+        ...(note !== undefined ? { note } : {}),
+      });
     }
     let cover = NO_COVER;
     for (let i = 0; i < plan.length; i++) {
       const p = plan[i];
       const at = { index: i, key: "blocks" };
       const r = p.running
-        ? await guard(() => repo.editRunning(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start) }), at)
-        : await guard(() => repo.editBlock(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start), endIso: isoOf(p.end), ack: p.ack }), at);
+        ? await guard(() => repo.editRunning(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start), note: p.note }), at)
+        : await guard(() => repo.editBlock(p.id, { categoryId: p.categoryId, startIso: isoOf(p.start), endIso: isoOf(p.end), ack: p.ack, note: p.note }), at);
       cover = addCover(cover, r);
     }
     const node = nodeCache(ctx);

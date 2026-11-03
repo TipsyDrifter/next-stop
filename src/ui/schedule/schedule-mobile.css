@@ -129,6 +129,23 @@
 /* 草稿列（D-主-8：點日期標題列在那天底下開；與 .m-newticket 同語彙但放在段內） */
 [data-shell="mobile"] .m-sch-draft { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin-top: 6px; padding: 7px 10px; box-sizing: border-box; background: color-mix(in srgb, var(--color-paper-high) 50%, transparent); border: 1px dashed var(--color-dash); border-radius: var(--radius-card); animation: m-sch-bar-in .24s ease-out; }
 [data-shell="mobile"] .m-sch-draft .m-nt-input:focus { border-bottom-color: var(--accent); }
+/* 回饋甲：草稿列換成共用手機建票列（MobileQuickAdd）——外層虛線小卡照舊，裡面那條把「底部列」的底色、上框、毛玻璃拿掉 */
+[data-shell="mobile"] .m-sch-draft.m-sch-qawrap { display: block; transition: border-color var(--dur-fast) var(--ease-soft); }
+[data-shell="mobile"] .m-sch-draft.m-sch-qawrap:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--color-dash)); }
+[data-shell="mobile"] .m-sch-draft.m-sch-qawrap .m-newticket.ns-qa-mnew {
+  position: static; z-index: auto; padding: 0;
+  background: transparent; border-top: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+/* chips 列撐到小卡左右邊（卡的 padding 10），橫捲時末段露半格 */
+[data-shell="mobile"] .m-sch-qawrap .ns-qa-mnew .ns-qa-mchips { margin: 0 -10px; padding: 0 10px; }
+/* 日期標題列右端看得見的「＋」（D-主-128；點整列開這天的建票列，這顆只是記號）；開著時轉選中色 */
+[data-shell="mobile"] .m-sch-day .sec .m-sch-add {
+  flex: none; align-self: center; display: inline-grid; place-items: center; width: 22px; height: 22px; margin: -2px 0 -2px -2px; /* 負外距：不把 sticky 標題列撐高 */
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); color: var(--color-ink-soft);
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m-sch-day .sec.is-clickable:active .m-sch-add { border-color: var(--accent); color: var(--sel-fg); }
+[data-shell="mobile"] .m-sch-day .sec.is-drafting .m-sch-add { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--sel-fg); background: var(--sel-bg); }
 /* 尾巴：留一段空白讓最後幾天也捲得到頂端（原型 :568-570） */
 [data-shell="mobile"] .m-sch-foot { padding: 18px 0 6px; text-align: center; font-size: 10px; letter-spacing: .24em; color: var(--color-ink-faint); min-height: calc(100% - 140px); box-sizing: border-box; } /* 字面值：串流尾巴小字 10px；手機字階最小 11，這一階沒有 token（原型逐字） */
 

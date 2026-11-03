@@ -26,6 +26,7 @@ import type {
   LineReloadContext,
   NodeFieldSpec,
   QuickJumpProviderSpec,
+  ReportJumpTarget,
   SettingsLinkSpec,
   TagEntitySpec,
   TicketSheetItemSpec,
@@ -215,6 +216,18 @@ export function lineSettingsLinks(shell: "desktop" | "mobile"): SettingsLinkSpec
     if (status === "open" && specs) out.push(...specs);
   }
   return out;
+}
+
+/**
+ * 運行報告跳到某條線（② D-主-188）：該線通車（桌機看 `page.status`、手機看 `mobile.status`）且有填 `reportJump`
+ * 才回一支「點了就跳」的函式；否則 null（呼叫端把那個小元件畫成不可點）。沒裝＝null。
+ */
+export function lineReportJump(id: LineId, target: ReportJumpTarget, shell: "desktop" | "mobile"): (() => void) | null {
+  if (!installed) return null;
+  const m = LINE_MANIFESTS.find((x) => x.id === id);
+  if (!m || (shell === "desktop" ? m.page.status : m.mobile.status) !== "open") return null;
+  const fn = installed[id].reportJump;
+  return fn ? () => void fn(target, shell) : null;
 }
 
 /**

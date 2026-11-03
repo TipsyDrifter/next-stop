@@ -16,6 +16,8 @@
  *      `updated_at`，那是憑空冒出的「變更」，會是 oplog 最吵的噪音源（盲探 U2）。
  *   ⑤ **`occurrences.id` 改確定性 uuid v5**（#24／#25）：兩台對同一班次算出同一個 id，
  *      合併時才有「同一列」可談；同班被 soft delete 過就以 `ON CONFLICT(id)` 復活同一列。
+ *   ⑥ **兄弟順序改排序鍵 `sort_key`**（回饋乙，migration 0014；結 #108／#119）：搬一列只寫那一列的鍵（算在新鄰居之間），
+ *      不再位移兄弟的 position（③ 的位移從此不發生）；「兄弟」＝畫面上的同一份清單（domain/nodeOrder.ts 的顯示群組）。
  *
  * 同步總開關關著時（`sync_meta.enabled` ≠ '1'）：同步語句是 `INSERT … WHERE EXISTS(...)`，一列都不寫，
  * 行為與 v1.1.0 逐點對等——唯一的形狀差別是外面多包了一層 `BEGIN IMMEDIATE … COMMIT`。
@@ -25,6 +27,17 @@ import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow, parseDayStartHour, todayKey } from "../lib/date";
 import { escapeLike } from "../lib/sql";
 import type { FullSearchHit } from "../domain/fullSearch";
+import {
+  SIBLING_ORDER_SQL,
+  compareCreated,
+  compareSiblings,
+  groupFor,
+  isOrderedGroup,
+  sameGroup,
+  type SiblingGroup,
+  type SlotAnchor,
+} from "../domain/nodeOrder";
+import { keysForSlot, planSortKeyBackfill, slotFromAnchor, type BackfillRow, type KeyWrite } from "../domain/nodeSortKey";
 import {
   TIME_REPEAT_ONLY_MSG,
   assertClockWritable,
@@ -53,6 +66,7 @@ import type {
   CalendarData,
   CreateNodeInput,
   CurrentOccurrence,
+  MoveManyItem,
   NodePatch,
   NodeRepository,
   RescheduleOpts,
@@ -149,6 +163,43 @@ async function subtreeIds(db: Database, rootId: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/** 讀顯示群組要用到的欄位 */
+type GroupRow = { id: string; sort_key: string | null; position: number; created_at: string };
+
+/** 顯示群組（domain/nodeOrder.ts）的 SQL 條件；與 `inGroup` 逐條同義 */
+function groupWhere(g: SiblingGroup): { where: string; args: unknown[] } {
+  switch (g.type) {
+    case "routeTop":
+      // 與 listRouteTree＋indexTree 放進 roots 的那兩種一致：路線直屬的非車站＋掛這條路線標籤的根層臨時車票
+      return {
+        where: `((parent_id = $1 AND kind != 'station') OR (parent_id IS NULL AND kind = 'ticket' AND route_id = $1))`,
+        args: [g.routeId],
+      };
+    case "stations":
+      return { where: `parent_id = $1 AND kind = 'station'`, args: [g.routeId] };
+    case "root":
+      return { where: `parent_id IS NULL AND kind = $1`, args: [g.kind] };
+    case "inbox":
+      return { where: `parent_id IS NULL AND kind = 'ticket' AND route_id IS NULL`, args: [] };
+    case "children":
+      return { where: `parent_id = $1`, args: [g.parentId] };
+  }
+}
+
+/** 回填一批最多幾列（每列 UPDATE＋outbox＋cells 約 11 個參數；分批免得一句 SQL 綁太多參數。回填冪等，分批落也算出同一串鍵） */
+const BACKFILL_CHUNK = 200;
+
+/** 一次搬移算好的東西（驗證過、還沒寫） */
+interface PlannedMove {
+  node: NodeRow;
+  newParent: NodeRow | null;
+  kind: NodeKind;
+  sub: string[];
+  lineId: string | null;
+  routeId: string | null;
+  group: SiblingGroup;
+}
+
 export class SqliteNodeRepository implements NodeRepository {
   async listSidebar(): Promise<SidebarData> {
     const db = await getDb();
@@ -156,7 +207,7 @@ export class SqliteNodeRepository implements NodeRepository {
       db,
       await db.select<NodeRow[]>(
         `SELECT * FROM nodes WHERE kind IN ('line','route','station') AND ${ALIVE}
-       ORDER BY position ASC, created_at ASC`,
+       ORDER BY ${SIBLING_ORDER_SQL}`,
       ),
     );
     return {
@@ -172,7 +223,7 @@ export class SqliteNodeRepository implements NodeRepository {
       db,
       await db.select<NodeRow[]>(
         `SELECT * FROM nodes WHERE route_id = $1 AND kind != 'station' AND ${ALIVE}
-       ORDER BY position ASC, created_at ASC`,
+       ORDER BY ${SIBLING_ORDER_SQL}`,
         [routeId],
       ),
     );
@@ -217,6 +268,7 @@ export class SqliteNodeRepository implements NodeRepository {
    */
   private async overrideRows(db: Database, nodes: readonly { id: string }[]): Promise<TimeOverrideRow[]> {
     await this.ensureOverrideBackfill(db);
+    await this.ensureSortKeyBackfill(db);
     if (!nodes.length) return [];
     if (nodes.length === 1) {
       return db.select<TimeOverrideRow[]>(
@@ -310,10 +362,90 @@ export class SqliteNodeRepository implements NodeRepository {
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
+  // ───────────── 排序鍵（回饋乙，migration 0014）─────────────
+
+  /** 排序鍵存量回填只跑一次（同 overrideBackfill：記住 Promise；失敗就放掉，下一次讀取再試） */
+  private sortKeyBackfill: Promise<void> | null = null;
+
+  private ensureSortKeyBackfill(db: Database): Promise<void> {
+    this.sortKeyBackfill ??= this.backfillSortKeys(db).catch((e: unknown) => {
+      // 補不動不擋讀取：沒鍵的列照 position→created_at→id 排在有鍵的後面，畫面順序跟舊版一樣
+      this.sortKeyBackfill = null;
+      console.warn("[nodes] 排序鍵回填失敗，下次再試", e);
+    });
+    return this.sortKeyBackfill;
+  }
+
+  /**
+   * 排序鍵存量回填（契約 §6）：每個顯示群組裡 sort_key 為 NULL 的列，照目前的顯示序接在該群組最後一個合法鍵後面
+   * （planSortKeyBackfill；收件匣不排序、不給鍵）。對象＝0014 之前的列、還沒更新的那台推來的新列。
+   *
+   * 同 backfillOverrides：不設持久旗標、每次啟動掃一遍（先用一句 LIMIT 1 問「有沒有缺鍵的」，沒有就什麼都不讀）；
+   * 經 runWriteBatch 進 outbox——兩台各自補，輸入一樣就算出一樣的鍵，值相同對面套用時不算撞。
+   * **不戳 `updated_at`**：補鍵不是主人的修改；戳了會讓這列沒同步過的格子（補戳從 updated_at 派生，engine `stamp_missing_cells`）
+   * 全變成「現在」，合併時贏過另一台更早但真的改過內容的編輯（同 move 不戳快取列的 S-8 理由）。
+   * `AND sort_key IS NULL` 守住「這段時間裡剛被搬過、已經有鍵」的列不被蓋掉。
+   */
+  private async backfillSortKeys(db: Database): Promise<void> {
+    const need = await db.select<{ x: number }[]>(
+      `SELECT 1 AS x FROM nodes WHERE ${ALIVE} AND sort_key IS NULL
+       AND NOT (parent_id IS NULL AND kind = 'ticket' AND route_id IS NULL) LIMIT 1`,
+    );
+    if (!need.length) return;
+    const rows = await db.select<BackfillRow[]>(
+      `SELECT id, kind, parent_id, route_id, sort_key, position, created_at FROM nodes WHERE ${ALIVE}`,
+    );
+    const kinds = new Map(rows.map((r) => [r.id, r.kind]));
+    const writes = planSortKeyBackfill(rows, (id) => kinds.get(id) ?? null);
+    for (let i = 0; i < writes.length; i += BACKFILL_CHUNK) {
+      const b = newWriteBatch();
+      for (const w of writes.slice(i, i + BACKFILL_CHUNK)) {
+        b.stmts.push({ sql: `UPDATE nodes SET sort_key = $1 WHERE id = $2 AND sort_key IS NULL`, args: [w.key, w.id] });
+        addOp(b, "nodes", w.id, "upsert", { sort_key: w.key });
+      }
+      await runWriteBatch(db, b.stmts, b.ops);
+    }
+  }
+
+  /** 顯示群組的目前順序（compareSiblings；收件匣照 created_at） */
+  private async groupOrder(db: Database, g: SiblingGroup): Promise<GroupRow[]> {
+    const { where, args } = groupWhere(g);
+    const rows = await db.select<GroupRow[]>(
+      `SELECT id, sort_key, position, created_at FROM nodes WHERE ${where} AND ${ALIVE}`,
+      args,
+    );
+    return rows.sort(isOrderedGroup(g) ? compareSiblings : compareCreated);
+  }
+
+  /** 這一列現在屬於哪個顯示群組 */
+  private async groupOfNode(node: NodeRow): Promise<SiblingGroup> {
+    const parent = node.parent_id ? await this.getNode(node.parent_id) : null;
+    return groupFor({ parentId: node.parent_id, parentKind: parent?.kind ?? null, kind: node.kind, routeId: node.route_id });
+  }
+
+  /** 擋路的鄰居重新給鍵（keysForSlot 回的其他列）：主人資料，戳 updated_at、逐列記 op（同以前的 position 位移 #1／#10） */
+  private stageKeyWrites(b: WriteBatch, writes: readonly KeyWrite[], now: string): void {
+    for (const w of writes) {
+      b.stmts.push({ sql: `UPDATE nodes SET sort_key = $1, updated_at = $2 WHERE id = $3`, args: [w.key, now, w.id] });
+      addOp(b, "nodes", w.id, "upsert", { sort_key: w.key, updated_at: now });
+    }
+  }
+
+  async listSiblingIds(id: string): Promise<string[]> {
+    const db = await getDb();
+    const node = await this.getNode(id);
+    if (!node || node.deleted_at) return [];
+    return (await this.groupOrder(db, await this.groupOfNode(node))).map((r) => r.id);
+  }
+
   async create(input: CreateNodeInput): Promise<NodeRow> {
     const db = await getDb();
     const name = input.name.trim();
     if (!name) throw new Error("名稱不能空白");
+    // 建票列（回饋甲）：時刻驗格式＋範圍，同 update 那句（不拿預設日界線當範圍）
+    assertClockWritable(input.scheduledTime ?? null, input.dayStartHour);
+    const priority = input.priority ?? "mid";
+    const estimateMin = input.estimateMin == null ? null : Math.max(0, Math.round(input.estimateMin));
 
     const parent = input.parentId ? await this.getNode(input.parentId) : null;
     if (input.parentId && !parent) throw new Error("父節點不存在");
@@ -334,48 +466,45 @@ export class SqliteNodeRepository implements NodeRepository {
       lineId = tag?.line_id ?? null;
     }
 
-    // 兄弟區：同父；根層以 kind 分區（幹線一區、臨時車票一區）
-    const sibWhere = parent ? `parent_id = $1` : `parent_id IS NULL AND kind = $1`;
-    const sibArg = parent ? parent.id : input.kind;
+    const id = uuid();
     const now = nowUtcIso();
     const b = newWriteBatch();
-    let position: number;
-    if (input.afterId) {
-      const after = await this.getNode(input.afterId);
-      if (!after) throw new Error("afterId 不存在");
-      position = after.position + 1;
-      // 被擠開的鄰居也是主人資料：先問「是誰、原本排第幾」，UPDATE 順手補戳 updated_at（盲探 U1），
-      // 每一列各記一筆 op——否則對面那台不知道兄弟序動過（契約 §2.7 #1）
-      const shifted = await db.select<{ id: string; position: number }[]>(
-        `SELECT id, position FROM nodes WHERE ${sibWhere} AND position >= $2 AND ${ALIVE}`,
-        [sibArg, position],
-      );
-      if (shifted.length) {
-        b.stmts.push({
-          sql: `UPDATE nodes SET position = position + 1, updated_at = $3 WHERE ${sibWhere} AND position >= $2 AND ${ALIVE}`,
-          args: [sibArg, position, now],
-        });
-        for (const s of shifted) {
-          addOp(b, "nodes", s.id, "upsert", { position: s.position + 1, updated_at: now });
-        }
-      }
-    } else {
-      const r = await db.select<{ m: number | null }[]>(
-        `SELECT MAX(position) AS m FROM nodes WHERE ${sibWhere} AND ${ALIVE}`,
-        [sibArg],
-      );
-      position = (r[0]?.m ?? -1) + 1;
-    }
+    const after = input.afterId ? await this.getNode(input.afterId) : null;
+    if (input.afterId && !after) throw new Error("afterId 不存在");
 
-    const id = uuid();
+    // 排序鍵（回饋乙）：顯示群組裡 afterId 的下一格；沒給 afterId（或它不在這份清單）＝尾端。
+    // 平常只寫新的這一列；只有擋路的同鍵／沒鍵鄰居才一起重新給鍵（keysForSlot）——不再位移兄弟。收件匣不排序＝不給鍵
+    const group = groupFor({ parentId: parent?.id ?? null, parentKind: parent?.kind ?? null, kind: input.kind, routeId });
+    let sortKey: string | null = null;
+    if (isOrderedGroup(group)) {
+      const order = await this.groupOrder(db, group);
+      const at = after ? order.findIndex((r) => r.id === after.id) : -1;
+      const writes = keysForSlot(
+        order.map((r) => ({ id: r.id, key: r.sort_key })),
+        [id],
+        at >= 0 ? at + 1 : order.length,
+      );
+      sortKey = writes.find((w) => w.id === id)?.key ?? null;
+      this.stageKeyWrites(b, writes.filter((w) => w.id !== id), now);
+    }
+    // position 只在新建時給 MAX+1（舊的兄弟條件：同父；根層以 kind 分區），往後不再改——票號同毫秒建立時用它分先後
+    const sibWhere = parent ? `parent_id = $1` : `parent_id IS NULL AND kind = $1`;
+    const sibArg = parent ? parent.id : input.kind;
+    const maxPos = await db.select<{ m: number | null }[]>(
+      `SELECT MAX(position) AS m FROM nodes WHERE ${sibWhere} AND ${ALIVE}`,
+      [sibArg],
+    );
+    const position = (maxPos[0]?.m ?? -1) + 1;
+
     b.stmts.push({
       sql: `INSERT INTO nodes
-         (id, kind, parent_id, line_id, route_id, name, description, position, color, code, scheduled_on, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         (id, kind, parent_id, line_id, route_id, name, description, position, sort_key, color, code, scheduled_on,
+          due_on, priority, scheduled_time, estimate_min, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       args: [
         id, input.kind, parent?.id ?? null, lineId, routeId, name,
-        input.description ?? null, position, input.color ?? null, input.code ?? null,
-        input.scheduledOn ?? null, now, now,
+        input.description ?? null, position, sortKey, input.color ?? null, input.code ?? null,
+        input.scheduledOn ?? null, input.dueOn ?? null, priority, input.scheduledTime ?? null, estimateMin, now, now,
       ],
     });
     const cols: Record<string, unknown> = {
@@ -384,12 +513,18 @@ export class SqliteNodeRepository implements NodeRepository {
       name,
       description: input.description ?? null,
       position,
+      sort_key: sortKey,
       color: input.color ?? null,
       code: input.code ?? null,
       scheduled_on: input.scheduledOn ?? null,
       created_at: now,
       updated_at: now,
     };
+    // 建票列一次設好的欄位：有值才進 op（沒給＝欄位預設，跟以前的 op 長相一樣）
+    if (input.dueOn) cols.due_on = input.dueOn;
+    if (input.priority) cols.priority = priority;
+    if (input.scheduledTime) cols.scheduled_time = input.scheduledTime;
+    if (estimateMin !== null) cols.estimate_min = estimateMin;
     // line_id 永遠是快取；route_id 只有「根層臨時車票的路線標籤」是主人資料，其餘是快取（契約 §2.2）
     if (!parent && input.kind === "ticket" && routeId) cols.route_id = routeId;
     addOp(b, "nodes", id, "upsert", cols);
@@ -421,6 +556,8 @@ export class SqliteNodeRepository implements NodeRepository {
 
     // route_id＝臨時車票的路線標籤：驗身分、順手把 line_id 同步過去（setRouteTag 也走這條）
     const entries = [...picked];
+    /** 路線標籤換了＝換了一份清單（顯示群組）：排序鍵改成新清單的尾端（收件匣不排序＝清成 NULL） */
+    let retagTo: string | null | undefined;
     if (entries.some(([k]) => k === "route_id")) {
       const routeId = (patch.route_id ?? null) as string | null;
       const node = await this.getNode(id);
@@ -433,10 +570,23 @@ export class SqliteNodeRepository implements NodeRepository {
         lineId = tag.line_id;
       }
       entries.push(["line_id", lineId]);
+      if (node.route_id !== routeId) retagTo = routeId;
     }
 
     const now = nowUtcIso();
     const b = newWriteBatch();
+    const extraOpCols: Record<string, unknown> = {};
+    if (retagTo !== undefined) {
+      let key: string | null = null;
+      if (retagTo !== null) {
+        const order = await this.groupOrder(db, { type: "routeTop", routeId: retagTo });
+        const writes = keysForSlot(order.map((r) => ({ id: r.id, key: r.sort_key })), [id], order.length);
+        key = writes.find((w) => w.id === id)?.key ?? null;
+        this.stageKeyWrites(b, writes.filter((w) => w.id !== id), now);
+      }
+      entries.push(["sort_key", key]);
+      extraOpCols.sort_key = key;
+    }
 
     // B1 封口：寫 scheduled_time 時，沒有規則的票順手軟刪殘留的覆寫列（同一個交易；有殘留才寫）。
     // D-主-120 起殘留住在 node_time_overrides，不再是 nodes 的一欄——舊欄不寫，免得舊版的整欄 LWW 又被喚醒。
@@ -456,6 +606,7 @@ export class SqliteNodeRepository implements NodeRepository {
     // op 只放 picked（主人真的改的欄）＋updated_at；順手算出來的 line_id 是快取，不進 oplog
     const cols: Record<string, unknown> = {};
     for (const [k, v] of picked) cols[k] = v === undefined ? null : v;
+    Object.assign(cols, extraOpCols); // 換標籤時的排序鍵是主人資料（這列在新清單裡的位置）
     cols.updated_at = now;
     addOp(b, "nodes", id, "upsert", cols);
 
@@ -496,8 +647,17 @@ export class SqliteNodeRepository implements NodeRepository {
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
-  async move(id: string, newParentId: string | null, index: number, newKind?: NodeKind): Promise<void> {
-    const db = await getDb();
+  /**
+   * 驗證一次搬移、算好快取與目的地群組（不寫）。`routeTag`：只對「落在根層的車票」有意義——
+   * undefined＝保留原本的路線標籤（臨時車票保留標籤的規則；從列車搬出來的票＝它原本所在的路線），null＝收件匣，字串＝掛那條路線。
+   */
+  private async planMove(
+    db: Database,
+    id: string,
+    newParentId: string | null,
+    newKind?: NodeKind,
+    routeTag?: string | null,
+  ): Promise<PlannedMove> {
     const node = await this.getNode(id);
     if (!node) throw new Error("節點不存在");
     const kind = newKind ?? node.kind;
@@ -517,21 +677,29 @@ export class SqliteNodeRepository implements NodeRepository {
       const bad = kids.find((k) => !ok.includes(k.kind));
       if (bad) throw new Error(`底下還有${KIND_LABEL[bad.kind]}，不能變成${KIND_LABEL[kind]}`);
     }
-
-    const now = nowUtcIso();
-    const b = newWriteBatch();
     let lineId: string | null;
     let routeId: string | null;
     if (newParent) {
       lineId = newParent.kind === "line" ? newParent.id : newParent.line_id;
       routeId = newParent.kind === "route" ? newParent.id : newParent.route_id;
     } else {
-      routeId = node.kind === "ticket" ? node.route_id : null; // 臨時車票保留路線標籤
+      // 臨時車票保留路線標籤（routeTag 沒給時）；根層的非車票沒有路線
+      routeId = kind === "ticket" ? (routeTag !== undefined ? routeTag : node.kind === "ticket" ? node.route_id : null) : null;
       // 磨光⑤ 沙盒 F1：根層車票的 line_id 跟著路線標籤的幹線（同 create、同對面那台整表重算）；
       // 原本寫死 null ⇒ 「搬進同路線列車再復原」這台變 null、對面重算成幹線，兩台暫時不一致
       const tag = routeId ? await this.getNode(routeId) : null;
+      // 呼叫端明給的標籤才驗（保留原標籤時照舊不擋，同以前的 move）
+      if (routeTag && (!tag || tag.kind !== "route" || tag.deleted_at)) throw new Error("路線標籤必須是一條路線");
       lineId = tag?.line_id ?? null;
     }
+    const group = groupFor({ parentId: newParent?.id ?? null, parentKind: newParent?.kind ?? null, kind, routeId });
+    return { node, newParent, kind, sub, lineId, routeId, group };
+  }
+
+  /** 把一次搬移的語句與 op 放進批次（key＝新排序鍵；收件匣＝null） */
+  private stageMove(b: WriteBatch, p: PlannedMove, key: string | null, now: string): void {
+    const { node, newParent, kind, sub, lineId, routeId } = p;
+    const id = node.id;
     // 子樹的 line_id／route_id 是反正規化快取：SQL 照舊寫，但**不進 oplog**——
     // 對面那台 apply 完會自己整表重算（契約 §7.3），同步它只是把推導物推來推去。
     //
@@ -560,30 +728,14 @@ export class SqliteNodeRepository implements NodeRepository {
         args: [routeId, ...sub],
       });
     }
-
-    const sibWhere = newParent ? `parent_id = $1` : `parent_id IS NULL AND kind = $1`;
-    const sibArg = newParent ? newParent.id : node.kind;
-    // 目標兄弟區的位移：同 #1，補戳 updated_at＋逐列記 op
-    const shifted = await db.select<{ id: string; position: number }[]>(
-      `SELECT id, position FROM nodes WHERE ${sibWhere} AND position >= $2 AND id != $3 AND ${ALIVE}`,
-      [sibArg, index, id],
-    );
-    if (shifted.length) {
-      b.stmts.push({
-        sql: `UPDATE nodes SET position = position + 1, updated_at = $4 WHERE ${sibWhere} AND position >= $2 AND id != $3 AND ${ALIVE}`,
-        args: [sibArg, index, id, now],
-      });
-      for (const s of shifted) {
-        addOp(b, "nodes", s.id, "upsert", { position: s.position + 1, updated_at: now });
-      }
-    }
+    // 回饋乙：只寫被搬的這一列（排序鍵算在新鄰居之間）；不再位移兄弟、也不再改自己的 position
     b.stmts.push({
-      sql: `UPDATE nodes SET parent_id = $1, position = $2, kind = $3, updated_at = $4 WHERE id = $5`,
-      args: [newParent?.id ?? null, index, kind, now, id],
+      sql: `UPDATE nodes SET parent_id = $1, sort_key = $2, kind = $3, updated_at = $4 WHERE id = $5`,
+      args: [newParent?.id ?? null, key, kind, now, id],
     });
     addOp(b, "nodes", id, "upsert", {
       parent_id: newParent?.id ?? null,
-      position: index,
+      sort_key: key,
       kind,
       updated_at: now,
       // 搬到根層的車票：`route_id` 從快取變成**資料**（臨時車票的路線標籤），這一筆必須進 op。
@@ -591,6 +743,46 @@ export class SqliteNodeRepository implements NodeRepository {
       // 雙向一開就分歧。非根層（newParent 有值）不帶——那時它又只是快取，副本自己重算。
       ...(!newParent && kind === "ticket" ? { route_id: routeId } : {}),
     });
+  }
+
+  async move(id: string, newParentId: string | null, index: number, newKind?: NodeKind): Promise<void> {
+    const db = await getDb();
+    const p = await this.planMove(db, id, newParentId, newKind);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    let key: string | null = null;
+    if (isOrderedGroup(p.group)) {
+      // index＝目的地顯示群組（拿掉自己之後）的第幾格；平常只回自己一列，擋路的同鍵／沒鍵鄰居才一起寫
+      const order = await this.groupOrder(db, p.group);
+      const writes = keysForSlot(order.map((r) => ({ id: r.id, key: r.sort_key })), [id], index);
+      key = writes.find((w) => w.id === id)?.key ?? null;
+      this.stageKeyWrites(b, writes.filter((w) => w.id !== id), now);
+    }
+    this.stageMove(b, p, key, now);
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async moveMany(items: readonly MoveManyItem[], anchor: SlotAnchor): Promise<void> {
+    if (!items.length) return;
+    const ids = items.map((x) => x.id);
+    if (new Set(ids).size !== ids.length) throw new Error("同一個項目選了兩次");
+    const db = await getDb();
+    const plans: PlannedMove[] = [];
+    for (const it of items) plans.push(await this.planMove(db, it.id, it.parentId, it.kind, it.routeTag));
+    const group = plans[0].group;
+    if (plans.some((p) => !sameGroup(p.group, group))) throw new Error("選到的項目放不進同一個地方");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    const keyOf = new Map<string, string>();
+    if (isOrderedGroup(group)) {
+      const order = await this.groupOrder(db, group);
+      const moving = new Set(ids);
+      const index = slotFromAnchor(order.filter((r) => !moving.has(r.id)).map((r) => r.id), anchor);
+      const writes = keysForSlot(order.map((r) => ({ id: r.id, key: r.sort_key })), ids, index);
+      for (const w of writes) if (moving.has(w.id)) keyOf.set(w.id, w.key);
+      this.stageKeyWrites(b, writes.filter((w) => !moving.has(w.id)), now);
+    }
+    for (const p of plans) this.stageMove(b, p, keyOf.get(p.node.id) ?? null, now);
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
@@ -1225,6 +1417,20 @@ export class SqliteNodeRepository implements NodeRepository {
       [routeId, routeId],
     );
     return buildRouteProgress(routeId, rows);
+  }
+
+  async routeOpenCounts(): Promise<Record<string, number>> {
+    const db = await getDb();
+    // 語義＝buildRouteOpenCounts（回饋甲 D-主-130）：末端（沒有活著的子項）、未済的列車／車廂／車票，依 route_id 分組
+    const rows = await db.select<{ route_id: string; n: number }[]>(
+      `SELECT n.route_id AS route_id, COUNT(*) AS n FROM nodes n
+       WHERE n.deleted_at IS NULL AND n.kind IN ('train','car','ticket') AND n.status != 'done' AND n.route_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND c.deleted_at IS NULL)
+       GROUP BY n.route_id`,
+    );
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.route_id] = Number(r.n);
+    return out;
   }
 
   /** 某節點的存活班次記錄（新→舊不保證，呼叫端自己排） */

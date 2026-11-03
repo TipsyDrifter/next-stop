@@ -47,7 +47,7 @@ import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { DateSeal } from "../stamps";
 import { SyncDot } from "../common/SyncDot";
-import { IconGear } from "../common/icons";
+import { IconBack, IconGear } from "../common/icons";
 import { Tabs, type TabItem } from "../common/Tabs";
 import "../common/msheet.css";
 import { useScheduleUiStore, type MobileSub } from "../schedule/scheduleUiStore";
@@ -66,6 +66,11 @@ export interface MobileTopBandProps {
   tabsRow?: ReactNode;
   /** 籤列末端的「管理」文字鈕。省略＝不畫 */
   manage?: MobileTopBandManage;
+  /**
+   * 頂帶最左的「‹」返回（② 運行報告 D-主-183：運行報告頁照原型有這顆，回進來前那一格；Android 返回同一件事）。
+   * 省略＝不畫（其他頁的頂帶 DOM 逐字不變）。
+   */
+  onBack?: () => void;
 }
 
 /** 今日 tab 的兩子頁（UI 丙-3 F2） */
@@ -89,7 +94,7 @@ function dateOf(key: string): Date {
   return new Date(y, m - 1, d);
 }
 
-export function MobileTopBand({ tab, tabsRow, manage }: MobileTopBandProps) {
+export function MobileTopBand({ tab, tabsRow, manage, onBack }: MobileTopBandProps) {
   const storedKey = useNodeStore((s) => s.today.dateKey);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const sub = useScheduleUiStore((s) => s.mobileSub);
@@ -106,7 +111,12 @@ export function MobileTopBand({ tab, tabsRow, manage }: MobileTopBandProps) {
 
   return (
     <>
-      <header className="m-band">
+      <header className={onBack ? "m-band has-back" : "m-band"}>
+        {onBack && (
+          <button type="button" className="m-band-back" aria-label="返回" title="返回" onClick={onBack}>
+            <IconBack size={20} />
+          </button>
+        )}
         <div className="m-band-name">
           <div className="m-band-title">{schedule ? "行程表" : tab.label}</div>
           <div className="m-band-latin">{schedule ? "SCHEDULE" : tab.latin}</div>

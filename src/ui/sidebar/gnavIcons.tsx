@@ -69,6 +69,16 @@ function IconTicketOffice(size: number) {
   );
 }
 
+/** 運行報告（② D-主-182；gnav 第三排「回顧」）：框裡三根長條（原型 i-report 逐字） */
+function IconReport(size: number) {
+  return (
+    <svg {...svgProps(size)} strokeLinejoin="round">
+      <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="1" />
+      <path d="M5.2 11V8.4M8 11V5.2M10.8 11V7" />
+    </svg>
+  );
+}
+
 /** 完整搜尋頁（不進 gnav，D-主-110）：側欄不畫它；留一枚放大鏡給日後要列頁面圖示的地方 */
 function IconFullSearch(size: number) {
   return (
@@ -86,5 +96,6 @@ export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   notes: IconNotes,
   timetable: IconTimetable,
   ticket: IconTicketOffice,
+  report: IconReport,
   search: IconFullSearch,
 };

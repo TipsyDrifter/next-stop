@@ -9,7 +9,7 @@
  *     ├─ edge before   div.ns-sch-edge.sec.is-past（不可點）
  *     ├─ day 段        section.ns-sch-day[data-day][data-sec-key]
  *     │    （今日段才有）button.ns-sch-latejump → div.sec 日期標題列 → .ns-sch-rows DayRow×n
- *     │    → （有 dues）.ns-sch-subhead「締切」＋DueRow×n → （draftDay）ul.ticket-list.ns-sch-draft > TicketDraftRow
+ *     │    → （有 dues）.ns-sch-subhead「締切」＋DueRow×n → （draftDay）ul.ticket-list.ns-sch-draft > QuickAddRow（建票列）
  *     │    → （今日且全交代）.ns-sch-cheer
  *     ├─ gap／after 邊界  section.ns-sch-run(.is-open)[data-sec-key] > button.sec.ns-sch-run-head ＋（open）逐日 day 段**巢狀**在裡面
  *     └─ footer.page-foot（頁尾畫在捲動內容最後；CalendarView 在串流時不畫自己的）
@@ -35,7 +35,7 @@
  *     （「＋ 車票」＝開今天的草稿列）；`streamEmpty` 寫回 scheduleUiStore，頁首據此藏起「＋ 車票」（同頁一個入口，規範 §2.7）。
  *   D5：每列 ⋯（scheduleRowMenu；「選日期…」開的推遲小卡錨在 ⋯ 鈕上）。
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import { dayCount, dayCountParts } from "../../domain/dayCount";
 import type { CurrentOccurrence, DueEntry } from "../../data";
@@ -44,13 +44,19 @@ import { formatChord, isEditableTarget, matches, resolveHotkey } from "../shell/
 import { DayRow, DueRow, dayRowModel, mmdd, type DayRowModel } from "../calendar/DayRow";
 import { useCalendar } from "../calendar/useCalendarController";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
-import { TicketDraftRow } from "../today/TicketDraftRow";
+import { NO_DEST, QuickAddRow, type QuickDefaults } from "../common/quickadd";
 import { EmptyState } from "../common/EmptyState";
-import type { CommitVia } from "../common/InlineInput";
 import { IconPlus } from "../common/icons";
 import type { PopMenuItem } from "../common/PopMenu";
 import { makeScheduleActions, scheduleRowMenu } from "./scheduleActions";
 import { useScheduleUiStore } from "./scheduleUiStore";
+import { useUiStore } from "../../store/uiStore";
+import { useSelectionStore } from "../../store/selectionStore";
+import { batchSetDate } from "../../store/batchActions";
+import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
+import { SelectionBar } from "../common/selection/SelectionBar";
+import { clearIfAny, dragBatch, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
+import { REPEAT_RESCHEDULE_MSG } from "../../data";
 import {
   mdw,
   type StreamDaySection,
@@ -148,8 +154,6 @@ export function StreamView() {
   const [selKey, setSelKey] = useState<string | null>(null);
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [deferTarget, setDeferTarget] = useState<{ key: string; anchor: HTMLElement | null } | null>(null);
-  /** 草稿列的 remount 鍵：建票成功就 +1，InlineInput 重掛＝清空並重新聚焦（連打） */
-  const [draftSeq, setDraftSeq] = useState(0);
 
   const { sections, today, late } = s;
   const blocks = useMemo(() => toBlocks(sections), [sections]);
@@ -169,9 +173,36 @@ export function StreamView() {
     return out;
   }, [sections]);
 
+  /* ───────── 多選（回饋乙）：選的是節點（同一張票在好幾天出現＝同一張），順序＝第一次出現的位置 ───────── */
+  const nodeOrder = useMemo(() => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const k of selKeys) {
+      if (!isRowKey(k)) continue;
+      const id = k.slice(11);
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+    return out;
+  }, [selKeys]);
+  const picked = useSelectionStore((st) => (st.scope === "schedule" ? st.ids : null));
+  const pickedSet = useMemo(() => (picked?.length ? new Set(picked) : null), [picked]);
+  useEffect(() => {
+    useSelectionStore.getState().prune("schedule", nodeOrder);
+  }, [nodeOrder]);
+
   // 最新值放 ref：鍵盤處理器與計時器不吃舊 closure
-  const latest = useRef({ selKey, selKeys, sections, today, draftDay, deferTarget });
-  latest.current = { selKey, selKeys, sections, today, draftDay, deferTarget };
+  const latest = useRef({ selKey, selKeys, sections, today, draftDay, deferTarget, nodeOrder });
+  latest.current = { selKey, selKeys, sections, today, draftDay, deferTarget, nodeOrder };
+  /** 游標那一列講的節點（多選的起點） */
+  const cursorNode = (): string | null => {
+    const k = latest.current.selKey;
+    return k && isRowKey(k) ? k.slice(11) : null;
+  };
+  /** 節點 → 它第一次出現的那一列的選取鍵 */
+  const keyOfNode = (id: string): string | null => latest.current.selKeys.find((k) => isRowKey(k) && k.slice(11) === id) ?? null;
 
   /** 從選取鍵還原那一列（日曆同一把尺；entry 不在切片裡＝null） */
   const rowOf = useCallback(
@@ -184,6 +215,41 @@ export function StreamView() {
       return dayRowModel(entry, nodes[nodeId], routeOf(nodeId), currentOccurrences[nodeId]?.due_on ?? null, today);
     },
     [entries, nodes, routeOf, currentOccurrences, today],
+  );
+
+  const rowOfRef = useRef(rowOf);
+  rowOfRef.current = rowOf;
+
+  /* ───────── 拖到別天＝改期（回饋乙 ☎3①）：每天的列各是一份清單（slots:false），日期標題列是外部落點 ───────── */
+  const drag = useMemo<StreamDrag>(
+    () => ({
+      dragIds: (key) => {
+        const ids = dragBatch("schedule", key.slice(11), latest.current.nodeOrder);
+        if (ids.length <= 1) return [key];
+        return ids.map((id) => (id === key.slice(11) ? key : (latest.current.selKeys.find((k) => isRowKey(k) && k.slice(11) === id) ?? key)));
+      },
+      canDrag: (key) => {
+        const row = rowOfRef.current(key);
+        if (!row?.node) return "這一列不能拖";
+        if (row.isRepeat) return REPEAT_RESCHEDULE_MSG;
+        if (row.done) return "已蓋済的票不能改期——要改先取消済章";
+        return true;
+      },
+      onRefuse: (_key, why) => useUiStore.getState().showToast({ message: why }, 3500),
+      resolve: (keys, place) => {
+        if (place.kind !== "target" || place.type !== "date") return "拖到某一天的日期上，就改到那一天";
+        const date = place.target;
+        if (date < latest.current.today) return "不能排到過去的日子";
+        if (keys.every((k) => k.slice(0, 10) === date)) return "已經是這一天";
+        return true;
+      },
+      onDrop: (keys, place) => {
+        if (place.kind !== "target" || place.type !== "date") return;
+        const ids = [...new Set(keys.map((k) => k.slice(11)))];
+        void batchSetDate(ids, place.target, `已改到 ${mdw(place.target)}`);
+      },
+    }),
+    [],
   );
 
   /* ───────── 選取：列被交代掉／推遲走了就退到附近，不跳回第一列（DayPopover 同款） ───────── */
@@ -293,38 +359,19 @@ export function StreamView() {
   }, [deferTarget, rowOf]);
 
   const select = useCallback((key: string) => setSelKey(key), []);
+  /** 列的 mousedown：Ctrl／⌘／Shift＋點交給多選，純點票面順手取消多選；游標都移到這一列 */
+  const pressRow = useCallback((key: string, e?: MouseEvent<HTMLDivElement>) => {
+    if (e && pickClick("schedule", key.slice(11), latest.current.nodeOrder, e, cursorNode()) && e.shiftKey) e.preventDefault();
+    setSelKey(key);
+    // cursorNode 讀 ref，穩定
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 點日期標題列（今天與未來）＝在那天底下開草稿（D-主-8；過去由 setDraftDay 再擋一次） */
   const openDraft = useCallback((date: string) => {
     useScheduleUiStore.getState().setDraftDay(date);
   }, []);
   const closeDraft = useCallback(() => useScheduleUiStore.getState().setDraftDay(null), []);
-  // 收官磨光 A1（與今日頁同一把鎖）：建成後要等清空的新輸入框掛上去才放——createOn 自己的 busy 在回來那一刻就放了，
-  // 舊輸入框（字還在）在重畫前收到的 Enter／失焦會再建一張同名票。
-  const draftLock = useRef(false);
-  useEffect(() => {
-    draftLock.current = false;
-  }, [draftSeq]);
-  const commitDraft = useCallback(
-    async (date: string, name: string, via: CommitVia) => {
-      if (draftLock.current) return;
-      if (!name.trim()) {
-        closeDraft(); // 空白 Enter＝收掉草稿（與今日頁同）
-        return;
-      }
-      draftLock.current = true;
-      const ok = await actions.createOn(date, name);
-      if (ok && via === "blur") {
-        draftLock.current = false;
-        closeDraft(); // 失焦提交：使用者已點去別處——建好就收，不讓重掛的輸入框把焦點搶回來（同今日頁／大綱）
-      } else if (ok) {
-        setDraftSeq((n) => n + 1); // 成功：清空輸入、草稿列留著（連打）；鎖交給上面的 effect 放
-      } else {
-        draftLock.current = false; // 失敗：字留著讓主人再按一次
-      }
-    },
-    [actions, closeDraft],
-  );
 
   // useStream 的 api 物件每次 render 都是新的；放 ref 讓回呼穩定（DaySection 的 memo 才有效）
   const streamRef = useRef(s);
@@ -366,6 +413,21 @@ export function StreamView() {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (isEditableTarget(e.target)) return; // 草稿列輸入框自理
     if (latest.current.deferTarget) return; // 小卡開著：整張表停用（Esc 也歸它）
+    // 多選（回饋乙）：Ctrl+A 全選串流裡的票、Shift+↑↓ 擴選——在「Ctrl 一律放行」之前接
+    if (matches(e, "daylist.select.all")) {
+      selectAll("schedule", latest.current.nodeOrder);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (matches(e, "daylist.select.extend.up") || matches(e, "daylist.select.extend.down")) {
+      const next = extendBy("schedule", e.key === "ArrowUp" ? -1 : 1, latest.current.nodeOrder, cursorNode());
+      const k = next ? keyOfNode(next) : null;
+      if (k) setSelKey(k);
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return; // 全域鍵一律放行
     const onButton = e.target instanceof HTMLElement && e.target.tagName === "BUTTON";
     if (onButton && (e.key === "Enter" || e.key === " ")) return; // run-head／誤點列／章鈕自己啟動
@@ -419,6 +481,7 @@ export function StreamView() {
           break;
         case "daylist.escape":
           if (dd !== null) closeDraft();
+          else if (clearIfAny("schedule")) break; // 回饋乙：草稿之後先清多選
           else if (cur) {
             setSelKey(null);
             scrollRef.current?.focus({ preventScroll: true });
@@ -433,6 +496,8 @@ export function StreamView() {
       e.stopPropagation();
     }
   };
+
+  const lookupNode = useCallback((id: string) => nodes[id], [nodes]);
 
   /* ───────── 畫 ───────── */
   const foc = s.focusDay;
@@ -449,14 +514,15 @@ export function StreamView() {
       selKey={keyInDay(selKey, sec)}
       freshKey={freshKey && freshKey.slice(0, 10) === sec.date ? freshKey : null}
       draftOpen={draftDay === sec.date}
-      draftSeq={draftSeq}
       late={sec.rel === "today" ? late : null}
       onSelect={select}
+      onPress={pressRow}
+      picked={pickedSet}
+      drag={drag}
       onStamp={stamp}
       onDefer={openDefer}
       onFreshEnd={onFreshEnd}
       onHeadClick={openDraft}
-      onDraftCommit={commitDraft}
       onDraftCancel={closeDraft}
       onLateJump={onLateJump}
       onMenu={menuFor}
@@ -512,6 +578,7 @@ export function StreamView() {
         </footer>
       </div>
 
+      <SelectionBar scope="schedule" lookup={lookupNode} />
       {/* 推遲小卡：掛在捲動容器之外（粉彩的 backdrop-filter 會變成 fixed 子元素的包含塊，DayPopover 同一條） */}
       {deferTarget && deferRow && <DeferPopover row={deferRow} anchor={deferTarget.anchor} onClose={closeDefer} />}
     </div>
@@ -583,18 +650,41 @@ interface DaySectionProps {
   /** 剛蓋的那一列（dayRowModel.key；不在這一段就 null） */
   freshKey: string | null;
   draftOpen: boolean;
-  draftSeq: number;
   /** 今日段才有：誤點列 */
   late: { count: number; earliest: string | null } | null;
   onSelect(key: string): void;
+  /** 列的 mousedown（帶事件給多選看修飾鍵；回饋乙） */
+  onPress(key: string, e?: MouseEvent<HTMLDivElement>): void;
+  /** 多選中的節點（沒有多選＝null） */
+  picked: ReadonlySet<string> | null;
+  drag: StreamDrag;
   onStamp(row: DayRowModel): void;
   onDefer(row: DayRowModel, anchor: HTMLElement): void;
   onFreshEnd(key: string): void;
   onHeadClick(date: string): void;
-  onDraftCommit(date: string, name: string, via: CommitVia): Promise<void>;
   onDraftCancel(): void;
   onLateJump(): void;
   onMenu(row: DayRowModel, anchor: HTMLElement | null): PopMenuItem[];
+}
+
+/** 串流草稿列的建票列預設（每天一份、身分穩定）：無路線、執行日＝那一天 */
+const streamDefaults = new Map<string, QuickDefaults>();
+function streamDraftDefaults(day: string): QuickDefaults {
+  let d = streamDefaults.get(day);
+  if (!d) {
+    d = { dest: NO_DEST, scheduledOn: day, noDateLabel: true };
+    streamDefaults.set(day, d);
+  }
+  return d;
+}
+
+/** 串流拖曳的回呼（StreamView 給一份穩定的；每天的列各掛一個 useDragReorder） */
+interface StreamDrag {
+  dragIds(key: string): string[];
+  canDrag(key: string): Verdict;
+  onRefuse(key: string, why: string): void;
+  resolve(keys: readonly string[], place: DropPlace): Verdict;
+  onDrop(keys: readonly string[], place: DropPlace): void;
 }
 
 const DaySection = memo(function DaySection(p: DaySectionProps) {
@@ -612,6 +702,19 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
       ),
     [sec.rows, nodes, routeOf, currentOccurrences, today],
   );
+
+  // 回饋乙：這一天的列是一份「沒有縫」的清單——只能拖到別天的日期標題列（外部落點，標題列不在這份清單裡）
+  const [rowsEl, setRowsEl] = useState<HTMLDivElement | null>(null);
+  useDragReorder({
+    root: rowsEl,
+    items: rows.map((r) => ({ id: r.key })),
+    slots: false,
+    dragIds: p.drag.dragIds,
+    canDrag: p.drag.canDrag,
+    onRefuse: p.drag.onRefuse,
+    resolve: p.drag.resolve,
+    onDrop: p.drag.onDrop,
+  });
 
   const isToday = sec.rel === "today";
   const past = sec.past;
@@ -637,7 +740,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
   else note = `${total} 張`;
 
   const enterCap = formatChord({ key: "Enter" }).join("+");
-  const title = clickable ? `點一下（或按 ${enterCap}）在這天新增臨時車票` : "過去的日子不能建票";
+  const title = clickable ? `點一下（或按 ${enterCap}）在這天新增車票` : "過去的日子不能建票";
 
   return (
     <section
@@ -668,6 +771,8 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
         className={cx("sec", isToday && "is-today", past && "is-past", clickable && "is-clickable")}
         role={clickable ? "button" : undefined}
         data-row-key={hKey}
+        data-drop-target={sec.date}
+        data-drop-type="date"
         tabIndex={p.selKey === hKey ? 0 : -1}
         title={title}
         onMouseDown={() => p.onSelect(hKey)}
@@ -682,14 +787,15 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
       </div>
 
       {rows.length > 0 && (
-        <div className="ns-sch-rows">
+        <div ref={setRowsEl} className="ns-sch-rows">
           {rows.map((row) => (
             <StreamRow
               key={row.key}
               row={row}
               selected={p.selKey === rowKey(row.entry.date, row.entry.node_id)}
+              picked={!!p.picked?.has(row.entry.node_id)}
               fresh={p.freshKey === row.key}
-              onSelect={p.onSelect}
+              onSelect={p.onPress}
               onStamp={p.onStamp}
               onDefer={p.onDefer}
               onFreshEnd={p.onFreshEnd}
@@ -720,14 +826,14 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
         </>
       )}
 
+      {/* 草稿列＝建票列（回饋甲 D-主-128：執行日＝那一天；可改掛到、時刻…；建到別天才出收據） */}
       {p.draftOpen && (
         <ul className="ticket-list ns-sch-draft">
-          <TicketDraftRow
-            key={p.draftSeq}
-            afterId={null}
-            kind="today"
-            onCommit={(name, via) => p.onDraftCommit(sec.date, name, via)}
-            onCancel={p.onDraftCancel}
+          <QuickAddRow
+            key={sec.date}
+            defaults={streamDraftDefaults(sec.date)}
+            here={{ kind: "day", day: sec.date }}
+            onClose={p.onDraftCancel}
           />
         </ul>
       )}
@@ -742,6 +848,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
 const StreamRow = memo(function StreamRow({
   row,
   selected,
+  picked,
   fresh,
   onSelect,
   onStamp,
@@ -751,8 +858,9 @@ const StreamRow = memo(function StreamRow({
 }: {
   row: DayRowModel;
   selected: boolean;
+  picked: boolean;
   fresh: boolean;
-  onSelect(key: string): void;
+  onSelect(key: string, e?: MouseEvent<HTMLDivElement>): void;
   onStamp(row: DayRowModel): void;
   onDefer(row: DayRowModel, anchor: HTMLElement): void;
   onFreshEnd(key: string): void;
@@ -767,7 +875,9 @@ const StreamRow = memo(function StreamRow({
       fresh={fresh}
       now={now}
       onFreshEnd={() => onFreshEnd(row.key)}
-      onSelect={() => onSelect(rowKey(row.entry.date, row.entry.node_id))}
+      onSelect={(e) => onSelect(rowKey(row.entry.date, row.entry.node_id), e)}
+      picked={picked}
+      dragId={row.key}
       onStamp={() => onStamp(row)}
       onDefer={(el) => onDefer(row, el)}
       menu={(anchor) => onMenu(row, anchor)}

@@ -63,14 +63,14 @@ const NARROW_PX = 960;
  */
 const HEAD_FULL_PX = 760;
 
-/** 視圖切換六格（D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼）；n＝鍵帽 1–6（鍵 id `timetable.view.<n>`，整合席登記） */
+/** 視圖切換六格（D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼；⑦ D-時-154／155 統計移到最後、鍵帽跟著位置走）；n＝鍵帽 1–6（鍵 id `timetable.view.<n>`） */
 const VIEW_OPTIONS: { v: TimetableViewMode; label: string; n: number }[] = [
   { v: "split", label: TT_TEXT.weekUi.viewSplit, n: 1 },
   { v: "axis", label: TT_TEXT.weekUi.viewAxis, n: 2 },
   { v: "week", label: TT_TEXT.viewWeek, n: 3 },
-  { v: "stats", label: TT_TEXT.viewStats, n: 4 },
-  { v: "schedule", label: TT_TEXT.viewSchedule, n: 5 },
-  { v: "grid", label: TT_TEXT.viewGrid, n: 6 },
+  { v: "schedule", label: TT_TEXT.viewSchedule, n: 4 },
+  { v: "grid", label: TT_TEXT.viewGrid, n: 5 },
+  { v: "stats", label: TT_TEXT.viewStats, n: 6 },
 ];
 
 /**

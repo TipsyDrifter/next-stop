@@ -1,0 +1,111 @@
+/* ═══════════════════════════════════════════════════════
+ * drag-reorder.css——共用拖曳元件的長相（回饋乙；行為在 useDragReorder.ts）。
+ *
+ * 語彙沿用今日頁與手機今日的拖曳：浮起＝陰影＋微放大；原列退成 .38 淡態留在原位；落點＝1.5px 靛色虛線（作用中色 --accent）；
+ * 放不下＝赭色線＋指標旁一句理由。只動 transform／opacity；減少動態效果時不做過場。顏色只用 theme token。
+ * 落點色＝`--dr-accent`（清單容器上設；沒設＝--accent）：書封深底上靛色看不見，書封設燙金（sidebar.css）。
+ * 疊放順序：影子卡 1000 < 落點線 1001 < 理由小卡 1002——游標總在縫附近，線放在影子卡底下就被蓋住（原型實測）。
+ * ═══════════════════════════════════════════════════════ */
+
+/* 能拖的列：拖曳中不要選字、不要跳長按選單 */
+.dr-active [data-drag-id],
+[data-shell="mobile"] [data-drag-id] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html.dr-dragging, html.dr-dragging * { cursor: grabbing !important; }
+
+/* 觸控按著還沒滿 400ms：微微下沉（告訴手指「有東西在等」） */
+[data-drag-id].dr-pressing { transform: scale(.985); transition: transform var(--dur-fast) var(--ease); }
+
+/* 原列：退到淡態留在原位；一起走的子孫同樣退 */
+[data-drag-id].dr-source,
+[data-drag-id].dr-carried { opacity: .38; transition: opacity var(--dur-fast) var(--ease-soft); }
+
+/* 影子卡：跟著指標走（不吃過場＝不拖泥帶水） */
+.dr-ghost {
+  box-shadow: var(--shadow-card-hover);
+  opacity: .96;
+  transition: scale var(--dur-fast) var(--ease) !important;
+  list-style: none;
+}
+.dr-ghost-count {
+  position: absolute; top: -8px; right: -8px;
+  min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 11px;
+  background: var(--dr-accent, var(--accent)); color: var(--color-paper-high);
+  font: 600 12px/1 var(--font-body);
+}
+
+/* 落點線：fixed 疊在最上層，位置由 hook 寫 transform */
+.dr-line {
+  position: fixed; left: 0; top: 0; height: 0;
+  border-top: 1.5px dashed var(--dr-accent, var(--accent));
+  pointer-events: none; z-index: 1001;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-soft);
+}
+.dr-line::before {
+  content: ""; position: absolute; left: -4px; top: -4.75px;
+  width: 6px; height: 6px; border-radius: 50%;
+  border: 1.5px solid var(--dr-accent, var(--accent)); background: var(--color-paper-high);
+}
+.dr-line.is-no { border-top-color: var(--late); }
+.dr-line.is-no::before { border-color: var(--late); }
+
+/* 放不下的理由：指標旁一張小卡 */
+.dr-why {
+  position: fixed; left: 0; top: 0; z-index: 1002;
+  max-width: 260px; padding: 6px 10px;
+  font: 400 var(--fs-ui)/1.4 var(--font-body); color: var(--late);
+  pointer-events: none; opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-soft);
+}
+
+/* 外部落點（側欄路線、日期列）：指標停在上面時 */
+[data-drop-target][data-drop-over="ok"] {
+  outline: 1.5px dashed var(--dr-accent, var(--accent)); outline-offset: -1.5px;
+  background: var(--sel-bg);
+}
+[data-drop-target][data-drop-over="no"] {
+  outline: 1.5px dashed var(--late); outline-offset: -1.5px;
+}
+
+/* 拖不動的列：抖一下（照時刻排、不能手排之類） */
+[data-drag-id].dr-nudge { animation: dr-nudge .36s ease-in-out; }
+@keyframes dr-nudge {
+  0%, 100% { translate: 0; }
+  20% { translate: -4px 0; }
+  45% { translate: 4px 0; }
+  70% { translate: -2px 0; }
+}
+
+/* ───── 滑動手勢（手機） ───── */
+.dr-swipeable [data-drag-id] { touch-action: pan-y; }
+[data-drag-id].dr-swiping { position: relative; z-index: 1; transition: none; }
+[data-drag-id]:not(.dr-swiping) { transition: transform .2s var(--ease); }
+.dr-swipe-under {
+  position: absolute; box-sizing: border-box;
+  display: flex; align-items: center; padding: 0 20px;
+  border-radius: var(--radius-card);
+  font: 600 var(--fs-ui)/1 var(--font-body);
+  color: var(--color-paper-high);
+  opacity: .55;
+  transition: opacity var(--dur-fast) var(--ease-soft);
+  pointer-events: none;
+}
+.dr-swipe-under.is-right { justify-content: flex-start; }
+.dr-swipe-under.is-left { justify-content: flex-end; }
+.dr-swipe-under.is-armed { opacity: 1; }
+.dr-swipe-under.tone-seal { background: var(--seal); }
+.dr-swipe-under.tone-late { background: var(--late); }
+.dr-swipe-under.tone-ink { background: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-drag-id].dr-pressing,
+  [data-drag-id]:not(.dr-swiping),
+  .dr-line, .dr-why, .dr-swipe-under { transition: none; }
+  [data-drag-id].dr-nudge { animation: none; outline: 1.5px dashed var(--color-dash); }
+}

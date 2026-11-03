@@ -7,7 +7,7 @@
  *   規矩：「是不是定期券」只認 parseRule；規則不完整（每週沒選星期／每月沒填日／完成後沒填天數）**不送**——
  *   送出去 parseRule 會 null，等於把票清成乘車券；切進「固定排程」預帶起算日的星期／號數，一點就是完整規則（M3 ④ 評審 should-8）。
  * 二、票種轉換（手機詳情頁的乘車券⇄定期券）＝重複模式的捷徑：切定期券＝在編輯器點「固定排程」那一下；切回＝「不重複」。
- * 三、現況／検印：定期券三態、現況可選格、検印區怎麼畫與章旁那句。
+ * 三、現況／検印：定期券三態、現況可選格、検印區怎麼畫與章旁那句；時段組的長度分段（D-主-129）。
  * 四、子孫數的那把尺（改已完成要不要問「連同 N 個」、刪除要不要確認）：樹裡算到底，不在樹裡數不清就回 null。
  */
 import type { NodeKind, NodeRow, NodeStatus, Priority, RepeatFreq, RepeatRule } from "../../domain";
@@ -161,6 +161,30 @@ export const PRIORITY_OPTIONS: readonly { value: Priority; label: string }[] = [
   { value: "mid", label: "中" },
   { value: "high", label: "高" },
 ];
+
+/* ───────────── 時段組的長度（D-主-129；視覺規範 §2.5 長度選擇一套） ───────────── */
+
+/** 長度分段鈕（分）：側板、手機詳情頁、手機時刻 sheet 同一組；旁邊另一顆「自訂…」 */
+export const LEN_PRESETS: readonly number[] = [15, 30, 60, 90, 120];
+/** 「自訂…」最多幾分（10 小時；手機時刻 sheet 原本的上限） */
+export const LEN_MAX = 600;
+
+/** 長度字（§2.5：單位「分」，≥60 寫成 1h30）——自訂鈕上的字、手機的「預計」小字 */
+export function lenText(min: number): string {
+  if (min < 60) return `${min} 分`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h${m < 10 ? `0${m}` : m}` : `${h}h`;
+}
+
+/** 「自訂…」框打的字 → 長度：空白＝清掉（null）；看不懂或 ≤0＝undefined（不送、還原）；超過上限夾回 */
+export function parseLenInput(raw: string): number | null | undefined {
+  const s = raw.trim();
+  if (s === "") return null;
+  const v = Number.parseInt(s, 10);
+  if (!Number.isFinite(v) || v <= 0) return undefined;
+  return Math.min(v, LEN_MAX);
+}
 
 /**
  * 定期券的三態（M3 ④）：teiki＝活著的定期券（済蓋在班次上）；retired＝掛著規則但 status='done'（退役；

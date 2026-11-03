@@ -51,6 +51,7 @@ import MobileBackup from "./MobileBackup";
 import { useBackupStore } from "../../store/backupStore";
 import { useBackLayer } from "./backStack";
 import { lineSettingsLinks } from "../../lines/runtime";
+import { GNAV_ICONS } from "../sidebar/gnavIcons";
 // 〈外部助理〉那一段的兩條排版規則跟桌機籤放在同一支 css（MCP 接口班的新檔，不動共用的 mobile.css）
 import "../settings/externalAssistant.css";
 // 版本號取 package.json 的 version（tsconfig resolveJsonModule 已開）——發版只改一處，這頁自動跟。
@@ -85,6 +86,7 @@ function fmtBackupStamp(iso: string): string {
 export default function MobileMore() {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
+  const setMobileTab = useUiStore((s) => s.setMobileTab);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -126,6 +128,20 @@ export default function MobileMore() {
 
   return (
     <div className="m-page m2-page" aria-label="更多">
+      {/* ② 運行報告（D-主-183）：最上面一段「回顧」＝桌機書封第三排；③ 的車庫接在同一段 */}
+      <section className="m2-sec" aria-labelledby="m2-sec-review">
+        <h2 id="m2-sec-review" className="m2-sec-title">
+          回顧
+        </h2>
+        <button type="button" className="m2-row-link m2-row-first" onClick={() => setMobileTab("report")}>
+          <span className="m2-planned-name m2-row-icon">
+            {GNAV_ICONS.report(16)}
+            運行報告
+          </span>
+          <span className="m2-planned-note">今天與每日運行實績</span>
+        </button>
+      </section>
+
       <section className="m2-sec" aria-labelledby="m2-sec-settings">
         <h2 id="m2-sec-settings" className="m2-sec-title">
           設定

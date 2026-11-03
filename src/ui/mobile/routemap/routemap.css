@@ -47,3 +47,24 @@
 
 /* 空狀態的「新增第一班…」：標題下一顆框線鈕（不是主鈕——空狀態不搶戲） */
 [data-shell="mobile"] .m2-empty-add { margin-top: var(--sp-3); }
+
+/* 回饋甲 D-主-131：樹上方的區段標（「列車 ── ［済 N・隱藏］」；留白與字級同手機今日 .m-today .sec） */
+[data-shell="mobile"] .m2-sec { align-items: center; margin: 4px 0 6px; gap: 9px; }
+[data-shell="mobile"] .m2-sec h3 {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-tab); letter-spacing: .18em; text-indent: .18em;
+}
+[data-shell="mobile"] .m2-sec .rule { min-width: 12px; }
+[data-shell="mobile"] .m2-sec .ns-qa-donechip { margin-left: 0; }
+
+/* 回饋甲 D-主-132：快看底下的「詳情 ›」——靠右一顆文字鈕（44 觸控高、負外距抵銷，快看的視覺高度不變） */
+[data-shell="mobile"] .m2-detail-go {
+  display: flex; align-items: center; justify-content: flex-end;
+  width: 100%; min-height: 44px; margin: -6px 0 -10px; padding: 0;
+  background: transparent; border: 0;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .12em;
+  color: var(--sel-fg); cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m2-detail-go:active { color: var(--color-ink); }
+[data-shell="mobile"] .m2-detail-go:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }

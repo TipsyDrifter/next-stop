@@ -79,7 +79,9 @@ test("路線搬到另一條幹線：接在新幹線最後、整棵子樹的 line
   const moved = await s.repo.getNode(s.ja.id);
   assert.equal(moved?.parent_id, s.life.id);
   assert.equal(moved?.line_id, s.life.id);
-  assert.equal(moved?.position, (await s.repo.getNode(s.gym.id))!.position + 1, "接在健身之後");
+  const lifeRoutes = (await s.repo.listSidebar()).routes.filter((r) => r.parent_id === s.life.id).map((r) => r.id);
+  assert.deepEqual(lifeRoutes, [s.gym.id, s.ja.id], "接在健身之後");
+  assert.equal(moved?.position, s.ja.position, "搬移不再改 position（只寫排序鍵）");
   for (const n of [s.train, s.car, s.ticket, s.station]) {
     const row = await s.repo.getNode(n.id);
     assert.equal(row?.line_id, s.life.id, `${n.name} 的 line_id 跟著換幹線`);
@@ -100,10 +102,8 @@ test("復原：回到原幹線、原位置，兄弟順序不變、子樹 line_id
   const row = await s.repo.getNode(s.ja.id);
   assert.equal(row?.parent_id, s.study.id);
   assert.equal(row?.line_id, s.study.id);
-  const after = (await s.repo.listSidebar()).routes
-    .filter((x) => x.line_id === s.study.id)
-    .sort((a, b) => a.position - b.position)
-    .map((x) => x.id);
+  // listSidebar 已照兄弟順序（compareSiblings）排好
+  const after = (await s.repo.listSidebar()).routes.filter((x) => x.line_id === s.study.id).map((x) => x.id);
   assert.deepEqual(after, before, "日文回到英文前面");
   for (const n of [s.train, s.car, s.ticket, s.station]) {
     assert.equal((await s.repo.getNode(n.id))?.line_id, s.study.id);

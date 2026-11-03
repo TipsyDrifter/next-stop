@@ -1,0 +1,81 @@
+/* ═══ 車票「其他時段」（時刻表⑦ 契約 §4 入口①；D 席）═══
+ * 長相＝prototypes/時刻表-⑦.html「提案 ④」的 .ns-tt-tplans*（側板一段一行＋×、過去淡字、「＋加一段」展開成行內一行）。
+ * 原型的 .pr-tin（兩格小時刻框）落成共用 ClockInput（compact、拿掉微調鈕）：這裡只把 .ns-clock 收成行內小框，
+ * 說明行平常收起、只在打錯時出現（往右溢出、不撐寬這一行）。手機尺寸在檔尾 [data-shell="mobile"]。 */
+
+.ns-tt-slots { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+
+.ns-tt-tplans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; align-self: stretch; min-width: 0; }
+.ns-tt-tplans li { display: flex; align-items: center; gap: 6px; min-height: 26px; font-size: 13.5px; }
+
+/* 一段：日期＋起訖（可點＝同一行改；過去的段與定期券是 span、不可點） */
+.ns-tt-tplans-hit {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px;
+  min-height: 24px; margin: 0; padding: 0 2px; border: 0; border-radius: var(--radius-ctl); background: transparent;
+  font: inherit; text-align: left; color: inherit;
+}
+button.ns-tt-tplans-hit { cursor: pointer; transition: background-color var(--dur-fast) var(--ease-soft); }
+button.ns-tt-tplans-hit:hover { background: var(--hover-bg); }
+button.ns-tt-tplans-hit:hover .t { color: var(--color-ink); }
+button.ns-tt-tplans-hit:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-tplans .d { flex: none; width: 5.6em; font-family: var(--font-latin); font-feature-settings: "tnum" 1; color: var(--color-ink); white-space: nowrap; }
+.ns-tt-tplans .t { flex: 1 1 auto; min-width: 0; font-family: var(--font-latin); font-feature-settings: "tnum" 1; color: var(--color-ink-soft); white-space: nowrap; }
+.ns-tt-tplans li.is-past .d, .ns-tt-tplans li.is-past .t { color: var(--color-ink-faint); opacity: .8; }
+
+.ns-tt-tplans .x { width: 22px; height: 22px; color: var(--color-ink-faint); }
+.ns-tt-tplans .x:hover:not(:disabled) { color: var(--color-ink); }
+.ns-tt-tplans .x .ns-ico { width: 12px; height: 12px; }
+
+/* 展開的那一行：日期 chip＋起–訖（一組不拆）＋下一行 取消｜加上 */
+.ns-tt-tplans li.is-new { flex-wrap: wrap; align-items: flex-start; gap: 6px 4px; padding: 4px 0 6px; }
+.ns-tt-tplans li.is-new > .ns-datechip-wrap { margin-top: 1px; } /* chip 24 對齊 26 高的時刻框 */
+.ns-tt-tplans-range { display: inline-flex; flex-wrap: wrap; align-items: flex-start; gap: 0 2px; flex: none; }
+.ns-tt-tplans-dash { line-height: 26px; color: var(--color-ink-faint); }
+.ns-tt-tplans-acts { flex: 0 0 100%; display: flex; gap: 8px; }
+
+/* ClockInput 收成行內小框（原型 .pr-tin：底線框、拉丁字、焦點朱線＋淡底——ClockInput 本身就是這套語彙）。
+ * .ns-clock 攤平（display: contents）⇒ 兩格的說明行排到起–訖這一組的下一行、寬度＝這一組（不撐寬、不溢出側板） */
+.ns-tt-tplans-range .ns-clock { display: contents; }
+.ns-tt-tplans-range .ns-clock-inwrap { margin: 0; }
+.ns-tt-tplans-range .techo-input.ns-clock-in {
+  width: 48px; min-height: 26px; padding: 0; line-height: 24px;
+  font-size: 14px; font-weight: 500;
+}
+.ns-tt-tplans-range .ns-clock-foot:not(.is-err) { display: none; }
+.ns-tt-tplans-range .ns-clock-foot.is-err {
+  order: 9; flex: 0 0 auto; width: 0; min-width: 100%; justify-content: flex-start; margin-top: 2px;
+  white-space: normal; font-size: var(--fs-xs); line-height: 1.5;
+}
+
+.ns-tt-tplans-add {
+  align-self: flex-start; margin-top: 2px; padding: 0; min-height: 24px; border: 0; background: transparent;
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft); cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+.ns-tt-tplans-add:hover:not(:disabled) { color: var(--accent); }
+.ns-tt-tplans-add:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-ctl); }
+.ns-tt-tplans-add:disabled { cursor: default; opacity: var(--disabled); }
+
+.ns-tt-tplans-teiki { margin: 2px 0 0; font-size: var(--fs-xs); line-height: 1.6; letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-tt-tplans:empty + .ns-tt-tplans-teiki { margin-top: 5px; }
+
+/* ── 手機：詳情頁 m-dt-lines 裡的一列（52px 標籤欄，同 TimeFieldMobile／荷札） ── */
+.ns-tt-tplans-m { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: start; gap: 8px; margin: 0; padding: 3px 0; }
+.ns-tt-tplans-m dt { padding-top: 14px; font-size: var(--fs-micro); letter-spacing: .06em; white-space: nowrap; color: var(--color-ink-faint); } /* 四個字：.2em 會在 52px 折行 */
+.ns-tt-tplans-m dd { margin: 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+
+[data-shell="mobile"] .ns-tt-tplans li { min-height: 44px; font-size: 15px; }
+[data-shell="mobile"] .ns-tt-tplans-hit { min-height: 44px; }
+[data-shell="mobile"] .ns-tt-tplans .x { width: 44px; height: 44px; margin-right: -12px; }
+[data-shell="mobile"] .ns-tt-tplans .x .ns-ico { width: 14px; height: 14px; }
+[data-shell="mobile"] .ns-tt-tplans li.is-new { gap: 8px; padding: 6px 0 8px; }
+[data-shell="mobile"] .ns-tt-tplans li.is-new > .ns-datechip-wrap { margin-top: 2px; }
+[data-shell="mobile"] .ns-tt-tplans-range { gap: 0 6px; }
+[data-shell="mobile"] .ns-tt-tplans-dash { line-height: 40px; }
+[data-shell="mobile"] .ns-tt-tplans-range .techo-input.ns-clock-in { width: 62px; min-height: 40px; line-height: 38px; font-size: 16px; }
+[data-shell="mobile"] .ns-tt-tplans-add { min-height: 44px; font-size: 14px; }
+[data-shell="mobile"] .ns-tt-tplans-teiki { padding: 12px 0 8px; font-size: var(--fs-sm); }
+
+@media (prefers-reduced-motion: reduce) {
+  button.ns-tt-tplans-hit, .ns-tt-tplans-add { transition: none; }
+}

@@ -13,6 +13,7 @@ import { useCallback } from "react";
 import { nodeRepo } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import type { NodeRow } from "../../domain";
+import { compareSiblings } from "../../domain/nodeOrder";
 
 export type AttachKind = "branch" | "train" | "car";
 
@@ -28,7 +29,7 @@ export interface AttachOption {
 
 const ATTACH_KINDS: readonly string[] = ["branch", "train", "car"];
 
-/** 純函式：把 listRouteTree 的平面列攤成縮排清單（父先子後；同層依 position，原陣列已排好） */
+/** 純函式：把 listRouteTree 的平面列攤成縮排清單（父先子後；同層依兄弟順序 compareSiblings，原陣列已排好） */
 export function flattenAttachTree(
   routeId: string,
   rows: readonly NodeRow[],
@@ -41,7 +42,7 @@ export function flattenAttachTree(
     if (list) list.push(n);
     else children.set(n.parent_id, [n]);
   }
-  for (const list of children.values()) list.sort((a, b) => a.position - b.position);
+  for (const list of children.values()) list.sort(compareSiblings);
   const out: AttachOption[] = [];
   const seen = new Set<string>();
   const walk = (parentId: string, depth: number) => {

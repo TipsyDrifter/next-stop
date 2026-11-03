@@ -20,6 +20,10 @@ import { PendingListPanel, pendingListTitle } from "./PendingListPanel"; // ③ 
 import { PlanPanel } from "./PlanPanel"; // ④ 乙席
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore"; // ④ 乙席
 import { TagSheetPanel } from "./TagSheetPanel"; // ⑥ 乙席
+import { RoutineSegPanel } from "./RoutineSegPanel"; // ⑦ C 席
+import { SlotPanel } from "./SlotPanel"; // ⑦ C 席
+import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
+import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
 export type { PanelProps } from "./controls";
 export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, SplitPanel, TaskCategoryPanel };
 
@@ -69,6 +73,17 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       const it = st.items[sheet.key];
       return (it && st.nodes[it.nodeId]?.name) || TT_TEXT.viewSchedule;
     }
+    case "slot": {
+      // ⑦ C 席：車票第二段起＝車票名
+      const st = useTimetableScheduleStore.getState();
+      const it = st.slots[sheet.key];
+      return (it && st.nodes[it.nodeId]?.name) || TT_TEXT.viewSchedule;
+    }
+    case "routine": {
+      // ⑦ C 席：作息段＝段的名字（沒有就分類名）
+      const g = useTimetablePlanStore.getState().days[sheet.day]?.segs.find((x) => x.id === sheet.id);
+      return (g && segName(g, g.cat ? (s.catById[g.cat]?.name ?? null) : null)) || "作息";
+    }
     case "tags": {
       // ⑥ 乙席：「荷札・創作 14:35 起」（同手機點選器的標題，D-時-129）
       const sb = s.sheetBlock !== undefined ? s.sheetBlock : useTimetableStore.getState().sheetBlock;
@@ -85,7 +100,7 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
  * 這種面板有沒有黏底按鈕列（UI 丙-4 C1／C3；兩個 host 共用）：有 ⇒ host 給殼一個 foot、面板的 `<Actions>` portal 進去。
  * 沒有的：即時存（分類與設定、連結、算哪一類、荷札、待確認清單——規範 §2.3「即時存的表單沒有主鈕」）與發車（點分類即發車）。
  */
-const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "estimate", "longRun", "goal", "plan"]);
+const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "estimate", "longRun", "goal", "plan", "routine", "slot"]);
 export function sheetHasFoot(kind: TimetableSheet["kind"]): boolean {
   return FOOT_KINDS.has(kind);
 }
@@ -119,6 +134,10 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(PlanPanel, { onDone, key: sheet.key });
     case "tags": // ⑥ 乙席：運行中那一班的荷札小面板（D-時-116）
       return createElement(TagSheetPanel, { onDone, key: sheet.blockId });
+    case "routine": // ⑦ C 席：手機的 sheet（桌機是 ScheduleView 的 SchedPopover）
+      return createElement(RoutineSegPanel, { onDone, key: `${sheet.day}-${sheet.id}` });
+    case "slot": // ⑦ C 席：同上
+      return createElement(SlotPanel, { onDone, key: sheet.key });
     default:
       return createElement(DepartPanel, { onDone });
   }

@@ -312,6 +312,29 @@ describe("6. daySummary", () => {
     assert.equal(s.timedOnly, 0);
     assert.equal(s.onTime, 0);
   });
+  test("⑦ 沙盒 F-2：第一段沒時刻、這天只有第二段起的票也算一件（算張數不算段數）；各段長度進「共 X」", () => {
+    const seg = (nodeId: string, id: string, time: string, len: number, p: Partial<PlanItem> = {}): PlanItem =>
+      item({ nodeId, key: `${D}-${nodeId}-seg-${id}`, time, estimateMin: len, ...p });
+    const mains = [
+      item({ nodeId: "x", key: "x", time: null }), // 第一段沒時刻
+      item({ nodeId: "y", key: "y", time: "09:00", estimateMin: 30 }), // 第一段有時刻＋這天還有一段
+    ];
+    const slots = [seg("x", "1", "15:00", 120), seg("x", "2", "18:00", 60), seg("y", "1", "13:00", 45), seg("z", "1", "11:00", 30, { done: true })];
+    const fut = daySummary(mains, new Map(), true, slots);
+    assert.equal(fut.planned, 3, "x、y、z 各算一件（x 兩段也只算一件）");
+    assert.equal(fut.plannedMin, 30 + 120 + 60 + 45 + 30);
+    assert.equal(fut.noEstimate, 0);
+    assert.deepEqual(daySummary(mains, new Map(), true), { ...fut, planned: 1, plannedMin: 30 }, "沒給 slots＝舊行為");
+    // 今天：x 的最早那段 15:00 準點開始 ⇒ 只記時間＋準點；z 票蓋済 ⇒ 済
+    const spans = [span(T(15, 5), T(16, 0), "x")];
+    const now = T(16, 30);
+    const cmp = new Map<string, PlanCompare>([...mains, ...slots].map((i) => [i.key, comparePlan(i, spans, 6, now)]));
+    const s = daySummary(mains, cmp, false, slots);
+    assert.equal(s.planned, 3);
+    assert.equal(s.stamped, 1);
+    assert.equal(s.timedOnly, 1);
+    assert.equal(s.onTime, 1);
+  });
   test("排了 0", () => {
     assert.deepEqual(daySummary([item({ time: null })], new Map(), false), {
       planned: 0,

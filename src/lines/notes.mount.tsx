@@ -24,6 +24,8 @@ import { notesDeleteHint } from "../ui/notes/deleteHint";
 import { MobileNotes, NotesMobileOverlay, MobileTagRow, MobileTagSheetItem, MobileNoteField } from "../ui/notes/mobile";
 import { useNotesStore } from "../store/notesStore";
 import { noteRepo } from "../data/noteRepo";
+import { NotesNavBadge, notesNavHint } from "../ui/notes/NotesNavBadge";
+import { notesReportJump } from "./notesReport";
 
 /**
  * 節點詳情欄位（車次③「荷札」＋車次④「筆記」）：桌機 Desktop＋手機 Mobile 各組成一筆。
@@ -61,4 +63,9 @@ export const NOTES_MOUNT: LineMount = {
   nodeDeleteHints: notesDeleteHint,
   // 日曆當日清單浮層底部的「日記」一段（車次④ 0-5 甲／D-筆-28）
   calendarDayAux: CalendarDiaryAux,
+  // 書封與手機 tab 的數字小標＝收件匣待整理數（主線回饋甲 D-主-130；墨色膠囊，0 不畫）＋桌機 tooltip 尾巴
+  navBadge: NotesNavBadge,
+  navHint: notesNavHint,
+  // ② 運行報告：卡片小元件與表格某一天點下去的去處（D-主-188；跳法在 notesReport.ts）
+  reportJump: notesReportJump,
 };

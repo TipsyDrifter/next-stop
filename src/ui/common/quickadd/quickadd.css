@@ -1,0 +1,180 @@
+/*
+ * quickadd.css——建票列（回饋甲 D-主-127、128、131；長相＝prototypes/回饋甲-入口與建票.html 的 .nsq-*，定稿 q1-A／q2-A／q4a-A）。
+ *   值一律走 theme.css 語意層；票形沿各頁 .ticket.draft 的虛線語彙（本檔自帶一份，不靠頁面前綴：今日、大綱、行程表、當日浮層都用）。
+ *   桌機：.ns-qa（票形草稿列）、.ns-qa-pop（挑選器浮層）、.ns-qa-launch（清單尾常駐列）、.ns-qa-donechip（済開關）。
+ *   手機：.ns-qa-mnew（底部輸入列，沿 mobile.css 的 .m-newticket）。
+ */
+
+/* ═══ 票形草稿列 ═══ */
+.ticket.draft.ns-qa,
+.ticket.draft.ns-qa::before,
+.ticket.draft.ns-qa::after { border-style: dashed; border-color: var(--color-dash); }
+/* 聚焦：虛線邊轉作用中色（＝選中票的同一個 --accent） */
+.ticket.draft.ns-qa.is-focus,
+.ticket.draft.ns-qa.is-focus::before,
+.ticket.draft.ns-qa.is-focus::after { border-color: color-mix(in srgb, var(--accent) 70%, var(--color-dash)); }
+.ticket.draft.ns-qa:hover { transform: none; }
+.ticket.draft.ns-qa .body { padding-bottom: 12px; }
+.ticket.draft.ns-qa .stub .line-name { white-space: nowrap; }
+.ticket.draft.ns-qa .ns-qa-into {
+  margin-top: 2px; max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+
+/* 輸入框＋反白鏡像：鏡像在下、輸入框透明字在上（原生 input 不能局部上色） */
+.ns-qa-field { position: relative; padding-right: 64px; }
+.ns-qa-field input,
+.ns-qa-field .ns-qa-mirror {
+  display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; outline: none;
+  font: inherit; font-size: var(--fs-ticket); font-weight: 500; letter-spacing: .04em; line-height: 1.6;
+  white-space: pre; overflow: hidden;
+}
+.ns-qa-field input { position: relative; z-index: 1; color: var(--color-ink); caret-color: var(--accent); }
+.ns-qa-field.has-mirror input { color: transparent; }
+.ns-qa-field input::placeholder { color: var(--color-ink-faint); font-weight: 400; }
+.ns-qa-field .ns-qa-mirror { position: absolute; inset: 0 64px 0 0; width: auto; color: var(--color-ink); pointer-events: none; }
+.ns-qa-tok {
+  color: var(--sel-fg); background: var(--sel-bg);
+  border-radius: var(--radius-ctl); box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: nsQaTokIn var(--dur) var(--ease) both;
+}
+@keyframes nsQaTokIn { from { background: transparent; box-shadow: inset 0 0 0 transparent; } }
+
+/* chips 列：選項 chip（視覺規範 §2.5 .chip 語彙：黑體、方角、框線；選中＝--sel-bg＋--sel-fg） */
+.ns-qa-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ns-qa-chip {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: var(--ctl-h-sm); padding: 0 8px 0 7px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .06em; line-height: 1; white-space: nowrap;
+  color: var(--color-ink-faint); cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+.ns-qa-chip svg { flex: none; width: 13px; height: 13px; }
+.ns-qa-chip .v { font-weight: 500; }
+.ns-qa-chip:hover { color: var(--color-ink-soft); border-color: var(--color-ink-faint); }
+.ns-qa-chip:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 有預設值（掛到、執行日）＝實線淡墨：看得出「現在是這個」但不搶 */
+.ns-qa-chip.is-val { border-style: solid; border-color: var(--color-line); color: var(--color-ink-soft); }
+/* 設過（從文字認出來或點過）＝選中 */
+.ns-qa-chip.is-on { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--sel-fg); background: var(--sel-bg); }
+.ns-qa-chip.is-open { border-style: solid; border-color: var(--accent); color: var(--sel-fg); }
+.ns-qa-bang { font-family: var(--font-latin); font-weight: 600; font-size: 11px; letter-spacing: -.04em; }
+.ns-qa-rd {
+  width: 14px; height: 14px; border-radius: 50%; flex: none;
+  display: inline-grid; place-items: center;
+  font-family: var(--font-latin); font-size: 8px; font-weight: 600; color: var(--on-roundel);
+}
+/* 掛到路線時的「列車｜車票」小分段鈕 */
+.ns-qa-kind { display: inline-flex; }
+.ns-qa-kind .ns-seg { width: auto; }
+
+/* 発券鈕：草稿票的検印欄換成主鈕（Enter 是加速） */
+.ticket.draft.ns-qa .stamp-zone { position: relative; }
+.ns-qa-go { min-height: var(--ctl-h-sm); padding: 2px 12px; font-size: var(--fs-sm); line-height: 18px; display: inline-flex; align-items: center; }
+.ns-qa-go:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-qa-esc { position: absolute; bottom: 7px; left: 0; right: 0; text-align: center; font-size: var(--fs-micro); letter-spacing: .1em; color: var(--color-ink-faint); }
+
+/* ═══ 緊湊版（行程表當日浮層；沿 daypop.css .pop-draft 的虛線小票） ═══ */
+.ns-qa-compact {
+  margin: 2px 12px 12px; padding: 6px 8px 8px 7px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-paper-high) 55%, transparent);
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-qa-compact.is-focus { border-color: color-mix(in srgb, var(--accent) 70%, var(--color-dash)); }
+.ns-qa-crow { display: flex; align-items: center; gap: 9px; }
+.ns-qa-crow .ns-qa-field { flex: 1; min-width: 0; padding-right: 0; }
+.ns-qa-crow .ns-qa-field input,
+.ns-qa-crow .ns-qa-field .ns-qa-mirror { font-size: var(--fs-body); font-weight: 400; }
+.ns-qa-crow .ns-qa-field .ns-qa-mirror { right: 0; }
+.ns-qa-crow .k { font-family: var(--font-latin); font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
+.ns-qa-cbadge {
+  width: 20px; height: 20px; flex: none; border-radius: 50%; border: 1.3px solid currentColor;
+  display: grid; place-items: center; font-family: var(--font-display); font-size: 10px; font-weight: 600; /* 票券專用（緊湊票根徽章），同 .badge 的縮小 */
+}
+.ns-qa-cbadge.dashed { border-style: dashed; }
+.ns-qa-compact .ns-qa-chips { margin-top: 6px; gap: 4px; }
+.ns-qa-compact .ns-qa-chip { padding: 0 6px 0 5px; }
+
+/* ═══ 挑選器浮層（掛到 body、貼著 chip） ═══ */
+/* 比其他浮層（當日浮層、PopMenu、DatePicker＝60）高一階：建票列可能就開在當日浮層裡 */
+.ns-qa-layer { position: fixed; z-index: 61; }
+.ns-qa-layer > .ns-notes-pop.float { position: relative; top: auto; left: auto; }
+.ns-datepick.anchored.ns-qa-pop { z-index: 61; }
+.ns-qa-card { width: 280px; box-sizing: border-box; padding: 12px 14px 10px; display: grid; gap: 8px; }
+.ns-qa-cardlabel { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-soft); }
+.ns-qa-len { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ns-qa-len .ns-seg { width: auto; flex: none; }
+.ns-qa-len .ns-seg > [role="radio"] { flex: none; min-width: 30px; padding: 0 5px; letter-spacing: .02em; }
+.ns-qa-lencustom { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--color-ink-soft); }
+.ns-qa-lencustom input { width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+.ns-qa-cardfoot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px; }
+
+/* ═══ 清單尾常駐列「＋ 新增車票…」：一列淡色、點了變成建票列 ═══ */
+.ns-qa-launch {
+  display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box;
+  padding: 0 18px 0 22px; height: 46px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-card); background: transparent;
+  font-family: var(--font-body); font-size: var(--fs-body); letter-spacing: .06em; color: var(--color-ink-faint);
+  cursor: text; opacity: .85;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft), opacity var(--dur-fast) var(--ease-soft);
+}
+.ns-qa-launch svg { width: 15px; height: 15px; flex: none; }
+.ns-qa-launch .k { margin-left: auto; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .08em; padding: 0 5px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); color: var(--color-ink-faint); }
+.ns-qa-launch:hover { opacity: 1; color: var(--color-ink-soft); border-color: var(--color-ink-faint); background: var(--color-paper-used); }
+.ns-qa-launch:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+/* 清單本身沒有項目時（只剩常駐列）上面留一點距離給區段標 */
+.ticket-list > .ns-qa-launch-li:first-child { margin-top: 0; }
+
+/* ═══ 區段標題右側的「済」開關 ═══ */
+.ns-qa-donechip {
+  margin-left: 10px; display: inline-flex; align-items: center; gap: 5px; flex: none;
+  height: 22px; padding: 0 8px 0 7px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: transparent;
+  font-family: var(--font-body); font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-soft); cursor: pointer; white-space: nowrap;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+.ns-qa-donechip .seal-mini { color: var(--color-seal); font-family: var(--font-display); font-weight: 700; }
+.ns-qa-donechip .sep { color: var(--color-ink-faint); }
+.ns-qa-donechip .act { color: var(--sel-fg); font-weight: 500; }
+.ns-qa-donechip:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-qa-donechip.is-on { background: var(--sel-bg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.ns-qa-donechip:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+[data-shell="mobile"] .ns-qa-donechip { height: 30px; padding: 0 10px 0 9px; }
+
+/* ═══ 手機：底部輸入列（chips 一排在輸入框上方，聚焦後才出現；可橫捲、末段露半格） ═══ */
+[data-shell="mobile"] .m-newticket.ns-qa-mnew { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
+[data-shell="mobile"] .m-newticket.ns-qa-mnew.is-active { padding-top: 8px; }
+[data-shell="mobile"] .ns-qa-mnew .ns-qa-mchips {
+  grid-column: 1 / -1; display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; margin: 0 calc(-1 * var(--m-gutter)); padding: 0 var(--m-gutter);
+  scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); /* mask：非顏色 */
+}
+[data-shell="mobile"] .ns-qa-mnew .ns-qa-mchips::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-qa-mnew .ns-qa-chip { height: 34px; padding: 0 10px 0 9px; font-size: var(--fs-sm); flex: none; }
+[data-shell="mobile"] .ns-qa-mnew .ns-qa-chip svg { width: 14px; height: 14px; }
+[data-shell="mobile"] .ns-qa-mnew .ns-qa-kind { flex: none; }
+[data-shell="mobile"] .ns-qa-mfield { padding-right: 0; min-width: 0; }
+[data-shell="mobile"] .ns-qa-mfield input,
+[data-shell="mobile"] .ns-qa-mfield .ns-qa-mirror {
+  min-height: 44px; padding: 4px 2px;
+  border-bottom: 1px solid var(--color-dash);
+  font-family: var(--font-body); font-size: var(--fs-h3); font-weight: 400; line-height: 34px; letter-spacing: .02em;
+}
+[data-shell="mobile"] .ns-qa-mfield .ns-qa-mirror { inset: 0; border-bottom-color: transparent; }
+/* chips 列冒出來時底部列變高：「底部輸入那一段」的高（mobile.css --m-newticket-h＝59）跟著換，toast 與「記一句」浮鈕才不壓在 chips 上。
+   100＝上 padding 8＋chips 34＋列距 6＋輸入 44＋下 padding 7＋上框 1；選取列、完成卡開著時建票列收起，讓它們（同一個變數） */
+[data-shell="mobile"]:has(> .m-newticket.ns-qa-mnew.is-active):not(:has(> .m-selbar-dock, > .m-cc-dock)) { --m-newticket-h: 100px; }
+/* 底部列避讓（notes-mobile.css〈浮動鈕〉的通用約定）：建票列不只今日頁有了（路線第二層也有），有它的頁一律宣告 --m-page-dock-h */
+[data-shell="mobile"]:has(> .m-newticket):not(:has(> .m-selbar-dock, > .m-cc-dock)) { --m-page-dock-h: var(--m-newticket-h); }
+/* 區段標的「済」開關：視覺 30、觸控 44（往上下撐，不改段距） */
+[data-shell="mobile"] .ns-qa-donechip { position: relative; }
+[data-shell="mobile"] .ns-qa-donechip::after { content: ""; position: absolute; inset: -7px 0; }
+[data-shell="mobile"] .ns-qa-mfield input:focus { border-bottom-color: var(--accent); }
+[data-shell="mobile"] .ns-qa-msheet { display: grid; gap: 12px; padding: 4px var(--m-gutter) 12px; }
+[data-shell="mobile"] .ns-qa-msub { font-size: var(--fs-xs); color: var(--color-ink-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-qa-chip, .ns-qa-launch, .ns-qa-donechip { transition: none; }
+  .ns-qa-tok { animation: none; }
+}

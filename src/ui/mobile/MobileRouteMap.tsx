@@ -10,6 +10,10 @@
  *     停用理由＝outline/rowGuards（桌機 menuFor 同一支）、升降層／上移下移／新增＝nodeStore 同名動作、刪除＝今日頁 deleteTicket（toast＋復原）。
  *   - 返回層：⋯ sheet（含子面板、空狀態的新增面板）＝一層 `core.routemapSheet`。
  *   - 點列中間＝原地展開唯讀詳情（快看，照舊保留）；完整詳情走 ⋯ →「詳情…」（手機詳情頁，D-主-75）。
+ *     回饋甲 D-主-132：快看底下多一顆「詳情 ›」，同一條路。
+ * 回饋甲（D-主-128、131）：第二層頁底常駐建票列（common/quickadd 的 MobileQuickAdd；掛到＝這條路線、預設建成列車，
+ *   聚焦進列車／車廂／支線時預設掛到那一層）；樹上方區段標「列車 ── ［済 N・隱藏／顯示］」＝桌機大綱同一個 uiStore.hideDone，
+ *   buildRows 照它把済的節點連子樹一起收起（同桌機大綱）。
  *   - 樹掛 `data-no-fab`：右側常駐按鈕會被「記一句」浮鈕蓋住，看樹時收起浮鈕（第二輪；第一層路線清單照舊有）。
  * 第四輪（D-主-84／85：手機補齊路線／幹線管理，桌機全集對照在決策記錄）：
  *   - 第一層每段幹線抬頭右側 ⋯（MSheet list：改名…／新增路線…／刪除幹線）、清單最底「＋ 新增幹線」；
@@ -27,7 +31,15 @@
  *   第二層＝該路線的樹（nodeStore.tree：byId／childrenOf／roots）以縮排清單呈現，
  *     可 zoom-in 到子樹、麵包屑回溯（「我的路線 › 路線名 › 祖先 › 目前」全段可點）。
  *
- * 唯讀詳情（點列中間展開）：無 inline input、無長按選單、無拖曳（桌機大綱也沒有拖曳，排序＝⋯ 內上移／下移，雙端對等）。
+ * 唯讀詳情（點列中間展開）：無 inline input、無長按選單。
+ * **回饋乙（D-主-151～153；契約 §1、§3、§4）**：拖曳與多選（共用元件 useDragReorder；⋯ 內上移／下移照舊是可點的替代）——
+ *   - 第二層：tree 模式長按拖曳（縮排寬＝列的實際縮排 13px）；放不放得下＝domain/dropRules 的 dropVerdict（桌機大綱同一份）、
+ *     寫入＝moveToAnchor（mobileMoves.moveNodesWithUndo：toast＋復原）。長按原地放開＝多選（scope "outline"），選取列＝MobileSelectionBar。
+ *     拖到摺起來的列上停一下自動展開；選中的那張被拖＝整批一起走。
+ *   - 第一層：幹線、路線長按拖曳換順序，路線拖到別條幹線底下＝換幹線（tree 模式：幹線 depth 0、路線 depth 1）。
+ *     可點的替代：幹線 ⋯ 的「上移｜下移」、路線第二層抬頭 ⋯ 的「上移｜下移」（同幹線內）。
+ *   - 列本體（.m2-row-body／.m2-route）從 <button> 改成 div role=button：共用元件在按鈕上按下不起拖（給 ⋯、検印那些鈕用），
+ *     列本體是唯一大得能長按的地方；鍵盤 Enter／Space 照舊。
  *   v1.1.2 補一段：唯讀詳情底下印該票的**競合**列（同步衝突的敗方值；D-1.1-5）——手機詳情頁之外，這裡也看得到。
  *   接縫 #56：詳情欄位表之後渲染別線登記的 `nodeFields` 的 `Mobile` 列（旅客筆記的「荷札」可掛可摘，D-筆-42）；
  *   寫入在線自己的元件裡；沒有任何一線登記＝DOM 與文案照舊。
@@ -90,6 +102,8 @@ import { useRevealStore } from "./routeMapReveal";
 import { MobileTicketSheet } from "./MobileTicketSheet";
 import { MobileTextSheet } from "./MobileTextSheet";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
+import { RouteOpenCount } from "../common/NavCount";
+import { PriorityMark } from "../common/PriorityMark";
 import { MobileRouteForm } from "./routemap/MobileRouteForm";
 import { logTicket, renameTicket } from "./useMobileToday";
 import {
@@ -106,6 +120,12 @@ import {
   ticketPlan,
   type AddPlan,
 } from "./routemap/routeMapActions";
+import { useDragReorder, type DropPlace } from "../common/dragReorder";
+import { DoneToggleChip, MobileQuickAdd, type QuickDefaults, type QuickHere } from "../common/quickadd";
+import { dropVerdict } from "../../domain/dropRules";
+import { MobileSelectionBar } from "./MobileSelectionBar";
+import { SelectCheck, batchDragIds, pressSelect, tapSelect, usePruneSelection, useScopeSelection } from "./mobileSelect";
+import { moveNodesWithUndo, stepAnchor } from "./mobileMoves";
 import "./mobile-quickjump.css";
 import "./routemap/routemap.css";
 import "./routemap/route-manage.css";
@@ -130,6 +150,8 @@ const EMPTY: string[] = [];
 /** 縮排每層 13px、第 5 層起不再往右（手機只有 ~360px 可用寬，縮排吃掉的都是票名的字） */
 const INDENT_STEP = 13;
 const INDENT_MAX_DEPTH = 4;
+/** 多選中列首勾選圈那一欄的寬（回饋乙；mobile-select.css `.m2-row .m-sel-check`） */
+const SELECT_GUTTER = 32;
 
 /** 現況字樣沿 OutlineRow 的 STATUS_LABEL（那份是模組內常數、沒 export，這裡照抄一份並註明來源） */
 const STATUS_TEXT: Record<NodeStatus, string> = {
@@ -158,18 +180,37 @@ interface VisibleRow {
   depth: number;
 }
 
-/** 可見列：深度優先展開，收合的節點不遞迴（手機預設全展開，收合狀態存本地） */
-function buildRows(tree: TreeIndex, rootChildren: string[], collapsed: Record<string, boolean>): VisibleRow[] {
+/**
+ * 可見列：深度優先展開，收合的節點不遞迴（手機預設全展開，收合狀態存本地）。
+ * 回饋甲 D-主-131：hideDone＝已完成收起（跟桌機大綱同一個 uiStore.hideDone、同一套 buildRows 規則）——
+ *   済的節點連同整棵子樹一起藏（底下還有沒済的子項也一樣：桌機大綱就是這樣，打開「顯示」才看得到）；
+ *   doneHidden＝這次藏起來的最上層済節點數（子孫不另算）、doneShown＝畫出來的済節點數，給區段標的「済 N」。
+ */
+function buildRows(
+  tree: TreeIndex,
+  rootChildren: string[],
+  collapsed: Record<string, boolean>,
+  hideDone: boolean,
+  isDone: (n: NodeRow) => boolean,
+): { rows: VisibleRow[]; doneHidden: number; doneShown: number } {
   const out: VisibleRow[] = [];
+  let doneHidden = 0;
+  let doneShown = 0;
   const walk = (ids: string[], depth: number) => {
     for (const id of ids) {
-      if (!tree.byId[id]) continue;
+      const n = tree.byId[id];
+      if (!n) continue;
+      if (hideDone && isDone(n)) {
+        doneHidden++;
+        continue;
+      }
+      if (isDone(n)) doneShown++;
       out.push({ id, depth });
       if (!collapsed[id]) walk(tree.childrenOf[id] ?? EMPTY, depth + 1);
     }
   };
   walk(rootChildren, 0);
-  return out;
+  return { rows: out, doneHidden, doneShown };
 }
 
 /* ── 小圖示（1.3px 細線幾何，與 gnav／tabs.ts 同筆觸；stroke 走 currentColor）── */
@@ -210,9 +251,42 @@ type ListSheet =
   | { kind: "route"; line: NodeRow }
   | { kind: "line" };
 
+/** 第一層拖曳的縮排寬（幹線 depth 0、路線 depth 1；路線列畫面上沒有縮排，這只是左右判層的手感距離） */
+const LIST_INDENT = 18;
+
 function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
+  const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
+  const lineIds = new Set(lines.map((l) => l.id));
+  // 攤平：幹線（depth 0）→ 它的路線（depth 1）；拖幹線時它的路線一起走
+  const flat = lines.flatMap((l) => [
+    { id: l.id, depth: 0 },
+    ...routes.filter((r) => r.line_id === l.id).map((r) => ({ id: r.id, depth: 1 })),
+  ]);
+  useDragReorder({
+    root: listEl,
+    items: flat,
+    tree: {
+      indent: LIST_INDENT,
+      carried: (ids) => routes.filter((r) => r.line_id && ids.includes(r.line_id)).map((r) => r.id),
+    },
+    resolve: (ids, place) => {
+      if (place.kind !== "slot") return "放不進這裡";
+      const isLine = lineIds.has(ids[0]);
+      if (isLine) return place.parent === null ? true : "幹線只能排在最上層";
+      return place.parent !== null && lineIds.has(place.parent) ? true : "路線要放在幹線底下";
+    },
+    onDrop: (ids, place) => {
+      if (place.kind !== "slot") return;
+      const id = ids[0];
+      const ns = useNodeStore.getState();
+      const route = ns.routes.find((r) => r.id === id);
+      const target = place.parent;
+      const moved = route && target && route.line_id !== target ? ns.lines.find((l) => l.id === target) : undefined;
+      void moveNodesWithUndo([id], target, { after: place.after, before: place.before }, moved ? `已移到幹線「${moved.name}」` : "已調整順序");
+    },
+  });
   // 接縫 #63：路線列尾的別線小字；沒有任何線填值＝空陣列＝DOM 不變
   const asides = lineRouteListAsides();
   const [sheet, setSheet] = useState<ListSheet | null>(null);
@@ -255,12 +329,12 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
     <>
       {empty}
       {lines.length > 0 && (
-        <div className="m2-lines">
+        <div className="m2-lines" ref={setListEl}>
           {lines.map((line) => {
             const lineRoutes = routes.filter((r) => r.line_id === line.id);
             return (
               <section key={line.id} aria-label={`幹線 ${line.name}`}>
-                <div className="m2-trunk-row">
+                <div className="m2-trunk-row" data-drag-id={line.id}>
                   <p className="m2-trunk">幹線・{line.name}</p>
                   <button
                     type="button"
@@ -278,18 +352,31 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
                 ) : (
                   <ul className="m2-route-list">
                     {lineRoutes.map((route) => (
-                      <li key={route.id}>
-                        <button type="button" className="m2-route" onClick={() => onOpen(route.id)}>
+                      <li key={route.id} data-drag-id={route.id}>
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          className="m2-route"
+                          onClick={() => onOpen(route.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onOpen(route.id);
+                            }
+                          }}
+                        >
                           <span aria-hidden className="m2-band" style={{ background: route.color ?? "var(--route-preset-4)" }} />
                           <RouteRoundel route={route} />
                           <span className="m2-route-name">{route.name}</span>
                           {asides.map((A, i) => (
                             <A key={i} route={route} />
                           ))}
+                          {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字；0 不畫），同桌機側欄路線列尾 */}
+                          <RouteOpenCount routeId={route.id} />
                           <span aria-hidden className="m2-route-go">
                             <CaretRight />
                           </span>
-                        </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -310,6 +397,14 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
         <MSheet list title={`幹線・${sheet.line.name}`} backId={LINES_SHEET_LAYER} onClose={close}>
           <MSheetItem onClick={() => setSheet({ kind: "rename", line: sheet.line })}>改名…</MSheetItem>
           <MSheetItem onClick={() => setSheet({ kind: "route", line: sheet.line })}>新增路線…</MSheetItem>
+          {lines.length > 1 && (
+            <StepPair
+              order={lines.map((l) => l.id)}
+              id={sheet.line.id}
+              parentId={null}
+              onDone={close}
+            />
+          )}
           <MSheetItem
             cut
             danger
@@ -369,6 +464,27 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
         />
       )}
     </>
+  );
+}
+
+/** ⋯ 裡的「上移｜下移」一列兩格（幹線、路線共用）：到頂／到底那格淡掉、點了說為什麼 */
+function StepPair({ order, id, parentId, onDone }: { order: string[]; id: string; parentId: string | null; onDone: () => void }) {
+  const up = stepAnchor(order, id, -1);
+  const down = stepAnchor(order, id, 1);
+  const go = (a: { after: string | null; before: string | null }) => () => {
+    onDone();
+    void moveNodesWithUndo([id], parentId, a, "已調整順序");
+  };
+  const explain = (why: string) => () => useUiStore.getState().showToast({ message: why }, 3600);
+  return (
+    <div className="m-tks-pair">
+      <MSheetItem off={!up} onClick={up ? go(up) : explain("已經在最上面")}>
+        上移
+      </MSheetItem>
+      <MSheetItem off={!down} onClick={down ? go(down) : explain("已經在最下面")}>
+        下移
+      </MSheetItem>
+    </div>
   );
 }
 
@@ -476,6 +592,15 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
         </div>
       )}
       {/* 手機殼班：原本這裡的「僅供檢視，要修改請到電腦版」拿掉——改在右側 ⋯，完整欄位在「詳情…」 */}
+      {/* 回饋甲 D-主-132：快看底下直接進完整詳情頁（⋯「詳情…」同一條路：useMobileDetailStore.open） */}
+      <button
+        type="button"
+        className="m2-detail-go"
+        aria-label={`詳情——${node.name}`}
+        onClick={() => useMobileDetailStore.getState().open(node.id)}
+      >
+        詳情 ›
+      </button>
     </div>
   );
 }
@@ -535,10 +660,35 @@ export default function MobileRouteMap() {
 
   const zoom: NodeRow | null = zoomId && treeReady ? (tree.byId[zoomId] ?? null) : null;
   const rootChildren = zoom ? (tree.childrenOf[zoom.id] ?? EMPTY) : tree.roots;
-  const rows = useMemo(
-    () => (treeReady ? buildRows(tree, rootChildren, collapsed) : []),
-    [treeReady, tree, rootChildren, collapsed],
+  /** 回饋甲 D-主-131：已完成收起（桌機大綱同一個記住的狀態；預設收起） */
+  const hideDone = useUiStore((s) => s.hideDone);
+  const toggleHideDone = useUiStore((s) => s.toggleHideDone);
+  const built = useMemo(
+    () =>
+      treeReady
+        ? buildRows(tree, rootChildren, collapsed, hideDone, (n) => isRouteNodeDone(n, currentOccurrences))
+        : { rows: [] as VisibleRow[], doneHidden: 0, doneShown: 0 },
+    [treeReady, tree, rootChildren, collapsed, hideDone, currentOccurrences],
   );
+  const rows = built.rows;
+
+  /**
+   * 回饋甲 D-主-128：頁底建票列。掛到＝這條路線（建成列車；chip 旁可改「車票」、或改掛某班列車建車票）；
+   * 聚焦進某班列車／車廂／支線時預設掛到那一層——建好的東西才會出現在眼前（掛到路線本身會落在聚焦範圍外、看不到又沒有收據）。
+   */
+  const zoomKind = zoom?.kind;
+  const zoomNodeId = zoom?.id ?? null;
+  const qaDefaults = useMemo<QuickDefaults>(
+    () => ({
+      dest:
+        zoomNodeId && (zoomKind === "train" || zoomKind === "car" || zoomKind === "branch")
+          ? { routeId: openedId, nodeId: zoomNodeId, nodeKind: zoomKind }
+          : { routeId: openedId, nodeId: null, nodeKind: "route" },
+      scheduledOn: null,
+    }),
+    [openedId, zoomNodeId, zoomKind],
+  );
+  const qaHere = useMemo<QuickHere>(() => ({ kind: "route", routeId: openedId ?? "" }), [openedId]);
 
   /**
    * 路線抬頭的統計（磨光⑤ N12）：與桌機大綱頁首同一支 domain/routeHead——分母只數車票，
@@ -548,6 +698,67 @@ export default function MobileRouteMap() {
     if (!treeReady) return null;
     return routeHeadStats(flattenSubtrees(tree, tree.roots), (n) => isRouteNodeDone(n, currentOccurrences));
   }, [treeReady, tree, currentOccurrences]);
+
+  /* ── 回饋乙：多選（長按原地放開）與拖曳（tree 模式；dropVerdict＝桌機大綱同一份規則） ── */
+  const [treeEl, setTreeEl] = useState<HTMLUListElement | null>(null);
+  const rowOrder = useMemo(() => rows.map((r) => r.id), [rows]);
+  const picked = useScopeSelection("outline");
+  const selecting = picked.length > 0;
+  usePruneSelection("outline", rowOrder);
+  /** 畫面上看得到的子孫（拖起時一起走） */
+  const visibleKids = (ids: readonly string[]): string[] => {
+    const out: string[] = [];
+    for (const id of ids) {
+      const i = rows.findIndex((r) => r.id === id);
+      if (i < 0) continue;
+      for (let j = i + 1; j < rows.length && rows[j].depth > rows[i].depth; j++) out.push(rows[j].id);
+    }
+    return out;
+  };
+  const dropTop = () => (zoom ? { id: zoom.id, kind: zoom.kind } : { id: openedId ?? "", kind: "route" as const });
+  useDragReorder({
+    root: treeEl,
+    scrollRef: pageRef,
+    items: rows,
+    tree: {
+      indent: INDENT_STEP,
+      carried: visibleKids,
+      collapsed: (id) => !!collapsed[id] && (tree.childrenOf[id]?.length ?? 0) > 0,
+      expand: (id) => setCollapsed((c) => ({ ...c, [id]: false })),
+    },
+    // 選中的那張被拖＝整批（其中某張的子孫也被選了就不重複算：它跟著祖先走）
+    dragIds: (id) => {
+      const ids = batchDragIds("outline", id, rowOrder);
+      const kids = new Set(visibleKids(ids));
+      return ids.filter((x) => !kids.has(x));
+    },
+    resolve: (ids, place: DropPlace) => {
+      if (place.kind !== "slot") return "放不進這裡";
+      const v = dropVerdict(useNodeStore.getState().tree, dropTop(), ids, place.parent);
+      return v.ok ? true : v.why;
+    },
+    onDrop: (ids, place) => {
+      if (place.kind !== "slot") return;
+      const t = useNodeStore.getState().tree;
+      const v = dropVerdict(t, dropTop(), ids, place.parent);
+      if (!v.ok) return;
+      const sameParent = ids.every((id) => {
+        const n = t.byId[id];
+        const cur = n ? (n.parent_id ?? (n.kind === "ticket" ? n.route_id : null)) : null;
+        return cur === v.parentId;
+      });
+      const where = place.parent ? t.byId[place.parent]?.name : (zoom?.name ?? route?.name);
+      const msg = sameParent
+        ? ids.length > 1
+          ? `已調整 ${ids.length} 張的順序`
+          : "已調整順序"
+        : `已${ids.length > 1 ? `把 ${ids.length} 張` : ""}移到「${where ?? "這裡"}」`;
+      void moveNodesWithUndo(ids, v.parentId, { after: place.after, before: place.before }, msg).then((ok) => {
+        if (ok) revealRow(ids[0]);
+      });
+    },
+    onPressRelease: (id) => pressSelect("outline", id, rowOrder),
+  });
 
   const enterRoute = (id: string) => {
     setZoomId(null);
@@ -747,6 +958,7 @@ export default function MobileRouteMap() {
   ];
 
   return (
+    <>
     <div ref={pageRef} className="m-page m2-page" aria-label={`路線 ${route?.name ?? ""}`}>
       {/* 麵包屑：sticky 釘在內容區頂端——捲到樹深處時仍看得到；Android 返回鍵也走同一條路（上面的 goUp） */}
       <nav className="m2-crumbs" aria-label="路線位置">
@@ -801,10 +1013,33 @@ export default function MobileRouteMap() {
           .filter((f) => f.Mobile && f.kinds.includes("route"))
           .map((f) => (f.Mobile ? <f.Mobile key={f.id} node={route} /> : null))}
 
+      {/* 回饋甲 D-主-131：區段標＋右側「済 N・隱藏／顯示」（桌機大綱「列車 ── M 項 ［済］」同款；聚焦時標題換成那一層的名字） */}
+      {treeReady && (rows.length > 0 || built.doneHidden > 0) && (
+        <div className="sec m2-sec">
+          <h3>{zoom ? zoom.name : "列車"}</h3>
+          <span className="rule" />
+          {built.doneHidden + built.doneShown > 0 && (
+            <DoneToggleChip
+              count={hideDone ? built.doneHidden : built.doneShown}
+              showing={!hideDone}
+              onToggle={toggleHideDone}
+            />
+          )}
+        </div>
+      )}
+
       {!treeReady ? (
         showLoading ? (
           <p className="m2-note">載入中……</p>
         ) : null
+      ) : rows.length === 0 && built.doneHidden > 0 ? (
+        // 全都済了、又收起來：不是「還沒有車票」（同桌機大綱的「已完成的班次都收起來了」；新增走頁底建票列）
+        <div className="m2-empty">
+          <p className="m2-empty-title">已完成的班次都收起來了</p>
+          <button type="button" className="ns-btn btn-ghost m2-empty-add" onClick={toggleHideDone}>
+            顯示已完成
+          </button>
+        </div>
       ) : rows.length === 0 ? (
         <div className="m2-empty">
           <p className="m2-empty-title">{zoom ? "這裡底下還沒有東西" : "這條路線還沒有車票"}</p>
@@ -816,7 +1051,7 @@ export default function MobileRouteMap() {
       ) : (
         // data-no-fab：每一列右側都是常駐検印／⋯，「記一句」浮鈕停在哪都蓋住某一列的按鈕（第二輪；同時刻表方眼的取捨，
         //   notes-mobile.css〈浮動鈕〉的通用約定）。只掛在樹上：第一層路線清單、空狀態沒有右側按鈕，浮鈕照舊
-        <ul className="m2-tree" data-no-fab>
+        <ul className="m2-tree" data-no-fab ref={setTreeEl}>
           {rows.map(({ id, depth }) => {
             const node = tree.byId[id];
             const kids = tree.childrenOf[id] ?? EMPTY;
@@ -830,16 +1065,28 @@ export default function MobileRouteMap() {
             const rule = parseRule(node.repeat_rule);
             const total = descendantCount(tree, id);
             const childDone = total - openDescendantCount(tree, id);
+            const isPicked = picked.includes(id);
+            /** 列本體的點：多選中＝加選／取消；平常＝展開唯讀詳情 */
+            const tapBody = () => {
+              if (!tapSelect("outline", id, rowOrder)) setDetailId((cur) => (cur === id ? null : id));
+            };
 
             return (
-              <li key={id} className="m2-item">
+              <li key={id} className="m2-item" data-drag-id={id}>
                 <div
                   data-node-id={id}
                   className={
-                    "m2-row" + (done ? " is-done" : "") + (suspended ? " is-suspended" : "") + (flashId === id ? " is-reveal" : "")
+                    "m2-row" +
+                    (done ? " is-done" : "") +
+                    (suspended ? " is-suspended" : "") +
+                    (flashId === id ? " is-reveal" : "") +
+                    (selecting ? " is-selecting" : "") +
+                    (isPicked ? " is-picked" : "")
                   }
-                  style={{ paddingLeft: Math.min(depth, INDENT_MAX_DEPTH) * INDENT_STEP }}
+                  // 多選中勾選圈釘在列首（不跟著縮排走，一欄對齊），內容整體右移 32px 讓位
+                  style={{ paddingLeft: Math.min(depth, INDENT_MAX_DEPTH) * INDENT_STEP + (selecting ? SELECT_GUTTER : 0) }}
                 >
+                  {selecting && <SelectCheck picked={isPicked} />}
                   {hasKids ? (
                     <button
                       type="button"
@@ -876,13 +1123,26 @@ export default function MobileRouteMap() {
                     </span>
                   )}
 
-                  <button
-                    type="button"
+                  {/* div role=button 而不是 <button>：共用拖曳元件在按鈕上按下不起拖，列本體要能長按（見檔頭〈回饋乙〉） */}
+                  <div
+                    role={selecting ? "checkbox" : "button"}
+                    tabIndex={0}
                     className="m2-row-body"
-                    aria-expanded={detail}
-                    onClick={() => setDetailId((cur) => (cur === id ? null : id))}
+                    aria-expanded={selecting ? undefined : detail}
+                    aria-checked={selecting ? isPicked : undefined}
+                    onClick={tapBody}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        tapBody();
+                      }
+                    }}
                   >
-                    <span className="m2-name">{node.name}</span>
+                    <span className="m2-name">
+                      {/* 回饋甲 D-主-133：優先「高」＝名前赭色小點（同桌機大綱列） */}
+                      <PriorityMark priority={node.priority} />
+                      {node.name}
+                    </span>
                     <span className="m2-meta">
                       {KIND_LABEL[node.kind]}
                       {total > 0 ? `・${childDone}/${total}` : ""}
@@ -892,7 +1152,7 @@ export default function MobileRouteMap() {
                     {/* 済／運休在視覺上是右邊那枚角印（aria-hidden）；語意補在這裡，
                         讀屏使用者不必展開詳情才知道這張票交代過了。畫面上不重複印字。 */}
                     {(done || suspended) && <span className="sr-only">{suspended ? "運休" : "済"}</span>}
-                  </button>
+                  </div>
 
                   {/**
                    * 検印鈕（D-主-71；常駐）：単擊＝済／取消済／運休中＝取消運休（桌機大綱同一支 completeNodeFlow）。
@@ -903,6 +1163,7 @@ export default function MobileRouteMap() {
                     className="m2-stamp"
                     aria-label={`${suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}——${node.name}`}
                     aria-pressed={done}
+                    tabIndex={selecting ? -1 : undefined}
                     onClick={() => stamp(id)}
                   >
                     {suspended ? (
@@ -947,6 +1208,13 @@ export default function MobileRouteMap() {
           >
             路線詳情…
           </MSheetItem>
+          {/* 回饋乙：路線在幹線裡的順序（第一層長按拖曳的可點替代；這裡只有一項、不擠） */}
+          {(() => {
+            const sibs = routes.filter((r) => r.line_id === route.line_id).map((r) => r.id);
+            return sibs.length > 1 ? (
+              <StepPair order={sibs} id={route.id} parentId={route.line_id} onDone={() => setHeadMenu(false)} />
+            ) : null;
+          })()}
         </MSheet>
       )}
       {firstAdd && (
@@ -967,5 +1235,17 @@ export default function MobileRouteMap() {
         />
       )}
     </div>
+    {/* 回饋甲 D-主-128：頁底建票列（殼根節點的直接子節點，同今日頁的 .m-newticket；選取列／完成卡開著時由它們的 css 收起） */}
+    <MobileQuickAdd
+      defaults={qaDefaults}
+      here={qaHere}
+      routeKind="train"
+      onCreated={(row, stays) => {
+        if (stays) revealRow(row.id);
+      }}
+    />
+    {/* 選取列：殼根節點的直接子節點（排在頁面之後、tab bar 之前；mobile-select.css） */}
+    <MobileSelectionBar scope="outline" />
+    </>
   );
 }

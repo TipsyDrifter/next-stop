@@ -16,6 +16,7 @@
  * 票根放寬為「內建四枚 ∪ 別線登記的捕捉目的地 id」（D-筆-36）。月曆的週首一律由呼叫端傳 `weekStart`（uiStore.weekStart），本檔不寫死。
  */
 import type { Mood, NodeKind, NodeRow } from "./node";
+import { dedupeSeals, sealsInWindow, type SealFact, type SealNodeSrc, type SealOccSrc } from "./seals.ts";
 
 /* ═══ 型別（契約 §4.1） ═══ */
 
@@ -382,22 +383,11 @@ export function monthKey(key: string): string {
 
 /* ═══ 型別（契約 §4.1） ═══ */
 
-/** 一枚済章：那天完成的單發票／列車／車廂（含退役定期券）讀 nodes；那天済的定期券班次讀 occurrences（0-7） */
-export interface FootprintSeal {
-  /** 單發票等＝nodes.id；定期券班次＝occurrences.id */
-  id: string;
-  nodeId: string;
-  name: string;
-  kind: "train" | "car" | "ticket";
-  /** 路線色由呼叫端對 nodeStore.routes 查 */
-  routeId: string | null;
-  /** 完成時刻（UTC ISO） */
-  at: string;
-  /** 跟著済章讀的心情燈號（nodes.mood 或 occurrences.mood）；沒點＝null */
-  mood: Mood | null;
-  /** 定期券班次日 YYYY-MM-DD；單發票 null */
-  dueOn: string | null;
-}
+/**
+ * 一枚済章：那天完成的單發票／列車／車廂（含退役定期券）讀 nodes；那天済的定期券班次讀 occurrences（0-7）。
+ * ② 運行報告（D-主-181）起「済」的定義收在 `domain/seals.ts`，這裡沿用同一個形狀。
+ */
+export type FootprintSeal = SealFact;
 
 /** 一則手記：work_logs.event IS NULL 的主人手寫工作日誌（発券／入鋏／済／conflict 都不算） */
 export interface FootprintLog {
@@ -628,16 +618,10 @@ export function groupFootprints(
   blocks: FootprintBlock[] | null,
 ): FootprintDay {
   const byAt = <T extends { at: string }>(a: T, b: T) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0);
-  const seen = new Set<string>();
-  const outSeals: FootprintSeal[] = [];
-  for (const s of [...seals].sort(byAt)) {
-    const k = s.nodeId + "\u0000" + s.at;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    // 收官磨光 Q1（規格 §5：車票沒有心情欄）：手機詳情頁以前能替車票點心情，欄位拿掉後舊值就改不掉也清不掉——
-    // 讀取面一律不認車票的心情（mock 與 SQLite 都經過這裡；外部助理的日記工具讀的也是這份）
-    outSeals.push(s.kind === "ticket" && s.mood ? { ...s, mood: null } : s);
-  }
+  // 排序＋同一節點同一時刻只留一枚：済的定義在 domain/seals.ts（D-主-181）
+  // 收官磨光 Q1（規格 §5：車票沒有心情欄）：手機詳情頁以前能替車票點心情，欄位拿掉後舊值就改不掉也清不掉——
+  // 讀取面一律不認車票的心情（mock 與 SQLite 都經過這裡；外部助理的日記工具讀的也是這份）
+  const outSeals: FootprintSeal[] = dedupeSeals(seals).map((s) => (s.kind === "ticket" && s.mood ? { ...s, mood: null } : s));
   const moods: Mood[] = [];
   for (const s of outSeals) if (s.mood) moods.push(s.mood);
   return { day, seals: outSeals, logs: [...logs].sort(byAt), moods, blocks };
@@ -664,26 +648,9 @@ export function footprintSummary(f: FootprintDay | null, blocksText = ""): strin
 /** 手記的節點不在（還沒同步到／已不存在）時顯示的票名（契約 §3.4、§5.9） */
 export const MISSING_NODE_NAME = "（原車票已刪除）";
 
-/** 足跡來源的最小形狀（NodeRow／Occurrence／WorkLog 結構上都滿足；本檔零 import，所以各寫一份窄型別） */
-export interface FootprintNodeSrc {
-  id: string;
-  name: string;
-  kind: string;
-  route_id: string | null;
-  status: string;
-  completed_at: string | null;
-  mood: Mood | null;
-  deleted_at: string | null;
-}
-export interface FootprintOccSrc {
-  id: string;
-  node_id: string;
-  due_on: string;
-  status: string;
-  completed_at: string | null;
-  mood: Mood | null;
-  deleted_at: string | null;
-}
+/** 足跡來源的最小形狀（NodeRow／Occurrence／WorkLog 結構上都滿足；本檔各寫一份窄型別）。節點與班次的那兩份＝seals.ts 的同一份 */
+export type FootprintNodeSrc = SealNodeSrc;
+export type FootprintOccSrc = SealOccSrc;
 export interface FootprintLogSrc {
   id: string;
   node_id: string;
@@ -699,11 +666,10 @@ export interface IsoWindow {
   end: string;
 }
 
-const SEAL_KINDS: readonly string[] = ["train", "car", "ticket"];
 const inWin = (iso: string | null, w: IsoWindow): iso is string => !!iso && iso >= w.start && iso < w.end;
 
 /**
- * 済章（＝SQLite 版 §3.4 (a)＋(b) 的同義過濾；mock 用、測試鎖語義）：
+ * 済章（＝SQLite 版 §3.4 (a)＋(b) 的同義過濾；mock 用、測試鎖語義）——② 運行報告起規則收在 `domain/seals.ts`（D-主-181），這裡是舊名：
  *   (a) 節點 kind∈{train,car,ticket}、存活、status='done'、completed_at 落在視窗（含 cascade 蓋章的子項與退役定期券）
  *   (b) 班次 存活、status='done'（運休不列）、completed_at 落在視窗、所屬節點存活
  * 不排序不去重（交給 groupFootprints）。
@@ -713,37 +679,7 @@ export function footprintSeals(
   nodes: readonly FootprintNodeSrc[],
   occurrences: readonly FootprintOccSrc[],
 ): FootprintSeal[] {
-  const out: FootprintSeal[] = [];
-  const byId = new Map<string, FootprintNodeSrc>();
-  for (const n of nodes) byId.set(n.id, n);
-  for (const n of nodes) {
-    if (n.deleted_at !== null || n.status !== "done" || SEAL_KINDS.indexOf(n.kind) < 0 || !inWin(n.completed_at, w)) continue;
-    out.push({
-      id: n.id,
-      nodeId: n.id,
-      name: n.name,
-      kind: n.kind as FootprintSeal["kind"],
-      routeId: n.route_id,
-      at: n.completed_at,
-      mood: n.mood,
-      dueOn: null,
-    });
-  }
-  for (const o of occurrences) {
-    const n = byId.get(o.node_id);
-    if (!n || n.deleted_at !== null || o.deleted_at !== null || o.status !== "done" || !inWin(o.completed_at, w)) continue;
-    out.push({
-      id: o.id,
-      nodeId: n.id,
-      name: n.name,
-      kind: n.kind as FootprintSeal["kind"],
-      routeId: n.route_id,
-      at: o.completed_at,
-      mood: o.mood,
-      dueOn: o.due_on,
-    });
-  }
-  return out;
+  return sealsInWindow(w, nodes, occurrences);
 }
 
 /**

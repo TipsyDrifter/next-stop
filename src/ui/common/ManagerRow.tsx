@@ -39,6 +39,11 @@
  *     cut 虛線、disabled 帶 why），最後一列「取消」由 MSheet 自補；點一項＝先收 sheet 再做。返回層由 MSheet 自己登記
  *     （backId＝這一列的選單層 id、kind "dialog"：疊在「分類與設定」sheet／全螢幕頁之上），丙-4 那行 useBackLayer 拿掉。
  *     桌機照舊 PopMenu。detail／className／dataId 的行為不變（「更多設定…」在手機 sheet 裡也是第一項）。
+ *
+ * ── 時刻表⑦（B 席）──
+ *   - `lead`：名稱前一格（作息範本的 › 展開鈕：段是這一列的內容本身，不藏進 ⋯）；`note`：名稱後的淡字（`.ns-mgr-note`）。
+ *   - `dragId`：`<li data-drag-id>`，接共用拖曳元件。拖得起來的地方＝列上不是按鈕／輸入框的部分（色票、淡字、空白）；
+ *     ↑↓ 照留（鍵盤與讀屏的入口，拖曳是加速）。都不給＝DOM 跟以前一樣。
  */
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { PopMenu, type PopMenuItem } from "./PopMenu";
@@ -46,6 +51,7 @@ import { MSheet, MSheetItem } from "./MSheet";
 import { useShell } from "../mobile/useShell";
 import { IconDots, IconDown, IconUp } from "./icons";
 import "./listbits.css";
+import { rowContextMenu } from "./contextMenu";
 
 export type { PopMenuItem } from "./PopMenu";
 
@@ -76,6 +82,12 @@ export interface ManagerRowProps {
   dataId?: string;
   /** 層級（UI 丙-5）：1＝子列，名稱左縮一格 */
   depth?: 0 | 1;
+  /** ⑦（時刻表作息範本）：名稱前的一格（例：展開這一列內容的 ›）；不給＝不畫，列跟以前一模一樣 */
+  lead?: ReactNode;
+  /** ⑦：名稱後的淡字（`.ns-mgr-note`，例「平日・8 段」）；不給＝不畫 */
+  note?: ReactNode;
+  /** ⑦：畫成 `<li data-drag-id>`，給共用拖曳元件（`common/dragReorder`）認列；不給＝不能拖 */
+  dragId?: string;
 }
 
 /** 管理清單的外框（<ul class="ns-mgr">）；ManagerRow 是 <li>，一定要放在它（或任何 <ul>／<ol>）裡 */
@@ -108,6 +120,9 @@ export function ManagerRow({
   className,
   dataId,
   depth = 0,
+  lead,
+  note,
+  dragId,
 }: ManagerRowProps) {
   const [text, setText] = useState(name);
   const [seen, setSeen] = useState(name);
@@ -233,7 +248,12 @@ export function ManagerRow({
         (className ? " " + className : "")
       }
       data-id={dataId}
+      data-drag-id={dragId}
+      onContextMenu={
+        items.length ? rowContextMenu(() => ({ overline: { zh: name, latin: "Actions" }, label: `${name} 的動作`, items })) : undefined
+      }
     >
+      {lead}
       {onRename ? (
         <input
           className="techo-input ns-mgr-name"
@@ -253,6 +273,8 @@ export function ManagerRow({
           {name}
         </span>
       )}
+
+      {note !== undefined && note !== null && note !== false && <span className="ns-mgr-note">{note}</span>}
 
       {swatch !== undefined && swatch !== null && (
         <span className="ns-mgr-swatch" aria-hidden="true">

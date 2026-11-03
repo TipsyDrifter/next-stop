@@ -10,8 +10,16 @@
  *   開的那一刻底下有全螢幕頁 ⇒ 自動當 "dialog"，返回鍵一次關一層（MSheet／DateChip 檔頭的規矩）。
  * 車站列：觸控沒有 hover ⇒ 到站章與 × 常駐（未到站＝虛線淡章，§3.1「常駐淡態」）；剛蓋的那一站播蓋印動畫。
  * 路線色的自訂圓走原生 <input type="color">（ColorPicker 自己的）：Android WebView 的原生色盤沒在真機驗過（AVD 待驗）。
+ * 回饋乙（契約 §1、§3「車站清單：同路線內調順序」）：每站左側一個抓手——按住 0.4 秒浮起拖曳（共用元件 useDragReorder），
+ *   點一下＝「上移／下移」小面板（拖曳的可點替代）。寫入＝moveToAnchor（mobileMoves：toast＋復原）。
+ *   抓手是唯一起拖的地方：站名是輸入框、到站章與 × 是按鈕（共用元件在這些上按下不起拖），列上沒有別的大塊空白。
  */
 import { useMemo, useRef, useState } from "react";
+import { useDragReorder } from "../../common/dragReorder";
+import { moveNodesWithUndo, stepAnchor } from "../mobileMoves";
+import "../mobile-select.css";
+import "../routemap/ticket-sheet.css";
+import { useUiStore } from "../../../store/uiStore";
 import type { NodeRow } from "../../../domain";
 import { lineNodeFields } from "../../../lines/runtime";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -163,6 +171,23 @@ function Stations({ routeId }: { routeId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   // 剛蓋章的那一站才播蓋印動畫（純視覺）
   const [freshId, setFreshId] = useState<string | null>(null);
+  /* 回饋乙：拖曳排序（抓手按住）＋可點的替代（點抓手＝上移／下移） */
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  const [stepFor, setStepFor] = useState<NodeRow | null>(null);
+  const order = list.map((s) => s.id);
+  useDragReorder({
+    root: listEl,
+    items: order.map((id) => ({ id })),
+    onDrop: (ids, place) => {
+      if (place.kind !== "slot") return;
+      void moveNodesWithUndo(ids, routeId, { after: place.after, before: place.before }, "已調整車站順序");
+    },
+  });
+  const step = (st: NodeRow, d: -1 | 1) => {
+    setStepFor(null);
+    const a = stepAnchor(order, st.id, d);
+    if (a) void moveNodesWithUndo([st.id], routeId, a, "已調整車站順序");
+  };
 
   const add = async () => {
     const name = draft.trim();
@@ -183,11 +208,41 @@ function Stations({ routeId }: { routeId: string }) {
       {list.length === 0 ? (
         <EmptyState inline tone="first" title="還沒有車站。" desc="加幾個階段目標，會顯示在路線底下。" className="m-rt-st-empty" />
       ) : (
-        <ul className="m-rt-st-list">
+        <ul className="m-rt-st-list" ref={setListEl}>
           {list.map((st) => {
             const arrived = Boolean(st.arrived_on);
             return (
-              <li key={st.id} className={"m-rt-st" + (arrived ? " is-arrived" : "") + (freshId === st.id ? " is-fresh" : "")}>
+              <li
+                key={st.id}
+                data-drag-id={st.id}
+                className={"m-rt-st has-grip" + (arrived ? " is-arrived" : "") + (freshId === st.id ? " is-fresh" : "")}
+              >
+                {/* 抓手：span role=button（共用元件在 <button> 上按下不起拖）——按住＝拖、點＝上移／下移 */}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="m-rt-st-grip"
+                  aria-label={`調整順序——${st.name}`}
+                  title="按住拖曳；點一下上移／下移"
+                  onClick={() => setStepFor(st)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setStepFor(st);
+                    }
+                  }}
+                >
+                  <svg width="12" height="16" viewBox="0 0 12 16" aria-hidden="true">
+                    <g fill="currentColor">
+                      <circle cx="4" cy="4" r="1.2" />
+                      <circle cx="8" cy="4" r="1.2" />
+                      <circle cx="4" cy="8" r="1.2" />
+                      <circle cx="8" cy="8" r="1.2" />
+                      <circle cx="4" cy="12" r="1.2" />
+                      <circle cx="8" cy="12" r="1.2" />
+                    </g>
+                  </svg>
+                </span>
                 <CommitInput
                   value={st.name}
                   onCommit={(name) => void updateNode(st.id, { name })}
@@ -228,6 +283,22 @@ function Stations({ routeId }: { routeId: string }) {
             );
           })}
         </ul>
+      )}
+      {stepFor && (
+        <MSheet list title={`車站・${stepFor.name}`} onClose={() => setStepFor(null)}>
+          <div className="m-tks-pair">
+            {([-1, 1] as const).map((d) => {
+              const can = stepAnchor(order, stepFor.id, d) !== null;
+              return (
+                <MSheetItem key={d} off={!can} onClick={() =>
+                    can ? step(stepFor, d) : useUiStore.getState().showToast({ message: d < 0 ? "已經在最上面" : "已經在最下面" }, 3600)
+                  }>
+                  {d < 0 ? "上移" : "下移"}
+                </MSheetItem>
+              );
+            })}
+          </div>
+        </MSheet>
       )}
       <div className="m-dt-logadd">
         <input

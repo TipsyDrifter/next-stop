@@ -7,6 +7,7 @@
  * 版面沿詳情頁的列（.m-dt-row：標籤 64px｜值），検印章沿手機路線圖列上那顆（.m2-stamp／.m2-slot／SealDone／運休角印），不另起一套。
  *
  *   StatusRows  列車／車廂：現況（定期券不給「已完成」＋指路句）・優先順序
+ *   PriorityRow 優先順序一列（StatusRows 裡那列；車票沒有現況，詳情頁把它單獨放在検印之前——D-主-133）
  *   StampRows   車票＝検印（済⇄未済）；定期券（任何種類）＝本班検印＋運休＋本班時刻（開 run 模式的時刻 sheet）；退役的印指路句
  *   AmountRows  列車／車廂：花費（別線登記了分量段欄位就讓位，同桌機）・進度（有子項＝自動彙總、沒有＝手動 %）
  *   DoneAt      列車／車廂已完成＝名稱下「完成於 MM/DD HH:mm」（桌機票頭同一個值；車票的在検印章旁）
@@ -31,9 +32,10 @@ import "../routemap/routemap.css";
  */
 const RETRACT = { retractCard: true } as const;
 
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+/** 詳情頁的一列；`tall`＝值會折成兩行（長度：分段鈕＋下一行「自訂…」）⇒ 標籤靠上（原型 q3-A 手機 .nsq-tall） */
+export function Row({ label, children, tall }: { label: string; children: ReactNode; tall?: boolean }) {
   return (
-    <div className="m-dt-row">
+    <div className={"m-dt-row" + (tall ? " is-tall" : "")}>
       <span className="m-dt-label">{label}</span>
       <div className="m-dt-val">{children}</div>
     </div>
@@ -42,8 +44,23 @@ export function Row({ label, children }: { label: string; children: ReactNode })
 
 /* ───────────── 現況・優先順序 ───────────── */
 
-export function StatusRows({ node }: { node: NodeRow }) {
+/** 優先順序一列（列車／車廂在 StatusRows 裡；車票獨立一列放在検印之前，D-主-133；桌機同一份 PRIORITY_OPTIONS） */
+export function PriorityRow({ node }: { node: NodeRow }) {
   const updateNode = useNodeStore((s) => s.updateNode);
+  return (
+    <Row label="優先順序">
+      <Segmented
+        compact
+        options={PRIORITY_OPTIONS}
+        value={node.priority}
+        onChange={(v) => void updateNode(node.id, { priority: v })}
+        aria-label="優先順序"
+      />
+    </Row>
+  );
+}
+
+export function StatusRows({ node }: { node: NodeRow }) {
   const { options, note } = statusChoices(node);
   return (
     <>
@@ -61,15 +78,7 @@ export function StatusRows({ node }: { node: NodeRow }) {
           {note && <span className="m-dt-sub">{note}</span>}
         </div>
       </Row>
-      <Row label="優先順序">
-        <Segmented
-          compact
-          options={PRIORITY_OPTIONS}
-          value={node.priority}
-          onChange={(v) => void updateNode(node.id, { priority: v })}
-          aria-label="優先順序"
-        />
-      </Row>
+      <PriorityRow node={node} />
     </>
   );
 }

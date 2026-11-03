@@ -25,6 +25,9 @@
  *     - `card.readOnly`（定期券歷史班次）⇒ 根 `.is-ro`、検印鈕 disabled（有章畫章、沒章畫「—」）、⋯ disabled
  *     - `!card.stampable && !card.readOnly` ⇒ 検印鈕仍可按，按了由 actions 吐 `card.stampHint`（toast）
  *
+ * **回饋乙（D-主-152）**：`dragId`＝li 上的 `data-drag-id`（共用拖曳元件找列用）；`selecting`／`picked`／`onPick`＝多選——
+ *   多選中整張卡是一顆勾選框（左邊多一欄勾選圈、⋯ 收起、検印不吃點；樣式在 mobile-select.css），點哪都是 onPick。
+ *
  * **主線②（契約 §4.5-1、D-主-12）**：meta 第一格是預定時刻 `span.tm`——`14:00 発・90 分`（沒填預計＝`14:00 発`）、
  *   跨日加緊湊小字「隔天01:00」、逐班覆寫加靛字「本班」。已過時刻、沒入鋏也沒蓋済（運休也算交代）⇒ `.tm.past` 轉赭
  *   （只換字色；誤點卡照印原時刻、多半就是赭，§0-1 第 19 條）。`now` 由呼叫端的 `useMinuteTick()` 給——一頁一個節拍，
@@ -36,6 +39,9 @@ import { isClockPast, nextDayNote } from "../../lib/date";
 import { SealCarryOver, SealDone, SealLate, SealSuspended } from "../stamps";
 import type { TicketCardModel } from "../schedule/ticketCard";
 import { lineTodayRowActions } from "../../lines/runtime";
+import { SelectCheck } from "./mobileSelect";
+import { useMobileDetailStore } from "./detail/mobileDetailStore";
+import { PriorityMark } from "../common/PriorityMark";
 
 /** YYYY-MM-DD → M/D（票面 chip 用） */
 function mmdd(key: string): string {
@@ -65,6 +71,13 @@ export interface MobileTicketProps {
   onMore(card: TicketCardModel): void;
   /** useMinuteTick() 的現在（已過時刻轉赭用；主線② 契約 §3.7） */
   now: number;
+  /** 拖曳用的列 id（共用元件 useDragReorder 找 `data-drag-id`；回饋乙）；沒給＝這張不能拖 */
+  dragId?: string;
+  /** 這一頁在多選中（回饋乙 D-主-152）：左邊出勾選圈、⋯ 收起、點卡片任何地方＝onPick */
+  selecting?: boolean;
+  /** 這張被選中 */
+  picked?: boolean;
+  onPick?(): void;
 }
 
 /**
@@ -93,7 +106,20 @@ export function TicketTime({ card, today, now }: { card: TicketCardModel; today:
   );
 }
 
-export function MobileTicket({ card, route, today, fresh, flash = false, onComplete, onMore, now }: MobileTicketProps) {
+export function MobileTicket({
+  card,
+  route,
+  today,
+  fresh,
+  flash = false,
+  onComplete,
+  onMore,
+  now,
+  dragId,
+  selecting = false,
+  picked = false,
+  onPick,
+}: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
   const settled = done || suspended;
 
@@ -136,11 +162,43 @@ export function MobileTicket({ card, route, today, fresh, flash = false, onCompl
   }
 
   return (
-    // data-node-id：今日頁「指出這張票」用來找卡（磨光① A7）
-    <li className={"m-tk-li" + (flash ? " is-reveal" : "")} data-node-id={card.nodeId}>
+    // data-node-id：今日頁「指出這張票」用來找卡（磨光① A7）；data-drag-id：長按拖曳／選取（回饋乙）
+    // 多選中整張卡＝一顆勾選框（role checkbox；検印與 ⋯ 不吃點，見 mobile-select.css）
+    <li
+      className={"m-tk-li" + (flash ? " is-reveal" : "")}
+      data-node-id={card.nodeId}
+      data-drag-id={dragId}
+      role={selecting ? "checkbox" : undefined}
+      aria-checked={selecting ? picked : undefined}
+      aria-label={selecting ? card.name : undefined}
+      tabIndex={selecting ? 0 : undefined}
+      onClick={selecting ? onPick : undefined}
+      onKeyDown={
+        selecting
+          ? (e) => {
+              if (e.key === " " || e.key === "Enter") {
+                e.preventDefault();
+                onPick?.();
+              }
+            }
+          : undefined
+      }
+    >
       <article
+        // 回饋甲 D-主-132：點票卡本體＝開詳情頁（⋯「詳情…」同一條路）；検印、⋯ 與別線的鈕自己處理、不開。
+        // 多選中整張卡是勾選框（li 的 onClick）；唯讀列（⋯ 也停用）不開。拖曳／滑動後的那一下由 useDragReorder 吞掉
+        onClick={
+          selecting || readOnly
+            ? undefined
+            : (e) => {
+                if ((e.target as HTMLElement).closest("button, a, input")) return;
+                useMobileDetailStore.getState().open(card.nodeId);
+              }
+        }
         className={
           "m-tk" +
+          (selecting ? " is-selecting" : "") +
+          (picked ? " is-picked" : "") +
           (late !== null && !settled ? " is-late-t" : "") +
           (done ? " is-done" : "") +
           (suspended ? " is-suspended" : "") +
@@ -148,6 +206,7 @@ export function MobileTicket({ card, route, today, fresh, flash = false, onCompl
           (readOnly ? " is-ro" : "")
         }
       >
+        {selecting && <SelectCheck picked={picked} />}
         {/* 票根：只留一條路線色帶＋代碼（桌機那一欄的路線名／票號移到 meta 行） */}
         <span className="m-tk-stub" style={{ color: accent }} aria-hidden>
           <span className={route ? "m-tk-badge" : "m-tk-badge is-dashed"}>{badge}</span>
@@ -157,7 +216,11 @@ export function MobileTicket({ card, route, today, fresh, flash = false, onCompl
           {/* 標題在手機一律排印：桌機「臨時券＝手寫體」那條有 [data-theme="dark"] 的退回規則（銀河不手寫），
               手機要複製就得在 mobile.css 寫主題覆寫——違反 WP0「本檔不寫 [data-theme] 覆寫」的紀律；
               而 375px 寬的兩行標題用手寫體本來就難讀。臨時券的身分由 meta 的「臨時券」與虛線「臨」票根承擔。 */}
-          <p className="m-tk-title">{card.name}</p>
+          <p className="m-tk-title">
+            {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
+            <PriorityMark priority={card.priority} />
+            {card.name}
+          </p>
           <div className="m-tk-meta">
             {/* 分隔的「・」跟在**前**一項後面（不是下一項前面）：meta 在 375px 常常換行，
                 分隔號放前綴時換行後的第二行會以「・」開頭；放後綴則是上一行以「・」收尾＝續行的提示。 */}
@@ -186,6 +249,7 @@ export function MobileTicket({ card, route, today, fresh, flash = false, onCompl
           aria-label={readOnly ? "唯讀" : suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
           aria-pressed={done}
           disabled={readOnly}
+          tabIndex={selecting ? -1 : undefined}
           onClick={() => onComplete(card)}
           className="m-tk-stamp"
         >

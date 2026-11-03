@@ -21,6 +21,7 @@
  * 車次⑥（⑥ 契約 0-6、§5.6、D-時-123；丙席，契約授權）：加填 tagEntities 三筆（`timetable:block`／`category`／`goal`；
  * 存活條件、荷札頁列字與跳轉都在 `timetableTagEntities.ts`）。
  * 磨光③（契約 0-2、§2-3；時刻表雜項席）：加填 settingsLinks 一筆（全域設定頁指路到「分類與設定」的〈通知〉）。
+ * 車次⑦（⑦ 契約 §2）：reload 多叫 `timetablePlanStore`（作息範本、預定）；syncRowLabel 多認 time_routines／time_plans。
  */
 import type { LineMount } from "./types";
 import { TimetableDesktopAgent, TimetableView } from "../ui/timetable/desktop";
@@ -29,6 +30,8 @@ import { NavBadge, timetableNavHint } from "../ui/timetable/NavBadge";
 import { useTimetableStore, whenTimetableIdle } from "../store/timetableStore";
 import { TimeField } from "../ui/timetable/task/TimeField";
 import { TimeFieldMobile } from "../ui/timetable/task/TimeFieldMobile";
+import { SlotsField } from "../ui/timetable/task/SlotsField";
+import { SlotsFieldMobile } from "../ui/timetable/task/SlotsFieldMobile";
 import { TicketSheetDepart } from "../ui/timetable/task/TicketSheetDepart";
 import { TodayRowDepart, departFromTodayKey } from "../ui/timetable/task/TodayRowDepart";
 import { TodayRowMark } from "../ui/timetable/task/TodayRowMark";
@@ -41,14 +44,22 @@ import { useUiStore } from "../store/uiStore";
 import { timetableRepo } from "../data/timetableRepository";
 import { nodeRepo } from "../data";
 import { todayKey } from "../lib/date";
-import { blockSyncLabel, categorySyncLabel, goalSyncLabel, type SyncLabelLookup } from "./timetableSyncLabel";
+import { blockSyncLabel, categorySyncLabel, goalSyncLabel, planSyncLabel, routineSyncLabel, type SyncLabelLookup } from "./timetableSyncLabel";
+import { useTimetablePlanStore } from "../store/timetablePlanStore";
+import { slotsOfNode } from "../domain/timetableRoutine";
 import type { SyncRowLabel } from "./types";
 import { TIMETABLE_TAG_ENTITIES, gotoTimetable } from "./timetableTagEntities";
+import { TIMETABLE_QUICK_JUMP } from "../ui/timetable/quickJump";
+import { timetableReportJump } from "./timetableReport";
 
 export const TIMETABLE_MOUNT: LineMount = {
   desktopView: TimetableView,
   mobileView: MobileTimetable,
-  reload: (ctx) => useTimetableStore.getState().reload(ctx),
+  // ⑦：作息範本與預定另一個 store（只認 time_routines／time_plans；wiped 時清快取）
+  reload: async (ctx) => {
+    await useTimetableStore.getState().reload(ctx);
+    await useTimetablePlanStore.getState().reload(ctx);
+  },
   // 桌機全域代理：系統匣顯示運行中（回 null、零 DOM）
   desktopOverlay: TimetableDesktopAgent,
   // 手機全域代理：回前景重貼常駐通知、重排試驗提醒、記下待問（回 null、零 DOM）
@@ -61,6 +72,8 @@ export const TIMETABLE_MOUNT: LineMount = {
   nodeFields: [
     { id: "timetable.time", label: "時間", kinds: ["ticket", "branch", "route"], top: true, Desktop: TimeField, Mobile: TimeFieldMobile },
     { id: "timetable.time.task", label: "時間", kinds: ["train", "car"], top: true, section: "amount", Desktop: TimeField, Mobile: TimeFieldMobile },
+    // ⑦ §4 入口①：車票第二段起（time_plans）。回饋甲 D-主-129 起畫在時段組裡（時段 → 長度 → 〔其他時段〕→ 締切日；契約 ☎-1）
+    { id: "timetable.slots", label: "其他時段", kinds: ["ticket"], top: true, section: "schedule", Desktop: SlotsField, Mobile: SlotsFieldMobile },
   ],
   // ②段一 #A1：手機票卡 ⋯ 的「発車」
   ticketSheetItems: [{ id: "timetable.depart", Item: TicketSheetDepart }],
@@ -81,6 +94,8 @@ export const TIMETABLE_MOUNT: LineMount = {
   syncRowLabel: timetableSyncRowLabel,
   // ⑥ 0-6：荷札頁認得時刻表的塊（手動掛的）、分類的預設荷札、目標綁的荷札（存活＋列字＋跳轉）
   tagEntities: TIMETABLE_TAG_ENTITIES,
+  // ⑦ D-時-165：頁首搜尋（前綴 @；分類→統計頁只看它、作息範本→作息頁、時間塊比備註→那天的軸）
+  quickJump: TIMETABLE_QUICK_JUMP,
   // 磨光③ 0-2／§2-3：時刻表的通知開關住在「分類與設定」，全域設定頁（桌機一般、手機設定節）指路過去、捲到〈通知〉
   settingsLinks: [
     {
@@ -101,6 +116,8 @@ export const TIMETABLE_MOUNT: LineMount = {
         })(),
     },
   ],
+  // ② 運行報告：卡片小元件與表格某一天點下去的去處（D-主-188；跳法在 timetableReport.ts）
+  reportJump: timetableReportJump,
 };
 
 /* ───────── ③ syncRowLabel（0-13；查列一律含已刪除，真的查不到才回 null）；跳轉的 gotoTimetable 在 timetableTagEntities.ts ───────── */
@@ -125,12 +142,17 @@ async function lookupFor(extraNodeIds: readonly (string | null)[]): Promise<Sync
     if (n) (n.kind === "route" ? routeName : nodeName).set(n.id, n.name);
   });
   const dayStartHour = useUiStore.getState().dayStartHour;
+  // ⑦：範本名（含已刪；store 已載就用、沒載讀一次——已刪的從 repository 補）
+  const ps = useTimetablePlanStore.getState();
+  const routines = ps.routinesLoaded ? ps.routines : await timetableRepo.listRoutines().catch(() => []);
+  const routineName = new Map(routines.map((r) => [r.id, r.name] as const));
   return {
     now: Date.now(),
     dayStartHour,
     categoryName: (id) => catName.get(id) ?? null,
     nodeName: (id) => nodeName.get(id) ?? routeName.get(id) ?? null,
     routeName: (id) => routeName.get(id) ?? nodeName.get(id) ?? null,
+    routineName: (id) => routineName.get(id) ?? null,
   };
 }
 
@@ -187,6 +209,42 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
         // 目標面板的初值讀統計 store 的 goalList：等這一輪算完再開（統計頁剛掛上時還是空的）
         await st.load();
         if (!gone) useTimetableStore.getState().openSheet({ kind: "goal", goalId: rowId });
+      },
+    };
+  }
+  if (tbl === "time_routines") {
+    // ⑦：作息範本（跳轉＝「分類與設定」的「作息」頁、展開那一套；已刪的只開作息頁）
+    const row = await timetableRepo.getRoutine(rowId, { withDeleted: true });
+    if (!row) return null;
+    const look = await lookupFor([]);
+    const gone = row.deleted_at !== null;
+    return {
+      ...routineSyncLabel(row, look, TT_TEXT),
+      open: async () => {
+        await gotoTimetable(shell);
+        useTimetableStore.getState().openSheet({ kind: "categories", focus: "routine", ...(gone ? {} : { focusId: rowId }) });
+      },
+    };
+  }
+  if (tbl === "time_plans") {
+    // ⑦：一段預定（作息段／車票第二段起）；跳轉＝那一天的日程
+    const row = await timetableRepo.getPlan(rowId, { withDeleted: true });
+    if (!row) return null;
+    const look = await lookupFor([row.node_id]);
+    let ordinal: number | null = null;
+    if (row.node_id !== null) {
+      const idx = slotsOfNode(await timetableRepo.listPlansByNode(row.node_id), row.node_id).findIndex((r) => r.id === rowId);
+      ordinal = idx >= 0 ? idx + 2 : null; // 第一段是主線的「幾點＋預計」
+    }
+    const out = planSyncLabel(row, look, TT_TEXT, ordinal);
+    return {
+      ...out,
+      ...(row.deleted_at !== null ? { note: TT_TEXT.syncPlanGone } : {}),
+      open: async () => {
+        await gotoTimetable(shell);
+        const tt = useTimetableStore.getState();
+        tt.setView("schedule");
+        await tt.setDayKey(row.day);
       },
     };
   }

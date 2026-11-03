@@ -100,6 +100,7 @@ const node = (o: Partial<NodeRow> = {}): NodeRow => ({
   name: "票",
   description: null,
   position: 0,
+  sort_key: null,
   color: null,
   code: null,
   status: "todo",

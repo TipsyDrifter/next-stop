@@ -23,6 +23,13 @@ import { ScheduleGrid } from "./ScheduleGrid";
 import { ScheduleNav, ScheduleSummary } from "./ScheduleSummary";
 import { UnscheduledTray } from "./UnscheduledTray";
 import { PlanPopover } from "./PlanPopover";
+import { SchedPopover } from "./SchedPopover"; // ⑦ C 席
+import { RoutinePicker } from "./RoutinePicker"; // ⑦ C 席
+import { RoutineSegPanel } from "../panels/RoutineSegPanel"; // ⑦ C 席
+import { SlotPanel } from "../panels/SlotPanel"; // ⑦ C 席
+import { CategoryBadge } from "../CategoryBadge"; // ⑦ C 席
+import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
+import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
 import { SCHED_UI } from "./scheduleModel";
 import { routeColorOf, useSchedulePage, type SchedulePage } from "./useSchedulePage";
 import { useScheduleDrag, type DragView } from "./useScheduleDrag";
@@ -82,9 +89,24 @@ export function DragFloat({ page, drag }: { page: SchedulePage; drag: DragView |
   );
 }
 
+/** ⑦：作息段小面板的標題（分類圓牌＋段的名字） */
+function RoutineTitle({ day, id }: { day: string; id: string }) {
+  const seg = useTimetablePlanStore((s) => s.days[day]?.segs.find((g) => g.id === id) ?? null);
+  const cat = useTimetableStore((s) => (seg?.cat ? s.catById[seg.cat] : undefined));
+  return (
+    <span className="ns-tt-rtp-h">
+      {cat && <CategoryBadge cat={cat} size="sm" />}
+      {seg ? (segName(seg, cat?.name ?? null) ?? "") : ""}
+    </span>
+  );
+}
+
 export function ScheduleView() {
   const page = useSchedulePage("desktop");
   const wide = useWide();
+  const sheet = useTimetableStore((s) => s.sheet);
+  const closeSheet = useTimetableStore((s) => s.closeSheet);
+  const slotName = sheet?.kind === "slot" ? (page.nodes[page.slots[sheet.key]?.nodeId ?? ""]?.name ?? "") : "";
   const rootRef = useRef<HTMLElement>(null);
   const pcolRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -109,6 +131,8 @@ export function ScheduleView() {
         <ScheduleNav page={page} />
         <ScheduleSummary page={page} />
         <span className="ns-tt-sched-keys">{SCHED_UI.deskKeys}</span>
+        {/* ⑦（C 席）：「作息：工作日 ▾」在頂列最右（原型回報 2） */}
+        <RoutinePicker page={page} />
       </div>
       {page.error && !page.grid && <p className="ns-tt-sched-err">⚠ {page.error}</p>}
       <div className="ns-tt-sched-main">
@@ -127,7 +151,24 @@ export function ScheduleView() {
         </div>
       </div>
       <DragFloat page={page} drag={drag} />
-      {page.openKey && <PlanPopover planKey={page.openKey} rootRef={rootRef} scrollRef={scrollRef} />}
+      {page.openKey && sheet?.kind === "plan" && <PlanPopover planKey={page.openKey} rootRef={rootRef} scrollRef={scrollRef} />}
+      {/* ⑦（C 席）：車票第二段起、作息段的小面板（同 PlanPopover 的浮層） */}
+      {sheet?.kind === "slot" && (
+        <SchedPopover anchor={`.ns-tt-sched-card[data-key="${CSS.escape(sheet.key)}"]`} openId={sheet.key} title={slotName} rootRef={rootRef} scrollRef={scrollRef}>
+          <SlotPanel key={sheet.key} onDone={closeSheet} shell="desktop" />
+        </SchedPopover>
+      )}
+      {sheet?.kind === "routine" && (
+        <SchedPopover
+          anchor={`.ns-tt-rt[data-rt-id="${CSS.escape(sheet.id)}"]`}
+          openId={sheet.day + sheet.id}
+          title={<RoutineTitle day={sheet.day} id={sheet.id} />}
+          rootRef={rootRef}
+          scrollRef={scrollRef}
+        >
+          <RoutineSegPanel key={sheet.day + sheet.id} onDone={closeSheet} />
+        </SchedPopover>
+      )}
     </section>
   );
 }

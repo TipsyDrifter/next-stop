@@ -16,6 +16,11 @@
  *   （頂帶下一列 .ns-tabrow「今日｜行程表」分頁籤＝MobileTopBand 畫；UI 丙-3 F2 前是本頁第一個子節點 .m-sch-seg）
  *   .m-page.m-today  統計一行 → 誤點區（**置頂**＝r1 拍板）→「今天的列車」清單／空狀態
  *   .m-newticket  固定在 tab bar 之上的建票輸入列（不在 .m-page 內＝不跟著捲走；只有今日子頁有，D-主-8）
+ *                 回饋甲（D-主-127、128）起＝共用的手機建票列 MobileQuickAdd（common/quickadd）：聚焦後輸入框上方冒一排 chips
+ *                 ［掛到］［執行日］［幾點］［締切］［優先］［#荷札］＋快速語法；舊的「無日期」切換併進執行日 chip（清除＝無日期，進收件匣＋復原）。
+ *                 IME 三重守門、連打、收據規則都在共用元件裡；chips 在輸入列裡面，軟鍵盤 inset（useViewportHeight）一起推上來。
+ *   回饋甲 D-主-131：「今天的列車」區段標右側「済 N・隱藏／顯示」（uiStore.todayHideDone，跟桌機同一個記住的狀態）；
+ *                 隱藏時藏的只是済票（拖曳、多選、指出這張票都只看畫面上有的），頁首「完成 d/t」照舊算全部。
  *
  * 與桌機今日視圖刻意不同的四處（都在契約的「不做」清單裡，記在這裡免得日後被當成遺漏）：
  *   1. 沒有頁首日期與日付印——日付印在頂帶（MobileTopBand），同一個畫面不蓋兩枚。
@@ -40,8 +45,15 @@
  *   （`li[data-node-id]`；在收合的誤點區就先展開）→ 捲到畫面中間 → 閃一下底色約 1 秒 → consume。
  *
  * **手機殼班（契約 §一C、§一D）**：
- *   長按拖曳排序（D-主-74）——「今天的列車」那張清單掛 useLongPressReorder：只有手排座標（today 分區、沒時刻）的票抬得起來，
- *   有時刻的票長按抖一下＋toast 說為什麼（D-主-80）；放下走 useMobileToday.moveTo（同 ⋯ 上移／下移的 moveToday）＋「已調整順序」toast＋復原。
+ *   長按拖曳排序（D-主-74）——回饋乙起換成共用元件 useDragReorder（契約 §2；舊的 useLongPressReorder 已刪）：
+ *   只有手排座標（today 分區、沒時刻）的票拖得動，有時刻的票、誤點區的票長按後手指一動抖一下＋toast 說為什麼（D-主-80）；
+ *   放下走 useMobileToday.moveTo（同 ⋯ 上移／下移的 moveToday）＋「已調整順序」toast＋復原。
+ *
+ * **回饋乙（D-主-152／153；契約 §0 ☎2、☎3④、§4）**：
+ *   - 長按原地放開＝進多選（這張已勾）；多選中點卡片＝加選／取消；選了就在 tab bar 之上浮出 MobileSelectionBar（建票列收起）。
+ *     選中的那張被拖＝整批一起走（保持相對順序）。多選範圍＝誤點區＋今天的列車（scope "today"）。
+ *   - 滑動手勢：右滑＝蓋済（同検印的 complete）、左滑＝明天（同 ⋯ 第一格 sheetDeferItems；定期券＝本班運休，同 ⋯ 定期券那一格）；
+ *     已交代、唯讀、多選中＝滑不開。字跟著那一列變（mobileSelect.usePressedSwipe）。
  *   ⋯ 刪除的子項數走 liveChildCount（同行程表、詳情頁；第二輪——child_total 只數直屬，列車、車廂底下有車廂會少算）。
  *   完成卡（D-主-73）不在本檔畫（MobileShell 掛 MobileCompleteCard）；它開著時建票列由 complete-card.css 收起，
  *   本檔只是照常畫建票列（收的是 display，打到一半的字不丟）。
@@ -49,7 +61,7 @@
  * 空狀態文案沿桌機（TodayView 的 1.0c／1.0d 兩塊逐字）；只有操作提示那一句改寫成觸控說法
  *   （桌機原句是「按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）…按 T 排上今天」——手機沒有這些鍵）。
  */
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
@@ -66,13 +78,17 @@ import { deleteTicket, liveChildCount, logTicket, renameTicket, useMobileToday, 
 import { useBackLayer } from "./backStack";
 import { useRevealStore } from "./routeMapReveal";
 import "./mobile-polish.css";
-import { isSettledRow } from "../today/useTodayController";
+import { isDoneRow, isSettledRow } from "../today/useTodayController";
+import { DoneToggleChip, MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { cardFromTodayRow } from "../schedule/ticketCard";
 import { useMinuteTick } from "../schedule/useMinuteTick";
 import { lineTodayStats } from "../../lines/runtime";
-import { useLongPressReorder } from "./useLongPressReorder";
-import "./reorder-drag.css";
+import { useDragReorder } from "../common/dragReorder";
+import { batchDragIds, isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection, useScopeSelection, type SwipePair } from "./mobileSelect";
+import { MobileSelectionBar } from "./MobileSelectionBar";
+import { sheetDeferItems } from "../schedule/streamModel";
+import { TodayBrief } from "../report/TodayBrief";
 
 /** 「指出這張票」的閃底色停多久（D-主-48；CSS 動畫 1s，計時器兜底 reduced-motion 的靜態底色） */
 const REVEAL_FLASH_MS = 1000;
@@ -80,6 +96,8 @@ const REVEAL_FLASH_MS = 1000;
 const REVEAL_GIVE_UP_MS = 1500;
 /** ⋯ sheet 整個流程的返回層 id（本頁登記、MobileTicketSheet 的每張 MSheet 用同一個 id 合併） */
 const TODAY_SHEET_LAYER = "core.todaySheet";
+/** 誤點區的票長按後一動：抖一下說為什麼（桌機那句提到 T 鍵，手機改指 ⋯ 與左滑） */
+const LATE_NO_DRAG_MSG = "誤點的票不能拖曳排序——改日期用 ⋯ 或往左滑";
 
 export default function MobileToday() {
   const c = useMobileToday();
@@ -104,17 +122,81 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const sheetRow = useNodeStore((s) => (sheetId ? (s.today.byId[sheetId] ?? null) : null));
   const pageRef = useRef<HTMLDivElement | null>(null);
   useSubSwipe(pageRef, "today");
-  /** 「今天的列車」清單（條件渲染，callback ref 拿元素——掛上來長按拖曳才綁得上事件） */
+  /** 「今天的列車」與誤點區兩張清單（條件渲染，callback ref 拿元素——掛上來拖曳才綁得上事件） */
   const [todayList, setTodayList] = useState<HTMLUListElement | null>(null);
-  // 長按拖曳（手機殼班 D-主-74）：手排座標＝manualOrderIds（同 ⋯ 上移／下移、同 moveToday）
-  useLongPressReorder({
-    list: todayList,
+  const [lateList, setLateList] = useState<HTMLUListElement | null>(null);
+
+  /* ───────── 已完成開關（回饋甲 D-主-131）：只藏「今天的列車」裡済的票，跟桌機同一個記住的狀態；頁首「完成 d/t」照舊算全部 ───────── */
+  const todayHideDone = useUiStore((s) => s.todayHideDone);
+  const toggleTodayHideDone = useUiStore((s) => s.toggleTodayHideDone);
+  const doneToday = c.todayRows.filter(isDoneRow).length;
+  const shownToday = todayHideDone ? c.todayRows.filter((r) => !isDoneRow(r)) : c.todayRows;
+
+  /* ───────── 建票列（回饋甲 D-主-127、128）：掛到＝無路線、執行日＝今天；清掉執行日＝無日期進收件匣 ───────── */
+  const qaDefaults = useMemo<QuickDefaults>(() => ({ dest: NO_DEST, scheduledOn: c.dateKey, noDateLabel: true }), [c.dateKey]);
+  const qaHere = useMemo<QuickHere>(() => ({ kind: "today", dateKey: c.dateKey }), [c.dateKey]);
+
+  /* ───────── 多選（回饋乙 D-主-152）：長按原地放開＝選起來，多選中點卡片＝加選／取消 ───────── */
+  // 藏起來的済票不在畫面上：不進多選範圍（選了看不到的票，批量動作會碰到主人沒看見的東西）
+  const order = [...c.lateRows.map((r) => r.id), ...shownToday.map((r) => r.id)];
+  const picked = useScopeSelection("today");
+  const selecting = picked.length > 0;
+  usePruneSelection("today", order);
+  const latestOrder = () => {
+    const rows = useNodeStore.getState().today.rows;
+    const hide = useUiStore.getState().todayHideDone;
+    return [
+      ...rows.filter((r) => r.bucket !== "today"),
+      ...rows.filter((r) => r.bucket === "today" && !(hide && isDoneRow(r))),
+    ].map((r) => r.id);
+  };
+
+  /* ───────── 滑動手勢（☎3④）：右滑＝蓋済（同検印）、左滑＝明天（同 ⋯ 第一格；定期券＝本班運休，同 ⋯ 的定期券那一格） ───────── */
+  const swipeFor = (id: string): SwipePair => {
+    const row = useNodeStore.getState().today.byId[id];
+    if (!row || isSelecting("today")) return {};
+    const card = cardFromTodayRow(row, c.dateKey);
+    if (card.readOnly || card.done || card.suspended) return {};
+    const out: SwipePair = { right: { label: "蓋済", tone: "seal", run: () => c.complete(id) } };
+    if (card.isRepeat) out.left = { label: "運休", tone: "ink", run: () => c.skip(id, true) };
+    else {
+      const { first } = sheetDeferItems(card.railDate, card.scheduledOn, c.dateKey);
+      out.left = { label: first.label === "往後推一天" ? "晚一天" : "明天", tone: "ink", run: () => c.defer(id, first.day) };
+    }
+    return out;
+  };
+  const todaySwipe = usePressedSwipe(todayList, swipeFor);
+  const lateSwipe = usePressedSwipe(lateList, swipeFor);
+
+  // 長按拖曳（手機殼班 D-主-74 → 回饋乙換成共用元件）：手排座標＝manualOrderIds（同 ⋯ 上移／下移、同 moveToday）；
+  // 有時刻的票長按照樣選得起來、手指一動才抖一下＋toast 說為什麼（D-主-80）
+  const manual = manualOrderIds(c.todayRows);
+  const refuse = (_id: string, why: string) => useUiStore.getState().showToast({ message: why }, 3600);
+  useDragReorder({
+    root: todayList,
     scrollRef: pageRef,
-    ids: manualOrderIds(c.todayRows),
-    nudgeable: (id) => c.todayRows.some((r) => r.id === id && timeOfRow(r) !== null),
-    // D-主-80：抖一下之外說為什麼（字同桌機今日拖有時刻的票、store moveToday 的那一句——同一個意思只一處）
-    onNudge: () => useUiStore.getState().showToast({ message: TIME_FIXED_ORDER_MSG }, 3600),
-    onDrop: c.moveTo,
+    // 畫面上有的才給拖（藏起來的済票不在 DOM 裡；同桌機）；落點換算照舊對全部的手排順序（moveTo）
+    items: manual.filter((id) => shownToday.some((r) => r.id === id)).map((id) => ({ id })),
+    canDrag: (id) => (manual.includes(id) ? true : TIME_FIXED_ORDER_MSG),
+    onRefuse: refuse,
+    dragIds: (id) => batchDragIds("today", id, manualOrderIds(useNodeStore.getState().today.rows)),
+    onDrop: (ids, place) => {
+      if (place.kind === "slot") c.moveTo(ids, place);
+    },
+    onPressRelease: (id) => pressSelect("today", id, latestOrder()),
+    swipe: todaySwipe,
+  });
+  // 誤點區：拖不動也要回話（理由同一句）；長按照樣選起來、照樣能滑
+  useDragReorder({
+    root: lateList,
+    scrollRef: pageRef,
+    items: c.lateRows.map((r) => ({ id: r.id })),
+    slots: false,
+    canDrag: () => LATE_NO_DRAG_MSG,
+    onRefuse: refuse,
+    onDrop: () => undefined,
+    onPressRelease: (id) => pressSelect("today", id, latestOrder()),
+    swipe: lateSwipe,
   });
   const now = useMinuteTick();
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -131,7 +213,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const revealWhere =
     revealId === null
       ? null
-      : c.todayRows.some((r) => r.id === revealId)
+      : shownToday.some((r) => r.id === revealId)
         ? "today"
         : c.lateRows.some((r) => r.id === revealId)
           ? "late"
@@ -180,8 +262,9 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
 
   /* ───────── 時刻（主線②）：分群、現在線、下一班 ───────── */
   const railOf = (r: TodayRow) => r.occurrence?.due_on ?? r.scheduled_on ?? c.dateKey;
-  const timed = c.todayRows.filter((r) => timeOfRow(r) !== null);
-  const hasUntimed = timed.length < c.todayRows.length;
+  // 畫的是 shownToday（已完成開關隱藏時少了済票）；「下一班」只看沒交代的，藏不藏都一樣
+  const timed = shownToday.filter((r) => timeOfRow(r) !== null);
+  const hasUntimed = timed.length < shownToday.length;
   const nowMin = nowClockMinutes(c.dateKey, dayStartHour, now);
   /** 現在線插在 timed 的第幾張之前（timed.length＝最後一張之後）；null＝不畫 */
   let nowAt: number | null = null;
@@ -205,6 +288,10 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
       now={now}
       onComplete={(card) => c.complete(card.nodeId)}
       onMore={(card) => setSheetId(card.nodeId)}
+      dragId={r.id}
+      selecting={selecting}
+      picked={picked.includes(r.id)}
+      onPick={() => tapSelect("today", r.id, latestOrder())}
     />
   );
   const nowLine = (
@@ -227,7 +314,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           不排時間・手動排序</li>,
       );
     }
-    for (const r of c.todayRows) if (timeOfRow(r) === null) todayItems.push(ticket(r));
+    for (const r of shownToday) if (timeOfRow(r) === null) todayItems.push(ticket(r));
   }
 
   return (
@@ -250,6 +337,9 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           // 今天沒有車票：核心不畫統計列；線的統計段有內容時自己包 `.m-today-stats`（wrap），沒內容回 null——不留空的 <p>
           stats.map((S, i) => <S key={i} shell="mobile" dateKey={c.dateKey} lead={false} wrap />)
         )}
+
+        {/* ② 運行報告 D-主-184：「今日小結」一行（點了進運行報告）——統計列之後、清單之前（原型 scr=today&device=mob 的位置） */}
+        <TodayBrief shell="mobile" />
 
         {/* ═══ 誤點區（置頂＝r1 拍板；含 D-③-7 浮上來的締切段）═══ */}
         {c.lateRows.length > 0 && (
@@ -274,7 +364,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
               </button>
             </div>
             {lateOpen && (
-              <ul className="m-tk-list" aria-label="誤點">
+              <ul className="m-tk-list" aria-label="誤點" ref={setLateList}>
                 {c.lateRows.map(ticket)}
               </ul>
             )}
@@ -284,7 +374,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
         {/* ═══ 今天的列車 ═══ */}
         {/* 磨光⑤ S10：第一次 loadToday 回來前清單區留白（不放骨架、不畫空狀態與慶祝） */}
         {!c.loaded ? null : c.empty ? (
-          <EmptyState tone="first" title="今天還沒有班次" desc="在下方輸入一件事，按「発券」就能開一張臨時車票。" />
+          <EmptyState tone="first" title="今天還沒有班次" desc="在下方寫一張車票，按「発券」。" />
         ) : (
           <>
             {c.todayRows.length > 0 && (
@@ -293,8 +383,12 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
                   <h3>今天的列車</h3>
                   <span className="rule" />
                   <span className="note">{total} 張</span>
+                  {/* 已完成開關（回饋甲 D-主-131；原型 q4a-A；預設顯示＝済票留原位到日界線） */}
+                  {doneToday > 0 && (
+                    <DoneToggleChip count={doneToday} showing={!todayHideDone} onToggle={toggleTodayHideDone} />
+                  )}
                 </div>
-                <ul className="m-tk-list is-reorderable" aria-label="今天的列車" ref={setTodayList}>
+                <ul className="m-tk-list" aria-label="今天的列車" ref={setTodayList}>
                   {todayItems}
                 </ul>
               </>
@@ -308,7 +402,9 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
         )}
       </div>
 
-      <MobileNewTicket onCreate={c.createTicket} />
+      {/* 建票列（回饋甲：舊 MobileNewTicket 換共用的手機建票列；chips 聚焦後才出現，「無日期」併進執行日 chip） */}
+      <MobileQuickAdd defaults={qaDefaults} here={qaHere} />
+      <MobileSelectionBar scope="today" />
 
       {sheetRow && (
         <MobileTicketSheet
@@ -332,81 +428,5 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
         />
       )}
     </>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════
- * 建票輸入列——固定在 tab bar 之上（不在 .m-page 內，捲動時不會跑掉）
- * ═══════════════════════════════════════════════════════ */
-
-/**
- * 兩種票共用一條輸入列，靠「無日期」切換選目的地（沿桌機 Enter／Shift+Enter 的兩條種子動線）：
- *   關＝臨時車票排今天（票留在眼前，看得見＝不出收據）
- *   開＝無日期票進收件匣（票立刻離開今日，toast 是唯一收據、帶「復原」）
- * 切換是 `role="switch"` 的常駐鈕而不是「長按送出」：長按在觸控上沒有可見的前置提示，
- *   主人按下去之前不知道會發生什麼；一顆亮著的「無日期」把狀態攤在檯面上。
- *
- * IME 守門（鐵則 5）：`isComposing‖keyCode===229` 之外再加一支 composition 旗標——
- *   Android 部分 IME 送出的 keydown 既不帶 isComposing 也不是 229（Plan 草案 §5 的已知雷）。
- *   `enterKeyHint="done"` 讓 Android 軟鍵盤右下角顯示「完成」而不是換行。
- */
-function MobileNewTicket({ onCreate }: { onCreate(name: string, inbox: boolean): Promise<boolean> }) {
-  const [text, setText] = useState("");
-  const [inbox, setInbox] = useState(false);
-  const composing = useRef(false);
-
-  const submit = async () => {
-    if (!text.trim()) return;
-    const ok = await onCreate(text, inbox);
-    // 成功才清空＝失敗時主人打的字還在（createNode 回 null 已經吐過 toast）。
-    // 不主動 blur：連打是預期用法（桌機 Enter 之後草稿列會續開一張），鍵盤收掉反而礙事。
-    if (ok) setText("");
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter") return;
-    if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
-    e.preventDefault();
-    void submit();
-  };
-
-  return (
-    <div className="m-newticket">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={inbox}
-        aria-label="無日期——建好直接放進收件匣"
-        onClick={() => setInbox((v) => !v)}
-        className={"m-nt-toggle" + (inbox ? " is-on" : "")}
-      >
-        無日期
-      </button>
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={() => {
-          composing.current = false;
-        }}
-        placeholder={inbox ? "放進收件匣的一件事…" : "臨時想到的一件事…"}
-        aria-label={inbox ? "輸入收件匣車票名稱" : "輸入臨時車票名稱"}
-        enterKeyHint="done"
-        spellCheck={false}
-        autoComplete="off"
-        className="m-nt-input"
-      />
-      <button
-        type="button"
-        onClick={() => void submit()}
-        disabled={!text.trim()}
-        className="m-nt-go ns-btn btn-seal"
-      >
-        発券
-      </button>
-    </div>
   );
 }

@@ -20,10 +20,14 @@
  *   - 運休＝淡化不刪除線；已済＝淡＋刪除線；漏班＝赭（三者互斥，順序即優先權）。
  *   - 〆 只是標記，明細在 hover 的 tip（DueTip）與浮層締切段；點〆＝點格（〆 不吃 click，落到點擊面）。
  */
-import { useLayoutEffect, type RefObject } from "react";
-import type { NodeRow } from "../../domain";
-import type { DateCount, DueEntry, ScheduleEntry } from "../../data";
+import { useLayoutEffect, useState, type RefObject } from "react";
+import { parseRule, type NodeRow } from "../../domain";
+import { REPEAT_RESCHEDULE_MSG, type DateCount, type DueEntry, type ScheduleEntry } from "../../data";
+import { batchSetDate } from "../../store/batchActions";
+import { useUiStore } from "../../store/uiStore";
 import { DayCell } from "../common/DayCell";
+import { useDragReorder } from "../common/dragReorder";
+import { mdw } from "../schedule/streamModel";
 import { useCalendar } from "./useCalendarController";
 
 export interface CalendarCellProps {
@@ -67,6 +71,25 @@ export function useAddOutOfTabOrder(ref: RefObject<HTMLElement | null>) {
   });
 }
 
+/**
+ * 拖到日期＝改期（回饋乙 ☎3①）：格線裡每個本區間的格子都是外部落點（`data-drop-target={日期}`、`data-drop-type="date"`）。
+ * 共用 DayCell 沒有開 data 屬性的口，這裡跟上面 useAddOutOfTabOrder 同法：每次 render 後補在 `.ns-daycell[data-day]` 上
+ * （區間外的 `.is-out` 不收）。格內的票各格自己掛 useDragReorder（root＝格內清單；格子是它的祖先，所以算外部落點）。
+ */
+export function useDateDropTargets(ref: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    ref.current?.querySelectorAll<HTMLElement>(".ns-daycell[data-day]").forEach((el) => {
+      if (el.classList.contains("is-out")) {
+        delete el.dataset.dropTarget;
+        delete el.dataset.dropType;
+        return;
+      }
+      if (el.dataset.dropTarget !== el.dataset.day) el.dataset.dropTarget = el.dataset.day;
+      if (el.dataset.dropType !== "date") el.dataset.dropType = "date";
+    });
+  });
+}
+
 /** 月格截斷：前 3 筆（原型 ui-c3 的月格 100px 放得下三列；舊版 2 筆＋「＋N」） */
 const MONTH_SHOWN = 3;
 
@@ -98,12 +121,40 @@ export function CalendarCell({
   onTip,
 }: CalendarCellProps) {
   // 三線格內記號（0-2 乙插槽）：直接取控制器 context；三線零登記＝undefined
-  const marks = useCalendar().marks[day];
+  const cal = useCalendar();
+  const marks = cal.marks[day];
+  const shown = truncate ? entries.slice(0, MONTH_SHOWN) : entries;
+
+  // 回饋乙 ☎3①：格內的票拖到別的格子＝改到那一天（單張也走 batchSetDate，附復原）。
+  // 格內清單沒有縫（順序照時刻），只能拖到外部落點；定期券照規則排、已蓋済的不能改期（同推遲的守門）
+  const [itemsEl, setItemsEl] = useState<HTMLDivElement | null>(null);
+  useDragReorder({
+    root: itemsEl,
+    items: shown.map((e) => ({ id: e.node_id })),
+    slots: false,
+    disabled: !inRange,
+    canDrag: (id) => {
+      const n = nodes[id];
+      if (!n) return "這一張不能拖";
+      if (parseRule(n.repeat_rule)) return REPEAT_RESCHEDULE_MSG;
+      if (entries.find((e) => e.node_id === id)?.is_done) return "已蓋済的票不能改期——要改先取消済章";
+      return true;
+    },
+    onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
+    resolve: (_ids, place) => {
+      if (place.kind !== "target" || place.type !== "date") return "拖到某一天的格子上，就改到那一天";
+      if (place.target === day) return "已經是這一天";
+      if (place.target < cal.today) return "不能排到過去的日子";
+      return true;
+    },
+    onDrop: (ids, place) => {
+      if (place.kind === "target" && place.type === "date") void batchSetDate(ids, place.target, `已改到 ${mdw(place.target)}`);
+    },
+  });
 
   if (!inRange) return <DayCell date={day} out className="cal-cell" />;
 
   const total = count?.total ?? entries.length;
-  const shown = truncate ? entries.slice(0, MONTH_SHOWN) : entries;
   const rest = entries.length - shown.length;
   const dnum = Number(day.slice(8, 10));
   const label =
@@ -141,12 +192,18 @@ export function CalendarCell({
         </span>
       )}
       {shown.length > 0 && (
-        <div className="items" aria-hidden>
+        <div
+          ref={setItemsEl}
+          className="items"
+          aria-hidden
+          // 清單要吃得到指標才拖得起來（calendar.css 打開 pointer-events）；點一下照舊＝點格（開當日浮層）
+          onClick={(e) => e.currentTarget.closest(".ns-daycell")?.querySelector<HTMLButtonElement>(".ns-daycell-hit")?.click()}
+        >
           {shown.map((e) => {
             const node = nodes[e.node_id];
             const route = node?.route_id ? routes.find((r) => r.id === node.route_id) : undefined;
             return (
-              <div key={`${e.date}-${e.node_id}`} className={cx("it", toneOf(e))} title={node?.name}>
+              <div key={`${e.date}-${e.node_id}`} className={cx("it", toneOf(e))} title={node?.name} data-drag-id={e.node_id}>
                 <i className="dot" style={{ background: route?.color ?? "var(--route-none)" }} />
                 <span className="nm">{node?.name ?? ""}</span>
               </div>

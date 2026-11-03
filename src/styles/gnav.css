@@ -90,6 +90,19 @@
    通車時那一格換成 .gnav-line（位置固定，增補一）。版面＝上面的三欄格線，這裡只留排距。
    第三排預留：新功能往第三排延伸時沿用這一套（.gnav-off＋.tip-closed＋--gnav-off-*），不另畫。 */
 .cover .gnav-closed { margin: var(--gnav-row-gap) 0 0; }
+
+/* ============ 第三排「回顧」（② 運行報告 D-主-182；視覺真相 prototypes/design-stats-review-運行報告.html .gnav-group） ============
+   群組名一行：虛線夾字（書封淡字），下面一排沿用 .gnav-row 的三欄格線（③ 車庫接在同一排）。 */
+.cover .gnav-group {
+  display: flex; align-items: center; gap: 8px; margin: 10px 4px 6px;
+  font-size: 9.5px; letter-spacing: .3em; text-indent: .3em; /* 字面值：書封站牌小字照原型（字階外） */
+  color: var(--book-muted);
+}
+.cover .gnav-group::before,
+.cover .gnav-group::after {
+  content: ""; flex: 1;
+  border-top: 1px dashed color-mix(in srgb, var(--color-book-ink) 18%, transparent);
+}
 .cover .gnav-off {
   position: relative; display: grid; place-items: center; align-self: center;
   width: 30px; height: 26px; border-radius: var(--radius-ctl);

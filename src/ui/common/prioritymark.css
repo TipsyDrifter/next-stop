@@ -1,0 +1,13 @@
+/* ─────────────────────────────────────────────────────
+ * prioritymark.css — 票名前的優先記號（回饋甲 D-主-133）：赭色實心小點，只給「高」。
+ * 跟著標題的行內流排（inline-block、垂直置中於字），右邊留一點距離再接票名。
+ * 済了的票整列退淡時跟著退（不另寫規則）。
+ * ───────────────────────────────────────────────────── */
+.ns-prio {
+  display: inline-block; flex: none;
+  width: 6px; height: 6px; margin-right: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--late);
+  vertical-align: .18em;
+}
+[data-shell="mobile"] .ns-prio { width: 7px; height: 7px; margin-right: 7px; }

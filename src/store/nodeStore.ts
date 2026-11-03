@@ -17,6 +17,7 @@ import {
   nodeRepo,
   reorderIds,
   type CreateNodeInput,
+  type MoveManyItem,
   type CurrentOccurrence,
   type DueEntry,
   type NodePatch,
@@ -24,6 +25,7 @@ import {
   type TodayRow,
 } from "../data";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds } from "../domain/scheduledTime";
+import type { SlotAnchor } from "../domain/nodeOrder";
 import { todayKey } from "../lib/date";
 import { useUiStore } from "./uiStore";
 
@@ -114,7 +116,7 @@ function dayStart(): number {
 export interface TreeIndex {
   byId: Record<string, NodeRow>;
   childrenOf: Record<string, string[]>;
-  /** 直屬於路線的頂層節點（依 position） */
+  /** 路線最上層＝路線直屬的非車站＋掛這條路線標籤的根層臨時車票（同一份清單、同一套排序鍵；domain/nodeOrder.ts 的 routeTop） */
   roots: string[];
 }
 
@@ -217,6 +219,8 @@ interface NodeStore {
   lines: NodeRow[];
   routes: NodeRow[];
   stations: NodeRow[];
+  /** 每條路線的未完成末端項目數（回饋甲 D-主-130；側欄與手機路線清單列尾）。0 的路線不在表裡 */
+  routeOpenCounts: Record<string, number>;
   routeId: string | null;
   tree: TreeIndex;
   /** 全站票號表（id →「MMDD-NN」）＝當日全域發券序；大綱票根與側板票頭讀它（serialOf） */
@@ -238,6 +242,8 @@ interface NodeStore {
   lastDeleted: string[] | null;
 
   loadSidebar: () => Promise<void>;
+  /** 只重載路線列尾的未完成數（loadSidebar 結尾會叫） */
+  loadRouteOpenCounts: () => Promise<void>;
   openRoute: (routeId: string | null) => Promise<void>;
   reloadRoute: () => Promise<void>;
   /**
@@ -269,7 +275,24 @@ interface NodeStore {
    * ok=false＋一句話 toast，**不**寫 error 欄位——那會在 App 頂端釘一條不會自己消失的紅字橫幅（M3 ④ 評審 must）。
    */
   updateNode: (id: string, patch: NodePatch, opts?: UpdateNodeOpts) => Promise<ActionResult>;
+  /**
+   * 搬到 newParentId 底下、目的地顯示群組（拿掉自己之後）的第 index 格（index ≥ 長度＝尾端）。
+   * 顯示群組＝畫面上的同一份清單（domain/nodeOrder.ts）；路線最上層的 parent 就是路線 id，根層臨時車票傳 null（保留路線標籤）。
+   */
   moveNode: (id: string, newParentId: string | null, index: number, newKind?: NodeKind) => Promise<ActionResult>;
+  /**
+   * 拖曳／多張一起搬（回饋乙）：把 ids 依序放到落點錨 after 與 before 之間（第一張用錨換算格位，其餘接在前一張後面），
+   * 一個寫入批次（一次同步）、成功後重載一次。
+   * parentId 的慣例同 moveNode：路線 id＝路線最上層（列車／支線掛路線；**車票＝掛這條路線標籤的臨時車票**、留在根層）；
+   * null＝根層（幹線；車票＝收件匣，路線標籤清掉）；其他＝那個節點底下。
+   * 種類：opts.kind 有給就全部用它；沒給就每張照 adaptKind 跟著新父節點調（車廂到路線層變列車……），放不下回 ok=false＋理由。
+   */
+  moveToAnchor: (
+    ids: string[],
+    parentId: string | null,
+    anchor: SlotAnchor,
+    opts?: { kind?: NodeKind },
+  ) => Promise<ActionResult>;
   reorder: (id: string, delta: 1 | -1) => Promise<ActionResult>;
   indent: (id: string) => Promise<ActionResult>;
   outdent: (id: string) => Promise<ActionResult>;
@@ -321,6 +344,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   lines: [],
   routes: [],
   stations: [],
+  routeOpenCounts: {},
   routeId: null,
   tree: EMPTY_TREE,
   serials: {},
@@ -338,6 +362,16 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       set({ lines: data.lines, routes: data.routes, stations: data.stations, error: null });
     } catch (e) {
       set({ error: message(e) });
+    }
+    // 路線列尾的未完成數（回饋甲 D-主-130）跟著側欄一起載：refresh 與同步拉回都會走這裡
+    await get().loadRouteOpenCounts();
+  },
+
+  async loadRouteOpenCounts() {
+    try {
+      set({ routeOpenCounts: await nodeRepo.routeOpenCounts() });
+    } catch (e) {
+      console.warn("nodeStore.loadRouteOpenCounts 失敗", e); // 小標而已：留著舊數字，不掛紅字橫幅
     }
   },
 
@@ -541,6 +575,37 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     }
   },
 
+  async moveToAnchor(ids, parentId, anchor, opts) {
+    if (!ids.length) return { ok: true };
+    try {
+      const parent = parentId ? await nodeRepo.getNode(parentId) : null;
+      if (parentId && (!parent || parent.deleted_at)) return { ok: false, reason: "要放進去的地方已經不在了" };
+      const items: MoveManyItem[] = [];
+      for (const id of ids) {
+        const node = await nodeRepo.getNode(id);
+        if (!node || node.deleted_at) return { ok: false, reason: "找不到這個項目" };
+        if (opts?.kind) {
+          items.push({ id, parentId, kind: opts.kind });
+        } else if (node.kind === "ticket" && (!parent || parent.kind === "route")) {
+          // 路線最上層的車票＝掛這條路線標籤的臨時車票；根層的車票＝收件匣（同一筆寫入換標籤）
+          items.push({ id, parentId: null, routeTag: parent ? parent.id : null });
+        } else if (!parent) {
+          if (!allowedChildKinds(null).includes(node.kind)) return { ok: false, reason: "這個項目不能放在那裡" };
+          items.push({ id, parentId: null });
+        } else {
+          const kind = adaptKind(node.kind, parent.kind);
+          if (!kind) return { ok: false, reason: "這個項目不能放在那裡" };
+          items.push({ id, parentId: parent.id, ...(kind !== node.kind ? { kind } : {}) });
+        }
+      }
+      await nodeRepo.moveMany(items, anchor);
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: message(e) };
+    }
+  },
+
   async reorder(id, delta) {
     const { tree, routeId } = get();
     const node = tree.byId[id];
@@ -548,9 +613,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const { siblings, index } = siblingsOf(tree, routeId, id);
     const j = index + delta;
     if (j < 0 || j >= siblings.length) return { ok: false, reason: delta < 0 ? "已經在最上面" : "已經在最下面" };
-    const target = tree.byId[siblings[j]];
-    const newIndex = delta < 0 ? target.position : target.position + 1;
-    return get().moveNode(id, node.parent_id, newIndex);
+    // 顯示清單拿掉自己之後：往上＝鄰居那一格（j），往下＝鄰居的下一格（也是 j）。不再拿鄰居的 position（#119：鄰居可能是另一套編號）
+    return get().moveNode(id, node.parent_id, j);
   },
 
   async indent(id) {
@@ -563,9 +627,9 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     if (!canHaveChildren(prev.kind)) return { ok: false, reason: "車票／車站底下不能再放項目" };
     const newKind = adaptKind(node.kind, prev.kind);
     if (!newKind) return { ok: false, reason: "這個項目不能放在那裡" };
+    // 上一個兄弟的最後一格
     const kids = tree.childrenOf[prev.id] ?? [];
-    const newIndex = kids.length ? Math.max(...kids.map((k) => tree.byId[k].position)) + 1 : 0;
-    return get().moveNode(id, prev.id, newIndex, newKind);
+    return get().moveNode(id, prev.id, kids.length, newKind);
   },
 
   async outdent(id) {
@@ -581,7 +645,10 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const gpKind: NodeKind = gpId && gpId !== routeId && tree.byId[gpId] ? tree.byId[gpId].kind : "route";
     const newKind = adaptKind(node.kind, gpKind);
     if (!newKind) return { ok: false, reason: "這個項目不能移到那一層" };
-    return get().moveNode(id, gpId ?? routeId, parent.position + 1, newKind);
+    // 祖父層、父節點的下一格（祖父層的顯示清單：路線最上層＝roots，否則祖父的子節點）
+    const gpList = gpId && gpId !== routeId && tree.byId[gpId] ? (tree.childrenOf[gpId] ?? []) : tree.roots;
+    const at = gpList.indexOf(parent.id);
+    return get().moveNode(id, gpId ?? routeId, at >= 0 ? at + 1 : gpList.length, newKind);
   },
 
   async setKind(id, kind) {

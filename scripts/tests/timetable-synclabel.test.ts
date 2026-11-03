@@ -260,11 +260,11 @@ describe("小工具", () => {
     assert.equal(mdOfKey("2026-01-05"), "1/5");
     assert.equal(localStamp(T(12, 31, 23, 59)), "12/31 23:59");
   });
-  test("純度：只 import domain/timetable.ts、lib/date.ts 與型別", async () => {
+  test("純度：只 import domain/timetable.ts、lib/date.ts 與型別（⑦：作息的列型別也只准 import type）", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../../src/lines/timetableSyncLabel.ts", import.meta.url), "utf8");
     const froms = Array.from(src.matchAll(/^import\s+(type\s+)?[^;]*?from\s+"([^"]+)"/gm)).map((m) => (m[1] ? "type:" : "") + m[2]);
-    assert.deepEqual(froms.sort(), ["../domain/timetable.ts", "../lib/date.ts", "type:./types.ts"].sort());
+    assert.deepEqual(froms.sort(), ["../domain/timetable.ts", "../lib/date.ts", "type:../domain/timetableRoutine.ts", "type:./types.ts"].sort());
   });
 });
 
@@ -279,7 +279,7 @@ describe("#73 R5：TT_TEXT.syncCols 的 glyph／position 欄名是中文", () =>
     assert.ok(start >= 0, "找不到 syncCols");
     const body = src.slice(start, src.indexOf("} as {", start));
     const out: Record<string, Record<string, string>> = {};
-    for (const t of ["time_blocks", "time_categories", "time_goals"]) {
+    for (const t of ["time_blocks", "time_categories", "time_goals", "time_routines", "time_plans"]) {
       const m = new RegExp(`${t}: \{([^}]*)\}`).exec(body);
       assert.ok(m, `找不到 ${t}`);
       out[t] = Object.fromEntries(Array.from(m[1].matchAll(/(\w+): "([^"]*)"/g)).map((x) => [x[1], x[2]]));
@@ -293,8 +293,10 @@ describe("#73 R5：TT_TEXT.syncCols 的 glyph／position 欄名是中文", () =>
     assert.equal(cols.time_categories.position, "排序");
     assert.equal(cols.time_goals.position, "排序");
   });
-  test("三張表每個欄名都是中文（沒有漏網的英文欄名）", async () => {
+  test("五張表每個欄名都是中文（沒有漏網的英文欄名；⑦ 加 time_blocks.note、time_routines、time_plans）", async () => {
     const cols = await syncColsOf();
+    assert.equal(cols.time_blocks.note, "備註");
+    assert.ok(Object.keys(cols.time_routines).length >= 5 && Object.keys(cols.time_plans).length >= 6, "⑦ 兩張表的欄名都有登記");
     for (const [t, m] of Object.entries(cols)) for (const [k, v] of Object.entries(m)) assert.match(v, CJK, `${t}.${k}`);
   });
   test("接上 categorySyncLabel／goalSyncLabel：cols 帶得出這兩欄，fmt 退回核心（null）", async () => {

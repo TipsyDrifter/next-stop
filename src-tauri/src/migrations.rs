@@ -65,6 +65,10 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     // 同步引擎班（D-主-120／121）；v1.21.0 起為正式號、已進 RELEASED 凍結表。
     mig!(12, "0012_time_overrides", "sync engine: node_time_overrides (per-run time override rows; nodes.time_overrides column retired in place)"),
     mig!(13, "0013_tag_rename", "sync engine: tags.renamed_to (rename destination for post-pull reconcile of revived shells)"),
+    // 回饋乙（D-主-151）；施工期暫定號，進驗收時由主對話發正式號。
+    mig!(14, "0014_node_sort_key", "nodes sort key: nodes.sort_key (fractional index; nodes.position retired in place, backfilled by the app)"),
+    // 時刻表⑦（D-時-156～166）；正式號 0015（主對話 11-01 發）
+    mig!(15, "0015_timetable_plans", "timetable plans: time_blocks.note + time_routines (weekday-auto routine templates) + time_plans (per-day plan rows: materialized routine segments, extra ticket slots)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -172,6 +176,16 @@ mod tests {
             13,
             "0013_tag_rename",
             "3704c6dd05f039a5f684bf62169d63131d9515539de41cf441ac6ff454fa28547d0ce8c293ff166c0f7dc802c0fe520a",
+        ),
+        (
+            14,
+            "0014_node_sort_key",
+            "edc7f7fca25f1ab4afbcaa0d0ef23a697248c7b4e9e5777bdad7cabd6f79f0d86cf4fe5ea8cb2738890b5a1db061b700",
+        ),
+        (
+            15,
+            "0015_timetable_plans",
+            "5b18822b1883dd3bec602098403b96f70f4a2f5cc3df6a925eec9af934a765271e6c734d2ba7b28d876bb9d87e34f714",
         ),
     ];
 

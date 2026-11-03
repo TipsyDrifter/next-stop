@@ -55,7 +55,11 @@ function mdOfStart(iso: string, h: number): string {
   return `${m}/${d}`;
 }
 
-async function openBlock(row: TimeBlockRow): Promise<void> {
+/**
+ * 跳到那天的軸、打開那一塊（荷札頁、⑦ 頁首搜尋 `ui/timetable/quickJump.ts` 共用）。
+ * 運行中那班：荷札頁（預設 `"tags"`）＝桌機開荷札小面板、手機只跳過去；頁首搜尋給 `"edit"`＝兩殼都開「改這一班」（看得到備註）。
+ */
+export async function openBlock(row: TimeBlockRow, running: "tags" | "edit" = "tags"): Promise<void> {
   const shell = shellNow();
   await gotoTimetable(shell);
   const tt = useTimetableStore.getState();
@@ -65,7 +69,9 @@ async function openBlock(row: TimeBlockRow): Promise<void> {
   await tt.setDayKey(todayKey(useUiStore.getState().dayStartHour, new Date(row.started_at)));
   const s = useTimetableStore.getState();
   if (row.ended_at === null) {
-    if (shell === "desktop" && s.running?.id === row.id) s.openSheet({ kind: "tags", blockId: row.id });
+    if (s.running?.id !== row.id) return;
+    if (running === "edit") s.openSheet({ kind: "edit", blockId: row.id });
+    else if (shell === "desktop") s.openSheet({ kind: "tags", blockId: row.id });
     return;
   }
   if (s.dayBlocks.some((b) => b.id === row.id)) s.openSheet({ kind: "edit", blockId: row.id });

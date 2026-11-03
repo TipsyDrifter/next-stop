@@ -1,0 +1,177 @@
+/* ═══════════════════════════════════════════════════════
+ * routines-tab.css——時刻表⑦ B 席：「分類與設定」作息籤（RoutinesTab）＋三份清單的拖曳細節。
+ * 長相照原型 prototypes/時刻表-⑦.html 的提案 ③（.ns-tt-rtmgr-*）；顏色只用 theme token。手機靠 [data-shell="mobile"] 換尺寸。
+ * ═══════════════════════════════════════════════════════ */
+
+/* ── 範本清單 ── */
+.ns-tt-rtmgr { display: flex; flex-direction: column; }
+.ns-tt-rtmgr-chev {
+  flex: none; width: 22px; height: 28px; display: grid; place-items: center; padding: 0;
+  border: 0; background: transparent; color: var(--color-ink-faint); cursor: pointer; border-radius: var(--radius-ctl);
+  transition: color var(--dur-fast) var(--ease-soft);
+}
+.ns-tt-rtmgr-chev:hover, .ns-tt-rtmgr-chev[aria-expanded="true"] { color: var(--color-ink); }
+.ns-tt-rtmgr-chev:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.ns-tt-rtmgr-chev svg { width: 14px; height: 14px; }
+[data-shell="mobile"] .ns-tt-rtmgr-chev { width: 32px; height: 44px; margin-left: -6px; }
+.ns-tt-rtmgr-row .ns-mgr-note { white-space: nowrap; letter-spacing: .08em; }
+[data-shell="mobile"] .ns-tt-rtmgr-row .ns-mgr-note { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+/* 展開著：列與展開區看起來是一塊（分隔線讓給展開區） */
+.ns-mgr-row.is-xopen { border-bottom-color: transparent; }
+.ns-tt-rtmgr-detailli {
+  list-style: none; padding: 2px 0 12px 22px;
+  border-bottom: 1px dashed var(--color-line);
+  animation: ns-tt-rtmgr-in var(--dur) var(--ease);
+}
+.ns-tt-rtmgr-detailli:last-child { border-bottom: 0; }
+[data-shell="mobile"] .ns-tt-rtmgr-detailli { padding-left: 0; }
+@keyframes ns-tt-rtmgr-in { from { opacity: 0; transform: translateY(-4px); } }
+.ns-tt-rtmgr-detail { display: flex; flex-direction: column; gap: 10px; }
+.ns-tt-rtmgr .ns-mgr-row.is-flash { animation: ns-tt-flash 1.3s ease both; }
+.ns-tt-rtmgr-new { margin-top: 10px; }
+.ns-tt-rtmgr-add { margin-top: 10px; }
+
+/* ── 展開區：左欄小標、右欄控件（手機標籤疊在欄位上） ── */
+.ns-tt-rtmgr-f { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); align-items: start; gap: 8px; }
+.ns-tt-rtmgr-k { font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-ink-faint); padding-top: 7px; }
+.ns-tt-rtmgr-v { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+[data-shell="mobile"] .ns-tt-rtmgr-f { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+[data-shell="mobile"] .ns-tt-rtmgr-k { padding-top: 2px; }
+
+/* 哪幾天：七顆＋每天／平日／週末；被前面那套佔掉＝淡化斜紋 */
+.ns-tt-rtmgr-days { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ns-tt-rtmgr-day {
+  width: 30px; height: 30px; display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font-family: var(--font-display); font-weight: 700; font-size: 12.5px; color: var(--color-ink-faint); cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.ns-tt-rtmgr-day:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-tt-rtmgr-day:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.ns-tt-rtmgr-day.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--sel-fg); }
+.ns-tt-rtmgr-day.is-taken {
+  border-style: dashed; color: var(--color-ink-faint);
+  background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--accent) 16%, transparent) 3px 4px);
+}
+[data-shell="mobile"] .ns-tt-rtmgr-day { width: 40px; height: 40px; font-size: 14px; }
+.ns-tt-rtmgr-quick { display: inline-flex; gap: 2px; margin-left: 6px; }
+.ns-tt-rtmgr-quick .ns-btn.is-on { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+[data-shell="mobile"] .ns-tt-rtmgr-quick { margin-left: 0; flex: 0 0 100%; gap: 8px; }
+.ns-tt-rtmgr-taken { font-size: var(--fs-xs); letter-spacing: .06em; line-height: 1.5; color: var(--color-ink-faint); margin: 0; }
+.ns-tt-rtmgr-none { padding-top: 7px; }
+
+/* 時段：段列＝分類｜名字｜起–訖｜長度｜× */
+.ns-tt-rtmgr-segs { list-style: none; margin: 0; padding: 0; }
+.ns-tt-rtmgr-seg { display: flex; align-items: center; gap: 6px; min-height: 38px; border-bottom: 1px dashed var(--color-line); }
+
+/* 分類：原生 select 疊在「圓牌＋名字＋▾」上（鍵盤、手機的系統選單都是它的；只列子分類） */
+.ns-tt-rtmgr-cat {
+  position: relative; flex: none; width: 104px; box-sizing: border-box;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 4px 0 2px;
+  border-bottom: 1px solid transparent; color: var(--color-ink); font-size: var(--fs-ui); letter-spacing: .06em;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-tt-rtmgr-cat:hover { border-bottom-color: var(--accent); }
+.ns-tt-rtmgr-cat:focus-within { border-bottom-color: var(--accent); background: var(--sel-bg); }
+.ns-tt-rtmgr-cat .ns-tt-badge { flex: none; }
+.ns-tt-rtmgr-catname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-rtmgr-cat .car {
+  flex: none; margin-left: auto; width: 5px; height: 5px; margin-top: -3px;
+  border-right: 1.3px solid var(--color-ink-faint); border-bottom: 1.3px solid var(--color-ink-faint); transform: rotate(45deg);
+}
+.ns-tt-rtmgr-cat select {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
+  opacity: 0; cursor: pointer; font: inherit; border: 0;
+}
+.ns-tt-rtmgr-cat select option { background: var(--color-paper-high); color: var(--color-ink); }
+[data-shell="mobile"] .ns-tt-rtmgr-cat { width: 108px; min-height: 44px; }
+
+/* 名字（選填；placeholder＝分類名） */
+.techo-input.ns-tt-rtmgr-name {
+  flex: 1 1 4em; min-width: 3em; height: 28px; padding: 0 2px;
+  font-size: var(--fs-ui); letter-spacing: .04em;
+  border-bottom-color: transparent;
+}
+.techo-input.ns-tt-rtmgr-name:hover { border-bottom-color: var(--color-line); }
+.techo-input.ns-tt-rtmgr-name:focus { border-bottom-color: var(--accent); }
+.techo-input.ns-tt-rtmgr-name::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] .techo-input.ns-tt-rtmgr-name { height: 44px; }
+
+/* 起–訖：共用 ClockInput compact（拿掉微調鈕），在這裡收成小框；說明行只在打錯時浮在框下（不撐高列） */
+.ns-tt-rtmgr-time { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.ns-tt-rtmgr-t { position: relative; display: inline-flex; }
+.ns-tt-rtmgr-t .ns-clock { gap: 0; }
+.ns-tt-rtmgr-t .ns-clock-inwrap { margin: 0; }
+.ns-tt-rtmgr-t .techo-input.ns-clock-in {
+  width: 54px; min-height: 28px; height: 28px; padding: 0 2px;
+  font-weight: 500; font-size: 14.5px; line-height: 26px;
+  border-bottom-style: dashed;
+}
+.ns-tt-rtmgr-t .techo-input.ns-clock-in:focus { border-bottom-style: solid; }
+.ns-tt-rtmgr-t .ns-clock-foot {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); z-index: 2;
+  min-height: 0; padding: 1px 6px; font-size: var(--fs-micro); line-height: 16px;
+  background: var(--color-paper-high); border-radius: var(--radius-ctl); pointer-events: none;
+}
+.ns-tt-rtmgr-t .ns-clock-foot:not(.is-err) { display: none; }
+/* 過了午夜（≥24:00）：框的左上角一個淡字「隔天」（不佔列寬） */
+.ns-tt-rtmgr-next {
+  position: absolute; left: 2px; top: -7px; z-index: 1; pointer-events: none;
+  font-size: 9.5px; line-height: 1; letter-spacing: .08em; color: var(--color-ink-faint);
+}
+[data-shell="mobile"] .ns-tt-rtmgr-next { top: -5px; font-size: 10.5px; }
+/* 跟前一段重疊：開始時刻轉赭 */
+.ns-tt-rtmgr-t.is-bad .techo-input.ns-clock-in { color: var(--color-late); border-bottom-color: var(--color-late); }
+[data-shell="mobile"] .ns-tt-rtmgr-t .techo-input.ns-clock-in { width: 62px; height: 40px; min-height: 40px; font-size: 16px; line-height: 38px; }
+.ns-tt-rtmgr-dash { color: var(--color-ink-faint); font-size: 12px; padding: 0 1px; }
+.ns-tt-rtmgr-len { flex: none; min-width: 3.4em; font-size: var(--fs-micro); color: var(--color-ink-faint); text-align: right; white-space: nowrap; }
+.ns-tt-rtmgr-x { flex: none; }
+.ns-tt-rtmgr-seg:hover .ns-iconbtn.is-dim, .ns-tt-rtmgr-seg:focus-within .ns-iconbtn.is-dim { opacity: 1; }
+[data-shell="mobile"] .ns-tt-rtmgr-seg .ns-iconbtn.is-dim { opacity: 1; }
+
+/* 手機：一段兩行——分類＋名字＋×／起–訖＋長度（各 44） */
+[data-shell="mobile"] .ns-tt-rtmgr-seg { flex-wrap: wrap; gap: 0 4px; min-height: 0; padding: 2px 0 6px; }
+[data-shell="mobile"] .ns-tt-rtmgr-x { order: 2; margin-right: -10px; }
+[data-shell="mobile"] .ns-tt-rtmgr-time { order: 3; flex: 0 0 100%; gap: 4px; padding-left: 26px; }
+[data-shell="mobile"] .ns-tt-rtmgr-len { min-width: 0; margin-left: 8px; text-align: left; font-size: var(--fs-xs); }
+/* 重疊的原因（反方評審 #10）：桌機靠赭色＋title，手機寫出來 */
+.ns-tt-rtmgr-olap { display: none; }
+[data-shell="mobile"] .ns-tt-rtmgr-olap { display: inline; margin-left: 8px; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-late); }
+
+.ns-tt-rtmgr-foot { display: flex; flex-wrap: wrap; gap: 0 14px; padding-top: 2px; }
+.ns-tt-rtmgr-foot .ns-btn { padding-left: 0; padding-right: 0; }
+
+/* 從某天的記錄帶入：展開成一行 */
+.ns-tt-rtmgr-import {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 2px; padding: 8px 10px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-card); font-size: var(--fs-ui);
+  animation: ns-tt-rtmgr-in var(--dur) var(--ease);
+}
+.ns-tt-rtmgr-import-n { color: var(--color-ink-soft); }
+.ns-tt-rtmgr-import-acts { margin-left: auto; display: inline-flex; gap: 8px; }
+.ns-tt-rtmgr-import small { flex: 0 0 100%; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .06em; }
+
+/* ── 拖曳（三份清單共用的細節） ──
+ * 名字下那一行（荷札、目標的期間）、作息的展開區是緊接的另一個 <li>：拖起那一列時跟著退到淡態 */
+.ns-mgr-row.dr-source + .ns-tt-mgr-subli,
+.ns-mgr-row.dr-carried + .ns-tt-mgr-subli,
+.ns-mgr-row.dr-source + .ns-tt-rtmgr-detailli { opacity: .38; transition: opacity var(--dur-fast) var(--ease-soft); }
+/* 拖得起來的地方：列上不是按鈕／輸入框的部分。名字輸入框原本 flex:1 佔滿整列（只剩色票 22px 抓得到，組頭連色票都沒有）⇒
+ * 能拖的列裡，名字框改成照字寬（field-sizing；不支援的引擎退回預設寬），右邊空出來的一段就是抓手；margin-inline-end:auto 讓後面的
+ * 色票／淡字／↑↓⋯ 照舊靠右。游標：列＝抓手、名字框＝文字、按鈕照舊 */
+.ns-mgr-row[data-drag-id] { cursor: grab; }
+.ns-mgr-row[data-drag-id] .techo-input.ns-mgr-name {
+  flex: 0 1 auto; field-sizing: content; min-width: 4em; max-width: 100%;
+  margin-inline-end: auto; cursor: text;
+}
+/* 滑鼠拖曳時別順手選起一片字（按下到浮起前的 4px、以及拖過的列）：這幾份清單的字本來就不用選；輸入框照常能選字 */
+.ns-tt-mgr-cats, .ns-tt-rtmgr-listwrap, .ns-tt-mgr-goallist { -webkit-user-select: none; user-select: none; }
+.ns-tt-mgr-cats input, .ns-tt-rtmgr-listwrap input, .ns-tt-mgr-cats select, .ns-tt-rtmgr-listwrap select { -webkit-user-select: text; user-select: text; }
+/* 影子卡：管理列本身沒有底色，浮起來只剩字和一圈影子——墊紙色，看起來才是「拿起來的那一列」 */
+.dr-ghost.ns-mgr-row { background: var(--color-paper-high); border-radius: var(--radius-card); border-bottom-color: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-rtmgr-detailli, .ns-tt-rtmgr-import { animation: none; }
+  .ns-tt-rtmgr .ns-mgr-row.is-flash { animation: none; }
+  .ns-tt-rtmgr-day, .ns-tt-rtmgr-cat { transition: none; }
+}

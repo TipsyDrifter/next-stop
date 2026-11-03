@@ -32,7 +32,7 @@ import { lineById } from "../../lines/index.ts";
 import { TAB_ICONS, type IconShapes } from "../common/icons-data.ts";
 
 /** "more" 不在 tab bar 上（MORE_PAGE），但仍是合法的頁 key */
-export type MobileTabKey = "today" | "routemap" | "notes" | "timetable" | "ticket" | "more";
+export type MobileTabKey = "today" | "routemap" | "notes" | "timetable" | "ticket" | "more" | "report";
 
 export type MobileTabStatus = "open" | "planned";
 
@@ -76,6 +76,12 @@ export const MOBILE_TABS: readonly MobileTab[] = [
 /** 「更多」頁：不在 tab bar 上（頂帶右上 ⋯ 進），頂帶的頁名與拉丁字仍讀這一筆（0-28） */
 export const MORE_PAGE: MobileTab = { key: "more", label: "更多", latin: "MORE", status: "open", icon: ICON_MORE };
 
+/**
+ * 「運行報告」頁（② 運行報告 D-主-183）：同「更多」，不在 tab bar 上——入口＝更多頁最上面「回顧」段、今日頁的今日小結；
+ * 頂帶左邊「‹」回進來前那一格（MobileTopBand）。頂帶的頁名與拉丁字讀這一筆。圖示沿用「更多」那組（頁不在 tab bar 上，不畫圖示）。
+ */
+export const REPORT_PAGE: MobileTab = { key: "report", label: "運行報告", latin: "OPERATION REPORT", status: "open", icon: ICON_MORE };
+
 /** 未通車格點了顯示的那一行（與桌機 gnav 第二欄 tooltip 同一句；決策 :197 語感一致） */
 export const COMING_SOON_TEXT = "次期開業予定";
 
@@ -84,7 +90,9 @@ export const DEFAULT_MOBILE_TAB: MobileTabKey = "today";
 
 export function mobileTabByKey(key: MobileTabKey): MobileTab {
   // registry 五筆＋MORE_PAGE 是 const、key 是封閉聯集，找不到只會是程式錯誤——用 ! 不做 fallback，錯就要看得見
-  return key === MORE_PAGE.key ? MORE_PAGE : MOBILE_TABS.find((t) => t.key === key)!;
+  if (key === MORE_PAGE.key) return MORE_PAGE;
+  if (key === REPORT_PAGE.key) return REPORT_PAGE;
+  return MOBILE_TABS.find((t) => t.key === key)!;
 }
 
 /**

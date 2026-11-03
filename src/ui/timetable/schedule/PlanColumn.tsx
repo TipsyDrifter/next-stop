@@ -9,11 +9,14 @@
  *
  * 位置＝timeGridModel 的牆鐘分鐘換成窗內百分比；lane 照 `lane／lanes` 並排（D-時-87：不因卡的最小高另算重疊）。
  * 卡高＝預計（沒預計＝45 分虛線「長度未定」），最小高 CSS 給（桌機 22px、手機單行 22px≈30 分）。
+ * ⑦（C 席）：卡＝store 的 `blocks`（第一段＋車票第二段起，同一套 lane）；第二段起的卡長相同第一段、時刻後一顆中性小牌「第 N 段」
+ * （照時間先後含第一段一起數，只有一段不印；`segNumberOf`），拖、點選再點位置走 `page.place`（store 分到 moveSlot）。
+ * 有作息帶時 lanes 往右讓出 --rt-w（schedule7.css）。
  */
 import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import type { TimeGridBlock } from "../../schedule/timeGridModel";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
-import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
+import { SEG_TEXT, useTimetableScheduleStore, type SchedBlock } from "../../../store/timetableScheduleStore";
+import { segNumberOf } from "./routineModel";
 import { clockText, nextDayNote } from "../../../lib/date";
 import { fmtDur, MIN } from "../../../domain/timetable";
 import { SCHED_UI, deltaFull, deltaLines, deltaShort, minFrac, pct, toneOf } from "./scheduleModel";
@@ -43,14 +46,15 @@ const SHORT_PX = { rail: 38, inline: 30 } as const;
 const RAIL_LINE = 15;
 
 export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowClick, minAtY }: PlanColumnProps) {
-  const { grid, items, nodes, cmp, dayStartHour, isPast, canEdit, activeKey, openKey, sel, picked, shell } = page;
+  const { items, slots, nodes, cmp, dayStartHour, isPast, canEdit, activeKey, openKey, sel, picked, shell, slotsByNode } = page;
   const setHover = useTimetableScheduleStore((s) => s.setHover);
   const running = useTimetableStore((s) => s.running);
-  const blocks = grid?.blocks ?? [];
+  // ⑦：第一段＋第二段起（同一套 lane；store 排好）
+  const blocks = page.blocks;
   const dayPx = 24 * hourPx;
   const desk = shell === "desktop";
 
-  const onCardClick = (b: TimeGridBlock, e: ReactMouseEvent): void => {
+  const onCardClick = (b: SchedBlock, e: ReactMouseEvent): void => {
     e.stopPropagation();
     if (swallowClick()) return;
     if (picked) {
@@ -63,27 +67,37 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
   };
 
   const cards = blocks.map((b) => {
-    const it = items[b.key];
+    const slot = b.slotId !== null ? slots[b.key] : undefined;
+    const it = slot ?? items[b.key];
     if (!it) return null;
     const c = cmp.cmp.get(b.key);
     const name = nodes[it.nodeId]?.name ?? "？";
+    // ⑦：「第 N 段」（照時間先後含第一段一起數；只有一段不印）
+    const segNo = it.kind === "single" ? segNumberOf(nodes[it.nodeId], it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main") : null;
+    const segTag = segNo && segNo.total > 1 ? SEG_TEXT.tag(segNo.n) : null;
     const hpx = ((b.endMin - b.startMin) / 60) * hourPx;
     const short = hpx < SHORT_PX[layout];
     const tone = c ? toneOf(c) : "future";
     const t = it.time ?? "";
     const next = nextDayNote(t);
     const movable = canEdit && !it.skipped;
-    const isLive = c?.state === "running" || (running?.node_id === it.nodeId && page.isToday);
+    // ⑦：同一張票有好幾段時，運行中只亮對到的那一段（不是整張票的每一段都亮）
+    const isLive = c?.state === "running" || (!segTag && running?.node_id === it.nodeId && page.isToday);
     const tag = it.skipped ? (
       <em className="ns-tt-sched-tag is-cancel">{TT_TEXT.schedSkipped}</em>
     ) : it.overridden ? (
       <em className="ns-tt-sched-tag">{TT_TEXT.schedRun}</em>
+    ) : segTag ? (
+      <em className="ns-tt-sched-tag is-seg">{segTag}</em>
     ) : null;
     const inlineDelta = layout === "inline" && c && !it.skipped ? deltaShort(it, c, isPast, TT_TEXT.schedSkipped) : null;
     const full = c ? deltaFull(it, c, isPast, TT_TEXT.schedSkipped) : null;
     const title =
-      `${TT_TEXT.schedDepart(t)}${next ? `（${next}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate}　${name}` +
+      (slot
+        ? `${t}–${slot.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${name}`
+        : `${TT_TEXT.schedDepart(t)}${next ? `（${next}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate}　${name}`) +
       (it.overridden ? `　${TT_TEXT.schedRun}` : "") +
+      (segTag ? `　${segTag}` : "") +
       (full ? `　${full}` : "");
     const cls =
       "ns-tt-sched-card" +
@@ -197,7 +211,7 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
         {[...blocks]
           .sort((a, b) => a.startMin - b.startMin || a.lane - b.lane)
           .map((b) => {
-            const it = items[b.key];
+            const it = (b.slotId !== null ? slots[b.key] : undefined) ?? items[b.key];
             const c = cmp.cmp.get(b.key);
             if (!it || !c) return null;
             const lines = deltaLines(it, c, isPast, TT_TEXT.schedSkipped);
@@ -230,7 +244,7 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
 /** 拖曳中的落點卡（虛線金框）：高＝預計（沒預計 45 分），落點分鐘照吸附 */
 function Ghost({ page, drag, hourPx }: { page: SchedulePage; drag: DragView | null; hourPx: number }) {
   if (!drag || drag.min === null) return null;
-  const it = page.items[drag.key];
+  const it = page.items[drag.key] ?? page.slots[drag.key];
   if (!it) return null;
   const len = it.estimateMin ?? 45;
   const hpx = (len / 60) * hourPx;

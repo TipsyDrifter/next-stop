@@ -1,0 +1,133 @@
+/* ═══════════════════════════════════════════════════════
+ * mobile-select.css——手機多選、拖曳、選取列的長相（回饋乙 D-主-152／153；原型 prototypes/回饋乙-拖曳多選右鍵.html 第 6、7 段）。
+ * 由 mobileSelect.tsx import；行為在 mobileSelect.tsx、MobileSelectionBar.tsx、各頁。拖曳本身的影子卡、落點線在共用的 drag-reorder.css。
+ * 紀律同 mobile-polish.css：每條選擇器以 `[data-shell="mobile"]` 開頭（桌機殼永遠不命中）、只吃 theme token。
+ * ═══════════════════════════════════════════════════════ */
+
+/* ───── 勾選圈（多選中卡片左側；選中＝實心作用中色＋勾，彈一下） ───── */
+[data-shell="mobile"] .m-sel-check { display: grid; place-items: center; }
+[data-shell="mobile"] .m-sel-check i {
+  width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%;
+  border: 1.5px solid var(--color-dash);
+  display: grid; place-items: center; color: var(--color-paper);
+  animation: m-sel-in var(--dur) var(--ease-spring);
+  transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m-sel-check svg { opacity: 0; transform: scale(.6); transition: opacity var(--dur-fast), transform var(--dur) var(--ease-spring); }
+[data-shell="mobile"] .m-sel-check.is-on i { background: var(--accent); border-color: var(--accent); }
+[data-shell="mobile"] .m-sel-check.is-on svg { opacity: 1; transform: none; }
+@keyframes m-sel-in { from { transform: scale(.4); opacity: 0; } }
+
+/* ───── 票卡（今日、行程表）：多選中左邊多一欄勾選圈、⋯ 收起、検印不吃點（點哪都是勾選） ───── */
+[data-shell="mobile"] .m-tk.is-selecting { grid-template-columns: 38px 28px minmax(0, 1fr) 48px; cursor: pointer; }
+[data-shell="mobile"] .m-tk.is-selecting .m-tk-more { display: none; }
+[data-shell="mobile"] .m-tk.is-selecting .m-tk-stamp { pointer-events: none; }
+[data-shell="mobile"] .m-tk.is-picked {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), var(--shadow-card);
+  background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-high);
+}
+[data-shell="mobile"] .m-tk.is-picked.is-done { background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-used); }
+[data-shell="mobile"] .m-tk-li:focus-visible { outline: none; }
+[data-shell="mobile"] .m-tk-li:focus-visible .m-tk { outline: var(--focus-ring); outline-offset: 1px; }
+
+/* 能滑的清單先是定位容器：共用元件量滑開底層的位置（offsetTop）時，清單若還是 static，量到的是對頁面的位移、
+   之後才把清單改成 relative——底層就畫到別處去了（實測：今日卡滑開看不到「蓋済」底）。先給 relative 就量得對 */
+[data-shell="mobile"] .m-tk-list.dr-swipeable { position: relative; }
+
+/* ───── 路線圖第二層：多選中列首一欄勾選圈、⋯ 收起；選中＝選中底 ───── */
+[data-shell="mobile"] .m2-row.is-selecting { position: relative; }
+[data-shell="mobile"] .m2-row .m-sel-check { position: absolute; left: 0; top: 0; bottom: 0; width: 32px; }
+[data-shell="mobile"] .m2-row.is-selecting .m2-more { display: none; }
+[data-shell="mobile"] .m2-row.is-selecting .m2-stamp { pointer-events: none; }
+[data-shell="mobile"] .m2-row.is-picked { background: var(--sel-bg); box-shadow: inset 2px 0 0 var(--accent); }
+
+/* 列本體改成 div role=button 之後（button 上按下不會起拖）：鍵盤焦點與按下底色照舊 */
+[data-shell="mobile"] div.m2-row-body,
+[data-shell="mobile"] div.m2-route { -webkit-tap-highlight-color: transparent; }
+
+/* ───── 路線清單第一層：幹線抬頭可以按住拖（整塊一起走） ───── */
+[data-shell="mobile"] .m2-trunk-row[data-drag-id] { -webkit-tap-highlight-color: transparent; }
+
+/* ───── 車站清單：左側抓手（點＝上移／下移、按住＝拖） ───── */
+[data-shell="mobile"] .m-rt-st.has-grip { grid-template-columns: 28px minmax(0, 1fr) 44px 44px; }
+[data-shell="mobile"] .m-rt-st.has-grip .m-rt-st-meta { padding-left: 30px; }
+[data-shell="mobile"] .m-rt-st-grip {
+  width: 28px; min-height: 44px; display: grid; place-items: center;
+  color: var(--color-ink-faint); cursor: grab; border-radius: var(--radius-ctl);
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m-rt-st-grip:active { background: var(--hover-bg); color: var(--color-ink-soft); }
+[data-shell="mobile"] .m-rt-st-grip:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+
+/* ───── 選取列：tab bar 之上的一段（同完成卡的落點做法：flex:none 擠 .m-page，不用 fixed） ───── */
+[data-shell="mobile"] .m-selbar-dock {
+  flex: none;
+  position: relative; z-index: 3;
+  margin-top: -6px;
+  padding: 0 calc(var(--m-gutter) - 6px) 8px;
+}
+[data-shell="mobile"] .m-selbar {
+  display: flex; align-items: center; gap: 0;
+  min-height: 56px; box-sizing: border-box;
+  padding: 4px 4px 4px 14px;
+  animation: m-selbar-in var(--dur-slow) var(--ease);
+}
+@keyframes m-selbar-in { from { opacity: 0; transform: translateY(14px); } }
+[data-shell="mobile"] .m-selbar-cnt { flex: 1; min-width: 0; font-size: var(--fs-ui); letter-spacing: .08em; white-space: nowrap; }
+[data-shell="mobile"] .m-selbar-cnt b { font-family: var(--font-latin); font-size: 17px; font-weight: 600; color: var(--sel-fg); margin: 0 3px; }
+[data-shell="mobile"] .m-selbar-ib {
+  flex: none; width: 46px; height: 48px; padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border: 0; border-radius: var(--radius-ctl); background: transparent;
+  color: var(--color-ink-soft); font: 400 10px/1 var(--font-body); letter-spacing: .1em; text-indent: .1em;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .m-selbar-ib:active { background: var(--hover-bg); color: var(--color-ink); }
+[data-shell="mobile"] .m-selbar-ib:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+[data-shell="mobile"] .m-selbar-ib.is-off { opacity: var(--disabled); }
+[data-shell="mobile"] .m-selbar-seal {
+  width: 17px; height: 17px; box-sizing: border-box; border-radius: 50%; border: 1.3px solid currentColor;
+  display: grid; place-items: center; font: 700 9.5px/1 var(--font-display); letter-spacing: 0; text-indent: 0;
+}
+[data-shell="mobile"] .m-selbar-x {
+  flex: none; height: 44px; padding: 0 10px 0 8px; margin-left: 2px;
+  border: 0; border-left: 1px dashed var(--color-dash); border-radius: 0; background: transparent;
+  color: var(--accent); font: 400 var(--fs-ui)/1 var(--font-body); letter-spacing: .12em; cursor: pointer;
+}
+[data-shell="mobile"] .m-selbar-x:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+
+/* 選取列開著：今日的建票列收起（打到一半的字不丟——display 而已）；底部 toast 與「記一句」浮鈕抬到選取列之上 */
+[data-shell="mobile"]:has(> .m-selbar-dock) {
+  --m-selbar-h: 70px;
+  --m-newticket-h: var(--m-selbar-h);
+  --m-page-dock-h: var(--m-selbar-h);
+}
+[data-shell="mobile"]:has(> .m-selbar-dock) > .m-newticket { display: none; }
+[data-shell="mobile"]:has(> .m-selbar-dock) .ns-toast.techo-card.fixed {
+  bottom: calc(var(--m-tabbar-h) + var(--m-safe-bottom) + var(--m-selbar-h) + var(--m-kb, 0px) + 6px);
+}
+
+/* 荷札面板 */
+[data-shell="mobile"] .m-seltag-row { display: flex; gap: 8px; align-items: center; }
+[data-shell="mobile"] .m-seltag-row input { flex: 1; min-width: 0; box-sizing: border-box; }
+[data-shell="mobile"] .m-seltag-h { margin: 14px 0 6px; font-size: var(--fs-xs); letter-spacing: .16em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .m-seltag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+[data-shell="mobile"] .m-seltag-chip {
+  min-height: 36px; padding: 0 12px; box-sizing: border-box;
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--color-line); border-radius: 18px; background: transparent;
+  font: 400 var(--fs-ui)/1 var(--font-body); color: var(--color-ink); cursor: pointer;
+}
+[data-shell="mobile"] .m-seltag-chip:active { background: var(--hover-bg); }
+[data-shell="mobile"] .m-seltag-chip.is-rm { border-style: dashed; color: var(--color-ink-soft); }
+[data-shell="mobile"] .m-seltag-empty { margin: 0; font-size: var(--fs-sm); color: var(--color-ink-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-shell="mobile"] .m-sel-check i,
+  [data-shell="mobile"] .m-selbar { animation: none; }
+}
+
+/* 多選中收起「記一句」浮鈕：選取列會把它往上頂、蓋到卡片的済章位置（AVD O-4）；多選時用不到它，退出多選就回來 */
+[data-shell="mobile"]:has(.m-selbar-dock) .ns-notes-fab { visibility: hidden; pointer-events: none; }

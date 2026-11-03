@@ -33,7 +33,11 @@ import { useUiStore } from "../../store/uiStore";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { addDays, todayKey } from "../../lib/date";
 import type { CommitVia } from "../common/InlineInput";
+import type { QuickExtra } from "../common/quickadd/useQuickAdd";
 import type { OutlineKeyActions } from "./useOutlineKeyboard";
+import { useSelectionStore } from "../../store/selectionStore";
+import { clearIfAny, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
+import { armOpenOnClick } from "../common/selection/openOnClick";
 
 export type VisibleRow = { type: "node"; id: string; depth: number } | { type: "draft"; depth: number };
 
@@ -56,9 +60,10 @@ export interface RenameEdit {
 export type EditState = DraftEdit | RenameEdit;
 
 export interface EditHandlers {
-  commit(text: string, via: CommitVia): void;
+  /** extra：草稿列換成建票列（回饋甲）後 chips／語法設好的欄位，一起帶進 createNode；改名不帶 */
+  commit(text: string, via: CommitVia, extra?: QuickExtra): void;
   cancel(): void;
-  tab(text: string, shift: boolean): void;
+  tab(text: string, shift: boolean, extra?: QuickExtra): void;
 }
 
 export interface NodeCounts {
@@ -74,6 +79,14 @@ export interface RowActions {
   rename(id: string): void;
   openPanel(id: string): void;
   setDate(id: string, field: "scheduled_on" | "due_on", value: string | null): void;
+  /**
+   * 列的 mousedown 先問多選（Ctrl／⌘／Shift＋點；回饋乙）：回 true＝是多選的點，不要再單選。
+   * 回 false（純單擊票面、不是控件）時順手登記「放開就開詳情側板」（回饋甲 D-主-132；拖曳不開）
+   */
+  pick(
+    id: string,
+    e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: EventTarget | null; clientX?: number; clientY?: number; button?: number },
+  ): boolean;
   /** 定期券的執行日 chip 是唯讀的：點了只吐一句話（D-④-3） */
   noteRepeatDate(): void;
   focusContainer(): void;
@@ -213,9 +226,17 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   // 換路線：收掉草稿、退出 zoom（側欄／跳轉也會重設，這裡是保險）；沒人持有焦點時把焦點給大綱，鍵盤流立刻可用
   useEffect(() => {
     setEdit(null);
+    // 多選不跨路線（回饋乙）
+    if (useSelectionStore.getState().scope === "outline") useSelectionStore.getState().clear();
     useUiStore.getState().setZoom(null);
     if (routeId && document.activeElement === document.body) containerRef.current?.focus();
   }, [routeId, setEdit, containerRef]);
+
+  // 清單換了（完成被收起、刪掉、摺起來、同步拉走）：多選只留畫面上還看得到的（回饋乙）
+  const visibleKey = rows.map((r) => (r.type === "node" ? r.id : "")).join("|");
+  useEffect(() => {
+    useSelectionStore.getState().prune("outline", visibleKey.split("|").filter(Boolean));
+  }, [visibleKey]);
 
   /* ───────── 小工具 ───────── */
   const ui = () => useUiStore.getState();
@@ -376,7 +397,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       const prev = prevId ? t.byId[prevId] : undefined;
       if (!prev) return toast("上面沒有可以放進去的項目");
       if (!canHaveChildren(prev.kind)) return toast("車票／車站底下不能再放項目");
-      if (ui().hideDone && prev.status === "done") return toast("上一層已完成、收起來了——請先點清單底的「済 N 張・顯示」展開");
+      if (ui().hideDone && prev.status === "done") return toast("上一層已完成、收起來了——請先點「列車」標題旁的「済・顯示」");
       const kind = adaptKind(d.kind, prev.kind);
       if (!kind) return toast("這個項目不能放在那裡");
       ui().setCollapsed(prev.id, false);
@@ -395,17 +416,18 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     }
   };
 
-  const createFromDraft = async (d: DraftEdit, name: string): Promise<NodeRow | null> => {
-    const row = await ns().createNode({ kind: d.kind, name, parentId: d.parentId, afterId: d.afterId ?? undefined });
+  const createFromDraft = async (d: DraftEdit, name: string, extra?: QuickExtra): Promise<NodeRow | null> => {
+    const row = await ns().createNode({ ...extra?.input, kind: d.kind, name, parentId: d.parentId, afterId: d.afterId ?? undefined });
     if (!row) {
       setEdit(null);
       toast("新增失敗——請再試一次");
       return null;
     }
+    await extra?.afterCreate(row); // 建票列的荷札：建好之後掛
     return row;
   };
 
-  const draftCommit = async (d: DraftEdit, text: string, via: CommitVia) => {
+  const draftCommit = async (d: DraftEdit, text: string, via: CommitVia, extra?: QuickExtra) => {
     if (editRef.current !== d || busyRef.current) return;
     const name = text.trim();
     if (!name) {
@@ -414,7 +436,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     }
     busyRef.current = true;
     try {
-      const row = await createFromDraft(d, name);
+      const row = await createFromDraft(d, name, extra);
       if (!row) return;
       if (via === "enter") {
         ui().select(row.id);
@@ -427,7 +449,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     }
   };
 
-  const draftTab = async (d: DraftEdit, text: string, shift: boolean) => {
+  const draftTab = async (d: DraftEdit, text: string, shift: boolean, extra?: QuickExtra) => {
     if (editRef.current !== d || busyRef.current) return;
     const name = text.trim();
     if (!name) {
@@ -436,7 +458,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     }
     busyRef.current = true;
     try {
-      const row = await createFromDraft(d, name);
+      const row = await createFromDraft(d, name, extra);
       if (!row) return;
       ui().select(row.id);
       await (shift ? outdentNode(row.id) : indentNode(row.id));
@@ -584,8 +606,16 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       });
     },
     escape() {
+      if (clearIfAny("outline")) return; // 回饋乙：Esc 先清多選
       if (st.current.zoom) zoomOut();
       else ui().setPanelOpen(false);
+    },
+    selectAll() {
+      selectAll("outline", visibleIds());
+    },
+    extendSelection(delta) {
+      const next = extendBy("outline", delta, visibleIds(), ui().selectedId);
+      if (next) ui().select(next);
     },
     switchRoute(dir) {
       const { routes: rs, routeId: cur } = ns(); // 讀 store 即時值——連按兩下也不會算到舊路線
@@ -627,6 +657,14 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     },
     noteRepeatDate: () => toast(REPEAT_RESCHEDULE_MSG),
     focusContainer,
+    pick: (id, e) => {
+      if (pickClick("outline", id, visibleIds(), e, ui().selectedId)) return true;
+      // 回饋甲 D-主-132：單擊票面＝選中＋開詳情側板（選中由列接著呼叫 select；放開時還是它才開）
+      armOpenOnClick(e, () => {
+        if (ui().selectedId === id) ui().setPanelOpen(true);
+      });
+      return false;
+    },
   };
 
   /* ───────── 列的 ⋯ 選單（10-20 磨光②；outline.add.*／indent／outdent／reorder／rename／panel／delete 的滑鼠入口） ───────── */
@@ -668,22 +706,60 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       danger,
       onSelect: run(fn),
     });
-    // 分組（虛線隔開）：新增｜層級｜排序｜這一列本身（改名・移動到…）｜刪除（赭、最後；視覺規範 §2.4）。
+    // 分組（虛線隔開）：新增｜這一列本身（改名…）｜編排 ▾（移動到…、降層｜升層、上移｜下移）｜刪除（赭、最後；視覺規範 §2.4）。
     // UI 丙-3 B3（E14／E15）補「改名」「刪除」＝F2／Delete 的滑鼠入口（雙擊標題是加速，不算可點的入口）。
-    // 「詳情」不進 ⋯：票種小字就是它常駐、看得見的入口（規範 §3.1 #5 同頁一個動作一個入口；也省一項）。
-    // 目前最多 9 項，仍超過 §2.4「≤7」——每一項都是唯一的滑鼠入口（大綱沒有拖曳），砍不下去；
-    // 收成 7 項的路是 PopMenu 支援「一列兩鈕」（上移｜下移、降層｜升層），待主對話裁（UI 丙-3 回修 T2 回報）。
+    // 回饋乙：排序與層級收進可展開的「編排 ▾」（PopMenu group；跟手機票卡 sheet 同一種結構），頂層回到 §2.4 的 ≤7。
+    //   有了拖曳之後它們仍是可點的入口（拖曳和快捷鍵都是加速），所以收起來不砍掉。右鍵選單＝這一份（contextMenu.tsx）。
+    const arrange = (it: PopMenuItem): PopMenuItem => ({ ...it, group: "編排" });
+    // 回饋甲 D-主-134（入口體檢 G）：補「詳情」「排今天／排明天」（定期券不出）「運休／取消運休」（定期券才出）——手機路線圖 ⋯ 本來就有。
+    //   頂層要守 ≤7：新增兩項收進「新增 ▾」（頁首「＋ 新增 ▾」與清單尾常駐列才是主入口，這裡是順手的替代）、排程兩項收進「排程 ▾」。
+    //   頂層＝新增 ▾｜詳情・改名・選取｜排程 ▾（或運休）｜編排 ▾｜刪除。
+    const teiki = parseRule(n.repeat_rule) !== null;
+    const occ = ns().currentOccurrences[id];
     return [
-      item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", null, keys.addSibling),
-      item("ticket", "新增車票", "outline.add.ticket", ticketWhy, keys.addTicket),
-      item("indent", "降層", "outline.indent", indentWhy, keys.indentSelected, true),
-      item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected),
-      item("up", "上移", "outline.reorder.up", g.upWhy, () => keys.reorderSelected(-1), true),
-      item("down", "下移", "outline.reorder.down", g.downWhy, () => keys.reorderSelected(1)),
-      item("rename", "改名", "outline.rename", null, keys.renameSelected, true),
+      { ...item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", null, keys.addSibling), group: "新增" },
+      { ...item("ticket", "新增車票", "outline.add.ticket", ticketWhy, keys.addTicket), group: "新增" },
+      // 鏡射「.」：選中＋開側板（單擊票面也會開；這裡是 ⋯ 的可點入口）
+      { key: "panel", label: "詳情", hotkeyId: "outline.panel", cut: true, onSelect: () => row.openPanel(id) },
+      item("rename", "改名", "outline.rename", null, keys.renameSelected),
+      // 回饋乙：多選的可點入口（Ctrl／Shift＋點是加速）。已在多選中＝把這張加進去
+      {
+        key: "pick",
+        label: "選取",
+        onSelect: () => {
+          const sel = useSelectionStore.getState();
+          if (sel.scope === "outline" && sel.ids.length) {
+            if (!sel.ids.includes(id)) sel.toggle("outline", id, visibleIds());
+          } else sel.start("outline", id);
+          ui().select(id);
+          focusContainer();
+        },
+      },
+      // 排程（鏡射 T／Shift+T＝keys.scheduleSelected）：定期券的班次由規則排定（D-④-3）⇒ 改給運休（鏡射 U＝keys.suspendSelected）
+      ...(teiki
+        ? [
+            item(
+              "suspend",
+              occ?.status === "skipped" ? "取消運休" : "運休",
+              "outline.suspend",
+              null,
+              keys.suspendSelected,
+              true,
+            ),
+          ]
+        : [
+            { ...item("sched-today", "排今天", "outline.schedule.today", null, () => keys.scheduleSelected(0), true), group: "排程" },
+            { ...item("sched-tomorrow", "排明天", "outline.schedule.tomorrow", null, () => keys.scheduleSelected(1)), group: "排程" },
+          ]),
       // 磨光⑤ B1（D-主-55）：跨路線搬遷。沒有快捷鍵（不給 hotkeyId）；挑選器開在側板（requestMoveTo＝選中＋開側板＋請它打開）
       // 種類搬不了（moveTargetRule 回 null）就不出——側板那顆鈕同一條規則，兩個入口不會一個有一個沒有
-      ...(moveTargetRule(n.kind) ? [{ key: "move", label: "移動到…", onSelect: () => requestMoveTo(id) } satisfies PopMenuItem] : []),
+      ...(moveTargetRule(n.kind)
+        ? [arrange({ key: "move", label: "移動到…", cut: true, onSelect: () => requestMoveTo(id) })]
+        : []),
+      arrange(item("indent", "降層", "outline.indent", indentWhy, keys.indentSelected, !moveTargetRule(n.kind))),
+      arrange(item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected)),
+      arrange(item("up", "上移", "outline.reorder.up", g.upWhy, () => keys.reorderSelected(-1))),
+      arrange(item("down", "下移", "outline.reorder.down", g.downWhy, () => keys.reorderSelected(1))),
       item("delete", "刪除", "outline.delete", null, keys.deleteSelected, true, true),
     ];
   };
@@ -694,9 +770,9 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   if (edit?.mode === "draft") {
     const d: DraftEdit = edit;
     draftHandlers = {
-      commit: (text, via) => void draftCommit(d, text, via),
+      commit: (text, via, extra) => void draftCommit(d, text, via, extra),
       cancel: cancelEdit,
-      tab: (text, shift) => void draftTab(d, text, shift),
+      tab: (text, shift, extra) => void draftTab(d, text, shift, extra),
     };
   } else if (edit?.mode === "rename") {
     const r: RenameEdit = edit;

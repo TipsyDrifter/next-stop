@@ -216,7 +216,17 @@ export interface LineMount {
    * 沒有任何線填值＝DOM 與沒有插槽時相同。
    */
   settingsLinks?: readonly SettingsLinkSpec[];
+  /**
+   * 運行報告的跳轉（② 運行報告 D-主-188；契約 `docs/research/2026-11-02-主線-運行報告-契約.md` §5）：報告頁的卡片小元件、
+   * 表格某一天點下去要到這條線的哪裡。`target`：`home`＝該線首頁；`stats`＝該線的統計（時刻表＝日、售票口＝本月）；
+   * `{ diary }`＝那天的日記與足跡（旅客筆記）。線自己決定怎麼換頁（桌機 setPage、手機切 tab）。
+   * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才叫（`lineReportJump`）；沒填＝那個小元件不可點。
+   */
+  reportJump?: (target: ReportJumpTarget, shell: "desktop" | "mobile") => void | Promise<void>;
 }
+
+/** 運行報告跳到某條線的哪裡（`LineMount.reportJump`） */
+export type ReportJumpTarget = "home" | "stats" | { diary: string };
 
 /** 全域設定頁的一列指路（`LineMount.settingsLinks` 的一筆） */
 export interface SettingsLinkSpec {
@@ -311,9 +321,11 @@ export interface NodeFieldSpec {
   /**
    * 桌機任務側板畫在哪一段（接縫 #66；時刻表車次② 0-1）：預設 `"status"`（既有位置）；`"amount"`＝列車／車廂面板的「分量」段，
    * 有任何一筆 amount 欄位時取代原本的「花費」那一列（只有列車／車廂面板畫，別的面板不出 amount 欄位）。
-   * 手機路線圖詳情不分段。不填＝既有欄位位置不動。
+   * `"schedule"`＝時段組（回饋甲 D-主-129）：畫在「時刻」段的時段組裡，**長度之後、締切日之前**（執行日 → 時段 → 長度 → 〔這裡〕→ 締切日）；
+   * 車票與列車／車廂面板都畫（看 `kinds`）；手機詳情頁（`MobileDetailHost`）也照 section 畫在同一個位置（長度列之後、締切日列之前）。
+   * 手機路線圖唯讀快看不分段。不填＝既有欄位位置不動。
    */
-  section?: "status" | "amount";
+  section?: "status" | "amount" | "schedule";
 }
 
 /** Ctrl+P 的一列結果（`QuickJumpProviderSpec.search` 回傳） */

@@ -67,9 +67,13 @@
  * - sheet.focus "start"（從「HH:MM 発」／改出發時間快捷鍵進來）：桌機游標在発車框；手機把発車列捲進畫面閃一下、不叫鍵盤。
  * - 面板開著時這一班到站了（別台到着／換車，同步拉到）：換成已結束的樣子——到着列出現（上限＝max(打開時的現在, 實際到站)）、
  *   副標下赭字「這一班剛到站了」、草稿全留著，「改好了」走一般 editBlock；仍不冒出刪除與合併（按鈕不在手底下突然變多）。
+ *
+ * 時刻表⑦（契約 §5、D-時-163；A 席；原型題 5）：荷札之後一列「備註」（`BlockNoteRow`＝單行 RecallInput，候選＝寫過的塊備註、
+ * 同分類的排前面）。三種模式都有。**也是草稿**：noteDraft null＝沒動過（改一塊／改這一班跟著這一塊目前的備註，別台改了就跟著換）；
+ * 送出時 `normalizeNote` 後跟這一塊現在的備註一樣＝undefined（不動），運行中那班「什麼都沒動＝只關」也把備註算進去。
  */
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import { MIN, findBlockIn, fmtClock, fmtDur, msOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
+import { MIN, findBlockIn, fmtClock, fmtDur, msOf, normalizeNote, noteOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
 import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
 import { clockDateLabel, clockRangeLabel, longBlockAsk } from "../../../domain/timetableClockInput";
@@ -103,6 +107,7 @@ import {
   type PanelProps,
 } from "./controls";
 import type { ClockInputHandle } from "../../common/ClockInput";
+import { BlockNoteRow } from "./BlockNoteRow";
 
 type Dir = "prev" | "next";
 
@@ -228,6 +233,17 @@ export function BlockPanel({ onDone }: PanelProps) {
   const [tagDraft, setTagDraft] = useState<string[] | null>(null);
   const liveManual = mode === "edit" && block && tagIndex ? useTagStore.getState().keysOf(TT_TAG_BLOCK, block.id).map(tagNameOf) : [];
   const tagNames: string[] = tagDraft ?? liveManual;
+  // ⑦：備註草稿（null＝還沒動過：改一塊／改這一班跟著這一塊目前的備註、補記＝空）
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+  const liveNote = mode === "edit" && block ? (noteOf(block) ?? "") : "";
+  const noteText = noteDraft ?? liveNote;
+  /** 要交給 store 的備註：補記＝寫了什麼就交（空＝沒寫）；改的時候正規化後跟這一塊現在的一樣＝undefined（不動） */
+  const noteEdit = (): string | null | undefined => {
+    if (noteDraft === null) return undefined;
+    if (mode === "fill") return normalizeNote(noteDraft);
+    const want = normalizeNote(noteDraft);
+    return want === (block ? noteOf(block) : null) ? undefined : want;
+  };
   // 評審後：面板打開時的手動荷札（index 載好、這一塊找得到的第一刻記一次）＝送出時算差集的基準
   const [tagInit, setTagInit] = useState<string[] | null>(null);
   // 磨光③ 2-1：排除（keys）的草稿與基準；null＝還沒動過（跟著這一塊目前的排除）
@@ -389,13 +405,14 @@ export function BlockPanel({ onDone }: PanelProps) {
     // 磨光⑤ 收尾（沙盒 O1）：走「確定記這麼長」存的長塊＝使用者確認過長度 ⇒ 記成已確認（long_run_ack＝1），
     // 軸上不再標「長時間運行・待確認」、待確認清單也不再問一次。只有這條路；12 小時內直接存的照舊不動 ack
     const ackLong = !!ask && longOk;
+    const note = noteEdit();
     if (mode === "fill" && sheet?.kind === "fill") {
       // 連續補（1-4）：先算幾何、不等寫完
       const piece = { start: sheet.start, end: toNow ? now : sheet.end };
       const c = fillContinuation(piece, { start, end }, sheet.cont?.rest ?? [], now);
       if (c.next) openSheet({ kind: "fill", start: c.next.start, end: c.next.end, cont: { rest: c.rest, toNow: toNow && c.next.end >= now } });
       else onDone();
-      void fill(cat, start, end, link, tagDraft ?? [], offNames, ackLong);
+      void fill(cat, start, end, link, tagDraft ?? [], offNames, ackLong, note);
     } else if (block) {
       onDone();
       // 只交差集（沒動過／動完跟原本一樣 ⇒ undefined＝不寫荷札）
@@ -403,10 +420,15 @@ export function BlockPanel({ onDone }: PanelProps) {
       if (live) {
         // 磨光⑦：運行中那班；什麼都沒動＝只關面板
         const same =
-          cat === block.category_id && curStart === msOf(block.started_at) && linkPicked === undefined && tagEdit === undefined && offNames === undefined;
-        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames);
+          cat === block.category_id &&
+          curStart === msOf(block.started_at) &&
+          linkPicked === undefined &&
+          tagEdit === undefined &&
+          offNames === undefined &&
+          note === undefined;
+        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note);
       } else {
-        void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong);
+        void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong, note);
       }
     }
   };
@@ -606,6 +628,7 @@ export function BlockPanel({ onDone }: PanelProps) {
       {warn && <Sub warn>{warn}</Sub>}
       <LinkRow value={link} onOpen={() => setPicking(true)} />
       {tagRow}
+      <BlockNoteRow value={noteText} onChange={setNoteDraft} catId={cat} shell={desk ? "desktop" : "mobile"} />
       <CategoryGrid selected={cat} onPick={setCat} compact />
       <Row k="発車" time>
         <Stepper

@@ -7,10 +7,12 @@
  * - 拖曳、點選、面板開關都在這裡收成幾支動作，兩殼只管排版。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useTimetableScheduleStore, useScheduleCompare } from "../../../store/timetableScheduleStore";
+import { addSegNode, scheduleSpansOf, useTimetableScheduleStore, useScheduleCompare } from "../../../store/timetableScheduleStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
 import { useUiStore } from "../../../store/uiStore";
 import { msOf } from "../../../domain/timetable";
+import { compareRoutineItem, routineSummaryText, type RoutineCompare } from "../../../domain/timetableRoutine";
 import { addDays, clockText, dayWindow, type ClockText } from "../../../lib/date";
 import { useNow } from "../useNow";
 import { useRouteById } from "../parts/LinkPicker";
@@ -29,6 +31,16 @@ export function useSchedulePage(shell: ScheduleShell) {
   const hover = useTimetableScheduleStore((s) => s.hover);
   const busy = useTimetableScheduleStore((s) => s.busy);
   const error = useTimetableScheduleStore((s) => s.error);
+  // ⑦（C 席）：車票第二段起、預定欄的卡（第一段＋第二段起同一套 lane）、作息
+  const slots = useTimetableScheduleStore((s) => s.slots);
+  const blocks = useTimetableScheduleStore((s) => s.blocks);
+  const routineDay = useTimetablePlanStore((s) => s.days[date] ?? null);
+  const slotsByNode = useTimetablePlanStore((s) => s.slotsByNode);
+  const dayBlocks = useTimetableStore((s) => s.dayBlocks);
+  const ttDay = useTimetableStore((s) => s.dayKey);
+  const catById = useTimetableStore((s) => s.catById);
+  const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
+  const linkInfo = useTimetableStore((s) => s.linkInfo);
   const dayKey = useTimetableStore((s) => s.dayKey);
   const todayKey = useTimetableStore((s) => s.todayKey);
   const sheet = useTimetableStore((s) => s.sheet);
@@ -46,9 +58,18 @@ export function useSchedulePage(shell: ScheduleShell) {
     return () => {
       off();
       const s = useTimetableStore.getState().sheet;
-      if (s?.kind === "plan") useTimetableStore.getState().closeSheet();
+      if (s?.kind === "plan" || s?.kind === "slot" || s?.kind === "routine") useTimetableStore.getState().closeSheet();
     };
   }, []);
+
+  // ⑦：「第 N 段」要知道每張單發票在別天還有沒有段 ⇒ 這一天出現的票各讀一次它的第二段起（plan store 之後自己跟著寫入與同步重讀）
+  useEffect(() => {
+    const ps = useTimetablePlanStore.getState();
+    const ids = new Set<string>();
+    for (const it of Object.values(items)) if (it.kind === "single" && !it.lateFrom) ids.add(it.nodeId);
+    for (const it of Object.values(slots)) ids.add(it.nodeId);
+    for (const id of ids) if (!(id in ps.slotsByNode)) void ps.loadNode(id).catch(() => undefined);
+  }, [items, slots]);
 
   // #72：開著過日界線 ⇒ todayKey 跟著翻（＝週視圖、統計的做法；只比字串，沒換日不做事）。
   // 不然標題「今天」、面板的 ±15／発車照舊（看 todayKey），預定欄卻已唯讀（cmp.canEdit 看 now）——兩邊各說各話
@@ -60,9 +81,9 @@ export function useSchedulePage(shell: ScheduleShell) {
   useEffect(() => {
     setSel(null);
     const s = useTimetableStore.getState().sheet;
-    if (s?.kind === "plan" && !s.key.startsWith(dayKey + "-")) useTimetableStore.getState().closeSheet();
+    if ((s?.kind === "plan" || s?.kind === "slot") && !s.key.startsWith(dayKey + "-")) useTimetableStore.getState().closeSheet();
+    if (s?.kind === "routine" && s.day !== dayKey) useTimetableStore.getState().closeSheet();
   }, [dayKey]);
-
   const win = useMemo(() => {
     const w = dayWindow(date, dayStartHour);
     return { start: msOf(w.start), end: msOf(w.end) };
@@ -72,28 +93,65 @@ export function useSchedulePage(shell: ScheduleShell) {
   const isPast = date < todayKey;
   const isFuture = date > todayKey;
   const canEdit = cmp.canEdit && !busy;
-  const openKey = sheet?.kind === "plan" ? sheet.key : null;
+  /** 開著面板的卡：第一段（plan）或第二段起（slot） */
+  const openKey = sheet?.kind === "plan" || sheet?.kind === "slot" ? sheet.key : null;
+  /** ⑦：開著面板的作息段 id */
+  const openRoutineId = sheet?.kind === "routine" && sheet.day === date ? sheet.id : null;
+
+  /* ── ⑦ 作息：每一段對實績（實績＝這一天的塊；時刻表的那一天還沒換過來時先不比） ── */
+  const routineCmp = useMemo((): ReadonlyMap<string, RoutineCompare> => {
+    const out = new Map<string, RoutineCompare>();
+    if (!routineDay) return out;
+    const spans = ttDay === date ? scheduleSpansOf(dayBlocks, { catById, longRunMaxMin, linkInfo }, now) : [];
+    for (const g of routineDay.segs) out.set(g.id, compareRoutineItem(date, g, spans, now));
+    return out;
+  }, [routineDay, ttDay, date, dayBlocks, catById, longRunMaxMin, linkInfo, now]);
+  /** 總結那一句（0 段 ⇒ null；未來日只寫段數，✎4） */
+  const routineSummary = useMemo((): { total: number; ok: number | null; text: string } | null => {
+    const list = [...routineCmp.values()];
+    if (!list.length) return null;
+    if (isFuture) return { total: list.length, ok: null, text: `作息 ${list.length} 段` };
+    const text = routineSummaryText(list);
+    return text ? { total: list.length, ok: list.filter((c) => c.onSchedule).length, text } : null;
+  }, [routineCmp, isFuture]);
 
   /** 作用中的預定項（描金的那一張） */
   const activeKey = useMemo((): string | null => {
-    if (hover?.kind === "plan" && items[hover.id]) return hover.id;
+    if (hover?.kind === "plan" && (items[hover.id] || slots[hover.id])) return hover.id;
     if (hover?.kind === "block") return cmp.planKeyOfBlock.get(hover.id) ?? null;
     return openKey ?? sel;
-  }, [hover, items, cmp.planKeyOfBlock, openKey, sel]);
-  const activeBlocks = useMemo(
-    () => new Set(activeKey ? (cmp.cmp.get(activeKey)?.blockIds ?? []) : []),
-    [activeKey, cmp.cmp],
-  );
+  }, [hover, items, slots, cmp.planKeyOfBlock, openKey, sel]);
+  const activeBlocks = useMemo(() => {
+    if (activeKey) return new Set(cmp.cmp.get(activeKey)?.blockIds ?? []);
+    // ⑦：作息段的面板開著 ⇒ 描它對到的塊
+    return new Set(openRoutineId ? (routineCmp.get(openRoutineId)?.blockIds ?? []) : []);
+  }, [activeKey, cmp.cmp, openRoutineId, routineCmp]);
 
+  /** 點位置／拖放：還沒排的票＝排時刻；第二段起＝換位置；「再排一段」＝在這裡加一段（⑦） */
   const place = useCallback((key: string, min: number): void => {
     const t = clockText(min) as ClockText | null;
-    if (t) void useTimetableScheduleStore.getState().placeAt(key, t);
+    if (!t) return;
+    const st = useTimetableScheduleStore.getState();
+    const add = addSegNode(key);
+    if (add !== null) void st.addSegment(add, t);
+    else if (st.slots[key]) void st.moveSlot(key, t);
+    else void st.placeAt(key, t);
   }, []);
 
   const openPlan = useCallback((key: string): void => {
     setSel(null);
-    useTimetableStore.getState().openSheet({ kind: "plan", key });
+    const st = useTimetableScheduleStore.getState();
+    useTimetableStore.getState().openSheet(st.slots[key] ? { kind: "slot", key } : { kind: "plan", key });
   }, []);
+
+  /** ⑦：點作息段開它的小面板 */
+  const openRoutine = useCallback(
+    (id: string): void => {
+      setSel(null);
+      useTimetableStore.getState().openSheet({ kind: "routine", day: date, id });
+    },
+    [date],
+  );
 
   const stepDay = useCallback((n: number): void => {
     const s = useTimetableStore.getState();
@@ -139,6 +197,15 @@ export function useSchedulePage(shell: ScheduleShell) {
     openPlan,
     stepDay,
     toToday,
+    // ⑦（C 席）
+    slots,
+    blocks,
+    slotsByNode,
+    routineDay,
+    routineCmp,
+    routineSummary,
+    openRoutineId,
+    openRoutine,
   };
 }
 

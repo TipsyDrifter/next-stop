@@ -14,6 +14,10 @@
  *   今日切片不是今天（直接進日程、或今天換日）⇒ 先 `loadToday(今天)`（`ensureTodaySlice`；沙盒後修正 F1）；
  *   key 照 `${今天}-${id}`、依序記在 `lateKeys`（「還沒排」排在當天的票之後）；排上去＝`updateNode({ scheduled_on: 今天, scheduled_time })`
  *   一次呼叫（主線先改道 reschedule 再寫時刻），撤回＝改回原日＋原時刻。定期券的漏班只數（`lateRepeatCount`）。
+ * **⑦ 車票第二段起**（D-時-162；C 席）：compute 另讀 `timetablePlanStore.slotsForDay(那天)`（沒載過先 `loadDays`）做成 `slots`
+ *   （key `${date}-${nodeId}-seg-${planId}`；票不在 listCalendar 裡就 `getNode`，刪了＝不畫、蓋済＝段也済），跟第一段一起排 lane 成 `blocks`。
+ *   對照：同一天有好幾段的票，連到它的塊用 `assignSpansToSegments` 分給各段；總結照舊只數 `items`（算張數）。
+ *   寫入走 plan store（`moveSlot`／`addSegment`，同一把 `locked`、收據＋撤回）；`picked` 也可以是段的 key（換位置）或 `addSegKey(nodeId)`（再排一段）。
  */
 import { useMemo } from "react";
 import { create } from "zustand";
@@ -36,10 +40,12 @@ import {
   type TimeWrite,
 } from "../domain/timetableSchedule";
 import { TIME_FORMAT_MSG } from "../domain/scheduledTime";
-import { isClockInRange, todayKey, type ClockText } from "../lib/date";
+import { clockMinutes, clockText, isClockInRange, todayKey, type ClockText } from "../lib/date";
 import { timeGridModel, type TimeGridDay } from "../ui/schedule/timeGridModel";
+import { schedBlocksOf, segmentSpansOf, slotItemsOf, type SchedBlock, type SlotItem } from "../ui/timetable/schedule/slotModel";
 import { useNodeStore } from "./nodeStore";
 import { TT_TEXT, blockIsLongRun, useTimetableStore } from "./timetableStore";
+import { useTimetablePlanStore, type TimePlanRow } from "./timetablePlanStore";
 import { useUiStore } from "./uiStore";
 
 export type { DaySummary, LinkedSpan, PlanCompare, PlanItem, PlanState, TimeWrite } from "../domain/timetableSchedule";
@@ -49,6 +55,13 @@ export interface ScheduleHover {
   /** plan＝預定項 key；block＝時間塊 id */
   id: string;
 }
+
+export type { SchedBlock, SlotItem } from "../ui/timetable/schedule/slotModel";
+
+/** ⑦ C 席：「再排一段」挑位置時 `picked` 放的記號（不是預定項的 key） */
+const ADD_SEG = "addseg:";
+export const addSegKey = (nodeId: string): string => ADD_SEG + nodeId;
+export const addSegNode = (key: string | null): string | null => (key && key.startsWith(ADD_SEG) ? key.slice(ADD_SEG.length) : null);
 
 export interface ScheduleState {
   /** 這份資料是哪一天（＝算的時候的 timetableStore.dayKey） */
@@ -65,7 +78,11 @@ export interface ScheduleState {
   nodes: Record<string, NodeRow>;
   /** 今天另有幾班定期券漏班、還沒交代（不進清單，只出一行灰字；只有 date＝今天；其他天 0） */
   lateRepeatCount: number;
-  /** 點選排時刻：選中的還沒排項（key） */
+  /** ⑦：key → 車票的第二段起（這一天；票刪掉的不在，D-時-162） */
+  slots: Record<string, SlotItem>;
+  /** ⑦：預定欄要畫的卡（第一段＋第二段起，同一套 lane），依開始 */
+  blocks: SchedBlock[];
+  /** 點選排時刻：選中的還沒排項（key）；⑦ 起也可以是第二段起的卡（slots 的 key＝換位置）或 `addSegKey(nodeId)`（再排一段） */
   picked: string | null;
   hover: ScheduleHover | null;
   /** 有一筆排時刻的寫入正在飛（重入鎖；UI 可以據此把拖曳／按鈕暫時停用） */
@@ -79,6 +96,10 @@ export interface ScheduleState {
   setHover(h: ScheduleHover | null): void;
   /** 排、改、清都走這支（time null＝清除）：守門、收據 toast、撤回。回 true＝寫成功（或時刻沒變、不必寫） */
   placeAt(key: string, time: ClockText | null): Promise<boolean>;
+  /** ⑦：第二段起換位置（time＝新的開始；長度不變）：收據＋撤回 */
+  moveSlot(key: string, time: ClockText): Promise<boolean>;
+  /** ⑦：再排一段（挑位置放下；長度＝預計，沒填 60 分）：收據＋撤回 */
+  addSegment(nodeId: string, time: ClockText): Promise<boolean>;
   /** 定期券「改回每班時刻」（＝clearRun 這一班的覆寫）：同一把鎖、收據＋撤回、寫完重載。不是覆寫過的定期券 ⇒ false */
   revertRun(key: string): Promise<boolean>;
 }
@@ -132,6 +153,20 @@ function ensureTodaySlice(): Promise<void> | null {
   return p;
 }
 
+/* ───────── ⑦ C 席：車票的第二段起 ───────── */
+
+/** compute 自己在載 time_plans（訂閱看到 rowsByDay 換了不必再排一趟：compute 載完就讀最新的） */
+let selfPlanLoad = 0;
+
+/** 訂閱用：這一天的車票段有沒有變（作息段的寫入不必重抓 listCalendar） */
+function slotSig(rows: readonly TimePlanRow[] | undefined): string {
+  if (!rows) return "";
+  return rows
+    .filter((r) => r.node_id !== null)
+    .map((r) => `${r.id}|${r.updated_at}|${r.deleted_at ?? ""}|${r.start_hm}|${r.end_hm}`)
+    .join(",");
+}
+
 async function compute(): Promise<void> {
   computeSeq++;
   const date = useTimetableStore.getState().dayKey;
@@ -160,16 +195,40 @@ async function compute(): Promise<void> {
       items[it.key] = it;
       lateKeys.push(it.key);
     }
+    // ⑦：第二段起（time_plans）——那一天沒載過就先載（作息帶也用同一份）；票不在這一天的 listCalendar ⇒ 另查節點（刪了＝不畫）
+    const nodes: Record<string, NodeRow> = { ...late.rows, ...data.nodes };
+    if (!(date in useTimetablePlanStore.getState().rowsByDay)) {
+      selfPlanLoad++;
+      try {
+        await useTimetablePlanStore.getState().loadDays(date, date);
+      } finally {
+        selfPlanLoad--;
+      }
+    }
+    const slotRows = useTimetablePlanStore.getState().slotsForDay(date);
+    for (const id of new Set(slotRows.map((r) => r.node_id as string))) {
+      if (nodes[id]) continue;
+      const n = await nodeRepo.getNode(id).catch(() => null);
+      if (n && n.deleted_at === null) nodes[id] = n;
+    }
+    if (useTimetableStore.getState().dayKey !== date || dayStart() !== h) {
+      dirty = true;
+      return;
+    }
+    const slots = slotItemsOf(date, slotRows, nodes, items);
     const cur = useTimetableScheduleStore.getState();
     useTimetableScheduleStore.setState({
       date,
       grid,
       items,
+      slots,
+      blocks: schedBlocksOf(grid, slots, h),
       lateKeys,
-      nodes: { ...late.rows, ...data.nodes },
+      nodes,
       lateRepeatCount: late.repeatCount,
       // 換了天或那一項不在了 ⇒ 選取／滑過清掉
-      picked: cur.picked !== null && items[cur.picked] && cur.date === date ? cur.picked : null,
+      picked:
+        cur.picked !== null && (items[cur.picked] || slots[cur.picked] || addSegNode(cur.picked) !== null) && cur.date === date ? cur.picked : null,
       hover: cur.date === date ? cur.hover : null,
       loading: false,
       error: null,
@@ -277,6 +336,8 @@ export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
   lateKeys: [],
   nodes: {},
   lateRepeatCount: 0,
+  slots: {},
+  blocks: [],
   picked: null,
   hover: null,
   busy: false,
@@ -371,7 +432,73 @@ export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
       every ? TT_TEXT.schedReverted(every) : TT_TEXT.schedRevertedNone,
     );
   },
+
+  moveSlot(key, time) {
+    const it = get().slots[key];
+    if (!it) return Promise.resolve(false);
+    const h = dayStart();
+    if (!canScheduleDay(it.date, todayKey(h, new Date()))) {
+      toast(TT_TEXT.schedPast);
+      return Promise.resolve(false);
+    }
+    const s = clockMinutes(time);
+    if (s === null || !isClockInRange(time, h)) {
+      toast(TIME_FORMAT_MSG);
+      return Promise.resolve(false);
+    }
+    if (time === it.time) {
+      if (get().picked === key) set({ picked: null });
+      return Promise.resolve(true);
+    }
+    return locked(async () => {
+      // 長度在 plan store 的寫入鎖裡照資料庫現在的算（keepLength）：剛改的「結束」還在佇列裡也不會被舊長度蓋回去（反方評審 #5）
+      const out: { prev?: { s: ClockText; e: ClockText } } = {};
+      const ok = await useTimetablePlanStore.getState().editSlot(it.planId, { s: time, keepLength: true }, out);
+      if (!ok) return false; // plan store 已 toast
+      if (get().picked === key) set({ picked: null });
+      const back = out.prev;
+      if (back) toast(TT_TEXT.schedMoved(time), TT_TEXT.undo, () => void useTimetablePlanStore.getState().editSlot(it.planId, back));
+      else toast(TT_TEXT.schedMoved(time));
+      return true;
+    });
+  },
+
+  addSegment(nodeId, time) {
+    const date = get().date;
+    const h = dayStart();
+    if (!canScheduleDay(date, todayKey(h, new Date()))) {
+      toast(TT_TEXT.schedPast);
+      return Promise.resolve(false);
+    }
+    const s = clockMinutes(time);
+    if (s === null || !isClockInRange(time, h)) {
+      toast(TIME_FORMAT_MSG);
+      return Promise.resolve(false);
+    }
+    const est = get().nodes[nodeId]?.estimate_min ?? null;
+    const len = typeof est === "number" && est > 0 ? est : SEG_DEFAULT_MIN;
+    const e = clockText(Math.min(s + len, h * 60 + 1440));
+    if (!e) return Promise.resolve(false);
+    return locked(async () => {
+      const row = await useTimetablePlanStore.getState().addSlot(nodeId, date, time, e);
+      if (!row) return false;
+      const key = addSegKey(nodeId);
+      if (get().picked === key) set({ picked: null });
+      toast(SEG_TEXT.added(time, e), TT_TEXT.undo, () => void useTimetablePlanStore.getState().deleteSlot(row.id));
+      return true;
+    });
+  },
 }));
+
+/** ⑦：再排一段沒填預計時的長度（契約 §4） */
+export const SEG_DEFAULT_MIN = 60;
+
+/** ⑦ C 席：車票分段的字（收據、面板） */
+export const SEG_TEXT = {
+  tag: (n: number) => `第 ${n} 段`,
+  added: (s: string, e: string) => `已再排一段 ${s}–${e}`,
+  deleted: "已刪這段",
+} as const;
 
 /* ───────── 給 UI 的 selector／hook ───────── */
 
@@ -403,7 +530,7 @@ export interface ScheduleCompare {
 
 /** 純函式版（hook 之外也能用；now 由呼叫端給，UI 用 useNow） */
 export function scheduleCompareOf(
-  s: Pick<ScheduleState, "date" | "items">,
+  s: Pick<ScheduleState, "date" | "items"> & Partial<Pick<ScheduleState, "slots">>,
   rows: readonly TimeBlockRow[],
   tt: Pick<ReturnType<typeof useTimetableStore.getState>, "catById" | "longRunMaxMin" | "linkInfo">,
   h: number,
@@ -416,31 +543,40 @@ export function scheduleCompareOf(
       (a.time !== null && b.time !== null ? (a.time < b.time ? -1 : a.time > b.time ? 1 : 0) : 0) ||
       (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   );
+  const slots = Object.values(s.slots ?? {});
   const spans = scheduleSpansOf(rows, tt, now);
+  const segSpans = segmentSpansOf(items, slots, spans, now);
   const cmp = new Map<string, PlanCompare>();
   const planKeyOfBlock = new Map<string, string>();
+  // ⑦：第二段起也比（key 不同；總結的「排了 N 件」算張數，契約 §4——只有第二段起的票也算一件，沙盒 F-2）
+  for (const it of slots) {
+    const c = comparePlan(it, segSpans.get(it.key) ?? spans, h, now);
+    cmp.set(it.key, c);
+    for (const id of c.blockIds) planKeyOfBlock.set(id, it.key);
+  }
   for (const it of items) {
-    const c = comparePlan(it, spans, h, now);
+    const c = comparePlan(it, segSpans.get(it.key) ?? spans, h, now);
     cmp.set(it.key, c);
     // 誤點項沒有預定卡（只在「還沒排」）：連到它的塊不點亮任何卡，免得滑過時整欄淡掉
     if (!it.lateFrom) for (const id of c.blockIds) planKeyOfBlock.set(id, it.key);
   }
   const isFuture = s.date > today;
-  return { items, cmp, summary: daySummary(items, cmp, isFuture), isFuture, canEdit: canScheduleDay(s.date, today), planKeyOfBlock };
+  return { items, cmp, summary: daySummary(items, cmp, isFuture, slots), isFuture, canEdit: canScheduleDay(s.date, today), planKeyOfBlock };
 }
 
 /** 日程頁用：每個預定項的差多少＋總結（now 由 UI 給，例如 `useNow(60_000)`） */
 export function useScheduleCompare(now: number): ScheduleCompare {
   const date = useTimetableScheduleStore((s) => s.date);
   const items = useTimetableScheduleStore((s) => s.items);
+  const slots = useTimetableScheduleStore((s) => s.slots);
   const rows = useTimetableStore((s) => s.dayBlocks);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
   const h = useUiStore((s) => s.dayStartHour);
   return useMemo(
-    () => scheduleCompareOf({ date, items }, rows, { catById, longRunMaxMin, linkInfo }, h, now),
-    [date, items, rows, catById, longRunMaxMin, linkInfo, h, now],
+    () => scheduleCompareOf({ date, items, slots }, rows, { catById, longRunMaxMin, linkInfo }, h, now),
+    [date, items, slots, rows, catById, longRunMaxMin, linkInfo, h, now],
   );
 }
 
@@ -468,6 +604,13 @@ useUiStore.subscribe((s, p) => {
     if (attachCount > 0) ensureTodaySlice(); // 同上（timetableStore 的 todayKey 要等它 refresh 完才換；這裡先補）
     reloadIfOpen();
   }
+});
+
+// ⑦：這一天的車票段變了（再排一段、換位置、刪、同步）⇒ 重算；作息段的寫入不算（slotSig 只看車票段）
+useTimetablePlanStore.subscribe((s, p) => {
+  if (attachCount === 0 || selfPlanLoad > 0 || s.rowsByDay === p.rowsByDay) return;
+  const d = useTimetableStore.getState().dayKey;
+  if (s.rowsByDay[d] !== p.rowsByDay[d] && slotSig(s.rowsByDay[d]) !== slotSig(p.rowsByDay[d])) void run();
 });
 
 useNodeStore.subscribe((s, p) => {

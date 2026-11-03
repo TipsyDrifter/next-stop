@@ -10,16 +10,17 @@
  *
  * 做不到的選項（有子項時的「定期券」）＝淡掉、點了 toast 說為什麼（觸控看不到 title；同票卡 ⋯ 的 MSheetItem off，D-主-76）。
  * 欄位（由上而下＝原型 Q2 A）：票根列（路線徽章・路線名・票號・票種）→ 名稱（襯線大字，blur／Enter 存）→ 概要（多行，blur 存）
- *   → 路線（只有臨時車票；= 桌機「所屬路線」）→ 票種（乘車券⇄定期券；切定期券展開重複規則、切回清掉規則）→ 執行日 → 締切日 → 時刻＋預計
+ *   → 路線（只有臨時車票；= 桌機「所屬路線」）→ 票種（乘車券⇄定期券；切定期券展開重複規則、切回清掉規則）
+ *   → 時段組（回饋甲 D-主-129，同桌機側板）：執行日 → 時段（開始 → 結束兩格，各開時刻 sheet）→ 長度（分段鈕＋自訂）→ 插槽 section "schedule" → 締切日
  *   → 重複（可收合段）→ 心情三燈（只給列車／車廂；收官磨光 Q1 起車票不畫，規格 §5）→ 各線 nodeFields 的 Mobile 列（荷札…）→ 乘務記錄清單＋記一句 → 競合 → 移動到… → 刪除。
  *   支線＝名稱・概要・各線欄位・移動到…・轉為列車・刪除（同桌機 BranchPanel）；其他種類只給名稱・移動到…・刪除。
  *   反方評審 #3 補齊桌機側板有、清單漏掉的（MobileStateRows）：名稱下「完成於」；重複段之後＝検印（車票済章／定期券本班済・運休・本班時刻）；
- *   心情那一組前面加現況・優先順序（列車／車廂）；之後分量（花費・進度）；移動到…之後「轉為支線」（列車）。
+ *   心情那一組前面加現況・優先順序（列車／車廂；車票＝検印之前一列優先順序，D-主-133）；之後分量（花費・進度）；移動到…之後「轉為支線」（列車）。
  * 寫入一律走既有動作、桌機同一支：
  *   名稱／概要／心情／締切日 → `updateNode`；執行日 → `updateNode(…, { backfill: true })`（D-主-67：改到過去＝補記，同桌機 ScheduledChip）；
- *   時刻＋預計 → `updateNode` 並出手機的時刻收據（timeReceipt，同 useMobileToday.setTime）；重複／票種 → `setRepeatRule`（MobileRepeatSection）；
+ *   時段開始 → `updateNode`（scheduled_time）並出手機的時刻收據（timeReceipt，同 useMobileToday.setTime）；時段結束／長度 → `updateNode`（estimate_min）；重複／票種 → `setRepeatRule`（MobileRepeatSection）；
  *   路線標籤 → `setRouteTag`；乘務記錄 → `addWorkLog`；移動到… → `moveNodeTo`（toast＋復原）；刪除 → `deleteTicket`（子項 ≥5／不知道就先問、toast＋復原；先關頁再刪）。
- * 定期券（parseRule 才算；退役的也一樣）：執行日唯讀「依重複設定排班」；時刻是「每班」（逐班改仍在票卡 ⋯「本班改時刻…」）。
+ * 定期券（parseRule 才算；退役的也一樣）：執行日唯讀「依重複設定排班」；時段是「每班」（逐班改在検印下的「本班時刻」與票卡 ⋯「本班改時刻…」）。
  * 第四輪（D-主-85）：路線也從這頁開（路線圖第二層抬頭 ⋯「路線詳情…」）——路線不在 tree／today 切片，改從 nodeStore.routes 找；
  *   內容換畫 ./MobileRouteBody（桌機 RoutePanel＋StationList 的手機版），本檔只分流。
  */
@@ -46,15 +47,17 @@ import { MOODS } from "../../complete/moods";
 import { fareClass } from "../../outline/OutlineRow";
 import { convertKindFlow } from "../../outline/nodeFlows";
 import { useMinuteTick } from "../../schedule/useMinuteTick";
-import { MobileTimeSheet, lenText, timeReceipt } from "../MobileTimeSheet";
+import { MobileTimeSheet, timeReceipt } from "../MobileTimeSheet";
 import { deleteTicket, liveChildCount } from "../useMobileToday";
 import { mdwText, repeatKidsWhy, switchFare } from "../../panel/panelRules";
+import { spanEnd } from "../../panel/clockValue";
+import { LengthField } from "../../panel/TimeField";
 import { useLiveChildCount, useRepeatDraft } from "../../panel/useRepeatDraft";
 import { fmtLogStamp, splitLogs, timeCardOf } from "./detailModel";
 import { MobileRepeatSection } from "./MobileRepeatSection";
 import { MobileRouteBody } from "./MobileRouteBody";
 import { useMobileDetailStore } from "./mobileDetailStore";
-import { AmountRows, DoneAt, Row, StampRows, StatusRows } from "./MobileStateRows";
+import { AmountRows, DoneAt, PriorityRow, Row, StampRows, StatusRows } from "./MobileStateRows";
 import "./detail.css";
 
 /** 全螢幕頁那一層的返回層 id */
@@ -122,6 +125,8 @@ function DetailPage({ nodeId }: { nodeId: string }) {
 type Sub =
   | { kind: "date"; title: string; value: string | null; quick: readonly DateQuick[]; onPick(day: string): void }
   | { kind: "time" }
+  /** 時段的結束（MobileTimeSheet end 模式；改結束＝重算長度） */
+  | { kind: "end" }
   /** 定期券本班時刻（MobileTimeSheet run 模式） */
   | { kind: "run"; railDate: string }
   | { kind: "move"; from: AttachTarget }
@@ -233,6 +238,7 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
         />
       )}
       {sub?.kind === "time" && <TimeSub node={node} today={today} onClose={closeSub} />}
+      {sub?.kind === "end" && <EndSub node={node} today={today} onClose={closeSub} />}
       {sub?.kind === "run" && <RunTimeSub node={node} railDate={sub.railDate} today={today} onClose={closeSub} />}
       {sub?.kind === "move" && moveRule && (
         <MobileAttachPicker
@@ -396,6 +402,17 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           )}
         </Row>
 
+        {/* 時段組（回饋甲 D-主-129；原型 q3-A 手機）：執行日 → 時段 → 長度 → 〔插槽 section "schedule"〕→ 締切日，同桌機側板 */}
+        <Row label="時段">
+          <SpanButtons node={node} ruled={ruled} onStart={() => setSub({ kind: "time" })} onEnd={() => setSub({ kind: "end" })} />
+        </Row>
+
+        <Row label="長度" tall>
+          <LengthField value={node.estimate_min} onCommit={(v) => void updateNode(node.id, { estimate_min: v })} compact={false} />
+        </Row>
+
+        <ScheduleLineRows node={node} />
+
         <Row label="締切日">
           <DatePick
             value={node.due_on}
@@ -406,25 +423,6 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
             }
             onClear={() => void updateNode(node.id, { due_on: null })}
           />
-        </Row>
-
-        <Row label="時刻">
-          <button type="button" className="m-dt-pick" onClick={() => setSub({ kind: "time" })}>
-            {node.scheduled_time ? (
-              <span>
-                {ruled && <span className="m-dt-sub">每班 </span>}
-                <b className="m-dt-hm">{node.scheduled_time}</b>
-              </span>
-            ) : (
-              <span className="is-empty">不排時刻</span>
-            )}
-            {node.estimate_min !== null && node.estimate_min > 0 && (
-              <span className="m-dt-sub">預計 {lenText(node.estimate_min)}</span>
-            )}
-            <span className="m-dt-chev" aria-hidden="true">
-              ›
-            </span>
-          </button>
         </Row>
       </div>
 
@@ -441,6 +439,8 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
       )}
 
       <div className="m-dt-group is-after-sec">
+        {/* 車票的優先順序（D-主-133）：車票沒有現況列，獨立一列放在検印之前（列車／車廂的在 StatusRows 裡） */}
+        {node.kind === "ticket" && <PriorityRow node={node} />}
         <StampRows
           node={node}
           onRunTime={() => {
@@ -496,7 +496,38 @@ function DatePick({
   );
 }
 
-/** 時刻 sheet（MobileTimeSheet rule 模式＝單發票的時刻／定期券的每班時刻＋預計）；寫入與收據同 useMobileToday.setTime */
+/**
+ * 時段兩格（D-主-129；原型 q3-A 手機「兩格各點一下開時間 sheet」）：開始 → 結束，各 44 高。
+ *   開始＝開 rule 模式的時刻 sheet（不帶「預計多久」：只改開始＝整段平移，長度不動；「不排時刻」＝清開始、長度保留）；
+ *   結束＝開 end 模式（改結束＝重算長度；等於或早於開始由框的範圍擋下）。沒排開始＝結束格停用（淡「—」）。
+ *   定期券＝每班時刻，開始格前印「每班」。
+ */
+function SpanButtons({ node, ruled, onStart, onEnd }: { node: NodeRow; ruled: boolean; onStart(): void; onEnd(): void }) {
+  const start = node.scheduled_time;
+  const end = spanEnd(start, node.estimate_min);
+  return (
+    <div className="m-dt-span">
+      {ruled && <span className="m-dt-sub">每班</span>}
+      <button type="button" className="m-dt-hmbtn" aria-label={`開始時刻：${start ?? "不排時刻"}`} onClick={onStart}>
+        {start ? <b className="m-dt-hm">{start}</b> : <span className="is-empty">不排</span>}
+      </button>
+      <span className="m-dt-span-arr" aria-hidden="true">
+        →
+      </span>
+      <button
+        type="button"
+        className="m-dt-hmbtn"
+        aria-label={start ? `結束時刻：${end ?? "沒有"}` : "結束時刻：先排開始"}
+        disabled={!start}
+        onClick={onEnd}
+      >
+        {end ? <b className="m-dt-hm">{end}</b> : <span className="is-empty">—</span>}
+      </button>
+    </div>
+  );
+}
+
+/** 時刻 sheet（MobileTimeSheet rule 模式＝單發票的時刻／定期券的每班時刻；長度另有一列 ⇒ withLen=false）；寫入與收據同 useMobileToday.setTime */
 function TimeSub({ node, today, onClose }: { node: NodeRow; today: string; onClose(): void }) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -516,6 +547,7 @@ function TimeSub({ node, today, onClose }: { node: NodeRow; today: string; onClo
     <MobileTimeSheet
       card={card}
       mode="rule"
+      withLen={false}
       today={today}
       dayStartHour={dayStartHour}
       now={now}
@@ -528,6 +560,30 @@ function TimeSub({ node, today, onClose }: { node: NodeRow; today: string; onClo
         if (card.ruleTime !== null) setTime(null);
         onClose();
       }}
+      onClose={onClose}
+    />
+  );
+}
+
+/** 時段的結束（MobileTimeSheet end 模式）：確定＝新長度寫回 estimate_min（同桌機時段結束格；值就在列上，不另出收據） */
+function EndSub({ node, today, onClose }: { node: NodeRow; today: string; onClose(): void }) {
+  const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const now = useMinuteTick();
+  const card = useMemo(() => timeCardOf(node, occ), [node, occ]);
+  return (
+    <MobileTimeSheet
+      card={card}
+      mode="end"
+      today={today}
+      dayStartHour={dayStartHour}
+      now={now}
+      backId={SUB_LAYER}
+      onCommit={(_end, len) => {
+        if (typeof len === "number" && len > 0) void useNodeStore.getState().updateNode(node.id, { estimate_min: len });
+        onClose();
+      }}
+      onClear={onClose}
       onClose={onClose}
     />
   );
@@ -603,11 +659,23 @@ function MoodLights({ value, onChange }: { value: NodeRow["mood"]; onChange: (m:
   );
 }
 
-/** 各線登記的節點欄位的手機列（插槽 nodeFields 的 Mobile；接法同 MobileRouteMap 唯讀詳情）；沒有任何一線登記＝不出 DOM */
+/**
+ * 各線登記的節點欄位的手機列（插槽 nodeFields 的 Mobile；接法同 MobileRouteMap 唯讀詳情）；沒有任何一線登記＝不出 DOM。
+ * section "schedule" 的不在這裡：畫在時段組裡（ScheduleLineRows，長度之後、締切日之前，同桌機側板）。
+ */
 function LineFieldRows({ node }: { node: NodeRow }) {
-  const fields = lineNodeFields("mobile").filter((f) => f.Mobile && f.kinds.includes(node.kind));
+  const fields = lineNodeFields("mobile").filter((f) => f.Mobile && f.kinds.includes(node.kind) && f.section !== "schedule");
   if (!fields.length) return null;
   return <div className="m-dt-lines">{fields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}</div>;
+}
+
+/** 時段組裡的別線欄位（插槽 nodeFields 的 section "schedule"，例：時刻表⑦「其他時段」）；沒登記＝不出 DOM */
+function ScheduleLineRows({ node }: { node: NodeRow }) {
+  const fields = lineNodeFields("mobile").filter((f) => f.Mobile && f.kinds.includes(node.kind) && f.section === "schedule");
+  if (!fields.length) return null;
+  return (
+    <div className="m-dt-lines is-in-group">{fields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}</div>
+  );
 }
 
 /* ───────────── 乘務記錄＋競合 ───────────── */

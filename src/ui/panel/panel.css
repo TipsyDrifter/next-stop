@@ -190,6 +190,17 @@
 .st.arrived .title { color: var(--color-ink-faint); }
 .st .meta { margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 .st .arr-note { color: var(--color-seal); letter-spacing: .12em; white-space: nowrap; }
+/* 回饋乙：車站可拖（同路線內排序）＋每站 ⋯（上移／下移；常駐淡態 --dim，列 hover／聚焦轉實） */
+.st[data-drag-id] { cursor: grab; }
+.st .st-more {
+  margin-left: auto; width: 22px; height: 22px; display: grid; place-items: center;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  color: var(--color-ink-faint); opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft), background var(--dur-fast) var(--ease-soft);
+}
+.st:hover .st-more, .st .st-more:focus-visible, .st .st-more[aria-expanded="true"] { opacity: 1; }
+.st .st-more:hover, .st .st-more[aria-expanded="true"] { background: var(--hover-bg); color: var(--color-ink); }
+.st .st-more:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .arr-seal {
   border: 1.6px solid var(--color-seal); color: var(--color-seal); background: transparent; cursor: pointer;
   font-family: var(--font-display); font-weight: 600; font-size: 12.5px; /* 字面值：到著章 12.5px；印章家族字級（照原型） */
@@ -230,8 +241,8 @@
 
 /* ═══ 預定時刻（主線階段②；契約 §4.1–4.2；原型 prototypes/主線-預定時刻.html :381-406、:372-373） ═══
    「幾點」欄＝ClockField（UI 丙-3 C5：共用 ClockInput compact，樣式在 common/datefield.css .ns-clock*；
-   沒排時刻＝一顆 .tf-show「— 不排時刻」，點了才掛出 ClockInput）；
-   預計欄右邊的「→ 15:30 着」＝.arr；定期券検印段的「本班」列＝.occ。前綴 .panel 抬一級（techo.css 的 `.panel-sheet > *` 坑，見 .panel-close）。 */
+   沒排時刻＝一顆 .tf-show「— 不排時刻」，點了才掛出 ClockInput）；回饋甲起時刻段用的是「時段」兩格（下面 .span-field），
+   這組 .clockf 樣式仍是它的底；定期券検印段的「本班」列＝.occ。前綴 .panel 抬一級（techo.css 的 `.panel-sheet > *` 坑，見 .panel-close）。 */
 .panel .tf { min-width: 0; }
 .panel .tf-show {
   display: inline-flex; align-items: baseline; gap: 6px; min-height: 28px; padding: 1px 0 3px; margin: 0;
@@ -253,10 +264,38 @@
 .panel .clockf-clear { flex: none; width: 22px; height: 22px; min-height: 0; margin-top: 4px; opacity: var(--dim); }
 .panel .clockf:hover .clockf-clear, .panel .clockf-clear:focus-visible { opacity: 1; }
 
-/* 預計＋到站：NumberField 與「→ 15:30 着」同一列（窄側板放不下就折到下一行） */
-.panel .est-row { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 6px; }
-.panel .arr { font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; margin-left: 6px; white-space: nowrap; }
-.panel .arr .hm { font-family: var(--font-latin); font-weight: 500; font-size: 13px; color: var(--color-ink); } /* 字面值：時刻 13px；桌機字階沒有這一階（原型逐字） */
+/* ═══ 時段組（回饋甲 D-主-129；原型 prototypes/回饋甲-入口與建票.html 題 3 A 版 .nsq-group／.nsq-span／.nsq-len） ═══
+   執行日 → 時段 → 長度 →〔插槽 schedule〕→ 締切日 相鄰成一組，左側一條淡線圈起來（.panel-scroll 左內距 26px，線落在 -10px）。 */
+.panel .sched-group { position: relative; display: flex; flex-direction: column; gap: 10px; }
+.panel .sched-group::before {
+  content: ""; position: absolute; left: -10px; top: 4px; bottom: 4px;
+  border-left: 1.5px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 2px;
+}
+/* 時段：［每班］開始 → 結束 ×——兩格 ClockInput 拿掉 ±15（.is-nostep），框收窄到 58px；說明行只在跨天／打錯時有字，靠左、可折行 */
+.panel .span-field { min-width: 0; }
+.panel .span-field .clockf-row { align-items: flex-start; gap: 6px; }
+.panel .clockf-tail { display: inline-flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.panel .span-arr { padding-top: 3px; font-size: var(--fs-sm); color: var(--color-ink-faint); }
+.panel .clockf.is-nostep .ns-clock-foot { padding-left: 0; white-space: normal; max-width: 120px; }
+.panel .clockf.is-nostep .ns-clock-inwrap .techo-input.ns-clock-in { width: 58px; text-align: center; }
+.panel .span-field .tf-show { min-width: 58px; justify-content: center; }
+.panel .span-field .clockf-row.is-closed .tf-show .pre { padding-top: 0; }
+.panel .span-field .tf-show.is-off { cursor: default; opacity: var(--disabled); }
+.panel .span-field .tf-show.is-off:hover { border-bottom-color: var(--color-dash); }
+/* 長度：分段鈕（每段不撐滿、字距收）＋「自訂…」虛線小鈕；自訂中換成數字框＋「分」 */
+.panel .len-field { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.panel .len-field .ns-seg.panel-seg { width: auto; flex: none; }
+.panel .len-field .ns-seg.panel-seg > [role="radio"] { flex: none; min-width: 30px; padding: 0 5px; letter-spacing: .02em; }
+.panel .len-custom {
+  height: var(--ctl-h-sm); padding: 0 8px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font-family: var(--font-body); font-size: var(--fs-sm); color: var(--color-ink-faint); cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.panel .len-custom:hover { border-color: var(--accent); color: var(--color-ink); }
+.panel .len-custom:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.panel .len-custom[aria-pressed="true"] { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--sel-bg); color: var(--sel-fg); font-family: var(--font-latin); font-weight: 500; }
+.panel .len-custom-in { display: inline-flex; align-items: baseline; gap: 4px; }
+.panel .len-custom-in .techo-input { width: 4em; height: var(--ctl-h-sm); padding: 0 2px; font-family: var(--font-latin); }
 
 /* 定期券検印段的「本班」列：左小標（.lbl）＋右內容，欄寬同 .field */
 .panel .occ { margin-top: 12px; display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: start; }
@@ -275,5 +314,5 @@
 .panel .linkbtn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel .tf-show { transition: none; }
+  .panel .tf-show, .panel .len-custom { transition: none; }
 }

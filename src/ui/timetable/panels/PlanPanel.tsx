@@ -30,7 +30,11 @@ import { SCHED_TINY_MS, canScheduleDay } from "../../../domain/timetableSchedule
 import { describeRule, parseRule } from "../../../domain/repeat";
 import { clockMinutes, clockRange, clockText, nextDayNote } from "../../../lib/date";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
+import { SEG_UI, segTotalOf } from "../schedule/routineModel"; // ⑦ C 席
+import "../schedule/schedule7.css"; // ⑦ C 席：.ns-tt-segrow
 import {
+  addSegKey,
   canDepartPlan,
   departFromPlan,
   scheduleSpansOf,
@@ -71,6 +75,8 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
   const now = useNow(30_000);
   const all = useScheduleCompare(now);
   const c = all.cmp.get(key);
+  // ⑦（C 席）：這張票共幾段（第一段＋time_plans 的第二段起；useSchedulePage 已替這一天的票讀過）
+  const segTotal = useTimetablePlanStore((s) => (item ? segTotalOf(item.nodeId, s.slotsByNode[item.nodeId]) : 1));
 
   // UI 丙-4 C5：時刻 ↔ 毫秒（執行日 00:00 起算；營業日表記 25:00＝隔天 01:00）
   const midnight = item ? new Date(`${item.date}T00:00:00`).getTime() : 0;
@@ -182,6 +188,12 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
     departFromPlan(key);
   };
 
+  // ⑦（C 席）：再排一段＝收面板（等著寫的時刻照寫）、進挑位置
+  const again = (): void => {
+    onDone();
+    useTimetableScheduleStore.getState().pick(addSegKey(item.nodeId));
+  };
+
   const showDepart = isToday && canDepartPlan(item);
   const actualNone =
     item.done ? SCHED_UI.actualNone.doneNoTime : all.isFuture ? SCHED_UI.actualNone.future : isPast ? SCHED_UI.actualNone.past : SCHED_UI.actualNone.notStarted;
@@ -255,6 +267,18 @@ export function PlanPanel({ onDone, shell = "mobile" }: PlanPanelProps) {
               <span className="ns-tt-plan-faint">{actualNone}</span>
             )}
             {delta && blocks.length > 0 && <span className={"ns-tt-plan-diff is-" + toneOf(c)}>{delta}</span>}
+          </span>
+        </Row>
+      )}
+
+      {/* ⑦（C 席，D-時-162）：單發票才有「分段　共 N 段〔再排一段〕」；按了＝收面板、進挑位置（點預定欄放下＝addSlot） */}
+      {item.kind === "single" && editable && !item.lateFrom && (
+        <Row k={SEG_UI.rowKey}>
+          <span className="ns-tt-segrow">
+            <span className="ns-tt-plan-faint">{SEG_UI.count(segTotal)}</span>
+            <button type="button" className="ns-tt-opt is-solid" data-tt-drop-draft="" disabled={busy} onClick={again}>
+              {SEG_UI.again}
+            </button>
           </span>
         </Row>
       )}

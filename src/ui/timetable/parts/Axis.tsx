@@ -20,6 +20,9 @@
  * 車次②（② 契約 §5.9；乙席；長相＝原型 `v-f.js` axisHtml `.vf-bn`）：每一塊的分類名後接 span.ns-tt-link-bn「・任務名」
  * （`linkLabelOf`；只連路線＝路線名；刪掉＝「（原車票已刪除）」斜體淡字 `.is-gone`）；長的 CSS 省略號。
  * 已結束的塊點了照舊開改一塊面板（裡面有「連到」那一列）；門檻（blockMarker）多一層任務的預計時間。
+ *
+ * 時刻表⑦（契約 §5；原型題 5；A 席）：塊的備註＝名稱下一行淡字 span.ns-tt-blk-note（一行省略、滑過看全文；樣式在 blockNote.css）。
+ * 名稱下那一行沒有小牌時備註就放那一行；有小牌另起一行。軸列是 min-height，多一行自己長高（「太矮只進 tooltip」不適用軸）。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
@@ -28,6 +31,7 @@ import {
   fmtClock,
   fmtDur,
   msOf,
+  noteOf,
   segmentsOfDay,
   toSpan,
   type AxisItem,
@@ -42,6 +46,7 @@ import { CategoryBadge } from "../CategoryBadge";
 import { useMergeMarks } from "../panels/controls";
 import { DaySummary } from "./DaySummary";
 import { useNow } from "../useNow";
+import "../blockNote.css";
 
 export interface AxisProps {
   scroller: "self" | "page";
@@ -191,6 +196,10 @@ export function Axis({ scroller }: AxisProps) {
         const lk = row ? linkOfRow(row) : null;
         const lkInfo = lk ? linkInfo[lk.nodeId ?? lk.routeId ?? ""] : undefined;
         const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
+        const note = noteOf(row);
+        // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估）——沒有就不畫空的那行，備註直接頂上
+        const hasChip =
+          it.running || it.contFromPrev || it.contToNext || it.zero || m.kind === "late" || m.kind === "long" || est !== null;
         const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`, minHeight: axisRowHeight(dur) } as CSSProperties;
         const cls =
           "ns-tt-blk" +
@@ -216,25 +225,35 @@ export function Axis({ scroller }: AxisProps) {
                       </>
                     )}
                   </span>
-                  <span className="ns-tt-blk-sub">
-                    {/* UI 丙-7：呼吸點移到圓徽右上肩（CategoryBadge live），這裡只留字 */}
-                    {it.running && <span>運行中</span>}
-                    {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
-                    {/* 跨日界線往後一天延伸（沙盒回報 D2，調度裁定兩天都標「續」）：已結束的寫真實到着時刻；
-                        運行中的沒有結束時刻，只標「續 ›」 */}
-                    {it.contToNext && (
-                      <span className="ns-tt-chip">{it.span.end === null ? "續 ›" : `續・${fmtClock(it.span.end)} 着`}</span>
-                    )}
-                    {it.zero ? (
-                      <span className="ns-tt-chip is-late">時刻待確認</span>
-                    ) : m.kind === "late" ? (
-                      <span className="ns-tt-chip is-late">{m.pending ? TT_TEXT.latePending(m.overMs) : TT_TEXT.late(m.overMs)}</span>
-                    ) : m.kind === "long" ? (
-                      <span className={"ns-tt-chip" + (m.pending ? " is-late" : "")}>{m.pending ? "長時間運行・待確認" : "長時間運行"}</span>
-                    ) : est !== null ? (
-                      <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
-                    ) : null}
-                  </span>
+                  {(hasChip || note === null) && (
+                    <span className="ns-tt-blk-sub">
+                      {/* UI 丙-7：呼吸點移到圓徽右上肩（CategoryBadge live），這裡只留字 */}
+                      {it.running && <span>運行中</span>}
+                      {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
+                      {/* 跨日界線往後一天延伸（沙盒回報 D2，調度裁定兩天都標「續」）：已結束的寫真實到着時刻；
+                          運行中的沒有結束時刻，只標「續 ›」 */}
+                      {it.contToNext && (
+                        <span className="ns-tt-chip">{it.span.end === null ? "續 ›" : `續・${fmtClock(it.span.end)} 着`}</span>
+                      )}
+                      {it.zero ? (
+                        <span className="ns-tt-chip is-late">時刻待確認</span>
+                      ) : m.kind === "late" ? (
+                        <span className="ns-tt-chip is-late">{m.pending ? TT_TEXT.latePending(m.overMs) : TT_TEXT.late(m.overMs)}</span>
+                      ) : m.kind === "long" ? (
+                        <span className={"ns-tt-chip" + (m.pending ? " is-late" : "")}>{m.pending ? "長時間運行・待確認" : "長時間運行"}</span>
+                      ) : est !== null ? (
+                        <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
+                      ) : null}
+                    </span>
+                  )}
+                  {/* ⑦（原型題 5）：沒有小牌＝備註就在名稱下那一行；有小牌另起一行（接在小牌後面窄欄會被擠成「…」） */}
+                  {note !== null && (
+                    <span className="ns-tt-blk-sub">
+                      <span className="ns-tt-blk-note" title={note}>
+                        {note}
+                      </span>
+                    </span>
+                  )}
                 </span>
                 <span className="ns-tt-blk-dur ns-tt-num">{fmtDur(dur)}</span>
               </button>

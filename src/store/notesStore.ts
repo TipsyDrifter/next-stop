@@ -27,6 +27,7 @@ import type { CaptureSaveResult, CaptureTargetSpec, LineReloadContext } from "..
 import { lineCaptureTargets } from "../lines/runtime";
 import { useTagStore } from "./tagStore";
 import type { NodeRow } from "../domain";
+import { anchorAround } from "../domain/nodeOrder";
 import {
   CAPTURE_STUBS,
   captureToast,
@@ -726,27 +727,26 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     },
     async attachTicket(id, parentId) {
       const before = get().inboxTickets.find((t) => t.id === id);
+      // 復原用：原本那份清單裡的上下鄰居（收件匣不排序，鄰居只是形式；掛了路線標籤的票＝那條路線最上層的鄰居）
+      const anchor = anchorAround(await nodeRepo.listSiblingIds(id), id);
       let parentName = "";
       const ok = await ticketAction(id, async () => {
         const parent = await nodeRepo.getNode(parentId);
         if (!parent || parent.deleted_at) return { ok: false, reason: "那班列車已經不在了" };
         parentName = parent.name;
+        // 放到那班列車的最後一格（index ≥ 子節點數＝尾端；回饋乙起 index 是顯示清單的格位，不是 position）
         const routeId = parent.kind === "route" ? parent.id : parent.route_id;
         const siblings = routeId
           ? (await nodeRepo.listRouteTree(routeId)).filter((n) => n.parent_id === parentId)
           : [];
-        const index = siblings.reduce((m, n) => Math.max(m, n.position), -1) + 1;
-        return useNodeStore.getState().moveNode(id, parentId, index);
+        return useNodeStore.getState().moveNode(id, parentId, siblings.length);
       });
       if (!ok) return;
-      const origPos = before?.position ?? 0;
       toast(
         `已放進 ${parentName}`,
         safeUndo(async () => {
-          await useNodeStore.getState().moveNode(id, null, origPos);
-          // 搬回根層時 move 會把列車所屬路線留成「路線標籤」（臨時車票保留路線標籤的規則）；
-          // 收件匣的票本來沒有標籤，一併清掉才回得到收件匣
-          if (!before?.route_id) await useNodeStore.getState().setRouteTag(id, null);
+          // 一筆寫入搬回根層：收件匣的票（沒標籤）傳 null＝清掉 move 留下的路線標籤；有標籤的傳回那條路線（moveToAnchor 的慣例）
+          await useNodeStore.getState().moveToAnchor([id], before?.route_id ?? null, anchor);
           await get().loadInbox();
         }),
       );

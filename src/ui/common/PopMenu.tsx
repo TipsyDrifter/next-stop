@@ -15,6 +15,11 @@
  *     規範 §2.4：一層、≤7 項、破壞性項目放最後（通常再加 `cut` 虛線隔開）——順序由呼叫端排，元件不重排。
  *   - `overline` 吃 `string | {zh, latin}`：物件＝PageHeader 同一種畫法（粉彩只畫拉丁斜體、銀河「中 — LATIN」）；
  *     字串＝照字面（別線舊呼叫端不用改）。新寫的呼叫端一律給物件。
+ *
+ * ── 回饋乙（右鍵選單、編排群組）──
+ *   - `at`：照座標開（右鍵＝游標位置，左上角對齊游標、clamp 進視窗）；有 `at` 就不看 anchor 定位。
+ *   - `PopMenuItem.group`：同一個 group 的連續項目收成一列可展開的「{group} ▾」（跟手機票卡 sheet 的「編排 ▾」同一種結構），
+ *     點開才列出來；頂層照規範 §2.4 維持 ≤7 項。群組列沿用第一個成員的 `cut`。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
@@ -34,6 +39,8 @@ export interface PopMenuItem {
   cut?: boolean;
   /** 破壞性項目（刪除…）：赭字；放在最後 */
   danger?: boolean;
+  /** 收進可展開群組的名字（例「編排」）：同名的連續項目畫成一列「編排 ▾」，點開才列出 */
+  group?: string;
   onSelect: () => void;
 }
 
@@ -47,6 +54,8 @@ export interface PopMenuProps {
   onClose: () => void;
   /** Esc 收卡後焦點交給誰（預設 anchor） */
   returnFocus?: () => HTMLElement | null;
+  /** 照座標開（右鍵選單）：viewport px */
+  at?: { x: number; y: number };
 }
 
 /** 鍵帽字樣：registry 第一組 chord（Windows「Alt+↑」、Mac「⌥+↑」） */
@@ -55,9 +64,24 @@ export function hotkeyCaps(id: string): string {
   return hk ? formatChord(hk.chords[0]).join("+") : "";
 }
 
-export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }: PopMenuProps) {
+type MenuRow = { kind: "item"; item: PopMenuItem } | { kind: "group"; name: string; cut: boolean; items: PopMenuItem[] };
+
+/** 同 group 的連續項目收成一列（呼叫端照順序排；不連續的同名會變成兩組） */
+export function rowsOf(items: readonly PopMenuItem[]): MenuRow[] {
+  const out: MenuRow[] = [];
+  for (const it of items) {
+    const last = out[out.length - 1];
+    if (it.group && last?.kind === "group" && last.name === it.group) last.items.push(it);
+    else if (it.group) out.push({ kind: "group", name: it.group, cut: !!it.cut, items: [it] });
+    else out.push({ kind: "item", item: it });
+  }
+  return out;
+}
+
+export function PopMenu({ anchor, overline, label, items, onClose, returnFocus, at }: PopMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
 
   /* 定位：anchor 下方、右緣對齊 anchor 右緣（觸發鈕都在列或標題列的右側），clamp 進視窗 */
   useLayoutEffect(() => {
@@ -67,6 +91,12 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }
     const vw = document.documentElement.clientWidth || window.innerWidth;
     const vh = document.documentElement.clientHeight || window.innerHeight;
     const M = 12;
+    if (at) {
+      const top = at.y + h > vh - M ? Math.max(M, at.y - h) : at.y;
+      const left = at.x + w > vw - M ? Math.max(M, at.x - w) : at.x;
+      setPos({ top: Math.round(top), left: Math.round(left) });
+      return;
+    }
     if (!anchor) {
       setPos({ top: Math.round(vh * 0.24), left: Math.round((vw - w) / 2) });
       return;
@@ -76,7 +106,7 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }
     if (top + h > vh - M) top = Math.max(M, r.top - h - 6);
     const left = Math.max(M, Math.min(r.right - w, vw - w - M));
     setPos({ top: Math.round(top), left: Math.round(left) });
-  }, [anchor]);
+  }, [anchor, at?.x, at?.y, openGroups]);
 
   /* 落位後才 focus（落位前 visibility:hidden，focus 是 no-op——DeferPopover 同一個坑） */
   const focusedOnce = useRef(false);
@@ -140,6 +170,29 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }
     }
   };
 
+  const itemRow = (it: PopMenuItem, top: boolean) => {
+    const caps = it.hotkeyId ? hotkeyCaps(it.hotkeyId) : "";
+    return (
+      // 停用項的說明掛在 li：disabled 的 <button> 收不到滑鼠事件，title 掛它身上滑過不會浮
+      <li key={it.key} role="none" className={top && it.cut ? "cut" : undefined} title={it.disabled ? it.why : undefined}>
+        <button
+          type="button"
+          role="menuitem"
+          data-menu-item
+          disabled={it.disabled}
+          className={it.danger ? "ns-popmenu-item is-danger" : "ns-popmenu-item"}
+          onClick={() => {
+            close(false);
+            it.onSelect();
+          }}
+        >
+          <span>{it.label}</span>
+          {caps && <kbd className="caps">{caps}</kbd>}
+        </button>
+      </li>
+    );
+  };
+
   return createPortal(
     <div
       ref={ref}
@@ -154,25 +207,34 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus }
         <OverlineText value={overline} />
       </p>
       <ul className="ns-popmenu-list" role="none">
-        {items.map((it) => {
-          const caps = it.hotkeyId ? hotkeyCaps(it.hotkeyId) : "";
+        {rowsOf(items).map((row) => {
+          if (row.kind === "item") return itemRow(row.item, true);
+          const open = openGroups.has(row.name);
           return (
-            // 停用項的說明掛在 li：disabled 的 <button> 收不到滑鼠事件，title 掛它身上滑過不會浮
-            <li key={it.key} role="none" className={it.cut ? "cut" : undefined} title={it.disabled ? it.why : undefined}>
+            <li key={`g:${row.name}`} role="none" className={row.cut ? "cut" : undefined}>
               <button
                 type="button"
                 role="menuitem"
                 data-menu-item
-                disabled={it.disabled}
-                className={it.danger ? "ns-popmenu-item is-danger" : "ns-popmenu-item"}
-                onClick={() => {
-                  close(false);
-                  it.onSelect();
-                }}
+                aria-expanded={open}
+                className="ns-popmenu-item ns-popmenu-group"
+                onClick={() =>
+                  setOpenGroups((cur) => {
+                    const n = new Set(cur);
+                    if (open) n.delete(row.name);
+                    else n.add(row.name);
+                    return n;
+                  })
+                }
               >
-                <span>{it.label}</span>
-                {caps && <kbd className="caps">{caps}</kbd>}
+                <span>{row.name}</span>
+                <span className="caret" aria-hidden="true">{open ? "▴" : "▾"}</span>
               </button>
+              {open && (
+                <ul className="ns-popmenu-sub" role="group" aria-label={row.name}>
+                  {row.items.map((it) => itemRow(it, false))}
+                </ul>
+              )}
             </li>
           );
         })}

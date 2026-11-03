@@ -9,8 +9,9 @@
  * 沒有 Rust command、不碰 invoke。
  */
 import { getDb, nowUtcIso, uuid } from "../lib/db";
+import { SEAL_NODE_SQL, SEAL_NODE_WHERE, SEAL_OCC_SQL, SEAL_OCC_WHERE, sealOfRow, type SealRow } from "../domain/seals";
 import { dayKeyOf, dayWindow } from "../lib/date";
-import type { Mood, NodeRow } from "../domain";
+import type { NodeRow } from "../domain";
 import {
   MISSING_NODE_NAME,
   escapeLike,
@@ -344,21 +345,10 @@ export class SqliteNoteRepository implements NoteRepository {
     const { start, end } = dayWindow(day, dayStartHour);
     const [nodeSeals, occSeals, logs] = await Promise.all([
       // (a) 済章・單發票／列車／車廂／退役定期券（含 cascade 蓋章的子項——cascade 分支也寫 completed_at）
-      db.select<SealRow[]>(
-        `SELECT n.id, n.id AS node_id, n.name, n.kind, n.route_id, n.completed_at AS at, n.mood, NULL AS due_on
-         FROM nodes n
-         WHERE n.deleted_at IS NULL AND n.kind IN ('train','car','ticket') AND n.status = 'done'
-           AND n.completed_at IS NOT NULL AND n.completed_at >= $1 AND n.completed_at < $2`,
-        [start, end],
-      ),
+      // 済的定義全 App 一份（domain/seals.ts，D-主-181）
+      db.select<SealRow[]>(SEAL_NODE_SQL, [start, end]),
       // (b) 済章・定期券班次（運休不列）
-      db.select<SealRow[]>(
-        `SELECT o.id, o.node_id, n.name, n.kind, n.route_id, o.completed_at AS at, o.mood, o.due_on
-         FROM occurrences o JOIN nodes n ON n.id = o.node_id
-         WHERE o.deleted_at IS NULL AND n.deleted_at IS NULL AND o.status = 'done'
-           AND o.completed_at IS NOT NULL AND o.completed_at >= $1 AND o.completed_at < $2`,
-        [start, end],
-      ),
+      db.select<SealRow[]>(SEAL_OCC_SQL, [start, end]),
       // (c) 手記（event IS NULL；発券／入鋏／済／conflict 都不列，D-筆-22）
       db.select<LogRow[]>(
         `SELECT w.id, w.node_id, w.body, w.logged_at AS at, n.name AS node_name
@@ -369,16 +359,7 @@ export class SqliteNoteRepository implements NoteRepository {
         [start, end],
       ),
     ]);
-    const seals: FootprintSeal[] = [...nodeSeals, ...occSeals].map((r) => ({
-      id: r.id,
-      nodeId: r.node_id,
-      name: r.name,
-      kind: r.kind,
-      routeId: r.route_id,
-      at: r.at,
-      mood: r.mood,
-      dueOn: r.due_on,
-    }));
+    const seals: FootprintSeal[] = [...nodeSeals, ...occSeals].map(sealOfRow);
     const footLogs: FootprintLog[] = logs.map((r) => ({
       id: r.id,
       nodeId: r.node_id,
@@ -398,13 +379,11 @@ export class SqliteNoteRepository implements NoteRepository {
     const end = dayWindow(to, dayStartHour).end;
     // 只撈時間戳；本地時區與日界線在 SQL 裡算不乾淨 ⇒ TS 端 dayKeyOf 分桶（一個月最多幾百列）
     const rows = await db.select<{ at: string }[]>(
-      `SELECT completed_at AS at FROM nodes
-       WHERE deleted_at IS NULL AND kind IN ('train','car','ticket') AND status = 'done'
-         AND completed_at IS NOT NULL AND completed_at >= $1 AND completed_at < $2
+      `SELECT n.completed_at AS at FROM nodes n
+       WHERE ${SEAL_NODE_WHERE}
        UNION ALL
        SELECT o.completed_at AS at FROM occurrences o JOIN nodes n ON n.id = o.node_id
-       WHERE o.deleted_at IS NULL AND n.deleted_at IS NULL AND o.status = 'done'
-         AND o.completed_at IS NOT NULL AND o.completed_at >= $1 AND o.completed_at < $2
+       WHERE ${SEAL_OCC_WHERE}
        UNION ALL
        SELECT w.logged_at AS at FROM work_logs w LEFT JOIN nodes n ON n.id = w.node_id
        WHERE w.deleted_at IS NULL AND w.event IS NULL AND w.body != ''
@@ -419,17 +398,6 @@ export class SqliteNoteRepository implements NoteRepository {
   }
 }
 
-/** (a)／(b) 回來的一列 */
-interface SealRow {
-  id: string;
-  node_id: string;
-  name: string;
-  kind: FootprintSeal["kind"];
-  route_id: string | null;
-  at: string;
-  mood: Mood | null;
-  due_on: string | null;
-}
 
 /** (c) 回來的一列；node_name 為 NULL＝LEFT JOIN 沒對到節點 */
 interface LogRow {

@@ -11,7 +11,7 @@
  */
 import { useRef } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
-import { CalendarCell, useAddOutOfTabOrder } from "./CalendarCell";
+import { CalendarCell, useAddOutOfTabOrder, useDateDropTargets } from "./CalendarCell";
 import { useCalendar } from "./useCalendarController";
 
 const EMPTY_ENTRIES: never[] = [];
@@ -20,6 +20,7 @@ export function MonthGrid() {
   const c = useCalendar();
   const gridRef = useRef<HTMLDivElement>(null);
   useAddOutOfTabOrder(gridRef); // 格線只留落點格一個 Tab stop
+  useDateDropTargets(gridRef); // 回饋乙：格子是「拖到日期＝改期」的落點
   // 鍵盤焦點的落點：選取格 →（本月的）今天 → 本月 1 日
   const focusDay =
     c.selectedDay && c.selectedDay >= c.range.from && c.selectedDay <= c.range.to

@@ -3,10 +3,10 @@
  * 完成流、臨時車票、誤點區摺疊、跨日界線重載，以及鍵盤／滑鼠兩張動作表。TodayView.tsx 只負責畫。
  *
  * 這個檔是 **Wave C 三席（WP3 臨時車票／WP4 行內日誌／WP5 拖曳）的插槽契約**：
- *   draft / openDraft / closeDraft / commitDraft      → TicketDraftRow
+ *   draft / openDraft / closeDraft / dismissDraft     → 建票列（common/quickadd/QuickAddRow；建票自己做，這裡只管開關）
  *   logTarget / openLog / closeLog                    → LogInlineInput
  *   deferTarget / openDefer / closeDefer              → DeferPopover
- *   moveTo(id, index)                                 → useTodayDnd
+ *   moveTo(id, index)                                 → 拖曳（useDragReorder）
  * 三席只填自己的檔，不要改這裡的簽名。
  *
  * 資料唯一入口一律走 nodeStore（元件不碰 repository）：
@@ -38,15 +38,15 @@ import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { lineTodayHotkey } from "../../lines/runtime";
 import { requestMoveTo } from "../common/moveTo";
-import type { CommitVia } from "../common/InlineInput";
-import type { PopMenuItem } from "../common/PopMenu";
+import { rowsOf, type PopMenuItem } from "../common/PopMenu";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
+import { useSelectionStore } from "../../store/selectionStore";
+import { clearIfAny, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
+import { armOpenOnClick } from "../common/selection/openOnClick";
 
-/** 建票草稿列的狀態；kind 是 WP2 追加的旗標（today＝Enter 排今天／inbox＝Shift+Enter 無日期票） */
+/** 建票列的開關狀態；kind＝today（Enter 排今天）／inbox（Shift+Enter 無日期票），TodayView 拿它挑建票列的預設 */
 export interface TodayDraft {
-  /** 插在這張票之後；null＝清單末尾 */
-  afterId: string | null;
   kind: "today" | "inbox";
 }
 
@@ -74,6 +74,21 @@ const WEEK_ZH = ["日", "一", "二", "三", "四", "五", "六"];
  */
 export function isDoneRow(row: TodayRow): boolean {
   return row.occurrence ? row.occurrence.status === "done" : row.status === "done";
+}
+
+/**
+ * 上移／下移要插到手排座標的第幾格（桌機 Alt+↑↓、⋯ 與手機 sheet 共用；回饋甲 D-主-131）：
+ * 「済・隱藏」開著時跳過看不見的済票，跟畫面上相鄰的那張換位。null＝畫面上已經在頂／底（或不在手排座標）。
+ * 格位照 moveToday（reorderIds：先拿掉自己再插）——往上往下都剛好是那位鄰居現在的座標。
+ */
+export function manualStepTarget(rows: readonly TodayRow[], id: string, delta: -1 | 1, hideDone: boolean): number | null {
+  const ids = manualOrderIds(rows);
+  const hidden = hideDone ? new Set(rows.filter((r) => r.id !== id && isDoneRow(r)).map((r) => r.id)) : null;
+  const shown = hidden ? ids.filter((x) => !hidden.has(x)) : ids;
+  const i = shown.indexOf(id);
+  if (i < 0) return null;
+  const nb = shown[i + delta];
+  return nb === undefined ? null : ids.indexOf(nb);
 }
 
 /**
@@ -140,16 +155,10 @@ export interface TodayControllerApi {
   moveSel(dir: 1 | -1): void;
 
   draft: TodayDraft | null;
-  /**
-   * 草稿列的重掛鍵（收官磨光 A1）：Enter 建票成功就 +1，TodayView 拿它當 TicketDraftRow 的 key——
-   * 輸入框重掛＝清空並重新聚焦（連打）。沒有它，同一顆輸入框留著剛送出的字，連按 Enter／失焦會同名再建。
-   * 「無日期」切換不動它（打到一半的字要留著）。同 StreamView 的 draftSeq。
-   */
-  draftSeq: number;
   openDraft(): void;
   closeDraft(): void;
-  /** via＝"blur"（點去別處）：有字照建、建完收草稿，不搶回焦點與選取（同大綱 draftCommit） */
-  commitDraft(title: string, via?: CommitVia): Promise<void>;
+  /** 收草稿但不搶焦點（建票列失焦＝使用者點去別處；回饋甲） */
+  dismissDraft(): void;
 
   logTarget: string | null;
   openLog(id: string): void;
@@ -200,25 +209,24 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
   const setLateCollapsed = useUiStore((s) => s.setLateCollapsed);
 
   const [draft, setDraftState] = useState<TodayDraft | null>(null);
-  const [draftSeq, setDraftSeq] = useState(0);
   const [logTarget, setLogTarget] = useState<string | null>(null);
   const [deferTarget, setDeferTarget] = useState<DeferTarget | null>(null);
   const [freshId, setFreshId] = useState<string | null>(null);
-  const busyRef = useRef(false);
   const draftRef = useRef<TodayDraft | null>(null);
   const setDraft = useCallback((d: TodayDraft | null) => {
     draftRef.current = d;
     setDraftState(d);
   }, []);
-  // 收官磨光 A1：Enter 建票成功後，重入鎖要等「清空的新輸入框」掛上去才放（draftSeq 變了＝新的那顆已 commit）。
-  // 若在 createNode 回來那一刻就放，舊輸入框（字還在）在 React 重畫前收到的 Enter／失焦會再建一張同名票。
-  useEffect(() => {
-    busyRef.current = false;
-  }, [draftSeq]);
 
   const dateKey = today.dateKey ?? todayKey(dayStartHour);
   const rows = today.rows;
-  const visibleRows = lateCollapsed ? rows.filter((r) => r.bucket === "today") : rows;
+  // 回饋甲 D-主-131：「今天的列車」隱藏已完成時，鍵盤游標也跳過那些列（誤點區不受影響）
+  const todayHideDone = useUiStore((s) => s.todayHideDone);
+  const visibleRows = rows.filter(
+    (r) =>
+      (!lateCollapsed || r.bucket === "today") &&
+      !(todayHideDone && r.bucket === "today" && (r.occurrence ? r.occurrence.status === "done" : r.status === "done")),
+  );
   const todayRows = rows.filter((r) => r.bucket === "today");
   const lateRows = rows.filter((r) => r.bucket !== "today");
 
@@ -227,6 +235,12 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
   st.current = { visibleRows, dateKey };
 
   /* ───────── 載入與跨日界線 ───────── */
+
+  // 多選只留畫面上還看得到的（蓋済後還在、刪掉、推走、誤點區收起；回饋乙）
+  const visibleKey = visibleRows.map((r) => r.id).join("|");
+  useEffect(() => {
+    useSelectionStore.getState().prune("today", visibleKey ? visibleKey.split("|") : []);
+  }, [visibleKey]);
 
   // 進頁（與日界線設定變動）就載一次今天
   useEffect(() => {
@@ -271,11 +285,12 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     setDraft(null);
     focusContainer();
   }, [setDraft, focusContainer]);
+  const dismissDraft = useCallback(() => setDraft(null), [setDraft]);
 
   const openDraft = useCallback(() => {
     setLogTarget(null);
     setDeferTarget(null);
-    setDraft({ afterId: null, kind: "today" });
+    setDraft({ kind: "today" });
   }, [setDraft]);
 
   const closeLog = useCallback(() => {
@@ -366,66 +381,15 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       });
   };
 
-  /* ───────── 臨時車票（a18–a21／決策 6／M3-6） ───────── */
-  const commitDraft = async (text: string, via: CommitVia = "enter") => {
-    const d = draftRef.current;
-    if (!d || busyRef.current) return;
-    const name = text.trim();
-    if (!name) {
-      // 空白失焦＝使用者點去別處：收草稿但不把焦點搶回今日頁（同大綱 cancelEdit(via === "enter")）
-      if (via === "enter") closeDraft();
-      else setDraft(null);
-      return;
-    }
-    busyRef.current = true;
-    let holdLock = false; // true＝鎖交給上面的 draftSeq effect 放（見那裡的註解）
-    try {
-      const row = await ns().createNode({
-        kind: "ticket",
-        name,
-        parentId: null,
-        scheduledOn: d.kind === "inbox" ? null : st.current.dateKey,
-      });
-      if (!row) {
-        setDraft(null);
-        toast("新增失敗——請再試一次");
-        return;
-      }
-      if (d.kind === "inbox") {
-        setDraft(null);
-        if (via === "enter") focusContainer();
-        // 票立刻離開今日（沒有執行日就不在聚合裡），畫面上什麼都不會發生 →
-        // toast 是唯一的收據，並且要能反悔（WP3：拍板「可 undo」）。這裡的 undo＝把剛建的票收回去。
-        ui().showToast({
-          message: INBOX_TOAST,
-          actionLabel: "復原", // UI 丙-1：反悔動作一律叫「復原」（視覺規範 §2.8；原「取消」）
-          onAction: () => void ns().deleteNode(row.id),
-        });
-        return;
-      }
-      if (via === "blur") {
-        setDraft(null); // 失焦提交：使用者已點去別處——建好就收，選取與焦點都不動（同大綱 draftCommit）
-        return;
-      }
-      ui().select(row.id);
-      setDraft({ afterId: row.id, kind: "today" });
-      setDraftSeq((n) => n + 1); // 連打：草稿列重掛＝清空、重新聚焦
-      holdLock = true;
-    } finally {
-      if (!holdLock) busyRef.current = false;
-    }
-  };
-
   /**
-   * Shift+Enter＝建一張無日期票（立刻離開今日、流入收件匣資料態；種子動線 M3-6 之一）。
-   * 走的是「同款草稿列、只換提示語與提交規則」——沒有標題就沒有票可建，所以不是「按下去直接生一筆」，
-   * 而是「打完 Enter 就進收件匣」（WP3 覆核維持這個形狀：無名票只會變成 Ctrl+P 裡找不到的垃圾）。
-   * 建成後只有 toast 這一張收據，故 commitDraft 的 inbox 分支帶「復原」undo。
+   * Shift+Enter＝開無日期的建票列（建好立刻離開今日、流入收件匣資料態；種子動線 M3-6 之一）。
+   * 同一條建票列（quickadd/QuickAddRow）、只換預設（無日期）——沒有標題就沒有票可建，
+   * 所以不是「按下去直接生一筆」，而是「打完 Enter 就進收件匣」；建成後的「復原」收據由建票列自己出。
    */
   const createInboxTicket = useCallback(() => {
     setLogTarget(null);
     setDeferTarget(null);
-    setDraft({ afterId: null, kind: "inbox" });
+    setDraft({ kind: "inbox" });
   }, [setDraft]);
 
   /* ───────── 刪除流（a11／D3：soft delete＋undo） ───────── */
@@ -466,6 +430,19 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       });
   };
 
+  /**
+   * Alt+↑↓ 為什麼不能動（null＝能動）——鍵盤與 ⋯「上移／下移」共用（回饋甲 D-主-134）：
+   * 誤點區不排序；主線②（D-主-10）有時刻的票照時刻排、不能手排（手排座標＝沒時刻的 today 列）；到頂／到底。
+   */
+  const reorderWhy = (row: TodayRow, delta: -1 | 1): string | null => {
+    if (row.bucket !== "today") return "誤點區的車票不能排序——按 T 可排進今天";
+    if (timeOfRow(row) !== null) return TIME_FIXED_ORDER_MSG;
+    const rs = ns().today.rows;
+    if (!manualOrderIds(rs).includes(row.id)) return null;
+    if (manualStepTarget(rs, row.id, delta, ui().todayHideDone) === null) return delta < 0 ? "已經在最上面" : "已經在最下面";
+    return null;
+  };
+
   /* ───────── 鍵盤動作表 ───────── */
   const keys: TodayKeyActions = {
     moveSelection(delta) {
@@ -478,24 +455,13 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     reorderSelected(delta) {
       const row = selRow();
       if (!row) return;
-      if (row.bucket !== "today") {
-        toast("誤點區的車票不能排序——按 T 可排進今天");
+      const why = reorderWhy(row, delta);
+      if (why) {
+        toast(why);
         return;
       }
-      // 主線②（D-主-10）：有時刻的票照時刻排、不能手排；手排座標＝沒時刻的 today 列
-      if (timeOfRow(row) !== null) {
-        toast(TIME_FIXED_ORDER_MSG);
-        return;
-      }
-      const ids = manualOrderIds(ns().today.rows);
-      const i = ids.indexOf(row.id);
-      const j = i + delta;
-      if (i < 0) return;
-      if (j < 0 || j >= ids.length) {
-        toast(delta < 0 ? "已經在最上面" : "已經在最下面");
-        return;
-      }
-      moveTo(row.id, j);
+      const at = manualStepTarget(ns().today.rows, row.id, delta, ui().todayHideDone);
+      if (at !== null) moveTo(row.id, at);
     },
     completeSelected() {
       const row = selRow();
@@ -538,7 +504,15 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       if (draftRef.current) return closeDraft();
       if (deferTarget) return closeDefer();
       if (logTarget) return closeLog();
+      if (clearIfAny("today")) return; // 回饋乙：覆蓋層之後、收側板之前先清多選
       ui().setPanelOpen(false);
+    },
+    selectAll() {
+      selectAll("today", visibleIds());
+    },
+    extendSelection(delta) {
+      const next = extendBy("today", delta, visibleIds(), ui().selectedId);
+      if (next) ui().select(next);
     },
     // 別線的今日鍵（插槽 todayRowActions 的 hotkeys，接縫 #66）：沒有線處理或沒選中列 ⇒ false＝鍵照常放行
     lineHotkey(id) {
@@ -560,6 +534,14 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     },
     openDefer,
     focusContainer,
+    pick: (id, e) => {
+      if (pickClick("today", id, visibleIds(), e, ui().selectedId)) return true;
+      // 回饋甲 D-主-132：單擊票面＝選中＋開詳情側板（章、⋯、chip 這些控件不開；拖曳不開——見 openOnClick）
+      armOpenOnClick(e, () => {
+        if (ui().selectedId === id) ui().setPanelOpen(true);
+      });
+      return false;
+    },
   };
 
   /* ───────── 列的 ⋯ 選單（UI 丙-3 A5） ───────── */
@@ -598,11 +580,33 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         r.bucket === "today"
           ? { key: "tomorrow", label: "推遲到明天", hotkeyId: "today.schedule.tomorrow", onSelect: run(() => keys.scheduleSelected(1)) }
           : { key: "today", label: "推遲到今天", hotkeyId: "today.schedule.today", onSelect: run(() => keys.scheduleSelected(0)) },
-        { key: "pick", label: "選日期…", onSelect: run(() => openDefer(r.id, anchor)) },
+        { key: "pick-date", label: "選日期…", onSelect: run(() => openDefer(r.id, anchor)) },
       );
     }
+    // 回饋甲 D-主-134：補「上移／下移」（鏡射 Alt+↑↓；手機票卡 sheet 有，拖曳是加速）——
+    // 跟「移動到…」收成「編排 ▾」（手機 sheet 同一組）；做不到時淡掉、滑過看理由（同 reorderWhy）
+    const upWhy = reorderWhy(r, -1);
+    const downWhy = reorderWhy(r, 1);
     items.push(
-      { key: "move", label: "移動到…", onSelect: () => requestMoveTo(r.id) },
+      { key: "move", label: "移動到…", group: "編排", onSelect: () => requestMoveTo(r.id) },
+      {
+        key: "up",
+        label: "上移",
+        hotkeyId: "today.reorder.up",
+        group: "編排",
+        disabled: upWhy !== null,
+        why: upWhy ?? undefined,
+        onSelect: run(() => keys.reorderSelected(-1)),
+      },
+      {
+        key: "down",
+        label: "下移",
+        hotkeyId: "today.reorder.down",
+        group: "編排",
+        disabled: downWhy !== null,
+        why: downWhy ?? undefined,
+        onSelect: run(() => keys.reorderSelected(1)),
+      },
       { key: "log", label: "記乘務記錄", hotkeyId: "today.log", onSelect: run(() => openLog(r.id)) },
     );
     if (teiki) {
@@ -614,9 +618,25 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       });
     }
     items.push(
+      // 回饋乙：多選的可點入口（Ctrl／Shift＋點是加速）；已在多選中＝把這張加進去
+      {
+        key: "pick",
+        label: "選取",
+        onSelect: run(() => {
+          const sel = useSelectionStore.getState();
+          if (sel.scope === "today" && sel.ids.length) {
+            if (!sel.ids.includes(r.id)) sel.toggle("today", r.id, visibleIds());
+          } else sel.start("today", r.id);
+        }),
+      },
       { key: "panel", label: "詳情", hotkeyId: "today.panel", onSelect: () => row.openPanel(r.id) },
       { key: "del", label: "刪除", hotkeyId: "today.delete", cut: true, danger: true, onSelect: run(() => deleteRow(r.id)) },
     );
+    // 規範 §2.4 一層 ≤7：超過時（有発車又能推遲的票＝8 列）把改期的兩項收進「改期 ▾」群組（PopMenu group，同大綱「編排 ▾」）。
+    // 算的是頂層列數（群組算一列）
+    if (rowsOf(items).length > 7) {
+      for (const it of items) if (it.key === "tomorrow" || it.key === "today" || it.key === "pick-date") it.group = "改期";
+    }
     return items;
   };
 
@@ -634,10 +654,9 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     moveSel: (dir) => keys.moveSelection(dir),
 
     draft,
-    draftSeq,
     openDraft,
     closeDraft,
-    commitDraft,
+    dismissDraft,
 
     logTarget,
     openLog,

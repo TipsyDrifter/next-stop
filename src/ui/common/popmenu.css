@@ -48,3 +48,9 @@
 @media (prefers-reduced-motion: reduce) {
   .ns-popmenu .ns-popmenu-item { transition: none; }
 }
+
+/* 回饋乙：可展開群組「編排 ▾」（同手機票卡 sheet）——群組列同一般項目，展開的子項往右縮一格、前面一道淡直線 */
+.ns-popmenu .ns-popmenu-group .caret { font-size: var(--fs-xs); color: var(--color-ink-faint); }
+.ns-popmenu .ns-popmenu-group[aria-expanded="true"] { color: var(--accent); }
+.ns-popmenu .ns-popmenu-sub { list-style: none; margin: 0 0 4px 14px; padding: 0; border-left: 1px dashed var(--color-dash); }
+.ns-popmenu .ns-popmenu-sub .ns-popmenu-item { padding-left: 12px; }

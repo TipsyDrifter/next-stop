@@ -27,12 +27,29 @@
  * - 車次⑥（⑥ 契約 0-8、0-11、§3.2）：`applyPlan` 把要搬的手動荷札（insert 的 `fromId`、`planMerge` 的 `absorbedInto`）記在那一批上，
  *   `commit` 提交之後 `carryBlockTags`（第二個交易）；目標的 `tagNames` 先寫目標列、再 `setTags('timetable:goal')`，scope 照 0-4（v2 有黏性）。
  *   荷札 repository 由建構子注入（`timetableRepository.ts` 給 `tagRepo`）；寫過 taggings 由 `consumeTagWrites()` 回報給 store。
+ * - 車次⑦（⑦ 契約 §2–§6）：`time_blocks.note` 跟著 applyPlan 寫（patch 比現值、insert 照 `insertNoteOf`），`listBlockNotes`／`searchBlocks`；
+ *   `time_routines`（範本）與 `time_plans`（預定）的 CRUD——寫法同 time_goals（一支寫入＝一個 WriteBatch、只送變了的欄、軟刪除）；
+ *   預定的 upsert 送完整列（決定性 id 兩台各自落地同一天＝同一列）。
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow } from "../lib/date";
 import { ensureSyncTables, newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
-import type { TimetableRepository, CreateCategoryInput, CategoryPatch, DepartOptions, MergePreview } from "./timetableRepository";
+import type { TimetableRepository, CreateCategoryInput, CategoryPatch, DepartOptions, MergePreview, BlockNoteTally } from "./timetableRepository";
+import {
+  WEEKDAYS_EVERY,
+  checkPlanTimes,
+  checkRoutineItems,
+  parseRoutineItems,
+  planLabelOf,
+  serializeRoutineItems,
+  type PlanPatch,
+  type PlanUpsert,
+  type PlanWrite,
+  type RoutineInput,
+  type TimePlanRow,
+  type TimeRoutineRow,
+} from "../domain/timetableRoutine";
 import { LINKABLE_KINDS, linkOfRow } from "../domain/timetableLink";
 import {
   MIN,
@@ -41,6 +58,8 @@ import {
   canUndoArrive,
   currentRunning,
   insertLinkOf,
+  insertNoteOf,
+  noteOf,
   groupedCategories,
   isoOf,
   msOf,
@@ -71,6 +90,7 @@ import {
   type DayBlockSegment,
   type KeyedSpan,
   type LongRunChoice,
+  type MergeInfo,
   type Span,
   type TimeBlockRow,
   type TimeBlockSlim,
@@ -130,11 +150,11 @@ interface Snapshot {
   spans: Span[];
 }
 
-/** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去） */
-function mergeInfoOf(rowsById: Record<string, TimeBlockRow>): (id: string) => { estimateMin: number | null; link: BlockLink } | undefined {
+/** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去）。⑦：多帶備註（D-時-164） */
+function mergeInfoOf(rowsById: Record<string, TimeBlockRow>): (id: string) => MergeInfo | undefined {
   return (x) => {
     const r = rowsById[x];
-    return r ? { estimateMin: r.estimate_min, link: linkOfRow(r) } : undefined;
+    return r ? { estimateMin: r.estimate_min, link: linkOfRow(r), note: noteOf(r) } : undefined;
   };
 }
 
@@ -249,6 +269,12 @@ export class SqliteTimetableRepository implements TimetableRepository {
           }
         }
       }
+      if (p.note !== undefined && !(cur && noteOf(cur) === p.note)) {
+        // ⑦：列上沒有這欄（undefined）也當 null 比（put 用 === 會把 undefined 跟 null 當成不同）
+        args.push(p.note);
+        sets.push(`note = $${args.length}`);
+        cols.note = p.note;
+      }
       if (!sets.length) continue;
       args.push(nowIso);
       sets.push(`updated_at = $${args.length}`);
@@ -274,16 +300,18 @@ export class SqliteTimetableRepository implements TimetableRepository {
         node_id: link.nodeId,
         route_id: link.routeId,
         long_run_ack: i.ack ? 1 : 0,
+        // ⑦ D-時-164：明寫的備註優先；否則照 fromId 那一列抄（noTagCarry 的不抄）；規則在純函式 insertNoteOf
+        note: insertNoteOf(i, src),
       };
       b.stmts.push({
         sql: `INSERT INTO time_blocks
-           (id, category_id, started_at, ended_at, estimate_min, node_id, route_id, long_run_ack, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+           (id, category_id, started_at, ended_at, estimate_min, node_id, route_id, long_run_ack, note, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
          ON CONFLICT(id) DO UPDATE SET
            category_id = excluded.category_id, started_at = excluded.started_at, ended_at = excluded.ended_at,
            estimate_min = excluded.estimate_min, node_id = excluded.node_id, route_id = excluded.route_id,
-           long_run_ack = excluded.long_run_ack, updated_at = excluded.updated_at, deleted_at = NULL`,
-        args: [id, row.category_id, row.started_at, row.ended_at, row.estimate_min, row.node_id, row.route_id, row.long_run_ack, nowIso],
+           long_run_ack = excluded.long_run_ack, note = excluded.note, updated_at = excluded.updated_at, deleted_at = NULL`,
+        args: [id, row.category_id, row.started_at, row.ended_at, row.estimate_min, row.node_id, row.route_id, row.long_run_ack, row.note, nowIso],
       });
       // 收到方沒有這列時必填欄要齊（engine 新列缺必填就跳過）⇒ 完整列
       addOp(b, "time_blocks", id, "upsert", { ...row, created_at: nowIso, updated_at: nowIso, deleted_at: null });
@@ -600,14 +628,14 @@ export class SqliteTimetableRepository implements TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null; ack?: boolean },
+    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     const db = await getDb();
     const now = Date.now();
     const start = msOf(startIso);
     const snap = await this.loadSnapshot(db, isoOf(start));
-    // 磨光⑤ 收尾：ack＝按了「確定記這麼長」（新塊直接記成已確認）
-    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now, link: opts?.link ?? null, ack: opts?.ack });
+    // 磨光⑤ 收尾：ack＝按了「確定記這麼長」（新塊直接記成已確認）；⑦：note＝補記面板的備註
+    const plan = planFill(snap.spans, { categoryId, start, end: msOf(endIso), now, link: opts?.link ?? null, ack: opts?.ack, note: opts?.note });
     const b = newWriteBatch();
     const ids = await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
@@ -619,7 +647,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
@@ -634,6 +662,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       link: input.link, // ②：undefined＝不動
       curLink: snap.rowsById[id] ? linkOfRow(snap.rowsById[id]) : undefined,
       ack: input.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
+      note: input.note, // ⑦：undefined＝不動
+      curNote: snap.rowsById[id] ? noteOf(snap.rowsById[id]) : undefined,
     });
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
@@ -641,7 +671,10 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return summarizeCover(plan, id);
   }
 
-  async editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null }): Promise<CoverSummary> {
+  async editRunning(
+    id: string,
+    input: { categoryId: string; startIso: string; link?: BlockLink | null; note?: string | null },
+  ): Promise<CoverSummary> {
     const db = await getDb();
     const now = Date.now();
     // 往前挪可能蓋到很早的紀錄（最多一天）⇒ 讀全部，同 editBlock
@@ -653,6 +686,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       now,
       link: input.link,
       curLink: snap.rowsById[id] ? linkOfRow(snap.rowsById[id]) : undefined,
+      note: input.note, // ⑦：undefined＝不動
+      curNote: snap.rowsById[id] ? noteOf(snap.rowsById[id]) : undefined,
     });
     const b = newWriteBatch();
     await this.applyPlan(b, plan, snap.rowsById, isoOf(now));
@@ -1130,6 +1165,22 @@ export class SqliteTimetableRepository implements TimetableRepository {
     this.tagWrites = true; // ⑥ 評審後：復活的目標綁的荷札要回到 index（只綁荷札的目標才畫得出條）
   }
 
+  /** ⑦ D-時-166：同 `reorderRoutines`——未刪、未封存的整組 0..n-1 全寫、每列都送 op（兩台競合時整組 LWW 單邊勝，#101） */
+  async reorderGoals(orderedIds: readonly string[]): Promise<void> {
+    const db = await getDb();
+    const rows = await db.select<{ id: string; position: number; created_at: string }[]>(
+      `SELECT id, position, created_at FROM time_goals WHERE archived_at IS NULL AND ${ALIVE}`,
+    );
+    const order = reorderIds(rows, orderedIds);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    order.forEach((id, i) => {
+      b.stmts.push({ sql: `UPDATE time_goals SET position = $1, updated_at = $2 WHERE id = $3`, args: [i, now, id] });
+      addOp(b, "time_goals", id, "upsert", { position: i, updated_at: now });
+    });
+    await this.commit(db, b);
+  }
+
   /* ── ⑤（⑤ 契約 0-5、§3.2） ── */
 
   /**
@@ -1225,4 +1276,367 @@ export class SqliteTimetableRepository implements TimetableRepository {
     this.tagWrites = true; // ⑥ 評審後：撤回會讓被蓋掉的塊復活、切出的片段軟刪 ⇒ index 要重載
     return true;
   }
+
+  /* ───────── ⑦：塊的備註（讀）、作息範本、預定 ───────── */
+
+  async listBlockNotes(): Promise<BlockNoteTally[]> {
+    const db = await getDb();
+    return db.select<BlockNoteTally[]>(
+      `SELECT note, category_id, COUNT(*) AS count, MAX(started_at) AS last FROM time_blocks
+       WHERE ${ALIVE} AND note IS NOT NULL AND note <> ''
+       GROUP BY note, category_id ORDER BY last DESC`,
+    );
+  }
+
+  async searchBlocks(term: string, limit: number): Promise<TimeBlockRow[]> {
+    const t = term.trim();
+    if (!t || limit <= 0) return [];
+    const db = await getDb();
+    // instr＋lower：不必跳脫 LIKE 的 % 與 _；lower 只摺 ASCII（中文沒有大小寫，全形英文不摺——memory 版用 toLowerCase，差在這一小塊）
+    return db.select<TimeBlockRow[]>(
+      `SELECT * FROM time_blocks WHERE ${ALIVE} AND note IS NOT NULL AND instr(lower(note), lower($1)) > 0
+       ORDER BY started_at DESC LIMIT $2`,
+      [t, limit],
+    );
+  }
+
+  private async getRoutineRow(db: Database, id: string): Promise<TimeRoutineRow | null> {
+    const rows = await db.select<TimeRoutineRow[]>(`SELECT * FROM time_routines WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+
+  private async aliveRoutineOrThrow(db: Database, id: string): Promise<TimeRoutineRow> {
+    const r = await this.getRoutineRow(db, id);
+    if (!r || r.deleted_at !== null) throw new RangeError("找不到這套範本");
+    return r;
+  }
+
+  async listRoutines(): Promise<TimeRoutineRow[]> {
+    const db = await getDb();
+    return db.select<TimeRoutineRow[]>(`SELECT * FROM time_routines WHERE ${ALIVE} ORDER BY position ASC, created_at ASC, id ASC`);
+  }
+
+  async getRoutine(id: string, opts?: { withDeleted?: boolean }): Promise<TimeRoutineRow | null> {
+    const db = await getDb();
+    const r = await this.getRoutineRow(db, id);
+    if (!r) return null;
+    return r.deleted_at !== null && !opts?.withDeleted ? null : r;
+  }
+
+  async createRoutine(input: RoutineInput): Promise<TimeRoutineRow> {
+    const name = input.name.trim();
+    if (!name) throw new RangeError("範本名稱不能是空的");
+    const items = serializeRoutineItems(checkRoutineItems(input.items));
+    const weekdays = input.weekdays & WEEKDAYS_EVERY;
+    const db = await getDb();
+    const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM time_routines WHERE ${ALIVE}`);
+    const position = (max[0]?.m ?? -1) + 1;
+    const now = nowUtcIso();
+    const id = uuid();
+    const b = newWriteBatch();
+    b.stmts.push({
+      sql: `INSERT INTO time_routines (id, name, items, weekdays, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`,
+      args: [id, name, items, weekdays, position, now],
+    });
+    addOp(b, "time_routines", id, "upsert", {
+      name,
+      items,
+      weekdays,
+      position,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    });
+    await runWriteBatch(db, b.stmts, b.ops);
+    const row = await this.getRoutineRow(db, id);
+    if (!row) throw new Error("建立範本失敗");
+    return row;
+  }
+
+  async updateRoutine(id: string, patch: Partial<RoutineInput>): Promise<void> {
+    const db = await getDb();
+    const cur = await this.aliveRoutineOrThrow(db, id);
+    const name = patch.name !== undefined ? patch.name.trim() : undefined;
+    if (name !== undefined && !name) throw new RangeError("範本名稱不能是空的");
+    let items: string | undefined;
+    if (patch.items !== undefined) {
+      if (parseRoutineItems(cur.items) === null) throw new RangeError("這套範本是新版本寫的，這一版改不了");
+      items = serializeRoutineItems(checkRoutineItems(patch.items));
+    }
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const cols: Record<string, unknown> = {};
+    // 值沒變的欄不送（逐欄 LWW：一台改名、一台改週幾都保得住）
+    const put = (col: string, val: unknown, old: unknown): void => {
+      if (val === undefined || val === old) return;
+      args.push(val);
+      sets.push(`${col} = $${args.length}`);
+      cols[col] = val;
+    };
+    put("name", name, cur.name);
+    put("items", items, cur.items);
+    put("weekdays", patch.weekdays !== undefined ? patch.weekdays & WEEKDAYS_EVERY : undefined, cur.weekdays);
+    if (!sets.length) return;
+    const now = nowUtcIso();
+    args.push(now);
+    sets.push(`updated_at = $${args.length}`);
+    cols.updated_at = now;
+    args.push(id);
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_routines SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+    addOp(b, "time_routines", id, "upsert", cols);
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async archiveRoutine(id: string, on: boolean): Promise<void> {
+    const db = await getDb();
+    const cur = await this.aliveRoutineOrThrow(db, id);
+    if (on === (cur.archived_at !== null)) return; // 狀態沒變：不重戳、不送 op
+    const now = nowUtcIso();
+    const at = on ? now : null;
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_routines SET archived_at = $1, updated_at = $2 WHERE id = $3`, args: [at, now, id] });
+    addOp(b, "time_routines", id, "upsert", { archived_at: at, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async deleteRoutine(id: string): Promise<void> {
+    const db = await getDb();
+    await this.aliveRoutineOrThrow(db, id);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_routines SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_routines", id, "delete", { deleted_at: now, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async restoreRoutine(id: string): Promise<void> {
+    const db = await getDb();
+    const cur = await this.getRoutineRow(db, id);
+    if (!cur || cur.deleted_at === null) throw new RangeError("找不到這套範本");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_routines SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_routines", id, "upsert", { deleted_at: null, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async reorderRoutines(orderedIds: readonly string[]): Promise<void> {
+    const db = await getDb();
+    const rows = await db.select<{ id: string; position: number; created_at: string }[]>(
+      `SELECT id, position, created_at FROM time_routines WHERE archived_at IS NULL AND ${ALIVE}`,
+    );
+    const order = reorderIds(rows, orderedIds);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    order.forEach((id, i) => {
+      b.stmts.push({ sql: `UPDATE time_routines SET position = $1, updated_at = $2 WHERE id = $3`, args: [i, now, id] });
+      addOp(b, "time_routines", id, "upsert", { position: i, updated_at: now });
+    });
+    await this.commit(db, b);
+  }
+
+  private async getPlanRow(db: Database, id: string): Promise<TimePlanRow | null> {
+    const rows = await db.select<TimePlanRow[]>(`SELECT * FROM time_plans WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+
+  async listPlans(fromDay: string, toDay: string): Promise<TimePlanRow[]> {
+    const db = await getDb();
+    const rows = await db.select<TimePlanRow[]>(`SELECT * FROM time_plans WHERE day >= $1 AND day <= $2`, [fromDay, toDay]);
+    return rows.sort(planOrder);
+  }
+
+  async listPlansByNode(nodeId: string): Promise<TimePlanRow[]> {
+    const db = await getDb();
+    const rows = await db.select<TimePlanRow[]>(`SELECT * FROM time_plans WHERE ${ALIVE} AND node_id = $1`, [nodeId]);
+    return rows.sort(planOrder);
+  }
+
+  async getPlan(id: string, opts?: { withDeleted?: boolean }): Promise<TimePlanRow | null> {
+    const db = await getDb();
+    const r = await this.getPlanRow(db, id);
+    if (!r) return null;
+    return r.deleted_at !== null && !opts?.withDeleted ? null : r;
+  }
+
+  async insertPlans(rows: readonly PlanUpsert[]): Promise<void> {
+    await this.writePlans({ upserts: rows.slice(), deletes: [] });
+  }
+
+  /** 這幾個 id 裡本機已有的（含已刪） */
+  private async existingPlanIds(db: Database, ids: readonly string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const marks = ids.map((_, i) => `$${i + 1}`).join(", ");
+    const rows = await db.select<{ id: string }[]>(`SELECT id FROM time_plans WHERE id IN (${marks})`, ids.slice());
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /**
+   * 這幾列裡「同步過」的：本機有它的 sync_cells 戳記（這台送過它的 op、或收過別台的）。沒有同步表＝都沒同步過。
+   * 沒同步過的列（本機落地、從沒動過）收到方可能根本沒有——它的 op 要帶完整列（`planFullCols`）。
+   */
+  private async syncedPlanIds(db: Database, ids: readonly string[]): Promise<Set<string>> {
+    if (!ids.length || !(await ensureSyncTables(db))) return new Set();
+    const marks = ids.map((_, i) => `$${i + 1}`).join(", ");
+    const rows = await db.select<{ row_id: string }[]>(
+      `SELECT DISTINCT row_id FROM sync_cells WHERE tbl = 'time_plans' AND row_id IN (${marks})`,
+      ids.slice(),
+    );
+    return new Set(rows.map((r) => r.row_id));
+  }
+
+  async materializePlans(rows: readonly PlanUpsert[]): Promise<number> {
+    for (const u of rows) checkPlanTimes(u.day, u.start_hm, u.end_hm); // 先全部驗，整批不寫
+    if (!rows.length) return 0;
+    const db = await getDb();
+    const have = await this.existingPlanIds(db, rows.map((u) => u.id));
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const u of rows) {
+      if (have.has(u.id)) continue;
+      have.add(u.id);
+      b.stmts.push({
+        sql: `INSERT INTO time_plans (id, day, start_hm, end_hm, category_id, node_id, routine_id, label, created_at, updated_at, deleted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT(id) DO NOTHING`,
+        args: [u.id, u.day, u.start_hm, u.end_hm, u.category_id, u.node_id, u.routine_id, planLabelOf(u.label), u.created_at ?? now, now, u.deleted ? now : null],
+      });
+    }
+    // 不加 op：runWriteBatch 沒有 op ⇒ 只跑資料語句（同一個交易），不進 outbox、不戳 sync_cells、不叫醒同步
+    await runWriteBatch(db, b.stmts, []);
+    return b.stmts.length;
+  }
+
+  async writePlans(w: PlanWrite): Promise<void> {
+    for (const u of w.upserts) checkPlanTimes(u.day, u.start_hm, u.end_hm); // 先全部驗，整批不寫
+    const db = await getDb();
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const u of w.upserts) {
+      // 已有這列（兩台各自落地同一天、重新套用同一套）⇒ 照留它的 created_at（「最新套的是哪一套」看它）
+      const prev = await this.getPlanRow(db, u.id);
+      const createdAt = prev?.created_at ?? now;
+      const deletedAt = u.deleted ? now : null;
+      const label = planLabelOf(u.label);
+      b.stmts.push({
+        sql: `INSERT INTO time_plans (id, day, start_hm, end_hm, category_id, node_id, routine_id, label, created_at, updated_at, deleted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT(id) DO UPDATE SET
+           day = excluded.day, start_hm = excluded.start_hm, end_hm = excluded.end_hm, category_id = excluded.category_id,
+           node_id = excluded.node_id, routine_id = excluded.routine_id, label = excluded.label,
+           updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
+        args: [u.id, u.day, u.start_hm, u.end_hm, u.category_id, u.node_id, u.routine_id, label, createdAt, now, deletedAt],
+      });
+      // 收到方沒有這列時必填欄要齊 ⇒ 完整列（「這天不套」的標記也是完整列＋deleted_at：收到方要建得出這個墓碑，落地判定才看得到）
+      addOp(b, "time_plans", u.id, "upsert", { ...planFullCols({ ...u, label, created_at: createdAt }), updated_at: now, deleted_at: deletedAt });
+    }
+    const gone: TimePlanRow[] = [];
+    for (const id of w.deletes) {
+      const cur = await this.getPlanRow(db, id);
+      if (cur && cur.deleted_at === null) gone.push(cur);
+    }
+    const synced = await this.syncedPlanIds(db, gone.map((r) => r.id));
+    for (const cur of gone) {
+      b.stmts.push({ sql: `UPDATE time_plans SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, cur.id] });
+      // 沒同步過（本機落地的段）⇒ 完整列＋deleted_at：收到方沒落地過也建得出這個墓碑（不然它補齊時會把這段補回來）
+      const cols = synced.has(cur.id) ? { deleted_at: now, updated_at: now } : { ...planFullCols(cur), deleted_at: now, updated_at: now };
+      addOp(b, "time_plans", cur.id, "delete", cols);
+    }
+    await this.commit(db, b);
+  }
+
+  async updatePlan(id: string, patch: PlanPatch): Promise<void> {
+    const db = await getDb();
+    const cur = await this.getPlanRow(db, id);
+    if (!cur || cur.deleted_at !== null) throw new RangeError("找不到這一段");
+    checkPlanTimes(patch.day ?? cur.day, patch.start_hm ?? cur.start_hm, patch.end_hm ?? cur.end_hm);
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const cols: Record<string, unknown> = {};
+    const put = (col: string, val: unknown, old: unknown): void => {
+      if (val === undefined || val === old) return;
+      args.push(val);
+      sets.push(`${col} = $${args.length}`);
+      cols[col] = val;
+    };
+    put("day", patch.day, cur.day);
+    put("start_hm", patch.start_hm, cur.start_hm);
+    put("end_hm", patch.end_hm, cur.end_hm);
+    put("category_id", patch.category_id, cur.category_id);
+    if (patch.label !== undefined) put("label", planLabelOf(patch.label), cur.label ?? null);
+    if (!sets.length) return;
+    const now = nowUtcIso();
+    args.push(now);
+    sets.push(`updated_at = $${args.length}`);
+    cols.updated_at = now;
+    args.push(id);
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_plans SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+    // 同步過 ⇒ 只送變了的欄（逐欄 LWW）；沒同步過（本機落地的段）⇒ 完整列：收到方沒落地過也建得起來。
+    // 完整列不帶 deleted_at：另一台若同時刪了這段，留給同步引擎的「編輯勝刪除」判（帶了就只剩比 deleted_at 那一格的新舊）
+    const synced = await this.syncedPlanIds(db, [id]);
+    addOp(b, "time_plans", id, "upsert", synced.has(id) ? cols : { ...planFullCols({ ...cur, ...cols }), updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async deletePlan(id: string): Promise<void> {
+    await this.writePlans({ upserts: [], deletes: [id] });
+  }
+
+  async restorePlan(id: string): Promise<void> {
+    const db = await getDb();
+    const cur = await this.getPlanRow(db, id);
+    if (!cur || cur.deleted_at === null) throw new RangeError("找不到這一段");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_plans SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    const synced = await this.syncedPlanIds(db, [id]);
+    const cols = synced.has(id) ? { deleted_at: null, updated_at: now } : { ...planFullCols(cur), deleted_at: null, updated_at: now };
+    addOp(b, "time_plans", id, "upsert", cols);
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+}
+
+/**
+ * ⑦：預定 op 的完整列——收到方沒有這列時建得起來（必填欄 day／start_hm／end_hm 都在）。不含 updated_at、deleted_at（呼叫端補）。
+ * label 要是存的值（已過 `planLabelOf`）。
+ */
+function planFullCols(
+  r: Pick<TimePlanRow, "day" | "start_hm" | "end_hm" | "category_id" | "node_id" | "routine_id" | "label" | "created_at">,
+): Record<string, unknown> {
+  return {
+    day: r.day,
+    start_hm: r.start_hm,
+    end_hm: r.end_hm,
+    category_id: r.category_id,
+    node_id: r.node_id,
+    routine_id: r.routine_id,
+    label: r.label ?? null,
+    created_at: r.created_at,
+  };
+}
+
+/** ⑦：預定列的順序（day → 開始時刻 → id；營業日表記兩位補零，字串序＝時刻序） */
+export function planOrder(a: TimePlanRow, b: TimePlanRow): number {
+  return (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) || (a.start_hm < b.start_hm ? -1 : a.start_hm > b.start_hm ? 1 : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/** ⑦：整組重排的對帳（同 reorderCategories）：清單裡活著的照清單序、沒提到的接尾端照原序（position → created_at → id） */
+export function reorderIds(rows: readonly { id: string; position: number; created_at: string }[], orderedIds: readonly string[]): string[] {
+  const live = new Map(rows.map((r) => [r.id, r]));
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const id of orderedIds) {
+    if (!live.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    order.push(id);
+  }
+  const rest = rows
+    .filter((r) => !seen.has(r.id))
+    .slice()
+    .sort((a, c) => a.position - c.position || (a.created_at < c.created_at ? -1 : a.created_at > c.created_at ? 1 : 0) || (a.id < c.id ? -1 : a.id > c.id ? 1 : 0));
+  for (const r of rest) order.push(r.id);
+  return order;
 }

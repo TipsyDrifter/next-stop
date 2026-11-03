@@ -5,7 +5,7 @@
  *   三個桌機覆蓋層（草稿列／行內日誌／推遲小卡），手機一個都不要（契約 §2.7 的「不呼叫」清單）。
  *   共用它會把桌機的拖曳與側板路徑一起帶進來，反而更難讀。
  *   手機殼班：完成卡（D-主-73）與長按拖曳（D-主-74）手機也有了——但走的是同一個槽（uiStore.completeCardFor）與同一支
- *   moveToday，畫面各寫（MobileCompleteCard／useLongPressReorder），所以仍不共用桌機 controller。
+ *   moveToday，畫面各寫（MobileCompleteCard；拖曳回饋乙起換成共用元件 useDragReorder），所以仍不共用桌機 controller。
  *   **判準函式不重寫**：isDoneRow／isSettledRow／showRescheduleToast／INBOX_TOAST 一律 import 桌機那一份，
  *   兩殼吃同一把尺（M3 ④ 定期券口徑：活著的定期券看班次結局、其餘看 nodes.status）。
  *
@@ -18,14 +18,14 @@
  *                            updateNode(…, { backfill: true })（「已補記到 M/D」＋復原由 nodeStore 出），今天以後照舊；
  *                            target=null＝清除執行日：INBOX_TOAST＋「復原」放回原執行日（DeferPopover.tsx 同款）
  *   本班運休／取消運休     → `skip(id, skip)`：skipOccurrence(id, skip)（不帶 dueOn＝今日頁口徑）
- *   臨時車票／無日期票     → createNode({ scheduledOn: dateKey | null })，後者附 INBOX_TOAST 的「復原」
+ *   建票                   → 不在這支 hook：手機殼走共用建票列（common/quickadd 的 MobileQuickAdd／useQuickAdd）
  *   v1.1.0 的 `deferTomorrow` 已併進 `defer`（⋯ sheet 從一項補成四項＋運休，P11）。
  *   時刻（主線② §3.10）    → `setTime(id, time, est?)`＝updateNode({ scheduled_time, estimate_min? })；
  *                            `setRunTime(id, time)`／`clearRunTime(id)`＝nodeStore 同名入口，班次日＝`occurrence?.due_on ?? scheduled_on`
  *                            （timeOfRow 的 railDate 同一把尺）；成功出收據（timeReceipt），失敗由 store 吐 reason
  *   上移／下移（磨光①）    → `reorderOf(id)`／`move(id, ±1)`＝moveToday（手排座標 manualOrderIds；守門同桌機 reorderSelected）
- *   長按拖曳（手機殼班）    → `moveTo(id, at)`＝同一支 moveToday（at＝落點鄰居錨，寫入前對最新座標換 index）；
- *                            放下後「已調整順序」＋「復原」（放回原本那兩張之間）
+ *   長按拖曳（手機殼班；回饋乙起多張一起拖）→ `moveTo(ids, at)`＝同一支 moveToday（at＝落點鄰居錨，寫入前對最新座標換 index）；
+ *                            放下後「已調整順序」＋「復原」（每張放回原本的上鄰居後面）
  *   改名／記乘務記錄／刪除      → 模組函式 `renameTicket`／`logTicket`／`deleteTicket`（行程表串流也用，所以不在 hook 裡）
  *
  * 三條重載時機（手機比桌機多一條）：
@@ -35,19 +35,20 @@
  *      回來時 ② 的 timer 可能根本沒跑（WebView 背景節流），畫面會停在昨天的清單。
  *      loadToday 內部會先 syncRepeats 再聚合，重載一次就把定期券的班次也推到位。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { REPEAT_RESCHEDULE_MSG, nodeRepo, type TodayRow } from "../../data";
 import { descendantCount, isSettling, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
-import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST } from "../today/useTodayController";
+import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST, manualStepTarget } from "../today/useTodayController";
 import { dayCount, lateCount, type LateCount } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
 import { planPickDay } from "./pickDay";
-import { anchorAt, indexOfAnchor, type DropAnchor } from "./reorderDrag";
+import { indexOfAnchor, type Anchor } from "../common/dragReorder";
+import { anchorAround } from "../../domain/nodeOrder";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { kidCountOf } from "../panel/panelRules";
 
@@ -77,8 +78,6 @@ export interface MobileTodayApi {
   defer(id: string, target: string | null): void;
   /** 定期券：本班運休（true）／取消運休（false）——今日頁口徑：不帶 dueOn */
   skip(id: string, skip: boolean): void;
-  /** 建票；inbox=true＝無日期票（收件匣）。回傳有沒有建成功（成功才清輸入框） */
-  createTicket(name: string, inbox: boolean): Promise<boolean>;
   /** 每班／單發票時刻（＋預計；estimateMin 為 undefined＝不送）。null＝不排時刻（主線②） */
   setTime(id: string, time: string | null, estimateMin?: number | null): void;
   /** 定期券這一班（今日列的班次日）的時刻；null＝本班不排時刻 */
@@ -94,10 +93,11 @@ export interface MobileTodayApi {
   /** 在手排座標裡往上（-1）／往下（+1）一格；失敗 toast reason */
   move(id: string, delta: -1 | 1): void;
   /**
-   * 長按拖曳放下（手機殼班 D-主-74）：插在 `at` 那兩張之間——對**最新**手排座標換成 index 再交 moveToday（同一支、同一組守門；
-   * 拖曳中清單被重載也不落錯格，第二輪）。成功出「已調整順序」＋「復原」（放回原本那兩張之間）。換算後跟原位一樣＝不動、不出 toast。
+   * 長按拖曳放下（手機殼班 D-主-74；回饋乙起可多張）：照畫面順序插在 `at` 那兩張之間——每一張都對**最新**手排座標換 index 再交
+   * moveToday（同一支、同一組守門；拖曳中清單被重載也不落錯格）。第一張用落點錨、後面每張接在前一張後面。
+   * 成功出「已調整順序」＋「復原」。換算後跟原位一樣＝不動、不出 toast。
    */
-  moveTo(id: string, at: DropAnchor): void;
+  moveTo(ids: readonly string[], at: Anchor): void;
 
   /** 剛蓋章的那一列（播 stampIn） */
   freshId: string | null;
@@ -204,10 +204,10 @@ export function useMobileToday(): MobileTodayApi {
   const routes = useNodeStore((s) => s.routes);
   const loadToday = useNodeStore((s) => s.loadToday);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const todayHideDone = useUiStore((s) => s.todayHideDone);
 
   const [freshId, setFreshId] = useState<string | null>(null);
   // 建票重入鎖：Enter 連按／「発券」連點在 await 期間會進來兩次，第二次要被擋掉（契約 §2.7）
-  const busyRef = useRef(false);
 
   const dateKey = today.dateKey ?? todayKey(dayStartHour);
   const rows = today.rows;
@@ -409,19 +409,19 @@ export function useMobileToday(): MobileTodayApi {
       const row = today.byId[id];
       // 誤點區／締切區、有時刻的票（照時刻排）不出這兩項——不是出了再擋
       if (!row || row.bucket !== "today" || timeOfRow(row) !== null) return null;
-      const ids = manualOrderIds(today.rows);
-      const i = ids.indexOf(id);
-      if (i < 0) return null;
-      return { up: i > 0, down: i < ids.length - 1 };
+      if (!manualOrderIds(today.rows).includes(id)) return null;
+      // 「済・隱藏」開著：跳過看不見的済票（同桌機 reorderWhy）
+      return {
+        up: manualStepTarget(today.rows, id, -1, todayHideDone) !== null,
+        down: manualStepTarget(today.rows, id, 1, todayHideDone) !== null,
+      };
     },
-    [today],
+    [today, todayHideDone],
   );
 
   const move = useCallback((id: string, delta: -1 | 1) => {
-    const ids = manualOrderIds(ns().today.rows);
-    const i = ids.indexOf(id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= ids.length) return;
+    const j = manualStepTarget(ns().today.rows, id, delta, useUiStore.getState().todayHideDone);
+    if (j === null) return;
     void ns()
       .moveToday(id, j)
       .then((r) => {
@@ -430,68 +430,52 @@ export function useMobileToday(): MobileTodayApi {
   }, []);
 
   /**
-   * 長按拖曳放下（手機殼班 D-主-74）：同 move 的 moveToday；拖完票還在眼前，但手指一滑容易放錯格——給一張可反悔的收據。
-   * 落點與復原都用鄰居錨、寫入那一刻才對最新座標換 index（reorderDrag DropAnchor；第二輪）：鄰居都不在了＝放棄（卡片退回原位）。
+   * 長按拖曳放下（手機殼班 D-主-74；回饋乙多張）：同 move 的 moveToday；拖完票還在眼前，但手指一滑容易放錯格——給一張可反悔的收據。
+   * 落點與復原都用鄰居錨、寫入那一刻才對最新座標換 index：鄰居都不在了＝放棄（卡片退回原位）。
+   * 多張＝一張一張寫（moveToday 一次只搬一張、每次重載）：第一張插到落點、後面每張接在前一張後面，結果＝保持相對順序的一整段。
+   * 復原＝照原本的順序，每張放回它原本上鄰居的後面（上鄰居是頭＝放回最上面）。
    */
-  const moveTo = useCallback((id: string, at: DropAnchor) => {
-    const ids = manualOrderIds(ns().today.rows);
-    const from = ids.indexOf(id);
-    const to = indexOfAnchor(ids, id, at);
-    if (from < 0 || to === null || from === to) return;
-    const home = anchorAt(ids, id, from);
-    void ns()
-      .moveToday(id, to)
-      .then((r) => {
-        if (!r.ok) {
-          toast(r.reason);
-          return;
-        }
-        ui().showToast({
-          message: "已調整順序",
-          actionLabel: "復原",
-          onAction: () => {
-            const back = indexOfAnchor(manualOrderIds(ns().today.rows), id, home);
-            if (back === null) return;
-            void ns()
-              .moveToday(id, back)
-              .then((u) => {
-                if (!u.ok) toast(u.reason);
-              });
-          },
-        });
-      });
-  }, []);
-
-  /* ───────── 建票（臨時券排今天／無日期票進收件匣）───────── */
-
-  const createTicket = useCallback(async (raw: string, inbox: boolean): Promise<boolean> => {
-    const name = raw.trim();
-    if (!name || busyRef.current) return false;
-    busyRef.current = true;
-    try {
-      const row = await ns().createNode({
-        kind: "ticket",
-        name,
-        parentId: null,
-        scheduledOn: inbox ? null : (ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour)),
-      });
-      if (!row) {
-        toast("新增失敗——請再試一次");
-        return false;
+  const moveTo = useCallback((ids: readonly string[], at: Anchor) => {
+    const order0 = manualOrderIds(ns().today.rows);
+    const moving = ids.filter((id) => order0.includes(id));
+    if (!moving.length) return;
+    const homes = new Map(moving.map((id) => [id, anchorAround(order0, id)] as const));
+    const place = async (seq: readonly string[], anchorOf: (id: string, k: number) => Anchor | null): Promise<{ moved: boolean; reason?: string }> => {
+      let moved = false;
+      for (let k = 0; k < seq.length; k++) {
+        const id = seq[k];
+        const a = anchorOf(id, k);
+        if (!a) continue;
+        const cur = manualOrderIds(ns().today.rows);
+        const from = cur.indexOf(id);
+        const to = indexOfAnchor(cur, id, a);
+        if (from < 0 || to === null || from === to) continue;
+        const r = await ns().moveToday(id, to);
+        if (!r.ok) return { moved, reason: r.reason };
+        moved = true;
       }
-      if (inbox) {
-        // 無日期票立刻離開今日（沒有執行日就不在聚合裡），畫面什麼都不會發生 →
-        // toast 是唯一的收據，且要能反悔（沿桌機 Shift+Enter 契約）
-        ui().showToast({
-          message: INBOX_TOAST,
-          actionLabel: "復原", // UI 丙-1：反悔動作一律叫「復原」（視覺規範 §2.8；原「取消」）
-          onAction: () => void ns().deleteNode(row.id),
-        });
-      }
-      return true;
-    } finally {
-      busyRef.current = false;
-    }
+      return { moved };
+    };
+    void (async () => {
+      const r = await place(moving, (_id, k) => (k === 0 ? at : { after: moving[k - 1], before: null }));
+      if (r.reason) toast(r.reason);
+      if (!r.moved) return;
+      ui().showToast({
+        message: moving.length > 1 ? `已調整 ${moving.length} 張的順序` : "已調整順序",
+        actionLabel: "復原",
+        onAction: () =>
+          void (async () => {
+            // 照原本的順序放回：上鄰居若也是搬過的，前一輪已經放回去了
+            const back = order0.filter((id) => homes.has(id));
+            const u = await place(back, (id) => {
+              const h = homes.get(id)!;
+              // 原本在最上面＝兩邊都 null（indexOfAnchor 換成 0）
+              return { after: h.after, before: null };
+            });
+            if (u.reason) toast(u.reason);
+          })(),
+      });
+    })();
   }, []);
 
   return {
@@ -507,7 +491,6 @@ export function useMobileToday(): MobileTodayApi {
     complete,
     defer,
     skip,
-    createTicket,
     setTime,
     setRunTime,
     clearRunTime,

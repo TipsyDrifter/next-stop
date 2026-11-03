@@ -167,3 +167,8 @@
   pointer-events: none;
 }
 .ns-calendar .ns-cal-empty > .ns-empty { pointer-events: auto; }
+
+/* ═══ 回饋乙 ☎3①：格內的票拖到別的格子＝改期 ═══
+   格內清單原本跟著 .ns-daycell-body 不吃指標（點下去落到點擊面）；要拖得起來就得打開——點一下由 CalendarCell 轉給點擊面，行為不變 */
+.ns-calendar .cal-cell .items { pointer-events: auto; cursor: pointer; }
+.ns-calendar .cal-cell .items .it { cursor: grab; }

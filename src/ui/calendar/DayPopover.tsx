@@ -28,7 +28,7 @@
  * ── UI 丙-3（契約 §1 D2／D4／D5、§5 P4＝B 底端）──
  *   - 草稿列在清單**底端**（新票出現在輸入框正上方，跟串流日列草稿一致）：格內「＋」與頁首「＋ 車票」開的浮層（`draft`）
  *     直接帶草稿列並聚焦；點格子本身開的浮層底端是一顆「＋ 車票」文字鈕，點了才展開（過去的日子不畫：不能建票，P10）。
- *     Enter＝`scheduleActions.createOn`（成功清空、焦點留著連打）；空白 Enter 收草稿；**Esc 先收草稿、再按一次才關浮層**。
+ *     草稿列＝共用建票列（`QuickAddRow`，執行日預設這一天）：Enter＝照 chips 一筆建好（成功清空、焦點留著連打）；空白 Enter 收草稿；**Esc 先收草稿、再按一次才關浮層**。
  *     草稿有字時點別處＝照串流草稿（InlineInput）的做法：先建票再走——點浮層裡別處（失焦）、點浮層外（關浮層前）、
  *     點別的格（換日前）都一樣；切去別的 App（整個視窗失焦）不建、字留著。
  *   - 點外關閉的三個例外換成新 DOM：格（`.ns-daycell`，共用 DayCell）、列 ⋯ 的小選單（`.ns-popmenu`，portal 在 body）、toast。
@@ -41,10 +41,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type FocusEvent,
   type KeyboardEvent,
-  type MutableRefObject,
 } from "react";
+import { NO_DEST, QuickAddRow, type QuickDefaults } from "../common/quickadd";
 import { isTaskKind } from "../../domain";
 import { WEEKDAY_LABEL } from "../../domain";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
@@ -105,6 +104,8 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
   const [draftOpen, setDraftOpen] = useState(draft);
   /** 草稿列目前的字（點外關閉、點別格之前要先建票；DayDraft 寫、這裡讀） */
   const draftText = useRef("");
+  /** 建票列（回饋甲）的「有名字就建」：點外關浮層、點別格之前叫（浮層一卸載，建票列的失焦提交就來不及了） */
+  const draftSubmit = useRef<(() => void) | null>(null);
   const draftOpenRef = useRef(draftOpen);
   draftOpenRef.current = draftOpen;
   const actions = useMemo(() => makeScheduleActions("desktop"), []);
@@ -197,14 +198,13 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
     return () => window.clearTimeout(id);
   }, [selKey, day]);
 
-  /* ───────── 草稿列（P4）：建票＝scheduleActions.createOn（過去日由它擋；busy 重入鎖） ───────── */
+  /* ───────── 草稿列（P4）：建票＝共用建票列 QuickAddRow（重入鎖在 useQuickAdd；過去日＝不畫草稿列，見 canAdd） ───────── */
 
   /** 把草稿列目前的字建成票（字先清掉再送：失焦與點外兩條路不會建兩張） */
   function commitDraftText(): void {
-    const name = draftText.current.trim();
-    if (!draftOpenRef.current || !name) return;
+    if (!draftOpenRef.current) return;
     draftText.current = "";
-    void actions.createOn(dayRef.current, name);
+    draftSubmit.current?.(); // 建票列：有名字就照目前的 chips 建（執行日＝這一天，除非改過）
   }
 
   const collapseDraft = useCallback(() => {
@@ -227,8 +227,8 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
       if (!t) return;
       if (ref.current?.contains(t)) return;
       if (deferRef.current) return; // 推遲小卡開著：這一下是小卡的（它自己會收）
-      // 列 ⋯ 的小選單 portal 在 body：點選單項不是「點外」（選單自己會收）
-      if (t instanceof Element && t.closest(".ns-popmenu")) return;
+      // 列 ⋯ 的小選單 portal 在 body：點選單項不是「點外」（選單自己會收）；建票列的挑選器（.ns-qa-pop）同理
+      if (t instanceof Element && t.closest(".ns-popmenu, .ns-qa-pop")) return;
       if (t instanceof Element && t.closest(".ns-calendar .ns-daycell:not(.is-out)")) {
         // 點格＝換日，交給格；草稿有字就先建在原本那天（照串流草稿「點別處就提交」）
         commitDraftText();
@@ -447,7 +447,7 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
   const isToday = day === today;
   const pre = isToday ? "今日" : "當日";
   const headline = `${d.getMonth() + 1}月${d.getDate()}日`;
-  /** 今天與未來才能建票（P10；createOn 也會再擋一次） */
+  /** 今天與未來才能建票（P10；建票列的執行日挑選器也不給過去的日子） */
   const canAdd = day >= today;
 
   return (
@@ -500,19 +500,16 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
         {/* ═══ 草稿列（P4＝B 底端：接在班次段之後、新票出現在輸入框正上方）／「＋ 車票」文字鈕 ═══ */}
         {canAdd &&
           (draftOpen ? (
-            <DayDraft
+            // 回饋甲 D-主-128：草稿列換建票列的緊湊版（浮層 332 寬放不下整張票）；執行日＝這一天，空白 Enter／Esc 收草稿
+            <QuickAddRow
               key={`${day}:${seq}`}
-              textRef={draftText}
-              label={`在${headline}新增車票`}
-              onCommit={async (name) => {
-                if (!name.trim()) {
-                  collapseDraft(); // 空白 Enter＝收草稿（同串流草稿）
-                  return false;
-                }
-                draftText.current = "";
-                return actions.createOn(day, name);
-              }}
-              onCancel={collapseDraft}
+              variant="compact"
+              className="pop-draft-qa"
+              defaults={popDraftDefaults(day)}
+              here={{ kind: "day", day }}
+              placeholder={`在${headline}新增車票…`}
+              submitRef={draftSubmit}
+              onClose={collapseDraft}
             />
           ) : (
             <div className="pop-add">
@@ -567,89 +564,15 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
 }
 
 /**
- * 日浮層底端的草稿列（UI 丙-3 P4＝B；長相＝原型 ui-c3 的 `.c3-draft`：緊湊票的虛線版＋虛線圓牌＋「Esc」淡字）。
- * 行為照串流草稿（StreamView → TicketDraftRow → InlineInput）：Enter 建、成功清空連打；空白 Enter 與 Esc 收起；
- * 失焦有字＝建（焦點明確去了別處才算；整個視窗失焦不算、字留著）。輸入框 Enter／Esc 一律 stopPropagation，浮層鍵盤表看不到。
+ * 日浮層底端的草稿列＝建票列緊湊版（回饋甲 D-主-128；原本的 DayDraft 退役）。預設：無路線、執行日＝這一天（每天一份、身分穩定）。
+ * 行為照建票列：Enter 建、成功清空連打；空白 Enter 與 Esc 收起；失焦有字＝建；點外關浮層／點別格前由 commitDraftText 先建。
  */
-function DayDraft({
-  textRef,
-  label,
-  onCommit,
-  onCancel,
-}: {
-  textRef: MutableRefObject<string>;
-  label: string;
-  /** 回傳 true＝建成功（清空、焦點留著） */
-  onCommit(name: string): Promise<boolean>;
-  onCancel(): void;
-}) {
-  const [value, setValue] = useState("");
-  const ref = useRef<HTMLInputElement>(null);
-  textRef.current = value;
-
-  // 排進 macrotask 再聚焦：開浮層的那一個 commit 裡，控制器會把焦點交給格（父層 effect 跑在子層之後）
-  useEffect(() => {
-    const id = window.setTimeout(() => ref.current?.focus(), 0);
-    return () => window.clearTimeout(id);
-  }, []);
-
-  /** refocus：Enter 建完焦點留在輸入框連打；失焦建票不搶回焦點（使用者已經點去別處了） */
-  const submit = async (text: string, refocus: boolean) => {
-    if (await onCommit(text)) {
-      setValue("");
-      textRef.current = "";
-      if (refocus) ref.current?.focus();
-    }
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-      void submit(value, true);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onCancel();
-    }
-  };
-
-  const onBlur = (e: FocusEvent<HTMLInputElement>) => {
-    const el = ref.current;
-    if (!el) return;
-    const commit = () => {
-      const text = textRef.current;
-      if (text.trim()) void submit(text, false);
-    };
-    if (e.relatedTarget) {
-      commit();
-      return;
-    }
-    // relatedTarget 為空：整個視窗失焦（保留）或點到不可聚焦處——延一拍再判斷（同 InlineInput）
-    window.setTimeout(() => {
-      if (!el.isConnected || document.activeElement === el || !document.hasFocus()) return;
-      commit();
-    }, 60);
-  };
-
-  return (
-    <div className="pop-draft">
-      <span className="roundel-s none" aria-hidden />
-      <input
-        ref={ref}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={onBlur}
-        placeholder="車票名稱，Enter 建立"
-        aria-label={label}
-        spellCheck={false}
-        autoComplete="off"
-      />
-      <span className="k" aria-hidden>
-        Esc
-      </span>
-    </div>
-  );
+const popDefaults = new Map<string, QuickDefaults>();
+function popDraftDefaults(day: string): QuickDefaults {
+  let d = popDefaults.get(day);
+  if (!d) {
+    d = { dest: NO_DEST, scheduledOn: day, noDateLabel: true };
+    popDefaults.set(day, d);
+  }
+  return d;
 }

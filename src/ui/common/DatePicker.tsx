@@ -78,6 +78,8 @@ export interface DatePickerProps {
   today?: string;
   /** 給了＝右下多一顆「清除」（可清空的欄位用；磨光⑤ S8）。呼叫端自己收起挑選器 */
   onClear?(): void;
+  /** 「清除」那顆的字（例：執行日寫「無日期」）；省略＝清除 */
+  clearLabel?: string;
   /** 給了＝掛到 body、貼著這個元素開（見檔頭「三種擺法」）；null／省略＝內嵌或 float */
   anchor?: HTMLElement | null;
 }
@@ -144,6 +146,7 @@ export function DatePicker({
   marksLabel,
   today,
   onClear,
+  clearLabel = "清除",
   anchor,
 }: DatePickerProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -281,7 +284,7 @@ export function DatePicker({
       {onClear && (
         <div className="ns-datepick-foot">
           <button type="button" className="ns-datepick-clear" onClick={onClear}>
-            清除
+            {clearLabel}
           </button>
         </div>
       )}

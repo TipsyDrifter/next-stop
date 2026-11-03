@@ -13,9 +13,14 @@
  *   time_categories label＝`分類「{name}」`；fmt：parent_id＝分組名（null＝頂層）、default_min＝fmtDur、archived_at＝已封存／沒封存。
  *   time_goals      label＝`目標「{name}」`；fmt：scope＝分類名以「・」串（v1、⑥ 的 v2 都認）、period＝期間字、start_on／end_on＝M/D、
  *                   target_min＝fmtDur、direction＝至少／至多、archived_at＝已封存／沒封存。
+ *   ⑦ time_routines label＝`作息範本「{name}」`；fmt：items＝「N 段」（讀不懂＝null）、weekdays＝週幾摘要、archived_at＝已封存／沒封存。
+ *   ⑦ time_plans    label＝作息段 `{M/D} {名字或分類} {HH:MM}–{HH:MM}`；車票段 `{M/D} {車票} 第 N 段 {HH:MM}–{HH:MM}`（N 由呼叫端算；不知道就省掉）；
+ *                   fmt：day＝M/D、category_id＝分類名、node_id＝車票名、routine_id＝範本名（null＝手動加的）。
+ *   週幾摘要與段數由呼叫端注入（`text.syncWeekdays`／`syncRoutineItems`；本檔只准 import 兩支）。
  * fmt 對不認得的欄、或值的型別不對 ⇒ 回 null（退回核心的 `fmtMergeValue`）。null 值另有字的欄（例 ended_at＝運行中）照印字。
  */
 import { MIN, fmtClock, fmtDur, msOf, type TimeBlockRow, type TimeCategoryRow, type TimeGoalRow } from "../domain/timetable.ts";
+import type { TimePlanRow, TimeRoutineRow } from "../domain/timetableRoutine.ts";
 import { todayKey } from "../lib/date.ts";
 import type { SyncRowLabel } from "./types.ts";
 
@@ -41,7 +46,17 @@ export interface SyncLabelText {
     time_blocks: Readonly<Record<string, string>>;
     time_categories: Readonly<Record<string, string>>;
     time_goals: Readonly<Record<string, string>>;
+    /** ⑦（舊測資沒給＝undefined：只是沒有中文欄名） */
+    time_routines?: Readonly<Record<string, string>>;
+    time_plans?: Readonly<Record<string, string>>;
   };
+  /** ⑦ */
+  syncRoutineLabel?: (name: string) => string;
+  syncRoutineGone?: string;
+  syncRoutineManual?: string;
+  syncWeekdays?: (mask: number) => string;
+  syncRoutineItems?: (json: string) => string | null;
+  syncSlotOrdinal?: (n: number) => string;
   goalPeriodWord: Readonly<Record<string, string>>;
   goalDirectionWord: Readonly<Record<string, string>>;
 }
@@ -56,6 +71,8 @@ export interface SyncLabelLookup {
   nodeName(id: string): string | null;
   /** 路線名 */
   routeName(id: string): string | null;
+  /** ⑦：範本名（含已刪；沒給＝查不到） */
+  routineName?(id: string): string | null;
 }
 
 const pad2 = (n: number): string => (n < 10 ? "0" + n : String(n));
@@ -214,6 +231,72 @@ export function goalSyncLabel(row: TimeGoalRow, look: SyncLabelLookup, text: Syn
         }
         case "archived_at":
           return v === null || v === undefined ? text.syncNotArchived : text.syncArchived;
+        default:
+          return null;
+      }
+    },
+  };
+}
+
+/* ───────── ⑦ time_routines ───────── */
+
+export function routineSyncLabel(row: TimeRoutineRow, _look: SyncLabelLookup, text: SyncLabelText): SyncRowLabel {
+  return {
+    label: text.syncRoutineLabel ? text.syncRoutineLabel(row.name) : row.name,
+    cols: text.syncCols.time_routines,
+    fmt: (col, v) => {
+      switch (col) {
+        case "items":
+          return typeof v === "string" && text.syncRoutineItems ? text.syncRoutineItems(v) : null;
+        case "weekdays": {
+          const n = asNum(v);
+          return n === null || !text.syncWeekdays ? null : text.syncWeekdays(n);
+        }
+        case "archived_at":
+          return v === null || v === undefined ? text.syncNotArchived : text.syncArchived;
+        default:
+          return null;
+      }
+    },
+  };
+}
+
+/* ───────── ⑦ time_plans ───────── */
+
+/**
+ * 一列預定的清單列名：作息段「11/3 創作 09:00–12:00」；車票段「11/3 期中報告 第 2 段 14:00–16:00」（`ordinal` 不知道＝省掉「第 N 段」）。
+ * 日期一律印（預定常排在別天，省掉反而看不出是哪天）。
+ */
+export function planLabel(row: TimePlanRow, look: SyncLabelLookup, text: SyncLabelText, ordinal: number | null): string {
+  const span = `${row.start_hm}–${row.end_hm}`;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(row.day) ? mdOfKey(row.day) + " " : "";
+  if (row.node_id !== null) {
+    const name = look.nodeName(row.node_id) ?? text.syncNodeGone;
+    const nth = ordinal !== null && text.syncSlotOrdinal ? ` ${text.syncSlotOrdinal(ordinal)}` : "";
+    return `${date}${name}${nth} ${span}`;
+  }
+  // D-時-167：段有自己的名字就印名字（早餐／午餐），沒有才印分類名
+  const cat = row.label ?? (row.category_id !== null ? (look.categoryName(row.category_id) ?? text.syncCatGone) : text.syncCatGone);
+  return `${date}${cat} ${span}`;
+}
+
+export function planSyncLabel(row: TimePlanRow, look: SyncLabelLookup, text: SyncLabelText, ordinal: number | null = null): SyncRowLabel {
+  return {
+    label: planLabel(row, look, text, ordinal),
+    cols: text.syncCols.time_plans,
+    fmt: (col, v) => {
+      switch (col) {
+        case "day":
+          return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? mdOfKey(v) : null;
+        case "category_id":
+          if (v === null || v === undefined) return null;
+          return typeof v === "string" ? (look.categoryName(v) ?? text.syncCatGone) : null;
+        case "node_id":
+          if (v === null || v === undefined) return null;
+          return typeof v === "string" ? (look.nodeName(v) ?? text.syncNodeGone) : null;
+        case "routine_id":
+          if (v === null || v === undefined) return text.syncRoutineManual ?? null;
+          return typeof v === "string" ? (look.routineName?.(v) ?? text.syncRoutineGone ?? null) : null;
         default:
           return null;
       }

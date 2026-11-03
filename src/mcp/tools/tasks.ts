@@ -483,7 +483,7 @@ const addTasks: McpTool = {
       if (routeId && kind !== "ticket") throw new McpUserError(`${where}：routeId 只給臨時車票；列車要放進路線請用 parentId`);
       if (!parentId && kind !== "ticket") throw new McpUserError(`${where}：${KIND_LABEL[kind]}要給 parentId（只有車票能不掛在任何節點底下）`);
       const scheduledOn = date(a, "scheduledOn", { where }) ?? null;
-      // 同 scheduleActions.createOn：建票挑不到過去（D-主-67 的補記只走 UI 日期欄）
+      // 同 App 的建票列：建票挑不到過去（執行日挑選器 min＝今天；D-主-67 的補記只走詳情的日期欄）
       if (scheduledOn && scheduledOn < ctx.today) throw new McpUserError(`${where}.scheduledOn 不能早於今天（${ctx.today}）`);
       if (scheduledOn && kind === "branch") throw new McpUserError(`${where}：支線沒有執行日`);
       const time = nullableClock(a, "scheduledTime", where);
@@ -510,7 +510,8 @@ const addTasks: McpTool = {
         const r = await repo.getNode(it.routeId);
         if (!r || r.deleted_at !== null || r.kind !== "route") throw new McpUserError(`找不到路線 ${it.routeId}`);
       }
-      // 同 nodeStore.createNode → repository.create（発券事件、position、line_id／route_id 都在 repository）
+      // 同 nodeStore.createNode → repository.create（発券事件、排序鍵與 position、line_id／route_id 都在 repository）；
+      // 不帶 afterId＝接在那份清單（顯示群組）的尾端
       const row = await repo.create({
         kind: it.kind,
         name: it.name,

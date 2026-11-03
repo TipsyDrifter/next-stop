@@ -9,7 +9,7 @@
  *   PageHeader 身分式（UI 丙-3 A1：眉標 {今日, Today}／大標月日 34／補述週幾＋latin＋粉彩手寫「還有 N 張」／
  *     stats 完成・專注（或別線 todayStats）・下一班／日付印 92／紀念章 92／工具列「＋ 臨時車票」＋搜尋，第四格空）
  *   → 誤點區（**置頂**＝r1 拍板，樣式逐字取原型 .sec.late／.ticket.late-t 只搬位置；含 D-③-7 的締切段）
- *   → 「今天的列車」清單（＋ Enter 開的臨時車票草稿列）
+ *   → 「今天的列車」清單（區段標右側「済 N・隱藏」開關）＋清單尾常駐「＋ 新增車票…」／建票列（回饋甲 D-主-127、128、131）
  *   → 空狀態 1.0c 無班次／1.0d 全完成慶祝（語氣分開；UI 丙-3 A4 換共用 EmptyState）
  *   → page-foot
  *
@@ -17,8 +17,8 @@
  *   - 頁首換共用 PageHeader（跟行程表同一副骨架）。紀念章走 `emblem`（P1＝A：日付印右邊、工具列左邊、92）；
  *     頁首寬 <704 時 PageHeader 自己把它退成 stats 列尾的 28px 小章＋「下一站 X N%」（`emblemCompact`）。
  *   - 手寫「還有 N 張」（P5）接在補述右邊，銀河不畫（today.css）；別線的 todayStats 插槽元件仍畫在 stats 列。
- *   - 「＋ 臨時車票」分裂鈕（AddSplit，主鈕＋▾）退役（A3）：頁首工具列第二格一顆「＋ 臨時車票」（＝Enter）；
- *     收件匣走草稿列既有的「無日期」切換，`Shift+Enter` 照舊。
+ *   - 「＋ 臨時車票」分裂鈕（AddSplit，主鈕＋▾）退役（A3）：頁首工具列第二格一顆「＋ 車票」（＝Enter；回饋甲改名，
+ *     建票列可掛路線、不只臨時車票）；收件匣＝建票列「執行日」chip 清成無日期，`Shift+Enter` 照舊（開的就是無日期那種）。
  *   - 空狀態（A4）：沒有任何車票＝EmptyState first（一顆「＋ 臨時車票」次鈕），這時頁首的「＋」隱藏（規範 §2.7、§3.1-5）；
  *     全部交代＝EmptyState done（慶祝，不給鈕；清單還在，頁首「＋」照留）。
  *   - 每列常駐 ⋯（A5）：TodayRow 的 `menu`，項目由 controller 的 `menuFor` 算。
@@ -32,23 +32,27 @@
  * 頁面殼契約（WP0）：根節點帶 .page（z-index 蓋過 SkyLayer）與 .ns-today（CSS 前綴）；
  *   天空由 App.tsx 統一掛（density full／train false），本檔不碰。側欄「我的路線」在今日頁保留（Sidebar 負責）。
  */
-import { Fragment, useRef, type ReactNode } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
-import { timeOfRow } from "../../domain/scheduledTime";
+import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { dayCountParts, lateCount, lateCountText } from "../../domain/dayCount";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMinuteTick } from "../schedule/useMinuteTick";
 import { DateSeal, SealDone, StationStamp } from "../stamps";
+import { TodayBrief } from "../report/TodayBrief";
 import { TodayRow } from "./TodayRow";
-import { TicketDraftRow } from "./TicketDraftRow";
+import { DoneToggleChip, NO_DEST, QuickAddLauncher, QuickAddRow, type QuickDefaults } from "../common/quickadd";
 import { LogInlineInput } from "./LogInlineInput";
 import { DeferPopover } from "./DeferPopover";
 import { useTodayController } from "./useTodayController";
 import { useTodayKeyboard } from "./useTodayKeyboard";
-import { useTodayDnd } from "./useTodayDnd";
+import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
+import { useSelectionStore } from "../../store/selectionStore";
+import { SelectionBar } from "../common/selection/SelectionBar";
+import { dragBatch } from "../common/selection/desktopSelection";
 import { lineTodayStats } from "../../lines/runtime";
 import { hotkeyCaps } from "../common/PopMenu";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
@@ -86,6 +90,11 @@ function dayOfYear(d: Date): { day: number; total: number } {
   const end = new Date(d.getFullYear() + 1, 0, 1);
   const day = Math.floor((d.getTime() - start.getTime()) / 86_400_000) + 1;
   return { day, total: Math.round((end.getTime() - start.getTime()) / 86_400_000) };
+}
+
+/** 這一列済了沒（定期券看班次；運休不算）——「済 N・隱藏」開關數的就是這個 */
+function isDoneRow(r: TodayRowData): boolean {
+  return r.occurrence ? r.occurrence.status === "done" : r.status === "done";
 }
 
 /** 這一列交代了沒（済或運休；定期券看班次結局）——與 TodayRow 的口徑同一條 */
@@ -137,14 +146,62 @@ export function TodayView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useTodayController(containerRef);
   const onKeyDown = useTodayKeyboard(c.keys, c.blocked);
-  const dnd = useTodayDnd(c.rows, c.moveTo);
+  // 拖曳排序（回饋乙：換成共用元件 useDragReorder；只有 today 分區、沒時刻的票能手排，同 Alt+↑↓ 的 moveToday）
+  const [todayList, setTodayList] = useState<HTMLUListElement | null>(null);
+  const [lateList, setLateList] = useState<HTMLUListElement | null>(null);
+  // 已完成開關（回饋甲 D-主-131）：只藏「今天的列車」裡済的票；頁首「完成 d/t」照舊算全部（c.stats 不動）
+  const todayHideDone = useUiStore((s) => s.todayHideDone);
+  const toggleTodayHideDone = useUiStore((s) => s.toggleTodayHideDone);
+  const doneToday = c.todayRows.filter(isDoneRow).length;
+  const shownToday = todayHideDone ? c.todayRows.filter((r) => !isDoneRow(r)) : c.todayRows;
+  const manual = manualOrderIds(c.todayRows);
+  const picked = useSelectionStore((s) => (s.scope === "today" ? s.ids : null));
+  useDragReorder({
+    root: todayList,
+    // 畫面上有的才給拖（藏起來的済票不在 DOM 裡）；落點換算照舊對全部的手排順序
+    items: manual.filter((id) => shownToday.some((r) => r.id === id)).map((id) => ({ id })),
+    // 多選裡拖其中一張＝整批（只帶能手排的那幾張；回饋乙 ☎3③）
+    dragIds: (id) => dragBatch("today", id, manual, (x) => manual.includes(x)),
+    canDrag: (id) => (manual.includes(id) ? true : TIME_FIXED_ORDER_MSG),
+    onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
+    onDrop: (ids, place) => {
+      if (place.kind !== "slot") return;
+      // 一張一張放、每張都對最新的順序換算：第一張照落點錨，其餘接在前一張後面（多張一起拖保持相對順序）
+      void (async () => {
+        let prev: string | null = null;
+        for (const id of ids) {
+          const latest = manualOrderIds(useNodeStore.getState().today.rows);
+          const at = prev === null ? indexOfAnchor(latest, id, place) : latest.filter((x) => x !== id).indexOf(prev) + 1;
+          if (at === null || at < 0) return;
+          const r = await useNodeStore.getState().moveToday(id, at);
+          if (!r.ok) {
+            useUiStore.getState().showToast({ message: r.reason ?? "沒有排成功——請再試一次" }, 3500);
+            return;
+          }
+          prev = id;
+        }
+      })();
+    },
+  });
+  // 誤點區的票拖不動也要回話（「拖不動又不回話」＝啞巴 UI；理由同一句、出自 store）
+  useDragReorder({
+    root: lateList,
+    items: c.lateRows.map((r) => ({ id: r.id })),
+    slots: false,
+    canDrag: () => "誤點區的票不能拖——要排到今天請按 T",
+    onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
+    onDrop: () => undefined,
+  });
   const stations = useNodeStore((s) => s.stations);
   const routes = useNodeStore((s) => s.routes);
+  const todayById = useNodeStore((s) => s.today.byId);
+  const lookupToday = useCallback((id: string) => todayById[id], [todayById]);
   // 推遲小卡的那一列：⑤ 起由呼叫端注入（小卡不再自己查 today.byId，才共用得了日曆浮層）
   const deferRow = useNodeStore((s) => (c.deferTarget ? (s.today.byId[c.deferTarget.id] ?? null) : null));
   // 現在（主線②）：赭色、現在線、「下一班」每分鐘自己更新
   const now = useMinuteTick();
-  const tl = timeline(c.todayRows, c.dateKey, now);
+  // 現在線、小標的位置照畫面上那幾列算（隱藏已完成時列數變了）；下一班本來就跳過済票，結果一樣
+  const tl = timeline(shownToday, c.dateKey, now);
   // 現在線的字與手機今日子頁、時段畫布同一把尺：營業日表記（日界線 06:00、現在 01:30 ⇒「25:30」），
   // 現在不在 dateKey 這個營業日上（nowClockMinutes＝null）就不畫線
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -178,6 +235,13 @@ export function TodayView() {
 
   const noRows = c.rows.length === 0 && !c.draft;
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
+
+  // 建票列（回饋甲 D-主-127、128）：預設掛到無路線；Enter 開的＝執行日今天、Shift+Enter 開的＝無日期（進收件匣）
+  const draftKind = c.draft?.kind ?? null;
+  const quickDefaults: QuickDefaults | null = useMemo(
+    () => (draftKind ? { dest: NO_DEST, scheduledOn: draftKind === "inbox" ? null : c.dateKey, noDateLabel: true } : null),
+    [draftKind, c.dateKey],
+  );
 
   /**
    * stats 列（大標下一行）的各段，「・」由後一段自己帶（別線元件看 lead 自己畫，同一個規矩）。
@@ -265,6 +329,8 @@ export function TodayView() {
               </>
             ) : undefined
           }
+          // ② 運行報告 D-主-184：日期下方的「今日小結」一行（點了進運行報告）
+          below={<TodayBrief shell="desktop" />}
           stamp={<DateSeal date={day} size={76} title={`日付印 ${c.dateKey}`} />}
           emblem={
             nextStation ? (
@@ -290,7 +356,7 @@ export function TodayView() {
           // 空狀態出現時「＋」交給空狀態那一顆（同一動作同頁一個入口，規範 §2.7）；第一次載入回來前也先不畫，免得閃一下
           add={
             c.loaded && !noRows
-              ? { label: "臨時車票", onClick: c.openDraft, title: `開一張臨時車票（${hotkeyCaps("today.draft")}）` }
+              ? { label: "車票", onClick: c.openDraft, title: `新增車票（${hotkeyCaps("today.draft")}）` }
               : undefined
           }
           search={{ onOpen: () => setQuickJumpOpen(true), title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
@@ -320,17 +386,19 @@ export function TodayView() {
               </button>
             </div>
             {!c.lateCollapsed && (
-              <ul role="listbox" aria-label="誤點" className="ticket-list">
+              <ul ref={setLateList} role="listbox" aria-label="誤點" className="ticket-list">
                 {c.lateRows.map((r) => (
                   <Fragment key={r.id}>
                     <TodayRow
                       row={r}
                       route={c.routeOf(r)}
                       selected={c.selectedId === r.id}
+                      picked={!!picked?.includes(r.id)}
                       fresh={c.freshId === r.id}
                       dateKey={c.dateKey}
                       actions={c.row}
                       onFreshEnd={c.clearFresh}
+                      dndProps={{ "data-drag-id": r.id }}
                       now={now}
                       menu={(anchor) => c.menuFor(r, anchor)}
                     />
@@ -358,8 +426,8 @@ export function TodayView() {
               </span>
             }
             title="今天還沒有班次"
-            desc="寫一張臨時車票，或從路線圖挑一班。"
-            action={{ label: "臨時車票", icon: <IconPlus />, onClick: c.openDraft }}
+            desc="寫一張車票，或從路線圖挑一班。"
+            action={{ label: "車票", icon: <IconPlus />, onClick: c.openDraft }}
             secondary={{ label: "去路線圖", onClick: () => useUiStore.getState().setPage("routemap") }}
           />
         ) : (
@@ -368,9 +436,13 @@ export function TodayView() {
               <h3>今天的列車</h3>
               <span className="rule" />
               <span className="note">{total} 張</span>
+              {/* 已完成開關（回饋甲 D-主-131；預設顯示＝済票留原位到日界線） */}
+              {doneToday > 0 && (
+                <DoneToggleChip count={doneToday} showing={!todayHideDone} onToggle={toggleTodayHideDone} />
+              )}
             </div>
-            <ul role="listbox" aria-label="今天的列車" className="ticket-list">
-              {c.todayRows.map((r, i) => (
+            <ul ref={setTodayList} role="listbox" aria-label="今天的列車" className="ticket-list">
+              {shownToday.map((r, i) => (
                 <Fragment key={r.id}>
                   {/* 現在線與「未定時・照手排」小標（主線② D-主-10）：裝飾列，不是選項、不收落點 */}
                   {i === nowAt && nowText !== null && <NowLine text={nowText} />}
@@ -382,11 +454,12 @@ export function TodayView() {
                     row={r}
                     route={c.routeOf(r)}
                     selected={c.selectedId === r.id}
+                    picked={!!picked?.includes(r.id)}
                     fresh={c.freshId === r.id}
                     dateKey={c.dateKey}
                     actions={c.row}
                     onFreshEnd={c.clearFresh}
-                    dndProps={dnd.rowProps(r.id, i)}
+                    dndProps={{ "data-drag-id": r.id }}
                     now={now}
                     menu={(anchor) => c.menuFor(r, anchor)}
                   />
@@ -398,18 +471,24 @@ export function TodayView() {
                 </Fragment>
               ))}
               {/* 有時刻的票全都過了、而且後面沒有未定時的票 ⇒ 現在線畫在最後 */}
-              {nowAt === c.todayRows.length && nowText !== null && <NowLine text={nowText} />}
-              {c.draft && (
-                <TicketDraftRow
-                  // 收官磨光 A1：建票成功就換鍵＝輸入框重掛清空（不換的話字留著，連按 Enter／失焦會同名再建）
-                  key={c.draftSeq}
-                  afterId={c.draft.afterId}
-                  kind={c.draft.kind}
-                  onCommit={c.commitDraft}
-                  onCancel={c.closeDraft}
-                  // 磨光⑤ K3：「無日期」切換＝換成另一種草稿（跟 Enter／Shift+Enter 開的是同兩種）
-                  onKindChange={(k) => (k === "inbox" ? c.createInboxTicket() : c.openDraft())}
+              {nowAt === shownToday.length && nowText !== null && <NowLine text={nowText} />}
+            </ul>
+            {/* 清單尾（回饋甲 D-主-128）：收著＝常駐淡色列「＋ 新增車票…」；開著＝建票列（Enter／頁首「＋ 車票」開，Shift+Enter＝無日期）。
+                另一份 ul：listbox 裡只放選項 */}
+            <ul className="ticket-list today-tail">
+              {c.draft && quickDefaults ? (
+                <QuickAddRow
+                  // 換一種（Enter↔Shift+Enter）＝照新的預設重開
+                  key={c.draft.kind}
+                  defaults={quickDefaults}
+                  here={{ kind: "today", dateKey: c.dateKey }}
+                  onClose={(byKeyboard) => (byKeyboard ? c.closeDraft() : c.dismissDraft())}
+                  onCreated={(row, stays) => {
+                    if (stays) useUiStore.getState().select(row.id);
+                  }}
                 />
+              ) : (
+                <QuickAddLauncher label="新增車票…" onOpen={c.openDraft} />
               )}
             </ul>
           </>
@@ -426,6 +505,7 @@ export function TodayView() {
           />
         )}
 
+        <SelectionBar scope="today" lookup={lookupToday} />
         <footer className="page-foot">
           <span>私鐵手帳・今天</span>
           <span className="fr">

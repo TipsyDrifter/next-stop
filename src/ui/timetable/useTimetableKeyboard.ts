@@ -20,8 +20,8 @@
 import type { KeyboardEvent } from "react";
 import { isEditableTarget, resolveHotkey, type KeyLike } from "../shell/hotkeys";
 
-/** 1–6 對應的視圖（＝切換鈕六格的順序，D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼） */
-export type TimetableKeyView = "split" | "axis" | "week" | "stats" | "schedule" | "grid";
+/** 1–6 對應的視圖（＝切換鈕六格的順序，D-時-46；④ D-時-74 加日程；⑤ D-時-92 加方眼；⑦ D-時-155 統計移到 6） */
+export type TimetableKeyView = "split" | "axis" | "week" | "schedule" | "grid" | "stats";
 /** D／W／M 對應的統計期 */
 export type TimetableKeyPeriod = "day" | "week" | "month";
 
@@ -118,13 +118,13 @@ export function handleTimetableKey(e: TimetableKeyEvent, a: TimetableKeyActions,
       a.showView("week");
       break;
     case "timetable.view.4":
-      a.showView("stats");
-      break;
-    case "timetable.view.5":
       a.showView("schedule");
       break;
-    case "timetable.view.6":
+    case "timetable.view.5":
       a.showView("grid");
+      break;
+    case "timetable.view.6":
+      a.showView("stats");
       break;
     case "timetable.stats.day":
       if (!a.statsPeriod("day")) return;

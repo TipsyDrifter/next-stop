@@ -14,20 +14,24 @@
  * 鍵盤：Enter＝確定（沒排時刻時＝就用起點）；Esc＝框裡有草稿先還原（ClockInput 自己攔）；沒草稿時——掛出來的輸入態
  *   （起點、或「只改這班…」）收回、不讓側板跟著關；本來就有時刻的那一欄照舊交給側板（Esc 關側板）。
  *
- * 另附兩個只給側板用的小件（同檔）：
- *   ArrivalNote  「→ 15:30 着（隔天 01:30）」（D-主-12；預計欄右邊）
- *   RunTimeRow   定期券検印段的「本班」列（只改這班…／再改…／改回每班時刻）
+ * 另附只給側板用的小件（同檔）：
+ *   TimeSpanField  時刻段的「時段」列「14:00 → 15:30 ×」（回饋甲 D-主-129：開始＋結束兩格 ClockField，結束＝開始＋長度算出來的；
+ *                  取代舊的「幾點」列與預計欄右邊的「→ 15:30 着」）
+ *   LengthField    「長度」列：分段鈕 15／30／60／90／120＋「自訂…」（取代「分量」段的「預計」數字框）
+ *   RunTimeRow     定期券検印段的「本班」列（只改這班…／再改…／改回每班時刻）
  */
-import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
 import { effectiveTime, isTimeOverridden } from "../../domain/scheduledTime";
-import { arrivalClock, nextDayNote, todayKey } from "../../lib/date";
+import { nextDayNote, todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { ClockInput } from "../common/ClockInput";
 import { useDebouncedCommit } from "../common/fields";
 import { IconClose } from "../common/icons";
-import { clockBounds, clockSeed, clockToMs, msToClock } from "./clockValue";
+import { Segmented } from "../common/Segmented";
+import { clockBounds, clockSeed, clockToMs, msToClock, spanEnd, spanEndBounds, spanEndSeed, spanLen } from "./clockValue";
+import { LEN_MAX, LEN_PRESETS, lenText, parseLenInput } from "./panelRules";
 
 export interface ClockFieldProps {
   value: string | null;
@@ -47,6 +51,18 @@ export interface ClockFieldProps {
   onClose?(byKeyboard: boolean): void;
   /** × 的說明（預設「清除時刻＝不排時刻」） */
   clearTitle?: string;
+  /** 有沒有 ×（預設有）。時段的結束格不給：清時段＝清開始那一格的 ×，長度另在「長度」列 */
+  clearable?: boolean;
+  /** 範圍覆寫（毫秒）；不給＝這一天的日界線視窗（clockBounds）。時段的結束格＝開始後一分起 */
+  bounds?: { lo: number; hi: number };
+  /** 沒排時刻、點下去的起點覆寫（毫秒）；不給＝clockSeed（今天＝現在取整、別天＝09:00） */
+  seedMs?: number;
+  /** 拿掉 ±15（時段兩格並排，側板控制項欄塞不下四顆微調鈕） */
+  noSteps?: boolean;
+  /** ClockInput 說明行寫不寫日期（同 ClockInput.dateLabel；預設 true） */
+  dateLabel?: boolean | "other";
+  /** 接在時刻框之後、× 之前的東西（時段的「→ 結束」）；焦點移進去時先送出這一格去抖中的值 */
+  tail?: ReactNode;
 }
 
 const DEBOUNCE_MS = 400;
@@ -62,16 +78,25 @@ export function ClockField({
   startEditing = false,
   onClose,
   clearTitle = "清除時刻＝不排時刻",
+  clearable = true,
+  bounds,
+  seedMs,
+  noSteps = false,
+  dateLabel = true,
+  tail,
 }: ClockFieldProps) {
-  const { lo, hi } = useMemo(() => clockBounds(refDay, dayStartHour), [refDay, dayStartHour]);
+  const dayBounds = useMemo(() => clockBounds(refDay, dayStartHour), [refDay, dayStartHour]);
+  const { lo, hi } = bounds ?? dayBounds;
+  const seedNow = () => seedMs ?? clockSeed(refDay, todayKey(dayStartHour), dayStartHour);
   const [editing, setEditing] = useState(startEditing);
   /** 畫面上的值（毫秒）；null＝跟著外面的值走 */
   const [draft, setDraft] = useState<number | null>(null);
   /** 掛出輸入態那一刻的起點（沒排時刻時才用） */
-  const [seed, setSeed] = useState<number>(() => clockSeed(refDay, todayKey(dayStartHour), dayStartHour));
+  const [seed, setSeed] = useState<number>(seedNow);
   /** 這一輪輸入態裡動過值沒（沒動過又沒按 Enter＝起點不算數） */
   const touched = useRef(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const tailRef = useRef<HTMLSpanElement>(null);
   const showRef = useRef<HTMLButtonElement>(null);
   const refocusShow = useRef(false);
 
@@ -104,7 +129,7 @@ export function ClockField({
 
   const begin = () => {
     touched.current = false;
-    setSeed(clockSeed(refDay, todayKey(dayStartHour), dayStartHour));
+    setSeed(seedNow());
     setEditing(true);
   };
 
@@ -152,7 +177,11 @@ export function ClockField({
   // 焦點離開整欄（點到外面）：送出去抖中的值；掛出來的輸入態收回
   const onBlur = (e: FocusEvent<HTMLDivElement>) => {
     const to = e.relatedTarget;
-    if (to instanceof Node && wrapRef.current?.contains(to)) return;
+    if (to instanceof Node && wrapRef.current?.contains(to)) {
+      // 移到接在後面的那一格（時段的結束）：先把這一格的值送出去，結束格才是照新的開始算
+      if (tailRef.current?.contains(to) && !tailRef.current.contains(e.target as Node)) flush();
+      return;
+    }
     // 有的引擎點按鈕不給焦點（relatedTarget 為空）：下一拍再看焦點是不是還在欄裡
     setTimeout(() => {
       const a = document.activeElement;
@@ -164,6 +193,8 @@ export function ClockField({
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // 接在後面那一格（時段的結束）的鍵自己管，不當成這一格的
+    if (tailRef.current?.contains(e.target as Node)) return;
     // ClockInput 有草稿時自己攔 Esc（還原＋stopPropagation），走到這裡＝沒草稿
     if (e.key === "Escape" && editing) {
       e.preventDefault();
@@ -172,8 +203,15 @@ export function ClockField({
     }
   };
 
+  const tailEl = tail !== undefined && (
+    <span className="clockf-tail" ref={tailRef}>
+      {tail}
+    </span>
+  );
+  const cls = "tf clockf" + (noSteps ? " is-nostep" : "");
+
   return (
-    <div className="tf clockf" ref={wrapRef} onBlur={onBlur} onKeyDown={onKeyDown}>
+    <div className={cls} ref={wrapRef} onBlur={onBlur} onKeyDown={onKeyDown}>
       {open ? (
         <div className="clockf-row">
           {prefix && <span className="pre">{prefix}</span>}
@@ -187,48 +225,235 @@ export function ClockField({
             label={ariaLabel}
             refDay={refDay}
             autoFocus={editing}
+            dateLabel={dateLabel}
+            {...(noSteps ? { left: false, right: false } : {})}
           />
-          <button
-            type="button"
-            className="ns-iconbtn clockf-clear"
-            aria-label={value === null ? `取消${ariaLabel}` : `清除${ariaLabel}`}
-            title={value === null ? "不排時刻" : clearTitle}
-            onClick={clear}
-          >
-            <IconClose />
-          </button>
+          {tailEl}
+          {clearable && (
+            <button
+              type="button"
+              className="ns-iconbtn clockf-clear"
+              aria-label={value === null ? `取消${ariaLabel}` : `清除${ariaLabel}`}
+              title={value === null ? "不排時刻" : clearTitle}
+              onClick={clear}
+            >
+              <IconClose />
+            </button>
+          )}
         </div>
       ) : (
-        <button
-          ref={showRef}
-          type="button"
-          className="tf-show"
-          aria-label={`${ariaLabel}：不排時刻（點了就能排）`}
-          onClick={begin}
-        >
-          {prefix && <span className="pre">{prefix}</span>}
-          <span className="ph">{placeholder}</span>
-        </button>
+        (() => {
+          const show = (
+            <button
+              ref={showRef}
+              type="button"
+              className="tf-show"
+              aria-label={`${ariaLabel}：${placeholder.replace(/^—\s*/, "") || "沒有"}（點了就能排）`}
+              onClick={begin}
+            >
+              {prefix && <span className="pre">{prefix}</span>}
+              <span className="ph">{placeholder}</span>
+            </button>
+          );
+          // 有接在後面的東西才包一列（不包＝既有 DOM 不動）
+          return tailEl ? (
+            <div className="clockf-row is-closed">
+              {show}
+              {tailEl}
+            </div>
+          ) : (
+            show
+          );
+        })()
       )}
     </div>
   );
 }
 
 /**
- * 預計欄右邊的到站時刻（D-主-12）：時刻與預計兩格都有值才出「→ 15:30 着」；跨過 24:00 加「（隔天 01:30）」。
- * 原型 `:1025-1026`。
+ * 時段（D-主-129；原型 q3-A）：「14:00 → 15:30 ×」兩格都能打字。資料只有 scheduled_time（開始）＋estimate_min（長度）：
+ *   改開始＝整段平移（長度不動，結束跟著走）；改結束＝重算長度；結束等於或早於開始＝ClockInput 打錯規則擋下（範圍從開始後一分起，
+ *   說明行寫「要在 …–… 之間」）；× 清開始＝不排時刻（長度保留，「長度」列照舊亮著）。
+ *   沒排開始時結束格停用（淡「—」，沒有東西可以算）；有開始、沒長度＝結束格是「—」，點了從開始後 60 分起（同開始格的起點規則：
+ *   Enter 才存、動過就存、什麼都沒做就離開＝不存）。
+ * 定期券：開始格前綴「每班」（每班時刻；逐班改在検印段「本班」）。兩格都拿掉 ±15、說明行只在跨天時寫日期（側板 220px 放兩格）。
  */
-export function ArrivalNote({ time, estimateMin }: { time: string | null; estimateMin: number | null }) {
-  if (!time) return null;
-  const at = arrivalClock(time, estimateMin);
-  if (!at) return null;
-  const nx = nextDayNote(at);
+export function TimeSpanField({
+  start,
+  estimateMin,
+  onStart,
+  onLen,
+  dayStartHour,
+  refDay,
+  prefix,
+}: {
+  start: string | null;
+  estimateMin: number | null;
+  /** 開始改了（null＝清除＝不排時刻） */
+  onStart(v: string | null): void;
+  /** 結束改了 → 新長度（分） */
+  onLen(min: number): void;
+  dayStartHour: number;
+  refDay: string;
+  prefix?: string;
+}) {
+  const end = spanEnd(start, estimateMin);
+  const endBounds = start ? spanEndBounds(start, end, refDay, dayStartHour) : null;
+  const tail = (
+    <>
+      <span className="span-arr" aria-hidden>
+        →
+      </span>
+      {start && endBounds ? (
+        <ClockField
+          value={end}
+          onCommit={(v) => {
+            if (v === null) return; // 結束格沒有 ×；清長度在「長度」列
+            const len = spanLen(start, v);
+            if (len !== null && len !== estimateMin) onLen(len);
+          }}
+          dayStartHour={dayStartHour}
+          refDay={refDay}
+          ariaLabel="結束時刻"
+          placeholder="—"
+          clearable={false}
+          bounds={endBounds}
+          seedMs={spanEndSeed(endBounds)}
+          noSteps
+          dateLabel="other"
+        />
+      ) : (
+        <span className="tf-show is-off" title="先排開始時刻">
+          <span className="ph">—</span>
+        </span>
+      )}
+    </>
+  );
   return (
-    <span className="arr">
-      → <b className="hm">{at}</b> 着{nx && `（${nx}）`}
-    </span>
+    <div className="span-field">
+      <ClockField
+        value={start}
+        onCommit={onStart}
+        dayStartHour={dayStartHour}
+        refDay={refDay}
+        ariaLabel="開始時刻"
+        placeholder="— 不排"
+        prefix={prefix}
+        clearTitle="清除時段＝不排時刻（長度保留）"
+        noSteps
+        dateLabel="other"
+        tail={tail}
+      />
+    </div>
   );
 }
+
+/**
+ * 長度（D-主-129；原型 q3-A）：分段鈕 15／30／60／90／120（分）＋「自訂…」。值不在分段裡＝分段都不亮、自訂鈕寫「1h30」並亮著。
+ * 自訂＝就地換成數字框（分）：Enter／離開就存、Esc 收回不存；空白＝清掉長度；看不懂或 ≤0 不存。上限 panelRules.LEN_MAX。
+ * 分段鈕再點選中的那一段不會清掉（Segmented 慣例）；清長度走「自訂…」清空。
+ * 手機詳情頁也用這一支（雙端同一份；`compact={false}`，版面在 detail.css）。
+ */
+export function LengthField({
+  value,
+  onCommit,
+  compact = true,
+}: {
+  value: number | null;
+  onCommit(v: number | null): void;
+  /** 緊湊分段鈕（側板）；手機詳情頁傳 false＝44 高、撐滿一列（樣式在 mobile/detail/detail.css 的 .m-dt .len-field） */
+  compact?: boolean;
+}) {
+  const [custom, setCustom] = useState<string | null>(null);
+  const composing = useRef(false);
+  /** Esc 收回時框會被拆掉、可能再吹一次 blur：這一次不存 */
+  const dropped = useRef(false);
+  const est = value !== null && value > 0 ? value : null;
+  const seg = est !== null && LEN_PRESETS.includes(est) ? String(est) : null;
+  const customOn = est !== null && seg === null;
+
+  const done = (raw: string | null) => {
+    setCustom(null);
+    if (raw === null) return;
+    const v = parseLenInput(raw);
+    if (v === undefined || v === est) return;
+    onCommit(v);
+  };
+
+  return (
+    <div className="len-field">
+      <Segmented
+        compact={compact}
+        className={compact ? "panel-seg len-seg" : "len-seg"}
+        options={LEN_OPTS}
+        value={custom === null ? seg : null}
+        onChange={(v) => {
+          setCustom(null);
+          if (Number(v) !== est) onCommit(Number(v));
+        }}
+        aria-label="長度"
+      />
+      {custom !== null ? (
+        <span className="len-custom-in">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={LEN_MAX}
+            autoFocus
+            className="techo-input"
+            value={custom}
+            placeholder="45"
+            aria-label="自訂長度（分）"
+            onChange={(e) => setCustom(e.target.value)}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
+            }}
+            onFocus={() => {
+              dropped.current = false;
+            }}
+            onBlur={(e) => {
+              if (dropped.current) {
+                dropped.current = false;
+                return;
+              }
+              done(e.currentTarget.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                // 收回不存（不讓側板跟著關）
+                e.preventDefault();
+                e.stopPropagation();
+                dropped.current = true;
+                setCustom(null);
+              }
+            }}
+          />
+          <span className="meta">分</span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="len-custom"
+          aria-pressed={customOn}
+          title={customOn ? "改自訂長度（清空＝不設長度）" : "自訂長度（分）"}
+          onClick={() => setCustom(est !== null ? String(est) : "")}
+        >
+          {customOn && est !== null ? lenText(est) : "自訂…"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const LEN_OPTS = LEN_PRESETS.map((n) => ({ value: String(n), label: String(n), title: lenText(n) }));
 
 /**
  * 定期券検印段的「本班」列（契約 §4.2 TeikiStampRow；原型 `:1038-1043`）。

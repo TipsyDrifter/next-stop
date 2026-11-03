@@ -16,7 +16,8 @@
 import type { HotkeyScope } from "./hotkeys";
 import { LINE_MANIFESTS, type LineHotkeyScope, type LineId } from "../../lines/index.ts";
 
-export type CorePageId = "today" | "routemap" | "calendar";
+/** 核心頁：gnav 上排三頁＋第三排「回顧」（② 運行報告 D-主-182；③ 車庫接在同一組） */
+export type CorePageId = "today" | "routemap" | "calendar" | "report";
 /** 不進 gnav 的頁（完整搜尋班 D-主-110）：由入口叫出、側欄沒有它的頁籤，不配 Ctrl+數字 */
 export type AuxPageId = "search";
 export type PageId = CorePageId | LineId | AuxPageId;
@@ -73,8 +74,25 @@ const LINE_PAGES: readonly PageDef[] = LINE_MANIFESTS.map((m) => ({
   guideTitle: m.page.guideTitle,
 }));
 
-/** 順序＝gnav 的顯示順序：今日、路線圖、日曆、旅客筆記、時刻表、售票口 */
-export const PAGES: readonly PageDef[] = [...CORE_PAGES, ...LINE_PAGES];
+/**
+ * gnav 第三排「回顧」（② 運行報告 D-主-182；視覺真相 prototypes/design-stats-review-運行報告.html）：
+ * 跟上兩排共用三欄格線、數字鍵接在三條功能線之後。③ 的車庫（navDigit 8）加在這一組。
+ * 這幾頁沒有自己的快捷鍵：`hotkeyScope` 給 global，`?` 情境卡只畫全域那一段（HotkeyGuide）。
+ */
+const REVIEW_PAGES: readonly PageDef[] = [
+  {
+    id: "report",
+    label: "運行報告",
+    status: "open",
+    navDigit: "7",
+    navHotkeyId: "global.nav.report",
+    hotkeyScope: "global",
+    guideTitle: "運行報告的快捷鍵",
+  },
+];
+
+/** 順序＝gnav 的顯示順序：今日、路線圖、日曆、旅客筆記、時刻表、售票口、（回顧）運行報告 */
+export const PAGES: readonly PageDef[] = [...CORE_PAGES, ...LINE_PAGES, ...REVIEW_PAGES];
 
 /**
  * 不進 gnav 的頁：不在 `PAGES`（gnav、Ctrl+數字、鍵帽註記、probe 的六頁都不受影響），但 `setPage`／`?page=`／
@@ -111,7 +129,7 @@ export function plannedPages(): readonly PageDef[] {
   return PAGES.filter((p) => p.status === "planned");
 }
 
-/** 核心三頁（gnav 上排；固定順序今日、路線圖、日曆） */
+/** 核心三頁（gnav 上排；固定順序今日、路線圖、日曆）。第三排「回顧」另由 `reviewPages()` 給 */
 export function corePages(): readonly PageDef[] {
   return CORE_PAGES;
 }
@@ -119,6 +137,11 @@ export function corePages(): readonly PageDef[] {
 /** 三條功能線的頁（gnav 下排；固定順序旅客筆記、時刻表、售票口，不論通車與否） */
 export function linePages(): readonly PageDef[] {
   return LINE_PAGES;
+}
+
+/** gnav 第三排「回顧」的頁（② 運行報告；③ 車庫接在後面） */
+export function reviewPages(): readonly PageDef[] {
+  return REVIEW_PAGES;
 }
 
 /** 是不是已通車的頁 id（`?page=` 的守門；未通車的頁與亂打的字串都回 false） */

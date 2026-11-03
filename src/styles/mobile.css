@@ -972,22 +972,6 @@
     backdrop-filter: blur(14px) saturate(1.15);
   }
 
-  /* 「無日期」＝常駐切換鈕（開＝建收件匣種子票）；關態沿 .status 小標語彙、開態＝選中 --sel-*（UI 丙-1 前是燙金） */
-  [data-shell="mobile"] .m-nt-toggle {
-    min-height: 44px; padding: 0 9px;
-    background: transparent; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
-    font-family: inherit; font-size: var(--fs-micro); letter-spacing: .12em; text-indent: .12em;
-    color: var(--color-ink-faint); cursor: pointer;
-    transition: color .15s, border-color .15s, background .15s;
-    -webkit-tap-highlight-color: transparent;
-  }
-  [data-shell="mobile"] .m-nt-toggle.is-on {
-    border-style: solid; border-color: var(--sel-fg);
-    color: var(--sel-fg);
-    background: var(--sel-bg);
-  }
-  [data-shell="mobile"] .m-nt-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-
   /* 底線輸入（沿 .techo-input 的語彙）；font-size 16px＝行動瀏覽器聚焦時不自動放大頁面（字階裡兩殼都是 16 的只有 --fs-h3，借它的值） */
   [data-shell="mobile"] .m-nt-input {
     min-width: 0; min-height: 44px;

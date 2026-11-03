@@ -25,7 +25,7 @@
  */
 import { useMemo, useRef, type CSSProperties } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
-import { CalendarCell, useAddOutOfTabOrder } from "./CalendarCell";
+import { CalendarCell, useAddOutOfTabOrder, useDateDropTargets } from "./CalendarCell";
 import { useCalendar } from "./useCalendarController";
 import "./week.css";
 
@@ -56,6 +56,7 @@ export function WeekGrid({ weekStart, days }: WeekGridProps) {
   const c = useCalendar();
   const rowRef = useRef<HTMLDivElement>(null);
   useAddOutOfTabOrder(rowRef); // 格線只留落點格一個 Tab stop
+  useDateDropTargets(rowRef); // 回饋乙：格子是「拖到日期＝改期」的落點
   const WD_VARS = useMemo(() => wdVars(c.weekOrder), [c.weekOrder]);
   // 鍵盤焦點的落點：選取格 →（本週的）今天 → 週首那天（與 MonthGrid 同一套）
   const focusDay =

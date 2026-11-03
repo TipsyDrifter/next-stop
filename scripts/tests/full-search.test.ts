@@ -23,6 +23,7 @@ function node(p: Partial<NodeRow> & { id: string }): NodeRow {
     name: p.id,
     description: null,
     position: 0,
+    sort_key: null,
     color: null,
     code: null,
     status: "todo",

@@ -35,14 +35,17 @@
  * - 按下就把焦點放掉：鈕若一直留著焦點，面板關掉後 Enter 會再按到它（鍵表 Enter＝到着，聚焦的 button 上的 Enter 放行）；
  *   放掉後焦點落 body，TimetableView 在面板關掉時把焦點還給根節點。
  * 運行列淡字也扣這一塊排除的預設荷札（`runTagKeys`，磨光③ 2-1）。
+ *
+ * 時刻表⑦（契約 §5；A 席）：桌機在連結、荷札淡字之後接備註 span.ns-tt-dock-note（放不下時它先縮到沒有）；手機不放。
  */
-import { MIN, fmtClock, fmtDur, fmtHMS, msOf } from "../../../domain/timetable";
+import { MIN, fmtClock, fmtDur, fmtHMS, msOf, noteOf } from "../../../domain/timetable";
 import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { CategoryBadge } from "../CategoryBadge";
 import { useNow } from "../useNow";
 import { openRunPicker, runTagKeys, tagNameOf, useTimetableTagMaps } from "./TimetableTagChips";
+import "../blockNote.css";
 
 export interface RunDockProps {
   variant: "mobile" | "desktop";
@@ -97,6 +100,7 @@ export function RunDock({ variant }: RunDockProps) {
   const lkInfo = linkInfo[lk.nodeId ?? lk.routeId ?? ""];
   const linkGone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
   const taskEst = est === null ? taskEstimateOf(running, linkInfo) : null;
+  const note = noteOf(running); // ⑦
   const askLongRun = (): void => openSheet({ kind: "longRun", blockId, then: null });
   // 磨光③ 2-2：切開（不到兩分鐘也開，SplitPanel 會交代）；焦點放掉，免得面板關掉後 Enter 又按到它
   const openSplit = (e: { currentTarget: HTMLElement }): void => {
@@ -166,6 +170,12 @@ export function RunDock({ variant }: RunDockProps) {
             {desk && tagNames.length > 0 && (
               <span className="ns-tt-dock-tags" title={tagAll}>
                 {TT_TEXT.tags.runList(tagNames)}
+              </span>
+            )}
+            {/* ⑦（原型題 5）：桌機在連結、荷札之後淡字接備註，放不下先省略；手機不放（點分類名進「改這一班」看得到） */}
+            {desk && note !== null && (
+              <span className="ns-tt-dock-note" title={note}>
+                {note}
               </span>
             )}
           </span>

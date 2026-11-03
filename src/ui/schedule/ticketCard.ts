@@ -8,7 +8,7 @@
  *   cardFromDayRow    串流班次列（`dayRowModel`＝日曆同一把尺；`canStampRow` 決定能不能蓋、`stampHint` 用 DayRow.tsx:150-162 的句子）
  *   cardFromDue       「只在締切日浮出來」的單發票（沒有執行日；契約 §0-1 第 14 條）
  */
-import { describeRule, parseRule, type NodeKind, type NodeRow } from "../../domain";
+import { describeRule, parseRule, type NodeKind, type NodeRow, type Priority } from "../../domain";
 import type { TodayRow } from "../../data";
 import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
 import { canStampRow, mmdd, type DayRowModel } from "../calendar/DayRow";
@@ -19,6 +19,8 @@ export interface TicketCardModel {
   nodeId: string;
   name: string;
   kind: NodeKind;
+  /** 優先順序（回饋甲 D-主-133：只有「高」在票名前畫赭色小點）；沒給＝不畫 */
+  priority?: Priority;
   routeId: string | null;
   /** null＝不畫票號（§0-1 第 12 條：手機沒載過票號表） */
   serial: string | null;
@@ -78,6 +80,7 @@ export function cardFromTodayRow(row: TodayRow, _today: string): TicketCardModel
     nodeId: row.id,
     name: row.name,
     kind: row.kind,
+    priority: row.priority,
     routeId: row.route_id,
     serial: row.serial,
     fare: fareOf(rule !== null, row.parent_id),
@@ -127,6 +130,7 @@ export function cardFromDayRow(row: DayRowModel, serial: string | null, _today: 
     nodeId: row.entry.node_id,
     name: node?.name ?? "",
     kind: node?.kind ?? "ticket",
+    priority: node?.priority,
     routeId: node?.route_id ?? null,
     serial,
     fare: fareOf(row.isRepeat, node?.parent_id ?? null),
@@ -165,6 +169,7 @@ export function cardFromDue(node: NodeRow, date: string, serial: string | null, 
     nodeId: node.id,
     name: node.name,
     kind: node.kind,
+    priority: node.priority,
     routeId: node.route_id,
     serial,
     fare: fareOf(rule !== null, node.parent_id),

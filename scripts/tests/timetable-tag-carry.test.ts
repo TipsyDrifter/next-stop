@@ -133,6 +133,7 @@ function makeSqliteDb(): TestDb {
   raw.exec("PRAGMA foreign_keys = OFF");
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0006_timetable_blocks.sql"), "utf8"));
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0011_timetable_goals.sql"), "utf8"));
+  raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0015_timetable_plans.sql"), "utf8")); // ⑦：time_blocks.note（applyPlan 的 INSERT 寫這欄）
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   return {
     async select(sql, args) {

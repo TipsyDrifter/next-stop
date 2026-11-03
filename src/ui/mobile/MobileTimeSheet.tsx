@@ -12,6 +12,9 @@
  *   （rule）預計多久＝分段鈕 15 分／30 分／1h／1h30／2h＋「自訂…」chip（§2.5 長度選擇一套；再點選中的那段＝清掉，回「時間未定」）
  *   .m-tms-sum「14:00 発 → 15:30 着（90 分）」／「・時間未定」；比現在早（沒交代的票）補赭字「已過現在時刻」
  *   按鈕列黏底（MSheet foot）：rule「不排時刻」｜「確定」；run「本班不排時刻」｜（覆寫中）「改回每班 07:00」｜「確定」
+ * 回饋甲（D-主-129）：手機詳情頁的「時段」兩格各開一張——開始＝rule＋`withLen={false}`（長度另有一列，只改開始＝整段平移）；
+ *   結束＝mode="end"（標題「結束時刻」、範圍從開始後一分起、摘要「14:00 発 → 15:30 着（1h30）」、確定＝`onCommit(結束, 新長度)`、沒有「不排時刻」）。
+ *   長度字與分段改用 panel/panelRules 那一份（LEN_PRESETS／lenText），側板與詳情頁同一組。
  * 返回層：⋯ sheet 的主人登記整個流程那一層，這裡把同一個 `backId` 傳給 MSheet ⇒ refcount 合併成一層。
  *
  * 值：框裡一定帶值（D-主-14）⇒ 「不排時刻」是一顆**直接送出**的鈕（原型 data-tclear 同款），不是切換狀態。
@@ -32,24 +35,23 @@ import type { TicketCardModel } from "../schedule/ticketCard";
 import { ClockInput, type ClockInputHandle } from "../common/ClockInput";
 import { MSheet } from "../common/MSheet";
 import { Segmented } from "../common/Segmented";
+import { msToClock } from "../panel/clockValue";
+import { LEN_MAX, LEN_PRESETS, lenText } from "../panel/panelRules";
 import "./mobile-polish.css";
 
+/* 長度字與分段（回饋甲起與側板、詳情頁同一份：panel/panelRules）；lenText 照舊從這裡也拿得到 */
+export { lenText };
+
 /** 預計多久的分段（分；§2.5 長度選擇一套） */
-const EST_SEGS = ["15", "30", "60", "90", "120"] as const;
-type EstSeg = (typeof EST_SEGS)[number];
-const EST_MAX = 600;
+const EST_SEGS = LEN_PRESETS.map(String);
+type EstSeg = string;
+const EST_MAX = LEN_MAX;
 /** 現在不在那一天時的預帶值 09:00 */
 const NINE = 9 * 60;
+/** end 模式：還沒有長度時，結束從開始後多久起（同側板時段的結束格） */
+const END_SEED_MIN = 60;
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-
-/** 長度字（§2.5：單位「分」，≥60 寫成 1h30） */
-export function lenText(min: number): string {
-  if (min < 60) return `${min} 分`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}h${pad2(m)}` : `${h}h`;
-}
 
 const EST_OPTS = EST_SEGS.map((v) => ({ value: v, label: lenText(Number(v)) }));
 
@@ -65,8 +67,14 @@ export function timeReceipt(kind: "rule" | "run" | "reset", time: string | null)
 
 export interface MobileTimeSheetProps {
   card: TicketCardModel;
-  /** rule＝單發票的時刻／定期券的每班時刻（＋預計）；run＝定期券這一班 */
-  mode: "rule" | "run";
+  /**
+   * rule＝單發票的時刻／定期券的每班時刻（＋預計）；run＝定期券這一班；
+   * end＝時段的結束（回饋甲 D-主-129，詳情頁「時段」第二格）：開始＝card.ruleTime，框的範圍從開始後一分起（等於或早於開始＝打錯規則擋下），
+   *   確定 ⇒ `onCommit(結束, 新長度)`；沒有「不排時刻」鈕（清長度在「長度」列）
+   */
+  mode: "rule" | "run" | "end";
+  /** rule：要不要「預計多久」那組（預設要；詳情頁的長度另有一列，傳 false＝只改開始、長度不動＝整段平移） */
+  withLen?: boolean;
   /** 日界線今天 */
   today: string;
   dayStartHour: number;
@@ -103,6 +111,7 @@ function msOf(day: string, min: number): number {
 export function MobileTimeSheet({
   card,
   mode,
+  withLen = true,
   today,
   dayStartHour,
   now,
@@ -112,15 +121,27 @@ export function MobileTimeSheet({
   onReset,
   onClose,
 }: MobileTimeSheetProps) {
-  const range = clockRange(dayStartHour);
+  const dayRange = clockRange(dayStartHour);
   const dayDate = card.railDate ?? today;
-  /** 打開時的現值（rule＝每班／單發票的時刻；run＝這一班的有效時刻，覆寫成「不排」時退回每班） */
-  const current = mode === "rule" ? card.ruleTime : (card.time ?? card.ruleTime);
+  const isEnd = mode === "end";
+  /** end：開始（營業日分鐘）與現在的結束（開始＋長度；沒有長度＝null） */
+  const startMin = isEnd && card.ruleTime !== null ? clockMinutes(card.ruleTime) : null;
+  const curEst = card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null;
+  const endMin = startMin !== null && curEst !== null ? startMin + curEst : null;
+  /** 框的範圍：end＝開始後一分起、到這一天的終點（現有結束更晚就放寬到它）；其餘＝這一天的日界線視窗 */
+  const range =
+    startMin !== null
+      ? { min: startMin + 1, max: Math.max(dayRange.max, startMin + 1, endMin ?? 0) }
+      : dayRange;
+  /** 打開時的現值（rule＝每班／單發票的時刻；run＝這一班的有效時刻，覆寫成「不排」時退回每班；end＝開始＋長度） */
+  const current = mode === "rule" ? card.ruleTime : isEnd ? (endMin !== null ? clockText(endMin) : null) : (card.time ?? card.ruleTime);
   const currentMin = current !== null ? clockMinutes(current) : null;
   const initial =
     currentMin !== null && currentMin >= range.min && currentMin <= range.max
       ? currentMin
-      : prefill(dayDate, dayStartHour, now);
+      : startMin !== null
+        ? Math.min(startMin + END_SEED_MIN, range.max)
+        : prefill(dayDate, dayStartHour, now);
 
   const [min, setMin] = useState(initial);
   const [est, setEst] = useState<number | null>(card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null);
@@ -134,12 +155,19 @@ export function MobileTimeSheet({
   const clock = useRef<ClockInputHandle>(null);
 
   /** ClockInput 的毫秒 → 營業日分鐘（夾在 [lo, hi] 裡，一定換得回來；萬一換不回來就留原值） */
-  const minOf = (ms: number): number => nowClockMinutes(dayDate, dayStartHour, ms) ?? min;
+  const minOf = (ms: number): number => {
+    // end 的範圍可能超過這一天的日界線視窗（長度很長）：照 refDay 起算的牆鐘分鐘換（側板 clockValue 同一支）
+    if (isEnd) {
+      const t = msToClock(ms, dayDate);
+      return (t !== null ? clockMinutes(t) : null) ?? min;
+    }
+    return nowClockMinutes(dayDate, dayStartHour, ms) ?? min;
+  };
 
   const time = clockText(min) ?? "";
   const wrapped = min >= 1440;
   const settled = card.done || card.suspended;
-  const past = !settled && !card.doing && isClockPast(dayDate, time, now);
+  const past = !isEnd && !settled && !card.doing && isClockPast(dayDate, time, now);
   const sumEst = mode === "rule" ? est : card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null;
   const arrive = sumEst !== null ? arrivalClock(time, sumEst) : null;
 
@@ -155,6 +183,17 @@ export function MobileTimeSheet({
       const v = h.flush();
       if (v === null) return;
       t = clockText(minOf(v)) ?? time;
+    }
+    if (isEnd) {
+      // end：結束−開始＝新長度（範圍已擋掉等於或早於開始）；沒變就直接關
+      const m = clockMinutes(t);
+      const len = m !== null && startMin !== null && m > startMin ? m - startMin : null;
+      if (len === null || len === curEst) {
+        onClose();
+        return;
+      }
+      onCommit(t, len);
+      return;
     }
     if (mode === "rule") {
       const timeSame = current === t;
@@ -192,7 +231,7 @@ export function MobileTimeSheet({
     setEst(Number.isFinite(v) && v > 0 ? Math.min(v, EST_MAX) : null);
   };
 
-  const title = mode === "rule" ? "幾點発車" : "本班改時刻";
+  const title = mode === "rule" ? "幾點発車" : isEnd ? "結束時刻" : "本班改時刻";
 
   return (
     <MSheet
@@ -201,7 +240,7 @@ export function MobileTimeSheet({
       onClose={onClose}
       foot={
         <>
-          {mode === "rule" ? (
+          {isEnd ? null : mode === "rule" ? (
             <button type="button" className="ns-btn btn-ghost" onClick={onClear}>
               不排時刻
             </button>
@@ -235,7 +274,7 @@ export function MobileTimeSheet({
         lo={msOf(dayDate, range.min)}
         hi={msOf(dayDate, range.max)}
         onChange={(ms) => setMin(minOf(ms))}
-        label={mode === "rule" ? "預定時刻" : "本班時刻"}
+        label={mode === "rule" ? "預定時刻" : isEnd ? "結束時刻" : "本班時刻"}
         refDay={dayDate}
         handleRef={clock}
       />
@@ -245,7 +284,7 @@ export function MobileTimeSheet({
         </p>
       )}
 
-      {mode === "rule" && (
+      {mode === "rule" && withLen && (
         <div className="m-tms-grp">
           <span className="techo-label">預計多久</span>
           <div className="m-tms-est">
@@ -298,18 +337,24 @@ export function MobileTimeSheet({
         </div>
       )}
 
-      <p className="m-tms-sum">
-        <b className="hm">{time}</b> 発
-        {sumEst !== null && arrive ? (
-          <>
-            {" "}
-            → <b className="hm">{arrive}</b> 着（{lenText(sumEst)}）
-          </>
-        ) : (
-          "・時間未定"
-        )}
-        {past && <span className="m-tms-past">已過現在時刻</span>}
-      </p>
+      {isEnd && startMin !== null ? (
+        <p className="m-tms-sum">
+          <b className="hm">{card.ruleTime}</b> 発 → <b className="hm">{time}</b> 着（{lenText(Math.max(1, min - startMin))}）
+        </p>
+      ) : (
+        <p className="m-tms-sum">
+          <b className="hm">{time}</b> 発
+          {sumEst !== null && arrive ? (
+            <>
+              {" "}
+              → <b className="hm">{arrive}</b> 着（{lenText(sumEst)}）
+            </>
+          ) : (
+            "・時間未定"
+          )}
+          {past && <span className="m-tms-past">已過現在時刻</span>}
+        </p>
+      )}
     </MSheet>
   );
 }

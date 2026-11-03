@@ -1,0 +1,37 @@
+/* ─────────────────────────────────────────────────────
+ * recall.css — RecallInput（會記得以前寫過什麼的文字欄；售票口④）
+ *
+ * 不發明新形狀：清單＝紙卡 .techo-card（同 PopMenu）；列的 hover／選中＝--color-paper-used＋左側 --accent 細線（同荷札建議 .ns-notes-sugrow.on）；
+ *   對到的字加粗、其餘照墨色；右側「N 次」＝ink-faint 小字。輸入框本身的外觀由呼叫端的 class 給，這裡不碰。
+ * 桌機：清單浮在欄位正下方（不推開版面）。手機（.is-mobile）：在欄位下面推開（鍵盤不會蓋住），一列 44px。
+ * ───────────────────────────────────────────────────── */
+
+.ns-recall { position: relative; display: block; min-width: 0; }
+.ns-recall > input, .ns-recall > textarea { width: 100%; box-sizing: border-box; }
+
+.ns-recall-list {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30;
+  max-height: 280px; overflow-y: auto; padding: 5px;
+  font-family: var(--font-body); line-height: 1.5; color: var(--color-ink);
+  animation: nsRecallIn var(--dur) var(--ease);
+}
+@keyframes nsRecallIn { from { opacity: 0; transform: translateY(-3px); } }
+
+.ns-recall-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  min-height: 30px; padding: 4px 8px; border: 0; border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .03em; color: var(--color-ink-soft);
+}
+.ns-recall-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-recall-row .t b { font-weight: 700; color: var(--color-ink); }
+.ns-recall-row .n { flex: none; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .04em; }
+.ns-recall-row:hover, .ns-recall-row.on { background: var(--color-paper-used); }
+.ns-recall-row.on { box-shadow: inset 2px 0 0 var(--accent); }
+.ns-recall-hint { padding: 4px 8px 2px; font-size: var(--fs-micro); letter-spacing: .12em; color: var(--color-ink-faint); }
+
+/* 手機：推開、不浮層；列高 44px（觸控目標） */
+.ns-recall.is-mobile .ns-recall-list {
+  position: static; margin-top: 6px; max-height: none; animation: none;
+}
+.ns-recall.is-mobile .ns-recall-row { min-height: 44px; padding: 8px 12px; font-size: var(--fs-body, var(--fs-ui)); }
+@media (prefers-reduced-motion: reduce) { .ns-recall-list { animation: none; } }

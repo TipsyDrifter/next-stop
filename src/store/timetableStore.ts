@@ -52,6 +52,7 @@ import {
   type LinkInfo,
 } from "../domain/timetableLink";
 import { PLAN_TEXT } from "../domain/timetableSchedule";
+import { parseRoutineItems, weekdaysSummary } from "../domain/timetableRoutine";
 import { paintCoverOf, paintKindOf, paintUndoable } from "../domain/timetableGrid";
 import type { FillPiece } from "../domain/timetableFillCont";
 import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF } from "../domain/timetableTags";
@@ -118,8 +119,9 @@ export type TimetableSheet =
    * 磨光③ 2-11：focusId＝打開就展開那一列（分類或組）的 ⋯、捲進畫面閃一下；focus "notice"＝捲到〈通知〉。都不帶＝照舊。
    * UI 丙-4 B1：對話框分成「分類｜通知｜目標」三籤，tab＝開在哪一籤（省略＝分類）。舊的兩種寫法照收：
    * focus "notice"＝tab "notice"、focusId＝tab "cats"（呼叫端不用改）；tab 跟它們打架時以 focus／focusId 為準（定位要找得到列）。
+   * ⑦（B 席）：第四籤「作息」＝tab "routines"；focus "routine"＝開作息籤，再帶 focusId（範本 id）＝展開那一套、捲進畫面。
    */
-  | { kind: "categories"; focusId?: string; focus?: "notice"; tab?: "cats" | "notice" | "goals" }
+  | { kind: "categories"; focusId?: string; focus?: "notice" | "routine"; tab?: "cats" | "notice" | "goals" | "routines" }
   /** ①b：這一班的預估（運行中那班） */
   | { kind: "estimate"; blockId: string }
   /** ②：從任務發車、第一次碰到的路線（☎一-1） */
@@ -135,6 +137,10 @@ export type TimetableSheet =
   | { kind: "pendingList"; from: number; to: number; /** 乙：有值＝只列這個目標範圍的待確認（目標卡「看看 ›」，〈原型定案〉1） */ goalId?: string | null }
   /** ④：日程上點已排的卡開的小面板；key＝預定項（`${date}-${nodeId}`，timetableScheduleStore.items 的 key） */
   | { kind: "plan"; key: string }
+  /** ⑦ C 席：日程作息帶上點一段開的小面板；day＝那一天、id＝段的 id（虛擬段也有，＝落地後的 id） */
+  | { kind: "routine"; day: string; id: string }
+  /** ⑦ C 席：日程上點車票第二段起的卡開的小面板；key＝timetableScheduleStore.slots 的 key（`${date}-${nodeId}-seg-${planId}`） */
+  | { kind: "slot"; key: string }
   /** ⑥：運行中那一班的荷札小面板（D-時-116；桌機放 `EntityTagField`，手機不用它、直接開 `openPicker`） */
   | { kind: "tags"; blockId: string };
 
@@ -316,6 +322,17 @@ export const TT_TEXT = {
   syncRunningFrom: "起",
   syncCatLabel: (name: string) => `分類「${name}」`,
   syncGoalLabel: (name: string) => `目標「${name}」`,
+  /** ⑦：作息範本、預定（`lines/timetableSyncLabel.ts` 讀；週幾摘要與段數由 domain 算好注入，那支檔只准 import 兩支） */
+  syncRoutineLabel: (name: string) => `作息範本「${name}」`,
+  syncRoutineGone: "已刪除的範本",
+  syncRoutineManual: "（手動加的）",
+  syncWeekdays: (mask: number) => weekdaysSummary(mask),
+  syncRoutineItems: (json: string): string | null => {
+    const items = parseRoutineItems(json);
+    return items === null ? null : `${items.length} 段`;
+  },
+  syncSlotOrdinal: (n: number) => `第 ${n} 段`,
+  syncPlanGone: "這一段後來刪掉了",
   syncCatGone: "已刪除的分類",
   syncNodeGone: "一張車票",
   syncRouteGone: "一條路線",
@@ -337,6 +354,7 @@ export const TT_TEXT = {
       route_id: "連結",
       estimate_min: "預估",
       long_run_ack: "確認",
+      note: "備註", // ⑦
     },
     // ④ #73 R5：glyph、position（兩台改同一分類的圓牌字／排序時同步清單印中文）
     time_categories: { name: "名字", parent_id: "分組", color_idx: "顏色", default_min: "預設長度", archived_at: "封存", glyph: "圓牌字", position: "排序" },
@@ -351,7 +369,16 @@ export const TT_TEXT = {
       archived_at: "封存",
       position: "排序", // ④ #73 R5
     },
-  } as { time_blocks: Readonly<Record<string, string>>; time_categories: Readonly<Record<string, string>>; time_goals: Readonly<Record<string, string>> },
+    // ⑦：作息範本、預定
+    time_routines: { name: "名字", items: "段", weekdays: "週幾", position: "排序", archived_at: "封存" },
+    time_plans: { day: "日期", start_hm: "開始", end_hm: "結束", category_id: "分類", node_id: "車票", routine_id: "範本", label: "名字" },
+  } as {
+    time_blocks: Readonly<Record<string, string>>;
+    time_categories: Readonly<Record<string, string>>;
+    time_goals: Readonly<Record<string, string>>;
+    time_routines: Readonly<Record<string, string>>;
+    time_plans: Readonly<Record<string, string>>;
+  },
   /** 期間字、方向字（目標卡與目標面板共用） */
   goalPeriodWord: { day: "每日", week: "每週", month: "每月", since: "從某天起", until: "到某天為止", range: "單一區間" } as Readonly<Record<GoalPeriod, string>>,
   goalDirectionWord: { atLeast: "至少", atMost: "至多" } as Readonly<Record<GoalDirection, string>>,
@@ -765,6 +792,7 @@ export interface TimetableStore {
    * `tagRepo.setTags('timetable:block', id, names)`（不另 toast）。undefined 或空陣列＝不掛。名稱不合法 ⇒ toast 理由、整筆不寫。
    * 磨光③ 2-1：第六參數＝草稿裡排除的分類帶荷札名稱（`timetable:block-off`，同一時間寫）；undefined 或空陣列＝不排除
    * 磨光⑤ 收尾（沙盒 O1）：第七參數 longOk＝面板上按了「確定記這麼長」⇒ 新塊記成已確認（不再標「長時間運行・待確認」）
+   * ⑦（D-時-163）：第八參數 note＝備註（undefined／null／空白＝沒寫；去前後空白、換行變空白）
    */
   fill(
     categoryId: string,
@@ -774,6 +802,7 @@ export interface TimetableStore {
     tagNames?: readonly string[],
     offNames?: readonly string[],
     longOk?: boolean,
+    note?: string | null,
   ): Promise<void>;
   /**
    * ②：link undefined＝不動連結。⑥（0-12；評審後改）：tagEdit＝面板草稿相對於「面板打開時的手動荷札」的差集
@@ -781,6 +810,7 @@ export interface TimetableStore {
    * 磨光③ 2-1（D-時-134）：offNames＝送出後這一塊**全部**排除的分類帶荷札名稱（含畫面上沒畫出來、照留的舊排除）；
    * store 跟 index 裡現在排除的比出差集再 attach／detach（`timetable:block-off`）。undefined＝不動排除；[]＝全部還原
    * 磨光⑤ 收尾（沙盒 O1）：longOk＝按了「確定記這麼長」⇒ 這一塊記成已確認
+   * ⑦（D-時-163）：note＝備註（undefined＝不動；null／空白＝清掉）；跟時間資料同一個 WriteBatch（一次寫入＝一筆 op）
    */
   editBlock(
     blockId: string,
@@ -791,10 +821,12 @@ export interface TimetableStore {
     tagEdit?: BlockTagEdit,
     offNames?: readonly string[],
     longOk?: boolean,
+    note?: string | null,
   ): Promise<void>;
   /**
    * 磨光⑦（D-時-152）：改運行中那一班——分類、出發時間、連結（undefined＝不動）、荷札差集／排除（同 editBlock）。
    * 什麼都沒變 ⇒ 不寫。toast：換了分類「改成 X・HH:MM 発」；只改出發時間「出發時間改成 HH:MM」。
+   * ⑦：note＝備註（同 editBlock；只改備註＝「改好了・X（運行中）」）
    */
   editRunning(
     blockId: string,
@@ -803,6 +835,7 @@ export interface TimetableStore {
     link?: BlockLink | null,
     tagEdit?: BlockTagEdit,
     offNames?: readonly string[],
+    note?: string | null,
   ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
@@ -825,6 +858,11 @@ export interface TimetableStore {
   archiveCategory(id: string, archived: boolean): Promise<void>;
   /** ①b：搬到另一個頂層組；toast B8 */
   moveCategoryToGroup(id: string, parentId: string): Promise<void>;
+  /**
+   * ⑦ 拖曳排序（B 席，D-時-166）：把 id 放進 parentId 那一層，該層的新順序＝orderedIds（含 id；整組寫，同 moveCategory）。
+   * parentId 跟現在不同＝搬組（只對子分類，toast B8）；組只在頂層換序（parentId null）。一次 write、一次重讀
+   */
+  placeCategory(id: string, parentId: string | null, orderedIds: readonly string[]): Promise<void>;
   /** ①b：換圓牌字；toast B9 */
   setCategoryGlyph(id: string, glyph: string): Promise<void>;
 
@@ -836,6 +874,8 @@ export interface TimetableStore {
   /** 軟刪除（toast 帶「復原」＝restoreGoal） */
   deleteGoal(id: string): Promise<boolean>;
   restoreGoal(id: string): Promise<boolean>;
+  /** ⑦（B 席，D-時-166）：目標的新順序（沒封存的整組 0..n-1 全寫，同 reorderCategories） */
+  reorderGoals(orderedIds: readonly string[]): Promise<void>;
 
   /* ②（② 契約 §3.7） */
   /** 從任務發車（§5.2 的流程）：面板開著就不動；找不到／已刪／不能連 ⇒ TASK_MISSING；正在跑 ⇒ ALREADY_RUNNING_TASK；
@@ -1538,7 +1578,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async fill(categoryId, start, end, link, tagNames, offNames, longOk) {
+    async fill(categoryId, start, end, link, tagNames, offNames, longOk, note) {
       const names = draftTagNames(tagNames); // ⑥ 0-12：先驗名稱（不合法 ⇒ 不寫）
       if (names === false) return;
       const offs = draftTagNames(offNames); // 磨光③ 2-1：排除的是既有的預設荷札，照樣驗
@@ -1546,7 +1586,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null, ack: longOk === true });
+          const r = await timetableRepo.fill(categoryId, isoOf(start), isoOf(end), { link: link ?? null, ack: longOk === true, note: note ?? null });
           if (names && names.length) tagErr = await writeBlockTags(r.block.id, names);
           if (offs && offs.length) tagErr = (await writeBlockTags(r.block.id, offs, TT_TAG_BLOCK_OFF)) ?? tagErr;
           return r;
@@ -1558,7 +1598,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames, longOk) {
+    async editBlock(blockId, categoryId, start, end, link, tagEdit, offNames, longOk, note) {
       const add = draftTagNames(tagEdit?.add); // 只驗要新掛的名稱（摘的是現有的 key）
       if (add === false) return;
       // 磨光③ 2-1：排除那份交的是整份名稱 ⇒ 跟 index 裡現在排除的比出差集（同手動那份，只 attach／detach 差的；index 沒載＝基準空、只掛不摘）
@@ -1574,6 +1614,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
             endIso: isoOf(end),
             link,
             ack: longOk === true ? true : undefined, // 磨光⑤ 收尾：沒按確定鈕＝不給（照舊）
+            note, // ⑦：undefined＝不動
           });
           // 評審後：只套差集（attach／detach），不整份 setTags；排除那份（D-時-134）同一招、改分類也不裁（D-時-135）
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
@@ -1597,7 +1638,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editRunning(blockId, categoryId, start, link, tagEdit, offNames) {
+    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note) {
       const add = draftTagNames(tagEdit?.add);
       if (add === false) return;
       const offEdit = offNames === undefined ? null : blockTagEditOf(useTagStore.getState().keysOf(TT_TAG_BLOCK_OFF, blockId), offNames);
@@ -1609,7 +1650,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = await timetableRepo.editRunning(blockId, { categoryId, startIso: isoOf(start), link });
+          const r = await timetableRepo.editRunning(blockId, { categoryId, startIso: isoOf(start), link, note });
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
           if (tagEdit) edits.push([{ add: add ?? [], remove: tagEdit.remove }, TT_TAG_BLOCK]);
           if (offEdit) edits.push([{ add: offAdd ?? [], remove: offEdit.remove }, TT_TAG_BLOCK_OFF]);
@@ -1757,6 +1798,23 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
+    async placeCategory(id, parentId, orderedIds) {
+      const me = get().catById[id];
+      if (!me) return;
+      const moved = me.parent_id !== parentId;
+      if (moved && (me.parent_id === null || parentId === null)) return; // 組不能變成分類、分類不能變成組
+      const name = catName(id);
+      await write(
+        async () => {
+          if (moved && parentId !== null) await timetableRepo.updateCategory(id, { parentId });
+          await timetableRepo.reorderCategories(parentId, orderedIds);
+        },
+        () => {
+          if (moved && parentId !== null) toast(TT_TEXT.movedToGroup(name, catName(parentId)));
+        },
+      );
+    },
+
     async setCategoryGlyph(id, glyph) {
       const g = glyph.trim();
       await write(
@@ -1820,6 +1878,10 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         },
       );
       return ok;
+    },
+
+    async reorderGoals(orderedIds) {
+      await write(() => timetableRepo.reorderGoals(orderedIds));
     },
 
     async restoreGoal(id) {

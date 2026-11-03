@@ -178,22 +178,10 @@
 .ns-today .ticket.draft::before,
 .ns-today .ticket.draft::after { border-style: dashed; border-color: var(--color-dash); }
 .ns-today .ticket.draft .stamp { cursor: default; pointer-events: none; }
-/* 「無日期」切換（磨光⑤ K3）：照手機 .m-nt-toggle——關＝虛線小方標淡字、開＝選中（--sel-*；UI 丙-1 前是燙金）實線；排在 meta 最右 */
-.ns-today .ticket.draft .draft-nodate {
-  margin-left: auto; padding: 1px 8px 1px 10px; border-radius: var(--radius-ctl);
-  background: transparent; border: 1px dashed var(--color-dash); cursor: pointer;
-  font-family: inherit; font-size: var(--fs-xs); letter-spacing: .14em; line-height: 1.5;
-  color: var(--color-ink-faint);
-  transition: color .15s, border-color .15s, background .15s;
-}
-.ns-today .ticket.draft .draft-nodate:hover { color: var(--color-ink-soft); border-color: var(--color-ink-faint); }
-.ns-today .ticket.draft .draft-nodate.is-on {
-  border-style: solid; border-color: var(--sel-fg);
-  color: var(--sel-fg);
-  background: var(--sel-bg);
-}
-.ns-today .ticket.draft .draft-nodate:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .ns-today .ticket.draft .draft-nodate { transition: none; } }
+/* 清單尾：常駐「＋ 新增車票…」／建票列（回饋甲 D-主-128；長相在 common/quickadd/quickadd.css） */
+.ns-today .today-tail { margin-top: 13px; }
+.ns-today .ticket-list:empty + .today-tail { margin-top: 0; }
+
 .ns-today .ticket input.title {
   display: block; width: 100%; min-width: 160px;
   margin: 0; background: transparent; border: 0; outline: none; border-radius: 0;
@@ -231,37 +219,9 @@
   .ns-today .sec .fold .caret { transition: none; }
 }
 
-/* ═══ 拖曳排序（WP5）：落點指示只動 transform／opacity（情境 6；M2_設計生產線.md:191） ═══
-   線常駐（平時 opacity:0）→ 亮起時不動版面、不觸發 layout；
-   語彙＝ .sec .rule 那條 1px dashed var(--color-dash) 的撕線，落點時換成作用中色（＝選中票的同一個 --accent；UI 丙-1 前是燙金）。
-   誤點列的 draggable 由 useTodayDnd 在 effect 裡補上（拖起來當場取消＋toast），視覺上不畫任何線。 */
-.ns-today .ticket-list > li { position: relative; }
-.ns-today .ticket-li[draggable="true"]::before,
-.ns-today .ticket-li[draggable="true"]::after {
-  content: ""; position: absolute; left: 0; right: 0; height: 0;
-  border-top: 1.5px dashed var(--accent);
-  opacity: 0; transform: scaleX(.94); transform-origin: left center;
-  transition: opacity .12s ease-out, transform .12s ease-out;
-  pointer-events: none;
-}
-/* 兩列之間的縫＝ .ticket-list 的 gap 13px，線壓在縫的中線上 */
-.ns-today .ticket-li[draggable="true"]::before { top: -6.5px; }
-.ns-today .ticket-li[draggable="true"]::after { bottom: -6.5px; }
-.ns-today .ticket-li[data-dnd-drop="before"]::before,
-.ns-today .ticket-li[data-dnd-drop="after"]::after { opacity: 1; transform: scaleX(1); }
-
-/* 拖曳要拿得起來 → 票面本體不再 preventDefault（見 useTodayDnd 檔頭），選字改由這裡擋，
-   行為與原本 TodayRow 那句 preventDefault 一致；列內按鈕／輸入框不受影響。 */
-.ns-today .ticket-li[draggable="true"] { -webkit-user-select: none; user-select: none; }
-
-/* 拖曳中的那張票：退到半透明（＝「來歷退後」的同一個 .38 檔位），位置感留給落點線 */
-.ns-today .ticket-li[data-dnd-drag] .ticket { opacity: .38; transition: opacity .12s ease-out; }
-
-@media (prefers-reduced-motion: reduce) {
-  .ns-today .ticket-li[draggable="true"]::before,
-  .ns-today .ticket-li[draggable="true"]::after,
-  .ns-today .ticket-li[data-dnd-drag] .ticket { transition: none; transform: none; }
-}
+/* 拖曳排序：回饋乙起改用共用元件（src/ui/common/dragReorder，樣式在 drag-reorder.css）。
+   票面本體不選字（拖曳的起手式是按下＋移動），列內按鈕／輸入框不受影響。 */
+.ns-today .ticket-li[data-drag-id] { -webkit-user-select: none; user-select: none; }
 
 /* 頁首 stats 每段不在段內折行（窄頁首時只在段與段之間換行，例「夜班回報」不會斷成「夜班回／報」） */
 .ns-pagehead-stats .stat-part { white-space: nowrap; }

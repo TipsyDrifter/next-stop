@@ -7,7 +7,7 @@
  * 走 `planTimeWrite`／`planUndo` 吐出來的寫入，確認今日列與 listCalendar 真的換了，並把已知限制（繰越）釘住。
  * 載入法同 `ticket-time.test.ts`：resolve hook 補 `.ts`、`../lib/db` 換替身。
  */
-import { describe, test } from "node:test";
+import { describe, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 
@@ -58,15 +58,23 @@ async function exec(repo: Repo, w: TimeWrite, today: string): Promise<void> {
 
 describe("D-時-80：誤點單發票 → 排到今天 → 撤回（MemoryNodeRepository）", () => {
   test("seedDemo（mock 的那一份）本來就有誤點的單發票與定期券漏班", async () => {
-    const repo = new MemoryNodeRepository();
-    repo.seedDemo();
-    const today = todayKey(H);
-    const late = lateItemsOf(await repo.listToday(today, H), today);
-    assert.ok(late.items.length >= 2, `誤點單發票 ${late.items.length} 張`);
-    assert.ok(late.repeatCount >= 1, `定期券漏班 ${late.repeatCount} 班`);
-    for (const it of late.items) {
-      assert.ok(it.lateFrom !== null && it.lateFrom < today);
-      assert.equal(it.date, today);
+    // seedDemo 內部直接讀 Date.now()，且日曆情境把「過期未済」夾進本月（月初 1 號會夾成今天＝不誤點）。
+    // 把時鐘釘在月中，測試才不隨「今天是幾號」變紅（2026-11-01 就紅過一次）。
+    mock.timers.enable({ apis: ["Date"], now: new Date(2026, 9, 14, 12, 0, 0) });
+    try {
+      const repo = new MemoryNodeRepository();
+      repo.seedDemo();
+      const today = todayKey(H);
+      assert.equal(today, "2026-10-14");
+      const late = lateItemsOf(await repo.listToday(today, H), today);
+      assert.ok(late.items.length >= 2, `誤點單發票 ${late.items.length} 張`);
+      assert.ok(late.repeatCount >= 1, `定期券漏班 ${late.repeatCount} 班`);
+      for (const it of late.items) {
+        assert.ok(it.lateFrom !== null && it.lateFrom < today);
+        assert.equal(it.date, today);
+      }
+    } finally {
+      mock.timers.reset();
     }
   });
 

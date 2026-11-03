@@ -2937,8 +2937,7 @@ button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%,
 /* 定位（荷札頁點分類進來）／剛還原：閃一下（沿用 §F 的 ns-tt-flash） */
 .ns-tt-panel-mgr .ns-mgr-row.is-flash { animation: ns-tt-flash 1.3s ease both; }
 
-/* 目標籤：沒有排序 API，↑↓ 不畫（不放一排永遠禁用的箭頭）；名字與底下那行可點＝編輯 */
-.ns-tt-mgr-goallist .ns-mgr-why { display: none; }
+/* 目標籤：名字與底下那行可點＝編輯（⑦ 起有排序，↑↓ 照常畫） */
 .ns-tt-mgr-goallist .ns-mgr-text,
 .ns-tt-mgr-subli.is-goal { cursor: pointer; }
 .ns-tt-mgr-goallist .ns-mgr-row:hover .ns-mgr-text { color: var(--accent); }

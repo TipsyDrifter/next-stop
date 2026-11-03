@@ -34,11 +34,10 @@ const TIMETABLE_HOTKEYS: Hotkey[] = [
   { id: "timetable.view.1", scope: "timetable", chords: [{ key: "1" }], label: "切到兩欄", wired: true },
   { id: "timetable.view.2", scope: "timetable", chords: [{ key: "2" }], label: "只看時間軸", wired: true },
   { id: "timetable.view.3", scope: "timetable", chords: [{ key: "3" }], label: "切到週曆", wired: true },
-  { id: "timetable.view.4", scope: "timetable", chords: [{ key: "4" }], label: "切到統計", wired: true },
-  // 車次④（④ 契約 0-7、D-時-74）：第五格日程
-  { id: "timetable.view.5", scope: "timetable", chords: [{ key: "5" }], label: "切到日程", wired: true },
-  // 車次⑤（⑤ 契約 0-6、D-時-92）：第六格方眼
-  { id: "timetable.view.6", scope: "timetable", chords: [{ key: "6" }], label: "切到方眼", wired: true },
+  // 時刻表⑦（D-時-154／155）：統計移到最後一格，鍵帽跟著位置走——4 日程、5 方眼、6 統計
+  { id: "timetable.view.4", scope: "timetable", chords: [{ key: "4" }], label: "切到日程", wired: true },
+  { id: "timetable.view.5", scope: "timetable", chords: [{ key: "5" }], label: "切到方眼", wired: true },
+  { id: "timetable.view.6", scope: "timetable", chords: [{ key: "6" }], label: "切到統計", wired: true },
   // 車次①b（①b①c 契約 §5.9；Stage 0-B 寫最終版，之後凍結）：無修飾鍵、不加 ignoreMods（Shift+T 等不吃）
   // 車次③（③ 契約 §5.8、D-時-57）：←／→／T 同一組鍵依視圖分派（週視圖＝換週／回本週，統計＝換期／回本期），不另登記；只補 note
   { id: "timetable.day.prev", scope: "timetable", chords: [{ key: "ArrowLeft" }], label: "前一天", note: STEP_NOTE, wired: true },
@@ -68,6 +67,6 @@ export const TIMETABLE = {
   hotkeys: TIMETABLE_HOTKEYS,
   scenes: TIMETABLE_SCENES,
   hotkeyFiles: { timetable: "ui/timetable/useTimetableKeyboard.ts", today: "lines/timetable.mount.tsx" },
-  syncTables: ["time_categories", "time_blocks", "time_goals"],
+  syncTables: ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans"],
   syncSettingsKeys: ["timetable_long_run_max_min", "timetable_notice_pins"],
 } as const satisfies LineManifest;

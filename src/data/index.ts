@@ -145,6 +145,7 @@ export const syncRepo: SyncRepository = MOCK_MODE ? new MemorySyncRepository() :
 export type {
   NodeRepository,
   CreateNodeInput,
+  MoveManyItem,
   NodePatch,
   SidebarData,
   TodayRow,

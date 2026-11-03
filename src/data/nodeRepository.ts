@@ -3,7 +3,7 @@
  * 業務邏輯與 UI 只跟這個介面說話；今天後面是 SQLite（tauri-plugin-sql），
  * 將來手機端換儲存、或接同步服務，只換實作不動上層。
  */
-import type { NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, RepeatRule, WorkLog } from "../domain";
+import type { NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, Priority, RepeatRule, WorkLog } from "../domain";
 import { currentDue, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed } from "../domain";
 import { clockInstant, compareClock, dayWindow, isInDay } from "../lib/date";
 // 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
@@ -16,13 +16,14 @@ import {
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
 import type { FullSearchHit } from "../domain/fullSearch";
+import type { SlotAnchor } from "../domain/nodeOrder";
 
 export interface CreateNodeInput {
   kind: NodeKind;
   name: string;
   /** 父節點；幹線與臨時車票為 null */
   parentId: string | null;
-  /** 插在這個兄弟之後；省略＝放最後 */
+  /** 插在這個兄弟之後（顯示群組裡的下一格，domain/nodeOrder.ts）；省略或它不在同一份清單＝放最後 */
   afterId?: string | null;
   /** 臨時車票的路線標籤（統計／查找用） */
   routeTagId?: string | null;
@@ -30,6 +31,25 @@ export interface CreateNodeInput {
   code?: string | null;
   description?: string | null;
   scheduledOn?: string | null;
+  /** 建票列（回饋甲 D-主-127）：建票時一次設好的欄位，跟其餘欄位同一筆 INSERT、同一筆 op */
+  dueOn?: string | null;
+  priority?: Priority;
+  /** 營業日表記 'HH:MM'；有給就要一起給 dayStartHour（驗範圍，同 update 的規則） */
+  scheduledTime?: string | null;
+  estimateMin?: number | null;
+  /** 只拿來驗 scheduledTime 的範圍（不寫進資料） */
+  dayStartHour?: number;
+}
+
+/**
+ * moveMany 的一項（回饋乙：拖曳、多張一起搬）。
+ * routeTag 只對「落在根層的車票」有意義：省略＝保留原本的路線標籤（同 move），null＝收件匣（清標籤），字串＝掛那條路線（同一筆寫入）。
+ */
+export interface MoveManyItem {
+  id: string;
+  parentId: string | null;
+  kind?: NodeKind;
+  routeTag?: string | null;
 }
 
 export type NodePatch = Partial<
@@ -205,9 +225,9 @@ export interface SidebarData {
 }
 
 export interface NodeRepository {
-  /** 側欄：幹線／路線／車站（依 position 排好） */
+  /** 側欄：幹線／路線／車站（依兄弟順序排好：domain/nodeOrder.ts 的 compareSiblings） */
   listSidebar(): Promise<SidebarData>;
-  /** 某條路線的整棵大綱（支線／列車／車廂／車票，不含車站），依 position 排好 */
+  /** 某條路線的整棵大綱（支線／列車／車廂／車票，不含車站），依兄弟順序排好（同上） */
   listRouteTree(routeId: string): Promise<NodeRow[]>;
   /**
    * 全站票號表（id →「MMDD-NN」）＝當日全域發券序（規則見 buildSerialMap）。
@@ -228,10 +248,20 @@ export interface NodeRepository {
    */
   update(id: string, patch: NodePatch, opts?: { dateKey?: string; dayStartHour?: number }): Promise<void>;
   /**
-   * 搬移到新父節點的第 index 位（同父＝重排；跨路線會更新子樹的 line_id／route_id）。
+   * 搬到新父節點底下、**目的地顯示群組（拿掉自己之後）的第 index 格**（回饋乙；群組＝畫面上的同一份清單，見 domain/nodeOrder.ts：
+   * 路線最上層＝路線的非車站子節點＋掛這條路線標籤的根層臨時車票；車站自成一組；根層幹線一組；收件匣不排序）。
+   * index ≥ 群組長度＝尾端。跨路線會更新子樹的 line_id／route_id 快取；根層車票保留原本的路線標籤。
+   * 只寫被搬那一列的 sort_key（＋parent_id／kind／updated_at）；擋路的同鍵／沒鍵鄰居才一起寫；不再位移兄弟、不改 position。
    * newKind：升降層時「類型跟位置走」（車廂升到路線層變列車……），省略＝不變。
    */
   move(id: string, newParentId: string | null, index: number, newKind?: NodeKind): Promise<void>;
+  /**
+   * 一次搬好幾張到同一份清單、依序放在落點錨 after 與 before 之間（拖曳、多選搬移；一個寫入批次＝一次同步）。
+   * 全部項目必須落在同一個顯示群組，否則整批不寫、throw。每項的驗證同 move。
+   */
+  moveMany(items: readonly MoveManyItem[], anchor: SlotAnchor): Promise<void>;
+  /** 這一列所在顯示群組的目前順序（含自己；找不到＝[]）——給復原記「原鄰居」、算落點 */
+  listSiblingIds(id: string): Promise<string[]>;
   /** 就地改類型（如 列車⇄支線），會驗證與父／子節點的相容性 */
   setKind(id: string, kind: NodeKind): Promise<void>;
   /** soft delete 整個子樹，回傳被刪的 id（供 undo） */
@@ -389,6 +419,11 @@ export interface NodeRepository {
    * 不存在／不是路線的 id 回四個 0（呼叫端不必先查存在）。
    */
   routeProgress(routeId: string): Promise<RouteProgress>;
+  /**
+   * 每條路線的未完成末端項目數（回饋甲 D-主-130；側欄與手機路線清單列尾的淡色數字）。唯讀；語義＝純函式 `buildRouteOpenCounts`。
+   * 回 { 路線 id: 數 }，0 的路線不出現。
+   */
+  routeOpenCounts(): Promise<Record<string, number>>;
   /**
    * 串流邊界（主線車次① P5）。唯讀；語義＝純函式 `buildScheduleBounds`，
    * 兩種實作只負責撈資料（與 `listCalendar` 同一趟 SELECT＋occurrences）。
@@ -872,6 +907,27 @@ export function buildRouteProgress(routeId: string, candidates: readonly RoutePr
     if (n.status === "done") p.nodes_done++;
   }
   return p;
+}
+
+/**
+ * 路線列尾的未完成數（回饋甲 D-主-130）：算「末端項目」——活著、kind 是列車／車廂／車票、status 不是 done、
+ * 底下沒有活著的子項，依 route_id 分組。掛路線標籤的臨時車票（parent_id IS NULL）的 route_id 就是標籤，自然算進那條路線；
+ * 路線底下的節點 route_id 是快取＝所屬路線。定期券看 nodes.status（一路是 todo＝算未完成；契約接受）。
+ * SQLite 版是同一組條件的一句 GROUP BY；記憶體版直接吃這支。
+ */
+export function buildRouteOpenCounts(
+  nodes: readonly Pick<NodeRow, "id" | "kind" | "parent_id" | "route_id" | "status" | "deleted_at">[],
+): Record<string, number> {
+  const hasChild = new Set<string>();
+  for (const n of nodes) if (n.deleted_at === null && n.parent_id) hasChild.add(n.parent_id);
+  const out: Record<string, number> = {};
+  for (const n of nodes) {
+    if (n.deleted_at !== null || !n.route_id || n.status === "done") continue;
+    if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") continue;
+    if (hasChild.has(n.id)) continue;
+    out[n.route_id] = (out[n.route_id] ?? 0) + 1;
+  }
+  return out;
 }
 
 const BUCKET_RANK: Record<TodayBucket, number> = { late: 0, due: 1, today: 2 };

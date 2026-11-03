@@ -21,6 +21,7 @@ import type {
   BlockLink,
 } from "../domain/timetable";
 import type { GoalInput } from "../domain/timetableStats";
+import type { PlanPatch, PlanUpsert, PlanWrite, RoutineInput, TimePlanRow, TimeRoutineRow } from "../domain/timetableRoutine";
 import type { PaintUndo } from "../domain/timetableGrid";
 import { MOCK_MODE, WIPED_MODE, nodeRepo, settingsRepo } from "./index";
 import { SqliteTimetableRepository } from "./sqliteTimetableRepository";
@@ -53,6 +54,16 @@ export interface CategoryPatch {
 
 /** 合併預演的結果（型別定義在 domain，這裡轉出） */
 export type { MergePreview };
+
+/** ⑦：寫過的塊備註（RecallInput 的候選；同一句、同一分類一列） */
+export interface BlockNoteTally {
+  note: string;
+  category_id: string;
+  /** 寫過幾塊（未刪除） */
+  count: number;
+  /** 最近一塊的 started_at（ISO） */
+  last: string;
+}
 
 export interface DepartOptions {
   estimateMin?: number | null;
@@ -100,16 +111,17 @@ export interface TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null; ack?: boolean },
+    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }>;
   /** 改一塊已結束的塊的分類與起訖（蓋到的照補記規則處理）；運行中的塊丟 RangeError。②：input.link 不給＝不動連結。
-   *  磨光⑤ 收尾：input.ack＝按了「確定記這麼長」⇒ long_run_ack＝1（不給＝照舊：換分類歸 0、其餘不動） */
+   *  磨光⑤ 收尾：input.ack＝按了「確定記這麼長」⇒ long_run_ack＝1（不給＝照舊：換分類歸 0、其餘不動）。
+   *  ⑦：input.note＝備註（不給＝不動；null／空白＝清掉；去前後空白、換行變空白——`normalizeNote`）；跟著同一個 WriteBatch 寫 */
   editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<CoverSummary>;
-  /** 磨光⑦（planEditRunning）：改運行中那一班的分類、出發時間、連結（link 不給＝不動）；已到站 ⇒ RangeError */
-  editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null }): Promise<CoverSummary>;
+  /** 磨光⑦（planEditRunning）：改運行中那一班的分類、出發時間、連結（link 不給＝不動）；已到站 ⇒ RangeError。⑦：note 同 editBlock */
+  editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null; note?: string | null }): Promise<CoverSummary>;
   /** 單點切開；at 不在 (開始, 結束或現在) 之內回 null */
   split(id: string, atIso: string, categoryId2: string): Promise<TimeBlockRow | null>;
   /** 「其實到幾點」三選一（§4.3 planResolveLongRun） */
@@ -176,6 +188,8 @@ export interface TimetableRepository {
   deleteGoal(id: string): Promise<void>;
   /** 復原軟刪除（撤回用） */
   restoreGoal(id: string): Promise<void>;
+  /** ⑦（D-時-166 拖曳排序）：新順序＝未刪、未封存的整組 0..n-1 全寫（清單沒提到的接尾端），同 `reorderCategories`（#101） */
+  reorderGoals(orderedIds: readonly string[]): Promise<void>;
 
   /* ── ⑤（⑤ 契約 0-5、§3.2；只加不改） ── */
   /**
@@ -199,6 +213,56 @@ export interface TimetableRepository {
    * 兩支寫入同時跑時可能把別支的也一起回報（只是多重載一次 index）。
    */
   consumeTagWrites(): boolean;
+
+  /* ── ⑦（⑦ 契約 §2–§6；只加不改） ── */
+  /** 備註候選：未刪除、備註非空的塊，依（備註, 分類）數塊數、留最近一塊的 started_at；最近的在前 */
+  listBlockNotes(): Promise<BlockNoteTally[]>;
+  /** 頁首搜尋（D-時-165）：未刪除、備註含 term（不分大小寫；只比備註）的塊，started_at 新的在前，最多 limit 塊；term 空白 ⇒ [] */
+  searchBlocks(term: string, limit: number): Promise<TimeBlockRow[]>;
+
+  /** 作息範本：未刪除（含封存），position → created_at → id */
+  listRoutines(): Promise<TimeRoutineRow[]>;
+  /** 取一套；預設不含已刪除，`withDeleted` 同 `getBlock` */
+  getRoutine(id: string, opts?: { withDeleted?: boolean }): Promise<TimeRoutineRow | null>;
+  /** 名字 trim 後非空（否則 RangeError「範本名稱不能是空的」）；段照 `checkRoutineItems` 驗；position＝最大值 +1 */
+  createRoutine(input: RoutineInput): Promise<TimeRoutineRow>;
+  /** 只送真的變了的欄（逐欄 LWW）；不存在 ⇒ RangeError「找不到這套範本」；改段而範本是新版寫的（讀不懂）⇒ RangeError */
+  updateRoutine(id: string, patch: Partial<RoutineInput>): Promise<void>;
+  /** true＝封存、false＝叫回；狀態沒變不送 op */
+  archiveRoutine(id: string, on: boolean): Promise<void>;
+  deleteRoutine(id: string): Promise<void>;
+  restoreRoutine(id: string): Promise<void>;
+  /** 新順序：未刪、未封存的整組 0..n-1 全寫（清單沒提到的接尾端），同 `reorderCategories`（#101） */
+  reorderRoutines(orderedIds: readonly string[]): Promise<void>;
+
+  /** 預定：day 在 [fromDay, toDay]（含兩端）的列，**含已刪除**（落地判定要看墓碑，D-時-160）；day → 開始時刻 */
+  listPlans(fromDay: string, toDay: string): Promise<TimePlanRow[]>;
+  /** 一張票的第二段起：未刪除、node_id＝這張，day → 開始時刻 */
+  listPlansByNode(nodeId: string): Promise<TimePlanRow[]>;
+  /** 取一列；預設不含已刪除，`withDeleted` 同 `getBlock` */
+  getPlan(id: string, opts?: { withDeleted?: boolean }): Promise<TimePlanRow | null>;
+  /** upsert by id（送完整列；`deleted` true＝寫成已刪）。時刻不對 ⇒ RangeError、整批不寫 */
+  insertPlans(rows: readonly PlanUpsert[]): Promise<void>;
+  /**
+   * 本機落地（作息的自動落地、收到就補齊；⑦ 契約 §3）：**只寫本機、不送 op**——本機沒有那一列才插（ON CONFLICT DO NOTHING），
+   * 已有的（改過、刪過、別台同步來的）一律不碰。回插了幾列。時刻不對 ⇒ RangeError、整批不寫
+   */
+  materializePlans(rows: readonly PlanUpsert[]): Promise<number>;
+  /**
+   * 一個 WriteBatch：先 upserts（同 insertPlans）、再軟刪 deletes（已刪的跳過）。
+   * 刪除的 op：這列還沒同步過（本機沒有它的同步戳記——本機落地、從沒送過也沒收過）⇒ 帶完整列＋deleted_at（收到方沒有這列也建得出墓碑）；
+   * 同步過 ⇒ 只送 deleted_at、updated_at（跟其他表一樣，留給同步引擎的「編輯勝刪除」）
+   */
+  writePlans(w: PlanWrite): Promise<void>;
+  /**
+   * 找不到（或已刪）⇒ RangeError「找不到這一段」；結束不晚於開始 ⇒ RangeError。沒變 ⇒ 不寫。
+   * op：同步過的列只送真的變了的欄；還沒同步過的列送完整列（不含 deleted_at）——收到方沒有這列（它沒在本機落地）也建得起來
+   */
+  updatePlan(id: string, patch: PlanPatch): Promise<void>;
+  /** 軟刪除（已刪的不重戳；op 同 writePlans 的 deletes） */
+  deletePlan(id: string): Promise<void>;
+  /** op：同步過的列只送 deleted_at、updated_at；還沒同步過的送完整列 */
+  restorePlan(id: string): Promise<void>;
   /*
    * 目標的荷札（0-4、0-11）：`createGoal`／`updateGoal` 收 `GoalInput.tagNames`——先寫目標列、再
    * `tagRepo.setTags('timetable:goal', id, tagNames)`（兩個交易；`tagNames` 沒給＝不動荷札）。scope：有荷札或原本就是 v2 ⇒ v2（v2 有黏性）。

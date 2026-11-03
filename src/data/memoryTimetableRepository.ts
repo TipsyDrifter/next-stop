@@ -34,6 +34,8 @@ import {
   canUndoArrive,
   currentRunning,
   insertLinkOf,
+  insertNoteOf,
+  noteOf,
   groupedCategories,
   inReconcileWindow,
   isoOf,
@@ -65,6 +67,7 @@ import {
   type DayBlockSegment,
   type KeyedSpan,
   type LongRunChoice,
+  type MergeInfo,
   type Span,
   type TimeBlockRow,
   type TimeBlockSlim,
@@ -72,6 +75,20 @@ import {
   type TimeGoalRow,
   type WritePlan,
 } from "../domain/timetable";
+import {
+  WEEKDAYS_EVERY,
+  checkPlanTimes,
+  checkRoutineItems,
+  parseRoutineItems,
+  planLabelOf,
+  serializeRoutineItems,
+  type PlanPatch,
+  type PlanUpsert,
+  type PlanWrite,
+  type RoutineInput,
+  type TimePlanRow,
+  type TimeRoutineRow,
+} from "../domain/timetableRoutine";
 import { goalScopeJson, goalScopeNext, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
 import { buildStatsDemo } from "../domain/timetableStatsDemo";
 import { TT_TAG_BLOCK, TT_TAG_CATEGORY, TT_TAG_GOAL } from "../domain/timetableTags";
@@ -84,8 +101,8 @@ import {
   type PaintRow,
   type PaintUndo,
 } from "../domain/timetableGrid";
-import type { CategoryPatch, CreateCategoryInput, DepartOptions, MergePreview, TimetableRepository } from "./timetableRepository";
-import { pieceId } from "./sqliteTimetableRepository";
+import type { BlockNoteTally, CategoryPatch, CreateCategoryInput, DepartOptions, MergePreview, TimetableRepository } from "./timetableRepository";
+import { pieceId, planOrder, reorderIds } from "./sqliteTimetableRepository";
 
 const clone = <T extends object>(o: T): T => ({ ...o });
 const isAlive = (r: { deleted_at: string | null }): boolean => r.deleted_at === null;
@@ -129,6 +146,9 @@ export class MemoryTimetableRepository implements TimetableRepository {
   private readonly cats = new Map<string, TimeCategoryRow>();
   private readonly blocks = new Map<string, TimeBlockRow>();
   private readonly goals = new Map<string, TimeGoalRow>();
+  /** ⑦：作息範本、預定（含已刪的墓碑——落地判定要看） */
+  private readonly routines = new Map<string, TimeRoutineRow>();
+  private readonly plans = new Map<string, TimePlanRow>();
   private readonly settings: Pick<SettingsRepository, "get"> | null;
   /** id → started_at 最後被寫的時刻（ISO）；＝真機 sync_cells 裡 `started_at` 那一格的 hlc 的替身（整理寫入鍵用，D-時-26） */
   private readonly startStamp = new Map<string, string>();
@@ -232,6 +252,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: b.nodeId ?? null,
         route_id: b.routeId ?? null,
         long_run_ack: b.ack ? 1 : 0,
+        note: null,
         account_id: null,
         device_id: null,
         created_at: stamp,
@@ -497,6 +518,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: b.nodeId,
         route_id: null,
         long_run_ack: 0,
+        note: null,
         account_id: null,
         device_id: null,
         created_at: stamp,
@@ -633,6 +655,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: null,
         route_id: null,
         long_run_ack: 0,
+        note: null,
         account_id: null,
         device_id: null,
         created_at: stamp,
@@ -692,6 +715,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: null,
         route_id: null,
         long_run_ack: 0,
+        note: null,
         account_id: null,
         device_id: null,
         created_at: stamp,
@@ -772,6 +796,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         r.node_id = p.link.nodeId;
         r.route_id = p.link.routeId;
       }
+      if (p.note !== undefined) r.note = p.note; // ⑦
       r.updated_at = nowIso;
     }
     const ids: string[] = [];
@@ -792,6 +817,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: link.nodeId,
         route_id: link.routeId,
         long_run_ack: i.ack ? 1 : 0,
+        note: insertNoteOf(i, src), // ⑦ D-時-164（同 sqlite）
         account_id: null,
         device_id: null,
         created_at: prev?.created_at ?? nowIso,
@@ -1054,7 +1080,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     categoryId: string,
     startIso: string,
     endIso: string,
-    opts?: { link?: BlockLink | null; ack?: boolean },
+    opts?: { link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<{ block: TimeBlockRow; summary: CoverSummary }> {
     await this.ready();
     const now = Date.now();
@@ -1065,13 +1091,17 @@ export class MemoryTimetableRepository implements TimetableRepository {
       now,
       link: opts?.link ?? null,
       ack: opts?.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
+      note: opts?.note, // ⑦
     });
     const ids = await this.applyPlan(plan, isoOf(now));
     const newId = ids[plan.inserts.findIndex((i) => !i.inherit)];
     return { block: clone(this.blocks.get(newId)!), summary: summarizeCover(plan) };
   }
 
-  async editRunning(id: string, input: { categoryId: string; startIso: string; link?: BlockLink | null }): Promise<CoverSummary> {
+  async editRunning(
+    id: string,
+    input: { categoryId: string; startIso: string; link?: BlockLink | null; note?: string | null },
+  ): Promise<CoverSummary> {
     await this.ready();
     const now = Date.now();
     const cur = this.blocks.get(id);
@@ -1082,6 +1112,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
       now,
       link: input.link,
       curLink: cur ? linkOfRow(cur) : undefined,
+      note: input.note, // ⑦
+      curNote: cur ? noteOf(cur) : undefined,
     });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);
@@ -1089,7 +1121,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
 
   async editBlock(
     id: string,
-    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean },
+    input: { categoryId: string; startIso: string; endIso: string; link?: BlockLink | null; ack?: boolean; note?: string | null },
   ): Promise<CoverSummary> {
     await this.ready();
     const now = Date.now();
@@ -1103,6 +1135,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
       link: input.link, // undefined＝不動
       curLink: cur ? linkOfRow(cur) : undefined,
       ack: input.ack, // 磨光⑤ 收尾：按了「確定記這麼長」
+      note: input.note, // ⑦：undefined＝不動
+      curNote: cur ? noteOf(cur) : undefined,
     });
     await this.applyPlan(plan, isoOf(now));
     return summarizeCover(plan, id);
@@ -1173,11 +1207,11 @@ export class MemoryTimetableRepository implements TimetableRepository {
     return [id, ...ids].map((x) => clone(this.blocks.get(x)!));
   }
 
-  /** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去） */
-  private mergeInfoOf(): (id: string) => { estimateMin: number | null; link: BlockLink } | undefined {
+  /** 磨光⑦：planMerge 的 infoOf（下一塊正在跑時把當前塊的預估、連結抄過去）。⑦：多帶備註（D-時-164） */
+  private mergeInfoOf(): (id: string) => MergeInfo | undefined {
     return (x) => {
       const r = this.blocks.get(x);
-      return r ? { estimateMin: r.estimate_min, link: linkOfRow(r) } : undefined;
+      return r ? { estimateMin: r.estimate_min, link: linkOfRow(r), note: noteOf(r) } : undefined;
     };
   }
 
@@ -1466,6 +1500,18 @@ export class MemoryTimetableRepository implements TimetableRepository {
     this.tagWrites = true; // ⑥ 評審後：復活的目標綁的荷札要回到 index（同 sqlite）
   }
 
+  async reorderGoals(orderedIds: readonly string[]): Promise<void> {
+    await this.ready();
+    // 與 SQLite 版同語義（⑦ D-時-166）：未刪、未封存的整組；清單序在前、沒提到的接尾端；整組 0..n-1 全寫
+    const live = Array.from(this.goals.values()).filter((g) => isAlive(g) && g.archived_at === null);
+    const now = nowUtcIso();
+    reorderIds(live, orderedIds).forEach((id, i) => {
+      const g = this.goals.get(id)!;
+      g.position = i;
+      g.updated_at = now;
+    });
+  }
+
   /* ── ⑤（⑤ 契約 0-5、§3.2；語義同 sqlite 實作） ── */
 
   /**
@@ -1547,5 +1593,257 @@ export class MemoryTimetableRepository implements TimetableRepository {
     }
     this.tagWrites = true; // ⑥ 評審後：撤回會讓被蓋掉的塊復活、切出的片段軟刪 ⇒ index 要重載（同 sqlite）
     return true;
+  }
+
+  /* ───────── ⑦：塊的備註（讀）、作息範本、預定（語義同 sqlite 實作） ───────── */
+
+  async listBlockNotes(): Promise<BlockNoteTally[]> {
+    await this.ready();
+    this.ensureDemo();
+    const by = new Map<string, BlockNoteTally>();
+    for (const r of this.blocks.values()) {
+      const note = noteOf(r);
+      if (!isAlive(r) || !note) continue;
+      const k = `${note}\u0000${r.category_id}`;
+      const t = by.get(k);
+      if (t) {
+        t.count++;
+        if (r.started_at > t.last) t.last = r.started_at;
+      } else by.set(k, { note, category_id: r.category_id, count: 1, last: r.started_at });
+    }
+    return Array.from(by.values()).sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+  }
+
+  async searchBlocks(term: string, limit: number): Promise<TimeBlockRow[]> {
+    const t = term.trim().toLowerCase();
+    if (!t || limit <= 0) return [];
+    await this.ready();
+    this.ensureDemo();
+    return this.aliveNewestFirst()
+      .filter((r) => (noteOf(r) ?? "").toLowerCase().includes(t))
+      .slice(0, limit)
+      .map(clone);
+  }
+
+  private aliveRoutineOrThrow(id: string): TimeRoutineRow {
+    const r = this.routines.get(id);
+    if (!r || !isAlive(r)) throw new RangeError("找不到這套範本");
+    return r;
+  }
+
+  async listRoutines(): Promise<TimeRoutineRow[]> {
+    return Array.from(this.routines.values())
+      .filter(isAlive)
+      .sort((a, b) => a.position - b.position || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0) || (a.id < b.id ? -1 : 1))
+      .map(clone);
+  }
+
+  async getRoutine(id: string, opts?: { withDeleted?: boolean }): Promise<TimeRoutineRow | null> {
+    const r = this.routines.get(id);
+    if (!r) return null;
+    return !isAlive(r) && !opts?.withDeleted ? null : clone(r);
+  }
+
+  async createRoutine(input: RoutineInput): Promise<TimeRoutineRow> {
+    const name = input.name.trim();
+    if (!name) throw new RangeError("範本名稱不能是空的");
+    const items = serializeRoutineItems(checkRoutineItems(input.items));
+    const now = nowUtcIso();
+    const position = Array.from(this.routines.values()).filter(isAlive).reduce((m, r) => Math.max(m, r.position), -1) + 1;
+    const row: TimeRoutineRow = {
+      id: uuid(),
+      name,
+      items,
+      weekdays: input.weekdays & WEEKDAYS_EVERY,
+      position,
+      archived_at: null,
+      account_id: null,
+      device_id: null,
+      created_at: now,
+      updated_at: now,
+      synced_at: null,
+      deleted_at: null,
+    };
+    this.routines.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateRoutine(id: string, patch: Partial<RoutineInput>): Promise<void> {
+    const cur = this.aliveRoutineOrThrow(id);
+    const name = patch.name !== undefined ? patch.name.trim() : undefined;
+    if (name !== undefined && !name) throw new RangeError("範本名稱不能是空的");
+    let items: string | undefined;
+    if (patch.items !== undefined) {
+      if (parseRoutineItems(cur.items) === null) throw new RangeError("這套範本是新版本寫的，這一版改不了");
+      items = serializeRoutineItems(checkRoutineItems(patch.items));
+    }
+    const weekdays = patch.weekdays !== undefined ? patch.weekdays & WEEKDAYS_EVERY : undefined;
+    let changed = false;
+    if (name !== undefined && name !== cur.name) {
+      cur.name = name;
+      changed = true;
+    }
+    if (items !== undefined && items !== cur.items) {
+      cur.items = items;
+      changed = true;
+    }
+    if (weekdays !== undefined && weekdays !== cur.weekdays) {
+      cur.weekdays = weekdays;
+      changed = true;
+    }
+    if (changed) cur.updated_at = nowUtcIso();
+  }
+
+  async archiveRoutine(id: string, on: boolean): Promise<void> {
+    const cur = this.aliveRoutineOrThrow(id);
+    if (on === (cur.archived_at !== null)) return;
+    const now = nowUtcIso();
+    cur.archived_at = on ? now : null;
+    cur.updated_at = now;
+  }
+
+  async deleteRoutine(id: string): Promise<void> {
+    const cur = this.aliveRoutineOrThrow(id);
+    const now = nowUtcIso();
+    cur.deleted_at = now;
+    cur.updated_at = now;
+  }
+
+  async restoreRoutine(id: string): Promise<void> {
+    const cur = this.routines.get(id);
+    if (!cur || isAlive(cur)) throw new RangeError("找不到這套範本");
+    cur.deleted_at = null;
+    cur.updated_at = nowUtcIso();
+  }
+
+  async reorderRoutines(orderedIds: readonly string[]): Promise<void> {
+    const live = Array.from(this.routines.values()).filter((r) => isAlive(r) && r.archived_at === null);
+    const now = nowUtcIso();
+    reorderIds(live, orderedIds).forEach((id, i) => {
+      const r = this.routines.get(id)!;
+      r.position = i;
+      r.updated_at = now;
+    });
+  }
+
+  async listPlans(fromDay: string, toDay: string): Promise<TimePlanRow[]> {
+    return Array.from(this.plans.values())
+      .filter((r) => r.day >= fromDay && r.day <= toDay)
+      .sort(planOrder)
+      .map(clone);
+  }
+
+  async listPlansByNode(nodeId: string): Promise<TimePlanRow[]> {
+    return Array.from(this.plans.values())
+      .filter((r) => isAlive(r) && r.node_id === nodeId)
+      .sort(planOrder)
+      .map(clone);
+  }
+
+  async getPlan(id: string, opts?: { withDeleted?: boolean }): Promise<TimePlanRow | null> {
+    const r = this.plans.get(id);
+    if (!r) return null;
+    return !isAlive(r) && !opts?.withDeleted ? null : clone(r);
+  }
+
+  async insertPlans(rows: readonly PlanUpsert[]): Promise<void> {
+    await this.writePlans({ upserts: rows.slice(), deletes: [] });
+  }
+
+  /** 本機落地（同 sqlite）：沒有那一列才插、已有的不碰；mock 沒有 op，「不送 op」自然成立 */
+  async materializePlans(rows: readonly PlanUpsert[]): Promise<number> {
+    for (const u of rows) checkPlanTimes(u.day, u.start_hm, u.end_hm); // 先全部驗，整批不寫
+    const now = nowUtcIso();
+    let n = 0;
+    for (const u of rows) {
+      if (this.plans.has(u.id)) continue;
+      this.plans.set(u.id, {
+        id: u.id,
+        day: u.day,
+        start_hm: u.start_hm,
+        end_hm: u.end_hm,
+        category_id: u.category_id,
+        node_id: u.node_id,
+        routine_id: u.routine_id,
+        label: planLabelOf(u.label),
+        account_id: null,
+        device_id: null,
+        created_at: u.created_at ?? now,
+        updated_at: now,
+        synced_at: null,
+        deleted_at: u.deleted ? now : null,
+      });
+      n++;
+    }
+    return n;
+  }
+
+  async writePlans(w: PlanWrite): Promise<void> {
+    for (const u of w.upserts) checkPlanTimes(u.day, u.start_hm, u.end_hm); // 先全部驗，整批不寫（同 sqlite）
+    const now = nowUtcIso();
+    for (const u of w.upserts) {
+      const prev = this.plans.get(u.id);
+      this.plans.set(u.id, {
+        id: u.id,
+        day: u.day,
+        start_hm: u.start_hm,
+        end_hm: u.end_hm,
+        category_id: u.category_id,
+        node_id: u.node_id,
+        routine_id: u.routine_id,
+        label: planLabelOf(u.label),
+        account_id: null,
+        device_id: null,
+        created_at: prev?.created_at ?? now,
+        updated_at: now,
+        synced_at: null,
+        deleted_at: u.deleted ? now : null,
+      });
+    }
+    for (const id of w.deletes) {
+      const cur = this.plans.get(id);
+      if (!cur || !isAlive(cur)) continue;
+      cur.deleted_at = now;
+      cur.updated_at = now;
+    }
+  }
+
+  async updatePlan(id: string, patch: PlanPatch): Promise<void> {
+    const cur = this.plans.get(id);
+    if (!cur || !isAlive(cur)) throw new RangeError("找不到這一段");
+    checkPlanTimes(patch.day ?? cur.day, patch.start_hm ?? cur.start_hm, patch.end_hm ?? cur.end_hm);
+    let changed = false;
+    if (patch.day !== undefined && patch.day !== cur.day) {
+      cur.day = patch.day;
+      changed = true;
+    }
+    if (patch.start_hm !== undefined && patch.start_hm !== cur.start_hm) {
+      cur.start_hm = patch.start_hm;
+      changed = true;
+    }
+    if (patch.end_hm !== undefined && patch.end_hm !== cur.end_hm) {
+      cur.end_hm = patch.end_hm;
+      changed = true;
+    }
+    if (patch.category_id !== undefined && patch.category_id !== cur.category_id) {
+      cur.category_id = patch.category_id;
+      changed = true;
+    }
+    if (patch.label !== undefined && planLabelOf(patch.label) !== (cur.label ?? null)) {
+      cur.label = planLabelOf(patch.label);
+      changed = true;
+    }
+    if (changed) cur.updated_at = nowUtcIso();
+  }
+
+  async deletePlan(id: string): Promise<void> {
+    await this.writePlans({ upserts: [], deletes: [id] });
+  }
+
+  async restorePlan(id: string): Promise<void> {
+    const cur = this.plans.get(id);
+    if (!cur || isAlive(cur)) throw new RangeError("找不到這一段");
+    cur.deleted_at = null;
+    cur.updated_at = nowUtcIso();
   }
 }

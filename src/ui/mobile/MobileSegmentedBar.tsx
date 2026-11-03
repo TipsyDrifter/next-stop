@@ -10,10 +10,12 @@
  *   - 起點距螢幕左右邊 < 24px 不算（讓給 Android 系統返回手勢）
  *   - |dx| ≥ 56px 且 |dx| > 1.5 × |dy| 才算；今日往左 ⇒ 行程表、行程表往右 ⇒ 今日
  *   pointer 事件（滑鼠拖曳在 ?mock=1 也能驗）；直向捲動時瀏覽器會發 pointercancel，等於自動放棄。
+ *   - 回饋乙：票卡自己的手勢優先——卡片滑開了（底下露出「蓋済」「明天」）、或按在卡上滿長按時間（浮起拖曳／選起來）都不換子頁。
  *   狀態在 `scheduleUiStore.mobileSub`（P4：同一次開啟期間記住、不持久化、冷啟動回「今日」）。
  */
 import { useEffect, type RefObject } from "react";
 import { useScheduleUiStore, type MobileSub } from "../schedule/scheduleUiStore";
+import { LIFT_DELAY_MS } from "../common/dragReorder/dragMath";
 
 /** 系統返回手勢的邊緣保留帶（px） */
 const EDGE_PX = 24;
@@ -33,6 +35,9 @@ export function useSubSwipe(ref: RefObject<HTMLElement | null>, dir: MobileSub):
     let sy = 0;
     let pid = -1;
     let active = false;
+    /** 按在可拖的卡上（data-drag-id）：按滿長按時間＝卡片自己的手勢 */
+    let onCard = false;
+    let t0 = 0;
 
     const down = (e: PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -44,10 +49,15 @@ export function useSubSwipe(ref: RefObject<HTMLElement | null>, dir: MobileSub):
       sy = e.clientY;
       pid = e.pointerId;
       active = true;
+      onCard = !!t?.closest("[data-drag-id]");
+      t0 = performance.now();
     };
     const up = (e: PointerEvent) => {
       if (!active || e.pointerId !== pid) return;
       active = false;
+      // 卡片自己的手勢吃掉了這一下：滑開了（底下那層還在，220ms 後才拿掉）或長按（拖曳／選起來）
+      if (el.querySelector(".dr-swipe-under")) return;
+      if (onCard && performance.now() - t0 >= LIFT_DELAY_MS) return;
       const dx = e.clientX - sx;
       const dy = e.clientY - sy;
       if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= SWIPE_RATIO * Math.abs(dy)) return;

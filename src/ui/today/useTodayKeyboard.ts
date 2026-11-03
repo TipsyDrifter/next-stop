@@ -27,6 +27,10 @@ import type { KeyboardEvent } from "react";
 import { isEditableTarget, matches, resolveHotkey } from "../shell/hotkeys";
 
 export interface TodayKeyActions {
+  /** Ctrl+A：多選這一頁的票（回饋乙） */
+  selectAll(): void;
+  /** Shift+↑↓：從游標擴選（回饋乙） */
+  extendSelection(delta: 1 | -1): void;
   moveSelection(delta: 1 | -1): void;
   /** 今日手動序（Alt+↑↓）；誤點列會被 store 擋下並吐一句 toast */
   reorderSelected(delta: 1 | -1): void;
@@ -112,6 +116,16 @@ export function useTodayKeyboard(a: TodayKeyActions, disabled = false) {
         break;
       case "today.suspend":
         a.suspendSelected();
+        break;
+      // 多選（回饋乙）：Ctrl+A 全選這一頁的票、Shift+↑↓ 擴選；Esc 清多選在 escape() 裡先問
+      case "today.select.all":
+        a.selectAll();
+        break;
+      case "today.select.extend.up":
+        a.extendSelection(-1);
+        break;
+      case "today.select.extend.down":
+        a.extendSelection(1);
         break;
       default:
         // 別線登記的今日鍵（接縫 #66）；沒有線處理（或沒選中列）＝registry 有、這張表還沒接線的 id：當作沒處理

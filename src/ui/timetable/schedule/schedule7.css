@@ -1,0 +1,114 @@
+/*
+ * schedule7.css——時刻表⑦ C 席：日程的作息窄帶、作息選單、車票「第 N 段」（原型 prototypes/時刻表-⑦.html 提案 ①②④ 落地）。
+ * 共用大檔 timetable.css 不動；這裡只放新 class（.ns-tt-rt*、.ns-tt-rtpick、.ns-tt-sumrt、.ns-tt-sched-tag.is-seg、.ns-tt-rtp-*、.ns-tt-segrow）
+ * 與「預定欄有作息帶時 lanes 往右讓」那一條。token 一律 theme.css 的。
+ */
+
+/* ── 預定欄有作息帶：寬度 --rt-w（桌機 80、手機 48；原型回報 1） ── */
+.ns-tt-sched-pcol.has-rt { --rt-w: 80px; }
+[data-shell="mobile"] .ns-tt-sched-pcol.has-rt { --rt-w: 48px; }
+.ns-tt-sched-pcol.has-rt .ns-tt-sched-lanes { left: var(--rt-w); }
+.ns-tt-sched-pcol.has-rt .ns-tt-sched-pempty { left: var(--rt-w); }
+.ns-tt-sched-gh-p.has-rt { --rt-w: 80px; }
+[data-shell="mobile"] .ns-tt-sched-gh-p.has-rt { --rt-w: 48px; }
+
+/* 欄頭「作息｜預定」：作息那一格對齊下面的窄帶（gh-p 自己有 12px／手機 8px 左內距） */
+.ns-tt-rt-gh {
+  flex: none; align-self: stretch; display: flex; align-items: center; box-sizing: border-box;
+  width: var(--rt-w); margin-left: -12px; margin-right: 10px; padding-left: 9px;
+  font-family: var(--font-body); font-weight: 400; font-size: var(--fs-micro); letter-spacing: .16em; color: var(--color-ink-faint);
+  border-right: 1px dashed color-mix(in srgb, var(--color-dash) 70%, transparent);
+}
+[data-shell="mobile"] .ns-tt-rt-gh { margin-left: -8px; margin-right: 8px; padding-left: 6px; letter-spacing: .06em; }
+
+/* ── 窄帶本體：容器不吃指標（點空白＝落到預定欄），段才吃；挑位置／拖曳時段也不吃（原型回報 1） ── */
+.ns-tt-rt-strip {
+  position: absolute; left: 0; top: 0; bottom: 0; width: var(--rt-w); z-index: 2; pointer-events: none;
+  border-right: 1px dashed color-mix(in srgb, var(--color-dash) 70%, transparent);
+}
+.ns-tt-rt {
+  --c: var(--ns-tt-cat-8);
+  position: absolute; left: 2px; right: 3px; margin: 0; overflow: hidden; pointer-events: auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 2px 2px 2px 4px; text-align: left;
+  font-family: inherit; font-size: var(--fs-micro); line-height: 13px; color: var(--color-ink); cursor: pointer;
+  border: 0; border-left: 3px solid color-mix(in srgb, var(--c) 80%, transparent); border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--c) 9%, transparent);
+  transition: background var(--dur-fast), box-shadow var(--dur);
+}
+.ns-tt-rt:hover { background: color-mix(in srgb, var(--c) 16%, transparent); }
+.ns-tt-rt:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-rt.is-open { z-index: 4; box-shadow: 0 0 0 1.5px var(--sel-fg); background: color-mix(in srgb, var(--c) 16%, var(--ns-tt-sched-solid)); }
+.ns-tt-rt.is-live { border-left-color: var(--c); }
+.ns-tt-rt-strip.is-passive .ns-tt-rt,
+.ns-tt-sched-grid.is-picking .ns-tt-rt,
+.ns-tt-sched-grid.is-dragging .ns-tt-rt { pointer-events: none; }
+.ns-tt-rt-n { font-weight: 500; font-size: var(--fs-xs); letter-spacing: .06em; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-rt-t { font-size: 9.5px; letter-spacing: 0; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：窄帶起訖微字（原型） */
+.ns-tt-rt-r { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-ink-soft); margin-top: 1px; letter-spacing: .02em; }
+.ns-tt-rt-r.is-ok { color: var(--color-ink); font-weight: 600; }
+.ns-tt-rt-r.is-late, .ns-tt-rt-r.is-live { color: color-mix(in srgb, var(--color-late) 85%, transparent); }
+.ns-tt-rt-r.is-miss { color: var(--color-ink-faint); }
+.ns-tt-rt.is-short { flex-direction: row; align-items: center; gap: 4px; padding-top: 0; padding-bottom: 0; }
+.ns-tt-rt.is-short .ns-tt-rt-r { margin-top: 0; flex: 1 1 auto; min-width: 0; }
+.ns-tt-rt.is-short .ns-tt-rt-n { flex: 0 1 auto; min-width: 0; }
+.ns-tt-rt.is-future .ns-tt-rt-n { color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tt-rt { left: 2px; right: 3px; padding: 1px 2px 1px 4px; border-left-width: 2.5px; }
+[data-shell="mobile"] .ns-tt-rt-n { font-size: var(--fs-micro); letter-spacing: .02em; }
+[data-shell="mobile"] .ns-tt-rt-r { font-size: 9.5px; letter-spacing: 0; } /* 字面值：48px 窄帶的短說法（原型） */
+
+/* ── 頂端「作息：工作日 ▾」（原型回報 2） ── */
+.ns-tt-rtpick {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 9px 2px 10px;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-ink); cursor: pointer; white-space: nowrap;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.ns-tt-rtpick small { font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); }
+.ns-tt-rtpick .car {
+  flex: none; width: 5px; height: 5px; margin: -3px 1px 0 3px;
+  border-right: 1.3px solid var(--color-ink-faint); border-bottom: 1.3px solid var(--color-ink-faint); transform: rotate(45deg);
+}
+.ns-tt-rtpick:hover:not(:disabled), .ns-tt-rtpick[aria-expanded="true"] { border-color: var(--accent); background: var(--sel-bg); }
+.ns-tt-rtpick:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-rtpick.is-empty { border-style: dashed; color: var(--color-ink-soft); }
+.ns-tt-rtpick.is-off { color: var(--color-ink-soft); }
+.ns-tt-rtpick:disabled { cursor: default; opacity: .7; }
+.ns-tt-rtpick:disabled .car { display: none; }
+.ns-tt-rtpick-name { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+.ns-tt-sched-top .ns-tt-rtpick { margin-left: auto; }
+.ns-tt-sched-top .ns-tt-sched-keys + .ns-tt-rtpick { margin-left: 0; }
+[data-shell="mobile"] .ns-tt-rtpick { min-height: 30px; font-size: var(--fs-sm); padding: 1px 8px; }
+/* 手機的點擊區放到 44px（外觀照原型 30px；反方評審 #12）：上下各伸 7px 的透明區 */
+[data-shell="mobile"] .ns-tt-rtpick { position: relative; }
+[data-shell="mobile"] .ns-tt-rtpick::before { content: ""; position: absolute; left: 0; right: 0; top: -7px; bottom: -7px; }
+/* 手機：總結第二行＝〔作息：工作日 ▾〕8 段・照表 5 */
+.ns-tt-sumrt { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px; }
+.ns-tt-sumrt .ns-tt-sched-sumline { flex: none; }
+
+/* ── 車票「第 N 段」中性小牌（原型回報 4；不用金：金是定期／本班） ── */
+.ns-tt-sched-tag.is-seg {
+  color: var(--color-ink-soft); border-color: var(--color-dash);
+  background: color-mix(in srgb, var(--ns-tt-sched-solid) 70%, transparent); letter-spacing: .04em;
+}
+
+/* ── 小面板：作息段（RoutineSegPanel）、車票段（SlotPanel）、PlanPanel 的「分段」列 ── */
+.ns-tt-rtp-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ns-tt-rtp-sub { margin: 0 0 4px; font-size: var(--fs-sm); color: var(--color-ink-faint); letter-spacing: .04em; }
+.ns-tt-rtp-sub b { font-weight: 600; color: var(--color-ink); }
+input.ns-tt-rtp-name {
+  width: 100%; min-width: 0; height: 30px; padding: 0 2px; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0;
+  background: transparent; font-family: inherit; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink); outline: none;
+}
+input.ns-tt-rtp-name:focus { border-bottom-color: var(--accent); }
+input.ns-tt-rtp-name::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] input.ns-tt-rtp-name { height: 40px; font-size: 16px; } /* 字面值：手機輸入框 16px 防縮放 */
+.ns-tt-rtp-cats { margin: 4px 0 6px; }
+.ns-tt-segrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.ns-tt-segrow .ns-tt-plan-faint { margin-right: auto; }
+
+/* 挑位置提示條在作息帶時代的長相不變（UnscheduledTray 的 .ns-tt-sched-pickhint）；這裡只補一個名字的粗體 */
+.ns-tt-sched-pickhint b { font-weight: 600; color: var(--color-ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-tt-rt, .ns-tt-rtpick { transition: none; }
+}

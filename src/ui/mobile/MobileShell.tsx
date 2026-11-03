@@ -44,6 +44,8 @@ import { ComingSoon } from "./ComingSoon";
 import MobileToday from "./MobileToday";
 import MobileRouteMap from "./MobileRouteMap";
 import MobileMore from "./MobileMore";
+// ② 運行報告（D-主-183）：不在 tab bar 上的頁，同「更多」
+import MobileReport from "../report/MobileReport";
 import { SyncBanner } from "../common/SyncBanner";
 import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
 import { MobileDetailHost } from "./detail/MobileDetailHost";
@@ -56,6 +58,7 @@ const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
   today: MobileToday,
   routemap: MobileRouteMap,
   more: MobileMore,
+  report: MobileReport,
   notes: LINE_MOUNTS.notes.mobileView,
   timetable: LINE_MOUNTS.timetable.mobileView,
   ticket: LINE_MOUNTS.ticket.mobileView,
@@ -77,18 +80,26 @@ export default function MobileShell() {
   // 磨光① A3（契約 §9.1 A-1）：tab 不登記成一層，交給 useAndroidBack 的派生規則——堆疊空時才看。
   //   在今日 ⇒ null（交還 Android）；在「更多」⇒ 回進來前那一格；其他 tab ⇒ 回今日（tab 之間不算歷史，§1.2）。
   //   「進來前那一格」記在本檔的 ref，不動 uiStore（§0-1）；直接開在「更多」（沒有前一格）就回今日。
+  //   ② 運行報告：「運行報告」頁同「更多」——返回回進來前那一格（從更多頁進來＝回更多頁）；頂帶左邊的「‹」同一件事。
   const lastTabRef = useRef<MobileTabKey>(tabKey);
-  const beforeMoreRef = useRef<MobileTabKey>("today");
+  const beforeRef = useRef<Record<"more" | "report", MobileTabKey>>({ more: "today", report: "today" });
   if (lastTabRef.current !== tabKey) {
-    if (tabKey === "more") beforeMoreRef.current = lastTabRef.current;
+    const from = lastTabRef.current;
+    // 從另一頁「退回來」（例：更多 → 運行報告 → ‹ 回更多）不算往前走：不覆蓋，否則返回會在兩頁之間來回（AVD 實測）
+    const returning = (from === "more" || from === "report") && beforeRef.current[from] === tabKey;
+    if ((tabKey === "more" || tabKey === "report") && !returning) beforeRef.current[tabKey] = from;
     lastTabRef.current = tabKey;
   }
+  const backFromPage = () => {
+    const { mobileTab, setMobileTab } = useUiStore.getState();
+    if (mobileTab === "more" || mobileTab === "report") setMobileTab(beforeRef.current[mobileTab]);
+  };
   useAndroidBack(
     () => {
       // 讀 store 的現值：返回鍵事件可能比 re-render 早到
       const { mobileTab, setMobileTab } = useUiStore.getState();
       if (mobileTab === "today") return null;
-      if (mobileTab === "more") return () => setMobileTab(beforeMoreRef.current);
+      if (mobileTab === "more" || mobileTab === "report") return () => setMobileTab(beforeRef.current[mobileTab]);
       return () => setMobileTab("today");
     },
     tabKey,
@@ -97,7 +108,7 @@ export default function MobileShell() {
 
   return (
     <>
-      <MobileTopBand tab={tab} />
+      <MobileTopBand tab={tab} onBack={tabKey === "report" ? backFromPage : undefined} />
       <SyncBanner shell="mobile" />
       {/* 磨光① A2（契約 §2.2）：同桌機那列，同一個來源與文案；下一次成功載入自己清掉 */}
       {error && (

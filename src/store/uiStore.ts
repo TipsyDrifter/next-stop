@@ -84,6 +84,9 @@ const KEY_LATE_COLLAPSED = "today_late_collapsed";
 const KEY_CALENDAR_VIEW = "calendar_view";
 /** 每週從星期幾開始（旅客筆記車次② D-筆-29）：JS getDay() 數字字串，"1"＝一、"0"＝日 */
 const KEY_WEEK_START = "week_start";
+/** 已完成開關（回饋甲 D-主-131）：今日／路線圖各記各的；"1"＝隱藏。螢幕偏好不同步（D-1.1-3：不在 syncSettingsKeys 白名單） */
+const KEY_TODAY_HIDE_DONE = "today_hide_done";
+const KEY_OUTLINE_HIDE_DONE = "outline_hide_done";
 
 /** settings 字串 → 週首：只認 "0"（週日），其餘（沒寫、舊值、亂值）一律 1＝週一 */
 function normalizeWeekStart(raw: string | null): 0 | 1 {
@@ -161,7 +164,11 @@ interface UiStore {
   zoomId: string | null;
   collapsed: Record<string, boolean>;
   panelOpen: boolean;
+  /** 路線圖：已完成收起（持久化 settings key outline_hide_done；預設收起） */
   hideDone: boolean;
+  /** 今日「今天的列車」：已完成收起（持久化 settings key today_hide_done；預設顯示＝済票留原位到日界線；回饋甲 D-主-131） */
+  todayHideDone: boolean;
+  toggleTodayHideDone: () => void;
   toast: ToastState | null;
   confirm: ConfirmState | null;
   quickJumpOpen: boolean;
@@ -266,7 +273,8 @@ export const useUiStore = create<UiStore>((set, get) => ({
   zoomId: null,
   collapsed: {},
   panelOpen: false,
-  hideDone: true, // UI 丙-3 修訂：大綱的已完成預設收進清單底的摺疊列（「済 N 張・顯示」）
+  hideDone: true, // 大綱的已完成預設收起（回饋甲 D-主-131：開關在區段標「済 N・顯示」）
+  todayHideDone: false,
   toast: null,
   confirm: null,
   quickJumpOpen: false,
@@ -311,7 +319,16 @@ export const useUiStore = create<UiStore>((set, get) => ({
       return { collapsed: next };
     }),
   setPanelOpen: (open) => set({ panelOpen: open }),
-  toggleHideDone: () => set((s) => ({ hideDone: !s.hideDone })),
+  toggleHideDone: () => {
+    const hideDone = !get().hideDone;
+    set({ hideDone });
+    void settingsRepo.set(KEY_OUTLINE_HIDE_DONE, hideDone ? "1" : "0").catch(() => undefined);
+  },
+  toggleTodayHideDone: () => {
+    const todayHideDone = !get().todayHideDone;
+    set({ todayHideDone });
+    void settingsRepo.set(KEY_TODAY_HIDE_DONE, todayHideDone ? "1" : "0").catch(() => undefined);
+  },
 
   // 壽命（視覺規範 §2.8，UI 丙-1）：有動作（復原）6 秒、純通知 4 秒；呼叫端帶了 ttlMs 照帶的
   showToast(toast, ttlMs = toast.actionLabel ? 6_000 : 4_000) {
@@ -416,12 +433,14 @@ export const useUiStore = create<UiStore>((set, get) => ({
       if (get().theme === "system") applyTheme("system");
     });
     try {
-      const [theme, dayStart, lateCollapsed, calendarView, weekStart] = await Promise.all([
+      const [theme, dayStart, lateCollapsed, calendarView, weekStart, todayHideDone, outlineHideDone] = await Promise.all([
         settingsRepo.get(KEY_THEME),
         settingsRepo.get(KEY_DAY_START),
         settingsRepo.get(KEY_LATE_COLLAPSED),
         settingsRepo.get(KEY_CALENDAR_VIEW),
         settingsRepo.get(KEY_WEEK_START),
+        settingsRepo.get(KEY_TODAY_HIDE_DONE),
+        settingsRepo.get(KEY_OUTLINE_HIDE_DONE),
       ]);
       const pref: ThemePref = THEME_OVERRIDE ?? normalizeTheme(theme);
       applyTheme(pref);
@@ -434,6 +453,9 @@ export const useUiStore = create<UiStore>((set, get) => ({
         // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）
         calendarView: DEV_FLAGS.view ?? (calendarView === "week" || calendarView === "time" || calendarView === "stream" ? calendarView : "month"),
         weekStart: normalizeWeekStart(weekStart),
+        // 已完成開關（D-主-131）：沒寫過＝各頁預設（今日顯示、路線圖收起）
+        todayHideDone: todayHideDone === "1",
+        hideDone: outlineHideDone !== "0",
       });
     } catch {
       // 設定讀取失敗不致命：維持預設（跟隨系統、06:00）

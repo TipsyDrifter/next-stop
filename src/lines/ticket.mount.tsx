@@ -22,6 +22,7 @@ import { useTicketStore } from "../store/ticketStore";
 import { ticketRepo } from "../data/ticketRepository";
 import { SYNC_LABEL_FALLBACK } from "../store/syncMergeLabels";
 import { repeatSyncLabel } from "./ticketSyncLabel";
+import { ticketReportJump } from "./ticketReport";
 
 /**
  * 同步清單列（同步引擎班順手；組字在 `ticketSyncLabel.ts`）：定期帳、帳戶、帳目分類講人話，其餘售票口的表回
@@ -75,4 +76,6 @@ export const TICKET_MOUNT: LineMount = {
   // 同步引擎班順手：同步頁清單／toast 的定期帳講人話（其餘表照舊泛稱）
   syncRowLabel: ticketSyncRowLabel,
   // calendarDayMarks 不填（D-票-29；③的 0-2 答 (a)，D-票-32：主線日曆不標超支）
+  // ② 運行報告：卡片小元件與表格某一天點下去的去處（D-主-188；跳法在 ticketReport.ts）
+  reportJump: ticketReportJump,
 };

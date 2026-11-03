@@ -42,8 +42,10 @@ import { isClockPast } from "../../lib/date";
 import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
 import { lineTodayRowActions } from "../../lines/runtime";
+import { PriorityMark } from "../common/PriorityMark";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { IconDots } from "../common/icons";
+import { rowContextMenu } from "../common/contextMenu";
 
 /** MMDD-NN 之外的 M/D 顯示（票面 chip 用） */
 function mmdd(key: string): string {
@@ -195,6 +197,8 @@ export interface TodayRowActions {
   /** 執行日 chip＝推遲小卡入口（取代原生 date input；D-③-6） */
   openDefer(id: string, anchor: HTMLElement | null): void;
   focusContainer(): void;
+  /** 列的 mousedown 先問多選（Ctrl／⌘／Shift＋點；回饋乙）：回 true＝是多選的點，不要再單選 */
+  pick(id: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: EventTarget | null }): boolean;
 }
 
 export interface TodayRowProps {
@@ -202,13 +206,15 @@ export interface TodayRowProps {
   /** 票根的路線（代碼／色／名）；undefined＝無路線的臨時車票 */
   route: NodeRow | undefined;
   selected: boolean;
+  /** 多選裡（回饋乙；選中底＋選中框，跟只有框的游標分得出來，規範 §2.10） */
+  picked?: boolean;
   /** 剛蓋章 → 播 stampIn */
   fresh: boolean;
   /** 這份今日資料算的是哪一天（依日界線） */
   dateKey: string;
   actions: TodayRowActions;
   onFreshEnd(): void;
-  /** WP5 拖曳：useTodayDnd 的 rowProps（WP2 是空物件） */
+  /** 拖曳：`data-drag-id`（共用元件 useDragReorder 認列用；回饋乙） */
   dndProps?: Record<string, unknown>;
   /** 現在（useMinuteTick；主線②）：時刻已過、沒入鋏也沒蓋済 ⇒ 時刻字轉赭 */
   now: number;
@@ -216,7 +222,7 @@ export interface TodayRowProps {
   menu?: (anchor: HTMLElement | null) => PopMenuItem[];
 }
 
-export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFreshEnd, dndProps, now, menu }: TodayRowProps) {
+export function TodayRow({ row, route, selected, picked = false, fresh, dateKey, actions, onFreshEnd, dndProps, now, menu }: TodayRowProps) {
   const ref = useRef<HTMLLIElement>(null);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／臨時券 */
   const rule = parseRule(row.repeat_rule);
@@ -335,7 +341,7 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
     <li
       ref={ref}
       role="option"
-      aria-selected={selected}
+      aria-selected={selected || picked}
       data-selected={selected}
       data-node-id={row.id}
       className="ticket-li"
@@ -343,12 +349,28 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
         const t = e.target as HTMLElement;
         if (t.closest("input")) return; // 行內輸入框要自己的 caret
         // 只有列內按鈕才 preventDefault（控件不搶焦點）。票面本體不能擋——mousedown 的預設動作
-        // 同時是原生拖曳的起手式，一律 preventDefault 會讓 draggable 元素永遠發不出 dragstart
+        // 同時是拖曳的起手式（按下＋移動），一律 preventDefault 會讓拖曳拿不起來
         // （WP5 實證）。不選字改由 today.css 的 `user-select:none` 負責。
         if (t.closest("button")) e.preventDefault();
+        // 多選（回饋乙）：Ctrl／⌘／Shift＋點交給多選；純點票面順手取消多選
+        if (actions.pick(row.id, e)) {
+          e.preventDefault(); // Shift＋點不要選字
+          actions.focusContainer();
+          return;
+        }
         actions.select(row.id);
         actions.focusContainer();
       }}
+      onContextMenu={
+        menu
+          ? rowContextMenu(() => ({
+              overline: { zh: "這張車票", latin: "Ticket" },
+              label: `${row.name} 的動作`,
+              items: menu(null),
+              before: () => actions.select(row.id),
+            }))
+          : undefined
+      }
       {...dndProps}
     >
       <article
@@ -357,6 +379,7 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
           // 暖光底＋赭外框只在「還沒有結局」時亮著（件一：補済＝來歷退後，樣張 .ticket.done.late-done 無 .late-t）
           ((late || due) && !settled ? " late-t" : "") +
           (selected ? " selected" : "") +
+          (picked ? " is-picked" : "") +
           (done ? " done" : "") +
           (suspended ? " is-suspended" : "") +
           (paused ? " is-paused" : "") +
@@ -390,7 +413,11 @@ export function TodayRow({ row, route, selected, fresh, dateKey, actions, onFres
           </button>
 
           {/* 標題一律黑體（D-筆-32：臨時券標題全 App 黑體，不再走手寫） */}
-          <p className="title">{row.name}</p>
+          <p className="title">
+            {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
+            <PriorityMark priority={row.priority} />
+            {row.name}
+          </p>
 
           <div className="meta">
             <MetaItems items={metaItems} />

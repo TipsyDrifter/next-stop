@@ -11,6 +11,8 @@
  * UI 丙-3 C5：現況／優先順序／所屬路線換新 `Segmented`（放不下就換下拉，`./Choice`）；執行日、締切日換共用 `DateChip`
  *   （執行日一定 allowPast＋flag="backfill"，補記不能壞）；「幾點」換共用 `ClockInput`（`./TimeField` 的 ClockField）；
  *   心情字統一「順暢／還行／吃力」（G1，與完成卡同一份 complete/moods.ts）。
+ * 回饋甲（D-主-129、133）：「時刻」段兩種面板同一支 ScheduleSection——票種 → 時段組〔執行日 → 時段（開始 → 結束兩格）→ 長度（分段鈕）
+ *   → 插槽 section "schedule" → 締切日〕；列車／車廂的「預計」搬上來成「長度」。車票加「状態」段＝優先順序＋別線狀態段欄位。
  * 已知取捨：面板內改 done 不彈完成卡（心情／日誌就在同一面板）；車廂不給「轉為支線」（支線只能掛路線／支線下，setKind 必擋）。
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
@@ -28,7 +30,7 @@ import {
   SectionRule,
 } from "./fields";
 import { FareRow, RepeatSection, TeikiStampRow, usePanelRepeat } from "./RepeatRuleEditor";
-import { ArrivalNote, ClockField } from "./TimeField";
+import { LengthField, TimeSpanField } from "./TimeField";
 import { Choice } from "./Choice";
 import { DateChip } from "../common/DateChip";
 import { MOODS } from "../complete/moods";
@@ -37,6 +39,7 @@ import { fmtDateTime } from "./format";
 import { WorkLogList } from "./WorkLogList";
 import { useMoveTo } from "./MoveTo";
 import { lineNodeFields } from "../../lines/runtime";
+import type { NodeFieldSpec } from "../../lines/types";
 import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
 import { changeStatusFlow, convertKindFlow, openKidsOf, panelStampFlow } from "../outline/nodeFlows";
 import { PRIORITY_OPTIONS, mdwText, stampViewOf, statusChoices, teikiState } from "./panelRules";
@@ -121,22 +124,20 @@ function NameBlock({
   );
 }
 
-/**
- * 定期券的執行日＝唯讀（M3 ④ 評審 must）：班次由規則排定，這裡只是**印出來**給人看。
- * 沿大綱 `.date.locked` 的語彙（OutlineRow :289-302）——值照印、旁邊一句灰注、沒有清除叉；
- * 要改班次就改規則（上面的「重複」區段）或按 U 跳過本班。
- * 版位沿用 panel.css 的 `.date`（flex 一列）與 `.latin`／`.empty`，不新增 class。
- */
+/** 插槽 `nodeFields` 的段（lines/types NodeFieldSpec.section；不填＝status） */
+type FieldSection = NonNullable<NodeFieldSpec["section"]>;
+
 /**
  * 別線登記的節點欄位列（插槽 `nodeFields`，接縫 #56）：依 kind 與段（`section`，接縫 #66；不填＝status）過濾；
- * 三線都沒登記＝空陣列、DOM 零變。amount 段只有列車／車廂面板的「分量」段會問。
+ * 三線都沒登記＝空陣列、DOM 零變。amount 段只有列車／車廂面板的「分量」段會問；schedule 段＝時段組（長度之後、締切日之前，
+ * 列車／車廂與車票面板都問；D-主-129）。
  */
-function lineFieldsFor(node: NodeRow, section: "status" | "amount" = "status") {
+function lineFieldsFor(node: NodeRow, section: FieldSection = "status") {
   return lineNodeFields("desktop").filter((f) => f.kinds.includes(node.kind) && (f.section ?? "status") === section);
 }
 
 /** 也給 RoutePanel 用（路線面板的 `.fields` 尾端渲染點，同一個插槽）；`section` 不給＝status */
-export function LineRows({ node, section }: { node: NodeRow; section?: "status" | "amount" }) {
+export function LineRows({ node, section }: { node: NodeRow; section?: FieldSection }) {
   return (
     <>
       {lineFieldsFor(node, section).map((f) => (
@@ -148,6 +149,12 @@ export function LineRows({ node, section }: { node: NodeRow; section?: "status" 
   );
 }
 
+/**
+ * 定期券的執行日＝唯讀（M3 ④ 評審 must）：班次由規則排定，這裡只是**印出來**給人看。
+ * 沿大綱 `.date.locked` 的語彙（OutlineRow :289-302）——值照印、旁邊一句灰注、沒有清除叉；
+ * 要改班次就改規則（上面的「重複」區段）或按 U 跳過本班。
+ * 版位沿用 panel.css 的 `.date`（flex 一列）與 `.latin`／`.empty`，不新增 class。
+ */
 function LockedDate({ value }: { value: string | null }) {
   // 日期字照 panelRules.mdwText「10/26（週一）」（同検印段頭的本班日、手機詳情頁；第三輪——原本印原始的 2026-10-26）
   return (
@@ -176,6 +183,70 @@ function ScheduledChip({ node }: { node: NodeRow }) {
       clearable
       label="執行日"
     />
+  );
+}
+
+/**
+ * 「時刻」段（回饋甲 D-主-129；原型 q3-A）——列車／車廂與車票面板同一支：
+ *   票種 → 〔時段組：執行日 → 時段 → 長度 → 插槽 section "schedule"（時刻表⑦「其他時段」）→ 締切日〕。
+ *   時段組左側一條淡線（.sched-group）把「排時段」這件事的幾格圈成一組；列車／車廂的「預計」從「分量」段搬上來成「長度」。
+ * 定期券（lockedDate＝掛著規則，含退役）：執行日唯讀；時段是「每班」時刻（逐班改在検印段「本班」，不動）。
+ * 手機詳情頁同順序（MobileDetailHost TaskFields）。
+ */
+function ScheduleSection({
+  node,
+  repeat,
+  lockedDate,
+}: {
+  node: NodeRow;
+  repeat: ReturnType<typeof usePanelRepeat>;
+  lockedDate: boolean;
+}) {
+  const updateNode = useNodeStore((s) => s.updateNode);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  return (
+    <>
+      <SectionRule title="時刻" />
+      <div className="fields">
+        {/* 票種（收官磨光 Q1）：留在執行日之前（手機詳情頁同位置） */}
+        <FareRow node={node} repeat={repeat} />
+
+        <div className="sched-group">
+          <FieldRow label="執行日">
+            {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
+          </FieldRow>
+
+          <FieldRow label="時段">
+            <TimeSpanField
+              start={node.scheduled_time}
+              estimateMin={node.estimate_min}
+              onStart={(v) => void updateNode(node.id, { scheduled_time: v })}
+              onLen={(min) => void updateNode(node.id, { estimate_min: min })}
+              dayStartHour={dayStartHour}
+              refDay={node.scheduled_on ?? todayKey(dayStartHour)}
+              prefix={lockedDate ? "每班" : undefined}
+            />
+          </FieldRow>
+
+          <FieldRow label="長度">
+            <LengthField value={node.estimate_min} onCommit={(v) => void updateNode(node.id, { estimate_min: v })} />
+          </FieldRow>
+
+          {/* 別線的時段組欄位（插槽 nodeFields 的 section "schedule"）：長度之後、締切日之前；沒登記＝不出 DOM */}
+          <LineRows node={node} section="schedule" />
+
+          <FieldRow label="締切日">
+            <DateChip
+              date={node.due_on}
+              onPick={(v) => void updateNode(node.id, { due_on: v })}
+              allowPast
+              clearable
+              label="締切日"
+            />
+          </FieldRow>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -252,7 +323,6 @@ function TaskPanel({ node }: { node: NodeRow }) {
   );
   const { updateNode, remove, convert } = useNodeActions();
   const move = useMoveTo(node);
-  const dayStartHour = useUiStore((s) => s.dayStartHour);
   // 票種列與重複段共用一份草稿（收官磨光 Q1）
   const repeat = usePanelRepeat(node);
 
@@ -317,37 +387,8 @@ function TaskPanel({ node }: { node: NodeRow }) {
         </FieldRow>
       </div>
 
-      <SectionRule title="時刻" />
-      <div className="fields">
-        {/* 票種（收官磨光 Q1）：手機詳情頁有、桌機原本沒有——雙端同等補上，位置同手機（執行日之前） */}
-        <FareRow node={node} repeat={repeat} />
-
-        <FieldRow label="執行日">
-          {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
-        </FieldRow>
-
-        <FieldRow label="締切日">
-          <DateChip
-            date={node.due_on}
-            onPick={(v) => void updateNode(node.id, { due_on: v })}
-            allowPast
-            clearable
-            label="締切日"
-          />
-        </FieldRow>
-
-        {/* 預定時刻（主線②）：定期券也可編＝每班時刻（lockedDate 只鎖執行日）；逐班改在下面検印段的「本班」 */}
-        <FieldRow label="幾點">
-          <ClockField
-            value={node.scheduled_time}
-            onCommit={(v) => void updateNode(node.id, { scheduled_time: v })}
-            dayStartHour={dayStartHour}
-            refDay={node.scheduled_on ?? todayKey(dayStartHour)}
-            ariaLabel="預定時刻"
-            prefix={lockedDate ? "每班" : undefined}
-          />
-        </FieldRow>
-      </div>
+      {/* 時刻段＝票種＋時段組（D-主-129；預定時刻定期券也可編＝每班時刻，逐班改在下面検印段的「本班」） */}
+      <ScheduleSection node={node} repeat={repeat} lockedDate={lockedDate} />
 
       {/* 重複＝獨立區段（M3 ④ WP3）；舊的自由文字 CommitInput 退場 */}
       <RepeatSection node={node} repeat={repeat} />
@@ -360,21 +401,9 @@ function TaskPanel({ node }: { node: NodeRow }) {
         </>
       )}
 
+      {/* 分量段：「預計」已搬上時刻段的時段組成「長度」（D-主-129） */}
       <SectionRule title="分量" />
       <div className="fields">
-        <FieldRow label="預計">
-          <div className="est-row">
-            <NumberField
-              value={node.estimate_min}
-              onCommit={(v) => void updateNode(node.id, { estimate_min: v })}
-              ariaLabel="預計時間（分）"
-              unit="分"
-              placeholder="—"
-            />
-            <ArrivalNote time={node.scheduled_time} estimateMin={node.estimate_min} />
-          </div>
-        </FieldRow>
-
         {/* 別線的分量段欄位（插槽 nodeFields 的 section "amount"，接縫 #66）有登記 ⇒ 取代「花費」這一列；沒有＝照舊 */}
         {lineFieldsFor(node, "amount").length ? (
           <LineRows node={node} section="amount" />
@@ -492,7 +521,6 @@ function TicketPanel({ node }: { node: NodeRow }) {
   const showToast = useUiStore((s) => s.showToast);
   const { updateNode, remove } = useNodeActions();
   const move = useMoveTo(node);
-  const dayStartHour = useUiStore((s) => s.dayStartHour);
   // 票種列與重複段共用一份草稿（收官磨光 Q1）
   const repeat = usePanelRepeat(node);
   /**
@@ -562,63 +590,27 @@ function TicketPanel({ node }: { node: NodeRow }) {
                 ariaLabel="所屬路線"
               />
             </FieldRow>
-            <LineRows node={node} />
           </div>
         </>
       )}
 
-      {/* 樹內車票：別線欄位列在票頭下自成一塊、不另起段名 */}
-      {!isTemp && lineFieldsFor(node).length > 0 && (
-        <div className="fields">
-          <LineRows node={node} />
-        </div>
-      )}
-
-      <SectionRule title="時刻" />
+      {/* 状態段（D-主-133：車票加「優先順序」，翻案規格 §5）——車票沒有現況（検印就是它的狀態），這一段＝優先順序＋別線的狀態段欄位
+          （荷札、時間…；原本樹內車票在票頭下自成一塊、臨時車票掛在路線段，一併收進來，同列車／車廂面板的状態段）。 */}
+      <SectionRule title="状態" />
       <div className="fields">
-        {/* 收官磨光 Q1（使用者定案「車票欄位雙端同等」）：票種、締切日——手機詳情頁一直有、桌機車票側板原本沒有
-            （收件匣的臨時票在桌機因此沒有任何地方能設締切）。順序同手機：票種 → 執行日 → 締切日 → 時刻 */}
-        <FareRow node={node} repeat={repeat} />
-
-        <FieldRow label="執行日">
-          {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
-        </FieldRow>
-
-        <FieldRow label="締切日">
-          <DateChip
-            date={node.due_on}
-            onPick={(v) => void updateNode(node.id, { due_on: v })}
-            allowPast
-            clearable
-            label="締切日"
+        <FieldRow label="優先順序">
+          <Choice
+            value={node.priority}
+            options={PRIORITY_OPTIONS}
+            onChange={(v) => void updateNode(node.id, { priority: v })}
+            ariaLabel="優先順序"
           />
         </FieldRow>
-
-        {/* 預定時刻與預計（主線② D-主-12）：車票側板從此也有「預計」；定期券＝每班時刻，逐班改在検印段的「本班」 */}
-        <FieldRow label="幾點">
-          <ClockField
-            value={node.scheduled_time}
-            onCommit={(v) => void updateNode(node.id, { scheduled_time: v })}
-            dayStartHour={dayStartHour}
-            refDay={node.scheduled_on ?? todayKey(dayStartHour)}
-            ariaLabel="預定時刻"
-            prefix={lockedDate ? "每班" : undefined}
-          />
-        </FieldRow>
-
-        <FieldRow label="預計">
-          <div className="est-row">
-            <NumberField
-              value={node.estimate_min}
-              onCommit={(v) => void updateNode(node.id, { estimate_min: v })}
-              ariaLabel="預計時間（分）"
-              unit="分"
-              placeholder="—"
-            />
-            <ArrivalNote time={node.scheduled_time} estimateMin={node.estimate_min} />
-          </div>
-        </FieldRow>
+        <LineRows node={node} />
       </div>
+
+      {/* 時刻段＝票種＋時段組（D-主-129；同列車／車廂面板）。票種、締切日＝收官磨光 Q1 雙端同等補上的；定期券＝每班時刻，逐班改在検印段的「本班」 */}
+      <ScheduleSection node={node} repeat={repeat} lockedDate={lockedDate} />
 
       {/* 重複＝獨立區段（M3 ④ WP3）；掛上規則票頭立刻變「定期券」，検印欄改蓋班次 */}
       <RepeatSection node={node} repeat={repeat} />

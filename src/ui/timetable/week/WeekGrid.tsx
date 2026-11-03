@@ -13,12 +13,15 @@
  *       └ div.ns-tt-week-tip.techo-card   桌機滑過一塊的 tooltip（手機不出，點塊直接跳軸——§5.11 替代；UI 丙-4 D4 材質＝.techo-card）
  *
  * 位置一律用百分比（相對那天的窗），塊最小 2px 高（CSS）；運行中那塊長到 `now`。資料是 `WeekResult`（統計 store 算好的）。
+ * 時刻表⑦（A 席）：桌機 tooltip 第二行＝備註（WeekResult 是瘦身列沒有備註，另讀這一週的塊；週結果重算就重讀）。
  */
-import { useRef, useState, type CSSProperties } from "react";
-import { MIN, colorSlot, fmtClock, fmtDur, type AxisItem } from "../../../domain/timetable";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { MIN, colorSlot, fmtClock, fmtDur, isoOf, type AxisItem } from "../../../domain/timetable";
+import { timetableRepo } from "../../../data/timetableRepository";
 import type { WeekResult } from "../../../store/timetableStatsStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
+import "../blockNote.css";
 
 export type WeekBlockItem = Extract<AxisItem, { kind: "block" }>;
 
@@ -47,6 +50,8 @@ function weekdayOf(key: string): number {
 
 interface Tip {
   text: string;
+  /** ⑦：這一塊的備註（tooltip 第二行） */
+  note: string | null;
   x: number;
   y: number;
   below: boolean;
@@ -61,15 +66,36 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<Tip | null>(null);
   const T = TT_TEXT.weekUi;
+  // ⑦（契約 §5）：tooltip 帶備註。週的資料是統計 store 的瘦身列（不含備註），桌機另讀這一週的塊、只留備註；
+  // 週結果每重算一次（寫入、同步、換週）就重讀一次
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!isDesk || week.days.length === 0) return;
+    let alive = true;
+    const from = week.days[0].start;
+    const to = week.days[week.days.length - 1].end;
+    void timetableRepo
+      .listBlocks(isoOf(from), isoOf(to))
+      .then((rows) => {
+        if (!alive) return;
+        const m: Record<string, string> = {};
+        for (const r of rows) if (r.note) m[r.id] = r.note;
+        setNotes(m);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [week, isDesk]);
 
-  const showTip = (el: HTMLElement, text: string): void => {
+  const showTip = (el: HTMLElement, text: string, note: string | null): void => {
     const body = bodyRef.current;
     if (!isDesk || !body) return;
     const br = body.getBoundingClientRect();
     const r = el.getBoundingClientRect();
     const x = Math.max(80, Math.min(br.width - 80, r.left + r.width / 2 - br.left));
     const top = r.top - br.top;
-    setTip(top < 40 ? { text, x, y: r.bottom - br.top, below: true } : { text, x, y: top, below: false });
+    setTip(top < 40 ? { text, note, x, y: r.bottom - br.top, below: true } : { text, note, x, y: top, below: false });
   };
 
   const hours: number[] = [];
@@ -136,6 +162,7 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
                 const isTiny = whole < MIN;
                 const hpx = ((to - it.from) / HOUR) * hourPx;
                 const label = T.blockTip(name, fmtClock(s.start), s.end === null ? T.running : fmtClock(s.end), fmtDur(whole), isPend, isTiny);
+                const note = notes[s.id] ?? null;
                 const showName = hpx >= 15;
                 const tall = isDesk && hpx >= 34;
                 const style = {
@@ -155,8 +182,8 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
                       (tall ? " is-tall" : "")
                     }
                     style={style}
-                    aria-label={label}
-                    onPointerEnter={(e) => showTip(e.currentTarget, label)}
+                    aria-label={note ? `${label}　${note}` : label}
+                    onPointerEnter={(e) => showTip(e.currentTarget, label, note)}
                     onClick={() => onBlock(d.dateKey, it)}
                   >
                     {showName && <span>{isDesk ? name : (cat?.glyph ?? Array.from(name)[0])}</span>}
@@ -181,6 +208,7 @@ export function WeekGrid({ week, shell, now, onBlock, onGap }: WeekGridProps) {
             aria-hidden="true"
           >
             {tip?.text}
+            {tip?.note && <span className="ns-tt-week-tip-note">{tip.note}</span>}
           </div>
         )}
       </div>

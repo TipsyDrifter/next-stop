@@ -120,10 +120,10 @@ test("pruneToSelectable：全部可選＝原樣；全部不可選＝空", () => 
 
 /* ───────── 落點 ───────── */
 
-test("appendIndex：新父節點的最後一個（max(position)+1；沒有子節點＝0；有洞照 max）", () => {
+test("appendIndex：新父節點的最後一格＝顯示清單的長度（回饋乙：move 的 index 是格位，不再是 position）", () => {
   assert.equal(appendIndex([]), 0);
   assert.equal(appendIndex([{ position: 0 }, { position: 1 }]), 2);
-  assert.equal(appendIndex([{ position: 5 }, { position: 2 }]), 6);
+  assert.equal(appendIndex([{ position: 5 }, { position: 2 }]), 2, "整數 position 有洞也只看張數");
 });
 
 /* ───────── 目前位置 ───────── */

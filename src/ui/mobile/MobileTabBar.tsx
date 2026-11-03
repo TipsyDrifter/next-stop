@@ -24,10 +24,13 @@ import { lineNavBadge } from "../../lines/runtime";
 import { useUiStore } from "../../store/uiStore";
 import "../common/msheet.css";
 import { COMING_SOON_TEXT, MOBILE_TABS, renderTabIcon } from "./tabs";
+import { NavCount, todayCountHint, useTodayCount } from "../common/NavCount";
 
 export function MobileTabBar() {
   const current = useUiStore((s) => s.mobileTab);
   const setMobileTab = useUiStore((s) => s.setMobileTab);
+  const todayCount = useTodayCount();
+  const todayHint = todayCountHint(todayCount);
 
   return (
     <nav className="m-tabbar" role="tablist" aria-label="主選單">
@@ -57,6 +60,11 @@ export function MobileTabBar() {
                 <Badge shell="mobile" />
               ))}
             <span className="m-tab-label">{tab.label}</span>
+            {/* 回饋甲 D-主-130：「今日」右上數字小標（今天還沒交代的張數；有誤點轉赭），同桌機書封。
+                絕對定位、排在字之後＝讀屏念「今日（還有 N 張）」 */}
+            {tab.key === "today" && todayHint && (
+              <NavCount n={todayCount.left} late={todayCount.late > 0} label={todayHint} shell="mobile" />
+            )}
           </button>
         );
       })}

@@ -33,7 +33,10 @@ import { DateChip } from "../common/DateChip";
 import { useUiStore } from "../../store/uiStore";
 import { isInDay } from "../../lib/date";
 import { InlineInput } from "../common/InlineInput";
+import { NO_DEST, QuickAddRow, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import type { EditHandlers, RowActions } from "./useOutlineController";
+import { rowContextMenu } from "../common/contextMenu";
+import { PriorityMark } from "../common/PriorityMark";
 
 /** 層級縮排（票的 margin-left）：每層 28px */
 export function indentPx(depth: number): number {
@@ -267,6 +270,8 @@ export interface OutlineRowProps {
   hasChildren: boolean;
   collapsed: boolean;
   selected: boolean;
+  /** 多選裡（回饋乙；選中底＋選中框，跟只有框的游標分得出來，規範 §2.10） */
+  picked?: boolean;
   /** 剛蓋章 → 播済章動畫 */
   fresh: boolean;
   today: string;
@@ -340,6 +345,7 @@ export function OutlineRow({
   hasChildren,
   collapsed,
   selected,
+  picked = false,
   fresh,
   today,
   cars,
@@ -467,18 +473,36 @@ export function OutlineRow({
       ref={ref}
       role="treeitem"
       aria-level={depth + 1}
-      aria-selected={selected}
+      aria-selected={selected || picked}
       aria-expanded={hasChildren ? !collapsed : undefined}
       data-selected={selected}
       data-node-id={node.id}
+      // 拖曳（回饋乙；useDragReorder 認這個屬性）。pointer events 不受下面 mousedown 的 preventDefault 影響；
+      // 列裡的按鈕、行內改名的輸入框按下去不會起拖（元件自己略過）
+      data-drag-id={rename ? undefined : node.id}
       style={{ marginLeft: indentPx(depth) }}
       className="ticket-li"
       onMouseDown={(e) => {
         if ((e.target as HTMLElement).closest("input")) return; // 行內輸入框要自己的 caret
         e.preventDefault(); // 不讓列內按鈕搶焦點、不選字
+        // 多選（回饋乙）：Ctrl／⌘／Shift＋點交給多選；純點票面順手取消多選
+        if (actions.pick(node.id, e)) {
+          actions.focusContainer();
+          return;
+        }
         actions.select(node.id);
         actions.focusContainer();
       }}
+      onContextMenu={
+        menu
+          ? rowContextMenu(() => ({
+              overline: { zh: "這一列", latin: "Row" },
+              label: `${node.name} 的動作`,
+              items: menu(),
+              before: () => actions.select(node.id),
+            }))
+          : undefined
+      }
     >
       {/* 摺疊／展開鈕（磨光⑤ K5）：有子項才畫，畫在票根左邊的縮排溝（outline.css .row-fold，絕對定位、票不挪位）。
           單擊切換、不搶列的選取（mousedown 擋掉 li 的選列＋不搶焦點）；雙擊票根與鍵盤 ←／→ 照舊 */}
@@ -508,6 +532,7 @@ export function OutlineRow({
           // 暖光底＋赭外框只在「還沒有結局」時亮著（同今日列：補済＝來歷退後）
           (schedLate ? " late-t" : "") +
           (selected ? " selected" : "") +
+          (picked ? " is-picked" : "") +
           (done ? " done" : "") +
           (suspended ? " is-suspended" : "") +
           (fresh ? " fresh" : "")
@@ -564,6 +589,8 @@ export function OutlineRow({
               title="雙擊改名（F2）"
               className="title"
             >
+              {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
+              <PriorityMark priority={node.priority} />
               {node.name}
             </p>
           )}
@@ -642,35 +669,28 @@ export interface DraftRowProps {
   handlers: EditHandlers;
 }
 
-/** 新增中的草稿票：同款票、虛線邊；位置與型別跟著 Tab／Shift+Tab 走，票種小字提示目前會建成什麼 */
+/**
+ * 新增中的草稿票：位置與型別跟著 Tab／Shift+Tab 走。回饋甲（D-主-127）起換成共用建票列的位置型——
+ * 一樣帶 chips 與快速語法（執行日、幾點、締切、優先、荷札），掛到由位置決定、不出掛到 chip；Enter／Tab／Esc／失焦照舊交給 controller。
+ */
 export function DraftRow({ depth, kind, accent, handlers }: DraftRowProps) {
   return (
-    <li role="treeitem" aria-level={depth + 1} aria-selected style={{ marginLeft: indentPx(depth) }} className="ticket-li">
-      <article className="ticket draft">
-        <Stub kind={kind} accent={accent} />
-        <div className="body">
-          <span className="fare-class" aria-hidden>
-            {KIND_LABEL[kind]}
-          </span>
-          <InlineInput
-            placeholder={`新的${KIND_LABEL[kind]}…`}
-            ariaLabel={`輸入新${KIND_LABEL[kind]}的名稱`}
-            focusKey={depth}
-            onCommit={handlers.commit}
-            onCancel={handlers.cancel}
-            onTab={handlers.tab}
-            className="title"
-          />
-          <div className="meta">
-            <span className="status idle">Enter 建立・Tab 改層級・Esc 取消</span>
-          </div>
-        </div>
-        <div className="stamp-zone">
-          <span aria-hidden className="stamp">
-            <span className="hint">検印</span>
-          </span>
-        </div>
-      </article>
-    </li>
+    <QuickAddRow
+      defaults={DRAFT_DEFAULTS}
+      here={DRAFT_HERE}
+      positional={{
+        kind,
+        accent,
+        focusKey: depth,
+        onCommit: (name, via, extra) => handlers.commit(name, via, extra),
+        onTab: (name, shift, extra) => handlers.tab(name, shift, extra),
+        onCancel: handlers.cancel,
+      }}
+      liProps={{ role: "treeitem", "aria-level": depth + 1, "aria-selected": true, style: { marginLeft: indentPx(depth) } }}
+    />
   );
 }
+
+/** 大綱草稿列：不預設執行日（列車不一定排日子）、建好就在原位（不出「離開眼前」的收據） */
+const DRAFT_DEFAULTS: QuickDefaults = { dest: NO_DEST, scheduledOn: null };
+const DRAFT_HERE: QuickHere = { kind: "none" };

@@ -1,0 +1,73 @@
+/* ═══════════════════════════════════════════════════════
+ * selection.css——桌機多選（回饋乙；行為在 SelectionBar.tsx／desktopSelection.ts）。
+ * 長相照原型 prototypes/回饋乙-拖曳多選右鍵.html 第 02 段：
+ *   選中的列＝規範 §2.10 三件套「外框 --sel-line＋底 --sel-bg」（游標那一列只有外框，兩者分得出來）；
+ *   選取列＝浮材質 .techo-card、次鈕／危險鈕／文字鈕，沒有實心主鈕（法則 03）。顏色只用 theme token。
+ * ═══════════════════════════════════════════════════════ */
+
+/* ───── 被選中的列 ───── */
+/* 票（大綱、今日）：票紙層 ::before 換成選中底＋選中框。
+   特異度要壓過 techo.css 的 `[data-theme="dark"] .ticket::before`（本檔比 techo.css 先載入，同分會輸） */
+.ticket-li > .ticket.is-picked::before {
+  border: var(--sel-line);
+  background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--color-paper-high);
+}
+.ticket-li > .ticket.is-picked { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), var(--shadow-card); }
+/* 行程表串流的列（.prow，不是票形）：選中底＋左線 */
+.ns-sch .prow.is-picked {
+  background: var(--sel-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: var(--radius-ctl);
+}
+
+/* ───── 選取列：內容區（<main>）底部置中 ───── */
+.ns-selbar-dock {
+  position: absolute; left: 0; right: 0; bottom: 18px; z-index: 40;
+  display: flex; justify-content: center;
+  pointer-events: none;
+}
+.ns-selbar {
+  position: relative; pointer-events: auto;
+  display: flex; align-items: center; gap: 6px; row-gap: 6px;
+  flex-wrap: wrap; /* 內容區窄（側板開著、小視窗）時換行，不被裁掉 */
+  max-width: calc(100% - 32px); box-sizing: border-box;
+  padding: 7px 8px 7px 16px;
+  animation: ns-selbar-in var(--dur) var(--ease);
+}
+@keyframes ns-selbar-in { from { opacity: 0; transform: translateY(10px); } }
+.ns-selbar .cnt { font-size: var(--fs-ui); letter-spacing: .1em; white-space: nowrap; margin-right: 4px; color: var(--color-ink); }
+.ns-selbar .cnt b { font-family: var(--font-latin); font-size: 15px; font-weight: 600; color: var(--sel-fg); margin: 0 2px; } /* 字面值：張數 15px（原型逐字） */
+.ns-selbar .sep { width: 0; height: 18px; border-left: 1px dashed var(--color-dash); margin: 0 4px; flex: none; }
+.ns-selbar .ns-btn { padding: 0 10px; white-space: nowrap; }
+.ns-selbar .btn-ghost[aria-expanded="true"] { border-color: var(--accent); color: var(--sel-fg); background: var(--sel-bg); }
+.ns-selbar .x { color: var(--color-ink-soft); }
+
+/* 小卡（荷札、移動到…）：貼在選取列上方 */
+.ns-selbar-pop {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 45;
+  animation: ns-selbar-pop var(--dur) var(--ease);
+}
+@keyframes ns-selbar-pop { from { opacity: 0; transform: translateY(4px); } }
+.ns-selbar-pop.is-tag { width: 280px; padding: 12px 14px; }
+.ns-selbar-pop.is-tag .techo-overline { margin-bottom: 8px; }
+.ns-selbar-pop.is-tag .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.ns-selbar-pop.is-tag .techo-input { width: 100%; }
+.ns-selbar-pop.is-tag .hint { font-size: var(--fs-xs); color: var(--color-ink-faint); margin-top: 8px; letter-spacing: .04em; }
+.ns-selbar-tag {
+  height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--radius-pill);
+  border: 1px solid var(--color-dash); background: transparent; cursor: pointer;
+  font-size: var(--fs-ui); color: var(--color-ink-soft);
+}
+.ns-selbar-tag:hover { border-color: var(--accent); color: var(--color-ink); }
+.ns-selbar-tag:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-selbar-tag.is-add { color: var(--accent); }
+/* 移動到…：AttachPicker 的浮層版（不透明的紙底，attachpicker.css），貼著選取列往上長 */
+.ns-selbar-pop.is-move { width: 320px; }
+.ns-selbar-pop.is-move .ns-notes-pop.float { top: auto; bottom: 0; left: 0; width: 320px; }
+
+/* 選取列開著：toast 往上讓（兩條不互蓋；Toast 是 fixed bottom-6） */
+html[data-selbar="desktop"] .ns-toast.fixed { bottom: 78px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-selbar, .ns-selbar-pop { animation: none; }
+}

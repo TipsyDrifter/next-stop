@@ -19,6 +19,10 @@
  * 車次②（② 契約 §3.1、§4.2；只加不改）：連結 `BlockLink`／`NO_LINK`、`SpanPatch.link`、`SpanInsert.link`／`keepLink`、
  * `planSetLink`；`planDepart`／`planFill`／`planEdit` 收連結；切開沿用連結；`thresholdOf` 第四參數（任務的預計時間）。
  * 連結相關的讀取與合計在 `timetableLink.ts`。
+ *
+ * 車次⑦（⑦ 契約 §5；只加不改）：塊的備註 `TimeBlockRow.note`／`SpanPatch.note`／`SpanInsert.note`、`normalizeNote`、`insertNoteOf`；
+ * `planFill`／`planEdit`／`planEditRunning` 收備註；切開、蓋掉切出的尾段、整理片段照 fromId 抄（`noTagCarry` 的不抄）；合併見 `planMerge`。
+ * 作息範本與預定在 `timetableRoutine.ts`。
  */
 
 export const MIN = 60_000;
@@ -52,6 +56,8 @@ export interface TimeBlockRow {
   route_id: string | null;
   /** 0|1（SQLite 回整數） */
   long_run_ack: number;
+  /** ⑦（D-時-163）：一句備註；NULL＝沒寫。0014 之前的庫沒有這欄——讀到 undefined 一律當 null（`noteOf`） */
+  note: string | null;
   account_id: string | null;
   device_id: string | null;
   created_at: string;
@@ -125,6 +131,8 @@ export interface SpanPatch {
   estimateMin?: number | null;
   /** ②：改連結；undefined＝不動。applyPlan 寫的時候兩欄成對（② 契約 0-2） */
   link?: BlockLink;
+  /** ⑦（D-時-163）：改備註；null＝清掉；undefined＝不動 */
+  note?: string | null;
 }
 
 export interface SpanInsert {
@@ -148,8 +156,37 @@ export interface SpanInsert {
   link?: BlockLink;
   /** ②：照 fromId 那一列抄連結（不管 inherit）；切開用（② 契約 0-3） */
   keepLink?: boolean;
-  /** ⑥（D-時-132）：不搬 fromId 那一塊的手動荷札（`carryPairsOfPlan` 略過）；「其實在做別的」切出的那段用 */
+  /** ⑥（D-時-132）：不搬 fromId 那一塊的手動荷札（`carryPairsOfPlan` 略過）；「其實在做別的」切出的那段用。⑦：備註也不抄（D-時-164） */
   noTagCarry?: boolean;
+  /**
+   * ⑦（D-時-164）：明寫備註；給了就蓋過抄來的。insert 的備註規則（sqlite 與 memory 同，`insertNoteOf`）：
+   * `note !== undefined ? note : (fromId && !noTagCarry && fromId 那一列在 ? 它的 note : null)`——切開、多切點、被蓋掉切出的尾段、
+   * 整理切出的片段都帶（不管 inherit：分類換了也是同一件事的一段）
+   */
+  note?: string | null;
+}
+
+/** ⑦：讀列上的備註（0014 之前的庫、舊測資沒有這欄 ⇒ undefined 當 null） */
+export function noteOf(r: { note?: string | null } | undefined): string | null {
+  return r?.note ?? null;
+}
+
+/**
+ * ⑦（D-時-163）：輸入框的字 → 存的值：去前後空白、換行與 tab 換成一個空白（單行）；空字串＝null（沒寫）。
+ * undefined 照傳（＝不動）。
+ */
+export function normalizeNote(raw: string | null | undefined): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  const s = raw.replace(/[\r\n\t]+/g, " ").trim();
+  return s === "" ? null : s;
+}
+
+/** ⑦（D-時-164）：insert 這一列最後寫進去的備註（sqlite 與 memory 的 applyPlan 共用）；規則見 `SpanInsert.note` */
+export function insertNoteOf(i: Pick<SpanInsert, "note" | "fromId" | "noTagCarry">, src: { note?: string | null } | undefined): string | null {
+  if (i.note !== undefined) return i.note;
+  if (i.fromId && !i.noTagCarry && src) return noteOf(src);
+  return null;
 }
 
 /**
@@ -531,7 +568,17 @@ export function planRestart(spans: readonly Span[], input: { id: string; at: num
  */
 export function planEditRunning(
   spans: readonly Span[],
-  input: { id: string; categoryId: string; start: number; now: number; link?: BlockLink | null; curLink?: BlockLink },
+  input: {
+    id: string;
+    categoryId: string;
+    start: number;
+    now: number;
+    link?: BlockLink | null;
+    curLink?: BlockLink;
+    /** ⑦：備註（undefined＝不動；null／空白＝清掉）；`curNote`＝現值（Span 不帶，由 repository 從列上給；沒給＝當作不同） */
+    note?: string | null;
+    curNote?: string | null;
+  },
 ): WritePlan {
   const s = findSpan(spans, input.id);
   if (s.end !== null) throw new RangeError("這一班已經到站了");
@@ -555,8 +602,18 @@ export function planEditRunning(
       changed = true;
     }
   }
+  if (notePatch(patch, input.note, input.curNote)) changed = true;
   if (changed) plan.patches.push(patch);
   return plan;
+}
+
+/** ⑦：備註要不要進 patch（undefined＝不動；跟 `cur` 一樣＝不寫；cur 沒給＝當作不同，applyPlan 會再比一次現值）。有寫回 true */
+function notePatch(patch: SpanPatch, raw: string | null | undefined, cur: string | null | undefined): boolean {
+  const want = normalizeNote(raw);
+  if (want === undefined) return false;
+  if (cur !== undefined && (cur ?? null) === want) return false;
+  patch.note = want;
+  return true;
 }
 
 function assertRange(start: number, end: number, now: number): void {
@@ -571,7 +628,7 @@ function assertRange(start: number, end: number, now: number): void {
  */
 export function planFill(
   spans: readonly Span[],
-  input: { categoryId: string; start: number; end: number; now: number; link?: BlockLink | null; ack?: boolean },
+  input: { categoryId: string; start: number; end: number; now: number; link?: BlockLink | null; ack?: boolean; note?: string | null },
 ): WritePlan {
   assertRange(input.start, input.end, input.now);
   const plan = planCover(spans, { start: input.start, end: input.end }, null);
@@ -584,6 +641,7 @@ export function planFill(
     end: input.end,
     ack: input.ack === true,
     link: input.link ?? NO_LINK, // ②
+    note: normalizeNote(input.note) ?? null, // ⑦：補記面板的備註（不給＝沒寫）
   });
   return plan;
 }
@@ -608,6 +666,9 @@ export function planEdit(
     curLink?: BlockLink;
     /** 磨光⑤ 收尾（沙盒 O1）：true＝面板上按了「確定記這麼長」⇒ 這一塊記成已確認（同 planFill 的 ack）；不給＝照舊 */
     ack?: boolean;
+    /** ⑦：備註（undefined＝不動；null／空白＝清掉）；`curNote` 同 `curLink`（沒給＝當作不同） */
+    note?: string | null;
+    curNote?: string | null;
   },
 ): WritePlan {
   const s = findSpan(spans, input.id);
@@ -641,6 +702,7 @@ export function planEdit(
       changed = true;
     }
   }
+  if (notePatch(patch, input.note, input.curNote)) changed = true;
   if (changed) plan.patches.push(patch);
   return plan;
 }
@@ -865,6 +927,20 @@ export interface MergeOutcome {
   preview: MergePreview;
 }
 
+/** planMerge 的 `infoOf` 回的（Span 不帶的欄；repository 從列上給）。`note` 是 ⑦ 加的（沒給＝當作沒寫） */
+export interface MergeInfo {
+  estimateMin: number | null;
+  link: BlockLink;
+  note?: string | null;
+}
+
+/** ⑦：併進鄰居（鄰居被吞、s 留下）時 s 的備註——s 有寫就留 s 的；s 沒寫、被吞的那塊有寫 ⇒ 抄過來 */
+function absorbNotePatch(keepId: string, absorbId: string, infoOf: ((id: string) => MergeInfo | undefined) | undefined): SpanPatch | null {
+  const mine = infoOf?.(keepId)?.note ?? null;
+  const theirs = infoOf?.(absorbId)?.note ?? null;
+  return mine === null && theirs !== null ? { id: keepId, note: theirs } : null;
+}
+
 /**
  * 合併（〈開工決定〉二-2；①b①c 契約 §4.4）。`s` 必須已結束（零長度的也可以）。
  * 鄰居只看非零長度、不是 s 的塊：prev＝`end <= s.start` 之中 end 最大（同值取 start 大、再 id 大）；
@@ -886,8 +962,11 @@ export function planMerge(
     dir: "prev" | "next";
     bound: number;
     now: number;
-    /** 磨光⑦：塊的預估與連結（Span 不帶；repository 從列上給）。只有「下一塊正在跑」用得到 */
-    infoOf?: (id: string) => { estimateMin: number | null; link: BlockLink } | undefined;
+    /**
+     * 磨光⑦：塊的預估與連結（Span 不帶；repository 從列上給）。預估、連結只有「下一塊正在跑」用得到。
+     * ⑦（D-時-164）：多帶備註——合併留當前塊的備註、當前塊沒寫才拿被吞那塊的；併進運行中那班＝抄當前塊的（當前沒寫就留運行中的）
+     */
+    infoOf?: (id: string) => MergeInfo | undefined;
   },
 ): MergeOutcome | null {
   const s = findSpan(spans, input.id);
@@ -903,8 +982,9 @@ export function planMerge(
     }
     if (P && s.start - P.end! < MIN) {
       // P 整塊落在 [P.start, s.start) 裡 ⇒ planCover 把它收掉（連同中間 < 1 分的碎屑）
+      const notePatchP = absorbNotePatch(s.id, P.id, input.infoOf); // ⑦ D-時-164
       const plan = mergePlans(planCover(spans, { start: P.start, end: s.start }, s.id), {
-        patches: [{ id: s.id, start: P.start }],
+        patches: [{ id: s.id, start: P.start, ...(notePatchP ? { note: notePatchP.note } : {}) }],
         inserts: [],
         deletes: [P.id],
       });
@@ -937,6 +1017,9 @@ export function planMerge(
         const nInfo = input.infoOf?.(N.id);
         if (!nInfo || nInfo.estimateMin !== info.estimateMin) patch.estimateMin = info.estimateMin;
         if (!nInfo || !sameLink(nInfo.link, info.link)) patch.link = { nodeId: info.link.nodeId, routeId: info.link.routeId };
+        // ⑦ D-時-164：抄當前塊的備註；當前塊沒寫 ⇒ 留運行中那班的
+        const sNote = info.note ?? null;
+        if (sNote !== null && sNote !== (nInfo?.note ?? null)) patch.note = sNote;
       }
       const plan = mergePlans(planCover(spans, { start: sEnd, end: N.start }, N.id), { patches: [patch], inserts: [], deletes: [s.id] });
       plan.absorbedInto = [{ from: s.id, to: N.id, off: true }]; // 評審 #4：排除也跟著當前塊走（N 自己的排除照留＝D-時-135「改分類不裁」）
@@ -945,8 +1028,9 @@ export function planMerge(
         preview: { keepId: N.id, categoryId: s.categoryId, start: s.start, end: null, gapMs: 0, absorbId: s.id, intoRunning: true },
       };
     }
+    const notePatchN = absorbNotePatch(s.id, N.id, input.infoOf); // ⑦ D-時-164
     const plan = mergePlans(planCover(spans, { start: sEnd, end: N.end }, s.id), {
-      patches: [{ id: s.id, end: N.end }],
+      patches: [{ id: s.id, end: N.end, ...(notePatchN ? { note: notePatchN.note } : {}) }],
       inserts: [],
       deletes: [N.id],
     });

@@ -7,9 +7,11 @@
  * - 落點＝新幹線的最後一位（`appendIndex`，同「移動到…」D-主-56）；挑到原本那條幹線＝不搬。
  * - 搬遷本身走既有 `nodeRepo.move(routeId, lineId, index)`：`line` 底下允許 `route`（domain/node.ts allowedChildKinds），
  *   整棵子樹（支線、列車、車廂、車票、車站）的 `line_id` 快取一起改；`route_id` 對路線本身不動。不新增 repository 函式、不碰 SQL。
- * - 復原＝搬回原幹線、原 position。原幹線搬走後不壓實（repository 不重編號），所以原位置空著，插回去後兄弟的相對順序不變。
+ * - 復原＝搬回原幹線、原本那一格（回饋乙：move 的 index＝顯示清單拿掉自己之後的第幾格；搬走後原幹線少了它，
+ *   原本的格位就是它回去的那一格，兄弟的相對順序不變）。
  */
 import { appendIndex } from "../../domain/moveTo";
+import { compareSiblings } from "../../domain/nodeOrder";
 
 /** 本模組用到的節點欄位（NodeRow 的子集，免得為了型別拉 domain/index） */
 export interface RouteLike {
@@ -18,6 +20,8 @@ export interface RouteLike {
   line_id: string | null;
   parent_id: string | null;
   position: number;
+  sort_key: string | null;
+  created_at: string;
 }
 
 export interface MoveResult {
@@ -34,7 +38,7 @@ export interface RouteLinePorts {
 export type RouteMovePlan =
   | { kind: "same" }
   | { kind: "missing" }
-  | { kind: "move"; index: number; back: { lineId: string; position: number } };
+  | { kind: "move"; index: number; back: { lineId: string; index: number } };
 
 /** 算這一次要怎麼搬（純函式）：找不到路線／不是路線＝missing；同一條幹線＝same；其他＝新幹線的最後一位 */
 export function planRouteMove(routeId: string, lineId: string, routes: readonly RouteLike[]): RouteMovePlan {
@@ -42,7 +46,10 @@ export function planRouteMove(routeId: string, lineId: string, routes: readonly 
   if (!route || route.kind !== "route" || !route.parent_id) return { kind: "missing" };
   if (route.parent_id === lineId) return { kind: "same" };
   const siblings = routes.filter((r) => r.id !== routeId && r.parent_id === lineId);
-  return { kind: "move", index: appendIndex(siblings), back: { lineId: route.parent_id, position: route.position } };
+  // 原幹線那份清單（照顯示序）裡的格位
+  const home = routes.filter((r) => r.parent_id === route.parent_id).slice().sort(compareSiblings);
+  const at = home.findIndex((r) => r.id === routeId);
+  return { kind: "move", index: appendIndex(siblings), back: { lineId: route.parent_id, index: at } };
 }
 
 export interface RouteMoveOutcome extends MoveResult {
@@ -60,5 +67,5 @@ export async function runRouteMove(ports: RouteLinePorts, routeId: string, lineI
   const r = await ports.move(routeId, lineId, plan.index);
   if (!r.ok) return r;
   const { back } = plan;
-  return { ok: true, undo: () => ports.move(routeId, back.lineId, back.position) };
+  return { ok: true, undo: () => ports.move(routeId, back.lineId, back.index) };
 }

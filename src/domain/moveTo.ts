@@ -95,9 +95,12 @@ export function pruneToSelectable<T extends MoveTreeOption>(opts: readonly T[]):
   return opts.filter((_, i) => keep[i]);
 }
 
-/** 放到新父節點的最後一個（照 notesStore.attachTicket：既有子節點的 max(position)+1；沒有子節點＝0） */
-export function appendIndex(siblings: readonly { position: number }[]): number {
-  return siblings.reduce((m, n) => Math.max(m, n.position), -1) + 1;
+/**
+ * 放到新父節點的最後一個：格位＝目的地顯示群組的長度（回饋乙：move 的 index 是「拿掉自己之後的第幾格」，
+ * 不再是整數 position）。傳進來的清單多算了幾張（例如連車站或自己都算進去）也沒關係——超出長度的格位一律落在尾端。
+ */
+export function appendIndex(siblings: readonly unknown[]): number {
+  return siblings.length;
 }
 
 /** 新父節點的位置描述（給「目前位置」比對與 toast） */

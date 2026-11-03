@@ -2,7 +2,7 @@
  * 「移動到…」的動作與入口協調（磨光⑤ B1；契約 §1 B1）——桌機側板、大綱 ⋯、手機票卡 ⋯ 共用。
  *
  * 動作：`moveNodeTo(id, dest)` ＝ 算落點（新父節點的最後一個，D-主-56）→ `nodeStore.moveNode`
- *   → toast「已移到「路線・父節點」」＋「復原」（搬回原父、原位置）。
+ *   → toast「已移到「路線・父節點」」＋「復原」（搬回原父、原本的上下鄰居之間：回饋乙起復原記鄰居、不記整數 position）。
  *   底層 `nodeRepo.move` 已會擋父子種類、擋搬進自己子樹、改寫子樹的 line_id／route_id；同步不用改（接收端重算快取）。
  * 協調：大綱列 ⋯ 選單的「移動到…」只負責「選中那列、開側板、請側板打開挑選器」——挑選器只有側板一個家，
  *   不在大綱列旁再長一份（`useMoveRequest`）。
@@ -10,6 +10,7 @@
 import { create } from "zustand";
 import { nodeRepo } from "../../data";
 import { appendIndex, destParentId, isSameParent, moveToastText, type MoveDest } from "../../domain/moveTo";
+import { anchorAround } from "../../domain/nodeOrder";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 
@@ -32,18 +33,19 @@ export async function moveNodeTo(id: string, dest: MoveDest): Promise<boolean> {
   const parentId = destParentId(dest);
   if (!parentId || !dest.routeId) return false;
 
-  // 落點＝新父節點現有子節點的 max(position)+1。路線直屬的子節點連車站一起算（listRouteTree 不含車站，站在 sidebar 那份）
+  // 落點＝新父節點那份清單（顯示群組）的尾端。路線最上層＝路線直屬的非車站＋掛這條路線標籤的根層臨時車票
+  // （listRouteTree 撈的就是這條路線的列，根層那幾張 parent_id 是 null）
   const tree = await nodeRepo.listRouteTree(dest.routeId);
-  const siblings = [
-    ...tree.filter((n) => n.parent_id === parentId),
-    ...ns().stations.filter((s) => s.parent_id === parentId),
-  ];
+  const siblings = tree.filter((n) => n.parent_id === parentId || (dest.nodeId === null && n.parent_id === null));
   const index = appendIndex(siblings);
 
   const parentName = dest.nodeId ? (tree.find((n) => n.id === dest.nodeId)?.name ?? null) : null;
   const routeName = ns().routes.find((r) => r.id === dest.routeId)?.name ?? null;
 
-  const orig = { parentId: node.parent_id, position: node.position, routeId: node.route_id };
+  // 復原用：原本那份清單裡的上下鄰居（不記整數 position——#119：路線最上層的列車和臨時車票是兩套編號）。
+  // 原父節點：根層車票＝它的路線標籤（moveToAnchor 的慣例：路線 id＝掛這條路線的臨時車票，null＝收件匣）
+  const anchor = anchorAround(await nodeRepo.listSiblingIds(id), id);
+  const origParent = node.parent_id ?? (node.kind === "ticket" ? node.route_id : null);
   const r = await ns().moveNode(id, parentId, index);
   if (!r.ok) {
     toast(r.reason ?? "沒有搬成功——請再試一次");
@@ -55,16 +57,9 @@ export async function moveNodeTo(id: string, dest: MoveDest): Promise<boolean> {
     actionLabel: "復原",
     onAction: () =>
       void (async () => {
-        const back = await ns().moveNode(id, orig.parentId, orig.position);
-        if (!back.ok) {
-          toast(back.reason ?? "復原失敗——請再試一次");
-          return;
-        }
-        // 臨時車票搬回根層時，move 會把新路線留成「路線標籤」（臨時車票保留路線標籤的規則）；還原成原本的標籤
-        if (orig.parentId === null && node.kind === "ticket") {
-          const now = await nodeRepo.getNode(id);
-          if (now && now.route_id !== orig.routeId) await ns().setRouteTag(id, orig.routeId);
-        }
+        // 一筆寫入：搬回原父、原鄰居之間；臨時車票的路線標籤一起還原（moveToAnchor 依 origParent 換標籤）
+        const back = await ns().moveToAnchor([id], origParent, anchor);
+        if (!back.ok) toast(back.reason ?? "復原失敗——請再試一次");
       })(),
   });
   return true;

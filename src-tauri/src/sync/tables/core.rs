@@ -38,6 +38,8 @@ const NODES_COLS: &[(&str, bool)] = &[
     ("carried_from", false),
     ("scheduled_time", false),
     ("time_overrides", false),
+    // 回饋乙（0014）：兄弟順序的排序鍵；舊欄 `position` 留著——舊版物件的整數寫入照套到舊欄（沒人讀來排序）
+    ("sort_key", false),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),

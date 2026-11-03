@@ -65,9 +65,10 @@ export function MobileTimetable(_props: { onBack?: () => void }) {
       { key: "board", label: T.viewBoard },
       { key: "axis", label: T.viewAxisMobile },
       { key: "week", label: TT_TEXT.viewWeek },
-      { key: "stats", label: TT_TEXT.viewStats },
       { key: "schedule", label: TT_TEXT.viewSchedule },
       { key: "grid", label: TT_TEXT.viewGrid },
+      // ⑦ D-時-154：統計移到最後一格（讓看「一天」的幾個視圖相鄰）
+      { key: "stats", label: TT_TEXT.viewStats },
     ];
   }, []);
 

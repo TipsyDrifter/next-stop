@@ -38,7 +38,10 @@ export interface NodeRow extends SyncFields {
   route_id: string | null;
   name: string;
   description: string | null;
+  /** 舊的兄弟序（整數）：回饋乙起只在新建時給 MAX+1、搬移不再改它（票號同毫秒決勝吃它）；顯示順序看 sort_key */
   position: number;
+  /** 兄弟順序的排序鍵（fractional index，migration 0014）；NULL＝還沒給鍵（排在有鍵的後面）。比較只經 domain/nodeOrder.ts */
+  sort_key: string | null;
   color: string | null;
   code: string | null;
   status: NodeStatus;
@@ -170,6 +173,7 @@ export const CONFLICT_COL_LABEL: Record<string, string> = {
   priority: "優先",
   mood: "心情",
   position: "順序",
+  sort_key: "順序",
   today_position: "今日順序",
   parent_id: "掛在",
   repeat_rule: "定期券",

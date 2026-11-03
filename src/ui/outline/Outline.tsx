@@ -3,15 +3,19 @@
  * .page > .sheet > 頁首 PageHeader ＋ .sec「列車」＋ .ticket-list（OutlineRow／DraftRow 完整車票）＋ .page-foot。
  * 頁首（UI 丙-3 B1，視覺規範 §2.1）＝身分式：眉標 {幹線名, 代碼 Line}（聚焦時換成麵包屑）・大標路線名（聚焦時＝節點名；點大標＝開它的詳情側板）・
  *   補述「路線」・stats「車票 n/N 済・進度 P%・項 M」〔件一 m3-ext-routemap.html 定稿口徑〕・
- *   日付印 76 ＋紀念章 92（下一站；10-24 甲案＝章比印稍大；頁首 <704 時退成 stats 列尾小章）・工具列「＋ 路線 ▾」與搜尋。
- * 已完成的列預設收起，清單底一列「済 N 張 ──── 顯示／收起」（10-24 修訂，取代頁首「隱藏已完成」）。
+ *   日付印 76 ＋紀念章 92（下一站；10-24 甲案＝章比印稍大；頁首 <704 時退成 stats 列尾小章）・工具列「＋ 新增 ▾」與搜尋。
+ * 回饋甲（D-主-128、131）：
+ *   - 「＋ 新增 ▾」選單＝新增列車／新增車票（掛到選中那班列車或車廂，沒選＝這條路線＋車票）／─／新增路線到「X」…／新增幹線
+ *     （項目是陣列 newMenuItems，丁班加「支線」一項）；清單尾常駐一列「＋ 新增列車…」，點了變建票列（common/quickadd）。
+ *   - 已完成預設收起；開關＝區段標「列車 ── M 項」右側的「済 N・顯示／隱藏」（清單底那列摺疊列拿掉）；記住在本機設定。
  * 誤點不再另列頁尾區（B4）：誤點票就在大綱原位蓋延着（OutlineRow），同一張票同一頁只列一次。
  * 鍵盤流掛在容器（tabIndex=0），狀態與流程在 useOutlineController。對應 UI Flow 2.0／2.0a／2.0b／2.0c／2.0d／2.0e。
- * 取捨：列不做虛擬捲動；拖曳排序之後實作（鍵盤 Alt+↑↓ 已有）。
+ * 取捨：列不做虛擬捲動。拖曳（樹：跨層、種類限制、復原）與多選、選取列在回饋乙接上（useOutlineDrag／common/selection）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { KIND_LABEL, type NodeKind, type NodeRow } from "../../domain";
+import { compareSiblings } from "../../domain/nodeOrder";
 import { flattenSubtrees, routeHeadStats } from "../../domain/routeHead";
 import { serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -20,10 +24,22 @@ import { EmptyState } from "../common/EmptyState";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
 import { IconPlus } from "../common/icons";
+import {
+  DoneToggleChip,
+  QuickAddLauncher,
+  QuickAddRow,
+  resolveQuickTarget,
+  type QuickDefaults,
+  type QuickDest,
+  type RouteKind,
+} from "../common/quickadd";
 import { Breadcrumb } from "./Breadcrumb";
 import { DraftRow, OutlineRow, type CarStats } from "./OutlineRow";
 import { useOutlineController } from "./useOutlineController";
 import { useOutlineKeyboard } from "./useOutlineKeyboard";
+import { useOutlineDrag } from "./useOutlineDrag";
+import { useSelectionStore } from "../../store/selectionStore";
+import { SelectionBar } from "../common/selection/SelectionBar";
 import "./outline.css";
 
 /** 情境 5：載入 >200ms 才顯示安靜指示，避免閃爍 */
@@ -72,6 +88,45 @@ function addMenuItems(lines: NodeRow[], currentLineId: string | null): PopMenuIt
     ),
     { key: "line", label: "新增幹線", cut: lines.length > 0, onSelect: () => open({ lineId: null, editId: null }) },
   ];
+}
+
+/**
+ * 頁首「＋ 新增 ▾」的整份選單（回饋甲 D-主-128）：新增列車／新增車票＋（撕線）路線與幹線（addMenuItems）。
+ * 做成陣列＝之後加「支線」只要插一項。
+ */
+function newMenuItems(o: {
+  addTrain: PopMenuItem["onSelect"];
+  addTicket: PopMenuItem["onSelect"];
+  /** 現在的範圍放不進列車（聚焦在列車／車廂裡）＝為什麼 */
+  trainWhy: string | null;
+  lines: NodeRow[];
+  currentLineId: string | null;
+}): PopMenuItem[] {
+  const routeItems = addMenuItems(o.lines, o.currentLineId);
+  if (routeItems.length) routeItems[0] = { ...routeItems[0], cut: true };
+  return [
+    { key: "train", label: "新增列車", disabled: !!o.trainWhy, why: o.trainWhy ?? undefined, onSelect: o.addTrain },
+    { key: "ticket", label: "新增車票", onSelect: o.addTicket },
+    ...routeItems,
+  ];
+}
+
+/** 路線圖的建票列預設：掛到＝這條路線（或聚焦那一節）、不排日子（列車不一定排日子；執行日 chip 空著） */
+const composerDefaultsCache = new WeakMap<QuickDest, QuickDefaults>();
+function composerDefaults(dest: QuickDest): QuickDefaults {
+  let d = composerDefaultsCache.get(dest);
+  if (!d) {
+    d = { dest, scheduledOn: null };
+    composerDefaultsCache.set(dest, d);
+  }
+  return d;
+}
+
+/** 建票列開著的那一次（seq 換＝重掛＝照新的預設開） */
+interface ComposerState {
+  dest: QuickDest;
+  routeKind: RouteKind;
+  seq: number;
 }
 
 /** 空狀態的印章輪廓：空的検印框（同樣本頁 EmptyState first） */
@@ -135,9 +190,10 @@ export function Outline() {
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useOutlineController(containerRef);
   const outlineKeys = useOutlineKeyboard(c.keys);
-  /** 頁首（PageHeader）裡的鈕現在可以 Tab 到——在它們身上按的鍵不算大綱的導航鍵（例：聚焦在搜尋鈕上按 Delete 不該刪選中的票） */
+  /** 頁首（PageHeader）裡的鈕現在可以 Tab 到——在它們身上按的鍵不算大綱的導航鍵（例：聚焦在搜尋鈕上按 Delete 不該刪選中的票）。
+   *  清單尾建票列的 chips／発券與它的挑選器（portal 但 React 事件照樣冒上來）同理 */
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.target instanceof Element && e.target.closest(".ns-pagehead")) return;
+    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-pop")) return;
     outlineKeys(e);
   };
   const toggleHideDone = useUiStore((s) => s.toggleHideDone);
@@ -149,6 +205,16 @@ export function Outline() {
   const doy = dayOfYear();
   const { headRef, slot: crumbSlot } = useOverlineSlot(!!c.zoom && !!c.routeId);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
+  /** 清單尾的建票列（回饋甲）：null＝收著（畫「＋ 新增列車…」常駐列） */
+  const [composer, setComposer] = useState<ComposerState | null>(null);
+  // 換路線、換聚焦＝範圍換了，建票列收起（預設掛到跟著範圍走）
+  const zoomId = c.zoom?.id ?? null;
+  useEffect(() => setComposer(null), [c.routeId, zoomId]);
+  // 回饋乙：拖曳（樹）＋多選
+  const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
+  const picked = useSelectionStore((s) => (s.scope === "outline" ? s.ids : null));
+  const top = c.zoom ? { id: c.zoom.id, kind: c.zoom.kind } : c.routeId ? { id: c.routeId, kind: "route" as const } : null;
+  useOutlineDrag({ root: listEl, rows: c.rows, top, disabled: c.edit !== null });
 
   if (!c.routeId) {
     return (
@@ -169,6 +235,32 @@ export function Outline() {
   const title = c.zoom ? c.zoom.name : (c.route?.name ?? "…");
   const code = c.route?.code ?? null;
   const draft = c.edit?.mode === "draft" ? c.edit : null;
+
+  // ── 建票列（回饋甲 D-主-128）：預設掛到＝目前範圍（聚焦的那一節，否則這條路線） ──
+  const routeId = c.routeId;
+  const zoomKind = c.zoom?.kind;
+  const topDest: QuickDest =
+    c.zoom && (zoomKind === "branch" || zoomKind === "train" || zoomKind === "car")
+      ? { routeId, nodeId: c.zoom.id, nodeKind: zoomKind }
+      : { routeId, nodeId: null, nodeKind: "route" };
+  const topMakesTrain = resolveQuickTarget(topDest, "train").kind === "train";
+  const openComposer = (dest: QuickDest, routeKind: RouteKind) =>
+    setComposer((cur) => ({ dest, routeKind, seq: (cur?.seq ?? 0) + 1 }));
+  /** 頁首「新增車票」：掛到選中那班列車或車廂（選中車票＝它所在的那班）；沒選＝目前範圍＋車票 */
+  const addTicket = () => {
+    const sel = c.selectedId ? c.tree.byId[c.selectedId] : undefined;
+    const holder = sel && sel.kind === "ticket" && sel.parent_id ? c.tree.byId[sel.parent_id] : sel;
+    if (holder && (holder.kind === "train" || holder.kind === "car")) {
+      openComposer({ routeId, nodeId: holder.id, nodeKind: holder.kind }, "ticket");
+    } else {
+      openComposer(topDest, "ticket");
+    }
+  };
+  const addTrain = () => openComposer(topDest, "train");
+  const closeComposer = (byKeyboard: boolean) => {
+    setComposer(null);
+    if (byKeyboard) containerRef.current?.focus();
+  };
   const hasAnyNode = c.rootChildren.length > 0;
   const accent = c.route?.color ?? undefined;
 
@@ -202,7 +294,7 @@ export function Outline() {
   // 下一站：這條路線尚未到站的第一個車站
   const nextStation = stations
     .filter((s) => s.parent_id === c.routeId && !s.arrived_on)
-    .sort((a, b) => a.position - b.position)[0];
+    .sort(compareSiblings)[0];
 
   /** 票號＝store 的 serials 表（當日全域發券序；大綱票根／側板票頭／今日列同一枚號碼） */
   const serial = (node: NodeRow): string => serialOf(serials, node.id);
@@ -226,7 +318,7 @@ export function Outline() {
 
   // 空狀態（B2：EmptyState 三種；載入中不判斷，§1.8）。這裡頁首的「＋ 路線」照留：空的是列車不是路線，同頁沒有兩個同一動作的入口
   let empty: ReactNode = null;
-  if (c.rows.length === 0 && !draft && !c.loading) {
+  if (c.rows.length === 0 && !draft && !composer && !c.loading) {
     if (!hasAnyNode && c.zoom) {
       empty = (
         <EmptyState
@@ -254,6 +346,12 @@ export function Outline() {
           stamp={<SealDone />}
           title="已完成的班次都收起來了"
           desc="打開就能看到它們。"
+          // 回饋甲 D-主-128：這裡也要能直接開下一班（同頁首「新增列車」／清單尾常駐列）
+          action={
+            topMakesTrain
+              ? { label: "新增列車", icon: <IconPlus />, onClick: addTrain }
+              : { label: "新增車票", icon: <IconPlus />, onClick: addTicket }
+          }
           secondary={{ label: "顯示已完成", onClick: toggleHideDone }}
         />
       );
@@ -320,9 +418,9 @@ export function Outline() {
             emblem={emblem}
             emblemCompact={emblemCompact}
             add={{
-              label: "路線",
+              label: "新增",
               haspopup: true,
-              title: "新增路線或幹線",
+              title: "新增列車、車票、路線或幹線",
               onClick: (e) => {
                 const el = e.currentTarget;
                 setAddAnchor((cur) => (cur ? null : el));
@@ -336,8 +434,14 @@ export function Outline() {
           <PopMenu
             anchor={addAnchor}
             overline={{ zh: "新增", latin: "New" }}
-            label="新增路線或幹線"
-            items={addMenuItems(lines, c.route?.line_id ?? null)}
+            label="新增列車、車票、路線或幹線"
+            items={newMenuItems({
+              addTrain,
+              addTicket,
+              trainWhy: topMakesTrain ? null : `${c.zoom ? KIND_LABEL[c.zoom.kind] : "這裡"}裡不能再放列車——用「新增車票」`,
+              lines,
+              currentLineId: c.route?.line_id ?? null,
+            })}
             onClose={() => setAddAnchor(null)}
           />
         )}
@@ -354,9 +458,21 @@ export function Outline() {
             <div className="sec">
               <h3>列車</h3>
               <span className="rule" />
-              <span className="note">發券 {total} 張</span>
+              {/* 回饋甲 G：跟頁首「項 M」同一把尺 */}
+              <span className="note">{total} 項</span>
+              {/* 回饋甲 D-主-131：已完成開關（取代清單底的摺疊列） */}
+              {c.doneHidden + c.doneShown > 0 && (
+                <DoneToggleChip
+                  count={c.hideDone ? c.doneHidden : c.doneShown}
+                  showing={!c.hideDone}
+                  onToggle={() => {
+                    toggleHideDone();
+                    if (!composer) containerRef.current?.focus();
+                  }}
+                />
+              )}
             </div>
-            <ul role="tree" aria-label={`${title} 的大綱`} className="ticket-list">
+            <ul ref={setListEl} role="tree" aria-multiselectable="true" aria-label={`${title} 的大綱`} className="ticket-list">
               {c.rows.map((r) => {
                 if (r.type === "draft") {
                   if (!draft || !c.draftHandlers) return null;
@@ -375,6 +491,7 @@ export function Outline() {
                     hasChildren={(c.tree.childrenOf[r.id]?.length ?? 0) > 0}
                     collapsed={!!c.collapsed[r.id]}
                     selected={c.selectedId === r.id}
+                    picked={!!picked?.includes(r.id)}
                     fresh={c.freshId === r.id}
                     today={c.today}
                     cars={carsOf(r.id, node.kind)}
@@ -389,24 +506,27 @@ export function Outline() {
                 );
               })}
             </ul>
-            {c.doneHidden + c.doneShown > 0 && (
-              <button
-                type="button"
-                className="ns-outline-fold"
-                aria-expanded={!c.hideDone}
-                onClick={() => {
-                  toggleHideDone();
-                  containerRef.current?.focus();
-                }}
-              >
-                <span>済 {c.hideDone ? c.doneHidden : c.doneShown} 張</span>
-                <span className="rule" aria-hidden="true" />
-                <span className="act">{c.hideDone ? "顯示" : "收起"}</span>
-              </button>
-            )}
+            {/* 清單尾：常駐「＋ 新增列車…」／建票列（回饋甲 D-主-128）。不放進上面的 tree（不是樹的一項） */}
+            <ul className="ticket-list ns-outline-tail">
+              {composer ? (
+                <QuickAddRow
+                  key={composer.seq}
+                  defaults={composerDefaults(composer.dest)}
+                  here={{ kind: "route", routeId }}
+                  routeKind={composer.routeKind}
+                  onClose={closeComposer}
+                  onCreated={(row, stays) => {
+                    if (stays) useUiStore.getState().select(row.id);
+                  }}
+                />
+              ) : (
+                <QuickAddLauncher label={topMakesTrain ? "新增列車…" : "新增車票…"} onOpen={addTrain} />
+              )}
+            </ul>
           </>
         )}
 
+        <SelectionBar scope="outline" lookup={(id) => c.tree.byId[id]} />
         <footer className="page-foot">
           <span>私鐵手帳・{c.route?.name ?? "路線大綱"}</span>
           <span className="fr">

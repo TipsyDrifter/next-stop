@@ -83,6 +83,46 @@
 .m-dt-datepick.has-clear .m-dt-pick > span:first-child { margin-right: 48px; }
 .m-dt-clear { position: absolute; top: 50%; right: 22px; transform: translateY(-50%); color: var(--color-ink-faint); }
 
+/* ── 時段組（回饋甲 D-主-129；原型 prototypes/回饋甲-入口與建票.html 題 3 A 版手機 .nsq-mspan／.nsq-mlen） ── */
+/* 時段：開始 → 結束兩格（各 44 高、點了開時刻 sheet）；定期券前面一個「每班」 */
+.m-dt-span { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.m-dt-hmbtn {
+  flex: 1 1 0; min-width: 0; min-height: 44px; display: grid; place-items: center; margin: 0; padding: 0;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  font-family: var(--font-latin); font-size: var(--fs-h3); font-variant-numeric: tabular-nums; color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-hmbtn .m-dt-hm { font-weight: 500; }
+.m-dt-hmbtn .is-empty { font-family: var(--font-body); font-size: var(--fs-body); color: var(--color-ink-faint); }
+.m-dt-hmbtn:active:not(:disabled) { border-color: var(--accent); background: var(--sel-bg); color: var(--sel-fg); }
+.m-dt-hmbtn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt-hmbtn:disabled { cursor: default; opacity: var(--disabled); }
+.m-dt-span-arr { flex: none; color: var(--color-ink-faint); }
+/* 長度：分段鈕撐滿一列（5 段平分）＋下一行「自訂…」；這一列標籤靠上 */
+.m-dt-row.is-tall { align-items: flex-start; padding: 8px 0; }
+.m-dt-row.is-tall .m-dt-label { padding-top: 12px; }
+.m-dt .len-field { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; justify-items: start; }
+.m-dt .len-field .ns-seg { width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); justify-self: stretch; }
+.m-dt .len-field .ns-seg > [role="radio"] { min-width: 0; padding: 0; }
+.m-dt .len-custom {
+  min-height: 36px; padding: 0 12px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
+  -webkit-tap-highlight-color: transparent;
+}
+.m-dt .len-custom:active { background: var(--hover-bg); border-color: var(--accent); }
+.m-dt .len-custom:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt .len-custom[aria-pressed="true"] { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--sel-bg); color: var(--sel-fg); font-family: var(--font-latin); font-weight: 500; }
+.m-dt .len-custom-in { display: inline-flex; align-items: baseline; gap: 6px; }
+.m-dt .len-custom-in .techo-input {
+  width: 5em; min-height: 36px; padding: 0 2px; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; background: transparent; outline: none;
+  font-family: var(--font-latin); font-weight: 600; font-size: 16px; color: var(--color-ink);
+}
+.m-dt .len-custom-in .techo-input:focus { border-bottom-color: var(--accent); }
+.m-dt .len-custom-in .meta { font-size: var(--fs-sm); color: var(--color-ink-soft); }
+/* 時段組裡的別線欄位（插槽 section "schedule"：其他時段…；元件自己畫 dl）：當成組裡的一列，上下留白＋底線 */
+.m-dt-lines.is-in-group { padding: 6px 0; border-bottom: 1px solid var(--color-line); }
+
 /* ── 可收合段（重複）與一般段（乘務記錄） ── */
 .m-dt-sec { border-bottom: 1px solid var(--color-line); }
 .m-dt-sec-head {
@@ -229,5 +269,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .m-dt-sec-body { animation: none; }
-  .m-dt-mood span, .m-dt-caret { transition: none; }
+  .m-dt-mood span, .m-dt-caret, .m-dt-hmbtn { transition: none; }
 }

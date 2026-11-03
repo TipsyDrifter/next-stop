@@ -14,6 +14,7 @@
 
 /* ============ 左欄：布面書封 ============ */
 .cover {
+  --dr-accent: var(--color-gold); /* 回饋乙：拖曳落點色（線、外部落點框）——書封深底上靛色看不見，比照書封聚焦框用燙金 */
   width: 236px; flex: none; height: 100vh;
   display: flex; flex-direction: column;
   padding: 30px 22px 24px;
@@ -99,23 +100,35 @@
 }
 .cover .roundel .dot { display: block; width: 9px; height: 9px; border-radius: 50%; }
 
-/* ✎（幹線列／路線列共用；原型沒有）：UI 丙-3 C6 起常駐淡態 --dim（規範 §3.1-1「書封的 ✎ 改成常駐淡態」），
-   列 hover／鍵盤聚焦轉實。常駐之後路線名不能再鑽到它底下：路線列右邊讓出 ✎ 的寬。 */
+/* ⋯（幹線列／路線列共用；回饋乙起取代 ✎——「詳情…／編輯…」在 ⋯ 裡）：常駐淡態 --dim（規範法則 05、§3.1-1），
+   列 hover／鍵盤聚焦轉實。常駐之後路線名不能再鑽到它底下：路線列右邊讓出 ⋯ 的寬。
+   甲班的「未完成數字」小標排在 ⋯ 左邊（它自己再讓寬）。 */
 .cover .line-row { position: relative; }
 .cover .line-row:not(.line-row--trunk) .line-item { padding-right: 32px; }
 .cover .line-row--trunk .trunk { padding-right: 28px; }
-.cover .line-edit {
+.cover .line-more {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   width: 22px; height: 22px; display: grid; place-items: center;
   border-radius: var(--radius-ctl); cursor: pointer;
   font-size: var(--fs-sm); line-height: 1; color: var(--book-muted); opacity: var(--dim);
   transition: opacity .15s, color .15s, background .15s;
 }
-.cover .line-row--trunk .line-edit { top: -3px; transform: none; right: 2px; }
-.cover .line-row:hover .line-edit, .cover .line-edit:focus-visible { opacity: 1; }
-.cover .line-edit:hover { color: var(--color-book-ink); background: rgba(255, 255, 255, .07); } /* 字面值：書封上的 hover 底（白 7%，原型定值） */
+.cover .line-row--trunk .line-more { top: -3px; transform: none; right: 2px; }
+.cover .line-row:hover .line-more, .cover .line-more:focus-visible, .cover .line-more[aria-expanded="true"] { opacity: 1; }
+.cover .line-more:hover, .cover .line-more[aria-expanded="true"] { color: var(--color-book-ink); background: rgba(255, 255, 255, .07); } /* 字面值：書封上的 hover 底（白 7%，原型定值） */
 /* 書封上的聚焦框用燙金 1px（靛在書封上看不見；同 gnav 慣例） */
-.cover .line-edit:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; } /* 書封燙金：書封上的聚焦框 */
+.cover .line-more:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 1px; } /* 書封燙金：書封上的聚焦框 */
+/* 回饋甲 D-主-130：路線列尾的未完成數（淡色數字，字形在 common/navcount.css `.ns-routecount`）——
+   疊在 ⋯ 左邊、不吃點（點穿到路線列）；有數字的那一列路線名再讓出它的寬。 */
+.cover .line-row .line-count {
+  position: absolute; right: 32px; top: 50%; transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--book-muted);
+}
+.cover .line-row:has(> .line-count) .line-item { padding-right: 58px; }
+/* 拖曳（回饋乙）：整列是把手；外部落點框（從大綱拖過來）貼著列的圓角 */
+.cover .line-row[data-drag-id] { cursor: grab; border-radius: var(--radius-ctl); }
+.cover .line-row[data-drop-over] { background: rgba(255, 255, 255, .07); } /* 字面值：書封上的 hover 底（同上） */
 
 /* ＋路線／＋幹線：.nav-item.muted 風格小字（可點；hover 才轉實）＝常駐淡態 --dim（UI 丙-1，視覺規範 §1.8；值同舊 .42） */
 .cover .line-add {
@@ -148,5 +161,5 @@
    本檔暗色區只留「版面與元件狀態」的差異；夜行寝台的車窓與腳註（.carriage-window／
    .window-caption／.foot-dark／.foot-light）與 .nav-item 家族已隨 DOM 一併刪除。 */
 /* hover 底改吃 --color-book-hover（＝件一 --cover-hover），兩主題各自給值 → 這裡不用再覆寫 */
-[data-theme="dark"] .cover .line-edit:hover { background: rgba(230, 236, 255, .07); } /* 字面值：書封上的 hover 底・銀河（星光 7%，原型定值） */
+[data-theme="dark"] .cover .line-more:hover { background: rgba(230, 236, 255, .07); } /* 字面值：書封上的 hover 底・銀河（星光 7%，原型定值） */
 [data-theme="dark"] .cover .lines h2 { border-bottom-color: rgba(216, 219, 227, .16); } /* 字面值：書封虛線・銀河（原型定值） */

@@ -11,6 +11,7 @@
  *       ├ div.ns-tt-sched-acol   實績欄（ActualColumn）＋現在以後的淡斜紋
  *       └ div.ns-tt-sched-now    現在線（橫過三欄）
  *
+ * ⑦（C 席）：那天有作息段 ⇒ 預定欄最左畫 RoutineStrip（桌機 80、手機 48px），欄頭多一格「作息」；沒有＝收掉、卡拿回全寬。
  * 進頁捲動：今天＝現在往上約 2.6 小時；其他天＝第一張預定往上 0.6 小時（沒有就 08:00）。每一天只捲一次，之後照使用者的位置。
  * UI 丙-4 D7：預定欄一張都沒有時的那句換成共用 EmptyState（inline）；照舊浮在欄中央、不吃指標（點下去仍落到欄上排時刻）。
  */
@@ -22,6 +23,8 @@ import { TT_TEXT } from "../../../store/timetableStore";
 import { EmptyState } from "../../common/EmptyState";
 import { ActualColumn } from "./ActualColumn";
 import { PlanColumn, type CardLayout } from "./PlanColumn";
+import { RoutineStrip } from "./RoutineStrip";
+import { RT_UI } from "./routineModel";
 import { SCHED_UI, minFrac, pct, snapFrac } from "./scheduleModel";
 import type { SchedulePage } from "./useSchedulePage";
 import type { DragSrc, DragView } from "./useScheduleDrag";
@@ -39,7 +42,9 @@ export interface ScheduleGridProps {
 }
 
 export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowClick, pcolRef, scrollRef }: ScheduleGridProps) {
-  const { date, dayStartHour, now, win, grid, isToday, isFuture, canEdit, picked, activeKey, cmp, items } = page;
+  const { date, dayStartHour, now, win, grid, isToday, isFuture, canEdit, picked, activeKey, cmp, items, slots, blocks } = page;
+  // ⑦（C 席）：這一天有作息段 ⇒ 預定欄最左一條窄帶（沒有＝收掉、卡拿回全寬）
+  const hasRoutine = (page.routineDay?.segs.length ?? 0) > 0;
   const H = hourPx;
   const dayPx = 24 * H;
   const ticks = hourTicks(dayStartHour).slice(1, -1);
@@ -68,16 +73,16 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
     let y: number;
     if (nowMin !== null) y = minFrac(nowMin, dayStartHour) * dayPx - 2.6 * H;
     else {
-      const first = grid.blocks[0];
+      const first = blocks[0];
       y = (first ? minFrac(first.startMin, dayStartHour) : minFrac(8 * 60, dayStartHour)) * dayPx - 0.6 * H;
     }
     el.scrollTop = Math.max(0, y);
-  }, [grid, date, dayStartHour, H, dayPx, nowMin, scrollRef]);
+  }, [grid, blocks, date, dayStartHour, H, dayPx, nowMin, scrollRef]);
 
   /* ── 滑過一張卡：刻度欄的金線（預定開始 → 實際開始） ── */
   let lag: { top: number; height: number; early: boolean } | null = null;
   if (activeKey && !drag) {
-    const b = grid?.blocks.find((x) => x.key === activeKey);
+    const b = blocks.find((x) => x.key === activeKey);
     const c = cmp.cmp.get(activeKey);
     if (b && c && c.startDeltaMin !== null && c.startDeltaMin !== 0) {
       const y1 = minFrac(b.startMin, dayStartHour);
@@ -105,12 +110,14 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
     (canEdit ? "" : " is-ro") +
     (picked ? " is-picking" : "") +
     (drag ? " is-dragging" : "") +
-    (activeKey && items[activeKey] && !drag ? " is-hl" : "");
+    (activeKey && (items[activeKey] || slots[activeKey]) && !drag ? " is-hl" : "") +
+    (page.openRoutineId && !activeKey && !drag ? " is-hl" : "");
 
   return (
     <div className={cls} ref={scrollRef} style={{ "--ns-tt-sched-h": H + "px" } as CSSProperties}>
       <div className="ns-tt-sched-ghead">
-        <span className="ns-tt-sched-gh-p">
+        <span className={"ns-tt-sched-gh-p" + (hasRoutine ? " has-rt" : "")}>
+          {hasRoutine && <span className="ns-tt-rt-gh">{RT_UI.col}</span>}
           {SCHED_UI.colPlan}
           {layout === "rail" && <i>{SCHED_UI.colDelta}</i>}
         </span>
@@ -119,7 +126,7 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
       </div>
       <div className="ns-tt-sched-gbody" style={{ height: dayPx + "px" }}>
         <div
-          className={"ns-tt-sched-pcol is-" + layout}
+          className={"ns-tt-sched-pcol is-" + layout + (hasRoutine ? " has-rt" : "")}
           ref={pcolRef}
           onClick={onPcolClick}
           onPointerMove={(e) => {
@@ -133,8 +140,9 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
               <div className="ns-tt-sched-mid" style={{ top: pct(nightFrac) }} aria-hidden="true" />
             </>
           )}
+          {hasRoutine && <RoutineStrip page={page} hourPx={H} swallowClick={swallowClick} />}
           <PlanColumn page={page} layout={layout} hourPx={H} drag={drag} onDragStart={onDragStart} swallowClick={swallowClick} minAtY={minAtY} />
-          {grid && grid.date === date && grid.blocks.length === 0 && (
+          {grid && grid.date === date && blocks.length === 0 && (
             <EmptyState inline tone="first" className="ns-tt-sched-pempty" title={page.isPast ? SCHED_UI.emptyPast : TT_TEXT.schedEmpty} />
           )}
           {hintMin !== null && hintMin !== undefined && (

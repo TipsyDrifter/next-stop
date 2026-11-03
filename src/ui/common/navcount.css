@@ -1,0 +1,45 @@
+/* ─────────────────────────────────────────────────────
+ * navcount.css — 導航格右上的數字小標（回饋甲 D-主-130；原型 q4b-A `.nsq-count`）
+ * 長相＝時刻表運行中膠囊同形（timetable.css 丙-4 T4／msheet.css 四），只是沒有前面那顆點：
+ *   平常墨色（--stamp-ink 框與字、紙底）；有誤點未交代＝`.is-late` 轉赭（淡赭底墊紙色＋赭框＋赭字）。
+ *   書封色外圈把膠囊跟圖示隔開（同運行中膠囊的 box-shadow）。
+ * 定位框：桌機書封 .gnav-item／.gnav-line、手機 .m-tab（mobile.css 已是 relative）。
+ * 特異度都掛 .cover／[data-shell] 前綴，不靠注入順序。
+ * ───────────────────────────────────────────────────── */
+.ns-navcount {
+  position: absolute; z-index: 1; pointer-events: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 5px; box-sizing: border-box;
+  border: 1px solid var(--stamp-ink); border-radius: var(--radius-pill);
+  background: var(--color-paper);
+  color: var(--stamp-ink);
+  font-family: var(--font-latin); font-size: var(--fs-micro); font-weight: 600;
+  letter-spacing: 0; text-indent: 0; line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--color-book);
+}
+.ns-navcount.is-late {
+  border-color: var(--late);
+  background: linear-gradient(var(--danger-bg), var(--danger-bg)), var(--color-paper);
+  color: var(--late);
+}
+.cover .gnav-item:has(> .ns-navcount),
+.cover .gnav-line:has(> .ns-navcount) { position: relative; }
+.cover .ns-navcount.is-desktop { top: 3px; left: calc(50% + 4px); }
+[data-shell="mobile"] .ns-navcount.is-mobile { top: 3px; left: calc(50% + 6px); }
+
+/* 讀屏用的同一句話（膠囊本身 aria-hidden） */
+.ns-navcount-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* 路線列尾的未完成數（側欄與手機路線清單第一層）：只放淡色數字、不寫字（路線名不被擠掉）；0 不畫 */
+.ns-routecount {
+  flex: none;
+  font-family: var(--font-latin); font-weight: 500; font-size: var(--fs-xs);
+  letter-spacing: .02em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  opacity: .72;
+}
+/* 手機路線清單第一層（紙面）：淡墨字，排在別線小字（routeListAside）之後、› 之前 */
+[data-shell="mobile"] .m2-route .ns-routecount { color: var(--color-ink-faint); margin-left: var(--sp-1); opacity: 1; }

@@ -69,12 +69,15 @@ function HotkeyGuideCard() {
       topClass="pt-[6vh]" /* 比設定卡貼頂一級：1280×800 多出 32px，路線圖 21 列才不捲 */
     >
       <div ref={bodyRef} tabIndex={-1} className="ns-hkg outline-none">
-        <section className="ns-hkg-section" aria-label={here.title}>
-          <p className="ns-note ns-hkg-scene">{here.note}</p>
-          <HotkeyList rows={rowsFor(scope)} />
-        </section>
+        {/* 沒有自己快捷鍵的頁（運行報告，pages.ts hotkeyScope＝global）：只畫下面的全域段，不重複畫兩次 */}
+        {scope !== "global" && (
+          <section className="ns-hkg-section" aria-label={here.title}>
+            <p className="ns-note ns-hkg-scene">{here.note}</p>
+            <HotkeyList rows={rowsFor(scope)} />
+          </section>
+        )}
 
-        <section className="ns-hkg-section ns-hkg-section--tear" aria-label={global.title}>
+        <section className={`ns-hkg-section${scope !== "global" ? " ns-hkg-section--tear" : ""}`} aria-label={global.title}>
           <div className="ns-hkg-head">
             <span className="techo-label">{global.title}</span>
             <span className="ns-note">{global.note}</span>

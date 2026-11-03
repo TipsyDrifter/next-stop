@@ -251,18 +251,47 @@ export interface DaySummary {
 /**
  * 當天總結（D-時-83；使用者改題 00:1x：済與「有時間但沒章」分開）：済／只記時間／準點只數「排了」的那些。
  * 未來的日子済、只記時間、準點恆 0（畫面只印「排了 N 件・共 X」）。誤點項（`lateFrom`）不是這一天排的，不算。
+ * ⑦ `slots`＝這一天的車票第二段起（⑦ D-時-162：「排了 N 件」算張數不算段數）：
+ * - 每一段的長度都加進「共 X」（第一段＝預計，第二段起＝段的起訖）。
+ * - 這一天第一段沒排（沒時刻、或第一段在別天）、只有第二段起的票也算一件（沙盒 F-2：卡畫著、總結卻說還沒排）——
+ *   済＝票蓋了済；只記時間＝任一段有記到時間；準點＝這天最早那一段開始準點。
  */
-export function daySummary(items: readonly PlanItem[], cmp: ReadonlyMap<string, PlanCompare>, isFuture: boolean): DaySummary {
+export function daySummary(
+  items: readonly PlanItem[],
+  cmp: ReadonlyMap<string, PlanCompare>,
+  isFuture: boolean,
+  slots: readonly PlanItem[] = [],
+): DaySummary {
   const s: DaySummary = { planned: 0, stamped: 0, timedOnly: 0, onTime: 0, plannedMin: 0, noEstimate: 0 };
+  const counted = new Set<string>();
   for (const it of items) {
     if (it.time === null || it.skipped || it.lateFrom) continue;
     s.planned++;
+    counted.add(it.nodeId);
     if (it.estimateMin !== null) s.plannedMin += it.estimateMin;
     else s.noEstimate++;
     if (isFuture) continue;
     const c = cmp.get(it.key);
     if (it.done) s.stamped++;
     else if (hasTime(c)) s.timedOnly++;
+    if (c && startOnTime(c)) s.onTime++;
+  }
+  const slotOnly = new Map<string, PlanItem[]>();
+  for (const sl of slots) {
+    if (sl.time === null || sl.skipped) continue;
+    if (sl.estimateMin !== null) s.plannedMin += sl.estimateMin;
+    if (counted.has(sl.nodeId)) continue;
+    const list = slotOnly.get(sl.nodeId) ?? [];
+    list.push(sl);
+    slotOnly.set(sl.nodeId, list);
+  }
+  for (const list of slotOnly.values()) {
+    s.planned++;
+    if (isFuture) continue;
+    list.sort((a, b) => ((a.time ?? "") < (b.time ?? "") ? -1 : (a.time ?? "") > (b.time ?? "") ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    if (list[0].done) s.stamped++;
+    else if (list.some((sl) => hasTime(cmp.get(sl.key)))) s.timedOnly++;
+    const c = cmp.get(list[0].key);
     if (c && startOnTime(c)) s.onTime++;
   }
   return s;

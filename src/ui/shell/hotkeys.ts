@@ -216,7 +216,7 @@ export const HOTKEYS: Hotkey[] = [
     id: "today.draft",
     scope: "today",
     chords: [{ key: "Enter" }],
-    label: "新增臨時車票",
+    label: "新增車票",
     wired: true,
   },
   {
@@ -278,9 +278,31 @@ export const HOTKEYS: Hotkey[] = [
     scope: "today",
     chords: [{ key: "Escape" }],
     // label 照 useTodayController.escape() 的實際順序寫：草稿列→推遲小卡／記錄列→側板
-    label: "關閉視窗／側板",
+    label: "取消多選／關閉視窗／側板",
     wired: true,
     ignoreMods: ALL_LOOSE,
+  },
+  /* 多選（回饋乙 D-主-152）：Ctrl+A 全選這一頁、Shift+↑↓ 擴選（精確比 Shift，所以贏過放寬 Shift 的 ↑↓）；Esc 清多選併在 escape 裡 */
+  {
+    id: "today.select.all",
+    scope: "today",
+    chords: [{ key: "a", ctrl: true }],
+    label: "全選這一頁",
+    wired: true,
+  },
+  {
+    id: "today.select.extend.up",
+    scope: "today",
+    chords: [{ key: "ArrowUp", shift: true }],
+    label: "擴選上一列",
+    wired: true,
+  },
+  {
+    id: "today.select.extend.down",
+    scope: "today",
+    chords: [{ key: "ArrowDown", shift: true }],
+    label: "擴選下一列",
+    wired: true,
   },
 
   /* ── 路線圖・大綱（useOutlineKeyboard） ── */
@@ -438,9 +460,31 @@ export const HOTKEYS: Hotkey[] = [
     scope: "outline",
     chords: [{ key: "Escape" }],
     // label 照 useOutlineController.escape()：有縮放先退出縮放，否則收側板
-    label: "返回上一層／關側板",
+    label: "取消多選／返回上一層／關側板",
     wired: true,
     ignoreMods: ALL_LOOSE,
+  },
+  /* 多選（回饋乙 D-主-152）：Ctrl+A 全選這一頁、Shift+↑↓ 擴選（精確比 Shift，所以贏過放寬 Shift 的 ↑↓）；Esc 清多選併在 escape 裡 */
+  {
+    id: "outline.select.all",
+    scope: "outline",
+    chords: [{ key: "a", ctrl: true }],
+    label: "全選這一頁",
+    wired: true,
+  },
+  {
+    id: "outline.select.extend.up",
+    scope: "outline",
+    chords: [{ key: "ArrowUp", shift: true }],
+    label: "擴選上一列",
+    wired: true,
+  },
+  {
+    id: "outline.select.extend.down",
+    scope: "outline",
+    chords: [{ key: "ArrowDown", shift: true }],
+    label: "擴選下一列",
+    wired: true,
   },
 
   /* ── 日曆・格層（useCalendarKeyboard；月／週同一張表） ── */
@@ -636,6 +680,31 @@ export const HOTKEYS: Hotkey[] = [
     scope: "daylist",
     chords: [{ key: "Escape" }],
     label: "收起清單",
+    wired: false,
+  },
+  /* 多選（回饋乙 D-主-152）：Ctrl+A 全選這一頁、Shift+↑↓ 擴選（精確比 Shift，所以贏過放寬 Shift 的 ↑↓）；Esc 清多選併在 escape 裡 */
+  {
+    id: "daylist.select.all",
+    scope: "daylist",
+    chords: [{ key: "a", ctrl: true }],
+    label: "全選這一頁",
+    note: "行程表串流",
+    wired: false,
+  },
+  {
+    id: "daylist.select.extend.up",
+    scope: "daylist",
+    chords: [{ key: "ArrowUp", shift: true }],
+    label: "擴選上一列",
+    note: "行程表串流",
+    wired: false,
+  },
+  {
+    id: "daylist.select.extend.down",
+    scope: "daylist",
+    chords: [{ key: "ArrowDown", shift: true }],
+    label: "擴選下一列",
+    note: "行程表串流",
     wired: false,
   },
 

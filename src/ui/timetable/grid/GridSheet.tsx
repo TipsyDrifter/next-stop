@@ -15,17 +15,19 @@
  *               div.ns-tt-grid-now   現在線（朱色豎線＋菱形）
  *
  * 色帶上的字照實寬決定（＝原型）：≥13px 放圓牌字；桌機 ≥58px 加名稱；這一塊在這一天開頭那列（head）≥104px 再加起點時刻。
+ * 時刻表⑦（A 席）：桌機色帶有原生 title（同週視圖的句子＋第二行備註），所以桌機色帶吃滑鼠（blockNote.css；拖曳只看 target 在不在軌道裡）。
  *
  * 效能（沙盒 F1：200 塊、5 分格）：選區不從 props 進來——每一列的 `RowSel` 訂 `useSelOverlayStore` 自己那一列的字串，
  * 拖曳時 GridSheet 本身不重畫（props＝memo 過的 day、穩定的 handlers 與量到的尺寸）；`Band` 也是 memo、props 全是原始值，
  * 量到軌道寬（第一次掛上）或 now 每分鐘一跳時，只有長相真的變了的色帶重畫。
  */
-import { memo, type CSSProperties, type RefObject } from "react";
-import { colorSlot, fmtClock, MIN } from "../../../domain/timetable";
+import { memo, useMemo, type CSSProperties, type RefObject } from "react";
+import { colorSlot, fmtClock, fmtDur, MIN, msOf, noteOf, type TimeBlockRow } from "../../../domain/timetable";
 import type { RowRun } from "../../../domain/timetableGrid";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { HOUR, pad2, pct, rowSelKey, useSelOverlayStore, type GridDay } from "./gridModel";
 import type { GridDragHandlers } from "./useGridDrag";
+import "../blockNote.css";
 
 export interface GridSheetProps {
   day: GridDay;
@@ -65,10 +67,12 @@ interface BandProps {
   tiny: boolean;
   cp: boolean;
   cn: boolean;
+  /** ⑦：桌機的原生 tooltip（「創作 14:00–16:00・2h」＋第二行備註）；手機＝null（沒有滑鼠） */
+  tip: string | null;
 }
 
 /** 一段色帶；props 全是原始值（字放不放、起點時刻由 GridSheet 依實寬算好），memo 才擋得住 */
-const Band = memo(function Band({ x0, x1, slot, glyph, name, start, pend, running, tiny, cp, cn }: BandProps) {
+const Band = memo(function Band({ x0, x1, slot, glyph, name, start, pend, running, tiny, cp, cn, tip }: BandProps) {
   const style = { left: pct(x0), width: pct(x1 - x0), "--c": `var(--ns-tt-cat-${slot})` } as CSSProperties;
   const cls =
     "ns-tt-grid-band" +
@@ -78,7 +82,7 @@ const Band = memo(function Band({ x0, x1, slot, glyph, name, start, pend, runnin
     (cp ? " is-cp" : "") +
     (cn ? " is-cn" : "");
   return (
-    <i className={cls} style={style}>
+    <i className={cls} style={style} title={tip ?? undefined}>
       {glyph !== null && <b>{glyph}</b>}
       {name !== null && (
         <span>
@@ -90,7 +94,19 @@ const Band = memo(function Band({ x0, x1, slot, glyph, name, start, pend, runnin
   );
 });
 
-function bandProps(run: RowRun, day: GridDay, trackPx: number): BandProps {
+/** ⑦：色帶的 tooltip（同週視圖的句子＋備註）；手機不給 */
+function bandTip(run: RowRun, day: GridDay, row: TimeBlockRow | undefined): string | null {
+  if (!day.isDesk || !row) return null;
+  const s = msOf(row.started_at);
+  const e = row.ended_at === null ? null : msOf(row.ended_at);
+  const T = TT_TEXT.weekUi;
+  const name = day.catById[run.categoryId]?.name ?? "？";
+  const head = T.blockTip(name, fmtClock(s), e === null ? T.running : fmtClock(e), fmtDur((e ?? day.now) - s), day.pending.has(run.blockId), false);
+  const note = noteOf(row);
+  return note ? `${head}\n${note}` : head;
+}
+
+function bandProps(run: RowRun, day: GridDay, trackPx: number, rowById: ReadonlyMap<string, TimeBlockRow>): BandProps {
   const cat = day.catById[run.categoryId] ?? null;
   const wp = (run.x1 - run.x0) * trackPx;
   const start = day.startOf[run.blockId];
@@ -107,6 +123,7 @@ function bandProps(run: RowRun, day: GridDay, trackPx: number): BandProps {
     tiny: run.tiny,
     cp: run.contPrev,
     cn: run.contNext,
+    tip: bandTip(run, day, rowById.get(run.blockId)),
   };
 }
 
@@ -140,6 +157,7 @@ export const GridSheet = memo(function GridSheet({ day, dragging, rowsRef, handl
   // 色帶只建一次、字放不放一次就對（不先用猜的寬建 217 條、量完再改一輪；沙盒 F1）
   const tpx = trackPx;
   const linesStyle = { "--n": day.cpr, "--m": major } as CSSProperties;
+  const rowById = useMemo(() => new Map(day.dayBlocks.map((b) => [b.id, b] as const)), [day.dayBlocks]);
 
   return (
     <div className={"ns-tt-grid-sheet" + (day.isDesk ? " is-desk" : "")}>
@@ -172,7 +190,7 @@ export const GridSheet = memo(function GridSheet({ day, dragging, rowsRef, handl
               <span className="ns-tt-grid-hr ns-tt-num">{pad2(hh)}</span>
               <div className="ns-tt-grid-track">
                 {r >= nowRow && <div className="ns-tt-grid-fut" style={{ left: nowX ?? 0 }} />}
-                {tpx !== null && runs.map((run) => <Band key={run.blockId + ":" + r} {...bandProps(run, day, tpx)} />)}
+                {tpx !== null && runs.map((run) => <Band key={run.blockId + ":" + r} {...bandProps(run, day, tpx, rowById)} />)}
                 <div className="ns-tt-grid-lines" style={linesStyle} />
                 <div className="ns-tt-grid-sl">
                   <RowSel rs={rs} re={re} />

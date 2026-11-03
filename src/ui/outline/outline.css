@@ -202,14 +202,7 @@
   .ns-outline .ticket, .ns-outline .ticket:hover { transform: none; }
 }
 
-/* ═══ 清單底的摺疊列「済 N 張 ──── 顯示／收起」（UI 丙-3 修訂；取代「隱藏已完成」選單項；仿 Apple 提醒事項的「N 個已完成・顯示」）
- *   預設收起（uiStore.hideDone 預設 true）；整列可點，字淡、動作字用強調色。 */
-.ns-outline .ns-outline-fold {
-  display: flex; align-items: center; gap: var(--sp-3); width: 100%; margin-top: var(--sp-3); padding: var(--sp-2) var(--sp-1);
-  border: 0; border-radius: var(--radius-ctl); background: none; cursor: pointer;
-  font-family: var(--font-body); font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft);
-}
-.ns-outline .ns-outline-fold .rule { flex: 1; border-top: 1px dashed var(--color-dash); }
-.ns-outline .ns-outline-fold .act { color: var(--sel-fg); font-weight: 500; }
-.ns-outline .ns-outline-fold:hover { background: var(--hover-bg); color: var(--color-ink); }
-.ns-outline .ns-outline-fold:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+/* ═══ 清單尾：常駐「＋ 新增列車…」／建票列（回饋甲 D-主-128；長相在 common/quickadd/quickadd.css）
+ *   清單底原本的摺疊列「済 N 張 ── 顯示」拿掉，開關搬到區段標右側（.ns-qa-donechip；D-主-131）。 */
+.ns-outline .ns-outline-tail { margin-top: 13px; }
+.ns-outline .ticket-list:empty + .ns-outline-tail { margin-top: 0; }

@@ -122,6 +122,8 @@ export interface PageHeaderProps<K extends string = string> {
   emblem?: ReactNode;
   /** 頁首寬 <704 時接在 stats 列尾的紀念章小樣（例 `<><EmblemMini percent={p} />下一站 <b>{name}</b> {p}%</>`） */
   emblemCompact?: ReactNode;
+  /** 大標（與統計列）下方一列（② 運行報告 D-主-184：今日頁的「今日小結」）；省略＝不畫，DOM 與改前相同 */
+  below?: ReactNode;
   /** 工具列第一格：分頁籤（窄版自動改下拉） */
   tabs?: PageHeaderTabs<K>;
   /** 工具列第二格：該頁主物件的新增 */
@@ -198,6 +200,7 @@ export function PageHeader<K extends string = string>({
   stamp,
   emblem,
   emblemCompact,
+  below,
   tabs,
   add,
   search,
@@ -245,6 +248,7 @@ export function PageHeader<K extends string = string>({
             )}
           </p>
         )}
+        {below != null && <div className="ns-pagehead-below">{below}</div>}
       </div>
 
       {stamp != null && <div className="ns-pagehead-stamp">{stamp}</div>}

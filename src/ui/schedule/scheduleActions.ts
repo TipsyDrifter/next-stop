@@ -11,7 +11,7 @@
  *   運休             ＝ DayPopover.tsx:228-240（非定期券 REPEAT_ONLY_MSG）
  *   T／Shift+T        ＝ DayPopover.tsx:243-258（定期券 REPEAT_RESCHEDULE_MSG；離開這天出 showRescheduleToast）
  *   改期／清除執行日   ＝ DeferPopover.tsx:174-191（INBOX_TOAST＋復原）；已交代 SETTLED_DEFER_MSG（useMobileToday.ts:31）
- *   建票             ＝ useMobileToday.createTicket 同款（busy 重入鎖、失敗 toast）
+ *   建票不在這裡：串流、當日浮層與手機日期列都走共用建票列（common/quickadd 的 useQuickAdd，一筆寫完）
  *   時刻（主線② §3.10）＝ setTime：updateNode(id, { scheduled_time, estimate_min? })；setRunTime／clearRunTime：nodeStore 同名入口
  *                       （非定期券 ⇒ TIME_REPEAT_ONLY_MSG）；成功出收據 toast（文案見 timeReceipt），失敗由 store 吐 reason
  * 資料一律經 nodeStore（元件不碰 repository）。今天＝`todayKey(dayStartHour)`，每次呼叫當下算。
@@ -19,7 +19,7 @@
  * ── UI 丙-3 ──
  *   F5（E20 手機補記）：`defer` 的分流改用 `mobile/pickDay.ts` 的 planPickDay（與手機今日同一支、有單測）——
  *     挑到今天以前＝補記 `updateNode(id, { scheduled_on }, { backfill: true })`（「已補記到 M/D」＋復原由 nodeStore 出）；
- *     已済／運休與定期券沿用原本兩句守門；今天以後照舊 reschedule＋收據。建票 `createOn` 的過去日守門不動（手機建票補記不在範圍）。
+ *     已済／運休與定期券沿用原本兩句守門；今天以後照舊 reschedule＋收據。
  *   D5（每列 ⋯）：`remove`＝刪除＋toast「復原」（今日 deleteRow 同款；≥5 個子項先問）；`rowMenu`＝串流與日浮層每列 ⋯ 的項目
  *     （推遲／選日期…／移動到…／運休／詳情／刪除，刪除赭字最後）。
  */
@@ -62,9 +62,6 @@ export interface ScheduleActions {
   /** 刪除（UI 丙-3 D5）：softDelete＋toast「已刪除『名稱』」＋「復原」（undoDelete）——今日 deleteRow 同款；
    *  列車／車廂底下 ≥5 個子項先 askConfirm（同一句） */
   remove(nodeId: string): void;
-  /** 草稿列建票：day < today ⇒ false；busy 重入鎖；createNode({ kind:"ticket", name, parentId:null, scheduledOn: day })；
-   *  失敗 toast「新增失敗——請再試一次」 */
-  createOn(day: string, name: string): Promise<boolean>;
   /** 桌機 `.`：select(id)＋setPanelOpen(true) */
   openPanel(nodeId: string): void;
   /** 每班／單發票時刻（＋預計）：updateNode(id, { scheduled_time, estimate_min? })；estimateMin 為 undefined＝不送（主線② §3.10） */
@@ -87,7 +84,6 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
   const toast = (message?: string) => {
     if (message) ui().showToast({ message }, 3600);
   };
-  let busy = false;
   /** 時刻動作只拿到 id：從行程表切片或今日切片找節點（判定期券用；找不到就交給 store 驗） */
   const nodeOfId = (id: string): NodeRow | undefined => ns().calendar.nodes[id] ?? ns().today.byId[id];
 
@@ -267,23 +263,6 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
         }
         await run();
       })();
-    },
-
-    async createOn(day, raw) {
-      const name = raw.trim();
-      if (!name || busy) return false;
-      if (day < today()) return false;
-      busy = true;
-      try {
-        const row = await ns().createNode({ kind: "ticket", name, parentId: null, scheduledOn: day });
-        if (!row) {
-          toast("新增失敗——請再試一次");
-          return false;
-        }
-        return true;
-      } finally {
-        busy = false;
-      }
     },
 
     openPanel(nodeId) {

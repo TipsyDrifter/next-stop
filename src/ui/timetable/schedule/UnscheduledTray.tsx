@@ -11,7 +11,8 @@
  */
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { TT_TEXT } from "../../../store/timetableStore";
-import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
+import { SEG_DEFAULT_MIN, addSegNode, useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
+import { SEG_UI } from "./routineModel"; // ⑦ C 席
 import { useUiStore } from "../../../store/uiStore";
 import { useScheduleUiStore } from "../../schedule/scheduleUiStore";
 import { MIN, fmtDur } from "../../../domain/timetable";
@@ -87,9 +88,19 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
       {TT_TEXT.schedLateRepeat(lateRepeatCount)} ›
     </button>
   ) : null;
+  // ⑦（C 席）：挑位置的不是還沒排的票，而是「再排一段」或第二段起換位置 ⇒ 提示條寫是哪一張、多長
+  const addNode = addSegNode(picked);
+  const moving = picked ? page.slots[picked] : undefined;
+  let hintText: string = desk ? SCHED_UI.pickHintDesk : TT_TEXT.schedPickHint;
+  if (addNode !== null) {
+    const est = nodes[addNode]?.estimate_min ?? null;
+    hintText = SEG_UI.pickAdd(nodes[addNode]?.name ?? "？", fmtDur((typeof est === "number" && est > 0 ? est : SEG_DEFAULT_MIN) * MIN));
+  } else if (moving) {
+    hintText = SEG_UI.pickMove(nodes[moving.nodeId]?.name ?? "？", "");
+  }
   const pickHint = picked ? (
     <p className="ns-tt-sched-pickhint">
-      <span>{desk ? SCHED_UI.pickHintDesk : TT_TEXT.schedPickHint}</span>
+      <span>{hintText}</span>
       <button type="button" onClick={() => pick(null)}>
         {TT_TEXT.schedPickCancel}
         {desk && <kbd className="ns-tt-kbd">Esc</kbd>}

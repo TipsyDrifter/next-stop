@@ -13,6 +13,14 @@
  */
 import type { MergeCellNow, MergeKind, MergeNotice } from "../data/syncRepository.ts";
 
+/**
+ * 排序欄：整數 position（售票口／時刻表的整組寫 #101；舊版 nodes）與 nodes 的排序鍵 sort_key（回饋乙）。
+ * 原始值（「5」「a0V」）對使用者沒有意義，通知只講結果、整組合成一句。
+ */
+function isOrderCol(col: string | null | undefined): boolean {
+  return col === "position" || col === "sort_key";
+}
+
 /** 表 → 名詞與量詞（泛稱；三線沒填插槽時用）。不認得的表 ⇒ { noun: "一筆資料", unit: "筆" } */
 export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> = {
   nodes: { noun: "車票", unit: "張" }, // 列上實際印 KIND_LABEL[kind]（syncMergeLabels 拿到列才知道 kind）
@@ -25,6 +33,8 @@ export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> 
   time_categories: { noun: "時間分類", unit: "個" },
   time_blocks: { noun: "一段時間", unit: "段" },
   time_goals: { noun: "時數目標", unit: "個" },
+  time_routines: { noun: "作息範本", unit: "套" }, // ⑦
+  time_plans: { noun: "一段預定", unit: "段" }, // ⑦：作息落地的段、車票第二段起
   tk_currencies: { noun: "幣別", unit: "個" },
   tk_accounts: { noun: "帳戶", unit: "個" },
   tk_categories: { noun: "帳目分類", unit: "個" },
@@ -311,7 +321,7 @@ export function describeMerge(
   const mine = show(n.mine);
   const theirs = show(n.theirs);
   let base: string;
-  if (n.col === "position") {
+  if (isOrderCol(n.col)) {
     // #101 整組寫（沙盒 F-4）：position 的原始數字（「這台改成「5」」）對使用者沒有意義，講結果就好
     base = !n.by_me
       ? "兩台都排過順序——留下後排的那份"
@@ -324,7 +334,7 @@ export function describeMerge(
   if (gone) return base + (note ? tail : "（後來又不在了）");
   // 排序（沙盒 F-4′）：一次手勢＝好幾批整組寫，通知記的是第一筆撞到的中間值 ⇒ 現值必然「不一樣」，
   // 後綴會把原始數字（「後來又被整理成「1」」）帶回來——排序只講結果，不接這條
-  if (n.col === "position") return base + tail;
+  if (isOrderCol(n.col)) return base + tail;
   if (after && "changed" in after) return `${base}（後來又被整理成「${show(after.now)}」）${tail}`;
   // #96：集合欄補一句被蓋掉的那邊少了／多了什麼（又被整理過、不在了的不補——那時留下的已經不是這個值）
   const diff = mergeSetDiff(n, fmt);
@@ -487,7 +497,7 @@ export function mergeToastText(
     if (first.kind === "overwritten") {
       // #101 整組寫（沙盒 F-4）：一次重排＝整組每列一筆通知，逐筆講會變「有 10 個帳戶兩台都改過」嚇人；
       // 全是 position 就當一件事講。混到別欄（真的也改了名字之類）退回逐類句
-      if (list.every((n) => n.col === "position")) return `${nounOf(first.tbl)}的順序兩台都排過，留下後排的那份`;
+      if (list.every((n) => isOrderCol(n.col))) return `${nounOf(first.tbl)}的順序兩台都排過，留下後排的那份`;
       return `有 ${many}兩台都改過，留下後改的`;
     }
     // 全都又不在了 ⇒ 結果句；有的在有的不在 ⇒ 混合句（一句話講不完兩種結果）

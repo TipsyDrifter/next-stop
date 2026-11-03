@@ -76,6 +76,7 @@ import { QuickJump } from "./ui/common/QuickJump";
 import { SettingsPanel } from "./ui/settings/SettingsPanel";
 import { HotkeyGuide } from "./ui/shell/HotkeyGuide";
 import { Toast } from "./ui/common/Toast";
+import { ContextMenuHost } from "./ui/common/contextMenu";
 import { SyncBanner } from "./ui/common/SyncBanner";
 import { RecoveryCodeDialog } from "./ui/common/RecoveryCodeDialog";
 import { useShell } from "./ui/mobile/useShell";
@@ -163,6 +164,7 @@ export default function App() {
           </main>
           <DetailPanel />
           <QuickJump />
+          <ContextMenuHost />
           <SettingsPanel />
           <HotkeyGuide />
           <RouteDialog />

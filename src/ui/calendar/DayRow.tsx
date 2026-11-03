@@ -38,6 +38,9 @@ import { IconDots } from "../common/icons";
 import { SealSuspended } from "../stamps";
 // 時刻字（.tm）的樣式在 schedule.css（串流 .ns-sch 與當日清單浮層 .ns-daypop 兩個前綴都寫在那裡）
 import "../schedule/schedule.css";
+import { rowContextMenu } from "../common/contextMenu";
+import { armOpenOnClick } from "../common/selection/openOnClick";
+import { PriorityMark } from "../common/PriorityMark";
 
 const cx = (...parts: Array<string | false | undefined>) => parts.filter(Boolean).join(" ");
 
@@ -146,7 +149,12 @@ export interface DayRowProps {
   /** 剛蓋下去：播 stampIn */
   fresh: boolean;
   onFreshEnd(): void;
-  onSelect(): void;
+  /** 按下這一列（mousedown；事件交出去給多選看修飾鍵——回饋乙，串流才用得到） */
+  onSelect(e?: MouseEvent<HTMLDivElement>): void;
+  /** 多選裡（回饋乙；只有行程表串流會給） */
+  picked?: boolean;
+  /** 拖曳用的列 id（`data-drag-id`；回饋乙：串流拖到別天＝改期）；沒給＝不能拖（當日清單浮層） */
+  dragId?: string;
   /** 検印欄：済／取消済／取消運休（哪一種由 DayPopover 依列的身分決定） */
   onStamp(): void;
   /** 推遲鈕（單發票）／rep 圖示（定期券目前班次）——都是開 DeferPopover，錨＝被點的那顆 */
@@ -199,7 +207,7 @@ export function TicketTime({
   );
 }
 
-export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu }: DayRowProps) {
+export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu, picked = false, dragId }: DayRowProps) {
   const name = row.node?.name ?? "";
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
@@ -250,12 +258,22 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         row.late && "late",
         row.rin && "rin",
         fresh && "fresh",
+        picked && "is-picked",
       )}
       data-row-key={row.key}
+      data-drag-id={dragId}
       tabIndex={selected ? 0 : -1}
       role="group"
       aria-label={name}
-      onMouseDown={onSelect}
+      onMouseDown={(e) => {
+        onSelect(e);
+        armOpenDetail(e, row.node?.id);
+      }}
+      onContextMenu={
+        menu
+          ? rowContextMenu(() => ({ overline: { zh: "這張車票", latin: "Ticket" }, label: `${name} 的動作`, items: menu(null) }))
+          : undefined
+      }
     >
       <span className={cx("roundel-s", serif && "serif")} aria-hidden style={disc}>
         {badgeOf(row.route)}
@@ -270,6 +288,8 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         />
       )}
       <span className="t" title={name}>
+        {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
+        <PriorityMark priority={row.node?.priority} />
         {name}
       </span>
       {!menu && <DetailButton nodeId={row.node?.id} />}
@@ -414,6 +434,20 @@ function DetailButton({ nodeId }: { nodeId: string | undefined }) {
   );
 }
 
+/**
+ * 單擊票面＝選中＋開詳情側板（回饋甲 D-主-132）：當日清單浮層與串流的列、締切列共用——跟「詳情」小字鈕同一條路
+ * （select＋setPanelOpen；浮層在側板 關→開 那一刻自己收起）。Ctrl／⌘／Shift＋點是串流的多選，不開；
+ * 點在推遲、rep、⋯、章、詳情這些鈕上不開；拖曳不開（openOnClick）。
+ */
+function armOpenDetail(e: MouseEvent<HTMLDivElement>, nodeId: string | undefined): void {
+  if (!nodeId || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  armOpenOnClick(e, () => {
+    const ui = useUiStore.getState();
+    ui.select(nodeId);
+    ui.setPanelOpen(true);
+  });
+}
+
 /** 重複班次圖示（原型 :1075 的 inline SVG 逐字） */
 function RepIcon() {
   return (
@@ -452,7 +486,10 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
       tabIndex={selected ? 0 : -1}
       role="group"
       aria-label={`締切：${name}`}
-      onMouseDown={onSelect}
+      onMouseDown={(e) => {
+        onSelect();
+        armOpenDetail(e, node?.id);
+      }}
     >
       <span className="sime-g" aria-hidden>
         〆

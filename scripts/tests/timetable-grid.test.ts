@@ -427,6 +427,7 @@ function makeSqliteDb(): TestDb {
   // 外鍵關掉（node:sqlite 預設開）：測資的分類 id 是假的（time_blocks.category_id 參照 time_categories）
   raw.exec("PRAGMA foreign_keys = OFF");
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0006_timetable_blocks.sql"), "utf8"));
+  raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0015_timetable_plans.sql"), "utf8")); // ⑦：time_blocks.note（applyPlan 的 INSERT 寫這欄）
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   const db: TestDb = {
     ops: [],

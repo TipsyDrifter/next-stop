@@ -11,6 +11,7 @@
  *   day 段   ＝ 日期標題列（今天／未來可點＝在那天底下開草稿，D-主-8；過去不可點，P10）＋ MobileTicket × rows
  *              ＋（有 dues）「締切」小段：沒執行日的票畫完整卡（可蓋済／⋯）、有執行日的畫一行 .m-sch-due（點＝捲到執行日；§0-1 第 14 條）
  *              ＋（draftDay＝這天）草稿列 ＋（今日且全交代）「今天的班次都到站了」；今日段上方另有「誤點 N 件」一列（P8）
+ *              回饋甲（D-主-127、128）：日期標題列右端畫一顆看得見的「＋」（點整列照舊）；草稿列換成共用的手機建票列（DayQuickAdd，執行日＝那一天）
  *   gap 段   ＝ 連續空白日一行（點＝攤開逐日／收起，D-主-7）；before／after 邊界行（P5）
  * 列的身分走日曆同一把尺 `dayRowModel`，卡的欄位由 `cardFromDayRow`／`cardFromDue` 摺好；動作走 `makeScheduleActions("mobile")`
  *   （守門與收據全在那裡；本檔不碰 repository、不自己判口徑）。
@@ -31,8 +32,17 @@
  * **磨光①（契約 §1.5、§9.5）**：⋯ sheet 與月曆覆蓋層各登記一層 sheet 返回層（返回＝同按 ×／收起）；
  *   ⋯ sheet 加改名…／記乘務記錄…／刪除（useMobileToday 的模組函式，同今日子頁）——串流不是手排清單，不出上移下移。
  *   草稿列是行內、不登記（返回先收鍵盤，再按就回今日段，草稿列跟著卸載）。
+ *
+ * **回饋乙（D-主-152／153；契約 §0 ☎2、☎3①④、§4）**：
+ *   - 多選：長按原地放開＝選起來（scope "schedule"，存節點 id——定期券同一張在好幾天出現時一起標，批量動作本來就是對節點）；
+ *     多選中點卡片＝加選／取消；選取列＝MobileSelectionBar。
+ *   - 拖到另一天的日期標頭＝改期（標頭帶 `data-drop-target={日期}`、`data-drop-type="date"`；串流是推導順序，`slots:false`）；
+ *     寫入＝batchSetDate（一則「已改期」＋復原）。拖不動的：定期券（班次由規則排）、已交代、唯讀班次——長按照樣選得起來。
+ *     拖到過去的日子不收（補記走 ⋯「日期…」）；收合的空白區間要先攤開才有那天的標頭。
+ *   - 滑動手勢：右滑＝蓋済（同検印 actions.stamp）、左滑＝⋯ 第一格（明天／晚一天；定期券＝本班運休）。
+ *   - 每天各有自己的清單容器（DragList）：共用元件把「清單自己裡面的落點」當縫不當外部落點，所以容器不能是整條串流。
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import { dayCount, dayCountParts } from "../../domain/dayCount";
 import type { DueEntry } from "../../data";
@@ -56,7 +66,58 @@ import { moveNodeTo } from "../common/moveTo";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { useBackLayer } from "./backStack";
 import { deleteTicket, liveChildCount, logTicket, renameTicket } from "./useMobileToday";
+import { batchSetDate } from "../../store/batchActions";
+import { useSelectionStore } from "../../store/selectionStore";
+import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
+import { sheetDeferItems } from "../schedule/streamModel";
+import { SETTLED_DEFER_MSG } from "./useMobileToday";
+import { MobileSelectionBar } from "./MobileSelectionBar";
+import { isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection, useScopeSelection, type SwipePair } from "./mobileSelect";
+import { IconPlus } from "../common/icons";
+import { MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import "../schedule/schedule-mobile.css";
+
+/**
+ * 行程表清單的拖曳／多選／滑動（回饋乙）：MobileSchedule 做一份穩定的物件（函式讀 ref 裡的最新狀態），每天的 DragList 吃它。
+ * 列的拖曳 id＝卡片 key（`日期-節點`／`due-日期-節點`；同一張定期券在好幾天出現，key 才分得開）。
+ */
+interface SchedDrag {
+  scrollRef: RefObject<HTMLDivElement | null>;
+  canDrag(key: string): Verdict;
+  dragIds(key: string): string[];
+  resolve(keys: readonly string[], place: DropPlace): Verdict;
+  onDrop(keys: readonly string[], place: DropPlace): void;
+  onPressRelease(key: string): void;
+  onRefuse(key: string, why: string): void;
+  swipeFor(key: string): SwipePair;
+}
+
+/** 一張可以拖、可以滑的票卡清單（每天、締切各一張） */
+function DragList({ keys, drag, label, children }: { keys: string[]; drag: SchedDrag; label: string; children: ReactNode }) {
+  const [el, setEl] = useState<HTMLUListElement | null>(null);
+  const swipe = usePressedSwipe(el, drag.swipeFor);
+  useDragReorder({
+    root: el,
+    scrollRef: drag.scrollRef,
+    items: keys.map((id) => ({ id })),
+    slots: false,
+    canDrag: drag.canDrag,
+    onRefuse: drag.onRefuse,
+    dragIds: drag.dragIds,
+    resolve: drag.resolve,
+    onDrop: drag.onDrop,
+    onPressRelease: drag.onPressRelease,
+    swipe,
+  });
+  return (
+    <ul className="m-tk-list" aria-label={label} ref={setEl}>
+      {children}
+    </ul>
+  );
+}
+
+/** 定期券長按後一動：抖一下說為什麼（data 層那句 REPEAT_RESCHEDULE_MSG 指的是桌機的 U／. 鍵，手機改指 ⋯ 與左滑） */
+const REPEAT_NO_DRAG_MSG = "定期券的班次由規則排定，不能拖到別天——跳過這一班用 ⋯ 或往左滑";
 
 /** ⋯ sheet 整個流程的返回層 id（本頁登記、MobileTicketSheet 的每張 MSheet 用同一個 id 合併） */
 const SCHEDULE_SHEET_LAYER = "core.scheduleSheet";
@@ -327,12 +388,113 @@ export function MobileSchedule() {
     if (sheet && !sheetView) setSheet(null);
   }, [sheet, sheetView]);
 
+  /* ───────── 回饋乙：多選、拖到日期、滑動手勢 ───────── */
+  /** 畫面上每張卡的 key → 節點與日期（日期段的班次＋締切段沒執行日的完整卡）；順序＝畫面順序 */
+  const keyIndex = useMemo(() => {
+    const m = new Map<string, { nodeId: string; date: string; kind: "entry" | "due" }>();
+    for (const sec of sections) {
+      if (sec.kind !== "day") continue;
+      for (const r of sec.rows) m.set(`${r.entry.date}-${r.entry.node_id}`, { nodeId: r.entry.node_id, date: sec.date, kind: "entry" });
+      for (const d of sec.dues) {
+        if (calendar.nodes[d.node_id]?.scheduled_on === null) m.set(`due-${sec.date}-${d.node_id}`, { nodeId: d.node_id, date: sec.date, kind: "due" });
+      }
+    }
+    return m;
+  }, [sections, calendar.nodes]);
+  const nodeOrder = useMemo(() => [...new Set([...keyIndex.values()].map((v) => v.nodeId))], [keyIndex]);
+  const picked = useScopeSelection("schedule");
+  usePruneSelection("schedule", nodeOrder);
+  const live = useRef({ keyIndex, nodeOrder, today, stamp, actions, routeOf });
+  live.current = { keyIndex, nodeOrder, today, stamp, actions, routeOf };
+
+  const drag = useMemo<SchedDrag>(() => {
+    /** key → 用最新切片重算的卡與動作目標（同 sheetView 的算法） */
+    const viewOf = (key: string): { card: TicketCardModel; target: ScheduleTarget } | null => {
+      const L = live.current;
+      const at = L.keyIndex.get(key);
+      if (!at) return null;
+      const { calendar: cal, serials: ser, currentOccurrences: occ } = useNodeStore.getState();
+      const node = cal.nodes[at.nodeId];
+      if (!node) return null;
+      if (at.kind === "due") return { card: cardFromDue(node, at.date, ser[at.nodeId] ?? null, L.today), target: { kind: "due", node } };
+      const entry = cal.entries.find((e) => e.date === at.date && e.node_id === at.nodeId);
+      if (!entry) return null;
+      const row = dayRowModel(entry, node, L.routeOf(node), occ[at.nodeId]?.due_on ?? null, L.today);
+      return { card: cardFromDayRow(row, ser[at.nodeId] ?? null, L.today), target: { kind: "entry", row } };
+    };
+    const nodeIdsOf = (keys: readonly string[]) => [...new Set(keys.map((k) => live.current.keyIndex.get(k)?.nodeId).filter((x): x is string => !!x))];
+    return {
+      scrollRef: streamRef,
+      canDrag: (key) => {
+        const v = viewOf(key);
+        if (!v) return "找不到這張票";
+        if (v.card.readOnly) return v.card.stampHint ?? "過去的班次不能改";
+        if (v.card.isRepeat) return REPEAT_NO_DRAG_MSG;
+        if (v.card.done || v.card.suspended) return SETTLED_DEFER_MSG;
+        return true;
+      },
+      // 選中的那張被拖＝選到的每一張（同一個節點只取畫面上第一張卡）
+      dragIds: (key) => {
+        const L = live.current;
+        const at = L.keyIndex.get(key);
+        if (!at || !isSelecting("schedule")) return [key];
+        const sel = new Set(useSelectionStore.getState().ids);
+        if (!sel.has(at.nodeId)) return [key];
+        const seen = new Set<string>([at.nodeId]);
+        const out = [key];
+        for (const [k, v] of L.keyIndex) {
+          if (!sel.has(v.nodeId) || seen.has(v.nodeId)) continue;
+          seen.add(v.nodeId);
+          out.push(k);
+        }
+        return out;
+      },
+      resolve: (keys, place) => {
+        if (place.kind !== "target" || place.type !== "date") return "拖到日期標頭上＝改到那天";
+        if (place.target < live.current.today) return "過去的日子要用 ⋯「日期…」補記";
+        if (keys.every((k) => live.current.keyIndex.get(k)?.date === place.target)) return "已經排在這一天";
+        return true;
+      },
+      onDrop: (keys, place) => {
+        if (place.kind !== "target" || place.type !== "date") return;
+        const ids = nodeIdsOf(keys);
+        if (ids.length) void batchSetDate(ids, place.target);
+      },
+      onPressRelease: (key) => {
+        const at = live.current.keyIndex.get(key);
+        if (at) pressSelect("schedule", at.nodeId, live.current.nodeOrder);
+      },
+      onRefuse: (_key, why) => useUiStore.getState().showToast({ message: why }, 3600),
+      swipeFor: (key) => {
+        if (isSelecting("schedule")) return {};
+        const v = viewOf(key);
+        if (!v) return {};
+        const { card, target } = v;
+        if (card.readOnly || card.done || card.suspended) return {};
+        const L = live.current;
+        const out: SwipePair = {};
+        if (card.stampable) out.right = { label: "蓋済", tone: "seal", run: () => L.stamp(target, card) };
+        if (card.isRepeat) {
+          // ⋯ 定期券那一格「本班運休」只給班次列（締切段的定期券卡沒有那一班）
+          if (target.kind === "entry") out.left = { label: "運休", tone: "ink", run: () => L.actions.suspend(target.row) };
+        } else {
+          const { first } = sheetDeferItems(card.railDate, card.scheduledOn, L.today);
+          out.left = { label: first.label === "往後推一天" ? "晚一天" : "明天", tone: "ink", run: () => L.actions.defer(target, first.day) };
+        }
+        return out;
+      },
+    };
+  }, []);
+  const onPick = useCallback((nodeId: string) => {
+    tapSelect("schedule", nodeId, live.current.nodeOrder);
+  }, []);
+
   // 返回層（磨光① §1.5）：⋯ sheet（含子面板）＝返回同按 ×；月曆覆蓋層＝返回同收起。行程表段本身的子頁層登記在 MobileToday
   // UI 丙-3 F3：⋯ sheet 換成 MSheet 後它也會自己登記——同一個 id 傳進去（backId），refcount 合併成一層、返回鍵按一次就關
   useBackLayer(SCHEDULE_SHEET_LAYER, sheetView !== null, closeSheet);
   useBackLayer("core.scheduleCal", calOpen, closeCal);
 
-  const createOn = useCallback((day: string, name: string) => actions.createOn(day, name), [actions]);
+  // 回饋甲：建票走共用建票列（DayQuickAdd → MobileQuickAdd → useQuickAdd 一筆寫完）
   const closeDraft = useCallback(() => useScheduleUiStore.getState().setDraftDay(null), []);
 
   // sheet 放在 .m-sch **之外**（Fragment 的第二個子節點＝根 flex column 的直接子節點）：.m-sch 是 z-index:1 的疊放脈絡，
@@ -398,7 +560,9 @@ export function MobileSchedule() {
                 onStamp={stamp}
                 onMore={openSheet}
                 onGoTo={jump}
-                onCreate={createOn}
+                drag={drag}
+                picked={picked}
+                onPick={onPick}
                 onCloseDraft={closeDraft}
                 isProgramScrolling={api.isProgramScrolling}
               />
@@ -464,6 +628,8 @@ export function MobileSchedule() {
           onClose={closeSheet}
         />
       )}
+      {/* 選取列（回饋乙）：殼根節點的直接子節點、tab bar 之上 */}
+      <MobileSelectionBar scope="schedule" />
     </>
   );
 }
@@ -531,7 +697,10 @@ interface DaySectionProps {
   onStamp(target: ScheduleTarget, card: TicketCardModel): void;
   onMore(ref: SheetRef): void;
   onGoTo(day: string): void;
-  onCreate(day: string, name: string): Promise<boolean>;
+  /** 回饋乙：拖曳／滑動（穩定物件）、這一頁選到的節點、多選中點卡片 */
+  drag: SchedDrag;
+  picked: string[];
+  onPick(nodeId: string): void;
   onCloseDraft(): void;
   isProgramScrolling(): boolean;
 }
@@ -571,10 +740,13 @@ const DaySection = memo(function DaySection({
   onStamp,
   onMore,
   onGoTo,
-  onCreate,
+  drag,
+  picked,
+  onPick,
   onCloseDraft,
   isProgramScrolling,
 }: DaySectionProps) {
+  const selecting = picked.length > 0;
   const { date, rows, dues, past, empty, inRun } = section;
   const isToday = section.rel === "today";
 
@@ -657,21 +829,29 @@ const DaySection = memo(function DaySection({
         </button>
       )}
 
+      {/* 日期標頭＝拖曳的外部落點（回饋乙：拖到這裡＝改到這天；過去的日子由 resolve 擋下並說理由） */}
       {clickable ? (
         <div
-          className={"sec is-clickable" + (isToday ? " is-today" : "")}
+          className={"sec is-clickable" + (isToday ? " is-today" : "") + (draft ? " is-drafting" : "")}
+          data-drop-target={date}
+          data-drop-type="date"
           role="button"
           tabIndex={0}
-          aria-label={`在 ${mdw(date)} 開一張臨時車票`}
+          aria-label={`在 ${mdw(date)} 新增車票`}
+          aria-expanded={draft}
           onClick={openDraft}
           onKeyDown={onHeadKey}
         >
           <h3>{dayLabel(section)}</h3>
           <span className="rule" />
           <span className="note">{note}</span>
+          {/* 回饋甲 D-主-128：看得見的「＋」（點整列照舊；這顆只是記號，讓人知道這裡點得下去） */}
+          <span className="m-sch-add" aria-hidden>
+            <IconPlus size={14} />
+          </span>
         </div>
       ) : (
-        <div className="sec is-past" title="過去的日子不能建票">
+        <div className="sec is-past" title="過去的日子不能建票" data-drop-target={date} data-drop-type="date">
           <h3>{dayLabel(section)}</h3>
           <span className="rule" />
           <span className="note">{note}</span>
@@ -679,7 +859,7 @@ const DaySection = memo(function DaySection({
       )}
 
       {models.length > 0 && (
-        <ul className="m-tk-list" aria-label={`${mdw(date)} 的班次`}>
+        <DragList keys={models.map((m) => m.card.key)} drag={drag} label={`${mdw(date)} 的班次`}>
           {models.map(({ row, route, card }) => (
             <MobileTicket
               key={card.key}
@@ -690,16 +870,24 @@ const DaySection = memo(function DaySection({
               now={now}
               onComplete={() => onStamp({ kind: "entry", row }, card)}
               onMore={() => onMore({ kind: "entry", nodeId: card.nodeId, date })}
+              dragId={card.key}
+              selecting={selecting}
+              picked={picked.includes(card.nodeId)}
+              onPick={() => onPick(card.nodeId)}
             />
           ))}
-        </ul>
+        </DragList>
       )}
 
       {dueItems.length > 0 && (
         <>
           <div className="m-sch-subhead">締切</div>
           {dueItems.some((x) => x.kind === "card") && (
-            <ul className="m-tk-list" aria-label={`${mdw(date)} 的締切`}>
+            <DragList
+              keys={dueItems.flatMap((x) => (x.kind === "card" ? [x.card.key] : []))}
+              drag={drag}
+              label={`${mdw(date)} 的締切`}
+            >
               {dueItems.map((x) =>
                 x.kind === "card" ? (
                   <MobileTicket
@@ -711,10 +899,14 @@ const DaySection = memo(function DaySection({
                     now={now}
                     onComplete={() => onStamp({ kind: "due", node: x.node }, x.card)}
                     onMore={() => onMore({ kind: "due", nodeId: x.node.id, date })}
+                    dragId={x.card.key}
+                    selecting={selecting}
+                    picked={picked.includes(x.node.id)}
+                    onPick={() => onPick(x.node.id)}
                   />
                 ) : null,
               )}
-            </ul>
+            </DragList>
           )}
           {dueItems.map((x) =>
             x.kind === "line" ? (
@@ -741,7 +933,7 @@ const DaySection = memo(function DaySection({
         </>
       )}
 
-      {draft && <DraftRow day={date} onCreate={onCreate} onClose={onCloseDraft} isProgramScrolling={isProgramScrolling} />}
+      {draft && <DayQuickAdd day={date} onClose={onCloseDraft} isProgramScrolling={isProgramScrolling} />}
 
       {isToday && total > 0 && left === 0 && <div className="m-sch-cheer">今天的班次都到站了</div>}
     </section>
@@ -749,84 +941,42 @@ const DaySection = memo(function DaySection({
 });
 
 /* ═══════════════════════════════════════════════════════
- * 草稿列（D-主-8：點日期標題列在那天底下開；一次一張，點別天就換過去）
- *   送出成功 ⇒ 清空、草稿列留著（連打）；空白 Enter 或 Esc ⇒ 關；捲走不關。
- *   IME 三道護欄（鐵則 6）：isComposing／keyCode 229／composition 旗標（MobileToday.MobileNewTicket 同款）。
+ * 那一天的建票列（D-主-8：點日期標題列在那天底下開；一次一張，點別天就換過去）
+ *   回饋甲（D-主-127、128）起＝共用的手機建票列 MobileQuickAdd（行內版）：執行日預設＝這一天、掛到預設無路線，
+ *   chips 與快速語法同今日頁；建到別天／別條路線才出收據（useQuickAdd leaveNote）。
+ *   送出成功 ⇒ 清空、建票列留著（連打）；空白 Enter 或 Esc ⇒ 關（MobileQuickAdd onClose）；捲走不關。
+ *   IME 三重守門在共用元件裡。外層沿用 `.m-sch-draft`（虛線小卡＋左右滑換子頁的豁免，useSubSwipe 認這個 class）。
  * ═══════════════════════════════════════════════════════ */
 
-function DraftRow({
+function DayQuickAdd({
   day,
-  onCreate,
   onClose,
   isProgramScrolling,
 }: {
   day: string;
-  onCreate(day: string, name: string): Promise<boolean>;
   onClose(): void;
   /** useStream 的守門：程式捲動飛行中不 scrollIntoView（串流 scrollTop 的寫入者全走同一個門） */
   isProgramScrolling(): boolean;
 }) {
-  const [text, setText] = useState("");
-  const composing = useRef(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const defaults = useMemo<QuickDefaults>(() => ({ dest: NO_DEST, scheduledOn: day, noDateLabel: true }), [day]);
+  const here = useMemo<QuickHere>(() => ({ kind: "day", day }), [day]);
 
   // autoFocus，focus 後等軟鍵盤再把自己捲到中間（評審 S6）
   useEffect(() => {
-    const el = inputRef.current;
+    const el = wrapRef.current?.querySelector("input");
     if (!el) return;
     el.focus({ preventScroll: true });
     const t = window.setTimeout(() => {
       if (isProgramScrolling()) return; // goTo 還在飛：不截斷它，落點由 land 收尾
-      el.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
+      wrapRef.current?.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
     }, DRAFT_REVEAL_MS);
     return () => window.clearTimeout(t);
   }, []);
 
-  const submit = async () => {
-    if (!text.trim()) {
-      onClose();
-      return;
-    }
-    const ok = await onCreate(day, text);
-    // 成功才清空＝失敗時主人打的字還在（createOn 已經吐過 toast）；不關草稿列＝連打
-    if (ok) setText("");
-  };
-
-  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
-      return;
-    }
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    void submit();
-  };
-
   return (
-    <div className="m-sch-draft">
-      <input
-        ref={inputRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        onCompositionStart={() => {
-          composing.current = true;
-        }}
-        onCompositionEnd={() => {
-          composing.current = false;
-        }}
-        placeholder={`在 ${mmdd(day)} 開一張臨時車票…`}
-        aria-label={`輸入 ${mdw(day)} 臨時車票的名稱`}
-        enterKeyHint="done"
-        spellCheck={false}
-        autoComplete="off"
-        className="m-nt-input"
-      />
-      <button type="button" onClick={() => void submit()} disabled={!text.trim()} className="m-nt-go ns-btn btn-seal">
-        発券
-      </button>
+    <div ref={wrapRef} className="m-sch-draft m-sch-qawrap">
+      <MobileQuickAdd defaults={defaults} here={here} placeholder={`在 ${mmdd(day)} 新增車票…`} onClose={onClose} />
     </div>
   );
 }

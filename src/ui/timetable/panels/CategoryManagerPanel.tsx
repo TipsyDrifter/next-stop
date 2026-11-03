@@ -28,8 +28,14 @@
  *   列展開時它收起來（展開區已經列出荷札）。
  * - 每組一張 `ManagerList`（組頭也是一列 ManagerRow：改名、↑↓、⋯ 預設荷札）；組尾「＋ 新增分類」、清單尾「＋ 新增分組」都是文字鈕。
  *   新增列的「新增」是次鈕、「取消」是文字鈕——即時存的面板沒有主鈕（規範 §2.3）。
+ *
+ * ── 時刻表⑦（B 席；契約 §3、§6 D-時-166） ──
+ * - 第四籤「作息」＝`RoutinesTab`（作息範本編輯器）。sheet `focus:"routine"`（＋`focusId`＝範本 id）⇒ 開作息籤、展開那一套；
+ *   這時 focusId 不給分類籤。
+ * - 分類清單接共用拖曳（`common/dragReorder`，tree 模式兩層）：同組換序、拖到別組＝搬組（落在新組的那個位置）、組本身也能拖（帶著子分類）；
+ *   寫入＝store `placeCategory`（一次 write）。↑↓ 與 ⋯「搬到」照留（鍵盤與讀屏的入口）。
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { MIN, colorSlot, fmtDur, groupedCategories, type TimeCategoryRow } from "../../../domain/timetable";
 import { LONG_RUN_MAX_DEFAULT, TT_TEXT, useTimetableStore, type TimetableSheet } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -37,6 +43,7 @@ import { CategoryBadge } from "../CategoryBadge";
 import { Sub, type PanelProps } from "./controls";
 import { NoticeSettings } from "./NoticeSettings";
 import { GoalsTab } from "./GoalsTab";
+import { RoutinesTab } from "./RoutinesTab";
 import { TT_TAG_CATEGORY, catDefaults, type TimetableTagMaps } from "../../../domain/timetableTags";
 import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
 import { useShell } from "../../mobile/useShell";
@@ -45,20 +52,31 @@ import { Tabs, type TabItem } from "../../common/Tabs";
 import { ManagerList, ManagerRow, type PopMenuItem } from "../../common/ManagerRow";
 import { ColorPicker } from "../../common/ColorPicker";
 import { IconPlus } from "../../common/icons";
+import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
+import "./routines-tab.css"; // ⑦ B 席：拖曳時名字下那行跟著淡、目標籤的 ↑↓（樣式都在這支）
 
 const TX = TT_TEXT.tags;
 
-type MgrTab = "cats" | "notice" | "goals";
+/** ⑦ 拖曳放不下的理由（指標旁那一句） */
+const CAT_DRAG = {
+  noPlace: "不能放這裡",
+  groupBetween: "分組只能放在兩組之間",
+  catInGroup: "分類要放進某一組",
+} as const;
+
+type MgrTab = "cats" | "notice" | "goals" | "routines";
 const TABS: readonly TabItem<MgrTab>[] = [
   { key: "cats", label: "分類" },
   { key: "notice", label: "通知" },
   { key: "goals", label: "目標" },
+  { key: "routines", label: "作息" }, // ⑦ B 席：作息範本編輯器（RoutinesTab）
 ];
 
 /** sheet → 開在哪一籤（舊的 focus／focusId 照收，見 timetableStore 的 sheet 型別註解） */
 function tabOf(sheet: TimetableSheet | null): MgrTab {
   if (sheet?.kind !== "categories") return "cats";
   if (sheet.focus === "notice") return "notice";
+  if (sheet.focus === "routine") return "routines"; // ⑦：focusId 這時是範本 id
   if (sheet.focusId) return "cats";
   return sheet.tab ?? "cats";
 }
@@ -362,7 +380,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
   const groupName = (id: string | null): string => categories.find((c) => c.id === id)?.name ?? "";
 
   // 磨光③ 2-11：從荷札頁點分類列（focusId）進來 ⇒ 展開、捲進畫面、閃一下（封存的分類 ⇒ 打開「已封存」摺疊）
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const isArchivedTarget = !!focusId && archived.some((c) => c.id === focusId);
   useEffect(() => {
     if (!focusId) return;
@@ -383,6 +401,45 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
     // 只在掛上時定位一次（換定位目標＝sheet 換 key、整個面板重掛）
   }, []);
 
+  // ⑦ 拖曳排序（B 席，D-時-166）：組＋子分類攤平成兩層的樹（組 depth 0、子分類 depth 1）。組只在組之間換位置（帶著它的子分類走）；
+  // 子分類放進任何一組＝同組換序或搬組（placeCategory：一次 write）。SubLine／空狀態等不是列的 <li> 沒有 data-drag-id，不算；封存區不參與。
+  const [dragRoot, setDragRoot] = useState<HTMLDivElement | null>(null);
+  const setRoot = useCallback((el: HTMLDivElement | null) => {
+    rootRef.current = el;
+    setDragRoot(el);
+  }, []);
+  const placeCategory = useTimetableStore((s) => s.placeCategory);
+  const dragItems = groups.flatMap(({ group, children }) => [{ id: group.id, depth: 0 }, ...children.map((c) => ({ id: c.id, depth: 1 }))]);
+  useDragReorder({
+    root: dragRoot,
+    items: dragItems,
+    tree: {
+      indent: 16,
+      carried: (ids) => groups.filter((g) => ids.includes(g.group.id)).flatMap((g) => g.children.map((c) => c.id)),
+    },
+    resolve: (ids, place) => {
+      if (place.kind !== "slot") return CAT_DRAG.noPlace;
+      const me = categories.find((c) => c.id === ids[0]);
+      if (!me) return CAT_DRAG.noPlace;
+      if (me.parent_id === null) return place.depth === 0 ? true : CAT_DRAG.groupBetween;
+      return place.depth === 1 && place.parent !== null ? true : CAT_DRAG.catInGroup;
+    },
+    onDrop: (ids, place) => {
+      if (place.kind !== "slot") return;
+      const id = ids[0];
+      const latest = groupedCategories(useTimetableStore.getState().categories);
+      const me = useTimetableStore.getState().catById[id];
+      if (!me) return;
+      const layer = me.parent_id === null ? latest.map((g) => g.group.id) : (latest.find((g) => g.group.id === place.parent)?.children.map((c) => c.id) ?? null);
+      if (!layer) return;
+      const at = indexOfAnchor(layer, id, place);
+      if (at === null) return;
+      const order = layer.filter((x) => x !== id);
+      order.splice(at, 0, id);
+      void placeCategory(id, me.parent_id === null ? null : place.parent, order);
+    },
+  });
+
   const add = (parentId: string | null, name: string): void => {
     setAdding(null);
     void createCategory({ parentId, name, colorIdx: 1, defaultMin: null });
@@ -390,7 +447,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
   const toggle = (id: string) => (open: boolean) => setMore(open ? id : more === id ? null : more);
 
   return (
-    <div className="ns-tt-mgr-cats" ref={rootRef}>
+    <div className="ns-tt-mgr-cats" ref={setRoot}>
       {groups.map(({ group, children }, gi) => {
         const gTags = catDefaults(group.id, categories, tagMaps).own;
         return (
@@ -412,6 +469,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
                 onDetailOpenChange={toggle(group.id)}
                 className={"ns-tt-mgr-grow" + (flash === group.id ? " is-flash" : "")}
                 dataId={group.id}
+                dragId={group.id}
               />
               <SubLine own={gTags} grp={[]} />
               {children.map((c, i) => {
@@ -431,6 +489,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
                     onDetailOpenChange={toggle(c.id)}
                     className={flash === c.id ? "is-flash" : undefined}
                     dataId={c.id}
+                    dragId={c.id}
                   />,
                   <SubLine key={c.id + "-sub"} own={d.own} grp={d.fromGroup} />,
                 ];
@@ -527,7 +586,9 @@ function NoticeTab() {
 
 export function CategoryManagerPanel(_props: PanelProps) {
   const sheet = useTimetableStore((s) => s.sheet);
-  const focusId = sheet?.kind === "categories" ? sheet.focusId : undefined;
+  const routineFocus = sheet?.kind === "categories" && sheet.focus === "routine";
+  const focusId = sheet?.kind === "categories" && !routineFocus ? sheet.focusId : undefined;
+  const routineFocusId = sheet?.kind === "categories" && routineFocus ? sheet.focusId : undefined;
   const want = tabOf(sheet);
   const [tab, setTab] = useState<MgrTab>(want);
   // 開著時 sheet 換了籤（又被叫一次、帶不同的 tab）⇒ 跟著換；使用者自己點籤不受影響（want 沒變就不動）
@@ -547,6 +608,7 @@ export function CategoryManagerPanel(_props: PanelProps) {
   // UI 丙-4 修（T7 評審 4）：focusId 只定位一次。分類籤是條件渲染，切到通知／目標再切回來會重掛，
   // 不記住的話又展開、又閃、又捲一次，還蓋掉使用者自己展開的別列。sheet 換 focusId＝整個面板重掛，ref 跟著歸零。
   const focusDone = useRef(false);
+  const routineFocusDone = useRef(false); // ⑦：作息籤的定位同樣只做一次
 
   return (
     <div className="ns-tt-panel ns-tt-panel-mgr">
@@ -565,6 +627,14 @@ export function CategoryManagerPanel(_props: PanelProps) {
         )}
         {tab === "notice" && <NoticeTab />}
         {tab === "goals" && <GoalsTab />}
+        {tab === "routines" && (
+          <RoutinesTab
+            focusId={routineFocusDone.current ? undefined : routineFocusId}
+            onFocused={() => {
+              routineFocusDone.current = true;
+            }}
+          />
+        )}
       </div>
     </div>
   );

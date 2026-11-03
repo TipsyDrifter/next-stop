@@ -37,6 +37,7 @@ import type {
   CalendarData,
   CreateNodeInput,
   CurrentOccurrence,
+  MoveManyItem,
   NodePatch,
   NodeRepository,
   RescheduleOpts,
@@ -49,10 +50,22 @@ import type {
 } from "./nodeRepository";
 import type { FullSearchHit } from "../domain/fullSearch";
 import {
+  compareCreated,
+  compareSiblings,
+  groupFor,
+  inGroup,
+  isOrderedGroup,
+  sameGroup,
+  type SiblingGroup,
+  type SlotAnchor,
+} from "../domain/nodeOrder";
+import { keysForSlot, planSortKeyBackfill, slotFromAnchor, type KeyWrite } from "../domain/nodeSortKey";
+import {
   attachTimeOverrides,
   backfillAtOf,
   buildCalendar,
   buildRouteProgress,
+  buildRouteOpenCounts,
   buildSchedule,
   buildScheduleBounds,
   buildSerialMap,
@@ -79,9 +92,15 @@ const PATCHABLE = new Set<string>([
 
 const isAlive = (n: { deleted_at: string | null }): boolean => n.deleted_at === null;
 
-/** ORDER BY position ASC, created_at ASC */
-function byPosition(a: NodeRow, b: NodeRow): number {
-  return a.position - b.position || a.created_at.localeCompare(b.created_at);
+/** 同 SQLite 版的 move 計畫（驗證過、還沒寫） */
+interface MemPlannedMove {
+  node: NodeRow;
+  newParent: NodeRow | null;
+  kind: NodeKind;
+  sub: string[];
+  lineId: string | null;
+  routeId: string | null;
+  group: SiblingGroup;
 }
 
 const clone = <T extends object>(o: T): T => ({ ...o });
@@ -101,15 +120,18 @@ export class MemoryNodeRepository implements NodeRepository {
   private readonly ovr = new Map<string, TimeOverrideRow & { created_at: string; updated_at: string }>();
   /** 存量搬移做過了沒（SQLite 版是 settings 的本地鍵；記憶體版不持久化，記在實例上） */
   private ovrBackfilled = false;
+  /** 排序鍵存量回填做過了沒（同 ovrBackfilled，記在實例上） */
+  private sortKeyBackfilled = false;
   /** 種子載入期間用的假時鐘（每筆 +1s，讓 created_at 有序、看起來像上週建的）；null＝用真實時間 */
   private seedClock: number | null = null;
 
   // ───────────── 讀取 ─────────────
 
   async listSidebar(): Promise<SidebarData> {
+    this.backfillSortKeys();
     const rows = this.alive()
       .filter((n) => n.kind === "line" || n.kind === "route" || n.kind === "station")
-      .sort(byPosition)
+      .sort(compareSiblings)
       .map(clone);
     return {
       lines: rows.filter((r) => r.kind === "line"),
@@ -119,9 +141,10 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
+    this.backfillSortKeys();
     return this.alive()
       .filter((n) => n.route_id === routeId && n.kind !== "station")
-      .sort(byPosition)
+      .sort(compareSiblings)
       .map(clone);
   }
 
@@ -161,6 +184,51 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async move(id: string, newParentId: string | null, index: number, newKind?: NodeKind): Promise<void> {
+    this.backfillSortKeys();
+    const p = this.planMove(id, newParentId, newKind);
+    const now = this.now();
+    let key: string | null = null;
+    if (isOrderedGroup(p.group)) {
+      // 同 SQLite 版：index＝目的地顯示群組（拿掉自己之後）的第幾格；擋路的同鍵／沒鍵鄰居才一起寫
+      const order = this.groupRows(p.group).map((n) => ({ id: n.id, key: n.sort_key }));
+      const writes = keysForSlot(order, [id], index);
+      key = writes.find((w) => w.id === id)?.key ?? null;
+      this.applyKeyWrites(writes.filter((w) => w.id !== id), now);
+    }
+    this.applyMove(p, key, now);
+  }
+
+  async moveMany(items: readonly MoveManyItem[], anchor: SlotAnchor): Promise<void> {
+    if (!items.length) return;
+    this.backfillSortKeys();
+    const ids = items.map((x) => x.id);
+    if (new Set(ids).size !== ids.length) throw new Error("同一個項目選了兩次");
+    // 先全部驗完才動手（同 SQLite 版的一個批次：一張不行就整批不寫）
+    const plans = items.map((it) => this.planMove(it.id, it.parentId, it.kind, it.routeTag));
+    const group = plans[0].group;
+    if (plans.some((p) => !sameGroup(p.group, group))) throw new Error("選到的項目放不進同一個地方");
+    const now = this.now();
+    const keyOf = new Map<string, string>();
+    if (isOrderedGroup(group)) {
+      const moving = new Set(ids);
+      const order = this.groupRows(group);
+      const index = slotFromAnchor(order.filter((n) => !moving.has(n.id)).map((n) => n.id), anchor);
+      const writes = keysForSlot(order.map((n) => ({ id: n.id, key: n.sort_key })), ids, index);
+      for (const w of writes) if (moving.has(w.id)) keyOf.set(w.id, w.key);
+      this.applyKeyWrites(writes.filter((w) => !moving.has(w.id)), now);
+    }
+    for (const p of plans) this.applyMove(p, keyOf.get(p.node.id) ?? null, now);
+  }
+
+  async listSiblingIds(id: string): Promise<string[]> {
+    this.backfillSortKeys();
+    const node = this.nodes.get(id);
+    if (!node || !isAlive(node)) return [];
+    return this.groupRows(this.groupOfNode(node)).map((n) => n.id);
+  }
+
+  /** 同 SQLite 版 planMove：驗證、算快取與目的地群組（不寫） */
+  private planMove(id: string, newParentId: string | null, newKind?: NodeKind, routeTag?: string | null): MemPlannedMove {
     const node = this.nodes.get(id);
     if (!node) throw new Error("節點不存在");
     const kind = newKind ?? node.kind;
@@ -172,18 +240,26 @@ export class MemoryNodeRepository implements NodeRepository {
     const sub = this.subtreeIds(id);
     if (newParentId && sub.includes(newParentId)) throw new Error("不能搬進自己的子樹");
     if (kind !== node.kind) this.assertChildrenFit(id, kind, "變成");
-
-    const now = this.now();
     let lineId: string | null;
     let routeId: string | null;
     if (newParent) {
       lineId = newParent.kind === "line" ? newParent.id : newParent.line_id;
       routeId = newParent.kind === "route" ? newParent.id : newParent.route_id;
     } else {
-      routeId = node.kind === "ticket" ? node.route_id : null; // 臨時車票保留路線標籤
+      // 臨時車票保留路線標籤（routeTag 沒給時）；根層的非車票沒有路線
+      routeId = kind === "ticket" ? (routeTag !== undefined ? routeTag : node.kind === "ticket" ? node.route_id : null) : null;
+      const tag = routeId ? (this.nodes.get(routeId) ?? null) : null;
+      if (routeTag && (!tag || tag.kind !== "route" || !isAlive(tag))) throw new Error("路線標籤必須是一條路線");
       // 磨光⑤ 沙盒 F1：根層車票的 line_id 跟著路線標籤的幹線（同 sqlite 版）
-      lineId = routeId ? (this.nodes.get(routeId)?.line_id ?? null) : null;
+      lineId = tag?.line_id ?? null;
     }
+    const group = groupFor({ parentId: newParent?.id ?? null, parentKind: newParent?.kind ?? null, kind, routeId });
+    return { node, newParent, kind, sub, lineId, routeId, group };
+  }
+
+  private applyMove(p: MemPlannedMove, key: string | null, now: string): void {
+    const { node, newParent, kind, sub, lineId, routeId } = p;
+    const id = node.id;
     if (lineId !== node.line_id) {
       for (const sid of sub) this.mutate(sid, (n) => ({ ...n, line_id: lineId, updated_at: now }));
     }
@@ -196,14 +272,36 @@ export class MemoryNodeRepository implements NodeRepository {
     if (node.kind !== "route" && routeId !== node.route_id) {
       for (const sid of sub) this.mutate(sid, (n) => ({ ...n, route_id: routeId, updated_at: now }));
     }
+    // 回饋乙：只寫被搬的這一列（排序鍵）；不再位移兄弟、不改 position
+    this.mutate(id, (n) => ({ ...n, parent_id: newParent?.id ?? null, sort_key: key, kind, updated_at: now }));
+  }
 
-    // 兄弟區讓位（同 SQLite：根層以原 kind 分區；不動 updated_at）
-    for (const sib of this.siblings(newParent, node.kind)) {
-      if (sib.id !== id && sib.position >= index) {
-        this.nodes.set(sib.id, { ...sib, position: sib.position + 1 });
-      }
-    }
-    this.mutate(id, (n) => ({ ...n, parent_id: newParent?.id ?? null, position: index, kind, updated_at: now }));
+  /** 擋路的鄰居重新給鍵（同 SQLite 版 stageKeyWrites：戳 updated_at） */
+  private applyKeyWrites(writes: readonly KeyWrite[], now: string): void {
+    for (const w of writes) this.mutate(w.id, (n) => ({ ...n, sort_key: w.key, updated_at: now }));
+  }
+
+  /** 顯示群組的目前順序（compareSiblings；收件匣照 created_at） */
+  private groupRows(g: SiblingGroup): NodeRow[] {
+    return this.alive()
+      .filter((n) => inGroup(n, g))
+      .sort(isOrderedGroup(g) ? compareSiblings : compareCreated);
+  }
+
+  private groupOfNode(node: NodeRow): SiblingGroup {
+    const parent = node.parent_id ? (this.nodes.get(node.parent_id) ?? null) : null;
+    return groupFor({ parentId: node.parent_id, parentKind: parent?.kind ?? null, kind: node.kind, routeId: node.route_id });
+  }
+
+  /**
+   * 排序鍵存量回填（與 SQLite 版 backfillSortKeys 同語義；不戳 updated_at）。記憶體版的列都由 insert 建、本來就有鍵，
+   * 只有外部直接灌進來的列（測試模擬舊資料）會走到這裡。一個實例只做一次。
+   */
+  private backfillSortKeys(): void {
+    if (this.sortKeyBackfilled) return;
+    this.sortKeyBackfilled = true;
+    const writes = planSortKeyBackfill(this.alive(), (id) => this.nodes.get(id)?.kind ?? null);
+    for (const w of writes) this.mutate(w.id, (n) => (n.sort_key === null ? { ...n, sort_key: w.key } : n));
   }
 
   async softDelete(id: string): Promise<string[]> {
@@ -487,6 +585,11 @@ export class MemoryNodeRepository implements NodeRepository {
     );
   }
 
+  async routeOpenCounts(): Promise<Record<string, number>> {
+    // 與 SQLite 版的 GROUP BY 同一組條件（回饋甲 D-主-130），語義在 buildRouteOpenCounts
+    return buildRouteOpenCounts(this.alive());
+  }
+
   /** 某節點的存活班次記錄 */
   private occurrencesOf(nodeId: string): Occurrence[] {
     return [...this.occ.values()].filter((o) => o.node_id === nodeId && isAlive(o));
@@ -726,7 +829,7 @@ export class MemoryNodeRepository implements NodeRepository {
     }
   }
 
-  /** 兄弟區（存活）：同父；根層以 kind 分區（幹線一區、臨時車票一區） */
+  /** 舊的兄弟區（存活；只給新建時的 position MAX+1 用）：同父；根層以 kind 分區（幹線一區、臨時車票一區） */
   private siblings(parent: NodeRow | null, rootKind: NodeKind): NodeRow[] {
     return this.alive().filter((n) =>
       parent ? n.parent_id === parent.id : n.parent_id === null && n.kind === rootKind,
@@ -756,6 +859,8 @@ export class MemoryNodeRepository implements NodeRepository {
   private insert(input: CreateNodeInput): NodeRow {
     const name = input.name.trim();
     if (!name) throw new Error("名稱不能空白");
+    // 建票列（回饋甲）：時刻驗格式＋範圍（與 SQLite 版同一句）
+    assertClockWritable(input.scheduledTime ?? null, input.dayStartHour);
 
     const parent = input.parentId ? (this.nodes.get(input.parentId) ?? null) : null;
     if (input.parentId && !parent) throw new Error("父節點不存在");
@@ -775,22 +880,30 @@ export class MemoryNodeRepository implements NodeRepository {
       lineId = tag?.line_id ?? null;
     }
 
-    const sibs = this.siblings(parent, input.kind);
-    let position: number;
-    if (input.afterId) {
-      const after = this.nodes.get(input.afterId);
-      if (!after) throw new Error("afterId 不存在");
-      position = after.position + 1;
-      for (const sib of sibs) {
-        if (sib.position >= position) this.nodes.set(sib.id, { ...sib, position: sib.position + 1 });
-      }
-    } else {
-      position = sibs.reduce((m, s) => Math.max(m, s.position), -1) + 1;
-    }
-
+    const id = uuid();
     const now = this.now();
+    const after = input.afterId ? this.nodes.get(input.afterId) : null;
+    if (input.afterId && !after) throw new Error("afterId 不存在");
+    // 排序鍵（同 SQLite 版）：顯示群組裡 afterId 的下一格；沒給（或不在這份清單）＝尾端；收件匣不給鍵
+    const group = groupFor({ parentId: parent?.id ?? null, parentKind: parent?.kind ?? null, kind: input.kind, routeId });
+    let sortKey: string | null = null;
+    if (isOrderedGroup(group)) {
+      this.backfillSortKeys();
+      const order = this.groupRows(group);
+      const at = after ? order.findIndex((n) => n.id === after.id) : -1;
+      const writes = keysForSlot(
+        order.map((n) => ({ id: n.id, key: n.sort_key })),
+        [id],
+        at >= 0 ? at + 1 : order.length,
+      );
+      sortKey = writes.find((w) => w.id === id)?.key ?? null;
+      this.applyKeyWrites(writes.filter((w) => w.id !== id), now);
+    }
+    // position 只在新建時給 MAX+1（舊的兄弟條件），往後不再改
+    const position = this.siblings(parent, input.kind).reduce((m, s) => Math.max(m, s.position), -1) + 1;
+
     const row: NodeRow = {
-      id: uuid(),
+      id,
       kind: input.kind,
       parent_id: parent?.id ?? null,
       line_id: lineId,
@@ -798,13 +911,14 @@ export class MemoryNodeRepository implements NodeRepository {
       name,
       description: input.description ?? null,
       position,
+      sort_key: sortKey,
       color: input.color ?? null,
       code: input.code ?? null,
       status: "todo",
       scheduled_on: input.scheduledOn ?? null,
-      due_on: null,
-      priority: "mid",
-      estimate_min: null,
+      due_on: input.dueOn ?? null,
+      priority: input.priority ?? "mid",
+      estimate_min: input.estimateMin == null ? null : Math.max(0, Math.round(input.estimateMin)),
       progress: null,
       time_spent_min: null,
       mood: null,
@@ -814,7 +928,7 @@ export class MemoryNodeRepository implements NodeRepository {
       arrived_on: null,
       today_position: null,
       carried_from: null,
-      scheduled_time: null,
+      scheduled_time: input.scheduledTime ?? null,
       time_overrides: null,
       account_id: null,
       device_id: null,
@@ -865,6 +979,18 @@ export class MemoryNodeRepository implements NodeRepository {
         lineId = tag.line_id;
       }
       picked.line_id = lineId;
+      // 換了標籤＝換了一份清單：排序鍵改成新清單的尾端（收件匣＝NULL；同 SQLite 版）
+      if (node.route_id !== routeId) {
+        let key: string | null = null;
+        if (routeId) {
+          this.backfillSortKeys();
+          const order = this.groupRows({ type: "routeTop", routeId }).map((n) => ({ id: n.id, key: n.sort_key }));
+          const writes = keysForSlot(order, [id], order.length);
+          key = writes.find((w) => w.id === id)?.key ?? null;
+          this.applyKeyWrites(writes.filter((w) => w.id !== id), this.now());
+        }
+        picked.sort_key = key;
+      }
     }
 
     this.mutate(id, (n) => ({ ...n, ...(picked as Partial<NodeRow>), updated_at: this.now() }));

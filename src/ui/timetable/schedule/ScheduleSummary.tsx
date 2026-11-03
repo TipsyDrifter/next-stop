@@ -13,6 +13,8 @@ import { MIN } from "../../../domain/timetable";
 import { DateNav } from "../../common/DateNav";
 import { DnTitle } from "../parts/DateNavTitle";
 import { SCHED_UI, mdw, splitNums } from "./scheduleModel";
+import { RT_UI } from "./routineModel"; // ⑦ C 席
+import { RoutinePicker } from "./RoutinePicker"; // ⑦ C 席
 import type { SchedulePage } from "./useSchedulePage";
 
 /**
@@ -39,6 +41,23 @@ export function ScheduleNav({ page }: { page: SchedulePage }) {
   );
 }
 
+/** 一行總結：數字抬成粗體、「・」淡掉（＝原型 .vh-sumline b） */
+function SumLine({ text }: { text: string }) {
+  return (
+    <p className="ns-tt-sched-sumline">
+      {splitNums(text).map((p, i) =>
+        p.num ? (
+          <b key={i} className="ns-tt-num">
+            {p.t}
+          </b>
+        ) : (
+          <Fragment key={i}>{p.t.split("・").map((x, j) => (j === 0 ? x : [<i key={"s" + j}>・</i>, x]))}</Fragment>
+        ),
+      )}
+    </p>
+  );
+}
+
 export function ScheduleSummary({ page }: { page: SchedulePage }) {
   const { summary, isFuture } = page.cmp;
   const loaded = page.grid !== null && page.grid.date === page.date;
@@ -49,22 +68,23 @@ export function ScheduleSummary({ page }: { page: SchedulePage }) {
       : isFuture
         ? TT_TEXT.schedFuture(summary.planned, summary.plannedMin * MIN, summary.noEstimate)
         : TT_TEXT.schedPlanned(summary.planned, summary.stamped, summary.timedOnly, summary.onTime);
+  // ⑦（C 席）：作息那一句（「作息 8 段・照表 5」；0 段不印；未來日只寫段數）。桌機接在車票那句後面；
+  // 手機另起第二行：〔作息：工作日 ▾〕8 段・照表 5（原型回報 2：鈕已經寫「作息」）
+  const rs = loaded ? page.routineSummary : null;
+  const desk = page.shell === "desktop";
   return (
     <div className={"ns-tt-sched-sum" + (page.isPast ? " is-past" : "")}>
       {text === null ? (
         <p className="ns-tt-sched-sumline is-empty">{TT_TEXT.schedEmpty}</p>
       ) : (
-        <p className="ns-tt-sched-sumline">
-          {splitNums(text).map((p, i) =>
-            p.num ? (
-              <b key={i} className="ns-tt-num">
-                {p.t}
-              </b>
-            ) : (
-              <Fragment key={i}>{p.t.split("・").map((x, j) => (j === 0 ? x : [<i key={"s" + j}>・</i>, x]))}</Fragment>
-            ),
-          )}
-        </p>
+        <SumLine text={desk && rs && text !== " " ? `${text}・${rs.text}` : text} />
+      )}
+      {desk && text === null && rs && <SumLine text={rs.text} />}
+      {!desk && (
+        <div className="ns-tt-sumrt">
+          <RoutinePicker page={page} />
+          {rs && <SumLine text={RT_UI.sumMobile(rs.total, rs.ok)} />}
+        </div>
       )}
       {page.isPast && <p className="ns-tt-sched-ro">{SCHED_UI.pastNote}</p>}
     </div>

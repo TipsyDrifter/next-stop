@@ -10,6 +10,10 @@ import type { KeyboardEvent } from "react";
 import { isEditableTarget, resolveHotkey } from "../shell/hotkeys";
 
 export interface OutlineKeyActions {
+  /** Ctrl+A：多選這一頁看得到的列（回饋乙） */
+  selectAll(): void;
+  /** Shift+↑↓：從游標擴選（回饋乙） */
+  extendSelection(delta: 1 | -1): void;
   moveSelection(delta: 1 | -1): void;
   expandSelected(): void;
   collapseSelected(): void;
@@ -100,6 +104,16 @@ export function useOutlineKeyboard(a: OutlineKeyActions) {
       // 共用文案 REPEAT_RESCHEDULE_MSG 就寫著「跳過本班按 U」——大綱補鍵而不是改文案（M3 ④ 評審 should-6）
       case "outline.suspend":
         a.suspendSelected();
+        break;
+      // 多選（回饋乙）：Ctrl+A 全選看得到的列、Shift+↑↓ 擴選；Esc 清多選在 escape() 裡先問
+      case "outline.select.all":
+        a.selectAll();
+        break;
+      case "outline.select.extend.up":
+        a.extendSelection(-1);
+        break;
+      case "outline.select.extend.down":
+        a.extendSelection(1);
         break;
       default:
         return; // registry 有、這張表還沒接線的 id：當作沒處理
