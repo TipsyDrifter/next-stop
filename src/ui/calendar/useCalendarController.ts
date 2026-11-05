@@ -47,6 +47,10 @@ import { lineCalendarMarks } from "../../lines/runtime";
 import type { LineId } from "../../lines/types";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import type { CalendarKeyActions } from "./useCalendarKeyboard";
+import { useAimLanding } from "../search/aimLanding";
+
+/** 日期的 periodOfKey＝week：行程表收「落在哪一天」的請求 */
+const AIM_LANDS_ON = ["week"] as const;
 
 /**
  * 四種排列（主線車次① D-主-2＋主線② D-主-13）：月格／週格／時段／串流。
@@ -249,6 +253,11 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
   // 游標＝錨點日；月／週由 view 推。`?day=YYYY-MM-DD`（dev／mock 專用）＝直接落在那一天所在的月／週
   const [anchor, setAnchor] = useState(DEV_FLAGS.day ?? today);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // 完整搜尋點一句週、月方針 ⇒ 落在那一期（方針擴充 D-主-382；請求放的是那一天）
+  useAimLanding(AIM_LANDS_ON, (day) => {
+    setAnchor(day);
+    setSelectedDay(null);
+  });
   const [popTarget, setPopTarget] = useState<CalendarDayTarget | null>(null);
   const popSeq = useRef(0);
   /** 頁首「＋ 車票」要回到今天所在的月／週之後才開的那一天（格畫好、錨找得到才開） */
@@ -501,6 +510,19 @@ export function useCalendarController(containerRef: RefObject<HTMLElement | null
     setPendingDraft(null);
     openDay(pendingDraft, cellOf(pendingDraft), { draft: true });
   }, [pendingDraft, days, range.from, range.to, openDay, cellOf]);
+
+  // ⑨ 提醒點開「這天有好幾個締切」：換到那一天並選中（串流＝捲過去）；頁面可能剛掛上，所以從 store 收
+  const dayReq = useScheduleUiStore((st) => st.dayReq);
+  useEffect(() => {
+    if (!dayReq) return;
+    useScheduleUiStore.getState().requestDay(null);
+    if (view === "stream") {
+      useScheduleUiStore.getState().requestScroll(dayReq);
+      return;
+    }
+    setAnchor(dayReq);
+    setSelectedDay(dayReq);
+  }, [dayReq, view]);
 
   /** 鍵盤移動的落點：選取格 → 今天（若在區間內）→ 區間第一天 */
   const cursorDay = useCallback((): string => {

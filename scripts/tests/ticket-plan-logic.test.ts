@@ -333,7 +333,9 @@ function draft(p: Partial<any> = {}): any {
     byweekday: [],
     bymonthday: [1],
     start: "2026-11-01",
+    interval: 1,
     until: null,
+    count: null,
     hhmm: "09:00",
     fromEntryId: null,
     ...p,
@@ -1046,4 +1048,191 @@ describe("H. 收尾修正", () => {
     assert.match(code, /getAttribute\(\s*["']data-shell["']\s*\)/);
     assert.doesNotMatch(code, /lastShell/);
   });
+});
+
+describe("I. 定期帳補完：每 N 期、記滿 N 筆、提前跳過下一班（D-票-80 起）", () => {
+  const weeklyMon = (start: string, p: Partial<any> = {}) => ({ ...fixedRule("weekly", start, { byweekday: [1] }), ...p });
+  const dailyN = (start: string, count: number) => ({ ...fixedRule("daily", start), count });
+
+  test("I1. 草稿來回不丟 interval／count／until；draftFromRepeat 給原樣，不換算", () => {
+    const input = P.draftToRepeatInput(draft({ freq: "weekly", byweekday: [1], interval: 2, count: 5 }), CTX);
+    assert.equal(input.rule.interval, 2);
+    assert.equal(input.rule.count, 5);
+    const row = P.buildRepeatRow(input, CTX, { id: "r1", position: 0, nowIso: NOW });
+    const back = P.draftFromRepeat(row, CTX);
+    assert.deepEqual([back.interval, back.count, back.until], [2, 5, null]);
+    assert.equal(serializeRule(P.draftToRepeatInput(back, CTX).rule), row.rule, "存回去逐字相同（不會被當成改了規則）");
+    const old = P.draftFromRepeat(rep("r0", monthly("2026-10-01", [1])), CTX);
+    assert.deepEqual([old.interval, old.count], [1, null], "舊規則＝每 1 期、沒有筆數");
+  });
+
+  test("I2. draftToRepeatInput 擋間隔與筆數的範圍（上限照頻率）", () => {
+    throwsMsg(() => P.draftToRepeatInput(draft({ freq: "weekly", byweekday: [1], interval: 53 }), CTX), "間隔要是 1 到 52 的整數");
+    throwsMsg(() => P.draftToRepeatInput(draft({ interval: 13 }), CTX), "間隔要是 1 到 12 的整數");
+    throwsMsg(() => P.draftToRepeatInput(draft({ freq: "daily", interval: 0 }), CTX), "間隔要是 1 到 365 的整數");
+    throwsMsg(() => P.draftToRepeatInput(draft({ count: 0 }), CTX), "筆數要是 1 到 999 的整數");
+    throwsMsg(() => P.draftToRepeatInput(draft({ count: 1.5 }), CTX), "筆數要是 1 到 999 的整數");
+    assert.equal(P.draftToRepeatInput(draft({ freq: "daily", interval: 365 }), CTX).rule.interval, 365);
+  });
+
+  test("I3. 結束三選：模式由 until／count 決定，切換預帶值、兩格互斥", () => {
+    const d = { start: "2026-11-01", until: null, count: null };
+    assert.equal(P.repeatEndMode(d), "none");
+    const c = P.repeatEndPatch(d, "count", TODAY);
+    assert.deepEqual(c, { until: null, count: 12 });
+    assert.equal(P.repeatEndMode(c), "count");
+    const u = P.repeatEndPatch({ ...d, ...c }, "until", TODAY);
+    assert.deepEqual(u, { until: "2026-12-01", count: null }, "起算日在未來 ⇒ 從起算日算 30 天");
+    assert.equal(P.repeatEndMode(u), "until");
+    assert.equal(P.repeatEndPatch({ ...d, start: "2026-01-01" }, "until", TODAY).until, "2026-11-18", "起算日在過去 ⇒ 從今天算");
+    assert.deepEqual(P.repeatEndPatch({ ...d, ...u }, "none", TODAY), { until: null, count: null });
+  });
+
+  test("I4. liveFixedRule：第 N 班＝until、跟既有 until 取早的、可重複呼叫、沒 count 原樣回", () => {
+    const plain = fixedRule("daily", "2026-10-01");
+    assert.equal(P.liveFixedRule(plain), plain);
+    const live = P.liveFixedRule(dailyN("2026-10-01", 5));
+    assert.deepEqual([live.until, live.count], ["2026-10-05", null]);
+    assert.deepEqual(P.liveFixedRule(live), live);
+    assert.equal(P.liveFixedRule({ ...dailyN("2026-10-01", 5), until: "2026-10-03" }).until, "2026-10-03", "until 比較早 ⇒ 留 until");
+    assert.equal(P.liveFixedRule({ ...dailyN("2026-10-01", 2), until: "2026-10-30" }).until, "2026-10-02", "第 N 班比較早 ⇒ 收到第 N 班");
+    assert.equal(P.liveFixedRule(weeklyMon("2026-10-05", { interval: 2, count: 3 })).until, "2026-11-02", "隔週一：10/5、10/19、11/2");
+    assert.equal(P.liveFixedRule({ ...monthly("2026-01-31", [31]), count: 2 }).until, "2026-02-28", "月底夾回也算一班");
+    assert.equal(P.repeatLastRun(dailyN("2026-10-01", 5)), "2026-10-05");
+    assert.equal(P.repeatLastRun(plain), null);
+  });
+
+  test("I5. 實體化：記滿 N 筆到了就停、游標 null（已結束），之後不再掃也不再發游標", () => {
+    const r = rep("rc", dailyN("2026-10-15", 3), { next_on: "2026-10-15" });
+    const plan = P.planMaterialize([r], new Set<string>(), TODAY, CTX, NOW, 6);
+    assert.deepEqual(plan.inserts.map((e: EntryRow) => e.occurred_on), ["2026-10-15", "2026-10-16", "2026-10-17"]);
+    assert.deepEqual(plan.cursors, [{ id: "rc", next_on: null }]);
+    const done = { ...r, next_on: null };
+    assert.equal(P.scanFrom(done, P.liveFixedRule(dailyN("2026-10-15", 3)), TODAY), null);
+    const again = P.planMaterialize([done], new Set(plan.inserts.map((e: EntryRow) => e.id)), TODAY, CTX, NOW, 6);
+    assert.deepEqual([again.inserts.length, again.cursors.length], [0, 0]);
+    assert.equal(P.repeatStatus(done, TODAY, {}), "ended");
+    assert.equal(P.repeatLineText(done), "每天重複 · 已結束");
+  });
+
+  test("I6. 刪掉的那筆也佔名額：第 N 班不往後延", () => {
+    const r = rep("rc", dailyN("2026-10-15", 3), { next_on: "2026-10-15", skipped_days: JSON.stringify(["2026-10-16"]) });
+    const plan = P.planMaterialize([r], new Set<string>(), TODAY, CTX, NOW, 6);
+    assert.deepEqual(plan.inserts.map((e: EntryRow) => e.occurred_on), ["2026-10-15", "2026-10-17"]);
+    assert.deepEqual(plan.cursors, [{ id: "rc", next_on: null }]);
+  });
+
+  test("I7. 放寬筆數回到進行中；間隔照起算日算", () => {
+    const r = rep("rc", dailyN("2026-10-15", 3), { next_on: null });
+    const res = P.applyRepeatPatch(r, { rule: dailyN("2026-10-15", 10) }, CTX, TODAY, NOW);
+    assert.equal(res.row.next_on, "2026-10-20");
+    const row = rep("ri", weeklyMon("2026-10-05", { interval: 2 }), { next_on: "2026-10-05" });
+    const plan = P.planMaterialize([row], new Set<string>(), TODAY, CTX, NOW, 6);
+    assert.deepEqual(plan.inserts.map((e: EntryRow) => e.occurred_on), ["2026-10-05", "2026-10-19"]);
+    assert.deepEqual(plan.cursors, [{ id: "ri", next_on: "2026-11-02" }]);
+  });
+
+  test("I8. 開始（resume）與換規則都吃換算後的規則、跨過跳過的日子", () => {
+    const ended = rep("rc", dailyN("2026-10-01", 3), { next_on: "2026-10-02", paused_at: NOW });
+    assert.equal(P.resumeNextOn(ended, [], TODAY), null, "第 3 班已過 ⇒ 開始後也是已結束");
+    const r = rep("rd", fixedRule("daily", "2026-10-01"), { next_on: "2026-10-20", paused_at: NOW, skipped_days: JSON.stringify(["2026-10-20", "2026-10-21"]) });
+    assert.equal(P.resumeNextOn(r, [], TODAY), "2026-10-22");
+    const changed = P.applyRepeatPatch(r, { rule: fixedRule("daily", "2026-10-02") }, CTX, TODAY, NOW);
+    assert.equal(changed.row.next_on, "2026-10-22");
+  });
+
+  test("I9. quickOfRule：有筆數或間隔 ≠ 1 ⇒ null；repeatRuleText／repeatLabel 帶結束條件", () => {
+    assert.equal(P.quickOfRule(dailyN("2026-10-01", 3)), null);
+    assert.equal(P.quickOfRule(weeklyMon("2026-10-05", { interval: 2 })), null);
+    assert.notEqual(P.quickOfRule({ ...fixedRule("daily", "2026-10-01"), until: "2026-12-31" }), null);
+    assert.equal(P.repeatRuleText(weeklyMon("2026-10-05", { interval: 2, count: 12 })), "每 2 週 一 · 共 12 筆");
+    assert.equal(P.repeatRuleText({ ...monthly("2026-10-01", [1]), until: "2026-12-31" }), "每月 1 號 · 到 12/31");
+    assert.equal(P.repeatRuleText(monthly("2026-10-01", [1])), "每月 1 號");
+    assert.match(P.repeatLabel(rep("rc", dailyN("2026-10-01", 3)), CTX), /^每天重複 · 共 3 筆 · /);
+  });
+
+  test("I10. 跳過下一班：寫進 skipped_days、游標往後推，下一輪實體化不記也不把游標算回去", () => {
+    const r = rep("rm", monthly("2026-10-01", [1]), { next_on: "2026-11-01" });
+    assert.equal(P.canSkipNext(r), true);
+    const plan = P.planSkipNext(r, NOW);
+    assert.equal(plan.day, "2026-11-01");
+    assert.deepEqual(plan.cols, { skipped_days: JSON.stringify(["2026-11-01"]), next_on: "2026-12-01", updated_at: NOW });
+    const next = { ...r, ...plan.cols };
+    assert.deepEqual(P.pendingSkips(next, TODAY), ["2026-11-01"]);
+    const same = P.planMaterialize([next], new Set<string>(), TODAY, CTX, NOW, 6);
+    assert.deepEqual(same.cursors, [], "今天還沒到 11/1：游標留在 12/1，不是算回 11/1");
+    const atDay = P.planMaterialize([next], new Set<string>(), "2026-12-01", CTX, NOW, 6);
+    assert.deepEqual(atDay.inserts.map((e: EntryRow) => e.occurred_on), ["2026-12-01"], "11/1 過了也不補記");
+    assert.deepEqual(P.pendingSkips(next, "2026-11-01"), [], "到了那天就不算還沒到");
+    assert.deepEqual(P.pendingSkips({ ...next, rule: serializeRule(monthly("2026-10-01", [15])) }, TODAY), [], "規則改過、那天已不是班次 ⇒ 不列");
+  });
+
+  test("I11. 跳過最後一班＝已結束；連跳；擋已暫停、已結束、規則壞掉", () => {
+    const r = rep("rc", dailyN("2026-10-20", 2), { next_on: "2026-10-20" });
+    const one = { ...r, ...P.planSkipNext(r, NOW).cols };
+    assert.equal(one.next_on, "2026-10-21");
+    const two = P.planSkipNext(one, NOW);
+    assert.equal(two.day, "2026-10-21");
+    assert.equal(two.cols.next_on, null, "第 2 班是最後一班");
+    const ended = { ...one, ...two.cols };
+    assert.equal(P.canSkipNext(ended), false);
+    assert.equal(P.scanFrom(ended, P.liveFixedRule(dailyN("2026-10-20", 2)), TODAY), null, "最後一班被跳過：不從 start 重掃");
+    throwsMsg(() => P.planSkipNext(ended, NOW), "這筆定期帳已經結束了");
+    throwsMsg(() => P.planSkipNext({ ...r, paused_at: NOW }, NOW), "已暫停的定期帳沒有下一班");
+    assert.equal(P.canSkipNext({ ...r, paused_at: NOW }), false);
+    throwsMsg(() => P.planSkipNext({ ...r, rule: "{oops" }, NOW), "重複規則有誤");
+    const noEnd = P.planSkipNext(rep("rd", fixedRule("daily", "2026-10-01"), { next_on: "2026-10-20", skipped_days: JSON.stringify(["2026-10-20"]) }), NOW);
+    assert.equal(noEnd.day, "2026-10-21", "游標落在已跳過的日子 ⇒ 下一班往後找");
+  });
+
+  test("I12. 取消跳過：拿掉那天、游標退回；不在裡面 ⇒ 不寫；已結束的也回得來", () => {
+    const r = rep("rm", monthly("2026-10-01", [1]), { next_on: "2026-12-01", skipped_days: JSON.stringify(["2026-11-01"]) });
+    assert.deepEqual(P.planUnskip(r, "2026-11-01", NOW), { skipped_days: "[]", next_on: "2026-11-01", updated_at: NOW });
+    assert.equal(P.planUnskip(r, "2026-11-02", NOW), null);
+    const ended = rep("rc", dailyN("2026-10-20", 1), { next_on: null, skipped_days: JSON.stringify(["2026-10-20"]) });
+    assert.equal(P.planUnskip(ended, "2026-10-20", NOW)!.next_on, "2026-10-20");
+    const notRun = rep("rm", monthly("2026-10-01", [15]), { next_on: "2026-11-15", skipped_days: JSON.stringify(["2026-11-01"]) });
+    assert.equal(P.planUnskip(notRun, "2026-11-01", NOW)!.next_on, undefined, "規則改過、那天已不是班次 ⇒ 游標不動");
+  });
+
+  for (const impl of IMPLS) {
+    test(`I13. skipNextRepeat／unskipRepeat 走同步欄位、兩個實作同語義（${impl.name}）`, async () => {
+      const { repo, db, acc, lunch } = await setup(impl);
+      const r = await repo.createRepeat({ ...dailyInput(acc.id, lunch.id, V.dayStep(TODAY, 1)), rule: dailyN(V.dayStep(TODAY, 1), 3) });
+      const m0 = db ? db.ops.length : 0;
+      assert.equal(await repo.skipNextRepeat(r.id), V.dayStep(TODAY, 1));
+      let row = (await repo.listRepeats()).find((x: RepeatRow) => x.id === r.id)!;
+      assert.equal(row.skipped_days, JSON.stringify([V.dayStep(TODAY, 1)]));
+      assert.equal(row.next_on, V.dayStep(TODAY, 2));
+      if (db) {
+        const ops = opsOf(db, m0);
+        assert.equal(ops.length, 1);
+        assert.equal(ops[0].tbl, "tk_repeats");
+        assert.deepEqual(Object.keys(ops[0].cols).sort(), ["next_on", "skipped_days", "updated_at"]);
+      }
+      assert.equal((await repo.materializeRepeats(TODAY, 6)).inserted, 0);
+      row = (await repo.listRepeats()).find((x: RepeatRow) => x.id === r.id)!;
+      assert.equal(row.next_on, V.dayStep(TODAY, 2), "實體化不把游標算回被跳過的那天");
+
+      await repo.unskipRepeat(r.id, V.dayStep(TODAY, 1));
+      row = (await repo.listRepeats()).find((x: RepeatRow) => x.id === r.id)!;
+      assert.equal(row.skipped_days, "[]");
+      assert.equal(row.next_on, V.dayStep(TODAY, 1));
+      const m1 = db ? db.ops.length : 0;
+      await repo.unskipRepeat(r.id, V.dayStep(TODAY, 1));
+      if (db) assert.equal(db.ops.length, m1, "沒變就不寫");
+
+      await repo.setRepeatPaused(r.id, true, TODAY);
+      await assert.rejects(repo.skipNextRepeat(r.id), /已暫停/);
+    });
+
+    test(`I14. 記滿 N 筆跑到底：帳數剛好 N、之後已結束（${impl.name}）`, async () => {
+      const { repo, acc, lunch } = await setup(impl);
+      const start = V.dayStep(TODAY, -5);
+      const r = await repo.createRepeat({ ...dailyInput(acc.id, lunch.id, start), rule: dailyN(start, 3) });
+      assert.equal((await repo.materializeRepeats(TODAY, 6)).inserted, 3);
+      assert.equal((await repo.listRepeats()).find((x: RepeatRow) => x.id === r.id)!.next_on, null);
+      assert.equal((await repo.materializeRepeats(TODAY, 6)).inserted, 0);
+    });
+  }
 });

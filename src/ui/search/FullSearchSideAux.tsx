@@ -3,7 +3,7 @@
  * 經 `pageViews.tsx` 的 `installPageSidebarAux` 登記（核心頁的插槽，D-主-235）。之前這頁畫「我的路線」、點了會跳去路線圖。
  *
  * 三組篩選（狀態、種類、路線）＋每項命中數；點了＝改頁內同一份 `searchStore.filter`（頁首的篩選列照舊，兩處同步）。
- * 數字＝「其他兩組照目前選的、這一組換成這一項」時找到幾件（同頁首路線選單的口徑，`filterHits`）。
+ * 數字＝「其他兩組照目前選的、這一組換成這一項」時找到幾件（同頁首路線選單的口徑，`filterHits`；方針組一起算，`filterAimHits`）。
  * 路線只列有命中的（多→少），目前選著的就算 0 件也留著；「臨時車票」有命中才列。
  */
 import type { ReactNode } from "react";
@@ -11,6 +11,8 @@ import type { NodeRow } from "../../domain";
 import {
   KIND_FILTER_LABEL,
   STATUS_FILTER_LABEL,
+  aimRouteId,
+  filterAimHits,
   filterHits,
   isTempTicket,
   type FullSearchFilter,
@@ -22,7 +24,7 @@ import { useSearchStore } from "../../store/searchStore";
 import { roundelStyle } from "../common/roundel";
 
 const STATUS_OPTS: readonly StatusFilter[] = ["all", "open", "done"];
-const KIND_OPTS: readonly KindFilter[] = ["all", "ticket", "tree"];
+const KIND_OPTS: readonly KindFilter[] = ["all", "ticket", "tree", "aim"];
 
 function sameRoute(a: FullSearchFilter["route"], b: FullSearchFilter["route"]): boolean {
   if (typeof a === "object" && typeof b === "object") return a.routeId === b.routeId;
@@ -31,6 +33,7 @@ function sameRoute(a: FullSearchFilter["route"], b: FullSearchFilter["route"]): 
 
 export function FullSearchSideAux() {
   const hits = useSearchStore((s) => s.hits);
+  const aimHits = useSearchStore((s) => s.aimHits);
   const filter = useSearchStore((s) => s.filter);
   const setFilter = useSearchStore((s) => s.setFilter);
   const occ = useNodeStore((s) => s.currentOccurrences);
@@ -40,13 +43,20 @@ export function FullSearchSideAux() {
     const o = occ[n.id];
     return o ? o.status === "done" : n.status === "done";
   };
-  const count = (patch: Partial<FullSearchFilter>) => filterHits(hits, { ...filter, ...patch }, isDone).length;
+  const count = (patch: Partial<FullSearchFilter>) => {
+    const f = { ...filter, ...patch };
+    return filterHits(hits, f, isDone).length + filterAimHits(aimHits, f).length;
+  };
 
   const routeCounts = new Map<string, number>();
   let temp = 0;
   for (const { node } of filterHits(hits, { ...filter, route: "all" }, isDone)) {
     if (isTempTicket(node)) temp++;
     const rid = node.kind === "route" ? node.id : node.route_id;
+    if (rid) routeCounts.set(rid, (routeCounts.get(rid) ?? 0) + 1);
+  }
+  for (const hit of filterAimHits(aimHits, { ...filter, route: "all" })) {
+    const rid = aimRouteId(hit);
     if (rid) routeCounts.set(rid, (routeCounts.get(rid) ?? 0) + 1);
   }
   const picked = typeof filter.route === "object" ? filter.route.routeId : null;

@@ -14,7 +14,7 @@ import { useMemo, useRef, useState } from "react";
 import { groupedCategories } from "../../../domain/timetable";
 import { routineHasItems } from "../../../domain/timetableRoutine";
 import { clockRange, clockText, nowClockMinutes, type ClockText } from "../../../lib/date";
-import { useTimetableStore } from "../../../store/timetableStore";
+import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
 import { useUiStore } from "../../../store/uiStore";
 import { PopMenu, type PopMenuItem } from "../../common/PopMenu";
@@ -82,10 +82,16 @@ export function RoutinePicker({ page }: { page: SchedulePage }) {
     setLevel("root");
   };
   const ps = (): ReturnType<typeof useTimetablePlanStore.getState> => useTimetablePlanStore.getState();
+  // 換套、重新套用、這天不套都給一次反悔（失物招領 §5-3）
   const apply = (id: string | null, msg: string): void => {
+    const out: { undo?: () => Promise<boolean> } = {};
     void ps()
-      .applyRoutine(date, id)
-      .then((ok) => ok && toast(msg));
+      .applyRoutine(date, id, out)
+      .then((ok) => {
+        if (!ok) return;
+        const undo = out.undo;
+        useUiStore.getState().showToast(undo ? { message: msg, actionLabel: TT_TEXT.undo, onAction: () => void undo() } : { message: msg });
+      });
   };
   const addSeg = (): void => {
     const tt = useTimetableStore.getState();

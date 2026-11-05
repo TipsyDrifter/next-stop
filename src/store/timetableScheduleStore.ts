@@ -497,7 +497,7 @@ export const SEG_DEFAULT_MIN = 60;
 export const SEG_TEXT = {
   tag: (n: number) => `第 ${n} 段`,
   added: (s: string, e: string) => `已再排一段 ${s}–${e}`,
-  deleted: "已刪這段",
+  deleted: "已刪除這段",
 } as const;
 
 /* ───────── 給 UI 的 selector／hook ───────── */

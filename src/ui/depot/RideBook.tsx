@@ -5,6 +5,7 @@
  * 內容：四格事實（済章／時刻表／花費／筆記，點了跳該模組看這條路線）→ 經過的車站 → 沿線的駅スタンプ → 相關筆記（最近 5 則）
  *   → 底部動作（已到站＝次鈕「回到運行」＋文字鈕「在路線圖打開」；還在跑＝次鈕「在路線圖打開」）。
  * 守則：運行中路線只列已到着的站（不列下一站——路線圖的「下一站＋金弧」管預告）。
+ * 方針擴充（辛 §3 #8）：每站底下列出當時的方針（只讀，済的有小章）；沒寫不佔位。
  */
 import { useEffect, useMemo, useState } from "react";
 import { bookStations, digestLine } from "../../domain/depotView";
@@ -16,6 +17,7 @@ import { EmptyState } from "../common/EmptyState";
 import { PageHeader } from "../common/PageHeader";
 import { jumpDiary, jumpNote } from "../notes/quickJumpNotes";
 import { requestDepart } from "../panel/arrivalFlows";
+import { BookStationAims, useStationAimLists } from "../weekAims/StationCard";
 import { StampImpression } from "./StampImpression";
 import { bookJump, loadBookFacts, openRouteOnMap, type BookFacts } from "./bookLinks";
 import { RouteBadge, RunPill, openedOf, rcStyle, useDayStartHour } from "./depotParts";
@@ -59,6 +61,7 @@ export function RideBook({ routeId, shell, onBack }: RideBookProps) {
   const route = routes.find((r) => r.id === routeId) ?? null;
   const own = useMemo(() => stations.filter((s) => s.route_id === routeId), [stations, routeId]);
   const ownIds = useMemo(() => new Set(own.map((s) => s.id)), [own]);
+  const aimsOf = useStationAimLists(own.map((s) => s.id));
 
   if (!route) {
     return (
@@ -164,6 +167,7 @@ export function RideBook({ routeId, shell, onBack }: RideBookProps) {
             <span className="nm">{st.name}</span>
             {st.kind === "term" && <span className="ns-depot-tag">終點</span>}
             {st.day && <time dateTime={st.day}>{fmtMD(st.day)}</time>}
+            {st.stationId && <BookStationAims aims={aimsOf(st.stationId)} />}
           </li>
         ))}
       </ol>

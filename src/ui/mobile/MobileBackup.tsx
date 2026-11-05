@@ -11,6 +11,7 @@
  *   ④ 備份清單＋還原到這份         ＝ 同；手機沒有 hover，「還原到這份」常駐（同雲端清單的手機版）
  *   ⑤ 立即備份／從檔案還原…       ＝ 同；「開啟備份資料夾」手機打不開 App 私有目錄 → 由「另存一份…」代替
  *   ④ʹ 雲端備份                   ＝ 同一個 CloudSnapshots（加入同步才有；還原方式與上面共用）
+ *   ⑤ʹ 匯出資料                   ＝ 同一個 DataExportBlock（存檔走系統存檔畫面，可選下載或雲端硬碟）
  *   ⑥ 危險區                      手機照舊在「更多」頁尾（關於之後），這頁不重複放
  *
  * 狀態與動作全走 `backupStore`（確認窗、toast 都在 store，兩殼同一份）；形狀零發明：`.m2-block`／`.m2-note`／
@@ -23,6 +24,7 @@ import { useSyncStore } from "../../store/syncStore";
 import { BACKUP_KEEP_OPTIONS, BACKUP_SAFETY_KEEP, type BackupKind, type RestoreChoice } from "../../data";
 import { SealReceipt } from "../stamps/Stamps";
 import { CloudSnapshots, CLOUD_TEXT, RESTORE_CHOICES, RESTORE_CONSEQUENCE, fmtBytes } from "../common/CloudSnapshots";
+import { DataExportBlock } from "../settings/DataExportBlock";
 import "./mobileBackup.css";
 
 const KIND_LABEL: Record<BackupKind, string> = { auto: "自動", manual: "手動", safety: "保險" };
@@ -251,6 +253,9 @@ export default function MobileBackup({ onBack }: { onBack: () => void }) {
             <p className="m2-note">{CLOUD_TEXT.notJoined}</p>
           </div>
         )}
+
+        {/* ⑤ʹ 匯出資料（失物招領 §4） */}
+        <DataExportBlock mobile />
       </section>
     </div>
   );

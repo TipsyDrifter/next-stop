@@ -419,3 +419,304 @@ describe("週方針 repository（sqlite）回顧：時刻表與售票口", () =>
     assert.equal(r.stats.T1.spendMinor, null, "帳目只能掛路線");
   });
 });
+
+/* ───────────── 方針擴充：月、年、車站（辛；契約 2026-11-04 §1、§7）。上面週方針的測試一條不動 ───────────── */
+
+const { DAY_MAX, DAY_MIN, aimsOfKey } = await import("../../src/domain/weekAims.ts");
+
+const MONTH = "M2026-11";
+const NEXT_MONTH = "M2026-12";
+const YEAR = "Y2026";
+const STATION = "Sstation-1";
+
+for (const [name, make] of makers) {
+  describe(`方針擴充 repository（${name}）`, () => {
+    test("寫進去的 week_on＝期間鍵；listRange 照字串能撈兩個月；週區間撈不到", async () => {
+      const { repo, db } = make();
+      await repo.saveWeek(MONTH, planSaveWeek([], [draft("本月")], MONTH));
+      await repo.saveWeek(NEXT_MONTH, planSaveWeek([], [draft("下月")], NEXT_MONTH));
+      await repo.saveWeek(YEAR, planSaveWeek([], [draft("今年")], YEAR));
+      await repo.saveWeek(STATION, planSaveWeek([], [draft("這站")], STATION));
+      assert.deepEqual((await repo.listRange(MONTH, NEXT_MONTH)).map((r: Repo) => r.text), ["本月", "下月"]);
+      assert.deepEqual(await repo.listRange(WEEK, "2026-11-01"), []);
+      assert.deepEqual(aimsOfKey(await repo.listRange(YEAR, YEAR), YEAR).map((r: Repo) => r.week_on), [YEAR]);
+      if (db) assert.equal(db.batches[3][0].cols.week_on, STATION);
+    });
+
+    test("listKeys：整批撈、含已刪、只認字面、照 week_on 與順序；空清單＝空", async () => {
+      const { repo } = make();
+      await repo.saveWeek(STATION, planSaveWeek([], [draft("站一"), draft("站二")], STATION));
+      await repo.saveWeek(MONTH, planSaveWeek([], [draft("本月")], MONTH));
+      await repo.saveWeek("Sstation-2", planSaveWeek([], [draft("別站")], "Sstation-2"));
+      const [m] = aimsOfKey(await repo.listKeys([MONTH]), MONTH);
+      await repo.deleteAim(m.id);
+      const rows = await repo.listKeys([STATION, MONTH]);
+      assert.deepEqual(rows.map((r: Repo) => r.text), ["本月", "站一", "站二"]);
+      assert.notEqual(rows[0].deleted_at, null, "含已刪，比照 listRange");
+      assert.deepEqual(aimsOfKey(rows, MONTH), []);
+      assert.deepEqual(await repo.listKeys([]), []);
+    });
+
+    test("五句上限各期分開：週、月、年、站各自塞滿不互相擋；第六句的字隨期間", async () => {
+      const { repo } = make();
+      const five = ["一", "二", "三", "四", "五"].map((t) => draft(t));
+      const sixth = { creates: [{ id: null, text: "六", nodeId: null, position: 5, carriedFrom: null }], updates: [], deletes: [] };
+      for (const [key, msg] of [
+        [WEEK, /一週最多 5 句/],
+        [MONTH, /一個月最多 5 句/],
+        [YEAR, /一年最多 5 句/],
+        [STATION, /一站最多 5 句/],
+      ] as const) {
+        await repo.saveWeek(key, planSaveWeek([], five, key));
+        await assert.rejects(repo.saveWeek(key, sixth), msg, `${key} 第六句要擋`);
+      }
+      // 另一期、另一站都還能寫
+      await repo.saveWeek(NEXT_MONTH, planSaveWeek([], [draft("下月")], NEXT_MONTH));
+      await repo.saveWeek("Sstation-2", planSaveWeek([], [draft("別站")], "Sstation-2"));
+      // 比對現況的口徑：月方針的刪除不會被週的區間吃掉
+      const rows = aimsOfKey(await repo.listRange(MONTH, MONTH), MONTH);
+      await repo.saveWeek(MONTH, planSaveWeek(rows, rows.slice(0, 4).map((r: Repo) => draft(r.text, null, r.id)), MONTH));
+      assert.equal(aimsOfKey(await repo.listRange(MONTH, MONTH), MONTH).length, 4);
+      assert.equal(aimsOfKey(await repo.listRange(WEEK, "2026-11-01"), WEEK).length, 5);
+    });
+
+    test("框開著時別處新寫（conflict.theirs）：第二道五句上限不算它們；自己超過照擋", async () => {
+      const { repo } = make();
+      await repo.saveWeek(MONTH, planSaveWeek([], [draft("甲"), draft("乙"), draft("丙")], MONTH));
+      const base = aimsOfKey(await repo.listRange(MONTH, MONTH), MONTH).map((r: Repo) => draft(r.text, r.node_id, r.id));
+      await repo.saveWeek(MONTH, planSaveWeek(aimsOfKey(await repo.listRange(MONTH, MONTH), MONTH), [...base, draft("別處一"), draft("別處二")], MONTH));
+      const cur = aimsOfKey(await repo.listRange(MONTH, MONTH), MONTH);
+      await repo.saveWeek(MONTH, planSaveWeek(cur, [...base, draft("丁"), draft("戊")], MONTH, base));
+      const after = aimsOfKey(await repo.listRange(MONTH, MONTH), MONTH);
+      assert.deepEqual(after.map((r: Repo) => r.text), ["甲", "乙", "丙", "丁", "戊", "別處一", "別處二"]);
+      // 不帶 conflict 直接塞：repository 照擋
+      await assert.rejects(repo.saveWeek(MONTH, { creates: [{ id: null, text: "八", nodeId: null, position: 7, carriedFrom: null }], updates: [], deletes: [] }), /最多 5 句/);
+    });
+
+    test("帶到下期：決定性 id、兩台各帶＝同一列；刪掉再帶＝復活；月、年、站都一樣", async () => {
+      const { repo } = make();
+      for (const [src, target] of [
+        [MONTH, NEXT_MONTH],
+        [YEAR, "Y2027"],
+        [STATION, "Sstation-2"],
+      ] as const) {
+        await repo.saveWeek(src, planSaveWeek([], [draft("那一句")], src));
+        const [a] = aimsOfKey(await repo.listRange(src, src), src);
+        const id = await carryAimId(a.id, target);
+        // 兩台各帶一次：第二次是同一個 id，蓋回同一列
+        await repo.saveWeek(target, planSaveWeek([], [draft(a.text, null, id, a.id)], target));
+        await repo.saveWeek(target, { creates: [{ id, text: a.text, nodeId: null, position: 0, carriedFrom: a.id }], updates: [], deletes: [] });
+        let got = aimsOfKey(await repo.listRange(target, target), target);
+        assert.deepEqual(got.map((r: Repo) => [r.id, r.carried_from]), [[id, a.id]]);
+        await repo.deleteAim(id);
+        await repo.saveWeek(target, planSaveWeek([], [draft(a.text, null, id, a.id)], target));
+        got = aimsOfKey(await repo.listRange(target, target), target);
+        assert.deepEqual(got.map((r: Repo) => [r.id, r.deleted_at]), [[id, null]]);
+      }
+    });
+
+    test("蓋済、取消、刪、復原對各期的列都通", async () => {
+      const { repo } = make();
+      await repo.saveWeek(YEAR, planSaveWeek([], [draft("今年")], YEAR));
+      const [a] = aimsOfKey(await repo.listRange(YEAR, YEAR), YEAR);
+      await repo.setDone(a.id, "2026-11-04T00:00:00.000Z");
+      assert.equal((await repo.getAim(a.id)).done_at, "2026-11-04T00:00:00.000Z");
+      await repo.deleteAim(a.id);
+      assert.deepEqual(aimsOfKey(await repo.listRange(YEAR, YEAR), YEAR), []);
+      await repo.restoreAim(a.id);
+      assert.equal(aimsOfKey(await repo.listRange(YEAR, YEAR), YEAR).length, 1);
+    });
+
+    test("已排：plannedCounts 吃月、年、車站的範圍（含不限的一端）", async () => {
+      const { repo } = make();
+      const r1 = [{ id: "R1", kind: "route" }];
+      assert.deepEqual((await repo.plannedCounts(r1, "2026-10-01", "2026-10-31")).R1, { planned: 2, done: 1 }, "K1、K3；K2 在 11/1、K4 在 11/2");
+      assert.deepEqual((await repo.plannedCounts(r1, "2026-11-01", "2026-11-30")).R1, { planned: 2, done: 0 }, "K2、K4");
+      assert.deepEqual((await repo.plannedCounts(r1, DAY_MIN, DAY_MAX)).R1, { planned: 4, done: 1 });
+    });
+
+    test("回顧：reviewStats 吃範圍；字串鍵＝換算成範圍；車站的鍵丟 RangeError；不限的一端照算", async () => {
+      const { repo } = make();
+      const r1 = [{ id: "R1", kind: "route" }];
+      const week = await repo.reviewStats(r1, { from: WEEK, to: "2026-11-01" }, DSH);
+      assert.equal(week.stats.R1.stamps, 3, "跟舊的週參數同一個數：K1＋o1＋o4");
+      assert.deepEqual(await repo.reviewStats(r1, WEEK, DSH), week);
+      // 十月：K1（10/28）＋o1（10/29）＋o2（10/22）＋o4（10/27）
+      assert.equal((await repo.reviewStats(r1, "M2026-10", DSH)).stats.R1.stamps, 4);
+      assert.equal((await repo.reviewStats(r1, "M2026-11", DSH)).stats.R1.stamps, 0);
+      assert.equal((await repo.reviewStats(r1, "Y2026", DSH)).stats.R1.stamps, 4);
+      assert.equal((await repo.reviewStats(r1, { from: DAY_MIN, to: DAY_MAX }, DSH)).stats.R1.stamps, 4, "車站兩頭不限");
+      assert.equal((await repo.reviewStats(r1, { from: "2026-10-28", to: DAY_MAX }, DSH)).stats.R1.stamps, 2, "K1＋o1");
+      assert.equal((await repo.reviewStats(r1, { from: DAY_MIN, to: "2026-10-27" }, DSH)).stats.R1.stamps, 2, "o2＋o4");
+      await assert.rejects(repo.reviewStats(r1, STATION, DSH), RangeError);
+    });
+  });
+}
+
+for (const [name, make] of makers) {
+  describe(`searchAims（${name}）`, () => {
+    test("四種期間都找；含已済、不含已刪；大小寫不敏感；空字回空", async () => {
+      const { repo } = make();
+      await repo.saveWeek(WEEK, planSaveWeek([], [draft("週的 Grammar"), draft("別的句子")], WEEK));
+      await repo.saveWeek(MONTH, planSaveWeek([], [draft("月的 grammar")], MONTH));
+      await repo.saveWeek(YEAR, planSaveWeek([], [draft("年的 GRAMMAR")], YEAR));
+      await repo.saveWeek(STATION, planSaveWeek([], [draft("站的 grammar"), draft("站的第二句 grammar")], STATION));
+      const texts = async (q: string) => (await repo.searchAims(q)).map((r: Repo) => r.text).sort();
+      assert.deepEqual(await texts("grammar"), ["年的 GRAMMAR", "月的 grammar", "站的 grammar", "站的第二句 grammar", "週的 Grammar"].sort());
+      assert.deepEqual(await texts("  第二句 "), ["站的第二句 grammar"], "前後空白不算");
+      assert.deepEqual(await repo.searchAims(""), []);
+      assert.deepEqual(await repo.searchAims("   "), []);
+
+      const [row] = await repo.searchAims("月的");
+      await repo.setDone(row.id, "2026-11-04T01:00:00.000Z");
+      const [done] = await repo.searchAims("月的");
+      assert.equal(done.id, row.id, "已済的照樣找得到");
+      assert.equal(done.done_at, "2026-11-04T01:00:00.000Z");
+
+      await repo.deleteAim(row.id);
+      assert.deepEqual(await repo.searchAims("月的"), [], "刪掉的找不到");
+      await repo.restoreAim(row.id);
+      assert.equal((await repo.searchAims("月的")).length, 1, "復原就回來");
+    });
+
+    test("字面比對：% 與 _ 與反斜線不是萬用字元", async () => {
+      const { repo } = make();
+      await repo.saveWeek(MONTH, planSaveWeek([], [draft("完成 80% 的單字"), draft("a_b 專案"), draft("路徑 c:\\temp"), draft("普通的一句")], MONTH));
+      assert.deepEqual((await repo.searchAims("%")).map((r: Repo) => r.text), ["完成 80% 的單字"]);
+      assert.deepEqual((await repo.searchAims("_")).map((r: Repo) => r.text), ["a_b 專案"]);
+      assert.deepEqual((await repo.searchAims("\\")).map((r: Repo) => r.text), ["路徑 c:\\temp"]);
+    });
+
+    test("最近改過的先；同一句回來的是完整列", async () => {
+      const { repo } = make();
+      await repo.saveWeek(MONTH, planSaveWeek([], [draft("甲 共同字"), draft("乙 共同字")], MONTH));
+      const rows = await repo.listKeys([MONTH]);
+      const first = rows.find((r: Repo) => r.text.startsWith("甲"));
+      await repo.saveWeek(MONTH, { creates: [], updates: [{ id: first.id, text: "甲改 共同字" }], deletes: [] });
+      const hits = await repo.searchAims("共同字");
+      assert.equal(hits[0].text, "甲改 共同字");
+      assert.equal(hits[0].week_on, MONTH);
+      assert.equal(hits[1].text, "乙 共同字");
+    });
+  });
+}
+
+describe("方針擴充 repository（sqlite）回顧：範圍裡的時刻表與售票口", () => {
+  test("月範圍與兩頭不限的時間塊、支出；運行中的時間塊不會因為尾端不限算到未來", async () => {
+    const db = makeDb();
+    seedSqlite(db);
+    (globalThis as Record<string, unknown>).__aimsDb = db;
+    const ins = db.raw.prepare(`INSERT INTO time_blocks (id, category_id, started_at, ended_at, node_id, route_id) VALUES (?,?,?,?,?,?)`);
+    ins.run("b1", "c", inWeek("2026-10-27", 1), inWeek("2026-10-27", 2), "K2", null); // 十月 60m
+    ins.run("b2", "c", inWeek("2026-09-27", 1), inWeek("2026-09-27", 3), null, "R1"); // 九月 120m
+    db.raw.prepare(`INSERT INTO tk_currencies (id, code, decimals, is_main) VALUES ('cur','TWD',0,1)`).run();
+    const e = db.raw.prepare(
+      `INSERT INTO tk_entries (id, kind, occurred_on, occurred_at, account_id, amount_minor, currency, main_minor, account_minor, route_id) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    );
+    e.run("e1", "expense", "2026-10-27", inWeek("2026-10-27", 1), "a", 1200, "TWD", 1200, 1200, "R1");
+    e.run("e2", "expense", "2026-09-27", inWeek("2026-09-27", 1), "a", 90, "TWD", 90, 90, "R1");
+    const repo = new SqliteWeekAimRepository();
+    const r1 = [{ id: "R1", kind: "route" }];
+    const oct = await repo.reviewStats(r1 as never, "M2026-10", DSH);
+    assert.equal(oct.stats.R1.minutes, 60);
+    assert.equal(oct.stats.R1.spendMinor, 1200);
+    const all = await repo.reviewStats(r1 as never, { from: DAY_MIN, to: DAY_MAX }, DSH);
+    assert.equal(all.stats.R1.minutes, 180);
+    assert.equal(all.stats.R1.spendMinor, 1290);
+    // 還在跑的時間塊：算到現在，不是算到 9999 年
+    const startedAt = new Date(Date.now() - 30 * 60_000).toISOString();
+    ins.run("b3", "c", startedAt, null, "K2", null);
+    const live = await repo.reviewStats(r1 as never, { from: DAY_MIN, to: DAY_MAX }, DSH);
+    assert.ok(live.stats.R1.minutes >= 210 && live.stats.R1.minutes <= 212, `實得 ${live.stats.R1.minutes}`);
+  });
+});
+
+/**
+ * 舊版相容（D-主-371、§6-6）：月、年、站的鍵排在任何日期之後，還沒升級的那一台照舊版的週區間查詢撈不到。
+ * 這裡的 SQL 是舊版 `sqliteWeekAimRepository` 的原文（listRange 與 saveWeek 算活列那兩句），刻意寫死、不接現行的程式。
+ */
+describe("舊版相容：混週、月、年、站的列跑舊版的週區間查詢", () => {
+  const OLD_LIST = `SELECT * FROM week_aims WHERE week_on >= $1 AND week_on <= $2 ORDER BY week_on, position, created_at, id`;
+  const OLD_ALIVE = `SELECT id FROM week_aims WHERE deleted_at IS NULL AND week_on >= $1 AND week_on <= $2`;
+
+  async function mixed() {
+    const db = makeDb();
+    (globalThis as Record<string, unknown>).__aimsDb = db;
+    const repo = new SqliteWeekAimRepository();
+    const keys = [
+      // 週：跨月那一週、前後週、跨年那一週、改過週起始日的週日起算
+      "2026-10-19",
+      "2026-10-25",
+      "2026-10-26",
+      "2026-11-02",
+      "2026-12-28",
+      "2027-01-04",
+      // 月、年：剛好跟上面的週同月同年
+      "M2026-10",
+      "M2026-11",
+      "M2026-12",
+      "M2027-01",
+      "Y2026",
+      "Y2027",
+      // 站：id 長得像日期也不會混進來
+      "Sabc",
+      "S0f3c9d2e-1111-4222-8333-444455556666",
+      "S2026-10-27",
+    ];
+    for (const k of keys) await repo.saveWeek(k, planSaveWeek([], [draft(`句 ${k}`)], k));
+    return db;
+  }
+
+  const WEEKS: [string, string, string, string[]][] = [
+    ["跨月那一週", "2026-10-26", "2026-11-01", ["2026-10-26"]],
+    ["週日起算的跨月那一週", "2026-10-25", "2026-10-31", ["2026-10-25", "2026-10-26"]],
+    ["連上一週一起載（舊版 fetchWeeks）", "2026-10-19", "2026-11-01", ["2026-10-19", "2026-10-25", "2026-10-26"]],
+    ["跨年那一週", "2026-12-28", "2027-01-03", ["2026-12-28"]],
+    ["舊版 reloadAll 的大範圍", "2026-10-19", "2027-01-10", ["2026-10-19", "2026-10-25", "2026-10-26", "2026-11-02", "2026-12-28", "2027-01-04"]],
+  ];
+  for (const [label, from, to, want] of WEEKS) {
+    test(`${label}：只撈到週的列`, async () => {
+      const db = await mixed();
+      const rows = (await db.select(OLD_LIST, [from, to])) as { week_on: string }[];
+      assert.deepEqual(rows.map((r) => r.week_on), want);
+      assert.ok(rows.every((r) => !/^[MYS]/.test(r.week_on)));
+      const alive = await db.select(OLD_ALIVE, [from, to]);
+      assert.equal(alive.length, want.length, "舊版算五句上限的那句也一樣");
+    });
+  }
+
+  test("排序前提：M、S、Y 都排在任何日期之後（9999 年也是）", async () => {
+    const db = makeDb();
+    const [r] = (await db.select(`SELECT '9999-12-31' < 'M0000-01' AS m, '9999-12-31' < 'S' AS s, '9999-12-31' < 'Y0000' AS y`)) as { m: number; s: number; y: number }[];
+    assert.deepEqual([r.m, r.s, r.y], [1, 1, 1]);
+  });
+});
+
+describe("記憶體版示範種子（?mock=1）", () => {
+  test("週的種子不動；多本月、今年；車站掛第一條有車站的路線裡第一個還沒到站的站", async () => {
+    const { todayKey, DEFAULT_DAY_START_HOUR } = await import("../../src/lib/date.ts");
+    const { monthKeyOf, stationKeyOf, weekEndOf, weekOnOf, yearKeyOf } = await import("../../src/domain/weekAims.ts");
+    const sta = (id: string, parent_id: string, arrived_on: string | null) => ({ ...fullNode({ id, kind: "station", parent_id, route_id: null }), arrived_on });
+    const repo = new MemoryWeekAimRepository({
+      nodeRepo: {
+        ...memNodeRepo,
+        async listSidebar() {
+          return {
+            lines: [],
+            routes: NODES.filter((n) => n.kind === "route").map(fullNode),
+            stations: [sta("gone", "R1", "2026-01-01"), sta("next", "R1", null), sta("later", "R1", null), sta("other", "R2", null)],
+          };
+        },
+      } as never,
+      seedDemo: true,
+    });
+    const today = todayKey(DEFAULT_DAY_START_HOUR);
+    const week = weekOnOf(today, 1);
+    assert.deepEqual(aimsOfKey(await repo.listRange(week, weekEndOf(week)), week).map((r: Repo) => r.text), ["N5 文法第 5～6 課", "v0.2 的登入頁", "整理房間"]);
+    const count = async (k: string) => aimsOfKey(await repo.listKeys([k]), k).length;
+    assert.ok((await count(monthKeyOf(today))) > 0);
+    assert.ok((await count(yearKeyOf(today))) > 0);
+    assert.ok((await count(stationKeyOf("next"))) > 0);
+    for (const k of ["gone", "later", "other"]) assert.equal(await count(stationKeyOf(k)), 0, k);
+  });
+});

@@ -20,9 +20,11 @@
  *   **大綱與今日列的差別**：今日列「留原位講今天」（chip 印班次日）；大綱是計畫視角，
  *     済／運休之後 chip 印的是 `scheduled_on` ＝引擎推出來的**下一班**；只有「過期」那一枚
  *     （原定 M/D ＋誤點註記）講的是這一班（`occurrence?.due_on ?? scheduled_on`）。
- *   執行日對定期券唯讀（D-④-3）：chip 不開日期輸入，點了吐 REPEAT_RESCHEDULE_MSG。
+ *   定期券的執行日 chip（⑥ D-主-295）：講的就是 chip 印的那一班（目前班次；交代完＝下一班），挑別天＝只改這一班（actions.moveRun → moveRunFlow）；
+ *     不能挑過去、不能清除；退役（status done）沒有下一班，chip 停用。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type SyntheticEvent } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { KIND_LABEL, describeRule, parseRule, type NodeKind, type NodeRow, type NodeStatus } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
 import { SealSuspended } from "../stamps";
@@ -89,11 +91,6 @@ export function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
-function mmdd(key: string): string {
-  const p = key.split("-");
-  return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}` : key;
-}
-
 /** 兩個日期 key（YYYY-MM-DD）相差幾天（a − b） */
 function diffDays(a: string, b: string): number {
   const [ay, am, ad] = a.split("-").map(Number);
@@ -144,6 +141,7 @@ function fromPortal(e: SyntheticEvent<HTMLElement>): boolean {
  *   - 挑選器收起後 DatePicker 會把焦點還給 chip ⇒ 轉手還給大綱容器（同舊 outline/DateChip 的 onClose）。
  *   - 挑選器掛 body，但點擊仍沿 React 樹冒到列上（列的 mousedown 會選列＋搶焦點）——只擋 portal 來的那些。
  *   - `clearable` 只為了浮層裡的「清除」（舊 chip 就有）；chip 旁那顆 × 在票面上太吵，outline.css 收掉。
+ *   - `run`＝定期券那一班（⑥ D-主-295）：不能挑過去、不能清除（`disabled`＝退役，沒有下一班）。
  */
 function RowDate({
   prefix,
@@ -152,6 +150,8 @@ function RowDate({
   label,
   emptyText,
   today,
+  run = false,
+  disabled,
   onPick,
   onFocusBack,
 }: {
@@ -161,6 +161,8 @@ function RowDate({
   label: string;
   emptyText?: string;
   today: string;
+  run?: boolean;
+  disabled?: boolean;
   onPick(date: string | null): void;
   onFocusBack(): void;
 }) {
@@ -187,7 +189,17 @@ function RowDate({
       }}
     >
       {prefix && date && <span className="row-date-pre">{prefix}</span>}
-      <DateChip date={date} onPick={onPick} allowPast clearable flag={flag} label={label} emptyText={emptyText} today={today} />
+      <DateChip
+        date={date}
+        onPick={onPick}
+        allowPast={!run}
+        clearable={!run}
+        disabled={disabled}
+        flag={flag}
+        label={label}
+        emptyText={emptyText}
+        today={today}
+      />
     </span>
   );
 }
@@ -363,6 +375,7 @@ export function OutlineRow({
   menu,
   chapter,
 }: OutlineRowProps) {
+  useHotkeyRevision();
   const ref = useRef<HTMLLIElement>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／支線／臨時券 */
@@ -436,22 +449,22 @@ export function OutlineRow({
     ) : null,
     cars && cars.total > 0 && !ring ? <Cars {...cars} /> : null,
     node.estimate_min ? <span>預計 {node.estimate_min} 分</span> : null,
-    // 執行日：定期券唯讀（班次由規則排定），其餘可直改
+    // 執行日：定期券＝只改 chip 印的那一班，其餘可直改
     chipDate ? (
       rule ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={`${railPrefix} ${mmdd(chipDate)}（定期券，自動排定）`}
-          title="定期券：自動排定"
-          onClick={(e) => {
-            e.stopPropagation();
-            actions.noteRepeatDate();
+        <RowDate
+          prefix={railPrefix}
+          date={chipDate}
+          flag={schedLate ? "late" : undefined}
+          label="這一班改到"
+          today={today}
+          run
+          disabled={node.status === "done"}
+          onPick={(v) => {
+            if (v) actions.moveRun(node.id, chipDate, v);
           }}
-          className={"date chip locked" + (schedLate ? " late" : "")}
-        >
-          {railPrefix} {mmdd(chipDate)}
-        </button>
+          onFocusBack={actions.focusContainer}
+        />
       ) : (
         // 延着那一張（含今天才補済的）印「原定」＋赭；其餘印「執行」＋補記旗（選到今天以前＝補記）
         <RowDate
@@ -575,7 +588,7 @@ export function OutlineRow({
           ) : (
             <span
               className="ch-title"
-              title="雙擊改名（F2）"
+              title={`雙擊改名（${hotkeyCaps("outline.rename")}）`}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 actions.rename(node.id);
@@ -588,7 +601,7 @@ export function OutlineRow({
             type="button"
             tabIndex={-1}
             className="ch-kind"
-            title="詳情（.）"
+            title={`詳情（${hotkeyCaps("outline.panel")}）`}
             aria-label="打開詳情側板"
             onClick={(e) => {
               e.stopPropagation();
@@ -638,7 +651,7 @@ export function OutlineRow({
             e.stopPropagation();
             actions.toggleCollapse(node.id);
           }}
-          title={hasChildren ? (collapsed ? "雙擊展開（→）" : "雙擊收合（←）") : undefined}
+          title={hasChildren ? (collapsed ? `雙擊展開（${hotkeyCaps("outline.expand")}）` : `雙擊收合（${hotkeyCaps("outline.collapse")}）`) : undefined}
         />
 
         {/* 票面 */}
@@ -648,7 +661,7 @@ export function OutlineRow({
             type="button"
             tabIndex={-1}
             aria-label="打開詳情側板"
-            title="詳情（.）"
+            title={`詳情（${hotkeyCaps("outline.panel")}）`}
             onClick={(e) => {
               e.stopPropagation();
               actions.openPanel(node.id);
@@ -674,7 +687,7 @@ export function OutlineRow({
                 e.stopPropagation();
                 actions.rename(node.id);
               }}
-              title="雙擊改名（F2）"
+              title={`雙擊改名（${hotkeyCaps("outline.rename")}）`}
               className="title"
             >
               {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
@@ -726,7 +739,7 @@ export function OutlineRow({
               tabIndex={-1}
               className="ns-ring-wrap"
               aria-label={`子項 ${ring.done}／${ring.total} 済——蓋章完成`}
-              title="蓋章：完成（Space）——不會自動済，要自己蓋"
+              title={`蓋章：完成（${hotkeyCaps("outline.complete")}）——不會自動済，要自己蓋`}
               onClick={(e) => {
                 e.stopPropagation();
                 actions.complete(node.id);
@@ -741,7 +754,7 @@ export function OutlineRow({
             tabIndex={-1}
             aria-label={suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
             aria-pressed={done}
-            title={suspended ? "本班運休中——再點一次取消（或按 U）" : done ? "取消「済」章" : "蓋章：完成（Space）"}
+            title={suspended ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("outline.suspend")}）` : done ? "取消「済」章" : `蓋章：完成（${hotkeyCaps("outline.complete")}）`}
             onClick={(e) => {
               e.stopPropagation();
               actions.complete(node.id);

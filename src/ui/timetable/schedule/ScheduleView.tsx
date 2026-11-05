@@ -15,6 +15,7 @@
  * 鍵盤：←／→／T 換日由整合席接（KEY_ACTIONS 在 schedule 分支走 setDayKey，同軸）；Esc 在這裡收（取消點選；面板由 PlanPopover 收）。
  */
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { createPortal } from "react-dom";
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
@@ -102,6 +103,7 @@ function RoutineTitle({ day, id }: { day: string; id: string }) {
 }
 
 export function ScheduleView() {
+  useHotkeyRevision();
   const page = useSchedulePage("desktop");
   const wide = useWide();
   const sheet = useTimetableStore((s) => s.sheet);
@@ -130,7 +132,7 @@ export function ScheduleView() {
       <div className="ns-tt-sched-top">
         <ScheduleNav page={page} />
         <ScheduleSummary page={page} />
-        <span className="ns-tt-sched-keys">{SCHED_UI.deskKeys}</span>
+        <span className="ns-tt-sched-keys">{SCHED_UI.deskKeys()}</span>
         {/* ⑦（C 席）：「作息：工作日 ▾」在頂列最右（原型回報 2） */}
         <RoutinePicker page={page} />
       </div>

@@ -13,6 +13,9 @@ const COMMANDS: &[&str] = &[
     // 旅客筆記 ⑤：分享進收件匣（取＋確認兩段）
     "take_shared",
     "ack_shared",
+    // ⑨ 截止提醒：交清單（順手取回已響的）、取點開的落點
+    "rem_sync",
+    "rem_take_launch",
     // addPluginListener 走 plugin:tt-notice|register_listener（notification 2.3.3 api-iife.js）
     "register_listener",
     "remove_listener",

@@ -13,6 +13,8 @@
  * 取捨：列不做虛擬捲動。拖曳（樹：跨層、種類限制、復原）與多選、選取列在回饋乙接上（useOutlineDrag／common/selection）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { capsOfHotkey } from "../shell/hotkeys";
 import { createPortal } from "react-dom";
 import { KIND_LABEL, type NodeKind, type NodeRow } from "../../domain";
 import { compareSiblings } from "../../domain/nodeOrder";
@@ -20,6 +22,10 @@ import { flattenSubtrees, routeHeadStats } from "../../domain/routeHead";
 import { serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { DateSeal, SealDone, StationStamp } from "../stamps";
+import { stationIdOfKey, stationKeyOf } from "../../domain/weekAims";
+import { AimsBand } from "../weekAims/AimsBand";
+import { useStationAimLists, useStationCard } from "../weekAims/StationCard";
+import { useAimLanding } from "../search/aimLanding";
 import { EmptyState } from "../common/EmptyState";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
@@ -44,6 +50,8 @@ import { SelectionBar } from "../common/selection/SelectionBar";
 import { DepotBanner } from "../depot/DepotBanner";
 import { PARKED_ADD_WHY } from "../../domain/depot";
 import "./outline.css";
+
+const STATION_LANDS_ON = ["station"] as const;
 
 /** 情境 5：載入 >200ms 才顯示安靜指示，避免閃爍 */
 function useDelayedFlag(flag: boolean, ms: number): boolean {
@@ -219,13 +227,14 @@ function useOverlineSlot(on: boolean) {
 }
 
 export function Outline() {
+  useHotkeyRevision();
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useOutlineController(containerRef);
   const outlineKeys = useOutlineKeyboard(c.keys);
   /** 頁首（PageHeader）裡的鈕現在可以 Tab 到——在它們身上按的鍵不算大綱的導航鍵（例：聚焦在搜尋鈕上按 Delete 不該刪選中的票）。
    *  清單尾建票列的 chips／発券與它的挑選器（portal 但 React 事件照樣冒上來）同理 */
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-pop")) return;
+    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-pop, .wa")) return;
     outlineKeys(e);
   };
   const toggleHideDone = useUiStore((s) => s.toggleHideDone);
@@ -249,6 +258,15 @@ export function Outline() {
   const picked = useSelectionStore((s) => (s.scope === "outline" ? s.ids : null));
   const top = c.zoom ? { id: c.zoom.id, kind: c.zoom.kind } : c.routeId ? { id: c.routeId, kind: "route" as const } : null;
   useOutlineDrag({ root: listEl, rows: c.rows, top, disabled: c.edit !== null });
+  // 下一站方針（方針擴充 辛 §3）：有方針才出現告示、聚焦到節點時不出（那是專心看一段）；紀念章點了開車站小卡
+  const stationCard = useStationCard();
+  // 完整搜尋點一句車站方針 ⇒ 開那一站的小卡（方針擴充 D-主-382）
+  useAimLanding(STATION_LANDS_ON, (key) => {
+    const id = stationIdOfKey(key);
+    if (id) stationCard.open(id);
+  });
+  const nextStationId = c.route?.arrived_on ? null : (stations.filter((s) => s.parent_id === c.routeId && !s.arrived_on).sort(compareSiblings)[0]?.id ?? null);
+  const nextStationAims = useStationAimLists(nextStationId ? [nextStationId] : [])(nextStationId ?? "");
 
   if (!c.routeId) {
     return (
@@ -356,7 +374,7 @@ export function Outline() {
           tone="first"
           stamp={EMPTY_STAMP}
           title={`「${c.zoom.name}」底下還沒有內容`}
-          desc={`按 Enter 在這${KIND_LABEL[c.zoom.kind]}底下新增第一筆；Esc 回上一層。`}
+          desc={`按 ${capsOfHotkey("outline.add.sibling")} 在這${KIND_LABEL[c.zoom.kind]}底下新增第一筆；Esc 回上一層。`}
           action={{ label: "新增第一筆", icon: <IconPlus />, onClick: c.startFirstDraft }}
         />
       );
@@ -366,7 +384,7 @@ export function Outline() {
           tone="first"
           stamp={EMPTY_STAMP}
           title="這條路線還沒有列車"
-          desc="按 Enter 新增第一班列車，底下可再細分車廂與車票。"
+          desc={`按 ${capsOfHotkey("outline.add.sibling")} 新增第一班列車，底下可再細分車廂與車票。`}
           action={{ label: "新增列車", icon: <IconPlus />, onClick: c.startFirstDraft }}
         />
       );
@@ -410,21 +428,36 @@ export function Outline() {
       </>
     ) : undefined;
   const emblem = nextStation ? (
-    <StationStamp
-      size={92}
-      arcLabel={`${code ? `${code} LINE · ` : ""}NEXT STATION`}
-      caption="下一站"
-      name={stampName(nextStation.name)}
-      percent={routePct}
-      statusText="進行中"
+    <button
+      type="button"
+      className="wa-emblem"
+      aria-haspopup="dialog"
+      aria-label={`下一站 ${nextStation.name}，進度 ${routePct}%，看這一站`}
       title={`下一站 ${nextStation.name}，進度 ${routePct}%`}
-    />
+      onClick={(e) => stationCard.open(nextStation.id, e.currentTarget)}
+    >
+      <StationStamp
+        size={92}
+        arcLabel={`${code ? `${code} LINE · ` : ""}NEXT STATION`}
+        caption="下一站"
+        name={stampName(nextStation.name)}
+        percent={routePct}
+        statusText="進行中"
+        title={`下一站 ${nextStation.name}，進度 ${routePct}%`}
+      />
+    </button>
   ) : undefined;
   const emblemCompact = nextStation ? (
-    <span title={`下一站 ${nextStation.name}，進度 ${routePct}%`}>
+    <button
+      type="button"
+      className="wa-emblem-c"
+      aria-haspopup="dialog"
+      title={`下一站 ${nextStation.name}，進度 ${routePct}%`}
+      onClick={(e) => stationCard.open(nextStation.id, e.currentTarget)}
+    >
       <EmblemMini percent={routePct} />
       下一站 <b>{stampName(nextStation.name)}</b> {routePct}%
-    </span>
+    </button>
   ) : undefined;
 
   return (
@@ -462,6 +495,8 @@ export function Outline() {
             search={{ onOpen: () => setQuickJumpOpen(true), title: `搜尋・跳轉（${hotkeyCaps("global.quickjump")}）` }}
           />
         </div>
+        {nextStation && !c.zoom && nextStationAims.length > 0 && <AimsBand aimKey={stationKeyOf(nextStation.id)} heading="下一站方針" />}
+        {stationCard.node}
         {crumbSlot &&
           createPortal(
             <Breadcrumb

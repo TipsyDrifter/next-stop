@@ -9,7 +9,7 @@
  * 守門與收據全部沿既有：
  *   済／取消済／取消運休 ＝ DayPopover.tsx:198-225 同款（`canStampRow` 守門、擋下時同一句 toast）
  *   運休             ＝ DayPopover.tsx:228-240（非定期券 REPEAT_ONLY_MSG）
- *   T／Shift+T        ＝ DayPopover.tsx:243-258（定期券 REPEAT_RESCHEDULE_MSG；離開這天出 showRescheduleToast）
+ *   T／Shift+T        ＝ DayPopover.tsx:243-258（定期券＝這一列那一班改到今天／明天，走 moveRunFlow；單發票離開這天出 showRescheduleToast）
  *   改期／清除執行日   ＝ DeferPopover.tsx:174-191（INBOX_TOAST＋復原）；已交代 SETTLED_DEFER_MSG（useMobileToday.ts:31）
  *   建票不在這裡：串流、當日浮層與手機日期列都走共用建票列（common/quickadd 的 useQuickAdd，一筆寫完）
  *   時刻（主線② §3.10）＝ setTime：updateNode(id, { scheduled_time, estimate_min? })；setRunTime／clearRunTime：nodeStore 同名入口
@@ -19,13 +19,15 @@
  * ── UI 丙-3 ──
  *   F5（E20 手機補記）：`defer` 的分流改用 `mobile/pickDay.ts` 的 planPickDay（與手機今日同一支、有單測）——
  *     挑到今天以前＝補記 `updateNode(id, { scheduled_on }, { backfill: true })`（「已補記到 M/D」＋復原由 nodeStore 出）；
- *     已済／運休與定期券沿用原本兩句守門；今天以後照舊 reschedule＋收據。
+ *     已済／運休擋下；定期券＝只改這一班（⑥ D-主-295）；今天以後照舊 reschedule＋收據。
  *   D5（每列 ⋯）：`remove`＝刪除＋toast「復原」（今日 deleteRow 同款；≥5 個子項先問）；`rowMenu`＝串流與日浮層每列 ⋯ 的項目
  *     （推遲／選日期…／移動到…／運休／詳情／刪除，刪除赭字最後）。
  */
 import { useMemo } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
-import { nodeRepo, REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
+import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
+import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
+import { resetRunTimeFlow } from "../outline/nodeFlows";
 import { isSettling, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
@@ -36,6 +38,7 @@ import { TIME_REPEAT_ONLY_MSG } from "../../domain/scheduledTime";
 import { timeReceipt } from "../mobile/MobileTimeSheet";
 import { planPickDay } from "../mobile/pickDay";
 import { requestMoveTo } from "../common/moveTo";
+import { moveRunFlow } from "../outline/nodeFlows";
 import type { PopMenuItem } from "../common/PopMenu";
 
 /** 一個動作目標：班次列（日曆同一把尺）或「只在締切日浮出來」的票（手機卡用，§0-1 第 14 條） */
@@ -51,16 +54,16 @@ export interface ScheduleActions {
   stamp(t: ScheduleTarget): boolean;
   /** U／定期券版 sheet：skipOccurrence(id, !skipped, row.entry.date)；非定期券 ⇒ toast REPEAT_ONLY_MSG；失敗吐 reason */
   suspend(row: DayRowModel): void;
-  /** T／Shift+T（桌機）：DayPopover.tsx:243-258 同款（定期券擋 REPEAT_RESCHEDULE_MSG；離開這天就出 showRescheduleToast） */
+  /** T／Shift+T（桌機）：DayPopover.tsx:243-258 同款（定期券＝這一班改到今天／明天；單發票離開這天就出 showRescheduleToast） */
   scheduleRelative(row: DayRowModel, offset: 0 | 1): void;
   /** 改期（手機 sheet、桌機以外的入口）。分流＝planPickDay（mobile/pickDay.ts）：
-   *  已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ REPEAT_RESCHEDULE_MSG；跟現值同一天 ⇒ 不動；
+   *  已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ 只改這一班（班次列＝那一天；路線圖與締切卡沒有「那一列」＝目前班次），
+   *  清除或講不出哪一班 ⇒ REPEAT_RESCHEDULE_MSG；跟現值同一天 ⇒ 不動；
    *  null＝清除執行日：INBOX_TOAST＋復原（DeferPopover.tsx:182-191 同款）；
    *  day < today ⇒ 補記 updateNode(id, { scheduled_on: day }, { backfill: true })（UI 丙-3 F5；收據由 nodeStore 出）；
    *  其餘 reschedule(id, day)＋（day !== today）showRescheduleToast */
   defer(t: ScheduleTarget, day: string | null): void;
-  /** 刪除（UI 丙-3 D5）：softDelete＋toast「已刪除『名稱』」＋「復原」（undoDelete）——今日 deleteRow 同款；
-   *  列車／車廂底下 ≥5 個子項先 askConfirm（同一句） */
+  /** 刪除（UI 丙-3 D5）：common/deleteNodeFlow（全 App 同一支：≥5 個子項先問、toast「已刪除『名稱』」＋「復原」） */
   remove(nodeId: string): void;
   /** 桌機 `.`：select(id)＋setPanelOpen(true) */
   openPanel(nodeId: string): void;
@@ -72,8 +75,8 @@ export interface ScheduleActions {
   clearRunTime(nodeId: string, railDate: string): void;
 }
 
-/** DayPopover.tsx:64 的同一句（該檔沒 export；字面照抄） */
-const HISTORY_MSG = "過去的班次不能改——只能處理目前的班次";
+/** DayPopover.tsx:64 的同一句（該檔沒 export；字面照抄）；行程表拖曳擋歷史班次也用這句 */
+export const HISTORY_MSG = "過去的班次不能改——只能處理目前的班次";
 
 const nodeOf = (t: ScheduleTarget): NodeRow | undefined => (t.kind === "entry" ? t.row.node : t.node);
 
@@ -175,12 +178,13 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
     scheduleRelative(row, offset) {
       const node = row.node;
       if (!node) return;
-      if (row.isRepeat) {
-        toast(REPEAT_RESCHEDULE_MSG);
-        return;
-      }
       const t = today();
       const next = offset ? addDays(t, 1) : t;
+      // 定期券：這一列那一班改到今天／明天（⑥ D-主-295）；已交代與過去的班由 moveRunFlow 回原因
+      if (row.isRepeat) {
+        void moveRunFlow(node.id, row.entry.date, next);
+        return;
+      }
       const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
       void ns().reschedule(node.id, next);
       // 票離開這一天＝這一列當場消失 → 補一張可反悔的收據（同推遲小卡）
@@ -190,11 +194,11 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
     defer(t, day) {
       const node = nodeOf(t);
       if (!node) return;
-      // 分流與手機今日同一支（pickDay.ts，有單測）：済／運休→定期券兩道守門照舊；UI 丙-3 F5：過去日＝補記（磨光⑦ D-主-67）
+      // 分流與手機今日同一支（pickDay.ts，有單測）：済／運休擋下、定期券只改這一班（⑥ D-主-295）；UI 丙-3 F5：過去日＝補記（磨光⑦ D-主-67）
       const plan = planPickDay({
         target: day,
         today: today(),
-        current: node.scheduled_on,
+        current: t.kind === "entry" && t.row.isRepeat ? t.row.entry.date : node.scheduled_on,
         settled: t.kind === "entry" ? t.row.done || t.row.skipped : node.status === "done",
         repeat: t.kind === "entry" ? t.row.isRepeat : parseRule(node.repeat_rule) !== null,
       });
@@ -203,6 +207,9 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
           toast(plan.why === "settled" ? SETTLED_DEFER_MSG : REPEAT_RESCHEDULE_MSG);
           return;
         case "noop":
+          return;
+        case "moveRun":
+          void moveRunFlow(node.id, plan.from, plan.day);
           return;
         case "clear": {
           // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去
@@ -229,40 +236,7 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
     },
 
     remove(nodeId) {
-      const name = nodeOfId(nodeId)?.name ?? "";
-      const run = async () => {
-        const removed = await ns().deleteNode(nodeId);
-        if (!removed.length) return; // 失敗：store 已寫 error
-        ui().showToast({
-          message: `已刪除「${name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
-          actionLabel: "復原",
-          onAction: () => void ns().undoDelete(),
-        });
-      };
-      void (async () => {
-        // 子項數（今日 deleteRow 用 child_total；行程表的列不在今日切片，改數路線樹裡的直屬子項——只讀，不寫）
-        const node = nodeOfId(nodeId);
-        let children = ns().today.byId[nodeId]?.child_total ?? 0;
-        if (!children && node && isTaskKind(node.kind) && node.route_id) {
-          try {
-            const tree = await nodeRepo.listRouteTree(node.route_id);
-            children = tree.filter((n) => n.parent_id === nodeId).length;
-          } catch {
-            children = 0;
-          }
-        }
-        if (children >= 5) {
-          ui().askConfirm({
-            title: `連同 ${children} 個子項一起刪除？`,
-            body: `「${name}」底下的項目也會一併刪除（6 秒內可復原）。`,
-            confirmLabel: "刪除",
-            danger: true,
-            onConfirm: () => void run(),
-          });
-          return;
-        }
-        await run();
-      })();
+      void confirmAndDeleteNode(nodeId);
     },
 
     openPanel(nodeId) {
@@ -300,11 +274,7 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
         toast(TIME_REPEAT_ONLY_MSG);
         return;
       }
-      void ns()
-        .clearRunTime(nodeId, railDate)
-        .then((r) => {
-          if (r.ok) toast(timeReceipt("reset", null));
-        });
+      void resetRunTimeFlow(nodeId, railDate);
     },
   };
 }
@@ -312,15 +282,15 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
 /**
  * 串流與日浮層每列 ⋯ 的項目（UI 丙-3 D5；視覺規範 §2.6、§3.1-1；今日列 ⋯ 的同一套字）。開卡那一刻才算。
  *   単發票・未交代｜推遲一項（誤點→「推遲到今天」T；今天→「推遲到明天」Shift+T；未來→「提前到今天」T）＋「選日期…」（推遲小卡）
- *   定期券　　　　｜「運休」／「取消運休」（U；歷史班次停用＋說明）——班次由規則排定，不給改期（D-④-3）
+ *   定期券　　　　｜「運休」／「取消運休」（U；歷史班次停用＋說明）＋（目前與未來、還沒交代的班）「這一班改到今天／明天」（T／Shift+T）＋「這一班改到…」（推遲小卡；⑥ D-主-295）
  *   一律　　　　　｜「移動到…」（選中＋開側板挑選器）・「詳情」（`.`）・「刪除」（赭字、虛線隔開、最後）
- * 已交代（済／運休）的單發票不給改期項（推遲小卡也會擋；不放一個點了只會吐守門句的項）。
+ * 已交代（済／運休）的不給改期項（推遲小卡也會擋；不放一個點了只會吐守門句的項）。
  * `openDefer`＝開推遲小卡，錨在 ⋯ 鈕（呼叫端給；DayPopover／StreamView 各自管小卡的 state）。
  */
 export function scheduleRowMenu(
   actions: ScheduleActions,
   row: DayRowModel,
-  opts: { today: string; openDefer(): void },
+  opts: { today: string; openDefer(): void; pick?(): void },
 ): PopMenuItem[] {
   const node = row.node;
   if (!node) return [];
@@ -335,6 +305,14 @@ export function scheduleRowMenu(
       why: HISTORY_MSG,
       onSelect: () => actions.suspend(row),
     });
+    if (can && !row.done && !row.skipped) {
+      items.push(
+        row.entry.date === opts.today
+          ? { key: "tomorrow", label: "這一班改到明天", hotkeyId: "daylist.schedule.tomorrow", onSelect: () => actions.scheduleRelative(row, 1) }
+          : { key: "today", label: "這一班改到今天", hotkeyId: "daylist.schedule.today", onSelect: () => actions.scheduleRelative(row, 0) },
+        { key: "pick", label: "這一班改到…", onSelect: opts.openDefer },
+      );
+    }
   } else if (!row.done && !row.skipped) {
     const d = row.entry.date;
     items.push(
@@ -349,6 +327,8 @@ export function scheduleRowMenu(
       { key: "pick", label: "選日期…", onSelect: opts.openDefer },
     );
   }
+  // ⑧ 同類：多選的可點入口（只有串流有多選；當日清單不傳）
+  if (opts.pick) items.push({ key: "select", label: "選取", onSelect: opts.pick });
   items.push(
     { key: "move", label: "移動到…", onSelect: () => requestMoveTo(node.id) },
     { key: "panel", label: "詳情", hotkeyId: "daylist.panel", onSelect: () => actions.openPanel(node.id) },

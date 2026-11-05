@@ -7,10 +7,20 @@
  */
 import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso, uuid } from "../lib/db";
-import { dayWindow } from "../lib/date";
+import { escapeLike } from "../lib/sql";
 import { newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
 import type { AimNodeRef, ReviewResult, WeekAimRepository } from "./weekAimRepository";
-import { MAX_AIMS, weekEndOf, type AimSavePlan, type PlanCount, type ReviewStat, type WeekAimRow } from "../domain/weekAims";
+import {
+  assertAimLimit,
+  dayRangeWindow,
+  keyRowBounds,
+  toDayRange,
+  type AimSavePlan,
+  type DayRange,
+  type PlanCount,
+  type ReviewStat,
+  type WeekAimRow,
+} from "../domain/weekAims";
 import { SEAL_NODE_SQL, SEAL_OCC_SQL, dedupeSeals, sealOfRow, type SealRow } from "../domain/seals";
 
 const ALIVE = "deleted_at IS NULL";
@@ -49,6 +59,13 @@ export class SqliteWeekAimRepository implements WeekAimRepository {
     );
   }
 
+  async listKeys(keys: readonly string[]): Promise<WeekAimRow[]> {
+    if (!keys.length) return [];
+    const db = await getDb();
+    const marks = keys.map((_, i) => `$${i + 1}`).join(",");
+    return db.select<WeekAimRow[]>(`SELECT * FROM week_aims WHERE week_on IN (${marks}) ORDER BY week_on, position, created_at, id`, [...keys]);
+  }
+
   async getAim(id: string, opts?: { withDeleted?: boolean }): Promise<WeekAimRow | null> {
     const db = await getDb();
     const r = await this.row(db, id);
@@ -56,19 +73,24 @@ export class SqliteWeekAimRepository implements WeekAimRepository {
     return r.deleted_at !== null && !opts?.withDeleted ? null : r;
   }
 
-  async saveWeek(weekOn: string, plan: AimSavePlan): Promise<void> {
+  async searchAims(query: string): Promise<WeekAimRow[]> {
+    const q = query.trim();
+    if (!q) return [];
+    const db = await getDb();
+    // LIKE 字面比對同 nodes 的 searchFull（接縫 #67）
+    return db.select<WeekAimRow[]>(`SELECT * FROM week_aims WHERE ${ALIVE} AND text LIKE $1 ESCAPE '\\' ORDER BY updated_at DESC, id`, [`%${escapeLike(q)}%`]);
+  }
+
+  async saveWeek(key: string, plan: AimSavePlan): Promise<void> {
     if (!plan.creates.length && !plan.updates.length && !plan.deletes.length) return;
     const db = await getDb();
-    const end = weekEndOf(weekOn);
+    const bounds = keyRowBounds(key);
     const cur = await db.select<{ id: string }[]>(`SELECT id FROM week_aims WHERE ${ALIVE} AND week_on >= $1 AND week_on <= $2`, [
-      weekOn,
-      end,
+      bounds.from,
+      bounds.to,
     ]);
     const aliveIds = new Set(cur.map((r) => r.id));
-    const gone = new Set(plan.deletes);
-    const added = plan.creates.filter((c) => c.id === null || !aliveIds.has(c.id)).length;
-    const after = [...aliveIds].filter((id) => !gone.has(id)).length + added;
-    if (added > 0 && after > MAX_AIMS) throw new RangeError(`一週最多 ${MAX_AIMS} 句`);
+    assertAimLimit(key, aliveIds, plan);
 
     const now = nowUtcIso();
     const b = newWriteBatch();
@@ -82,10 +104,10 @@ export class SqliteWeekAimRepository implements WeekAimRepository {
          ON CONFLICT(id) DO UPDATE SET
            week_on = excluded.week_on, text = excluded.text, node_id = excluded.node_id, position = excluded.position,
            done_at = NULL, carried_from = excluded.carried_from, updated_at = excluded.updated_at, deleted_at = NULL`,
-        args: [id, weekOn, c.text, c.nodeId, c.position, c.carriedFrom, createdAt, now],
+        args: [id, key, c.text, c.nodeId, c.position, c.carriedFrom, createdAt, now],
       });
       addOp(b, id, "upsert", {
-        week_on: weekOn,
+        week_on: key,
         text: c.text,
         node_id: c.nodeId,
         position: c.position,
@@ -173,18 +195,17 @@ export class SqliteWeekAimRepository implements WeekAimRepository {
     return out;
   }
 
-  async reviewStats(nodes: readonly AimNodeRef[], weekOn: string, dayStartHour: number): Promise<ReviewResult> {
+  async reviewStats(nodes: readonly AimNodeRef[], range: DayRange | string, dayStartHour: number): Promise<ReviewResult> {
     const db = await getDb();
-    const end = weekEndOf(weekOn);
-    const winStart = dayWindow(weekOn, dayStartHour).start;
-    const winEnd = dayWindow(end, dayStartHour).end;
+    const { from, to } = toDayRange(range);
+    const { start: winStart, end: winEnd } = dayRangeWindow({ from, to }, dayStartHour);
     const startMs = Date.parse(winStart);
     const endMs = Math.min(Date.parse(winEnd), Date.now());
     const stats: Record<string, ReviewStat> = {};
     for (const n of nodes) {
       if (stats[n.id]) continue;
       const under = underSql(n.kind);
-      // 蓋章＝這週的済章裡、落在這個節點底下的（全 App 一份口徑 domain/seals.ts：日記足跡、運行報告、車庫同一套；D-主-283）
+      // 蓋章＝這一期的済章裡、落在這個節點底下的（全 App 一份口徑 domain/seals.ts：日記足跡、運行報告、車庫同一套；D-主-283）
       const inUnder = ` AND n.id IN (${underSql(n.kind, "$3")})`;
       const [sa, sb] = await Promise.all([
         db.select<SealRow[]>(SEAL_NODE_SQL + inUnder, [winStart, winEnd, n.id]),
@@ -208,7 +229,7 @@ export class SqliteWeekAimRepository implements WeekAimRepository {
         const sum = await db.select<{ s: number | null }[]>(
           `SELECT SUM(main_minor) AS s FROM tk_entries
             WHERE deleted_at IS NULL AND kind = 'expense' AND route_id = $1 AND occurred_on >= $2 AND occurred_on <= $3`,
-          [n.id, weekOn, end],
+          [n.id, from, to],
         );
         spend = Number(sum[0]?.s ?? 0);
       }

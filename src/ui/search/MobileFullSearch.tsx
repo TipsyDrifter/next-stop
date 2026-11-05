@@ -6,19 +6,21 @@
  * MFullPage 全螢幕（左「‹ 返回」＝退回快速搜尋，字還在；返回鍵同一件事，D-主-117）。
  *   頭（黏在上面）：大號底線搜尋框＋可橫向滑的篩選 chip 列＋統計行；身：兩行的結果列。
  *   點一列＝跳到那張票（`onPick` 由快速搜尋接：先把兩層一起收，再 `jumpToNodeMobile`）。
+ *   方針組（方針擴充 辛 D-主-382）排在節點之後；點一句＝到那一期（`onPickAim`，同樣先收兩層，再 `goToAim`）。
  *   路線篩選＝底部 sheet（疊在全螢幕頁上，backKind="dialog"）。
  * 列數不設上限（D-主-115）：一次畫 RESULT_PAGE 列，捲到底接下一批；狀態留在 searchStore（D-主-118）。
  */
 import { useEffect, useId, useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
+import type { AimSearchHit } from "../../domain/fullSearch";
 import { useNodeStore } from "../../store/nodeStore";
 import { useSearchStore } from "../../store/searchStore";
 import { MFullPage } from "../common/MFullPage";
 import { MSheet, MSheetItem } from "../common/MSheet";
-import { FullSearchField, FullSearchFilters, FullSearchMobileRow, FullSearchStats, ListTail, routeFilterText } from "./FullSearchParts";
+import { AimGroupHead, FullSearchAimMobileRow, FullSearchField, FullSearchFilters, FullSearchMobileRow, FullSearchStats, ListTail, routeFilterText } from "./FullSearchParts";
 import { useFullSearchResults } from "./useFullSearchResults";
 
-export function MobileFullSearch({ onBack, onPick }: { onBack(): void; onPick(node: NodeRow): void }) {
+export function MobileFullSearch({ onBack, onPick, onPickAim }: { onBack(): void; onPick(node: NodeRow): void; onPickAim(hit: AimSearchHit): void }) {
   const query = useSearchStore((s) => s.query);
   const hitsTerm = useSearchStore((s) => s.hitsTerm);
   const pending = useSearchStore((s) => s.pending);
@@ -26,7 +28,7 @@ export function MobileFullSearch({ onBack, onPick }: { onBack(): void; onPick(no
   const filter = useSearchStore((s) => s.filter);
   const routes = useNodeStore((s) => s.routes);
   const { showMore, setFilter, setActive } = useSearchStore.getState();
-  const { rows, total, filtered, routeOptions } = useFullSearchResults();
+  const { rows, aimRows, total, filtered, routeOptions } = useFullSearchResults();
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -35,7 +37,9 @@ export function MobileFullSearch({ onBack, onPick }: { onBack(): void; onPick(no
 
   const term = hitsTerm;
   const visible = rows.slice(0, shown);
+  const moreNodes = visible.length < rows.length;
   const typing = query.trim() !== hitsTerm || pending;
+  const count = rows.length + aimRows.length;
 
   // 換字、換篩選＝捲回頂（反方評審 #1）
   const viewTick = useSearchStore((s) => s.viewTick);
@@ -74,15 +78,15 @@ export function MobileFullSearch({ onBack, onPick }: { onBack(): void; onPick(no
             routeOpen={routeSheet}
             onRoute={() => setRouteSheet(true)}
           />
-          {hitsTerm && <FullSearchStats count={rows.length} total={total} filtered={filtered} pending={typing && !rows.length} />}
+          {hitsTerm && <FullSearchStats count={count} aimCount={aimRows.length} total={total} filtered={filtered} pending={typing && !count} />}
         </div>
 
         {!hitsTerm ? (
-          !query.trim() && <p className="ns-fs-hint">名稱、概要、乘務記錄都會找，結果不限筆數。點一列就跳到那裡。</p>
-        ) : rows.length === 0 ? (
+          !query.trim() && <p className="ns-fs-hint">名稱、概要、乘務記錄、方針都會找，結果不限筆數。點一列就跳到那裡。</p>
+        ) : count === 0 ? (
           !typing && (
             <p className="ns-fs-hint">
-              {total > 0 ? `「${term}」共 ${total} 件，都被篩選擋下了。` : `名稱、概要、乘務記錄裡都找不到「${term}」。`}
+              {total > 0 ? `「${term}」共 ${total} 件，都被篩選擋下了。` : `名稱、概要、乘務記錄、方針裡都找不到「${term}」。`}
             </p>
           )
         ) : (
@@ -101,8 +105,26 @@ export function MobileFullSearch({ onBack, onPick }: { onBack(): void; onPick(no
                   }}
                 />
               ))}
+              {!moreNodes && aimRows.length > 0 && (
+                <>
+                  <AimGroupHead count={aimRows.length} />
+                  {aimRows.map((r) => (
+                    <FullSearchAimMobileRow
+                      key={r.hit.aim.id}
+                      id={`${listId}-${r.hit.aim.id}`}
+                      row={r}
+                      term={term}
+                      active={false}
+                      onPick={() => {
+                        setActive(r.hit.aim.id);
+                        onPickAim(r.hit);
+                      }}
+                    />
+                  ))}
+                </>
+              )}
             </ul>
-            <ListTail more={visible.length < rows.length} total={rows.length} sentinelRef={sentinelRef} />
+            <ListTail more={moreNodes} total={count} sentinelRef={sentinelRef} />
           </>
         )}
       </div>

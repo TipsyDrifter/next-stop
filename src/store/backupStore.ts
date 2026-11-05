@@ -27,6 +27,8 @@ import {
 import { useSyncStore } from "./syncStore";
 import { useUiStore } from "./uiStore";
 import { isMobileShell } from "../lib/shell";
+import { notifyOnce, rearmNotify } from "../lib/notify";
+import { reminderAllowed } from "./reminderStore";
 
 /**
  * 目前正在飛的動作（給 WP3 禁用按鈕／顯示「…中」用）。
@@ -37,6 +39,9 @@ export type BackupStatus = "idle" | "booting" | "backing-up" | "restoring" | "re
 
 /** 連敗到這個次數就在 App 頂端出啟動橫幅（決策 9 三層通知的第三層） */
 export const BACKUP_FAIL_BANNER_STREAK = 3;
+
+const BACKUP_NOTIFY_KEY = "backup-failed";
+const BACKUP_NOTIFY_TEXT = { title: "自動備份連續失敗", body: "到備份與還原看原因" };
 
 /** toast 三句（成功不吵，所以只有兩句失敗的）——WP3 若要在分頁內重用，從這裡取，別各寫一份 */
 export const BACKUP_TOAST = {
@@ -465,6 +470,7 @@ async function recordReport(report: BackupReport, set: SetState, get: GetState):
   if (report.status === "ok") {
     const at = nowIso();
     set({ lastOkAt: at, lastError: null, failStreak: 0 });
+    rearmNotify(BACKUP_NOTIFY_KEY);
     await Promise.all([
       settingsRepo.set(BACKUP_SETTING_KEYS.lastOkAt, at),
       settingsRepo.set(BACKUP_SETTING_KEYS.lastError, ""),
@@ -475,6 +481,12 @@ async function recordReport(report: BackupReport, set: SetState, get: GetState):
   if (report.status === "error") {
     const streak = get().failStreak + 1;
     set({ lastError: report.message, failStreak: streak });
+    // ⑨：連敗到橫幅門檻時也送一則 OS 通知（App 縮著看不到橫幅）；同一段連敗只一則，備份成功才重新算
+    if (streak >= BACKUP_FAIL_BANNER_STREAK) {
+      void reminderAllowed("backup").then((ok) =>
+        ok ? notifyOnce(BACKUP_NOTIFY_KEY, BACKUP_NOTIFY_TEXT, false, isMobileShell() ? "mobile" : "desktop") : false,
+      );
+    }
     await Promise.all([
       settingsRepo.set(BACKUP_SETTING_KEYS.lastError, report.message),
       settingsRepo.set(BACKUP_SETTING_KEYS.failStreak, String(streak)),

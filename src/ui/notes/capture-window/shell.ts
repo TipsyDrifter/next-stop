@@ -21,6 +21,7 @@ export const CMD = {
   hide: "capture_hide",
   fit: "capture_fit",
   status: "capture_status",
+  setHotkey: "capture_set_hotkey",
   autostartGet: "autostart_get",
   autostartSet: "autostart_set",
 } as const;
@@ -99,6 +100,12 @@ export async function captureStatus(): Promise<CaptureStatus> {
 }
 
 const NO_AUTOSTART: AutostartInfo = { available: false, enabled: false, name: "", debugBuild: false };
+
+/** 換全域鍵（⑧ 自訂快捷鍵）：`accel`＝`chordToAccel` 排好的字串、null＝預設；回換完的狀態，別的程式佔著就是 `hotkeyRegistered:false` */
+export async function captureSetHotkey(accel: string | null): Promise<CaptureStatus> {
+  if (!isTauri()) return { hotkeyRegistered: true, hotkeyError: null, accel: accel ?? "" };
+  return invoke<CaptureStatus>(CMD.setHotkey, { accel });
+}
 
 export async function autostartGet(): Promise<AutostartInfo> {
   if (!isTauri()) return NO_AUTOSTART;

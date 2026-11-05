@@ -219,14 +219,14 @@ export interface LineMount {
   /**
    * 運行報告的跳轉（② 運行報告 D-主-188；契約 `docs/research/2026-11-02-主線-運行報告-契約.md` §5）：報告頁的卡片小元件、
    * 表格某一天點下去要到這條線的哪裡。`target`：`home`＝該線首頁；`stats`＝該線的統計（時刻表＝日、售票口＝本月）；
-   * `{ diary }`＝那天的日記與足跡（旅客筆記）。線自己決定怎麼換頁（桌機 setPage、手機切 tab）。
+   * `{ diary }`＝那天的日記與足跡（旅客筆記）；`{ day }`＝這條線裡的那一天（⑨ 提醒點開：售票口那天的定期帳、時刻表那天的日程）。線自己決定怎麼換頁（桌機 setPage、手機切 tab）。
    * 桌機看 `page.status`、手機看 `mobile.status`，`open` 且有填才叫（`lineReportJump`）；沒填＝那個小元件不可點。
    */
   reportJump?: (target: ReportJumpTarget, shell: "desktop" | "mobile") => void | Promise<void>;
 }
 
 /** 運行報告跳到某條線的哪裡（`LineMount.reportJump`） */
-export type ReportJumpTarget = "home" | "stats" | { diary: string };
+export type ReportJumpTarget = "home" | "stats" | { diary: string } | { day: string };
 
 /** 全域設定頁的一列指路（`LineMount.settingsLinks` 的一筆） */
 export interface SettingsLinkSpec {

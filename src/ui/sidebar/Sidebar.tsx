@@ -49,7 +49,8 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { roundelStyle } from "../common/roundel";
 // 書封註記用的修飾鍵字面值與 title 裡的鍵位：M3 ⑦ 起一律由快捷鍵 registry 提供（原本是這裡的本地常數）
-import { MOD_KBD, formatChord, hotkeyById } from "../shell/hotkeys";
+import { MOD_KBD, formatChord, hotkeyById, hotkeyOverrides } from "../shell/hotkeys";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 // v1.1.1 WP8：同步狀態點（未啟用時整顆不渲染——桌機沒開同步就與 v1.1.0 逐像素相同）
 import { SyncDot } from "../common/SyncDot";
 // 頁面登記表與 gnav 圖示（並行地基・契約 §6）
@@ -218,6 +219,7 @@ const LINE_OV = { zh: "這條幹線", latin: "Line" };
 const ROUTE_OV = { zh: "這條路線", latin: "Route" };
 
 export function Sidebar() {
+  useHotkeyRevision();
   // 車庫與回顧 D-主-206 #1：書封只列還在跑的幹線與路線；收進車庫的在清單最底「車庫 N 條」進去看
   const lines = useNodeStore((s) => s.liveLines);
   const routes = useNodeStore((s) => s.liveRoutes);
@@ -460,7 +462,10 @@ export function Sidebar() {
             UI 丙-3 C7：「? 說明」從這一行搬到書封腳、跟「設定」並排成兩顆文字鈕（規範 §2.0；原本是 span，Tab 不到） */}
         <p className="gnav-kbd">
           {/* 前導空白併進數字那一段：維持「MOD_KBD｜ 1 · 2 · 3」兩個文字節點，與重構前同切法（三節點會差次像素） */}
-          <span className="gnav-kbd-note">{MOD_KBD}{` ${kbdDigits(openPages().map((p) => p.navDigit))}`}</span>
+          {/* ⑧：換頁鍵改過就不是連號了，這行不再成立：藏起來（每格的 title 照樣寫實際的鍵） */}
+          {!openPages().some((p) => hotkeyOverrides().has(p.navHotkeyId)) && (
+            <span className="gnav-kbd-note">{MOD_KBD}{` ${kbdDigits(openPages().map((p) => p.navDigit))}`}</span>
+          )}
           <SyncDot className="gnav-sync-dot" />
         </p>
 
@@ -479,7 +484,7 @@ export function Sidebar() {
           >
             <IconSearch />
             搜尋
-            <span className="kbd">{MOD_KBD} P</span>
+            <span className="kbd">{capsOf("global.quickjump").toUpperCase().replace(/\+/g, " ")}</span>
           </button>
         </div>
       </nav>

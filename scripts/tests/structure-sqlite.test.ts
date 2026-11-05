@@ -154,5 +154,19 @@ for (const [name, make] of makers) {
       const m = (await repo.listRouteMembers()).find((x: Repo) => x.id === temp.id);
       assert.deepEqual(m, { id: temp.id, kind: "ticket", status: "todo", route_id: route.id });
     });
+
+    test("listSubtreeIds：算到底、不算刪掉的，跟 softDelete 接下來刪的同一批（刪除確認框的子項數；失物招領 §5-6）", async () => {
+      const repo = make();
+      const { route } = await base(repo);
+      const train = await repo.create({ kind: "train", name: "N5", parentId: route.id });
+      const car = await repo.create({ kind: "car", name: "て形", parentId: train.id });
+      const t1 = await repo.create({ kind: "ticket", name: "直屬", parentId: train.id });
+      const t2 = await repo.create({ kind: "ticket", name: "孫", parentId: car.id });
+      const gone = await repo.create({ kind: "ticket", name: "先刪的", parentId: car.id });
+      await repo.softDelete(gone.id);
+      const ids = await repo.listSubtreeIds(train.id);
+      assert.deepEqual([...ids].sort(), [train.id, car.id, t1.id, t2.id].sort());
+      assert.deepEqual([...(await repo.softDelete(train.id))].sort(), [...ids].sort());
+    });
   });
 }

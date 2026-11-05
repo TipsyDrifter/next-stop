@@ -11,6 +11,7 @@ import type { NoteRepository } from "../data/noteRepository";
 import type { TagRepository } from "../data/tagRepository";
 import type { TimetableRepository } from "../data/timetableRepository";
 import type { TicketRepository } from "../data/ticketRepository";
+import type { WeekAimRepository } from "../data/weekAimRepository";
 
 /** 設定頁〈外部助理〉的五個功能（＝開關的鍵；Rust `config.rs` 同名） */
 export type McpModule = "tasks" | "timetable" | "notes" | "diary" | "ledger";
@@ -62,6 +63,7 @@ export interface McpDeps {
   tagRepo: TagRepository;
   timetableRepo: TimetableRepository;
   ticketRepo: TicketRepository;
+  weekAimRepo: WeekAimRepository;
 }
 
 export interface McpCtx {
@@ -69,6 +71,8 @@ export interface McpCtx {
   /** 營業日的「今天」（照日界線算，`todayKey(dayStartHour)`） */
   today: string;
   dayStartHour: number;
+  /** 每週從星期幾開始（0 週日／1 週一，`uiStore.weekStart`）：週方針落在哪一週要看它 */
+  weekStart: 0 | 1;
   /** 現在時刻（測試可固定） */
   now: Date;
   /** 時刻表「跑太久」的全域上限（分；0＝關）＝設定 `timetable_long_run_max_min`，與統計頁同一個值 */

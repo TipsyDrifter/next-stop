@@ -10,7 +10,7 @@
  *      （售票口線車次①起拿掉，見檔尾）
  *   ③ 關於：App 名／拉丁名／版本號（版本自 package.json，發版時不必改這支的字）
  *
- * **不出現**（契約 §2.9）：備份與還原（D-1.1-1 甲：Android 整組關閉）、快捷鍵、? 指引、
+ * **不出現**（契約 §2.9）：備份與還原（D-1.1-1 甲：Android 整組關閉）、快捷鍵（⑧ 起手機改放「手勢與長按」子頁）、? 指引、
  *   一天的開始時間（日界線是 v1.1.1 唯一要同步的 setting，等同步一起做進手機）、搜尋、行程表。
  *
  * v1.1.1（WP8）補上②：設定區在主題之後多一列「同步・運行中／未啟用…」，點了切到子頁 `MobileSync`。
@@ -42,13 +42,20 @@
  * 收官磨光 Q2-a（使用者 10-28：雙端同等）：上面 v1.1.0「不出現」那條的備份與還原也補上了——同步那一列之前多一列
  * 「備份與還原」，點了切子頁 `MobileBackup`（本地 state，同同步子頁；深連結 `uiStore.openBackupPage("mobile")`）。
  * 危險區照舊在頁尾；它那句「清掉之前會先留一份備份」在手機上從此也照實（重新開始前先拍本機手動備份）。
+ *
+ * 第五本 ⑨：同步之後多一列「提醒」，點了切子頁（本體 `reminders/ReminderSettingsBody`，與桌機〈提醒〉籤同一份）；深連結 `uiStore.openRemindersPage("mobile")`。
  */
+import { Segmented } from "../common/Segmented";
 import { useEffect, useState } from "react";
+import { MobileGestures } from "./MobileGestures";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
 import MobileBackup from "./MobileBackup";
+import { ReminderSettingsBody, useReminderOnCount } from "../reminders/ReminderSettingsBody";
+import MobileLostFound from "./MobileLostFound";
+import { SnapshotRescue } from "../common/SnapshotRescue";
 import { useBackupStore } from "../../store/backupStore";
 import { useBackLayer } from "./backStack";
 import { lineSettingsLinks } from "../../lines/runtime";
@@ -73,7 +80,7 @@ const WEEK_STARTS: { value: 0 | 1; label: string; note: string }[] = [
 ];
 
 /** 一天的開始時間（uiStore.dayStartHour；同 SettingsPanel.tsx 的 HOURS） */
-const DAY_START_HOURS = [0, 1, 2, 3, 4, 5, 6];
+const DAY_START_OPTS = [0, 1, 2, 3, 4, 5, 6].map((h) => ({ value: String(h), label: String(h).padStart(2, "0") }));
 
 /** 「備份與還原」那一列右側的時刻：同年 `10/28 03:12`、跨年補年份（同備份頁） */
 function fmtBackupStamp(iso: string): string {
@@ -101,7 +108,9 @@ export default function MobileMore() {
   const moreRequest = useUiStore((s) => s.mobileMoreRequest);
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
   // 收官磨光 Q2-a：多一個子頁 "backup"（備份與還原）；深連結同 sync 那一套（備份失敗 toast 的「看原因」）
-  const [view, setView] = useState<"more" | "sync" | "backup">(() => moreRequest ?? "more");
+  // 失物招領：多一個子頁 "lostfound"（最近刪除）
+  const [view, setView] = useState<"more" | "sync" | "backup" | "gestures" | "lostfound" | "reminders">(() => moreRequest ?? "more");
+  const reminderOnCount = useReminderOnCount();
   const settingsLinks = lineSettingsLinks("mobile");
   const backupOkAt = useBackupStore((s) => s.lastOkAt);
   const backupFailed = useBackupStore((s) => !!s.lastError);
@@ -124,9 +133,31 @@ export default function MobileMore() {
   useBackLayer("core.more-sync", view === "sync", () => setView("more"), "page");
   // 收官磨光 Q2-a：備份與還原子頁同一種返回層
   useBackLayer("core.more-backup", view === "backup", () => setView("more"), "page");
+  useBackLayer("core.more-reminders", view === "reminders", () => setView("more"), "page");
+  useBackLayer("core.more-lostfound", view === "lostfound", () => setView("more"), "page");
+  // ⑧：手勢與長按子頁（桌機設定〈快捷鍵〉的手機對應）
+  useBackLayer("core.more-gestures", view === "gestures", () => setView("more"), "page");
 
-  if (view === "sync") return <MobileSync onBack={() => setView("more")} />;
-  if (view === "backup") return <MobileBackup onBack={() => setView("more")} />;
+  // 從雲端備份撿回（全螢幕頁）：最近刪除、備份頁與同步頁的雲端清單都開得到，掛在這裡一份
+  if (view !== "more") {
+    return (
+      <>
+        {view === "sync" && <MobileSync onBack={() => setView("more")} />}
+        {view === "backup" && <MobileBackup onBack={() => setView("more")} />}
+        {view === "lostfound" && <MobileLostFound onBack={() => setView("more")} />}
+        {view === "gestures" && <MobileGestures onBack={() => setView("more")} />}
+        {view === "reminders" && (
+          <div className="m-page m2-page" aria-label="提醒">
+            <button type="button" className="m2-back" onClick={() => setView("more")}>
+              ← 更多
+            </button>
+            <ReminderSettingsBody shell="mobile" />
+          </div>
+        )}
+        <SnapshotRescue mobile />
+      </>
+    );
+  }
 
   return (
     <div className="m-page m2-page" aria-label="更多">
@@ -203,25 +234,15 @@ export default function MobileMore() {
 
         {/* 磨光① N10（D-主-53）：一天的開始時間——放週起點下面（兩個都是「日子怎麼算」）。
             跟桌機設定同一支 setDayStartHour、同一個設定鍵（本來就同步）；說明照桌機的意思、精簡一句。
-            原生 select（手機會跳系統選單）＋底線輸入 `.m2-input`＋桌機那枚 chevron `.ns-select-wrap`。 */}
+            庚：原生選單換分段鈕（值只有七個；手機一格放不下「06:00」，只寫時）。 */}
         <div className="m2-block">
-          <label className="m2-block-label" htmlFor="m2-day-start">
-            一天的開始時間
-          </label>
-          <span className="ns-select-wrap m2-select-wrap">
-            <select
-              id="m2-day-start"
-              className="m2-input m2-select"
-              value={dayStartHour}
-              onChange={(e) => void setDayStartHour(Number(e.target.value))}
-            >
-              {DAY_START_HOURS.map((h) => (
-                <option key={h} value={h}>
-                  {String(h).padStart(2, "0")}:00
-                </option>
-              ))}
-            </select>
-          </span>
+          <span className="m2-block-label">一天的開始時間</span>
+          <Segmented
+            options={DAY_START_OPTS}
+            value={String(dayStartHour)}
+            onChange={(v) => void setDayStartHour(Number(v))}
+            aria-label="一天的開始時間"
+          />
           <p className="m2-note m2-day-start-note">熬夜到這個時間前都算前一天。</p>
         </div>
 
@@ -230,6 +251,12 @@ export default function MobileMore() {
             （同樣的排版、不吃 .42 的灰度、撐到 48px 觸控目標）。 */}
         {/* 收官磨光 Q2-a（雙端同等）：備份與還原——順序同桌機設定籤（一般 → 備份與還原 → 同步）；
             右側攤上次成功備份的時刻（觸控沒有 hover），失敗時直接寫「上次備份失敗」 */}
+        {/* 失物招領：單筆找回放在整份還原上面——常見的是「剛剛刪錯一筆」，不是整份倒回去 */}
+        <button type="button" className="m2-row-link" onClick={() => setView("lostfound")}>
+          <span className="m2-planned-name">最近刪除</span>
+          <span className="m2-planned-note">30 天內刪掉的</span>
+        </button>
+
         <button type="button" className="m2-row-link" onClick={() => setView("backup")}>
           <span className="m2-planned-name">備份與還原</span>
           <span className={"m2-planned-note" + (backupFailed ? " m2-bk-row-fail" : "")}>
@@ -240,6 +267,17 @@ export default function MobileMore() {
         <button type="button" className="m2-row-link" onClick={() => setView("sync")}>
           <span className="m2-planned-name">同步</span>
           <span className="m2-planned-note">{SYNC_PHASE_LABEL[syncPhase]}</span>
+        </button>
+
+        <button type="button" className="m2-row-link" onClick={() => setView("reminders")}>
+          <span className="m2-planned-name">提醒</span>
+          <span className="m2-planned-note">{reminderOnCount} 項開著</span>
+        </button>
+
+        {/* ⑧：桌機這裡是〈快捷鍵〉籤；手機沒有鍵盤，寫手勢 */}
+        <button type="button" className="m2-row-link" onClick={() => setView("gestures")}>
+          <span className="m2-planned-name">手勢與長按</span>
+          <span className="m2-planned-note">›</span>
         </button>
 
         {/* MCP 接口班（D-主-96）：手機不開外部助理——一段標籤＋一句話，不可點、沒有開關（原型方案 C 的手機段） */}

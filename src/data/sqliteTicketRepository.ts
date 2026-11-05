@@ -59,10 +59,15 @@ import {
   budgetRow,
   buildRepeatRow,
   materializeId,
+  liveFixedRule,
   parseFixedRule,
   parseSkipped,
   planMaterialize,
+  pickUpRepeatCols,
+  planSkipNext,
+  planUnskip,
   resumeNextOn,
+  skippedEntryIds,
   scanFrom,
   scopeKey,
   scopeOf,
@@ -575,6 +580,8 @@ export class SqliteTicketRepository implements TicketRepository {
   /**
    * 那筆 repeat_id 非空且規則還在 ⇒ 同一批 skipped_days 加／減那一班＋upsert op（值沒變就不寫；與 mock 的 touchSkipped 同義）。
    * 記的是**班次日**（shiftDayOf；帳改過日期也找得回原本那班），對不上（「設成定期」連上的那筆）就不碰（修正-資料，評審 R13／R14）。
+   * 規則是 tombstone 就不碰：改它的欄算一筆編輯，碰上另一台併發刪規則時會觸發「編輯勝刪除」把規則復活（沙盒 F-2）。
+   * 活著的帳留在 skipped_days 的那一班，由撿回規則（`repeatPickUpCols`）一次拿掉。
    */
   private async touchSkipped(db: Database, b: WriteBatch, row: EntryRow, add: boolean, now: string): Promise<void> {
     if (!row.repeat_id) return;
@@ -931,12 +938,25 @@ export class SqliteTicketRepository implements TicketRepository {
   }
 
   /** 軟刪那一列；移除預設（month null）⇒ 連同該對象所有月的覆寫一起軟刪（同一批，每列一個 delete op） */
-  async removeBudget(scope: BudgetScope, month: string | null): Promise<void> {
+  async restoreBudget(ids: readonly string[]): Promise<void> {
+    if (!ids.length) return;
+    const db = await getDb();
+    const b = newWriteBatch();
+    const now = nowUtcIso();
+    for (const part of chunks(ids, IN_LIMIT)) {
+      const marks = part.map((_, i) => `$${i + 1}`).join(",");
+      const rows = await db.select<{ id: string }[]>(`SELECT id FROM tk_budgets WHERE deleted_at IS NOT NULL AND id IN (${marks})`, [...part]);
+      for (const r of rows) pushUpdate(b, "tk_budgets", r.id, { deleted_at: null, updated_at: now });
+    }
+    await this.commit(db, b);
+  }
+
+  async removeBudget(scope: BudgetScope, month: string | null): Promise<string[]> {
     const db = await getDb();
     const key = scopeKey(scope);
     const alive = await db.select<BudgetRow[]>(`SELECT * FROM tk_budgets WHERE ${ALIVE}`);
     const hit = alive.filter((r) => scopeKey(scopeOf(r)) === key && (month === null || r.month === month));
-    if (!hit.length) return;
+    if (!hit.length) return [];
     const now = nowUtcIso();
     const b = newWriteBatch();
     for (const r of hit) {
@@ -944,6 +964,7 @@ export class SqliteTicketRepository implements TicketRepository {
       addOp(b, "tk_budgets", r.id, "delete", { deleted_at: now, updated_at: now });
     }
     await this.commit(db, b);
+    return hit.map((r) => r.id);
   }
 
   /* ───────── 第③階段「管帳」：定期帳（③契約 §3.4、§3.5-3～6、0-6～0-8） ───────── */
@@ -973,7 +994,7 @@ export class SqliteTicketRepository implements TicketRepository {
     return row;
   }
 
-  /** 模板或規則變了 ⇒ 寫有差的欄；rule 變了 ⇒ next_on＝nextFixedDate(新規則, today)（0-8，applyRepeatPatch）；沒變 ⇒ 不寫 */
+  /** 模板或規則變了 ⇒ 寫有差的欄；rule 變了 ⇒ next_on＝nextOpenRun(新規則, skipped_days, today)（0-8，applyRepeatPatch）；沒變 ⇒ 不寫 */
   async updateRepeat(id: string, patch: RepeatPatch, today: string): Promise<RepeatRow> {
     const db = await getDb();
     const r = await this.repeatOrThrow(db, id);
@@ -1019,6 +1040,27 @@ export class SqliteTicketRepository implements TicketRepository {
     await this.commit(db, b);
   }
 
+  /** 提前跳過下一班（D-票-82）：skipped_days＋next_on 同一批、走同步欄位；推導在 planSkipNext，與 mock 同義 */
+  async skipNextRepeat(id: string): Promise<string> {
+    const db = await getDb();
+    const r = await this.repeatOrThrow(db, id);
+    const plan = planSkipNext(r, nowUtcIso());
+    const b = newWriteBatch();
+    pushUpdate(b, "tk_repeats", id, plan.cols, ` AND ${ALIVE}`);
+    await this.commit(db, b);
+    return plan.day;
+  }
+
+  async unskipRepeat(id: string, day: string): Promise<void> {
+    const db = await getDb();
+    const r = await this.repeatOrThrow(db, id);
+    const cols = planUnskip(r, day, nowUtcIso());
+    if (!cols) return;
+    const b = newWriteBatch();
+    pushUpdate(b, "tk_repeats", id, cols, ` AND ${ALIVE}`);
+    await this.commit(db, b);
+  }
+
   async softDeleteRepeat(id: string): Promise<void> {
     const db = await getDb();
     const rows = await db.select<RepeatRow[]>(`SELECT * FROM tk_repeats WHERE id = $1`, [id]);
@@ -1036,6 +1078,27 @@ export class SqliteTicketRepository implements TicketRepository {
     if (!rows[0] || rows[0].deleted_at === null) return;
     const b = newWriteBatch();
     pushUpdate(b, "tk_repeats", id, { deleted_at: null, updated_at: nowUtcIso() });
+    await this.commit(db, b);
+  }
+
+  async repeatPickUpCols(r: RepeatRow, today: string): Promise<{ next_on: string | null; skipped_days: string }> {
+    const db = await getDb();
+    const alive = new Set<string>();
+    for (const part of chunks(skippedEntryIds(r), IN_LIMIT)) {
+      const ph = part.map((_, i) => `$${i + 1}`).join(", ");
+      const rows = await db.select<{ id: string }[]>(`SELECT id FROM tk_entries WHERE id IN (${ph}) AND ${ALIVE}`, part as unknown[]);
+      for (const x of rows) alive.add(x.id);
+    }
+    return pickUpRepeatCols(r, await this.repeatRefs(db, [r.id]), alive, today);
+  }
+
+  async pickUpRepeat(id: string, today: string): Promise<void> {
+    const db = await getDb();
+    const rows = await db.select<RepeatRow[]>(`SELECT * FROM tk_repeats WHERE id = $1`, [id]);
+    if (!rows[0] || rows[0].deleted_at === null) return;
+    const cols = await this.repeatPickUpCols(rows[0], today);
+    const b = newWriteBatch();
+    pushUpdate(b, "tk_repeats", id, { deleted_at: null, ...cols, updated_at: nowUtcIso() });
     await this.commit(db, b);
   }
 
@@ -1076,8 +1139,9 @@ export class SqliteTicketRepository implements TicketRepository {
     for (const r of repeats) {
       for (const d of parseSkipped(r.skipped_days)) cand.add(materializeId(r.id, d));
       if (r.paused_at !== null) continue;
-      const rule = parseFixedRule(r.rule);
-      if (!rule) continue;
+      const parsed = parseFixedRule(r.rule);
+      if (!parsed) continue;
+      const rule = liveFixedRule(parsed); // 記滿 N 筆換算成 until（D-票-81；與 planMaterialize 同一支）
       const from = scanFrom(r, rule, today); // null＝已結束：不掃（與 planMaterialize 同一支，評審 R15）
       if (from === null) continue;
       for (const d of projectFixed(rule, from, today)) cand.add(materializeId(r.id, d));

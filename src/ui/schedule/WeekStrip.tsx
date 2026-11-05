@@ -32,6 +32,8 @@ import { dateOf, weekStart } from "../calendar/useCalendarController";
 export interface DayMark {
   dots: { color: string; done: boolean }[];
   due: boolean;
+  /** 那天預定到站的車站名（D-主-380；只有月曆畫 ◎，週條不畫） */
+  stations?: string[];
 }
 
 export const MONTH_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
@@ -57,13 +59,14 @@ export function dayAria(key: string): string {
 }
 
 /** 點與〆（週條與月曆共用的小 DOM） */
-export function DayDots({ mark }: { mark: DayMark | undefined }) {
+export function DayDots({ mark, showStations = false }: { mark: DayMark | undefined; showStations?: boolean }) {
   return (
     <span className="m-sch-dots" aria-hidden>
       {mark?.dots.map((d, i) => (
         <i key={i} className={"m-sch-dot" + (d.done ? " is-done" : "")} style={{ color: d.color }} />
       ))}
       {mark?.due && <i className="m-sch-shime">〆</i>}
+      {showStations && mark?.stations?.length ? <i className="wa-m-stn">◎</i> : null}
     </span>
   );
 }

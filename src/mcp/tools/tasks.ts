@@ -7,7 +7,7 @@
  * 寫入一律「先整批驗參數形狀（錯＝整次拒絕）→ 逐筆執行（各自成敗）」；全部失敗才回 McpUserError。
  */
 import type { NodeKind, NodeRow, Priority } from "../../domain";
-import { KIND_LABEL, WORK_LOG_EVENT_LABEL, allowedChildKinds, describeConflict, describeRule, parseRule } from "../../domain";
+import { KIND_LABEL, WORK_LOG_EVENT_LABEL, allowedChildKinds, describeConflict, describeEnd, describeRule, firstFixedDate, parseRule } from "../../domain";
 import { effectiveTime, assertClockWritable } from "../../domain/scheduledTime";
 import type { CurrentOccurrence, NodePatch } from "../../data/nodeRepository";
 import { REPEAT_ONLY_MSG } from "../../data/nodeRepository";
@@ -76,6 +76,7 @@ export function brief(n: NodeRow, cur?: Record<string, CurrentOccurrence>, route
     dueOn: n.due_on,
     priority: n.priority,
     repeat: rule ? describeRule(rule) : null,
+    repeatEnds: rule ? describeEnd(rule) : null,
     run: run ? { date: run.due_on, status: run.status } : null,
     route: n.route_id ? (routeNames?.[n.route_id] ?? n.route_id) : null,
     routeId: n.route_id,
@@ -161,7 +162,8 @@ export interface RescheduleItem {
  * - 推遲挑不到過去（DeferPopover 的 min＝今天，主線車次① ☎4）；補記（D-主-67）只給 UI 日期欄，工具不帶 backfill。
  *   日期跟現值一樣＝不動日期（pickDay.ts 第 3 條：誤點票挑回它自己那天不算補記），只改時刻照樣可以。
  * - 已済的單發票不能推遲（pickDay.ts 第 1 條 SETTLED_DEFER_MSG；推遲小卡也擋）。
- * - 定期券的班次由規則排定（repository 的 REPEAT_RESCHEDULE_MSG）；只能改「目前這一班」的時刻（setRunTime）。
+ * - 定期券只動「目前這一班」（⑥ D-主-295）：帶目前班次日＝改這一班的時刻（setRunTime），帶別天＝這一班改到那天（moveOccurrence）；
+ *   那天已經有班先在這裡擋，其他邊界（結束日、已交代）由 repository 的 runMoveBlock 回原因。
  */
 export function checkReschedule(ctx: McpCtx, n: NodeRow, it: RescheduleItem): void {
   const moves = it.date !== n.scheduled_on;
@@ -175,9 +177,12 @@ export function checkReschedule(ctx: McpCtx, n: NodeRow, it: RescheduleItem): vo
   }
   if (rule) {
     if (n.status === "done") throw new McpUserError(RETIRED_MSG(n.name));
-    if (moves || it.date === null || it.time === undefined) {
+    if (it.date !== null && moves && rule.mode === "fixed" && firstFixedDate(rule, it.date) === it.date) {
+      throw new McpUserError(`「${n.name}」是定期券，${it.date} 已經有一班；要跳過這一班用 skip-tasks`);
+    }
+    if (it.date === null || (!moves && it.time === undefined)) {
       throw new McpUserError(
-        `「${n.name}」是定期券，班次由規則排定、不能改日期；只能帶目前班次日（${n.scheduled_on ?? "無"}）改這一班的時刻，跳過這一班用 skip-tasks`,
+        `「${n.name}」是定期券，班次由規則排定：帶別天＝這一班改到那天，帶目前班次日（${n.scheduled_on ?? "無"}）＝改這一班的時刻，跳過這一班用 skip-tasks`,
       );
     }
   }
@@ -189,8 +194,16 @@ export async function applyReschedule(ctx: McpCtx, n: NodeRow, it: RescheduleIte
   const repo = ctx.deps.nodeRepo;
   const from = { date: n.scheduled_on, time: effectiveTime(n, n.scheduled_on) };
   if (parseRule(n.repeat_rule)) {
-    // 同 nodeStore.setRunTime：給這一班設時刻（null＝本班無時刻）
-    await repo.setRunTime(n.id, it.date!, it.time ?? null, ctx.dayStartHour);
+    // 同 nodeStore.moveOccurrence：這一班改到那天，時刻覆寫跟著走
+    if (it.date !== n.scheduled_on) {
+      try {
+        await repo.moveOccurrence(n.id, n.scheduled_on!, it.date!, ctx.today, ctx.dayStartHour);
+      } catch (e) {
+        throw new McpUserError(`「${n.name}」：${errMsg(e)}`);
+      }
+    }
+    // 同 nodeStore.setRunTime：給這一班設時刻（null＝本班無時刻）；只改日期沒帶時刻就不動
+    if (it.time !== undefined) await repo.setRunTime(n.id, it.date!, it.time, ctx.dayStartHour);
   } else {
     // 同 nodeStore.reschedule（推遲／T／日期 chip 的唯一入口；不帶 backfill）
     if (it.date !== n.scheduled_on) await repo.reschedule(n.id, it.date, ctx.today);
@@ -722,7 +735,7 @@ const rescheduleTasks: McpTool = {
   name: "reschedule-tasks",
   title: "改期（繰越）",
   description:
-    "改車票的執行日（最多 50 張），等於 App 的推遲／繰越：date＝新執行日（不能早於今天；跟現值相同＝不動日期）、null＝清掉執行日；time＝順便改預定時刻 HH:MM（null 清除）。已済的票要先取消済。定期券不能改日期，只能帶目前班次日改這一班的時刻。一次排好幾張建議先 propose-schedule。",
+    "改車票的執行日（最多 50 張），等於 App 的推遲／繰越：date＝新執行日（不能早於今天；跟現值相同＝不動日期）、null＝清掉執行日；time＝順便改預定時刻 HH:MM（null 清除）。已済的票要先取消済。定期券動的是目前這一班：帶別天＝這一班改到那天、帶目前班次日＝改這一班的時刻。一次排好幾張建議先 propose-schedule。",
   inputSchema: {
     type: "object",
     properties: {
@@ -819,7 +832,7 @@ const skipTasks: McpTool = {
 const deleteTasks: McpTool = {
   name: "delete-tasks",
   title: "刪除車票",
-  description: "刪除車票（最多 50 張；軟刪除，App 裡可復原）。底下的子項會一起刪，結果會說連帶刪了幾個。",
+  description: "刪除車票（最多 50 張；30 天內能在 App 的「最近刪除」撿回）。底下的子項會一起刪，結果會說連帶刪了幾個。",
   inputSchema: {
     type: "object",
     properties: { ids: { type: "array", minItems: 1, maxItems: 50, items: ID_SCHEMA } },

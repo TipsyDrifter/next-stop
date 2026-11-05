@@ -10,9 +10,17 @@ import {
   rankHits,
   splitHits,
   DEFAULT_FILTER,
+  aimLandingDay,
+  aimPeriodText,
+  aimPlaceText,
+  buildAimHits,
+  filterAimHits,
+  isDefaultFilter,
+  rankAimHits,
   type FullSearchHit,
 } from "../../src/domain/fullSearch.ts";
 import type { NodeRow } from "../../src/domain/node.ts";
+import type { WeekAimRow } from "../../src/domain/weekAims.ts";
 
 function node(p: Partial<NodeRow> & { id: string }): NodeRow {
   return {
@@ -167,4 +175,121 @@ test("清單不動：同一次搜尋裡重查，已在清單上的照舊位置�
   assert.equal(again.hits[1].node.status, "done", "樣子換成新的");
   // 被刪掉的那張就沒了，其餘照舊
   assert.deepEqual(keepOrder([a, c], again.order).hits.map((h) => h.node.id), ["a", "c"]);
+});
+
+/* ───────────── 方針組（方針擴充 辛 D-主-382） ───────────── */
+
+function aim(p: Partial<WeekAimRow> & { id: string; week_on: string }): WeekAimRow {
+  return {
+    text: p.id,
+    node_id: null,
+    position: 0,
+    done_at: null,
+    carried_from: null,
+    account_id: null,
+    device_id: null,
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    synced_at: null,
+    deleted_at: null,
+    ...p,
+  } as WeekAimRow;
+}
+
+const R1 = node({ id: "R1", kind: "route", route_id: null, name: "日本語" });
+const B1 = node({ id: "B1", kind: "branch", parent_id: "R1", route_id: "R1", name: "文法" });
+const ST = node({ id: "ST", kind: "station", parent_id: "R2", route_id: "R2", name: "N5", expected_on: "2026-12-05" });
+const NODES = new Map([R1, B1, ST].map((n) => [n.id, n]));
+const R2_NAME = [{ id: "R2", name: "引越し" }];
+
+test("buildAimHits：掛的節點接上；掛的被刪＝標籤消失、句子留著；車站被刪＝整句藏（§3 #16）", () => {
+  const hits = buildAimHits(
+    [
+      aim({ id: "on-route", week_on: "M2026-11", node_id: "R1" }),
+      aim({ id: "gone-node", week_on: "M2026-11", node_id: "刪了" }),
+      aim({ id: "on-station", week_on: "SST" }),
+      aim({ id: "gone-station", week_on: "S刪了" }),
+    ],
+    NODES,
+  );
+  assert.deepEqual(hits.map((h) => h.aim.id), ["on-route", "gone-node", "on-station"]);
+  assert.equal(hits[0].node?.id, "R1");
+  assert.equal(hits[1].node, null);
+  assert.equal(hits[2].station?.id, "ST");
+});
+
+test("filterAimHits：狀態看済；車票、樹、臨時車票整組不出現；路線含它的支線與車站；沒掛只在全部", () => {
+  const hits = buildAimHits(
+    [
+      aim({ id: "route", week_on: "M2026-11", node_id: "R1" }),
+      aim({ id: "branch", week_on: "2026-11-02", node_id: "B1", done_at: "2026-11-03T00:00:00Z" }),
+      aim({ id: "station", week_on: "SST" }),
+      aim({ id: "loose", week_on: "Y2026" }),
+    ],
+    NODES,
+  );
+  const ids = (f: Partial<typeof DEFAULT_FILTER>) => filterAimHits(hits, { ...DEFAULT_FILTER, ...f }).map((h) => h.aim.id);
+  assert.deepEqual(ids({}), ["route", "branch", "station", "loose"]);
+  assert.deepEqual(ids({ kind: "aim" }), ["route", "branch", "station", "loose"]);
+  assert.deepEqual(ids({ kind: "ticket" }), []);
+  assert.deepEqual(ids({ kind: "tree" }), []);
+  assert.deepEqual(ids({ status: "done" }), ["branch"]);
+  assert.deepEqual(ids({ status: "open" }), ["route", "station", "loose"]);
+  assert.deepEqual(ids({ route: "temp" }), []);
+  assert.deepEqual(ids({ route: { routeId: "R1" } }), ["route", "branch"]);
+  assert.deepEqual(ids({ route: { routeId: "R2" } }), ["station"]);
+});
+
+test("filterHits：種類選「方針」時節點組清空（既有三種照舊）", () => {
+  const h = hit(node({ id: "t" }));
+  assert.deepEqual(filterHits([h], { ...DEFAULT_FILTER, kind: "aim" }, byStatus), []);
+  assert.equal(isDefaultFilter({ ...DEFAULT_FILTER, kind: "aim" }), false);
+});
+
+test("rankAimHits：未済在前，再最近更新、id 定序", () => {
+  const hits = buildAimHits(
+    [
+      aim({ id: "old", week_on: "Y2026", updated_at: "2026-10-01T00:00:00Z" }),
+      aim({ id: "done", week_on: "Y2026", updated_at: "2026-10-09T00:00:00Z", done_at: "2026-10-09T00:00:00Z" }),
+      aim({ id: "new-b", week_on: "Y2026", updated_at: "2026-10-05T00:00:00Z" }),
+      aim({ id: "new-a", week_on: "Y2026", updated_at: "2026-10-05T00:00:00Z" }),
+    ],
+    NODES,
+  );
+  assert.deepEqual(rankAimHits(hits).map((h) => h.aim.id), ["new-a", "new-b", "old", "done"]);
+});
+
+test("aimPeriodText：四種期間的字；週對齊現在的週首；車站寫站名", () => {
+  const text = (week_on: string, weekStart: 0 | 1 = 1, station: NodeRow | null = null) =>
+    aimPeriodText({ aim: aim({ id: "a", week_on }), station }, "2026-11-04", weekStart);
+  assert.equal(text("2026-11-02"), "本週");
+  assert.equal(text("2026-10-26"), "上週");
+  assert.equal(text("2026-10-05"), "10/5 那週");
+  assert.equal(text("2025-10-06"), "2025/10/6 那週");
+  assert.equal(text("2026-11-01"), "上週", "週一起算時 11/1 是上一週的週日");
+  assert.equal(text("2026-11-01", 0), "本週", "寫的時候週日起算、現在也是：同一週");
+  assert.equal(text("M2026-11"), "本月");
+  assert.equal(text("M2026-10"), "上個月");
+  assert.equal(text("M2026-03"), "3月");
+  assert.equal(text("M2025-10"), "2025年10月");
+  assert.equal(text("Y2026"), "今年");
+  assert.equal(text("Y2025"), "去年");
+  assert.equal(text("Y2020"), "2020 年");
+  assert.equal(text("SST", 1, ST), "N5・12/5");
+});
+
+test("aimPlaceText：掛的名字；車站沒掛寫那一站的路線；都沒有空字", () => {
+  assert.equal(aimPlaceText({ node: B1, station: null }, R2_NAME), "文法");
+  assert.equal(aimPlaceText({ node: null, station: ST }, R2_NAME), "引越し");
+  assert.equal(aimPlaceText({ node: R1, station: ST }, R2_NAME), "日本語", "車站方針掛了別的路線：寫掛的");
+  assert.equal(aimPlaceText({ node: null, station: null }, R2_NAME), "");
+});
+
+test("aimLandingDay：今天在這一期裡落今天；否則第一天", () => {
+  assert.equal(aimLandingDay("2026-11-02", "2026-11-04", 1), "2026-11-04");
+  assert.equal(aimLandingDay("2026-10-26", "2026-11-04", 1), "2026-10-26");
+  assert.equal(aimLandingDay("M2026-11", "2026-11-04", 1), "2026-11-04");
+  assert.equal(aimLandingDay("M2026-10", "2026-11-04", 1), "2026-10-01");
+  assert.equal(aimLandingDay("M2027-02", "2026-11-04", 1), "2027-02-01");
+  assert.equal(aimLandingDay("2026-11-01", "2026-11-04", 1), "2026-10-26", "週首設定改過：先對齊現在的週首");
 });

@@ -1,13 +1,13 @@
 /**
  * 排成車票（戊 D-主-256；原型場景 a-plan）。桌機＝錨在那句底下的小浮層；手機＝底部面板（MobileWeekAims 用 `PlanTicketForm`）。
  *
- * 票名預填那句（可改）、「放在」預設掛的路線或支線（可換到路線或它底下的支線／列車／車廂）、執行日預設這週還沒過的第一天＋往後那套快選。
+ * 票名預填那句（可改）、「放在」預設掛的路線或支線（可換到路線或它底下的支線／列車／車廂）、執行日預設這一期還沒過的第一天（車站＝今天）＋往後那套快選。`weekOn` 收任何期間鍵。
  * 落點規則在純函式 `ticketPlacement`（路線不能直接放票 ⇒ 根層臨時車票＋路線標籤；支線／列車／車廂 ⇒ 建在它底下，D-主-281）。
  * Enter＝発券、Esc＝收起（自己吃掉，不連關外層）。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AttachTarget } from "../../domain/notes";
-import { planDefaultDay, ticketPlacement, type WeekAimRow } from "../../domain/weekAims";
+import { planDefaultDay, stationIdOfKey, ticketPlacement, type WeekAimRow } from "../../domain/weekAims";
 import { nodeRepo } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useWeekAimStore } from "../../store/weekAimStore";
@@ -36,7 +36,10 @@ export interface PlanFormApi {
 
 /** 表單狀態與送出（兩殼共用） */
 export function usePlanForm(aim: WeekAimRow, weekOn: string, today: string): PlanFormApi {
-  const at = useAimPlaceOf()(aim.node_id);
+  // 車站沒掛的句子：預設放在這條路線（已排也看這條路線，§2）
+  const stationId = stationIdOfKey(weekOn);
+  const stationRoute = useNodeStore((s) => (stationId ? (s.stations.find((x) => x.id === stationId)?.parent_id ?? null) : null));
+  const at = useAimPlaceOf()(aim.node_id ?? stationRoute);
   const [name, setName] = useState(aim.text);
   const [place, setPlace] = useState<PlanPlace | null>(() => {
     if (!at) return null;

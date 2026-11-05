@@ -4,11 +4,17 @@
  *   - 下面按月列（新的在上；有済、日記、到站或章的月份才列）：済章數、日記篇數、駅スタンプ數（只寫發生過的量，0 不寫）、
  *     到站的路線（點了開記錄簿）與幹線、當月的章、一句代表筆記。
  * 資料是 `buildYearbook`（domain/depotView.ts）的事，這裡只畫。
+ * 最頂上是今年方針（方針擴充 辛 D-主-378）：桌機告示、手機一行，‹ 年 › 只換告示那一年，底下按月清單照舊；空狀態時也在。
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { buildYearbook } from "../../domain/depotView";
 import { fmtMD } from "../../domain/depot";
 import { todayKey } from "../../lib/date";
+import { yearKeyOf, type AimPeriod } from "../../domain/weekAims";
+import { useAimLanding } from "../search/aimLanding";
+import { AimsBand } from "../weekAims/AimsBand";
+import { MobileAimsLine } from "../weekAims/MobileAimsLine";
+import { useShell } from "../mobile/useShell";
 import { useDepotStore } from "../../store/depotStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { EmptyState } from "../common/EmptyState";
@@ -17,6 +23,7 @@ import { StampImpression } from "./StampImpression";
 import { RouteBadge, rcStyle, useDayStartHour, useStampCtx } from "./depotParts";
 import "./depot.css";
 
+const LANDS_ON: readonly AimPeriod[] = ["year"];
 const WD = ["日", "一", "二", "三", "四", "五", "六"];
 const ZH_N = ["", "一", "兩", "三", "四", "五", "六", "七", "八", "九", "十"];
 
@@ -37,7 +44,11 @@ export function Yearbook({ onOpen }: YearbookProps) {
   const routes = useNodeStore((s) => s.routes);
   const lines = useNodeStore((s) => s.lines);
   const ctx = useStampCtx();
+  const shell = useShell();
   const today = todayKey(h);
+  // 完整搜尋點了別年的方針（辛 D-主-382）：告示落在那一年；離開這頁就回今年（同 ‹ 年 › 只活在這次，D-主-378）
+  const [landed, setLanded] = useState<string | null>(null);
+  useAimLanding(LANDS_ON, setLanded);
   const yb = useMemo(
     () =>
       data
@@ -47,21 +58,27 @@ export function Yearbook({ onOpen }: YearbookProps) {
   );
   if (!data) return null;
   const thisMonth = today.slice(0, 7);
+  const yearKey = landed ?? yearKeyOf(today);
+  const aims = shell === "mobile" ? <MobileAimsLine aimKey={yearKey} navigable onBackToCurrent={() => setLanded(null)} /> : <AimsBand aimKey={yearKey} navigable />;
 
   if (!yb.ago && !yb.months.length) {
     return (
-      <EmptyState
-        tone="first"
-        title="年鑑還是空的"
-        desc="済了票、寫了日記、路線到站，這裡就會按月記下來。"
-        className="ns-depot-empty"
-      />
+      <>
+        {aims}
+        <EmptyState
+          tone="first"
+          title="年鑑還是空的"
+          desc="済了票、寫了日記、路線到站，這裡就會按月記下來。"
+          className="ns-depot-empty"
+        />
+      </>
     );
   }
 
   const ago = yb.ago;
   return (
     <>
+      {aims}
       {ago && (
         <section className="ns-depot-ago ns-depot-paper" aria-label="那年今日">
           <div className="ns-depot-ago-h">

@@ -14,6 +14,6 @@ export async function notesReportJump(target: ReportJumpTarget, shell: "desktop"
   if (shell === "desktop") ui.setPage("notes");
   else ui.setMobileTab("notes");
   const st = useNotesStore.getState();
-  if (typeof target === "object") st.openDiaryAt(target.diary);
+  if (typeof target === "object" && "diary" in target) st.openDiaryAt(target.diary);
   else st.setSection("notes");
 }

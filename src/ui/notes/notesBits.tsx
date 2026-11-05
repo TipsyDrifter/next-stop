@@ -7,6 +7,7 @@
  * 鍵帽字一律查 registry（契約 §1-6：顯示端不手抄鍵位字面）。
  */
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import type { NodeRow } from "../../domain";
 import type { AttachTarget } from "../../domain/notes";
 import { dayKeyOf, todayKey } from "../../lib/date";
@@ -119,6 +120,7 @@ export function capsOf(id: string): string {
 
 /** `<kbd>` 一枚（鍵位查 registry） */
 export function Kbd({ id }: { id: string }) {
+  useHotkeyRevision();
   const caps = capsOf(id);
   return caps ? <kbd className="ns-notes-kbd">{caps}</kbd> : null;
 }

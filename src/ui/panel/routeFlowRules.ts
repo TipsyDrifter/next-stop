@@ -73,15 +73,15 @@ export function lineDeleteConfirm(line: LineLike, childRoutes: number): ConfirmT
     title: `刪除幹線「${line.name}」？`,
     body:
       childRoutes > 0
-        ? `底下的 ${childRoutes} 條路線與所有支線、列車、車廂、車票會一起刪除；6 秒內可復原。`
-        : "底下的所有內容會一起刪除；6 秒內可復原。",
+        ? `底下的 ${childRoutes} 條路線與所有支線、列車、車廂、車票會一起刪除；30 天內可在「最近刪除」撿回。`
+        : "底下的所有內容會一起刪除；30 天內可在「最近刪除」撿回。",
     confirmLabel: "刪除",
   };
 }
 
 /** 編輯幹線危險區那一句（桌機 RouteDialog；按下去才是上面那個確認框） */
 export function lineDeleteNote(childRoutes: number): string {
-  return childRoutes > 0 ? `連同底下 ${childRoutes} 條路線一起刪除；6 秒內可復原。` : "刪除這條幹線；6 秒內可復原。";
+  return childRoutes > 0 ? `連同底下 ${childRoutes} 條路線一起刪除；30 天內可在「最近刪除」撿回。` : "刪除這條幹線；30 天內可在「最近刪除」撿回。";
 }
 
 /** 刪掉的幹線底下有沒有目前開著的路線（有＝刪完要換路線） */
@@ -98,7 +98,7 @@ export function lineDeletedToast(name: string): string {
 export function routeDeleteConfirm(route: LineLike): ConfirmText {
   return {
     title: `刪除路線「${route.name}」？`,
-    body: "底下的支線、列車、車票與車站會一起刪掉（6 秒內可復原）。",
+    body: "底下的支線、列車、車票與車站會一起刪除；30 天內可在「最近刪除」撿回。",
     confirmLabel: "刪除路線",
   };
 }
@@ -116,4 +116,9 @@ export function nextRouteAfterDelete(routes: readonly RouteLike[], deletedId: st
 
 export function stationDeletedToast(name: string): string {
   return `已刪除車站「${name}」`;
+}
+
+/** 蓋到站章、那站有方針時的提示（D-主-374；附「回顧」，不自動彈） */
+export function stationArrivedToast(name: string): string {
+  return `「${name}」到站了`;
 }

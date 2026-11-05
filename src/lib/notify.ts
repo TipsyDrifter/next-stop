@@ -31,7 +31,7 @@
  *   CDP 進頁面讀 `window.__notifLog` 或 `(await import('/src/lib/notify.ts')).notifyLog` 都行。
  */
 import { invoke } from "@tauri-apps/api/core";
-import { MOCK_MODE } from "../data";
+import { DEV_FLAGS, MOCK_MODE } from "../data";
 
 export interface NotifyPayload {
   title: string;
@@ -150,6 +150,12 @@ export function resetNotifyOnce(): void {
   notifyLog.length = 0;
 }
 
+/** mock 的通知權限（?mock=1&notif=，⑨ 提醒頁對帳用）；沒帶參數＝granted、問了回 skipped，跟以前一樣 */
+let mockPermission: "granted" | "denied" = DEV_FLAGS.notif !== null ? "denied" : "granted";
+export function mockNotificationPermission(): "granted" | "denied" {
+  return mockPermission;
+}
+
 /**
  * 通知權限「問一次」（契約 §3.4）：`syncStore.askNotificationIfNeeded` 叫（加入成功後／開機時已加入但沒問過），
  * `status.notif_asked` 為 true 就不會叫到這裡；呼叫端拿到 granted／denied 才 `syncRepo.markNotifAsked()`（拒絕就只用橫幅、不再問），
@@ -158,6 +164,10 @@ export function resetNotifyOnce(): void {
  * Android 13+ 跳系統詢問；12 以下權限預設就有。永遠 resolve；mock 下不碰外掛。
  */
 export async function askNotificationPermissionOnce(): Promise<"granted" | "denied" | "skipped"> {
+  if (MOCK_MODE && DEV_FLAGS.notif !== null) {
+    if (DEV_FLAGS.notif === "ask") mockPermission = "granted";
+    return mockPermission;
+  }
   if (MOCK_MODE || typeof window === "undefined") return "skipped";
   try {
     // 直接叫 command（見檔頭①）；`request_permission` 回 PermissionState：granted／denied／prompt／prompt-with-rationale

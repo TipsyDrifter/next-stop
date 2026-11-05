@@ -33,7 +33,7 @@ pub const EV_CAPTURE_SHOW: &str = "notes:capture-show"; // Rust → 小窗（emi
 pub const MINIMIZED_ARG: &str = "--minimized";
 /// 系統匣「記一句」的選單 id（`tray.rs` 的 `build_menu`／`on_menu_event` 用）
 pub const TRAY_MENU_ID: &str = "notes:capture";
-pub const HOTKEY_ACCEL: &str = "Ctrl+Alt+N"; // 只給 log／status 回報
+pub const HOTKEY_ACCEL: &str = "Ctrl+Alt+N"; // 預設鍵；使用者改過的鍵在 `CaptureShell.accel`
 
 /// 正式版的 identifier；`run_value_name` 收到空字串時的退路
 const DEFAULT_IDENTIFIER: &str = "app.shitetsu.nextstop";
@@ -117,6 +117,9 @@ impl StampState {
 
 pub struct CaptureShell {
     pub hotkey: Mutex<HotkeyState>,
+    /// 目前要拿的那組鍵（⑧ 自訂快捷鍵）：開機是預設，前端讀到設定才換；沒拿到時重試的也是它
+    pub shortcut: Mutex<Shortcut>,
+    pub accel: Mutex<String>,
     /// D-筆-61（§0-0）：叫出小窗之前的前景視窗（Windows 的 HWND，以 isize 存；其他平台恆 None）。
     /// 存完／Esc 時先把前景還給它。
     pub prev_hwnd: Mutex<Option<isize>>,
@@ -128,6 +131,8 @@ impl CaptureShell {
     fn new() -> Self {
         Self {
             hotkey: Mutex::new(HotkeyState::Failed("尚未註冊".to_string())),
+            shortcut: Mutex::new(default_hotkey()),
+            accel: Mutex::new(HOTKEY_ACCEL.to_string()),
             prev_hwnd: Mutex::new(None),
             stamp: Mutex::new(StampState::default()),
         }
@@ -296,17 +301,26 @@ fn restore_previous_foreground<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 // ───────────────────────── 熱鍵 ─────────────────────────
 
-fn hotkey() -> Shortcut {
+fn default_hotkey() -> Shortcut {
     // global-hotkey 0.8.0 `HotKey::new(mods: Option<Modifiers>, key: Code)`（`Shortcut` 是它的 re-export 別名），
     // `HotKey: Copy + PartialEq`；已對照原始碼，未編譯
     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyN)
 }
 
+/// 前端送來的 `Ctrl+Alt+N` 格式（global-hotkey 的 `FromStr`）；格式不對回 Err，鍵維持原樣。
+fn parse_accel(accel: &str) -> Result<Shortcut, String> {
+    accel.parse::<Shortcut>().map_err(|e| e.to_string())
+}
+
 /// 執行期註冊（**不用** `with_shortcuts`：被佔走會讓 `build()` 回 Err、App 開不起來，查證 Q1）。
 fn try_register<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let Some(shell) = app.try_state::<CaptureShell>() else {
+        return Err("尚未初始化".to_string());
+    };
+    let shortcut = *lock(&shell.shortcut);
     // plugin 的 `register` 內部 `run_on_main_thread` 再 `rx.recv()` 等結果；在主執行緒（setup、window event）呼叫時
     // tauri-runtime-wry 的 `send_user_message` 當場執行，不會死等（已對照 2.11.2 原始碼）
-    app.global_shortcut().register(hotkey()).map_err(|e| e.to_string())
+    app.global_shortcut().register(shortcut).map_err(|e| e.to_string())
 }
 
 /// 註冊並把結果寫進 `CaptureShell.hotkey`；失敗只 log。
@@ -318,7 +332,7 @@ fn register_and_record<R: Runtime>(app: &AppHandle<R>) {
     match result {
         Ok(()) => *lock(&shell.hotkey) = HotkeyState::Registered,
         Err(msg) => {
-            eprintln!("[capture] 全域鍵 {HOTKEY_ACCEL} 註冊失敗：{msg}");
+            eprintln!("[capture] 全域鍵 {} 註冊失敗：{msg}", lock(&shell.accel));
             *lock(&shell.hotkey) = HotkeyState::Failed(msg);
         }
     }
@@ -326,14 +340,15 @@ fn register_and_record<R: Runtime>(app: &AppHandle<R>) {
 
 // ───────────────────────── 對外介面 ─────────────────────────
 
-/// 只掛 global-shortcut（handler：快捷鍵 == Ctrl+Alt+N 且 Pressed ⇒ `show`）。
+/// 只掛 global-shortcut（handler：快捷鍵 == 目前那組且 Pressed ⇒ `show`）。
 /// autostart 要用 identifier 當 `app_name`，identifier 在 build 之前拿不到 ⇒ 它在 `setup` 裡用 `app.plugin(...)` 掛。
 pub fn plugins<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder.plugin(
         tauri_plugin_global_shortcut::Builder::<R>::new() // 已對照 2.3.2 原始碼（registry cache 有 .crate）；未編譯
             .with_handler(|app, shortcut, event| {
                 // 收 Pressed 與 Released 兩次 ⇒ 只處理 Pressed
-                if *shortcut == hotkey() && event.state() == ShortcutState::Pressed {
+                let current = app.try_state::<CaptureShell>().map(|s| *lock(&s.shortcut));
+                if current.as_ref() == Some(shortcut) && event.state() == ShortcutState::Pressed {
                     show(app);
                 }
             })
@@ -657,7 +672,7 @@ pub async fn capture_fit(app: AppHandle, height: f64) -> Result<(), String> {
 pub struct CaptureStatus {
     pub hotkey_registered: bool,
     pub hotkey_error: Option<String>,
-    pub accel: &'static str,
+    pub accel: String,
 }
 
 /// 熱鍵還沒拿到時，順便再註冊一次（設定頁開著、使用者一直停在主視窗上時，`Focused(true)` 不會再來；
@@ -675,8 +690,42 @@ pub fn capture_status<R: Runtime>(app: AppHandle<R>, shell: State<'_, CaptureShe
     CaptureStatus {
         hotkey_registered,
         hotkey_error,
-        accel: HOTKEY_ACCEL,
+        accel: lock(&shell.accel).clone(),
     }
+}
+
+/// 換全域鍵（⑧ 自訂快捷鍵）：`accel`＝`Ctrl+Alt+N` 格式、None＝回預設。
+/// 放掉舊的、拿新的；新的被別的程式佔著時回 `hotkey_registered:false`（要不要退回舊鍵由前端決定：
+/// 開 App 載入時留著繼續重試，使用者當場改的就換回去）。格式不對回 Err，什麼都不動。
+#[tauri::command]
+pub fn capture_set_hotkey<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, CaptureShell>,
+    accel: Option<String>,
+) -> Result<CaptureStatus, String> {
+    let (next, label) = match accel {
+        Some(a) => (parse_accel(&a)?, a),
+        None => (default_hotkey(), HOTKEY_ACCEL.to_string()),
+    };
+    let prev = *lock(&shell.shortcut);
+    let registered = matches!(*lock(&shell.hotkey), HotkeyState::Registered);
+    if prev != next || !registered {
+        if registered {
+            let _ = app.global_shortcut().unregister(prev); // 放不掉也不擋：新鍵照拿
+        }
+        *lock(&shell.shortcut) = next;
+        *lock(&shell.accel) = label;
+        register_and_record(&app);
+    }
+    let (hotkey_registered, hotkey_error) = match &*lock(&shell.hotkey) {
+        HotkeyState::Registered => (true, None),
+        HotkeyState::Failed(msg) => (false, Some(msg.clone())),
+    };
+    Ok(CaptureStatus {
+        hotkey_registered,
+        hotkey_error,
+        accel: lock(&shell.accel).clone(),
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -820,11 +869,30 @@ mod tests {
     }
 
     #[test]
+    fn 全域鍵字串解析_前端送的格式都吃得下() {
+        assert_eq!(parse_accel(HOTKEY_ACCEL).unwrap(), default_hotkey());
+        assert_eq!(
+            parse_accel("Ctrl+Shift+M").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM)
+        );
+        assert_eq!(
+            parse_accel("Alt+Shift+F9").unwrap(),
+            Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::F9)
+        );
+        assert_eq!(
+            parse_accel("Ctrl+Alt+Space").unwrap(),
+            Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space)
+        );
+        assert!(parse_accel("Ctrl+Alt+").is_err());
+        assert!(parse_accel("Ctrl+不是鍵").is_err());
+    }
+
+    #[test]
     fn capture_status_json_是camelcase() {
         let v = serde_json::to_value(CaptureStatus {
             hotkey_registered: false,
             hotkey_error: Some("not wired".to_string()),
-            accel: HOTKEY_ACCEL,
+            accel: HOTKEY_ACCEL.to_string(),
         })
         .unwrap();
         assert_eq!(

@@ -75,6 +75,7 @@ export const WIPED_MODE: boolean = MOCK_MODE && detectFlag("wiped");
  *   `&backup=fail|streak3`           備份端點（M3 ⑥ WP0）→ `MemoryBackupRepository` 吃這個：
  *                                      fail    → 啟動 report 回 error，拍失敗 toast
  *                                      streak3 → 同上，且 backupStore 視為連敗 ≥3，拍啟動橫幅
+ *   `&notif=denied|ask`              通知權限（⑨ 提醒頁）：denied＝沒權限、問了還是拒絕；ask＝沒權限、問了就給。沒帶＝granted
  *   `&gallery=1`                     共用元件樣本頁（UI 丙-2 契約 §0）→ App／MobileShell 的主欄改畫 `ui/dev/Gallery`
  *                                      取代頁面（兩殼各一版，靠 data-shell 換 token）；false＝沒帶
  *
@@ -87,10 +88,12 @@ export interface DevFlags {
   backup: BackupMockMode;
   /** `?gallery=1`：主欄改畫共用元件樣本頁（UI 丙-2）；正式打包（非 DEV 且非 mock）恆 false */
   gallery: boolean;
+  /** `?notif=`：mock 的通知權限（lib/notify.ts 吃）；null＝照常 granted */
+  notif: "denied" | "ask" | null;
 }
 
 function detectDevFlags(): DevFlags {
-  const off: DevFlags = { page: null, view: null, day: null, backup: null, gallery: false };
+  const off: DevFlags = { page: null, view: null, day: null, backup: null, gallery: false, notif: null };
   if (!import.meta.env.DEV && !MOCK_MODE) return off;
   if (typeof window === "undefined") return off;
   try {
@@ -99,12 +102,14 @@ function detectDevFlags(): DevFlags {
     const view = q.get("view");
     const day = q.get("day");
     const backup = q.get("backup");
+    const notif = q.get("notif");
     return {
       page: isOpenPageId(page) ? page : null,
       view: view === "month" || view === "week" || view === "time" || view === "stream" ? view : null,
       day: day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null,
       backup: backup === "fail" || backup === "streak3" ? backup : null,
       gallery: q.get("gallery") === "1",
+      notif: notif === "denied" || notif === "ask" ? notif : null,
     };
   } catch {
     return off;
@@ -223,7 +228,6 @@ export type {
   LockedReason,
   SnapshotKind,
   SnapshotEntry,
-  ExportReport,
   RotationReport,
   RecoveryReport,
   StartOverScope,

@@ -64,8 +64,8 @@ const RT = {
   restore: "還原",
   undo: "復原",
   archived: (n: string) => `已封存「${n}」`,
-  deleted: (n: string) => `刪了「${n}」`,
-  segDeleted: "刪了一段",
+  deleted: (n: string) => `已刪除「${n}」`,
+  segDeleted: "已刪除這段",
   imported: (n: number) => `帶入了 ${n} 段`,
   todayKept: (n: string) => `已改「${n}」・今天照舊`,
   applyToday: "套用到今天",
@@ -236,6 +236,7 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
                 {
                   key: "archive",
                   label: RT.archive,
+                  cut: true, // 己-2 A3：封存與刪除一組、排在上移下移之後（managerRowMenu）
                   onSelect: () =>
                     void archiveRoutine(r.id, true).then((ok) => {
                       if (!ok) return;
@@ -246,7 +247,6 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
                 {
                   key: "delete",
                   label: RT.remove,
-                  cut: true,
                   danger: true,
                   onSelect: () =>
                     void deleteRoutine(r.id).then((ok) => {

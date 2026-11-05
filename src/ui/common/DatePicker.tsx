@@ -33,11 +33,12 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
-  type RefObject,
 } from "react";
+import { matches } from "../shell/hotkeys";
 import { createPortal } from "react-dom";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
+import { placeBelow, tabStops, useOutsideDismiss } from "./anchorPop";
 import { DayGrid } from "./DayGrid";
 import { isPickableDay } from "./datePickRules";
 import "./datepicker.css";
@@ -91,44 +92,6 @@ export function shortDayKey(key: string): string {
 }
 
 export { isPickableDay };
-
-/** 點浮層外面就收起；anchor 本身與帶 `data-pop-toggle` 的元素（開關鈕）除外 */
-function useOutsideDismiss(ref: RefObject<HTMLElement | null>, onClose: () => void, anchor?: HTMLElement | null): void {
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const el = ref.current;
-      const t = e.target;
-      if (!el || !(t instanceof Node)) return;
-      if (el.contains(t)) return;
-      if (anchor?.contains(t)) return;
-      if (t instanceof Element && t.closest("[data-pop-toggle]")) return;
-      onClose();
-    };
-    document.addEventListener("mousedown", onDown, true);
-    return () => document.removeEventListener("mousedown", onDown, true);
-  }, [ref, onClose, anchor]);
-}
-
-/** 卡裡 Tab 會停的元素（月格只有 roving 那一格是 tabIndex 0） */
-function tabStops(root: HTMLElement | null): HTMLElement[] {
-  return Array.from(root?.querySelectorAll<HTMLElement>("button, input") ?? []).filter(
-    (el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled,
-  );
-}
-
-/** anchor 模式的落點：anchor 下方 6px、左緣對齊；下方放不下翻到上方；夾進視窗（同 PopMenu）。anchor 沒有框（被收起）＝null，留在原處 */
-function placeBelow(anchor: HTMLElement, el: HTMLElement): { top: number; left: number } | null {
-  const { offsetWidth: w, offsetHeight: h } = el;
-  const vw = document.documentElement.clientWidth || window.innerWidth;
-  const vh = document.documentElement.clientHeight || window.innerHeight;
-  const M = 12;
-  const r = anchor.getBoundingClientRect();
-  if (r.width === 0 && r.height === 0) return null;
-  let top = r.bottom + 6;
-  if (top + h > vh - M) top = Math.max(M, r.top - h - 6);
-  const left = Math.max(M, Math.min(r.left, vw - w - M));
-  return { top: Math.round(top), left: Math.round(left) };
-}
 
 export function DatePicker({
   label,
@@ -227,7 +190,7 @@ export function DatePicker({
     // anchor 模式：卡掛在 body，按鍵照 React 樹冒泡會落到開它的列／側板／dialog 的鍵盤表上——一律擋下。
     // Ctrl／⌘ 組合鍵放行給全域表（Ctrl+/ 例外，指引頁不疊在卡上；同 PopMenu）
     if (e.ctrlKey || e.metaKey) {
-      if (e.key === "/") {
+      if (matches(e, "global.guide")) {
         e.preventDefault();
         e.stopPropagation();
       }

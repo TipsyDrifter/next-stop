@@ -18,6 +18,7 @@
  */
 import { create } from "zustand";
 import { nodeRepo } from "../data";
+import { confirmAndDeleteNode } from "../ui/common/deleteNodeFlow";
 import { noteRepo } from "../data/noteRepo";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
@@ -206,8 +207,8 @@ export interface NotesStore {
   scheduleTicket(id: string, date: string): Promise<void>;
   attachTicket(id: string, parentId: string): Promise<void>;
   tagTicket(id: string, routeId: string): Promise<void>;
-  /** nodeStore.deleteNode(id)（undo: nodeStore.undoDelete） */
-  deleteTicket(id: string): Promise<void>;
+  /** 共用刪除流程（confirmAndDeleteNode）。`around`＝真的要刪的那一刻（桌機收件匣在這裡播離場動畫、交選取；按確認框取消就不會動） */
+  deleteTicket(id: string, around?: (del: () => Promise<boolean>) => void): Promise<void>;
 
   /* ── 筆記頁 ── */
   /** 換選取：若上一則是 draftNew 且空 ⇒ 丟棄；editing=false */
@@ -690,6 +691,8 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       );
     },
     async deleteNote(id) {
+      // 收據要名字：先記下來（刪完清單就沒這一則了）；沒標題的筆記不拿內文頂替，一句「這一筆」就好
+      const title = (get().notes.find((n) => n.id === id) ?? get().inboxNotes.find((n) => n.id === id))?.title?.trim();
       try {
         await noteRepo.softDelete(id);
       } catch (e) {
@@ -699,7 +702,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       if (get().selectedNoteId === id) set({ selectedNoteId: null, editing: false });
       await reloadLists();
       toast(
-        "已刪除",
+        title ? `已刪除「${title}」` : "已刪除這一筆",
         safeUndo(async () => {
           await noteRepo.restore([id]);
           await reloadLists();
@@ -774,22 +777,20 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         }),
       );
     },
-    async deleteTicket(id) {
-      const name = get().inboxTickets.find((t) => t.id === id)?.name ?? (await nodeRepo.getNode(id))?.name ?? "";
-      const removed = await useNodeStore.getState().deleteNode(id);
-      await get().loadInbox();
-      if (!removed.length) {
-        failToast(new Error(useNodeStore.getState().error ?? ""));
-        return;
-      }
-      // 沿今日頁同一句（useTodayController.ts 的刪除 toast）
-      toast(
-        `已刪除「${name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
-        safeUndo(async () => {
-          await useNodeStore.getState().undoDelete();
-          await get().loadInbox();
-        }),
-      );
+    async deleteTicket(id, around) {
+      // 確認與 toast 在共用流程（失物招領 §5-6）；收件匣自己的事：刪完、復原完都重讀清單
+      await confirmAndDeleteNode(id, {
+        around: (del) => {
+          const go = async (): Promise<boolean> => {
+            const ok = await del();
+            await get().loadInbox();
+            if (!ok) failToast(new Error(useNodeStore.getState().error ?? ""));
+            return ok;
+          };
+          return around ? around(go) : go();
+        },
+        onRestored: () => get().loadInbox(),
+      });
     },
 
     /* ── 筆記頁 ── */
@@ -1268,7 +1269,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       }
       await reloadDiary();
       toast(
-        "已刪除日記",
+        "已刪除這一筆",
         safeUndo(async () => {
           await noteRepo.restore([id]);
           await reloadDiary();

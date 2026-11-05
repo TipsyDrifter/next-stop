@@ -113,6 +113,13 @@
 }
 .ns-fs-x .src { color: var(--color-ink-faint); letter-spacing: .1em; }
 
+/* 方針組（方針擴充 辛 D-主-382）：組名小標（同 Ctrl+P 別線那一組）；一句最多 60 字、命中可能在後半，句子照實換行不截；期間字比日期長，那一欄寬一點 */
+.ns-fs-group { display: flex; align-items: baseline; gap: 6px; padding: 14px 8px 5px; font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-ink-faint); }
+.ns-fs-group .n { font-family: var(--font-latin); letter-spacing: .02em; }
+.ns-fs-row.is-aim { grid-template-columns: 23px minmax(0, 1fr) minmax(0, 7.5em) minmax(0, 8em); }
+.ns-fs-row.is-aim .ns-fs-date { overflow: hidden; text-overflow: ellipsis; }
+.ns-fs-row.is-aim .ns-fs-name, .ns-fs-mrow.is-aim .ns-fs-name { white-space: normal; overflow-wrap: anywhere; }
+
 /* ═══════════ 手機全螢幕（MFullPage 的 body 內） ═══════════ */
 /* MFullPage 的身：內距歸零（列自己帶 gutter、黏頭要貼齊頂端；同售票口 .ns-tk-mform 前例），仍由它捲 */
 [data-shell="mobile"] .ns-mfull-body:has(> .ns-fs-m) { padding: 0; gap: 0; }
@@ -136,7 +143,7 @@
 .ns-fs-m .ns-fs-stats { margin-top: var(--sp-3); padding-bottom: 10px; }
 .ns-fs-m .ns-fs-stats::after { display: none; }
 .ns-fs-m .ns-fs-stats .btn-text { margin-left: auto; }
-.ns-fs-m .ns-fs-hint, .ns-fs-m .ns-fs-end, .ns-fs-m .ns-fs-more { padding-left: var(--m-gutter); padding-right: var(--m-gutter); }
+.ns-fs-m .ns-fs-hint, .ns-fs-m .ns-fs-end, .ns-fs-m .ns-fs-more, .ns-fs-m .ns-fs-group { padding-left: var(--m-gutter); padding-right: var(--m-gutter); }
 .ns-fs-m .ns-fs-list { padding-bottom: var(--m-safe-bottom); }
 
 /* 手機結果列：兩行（名稱＋済／淡字路線＋日期），摘錄最多兩行 */

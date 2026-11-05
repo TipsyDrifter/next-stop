@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.24.0"
+version = "1.25.0"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -106,6 +106,9 @@ tokio = { version = "1", features = ["rt", "net", "io-std", "io-util", "sync", "
 # features 只開 Win32_Foundation（HWND）與 Win32_UI_WindowsAndMessaging（兩支函式）。
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+# ⑨ 截止提醒（契約 2026-11-04 §5 案 A）：桌機 toast 的點擊回呼 on_activated。0.7.3 本來就在 Cargo.lock（notify-rust 的相依），升為直接依賴、不多一棵樹。
+# 不升 0.8：上游 issue #59 回報 0.8.0 的按鈕與音效有問題（查證報告 §2.2）。
+tauri-winrt-notification = "0.7"
 
 
 # v1.1.2 QR 掃描（D-1.1-6 甲：手機掃桌機的 QR；契約席 2026-09-19 加、WP10a 接線）。

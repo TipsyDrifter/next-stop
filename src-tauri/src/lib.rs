@@ -32,6 +32,10 @@ mod capture;
 #[cfg(desktop)]
 mod mcp;
 
+// ⑨ 截止提醒（契約 2026-11-04 §5）：桌機自己送 toast，點了回 App 直達（外掛 2.3.3 沒有點擊回呼）。手機走 tt-notice 的鬧鐘，不編。
+#[cfg(desktop)]
+mod reminder_toast;
+
 /// `main.rs` 看到 `--mcp-stdio` 就叫這支（Claude 桌面版的 stdio 轉接；D-主-91），回傳行程結束碼。
 #[cfg(desktop)]
 pub fn run_mcp_stdio() -> i32 {
@@ -195,7 +199,6 @@ pub fn run() {
             sync::commands::sync_cloud_snapshot_auto,
             sync::commands::sync_cloud_snapshot_list,
             sync::commands::sync_cloud_restore,
-            sync::commands::sync_export_to_file,
             sync::commands::sync_finish_rotation,
             // v1.1.5 契約 §5：復原碼兩支（WP-A 填 recovery.rs；殼與註冊由契約席先立好）
             sync::commands::sync_recovery_generate,
@@ -211,6 +214,7 @@ pub fn run() {
             capture::capture_hide,
             capture::capture_fit,
             capture::capture_status,
+            capture::capture_set_hotkey, // ⑧ 自訂快捷鍵：換全域鍵
             capture::autostart_get,
             capture::autostart_set,
             // ── 時刻表線插槽 ──
@@ -224,6 +228,12 @@ pub fn run() {
             mcp::commands::mcp_register_tools,
             mcp::commands::mcp_reply,
             mcp::commands::mcp_recent,
+            // ⑨ 截止提醒（桌機限定；手機那份不加——手機走 tt-notice 的 rem_sync）
+            reminder_toast::reminder_toast,
+            // 失物招領 §4 資料匯出：前端組好的 JSON／zip 寫到使用者選的位置（兩殼都掛）
+            sync::commands::export_write_picked,
+            // 失物招領 §3.1 撿回單筆：讀一份雲端快照的內容（兩殼都掛）
+            sync::commands::sync_cloud_snapshot_read,
         ]);
 
     // 手機：同步二十四支（清單與桌機那份逐字相同）＋收官磨光 Q2-a 起的備份六支（重置那支是桌機 DEV 清場用，不掛）
@@ -258,7 +268,6 @@ pub fn run() {
         sync::commands::sync_cloud_snapshot_auto,
         sync::commands::sync_cloud_snapshot_list,
         sync::commands::sync_cloud_restore,
-        sync::commands::sync_export_to_file,
         sync::commands::sync_finish_rotation,
         sync::commands::sync_recovery_generate,
         sync::commands::sync_recovery_clear,
@@ -269,6 +278,10 @@ pub fn run() {
         // ── 旅客筆記線插槽（只有旅客筆記線在這一行下面加；桌機與手機兩份都要加）──
         // ── 時刻表線插槽 ──
         // ── 售票口線插槽 ──
+        // 失物招領 §4 資料匯出（與桌機那份同一行）
+        sync::commands::export_write_picked,
+        // 失物招領 §3.1 撿回單筆（與桌機那份同一行）
+        sync::commands::sync_cloud_snapshot_read,
     ]);
 
     // v1.1.2 D-1.1-6 甲：手機掃桌機的 QR（配對碼）。plugin 只在手機 target 有（Cargo 的 target 段），

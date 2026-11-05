@@ -804,7 +804,7 @@ const updateEntries: McpTool = {
 const deleteEntries: McpTool = {
   name: "delete-ledger-entries",
   title: "刪帳",
-  description: "刪除一到多筆帳（上限 50，軟刪除、App 裡可復原）。定期帳記出來的那一筆刪掉＝那一班不再補記。",
+  description: "刪除一到多筆帳（上限 50；30 天內能在 App 的「最近刪除」撿回）。定期帳記出來的那一筆刪掉＝那一班不再補記。",
   inputSchema: {
     type: "object",
     properties: { ids: { type: "array", minItems: 1, maxItems: 50, items: { type: "string" }, description: "帳的 id（find-ledger-entries）" } },

@@ -71,13 +71,18 @@
  * 時刻表⑦（契約 §5、D-時-163；A 席；原型題 5）：荷札之後一列「備註」（`BlockNoteRow`＝單行 RecallInput，候選＝寫過的塊備註、
  * 同分類的排前面）。三種模式都有。**也是草稿**：noteDraft null＝沒動過（改一塊／改這一班跟著這一塊目前的備註，別台改了就跟著換）；
  * 送出時 `normalizeNote` 後跟這一塊現在的備註一樣＝undefined（不動），運行中那班「什麼都沒動＝只關」也把備註算進去。
+ *
+ * 己（第五本第二梯，D-時-170、171；使用者 11-04「合併到一個區塊或視窗」）：運行列的小鈕全部收進來——運行中那班多一列「預估」（EstimateRow，
+ * 排在到着說明之後；**也是草稿**：estDraft undefined＝沒動過、跟著這一塊現在的值；送出時跟現在一樣＝undefined 不動）；舊的預估面板、連到面板退役。
+ * 待確認時副標下一行赭字＋「其實到幾點？」鈕（開 longRun；從軸上開進來也看得到）。
+ * 從運行中開的面板分類格排最後（它最高，排中間會把発車、預估擠到要捲才看得到；看 fromRunning，開著時到站了順序也不跳）；已結束的塊照舊。
  */
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import { MIN, findBlockIn, fmtClock, fmtDur, msOf, normalizeNote, noteOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
-import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
+import { MIN, findBlockIn, fmtClock, fmtDur, msOf, normalizeNote, noteOf, thresholdOf, type BlockLink, type MergePreview } from "../../../domain/timetable";
+import { linkLabelOf, linkOfRow, taskEstimateOf } from "../../../domain/timetableLink";
 import { fillContinuation } from "../../../domain/timetableFillCont";
 import { clockDateLabel, clockRangeLabel, longBlockAsk } from "../../../domain/timetableClockInput";
-import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { dayWindow } from "../../../lib/date";
 import { CategoryGrid } from "../parts/CategoryGrid";
@@ -108,6 +113,7 @@ import {
 } from "./controls";
 import type { ClockInputHandle } from "../../common/ClockInput";
 import { BlockNoteRow } from "./BlockNoteRow";
+import { EstimateRow } from "./EstimateRow";
 
 type Dir = "prev" | "next";
 
@@ -130,6 +136,7 @@ export function BlockPanel({ onDone }: PanelProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const running = useTimetableStore((s) => s.running);
   const todayBlocks = useTimetableStore((s) => s.todayBlocks);
+  const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
 
   // 合併：兩側的預演（undefined＝還在問）；ask＝二次確認開著的那一側
   const dw = dayWindow(dayKey, dayStartHour);
@@ -244,6 +251,10 @@ export function BlockPanel({ onDone }: PanelProps) {
     const want = normalizeNote(noteDraft);
     return want === (block ? noteOf(block) : null) ? undefined : want;
   };
+  // 己：預估草稿（undefined＝還沒動過：跟著這一塊目前的預估）；只有運行中那班有這一列
+  const [estDraft, setEstDraft] = useState<number | null | undefined>(undefined);
+  const estValue = estDraft !== undefined ? estDraft : (block?.estimate_min ?? null);
+  const estEdit = (): number | null | undefined => (estDraft === undefined || estDraft === (block?.estimate_min ?? null) ? undefined : estDraft);
   // 評審後：面板打開時的手動荷札（index 載好、這一塊找得到的第一刻記一次）＝送出時算差集的基準
   const [tagInit, setTagInit] = useState<string[] | null>(null);
   // 磨光③ 2-1：排除（keys）的草稿與基準；null＝還沒動過（跟著這一塊目前的排除）
@@ -419,14 +430,16 @@ export function BlockPanel({ onDone }: PanelProps) {
       const tagEdit = tagDraft !== null && tagInit !== null ? (blockTagEditOf(tagInit, tagDraft) ?? undefined) : undefined;
       if (live) {
         // 磨光⑦：運行中那班；什麼都沒動＝只關面板
+        const est = estEdit();
         const same =
           cat === block.category_id &&
           curStart === msOf(block.started_at) &&
           linkPicked === undefined &&
           tagEdit === undefined &&
           offNames === undefined &&
-          note === undefined;
-        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note);
+          note === undefined &&
+          est === undefined;
+        if (!same) void editRunning(block.id, cat, curStart, linkPicked, tagEdit, offNames, note, est);
       } else {
         void editBlock(block.id, cat, start, end, linkPicked, tagEdit, offNames, ackLong, note);
       }
@@ -522,6 +535,10 @@ export function BlockPanel({ onDone }: PanelProps) {
   };
   const snapPrev = prevEnd;
   const snapNext = nextStart;
+  // 己：待確認（D-時-170）與「沒預估時用什麼當門檻」（舊預估面板的那一句）都只看運行中那班
+  const liveMarker = live && block ? blockMarker(block, catById, longRunMaxMin, now, linkInfo) : null;
+  const livePending = !!liveMarker && liveMarker.kind !== "none" && liveMarker.pending;
+  const fallback = live && block && estValue === null ? thresholdOf(null, catById[block.category_id] ?? null, longRunMaxMin, taskEstimateOf(block, linkInfo)) : null;
 
   /* 合併列（改一塊才有；運行中的塊不會開這個面板，repository 仍會擋） */
   const mergeRow =
@@ -616,6 +633,14 @@ export function BlockPanel({ onDone }: PanelProps) {
         </Sub>
       )}
       {arrived && <Sub warn>{TT_TEXT.justArrived}</Sub>}
+      {livePending && block && (
+        <div className="ns-tt-panel-ask">
+          <span className="ns-tt-panel-ask-t">{liveMarker?.kind === "late" ? TT_TEXT.late(liveMarker.overMs) : TT_TEXT.dockLong}</span>
+          <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => openSheet({ kind: "longRun", blockId: block.id, then: null })}>
+            其實到幾點？
+          </button>
+        </div>
+      )}
       {cont && sheet?.kind === "fill" && (
         <p className="ns-tt-fill-cont">
           剩下{" "}
@@ -629,7 +654,7 @@ export function BlockPanel({ onDone }: PanelProps) {
       <LinkRow value={link} onOpen={() => setPicking(true)} />
       {tagRow}
       <BlockNoteRow value={noteText} onChange={setNoteDraft} catId={cat} shell={desk ? "desktop" : "mobile"} />
-      <CategoryGrid selected={cat} onPick={setCat} compact />
+      {!fromRunning && <CategoryGrid selected={cat} onPick={setCat} compact />}
       <Row k="発車" time>
         <Stepper
           value={start}
@@ -672,6 +697,19 @@ export function BlockPanel({ onDone }: PanelProps) {
         )}
       </Row>
       )}
+      {live && (
+        <>
+          <EstimateRow value={estValue} onChange={setEstDraft} />
+          {fallback && (
+            <p className="ns-tt-panel-sub ns-tt-est-fallback">
+              {fallback.source === "task"
+                ? TT_TEXT.EST_FALLBACK_TASK(fmtDur(fallback.min * MIN)).replace(/^；/, "")
+                : `沒預估時用${fallback.source === "category" ? "分類的預設長度" : "保險上限"} ${fmtDur(fallback.min * MIN)}`}
+            </p>
+          )}
+        </>
+      )}
+      {fromRunning && <CategoryGrid selected={cat} onPick={setCat} compact />}
       {mergeRow}
       <Actions>
         {longAsk && (

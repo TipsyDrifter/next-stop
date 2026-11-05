@@ -35,7 +35,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { IconBack, IconChevron } from "../common/icons";
-import { isEditableTarget } from "../shell/hotkeys";
+import { capsOfHotkey, isGuideKey } from "../shell/hotkeys";
 import { dateOf, useCalendar, YEAR_MAX, YEAR_MIN } from "./useCalendarController";
 import "./monthjump.css";
 
@@ -143,7 +143,7 @@ export function MonthJump({ anchor }: MonthJumpProps) {
     // M3 ⑦：跳轉卡開著時 `?`／Ctrl+/ 都不叫快捷鍵指引（開關是本地 state，全域表看不到；不擋會再疊一張卡、Esc 互搶）。
     // 年份欄裡打 `?` 仍是打字，只擋導航模式那一下；Ctrl+/ 連年份欄裡都擋（備援鍵的「輸入框」指視圖裡的行內
     // 輸入框，不是跳轉卡裡的）。React 的 stopPropagation 會一路擋到 window（mock 頁實測）。
-    if ((e.key === "?" && !isEditableTarget(e.target)) || (e.key === "/" && (e.ctrlKey || e.metaKey))) {
+    if (isGuideKey(e)) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -262,7 +262,7 @@ export function MonthJump({ anchor }: MonthJumpProps) {
 
       {/* 第三列：今天（選項 chip，同頁首 DateNav 的「今天」） */}
       <div className="ns-mj-now">
-        <button type="button" className="chip ns-chip" title="跳回本月（Home）" onClick={pickToday}>
+        <button type="button" className="chip ns-chip" title={`跳回本月（${capsOfHotkey("calendar.today")}）`} onClick={pickToday}>
           今天
         </button>
       </div>

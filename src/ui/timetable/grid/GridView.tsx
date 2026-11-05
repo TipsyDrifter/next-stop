@@ -21,6 +21,7 @@
  * - 鍵：Esc＝取消選區（拖到一半＝取消拖曳）；**不攔 Enter**（Enter＝到着，D-時-104）。←／→／T、6、V 由整合席的鍵表接。
  */
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { MIN, colorSlot, fmtDur, gapTotal, recordedTotal, toSpan, totalsByCategory } from "../../../domain/timetable";
 import { CELL_OPTIONS, cellIndexAt, pickCellBlock, rowHoursFor, type RowHours } from "../../../domain/timetableGrid";
 import { TT_TEXT, blockMarker, useTimetableStore, type TimetableShell } from "../../../store/timetableStore";
@@ -138,6 +139,7 @@ const DeskSide = memo(function DeskSide({ dayKey }: { dayKey: string }) {
 });
 
 function DeskHelp() {
+  useHotkeyRevision();
   const W = TT_TEXT.weekUi;
   return (
     <section className="ns-tt-grid-help">

@@ -55,8 +55,7 @@
   background: var(--c, var(--color-ink-faint));
 }
 
-/* ↑↓ 在邊界時禁用：disabled 的 <button> 收不到滑鼠，原因（title）掛在外面這層（同 PopMenu 的作法） */
-.ns-mgr-why { flex: none; display: inline-grid; }
+/* 己-2 A3：列尾的 ↑↓ 收進 ⋯ 了（上移／下移），原本包它們的 .ns-mgr-why 退役 */
 /* 沒有 ⋯ 的列留同寬的空格，讓整欄對齊 */
 .ns-mgr-gap { flex: none; width: var(--ctl-icon); }
 
@@ -67,12 +66,12 @@
 .ns-mgr-row .ns-iconbtn.is-dim[aria-expanded="true"] { opacity: 1; }
 [data-shell="mobile"] .ns-mgr-row .ns-iconbtn.is-dim { opacity: 1; }
 
-/* 已封存：名稱淡墨、↑↓ 的位置換成「已封存」小字（同寬，整欄仍對齊） */
+/* 已封存：名稱淡墨、⋯ 前一格「已封存」小字（己-2 A3 起 ↑↓ 不在列上，小字照字寬） */
 .ns-mgr-row.is-archived .ns-mgr-name,
 .ns-mgr-row.is-archived .ns-mgr-text { color: var(--color-ink-faint); }
 .ns-mgr-row.is-archived .ns-mgr-swatch { opacity: var(--dim); }
 .ns-mgr-tag {
-  flex: none; width: calc(var(--ctl-icon) * 2 + var(--sp-1)); text-align: center;
+  flex: none; padding-inline: var(--sp-1); text-align: center;
   font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint); white-space: nowrap;
 }
 

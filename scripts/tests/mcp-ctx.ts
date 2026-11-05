@@ -21,7 +21,7 @@ export const ALL_WRITE: Record<McpModule, McpAccess> = {
 };
 
 export async function makeCtx(
-  opts: { now?: Date; dayStartHour?: number; longRunMaxMin?: number; access?: Partial<Record<McpModule, McpAccess>> } = {},
+  opts: { now?: Date; dayStartHour?: number; weekStart?: 0 | 1; longRunMaxMin?: number; access?: Partial<Record<McpModule, McpAccess>> } = {},
 ): Promise<McpCtx> {
   const { MemoryNodeRepository, MemorySettingsRepository } = await load<typeof import("../../src/data/memoryRepository.ts")>(
     "../../src/data/memoryRepository.ts",
@@ -34,6 +34,9 @@ export async function makeCtx(
   const { MemoryTicketRepository } = await load<typeof import("../../src/data/memoryTicketRepository.ts")>(
     "../../src/data/memoryTicketRepository.ts",
   );
+  const { MemoryWeekAimRepository } = await load<typeof import("../../src/data/memoryWeekAimRepository.ts")>(
+    "../../src/data/memoryWeekAimRepository.ts",
+  );
   const { todayKey } = await load<typeof import("../../src/lib/date.ts")>("../../src/lib/date.ts");
 
   const nodeRepo = new MemoryNodeRepository();
@@ -42,12 +45,14 @@ export async function makeCtx(
   const tagRepo = new MemoryTagRepository(nodeRepo, noteRepo, settingsRepo, { seed: false });
   const timetableRepo = new MemoryTimetableRepository({ seedDemo: false, nodeRepo, settingsRepo, tagRepo });
   const ticketRepo = new MemoryTicketRepository({ seedDemo: false });
+  const weekAimRepo = new MemoryWeekAimRepository({ nodeRepo, seedDemo: false });
   const dayStartHour = opts.dayStartHour ?? 6;
   const now = opts.now ?? new Date();
   return {
-    deps: { nodeRepo, noteRepo, tagRepo, timetableRepo, ticketRepo },
+    deps: { nodeRepo, noteRepo, tagRepo, timetableRepo, ticketRepo, weekAimRepo },
     today: todayKey(dayStartHour, now),
     dayStartHour,
+    weekStart: opts.weekStart ?? 1,
     now,
     longRunMaxMin: opts.longRunMaxMin ?? 840,
     access: { ...ALL_WRITE, ...opts.access },

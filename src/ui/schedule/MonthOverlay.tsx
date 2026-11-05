@@ -4,6 +4,7 @@
  * 蓋在串流之上（`position:absolute; inset:0` 於 `.m-sch-main`）：暗幕＋從上滑下的面板（星期字 ×7 ＋ 35／42 格）。
  * 開著時週條收合、‹ › 出現在月份鈕右邊翻月（那兩顆在 WeekStrip，月份狀態在 MobileSchedule）；本檔只畫格子。
  * 格：今天＝靛菱形＋靛內環（P7）、選中（focusDay）＝靛內框、月外 .is-out 0.32、過去字淡；點與〆同週條（`DayDots`）。
+ * 那天有車站預定到站＝多一枚 ◎（D-主-380；點了照舊落到那天，那天的清單列出車站）。
  * 點日 ⇒ onPick（父層關覆蓋層、120ms 後 requestScroll）；點暗幕／Esc ⇒ onClose。
  * 元素常駐（開合靠 .is-open 的 visibility／transform 過場），`aria-hidden` 關著時為 true。
  */
@@ -67,6 +68,7 @@ export function MonthOverlay({ open, year, month, today, focusDay, firstDow, mar
         <div className="m-sch-cal-grid">
           {cells.map(({ key, out }) => {
             const d = dateOf(key);
+            const mark = marks.get(key);
             return (
               <button
                 key={key}
@@ -78,7 +80,7 @@ export function MonthOverlay({ open, year, month, today, focusDay, firstDow, mar
                   (key < today ? " is-past" : "") +
                   (key === focusDay ? " is-sel" : "")
                 }
-                aria-label={dayAria(key)}
+                aria-label={dayAria(key) + (mark?.stations?.length ? `，預定到站：${mark.stations.join("、")}` : "")}
                 aria-current={key === focusDay ? "date" : undefined}
                 tabIndex={open ? 0 : -1}
                 onClick={() => onPick(key)}
@@ -86,7 +88,7 @@ export function MonthOverlay({ open, year, month, today, focusDay, firstDow, mar
                 <span className="m-sch-cal-n">
                   <b>{d.getDate()}</b>
                 </span>
-                <DayDots mark={marks.get(key)} />
+                <DayDots mark={mark} showStations />
               </button>
             );
           })}

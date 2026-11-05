@@ -140,7 +140,7 @@ export interface TimetableRepository {
   /** 合併預演；沒有可合併的鄰居回 null。boundIso＝畫面上那一側的界線（上：看的那天的起點；下：min(那天的終點, 現在)） */
   previewMerge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null>;
   /** 合併（§4.4 planMerge）；回 null＝沒得併 */
-  merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null>;
+  merge(id: string, dir: "prev" | "next", boundIso: string): Promise<(MergePreview & { undo: PaintUndo }) | null>;
   /** 給 ①c 的通知格：最近用過的分類 id，依最後一次開始時刻遞減（started_at >= sinceIso、未刪除；最多 limit 個） */
   listRecentCategoryIds(sinceIso: string, limit: number): Promise<string[]>;
 

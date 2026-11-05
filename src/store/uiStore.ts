@@ -36,7 +36,7 @@ export type CalendarView = "month" | "week" | "time" | "stream";
  * M3 ⑥ 的失敗 toast／啟動橫幅按下去要直接落在「備份與還原」那一籤（不記憶，每次開都吃傳進來的值）。
  */
 // v1.1.1 加第四籤 "sync"（同步；契約席先把型別與籤位立好、SettingsPanel 先 disabled，WP8 通車時打開）
-export type SettingsTab = "general" | "backup" | "hotkeys" | "sync" | "assistant";
+export type SettingsTab = "general" | "reminders" | "backup" | "hotkeys" | "sync" | "assistant" | "lostfound";
 
 export interface ToastState {
   message: string;
@@ -219,7 +219,7 @@ interface UiStore {
    * MobileMore 掛載／看到它非 null 就切到 `MobileSync` 並清掉（消費一次）。桌機用 `openSettings("sync")`，不走這個。
    * 收官磨光 Q2-a：多一種 "backup"（備份失敗 toast 的「看原因」落到「更多 › 備份與還原」）。
    */
-  mobileMoreRequest: "sync" | "backup" | null;
+  mobileMoreRequest: "sync" | "backup" | "reminders" | null;
   /**
    * 日曆格內記號的「請重查」計數（接縫 #62；旅客筆記車次④ 0-14）：`useCalendarController` 的記號 effect 把它列進依賴；
    * 線在日記資料變了（同步拉到、本機寫了日記）時呼叫 `bumpCalendarMarks()` ⇒ 目前這個區間的記號重查一次。
@@ -270,6 +270,8 @@ interface UiStore {
   openSyncPage: (shell: "desktop" | "mobile") => void;
   /** 收官磨光 Q2-a：備份頁的深連結——桌機＝設定〈備份與還原〉籤；手機＝「更多 › 備份與還原」 */
   openBackupPage: (shell: "desktop" | "mobile") => void;
+  /** 提醒頁（第五本 ⑨）：桌機開設定〈提醒〉籤；手機切到「更多」並留一張請求（同 openBackupPage） */
+  openRemindersPage: (shell: "desktop" | "mobile") => void;
   /** MobileMore 消費掉深連結 */
   consumeMobileMoreRequest: () => void;
   /** 日曆格內記號請重查（見 `calendarMarksTick`） */
@@ -413,6 +415,14 @@ export const useUiStore = create<UiStore>((set, get) => ({
       return;
     }
     set({ mobileTab: "more", mobileMoreRequest: "backup", hotkeyGuideOpen: false, quickJumpOpen: false });
+  },
+  openRemindersPage: (shell) => {
+    get().hideToast();
+    if (shell === "desktop") {
+      get().openSettings("reminders");
+      return;
+    }
+    set({ mobileTab: "more", mobileMoreRequest: "reminders", hotkeyGuideOpen: false, quickJumpOpen: false });
   },
   consumeMobileMoreRequest: () => set({ mobileMoreRequest: null }),
   bumpCalendarMarks: () => set((s) => ({ calendarMarksTick: s.calendarMarksTick + 1 })),

@@ -45,7 +45,7 @@ export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> 
   tk_templates: { noun: "常用票種", unit: "個" }, // 售票口④
   node_time_overrides: { noun: "班次時刻", unit: "筆" }, // 同步引擎班 D-主-120：逐班時刻覆寫列
   stamps: { noun: "駅スタンプ", unit: "枚" }, // 車庫與回顧 D-主-214
-  week_aims: { noun: "週方針", unit: "句" }, // 戊 D-主-263
+  week_aims: { noun: "方針", unit: "句" }, // 戊 D-主-263
 };
 
 const UNKNOWN_NOUN = { noun: "一筆資料", unit: "筆" } as const;

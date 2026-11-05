@@ -106,7 +106,7 @@ export const TIMETABLE_MOUNT: LineMount = {
     {
       id: "timetable.notice",
       label: "時刻表的通知",
-      sub: "運行中顯示、跑太久提醒、分類格",
+      sub: "運行中顯示、分類格",
       open: (shell) =>
         void (async () => {
           // 載入失敗（錯誤已寫進 store.error）就停在時刻表頁，不開面板、不留沒人接的 rejection

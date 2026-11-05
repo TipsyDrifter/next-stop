@@ -155,7 +155,7 @@ export function RoutePanel({ route }: { route: NodeRow }) {
           )
         }
         right={
-          <ActionButton ariaLabel="刪除路線" title="刪除這條路線（6 秒內可復原）" tone="danger" onClick={removeRoute}>
+          <ActionButton ariaLabel="刪除路線" title="刪除這條路線（30 天內可在「最近刪除」撿回）" tone="danger" onClick={removeRoute}>
             刪除路線
           </ActionButton>
         }

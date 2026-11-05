@@ -8,7 +8,8 @@
  *
  * 點一則＝選中並展開去處列（再點一次收起）；去處按鈕 ≥44px、三欄可兩排：
  *   筆記：變待辦（開全螢幕預覽）／留作筆記／記成日記（車次②：歸屬日＝筆記寫下那天）／刪除
- *   車票：排今天／排明天／排某天（日期面板）／掛進列車（挑選器：只列車與車廂可選）／掛上路線（挑選器：只路線）／刪除
+ *   車票：排今天／排明天／排某天（日期面板）／更多…（己-2 A5，D-主-414：動作清單 sheet——掛進列車（挑選器：只列車與車廂可選）、
+ *     掛上路線（挑選器：只路線）、荷札…、刪除；原本七顆攤開）
  * 寫入與 toast（含「復原」）都在 notesStore 的動作裡（契約 §3.6／§5.8）；本元件只轉呼叫。
  * 受付章 42px（D-筆-31，車次②；原 26px 太小讀不出日期）。「排某天」用共用的手機日期面板（D-筆-30）。
  *
@@ -29,6 +30,7 @@ import type { NoteListItem } from "../../../data/noteRepository";
 import { UketsukeSeal } from "../UketsukeSeal";
 import { EmptyState } from "../../common/EmptyState";
 import { MobileAttachPicker } from "../../common/MobileAttachPicker";
+import { MSheet, MSheetItem } from "../../common/MSheet";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { nextMonday, shortDay } from "./dayKeys";
 import { useBackLayer } from "../../mobile/backStack";
@@ -41,7 +43,8 @@ function hhmm(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-type Pop = { id: string; kind: "someday" | "attach" | "route" } | null;
+type PopKind = "someday" | "attach" | "route" | "more";
+type Pop = { id: string; kind: PopKind } | null;
 
 export function MobileNoteInbox({ ready }: { ready: boolean }) {
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
@@ -126,13 +129,15 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
                   sel={isSel(it)}
                   onToggle={() => toggle(it)}
                   onPop={(kind) => setPop({ id: it.id, kind })}
+                  more={pop?.id === it.id && pop.kind === "more"}
+                  onCloseMore={() => setPop(null)}
                 />
               ),
             )}
           </ul>
         </>
       )}
-      {pop && <TicketPop pop={pop} onClose={() => setPop(null)} />}
+      {pop && pop.kind !== "more" && <TicketPop pop={{ id: pop.id, kind: pop.kind }} onClose={() => setPop(null)} />}
     </>
   );
 }
@@ -195,12 +200,17 @@ function TicketCard({
   sel,
   onToggle,
   onPop,
+  more,
+  onCloseMore,
 }: {
   t: NodeRow;
   day: string;
   sel: boolean;
   onToggle(): void;
-  onPop(kind: "someday" | "attach" | "route"): void;
+  onPop(kind: PopKind): void;
+  /** 「更多」的動作清單開著（只會開在選中的那一張） */
+  more: boolean;
+  onCloseMore(): void;
 }) {
   const scheduleTicket = useNotesStore((s) => s.scheduleTicket);
   const deleteTicket = useNotesStore((s) => s.deleteTicket);
@@ -229,7 +239,8 @@ function TicketCard({
           </span>
         </button>
         {sel && (
-          <div className="ns-notes-mdest" role="group" aria-label="去處">
+          // 己-2 A5（D-主-414）：面上留排日期的三顆＋「更多」；掛進列車、掛上路線、荷札、刪除收進「更多」的動作清單
+          <div className="ns-notes-mdest is-four" role="group" aria-label="去處">
             <button type="button" className="ns-notes-mact" onClick={() => void scheduleTicket(t.id, today)}>
               排今天
             </button>
@@ -237,25 +248,37 @@ function TicketCard({
               排明天
             </button>
             <button type="button" className="ns-notes-mact" onClick={() => onPop("someday")}>
-              挑日期</button>
-            <button type="button" className="ns-notes-mact" onClick={() => onPop("attach")}>
-              掛進列車
+              挑日期
             </button>
-            <button type="button" className="ns-notes-mact" onClick={() => onPop("route")}>
-              掛上路線
-            </button>
-            {/* 掛荷札（D-筆-48）：手機上沒日期沒路線的臨時票唯一的入口——與桌機側板的荷札欄對等 */}
-            <button
-              type="button"
-              className="ns-notes-mact"
-              onClick={() => openPicker({ mode: "entity", entityType: "node", entityId: t.id, name: t.name })}
-            >
-              荷札…
-            </button>
-            <button type="button" className="ns-notes-mact quiet ns-btn-danger" onClick={() => void deleteTicket(t.id)}>
-              刪除
+            <button type="button" className="ns-notes-mact" aria-haspopup="dialog" onClick={() => onPop("more")}>
+              更多…
             </button>
           </div>
+        )}
+        {more && (
+          <MSheet list title={t.name} onClose={onCloseMore} backId="notes.inbox.more" backKind="sheet">
+            <MSheetItem onClick={() => onPop("attach")}>掛進列車…</MSheetItem>
+            <MSheetItem onClick={() => onPop("route")}>掛上路線…</MSheetItem>
+            {/* 掛荷札（D-筆-48）：手機上沒日期沒路線的臨時票唯一的入口——與桌機側板的荷札欄對等 */}
+            <MSheetItem
+              onClick={() => {
+                onCloseMore();
+                openPicker({ mode: "entity", entityType: "node", entityId: t.id, name: t.name });
+              }}
+            >
+              荷札…
+            </MSheetItem>
+            <MSheetItem
+              cut
+              danger
+              onClick={() => {
+                onCloseMore();
+                void deleteTicket(t.id);
+              }}
+            >
+              刪除
+            </MSheetItem>
+          </MSheet>
         )}
       </article>
     </li>
@@ -264,7 +287,7 @@ function TicketCard({
 
 /* ───────── 車票的三個小面板（排某天／掛進列車／掛上路線） ───────── */
 
-function TicketPop({ pop, onClose }: { pop: NonNullable<Pop>; onClose(): void }) {
+function TicketPop({ pop, onClose }: { pop: { id: string; kind: Exclude<PopKind, "more"> }; onClose(): void }) {
   const scheduleTicket = useNotesStore((s) => s.scheduleTicket);
   const attachTicket = useNotesStore((s) => s.attachTicket);
   const tagTicket = useNotesStore((s) => s.tagTicket);

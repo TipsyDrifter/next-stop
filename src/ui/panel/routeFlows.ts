@@ -16,6 +16,8 @@ import { todayKey } from "../../lib/date";
 import { collectDeleteHints, withDeleteHints } from "../../lines/deleteHints";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { aimsOfKey, stationKeyOf } from "../../domain/weekAims";
+import { weekAimRepo } from "../../data/weekAimRepository";
 import {
   childRouteCount,
   lineDeleteConfirm,
@@ -24,6 +26,7 @@ import {
   nextRouteAfterDelete,
   routeDeleteConfirm,
   routeDeletedToast,
+  stationArrivedToast,
   stationDeletedToast,
 } from "./routeFlowRules";
 
@@ -169,10 +172,36 @@ export function addStation(routeId: string, name: string): Promise<NodeRow | nul
   return ns().createNode({ kind: "station", name, parentId: routeId });
 }
 
-/** 到站章：沒到＝寫今天（依日界線）；到了＝取消（null）。回傳切換後是不是到站 */
-export function toggleStationArrived(st: NodeRow): boolean {
+export interface StationArriveOptions {
+  /** 提示上的「回顧」（D-主-374）：入口自己開車站小卡的回顧，這裡不畫東西 */
+  onReview?: () => void;
+}
+
+/** 這站有活著的方針嗎（讀失敗當沒有：提示是加分，不能卡住蓋章） */
+function stationHasAims(id: string): Promise<boolean> {
+  const key = stationKeyOf(id);
+  return weekAimRepo.listKeys([key]).then(
+    (rows) => aimsOfKey(rows, key).length > 0,
+    () => false,
+  );
+}
+
+/**
+ * 到站章：沒到＝寫今天（依日界線）；到了＝取消（null）。回傳切換後是不是到站。
+ * 蓋章時那站有方針 ⇒ 提示附「回顧」，不自動彈（D-主-374）。
+ * toast 是單槽：先出這則再寫入——駅スタンプ的提示在寫入之後才到，看到有動作鈕的 toast 會等它收掉再出（StampNotifier 的 showWhenFree），兩則都看得到；
+ * 反過來先寫入，這則會把章的提示蓋掉。
+ */
+export function toggleStationArrived(st: NodeRow, opts: StationArriveOptions = {}): boolean {
   const next = !st.arrived_on;
-  void ns().updateNode(st.id, { arrived_on: next ? todayKey(ui().dayStartHour) : null });
+  const write = () => ns().updateNode(st.id, { arrived_on: next ? todayKey(ui().dayStartHour) : null });
+  const { onReview } = opts;
+  if (next && onReview) {
+    void stationHasAims(st.id).then((has) => {
+      if (has) ui().showToast({ message: stationArrivedToast(st.name), actionLabel: "回顧", onAction: onReview });
+      return write();
+    });
+  } else void write();
   return next;
 }
 

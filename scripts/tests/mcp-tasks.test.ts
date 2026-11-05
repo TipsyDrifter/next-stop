@@ -282,6 +282,20 @@ test("reschedule-tasks：繰越寫 carried_from、清執行日、改時刻；挑
   assert.deepEqual(times, ["07:00", null]);
 });
 
+test("reschedule-tasks：定期券帶別天＝這一班改到那天，帶時刻一起搬；那天有班擋下（⑥ D-主-295）", async () => {
+  const ctx = await makeCtx();
+  const s = await seed(ctx);
+  const repo = ctx.deps.nodeRepo;
+  const day3 = addDays(ctx.today, 3);
+  await repo.setRepeatRule(s.t1.id, fixedRule("daily", ctx.today, { interval: 3 }), ctx.today, ctx.dayStartHour);
+  const o = await call("reschedule-tasks", { tasks: [{ id: s.t1.id, date: addDays(ctx.today, 1), time: "09:30" }] }, ctx);
+  assert.equal(o.data[0].to.date, addDays(ctx.today, 1));
+  assert.equal(o.data[0].to.time, "09:30");
+  await assert.rejects(call("reschedule-tasks", { tasks: [{ id: s.t1.id, date: day3 }] }, ctx), isUserError(/已經有一班/));
+  await assert.rejects(call("reschedule-tasks", { tasks: [{ id: s.t1.id, date: null }] }, ctx), isUserError(/定期券/));
+  assert.equal((await repo.getNode(s.t1.id)).scheduled_on, addDays(ctx.today, 1));
+});
+
 test("skip-tasks：運休／取消運休；一般車票擋下", async () => {
   const ctx = await makeCtx();
   const s = await seed(ctx);

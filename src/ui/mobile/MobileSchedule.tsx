@@ -37,15 +37,16 @@
  *   - 多選：長按原地放開＝選起來（scope "schedule"，存節點 id——定期券同一張在好幾天出現時一起標，批量動作本來就是對節點）；
  *     多選中點卡片＝加選／取消；選取列＝MobileSelectionBar。
  *   - 拖到另一天的日期標頭＝改期（標頭帶 `data-drop-target={日期}`、`data-drop-type="date"`；串流是推導順序，`slots:false`）；
- *     寫入＝batchSetDate（一則「已改期」＋復原）。拖不動的：定期券（班次由規則排）、已交代、唯讀班次——長按照樣選得起來。
- *     拖到過去的日子不收（補記走 ⋯「日期…」）；收合的空白區間要先攤開才有那天的標頭。
+ *     寫入＝batchSetDate（一則「已改期」＋復原）；只拖一張定期券＝只改這一班（⑥ D-主-295，moveRunFlow；來源那天就是那一班），多選維持不動定期券。
+ *     拖不動的：已交代、唯讀班次、締切卡的定期券（講不出哪一班）——長按照樣選得起來。
+ *     拖到過去的日子不收（單發票補記走 ⋯「日期…」）；收合的空白區間要先攤開才有那天的標頭。
  *   - 滑動手勢：右滑＝蓋済（同検印 actions.stamp）、左滑＝⋯ 第一格（明天／晚一天；定期券＝本班運休）。
  *   - 每天各有自己的清單容器（DragList）：共用元件把「清單自己裡面的落點」當縫不當外部落點，所以容器不能是整條串流。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import { dayCount, dayCountParts } from "../../domain/dayCount";
-import type { DueEntry } from "../../data";
+import { REPEAT_RESCHEDULE_MSG, type DueEntry } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays } from "../../lib/date";
@@ -63,9 +64,11 @@ import { MonthOverlay } from "../schedule/MonthOverlay";
 import { MobileTicket } from "./MobileTicket";
 import { MobileTicketSheet } from "./MobileTicketSheet";
 import { moveNodeTo } from "../common/moveTo";
+import { moveRunFlow } from "../outline/nodeFlows";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { useBackLayer } from "./backStack";
-import { deleteTicket, liveChildCount, logTicket, renameTicket } from "./useMobileToday";
+import { logTicket, renameTicket } from "./useMobileToday";
+import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { batchSetDate } from "../../store/batchActions";
 import { useSelectionStore } from "../../store/selectionStore";
 import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
@@ -73,10 +76,16 @@ import { sheetDeferItems } from "../schedule/streamModel";
 import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { MobileSelectionBar } from "./MobileSelectionBar";
 import { isSelecting, pressSelect, tapSelect, usePressedSwipe, usePruneSelection, useScopeSelection, type SwipePair } from "./mobileSelect";
-import { IconPlus } from "../common/icons";
+import { IconChevron, IconPlus } from "../common/icons";
 import { MobileQuickAdd, NO_DEST, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import "../schedule/schedule-mobile.css";
 import { MobileWeekAims } from "../weekAims/MobileWeekAims";
+import { StationMark } from "../weekAims/parts";
+import { useStationCard } from "../weekAims/StationCard";
+import { periodOfKey, periodRangeOf, stationDayMarks, type AimPeriod, type StationDayMark } from "../../domain/weekAims";
+import { useAimLanding } from "../search/aimLanding";
+import { compareSiblings } from "../../domain/nodeOrder";
+import { MobileAimsLine } from "../weekAims/MobileAimsLine";
 
 /**
  * 行程表清單的拖曳／多選／滑動（回饋乙）：MobileSchedule 做一份穩定的物件（函式讀 ref 裡的最新狀態），每天的 DragList 吃它。
@@ -117,9 +126,6 @@ function DragList({ keys, drag, label, children }: { keys: string[]; drag: Sched
   );
 }
 
-/** 定期券長按後一動：抖一下說為什麼（data 層那句 REPEAT_RESCHEDULE_MSG 指的是桌機的 U／. 鍵，手機改指 ⋯ 與左滑） */
-const REPEAT_NO_DRAG_MSG = "定期券的班次由規則排定，不能拖到別天——跳過這一班用 ⋯ 或往左滑";
-
 /** ⋯ sheet 整個流程的返回層 id（本頁登記、MobileTicketSheet 的每張 MSheet 用同一個 id 合併） */
 const SCHEDULE_SHEET_LAYER = "core.scheduleSheet";
 
@@ -135,6 +141,8 @@ interface YearMonth {
   /** 0 起 */
   m: number;
 }
+
+const AIM_LANDS_ON: readonly AimPeriod[] = ["week", "month"];
 
 function ymOf(day: string): YearMonth {
   return { y: Number(day.slice(0, 4)), m: Number(day.slice(5, 7)) - 1 };
@@ -218,6 +226,11 @@ export function MobileSchedule() {
     [routeById],
   );
 
+  /* ───────── 那天預定到站的車站（D-主-380）：月曆一枚 ◎，當日清單列出來、點了開車站小卡 ───────── */
+  const allStations = useNodeStore((s) => s.stations);
+  const stationMarks = useMemo(() => stationDayMarks([...allStations].sort(compareSiblings), routes), [allStations, routes]);
+  const stationCard = useStationCard();
+
   /* ───────── 週條／月曆的點與〆（從串流視窗的切片算） ───────── */
   const marks = useMemo(() => {
     const m = new Map<string, DayMark>();
@@ -236,8 +249,9 @@ export function MobileSchedule() {
       mk.dots.push({ color: route?.color ?? "var(--route-none)", done: e.is_done || e.occurrence_status === "skipped" });
     }
     for (const d of calendar.dues) at(d.date).due = true;
+    for (const [day, list] of stationMarks) at(day).stations = list.map((x) => x.station.name);
     return m;
-  }, [calendar.entries, calendar.dues, calendar.nodes, routeOf]);
+  }, [calendar.entries, calendar.dues, calendar.nodes, routeOf, stationMarks]);
 
   /* ───────── 月份字：月曆關著跟串流（focusDay）走、停到別週時用那週；開著跟月曆走 ───────── */
   useEffect(() => {
@@ -271,6 +285,13 @@ export function MobileSchedule() {
     setLabel(ymOf(isTime ? tgPage : (useScheduleUiStore.getState().focusDay ?? today)));
   }, [today, isTime, tgPage]);
   const toggleCal = useCallback(() => (calOpen ? closeCal() : openCal()), [calOpen, closeCal, openCal]);
+  // 完整搜尋點了一句方針（辛 D-主-382）：月方針＝打開月曆翻到那個月，那一行看那個月；週方針＝月曆收起來，那一行才是週（搜尋疊在這頁上，月曆可能開著）
+  useAimLanding(AIM_LANDS_ON, (key) => {
+    if (periodOfKey(key) === "month") {
+      setCalOpen(true);
+      showMonth(ymOf(periodRangeOf(key).from));
+    } else if (calOpen) closeCal();
+  });
   const shiftMonth = useCallback(
     (n: 1 | -1) => {
       const first = `${label.y}-${String(label.m + 1).padStart(2, "0")}-01`;
@@ -329,6 +350,13 @@ export function MobileSchedule() {
     streamAlignRef.current = null;
     jump(day, false);
   }, [layout, jump]);
+  // ⑨ 提醒點開「這天有好幾個締切」：頁面可能剛掛上，從 store 收
+  const dayReq = useScheduleUiStore((st) => st.dayReq);
+  useEffect(() => {
+    if (!dayReq) return;
+    useScheduleUiStore.getState().requestDay(null);
+    jump(dayReq, false);
+  }, [dayReq, jump]);
   /** 時段畫布籤帶的「＋N」：切回清單並把串流對齊到那一天（未定時的票只有清單看得全） */
   const onTgMore = useCallback((day: string) => {
     streamAlignRef.current = day;
@@ -430,8 +458,9 @@ export function MobileSchedule() {
         const v = viewOf(key);
         if (!v) return "找不到這張票";
         if (v.card.readOnly) return v.card.stampHint ?? "過去的班次不能改";
-        if (v.card.isRepeat) return REPEAT_NO_DRAG_MSG;
         if (v.card.done || v.card.suspended) return SETTLED_DEFER_MSG;
+        // 班次列的來源那天就是那一班；締切卡講的是締切日，不是某一班
+        if (v.card.isRepeat && v.target.kind === "due") return REPEAT_RESCHEDULE_MSG;
         return true;
       },
       // 選中的那張被拖＝選到的每一張（同一個節點只取畫面上第一張卡）
@@ -452,12 +481,20 @@ export function MobileSchedule() {
       },
       resolve: (keys, place) => {
         if (place.kind !== "target" || place.type !== "date") return "拖到日期標頭上＝改到那天";
-        if (place.target < live.current.today) return "過去的日子要用 ⋯「日期…」補記";
+        if (place.target < live.current.today) {
+          return keys.length === 1 && viewOf(keys[0])?.card.isRepeat ? "只能改到今天以後" : "過去的日子要用 ⋯「日期…」補記";
+        }
         if (keys.every((k) => live.current.keyIndex.get(k)?.date === place.target)) return "已經排在這一天";
         return true;
       },
       onDrop: (keys, place) => {
         if (place.kind !== "target" || place.type !== "date") return;
+        // 只拖一張定期券＝只改這一班；多選走批次（批次維持不動定期券，收據會說沒改到的原因）
+        const at = keys.length === 1 ? live.current.keyIndex.get(keys[0]) : undefined;
+        if (at && viewOf(keys[0])?.card.isRepeat) {
+          void moveRunFlow(at.nodeId, at.date, place.target);
+          return;
+        }
         const ids = nodeIdsOf(keys);
         if (ids.length) void batchSetDate(ids, place.target);
       },
@@ -519,8 +556,8 @@ export function MobileSchedule() {
         onLayout={onLayout}
         visibleDays={isTime ? tgVisible : null}
       />
-      {/* 週方針（戊 D-主-262）：週條下方一行，看週條那一週 */}
-      <MobileWeekAims day={shownFocus ?? today} />
+      {/* 方針（戊 D-主-262；辛 §7）：週條下方一行，看週條那一週；展開月曆時看月曆翻到的那個月 */}
+      {calOpen ? <MobileAimsLine aimKey={`M${label.y}-${String(label.m + 1).padStart(2, "0")}`} /> : <MobileWeekAims day={shownFocus ?? today} />}
       <div className="m-sch-main">
         <div
           className={"m-sch-stream" + (isTime ? " is-under" : "")}
@@ -568,6 +605,8 @@ export function MobileSchedule() {
                 onPick={onPick}
                 onCloseDraft={closeDraft}
                 isProgramScrolling={api.isProgramScrolling}
+                stationsOfDay={stationMarks.get(sec.date)}
+                onOpenStation={stationCard.open}
               />
             );
           })}
@@ -607,6 +646,8 @@ export function MobileSchedule() {
       </div>
     </div>
 
+      {stationCard.node}
+
       {sheetView && (
         <MobileTicketSheet
           card={sheetView.card}
@@ -626,7 +667,7 @@ export function MobileSchedule() {
           onRename={(name) => renameTicket(sheetView.card.nodeId, name, sheetView.card.name)}
           onLog={(body) => logTicket(sheetView.card.nodeId, body)}
           onMove={(dest) => void moveNodeTo(sheetView.card.nodeId, dest)}
-          onDelete={() => deleteTicket(sheetView.card.nodeId, sheetView.card.name, liveChildCount(sheetView.card.nodeId))}
+          onDelete={() => void confirmAndDeleteNode(sheetView.card.nodeId)}
           backId={SCHEDULE_SHEET_LAYER}
           onClose={closeSheet}
         />
@@ -706,6 +747,9 @@ interface DaySectionProps {
   onPick(nodeId: string): void;
   onCloseDraft(): void;
   isProgramScrolling(): boolean;
+  /** 那天預定到站的車站（D-主-380）：清單最上面列出來，點了開車站小卡 */
+  stationsOfDay: readonly StationDayMark<NodeRow, NodeRow>[] | undefined;
+  onOpenStation(stationId: string): void;
 }
 
 /** 日期標題（今日／明日帶 .rel；其餘只有 .dt） */
@@ -748,6 +792,8 @@ const DaySection = memo(function DaySection({
   onPick,
   onCloseDraft,
   isProgramScrolling,
+  stationsOfDay,
+  onOpenStation,
 }: DaySectionProps) {
   const selecting = picked.length > 0;
   const { date, rows, dues, past, empty, inRun } = section;
@@ -860,6 +906,15 @@ const DaySection = memo(function DaySection({
           <span className="note">{note}</span>
         </div>
       )}
+
+      {stationsOfDay?.map(({ station, route }) => (
+        <button key={station.id} type="button" className="wa-m-daystn" aria-haspopup="dialog" onClick={() => onOpenStation(station.id)}>
+          <StationMark />
+          <span className="nm">預定到站 {station.name}</span>
+          <span className="rt">{route.name}</span>
+          <IconChevron size={13} />
+        </button>
+      ))}
 
       {models.length > 0 && (
         <DragList keys={models.map((m) => m.card.key)} drag={drag} label={`${mdw(date)} 的班次`}>

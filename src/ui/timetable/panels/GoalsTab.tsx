@@ -137,8 +137,9 @@ export function GoalsTab() {
               {active.map((g, i) => {
                 const menu: PopMenuItem[] = [
                   { key: "edit", label: "編輯…", onSelect: () => edit(g.id) },
-                  { key: "archive", label: T.archive, onSelect: () => void archiveGoal(g.id, true) },
-                  { key: "delete", label: T.remove, cut: true, danger: true, onSelect: () => void deleteGoal(g.id) },
+                  // 己-2 A3：封存與刪除一組、排在上移下移之後（managerRowMenu）
+                  { key: "archive", label: T.archive, cut: true, onSelect: () => void archiveGoal(g.id, true) },
+                  { key: "delete", label: T.remove, danger: true, onSelect: () => void deleteGoal(g.id) },
                 ];
                 return [
                   <ManagerRow

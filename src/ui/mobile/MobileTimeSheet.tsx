@@ -270,6 +270,8 @@ export function MobileTimeSheet({
 
       <ClockInput
         variant="mobile"
+        picker="inline"
+        quick={[]}
         value={msOf(dayDate, min)}
         lo={msOf(dayDate, range.min)}
         hi={msOf(dayDate, range.max)}

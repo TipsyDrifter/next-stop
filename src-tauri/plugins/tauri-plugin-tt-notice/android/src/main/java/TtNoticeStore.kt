@@ -2,12 +2,15 @@
 // 檔名 "tt_notice"、MODE_PRIVATE；App allowBackup="false" ⇒ 不進系統備份。
 // 「重新開始」「改用另一台的」只清資料庫、不清這份（佇列裡指到不存在分類的発車由 JS 丟掉＝unknownCategory）。
 //
-// 五把鍵（scripts/tests/timetable-notice.test.ts 的 D9 對帳字面值）：
+// 八把鍵（前五把是 scripts/tests/timetable-notice.test.ts 的 D9 對帳字面值）：
 //   "state"        NoticeState JSON（JS post 寫；receiver 樂觀更新時改 running）
 //   "pending"      PendingAction[] JSON（receiver 追加；ackPending 刪）
 //   "reminder"     { blockId, fireAt, title, body, fired }（scheduleReminder 寫；receiver 樂觀更新；fire 設 fired）
-//   "launch"       { ask: blockId | null, open: Boolean }（captureLaunch 寫；takePending 讀完刪）
+//   "launch"       { ask: blockId | null, open: Boolean }（NsNoticeOpenActivity 寫；takePending 讀完刪）
 //   "last_render"  "running:<id>@<epoch>"／"idle@…"／"off@…"／"denied@…"（renderer 寫；status() 回給 JS 對帳）
+//   "rem_items"    ⑨ 提醒清單 JSON 陣列（rem_sync 帶 items 時整份換掉；格式見 NsReminders.kt）
+//   "rem_fired"    { members, inbox }（NsReminders.fire 寫；rem_sync 取走 inbox）
+//   "rem_launch"   點提醒帶回來的 target 字串（TtNoticePlugin 寫；rem_take_launch 讀完刪）
 //
 // 全部讀寫包在 synchronized(lock)（@Command 由 JNI 執行緒呼叫、receiver 在主執行緒，兩邊可能同時動）；寫一律 commit()。
 // Kotlin 只碰：通知、AlarmManager、這份 SharedPreferences。絕不寫 SQLite（Plan 技術底線 5）。
@@ -29,6 +32,9 @@ object TtNoticeStore {
   const val KEY_REMINDER = "reminder"
   const val KEY_LAUNCH = "launch"
   const val KEY_LAST_RENDER = "last_render"
+  const val KEY_REM_ITEMS = "rem_items"
+  const val KEY_REM_FIRED = "rem_fired"
+  const val KEY_REM_LAUNCH = "rem_launch"
 
   /** 所有讀寫共用的鎖（JVM 監視器可重入：外層已持有時內層照樣進得去） */
   val lock = Any()
@@ -159,6 +165,53 @@ object TtNoticeStore {
       val l = parseObject(prefs(ctx).getString(KEY_LAUNCH, null))
       if (l != null) putOrRemove(ctx, KEY_LAUNCH, null)
       return l
+    }
+  }
+
+  /* ───────── ⑨ 提醒（內容與規則都在 NsReminders.kt，這裡只存取） ───────── */
+
+  /** 壞掉的當空清單（只有資料損壞才會發生；下一次 rem_sync 就換新） */
+  fun readRemItems(ctx: Context): JSONArray {
+    synchronized(lock) {
+      val raw = prefs(ctx).getString(KEY_REM_ITEMS, null) ?: return JSONArray()
+      return try {
+        JSONArray(raw)
+      } catch (_: JSONException) {
+        JSONArray()
+      }
+    }
+  }
+
+  fun writeRemItems(ctx: Context, items: JSONArray) {
+    synchronized(lock) {
+      putOrRemove(ctx, KEY_REM_ITEMS, items.toString())
+    }
+  }
+
+  fun readRemFired(ctx: Context): JSONObject? {
+    synchronized(lock) {
+      return parseObject(prefs(ctx).getString(KEY_REM_FIRED, null))
+    }
+  }
+
+  fun writeRemFired(ctx: Context, fired: JSONObject) {
+    synchronized(lock) {
+      putOrRemove(ctx, KEY_REM_FIRED, fired.toString())
+    }
+  }
+
+  fun writeRemLaunch(ctx: Context, target: String) {
+    synchronized(lock) {
+      putOrRemove(ctx, KEY_REM_LAUNCH, target)
+    }
+  }
+
+  /** 讀完即刪 */
+  fun takeRemLaunch(ctx: Context): String? {
+    synchronized(lock) {
+      val t = prefs(ctx).getString(KEY_REM_LAUNCH, null)
+      if (t != null) putOrRemove(ctx, KEY_REM_LAUNCH, null)
+      return t
     }
   }
 

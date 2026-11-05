@@ -280,7 +280,7 @@ const updateDiaryEntries: McpTool = {
 const deleteDiaryEntries: McpTool = {
   name: "delete-diary-entries",
   title: "刪除日記",
-  description: "刪除日記，一次最多 50 篇。刪除可以在 App 裡復原。",
+  description: "刪除日記，一次最多 50 篇。刪掉的 30 天內能在 App 的「最近刪除」撿回。",
   inputSchema: {
     type: "object",
     properties: { ids: { ...ID_LIST, description: "日記 id" } },
@@ -296,7 +296,7 @@ const deleteDiaryEntries: McpTool = {
     // 同 notesStore.deleteDiaryEntry：softDelete
     for (const n of rows) await ctx.deps.noteRepo.softDelete(n.id);
     return {
-      summary: `已刪除 ${rows.length} 篇日記（App 裡可以復原）`,
+      summary: `已刪除 ${rows.length} 篇日記（30 天內能在 App 的「最近刪除」撿回）`,
       data: { deleted: rows.map((n) => ({ id: n.id, date: n.entry_date ?? "", title: entryTitle(n) })) },
       changed: ["notes"],
       toast: `外部助理刪除了 ${rows.length} 篇日記`,

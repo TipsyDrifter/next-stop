@@ -1,12 +1,13 @@
 /**
  * 重複規則草稿的 React 那半——桌機側板 RepeatSection 與手機詳情頁 MobileRepeatSection 共用（手機殼班 D-主-82；純規則在 ./panelRules）。
  *
- * 資料流（M3 ④ WP3）：草稿 → buildRule → 去抖 400ms → `nodeStore.setRepeatRule`；被 repository 擋下（有子項／kind 不對）＝
+ * 資料流（M3 ④ WP3）：草稿 → buildRule → 去抖 400ms → `nodeStore.setRepeatRule`；被 repository 擋下（定期券底下又掛定期券／kind 不對）＝
  *   原句 toast、草稿還原成庫裡的樣子；清成不重複＝toast「已改回乘車券——過去的班次會保留」。規則不完整不送（panelRules 檔頭）。
  * `sent`＝最後一次我方送出的欄位值：props 進來的值跟它一樣＝自己寫回來的，不覆蓋草稿；別處改的（清了規則／引擎推了班次）才重置。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { serializeRule, type NodeRow, type RepeatRule } from "../../domain";
+import { doneRuns, parseRule, serializeRule, type NodeRow, type RepeatRule } from "../../domain";
+import { nodeRepo } from "../../data";
 import { todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
@@ -64,10 +65,26 @@ export function useRepeatDraft(node: NodeRow): { draft: RepeatDraft; push(next: 
   return { draft, push };
 }
 
-/** 存活的直屬子項數（「有子項的列車不能設重複」的那把尺）：當前路線樹裡查得到就用樹，否則退回今日切片帶來的 child_total */
-export function useLiveChildCount(id: string): number {
-  const inTree = useNodeStore((s) => s.tree.byId[id] !== undefined);
-  const treeKids = useNodeStore((s) => s.tree.childrenOf[id]?.length ?? 0);
-  const todayKids = useNodeStore((s) => s.today.byId[id]?.child_total ?? 0);
-  return inTree ? treeKids : todayKids;
+/**
+ * 這張定期券已經做了幾次（「做滿 N 次」旁的字與下限、段頭的「還剩 N 班」；D-主-297）。
+ * 跟著 updated_at 與目前班次重讀：蓋章、撤章、同步進來都會動到其中之一。沒有規則＝0。
+ */
+export function useDoneRuns(node: NodeRow): number {
+  const [n, setN] = useState(0);
+  const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
+  useEffect(() => {
+    const rule = parseRule(node.repeat_rule);
+    if (!rule) {
+      setN(0);
+      return;
+    }
+    let alive = true;
+    void nodeRepo.listOccurrences(node.id).then((list) => {
+      if (alive) setN(doneRuns(rule, list));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [node.id, node.repeat_rule, node.updated_at, node.scheduled_on, occ?.status]);
+  return n;
 }

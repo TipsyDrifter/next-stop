@@ -9,6 +9,7 @@
  * - TT_TEXT 沒有、只有畫面用得到的字放 `SCHED_UI`（回報有列）。
  */
 import { MIN, fmtDur } from "../../../domain/timetable";
+import { capsOfHotkey } from "../../shell/hotkeys.ts";
 import { DUR_SAME_MIN, PLAN_TEXT, fmtPlanDelta, startOnTime, type PlanCompare, type PlanItem } from "../../../domain/timetableSchedule";
 
 /** 畫面專用的字（TT_TEXT 沒有的；契約 §5 與原型的說法） */
@@ -21,7 +22,8 @@ export const SCHED_UI = {
   toToday: "今天",
   yesterday: "昨天",
   tomorrow: "明天",
-  deskKeys: "← → 換日・T 今天・以 15 分為單位拖曳",
+  deskKeys: () =>
+    `${capsOfHotkey("timetable.day.prev")} ${capsOfHotkey("timetable.day.next")} 換日・${capsOfHotkey("timetable.day.today")} 今天・以 15 分為單位拖曳`,
   pastNote: "過去的日子只能查看，無法調整。",
   noRecord: "沒有紀錄",
   trayNoteEdit: "拖到預定欄，或點選車票再點位置",

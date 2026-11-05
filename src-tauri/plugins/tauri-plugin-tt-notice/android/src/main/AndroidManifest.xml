@@ -17,6 +17,14 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <!-- 點通知的中繼頁：落點先存好再開 App，自己不畫東西、馬上結束（理由見 NsNoticeOpenActivity.kt） -->
+        <activity
+            android:name="app.shitetsu.nextstop.ttnotice.NsNoticeOpenActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <receiver android:name="app.shitetsu.nextstop.ttnotice.TtActionReceiver" android:exported="false" />
         <receiver android:name="app.shitetsu.nextstop.ttnotice.TtReminderReceiver" android:exported="false" />
         <!-- exported="false" 收開機廣播的寫法同 notification 2.3.3 的 LocalNotificationRestoreReceiver。

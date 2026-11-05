@@ -33,6 +33,8 @@
  *   天空由 App.tsx 統一掛（density full／train false），本檔不碰。側欄「我的路線」在今日頁保留（Sidebar 負責）。
  */
 import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { capsOfHotkey } from "../shell/hotkeys";
 import type { NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
@@ -59,6 +61,7 @@ import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
 import { WeekAimsBand } from "../weekAims/WeekAimsBand";
+import { useStationCard } from "../weekAims/StationCard";
 import "./today.css";
 // 票面時刻（.tm）、「未定時・照手排」小標、現在線、頁首「下一班」的樣式寫在 schedule.css（today.css 本班不准碰）
 import "../schedule/schedule.css";
@@ -144,6 +147,7 @@ function NowLine({ text }: { text: string }): ReactNode {
 }
 
 export function TodayView() {
+  useHotkeyRevision();
   const containerRef = useRef<HTMLDivElement>(null);
   const c = useTodayController(containerRef);
   const onKeyDown = useTodayKeyboard(c.keys, c.blocked);
@@ -189,7 +193,7 @@ export function TodayView() {
     root: lateList,
     items: c.lateRows.map((r) => ({ id: r.id })),
     slots: false,
-    canDrag: () => "誤點區的票不能拖——要排到今天請按 T",
+    canDrag: () => `誤點區的票不能拖——要排到今天請按 ${capsOfHotkey("today.schedule.today")}`,
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
     onDrop: () => undefined,
   });
@@ -234,6 +238,9 @@ export function TodayView() {
 
   /** 紀念章上的站名（章面窄：六字以上截成五字＋…） */
   const stampName = nextStation ? (nextStation.name.length > 6 ? `${nextStation.name.slice(0, 5)}…` : nextStation.name) : "";
+
+  // 紀念章點了開車站小卡（方針擴充 辛 §3 #7）
+  const stationCard = useStationCard();
 
   const noRows = c.rows.length === 0 && !c.draft;
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
@@ -336,23 +343,38 @@ export function TodayView() {
           stamp={<DateSeal date={day} size={76} title={`日付印 ${c.dateKey}`} />}
           emblem={
             nextStation ? (
-              <StationStamp
-                size={92}
-                arcLabel={`${stationRoute?.code ? `${stationRoute.code} LINE · ` : ""}NEXT STATION`}
-                caption="下一站"
-                name={stampName}
-                percent={milestonePct}
-                statusText="進行中"
+              <button
+                type="button"
+                className="wa-emblem"
+                aria-haspopup="dialog"
+                aria-label={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%，看這一站`}
                 title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}
-              />
+                onClick={(e) => stationCard.open(nextStation.id, e.currentTarget)}
+              >
+                <StationStamp
+                  size={92}
+                  arcLabel={`${stationRoute?.code ? `${stationRoute.code} LINE · ` : ""}NEXT STATION`}
+                  caption="下一站"
+                  name={stampName}
+                  percent={milestonePct}
+                  statusText="進行中"
+                  title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}
+                />
+              </button>
             ) : undefined
           }
           emblemCompact={
             nextStation ? (
-              <span title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}>
+              <button
+                type="button"
+                className="wa-emblem-c"
+                aria-haspopup="dialog"
+                title={`下一站 ${nextStation.name}，里程 ${Math.round(milestonePct)}%`}
+                onClick={(e) => stationCard.open(nextStation.id, e.currentTarget)}
+              >
                 <EmblemMini percent={milestonePct} />
                 下一站 <b>{stampName}</b> {Math.round(milestonePct)}%
-              </span>
+              </button>
             ) : undefined
           }
           // 空狀態出現時「＋」交給空狀態那一顆（同一動作同頁一個入口，規範 §2.7）；第一次載入回來前也先不畫，免得閃一下
@@ -366,6 +388,7 @@ export function TodayView() {
 
         {/* 週方針（戊 D-主-262）：頁首下方一張告示；落點等甲、② 的頁首改動合進來再對 */}
         <WeekAimsBand />
+        {stationCard.node}
 
         {/* ═══ 誤點區（置頂＝r1；含 D-③-7 浮上來的締切段） ═══ */}
         {c.lateRows.length > 0 && (

@@ -149,9 +149,9 @@ function BudgetLineRow(props: {
   const isTotal = scope.kind === "total";
   const confirmRemove = () =>
     useUiStore.getState().askConfirm({
-      title: "移除這個預算？",
-      body: `「${label}」的預設和各月單獨設定的金額會一起移除。`,
-      confirmLabel: "移除",
+      title: "刪除這個預算？",
+      body: `「${label}」的預設和各月單獨設定的金額會一起刪除；6 秒內可從底部提示復原。`,
+      confirmLabel: "刪除",
       danger: true,
       onConfirm: () => void store().removeBudget(scope, null),
     });

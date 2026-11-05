@@ -42,6 +42,12 @@ class ReminderArgs {
   lateinit var body: String
 }
 
+/** ⑨ 提醒清單的 JSON 字串（JS 端 JSON.stringify）；省略或 null＝只取 fired，不動清單也不重排 */
+@InvokeArg
+class RemSyncArgs {
+  var items: String? = null
+}
+
 @TauriPlugin
 class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
   companion object {
@@ -53,26 +59,29 @@ class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
     fun notifyPending(count: Int) {
       instance?.trigger("pending", JSObject().put("count", count))
     }
+
+    /** ⑨ 點了提醒（NsNoticeOpenActivity 已把落點存好）⇒ 通知 JS 來取；App 沒活著就什麼都不做（JS 啟動時自己會取） */
+    fun notifyReminderOpen(target: String) {
+      instance?.trigger("reminder-open", JSObject().put("target", target))
+    }
   }
 
   override fun load(webView: WebView) {
     super.load(webView)
     instance = this
     TtNoticeRenderer.ensureChannels(activity)
-    captureLaunch(activity.intent)
     captureShare(activity.intent)
   }
 
-  /** 點提醒／點通知本體回 App（launchMode singleTask ⇒ 走這裡）：記下 launch，叫 JS 來取 */
+  /** launchMode singleTask ⇒ App 開著時別的 App 分享進來走這裡。點通知不經過這裡（NsNoticeOpenActivity） */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    if (captureShare(intent)) return
-    if (captureLaunch(intent)) notifyPending(TtNoticeStore.pendingCount(activity))
+    captureShare(intent)
   }
 
   /**
    * 旅客筆記 ⑤：別的 App 分享文字進來（ACTION_SEND text/plain；intent-filter 在本 plugin 的 manifest，merger 併進 MainActivity）。
-   * 只吃 ACTION_SEND，其他 intent 原樣交給 captureLaunch。從最近任務清單回來會重放原 intent ⇒ 帶 LAUNCHED_FROM_HISTORY 的不收。
+   * 只吃 ACTION_SEND。從最近任務清單回來會重放原 intent ⇒ 帶 LAUNCHED_FROM_HISTORY 的不收。
    * 收過就把 action／extras 拿掉，同一個 Intent（冷啟動的 activity.intent）不會被算第二次。
    */
   private fun captureShare(intent: Intent?): Boolean {
@@ -105,21 +114,6 @@ class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
   @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
   override fun onDestroy() {
     if (instance === this) instance = null
-  }
-
-  /** 從 Intent 取 tt_ask／tt_open 存成 launch（takePending 讀完即刪）；取過就把 extras 拿掉，免得同一個 Intent 再算一次 */
-  private fun captureLaunch(intent: Intent?): Boolean {
-    if (intent == null) return false
-    val ask = intent.getStringExtra(TtNoticeRenderer.EXTRA_ASK)
-    val open = intent.getBooleanExtra(TtNoticeRenderer.EXTRA_OPEN, false)
-    if (ask.isNullOrEmpty() && !open) return false
-    TtNoticeStore.writeLaunch(
-      activity,
-      JSONObject().put("ask", if (ask.isNullOrEmpty()) JSONObject.NULL else ask).put("open", true),
-    )
-    intent.removeExtra(TtNoticeRenderer.EXTRA_ASK)
-    intent.removeExtra(TtNoticeRenderer.EXTRA_OPEN)
-    return true
   }
 
   /** 存 state → 依 state 貼或收 72501（enabled=false ⇒ 收） */
@@ -223,6 +217,31 @@ class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
       TtNoticeRenderer.cancelReminderNotice(activity)
     }
     invoke.resolve()
+  }
+
+  /**
+   * ⑨ resolve({ fired: [{ key, kind, memberKeys, at, title, body, target }], exactAlarm })；fired＝自上次以來響過的，回傳後清空。
+   * 帶 items ⇒ 存清單、貼已到期的、排下一個（這趟貼的也算在 fired 裡）；省略或 null ⇒ 只取 fired。
+   * JS 每趟先空手取一次、記進帳本再算新清單，否則總結的成員變動時可能重響（reminders.ts 的 memberKeys）。
+   */
+  @Command
+  fun remSync(invoke: Invoke) {
+    val raw = invoke.parseArgs(RemSyncArgs::class.java).items
+    if (raw != null && !NsReminders.sync(activity, raw)) {
+      invoke.reject("tt-notice rem_sync：items 不是 JSON 陣列")
+      return
+    }
+    val res = JSObject()
+    res.put("fired", NsReminders.takeFired(activity))
+    res.put("exactAlarm", TtReminder.canExact(activity))
+    invoke.resolve(res)
+  }
+
+  /** ⑨ resolve({ target: string | null })；讀完即刪 */
+  @Command
+  fun remTakeLaunch(invoke: Invoke) {
+    val target = TtNoticeStore.takeRemLaunch(activity)
+    invoke.resolve(JSObject().put("target", target ?: JSONObject.NULL))
   }
 
   /** resolve({ exactAlarm, notificationsEnabled, pendingCount, reminderFireAt: Long?, lastRender }) */

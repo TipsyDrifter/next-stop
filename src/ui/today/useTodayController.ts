@@ -18,7 +18,7 @@
  * **定期券口徑（M3 ④，與 TodayRow 同一把尺）**：是不是定期券只看 `parseRule(repeat_rule)`；
  *   「済了沒」活著的定期券看 `row.occurrence.status`、其餘看 `row.status`；
  *   「已交代」＝ occurrence 非 null（済或運休）或 status done——頁首統計與 1.0d 慶祝吃的是這個。
- *   單次改期（`T`／`Shift+T`／推遲小卡的日期三項）對定期券一律擋下並吐 REPEAT_RESCHEDULE_MSG。
+ *   單次改期（`T`／`Shift+T`／推遲小卡）對定期券＝只改這一列那一班（⑥ D-主-295，走 moveRunFlow）；講不出哪一班才吐 REPEAT_RESCHEDULE_MSG。
  *
  * 取捨：
  * - 新增走「本地草稿列 → 提交才 createNode」（空白／Esc 不產生垃圾節點），鏡射 useOutlineController。
@@ -28,6 +28,7 @@
  *   StrictMode 雙掛載可重入（雷區 5，照 ambience 的 clear 模式）。
  */
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { capsOfHotkey } from "../shell/hotkeys";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { dayCount, type DayCountItem } from "../../domain/dayCount";
@@ -35,9 +36,11 @@ import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { addDays, todayKey } from "../../lib/date";
 import { lineTodayHotkey } from "../../lines/runtime";
 import { requestMoveTo } from "../common/moveTo";
+import { moveRunFlow } from "../outline/nodeFlows";
 import { rowsOf, type PopMenuItem } from "../common/PopMenu";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
@@ -394,31 +397,16 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
 
   /* ───────── 刪除流（a11／D3：soft delete＋undo） ───────── */
   const deleteRow = (id: string) => {
-    const row = ns().today.byId[id];
-    if (!row) return;
-    const run = async () => {
-      const ids = visibleIds();
-      const i = ids.indexOf(id);
-      const next = ids[i + 1] ?? (i > 0 ? ids[i - 1] : null) ?? null;
-      const removed = await ns().deleteNode(id);
-      ui().select(next);
-      ui().showToast({
-        message: `已刪除「${row.name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
-        actionLabel: "復原",
-        onAction: () => void ns().undoDelete(),
-      });
-    };
-    if (row.child_total >= 5) {
-      ui().askConfirm({
-        title: `連同 ${row.child_total} 個子項一起刪除？`,
-        body: `「${row.name}」底下的項目也會一併刪除（6 秒內可復原）。`,
-        confirmLabel: "刪除",
-        danger: true,
-        onConfirm: () => void run(),
-      });
-      return;
-    }
-    void run();
+    if (!ns().today.byId[id]) return;
+    // 確認與 toast 在共用流程（失物招領 §5-6）；這裡只管刪後選哪一列
+    void confirmAndDeleteNode(id, {
+      around: async (del) => {
+        const ids = visibleIds();
+        const i = ids.indexOf(id);
+        const next = ids[i + 1] ?? (i > 0 ? ids[i - 1] : null) ?? null;
+        if (await del()) ui().select(next);
+      },
+    });
   };
 
   /* ───────── 今日手動序（r7；拖曳與 Alt+↑↓ 共用 moveToday） ───────── */
@@ -435,7 +423,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
    * 誤點區不排序；主線②（D-主-10）有時刻的票照時刻排、不能手排（手排座標＝沒時刻的 today 列）；到頂／到底。
    */
   const reorderWhy = (row: TodayRow, delta: -1 | 1): string | null => {
-    if (row.bucket !== "today") return "誤點區的車票不能排序——按 T 可排進今天";
+    if (row.bucket !== "today") return `誤點區的車票不能排序——按 ${capsOfHotkey("today.schedule.today")} 可排進今天`;
     if (timeOfRow(row) !== null) return TIME_FIXED_ORDER_MSG;
     const rs = ns().today.rows;
     if (!manualOrderIds(rs).includes(row.id)) return null;
@@ -472,13 +460,15 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     scheduleSelected(offset) {
       const row = selRow();
       if (!row) return;
-      // 定期券的班次由規則排定（D-④-3）——`T`／`Shift+T` 擋在 UI 這一層，不讓 store throw
-      if (parseRule(row.repeat_rule)) {
-        toast(REPEAT_RESCHEDULE_MSG);
-        return;
-      }
       const key = st.current.dateKey;
       const next = offset ? addDays(key, 1) : key;
+      // 定期券：這一列那一班改到今天／明天（⑥ D-主-295；班次日同 timeOfRow）；已交代的由 moveRunFlow 回原因
+      if (parseRule(row.repeat_rule)) {
+        const from = row.occurrence?.due_on ?? row.scheduled_on;
+        if (from) void moveRunFlow(row.id, from, next);
+        else toast(REPEAT_RESCHEDULE_MSG);
+        return;
+      }
       const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
       void ns().reschedule(row.id, next);
       // `T` 排今天＝票就在眼前，不需要收據；`Shift+T` 票當場消失 → 補一張可反悔的收據（與推遲小卡同款）
@@ -550,8 +540,8 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
    * 依列的情形增減，讓一張卡最多 7 項（規範 §2.4 PopMenu ≤7）：
    *   発車  ＝有線登記 `timetable.today.depart` 才有（時刻表沒通車＝沒有這項）；已交代（済／運休）停用。
    *   推遲  ＝誤點／締切段給「推遲到今天」（T），今天的票給「推遲到明天」（Shift+T）——同一張票只給一項，另一項在「選日期…」裡。
-   *           已蓋済的單發票推遲與「選日期…」都不給（要先取消済章）。
-   *           定期券的班次由規則排定（D-④-3），推遲與「選日期…」都不給；定期券改給「運休／取消運休」（U）。
+   *           已交代（済／運休）的推遲與「選日期…」都不給（要先取消）。
+   *           定期券改的是這一班（⑥ D-主-295）：字換成「這一班改到今天／明天」「這一班改到…」，後面緊接「運休／取消運休」（U）。
    *   移動到…＝選中＋開側板＋側板開挑選器（requestMoveTo，挑選器只有側板一個家）。
    * 每一項先選中該列、焦點交回今日容器，再走鍵盤表同一條路（大綱 run() 模式）；會開覆蓋層的（記錄列、推遲小卡、側板）由覆蓋層自己搶焦點。
    */
@@ -574,14 +564,23 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         onSelect: run(() => depart(r.id)),
       });
     }
-    // 已交代（済）的單發票不給改期項——跟手機 pickDay、行程表 ⋯ 同一把尺（主人真機抓過「蓋済章了還能推遲到明天」）
-    if (!teiki && !isSettledRow(r)) {
+    // 已交代（済／運休）的不給改期項——跟手機 pickDay、行程表 ⋯ 同一把尺（主人真機抓過「蓋済章了還能推遲到明天」）
+    if (!isSettledRow(r)) {
+      const verb = teiki ? "這一班改到" : "推遲到";
       items.push(
         r.bucket === "today"
-          ? { key: "tomorrow", label: "推遲到明天", hotkeyId: "today.schedule.tomorrow", onSelect: run(() => keys.scheduleSelected(1)) }
-          : { key: "today", label: "推遲到今天", hotkeyId: "today.schedule.today", onSelect: run(() => keys.scheduleSelected(0)) },
-        { key: "pick-date", label: "選日期…", onSelect: run(() => openDefer(r.id, anchor)) },
+          ? { key: "tomorrow", label: `${verb}明天`, hotkeyId: "today.schedule.tomorrow", onSelect: run(() => keys.scheduleSelected(1)) }
+          : { key: "today", label: `${verb}今天`, hotkeyId: "today.schedule.today", onSelect: run(() => keys.scheduleSelected(0)) },
+        { key: "pick-date", label: teiki ? "這一班改到…" : "選日期…", onSelect: run(() => openDefer(r.id, anchor)) },
       );
+    }
+    if (teiki) {
+      items.push({
+        key: "suspend",
+        label: r.occurrence?.status === "skipped" ? "取消運休" : "運休",
+        hotkeyId: "today.suspend",
+        onSelect: run(() => suspendRow(r)),
+      });
     }
     // 回饋甲 D-主-134：補「上移／下移」（鏡射 Alt+↑↓；手機票卡 sheet 有，拖曳是加速）——
     // 跟「移動到…」收成「編排 ▾」（手機 sheet 同一組）；做不到時淡掉、滑過看理由（同 reorderWhy）
@@ -608,16 +607,6 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         onSelect: run(() => keys.reorderSelected(1)),
       },
       { key: "log", label: "記乘務記錄", hotkeyId: "today.log", onSelect: run(() => openLog(r.id)) },
-    );
-    if (teiki) {
-      items.push({
-        key: "suspend",
-        label: r.occurrence?.status === "skipped" ? "取消運休" : "運休",
-        hotkeyId: "today.suspend",
-        onSelect: run(() => suspendRow(r)),
-      });
-    }
-    items.push(
       // 回饋乙：多選的可點入口（Ctrl／Shift＋點是加速）；已在多選中＝把這張加進去
       {
         key: "pick",
@@ -633,9 +622,10 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
       { key: "del", label: "刪除", hotkeyId: "today.delete", cut: true, danger: true, onSelect: run(() => deleteRow(r.id)) },
     );
     // 規範 §2.4 一層 ≤7：超過時（有発車又能推遲的票＝8 列）把改期的兩項收進「改期 ▾」群組（PopMenu group，同大綱「編排 ▾」）。
-    // 算的是頂層列數（群組算一列）
+    // 算的是頂層列數（群組算一列）。定期券多一項運休：有発車時收完還超過，就跟著收進去（它緊接在改期兩項後面，群組連得起來）
     if (rowsOf(items).length > 7) {
       for (const it of items) if (it.key === "tomorrow" || it.key === "today" || it.key === "pick-date") it.group = "改期";
+      if (rowsOf(items).length > 7) for (const it of items) if (it.key === "suspend") it.group = "改期";
     }
     return items;
   };

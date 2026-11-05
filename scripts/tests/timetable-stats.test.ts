@@ -1049,8 +1049,8 @@ describe("14. 評審 #1：面板開的那一塊不在畫面清單裡", () => {
     deleted_at: null,
   });
 
-  test("sheetBlockIdOf：六種帶 blockId 的 sheet 取得到 id；其餘 null", () => {
-    for (const kind of ["longRun", "restart", "edit", "split", "estimate", "link"]) {
+  test("sheetBlockIdOf：帶 blockId 的 sheet 取得到 id；其餘 null", () => {
+    for (const kind of ["longRun", "edit", "split", "tags"]) {
       assert.equal(sheetBlockIdOf({ kind, blockId: "b1" } as { kind: string }), "b1", kind);
     }
     for (const sheet of [null, { kind: "depart" }, { kind: "fill", start: 1, end: 2 }, { kind: "categories" }, { kind: "taskCategory", nodeId: "n1" }, { kind: "goal", goalId: "g" }, { kind: "pendingList", from: 1, to: 2 }]) {

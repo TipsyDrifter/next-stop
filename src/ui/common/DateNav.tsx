@@ -84,14 +84,14 @@ export function DateNav({
   className,
 }: DateNavProps) {
   const [prevWord, nextWord] = UNIT_WORDS[unit];
-  const arrow = (word: string, Glyph: (typeof GLYPH)[keyof typeof GLYPH], onClick: () => void, disabled = false) => (
-    <button type="button" className="ns-iconbtn" aria-label={word} title={word} disabled={disabled} onClick={onClick}>
+  const arrow = (word: string, Glyph: (typeof GLYPH)[keyof typeof GLYPH], onClick: () => void, disabled = false, cls = "") => (
+    <button type="button" className={"ns-iconbtn" + cls} aria-label={word} title={word} disabled={disabled} onClick={onClick}>
       <Glyph />
     </button>
   );
   return (
     <div className={"ns-datenav" + (className ? " " + className : "")} role="group" aria-label={label}>
-      {onPrevYear && arrow("上一年", GLYPH.first, onPrevYear)}
+      {onPrevYear && arrow("上一年", GLYPH.first, onPrevYear, false, " ns-datenav-year")}
       {arrow(prevWord, GLYPH.back, onPrev, prevDisabled)}
       {onTitle ? (
         <button
@@ -110,7 +110,7 @@ export function DateNav({
         </span>
       )}
       {arrow(nextWord, GLYPH.fwd, onNext, nextDisabled)}
-      {onNextYear && arrow("下一年", GLYPH.last, onNextYear)}
+      {onNextYear && arrow("下一年", GLYPH.last, onNextYear, false, " ns-datenav-year")}
       <button
         type="button"
         className="chip ns-chip"

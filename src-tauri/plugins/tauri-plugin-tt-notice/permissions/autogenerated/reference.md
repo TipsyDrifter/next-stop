@@ -1,6 +1,6 @@
 ## Default Permission
 
-時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字
+時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點
 
 #### This default permission set includes the following:
 
@@ -13,6 +13,8 @@
 - `allow-schedule-reminder`
 - `allow-cancel-reminder`
 - `allow-status`
+- `allow-rem-sync`
+- `allow-rem-take-launch`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -151,6 +153,58 @@ Enables the register_listener command without any pre-configured scope.
 <td>
 
 Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-rem-sync`
+
+</td>
+<td>
+
+Enables the rem_sync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-rem-sync`
+
+</td>
+<td>
+
+Denies the rem_sync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-rem-take-launch`
+
+</td>
+<td>
+
+Enables the rem_take_launch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-rem-take-launch`
+
+</td>
+<td>
+
+Denies the rem_take_launch command without any pre-configured scope.
 
 </td>
 </tr>

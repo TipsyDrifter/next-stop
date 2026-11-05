@@ -39,6 +39,13 @@
  * - 常用時刻 chip（`quick`）：照打字同一套規則換成毫秒（resolveClockInput）；換不出來（不在範圍）⇒ disabled＋title 寫為什麼；等於目前值 ⇒ 亮起。
  * - 相對時刻 chip（`relative`）：現在／5 分前／10 分前＝按下那一刻的時鐘取整到分，夾在 [lo, hi]；整段都在範圍外 ⇒ disabled。
  *
+ * 點選（庚 D-主-391；只有新變體，`picker` 預設開著，呼叫端不用改）：
+ * - 桌機：滑鼠點框開 `TimePicker` 錨定浮層，焦點留在框裡、照樣能打字；點錶盤即時生效；點外面、Enter、「完成」收起，Esc 還原成開之前的值再收。
+ *   Tab 離開就收；Alt+↓ 開並把焦點移進錶盤（收起時還給框）。
+ * - 手機：框變唯讀（點了不跳鍵盤），點了開 `MobileTimePicker` 底部 sheet；sheet 上方另一顆可打字的本元件（`picker={false}`）。值在「完成」才送出。
+ * - `picker="inline"`：整張面板都在問時刻的地方（手機 MobileTimeSheet、建票列幾點）直接把錶盤攤在框下面，不再疊一層；框照常打字。
+ * - `openOnMount`：掛上就開（側板「— 不排時刻」點下去，下一步就是挑時間）。
+ *
  * ARIA 與鍵盤：
  * - 框：`aria-label={label}`、打錯時 `aria-invalid`；說明行的預覽／錯字在 `aria-live="polite"`。
  * - Enter＝確定（＋onEnter）；Esc＝草稿有改就還原並 stopPropagation（DialogShell／MobileSheetHost 的 Esc 掛在 window 冒泡階段，擋得住），
@@ -75,6 +82,9 @@ import {
 import { useTimetableStore } from "../../store/timetableStore";
 import { useUiStore } from "../../store/uiStore";
 import { useShell } from "../mobile/useShell";
+import { IconClock } from "./icons";
+import { MobileTimePicker, NowChip, TimePicker } from "./TimePicker";
+import { TimeDial } from "./TimeDial";
 
 export interface ClockInputHandle {
   /** 框裡有沒打完的草稿 */
@@ -113,11 +123,16 @@ export const CLOCK_VARIANT_STEPS: Readonly<Record<ClockVariant, readonly number[
  * root 給「包住時刻框的表單」就好，不必包住按鈕（桌機對話框的按鈕 portal 進黏底 foot、手機的「存」在 MFullPage 頂列）。
  * 只認 `data-tt-unseen`、不認 aria-invalid：看過之後說明行還紅著 4 秒，那段時間再按要照常送出。
  */
+/** 全選框裡的字。唯讀的框（手機，點了開 sheet）不選：Android 會浮出文字選取工具列，蓋在錶盤上吃掉第一下（打包席 AVD 抓到） */
+function selectText(el: HTMLInputElement): void {
+  if (!el.readOnly) el.select();
+}
+
 export function clockDraftsOkIn(root: Element | null | undefined): boolean {
   const bad = root?.querySelector<HTMLInputElement>("input[data-tt-unseen]") ?? null;
   if (!bad) return true;
   bad.focus();
-  bad.select();
+  selectText(bad);
   return false;
 }
 
@@ -143,6 +158,8 @@ export function ClockInput({
   quick,
   relative = false,
   dateLabel = true,
+  picker = "pop",
+  openOnMount = false,
 }: {
   value: number;
   lo: number;
@@ -167,6 +184,10 @@ export function ClockInput({
   relative?: boolean;
   /** 新變體說明行寫不寫日期（UI 丙-5）：true（預設）＝照舊；"other"＝只在不同天時寫；false＝不寫日期也不寫預覽，只寫錯字 */
   dateLabel?: boolean | "other";
+  /** 點選（庚）：預設 "pop"＝點框開選擇器（桌機浮層、手機 sheet）；"inline"＝錶盤攤在框下面（整張面板都在問時刻時）；false＝只打字（選擇器自己裡面那顆框）。舊版 DOM 沒有 */
+  picker?: "pop" | "inline" | false;
+  /** 掛上就開選擇器（只管 picker="pop"） */
+  openOnMount?: boolean;
 }) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const viewDay = useTimetableStore((s) => s.dayKey);
@@ -175,6 +196,16 @@ export function ClockInput({
   const date = clockDateLabel(value, dateRef);
   const mobile = useShell() === "mobile";
   const inputRef = useRef<HTMLInputElement>(null);
+  const inwrapRef = useRef<HTMLSpanElement>(null);
+  /** 選擇器開著；takeFocus＝鍵盤開的，焦點移進錶盤 */
+  const [pickOpen, setPickOpen] = useState<{ takeFocus: boolean } | null>(null);
+  /** 開之前的值（Esc、取消還原用） */
+  const pickFrom = useRef(value);
+  /** 手機 sheet 的草稿：「完成」才送出 */
+  const [sheetValue, setSheetValue] = useState(value);
+  const sheetInput = useRef<ClockInputHandle>(null);
+  const hasPop = !!variant && picker === "pop";
+  const sheetMode = hasPop && mobile;
   const [text, setTextState] = useState(() => fmtClock(value));
   const [hint, setHint] = useState<Hint>(null);
   const [invalid, setInvalid] = useState(false);
@@ -218,7 +249,7 @@ export function ClockInput({
     if (!wantSelect.current) return;
     wantSelect.current = false;
     const el = inputRef.current;
-    if (el && document.activeElement === el) el.select();
+    if (el && document.activeElement === el) selectText(el);
   }, [selectTick, text]);
   const resolve = (raw: string) => {
     const L = live.current;
@@ -266,7 +297,7 @@ export function ClockInput({
     const el = inputRef.current;
     if (!el) return;
     el.focus(); // 面板內捲時捲到看得見（scroll-margin 讓開底部黏住的按鈕列，timetable.css）
-    el.select();
+    selectText(el);
   }, [autoFocus]);
 
   // 手機：軟鍵盤升起時把框捲進可見區
@@ -337,7 +368,7 @@ export function ClockInput({
       const el = inputRef.current;
       if (!el) return;
       el.focus();
-      el.select();
+      selectText(el);
     },
     fails: () => failCount.current,
   }));
@@ -448,6 +479,36 @@ export function ClockInput({
     }
   };
 
+  /* ───────── 選擇器（庚） ───────── */
+
+  const openPicker = (takeFocus: boolean): void => {
+    if (!hasPop || pickOpen) return;
+    pickFrom.current = live.current.value;
+    setSheetValue(live.current.value);
+    setPickOpen({ takeFocus });
+  };
+  /** 收起（值留著）；焦點在卡裡的話還給框 */
+  const closePicker = (): void => {
+    setPickOpen(null);
+    const a = document.activeElement;
+    if (a instanceof Element && a.closest(".ns-timepick")) inputRef.current?.focus();
+  };
+  const cancelPicker = (): void => {
+    setAbs(pickFrom.current);
+    closePicker();
+  };
+  const sheetDone = (): void => {
+    // 手指按「完成」時框已先失焦打錯（已還原＋抖）：放回框裡讓人看過，不默默收起
+    if (!clockDraftsOkIn(document.querySelector(".ns-mtimepick"))) return;
+    const v = sheetInput.current?.flush();
+    if (v === null || v === undefined) return; // 框裡打錯：已還原＋抖一下，留在 sheet 上看
+    setAbs(v);
+    setPickOpen(null);
+  };
+  useEffect(() => {
+    if (openOnMount) openPicker(false);
+  }, []);
+
   /* ───────── 框（兩種長相共用同一顆 input 的行為） ───────── */
 
   const inputProps = {
@@ -462,9 +523,14 @@ export function ClockInput({
     "aria-invalid": invalid,
     "data-tt-unseen": unseen ? "" : undefined,
     value: text,
+    readOnly: sheetMode,
+    "aria-haspopup": hasPop ? ("dialog" as const) : undefined,
+    "aria-expanded": hasPop ? pickOpen !== null : undefined,
+    onClick: () => openPicker(false),
     onChange: (e: ChangeEvent<HTMLInputElement>) => {
       justFocused.current = false;
       settled.current = false; // 按步進鈕時焦點沒離開框（有的引擎點按鈕不給焦點）：又打字了，下一次失焦照常處理
+      pressedDrop.current = false; // 同上：點過錶盤（不搶焦點）又接著打字，打的字不能在失焦時被丟掉
       setText(e.target.value);
       setInvalid(false);
       setUnseen(false);
@@ -491,8 +557,8 @@ export function ClockInput({
         }
         collapseLater();
       }
-      e.currentTarget.select();
-      reveal();
+      selectText(e.currentTarget);
+      if (!sheetMode) reveal(); // 手機點了開 sheet，不跳鍵盤、不用捲
     },
     onMouseUp: (e: MouseEvent<HTMLInputElement>) => {
       // 點進來那一下：mouseup 會把全選取消，擋掉
@@ -522,14 +588,34 @@ export function ClockInput({
     },
     onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+      if (e.altKey && e.key === "ArrowDown" && hasPop) {
+        e.preventDefault();
+        e.stopPropagation();
+        openPicker(true);
+        return;
+      }
+      if (e.key === "Tab" && pickOpen) setPickOpen(null); // 焦點照常往下走
+      if (sheetMode && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        openPicker(true);
+        return;
+      }
       if (e.key === "Enter") {
         e.preventDefault();
         const v = commit(false);
         if (v === null) return;
         clearErr(); // 還原後再按一次 Enter＝確認目前值，也算看過
         selectAll(); // 確定後全選：留在這格接著打＝整格換掉，不會接在舊字後面（真機代驗觀察）；焦點跳走的話無作用
+        setPickOpen(null);
         live.current.onEnter?.();
       } else if (e.key === "Escape") {
+        if (!isDirty() && pickOpen) {
+          // 選擇器開著：先還原、收選擇器，面板不跟著關
+          e.preventDefault();
+          e.stopPropagation();
+          cancelPicker();
+          return;
+        }
         if (!isDirty()) return; // 沒草稿：照舊關面板
         e.preventDefault();
         e.stopPropagation();
@@ -598,11 +684,12 @@ export function ClockInput({
   const footHint: Hint = dateLabel === false && hint?.kind === "ok" ? null : hint;
   const showDate = dateLabel === true || (dateLabel === "other" && date.other);
   const nowMin = Math.floor(Date.now() / MIN) * MIN;
+  const gridBounds = (v: number) => ({ value: v, lo, hi, dayStartHour, baseDay: clockInputRefDay(v, viewDay, dayStartHour) });
   const rangeErr = (ms: number): string | null =>
     ms < lo ? clockInputErrText({ err: "range", side: "early" }, lo, hi) : ms > hi ? clockInputErrText({ err: "range", side: "late" }, lo, hi) : null;
 
   return (
-    <span className={"ns-clock is-" + variant}>
+    <span className={"ns-clock is-" + variant + (picker === "inline" ? " has-inline" : "")}>
       {relative && (
         <span className="ns-clock-quick" role="group" aria-label={`${label}・相對時刻`}>
           {CLOCK_RELATIVE.map((q) => {
@@ -650,10 +737,21 @@ export function ClockInput({
       )}
       <span className="ns-clock-row" role="group" aria-label={label}>
         {left ?? steps.filter((d) => d < 0).map(stepBtn)}
-        <span className={"ns-clock-inwrap" + (shake ? " is-shake" : "") + (invalid ? " is-bad" : "")} onAnimationEnd={() => setShake(0)}>
+        <span
+          ref={inwrapRef}
+          className={"ns-clock-inwrap" + (shake ? " is-shake" : "") + (invalid ? " is-bad" : "") + (hasPop ? " has-picker" : "") + (pickOpen ? " is-open" : "")}
+          onAnimationEnd={() => setShake(0)}
+          onClick={sheetMode ? () => openPicker(false) : undefined}
+        >
           <input {...inputProps} className="techo-input ns-clock-in" />
+          {hasPop && (
+            <span className="ns-clock-pickico" aria-hidden="true">
+              <IconClock size={12} />
+            </span>
+          )}
         </span>
         {right ?? steps.filter((d) => d > 0).map(stepBtn)}
+        {picker === "inline" && <NowChip bounds={gridBounds(value)} onPick={setAbs} />}
       </span>
       <span className={"ns-clock-foot" + (footHint ? " is-" + footHint.kind : "")}>
         <span className="ns-clock-msg" aria-live="polite">
@@ -673,6 +771,48 @@ export function ClockInput({
           </span>
         )}
       </span>
+      {picker === "inline" && (
+        <span className="ns-clock-inline">
+          <TimeDial bounds={gridBounds(value)} refDay={dateRef} now={Date.now()} onPick={setAbs} variant={mobile ? "mobile" : "desk"} label={label} />
+        </span>
+      )}
+      {pickOpen && sheetMode && (
+        <MobileTimePicker
+          label={label}
+          bounds={gridBounds(sheetValue)}
+          refDay={dateRef}
+          onPick={setSheetValue}
+          onDone={sheetDone}
+          onCancel={() => setPickOpen(null)}
+          input={
+            <ClockInput
+              variant="mobile"
+              picker={false}
+              quick={[]}
+              value={sheetValue}
+              lo={lo}
+              hi={hi}
+              onChange={setSheetValue}
+              label={label}
+              refDay={dateRef}
+              dateLabel={dateLabel}
+              handleRef={sheetInput}
+            />
+          }
+        />
+      )}
+      {pickOpen && !sheetMode && inwrapRef.current && (
+        <TimePicker
+          label={label}
+          bounds={gridBounds(value)}
+          refDay={dateRef}
+          anchor={inwrapRef.current}
+          takeFocus={pickOpen.takeFocus}
+          onPick={setAbs}
+          onClose={closePicker}
+          onCancel={cancelPicker}
+        />
+      )}
     </span>
   );
 }

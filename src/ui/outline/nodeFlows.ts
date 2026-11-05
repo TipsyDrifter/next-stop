@@ -13,16 +13,35 @@
  *   未完成子孫數兩殼都用 `openKidsOf`（第三輪 D-主-83：桌機原本數路線樹、不在樹裡＝0，從今日開的列車改已完成會不問就完成）。
  */
 import { KIND_LABEL, canHaveChildren, isTaskKind, parseRule, type NodeKind, type NodeRow, type NodeStatus } from "../../domain";
-import { REPEAT_ONLY_MSG, type CurrentOccurrence } from "../../data";
+import { REPEAT_ONLY_MSG, nodeRepo, type CurrentOccurrence } from "../../data";
+import { effectiveTime, isTimeOverridden } from "../../domain/scheduledTime";
 import { isSettling, openDescendantCount, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { kidCountOf, teikiState } from "../panel/panelRules";
+import { timeReceipt } from "../mobile/MobileTimeSheet";
 
 const ns = () => useNodeStore.getState();
 const ui = () => useUiStore.getState();
 const toast = (message?: string) => {
   if (message) ui().showToast({ message }, 3600);
 };
+
+/**
+ * 改回每班時刻（清掉這一班的時刻覆寫）：行程表、手機今日、手機詳情頁、桌機側板同一支（失物招領 §5-4）。
+ * 寫成功才出收據；「復原」把這一班原本的時刻寫回去——原本是「不排時刻」（覆寫值 null）也照寫，那是使用者特地設的。
+ * 舊值直接問 repository（切片不一定有這張票，行程表串流就可能沒有）；讀不到就只出收據、不給復原。失敗由 store 吐 reason。
+ */
+export async function resetRunTimeFlow(id: string, day: string): Promise<{ ok: boolean }> {
+  const node = await nodeRepo.getNode(id).catch(() => null);
+  const undoable = !!node && isTimeOverridden(node, day);
+  const prev = undoable ? effectiveTime(node, day) : null;
+  const r = await ns().clearRunTime(id, day);
+  if (r.ok) {
+    const message = timeReceipt("reset", null);
+    ui().showToast(undoable ? { message, actionLabel: "復原", onAction: () => void ns().setRunTime(id, day, prev) } : { message });
+  }
+  return r;
+}
 
 /**
  * 本班運休／取消運休——與今日視圖的 `U` 同一條路（nodeStore.skipOccurrence，不帶 dueOn＝目前那一班）。
@@ -163,6 +182,19 @@ export function panelStampFlow(
   }
   const done = teiki ? occ?.status === "done" : node.status === "done";
   if (done && opts?.retractCard) retractCardOf(node.id);
+  // 定期的列車、車廂：沒做完的子項要一起蓋才會跟著平移到下一班，先問（D-主-298；同今日列與 Space）
+  if (teiki && !done) {
+    const open = openKidsOf(node);
+    if (open === null || open > 0) {
+      ui().askConfirm({
+        title: open === null ? "底下的子項也一起完成？" : `連同 ${open} 個未完成子項一起完成？`,
+        body: `這一班蓋完，「${node.name}」底下的子項會一起重新開始、排到下一班。`,
+        confirmLabel: "一起完成",
+        onConfirm: () => void ns().setCompleted(node.id, true, true),
+      });
+      return null;
+    }
+  }
   void ns().setCompleted(node.id, !done);
   return !done;
 }
@@ -179,6 +211,33 @@ export function panelSuspendFlow(id: string, skip: boolean): void {
     .then((r) => {
       if (!r.ok) ui().showToast({ message: r.reason ?? "無法運休" }, 4000);
     });
+}
+
+/**
+ * 只改這一班的日期（⑥ D-主-295）——検印區、推遲小卡、手機 ⋯、行程表拖曳都走這一支。
+ * 收據帶復原（改回 from）；被擋下吐 runMoveBlock 那句。回傳有沒有改成。
+ */
+export async function moveRunFlow(id: string, from: string, to: string): Promise<boolean> {
+  // 上一下還在寫：store 會回 ok 但其實沒改，先擋下才不會出假收據
+  if (from === to || isSettling(id)) return false;
+  const r = await ns().moveOccurrence(id, from, to);
+  if (!r.ok) {
+    ui().showToast({ message: r.reason ?? "這一班改不了" }, 4000);
+    return false;
+  }
+  const [, m, d] = to.split("-").map(Number);
+  ui().showToast({
+    message: `這一班改到 ${m}/${d}`,
+    actionLabel: "復原",
+    onAction: () => {
+      void ns()
+        .moveOccurrence(id, to, from)
+        .then((back) => {
+          if (!back.ok) ui().showToast({ message: back.reason ?? "改不回去" }, 4000);
+        });
+    },
+  });
+  return true;
 }
 
 /** 轉種類（列車→支線、支線→列車；車廂不給，setKind 也會擋） */

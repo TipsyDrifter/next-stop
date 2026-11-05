@@ -18,8 +18,8 @@
 //!     → `import_full_json`（單一交易：清三表＋其 cells → 灌入 → settings 白名單 upsert → `stamp_missing_cells`）
 //!     → 寫既有還原標記（`restore_choice`＋`mark_restore_pending`）→ `app.restart()` → 既有 `finish_restore` 收尾。
 //!     **不新增第三種還原流程**：雲端快照只是多一個備份來源。
-//!   * 匯出到手機：JS 用 `@tauri-apps/plugin-dialog` 的 `save()`（SAF）拿到 `content://` URI 交給 `export_to_file`，
-//!     Rust 用 `tauri_plugin_fs::FsExt` 開檔寫入；沒帶 target（桌機／退路）走 `engine::write_export_file`。
+//!   * 資料匯出（失物招領 §4）：JS 用 `@tauri-apps/plugin-dialog` 的 `save()` 拿到路徑或 `content://` URI，連同組好的內容交給
+//!     `export_write_picked`，Rust 用 `tauri_plugin_fs::FsExt` 開檔寫入。
 //!
 //! 鐵則：所有入口先過 `engine::keyed_client`（含 `guard_sandbox_root`）；刪除前先列鍵、逐顆刪、log **只印鍵名**；
 //!   只碰自己 `root` 底下的鍵；憑證與鑰匙不進 log。
@@ -122,15 +122,6 @@ pub struct ImportReport {
     /// 三線新同步表的灌入筆數（表名 → 筆數；並行地基 S-1）。空的時候不序列化——核心四表時序列化結果與搬家前相同
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub others: BTreeMap<String, u64>,
-}
-
-/// `sync_export_to_file` 的回傳（契約 §4）
-#[derive(Debug, Clone, Serialize)]
-pub struct ExportReport {
-    /// 桌機＝檔案完整路徑；Android＝SAF 回傳的 `content://` URI（主人自選的位置）；退路＝app 私有目錄路徑
-    pub path: String,
-    /// true＝寫到主人自選的位置（SAF）；false＝退路（下載夾或 app 私有目錄）
-    pub picked: bool,
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -829,48 +820,64 @@ pub async fn cloud_restore(
     tauri_plugin_ns_restart::restart_app(app)
 }
 
-/// 匯出到檔案（契約 §4 `sync_export_to_file`）。
-///   * `target = Some(content:// 或路徑)`（Android：JS 先用 `plugin-dialog` 的 `save()` 讓主人選位置）⇒
-///     `tauri_plugin_fs::FsExt` 開檔寫入 `engine::build_full_json(Manual)`，回 `{path: target, picked: true}`。
-///   * `target = None`（桌機／SAF 用不了的退路）⇒ `engine::write_export_file`，回 `{path, picked: false}`。
-/// **不看**鑰匙圈：沒加入同步的手機也能匯出（這是它唯一的存底手段）。
-pub async fn export_to_file(
-    app: &AppHandle,
-    pool: &Pool<Sqlite>,
-    target: Option<String>,
-) -> Result<ExportReport, String> {
-    let text = engine::build_full_json(pool, SnapshotKind::Manual).await?;
-    match target.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) {
-        Some(path) => match write_picked(app, &path, &text) {
-            Ok(()) => Ok(ExportReport { path, picked: true }),
-            // 工程評審 S-9：SAF 的 `save()` 已經**先建好**那個文件了（`ACTION_CREATE_DOCUMENT`），
-            // 寫入才失敗 ⇒ 主人選的位置留下一顆 0 byte 的空檔，而整支 Err 之後他手上一份存底都沒有。
-            // 契約 §6 的退路只覆蓋「選擇器開不了」，這裡補上「選好了、寫不進去」：退回 app 私有目錄，
-            // 路徑照實回報，`picked=false` 讓 UI 講清楚它不在主人選的地方。
-            Err(e) => {
-                eprintln!("[sync:snapshot] 寫不進你選的位置，改寫 app 目錄：{e}");
-                Ok(ExportReport {
-                    path: engine::write_export_file(app, &text)?,
-                    picked: false,
-                })
-            }
-        },
-        // 桌機（下載夾／NextStop）與「選擇器開不了」的退路——落點由 engine 決定，路徑照實回報
-        None => Ok(ExportReport {
-            path: engine::write_export_file(app, &text)?,
-            picked: false,
-        }),
+/// 一份雲端快照的內容（失物招領 §3.1；serde 欄位名＝TS `CloudSnapshot`）。
+/// `columns` 取自登記表：TS 要送整列 op 時照它挑欄，不再抄一份欄清單。
+#[derive(Debug, Clone, Serialize)]
+pub struct SnapshotContent {
+    pub exported_at: String,
+    pub schema: u64,
+    /// 表名 → 列（登記表的 Rows 表；比表還舊的快照沒有那張表＝空陣列）
+    pub tables: BTreeMap<String, Value>,
+    /// 表名 → 同步欄（不含主鍵）
+    pub columns: BTreeMap<String, Vec<&'static str>>,
+}
+
+/// 只認自己這個根底下、鍵名長得像快照的物件（UI 只會帶列表回來的鍵，這是保險；同 `cloud_restore` 的步驟 0）
+fn is_own_snapshot_key(key: &str, root: &str) -> bool {
+    parse_snapshot_key(key).is_some() && key.starts_with(&engine::snapshots_prefix(root))
+}
+
+/// 全量 JSON → 給前端的內容（純函式）：驗 schema 與必要的表（太新的擋下、請使用者先更新），settings 不帶（不是撿得回來的東西）。
+pub(crate) fn snapshot_content(reg: &Registry, text: &str) -> Result<SnapshotContent, String> {
+    let doc = validate_full_json_with(reg, text)?;
+    let mut tables = BTreeMap::new();
+    let mut columns = BTreeMap::new();
+    for (spec, _) in reg.rows() {
+        tables.insert(
+            spec.name.to_string(),
+            doc.get(spec.name).cloned().unwrap_or_else(|| Value::Array(Vec::new())),
+        );
+        columns.insert(spec.name.to_string(), spec.columns.iter().map(|(c, _)| *c).collect());
     }
+    Ok(SnapshotContent {
+        exported_at: doc.get("exported_at").and_then(Value::as_str).unwrap_or_default().to_string(),
+        schema: doc.get("schema").and_then(Value::as_u64).unwrap_or(0),
+        tables,
+        columns,
+    })
+}
+
+/// 讀一份雲端快照給前端挑（失物招領 §3.1，撿回單筆）：照 `cloud_restore` 開頭那段下載、拆封、驗證，到此為止。
+/// **不碰資料庫、不留底、不重啟**——真的撿回是前端的一筆一般寫入（走 oplog）。
+/// 不拿 `BusyGuard`：這裡不動本機，同步正在跑也不衝突，擋下來只會讓使用者莫名要重按。
+pub async fn cloud_snapshot_read(app: &AppHandle, key: &str) -> Result<SnapshotContent, String> {
+    let pool = engine::pool(app).await?;
+    let k = engine::keyed_client(app, &pool).await?;
+    if !is_own_snapshot_key(key, &k.root) {
+        return Err("這不是一份雲端快照。".into());
+    }
+    let blob = k.client.get(key).await?;
+    let plain = crypto::open(&k.data_key, key, &blob)
+        .map_err(|_| "這份雲端快照用這台的鑰匙打不開（可能已在另一台換過鑰匙）。".to_string())?;
+    let text = String::from_utf8(plain).map_err(|_| "這份備份的內容不完整。".to_string())?;
+    snapshot_content(Registry::production(), &text)
 }
 
 /// 寫到主人自選的位置。Android 是 SAF 的 `content://` URI——`std::fs` 開不了它，只有
 /// `tauri_plugin_fs` 的 `Fs::open` 會走 Android 端的 ContentResolver 拿 fd 回來（查證：
 /// `docs/research/2026-09-22-v1.1.4-Android下載目錄寫入查證.md`，實作在 plugin-fs 2.5 `android.rs`）。
 /// 桌機拿到的是普通路徑，同一支也寫得了（plugin 內部走 `std::fs::OpenOptions`）。
-///
-/// 為什麼 Rust 寫而不是 JS `writeTextFile`：整份 JSON 是主人的全部資料，讓它多穿越一次 IPC 只是多一次
-/// 複製與一次序列化；而且「產字串」與「落檔」留在同一層，退路（`write_export_file`）才接得上（契約 §6）。
-fn write_picked(app: &AppHandle, target: &str, text: &str) -> Result<(), String> {
+fn write_picked_bytes(app: &AppHandle, target: &str, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::str::FromStr;
     use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
@@ -882,9 +889,26 @@ fn write_picked(app: &AppHandle, target: &str, text: &str) -> Result<(), String>
         .fs()
         .open(path, opts)
         .map_err(|e| format!("打不開你選的位置：{e}"))?;
-    file.write_all(text.as_bytes())
+    file.write_all(bytes)
         .map_err(|e| format!("寫入匯出檔失敗：{e}"))?;
     file.flush().map_err(|e| format!("寫入匯出檔失敗：{e}"))
+}
+
+/// 資料匯出（失物招領 §4；D-主-322、323）：前端把 JSON／zip 組好、以 base64 傳過來，這裡解碼後寫到主人在存檔畫面選的位置。
+/// 桌機是普通路徑、手機是 SAF 的 `content://`——同一支 `write_picked_bytes` 都開得了（見它的說明）。
+///
+/// **沒有**退回 App 私有資料夾的路：私有資料夾主人看不到，寫不進就老實報錯，讓畫面行內講清楚。
+pub fn export_write_picked(app: &AppHandle, target: &str, base64_text: &str) -> Result<(), String> {
+    use base64::Engine as _;
+
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("沒有指定存檔位置。".to_string());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_text.trim())
+        .map_err(|_| "匯出內容解不開（資料在傳遞時壞掉了），請再按一次匯出。".to_string())?;
+    write_picked_bytes(app, target, &bytes)
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1267,6 +1291,59 @@ mod tests {
             );
             drop_pool(pool, path).await;
         });
+    }
+
+    /// 失物招領 §3.1：讀快照內容不寫庫；tables 帶列、columns 是同步欄（快取欄 line_id 不在裡面）
+    #[test]
+    fn 讀快照_不寫庫_帶同步欄() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("read").await;
+            seed(&pool).await;
+            let before = dump(&pool).await;
+            let json = engine::build_full_json(&pool, SnapshotKind::Manual).await.unwrap();
+            let c = snapshot_content(Registry::production(), &json).unwrap();
+            assert_eq!(dump(&pool).await, before, "讀快照本機零改變");
+            assert_eq!(c.schema, SCHEMA_VERSION as u64);
+            assert!(!c.exported_at.is_empty());
+            assert!(!c.tables["nodes"].as_array().unwrap().is_empty());
+            assert!(c.columns["nodes"].contains(&"name"));
+            assert!(c.columns["nodes"].contains(&"deleted_at"));
+            assert!(!c.columns["nodes"].contains(&"line_id"), "快取欄不是同步欄");
+            assert!(!c.tables.contains_key("settings"), "settings 不是撿得回來的東西");
+            drop_pool(pool, path).await;
+        });
+    }
+
+    /// 快照比 App 新 ⇒ 擋下、請使用者先更新；舊快照沒有後來才有的表 ⇒ 給空陣列
+    #[test]
+    fn 讀快照_太新的擋下_舊的缺表給空陣列() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("read-schema").await;
+            seed(&pool).await;
+            let mut doc: Value = serde_json::from_str(
+                &engine::build_full_json(&pool, SnapshotKind::Manual).await.unwrap(),
+            )
+            .unwrap();
+            doc["schema"] = Value::from(SCHEMA_VERSION + 1);
+            let err = snapshot_content(Registry::production(), &doc.to_string()).unwrap_err();
+            assert!(err.contains("請先更新"), "訊息：{err}");
+
+            doc["schema"] = Value::from(1);
+            doc.as_object_mut().unwrap().remove("tags");
+            let c = snapshot_content(Registry::production(), &doc.to_string()).unwrap();
+            assert_eq!(c.schema, 1);
+            assert!(c.tables["tags"].as_array().unwrap().is_empty());
+            drop_pool(pool, path).await;
+        });
+    }
+
+    #[test]
+    fn 讀快照_鍵名檢查_只認自己根底下的快照() {
+        let at = chrono::Utc::now();
+        let key = snapshot_key("v1", at, "dev-1", SnapshotKind::Auto);
+        assert!(is_own_snapshot_key(&key, "v1"));
+        assert!(!is_own_snapshot_key(&key, "v1-sb-other"), "別的根不認");
+        assert!(!is_own_snapshot_key("v1/snapshots/readme.txt", "v1"), "形狀不對不認");
     }
 
     /// CHECK 違反＝壞檔：整個交易回滾，本機停在原樣（不做半吊子相容）

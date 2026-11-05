@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-rem-take-launch"
+description = "Enables the rem_take_launch command without any pre-configured scope."
+commands.allow = ["rem_take_launch"]
+
+[[permission]]
+identifier = "deny-rem-take-launch"
+description = "Denies the rem_take_launch command without any pre-configured scope."
+commands.deny = ["rem_take_launch"]

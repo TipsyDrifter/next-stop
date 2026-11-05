@@ -23,12 +23,11 @@ import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
 import { lineQuickJumpProviders } from "../../lines/runtime";
 import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
-import { formatChord, hotkeyById } from "../shell/hotkeys";
+import { capsOfHotkey, formatChord } from "../shell/hotkeys";
 import { openFullSearch } from "../search/openFullSearch";
 import "./overlay.css";
 
 /** 完整搜尋入口列的鍵帽（registry 一份真相；Mac 換 ⌘） */
-const FULL_SEARCH_CAPS = formatChord(hotkeyById("global.fullsearch")!.chords[0]).join("+");
 const CTRL_ENTER_CAPS = formatChord({ key: "Enter", ctrl: true }).join("+");
 
 /** 類型徽章上的單字（票根 badge 風格；臨時車票另用「臨」） */
@@ -325,7 +324,7 @@ function QuickJumpPanel() {
               ))}
               <br />
               <button type="button" className="ns-qj-more is-inline" onClick={() => openFullSearch()}>
-                完整搜尋<span className="kbd">{FULL_SEARCH_CAPS}</span>
+                完整搜尋<span className="kbd">{capsOfHotkey("global.fullsearch")}</span>
               </button>
             </p>
           ) : results.length === 0 ? (

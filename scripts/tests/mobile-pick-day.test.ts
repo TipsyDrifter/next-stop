@@ -29,10 +29,18 @@ test("已済／運休擋（過去、未來、清除都擋），守門先於定�
   assert.deepEqual(plan({ target: "2026-10-22", settled: true, repeat: true }), { kind: "blocked", why: "settled" });
 });
 
-test("定期券擋（不能補記、不能推遲）", () => {
-  for (const target of ["2026-10-22", "2026-10-24", null]) {
-    assert.deepEqual(plan({ target, repeat: true }), { kind: "blocked", why: "repeat" });
+test("定期券挑別天＝只改這一班，不補記也不推遲（⑥ D-主-295；過去日的原因由 runMoveBlock 回）", () => {
+  for (const day of ["2026-10-22", "2026-10-24"]) {
+    assert.deepEqual(plan({ target: day, repeat: true }), { kind: "moveRun", from: TODAY, day });
   }
+  // 誤點那班挪到今天：from 是呼叫端給的班次日
+  assert.deepEqual(plan({ target: TODAY, current: "2026-10-20", repeat: true }), { kind: "moveRun", from: "2026-10-20", day: TODAY });
+});
+
+test("定期券挑回同一天不動；清除執行日、講不出哪一班都擋", () => {
+  assert.deepEqual(plan({ target: TODAY, repeat: true }), { kind: "noop" });
+  assert.deepEqual(plan({ target: null, repeat: true }), { kind: "blocked", why: "repeat" });
+  assert.deepEqual(plan({ target: "2026-10-24", current: null, repeat: true }), { kind: "blocked", why: "repeat" });
 });
 
 test("挑回現值＝不動；清除執行日照舊", () => {

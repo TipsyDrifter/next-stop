@@ -818,6 +818,25 @@ describe("G. ticketStore 售票口④", async () => {
     assert.equal(st().templates.length, 1, "復原");
   });
 
+  test("預算刪除可復原（失物招領 §5-1）：預設連同月覆寫一起回來；單月覆寫也能復原", async () => {
+    const total = { kind: "total" } as const;
+    const totals = () => st().budgets.filter((b) => b.category_id === null);
+    assert.ok(await st().setBudget(total, null, "500"));
+    assert.ok(await st().setBudget(total, "2026-11", "900"));
+    await st().removeBudget(total, null);
+    assert.equal(lastToast(), "已刪除這個預算");
+    assert.equal(totals().length, 0);
+    toastsOf().at(-1)!.onAction!();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(totals().length, 2, "預設與覆寫都回來");
+    await st().removeBudget(total, "2026-11");
+    assert.equal(totals().length, 1);
+    toastsOf().at(-1)!.onAction!();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(totals().length, 2);
+    await st().removeBudget(total, null); // 收乾淨：後面的測試不看預算
+  });
+
   test("38. buyWish：開記一筆（支出、金額、備註＝名稱、分類、願望的荷札、wishId）", async () => {
     const w = (await st().createWish({ name: "行動電源", amountText: "990", categoryId: lunch.id, tags: ["3C"] }))!;
     await st().buyWish(w.id);

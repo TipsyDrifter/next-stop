@@ -694,7 +694,7 @@ const updateTimeBlocks: McpTool = {
 const deleteTimeBlocks: McpTool = {
   name: "delete-time-blocks",
   title: "刪除時間塊",
-  description: "刪除時間塊（一次最多 50 筆；App 裡可復原）。運行中的那班不能刪，先 stop-time-block。",
+  description: "刪除時間塊（一次最多 50 筆；30 天內能在 App 的「最近刪除」撿回）。運行中的那班不能刪，先 stop-time-block。",
   inputSchema: {
     type: "object",
     properties: { ids: { type: "array", minItems: 1, maxItems: MCP_BATCH_LIMIT, items: { type: "string" }, description: "時間塊 id" } },
@@ -722,7 +722,7 @@ const deleteTimeBlocks: McpTool = {
     const views = await Promise.all(rows.map((r) => viewOf(ctx, r, cats, node)));
     for (let i = 0; i < ids.length; i++) await guard(() => repo.softDelete(ids[i]), { index: i, key: "ids" }); // ＝store deleteBlock
     return {
-      summary: `刪除了 ${ids.length} 塊（App 裡可復原）`,
+      summary: `已刪除 ${ids.length} 塊（30 天內能在 App 的「最近刪除」撿回）`,
       data: { deleted: views.map((v) => ({ id: v.id, category: v.category, start: v.start, end: v.end })) },
       changed: CHANGED,
       toast: `外部助理刪除了 ${ids.length} 塊時間`,

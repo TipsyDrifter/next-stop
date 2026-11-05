@@ -5,8 +5,9 @@
  *   div.ns-tk-dialog.ns-tk-rm
  *   ├─ h3.ns-tk-rm-h「進行中 N」 ul.ns-tk-rm-list  li.ns-tk-rm-row[.is-blocked][.is-ended]
  *   │     .main  .l1 金額（外幣小字代碼）＋分類或「帳戶 → 帳戶」＋備註
- *   │            .l2 規則一句 · 帳戶（⚠ 列開頭「⚠ 帳戶已不在」、不再印帳戶）
- *   │     .nx    「下一班 11/1」／「已結束」／⚠「記不了」
+ *   │            .l2 規則一句（含結束條件）· 帳戶（⚠ 列開頭「⚠ 帳戶已不在」、不再印帳戶）
+ *   │            .l3 還沒到的提前跳過「已跳過 11/1 復原」（只有跳過過才出；D-票-82）
+ *   │     .nx    「下一班 11/1」＋底下文字鈕「跳過下一班」（D-票-82；已暫停、已結束、記不了不給）／「已結束」／⚠「記不了」
  *   │     .acts  暫停・編輯・刪除（.ns-tk-dmini＋.ns-btn--sm 次鈕；刪除＝危險鈕）
  *   ├─ h3「已暫停 N」 ul …[.is-paused]（.nx「已暫停」；動作「開始」）
  *   ├─ 空狀態 .ns-tk-rm-empty
@@ -16,9 +17,11 @@
  * 不用等下一次實體化跑過才出現。排序＝repeatOrder（進行中依下一班、已暫停依建立時間）。
  */
 import { useTicketStore } from "../../../store/ticketStore";
+import { useUiStore } from "../../../store/uiStore";
+import { todayKey } from "../../../lib/date";
 import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, categoryLabel, type AccountRow, type CategoryRow, type CurrencyRow } from "../../../domain/ticket";
-import { describeRule } from "../../../domain/repeat";
-import { nextOnText, parseFixedRule, repeatOrder, type RepeatRow } from "../../../domain/ticketPlan";
+import { shortDay } from "../../../domain/ticketView";
+import { canSkipNext, nextOnText, parseFixedRule, pendingSkips, repeatOrder, repeatRuleText, type RepeatRow } from "../../../domain/ticketPlan";
 import { acctLabel } from "../TicketLedger";
 import { repeatAmount, repeatNoteShown, repeatWarn } from "./repeatText";
 import { IconPlus } from "../../common/icons";
@@ -61,7 +64,7 @@ function What({ r, ctx }: { r: RepeatRow; ctx: Ctx }) {
   );
 }
 
-function RmRow({ r, ctx, warn }: { r: RepeatRow; ctx: Ctx; warn: string | null }) {
+function RmRow({ r, ctx, warn, today }: { r: RepeatRow; ctx: Ctx; warn: string | null; today: string }) {
   const store = useTicketStore.getState;
   const rule = parseFixedRule(r.rule);
   const paused = r.paused_at !== null;
@@ -70,6 +73,8 @@ function RmRow({ r, ctx, warn }: { r: RepeatRow; ctx: Ctx; warn: string | null }
   const acc = ctx.accById[r.account_id];
   const cls = "ns-tk-rm-row" + (paused ? " is-paused" : "") + (warn ? " is-blocked" : "") + (ended ? " is-ended" : "");
   const note = repeatNoteShown(r, ctx.catById);
+  const skipped = pendingSkips(r, today);
+  const lastSkipped = skipped.length ? skipped[skipped.length - 1] : null;
   return (
     <li className={cls}>
       <span className="main">
@@ -85,7 +90,7 @@ function RmRow({ r, ctx, warn }: { r: RepeatRow; ctx: Ctx; warn: string | null }
         </span>
         <span className="l2">
           {warn && <span className="warn">⚠ {warn}</span>}
-          {rule ? describeRule(rule) : "重複規則有誤"}
+          {rule ? repeatRuleText(rule) : "重複規則有誤"}
           {!warn && r.kind !== "transfer" && alive(acc) && (
             <>
               <i>·</i>
@@ -93,13 +98,28 @@ function RmRow({ r, ctx, warn }: { r: RepeatRow; ctx: Ctx; warn: string | null }
             </>
           )}
         </span>
+        {lastSkipped && (
+          <span className="l3">
+            已跳過 {skipped.map(shortDay).join("、")}
+            <button type="button" className="btn-text ns-tk-rm-textbtn" aria-label={`取消跳過 ${shortDay(lastSkipped)}`} onClick={() => void store().unskipRepeat(r.id, lastSkipped)}>
+              復原
+            </button>
+          </span>
+        )}
       </span>
       {paused ? (
         <span className="nx is-paused">已暫停</span>
       ) : warn ? (
         <span className="nx is-blocked">記不了</span>
       ) : (
-        <span className={"nx" + (ended ? " is-paused" : "")}>{nextOnText(r)}</span>
+        <span className={"nx" + (ended ? " is-paused" : "")}>
+          {nextOnText(r)}
+          {canSkipNext(r) && r.next_on && (
+            <button type="button" className="btn-text ns-tk-rm-textbtn" aria-label={`跳過下一班 ${shortDay(r.next_on)}`} onClick={() => void store().skipNextRepeat(r.id)}>
+              跳過下一班
+            </button>
+          )}
+        </span>
       )}
       <span className="acts">
         {paused ? (
@@ -129,6 +149,8 @@ export function RepeatManager(_props: { onDone(): void }) {
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const today = todayKey(dayStartHour);
   const store = useTicketStore.getState;
   const ctx: Ctx = { accounts, accById, catById, curByCode };
 
@@ -160,7 +182,7 @@ export function RepeatManager(_props: { onDone(): void }) {
   const ul = (rows: RepeatRow[]) => (
     <ul className="ns-tk-rm-list">
       {rows.map((r) => (
-        <RmRow key={r.id} r={r} ctx={ctx} warn={repeatWarn(r, ctx, blocked)} />
+        <RmRow key={r.id} r={r} ctx={ctx} warn={repeatWarn(r, ctx, blocked)} today={today} />
       ))}
     </ul>
   );

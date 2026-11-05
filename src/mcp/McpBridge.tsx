@@ -17,6 +17,7 @@ import { noteRepo } from "../data/noteRepo";
 import { tagRepo } from "../data/tagRepo";
 import { timetableRepo } from "../data/timetableRepository";
 import { ticketRepo } from "../data/ticketRepository";
+import { weekAimRepo } from "../data/weekAimRepository";
 import { todayKey } from "../lib/date";
 import { refreshAfterPull } from "../store/syncStore";
 import { KEY_LONG_RUN_MAX, LONG_RUN_MAX_DEFAULT } from "../store/timetableStore";
@@ -32,7 +33,7 @@ interface CallEvent {
   access: Record<McpModule, McpAccess>;
 }
 
-const DEPS = { nodeRepo, noteRepo, tagRepo, timetableRepo, ticketRepo };
+const DEPS = { nodeRepo, noteRepo, tagRepo, timetableRepo, ticketRepo, weekAimRepo };
 
 /** 同 timetableStore 的 parseLongRunMax（每次呼叫現讀：另一台改了上限、同步過來也立刻生效） */
 async function longRunMaxMin(): Promise<number> {
@@ -47,12 +48,13 @@ function reload(tables: readonly ChangedTable[]): Promise<void> {
 }
 
 async function onCall({ id, tool, args, access }: CallEvent): Promise<void> {
-  const dayStartHour = useUiStore.getState().dayStartHour;
+  const { dayStartHour, weekStart } = useUiStore.getState();
   const now = new Date();
   const { reply, outcome } = await runMcpCall(id, tool, args, {
     deps: DEPS,
     today: todayKey(dayStartHour, now),
     dayStartHour,
+    weekStart,
     now,
     longRunMaxMin: await longRunMaxMin(),
     access,

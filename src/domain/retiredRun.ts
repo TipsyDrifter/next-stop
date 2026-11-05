@@ -6,6 +6,7 @@
 export const RETIRED_RUN_MSG = "這張定期券已經跟著上層一起完成了；要讓它繼續排班，請到側板取消完成";
 
 /** 退役的定期券（有規則、status done）而且這一列帶著今天那班的結局 */
-export function isRetiredRunRow(row: { repeat_rule: string | null; status: string; occurrence: unknown | null }): boolean {
-  return row.repeat_rule !== null && row.status === "done" && row.occurrence !== null;
+export function isRetiredRunRow(row: { repeat_rule: string | null; status: string; occurrence: unknown | null; run_ended?: boolean }): boolean {
+  // 自己跑完到站的（D-主-293）不算：它的済就是最後一班，點了就是撤那一班、回到運行
+  return row.repeat_rule !== null && row.status === "done" && row.occurrence !== null && !row.run_ended;
 }

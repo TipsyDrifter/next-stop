@@ -27,11 +27,14 @@
  * 已知取捨：只能新增、不可編輯／刪除（v0.2 範圍外）；排序在元件端依 logged_at 倒序，不依賴 repository 回傳順序。
  */
 import { useEffect, useMemo, useState } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { capsOfHotkey } from "../shell/hotkeys";
 import { WORK_LOG_EVENT_LABEL, describeConflict } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { TimeSeal } from "../stamps";
 
 export function WorkLogList({ nodeId }: { nodeId: string }) {
+  useHotkeyRevision();
   const logs = useNodeStore((s) => s.workLogs[nodeId]);
   const loadWorkLogs = useNodeStore((s) => s.loadWorkLogs);
   const addWorkLog = useNodeStore((s) => s.addWorkLog);
@@ -115,7 +118,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
         </ul>
       )}
       <p className="log-hint">
-        在今日視圖點選車票按 <kbd>L</kbd> 就能記乘務記錄，寫完會收進這裡。
+        在今日視圖點選車票按 <kbd>{capsOfHotkey("today.log")}</kbd> 就能記乘務記錄，寫完會收進這裡。
       </p>
     </div>
   );

@@ -12,6 +12,8 @@
  * - `/`（useTicketKeyboard）與頁首放大鏡聚焦的是 `.ns-tk-subbar .ns-tk-search input`（`focusTicketSearch`）。
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
+import { capsOfHotkey } from "../../shell/hotkeys";
 import { useTicketStore } from "../../../store/ticketStore";
 import { IconClose, IconSearch } from "../../common/icons";
 
@@ -28,6 +30,7 @@ export function focusTicketSearch(root: ParentNode | null = document): void {
 }
 
 export function SearchBar() {
+  useHotkeyRevision();
   const filter = useTicketStore((s) => s.filter);
   const store = useTicketStore.getState;
 
@@ -118,7 +121,7 @@ export function SearchBar() {
           <IconClose size={12} />
         </button>
       ) : (
-        <kbd className="ns-tk-kbd">/</kbd>
+        <kbd className="ns-tk-kbd">{capsOfHotkey("ticket.search")}</kbd>
       )}
     </label>
   );

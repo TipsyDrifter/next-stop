@@ -24,7 +24,6 @@
  *     `cloudSnapshotAuto()`（引擎判當日；不另起 timer）。
  *   * `changePassphrase(current, next, rotate)`：勾了「同時換掉資料鑰匙」就帶 `rotate=true`。
  *   * `finishRotation()`：boot 看到 `status.rotation_stage` 就叫；`runCycle` 在 `rotating` 時每 60 秒補一次。
- *   * `exportToFile()`：手機先 `plugin-dialog` `save()`（SAF）拿位置，再交給 Rust 寫；桌機／退路不帶 target。
  *   * `describeLocked` 分「換過鑰匙」（`locked_reason='rotated'`）與「殘留」；`SYNC_PHASE_LABEL.rotating`＝「換鑰匙中」。
  *
  * v1.1.6 改了什麼（WP-B；《2026-09-28-v1.1.6-重新開始契約.md》§4／§7；拍板〈回饋兩題拍板〉重新開始＝清空資料庫）：
@@ -50,7 +49,6 @@
 import { create } from "zustand";
 import { syncRepo } from "../data";
 import type {
-  ExportReport,
   JoinInput,
   JoinMode,
   JoinOutcome,
@@ -76,6 +74,7 @@ import { useWeekAimStore } from "./weekAimStore";
 // 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
 import { LINE_MANIFESTS } from "../lines";
 import { lineAfterPulls, lineReloads } from "../lines/runtime";
+import { reminderAllowed } from "./reminderStore";
 // 主線③（契約 §3.6）：同步頁「最近兩台撞到的」的提示。兩支都不 import 任何 `.tsx`（跳轉由 UI 層的 MergeNotices 組）
 import {
   MERGE_TEXT,
@@ -456,7 +455,8 @@ function evaluateAlerts(status: SyncStatus | null): void {
   useUiStore.getState().setSyncBanner(kind);
   if (kind) {
     const t = SYNC_ALERT_TEXT[kind];
-    void notifyOnce(kind, { title: t.notifTitle, body: t.notifBody }, false, shell);
+    // ⑨ 提醒頁的開關只管 OS 通知，橫幅照出
+    void reminderAllowed("sync").then((ok) => (ok ? notifyOnce(kind, { title: t.notifTitle, body: t.notifBody }, false, shell) : false));
   }
 }
 
@@ -608,7 +608,6 @@ export interface SyncStore {
   /** 點列表一份 → 確認窗（二選一的後果句＋「來源：雲端快照 <時刻>」）→ `cloudRestore`（成功不會回來） */
   cloudRestore: (entry: SnapshotEntry, choice: RestoreChoice) => void;
   /** 手機「匯出到手機」：SAF 選位置 → Rust 寫；桌機／退路不帶 target。null＝主人取消 */
-  exportToFile: () => Promise<ExportReport | null>;
   /** 換鑰匙續跑（boot／runCycle 看到 `rotation_stage` 就叫） */
   finishRotation: () => Promise<void>;
   /* ── v1.1.5 復原碼（契約 §4／§6）── */
@@ -1086,6 +1085,20 @@ export async function refreshAfterPull(
   }
   // 遠端 hlc 已戳進 sync_cells，忘掉探測快取 ⇒ 下一次寫入重讀 MAX(hlc) 當種子（契約 §5 的雙保險）
   resetSyncTablesProbe();
+  for (const fn of afterPullListeners) {
+    try {
+      fn();
+    } catch (e) {
+      console.warn("[next-stop] 重載後的通知失敗：", messageOf(e));
+    }
+  }
+}
+
+/** 重載完要跟著重算的（失物招領開著的差異清單）。對方依賴本檔，反過來 import 會循環，所以用登記的 */
+const afterPullListeners = new Set<() => void>();
+export function onAfterPull(fn: () => void): () => void {
+  afterPullListeners.add(fn);
+  return () => afterPullListeners.delete(fn);
 }
 
 /**
@@ -1139,27 +1152,6 @@ function waitSyncIdle(ms: number): Promise<boolean> {
 
 /** 按下「清空」時最多等背景那一趟多久（一趟 push＋pull 通常數秒；網路很差時寧可明講「稍候再試」） */
 const START_OVER_WAIT_MS = 30_000;
-
-/**
- * 手機匯出的 SAF 選位置（v1.1.4 查證：`download_dir()` 在 Android 是 app 專屬目錄、主人看不到）。
- * 回 `content://` URI＝選好了；`null`＝主人取消；`undefined`＝選擇器開不了（沒有檔案 provider）⇒ 呼叫端退回 Rust 預設落點。
- * v1.1.6 修正席由 `exportToFile` 抽出，讓「重新開始」手機未加入的留底共用同一條（工程評審 S-5）。
- */
-async function pickExportTarget(title: string): Promise<string | null | undefined> {
-  try {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
-    const picked = await save({
-      title,
-      defaultPath: `nextstop-export-${stamp}.json`,
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    return picked ?? null;
-  } catch (e) {
-    console.warn("[next-stop] 檔案選擇器開不了，改用 App 私有目錄：", messageOf(e));
-    return undefined;
-  }
-}
 
 /**
  * 桌機「改用另一台的」／「改用那份」／（v1.1.6）「重新開始」之前先拍一份 manual 備份
@@ -1646,39 +1638,6 @@ export const useSyncStore = create<SyncStore>((set, get) => ({
         });
       },
     });
-  },
-
-  async exportToFile() {
-    if (get().working) return null;
-    set({ working: true });
-    try {
-      let target: string | null = null;
-      if (shell === "mobile") {
-        // 查證（…-Android下載目錄寫入查證.md）：`download_dir()` 在 Android 是 app 專屬目錄、主人看不到 ⇒
-        // 走 SAF：`plugin-dialog` 的 `save()` 讓主人自己選位置（可選「下載」），回 `content://` URI 交給 Rust 寫。
-        // 選擇器開不了（沒有檔案 provider）就退回 Rust 的預設落點，並把路徑講出來。
-        const picked = await pickExportTarget("匯出到手機");
-        if (picked === null) return null; // 主人取消＝零動作、不吵
-        target = picked ?? null;
-      }
-      const report = await syncRepo.exportToFile(target);
-      // 工程評審 S-9：SAF 已經先把文件建好了，寫入才失敗 ⇒ Rust 退回 app 私有目錄並回 `picked=false`。
-      // 這時主人選的那個位置會留下一顆 0 byte 的空檔，得講出來，不然他會去開那個空檔。
-      const fellBack = !!target && !report.picked;
-      useUiStore.getState().showToast({
-        message: report.picked
-          ? "已匯出到指定位置"
-          : fellBack
-            ? `無法存入指定位置，已改存至 ${report.path}（App 專屬資料夾；原位置若留下空檔可刪除）`
-            : `已匯出至 ${report.path}（App 專屬資料夾，移除 App 時會一併刪除）`,
-      });
-      return report;
-    } catch (e) {
-      useUiStore.getState().showToast({ message: `匯出失敗：${messageOf(e)}` });
-      return null;
-    } finally {
-      set({ working: false });
-    }
   },
 
   async finishRotation() {

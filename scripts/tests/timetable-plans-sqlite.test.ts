@@ -169,6 +169,28 @@ for (const [name, make] of makers) {
       assert.equal(await repo.getBlock(c.id), null);
     });
 
+    test("合併可復原（失物招領 §5-5）：被吞的塊回來、留下的塊時間與備註都回到合併前；後來又改過就不動", async () => {
+      const { repo } = make();
+      const a = (await repo.fill("c-create", at(9), at(10), { note: "上一塊" })).block;
+      const b = (await repo.fill("c-create", at(10), at(11))).block;
+      const p = await repo.merge(b.id, "prev", at(0));
+      assert.equal((await repo.getBlock(b.id)).started_at, at(9));
+      assert.equal(await repo.undoPaint(p.undo), true);
+      const back = await repo.getBlock(b.id);
+      assert.equal(back.started_at, at(10));
+      assert.equal(back.note, null);
+      const again = await repo.getBlock(a.id);
+      assert.equal(again.note, "上一塊");
+      assert.equal(again.ended_at, at(10));
+
+      const p2 = await repo.merge(b.id, "prev", at(0));
+      await new Promise((r) => setTimeout(r, 5)); // 守門比 updated_at：隔開毫秒
+      const cur = await repo.getBlock(b.id);
+      await repo.editBlock(b.id, { categoryId: "c-create", startIso: cur.started_at, endIso: cur.ended_at, note: "合併之後又動過" });
+      assert.equal(await repo.undoPaint(p2.undo), false);
+      assert.equal(await repo.getBlock(a.id), null, "守門擋下，一列都不動");
+    });
+
     test("editBlock：note undefined＝不動、null／空白＝清掉、跟現值一樣不寫", async () => {
       const { repo, db } = make();
       const a = (await repo.fill("c-create", at(9), at(10), { note: "x" })).block;

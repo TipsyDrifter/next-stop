@@ -82,6 +82,7 @@ import { ContextMenuHost } from "./ui/common/contextMenu";
 import { SyncBanner } from "./ui/common/SyncBanner";
 import { RecoveryCodeDialog } from "./ui/common/RecoveryCodeDialog";
 import { useShell } from "./ui/mobile/useShell";
+import { startReminders, stopReminders } from "./ui/reminders/reminderRuntime";
 import { useVisualViewportHeight } from "./ui/mobile/useViewportHeight";
 import MobileShell from "./ui/mobile/MobileShell";
 // 備份橫幅用到 .ns-btn／.ns-close（覆蓋層共用小件）——自己 import，不倚賴 Toast 先掛載
@@ -134,12 +135,15 @@ export default function App() {
         void useBackupStore.getState().boot();
         // 車庫與回顧 D-主-210：駅スタンプ偵測（兩殼；要讀日界線，排在 loadSettings 之後）
         useDepotStore.getState().boot();
+        // ⑨ 提醒的排程（兩殼；要讀日界線，排在 loadSettings 之後）
+        startReminders(shell);
         return useSyncStore.getState().boot(shell);
       });
     void loadSidebar();
     return () => {
       useSyncStore.getState().stop();
       useDepotStore.getState().stop();
+      stopReminders();
     };
   }, [loadSettings, loadSidebar, mobile, shell]);
 

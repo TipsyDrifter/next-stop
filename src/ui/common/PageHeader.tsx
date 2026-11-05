@@ -32,6 +32,8 @@
  *   管理鈕（UI 丙-5）：開選單／對話框的給 `manage.haspopup`（"menu"｜"dialog"）＋`manage.expanded` ⇒ aria-haspopup／aria-expanded
  *   （售票口「管帳」開 PopMenu）；只在給了的時候才畫，時刻表「分類與設定」不給＝跟以前一樣。
  * 鍵盤：本身不攔鍵；工具列照 DOM 順序 Tab（分頁籤是一個 Tab stop，籤內 ←→，見 Tabs）。
+ * 同一模組切分頁不跳（庚 D-主-392；視覺規範 §1.3）：寬度由呼叫端的 CSS 給，固定用模組最寬那一頁的寬；有分頁籤的頁再給兩個保留位——
+ *   `addReserve`＝模組裡最長的新增鈕字（工具列右對齊，鈕一變籤就橫移，所以新增那格的寬度照它留）；`reserveStats`＝沒有統計的分頁也留一行（底線 y 不動）。
  * 樣式不在本檔 import：`pageheader.css` 由 `src/index.css` 集中 @import（techo.css 之後、mobile.css 之前）。
  */
 import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
@@ -116,6 +118,8 @@ export interface PageHeaderProps<K extends string = string> {
   aside?: ReactNode;
   /** 大標下一行的統計（本月 N 張…；粗體段用 <b>） */
   stats?: ReactNode;
+  /** 沒有 stats 也留那一行（庚）：切分頁時頁首高度不變 */
+  reserveStats?: boolean;
   /** 日付印（DateSeal size 92）；窄版縮到 76 */
   stamp?: ReactNode;
   /** 紀念章（StationStamp size 92；今日、路線圖；日付印給 76）：日付印之後、工具列之前；頁首寬 <704 不畫 */
@@ -137,6 +141,8 @@ export interface PageHeaderProps<K extends string = string> {
     /** 點了開選單（＋ 路線 ▾）：補 ▾ 與 aria-haspopup */
     haspopup?: boolean;
   };
+  /** 新增那格保留這段字的寬（庚）：切分頁時鈕換字或消失，分頁籤不橫移；省略＝照鈕本身的寬 */
+  addReserve?: string;
   /** 工具列第三格：搜尋（頁首放大鏡） */
   search?: {
     onOpen: ClickHandler;
@@ -197,12 +203,14 @@ export function PageHeader<K extends string = string>({
   title,
   aside,
   stats,
+  reserveStats = false,
   stamp,
   emblem,
   emblemCompact,
   below,
   tabs,
   add,
+  addReserve,
   search,
   manage,
   compact: forcedCompact,
@@ -213,6 +221,32 @@ export function PageHeader<K extends string = string>({
   const showEmblem = emblem != null && !emblemNarrow;
   const tailEmblem = emblem != null && emblemNarrow && emblemCompact != null;
   const hasTools = !!(tabs || add || search || manage);
+  const addButton =
+    add &&
+    (compact ? (
+      <button
+        type="button"
+        className="ns-iconbtn"
+        aria-label={add.label}
+        title={add.title ?? add.label}
+        aria-haspopup={add.haspopup ? "menu" : undefined}
+        onClick={add.onClick}
+      >
+        {add.icon ?? <IconPlus />}
+      </button>
+    ) : (
+      <button
+        type="button"
+        className="ns-btn btn-ghost"
+        title={add.title}
+        aria-haspopup={add.haspopup ? "menu" : undefined}
+        onClick={add.onClick}
+      >
+        {add.icon ?? <IconPlus />}
+        <span>{add.label}</span>
+        {add.haspopup && <IconChevron open />}
+      </button>
+    ));
   const cls = [
     "ns-pagehead",
     `ns-pagehead--${variant}`,
@@ -232,9 +266,9 @@ export function PageHeader<K extends string = string>({
           <h1 className="ns-pagehead-title">{title}</h1>
           {aside != null && <span className="ns-pagehead-aside">{aside}</span>}
         </div>
-        {(stats != null || tailEmblem) && (
-          <p className="ns-pagehead-stats">
-            {stats}
+        {(stats != null || tailEmblem || reserveStats) && (
+          <p className="ns-pagehead-stats" aria-hidden={stats == null && !tailEmblem ? true : undefined}>
+            {stats ?? (tailEmblem ? null : "\u00a0")}
             {tailEmblem && (
               // 「・」與小章包在同一個不換行的盒子：折行時一起掉到下一行，不留「・」在行尾
               <span className="ns-pagehead-emblem-c">
@@ -276,32 +310,24 @@ export function PageHeader<K extends string = string>({
               />
             ))}
 
-          {/* ② ＋ 新增（窄版收成圖示鈕，帶 title） */}
-          {add &&
-            (compact ? (
-              <button
-                type="button"
-                className="ns-iconbtn"
-                aria-label={add.label}
-                title={add.title ?? add.label}
-                aria-haspopup={add.haspopup ? "menu" : undefined}
-                onClick={add.onClick}
-              >
-                {add.icon ?? <IconPlus />}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="ns-btn btn-ghost"
-                title={add.title}
-                aria-haspopup={add.haspopup ? "menu" : undefined}
-                onClick={add.onClick}
-              >
-                {add.icon ?? <IconPlus />}
-                <span>{add.label}</span>
-                {add.haspopup && <IconChevron open />}
-              </button>
-            ))}
+          {/* ② ＋ 新增（窄版收成圖示鈕，帶 title）；addReserve＝這一格的寬度不跟著鈕變 */}
+          {addReserve != null ? (
+            <span className="ns-toolbar-addslot">
+              {compact ? (
+                <span className="ns-iconbtn ns-toolbar-addsizer" aria-hidden="true">
+                  <IconPlus />
+                </span>
+              ) : (
+                <span className="ns-btn btn-ghost ns-toolbar-addsizer" aria-hidden="true">
+                  <IconPlus />
+                  <span>{addReserve}</span>
+                </span>
+              )}
+              {addButton}
+            </span>
+          ) : (
+            addButton
+          )}
 
           {/* ③ 搜尋（兩種寬度都是圖示鈕） */}
           {search && (

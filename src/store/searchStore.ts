@@ -1,19 +1,24 @@
 /**
  * searchStore——完整搜尋（完整搜尋班；契約 docs/research/2026-10-25-主線-完整搜尋班-契約.md）的狀態，兩殼共用一份。
  *
- * 只放「問了什麼、回來什麼」：字、篩選、repository 的原始命中（未排序未篩）、已畫列數、選中列、捲動位置。
+ * 只放「問了什麼、回來什麼」：字、篩選、repository 的原始命中（未排序未篩；節點與方針各一份，D-主-382）、已畫列數、選中列、捲動位置。
  * 排序與篩選要看「済」（定期券看目前班次＝nodeStore.currentOccurrences），由元件用 domain/fullSearch 的純函式算。
  * D-主-118：狀態留到 App 關閉（不寫設定、不同步）；再開時 `refresh()` 重查一次。
  * 資料變動（mutation 重載、同步拉進來）：元件看 nodeStore 的切片換了就叫 `refresh()`，選中列與捲動位置不動。
  */
 import { create } from "zustand";
 import { nodeRepo } from "../data";
+import { weekAimRepo } from "../data/weekAimRepository";
+import type { NodeRow } from "../domain";
 import {
   DEFAULT_FILTER,
   RESULT_PAGE,
+  buildAimHits,
+  type AimSearchHit,
   type FullSearchFilter,
   type FullSearchHit,
 } from "../domain/fullSearch";
+import { stationIdOfKey } from "../domain/weekAims";
 
 /** 打字後多久才查（同 Ctrl+P） */
 const DEBOUNCE_MS = 150;
@@ -23,12 +28,14 @@ interface SearchStore {
   filter: FullSearchFilter;
   /** repository 回的命中（未排序、未篩選） */
   hits: FullSearchHit[];
+  /** 方針組的命中（未排序、未篩選；另成一組，不混進 hits） */
+  aimHits: AimSearchHit[];
   /** `hits` 是哪個字查出來的（trim 後）；跟 query 不同＝還在等新結果 */
   hitsTerm: string;
   pending: boolean;
   /** 已畫幾列（D-主-115：一次 300，捲到底接下一批） */
   shown: number;
-  /** 選中的節點 id（鍵盤游標、桌機也是側板顯示的那張） */
+  /** 選中的節點或方針 id（鍵盤游標；節點時桌機也是側板顯示的那張） */
   activeId: string | null;
   /** 清單捲動位置（離開再回來還原） */
   scrollTop: number;
@@ -58,6 +65,21 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 /** 資料變動的重查併成一趟的等待 */
 const REFRESH_COALESCE_MS = 60;
 
+/** 方針組：句子命中 → 查它掛的節點與車站（一次沒幾個，逐個查，同 weekAimStore.refreshAimNodes） */
+async function searchAimHits(term: string): Promise<AimSearchHit[]> {
+  const aims = await weekAimRepo.searchAims(term);
+  const ids = new Set<string>();
+  for (const a of aims) {
+    if (a.node_id) ids.add(a.node_id);
+    const stationId = stationIdOfKey(a.week_on);
+    if (stationId) ids.add(stationId);
+  }
+  const rows = await Promise.all([...ids].map((id) => nodeRepo.getNode(id)));
+  const nodes = new Map<string, NodeRow>();
+  for (const n of rows) if (n && n.deleted_at === null) nodes.set(n.id, n);
+  return buildAimHits(aims, nodes);
+}
+
 export const useSearchStore = create<SearchStore>((set, get) => {
   /** 畫面歸零：已畫列數回第一批、捲回頂（viewTick 讓清單把 DOM 的捲動也拉回去） */
   const resetView = () => ({ shown: RESULT_PAGE, scrollTop: 0, viewTick: get().viewTick + 1 });
@@ -69,25 +91,26 @@ export const useSearchStore = create<SearchStore>((set, get) => {
     const id = ++req;
     if (!term) {
       inflight = null;
-      set({ hits: [], hitsTerm: "", pending: false, activeId: null, ...resetView() });
+      set({ hits: [], aimHits: [], hitsTerm: "", pending: false, activeId: null, ...resetView() });
       return;
     }
     inflight = term;
     set({ pending: true });
-    void nodeRepo
-      .searchFull(term)
-      .catch(() => [] as FullSearchHit[])
-      .then((hits) => {
-        if (id !== req) return;
-        inflight = null;
-        set(keepView ? { hits, hitsTerm: term, pending: false } : { hits, hitsTerm: term, pending: false, activeId: null, ...resetView() });
-      });
+    void Promise.all([
+      nodeRepo.searchFull(term).catch(() => [] as FullSearchHit[]),
+      searchAimHits(term).catch(() => [] as AimSearchHit[]),
+    ]).then(([hits, aimHits]) => {
+      if (id !== req) return;
+      inflight = null;
+      set(keepView ? { hits, aimHits, hitsTerm: term, pending: false } : { hits, aimHits, hitsTerm: term, pending: false, activeId: null, ...resetView() });
+    });
   };
 
   return {
     query: "",
     filter: DEFAULT_FILTER,
     hits: [],
+    aimHits: [],
     hitsTerm: "",
     pending: false,
     shown: RESULT_PAGE,

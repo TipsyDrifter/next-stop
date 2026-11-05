@@ -5,8 +5,10 @@
  * repository 的 `searchFull` 只負責「哪些節點命中、命中在哪一欄、那一欄的原文」；其餘都在這裡，兩殼共用、node 測得到。
  * 純函式、不碰 store／DOM／Tauri；import 一律帶 `.ts`（scripts/tests 直接載入）。
  * 済看「目前班次」（定期券的済蓋在班次上）由呼叫端的 `isDone` 決定，這裡不讀 store。
+ * 方針組（方針擴充 辛 D-主-382）：另成一組、不混進節點結果；篩選怎麼作用見 `filterAimHits`。
  */
 import type { NodeKind, NodeRow } from "./node.ts";
+import { periodOfKey, periodRangeOf, periodShortLabel, stationHeadText, stationIdOfKey, weekOnOf, type WeekAimRow } from "./weekAims.ts";
 
 /** 命中在哪一欄：名稱 → 概要 → 乘務記錄（只算手記）；數字越小越前面 */
 export type FullSearchField = "name" | "description" | "log";
@@ -21,8 +23,8 @@ export interface FullSearchHit {
 }
 
 export type StatusFilter = "all" | "open" | "done";
-/** 車票／車票以外（路線、支線、列車、車廂、車站） */
-export type KindFilter = "all" | "ticket" | "tree";
+/** 車票／車票以外（路線、支線、列車、車廂、車站）／方針 */
+export type KindFilter = "all" | "ticket" | "tree" | "aim";
 /** 全部／臨時車票／某條路線的 id */
 export type RouteFilter = "all" | "temp" | { routeId: string };
 
@@ -51,6 +53,7 @@ export function filterHits(
 ): FullSearchHit[] {
   return hits.filter(({ node }) => {
     if (f.status !== "all" && isDone(node) !== (f.status === "done")) return false;
+    if (f.kind === "aim") return false;
     if (f.kind === "ticket" && node.kind !== "ticket") return false;
     if (f.kind === "tree" && node.kind === "ticket") return false;
     if (f.route === "temp") return isTempTicket(node);
@@ -175,6 +178,7 @@ export const KIND_FILTER_LABEL: Record<KindFilter, string> = {
   all: "全部",
   ticket: "車票",
   tree: "路線・列車・車廂",
+  aim: "方針",
 };
 
 export const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
@@ -188,3 +192,86 @@ export const SEARCHABLE_KINDS: readonly NodeKind[] = ["route", "branch", "train"
 
 /** 一次畫幾列；捲到底再接一批（D-主-115） */
 export const RESULT_PAGE = 300;
+
+/* ───────────── 方針組（D-主-382） ───────────── */
+
+/** 一句方針的命中：句子＋它掛的路線或支線＋（車站方針）那一站 */
+export interface AimSearchHit {
+  aim: WeekAimRow;
+  /** 掛的路線或支線；沒掛或已刪＝null（標籤消失、句子留著，§3 #16） */
+  node: NodeRow | null;
+  /** 車站方針的那一站；其他期間＝null */
+  station: NodeRow | null;
+}
+
+/**
+ * 句子列 → 命中：`nodes`＝查到的活節點（已刪的不要放進來）。
+ * 車站被刪的方針跟著藏、復原就回來（§3 #16），所以這裡濾掉，不在 repository 濾：repository 只管句子文字。
+ */
+export function buildAimHits(aims: readonly WeekAimRow[], nodes: ReadonlyMap<string, NodeRow>): AimSearchHit[] {
+  const out: AimSearchHit[] = [];
+  for (const aim of aims) {
+    const stationId = stationIdOfKey(aim.week_on);
+    const station = stationId ? (nodes.get(stationId) ?? null) : null;
+    if (stationId && !station) continue;
+    out.push({ aim, node: aim.node_id ? (nodes.get(aim.node_id) ?? null) : null, station });
+  }
+  return out;
+}
+
+/** 這句算哪條路線：掛的節點優先；車站方針沒掛＝那一站的路線；都沒有＝null */
+export function aimRouteId(hit: Pick<AimSearchHit, "node" | "station">): string | null {
+  const { node, station } = hit;
+  if (node) return node.kind === "route" ? node.id : node.route_id;
+  return station ? (station.route_id ?? station.parent_id) : null;
+}
+
+/**
+ * 三組篩選對方針組的作用（節點的篩選照舊，兩組各篩各的）：
+ * - 狀態：未完成／済＝看這句有沒有蓋済。
+ * - 種類：全部、方針＝留著；車票、路線・列車・車廂＝整組不出現（方針不是這兩種）。
+ * - 路線：某條路線＝`aimRouteId` 是它（掛它、掛它的支線、它的車站）；臨時車票＝整組不出現（方針不是票）；沒掛路線的句子只在「全部」出現。
+ */
+export function filterAimHits(hits: readonly AimSearchHit[], f: FullSearchFilter): AimSearchHit[] {
+  if (f.kind === "ticket" || f.kind === "tree" || f.route === "temp") return [];
+  const route = f.route;
+  return hits.filter((h) => {
+    if (f.status !== "all" && (h.aim.done_at !== null) !== (f.status === "done")) return false;
+    return route === "all" || aimRouteId(h) === route.routeId;
+  });
+}
+
+/** 排序同節點的同層規則（D-主-113）：未完成在前、済在後；再依最近更新（新→舊），最後 id 定序 */
+export function rankAimHits(hits: readonly AimSearchHit[]): AimSearchHit[] {
+  return [...hits].sort(
+    (a, b) =>
+      Number(a.aim.done_at !== null) - Number(b.aim.done_at !== null) ||
+      b.aim.updated_at.localeCompare(a.aim.updated_at) ||
+      a.aim.id.localeCompare(b.aim.id),
+  );
+}
+
+/** 週的 week_on 是寫的當下的週首：換算成現在的週首才跟「本週」、行程表那一週對得上；其他期間原樣 */
+function currentKeyOfRow(key: string, weekStart: 0 | 1): string {
+  return periodOfKey(key) === "week" ? weekOnOf(key, weekStart) : key;
+}
+
+/** 一列的期間字：本週／上週／10/26 那週、本月／10月／2025年10月、今年／去年／2025 年；車站＝站名・日期 */
+export function aimPeriodText(hit: Pick<AimSearchHit, "aim" | "station">, today: string, weekStart: 0 | 1): string {
+  const key = hit.aim.week_on;
+  if (periodOfKey(key) === "station") return stationHeadText(hit.station);
+  return periodShortLabel(currentKeyOfRow(key, weekStart), today, weekStart);
+}
+
+/** 一列的淡字：掛的路線或支線；車站方針沒掛＝那一站的路線（搜尋清單要看得出是哪條）；都沒有＝空字 */
+export function aimPlaceText(hit: Pick<AimSearchHit, "node" | "station">, routes: readonly Pick<NodeRow, "id" | "name">[]): string {
+  if (hit.node) return hit.node.name;
+  const rid = aimRouteId(hit);
+  return rid ? (routes.find((r) => r.id === rid)?.name ?? "") : "";
+}
+
+/** 行程表要落在哪一天：今天在這一期裡＝今天；否則這一期第一天。週、月才問（年、車站不走行程表，periodRangeOf 對車站會丟 RangeError） */
+export function aimLandingDay(key: string, today: string, weekStart: 0 | 1): string {
+  const { from, to } = periodRangeOf(currentKeyOfRow(key, weekStart));
+  return today >= from && today <= to ? today : from;
+}

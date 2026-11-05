@@ -9,6 +9,7 @@
  * 分段鈕與鍵位提示留在 DateNav 兩旁。
  */
 import { periodWindow, type StatsPeriod } from "../../../domain/timetableStats";
+import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
@@ -27,6 +28,7 @@ function capOf(id: string): string | null {
 }
 
 export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number; ws: 0 | 1; desktop: boolean }) {
+  useHotkeyRevision();
   const period = useTimetableStatsStore((s) => s.period);
   const key = useTimetableStatsStore((s) => s.key);
   const follow = useTimetableStatsStore((s) => s.followCurrent);
@@ -67,7 +69,7 @@ export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number;
         }}
         isToday={isCur}
       />
-      {desktop && <span className="ns-tt-stats-keys">{T.keysHint}</span>}
+      {desktop && <span className="ns-tt-stats-keys">{T.keysHint()}</span>}
     </div>
   );
 }

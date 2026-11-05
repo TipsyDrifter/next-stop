@@ -6,6 +6,8 @@
  *   4.0b 備份與還原＝`BackupTab`（⑥ WP3 填）
  *   4.0c 快捷鍵   ＝⑦ 通車：`HotkeysTab`（D-⑦-2 甲：籤頂雙模式說明＋按場景七組，全部切 registry 不手抄）
  *   4.0d 同步     ＝`SyncTab`（v1.1.1 WP8）
+ *   4.0f 最近刪除 ＝`LostFoundList`（失物招領 D-主-311）；「從雲端備份撿回」開著時，整張設定換成 `SnapshotRescue`
+ *                  （同位置同寬、只有一層暗幕），關掉回原籤、原捲動位置
  * UI 丙-3（契約 E1；視覺規範 §2.2／§2.4／§4）：
  *   - 籤列換共用 `Tabs`（底線滑塊、襯線籤；←→ 循環、Home／End、IME 組字不攔都由它做，本檔不再自做鍵盤）；
  *     開設定時焦點落到目前籤（Tabs 沒有 ref API，開場用 DOM 查選中的那一籤）；`aria-controls` 用 `getPanelId` 對齊 tabpanel id。
@@ -15,15 +17,19 @@
  * 主題過渡（M3 ② · 決策記錄〈M3 · 發車〉決策 12・r3）：商店主題（旅の手帖・夜行寝台・月白）暫時下架、tokens 存在 styles/theme-library.css，主題商店開張再回歸。
  * 取捨：即選即存（無儲存鈕，store 自己落 settings 表）；日界線的說明放在選單下方一句話；主題的副註只放 title。
  */
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import { useUiStore, type SettingsTab, type ThemePref } from "../../store/uiStore";
+import { useLostFoundStore } from "../../store/lostFoundStore";
 import { DialogShell } from "../common/DialogShell";
+import { SnapshotRescue } from "../common/SnapshotRescue";
 import { Tabs, type TabItem } from "../common/Tabs";
 import { Segmented, type SegmentedOption } from "../common/Segmented";
 import { BackupTab } from "./BackupTab";
 import { HotkeysTab } from "./HotkeysTab";
 import { SyncTab } from "./SyncTab";
+import { RemindersTab } from "./RemindersTab";
 import { ExternalAssistantTab } from "./ExternalAssistantTab";
+import { LostFoundList } from "./LostFoundList";
 import { AutostartRow } from "../notes/desktop";
 import { lineSettingsLinks } from "../../lines/runtime";
 import "../common/overlay.css";
@@ -36,7 +42,7 @@ const THEMES: SegmentedOption<ThemePref>[] = [
   { value: "system", label: "跟隨系統", title: "依手機設定" },
 ];
 
-const HOURS = [0, 1, 2, 3, 4, 5, 6];
+const DAY_START_OPTS = [0, 1, 2, 3, 4, 5, 6].map((h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }));
 
 /**
  * 週首（uiStore.weekStart＝JS getDay() 的值；settings 鍵 week_start；旅客筆記車次② D-筆-29）。
@@ -47,19 +53,30 @@ const WEEK_STARTS: SegmentedOption<"1" | "0">[] = [
   { value: "0", label: "星期日" },
 ];
 
-/** 五籤（第五籤〈外部助理〉＝MCP 接口班）；日後還在施工的籤可以掛 `disabled`＋`why`（Tabs 會淡出並在 title 說為什麼） */
+/** 七籤（第五本 ⑨：〈提醒〉放第二格；〈外部助理〉＝MCP 接口班；〈最近刪除〉＝失物招領）；日後還在施工的籤可以掛 `disabled`＋`why`（Tabs 會淡出並在 title 說為什麼） */
 const TABS: TabItem<SettingsTab>[] = [
   { key: "general", label: "一般" },
+  { key: "reminders", label: "提醒" },
   { key: "backup", label: "備份與還原" },
   { key: "hotkeys", label: "快捷鍵" },
   { key: "sync", label: "同步" },
   { key: "assistant", label: "外部助理" },
+  { key: "lostfound", label: "最近刪除" },
 ];
+
+/** 去「從雲端備份撿回」之前設定捲到哪（回來時還原：備份籤的入口在很下面） */
+let returnScrollTop = 0;
 
 export function SettingsPanel() {
   const open = useUiStore((s) => s.settingsOpen);
+  const rescuing = useLostFoundStore((s) => s.rescue !== null);
+  const closeRescue = useLostFoundStore((s) => s.closeRescue);
+  // 設定被外面關掉（跳頁、快捷鍵）時，撿回畫面也一起收，下次開設定才不會直接落在它上面
+  useEffect(() => {
+    if (!open) closeRescue();
+  }, [open, closeRescue]);
   if (!open) return null;
-  return <SettingsForm />;
+  return rescuing ? <SnapshotRescue /> : <SettingsForm />;
 }
 
 function SettingsForm() {
@@ -76,11 +93,22 @@ function SettingsForm() {
   // 開設定時焦點落到目前籤（⑥ 遺留：原本焦點留在底下的頁面，Tab 要繞一圈才進得了卡）。
   // 共用 Tabs 沒有 ref／focus API：用 DOM 查選中的那一籤（Tabs 保證它 aria-selected=true、tabIndex 0）。
   // 等一個 frame 讓 DialogShell 的 @starting-style 進場先掛好；只在開場跑一次（之後換籤由 Tabs 自己帶焦點）。
+  // 從撿回畫面回來：捲回原位（focus 不能把它捲走）
+  const scrollBack = useRef(returnScrollTop);
   useEffect(() => {
     const id = requestAnimationFrame(() =>
-      tabsRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(),
+      tabsRef.current
+        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.focus({ preventScroll: scrollBack.current > 0 }),
     );
     return () => cancelAnimationFrame(id);
+  }, []);
+  useLayoutEffect(() => {
+    const body = tabsRef.current?.closest<HTMLElement>(".ns-dialog-body");
+    if (body && scrollBack.current > 0) body.scrollTop = scrollBack.current;
+    return () => {
+      returnScrollTop = useLostFoundStore.getState().rescue ? (body?.scrollTop ?? 0) : 0;
+    };
   }, []);
 
   // topClass 置頂 10vh（其他 dialog 18vh）：設定是全站最高的一張卡，上移才塞得進 1280×800 的預設視窗。
@@ -99,10 +127,12 @@ function SettingsForm() {
       {/* Tabs 不給籤鈕 id，分頁內容改用 aria-label（籤名）命名，不用 aria-labelledby */}
       <div role="tabpanel" id={panelId(tab)} aria-label={current.label} className="ns-tabpanel">
         {tab === "general" && <GeneralTab />}
+        {tab === "reminders" && <RemindersTab />}
         {tab === "backup" && <BackupTab />}
         {tab === "hotkeys" && <HotkeysTab />}
         {tab === "sync" && <SyncTab />}
         {tab === "assistant" && <ExternalAssistantTab />}
+        {tab === "lostfound" && <LostFoundList />}
       </div>
     </DialogShell>
   );
@@ -118,7 +148,6 @@ function GeneralTab() {
   const setWeekStart = useUiStore((s) => s.setWeekStart);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const links = lineSettingsLinks("desktop");
-  const selectId = useId();
 
   return (
     <div className="space-y-6">
@@ -128,23 +157,14 @@ function GeneralTab() {
       </div>
 
       <div>
-        <label className="techo-label block mb-1" htmlFor={selectId}>
-          一天的開始時間
-        </label>
-        <span className="ns-select-wrap">
-          <select
-            id={selectId}
-            value={dayStartHour}
-            onChange={(e) => void setDayStartHour(Number(e.target.value))}
-            className="techo-input font-latin text-[14px]"
-          >
-            {HOURS.map((h) => (
-              <option key={h} value={h}>
-                {String(h).padStart(2, "0")}:00
-              </option>
-            ))}
-          </select>
-        </span>
+        <span className="techo-label block mb-2.5">一天的開始時間</span>
+        {/* 庚：原生選單換分段鈕，值只有七個，兩端同一種長相 */}
+        <Segmented
+          options={DAY_START_OPTS}
+          value={String(dayStartHour)}
+          onChange={(v) => void setDayStartHour(Number(v))}
+          aria-label="一天的開始時間"
+        />
         <p className="ns-note mt-2">熬夜到這個時間前都算前一天——今日視圖與誤點都依此計算。</p>
       </div>
 

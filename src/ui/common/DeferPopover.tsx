@@ -8,9 +8,10 @@
  * **資料來源＝props 注入的 `row`（M3 ⑤ WP1 解耦，草案 §4-3）**：本元件不查 `today.byId`——
  * 日曆當日清單浮層的列不在今日切片裡。行為零改動；形狀見 `DeferRow`。
  *
- * **定期券版（M3 ④ D-④-3）**：同一枚 chip、同一張卡，內容整個換掉——定期券的班次由規則排定，
- * 四項改期一項都不給（給了也會被 repository throw），改成兩項：
- *   〔本班運休／取消運休（依 `row.occurrence.status` 二擇一）〕＋〔編輯重複規則…（＝開側板，與 `.` 同一個去處）〕。
+ * **定期券版（M3 ④ D-④-3；⑥ D-主-295）**：同一枚 chip、同一張卡，內容整個換掉——定期券沒有「執行日」可以推或清，
+ * 四項改期換成講「這一班」的三項：
+ *   〔本班運休／取消運休（依 `row.occurrence.status` 二擇一）〕＋〔這一班改到…（開日期挑選，走 `moveRunFlow`；已交代的班停用）〕
+ *   ＋〔編輯重複規則…（＝開側板，與 `.` 同一個去處）〕。
  * 運休直接呼 `nodeStore.skipOccurrence`（與 `U`、側板検印區同一個入口，不經 controller）——
  * 運休的是哪一班由 `row.railDate` 決定（呼叫端明講；沒講才回到 store 的「今天那一班」口徑），
  * 三個入口才會**同語義**（拍板 D-⑤-2 修訂：`U`／浮層鈕／小卡同一句話）。
@@ -32,7 +33,7 @@
  * ── UI 丙-2 搬家（契約 §1 #18；2026-10-22）──
  * 用途：推遲小卡（今日列、行程表串流、日曆當日浮層共用）。
  * 規範：視覺規範 §2.4（錨定 popover＝.techo-card＋眉標）、§2.5（日期：挑一天＝共用 DatePicker）、§2.8（看不見結果的改期出 toast＋復原）。
- * ARIA：根 role=dialog＋aria-label（「推遲／定期券」＋票名）；「選日期…」aria-expanded；「清除執行日」沒有執行日時 disabled＋title 寫原因。
+ * ARIA：根 role=dialog＋aria-label（「推遲／定期券」＋票名）；「選日期…」「這一班改到…」aria-expanded；「清除執行日」沒有執行日、「這一班改到…」已交代時 disabled＋title 寫原因。
  * 鍵盤：見上（↑↓ 項目間移動、Tab 卡內循環、Esc 自己收不冒泡、? 與 Ctrl+/ 不外漏）。
  * 樣式：common/defer.css（src/index.css 集中 @import；原 today/defer.css 整份搬來，字級改 --fs-*）。
  *   原路徑 today/DeferPopover.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
@@ -43,9 +44,11 @@ import type { CurrentOccurrence } from "../../data";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
-import { isEditableTarget } from "../shell/hotkeys";
+import { isGuideKey } from "../shell/hotkeys";
 import { DatePicker } from "./DatePicker";
 import { INBOX_TOAST, showRescheduleToast } from "../today/useTodayController";
+import { SETTLED_DEFER_MSG } from "../mobile/useMobileToday";
+import { moveRunFlow } from "../outline/nodeFlows";
 
 /**
  * 小卡要的那一列（M3 ⑤ WP1 解耦）——節點欄位＋「這一列在講的那一班」。
@@ -56,7 +59,7 @@ import { INBOX_TOAST, showRescheduleToast } from "../today/useTodayController";
 export type DeferRow = NodeRow & {
   occurrence: CurrentOccurrence | null;
   /**
-   * 這一列在講的那一班的**班次日**（M3 ⑤ 修正席 must 2）。給了就原封送進 `skipOccurrence` 當 `dueOn`——
+   * 這一列在講的那一班的**班次日**（M3 ⑤ 修正席 must 2）。給了就原封送進 `skipOccurrence` 當 `dueOn`、「這一班改到…」也改這一班——
    * 日曆浮層一列講的是「那一天那一班」，跟 store 認定的「今天那一班」不一定同一班
    * （今天蓋済後 `scheduled_on` 已指向明天，明天那列的 `occurrence` 又還沒有結局＝null），
    * 沒有這個欄位小卡會運休到別班、或吐「本班已済」。
@@ -205,7 +208,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     // M3 ⑦：小卡開著時 `?`／Ctrl+/ 都不叫快捷鍵指引（開關是本地 state，全域表看不到；不擋會再疊一張卡、Esc 互搶）。
     // 日期欄裡打 `?` 仍是打字，只擋導航模式那一下；Ctrl+/ 連日期欄裡都擋（備援鍵的「輸入框」指視圖裡的行內
     // 輸入框，不是小卡裡的）。React 的 stopPropagation 會一路擋到 window（mock 頁實測）。
-    if ((e.key === "?" && !isEditableTarget(e.target)) || (e.key === "/" && (e.ctrlKey || e.metaKey))) {
+    if (isGuideKey(e)) {
       e.preventDefault();
       e.stopPropagation();
       return;
@@ -276,6 +279,14 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       });
   };
 
+  /** 這一班改到別天（⑥ D-主-295）：收據、復原與擋下的原因都在 moveRunFlow */
+  const moveRun = (to: string) => {
+    onClose();
+    if (railDate) void moveRunFlow(nodeId, railDate, to);
+  };
+  /** 這一班已交代或講不出是哪一班＝「這一班改到…」停用，title 說原因 */
+  const moveWhy = !railDate ? "目前沒有班次" : suspended ? "運休中——先取消運休才能改日期" : row.occurrence ? SETTLED_DEFER_MSG : null;
+
   /** 編輯重複規則＝開詳情側板（與今日列的 `.`／票種小字同一個去處；編輯器本體是 WP3） */
   const editRule = () => {
     onClose();
@@ -304,6 +315,20 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
           <li>
             <button type="button" data-defer-item className="ns-defer-item" onClick={toggleSuspend}>
               <span>{suspended ? "取消運休" : "本班運休"}</span>
+              <span className="when">{railDate ? whenLabel(railDate) : "—"}</span>
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              data-defer-item
+              aria-expanded={picking}
+              disabled={moveWhy !== null}
+              title={moveWhy ?? undefined}
+              className="ns-defer-item"
+              onClick={() => setPicking(true)}
+            >
+              <span>這一班改到…</span>
               <span className="when">{railDate ? whenLabel(railDate) : "—"}</span>
             </button>
           </li>
@@ -363,17 +388,19 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
       </ul>
       )}
 
-      {!rule && picking && (
+      {picking && (
         <div className="ns-defer-pick">
           {/* 共用挑選器（D-筆-30）：沒有快選（明天／下週一已在上面）；開啟時焦點落在月格上的那一天（磨光⑤ S8 起自畫月格）；
               Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡。
-              min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4） */}
+              min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4）；定期券版改的是 railDate 那一班，「改回原日」走收據的復原與検印區 */}
           <DatePicker
-            label="選執行日"
-            value={row.scheduled_on ?? dateKey}
+            label={rule ? "這一班改到" : "選執行日"}
+            value={(rule ? railDate : row.scheduled_on) ?? dateKey}
             min={dateKey}
             onPick={(v) => {
-              if (isSaneDateKey(v)) applyDate(v);
+              if (!isSaneDateKey(v)) return;
+              if (rule) moveRun(v);
+              else applyDate(v);
             }}
             onClose={closePicker}
           />

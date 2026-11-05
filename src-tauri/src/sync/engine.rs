@@ -4430,7 +4430,7 @@ pub(crate) async fn put_cloud_snapshot(
 ///
 /// **已知（v1.1.4 查證 `…-Android下載目錄寫入查證.md`）**：Android 的 `download_dir()` 回的是 app 專屬外部目錄
 /// `Android/data/<pkg>/files/Download`——主人在檔案管理員看不到、移除 App 就消失。所以這支在手機上只當
-/// **退路**（雲端拍不成、或 SAF 選擇器用不了時）；主動「匯出到手機」走 `snapshot::export_to_file`（SAF）。
+/// **退路**（雲端拍不成時）；主動匯出走 `snapshot::export_write_picked`（SAF）。
 pub(crate) fn write_export_file(app: &AppHandle, text: &str) -> Result<String, String> {
     let name = format!(
         "nextstop-export-{}.json",

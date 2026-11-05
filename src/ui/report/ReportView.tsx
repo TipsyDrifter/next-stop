@@ -6,6 +6,8 @@
  * 載入：進頁就讀；今天清單變動（蓋済、取消、同步拉下來）、視窗回到前景時再讀一次。
  */
 import { PageHeader } from "../common/PageHeader";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { capsOfHotkey } from "../shell/hotkeys";
 import { ErrorBar } from "../common/ErrorBar";
 import { useNodeStore } from "../../store/nodeStore";
 import { useReportStore } from "../../store/reportStore";
@@ -17,6 +19,7 @@ import "./report.css";
 const WEEK_ZH = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
 export function ReportView() {
+  useHotkeyRevision();
   const report = useReportStore((s) => s.report);
   const days = useReportStore((s) => s.days);
   const error = useReportStore((s) => s.error);
@@ -33,7 +36,7 @@ export function ReportView() {
           overline={{ zh: "運行報告", latin: "Operation Report" }}
           title="運行報告"
           aside={day ? `${day.getMonth() + 1}月${day.getDate()}日 ${WEEK_ZH[day.getDay()]}` : undefined}
-          search={{ onOpen: () => openFullSearch(), title: "搜尋（Ctrl+Shift+F）" }}
+          search={{ onOpen: () => openFullSearch(), title: `搜尋（${capsOfHotkey("global.fullsearch")}）` }}
         />
         {error && <ErrorBar message={`運行報告讀取失敗：${error}`} onRetry={() => void useReportStore.getState().load("desktop")} />}
         {report && <ReportBody r={report} shell="desktop" days={days} onDays={setDays} routes={routes} />}

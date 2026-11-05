@@ -388,6 +388,25 @@ describe("9′. planPaintFill／buildPaintUndo／planUndoPaint", () => {
     assert.equal(planUndoPaint(undo, { ...cur, n: row("x", null, "u1", "u1") }), null, "新塊已被刪");
     assert.equal(planUndoPaint(undo, { ...cur, a: null }), null, "列不見了");
   });
+  test("合併的復原（失物招領 §5-5）：plan 改了備註的列記下原備註，撤回一起寫回；塗色沒改備註＝快照沒有 notes", () => {
+    const plan = { patches: [{ id: "a", start: T(9), note: "被吞那塊的" }], inserts: [], deletes: ["b"] };
+    const undo = buildPaintUndo(
+      plan,
+      { a: { ...row("s", "e", "u0"), note: null }, b: { ...row("s0", "e0", "u0"), note: "被吞那塊的" } },
+      { a: { ...row("s9", "e", "u1"), note: "被吞那塊的" }, b: { ...row("s0", "e0", "u1", "u1"), note: "被吞那塊的" } },
+      [],
+    );
+    assert.deepEqual(undo.notes, [{ id: "a", before: null }]);
+    assert.deepEqual(
+      planUndoPaint(undo, { a: { ...row("s9", "e", "u1"), note: "被吞那塊的" }, b: { ...row("s0", "e0", "u1", "u1"), note: "被吞那塊的" } }),
+      [
+        { id: "a", op: "set", cols: { started_at: "s", note: null } },
+        { id: "b", op: "set", cols: { deleted_at: null } },
+      ],
+    );
+    const noNote = buildPaintUndo({ patches: [{ id: "a", start: T(9) }], inserts: [], deletes: [] }, { a: row("s", "e", "u0") }, { a: row("s9", "e", "u1") }, []);
+    assert.equal("notes" in noNote, false);
+  });
 });
 
 /* ═════════════════════════ 9、10. repository 的 paint／undoPaint（memory／sqlite） ═════════════════════════ */

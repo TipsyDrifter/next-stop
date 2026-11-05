@@ -8,7 +8,7 @@
  * UI 丙-5 H1（契約 §1 H1、B2）：自畫的 `.ns-tk-mviews` 三等分 tablist 退役，換成今日頂帶下一列同款 `.ns-tabrow`——
  *   共用 <Tabs>（籤字「日曆」→「月曆」）＋末端 span.mgr 文字鈕「管帳」（＝手機唯一的管帳入口；開 MobileTicketOffice 的管帳 sheet）。
  *   跟丙-4 時刻表同一做法：籤列住在頁內 sticky 的 div.ns-tk-mtop（不走 MobileTopBand 的 tabsRow 插槽：那要改集中檔 MobileShell）。
- *   狀態照舊在 `ticketStore.view`（不持久化，0-17）；←→ Home End 由 Tabs 自己處理。
+ *   狀態照舊在 `ticketStore.view`（己-2 B5 起記本機、冷啟動回上次；原 0-17 不持久化）；←→ Home End 由 Tabs 自己處理。
  *
  * 同檔另出 `useViewSwipe`：內容區左右滑換視圖（門檻同 useSubSwipe：邊緣 24px 不算、|dx| ≥ 56、1.5 倍主導）。
  * 只掛在 `.ns-tk-mlist`／`.ns-tk-mcal`／`.ns-tk-mstats`／`.ns-tk-mac`／`.ns-tk-mw` 直向捲動容器（CSS 給 touch-action: pan-y）；

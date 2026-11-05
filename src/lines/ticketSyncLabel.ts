@@ -7,6 +7,7 @@
  *
  * **純函式**：只准 import 型別（`scripts/tests/sync-engine-labels.test.ts` 以 node 直接載入）；查列、查名字由呼叫端注入。
  */
+import { ruleValueText } from "../domain/repeat.ts";
 import type { RepeatRow, TemplateRow, WishRow } from "../domain/ticket.ts";
 import type { SyncRowLabel } from "./types.ts";
 
@@ -30,7 +31,7 @@ export const REPEAT_COLS: Readonly<Record<string, string>> = {
   hhmm: "記帳時刻",
   next_on: "下一班",
   paused_at: "暫停",
-  skipped_days: "刪掉的班次",
+  skipped_days: "刪掉或跳過的班次",
   position: "排序",
 };
 
@@ -74,6 +75,8 @@ export function repeatSyncLabel(row: RepeatRow, look: TicketLabelLookup): SyncRo
     cols: REPEAT_COLS,
     fmt: (col, v) => {
       switch (col) {
+        case "rule":
+          return ruleValueText(v);
         case "skipped_days":
           return skippedDaysText(v);
         case "kind":

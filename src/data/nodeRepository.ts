@@ -3,9 +3,9 @@
  * 業務邏輯與 UI 只跟這個介面說話；今天後面是 SQLite（tauri-plugin-sql），
  * 將來手機端換儲存、或接同步服務，只換實作不動上層。
  */
-import type { NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, Priority, RepeatRule, WorkLog } from "../domain";
-import { currentDue, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed } from "../domain";
-import { clockInstant, compareClock, dayWindow, isInDay } from "../lib/date";
+import type { Mood, NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, Priority, RepeatRule, WorkLog } from "../domain";
+import { currentDue, doneRuns, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed, projectionRule, settledMoveTargets } from "../domain";
+import { addDays, clockInstant, compareClock, dayWindow, isInDay, todayKey } from "../lib/date";
 // 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
 // UI 取這些值一律經 data/index.ts 的明列 export，不直接 import 本檔的值（主線②契約 §0-1 第 10 條）
 import {
@@ -126,6 +126,8 @@ export interface TodayRow extends NodeRow {
    * 非定期券（含退役的定期券）一律 null——那種列的完成仍然看 `status === 'done'`。
    */
   occurrence: CurrentOccurrence | null;
+  /** 定期券自己跑完到站了（規則算不出下一班，D-主-293）；跟著上層一起完成的退役不算 */
+  run_ended?: boolean;
 }
 
 /**
@@ -279,8 +281,16 @@ export interface NodeRepository {
   /** 就地改類型（如 列車⇄支線），會驗證與父／子節點的相容性 */
   setKind(id: string, kind: NodeKind): Promise<void>;
   /** soft delete 整個子樹，回傳被刪的 id（供 undo） */
+  /** 回這一刀刪掉的 id；根已刪或不存在回 []（不重戳，呼叫端不跳 toast） */
   softDelete(id: string): Promise<string[]>;
+  /** softDelete 現在會刪到的那一批：自己＋往下活著的子孫。只讀；刪除確認框的子項數一律看這個（不看載了多少樹） */
+  listSubtreeIds(id: string): Promise<string[]>;
   restore(ids: string[]): Promise<void>;
+  /**
+   * 失物招領（D-主-314）：撿回一張上層已不在的車票，放到臨時車票（parent_id 清掉）。routeTagId＝原路線活著就掛路線標籤；
+   * 不是活著的路線就當沒有。op 只帶主人資料欄；line_id 是快取、跟著標籤的幹線（同建票），不進 op。沒刪或不存在＝不寫。
+   */
+  restoreAsLoose(id: string, routeTagId: string | null): Promise<void>;
   /**
    * 完成／取消完成；done＋cascade＝連同未完成子項。回傳受影響 id。
    *
@@ -367,6 +377,11 @@ export interface NodeRepository {
   setRunTime(id: string, dueOn: string, time: string | null, dayStartHour: number): Promise<void>;
   /** 改回每班時刻＝軟刪 [dueOn] 那一列（沒有＝什麼都不寫）。驗同上（不驗 time） */
   clearRunTime(id: string, dueOn: string): Promise<void>;
+  /**
+   * 只改這一班的日期（D-主-295）：寫 `rule.moves` 的唯一入口；不合法 throw `runMoveBlock` 那句。
+   * 這一班的時刻覆寫跟著搬到新日子。改回原日＝把 `to` 給成 `runOrigin`。一班同一天＝什麼都不寫。
+   */
+  moveOccurrence(id: string, from: string, to: string, dateKey: string, dayStartHour?: number): Promise<void>;
   /**
    * lazy 同步（D-④-7）：對所有存活、未退役、有規則的節點重算目前班次日，
    * 變了才寫回 `scheduled_on`；回傳這一輪真的變動的 id。同一個 dateKey 跑兩次結果相同（冪等）。
@@ -580,6 +595,96 @@ export function retiredWasDueToday(
   return due !== null && due <= dateKey;
 }
 
+/** 這張定期券是不是自己跑完了（D-主-293）：規則算不出下一班 */
+export function runEnded(rule: RepeatRule | null, occurrences: readonly OccurrenceSeed[], dateKey: string, dayStartHour: number): boolean {
+  return rule !== null && currentDue(rule, occurrences, dateKey, dayStartHour) === null;
+}
+
+/**
+ * 跑完到站寫進 `completed_at` 的值：最後一枚済的時刻。兩台算出同一個值，也不會多長一枚章（済的口徑同節點同時刻只算一枚，
+ * D-主-181）；一班都沒済過＝null，不算済章。
+ */
+export function endedCompletedAt(occurrences: readonly OccurrenceSeed[]): string | null {
+  let last: OccurrenceSeed | null = null;
+  for (const o of occurrences) if (o.status === "done" && (last === null || o.due_on > last.due_on)) last = o;
+  return last?.completed_at ?? null;
+}
+
+/** 整棵子樹掛重複（D-主-298）：子項裡重置會碰到的欄位 */
+export type RunKid = Pick<NodeRow, "id" | "status" | "completed_at" | "mood" | "scheduled_on" | "due_on" | "repeat_rule">;
+
+/** 子項的日期平移（跟著上層的班次走）；沒排的照舊沒排 */
+const shiftDay = (d: string | null, days: number): string | null => (d === null || days === 0 ? d : addDays(d, days));
+
+/**
+ * 蓋完一班後子項怎麼重置（D-主-298，Todoist 的 Reset sub-tasks 同款）：已完成的把這次的済記成自己的班次記錄（足跡與統計照算），
+ * 回到未完成；執行日、締切跟著平移到下一班。定期券底下的定期券各跑各的，不碰。
+ */
+export function planRunReset(
+  kids: readonly RunKid[],
+  shift: number,
+): { id: string; completedAt: string | null; mood: Mood | null; scheduledOn: string | null; dueOn: string | null }[] {
+  return kids
+    .filter((k) => k.status === "done" && !parseRule(k.repeat_rule))
+    .map((k) => ({
+      id: k.id,
+      completedAt: k.completed_at,
+      mood: k.mood,
+      scheduledOn: shiftDay(k.scheduled_on, shift),
+      dueOn: shiftDay(k.due_on, shift),
+    }));
+}
+
+/**
+ * 取消這一班的済時子項怎麼還原：跟上層同一刻蓋的（＝連帶完成）回到未完成並收回那枚済，自己先蓋的回到已完成；日期平移回去。
+ * `kidOccs`＝子項在這一班的班次記錄。
+ */
+export function planRunRestore(
+  kids: readonly RunKid[],
+  kidOccs: readonly Pick<Occurrence, "id" | "node_id" | "completed_at" | "mood">[],
+  parentCompletedAt: string | null,
+  shift: number,
+): {
+  id: string;
+  occId: string;
+  cascaded: boolean;
+  status: "done" | "todo";
+  completedAt: string | null;
+  mood: Mood | null;
+  scheduledOn: string | null;
+  dueOn: string | null;
+}[] {
+  const out = [];
+  for (const o of kidOccs) {
+    const k = kids.find((x) => x.id === o.node_id);
+    if (!k || parseRule(k.repeat_rule)) continue;
+    const cascaded = o.completed_at !== null && o.completed_at === parentCompletedAt;
+    out.push({
+      id: k.id,
+      occId: o.id,
+      cascaded,
+      status: cascaded ? ("todo" as const) : ("done" as const),
+      completedAt: cascaded ? null : o.completed_at,
+      mood: cascaded ? null : o.mood,
+      scheduledOn: shiftDay(k.scheduled_on, -shift),
+      dueOn: shiftDay(k.due_on, -shift),
+    });
+  }
+  return out;
+}
+
+/**
+ * 取消最後一班的済時，哪些子項要回未完成：跟上層同一刻蓋的（＝連帶完成）。最後一班蓋完子項沒有重置，所以沒有班次記錄可查，
+ * 只能認時刻；自己先蓋的留著（D-主-298）。
+ */
+export function endedKidsToReopen(kids: readonly RunKid[], parentCompletedAt: string | null): string[] {
+  if (parentCompletedAt === null) return [];
+  return kids.filter((k) => k.status === "done" && k.completed_at === parentCompletedAt && !parseRule(k.repeat_rule)).map((k) => k.id);
+}
+
+/** 定期券底下不能再掛定期券（D-主-298）；兩種實作同一句 */
+export const NESTED_REPEAT_MSG = "定期券底下不能再掛定期券";
+
 /**
  * 覆寫列的讀取守門（D-主-120）：依「目前規則」決定哪些班次日的覆寫算數。
  *
@@ -627,11 +732,11 @@ export function toCurrentOccurrence(o: Occurrence): CurrentOccurrence {
 
 // ───────────── 重複任務引擎的共用常數（兩種實作＋UI toast 同一份字）─────────────
 
-/** 能掛重複規則的身分（M3-5a：車票＋無子節點的列車／車廂；有子樹者 v1 進 backlog） */
+/** 能掛重複規則的身分（車票、列車、車廂；有子項的列車與車廂⑥起可以，D-主-298） */
 export const REPEATABLE_KINDS: readonly NodeKind[] = ["train", "car", "ticket"];
 
 /** 定期券被單次改期（推遲／T／日期 chip）時擋下的那句話（D-④-3） */
-export const REPEAT_RESCHEDULE_MSG = "定期券的班次由規則排定——跳過本班按 U、改規則按 .";
+export const REPEAT_RESCHEDULE_MSG = "定期券要改的是規則——只動這一班請用「這一班改到…」，跳過請用運休";
 
 /** 對沒有規則的節點呼叫運休時的那句話 */
 export const REPEAT_ONLY_MSG = "只有定期券能運休";
@@ -691,7 +796,9 @@ export function buildSchedule(
     };
     if (node.status !== "done") {
       if (rule.mode === "fixed") {
-        for (const d of projectFixed(rule, from, to)) add(d, false);
+        // 做滿 N 次：只投還會開的班（D-主-292）
+        const settled = settledMoveTargets(rule, occs);
+        for (const d of projectFixed(projectionRule(rule, occs, todayDateKey, dayStartHour), from, to)) if (!settled.has(d)) add(d, false);
       } else {
         // 間隔模型只投「目前班次」一班——下一班取決於何時完成（草案 §6-6）
         const due = node.scheduled_on ?? currentDue(rule, occs, todayDateKey, dayStartHour);
@@ -699,7 +806,12 @@ export function buildSchedule(
           if (due >= from && due <= to) add(due, false);
           // ⑤ 要「假設準時、虛線續投」時才往後推；第二班起標 is_assumed（第一班是真的目前班次）
           if (opts.projectAfter) {
-            for (const d of projectAfter(rule, due, to)) if (d !== due && d >= from) add(d, true);
+            const left = rule.count === null ? Number.POSITIVE_INFINITY : rule.count - doneRuns(rule, occs);
+            projectAfter(rule, due, to)
+              .slice(0, left)
+              .forEach((d) => {
+                if (d !== due && d >= from) add(d, true);
+              });
           }
         }
       }
@@ -842,6 +954,7 @@ export function buildCalendar(
 export function buildScheduleBounds(
   nodes: readonly NodeRow[],
   occByNode: Record<string, Occurrence[]>,
+  todayDateKey: string = todayKey(3),
 ): ScheduleBounds {
   let earliest: string | null = null;
   let latest: string | null = null;
@@ -865,7 +978,8 @@ export function buildScheduleBounds(
     add(node.due_on);
     if (rule.mode === "fixed") {
       add(firstFixedDate(rule, rule.start));
-      if (rule.until !== null) add(lastFixedDate(rule, rule.until));
+      const bounded = projectionRule(rule, occByNode[node.id] ?? [], todayDateKey);
+      if (bounded.until !== null) add(lastFixedDate(bounded, bounded.until));
       else openEndedRepeat = true;
     } else {
       add(node.scheduled_on);

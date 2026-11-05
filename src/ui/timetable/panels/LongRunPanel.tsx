@@ -13,6 +13,11 @@
  *
  * 車次②（② 契約 §4.2-6 #9、§5.11；乙席）：門檻多一層任務的預計時間（`taskEstimateOf(block, linkInfo)`，預估之後、分類之前）；
  * 來源是 task ⇒ 副標「『{任務}』預計 {門檻}，已經誤點 {超過}。其實到幾點？」（estimate 那條的姊妹句），「別問了」一樣留「誤點」。
+ *
+ * 己（第五本第二梯，D-時-172；使用者 11-04「記住上次設定，才不用每次都多一個步驟點擊」）：「之後」預選上次確認的（store.longRunAfter；
+ * 本地、不同步；store.resolveLongRun 成功才記，試點與略過不算）。記到「其實在做別的」＝分類格展開、不預選分類（要點一個才走）。
+ * 「繼續跑／就是這麼久」不動到着時刻，到着那一列收起來（一進來就是一顆「知道了」）。主鈕不自動聚焦：這個面板會自己跳出來，
+ * 也會在按 Enter 到着時先問，連按 Enter 會把預設值直接送出（同 BlockPanel 長塊確認的教訓）。
  */
 import { useState, type MouseEvent } from "react";
 import { MIN, durOf, fmtClock, fmtDur, blockThresholdOf, longRunDefaultEnd, msOf, toSpan, type LongRunChoice } from "../../../domain/timetable";
@@ -43,7 +48,7 @@ export function LongRunPanel(_props: PanelProps) {
   const [end, setEnd] = useState<number>(() =>
     span ? clamp(threshold !== null ? longRunDefaultEnd(span, threshold, now) : Math.round((span.start + cap) / 2 / MIN) * MIN, lo, hi) : 0,
   );
-  const [after, setAfter] = useState<LongRunChoice>("gap");
+  const [after, setAfter] = useState<LongRunChoice>(() => useTimetableStore.getState().longRunAfter);
   const [cat2, setCat2] = useState<string | null>(null);
   // 磨光⑤ 甲′：到着框下的日期跟這一班開始那天比（跑過夜的那班，到着在隔天＝赭）
   const refDay = usePanelRefDay(span ? span.start : now);
@@ -92,9 +97,11 @@ export function LongRunPanel(_props: PanelProps) {
               : `已經連續跑超過 ${fmtDur(th.min * MIN)} 了。其實到幾點？`}
         <span className="ns-tt-panel-sub-aside">（已跑 {fmtDur(durOf(span, now))}）</span>
       </Sub>
-      <Row k="到着" time>
-        <Stepper value={end} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" refDay={refDay} />
-      </Row>
+      {after !== "keep" && (
+        <Row k="到着" time>
+          <Stepper value={end} lo={lo} hi={hi} onChange={setEnd} label="到着時刻" refDay={refDay} />
+        </Row>
+      )}
       <Row k="之後" top>
         <Opts>
           <Opt on={after === "gap"} onClick={() => setAfter("gap")}>

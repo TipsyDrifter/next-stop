@@ -17,7 +17,7 @@
  *   「誰能把另一台拉進來」不該還分桌機手機——手機可能是第一台（雲端空＋手機有料），
  *   那時要加入的桌機手上沒有 r2.env，只剩這張碼。qrcode 走動態 import，沒按就不下載那段 chunk。
  * v1.1.4（WP-C；契約 §7）：手機**有還原了**——「雲端備份」區（`CloudSnapshots`，與桌機備份籤同一個元件、
- *   同一個確認窗、同一套字；D-2）掛在已加入區、密語之前，含「立即備份到雲端」「匯出到手機」與快照列表；
+ *   同一個確認窗、同一套字；D-2）掛在已加入區、密語之前，含「立即備份到雲端」與快照列表（匯出搬到備份與還原頁，失物招領 §4）；
  *   密語多一格「同時換掉資料鑰匙」（D-3，44px 觸控列）；狀態列多「換鑰匙中」與「跳過筆數」兩行。
  *   「改用另一台的」小字從「匯出 JSON 到下載／NextStop」改成「先拍一份到雲端」（§7.6）。
  *   §7.6 另寫「常駐句 `last_export` 那行改讀 `last_cloud_snapshot_at`」——WP-C 的落法是：
@@ -64,6 +64,7 @@ import { CloudSnapshots } from "../common/CloudSnapshots";
 import { NEEDS_PASSPHRASE_TEXT } from "../common/SyncBanner";
 import { RECOVERY_CODE_LEN, formatRecoveryInput } from "../common/RecoveryCodeDialog";
 import { MergeNotices } from "../common/MergeNotices";
+import { useDataExport } from "../settings/DataExportBlock";
 import { useBackLayer } from "./backStack";
 
 export default function MobileSync({ onBack }: { onBack: () => void }) {
@@ -81,7 +82,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
   const setEnabled = useSyncStore((s) => s.setEnabled);
   const reset = useSyncStore((s) => s.reset);
   const rejoin = useSyncStore((s) => s.rejoin);
-  const exportToFile = useSyncStore((s) => s.exportToFile);
+  const dataExport = useDataExport();
   const refreshStatus = useSyncStore((s) => s.refreshStatus);
   const adoptEpoch = useSyncStore((s) => s.adoptEpoch);
   const pairingCode = useSyncStore((s) => s.pairingCode);
@@ -353,7 +354,7 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
             {/* v1.1.4 修正席（產品評審 B2）：**還沒加入同步的手機，這是它唯一的存底出口。**
                 `CloudSnapshots` 在 `configured=false` 時整塊不渲染（沒鑰匙就沒快照，對的），
                 但「匯出到手機」被包在裡面一起消失了——而手機沒有備份三件套，於是一台沒加入的手機
-                零備份出口。契約 §6-6 本來就寫「app 私有目錄的退路保留給還沒加入同步的手機」。 */}
+                零備份出口。失物招領 §4 起走新的資料匯出（整份 JSON）：存檔畫面開不了或寫不進去就行內報錯，不再退回 App 私有資料夾（主人看不到）。 */}
             <div className="m2-block">
               <span className="m2-block-label">先存一份到手機</span>
               <p className="m2-note">{CLOUD_TEXT.exportNote}</p>
@@ -361,12 +362,17 @@ export default function MobileSync({ onBack }: { onBack: () => void }) {
                 <button
                   type="button"
                   className="ns-btn btn-ghost m2-sy-go"
-                  disabled={working}
-                  onClick={() => void exportToFile()}
+                  disabled={working || dataExport.busy}
+                  onClick={() => void dataExport.run("all", "json")}
                 >
                   {CLOUD_TEXT.exportMobile}
                 </button>
               </div>
+              {dataExport.error && (
+                <p className="m2-note is-fail" role="alert">
+                  {dataExport.error}
+                </p>
+              )}
               <p className="m2-note">{CLOUD_TEXT.exportNotJoined}</p>
             </div>
             <JoinForm

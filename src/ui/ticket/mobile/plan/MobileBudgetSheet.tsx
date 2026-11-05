@@ -152,9 +152,9 @@ function Block({
 
   const confirmRemove = () =>
     askConfirm({
-      title: "移除這個預算？",
-      body: `${name}——連同各月單獨設定的金額`,
-      confirmLabel: "移除",
+      title: "刪除這個預算？",
+      body: `「${name}」的預設和各月單獨設定的金額會一起刪除；6 秒內可從底部提示復原。`,
+      confirmLabel: "刪除",
       danger: true,
       onConfirm: () => void removeBudget(scope, null),
     });
@@ -162,7 +162,7 @@ function Block({
   const commitDefault = async (text: string): Promise<boolean> => {
     if (text === "") {
       if (def) confirmRemove();
-      return false; // 先回原值；按了「移除」這一列會自己消失
+      return false; // 先回原值；按了「刪除」這一列會自己消失
     }
     return setBudget(scope, null, text);
   };

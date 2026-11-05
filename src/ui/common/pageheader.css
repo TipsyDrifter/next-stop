@@ -71,7 +71,12 @@
   flex: none; display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-5);
 }
 .ns-pagehead .ns-toolbar > .ns-tabs { margin-right: var(--sp-1); }
+/* 新增那格的保留位（庚 D-主-392）：看不見的尺子撐寬，真的鈕疊在上面靠右；這一格寬度固定，左邊的分頁籤就不會橫移 */
+.ns-toolbar-addslot { display: inline-grid; align-items: center; justify-items: end; }
+.ns-toolbar-addslot > * { grid-area: 1 / 1; }
+.ns-toolbar-addsizer { visibility: hidden; pointer-events: none; }
 /* 工具列的次鈕＝圖示＋字橫排（.ns-btn 基底刻意不寫 display，見 overlay.css，這裡就地補） */
+.ns-toolbar-addslot > .ns-btn,
 .ns-pagehead .ns-toolbar > .ns-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1); white-space: nowrap;
 }

@@ -18,7 +18,6 @@
  *     `PassphraseReport` 多 `rotated／reencrypted_snapshots／deleted_epochs`。
  *   * 雲端備份四支：`cloudSnapshotNow(kind)`／`cloudSnapshotAuto()`（今天拍過回 null）／`cloudSnapshotList()`／
  *     `cloudRestore(key, choice, label)`（成功不會回來：Rust `app.restart()`）。
- *   * `exportToFile(target)`：Android 帶 SAF `save()` 回傳的 `content://` URI；桌機／退路不帶。
  *   * `finishRotation()`：boot 看到 `status.rotation_stage` 就叫（換鑰匙續跑）。
  *   * `SyncStatus` 多 `locked_reason／skipped_missing_total／last_cloud_snapshot_at／rotation_stage`；`SyncPhase` 多 `rotating`；
  *     `PullReport` 多 `skipped_missing`。既有 invoke 名稱一個都不改。
@@ -56,6 +55,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "../lib/db";
 import { SYNC_TABLE_NAMES, type SyncTable } from "./syncTables";
 import { mergeCellKey, mergeObjectKey } from "../domain/syncMerge";
+import type { CloudSnapshot } from "../domain/lostFound";
 
 /* ═══════════════════════════════════════════════════════════════════════
    型別（與 Rust serde 同名同形）
@@ -90,14 +90,6 @@ export interface SnapshotEntry {
   kind: SnapshotKind;
   /** 密文大小（bytes） */
   size: number;
-}
-
-/** v1.1.4：`sync_export_to_file` 的回傳 */
-export interface ExportReport {
-  /** 桌機＝檔案路徑；Android＝`content://` URI（主人自選）；退路＝app 私有目錄路徑 */
-  path: string;
-  /** true＝寫到主人自選的位置（SAF）；false＝退路 */
-  picked: boolean;
 }
 
 /** v1.1.4：換鑰匙的續跑報告（`sync_finish_rotation`） */
@@ -385,8 +377,8 @@ export const SYNC_COMMANDS = {
   cloudSnapshotNow: "sync_cloud_snapshot_now",
   cloudSnapshotAuto: "sync_cloud_snapshot_auto",
   cloudSnapshotList: "sync_cloud_snapshot_list",
+  cloudSnapshotRead: "sync_cloud_snapshot_read",
   cloudRestore: "sync_cloud_restore",
-  exportToFile: "sync_export_to_file",
   finishRotation: "sync_finish_rotation",
   // v1.1.5（契約 §5）
   recoveryGenerate: "sync_recovery_generate",
@@ -433,10 +425,10 @@ export interface SyncRepository {
   cloudSnapshotAuto(): Promise<SnapshotEntry | null>;
   /** 列出 `<root>/snapshots/`（新到舊；只 list 不下載） */
   cloudSnapshotList(): Promise<SnapshotEntry[]>;
+  /** 失物招領 §3.1：讀一份快照的內容（下載、拆封、驗證；不碰資料庫、不留底、不重啟）。比 App 新 ⇒ reject「請先更新」 */
+  cloudSnapshotRead(key: string): Promise<CloudSnapshot>;
   /** 從雲端快照還原：留底 → 匯入 → 寫還原標記 → 重啟。成功不會回來；只會 reject 或永遠 pending */
   cloudRestore(key: string, choice: RestoreChoice, label?: string): Promise<never>;
-  /** 匯出全量 JSON：Android 帶 SAF `save()` 回傳的 `content://` URI；桌機／退路帶 null */
-  exportToFile(target?: string | null): Promise<ExportReport>;
   /** 換鑰匙續跑（boot 看到 `status.rotation_stage` 就叫） */
   finishRotation(): Promise<RotationReport>;
   /* ── v1.1.5 復原碼＋通知（契約 §5） ── */
@@ -536,13 +528,13 @@ export class TauriSyncRepository implements SyncRepository {
   cloudSnapshotList(): Promise<SnapshotEntry[]> {
     return invoke<SnapshotEntry[]>(SYNC_COMMANDS.cloudSnapshotList, {});
   }
+  cloudSnapshotRead(key: string): Promise<CloudSnapshot> {
+    return invoke<CloudSnapshot>(SYNC_COMMANDS.cloudSnapshotRead, { key });
+  }
   /** 成功不會回來（Rust 端 `app.restart()`）；沿 `backupRepo.restore` 的手法，回來了就當失敗 */
   async cloudRestore(key: string, choice: RestoreChoice, label?: string): Promise<never> {
     await invoke<void>(SYNC_COMMANDS.cloudRestore, { input: { key, choice, label: label ?? null } });
     throw new Error("還原指令回來了但 App 沒有重新啟動，請手動重開私鐵手帳確認資料。");
-  }
-  exportToFile(target?: string | null): Promise<ExportReport> {
-    return invoke<ExportReport>(SYNC_COMMANDS.exportToFile, { input: { target: target ?? null } });
   }
   finishRotation(): Promise<RotationReport> {
     return invoke<RotationReport>(SYNC_COMMANDS.finishRotation, {});
@@ -1107,11 +1099,13 @@ export class MemorySyncRepository implements SyncRepository {
     if (!this.state.configured) throw new Error("這台還沒加入同步。");
     return [...this.snapshots].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   }
+  async cloudSnapshotRead(_key: string): Promise<CloudSnapshot> {
+    // 記憶體版沒有雲端；假資料模式的撿回畫面走 MemoryLostFoundRepository 自己的假快照，不經這支
+    if (!this.state.configured) throw new Error("這台還沒加入同步。");
+    return { exported_at: new Date().toISOString(), schema: 0, tables: {}, columns: {} };
+  }
   async cloudRestore(_key: string, _choice: RestoreChoice, _label?: string): Promise<never> {
     throw new Error("（假資料模式）雲端還原要灌回資料＋重啟 App，瀏覽器預覽做不到——請在真機驗收。");
-  }
-  async exportToFile(target?: string | null): Promise<ExportReport> {
-    return target ? { path: target, picked: true } : { path: "<app-data>/nextstop-export-mock.json", picked: false };
   }
   async finishRotation(): Promise<RotationReport> {
     if (!this.state.rotation_stage) return { outcome: "none", epoch: null, reencrypted_snapshots: 0, deleted_epochs: 0, message: "", recovery: "none" };

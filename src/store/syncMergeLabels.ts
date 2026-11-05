@@ -12,7 +12,7 @@ import { tagRepo } from "../data/tagRepo";
 import { weekAimRepo } from "../data/weekAimRepository";
 import { followRename } from "../data/tagRepository";
 import { MOCK_FIRST_TICKET, type MergeCellNow, type MergeNotice } from "../data/syncRepository";
-import { CONFLICT_COL_LABEL, KIND_LABEL, type NodeRow } from "../domain";
+import { CONFLICT_COL_LABEL, KIND_LABEL, ruleValueText, type NodeRow } from "../domain";
 import { clipLabel, mergeObjectKey } from "../domain/syncMerge";
 import type { SyncRowLabel } from "../lines/types";
 import { lineSyncRowLabel } from "../lines/runtime";
@@ -110,7 +110,8 @@ export async function resolveMergeLabel(
     if (n.tbl === "nodes") {
       const node = await findNode(n.row_id);
       if (!node) return null;
-      return { label: nodeLabel(node, 24), cols: CONFLICT_COL_LABEL, node };
+      // 規則是一串 JSON，兩邊的值講成人話（⑥ 沙盒 F-7）；其他欄照舊
+      return { label: nodeLabel(node, 24), cols: CONFLICT_COL_LABEL, node, fmt: (col, v) => (col === "repeat_rule" ? ruleValueText(v) : null) };
     }
     // 逐班時刻覆寫（D-主-120）：講出「哪張票哪一班」——票已不在就退泛稱（而不是「找不到了」：覆寫的主人是票）
     if (n.tbl === "node_time_overrides") {

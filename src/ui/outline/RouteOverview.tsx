@@ -14,6 +14,7 @@
  * 只列還在跑的幹線與路線（`liveLines`／`liveRoutes`）；到站的歸 ③ 的車庫。
  */
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import type { NodeRow } from "../../domain";
 import { fmtDur } from "../../domain/timetable";
 import { EMPTY_SUMMARY, type RouteSummary } from "../../domain/routeOverview";
@@ -31,6 +32,8 @@ import { requestArrive } from "../panel/arrivalFlows";
 import { GNAV_ICONS } from "../sidebar/gnavIcons";
 import { DateSeal } from "../stamps";
 import { OVERVIEW_DAYS, useRouteOverview } from "./useRouteOverview";
+import { StationMark } from "../weekAims/parts";
+import { useRouteNextAims, useStationCard, type RouteNextAims } from "../weekAims/StationCard";
 import { hasTime, headParts, mdw, spendText } from "./routeSummaryText";
 import "./routeOverview.css";
 
@@ -131,7 +134,22 @@ function StationTrack({ s, color }: { s: RouteSummary; color: string }) {
   );
 }
 
-function RouteCard({ route, s, decimals, lines }: { route: NodeRow; s: RouteSummary; decimals: number; lines: NodeRow[] }) {
+function RouteCard({
+  route,
+  s,
+  decimals,
+  lines,
+  next,
+  onOpenStation,
+}: {
+  route: NodeRow;
+  s: RouteSummary;
+  decimals: number;
+  lines: NodeRow[];
+  /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7） */
+  next: RouteNextAims | undefined;
+  onOpenStation(id: string, anchor: HTMLElement): void;
+}) {
   const color = route.color ?? "var(--route-preset-4)";
   const label = `路線「${route.name}」的動作`;
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
@@ -159,20 +177,30 @@ function RouteCard({ route, s, decimals, lines }: { route: NodeRow; s: RouteSumm
         <h3>{route.name}</h3>
         <More label={label} overline={ROUTE_OV} items={() => routeMenu(route, lines)} />
       </header>
-      <p className="ns-ov-next">
-        <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" aria-hidden>
-          <circle cx="5" cy="5" r="4" strokeWidth="1" />
-          <circle cx="5" cy="5" r="1.6" strokeWidth="1" />
-        </svg>
-        {s.nextStation ? (
-          <>
+      {next && s.nextStation ? (
+        <button
+          type="button"
+          className="wa-ov-stn"
+          aria-haspopup="dialog"
+          title={`看「${next.station.name}」這一站`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenStation(next.station.id, e.currentTarget);
+          }}
+        >
+          <span className="ns-ov-next">
+            <StationMark size={11} />
             下一站 <b>{s.nextStation.name}</b>
             {s.nextStation.expectedOn && <span className="d">{mdw(s.nextStation.expectedOn)}</span>}
-          </>
-        ) : (
+          </span>
+          {next.brief && <span className="wa-ov-aim">{next.brief}</span>}
+        </button>
+      ) : (
+        <p className="ns-ov-next">
+          <StationMark size={11} />
           <span className="d">還沒有下一站</span>
-        )}
-      </p>
+        </p>
+      )}
       <StationTrack s={s} color={color} />
       <dl className="ns-ov-stats">
         <div>
@@ -211,12 +239,15 @@ function RouteCard({ route, s, decimals, lines }: { route: NodeRow; s: RouteSumm
 }
 
 export function RouteOverview() {
+  useHotkeyRevision();
   const lines = useNodeStore((s) => s.liveLines);
   const routes = useNodeStore((s) => s.liveRoutes);
   const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
   const openRouteDialog = useUiStore((s) => s.openRouteDialog);
   const data = useRouteOverview();
+  const nextAims = useRouteNextAims(routes);
+  const stationCard = useStationCard();
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   const now = new Date();
   const decimals = data?.decimals ?? 2;
@@ -296,7 +327,7 @@ export function RouteOverview() {
                 <>
                   <div className="ns-ov-grid">
                     {lr.map((r) => (
-                      <RouteCard key={r.id} route={r} s={data?.byRoute[r.id] ?? EMPTY_SUMMARY} decimals={decimals} lines={lines} />
+                      <RouteCard key={r.id} route={r} s={data?.byRoute[r.id] ?? EMPTY_SUMMARY} decimals={decimals} lines={lines} next={nextAims[r.id]} onOpenStation={stationCard.open} />
                     ))}
                   </div>
                   <button type="button" className="ns-ov-addroute" onClick={() => openRouteDialog({ lineId: line.id, editId: null })}>
@@ -325,6 +356,7 @@ export function RouteOverview() {
           <span>私鐵手帳・路線一覽</span>
           <span className="fr">{routes.length} 條路線</span>
         </footer>
+        {stationCard.node}
       </div>
     </section>
   );

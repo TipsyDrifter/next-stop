@@ -6,9 +6,9 @@
  *   《2026-09-22-v1.1.4-雲端備份與真撤銷契約.md》§7（文案）。
  *
  * 版面（由上而下）：
- *   ① 「上次上傳 9/22 14:03」／「還沒上傳過」＋「立即備份到雲端」（手機多一顆「匯出到手機」）
+ *   ① 「上次上傳 9/22 14:03」／「還沒上傳過」＋「立即備份到雲端」
  *   ② 還原方式二選一（`RESTORE_CHOICES`，與桌機本機還原**同一份字**）
- *   ③ 列表一列＝「9/22 14:03　這台　自動　38 KB」＋「還原到這份」（點了走 store 的確認窗）
+ *   ③ 列表一列＝「9/22 14:03　這台　自動　38 KB」＋「撿回單筆…」（失物招領，開 SnapshotRescue）＋「還原到這份」（點了走 store 的確認窗）
  *
  * 為什麼「還原方式」在桌機是一句話而不是第二組 radio（WP-C 自決，記回報）：
  *   桌機這塊住在〈備份與還原〉籤裡，那一籤上頭已經有一組「回到過去／接上現在」（③ʹ），
@@ -23,13 +23,15 @@
  *   `ui/settings/settings.css` 檔尾與 `styles/mobile.css` 檔尾（沿契約的分家慣例）。
  *
  * 資料流：不碰 repository，全走 `syncStore`（`cloudSnapshots`／`refreshCloudSnapshots`／`cloudSnapshotNow`／
- *   `cloudRestore`／`exportToFile`）。沒加入同步（`status.configured=false`）整個不渲染——沒鑰匙就沒快照。
+ *   `cloudRestore`）；「撿回單筆…」走 `lostFoundStore.openSnapshot`；匯出搬到 `DataExportBlock`（失物招領 §4）。
+ *   沒加入同步（`status.configured=false`）整個不渲染——沒鑰匙就沒快照。
  *
  * 裝置欄的字：鍵名只有 device_id、沒有殼別，所以寫「這台」／「另一台 A1B2」（前 4 碼大寫），不寫「桌機／手機」
  *   ——契約 §7 的例句「桌機 A1B2」在鍵名裡拿不到殼別，要顯示殼別得另外存（本輪不做；契約 §11.1③）。
  */
 import { useEffect, useState } from "react";
 import type { RestoreChoice, SnapshotEntry, SnapshotKind } from "../../data/syncRepository";
+import { useLostFoundStore } from "../../store/lostFoundStore";
 import { useSyncStore, fmtSyncStamp, type SyncShell } from "../../store/syncStore";
 
 /**
@@ -58,6 +60,7 @@ export const CLOUD_TEXT = {
   listEmpty: "雲端還沒有備份——按「立即備份到雲端」建立第一份。",
   loading: "讀取中…",
   restore: "還原到這份",
+  rescue: "撿回單筆…",
   restoreHow: "還原方式",
   /** 桌機：選擇與上面本機還原共用同一顆，這裡只複述現在選的是哪一枚（不另長一組 radio） */
   restoreHowShared: (label: string) => `還原方式會沿用上面選的「${label}」。`,
@@ -81,6 +84,7 @@ export const CLOUD_TEXT = {
  * 「保險」chip 同一個字。沒有它的話，主人還原完回來看列表會多一顆「這台・手動」卻不知道那是什麼。
  */
 const KIND_LABEL: Record<SnapshotKind, string> = { auto: "自動", manual: "手動", safety: "保險" };
+export const snapshotKindLabel = (kind: SnapshotKind): string => KIND_LABEL[kind];
 
 /** 產品評審 S3：預設展開的天數（＝階梯「最近 N 天每份都留」那一層，兩者同一把尺） */
 const RECENT_DAYS = 14;
@@ -120,7 +124,7 @@ export function CloudSnapshots({
   const refresh = useSyncStore((s) => s.refreshCloudSnapshots);
   const snapshotNow = useSyncStore((s) => s.cloudSnapshotNow);
   const restore = useSyncStore((s) => s.cloudRestore);
-  const exportToFile = useSyncStore((s) => s.exportToFile);
+  const openRescue = useLostFoundStore((s) => s.openSnapshot);
   const [ownChoice, setOwnChoice] = useState<RestoreChoice>("past");
   /** 產品評審 S3：列表預設只展最近 14 天（兩台 ≈ 28 列＋階梯 21 列＋留底 ≈ 50 列，手機得捲 4000px） */
   const [showAll, setShowAll] = useState(false);
@@ -151,7 +155,8 @@ export function CloudSnapshots({
   const noteCls = mobile ? "m2-note" : "ns-note";
   /** 換鑰匙中／改正待ち／鍵違い時雲端這塊只讀（拍快照與還原都會動到紀元與鑰匙） */
   const phase = status?.phase ?? "off";
-  const busy = working || phase === "rotating" || phase === "epoch_changed" || phase === "locked";
+  const keyBlocked = phase === "rotating" || phase === "epoch_changed" || phase === "locked";
+  const busy = working || keyBlocked;
 
   /* ── 還原方式：桌機一句話（共用上面那組）／手機自己一組 `.m2-choice` ── */
   const choiceBlock = shared ? (
@@ -239,14 +244,20 @@ export function CloudSnapshots({
                 {snapshotWho(e, status?.device_id)}・{KIND_LABEL[e.kind]}・{fmtBytes(e.size)}
               </span>
             </div>
-            <button
-              type="button"
-              className="ns-btn btn-ghost m2-sy-go m2-cl-restore"
-              disabled={busy}
-              onClick={() => restore(e, choice)}
-            >
-              {CLOUD_TEXT.restore}
-            </button>
+            <div className="m2-cl-acts">
+              {/* 只讀不寫：同步正在跑也能開，只有鑰匙不對的時候打不開 */}
+              <button type="button" className="ns-btn btn-ghost m2-sy-go m2-cl-restore" disabled={keyBlocked} onClick={() => openRescue(e, false)}>
+                {CLOUD_TEXT.rescue}
+              </button>
+              <button
+                type="button"
+                className="ns-btn btn-ghost m2-sy-go m2-cl-restore"
+                disabled={busy}
+                onClick={() => restore(e, choice)}
+              >
+                {CLOUD_TEXT.restore}
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -269,6 +280,10 @@ export function CloudSnapshots({
             >
               {CLOUD_TEXT.restore}
             </button>
+            {/* 撿回單筆常駐（§0 法則 05：要有看得到的入口），放最右；還原 hover 才現身，從它左邊長出來，版面不留空洞 */}
+            <button type="button" className="btn-ghost ns-btn ns-btn--sm ns-cl-rescue" disabled={keyBlocked} onClick={() => openRescue(e, false)}>
+              {CLOUD_TEXT.rescue}
+            </button>
           </li>
         ))}
       </ul>
@@ -285,12 +300,7 @@ export function CloudSnapshots({
           <button type="button" className="ns-btn btn-ghost m2-sy-go" disabled={busy} onClick={() => void snapshotNow()}>
             {CLOUD_TEXT.now}
           </button>
-          {/* 手機限定（契約 §7.6）：SAF 讓主人自己選位置；選擇器開不了時退回 App 私有目錄並把路徑講出來 */}
-          <button type="button" className="ns-btn btn-ghost m2-sy-go" disabled={busy} onClick={() => void exportToFile()}>
-            {CLOUD_TEXT.exportMobile}
-          </button>
         </div>
-        <p className="m2-note">{CLOUD_TEXT.exportNote}</p>
         {cloudError && (
           <p className="m2-note is-fail" role="alert">
             {cloudError}

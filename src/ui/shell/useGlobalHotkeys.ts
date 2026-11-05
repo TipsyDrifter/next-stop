@@ -17,7 +17,8 @@
  */
 import { useEffect } from "react";
 import { useUiStore } from "../../store/uiStore";
-import { isEditableTarget, resolveHotkey } from "./hotkeys";
+import { isEditableTarget, matchChord, resolveHotkey } from "./hotkeys";
+import { loadHotkeyOverrides } from "./hotkeyOverrides";
 import { pageOfNavHotkey } from "./pages";
 // 查 `lines/runtime`、不 import `lines/mounts`：本 hook 在 App 的 import 清單裡排在核心元件之前，
 // 直接 import mounts 會把各線的元件樹提早求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）
@@ -30,6 +31,11 @@ import { openFullSearch } from "../search/openFullSearch";
  *   外接鍵盤按下去只會把 uiStore 的旗標設成 true 而畫面毫無反應（評審 S4），源頭不掛最乾淨。
  */
 export function useGlobalHotkeys(enabled = true) {
+  // ⑧ 自訂快捷鍵：桌機開 App 讀一次覆寫；手機沒有鍵盤，不讀
+  useEffect(() => {
+    if (enabled) void loadHotkeyOverrides();
+  }, [enabled]);
+
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -72,7 +78,8 @@ export function useGlobalHotkeys(enabled = true) {
           ui.setSettingsOpen(!ui.settingsOpen);
           break;
         case "global.guide": {
-          if (e.ctrlKey || e.metaKey) {
+          // 第二條是 IME 備援（預設 Ctrl+/，鍵可自訂）；第一條是導航模式那一條（預設 ?）
+          if (matchChord(e, hit.chords[1], hit.ignoreMods)) {
             // Ctrl+/：輸入框裡也吃——「輸入框」指的是視圖裡的行內輸入框（草稿列、改名、乘務記錄）。
             // 確認框／路線卡／完成卡是另一張有輸入或有決定的 dialog，開著時不切走（疊第二張 DialogShell
             // 會讓 Esc 一次關兩張、打到一半的字蒸發；§0-6 互斥）；設定開著就切籤而不是疊一層。

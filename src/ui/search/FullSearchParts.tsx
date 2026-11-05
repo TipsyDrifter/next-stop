@@ -5,6 +5,7 @@
  *     桌機一行排完（grid 五欄）；手機兩行（名稱＋済／淡字路線＋日期）。
  *   - 篩選列（D-主-114）：狀態、種類＝分段單選；路線＝下拉 chip（選項由呼叫端開：桌機 PopMenu、手機底部 sheet）。
  *   - 統計行、搜尋框。
+ *   - 方針組（方針擴充 辛 D-主-382）：句子＋期間字＋掛的路線，另成一組排在節點之後；點一下就跳（方針沒有側板）。
  */
 import type { ReactNode, Ref } from "react";
 import {
@@ -21,7 +22,7 @@ import {
 import { useSearchStore } from "../../store/searchStore";
 import { ResultBadge } from "../common/QuickJump";
 import { IconSearch } from "../common/icons";
-import type { FullSearchRowModel, RouteOption } from "./useFullSearchResults";
+import type { FullSearchAimRowModel, FullSearchRowModel, RouteOption } from "./useFullSearchResults";
 import "./full-search.css";
 
 /** 一段文字照命中切開、命中段包 <mark> */
@@ -121,6 +122,83 @@ export function FullSearchMobileRow({ row, term, id, active, onPick }: RowProps)
   );
 }
 
+/** 方針組的小標（listbox 裡的 presentation 列；同 Ctrl+P 別線那一組的組名） */
+export function AimGroupHead({ count }: { count: number }) {
+  return (
+    <li role="presentation" className="ns-fs-group">
+      方針<span className="n">{count}</span>
+    </li>
+  );
+}
+
+interface AimRowProps {
+  row: FullSearchAimRowModel;
+  term: string;
+  id: string;
+  active: boolean;
+  onPick(): void;
+}
+
+const AimBadge = ({ done }: { done: boolean }) => (
+  <span role="img" aria-label="方針" className={`ns-kind-badge${done ? " is-done" : ""}`}>
+    方
+  </span>
+);
+
+const AimSeal = () => (
+  <span className="ns-fs-seal" aria-label="已完成">
+    済
+  </span>
+);
+
+/** 桌機的一句方針：徽章｜句子＋済｜掛的路線｜期間字 */
+export function FullSearchAimRow({ row, term, id, active, onPick }: AimRowProps) {
+  const { hit, done, place, period } = row;
+  return (
+    <li
+      id={id}
+      role="option"
+      aria-selected={active}
+      className={`ns-fs-row is-aim${active ? " is-active" : ""}${done ? " is-done" : ""}`}
+      onClick={onPick}
+    >
+      <AimBadge done={done} />
+      <span className="ns-fs-nl">
+        <span className="ns-fs-name">
+          <Marked text={hit.aim.text} term={term} />
+        </span>
+        {done && <AimSeal />}
+      </span>
+      <span className="ns-fs-ctx">{place}</span>
+      <span className="ns-fs-date" title={period}>
+        {period}
+      </span>
+    </li>
+  );
+}
+
+/** 手機的一句方針（兩行：句子＋済／掛的路線＋期間字） */
+export function FullSearchAimMobileRow({ row, term, id, active, onPick }: AimRowProps) {
+  const { hit, done, place, period } = row;
+  return (
+    <li id={id} role="option" aria-selected={active} className={`ns-fs-mrow is-aim${done ? " is-done" : ""}`} onClick={onPick}>
+      <AimBadge done={done} />
+      <span className="min-w-0">
+        <span className="l1">
+          <span className="ns-fs-name">
+            <Marked text={hit.aim.text} term={term} />
+          </span>
+          {done && <AimSeal />}
+        </span>
+        <span className="l2">
+          <span className="ctx">{place}</span>
+          <span className="ns-fs-date">{period}</span>
+        </span>
+      </span>
+    </li>
+  );
+}
+
 /** 大號底線搜尋框（左放大鏡、右「清除」或鍵帽提示） */
 export function FullSearchField({
   inputRef,
@@ -145,7 +223,7 @@ export function FullSearchField({
         enterKeyHint="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="找車票、路線、概要或乘務記錄…"
+        placeholder="找車票、路線、概要、乘務記錄或方針…"
         spellCheck={false}
         autoComplete="off"
         aria-label="完整搜尋"
@@ -172,7 +250,7 @@ export function FullSearchField({
 }
 
 const STATUS_OPTS: readonly StatusFilter[] = ["all", "open", "done"];
-const KIND_OPTS: readonly KindFilter[] = ["all", "ticket", "tree"];
+const KIND_OPTS: readonly KindFilter[] = ["all", "ticket", "tree", "aim"];
 
 /** 一組分段單選（篩選）；「済」那一段用朱色襯線字，跟清單上的済同一個字 */
 function SegGroup<V extends string>({
@@ -251,15 +329,18 @@ export function FullSearchFilters({
   );
 }
 
-/** 統計行：「找到 N 件」（有篩選再補「・全部 M 件」＋清除篩選）；右側排序說明（桌機） */
+/** 統計行：「找到 N 件」（方針組和節點都有才補「，其中方針 K 句」；有篩選再補「・全部 M 件」＋清除篩選）；右側排序說明（桌機） */
 export function FullSearchStats({
   count,
+  aimCount,
   total,
   filtered,
   pending,
   showOrder,
 }: {
+  /** 節點＋方針 */
   count: number;
+  aimCount: number;
   total: number;
   filtered: boolean;
   pending: boolean;
@@ -272,7 +353,8 @@ export function FullSearchStats({
         <span>搜尋中…</span>
       ) : (
         <span>
-          找到<b>{count}</b>件{filtered && <>・全部 {total} 件</>}
+          找到<b>{count}</b>件{aimCount > 0 && aimCount < count && <>，其中方針 {aimCount} 句</>}
+          {filtered && <>・全部 {total} 件</>}
         </span>
       )}
       {filtered && (
@@ -280,7 +362,7 @@ export function FullSearchStats({
           清除篩選
         </button>
       )}
-      {showOrder && <span className="ord">名稱 → 概要 → 乘務記錄</span>}
+      {showOrder && <span className="ord">名稱 → 概要 → 乘務記錄 → 方針</span>}
     </div>
   );
 }

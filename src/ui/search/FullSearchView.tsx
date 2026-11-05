@@ -6,6 +6,7 @@
  *   頁首固定（眉標＋大號底線搜尋框＋篩選列＋統計行）、清單自己捲、底下一行鍵盤提示。
  *   點一列＝選中＋開右側詳情側板（清單不動，側板裡照常改、蓋済；改完 nodeStore 重載 ⇒ 結果重查）；
  *   Enter／雙擊＝`jumpToNode`（Ctrl+P 的跳轉，邊界規則只有那一份）。
+ *   方針組（方針擴充 辛 D-主-382）：排在節點之後（節點還沒畫完就先不畫，捲到底才接上）；方針沒有側板，點一下或 Enter＝到那一期（`goToAim`）。
  *   ↑↓ 在搜尋框裡也能移（同 Ctrl+P）；移動時側板開著就跟著換。Esc＝清掉搜尋字。
  * 列數不設上限（D-主-115）：一次畫 RESULT_PAGE 列，哨兵進視窗就接下一批；鍵盤移到最後一列也接。
  * 狀態留在 searchStore（D-主-118）：離開再回來，字、篩選、選中列、捲動位置都在。
@@ -17,13 +18,15 @@ import { useNodeStore } from "../../store/nodeStore";
 import { OverlineText } from "../common/PageHeader";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { jumpToNode } from "../common/QuickJump";
-import { formatChord, hotkeyById } from "../shell/hotkeys";
-import { FullSearchField, FullSearchFilters, FullSearchRow, FullSearchStats, ListTail, routeFilterText } from "./FullSearchParts";
-import { useFullSearchResults, type FullSearchRowModel } from "./useFullSearchResults";
+import { capsOfHotkey } from "../shell/hotkeys";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { goToAim } from "./aimLanding";
+import { AimGroupHead, FullSearchAimRow, FullSearchField, FullSearchFilters, FullSearchRow, FullSearchStats, ListTail, routeFilterText } from "./FullSearchParts";
+import { useFullSearchResults, type FullSearchAimRowModel, type FullSearchRowModel } from "./useFullSearchResults";
 
-const OPEN_CAPS = formatChord(hotkeyById("global.fullsearch")!.chords[0]).join("+");
 
 export function FullSearchView() {
+  useHotkeyRevision();
   const query = useSearchStore((s) => s.query);
   const hitsTerm = useSearchStore((s) => s.hitsTerm);
   const pending = useSearchStore((s) => s.pending);
@@ -33,7 +36,7 @@ export function FullSearchView() {
   const filter = useSearchStore((s) => s.filter);
   const routes = useNodeStore((s) => s.routes);
   const { setQuery, setActive, showMore, setFilter } = useSearchStore.getState();
-  const { rows, total, filtered, routeOptions } = useFullSearchResults();
+  const { rows, aimRows, total, filtered, routeOptions } = useFullSearchResults();
 
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -44,8 +47,12 @@ export function FullSearchView() {
 
   const term = hitsTerm;
   const visible = rows.slice(0, shown);
-  const activeIndex = activeId ? rows.findIndex((r) => r.hit.node.id === activeId) : -1;
+  const moreNodes = visible.length < rows.length;
   const typing = query.trim() !== hitsTerm || pending;
+  const count = rows.length + aimRows.length;
+  /** 鍵盤環：節點接方針 */
+  const idAt = (i: number) => (i < rows.length ? rows[i].hit.node.id : aimRows[i - rows.length].hit.aim.id);
+  const activeIndex = activeId ? Array.from({ length: count }, (_, i) => idAt(i)).indexOf(activeId) : -1;
 
   // 從入口進來（含已在這頁再按 Ctrl+Shift+F）＝游標進搜尋框、全選
   useEffect(() => {
@@ -103,15 +110,23 @@ export function FullSearchView() {
     void jumpToNode(r.hit.node);
   };
 
+  const goAim = (r: FullSearchAimRowModel) => {
+    setActive(r.hit.aim.id);
+    void goToAim(r.hit, "desktop");
+  };
+
+  /** 第 i 列（節點或方針）去它的地方 */
+  const goAt = (i: number) => (i < rows.length ? go(rows[i]) : goAim(aimRows[i - rows.length]));
+
   const move = (delta: number) => {
-    if (!rows.length) return;
-    const from = activeIndex < 0 ? (delta > 0 ? -1 : rows.length) : activeIndex;
-    const next = Math.max(0, Math.min(rows.length - 1, from + delta));
-    if (next >= shown) showMore();
-    const id = rows[next].hit.node.id;
+    if (!count) return;
+    const from = activeIndex < 0 ? (delta > 0 ? -1 : count) : activeIndex;
+    const next = Math.max(0, Math.min(count - 1, from + delta));
+    if (next >= shown && next < rows.length) showMore();
+    const id = idAt(next);
     setActive(id);
     const ui = useUiStore.getState();
-    if (ui.panelOpen) ui.select(id); // 側板開著就跟著換；沒開不硬開（點一下或 Ctrl+. 才開）
+    if (ui.panelOpen && next < rows.length) ui.select(id); // 側板開著就跟著換；沒開不硬開（點一下或 Ctrl+. 才開）。方針沒有側板，原本開著的那張留著
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -124,10 +139,10 @@ export function FullSearchView() {
       e.preventDefault();
       move(e.key === "ArrowDown" ? 1 : -1);
     } else if (e.key === "Enter") {
-      const r = activeIndex >= 0 ? rows[activeIndex] : inInput ? rows[0] : undefined;
-      if (!r || typing) return;
+      const at = activeIndex >= 0 ? activeIndex : inInput && count ? 0 : -1;
+      if (at < 0 || typing) return;
       e.preventDefault();
-      go(r);
+      goAt(at);
     } else if (e.key === "Escape" && query) {
       e.preventDefault();
       setQuery("");
@@ -153,14 +168,14 @@ export function FullSearchView() {
         <p className="techo-overline">
           <OverlineText value={{ zh: "搜尋", latin: "Search" }} />
         </p>
-        <FullSearchField inputRef={inputRef} hint={OPEN_CAPS} />
+        <FullSearchField inputRef={inputRef} hint={capsOfHotkey("global.fullsearch")} />
         <FullSearchFilters
           routeText={routeFilterText(filter.route, routeOptions, (id) => routes.find((r) => r.id === id)?.name)}
           routeOpen={!!routeAnchor}
           onRoute={(el) => setRouteAnchor((a) => (a ? null : el))}
         />
         {hitsTerm && (
-          <FullSearchStats count={rows.length} total={total} filtered={filtered} pending={typing && !rows.length} showOrder />
+          <FullSearchStats count={count} aimCount={aimRows.length} total={total} filtered={filtered} pending={typing && !count} showOrder />
         )}
       </div>
 
@@ -172,13 +187,13 @@ export function FullSearchView() {
         {!hitsTerm ? (
           !query.trim() && (
             <p className="ns-fs-hint">
-              名稱、概要、乘務記錄都會找，結果不限筆數。點一列在右邊看詳情，Enter 或雙擊跳過去。
+              名稱、概要、乘務記錄、方針都會找，結果不限筆數。點一列在右邊看詳情，Enter 或雙擊跳過去；方針點一下就到那一期。
             </p>
           )
-        ) : rows.length === 0 ? (
+        ) : count === 0 ? (
           !typing && (
             <p className="ns-fs-hint">
-              {total > 0 ? `「${term}」共 ${total} 件，都被篩選擋下了。` : `名稱、概要、乘務記錄裡都找不到「${term}」。`}
+              {total > 0 ? `「${term}」共 ${total} 件，都被篩選擋下了。` : `名稱、概要、乘務記錄、方針裡都找不到「${term}」。`}
             </p>
           )
         ) : (
@@ -198,8 +213,19 @@ export function FullSearchView() {
                   />
                 );
               })}
+              {!moreNodes && aimRows.length > 0 && (
+                <>
+                  <AimGroupHead count={aimRows.length} />
+                  {aimRows.map((r) => {
+                    const id = r.hit.aim.id;
+                    return (
+                      <FullSearchAimRow key={id} id={`${listId}-${id}`} row={r} term={term} active={id === activeId} onPick={() => goAim(r)} />
+                    );
+                  })}
+                </>
+              )}
             </ul>
-            <ListTail more={visible.length < rows.length} total={rows.length} sentinelRef={sentinelRef} />
+            <ListTail more={moreNodes} total={count} sentinelRef={sentinelRef} />
           </>
         )}
       </div>

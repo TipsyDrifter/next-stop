@@ -43,6 +43,9 @@ function inOrder(ids: Iterable<string>, order: readonly string[]): string[] {
   return out;
 }
 
+/** 各頁最新的畫面順序（`prune` 順手記下；選取列的「全選」用，不是要畫的狀態，不進 store） */
+const visibleByScope: Partial<Record<SelectionScope, readonly string[]>> = {};
+
 export const useSelectionStore = create<SelectionState>((set, get) => ({
   scope: null,
   ids: [],
@@ -86,6 +89,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
   },
 
   prune(scope, visible) {
+    visibleByScope[scope] = visible;
     if (get().scope !== scope) return;
     const keep = get().ids.filter((id) => visible.includes(id));
     if (keep.length === get().ids.length) return;
@@ -97,6 +101,11 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
     set({ scope: null, ids: [], anchor: null });
   },
 }));
+
+/** 這一頁畫面上看得到的（全選的範圍；頁面沒登記過＝空） */
+export function visibleIn(scope: SelectionScope): readonly string[] {
+  return visibleByScope[scope] ?? [];
+}
 
 /** 這一頁目前的多選（別頁的不算） */
 export function selectedIn(scope: SelectionScope): string[] {

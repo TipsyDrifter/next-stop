@@ -9,6 +9,7 @@
  *     span.ns-daycell-num（日數；週視圖在數字前補星期字，week.css）
  *     button.ns-daycell-add「＋」（今天與未來才有：過去的日子不能建票，P10；不在 Tab 序裡，見 useAddOutOfTabOrder）
  *     div.ns-daycell-body
+ *       span.wa-cal-stns（日數右邊，只有月格）：那天預定到站的車站各一枚 ◎，點了開車站小卡（D-主-380）
  *       span.cal-corner（右上、「＋」左邊）：三線記號 i.mark.mark-<line>…＋格角〆 span.sime（hover 出 DueTip）
  *       div.items > div.it[.done|.skipped|.late] > i.dot（路線色）＋票名 …／div.more「＋N 張」（只有月格截斷）
  *
@@ -22,12 +23,18 @@
  */
 import { useLayoutEffect, useState, type RefObject } from "react";
 import { parseRule, type NodeRow } from "../../domain";
-import { REPEAT_RESCHEDULE_MSG, type DateCount, type DueEntry, type ScheduleEntry } from "../../data";
+import type { DateCount, DueEntry, ScheduleEntry } from "../../data";
 import { batchSetDate } from "../../store/batchActions";
+import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { DayCell } from "../common/DayCell";
 import { useDragReorder } from "../common/dragReorder";
+import { moveRunFlow } from "../outline/nodeFlows";
+import { HISTORY_MSG } from "../schedule/scheduleActions";
 import { mdw } from "../schedule/streamModel";
+import { dayRowModel } from "./DayRow";
+import type { StationDayMark } from "../../domain/weekAims";
+import { StationMark } from "../weekAims/parts";
 import { useCalendar } from "./useCalendarController";
 
 export interface CalendarCellProps {
@@ -53,6 +60,9 @@ export interface CalendarCellProps {
   onAdd(): void;
   /** 滑過／離開格角〆（DueTip）；離開時傳 null */
   onTip(anchor: HTMLElement | null): void;
+  /** 那天預定到站的車站（D-主-380；只有月格傳） */
+  stationMarks?: readonly StationDayMark<NodeRow, NodeRow>[];
+  onStation?(stationId: string, anchor: HTMLElement): void;
 }
 
 /**
@@ -119,6 +129,8 @@ export function CalendarCell({
   onOpen,
   onAdd,
   onTip,
+  stationMarks,
+  onStation,
 }: CalendarCellProps) {
   // 三線格內記號（0-2 乙插槽）：直接取控制器 context；三線零登記＝undefined
   const cal = useCalendar();
@@ -126,7 +138,8 @@ export function CalendarCell({
   const shown = truncate ? entries.slice(0, MONTH_SHOWN) : entries;
 
   // 回饋乙 ☎3①：格內的票拖到別的格子＝改到那一天（單張也走 batchSetDate，附復原）。
-  // 格內清單沒有縫（順序照時刻），只能拖到外部落點；定期券照規則排、已蓋済的不能改期（同推遲的守門）
+  // 格內清單沒有縫（順序照時刻），只能拖到外部落點；已蓋済的不能改期（同推遲的守門）。
+  // 定期券（⑥ D-主-295）：來源這一格就是那一班，拖到別天＝只改這一班；運休中與過去的班擋下，其餘邊界（那天已有一班…）由 moveRunFlow 回原因
   const [itemsEl, setItemsEl] = useState<HTMLDivElement | null>(null);
   useDragReorder({
     root: itemsEl,
@@ -136,8 +149,13 @@ export function CalendarCell({
     canDrag: (id) => {
       const n = nodes[id];
       if (!n) return "這一張不能拖";
-      if (parseRule(n.repeat_rule)) return REPEAT_RESCHEDULE_MSG;
-      if (entries.find((e) => e.node_id === id)?.is_done) return "已蓋済的票不能改期——要改先取消済章";
+      const entry = entries.find((e) => e.node_id === id);
+      if (entry?.is_done) return "已蓋済的票不能改期——要改先取消済章";
+      if (entry && parseRule(n.repeat_rule)) {
+        if (entry.occurrence_status === "skipped") return "運休中的班不能改期——要改先取消運休";
+        const occDue = useNodeStore.getState().currentOccurrences[id]?.due_on ?? null;
+        if (dayRowModel(entry, n, undefined, occDue, cal.today).isHistory) return HISTORY_MSG;
+      }
       return true;
     },
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
@@ -148,7 +166,9 @@ export function CalendarCell({
       return true;
     },
     onDrop: (ids, place) => {
-      if (place.kind === "target" && place.type === "date") void batchSetDate(ids, place.target, `已改到 ${mdw(place.target)}`);
+      if (place.kind !== "target" || place.type !== "date") return;
+      if (parseRule(nodes[ids[0]]?.repeat_rule ?? null)) void moveRunFlow(ids[0], day, place.target);
+      else void batchSetDate(ids, place.target, `已改到 ${mdw(place.target)}`);
     },
   });
 
@@ -161,7 +181,8 @@ export function CalendarCell({
     `${Number(day.slice(5, 7))}月${dnum}日` +
     (isToday ? "（今天）" : "") +
     (total ? `，${total} 班` : "") +
-    (dues.length ? `，締切 ${dues.length} 件` : "");
+    (dues.length ? `，締切 ${dues.length} 件` : "") +
+    (stationMarks?.length ? `，預定到站：${stationMarks.map((m) => m.station.name).join("、")}` : "");
 
   return (
     <DayCell
@@ -175,6 +196,23 @@ export function CalendarCell({
       onAdd={isPast ? undefined : () => onAdd()}
       addLabel="在這天新增車票"
     >
+      {stationMarks && stationMarks.length > 0 && (
+        <span className="wa-cal-stns">
+          {stationMarks.map(({ station, route }) => (
+            <button
+              key={station.id}
+              type="button"
+              className="wa-cal-stn"
+              aria-haspopup="dialog"
+              aria-label={`車站 ${station.name}（${route.name}）`}
+              title={`${station.name}（${route.name}）`}
+              onClick={(e) => onStation?.(station.id, e.currentTarget)}
+            >
+              <StationMark />
+            </button>
+          ))}
+        </span>
+      )}
       {(marks?.length || dues.length > 0) && (
         <span className="cal-corner" aria-hidden>
           {marks?.map((id) => <i key={id} className={`mark mark-${id}`} />)}

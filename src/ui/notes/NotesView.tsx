@@ -199,7 +199,12 @@ export function NotesView() {
         setPop((p) => (p && p.id === it.id && p.kind === op ? null : { id: it.id, kind: op }));
         return;
       case "del":
-        return leave(it, () => st.deleteTicket(it.id));
+        // 子項多的要先問：離場動畫與交選取等確認之後（around）才做，按取消那一列不動
+        return void st.deleteTicket(it.id, (del) =>
+          leave(it, async () => {
+            await del();
+          }),
+        );
     }
   };
 

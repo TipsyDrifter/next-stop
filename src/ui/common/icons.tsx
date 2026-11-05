@@ -81,6 +81,8 @@ export const IconFirst = make("first");
 export const IconLast = make("last");
 /** 日期 chip 的小月曆 */
 export const IconCalendar = make("calendar");
+/** 時刻框（看得出點得開；庚） */
+export const IconClock = make("clock");
 /** 補記旗 */
 export const IconFlag = make("flag");
 /** 警示（橫幅） */

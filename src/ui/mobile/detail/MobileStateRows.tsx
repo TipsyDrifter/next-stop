@@ -8,22 +8,23 @@
  *
  *   StatusRows  列車／車廂：現況（定期券不給「已完成」＋指路句）・優先順序
  *   PriorityRow 優先順序一列（StatusRows 裡那列；車票沒有現況，詳情頁把它單獨放在検印之前——D-主-133）
- *   StampRows   車票＝検印（済⇄未済）；定期券（任何種類）＝本班検印＋運休＋本班時刻（開 run 模式的時刻 sheet）；退役的印指路句
+ *   StampRows   車票＝検印（済⇄未済）；定期券（任何種類）＝本班検印＋運休＋本班日期（開日期 sheet，⑥ D-主-295）＋本班時刻（開 run 模式的時刻 sheet）；退役的印指路句
  *   AmountRows  列車／車廂：花費（別線登記了分量段欄位就讓位，同桌機）・進度（有子項＝自動彙總、沒有＝手動 %）
  *   DoneAt      列車／車廂已完成＝名稱下「完成於 MM/DD HH:mm」（桌機票頭同一個值；車票的在検印章旁）
  */
 import { useState, type ReactNode } from "react";
-import { isTaskKind, type NodeRow } from "../../../domain";
+import { isTaskKind, parseRule, runOrigin, type NodeRow } from "../../../domain";
 import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
 import { lineNodeFields } from "../../../lines/runtime";
 import { autoProgress, descendantCount, isSettling, openDescendantCount, useNodeStore } from "../../../store/nodeStore";
+import { shortDayKey } from "../../common/DatePicker";
 import { NumberField } from "../../common/fields";
 import { Segmented } from "../../common/Segmented";
-import { changeStatusFlow, openKidsOf, panelStampFlow, panelSuspendFlow } from "../../outline/nodeFlows";
-import { fmtDateKey, fmtDateTime } from "../../panel/format";
+import { changeStatusFlow, moveRunFlow, openKidsOf, panelStampFlow, panelSuspendFlow } from "../../outline/nodeFlows";
+import { fmtDateTime } from "../../panel/format";
 import { SealDone } from "../../stamps";
 import { lenText } from "../MobileTimeSheet";
-import { PRIORITY_OPTIONS, stampViewOf, statusChoices } from "../../panel/panelRules";
+import { PRIORITY_OPTIONS, mdwText, stampViewOf, statusChoices } from "../../panel/panelRules";
 import "../routemap/routemap.css";
 
 /**
@@ -85,7 +86,7 @@ export function StatusRows({ node }: { node: NodeRow }) {
 
 /* ───────────── 検印 ───────────── */
 
-export function StampRows({ node, onRunTime }: { node: NodeRow; onRunTime: () => void }) {
+export function StampRows({ node, onRunTime, onRunDate }: { node: NodeRow; onRunTime: () => void; onRunDate: (railDate: string) => void }) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
   const v = stampViewOf(node, occ);
   // 只有「剛蓋」才播蓋章動畫（同桌機 .fresh）；取消時不播
@@ -142,9 +143,63 @@ export function StampRows({ node, onRunTime }: { node: NodeRow; onRunTime: () =>
         )}
       </Row>
       {v.retiredNote && <p className="m-dt-hint">{v.retiredNote}</p>}
-      {/* 本班時刻（同桌機 RunTimeRow）：班次日拿不到就不畫 */}
+      {/* 本班日期（同桌機 RunDateRow）＋本班時刻（同桌機 RunTimeRow）：班次日拿不到就不畫 */}
+      {v.mode === "teiki" && v.railDate && <RunDateRow node={node} railDate={v.railDate} locked={v.done || v.suspended} onOpen={onRunDate} />}
       {v.mode === "teiki" && v.railDate && <RunTimeRow node={node} railDate={v.railDate} onOpen={onRunTime} />}
     </>
+  );
+}
+
+/**
+ * 本班日期（⑥ D-主-295；桌機 RepeatRuleEditor.RunDateRow 同一套）：整列開日期 sheet＝只改這一班；改過的標「原定 M/D」並給「改回原日」。
+ * 已済、運休的班不給改（locked；repository 也會擋）：要改先取消。
+ */
+function RunDateRow({
+  node,
+  railDate,
+  locked,
+  onOpen,
+}: {
+  node: NodeRow;
+  railDate: string;
+  locked: boolean;
+  onOpen: (railDate: string) => void;
+}) {
+  const rule = parseRule(node.repeat_rule);
+  const origin = rule ? runOrigin(rule, railDate) : null;
+  const originNote = origin && <span className="m-dt-sub">原定 {shortDayKey(origin)}</span>;
+  return (
+    <Row label="本班日期">
+      {locked ? (
+        <span className="m-dt-locked">
+          {mdwText(railDate)} {originNote}
+        </span>
+      ) : (
+        <>
+          <button type="button" className="m-dt-pick" aria-label={`本班日期：${mdwText(railDate)}`} onClick={() => onOpen(railDate)}>
+            {/* 兩行：改過日期時這一列還有「改回原日」，排一行在手機寬度會折斷日期 */}
+            <span className="m-dt-2l">
+              <span>{mdwText(railDate)}</span>
+              {originNote}
+            </span>
+            <span className="m-dt-chev" aria-hidden="true">
+              ›
+            </span>
+          </button>
+          {origin && (
+            <button
+              type="button"
+              className="m-dt-susp"
+              onClick={() => {
+                if (!isSettling(node.id)) void moveRunFlow(node.id, railDate, origin);
+              }}
+            >
+              改回原日
+            </button>
+          )}
+        </>
+      )}
+    </Row>
   );
 }
 
@@ -155,10 +210,7 @@ function RunTimeRow({ node, railDate, onOpen }: { node: NodeRow; railDate: strin
     <Row label="本班時刻">
       <button type="button" className="m-dt-pick" onClick={onOpen}>
         {time ? <b className="m-dt-hm">{time}</b> : <span className="is-empty">不排時刻</span>}
-        {/* 本班日印在這裡（桌機印在検印段頭「本班 MM/DD」）：検印那一列放了章＋一句＋運休鈕，再塞日期會折行 */}
-        <span className="m-dt-sub">
-          {fmtDateKey(railDate)}・{overridden ? "只改這一班" : "同每班"}
-        </span>
+        <span className="m-dt-sub">{overridden ? "只改這一班" : "同每班"}</span>
         <span className="m-dt-chev" aria-hidden="true">
           ›
         </span>

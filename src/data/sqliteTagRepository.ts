@@ -16,6 +16,7 @@ import type { NodeKind, NodeStatus } from "../domain";
 import {
   TAG_ENTITY_NODE_KINDS,
   TAGS_RECENT_KEY,
+  bodyWithTag,
   deleteBody,
   normalizeName,
   parseTags,
@@ -41,6 +42,7 @@ import {
   type BackfillResult,
   type CreateTagResult,
   type RenameFollow,
+  type RestoreTagsResult,
   type SyncBodyResult,
   type TagEntityType,
   type TaggedItem,
@@ -441,6 +443,16 @@ export class SqliteTagRepository implements TagRepository {
     return res;
   }
 
+  async writeBodyAndSyncTags(noteId: string, before: string, body: string): Promise<SyncBodyResult> {
+    const db = await getDb();
+    const have = await this.noteHave(db, [noteId]);
+    const st = new Stage(db, nowUtcIso());
+    st.noteBody(noteId, before, body);
+    const res = await syncBodyInto(st, noteId, body, have.get(noteId) ?? new Map(), null);
+    await st.commit();
+    return res;
+  }
+
   async backfill(): Promise<BackfillResult> {
     const db = await getDb();
     const notes = await db.select<{ id: string; body: string }[]>(
@@ -556,6 +568,56 @@ export class SqliteTagRepository implements TagRepository {
       st.b.ops.push(op);
     }
     await st.commit();
+  }
+
+  async restoreDeleted(ids: readonly string[]): Promise<RestoreTagsResult> {
+    const out: RestoreTagsResult = { tags: 0, taggings: 0, bodies: 0 };
+    if (!ids.length) return out;
+    const db = await getDb();
+    const st = new Stage(db, nowUtcIso());
+    const now = st.now;
+    const list = await db.select<TagRow[]>(
+      `SELECT * FROM tags WHERE deleted_at IS NOT NULL AND renamed_to IS NULL AND id IN (${placeholders(ids.length, 1)}) ORDER BY name_key`,
+      [...ids],
+    );
+    for (const t of list) {
+      // 同一刀＝掛載的 deleted_at 跟荷札相同（remove 同一個 now）；更早就摘掉的不是這一刀，不帶
+      // 不修（對抗審查問題 16）：兩台離線各刪同一枚時荷札時刻收斂到較晚那刀，只在較早那刀裡的掛載比不到、不帶
+      const gs = await db.select<TaggingRow[]>(`SELECT * FROM taggings WHERE tag_id = $1 AND deleted_at = $2`, [t.id, t.deleted_at]);
+      st.b.stmts.push({ sql: `UPDATE tags SET deleted_at = NULL, renamed_to = NULL, updated_at = $1 WHERE id = $2`, args: [now, t.id] });
+      st.b.ops.push({ tbl: "tags", row_id: t.id, op: "upsert", cols: { deleted_at: null, renamed_to: null, updated_at: now } });
+      out.tags++;
+      for (const g of gs) {
+        st.b.stmts.push({ sql: `UPDATE taggings SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, g.id] });
+        st.b.ops.push({ tbl: "taggings", row_id: g.id, op: "upsert", cols: { deleted_at: null, updated_at: now } });
+        out.taggings++;
+      }
+    }
+    // 內文補回：一則筆記可能同一刀摘了幾枚（父子荷札），累積寫一次
+    const bodies = new Map<string, { before: string; after: string }>();
+    for (const t of list) {
+      const noteIds = await db.select<{ entity_id: string }[]>(
+        `SELECT entity_id FROM taggings WHERE tag_id = $1 AND deleted_at = $2 AND entity_type = 'note'`,
+        [t.id, t.deleted_at],
+      );
+      for (const { entity_id } of noteIds) {
+        let cur = bodies.get(entity_id);
+        if (!cur) {
+          const rows = await db.select<{ body: string }[]>(`SELECT body FROM notes WHERE id = $1 AND deleted_at IS NULL`, [entity_id]);
+          if (!rows[0]) continue; // 筆記也刪了：它的內文沒被改過（remove 只改活著的），之後撿回筆記就有
+          cur = { before: rows[0].body, after: rows[0].body };
+          bodies.set(entity_id, cur);
+        }
+        cur.after = bodyWithTag(cur.after, t.name_key, t.name);
+      }
+    }
+    for (const [id, b] of bodies) {
+      if (b.after === b.before) continue;
+      st.noteBody(id, b.before, b.after);
+      out.bodies++;
+    }
+    await st.commit();
+    return out;
   }
 
   async pushRecent(key: string): Promise<void> {

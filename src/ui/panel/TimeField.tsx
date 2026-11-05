@@ -18,7 +18,7 @@
  *   TimeSpanField  時刻段的「時段」列「14:00 → 15:30 ×」（回饋甲 D-主-129：開始＋結束兩格 ClockField，結束＝開始＋長度算出來的；
  *                  取代舊的「幾點」列與預計欄右邊的「→ 15:30 着」）
  *   LengthField    「長度」列：分段鈕 15／30／60／90／120＋「自訂…」（取代「分量」段的「預計」數字框）
- *   RunTimeRow     定期券検印段的「本班」列（只改這班…／再改…／改回每班時刻）
+ *   RunTimeRow     定期券検印段的「本班時刻」列（只改這班…／再改…／改回每班時刻）
  */
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
@@ -28,6 +28,7 @@ import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { ClockInput } from "../common/ClockInput";
 import { useDebouncedCommit } from "../common/fields";
+import { resetRunTimeFlow } from "../outline/nodeFlows";
 import { IconClose } from "../common/icons";
 import { Segmented } from "../common/Segmented";
 import { clockBounds, clockSeed, clockToMs, msToClock, spanEnd, spanEndBounds, spanEndSeed, spanLen } from "./clockValue";
@@ -186,6 +187,7 @@ export function ClockField({
     setTimeout(() => {
       const a = document.activeElement;
       if (a && wrapRef.current?.contains(a)) return;
+      if (a?.closest(".ns-timepick")) return; // 選擇器掛在 body，焦點移進去（Alt+↓）還算在這一欄
       if (editing) leave(false);
       else flush();
     }, 0);
@@ -225,6 +227,7 @@ export function ClockField({
             label={ariaLabel}
             refDay={refDay}
             autoFocus={editing}
+            openOnMount={editing}
             dateLabel={dateLabel}
             {...(noSteps ? { left: false, right: false } : {})}
           />
@@ -493,7 +496,7 @@ export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
 
   return (
     <div className="occ">
-      <span className="lbl">本班</span>
+      <span className="lbl">本班時刻</span>
       <div className="ov-wrap" ref={wrapRef}>
         {editing ? (
           <ClockField
@@ -533,8 +536,8 @@ export function RunTimeRow({ node, date }: { node: NodeRow; date: string }) {
                 data-keep="1"
                 onClick={() => {
                   pendingFocus.current = true; // 這顆按下去就消失：寫完之後焦點交回第一顆
-                  void clearRunTime(node.id, date).then((r) => {
-                    if (r && !r.ok) pendingFocus.current = false;
+                  void resetRunTimeFlow(node.id, date).then((r) => {
+                    if (!r.ok) pendingFocus.current = false;
                   });
                 }}
               >

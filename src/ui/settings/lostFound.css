@@ -1,0 +1,186 @@
+/**
+ * 失物招領（最近刪除、從雲端備份撿回）自己的樣式。原型 `prototypes/失物招領.html` 是視覺真相，這裡照它的 `.lf-*`，只引用 token。
+ * 容器與鈕全走既有的：DialogShell／MFullPage、.ns-btn、.chip.ns-chip、.sec、EmptyState、Segmented。
+ */
+
+/* 搜尋＋chip：黏在捲動容器頂端。沒捲動時透明、捲起來才鋪一層不透明的紙（.is-stuck，同完整搜尋的手機頭）。
+   不用霧面：對話框本身有 backdrop-filter，裡面再疊一層時背景只剩對話框內部（實測粉彩會變亮白帶、後面的列還透字）。
+   sticky 從捲動容器的 padding 內緣算（實測 Chromium：top:0 會停在內距下緣，列從上方空隙露出來），所以 top 要減掉內距 --lf-pad */
+.ns-dialog-body { --lf-pad: 16px; --lf-side: 24px; }
+[data-shell="mobile"] .m-page { --lf-pad: 14px; --lf-side: var(--m-gutter); }
+.ns-mfull-body { --lf-pad: 18px; --lf-side: var(--m-gutter); }
+
+.lf-intro { margin-bottom: var(--sp-2); }
+.lf-head {
+  position: sticky; top: calc(-1 * var(--lf-pad)); z-index: 2;
+  margin: -6px calc(-1 * var(--lf-side)) 0;
+  padding: 8px var(--lf-side) var(--sp-2);
+  transition: background-color var(--dur-fast) var(--ease-soft), box-shadow var(--dur-fast) var(--ease-soft);
+}
+.lf-head.is-stuck {
+  background: linear-gradient(var(--color-paper-high), var(--color-paper-high)), var(--color-paper);
+  box-shadow: 0 1px 0 var(--color-line);
+}
+
+.lf-search {
+  display: flex; align-items: center; gap: var(--sp-2);
+  height: var(--ctl-input);
+  border-bottom: 1px solid var(--color-dash);
+  color: var(--color-ink-faint);
+  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.lf-search:focus-within { border-bottom-color: var(--accent); color: var(--color-ink-soft); }
+.lf-search svg { flex: none; }
+.lf-search input {
+  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: transparent;
+  font-family: var(--font-body); font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink);
+}
+.lf-search input::-webkit-search-cancel-button { display: none; } /* 只留我們自己那顆 × */
+.lf-search input::placeholder { color: var(--color-ink-faint); }
+.lf-search .ns-close { margin: 0; }
+[data-shell="mobile"] .lf-search input { font-size: 16px; } /* 字面值：Android WebView 對 <16px 的輸入框聚焦時會放大整頁（同 .m2-input） */
+.lf-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-2); }
+[data-shell="mobile"] .lf-chips { gap: var(--sp-2); flex-wrap: nowrap; }
+[data-shell="mobile"] .lf-chips .chip { flex: 1 1 auto; padding: 0 6px; }
+
+/* 分段：間距收成對話框內的量（.sec 本體的 34／14 是頁面級） */
+.lf-list .sec { margin: var(--sp-5) 0 var(--sp-1); }
+.lf-list > .sec:first-child, .lf-section:first-child > .sec { margin-top: var(--sp-3); }
+.lf-rows { list-style: none; margin: 0; padding: 0; }
+
+/* 一列。同一份 DOM 兩種排法：
+   桌機＝ 種類｜名稱＋補充｜多久前｜撿回（種類成一欄，好掃）
+   手機＝ 名稱獨佔第一行；第二行 種類＋補充＋多久前；撿回在右、跨兩行（name、sub 會省略，撿回與多久前不被擠） */
+.lf-row {
+  display: grid;
+  grid-template-columns: 3.6em minmax(0, 1fr) auto auto;
+  grid-template-areas: "kind name ago go" ". sub ago go";
+  column-gap: var(--sp-3); align-items: baseline;
+  padding: 9px 4px; margin: 0 -4px;
+  border-bottom: 1px dashed var(--color-line);
+  transition: background-color var(--dur-fast) var(--ease-soft), opacity var(--dur) var(--ease-soft), transform var(--dur) var(--ease);
+}
+.lf-rows > .lf-row:last-child { border-bottom: 0; }
+.lf-row:hover { background: var(--hover-bg); }
+.lf-row.is-out { opacity: 0; transform: translateX(10px); }
+.lf-kind { grid-area: kind; font-size: var(--fs-xs); letter-spacing: .14em; line-height: 20px; color: var(--color-ink-faint); white-space: nowrap; }
+.lf-name {
+  grid-area: name; min-width: 0;
+  font-size: var(--fs-body); font-weight: 500; line-height: 20px; letter-spacing: .03em; color: var(--color-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 筆記：前兩行，第二行尾省略；本文的字重回 400（它是一段話，不是名字） */
+.lf-name.is-note { font-weight: 400; white-space: pre-line; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.lf-sub { grid-area: sub; min-width: 0; font-size: var(--fs-xs); line-height: 18px; letter-spacing: .04em; color: var(--color-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf-sub:empty { display: none; }
+.lf-amt { font-family: var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.lf-time { font-family: var(--font-latin); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.lf-ago { grid-area: ago; align-self: center; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; }
+.lf-go { grid-area: go; align-self: center; white-space: nowrap; }
+.lf-done {
+  grid-area: go; align-self: center;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-1);
+  min-height: var(--ctl-h-sm); font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft); white-space: nowrap;
+}
+.lf-row.is-picked .lf-name { color: var(--color-ink-faint); }
+.lf-row.is-picked:hover { background: transparent; }
+.lf-rows mark { background: color-mix(in srgb, var(--accent) 24%, transparent); color: inherit; border-radius: var(--radius-ctl); padding: 0 1px; margin: 0 -1px; }
+[data-theme="dark"] .lf-rows mark { background: color-mix(in srgb, var(--accent) 38%, transparent); }
+
+[data-shell="mobile"] .lf-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "name name name go" "kind sub ago go";
+  column-gap: var(--sp-2); padding: 11px 0; margin: 0;
+}
+[data-shell="mobile"] .lf-row:hover { background: transparent; }
+[data-shell="mobile"] .lf-name { line-height: 22px; }
+[data-shell="mobile"] .lf-ago { align-self: baseline; padding-right: 2px; }
+[data-shell="mobile"] .lf-go { min-height: var(--ctl-h); padding: 0 14px; font-size: var(--fs-sm); letter-spacing: .12em; text-indent: .12em; margin-left: var(--sp-1); }
+[data-shell="mobile"] .lf-done { min-height: var(--ctl-h); margin-left: var(--sp-1); font-size: var(--fs-xs); }
+
+.lf-more { display: block; margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--color-dash); }
+.lf-more .btn-text { font-size: var(--fs-sm); letter-spacing: .08em; line-height: 24px; min-height: 0; }
+[data-shell="mobile"] .lf-more .btn-text { min-height: 44px; }
+
+/* 快照畫面頂上一句＋換一份 */
+.lf-snaphead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+.lf-snaphead .btn-text { flex: none; font-size: var(--fs-xs); min-height: 0; line-height: 20px; letter-spacing: .08em; }
+[data-shell="mobile"] .lf-snaphead .btn-text { padding: 12px 2px; margin: -12px 0; }
+.lf-lead { min-width: 0; }
+.lf-jump { padding: 0; border: 0; background: transparent; font: inherit; letter-spacing: inherit; color: var(--accent); cursor: pointer; text-underline-offset: 3px; }
+.lf-jump:hover { text-decoration: underline; text-decoration-thickness: 1px; }
+.lf-jump:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+[data-shell="mobile"] .lf-jump { padding: 14px 0; margin: -14px 0; }
+
+.lf-state { padding: var(--sp-5) 0; text-align: center; }
+.lf-state.is-warn { color: color-mix(in srgb, var(--color-late) 74%, var(--color-ink)); }
+.lf-state-acts { display: flex; justify-content: center; gap: var(--sp-3); margin-top: var(--sp-1); }
+
+/* 內容不同：整列是一顆展開鈕；列尾 › 轉 ▾；展開區沒有第二層紙（§1.5 不做卡中卡），兩欄用撕線分開 */
+.lf-item { border-bottom: 1px dashed var(--color-line); }
+.lf-item:last-child { border-bottom: 0; }
+.lf-item > .lf-row { border-bottom: 0; }
+.lf-toggle { width: calc(100% + 8px); border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.lf-toggle:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+[data-shell="mobile"] .lf-toggle { width: 100%; }
+.lf-chev { grid-area: go; align-self: center; display: grid; place-items: center; width: var(--ctl-h-sm); height: var(--ctl-h-sm); color: var(--color-ink-faint); }
+.lf-item.is-open .lf-toggle:hover { background: transparent; }
+.lf-diff { padding: var(--sp-1) 0 var(--sp-3); animation: lf-pop var(--dur) var(--ease) both; }
+@keyframes lf-pop { from { opacity: 0; transform: translateY(6px) scale(.992); } to { opacity: 1; transform: none; } }
+/* 很長的筆記：比對區夾高度能捲。桌機兩欄一起捲（對照同一個位置）；手機上下疊，各自夾高 */
+.lf-diff-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto repeat(var(--n), auto);
+  column-gap: var(--sp-5);
+  max-height: min(46vh, 360px); overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-ink) 22%, transparent) transparent;
+}
+.lf-diff-col { display: grid; grid-row: 1 / span calc(var(--n) + 1); grid-template-rows: subgrid; row-gap: var(--sp-2); min-width: 0; }
+.lf-diff-col + .lf-diff-col { position: relative; }
+.lf-diff-col + .lf-diff-col::before { content: ""; position: absolute; left: calc(-1 * var(--sp-3)); top: 2px; bottom: 2px; border-left: 1px dashed var(--color-dash); }
+.lf-diff-h { font-size: var(--fs-xs); font-weight: 500; letter-spacing: .14em; line-height: 20px; color: var(--color-ink-soft); }
+.lf-diff-f { min-width: 0; }
+.lf-diff-l { display: block; font-size: var(--fs-micro); letter-spacing: .2em; line-height: 16px; color: var(--color-ink-faint); }
+.lf-diff-v { display: block; font-size: var(--fs-ui); line-height: 1.7; letter-spacing: .03em; color: var(--color-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lf-diff-v.is-empty { color: var(--color-ink-faint); }
+.lf-diff-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-3); }
+.lf-diff-foot .ns-btn { flex: none; white-space: nowrap; }
+[data-shell="mobile"] .lf-diff-cols { display: block; max-height: none; overflow: visible; }
+[data-shell="mobile"] .lf-diff-col { display: block; }
+[data-shell="mobile"] .lf-diff-col + .lf-diff-col { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--color-dash); }
+[data-shell="mobile"] .lf-diff-col + .lf-diff-col::before { display: none; }
+[data-shell="mobile"] .lf-diff-f { margin-top: var(--sp-1); }
+[data-shell="mobile"] .lf-diff-v { max-height: 34vh; overflow-y: auto; }
+[data-shell="mobile"] .lf-diff-foot .ns-btn { min-height: var(--ctl-h); padding: 0 16px; letter-spacing: .12em; text-indent: .12em; font-size: var(--fs-sm); }
+
+/* 先挑一份：列沿 .ns-bk-list／.m2-cl-list */
+.lf-pick { list-style: none; margin: 0; padding: 0; }
+.lf-pick li { display: flex; align-items: center; gap: 9px; padding: 8px 2px; border-bottom: 1px dashed var(--color-line); }
+.lf-pick li:last-child { border-bottom: 0; }
+.lf-pick .t { flex: none; min-width: 84px; font-family: var(--font-latin); font-size: 12.5px; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+.lf-pick .w { flex: 1; min-width: 0; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf-pick .ns-btn { flex: none; white-space: nowrap; }
+[data-shell="mobile"] .lf-pick li { padding: 10px 0; }
+[data-shell="mobile"] .lf-pick .t { font-size: var(--fs-body); min-width: 98px; }
+[data-shell="mobile"] .lf-pick .ns-btn { padding: 0 14px; letter-spacing: .12em; text-indent: .12em; }
+.lf-pick-toggle { margin-bottom: var(--sp-1); }
+.lf-pick-toggle .btn-text { font-size: var(--fs-sm); letter-spacing: .08em; line-height: 24px; min-height: 0; }
+[data-shell="mobile"] .lf-pick-toggle .btn-text { min-height: 44px; }
+
+/* 快照列表每份兩顆鈕：桌機撿回單筆常駐、不被壓縮；手機一行放不下，鈕另起一行靠右 */
+.ns-cl-rescue { flex: none; white-space: nowrap; }
+[data-shell="mobile"] .m2-cl-acts { flex: 1 1 100%; display: flex; justify-content: flex-end; gap: var(--sp-2); }
+
+/* 匯出資料 */
+.ns-bk-export .lf-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.lf-export-row .ns-seg, .m2-export .ns-seg { flex: none; }
+.m2-export-rows { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
+.m2-export .ns-note, .m2-export .m2-note { margin-top: var(--sp-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lf-row, .lf-head, .lf-search { transition: none; }
+  .lf-row.is-out { transform: none; }
+  .lf-diff { animation: none; }
+}

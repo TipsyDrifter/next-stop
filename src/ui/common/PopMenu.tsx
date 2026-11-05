@@ -23,7 +23,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { formatChord, hotkeyById } from "../shell/hotkeys";
+import { capsOfHotkey, matches } from "../shell/hotkeys";
 import { OverlineText, type Overline } from "./PageHeader";
 import "./popmenu.css";
 
@@ -32,6 +32,8 @@ export interface PopMenuItem {
   label: string;
   /** registry 的快捷鍵 id：右側淡字顯示它的鍵帽（如「Alt+↑」） */
   hotkeyId?: string;
+  /** 不在 registry 的就地快捷鍵（例：管理列名稱框裡的 Alt+↑）：右側淡字照字面畫；有 hotkeyId 時以 hotkeyId 為準 */
+  caps?: string;
   disabled?: boolean;
   /** disabled 時滑過的說明（為什麼現在不能做） */
   why?: string;
@@ -61,10 +63,7 @@ export interface PopMenuProps {
 }
 
 /** 鍵帽字樣：registry 第一組 chord（Windows「Alt+↑」、Mac「⌥+↑」） */
-export function hotkeyCaps(id: string): string {
-  const hk = hotkeyById(id);
-  return hk ? formatChord(hk.chords[0]).join("+") : "";
-}
+export const hotkeyCaps = capsOfHotkey;
 
 type MenuRow = { kind: "item"; item: PopMenuItem } | { kind: "group"; name: string; cut: boolean; items: PopMenuItem[] };
 
@@ -140,7 +139,7 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus, 
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // Ctrl／⌘ 組合鍵放行給全域表（換頁、搜尋…）；Ctrl+/ 例外擋下（指引頁不疊在小卡上，同推遲小卡）
     if (e.ctrlKey || e.metaKey) {
-      if (e.key === "/") {
+      if (matches(e, "global.guide")) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -173,7 +172,7 @@ export function PopMenu({ anchor, overline, label, items, onClose, returnFocus, 
   };
 
   const itemRow = (it: PopMenuItem, top: boolean) => {
-    const caps = it.hotkeyId ? hotkeyCaps(it.hotkeyId) : "";
+    const caps = it.hotkeyId ? hotkeyCaps(it.hotkeyId) : (it.caps ?? "");
     return (
       // 停用項的說明掛在 li：disabled 的 <button> 收不到滑鼠事件，title 掛它身上滑過不會浮
       <li key={it.key} role="none" className={top && it.cut ? "cut" : undefined} title={it.disabled ? it.why : undefined}>

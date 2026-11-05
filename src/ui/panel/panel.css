@@ -102,6 +102,10 @@
 .panel input[type="number"]::-webkit-inner-spin-button, .panel input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .panel .num { display: flex; align-items: baseline; gap: 6px; }
 .panel .num .meta { margin-top: 0; }
+/* 數字欄前後還有字（重複段：每 [N] 週、[N] 次 已做 3 次） */
+.panel .num-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; }
+.panel .num-row > .meta { margin-top: 0; }
+.panel .num-row input[type="number"] { width: 3em; text-align: center; }
 .panel .date { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .panel .code { font-family: var(--font-latin); letter-spacing: .12em; width: 6em; }
 
@@ -179,10 +183,11 @@
 
 /* ═══ 車站：每站一列＝名稱（原型 .title）＋ .meta（預定日）＋ 到站章（.late-seal 形制、seal 色、寫「着」） ═══ */
 .stations { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.st { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; grid-template-rows: auto auto; column-gap: 8px; align-items: center; }
+.st { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 18px; grid-template-rows: auto auto; column-gap: 8px; align-items: center; }
 .st .title { grid-column: 1; grid-row: 1; }
-.st .arr-seal { grid-column: 2; grid-row: 1; }
-.st .x { grid-column: 3; grid-row: 1; }
+.st .wa-st-aim { grid-column: 2; grid-row: 1; }
+.st .arr-seal { grid-column: 3; grid-row: 1; }
+.st .x { grid-column: 4; grid-row: 1; }
 .st .meta { grid-column: 1 / -1; grid-row: 2; }
 .st .title { font-size: var(--fs-ticket); font-weight: 500; letter-spacing: .04em; padding: 0; border-bottom-color: transparent; }
 .st .title:hover { border-bottom-color: var(--color-dash); }
@@ -305,6 +310,10 @@
 .panel .occ .ov .hm.none { font-family: var(--font-body); font-size: 13px; letter-spacing: .08em; color: var(--color-ink-soft); } /* 字面值：13px；桌機字階沒有這一階（原型逐字） */
 .panel .occ .why { font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .08em; }
 .panel .occ .why.on { color: var(--accent); }
+/* 本班日期列：值是日期 chip（框高），小標與字置中對齊，同 .field */
+.panel .occ.is-date { align-items: center; }
+.panel .occ.is-date .lbl { padding-top: 0; }
+.panel .occ.is-date .ov { align-items: center; padding-top: 0; }
 .panel .linkbtn {
   background: transparent; border: 0; padding: 0; cursor: pointer; min-height: 24px;
   font-family: inherit; font-size: 11.5px; letter-spacing: .1em; color: var(--accent); /* 字面值：連結鈕 11.5px；桌機字階沒有這一階（原型逐字） */

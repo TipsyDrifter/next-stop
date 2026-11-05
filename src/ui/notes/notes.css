@@ -175,6 +175,9 @@
 }
 .ns-notes .ns-notes-act[aria-expanded="true"] { border-color: var(--sel-fg); color: var(--color-ink); background: var(--sel-bg); }
 .ns-notes .ns-notes-act.quiet { margin-left: auto; }
+/* 己-2 A6：車票去處列尾的 ⋯（掛進列車、掛上路線、刪除）——推到最右，同原本「刪除」的位置；選單或挑選器開著時轉選中色 */
+.ns-notes .ns-notes-more { margin-left: auto; }
+.ns-notes .ns-notes-more[aria-expanded="true"] { color: var(--color-ink); background: var(--sel-bg); }
 
 /* 小浮層（排某天／掛進列車／掛上路線／換掛／改日期／預覽框的掛到哪） */
 .ns-notes-pop {

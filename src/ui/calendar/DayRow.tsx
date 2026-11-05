@@ -26,6 +26,7 @@
  *   （scheduleActions.scheduleRowMenu）。原本列 hover 才現的「詳情」小字收進 ⋯（浮層窄，省一格）；締切列沒有 ⋯、「詳情」照舊。
  */
 import { useCallback, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import type { NodeRow } from "../../domain";
 import { parseRule } from "../../domain";
 import type { DueEntry, ScheduleEntry } from "../../data";
@@ -208,6 +209,7 @@ export function TicketTime({
 }
 
 export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu, picked = false, dragId }: DayRowProps) {
+  useHotkeyRevision();
   const name = row.node?.name ?? "";
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
@@ -224,14 +226,14 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
   const canStamp = canStampRow(row);
   const stampTitle = row.skipped
     ? canStamp
-      ? "本班運休中——再點一次取消（或按 U）"
+      ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("daylist.suspend")}）`
       : "過去的班次不能改——只有目前或未來的班次能運休"
     : row.done
       ? row.isCurrent
         ? "取消「済」章"
         : "過去的班次不能改"
       : canStamp
-        ? "蓋章：完成（Space）"
+        ? `蓋章：完成（${hotkeyCaps("daylist.complete")}）`
         : row.isRepeat && (row.ahead || row.isFuture)
           ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
           : "過去的班次不能改——只能處理目前的班次";
@@ -304,8 +306,8 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
             className="rep rep-btn"
             title={
               row.isFuture
-                ? `定期券：${mmdd(row.entry.date)} 這班運休／修改重複時間`
-                : "定期券：本班運休／修改重複時間"
+                ? `定期券：${mmdd(row.entry.date)} 這班運休／改日期／修改重複時間`
+                : "定期券：本班運休／改日期／修改重複時間"
             }
             aria-label="定期券選項"
             onClick={(e: MouseEvent<HTMLButtonElement>) => {
@@ -325,7 +327,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           type="button"
           tabIndex={-1}
           className="defer"
-          title="推遲：執行日延後一天，過期票改到明天（T 排今天／Shift+T 排明天）"
+          title={`推遲：執行日延後一天，過期票改到明天（${hotkeyCaps("daylist.schedule.today")} 排今天／${hotkeyCaps("daylist.schedule.tomorrow")} 排明天）`}
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation();
             onDefer(e.currentTarget);

@@ -146,21 +146,32 @@ export interface TicketRepository {
   /* ── 寫・預算（每支一個 WriteBatch） ── */
   /** 依 (scope, month) 算 id ⇒ INSERT … ON CONFLICT(id) DO UPDATE SET amount_minor, deleted_at = NULL, updated_at；amount ≤ 0 ⇒ RangeError；未分類／非支出分類 ⇒ RangeError */
   setBudget(scope: BudgetScope, month: string | null, amountMinor: number): Promise<BudgetRow>;
-  /** 軟刪那一列（預設或某月覆寫）；移除預設時連同該對象所有月的覆寫一起軟刪（同一批） */
-  removeBudget(scope: BudgetScope, month: string | null): Promise<void>;
+  /** 軟刪那一列（預設或某月覆寫）；移除預設時連同該對象所有月的覆寫一起軟刪（同一批）；回被刪的 id（給復原） */
+  removeBudget(scope: BudgetScope, month: string | null): Promise<string[]>;
+  /** 復原那一刀（預設列與月覆寫；ids＝`removeBudget` 回的或清單的 `LostItem.ids`）；沒刪或不存在的略過；一批 */
+  restoreBudget(ids: readonly string[]): Promise<void>;
 
   /* ── 寫・定期帳（0-6～0-8） ── */
   /** 驗證（§4.3 錯誤表）→ 新列（next_on = firstFixedDate(rule, rule.start)）；回列 */
   createRepeat(input: NewRepeatInput): Promise<RepeatRow>;
-  /** 模板或規則變了 ⇒ 寫；規則變了 ⇒ next_on = nextFixedDate(新規則, today)（0-8）；沒變 ⇒ 不寫、回原列 */
+  /** 模板或規則變了 ⇒ 寫；規則變了 ⇒ next_on = nextOpenRun(新規則, skipped_days, today)（0-8；D-票-83）；沒變 ⇒ 不寫、回原列 */
   updateRepeat(id: string, patch: RepeatPatch, today: string): Promise<RepeatRow>;
   /**
-   * 暫停：paused_at = now；開始：paused_at = NULL＋next_on＝resumeNextOn——手建的（或開始過的）＝nextFixedDate(rule, today)（明天起）、
+   * 暫停：paused_at = now；開始：paused_at = NULL＋next_on＝resumeNextOn——手建的（或開始過的）＝nextOpenRun(rule, skipped_days, today)（明天起）、
    * 早期從財務管家匯入、從沒開始過的規則 next_on 不動（＝當時匯入帶進來的 NEXT_DATE，✎-8；匯入功能已拿掉，既有的列照舊）。「從沒開始過」＝neverStarted(repeat, entries)（含墓碑）
    */
   setRepeatPaused(id: string, paused: boolean, today: string): Promise<void>;
+  /** 提前跳過下一班（D-票-82，planSkipNext）：那天寫進 skipped_days、游標往後推；已暫停、已結束 ⇒ RangeError。回被跳過的那天（給 toast 的「復原」） */
+  skipNextRepeat(id: string): Promise<string>;
+  /** 取消跳過（planUnskip）：從 skipped_days 拿掉那天、游標退回那天；那天本來就不在裡面 ⇒ 不寫 */
+  unskipRepeat(id: string, day: string): Promise<void>;
   softDeleteRepeat(id: string): Promise<void>;
+  /** toast 的 6 秒「復原」：只清 deleted_at（沒有間隔，班次不用動） */
   restoreRepeat(id: string): Promise<void>;
+  /** 失物招領撿回定期帳：清 deleted_at＋`repeatPickUpCols`（刪除期間的班次不補、帳活著的班從 skipped_days 拿掉） */
+  pickUpRepeat(id: string, today: string): Promise<void>;
+  /** 撿回這條規則時 next_on、skipped_days 該是什麼（只讀；快照撿回把它併進整列） */
+  repeatPickUpCols(r: RepeatRow, today: string): Promise<{ next_on: string | null; skipped_days: string }>;
   /** 把一筆既有的帳連到規則（「設成定期」後）：tk_entries.repeat_id = id */
   linkEntryToRepeat(entryId: string, repeatId: string): Promise<void>;
   /**

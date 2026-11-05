@@ -48,7 +48,8 @@ import { NO_DEST, QuickAddRow, type QuickDefaults } from "../common/quickadd";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
 import type { PopMenuItem } from "../common/PopMenu";
-import { makeScheduleActions, scheduleRowMenu } from "./scheduleActions";
+import { HISTORY_MSG, makeScheduleActions, scheduleRowMenu } from "./scheduleActions";
+import { moveRunFlow } from "../outline/nodeFlows";
 import { useScheduleUiStore } from "./scheduleUiStore";
 import { useUiStore } from "../../store/uiStore";
 import { useSelectionStore } from "../../store/selectionStore";
@@ -56,7 +57,6 @@ import { batchSetDate } from "../../store/batchActions";
 import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
 import { SelectionBar } from "../common/selection/SelectionBar";
 import { clearIfAny, dragBatch, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
-import { REPEAT_RESCHEDULE_MSG } from "../../data";
 import {
   mdw,
   type StreamDaySection,
@@ -231,8 +231,10 @@ export function StreamView() {
       canDrag: (key) => {
         const row = rowOfRef.current(key);
         if (!row?.node) return "這一列不能拖";
-        if (row.isRepeat) return REPEAT_RESCHEDULE_MSG;
         if (row.done) return "已蓋済的票不能改期——要改先取消済章";
+        // 定期券：來源那一列就是那一班（⑥ D-主-295）；運休中與過去的班擋下，其餘邊界由 moveRunFlow 回原因
+        if (row.skipped) return "運休中的班不能改期——要改先取消運休";
+        if (row.isHistory) return HISTORY_MSG;
         return true;
       },
       onRefuse: (_key, why) => useUiStore.getState().showToast({ message: why }, 3500),
@@ -245,6 +247,11 @@ export function StreamView() {
       },
       onDrop: (keys, place) => {
         if (place.kind !== "target" || place.type !== "date") return;
+        // 只拖一列的定期券＝只改這一班；多選走批次（批次維持不動定期券，收據會說沒改到的原因）
+        if (keys.length === 1 && rowOfRef.current(keys[0])?.isRepeat) {
+          void moveRunFlow(keys[0].slice(11), keys[0].slice(0, 10), place.target);
+          return;
+        }
         const ids = [...new Set(keys.map((k) => k.slice(11)))];
         void batchSetDate(ids, place.target, `已改到 ${mdw(place.target)}`);
       },
@@ -334,6 +341,15 @@ export function StreamView() {
         openDefer: () => {
           if (anchor) openDefer(row, anchor);
         },
+        pick: row.node
+          ? () => {
+              const id = row.node!.id;
+              const sel = useSelectionStore.getState();
+              if (sel.scope === "schedule" && sel.ids.length) {
+                if (!sel.ids.includes(id)) sel.toggle("schedule", id, latest.current.nodeOrder);
+              } else sel.start("schedule", id);
+            }
+          : undefined,
       }),
     [actions, openDefer],
   );
@@ -421,14 +437,13 @@ export function StreamView() {
       return;
     }
     if (matches(e, "daylist.select.extend.up") || matches(e, "daylist.select.extend.down")) {
-      const next = extendBy("schedule", e.key === "ArrowUp" ? -1 : 1, latest.current.nodeOrder, cursorNode());
+      const next = extendBy("schedule", matches(e, "daylist.select.extend.up") ? -1 : 1, latest.current.nodeOrder, cursorNode());
       const k = next ? keyOfNode(next) : null;
       if (k) setSelKey(k);
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) return; // 全域鍵一律放行
     const onButton = e.target instanceof HTMLElement && e.target.tagName === "BUTTON";
     if (onButton && (e.key === "Enter" || e.key === " ")) return; // run-head／誤點列／章鈕自己啟動
 
@@ -436,10 +451,12 @@ export function StreamView() {
     const row = cur ? rowOf(cur) : null;
     let handled = true;
 
-    if (matches(e, "calendar.today")) {
+    // ⑧：查表在前（這張表的鍵可自訂，帶修飾鍵也行）；Ctrl+. 等全域鍵查不到，走最後的 handled = false 放行
+    const hit = resolveHotkey("daylist", e);
+    if (!hit && matches(e, "calendar.today")) {
       s.goToday();
       setSelKey(headKey(t));
-    } else if (e.key === "Enter") {
+    } else if (!hit && e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       if (cur?.startsWith("run:")) {
         const sec = secs.find((x) => x.key === cur.slice(4));
         if (sec && sec.kind !== "day") s.toggleRun(sec);
@@ -450,7 +467,6 @@ export function StreamView() {
         else handled = false; // 過去的日子不能建票（P10）
       }
     } else {
-      const hit = resolveHotkey("daylist", e);
       switch (hit?.id) {
         case "daylist.move.up":
           move(-1);

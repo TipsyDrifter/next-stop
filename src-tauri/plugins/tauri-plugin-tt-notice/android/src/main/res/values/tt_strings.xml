@@ -10,4 +10,7 @@
     <string name="tt_arrive">到着</string>
     <string name="tt_public_running">時刻表・運行中</string>
     <string name="tt_public_idle">時刻表・停車中</string>
+    <!-- ⑨ 截止提醒：鬧鐘到時 JS 可能沒在跑；票名只在解鎖後看得到（照 D-時-29），鎖屏只顯示這一句 -->
+    <string name="ns_channel_reminders">提醒</string>
+    <string name="ns_reminder_public">有新的提醒</string>
 </resources>

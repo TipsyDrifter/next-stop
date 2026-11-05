@@ -59,9 +59,6 @@
 .m-dt-label { font-size: var(--fs-micro); letter-spacing: .24em; color: var(--color-ink-faint); }
 .m-dt-val { min-width: 0; display: flex; align-items: center; gap: 4px; }
 .m-dt-val > .ns-seg { flex: 1 1 auto; min-width: 0; }
-/* 做不到的那一格（有子項時的「定期券」）：淡掉、點了 toast 說為什麼——同票卡 ⋯ 的 .ns-msheet-item.is-off（不用 disabled：觸控看不到 title） */
-.m-dt-fare-seg.is-teiki-off > [role="radio"]:last-child,
-.m-dt-fare-seg.is-teiki-off > [role="radio"]:last-child:hover { color: var(--color-ink-faint); opacity: var(--disabled); }
 
 /* 整列可點的值（日期、時刻、路線） */
 .m-dt-pick {
@@ -130,7 +127,6 @@
   margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; color: var(--color-ink);
   -webkit-tap-highlight-color: transparent;
 }
-.m-dt-sec-head.is-static { cursor: default; }
 .m-dt-sec-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 .m-dt-sec-name,
 .m-dt-sec-title {
@@ -174,6 +170,8 @@
 }
 .m-dt-step input:focus { border-bottom-color: var(--accent); }
 .m-dt-unit { font-size: var(--fs-sm); color: var(--color-ink-soft); margin-right: 4px; }
+/* 次數旁的「已做 3 次」 */
+.m-dt-step-note { margin-left: 6px; }
 
 /* ── 心情三燈（字與色＝complete/moods.ts；currentColor＝那一盞的色） ── */
 .m-dt-moods { display: inline-flex; align-items: center; }
@@ -258,6 +256,8 @@
 .m-dt-susp:active { background: var(--hover-bg); border-color: var(--accent); }
 .m-dt-susp.is-on { border-style: solid; border-color: var(--color-ink-soft); color: var(--color-ink); }
 .m-dt-susp:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+/* 本班日期：日期＋底下一行「原定 M/D」 */
+.m-dt-2l { display: flex; flex-direction: column; line-height: 1.35; white-space: nowrap; }
 .m-dt-hint { margin: 0; padding: 6px 0 8px 72px; border-bottom: 1px solid var(--color-line); font-size: var(--fs-xs); color: var(--color-ink-faint); }
 /* 數字欄（花費／手動進度）：共用 NumberField 的 .num，手機放大到 44px 觸控高、16px 字（聚焦不自動放大頁面） */
 .m-dt-val > .num { display: inline-flex; align-items: center; gap: 4px; }

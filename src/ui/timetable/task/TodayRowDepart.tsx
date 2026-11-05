@@ -11,6 +11,7 @@
  * 鍵帽字一律 `formatChord(hotkeyById(id).chords[0])`（契約 §1-8，不手抄）；段二之前鍵還沒登記 ⇒ 不畫鍵帽、title 只寫「発車」。
  */
 import type { MouseEvent } from "react";
+import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { fmtDur, fmtHMS, msOf, type TimeBlockRow } from "../../../domain/timetable";
 import { useNodeStore } from "../../../store/nodeStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
@@ -66,6 +67,7 @@ export function departFromTodayKey(nodeId: string): void {
 }
 
 export function TodayRowDepart({ nodeId, name }: { nodeId: string; name: string; selected: boolean }) {
+  useHotkeyRevision();
   const running = useTimetableStore((s) => (s.running !== null && s.running.node_id === nodeId ? s.running : null));
   const settled = useNodeStore((s) => isTaskSettled(s, nodeId));
 

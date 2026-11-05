@@ -9,8 +9,8 @@
 //!
 //! **v1.1.4（契約席 2026-09-22；契約 §4）**：`sync_change_passphrase` 多一個 `rotate: bool`（勾了「同時換掉資料鑰匙」
 //!   走七步輪替）；新增六支——`sync_cloud_snapshot_now`／`sync_cloud_snapshot_auto`／`sync_cloud_snapshot_list`／
-//!   `sync_cloud_restore`（雲端備份，殼在這裡、機制在 `snapshot.rs`）、`sync_export_to_file`（Android SAF 匯出）、
-//!   `sync_finish_rotation`（boot 續跑換鑰匙）。既有 command 名一個都不改。
+//!   `sync_cloud_restore`（雲端備份，殼在這裡、機制在 `snapshot.rs`）、`sync_finish_rotation`（boot 續跑換鑰匙）。
+//!   既有 command 名一個都不改。（當時的 `sync_export_to_file` 由失物招領的 `export_write_picked` 取代後移除。）
 //!
 //! **v1.1.5（契約席 2026-09-25；契約 §5）**：`sync_join` 的 `input` 多 `recovery_code`（與密語二選一）；新增兩支——
 //!   `sync_recovery_generate`（只回一次碼）／`sync_recovery_clear`。`SyncStatus` 多 `fail_streak`／`recovery_set`／
@@ -39,7 +39,7 @@ use super::engine::{
 /// v1.1.6：型別定義在 engine（`start_over` 的參數），這裡 re-export 讓 command 的簽名自己讀得懂
 pub use super::engine::StartOverScope;
 use super::recovery::{self, RecoveryReport};
-use super::snapshot::{self, ExportReport, SnapshotEntry, SnapshotKind};
+use super::snapshot::{self, SnapshotContent, SnapshotEntry, SnapshotKind};
 
 /// `sync_join` 的參數（JS：`invoke("sync_join", { input: {...} })`；契約 §4.2）。**不 derive Debug**。
 #[derive(Deserialize)]
@@ -139,6 +139,13 @@ pub async fn sync_cloud_snapshot_list(app: AppHandle) -> Result<Vec<SnapshotEntr
     snapshot::list(&app, &pool).await
 }
 
+/// 讀一份雲端快照的內容（失物招領 §3.1，撿回單筆）：下載、拆封、驗證；**不碰資料庫、不留底、不重啟**。
+/// JS：`invoke("sync_cloud_snapshot_read", { key })`。快照比 App 新 ⇒ Err「請先更新」。
+#[tauri::command]
+pub async fn sync_cloud_snapshot_read(app: AppHandle, key: String) -> Result<SnapshotContent, String> {
+    snapshot::cloud_snapshot_read(&app, &key).await
+}
+
 /// `sync_cloud_restore` 的參數（JS：`invoke("sync_cloud_restore", { input: { key, choice, label } })`）
 #[derive(Deserialize)]
 pub struct CloudRestoreInput {
@@ -156,19 +163,12 @@ pub async fn sync_cloud_restore(app: AppHandle, input: CloudRestoreInput) -> Res
     snapshot::cloud_restore(&app, &input.key, input.choice, input.label).await
 }
 
-/// `sync_export_to_file` 的參數（JS：`invoke("sync_export_to_file", { input: { target } })`；`input` 可整個省略）
-#[derive(Deserialize, Default)]
-pub struct ExportInput {
-    /// Android：`plugin-dialog` `save()` 回傳的 `content://` URI；桌機／退路：省略
-    #[serde(default)]
-    pub target: Option<String>,
-}
-
-/// 匯出全量 JSON 到檔案（手機「匯出到手機」；桌機沿用下載夾）。**不看**鑰匙圈。
+/// 資料匯出（失物招領 §4）：把前端組好的 JSON／zip（base64）寫到使用者在存檔畫面選的位置。
+/// JS：`invoke("export_write_picked", { target, base64 })`。`target`＝`plugin-dialog` `save()` 回的路徑（桌機）或 `content://`（手機）。
+/// 不看鑰匙圈、不碰資料庫——內容完全由前端組。寫不進去就回人話 Err，不退回私有資料夾。
 #[tauri::command]
-pub async fn sync_export_to_file(app: AppHandle, input: Option<ExportInput>) -> Result<ExportReport, String> {
-    let pool = engine::pool(&app).await?;
-    snapshot::export_to_file(&app, &pool, input.unwrap_or_default().target).await
+pub async fn export_write_picked(app: AppHandle, target: String, base64: String) -> Result<(), String> {
+    snapshot::export_write_picked(&app, &target, &base64)
 }
 
 /// boot 看到 `status.rotation_stage` 就叫：從標記記錄的階段續跑換鑰匙（提交點之前＝回滾）。

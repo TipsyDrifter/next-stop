@@ -7,10 +7,16 @@
  *
  * UI 丙-3 D4：每格換 `CalendarCell`（共用 common/DayCell 外殼；格內「＋」＝開那天的浮層＋草稿列）。
  *
+ * 方針擴充（辛 D-主-380）：那天預定到站、還沒到站的車站在日數旁一枚 ◎，點了開車站小卡（小卡的本地 state 在這裡）。週檢視不做。
+ *
  * 星期列用控制器的 `weekOrder`（依設定的週首排；預設一…六・日）＋`WEEKDAY_LABEL`（六日＝`.we` 淡），不各算各的（約束表「週起始日」）。
  */
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
+import { compareSiblings } from "../../domain/nodeOrder";
+import { stationDayMarks } from "../../domain/weekAims";
+import { useNodeStore } from "../../store/nodeStore";
+import { useStationCard } from "../weekAims/StationCard";
 import { CalendarCell, useAddOutOfTabOrder, useDateDropTargets } from "./CalendarCell";
 import { useCalendar } from "./useCalendarController";
 
@@ -21,6 +27,10 @@ export function MonthGrid() {
   const gridRef = useRef<HTMLDivElement>(null);
   useAddOutOfTabOrder(gridRef); // 格線只留落點格一個 Tab stop
   useDateDropTargets(gridRef); // 回饋乙：格子是「拖到日期＝改期」的落點
+  const stations = useNodeStore((s) => s.stations);
+  const allRoutes = useNodeStore((s) => s.routes);
+  const stationMarks = useMemo(() => stationDayMarks([...stations].sort(compareSiblings), allRoutes), [stations, allRoutes]);
+  const stationCard = useStationCard();
   // 鍵盤焦點的落點：選取格 →（本月的）今天 → 本月 1 日
   const focusDay =
     c.selectedDay && c.selectedDay >= c.range.from && c.selectedDay <= c.range.to
@@ -59,10 +69,13 @@ export function MonthGrid() {
               onOpen={(anchor) => c.openDay(day, anchor)}
               onAdd={() => c.addOn(day)}
               onTip={(anchor) => (anchor ? c.showTip(day, anchor) : c.hideTip())}
+              stationMarks={stationMarks.get(day)}
+              onStation={stationCard.open}
             />
           );
         })}
       </div>
+      {stationCard.node}
     </div>
   );
 }

@@ -20,16 +20,13 @@
  * 磨光③ 2-1（D-時-134、136；原型定案 A1）：分類帶的牌子可以「這一塊不算」——`FixedTagChips` 給了 `off`＋`onToggleOff` 才畫 ×：
  *   × 了變 `.is-off`（刪除線＋淡字、留在原位），× 換成常顯的 ↺；點牌子或 ↺ 都還原。塊面板交草稿、運行中的荷札小面板（桌機）
  *   立刻寫（`setBlockOff`，toast＋復原）。手機運行中那班沒有排除入口（點選器只列手動的，D-時-126／127）。
- * 運行列淡字（`runTagKeys`）也扣排除（`defaultsAfterOff`）。
  */
 import { useEffect, useMemo, type ReactNode } from "react";
 import { type TimeCategoryRow } from "../../../domain/timetable";
 import { keyOf } from "../../../domain/tags";
 import {
-  TT_TAG_BLOCK,
   TT_TAG_BLOCK_OFF,
   catDefaults,
-  defaultsAfterOff,
   tagMapsOf,
   type TimetableTagMaps,
   EMPTY_TAG_MAPS,
@@ -77,15 +74,6 @@ export function fixedTagsOf(catId: string | null, cats: readonly TimeCategoryRow
     ...d.own.map((key) => ({ key, from: TX.fromCategory(cn), src: TX.srcCategory(cn) })),
     ...d.fromGroup.map((key) => ({ key, from: TX.fromGroup(gn), src: TX.srcGroup(gn) })),
   ];
-}
-
-/** 運行列淡字的順序（原型定案 1／差異 9）：分類自己的 → 手動的 → 組帶的；去重。分類帶的扣掉這一塊排除的（磨光③ 2-1） */
-export function runTagKeys(b: { id: string; category_id: string }, cats: readonly TimeCategoryRow[], m: TimetableTagMaps): string[] {
-  const d = defaultsAfterOff(b.id, b.category_id, cats, m);
-  const manual = (m.block[b.id] ?? []).slice().sort();
-  const out: string[] = [];
-  for (const k of [...d.own, ...manual, ...d.fromGroup]) if (!out.includes(k)) out.push(k);
-  return out;
 }
 
 /** 點選器 entity 模式的 name（MobileTagPicker 的標題＝「荷札・<name>」；字由 TT_TEXT.tags.pickerTitle 組，這裡只去掉前綴） */
@@ -375,7 +363,3 @@ export function MobileTagEntity({
   );
 }
 
-/** 運行中那一班的點選器（手機運行列「荷札 N」；D-時-126、129） */
-export function openRunPicker(blockId: string, cat: string, start: number): void {
-  useTagStore.getState().openPicker({ mode: "entity", entityType: TT_TAG_BLOCK, entityId: blockId, name: pickerName(cat, start, true) });
-}

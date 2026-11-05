@@ -13,6 +13,9 @@
  * 內容：
  *   §4.1 型別與常數（BudgetRow／RepeatRow 定義在 ticket.ts——ticket.ts 零 import——這裡 re-export）
  *   §4.2 預算         §4.3 定期帳（含實體化計畫 planMaterialize）
+ *
+ * 定期帳補完（⑥ 併入，D-票-80 起）：每 N 天／週／月（`interval`，引擎已認）、記滿 N 筆（`count` 由 `liveFixedRule` 換算成 until）、
+ * 提前跳過下一班（`planSkipNext`／`planUnskip`）。**規則列存原樣**（parseFixedRule 不換算，編輯器來回不丟）；算班次的地方一律吃換算後的。
  */
 import {
   IMPORT_SOURCE_MM,
@@ -40,6 +43,8 @@ import {
 } from "./ticket";
 import { categoryIdsIncluding, dayStep, shortDay } from "./ticketView";
 import {
+  REPEAT_INTERVAL_MAX,
+  describeEnd,
   describeRule,
   firstFixedDate,
   fixedRule,
@@ -58,6 +63,12 @@ export type { BudgetRow, RepeatRow } from "./ticket";
 export const REPEAT_HHMM_DEFAULT = "09:00";
 /** projectFixed 的上限，再多留給下一輪（0-6-5） */
 export const REPEAT_SCAN_MAX = 400;
+/** 「記滿幾筆」的上限（輸入框與 liveFixedRule 同一把尺；壞值不能讓換算走不完） */
+export const REPEAT_COUNT_MAX = 999;
+/** 剛切到「記滿幾筆」時預帶的筆數（一選就是一條完整規則，同頻率預帶日子的想法） */
+const REPEAT_COUNT_DEFAULT = 12;
+/** 剛切到「到某天」時預帶：起算日或今天（晚的那個）起算幾天 */
+const REPEAT_UNTIL_DEFAULT_DAYS = 30;
 /** 預算列的 name 前綴（0-4） */
 const BUDGET_NAME = "budget:";
 
@@ -91,7 +102,11 @@ export interface RepeatDraft {
   byweekday: number[];
   bymonthday: number[];
   start: string;
+  /** 每 N 期（D-票-80；1 起跳，上限 REPEAT_INTERVAL_MAX[freq]） */
+  interval: number;
   until: string | null;
+  /** 記滿幾筆（D-票-81）；非 null＝「記滿幾筆」模式，until 非 null＝「到某天」模式（repeatEndMode） */
+  count: number | null;
   hhmm: string;
   fromEntryId: string | null; // 「設成定期」來源（存檔後 link）
 }
@@ -123,6 +138,10 @@ export const PLAN_TEXT = {
   monthNone: "每月至少選一天",
   startBad: "開始日期格式有誤",
   untilBad: "結束日期要在開始日期之後",
+  intervalBad: (max: number) => `間隔要是 1 到 ${max} 的整數`,
+  countBad: `筆數要是 1 到 ${REPEAT_COUNT_MAX} 的整數`,
+  skipPaused: "已暫停的定期帳沒有下一班",
+  skipEnded: "這筆定期帳已經結束了",
 } as const;
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -335,6 +354,38 @@ export function parseFixedRule(json: string): FixedRepeatRule | null {
   return r && r.mode === "fixed" ? r : null;
 }
 
+/**
+ * 換算後的規則（D-票-81）：`count` 收進 `until`＝從起算日起第 N 班那天（跟既有 until 取早的），回傳的 count 一律 null；可重複呼叫。
+ * 帳的班次是固定日期、照日子自動記的，所以第 N 班在規則層就算得出來——**運休、刪掉、跳過的那筆也佔名額**，不看 skipped_days
+ * （車票的「做滿」只數済，D-主-292，是另一個語義：帳沒有「済」）。班次不到 N 班就先撞到 until ⇒ until 不動。
+ * 算班次的地方（實體化、游標、預覽、開始）吃這支；編輯器與寫回吃 parseFixedRule 的原樣，count 才不會被洗掉。
+ */
+export function liveFixedRule(rule: FixedRepeatRule): FixedRepeatRule {
+  if (!rule.count) return rule;
+  const base: FixedRepeatRule = { ...rule, count: null };
+  const n = Math.min(rule.count, REPEAT_COUNT_MAX);
+  let day = firstFixedDate(base, base.start);
+  for (let i = 1; day !== null && i < n; i++) day = nextFixedDate(base, day);
+  return day === null ? base : { ...base, until: day };
+}
+
+/** 「記滿 N 筆」的最後一班（表單提示）；沒設筆數或一班都排不出來 ⇒ null */
+export function repeatLastRun(rule: FixedRepeatRule): string | null {
+  return rule.count ? liveFixedRule(rule).until : null;
+}
+
+/**
+ * `after` 之後第一個還會記的班次：吃換算後的規則、跨過 skipped_days（D-票-83）。游標全部走這支——
+ * 跳過下一班之後，實體化、改規則、開始都不能把游標算回被跳過的那天，管理頁才不會又寫「下一班」是它。
+ */
+export function nextOpenRun(rule: FixedRepeatRule, skippedJson: string, after: string): string | null {
+  const live = liveFixedRule(rule);
+  const skipped = parseSkipped(skippedJson);
+  let day = nextFixedDate(live, after);
+  while (day !== null && skipped.indexOf(day) >= 0) day = nextFixedDate(live, day);
+  return day;
+}
+
 /** 實體化的帳的確定性 id（0-4）：兩台各自實體化同一班＝同一列 */
 export function materializeId(repeatId: string, day: string): string {
   return ticketId(`repeat:${repeatId}:${day}`);
@@ -391,9 +442,10 @@ export function repeatToInput(r: RepeatRow, day: string, dayStartHour: number): 
  * 實體化計畫（契約 0-6-3；純、決定性）。對每條未刪規則：
  *   reconcileIds += skipped_days 每一天的 id（不管暫停；repository 把本機還活著的再軟刪一次，0-7-3）
  *   暫停 ⇒ 到此為止；規則看不懂 ⇒ blocked
+ *   規則一律先換算（liveFixedRule，D-票-81：記滿 N 筆＝until 收到第 N 班）
  *   班次＝projectFixed(rule, scanFrom(r, rule, today), today)（≤ 400；scanFrom null＝已結束 ⇒ 不掃、不出游標）；id 在 existingIds（**含墓碑**）或 skipped ⇒ 跳過
  *   buildEntryRow 丟 RangeError（帳戶／分類已刪…）⇒ 整條 blocked、游標不動、不插入
- *   游標＝nextFixedDate(rule, today)（滿 400 班且最後一班 < today ⇒ 從最後一班接著算，下一輪續掃）；沒變就不出
+ *   游標＝nextOpenRun(rule, skipped_days, today)（跨過提前跳過的日子，D-票-83；滿 400 班且最後一班 < today ⇒ 從最後一班接著算，下一輪續掃）；沒變就不出
  * **`next_on` 是游標不是真相**（0-6-4）：兩台 LWW 可能回退，回退只會讓下一輪多掃幾天；確定性 id＋墓碑檢查保證不重複。
  * 帳的時刻：手建的規則套 dayStartHour、匯入的規則字面時刻（repeatDayStart，✎-7 改）；只影響 occurred_at，不影響班次日與 id。
  */
@@ -420,11 +472,12 @@ export function planMaterialize(
     const skipped = parseSkipped(r.skipped_days);
     for (const d of skipped) reconcileIds.push(idOf(r.id, d));
     if (r.paused_at !== null) continue;
-    const rule = parseFixedRule(r.rule);
-    if (!rule) {
+    const parsed = parseFixedRule(r.rule);
+    if (!parsed) {
       blocked.push({ id: r.id, reason: PLAN_TEXT.ruleBad });
       continue;
     }
+    const rule = liveFixedRule(parsed);
     const from = scanFrom(r, rule, today);
     if (from === null) continue; // 已結束（next_on null 且今天之後沒有班）：只做 reconcile、不掃也不寫游標
     const days = projectFixed(rule, from, today);
@@ -448,7 +501,7 @@ export function planMaterialize(
     }
     for (const row of mine) inserts.push(row);
     const last = days.length ? days[days.length - 1] : null;
-    const next = days.length >= REPEAT_SCAN_MAX && last !== null && last < today ? nextFixedDate(rule, last) : nextFixedDate(rule, today);
+    const next = days.length >= REPEAT_SCAN_MAX && last !== null && last < today ? nextFixedDate(rule, last) : nextOpenRun(rule, r.skipped_days, today);
     if (next !== r.next_on) cursors.push({ id: r.id, next_on: next });
   }
   return { inserts, cursors, blocked, reconcileIds };
@@ -458,11 +511,12 @@ export function planMaterialize(
  * 這一輪從哪天掃（0-6-3；修正-資料，評審 R15）：next_on 有值 ⇒ 它；next_on null（＝已結束）且今天之後也沒有班 ⇒ null（不掃）；
  * next_on null 但規則今天之後還有班（兩台 LWW 交錯出的不一致，例：另一台改了 until）⇒ 從 start 掃一次、游標自己補回來。
  * 原稿 `next_on ?? start` 會讓超過 400 班的已結束規則每一輪「滿 400 寫回過去某天 → 下一輪寫回 null」永遠發 op。
+ * 「今天之後有沒有班」吃換算後的規則、跨過 skipped_days（D-票-81、83）：最後一班被提前跳過＝已結束，不能每一輪從 start 重掃一次。
  * sqliteTicketRepository 撈候選 id 走同一支，兩邊掃的範圍逐字相同。
  */
-export function scanFrom(r: Pick<RepeatRow, "next_on">, rule: FixedRepeatRule, today: string): string | null {
+export function scanFrom(r: Pick<RepeatRow, "next_on"> & Partial<Pick<RepeatRow, "skipped_days">>, rule: FixedRepeatRule, today: string): string | null {
   if (r.next_on !== null) return r.next_on;
-  return nextFixedDate(rule, today) === null ? null : rule.start;
+  return nextOpenRun(rule, r.skipped_days ?? "[]", today) === null ? null : rule.start;
 }
 
 /**
@@ -493,9 +547,9 @@ export function shiftDayOf(
   return null;
 }
 
-/** 手建規則「開始」時的游標：明天往後的第一班（嚴格晚於今天，✎-8） */
-export function nextOnAfterResume(rule: FixedRepeatRule, today: string): string | null {
-  return nextFixedDate(rule, today);
+/** 手建規則「開始」時的游標：明天往後的第一班（嚴格晚於今天，✎-8；吃換算後的規則、跨過提前跳過的日子） */
+export function nextOnAfterResume(rule: FixedRepeatRule, today: string, skippedJson = "[]"): string | null {
+  return nextOpenRun(rule, skippedJson, today);
 }
 
 /** 從沒開始過的匯入規則（✎-8）：import_source＝moneymanager 且沒有任何帳（含已刪的）的 repeat_id 指向它 */
@@ -513,7 +567,82 @@ export function resumeNextOn(r: RepeatRow, entries: readonly Pick<EntryRow, "rep
   const rule = parseFixedRule(r.rule);
   if (!rule) throw new RangeError(PLAN_TEXT.ruleBad);
   if (neverStarted(r, entries) && r.next_on !== null) return r.next_on;
-  return nextOnAfterResume(rule, today);
+  return nextOnAfterResume(rule, today, r.skipped_days);
+}
+
+/** 管理頁「跳過下一班」給不給按：已暫停、已結束不給（D-票-82） */
+export function canSkipNext(r: Pick<RepeatRow, "deleted_at" | "paused_at" | "next_on">): boolean {
+  return r.deleted_at === null && r.paused_at === null && r.next_on !== null;
+}
+
+/**
+ * 提前跳過下一班（D-票-82）：那天寫進 skipped_days、游標推到下一個還會記的班次；最後一班被跳過 ⇒ next_on null（已結束）。
+ * 「下一班」＝游標當天或之後第一個還會記的班次（游標是游標不是真相，0-6-4）。不合 ⇒ RangeError。兩種 repository 同一支。
+ */
+export function planSkipNext(r: RepeatRow, nowIso: string): { day: string; cols: Pick<RepeatRow, "skipped_days" | "next_on" | "updated_at"> } {
+  if (r.deleted_at !== null) throw new RangeError("這筆定期帳已經刪除了");
+  if (r.paused_at !== null) throw new RangeError(PLAN_TEXT.skipPaused);
+  if (r.next_on === null) throw new RangeError(PLAN_TEXT.skipEnded);
+  const parsed = parseFixedRule(r.rule);
+  if (!parsed) throw new RangeError(PLAN_TEXT.ruleBad);
+  const rule = liveFixedRule(parsed);
+  const skipped = parseSkipped(r.skipped_days);
+  let day = firstFixedDate(rule, r.next_on);
+  while (day !== null && skipped.indexOf(day) >= 0) day = nextFixedDate(rule, day);
+  if (day === null) throw new RangeError(PLAN_TEXT.skipEnded);
+  const skippedDays = withSkipped(r.skipped_days, day, true);
+  return { day, cols: { skipped_days: skippedDays, next_on: nextOpenRun(rule, skippedDays, day), updated_at: nowIso } };
+}
+
+/**
+ * 取消跳過（D-票-82；toast「復原」與管理頁「已跳過 11/1」共用）：從 skipped_days 拿掉那天；那天還是班次、又早於游標 ⇒ 游標退回那天
+ * （跳過後過了夜才復原也接得上：下一輪實體化從游標掃到它）。那天本來就不在 skipped_days ⇒ null（不寫）。
+ */
+export function planUnskip(r: RepeatRow, day: string, nowIso: string): Partial<Pick<RepeatRow, "skipped_days" | "next_on" | "updated_at">> | null {
+  if (r.deleted_at !== null) throw new RangeError("這筆定期帳已經刪除了");
+  if (parseSkipped(r.skipped_days).indexOf(day) < 0) return null;
+  const cols: Partial<Pick<RepeatRow, "skipped_days" | "next_on" | "updated_at">> = { skipped_days: withSkipped(r.skipped_days, day, false) };
+  const parsed = parseFixedRule(r.rule);
+  if (parsed && firstFixedDate(liveFixedRule(parsed), day) === day && (r.next_on === null || day < r.next_on)) cols.next_on = day;
+  cols.updated_at = nowIso;
+  return cols;
+}
+
+/**
+ * 提前跳過、還沒到的日子（管理頁「已跳過 11/1」；升冪）：skipped_days 裡晚於今天的。
+ * 刪掉一筆帳記進去的都是記過的班（≤ 記帳當天），所以晚於今天的只會是提前跳過的。規則改過、那天已不是班次的不列（跳過它沒有意義，也不用復原）。
+ */
+export function pendingSkips(r: Pick<RepeatRow, "skipped_days" | "rule">, today: string): string[] {
+  const parsed = parseFixedRule(r.rule);
+  const live = parsed ? liveFixedRule(parsed) : null;
+  return parseSkipped(r.skipped_days).filter((d) => d > today && live !== null && firstFixedDate(live, d) === d);
+}
+
+/** skipped_days 每一天對應的帳 id（`pickUpRepeatCols` 要查這些帳現在活不活） */
+export function skippedEntryIds(r: Pick<RepeatRow, "id" | "skipped_days">): string[] {
+  return parseSkipped(r.skipped_days ?? "[]").map((d) => materializeId(r.id, d));
+}
+
+/**
+ * 失物招領撿回定期帳要改的兩欄（對抗審查問題 3、4；最近刪除與快照撿回共用；toast 的 6 秒「復原」不走這裡）：
+ *   next_on＝resumeNextOn：同暫停恢復的前例，刪除期間的班次不補（30 天窗與快照撿回讓這段間隔變成現實，手記過的會重複）。規則看不懂 ⇒ 不動（反正它不實體化）。
+ *   skipped_days：帳現在活著的那班拿掉，不然下次實體化的 reconcile 把它軟刪（「撿回來又不見」，還發 delete op）。
+ */
+export function pickUpRepeatCols(
+  r: RepeatRow,
+  entries: readonly Pick<EntryRow, "repeat_id">[],
+  aliveEntryIds: ReadonlySet<string>,
+  today: string,
+): { next_on: string | null; skipped_days: string } {
+  let next_on = r.next_on ?? null;
+  try {
+    next_on = resumeNextOn(r, entries, today) ?? null;
+  } catch (e) {
+    if (!(e instanceof RangeError)) throw e;
+  }
+  const raw = r.skipped_days ?? "[]";
+  const kept = parseSkipped(raw).filter((d) => !aliveEntryIds.has(materializeId(r.id, d)));
+  return { next_on, skipped_days: kept.length === parseSkipped(raw).length ? raw : JSON.stringify(kept) };
 }
 
 /** 「設成定期…」的預設規則：每月、日號＝那筆的日、從隔天起算（那筆本身不會被重記） */
@@ -549,7 +678,9 @@ export function draftFromRepeat(r: RepeatRow, ctx: EntryCtx): RepeatDraft {
     byweekday: rule && rule.byweekday ? rule.byweekday.slice() : [],
     bymonthday: rule && rule.bymonthday ? rule.bymonthday.slice() : DAY_RE.test(start) ? [parseInt(start.slice(8, 10), 10)] : [],
     start,
+    interval: rule ? rule.interval : 1,
     until: rule ? rule.until : null,
+    count: rule ? rule.count : null,
     hhmm: r.hhmm,
     fromEntryId: null,
   };
@@ -561,8 +692,39 @@ function uniqSorted(list: readonly number[], lo: number, hi: number): number[] {
   return out.sort((a, b) => a - b);
 }
 
+/** 間隔那一格的單位（「每 [N] 週」；D-票-80） */
+export const REPEAT_INTERVAL_UNIT: Readonly<Record<RepeatFreq, string>> = { daily: "天", weekly: "週", monthly: "個月" };
+
+/** 這個頻率最多每幾期（換頻率時把間隔夾進來：每 30 天換成每月＝每 12 個月） */
+export function repeatIntervalMax(freq: RepeatFreq): number {
+  return REPEAT_INTERVAL_MAX[freq];
+}
+
+/** 表單「結束」三選（D-票-81；兩殼同一份） */
+export type RepeatEndMode = "none" | "until" | "count";
+export const REPEAT_END_OPTIONS: { value: RepeatEndMode; label: string }[] = [
+  { value: "none", label: "不結束" },
+  { value: "until", label: "到某天" },
+  { value: "count", label: "記滿幾筆" },
+];
+
+/** 草稿現在是哪一種結束：不另存模式，until／count 哪一格有值就是哪一種（沒有填到一半的狀態） */
+export function repeatEndMode(d: Pick<RepeatDraft, "until" | "count">): RepeatEndMode {
+  return d.count !== null ? "count" : d.until ? "until" : "none";
+}
+
+/** 切結束條件的草稿 patch：預帶一個值，一選就是一條完整規則；兩格互斥（切走就清掉另一格） */
+export function repeatEndPatch(d: Pick<RepeatDraft, "start" | "until" | "count">, mode: RepeatEndMode, today: string): Pick<RepeatDraft, "until" | "count"> {
+  if (mode === "count") return { until: null, count: d.count ?? REPEAT_COUNT_DEFAULT };
+  if (mode === "until") {
+    const base = DAY_RE.test(d.start) && d.start > today ? d.start : today;
+    return { until: d.until ?? dayStep(base, REPEAT_UNTIL_DEFAULT_DAYS), count: null };
+  }
+  return { until: null, count: null };
+}
+
 /**
- * 草稿 → 規則輸入（錯誤表：每週要選至少一天／每月要選至少一天／起算日看不懂／終止日要在起算日之後／時刻看不懂；
+ * 草稿 → 規則輸入（錯誤表：每週要選至少一天／每月要選至少一天／起算日看不懂／終止日要在起算日之後／間隔與筆數的範圍／時刻看不懂；
  * 其餘沿用 `validate()` 的訊息——拿 start 那天用 `buildEntryRow` 試算一次）
  */
 export function draftToRepeatInput(d: RepeatDraft, ctx: EntryCtx): NewRepeatInput {
@@ -580,9 +742,13 @@ export function draftToRepeatInput(d: RepeatDraft, ctx: EntryCtx): NewRepeatInpu
   if (!DAY_RE.test(d.start)) throw new RangeError(PLAN_TEXT.startBad);
   const until = d.until !== null && d.until.trim() !== "" ? d.until.trim() : null;
   if (until !== null && (!DAY_RE.test(until) || until < d.start)) throw new RangeError(PLAN_TEXT.untilBad);
+  const intervalMax = REPEAT_INTERVAL_MAX[d.freq];
+  if (!Number.isInteger(d.interval) || d.interval < 1 || d.interval > intervalMax) throw new RangeError(PLAN_TEXT.intervalBad(intervalMax));
+  if (d.count !== null && (!Number.isInteger(d.count) || d.count < 1 || d.count > REPEAT_COUNT_MAX)) throw new RangeError(PLAN_TEXT.countBad);
   atOf(d.start, d.hhmm, 0); // 時刻看不懂 ⇒ RangeError
-  const rule = fixedRule(d.freq, d.start, { byweekday, bymonthday });
+  const rule = fixedRule(d.freq, d.start, { byweekday, bymonthday, interval: d.interval });
   rule.until = until;
+  rule.count = d.count;
   const input: NewRepeatInput = {
     kind: d.kind,
     accountId: d.accountId,
@@ -655,7 +821,7 @@ export function buildRepeatRow(input: NewRepeatInput, ctx: EntryCtx, meta: { id:
 const REPEAT_TEMPLATE_COLS = ["kind", "account_id", "to_account_id", "category_id", "amount_minor", "currency", "note", "rule", "hhmm"] as const;
 
 /**
- * 改規則（0-8）：合併 → 驗證 → 有差的欄＋updated_at；`rule` 字串變了 ⇒ next_on＝nextFixedDate(新規則, today)。
+ * 改規則（0-8）：合併 → 驗證 → 有差的欄＋updated_at；`rule` 字串變了 ⇒ next_on＝nextOpenRun(新規則, skipped_days, today)（吃換算後的規則：記滿 N 筆放寬就回到進行中）。
  * 沒有任何欄變 ⇒ cols 空、回原列。route_id 也比（模板的一部分，只是匯入不比它）。
  */
 export function applyRepeatPatch(
@@ -706,7 +872,7 @@ export function applyRepeatPatch(
   for (const c of REPEAT_TEMPLATE_COLS) if (next[c] !== r[c]) cols[c] = next[c];
   if (next.route_id !== r.route_id) cols.route_id = next.route_id;
   if (cols.rule !== undefined) {
-    next.next_on = nextFixedDate(input.rule, today);
+    next.next_on = nextOpenRun(input.rule, r.skipped_days, today);
     if (next.next_on !== r.next_on) cols.next_on = next.next_on;
   }
   if (Object.keys(cols).length === 0) return { row: r, cols: {} };
@@ -728,13 +894,24 @@ function accName(id: string | null, accById: Readonly<Record<string, AccountRow>
   return a && a.deleted_at === null ? a.name : PLAN_TEXT.accGone;
 }
 
+/** 結束條件一句（D-票-81）：「共 12 筆」「到 12/31」；沒有結束條件 ⇒ null。帳寫「筆」，車票的 describeEnd 寫「次」 */
+export function repeatEndText(rule: FixedRepeatRule): string | null {
+  return rule.count ? `共 ${rule.count} 筆` : describeEnd(rule);
+}
+
+/** 規則一句＋結束條件（管理頁第二行、預覽）：「每 2 週 一 · 共 12 筆」 */
+export function repeatRuleText(rule: FixedRepeatRule): string {
+  const end = repeatEndText(rule);
+  return end ? `${describeRule(rule)} · ${end}` : describeRule(rule);
+}
+
 /**
  * 管理頁一列的一句話（✎-12）：收支＝「每月 1 日 · 房租 · −12,000 · 現金」（外幣在金額後加代碼）；
- * 轉帳＝「每月 5 日 · 帳戶 → 悠遊卡 · ⇄1,000」（帳戶已在去向段，不再重複）
+ * 轉帳＝「每月 5 日 · 帳戶 → 悠遊卡 · ⇄1,000」（帳戶已在去向段，不再重複）；有結束條件接在規則後面（repeatRuleText）
  */
 export function repeatLabel(r: RepeatRow, ctx: EntryCtx): string {
   const rule = parseFixedRule(r.rule);
-  const desc = rule ? describeRule(rule) : PLAN_TEXT.ruleBad;
+  const desc = rule ? repeatRuleText(rule) : PLAN_TEXT.ruleBad;
   const cur = ctx.curByCode[r.currency];
   const dec = cur ? cur.decimals : 2;
   const foreign = r.currency !== MAIN_CURRENCY && !(cur && cur.is_main === 1) ? ` ${r.currency}` : "";
@@ -854,18 +1031,18 @@ export function quickRepeatLabel(q: RepeatQuick): string {
 }
 
 /**
- * 固定規則能不能用快設表示（interval 1、每週只有一天、每月只有一天）⇒ 回對應的 RepeatQuick；不能（進階規則）⇒ null。
+ * 固定規則能不能用快設表示（interval 1、沒有筆數、每週只有一天、每月只有一天）⇒ 回對應的 RepeatQuick；不能（進階規則）⇒ null。
  * 既有帳連著規則時，那一列的字用 `repeatLineText`。
  */
 export function quickOfRule(rule: FixedRepeatRule): RepeatQuick | null {
-  if (rule.interval !== 1) return null;
+  if (rule.interval !== 1 || rule.count) return null;
   const base = quickRepeat(rule.freq, rule.start, rule.until);
   if (rule.freq === "daily") return base;
   if (rule.freq === "weekly") return rule.byweekday && rule.byweekday.length === 1 ? { ...base, weekday: rule.byweekday[0] } : null;
   return rule.bymonthday && rule.bymonthday.length === 1 ? { ...base, monthday: rule.bymonthday[0] } : null;
 }
 
-/** 既有帳那一列（連著規則）：「每月 1 日 · 下一班 12/1」；進階規則用 describeRule；暫停／結束照 nextOnText */
+/** 既有帳那一列（連著規則）：「每月 1 日 · 下一班 12/1」；進階規則用 describeRule；暫停／結束照 nextOnText（next_on 是換算後的規則算出來的，記滿 N 筆到了照樣寫已結束） */
 export function repeatLineText(r: Pick<RepeatRow, "rule" | "paused_at" | "next_on">): string {
   const rule = parseFixedRule(r.rule);
   if (!rule) return PLAN_TEXT.ruleBad;
@@ -906,7 +1083,9 @@ export function quickRepeatDraft(d: QuickRepeatSource, q: RepeatQuick, fromEntry
     byweekday: [q.weekday],
     bymonthday: [q.monthday],
     start: dayStep(d.dayKey, 1),
+    interval: 1,
     until: q.until,
+    count: null,
     hhmm: d.time,
     fromEntryId,
   };

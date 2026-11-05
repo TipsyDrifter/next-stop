@@ -474,7 +474,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
               <SubLine own={gTags} grp={[]} />
               {children.map((c, i) => {
                 const d = catDefaults(c.id, categories, tagMaps);
-                const menu: PopMenuItem[] = [{ key: "archive", label: "封存", onSelect: () => void archiveCategory(c.id, true) }];
+                const menu: PopMenuItem[] = [{ key: "archive", label: "封存", cut: true, onSelect: () => void archiveCategory(c.id, true) }]; // 己-2 A3：排在上移下移之後
                 return [
                   <ManagerRow
                     key={c.id}

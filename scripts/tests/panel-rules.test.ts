@@ -27,7 +27,18 @@ const TODAY = "2026-10-25"; // 週日
 const base = { repeat_rule: null as string | null, scheduled_on: null as string | null };
 
 test("draftOf：沒規則＝不重複；起算日 執行日＞今天", () => {
-  assert.deepEqual(P.draftOf(base, TODAY), { mode: "none", freq: "daily", byweekday: [], monthday: null, days: null, start: TODAY });
+  assert.deepEqual(P.draftOf(base, TODAY), {
+    mode: "none",
+    freq: "daily",
+    byweekday: [],
+    monthday: null,
+    days: null,
+    start: TODAY,
+    interval: 1,
+    endMode: "none",
+    until: null,
+    count: null,
+  });
   assert.equal(P.draftOf({ ...base, scheduled_on: "2026-10-28" }, TODAY).start, "2026-10-28");
 });
 
@@ -132,9 +143,9 @@ test("stampViewOf：車票＝済章；列車／車廂不畫（用現況）；定
 test("stampViewOf：退役定期券走一般那一套＋指路句（車票＝取消済章、列車＝更改狀態）", () => {
   const retiredTicket = { kind: "ticket" as const, repeat_rule: weekly, status: "done" as const, scheduled_on: null };
   const t = P.stampViewOf(retiredTicket, undefined);
-  assert.deepEqual([t.mode, t.done, t.retiredNote], ["plain", true, "定期券已停用——取消済章就會重新排班"]);
+  assert.deepEqual([t.mode, t.done, t.retiredNote], ["plain", true, "定期券跑完或已停用——取消済章、放寬結束條件就會重新排班"]);
   const c = P.stampViewOf({ ...retiredTicket, kind: "car" }, undefined);
-  assert.deepEqual([c.mode, c.retiredNote], ["none", "定期券已停用——更改狀態就會重新排班"]);
+  assert.deepEqual([c.mode, c.retiredNote], ["none", "定期券跑完或已停用——更改狀態、放寬結束條件就會重新排班"]);
 });
 
 test("switchMode：同模式不動；完成後間隔沒填過天數＝1、填過的留著；固定排程補齊", () => {
@@ -167,7 +178,7 @@ test("stampViewOf.action：章這顆鈕的讀屏名稱（桌機 aria-label 同�
   assert.equal(P.stampViewOf(teiki, { id: "o", due_on: "2026-10-23", status: "skipped" }).action, "取消本班運休");
 });
 
-// 第三輪（D-主-83）：子孫數的那把尺——openKidsOf（改已完成要不要問）與 liveChildCount（刪除要不要確認）同一支
+// 第三輪（D-主-83）：子孫數的那把尺——openKidsOf（改已完成要不要問）；刪除改問 repository（common/deleteNodeFlow）
 test("kidCountOf：路線樹有這張＝照樹算到底的數（含 0）", () => {
   assert.equal(P.kidCountOf("train", 8, { child_total: 2 }), 8);
   assert.equal(P.kidCountOf("car", 0, { child_total: 3 }), 0);
@@ -186,7 +197,72 @@ test("kidCountOf：不在樹裡、切片說沒有子項＝0；切片也沒有＝
   assert.equal(P.kidCountOf("station", null, { child_total: 0 }), 0);
 });
 
-test("repeatKidsWhy：主詞照種類、不帶內部版號（兩殼同一句）", () => {
-  assert.equal(P.repeatKidsWhy("train"), "有子項的列車不能設重複");
-  assert.equal(P.repeatKidsWhy("car"), "有子項的車廂不能設重複");
+test("⑥ 間隔與結束條件：draftOf ⇄ buildRule 來回不變，改別格不會洗掉（D-主-297）", () => {
+  for (const rule of [
+    { ...fixedRule("weekly", "2026-10-20", { byweekday: [1], interval: 2 }), until: "2026-12-31" },
+    { ...fixedRule("monthly", "2026-10-20", { bymonthday: [15], interval: 3 }), count: 5 },
+    { ...afterRule(3, "2026-10-20"), count: 4 },
+    { ...afterRule(3, "2026-10-20"), until: "2026-11-30" },
+  ]) {
+    const d = P.draftOf({ ...base, repeat_rule: serializeRule(rule) }, TODAY);
+    assert.deepEqual(P.buildRule(d), rule);
+    assert.deepEqual(P.buildRule({ ...d, start: "2026-10-21" }), { ...rule, start: "2026-10-21" });
+  }
+});
+
+test("⑥ switchEnd：預帶一個值，一選就完整；切回不結束不留值", () => {
+  const d = P.switchMode(P.draftOf(base, TODAY), "fixed");
+  const u = P.switchEnd(d, "until", TODAY);
+  assert.equal(u.until, "2026-11-24");
+  assert.equal(P.buildRule(u)?.until, "2026-11-24");
+  const c = P.switchEnd(d, "count", TODAY);
+  assert.equal(P.buildRule(c)?.count, 10);
+  const none = P.switchEnd(c, "none", TODAY);
+  assert.equal(P.buildRule(none)?.count, null);
+});
+
+test("⑥ stampViewOf：跑完但一枚済都沒有（最後一班運休）不畫済（沙盒 F-8）", () => {
+  const n = { kind: "ticket", repeat_rule: serializeRule(fixedRule("daily", "2026-10-20")), status: "done", scheduled_on: null, completed_at: null } as never;
+  const v = P.stampViewOf(n, undefined);
+  assert.equal(v.done, false);
+  assert.equal(v.action, "取消運休，回到運行");
+});
+
+test("⑥ pickEnd：預帶次數不高於已做次數就抬到下限，一選不會立刻跑完", () => {
+  const d = P.switchMode(P.draftOf(base, TODAY), "fixed");
+  assert.equal(P.pickEnd(d, "count", TODAY, 12).count, 13);
+  assert.equal(P.pickEnd(d, "count", TODAY, 3).count, 10);
+  assert.equal(P.pickEnd(d, "until", TODAY, 12).endMode, "until");
+});
+
+test("⑥ pickFreq：間隔夾進新頻率的上限；每週預帶星期", () => {
+  const d = P.switchMode(P.draftOf({ ...base, scheduled_on: "2026-10-28" }, TODAY), "fixed");
+  assert.equal(P.pickFreq({ ...d, interval: 30 }, "monthly").interval, 12);
+  assert.equal(P.pickFreq({ ...d, interval: 30 }, "weekly").interval, 30);
+  assert.deepEqual(P.pickFreq(d, "weekly").byweekday, [3]);
+});
+
+test("⑥ runDateBounds：今天起、不早於起算日、不晚於結束日（同 runMoveBlock 的尺）", () => {
+  assert.deepEqual(P.runDateBounds(null, TODAY), { min: TODAY, max: undefined });
+  assert.deepEqual(P.runDateBounds({ ...fixedRule("daily", "2026-10-30"), until: "2026-12-31" }, TODAY), { min: "2026-10-30", max: "2026-12-31" });
+  assert.equal(P.runDateBounds(fixedRule("daily", "2026-01-01"), TODAY).min, TODAY);
+});
+
+test("⑥ 結束條件沒填好＝不完整、不送；結束日早於起算日也算", () => {
+  const d = P.switchMode(P.draftOf(base, TODAY), "fixed");
+  assert.equal(P.buildRule({ ...d, endMode: "until", until: null }), null);
+  assert.equal(P.missingHint({ ...d, endMode: "until", until: null }), "選一個結束日");
+  assert.equal(P.buildRule({ ...d, endMode: "until", until: "2026-01-01" }), null);
+  assert.equal(P.missingHint({ ...d, endMode: "until", until: "2026-01-01" }), "結束日要在起算日之後");
+  assert.equal(P.buildRule({ ...d, endMode: "count", count: null }), null);
+  assert.equal(P.missingHint({ ...d, endMode: "count", count: null }), "填一個次數");
+});
+
+test("⑥ repeatAside 帶結束條件；給已做次數才寫還剩", () => {
+  const rule = { ...fixedRule("weekly", "2026-10-20", { byweekday: [1, 3] }), count: 5 };
+  const d = P.draftOf({ ...base, repeat_rule: serializeRule(rule) }, TODAY);
+  assert.equal(P.repeatAside(d, null), "每週一・三 · 共 5 次");
+  assert.equal(P.repeatAside(d, null, 2), "每週一・三 · 還剩 3 班");
+  const u = { ...d, endMode: "until" as const, until: "2026-12-31", count: null };
+  assert.equal(P.repeatAside(u, null), "每週一・三 · 到 12/31");
 });

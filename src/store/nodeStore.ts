@@ -311,6 +311,8 @@ interface NodeStore {
   setKind: (id: string, kind: NodeKind) => Promise<ActionResult>;
   deleteNode: (id: string) => Promise<string[]>;
   undoDelete: () => Promise<void>;
+  /** 放回指定的這一刀（toast 帶著自己的 ids，不靠 lastDeleted 單格：中間又刪了別的，也不會還原錯批） */
+  restoreNodes: (ids: string[]) => Promise<void>;
   setCompleted: (id: string, done: boolean, cascade?: boolean) => Promise<void>;
   /**
    * 掛／改／清除重複規則（M3 ④）——側板編輯器的唯一入口。
@@ -323,6 +325,8 @@ interface NodeStore {
    * 班次日不合法會被 repository 擋下（`REPEAT_FUTURE_ONLY_MSG`／`REPEAT_DONE_MSG`），照原句走 ActionResult。
    */
   skipOccurrence: (id: string, skip: boolean, dueOn?: string | null) => Promise<ActionResult>;
+  /** 只改這一班的日期（⑥ D-主-295）；被擋下回 runMoveBlock 那句。收據與復原在 nodeFlows.moveRunFlow */
+  moveOccurrence: (id: string, from: string, to: string) => Promise<ActionResult>;
   /**
    * 定期券逐班時刻（主線②）：給 dueOn 這一班設時刻（time=null＝「本班無時刻」）。
    * 失敗（不是定期券／格式不對…）走 toast＋ActionResult，不寫 error 欄位（紅字橫幅常駐，同 updateNode 的 scheduled_on 寫法）。
@@ -485,7 +489,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       // 在 today 分區卻不在手排座標＝有時刻的票（照時刻排）；其餘是誤點區／締切區
       const row = today.byId[id];
       if (row && row.bucket === "today") return { ok: false, reason: TIME_FIXED_ORDER_MSG };
-      return { ok: false, reason: "誤點區的票不能拖——要排到今天請按 T" };
+      return { ok: false, reason: "誤點區的票不能拖——要排到今天請用「排今天」" };
     }
     try {
       await nodeRepo.assignTodayPositions(reorderIds(ids, id, index));
@@ -707,7 +711,8 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async deleteNode(id) {
     try {
       const ids = await nodeRepo.softDelete(id);
-      set({ lastDeleted: ids });
+      // 連按第二下回 []：不能蓋掉第一下的收據，那個 toast 的「復原」還要用
+      if (ids.length) set({ lastDeleted: ids });
       await get().refresh();
       return ids;
     } catch (e) {
@@ -722,6 +727,17 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     try {
       await nodeRepo.restore(ids);
       set({ lastDeleted: null });
+      await get().refresh();
+    } catch (e) {
+      set({ error: message(e) });
+    }
+  },
+
+  async restoreNodes(ids) {
+    try {
+      await nodeRepo.restore(ids);
+      // 放回的正好是單格記的那一批才清（別的刀還在等 undoDelete 就留著）
+      if (get().lastDeleted?.[0] === ids[0]) set({ lastDeleted: null });
       await get().refresh();
     } catch (e) {
       set({ error: message(e) });
@@ -749,6 +765,20 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       return { ok: true };
     } catch (e) {
       return { ok: false, reason: message(e) };
+    }
+  },
+
+  async moveOccurrence(id, from, to) {
+    if (settling.has(id)) return { ok: true };
+    settling.add(id);
+    try {
+      await nodeRepo.moveOccurrence(id, from, to, currentDateKey(), dayStart());
+      await get().refresh();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: message(e) };
+    } finally {
+      settling.delete(id);
     }
   },
 

@@ -22,7 +22,7 @@ const ALL_LOOSE = ["ctrl", "shift", "alt"] as const;
 const NOTES_HOTKEYS: Hotkey[] = [
   { id: "notes.capture", scope: "global", chords: [{ key: "n", ctrl: true }], label: "記一句（捕捉）", wired: true, ignoreMods: [...GLOBAL_LOOSE] },
   // 階段⑤（契約 0-16、M-5）：Windows 全域鍵，由 Rust 的 RegisterHotKey 接走、到不了 webview，所以只登錄給快捷鍵頁顯示（wired:false）。
-  { id: "notes.capture.global", scope: "global", chords: [{ key: "n", ctrl: true, alt: true }], label: "記一句（在背景也能用）", note: "在任何畫面都能按；若跟別的軟體衝到，設定〈一般〉裡會提醒", wired: false },
+  { id: "notes.capture.global", scope: "global", chords: [{ key: "n", ctrl: true, alt: true }], label: "記一句（在背景也能用）", note: "在任何畫面都能按", wired: false },
   { id: "notes.move.up", scope: "notes", chords: [{ key: "ArrowUp" }], label: "上移選取", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.move.down", scope: "notes", chords: [{ key: "ArrowDown" }], label: "下移選取", wired: true, ignoreMods: [...SHIFT_LOOSE] },
   { id: "notes.open", scope: "notes", chords: [{ key: "Enter" }], label: "編輯／展開", wired: true },

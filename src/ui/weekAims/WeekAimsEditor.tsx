@@ -1,24 +1,35 @@
 /**
- * 寫方針（戊 D-主-261；原型場景 a-edit）。store 的 `editor` 不是 null 就畫；桌機 DialogShell M 520、手機 MSheet full。
+ * 寫方針（戊 D-主-261；方針擴充 辛 §7；原型場景 a-edit）。store 的 `editor` 不是 null 就畫；桌機 DialogShell M 520、手機 MSheet full。吃任何期間鍵。
  *
- * 一次存檔（取消＝不寫）。上方 ‹ 週 › 換週（有沒存的改動時不換、toast 說）；最多五列輸入（兩台合起來已經超過的照實列出）、
- * 每列「＋ 掛路線」chip（D-主-255 起只有路線；D-主-281 起也能掛路線裡的支線）與刪除；下段「上週沒済的」每句一顆「帶到這週」，帶了變「已帶到這週」、
+ * 一次存檔（取消＝不寫）。上方 ‹ 期 › 換期（有沒存的改動時不換、toast 說；車站沒有 ‹ ›，改寫站名）；最多五列輸入（兩台合起來已經超過的照實列出）、
+ * 每列「＋ 掛路線」chip（D-主-255 起只有路線；D-主-281 起也能掛路線裡的支線）與刪除；下段「上週沒済的」（字隨期間）每句一顆「帶到這週」，帶了變「已帶到這週」、
  * 新那句輸入框尾寫「上週帶來」。回顧頁腳開的時候，沒済的已經帶進草稿（`preCarry`）。
+ * 寫下層看得到上一層（D-主-375）：週框列本月、月框列今年，只讀，一句一顆「帶進來」；沿用帶過來那條路（carried_from＋決定性 id），不存上下層關聯。
+ * 框可能開很久，期間同步會進來：`base` 記著起草稿當下的列，存檔時跟現況比（別處刪的不復活、別處新寫的不被刪，`planSaveWeek`），撞到了 toast 說。
  * 鍵盤：輸入框 Enter＝下一列（最後一列＝存檔）；Esc 由殼關（AttachPicker 開著時它自己吃）。
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { addDays } from "../../lib/date";
 import {
   MAX_AIMS,
+  adjacentKey,
+  aimLimitMessage,
   aimNumeral,
   carryCandidates,
   normalizeAimText,
-  weekRangeText,
-  weekRelText,
+  periodNavText,
+  periodOfKey,
+  periodOverline,
+  periodShortLabel,
+  periodStepText,
+  periodTitle,
+  stationHeadText,
+  stationIdOfKey,
+  upperKeyOf,
   type AimDraft,
   type WeekAimRow,
 } from "../../domain/weekAims";
+import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useWeekAimStore } from "../../store/weekAimStore";
 import { DialogShell } from "../common/DialogShell";
@@ -43,13 +54,44 @@ function sameDrafts(a: readonly AimDraft[], b: readonly AimDraft[]): boolean {
   return norm(a) === norm(b);
 }
 
+/** 掛著的 host，照掛上的先後排：只有排第一的那個畫（同頁可能有告示又有車站小卡，寫方針框任何時候只能有一個） */
+const hostQueue: object[] = [];
+const hostListeners = new Set<() => void>();
+
+function useIsFirstHost(): boolean {
+  const [me] = useState(() => ({}));
+  useLayoutEffect(() => {
+    hostQueue.push(me);
+    hostListeners.forEach((fn) => fn());
+    return () => {
+      hostQueue.splice(hostQueue.indexOf(me), 1);
+      hostListeners.forEach((fn) => fn());
+    };
+  }, [me]);
+  return useSyncExternalStore(
+    (fn) => {
+      hostListeners.add(fn);
+      return () => hostListeners.delete(fn);
+    },
+    () => hostQueue[0] === me,
+  );
+}
+
 /**
  * 掛在帶子裡、畫到 body（帶子是 z-index 疊放脈絡，fixed 的對話框困在裡面會被別的東西壓住）。
  * portal 的 React 事件仍會冒到頁面（今日頁的鍵盤表）：Esc 以外的鍵在這裡截住——Esc 要留給殼掛在 window 的關窗。
+ * 要用的地方自己掛一個就好（告示、手機一行、車站小卡），同頁掛幾個都只有排第一的那個畫。
  */
 export function WeekAimsEditorHost({ today, weekStart }: { today: string; weekStart: 0 | 1 }) {
   const editor = useWeekAimStore((s) => s.editor);
-  if (!editor) return null;
+  const first = useIsFirstHost();
+  // 框開著時車站被刪（同步收到刪除）：小卡的 host 先卸載，editor 還留在 store，下一個 host 不能冒出沒站名的框（§3 #16）
+  const stationId = editor ? stationIdOfKey(editor.weekOn) : null;
+  const stationGone = useNodeStore((s) => stationId !== null && !s.stations.some((x) => x.id === stationId));
+  useEffect(() => {
+    if (stationGone) useWeekAimStore.getState().closeEditor();
+  }, [stationGone]);
+  if (!editor || !first || stationGone) return null;
   return createPortal(
     <div
       className="wa-ed-host"
@@ -57,28 +99,33 @@ export function WeekAimsEditorHost({ today, weekStart }: { today: string; weekSt
         if (e.key !== "Escape") e.stopPropagation();
       }}
     >
-      <WeekAimsEditor key={editor.weekOn} weekOn={editor.weekOn} preCarry={editor.preCarry} today={today} weekStart={weekStart} />
+      <WeekAimsEditor key={editor.weekOn} aimKey={editor.weekOn} preCarry={editor.preCarry} today={today} weekStart={weekStart} />
     </div>,
     document.body,
   );
 }
 
 function WeekAimsEditor({
-  weekOn: initialWeek,
+  aimKey: initialKey,
   preCarry,
   today,
   weekStart,
 }: {
-  weekOn: string;
+  aimKey: string;
   preCarry: readonly WeekAimRow[];
   today: string;
   weekStart: 0 | 1;
 }) {
   const mobile = useShell() === "mobile";
-  const [weekOn, setWeekOn] = useState(initialWeek);
-  const prevWeek = addDays(weekOn, -7);
-  const aims = useWeekAimStore((s) => s.weeks[weekOn]);
-  const prevAims = useWeekAimStore((s) => s.weeks[prevWeek]) ?? EMPTY;
+  const [aimKey, setAimKey] = useState(initialKey);
+  const isStation = periodOfKey(aimKey) === "station";
+  const prevKey = isStation ? null : adjacentKey(aimKey, -1);
+  const upperKey = upperKeyOf(aimKey, today);
+  const aims = useWeekAimStore((s) => s.weeks[aimKey]);
+  const prevAims = useWeekAimStore((s) => (prevKey ? s.weeks[prevKey] : undefined)) ?? EMPTY;
+  const upperAims = useWeekAimStore((s) => (upperKey ? s.weeks[upperKey] : undefined)) ?? EMPTY;
+  const stationId = stationIdOfKey(aimKey);
+  const station = useNodeStore((s) => (stationId ? (s.stations.find((x) => x.id === stationId) ?? null) : null));
   const placeOf = useAimPlaceOf();
   /** 挑選器的目前值：掛路線＝路線本身那一列；掛支線＝那條支線 */
   const pickValue = (nodeId: string | null): AttachTarget => {
@@ -106,10 +153,13 @@ function WeekAimsEditor({
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
-    void useWeekAimStore.getState().loadWeek(weekOn);
-  }, [weekOn]);
+    void useWeekAimStore.getState().loadWeek(aimKey);
+  }, [aimKey]);
+  useEffect(() => {
+    if (upperKey) void useWeekAimStore.getState().loadWeek(upperKey);
+  }, [upperKey]);
 
-  // 那週載到了才起草稿（換週＝重起）；回顧頁腳帶來的那幾句在第一次起草稿時接在後面
+  // 那一期載到了才起草稿（換期＝重起）；回顧頁腳帶來的那幾句在第一次起草稿時接在後面
   useEffect(() => {
     if (aims === undefined || drafts !== null) return;
     const start = draftsOf(aims);
@@ -126,16 +176,18 @@ function WeekAimsEditor({
       const add: AimDraft[] = [];
       for (const src of carry) {
         if (have.has(src.id) || start.length + add.length >= MAX_AIMS) continue;
-        add.push(await st.carryDraft(src, weekOn));
+        add.push(await st.carryDraft(src, aimKey));
       }
       setDrafts([...start, ...add]);
     })();
-  }, [aims, drafts, weekOn]);
+  }, [aims, drafts, aimKey]);
 
   const rows = drafts ?? [];
   const dirty = drafts !== null && !sameDrafts(drafts, base);
-  const rel = weekRelText(weekOn, today, weekStart);
-  const prevRel = weekRelText(prevWeek, today, weekStart);
+  const rel = periodTitle(aimKey, today, weekStart).rel;
+  const prevRel = prevKey ? periodTitle(prevKey, today, weekStart).rel : "";
+  const upperTitle = upperKey ? periodTitle(upperKey, today, weekStart).title : "";
+  const upperLabel = upperKey ? periodShortLabel(upperKey, today, weekStart) : "";
   const candidates = useMemo(() => carryCandidates(prevAims), [prevAims]);
   const carried = new Set(rows.map((d) => d.carriedFrom).filter(Boolean) as string[]);
   const full = rows.filter((d) => normalizeAimText(d.text) !== "").length >= MAX_AIMS;
@@ -144,18 +196,19 @@ function WeekAimsEditor({
   const save = async () => {
     if (!drafts || saving) return;
     setSaving(true);
-    const ok = await useWeekAimStore.getState().saveWeek(weekOn, drafts);
+    const ok = await useWeekAimStore.getState().saveWeek(aimKey, drafts, base);
     setSaving(false);
     if (ok) close();
   };
-  const shiftWeek = (dir: -1 | 1) => {
+  const step = periodStepText(aimKey);
+  const shiftPeriod = (dir: -1 | 1) => {
     if (dirty) {
-      useUiStore.getState().showToast({ message: "先存檔或取消，再換週" });
+      useUiStore.getState().showToast({ message: `先存檔或取消，再換${step.unit}` });
       return;
     }
     setDrafts(null);
     setPicking(null);
-    setWeekOn(addDays(weekOn, dir * 7));
+    setAimKey(adjacentKey(aimKey, dir));
   };
   const patch = (i: number, p: Partial<AimDraft>) =>
     setDrafts((cur) => {
@@ -167,14 +220,22 @@ function WeekAimsEditor({
   const remove = (i: number) => setDrafts((cur) => (cur ?? []).filter((_, j) => j !== i));
   const carry = async (src: WeekAimRow) => {
     if (full) {
-      useUiStore.getState().showToast({ message: `一週最多 ${MAX_AIMS} 句` });
+      useUiStore.getState().showToast({ message: aimLimitMessage(aimKey) });
       return;
     }
-    const d = await useWeekAimStore.getState().carryDraft(src, weekOn);
+    const d = await useWeekAimStore.getState().carryDraft(src, aimKey);
     setDrafts((cur) => {
       const list = (cur ?? []).filter((x) => normalizeAimText(x.text) !== "" || x.id !== null);
       return list.some((x) => x.carriedFrom === src.id) ? list : [...list, d];
     });
+  };
+
+  /** 輸入框尾的「…帶來」：上一期、上一層；車站帶來的來源不在這裡，一律「上一站」 */
+  const carryFrom = (id: string | null): string | null => {
+    if (id === null) return null;
+    if (prevAims.some((a) => a.id === id)) return prevRel;
+    if (upperAims.some((a) => a.id === id)) return upperLabel;
+    return isStation ? "上一站" : null;
   };
 
   /** 畫的列：草稿＋（沒滿就）一列空白 */
@@ -188,13 +249,19 @@ function WeekAimsEditor({
   const body = (
     <>
       <div className="wa-ed-week">
-        <button type="button" className="ns-iconbtn" aria-label="上一週" title="上一週" onClick={() => shiftWeek(-1)}>
-          <IconBack />
-        </button>
-        <span className="t">{weekRangeText(weekOn)}</span>
-        <button type="button" className="ns-iconbtn" aria-label="下一週" title="下一週" onClick={() => shiftWeek(1)}>
-          <IconChevron />
-        </button>
+        {isStation ? (
+          <span className="t is-station">{stationHeadText(station)}</span>
+        ) : (
+          <>
+            <button type="button" className="ns-iconbtn" aria-label={step.prev} title={step.prev} onClick={() => shiftPeriod(-1)}>
+              <IconBack />
+            </button>
+            <span className="t">{periodNavText(aimKey)}</span>
+            <button type="button" className="ns-iconbtn" aria-label={step.next} title={step.next} onClick={() => shiftPeriod(1)}>
+              <IconChevron />
+            </button>
+          </>
+        )}
       </div>
       {drafts === null ? (
         <p className="wa-ed-cap">載入中…</p>
@@ -202,7 +269,7 @@ function WeekAimsEditor({
         <ol className="wa-ed-list">
           {shown.map((d, i) => {
             const place = placeOf(d.nodeId);
-            const fromPrev = d.carriedFrom !== null && prevAims.some((a) => a.id === d.carriedFrom);
+            const from = carryFrom(d.carriedFrom);
             return (
               <li key={d.id ?? `new-${i}`} className="wa-ed-row">
                 <span className="wa-num" aria-hidden>
@@ -228,7 +295,7 @@ function WeekAimsEditor({
                       }
                     }}
                   />
-                  {fromPrev && <span className="carry">{prevRel}帶來</span>}
+                  {from && <span className="carry">{from}帶來</span>}
                 </span>
                 {place ? (
                   <button
@@ -309,6 +376,33 @@ function WeekAimsEditor({
           })}
         </div>
       )}
+      {upperAims.length > 0 && (
+        <div className="wa-ed-sec">
+          <h4>{upperTitle}</h4>
+          {upperAims.map((c) => {
+            const place = placeOf(c.node_id);
+            const done = carried.has(c.id);
+            return (
+              <div key={c.id} className={"wa-ed-carry" + (done ? " is-carried" : "")}>
+                <span className="t">{c.text}</span>
+                {place && <RouteTag place={place} shell={mobile ? "mobile" : "desktop"} onGo={close} />}
+                {done ? (
+                  <span className="done">
+                    <IconCheckMini />
+                    已帶進來
+                  </span>
+                ) : c.done_at !== null ? (
+                  <span className="done">已済</span>
+                ) : (
+                  <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={drafts === null} onClick={() => void carry(c)}>
+                    帶進來
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
       {mobile && picking !== null && (
         <MobileAttachPicker
           title="掛到哪條路線或支線"
@@ -341,16 +435,17 @@ function WeekAimsEditor({
     </>
   );
   const title = `${rel}的方針`;
+  const overline = periodOverline(aimKey);
 
   if (mobile) {
     return (
-      <MSheet title={title} overline="週方針" height="full" onClose={close} foot={foot} className="wa-ms">
+      <MSheet title={title} overline={overline.zh} height="full" onClose={close} foot={foot} className="wa-ms">
         {body}
       </MSheet>
     );
   }
   return (
-    <DialogShell title={title} overline={{ zh: "週方針", latin: "Weekly aims" }} size="M" onClose={close} foot={foot}>
+    <DialogShell title={title} overline={overline} size="M" onClose={close} foot={foot}>
       {body}
     </DialogShell>
   );

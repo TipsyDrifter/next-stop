@@ -1094,6 +1094,12 @@
     --ns-warn-text: color-mix(in srgb, var(--color-late) 74%, var(--color-ink));
   }
   [data-shell="mobile"] .m2-note.is-fail { color: var(--ns-warn-text); }
+  /* ⑧ 手勢與長按：左手勢、右效果，兩欄齊頭；列間虛線同清單 */
+  [data-shell="mobile"] .m2-gestures { margin: 6px 0 0; }
+  [data-shell="mobile"] .m2-gesture { display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--color-line); }
+  [data-shell="mobile"] .m2-gesture:last-child { border-bottom: 0; }
+  [data-shell="mobile"] .m2-gesture dt { flex: 0 0 42%; font-size: var(--fs-sm); line-height: 1.5; color: var(--color-ink); }
+  [data-shell="mobile"] .m2-gesture dd { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--color-ink-soft); }
 
   /* 「更多」裡可點的一列（同步）：排版與下面那列未通車的售票口完全相同，
      差別只在它不吃 .42 的灰度、而且是個真的按鈕（48px 觸控目標）。 */

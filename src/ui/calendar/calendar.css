@@ -66,6 +66,19 @@
 }
 [data-theme="dark"] .ns-calendar .ns-pagehead-aside .margin-note { display: none; }
 
+/* 頁首不跳（庚 D-主-392）：四個分頁大標長短不一，主欄窄時（1280 寬）週的 DateNav 會折兩行、補述折到下一行，底線跟著跳。
+ *   大標一律一行；補述放不下就折到第二行、整段藏起來（看內容不看門檻）；統計單行、放不下省略（同售票口）。
+ *   週的大標最長：頁首 <960 收掉換年的 « »（換年還有點大標開的月年跳轉與 Ctrl+↑↓）。 */
+.ns-calendar .ns-cal-head { container: cal-head / inline-size; }
+.ns-cal-head .ns-pagehead-title { white-space: nowrap; }
+.ns-cal-head .ns-datenav { flex-wrap: nowrap; }
+.ns-cal-head .ns-pagehead-titleline { height: 40px; overflow: hidden; } /* 字面值：一行大標的高（--fs-date 34 的行高） */
+.ns-cal-head .ns-pagehead-stats { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@container cal-head (max-width: 959px) {
+  .ns-cal-head .ns-datenav-year { display: none; }
+}
+/* 串流沒有統計、只留空行（庚 D-主-392）：銀河手寫字的統計段是 inline-block，比空行高 3px，這裡補齊才不跳 */
+[data-theme="dark"] .ns-calendar .ns-cal-head .ns-pagehead-stats { min-height: 28px; } /* 字面值：銀河統計列實測高 */
 /* 統計列：粉彩＝排印（pageheader.css 已給）／銀河＝日期下面隨手記的一筆（手寫；原型 :454-463 的值） */
 .ns-calendar .ns-pagehead-stats .sep { color: var(--color-ink-faint); margin: 0 2px; }
 [data-theme="dark"] .ns-calendar .ns-pagehead-stats {
@@ -170,5 +183,6 @@
 
 /* ═══ 回饋乙 ☎3①：格內的票拖到別的格子＝改期 ═══
    格內清單原本跟著 .ns-daycell-body 不吃指標（點下去落到點擊面）；要拖得起來就得打開——點一下由 CalendarCell 轉給點擊面，行為不變 */
-.ns-calendar .cal-cell .items { pointer-events: auto; cursor: pointer; }
+/* body 是 static（右上角記號要貼著格），所以清單自己定位、疊到蓋滿整格的點擊面上面，不然按下去落到點擊面、拖不起來 */
+.ns-calendar .cal-cell .items { position: relative; z-index: 1; pointer-events: auto; cursor: pointer; }
 .ns-calendar .cal-cell .items .it { cursor: grab; }

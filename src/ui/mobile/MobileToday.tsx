@@ -30,6 +30,8 @@
  *      與 WP2 路線圖 zoom／收合的作法同一套。原本「不摺」的理由（誤點本來就該被看見）只對了一半——
  *      誤點 5 件時「今天的列車」第一張票要到 615dp 才出現，394×853 的首屏只剩一張半，
  *      主任務被推出畫面。折衷＝預設展開（一開啟仍看得見）、計數常駐、可收起。
+ *      己-2 B3（D-主-419）：開合改記本機手機鍵 `today_late_open_mobile`（useLocalFlag）——桌機有記、手機每次重開又展開是雙端不同等；
+ *      仍不共用桌機的 lateCollapsed（理由同上）。
  *   4. 不開詳情側板（契約 §2.7 的「不呼叫」清單；手機殼班改由 ⋯「詳情…」開全螢幕子頁）。
  *      拖曳排序與完成卡在手機殼班補上（D-主-73／74），見檔尾〈手機殼班〉。
  *
@@ -54,7 +56,6 @@
  *     選中的那張被拖＝整批一起走（保持相對順序）。多選範圍＝誤點區＋今天的列車（scope "today"）。
  *   - 滑動手勢：右滑＝蓋済（同検印的 complete）、左滑＝明天（同 ⋯ 第一格 sheetDeferItems；定期券＝本班運休，同 ⋯ 定期券那一格）；
  *     已交代、唯讀、多選中＝滑不開。字跟著那一列變（mobileSelect.usePressedSwipe）。
- *   ⋯ 刪除的子項數走 liveChildCount（同行程表、詳情頁；第二輪——child_total 只數直屬，列車、車廂底下有車廂會少算）。
  *   完成卡（D-主-73）不在本檔畫（MobileShell 掛 MobileCompleteCard）；它開著時建票列由 complete-card.css 收起，
  *   本檔只是照常畫建票列（收的是 display，打到一半的字不丟）。
  *
@@ -62,6 +63,7 @@
  *   （桌機原句是「按 Enter 開一張臨時車票；或到路線圖（Ctrl+2）…按 T 排上今天」——手機沒有這些鍵）。
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { preloadLocalFlag, useLocalFlag } from "../common/useLocalFlag";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
@@ -74,7 +76,8 @@ import { moveNodeTo } from "../common/moveTo";
 import { EmptyState } from "../common/EmptyState";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
-import { deleteTicket, liveChildCount, logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { useBackLayer } from "./backStack";
 import { useRevealStore } from "./routeMapReveal";
 import "./mobile-polish.css";
@@ -90,6 +93,7 @@ import { MobileSelectionBar } from "./MobileSelectionBar";
 import { sheetDeferItems } from "../schedule/streamModel";
 import { TodayBrief } from "../report/TodayBrief";
 import { MobileWeekAims } from "../weekAims/MobileWeekAims";
+import { useStationCard } from "../weekAims/StationCard";
 
 /** 「指出這張票」的閃底色停多久（D-主-48；CSS 動畫 1s，計時器兜底 reduced-motion 的靜態底色） */
 const REVEAL_FLASH_MS = 1000;
@@ -99,6 +103,10 @@ const REVEAL_GIVE_UP_MS = 1500;
 const TODAY_SHEET_LAYER = "core.todaySheet";
 /** 誤點區的票長按後一動：抖一下說為什麼（桌機那句提到 T 鍵，手機改指 ⋯ 與左滑） */
 const LATE_NO_DRAG_MSG = "誤點的票不能拖曳排序——改日期用 ⋯ 或往左滑";
+
+/** 己-2 B3：手機今日誤點區開合（本機、不同步；跟桌機的 lateCollapsed 分開記）。模組層先讀，進頁不先展開再收 */
+const KEY_LATE_OPEN_MOBILE = "today_late_open_mobile";
+preloadLocalFlag(KEY_LATE_OPEN_MOBILE);
 
 export default function MobileToday() {
   const c = useMobileToday();
@@ -116,10 +124,11 @@ export default function MobileToday() {
  * ═══════════════════════════════════════════════════════ */
 
 function TodaySub({ c }: { c: MobileTodayApi }) {
+  const stationCard = useStationCard();
   /** ⋯ 開的 sheet 指向哪一列（null＝關著） */
   const [sheetId, setSheetId] = useState<string | null>(null);
-  /** 誤點區展開與否（本地 state，預設展開；不進 uiStore＝不污染桌機的 lateCollapsed，見檔頭 3） */
-  const [lateOpen, setLateOpen] = useState(true);
+  /** 誤點區展開與否（己-2 B3：記本機手機鍵，預設展開；不進 uiStore＝不污染桌機的 lateCollapsed，見檔頭 3） */
+  const [lateOpen, setLateOpen] = useLocalFlag(KEY_LATE_OPEN_MOBILE, true);
   const sheetRow = useNodeStore((s) => (sheetId ? (s.today.byId[sheetId] ?? null) : null));
   const pageRef = useRef<HTMLDivElement | null>(null);
   useSubSwipe(pageRef, "today");
@@ -344,7 +353,8 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
         <TodayBrief shell="mobile" />
 
         {/* 週方針（戊 D-主-262）：今日分頁頂端一行（排在今日小結之下），點開底部面板 */}
-        <MobileWeekAims />
+        <MobileWeekAims onOpenStation={stationCard.open} />
+        {stationCard.node}
 
         {/* ═══ 誤點區（置頂＝r1 拍板；含 D-③-7 浮上來的締切段）═══ */}
         {c.lateRows.length > 0 && (
@@ -358,7 +368,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
                 type="button"
                 aria-expanded={lateOpen}
                 aria-label={`誤點 ${lateCountText(c.late)}，${lateOpen ? "收起" : "展開"}`}
-                onClick={() => setLateOpen((v) => !v)}
+                onClick={() => setLateOpen(!lateOpen)}
                 className="note fold"
               >
                 {/* 接縫 #104：數的是還沒交代的（今天補済、留在原位的那張不算），與行程表誤點列同一支 lateCount */}
@@ -423,7 +433,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           onRename={(name) => renameTicket(sheetRow.id, name, sheetRow.name)}
           onLog={(body) => logTicket(sheetRow.id, body)}
           onMove={(dest) => void moveNodeTo(sheetRow.id, dest)}
-          onDelete={() => deleteTicket(sheetRow.id, sheetRow.name, liveChildCount(sheetRow.id))}
+          onDelete={() => void confirmAndDeleteNode(sheetRow.id)}
           reorder={(() => {
             const ro = c.reorderOf(sheetRow.id);
             return ro && { ...ro, onMove: (d: -1 | 1) => c.move(sheetRow.id, d) };

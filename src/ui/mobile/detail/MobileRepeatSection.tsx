@@ -1,56 +1,52 @@
 /**
  * 手機詳情頁的「重複」段（手機殼班 D-主-69／78）——桌機 `panel/RepeatRuleEditor.tsx` RepeatSection 的手機版。
  *
- * 欄位照桌機現況：模式（不重複／固定排程／完成後間隔）→ 頻率（每日／每週／每月）→ 星期（七格）／每月幾日／完成後幾天 → 起算日；
- *   沒有「終止」（現行編輯器沒有，手機不另發明；終止條件在加分項「重複任務的 backlog」）。
+ * 欄位同桌機：模式（不重複／固定排程／完成後間隔）→ 頻率（每日／每週／每月）→ 間隔（每 N 週，只有固定排程）→ 星期（七格）／每月幾日／完成後幾天
+ *   → 起算日 → 結束（不結束／到某天／做滿幾次；⑥ D-主-297）。
  * 規則、草稿與寫回跟桌機**同一份**（D-主-82）：純規則在 panel/panelRules、草稿的去抖寫回在 panel/useRepeatDraft（被擋＝原句 toast＋還原、
  *   清成不重複＝「已改回乘車券——過去的班次會保留」都在那裡）；草稿的主人是詳情頁（票種轉換也推同一份草稿）。
- * 手機的差別只在手感：段頭可收合（aside＝describeRule 那一句收據，收著也看得到）；每月／完成後是「− 數字 ＋」步進（數字也能直接打）；
- *   起算日開共用日期 sheet（由詳情頁開、疊在頁上）；最後一顆星期熄不掉＝點了 toast 說為什麼（觸控看不到 title；同 MSheetItem off 那套）。
+ * 手機的差別只在手感：段頭可收合（aside＝describeRule 那一句收據＋結束條件，收著也看得到）；間隔／每月／完成後／次數是「− 數字 ＋」步進（數字也能直接打）；
+ *   起算日、結束日開共用日期 sheet（由詳情頁開、疊在頁上）；最後一顆星期熄不掉＝點了 toast 說為什麼（觸控看不到 title；同 MSheetItem off 那套）。
  */
 import { useEffect, useState } from "react";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER, type NodeRow } from "../../../domain";
+import { todayKey } from "../../../lib/date";
 import { useUiStore } from "../../../store/uiStore";
 import { Segmented } from "../../common/Segmented";
 import {
+  END_OPTIONS,
   FREQ_OPTIONS,
+  INTERVAL_UNIT,
   LAST_WEEKDAY_WHY,
   MODE_OPTIONS,
   buildRule,
-  fillFixed,
+  intervalMax,
   mdwText,
   repeatAside,
-  repeatKidsWhy,
   switchMode,
   toggleWeekday,
   type RepeatDraft,
+  COUNT_MAX,
+  pickEnd,
+  pickFreq,
 } from "../../panel/panelRules";
+import { useDoneRuns } from "../../panel/useRepeatDraft";
 import { clampInt } from "./detailModel";
 
 export interface MobileRepeatSectionProps {
   node: NodeRow;
   draft: RepeatDraft;
   push(next: RepeatDraft): void;
-  kidCount: number;
   open: boolean;
   onToggle(): void;
-  /** 起算日：詳情頁開日期 sheet（疊在頁上），挑到回呼 */
-  onPickStart(current: string, done: (day: string) => void): void;
+  /** 起算日、結束日：詳情頁開日期 sheet（疊在頁上），挑到回呼；min＝可挑的下限（含） */
+  onPickDate(title: string, current: string | null, done: (day: string) => void, min?: string): void;
 }
 
-export function MobileRepeatSection({ node, draft, push, kidCount, open, onToggle, onPickStart }: MobileRepeatSectionProps) {
-  if (kidCount > 0) {
-    return (
-      <section className="m-dt-sec">
-        <div className="m-dt-sec-head is-static">
-          <span className="m-dt-sec-name">重複</span>
-          <span className="m-dt-sec-aside">{repeatKidsWhy(node.kind)}</span>
-        </div>
-      </section>
-    );
-  }
-
-  const aside = repeatAside(draft, node.repeat_rule);
+export function MobileRepeatSection({ node, draft, push, open, onToggle, onPickDate }: MobileRepeatSectionProps) {
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const done = useDoneRuns(node);
+  const aside = repeatAside(draft, node.repeat_rule, done);
   const teiki = buildRule(draft) !== null;
 
   return (
@@ -78,9 +74,25 @@ export function MobileRepeatSection({ node, draft, push, kidCount, open, onToggl
                 <Segmented
                   options={FREQ_OPTIONS}
                   value={draft.freq}
-                  // 每週／每月都預帶起算日的星期／號數：一選就是一條完整規則，馬上生效
-                  onChange={(v) => push(fillFixed({ ...draft, freq: v }))}
+                  onChange={(v) => push(pickFreq(draft, v))}
                   aria-label="重複頻率"
+                />
+              </div>
+            </div>
+          )}
+
+          {draft.mode === "fixed" && (
+            <div className="m-dt-row">
+              <span className="m-dt-label">間隔</span>
+              <div className="m-dt-val">
+                <span className="m-dt-unit">每</span>
+                <Stepper
+                  value={draft.interval}
+                  min={1}
+                  max={intervalMax(draft.freq)}
+                  unit={INTERVAL_UNIT[draft.freq]}
+                  label={`每幾${INTERVAL_UNIT[draft.freq]}`}
+                  onChange={(v) => push({ ...draft, interval: v })}
                 />
               </div>
             </div>
@@ -142,13 +154,56 @@ export function MobileRepeatSection({ node, draft, push, kidCount, open, onToggl
                   type="button"
                   className="m-dt-pick"
                   aria-label={`起算日：${mdwText(draft.start)}`}
-                  onClick={() => onPickStart(draft.start, (day) => push({ ...draft, start: day }))}
+                  onClick={() => onPickDate("起算日", draft.start, (day) => push({ ...draft, start: day }))}
                 >
                   <span>{mdwText(draft.start)}</span>
                   <span className="m-dt-chev" aria-hidden="true">
                     ›
                   </span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {draft.mode !== "none" && (
+            <div className="m-dt-row">
+              <span className="m-dt-label">結束</span>
+              <div className="m-dt-val">
+                <Segmented
+                  options={END_OPTIONS}
+                  value={draft.endMode}
+                  onChange={(v) => push(pickEnd(draft, v, todayKey(dayStartHour), done))}
+                  aria-label="結束條件"
+                />
+              </div>
+            </div>
+          )}
+
+          {draft.mode !== "none" && draft.endMode === "until" && (
+            <div className="m-dt-row">
+              <span className="m-dt-label">結束日</span>
+              <div className="m-dt-val">
+                <button
+                  type="button"
+                  className="m-dt-pick"
+                  aria-label={`結束日：${draft.until ? mdwText(draft.until) : "還沒選"}`}
+                  onClick={() => onPickDate("結束日", draft.until, (day) => push({ ...draft, until: day }), draft.start)}
+                >
+                  {draft.until ? <span>{mdwText(draft.until)}</span> : <span className="is-empty">還沒選</span>}
+                  <span className="m-dt-chev" aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {draft.mode !== "none" && draft.endMode === "count" && (
+            <div className="m-dt-row">
+              <span className="m-dt-label">次數</span>
+              <div className="m-dt-val">
+                <Stepper value={draft.count} min={done + 1} max={COUNT_MAX} unit="次" label="做滿幾次" onChange={(v) => push({ ...draft, count: v })} />
+                <span className="m-dt-sub m-dt-step-note">已做 {done} 次</span>
               </div>
             </div>
           )}

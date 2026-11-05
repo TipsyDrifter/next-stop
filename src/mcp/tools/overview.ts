@@ -5,6 +5,7 @@
  */
 import type { TodayRow } from "../../data/nodeRepository";
 import { dayCount, dayCountText, type DayCountItem } from "../../domain/dayCount";
+import { aimsOfKey, doneCount, weekEndOf, weekOnOf } from "../../domain/weekAims";
 import { addDays } from "../../lib/date";
 import type { McpCtx, McpModule, McpTool } from "../types";
 
@@ -24,7 +25,7 @@ export const getOverview: McpTool = {
   name: "get-overview",
   title: "今天的總覽",
   description:
-    "私鐵手帳今天的總覽：車票（task）數、誤點（過期未完成）、正在計時的時間塊、今天的收支、收件匣筆數。只會包含使用者開放的功能。日期是營業日（照日界線），YYYY-MM-DD。",
+    "私鐵手帳今天的總覽：車票（task）數、誤點（過期未完成）、這週方針、正在計時的時間塊、今天的收支、收件匣筆數。只會包含使用者開放的功能。日期是營業日（照日界線），YYYY-MM-DD。",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   module: "overview",
   access: "read",
@@ -44,6 +45,12 @@ export const getOverview: McpTool = {
         lateTop: late.slice(0, 10).map((r) => ({ id: r.id, name: r.name, scheduledOn: r.scheduled_on, dueOn: r.due_on })),
       };
       parts.push(`今天${dayCountText(count) || "沒有車票"}；誤點 ${late.length} 張`);
+      // 這週方針（辛 D-主-381）：最多五句短句，是排這週行程的前提，同 lateTop 帶字；月、年、車站要看再叫 list-aims
+      const week = weekOnOf(ctx.today, ctx.weekStart);
+      const aims = aimsOfKey(await ctx.deps.weekAimRepo.listRange(week, weekEndOf(week)), week);
+      const aimCount = doneCount(aims);
+      out.weekAims = { ...aimCount, aims: aims.map((a) => (a.done_at ? { id: a.id, text: a.text, done: true } : { id: a.id, text: a.text })) };
+      parts.push(aimCount.total ? `這週方針済 ${aimCount.done}/${aimCount.total}` : "這週還沒寫方針");
     } else closed.push("任務");
 
     if (canRead(ctx, "timetable")) {

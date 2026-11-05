@@ -1221,13 +1221,23 @@ export class MemoryTimetableRepository implements TimetableRepository {
     return out ? { ...out.preview } : null;
   }
 
-  async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
+  async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<(MergePreview & { undo: PaintUndo }) | null> {
     await this.ready();
     const now = Date.now();
     const out = planMerge(this.aliveSpans(), { id, dir, bound: msOf(boundIso), now, infoOf: this.mergeInfoOf() });
     if (!out) return null;
-    await this.applyPlan(out.plan, isoOf(now));
-    return { ...out.preview };
+    const before: Record<string, TimeBlockRow> = {};
+    for (const x of [...out.plan.patches.map((p) => p.id), ...out.plan.deletes]) {
+      const r = this.blocks.get(x);
+      if (r) before[x] = clone(r);
+    }
+    const ids = await this.applyPlan(out.plan, isoOf(now));
+    const after: Record<string, TimeBlockRow | null> = {};
+    for (const x of [...Object.keys(before), ...ids]) {
+      const r = this.blocks.get(x);
+      after[x] = r ? clone(r) : null;
+    }
+    return { ...out.preview, undo: buildPaintUndo(out.plan, before, after, ids) };
   }
 
   async listRecentCategoryIds(sinceIso: string, limit: number): Promise<string[]> {
@@ -1588,6 +1598,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
         }
         if (w.cols.ended_at !== undefined) r.ended_at = w.cols.ended_at;
         if (w.cols.deleted_at !== undefined) r.deleted_at = w.cols.deleted_at;
+        if (w.cols.note !== undefined) r.note = w.cols.note;
       }
       r.updated_at = nowIso;
     }

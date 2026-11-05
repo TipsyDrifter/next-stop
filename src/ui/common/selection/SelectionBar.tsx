@@ -2,15 +2,17 @@
  * SelectionBar——桌機多選的選取列（回饋乙 D-主-152；契約 §4；原型 prototypes/回饋乙-拖曳多選右鍵.html 第 02 段）。
  *
  * 選了 ≥1 張就在內容區（App 的 <main>）底部浮出一條 `.techo-card`：
- *   「已選 N 張」｜［執行日］［優先級］［荷札］［移動到…］［蓋済］［運休］［刪除（赭框）］｜［× 取消］
+ *   「已選 N 張」｜［蓋済］［執行日］［移動到…］［更多 ▾］｜［× 取消］
+ *   己-2 A4（D-主-413）：原本八顆攤開，比照手機收成「常用三顆＋更多」；更多＝PopMenu：優先級 ▾（高中低）、荷札…、本班運休、刪除 N 張（赭）。
  * 規範：一個區域一顆主鈕（法則 03）——這一條沒有實心主鈕，全是次鈕／危險鈕／文字鈕；材質＝浮（§1.5）；
- *   小卡＝錨定 popover（§2.4：執行日用共用 DatePicker、優先級用 PopMenu、荷札一張小卡、移動到…用 AttachPicker）。
+ *   小卡＝錨定 popover（§2.4：執行日用共用 DatePicker、更多用 PopMenu、荷札一張小卡、移動到…用 AttachPicker）。
  * 動作一律呼叫 store/batchActions（一批寫完、一則 toast、一次復原）；做不到的停用並說原因（title）。
  * 掛在大綱、今日、行程表串流三頁；`lookup` 交「這一頁的節點表」（運休要看定期券、移動到…要看種類）。
  * 位置：portal 進 <main>（相對定位、不捲）——頁面本身（.page）會捲，放在頁裡就跟著內容跑了。
  * 選取列開著時 toast 往上讓（selection.css：`html[data-selbar]`），兩條不互蓋。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { capsOfHotkey } from "../../shell/hotkeys";
 import { createPortal } from "react-dom";
 import { nodeRepo } from "../../../data";
 import { parseRule, type NodeRow, type Priority } from "../../../domain";
@@ -27,7 +29,7 @@ import {
   batchSkip,
 } from "../../../store/batchActions";
 import { useNodeStore } from "../../../store/nodeStore";
-import { useSelectionStore, type SelectionScope } from "../../../store/selectionStore";
+import { useSelectionStore, type SelectionScope, visibleIn } from "../../../store/selectionStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
 import { AttachPicker } from "../AttachPicker";
@@ -46,7 +48,7 @@ export interface SelectionBarProps {
   lookup(id: string): NodeRow | undefined;
 }
 
-type Pop = "date" | "prio" | "tag" | "move" | null;
+type Pop = "date" | "more" | "tag" | "move" | null;
 
 const PRIORITY: { value: Priority; label: string }[] = [
   { value: "high", label: "高" },
@@ -63,6 +65,12 @@ function moveRuleOf(nodes: NodeRow[]): { rule: ReturnType<typeof moveTargetRule>
   if (rules.some((r) => r!.label !== first.label)) return { rule: null, why: "選到的種類不同（車票、車廂要放進列車；列車、支線要放進路線），放不進同一個地方" };
   return { rule: first, why: null };
 }
+
+const SELECT_ALL_HOTKEY: Record<SelectionScope, string> = {
+  today: "today.select.all",
+  outline: "outline.select.all",
+  schedule: "daylist.select.all",
+};
 
 export function SelectionBar({ scope, lookup }: SelectionBarProps) {
   const ids = useSelectionStore((s) => (s.scope === scope ? s.ids : null));
@@ -111,12 +119,27 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
   const closePop = () => setPop(null);
   const today = todayKey(dayStartHour);
 
+  const visible = visibleIn(scope);
   const bar = (
     <div className="ns-selbar techo-card" role="toolbar" aria-label="選取列" onKeyDown={(e) => onBarKey(e, closePop, clear, pop)}>
       <span className="cnt" aria-live="polite">
         已選 <b>{count}</b> 張
       </span>
+      {/* ⑧ 同類：全選原本只有快捷鍵；還沒選滿才出現 */}
+      {visible.length > count && (
+        <button
+          type="button"
+          className="ns-btn ns-btn--sm btn-text"
+          title={`全選這一頁（${capsOfHotkey(SELECT_ALL_HOTKEY[scope])}）`}
+          onClick={() => useSelectionStore.getState().set(scope, visibleIn(scope))}
+        >
+          全選
+        </button>
+      )}
       <span className="sep" aria-hidden />
+      <button type="button" className="ns-btn ns-btn--sm btn-ghost" onClick={() => void batchComplete(sel)} title="全部蓋上済章">
+        蓋済
+      </button>
       <button
         type="button"
         ref={(el) => void (btns.current.date = el)}
@@ -132,27 +155,6 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
       </button>
       <button
         type="button"
-        ref={(el) => void (btns.current.prio = el)}
-        className="ns-btn ns-btn--sm btn-ghost"
-        aria-haspopup="menu"
-        aria-expanded={pop === "prio"}
-        onClick={() => toggle("prio")}
-      >
-        優先級
-      </button>
-      <button
-        type="button"
-        ref={(el) => void (btns.current.tag = el)}
-        className="ns-btn ns-btn--sm btn-ghost"
-        aria-haspopup="dialog"
-        aria-expanded={pop === "tag"}
-        data-pop-toggle
-        onClick={() => toggle("tag")}
-      >
-        荷札
-      </button>
-      <button
-        type="button"
         ref={(el) => void (btns.current.move = el)}
         className="ns-btn ns-btn--sm btn-ghost"
         aria-haspopup="dialog"
@@ -164,20 +166,17 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
       >
         移動到…
       </button>
-      <button type="button" className="ns-btn ns-btn--sm btn-ghost" onClick={() => void batchComplete(sel)} title="全部蓋上済章">
-        蓋済
-      </button>
+      {/* 己-2 A4（D-主-413）：比照手機「常用三顆＋更多」——優先級、荷札、運休、刪除收進「更多」 */}
       <button
         type="button"
+        ref={(el) => void (btns.current.more = el)}
         className="ns-btn ns-btn--sm btn-ghost"
-        disabled={teikiCount === 0}
-        title={teikiCount === 0 ? "運休只給定期券——選到的都不是" : teikiCount < nodes.length ? `其中 ${teikiCount} 張定期券這一班停駛（其他的跳過）` : "這一班停駛（定期券）"}
-        onClick={() => void batchSkip(sel)}
+        aria-haspopup="menu"
+        aria-expanded={pop === "more"}
+        title="優先級、荷札、本班運休、刪除"
+        onClick={() => toggle("more")}
       >
-        運休
-      </button>
-      <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-btn-danger" onClick={() => batchDelete(sel)}>
-        刪除
+        更多 ▾
       </button>
       <span className="sep" aria-hidden />
       <button type="button" className="ns-btn ns-btn--sm btn-text x" title="取消選取（Esc）" onClick={clear}>
@@ -201,12 +200,24 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
           onClose={closePop}
         />
       )}
-      {pop === "prio" && (
+      {pop === "more" && (
         <PopMenu
-          anchor={btns.current.prio ?? null}
-          overline={{ zh: "優先級", latin: "Priority" }}
-          label={`改 ${count} 張的優先級`}
-          items={PRIORITY.map((p) => ({ key: p.value, label: p.label, onSelect: () => void batchSetPriority(sel, p.value) }))}
+          anchor={btns.current.more ?? null}
+          overline={{ zh: `已選 ${count} 張`, latin: "More" }}
+          label={`${count} 張的其他動作`}
+          items={[
+            // 優先級＝可展開的一組（PopMenu group，同大綱 ⋯ 的「編排 ▾」），點開才列出高中低
+            ...PRIORITY.map((p) => ({ key: `prio-${p.value}`, label: p.label, group: "優先級", onSelect: () => void batchSetPriority(sel, p.value) })),
+            { key: "tag", label: "荷札…", onSelect: () => setPop("tag") },
+            {
+              key: "skip",
+              label: "本班運休",
+              disabled: teikiCount === 0,
+              why: "運休只給定期券——選到的都不是",
+              onSelect: () => void batchSkip(sel),
+            },
+            { key: "delete", label: `刪除 ${count} 張`, cut: true, danger: true, onSelect: () => batchDelete(sel) },
+          ]}
           onClose={closePop}
         />
       )}

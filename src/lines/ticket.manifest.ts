@@ -47,7 +47,7 @@ const TICKET_HOTKEYS: Hotkey[] = [
 ];
 
 const TICKET_SCENES: Scene[] = [
-  { scope: "ticket", title: "售票口", note: "在售票口且沒有在打字時；看月曆時方向鍵可移動日期。" },
+  { scope: "ticket", title: "售票口", note: "在售票口且沒有在打字時。" },
   { scope: "ticket-entry", title: "記一筆（完整）", note: "在詳情側板編輯帳目時。" },
 ];
 

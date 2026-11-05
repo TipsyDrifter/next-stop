@@ -50,7 +50,7 @@
 [data-shell="mobile"] .m2-trunk-row[data-drag-id] { -webkit-tap-highlight-color: transparent; }
 
 /* ───── 車站清單：左側抓手（點＝上移／下移、按住＝拖） ───── */
-[data-shell="mobile"] .m-rt-st.has-grip { grid-template-columns: 28px minmax(0, 1fr) 44px 44px; }
+[data-shell="mobile"] .m-rt-st.has-grip { grid-template-columns: 28px minmax(0, 1fr) 44px; } /* 己-2 A2：× 收進抓手 sheet */
 [data-shell="mobile"] .m-rt-st.has-grip .m-rt-st-meta { padding-left: 30px; }
 [data-shell="mobile"] .m-rt-st-grip {
   width: 28px; min-height: 44px; display: grid; place-items: center;

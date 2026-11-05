@@ -35,6 +35,7 @@
  *   開卡後焦點進卡，Esc 收卡焦點回今日容器。選中態的「▶ 発車」（時刻表線插槽）照舊不動。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { describeRule, parseRule, type NodeRow, type NodeStatus } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { isTimeOverridden, timeOfRow } from "../../domain/scheduledTime";
@@ -43,7 +44,7 @@ import { TicketTime } from "../calendar/DayRow";
 import { PunchNick, SealCarryOver, SealStopover, SealSuspended } from "../stamps";
 import { lineTodayRowActions } from "../../lines/runtime";
 import { PriorityMark } from "../common/PriorityMark";
-import { PopMenu, type PopMenuItem } from "../common/PopMenu";
+import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
 import { IconDots } from "../common/icons";
 import { rowContextMenu } from "../common/contextMenu";
 
@@ -223,6 +224,7 @@ export interface TodayRowProps {
 }
 
 export function TodayRow({ row, route, selected, picked = false, fresh, dateKey, actions, onFreshEnd, dndProps, now, menu }: TodayRowProps) {
+  useHotkeyRevision();
   const ref = useRef<HTMLLIElement>(null);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／臨時券 */
   const rule = parseRule(row.repeat_rule);
@@ -277,7 +279,7 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
       type="button"
       tabIndex={-1}
       aria-label="執行日——點擊推遲"
-      title="推遲（T 排今天・Shift+T 明天）"
+      title={`推遲（${hotkeyCaps("today.schedule.today")} 排今天・${hotkeyCaps("today.schedule.tomorrow")} 明天）`}
       onClick={(e) => {
         e.stopPropagation();
         actions.openDefer(row.id, e.currentTarget);
@@ -402,7 +404,7 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
             type="button"
             tabIndex={-1}
             aria-label="打開詳情側板"
-            title="詳情（.）"
+            title={`詳情（${hotkeyCaps("today.panel")}）`}
             onClick={(e) => {
               e.stopPropagation();
               actions.openPanel(row.id);
@@ -451,7 +453,7 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
             tabIndex={-1}
             aria-label={suspended ? "取消本班運休" : done ? "取消完成" : "蓋章完成"}
             aria-pressed={done}
-            title={suspended ? "本班運休中——再點一次取消（或按 U）" : done ? "取消「済」章" : "蓋章：完成（Space）"}
+            title={suspended ? `本班運休中——再點一次取消（或按 ${hotkeyCaps("today.suspend")}）` : done ? "取消「済」章" : `蓋章：完成（${hotkeyCaps("today.complete")}）`}
             onClick={(e) => {
               e.stopPropagation();
               actions.complete(row.id);

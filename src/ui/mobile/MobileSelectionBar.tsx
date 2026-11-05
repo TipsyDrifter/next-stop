@@ -32,7 +32,7 @@ import {
   batchSkip,
 } from "../../store/batchActions";
 import { useNodeStore } from "../../store/nodeStore";
-import { useSelectionStore, type SelectionScope } from "../../store/selectionStore";
+import { useSelectionStore, type SelectionScope, visibleIn } from "../../store/selectionStore";
 import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { dateQuickSet } from "../common/DateChip";
@@ -170,6 +170,17 @@ export function MobileSelectionBar({ scope }: { scope: SelectionScope }) {
 
       {sheet === "more" && (
         <MSheet list title={`已選 ${count} 張`} backId={SHEET_LAYER} onClose={close}>
+          {/* ⑧ 同類：桌機的全選在選取列；手機選取列放不下第五顆，收在「更多」第一項 */}
+          {visibleIn(scope).length > count && (
+            <MSheetItem
+              onClick={() => {
+                useSelectionStore.getState().set(scope, visibleIn(scope));
+                close();
+              }}
+            >
+              全選這一頁
+            </MSheetItem>
+          )}
           <MSheetItem onClick={() => setSheet("priority")}>優先級…</MSheetItem>
           <MSheetItem
             off={!taggable}

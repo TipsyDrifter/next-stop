@@ -86,7 +86,7 @@ function HotkeyGuideCard() {
         </section>
 
         <div className="ns-hkg-foot">
-          <span className="ns-note">完整說明與其他頁面：設定 → 快捷鍵</span>
+          <span className="ns-note">其他頁面與改鍵：設定 → 快捷鍵</span>
           <button type="button" onClick={toSettings} className="btn-ghost ns-btn ns-btn--sm shrink-0">
             開啟設定
           </button>

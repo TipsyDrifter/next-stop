@@ -19,9 +19,9 @@
  *   「移動選取 ↑ ／ ↓」「換月 Ctrl+← ／ Ctrl+→」「開當日清單 Enter ／ Space」都是這一種寫法，不需要分辨槽與替代。
  */
 
-import type { PageId } from "../../store/uiStore";
+import type { PageId } from "../../store/uiStore.ts";
 import type { Chord, Hotkey, HotkeyScope } from "./hotkeys";
-import { byScope, formatChord, hotkeyById } from "./hotkeys";
+import { byScope, capsOfHotkey, formatChord, hotkeyById } from "./hotkeys.ts";
 // 並行地基（契約 §8.3／§6.2 C-13）：三線的分組來自各線登記檔；頁 → scope 查頁面登記表。probe 會載入本檔，值 import 含 .ts
 import { LINE_MANIFESTS } from "../../lines/index.ts";
 import { pageById } from "./pages.ts";
@@ -96,15 +96,25 @@ export function sceneOf(scope: HotkeyScope): Scene {
 
 /* ───────── 籤頂：導航／編輯雙模式說明（規格書 :45 鐵則翻成人話） ───────── */
 
-/** 指引鍵的兩組鍵帽字（`?`／IME 備援），直接查 registry（Mac 顯 ⌘+/，Windows 顯 Ctrl+/），不手抄 */
-const [GUIDE_KEY, GUIDE_FALLBACK] = hotkeyById("global.guide")!.chords.map((c) => formatChord(c).join("+"));
+/** 開始打字的兩顆鍵（Enter 新增、F2 改名；可自訂），查 registry */
+const typingKeys = (): string => `${capsOfHotkey("outline.add.sibling")} 或 ${capsOfHotkey("outline.rename")}`;
 
-export const DUAL_MODE_NOTE: readonly string[] = [
-  // 這三句只出現在設定籤；`?` 叫出的是「目前這一頁」的情境卡，不是這張七組全表——照實說
-  `選取項目（非打字狀態）時，按單鍵就能直接操作；按 ${GUIDE_KEY} 可查看本頁快捷鍵。`,
-  "按 Enter 或 F2 開始打字；期間按 Enter 儲存、Esc 取消。",
-  `中文選字時若要查看快捷鍵，請改按 ${GUIDE_FALLBACK}。`,
-];
+/** 改了鍵句子要跟著變，所以是函式：鍵帽字現查 registry（Mac 顯 ⌘+/，Windows 顯 Ctrl+/），不手抄 */
+export function dualModeNote(): readonly string[] {
+  const [guideKey, guideFallback] = hotkeyById("global.guide")!.chords.map((c) => formatChord(c).join("+"));
+  return [
+    // 這三句只出現在設定籤；`?` 叫出的是「目前這一頁」的情境卡，不是這張七組全表——照實說
+    `選取項目（非打字狀態）時，按單鍵就能直接操作；按 ${guideKey} 可查看本頁快捷鍵。`,
+    // Enter 儲存、Esc 取消是輸入框裡的慣例（不開放改），這兩顆照字面
+    `按 ${typingKeys()} 開始打字；期間按 Enter 儲存、Esc 取消。`,
+    `中文選字時若要查看快捷鍵，請改按 ${guideFallback}。`,
+  ];
+}
+
+/** 情境註：只有「打字時」那組的註提到可自訂的鍵，其他組就是 scene.note */
+export function sceneNote(scene: Scene): string {
+  return scene.scope === "edit" ? `按 ${typingKeys()} 進入輸入框打字時。` : scene.note;
+}
 
 /* ───────── 頁 → scope（`?` 情境卡用） ───────── */
 
@@ -242,4 +252,15 @@ export function rowsFor(scope: HotkeyScope): HotkeyRow[] {
 /** 一列攤平成顯示順序的鍵位串（槽與替代都用「／」分隔，顯示端不必分辨） */
 export function rowPaths(row: HotkeyRow): Chord[] {
   return row.chords.flat();
+}
+
+/** 同 `rowPaths`，多帶「這一格是哪一筆的第幾條路」——設定籤點鍵帽重設時要知道改誰 */
+export interface RowSlot {
+  id: string;
+  index: number;
+  chord: Chord;
+}
+
+export function rowSlots(row: HotkeyRow): RowSlot[] {
+  return row.ids.flatMap((id, i) => row.chords[i].map((chord, index) => ({ id, index, chord })));
 }

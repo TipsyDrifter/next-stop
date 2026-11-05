@@ -1,0 +1,32 @@
+/* Toggle（Toggle.tsx）：值照舊，從 timetable.css 的 `.ns-tt-toggle` 搬來，時刻表〈通知〉籤與提醒頁共用。 */
+.ns-toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 32px; padding: 0 4px;
+  background: transparent; border: 0;
+  font-family: inherit; font-size: var(--fs-sm); letter-spacing: .12em; color: var(--color-ink-faint);
+  cursor: pointer;
+}
+.ns-toggle-knob {
+  position: relative; width: 36px; height: 20px; flex: none;
+  border-radius: var(--radius-pill); border: 1px solid var(--color-dash);
+  background: transparent;
+  transition: background .15s, border-color .15s;
+}
+.ns-toggle-knob::after {
+  content: "";
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--color-ink-faint);
+  transition: transform .15s, background .15s;
+}
+.ns-toggle.is-on { color: var(--color-ink); }
+.ns-toggle.is-on .ns-toggle-knob {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.ns-toggle.is-on .ns-toggle-knob::after { transform: translateX(16px); background: var(--accent); }
+.ns-toggle:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-toggle:disabled { opacity: var(--disabled); cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-toggle-knob, .ns-toggle-knob::after { transition: none; }
+}

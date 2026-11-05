@@ -29,13 +29,6 @@ input.ns-tt-note-in::placeholder { color: var(--color-ink-faint); }
   color: var(--color-ink-faint); letter-spacing: .03em;
 }
 
-/* 桌機運行列：放不下時備註先縮到沒有，名稱、連結、荷札才開始省略（shrink 要比按寬度加權後的別人大好幾個數量級） */
-.ns-tt-dock-note {
-  flex: 0 10000 auto; min-width: 0; margin-left: 8px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: .82em; letter-spacing: .03em; color: var(--color-ink-faint);
-}
-
 /* 週視圖 tooltip 第二行 */
 .ns-tt-week-tip-note {
   display: block; max-width: 22em; margin-top: 2px;

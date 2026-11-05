@@ -5,17 +5,19 @@
  *   就地改名、上下排序、其餘動作（封存、刪除…）收進 ⋯。兩線共用一種列（丙-4／丙-5 套用）。
  * 什麼時候不用：要挑一個（分類選擇器 CategoryGrid／CategoryCombo）；要看全部欄位（詳情側板）；一般資料列（車票、帳本列）。
  * 解剖（樣本 prototypes/ui-brand/index.html「ManagerRow」節 .ns-mgr）：
- *   ［名稱：行內改名的底線輸入］［色票／emoji 22 寬］［↑］［↓］［⋯ 常駐淡態］；列間 1px 虛線。
+ *   ［名稱：行內改名的底線輸入］［色票／emoji 22 寬］［⋯ 常駐淡態］；列間 1px 虛線。
+ *   （己-2 A3，D-主-411：原本列尾的 ↑↓ 兩顆收進 ⋯——「上移／下移」帶 Alt+↑／↓ 鍵帽；拖曳與名稱框裡的 Alt+↑↓ 照舊。
+ *    排法見 managerRowMenu.ts 的 rowMenu。下面寫「↑↓」的舊段落，指的都是 ⋯ 裡那兩項。）
  *   清單外框用 <ManagerList>（<ul class="ns-mgr">）；色票可用 <SwatchDot color="var(--cat-1)" />。
  * 層級：**自動存、沒有「完成」鈕、關閉只有 ×**（§6 行為改變）——改名失焦或 Enter 就送，排序按一下就送。
  * 狀態：
  *   改名——空白或沒變不送（空白退回原名）；onRename 回 false（或 Promise resolve false／reject）＝沒改成，輸入框退回原名；
  *     外部改了名（同步、另一個殼）輸入框跟著換。不給 onRename＝這列不能改名（純文字，例「未分類」）。
- *   ↑↓——不給 onUp／onDown＝在邊界：禁用（--disabled .3＋not-allowed），滑過說「已經在最上面／最下面」。
- *   ⋯——常駐淡態 --dim，列 hover／列內有焦點／選單開著時轉實；手機常駐實。menu 空陣列＝不畫 ⋯（留同寬空格對齊）。
- *   archived——名稱淡墨、色票淡、↑↓ 的位置換成「已封存」小字（封存的東西不排序）；⋯ 照常（取消封存、刪除放裡面）。
+ *   ↑↓——只給一邊＝在邊界：⋯ 裡那一項停用，滑過說「已經在最上面／最下面」；兩邊都不給＝不排序，⋯ 裡不出這兩項。
+ *   ⋯——常駐淡態 --dim，列 hover／列內有焦點／選單開著時轉實；手機常駐實。沒有任何項目＝不畫 ⋯（留同寬空格對齊）。
+ *   archived——名稱淡墨、色票淡、⋯ 前一格「已封存」小字（封存的東西不排序，⋯ 裡不出上移下移）；⋯ 照常（取消封存、刪除放裡面）。
  * 桌機↔手機：同一支；圖示鈕 28→44、字級走 token（[data-shell="mobile"] 整組換）。⋯ 桌機開 PopMenu、手機開 MSheet 動作清單（丙-5，見下）。
- * ARIA：名稱輸入 aria-label「名稱：X」；↑↓ aria-label「上移：X／下移：X」＋title（含 Alt 快捷）；
+ * ARIA：名稱輸入 aria-label「名稱：X」；
  *   ⋯ aria-label「更多動作：X」、aria-haspopup="menu"、aria-expanded、title＝選單項目串起來（例「封存、刪除」）。
  *   色票 aria-hidden（名稱已經說了是誰）。
  * 鍵盤（名稱輸入框裡）：Enter 送出（焦點留著）；Esc 有改動時退回原名並吃掉這一下（不關對話框），沒改動照常往上冒（關對話框）；
@@ -43,13 +45,15 @@
  * ── 時刻表⑦（B 席）──
  *   - `lead`：名稱前一格（作息範本的 › 展開鈕：段是這一列的內容本身，不藏進 ⋯）；`note`：名稱後的淡字（`.ns-mgr-note`）。
  *   - `dragId`：`<li data-drag-id>`，接共用拖曳元件。拖得起來的地方＝列上不是按鈕／輸入框的部分（色票、淡字、空白）；
- *     ↑↓ 照留（鍵盤與讀屏的入口，拖曳是加速）。都不給＝DOM 跟以前一樣。
+ *     ⋯ 裡的上移／下移照留（點得到的入口，拖曳與 Alt+↑↓ 是加速）。都不給＝DOM 跟以前一樣。
  */
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { PopMenu, type PopMenuItem } from "./PopMenu";
 import { MSheet, MSheetItem } from "./MSheet";
 import { useShell } from "../mobile/useShell";
-import { IconDots, IconDown, IconUp } from "./icons";
+import { IconDots } from "./icons";
+import { rowMenu } from "./managerRowMenu";
+import { useUiStore } from "../../store/uiStore";
 import "./listbits.css";
 import { rowContextMenu } from "./contextMenu";
 
@@ -174,19 +178,21 @@ export function ManagerRow({
     (first ?? box).focus({ preventScroll: true });
   }, [open]);
 
-  const items: PopMenuItem[] = hasDetail
-    ? [
-        {
+  const items = rowMenu({
+    menu,
+    detail: hasDetail
+      ? {
           key: "ns-mgr-detail",
           label: open ? "收起設定" : "更多設定…",
           onSelect: () => {
             moveFocus.current = open ? "dots" : "detail";
             setOpen(!open);
           },
-        },
-        ...menu,
-      ]
-    : menu;
+        }
+      : null,
+    onUp: archived ? undefined : onUp,
+    onDown: archived ? undefined : onDown,
+  });
 
   const commit = () => {
     if (!onRename) return;
@@ -282,14 +288,7 @@ export function ManagerRow({
         </span>
       )}
 
-      {archived ? (
-        <span className="ns-mgr-tag">已封存</span>
-      ) : (
-        <>
-          <MoveButton dir="up" name={name} onMove={onUp} />
-          <MoveButton dir="down" name={name} onMove={onDown} />
-        </>
-      )}
+      {archived && <span className="ns-mgr-tag">已封存</span>}
 
       {items.length > 0 ? (
         <button
@@ -317,9 +316,15 @@ export function ManagerRow({
                 key={it.key}
                 danger={it.danger}
                 cut={it.cut}
-                disabled={it.disabled}
+                // 有原因的停用（己-2：上移／下移在邊界）＝淡掉、點了說為什麼（觸控看不到 title；同車站 sheet）；沒原因的照舊停用
+                disabled={it.disabled && !it.why}
+                off={it.disabled && !!it.why}
                 title={it.disabled ? it.why : undefined}
                 onClick={() => {
+                  if (it.disabled) {
+                    if (it.why) useUiStore.getState().showToast({ message: it.why }, 3600);
+                    return;
+                  }
                   closeMenu();
                   it.onSelect();
                 }}
@@ -338,28 +343,5 @@ export function ManagerRow({
         </div>
       )}
     </li>
-  );
-}
-
-/**
- * ↑／↓ 圖示鈕。外面固定包一層 .ns-mgr-why：禁用的 <button> 收不到滑鼠、title 不會浮，原因掛在外層；
- * 結構不隨禁用與否改變（不重掛按鈕）。
- */
-function MoveButton({ dir, name, onMove }: { dir: "up" | "down"; name: string; onMove?: () => void }) {
-  const up = dir === "up";
-  const label = up ? "上移" : "下移";
-  return (
-    <span className="ns-mgr-why" title={onMove ? undefined : up ? "已經在最上面" : "已經在最下面"}>
-      <button
-        type="button"
-        className="ns-iconbtn"
-        aria-label={`${label}：${name}`}
-        title={onMove ? `${label}（Alt+${up ? "↑" : "↓"}）` : undefined}
-        disabled={!onMove}
-        onClick={() => onMove?.()}
-      >
-        {up ? <IconUp /> : <IconDown />}
-      </button>
-    </span>
   );
 }

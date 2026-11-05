@@ -32,6 +32,12 @@
  * Ctrl+數字的換頁鍵不再手寫：由 `pages.ts` 的頁面登記表產生（`navHotkeys()`，只產已通車的頁）。
  * 三條功能線的快捷鍵寫在各線的 `src/lines/<line>.manifest.ts`，接在 `HOTKEYS` 最後；scope 名也由登記檔導出。
  * 本檔是 probe 直接載入的純資料：新增的值 import 一律含 `.ts`。
+ *
+ * ── 覆寫層（⑧ 自訂快捷鍵，D-主-331）──
+ * `HOTKEYS` 永遠是預設值（probe 對帳的就是它）；使用者改過的鍵放在 `overrides`，查表與顯示一律經 `effective()`：
+ * `matchHotkey`／`resolveHotkey`／`matches`／`byScope`／`hotkeyById` 拿到的都是覆寫後的鍵位，所以四張按鍵表與所有鍵帽字不用各自知道有覆寫。
+ * 覆寫過的那一筆**不帶 `ignoreMods`**（放寬是舊行為的存底，使用者自己按的組合鍵就是精確比對）。
+ * 存檔、衝突、錄鍵都不在這裡（`hotkeyOverrides.ts`、`hotkeyRebind.ts`、設定籤）；本檔只放 runtime 那一張表與通知。
  */
 import type { LineHotkeyScope } from "../../lines/index.ts";
 import { LINE_MANIFESTS } from "../../lines/index.ts";
@@ -800,7 +806,47 @@ export const HOTKEYS: Hotkey[] = [
 
 const BY_ID = new Map(HOTKEYS.map((h) => [h.id, h]));
 
+/* ───────── 覆寫層（見檔頭） ───────── */
+
+let overrides: ReadonlyMap<string, Chord[]> = new Map();
+let revision = 0;
+const listeners = new Set<() => void>();
+
+/** 整張換掉（hotkeyOverrides.ts 載入與改鍵時呼叫）；鍵帽字靠 `subscribeHotkeys` 跟著重畫 */
+export function setHotkeyOverrides(next: ReadonlyMap<string, Chord[]>): void {
+  overrides = next;
+  revision += 1;
+  for (const l of listeners) l();
+}
+
+export function hotkeyOverrides(): ReadonlyMap<string, Chord[]> {
+  return overrides;
+}
+
+export function subscribeHotkeys(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function hotkeysRevision(): number {
+  return revision;
+}
+
+/** 講「預設那顆鍵叫什麼」的註：鍵改掉就不成立了 */
+const KEY_NAME_NOTES = new Set(["句點", "逗點"]);
+
+function effective(hk: Hotkey): Hotkey {
+  const chords = overrides.get(hk.id);
+  if (!chords) return hk;
+  return { ...hk, chords, ignoreMods: undefined, note: hk.note && KEY_NAME_NOTES.has(hk.note) ? undefined : hk.note };
+}
+
 /* ───────── helper ───────── */
+
+/** 符號鍵（? ! [ …）：Shift 已經是字形的一部分（US 的 `?` 就是 Shift+/），比對與鍵帽都不再看 Shift */
+export function isSymbolKey(key: string): boolean {
+  return key.length === 1 && !/[\p{L}\p{N} ]/u.test(key);
+}
 
 /**
  * 單一 chord 比對（純函式、不碰 DOM）。
@@ -814,14 +860,15 @@ export function matchChord(
 ): boolean {
   if (e.key.toLowerCase() !== chord.key.toLowerCase()) return false;
   if (!ignore?.includes("ctrl") && !!chord.ctrl !== (e.ctrlKey || e.metaKey)) return false;
-  if (!ignore?.includes("shift") && !!chord.shift !== e.shiftKey) return false;
+  if (!ignore?.includes("shift") && !isSymbolKey(chord.key) && !!chord.shift !== e.shiftKey) return false;
   if (!ignore?.includes("alt") && !!chord.alt !== e.altKey) return false;
   return true;
 }
 
 /** 某一筆 hotkey 的任一 chord 命中（帶該筆自己的修飾鍵放寬） */
 export function matchHotkey(e: KeyLike, hk: Hotkey): boolean {
-  return hk.chords.some((c) => matchChord(e, c, hk.ignoreMods));
+  const h = effective(hk);
+  return h.chords.some((c) => matchChord(e, c, h.ignoreMods));
 }
 
 /**
@@ -831,8 +878,9 @@ export function matchHotkey(e: KeyLike, hk: Hotkey): boolean {
 export function resolveHotkey(scope: HotkeyScope, e: KeyLike): Hotkey | null {
   let best: Hotkey | null = null;
   let bestSlack = Number.POSITIVE_INFINITY;
-  for (const hk of HOTKEYS) {
-    if (hk.scope !== scope) continue;
+  for (const raw of HOTKEYS) {
+    if (raw.scope !== scope) continue;
+    const hk = effective(raw);
     const slack = hk.ignoreMods?.length ?? 0;
     if (slack >= bestSlack) continue;
     if (!matchHotkey(e, hk)) continue;
@@ -851,10 +899,16 @@ export function matches(e: KeyLike, id: string): boolean {
 
 /** 某一組的鍵表（保序＝登錄順序＝指引頁顯示順序） */
 export function byScope(scope: HotkeyScope): Hotkey[] {
-  return HOTKEYS.filter((h) => h.scope === scope);
+  return HOTKEYS.filter((h) => h.scope === scope).map(effective);
 }
 
 export function hotkeyById(id: string): Hotkey | undefined {
+  const hk = BY_ID.get(id);
+  return hk && effective(hk);
+}
+
+/** 登錄的預設鍵位（設定籤比對「改過沒」、單列還原用）；其他人一律用 `hotkeyById` */
+export function defaultHotkeyById(id: string): Hotkey | undefined {
   return BY_ID.get(id);
 }
 
@@ -877,10 +931,16 @@ export function formatChord(chord: Chord, isMac: boolean = IS_MAC): string[] {
   const caps: string[] = [];
   if (chord.ctrl) caps.push(isMac ? "⌘" : "Ctrl");
   if (chord.alt) caps.push(isMac ? "⌥" : "Alt");
-  if (chord.shift) caps.push(isMac ? "⇧" : "Shift");
   const k = chord.key;
+  if (chord.shift && !isSymbolKey(k)) caps.push(isMac ? "⇧" : "Shift");
   caps.push(KEY_CAP[k] ?? (k.length === 1 ? k.toUpperCase() : k));
   return caps;
+}
+
+/** 某個 id 的第一組鍵位排成一句（`Ctrl+Enter`）；查不到回空字串。title、提示字一律用它，不手抄 */
+export function capsOfHotkey(id: string): string {
+  const hk = hotkeyById(id);
+  return hk ? formatChord(hk.chords[0]).join("+") : "";
 }
 
 /**
@@ -891,4 +951,13 @@ export function isEditableTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
   const tag = t.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
+}
+
+/**
+ * 這一下是不是「叫快捷鍵指引」：單鍵那條只在導航模式算（輸入框裡是打字），帶修飾鍵的連輸入框裡都算。
+ * 自己開浮層的元件（當日清單、跳轉卡、推遲小卡）要一起擋，不然指引卡會疊上來（Esc 互搶）。
+ */
+export function isGuideKey(e: KeyLike & { target: EventTarget | null }): boolean {
+  if (!matches(e, "global.guide")) return false;
+  return e.ctrlKey || e.metaKey || e.altKey || !isEditableTarget(e.target);
 }

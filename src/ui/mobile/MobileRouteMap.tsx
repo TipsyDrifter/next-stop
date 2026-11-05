@@ -95,6 +95,11 @@ import { Chevron } from "../common/Chevron";
 import { lineNodeFields } from "../../lines/runtime";
 import type { RouteSummary } from "../../domain/routeOverview";
 import { OVERVIEW_DAYS, useRouteOverview } from "../outline/useRouteOverview";
+import { stationIdOfKey, stationKeyOf } from "../../domain/weekAims";
+import { compareSiblings } from "../../domain/nodeOrder";
+import { MobileAimsLine } from "../weekAims/MobileAimsLine";
+import { useRouteNextAims, useStationAimLists, useStationCard, type RouteNextAims } from "../weekAims/StationCard";
+import { useAimLanding } from "../search/aimLanding";
 import { headParts, mdw, summaryParts } from "../outline/routeSummaryText";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
@@ -141,6 +146,8 @@ import "./routemap/route-summary.css";
 import "../outline/structure.css";
 import { ProgressRing } from "../outline/ProgressRing";
 import { chapterCount, chapterParts } from "../../domain/chapterCount";
+
+const STATION_LANDS_ON = ["station"] as const;
 
 /** ⋯ sheet 整個流程（含子面板、空狀態的新增面板）的返回層 id；MobileTicketSheet 的每張 MSheet 用同一個 id 合併成一層 */
 const ROUTEMAP_SHEET_LAYER = "core.routemapSheet";
@@ -257,24 +264,50 @@ function RouteRoundel({ route }: { route: NodeRow }) {
 /* ═══════════════ 第一層：我的路線 ═══════════════ */
 
 /** 第一層每條路線：名字＋「◎ 下一站 名稱 12/6（日）」＋「車票 3/9 済・近 30 天 3h20m・花 3,117・誤點 2」（丁 D-主-244） */
-function RouteSummaryLines({ route, s, decimals }: { route: NodeRow; s: RouteSummary | null; decimals: number }) {
+function RouteSummaryLines({
+  route,
+  s,
+  decimals,
+  next,
+  onOpenStation,
+}: {
+  route: NodeRow;
+  s: RouteSummary | null;
+  decimals: number;
+  /** 下一站與它的方針（整批載好，方針擴充 辛 §3 #7） */
+  next: RouteNextAims | undefined;
+  onOpenStation(id: string): void;
+}) {
   const parts = s ? summaryParts(s, decimals, OVERVIEW_DAYS) : [];
   return (
     <span className="m2-route-main">
       <span className="m2-route-name">{route.name}</span>
-      {s && (
-        <span className="m2-route-next">
-          <span aria-hidden>◎</span>
-          {s.nextStation ? (
-            <>
+      {s &&
+        (s.nextStation && next ? (
+          // 下一站這一行另開車站小卡：列本身是可點的（進第二層），事件與鍵盤都在這裡截住
+          <button
+            type="button"
+            className="wa-m-next"
+            aria-haspopup="dialog"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenStation(next.station.id);
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <span className="m2-route-next">
+              <span aria-hidden>◎</span>
               下一站 {s.nextStation.name}
               {s.nextStation.expectedOn && <span className="d">{mdw(s.nextStation.expectedOn)}</span>}
-            </>
-          ) : (
-            "還沒有下一站"
-          )}
-        </span>
-      )}
+            </span>
+            {next.brief && <span className="wa-m-aim">{next.brief}</span>}
+          </button>
+        ) : (
+          <span className="m2-route-next">
+            <span aria-hidden>◎</span>
+            還沒有下一站
+          </span>
+        ))}
       {parts.length > 0 && (
         <span className="m2-route-stats">
           {parts.map((p, i) => (
@@ -338,6 +371,8 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   const ov = useRouteOverview();
   const decimals = ov?.decimals ?? 2;
   const liveRoutes = routes.filter((r) => !r.arrived_on);
+  const nextAims = useRouteNextAims(routes);
+  const stationCard = useStationCard();
   const [sheet, setSheet] = useState<ListSheet | null>(null);
   const close = () => setSheet(null);
   useBackLayer(LINES_SHEET_LAYER, sheet !== null, close);
@@ -395,6 +430,7 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <>
       {empty}
+      {stationCard.node}
       {lines.length > 0 && liveRoutes.length > 0 && (
         <p className="m2-ov-head">
           {headParts(liveRoutes.length, ov?.totalTimeMs ?? 0, ov?.totalSpendMinor ?? 0, decimals, OVERVIEW_DAYS, true).join("・")}
@@ -439,7 +475,7 @@ function RouteList({ onOpen }: { onOpen: (id: string) => void }) {
                         >
                           <span aria-hidden className="m2-band" style={{ background: route.color ?? "var(--route-preset-4)" }} />
                           <RouteRoundel route={route} />
-                          <RouteSummaryLines route={route} s={ov?.byRoute[route.id] ?? null} decimals={decimals} />
+                          <RouteSummaryLines route={route} s={ov?.byRoute[route.id] ?? null} decimals={decimals} next={nextAims[route.id]} onOpenStation={stationCard.open} />
                           {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字；0 不畫），同桌機側欄路線列尾；丁的新列結構下放在 .m2-route-go 前 */}
                           <RouteOpenCount routeId={route.id} />
                           <span aria-hidden className="m2-route-go">
@@ -664,7 +700,7 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
       {/* 別線登記的欄位列（插槽 `nodeFields` 的 `Mobile`，接縫 #56；本檔仍零 mutation import，寫入在線的元件裡） */}
       {lineFields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}
       {/* 定期券的執行日由規則排定（D-④-3）——桌機側板印「由規則排定」，手機沿同一句話 */}
-      {rule && <p className="m2-note">執行日由定期券自動排定</p>}
+      {rule && <p className="m2-note">執行日由定期券排定，只動這一班請用 ⋯</p>}
       {conflicts.length > 0 && (
         <div className="m2-detail-conflicts">
           <span className="m2-field-label">競合</span>
@@ -734,6 +770,17 @@ export default function MobileRouteMap() {
   });
 
   const route = openedId ? routes.find((r) => r.id === openedId) : undefined;
+  // 第二層的下一站（方針擴充 辛 §3）：收進車庫的路線不預告；有方針才出那一行
+  const allStations = useNodeStore((s) => s.stations);
+  const nextStation =
+    route && !route.arrived_on ? allStations.filter((s) => s.parent_id === route.id && !s.arrived_on).sort(compareSiblings)[0] : undefined;
+  const nextStationAims = useStationAimLists(nextStation ? [nextStation.id] : [])(nextStation?.id ?? "");
+  const stationCard = useStationCard();
+  // 完整搜尋點一句車站方針 ⇒ 開那一站的小卡（方針擴充 D-主-382）
+  useAimLanding(STATION_LANDS_ON, (key) => {
+    const id = stationIdOfKey(key);
+    if (id) stationCard.open(id);
+  });
   const line = route ? lines.find((l) => l.id === route.line_id) : undefined;
   /** 這條路線已收進車庫：不發券（O-3；同桌機大綱）——頁底建票列、空狀態新增鈕、⋯ 的新增項都收起來 */
   const parked = !!route?.arrived_on;
@@ -1115,6 +1162,12 @@ export default function MobileRouteMap() {
 
       {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿打開的）頂上一行＋「回到運行」 */}
       {!zoom && route && <DepotBanner route={route} />}
+
+      {/* 下一站方針（方針擴充 辛 §3）：有方針才一行、點了開車站小卡；收進車庫的路線沒有下一站 */}
+      {!zoom && nextStation && nextStationAims.length > 0 && (
+        <MobileAimsLine aimKey={stationKeyOf(nextStation.id)} heading="下一站方針" onTap={() => stationCard.open(nextStation.id)} />
+      )}
+      {stationCard.node}
 
       {/* 別線登記的「路線」欄位列（插槽 `nodeFields`，kinds 含 route；接縫 #62）：路線在手機沒有 RowDetail，放在抬頭之下、樹之上；沒有線填＝什麼都不畫 */}
       {!zoom &&

@@ -251,7 +251,7 @@ describe("tk_repeats：清單列與 skipped_days 講人話", () => {
 
   test("欄名與 fmt 接進清單句", () => {
     const lab = repeatSyncLabel(row as never, look);
-    assert.equal(lab.cols?.skipped_days, "刪掉的班次");
+    assert.equal(lab.cols?.skipped_days, "刪掉或跳過的班次");
     const n = mk({ tbl: "tk_repeats", col: "skipped_days", mine: '["2026-10-19"]', theirs: '["2026-10-20"]' });
     assert.equal(describeMerge(n, lab.fmt), "這台改成「10/19」、另一台改成「10/20」——留下另一台後改的");
     assert.equal(lab.fmt?.("category_id", null), "未分類");

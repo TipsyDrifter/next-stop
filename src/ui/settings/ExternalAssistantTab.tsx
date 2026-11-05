@@ -31,7 +31,7 @@ import "./externalAssistant.css";
 
 /** 每個功能「看／改各能做什麼」（原型 FEATS 逐字；名稱取 MCP_MODULE_LABEL，與 Rust 擋下時的字同一份） */
 const FEATURE_TEXT: Record<McpModule, { alias?: string; see: string; edit: string }> = {
-  tasks: { alias: "路線與車票", see: "今天與路線", edit: "建票、改日期、蓋済" },
+  tasks: { alias: "路線與車票", see: "今天、路線與方針", edit: "建票、改日期、蓋済、寫方針" },
   timetable: { alias: "時間塊", see: "時間塊", edit: "補記、改時間" },
   notes: { see: "搜尋、讀筆記", edit: "寫新的、加荷札" },
   diary: { see: "讀某一天", edit: "續寫" },

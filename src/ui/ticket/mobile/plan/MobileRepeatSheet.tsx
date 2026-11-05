@@ -7,16 +7,17 @@
  *   ├ 空狀態「還沒有定期帳——…」
  *   └ 「＋ 新增」（UI 丙-5 E2：「完成」拿掉——清單即時生效，關 sheet 走下滑／暗幕／返回鍵，規範 §4）
  * 列（原型結論：兩行）：button.main 點＝開全螢幕表單編輯——上行 金額＋分類（或「帳戶 → 轉入」）……右端「下一班 11/1」；
- *   下行 規則一句 · 帳戶（被擋 ⇒ 開頭「⚠ 原因」、右端「記不了」）。
- *   列尾只留「暫停／開始」（三顆 44px 鈕放不下）；刪除在表單底部。
+ *   下行 規則一句（含結束條件）· 帳戶（被擋 ⇒ 開頭「⚠ 原因」、右端「記不了」）。
+ *   列尾只留「暫停／開始」（再多一顆 44px 鈕，上行的分類會被擠到剩一兩個字）；刪除在表單底部。
+ *   列底一行 .sub（D-票-82）：左「已跳過 11/1 復原」（還沒到的提前跳過才出）、右文字鈕「跳過下一班」（已暫停、已結束、記不了不給）；兩個都沒有就不出。
  */
 import { type ReactNode } from "react";
 import { useTicketStore } from "../../../../store/ticketStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { todayKey } from "../../../../lib/date";
 import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, UNCAT_NAME, categoryPath, type AccountRow, type CategoryRow } from "../../../../domain/ticket";
-import { nextOnText, parseFixedRule, repeatStatus, type RepeatRow } from "../../../../domain/ticketPlan";
-import { describeRule } from "../../../../domain/repeat";
+import { canSkipNext, nextOnText, parseFixedRule, pendingSkips, repeatRuleText, repeatStatus, type RepeatRow } from "../../../../domain/ticketPlan";
+import { shortDay } from "../../../../domain/ticketView";
 import { IconPlus } from "../mobileBits";
 import { acctLabel } from "../../TicketLedger";
 import { repeatAmount, repeatNoteShown, repeatUncat, repeatWarn } from "../../plan/repeatText";
@@ -46,7 +47,7 @@ export function MobileRepeatSheet(_props: { onDone(): void }) {
           ) : (
             <ul>
               {active.map((r) => (
-                <Row key={r.id} r={r} status={repeatStatus(r, today, blocked)} blocked={blocked} onEdit={() => openRepeatEditor(r.id)} />
+                <Row key={r.id} r={r} status={repeatStatus(r, today, blocked)} blocked={blocked} today={today} onEdit={() => openRepeatEditor(r.id)} />
               ))}
             </ul>
           )}
@@ -57,7 +58,7 @@ export function MobileRepeatSheet(_props: { onDone(): void }) {
               </p>
               <ul>
                 {paused.map((r) => (
-                  <Row key={r.id} r={r} status="paused" blocked={blocked} onEdit={() => openRepeatEditor(r.id)} />
+                  <Row key={r.id} r={r} status="paused" blocked={blocked} today={today} onEdit={() => openRepeatEditor(r.id)} />
                 ))}
               </ul>
             </>
@@ -79,11 +80,13 @@ function Row({
   r,
   status,
   blocked,
+  today,
   onEdit,
 }: {
   r: RepeatRow;
   status: ReturnType<typeof repeatStatus>;
   blocked: Readonly<Record<string, string>>;
+  today: string;
   onEdit(): void;
 }) {
   const accounts = useTicketStore((s) => s.accounts);
@@ -92,6 +95,8 @@ function Row({
   const curByCode = useTicketStore((s) => s.curByCode);
   const pauseRepeat = useTicketStore((s) => s.pauseRepeat);
   const resumeRepeat = useTicketStore((s) => s.resumeRepeat);
+  const skipNextRepeat = useTicketStore((s) => s.skipNextRepeat);
+  const unskipRepeat = useTicketStore((s) => s.unskipRepeat);
   const rule = parseFixedRule(r.rule);
   const paused = status === "paused";
   // ⚠ 原因與桌機同一支（repeatText.repeatWarn：短句、資料本身先判）；暫停的列也照樣標，但右端仍寫「已暫停」
@@ -101,7 +106,10 @@ function Row({
   const { text: amt, code } = repeatAmount(r, curByCode);
   const foreign = code !== null;
   const nx = paused ? "已暫停" : isBlocked ? "記不了" : nextOnText(r);
-  const desc = rule ? describeRule(rule) : "重複規則有誤";
+  const desc = rule ? repeatRuleText(rule) : "重複規則有誤";
+  const skipped = pendingSkips(r, today);
+  const lastSkipped = skipped.length ? skipped[skipped.length - 1] : null;
+  const skippable = !isBlocked && canSkipNext(r) && r.next_on !== null;
   const note = repeatUncat(r) ? null : repeatNoteShown(r, catById); // 未分類的上行已經印備註了
 
   const cls = "ns-tk-mrm-row" + (paused ? " is-paused" : "") + (isBlocked ? " is-blocked" : "") + (status === "ended" ? " is-ended" : "");
@@ -132,6 +140,23 @@ function Row({
         >
           {paused ? "開始" : "暫停"}
         </button>
+        {(lastSkipped || skippable) && (
+          <div className="sub">
+            {lastSkipped && (
+              <span className="skipped">
+                已跳過 {skipped.map(shortDay).join("、")}
+                <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-mbtn" aria-label={`取消跳過 ${shortDay(lastSkipped)}`} onClick={() => void unskipRepeat(r.id, lastSkipped)}>
+                  復原
+                </button>
+              </span>
+            )}
+            {skippable && r.next_on && (
+              <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-mbtn skip" aria-label={`跳過下一班 ${shortDay(r.next_on)}`} onClick={() => void skipNextRepeat(r.id)}>
+                跳過下一班
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </li>
   );

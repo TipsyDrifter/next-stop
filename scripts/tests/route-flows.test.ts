@@ -20,6 +20,7 @@ import {
   nextRouteAfterDelete,
   routeDeleteConfirm,
   routeDeletedToast,
+  stationArrivedToast,
   stationDeletedToast,
   type RouteLike,
 } from "../../src/ui/panel/routeFlowRules.ts";
@@ -67,16 +68,16 @@ describe("刪除幹線", () => {
     assert.equal(n, 2);
     assert.deepEqual(lineDeleteConfirm({ id: "L1", name: "學習" }, n), {
       title: "刪除幹線「學習」？",
-      body: "底下的 2 條路線與所有支線、列車、車廂、車票會一起刪除；6 秒內可復原。",
+      body: "底下的 2 條路線與所有支線、列車、車廂、車票會一起刪除；30 天內可在「最近刪除」撿回。",
       confirmLabel: "刪除",
     });
-    assert.equal(lineDeleteNote(n), "連同底下 2 條路線一起刪除；6 秒內可復原。");
+    assert.equal(lineDeleteNote(n), "連同底下 2 條路線一起刪除；30 天內可在「最近刪除」撿回。");
   });
 
   test("空幹線：換一句", () => {
     assert.equal(childRouteCount(routes, "L2"), 0);
-    assert.equal(lineDeleteConfirm({ id: "L2", name: "興趣" }, 0).body, "底下的所有內容會一起刪除；6 秒內可復原。");
-    assert.equal(lineDeleteNote(0), "刪除這條幹線；6 秒內可復原。");
+    assert.equal(lineDeleteConfirm({ id: "L2", name: "興趣" }, 0).body, "底下的所有內容會一起刪除；30 天內可在「最近刪除」撿回。");
+    assert.equal(lineDeleteNote(0), "刪除這條幹線；30 天內可在「最近刪除」撿回。");
   });
 
   test("目前路線在這條幹線底下才要切走", () => {
@@ -94,7 +95,7 @@ describe("刪除路線", () => {
   test("確認框與 toast", () => {
     assert.deepEqual(routeDeleteConfirm({ id: "r9", name: "攝影" }), {
       title: "刪除路線「攝影」？",
-      body: "底下的支線、列車、車票與車站會一起刪掉（6 秒內可復原）。",
+      body: "底下的支線、列車、車票與車站會一起刪除；30 天內可在「最近刪除」撿回。",
       confirmLabel: "刪除路線",
     });
     assert.equal(routeDeletedToast("攝影"), "已刪除路線「攝影」");
@@ -111,4 +112,8 @@ describe("刪除路線", () => {
 
 test("車站刪除 toast", () => {
   assert.equal(stationDeletedToast("第二站"), "已刪除車站「第二站」");
+});
+
+test("到站提示帶站名（D-主-374）", () => {
+  assert.equal(stationArrivedToast("考過 N5"), "「考過 N5」到站了");
 });

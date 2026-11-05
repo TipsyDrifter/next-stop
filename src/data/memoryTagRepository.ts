@@ -12,6 +12,7 @@ import type { NodeRow } from "../domain";
 import {
   TAG_ENTITY_NODE_KINDS,
   TAGS_RECENT_KEY,
+  bodyWithTag,
   deleteBody,
   isUnder,
   normalizeName,
@@ -37,6 +38,7 @@ import {
   type BackfillResult,
   type CreateTagResult,
   type RenameFollow,
+  type RestoreTagsResult,
   type SyncBodyResult,
   type TagEntityType,
   type TaggedItem,
@@ -256,6 +258,13 @@ export class MemoryTagRepository implements TagRepository {
     return this.syncBodyCore(noteId, body, nowUtcIso(), null);
   }
 
+  async writeBodyAndSyncTags(noteId: string, _before: string, body: string): Promise<SyncBodyResult> {
+    await this.ensureSeed();
+    const now = nowUtcIso();
+    this.noteRepo.setBodyRaw(noteId, body, now);
+    return this.syncBodyCore(noteId, body, now, null);
+  }
+
   async backfill(): Promise<BackfillResult> {
     await this.ensureSeed();
     return this.backfillCore();
@@ -337,6 +346,40 @@ export class MemoryTagRepository implements TagRepository {
       if (g) Object.assign(g, { deleted_at: b.deleted_at, updated_at: now });
     }
     for (const b of receipt.notesBefore) this.noteRepo.setBodyRaw(b.id, b.body, now);
+  }
+
+  async restoreDeleted(ids: readonly string[]): Promise<RestoreTagsResult> {
+    await this.ensureSeed();
+    const out: RestoreTagsResult = { tags: 0, taggings: 0, bodies: 0 };
+    const now = nowUtcIso();
+    const list = ids
+      .map((id) => this.tags.get(id))
+      .filter((t): t is TagRow => !!t && t.deleted_at !== null && !t.renamed_to)
+      .sort(byNameKey);
+    const bodies = new Map<string, string>();
+    const patched = new Set<string>();
+    for (const t of list) {
+      const at = t.deleted_at;
+      for (const g of this.taggings.values()) {
+        // 同一刀＝掛載的 deleted_at 跟荷札相同（同 sqlite 版）
+        if (g.tag_id !== t.id || g.deleted_at !== at) continue;
+        Object.assign(g, { deleted_at: null, updated_at: now });
+        out.taggings++;
+        if (g.entity_type !== "note") continue;
+        // getNote 只回活著的：筆記也刪了就不補（同 sqlite 版）
+        const body = bodies.get(g.entity_id) ?? (await this.noteRepo.getNote(g.entity_id))?.body;
+        if (body === undefined) continue;
+        const next = bodyWithTag(body, t.name_key, t.name);
+        bodies.set(g.entity_id, next);
+        if (next === body) continue;
+        this.noteRepo.setBodyRaw(g.entity_id, next, now);
+        patched.add(g.entity_id);
+      }
+      Object.assign(t, { deleted_at: null, renamed_to: null, updated_at: now });
+      out.tags++;
+    }
+    out.bodies = patched.size;
+    return out;
   }
 
   async pushRecent(key: string): Promise<void> {

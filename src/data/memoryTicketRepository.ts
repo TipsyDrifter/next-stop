@@ -67,7 +67,10 @@ import {
   budgetRow,
   buildRepeatRow,
   planMaterialize,
+  planSkipNext,
+  planUnskip,
   repeatOrder,
+  pickUpRepeatCols,
   resumeNextOn,
   scopeKey,
   scopeOf,
@@ -680,7 +683,7 @@ export class MemoryTicketRepository implements TicketRepository {
     this.touchSkipped(row, false, now);
   }
 
-  /** 那筆 repeat_id 非空且規則還在 ⇒ skipped_days 加／減那一班（**班次日**，shiftDayOf；對不上就不碰；值沒變就不動；評審 R13／R14） */
+  /** 那筆 repeat_id 非空且規則還在 ⇒ skipped_days 加／減那一班（**班次日**，shiftDayOf；對不上就不碰；值沒變就不動；評審 R13／R14）。減的時候規則是 tombstone 也要減（同 SQLite 版） */
   private touchSkipped(row: EntryRow, add: boolean, now: string): void {
     if (!row.repeat_id) return;
     const r = this.rep.get(row.repeat_id);
@@ -985,17 +988,31 @@ export class MemoryTicketRepository implements TicketRepository {
     return clone(row);
   }
 
-  async removeBudget(scope: BudgetScope, month: string | null): Promise<void> {
+  async removeBudget(scope: BudgetScope, month: string | null): Promise<string[]> {
     this.ensureDemo();
     const now = nowUtcIso();
     const key = scopeKey(scope);
+    const ids: string[] = [];
     for (const b of this.bud.values()) {
       if (!isAlive(b) || scopeKey(scopeOf(b)) !== key) continue;
       // 移除預設 ⇒ 連同該對象所有月的覆寫（同一批）；移除覆寫 ⇒ 只那一列
       if (month === null || b.month === month) {
         b.deleted_at = now;
         b.updated_at = now;
+        ids.push(b.id);
       }
+    }
+    return ids;
+  }
+
+  async restoreBudget(ids: readonly string[]): Promise<void> {
+    this.ensureDemo();
+    const now = nowUtcIso();
+    for (const id of ids) {
+      const b = this.bud.get(id);
+      if (!b || isAlive(b)) continue;
+      b.deleted_at = null;
+      b.updated_at = now;
     }
   }
 
@@ -1048,6 +1065,21 @@ export class MemoryTicketRepository implements TicketRepository {
     } else this.resumeOne(r, today, now);
   }
 
+  async skipNextRepeat(id: string): Promise<string> {
+    this.ensureDemo();
+    const r = this.repeatOrThrow(id);
+    const plan = planSkipNext(r, nowUtcIso());
+    Object.assign(r, plan.cols);
+    return plan.day;
+  }
+
+  async unskipRepeat(id: string, day: string): Promise<void> {
+    this.ensureDemo();
+    const r = this.repeatOrThrow(id);
+    const cols = planUnskip(r, day, nowUtcIso());
+    if (cols) Object.assign(r, cols);
+  }
+
   async softDeleteRepeat(id: string): Promise<void> {
     this.ensureDemo();
     const r = this.rep.get(id);
@@ -1063,6 +1095,20 @@ export class MemoryTicketRepository implements TicketRepository {
     if (!r || isAlive(r)) return;
     r.deleted_at = null;
     r.updated_at = nowUtcIso();
+  }
+
+  async repeatPickUpCols(r: RepeatRow, today: string): Promise<{ next_on: string | null; skipped_days: string }> {
+    this.ensureDemo();
+    const entries = Array.from(this.ent.values());
+    const alive = new Set(entries.filter(isAlive).map((e) => e.id));
+    return pickUpRepeatCols(r, entries, alive, today);
+  }
+
+  async pickUpRepeat(id: string, today: string): Promise<void> {
+    this.ensureDemo();
+    const r = this.rep.get(id);
+    if (!r || isAlive(r)) return;
+    Object.assign(r, await this.repeatPickUpCols(r, today), { deleted_at: null, updated_at: nowUtcIso() });
   }
 
   async linkEntryToRepeat(entryId: string, repeatId: string): Promise<void> {

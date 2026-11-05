@@ -7,7 +7,7 @@
  * 手機頁首（MobileTopBand）右上角不放任何東西（主人拍板：之後每頁右上角是 ⋯，售票口線做）——本頁的控制全在頁內。
  *
  * 狀態全在 notesStore（桌機同一份）：日、各篇、草稿開關、搜尋、足跡、月份記號；本元件只讀、呼叫動作。
- * 本地 state 只有三樣：足跡區展開（切 tab 回來重設為展開）、日期面板開著、搜尋框打到一半的字。
+ * 本地 state 只有三樣：足跡區展開（己-2 B4 起記本機 `notes_diary_fp_open_mobile`，原本切 tab 回來就重設為展開）、日期面板開著、搜尋框打到一半的字。
  *
  * 翻日（箭頭／月份條／今天／日期面板／搜尋結果）前的兩件事：
  *   1. 草稿有字 ⇒ 先存再翻（saveDiaryDraft；toast 帶復原）。store.setDiaryDay 會關草稿，不先存就丟了主人打的字。
@@ -41,6 +41,11 @@ import { MobileDiaryStrip } from "./MobileDiaryStrip";
 import { MobileDiaryDraft, MobileDiaryEntry, type DraftHandle } from "./MobileDiaryEntry";
 import { MobileFootprints } from "./MobileFootprints";
 import { IconLeft, IconPen, IconPlus, IconRight, IconSearch, IconX, highlight, useTodayKey } from "./mobileDiaryBits";
+import { preloadLocalFlag, useLocalFlag } from "../../common/useLocalFlag";
+
+/** 己-2 B4（D-主-419）：當天足跡區開合（本機、不同步；手機殼才有這個摺疊）。模組層先讀，進頁不先展開再收 */
+const KEY_FP_OPEN_MOBILE = "notes_diary_fp_open_mobile";
+preloadLocalFlag(KEY_FP_OPEN_MOBILE);
 
 export function MobileDiary() {
   const diaryDay = useNotesStore((s) => s.diaryDay);
@@ -65,7 +70,7 @@ export function MobileDiary() {
   // 剛翻日、新的一天還沒載回來時，store 裡仍是前一天的篇：只畫屬於這一天的（與桌機 NotesDiary 同法，免得閃一下）
   const entries = useMemo(() => allEntries.filter((n) => n.entry_date === diaryDay), [allEntries, diaryDay]);
 
-  const [fpOpen, setFpOpen] = useState(true);
+  const [fpOpen, setFpOpen] = useLocalFlag(KEY_FP_OPEN_MOBILE, true); // 己-2 B4：記住上次
   const [pickDay, setPickDay] = useState(false);
   // 磨光① 返回層：日期面板＝同「取消」
   //   UI 丙-6 S9：日期面板傳同一個 id＋kind（backId／backKind）⇒ MSheet 殼合併成這一層
@@ -272,7 +277,7 @@ export function MobileDiary() {
 
       <MobileFootprints
         open={fpOpen}
-        onToggle={() => setFpOpen((v) => !v)}
+        onToggle={() => setFpOpen(!fpOpen)}
         fpDay={fpDay}
         diaryDay={diaryDay}
         today={today}

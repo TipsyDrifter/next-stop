@@ -22,9 +22,15 @@ import {
   childKindSwaps,
   afterRule,
   currentDue,
+  daysBetween,
   fixedRule,
+  keptMoves,
   parseRule,
+  runMoveBlock,
+  sameSchedule,
   serializeRule,
+  withMoves,
+  withRunMoved,
   type Mood,
   type NodeKind,
   type NodeRow,
@@ -80,9 +86,16 @@ import {
   retiredWasDueToday,
   toCurrentOccurrence,
   todayBucketOf,
+  endedCompletedAt,
+  endedKidsToReopen,
+  planRunReset,
+  planRunRestore,
+  runEnded,
+  NESTED_REPEAT_MSG,
   REPEATABLE_KINDS,
   REPEAT_ONLY_MSG,
   REPEAT_RESCHEDULE_MSG,
+  type RunKid,
 } from "./nodeRepository";
 import type { SettingsRepository } from "./settingsRepository";
 
@@ -324,16 +337,41 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async softDelete(id: string): Promise<string[]> {
+    const root = this.nodes.get(id);
+    if (!root || root.deleted_at !== null) return []; // 同 SQLite 版：根已刪不重戳
     const ids = this.subtreeIds(id);
     const now = this.now();
     for (const sid of ids) this.mutate(sid, (n) => ({ ...n, deleted_at: now, updated_at: now }));
     return ids;
   }
 
+  async listSubtreeIds(id: string): Promise<string[]> {
+    return this.nodes.has(id) ? this.subtreeIds(id) : [];
+  }
+
   async restore(ids: string[]): Promise<void> {
     if (!ids.length) return;
     const now = this.now();
     for (const sid of ids) this.mutate(sid, (n) => ({ ...n, deleted_at: null, updated_at: now }));
+  }
+
+  async restoreAsLoose(id: string, routeTagId: string | null): Promise<void> {
+    const node = this.nodes.get(id);
+    if (!node || node.deleted_at === null) return;
+    if (node.kind !== "ticket") throw new Error("只有車票能放到臨時車票");
+    const tag = routeTagId ? this.nodes.get(routeTagId) : null;
+    const live = tag && tag.kind === "route" && tag.deleted_at === null ? tag : null;
+    const now = this.now();
+    // 同 SQLite 版：排序鍵給新清單的尾端；收件匣不排序＝NULL
+    let key: string | null = null;
+    if (live) {
+      this.backfillSortKeys();
+      const order = this.groupRows({ type: "routeTop", routeId: live.id }).map((n) => ({ id: n.id, key: n.sort_key }));
+      const writes = keysForSlot(order, [id], order.length);
+      key = writes.find((w) => w.id === id)?.key ?? null;
+      this.applyKeyWrites(writes.filter((w) => w.id !== id), now);
+    }
+    this.mutate(id, (n) => ({ ...n, deleted_at: null, parent_id: null, route_id: live?.id ?? null, line_id: live?.line_id ?? null, sort_key: key, updated_at: now }));
   }
 
   async setCompleted(
@@ -395,6 +433,7 @@ export class MemoryNodeRepository implements NodeRepository {
         // 分區用「班次日」：蓋済留原位（今天）／漏班進誤點帶原定 M/D（D-④-4）
         bucket: todayBucketOf(n, dateKey, occ ? occ.due_on : n.scheduled_on),
         occurrence: occ ? toCurrentOccurrence(occ) : null,
+        run_ended: n.status === "done" && runEnded(parseRule(n.repeat_rule), this.occurrencesOf(n.id), dateKey, dayStartHour),
       };
     });
 
@@ -506,6 +545,27 @@ export class MemoryNodeRepository implements NodeRepository {
     this.applyRule(id, rule, dateKey, dayStartHour);
   }
 
+  async moveOccurrence(id: string, from: string, to: string, dateKey: string, dayStartHour = 3): Promise<void> {
+    const node = this.nodes.get(id);
+    if (!node || !isAlive(node)) throw new Error("節點不存在");
+    const rule = parseRule(node.repeat_rule);
+    if (!rule || node.status === "done") throw new Error(REPEAT_ONLY_MSG);
+    const block = runMoveBlock(rule, this.occurrencesOf(id), from, to, dateKey, dayStartHour);
+    if (block) throw new Error(block);
+    if (from === to) return;
+    const now = this.now();
+    this.mutate(id, (n) => ({ ...n, repeat_rule: serializeRule(withRunMoved(rule, from, to)), updated_at: now }));
+    // 這一班的時刻覆寫跟著走（與 SQLite 版同）
+    this.backfillOverrides();
+    const hit = this.ovr.get(`${id}|${from}`);
+    if (hit && !hit.deleted_at) {
+      this.ovr.set(`${id}|${from}`, { ...hit, deleted_at: now, updated_at: now });
+      this.ovr.set(`${id}|${to}`, { ...hit, due_on: to, deleted_at: null, updated_at: now });
+    }
+    this.refreshOverrides(id);
+    this.syncNode(id, dateKey, dayStartHour);
+  }
+
   async syncRepeats(dateKey: string, dayStartHour = 3): Promise<string[]> {
     const changed: string[] = [];
     // D-主-122：退役的也算（執行日＝同步資料的純函數，見 syncNode；與 SQLite 版同）。車庫裡的停止發班（D-主-204）
@@ -526,8 +586,10 @@ export class MemoryNodeRepository implements NodeRepository {
     const node = this.nodes.get(id);
     if (!node) throw new Error("節點不存在");
     const rule = parseRule(node.repeat_rule);
-    if (!rule || node.status === "done") throw new Error(REPEAT_ONLY_MSG);
+    if (!rule) throw new Error(REPEAT_ONLY_MSG);
     const occs = this.occurrencesOf(id);
+    // 最後一班運休後跑完到站（D-主-293）：取消運休要回得來；其他退役的照舊擋（與 SQLite 版同）
+    if (node.status === "done" && (skip || !runEnded(rule, occs, dateKey, dayStartHour))) throw new Error(REPEAT_ONLY_MSG);
     if (skip) {
       // 守門＋班次日口徑都在 resolveSkipDate（與 SQLite 版同一份語義；含 ⑤ 的指定班次驗證）
       const due = resolveSkipDate(rule, occs, node.scheduled_on, dateKey, dayStartHour, dueOn);
@@ -538,7 +600,13 @@ export class MemoryNodeRepository implements NodeRepository {
         dueOn === undefined || dueOn === null
           ? pickTodayOccurrence(occs, node.scheduled_on, dateKey, dayStartHour)
           : (occs.find((o) => o.due_on === dueOn) ?? null);
-      if (target && target.status === "skipped") this.dropOccurrence(target.id);
+      if (target && target.status === "skipped") {
+        this.dropOccurrence(target.id);
+        if (node.status === "done") {
+          const now = this.now();
+          this.mutate(id, (n) => ({ ...n, status: "todo", completed_at: null, updated_at: now }));
+        }
+      }
     }
     this.syncNode(id, dateKey, dayStartHour);
   }
@@ -698,12 +766,13 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   /** 軟刪一張票的覆寫列（班次日 ≥ from；沒給＝全部），與 SQLite 版 dropOverrides 同語義 */
-  private dropOverrides(nodeId: string, from?: string): void {
+  private dropOverrides(nodeId: string, from?: string, settled: readonly string[] = []): void {
     this.backfillOverrides();
     const now = this.now();
     for (const [k, r] of this.ovr) {
       if (r.node_id !== nodeId || r.deleted_at) continue;
       if (from !== undefined && r.due_on < from) continue;
+      if (settled.includes(r.due_on)) continue;
       this.ovr.set(k, { ...r, deleted_at: now, updated_at: now });
     }
   }
@@ -741,23 +810,65 @@ export class MemoryNodeRepository implements NodeRepository {
     if (!node) throw new Error("節點不存在");
     if (rule) {
       if (!REPEATABLE_KINDS.includes(node.kind)) {
-        throw new Error(`${KIND_LABEL[node.kind]}不能設重複——只有車票與無子項的列車／車廂可以`);
+        throw new Error(`${KIND_LABEL[node.kind]}不能設重複——只有車票、列車與車廂可以`);
       }
-      if (this.childrenOf(id).length) throw new Error("有子項的列車／車廂不能設重複");
+      if (this.touchesAnotherRepeat(node)) throw new Error(NESTED_REPEAT_MSG);
       if (!parseRule(serializeRule(rule))) throw new Error("重複規則格式不正確");
     }
+    const old = parseRule(node.repeat_rule);
+    const occs = old ? this.occurrencesOf(id) : [];
+    const same = old !== null && rule !== null && sameSchedule(old, rule);
+    // moves 只由 moveOccurrence 寫，呼叫端帶什麼都不算：排程沒變全留，換排程只留歷史（D-主-296；與 SQLite 版同）
+    const kept = !old ? {} : same ? (old.moves ?? {}) : keptMoves(old, occs, dateKey);
+    const finalRule: RepeatRule | null = rule ? withMoves(rule, kept) : null;
+    const revive = node.status === "done" && finalRule !== null && runEnded(old, occs, dateKey, dayStartHour) && !runEnded(finalRule, occs, dateKey, dayStartHour);
     const now = this.now();
-    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清（票變回乘車券）；掛／換規則＝清班次日 ≥ 今天的覆寫（過去的留當歷史）。scheduled_time 兩種都留著。
+    // 主線②（§0-1 第 13 條）：清規則＝覆寫全清；換排程＝清還沒有結局、班次日 ≥ 今天的覆寫；只改結束條件一格都不清（D-主-296）。scheduled_time 都留著。
     // D-主-120：清＝軟刪覆寫列（與 SQLite 版同）；規則寫好之後重摺快取（守門看的是新規則）
-    this.dropOverrides(id, rule ? dateKey : undefined);
+    if (!rule) this.dropOverrides(id);
+    else if (!same) this.dropOverrides(id, dateKey, occs.map((o) => o.due_on));
     this.mutate(id, (n) => ({
       ...n,
-      repeat_rule: rule ? serializeRule(rule) : null,
+      repeat_rule: finalRule ? serializeRule(finalRule) : null,
+      ...(revive ? { status: "todo" as const, completed_at: null } : {}),
       updated_at: now,
     }));
     this.refreshOverrides(id);
+    // 回到運行：最後一班的子項接著下一班（同蓋完一班；D-主-298；與 SQLite 版同）。最後一班是運休的不動子項
+    if (revive && finalRule) {
+      const last = [...occs].sort((x, y) => y.due_on.localeCompare(x.due_on))[0];
+      if (last?.status === "done") this.closeRunKids(id, last.due_on, currentDue(finalRule, occs, dateKey, dayStartHour), false, now);
+    }
     // 掛規則＝立刻算目前班次日；清規則＝scheduled_on 留現值（票變回乘車券，occurrences 留作歷史）
     if (rule) this.syncNode(id, dateKey, dayStartHour);
+  }
+
+  /** 這張票的上層或子孫有沒有別的定期券（D-主-298；與 SQLite 版同） */
+  private touchesAnotherRepeat(node: NodeRow): boolean {
+    for (const sid of this.subtreeIds(node.id)) {
+      if (sid === node.id) continue;
+      const k = this.nodes.get(sid);
+      if (k && isAlive(k) && parseRule(k.repeat_rule)) return true;
+    }
+    let up = node.parent_id;
+    while (up) {
+      const p = this.nodes.get(up);
+      if (!p) break;
+      if (parseRule(p.repeat_rule)) return true;
+      up = p.parent_id;
+    }
+    return false;
+  }
+
+  /** 子孫裡重置會碰到的欄位（不含自己） */
+  private runKids(id: string): RunKid[] {
+    const out: RunKid[] = [];
+    for (const sid of this.subtreeIds(id)) {
+      if (sid === id) continue;
+      const k = this.nodes.get(sid);
+      if (k && isAlive(k)) out.push(k);
+    }
+    return out;
   }
 
   /**
@@ -776,8 +887,15 @@ export class MemoryNodeRepository implements NodeRepository {
       this.nodes.set(id, { ...node, scheduled_on: f });
       return true;
     }
-    const due = currentDue(rule, this.occurrencesOf(id), dateKey, dayStartHour);
-    if (due === null || due === node.scheduled_on) return false;
+    const occs = this.occurrencesOf(id);
+    const due = currentDue(rule, occs, dateKey, dayStartHour);
+    if (due === null) {
+      // 跑完到站（D-主-293；與 SQLite 版同）
+      const stamp = this.now();
+      this.mutate(id, (n) => ({ ...n, status: "done", completed_at: endedCompletedAt(occs), scheduled_on: retiredScheduledOn(occs), updated_at: stamp }));
+      return true;
+    }
+    if (due === node.scheduled_on) return false;
     const now = this.now();
     this.mutate(id, (n) => ({ ...n, scheduled_on: due, updated_at: now }));
     return true;
@@ -1066,29 +1184,24 @@ export class MemoryNodeRepository implements NodeRepository {
     if (node && rule && node.status !== "done") {
       const ids = [id];
       if (done) {
-        const due = node.scheduled_on ?? currentDue(rule, this.occurrencesOf(id), dateKey, dayStartHour);
-        if (due && this.stampOccurrence(id, due, "done", now)) this.event(id, "done", now);
+        const occs = this.occurrencesOf(id);
+        const due = node.scheduled_on ?? currentDue(rule, occs, dateKey, dayStartHour);
+        if (due && this.stampOccurrence(id, due, "done", now)) {
+          this.event(id, "done", now);
+          const seed = { due_on: due, status: "done" as const, completed_at: now, updated_at: now };
+          ids.push(...this.closeRunKids(id, due, currentDue(rule, [...occs, seed], dateKey, dayStartHour), cascade, now));
+        }
       } else {
         const target = pickTodayOccurrence(this.occurrencesOf(id), node.scheduled_on, dateKey, dayStartHour);
         if (target) {
           this.dropOccurrence(target.id);
-          if (target.status === "done") this.revokeLatestEvent(id, "done");
+          if (target.status === "done") {
+            this.revokeLatestEvent(id, "done");
+            this.reopenRunKids(id, target, node.scheduled_on, now);
+          }
         }
       }
       this.syncNode(id, dateKey, dayStartHour);
-      // 連帶完成：子樹裡的定期券照 D2 退役（status='done'），不寫 occurrence
-      if (done && cascade) {
-        for (const sid of this.subtreeIds(id)) {
-          if (sid === id) continue;
-          const before = this.nodes.get(sid);
-          if (!before || before.status === "done") continue;
-          this.mutate(sid, (n) => ({ ...n, status: "done", completed_at: now, updated_at: now }));
-          this.event(sid, "done", now);
-          // 退役當場重算執行日（同 SQLite 版 syncRetired）
-          if (parseRule(before.repeat_rule)) this.syncNode(sid, dateKey, dayStartHour);
-          ids.push(sid);
-        }
-      }
       return ids;
     }
 
@@ -1104,10 +1217,56 @@ export class MemoryNodeRepository implements NodeRepository {
       return ids;
     }
     this.mutate(id, (n) => ({ ...n, status: "todo", completed_at: null, updated_at: now }));
-    this.revokeLatestEvent(id, "done"); // 反悔完成：只收回這一次的済
+    // 跑完到站的定期券（D-主-293）：把最後一班的結局一起撤掉，不然規則還是算不出下一班（與 SQLite 版同）
+    const occs = rule ? this.occurrencesOf(id) : [];
+    const lastRun = runEnded(rule, occs, dateKey, dayStartHour) ? ([...occs].sort((x, y) => y.due_on.localeCompare(x.due_on))[0] ?? null) : null;
+    if (lastRun) this.dropOccurrence(lastRun.id);
+    if (!lastRun || lastRun.status === "done") this.revokeLatestEvent(id, "done"); // 反悔完成：只收回這一次的済
+    // 最後一班連帶蓋的子項一起回未完成（D-主-298；與 SQLite 版同）
+    if (lastRun?.status === "done") {
+      for (const kid of endedKidsToReopen(this.runKids(id), lastRun.completed_at)) {
+        this.mutate(kid, (n) => ({ ...n, status: "todo", completed_at: null, updated_at: now }));
+        this.revokeLatestEvent(kid, "done");
+      }
+    }
     // 退役的定期券取消完成＝退役解除，引擎重新排班
     if (rule) this.syncNode(id, dateKey, dayStartHour);
     return [id];
+  }
+
+  /** 蓋完一班時的子項（D-主-298；語義見 SQLite 版 closeRunKids） */
+  private closeRunKids(id: string, due: string, next: string | null, cascade: boolean, now: string): string[] {
+    const kids = this.runKids(id);
+    const cascaded: string[] = [];
+    const after = kids.map((k) => {
+      if (!cascade || k.status === "done" || parseRule(k.repeat_rule)) return k;
+      this.event(k.id, "done", now);
+      cascaded.push(k.id);
+      return { ...k, status: "done" as const, completed_at: now };
+    });
+    if (next === null) {
+      for (const kid of cascaded) this.mutate(kid, (n) => ({ ...n, status: "done", completed_at: now, updated_at: now }));
+      return cascaded;
+    }
+    for (const p of planRunReset(after, daysBetween(due, next))) {
+      this.stampOccurrence(p.id, due, "done", p.completedAt ?? now);
+      const occ = this.occurrencesOf(p.id).find((o) => o.due_on === due);
+      if (occ && p.mood) this.occ.set(occ.id, { ...occ, mood: p.mood });
+      this.mutate(p.id, (n) => ({ ...n, status: "todo", completed_at: null, mood: null, scheduled_on: p.scheduledOn, due_on: p.dueOn, updated_at: now }));
+    }
+    return cascaded;
+  }
+
+  /** 取消這一班的済：子項還原（D-主-298；語義見 SQLite 版 reopenRunKids） */
+  private reopenRunKids(id: string, target: Occurrence, scheduledOn: string | null, now: string): void {
+    const kids = this.runKids(id);
+    const kidOccs = kids.flatMap((k) => this.occurrencesOf(k.id).filter((o) => o.due_on === target.due_on && o.status === "done"));
+    const shift = scheduledOn !== null ? daysBetween(target.due_on, scheduledOn) : 0;
+    for (const p of planRunRestore(kids, kidOccs, target.completed_at, shift)) {
+      this.dropOccurrence(p.occId);
+      if (p.cascaded) this.revokeLatestEvent(p.id, "done");
+      this.mutate(p.id, (n) => ({ ...n, status: p.status, completed_at: p.completedAt, mood: p.mood, scheduled_on: p.scheduledOn, due_on: p.dueOn, updated_at: now }));
+    }
   }
 
   private log(nodeId: string, body: string, event: WorkLogEvent | null = null, at?: string): WorkLog {

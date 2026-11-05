@@ -15,7 +15,8 @@ import { useDepotStore } from "../../store/depotStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { PageHeader } from "../common/PageHeader";
 import { openFullSearch } from "../search/openFullSearch";
-import { formatChord, hotkeyById } from "../shell/hotkeys";
+import { capsOfHotkey } from "../shell/hotkeys";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { ensureStampDefs } from "../stamps/defs";
 import { DepotBody } from "./DepotBody";
 import { DEPOT_TABS } from "./depotTabs";
@@ -24,10 +25,9 @@ import { RideBook } from "./RideBook";
 import { useDepotKeyboard } from "./useDepotKeyboard";
 import "./depot.css";
 
-const searchChord = hotkeyById("global.fullsearch");
-const SEARCH_TITLE = searchChord ? `搜尋（${formatChord(searchChord.chords[0]).join("+")}）` : "搜尋";
 
 export function DepotView() {
+  useHotkeyRevision();
   const tab = useDepotStore((s) => s.tab);
   const bookId = useDepotStore((s) => s.bookId);
   const setTab = useDepotStore((s) => s.setTab);
@@ -91,7 +91,7 @@ export function DepotView() {
               title="車庫"
               aside={<DepotSummary className="ns-depot-aside" />}
               tabs={{ items: DEPOT_TABS, value: tab, onChange: setTab, "aria-label": "車庫分頁" }}
-              search={{ onOpen: () => openFullSearch(), title: SEARCH_TITLE }}
+              search={{ onOpen: () => openFullSearch(), title: `搜尋（${capsOfHotkey("global.fullsearch")}）` }}
             />
             <DepotBody />
           </>

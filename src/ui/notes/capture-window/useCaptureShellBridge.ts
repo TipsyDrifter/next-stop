@@ -18,6 +18,7 @@ import { notifyOnce } from "../../../lib/notify";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useNotesStore } from "../../../store/notesStore";
 import { useUiStore } from "../../../store/uiStore";
+import { loadHotkeyOverrides } from "../../shell/hotkeyOverrides";
 import { capsOf } from "../notesBits";
 import { bootAutostartDefault } from "./autostartBoot";
 import { EV_CAPTURED, HOTKEY_ID, captureStatus, isCaptureWindow, isTauri, type CaptureStatus } from "./shell";
@@ -33,7 +34,7 @@ export function rememberCaptureStatus(s: CaptureStatus): void {
 
 /** 契約 §5.7-3（toast 與 OS 通知同句） */
 export function hotkeyFailedText(): string {
-  return `快捷鍵 ${capsOf(HOTKEY_ID)} 被別的程式佔走了，請看設定〈一般〉`;
+  return `快捷鍵 ${capsOf(HOTKEY_ID)} 被別的程式佔走了，可以到設定〈快捷鍵〉換一組`;
 }
 
 /** 啟動時的熱鍵檢查：一次啟動只做一次（StrictMode 雙掛載不重複 toast） */
@@ -43,6 +44,8 @@ async function checkHotkeyOnce(): Promise<void> {
   statusChecked = true;
   let s: CaptureStatus;
   try {
+    // ⑧：先換成使用者自訂的全域鍵再問；預設鍵被別人佔走、但已經改掉的人不該被提醒
+    await loadHotkeyOverrides();
     s = await captureStatus();
   } catch (e) {
     console.warn("[capture] capture_status 失敗", e);

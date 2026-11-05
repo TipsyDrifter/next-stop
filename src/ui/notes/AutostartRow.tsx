@@ -106,7 +106,12 @@ export function AutostartRow() {
       <p className="ns-note mt-2">登入 Windows 後私鐵手帳會在背景待命，隨時按 {caps} 記一句；主視窗不會自己跳出來。</p>
       {status && !status.hotkeyRegistered && (
         <p className="ns-note mt-1" role="status" style={{ color: ERROR_TEXT }}>
-          快捷鍵 {caps}被別的程式佔走了{status.hotkeyError ? `（${status.hotkeyError}）` : ""}，關掉它再回來就會生效。</p>
+          快捷鍵 {caps} 被別的程式佔走了。關掉它再回來就會生效，或
+          <button type="button" className="ns-hk-reset" onClick={() => useUiStore.getState().setSettingsTab("hotkeys")}>
+            換一組鍵
+          </button>
+          。
+        </p>
       )}
     </div>
   );

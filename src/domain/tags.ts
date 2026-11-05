@@ -652,6 +652,18 @@ export function deleteBody(body: string, plan: DeletePlan): string {
   return plan.ok ? removeTagText(body, plan.keys) : body;
 }
 
+/**
+ * 撿回荷札時把 `#名稱` 補回內文（失物招領 D-主-315）：內文現在沒有這個荷札才補、補在最後一行。
+ * 不補的話下次存檔 `syncBodyTags` 又會把掛載摘掉；原位置回不去（中間可能改過內文，整段蓋回會吃掉之後的編輯）。
+ * 不修（對抗審查問題 13）：內文有沒關的程式碼圍欄時，補上的 `#名稱` 被遮罩、解析不到，下次存檔掛載又被摘掉（字還在內文裡）。
+ */
+export function bodyWithTag(body: string, key: string, name: string): string {
+  if (parseTags(body).some((o) => o.key === key)) return body;
+  const tail = `#${name}`;
+  if (!body) return tail;
+  return body.endsWith("\n") ? body + tail : `${body}\n${tail}`;
+}
+
 /** 刪除的計畫：keys＝自己＋全部子孫；places＝摘下幾處；kidsWithItems＝底下有東西的子荷札數；bodyCount＝要改內文的筆記＋日記 */
 export function planDelete(idx: TagIndex, key: string, kindOf?: KindOf): DeletePlan {
   const x = idx.byKey[key];

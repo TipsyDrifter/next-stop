@@ -6,6 +6,7 @@
  *       草稿尚無文字時的 Tab／Shift+Tab 是純本地改目標（鏡射 store 的 adaptKind 規則），有文字才提交後真的升降層。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { capsOfHotkey } from "../shell/hotkeys";
 import {
   KIND_LABEL,
   canHaveChildren,
@@ -19,19 +20,18 @@ import { REPEAT_RESCHEDULE_MSG } from "../../data";
 import {
   adaptKind,
   ancestorsOf,
-  descendantCount,
   siblingsOf,
   useNodeStore,
   type TreeIndex,
 } from "../../store/nodeStore";
-import { completeNodeFlow, suspendNodeFlow } from "./nodeFlows";
+import { completeNodeFlow, moveRunFlow, suspendNodeFlow } from "./nodeFlows";
 import { DESKTOP_GUARD_WORDS, rowGuards } from "./rowGuards";
 import type { PopMenuItem } from "../common/PopMenu";
 import { requestMoveTo } from "../common/moveTo";
 import { moveTargetRule } from "../../domain/moveTo";
 import { PARKED_ADD_WHY } from "../../domain/depot";
 import { useUiStore } from "../../store/uiStore";
-import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
+import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { addDays, todayKey } from "../../lib/date";
 import type { CommitVia } from "../common/InlineInput";
 import type { QuickExtra } from "../common/quickadd/useQuickAdd";
@@ -88,8 +88,8 @@ export interface RowActions {
     id: string,
     e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: EventTarget | null; clientX?: number; clientY?: number; button?: number },
   ): boolean;
-  /** 定期券的執行日 chip 是唯讀的：點了只吐一句話（D-④-3） */
-  noteRepeatDate(): void;
+  /** 定期券的執行日 chip：chip 印的那一班改到別天（⑥ D-主-295） */
+  moveRun(id: string, from: string, to: string): void;
   focusContainer(): void;
 }
 
@@ -314,8 +314,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
   /* ───────── 運休（M3 ④ D-④-2；大綱的 `U` 與「點運休章＝取消」共用這一條） ───────── */
   /**
    * 本班運休／取消運休——與今日視圖的 `U` 同一條路（nodeStore.skipOccurrence）。
-   * 大綱補這個鍵是因為共用文案 REPEAT_RESCHEDULE_MSG 就寫著「跳過本班按 U」：
-   * 補鍵而不是改文案，兩頁同義同鍵（M3 ④ 評審 should-6）。**只有定期券能運休**，其餘吐 REPEAT_ONLY_MSG。
+   * 兩頁同義同鍵（M3 ④ 評審 should-6）。**只有定期券能運休**，其餘吐 REPEAT_ONLY_MSG。
    */
   // 手機殼班：流程本體抽到 nodeFlows.ts（手機路線圖的検印鈕走同一支）
   const suspendNode = (id: string, skip?: boolean) => suspendNodeFlow(id, skip);
@@ -330,50 +329,31 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
 
   /* ───────── F3 刪除流（D3） ───────── */
   const deleteNodeFlow = (id: string) => {
-    const t = ns().tree;
-    const n = t.byId[id];
+    const n = ns().tree.byId[id];
     if (!n) return;
-    const count = descendantCount(t, id);
-    const run = async () => {
-      const desc = collectDescendants(ns().tree, id);
-      // 刪後選取：下一個非子孫的可見列，否則上一列
-      const ids = visibleIds();
-      const i = ids.indexOf(id);
-      let next: string | null = null;
-      for (let j = i + 1; j < ids.length; j++) {
-        if (!desc.has(ids[j])) {
-          next = ids[j];
-          break;
+    // 確認與 toast 在共用流程（失物招領 §5-6）；這裡只管大綱自己的事：刪後選哪一列、聚焦在被刪的範圍要退出來
+    void confirmAndDeleteNode(id, {
+      around: async (del) => {
+        const desc = collectDescendants(ns().tree, id);
+        // 刪後選取：下一個非子孫的可見列，否則上一列
+        const ids = visibleIds();
+        const i = ids.indexOf(id);
+        let next: string | null = null;
+        for (let j = i + 1; j < ids.length; j++) {
+          if (!desc.has(ids[j])) {
+            next = ids[j];
+            break;
+          }
         }
-      }
-      if (!next && i > 0) next = ids[i - 1];
-      const z = ui().zoomId;
-      if (z && (z === id || desc.has(z))) {
-        const { routeId: rid } = st.current;
-        ui().setZoom(n.parent_id && n.parent_id !== rid && ns().tree.byId[n.parent_id] ? n.parent_id : null);
-      }
-      await ns().deleteNode(id);
-      ui().select(next);
-      ui().showToast({
-        message: `已刪除「${n.name}」${count ? `（含 ${count} 個子項）` : ""}`,
-        actionLabel: "復原",
-        onAction: () => void ns().undoDelete(),
-      });
-    };
-    if (count >= 5) {
-      // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
-      void collectDeleteHints(n, descendantIdsOf(t, id)).then((hints) =>
-        ui().askConfirm({
-          title: `連同 ${count} 個子項一起刪除？`,
-          body: withDeleteHints(`「${n.name}」底下的 ${count} 個項目會一起刪除；6 秒內可從底部提示復原。`, hints),
-          confirmLabel: "刪除",
-          danger: true,
-          onConfirm: () => void run(),
-        }),
-      );
-    } else {
-      void run();
-    }
+        if (!next && i > 0) next = ids[i - 1];
+        const z = ui().zoomId;
+        if (z && (z === id || desc.has(z))) {
+          const { routeId: rid } = st.current;
+          ui().setZoom(n.parent_id && n.parent_id !== rid && ns().tree.byId[n.parent_id] ? n.parent_id : null);
+        }
+        if (await del()) ui().select(next);
+      },
+    });
   };
 
   /* ───────── F2 新增流：草稿 ───────── */
@@ -559,7 +539,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       const n = selNode();
       const target = n ?? z;
       if (!target) {
-        toast("先選一班列車或車廂，再按 Ctrl+Enter 新增車票");
+        toast(`先選一班列車或車廂，再按 ${capsOfHotkey("outline.add.ticket")} 新增車票`);
         return;
       }
       if (isTaskKind(target.kind)) {
@@ -625,13 +605,15 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         toast("支線是主題，沒有執行日——裡面的列車和車票各自排");
         return;
       }
-      // 定期券的班次由規則排定，單次改期一律擋下（D-④-3；repository 也會 throw，這裡先給一句話）
+      const { today: td } = st.current;
+      const next = offset ? addDays(td, 1) : td;
+      // 定期券：大綱講的是目前班次（scheduled_on，交代完＝下一班），只改那一班（⑥ D-主-295）；沒有班次才吐指路句
       if (parseRule(n.repeat_rule)) {
-        toast(REPEAT_RESCHEDULE_MSG);
+        if (n.scheduled_on) void moveRunFlow(n.id, n.scheduled_on, next);
+        else toast(REPEAT_RESCHEDULE_MSG);
         return;
       }
-      const { today: td } = st.current;
-      void ns().updateNode(n.id, { scheduled_on: offset ? addDays(td, 1) : td });
+      void ns().updateNode(n.id, { scheduled_on: next });
     },
     openPanel() {
       ui().setPanelOpen(true);
@@ -690,7 +672,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       ui().setPanelOpen(true);
     },
     setDate: (id, field, value) => {
-      // 保險：定期券的執行日 chip 在票面上已經是唯讀的，這裡再擋一次（別的入口誤呼也吐同一句話）
+      // 保險：定期券的 chip 走 moveRun（講得出哪一班），這裡講不出，別的入口誤呼就吐指路句
       if (field === "scheduled_on" && parseRule(ns().tree.byId[id]?.repeat_rule ?? null)) {
         toast(REPEAT_RESCHEDULE_MSG);
         return;
@@ -698,7 +680,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       // 磨光⑦（D-主-67）：執行日 chip 親手選到今天以前＝補記
       void ns().updateNode(id, field === "scheduled_on" ? { scheduled_on: value } : { due_on: value }, { backfill: field === "scheduled_on" });
     },
-    noteRepeatDate: () => toast(REPEAT_RESCHEDULE_MSG),
+    moveRun: (id, from, to) => void moveRunFlow(id, from, to),
     focusContainer,
     pick: (id, e) => {
       if (pickClick("outline", id, visibleIds(), e, ui().selectedId)) return true;
@@ -754,11 +736,13 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     // 回饋乙：排序與層級收進可展開的「編排 ▾」（PopMenu group；跟手機票卡 sheet 同一種結構），頂層回到 §2.4 的 ≤7。
     //   有了拖曳之後它們仍是可點的入口（拖曳和快捷鍵都是加速），所以收起來不砍掉。右鍵選單＝這一份（contextMenu.tsx）。
     const arrange = (it: PopMenuItem): PopMenuItem => ({ ...it, group: "編排" });
-    // 回饋甲 D-主-134（入口體檢 G）：補「詳情」「排今天／排明天」（定期券不出）「運休／取消運休」（定期券才出）——手機路線圖 ⋯ 本來就有。
-    //   頂層要守 ≤7：新增兩項收進「新增 ▾」（頁首「＋ 新增 ▾」與清單尾常駐列才是主入口，這裡是順手的替代）、排程兩項收進「排程 ▾」。
-    //   頂層＝新增 ▾｜詳情・改名・選取｜排程 ▾（或運休）｜編排 ▾｜刪除。
+    // 回饋甲 D-主-134（入口體檢 G）：補「詳情」「排今天／排明天」（定期券＝這一班改到今天／明天）「運休／取消運休」（定期券才出）——手機路線圖 ⋯ 本來就有。
+    //   頂層要守 ≤7：新增兩項收進「新增 ▾」（頁首「＋ 新增 ▾」與清單尾常駐列才是主入口，這裡是順手的替代）、排程兩項（定期券多運休）收進「排程 ▾」。
+    //   頂層＝新增 ▾｜詳情・改名・選取｜排程 ▾｜編排 ▾｜刪除。
     const teiki = parseRule(n.repeat_rule) !== null;
     const occ = ns().currentOccurrences[id];
+    // 定期券的「這一班」＝目前班次（scheduled_on）；退役或沒有班次就淡掉
+    const runWhy = n.status === "done" || !n.scheduled_on ? "這張定期券沒有下一班" : null;
     return [
       { ...item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", parked ? PARKED_ADD_WHY : null, keys.addSibling), group: "新增" },
       { ...item("ticket", "新增車票", "outline.add.ticket", parked ? PARKED_ADD_WHY : ticketWhy, keys.addTicket), group: "新增" },
@@ -782,20 +766,25 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
           focusContainer();
         },
       },
-      // 排程（鏡射 T／Shift+T＝keys.scheduleSelected）：定期券的班次由規則排定（D-④-3）⇒ 改給運休（鏡射 U＝keys.suspendSelected）
+      // 排程（鏡射 T／Shift+T＝keys.scheduleSelected）：定期券＝這一班改到今天／明天（⑥ D-主-295），加運休（鏡射 U＝keys.suspendSelected）
       // 丁 D-主-247：支線是主題，沒有日期 ⇒ 不出排程
       ...(n.kind === "branch"
         ? []
         : teiki
         ? [
-            item(
-              "suspend",
-              occ?.status === "skipped" ? "取消運休" : "運休",
-              "outline.suspend",
-              null,
-              keys.suspendSelected,
-              true,
-            ),
+            {
+              ...item(
+                "suspend",
+                occ?.status === "skipped" ? "取消運休" : "運休",
+                "outline.suspend",
+                null,
+                keys.suspendSelected,
+                true,
+              ),
+              group: "排程",
+            },
+            { ...item("sched-today", "這一班改到今天", "outline.schedule.today", runWhy, () => keys.scheduleSelected(0)), group: "排程" },
+            { ...item("sched-tomorrow", "這一班改到明天", "outline.schedule.tomorrow", runWhy, () => keys.scheduleSelected(1)), group: "排程" },
           ]
         : [
             { ...item("sched-today", "排今天", "outline.schedule.today", null, () => keys.scheduleSelected(0), true), group: "排程" },

@@ -77,10 +77,10 @@
 [data-shell="mobile"] .m-rt .m-rt-code-note { padding: 0 2px 6px; }
 [data-shell="mobile"] .m-rt .m-rt-code::placeholder { font-family: var(--font-body); letter-spacing: .04em; color: var(--color-ink-faint); }
 
-/* 車站列：名稱｜到站章｜×；第二行預定日・着 日期 */
+/* 車站列：名稱｜到站章；第二行預定日・着 日期（己-2 A2：× 收進抓手 sheet） */
 [data-shell="mobile"] .m-rt-st-list { list-style: none; margin: 0; padding: 0; }
 [data-shell="mobile"] .m-rt-st {
-  display: grid; grid-template-columns: minmax(0, 1fr) 44px 44px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center;
   padding: 2px 0 8px; border-bottom: 1px dashed var(--color-line);
 }
 [data-shell="mobile"] .m-rt-st .m-rt-st-name {
@@ -118,7 +118,6 @@
 @media (prefers-reduced-motion: reduce) {
   [data-shell="mobile"] .m-rt-st.is-fresh .m-rt-st-seal > span { animation: none; }
 }
-[data-shell="mobile"] .m-rt-st-x { width: 44px; height: 44px; color: var(--color-ink-faint); }
 
 [data-shell="mobile"] .m-rt-st-meta {
   grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;

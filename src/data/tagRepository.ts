@@ -120,6 +120,8 @@ export interface TagRepository {
   setTags(entityType: TagEntityType, entityId: string, rawNames: readonly string[]): Promise<{ receipt: TagReceipt; created: string[] }>;
   /** 筆記／日記內文→taggings 單向推導（契約 0-13）：parseTags(body) 的 keys 與現有存活 taggings 做差，掛多的、摘少的；只對 entity_type='note' */
   syncBodyTags(noteId: string, body: string): Promise<SyncBodyResult>;
+  /** 寫內文＋`syncBodyTags` 併成一個交易（失物招領的改回：不會內文改了、掛載沒跟上）。`before`＝寫之前的內文 */
+  writeBodyAndSyncTags(noteId: string, before: string, body: string): Promise<SyncBodyResult>;
   /** 通車補掛（契約 0-9）：所有存活 notes（note＋diary）跑一次 syncBodyTags；每 50 則一個交易；回「找到幾個荷札、幾處」 */
   backfill(): Promise<BackfillResult>;
   /** 改名／搬層級／併入：plan 由 domain.planRename 算（含子孫、衝突）；一個交易：建或復活新名、搬 taggings、舊名 soft delete、改寫筆記與日記內文 */
@@ -128,6 +130,12 @@ export interface TagRepository {
   remove(plan: DeletePlan): Promise<TagReceipt>;
   /** 復原：新建的列 soft delete、改過的列寫回收據值、內文寫回；一個交易 */
   undo(receipt: TagReceipt): Promise<void>;
+  /**
+   * 失物招領（§2.4，D-主-315）：撿回刪掉的荷札（過了 toast、沒有收據時）。一個交易：荷札與同一刀（同 deleted_at）的掛載清回 null；
+   * 同一刀摘掉的筆記，內文現在沒有這個 `#名稱` 就補在最後一行——不補的話下次 `syncBodyTags` 又會摘掉。
+   * 有去向（renamed_to）的不是刪除、已活著的不用動，都略過。回撿回了幾枚、幾處、補了幾則內文。
+   */
+  restoreDeleted(ids: readonly string[]): Promise<RestoreTagsResult>;
   /** 手機點選器用：把 key 推到最近用過的最前（裝置本地） */
   pushRecent(key: string): Promise<void>;
 
@@ -144,6 +152,13 @@ export interface TagRepository {
    * `beforeBodyRewrite`：真的要改內文之前叫一次（store 用來先存完正在打的字、退出編輯）。
    */
   reconcileRenamed(opts?: { beforeBodyRewrite?: () => Promise<void> }): Promise<RenameFollow[]>;
+}
+
+/** `restoreDeleted` 的結果 */
+export interface RestoreTagsResult {
+  tags: number;
+  taggings: number;
+  bodies: number;
 }
 
 /** `reconcileRenamed` 的一筆：哪個殼跟到哪裡、轉了幾處 */

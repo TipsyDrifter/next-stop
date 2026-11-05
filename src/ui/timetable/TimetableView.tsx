@@ -32,6 +32,7 @@
  *   滑鼠點籤／下拉選完視圖即放掉焦點（releaseHeadFocus），←→ 不會被籤留住——只有用 Tab 走進籤列的人才在籤上 roving。
  */
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { TT_TEXT, useTimetableStore, type TimetableView as TimetableViewMode } from "../../store/timetableStore";
 import { useUiStore } from "../../store/uiStore";
 import { hotkeyById } from "../shell/hotkeys";
@@ -234,7 +235,7 @@ export function TimetableView() {
     if (el && (document.activeElement === document.body || document.activeElement === null)) el.focus();
   }, []);
 
-  // 面板關掉（被點的鈕整棵 unmount）、toast 動作鈕按完（「改 10 分前」「撤回」在 App 根的 Toast 裡）之後，瀏覽器把焦點退回
+  // 面板關掉（被點的鈕整棵 unmount）、toast 動作鈕按完（「改時間」「撤回」在 App 根的 Toast 裡）之後，瀏覽器把焦點退回
   // body；body 上的 keydown 不經過 .page ⇒ N／Enter／V 失效。沒人持有焦點時把焦點還給根節點（同今日頁 useTodayController 的做法）。
   useEffect(() => {
     if (sheet !== null || typeof document === "undefined") return;
@@ -262,10 +263,11 @@ export function TimetableView() {
     view === "week" || view === "stats" || view === "schedule" || view === "grid" ? view : view === "axis" ? "axis" : "split"; // 手機記的 board 在桌機＝兩欄
   const split = mode === "split";
   const stacked = narrow && split; // 單欄疊放：運行列 → 發車台 → 軸（整頁捲動）
-  // 籤的 title 在 render 時才查 registry（模組載入當下 manifest 不一定登記完）；內容不會變，算一次
+  // 籤的 title 在 render 時才查 registry（模組載入當下 manifest 不一定登記完）；使用者改了鍵才重算
+  const hotkeysRev = useHotkeyRevision();
   const viewTabs = useMemo<readonly TabItem<TimetableViewMode>[]>(
     () => VIEW_OPTIONS.map((o) => ({ key: o.v, label: o.label, hotkeyTitle: viewTabTitle(o.n, o.label) })),
-    [],
+    [hotkeysRev],
   );
 
   return (

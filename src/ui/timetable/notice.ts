@@ -24,6 +24,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { MOCK_MODE, settingsRepo } from "../../data";
+import { mockNotificationPermission } from "../../lib/notify";
 import { fmtClock, msOf, thresholdOf } from "../../domain/timetable";
 import { clipLabel, linkLabelOf, runLabel, taskEstimateOf } from "../../domain/timetableLink";
 import { TT_NOTICE_TEXT, buildNoticeState, reminderSig, reminderToKeep } from "../../domain/timetableNotice";
@@ -72,7 +73,8 @@ export function runningNoticeText(categoryName: string, startedAt: string): Runn
  * `is_permission_granted`：true＝granted、false＝denied、null＝還沒問過（Android）。
  */
 export async function noticePermission(): Promise<NoticePermission> {
-  if (MOCK_MODE || typeof window === "undefined") return "granted";
+  if (MOCK_MODE) return mockNotificationPermission();
+  if (typeof window === "undefined") return "granted";
   try {
     const r = await invoke<boolean | null>("plugin:notification|is_permission_granted");
     return r === true ? "granted" : r === false ? "denied" : "unknown";

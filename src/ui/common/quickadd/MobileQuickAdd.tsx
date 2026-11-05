@@ -309,7 +309,7 @@ function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone():
       }
     >
       <div className="ns-qa-msheet">
-        <ClockInput variant="mobile" value={ms} lo={lo} hi={hi} refDay={refDay} label="開始時刻" onChange={setMs} onEnter={save} />
+        <ClockInput variant="mobile" picker="inline" quick={[]} value={ms} lo={lo} hi={hi} refDay={refDay} label="開始時刻" onChange={setMs} onEnter={save} />
         <div className="ns-qa-cardlabel">長度</div>
         <div className="ns-qa-len">
           <Segmented<LenValue>

@@ -33,6 +33,7 @@
 @import "./ui/common/pageheader.css";
 @import "./ui/common/tabs.css";
 @import "./ui/common/datefield.css";
+@import "./ui/common/toggle.css";
 @import "./ui/common/attachpicker.css";
 @import "./ui/common/defer.css";
 @import "./styles/mobile.css";

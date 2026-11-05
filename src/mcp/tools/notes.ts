@@ -447,7 +447,7 @@ const updateNotes: McpTool = {
 const deleteNotes: McpTool = {
   name: "delete-notes",
   title: "刪除筆記",
-  description: "刪除旅客筆記，一次最多 50 則。刪除可以在 App 裡復原。",
+  description: "刪除旅客筆記，一次最多 50 則。刪掉的 30 天內能在 App 的「最近刪除」撿回。",
   inputSchema: {
     type: "object",
     properties: { ids: { ...ID_LIST, description: "筆記 id" } },
@@ -463,7 +463,7 @@ const deleteNotes: McpTool = {
     // 同 notesStore.deleteNote：softDelete；taggings 不用摘（荷札的讀取一律 JOIN 實體存活）
     for (const n of rows) await ctx.deps.noteRepo.softDelete(n.id);
     return {
-      summary: `已刪除 ${rows.length} 則筆記（App 裡可以復原）`,
+      summary: `已刪除 ${rows.length} 則筆記（30 天內能在 App 的「最近刪除」撿回）`,
       data: { deleted: rows.map((n) => ({ id: n.id, title: noteTitle(n) })) },
       changed: ["notes"],
       toast: `外部助理刪除了 ${rows.length} 則筆記`,

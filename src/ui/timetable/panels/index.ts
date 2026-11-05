@@ -2,7 +2,7 @@
  * panels——sheet.kind → 面板元件與標題（車次①a 契約 §5.4；丙席）。
  * 兩個 host（桌機 DesktopSheetHost／手機 MobileSheetHost）共用這張對照表：`sheetTitle` 給標題字串、`SheetPanel` 畫表單本體。
  * 標題規則：depart 依運行中與否；longRun「{分類}已經跑了 {fmtDur}」（live dot 由 host 自己擺）；其餘固定。
- * 車次②（Stage 0-②，甲）：taskCategory「『{任務}』算哪一類？」、link「連到…」（② 契約 §5.13）；兩個面板先是樁。
+ * 車次②（Stage 0-②，甲）：taskCategory「『{任務}』算哪一類？」（② 契約 §5.13）。己（D-時-171）：預估、連到併進「改這一班」，那兩種 sheet 退役。
  */
 import { createElement, type ReactElement } from "react";
 import { durOf, findBlockIn, fmtDur, msOf, toSpan } from "../../../domain/timetable";
@@ -10,8 +10,6 @@ import { TT_TEXT, useTimetableStore, type TimetableSheet, type TimetableStore } 
 import { BlockPanel } from "./BlockPanel";
 import { CategoryManagerPanel } from "./CategoryManagerPanel";
 import { DepartPanel } from "./DepartPanel";
-import { EstimatePanel } from "./EstimatePanel";
-import { LinkPanel } from "./LinkPanel";
 import { LongRunPanel } from "./LongRunPanel";
 import { SplitPanel } from "./SplitPanel";
 import { TaskCategoryPanel } from "./TaskCategoryPanel";
@@ -25,7 +23,7 @@ import { SlotPanel } from "./SlotPanel"; // ⑦ C 席
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
 import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
 export type { PanelProps } from "./controls";
-export { BlockPanel, CategoryManagerPanel, DepartPanel, EstimatePanel, LinkPanel, LongRunPanel, SplitPanel, TaskCategoryPanel };
+export { BlockPanel, CategoryManagerPanel, DepartPanel, LongRunPanel, SplitPanel, TaskCategoryPanel };
 
 /** ②：linkInfo 選填（host 沒傳就讀 store 現值；taskCategory 的任務名在開面板前已放進 linkInfo） */
 type TitleState = Pick<TimetableStore, "running" | "catById" | "dayBlocks" | "todayBlocks" | "weekBlocks"> &
@@ -55,14 +53,10 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       return "切開這一塊";
     case "categories":
       return "分類與設定";
-    case "estimate":
-      return "這一班的預估";
     case "taskCategory": {
       const info = (s.linkInfo ?? useTimetableStore.getState().linkInfo)[sheet.nodeId];
       return info && !info.missing ? TT_TEXT.TASK_CATEGORY_TITLE(info.name) : "算哪個分類？";
     }
-    case "link":
-      return TT_TEXT.LINK_TITLE;
     case "goal": // ③ 乙席
       return sheet.goalId ? TT_TEXT.statsUi.goalEditTitle : TT_TEXT.statsUi.goalNewTitle;
     case "pendingList": // ③ 乙席
@@ -98,9 +92,9 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
 
 /**
  * 這種面板有沒有黏底按鈕列（UI 丙-4 C1／C3；兩個 host 共用）：有 ⇒ host 給殼一個 foot、面板的 `<Actions>` portal 進去。
- * 沒有的：即時存（分類與設定、連結、算哪一類、荷札、待確認清單——規範 §2.3「即時存的表單沒有主鈕」）與發車（點分類即發車）。
+ * 沒有的：即時存（分類與設定、算哪一類、荷札、待確認清單——規範 §2.3「即時存的表單沒有主鈕」）與發車（點分類即發車）。
  */
-const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "estimate", "longRun", "goal", "plan", "routine", "slot"]);
+const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "longRun", "goal", "plan", "routine", "slot"]);
 export function sheetHasFoot(kind: TimetableSheet["kind"]): boolean {
   return FOOT_KINDS.has(kind);
 }
@@ -120,12 +114,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(SplitPanel, { onDone });
     case "categories": // 磨光③ 2-11：換了定位目標就重掛（⋯ 展開狀態從頭來）
       return createElement(CategoryManagerPanel, { onDone, key: sheet.focusId ?? sheet.focus ?? "" });
-    case "estimate":
-      return createElement(EstimatePanel, { onDone });
     case "taskCategory":
       return createElement(TaskCategoryPanel, { onDone });
-    case "link":
-      return createElement(LinkPanel, { onDone });
     case "goal": // ③ 乙席
       return createElement(GoalPanel, { onDone, key: sheet.goalId ?? "new" });
     case "pendingList": // ③ 乙席

@@ -37,7 +37,7 @@ export const SLOTS_TEXT = {
   end: "結束",
   day: "日期",
   teiki: "定期券每班一個時刻；要分次做就連時間塊",
-  deleted: (day: string) => `刪了 ${dateChipText(day)} 那一段`,
+  deleted: "已刪除這段",
   undo: "復原",
   rowLabel: (text: string) => `改這一段：${text}`,
   delLabel: (text: string) => `刪掉這一段：${text}`,
@@ -111,7 +111,7 @@ export function SlotsBody({ node }: { node: NodeRow }) {
     const st = useTimetablePlanStore.getState();
     if (!(await st.deleteSlot(r.id))) return;
     useUiStore.getState().showToast({
-      message: SLOTS_TEXT.deleted(r.day),
+      message: SLOTS_TEXT.deleted,
       actionLabel: SLOTS_TEXT.undo,
       onAction: () => void useTimetablePlanStore.getState().restoreSlot(r.id),
     });

@@ -39,6 +39,12 @@ export interface ScheduleUiState {
   /** 草稿列開在哪一天（一次一張；null＝沒有） */
   draftDay: string | null;
   setDraftDay(day: string | null): void;
+  /**
+   * 從別處要看某一天（⑨ 提醒點開）：行程表可能還沒掛上，所以留在這裡等它掛上來收（桌機 useCalendarController、手機 MobileSchedule），收了就清。
+   * 不用 scrollReq：串流掛上時會把當下的 nonce 當「已處理」，掛上前發的請求會被丟掉。
+   */
+  dayReq: string | null;
+  requestDay(day: string | null): void;
   /** 手機行程表子頁：串流（清單）或 3 天時段（D-主-11；session 記憶，與 mobileSub 同款）。初值 "stream"；dev／mock：`?layout=time` */
   mobileLayout: MobileLayout;
   setMobileLayout(v: MobileLayout): void;
@@ -80,6 +86,9 @@ export const useScheduleUiStore: UseBoundStore<StoreApi<ScheduleUiState>> = crea
   setFocusDay: (day) => {
     if (get().focusDay !== day) set({ focusDay: day });
   },
+
+  dayReq: null,
+  requestDay: (day) => set({ dayReq: day }),
 
   scrollReq: null,
   requestScroll: (day, smooth = true) =>

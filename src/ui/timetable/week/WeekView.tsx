@@ -15,6 +15,7 @@
  * - 點空白：`openSheet({ kind: "fill", start, end })`（那段空白的起訖；未來的部分 segmentsOfDay 已夾到現在）。
  */
 import { useEffect, useRef } from "react";
+import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { blockMarker, TT_TEXT, useTimetableStore, type TimetableView } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -56,6 +57,7 @@ function mdOf(key: string): string {
 }
 
 export function WeekView({ shell }: { shell: "desktop" | "mobile" }) {
+  useHotkeyRevision();
   const week = useTimetableStatsStore((s) => s.week);
   const weekKey = useTimetableStatsStore((s) => s.weekKey);
   const weekFollow = useTimetableStatsStore((s) => s.weekFollow);

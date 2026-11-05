@@ -109,6 +109,16 @@ export function PlanLine({ aim, count, emptyText }: { aim: WeekAimRow; count: Pl
   );
 }
 
+/** ◎（車站；同路線一覽「下一站」那一枚的形狀） */
+export function StationMark({ size = 13 }: { size?: number }) {
+  return (
+    <svg className="wa-stn-ic" width={size} height={size} viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth={1} aria-hidden="true" focusable="false">
+      <circle cx="5" cy="5" r="4" />
+      <circle cx="5" cy="5" r="1.6" />
+    </svg>
+  );
+}
+
 /** 打勾（「已帶到下週」用；icons.tsx 沒有這一枚，形狀同原型 ICON.check） */
 export function IconCheckMini() {
   return (

@@ -42,7 +42,7 @@ export const RT_UI = {
   end: "結束",
   actual: "實際",
   del: "刪這段",
-  deleted: "已刪這段",
+  deleted: "已刪除這段",
   onSchedule: "照表",
   upcoming: "還沒到",
   notStarted: "還沒開始",

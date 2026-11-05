@@ -8,19 +8,18 @@
  *   返回鍵一次關最上面那一層（backStack 檔頭的規矩）。MSheet 開的那一刻底下有 "full" 就自動當 "dialog"、z 抬到頁之上（.is-over），
  *   所以不收 backKind 的 MobileTimeSheet 也不必繞（第一輪的兄弟 SubLayer 先登記、detail.css 抬 z 兩處繞法已拿掉）。
  *
- * 做不到的選項（有子項時的「定期券」）＝淡掉、點了 toast 說為什麼（觸控看不到 title；同票卡 ⋯ 的 MSheetItem off，D-主-76）。
  * 欄位（由上而下＝原型 Q2 A）：票根列（路線徽章・路線名・票號・票種）→ 名稱（襯線大字，blur／Enter 存）→ 概要（多行，blur 存）
  *   → 路線（只有臨時車票；= 桌機「所屬路線」）→ 票種（乘車券⇄定期券；切定期券展開重複規則、切回清掉規則）
  *   → 時段組（回饋甲 D-主-129，同桌機側板）：執行日 → 時段（開始 → 結束兩格，各開時刻 sheet）→ 長度（分段鈕＋自訂）→ 插槽 section "schedule" → 締切日
  *   → 重複（可收合段）→ 心情三燈（只給列車／車廂；收官磨光 Q1 起車票不畫，規格 §5）→ 各線 nodeFields 的 Mobile 列（荷札…）→ 乘務記錄清單＋記一句 → 競合 → 移動到… → 刪除。
  *   支線＝名稱・概要・各線欄位・移動到…・轉為列車・刪除（同桌機 BranchPanel）；其他種類只給名稱・移動到…・刪除。
- *   反方評審 #3 補齊桌機側板有、清單漏掉的（MobileStateRows）：名稱下「完成於」；重複段之後＝検印（車票済章／定期券本班済・運休・本班時刻）；
+ *   反方評審 #3 補齊桌機側板有、清單漏掉的（MobileStateRows）：名稱下「完成於」；重複段之後＝検印（車票済章／定期券本班済・運休・本班日期・本班時刻）；
  *   心情那一組前面加現況・優先順序（列車／車廂；車票＝検印之前一列優先順序，D-主-133）；之後分量（花費・進度）；移動到…之後「轉為支線」（列車）。
  * 寫入一律走既有動作、桌機同一支：
  *   名稱／概要／心情／締切日 → `updateNode`；執行日 → `updateNode(…, { backfill: true })`（D-主-67：改到過去＝補記，同桌機 ScheduledChip）；
  *   時段開始 → `updateNode`（scheduled_time）並出手機的時刻收據（timeReceipt，同 useMobileToday.setTime）；時段結束／長度 → `updateNode`（estimate_min）；重複／票種 → `setRepeatRule`（MobileRepeatSection）；
  *   路線標籤 → `setRouteTag`；乘務記錄 → `addWorkLog`；移動到… → `moveNodeTo`（toast＋復原）；刪除 → `deleteTicket`（子項 ≥5／不知道就先問、toast＋復原；先關頁再刪）。
- * 定期券（parseRule 才算；退役的也一樣）：執行日唯讀「依重複設定排班」；時段是「每班」（逐班改在検印下的「本班時刻」與票卡 ⋯「本班改時刻…」）。
+ * 定期券（parseRule 才算；退役的也一樣）：執行日唯讀「依重複設定排班」；時段是「每班」（逐班改在検印下的「本班日期」「本班時刻」與票卡 ⋯「本班改時刻…」）。
  * 第四輪（D-主-85）：路線也從這頁開（路線圖第二層抬頭 ⋯「路線詳情…」）——路線不在 tree／today 切片，改從 nodeStore.routes 找；
  *   內容換畫 ./MobileRouteBody（桌機 RoutePanel＋StationList 的手機版），本檔只分流。
  */
@@ -32,7 +31,7 @@ import { currentDest, moveTargetRule } from "../../../domain/moveTo";
 import type { AttachTarget } from "../../../domain/notes";
 import { todayKey } from "../../../lib/date";
 import { lineNodeFields } from "../../../lines/runtime";
-import { serialOf, useNodeStore } from "../../../store/nodeStore";
+import { isSettling, serialOf, useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { CommitInput, CommitTextarea } from "../../common/fields";
 import { MFullPage } from "../../common/MFullPage";
@@ -45,14 +44,14 @@ import { moveNodeTo } from "../../common/moveTo";
 import "../../common/moveTo.css";
 import { MOODS } from "../../complete/moods";
 import { fareClass } from "../../outline/OutlineRow";
-import { convertKindFlow } from "../../outline/nodeFlows";
+import { convertKindFlow, moveRunFlow, resetRunTimeFlow } from "../../outline/nodeFlows";
 import { useMinuteTick } from "../../schedule/useMinuteTick";
 import { MobileTimeSheet, timeReceipt } from "../MobileTimeSheet";
-import { deleteTicket, liveChildCount } from "../useMobileToday";
-import { mdwText, repeatKidsWhy, switchFare } from "../../panel/panelRules";
+import { confirmAndDeleteNode } from "../../common/deleteNodeFlow";
+import { mdwText, runDateBounds, switchFare } from "../../panel/panelRules";
 import { spanEnd } from "../../panel/clockValue";
 import { LengthField } from "../../panel/TimeField";
-import { useLiveChildCount, useRepeatDraft } from "../../panel/useRepeatDraft";
+import { useRepeatDraft } from "../../panel/useRepeatDraft";
 import { fmtLogStamp, splitLogs, timeCardOf } from "./detailModel";
 import { MobileRepeatSection } from "./MobileRepeatSection";
 import { MobileRouteBody } from "./MobileRouteBody";
@@ -123,7 +122,7 @@ function DetailPage({ nodeId }: { nodeId: string }) {
 }
 
 type Sub =
-  | { kind: "date"; title: string; value: string | null; quick: readonly DateQuick[]; onPick(day: string): void }
+  | { kind: "date"; title: string; value: string | null; quick: readonly DateQuick[]; min?: string; max?: string; onPick(day: string): void }
   | { kind: "time" }
   /** 時段的結束（MobileTimeSheet end 模式；改結束＝重算長度） */
   | { kind: "end" }
@@ -160,9 +159,9 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
   };
 
   const remove = () => {
-    // 先關頁再刪（同票卡 ⋯ 的 D-2）：確認框與 toast＋復原都在 deleteTicket（今日／行程表同一支）
+    // 先關頁再刪（同票卡 ⋯ 的 D-2）：確認框與 toast＋復原都在共用流程（今日／行程表同一支）
     onClose();
-    deleteTicket(node.id, node.name, liveChildCount(node.id));
+    void confirmAndDeleteNode(node.id);
   };
 
   return (
@@ -226,6 +225,8 @@ function DetailBody({ node, onClose }: { node: NodeRow; onClose: () => void }) {
         <MobileDatePicker
           title={sub.title}
           value={sub.value}
+          min={sub.min}
+          max={sub.max}
           today={today}
           quick={sub.quick}
           onPick={(d) => {
@@ -326,8 +327,6 @@ function RouteLabel({ routeId, empty }: { routeId: string | null; empty: string 
 
 function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; setSub: (s: Sub) => void }) {
   const updateNode = useNodeStore((s) => s.updateNode);
-  const showToast = useUiStore((s) => s.showToast);
-  const kidCount = useLiveChildCount(node.id);
   const repeatable = REPEATABLE_KINDS.includes(node.kind);
   const { draft, push } = useRepeatDraft(node);
   const [repOpen, setRepOpen] = useState(false);
@@ -336,8 +335,13 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
   const isTemp = node.kind === "ticket" && node.parent_id === null;
   const plainFare = fareClass({ ...node, repeat_rule: null }).label;
 
-  const pickDate = (title: string, value: string | null, quick: readonly DateQuick[], onPick: (d: string) => void) =>
-    setSub({ kind: "date", title, value, quick, onPick });
+  const pickDate = (
+    title: string,
+    value: string | null,
+    quick: readonly DateQuick[],
+    onPick: (d: string) => void,
+    range?: { min?: string; max?: string },
+  ) => setSub({ kind: "date", title, value, quick, onPick, ...range });
 
   return (
     <>
@@ -356,8 +360,6 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
         {repeatable && (
           <Row label="票種">
             <Segmented
-              // 有子項＝「定期券」做不到：淡掉（.is-teiki-off），點了說為什麼——不用 disabled＋title（觸控看不到）
-              className={"m-dt-fare-seg" + (kidCount > 0 ? " is-teiki-off" : "")}
               options={[
                 { value: "plain", label: plainFare },
                 { value: "teiki", label: "定期券" },
@@ -365,11 +367,6 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
               value={draft.mode === "none" ? "plain" : "teiki"}
               onChange={(v) => {
                 const teiki = v === "teiki";
-                if (teiki && kidCount > 0) {
-                  // 理由同重複段收起時段頭那句（panelRules.repeatKidsWhy，桌機重複段同一句）
-                  showToast({ message: repeatKidsWhy(node.kind) }, 3600);
-                  return;
-                }
                 push(switchFare(draft, teiki));
                 // 切定期券＝展開重複規則給人看；切回＝規則已清，段落照舊（段頭寫「不重複」）
                 if (teiki) setRepOpen(true);
@@ -431,10 +428,9 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           node={node}
           draft={draft}
           push={push}
-          kidCount={kidCount}
           open={repOpen}
           onToggle={() => setRepOpen((o) => !o)}
-          onPickStart={(cur, done) => pickDate("起算日", cur, [], done)}
+          onPickDate={(title, cur, done, min) => pickDate(title, cur, [], done, { min })}
         />
       )}
 
@@ -446,6 +442,20 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           onRunTime={() => {
             const day = useNodeStore.getState().currentOccurrences[node.id]?.due_on ?? node.scheduled_on;
             if (day) setSub({ kind: "run", railDate: day });
+          }}
+          onRunDate={(railDate) => {
+            // 範圍同 runMoveBlock（今天起、不早於起算日、不晚於結束日）；快選也只留範圍內的
+            const { min, max } = runDateBounds(parseRule(node.repeat_rule), today);
+            const quick = dateQuickSet("forward", today).filter((q) => q.day >= min && (!max || q.day <= max));
+            pickDate(
+              "本班日期",
+              railDate,
+              quick,
+              (d) => {
+                if (!isSettling(node.id)) void moveRunFlow(node.id, railDate, d);
+              },
+              { min, max },
+            );
           }}
         />
         {isTaskKind(node.kind) && <StatusRows node={node} />}
@@ -603,10 +613,13 @@ function RunTimeSub({ node, railDate, today, onClose }: { node: NodeRow; railDat
     }),
     [node, occ, railDate],
   );
-  const receipt = (kind: "run" | "reset", time: string | null) => (r: { ok: boolean }) => {
-    if (r.ok) useUiStore.getState().showToast({ message: timeReceipt(kind, time) }, 2400);
-  };
-  const setRun = (time: string | null) => void useNodeStore.getState().setRunTime(node.id, railDate, time).then(receipt("run", time));
+  const setRun = (time: string | null) =>
+    void useNodeStore
+      .getState()
+      .setRunTime(node.id, railDate, time)
+      .then((r) => {
+        if (r.ok) useUiStore.getState().showToast({ message: timeReceipt("run", time) }, 2400);
+      });
   return (
     <MobileTimeSheet
       card={card}
@@ -624,7 +637,7 @@ function RunTimeSub({ node, railDate, today, onClose }: { node: NodeRow; railDat
         onClose();
       }}
       onReset={() => {
-        void useNodeStore.getState().clearRunTime(node.id, railDate).then(receipt("reset", null));
+        void resetRunTimeFlow(node.id, railDate);
         onClose();
       }}
       onClose={onClose}

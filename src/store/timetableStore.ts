@@ -32,6 +32,7 @@
  * 選取與格子大小另開 `timetableGridStore`（純 UI 狀態）；`view` 的 `"grid"` 由整合席加。
  */
 import { create } from "zustand";
+import { capsOfHotkey } from "../ui/shell/hotkeys.ts";
 import { timetableRepo } from "../data/timetableRepository";
 import { settingsRepo, nodeRepo, MOCK_MODE } from "../data";
 import { useUiStore } from "./uiStore";
@@ -87,6 +88,9 @@ import {
 export const KEY_LONG_RUN_MAX = "timetable_long_run_max_min"; // 同步（manifest syncSettingsKeys）
 export const KEY_VIEW = "timetable_view"; // 本地
 export const KEY_NOTICE = "timetable_notice"; // 本地："0"＝關；沒有列＝開
+// 己（D-時-172、175）：記住上次，本地、不同步（不進 manifest syncSettingsKeys）
+export const KEY_LONG_RUN_AFTER = "timetable_longrun_after"; // 本地：「其實到幾點」之後三選一（gap／cat／keep）；沒有列＝gap
+export const KEY_DEPART_EST_OPEN = "timetable_depart_est_open"; // 本地："1"＝発車面板的預估列展開
 export const LONG_RUN_MAX_DEFAULT = 840; // 14 小時；0＝關
 // ①b①c 契約 0-11：以下本地、不同步（不進 manifest syncSettingsKeys；D-時-30 各台各記）——例外：KEY_NOTICE_PINS 磨光② 起同步（D-主-40）
 export const KEY_NOTICE_LONG_RUN = "timetable_notice_long_run"; // 本地："0"＝關；沒有列＝開（跑太久提醒）
@@ -111,7 +115,7 @@ export type TimetableSheet =
   | { kind: "fill"; start: number; end: number; cont?: { rest: readonly FillPiece[]; toNow: boolean } }
   /**
    * 改一塊（已結束）／改這一班（運行中，磨光⑦ D-時-152：RestartPanel 併進來）。focus "start"＝從「HH:MM 発」或
-   * 改出發時間的快捷鍵進來：桌機游標落在発車框、手機把発車列捲進畫面閃一下（不叫鍵盤）
+   * 改出發時間的快捷鍵、發車 toast「改時間」進來：桌機游標落在発車框、手機把発車列捲進畫面閃一下（不叫鍵盤）
    */
   | { kind: "edit"; blockId: string; focus?: "start" }
   | { kind: "split"; blockId: string }
@@ -122,12 +126,8 @@ export type TimetableSheet =
    * ⑦（B 席）：第四籤「作息」＝tab "routines"；focus "routine"＝開作息籤，再帶 focusId（範本 id）＝展開那一套、捲進畫面。
    */
   | { kind: "categories"; focusId?: string; focus?: "notice" | "routine"; tab?: "cats" | "notice" | "goals" | "routines" }
-  /** ①b：這一班的預估（運行中那班） */
-  | { kind: "estimate"; blockId: string }
   /** ②：從任務發車、第一次碰到的路線（☎一-1） */
   | { kind: "taskCategory"; nodeId: string }
-  /** ②：改一塊的連結（運行列「連到…」與改一塊面板都開它） */
-  | { kind: "link"; blockId: string }
   /**
    * ③：時數目標面板；goalId null＝新增。UI 丙-4 修：back "goals"＝從「分類與設定」的目標籤點進來，
    * 儲存／取消／封存／刪除後回到那一籤（不是整個關掉），面板底的「已封存的目標」也不畫（目標籤已經有一份）
@@ -145,9 +145,13 @@ export type TimetableSheet =
   | { kind: "tags"; blockId: string };
 
 /** toast 全文（契約 §5.10）與固定文案（§5.11）——顯示端不手抄 */
+/** 時刻表頁的換日／今天鍵（可自訂）；提示字都查 registry */
+const stepCaps = (): string => `${capsOfHotkey("timetable.day.prev")} ${capsOfHotkey("timetable.day.next")}`;
+const todayCaps = (): string => capsOfHotkey("timetable.day.today");
+
 export const TT_TEXT = {
   depart: (cat: string, at: number) => `発車・${cat}　${fmtClock(at)}`,
-  departAction: "改 10 分前",
+  departAction: "改時間",
   arrive: (cat: string, dur: number) => `到着・${cat}　${fmtDur(dur)}`,
   undo: "復原",
   longRunGap: (cat: string, at: number) => `到着・${cat}　${fmtClock(at)}；之後留白`,
@@ -164,13 +168,14 @@ export const TT_TEXT = {
   editRunningOther: (cat: string) => `改好了・${cat}（運行中）`,
   /** 磨光⑦：運行列分類名的滑過提示 */
   dockEditTitle: "改這一班",
+  dockLong: "長時間運行",
+  dockAsk: "⚠ 其實到幾點？",
+  dockAskLate: (overMs: number) => `⚠ ${TT_TEXT.late(overMs)}・其實到幾點？`,
   /** 磨光⑦：運行中面板的「到着」那一列（結束時間對正在跑的班不適用） */
   runningNoEnd: "還在跑——到站請按運行列的「到着」",
   /** 磨光⑦：面板開著時這一班被別台按了到着 */
   justArrived: "這一班剛到站了",
   /** 磨光③ 2-2：運行列的「切開」鈕（D-時-138）；2-3：視圖列固定的「分類與設定」鈕（手機寫短字） */
-  dockSplit: "切開",
-  dockSplitTitle: "切開這一班",
   settingsBtn: "分類與設定",
   /** UI 丙-4 F1：手機籤列末端的文字鈕＝規範 §2.1 的「管理」（各線同一個字；開的仍是分類與設定） */
   settingsBtnShort: "管理",
@@ -218,7 +223,6 @@ export const TT_TEXT = {
   latePending: (overMs: number) => `誤點 +${fmtDur(overMs)}・待確認`,
   /** B12 預估 chip */
   estimateChip: (min: number) => `預估 ${fmtDur(min * MIN)}`,
-  estimateAdd: "＋預估",
   /** B13 F 鍵沒有空白 */
   noGap: "這天沒有漏記的時間",
   /** B14 切點驗證 */
@@ -228,8 +232,6 @@ export const TT_TEXT = {
   DEPART_TASK: (cat: string, task: string, at: number) => `発車・${cat}・${task}　${fmtClock(at)}`,
   ALREADY_RUNNING_TASK: (task: string) => `「${task}」已經在跑了`,
   TASK_MISSING: "找不到這張車票",
-  LINKED: (label: string) => `已連到「${label}」`,
-  UNLINKED: "已取消連結",
   DONE_STILL_RUNNING: (task: string) => `「${task}」蓋済了，計時還在跑`,
   ARRIVE_ACTION: "到着",
   TASK_CATEGORY_TITLE: (task: string) => `「${task}」算哪一類？`,
@@ -242,7 +244,6 @@ export const TT_TEXT = {
   /** LinkPanel 標題 */
   LINK_TITLE: "連到…",
   /** 運行列沒連時的淡字 */
-  LINK_NONE: "連到…",
   LINK_CLEAR: "取消連結",
   LINK_ROUTE_ONLY: "只連路線",
   TODAY_TICKETS: "今日車票",
@@ -289,7 +290,7 @@ export const TT_TEXT = {
   /** 已結束的卡上「收起來」（＝封存） */
   goalHide: "收起來",
   goalSaved: (name: string) => `目標「${name}」存好了`,
-  goalDeleted: "目標刪掉了",
+  goalDeleted: "已刪除這個目標",
   goalArchived: (name: string) => `「${name}」收起來了`,
   goalUnarchived: (name: string) => `「${name}」取回來了`,
   pendingAllDone: "都確認好了",
@@ -316,7 +317,7 @@ export const TT_TEXT = {
     blockTip: (name: string, from: string, to: string, dur: string, pending: boolean, tiny: boolean) =>
       `${name} ${from}–${to}・${dur}${pending ? "・待確認" : ""}${tiny ? "・碎塊（不進統計）" : ""}`,
     gapTip: (from: string, to: string, dur: string) => `未記錄 ${from}–${to}・${dur}　點擊補記`,
-    foot: (desktop: boolean) => `點時間塊可查看或編輯；點空白處可補記${desktop ? "；← → 換週、T 回本週" : ""}`,
+    foot: (desktop: boolean) => `點時間塊可查看或編輯；點空白處可補記${desktop ? `；${stepCaps()} 換週、${todayCaps()} 回本週` : ""}`,
   },
   /** ③ 同步清單的時刻表三張表（丙席；契約 0-13、D-時-58；`lines/timetableSyncLabel.ts` 讀） */
   syncRunningFrom: "起",
@@ -398,7 +399,7 @@ export const TT_TEXT = {
     periodGroup: "期間",
     prevPeriod: "上一期",
     nextPeriod: "下一期",
-    keysHint: "← → 換期",
+    keysHint: () => `${stepCaps()} 換期`,
     pendingCount: (n: number) => `待確認 ${n} 班`,
     pendingTip: "點開逐一確認，修好就會歸入分類",
     pendingNone: "沒有跑太久、待確認的時間塊",
@@ -583,7 +584,7 @@ export const TT_TEXT = {
   gridLegendFuture: "還沒到",
   /** 操作說明一行 */
   gridFoot: (isDesk: boolean) =>
-    `拖曳選取格子再點分類可補記；點色塊可修改${isDesk ? "；← → 換日、T 今天、Esc 取消" : ""}`,
+    `拖曳選取格子再點分類可補記；點色塊可修改${isDesk ? `；${stepCaps()} 換日、${todayCaps()} 今天、Esc 取消` : ""}`,
   /** toast：補上（fill） */
   paint: (cat: string, durMs: number) => `補上・${cat}　${fmtDur(durMs)}`,
   /** toast：live 換車 */
@@ -609,7 +610,6 @@ export const TT_TEXT = {
     row: "荷札",
     /** 手機新增鈕（磨光③ 2-10：跟桌機、旅客筆記同字） */
     add: "掛荷札",
-    runCount: (n: number) => `荷札 ${n}`,
     /** 分類帶的牌子的滑過字（D-時-115；磨光③ 統一用「」） */
     fromCategory: (name: string) => `來自分類「${name}」`,
     fromGroup: (name: string) => `來自「${name}」群組`,
@@ -635,8 +635,6 @@ export const TT_TEXT = {
     defaults: "預設荷札",
     /** 一個荷札的顯示字「#高效」 */
     chip: (name: string) => `#${name}`,
-    /** 運行列淡字（D-時-116）：最多 2 個＋「…」；names＝全部（不含 #） */
-    runList: (names: readonly string[]) => (names.length ? "・" + names.slice(0, 2).map((n) => `#${n}`).join(" ") + (names.length > 2 ? " …" : "") : ""),
     /** 手機點選器標題（D-時-129）：已結束「荷札・娛樂 23:20」（分類＋發車時刻）／運行中「荷札・創作 14:35 起」 */
     pickerTitle: (cat: string, start: number, running: boolean) => `荷札・${cat} ${fmtClock(start)}${running ? " 起" : ""}`,
     /** 占比卡分段鈕（D-時-118） */
@@ -677,7 +675,6 @@ export const TT_TEXT = {
     runHint: "手動加的荷札會跟著這一班，到站或切開後也會保留",
     // UI 丙-4 修：close「關閉」／done「好了」拿掉（C4：荷札小面板即時存，不放字鈕；規範 §4）
     /** 運行列「荷札」鈕的滑過字（還沒有荷札時） */
-    runBtnTitle: "幫這一班加荷札",
     /** 目標面板荷札段的說明 */
     goalTagHint: "同時選分類與荷札時，只要符合其一就會計入（不重複計算）",
     /** 分類管理：子分類的「組帶的」那一行尾巴、⋯ 展開區的兩句說明、組頭 ⋯ 的 aria-label */
@@ -716,6 +713,10 @@ export interface TimetableStore {
   /** 本週（週一的日界線起）到現在 */
   weekBlocks: TimeBlockRow[];
   longRunMaxMin: number;
+  /** 己（D-時-172）：「其實到幾點」上次確認的「之後」；resolveLongRun 成功才記 */
+  longRunAfter: LongRunChoice;
+  /** 己（D-時-175）：発車面板的預估列上次是展開的（只記展開，不記值） */
+  departEstOpen: boolean;
   view: TimetableView;
   noticeEnabled: boolean;
   sheet: TimetableSheet | null;
@@ -752,6 +753,7 @@ export interface TimetableStore {
   reload(ctx: LineReloadContext): Promise<void>;
 
   /* 視圖與設定 */
+  setDepartEstOpen(open: boolean): void;
   setView(v: TimetableView): void; // 寫 KEY_VIEW（本地）；切到任何視圖都順手 ensureFreshDay（③ 0-7）
   /**
    * ③ 接縫 #72：`todayKey(dayStartHour, 現在) !== state.todayKey` ⇒ `refresh()`；否則什麼都不做。
@@ -786,7 +788,6 @@ export interface TimetableStore {
   /** ①b：第三參數＝這一班的預估（分；舊呼叫照舊成立）。②：第四參數＝新一班的連結 */
   depart(categoryId: string, at: number, estimateMin?: number | null, link?: BlockLink | null): Promise<void>;
   arrive(at?: number): Promise<void>;
-  restart(blockId: string, at: number): Promise<void>;
   /**
    * ②：第四參數＝新一塊的連結。⑥（0-12）：第五參數＝面板草稿的手動荷札名稱（不含分類帶的）；拿到新塊的 id 後
    * `tagRepo.setTags('timetable:block', id, names)`（不另 toast）。undefined 或空陣列＝不掛。名稱不合法 ⇒ toast 理由、整筆不寫。
@@ -827,6 +828,7 @@ export interface TimetableStore {
    * 磨光⑦（D-時-152）：改運行中那一班——分類、出發時間、連結（undefined＝不動）、荷札差集／排除（同 editBlock）。
    * 什麼都沒變 ⇒ 不寫。toast：換了分類「改成 X・HH:MM 発」；只改出發時間「出發時間改成 HH:MM」。
    * ⑦：note＝備註（同 editBlock；只改備註＝「改好了・X（運行中）」）
+   * 己（D-時-171）：estimateMin＝這一班的預估（undefined＝不動、null＝清掉；只改預估＝照舊「預估改成 X」）
    */
   editRunning(
     blockId: string,
@@ -836,6 +838,7 @@ export interface TimetableStore {
     tagEdit?: BlockTagEdit,
     offNames?: readonly string[],
     note?: string | null,
+    estimateMin?: number | null,
   ): Promise<void>;
   split(blockId: string, at: number, categoryId2: string): Promise<void>;
   resolveLongRun(blockId: string, end: number, choice: LongRunChoice, categoryId2?: string): Promise<void>;
@@ -883,8 +886,6 @@ export interface TimetableStore {
   departFromTask(nodeId: string): Promise<void>;
   /** 分類選擇面板選好之後（或其他已知分類的入口）真的發車；長時間運行待確認 ⇒ 先問「其實到幾點」 */
   departWithLink(categoryId: string, link: BlockLink, opts?: { estimateMin?: number | null; at?: number }): Promise<void>;
-  /** 改一塊的連結；toast LINKED／UNLINKED */
-  setLink(blockId: string, link: BlockLink | null): Promise<void>;
   /** 只重讀 linkInfo（taskWatch 叫；不經 serial、不 toast；帶序號，比後來開始的 refresh 舊的結果丟掉） */
   refreshLinks(): Promise<void>;
   /** 側板「時間」用的讀取（不寫狀態、不經 serial） */
@@ -1155,16 +1156,20 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
   async function firstInit(shell: TimetableShell): Promise<void> {
     set({ loading: true, error: null });
     try {
-      const [view, notice, longRun, tiles, pins] = await Promise.all([
+      const [view, notice, longRun, tiles, pins, after, estOpen] = await Promise.all([
         settingsRepo.get(KEY_VIEW),
         settingsRepo.get(KEY_NOTICE),
         settingsRepo.get(KEY_NOTICE_LONG_RUN),
         settingsRepo.get(KEY_NOTICE_TILES),
         settingsRepo.get(KEY_NOTICE_PINS),
+        settingsRepo.get(KEY_LONG_RUN_AFTER),
+        settingsRepo.get(KEY_DEPART_EST_OPEN),
       ]);
       await readLongRunMax();
       set({
         view: normalizeView(view, shell),
+        longRunAfter: after === "cat" || after === "keep" ? after : "gap",
+        departEstOpen: estOpen === "1",
         noticeEnabled: notice !== "0",
         noticeLongRunEnabled: longRun !== "0",
         noticeTilesEnabled: tiles !== "0",
@@ -1238,6 +1243,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     todayBlocks: [],
     weekBlocks: [],
     longRunMaxMin: LONG_RUN_MAX_DEFAULT,
+    longRunAfter: "gap",
+    departEstOpen: false,
     view: "split",
     noticeEnabled: true,
     sheet: null,
@@ -1354,6 +1361,11 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     },
 
     /* ───────── 視圖與設定 ───────── */
+
+    setDepartEstOpen(open) {
+      set({ departEstOpen: open });
+      void settingsRepo.set(KEY_DEPART_EST_OPEN, open ? "1" : "0").catch(() => undefined);
+    },
 
     setView(v) {
       set({ view: v });
@@ -1535,9 +1547,9 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
           const label = linkLabelOf(block, get().linkInfo);
           const text = label !== null ? TT_TEXT.DEPART_TASK(name, label, start) : TT_TEXT.depart(name, start);
           if (now - atMs < MIN) {
-            // 出發＝現在：帶「改 10 分前」（該班仍運行中才動）
+            // 出發＝現在：帶「改時間」開改這一班、游標在発車框（己 D-時-176：不再固定 10 分；該班仍運行中才動）
             toast(text, TT_TEXT.departAction, () => {
-              if (get().running?.id === block.id) void get().restart(block.id, start - 10 * MIN);
+              if (get().running?.id === block.id) get().openSheet({ kind: "edit", blockId: block.id, focus: "start" });
             });
           } else {
             toast(text);
@@ -1566,15 +1578,6 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
             })();
           });
         },
-      );
-    },
-
-    async restart(blockId, at) {
-      const now = Date.now();
-      const atMs = Math.min(at, now - MIN);
-      await write(
-        () => timetableRepo.restart(blockId, isoOf(atMs)),
-        () => toast(TT_TEXT.restart(atMs)),
       );
     },
 
@@ -1638,7 +1641,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       );
     },
 
-    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note) {
+    async editRunning(blockId, categoryId, start, link, tagEdit, offNames, note, estimateMin) {
       const add = draftTagNames(tagEdit?.add);
       if (add === false) return;
       const offEdit = offNames === undefined ? null : blockTagEditOf(useTagStore.getState().keysOf(TT_TAG_BLOCK_OFF, blockId), offNames);
@@ -1647,10 +1650,13 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       const before = get().running;
       const catChanged = !before || before.id !== blockId || before.category_id !== categoryId;
       const startChanged = !before || before.id !== blockId || msOf(before.started_at) !== start;
+      // 己：只改了預估 ⇒ toast 講預估（同舊預估面板）
+      const onlyEstimate = estimateMin !== undefined && !catChanged && !startChanged && link === undefined && !tagEdit && !offEdit && note === undefined;
       let tagErr: unknown = null;
       await write(
         async () => {
-          const r = await timetableRepo.editRunning(blockId, { categoryId, startIso: isoOf(start), link, note });
+          const r = onlyEstimate ? null : await timetableRepo.editRunning(blockId, { categoryId, startIso: isoOf(start), link, note });
+          if (estimateMin !== undefined) await timetableRepo.setEstimate(blockId, estimateMin);
           const edits: [BlockTagEdit, typeof TT_TAG_BLOCK | typeof TT_TAG_BLOCK_OFF][] = [];
           if (tagEdit) edits.push([{ add: add ?? [], remove: tagEdit.remove }, TT_TAG_BLOCK]);
           if (offEdit) edits.push([{ add: offAdd ?? [], remove: offEdit.remove }, TT_TAG_BLOCK_OFF]);
@@ -1667,6 +1673,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         },
         () => {
           if (tagErr) failToast(tagErr);
+          else if (onlyEstimate) toast(estimateMin === null ? TT_TEXT.estimateCleared : TT_TEXT.estimateSet(estimateMin));
           else if (catChanged) toast(TT_TEXT.editRunning(catName(categoryId), Math.min(start, Date.now() - MIN)));
           else if (startChanged) toast(TT_TEXT.restart(Math.min(start, Date.now() - MIN)));
           else toast(TT_TEXT.editRunningOther(catName(categoryId)));
@@ -1697,7 +1704,9 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         () => timetableRepo.resolveLongRun(blockId, isoOf(end), choice, categoryId2),
         () => {
           ++sheetSeq;
-          set({ sheet: null, sheetBlock: null });
+          set({ sheet: null, sheetBlock: null, longRunAfter: choice });
+          // 己（D-時-172）：確認才記（試點、略過不算）
+          void settingsRepo.set(KEY_LONG_RUN_AFTER, choice).catch(() => undefined);
           if (choice === "gap" && block) toast(TT_TEXT.longRunGap(catName(block.category_id), end));
           else if (choice === "cat" && categoryId2) toast(TT_TEXT.longRunCat(catName(categoryId2), end));
           continueAfterLongRun(then);
@@ -1741,7 +1750,25 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       await write(
         () => timetableRepo.merge(blockId, dir, isoOf(bound)),
         (p) => {
-          if (p) toast(TT_TEXT.merged(catName(p.categoryId), p.start, p.end));
+          if (!p) return;
+          const msg = TT_TEXT.merged(catName(p.categoryId), p.start, p.end);
+          // 併進運行中那班不給復原（同提早出發，paintUndoable）：得把運行中那班的 started_at 寫回去，跨裝置會拼出零長度塊。
+          // 被吞的塊照樣在最近刪除
+          if (p.intoRunning) {
+            toast(msg);
+            return;
+          }
+          toast(msg, TT_TEXT.undo, () => {
+            void (async () => {
+              try {
+                const ok = await serial(() => timetableRepo.undoPaint(p.undo));
+                if (!ok) toast(TT_TEXT.paintUndoFailed);
+                await get().refresh();
+              } catch (e) {
+                failToast(e);
+              }
+            })();
+          });
         },
       );
     },
@@ -1936,26 +1963,6 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         return;
       }
       await get().depart(categoryId, opts?.at ?? Date.now(), opts?.estimateMin ?? null, link);
-    },
-
-    async setLink(blockId, link) {
-      await write(
-        async () => {
-          await timetableRepo.setLink(blockId, link);
-          // toast 用的名字：refresh 之後 linkInfo 通常已經有；沒有（這一塊不在畫面的範圍）就自己讀一次
-          const id = link ? (link.nodeId ?? link.routeId) : null;
-          const n = id ? await nodeRepo.getNode(id).catch(() => null) : null;
-          return n ? n.name : null;
-        },
-        (fetched) => {
-          if (!link) {
-            toast(TT_TEXT.UNLINKED);
-            return;
-          }
-          const label = linkLabelOf({ node_id: link.nodeId, route_id: link.routeId }, get().linkInfo) ?? fetched ?? "";
-          toast(TT_TEXT.LINKED(label));
-        },
-      );
     },
 
     async refreshLinks() {

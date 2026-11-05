@@ -1,0 +1,215 @@
+/**
+ * 提醒頁（ReminderSettingsBody；原型 prototypes/提醒-設定與通知.html 的 `.rm-*`）。**只放排版**，顏色一律 token。
+ * 桌機：組名在左欄（像時刻表的欄）。手機：組名回到上方、列高與觸控目標照手機。
+ * 開關＝common/Toggle、時刻＝ClockInput compact、下拉＝.ns-select-wrap＋.techo-input、說明＝.ns-note。
+ */
+.ns-rm {
+  display: flex;
+  flex-direction: column;
+  /* 小字的赭：同 settings.css 與 mobile.css 的 --ns-warn-text（純赭在紙卡與天空上小字過不了 AA） */
+  --ns-warn-text: color-mix(in srgb, var(--color-late) 74%, var(--color-ink));
+}
+.ns-rm-head { margin: 0 0 var(--sp-4); }
+.ns-rm-warn { color: var(--ns-warn-text); font-size: var(--fs-ui); letter-spacing: .06em; }
+
+/* 分組 */
+.ns-rm-grp {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  column-gap: var(--sp-2);
+  border-top: 1px solid var(--color-line);
+}
+.ns-rm-grp-k { padding-top: 10px; line-height: 16px; }
+.ns-rm-rows { min-width: 0; }
+
+/* 列：左＝名稱＋什麼時候響，右＝開關 */
+.ns-rm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: 46px;
+  padding: 3px 0;
+}
+.ns-rm-row + .ns-rm-row,
+.ns-rm-sub + .ns-rm-row { border-top: 1px dashed var(--color-line); }
+.ns-rm-row-tx { display: flex; flex-direction: column; min-width: 0; }
+.ns-rm-row-t {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--sp-1);
+  font-size: var(--fs-body);
+  letter-spacing: .06em;
+  color: var(--color-ink);
+}
+/* 「什麼時候響」是這頁的要緊資訊，不是腳註：比 --fs-micro 大一階、用注記墨階 */
+.ns-rm-row-w {
+  margin-top: 1px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+}
+.ns-rm .ns-toggle { flex: none; color: var(--color-ink-soft); }
+.ns-rm .ns-toggle.is-on { color: var(--color-ink); }
+
+/* 列裡的下拉：字跟句子同大小，數字拉丁體 */
+.ns-rm-num {
+  min-height: 22px;
+  padding: 0 16px 0 4px !important; /* 蓋 .ns-select-wrap .techo-input 的 padding-right（同一列太擠） */
+  font-family: var(--font-latin), var(--font-body);
+  font-size: var(--fs-body);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+  line-height: 20px;
+}
+.ns-rm-num:hover:not(:disabled) { border-bottom-color: var(--accent); }
+.ns-rm-num:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-rm-num:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-rm-numwrap::after { right: 5px; width: 5px; height: 5px; }
+.ns-rm-numwrap:has(:disabled)::after { opacity: var(--disabled); }
+
+/* 兩個時刻 */
+.ns-rm-grp.ns-rm-clock { align-items: center; padding: var(--sp-2) 0; border-top: 0; }
+.ns-rm-clock .ns-rm-grp-k { padding-top: 0; }
+.ns-rm-clock-items { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); }
+.ns-rm-clock-item { display: inline-flex; align-items: flex-start; gap: var(--sp-2); }
+.ns-rm-clock-k { font-size: var(--fs-ui); line-height: var(--ctl-input); letter-spacing: .1em; color: var(--color-ink-soft); }
+/* ClockInput 的說明行固定留 18px 高：這裡只在打錯時才要它 */
+.ns-rm-clock .ns-clock-foot:not(.is-err) { display: none; }
+
+/* 權限與「晚幾分鐘」：一行字＋（權限才有）次鈕 */
+.ns-rm-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: 36px;
+  margin-bottom: var(--sp-2);
+}
+.ns-rm-hint .ns-btn { flex: none; }
+.ns-rm-sub { margin: 0; padding: 0 0 var(--sp-2); font-size: var(--fs-sm); line-height: 1.45; }
+.ns-rm-tail { margin: var(--sp-2) 0 0; }
+
+/* 最近的提醒：虛線列，整列可點（時間｜標題＋內文｜›） */
+.ns-rm-recent { margin-top: var(--sp-5); padding-top: var(--sp-3); border-top: 1px dashed var(--color-dash); }
+.ns-rm-recent-k { display: block; margin-bottom: var(--sp-1); }
+.ns-rm-empty { margin: 0; padding: var(--sp-2) 2px; }
+.ns-rm-list { list-style: none; margin: 0; padding: 0; }
+.ns-rm-list li + li { border-top: 1px dashed var(--color-line); }
+.ns-rm-item {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: 9px;
+  width: 100%;
+  min-height: 46px;
+  padding: 5px 2px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-rm-item:hover { background: var(--hover-bg); }
+.ns-rm-item:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-rm-item-w,
+.ns-rm-item-tx { display: block; min-width: 0; }
+.ns-rm-item-hm {
+  display: block;
+  font-family: var(--font-latin);
+  font-size: var(--fs-ui);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  letter-spacing: .03em;
+  color: var(--color-ink);
+}
+.ns-rm-item-d,
+.ns-rm-item-b {
+  display: block;
+  font-size: var(--fs-xs);
+  line-height: 17px;
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+}
+.ns-rm-item-t {
+  display: block;
+  font-size: var(--fs-ui);
+  line-height: 20px;
+  letter-spacing: .04em;
+  color: var(--color-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ns-rm-item-t em { font-style: normal; color: var(--ns-warn-text); }
+.ns-rm-item-b { overflow: hidden; text-overflow: ellipsis; }
+.ns-rm-item-go {
+  justify-self: end;
+  font-size: var(--fs-tab);
+  line-height: 1;
+  color: var(--color-ink-faint);
+  opacity: var(--dim);
+  transition: opacity var(--dur-fast) var(--ease-soft);
+}
+.ns-rm-item:hover .ns-rm-item-go,
+.ns-rm-item:focus-visible .ns-rm-item-go { opacity: 1; }
+
+/* ───────── 手機殼 ───────── */
+[data-shell="mobile"] .ns-rm {
+  /* 手機的字直接壓在天上（對 --sky-mid）：赭再壓深一點才過 AA */
+  --ns-warn-text: color-mix(in srgb, var(--color-late) 62%, var(--color-ink));
+}
+[data-shell="mobile"] .ns-rm-head { margin: 0 0 var(--sp-2); }
+[data-shell="mobile"] .ns-rm-grp { display: block; border-top: 0; margin-top: var(--sp-5); }
+[data-shell="mobile"] .ns-rm-grp-k {
+  display: block;
+  padding: 0 0 6px;
+  line-height: 1.7;
+  letter-spacing: .28em;
+  text-indent: .28em;
+  color: var(--color-ink-soft);
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .ns-rm-row { min-height: 56px; padding: 2px 0; gap: var(--sp-2); }
+[data-shell="mobile"] .ns-rm .ns-toggle { min-height: 44px; padding: 0 0 0 var(--sp-2); }
+[data-shell="mobile"] .ns-rm-warn { font-size: var(--fs-body); }
+[data-shell="mobile"] .ns-rm-sub { font-size: var(--fs-sm); }
+
+/* 下拉：看起來 30 高，點擊區撐到 44（底線改畫在背景，才能跟字貼著） */
+[data-shell="mobile"] .ns-rm-numwrap { height: 30px; }
+[data-shell="mobile"] .ns-rm-num {
+  height: 44px;
+  margin: -7px 0;
+  border-bottom: 0;
+  line-height: 44px;
+  background: linear-gradient(var(--color-dash), var(--color-dash)) 0 36px / 100% 1px no-repeat;
+}
+[data-shell="mobile"] .ns-rm-numwrap::after { top: 15px; transform: translateY(-50%) rotate(45deg); }
+
+[data-shell="mobile"] .ns-rm-grp.ns-rm-clock { margin-top: var(--sp-3); padding: 0; }
+[data-shell="mobile"] .ns-rm-clock-items { flex-direction: column; align-items: stretch; gap: 0; padding-top: 2px; }
+[data-shell="mobile"] .ns-rm-clock-item { justify-content: space-between; align-items: center; min-height: 56px; }
+[data-shell="mobile"] .ns-rm-clock-item + .ns-rm-clock-item { border-top: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-rm-clock-k { font-size: var(--fs-body); line-height: 1.4; color: var(--color-ink); letter-spacing: .06em; }
+[data-shell="mobile"] .ns-rm-clock .ns-clock .step { min-width: 44px; min-height: var(--ctl-h); }
+
+[data-shell="mobile"] .ns-rm-recent { padding-top: 0; border-top: 0; }
+[data-shell="mobile"] .ns-rm-recent-k {
+  margin: 0;
+  padding: 0 0 6px;
+  letter-spacing: .28em;
+  text-indent: .28em;
+  color: var(--color-ink-soft);
+  border-bottom: 1px solid var(--color-line);
+}
+[data-shell="mobile"] .ns-rm-item { grid-template-columns: 52px minmax(0, 1fr) 12px; min-height: 58px; padding: 6px 0; column-gap: var(--sp-2); }
+[data-shell="mobile"] .ns-rm-item:hover { background: transparent; }
+[data-shell="mobile"] .ns-rm-item:active { background: var(--color-paper-used); }

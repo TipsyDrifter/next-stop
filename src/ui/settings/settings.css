@@ -232,8 +232,9 @@
 }
 .ns-hk-row {
   display: flex;
+  flex-wrap: wrap; /* 第二行＝錄鍵提示或撞鍵赭字（.ns-hk-msg）；平常一行 */
   align-items: center;
-  gap: 12px;
+  gap: 0 12px;
   padding: 4px 2px;
   border-bottom: 1px dashed var(--color-line);
   min-width: 0;
@@ -262,6 +263,60 @@
   line-height: 18px;
   color: var(--color-ink-soft);
 }
+/* ⑧ 改鍵（原型 prototypes/⑧-自訂快捷鍵.html）：鍵帽外包一顆沒有外觀的按鈕，hover 才深一階；負 margin 讓列高不變、熱區大 2px */
+.ns-hk-cap {
+  display: inline-flex;
+  padding: 2px;
+  margin: -2px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+}
+.ns-hk-cap:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-hk-cap:hover .ns-kbd { border-color: var(--color-ink-soft); background: var(--sel-bg); }
+.ns-hk-cap.is-conflict .ns-kbd { border-color: var(--color-late); color: var(--color-late); }
+.ns-hk-cap.is-conflict .ns-kbd-plus { color: var(--color-late); }
+/* 錄鍵中：跟鍵帽同高同圓角，虛線＋選中底＝「這格在等你按」 */
+.ns-hk-rec {
+  display: inline-block;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  line-height: 18px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  color: var(--color-ink);
+  background: var(--sel-bg);
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-ctl);
+}
+.ns-hk-reset {
+  padding: 0;
+  margin-left: 3px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  line-height: 18px;
+  color: var(--color-ink-faint);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ns-hk-reset:hover { color: var(--color-ink); }
+/* 列的第二行：靠右對齊鍵帽那一側；赭字＝不能用或撞鍵 */
+.ns-hk-msg {
+  flex: 0 0 100%;
+  margin: 0 0 2px;
+  text-align: right;
+  font-size: var(--fs-xs);
+  line-height: 18px;
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+}
+.ns-hk-msg.is-bad { color: var(--color-late); }
+/* 籤頂：說明靠左、全部還原靠右；撞鍵總數接在「點鍵帽」那句後面 */
+.ns-hk-intro-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ns-hk-clash { margin-left: 8px; color: var(--color-late); }
 
 /* ═══════════════════════════════════════════════════════
  * 同步分頁（v1.1.1 WP8）——**只放排版**，顏色一律 token。

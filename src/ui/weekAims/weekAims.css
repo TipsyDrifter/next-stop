@@ -47,6 +47,19 @@
 .wa-seal { width: 28px; height: 28px; border-radius: 50%; border: 1.6px solid currentColor; font-size: 13.5px; --ns-rot: -9deg;
   background: radial-gradient(circle at 36% 30%, color-mix(in srgb, currentColor 11%, transparent), transparent 62%); }
 
+/* ── 方案一那一行（方針擴充 辛；原型 .ax-ribbon）：告示最下面虛線隔開，另外兩層各一段，點了切過去 ── */
+.wa-ribbon { position: relative; display: flex; gap: 18px; align-items: baseline; margin-top: 8px; padding: 7px 0 0; border-top: 1px dashed var(--color-dash); min-width: 0; }
+.wa.is-folded .wa-ribbon { margin-top: 6px; }
+.wa-rib { display: flex; flex: 1 1 0; align-items: baseline; gap: 8px; min-width: 0; border: 0; background: none; padding: 0; font: inherit; cursor: pointer; text-align: left; border-radius: 2px; }
+.wa-rib .k { flex: none; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .14em; color: var(--color-ink-soft); }
+.wa-rib .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-soft); transition: color var(--dur-fast) var(--ease-soft); }
+.wa-rib:hover .v { color: var(--accent); }
+.wa-rib:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.wa-rib.is-add .v { display: inline-flex; align-items: center; gap: 5px; color: var(--color-ink-faint); }
+.wa-rib.is-add:hover .v { color: var(--accent); }
+/* 頭上 ‹ 年 ›（年鑑 D-主-378）：拉丁小字夾在兩顆箭頭中間 */
+.wa-nav { display: inline-flex; align-items: center; gap: 2px; margin-inline: -4px; }
+
 /* 空：還沒寫這週的方針（一行，不佔版面） */
 .wa-empty-note { font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-faint); white-space: nowrap; }
 
@@ -62,10 +75,14 @@
 .wa.is-wide .wa-plan { align-self: flex-start; margin: 2px 0 0 -6px; }
 .wa.is-wide .wa-sub { min-height: 18px; }
 .wa.is-wide .wa-pop { right: auto; left: 0; }
+/* 靠右的兩欄往左開，五句時最後一欄的浮層才不會跑出頁面 */
+.wa.is-wide .wa-row:nth-last-child(-n+2) .wa-pop { left: auto; right: 0; }
 
 /* ── 排成車票：錨定小浮層（.techo-card；墊一層紙色＝不透明） ── */
 .wa-pop { position: absolute; z-index: 30; right: 18px; top: calc(100% - 4px); width: 404px; max-width: calc(100vw - 48px); padding: 12px 16px 14px; color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6;
   background: linear-gradient(var(--float-bg), var(--float-bg)), var(--color-paper); }
+/* .techo-card 的底色在後面、會把上面那層紙色蓋掉（粉彩 --float-bg 是 64% 白，又是告示毛玻璃裡的毛玻璃、糊不到後面）：加權重墊回紙色，底下的字才不透上來 */
+.techo-card.wa-pop { background-color: var(--color-paper); }
 .wa-poplabel { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-soft); margin-bottom: 10px; }
 .wa-pop .fld.is-top { align-items: start; }
 .wa-pop .fld.is-top > .techo-label { padding-top: 9px; }
@@ -107,6 +124,7 @@
 /* ── 寫方針（DialogShell M 520／手機 MSheet full） ── */
 .wa-ed-week { display: flex; align-items: center; gap: 4px; margin: -4px 0 10px -6px; }
 .wa-ed-week .t { font-family: var(--font-latin); font-size: var(--fs-body); letter-spacing: .04em; color: var(--color-ink-soft); padding: 0 4px; }
+.wa-ed-week .t.is-station { font-family: inherit; padding: 4px 6px; }
 .wa-ed-list { list-style: none; margin: 0; padding: 0; }
 .wa-ed-row { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 28px; align-items: center; column-gap: 10px; min-height: 44px; }
 .wa-ed-row .wa-num { padding-top: 0; align-self: center; }
@@ -131,17 +149,48 @@
 [data-shell="mobile"] .wa-ttl { font-size: var(--fs-h3); }
 .wa-mline { position: relative; width: 100%; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-align: left; }
 .wa-mline .ns-ico { color: var(--color-ink-faint); flex: none; }
+/* 標題長（「下一站方針」「11/23 那週的方針」）時讓日期先省略，尾巴的 › 不被擠出框 */
+.wa-mline .wa-ttl { flex: none; }
+.wa-mline .wa-dt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wa-mline .wa-rule { flex: 1 1 0; min-width: 8px; }
+.wa-mline .wa-cue, .wa-mline .wa-count { flex: none; }
 .wa-mline .wa-cue { font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); white-space: nowrap; }
 .m-sch > .wa { margin: 6px 12px 4px; }
+/* 今日分頁那一行底下的上層（方針擴充 辛；原型 .ax-mrib）：有句子才出、沒句子不佔位；44px 觸控目標 */
+.wa-mrib { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; text-align: left; min-width: 0; }
+.wa-mline + .wa-mrib { border-top: 1px dashed var(--color-dash); }
+.wa-mrib .k { flex: none; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .1em; color: var(--color-ink-soft); }
+.wa-mrib .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-soft); }
+.wa-mrib:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+/* 面板上方分頁：本週｜本月｜今年｜下一站（原型 .ax-mtabs） */
+.wa-mtabs { display: flex; margin: 0 0 8px; border-bottom: 1px solid var(--color-line); }
+.wa-mtabs button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 2px; border: 0; background: none; font: inherit; font-size: var(--fs-ui); letter-spacing: .1em; color: var(--color-ink-soft); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wa-mtabs button.on { color: var(--color-ink); font-weight: 700; border-bottom-color: var(--accent); }
+.wa-mtabs button:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.wa-ms-head { display: flex; align-items: center; gap: 2px; min-height: 28px; }
+.wa-ms-head .ns-iconbtn:first-child { margin-left: -12px; }
+/* 下一站分頁：一條路線一組，頭＝圓牌＋站名・日期＋路線名，點了開車站 */
+.wa-nx + .wa-nx { margin-top: 10px; }
+.wa-nx-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 0; border: 0; border-bottom: 1px solid var(--color-line); background: none; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.wa-nx-head .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-body); letter-spacing: .06em; color: var(--color-ink); }
+.wa-nx-head .rt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint); }
+.wa-nx-head .ns-ico { flex: none; color: var(--color-ink-faint); }
+.wa-nx-head:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
 /* 手機底部面板的列 */
 .wa-ms .wa-ms-sub { margin: 2px 0 0; font-family: var(--font-latin); font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; }
 .wa-ms .wa-ms-sub b { font-family: var(--font-body); font-weight: 700; color: var(--color-ink); }
 .wa-mrow { display: grid; grid-template-columns: 22px minmax(0, 1fr) 44px; align-items: center; column-gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--color-line); }
 .wa-mrow .wa-num { align-self: start; padding-top: 3px; }
+/* 只有一行字（掛不了票的済句、下一站分頁）：列高被 44 的章撐開，序號跟字一起置中 */
+.wa-mrow:has(> div > .wa-text:only-child) .wa-num { align-self: center; padding-top: 0; }
 .wa-mrow .wa-text { flex-wrap: wrap; row-gap: 0; font-size: var(--fs-body); }
 .wa-mrow .wa-text .t { white-space: normal; }
 .wa-mrow .act { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
 .wa-mrow .wa-stamp { width: 44px; height: 44px; }
+/* 手機所有按鈕 44：排成車票、改方針、回顧是真的高 44；路線標夾在字行裡，用透明的外擴撐出觸控目標，版面不變 */
+[data-shell="mobile"] .wa-mrow .act .ns-btn, [data-shell="mobile"] .wa-ms-links .ns-btn, .wa-ms .wa-ed-carry .ns-btn { min-height: 44px; }
+[data-shell="mobile"] .wa-tag { position: relative; }
+[data-shell="mobile"] .wa-tag::after { content: ""; position: absolute; inset: -13px 0; }
 .wa-mrow .wa-stamp .wa-ring { width: 30px; height: 30px; }
 .wa-mrow .wa-seal { width: 32px; height: 32px; font-size: 15px; }
 .wa-mrow.is-done .wa-text .t { color: var(--color-ink-soft); }
@@ -152,3 +201,87 @@
 .wa-mform .fld { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; column-gap: 10px; min-height: 48px; }
 .wa-mform .techo-input { width: 100%; }
 .wa-mform .ns-datechip-wrap { flex-wrap: wrap; padding: 4px 0; }
+
+/* ═══ 車站小卡與入口（方針擴充 辛 §3 #6～#9；原型 .ax-card／.ax-ov-aim） ═══ */
+.wa-ttl-stn { display: inline-flex; align-items: center; gap: 7px; }
+.wa-stn-ic { flex: none; }
+.wa-ttl-stn .wa-stn-ic { color: var(--color-ink-soft); }
+
+/* 桌機浮層：不透明的紙（同 .wa-pop）；比確認框、toast 低，比頁面高 */
+.wa-sc { position: fixed; z-index: 44; width: 430px; max-width: calc(100vw - 24px); padding: 14px 18px 12px; color: var(--color-ink); font-size: var(--fs-body); line-height: 1.6; visibility: hidden; outline: none;
+  background: linear-gradient(var(--float-bg), var(--float-bg)), var(--color-paper); animation: wa-sc-in var(--dur-fast) var(--ease-soft); }
+.techo-card.wa-sc { background-color: var(--color-paper); }
+@keyframes wa-sc-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .wa-sc { animation: none; } }
+.wa-sc.is-review { max-height: calc(100vh - 24px); overflow-y: auto; }
+.wa-sc-eyebrow { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-faint); }
+.wa-sc-name { margin: 0; font-family: var(--font-display); font-size: var(--fs-h3); font-weight: 500; letter-spacing: .1em; color: var(--color-ink); overflow-wrap: anywhere; }
+.wa-sc-sub { margin: 2px 0 8px; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-soft); }
+.wa-sc .wa-list { margin-top: 6px; }
+.wa-sc .wa-pop { right: -6px; width: 406px; max-width: none; }
+.wa-sc .wa-pop .ns-attachpick.float { top: auto; bottom: calc(100% + 2px); }
+.wa-sc-empty { margin: 6px 0 2px; padding-top: 8px; border-top: 1px dashed var(--color-dash); font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-faint); }
+.wa-sc-hint { margin: 6px 0 0; text-align: right; font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); }
+.wa-sc-foot { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-line); }
+.wa-sc-back { display: flex; align-items: center; gap: 8px; padding-bottom: 2px; border-bottom: 1px dashed var(--color-dash); margin-left: -6px; }
+.wa-sc-back .ns-btn { display: inline-flex; align-items: center; gap: 2px; }
+.wa-sc-backt { margin-left: auto; font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .2em; color: var(--color-ink-soft); }
+/* 桌機沒有手指：回顧清單的章照告示的大小 */
+.wa-sc .wa-mrow .wa-stamp { width: 34px; height: 34px; }
+.wa-sc .wa-mrow .wa-stamp .wa-ring { width: 24px; height: 24px; }
+.wa-sc .wa-mrow .wa-seal { width: 28px; height: 28px; font-size: 13.5px; }
+.wa-sc .wa-mrow { grid-template-columns: 22px minmax(0, 1fr) 40px; padding: 7px 0; }
+/* 手機面板：底部四顆鈕放不下就折行，高 44 */
+.wa-sc-ms .wa-sc-sub { margin-top: 0; }
+.wa-sc-ms .ns-msheet-foot { flex-wrap: wrap; }
+.wa-sc-ms .ns-msheet-foot .ns-btn { flex: 1 1 auto; min-height: 44px; padding-inline: 8px; white-space: nowrap; }
+.wa-sc-ms .wa-sc-hint { text-align: left; }
+
+/* 紀念章當入口：章還是章，只多游標與 hover 時微微浮起 */
+.wa-emblem { display: flex; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; transition: transform var(--dur-fast) var(--ease-soft); }
+.wa-emblem:hover { transform: translateY(-1px); }
+.wa-emblem:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.wa-emblem-c { display: inline; padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; color: inherit; cursor: pointer; border-radius: 2px; }
+.wa-emblem-c:hover { color: var(--accent); }
+.wa-emblem-c:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* 車站清單每列：「方針 2」／淡淡的「方針」 */
+.wa-st-aim { flex: none; display: inline-flex; align-items: baseline; gap: 3px; padding: 1px 3px; border: 0; background: none; font: inherit; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); cursor: pointer; white-space: nowrap; border-radius: 2px; opacity: var(--dim); transition: opacity var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft); }
+.wa-st-aim b { font-family: var(--font-latin); font-weight: 600; color: var(--color-ink); }
+.wa-st-aim.has-aims { color: var(--color-ink-soft); opacity: 1; }
+.st:hover .wa-st-aim, .wa-st-aim:focus-visible { opacity: 1; }
+.wa-st-aim:hover { color: var(--accent); }
+.wa-st-aim:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+[data-shell="mobile"] .wa-st-aim { margin-left: auto; min-height: 44px; align-items: center; padding: 0 8px; font-size: var(--fs-sm); opacity: 1; }
+
+/* 路線一覽卡：下一站那一行＋方針句子（原型 .ax-ov-aim），整塊是一顆鈕 */
+.wa-ov-stn { display: block; width: 100%; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 2px; }
+.wa-ov-stn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.wa-ov-stn:hover .ns-ov-next b { color: var(--accent); }
+.wa-ov-aim { display: block; margin-top: 2px; padding-left: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); letter-spacing: .06em; line-height: 1.6; color: var(--color-ink-soft); }
+/* 手機第一層同一件事：實高 44 的鈕，負 margin 收回版面（字行不撐開列高） */
+.wa-m-next { display: block; width: 100%; min-height: 44px; margin: -10px 0 -8px; padding: 10px 0 8px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.wa-m-next:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.wa-m-aim { display: block; margin-top: 1px; padding-left: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-soft); }
+
+/* 記錄簿：每站底下當時的方針（只讀；済的有小章，朱只給済） */
+.ns-depot-stl li:has(> .wa-bk-aims) { flex-wrap: wrap; }
+.wa-bk-aims { flex: 0 0 100%; margin: 0; }
+.wa-bk-aims p { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; font-size: var(--fs-xs); letter-spacing: .06em; line-height: 1.5; color: var(--color-ink-soft); }
+.wa-bk-aims .t { min-width: 0; overflow-wrap: anywhere; }
+.wa-bk-seal { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1px solid currentColor; font-size: 9px; line-height: 1; --ns-rot: -9deg; }
+
+/* 月格：日數右邊一枚 ◎（22px 點擊面；墨色，朱只給済） */
+.wa-cal-stns { position: absolute; z-index: 1; top: 6px; left: 30px; display: flex; gap: 0; height: 22px; pointer-events: none; }
+.ns-daycell.is-today .wa-cal-stns { left: 41px; }
+.wa-cal-stn { display: grid; place-items: center; width: 20px; height: 22px; padding: 0; border: 0; background: none; color: var(--color-ink-soft); cursor: pointer; border-radius: 2px; }
+.wa-cal-stn:hover { color: var(--accent); }
+.wa-cal-stn:focus-visible { outline: var(--focus-ring); outline-offset: 0; }
+/* 手機月曆與當日清單 */
+.wa-m-stn { font-style: normal; font-size: 11px; line-height: 1; color: var(--color-ink-soft); }
+.wa-m-daystn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-bottom: 6px; padding: 0 2px; border: 0; border-bottom: 1px dashed var(--color-line); background: none; font: inherit; color: var(--color-ink); text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.wa-m-daystn .wa-stn-ic { color: var(--color-ink-soft); }
+.wa-m-daystn .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .06em; }
+.wa-m-daystn .rt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint); }
+.wa-m-daystn .ns-ico { flex: none; color: var(--color-ink-faint); }
+.wa-m-daystn:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }

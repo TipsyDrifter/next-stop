@@ -4,14 +4,15 @@
  * 一張清單裡兩種東西，依時刻新的在上：
  *   ・未整理的筆記＝紙片（.ns-notes-slip：上緣撕孔、前兩行內文、右上受付章）
  *   ・沒日期、沒 parent、沒路線標籤的臨時車票＝臨時券（沿 .ticket>.stub/.body/.stamp-zone；標題用黑體不加 .hw——原型施工決定 6）
- * 選中（鍵盤 ↑↓ 或滑鼠停留）那一則滑出去處列；按鈕上的鍵帽字查 registry。
+ * 選中（鍵盤 ↑↓ 或點一下；己-2 起滑鼠停留不再選中）那一則滑出去處列；按鈕上的鍵帽字查 registry。
+ * 己-2 A6（D-主-415）：車票的去處列留排今天／排明天／挑日期＋⋯（掛進列車…、掛上路線…、刪除，鍵帽照列）；筆記的四顆不動。
  * 「排某天／掛進列車／掛上路線」各開一個小浮層：挑日期＝錨定 DatePicker（掛 body）、掛到哪＝float 的 AttachPicker（UI 丙-6 K2）。
  * 頁首＝共用 PageHeader 頁名式（UI 丙-6 H1：眉標 {收件匣, Inbox}、待整理 N 則、「＋ 記一句」；清單空時藏「＋」，入口只留空狀態那顆）。
  * 車次②：筆記的去處列多一顆「記成日記」（D；契約 §5.2），歸屬日＝筆記寫下那天。
  *
  * 狀態與動作都由 NotesView 給（選取、離場動畫、小浮層開關都要跟鍵盤表共用）。
  */
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import type { NoteListItem } from "../../data/noteRepository";
 import type { InboxRef } from "../../store/notesStore";
@@ -24,8 +25,9 @@ import { UketsukeSeal } from "./UketsukeSeal";
 import { AttachPicker } from "../common/AttachPicker";
 import { DatePicker } from "../common/DatePicker";
 import { EmptyState } from "../common/EmptyState";
-import { IconEdit } from "../common/icons";
+import { IconDots, IconEdit } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
+import { PopMenu } from "../common/PopMenu";
 import { Kbd, capsOf, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
 
 export type InboxItem =
@@ -157,6 +159,12 @@ function InboxRow({
   const myPop = pop && pop.id === it.id ? pop.kind : null;
   /** 「挑日期」鈕：日期卡錨在它下方（丙-6 K2：挑日期＝錨定 popover，規範 §2.4） */
   const somedayRef = useRef<HTMLButtonElement>(null);
+  /** 車票的 ⋯（己-2 A6）：開著與否只活在這一列；換選取就收 */
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => {
+    if (!sel) setMoreOpen(false);
+  }, [sel]);
 
   const act = (op: InboxOp, label: string, keyId: string | null, quiet = false, popKind?: InboxPopKind) => (
     <button
@@ -188,12 +196,35 @@ function InboxRow({
               {act("today", "排今天", "notes.inbox.todo")}
               {act("tomorrow", "排明天", "notes.inbox.tomorrow")}
               {act("someday", "挑日期", null, false, "someday")}
-              {act("attach", "掛進列車", "notes.inbox.attach", false, "attach")}
-              {act("route", "掛上路線", "notes.inbox.route", false, "route")}
-              {act("del", "刪除", "notes.delete", true)}
+              {/* 己-2 A6（D-主-415）：掛進列車、掛上路線、刪除收進 ⋯（鍵帽照列，快捷鍵照舊直接做） */}
+              <button
+                ref={moreRef}
+                type="button"
+                className="ns-iconbtn ns-notes-more"
+                aria-label="更多去處"
+                title="掛進列車、掛上路線、刪除"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen || myPop === "attach" || myPop === "route"}
+                onClick={() => setMoreOpen((v) => !v)}
+              >
+                <IconDots />
+              </button>
             </>
           )}
         </div>
+        {moreOpen && sel && (
+          <PopMenu
+            anchor={moreRef.current}
+            overline={{ zh: "去處", latin: "Route to" }}
+            label={`「${it.kind === "ticket" ? it.ticket.name : ""}」的其他去處`}
+            items={[
+              { key: "attach", label: "掛進列車…", hotkeyId: "notes.inbox.attach", onSelect: () => onOp(it, "attach") },
+              { key: "route", label: "掛上路線…", hotkeyId: "notes.inbox.route", onSelect: () => onOp(it, "route") },
+              { key: "del", label: "刪除", hotkeyId: "notes.delete", cut: true, danger: true, onSelect: () => onOp(it, "del") },
+            ]}
+            onClose={() => setMoreOpen(false)}
+          />
+        )}
         {/* K2：兩種小浮層都浮在清單上面，不再塞進紙片／票裡（卡中卡）——日期卡掛 body、貼著「挑日期」鈕；
             掛到哪＝float（絕對定位在去處列下方；選中那一則 z 抬高，蓋得過下面幾則，notes.css〈收件匣〉） */}
         {myPop === "someday" && (
@@ -235,9 +266,7 @@ function InboxRow({
     </div>
   );
 
-  const hover = () => {
-    if (!sel && !pop) onSelect(it);
-  };
+  // 己-2 A6（D-主-415）：滑過不再選中——選中會展開去處列、把下面的列往下推，游標底下換成另一則又接著選它（一路跳）。改成點一下或鍵盤 ↑↓ 才選
 
   if (it.kind === "note") {
     const lines = lineCount(it.note.body);
@@ -248,7 +277,6 @@ function InboxRow({
         data-iid={it.id}
         role="option"
         aria-selected={sel}
-        onMouseEnter={hover}
       >
         <div className="ns-notes-slip">
           <div className="ns-notes-slip-in">
@@ -287,7 +315,6 @@ function InboxRow({
       data-iid={it.id}
       role="option"
       aria-selected={sel}
-      onMouseEnter={hover}
     >
       <article className="ticket ns-notes-iticket">
         <div className="ns-notes-trow" onClick={() => onSelect(it)}>

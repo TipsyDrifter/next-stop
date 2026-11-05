@@ -7,6 +7,8 @@
 //   系統標題列也跳秒：setUsesChronometer＋setWhen(startedAt)（不每秒重貼）；subText＝「創作・14:35 発」。
 //   鎖屏：VISIBILITY_PRIVATE＋只有「時刻表・運行中／停車中」一行的 publicVersion（D-時-29）。
 // - 72502（頻道 timetable-long-run、IMPORTANCE_DEFAULT）：TtReminder.fire 叫 postReminder；點了開 App 並帶 tt_ask。
+// - 72510（頻道 ns-reminders、IMPORTANCE_DEFAULT）：⑨ 截止提醒，NsReminders.fire 叫 postNsReminder。同時可以有好幾則，用 tag＝key 區分；
+//   點了開 App 並帶 ns_rem_target（不帶 tt_open：那條會切到時刻表分頁）。
 // - 同 id 接手 tauri-plugin-notification 2.3.3 以前貼的那兩則（契約 0-7）：通知 id 是全 App 共用的命名空間，
 //   這裡一貼 72501 就直接取代舊的。72502 沿用 ①a 的頻道 timetable-long-run；72501 改用新頻道 timetable-running-v2
 //   （既有頻道的 importance 不能從程式往上調，只能換 id），①a 的舊頻道 timetable-running 在 ensureChannels 刪掉。
@@ -26,6 +28,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.view.View
@@ -38,20 +41,24 @@ import org.json.JSONObject
 object TtNoticeRenderer {
   const val NOTICE_ID = 72501
   const val REMINDER_ID = 72502
+  const val NS_REMINDER_ID = 72510
   /** 72501 的頻道（2026-10-14 換 v2：IMPORTANCE_DEFAULT＋頻道靜音；舊的 LOW 頻道在 HyperOS 鎖屏不顯示，決策記錄偏差段） */
   const val CHANNEL_RUNNING = "timetable-running-v2"
   /** ①a 建的舊頻道（IMPORTANCE_LOW）；既有頻道的 importance 不能從程式往上調，只能換 id，舊的在 ensureChannels 刪 */
   const val CHANNEL_RUNNING_LEGACY = "timetable-running"
   const val CHANNEL_LONG_RUN = "timetable-long-run"
+  const val CHANNEL_NS_REMINDERS = "ns-reminders"
 
   const val ACTION_TILE = "app.shitetsu.nextstop.ttnotice.TILE"
   const val ACTION_ARRIVE = "app.shitetsu.nextstop.ttnotice.ARRIVE"
   const val ACTION_DISMISSED = "app.shitetsu.nextstop.ttnotice.DISMISSED"
   const val ACTION_REMINDER = "app.shitetsu.nextstop.ttnotice.REMINDER"
+  const val ACTION_NS_REMINDER = "app.shitetsu.nextstop.ttnotice.NS_REMINDER"
 
   const val EXTRA_CATEGORY = "categoryId"
   const val EXTRA_OPEN = "tt_open"
   const val EXTRA_ASK = "tt_ask"
+  const val EXTRA_NS_REM_TARGET = "ns_rem_target"
 
   /** §5.10.6 的 request code */
   const val RC_TILE = 100
@@ -60,6 +67,8 @@ object TtNoticeRenderer {
   const val RC_OPEN = 400
   const val RC_REMINDER_ALARM = 500
   const val RC_REMINDER_OPEN = 600
+  /** ⑨ 截止提醒的鬧鐘（點開的 PendingIntent 每則各自用 key 的雜湊，見 nsReminderPi） */
+  const val RC_NS_REMINDER_ALARM = 700
 
   const val MAX_TILES = 5
 
@@ -99,7 +108,7 @@ object TtNoticeRenderer {
   /* ───────── 頻道 ───────── */
 
   /**
-   * 兩個頻道都建（receiver 在 JS 沒跑時也要能建，名稱讀 tt_strings.xml），建好再刪掉 ①a 的舊頻道 timetable-running。
+   * 三個頻道都建（receiver 在 JS 沒跑時也要能建，名稱讀 tt_strings.xml），建好再刪掉 ①a 的舊頻道 timetable-running。
    * 每次貼之前都叫、可重複叫：createNotificationChannel 對已存在的頻道只改名稱／說明；舊頻道只在還在時才刪。
    * 刪舊頻道會一併收掉貼在它上面的 72501（系統行為），呼叫端緊接著就用新頻道重貼，所以先建新、後刪舊。
    */
@@ -123,6 +132,9 @@ object TtNoticeRenderer {
     val longRun = NotificationChannel(CHANNEL_LONG_RUN, ctx.getString(R.string.tt_channel_long_run), NotificationManager.IMPORTANCE_DEFAULT)
     longRun.lockscreenVisibility = Notification.VISIBILITY_PRIVATE
     nm.createNotificationChannel(longRun)
+    val reminders = NotificationChannel(CHANNEL_NS_REMINDERS, ctx.getString(R.string.ns_channel_reminders), NotificationManager.IMPORTANCE_DEFAULT)
+    reminders.lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+    nm.createNotificationChannel(reminders)
   }
 
   /* ───────── 小工具 ───────── */
@@ -148,8 +160,8 @@ object TtNoticeRenderer {
     return o.optString(key, fallback)
   }
 
-  /** 開 App 的 Intent（點通知本體／點提醒）；找不到 launch intent ⇒ null（就不掛 contentIntent） */
-  private fun launchIntent(ctx: Context): Intent? {
+  /** 開 App 的 Intent（NsNoticeOpenActivity 用）；找不到 launch intent ⇒ null */
+  fun launchIntent(ctx: Context): Intent? {
     val i = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName) ?: return null
     i.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
     return i
@@ -170,14 +182,19 @@ object TtNoticeRenderer {
     return PendingIntent.getBroadcast(ctx, RC_DISMISSED, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
   }
 
-  private fun openPi(ctx: Context): PendingIntent? {
-    val i = launchIntent(ctx) ?: return null
+  /** 點通知一律先到中繼頁：落點放在開 MainActivity 的 intent 上會重放、也可能丟掉（見 NsNoticeOpenActivity） */
+  private fun openerIntent(ctx: Context): Intent {
+    return Intent(ctx, NsNoticeOpenActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+  }
+
+  private fun openPi(ctx: Context): PendingIntent {
+    val i = openerIntent(ctx)
     i.putExtra(EXTRA_OPEN, true)
     return PendingIntent.getActivity(ctx, RC_OPEN, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
   }
 
-  private fun askPi(ctx: Context, blockId: String): PendingIntent? {
-    val i = launchIntent(ctx) ?: return null
+  private fun askPi(ctx: Context, blockId: String): PendingIntent {
+    val i = openerIntent(ctx)
     i.putExtra(EXTRA_ASK, blockId)
     return PendingIntent.getActivity(ctx, RC_REMINDER_OPEN, i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
   }
@@ -298,7 +315,7 @@ object TtNoticeRenderer {
       b.setWhen(running.optLong("startedAt"))
       b.setColor(colorOf(running, night))
     }
-    openPi(ctx)?.let { b.setContentIntent(it) }
+    b.setContentIntent(openPi(ctx))
     val n = b.build()
     n.flags = n.flags or Notification.FLAG_NO_CLEAR or Notification.FLAG_ONGOING_EVENT
     return n
@@ -394,7 +411,7 @@ object TtNoticeRenderer {
       .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
       .setPublicVersion(publicVersion)
     if (running != null) b.setColor(colorOf(running, isNight(app)))
-    askPi(app, blockId)?.let { b.setContentIntent(it) }
+    b.setContentIntent(askPi(app, blockId))
     try {
       nm.notify(REMINDER_ID, b.build())
     } catch (_: SecurityException) {
@@ -405,5 +422,55 @@ object TtNoticeRenderer {
   /** 收掉畫面上的 72502（換了一班、取消提醒時） */
   fun cancelReminderNotice(ctx: Context) {
     NotificationManagerCompat.from(ctx.applicationContext).cancel(REMINDER_ID)
+  }
+
+  /* ───────── 72510（⑨ 截止提醒） ───────── */
+
+  /** 貼得出去嗎：App 的通知權限、「提醒」頻道（使用者可在系統設定單獨關）都要開著。順手把頻道建好 */
+  fun canPostNsReminder(ctx: Context): Boolean {
+    val app = ctx.applicationContext
+    if (!NotificationManagerCompat.from(app).areNotificationsEnabled()) return false
+    ensureChannels(app)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val channel = app.getSystemService(NotificationManager::class.java)?.getNotificationChannel(CHANNEL_NS_REMINDERS)
+      if (channel != null && channel.importance == NotificationManager.IMPORTANCE_NONE) return false
+    }
+    return true
+  }
+
+  /**
+   * 每則各自一個 PendingIntent：requestCode 用 key 的雜湊，setData 讓 Intent 本身也不同（比對 PendingIntent 時 extras 不算，
+   * 只靠 requestCode 的話雜湊撞到就會互相蓋掉 target）。Intent 指定了 component，data 不影響它開到哪。
+   */
+  private fun nsReminderPi(ctx: Context, key: String, target: String): PendingIntent {
+    val i = openerIntent(ctx).setData(Uri.parse("nextstop-rem:" + Uri.encode(key)))
+    if (target.isNotEmpty()) i.putExtra(EXTRA_NS_REM_TARGET, target)
+    return PendingIntent.getActivity(ctx, key.hashCode(), i, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+  }
+
+  /** 貼一則提醒（呼叫端已判過 canPostNsReminder）。回 false＝權限在判斷與貼之間被撤掉，沒貼出去 */
+  @SuppressLint("MissingPermission")
+  fun postNsReminder(ctx: Context, key: String, title: String, body: String, target: String): Boolean {
+    val app = ctx.applicationContext
+    val publicVersion = NotificationCompat.Builder(app, CHANNEL_NS_REMINDERS)
+      .setSmallIcon(R.drawable.ic_ns_reminder)
+      .setContentTitle(app.getString(R.string.ns_reminder_public))
+      .build()
+    val b = NotificationCompat.Builder(app, CHANNEL_NS_REMINDERS)
+      .setSmallIcon(R.drawable.ic_ns_reminder)
+      .setContentTitle(title)
+      .setContentText(body)
+      .setAutoCancel(true)
+      .setCategory(NotificationCompat.CATEGORY_REMINDER)
+      .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+      .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+      .setPublicVersion(publicVersion)
+    b.setContentIntent(nsReminderPi(app, key, target))
+    return try {
+      NotificationManagerCompat.from(app).notify(key, NS_REMINDER_ID, b.build())
+      true
+    } catch (_: SecurityException) {
+      false
+    }
   }
 }

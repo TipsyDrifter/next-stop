@@ -1517,7 +1517,7 @@ export function toDayBlockSegments(
 
 /* ───────── ③ 甲席修正：面板開的那一塊不一定在畫面的清單裡（評審 #1） ───────── */
 
-/** 帶 blockId 的 sheet（longRun／restart／edit／split／estimate／link）→ 那一塊的 id；其餘（含 null）→ null */
+/** 帶 blockId 的 sheet（longRun／edit／split／tags）→ 那一塊的 id；其餘（含 null）→ null */
 export function sheetBlockIdOf(sheet: { kind: string } | null): string | null {
   if (sheet === null) return null;
   const id = (sheet as { blockId?: unknown }).blockId;

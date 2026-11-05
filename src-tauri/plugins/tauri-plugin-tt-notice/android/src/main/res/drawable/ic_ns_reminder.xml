@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 提醒的狀態列小圖示：白色剪影的車票（＝原型 prototypes/提醒-設定與通知.html 的 TICKET_GLYPH），跟運行中的時鐘分開。系統只取 alpha。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="16"
+    android:viewportHeight="16">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M2.7,3.7h10.6a1,1 0,0 1,1 1v6.6a1,1 0,0 1,-1 1h-10.6a1,1 0,0 1,-1 -1v-6.6a1,1 0,0 1,1 -1z"
+        android:strokeWidth="1.6"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M10.2,5.6v0.8M10.2,7.6v0.8M10.2,9.6v0.8"
+        android:strokeWidth="1.6"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round" />
+</vector>

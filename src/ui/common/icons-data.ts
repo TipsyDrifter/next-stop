@@ -39,6 +39,7 @@ export type IconName =
   | "first"
   | "last"
   | "calendar"
+  | "clock"
   | "flag"
   | "alert";
 
@@ -93,6 +94,10 @@ export const ICON_SHAPES: Readonly<Record<IconName, IconShapes>> = {
     { tag: "path", attrs: { d: "M2.4 6.6h11.2M5.4 2v2.6M10.6 2v2.6" } },
   ],
   /** 補記旗（i-flag；日期 chip flag="backfill"） */
+  clock: [
+    { tag: "circle", attrs: { cx: 8, cy: 8, r: 5.8 } },
+    { tag: "path", attrs: { d: "M8 4.6V8l2.2 1.6" } },
+  ],
   flag: [{ tag: "path", attrs: { d: "M4 14V2.6M4 3h7.4l-1.6 2.6L11.4 8.2H4" } }],
   /** 警示三角（i-alert；橫幅） */
   alert: [{ tag: "path", attrs: { d: "M8 2.4 14.2 13.2H1.8L8 2.4zM8 6.6v3.2M8 11.4v.2" } }],

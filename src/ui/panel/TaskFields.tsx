@@ -40,7 +40,7 @@ import { WorkLogList } from "./WorkLogList";
 import { useMoveTo } from "./MoveTo";
 import { lineNodeFields } from "../../lines/runtime";
 import type { NodeFieldSpec } from "../../lines/types";
-import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
+import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { changeStatusFlow, convertKindFlow, openKidsOf, panelStampFlow } from "../outline/nodeFlows";
 import { PRIORITY_OPTIONS, mdwText, stampViewOf, statusChoices, teikiState } from "./panelRules";
 
@@ -150,9 +150,8 @@ export function LineRows({ node, section }: { node: NodeRow; section?: FieldSect
 }
 
 /**
- * 定期券的執行日＝唯讀（M3 ④ 評審 must）：班次由規則排定，這裡只是**印出來**給人看。
- * 沿大綱 `.date.locked` 的語彙（OutlineRow :289-302）——值照印、旁邊一句灰注、沒有清除叉；
- * 要改班次就改規則（上面的「重複」區段）或按 U 跳過本班。
+ * 定期券的執行日在這裡唯讀（M3 ④ 評審 must）：班次由規則排定，這裡只是**印出來**給人看——值照印、旁邊一句灰注、沒有清除叉；
+ * 要改班次就改規則（上面的「重複」區段）；只動這一班到検印區的本班日期（⑥ D-主-295），跳過按 U。
  * 版位沿用 panel.css 的 `.date`（flex 一列）與 `.latin`／`.empty`，不新增 class。
  */
 function LockedDate({ value }: { value: string | null }) {
@@ -271,43 +270,17 @@ function SummarySection({ node, ariaLabel, placeholder }: { node: NodeRow; ariaL
 
 /** 改名／刪除（F3 語彙）／轉型（setKind；nodeFlows.convertKindFlow，手機詳情頁同一支）——三個面板共用 */
 function useNodeActions() {
-  const tree = useNodeStore((s) => s.tree);
   const updateNode = useNodeStore((s) => s.updateNode);
-  const deleteNode = useNodeStore((s) => s.deleteNode);
-  const undoDelete = useNodeStore((s) => s.undoDelete);
-  const askConfirm = useUiStore((s) => s.askConfirm);
-  const showToast = useUiStore((s) => s.showToast);
   const select = useUiStore((s) => s.select);
 
+  // 確認與 toast 在共用流程（失物招領 §5-6）；側板自己的事：刪了收起、復原選回那張
   const remove = (node: NodeRow) => {
-    const n = descendantCount(tree, node.id);
-    const run = async () => {
-      const ids = await deleteNode(node.id);
-      if (!ids.length) return;
-      select(null);
-      showToast({
-        message: n ? `已刪除「${node.name}」與 ${n} 個子項` : `已刪除「${node.name}」`,
-        actionLabel: "復原",
-        onAction: () => {
-          select(node.id);
-          void undoDelete();
-        },
-      });
-    };
-    if (n >= 5) {
-      // 別線的附加句（接縫 #62；沒有線填＝空字串、框的字不變）
-      void collectDeleteHints(node, descendantIdsOf(tree, node.id)).then((hints) =>
-        askConfirm({
-          title: `連同 ${n} 個子項一起刪除？`,
-          body: withDeleteHints(`「${node.name}」底下的 ${n} 個項目會一起刪掉（6 秒內可復原）。`, hints),
-          confirmLabel: "一起刪除",
-          danger: true,
-          onConfirm: () => void run(),
-        }),
-      );
-    } else {
-      void run();
-    }
+    void confirmAndDeleteNode(node.id, {
+      around: async (del) => {
+        if (await del()) select(null);
+      },
+      onRestored: () => select(node.id),
+    });
   };
 
   return { updateNode, remove, convert: convertKindFlow };

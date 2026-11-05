@@ -518,6 +518,41 @@ export async function planApplyRoutine(
   return { upserts, deletes };
 }
 
+/**
+ * 把一次換套（`planApplyRoutine` 的結果）收回去（失物招領 §5-3）：`rowsOfDay`＝寫入前這一天的列（含已刪），`w`＝那次寫的東西。
+ * - 那次刪掉的舊段 ⇒ upsert 寫回原內容（送完整列：另一台可能還沒有這一列）。
+ * - 那次寫的列：之前就有 ⇒ 寫回原內容與原本的生死（重新套用會改掉手動調過的時刻，復原要連這個一起還）；
+ *   之前沒有 ⇒ 軟刪（新段收回）；之前沒有的墓碑（「這天不套」寫的標記）⇒ 活回來，畫面回到那天原本照的範本。
+ * 全部走 `writePlans` 一般寫入、照常送 op，另一台跟著收回。`created_at` 不動，「最新套的是哪一套」不會被復原打亂。
+ */
+export function planUndoApplyRoutine(rowsOfDay: readonly TimePlanRow[], w: PlanWrite): PlanWrite {
+  const before = new Map(rowsOfDay.map((r) => [r.id, r]));
+  const asUpsert = (r: TimePlanRow): PlanUpsert => ({
+    id: r.id,
+    day: r.day,
+    start_hm: r.start_hm,
+    end_hm: r.end_hm,
+    category_id: r.category_id,
+    node_id: r.node_id,
+    routine_id: r.routine_id,
+    label: r.label ?? null,
+    ...(r.deleted_at !== null ? { deleted: true } : {}),
+  });
+  const upserts: PlanUpsert[] = [];
+  const deletes: string[] = [];
+  for (const id of w.deletes) {
+    const prev = before.get(id);
+    if (prev) upserts.push(asUpsert(prev));
+  }
+  for (const u of w.upserts) {
+    const prev = before.get(u.id);
+    if (prev) upserts.push(asUpsert(prev));
+    else if (u.deleted) upserts.push({ ...u, deleted: false });
+    else deletes.push(u.id);
+  }
+  return { upserts, deletes };
+}
+
 /* ───────────────────────── 5. 對照（D-時-157、D-時-161） ───────────────────────── */
 
 export type RoutineState = "upcoming" | "running" | "onTime" | "late" | "notStarted" | "missed";

@@ -12,6 +12,7 @@
  *   - × 常駐淡態（--dim），列 hover／聚焦轉實（panel.css `.panel .x`）。
  *   - 預定日換共用 `DateChip`（allowPast：預定日本來就能挑過去，舊 DateField 也沒有 min）。
  * 手機殼班第四輪（D-主-84）：新增、到站章、刪除＋復原的寫入搬到 ./routeFlows（手機路線詳情頁的車站段同一支）；改名、預定日照舊直接 updateNode。
+ * 方針擴充（辛 §3 #7）：站名旁「方針 N」（沒寫＝淡淡的「方針」）開車站小卡；蓋章時那站有方針 ⇒ 提示附「回顧」（D-主-374）。
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { NodeRow } from "../../domain";
@@ -27,6 +28,7 @@ import { IconPlus } from "../common/icons";
 import { CommitInput, SectionRule, XIcon } from "./fields";
 import { fmtDateKey } from "./format";
 import { addStation, removeStation, toggleStationArrived } from "./routeFlows";
+import { StationAimButton, useStationAimLists, useStationCard } from "../weekAims/StationCard";
 
 export function StationList({ routeId }: { routeId: string }) {
   const stations = useNodeStore((s) => s.stations);
@@ -53,8 +55,11 @@ export function StationList({ routeId }: { routeId: string }) {
     }
   };
 
-  const toggleArrived = (st: NodeRow) => {
-    const next = toggleStationArrived(st);
+  const card = useStationCard();
+  const aimsOf = useStationAimLists(list.map((s) => s.id));
+
+  const toggleArrived = (st: NodeRow, seal: HTMLElement) => {
+    const next = toggleStationArrived(st, { onReview: () => card.openReview(st.id, seal) });
     setFreshId(next ? st.id : null);
   };
 
@@ -104,7 +109,9 @@ export function StationList({ routeId }: { routeId: string }) {
               key={st.id}
               station={st}
               fresh={freshId === st.id}
-              onToggle={() => toggleArrived(st)}
+              onToggle={(seal) => toggleArrived(st, seal)}
+              aimCount={aimsOf(st.id).length}
+              onAims={(anchor) => card.open(st.id, anchor)}
               onRename={(name) => void updateNode(st.id, { name })}
               onDate={(v) => void updateNode(st.id, { expected_on: v })}
               onRemove={() => remove(st)}
@@ -148,6 +155,7 @@ export function StationList({ routeId }: { routeId: string }) {
           新增
         </button>
       </div>
+      {card.node}
     </section>
   );
 }
@@ -155,7 +163,10 @@ export function StationList({ routeId }: { routeId: string }) {
 interface StationRowProps {
   station: NodeRow;
   fresh: boolean;
-  onToggle: () => void;
+  onToggle: (seal: HTMLElement) => void;
+  /** 這站方針幾句（0＝淡淡的「方針」） */
+  aimCount: number;
+  onAims: (anchor: HTMLElement) => void;
   onRename: (name: string) => void;
   onDate: (v: string | null) => void;
   onRemove: () => void;
@@ -187,19 +198,20 @@ function StationMore({ name, menu }: { name: string; menu: () => PopMenuItem[] }
   );
 }
 
-function StationRow({ station, fresh, onToggle, onRename, onDate, onRemove, menu }: StationRowProps) {
+function StationRow({ station, fresh, onToggle, aimCount, onAims, onRename, onDate, onRemove, menu }: StationRowProps) {
   const arrived = Boolean(station.arrived_on);
   return (
     <li className={`st ${arrived ? "arrived" : ""} ${fresh ? "fresh" : ""}`} data-drag-id={station.id}>
       {/* 第一列：名稱（原型 .title）＋到站章＋刪除叉；第二列：.meta 預定日・着 日期 */}
       <CommitInput value={station.name} onCommit={onRename} required ariaLabel="車站名稱" className="title" />
+      <StationAimButton station={station} count={aimCount} onOpen={onAims} />
       {/* 到站章：到站＝朱色「着」（.late-seal 形制）；未到站＝不可見，hover 列才現身成虛線空章 */}
       <button
         type="button"
         aria-label={arrived ? "取消到站" : "標記到站"}
         aria-pressed={arrived}
         title={arrived ? "取消到站" : "標記到站（今天）"}
-        onClick={onToggle}
+        onClick={(e) => onToggle(e.currentTarget)}
         className="arr-seal"
       >
         着

@@ -16,6 +16,7 @@
  *   ④ʹ 雲端     ＝（v1.1.4 D-2，加入了同步才出現）`CloudSnapshots`：上次上傳、「立即備份到雲端」、快照列表、
  *               點一份 → 同一個「回到過去／接上現在」確認窗（兩殼共用元件；WP-C 落版面）。
  *   ⑤ 動作列   ＝「立即備份」「開啟備份資料夾」「從檔案還原…」（D-⑥-5）。
+ *   ⑤ʹ 匯出資料 ＝（失物招領 §4）`DataExportBlock`：範圍、格式、一顆「匯出…」。
  *   ⑥ 危險區   ＝（v1.1.6 正式版；拍板〈回饋兩題拍板〉重新開始＋《2026-09-28-v1.1.6-重新開始契約.md》§6.1）
  *               一句 lead＋「只清這台」「所有裝置一起重新開始」兩顆鈕（未加入時第二顆 disabled）；
  *               確認窗（打字「清空」）與留底都在 `syncStore.startOver`。舊的 DEV「重置空庫（保留設定）」鈕移除
@@ -38,6 +39,7 @@ import type { BackupKind, BackupLocation, RestoreChoice } from "../../data";
 import { SealReceipt } from "../stamps/Stamps";
 // v1.1.4（契約 §7）：二選一的字搬到兩殼共用的 `CloudSnapshots`——雲端還原與本機還原要同一套字
 import { CloudSnapshots, CLOUD_TEXT, RESTORE_CHOICES, RESTORE_CONSEQUENCE } from "../common/CloudSnapshots";
+import { DataExportBlock } from "./DataExportBlock";
 import "./settings.css";
 
 const KIND_LABEL: Record<BackupKind, string> = { auto: "自動", manual: "手動", safety: "保險" };
@@ -336,6 +338,9 @@ export function BackupTab() {
           同一個選擇（D-2），同一籤擺兩組同名 radio 等於兩份真相：上面選「接上現在」、下面按雲端
           還原卻跑「回到過去」。沒加入同步時它只留一句「加入同步後這裡會列出雲端快照」（產品評審 Nice）。 */}
       <CloudSnapshots shell="desktop" choice={restoreChoice} onChoiceChange={setRestoreChoice} />
+
+      {/* ⑤ʹ 匯出資料（失物招領 §4）：只含活著的資料、不能匯回；跟上面的備份是兩件事，另開一段 */}
+      <DataExportBlock />
 
       {/* ⑥ 危險區（v1.1.6 正式版，重新開始契約 §6.1）：整籤最底、撕線隔開。
           兩顆鈕的長說明掛 title（桌機有 hover；沿本籤「長句版改掛 title」的慣例），常駐的只有 lead 一句。 */}

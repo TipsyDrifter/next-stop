@@ -25,6 +25,7 @@ import {
   planApplyRoutine,
   planEnsureMaterialized,
   planFillRoutine,
+  planUndoApplyRoutine,
   routineHasItems,
   type DayRoutine,
   type PlanPatch,
@@ -88,8 +89,8 @@ export interface TimetablePlanState {
   slotsForDay(dayKey: string): TimePlanRow[];
 
   /* ── 某一天的作息 ── */
-  /** 換成某一套（同一套＝重新套用）；null＝這天不套 */
-  applyRoutine(day: string, routineId: string | null): Promise<boolean>;
+  /** 換成某一套（同一套＝重新套用）；null＝這天不套。`out.undo`：寫成功才有，收回新段、還原舊段（走一般寫入、照常送 op；撤回用） */
+  applyRoutine(day: string, routineId: string | null, out?: { undo?: () => Promise<boolean> }): Promise<boolean>;
   /** 加一段（手動，routine_id NULL） */
   addRoutineItem(day: string, item: RoutineItem): Promise<boolean>;
   /** 改一段（虛擬段也可以：先整天落地） */
@@ -339,7 +340,7 @@ export const useTimetablePlanStore = create<TimetablePlanState>()((set, get) => 
 
   /* ── 某一天的作息 ── */
 
-  async applyRoutine(day, routineId) {
+  async applyRoutine(day, routineId, out) {
     return run(async () => {
       checkFutureDay(day);
       const target = routineId === null ? null : (get().routines.find((r) => r.id === routineId) ?? null);
@@ -352,6 +353,14 @@ export const useTimetablePlanStore = create<TimetablePlanState>()((set, get) => 
       const w = await planApplyRoutine(day, rows, target, get().routines);
       if (w.upserts.length || w.deletes.length) await timetableRepo.writePlans(w);
       await refetchDays([day]);
+      if (out) {
+        const back = planUndoApplyRoutine(rows, w);
+        out.undo = () =>
+          run(async () => {
+            if (back.upserts.length || back.deletes.length) await timetableRepo.writePlans(back);
+            await refetchDays([day]);
+          });
+      }
     });
   },
 

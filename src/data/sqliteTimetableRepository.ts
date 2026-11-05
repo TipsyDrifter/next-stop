@@ -813,16 +813,21 @@ export class SqliteTimetableRepository implements TimetableRepository {
     return out ? { ...out.preview } : null;
   }
 
-  async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<MergePreview | null> {
+  async merge(id: string, dir: "prev" | "next", boundIso: string): Promise<(MergePreview & { undo: PaintUndo }) | null> {
     const db = await getDb();
     const now = Date.now();
     const snap = await this.loadSnapshot(db, null);
     const out = planMerge(snap.spans, { id, dir, bound: msOf(boundIso), now, infoOf: mergeInfoOf(snap.rowsById) });
     if (!out) return null;
     const b = newWriteBatch();
-    await this.applyPlan(b, out.plan, snap.rowsById, isoOf(now));
+    const ids = await this.applyPlan(b, out.plan, snap.rowsById, isoOf(now));
     await this.commit(db, b);
-    return { ...out.preview };
+    // 撤回快照跟塗色同一份（失物招領 §5-5）：寫完讀回，只有真的被寫的列才記
+    const after: Record<string, TimeBlockRow | null> = {};
+    for (const x of [...out.plan.patches.map((p) => p.id), ...out.plan.deletes, ...ids]) {
+      if (!(x in after)) after[x] = await this.getBlockRow(db, x);
+    }
+    return { ...out.preview, undo: buildPaintUndo(out.plan, snap.rowsById, after, ids) };
   }
 
   /** store.refresh() 每次都讀它；`idx_tb_started` 覆蓋 started_at 範圍 */

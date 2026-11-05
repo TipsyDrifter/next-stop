@@ -28,6 +28,7 @@ import {
   planApplyRoutine,
   planEnsureMaterialized,
   planFillRoutine,
+  planUndoApplyRoutine,
   routineFromDay,
   routineHasItems,
   routinePlanId,
@@ -304,6 +305,55 @@ describe("落地（D-時-160）", () => {
     const again = await planApplyRoutine("2026-11-02", db, R, [R, B]);
     assert.deepEqual(again.upserts.map((u) => u.id), rows.map((r) => r.id));
     assert.deepEqual(again.deletes, ["manual"], "同一套重新套用：同 id 的列直接 upsert，只刪手動段");
+  });
+  test("復原換套（失物招領 §5-3）：新段收回、舊段寫回原內容；車票段不動", async () => {
+    const B = routine({ id: "r-2", name: "假日", items: serializeRoutineItems([{ cat: "c-play", s: "10:00", e: "18:00" }]) });
+    const rows = await materializeRows("2026-11-02", R);
+    const db: TimePlanRow[] = [
+      ...rows.map((u) => plan({ ...u })),
+      plan({ id: "manual", routine_id: null, label: "手動" }),
+      plan({ id: "slot", node_id: "n-1", category_id: null }),
+    ];
+    const w = await planApplyRoutine("2026-11-02", db, B, [R, B]);
+    const back = planUndoApplyRoutine(db, w);
+    assert.deepEqual(back.deletes, w.upserts.map((u) => u.id), "新那套收回");
+    assert.deepEqual(back.upserts.map((u) => u.id).sort(), [...rows.map((r) => r.id), "manual"].sort(), "舊段與手動段回來，車票段沒進來");
+    assert.ok(back.upserts.every((u) => !u.deleted));
+    assert.equal(back.upserts.find((u) => u.id === "manual")?.label, "手動");
+  });
+  test("復原重新套用：手動調過的段時刻要還回去；之前是墓碑的段再刪回去", async () => {
+    const rows = await materializeRows("2026-11-02", R);
+    const [edited, dead, plain] = rows;
+    const db: TimePlanRow[] = [
+      plan({ ...edited, start_hm: "07:30" }),
+      plan({ ...dead, deleted_at: "2026-11-01T00:00:00.000Z" }),
+      plan({ ...plain }),
+    ];
+    const w = await planApplyRoutine("2026-11-02", db, R, [R]);
+    assert.ok(w.upserts.length >= 3, "同一套：同 id 直接 upsert");
+    const back = planUndoApplyRoutine(db, w);
+    assert.deepEqual(back.deletes, []);
+    const by = new Map(back.upserts.map((u) => [u.id, u]));
+    assert.equal(by.get(edited.id)?.start_hm, "07:30");
+    assert.equal(by.get(dead.id)?.deleted, true);
+    assert.equal(by.get(plain.id)?.deleted, undefined);
+  });
+  test("復原「這天不套」：舊段活回來之後，這天又是原本那一套", async () => {
+    const rows = (await materializeRows("2026-11-02", R)).map((u) => plan({ ...u }));
+    const w = await planApplyRoutine("2026-11-02", rows, null, [R]);
+    assert.deepEqual(w.upserts, []);
+    const back = planUndoApplyRoutine(rows, w);
+    assert.equal(back.upserts.length, rows.length);
+    const off = await dayRoutineOf("2026-11-02", rows.map((r) => ({ ...r, deleted_at: "x" })), [R], "2026-11-02");
+    assert.equal(off.routineId, null);
+    const on = await dayRoutineOf("2026-11-02", back.upserts.map((u) => plan({ ...u })), [R], "2026-11-02");
+    assert.equal(on.routineId, "r-1");
+  });
+  test("復原「這天不套」的墓碑（之前這天沒有列）：標記活回來，畫面回到自動範本", async () => {
+    const w = await planApplyRoutine("2026-11-02", [], null, [R]);
+    const back = planUndoApplyRoutine([], w);
+    assert.deepEqual(back.deletes, []);
+    assert.ok(back.upserts.length === 3 && back.upserts.every((u) => !u.deleted));
   });
   test("沙盒 F-1：同一天活著的列屬於兩套 ⇒ 只畫後換的那一套（活著的列最大 created_at；同樣大＝routine_id 大的）＋手動段", async () => {
     const W = routine({ id: "r-w", name: "週末", items: serializeRoutineItems([{ cat: "c-rest", s: "10:00", e: "12:00" }, { cat: "c-gym", s: "16:00", e: "17:00" }]) });

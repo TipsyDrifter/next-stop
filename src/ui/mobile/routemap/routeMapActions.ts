@@ -6,7 +6,7 @@
  *   停用理由（降層／升層／新增車票／上移／下移）＝ outline/rowGuards（桌機 menuFor 同一支；手機只換兩句到頂的話）
  *   升降層／上移下移 ＝ nodeStore.indent／outdent／reorder（失敗吐 reason，同 useOutlineController.indentNode／reorderSelected）
  *   新增 ＝ nodeStore.createNode（落點同大綱草稿：同層＝接在自己後面、新增車票＝列車／車廂底下最後一張）
- *   改名／記乘務記錄／刪除 ＝ useMobileToday 的 renameTicket／logTicket／deleteTicket（今日、行程表同一條；刪除＝toast＋復原）
+ *   改名／記乘務記錄 ＝ useMobileToday 的 renameTicket／logTicket（今日、行程表同一條）；刪除 ＝ common/deleteNodeFlow（toast＋復原）
  *   改期／時刻 ＝ scheduleActions（行程表手機版同一組；以「締切卡」形狀 `{ kind: "due", node }` 傳節點本身）
  *   移動到 ＝ common/moveTo.moveNodeTo
  * 本檔不 import React；狀態（收合、閃一下）由 MobileRouteMap 給回呼。
@@ -14,11 +14,11 @@
 import { KIND_LABEL, defaultChildKind, describeRule, isTaskKind, parseRule, type NodeKind, type NodeRow } from "../../../domain";
 import type { CurrentOccurrence } from "../../../data";
 import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
-import { adaptKind, descendantCount, siblingsOf, useNodeStore, type TreeIndex } from "../../../store/nodeStore";
+import { adaptKind, siblingsOf, useNodeStore, type TreeIndex } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { MOBILE_GUARD_WORDS, rowGuards, type RowGuards } from "../../outline/rowGuards";
 import type { TicketCardModel } from "../../schedule/ticketCard";
-import { deleteTicket } from "../useMobileToday";
+import { confirmAndDeleteNode } from "../../common/deleteNodeFlow";
 
 const ns = () => useNodeStore.getState();
 const toast = (message?: string) => {
@@ -145,9 +145,8 @@ export async function reorderRow(id: string, delta: -1 | 1): Promise<boolean> {
   return r.ok;
 }
 
-/** 刪除：今日頁同一支（≥5 個子項先問、toast「已刪除」＋復原）。子項數＝樹上的子孫數（大綱 deleteNodeFlow 同一個數） */
+/** 刪除：全 App 同一支（≥5 個子項先問、toast「已刪除」＋復原） */
 export function deleteRow(tree: TreeIndex, id: string): void {
-  const n = tree.byId[id];
-  if (!n) return;
-  deleteTicket(id, n.name, descendantCount(tree, id));
+  if (!tree.byId[id]) return;
+  void confirmAndDeleteNode(id);
 }

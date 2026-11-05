@@ -9,7 +9,7 @@
  *   **判準函式不重寫**：isDoneRow／isSettledRow／showRescheduleToast／INBOX_TOAST 一律 import 桌機那一份，
  *   兩殼吃同一把尺（M3 ④ 定期券口徑：活著的定期券看班次結局、其餘看 nodes.status）。
  *
- * 資料唯一入口仍是 nodeStore（元件不碰 repository；唯一例外＝刪除確認框的別線附加句，切片裡找不到節點才唯讀問一次 getNode），
+ * 資料唯一入口仍是 nodeStore（元件不碰 repository），
  * 動作逐條對應契約 §2.7 的表：
  *   蓋済／取消済／取消運休 → setCompleted／skipOccurrence（含「連同 N 個未完成子項」確認窗）；
  *                            列車／車廂蓋下去開完成卡（setCompleteCardFor，同桌機 completeRow 的第五分支；手機殼班），取消済時收起
@@ -26,7 +26,7 @@
  *   上移／下移（磨光①）    → `reorderOf(id)`／`move(id, ±1)`＝moveToday（手排座標 manualOrderIds；守門同桌機 reorderSelected）
  *   長按拖曳（手機殼班；回饋乙起多張一起拖）→ `moveTo(ids, at)`＝同一支 moveToday（at＝落點鄰居錨，寫入前對最新座標換 index）；
  *                            放下後「已調整順序」＋「復原」（每張放回原本的上鄰居後面）
- *   改名／記乘務記錄／刪除      → 模組函式 `renameTicket`／`logTicket`／`deleteTicket`（行程表串流也用，所以不在 hook 裡）
+ *   改名／記乘務記錄            → 模組函式 `renameTicket`／`logTicket`（行程表串流也用，所以不在 hook 裡）；刪除＝common/deleteNodeFlow（全 App 同一支）
  *
  * 三條重載時機（手機比桌機多一條）：
  *   ① 進頁與日界線設定變動  → loadToday(todayKey(dayStartHour))
@@ -37,8 +37,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
-import { REPEAT_RESCHEDULE_MSG, nodeRepo, type TodayRow } from "../../data";
-import { descendantCount, isSettling, useNodeStore } from "../../store/nodeStore";
+import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
+import { isSettling, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST, manualStepTarget } from "../today/useTodayController";
@@ -46,14 +46,14 @@ import { dayCount, lateCount, type LateCount } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { TIME_REPEAT_ONLY_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { timeReceipt } from "./MobileTimeSheet";
+import { resetRunTimeFlow } from "../outline/nodeFlows";
 import { planPickDay } from "./pickDay";
 import { indexOfAnchor, type Anchor } from "../common/dragReorder";
 import { anchorAround } from "../../domain/nodeOrder";
-import { collectDeleteHints, descendantIdsOf, withDeleteHints } from "../../lines/deleteHints";
-import { kidCountOf } from "../panel/panelRules";
+import { moveRunFlow } from "../outline/nodeFlows";
 
 /** 已蓋済／運休的票按到推遲時的提示（正常情況 UI 不會出這個入口，只是最後一道守門） */
-export const SETTLED_DEFER_MSG = "已蓋済——先取消済章才能推遲";
+export const SETTLED_DEFER_MSG = "已蓋済或運休中——先取消才能改日期";
 
 export interface MobileTodayApi {
   /** 這份資料算的是哪一天（依日界線） */
@@ -74,7 +74,7 @@ export interface MobileTodayApi {
 
   /** 済／取消済／取消運休——票右側印章區単擊 */
   complete(id: string): void;
-  /** 改期；null＝清除執行日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ REPEAT_RESCHEDULE_MSG） */
+  /** 改期；null＝清除執行日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ 只改這一班，清除或講不出哪一班 ⇒ REPEAT_RESCHEDULE_MSG） */
   defer(id: string, target: string | null): void;
   /** 定期券：本班運休（true）／取消運休（false）——今日頁口徑：不帶 dueOn */
   skip(id: string, skip: boolean): void;
@@ -104,7 +104,7 @@ export interface MobileTodayApi {
 }
 
 /* ═══════════════════════════════════════════════════════
- * ⋯ sheet 的改名／記乘務記錄／刪除（磨光① 加工單 §2.4、§9.5）——今日子頁與行程表串流共用，所以是模組函式不是 hook 裡的閉包
+ * ⋯ sheet 的改名／記乘務記錄（磨光① 加工單 §2.4、§9.5；刪除改走 common/deleteNodeFlow）——今日子頁與行程表串流共用，所以是模組函式不是 hook 裡的閉包
  * ═══════════════════════════════════════════════════════ */
 
 /** 改名（空白由子面板擋；跟原名一樣就不寫）。失敗由 store 寫 error 列 */
@@ -124,79 +124,6 @@ export function logTicket(id: string, body: string): void {
     .then((ok) => {
       if (ok) useUiStore.getState().showToast({ message: "記了" }, 2400);
     });
-}
-
-/**
- * 刪除會一起帶走的子孫數（刪除前要不要確認）——跟路線圖 ⋯、桌機側板同一把尺（descendantCount，算到底；手機殼班反方評審 #7）：
- *   已載入的路線樹有這張＝descendantCount；否則今日切片的 child_total 只數直屬——列車、車廂底下都可能再套車廂
- *   （車廂可以套車廂，第三輪更正「車廂底下只有車票」的舊假設），有子項就當「不知道」；兩邊都沒有這張＝null。
- *   null＝刪除一律先問（行程表串流裡沒載到的票也是）。判準在 panelRules.kidCountOf（改已完成的 openKidsOf 同一支）。
- */
-export function liveChildCount(id: string): number | null {
-  const ns = useNodeStore.getState();
-  const inTree = ns.tree.byId[id];
-  const tr = ns.today.byId[id];
-  const kind = inTree?.kind ?? tr?.kind;
-  if (!kind) return null;
-  return kidCountOf(kind, inTree ? descendantCount(ns.tree, id) : null, tr);
-}
-
-/**
- * 刪除（D-2）：呼叫端先關 ⋯ sheet 再叫這支 ⇒ 子項 ≥5（或不知道）才出確認框 ⇒ 刪 ⇒ toast「已刪除『…』」＋「復原」。
- * 句子照桌機 useTodayController.deleteRow；手機不寫 selectedId（沒有選取游標，不重用 select(next) 那段）。
- * 手機殼班第二輪（反方評審 parity minor）：路線圖 ⋯、詳情頁起手機刪得到整棵子樹，確認框對齊桌機大綱／側板——
- *   別線的附加句（`collectDeleteHints`／`withDeleteHints`，桌機四個刪除入口同一支；例：旅客筆記「這裡掛了 N 則筆記…」）、
- *   確認鈕「一起刪除」（同側板 useNodeActions.remove）。子孫 id 從已載入的路線樹拿；樹裡沒有＝傳 []（同路線對話框，線自己補查）。
- */
-export function deleteTicket(id: string, name: string, childTotal: number | null): void {
-  const ns = () => useNodeStore.getState();
-  const ui = () => useUiStore.getState();
-  const run = async () => {
-    const removed = await ns().deleteNode(id);
-    if (removed.length === 0) return; // 失敗：store 已寫 error 列
-    ui().showToast({
-      message: `已刪除「${name}」${removed.length > 1 ? `（含 ${removed.length - 1} 個子項）` : ""}`,
-      actionLabel: "復原",
-      onAction: () => void ns().undoDelete(),
-    });
-  };
-  if (childTotal !== null && childTotal < 5) {
-    void run();
-    return;
-  }
-  const ask = (hints: string) =>
-    ui().askConfirm(
-      childTotal === null
-        ? {
-            // 子項數不知道（串流上沒載到的票）：寧可多問一次，也不要不問就連同一整串子項刪掉
-            title: `刪除「${name}」？`,
-            body: withDeleteHints("底下如果有子項會一起移除；6 秒內可從底部提示復原。", hints),
-            confirmLabel: "刪除",
-            danger: true,
-            onConfirm: () => void run(),
-          }
-        : {
-            title: `連同 ${childTotal} 個子項一起刪除？`,
-            body: withDeleteHints(`「${name}」底下的 ${childTotal} 個項目會一起刪除；6 秒內可從底部提示復原。`, hints),
-            confirmLabel: "一起刪除",
-            danger: true,
-            onConfirm: () => void run(),
-          },
-    );
-  void deleteHintsOf(id).then(ask);
-}
-
-/** 別線的刪除附加句：節點從切片找（樹＞今日），都沒有才問 repository；查不到或出錯＝""（刪除不能卡在別線的查詢上） */
-async function deleteHintsOf(id: string): Promise<string> {
-  const s = useNodeStore.getState();
-  try {
-    const node = s.tree.byId[id] ?? s.today.byId[id] ?? (await nodeRepo.getNode(id));
-    if (!node) return "";
-    return await collectDeleteHints(node, s.tree.byId[id] ? descendantIdsOf(s.tree, id) : []);
-  } catch (e) {
-    console.warn("deleteTicket 附加句", e);
-    return "";
-  }
 }
 
 export function useMobileToday(): MobileTodayApi {
@@ -308,21 +235,25 @@ export function useMobileToday(): MobileTodayApi {
     const row = ns().today.byId[id];
     if (!row) return;
     const key = ns().today.dateKey ?? todayKey(useUiStore.getState().dayStartHour);
-    // 分流在 pickDay.ts（純函式、有單測）：済／運休與定期券的兩道守門照舊（2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，
-    // UI 隱藏之外這裡再守一道；定期券的班次由規則排定 D-④-3，擋在 UI 這一層、不讓 store throw）；
+    // 分流在 pickDay.ts（純函式、有單測）：済／運休的守門照舊（2026-09-18 主人真機驗收抓到「蓋済章了還能推遲到明天」，
+    // UI 隱藏之外這裡再守一道）；定期券＝只改這一班（⑥ D-主-295；班次日同 timeOfRow）；
     // UI 丙-3 F5（E20）：挑到今天以前＝補記（同桌機側板／大綱日期 chip，磨光⑦ D-主-67）
+    const repeat = parseRule(row.repeat_rule) !== null;
     const plan = planPickDay({
       target,
       today: key,
-      current: row.scheduled_on,
+      current: repeat ? (row.occurrence?.due_on ?? row.scheduled_on) : row.scheduled_on,
       settled: isSettledRow(row),
-      repeat: parseRule(row.repeat_rule) !== null,
+      repeat,
     });
     switch (plan.kind) {
       case "blocked":
         toast(plan.why === "settled" ? SETTLED_DEFER_MSG : REPEAT_RESCHEDULE_MSG);
         return;
       case "noop":
+        return;
+      case "moveRun":
+        void moveRunFlow(id, plan.from, plan.day);
         return;
       case "clear": {
         // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去（DeferPopover.tsx 同款）
@@ -395,11 +326,7 @@ export function useMobileToday(): MobileTodayApi {
   const clearRunTime = useCallback((id: string) => {
     const day = runDateOf(id);
     if (!day) return;
-    void ns()
-      .clearRunTime(id, day)
-      .then((r) => {
-        if (r.ok) toast(timeReceipt("reset", null));
-      });
+    void resetRunTimeFlow(id, day);
   }, []);
 
   /* ───────── 上移／下移（磨光① 加工單；同桌機 reorderSelected 的守門與 moveToday）───────── */

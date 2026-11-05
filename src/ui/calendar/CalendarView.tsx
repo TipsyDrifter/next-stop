@@ -30,11 +30,15 @@
  * 使用者可見的頁名「行程表」（D-主-2／P2）：`PageId`／scope／settings key 仍叫 calendar，只改字。
  */
 import { useRef } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { capsOfHotkey } from "../shell/hotkeys";
 import { addDays } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { hotkeyCaps } from "../common/PopMenu";
 import { PageHeader } from "../common/PageHeader";
 import { WeekAimsBand } from "../weekAims/WeekAimsBand";
+import { AimsBand } from "../weekAims/AimsBand";
+import { monthKeyOf } from "../../domain/weekAims";
 import { DateNav } from "../common/DateNav";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
@@ -102,6 +106,7 @@ export function weekHeading(weekStartKey: string): { d: string; w: string; latin
 }
 
 export function CalendarView() {
+  useHotkeyRevision();
   const containerRef = useRef<HTMLElement>(null);
   const c = useCalendarController(containerRef);
   const stream = c.view === "stream";
@@ -165,7 +170,7 @@ export function CalendarView() {
                 unit={c.view === "month" ? "month" : "week"}
                 label={c.view === "month" ? "翻月份" : "翻週"}
                 // 標題＝月／年快速跳轉的入口（⑤-b 追加 1）；說明掛在字上（DateNav 的標題鈕不收 title）
-                title={<span title="跳到其他月份（Ctrl+←→ 換月・Ctrl+↑↓ 換年）">{titleText}</span>}
+                title={<span title={`跳到其他月份（${capsOfHotkey("calendar.month.prev")} ${capsOfHotkey("calendar.month.next")} 換月・${capsOfHotkey("calendar.year.prev")} ${capsOfHotkey("calendar.year.next")} 換年）`}>{titleText}</span>}
                 onPrev={() => c.go(-1)}
                 onNext={() => c.go(1)}
                 // 換年（磨光⑤ K4、D-主-60）：月、週才有「« »」；時段、串流不加（串流按週捲）
@@ -186,6 +191,8 @@ export function CalendarView() {
               </>
             }
             stats={stream ? undefined : <MonthStats />}
+            reserveStats
+            addReserve="車票"
             // 日付印一枚示意（92px＝Q8、-6°＝原型 :485；每格日付印不做＝D-⑤-5-1）
             stamp={<DateSeal date={dateOf(c.today)} size={92} rotate={-6} title={`日付印 ${c.today}`} />}
             tabs={{ items: VIEW_TABS, value: c.view, onChange: c.setView, "aria-label": "切換檢視" }}
@@ -194,8 +201,10 @@ export function CalendarView() {
             search={{ onOpen: openSearch, title: `搜尋（${hotkeyCaps("global.quickjump")}）` }}
           />
 
-          {/* 週方針（戊 D-主-262）：只在「週」檢視，看畫面上那一週 */}
+          {/* 方針（戊 D-主-262；辛 §7）：月＝畫面那個月、週＝畫面那一週、時段＝同一週但固定收合（D-主-379）；串流跨很多週，不放 */}
+          {c.view === "month" && <AimsBand aimKey={monthKeyOf(c.cursor)} wide />}
           {c.view === "week" && <WeekAimsBand day={c.cursor} wide />}
+          {timeView && <WeekAimsBand day={c.cursor} wide pinFolded />}
 
           {/* ═══ 月間頁／週視圖／時段／串流 ═══ */}
           {stream ? (

@@ -191,6 +191,8 @@
    每一塊（頁首、日分組…）照頁型封頂、在欄裡置中——清單＝--read-w（848），月曆統計＝--canvas-w（1440，見 §H 段） */
 .ns-tk-ledger { flex: 1; min-width: 0; height: 100%; overflow-y: auto; scrollbar-gutter: stable both-edges; padding: var(--page-pad-top) var(--page-side) 40px; }
 .ns-tk-ledger > * { max-width: var(--read-w); margin-left: auto; margin-right: auto; }
+/* 頁首跟模組、不跟分頁（庚 D-主-392）：五個分頁都用這個模組最寬那頁的寬，切分頁時標題與工具列不跳；只有內容隨頁型變寬 */
+.ns-tk-ledger > .ns-tk-pagehead { max-width: var(--canvas-w); }
 
 /* 頁首＝共用 PageHeader（UI 丙-5 A1，排版補在檔尾 T1 區）。‹ › 小鈕只剩預算的月份頭在用（BudgetEditor、MobileBudgetSheet） */
 .ns-tk-mnav {
@@ -780,6 +782,10 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-rm-row .nx.is-paused { color: var(--color-ink-faint); }
 .ns-tk-rm-row .nx.is-blocked { color: var(--color-late); }
 .ns-tk-rm-row .acts { display: inline-flex; gap: 4px; } /* 小鈕有框了（次鈕），鈕間留 4px、不再往右吃 */
+/* 跳過下一班／復原（D-票-82）：列內文字鈕，跟著它說的那句話走；.btn-text 給顏色與 hover 底線，這裡收成列內字級 */
+.ns-tk-rm-row .ns-tk-rm-textbtn { font-size: var(--fs-xs); letter-spacing: .04em; line-height: 1.5; cursor: pointer; }
+.ns-tk-rm-row .ns-tk-rm-textbtn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tk-rm-row .l3 { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding-left: 74px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：同 .l2 */
 .ns-tk-rm-row.is-paused .amt, .ns-tk-rm-row.is-paused .what { color: var(--color-ink-soft); }
 .ns-tk-rm-row.is-paused .amt { font-weight: 500; }
 .ns-tk-rm-row.is-blocked .amt, .ns-tk-rm-row.is-blocked .what { color: var(--color-ink-soft); }
@@ -788,9 +794,10 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 
 /* 規則編輯器 .ns-tk-re（DialogShell 寬 620；左右兩欄） */
 .ns-tk-re-from { margin: -4px 0 10px; font-size: 11.5px; letter-spacing: .04em; color: var(--color-ink-faint); } /* 字面值：11.5px 不在桌機字階，照原型 */
-/* min-height：頻率切換時對話框不跳高（修正-UI）＝「每月 1–31 格＋小月提示」那一態的高（實測 360.6px；頻率改 Segmented 高 --ctl-seg 後）；
-   每日／每週時右欄內容照常往上收、空白留在欄底，底部「存／取消」不動 */
-.ns-tk-re-cols { display: grid; grid-template-columns: minmax(0, 1fr) 250px; column-gap: 22px; min-height: 362px; }
+/* min-height：頻率、結束切換時對話框不跳高（修正-UI）＝「每月 1–31 格＋小月提示＋結束第二列」那一態的高
+   （舊態實測 360.6px；再加間隔列約 30、結束第二列約 38，D-票-80／81，這個數是加出來的、還沒實機量）；
+   其他態右欄內容照常往上收、空白留在欄底，底部「存／取消」不動 */
+.ns-tk-re-cols { display: grid; grid-template-columns: minmax(0, 1fr) 250px; column-gap: 22px; min-height: 430px; }
 .ns-tk-re-when { padding-left: 22px; margin-left: -1px; border-left: 1px dashed var(--color-dash); }
 .ns-tk-re-sec { margin: 0 0 8px; font-size: var(--fs-micro); letter-spacing: .34em; color: var(--color-ink-faint); }
 .ns-tk-re-amt { display: flex; align-items: baseline; gap: 6px; margin: 12px 0 2px; }
@@ -799,6 +806,18 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-fields.is-re { margin-top: 10px; padding-top: 8px; gap: 4px; }
 .ns-tk-fields.is-re .field { min-height: 34px; grid-template-columns: 50px minmax(0, 1fr); }
 .ns-tk-re-detail { margin-top: 10px; min-height: 28px; }
+/* 間隔「每 [N] 週」、筆數「[12] 筆」（D-票-80／81；RepeatNumField，兩殼共用，手機尺寸在 ticket-mobile.css） */
+.ns-tk-re-every { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-tk-re-num .num { display: inline-flex; align-items: baseline; gap: 6px; }
+.ns-tk-re-num .meta { font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); }
+.ns-tk-re-num input { width: 2.8em; box-sizing: border-box; padding: 0 2px; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none; background: transparent; font-family: var(--font-latin); font-size: var(--fs-ui); text-align: center; color: var(--color-ink); appearance: textfield; -moz-appearance: textfield; }
+.ns-tk-re-num input::-webkit-inner-spin-button, .ns-tk-re-num input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ns-tk-re-num input:focus { border-bottom-color: var(--accent); }
+/* 結束三選：右欄扣掉標籤只剩約 166px，緊湊分段再收字距與左右內距才放得下四字的「記滿幾筆」（同時刻長度組 .ns-qa-len） */
+.ns-seg.ns-tk-re-endseg { display: flex; width: 100%; box-sizing: border-box; }
+.ns-seg.ns-tk-re-endseg > [role="radio"] { flex: 1 0 auto; padding: 0 5px; letter-spacing: .02em; }
+.ns-tk-re-count { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ns-tk-re-count .last { min-width: 0; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); white-space: nowrap; }
 .ns-tk-re-wk { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .ns-tk-re-wk button, .ns-tk-re-days button {
   height: 30px; border: 1px solid var(--color-line); border-radius: var(--radius-ctl); font-size: var(--fs-ui); color: var(--color-ink-soft);
@@ -867,6 +886,9 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
    丙-7 起 TicketLedger 量頁首 <720 就強制窄版（分頁籤下拉、記一筆圖示鈕，門檻同下面的 container query）；
    大標組不准折行：DateNav（‹ 10月 › 今天）一行到底；年份補述在頁首窄於 720 時收起；stats 單行、放不下就省略 */
 .ns-tk-pagehead .ns-pagehead-title { white-space: nowrap; }
+.ns-tk-pagehead .ns-pagehead-titleline { min-height: 40px; } /* 字面值：大標是 DateNav 或純字都同高（差 0.3px，四捨五入後底線會跳 1px；庚） */
+/* 頁首不跳（庚 D-主-392）：年份放不下時折到第二行、整段藏起來，不把頁首撐高。搜尋中的「‹ 回 10月」不套：那是回去的入口，不能藏 */
+.ns-tk-pagehead .ns-pagehead-titleline:has(> .ns-pagehead-aside > .ns-tk-headyear) { height: 40px; overflow: hidden; }
 .ns-tk-pagehead .ns-datenav { flex-wrap: nowrap; }
 .ns-tk-pagehead .ns-pagehead-stats { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ns-tk-pagehead .ns-pagehead-stats .pos { color: var(--color-gold-ink); }

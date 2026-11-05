@@ -236,6 +236,8 @@ export function describeConflict(body: string): string {
     if (!empty(b.theirs) && empty(b.mine)) return "另一台刪過，但這台改過——已保留";
     if (empty(b.theirs) && !empty(b.mine)) return "這台刪過，但另一台改過——已還原";
   }
+  // 規則是一串 JSON，印出來沒人看得懂；講留下哪一邊就好（細節在重複段）
+  if (b.col === "repeat_rule") return `定期券的設定：兩台改法不同，留下${b.winner === "mine" ? "這台" : "另一台"}的`;
   const label = CONFLICT_COL_LABEL[b.col] ?? b.col;
   // 方向兩種（評審 S3）：預設是這台讓位；`winner === "mine"` 是對方讓給這台（敗方值同樣留在這一行）
   if (b.winner === "mine") {

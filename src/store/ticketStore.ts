@@ -16,6 +16,8 @@
  * - 售票口④ 第二輪（Stage 0 資料席）：分類不限層數——統計以某分類為根（`statsRoot`／`setStatsRoot`，「進入 ›」與麵包屑）、
  *   「移到…」（`moveCategoryUnder`）、「常用」與備註帶分類排除上層封存的（`categoryArchivedUp`）；帳戶頁（`view === "accounts"`，
  *   `accountCards` 在進頁與 refresh 時一次查完）。
+ * - 己-2「記住上次」（D-主-416～418；本機、不同步）：視圖、統計的期間／切面／收支（兩殼各記，冷啟動第一次 init 套回）；
+ *   轉帳的轉入帳戶（存轉帳時記「從哪轉出 → 轉進哪」，新轉帳轉入還空著就預填）。純函式在 domain/ticketPrefs。
  */
 import { create } from "zustand";
 import { ticketRepo } from "../data/ticketRepository";
@@ -23,6 +25,16 @@ import { settingsRepo } from "../data";
 import { useUiStore } from "./uiStore";
 import { useNodeStore } from "./nodeStore";
 import { addDays, todayKey } from "../lib/date";
+import {
+  guessTransferTo,
+  parseFacet,
+  parseFacetKind,
+  parseStatsSpan,
+  parseTicketView,
+  parseTransferMemo,
+  rememberTransfer,
+  type TransferMemo,
+} from "../domain/ticketPrefs";
 import type { LineReloadContext, CaptureSaveInput, CaptureSaveResult, CaptureRouteRef } from "../lines/types";
 import {
   MAIN_CURRENCY,
@@ -286,7 +298,7 @@ export interface TicketStore {
 
   /* ═══ 第②階段「看帳」（②契約 §3.4；①的欄位與動作一個都不改） ═══ */
 
-  /* 視圖（0-10、0-17：不持久化，冷啟動回清單） */
+  /* 視圖（0-10；0-17 原本不持久化、冷啟動回清單——己-2 B5 D-主-418 翻案：記本機、冷啟動回上次，見 KEY_TICKET_VIEW） */
   view: TicketView; // "list" | "calendar" | "stats" | "accounts" | "wish"（頁首五格，D-票-77）
   setView(v: TicketView): Promise<void>; // 進 stats ⇒ 載 statsEntries；進 accounts ⇒ 載 accountCards；離開清單 ⇒ 詳情板（entry／account）收起
   /* 統計（0-6～0-9） */
@@ -355,6 +367,8 @@ export interface TicketStore {
   saveRepeatDraft(): Promise<boolean>; // draftToRepeatInput → create／update →（新建且有 fromEntryId ⇒ linkEntryToRepeat）→ 實體化一次 → refresh → toast「已設定期：每月 1 日 · 房租」
   pauseRepeat(id: string): Promise<void>;
   resumeRepeat(id: string): Promise<void>;
+  skipNextRepeat(id: string): Promise<void>; // 提前跳過下一班（D-票-82）＋ toast「復原」
+  unskipRepeat(id: string, day: string): Promise<void>; // 取消跳過（管理頁「已跳過 11/1」與 toast 的復原共用）
   deleteRepeat(id: string): Promise<void>; // 軟刪＋toast「已刪除這條規則」帶「復原」
   makeRepeatFromEntry(id: string): void; // 大票「設成定期…」：seed＝那筆（ruleFromEntry）＋ fromEntryId ⇒ openRepeatEditor(null, seed)
   materialize(reason: "startup" | "afterPull" | "day" | "manual"): Promise<void>; // serial(repo.materializeRepeats(today(), dayStart())) → 有插入或補刪 ⇒ refresh；blocked 寫進 repeatBlocked；④：記出來的每筆帶規則的荷札
@@ -463,7 +477,7 @@ export const TK_TEXT = {
   /* 第③階段（③契約 §3.8、§5.7） */
   budgetSet: (label: string, amt: string) => `已設 ${label} 預算 ${amt}`,
   budgetSetMonth: (label: string, m: number, amt: string) => `已設 ${label} ${m} 月預算 ${amt}`, // 修正-資料：設單月覆寫（評審）
-  budgetRemoved: "已移除這個預算",
+  budgetRemoved: "已刪除這個預算",
   budgetMonthCleared: (m: number) => `已還原 ${m} 月的單月設定`, // 修正-資料：清單月覆寫不是刪預算（評審）
   repeatSaved: (desc: string) => `已設定期：${desc}`,
   repeatSavedFilled: (n: number) => ` · 補記了 ${n} 筆`, // Stage 0 加：存規則時起算日在過去、當場補記的筆數（接在 repeatSaved 後面）
@@ -471,6 +485,7 @@ export const TK_TEXT = {
   repeatPaused: "已暫停",
   repeatResumed: "已開始，明天起算",
   repeatResumedNext: (d: string) => `已開始，下一班 ${d}`, // 修正-資料：直接帶下一班（每週規則不一定是明天；評審 nit）
+  repeatSkipped: (d: string, next: string | null) => (next ? `已跳過 ${d}，下一班 ${next}` : `已跳過 ${d}，之後沒有班了`), // D-票-82
   repeatBlocked: (why: string) => `這筆定期帳無法入帳：${why}`,
   materialized: (n: number) => `定期帳記了 ${n} 筆`,
   budgetAllAccounts: "預算看全部帳戶",
@@ -493,6 +508,16 @@ export const TK_TEXT = {
 export const RECENT_LIMIT = 8;
 /** 搜尋結果排序的本機設定鍵（手機加 `_mobile`；不同步） */
 export const KEY_RESULT_SORT = "ticket_result_sort";
+/**
+ * 己-2「記住上次」（D-主-416～418）：本機設定鍵，不同步（不進 manifest syncSettingsKeys）。前四個手機加 `_mobile`（兩殼各記，同 KEY_RESULT_SORT）。
+ * 冷啟動第一次 init 讀回來套上（之後換殼、資料整批換掉都不再套——不在用到一半時把畫面跳走）。
+ */
+export const KEY_TICKET_VIEW = "ticket_view"; // B5：清單／月曆／統計／帳戶／願望
+export const KEY_STATS_SPAN = "ticket_stats_span"; // B1：統計的期間 月／年
+export const KEY_STATS_FACET = "ticket_stats_facet"; // B1：切面 分類／帳戶／路線／荷札（讀回過 facetAllowed）
+export const KEY_STATS_KIND = "ticket_stats_kind"; // B1：收支 支出／收入
+/** B2：轉帳的轉入帳戶記憶（JSON，domain/ticketPrefs 的 TransferMemo）；一台一份、不分殼——帳戶是同一批 */
+export const KEY_TRANSFER_TO = "ticket_transfer_to";
 export const DEFAULT_KIND = "expense" as const;
 /** serial 佇列：寫入、refresh 不交錯 */
 let chain: Promise<unknown> = Promise.resolve();
@@ -505,6 +530,12 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 let warmPromise: Promise<void> | null = null;
 let initPromise: Promise<void> | null = null;
 let lastShell: TicketShell = "desktop";
+/** 己-2：「記住上次」已經讀回來套過了沒（只套一次）；套完之後視圖一變就寫（見檔尾的訂閱） */
+let prefsApplied = false;
+/** 己-2 B2：轉入帳戶記憶（warm 時讀一次，存轉帳時更新並寫回） */
+let transferMemo: TransferMemo = {};
+const prefKey = (k: string, shell: TicketShell): string => (shell === "mobile" ? `${k}_mobile` : k);
+const savePref = (k: string, v: string): void => void settingsRepo.set(prefKey(k, lastShell), v).catch(() => undefined);
 /** 路線花費的世代：refresh 清空 routeSpend 時 +1，舊世代還在路上的查詢結果丟掉（不把寫入前的數字蓋回去） */
 let routeSpendGen = 0;
 /** routeSpend 目前算的是哪個月的「本月」（跨月時 loadRouteSpend 把整批作廢重查） */
@@ -773,6 +804,20 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     if (r) setResults(r, sort);
   }
 
+  /** 己-2 B1／B5：讀這個殼上次的視圖與統計設定（讀不到＝全用預設，跟沒記過一樣） */
+  async function readPrefs(shell: TicketShell): Promise<{ view: TicketView; span: StatsSpan; facet: Facet; facetKind: "expense" | "income" }> {
+    const get1 = (k: string) => settingsRepo.get(prefKey(k, shell)).catch(() => null);
+    const [view, span, facet, kind] = await Promise.all([get1(KEY_TICKET_VIEW), get1(KEY_STATS_SPAN), get1(KEY_STATS_FACET), get1(KEY_STATS_KIND)]);
+    return { view: parseTicketView(view), span: parseStatsSpan(span), facet: parseFacet(facet), facetKind: parseFacetKind(kind) };
+  }
+
+  /** 己-2 B2：新轉帳的轉入帳戶——草稿是轉帳、還沒挑轉入時，照記憶猜一個 */
+  function withGuessedTo(d: TicketDraft): TicketDraft {
+    if (d.kind !== "transfer" || d.toAccountId !== null) return d;
+    const to = guessTransferTo(transferMemo, d.accountId, get().accById);
+    return to ? { ...d, toAccountId: to } : d;
+  }
+
   /* ───────── 第③階段的內部工具（③契約 §3.8） ───────── */
 
   /**
@@ -1007,7 +1052,16 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (!warmPromise) {
         warmPromise = (async () => {
           await serial(() => ticketRepo.ensureStarterRows());
-          await Promise.all([loadMeta(), loadPlan(), loadAids()]); // 第③階段：預算＋規則；④：願望＋常用票種（讀不到都不擋 warm）
+          await Promise.all([
+            loadMeta(),
+            loadPlan(),
+            loadAids(),
+            // 己-2 B2：轉入帳戶記憶（讀不到＝沒記過）
+            settingsRepo.get(KEY_TRANSFER_TO).then(
+              (raw) => void (transferMemo = parseTransferMemo(raw)),
+              () => undefined,
+            ),
+          ]); // 第③階段：預算＋規則；④：願望＋常用票種（讀不到都不擋 warm）
         })().catch((e) => {
           warmPromise = null; // 失敗可重試
           throw e;
@@ -1024,9 +1078,15 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           set({ loading: true, error: null });
           try {
             await get().warm();
+            // 己-2 B1／B5：冷啟動第一次讀回上次的統計設定與視圖（之後的 init——換殼、整批換資料——不再套）
+            const prefs = prefsApplied ? null : await readPrefs(shell);
+            if (prefs) set({ span: prefs.span, facet: facetAllowed(prefs.facet, get().filterAccountId), facetKind: prefs.facetKind });
             const m = monthOf(today());
             set({ month: m, loadedMonths: [m], period: periodOf(m, get().span) });
             await serial(() => get().refresh());
+            // 上次停在別的視圖 ⇒ 照 setView 走一遍（統計、帳戶頁要載自己的資料）；ready 之前切好，進頁不先閃清單
+            if (prefs && prefs.view !== "list" && get().view === "list") await get().setView(prefs.view);
+            prefsApplied = true;
             if (get().error === null) set({ ready: true });
           } catch (e) {
             set({ error: errText(e) });
@@ -1242,7 +1302,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         ...seed,
       };
       draftBaseCategoryId = null;
-      set({ panel: { kind: "new" }, draft, selectedId: null, savedAt: null });
+      set({ panel: { kind: "new" }, draft: withGuessedTo(draft), selectedId: null, savedAt: null });
     },
 
     setDraft(patch) {
@@ -1265,7 +1325,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (patch.currency !== undefined && patch.currency !== s.draft.currency) d.mainOverrideText = patch.mainOverrideText ?? null;
       // 售票口④：改記帳日 ⇒ 定期的星期幾／幾號（沒點改過的）跟著走
       if (patch.dayKey !== undefined && patch.repeat === undefined) d.repeat = quickFollowDay(s.draft.repeat, s.draft.dayKey, d.dayKey);
-      set({ draft: d });
+      // 己-2 B2：切成轉帳、或轉帳換了轉出帳戶時，轉入還空著 ⇒ 照上次猜一個（patch 明說 toAccountId:null＝使用者清掉，不猜）
+      const guess = d.kind === "transfer" && patch.toAccountId === undefined && (s.draft.kind !== "transfer" || patch.accountId !== undefined);
+      set({ draft: guess ? withGuessedTo(d) : d });
     },
 
     async saveDraft({ again }) {
@@ -1325,6 +1387,11 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         });
         const row = res.row;
         set({ lastAccountId: row.kind === "adjust" ? get().lastAccountId : row.account_id, hasAny: true });
+        // 己-2 B2：記下這次轉進哪（下一筆從同一個帳戶轉出就預填它）
+        if (row.kind === "transfer" && row.to_account_id) {
+          transferMemo = rememberTransfer(transferMemo, row.account_id, row.to_account_id);
+          void settingsRepo.set(KEY_TRANSFER_TO, JSON.stringify(transferMemo)).catch(() => undefined);
+        }
         if (again) {
           draftBaseCategoryId = d.categoryId;
           set({
@@ -1638,6 +1705,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     async setSpan(sp) {
       if (sp === get().span) return;
       set({ span: sp, period: periodOf(get().month, sp), drill: null });
+      savePref(KEY_STATS_SPAN, sp); // 己-2 B1
       try {
         await serial(loadStats);
       } catch (e) {
@@ -1648,6 +1716,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     setFacet(f) {
       const facet = facetAllowed(f, get().filterAccountId);
       set({ facet, drill: null, statsRoot: null });
+      savePref(KEY_STATS_FACET, facet); // 己-2 B1（篩帳戶時被迫回分類的那一下不經這裡，不會把「依帳戶」蓋掉）
       if (get().stats) set({ stats: computeStats() });
       // 售票口④：依荷札要 index；沒載過先載，載好由下面的 tagStore 訂閱重算
       if (facet === "tag") void ensureTagIndex().catch(() => undefined);
@@ -1655,6 +1724,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
 
     setFacetKind(k) {
       set({ facetKind: k, drill: null, statsRoot: null }); // 根是那個 kind 的分類，換收支就回全部分類
+      savePref(KEY_STATS_KIND, k); // 己-2 B1
       if (get().stats) set({ stats: computeStats() });
     },
 
@@ -1842,9 +1912,16 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     async removeBudget(scope, month) {
+      const text = month === null ? TK_TEXT.budgetRemoved : TK_TEXT.budgetMonthCleared(monthNum(month));
       await write(
         () => ticketRepo.removeBudget(scope, month),
-        () => toast(month === null ? TK_TEXT.budgetRemoved : TK_TEXT.budgetMonthCleared(monthNum(month))),
+        (ids) => {
+          // 復原帶這一刀的 ids：預設列連同各月覆寫一起回來（失物招領 §5-1）
+          if (!ids.length) return toast(text);
+          toast(text, TK_TEXT.undo, () => {
+            void write(() => ticketRepo.restoreBudget(ids));
+          });
+        },
       );
     },
 
@@ -1873,7 +1950,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           byweekday: [],
           bymonthday: [parseInt(t.slice(8, 10), 10)],
           start: t,
+          interval: 1,
           until: null,
+          count: null,
           hhmm: "09:00",
           fromEntryId: null,
           ...seed,
@@ -1987,6 +2066,21 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       toast(next !== null ? TK_TEXT.repeatResumedNext(shortDay(next)) : TK_TEXT.repeatResumed);
     },
 
+    async skipNextRepeat(id) {
+      await write(
+        () => ticketRepo.skipNextRepeat(id),
+        (day) => {
+          const next = get().repeats.find((x) => x.id === id)?.next_on ?? null;
+          toast(TK_TEXT.repeatSkipped(shortDay(day), next !== null ? shortDay(next) : null), TK_TEXT.undo, () => void get().unskipRepeat(id, day));
+        },
+      );
+    },
+
+    async unskipRepeat(id, day) {
+      const ok = await write(() => ticketRepo.unskipRepeat(id, day));
+      if (ok && day <= today()) await runMaterialize(); // 跳過後過了夜才復原：那班已經到了，當場補記（同 resumeRepeat）
+    },
+
     async deleteRepeat(id) {
       await write(
         () => ticketRepo.softDeleteRepeat(id),
@@ -2016,7 +2110,9 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         byweekday: [],
         bymonthday: rule.bymonthday ? rule.bymonthday.slice() : [],
         start: rule.start,
+        interval: 1,
         until: null,
+        count: null,
         hhmm: localTime(e.occurred_at),
         fromEntryId: e.id,
       };
@@ -2265,6 +2361,12 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   };
 });
 
+/* 己-2 B5（D-主-418）：視圖一變就記（頁首五格、手機左右滑、跳到某天回清單……每條路都會改到 view，所以在這裡收，不散在各動作裡）；
+ * 冷啟動讀回來套之前不寫（prefsApplied），免得初值「清單」把上次的蓋掉 */
+useTicketStore.subscribe((s, prev) => {
+  if (!prefsApplied || s.view === prev.view) return;
+  savePref(KEY_TICKET_VIEW, s.view);
+});
 /* 第②階段：週起始日、日界線、路線（名稱／顏色／刪除）變了 ⇒ 月曆與統計就地重算（純函式，不重讀） */
 useUiStore.subscribe((s, prev) => {
   if (s.weekStart === prev.weekStart && s.dayStartHour === prev.dayStartHour) return;

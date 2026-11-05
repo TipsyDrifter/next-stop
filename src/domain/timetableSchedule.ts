@@ -99,7 +99,7 @@ export function planItemOf(e: ScheduleEntry, node: Pick<NodeRow, "estimate_min" 
 /**
  * 今天的誤點（使用者改題 D-時-80）：今日列裡 `bucket === "late"`、還沒交代（不是 done）的那些，分兩堆——
  * - 單發票（沒有重複規則）＝做成 `PlanItem`（`lateFrom`＝原執行日、`date`＝今天、`time`＝原本的 `scheduled_time`），依今日列的順序；
- * - 定期券的漏班（有規則、這一班還沒有結局）＝只數（主線 `REPEAT_RESCHEDULE_MSG` 擋改執行日，不進清單）。
+ * - 定期券的漏班（有規則、這一班還沒有結局）＝只數（定期券的日期走 moveOccurrence，不走改執行日，不進清單）。
  * 只有締切過了、沒有執行日的列（bucket "due"）不在這裡。
  */
 export function lateItemsOf(

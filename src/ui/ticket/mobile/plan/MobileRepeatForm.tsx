@@ -8,9 +8,9 @@
  *   → 類型三選「支出｜收入｜轉帳」＝內文第一列 Segmented（丙-5：同記一筆表單 P5 A 案）
  *   →（從一筆帳「設成定期…」來的）一行淡字「從 10/19 那筆帶過來的；那筆本身不會被重記」
  *   → 金額大字＋幣別 chip
- *   → 頻率區（固定展開）：「頻率 每月 5 日」・每日｜每週｜每月・星期 7 格／1–31 日格（7 欄）・起算日
+ *   → 頻率區（固定展開）：「頻率 每月 5 日」・每日｜每週｜每月・間隔「每 [N] 週」（D-票-80）・星期 7 格／1–31 日格（7 欄）・起算日
  *   → 帳戶 chips（轉帳＝從／到）→ 分類格子（收支；售票口④ 第二輪＝MobileCatDrill 一層一層點進去，返回鍵退一層）
- *   → 「更多欄位」折疊：時刻（ClockInput mobile；規則沒有「那一天」，說明行不寫日期，丙-5 F3）・終止日（選填）・備註・路線
+ *   → 「更多欄位」折疊：時刻（ClockInput mobile；規則沒有「那一天」，說明行不寫日期，丙-5 F3）・結束三選「不結束｜到某天｜記滿幾筆」（D-票-81）・備註・路線
  *     （售票口④：備註換 RecallInput＝MobileEntryParts.MobileNoteField，候選同記一筆）・荷札（代驗 G1：同記一筆的 TagDraftRow，
  *     草稿在 store `repeatTags`，讀回來之前不畫；存規則時寫 ticket:repeat，之後記出來的帳帶新的、已記的不追溯）
  *   → 預覽一行（repeatLabel＋「第一班／下一班／從 X 起補記」）
@@ -40,14 +40,25 @@ import {
   type AccountRow,
   type CategoryRow,
 } from "../../../../domain/ticket";
-import { repeatLabel, type RepeatDraft, type RepeatRow } from "../../../../domain/ticketPlan";
+import {
+  REPEAT_COUNT_MAX,
+  REPEAT_END_OPTIONS,
+  REPEAT_INTERVAL_UNIT,
+  nextOpenRun,
+  repeatEndMode,
+  repeatEndPatch,
+  repeatIntervalMax,
+  repeatLabel,
+  repeatLastRun,
+  type RepeatDraft,
+  type RepeatRow,
+} from "../../../../domain/ticketPlan";
 import {
   WEEKDAY_LABEL,
   WEEKDAY_ORDER,
   describeRule,
   firstFixedDate,
   fixedRule,
-  nextFixedDate,
   serializeRule,
   type FixedRepeatRule,
 } from "../../../../domain/repeat";
@@ -55,6 +66,7 @@ import { IconCaret, IconRight, groupLabelOf, useImeGuard } from "../mobileBits";
 import { MobileNoteField, TagDraftRow, tagSummary } from "../MobileEntryParts";
 import { CatPathText, MobileCatDrill, levelFor } from "../MobileCatDrill";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "../../ticketClock";
+import { RepeatNumField } from "../../plan/RepeatNumField";
 
 const KINDS: { key: RepeatDraft["kind"]; label: string }[] = [
   { key: "expense", label: "支出" },
@@ -78,8 +90,9 @@ function dowOf(day: string): number {
 
 /** 草稿 → 規則（預覽與「頻率」那一句用；不驗證——存檔時 store 會用 draftToRepeatInput 驗） */
 function draftRule(d: RepeatDraft): FixedRepeatRule {
-  const rule = fixedRule(d.freq, d.start, { byweekday: d.byweekday.slice().sort(), bymonthday: d.bymonthday.slice().sort((a, b) => a - b) });
+  const rule = fixedRule(d.freq, d.start, { byweekday: d.byweekday.slice().sort(), bymonthday: d.bymonthday.slice().sort((a, b) => a - b), interval: d.interval });
   rule.until = d.until;
+  rule.count = d.count;
   return rule;
 }
 
@@ -117,7 +130,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   // 磨光①（主線手機殼契約 §1.5）：表單本身的返回層在宿主（ticket.dialog）；這裡的幣別／日期 sheet 疊在全螢幕表單上，
   // 要比 "full" 高才會先關它 ⇒ 登記成 "dialog"（同記帳表單）；三支 sheet 都給同一個 backId ⇒ 跟這一行合併成一層
   useBackLayer("ticket.repeat.pick", sheet !== null, () => setSheet(null), "dialog");
-  const [more, setMore] = useState(!isNew && (d.note !== "" || d.routeId !== null || d.until !== null));
+  const [more, setMore] = useState(!isNew && (d.note !== "" || d.routeId !== null || d.until !== null || d.count !== null));
   const busy = useRef(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -175,7 +188,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
 
   /* 頻率：切到每週／每月時若還沒選日子，先帶起算日那天（省一步；存檔仍會擋「至少一天」） */
   const pickFreq = (freq: RepeatDraft["freq"]) => {
-    const patch: Partial<RepeatDraft> = { freq };
+    const patch: Partial<RepeatDraft> = { freq, interval: Math.min(d.interval, repeatIntervalMax(freq)) };
     if (freq === "weekly" && d.byweekday.length === 0) patch.byweekday = [dowOf(d.start)];
     if (freq === "monthly" && d.bymonthday.length === 0) patch.bymonthday = [Number(d.start.slice(8, 10))];
     setDraft(patch);
@@ -190,6 +203,8 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const ruleText = describeRule(rule);
   const hasLate = d.freq === "monthly" && d.bymonthday.some((n) => n > 28);
   const pastStart = isNew && d.start < today;
+  const endMode = repeatEndMode(d);
+  const lastRun = repeatLastRun(rule);
 
   /* 預覽：repeatLabel 吃規則列；用草稿拼一列（金額看不懂就不印預覽句，只印班次） */
   const preview = (() => {
@@ -233,7 +248,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
       nx = first === null ? "不會有班次" : first < today ? `從 ${shortDayKey(first)} 起補記` : first === today ? "第一班 今天" : `第一班 ${shortDayKey(first)}`;
     } else {
       const same = row !== null && row.rule === fake.rule;
-      const next = same ? row.next_on : nextFixedDate(rule, today);
+      const next = same ? row.next_on : nextOpenRun(rule, row?.skipped_days ?? "[]", today);
       nx = row?.paused_at ? "已暫停" : next === null ? "已結束" : `下一班 ${shortDayKey(next)}`;
     }
     return { text, nx };
@@ -265,7 +280,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const route = d.routeId ? (routes.find((r) => r.id === d.routeId) ?? null) : null;
   const moreSum = [
     d.hhmm,
-    d.until ? `到 ${shortDayKey(d.until)} 止` : null,
+    d.count !== null ? `記滿 ${d.count} 筆` : d.until ? `到 ${shortDayKey(d.until)} 止` : null,
     d.note.trim() ? "有備註" : "無備註",
     route ? `${route.code ? route.code + " " : ""}${route.name}` : "不掛路線",
     repeatTags ? tagSummary(repeatTags.names) : null,
@@ -317,9 +332,23 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
           <div className="ns-tk-mre-seg">
             <Segmented options={FREQ_OPTIONS} value={d.freq} onChange={pickFreq} aria-label="頻率" />
           </div>
+          <div className="ns-tk-mf-field ns-tk-mre-every">
+            <span className="lbl">間隔</span>
+            <div className="ns-tk-re-every">
+              每
+              <RepeatNumField
+                value={d.interval}
+                min={1}
+                max={repeatIntervalMax(d.freq)}
+                unit={REPEAT_INTERVAL_UNIT[d.freq]}
+                label={`每幾${REPEAT_INTERVAL_UNIT[d.freq]}`}
+                onChange={(interval) => setDraft({ interval })}
+              />
+            </div>
+          </div>
           <div className="ns-tk-mre-detail">
             {d.freq === "daily" ? (
-              <p className="ns-tk-mre-dailyhint">每天都記一筆</p>
+              <p className="ns-tk-mre-dailyhint">{d.interval > 1 ? `每 ${d.interval} 天記一筆` : "每天都記一筆"}</p>
             ) : d.freq === "weekly" ? (
               <div className="ns-tk-mre-wk" role="group" aria-label="星期幾">
                 {WEEKDAY_ORDER.map((w) => (
@@ -413,17 +442,30 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
                 />
               </div>
               <div className="ns-tk-mf-field">
-                <span className="lbl">結束日</span>
-                <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={() => setSheet("until")}>
-                  {d.until ? dayLabel(d.until) : "（選填）"}
-                  <IconRight size={11} />
-                </button>
-                {d.until && (
+                <span className="lbl">結束</span>
+                <div className="ns-tk-mre-end">
+                  <Segmented options={REPEAT_END_OPTIONS} value={endMode} onChange={(mode) => setDraft(repeatEndPatch(d, mode, today))} aria-label="結束條件" />
+                </div>
+              </div>
+              {endMode === "until" && (
+                <div className="ns-tk-mf-field">
+                  <span className="lbl">結束日</span>
+                  <button type="button" className="ns-tk-mf-pick" aria-haspopup="dialog" onClick={() => setSheet("until")}>
+                    {d.until ? dayLabel(d.until) : "選日子"}
+                    <IconRight size={11} />
+                  </button>
                   <button type="button" className="ns-btn ns-btn--sm btn-text ns-tk-mbtn ns-tk-mre-clr" onClick={() => setDraft({ until: null })}>
                     不設
                   </button>
-                )}
-              </div>
+                </div>
+              )}
+              {d.count !== null && (
+                <div className="ns-tk-mf-field">
+                  <span className="lbl">筆數</span>
+                  <RepeatNumField value={d.count} min={1} max={REPEAT_COUNT_MAX} unit="筆" label="記滿幾筆" onChange={(count) => setDraft({ count })} />
+                  {lastRun && <span className="ns-tk-mre-last">最後一筆 {shortDayKey(lastRun)}</span>}
+                </div>
+              )}
               {/* 售票口④ D-票-71：備註換會記得以前寫過的欄位（候選同記一筆；D-票-70 的順手帶分類只在記一筆） */}
               <MobileNoteField value={d.note} onChange={(note) => setDraft({ note })} rows={2} />
               <div className="ns-tk-mf-field">

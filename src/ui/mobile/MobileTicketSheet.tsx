@@ -8,7 +8,7 @@
  *   「取消」是清清楚楚的一格，不只依賴點暗幕——觸控裝置上暗幕關閉是隱性知識。
  *
  * 項目（由上而下；原型 openTicketSheet :1655-1672 的文案）：
- *   定期券且非唯讀 ｜「本班運休」或「取消運休」（card.suspended 決定）＋ aside railDate。不出「編輯規則…」（手機沒有側板）
+ *   定期券且非唯讀 ｜「本班運休」或「取消運休」（card.suspended 決定）＋ aside railDate；「本班日期…」＝這一班改到別天（⑥ D-主-295，走 onDefer → moveRunFlow）。不出「編輯規則…」（手機沒有側板）
  *   已交代的非定期券｜一行說明「已蓋済——先取消済章才能推遲」（不可點）
  *   其餘            ｜①推遲到明天／往後推一天／排到明天（sheetDeferItems）②下週一 ③選日期…（共用 MobileDatePicker；丙-3 起可挑過去＝補記）
  *                    ④清除執行日（aside：回到締切 M/D／進收件匣；本來就沒排 ⇒ 不可點的一行）
@@ -17,7 +17,7 @@
  *
  * **主線②（契約 §4.5-3）**：時刻項。
  *   非定期券、未交代｜「選日期…」之後插「幾點…」（aside：`14:00・90 分`／「未排」）→ 開 MobileTimeSheet（rule）
- *   定期券、非唯讀  ｜最上面「本班改時刻…」（aside：覆寫中「本班 09:30」／「本班 不排時刻」，否則「每班 07:00」）→ run；
+ *   定期券、非唯讀  ｜「本班時刻…」（aside：覆寫中「本班 09:30」／「本班 不排時刻」，否則「每班 07:00」）→ run；
  *                    「每班時刻…」（aside「07:00」／「未排」）→ rule（原型沒畫，雙端同等補——桌機側板的「幾點」就是每班，✎）
  *   已交代的非定期券、唯讀卡｜不出時刻項（唯讀卡的 ⋯ 本來就 disabled）。
  *   時刻 sheet 與「選日期…」同一種接法：本 sheet 收起、改畫子面板；子面板關了＝整個流程結束。
@@ -49,7 +49,7 @@
  * **手機殼班：分組版（D-主-76；原型 `prototypes/主線-手機殼班.html` Q1 B 版）**——今日、行程表、路線圖三處同一支。
  *   一層全展開時車票 13 列、列車／車廂 14 列，sheet 初始 60% 高只放得下不到 8 列（「詳情」「刪除」一打開都在折線下）⇒ 收成：
  *   ① 排程一列多格（`.m-tks-cells`）：單發票＝明天類／下週一／日期…／幾點…（格裡小字＝M/D、時刻）；
- *      定期券＝本班改時刻…／每班時刻…／本班運休（分支語義照舊）。「幾點…」格小字＝「14:00・90 分」（D-主-81）。
+ *      定期券＝本班日期…／本班時刻…／每班時刻…／本班運休（⑥ 多一格後四格同單發票；字收到 5 個字內才放得下 375px，讀屏念全句）。「幾點…」格小字＝「14:00・90 分」（D-主-81）。
  *      上面那段「已蓋済」「過去的班次」說明列照舊（不是格）。
  *      「清除執行日」第二輪收進「日期…」的面板 foot（MobileDatePicker onClear，同桌機 DatePicker 的「清除」；有執行日才給）——
  *      原本排程格下單獨一列，加上別線附加項時初始高又放不下「刪除」（反方評審 parity minor）。
@@ -81,6 +81,7 @@ import { MobileTextSheet } from "./MobileTextSheet";
 import "./mobile-polish.css";
 import "./routemap/ticket-sheet.css";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
+import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { mdw, sheetDeferItems } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
 // 各線附加項：查 `lines/runtime`、不 import `lines/mounts`（理由見 runtime.ts 檔頭）
@@ -158,7 +159,7 @@ export function MobileTicketSheet({
 }: MobileTicketSheetProps) {
   /** 「選日期…」按下去：sheet 收起、改開日期面板（面板關了＝整個流程結束） */
   const [picking, setPicking] = useState(false);
-  /** 「幾點…」「每班時刻…」（rule）／「本班改時刻…」（run）按下去：改畫時刻 sheet */
+  /** 「幾點…」「每班時刻…」（rule）／「本班時刻…」（run）按下去：改畫時刻 sheet */
   const [timeMode, setTimeMode] = useState<"rule" | "run" | null>(null);
   /** 「改名…」／「記乘務記錄…」／「同層新增…」／「新增車票…」按下去：改畫一行輸入子面板 */
   const [textMode, setTextMode] = useState<"rename" | "log" | "sibling" | "ticket" | "branch" | null>(null);
@@ -301,6 +302,25 @@ export function MobileTicketSheet({
     );
   }
 
+  // 定期券：這一班改到別天（⑥ D-主-295）——不能挑過去、沒有清除；寫入與擋下的原因在呼叫端 onDefer → moveRunFlow
+  if (picking && card.isRepeat) {
+    return (
+      <MobileDatePicker
+        title="這一班改到"
+        value={card.railDate}
+        min={today}
+        today={today}
+        quick={dateQuickSet("forward", today)}
+        onPick={(d) => {
+          onClose();
+          if (d !== card.railDate) onDefer(d);
+        }}
+        onClose={onClose}
+        backId={backId}
+      />
+    );
+  }
+
   if (picking) {
     return (
       <MobileDatePicker
@@ -342,9 +362,9 @@ export function MobileTicketSheet({
   const aside = (children: ReactNode) => <span className="m-tks-aside">{children}</span>;
   /** 不可點的說明列（不是按鈕：↑↓ 不停在上面） */
   const note = (text: string) => <p className="m-tks-note">{text}</p>;
-  /** 排程格：短字在上、小字在下；讀屏念全句（aria） */
-  const cell = (key: string, label: string, sub: ReactNode, onClick: () => void, aria?: string) => (
-    <MSheetItem key={key} className="m-tks-cell" ariaLabel={aria} onClick={onClick}>
+  /** 排程格：短字在上、小字在下；讀屏念全句（aria）；off＝淡掉（點了說原因由 onClick 給） */
+  const cell = (key: string, label: string, sub: ReactNode, onClick: () => void, aria?: string, off?: boolean) => (
+    <MSheetItem key={key} className="m-tks-cell" ariaLabel={aria} off={off} onClick={onClick}>
       <span className="m-tks-cell-label">{label}</span>
       <small>{sub}</small>
     </MSheetItem>
@@ -357,7 +377,7 @@ export function MobileTicketSheet({
     // 丁 D-主-247：支線是主題、沒有日期——排程那組不出
     schedule = null;
   } else if (card.isRepeat && !card.readOnly) {
-    // 定期券：本班改時刻…（有班次日才出）／每班時刻…／本班運休（取消運休）——分支語義照舊，只是排成一列
+    // 定期券：本班日期…／本班時刻…（有班次日才出）／每班時刻…／本班運休（取消運休）——排成一列；已交代的班不能改日期，淡掉、點了說原因
     const runSub = card.timeOverridden ? (
       <>本班 {card.time !== null ? hm(card.time) : "不排"}</>
     ) : card.ruleTime !== null ? (
@@ -367,7 +387,16 @@ export function MobileTicketSheet({
     );
     schedule = (
       <div className="m-tks-cells">
-        {card.railDate && cell("run", "本班改時刻…", runSub, () => setTimeMode("run"))}
+        {card.railDate &&
+          cell(
+            "date",
+            "本班日期…",
+            md(card.railDate),
+            settled ? explain(card.suspended ? "運休中——先取消運休才能改日期" : SETTLED_DEFER_MSG) : () => setPicking(true),
+            `這一班改日期，目前 ${mdw(card.railDate)}`,
+            settled,
+          )}
+        {card.railDate && cell("run", "本班時刻…", runSub, () => setTimeMode("run"), "本班改時刻")}
         {cell("rule", "每班時刻…", card.ruleTime !== null ? hm(card.ruleTime) : "未排", () => setTimeMode("rule"))}
         {cell(
           "skip",

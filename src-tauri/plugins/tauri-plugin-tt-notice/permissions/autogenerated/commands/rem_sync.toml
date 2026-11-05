@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-rem-sync"
+description = "Enables the rem_sync command without any pre-configured scope."
+commands.allow = ["rem_sync"]
+
+[[permission]]
+identifier = "deny-rem-sync"
+description = "Denies the rem_sync command without any pre-configured scope."
+commands.deny = ["rem_sync"]

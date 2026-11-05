@@ -10,8 +10,9 @@
  *   ├─（從大票帶來的）.ns-tk-re-from「從 10/19 那筆帶過來的；那筆本身不會被重記」
  *   ├─ .ns-tk-re-cols
  *   │   ├─ 左「記什麼」 類型 Segmented 三段・.ns-tk-re-amt（前綴＋金額＋幣別 chip）・.ns-tk-fields.is-re 帳戶／轉入或分類／備註／路線／荷札
- *   │   └─ 右「什麼時候」頻率 Segmented 每日｜每週｜每月 → 每週 7 顆星期、每月 1–31 格（7×5；選了 29–31 才出「小月記在月底」）
- *   │                    → 起算日（新規則起算日在過去 ⇒「會補記」提示）・時刻・終止日（選填）
+ *   │   └─ 右「什麼時候」頻率 Segmented 每日｜每週｜每月 → 間隔「每 [N] 週」（N＝1 也顯示，D-票-80）→ 每週 7 顆星期、每月 1–31 格（7×5；選了 29–31 才出「小月記在月底」）
+ *   │                    → 起算日（新規則起算日在過去 ⇒「會補記」提示）・時刻・結束三選「不結束｜到某天｜記滿幾筆」（D-票-81）
+ *   │                      → 到某天＝日期 chip＋×；記滿幾筆＝「[12] 筆」＋「最後一筆 2027/10/1」
  *   │                    時刻＝共用 ClockInput compact（丙-5 F2，跟大票同一支、同一套換算 ticketClock.ts）：規則沒有「那一天」，
  *   │                    換算借起算日當參考日（refDay＝d.start）、說明行不寫日期（dateLabel={false}，只在打錯時說錯在哪）
  *   ├─ .ns-tk-re-preview  規則一句（repeatLabel）＋右端「第一班 11/5」／「下一班 11/5」／「從 10/5 起補記」；草稿還不完整 ⇒ 原因淡字
@@ -35,8 +36,23 @@ import { RecallInput } from "../../common/RecallInput";
 import { EntityTagField } from "../../common/EntityTagField";
 import { moneyText, parseAmount, type AccountRow } from "../../../domain/ticket";
 import { shortDay } from "../../../domain/ticketView";
-import { WEEKDAY_LABEL, WEEKDAY_ORDER, firstFixedDate, nextFixedDate, serializeRule } from "../../../domain/repeat";
-import { buildRepeatRow, draftToRepeatInput, repeatLabel, type RepeatDraft } from "../../../domain/ticketPlan";
+import { WEEKDAY_LABEL, WEEKDAY_ORDER, firstFixedDate, serializeRule } from "../../../domain/repeat";
+import {
+  REPEAT_COUNT_MAX,
+  REPEAT_END_OPTIONS,
+  REPEAT_INTERVAL_UNIT,
+  buildRepeatRow,
+  draftToRepeatInput,
+  nextOpenRun,
+  repeatEndMode,
+  repeatEndPatch,
+  repeatIntervalMax,
+  repeatLabel,
+  repeatLastRun,
+  type RepeatDraft,
+  type RepeatEndMode,
+} from "../../../domain/ticketPlan";
+import { RepeatNumField } from "./RepeatNumField";
 import { useImeGuard } from "../dialogs/dialogBits";
 import { DialogFoot } from "../dialogs/DialogFoot";
 import { TkIcon, TkRoundel } from "../TicketLedger";
@@ -138,13 +154,15 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   let previewText = "";
   let previewNext = "";
   let previewErr: string | null = null;
+  let lastRun: string | null = null;
   try {
     const input = draftToRepeatInput(d, ctx);
     const row = buildRepeatRow(input, ctx, { id: editingId ?? "preview", position: 0, nowIso: new Date().toISOString() });
     previewText = repeatLabel(row, ctx);
+    lastRun = repeatLastRun(input.rule);
     if (!isNew) {
       const same = editing && editing.rule === serializeRule(input.rule);
-      const n = same ? editing.next_on : nextFixedDate(input.rule, today);
+      const n = same ? editing.next_on : nextOpenRun(input.rule, editing?.skipped_days ?? "[]", today);
       previewNext = n ? `下一班 ${shortDay(n)}` : "已結束";
     } else if (input.rule.start < today) {
       previewNext = `從 ${shortDay(input.rule.start)} 起補記`;
@@ -158,7 +176,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
 
   const setFreq = (freq: RepeatDraft["freq"]) => {
     const start = /^\d{4}-\d{2}-\d{2}$/.test(d.start) ? d.start : today;
-    const p: Partial<RepeatDraft> = { freq };
+    const p: Partial<RepeatDraft> = { freq, interval: Math.min(d.interval, repeatIntervalMax(freq)) };
     if (freq === "weekly" && !d.byweekday.length) p.byweekday = [new Date(start + "T12:00:00").getDay()];
     if (freq === "monthly" && !d.bymonthday.length) p.bymonthday = [parseInt(start.slice(8, 10), 10)];
     set(p);
@@ -336,8 +354,19 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
         value={d.freq}
         onChange={setFreq}
       />
+      <div className="ns-tk-re-every">
+        每
+        <RepeatNumField
+          value={d.interval}
+          min={1}
+          max={repeatIntervalMax(d.freq)}
+          unit={REPEAT_INTERVAL_UNIT[d.freq]}
+          label={`每幾${REPEAT_INTERVAL_UNIT[d.freq]}`}
+          onChange={(interval) => set({ interval })}
+        />
+      </div>
       <div className="ns-tk-re-detail">
-        {d.freq === "daily" && <p className="ns-tk-re-dailyhint">每天都記一筆</p>}
+        {d.freq === "daily" && <p className="ns-tk-re-dailyhint">{d.interval > 1 ? `每 ${d.interval} 天記一筆` : "每天都記一筆"}</p>}
         {d.freq === "weekly" && (
           <div className="ns-tk-re-wk" role="group" aria-label="星期幾">
             {WEEKDAY_ORDER.map((w) => (
@@ -396,40 +425,61 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
         <Field label="時刻">
           <RuleClock day={validDay ? d.start : today} hhmm={d.hhmm} dayStartHour={dayStartHour} onChange={(hhmm) => set({ hhmm })} />
         </Field>
-        <Field label="結束日">
-          <span className="ns-tk-date">
-            <button
-              type="button"
-              className={"ns-tk-datechip" + (d.until ? "" : " is-empty")}
-              aria-haspopup="dialog"
-              aria-expanded={pop === "until"}
-              data-pop-toggle
-              onClick={() => setPop(pop === "until" ? null : "until")}
-            >
-              {d.until ? ymd(d.until) : "（選填）"}
-            </button>
-            {d.until && (
+        <Field label="結束">
+          <Segmented<RepeatEndMode>
+            compact
+            className="ns-tk-re-endseg"
+            aria-label="結束條件"
+            options={REPEAT_END_OPTIONS}
+            value={repeatEndMode(d)}
+            onChange={(mode) => {
+              setPop(null);
+              set(repeatEndPatch(d, mode, today));
+            }}
+          />
+        </Field>
+        {repeatEndMode(d) === "until" && (
+          <Field label="結束日">
+            <span className="ns-tk-date">
+              <button
+                type="button"
+                className="ns-tk-datechip"
+                aria-haspopup="dialog"
+                aria-expanded={pop === "until"}
+                data-pop-toggle
+                onClick={() => setPop(pop === "until" ? null : "until")}
+              >
+                {d.until ? ymd(d.until) : "選日子"}
+              </button>
               <button type="button" className="ns-tk-re-clr" aria-label="不設結束日" title="不設結束日" onClick={() => set({ until: null })}>
                 <TkIcon name="x" size={10} />
               </button>
+            </span>
+            {pop === "until" && (
+              <DatePicker
+                float
+                className="ns-tk-re-datepop"
+                label="記到哪一天為止"
+                value={d.until}
+                markValue
+                min={d.start}
+                onPick={(day) => {
+                  setPop(null);
+                  set({ until: day });
+                }}
+                onClose={() => setPop(null)}
+              />
             )}
-          </span>
-          {pop === "until" && (
-            <DatePicker
-              float
-              className="ns-tk-re-datepop"
-              label="記到哪一天為止"
-              value={d.until}
-              markValue
-              min={d.start}
-              onPick={(day) => {
-                setPop(null);
-                set({ until: day });
-              }}
-              onClose={() => setPop(null)}
-            />
-          )}
-        </Field>
+          </Field>
+        )}
+        {d.count !== null && (
+          <Field label="筆數">
+            <span className="ns-tk-re-count">
+              <RepeatNumField value={d.count} min={1} max={REPEAT_COUNT_MAX} unit="筆" label="記滿幾筆" onChange={(count) => set({ count })} />
+              {lastRun && <span className="last">最後一筆 {ymd(lastRun)}</span>}
+            </span>
+          </Field>
+        )}
       </div>
     </div>
   );

@@ -103,7 +103,7 @@ export function useOutlineKeyboard(a: OutlineKeyActions) {
       case "outline.schedule.tomorrow":
         a.scheduleSelected(1);
         break;
-      // 共用文案 REPEAT_RESCHEDULE_MSG 就寫著「跳過本班按 U」——大綱補鍵而不是改文案（M3 ④ 評審 should-6）
+      // 與今日頁同鍵同義（M3 ④ 評審 should-6）
       case "outline.suspend":
         a.suspendSelected();
         break;

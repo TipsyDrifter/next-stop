@@ -66,11 +66,6 @@
 [data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: rgba(209, 155, 114, .38); } /* 字面值：誤點 chip 框・銀河（赭 38%，原型定值） */
 .ns-outline .meta .date:hover { color: var(--accent); }
 .ns-outline .meta .date.chip:hover { color: var(--accent); border-color: var(--accent); }
-/* 定期券的執行日唯讀（M3 ④ D-④-3）：班次由規則排定，不開日期輸入——不給「可改」的 hover 暗示 */
-.ns-outline .meta .date.locked { cursor: default; }
-.ns-outline .meta .date.locked:hover { color: var(--color-ink-soft); border-color: var(--color-line); }
-.ns-outline .meta .date.locked.late:hover { color: var(--color-late); border-color: rgba(152, 80, 48, .4); } /* 字面值：誤點 chip 框（赭 40%，原型定值） */
-[data-theme="dark"] .ns-outline .meta .date.locked.late:hover { border-color: rgba(209, 155, 114, .38); } /* 字面值：誤點 chip 框・銀河（赭 38%，原型定值） */
 .ns-outline .meta .fold-note { color: var(--color-ink-faint); }
 /* 原型沒有的控件：空日期入口（＋執行日／＋締切）hover／選中才現身 */
 .ns-outline .meta .meta-hover { display: inline-flex; align-items: center; gap: 8px; opacity: 0; transition: opacity .15s; }
@@ -136,7 +131,8 @@
    絕對定位錨在整張票上）上面——滑鼠點不到它（elementFromPoint 落在 .stamp-zone）。検印欄的空白不吃滑鼠，只有章本身吃；
    點空白照樣冒到票上選列。09-11 運休角印那次起就這樣（不是本班改的） */
 .ns-outline .stamp-zone { pointer-events: none; }
-.ns-outline .stamp-zone > .stamp { pointer-events: auto; }
+.ns-outline .stamp-zone > .stamp,
+.ns-outline .stamp-zone .ns-ring-wrap { pointer-events: auto; }
 .ns-outline .stopover-slot { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .ns-outline .ticket.is-suspended::before { background: var(--color-paper-used); }
 .ns-outline .ticket.is-suspended .stamp { border-color: transparent; }

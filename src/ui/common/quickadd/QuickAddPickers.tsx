@@ -196,6 +196,7 @@ function TimeCard({ api, onDone }: { api: QuickAddApi; onDone(): void }) {
       <div className="ns-qa-cardlabel">幾點</div>
       <ClockInput
         variant="compact"
+        picker="inline"
         value={shown}
         lo={lo}
         hi={hi}

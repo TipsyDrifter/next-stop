@@ -36,6 +36,7 @@
  * （不然沒有更早的帳時會一路往前載空月）。見回報 needs。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
@@ -239,6 +240,7 @@ export interface TicketLedgerProps {
 }
 
 export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
+  useHotkeyRevision();
   const ready = useTicketStore((s) => s.ready);
   const error = useTicketStore((s) => s.error);
   const hasAny = useTicketStore((s) => s.hasAny);
@@ -575,6 +577,8 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
       <PageHeader
         variant="identity"
         className="ns-tk-pagehead"
+        reserveStats
+        addReserve="記一筆"
         compact={headNarrow ? true : undefined}
         overline={{ zh: "售票口", latin: "Ticket Office" }}
         title={

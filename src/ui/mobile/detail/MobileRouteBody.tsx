@@ -8,11 +8,13 @@
  * 刪除路線：確認框疊在頁上（ConfirmDialog z 50 ＞ MFullPage 46），按下刪除才關頁；「復原」後切回這條路線並把路線圖帶回它的第二層。
  * 返回層：頁本身是 MobileDetailHost 的 `core.detail`；所屬幹線的挑選 sheet、預定到站日（DateChip 的手機日期 sheet）
  *   開的那一刻底下有全螢幕頁 ⇒ 自動當 "dialog"，返回鍵一次關一層（MSheet／DateChip 檔頭的規矩）。
- * 車站列：觸控沒有 hover ⇒ 到站章與 × 常駐（未到站＝虛線淡章，§3.1「常駐淡態」）；剛蓋的那一站播蓋印動畫。
+ * 車站列：觸控沒有 hover ⇒ 到站章常駐（未到站＝虛線淡章，§3.1「常駐淡態」）；剛蓋的那一站播蓋印動畫。
+ *   己-2 A2（D-主-412）：列上原本「着」旁邊還有一顆 ×，收進抓手的 sheet（上移／下移／刪除車站）；列上只留抓手、站名、着。
  * 路線色的自訂圓走原生 <input type="color">（ColorPicker 自己的）：Android WebView 的原生色盤沒在真機驗過（AVD 待驗）。
  * 回饋乙（契約 §1、§3「車站清單：同路線內調順序」）：每站左側一個抓手——按住 0.4 秒浮起拖曳（共用元件 useDragReorder），
- *   點一下＝「上移／下移」小面板（拖曳的可點替代）。寫入＝moveToAnchor（mobileMoves：toast＋復原）。
- *   抓手是唯一起拖的地方：站名是輸入框、到站章與 × 是按鈕（共用元件在這些上按下不起拖），列上沒有別的大塊空白。
+ *   點一下＝「上移／下移／刪除車站」小面板（拖曳的可點替代；己-2 起刪除也在這）。寫入＝moveToAnchor（mobileMoves：toast＋復原）。
+ *   抓手是唯一起拖的地方：站名是輸入框、到站章是按鈕（共用元件在這些上按下不起拖），列上沒有別的大塊空白。
+ * 方針擴充（辛 §3 #7）：第二行尾「方針 N」（沒寫＝淡淡的「方針」）開車站小卡；蓋章時那站有方針 ⇒ 提示附「回顧」（D-主-374）。
  */
 import { useMemo, useRef, useState } from "react";
 import { useDragReorder } from "../../common/dragReorder";
@@ -27,13 +29,14 @@ import { ColorPicker, routePresetColor } from "../../common/ColorPicker";
 import { DateChip } from "../../common/DateChip";
 import { EmptyState } from "../../common/EmptyState";
 import { CommitInput, CommitTextarea } from "../../common/fields";
-import { IconClose, IconPlus } from "../../common/icons";
+import { IconPlus } from "../../common/icons";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { fmtDateKey } from "../../panel/format";
 import { moveRouteToLine } from "../../panel/moveRouteToLine";
 import { addStation, removeStation, requestDeleteRoute, toggleStationArrived } from "../../panel/routeFlows";
 import { requestArrive, requestDepart } from "../../panel/arrivalFlows";
 import { codeInput, codeTakenByOther, codeTakenNote, codeValue } from "../../panel/routeFlowRules";
+import { StationAimButton, useStationAimLists, useStationCard } from "../../weekAims/StationCard";
 import { revealOnRouteMap } from "../routeMapReveal";
 import { Row } from "./MobileStateRows";
 import "../mobile-polish.css";
@@ -203,6 +206,9 @@ function Stations({ routeId }: { routeId: string }) {
     if (a) void moveNodesWithUndo([st.id], routeId, a, "已調整車站順序");
   };
 
+  const card = useStationCard();
+  const aimsOf = useStationAimLists(order);
+
   const add = async () => {
     const name = draft.trim();
     if (!name || busy) return;
@@ -216,6 +222,7 @@ function Stations({ routeId }: { routeId: string }) {
 
   return (
     <section className="m-dt-sec m-rt-stations">
+      {card.node}
       <h3 className="m-dt-sec-title">
         車站{list.length > 0 && <span className="m-dt-sec-aside">{`${arrivedCount}/${list.length} 到站`}</span>}
       </h3>
@@ -236,8 +243,8 @@ function Stations({ routeId }: { routeId: string }) {
                   role="button"
                   tabIndex={0}
                   className="m-rt-st-grip"
-                  aria-label={`調整順序——${st.name}`}
-                  title="按住拖曳；點一下上移／下移"
+                  aria-label={`調整順序、刪除——${st.name}`}
+                  title="按住拖曳；點一下：上移、下移、刪除"
                   onClick={() => setStepFor(st)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
@@ -269,17 +276,9 @@ function Stations({ routeId }: { routeId: string }) {
                   className="m-rt-st-seal"
                   aria-label={arrived ? `取消到站——${st.name}` : `標記到站（今天）——${st.name}`}
                   aria-pressed={arrived}
-                  onClick={() => setFreshId(toggleStationArrived(st) ? st.id : null)}
+                  onClick={() => setFreshId(toggleStationArrived(st, { onReview: () => card.openReview(st.id) }) ? st.id : null)}
                 >
                   <span aria-hidden>着</span>
-                </button>
-                <button
-                  type="button"
-                  className="ns-iconbtn m-rt-st-x"
-                  aria-label={`刪除車站——${st.name}`}
-                  onClick={() => void removeStation(st)}
-                >
-                  <IconClose />
                 </button>
                 <div className="m-rt-st-meta">
                   <span>預定</span>
@@ -292,6 +291,7 @@ function Stations({ routeId }: { routeId: string }) {
                     emptyText="未定"
                   />
                   {st.arrived_on && <span className="m-rt-st-arr">・着 {fmtDateKey(st.arrived_on)}</span>}
+                  <StationAimButton station={st} count={aimsOf(st.id).length} onOpen={() => card.open(st.id)} />
                 </div>
               </li>
             );
@@ -312,6 +312,18 @@ function Stations({ routeId }: { routeId: string }) {
               );
             })}
           </div>
+          {/* 己-2 A2（D-主-412）：× 從列上收進來（原本跟「着」相鄰，蓋章時容易按到）；刪了有 toast 復原（removeStation） */}
+          <MSheetItem
+            cut
+            danger
+            onClick={() => {
+              const st = stepFor;
+              setStepFor(null);
+              void removeStation(st);
+            }}
+          >
+            刪除車站
+          </MSheetItem>
         </MSheet>
       )}
       <div className="m-dt-logadd">

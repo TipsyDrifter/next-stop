@@ -13,10 +13,10 @@
  *     hover 講明「這班要到 M/D 才能蓋」；歷史班次唯讀（D-⑤-3）。
  *   - 運休：**目前與未來班次都可以**（提前請假）＝`skipOccurrence(id, skip, entry.date)`；
  *     歷史班次由 store 擋下並吐原句（REPEAT_FUTURE_ONLY_MSG）。
- *   - 改期：定期券一律擋在 UI 這一層（REPEAT_RESCHEDULE_MSG），不讓 repository throw。
+ *   - 改期：定期券＝只改這一列那一班（⑥ D-主-295；T／Shift+T 與小卡的「這一班改到…」都走 moveRunFlow，已交代與過去的班由它回原因）。
  *
  * 鍵盤（D-⑤-4；IME 三道護欄照 useTodayKeyboard.ts:50-62）：
- *   ↑↓ 移動（班次段→締切段連成一圈）・Space 済・T／Shift+T 排今天／明天（單發票）・
+ *   ↑↓ 移動（班次段→締切段連成一圈）・Space 済・T／Shift+T 排今天／明天（定期券＝這一班改到今天／明天）・
  *   U 運休／取消運休・`.` 開側板・Esc 關閉。小卡開著時整張表停用（小卡自己吃鍵，含 Esc）。
  *
  * 定位（:1097-1108）：格下方 10px、放不下翻到格上方、左右夾在視窗內 8px；`position:fixed`，
@@ -46,14 +46,15 @@ import {
 import { NO_DEST, QuickAddRow, type QuickDefaults } from "../common/quickadd";
 import { isTaskKind } from "../../domain";
 import { WEEKDAY_LABEL } from "../../domain";
-import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
+import { REPEAT_ONLY_MSG } from "../../data";
 import { addDays } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { lineCalendarDayAux } from "../../lines/runtime";
-import { isEditableTarget } from "../shell/hotkeys";
+import { isEditableTarget, isGuideKey, resolveHotkey } from "../shell/hotkeys";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
 import { showRescheduleToast } from "../today/useTodayController";
+import { moveRunFlow } from "../outline/nodeFlows";
 import { IconClose, IconPlus } from "../common/icons";
 import type { PopMenuItem } from "../common/PopMenu";
 import { makeScheduleActions, scheduleRowMenu } from "../schedule/scheduleActions";
@@ -84,12 +85,6 @@ const HISTORY_MSG = "過去的班次不能改——只能處理目前的班次";
 const ns = () => useNodeStore.getState();
 const ui = () => useUiStore.getState();
 const toast = (message: string) => ui().showToast({ message }, 3600);
-
-/** 快捷鍵指引的兩條路：`?`（導航模式限定）／Ctrl+/（連輸入框裡都算）——浮層開著時要一起擋 */
-function isGuideKey(e: KeyboardEvent<HTMLElement>): boolean {
-  if (e.key === "?") return !isEditableTarget(e.target);
-  return e.key === "/" && (e.ctrlKey || e.metaKey);
-}
 
 export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: DayPopoverProps) {
   const { byDate, nodes, routeOf, today } = useCalendar();
@@ -307,16 +302,16 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
       });
   }, []);
 
-  /** T／Shift+T：排今天／明天（單發票；定期券的班次由規則排定） */
+  /** T／Shift+T：排今天／明天（定期券＝這一列那一班改到今天／明天，⑥ D-主-295） */
   const schedule = useCallback(
     (row: DayRowModel, offset: 0 | 1) => {
       const node = row.node;
       if (!node) return;
+      const next = offset ? addDays(today, 1) : today;
       if (row.isRepeat) {
-        toast(REPEAT_RESCHEDULE_MSG);
+        void moveRunFlow(node.id, row.entry.date, next);
         return;
       }
-      const next = offset ? addDays(today, 1) : today;
       const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
       void ns().reschedule(node.id, next);
       // 票離開這一天＝畫面上這一列當場消失 → 補一張可反悔的收據（同推遲小卡）
@@ -397,40 +392,42 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
     }
     if (isEditableTarget(e.target)) return;
     if (deferTarget) return; // 小卡開著：整張表停用（Esc 也歸它，它自己攔）
-    const mod = e.ctrlKey || e.metaKey;
-    const alt = e.altKey;
-    if (mod || alt) return; // Ctrl+. 等全域鍵一律放行
-
     const row = selKey ? rows.find((r) => r.key === selKey) : undefined;
     const due = selKey?.startsWith("due-") ? dues.find((d) => `due-${d.date}-${d.node_id}` === selKey) : undefined;
     let handled = true;
-    switch (e.key) {
-      case "ArrowDown":
+    // ⑧：查 registry（同串流 StreamView），鍵可自訂；Ctrl+. 等全域鍵查不到這張表，自然放行。
+    // 這張浮層一直不看 Shift（Shift+T 例外），精確比不到就去掉 Shift 再查一次；擴選只有串流有
+    const exact = resolveHotkey("daylist", e);
+    const hit = exact && !exact.id.startsWith("daylist.select.") ? exact : resolveHotkey("daylist", { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: false });
+    switch (hit?.id) {
+      case "daylist.move.down":
         move(1);
         break;
-      case "ArrowUp":
+      case "daylist.move.up":
         move(-1);
         break;
-      case " ":
+      case "daylist.complete":
         if (row) stamp(row);
         else handled = false;
         break;
-      case "t":
-      case "T":
-        if (row) schedule(row, e.shiftKey ? 1 : 0);
+      case "daylist.schedule.today":
+        if (row) schedule(row, 0);
         else handled = false;
         break;
-      case "u":
-      case "U":
+      case "daylist.schedule.tomorrow":
+        if (row) schedule(row, 1);
+        else handled = false;
+        break;
+      case "daylist.suspend":
         if (row) suspend(row);
         else handled = false;
         break;
-      case ".":
+      case "daylist.panel":
         if (row?.node) openPanel(row.node.id);
         else if (due) openPanel(due.node_id);
         else handled = false;
         break;
-      case "Escape":
+      case "daylist.escape":
         onClose();
         break;
       default:
