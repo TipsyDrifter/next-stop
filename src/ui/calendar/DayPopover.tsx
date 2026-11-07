@@ -48,7 +48,7 @@ import { isTaskKind } from "../../domain";
 import { WEEKDAY_LABEL } from "../../domain";
 import { REPEAT_ONLY_MSG } from "../../data";
 import { addDays } from "../../lib/date";
-import { useNodeStore } from "../../store/nodeStore";
+import { scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { lineCalendarDayAux } from "../../lines/runtime";
 import { isEditableTarget, isGuideKey, resolveHotkey } from "../shell/hotkeys";
@@ -312,7 +312,7 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
         void moveRunFlow(node.id, row.entry.date, next);
         return;
       }
-      const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
+      const prev = scheduleSnapshot(node);
       void ns().reschedule(node.id, next);
       // 票離開這一天＝畫面上這一列當場消失 → 補一張可反悔的收據（同推遲小卡）
       if (next !== day) showRescheduleToast(node.id, prev, next);

@@ -1,7 +1,7 @@
 //! ⑨ 截止提醒（契約 docs/research/2026-11-04-主線-截止提醒-契約.md §5；查證 docs/research/2026-11-04-桌機通知點開回App查證.md 案 A）：
 //! 桌機的提醒自己送 toast，因為 tauri-plugin-notification 2.3.3 沒有點擊回呼（2.6.0 才有，但要 tauri ^2.12，本專案鎖 2.11.2）。
-//! 點了＝叫出主視窗＋事件 `ns-reminder-open`（payload＝JS 給的 target 字串，這裡當不透明字串）。其他通知照走 `notifyOnce`。
-//! 官方只保證通知還在螢幕上時點得到；進了通知中心、或 App 已結束時再點不保證，底線是提醒頁的「最近的提醒」。
+//! 點了由系統開 `<scheme>://reminder?target=…`（D-主-357 案 B），走 ⑬ 的收連結路徑叫出主視窗、跳落點；通知中心裡、App 沒開時也走這條。
+//! `Activated`＋事件 `ns-reminder-open`（payload＝JS 給的 target 字串）留著當後備。其他通知照走 `notifyOnce`。底線仍是提醒頁的「最近的提醒」。
 //!
 //! 只有 Windows 真的送；其他桌機回 Err，JS 退回 `notifyOnce`（通知照響、點了不回 App）。手機整支不編（lib.rs 的 `cfg(desktop)`）。
 
@@ -11,7 +11,11 @@ use tauri::AppHandle;
 mod imp {
     use super::AppHandle;
     use tauri::Emitter;
-    use tauri_winrt_notification::{Duration, Toast};
+    use tauri_winrt_notification::Toast;
+    use windows::core::HSTRING;
+    use windows::Data::Xml::Dom::XmlDocument;
+    use windows::Foundation::TypedEventHandler;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
     const OPEN_EVENT: &str = "ns-reminder-open";
 
@@ -29,25 +33,41 @@ mod imp {
         }
     }
 
-    /// 送出後不留 `Toast`，理由（讀 tauri-winrt-notification 0.7.3 `src/lib.rs` 的 `show`）：
-    /// `ToastNotification` 是 `show(&self)` 裡的區域變數，回呼掛在它身上、註冊 token 也丟了；`show` 一回傳，crate 這邊就不再持有它。
-    /// `Toast` 只多握一份回呼 delegate 的參考，留在容器裡也留不住 `ToastNotification`——事件的來源不在我們手上，留了沒有作用。
-    /// 回呼還會不會來，取決於 Windows 在 `Show` 之後自己是否持有那個物件。notify-rust 4.18 也是 `toast.show()` 後就丟 `Toast`、只留 channel。
-    /// 要是實測發現回呼不來，得繞過這個 crate 自己建 `ToastNotification` 並留參考（查證報告 §6 第 1 條）。
+    /// XML 特殊字元跳脫（標題是票名，什麼字都可能有；壞掉整則就送不出去）
+    pub(super) fn escape(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;")
+    }
+
+    /// `activationType="protocol"`＋`launch`：點了由系統開連結（第二個行程帶連結進來，single-instance 轉回來，App 沒開也開得起來），
+    /// 通知進了通知中心也有效。`duration="long"`：7 秒太短來不及點。crate 沒有這兩個屬性的 API，所以自己組。
+    pub(super) fn toast_xml(title: &str, body: &str, link: &str) -> String {
+        format!(
+            r#"<toast launch="{}" activationType="protocol" duration="long"><visual><binding template="ToastGeneric"><text id="1">{}</text><text id="2">{}</text></binding></visual></toast>"#,
+            escape(link),
+            escape(title),
+            escape(body),
+        )
+    }
+
+    /// 留著 `Activated`：protocol 萬一沒啟動（官方文件沒寫「捷徑沒有 stub CLSID」時的行為），通知還在螢幕上時仍走 D-主-357 那條。
+    /// 兩條都到也無妨：開同一個落點，第二次沒有變化。
     pub(super) fn show(
         app: AppHandle,
         aumid: &str,
         title: &str,
         body: &str,
+        link: &str,
         target: String,
     ) -> Result<(), String> {
-        Toast::new(aumid)
-            .title(title)
-            .text1(body)
-            // 點開只保證在通知還在螢幕上時有效，7 秒太短來不及點
-            .duration(Duration::Long)
-            // 回呼在系統的執行緒上（不是送出的這條）：視窗操作丟回主執行緒，emit 哪條都行
-            .on_activated(move |_action| {
+        let send = || -> windows::core::Result<()> {
+            let xml = XmlDocument::new()?;
+            xml.LoadXml(&HSTRING::from(toast_xml(title, body, link)))?;
+            let toast = ToastNotification::CreateToastNotification(&xml)?;
+            toast.Activated(&TypedEventHandler::new(move |_, _| {
                 let handle = app.clone();
                 if let Err(e) =
                     app.run_on_main_thread(move || crate::tray::show_main_window(&handle))
@@ -58,9 +78,10 @@ mod imp {
                     eprintln!("[reminder_toast] 送 {OPEN_EVENT} 事件失敗：{e}");
                 }
                 Ok(())
-            })
-            .show()
-            .map_err(|e| format!("送提醒通知失敗：{e}"))
+            }))?;
+            ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid))?.Show(&toast)
+        };
+        send().map_err(|e| format!("送提醒通知失敗：{e}"))
     }
 }
 
@@ -81,12 +102,14 @@ pub async fn reminder_toast(
         .display()
         .to_string();
     let identifier = app.config().identifier.clone();
+    let link = crate::external::reminder_link(&crate::external::scheme_for(&identifier), &target);
     tauri::async_runtime::spawn_blocking(move || {
         imp::show(
             app,
             imp::aumid_for(&exe_dir, &identifier),
             &title,
             &body,
+            &link,
             target,
         )
     })
@@ -107,10 +130,19 @@ pub async fn reminder_toast(
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::imp::aumid_for;
+    use super::imp::{aumid_for, toast_xml};
     use tauri_winrt_notification::Toast;
 
     const ID: &str = "app.shitetsu.nextstop";
+
+    #[test]
+    fn toast_走protocol且特殊字元要跳脫() {
+        let xml = toast_xml("買<牛奶>&蛋", "明天 \"截止\"", "nextstop://reminder?target=%7B%7D&x=1");
+        assert!(xml.contains(r#"launch="nextstop://reminder?target=%7B%7D&amp;x=1""#));
+        assert!(xml.contains(r#"activationType="protocol""#));
+        assert!(xml.contains("買&lt;牛奶&gt;&amp;蛋"));
+        assert!(xml.contains("明天 &quot;截止&quot;"));
+    }
 
     #[test]
     fn installed_exe_uses_identifier() {

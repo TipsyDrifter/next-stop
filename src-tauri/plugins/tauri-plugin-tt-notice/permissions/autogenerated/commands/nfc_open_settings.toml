@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-nfc-open-settings"
+description = "Enables the nfc_open_settings command without any pre-configured scope."
+commands.allow = ["nfc_open_settings"]
+
+[[permission]]
+identifier = "deny-nfc-open-settings"
+description = "Denies the nfc_open_settings command without any pre-configured scope."
+commands.deny = ["nfc_open_settings"]

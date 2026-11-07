@@ -165,7 +165,11 @@ import {
   wishView,
   type NoteUse,
   type TemplateRow,
+  WR_KIND_BUY_ID,
+  type WishAction,
+  type WishKindRow,
   type WishRow,
+  type WishTargetKind,
   type WishView,
 } from "../domain/ticketAids";
 import type { RecallItem } from "../domain/recall";
@@ -197,7 +201,7 @@ export type TicketDialog =
      pick＝從帳戶選單開的 ⇒ 建完選上它（填回草稿） */
   | { kind: "newAccount"; then?: { new: Partial<TicketDraft> } | { pick(accountId: string): void } }
   | { kind: "categories" }
-  /* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序（群組內 ↑↓，兩殼共用本體 dialogs/AccountOrder） */
+  /* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序（群組內 ⋯ 選單上移／下移，兩殼共用本體 dialogs/AccountOrder） */
   | { kind: "accountOrder" }
   | { kind: "currencies" }
   /* 第③階段（③契約 §3.8）：預算對話框、定期帳管理、規則編輯器（id null＝新建；seed＝「設成定期…」帶的預填） */
@@ -299,7 +303,7 @@ export interface TicketStore {
   /* ═══ 第②階段「看帳」（②契約 §3.4；①的欄位與動作一個都不改） ═══ */
 
   /* 視圖（0-10；0-17 原本不持久化、冷啟動回清單——己-2 B5 D-主-418 翻案：記本機、冷啟動回上次，見 KEY_TICKET_VIEW） */
-  view: TicketView; // "list" | "calendar" | "stats" | "accounts" | "wish"（頁首五格，D-票-77）
+  view: TicketView; // "list" | "calendar" | "stats" | "accounts"（頁首四格；壬 D-主-513 拿掉 "wish"）
   setView(v: TicketView): Promise<void>; // 進 stats ⇒ 載 statsEntries；進 accounts ⇒ 載 accountCards；離開清單 ⇒ 詳情板（entry／account）收起
   /* 統計（0-6～0-9） */
   span: StatsSpan; // "month" | "year"
@@ -421,14 +425,25 @@ export interface TicketStore {
   /** 派生：想買（position 順序）／已買（那筆的日期新到舊、實際花了多少）／合計 */
   wish: WishView;
   /** 頂端那列直接加（排在想買最上面）；amountText 空＝沒估（主幣別）；tags 掛 'ticket:wish'。失敗 toast、回 null */
-  createWish(input: { name: string; amountText: string; note?: string; categoryId?: string | null; tags?: string[] }): Promise<WishRow | null>;
-  updateWish(id: string, patch: { name?: string; amountText?: string; note?: string; categoryId?: string | null }): Promise<void>;
+  createWish(input: { name: string; amountText: string; note?: string; categoryId?: string | null; tags?: string[]; kindId?: string }): Promise<WishRow | null>;
+  updateWish(id: string, patch: { name?: string; amountText?: string; note?: string; categoryId?: string | null; kindId?: string }): Promise<void>;
   /** 軟刪＋toast「已刪除這個願望」帶「復原」 */
   deleteWish(id: string): Promise<void>;
-  /** 在「想買」那一組裡搬到第 index 個（拖曳） */
+  /** 在「等候」那一組裡搬到第 index 個（拖曳） */
   moveWishTo(id: string, index: number): Promise<void>;
-  /** 「買了」：開記一筆（支出、金額＝預估、備註＝名稱、分類、願望的荷札、wishId）；存了那一項移到已買 */
+  /** 「記一筆」實現：開記一筆（支出、金額＝預估、備註＝名稱、分類、願望的荷札、wishId）；存了那一項移到實現了。桌機在售票口頁開；候車室頁先跳售票口再叫它 */
   buyWish(id: string): Promise<void>;
+  /** 其他動作的實現（壬 D-主-520）：target＝開出的記錄（null＝清掉回到等候）；呼叫端自己建記錄、帶荷札 */
+  setWishTarget(id: string, target: { kind: WishTargetKind; id: string } | null): Promise<void>;
+
+  /* 候車室種類（番線；wr_kinds，D-主-519） */
+  wishKinds: WishKindRow[]; // 未刪、position（＝番線）順序
+  /** 失敗 toast、回 null */
+  createWishKind(input: { name: string; action: WishAction }): Promise<WishKindRow | null>;
+  updateWishKind(id: string, patch: { name?: string; action?: WishAction }): Promise<void>;
+  /** 還有願望掛著會失敗（toast 說明）；刪成了 toast 帶「復原」 */
+  deleteWishKind(id: string): Promise<void>;
+  moveWishKindTo(id: string, index: number): Promise<void>;
 
   /* 帳戶與分類拖曳（契約 §5）：搬到第 index 個（0 起算；群組內／同層）。上下移照舊 moveAccount／moveCategory */
   moveAccountTo(id: string, index: number): Promise<void>;
@@ -499,6 +514,7 @@ export const TK_TEXT = {
   templateSaved: (name: string) => `已存成常用「${name}」`,
   templateDeleted: "已刪除這個常用票種",
   wishDeleted: "已刪除這個願望",
+  kindDeleted: "已刪除這個種類",
   wishHead: AIDS_TEXT.wishHead,
   boughtHead: AIDS_TEXT.boughtHead,
 } as const;
@@ -944,10 +960,17 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   /** 願望＋常用票種（warm 與 refresh 共用；讀不到只 warn、保留舊值——同 loadPlan） */
   async function loadAids(): Promise<void> {
     try {
-      const [wishes, templates] = await Promise.all([ticketRepo.listWishes(), ticketRepo.listTemplates()]);
+      const [wishes, wishKinds, templates] = await Promise.all([ticketRepo.listWishes(), ticketRepo.listWishKinds(), ticketRepo.listTemplates()]);
       const linked = wishes.filter((w) => w.entry_id !== null).map((w) => w.entry_id as string);
       const entries = linked.length ? await ticketRepo.getEntries(linked) : [];
-      set({ wishes, templates, wish: wishView(wishes, byId(entries)) });
+      // 「實現了沒」看開出的記錄還在不在（壬 D-主-520、521；讀時判斷）
+      const refs = wishes
+        .filter((w) => w.target_kind !== null && w.target_id !== null)
+        .map((w) => ({ target_kind: w.target_kind as NonNullable<WishRow["target_kind"]>, target_id: w.target_id as string }));
+      const targets = refs.length ? await ticketRepo.getWishTargets(refs) : {};
+      const kindById: Record<string, WishKindRow | undefined> = {};
+      for (const k of wishKinds) kindById[k.id] = k;
+      set({ wishes, wishKinds, templates, wish: wishView(wishes, byId(entries), targets, kindById) });
     } catch (e) {
       console.warn("[ticket] 讀願望／常用票種失敗", e);
     }
@@ -1043,6 +1066,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     noteRecall: null,
     templates: [],
     wishes: [],
+    wishKinds: [],
     wish: EMPTY_WISH_VIEW,
     accountCards: null,
 
@@ -1177,7 +1201,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         // 售票口④：願望、常用票種、備註記憶作廢
         noteUses = null;
         noteGen++;
-        set({ wishes: [], templates: [], wish: EMPTY_WISH_VIEW, noteRecall: null });
+        set({ wishes: [], wishKinds: [], templates: [], wish: EMPTY_WISH_VIEW, noteRecall: null });
         warmPromise = null; // 整批換掉：重走 warm（起手三列可能要重種）＋init
         initPromise = null;
         await get().init(lastShell);
@@ -2295,7 +2319,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         const names = draftTagNames(input.tags ?? []);
         const amountMinor = mainAmountOrNull(input.amountText);
         const row = await serial(async () => {
-          const created = await ticketRepo.createWish({ name: input.name, amountMinor, note: input.note ?? "", categoryId: input.categoryId ?? null });
+          const created = await ticketRepo.createWish({
+            name: input.name,
+            amountMinor,
+            note: input.note ?? "",
+            categoryId: input.categoryId ?? null,
+            kindId: input.kindId ?? WR_KIND_BUY_ID,
+          });
           if (names.length) {
             try {
               await writeTags(TK_TAG_WISH, created.id, names);
@@ -2316,7 +2346,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     async updateWish(id, patch) {
       try {
         const amountMinor = patch.amountText !== undefined ? mainAmountOrNull(patch.amountText) : undefined;
-        await serial(() => ticketRepo.updateWish(id, { name: patch.name, amountMinor, note: patch.note, categoryId: patch.categoryId }));
+        await serial(() => ticketRepo.updateWish(id, { name: patch.name, amountMinor, note: patch.note, categoryId: patch.categoryId, kindId: patch.kindId }));
         await serial(() => get().refresh());
       } catch (e) {
         failToast(e);
@@ -2347,6 +2377,46 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         console.warn("[ticket] 讀願望的荷札失敗", e);
       }
       get().openNew({ ...wishDraftSeed(w, entryCtx(), mainCur()), tags });
+    },
+
+    async setWishTarget(id, target) {
+      await write(() => ticketRepo.setWishTarget(id, target));
+    },
+
+    /* ───────── 候車室種類（番線） ───────── */
+
+    async createWishKind(input) {
+      try {
+        const row = await serial(() => ticketRepo.createWishKind(input));
+        await serial(() => get().refresh());
+        return row;
+      } catch (e) {
+        failToast(e);
+        return null;
+      }
+    },
+
+    async updateWishKind(id, patch) {
+      try {
+        await serial(() => ticketRepo.updateWishKind(id, patch));
+        await serial(() => get().refresh());
+      } catch (e) {
+        failToast(e);
+      }
+    },
+
+    async deleteWishKind(id) {
+      await write(
+        () => ticketRepo.softDeleteWishKind(id),
+        () =>
+          toast(TK_TEXT.kindDeleted, TK_TEXT.undo, () => {
+            void write(() => ticketRepo.restoreWishKind(id));
+          }),
+      );
+    },
+
+    async moveWishKindTo(id, index) {
+      await write(() => ticketRepo.moveWishKindTo(id, index));
     },
 
     /* ───────── 帳戶與分類拖曳 ───────── */

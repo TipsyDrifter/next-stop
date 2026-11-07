@@ -7,7 +7,8 @@
  */
 import { nodeRepo } from "../data";
 import { tagRepo } from "../data/tagRepo";
-import type { NodeRow, Priority } from "../domain/node";
+import { canHaveChildren, type NodeRow, type Priority } from "../domain/node";
+import { cardSettled, planCardMove, readCardStates, restoreCardStates, runCardSteps } from "../domain/boardMove";
 import type { SlotAnchor } from "../domain/nodeOrder";
 import { todayKey } from "../lib/date";
 import { useNodeStore } from "./nodeStore";
@@ -81,7 +82,13 @@ export async function batchSetDate(ids: readonly string[], date: string | null, 
   const before = await rows(ids);
   const o = await eachOf(ids, (id) => nodeRepo.reschedule(id, date, dateKey()).then(() => undefined));
   await finish(date ? "改期" : "清掉執行日", o, async () => {
-    for (const id of o.done) await nodeRepo.reschedule(id, before.get(id)?.scheduled_on ?? null, dateKey()).catch(() => undefined);
+    for (const id of o.done) {
+      const b = before.get(id);
+      if (!b) continue;
+      // 繰越章與今日手排位置一起放回去（F-2，同 showRescheduleToast）；reschedule 只管日期
+      await nodeRepo.reschedule(id, b.scheduled_on, dateKey()).catch(() => undefined);
+      await nodeRepo.update(id, { carried_from: b.carried_from, today_position: b.today_position }).catch(() => undefined);
+    }
   }, single);
 }
 
@@ -122,22 +129,37 @@ export async function batchDetachTag(ids: readonly string[], key: string): Promi
   });
 }
 
-/** 蓋済：有未完成子項的先問一次（一起完成＝連子項蓋），反悔逐張撤 */
+/** 底下還有沒蓋済的子項嗎：在開著的路線樹裡就看樹；不在（今日、行程表、跨路線的篩選）問 repository */
+async function hasOpenKids(id: string, kind: NodeRow["kind"]): Promise<boolean> {
+  const t = ns().tree;
+  if (t.byId[id]) return (t.childrenOf[id] ?? []).some((c) => t.byId[c]?.status !== "done");
+  if (!canHaveChildren(kind)) return false;
+  const under = (await nodeRepo.listSubtreeIds(id)).filter((x) => x !== id);
+  const kids = await rows(under);
+  return under.some((x) => kids.has(x) && kids.get(x)?.status !== "done" && kids.get(x)?.deleted_at === null);
+}
+
+/**
+ * 蓋済：有未完成子項的先問一次（一起完成＝連子項蓋），反悔照快照走回去（domain/boardMove，同看板換欄）。
+ * 已經有結局的不算（定期券看目前班次：nodes.status 一路是 todo，照它判會蓋到下一班頭上）。
+ */
 export async function batchComplete(ids: readonly string[]): Promise<void> {
-  const before = await rows(ids);
-  const todo = ids.filter((id) => before.get(id)?.status !== "done");
-  const kids = ns().tree;
-  const open = todo.filter((id) => (kids.childrenOf[id] ?? []).some((c) => kids.byId[c]?.status !== "done"));
+  const day = () => ({ dateKey: dateKey(), dayStartHour: dayStart() });
+  const before = await readCardStates(nodeRepo, ids, day());
+  const todo = ids.filter((id) => {
+    const s = before.get(id);
+    return s && !cardSettled(s);
+  });
+  const open: string[] = [];
+  for (const id of todo) if (await hasOpenKids(id, before.get(id)!.kind)) open.push(id);
   const run = async (cascade: boolean) => {
-    const o = await eachOf(todo, (id) =>
-      nodeRepo.setCompleted(id, true, { cascade: cascade && open.includes(id), dateKey: dateKey(), dayStartHour: dayStart() }).then(() => undefined),
-    );
+    const o = await eachOf(todo, (id) => runCardSteps(nodeRepo, id, planCardMove(before.get(id)!, "done"), day(), { cascade: cascade && open.includes(id) }));
     await finish("蓋済", o, async () => {
-      for (const id of o.done) await nodeRepo.setCompleted(id, false, { dateKey: dateKey(), dayStartHour: dayStart() }).catch(() => undefined);
+      await restoreCardStates(nodeRepo, new Map(o.done.map((id) => [id, before.get(id)!])), day());
     });
   };
   if (!todo.length) {
-    ui().showToast({ message: "選到的都已經蓋過済了" }, 3000);
+    ui().showToast({ message: "選到的都已經有結局了" }, 3000);
     return;
   }
   if (open.length) {

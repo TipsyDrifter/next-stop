@@ -16,8 +16,8 @@
 import type { HotkeyScope } from "./hotkeys";
 import { LINE_MANIFESTS, type LineHotkeyScope, type LineId } from "../../lines/index.ts";
 
-/** 核心頁：gnav 上排三頁＋第三排「回顧」（② 運行報告 D-主-182；③ 車庫 D-主-215） */
-export type CorePageId = "today" | "routemap" | "calendar" | "report" | "depot";
+/** 核心頁：gnav 上排三頁＋第三排「站內」（② 運行報告 D-主-182；③ 車庫 D-主-215；壬 候車室 D-主-511、群組名 D-主-512） */
+export type CorePageId = "today" | "routemap" | "calendar" | "report" | "depot" | "waitroom";
 /** 不進 gnav 的頁（完整搜尋班 D-主-110）：由入口叫出、側欄沒有它的頁籤，不配 Ctrl+數字 */
 export type AuxPageId = "search";
 export type PageId = CorePageId | LineId | AuxPageId;
@@ -75,9 +75,9 @@ const LINE_PAGES: readonly PageDef[] = LINE_MANIFESTS.map((m) => ({
 }));
 
 /**
- * gnav 第三排「回顧」（② 運行報告 D-主-182；視覺真相 prototypes/design-stats-review-運行報告.html）：
- * 跟上兩排共用三欄格線、數字鍵接在三條功能線之後。③ 的車庫（navDigit 8，車庫與回顧 D-主-215）接在後面。
- * 運行報告沒有自己的快捷鍵：`hotkeyScope` 給 global，`?` 情境卡只畫全域那一段（HotkeyGuide）；
+ * gnav 第三排「站內」（② 運行報告 D-主-182；視覺真相 prototypes/design-stats-review-運行報告.html；群組名由「回顧」改「站內」D-主-512）：
+ * 跟上兩排共用三欄格線、數字鍵接在三條功能線之後。③ 的車庫（navDigit 8，車庫與回顧 D-主-215）、壬 候車室（navDigit 9，D-主-511）接在後面。
+ * 運行報告、候車室沒有自己的快捷鍵：`hotkeyScope` 給 global，`?` 情境卡只畫全域那一段（HotkeyGuide）；
  * 車庫有一顆（記錄簿開著時 Esc 回車庫），scope `depot`。
  */
 const REVIEW_PAGES: readonly PageDef[] = [
@@ -99,9 +99,18 @@ const REVIEW_PAGES: readonly PageDef[] = [
     hotkeyScope: "depot",
     guideTitle: "車庫的快捷鍵",
   },
+  {
+    id: "waitroom",
+    label: "候車室",
+    status: "open",
+    navDigit: "9",
+    navHotkeyId: "global.nav.waitroom",
+    hotkeyScope: "global",
+    guideTitle: "候車室的快捷鍵",
+  },
 ];
 
-/** 順序＝gnav 的顯示順序：今日、路線圖、日曆、旅客筆記、時刻表、售票口、（回顧）運行報告、車庫 */
+/** 順序＝gnav 的顯示順序：今日、路線圖、日曆、旅客筆記、時刻表、售票口、（站內）運行報告、車庫、候車室 */
 export const PAGES: readonly PageDef[] = [...CORE_PAGES, ...LINE_PAGES, ...REVIEW_PAGES];
 
 /**
@@ -139,7 +148,7 @@ export function plannedPages(): readonly PageDef[] {
   return PAGES.filter((p) => p.status === "planned");
 }
 
-/** 核心三頁（gnav 上排；固定順序今日、路線圖、日曆）。第三排「回顧」另由 `reviewPages()` 給 */
+/** 核心三頁（gnav 上排；固定順序今日、路線圖、日曆）。第三排「站內」另由 `reviewPages()` 給 */
 export function corePages(): readonly PageDef[] {
   return CORE_PAGES;
 }
@@ -149,7 +158,7 @@ export function linePages(): readonly PageDef[] {
   return LINE_PAGES;
 }
 
-/** gnav 第三排「回顧」的頁（② 運行報告、③ 車庫） */
+/** gnav 第三排「站內」的頁（② 運行報告、③ 車庫、壬 候車室；函式名沿用舊群組名） */
 export function reviewPages(): readonly PageDef[] {
   return REVIEW_PAGES;
 }

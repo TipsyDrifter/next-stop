@@ -20,6 +20,23 @@ interface DumpSource {
 const FAR_PAST = "1970-01-01T00:00:00.000Z";
 const FAR_FUTURE = "2999-12-31T00:00:00.000Z";
 
+/** 假資料的示範：去年的今天買了一副耳機（那年今日）、上個月去了一個地方——mock 的願望表不在這個庫，造兩筆讓畫面有東西 */
+function demoWishes(dayStartHour: number): DepotData["wishes"] {
+  const now = new Date();
+  const at = (y: number, m: number, d: number) => new Date(y, m, d, 12).toISOString();
+  const mk = (id: string, name: string, kind: DepotData["wishes"][number]["kind"], iso: string) => ({
+    id,
+    name,
+    kind,
+    bought_at: iso,
+    day: dayKeyOf(iso, dayStartHour),
+  });
+  return [
+    mk("demo-wish-1", "降噪耳機", "買", at(now.getFullYear() - 1, now.getMonth(), now.getDate())),
+    mk("demo-wish-2", "京都一日散步", "去", at(now.getFullYear(), now.getMonth() - 1, 12)),
+  ];
+}
+
 export class MemoryDepotRepository implements DepotRepository {
   private readonly stamps = new Map<string, StampRow>();
 
@@ -143,6 +160,7 @@ export class MemoryDepotRepository implements DepotRepository {
       routeSeals,
       sealDays: seals.map((s) => dayKeyOf(s.at, dayStartHour)),
       notes: digests,
+      wishes: demoWishes(dayStartHour),
     };
   }
 }

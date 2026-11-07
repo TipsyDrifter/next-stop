@@ -102,7 +102,26 @@ const TK_REPEATS_COLS: &[(&str, bool)] = &[
     ("deleted_at", false),
 ];
 
-/// tk_wishes 的「主人資料」欄（售票口④，0016）。amount_minor 是主幣別、可 NULL；entry_id 不設外鍵（那筆被刪＝回到想買）。
+/// wr_kinds 的「主人資料」欄（壬 候車室 0019）：種類（番線）——name、實現動作 action、順序。
+/// 起手五列由 App 依固定 id 補種（含墓碑判斷，刪了不回來）；兩台的種子 id 相同、確定性合一。
+const WR_KINDS_COLS: &[(&str, bool)] = &[
+    ("name", false),
+    ("action", false),
+    ("position", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// 起手五列不算「這台有沒有資料」（同 tk_currencies／tk_categories 前例）：
+/// id 與 `src/domain/ticket.ts` 的 WR_KIND_SEEDS 逐字相同。
+const WR_KINDS_ALIVE: &str = "deleted_at IS NULL AND id NOT IN (\
+'5b1a6c3e-0f44-5a7a-9d2b-8e6f1c0a2b31','9c2d7e4f-1a55-5b8b-8c3c-7f0a2d1b3c42',\
+'3e4f8a5c-2b66-5c9c-bd4d-6a1b3e2c4d53','7a5c9b6d-3c77-5dad-ae5e-5b2c4f3d5e64',\
+'1d6e0c7f-4d88-5ebe-9f6f-4c3d5a4e6f75')";
+
+/// tk_wishes 的「主人資料」欄（售票口④ 0016；壬 候車室 0019 加 kind_id／target_kind／target_id）。
+/// amount_minor 是主幣別、可 NULL；entry_id、kind_id、target_id 都不設外鍵（讀時判斷）。
 const TK_WISHES_COLS: &[(&str, bool)] = &[
     ("name", false),
     ("amount_minor", true),
@@ -111,6 +130,9 @@ const TK_WISHES_COLS: &[(&str, bool)] = &[
     ("position", true),
     ("entry_id", false),
     ("bought_at", false),
+    ("kind_id", false),
+    ("target_kind", false),
+    ("target_id", false),
     ("created_at", false),
     ("updated_at", false),
     ("deleted_at", false),
@@ -136,8 +158,15 @@ const TK_TEMPLATES_COLS: &[(&str, bool)] = &[
 /// 起手列不算「這台有沒有資料」（契約 0-16）：每台都會自動種 TWD 與收／支兩個「未分類」。
 /// id 與 `src/domain/ticket.ts` 的 `CURRENCY_TWD_ID`／`UNCAT_INCOME_ID`／`UNCAT_EXPENSE_ID` 逐字相同（`scripts/tests/ticket-logic.test.ts` 對帳）。
 const TK_CURRENCIES_ALIVE: &str = "deleted_at IS NULL AND id <> '0fd3bc2e-78d6-5e66-8e08-42d0006b659c'";
+/// 預設分類（癸，D-主-531）同理，但改過名、排過序（`updated_at` 變了）就算資料；id 與 `DEFAULT_CATEGORIES` 逐字相同
+/// （`scripts/tests/starter-defaults.test.ts` 對帳）。
 const TK_CATEGORIES_ALIVE: &str = "deleted_at IS NULL AND id NOT IN (\
-'aa25f94b-7093-5bd4-afe2-e3266219e74d','a6006f3b-a58a-502f-8164-98305b88fd1c')";
+'aa25f94b-7093-5bd4-afe2-e3266219e74d','a6006f3b-a58a-502f-8164-98305b88fd1c') \
+AND NOT (updated_at = created_at AND id IN (\
+'3e349438-e3ec-5766-a953-60f3e9df0107','29b356df-5466-59eb-9c0d-91340dd06db5','2fd75c14-c48d-5525-adc4-944e992f2574',\
+'ce0b3643-0bdb-5744-ac4a-0d2c970eccc4','887934a9-c482-5dd8-8eb8-88c2aa9507bd','7fbdd90a-bd98-5115-8167-cdaa5f7c632d',\
+'22cd6164-03c6-5465-8c92-f99f6c680d8e','f00b86bb-4614-5159-bdd5-be810e321dbb','a8da037a-662f-5cfa-95c2-c6eeb6986f93',\
+'2d6277f0-370b-54db-b0d1-07a20367748b','edc9eebe-57c6-5443-a3ed-04c0a2904464','df5dd9d9-df1f-570c-936a-3389c72cc93a'))";
 
 /// tk_categories 的快照查詢：父先子後（D-票-78 分類不限層數之後，`(parent_id IS NOT NULL), position` 只保證兩層）。
 /// 每一列往上走到頂、取最大深度排序：父一定排在子前面；父不在的當頂層（深度 0）；同步合出的環
@@ -150,8 +179,9 @@ const TK_CATEGORIES_OUTBOX_CTE: &str = "WITH RECURSIVE up(id, anc, d) AS ( \
          SELECT t.*, u.depth AS _depth FROM tk_categories t \
          JOIN (SELECT id, MAX(d) AS depth FROM up GROUP BY id) u ON u.id = t.id ORDER BY u.depth, t.position";
 
-/// 售票口線的同步表。只有售票口線改這個檔。順序＝外鍵的父先子後：currencies → accounts → categories → entries → budgets → repeats（第③階段；兩張只指父表、彼此不指）
-/// → wishes → templates（售票口④；同樣只指帳戶／分類）。
+/// 售票口線的同步表（＋候車室的 wr_kinds：壬 0019，邏輯歸主線、實作放這裡跟 tk_wishes 作伴）。
+/// 順序＝外鍵的父先子後：currencies → accounts → categories → entries → budgets → repeats（第③階段；兩張只指父表、彼此不指）
+/// → wr_kinds → wishes → templates（售票口④／壬；wishes 的 kind_id 指 wr_kinds、不設 FK）。
 pub const TABLES: &[SyncTableSpec] = &[
     SyncTableSpec {
         name: "tk_currencies",
@@ -270,6 +300,26 @@ pub const TABLES: &[SyncTableSpec] = &[
             conflict_anchor: ConflictAnchor::None,
             alive_filter: Some("deleted_at IS NULL"),
             since: Some("ticket_plan"),
+        }),
+    },
+    SyncTableSpec {
+        name: "wr_kinds",
+        pk: "id",
+        columns: WR_KINDS_COLS,
+        // NOT NULL 且沒有 DEFAULT：name（action／position 有 DEFAULT）
+        required: &["name"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "created_at",
+            fk_checked: false, // 沒有外鍵（tk_wishes.kind_id 指它，但不設 FK、讀時判斷）
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some(WR_KINDS_ALIVE),
+            since: Some("waitroom_kind"),
         }),
     },
     SyncTableSpec {

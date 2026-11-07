@@ -27,6 +27,7 @@ import { getDb, nowUtcIso, uuid } from "../lib/db";
 import { dayWindow, parseDayStartHour, todayKey } from "../lib/date";
 import { escapeLike } from "../lib/sql";
 import type { FullSearchHit } from "../domain/fullSearch";
+import type { TaskRow } from "../domain/taskFilter";
 import { inDepotSql, type ArrivalWrite } from "../domain/depot";
 import {
   SIBLING_ORDER_SQL,
@@ -38,6 +39,7 @@ import {
   type SiblingGroup,
   type SlotAnchor,
 } from "../domain/nodeOrder";
+import { STARTER_LINES } from "../domain/starterLines";
 import { keysForSlot, planSortKeyBackfill, slotFromAnchor, type BackfillRow, type KeyWrite } from "../domain/nodeSortKey";
 import {
   TIME_REPEAT_ONLY_MSG,
@@ -82,6 +84,7 @@ import type {
   RouteProgress,
   RouteProgressSeed,
   RouteMemberRow,
+  TaskHolderRow,
   ScheduleBounds,
   ScheduleEntry,
   SidebarData,
@@ -148,7 +151,7 @@ async function guardToday(db: Database): Promise<string> {
 const PATCHABLE = new Set<string>([
   "name", "description", "color", "code", "status", "scheduled_on", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
-  "carried_from", "route_id", "scheduled_time",
+  "carried_from", "route_id", "scheduled_time", "today_position", "station_id",
 ]);
 
 
@@ -239,6 +242,24 @@ export class SqliteNodeRepository implements NodeRepository {
     return db.select<RouteMemberRow[]>(
       `SELECT id, kind, status, route_id FROM nodes WHERE route_id IS NOT NULL AND kind != 'station' AND ${ALIVE}`,
     );
+  }
+
+  async listTasks(): Promise<TaskRow[]> {
+    const db = await getDb();
+    const rows = await db.select<(NodeRow & { has_kids: number })[]>(
+      `SELECT n.*, EXISTS (SELECT 1 FROM nodes k WHERE k.parent_id = n.id AND k.deleted_at IS NULL) AS has_kids
+         FROM nodes n WHERE kind IN ('ticket', 'train', 'car') AND ${ALIVE}
+         ORDER BY ${SIBLING_ORDER_SQL}`,
+    );
+    return this.withOverrides(
+      db,
+      rows.map((r): TaskRow => ({ ...r, has_kids: !!r.has_kids })),
+    );
+  }
+
+  async listTaskHolders(): Promise<TaskHolderRow[]> {
+    const db = await getDb();
+    return db.select<TaskHolderRow[]>(`SELECT id, name, parent_id FROM nodes WHERE kind IN ('branch', 'train', 'car') AND ${ALIVE}`);
   }
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
@@ -462,6 +483,43 @@ export class SqliteNodeRepository implements NodeRepository {
     const node = await this.getNode(id);
     if (!node || node.deleted_at) return [];
     return (await this.groupOrder(db, await this.groupOfNode(node))).map((r) => r.id);
+  }
+
+  async countAllNodes(): Promise<number> {
+    const db = await getDb();
+    const rows = await db.select<{ n: number }[]>(`SELECT COUNT(*) AS n FROM nodes`);
+    return rows[0]?.n ?? 0;
+  }
+
+  async ensureStarterLines(): Promise<boolean> {
+    if ((await this.countAllNodes()) > 0) return false;
+    const db = await getDb();
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    const keys = keysForSlot([], STARTER_LINES.map((l) => l.id), 0);
+    STARTER_LINES.forEach((l, position) => {
+      const sortKey = keys[position].key;
+      b.stmts.push({
+        sql: `INSERT INTO nodes (id, kind, name, position, sort_key, created_at, updated_at)
+         VALUES ($1, 'line', $2, $3, $4, $5, $5) ON CONFLICT(id) DO NOTHING`,
+        args: [l.id, l.name, position, sortKey, now],
+      });
+      addOp(b, "nodes", l.id, "upsert", {
+        kind: "line",
+        parent_id: null,
+        name: l.name,
+        description: null,
+        position,
+        sort_key: sortKey,
+        color: null,
+        code: null,
+        scheduled_on: null,
+        created_at: now,
+        updated_at: now,
+      });
+    });
+    await runWriteBatch(db, b.stmts, b.ops);
+    return true;
   }
 
   async create(input: CreateNodeInput): Promise<NodeRow> {

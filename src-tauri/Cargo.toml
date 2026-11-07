@@ -1,6 +1,6 @@
 [package]
 name = "next-stop"
-version = "1.25.0"
+version = "1.26.0"
 description = "私鐵手帳 · 私鉄手帳 · Next Stop — 整合 7 大模塊於一處的個人生產力 App"
 authors = ["主人 & 小紗"]
 edition = "2021"
@@ -105,10 +105,15 @@ tokio = { version = "1", features = ["rt", "net", "io-std", "io-util", "sync", "
 # SetForegroundWindow。windows-sys 0.59.0 本來就在 Cargo.lock（間接依賴），這裡升為直接依賴、同版本，不多一棵樹；
 # features 只開 Win32_Foundation（HWND）與 Win32_UI_WindowsAndMessaging（兩支函式）。
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_StationsAndDesktops", "Win32_UI_WindowsAndMessaging"] }
 # ⑨ 截止提醒（契約 2026-11-04 §5 案 A）：桌機 toast 的點擊回呼 on_activated。0.7.3 本來就在 Cargo.lock（notify-rust 的相依），升為直接依賴、不多一棵樹。
 # 不升 0.8：上游 issue #59 回報 0.8.0 的按鈕與音效有問題（查證報告 §2.2）。
 tauri-winrt-notification = "0.7"
+# D-主-357 案 B：提醒 toast 要 launch＋activationType="protocol"，crate 沒有這兩個屬性的 API，要自己組 XML。0.61.3 本來就在 lock、feature 也是 crate 開過的，不多一棵樹。
+windows = { version = "0.61", features = ["Data_Xml_Dom", "UI_Notifications", "Foundation"] }
+# ⑬ 外部入口（契約 2026-11-06 §二）：開機把 `nextstop://` 寫進 HKCU\Software\Classes（不用 tauri-plugin-deep-link：dev 與沙盒要各用各的 scheme）。
+# 0.55.0 本來就在 Cargo.lock（另一棵是 0.10.1），升為直接依賴、選 0.55 這棵，不多一份樹。
+winreg = "0.55"
 
 
 # v1.1.2 QR 掃描（D-1.1-6 甲：手機掃桌機的 QR；契約席 2026-09-19 加、WP10a 接線）。

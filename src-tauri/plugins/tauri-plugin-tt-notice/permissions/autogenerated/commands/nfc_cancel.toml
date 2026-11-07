@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-nfc-cancel"
+description = "Enables the nfc_cancel command without any pre-configured scope."
+commands.allow = ["nfc_cancel"]
+
+[[permission]]
+identifier = "deny-nfc-cancel"
+description = "Denies the nfc_cancel command without any pre-configured scope."
+commands.deny = ["nfc_cancel"]

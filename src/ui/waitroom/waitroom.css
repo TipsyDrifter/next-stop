@@ -1,0 +1,254 @@
+/* ─────────────────────────────────────────────────────
+ * waitroom.css — 候車室頁（壬 D-主-511～515；視覺真相＝prototypes/壬-候車室-對照.html 3A、題4A、手機段）。
+ * 列、新增列、實現了摺疊段的骨架搬自售票口願望清單（ticket-4.css `.ns-tk-wish*`、ticket-4-mobile.css `.ns-tk-mw-*`），改 `.ns-wr-` 前綴；
+ * 編輯區沿用售票口的欄位骨架 `.ns-tk-fields`（分類選單 CategoryCombo、荷札欄 EntityTagField 的浮層定位跟著它），本檔只蓋間距。
+ * 顏色只吃 theme.css 的語意 token；字級一律 var(--fs-*)（少數照原型的小字行尾註明）。
+ * 手機規則掛 [data-shell="mobile"]；底部面板 MSheet 會 portal 到 body，面板的規則不依賴 .ns-waitroom 祖先。
+ * 守則（不遊戲化）：沒有進度條、點數；済章只是記號。
+ * ───────────────────────────────────────────────────── */
+
+/* 售票口元件（分類選單浮層、選中底）讀的區域變數：在售票口頁由 .ns-tk 給；這頁自己給同一組語意 token */
+.ns-waitroom,
+.ns-wr-msheet {
+  --ns-tk-hover: var(--hover-bg);
+  --ns-tk-sel: var(--sel-bg);
+  --ns-tk-glass: var(--glass-edge);
+  --ns-tk-float: var(--float-bg);
+  --ns-tk-hi: var(--glass-hi);
+}
+
+/* ═══════════ 紙（霧面玻璃＋噪點；同車庫 .ns-depot-paper） ═══════════ */
+.ns-wr-paper {
+  position: relative; isolation: isolate; margin-top: var(--sp-4);
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge); border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+}
+.ns-wr-paper::after { /* 霧面顆粒（粉彩限定；噪點 SVG 同 depot.css） */
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .05; mix-blend-mode: multiply;
+}
+[data-theme="dark"] .ns-wr-paper::after { display: none; }
+
+/* 頁首 stats 裡「（N 件沒估）」 */
+.ns-wr-unpriced { margin-left: 4px; color: var(--color-ink-faint); white-space: nowrap; }
+
+/* ═══════════ 種類籤（共用 .chip.ns-chip；件數小字） ═══════════ */
+.ns-wr-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 14px 18px 4px; }
+.ns-wr-chips .ns-chip .n { margin-left: 2px; font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .02em; opacity: .75; font-variant-numeric: tabular-nums; }
+.ns-wr-chips .ns-chip.is-zero { opacity: var(--dim); }
+.ns-wr-chips .ns-chip.is-zero:hover { opacity: 1; }
+
+/* ═══════════ 新增列：種類▾｜想記什麼…｜大概多少（買）｜＋ 加入 ═══════════ */
+.ns-wr-add {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 10px 18px 12px 14px; border-bottom: 1px solid var(--color-line);
+}
+.ns-wr-add.has-amt { grid-template-columns: auto minmax(0, 1fr) 120px auto; }
+.ns-wr-add .kind .techo-input { font: inherit; font-size: var(--fs-ui); letter-spacing: .1em; color: var(--color-ink-soft); padding: 3px 22px 3px 2px; }
+.ns-wr-add input { width: 100%; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); outline: none; padding: 3px 0; font: inherit; font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); } /* 字面值：13.5px 同大票欄位 */
+.ns-wr-add input:focus { border-bottom-color: var(--accent); }
+.ns-wr-add input::placeholder { color: var(--color-ink-faint); }
+.ns-wr-add input.amt { text-align: right; font-family: var(--font-display); }
+.ns-wr-add .ns-btn { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.ns-wr-empty { margin: 0; padding: 18px 18px 18px 54px; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-faint); }
+
+/* ═══════════ 種類小章（圓圈＝種類名第一個字；起手五列：買＝朱、去＝靛、學＝赭、做／讀看＝墨；自己加的看動作） ═══════════ */
+.ns-wr-kind {
+  --kc: var(--stamp-ink);
+  width: 22px; height: 22px; flex: none; box-sizing: border-box; border-radius: 50%;
+  border: 1.4px solid var(--kc); color: var(--kc); display: inline-grid; place-items: center;
+  font-family: var(--font-display); font-weight: 600; font-size: 11px; line-height: 1; opacity: .88; /* 字面值：章面字 11px 照原型 .kindmark */
+}
+.ns-wr-kind.is-seal { --kc: var(--seal); }
+.ns-wr-kind.is-accent { --kc: var(--accent); }
+.ns-wr-kind.is-late { --kc: var(--late); }
+
+/* 篩到某個種類時清單上方「N番線・種類名」（D-主-518；原型 3B .platform 的字型，3A 不分段只在篩選時出現） */
+.ns-wr-platform {
+  display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 12px 18px 6px 14px;
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-wr-platform .no { font-family: var(--font-latin); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .18em; color: var(--accent-sky); }
+.ns-wr-platform .nm { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: .08em; color: var(--color-ink); }
+
+/* ═══════════ 等候清單（桌機） ═══════════ */
+.ns-wr-list { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; }
+.ns-wr-row {
+  position: relative; display: grid; grid-template-columns: 18px 22px minmax(0, 1fr) auto auto; align-items: center; column-gap: 12px;
+  padding: 11px 18px 11px 14px; cursor: pointer; outline: none;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-wr-row + .ns-wr-row { border-top: 1px dashed var(--color-line); }
+.ns-wr-row:hover { background: var(--hover-bg); }
+.ns-wr-row:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.ns-wr-row .grip { color: var(--color-ink-faint); opacity: .7; cursor: grab; display: grid; place-items: center; }
+.ns-wr-row:hover .grip { opacity: 1; }
+.ns-wr-row .grip.is-off, .ns-wr-row:hover .grip.is-off { opacity: .28; cursor: not-allowed; }
+.ns-wr-row .main { min-width: 0; display: grid; gap: 4px; }
+.ns-wr-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); font-weight: 500; letter-spacing: .05em; color: var(--color-ink); }
+.ns-wr-row .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-wr-row .amt { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
+.ns-wr-row .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
+.ns-wr-row .amt small.none { margin-right: 0; }
+.ns-wr-row .act { min-width: 64px; justify-content: center; white-space: nowrap; }
+.ns-wr-row .act.is-on { border-color: var(--accent); color: var(--color-ink); }
+.ns-wr-row.is-on { background: var(--sel-bg); }
+.ns-wr-row.is-open { cursor: default; background: var(--hover-bg); }
+
+/* 列下攤開：編輯區／開票、排路線的小表單（從種類小章那一欄開始對齊） */
+.ns-wr-edit,
+.ns-wr-realize {
+  grid-column: 2 / -1; margin-top: 10px; padding: 10px 0 2px; border-top: 1px dashed var(--color-line); cursor: auto;
+  animation: ns-wr-unfold var(--dur) var(--ease-spring) both;
+}
+@keyframes ns-wr-unfold { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.ns-wr-fields.ns-tk-fields { margin-top: 0; padding-top: 0; border-top: 0; max-width: 460px; }
+.ns-wr-fields .ns-select-wrap .techo-input { font: inherit; font-size: 13.5px; letter-spacing: .06em; padding: 2px 22px 3px 0; max-width: 100%; } /* 字面值：13.5px 同 .ns-tk-textin */
+.ns-wr-fields .field.is-tags { align-items: start; }
+.ns-wr-fields .field.is-tags > .lbl { line-height: 30px; }
+.ns-wr-fields .field.is-tags .ns-notes-tagfield { padding: 2px 0; }
+.ns-wr-fields .field.is-tags .ns-notes-sug.static {
+  flex-basis: 100%; margin-top: 2px; padding: 5px; max-height: 240px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--tag-float);
+}
+.ns-wr-realize .ns-wr-fields .field { min-height: 30px; }
+.ns-wr-fields textarea.ns-tk-textin { min-height: 3.2em; }
+.ns-wr-span { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ns-wr-span .sep { color: var(--color-ink-faint); }
+.ns-wr-hint.is-err { margin: 0; color: var(--danger); }
+.ns-wr-hint { font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
+.ns-wr-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 12px; max-width: 460px; }
+.ns-wr-realize .ns-wr-foot { justify-content: flex-end; gap: 10px; }
+
+/* ═══════════ 實現了（摺起；済章＋名稱＋右側「記了一筆／開了路線／開了車票」） ═══════════ */
+.ns-wr-done { position: relative; z-index: 1; border-top: 1px solid var(--color-line); }
+.ns-wr-done .tog {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 18px 11px 14px; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: var(--fs-sm); letter-spacing: .12em; color: var(--color-ink-faint); text-align: left;
+}
+.ns-wr-done .tog:hover { color: var(--color-ink-soft); }
+.ns-wr-done .tog:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.ns-wr-done .tog .r { margin-left: auto; letter-spacing: .04em; }
+.ns-wr-done ul { margin: 0 0 8px; padding: 0; list-style: none; }
+.ns-wr-done li {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 12px; align-items: center;
+  padding: 5px 18px 5px 44px; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint);
+}
+.ns-wr-done li .nm { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; background: none; border: 0; cursor: pointer; font: inherit; color: var(--color-ink-soft); text-align: left; }
+.ns-wr-done li .nm:hover { color: var(--color-ink); text-decoration: underline dotted; text-underline-offset: 3px; }
+.ns-wr-done li .nm:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-wr-done li .d { white-space: nowrap; }
+.ns-wr-done li .d b { font-weight: 500; color: var(--color-ink-soft); }
+/* 済章：朱框小圓、斜 8°（原型 .done .seal） */
+.ns-wr-sumi {
+  width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 1.3px solid var(--seal); color: var(--seal);
+  display: inline-grid; place-items: center; transform: rotate(-8deg); opacity: .8;
+  font-family: var(--font-display); font-size: 9.5px; line-height: 1; /* 字面值：章面字 9.5px 照原型 .done .seal */
+}
+
+/* ═══════════ 手機 ═══════════ */
+[data-shell="mobile"] .ns-waitroom-m { touch-action: pan-y; padding-bottom: 12px; }
+[data-shell="mobile"] .ns-wr-mhead { display: flex; align-items: center; gap: 8px; margin: 2px 2px 8px; }
+[data-shell="mobile"] .ns-wr-mmanage {
+  flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 4px;
+  background: none; border: 0; font: inherit; font-size: var(--fs-sm); letter-spacing: .08em; color: var(--accent); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-wr-mmanage:active { opacity: .7; }
+[data-shell="mobile"] .ns-wr-msum { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-wr-msum b { font-family: var(--font-display); font-weight: 700; color: var(--color-ink); margin: 0 1px; }
+[data-shell="mobile"] .ns-wr-mcard { margin: 0 -4px; padding: 2px 14px 4px; }
+/* 籤：一排橫捲（不換行） */
+[data-shell="mobile"] .ns-wr-mcard .ns-wr-chips {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+  margin: 0 -14px; padding: 12px 14px 4px;
+}
+[data-shell="mobile"] .ns-wr-mcard .ns-wr-chips::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-wr-mcard .ns-wr-chips .ns-chip { flex: none; }
+/* 新增列：種類▾｜想記什麼…｜大概多少（買）｜＋ 加入 */
+[data-shell="mobile"] .ns-wr-madd { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 0 10px; border-bottom: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-wr-madd.has-amt { grid-template-columns: auto minmax(0, 1fr) 72px auto; }
+[data-shell="mobile"] .ns-wr-madd .kind .techo-input { min-height: 44px; font: inherit; font-size: 16px; letter-spacing: .06em; color: var(--color-ink-soft); padding: 3px 20px 3px 0; } /* 字面值：手機輸入框 16px 防放大 */
+[data-shell="mobile"] .ns-wr-madd input {
+  width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 3px 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
+  font: inherit; font-size: 16px; letter-spacing: .04em; color: var(--color-ink); /* 字面值：手機輸入框 16px 防放大 */
+}
+[data-shell="mobile"] .ns-wr-madd input:focus { border-bottom-color: var(--accent); }
+[data-shell="mobile"] .ns-wr-madd input::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-wr-madd input.amt { text-align: right; font-family: var(--font-display); }
+[data-shell="mobile"] .ns-wr-madd .add { display: inline-flex; align-items: center; gap: 3px; padding: 0 10px; white-space: nowrap; }
+[data-shell="mobile"] .ns-waitroom-m .ns-wr-empty { padding: 16px 0 16px 46px; }
+/* 清單：抓手｜章｜名稱、備註、約多少｜實現鈕 */
+[data-shell="mobile"] .ns-wr-mlist { list-style: none; margin: 0; padding: 0; }
+[data-shell="mobile"] .ns-wr-mrow { position: relative; display: grid; grid-template-columns: 14px 22px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 6px 0; }
+[data-shell="mobile"] .ns-wr-mrow + .ns-wr-mrow { border-top: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-wr-mrow .grip { display: grid; place-items: center; color: var(--color-ink-faint); opacity: .7; }
+[data-shell="mobile"] .ns-wr-mrow .grip.is-off { opacity: .28; }
+[data-shell="mobile"] .ns-wr-mrow .main { min-width: 0; min-height: 44px; display: grid; align-content: center; gap: 3px; padding: 6px 0; cursor: pointer; -webkit-tap-highlight-color: transparent; border-radius: var(--radius-ctl); }
+[data-shell="mobile"] .ns-wr-mrow .main:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+[data-shell="mobile"] .ns-wr-mrow .main:active { background: var(--hover-bg); }
+[data-shell="mobile"] .ns-wr-mrow .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); font-weight: 500; letter-spacing: .05em; color: var(--color-ink); }
+[data-shell="mobile"] .ns-wr-mrow .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-wr-mrow .amt { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
+[data-shell="mobile"] .ns-wr-mrow .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-wr-mrow .amt small.none { margin-right: 0; }
+[data-shell="mobile"] .ns-wr-mrow .act { padding: 0 12px; white-space: nowrap; }
+/* 實現了（手機：整列是按鈕） */
+[data-shell="mobile"] .ns-wr-done.is-m .tog { min-height: 44px; padding: 0; gap: 6px; }
+[data-shell="mobile"] .ns-wr-done.is-m .tog .chev { transition: transform var(--dur) var(--ease-spring); }
+[data-shell="mobile"] .ns-wr-done.is-m .tog[aria-expanded="true"] .chev { transform: rotate(90deg); }
+[data-shell="mobile"] .ns-wr-done.is-m ul { margin: 0 0 6px; }
+[data-shell="mobile"] .ns-wr-done.is-m li { display: block; padding: 0; }
+[data-shell="mobile"] .ns-wr-done.is-m li button {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; width: 100%; min-height: 44px; padding: 0 0 0 4px; box-sizing: border-box;
+  background: none; border: 0; text-align: left; font: inherit; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-wr-done.is-m li button:active { background: var(--hover-bg); }
+[data-shell="mobile"] .ns-wr-done.is-m li .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-soft); }
+
+/* 底部面板（改／開票／排路線；MSheet portal 到 body） */
+[data-shell="mobile"] .ns-wr-mf { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 48px; border-bottom: 1px dashed var(--color-line); }
+[data-shell="mobile"] .ns-wr-msheet .ns-wr-mf:last-child { border-bottom: 0; }
+[data-shell="mobile"] .ns-wr-mf .lbl { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); } /* 字面值：10px 不在手機字階，照售票口面板 */
+[data-shell="mobile"] .ns-wr-min {
+  width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 0; background: transparent; border: 0; outline: none;
+  font-family: var(--font-body); font-size: 16px; letter-spacing: .03em; color: var(--color-ink); /* 字面值：手機輸入框 16px 防放大 */
+}
+[data-shell="mobile"] .ns-wr-min.is-amt { font-family: var(--font-display); font-weight: 600; }
+[data-shell="mobile"] .ns-wr-min::placeholder { color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-wr-mchips { display: flex; gap: 6px; min-width: 0; padding: 6px 0; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+[data-shell="mobile"] .ns-wr-mchips::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .ns-wr-mchips .ns-chip { flex: none; }
+[data-shell="mobile"] .ns-wr-mf.is-tags { padding: 6px 0; }
+[data-shell="mobile"] .ns-wr-mf .tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+[data-shell="mobile"] .ns-wr-mf .tags .none { font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-wr-mf .btns { display: flex; gap: 8px; }
+[data-shell="mobile"] .ns-wr-mf .date { padding: 6px 0; min-width: 0; }
+[data-shell="mobile"] .ns-wr-mf .ns-wr-hint { padding: 12px 0; }
+[data-shell="mobile"] .ns-wr-mf.top { align-items: start; }
+[data-shell="mobile"] .ns-wr-mf.top .lbl { padding-top: 14px; }
+[data-shell="mobile"] .ns-wr-min.is-area { padding: 12px 0; resize: none; line-height: 1.6; field-sizing: content; min-height: 4.8em; max-height: 12em; }
+[data-shell="mobile"] .ns-wr-mf .ns-select-wrap { min-width: 0; }
+[data-shell="mobile"] .ns-wr-mf .ns-select-wrap .techo-input { min-height: 44px; font: inherit; font-size: 16px; max-width: 100%; } /* 字面值：手機輸入框 16px 防放大 */
+[data-shell="mobile"] .ns-wr-mf .ns-wr-span { padding: 6px 0; }
+[data-shell="mobile"] .ns-waitroom-m .ns-wr-platform { padding: 10px 0 6px; }
+
+/* ═══════════ 管番線（ManagerList；桌機 DialogShell、手機 MSheet） ═══════════ */
+.ns-wr-kinds { min-width: 0; }
+.ns-wr-plno { font-family: var(--font-latin); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .14em; color: var(--accent-sky); white-space: nowrap; min-width: 4.2em; }
+.ns-wr-kinds .ns-mgr-note:has(.ns-wr-act) { color: inherit; opacity: 1; }
+.ns-wr-act .techo-input { font: inherit; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft); padding: 2px 22px 2px 2px; }
+.ns-wr-kindadd { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--color-line); }
+.ns-wr-kindadd input { width: 100%; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); outline: none; padding: 3px 0; font: inherit; font-size: var(--fs-ui); letter-spacing: .04em; color: var(--color-ink); }
+.ns-wr-kindadd input:focus { border-bottom-color: var(--accent); }
+.ns-wr-kindadd input::placeholder { color: var(--color-ink-faint); }
+.ns-wr-kindadd .ns-btn { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+[data-shell="mobile"] .ns-wr-kindadd input { min-height: 44px; font-size: 16px; } /* 字面值：手機輸入框 16px 防放大 */
+[data-shell="mobile"] .ns-wr-act .techo-input { min-height: 40px; font-size: var(--fs-ui); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-wr-edit, .ns-wr-realize { animation: none; }
+  .ns-wr-row, .ns-wr-done.is-m .tog .chev { transition: none; }
+}

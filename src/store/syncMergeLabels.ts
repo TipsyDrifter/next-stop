@@ -31,7 +31,7 @@ const CORE_TABLES = new Set(["nodes", "work_logs", "occurrences"]);
 
 /** 核心 settings 表（目前只有 `day_start_hour`）：Rust 對每張表都記通知，KeyValue 也算，所以主線自己解名字 */
 const SETTINGS_COL_LABEL: Readonly<Record<string, string>> = { value: "設定" };
-const SETTINGS_LABEL: Readonly<Record<string, string>> = { day_start_hour: "一天從幾點開始" };
+const SETTINGS_LABEL: Readonly<Record<string, string>> = { day_start_hour: "一天從幾點開始", saved_filters: "常用篩選" };
 
 /**
  * 欄名表：核心三表＝`CONFLICT_COL_LABEL`（nodes 系專用）；三線表＝undefined（插槽沒給就印欄名原文，§0-1 第 16 條）。
@@ -98,6 +98,20 @@ const WEEK_AIM_COL_LABEL: Readonly<Record<string, string>> = {
   carried_from: "從哪句帶來",
 };
 
+/** 車站、掛在哪的值 → 名字：沒掛講沒掛，節點不在了（硬刪或軟刪）講不在了 */
+async function nodeRefNames(col: "station_id" | "parent_id", values: readonly unknown[]): Promise<Map<unknown, string>> {
+  const out = new Map<unknown, string>();
+  for (const v of values) {
+    if (v === null || v === undefined || v === "") {
+      out.set(v, col === "station_id" ? "還沒排站" : "路線最上層");
+      continue;
+    }
+    const row = await nodeRepo.getNode(String(v)).catch(() => null);
+    out.set(v, row && row.deleted_at === null ? row.name : col === "station_id" ? "（車站已不在）" : "（已不在）");
+  }
+  return out;
+}
+
 /**
  * 解一列的名字：核心表自己來，三線走插槽；都沒有 ⇒ "fallback"。**永不 throw**。
  *   物件 ⇒ 用它；null ⇒ 「{名詞}（現在找不到了）」；"fallback" ⇒ `fallbackLabel(n)`。
@@ -110,8 +124,15 @@ export async function resolveMergeLabel(
     if (n.tbl === "nodes") {
       const node = await findNode(n.row_id);
       if (!node) return null;
+      // 車站、掛在哪：值是節點 id，先查好兩邊的名字（fmt 是同步的）
+      const refs = n.col === "station_id" || n.col === "parent_id" ? await nodeRefNames(n.col, [n.mine, n.theirs]) : null;
       // 規則是一串 JSON，兩邊的值講成人話（⑥ 沙盒 F-7）；其他欄照舊
-      return { label: nodeLabel(node, 24), cols: CONFLICT_COL_LABEL, node, fmt: (col, v) => (col === "repeat_rule" ? ruleValueText(v) : null) };
+      return {
+        label: nodeLabel(node, 24),
+        cols: CONFLICT_COL_LABEL,
+        node,
+        fmt: (col, v) => (col === "repeat_rule" ? ruleValueText(v) : refs && col === n.col ? (refs.get(v) ?? null) : null),
+      };
     }
     // 逐班時刻覆寫（D-主-120）：講出「哪張票哪一班」——票已不在就退泛稱（而不是「找不到了」：覆寫的主人是票）
     if (n.tbl === "node_time_overrides") {

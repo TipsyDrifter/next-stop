@@ -22,6 +22,7 @@ import { useBackLayer } from "./backStack";
 import { jumpToNodeMobile } from "./routeMapReveal";
 import { useSearchStore } from "../../store/searchStore";
 import { MobileFullSearch } from "../search/MobileFullSearch";
+import { openFilterTabMobile } from "./board/filterNav";
 import { goToAim } from "../search/aimLanding";
 import "./mobile-quickjump.css";
 import "../search/full-search.css";
@@ -203,6 +204,10 @@ export function MobileQuickJump({ onClose }: { onClose(): void }) {
           onPickAim={(hit) => {
             onClose();
             void goToAim(hit, "mobile");
+          }}
+          onGoFilter={() => {
+            onClose();
+            openFilterTabMobile();
           }}
         />
       )}

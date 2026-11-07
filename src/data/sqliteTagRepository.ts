@@ -260,6 +260,13 @@ type NoteHave = Map<string, { tag: TagRow; tagging: TaggingRow }>;
 export class SqliteTagRepository implements TagRepository {
   /* ───────────── 讀 ───────────── */
 
+  async listRenames(): Promise<{ from: string; to: string }[]> {
+    const db = await getDb();
+    return db.select<{ from: string; to: string }[]>(
+      `SELECT a.name_key AS "from", b.name_key AS "to" FROM tags a JOIN tags b ON a.renamed_to = b.id WHERE a.renamed_to IS NOT NULL`,
+    );
+  }
+
   async loadIndexSource(): Promise<TagIndexSource> {
     const db = await getDb();
     const tags = await db.select<{ id: string; name: string; key: string }[]>(

@@ -1,7 +1,7 @@
 /**
  * useShareIntake——手機「從別的 App 分享文字進收件匣」（旅客筆記 ⑤ D-筆-59／63）。
  *
- * Kotlin（tt-notice plugin 的 captureShare）把 ACTION_SEND 的文字排進自己的 SharedPreferences 佇列；
+ * Kotlin（tt-notice plugin 的 NsExternalOpenActivity）把 ACTION_SEND 的文字排進自己的 SharedPreferences 佇列；
  * 這裡在三個時機去取：掛上時（冷啟動）、回前景時、plugin 的 `shared` 事件（App 活著時分享進來）。
  * 取＋確認兩段與「收到一半又被敲門就再取一輪」都在 `createShareDrainer`（domain/notes.ts，有單元測試）。
  * （寫進 DB 之後、ack 之前被殺會重複一則；契約 §0-18 接受、不去重。）

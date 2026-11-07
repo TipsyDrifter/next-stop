@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ⑬ 外部入口：主畫面小工具的固定色（亮色系統；暗色在 values-night）。值照 prototypes/外部入口.html 的 token（＝App 的 theme.css）。
+     分類色不在這裡：由 JS 送來、依深淺色挑（NsWidget）。 -->
+<resources>
+    <color name="ns_widget_paper">#f1eef8</color>
+    <color name="ns_widget_ink">#2a2b49</color>
+    <color name="ns_widget_soft">#474667</color>
+    <color name="ns_widget_faint">#5f5e84</color>
+    <!-- 主鈕的反白字 -->
+    <color name="ns_widget_on_ink">#e4e3f3</color>
+    <!-- 實心圓牌上的字 -->
+    <color name="ns_widget_on_tile">#ffffff</color>
+    <!-- 虛線（墨色 28%） -->
+    <color name="ns_widget_dash">#472a2b49</color>
+    <!-- 運行中的小點 -->
+    <color name="ns_widget_late">#985030</color>
+    <color name="ns_widget_ripple">#40ffffff</color>
+</resources>

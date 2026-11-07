@@ -19,12 +19,17 @@ import {
   type EntryKind,
   type EntryRow,
   type TemplateRow,
+  WISH_ACTIONS,
+  WR_KIND_BUY_ID,
+  type WishAction,
+  type WishKindRow,
   type WishRow,
 } from "./ticket";
 import { amountInputText } from "./ticketPlan";
 import { recallKey, tallyRecall, type RecallItem } from "./recall";
 
-export type { TemplateRow, WishRow } from "./ticket";
+export type { TemplateRow, WishAction, WishKindRow, WishRow, WishTargetKind } from "./ticket";
+export { WISH_ACTION_LABEL, WR_KIND_BUY_ID, WR_KIND_SEEDS } from "./ticket";
 
 const cmpStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const isUncat = (id: string | null): boolean => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
@@ -34,6 +39,10 @@ export const AIDS_TEXT = {
   wishNameEmpty: "願望要有名稱",
   wishAmountBad: "預估金額要是 0 以上",
   wishGone: "這個願望已經刪除了",
+  kindNameEmpty: "種類要有名稱",
+  kindActionBad: "不認得這個動作",
+  kindGone: "這個種類已經刪除了",
+  kindInUse: (n: number) => `還有 ${n} 件掛在這個種類，先改掛別的種類才能刪`,
   templateNameEmpty: "常用票種要有名稱",
   templateGone: "這個常用票種已經刪除了",
   templateAdjust: "精算不能存成常用票種",
@@ -57,37 +66,121 @@ export interface NewWishInput {
   amountMinor: number | null;
   note: string;
   categoryId: string | null;
+  kindId: string;
 }
 export type WishPatch = Partial<NewWishInput>;
+
+/* ── 種類（番線；wr_kinds，D-主-519） ── */
+
+export interface NewWishKindInput {
+  name: string;
+  action: WishAction;
+}
+export type WishKindPatch = Partial<NewWishKindInput>;
+export type WishKindById = Readonly<Record<string, WishKindRow | undefined>>;
+
+/** 種類的驗證（名稱 trim 後不能空、動作要認得）；不合法 throw RangeError */
+export function checkWishKindInput<T extends WishKindPatch>(input: T): T {
+  const out = { ...input };
+  if (out.name !== undefined) {
+    out.name = out.name.trim();
+    if (!out.name) throw new RangeError(AIDS_TEXT.kindNameEmpty);
+  }
+  if (out.action !== undefined && !WISH_ACTIONS.includes(out.action)) throw new RangeError(AIDS_TEXT.kindActionBad);
+  return out;
+}
+
+/** 新種類列（id／position／時間由 repository 給；新的排最後＝下一個番線） */
+export function buildWishKindRow(input: NewWishKindInput, meta: { id: string; position: number; nowIso: string }): WishKindRow {
+  const v = checkWishKindInput(input);
+  return {
+    id: meta.id,
+    name: v.name,
+    action: v.action,
+    position: meta.position,
+    device_id: null,
+    created_at: meta.nowIso,
+    updated_at: meta.nowIso,
+    synced_at: null,
+    deleted_at: null,
+  };
+}
+
+/** 改種類：只回真的變了的欄＋updated_at（同 applyWishPatch） */
+export function applyWishKindPatch(k: WishKindRow, patch: WishKindPatch, nowIso: string): { row: WishKindRow; cols: Record<string, unknown> } {
+  const v = checkWishKindInput(patch);
+  const cols: Record<string, unknown> = {};
+  if (v.name !== undefined && v.name !== k.name) cols.name = v.name;
+  if (v.action !== undefined && v.action !== k.action) cols.action = v.action;
+  if (!Object.keys(cols).length) return { row: k, cols };
+  cols.updated_at = nowIso;
+  return { row: { ...k, ...(cols as Partial<WishKindRow>) }, cols };
+}
+
+/** 願望的實現動作：種類被刪或還沒同步到時，「買」的起手列當記一筆、其他當開票（最通用的去向） */
+export function wishActionOf(w: Pick<WishRow, "kind_id">, kindById: WishKindById): WishAction {
+  return kindById[w.kind_id]?.action ?? (w.kind_id === WR_KIND_BUY_ID ? "entry" : "ticket");
+}
+
+/* ── 等候／實現（讀時判斷，D-主-520、521） ── */
 
 /** 已買＝entry_id 指到的帳還在（entryById 只放存活的帳） */
 export function wishBought(w: Pick<WishRow, "entry_id">, entryById: Readonly<Record<string, EntryRow>>): boolean {
   return w.entry_id !== null && entryById[w.entry_id] !== undefined && entryById[w.entry_id].deleted_at === null;
 }
 
-export interface BoughtWish {
+/** 實現開出的記錄（targets 只放還活著的；key＝target_id）。kind：node 的是 route／ticket…，日記＝note、時間塊＝block */
+export interface WishTargetInfo {
+  kind: string;
+  name: string;
+}
+export type WishTargets = Readonly<Record<string, WishTargetInfo | undefined>>;
+
+/** 實現了沒：帳還在、或開出的記錄還在（被刪＝回到等候） */
+export function wishRealized(w: WishRow, entryById: Readonly<Record<string, EntryRow>>, targets: WishTargets): boolean {
+  if (wishBought(w, entryById)) return true;
+  return w.target_id !== null && targets[w.target_id] !== undefined;
+}
+
+export interface RealizedWish {
   wish: WishRow;
-  entry: EntryRow;
+  /** 記一筆實現的才有：那筆帳 */
+  entry: EntryRow | null;
+  /** 其他動作實現的才有：開出的記錄（kind＝route／ticket／note／block…） */
+  target: ({ id: string } & WishTargetInfo) | null;
 }
 export interface WishView {
-  /** 想買（position 順序；拖曳／搬動的就是這一組） */
+  /** 等候中（position 順序；拖曳／搬動的就是這一組） */
   want: WishRow[];
-  /** 已買（那筆的日期新到舊） */
-  bought: BoughtWish[];
-  /** 想買合計（主幣別；沒估價的不算） */
+  /** 等候中各種類的件數（籤上的數字；key＝kind_id） */
+  wantByKind: Readonly<Record<string, number>>;
+  /** 實現了（實現日新到舊：帳用那筆的日期、其他用 bought_at） */
+  bought: RealizedWish[];
+  /** 等候中「記一筆」種類的合計（主幣別；沒估價的不算） */
   wantTotal: number;
-  /** 想買裡沒估價的件數（「合計約」旁要不要補一句由 UI 決定） */
+  /** 等候中「記一筆」種類裡沒估價的件數（「合計約」旁要不要補一句由 UI 決定） */
   unpriced: number;
   /** 已買實際花了多少（那幾筆的 main_minor 合計） */
   spent: number;
 }
 
-export const EMPTY_WISH_VIEW: WishView = { want: [], bought: [], wantTotal: 0, unpriced: 0, spent: 0 };
+export const EMPTY_WISH_VIEW: WishView = { want: [], wantByKind: {}, bought: [], wantTotal: 0, unpriced: 0, spent: 0 };
 
-/** 願望分成想買／已買，順便算合計（讀的時候判斷，不另存狀態） */
-export function wishView(wishes: readonly WishRow[], entryById: Readonly<Record<string, EntryRow>>): WishView {
+/** 實現日（排序用）：帳＝那筆的日期、其他＝bought_at（實現時刻） */
+function realizedOn(r: RealizedWish): string {
+  return r.entry ? r.entry.occurred_on : (r.wish.bought_at ?? "");
+}
+
+/** 願望分成等候中／實現了，順便算合計與各種類件數（讀的時候判斷，不另存狀態） */
+export function wishView(
+  wishes: readonly WishRow[],
+  entryById: Readonly<Record<string, EntryRow>>,
+  targets: WishTargets = {},
+  kindById: WishKindById = {},
+): WishView {
   const want: WishRow[] = [];
-  const bought: BoughtWish[] = [];
+  const bought: RealizedWish[] = [];
+  const wantByKind: Record<string, number> = {};
   let wantTotal = 0;
   let unpriced = 0;
   let spent = 0;
@@ -95,20 +188,33 @@ export function wishView(wishes: readonly WishRow[], entryById: Readonly<Record<
     if (w.deleted_at !== null) continue;
     if (wishBought(w, entryById)) {
       const entry = entryById[w.entry_id as string];
-      bought.push({ wish: w, entry });
+      bought.push({ wish: w, entry, target: null });
       spent += entry.main_minor;
       continue;
     }
+    if (w.target_id !== null && targets[w.target_id] !== undefined) {
+      const t = targets[w.target_id] as WishTargetInfo;
+      bought.push({ wish: w, entry: null, target: { id: w.target_id, ...t } });
+      continue;
+    }
     want.push(w);
-    if (w.amount_minor === null) unpriced++;
-    else wantTotal += w.amount_minor;
+    wantByKind[w.kind_id] = (wantByKind[w.kind_id] ?? 0) + 1;
+    if (wishActionOf(w, kindById) === "entry") {
+      if (w.amount_minor === null) unpriced++;
+      else wantTotal += w.amount_minor;
+    }
   }
   want.sort(byPosition);
-  bought.sort((a, b) => cmpStr(b.entry.occurred_on, a.entry.occurred_on) || cmpStr(b.entry.occurred_at, a.entry.occurred_at) || cmpStr(a.wish.id, b.wish.id));
-  return { want, bought, wantTotal, unpriced, spent };
+  bought.sort(
+    (a, b) =>
+      cmpStr(realizedOn(b), realizedOn(a)) ||
+      cmpStr(b.entry?.occurred_at ?? b.wish.bought_at ?? "", a.entry?.occurred_at ?? a.wish.bought_at ?? "") ||
+      cmpStr(a.wish.id, b.wish.id),
+  );
+  return { want, wantByKind, bought, wantTotal, unpriced, spent };
 }
 
-/** 新增／修改的驗證與整理（名稱 trim 後不能空、金額 null 或 ≥ 0 的整數）；不合法 throw RangeError */
+/** 新增／修改的驗證與整理（名稱 trim 後不能空、金額 null 或 ≥ 0 的整數、種類 id 不能空字串）；不合法 throw RangeError */
 export function checkWishInput<T extends WishPatch>(input: T): T {
   const out = { ...input };
   if (out.name !== undefined) {
@@ -119,6 +225,7 @@ export function checkWishInput<T extends WishPatch>(input: T): T {
     throw new RangeError(AIDS_TEXT.wishAmountBad);
   }
   if (out.note !== undefined) out.note = out.note.trim();
+  if (out.kindId !== undefined && !out.kindId) throw new RangeError(AIDS_TEXT.kindGone);
   return out;
 }
 
@@ -134,6 +241,9 @@ export function buildWishRow(input: NewWishInput, meta: { id: string; position: 
     position: meta.position,
     entry_id: null,
     bought_at: null,
+    kind_id: v.kindId,
+    target_kind: null,
+    target_id: null,
     device_id: null,
     created_at: meta.nowIso,
     updated_at: meta.nowIso,
@@ -150,6 +260,7 @@ export function applyWishPatch(w: WishRow, patch: WishPatch, nowIso: string): { 
   if (v.amountMinor !== undefined && v.amountMinor !== w.amount_minor) cols.amount_minor = v.amountMinor;
   if (v.note !== undefined && v.note !== w.note) cols.note = v.note;
   if (v.categoryId !== undefined && v.categoryId !== w.category_id) cols.category_id = v.categoryId;
+  if (v.kindId !== undefined && v.kindId !== w.kind_id) cols.kind_id = v.kindId;
   if (!Object.keys(cols).length) return { row: w, cols };
   cols.updated_at = nowIso;
   return { row: { ...w, ...(cols as Partial<WishRow>) }, cols };

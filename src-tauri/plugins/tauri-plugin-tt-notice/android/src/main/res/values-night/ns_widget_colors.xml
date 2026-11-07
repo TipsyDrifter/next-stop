@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ⑬ 外部入口：主畫面小工具的固定色（暗色系統）。見 values/ns_widget_colors.xml。 -->
+<resources>
+    <color name="ns_widget_paper">#212a40</color>
+    <color name="ns_widget_ink">#e4e8f3</color>
+    <color name="ns_widget_soft">#aeb6c9</color>
+    <color name="ns_widget_faint">#8993a8</color>
+    <color name="ns_widget_on_ink">#101217</color>
+    <color name="ns_widget_on_tile">#101217</color>
+    <color name="ns_widget_dash">#3ddee6fa</color>
+    <color name="ns_widget_late">#d19b72</color>
+    <color name="ns_widget_ripple">#33101217</color>
+</resources>

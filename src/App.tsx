@@ -10,7 +10,7 @@
  *
  * M3 ② 主題換裝收口：
  *   - <SkyLayer density="reduced" />＝路線圖頁的星空檔位（減量慢頻、無流星無列車；規格 §2 密度階梯）。
- *     今日頁換 density="full"＋train={false}＝全量星點＋流星、不掛列車與地面帶（拍板 D-③-1 甲）。
+ *     今日頁換 density="full"＝全量星點；會經過的東西在今日頁自己掛的 MoodStage（⑪）。
  *     天空是 position:fixed; z-index:0 的底層，掛在根 div 的第一個子節點；根 div 的 bg-paper 只是
  *     天空沒鋪上去時的保險底。書封／主欄／側板的 z-index ≥ 1 由 techo.css 負責（.cover 3／.page 1／.panel 2）。
  *   - ensureStampDefs()＝朱肉 filter（#inkbleed／#inkbleed-fine）的 SVG defs 掛進 document。
@@ -58,6 +58,7 @@ import { useUiStore } from "./store/uiStore";
 import { useBackupStore, BACKUP_FAIL_BANNER_STREAK } from "./store/backupStore";
 import { useSyncStore } from "./store/syncStore";
 import { useDepotStore } from "./store/depotStore";
+import { startStarterSeed } from "./store/starterSeed";
 import { StampNotifier } from "./ui/depot/StampNotifier";
 import { DEV_FLAGS, MOCK_MODE } from "./data";
 import { dbUsable } from "./lib/db";
@@ -85,6 +86,8 @@ import { useShell } from "./ui/mobile/useShell";
 import { startReminders, stopReminders } from "./ui/reminders/reminderRuntime";
 import { useVisualViewportHeight } from "./ui/mobile/useViewportHeight";
 import MobileShell from "./ui/mobile/MobileShell";
+// ⑬ 外部入口：收連結、餵桌面小窗與手機小工具（兩殼；畫面上什麼都不畫）
+import { ExternalAgent } from "./ui/external/ExternalAgent";
 // 備份橫幅用到 .ns-btn／.ns-close（覆蓋層共用小件）——自己 import，不倚賴 Toast 先掛載
 import "./ui/common/overlay.css";
 // UI 丙-2：`?mock=1&gallery=1` 主欄改畫共用元件樣本頁（DEV_FLAGS.gallery；lazy＝沒帶參數不載入）
@@ -128,10 +131,12 @@ export default function App() {
     // 主線④（反駁報告 Y1）：降版閘門拒開時兩個都不 boot——被擋的舊版照常 boot 的話，備份輪替讀不到設定、
     // 拿預設份數把主人多留的備份刪掉（正是退版要用的那幾份），同步也只會冒「找不到已連線的資料庫」。
     // 假資料模式不碰真庫（記憶體 repository），照常 boot。
+    let stopSeed: (() => void) | undefined;
     void loadSettings()
       .then(() => (MOCK_MODE ? true : dbUsable()))
       .then((usable) => {
         if (!usable) return;
+        stopSeed = startStarterSeed(); // 癸：表全空才種預設幹線與售票口分類
         void useBackupStore.getState().boot();
         // 車庫與回顧 D-主-210：駅スタンプ偵測（兩殼；要讀日界線，排在 loadSettings 之後）
         useDepotStore.getState().boot();
@@ -141,6 +146,7 @@ export default function App() {
       });
     void loadSidebar();
     return () => {
+      stopSeed?.();
       useSyncStore.getState().stop();
       useDepotStore.getState().stop();
       stopReminders();
@@ -157,7 +163,7 @@ export default function App() {
     // 桌機得到 data-shell="desktop"，沒有任何 CSS 選它 → 桌機視覺零改變。
     <div data-shell={shell} className="flex h-screen bg-paper text-ink overflow-hidden">
       {/* 手機一律 reduced：省電，且銀河帶寬 1180px 的橫溢由根 div 的 overflow hidden 擋掉 */}
-      <SkyLayer density={!mobile && today ? "full" : "reduced"} train={false} />
+      <SkyLayer density={!mobile && today ? "full" : "reduced"} twinkle={!mobile} />
       {mobile ? (
         <MobileShell />
       ) : (
@@ -190,6 +196,7 @@ export default function App() {
       <Toast />
       {/* 車庫與回顧 D-主-212：蓋章那一刻的 toast 畫法（零 DOM） */}
       <StampNotifier />
+      <ExternalAgent />
     </div>
   );
 }

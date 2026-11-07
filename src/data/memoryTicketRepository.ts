@@ -30,6 +30,7 @@ import { nowUtcIso, uuid } from "../lib/db";
 import { addDays, todayKey } from "../lib/date";
 import {
   CURRENCY_NAMES,
+  DEFAULT_CATEGORIES,
   STARTER_CATEGORIES,
   STARTER_CURRENCY,
   UNCAT_EXPENSE_ID,
@@ -86,18 +87,27 @@ import { fixedRule } from "../domain/repeat";
 import {
   AIDS_TEXT,
   applyTemplatePatch,
+  applyWishKindPatch,
   applyWishPatch,
   buildTemplateRow,
+  buildWishKindRow,
   buildWishRow,
   byPosition,
   wishBought,
+  WR_KIND_BUY_ID,
+  WR_KIND_SEEDS,
   type NewTemplateInput,
   type NewWishInput,
+  type NewWishKindInput,
   type NoteUse,
   type TemplatePatch,
   type TemplateRow,
+  type WishKindPatch,
+  type WishKindRow,
   type WishPatch,
   type WishRow,
+  type WishTargetInfo,
+  type WishTargetKind,
 } from "../domain/ticketAids";
 import type {
   AccountPatch,
@@ -192,6 +202,7 @@ export class MemoryTicketRepository implements TicketRepository {
   private readonly bud = new Map<string, BudgetRow>(); // 第③階段
   private readonly rep = new Map<string, RepeatRow>(); // 第③階段
   private readonly wis = new Map<string, WishRow>(); // 售票口④
+  private readonly knd = new Map<string, WishKindRow>(); // 壬 候車室（0019）
   private readonly tpl = new Map<string, TemplateRow>(); // 售票口④
   private readonly seedDemo: boolean;
   private demoSeeded = false;
@@ -213,6 +224,11 @@ export class MemoryTicketRepository implements TicketRepository {
     for (const c of STARTER_CATEGORIES) {
       if (this.cat.has(c.id)) continue;
       this.cat.set(c.id, { ...c, archived_at: null, ...stamp });
+      n++;
+    }
+    for (const k of WR_KIND_SEEDS) {
+      if (this.knd.has(k.id)) continue;
+      this.knd.set(k.id, { ...k, ...stamp });
       n++;
     }
     return n;
@@ -364,8 +380,8 @@ export class MemoryTicketRepository implements TicketRepository {
    */
   private seedAids(accId: Record<string, string>, leafIds: string[], nowIso: string): void {
     const at = (i: number): string => new Date(Date.parse(nowIso) + i).toISOString();
-    const wish = (i: number, name: string, amount: number | null, categoryId: string | null, note = ""): WishRow =>
-      buildWishRow({ name, amountMinor: amount, note, categoryId }, { id: uuid(), position: i, nowIso: at(i) });
+    const wish = (i: number, name: string, amount: number | null, categoryId: string | null, note = "", kindId: string = WR_KIND_BUY_ID): WishRow =>
+      buildWishRow({ name, amountMinor: amount, note, categoryId, kindId }, { id: uuid(), position: i, nowIso: at(i) });
     const bought = Array.from(this.ent.values())
       .filter((e) => e.kind === "expense" && e.amount_minor > 0 && e.occurred_on <= addDays(todayKey(3), -5))
       .sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : a.occurred_on > b.occurred_on ? -1 : 0))[0];
@@ -373,6 +389,8 @@ export class MemoryTicketRepository implements TicketRepository {
       wish(0, "降噪耳機", 780000, leafIds[21] ?? null, "等特價"),
       wish(1, "登山背包", 350000, null),
       wish(2, "手沖壺", null, null),
+      wish(4, "金瓜石・黃金博物館", null, null, "想看坑道，順路九份", WR_KIND_SEEDS[2].id),
+      wish(5, "《銀河鐵道之夜》", null, null, "", WR_KIND_SEEDS[3].id),
     ];
     if (bought) rows.push({ ...wish(3, bought.note || "行動電源", bought.amount_minor, bought.category_id), entry_id: bought.id, bought_at: bought.created_at });
     for (const w of rows) this.wis.set(w.id, w);
@@ -514,6 +532,21 @@ export class MemoryTicketRepository implements TicketRepository {
   async ensureStarterRows(): Promise<number> {
     this.ensureDemo();
     return this.seedStarter(nowUtcIso());
+  }
+
+  async countCustomCategoriesIncludingDeleted(): Promise<number> {
+    this.ensureDemo();
+    const uncat = new Set(STARTER_CATEGORIES.map((c) => c.id));
+    return [...this.cat.keys()].filter((id) => !uncat.has(id)).length;
+  }
+
+  async ensureDefaultCategories(): Promise<number> {
+    if ((await this.countCustomCategoriesIncludingDeleted()) > 0) return 0;
+    const now = nowUtcIso();
+    for (const c of DEFAULT_CATEGORIES) {
+      this.cat.set(c.id, { ...c, archived_at: null, device_id: null, created_at: now, updated_at: now, synced_at: null, deleted_at: null });
+    }
+    return DEFAULT_CATEGORIES.length;
   }
 
   /* ───────── 讀 ───────── */
@@ -1223,6 +1256,25 @@ export class MemoryTicketRepository implements TicketRepository {
     w.updated_at = now;
   }
 
+  async setWishTarget(id: string, target: { kind: WishTargetKind; id: string } | null): Promise<void> {
+    this.ensureDemo();
+    const w = this.wishOrThrow(id);
+    if (w.target_id === (target?.id ?? null) && w.target_kind === (target?.kind ?? null)) return;
+    const now = nowUtcIso();
+    w.target_kind = target?.kind ?? null;
+    w.target_id = target?.id ?? null;
+    w.bought_at = target === null ? null : now;
+    w.updated_at = now;
+  }
+
+  /** mock 沒有 nodes／notes／time_blocks：有指到就當活著（真判定在 sqlite 版） */
+  async getWishTargets(refs: readonly { target_kind: WishTargetKind; target_id: string }[]): Promise<Record<string, WishTargetInfo>> {
+    this.ensureDemo();
+    const out: Record<string, WishTargetInfo> = {};
+    for (const r of refs) out[r.target_id] = { kind: r.target_kind === "node" ? "ticket" : r.target_kind, name: "" };
+    return out;
+  }
+
   async softDeleteWish(id: string): Promise<void> {
     this.ensureDemo();
     softDelete(this.wis.get(id));
@@ -1238,10 +1290,63 @@ export class MemoryTicketRepository implements TicketRepository {
     this.wishOrThrow(id);
     const alive: Record<string, EntryRow> = {};
     for (const e of this.ent.values()) if (isAlive(e)) alive[e.id] = e;
+    // 記憶體版沒有別線的表：target_id 有指到＝當作實現（夠 mock 用；真判定在 sqlite 版與 wishView）
     const want = Array.from(this.wis.values())
-      .filter((w) => isAlive(w) && !wishBought(w, alive))
+      .filter((w) => isAlive(w) && !wishBought(w, alive) && w.target_id === null)
       .sort(byPosition);
     this.applyMoves(this.wis, planMoveTo(want, id, index));
+  }
+
+  /* ── 候車室種類（wr_kinds；0019） ── */
+
+  private kindOrThrow(id: string): WishKindRow {
+    const k = this.knd.get(id);
+    if (!k || !isAlive(k)) throw new RangeError(AIDS_TEXT.kindGone);
+    return k;
+  }
+
+  async listWishKinds(): Promise<WishKindRow[]> {
+    this.ensureDemo();
+    return Array.from(this.knd.values()).filter(isAlive).sort(byPosition).map(clone);
+  }
+
+  async createWishKind(input: NewWishKindInput): Promise<WishKindRow> {
+    this.ensureDemo();
+    let max = -1;
+    for (const k of this.knd.values()) if (isAlive(k)) max = Math.max(max, k.position);
+    const row = buildWishKindRow(input, { id: uuid(), position: max + 1, nowIso: nowUtcIso() });
+    this.knd.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateWishKind(id: string, patch: WishKindPatch): Promise<WishKindRow> {
+    this.ensureDemo();
+    const k = this.kindOrThrow(id);
+    const res = applyWishKindPatch(k, patch, nowUtcIso());
+    if (!Object.keys(res.cols).length) return clone(k);
+    this.knd.set(id, res.row);
+    return clone(res.row);
+  }
+
+  async softDeleteWishKind(id: string): Promise<void> {
+    this.ensureDemo();
+    this.kindOrThrow(id);
+    let n = 0;
+    for (const w of this.wis.values()) if (isAlive(w) && w.kind_id === id) n++;
+    if (n > 0) throw new RangeError(AIDS_TEXT.kindInUse(n));
+    softDelete(this.knd.get(id));
+  }
+
+  async restoreWishKind(id: string): Promise<void> {
+    this.ensureDemo();
+    restore(this.knd.get(id));
+  }
+
+  async moveWishKindTo(id: string, index: number): Promise<void> {
+    this.ensureDemo();
+    this.kindOrThrow(id);
+    const all = Array.from(this.knd.values()).filter(isAlive).sort(byPosition);
+    this.applyMoves(this.knd, planMoveTo(all, id, index));
   }
 
   /* ── 常用票種 ── */

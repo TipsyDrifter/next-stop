@@ -29,15 +29,24 @@
  *   - 指標碰到外部落點時影子卡往游標縮小（0.3 倍）：不然影子卡永遠蓋住游標底下那個目標，虛線框看不見。
  *   - 落點顏色讀清單容器上的 `--dr-accent`（沒設＝--accent）：書封是深底，靛色看不見，書封改燙金（同書封聚焦框慣例）。
  *   - 清單自己的列同時是外部落點時（側欄路線列）：在自己清單裡拖不算外部落點，照縫排序。
+ *   - 多欄（`columns`，⑫ 看板）：一個 root 管整片欄區，欄帶 `data-drag-col`；指標在哪一欄就算哪一欄的縫，落點多帶 `col`。
+ *     欄各自會捲、欄區也會橫捲，所以每次定位都重量（一片看板幾百張，量一次的成本比算捲動位移的出錯便宜）；拖曳中關掉 scroll-snap，放手才吸附。
+ *   - 手機一次一欄（`columns.flip`）：貼邊「停一下」才翻一欄，不連續捲——拇指本來就常在螢幕邊上，連續捲會跟著手指亂跑。
+ *     換欄的主要路是底部一排落點（外部落點、呼叫端畫）：`onDragStart`／`onDragEnd` 告訴呼叫端何時升起、收回；
+ *     落點帶 `data-drop-ghost="above"`＝影子卡縮小退到它上方（手指和落點的字才看得到）；落點列帶 `data-drop-rail`＝手指停在兩端會自己橫捲。
  */
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import {
+  COL_FLIP_EDGE_PX,
+  COL_FLIP_MS,
+  COL_VSCROLL_MS,
   HOVER_EXPAND_MS,
   LIFT_DELAY_MS,
   MOUSE_SLOP_PX,
   SWIPE_COMMIT_RATIO,
   TOUCH_SLOP_PX,
   anchorOfGap,
+  isColumnGapNoop,
   depthAt,
   depthRange,
   edgeScrollStep,
@@ -53,7 +62,7 @@ import {
 import "./drag-reorder.css";
 
 /** 放開的位置：清單裡的縫（樹＝父節點＋上下兄弟；一層清單 parent 恆 null、depth 0），或外部落點 */
-export type DropPlace = ({ kind: "slot" } & TreePlace) | { kind: "target"; type: string; target: string };
+export type DropPlace = ({ kind: "slot"; col?: string } & TreePlace) | { kind: "target"; type: string; target: string };
 
 /** 能放回 true；不能放回一句理由（顯示在指標旁、放手退回） */
 export type Verdict = true | string;
@@ -89,9 +98,20 @@ export interface DragReorderOpts {
   };
   /** false＝這份清單沒有縫可放（推導順序的清單，例：行程表），只能拖到外部落點 */
   slots?: boolean;
+  /**
+   * 多欄（⑫ 看板）：`root` 底下每一欄帶 `data-drag-col={key}`，落點多帶 `col`。
+   * `lines: false`＝只換欄、欄內沒有順序可放：不畫落點線，改在欄上標 `data-drop-over`。
+   * `flip: true`＝一次一欄的手機看板：貼邊停一下翻一欄，不連續橫捲。
+   * 跟 `tree` 不併用。
+   */
+  columns?: { lines: boolean; flip?: boolean };
   /** 能不能放在這裡；省略＝都能放 */
   resolve?(ids: readonly string[], place: DropPlace): Verdict;
   onDrop(ids: readonly string[], place: DropPlace): void;
+  /** 浮起了（呼叫端升起外部落點）；`grab`＝抓住的那一列 */
+  onDragStart?(ids: readonly string[], grab: string): void;
+  /** 拖曳結束（放開、取消都算），在 onDrop／onPressRelease 之前 */
+  onDragEnd?(): void;
   /** 觸控長按後原地放開（沒拖）＝選起來（D-主-152） */
   onPressRelease?(id: string): void;
   /** 觸控滑動手勢（D-主-153 ④）：右滑、左滑 */
@@ -138,7 +158,14 @@ interface Drag {
   place: DropPlace | null;
   ok: boolean;
   overTarget: HTMLElement | null;
+  /** 多欄：現在標著 data-drop-over 的欄 */
+  overCol: HTMLElement | null;
   hover: { id: string; since: number } | null;
+  /** 一次一欄：貼在哪一邊（-1 左、1 右、0 沒有）、從什麼時候開始 */
+  flipDir: number;
+  flipSince: number;
+  /** 一次一欄：手指貼著欄的上下緣從什麼時候開始（0＝沒有） */
+  vSince: number;
   ghost: HTMLElement;
   raf: number;
 }
@@ -325,13 +352,19 @@ export function useDragReorder(opts: DragReorderOpts): void {
     };
 
     // ───── 量位置 ─────
-    const measure = (d: Drag) => {
+    /** 回「id → 列」這一輪的表：千張的看板每次 pointermove 都量，不能每筆各查一次 DOM */
+    const measure = (d: Drag): Map<string, HTMLElement> => {
+      const els = new Map<string, HTMLElement>();
+      for (const el of root.querySelectorAll<HTMLElement>(ITEM_SEL)) {
+        const id = el.dataset.dragId;
+        if (id) els.set(id, el);
+      }
       const hidden = new Set([...d.ids, ...(ref.current.tree?.carried?.(d.ids) ?? [])]);
       const rest: TreeRow[] = [];
       const slots: Drag["slots"] = [];
       for (const r of ref.current.items) {
         if (hidden.has(r.id)) continue;
-        const el = elOf(r.id);
+        const el = els.get(r.id);
         if (!el) continue;
         const b = el.getBoundingClientRect();
         rest.push({ id: r.id, depth: r.depth ?? 0 });
@@ -343,6 +376,7 @@ export function useDragReorder(opts: DragReorderOpts): void {
       d.rest = rest;
       d.slots = slots;
       d.scroll0 = scroller()?.scrollTop ?? 0;
+      return els;
     };
 
     // ───── 落點 ─────
@@ -362,6 +396,136 @@ export function useDragReorder(opts: DragReorderOpts): void {
       why.style.transform = `translate(${d.lastX + 14}px, ${d.lastY + 18}px)`;
     };
 
+    const setCol = (d: Drag, el: HTMLElement | null, state: "ok" | "no" | null) => {
+      if (d.overCol && d.overCol !== el) d.overCol.removeAttribute("data-drop-over");
+      d.overCol = el;
+      if (el && state) el.setAttribute("data-drop-over", state);
+    };
+
+    /** 多欄：指標在哪一欄（在欄與欄的空隙裡＝最近的那一欄）；離開欄區太遠＝null */
+    const columnAt = (x: number, y: number, hit: HTMLElement | null): HTMLElement | null => {
+      const direct = hit?.closest<HTMLElement>("[data-drag-col]");
+      if (direct && root.contains(direct)) return direct;
+      const rr = root.getBoundingClientRect();
+      if (x < rr.left - 24 || x > rr.right + 24 || y < rr.top - 24 || y > rr.bottom + 24) return null;
+      let best: HTMLElement | null = null;
+      let bestDist = Infinity;
+      for (const c of root.querySelectorAll<HTMLElement>("[data-drag-col]")) {
+        const b = c.getBoundingClientRect();
+        const dist = x < b.left ? b.left - x : x > b.right ? x - b.right : 0;
+        if (dist < bestDist) {
+          best = c;
+          bestDist = dist;
+        }
+      }
+      return best;
+    };
+
+    const locateColumn = (d: Drag, hit: HTMLElement | null, lines: boolean) => {
+      const o = ref.current;
+      const els = measure(d);
+      const colEl = columnAt(d.lastX, d.lastY, hit);
+      if (!colEl) {
+        d.place = null;
+        d.ok = false;
+        setCol(d, null, null);
+        hideMarks();
+        return;
+      }
+      const col = colEl.dataset.dragCol ?? "";
+      const rest: TreeRow[] = [];
+      const slots: Drag["slots"] = [];
+      d.rest.forEach((r, i) => {
+        const el = els.get(r.id);
+        if (!el || !colEl.contains(el)) return;
+        rest.push(r);
+        slots.push(d.slots[i]);
+      });
+      const g = gapAt(slots, d.lastY);
+      const place: DropPlace = { kind: "slot", depth: 0, parent: null, col, ...anchorOfGap(rest, g) };
+      const v = o.resolve?.(d.ids, place) ?? true;
+      d.place = place;
+      d.ok = v === true;
+      if (lines) {
+        setCol(d, null, null);
+        if (!line) line = overlay("dr-line");
+        const b = colEl.getBoundingClientRect();
+        line.style.opacity = "1";
+        line.style.width = `${b.width}px`;
+        line.style.transform = `translate(${b.left}px, ${slots.length ? gapY(slots, g) : b.top + 8}px)`;
+        line.classList.toggle("is-no", !d.ok);
+      } else {
+        if (line) line.style.opacity = "0";
+        setCol(d, colEl, d.ok ? "ok" : "no");
+      }
+      if (v === true) {
+        if (why) why.style.opacity = "0";
+      } else showWhy(d, v);
+    };
+
+    /** 一次一欄：貼邊停一下翻一欄（碰著外部落點、手指不在欄區高度內都不算）；翻完等捲動停了再定位 */
+    const flipColumn = (d: Drag) => {
+      const r = root.getBoundingClientRect();
+      const inY = d.lastY > r.top && d.lastY < r.bottom;
+      const dir = !inY || d.overTarget ? 0 : d.lastX > r.right - COL_FLIP_EDGE_PX ? 1 : d.lastX < r.left + COL_FLIP_EDGE_PX ? -1 : 0;
+      if (dir !== d.flipDir) {
+        d.flipDir = dir;
+        d.flipSince = performance.now();
+        return;
+      }
+      if (!dir || performance.now() - d.flipSince < COL_FLIP_MS) return;
+      const cols = Array.from(root.querySelectorAll<HTMLElement>("[data-drag-col]"));
+      const start = r.left + (parseFloat(getComputedStyle(root).paddingLeft) || 0);
+      let at = 0;
+      cols.forEach((c, i) => {
+        if (Math.abs(c.getBoundingClientRect().left - start) < Math.abs(cols[at].getBoundingClientRect().left - start)) at = i;
+      });
+      const next = cols[at + dir];
+      d.flipSince = performance.now() + 300;
+      if (!next) return;
+      root.scrollTo({ left: root.scrollLeft + next.getBoundingClientRect().left - start, behavior: "smooth" });
+      window.setTimeout(() => {
+        if (drag === d) locate(d);
+      }, 340);
+    };
+
+    /** 多欄的自動捲：欄區貼左右緣橫捲（`flip`＝停一下才翻一欄），指標那一欄貼上下緣直捲 */
+    const edgeScrollColumns = (d: Drag) => {
+      let moved = false;
+      if (ref.current.columns?.flip) flipColumn(d);
+      else if (root.scrollWidth > root.clientWidth) {
+        const r = root.getBoundingClientRect();
+        const step = edgeScrollStep(d.lastX, r.left, r.right, 40, 14);
+        if (step) {
+          const before = root.scrollLeft;
+          root.scrollLeft = before + step;
+          moved = root.scrollLeft !== before;
+        }
+      }
+      // 欄自己會捲的（手機）：從欄裡第一張卡往上找捲動容器；空欄退回欄的第一個子元素
+      const col = columnAt(d.lastX, d.lastY, document.elementFromPoint(d.lastX, d.lastY) as HTMLElement | null);
+      const sc = scrollParent((col?.querySelector<HTMLElement>(ITEM_SEL) ?? col?.firstElementChild ?? null) as HTMLElement | null);
+      // 碰著外部落點（手機底部那一排）不捲欄
+      if (sc && !root.isSameNode(sc) && !d.overTarget) {
+        const r = sc.getBoundingClientRect();
+        let step = edgeScrollStep(d.lastY, r.top, r.bottom);
+        if (ref.current.columns?.flip) {
+          // 手機：手指往底部落點去的路上會經過欄底，要停一下才捲、出了欄就不捲（不然欄被帶著跑）
+          const inside = d.lastY >= r.top && d.lastY <= r.bottom;
+          step = inside ? edgeScrollStep(d.lastY, r.top, r.bottom, 36, 5) : 0;
+          if (!step) d.vSince = 0;
+          else if (!d.vSince) d.vSince = performance.now();
+          if (performance.now() - d.vSince < COL_VSCROLL_MS) step = 0;
+        }
+        if (step) {
+          const before = sc.scrollTop;
+          sc.scrollTop = before + step;
+          moved = moved || sc.scrollTop !== before;
+        }
+      }
+      if (moved) locate(d);
+    };
+
     const locate = (d: Drag) => {
       const o = ref.current;
       // 外部落點優先（側欄路線、日期列）；影子卡 pointer-events:none，不擋 elementFromPoint
@@ -373,6 +537,7 @@ export function useDragReorder(opts: DragReorderOpts): void {
         d.place = place;
         d.ok = v === true;
         setTarget(d, tgt, d.ok ? "ok" : "no");
+        setCol(d, null, null);
         if (line) line.style.opacity = "0";
         if (v === true) {
           if (why) why.style.opacity = "0";
@@ -380,6 +545,10 @@ export function useDragReorder(opts: DragReorderOpts): void {
         return;
       }
       setTarget(d, null, null);
+      if (o.columns) {
+        locateColumn(d, hit, o.columns.lines);
+        return;
+      }
       const rr = root.getBoundingClientRect();
       const inside = d.lastX >= rr.left - 24 && d.lastX <= rr.right + 24 && d.lastY >= rr.top - 24 && d.lastY <= rr.bottom + 24;
       if (o.slots === false || !inside) {
@@ -441,15 +610,41 @@ export function useDragReorder(opts: DragReorderOpts): void {
       const g = d.ghost.querySelector<HTMLElement>(".dr-ghost");
       locate(d);
       if (g) {
-        // 位移與縮放分開寫：位移跟手不吃過場、縮放（碰到外部落點）才有過場
-        g.style.translate = `${d.lastX - d.x0}px ${d.lastY - d.y0}px`;
-        g.style.scale = d.overTarget ? "0.3" : "1.02";
+        const above = d.overTarget?.dataset.dropGhost === "above" ? d.overTarget : null;
+        g.classList.toggle("is-above", !!above);
+        if (above) {
+          // 退到落點上方：抓住的那一點留在手指的 x，影子卡下緣貼著落點上緣再空 10px（縮放的原點＝抓住的那一點，見 buildGhost）
+          const S = 0.55;
+          const top0 = parseFloat(g.style.top) || 0;
+          const below = top0 + g.offsetHeight - d.y0;
+          g.style.translate = `${d.lastX - d.x0}px ${above.getBoundingClientRect().top - 10 - S * below - d.y0}px`;
+          g.style.scale = String(S);
+        } else {
+          // 位移與縮放分開寫：位移跟手不吃過場、縮放（碰到外部落點）才有過場
+          g.style.translate = `${d.lastX - d.x0}px ${d.lastY - d.y0}px`;
+          g.style.scale = d.overTarget ? "0.3" : "1.02";
+        }
       }
+    };
+
+    /** 落點列（data-drop-rail）太長：手指停在兩端就往那邊捲 */
+    const scrollRail = (d: Drag) => {
+      const hit = document.elementFromPoint(d.lastX, d.lastY) as HTMLElement | null;
+      const rail = hit?.closest<HTMLElement>("[data-drop-rail]");
+      if (!rail || rail.scrollWidth <= rail.clientWidth) return;
+      const r = rail.getBoundingClientRect();
+      const step = edgeScrollStep(d.lastX, r.left, r.right, 44, 4);
+      if (!step) return;
+      const before = rail.scrollLeft;
+      rail.scrollLeft = before + step;
+      if (rail.scrollLeft !== before) paint(d);
     };
 
     const tick = () => {
       if (!drag) return;
-      const sc = scroller();
+      const sc = ref.current.columns ? null : scroller();
+      if (ref.current.columns && drag.moved) edgeScrollColumns(drag);
+      if (drag.moved) scrollRail(drag);
       if (sc && drag.moved) {
         const r = sc.getBoundingClientRect();
         if (drag.lastX >= r.left && drag.lastX <= r.right) {
@@ -493,7 +688,11 @@ export function useDragReorder(opts: DragReorderOpts): void {
         place: null,
         ok: false,
         overTarget: null,
+        overCol: null,
         hover: null,
+        flipDir: 0,
+        flipSince: 0,
+        vSince: 0,
         ghost: buildGhost(p.el, ids.length, { x: p.x0, y: p.y0 }),
         raf: 0,
       };
@@ -502,6 +701,7 @@ export function useDragReorder(opts: DragReorderOpts): void {
       for (const e of carried) e.classList.add("dr-carried");
       root.classList.add("dr-active");
       document.documentElement.classList.add("dr-dragging");
+      if (o.columns) root.style.scrollSnapType = "none";
       try {
         root.setPointerCapture(p.pointerId);
       } catch {
@@ -514,6 +714,7 @@ export function useDragReorder(opts: DragReorderOpts): void {
         }
       };
       drag = d;
+      o.onDragStart?.(ids, p.id);
       paint(d);
       d.raf = requestAnimationFrame(tick);
     };
@@ -523,7 +724,9 @@ export function useDragReorder(opts: DragReorderOpts): void {
       remeasure.current = null;
       d.ghost.remove();
       setTarget(d, null, null);
+      setCol(d, null, null);
       hideMarks();
+      if (ref.current.columns) root.style.scrollSnapType = "";
       root.classList.remove("dr-active");
       document.documentElement.classList.remove("dr-dragging");
       try {
@@ -531,6 +734,7 @@ export function useDragReorder(opts: DragReorderOpts): void {
       } catch {
         /* 已經放掉了 */
       }
+      ref.current.onDragEnd?.();
     };
 
     const clearSource = (d: Drag) => {
@@ -569,10 +773,21 @@ export function useDragReorder(opts: DragReorderOpts): void {
       ref.current.onDrop(d.ids, d.place);
     };
 
+    /** 多欄：還在原欄、上下鄰居沒變 */
+    const isColumnNoop = (d: Drag, p: Extract<DropPlace, { kind: "slot" }>): boolean => {
+      const colOf = (id: string) => elOf(id)?.closest<HTMLElement>("[data-drag-col]")?.dataset.dragCol;
+      if (d.ids.some((id) => colOf(id) !== p.col)) return false;
+      // 只換欄的看板（lines:false）欄內沒有順序：還在原欄就是沒動（不然原列要等 1.2 秒逾時才退回淡態）
+      if (!ref.current.columns?.lines) return true;
+      const inCol = ref.current.items.filter((r) => colOf(r.id) === p.col).map((r) => r.id);
+      return isColumnGapNoop(inCol, d.ids, p);
+    };
+
     /** 放回原位（同父、上下鄰居跟拖起前一樣）＝不寫 */
     const isNoop = (d: Drag): boolean => {
       const p = d.place;
       if (!p || p.kind !== "slot") return false;
+      if (ref.current.columns) return isColumnNoop(d, p);
       const all = ref.current.items;
       const first = all.findIndex((r) => r.id === d.ids[0]);
       const last = all.findIndex((r) => r.id === d.ids[d.ids.length - 1]);

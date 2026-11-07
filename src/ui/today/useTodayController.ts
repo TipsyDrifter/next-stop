@@ -34,7 +34,7 @@ import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/sc
 import { dayCount, type DayCountItem } from "../../domain/dayCount";
 import { RETIRED_RUN_MSG, isRetiredRunRow } from "../../domain/retiredRun";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
-import { useNodeStore } from "../../store/nodeStore";
+import { scheduleSnapshot, useNodeStore, type ScheduleSnapshot } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { addDays, todayKey } from "../../lib/date";
@@ -47,6 +47,7 @@ import type { TodayRowActions } from "./TodayRow";
 import { useSelectionStore } from "../../store/selectionStore";
 import { clearIfAny, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
 import { armOpenOnClick } from "../common/selection/openOnClick";
+import { copyTicketLink } from "../external/externalBridge";
 
 /** 建票列的開關狀態；kind＝today（Enter 排今天）／inbox（Shift+Enter 無日期票），TodayView 拿它挑建票列的預設 */
 export interface TodayDraft {
@@ -118,12 +119,12 @@ export function whenText(key: string): string {
  * 票一改期就離開今日清單，繰越章要到目標日才看得見——今天唯一的回饋就是這句 toast，
  * 且要能反悔（與同一張小卡的「清除執行日」／`Delete` 同款收據，不再是三項靜默一項有據）。
  * 復原走 updateNode：scheduled_on 會自動改道 reschedule，carried_from 一起放回去
- * （否則反悔完票上會留一枚剛長出來的繰越章）。today_position 不還原——回到今天就是新聚合、尾插。
+ * （否則反悔完票上會留一枚剛長出來的繰越章），today_position 也放回去——反悔＝票回到原本的手排位置，不掉到清單最後（F-2）。
  * `T` 排今天不出收據：票還在眼前，看得見。
  */
 export function showRescheduleToast(
   id: string,
-  prev: { scheduled_on: string | null; carried_from: string | null },
+  prev: ScheduleSnapshot,
   next: string,
 ): void {
   useUiStore.getState().showToast({
@@ -132,7 +133,7 @@ export function showRescheduleToast(
     onAction: () =>
       void useNodeStore
         .getState()
-        .updateNode(id, { scheduled_on: prev.scheduled_on, carried_from: prev.carried_from }),
+        .updateNode(id, prev),
   });
 }
 
@@ -469,7 +470,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         else toast(REPEAT_RESCHEDULE_MSG);
         return;
       }
-      const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
+      const prev = scheduleSnapshot(row);
       void ns().reschedule(row.id, next);
       // `T` 排今天＝票就在眼前，不需要收據；`Shift+T` 票當場消失 → 補一張可反悔的收據（與推遲小卡同款）
       if (next !== key) showRescheduleToast(row.id, prev, next);
@@ -606,6 +607,8 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         why: downWhy ?? undefined,
         onSelect: run(() => keys.reorderSelected(1)),
       },
+      // ⑬ 外部入口：這張票的連結。頂層已經貼著 ≤7，放進「編排 ▾」不多佔一列
+      { key: "copy-link", label: "複製連結", group: "編排", onSelect: () => void copyTicketLink(r.id) },
       { key: "log", label: "記乘務記錄", hotkeyId: "today.log", onSelect: run(() => openLog(r.id)) },
       // 回饋乙：多選的可點入口（Ctrl／Shift＋點是加速）；已在多選中＝把這張加進去
       {

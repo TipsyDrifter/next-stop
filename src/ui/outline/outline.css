@@ -62,8 +62,8 @@
   font-size: var(--fs-xs); letter-spacing: .08em; padding: 1px 7px;
   border: 1px solid var(--color-line); color: var(--color-ink-soft);
 }
-.ns-outline .meta .date.chip.late { color: var(--color-late); border-color: rgba(152, 80, 48, .4); } /* 字面值：誤點 chip 框（赭 40%，原型定值） */
-[data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: rgba(209, 155, 114, .38); } /* 字面值：誤點 chip 框・銀河（赭 38%，原型定值） */
+.ns-outline .meta .date.chip.late { color: var(--color-late); border-color: color-mix(in srgb, var(--color-late) 40%, transparent); }
+[data-theme="dark"] .ns-outline .meta .date.chip.late { border-color: color-mix(in srgb, var(--color-late) 38%, transparent); }
 .ns-outline .meta .date:hover { color: var(--accent); }
 .ns-outline .meta .date.chip:hover { color: var(--accent); border-color: var(--accent); }
 .ns-outline .meta .fold-note { color: var(--color-ink-faint); }

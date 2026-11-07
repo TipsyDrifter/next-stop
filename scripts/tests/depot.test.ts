@@ -336,6 +336,29 @@ describe("depotView：印譜帳、年鑑、記錄簿的車站", () => {
     assert.deepEqual(ago && [ago.id, ago.years, ago.text], ["b", 1, "第一次自己去看海"]);
   });
 
+  test("願望實現：年鑑按月計件、那年今日認願望（日記 › 筆記 › 願望）", () => {
+    const w = (id: string, name: string, day: string, kind = "go"): Any => ({ id, name, kind, bought_at: `${day}T04:00:00Z`, day });
+    const yb = view.buildYearbook({
+      today: "2026-11-02",
+      stamps: [],
+      sealDays: [],
+      notes: [],
+      wishes: [w("w1", "京都散步", "2026-10-12"), w("w2", "降噪耳機", "2026-10-20", "buy"), w("w3", "未來的", "2026-12-01")],
+      routes: [],
+      lines: [],
+    });
+    assert.deepEqual(yb.months.map((m) => [m.month, m.wishes]), [["2026-10", 2]], "只有願望的月份也列、未來月份不列");
+    const wishes = [w("a", "去年買的耳機", "2025-11-01", "buy"), w("b", "前年", "2024-11-01")];
+    const note = { id: "n", kind: "note", day: "2025-11-01", noted_at: "2025-11-01T01:00:00Z", title: null, text: "筆記" };
+    const diary = { id: "d", kind: "diary", day: "2025-11-01", noted_at: "2025-11-01T09:00:00Z", title: null, text: "日記" };
+    const a1 = view.agoOf("2026-11-01", [], wishes);
+    assert.deepEqual(a1 && [a1.kind, a1.id, a1.years, a1.text, a1.wishKind], ["wish", "a", 1, "去年買的耳機", "buy"]);
+    assert.equal(view.agoOf("2026-11-01", [note], wishes)?.id, "n", "筆記 › 願望");
+    assert.equal(view.agoOf("2026-11-01", [note, diary], wishes)?.id, "d", "日記 › 筆記");
+    assert.equal(view.agoOf("2026-11-01", [{ ...note, day: "2024-11-01" }], wishes)?.id, "a", "最近那一年優先於種類");
+    assert.equal(view.agoOf("2026-11-01", [], [w("x", "今年的不算", "2026-11-01")]), null);
+  });
+
   test("記錄簿的車站：開業→已到着→終點；運行中只列到着的、最後一行運行中", () => {
     const sts = [
       n({ id: "s1", kind: "station", name: "讀書計畫", arrived_on: "2026-08-22" }),

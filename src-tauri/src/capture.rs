@@ -13,7 +13,8 @@
 //! 小窗不可聚焦＋點擊穿透→存好後前端播章）、`revive`（saved 之後存檔沒成功→叫回小窗）、`esc`（還前景→hide）、`hide`（只 hide）。章播放期間的狀態見 `StampState`。
 //!
 //! 硬條件（契約 0-14／主對話 M-2）：「顯示主視窗」是**預設路徑**，在 `setup` 第一個陳述式決定；只有明確的
-//! `--minimized` 參數才跳過；之後任何一步失敗都只 `eprintln!`，`setup` 永遠回 `Ok(())`，**絕不讓主視窗留在隱藏**。
+//! `--minimized` 參數、或 argv 全是不開 App 的連結（⑬，`external::is_silent_launch`）才跳過；
+//! 之後任何一步失敗都只 `eprintln!`，`setup` 永遠回 `Ok(())`，**絕不讓主視窗留在隱藏**。
 
 use std::ffi::{OsStr, OsString};
 use std::sync::{Mutex, MutexGuard};
@@ -24,6 +25,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Runtime,
 use tauri_plugin_autostart::AutoLaunchManager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+use crate::external;
 use crate::tray;
 
 // ───────────────────────── 常數（TS 端 `shell.ts` 有逐字相同的一份，`notes-logic.test.ts` 對帳）─────────────────────────
@@ -356,11 +358,13 @@ pub fn plugins<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     )
 }
 
-/// `lib.rs` 的 `.setup` 第一句。順序不可換（契約 0-14）：
-/// ① 沒帶 `--minimized` ⇒ 先叫出主視窗；② manage(CaptureShell)；③ 掛 autostart；④ 註冊熱鍵；⑤ 建小窗。永遠 `Ok(())`。
+/// `lib.rs` 的 `.setup` 第一件有動作的事（前面只有 `manage`）。順序不可換（契約 0-14）：
+/// ① 沒帶 `--minimized`、也不是全不開 App 的連結 ⇒ 先叫出主視窗；② manage(CaptureShell)；③ 掛 autostart；④ 註冊熱鍵；⑤ 建小窗。永遠 `Ok(())`。
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // ① 預設路徑：顯示主視窗。tauri.conf.json 的 main 是 visible:false，這一句是它唯一的「出現」來源。
-    let minimized = is_minimized_launch(std::env::args_os());
+    // ⑬ 冷啟動全是不開 App 的連結（発車到着）也不彈：使用者只是要動作，彈出來反而打斷他（watchdog 照走）。
+    let minimized = is_minimized_launch(std::env::args_os())
+        || external::is_silent_launch(std::env::args_os(), &external::scheme_for(&app.config().identifier));
     if !minimized {
         tray::show_main_window(app);
     } else {

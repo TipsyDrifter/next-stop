@@ -6,11 +6,13 @@
  *   - ids 照畫面順序存（範圍選、一起拖都要順序）；anchor＝Shift 範圍選的起點。
  *   - 桌機：Ctrl／⌘＋點＝加選或取消、Shift＋點＝範圍選、⋯「選取」＝進多選並勾這張。
  *   - 手機：長按原地放開＝進多選並勾這張（useDragReorder 的 onPressRelease）；多選中點卡片＝加選或取消。
+ * 唯讀的卡不能進多選（⑫ 車庫裡的路線；契約 §1）：頁面用 `setSelectable` 登記判準，所有進多選的路（Ctrl／Shift＋點、Ctrl＋A、⋯「選取」、手機長按、全選）都過這一關，
+ *   不用每個入口各判一次；登記了判準，`visibleIn`（全選的範圍）也跟著濾。
  * 純狀態，不碰資料層；批量動作在 batchActions.ts。
  */
 import { create } from "zustand";
 
-export type SelectionScope = "outline" | "today" | "schedule";
+export type SelectionScope = "outline" | "today" | "schedule" | "board";
 
 interface SelectionState {
   scope: SelectionScope | null;
@@ -46,6 +48,16 @@ function inOrder(ids: Iterable<string>, order: readonly string[]): string[] {
 /** 各頁最新的畫面順序（`prune` 順手記下；選取列的「全選」用，不是要畫的狀態，不進 store） */
 const visibleByScope: Partial<Record<SelectionScope, readonly string[]>> = {};
 
+/** 各頁「這張能不能選」的判準；沒登記＝都能選 */
+const selectableByScope: Partial<Record<SelectionScope, (id: string) => boolean>> = {};
+const pickable = (scope: SelectionScope, id: string) => selectableByScope[scope]?.(id) ?? true;
+
+/** 登記這一頁的判準（null＝拿掉）；已經選著的、現在不能選的，下一次 prune 拿掉 */
+export function setSelectable(scope: SelectionScope, fn: ((id: string) => boolean) | null): void {
+  if (fn) selectableByScope[scope] = fn;
+  else delete selectableByScope[scope];
+}
+
 export const useSelectionStore = create<SelectionState>((set, get) => ({
   scope: null,
   ids: [],
@@ -53,6 +65,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
 
   toggle(scope, id, order) {
     const cur = get().scope === scope ? get().ids : [];
+    if (!cur.includes(id) && !pickable(scope, id)) return;
     const next = cur.includes(id) ? cur.filter((x) => x !== id) : inOrder([...cur, id], order);
     set({ scope: next.length ? scope : null, ids: next, anchor: next.length ? id : null });
   },
@@ -61,12 +74,12 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
     const { anchor, ids } = get();
     const a = get().scope === scope && anchor && order.includes(anchor) ? anchor : null;
     if (!a) {
-      set({ scope, ids: [id], anchor: id });
+      if (pickable(scope, id)) set({ scope, ids: [id], anchor: id });
       return;
     }
     const i = order.indexOf(a);
     const j = order.indexOf(id);
-    const span = order.slice(Math.min(i, j), Math.max(i, j) + 1);
+    const span = order.slice(Math.min(i, j), Math.max(i, j) + 1).filter((x) => pickable(scope, x));
     // 範圍選＝原本的加上這一段（Finder／檔案總管的 Ctrl+Shift 行為；單純 Shift 在只有一張時結果相同）
     set({ scope, ids: inOrder([...(get().scope === scope ? ids : []), ...span], order), anchor: a });
   },
@@ -77,21 +90,23 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
     const i = order.indexOf(a);
     const j = order.indexOf(id);
     if (j < 0) return;
-    set({ scope, ids: order.slice(Math.min(i, j), Math.max(i, j) + 1), anchor: a });
+    const ids = order.slice(Math.min(i, j), Math.max(i, j) + 1).filter((x) => pickable(scope, x));
+    set({ scope: ids.length ? scope : null, ids, anchor: ids.length ? a : null });
   },
 
   start(scope, id) {
-    set({ scope, ids: [id], anchor: id });
+    if (pickable(scope, id)) set({ scope, ids: [id], anchor: id });
   },
 
   set(scope, ids) {
-    set({ scope: ids.length ? scope : null, ids: [...ids], anchor: ids[0] ?? null });
+    const keep = ids.filter((x) => pickable(scope, x));
+    set({ scope: keep.length ? scope : null, ids: keep, anchor: keep[0] ?? null });
   },
 
   prune(scope, visible) {
     visibleByScope[scope] = visible;
     if (get().scope !== scope) return;
-    const keep = get().ids.filter((id) => visible.includes(id));
+    const keep = get().ids.filter((id) => visible.includes(id) && pickable(scope, id));
     if (keep.length === get().ids.length) return;
     set({ ids: keep, scope: keep.length ? scope : null, anchor: keep.includes(get().anchor ?? "") ? get().anchor : (keep[0] ?? null) });
   },
@@ -104,7 +119,8 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
 
 /** 這一頁畫面上看得到的（全選的範圍；頁面沒登記過＝空） */
 export function visibleIn(scope: SelectionScope): readonly string[] {
-  return visibleByScope[scope] ?? [];
+  const v = visibleByScope[scope] ?? [];
+  return selectableByScope[scope] ? v.filter((id) => pickable(scope, id)) : v;
 }
 
 /** 這一頁目前的多選（別頁的不算） */

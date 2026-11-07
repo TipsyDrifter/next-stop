@@ -44,6 +44,7 @@ const FAKE_REPO = `export const ticketRepo = new Proxy({}, { get: (_, k) => (...
 /** 本機設定：Map 放在 globalThis，測試可以看、可以預先塞值；set 可以被要求失敗 */
 const FAKE_DATA = `
 globalThis.__settings = globalThis.__settings ?? new Map();
+export const nodeRepo = { async getNode(id) { return (globalThis.__nodes ?? {})[id] ?? null; } };
 export const settingsRepo = {
   async get(k) {
     const v = globalThis.__settings.has(k) ? globalThis.__settings.get(k) : null;

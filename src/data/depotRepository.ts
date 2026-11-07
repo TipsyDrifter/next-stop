@@ -15,6 +15,7 @@ import type Database from "@tauri-apps/plugin-sql";
 import { getDb, nowUtcIso } from "../lib/db";
 import { dayKeyOf } from "../lib/date";
 import type { NoteKind } from "../domain/notes";
+import type { WishDigestLike } from "../domain/depotView";
 import type { BlockFact, StampFacts, StampPlan, StampRow } from "../domain/stamps";
 import { newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from "./syncRepository";
 import { SEAL_NODE_SQL, SEAL_OCC_SQL, dedupeSeals, sealOfRow, type SealRow } from "../domain/seals";
@@ -39,7 +40,22 @@ export interface DepotData {
   /** 全部済的日子（舊→新；年鑑按月數、頁首總數） */
   sealDays: string[];
   notes: NoteDigest[];
+  /** 實現過的願望（年鑑的「實現 N 件」與那年今日；舊→新） */
+  wishes: WishDigestLike[];
 }
+
+/**
+ * 實現過的願望：未刪、bought_at 有值，且「實現了」讀時判斷成立——buy 看 entry_id 指到的帳還在，其他種類看 target_node_id
+ * 指到的節點還在（被刪＝回到等候，不算；D-主-516）。
+ */
+export const REALIZED_WISH_SQL = `SELECT w.id, w.name, COALESCE(k.name, '') AS kind, w.bought_at FROM tk_wishes w
+  LEFT JOIN wr_kinds k ON k.id = w.kind_id AND k.deleted_at IS NULL
+  WHERE w.deleted_at IS NULL AND w.bought_at IS NOT NULL
+    AND (EXISTS (SELECT 1 FROM tk_entries e WHERE e.id = w.entry_id AND e.deleted_at IS NULL)
+      OR EXISTS (SELECT 1 FROM nodes n WHERE w.target_kind = 'node' AND n.id = w.target_id AND n.deleted_at IS NULL)
+      OR EXISTS (SELECT 1 FROM notes t WHERE w.target_kind = 'note' AND t.id = w.target_id AND t.deleted_at IS NULL)
+      OR EXISTS (SELECT 1 FROM time_blocks tb WHERE w.target_kind = 'block' AND tb.id = w.target_id AND tb.deleted_at IS NULL))
+  ORDER BY w.bought_at`;
 
 export interface DepotRepository {
   listStamps(): Promise<StampRow[]>;
@@ -207,13 +223,14 @@ export class SqliteDepotRepository implements DepotRepository {
 
   async loadDepot(dayStartHour: number): Promise<DepotData> {
     const db = await getDb();
-    const [openedOn, seals, notes] = await Promise.all([
+    const [openedOn, seals, notes, wishes] = await Promise.all([
       this.openings(db, dayStartHour),
       allSeals(db),
       db.select<{ id: string; kind: NoteKind; title: string | null; body: string; entry_date: string | null; noted_at: string }[]>(
         `SELECT id, kind, title, substr(body, 1, 200) AS body, entry_date, noted_at FROM notes
          WHERE deleted_at IS NULL AND inbox = 0 AND kind IN ('note','diary')`,
       ),
+      db.select<{ id: string; name: string; kind: string; bought_at: string }[]>(REALIZED_WISH_SQL),
     ]);
     const routeSeals: Record<string, number> = {};
     for (const s of seals) if (s.route_id) routeSeals[s.route_id] = (routeSeals[s.route_id] ?? 0) + 1;
@@ -229,6 +246,7 @@ export class SqliteDepotRepository implements DepotRepository {
         title: n.title,
         text: n.body,
       })),
+      wishes: wishes.map((w) => ({ id: w.id, name: w.name, kind: w.kind, bought_at: w.bought_at, day: dayKeyOf(w.bought_at, dayStartHour) })),
     };
   }
 }

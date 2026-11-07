@@ -75,6 +75,10 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(17, "0017_stamps", "depot: stamps (station stamps for things that happened: opening, station/route/line arrivals, anniversaries, sparse milestones; deterministic ids)"),
     // 週方針（戊，D-主-251）；正式號 0018（主對話 11-03 發，v1.24.0 合併）
     mig!(18, "0018_week_aims", "week aims: week_aims (3-5 weekly direction lines per week; optional route attach; done stamp; carried_from = source aim id)"),
+    // 壬 候車室（D-主-519～521）；正式號 0019（主對話 11-06 發）
+    mig!(19, "0019_waitroom_kind", "waiting room: wr_kinds (user-managed kinds with realize action; seeds via repository) + tk_wishes.kind_id/target_kind/target_id (realized-into record; alive = realized, mirrors entry_id)"),
+    // ⑫ 看板與篩選（D-主-471）；正式號 0020（主對話 11-06 發）
+    mig!(20, "0020_node_station", "node station: nodes.station_id (leaf tasks attach to a station of their route; orphans resolved at read time)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -207,6 +211,16 @@ mod tests {
             18,
             "0018_week_aims",
             "a3d14ad7c1a90b46ad5c902ea401e2b7efda85257b91d671ca51158221c06c5fc69698ce509046c450f6a5576f3d7c91",
+        ),
+        (
+            19,
+            "0019_waitroom_kind",
+            "6a51fe477c742ef7fceed204caa32a26e96aa1b31390c885f56fb27af388e94d13cd3c22456b2597eb1224674d1f6163",
+        ),
+        (
+            20,
+            "0020_node_station",
+            "cd7521635d02511afb4a120c5a54a8b7885ed4765c3b47a0e8934d6274a6308fc78f3868ebbdd3cdeb1e049991237507",
         ),
     ];
 

@@ -94,39 +94,7 @@
 .ns-tk-fromwish b { font-weight: 500; color: var(--color-ink-soft); }
 
 /* ═══ 六、願望清單（D-票-69；原型 6a-desktop、6-合計-有） ═══ */
-.ns-tk-wishunpriced { margin-left: 4px; color: var(--color-ink-faint); }
-.ns-tk-wish { position: relative; z-index: 1; }
-.ns-tk-wishadd { display: grid; grid-template-columns: 1fr 120px auto; align-items: center; gap: 10px; padding: 10px 18px 10px 46px; border-bottom: 1px solid var(--color-line); }
-.ns-tk-wishadd input { width: 100%; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); outline: none; padding: 3px 0; font: inherit; font-size: 13.5px; letter-spacing: .04em; color: var(--color-ink); } /* 字面值：13.5px 同大票欄位 */
-.ns-tk-wishadd input:focus { border-bottom-color: var(--accent); }
-.ns-tk-wishadd input::placeholder { color: var(--color-ink-faint); }
-.ns-tk-wishadd input.amt { text-align: right; font-family: var(--font-display); }
-.ns-tk-wishadd .ns-btn { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-.ns-tk-wishempty { margin: 0; padding: 18px 18px 18px 46px; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-faint); }
-.ns-tk-wishlist { margin: 0; padding: 0; list-style: none; }
-.ns-tk-wishrow {
-  position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; column-gap: 12px;
-  padding: 11px 18px 11px 14px; cursor: pointer; outline: none;
-}
-.ns-tk-wishrow + .ns-tk-wishrow { border-top: 1px dashed var(--color-line); }
-.ns-tk-wishrow:hover { background: var(--ns-tk-hover); }
-.ns-tk-wishrow:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
-.ns-tk-wishrow .grip { color: var(--color-ink-faint); opacity: .7; cursor: grab; display: grid; place-items: center; }
-.ns-tk-wishrow:hover .grip { opacity: 1; }
-.ns-tk-wishrow .main { min-width: 0; display: grid; gap: 4px; }
-.ns-tk-wishrow .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-body); font-weight: 500; letter-spacing: .05em; color: var(--color-ink); }
-.ns-tk-wishrow .sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
-.ns-tk-wishrow .sub .nt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ns-tk-wishrow .amt { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
-.ns-tk-wishrow .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
-.ns-tk-wishrow .amt small.none { margin-right: 0; }
-.ns-tk-wishrow .buy { white-space: nowrap; }
-.ns-tk-wishrow.is-on { background: var(--sel-bg); }
-.ns-tk-wishrow.is-open { cursor: default; background: var(--ns-tk-hover); }
-/* 列下攤開的編輯區（點列／Enter） */
-.ns-tk-wishedit { grid-column: 2 / -1; margin-top: 10px; padding: 10px 0 2px; border-top: 1px dashed var(--color-line); cursor: auto; }
-.ns-tk-wishedit .ns-tk-fields.is-wish { margin-top: 0; padding-top: 0; border-top: 0; max-width: 460px; }
-.ns-tk-wishedit-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 10px; max-width: 460px; }
+/* 願望段已搬去候車室（src/ui/waitroom/waitroom.css；壬 D-主-513）；.ns-tk-fromwish 留著給「從願望清單帶入」 */
 /* 已買（摺起；攤開看哪天花了多少） */
 .ns-tk-bought { border-top: 1px solid var(--color-line); }
 .ns-tk-bought > button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 18px 10px 14px; background: none; border: 0; cursor: pointer; font: inherit; font-size: var(--fs-sm); letter-spacing: .12em; color: var(--color-ink-faint); text-align: left; }

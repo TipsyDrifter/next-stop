@@ -12,9 +12,11 @@
  */
 import type { ZipFile } from "./storeZip.ts";
 import { buildStoreZip } from "./storeZip.ts";
+import { effectiveStation } from "./board.ts";
 import { KIND_LABEL, WORK_LOG_EVENT_LABEL } from "./node.ts";
 import type { NodeKind, WorkLogEvent } from "./node.ts";
-import { ACCOUNT_GROUPS } from "./ticket.ts";
+import { ACCOUNT_GROUPS, WISH_ACTION_LABEL } from "./ticket.ts";
+import type { WishAction } from "./ticket.ts";
 import { describeRule, parseRule } from "./repeat.ts";
 import { periodLabel, periodOfKey, stationIdOfKey } from "./weekAims.ts";
 import { dayKeyOf } from "../lib/date.ts";
@@ -38,6 +40,7 @@ const TICKET_TABLES = [
   "tk_entries",
   "tk_budgets",
   "tk_repeats",
+  "wr_kinds",
   "tk_wishes",
   "tk_templates",
 ] as const;
@@ -369,6 +372,13 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
   const tb = (n: string): ExportRow[] => tables[n] ?? [];
   const nodeById = new Map(ctx.nodes.map((n) => [str(n.id), n]));
   const nodeName = (id: unknown): string => str(nodeById.get(str(id))?.name);
+  const stationById = new Map(ctx.nodes.filter((n) => n.kind === "station").map((n) => [str(n.id), { parent_id: n.parent_id ? str(n.parent_id) : null }]));
+  /** 同畫面的口徑：車站還在、而且跟票同一條路線才算（搬到別路線的票不印別條路線的站名）。route_id 在表裡清掉了（快取），從 ctx 的整列拿 */
+  const stationOf = (n: ExportRow): string => {
+    const full = nodeById.get(str(n.id)) ?? n;
+    const station_id = full.station_id ? str(full.station_id) : null;
+    return nodeName(effectiveStation({ station_id, route_id: full.route_id ? str(full.route_id) : null }, stationById));
+  };
 
   // 荷札：「種類|id」→ 名稱們
   const tagName = new Map(tb("tags").map((t) => [str(t.id), str(t.name)]));
@@ -411,7 +421,7 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "車票.csv",
           rows: [
-            ["幹線", "路線", "上層", "種類", "名稱", "概要", "優先順序", "狀態", "執行日", "幾點", "長度（分）", "締切日", "完成時刻", "重複", "荷札", "建立時刻"],
+            ["幹線", "路線", "上層", "車站", "種類", "名稱", "概要", "優先順序", "狀態", "執行日", "幾點", "長度（分）", "締切日", "完成時刻", "重複", "荷札", "建立時刻"],
             ...nodes
               .filter((n) => n.kind !== "line" && n.kind !== "route")
               .map((n): CsvCell[] => {
@@ -420,6 +430,7 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
                   a.line,
                   a.route,
                   nodeName(n.parent_id),
+                  stationOf(n),
                   KIND_LABEL[n.kind as NodeKind] ?? str(n.kind),
                   str(n.name),
                   str(n.description),
@@ -591,8 +602,10 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
       const decOf = (code: unknown): number => decimalsOf.get(str(code)) ?? 2;
       const accs = new Map(tb("tk_accounts").map((a) => [str(a.id), a]));
       const cats = new Map(tb("tk_categories").map((c) => [str(c.id), c]));
+      const kinds = new Map(tb("wr_kinds").map((k) => [str(k.id), k]));
       const accName = (id: unknown): string => str(accs.get(str(id))?.name);
       const catName = (id: unknown): string => str(cats.get(str(id))?.name);
+      const kindName = (id: unknown): string => str(kinds.get(str(id))?.name);
       const catParent = (id: unknown): string => catName(cats.get(str(id))?.parent_id);
       const groupLabel = (key: unknown): string => ACCOUNT_GROUPS.find((g) => g.key === key)?.label ?? str(key);
       const groupIdx = (key: unknown): number => {
@@ -680,14 +693,22 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "願望.csv",
           rows: [
-            ["名稱", "預估金額", "分類", "備註", "買了的時刻"],
+            ["名稱", "種類", "預估金額", "分類", "備註", "實現時刻"],
             ...[...tb("tk_wishes")].sort(cmpPos).map((w): CsvCell[] => [
               str(w.name),
+              kindName(w.kind_id),
               minorToNumber(w.amount_minor, mainDecimals),
               catName(w.category_id),
               str(w.note),
               localStamp(w.bought_at),
             ]),
+          ],
+        },
+        {
+          name: "候車室種類.csv",
+          rows: [
+            ["番線", "名稱", "實現動作"],
+            ...[...tb("wr_kinds")].sort(cmpPos).map((k, i): CsvCell[] => [i + 1, str(k.name), WISH_ACTION_LABEL[k.action as WishAction] ?? str(k.action)]),
           ],
         },
         {

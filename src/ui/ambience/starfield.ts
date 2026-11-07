@@ -25,6 +25,25 @@ export interface SkyDot {
   id: string;
   className: string;
   style: CssVars;
+  /** 會呼吸的星才有：lo↔hi 來回一趟的秒數與起始相位（秒） */
+  twinkle?: StarTwinkle;
+}
+
+export interface StarTwinkle {
+  lo: number;
+  hi: number;
+  period: number;
+  phase: number;
+}
+
+/**
+ * 第 t 秒的不透明度：與原型的 ease-in-out 來回同形。
+ * 不用 CSS 無限動畫：五十幾顆星一閃，合成器就每秒出 60 格，光星星就吃掉兩到三成顆核心（⑪ 實測）；
+ * 星星要好幾秒才閃一次，每秒更新 10 次看不出差別（SkyLayer 的 useStarTwinkle）。
+ */
+export function twinkleAt(t: number, s: StarTwinkle): number {
+  const x = ((t + s.phase) / s.period) % 1;
+  return s.lo + (s.hi - s.lo) * ((1 - Math.cos(2 * Math.PI * x)) / 2);
 }
 
 export interface Starfield {
@@ -107,9 +126,8 @@ function buildPastel(density: "full" | "reduced"): Starfield {
         "--y": `${y.toFixed(2)}%`,
         "--s": `${size.toFixed(2)}px`,
         "--o": o.toFixed(2),
-        "--d": `${d.toFixed(2)}s`,
-        "--dl": `${dl.toFixed(2)}s`,
       },
+      twinkle: { lo: o * 0.35, hi: o, period: d, phase: -dl },
     });
   }
   return { dust: [], stars };
@@ -153,11 +171,10 @@ function buildGalaxy(density: "full" | "reduced"): Starfield {
         top: `${top}%`,
         width: `${size}px`,
         height: `${size}px`,
-        "--o0": o0,
         "--o1": o1,
-        "--sky-dur": `${dur}s`,
-        "--delay": `-${delay}s`,
       },
+      // 原型是 alternate：單程 dur 秒，來回一趟 2×dur
+      twinkle: { lo: Number(o0), hi: Number(o1), period: 2 * Number(dur), phase: Number(delay) },
     });
   }
 

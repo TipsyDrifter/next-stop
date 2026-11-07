@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "pin",
+  "description": "桌面小窗（⑬ 外部入口）：只收發事件與拖曳；沒有 sql／dialog／notification／opener 權限——資料全由主視窗用事件餵，開關與長高走 Rust command（pin_*）",
+  "platforms": [
+    "windows",
+    "macOS",
+    "linux"
+  ],
+  "windows": [
+    "pin"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

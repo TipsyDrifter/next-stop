@@ -40,9 +40,9 @@
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
   border: 1px solid var(--glass-edge);
-  box-shadow:
+  box-shadow: var(--skin-float-shadow,
     0 0 0 1px rgba(60, 60, 120, .10), /* 字面值：陰影色（§1.1 例外） */
-    0 6px 16px rgba(50, 45, 100, .14), 0 18px 44px rgba(60, 50, 120, .22); /* 字面值：陰影色（§1.1 例外） */
+    0 6px 16px rgba(50, 45, 100, .14), 0 18px 44px rgba(60, 50, 120, .22)); /* 字面值：陰影色（§1.1 例外） */
 }
 .ns-daypop::after {
   content: ""; position: absolute; inset: 0; z-index: 0; border-radius: var(--radius-card);
@@ -110,8 +110,7 @@
   text-decoration: line-through transparent 1px;
   transition: color .25s, text-decoration-color .25s;
 }
-.ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: rgba(42, 43, 73, .35); } /* 字面值：刪除線色（墨 35%，原型定值） */
-[data-theme="dark"] .ns-daypop .prow.done .t { text-decoration-color: rgba(228, 232, 243, .35); } /* 字面值：刪除線色・銀河（原型定值） */
+.ns-daypop .prow.done .t { color: var(--color-ink-faint); text-decoration-color: color-mix(in srgb, var(--color-ink) 35%, transparent); }
 /* 運休＝**不刪除線**、標題只退到 ink-soft（④ 一字題主人拍板 2026-09-12：「運休票標題維持 ink-soft
    ——運休是中性資訊，不該比済更退後；済有刪除線承擔語義、運休沒有」）。這一列有運休章承擔語義，
    與今日頁同一張定期券要同一個深淺；格內 `.it.skipped` 沒有章、另有一套（見 calendar.css:189）。 */

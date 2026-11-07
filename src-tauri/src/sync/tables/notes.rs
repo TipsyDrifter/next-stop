@@ -114,4 +114,5 @@ pub const TABLES: &[SyncTableSpec] = &[
 ];
 
 /// 旅客筆記線要同步的 settings 鍵（車次①沒有）。
-pub const SETTINGS_KEYS: &[&str] = &["week_start"];
+/// `saved_filters`（⑫ 常用篩選）是路線圖的東西，掛這裡是因為核心白名單被 foundation golden 鎖在 `day_start_hour`（同 `week_start`）。
+pub const SETTINGS_KEYS: &[&str] = &["week_start", "saved_filters"];

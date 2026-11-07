@@ -3,8 +3,8 @@
  * 寫法照 `useTimetableKeyboard.ts`：IME 護欄 → isEditableTarget 放行 → 對話框／確認窗開著整張表停用 →
  * `resolveHotkey("ticket", e)` → switch。
  *
- * 十六個 id 以字串字面值出現（`pnpm probe:hotkeys` 牙齒 3；第②階段加 6 個，②契約 §5.4；售票口④ 加 ticket.view.wish＝5；
- * 第二輪加 ticket.view.accounts＝4）。掛在頁根 `div.page.ns-tk`（`ref`），
+ * 十六個 id 以字串字面值出現（`pnpm probe:hotkeys` 牙齒 3；第②階段加 6 個，②契約 §5.4；售票口④ 加 ticket.view.wish＝5、
+ * 第二輪加 ticket.view.accounts＝4；壬 D-主-513 願望籤拆除，ticket.view.wish 移除）。掛在頁根 `div.page.ns-tk`（`ref`），
  * 讓「Ctrl+6 直達後」與「點過詳情板的按鈕之後」N／Esc／[ ] 都接得到；清單 `ul.ns-tk-list` 是焦點容器：
  *   - ↑↓／Enter／Delete／Tab 只在焦點不在詳情板裡時作用（詳情板的按鈕與小浮層自理 ↑↓ Enter）
  *   - Tab（下一個帳戶篩選）只在焦點正好在清單上時接（契約「清單焦點時」），其餘照瀏覽器移焦點
@@ -106,9 +106,6 @@ export function useTicketKeyboard(ref: RefObject<HTMLElement | null>): void {
         case "ticket.view.accounts":
           switchView("accounts");
           break;
-        case "ticket.view.wish":
-          switchView("wish");
-          break;
         case "ticket.day.left":
         case "ticket.day.right":
           if (s.view !== "calendar" || inPanel) return; // 清單／統計視圖不作用、不 preventDefault
@@ -165,7 +162,6 @@ export function useTicketKeyboard(ref: RefObject<HTMLElement | null>): void {
           //（詳情板開著時先收詳情板：搜尋結果裡看完一筆，Esc 先回結果、再一次才關搜尋）
           // 小浮層（篩選 chips／詳情板的 .ns-tk-pop、日期）自己收：本監聽掛在頁根的原生事件，比 React 的 stopPropagation 早到
           if (target?.closest(".ns-tk-pop, .ns-datepick")) return;
-          if (target?.closest(".ns-tk-wishrow.is-open")) return; // 願望列攤開著：Esc 先收起那一列（WishPage 自理），不切回清單
           if (s.searchOpen && s.panel.kind !== "none" && s.view === "list") {
             s.requestEscape();
             list?.focus({ preventScroll: true });

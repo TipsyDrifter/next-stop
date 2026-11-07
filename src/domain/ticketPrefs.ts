@@ -10,7 +10,7 @@
 import type { AccountRow } from "./ticket";
 import type { Facet, StatsSpan, TicketView } from "./ticketView";
 
-const VIEWS: readonly TicketView[] = ["list", "calendar", "stats", "accounts", "wish"];
+const VIEWS: readonly TicketView[] = ["list", "calendar", "stats", "accounts"];
 const SPANS: readonly StatsSpan[] = ["month", "year"];
 const FACETS: readonly Facet[] = ["category", "account", "route", "tag"];
 

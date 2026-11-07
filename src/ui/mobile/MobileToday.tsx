@@ -77,6 +77,7 @@ import { EmptyState } from "../common/EmptyState";
 import { useSubSwipe } from "./MobileSegmentedBar";
 import { MobileSchedule } from "./MobileSchedule";
 import { logTicket, renameTicket, useMobileToday, type MobileTodayApi } from "./useMobileToday";
+import { MoodStage } from "../ambience";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { useBackLayer } from "./backStack";
 import { useRevealStore } from "./routeMapReveal";
@@ -416,6 +417,8 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
           </>
         )}
       </div>
+
+      <MoodStage done={c.stats.done} allDone={allSettled} dateKey={c.dateKey} loaded={c.loaded} />
 
       {/* 建票列（回饋甲：舊 MobileNewTicket 換共用的手機建票列；chips 聚焦後才出現，「無日期」併進執行日 chip） */}
       <MobileQuickAdd defaults={qaDefaults} here={qaHere} />

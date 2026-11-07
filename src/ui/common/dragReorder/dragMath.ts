@@ -38,6 +38,17 @@ export interface Anchor {
   before: string | null;
 }
 
+/**
+ * 多欄、欄內能排序：放回原位沒有動嗎。要拖的那批在這一欄是連著的、而且落點的上下鄰居就是拖起前的鄰居才算；
+ * 不連續的一批放在第一張旁邊會把中間那幾張接起來，是真的有動。
+ */
+export function isColumnGapNoop(inCol: readonly string[], ids: readonly string[], a: Anchor): boolean {
+  const first = inCol.indexOf(ids[0]);
+  const last = inCol.indexOf(ids[ids.length - 1]);
+  if (first < 0 || last < 0 || last - first + 1 !== ids.length) return false;
+  return a.after === (inCol[first - 1] ?? null) && a.before === (inCol[last + 1] ?? null);
+}
+
 /** 一層清單的縫 → 鄰居錨 */
 export function anchorOfGap(rest: readonly { id: string }[], g: number): Anchor {
   return { after: g > 0 ? (rest[g - 1]?.id ?? null) : null, before: rest[g]?.id ?? null };
@@ -148,6 +159,11 @@ export const SWIPE_START_PX = 12;
 export const SWIPE_COMMIT_RATIO = 0.35;
 /** 拖到摺起來的列上停多久自動展開（ms） */
 export const HOVER_EXPAND_MS = 600;
+/** 手機一次一欄的看板：手指貼著欄區左右緣多近算貼邊（px）、停多久翻一欄（ms） */
+export const COL_FLIP_EDGE_PX = 24;
+export const COL_FLIP_MS = 500;
+/** 同上：貼著欄的上下緣停多久才開始捲（ms） */
+export const COL_VSCROLL_MS = 300;
 
 /** 滑動手勢是否成立：橫向夠遠、而且比縱向大 1.5 倍以上 */
 export function isSwipe(dx: number, dy: number): boolean {

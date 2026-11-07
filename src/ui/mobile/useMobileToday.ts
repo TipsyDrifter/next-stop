@@ -38,7 +38,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { REPEAT_RESCHEDULE_MSG, type TodayRow } from "../../data";
-import { isSettling, useNodeStore } from "../../store/nodeStore";
+import { isSettling, scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { isDoneRow, isSettledRow, dayCountItem, showRescheduleToast, INBOX_TOAST, manualStepTarget } from "../today/useTodayController";
@@ -257,12 +257,12 @@ export function useMobileToday(): MobileTodayApi {
         return;
       case "clear": {
         // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去（DeferPopover.tsx 同款）
-        const prevDay = row.scheduled_on;
+        const prev = scheduleSnapshot(row);
         void ns().reschedule(id, null);
         ui().showToast({
           message: INBOX_TOAST,
           actionLabel: "復原",
-          onAction: () => void ns().reschedule(id, prevDay),
+          onAction: () => void ns().updateNode(id, prev),
         });
         return;
       }
@@ -271,7 +271,7 @@ export function useMobileToday(): MobileTodayApi {
         void ns().updateNode(id, { scheduled_on: plan.day }, { backfill: true });
         return;
       case "reschedule": {
-        const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
+        const prev = scheduleSnapshot(row);
         void ns().reschedule(id, plan.day);
         // 票一改期就離開今日清單，今天唯一的回饋是這張可反悔的收據（與桌機同款）；排回今天不出收據
         if (plan.receipt) showRescheduleToast(id, prev, plan.day);

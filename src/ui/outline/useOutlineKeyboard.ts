@@ -6,7 +6,9 @@
  * M3 ⑦：鍵位字面值搬進 registry（`ui/shell/hotkeys.ts`，決策記錄 :190「registry 單一來源」）——
  * 這裡只剩「id → 動作」的接線，鍵位本身由 `resolveHotkey("outline", e)` 查表決定（行為零變）。
  */
-import type { KeyboardEvent } from "react";
+import { useEffect, type KeyboardEvent } from "react";
+import { useBoardStore } from "../../store/boardStore";
+import { useUiStore } from "../../store/uiStore";
 import { isEditableTarget, resolveHotkey } from "../shell/hotkeys";
 
 export interface OutlineKeyActions {
@@ -33,6 +35,30 @@ export interface OutlineKeyActions {
   escape(): void;
   switchRoute(dir: 1 | -1): void;
   renameSelected(): void;
+}
+
+/**
+ * 路線圖的分頁鍵（⑫；契約 §1）：大綱｜看板、路線｜篩選。掛在 window：路線一覽沒有鍵盤容器，看板焦點也可能在分頁籤或卡上。
+ * 對話框、選單開著不攔（選單自己把鍵截住了，對話框要這裡看 target）；看板分頁自己的表不吃這兩顆，鍵會冒到這裡。
+ */
+export function useRouteMapViewKeys(): void {
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229 || e.defaultPrevented || isEditableTarget(e.target)) return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], .ns-qa-pop')) return;
+      // 確認框開著、焦點掉到 body 也一樣（同看板的鍵盤後援）
+      if (e.target === document.body && document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      const hit = resolveHotkey("outline", e);
+      if (hit?.id !== "outline.view.1" && hit?.id !== "outline.view.2") return;
+      e.preventDefault();
+      const second = hit.id === "outline.view.2";
+      const b = useBoardStore.getState();
+      if (useUiStore.getState().routeOverview) b.setOverviewTab(second ? "filter" : "routes");
+      else b.setRouteLayout(second ? "board" : "outline");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 }
 
 export function useOutlineKeyboard(a: OutlineKeyActions) {

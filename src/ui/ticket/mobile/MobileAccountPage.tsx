@@ -172,9 +172,9 @@ export function MobileAccountPage({ id }: { id: string }) {
             onClick={() => {
               void setFilter(acc.id);
               closePanel();
-              // 售票口④ 第二輪：從帳戶分頁（或願望）點進來的 ⇒ 回清單才看得到帳（月曆／統計照舊留在原地，它們也跟著篩）
+              // 售票口④ 第二輪：從帳戶分頁點進來的 ⇒ 回清單才看得到帳（月曆／統計照舊留在原地，它們也跟著篩）
               const v = useTicketStore.getState().view;
-              if (v === "accounts" || v === "wish") void useTicketStore.getState().setView("list");
+              if (v === "accounts") void useTicketStore.getState().setView("list");
             }}
           >
             看這個帳戶的帳

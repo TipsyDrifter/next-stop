@@ -10,7 +10,6 @@
 package app.shitetsu.nextstop.ttnotice
 
 import android.app.Activity
-import android.content.Intent
 import android.webkit.WebView
 import androidx.core.app.NotificationManagerCompat
 import app.tauri.annotation.Command
@@ -48,6 +47,12 @@ class RemSyncArgs {
   var items: String? = null
 }
 
+/** ⑬ 要寫進貼紙的連結 */
+@InvokeArg
+class NfcWriteArgs {
+  lateinit var url: String
+}
+
 @TauriPlugin
 class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
   companion object {
@@ -64,38 +69,27 @@ class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
     fun notifyReminderOpen(target: String) {
       instance?.trigger("reminder-open", JSObject().put("target", target))
     }
+
+    /** ⑬ 連結落地了（NsExternalOpenActivity）⇒ 通知 JS 來取；App 沒活著就什麼都不做（JS 啟動時自己會取） */
+    fun notifyExternal(count: Int) {
+      instance?.trigger("external-open", JSObject().put("count", count))
+    }
+
+    /** 分享的文字落地了（NsExternalOpenActivity）⇒ 同上 */
+    fun notifyShared(count: Int) {
+      instance?.trigger("shared", JSObject().put("count", count))
+    }
   }
 
+  /**
+   * 這裡不再收分享（⑬ 搬到 NsExternalOpenActivity）。以前掛在 MainActivity 時，App 被系統收掉、任務還留著，
+   * 系統重建 MainActivity 用的是它存著的那份 intent；在行程裡拿掉 action／extras 改不到系統那份，同一段文字可能再收一次（D-主-362）。
+   * App 開著時的 onNewIntent 那條也一起走了：現在所有外來內容都先落地，再由 JS 取。
+   */
   override fun load(webView: WebView) {
     super.load(webView)
     instance = this
     TtNoticeRenderer.ensureChannels(activity)
-    captureShare(activity.intent)
-  }
-
-  /** launchMode singleTask ⇒ App 開著時別的 App 分享進來走這裡。點通知不經過這裡（NsNoticeOpenActivity） */
-  override fun onNewIntent(intent: Intent) {
-    super.onNewIntent(intent)
-    captureShare(intent)
-  }
-
-  /**
-   * 旅客筆記 ⑤：別的 App 分享文字進來（ACTION_SEND text/plain；intent-filter 在本 plugin 的 manifest，merger 併進 MainActivity）。
-   * 只吃 ACTION_SEND。從最近任務清單回來會重放原 intent ⇒ 帶 LAUNCHED_FROM_HISTORY 的不收。
-   * 收過就把 action／extras 拿掉，同一個 Intent（冷啟動的 activity.intent）不會被算第二次。
-   */
-  private fun captureShare(intent: Intent?): Boolean {
-    if (intent == null || intent.action != Intent.ACTION_SEND) return false
-    if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return true
-    val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-    val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
-    intent.removeExtra(Intent.EXTRA_TEXT)
-    intent.removeExtra(Intent.EXTRA_SUBJECT)
-    intent.action = null
-    if (text.isNullOrBlank()) return true
-    val count = NsShareStore.append(activity, text, subject)
-    trigger("shared", JSObject().put("count", count))
-    return true
   }
 
   /** resolve({ items: [{ id, text, subject?, at }] })；只讀不清（ackShared 才刪） */
@@ -109,6 +103,74 @@ class TtNoticePlugin(private val activity: Activity) : Plugin(activity) {
     val args = invoke.parseArgs(AckArgs::class.java)
     NsShareStore.ack(activity, args.ids)
     invoke.resolve()
+  }
+
+  /** ⑬ 連結佇列：resolve({ items: [{ id, url, at }] })；只讀不清（extAck 才刪） */
+  @Command
+  fun extTake(invoke: Invoke) {
+    invoke.resolve(JSObject().put("items", NsExternalStore.read(activity)))
+  }
+
+  @Command
+  fun extAck(invoke: Invoke) {
+    val args = invoke.parseArgs(AckArgs::class.java)
+    NsExternalStore.ack(activity, args.ids)
+    invoke.resolve()
+  }
+
+  /** ⑬ 小工具的今日張數與格子（形狀見 NsWidgetStore）。存了就重畫 */
+  @Command
+  fun widgetSync(invoke: Invoke) {
+    val args = invoke.parseArgs(PostArgs::class.java)
+    if (!NsWidgetStore.write(activity, args.state)) {
+      invoke.reject("tt-notice widget_sync：state 不是 JSON 物件")
+      return
+    }
+    NsWidget.refresh(activity)
+    invoke.resolve()
+  }
+
+  /** resolve({ supported, installed })：supported＝launcher 接不接 widget_pin；installed＝已放幾個 */
+  @Command
+  fun widgetStatus(invoke: Invoke) {
+    invoke.resolve(JSObject().put("supported", NsWidget.pinSupported(activity)).put("installed", NsWidget.installedCount(activity)))
+  }
+
+  /** resolve({ requested })；launcher 不支援回 false，設定頁改一句「從桌面長按加入」 */
+  @Command
+  fun widgetPin(invoke: Invoke) {
+    invoke.resolve(JSObject().put("requested", NsWidget.requestPin(activity)))
+  }
+
+  /** resolve({ hardware, enabled }) */
+  @Command
+  fun nfcStatus(invoke: Invoke) {
+    invoke.resolve(NsNfc.status(activity))
+  }
+
+  /** 等貼紙靠近才回：寫好 resolve({ ok: true })；reject 訊息 readonly／too_small／not_ndef／io／cancelled／no_nfc */
+  @Command
+  fun nfcWrite(invoke: Invoke) {
+    val args = invoke.parseArgs(NfcWriteArgs::class.java)
+    NsNfc.write(activity, invoke, args.url)
+  }
+
+  @Command
+  fun nfcCancel(invoke: Invoke) {
+    NsNfc.cancel()
+    invoke.resolve()
+  }
+
+  @Command
+  fun nfcOpenSettings(invoke: Invoke) {
+    NsNfc.openSettings(activity)
+    invoke.resolve()
+  }
+
+  /** App 退背景就收掉等貼紙的寫入（理由見 NsNfc.kt） */
+  @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
+  override fun onPause() {
+    NsNfc.cancel()
   }
 
   @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")

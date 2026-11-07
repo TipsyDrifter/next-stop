@@ -18,6 +18,7 @@ import { installPageSidebarAux } from "./pageAux";
 import { ReportView } from "../report/ReportView";
 import { DepotView } from "../depot/DepotView";
 import { DepotCoverAux } from "../depot/DepotCoverAux";
+import { WaitroomView } from "../waitroom/WaitroomView";
 
 export const PAGE_VIEWS: Record<PageId, ComponentType | null> = {
   today: TodayView,
@@ -27,9 +28,10 @@ export const PAGE_VIEWS: Record<PageId, ComponentType | null> = {
   notes: LINE_MOUNTS.notes.desktopView,
   timetable: LINE_MOUNTS.timetable.desktopView,
   ticket: LINE_MOUNTS.ticket.desktopView,
-  // gnav 第三排「回顧」（② 運行報告 D-主-182、③ 車庫 D-主-215）
+  // gnav 第三排「站內」（② 運行報告 D-主-182、③ 車庫 D-主-215、壬 候車室 D-主-511；側欄只留全域件，同運行報告）
   report: ReportView,
   depot: DepotView,
+  waitroom: WaitroomView,
   // 不進 gnav 的頁（pages.ts AUX_PAGES；完整搜尋班 D-主-110）
   search: FullSearchView,
 };

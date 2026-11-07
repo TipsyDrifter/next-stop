@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-ext-take"
+description = "Enables the ext_take command without any pre-configured scope."
+commands.allow = ["ext_take"]
+
+[[permission]]
+identifier = "deny-ext-take"
+description = "Denies the ext_take command without any pre-configured scope."
+commands.deny = ["ext_take"]

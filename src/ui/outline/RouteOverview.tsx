@@ -12,6 +12,8 @@
  *   （③ 的 `requestArrive`：確認框、復原 toast 同書封；接縫班 D-主-282）。
  *   頁底「車庫 N 條 ›」（有到站的路線才畫；點了進車庫頁）＝手機路線圖第一層、書封清單最底的同一個入口。
  * 只列還在跑的幹線與路線（`liveLines`／`liveRoutes`）；到站的歸 ③ 的車庫。
+ * ⑫：頁首下多一列分頁「路線｜篩選」（內容在 board/FilterView）；卡上的「誤點 N」可點＝篩選清單預填這條路線＋誤點（契約 §7）。
+ *   頁首與分頁列畫布寬（D-主-477），路線卡內容包在 .ns-rm-read 維持 848。
  */
 import { useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
@@ -20,7 +22,11 @@ import { fmtDur } from "../../domain/timetable";
 import { EMPTY_SUMMARY, type RouteSummary } from "../../domain/routeOverview";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { useBoardStore } from "../../store/boardStore";
 import { APPEND, moveWithUndo } from "../../store/batchActions";
+import { FilterView } from "../board/FilterView";
+import { openLateOfRoute } from "../board/openFilter";
+import { OVERVIEW_PANEL, OverviewTabs } from "../board/RouteViewTabs";
 import { EmptyState } from "../common/EmptyState";
 import { PageHeader } from "../common/PageHeader";
 import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
@@ -226,11 +232,22 @@ function RouteCard({
         </div>
         {s.late > 0 && (
           <div className="is-late">
-            <dt>誤點</dt>
-            <dd>
-              <i aria-hidden>◆</i>
-              {s.late}
-            </dd>
+            <button
+              type="button"
+              className="ns-ov-latebtn"
+              title="看這條路線誤點的車票"
+              aria-label={`誤點 ${s.late} 張，看這條路線誤點的車票`}
+              onClick={(e) => {
+                e.stopPropagation();
+                openLateOfRoute(route.id);
+              }}
+            >
+              <dt>誤點</dt>
+              <dd>
+                <i aria-hidden>◆</i>
+                {s.late}
+              </dd>
+            </button>
           </div>
         )}
       </dl>
@@ -245,6 +262,7 @@ export function RouteOverview() {
   const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
   const openRouteDialog = useUiStore((s) => s.openRouteDialog);
+  const tab = useBoardStore((s) => s.overviewTab);
   const data = useRouteOverview();
   const nextAims = useRouteNextAims(routes);
   const stationCard = useStationCard();
@@ -293,7 +311,12 @@ export function RouteOverview() {
             onClose={() => setAddAnchor(null)}
           />
         )}
+        <OverviewTabs />
 
+        {tab === "filter" ? (
+          <FilterView />
+        ) : (
+        <div id={OVERVIEW_PANEL.routes} role="tabpanel" aria-label="路線" className="ns-rm-read">
         {lines.length === 0 && (
           <EmptyState
             tone={depotCount > 0 ? "done" : "first"}
@@ -350,6 +373,8 @@ export function RouteOverview() {
               <IconChevron size={13} />
             </span>
           </button>
+        )}
+        </div>
         )}
 
         <footer className="page-foot">

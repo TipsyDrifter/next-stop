@@ -47,6 +47,7 @@ import type { NodeRow } from "../../domain";
 import { compareSiblings } from "../../domain/nodeOrder";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { skinById } from "../../lib/themeShop";
 import { roundelStyle } from "../common/roundel";
 // 書封註記用的修飾鍵字面值與 title 裡的鍵位：M3 ⑦ 起一律由快捷鍵 registry 提供（原本是這裡的本地常數）
 import { MOD_KBD, formatChord, hotkeyById, hotkeyOverrides } from "../shell/hotkeys";
@@ -56,6 +57,7 @@ import { SyncDot } from "../common/SyncDot";
 // 頁面登記表與 gnav 圖示（並行地基・契約 §6）
 import { corePages, linePages, openPages, reviewPages } from "../shell/pages";
 import { requestArrive } from "../panel/arrivalFlows";
+import { CoverSavedFilters } from "../board/CoverSavedFilters";
 import { GNAV_ICONS, svgProps } from "./gnavIcons";
 // 側欄工具插槽（通車的線的 mount `sidebarTool`）與頁務件插槽（`sidebarAux`，接縫 #50）：查 `lines/runtime`、不 import `lines/mounts`——
 // 本元件在 App 的 import 清單裡排在 pageViews 之前，import mounts 會把線的元件樹與 CSS 提早求值（理由見 runtime.ts 檔頭）
@@ -228,6 +230,8 @@ export function Sidebar() {
   const routeId = useNodeStore((s) => s.routeId);
   const openRoute = useNodeStore((s) => s.openRoute);
 
+  // ⑩：書封腳的主題名（銀河與商店主題才顯示，見 sidebar.css／theme-library.css）
+  const coverThemeName = useUiStore((s) => skinById(s.theme)?.name ?? "銀河鐵道");
   const page = useUiStore((s) => s.page);
   const overview = useUiStore((s) => s.routeOverview);
   // 丁 D-主-234：頁務件＝這一頁的目錄或篩選。線的頁走 mount、核心頁走 pageAux；都沒有時只有任務三頁畫「我的路線」
@@ -434,13 +438,13 @@ export function Sidebar() {
             );
           })}
         </div>
-        {/* 第三排「回顧」（② 運行報告 D-主-182；③ 車庫接在同一排）：群組名一行（虛線夾字）＋同一個三欄格線、長相同第一排 */}
+        {/* 第三排「站內」（② 運行報告 D-主-182；③ 車庫、壬 候車室接在同一排；群組名由「回顧」改「站內」D-主-512）：群組名一行（虛線夾字）＋同一個三欄格線、長相同第一排 */}
         {reviewPages().length > 0 && (
           <>
             <p className="gnav-group" aria-hidden="true">
-              回顧
+              站內
             </p>
-            <div className="gnav-row" role="group" aria-label="回顧">
+            <div className="gnav-row" role="group" aria-label="站內">
               {reviewPages().map((p) => (
                 <button
                   key={p.id}
@@ -579,6 +583,8 @@ export function Sidebar() {
             >
               ＋ 幹線
             </button>
+            {/* ⑫：有存才出現；點了到路線圖的篩選分頁（元件自己訂閱，這裡只放位置） */}
+            <CoverSavedFilters />
           </div>
         </div>
       )}
@@ -604,7 +610,7 @@ export function Sidebar() {
         </div>
         <CoverMoon />
         <div className="foil-rule" />
-        <p className="theme-name">銀河鐵道</p>
+        <p className="theme-name">{coverThemeName}</p>
       </div>
     </aside>
   );

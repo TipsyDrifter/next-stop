@@ -22,6 +22,8 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 // 旅客筆記⑤（契約 §3.6／§0-17）：選單「記一句」的 id 與點擊後的動作都在 capture.rs，tray 只負責把它畫進選單
 use crate::capture;
+// ⑬ 外部入口：選單「桌面小窗」的 id 與切換動作在 pin.rs
+use crate::pin;
 
 /// 系統匣圖示 id（`tray_by_id` 用；只有這一顆）
 pub const TRAY_ID: &str = "main";
@@ -182,11 +184,12 @@ fn append_groups<R: Runtime>(
 /// 常用分類是空的（格子關掉）⇒「換車 ▸」裡直接是全部分類（不再包一層、不畫分隔線）。
 fn build_menu<R: Runtime>(app: &AppHandle<R>, spec: Option<&TrayMenuSpec>) -> tauri::Result<Menu<R>> {
     let capture = MenuItem::with_id(app, capture::TRAY_MENU_ID, "記一句", true, None::<&str>)?;
+    let pin_toggle = MenuItem::with_id(app, pin::TRAY_MENU_ID, "桌面小窗", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "開啟 Next Stop", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;
     let Some(spec) = spec.filter(|s| !s.header.is_empty()) else {
         let sep = PredefinedMenuItem::separator(app)?;
-        return Menu::with_items(app, &[&capture, &open, &sep, &quit]);
+        return Menu::with_items(app, &[&capture, &pin_toggle, &open, &sep, &quit]);
     };
 
     let menu = Menu::new(app)?;
@@ -215,6 +218,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, spec: Option<&TrayMenuSpec>) -> ta
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&capture)?;
+    menu.append(&pin_toggle)?;
     menu.append(&open)?;
     menu.append(&quit)?;
     Ok(menu)
@@ -330,6 +334,8 @@ pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             // 旅客筆記⑤：「記一句」＝叫出捕捉小窗（與全域鍵 Ctrl+Alt+N 同一支 `capture::show`）。
             // 不經 `parse_tt_menu_id`（它對 "notes:capture" 照舊回 None），所以不會誤送 "tt-tray" 事件
             id if id == capture::TRAY_MENU_ID => capture::show(app),
+            // ⑬ 桌面小窗：切換顯示（與設定頁「捷徑與小工具」的開關同一支 `pin::toggle`）
+            id if id == pin::TRAY_MENU_ID => pin::toggle(app),
             "open" => show_main_window(app),
             // 「結束」＝`app.exit(0)`：走 RunEvent::ExitRequested → RunEvent::Exit，各外掛 on_event 照常收尾
             // （plugin-sql 在 Exit 關 pool、single-instance 在 Exit 放掉 mutex）——與舊的 ✕ 關最後一扇窗是同一段收尾，

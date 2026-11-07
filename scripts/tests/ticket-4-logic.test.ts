@@ -57,6 +57,7 @@ export const useNodeStore = mk({ routes: [] });
 const FAKE_REPO = `export const ticketRepo = new Proxy({}, { get: (_, k) => (...a) => globalThis.__tkRepo[k](...a) });`;
 const FAKE_DATA = `
 export const settingsRepo = { async get() { return null; }, async set() {} };
+export const nodeRepo = { async getNode(id) { return (globalThis.__nodes ?? {})[id] ?? null; } };
 `;
 /** 荷札 repository 替身：記每一次 setTags、listTagsOf 讀它記下的（key＝小寫名；不驗實體） */
 const FAKE_TAG_REPO = `
@@ -387,7 +388,7 @@ describe("D. 備註記憶", () => {
 /* ═════════════════════════ E. 願望與常用票種（D-票-68、69） ═════════════════════════ */
 
 describe("E. 願望與常用票種的純函式", () => {
-  const w = (id: string, p: Partial<WishRow> = {}): WishRow => ({ ...A.buildWishRow({ name: id, amountMinor: 1000, note: "", categoryId: null }, { id, position: 0, nowIso: NOW }), ...p });
+  const w = (id: string, p: Partial<WishRow> = {}): WishRow => ({ ...A.buildWishRow({ name: id, amountMinor: 1000, note: "", categoryId: null, kindId: A.WR_KIND_BUY_ID }, { id, position: 0, nowIso: NOW }), ...p });
   test("18. wishView：entry_id 指到還在的帳＝已買；那筆被刪＝回到想買；合計不算沒估價的", () => {
     const e1 = ent({ occurred_on: "2026-11-01", amount_minor: 780000 });
     const e2 = ent({ occurred_on: "2026-10-01", amount_minor: 300 });
@@ -402,6 +403,45 @@ describe("E. 願望與常用票種的純函式", () => {
     assert.equal(v.spent, 780300);
     assert.equal(A.wishBought({ entry_id: e1.id }, byId([e1])), true);
     assert.equal(A.wishBought({ entry_id: e1.id }, {}), false);
+  });
+
+  test("18b. wishView 候車室（0019）：target_id 看開出的記錄；種類件數；只有「記一筆」種類算合計", () => {
+    const SEED = A.WR_KIND_SEEDS;
+    const kindById = Object.fromEntries(
+      SEED.map((k) => [k.id, { ...k, device_id: null, created_at: NOW, updated_at: NOW, synced_at: null, deleted_at: null }]),
+    );
+    const GO = SEED[2].id; // 去＝route
+    const LEARN = SEED[4].id; // 學＝ticket
+    const targets = { n1: { kind: "route", name: "嵐山" }, d1: { kind: "note", name: "2026-11-01" } };
+    const v = A.wishView(
+      [
+        w("g1", { kind_id: GO, amount_minor: null, target_kind: "node", target_id: "n1", bought_at: NOW }), // 記錄還在＝實現了
+        w("g2", { kind_id: GO, amount_minor: null, target_kind: "node", target_id: "gone" }), // 記錄被刪＝回到等候
+        w("l1", { kind_id: LEARN, amount_minor: 500 }), // 非「記一筆」種類的金額不進合計
+        w("b1", { position: 9 }), // 預設＝買（entry）
+        w("d2", { kind_id: SEED[1].id, target_kind: "note", target_id: "d1", bought_at: NOW }), // 寫成日記的
+      ],
+      {},
+      targets,
+      kindById,
+    );
+    assert.deepEqual(v.want.map((x) => x.id), ["g2", "l1", "b1"]);
+    assert.deepEqual(v.wantByKind, { [GO]: 1, [LEARN]: 1, [A.WR_KIND_BUY_ID]: 1 });
+    assert.equal(v.wantTotal, 1000, "只算「記一筆」種類的估價");
+    assert.equal(v.unpriced, 0, "沒估的 go 不算「記一筆」的沒估");
+    assert.equal(v.bought.length, 2);
+    assert.deepEqual(v.bought.map((b) => b.target), [
+      // 實現時刻同一刻 ⇒ 以 wish.id 排（d2 < g1）
+      { id: "d1", kind: "note", name: "2026-11-01" },
+      { id: "n1", kind: "route", name: "嵐山" },
+    ]);
+    assert.equal(A.wishRealized(w("x", { kind_id: GO, target_kind: "node", target_id: "n1" }), {}, targets), true);
+    assert.equal(A.wishRealized(w("x", { kind_id: GO, target_kind: "node", target_id: "nope" }), {}, targets), false);
+    assert.equal(A.wishRealized(w("x", { kind_id: GO, target_id: null }), {}, targets), false);
+    assert.equal(A.wishActionOf(w("x", { kind_id: GO }), kindById), "route");
+    assert.equal(A.wishActionOf(w("x", { kind_id: "gone-kind" }), kindById), "ticket", "種類被刪＝當開票");
+    assert.throws(() => A.checkWishKindInput({ action: "fly" as never }), RangeError);
+    assert.throws(() => A.checkWishKindInput({ name: "  " }), RangeError);
   });
   test("19. checkWishInput／applyWishPatch：名稱不能空、金額 ≥ 0；只回變了的欄", () => {
     throwsMsg(() => A.checkWishInput({ name: "  " }), A.AIDS_TEXT.wishNameEmpty);
@@ -484,7 +524,11 @@ interface TestDb {
 function makeSqliteDb(): TestDb {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = ON");
-  for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
+  for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
+  // moveWishTo／getWishTargets 的等候判定會查 nodes／notes／time_blocks（別支 migration 的表）；這裡只要最小殼
+  raw.exec("CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY NOT NULL, kind TEXT, name TEXT, deleted_at TEXT)");
+  raw.exec("CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, kind TEXT, entry_date TEXT, deleted_at TEXT)");
+  raw.exec("CREATE TABLE IF NOT EXISTS time_blocks (id TEXT PRIMARY KEY NOT NULL, started_at TEXT, deleted_at TEXT)");
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   const db: TestDb = {
     ops: [],
@@ -541,12 +585,14 @@ const expenseInput = (accountId: string, categoryId: string | null, day: string,
 
 describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016 真 DDL）", () => {
   test("24. 0016：兩張表的欄＝ticket.rs 白名單＋id＋device_id／synced_at；檔頭照 0010 寫法、沒有 CHECK", () => {
-    const sql = readFileSync(path.join(ROOT, "src-tauri/migrations/0016_ticket_wish.sql"), "utf8");
-    assert.ok(!sql.includes("\r"), "LF 行尾");
-    assert.doesNotMatch(sql.replace(/--.*$/gm, ""), /\bCHECK\b/, "註解以外沒有 CHECK");
-    assert.match(sql, /號碼只寫在檔名與 migrations\.rs 那一行；正式號由主對話進驗收時發/);
+    for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) {
+      const sql = readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8");
+      assert.ok(!sql.includes("\r"), `${mf} LF 行尾`);
+      assert.doesNotMatch(sql.replace(/--.*$/gm, ""), /\bCHECK\b/, `${mf} 註解以外沒有 CHECK`);
+      assert.match(sql, /號碼只寫在檔名與 migrations\.rs 那一行；正式號由主對話進驗收時發/);
+    }
     const d = new DatabaseSync(":memory:");
-    for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish"]) d.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
+    for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind"]) d.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
     for (const [tbl, cols] of [["tk_wishes", "TK_WISHES_COLS"], ["tk_templates", "TK_TEMPLATES_COLS"]] as const) {
       const names = new Set(d.prepare(`PRAGMA table_info(${tbl})`).all().map((r) => String((r as { name: string }).name)));
       for (const c of [...rustCols(cols), "id", "device_id", "synced_at"]) assert.ok(names.has(c), `${tbl}.${c}`);
@@ -554,20 +600,21 @@ describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016 真 DD
     }
     const rs = readFileSync(path.join(ROOT, "src-tauri/src/migrations.rs"), "utf8");
     assert.match(rs, /^\s*mig!\(16, "0016_ticket_wish", /m);
+    assert.match(rs, /^\s*mig!\(19, "0019_waitroom_kind", /m);
   });
 
   for (const impl of IMPLS) {
     test(`25. 願望：新的排最上面、改只寫變了的欄、買了／刪復原；新列 op＝白名單完整列（${impl.name}）`, async () => {
       const { repo, db, lunch } = await setup(impl);
-      const w1 = await repo.createWish({ name: "降噪耳機", amountMinor: 780000, note: "", categoryId: lunch.id });
-      const w2 = await repo.createWish({ name: "  登山背包 ", amountMinor: null, note: "", categoryId: null });
+      const w1 = await repo.createWish({ name: "降噪耳機", amountMinor: 780000, note: "", categoryId: lunch.id, kindId: A.WR_KIND_BUY_ID });
+      const w2 = await repo.createWish({ name: "  登山背包 ", amountMinor: null, note: "", categoryId: null, kindId: A.WR_KIND_BUY_ID });
       assert.equal(w2.name, "登山背包");
       assert.deepEqual((await repo.listWishes()).map((w: WishRow) => w.id), [w2.id, w1.id], "新的在最上面");
       if (db) {
         const op = db.ops.find((o) => o.tbl === "tk_wishes" && o.row_id === w1.id)!;
         assert.deepEqual(Object.keys(op.cols), rustCols("TK_WISHES_COLS"));
       }
-      await assert.rejects(repo.createWish({ name: " ", amountMinor: null, note: "", categoryId: null }), RangeError);
+      await assert.rejects(repo.createWish({ name: " ", amountMinor: null, note: "", categoryId: null, kindId: A.WR_KIND_BUY_ID }), RangeError);
       const mark = db ? db.ops.length : 0;
       assert.equal((await repo.updateWish(w1.id, { name: "降噪耳機", amountMinor: 780000 })).id, w1.id);
       if (db) assert.equal(db.ops.length, mark, "沒變不寫");
@@ -591,7 +638,7 @@ describe("F. repository（memory／sqlite；sqlite 套 0007＋0010＋0016 真 DD
     test(`26. moveWishTo：只在「想買」那組搬（已買的不參與）、整組寫；那筆被刪 ⇒ 回到想買（${impl.name}）`, async () => {
       const { repo, db, cash, lunch } = await setup(impl);
       const ids: string[] = [];
-      for (const n of ["d", "c", "b", "a"]) ids.unshift((await repo.createWish({ name: n, amountMinor: null, note: "", categoryId: null })).id);
+      for (const n of ["d", "c", "b", "a"]) ids.unshift((await repo.createWish({ name: n, amountMinor: null, note: "", categoryId: null, kindId: A.WR_KIND_BUY_ID })).id);
       // 現在 a b c d；b 買了
       const e = await repo.createEntry(expenseInput(cash.id, lunch.id, "2026-11-01", "b"));
       await repo.setWishBought(ids[1], e.id);

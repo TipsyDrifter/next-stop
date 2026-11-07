@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import { nodeRepo } from "../../../data";
 import { parseRule, type NodeRow, type Priority } from "../../../domain";
 import { moveTargetRule } from "../../../domain/moveTo";
+import type { TaskRow } from "../../../domain/taskFilter";
 import { todayKey } from "../../../lib/date";
 import {
   batchAttachTag,
@@ -38,6 +39,7 @@ import { DatePicker } from "../DatePicker";
 import { PopMenu } from "../PopMenu";
 import { OverlineText } from "../PageHeader";
 import { usePopDismiss } from "../../notes/notesBits";
+import { stationItems } from "../../board/boardMenu";
 import "../../notes/notes.css";
 import "../moveTo.css";
 import "./selection.css";
@@ -48,7 +50,7 @@ export interface SelectionBarProps {
   lookup(id: string): NodeRow | undefined;
 }
 
-type Pop = "date" | "more" | "tag" | "move" | null;
+type Pop = "date" | "more" | "tag" | "move" | "station" | null;
 
 const PRIORITY: { value: Priority; label: string }[] = [
   { value: "high", label: "高" },
@@ -70,6 +72,7 @@ const SELECT_ALL_HOTKEY: Record<SelectionScope, string> = {
   today: "today.select.all",
   outline: "outline.select.all",
   schedule: "daylist.select.all",
+  board: "board.select.all",
 };
 
 export function SelectionBar({ scope, lookup }: SelectionBarProps) {
@@ -111,6 +114,9 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
   const teikiCount = nodes.filter((n) => parseRule(n.repeat_rule)).length;
   const move = moveRuleOf(nodes);
   const datable = nodes.filter((n) => !parseRule(n.repeat_rule)).length;
+  // ⑫：看板的多選多一項「車站」——都同一條路線、那條路線有車站才出（車站只在自己的路線上算數，契約 §5）
+  const stationRoute = scope === "board" && nodes.length && nodes.every((n) => n.route_id && n.route_id === nodes[0].route_id && !(n as TaskRow).has_kids) ? nodes[0].route_id : null;
+  const hasStations = useNodeStore((s) => !!stationRoute && s.stations.some((st) => st.parent_id === stationRoute));
 
   if (!open) return <span ref={probe} hidden />;
 
@@ -166,6 +172,19 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
       >
         移動到…
       </button>
+      {hasStations && (
+        <button
+          type="button"
+          ref={(el) => void (btns.current.station = el)}
+          className="ns-btn ns-btn--sm btn-ghost"
+          aria-haspopup="menu"
+          aria-expanded={pop === "station"}
+          title="把這幾張排到同一站"
+          onClick={() => toggle("station")}
+        >
+          車站
+        </button>
+      )}
       {/* 己-2 A4（D-主-413）：比照手機「常用三顆＋更多」——優先級、荷札、運休、刪除收進「更多」 */}
       <button
         type="button"
@@ -218,6 +237,15 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
             },
             { key: "delete", label: `刪除 ${count} 張`, cut: true, danger: true, onSelect: () => batchDelete(sel) },
           ]}
+          onClose={closePop}
+        />
+      )}
+      {pop === "station" && stationRoute && (
+        <PopMenu
+          anchor={btns.current.station ?? null}
+          overline={{ zh: `已選 ${count} 張`, latin: "Station" }}
+          label={`把 ${count} 張排到哪一站`}
+          items={stationItems(nodes, stationRoute)}
           onClose={closePop}
         />
       )}

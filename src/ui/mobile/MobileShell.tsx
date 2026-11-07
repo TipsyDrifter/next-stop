@@ -48,6 +48,8 @@ import MobileMore from "./MobileMore";
 import MobileReport from "../report/MobileReport";
 // ③ 車庫（車庫與回顧 D-主-215）：同上
 import MobileDepot from "../depot/MobileDepot";
+// 壬 候車室（D-主-511）：同上
+import MobileWaitroom from "../waitroom/MobileWaitroom";
 import { SyncBanner } from "../common/SyncBanner";
 import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
 import { MobileDetailHost } from "./detail/MobileDetailHost";
@@ -63,14 +65,16 @@ const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
   report: MobileReport,
   // 車庫與回顧 D-主-215：「更多」頁「回顧」一組進來（不在 tab bar 上）
   depot: MobileDepot,
+  // 壬 D-主-512：「更多」頁「站內」一組進來（同車庫）
+  waitroom: MobileWaitroom,
   notes: LINE_MOUNTS.notes.mobileView,
   timetable: LINE_MOUNTS.timetable.mobileView,
   ticket: LINE_MOUNTS.ticket.mobileView,
 };
 
-/** 不在 tab bar 上、返回＝回進來前那一格的頁（更多、② 運行報告、③ 車庫） */
-type PageTab = "more" | "report" | "depot";
-const isPageTab = (k: MobileTabKey): k is PageTab => k === "more" || k === "report" || k === "depot";
+/** 不在 tab bar 上、返回＝回進來前那一格的頁（更多、② 運行報告、③ 車庫、壬 候車室） */
+type PageTab = "more" | "report" | "depot" | "waitroom";
+const isPageTab = (k: MobileTabKey): k is PageTab => k === "more" || k === "report" || k === "depot" || k === "waitroom";
 
 function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
   const tab = mobileTabByKey(tabKey);
@@ -91,7 +95,7 @@ export default function MobileShell() {
   //   ② 運行報告：「運行報告」頁同「更多」——返回回進來前那一格（從更多頁進來＝回更多頁）；頂帶左邊的「‹」同一件事。
   const lastTabRef = useRef<MobileTabKey>(tabKey);
   // ③ 車庫同運行報告：返回回進來前那一格、頂帶左邊「‹」同一件事
-  const beforeRef = useRef<Record<PageTab, MobileTabKey>>({ more: "today", report: "today", depot: "today" });
+  const beforeRef = useRef<Record<PageTab, MobileTabKey>>({ more: "today", report: "today", depot: "today", waitroom: "today" });
   if (lastTabRef.current !== tabKey) {
     const from = lastTabRef.current;
     // 從另一頁「退回來」（例：更多 → 運行報告 → ‹ 回更多）不算往前走：不覆蓋，否則返回會在兩頁之間來回（AVD 實測）
@@ -117,7 +121,7 @@ export default function MobileShell() {
 
   return (
     <>
-      <MobileTopBand tab={tab} onBack={tabKey === "report" || tabKey === "depot" ? backFromPage : undefined} />
+      <MobileTopBand tab={tab} onBack={tabKey === "report" || tabKey === "depot" || tabKey === "waitroom" ? backFromPage : undefined} />
       <SyncBanner shell="mobile" />
       {/* 磨光① A2（契約 §2.2）：同桌機那列，同一個來源與文案；下一次成功載入自己清掉 */}
       {error && (

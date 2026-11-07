@@ -28,10 +28,10 @@
  *   → 帳簿；空帳本＝共用 EmptyState（這時月份列不給「＋ 記一筆」：同一動作同頁一個入口）
  *   管帳／排序／封存的帳戶三張 sheet 換共用 MSheet（list 型）；返回層＝本檔 useBackLayer("ticket.office.sheet")＋MSheet `backId` 同 id 合併。
  *
- * 售票口④（手機席；D-票-68、69）：分頁籤列第四格「願望」——願望頁（MobileWishList）不畫合計帶、帳戶卡、月份列，
- *   分頁籤列下面直接是「想買 N 件・合計約 X」與清單；管帳 sheet 多一列「常用票種」（改名、刪除、排序；MobileTemplateSheet）。
+ * 售票口④（手機席；D-票-68、69）：管帳 sheet 多一列「常用票種」（改名、刪除、排序；MobileTemplateSheet）。
+ *   （原分頁籤第四格「願望」於壬 D-主-513 拆除、移到候車室頁。）
  *
- * 售票口④ 第二輪（手機席；D-票-77、79）：分頁籤列五格「清單｜月曆｜統計｜帳戶｜願望」——帳戶頁（MobileAccountsView）留合計帶、
+ * 售票口④ 第二輪（手機席；D-票-77、79）：分頁籤列四格「清單｜月曆｜統計｜帳戶」——帳戶頁（MobileAccountsView）留合計帶、
  *   不畫帳戶卡橫捲列與月份列（那一頁本身就是完整的帳戶目錄、沒有月份可翻）。橫捲列在清單／月曆／統計照留：它是這幾頁的目錄
  *   （點＝篩這個帳戶，同桌機側欄頁務件，側欄不動 ⇒ 手機也不動），帳戶頁管的是帳戶本身（餘額走勢、新增、排序、封存的）。
  *   帳簿列分類只寫最後兩段（D-票-78）。
@@ -75,7 +75,6 @@ import { MobileViewBar, useViewSwipe } from "./MobileViewBar";
 import { MobileTicketCalendar } from "./MobileTicketCalendar";
 import { MobileTicketStats } from "./MobileTicketStats";
 import { MobileSearchSheet } from "./MobileSearchSheet";
-import { MobileWishList } from "./wish/MobileWishList";
 import { MobileAccountsView } from "./MobileAccountsView";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { DateNav } from "../../common/DateNav";
@@ -241,110 +240,104 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
         <FilterRow searching={searching} sheetOpen={searchSheet} sortOpen={sheet === "sort"} onEdit={() => setSearchSheet(true)} onSort={() => setSheet("sort")} />
       )}
 
-      {view !== "wish" && (
-        <>
-          {/* 合計帶：只留三格數字（丙-5 B2：放大鏡與滑桿鈕拿掉——搜尋在頂帶、篩選在篩選列、管帳在分頁籤列末端） */}
-          <div className="ns-tk-mtotal">
-            <div className="ns-tk-mstat">
-              <span>資產</span>
-              <b>{moneyText(totals.asset, mainDec)}</b>
-            </div>
-            <div className="ns-tk-mstat">
-              <span>負債</span>
-              <b>{moneyText(totals.liability, mainDec)}</b>
-            </div>
-            <div className="ns-tk-mstat sum">
-              <span>合計</span>
-              <b>{moneyText(totals.net, mainDec)}</b>
-            </div>
+      {/* 合計帶：只留三格數字（丙-5 B2：放大鏡與滑桿鈕拿掉——搜尋在頂帶、篩選在篩選列、管帳在分頁籤列末端） */}
+      <div className="ns-tk-mtotal">
+        <div className="ns-tk-mstat">
+          <span>資產</span>
+          <b>{moneyText(totals.asset, mainDec)}</b>
+        </div>
+        <div className="ns-tk-mstat">
+          <span>負債</span>
+          <b>{moneyText(totals.liability, mainDec)}</b>
+        </div>
+        <div className="ns-tk-mstat sum">
+          <span>合計</span>
+          <b>{moneyText(totals.net, mainDec)}</b>
+        </div>
+      </div>
+
+      {view !== "accounts" && (
+        <div className="ns-tk-mcards" role="group" aria-label="帳戶">
+          <div className={"ns-tk-mcard all" + (filterAccountId === null ? " on" : "")}>
+            <button type="button" className="hit" aria-pressed={filterAccountId === null} onClick={() => void setFilter(null)}>
+              <span className="n">全部</span>
+              <span className="g">{liveCount} 個帳戶</span>
+              <span className="b" />
+            </button>
           </div>
-
-          {view !== "accounts" && (
-            <div className="ns-tk-mcards" role="group" aria-label="帳戶">
-              <div className={"ns-tk-mcard all" + (filterAccountId === null ? " on" : "")}>
-                <button type="button" className="hit" aria-pressed={filterAccountId === null} onClick={() => void setFilter(null)}>
-                  <span className="n">全部</span>
-                  <span className="g">{liveCount} 個帳戶</span>
-                  <span className="b" />
-                </button>
-              </div>
-              {live.map(({ group, accounts: list }) =>
-                list.map((a) => (
-                  <AccountCard
-                    key={a.id}
-                    account={a}
-                    groupLabel={group.label + (group.liability ? " · 負債" : "")}
-                    balanceText={moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2)}
-                    code={a.currency !== MAIN_CURRENCY ? a.currency : null}
-                    zero={(balances[a.id] ?? 0) === 0}
-                    on={filterAccountId === a.id}
-                    onPick={() => void setFilter(filterAccountId === a.id ? null : a.id)}
-                    onOpen={() => openAccount(a.id)}
-                  />
-                )),
-              )}
-              {archived.length > 0 && (
-                <div className="ns-tk-mcard arch">
-                  <button type="button" className="hit" onClick={() => setSheet("archived")} aria-haspopup="dialog">
-                    <span className="n">封存</span>
-                    <span className="g">{archived.length} 個帳戶</span>
-                    <span className="b" />
-                  </button>
-                </div>
-              )}
-              <div className="ns-tk-mcard add">
-                <button type="button" className="hit" aria-label="新增帳戶" onClick={() => openDialog({ kind: "newAccount" })}>
-                  <IconPlus size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {view === "accounts" ? null : searching ? (
-            <p className="ns-tk-mmsum ns-tk-mfound" role="status">
-              <FoundText />
-            </p>
-          ) : (
-            <div className="ns-tk-mmonth">
-              <DateNav
-                className="ns-tk-mdnav"
-                unit={yearMode ? "year" : "month"}
-                title={yearMode ? periodTitle(period) : navMonthTitle(month, thisYear)}
-                todayLabel={yearMode ? "今年" : "今天"}
-                isToday={yearMode ? period.key === thisYear : month === thisMonth}
-                label={yearMode ? "翻年份" : "翻月份"}
-                onPrev={() => void stepMonth(-1)}
-                onNext={() => void stepMonth(1)}
-                nextDisabled={yearMode ? period.key >= thisYear : month >= thisMonth}
-                // 回本月：setMonth 連 period 一起換（年模式下 periodOf(本月, "year")＝今年），refresh 在統計視圖會重算統計
-                onToday={() => {
-                  if (yearMode ? period.key !== thisYear : month !== thisMonth) void setMonth(thisMonth);
-                }}
+          {live.map(({ group, accounts: list }) =>
+            list.map((a) => (
+              <AccountCard
+                key={a.id}
+                account={a}
+                groupLabel={group.label + (group.liability ? " · 負債" : "")}
+                balanceText={moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2)}
+                code={a.currency !== MAIN_CURRENCY ? a.currency : null}
+                zero={(balances[a.id] ?? 0) === 0}
+                on={filterAccountId === a.id}
+                onPick={() => void setFilter(filterAccountId === a.id ? null : a.id)}
+                onOpen={() => openAccount(a.id)}
               />
-              {!emptyBook && (
-                <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-tk-madd" onClick={add}>
-                  <IconPlus />
-                  記一筆
-                </button>
-              )}
+            )),
+          )}
+          {archived.length > 0 && (
+            <div className="ns-tk-mcard arch">
+              <button type="button" className="hit" onClick={() => setSheet("archived")} aria-haspopup="dialog">
+                <span className="n">封存</span>
+                <span className="g">{archived.length} 個帳戶</span>
+                <span className="b" />
+              </button>
             </div>
           )}
-          {view === "list" && !searching && monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
-            <p className="ns-tk-mmsum">
-              收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出 <b>{moneyText(monthSum.expense, mainDec)}</b>
-            </p>
-          )}
-          {view === "list" && dayNotice && (
-            <p className="ns-tk-mnotice" role="status">
-              {dayNotice}
-            </p>
-          )}
-        </>
+          <div className="ns-tk-mcard add">
+            <button type="button" className="hit" aria-label="新增帳戶" onClick={() => openDialog({ kind: "newAccount" })}>
+              <IconPlus size={16} />
+            </button>
+          </div>
+        </div>
       )}
 
-      {view === "wish" ? (
-        <MobileWishList />
-      ) : view === "accounts" ? (
+      {view === "accounts" ? null : searching ? (
+        <p className="ns-tk-mmsum ns-tk-mfound" role="status">
+          <FoundText />
+        </p>
+      ) : (
+        <div className="ns-tk-mmonth">
+          <DateNav
+            className="ns-tk-mdnav"
+            unit={yearMode ? "year" : "month"}
+            title={yearMode ? periodTitle(period) : navMonthTitle(month, thisYear)}
+            todayLabel={yearMode ? "今年" : "今天"}
+            isToday={yearMode ? period.key === thisYear : month === thisMonth}
+            label={yearMode ? "翻年份" : "翻月份"}
+            onPrev={() => void stepMonth(-1)}
+            onNext={() => void stepMonth(1)}
+            nextDisabled={yearMode ? period.key >= thisYear : month >= thisMonth}
+            // 回本月：setMonth 連 period 一起換（年模式下 periodOf(本月, "year")＝今年），refresh 在統計視圖會重算統計
+            onToday={() => {
+              if (yearMode ? period.key !== thisYear : month !== thisMonth) void setMonth(thisMonth);
+            }}
+          />
+          {!emptyBook && (
+            <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-tk-madd" onClick={add}>
+              <IconPlus />
+              記一筆
+            </button>
+          )}
+        </div>
+      )}
+      {view === "list" && !searching && monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
+        <p className="ns-tk-mmsum">
+          收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出 <b>{moneyText(monthSum.expense, mainDec)}</b>
+        </p>
+      )}
+      {view === "list" && dayNotice && (
+        <p className="ns-tk-mnotice" role="status">
+          {dayNotice}
+        </p>
+      )}
+
+      {view === "accounts" ? (
         <MobileAccountsView />
       ) : view === "calendar" ? (
         <MobileTicketCalendar />

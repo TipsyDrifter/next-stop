@@ -41,7 +41,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { describeRule, parseRule, type NodeRow } from "../../domain";
 import type { CurrentOccurrence } from "../../data";
-import { useNodeStore } from "../../store/nodeStore";
+import { scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { isGuideKey } from "../shell/hotkeys";
@@ -183,7 +183,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
    * 與「清除執行日」／`Delete` 同款，三項改期不再靜默（should 3）。
    */
   const applyDate = (next: string) => {
-    const prev = { scheduled_on: row.scheduled_on, carried_from: row.carried_from };
+    const prev = scheduleSnapshot(row);
     void ns().reschedule(nodeId, next);
     onClose();
     // 今天→今天（同一天）不出收據；但誤點／未來的票挪到今天時，在日曆／行程表裡它會離開眼前那一天，同樣補一張可反悔的收據
@@ -192,13 +192,13 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
 
   /** 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去 */
   const clearDate = () => {
-    const prev = row.scheduled_on;
+    const prev = scheduleSnapshot(row);
     void ns().reschedule(nodeId, null);
     onClose();
     ui().showToast({
       message: INBOX_TOAST,
       actionLabel: "復原",
-      onAction: () => void ns().reschedule(nodeId, prev),
+      onAction: () => void ns().updateNode(nodeId, prev),
     });
   };
 

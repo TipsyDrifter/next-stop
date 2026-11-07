@@ -50,6 +50,7 @@ import { DoneToggleChip, NO_DEST, QuickAddLauncher, QuickAddRow, type QuickDefau
 import { LogInlineInput } from "./LogInlineInput";
 import { DeferPopover } from "./DeferPopover";
 import { useTodayController } from "./useTodayController";
+import { MoodStage } from "../ambience";
 import { useTodayKeyboard } from "./useTodayKeyboard";
 import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
 import { useSelectionStore } from "../../store/selectionStore";
@@ -301,6 +302,7 @@ export function TodayView() {
   }
 
   return (
+    <>
     <section
       ref={containerRef}
       tabIndex={0}
@@ -547,5 +549,7 @@ export function TodayView() {
         <DeferPopover row={deferRow} anchor={c.deferTarget.anchor} onClose={c.closeDefer} />
       )}
     </section>
+    <MoodStage done={c.stats.done} allDone={allDone} dateKey={c.dateKey} loaded={c.loaded} />
+    </>
   );
 }

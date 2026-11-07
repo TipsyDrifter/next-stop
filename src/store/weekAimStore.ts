@@ -148,6 +148,8 @@ interface WeekAimStore {
   refreshPlanned(key?: string): Promise<void>;
   /** 同步拉到 week_aims、或資料被整批換掉：載過的期間全部重載（照期間分別讀，含 M／Y／S 鍵） */
   reloadAll(): Promise<void>;
+  /** 本機資料被整批換掉：回顧看過的紀錄可能清了，重讀 */
+  reloadSettings(): Promise<void>;
   setFolded(key: string, folded: boolean): Promise<void>;
   toggleDone(aim: WeekAimRow): Promise<void>;
   openEditor(key: string, preCarry?: readonly WeekAimRow[]): void;
@@ -227,6 +229,11 @@ export const useWeekAimStore = create<WeekAimStore>((set, get) => ({
       for (const id of gone) delete next[id];
       set({ aimNodes: next });
     }
+  },
+
+  reloadSettings() {
+    set({ settingsLoaded: false });
+    return get().loadSettings();
   },
 
   async loadSettings() {

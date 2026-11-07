@@ -112,52 +112,7 @@
 [data-shell="mobile"] .ns-tk-mtag .x:active { color: var(--danger); }
 
 /* ═══ 五、願望頁（D-票-69；原型 6a-mobile）═══ */
-[data-shell="mobile"] .ns-tk-mw { touch-action: pan-y; padding-bottom: 12px; }
-[data-shell="mobile"] .ns-tk-mw-sum { margin: 2px 2px 10px; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mw-sum .un { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mw-card { padding: 2px 14px 4px; }
-/* 頂端加一列：名稱｜大概多少｜＋ 加入 */
-[data-shell="mobile"] .ns-tk-mw-add { display: grid; grid-template-columns: minmax(0, 1fr) 76px auto; align-items: center; gap: 8px; padding: 8px 0 10px; border-bottom: 1px solid var(--color-line); }
-[data-shell="mobile"] .ns-tk-mw-add input {
-  width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 3px 0; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash); border-radius: 0; outline: none;
-  font: inherit; font-size: 16px; letter-spacing: .04em; color: var(--color-ink); /* 字面值：手機輸入框 16px 防放大 */
-}
-[data-shell="mobile"] .ns-tk-mw-add input:focus { border-bottom-color: var(--accent); }
-[data-shell="mobile"] .ns-tk-mw-add input::placeholder { color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mw-add input.amt { text-align: right; font-family: var(--font-display); }
-[data-shell="mobile"] .ns-tk-mw-add .add { display: inline-flex; align-items: center; gap: 3px; padding: 0 10px; white-space: nowrap; }
-/* 想買清單：抓手｜名稱、備註、約多少｜買了 */
-[data-shell="mobile"] .ns-tk-mw-list { list-style: none; margin: 0; padding: 0; }
-[data-shell="mobile"] .ns-tk-mw-row { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 6px 0; }
-[data-shell="mobile"] .ns-tk-mw-row + .ns-tk-mw-row { border-top: 1px dashed var(--color-line); }
-[data-shell="mobile"] .ns-tk-mw-row .grip { display: grid; place-items: center; color: var(--color-ink-faint); opacity: .7; }
-[data-shell="mobile"] .ns-tk-mw-row .main { min-width: 0; min-height: 44px; display: grid; align-content: center; gap: 3px; padding: 6px 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-[data-shell="mobile"] .ns-tk-mw-row .main:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-[data-shell="mobile"] .ns-tk-mw-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; letter-spacing: .05em; color: var(--color-ink); } /* 字面值：15px＝--fs-body 手機值，照原型 */
-[data-shell="mobile"] .ns-tk-mw-row .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mw-row .amt { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; letter-spacing: .01em; color: var(--color-ink); white-space: nowrap; font-variant-numeric: tabular-nums; } /* 字面值：帳本金額襯線照原型 */
-[data-shell="mobile"] .ns-tk-mw-row .amt small { margin-right: 3px; font-family: var(--font-body); font-weight: 400; font-size: var(--fs-xs); letter-spacing: .1em; color: var(--color-ink-faint); }
-[data-shell="mobile"] .ns-tk-mw-row .amt small.none { margin-right: 0; }
-[data-shell="mobile"] .ns-tk-mw-row .main:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-mw-row .buy { padding: 0 14px; white-space: nowrap; }
-/* 已買（摺起）：「已買 N 件 ›　花了 X」；攤開每列點了跳那一筆 */
-[data-shell="mobile"] .ns-tk-mw-bought { border-top: 1px solid var(--color-line); }
-[data-shell="mobile"] .ns-tk-mw-bought .tog {
-  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 0; background: none; border: 0; text-align: left;
-  font: inherit; font-size: var(--fs-sm); letter-spacing: .12em; color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
-}
-[data-shell="mobile"] .ns-tk-mw-bought .tog .chev { transition: transform .2s cubic-bezier(.2, .9, .3, 1.04); }
-[data-shell="mobile"] .ns-tk-mw-bought .tog[aria-expanded="true"] .chev { transform: rotate(90deg); }
-[data-shell="mobile"] .ns-tk-mw-bought .tog .r { margin-left: auto; letter-spacing: .04em; }
-[data-shell="mobile"] .ns-tk-mw-bought ul { list-style: none; margin: 0 0 6px; padding: 0; }
-[data-shell="mobile"] .ns-tk-mw-bought li button {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; width: 100%; min-height: 44px; padding: 0 0 0 20px; box-sizing: border-box;
-  background: none; border: 0; text-align: left; font: inherit; font-size: var(--fs-sm); letter-spacing: .04em; color: var(--color-ink-faint); -webkit-tap-highlight-color: transparent;
-}
-[data-shell="mobile"] .ns-tk-mw-bought li button:active { background: var(--ns-tk-hover); }
-[data-shell="mobile"] .ns-tk-mw-bought li .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-soft); }
-[data-shell="mobile"] .ns-tk-mw-bought li .d { color: var(--color-ink-soft); white-space: nowrap; }
-[data-shell="mobile"] .ns-tk-mw-bought li .d b { font-family: var(--font-display); font-weight: 600; color: var(--color-ink); }
+/* 願望頁段已搬去候車室（壬 D-主-513）；.ns-tk-mw-in 留著給「存成常用」的名稱欄 */
 /* 改願望的面板（也給「存成常用」的名稱欄用 .ns-tk-mw-in） */
 [data-shell="mobile"] .ns-tk-mw-in {
   grid-column: 2 / -1; width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 0; background: transparent; border: 0; outline: none;

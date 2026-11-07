@@ -22,7 +22,20 @@ import type {
 } from "../domain/ticket";
 import type { EntryQuery } from "../domain/ticketView";
 import type { BudgetRow, BudgetScope, NewRepeatInput, RepeatPatch, RepeatRow } from "../domain/ticketPlan";
-import type { NewTemplateInput, NewWishInput, NoteUse, TemplatePatch, TemplateRow, WishPatch, WishRow } from "../domain/ticketAids";
+import type {
+  NewTemplateInput,
+  NewWishInput,
+  NewWishKindInput,
+  NoteUse,
+  TemplatePatch,
+  TemplateRow,
+  WishKindPatch,
+  WishKindRow,
+  WishPatch,
+  WishRow,
+  WishTargetInfo,
+  WishTargetKind,
+} from "../domain/ticketAids";
 import { MOCK_MODE, WIPED_MODE } from "./index";
 import { SqliteTicketRepository } from "./sqliteTicketRepository";
 import { MemoryTicketRepository } from "./memoryTicketRepository";
@@ -33,7 +46,20 @@ export type { EntryQuery } from "../domain/ticketView";
 /** 第③階段（③契約 §3.4）：規則的輸入定義在 domain（draftToRepeatInput 產生它），這裡 re-export */
 export type { NewRepeatInput, RepeatPatch, BudgetScope } from "../domain/ticketPlan";
 /** 售票口④：願望、常用票種、備註歷史的輸入與列定義在 domain（ticketAids.ts），這裡 re-export */
-export type { NewWishInput, WishPatch, WishRow, NewTemplateInput, TemplatePatch, TemplateRow, NoteUse } from "../domain/ticketAids";
+export type {
+  NewWishInput,
+  WishPatch,
+  WishRow,
+  NewWishKindInput,
+  WishKindPatch,
+  WishKindRow,
+  WishTargetInfo,
+  WishTargetKind,
+  NewTemplateInput,
+  TemplatePatch,
+  TemplateRow,
+  NoteUse,
+} from "../domain/ticketAids";
 
 /** 實體化記出來的一筆（售票口④：store 拿它把規則的荷札帶到這筆上） */
 export interface MaterializedRow {
@@ -73,6 +99,10 @@ export interface TicketRepository {
   /* ── 起手 ── */
   /** 依 id 查起手三列（含墓碑），缺幾列補幾列＋各一筆完整 upsert op（父先：幣別、再分類）；回這次種了幾列（冪等；0-17） */
   ensureStarterRows(): Promise<number>;
+  /** 兩個「未分類」以外的分類有幾列（含墓碑）：0 才種預設分類 */
+  countCustomCategoriesIncludingDeleted(): Promise<number>;
+  /** 兩個「未分類」以外一列都沒有（含墓碑）才種預設分類＋各一筆完整 upsert op；回這次種了幾列 */
+  ensureDefaultCategories(): Promise<number>;
 
   /* ── 讀（一律未刪除；含封存） ── */
   /** position、code */
@@ -214,10 +244,27 @@ export interface TicketRepository {
   updateWish(id: string, patch: WishPatch): Promise<WishRow>;
   /** 買了：entry_id＝那筆、bought_at＝現在；entryId null＝清掉（回到想買） */
   setWishBought(id: string, entryId: string | null): Promise<void>;
+  /** 實現成車票／路線／日記／時間塊：target_kind＋target_id＝開出的記錄、bought_at＝現在；null＝清掉（回到等候） */
+  setWishTarget(id: string, target: { kind: WishTargetKind; id: string } | null): Promise<void>;
+  /** 實現去向的活性與標籤（只回還活著的；key＝target_id；node 的 kind＝route／ticket…、日記＝note、時間塊＝block） */
+  getWishTargets(refs: readonly { target_kind: WishTargetKind; target_id: string }[]): Promise<Record<string, WishTargetInfo>>;
   softDeleteWish(id: string): Promise<void>;
   restoreWish(id: string): Promise<void>;
-  /** 在「想買」那一組（entry_id 沒指到還在的帳）裡搬到第 index 個；整組寫 */
+  /** 在「等候」那一組（entry_id／target_id 都沒指到還在的記錄）裡搬到第 index 個；整組寫 */
   moveWishTo(id: string, index: number): Promise<void>;
+
+  /* ── 候車室種類（wr_kinds；0019、D-主-519。起手五列由 ensureStarterRows 依固定 id 補種、含墓碑判斷） ── */
+  /** 未刪的種類；position（＝番線號）、created_at、id */
+  listWishKinds(): Promise<WishKindRow[]>;
+  /** 新的排最後（position＝現有最大 ＋ 1＝下一個番線）；名稱空、動作不認得 ⇒ RangeError */
+  createWishKind(input: NewWishKindInput): Promise<WishKindRow>;
+  /** 只寫真的變了的欄；沒變＝不寫、回原列 */
+  updateWishKind(id: string, patch: WishKindPatch): Promise<WishKindRow>;
+  /** 還有未刪的願望掛著（含實現過的）⇒ RangeError（kindInUse）；擋刪比把願望變孤兒安全 */
+  softDeleteWishKind(id: string): Promise<void>;
+  restoreWishKind(id: string): Promise<void>;
+  /** 搬到第 index 個；整組寫 position */
+  moveWishKindTo(id: string, index: number): Promise<void>;
 
   /* ── 常用票種（tk_templates；每支一個 WriteBatch） ── */
   /** 未刪的常用票種；position、created_at、id */

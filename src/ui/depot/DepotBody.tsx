@@ -1,6 +1,5 @@
 /**
- * 車庫頁的內容（兩殼共用）：乘車記錄籤＝區段「車庫」（書架＋還在跑）＋印譜帳；年鑑籤＝Yearbook。
- * 走行圖籤本班只佔位（depotTabs 已設 disabled），萬一 tab 是 "map" 就照乘車記錄畫。
+ * 車庫頁的內容（兩殼共用）：乘車記錄籤＝區段「車庫」（書架＋還在跑）＋印譜帳；走行圖籤＝RouteNetwork；年鑑籤＝Yearbook。
  * 頁開著時新冒出來的章（剛蓋下）在印譜帳跑一次 stampIn。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +9,7 @@ import { useDepotStore } from "../../store/depotStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { EmptyState } from "../common/EmptyState";
 import { Album } from "./Album";
+import { RouteNetwork } from "./RouteNetwork";
 import { RunningList } from "./RunningList";
 import { Shelf } from "./Shelf";
 import { Yearbook } from "./Yearbook";
@@ -49,6 +49,7 @@ export function DepotBody() {
   const fresh = useFreshStampIds();
 
   if (tab === "year") return <Yearbook onOpen={openBook} />;
+  if (tab === "map") return <RouteNetwork onOpen={openBook} />;
   if (!data) return null; // 資料還沒到：留白，不先閃空狀態（§1.8）
 
   return (

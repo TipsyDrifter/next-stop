@@ -424,11 +424,9 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-dfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .ns-tk-dbtn { white-space: nowrap; }
 
-/* 列與清單：帳戶順序（.ns-tk-dtree／.ns-tk-dmain）、分類管理的封存區、幣別的匯率輸入（.ns-tk-dname）在用。
-   分類管理本身 UI 丙-5 E1 起換共用 ManagerList（樣式在檔尾 T3 區），舊的兩籤＋兩層樹退役 */
-.ns-tk-dtree, .ns-tk-darch ul { list-style: none; margin: 0; padding: 0; }
-.ns-tk-dtree { border-top: 1px solid var(--color-line); }
-.ns-tk-dmain { border-bottom: 1px solid var(--color-line); }
+/* 列與清單：分類管理的封存區（.ns-tk-darch／.ns-tk-drow）、幣別的匯率輸入（.ns-tk-dname）在用。
+   分類管理本身 UI 丙-5 E1 起換共用 ManagerList（樣式在檔尾 T3 區），舊的兩籤＋兩層樹退役；帳戶順序也換 ManagerList（己-2） */
+.ns-tk-darch ul { list-style: none; margin: 0; padding: 0; }
 .ns-tk-drow { display: flex; align-items: center; gap: 4px; min-height: 36px; }
 .ns-tk-drow.is-archived { padding-left: 2px; color: var(--color-ink-faint); }
 .ns-tk-drow.is-archived .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -439,10 +437,9 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-dname:hover { border-bottom-color: var(--color-dash); }
 .ns-tk-dname:focus { border-bottom-color: var(--accent); }
 .ns-tk-dname.is-num { font-family: var(--font-display); font-weight: 600; }
-/* 列內小鈕（UI 丙-1）：文字小鈕掛 .ns-btn.ns-btn--sm.btn-ghost（刪除／移除再加 .ns-btn-danger）、↑↓ 掛 .ns-iconbtn（§2.5 ManagerRow）；
+/* 列內小鈕（UI 丙-1）：文字小鈕掛 .ns-btn.ns-btn--sm.btn-ghost（刪除／移除再加 .ns-btn-danger）；
    這裡只留排版鉤子，尺寸、字級、框、hover、焦點、禁用都吃那幾顆 class 的 token。 */
 .ns-tk-dmini { flex: none; white-space: nowrap; }
-.ns-tk-dmini.sq { font-family: var(--font-latin); }
 .ns-tk-dadd { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .ns-tk-darch { margin-top: 14px; border-top: 1px dashed var(--color-dash); }
 .ns-tk-darch-tog { min-height: 32px; padding: 0 2px; font-size: 12px; letter-spacing: .16em; color: var(--color-ink-faint); } /* 字面值：兩殼共用規則，兩殼都是 12px（--fs-* 手機會換值，換了手機會變） */
@@ -862,12 +859,9 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 .ns-tk-repfield .t.is-gone { color: var(--color-ink-faint); }
 
 /* ═══ 磨光⑥ 售票口排序（契約 §2-1、§2-4；D-票-61、D-票-64）═══ */
-/* 帳戶順序：照分類管理的一列（.ns-tk-drow），依群組分區；群組小標沿 .ns-tk-dialog .lbl */
+/* 帳戶順序：依群組分區、每組一張 ManagerList（列樣式在 common/listbits.css）；群組小標沿 .ns-tk-dialog .lbl */
 .ns-tk-dorder-grp + .ns-tk-dorder-grp { margin-top: 14px; }
 .ns-tk-dorder-grp > h3 { margin: 0 0 4px 2px; font-weight: 400; }
-.ns-tk-dorder .ns-tk-drow { padding-left: 2px; border-radius: var(--radius-ctl); outline: none; }
-.ns-tk-dorder .ns-tk-drow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; } /* 字面值：兩殼共用規則，兩殼都是 14px（--fs-* 手機會換值，換了手機會變） */
-.ns-tk-dorder .ns-tk-drow:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* 平面清單（金額排序）：日期欄插在符號與分類之間；不分日 ⇒ 頂上留一點氣口 */
 .ns-tk-list.is-flat { padding-top: 6px; }
@@ -987,8 +981,7 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 /* 「新增子分類…」開的那一列：跟子列名稱同一個左緣（listbits.css .is-sub 的 --sp-5） */
 .ns-tk-dcat-addli { padding: var(--sp-1) 0 var(--sp-2) var(--sp-5); border-bottom: 1px dashed var(--color-line); }
 .ns-tk-dcat-addli .ns-tk-dadd { margin: 0; }
-/* 未分類：固定在最後、不排序——↑↓ 不畫，換成小字「固定在最後」（排在 ⋯ 的空格前面，⋯ 那欄仍對齊） */
-.ns-mgr-row.ns-tk-dcat-fixed .ns-mgr-why { display: none; }
+/* 未分類：固定在最後、不排序——menu 空且沒有 onUp／onDown，只畫 .ns-mgr-gap（⋯ 的空格）；加小字「固定在最後」排在它前面，⋯ 那欄仍對齊 */
 .ns-mgr-row.ns-tk-dcat-fixed .ns-mgr-text { color: var(--color-ink-soft); }
 .ns-mgr-row.ns-tk-dcat-fixed::after {
   content: "固定在最後"; order: 1; flex: none;

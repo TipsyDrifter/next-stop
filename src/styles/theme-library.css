@@ -1,139 +1,317 @@
 /* ─────────────────────────────────────────────────────
- * theme-library.css — 主題商店庫存
+ * theme-library.css — 主題商店的貨架（第三梯 ⑩，D-主-431～434）
  * ─────────────────────────────────────────────────────
- * 這裡是**倉庫，不是貨架**：本檔刻意不被任何地方 import，
- * 也不接到主題選單上。M3 ② 主題換裝把正式主題換成
- * 「粉彩星空／銀河鐵道」（決策記錄〈M3 · 發車〉決策 12・r3），
- * 原本的三套主題 tokens 原封搬來這裡保存——
- * **主題商店開張時回歸**（主人知情同意的過渡安排）。
+ * 四套商店主題＋下載字型的 token。由 src/index.css 排在 theme.css 之後 import；
+ * **選了才生效**：<html data-skin="…"> 是 uiStore.applyTheme 寫的，沒有這個屬性時本檔一條都不命中。
  *
- * 庫存三套：
- *   1. 旅の手帖  Techo        亮 · 暖米紙   （M1 制服設計定案 2026-08-06）
- *   2. 夜行寝台  Night Sleeper 暗 · 車廂暖墨（M1 定裝，commit bdf6bb5）
- *   3. 月白      Moonlight     暗 · 棕綠冷墨（2026-08-22 主人選定，commit a6d08a0）
+ *   旅の手帖 techo      亮 · 暖米紙     prototypes/m1-c-techo.html（M1 定案）
+ *   夜行寝台 sleeper    暗 · 車廂暖墨   prototypes/m1-c3-sleeper.html
+ *   月白     moonlight  暗 · 冷調月光   prototypes/m1-dark-c-moon.html
+ *   少女手帳 yumemi     亮 · 奶米粉紫   v0.1 的 theme.css（commit f835488e）＋設計提案企劃書 §5.1
  *
- * 出處（原型比稿過程見 prototypes/README.md）：
- *   - 旅の手帖 ＝ prototypes/m1-c-techo.html（C 原版）
- *   - 夜行寝台 ＝ prototypes/m1-c3-sleeper.html
- *   - 月白     ＝ prototypes/m1-dark-c-moon.html
- * 主人定案理由存檔：C 原版的高級感來自「側欄書封 × 主畫面紙色」的
- * 對比（C2 抽掉即失）；奢華靠材質與工藝細節，不靠燙金堆疊（C1 教訓）。
- *
- * 【回歸時怎麼用】
- * 三套的 token 名與現行 theme.css 的 --color-* 完全同名，換主題＝換值。
- * 但現行主題另有一批**原型原生語彙**（--sky-*／--card／--accent／
- * --starlight／--stamp-ink／--arc…）是這三套沒有的——商店開張時，
- * 每套舊主題要補齊那批值（尤其天空層與四色墨），否則氛圍層會裸奔。
- * 亮色套用 :root、暗色套用 [data-theme="dark"]；選擇器留白待商店的
- * 主題機制（多值 data-theme）定案再接。
+ * 【機制】data-theme 仍只寫 light／dark（全站 200 條 [data-theme="dark"] 版面規則不用動），data-skin 再蓋值。
+ *   選擇器 :root[data-skin] 特異度 (0,2,0)，贏過 theme.css 的 :root、[data-theme="dark"]；
+ *   每套都要把 theme.css 暗色區定義的值寫齊（少一條就會漏出粉彩或銀河的顏色）——
+ *   scripts/tests/theme-library.test.ts 逐條比對，並量文字對比。
+ * 【局部預覽】商店卡片的縮圖掛 .ns-shop-mini[data-skin]，只讀原色 token，不靠語意層。
+ * 【跟 M1 原值不同的地方】文字階為了過 AA 壓深（原值 --color-ink-faint 對紙只有 2.4:1）；
+ *   四色墨與 --color-on-ink 是 M1 之後才有的 token，主鈕照現行法則＝實心墨。
+ *   月白改回原型 m1-dark-c-moon 的色板：舊庫存混到夜行寝台的票面色（#2a2318）與朱、赭。
  * ───────────────────────────────────────────────────── */
 
 /* ═══════════════════════════════════════════════════
  * 1. 旅の手帖 · Techo（亮）
  * ═══════════════════════════════════════════════════ */
-.theme-techo {
-  /* ─── 紙（底色階） ─── */
-  --color-paper: #f4eee2;        /* 頁面暖米紙 */
-  --color-paper-high: #fbf7ec;   /* 票券用紙（略白） */
-  --color-paper-used: #efe7d5;   /* 已完成的票（微沉） */
-
-  /* ─── 墨（文字階） ─── */
-  --color-ink: #362f26;          /* 墨棕本文 */
-  --color-ink-soft: #6f675a;     /* 注記 */
-  --color-ink-faint: #a89c88;    /* 極淡注記 */
-
-  /* ─── 書封（側欄） ─── */
-  --color-book: #2e4036;         /* 墨綠布面 */
-  --color-book-ink: #ede5d3;     /* 書封上的米字 */
-
-  /* ─── 金與朱 ─── */
-  --color-gold: #b08d57;         /* 燙金 */
+:root[data-skin="techo"],
+.ns-shop-mini[data-skin="techo"] {
+  /* 紙 */
+  --color-paper: #f4eee2;
+  --color-paper-high: #fbf7ec;
+  --color-paper-used: #efe7d5;
+  /* 墨 */
+  --color-ink: #362f26;
+  --color-ink-soft: #625a4d;
+  --color-ink-faint: #736a5a;
+  --ink-mid: #6a6153;
+  /* 書封 */
+  --color-book: #2e4036;
+  --color-book-ink: #ede5d3;
+  --cover-muted: rgba(237, 229, 211, .64);
+  --cover-hover: rgba(237, 229, 211, .06);
+  /* 金與朱 */
+  --color-gold: #b08d57;
   --color-gold-soft: #c9b085;
-  --color-gold-ink: #7a5a28;     /* 燙金當「字」用（.btn-gold 字與框）：對 paper 5.5:1、paper-high 5.9:1、paper-used 5.1:1，AA（10-20 磨光② A10） */
-  --color-seal: #b44c3b;         /* 朱肉「済」印（完成章） */
-  --color-late: #a8503f;         /* 誤點（延着）警示 */
-  --color-on-seal: #fbf7ec;      /* 朱印／主鈕上的字：深淺主題同值（對比保險） */
-
-  /* ─── 線 ─── */
-  --color-line: #d9cdb8;         /* 硬線 */
-  --color-dash: #c6b89e;         /* 撕線／虛線 */
-
-  /* ─── 圓角與陰影（手帖式克制） ─── */
+  --color-gold-ink: #7a5a28;
+  --color-seal: #b44c3b;
+  --color-late: #a14a39;
+  --color-on-seal: #fbf7ec;
+  --color-on-ink: #fbf7ec;
+  /* 四色墨：墨＝墨棕；作用中＝書封的墨綠（金在米紙上看不清） */
+  --stamp-ink: #4a4237;
+  --arc: #b08d57;
+  --accent: #3d5a4b;
+  --accent-sky: #4f6358;
+  /* 線 */
+  --color-line: #d9cdb8;
+  --color-dash: #c6b89e;
+  --grid-dot: rgba(70, 60, 40, .07);
+  /* 形 */
   --radius-card: 6px;
-  --radius-pill: 9999px;
-  --shadow-card: 0 1px 3px rgba(54, 47, 38, 0.08);
-
-  /* 半透明與紋理 */
-  --book-muted: rgba(237, 229, 211, 0.45);
-  --grid-dot: rgba(70, 60, 40, 0.07);
-
-  /* 路線色預設盤（和色・沉穩版）——新路線建立時的取色候選 */
-  --route-preset-1: #4e6e8e;   /* 藍鼠 */
-  --route-preset-2: #b85c46;   /* 洗朱 */
-  --route-preset-3: #5f7a5c;   /* 松葉 */
-  --route-preset-4: #9a907e;   /* 利休鼠（中性／無路線） */
+  --shadow-card: 0 1px 3px rgba(54, 47, 38, .1);
+  --shadow-card-hover: 0 2px 6px rgba(54, 47, 38, .14);
+  --float-blur: none;
+  --glass-edge: var(--color-line);
+  --glass-hi: inset 0 0 0 transparent;
+  --on-roundel: #2a241c;
+  /* 天：平面紙 */
+  --sky-top: #f4eee2;
+  --sky-mid: #f4eee2;
+  --sky-low: #f4eee2;
+  --sky-horizon: #f4eee2;
+  --sky-bot: #f4eee2;
+  --starlight: 255, 250, 238;
+  /* 路線色（和色・沉穩版） */
+  --route-preset-1: #4e6e8e;
+  --route-preset-2: #b85c46;
+  --route-preset-3: #5f7a5c;
+  --route-preset-4: #857b6a;
+  --route-e1-l: #b9cadb;
+  --route-j-l: #e8bfb1;
+  --route-l2-l: #c0d1bb;
+  --route-none-l: #d3ccbe;
 }
 
 /* ═══════════════════════════════════════════════════
  * 2. 夜行寝台 · Night Sleeper（暗）
- * 文字對比已逐色驗過 WCAG AA
  * ═══════════════════════════════════════════════════ */
-.theme-sleeper {
-  --color-paper: #1e1913;        /* 車廂暖墨底 */
-  --color-paper-high: #2a2318;   /* 票券面（燈照到的一階亮） */
+:root[data-skin="sleeper"],
+.ns-shop-mini[data-skin="sleeper"] {
+  --color-paper: #1e1913;
+  --color-paper-high: #2a2318;
   --color-paper-used: #231e14;
   --color-ink: #e8dfc9;
   --color-ink-soft: #a99e88;
-  --color-ink-faint: #8e8470;
-  --color-book: #141b16;         /* 墨綠絨布・熄燈後 */
+  --color-ink-faint: #9a8f79;
+  --ink-mid: #968c77;
+  --color-book: #141b16;
   --color-book-ink: #dcd3bc;
-  --color-gold: #c9a366;         /* 燈下的金 */
+  --cover-muted: rgba(220, 211, 188, .58);
+  --cover-hover: rgba(232, 214, 175, .045);
+  --color-gold: #c9a366;
   --color-gold-soft: #d8bc8a;
-  --color-gold-ink: #c9a366;     /* 暗底燙金本身就夠亮（paper 7.4:1、paper-high 6.6:1）：字與框同燙金（10-20 磨光② A10） */
-  --color-seal: #d96a52;         /* 朱印（暗底提亮版） */
-  --color-late: #c9825a;         /* 誤點・燈色暖橙（棄亮黃） */
-  --color-on-seal: #1e1913;      /* 暗色：朱印主鈕改「亮盤深字」，對比 5.0:1 */
+  --color-gold-ink: #c9a366;
+  --color-seal: #d96a52;
+  --color-late: #c9825a;
+  --color-on-seal: #1e1913;
+  --color-on-ink: #1e1913;
+  --stamp-ink: #a99e88;
+  --arc: #c9a366;
+  --accent: #c9a366;
+  --accent-sky: #a99e88;
   --color-line: #3b3427;
   --color-dash: #4c4433;
-
-  --book-muted: rgba(220, 211, 188, 0.5);
-  --grid-dot: rgba(232, 214, 175, 0.05);
-
-  /* 路線色・夜間燈色版 */
-  --route-preset-1: #8fa9c4;   /* 月夜藍鼠 */
-  --route-preset-2: #d08a6e;   /* 燈下洗朱 */
-  --route-preset-3: #93ae83;   /* 夜霧松葉 */
+  --grid-dot: rgba(232, 214, 175, .05);
+  --radius-card: 6px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 22px rgba(0, 0, 0, .34);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, .46), 0 12px 28px rgba(0, 0, 0, .4);
+  --float-blur: none;
+  --glass-edge: var(--color-line);
+  --glass-hi: inset 0 1px 0 rgba(232, 214, 175, .07);
+  --on-roundel: #141009;
+  --sky-top: #1e1913;
+  --sky-mid: #1e1913;
+  --sky-low: #1e1913;
+  --sky-horizon: #1e1913;
+  --sky-bot: #1e1913;
+  --starlight: 232, 214, 175;
+  --route-preset-1: #8fa9c4;
+  --route-preset-2: #d08a6e;
+  --route-preset-3: #93ae83;
   --route-preset-4: #a19783;
+  --route-e1-l: var(--route-preset-1);
+  --route-j-l: var(--route-preset-2);
+  --route-l2-l: var(--route-preset-3);
+  --route-none-l: var(--route-preset-4);
 }
 
 /* ═══════════════════════════════════════════════════
  * 3. 月白 · Moonlight（暗）
- * 文字對比已逐色驗過 WCAG AA
  * ═══════════════════════════════════════════════════ */
-.theme-moonlight {
-  --color-paper: #23262b;        /* 車廂暖墨底（棕綠底蘊） */
-  --color-paper-high: #2a2318;   /* 票券面（燈照到的一階亮） */
-  --color-paper-used: #231e14;
+:root[data-skin="moonlight"],
+.ns-shop-mini[data-skin="moonlight"] {
+  --color-paper: #23262b;
+  --color-paper-high: #2b2f35;
+  --color-paper-used: #262a2f;
   --color-ink: #e3e1d9;
-  --color-ink-soft: #a99e88;
-  --color-ink-faint: #8e8470;
-  --color-book: #1b2420;         /* 墨綠絨布・熄燈後 */
-  --color-book-ink: #dcd3bc;
-  --color-gold: #bfa77a;         /* 燈下的金 */
-  --color-gold-soft: #d8bc8a;
-  --color-gold-ink: #bfa77a;     /* 暗底燙金本身就夠亮（paper 6.5:1、paper-high 6.7:1）：字與框同燙金（10-20 磨光② A10） */
-  --color-seal: #d96a52;         /* 朱印（暗底提亮版） */
-  --color-late: #c9825a;         /* 誤點・燈色暖橙（棄亮黃） */
-  --color-on-seal: #23262b;      /* 暗色：朱印主鈕改「亮盤深字」，對比 5.0:1 */
+  --color-ink-soft: #aeaba1;
+  --color-ink-faint: #9b988f;
+  --ink-mid: #9b988f;
+  --color-book: #1b2420;
+  --color-book-ink: #d9d6c8;
+  --cover-muted: rgba(217, 214, 200, .6);
+  --cover-hover: rgba(220, 220, 210, .045);
+  --color-gold: #bfa77a;
+  --color-gold-soft: #d1bf96;
+  --color-gold-ink: #bfa77a;
+  --color-seal: #d47361;
+  --color-late: #c28a6a;
+  --color-on-seal: #1b1d21;
+  --color-on-ink: #1b1d21;
+  --stamp-ink: #aeaba1;
+  --arc: #bfa77a;
+  --accent: #bfa77a;
+  --accent-sky: #aeaba1;
   --color-line: #3a3f46;
-  --color-dash: #4c4433;
-
-  --book-muted: rgba(220, 211, 188, 0.5);
-  --grid-dot: rgba(232, 214, 175, 0.05);
-
-  /* 路線色・夜間燈色版 */
-  --route-preset-1: #8faac6;   /* 月夜藍鼠 */
-  --route-preset-2: #d08a6e;   /* 燈下洗朱 */
-  --route-preset-3: #93ae83;   /* 夜霧松葉 */
-  --route-preset-4: #a19783;
+  --color-dash: #4a5058;
+  --grid-dot: rgba(220, 220, 210, .05);
+  --radius-card: 6px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .36), 0 8px 22px rgba(0, 0, 0, .3);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, .42), 0 12px 28px rgba(0, 0, 0, .36);
+  --float-blur: none;
+  --glass-edge: var(--color-line);
+  --glass-hi: inset 0 1px 0 rgba(220, 220, 210, .07);
+  --on-roundel: #15171a;
+  --sky-top: #23262b;
+  --sky-mid: #23262b;
+  --sky-low: #23262b;
+  --sky-horizon: #23262b;
+  --sky-bot: #23262b;
+  --starlight: 226, 226, 216;
+  --route-preset-1: #8faac6;
+  --route-preset-2: #d08f79;
+  --route-preset-3: #94b08d;
+  --route-preset-4: #9fa09a;
+  --route-e1-l: var(--route-preset-1);
+  --route-j-l: var(--route-preset-2);
+  --route-l2-l: var(--route-preset-3);
+  --route-none-l: var(--route-preset-4);
 }
+
+/* ═══════════════════════════════════════════════════
+ * 4. 少女手帳 · Yumemi（亮）
+ * v0.1 原色：奶米白 #faf6f0／奶粉 #fbeaf0／薰衣草 #7f77dd／蜜桃粉 #e879a6／燙金 #d4a574／墨 #4a3c5c。
+ * 當字或實心底的地方壓深到 AA（薰衣草→#6259c9、蜜桃→#bd4674）；書封是 M2 才有的面，取深薰衣草。
+ * ═══════════════════════════════════════════════════ */
+:root[data-skin="yumemi"],
+.ns-shop-mini[data-skin="yumemi"] {
+  --color-paper: #faf6f0;
+  --color-paper-high: #fff8f9;
+  --color-paper-used: #f6edee;
+  --color-ink: #4a3c5c;
+  --color-ink-soft: #66597a;
+  --color-ink-faint: #75698a;
+  --ink-mid: #6e6282;
+  --color-book: #4f4894;
+  --color-book-ink: #f6f1fb;
+  --cover-muted: rgba(246, 241, 251, .74);
+  --cover-hover: rgba(246, 241, 251, .08);
+  --color-gold: #d4a574;
+  --color-gold-soft: #e3c19b;
+  --color-gold-ink: #80592a;
+  --color-seal: #bd4674;
+  --color-late: #a8583a;
+  --color-on-seal: #fff8f9;
+  --color-on-ink: #fff8f9;
+  --stamp-ink: #6259c9;
+  --arc: #d4a574;
+  --accent: #6259c9;
+  --accent-sky: #6e65b8;
+  --color-line: rgba(74, 60, 92, .14);
+  --color-dash: rgba(74, 60, 92, .26);
+  --grid-dot: rgba(127, 119, 221, .08);
+  --radius-card: 10px;
+  --shadow-card: 0 1px 2px rgba(127, 119, 221, .08), 0 4px 16px rgba(127, 119, 221, .1);
+  --shadow-card-hover: 0 2px 4px rgba(127, 119, 221, .1), 0 6px 24px rgba(127, 119, 221, .15);
+  --float-blur: none;
+  --glass-edge: var(--color-line);
+  --glass-hi: inset 0 0 0 transparent;
+  --on-roundel: #32284a;
+  --sky-top: #faf6f0;
+  --sky-mid: #faf6f0;
+  --sky-low: #faf6f0;
+  --sky-horizon: #faf6f0;
+  --sky-bot: #faf6f0;
+  --starlight: 255, 255, 255;
+  --route-preset-1: #6259c9;
+  --route-preset-2: #bd4674;
+  --route-preset-3: #3f8263;
+  --route-preset-4: #75698a;
+  --route-e1-l: #c9c5f2;
+  --route-j-l: #f3bfd6;
+  --route-l2-l: #bfe0cd;
+  --route-none-l: #d6d0e0;
+  /* v0.1 的標題是圓潤黑體，不用襯線 */
+  --font-display: "Noto Sans TC", "Source Han Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════
+ * 天空層：商店主題是紙，不是天
+ * 星點、光斑、月亮藏起來（列車、候鳥、流星在 ⑪ 的 .mood-layer，不在這裡）；
+ * 底換成原型 .page 的點格紙。只動 .sky-layer，不碰 SkyLayer.tsx。
+ * ═══════════════════════════════════════════════════ */
+:root[data-skin] .sky-layer {
+  background-color: var(--color-paper);
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 24px 24px;
+}
+:root[data-skin] .sky-layer::before,
+:root[data-skin] .sky-layer::after,
+:root[data-skin] .sky-layer > * {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════
+ * 手寫字型（data-hand：字型下載完才寫，見 store/handFontStore.ts）
+ * 辰宇落雁體沒有假名與〆・，缺的字逐字落回芫荽。
+ * ═══════════════════════════════════════════════════ */
+:root[data-hand="chenyu"] {
+  --font-hand: "Chenyuluoyan", "Iansui", "LXGW WenKai TC", "Noto Sans TC", sans-serif;
+}
+
+/* ═══════════════════════════════════════════════════
+ * 書封：星空柄與月台燈是兩個預設主題的材質，商店主題回 M1 原型的布面（m1-c-techo.html .cover）；
+ * 書封腳不掛月亮，改印主題名（Sidebar 的 .theme-name）。
+ * ═══════════════════════════════════════════════════ */
+:root[data-skin] .cover {
+  background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, .016) 0 2px, transparent 2px 5px);
+  background-repeat: repeat;
+  box-shadow: inset -10px 0 22px rgba(0, 0, 0, .24);
+}
+:root[data-skin] .cover .brand h1 { text-shadow: none; }
+:root[data-skin] .cover .cover-moon { display: none; }
+:root[data-skin] .cover .theme-name { display: block; }
+
+/* ═══════════════════════════════════════════════════
+ * 換皮才有值的推導 token：元件檔寫 var(--skin-xxx, 原值)，theme.css 沒有能等值替換的色時才走這裡。
+ * 沒掛 data-skin 就沒有這些值、落回後備（＝粉彩／銀河原值，畫面不變）；
+ * 值從該套原色推導，所以這一段同時定好四套。
+ * ═══════════════════════════════════════════════════ */
+:root[data-skin] {
+  /* 票的陰影：techo.css。粉彩 .selected／.late-t 外環後面只接兩層、銀河 hover 比 --shadow-card-hover 淡一點，都不能直接換 var */
+  --ticket-shadow: var(--shadow-card);
+  --ticket-shadow-hover: var(--shadow-card-hover);
+  /* 不透明的紙：timetable.css --ns-tt-sched-solid（四套的 paper-high 都不透明） */
+  --skin-tt-solid: var(--color-paper-high);
+  /* 墨系淡階：techo.css 的書溝、側板陰影、暗底捲軸 */
+  --skin-gutter-shadow: color-mix(in srgb, var(--color-ink) 22%, transparent);
+  --skin-panel-shadow: -12px 0 30px color-mix(in srgb, var(--color-ink) 14%, transparent);
+  --skin-scroll-thumb: color-mix(in srgb, var(--color-ink) 16%, transparent);
+  /* 浮層陰影：daypop.css、duetip.css（亮色規則；暗底各有自己的月光票紙陰影） */
+  --skin-float-shadow: var(--shadow-card-hover);
+  /* 暗底票 hover 邊框：techo.css（銀河那條月光色沒有等值 token） */
+  --skin-ticket-hover-line: color-mix(in srgb, var(--color-ink) 26%, transparent);
+  /* 延着票左緣暖光：techo.css .ticket.late-t::before */
+  --skin-late-glow: color-mix(in srgb, var(--color-late) 15%, transparent);
+}
+
+/* 紙是不透明的，毛玻璃看不出差、又佔 GPU（粉彩一頁幾十張票）：商店主題一律關 */
+:root[data-skin] .ticket::before,
+:root[data-skin] .panel-sheet {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ⑪ 動態氛圍層的剪影（mood.css）：亮底的車體與地平線是粉彩墨、暗底的軌道線是銀河月光，換成該套的墨與燈 */
+:root[data-skin] .mood-ground.is-light { --mood-train-body: color-mix(in srgb, var(--color-ink) 27%, transparent); --mood-horizon: color-mix(in srgb, var(--color-ink) 16%, transparent); }
+:root[data-skin] .mood-ground.is-light[data-level="mid"] { --mood-train-body: color-mix(in srgb, var(--color-ink) 40%, transparent); }
+:root[data-skin] .mood-ground.is-dark { --mood-horizon: rgba(var(--starlight), .13); }

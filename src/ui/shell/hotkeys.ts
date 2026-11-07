@@ -51,6 +51,7 @@ export type CoreHotkeyScope =
   | "daylist"
   | "search"
   | "depot"
+  | "board"
   | "common"
   | "edit";
 
@@ -493,6 +494,34 @@ export const HOTKEYS: Hotkey[] = [
     label: "擴選下一列",
     wired: true,
   },
+
+  /* 路線圖的分頁（⑫）：大綱｜看板、路線一覽｜篩選，都是這兩顆；焦點不在大綱容器也要能按，接線在 useRouteMapViewKeys */
+  {
+    id: "outline.view.1",
+    scope: "outline",
+    chords: [{ key: "1" }],
+    label: "切到大綱（路線一覽＝路線）",
+    wired: true,
+  },
+  {
+    id: "outline.view.2",
+    scope: "outline",
+    chords: [{ key: "2" }],
+    label: "切到看板（路線一覽＝篩選）",
+    wired: true,
+  },
+
+  /* ── 路線圖・看板（useBoardKeyboard；路線看板與篩選清單共用） ── */
+  { id: "board.move.up", scope: "board", chords: [{ key: "ArrowUp" }], label: "上移選取", wired: true },
+  { id: "board.move.down", scope: "board", chords: [{ key: "ArrowDown" }], label: "下移選取", wired: true },
+  { id: "board.move.left", scope: "board", chords: [{ key: "ArrowLeft" }], label: "移到左邊一欄", wired: true },
+  { id: "board.move.right", scope: "board", chords: [{ key: "ArrowRight" }], label: "移到右邊一欄", wired: true },
+  { id: "board.shift.left", scope: "board", chords: [{ key: "ArrowLeft", alt: true }], label: "把這張換到左邊一欄", wired: true },
+  { id: "board.shift.right", scope: "board", chords: [{ key: "ArrowRight", alt: true }], label: "把這張換到右邊一欄", wired: true },
+  { id: "board.open", scope: "board", chords: [{ key: "Enter" }], label: "開詳情", wired: true },
+  { id: "board.complete", scope: "board", chords: [{ key: " " }], label: "済（完成）", wired: true, ignoreMods: SHIFT_LOOSE },
+  { id: "board.select.all", scope: "board", chords: [{ key: "a", ctrl: true }], label: "全選這一頁", wired: true },
+  { id: "board.escape", scope: "board", chords: [{ key: "Escape" }], label: "取消多選／返回上一層／關側板", wired: true, ignoreMods: ALL_LOOSE },
 
   /* ── 日曆・格層（useCalendarKeyboard；月／週同一張表） ── */
   {

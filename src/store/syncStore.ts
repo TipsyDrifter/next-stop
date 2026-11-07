@@ -240,7 +240,7 @@ export const START_OVER_TEXT = {
     regretAlone: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋。",
     regretJoined: "若想復原請趁早：這台的備份會隨每日自動備份逐漸覆蓋，雲端備份則會保留兩週。",
     // 手機殼班 B5：Android 也真的重啟了（ns-restart），兩殼同一句
-    end: "完成後 App 會重新啟動。",
+    end: "完成後 App 會重新啟動，回到剛裝好的樣子：幹線、時刻表與售票口的分類會放回預設。",
   },
   /**
    * 修正席（產品評審 #3／工程評審 S-7）：開窗前就擋得下的情況，**逐字**用 Rust `START_OVER_ERR_*` 那幾句
@@ -1096,6 +1096,12 @@ export async function refreshAfterPull(
 
 /** 重載完要跟著重算的（失物招領開著的差異清單）。對方依賴本檔，反過來 import 會循環，所以用登記的 */
 const afterPullListeners = new Set<() => void>();
+/** 本機資料被整批換掉之後要重讀本機記憶的（提醒帳本）；同上，用登記的 */
+const afterWipeListeners = new Set<() => void>();
+export function onAfterWipe(fn: () => void): () => void {
+  afterWipeListeners.add(fn);
+  return () => afterWipeListeners.delete(fn);
+}
 export function onAfterPull(fn: () => void): () => void {
   afterPullListeners.add(fn);
   return () => afterPullListeners.delete(fn);
@@ -1119,6 +1125,8 @@ async function refreshAfterWipe(pulled: Pick<PullReport, "changed_tables"> | nul
     ...LINE_MANIFESTS.flatMap((m) => m.syncTables),
   ]);
   await refreshAfterPull({ changed_tables: [...tables] }, true);
+  void useWeekAimStore.getState().reloadSettings();
+  for (const fn of afterWipeListeners) fn();
   const node = useNodeStore.getState();
   const ui = useUiStore.getState();
   ui.select(null);

@@ -65,6 +65,7 @@ export const ticketRepo = new Proxy({}, { get: (_, k) => (...a) => globalThis.__
 /** 磨光⑥：store 多讀寫本機設定（排序鍵）⇒ `../data` 換成記憶體版的 settingsRepo */
 const FAKE_DATA = `
 const m = new Map();
+export const nodeRepo = { async getNode(id) { return (globalThis.__nodes ?? {})[id] ?? null; } };
 export const settingsRepo = { async get(k) { return m.has(k) ? m.get(k) : null; }, async set(k, v) { m.set(k, v); } };
 `;
 /** 售票口④：store 會 import 荷札的 repository 與 store（真的那兩支會載到 ./index，node 碰到 import.meta.env）——換成不寫任何東西的替身 */
@@ -975,6 +976,8 @@ function makeSqliteDb() {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = OFF");
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0007_ticket_ledger.sql"), "utf8"));
+  // 壬 0019：ensureStarterRows 會種 wr_kinds，schema 要跟上（0016 是它的前置）
+  for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   return {
     async select(sql: string, args?: unknown[]) {

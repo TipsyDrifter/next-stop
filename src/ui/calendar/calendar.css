@@ -27,17 +27,17 @@
 /* ═══ 原型的語義別名＝現值（timegrid.css 的今天欄底讀 --cal-today-bg；丙-7 刪舊名） ═══ */
 .ns-calendar {
   --cal-today-ring: color-mix(in srgb, var(--accent) 50%, transparent);
-  --cal-today-bg: rgba(255, 255, 255, .32); /* 字面值：月格今天底（白 32%，原型 m3-ext-calendar 定值） */
+  --cal-today-bg: rgba(var(--starlight), .32);
   --cal-seg-on: var(--sel-bg);
-  --cal-cellhover: rgba(42, 43, 73, .035); /* 字面值：格子 hover 底（墨 3.5%，原型定值） */
-  --cal-out-ink: rgba(42, 43, 73, .34); /* 字面值：月外日的字色（墨 34%，原型定值） */
+  --cal-cellhover: color-mix(in srgb, var(--color-ink) 3.5%, transparent);
+  --cal-out-ink: color-mix(in srgb, var(--color-ink) 34%, transparent);
 }
 [data-theme="dark"] .ns-calendar {
   --cal-today-ring: color-mix(in srgb, var(--accent) 45%, transparent);
-  --cal-today-bg: rgba(230, 236, 255, .045); /* 字面值：月格今天底・銀河（星光 4.5%，原型定值） */
+  --cal-today-bg: rgba(var(--starlight), .045);
   --cal-seg-on: var(--sel-bg);
-  --cal-cellhover: rgba(230, 236, 255, .035); /* 字面值：格子 hover 底・銀河（原型定值） */
-  --cal-out-ink: rgba(228, 232, 243, .30); /* 字面值：月外日的字色・銀河（原型定值） */
+  --cal-cellhover: rgba(var(--starlight), .035);
+  --cal-out-ink: color-mix(in srgb, var(--color-ink) 30%, transparent);
 }
 
 /* ═══ 版心：行程表是畫布型（丁 D-主-231） ═══
@@ -94,9 +94,7 @@
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
   border: 1px solid var(--glass-edge);
-  box-shadow:
-    0 0 0 1px rgba(60, 60, 120, .10), /* 字面值：陰影色（§1.1 例外） */
-    0 1px 2px rgba(50, 45, 100, .08), 0 8px 22px rgba(60, 50, 120, .12); /* 字面值：陰影色（§1.1 例外） */
+  box-shadow: var(--shadow-card);
 }
 .ns-calendar .month-card::after { /* 霧面顆粒（C2 配方） */
   content: ""; position: absolute; inset: 0; z-index: 0; border-radius: var(--radius-card);
@@ -110,7 +108,7 @@
   box-shadow:
     inset 0 1px 0 rgba(var(--starlight), .09), /* 字面值：陰影色（§1.1 例外）：月光上緣高光 */
     inset -1px 0 0 rgba(var(--starlight), .035), /* 字面值：陰影色（§1.1 例外） */
-    0 1px 2px rgba(3, 6, 14, .4), 0 8px 22px rgba(3, 6, 14, .38); /* 字面值：陰影色（§1.1 例外） */
+    var(--shadow-card);
 }
 [data-theme="dark"] .ns-calendar .month-card::after { content: none; }
 .ns-calendar .month-card > * { position: relative; z-index: 1; }

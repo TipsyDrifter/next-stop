@@ -42,6 +42,8 @@ export interface NodeRow extends SyncFields {
   position: number;
   /** 兄弟順序的排序鍵（fractional index，migration 0014）；NULL＝還沒給鍵（排在有鍵的後面）。比較只經 domain/nodeOrder.ts */
   sort_key: string | null;
+  /** 掛的車站（⑫，migration 0020）；讀取一律經 domain/board.ts 的 effectiveStation（車站不在了、票搬走了＝當沒掛） */
+  station_id: string | null;
   color: string | null;
   code: string | null;
   status: NodeStatus;
@@ -199,6 +201,7 @@ export const CONFLICT_COL_LABEL: Record<string, string> = {
   mood: "心情",
   position: "順序",
   sort_key: "順序",
+  station_id: "車站",
   today_position: "今日順序",
   parent_id: "掛在",
   repeat_rule: "定期券",
@@ -219,11 +222,15 @@ function fmtConflictValue(v: unknown): string {
   return t.length > 40 ? `${t.slice(0, 40)}…` : t;
 }
 
+/** 欄的值是節點 id（印出來是一串 UUID）：沒掛的時候講什麼 */
+const NODE_REF_EMPTY: Readonly<Record<string, string>> = { station_id: "還沒排站", parent_id: "路線最上層" };
+
 /**
  * 衝突日誌 → 一行人話。解析失敗就原字串照印（寧可醜也不要空白列；body 是別台寫的，不能假設格式）。
  * 刪除欄有兩個方向，語氣不同：對方刪了但我改過＝保留；我刪了但對方改過＝已復活。
+ * 車站、掛在哪：值是節點 id，`nameOf` 換成名字（畫面給；null＝查不到是誰）；換不出來就只講留下哪一邊，不印 UUID。
  */
-export function describeConflict(body: string): string {
+export function describeConflict(body: string, nameOf?: (col: string, id: string) => string | null): string {
   let b: ConflictBody;
   try {
     b = JSON.parse(body) as ConflictBody;
@@ -239,9 +246,20 @@ export function describeConflict(body: string): string {
   // 規則是一串 JSON，印出來沒人看得懂；講留下哪一邊就好（細節在重複段）
   if (b.col === "repeat_rule") return `定期券的設定：兩台改法不同，留下${b.winner === "mine" ? "這台" : "另一台"}的`;
   const label = CONFLICT_COL_LABEL[b.col] ?? b.col;
+  let mine = fmtConflictValue(b.mine);
+  let theirs = fmtConflictValue(b.theirs);
+  const refEmpty = NODE_REF_EMPTY[b.col];
+  if (refEmpty) {
+    const name = (v: unknown) => (empty(v) ? refEmpty : (nameOf?.(b.col, String(v)) ?? null));
+    const m = name(b.mine);
+    const t = name(b.theirs);
+    if (m === null || t === null) return `${label}：兩台不一樣，留下${b.winner === "mine" ? "這台" : "另一台"}的`;
+    mine = m;
+    theirs = t;
+  }
   // 方向兩種（評審 S3）：預設是這台讓位；`winner === "mine"` 是對方讓給這台（敗方值同樣留在這一行）
   if (b.winner === "mine") {
-    return `${label}：放棄另一台的「${fmtConflictValue(b.theirs)}」，保留這台的「${fmtConflictValue(b.mine)}」`;
+    return `${label}：放棄另一台的「${theirs}」，保留這台的「${mine}」`;
   }
-  return `${label}：放棄這台的「${fmtConflictValue(b.mine)}」，保留另一台的「${fmtConflictValue(b.theirs)}」`;
+  return `${label}：放棄這台的「${mine}」，保留另一台的「${theirs}」`;
 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小工具的實心圓牌（原型 .tile）。白色畫，ImageView.setColorFilter(分類色) 上色（預設 SRC_ATOP）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#FFFFFFFF" />
+</shape>

@@ -113,6 +113,15 @@ export class MemoryTagRepository implements TagRepository {
 
   /* ───────────── 讀 ───────────── */
 
+  async listRenames(): Promise<{ from: string; to: string }[]> {
+    const out: { from: string; to: string }[] = [];
+    for (const t of this.tags.values()) {
+      const to = t.renamed_to ? this.tags.get(t.renamed_to) : undefined;
+      if (to) out.push({ from: t.name_key, to: to.name_key });
+    }
+    return out;
+  }
+
   async loadIndexSource(): Promise<TagIndexSource> {
     // 評審端點 `?mock=1&tagfail=1`（磨光③ 2-12）：按「重試」之前一直丟錯，驗「荷札沒載入　重試」
     if (!tagFailUsed && tagFailFlag()) {

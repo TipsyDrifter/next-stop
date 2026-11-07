@@ -6,6 +6,7 @@ import {
   anchorOfGap,
   depthAt,
   depthRange,
+  isColumnGapNoop,
   gapAt,
   gapY,
   indexOfAnchor,
@@ -55,6 +56,17 @@ const tree: TreeRow[] = [
   { id: "T2", depth: 1 },
   { id: "R2", depth: 0 },
 ];
+
+test("isColumnGapNoop：連著的一批放回原縫才算沒動；不連續的放在第一張旁邊是有動", () => {
+  const col = ["a", "b", "c", "d"];
+  assert.equal(isColumnGapNoop(col, ["b"], { after: "a", before: "c" }), true);
+  assert.equal(isColumnGapNoop(col, ["b", "c"], { after: "a", before: "d" }), true);
+  assert.equal(isColumnGapNoop(col, ["a"], { after: null, before: "b" }), true);
+  assert.equal(isColumnGapNoop(col, ["d"], { after: "c", before: null }), true);
+  assert.equal(isColumnGapNoop(col, ["b"], { after: "c", before: "d" }), false);
+  assert.equal(isColumnGapNoop(col, ["b", "d"], { after: "a", before: "c" }), false, "不連續");
+  assert.equal(isColumnGapNoop(col, ["x"], { after: null, before: null }), false);
+});
 
 test("depthRange：最深＝上一列下一層、最淺＝下一列那層", () => {
   assert.deepEqual(depthRange(tree, 0), { min: 0, max: 0 });

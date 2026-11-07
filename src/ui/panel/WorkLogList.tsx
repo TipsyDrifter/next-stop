@@ -30,7 +30,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { capsOfHotkey } from "../shell/hotkeys";
 import { WORK_LOG_EVENT_LABEL, describeConflict } from "../../domain";
-import { useNodeStore } from "../../store/nodeStore";
+import { conflictNameOf, useNodeStore } from "../../store/nodeStore";
 import { TimeSeal } from "../stamps";
 
 export function WorkLogList({ nodeId }: { nodeId: string }) {
@@ -97,7 +97,7 @@ export function WorkLogList({ nodeId }: { nodeId: string }) {
             const seal = l.event === "punched" ? 2 : l.event === "done" ? -3 : null;
             // 競合列的 body 是 JSON（Rust 寫的），轉成一行人話；其餘列照原樣
             const conflict = l.event === "conflict";
-            const text = conflict ? describeConflict(l.body) : l.body;
+            const text = conflict ? describeConflict(l.body, conflictNameOf) : l.body;
             return (
               <li key={l.id} className={l.event ? "evt" : undefined}>
                 {seal !== null ? (

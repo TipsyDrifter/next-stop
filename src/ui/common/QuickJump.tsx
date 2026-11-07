@@ -19,6 +19,8 @@ import { KIND_LABEL, parseRule, type NodeKind, type NodeRow } from "../../domain
 import { ancestorsOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useDepotStore } from "../../store/depotStore";
+import { useBoardStore } from "../../store/boardStore";
+import { landOnBoard } from "../board/boardReveal";
 import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
 import { lineQuickJumpProviders } from "../../lines/runtime";
@@ -164,6 +166,9 @@ export async function jumpToNode(node: NodeRow) {
   }
   ui.expand(ancestorsOf(tree, routeId, node.id));
   ui.select(node.id);
+  // 路線圖記著看板：是看得到的卡就捲過去，其他切回大綱（偏好還沒讀回來時先等，不然讀回來的值會蓋掉）
+  await useBoardStore.getState().ensureLoaded();
+  landOnBoard(node.id);
 }
 
 /** 結果列左側徽章：路線＝roundel（路線色圓底＋代碼／圓點）；其餘＝類型徽章（臨時車票虛線「臨」）。手機搜尋共用 */

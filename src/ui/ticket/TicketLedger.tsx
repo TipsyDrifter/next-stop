@@ -5,7 +5,7 @@
  *   ├─ PageHeader.ns-tk-pagehead（UI 丙-5 A1：身分式，跟其他五頁同一副骨架）
  *   │     眉標 {售票口, Ticket Office}・大標 DateNav（‹ 10月 › 今天；統計年模式 unit="year"「‹ 2026 年 › 今年」；搜尋中＝「搜尋結果」）
  *   │     補述 2026年（搜尋中＝文字鈕「‹ 回 10 月」）・stats 本月支出／收入（搜尋中＝找到 N 筆…）
- *   │     工具列［清單｜月曆｜統計｜帳戶｜願望］［＋ 記一筆］［搜尋］［⚙ 管帳］（管帳＝共用 PopMenu，B1）
+ *   │     工具列［清單｜月曆｜統計｜帳戶］［＋ 記一筆］［搜尋］［⚙ 管帳］（管帳＝共用 PopMenu，B1）
  *   ├─ div.ns-tk-subbar（A4／P3 A 案：頁首下一列，清單視圖常駐；月曆／統計不畫）
  *   │     左＝帳戶篩選 chip（書封點帳戶）／搜尋框＋FilterChips（搜尋開著）・右＝排序
  *   └─ div.ns-tk-book（一張霧面紙，不打孔——帳簿行不是票卡）；空帳本＝EmptyState（A5，頁首此時不給「＋ 記一筆」）
@@ -74,8 +74,7 @@ import { SearchBar, focusTicketSearch } from "./view/SearchBar";
 import { FilterChips, SortButton } from "./view/FilterChips";
 import { TicketCalendar } from "./view/TicketCalendar";
 import { TicketStats } from "./view/TicketStats";
-// 售票口④（D-票-69）：願望分頁；第二輪（D-票-79）：帳戶分頁
-import { WishHeadStats, WishPage } from "./wish/WishPage";
+// 第二輪（D-票-79）：帳戶分頁
 import { AccountsView } from "./view/AccountsView";
 
 /* ───────── 共用小件（桌機三個元件共用） ───────── */
@@ -268,7 +267,6 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const resultSort = useTicketStore((s) => s.resultSort);
   const pendingDay = useTicketStore((s) => s.pendingDay);
   const dayNotice = useTicketStore((s) => s.dayNotice);
-  const wish = useTicketStore((s) => s.wish);
   const totals = useTicketStore((s) => s.totals);
 
   const today = todayKey(dayStartHour);
@@ -321,7 +319,6 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const panelOpen = panel.kind === "entry";
   const searching = view === "list" && searchOpen && isFilterActive(filter); // 0-15：清單畫搜尋結果
   const yearMode = view === "stats" && span === "year";
-  const wishMode = view === "wish"; // 售票口④（D-票-69）：願望分頁——大標「願望清單」、頁首那行「想買 N 件・合計約 X」、不放「＋ 記一筆」
   const acctMode = view === "accounts"; // 第二輪（D-票-79）：帳戶分頁——大標「帳戶」、頁首那行帳戶數與資產負債、「＋ 帳戶」
   const liveAccounts = accounts.filter((a) => a.deleted_at === null && a.archived_at === null).length;
   const emptyBook = view === "list" && ready && !hasAny && !searching; // A5：EmptyState 出現時頁首不給「＋ 記一筆」
@@ -584,8 +581,6 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         title={
           searching ? (
             "搜尋結果"
-          ) : wishMode ? (
-            "願望清單"
           ) : acctMode ? (
             "帳戶"
           ) : yearMode ? (
@@ -627,15 +622,13 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
               <IconBack size={12} />
               <span className="ns-tk-backlbl">回 {backLabel}</span>
             </button>
-          ) : yearMode || wishMode || acctMode ? undefined : (
+          ) : yearMode || acctMode ? undefined : (
             <span className="ns-tk-headyear">{month.slice(0, 4)}年</span>
           )
         }
         stats={
           searching ? (
             results ? resultSummary(results, mainDec) : "正在找…"
-          ) : wishMode ? (
-            wish.want.length > 0 ? <WishHeadStats /> : undefined
           ) : acctMode ? (
             liveAccounts > 0 ? (
               <>
@@ -657,7 +650,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         }
         tabs={{ items: tabItems, value: view, onChange: switchView, "aria-label": "切換檢視" }}
         add={
-          emptyBook || wishMode
+          emptyBook
             ? undefined
             : acctMode
               ? { label: "帳戶", title: "新增帳戶", onClick: () => store().openDialog({ kind: "newAccount" }) }
@@ -720,10 +713,6 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <TicketCalendar />
       ) : view === "stats" ? (
         <TicketStats />
-      ) : wishMode ? (
-        <div className="ns-tk-book ns-tk-wishbook">
-          <WishPage />
-        </div>
       ) : acctMode ? (
         <AccountsView />
       ) : ready && !hasAny && !searching ? (

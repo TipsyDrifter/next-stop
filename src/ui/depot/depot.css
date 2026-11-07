@@ -11,7 +11,7 @@
 .ns-depot,
 .ns-depot-book {
   /* 車站白點的填色（原型 --dot-fill；theme.css 沒有這支，只在本頁用） */
-  --ns-depot-dot: #fff; /* 字面值：原型 --dot-fill（粉彩票紙白點） */
+  --ns-depot-dot: rgb(var(--starlight));
 }
 [data-theme="dark"] .ns-depot,
 [data-theme="dark"] .ns-depot-book {
@@ -254,6 +254,14 @@
 .ns-depot-yb-c { min-width: 0; }
 .ns-depot-yb-facts { display: flex; gap: 22px; flex-wrap: wrap; margin: 0; font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; }
 .ns-depot-yb-facts b { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); color: var(--color-ink); margin: 0 3px; }
+/* 「實現 N 件」是去候車室的入口：看起來跟旁邊的事實同一排，只是點得到（底線提示） */
+.ns-depot-yb-wish {
+  padding: 0; border: 0; background: transparent; font: inherit; letter-spacing: inherit; color: inherit; cursor: pointer;
+  text-decoration: underline dotted var(--color-dash); text-underline-offset: 5px;
+}
+.ns-depot-yb-wish b { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-title); color: var(--color-ink); margin: 0 3px; }
+.ns-depot-yb-wish:hover { color: var(--color-ink); }
+.ns-depot-ago-done { font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .1em; }
 .ns-depot-yb-arr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 10px; }
 .ns-depot-yb-arr .k { font-size: var(--fs-xs); letter-spacing: .2em; color: var(--color-ink-soft); }
 .ns-depot-chip {
@@ -398,6 +406,7 @@
 [data-shell="mobile"] .ns-depot-yb-facts { gap: 14px; }
 [data-shell="mobile"] .ns-depot-ago { margin-top: 14px; }
 [data-shell="mobile"] .ns-depot-chip { height: 40px; }
+[data-shell="mobile"] .ns-depot-yb-wish { min-height: 44px; }
 [data-shell="mobile"] .ns-depot-book { max-width: none; padding: 16px var(--m-gutter) 30px; }
 [data-shell="mobile"] .ns-depot-book .sec { margin: 26px 0 12px; }
 [data-shell="mobile"] .ns-depot-facts { grid-template-columns: 1fr 1fr; margin-top: 16px; }

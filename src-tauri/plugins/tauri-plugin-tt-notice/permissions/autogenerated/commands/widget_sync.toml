@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-widget-sync"
+description = "Enables the widget_sync command without any pre-configured scope."
+commands.allow = ["widget_sync"]
+
+[[permission]]
+identifier = "deny-widget-sync"
+description = "Denies the widget_sync command without any pre-configured scope."
+commands.deny = ["widget_sync"]

@@ -1,6 +1,6 @@
 ## Default Permission
 
-時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點
+時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點；外部入口：取與確認連結、小工具、寫 NFC 貼紙
 
 #### This default permission set includes the following:
 
@@ -17,6 +17,15 @@
 - `allow-rem-take-launch`
 - `allow-register-listener`
 - `allow-remove-listener`
+- `allow-ext-take`
+- `allow-ext-ack`
+- `allow-widget-sync`
+- `allow-widget-status`
+- `allow-widget-pin`
+- `allow-nfc-status`
+- `allow-nfc-write`
+- `allow-nfc-cancel`
+- `allow-nfc-open-settings`
 
 ## Permission Table
 
@@ -101,6 +110,162 @@ Enables the cancel_reminder command without any pre-configured scope.
 <td>
 
 Denies the cancel_reminder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-ext-ack`
+
+</td>
+<td>
+
+Enables the ext_ack command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-ext-ack`
+
+</td>
+<td>
+
+Denies the ext_ack command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-ext-take`
+
+</td>
+<td>
+
+Enables the ext_take command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-ext-take`
+
+</td>
+<td>
+
+Denies the ext_take command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-nfc-cancel`
+
+</td>
+<td>
+
+Enables the nfc_cancel command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-nfc-cancel`
+
+</td>
+<td>
+
+Denies the nfc_cancel command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-nfc-open-settings`
+
+</td>
+<td>
+
+Enables the nfc_open_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-nfc-open-settings`
+
+</td>
+<td>
+
+Denies the nfc_open_settings command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-nfc-status`
+
+</td>
+<td>
+
+Enables the nfc_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-nfc-status`
+
+</td>
+<td>
+
+Denies the nfc_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-nfc-write`
+
+</td>
+<td>
+
+Enables the nfc_write command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-nfc-write`
+
+</td>
+<td>
+
+Denies the nfc_write command without any pre-configured scope.
 
 </td>
 </tr>
@@ -361,6 +526,84 @@ Enables the take_shared command without any pre-configured scope.
 <td>
 
 Denies the take_shared command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-widget-pin`
+
+</td>
+<td>
+
+Enables the widget_pin command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-widget-pin`
+
+</td>
+<td>
+
+Denies the widget_pin command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-widget-status`
+
+</td>
+<td>
+
+Enables the widget_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-widget-status`
+
+</td>
+<td>
+
+Denies the widget_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:allow-widget-sync`
+
+</td>
+<td>
+
+Enables the widget_sync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tt-notice:deny-widget-sync`
+
+</td>
+<td>
+
+Denies the widget_sync command without any pre-configured scope.
 
 </td>
 </tr>

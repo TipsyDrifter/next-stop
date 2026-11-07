@@ -19,6 +19,16 @@ export interface NoteDigestLike {
   text: string;
 }
 
+/** 實現過的願望（年鑑用；候車室的「實現了」讀時判斷，D-主-516／517）。`day`＝bought_at（實現時刻）依日界線換算的本地日 */
+export interface WishDigestLike {
+  id: string;
+  name: string;
+  kind: string; // 種類名（repository 已 join wr_kinds 取名；種類被刪＝空字串）
+  /** UTC ISO */
+  bought_at: string;
+  day: string;
+}
+
 /** 摘要用的一句：標題優先，否則內文第一個非空行；最多 60 字 */
 export function digestLine(title: string | null, text: string): string {
   const t = title?.trim();
@@ -55,6 +65,8 @@ export interface YearbookMonth {
   month: string;
   seals: number;
   diaries: number;
+  /** 這個月實現的願望件數（只記發生過的，不比目標） */
+  wishes: number;
   stamps: StampRow[];
   /** 這個月到站的路線（arrived_on 落在這個月；依日期） */
   routes: NodeRow[];
@@ -70,8 +82,12 @@ export interface AgoItem {
   /** 幾年前 */
   years: number;
   id: string;
-  kind: "note" | "diary";
+  /** 優先序 日記 › 筆記 › 願望 */
+  kind: "note" | "diary" | "wish";
+  /** 日記／筆記＝摘要一句；願望＝願望的名字 */
   text: string;
+  /** 願望的種類（kind 為 "wish" 才有） */
+  wishKind?: string;
 }
 
 export interface Yearbook {
@@ -84,20 +100,24 @@ export function buildYearbook(input: {
   stamps: readonly StampRow[];
   sealDays: readonly string[];
   notes: readonly NoteDigestLike[];
+  /** 實現過的願望（可省略＝沒有） */
+  wishes?: readonly WishDigestLike[];
   routes: readonly NodeRow[];
   lines: readonly NodeRow[];
 }): Yearbook {
+  const wishes = input.wishes ?? [];
   const months = new Map<string, YearbookMonth>();
   const at = (m: string): YearbookMonth => {
     let v = months.get(m);
     if (!v) {
-      v = { month: m, seals: 0, diaries: 0, stamps: [], routes: [], lines: [], quote: null };
+      v = { month: m, seals: 0, diaries: 0, wishes: 0, stamps: [], routes: [], lines: [], quote: null };
       months.set(m, v);
     }
     return v;
   };
   for (const d of input.sealDays) at(d.slice(0, 7)).seals++;
   for (const n of input.notes) if (n.kind === "diary") at(n.day.slice(0, 7)).diaries++;
+  for (const w of wishes) at(w.day.slice(0, 7)).wishes++;
   for (const s of [...input.stamps].filter((x) => x.deleted_at === null).sort(compareStamps)) at(s.stamped_on.slice(0, 7)).stamps.push(s);
   const byDay = (a: NodeRow, b: NodeRow) => (a.arrived_on! < b.arrived_on! ? -1 : a.arrived_on! > b.arrived_on! ? 1 : 0);
   for (const r of [...input.routes].filter((x) => x.arrived_on).sort(byDay)) at(r.arrived_on!.slice(0, 7)).routes.push(r);
@@ -117,22 +137,42 @@ export function buildYearbook(input: {
   const list = [...months.values()]
     .filter((v) => v.month <= input.today.slice(0, 7))
     .sort((a, b) => (a.month < b.month ? 1 : -1));
-  return { ago: agoOf(input.today, input.notes), months: list };
+  return { ago: agoOf(input.today, input.notes, wishes), months: list };
 }
 
-/** 那年今日：往年同月同日，最近的那一年；日記優先，沒有日記取筆記；沒有＝null（整段不出現） */
-export function agoOf(today: string, notes: readonly NoteDigestLike[]): AgoItem | null {
+/**
+ * 那年今日：往年同月同日，最近的那一年；同一天內 日記 › 筆記 › 願望（單筆）；沒有＝null（整段不出現）。
+ * 願望的「那一天」＝實現時刻依日界線換算的本地日（呼叫端算好放 `day`）。
+ */
+export function agoOf(today: string, notes: readonly NoteDigestLike[], wishes: readonly WishDigestLike[] = []): AgoItem | null {
   const md = today.slice(5);
   const year = Number(today.slice(0, 4));
-  const hits = notes.filter((n) => n.day.slice(5) === md && Number(n.day.slice(0, 4)) < year && digestLine(n.title, n.text) !== "");
-  if (!hits.length) return null;
-  const best = [...hits].sort(
+  const past = (day: string) => day.slice(5) === md && Number(day.slice(0, 4)) < year;
+  interface Cand {
+    day: string;
+    rank: number;
+    at: string;
+    item: AgoItem;
+  }
+  const cands: Cand[] = [];
+  for (const n of notes) {
+    const text = digestLine(n.title, n.text);
+    if (!past(n.day) || text === "") continue;
+    cands.push({ day: n.day, rank: n.kind === "diary" ? 0 : 1, at: n.noted_at, item: { day: n.day, years: year - Number(n.day.slice(0, 4)), id: n.id, kind: n.kind, text } });
+  }
+  for (const w of wishes) {
+    const text = w.name.trim();
+    if (!past(w.day) || text === "") continue;
+    cands.push({ day: w.day, rank: 2, at: w.bought_at, item: { day: w.day, years: year - Number(w.day.slice(0, 4)), id: w.id, kind: "wish", text, wishKind: w.kind } });
+  }
+  if (!cands.length) return null;
+  const best = cands.sort(
     (a, b) =>
       (a.day < b.day ? 1 : a.day > b.day ? -1 : 0) || // 最近那一年
-      (a.kind === b.kind ? 0 : a.kind === "diary" ? -1 : 1) || // 日記優先
-      (a.noted_at < b.noted_at ? -1 : 1), // 同一天先寫的
+      a.rank - b.rank || // 日記 › 筆記 › 願望
+      (a.at < b.at ? -1 : a.at > b.at ? 1 : 0), // 同一天先發生的
   )[0];
-  return { day: best.day, years: year - Number(best.day.slice(0, 4)), id: best.id, kind: best.kind, text: digestLine(best.title, best.text) };
+  return best.item;
 }
 
 /* ───────── 記錄簿 ───────── */

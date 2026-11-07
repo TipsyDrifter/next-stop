@@ -1,9 +1,9 @@
 /**
- * MobileViewBar——售票口手機頁的分頁籤列「清單｜月曆｜統計｜帳戶｜願望」＋末端「管帳」（②契約 §5.3；丙席擁有）。
- * 售票口④（D-票-69／77，手機席）：多一格「願望」（MobileWishList）。第二輪（D-票-77、79）：第四格「帳戶」（MobileAccountsView），願望排第五。
+ * MobileViewBar——售票口手機頁的分頁籤列「清單｜月曆｜統計｜帳戶」＋末端「管帳」（②契約 §5.3；丙席擁有）。
+ * 售票口④ 第二輪（D-票-77、79）：第四格「帳戶」（MobileAccountsView）。壬（D-主-513）：原第五格「願望」拆除、移到候車室頁，回四格。
  *   開 `scroll`，排法照視覺規範 §2.2 段數欄（D-主-285，Tabs 自己量）：放得下就平分、放不下才橫捲＋末段露半格。
- *   實量：「管帳」約 57px，籤列 375 寬剩 318、412 寬剩 355；兩字籤字寬約 37px＋每邊最少 12px 內距＝61px×5＝306 ⇒ 兩種寬都五格平分。
- *   更窄的螢幕放不下時 Tabs 自動落回露半格；選中籤換了會自己捲進視野；左右滑換頁照樣五格走得到。
+ *   實量：「管帳」約 57px，籤列 375 寬剩 318、412 寬剩 355；兩字籤字寬約 37px＋每邊最少 12px 內距＝61px×4＝244 ⇒ 兩種寬都四格平分。
+ *   更窄的螢幕放不下時 Tabs 自動落回露半格；選中籤換了會自己捲進視野；左右滑換頁照樣四格走得到。
  *
  * UI 丙-5 H1（契約 §1 H1、B2）：自畫的 `.ns-tk-mviews` 三等分 tablist 退役，換成今日頂帶下一列同款 `.ns-tabrow`——
  *   共用 <Tabs>（籤字「日曆」→「月曆」）＋末端 span.mgr 文字鈕「管帳」（＝手機唯一的管帳入口；開 MobileTicketOffice 的管帳 sheet）。
@@ -11,8 +11,8 @@
  *   狀態照舊在 `ticketStore.view`（己-2 B5 起記本機、冷啟動回上次；原 0-17 不持久化）；←→ Home End 由 Tabs 自己處理。
  *
  * 同檔另出 `useViewSwipe`：內容區左右滑換視圖（門檻同 useSubSwipe：邊緣 24px 不算、|dx| ≥ 56、1.5 倍主導）。
- * 只掛在 `.ns-tk-mlist`／`.ns-tk-mcal`／`.ns-tk-mstats`／`.ns-tk-mac`／`.ns-tk-mw` 直向捲動容器（CSS 給 touch-action: pan-y）；
- * 往左滑＝下一個視圖、往右滑＝上一個，到頭不繞回。願望清單、帳戶頁能長按拖曳：拖曳中（`html.dr-dragging`）的那一下不算滑動。
+ * 只掛在 `.ns-tk-mlist`／`.ns-tk-mcal`／`.ns-tk-mstats`／`.ns-tk-mac` 直向捲動容器（CSS 給 touch-action: pan-y）；
+ * 往左滑＝下一個視圖、往右滑＝上一個，到頭不繞回。帳戶頁能長按拖曳：拖曳中（`html.dr-dragging`）的那一下不算滑動。
  */
 import { useEffect, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
@@ -24,7 +24,6 @@ const TABS: readonly TabItem<TicketView>[] = [
   { key: "calendar", label: "月曆" },
   { key: "stats", label: "統計" },
   { key: "accounts", label: "帳戶" },
-  { key: "wish", label: "願望" },
 ];
 const ORDER: readonly TicketView[] = TABS.map((t) => t.key);
 
@@ -101,7 +100,7 @@ export function useViewSwipe(ref: RefObject<HTMLElement | null>): void {
     const cancel = (e: PointerEvent) => {
       if (e.pointerId === pid) active = false;
     };
-    // 長按浮起拖曳（願望清單、帳戶頁）時手指的橫移不是換頁
+    // 長按浮起拖曳（帳戶頁）時手指的橫移不是換頁
     const move = (e: PointerEvent) => {
       if (active && e.pointerId === pid && document.documentElement.classList.contains("dr-dragging")) active = false;
     };

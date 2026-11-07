@@ -77,14 +77,15 @@ const TIME_PLANS_COLS: &[(&str, bool)] = &[
 
 /// 起手分類不算「這台有沒有資料」（契約 0-2 甲案）：每台都會自動種這 19 列，算進去的話任何新裝置加入同步都會被當成有資料。
 /// id 與 `src/domain/timetable.ts` 的 `STARTER_CATEGORIES` 逐字相同（`scripts/tests/timetable-logic.test.ts` 對帳）。
-const TIME_CATEGORIES_ALIVE: &str = "deleted_at IS NULL AND id NOT IN (\
+/// 改過名、排過序（`updated_at` 變了）就算資料（癸，D-主-531），加入同步時才不會被當空庫、無聲蓋掉。
+const TIME_CATEGORIES_ALIVE: &str = "deleted_at IS NULL AND NOT (updated_at = created_at AND id IN (\
 'da1b233b-ba91-5269-b263-65101d1bdf43','f6a85065-28d7-5beb-8d12-65ee9d87b2c4','fc3692f1-857d-51b4-8c99-b0018333bc60',\
 '593bcf09-ee64-5819-9af5-e069c89b3841','66a4fdf6-bc28-5cd4-8455-3faffd56f118','95280e69-3759-5d75-ac4f-b86547b913aa',\
 '172c6c54-a53d-5988-bdbc-02d474b33088','9ab43381-2ee9-50fd-95dc-43239ad5cfbf','0f593f92-af5b-5d81-82ba-9363a9941dab',\
 '163b6f28-5e42-5666-8f05-bd369e37e725','1f3bbc35-3ea7-56ed-9653-f62060742a28','cb9607ec-fb52-5deb-bc9e-7e5c7cbd6980',\
 '88f77916-cb67-5128-82a2-7b95a49332e6','556a9c6a-de21-5b7d-9a3e-cc6312e7eef8','7d05ebf7-a358-536f-b5e3-9d842d19658d',\
 '98001bf4-348e-508e-99ea-6df76c781347','ad20a08d-c66a-5999-89fc-4324701550ee','6e22561a-d964-58eb-8747-e6aa9d684d64',\
-'88f7523b-61d2-5664-b039-8c32a86162c3')";
+'88f7523b-61d2-5664-b039-8c32a86162c3'))";
 
 /// 時刻表線的同步表。只有時刻表線改這個檔。順序：categories 先（被 blocks 的外鍵指到）。
 pub const TABLES: &[SyncTableSpec] = &[

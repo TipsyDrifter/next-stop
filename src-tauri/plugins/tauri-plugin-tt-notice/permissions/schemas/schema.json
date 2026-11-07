@@ -331,6 +331,78 @@
           "markdownDescription": "Denies the cancel_reminder command without any pre-configured scope."
         },
         {
+          "description": "Enables the ext_ack command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ext-ack",
+          "markdownDescription": "Enables the ext_ack command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ext_ack command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ext-ack",
+          "markdownDescription": "Denies the ext_ack command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ext_take command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ext-take",
+          "markdownDescription": "Enables the ext_take command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ext_take command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ext-take",
+          "markdownDescription": "Denies the ext_take command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the nfc_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-nfc-cancel",
+          "markdownDescription": "Enables the nfc_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the nfc_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-nfc-cancel",
+          "markdownDescription": "Denies the nfc_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the nfc_open_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-nfc-open-settings",
+          "markdownDescription": "Enables the nfc_open_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the nfc_open_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-nfc-open-settings",
+          "markdownDescription": "Denies the nfc_open_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the nfc_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-nfc-status",
+          "markdownDescription": "Enables the nfc_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the nfc_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-nfc-status",
+          "markdownDescription": "Denies the nfc_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the nfc_write command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-nfc-write",
+          "markdownDescription": "Enables the nfc_write command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the nfc_write command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-nfc-write",
+          "markdownDescription": "Denies the nfc_write command without any pre-configured scope."
+        },
+        {
           "description": "Enables the post command without any pre-configured scope.",
           "type": "string",
           "const": "allow-post",
@@ -451,10 +523,46 @@
           "markdownDescription": "Denies the take_shared command without any pre-configured scope."
         },
         {
-          "description": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點\n#### This default permission set includes:\n\n- `allow-take-shared`\n- `allow-ack-shared`\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-rem-sync`\n- `allow-rem-take-launch`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the widget_pin command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-widget-pin",
+          "markdownDescription": "Enables the widget_pin command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the widget_pin command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-widget-pin",
+          "markdownDescription": "Denies the widget_pin command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the widget_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-widget-status",
+          "markdownDescription": "Enables the widget_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the widget_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-widget-status",
+          "markdownDescription": "Denies the widget_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the widget_sync command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-widget-sync",
+          "markdownDescription": "Enables the widget_sync command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the widget_sync command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-widget-sync",
+          "markdownDescription": "Denies the widget_sync command without any pre-configured scope."
+        },
+        {
+          "description": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點；外部入口：取與確認連結、小工具、寫 NFC 貼紙\n#### This default permission set includes:\n\n- `allow-take-shared`\n- `allow-ack-shared`\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-rem-sync`\n- `allow-rem-take-launch`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-ext-take`\n- `allow-ext-ack`\n- `allow-widget-sync`\n- `allow-widget-status`\n- `allow-widget-pin`\n- `allow-nfc-status`\n- `allow-nfc-write`\n- `allow-nfc-cancel`\n- `allow-nfc-open-settings`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點\n#### This default permission set includes:\n\n- `allow-take-shared`\n- `allow-ack-shared`\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-rem-sync`\n- `allow-rem-take-launch`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "時刻表通知（Android）：貼／收常駐通知、取與確認待處理動作、排與取消跑太久提醒、查狀態、事件監聽；旅客筆記：取與確認分享進來的文字；截止提醒：交清單、取已響與點開的落點；外部入口：取與確認連結、小工具、寫 NFC 貼紙\n#### This default permission set includes:\n\n- `allow-take-shared`\n- `allow-ack-shared`\n- `allow-post`\n- `allow-remove`\n- `allow-take-pending`\n- `allow-ack-pending`\n- `allow-schedule-reminder`\n- `allow-cancel-reminder`\n- `allow-status`\n- `allow-rem-sync`\n- `allow-rem-take-launch`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-ext-take`\n- `allow-ext-ack`\n- `allow-widget-sync`\n- `allow-widget-status`\n- `allow-widget-pin`\n- `allow-nfc-status`\n- `allow-nfc-write`\n- `allow-nfc-cancel`\n- `allow-nfc-open-settings`"
         }
       ]
     }

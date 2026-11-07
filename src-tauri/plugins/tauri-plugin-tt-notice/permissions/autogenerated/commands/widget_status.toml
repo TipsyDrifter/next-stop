@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-widget-status"
+description = "Enables the widget_status command without any pre-configured scope."
+commands.allow = ["widget_status"]
+
+[[permission]]
+identifier = "deny-widget-status"
+description = "Denies the widget_status command without any pre-configured scope."
+commands.deny = ["widget_status"]

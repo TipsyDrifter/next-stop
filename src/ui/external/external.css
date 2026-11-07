@@ -1,0 +1,32 @@
+/**
+ * 捷徑與小工具（ShortcutsBody；prototypes/外部入口.html 第 4 節）。**只放排版**，顏色一律 token。
+ * 列借提醒頁的 `.ns-rm-row*`、開關＝common/Toggle、下拉＝.ns-select-wrap＋.techo-input、鈕＝.ns-btn。這裡只補分組與列右側的排法。
+ */
+.ns-sc-grp + .ns-sc-grp { margin-top: var(--sp-5); }
+.ns-sc-grp-k { display: block; margin-bottom: 6px; }
+.ns-sc-rows { border-top: 1px solid var(--color-line); }
+
+.ns-sc-act { flex: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.ns-sc-pick { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.ns-sc-pick .ns-select-wrap { min-width: 0; }
+.ns-sc-pick select { max-width: 9em; }
+
+/* 寫入貼紙的 sheet：等待圖示＋一句話 */
+.ns-sc-nfc { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0 var(--sp-3); text-align: center; }
+.ns-sc-nfc .ns-note { margin: 0; }
+.ns-sc-nfc-ic {
+  display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--color-line);
+  font-size: 22px; line-height: 1; color: var(--accent);
+}
+.ns-sc-nfc-ic.is-err { color: var(--color-late); }
+
+/* 手機：觸控目標撐到 44（同其他手機設定頁的鈕） */
+[data-shell="mobile"] .ns-sc { padding-top: var(--sp-2); }
+[data-shell="mobile"] .ns-sc-grp-k {
+  padding: 0;
+  letter-spacing: .28em;
+  text-indent: .28em;
+  color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .ns-sc .ns-btn { min-height: 44px; padding-inline: var(--sp-3); }

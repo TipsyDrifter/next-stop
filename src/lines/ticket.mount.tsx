@@ -22,7 +22,7 @@ import { TICKET_CAPTURE } from "../ui/ticket/capture";
 import { useTicketStore } from "../store/ticketStore";
 import { ticketRepo } from "../data/ticketRepository";
 import { SYNC_LABEL_FALLBACK } from "../store/syncMergeLabels";
-import { repeatSyncLabel, templateSyncLabel, wishSyncLabel } from "./ticketSyncLabel";
+import { repeatSyncLabel, templateSyncLabel, wishKindSyncLabel, wishSyncLabel } from "./ticketSyncLabel";
 import { TICKET_TAG_ENTITIES } from "./ticketTagEntities";
 import { TodayRepeat } from "../ui/ticket/today/TodayRepeat";
 import { ticketReportJump } from "./ticketReport";
@@ -42,6 +42,11 @@ async function ticketSyncRowLabel(tbl: string, rowId: string): Promise<SyncRowLa
     const row = (await ticketRepo.listCategories()).find((c) => c.id === rowId);
     return row ? { label: `分類「${row.name}」`, cols: CATEGORY_COLS } : null;
   }
+  // 壬 候車室：種類「買」
+  if (tbl === "wr_kinds") {
+    const k = (await ticketRepo.listWishKinds()).find((x) => x.id === rowId);
+    return k ? wishKindSyncLabel(k) : null;
+  }
   if (tbl !== "tk_repeats" && tbl !== "tk_wishes" && tbl !== "tk_templates") return SYNC_LABEL_FALLBACK;
   const [accounts, categories] = await Promise.all([ticketRepo.listAccounts(), ticketRepo.listCategories()]);
   const acc = new Map(accounts.map((a) => [a.id, a.name]));
@@ -49,8 +54,10 @@ async function ticketSyncRowLabel(tbl: string, rowId: string): Promise<SyncRowLa
   const look = { accountName: (id: string) => acc.get(id) ?? null, categoryName: (id: string) => cat.get(id) ?? null };
   // 售票口④：願望「降噪耳機」、常用票種「午餐」
   if (tbl === "tk_wishes") {
+    const kinds = await ticketRepo.listWishKinds();
+    const knd = new Map(kinds.map((k) => [k.id, k.name]));
     const w = (await ticketRepo.listWishes()).find((x) => x.id === rowId);
-    return w ? wishSyncLabel(w, look) : null;
+    return w ? wishSyncLabel(w, { ...look, wishKindName: (id: string) => knd.get(id) ?? null }) : null;
   }
   if (tbl === "tk_templates") {
     const t = (await ticketRepo.listTemplates()).find((x) => x.id === rowId);

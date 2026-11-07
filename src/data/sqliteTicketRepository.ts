@@ -25,6 +25,7 @@ import { newWriteBatch, runWriteBatch, type SyncTable, type WriteBatch } from ".
 import {
   CURRENCY_NAMES,
   IMPORT_CHUNK,
+  DEFAULT_CATEGORIES,
   STARTER_CATEGORIES,
   STARTER_CURRENCY,
   UNCAT_EXPENSE_ID,
@@ -83,17 +84,25 @@ import { projectFixed } from "../domain/repeat";
 import {
   AIDS_TEXT,
   applyTemplatePatch,
+  applyWishKindPatch,
   applyWishPatch,
   buildTemplateRow,
+  buildWishKindRow,
   buildWishRow,
   byPosition,
+  WR_KIND_SEEDS,
   type NewTemplateInput,
   type NewWishInput,
+  type NewWishKindInput,
   type NoteUse,
   type TemplatePatch,
   type TemplateRow,
+  type WishKindPatch,
+  type WishKindRow,
   type WishPatch,
   type WishRow,
+  type WishTargetInfo,
+  type WishTargetKind,
 } from "../domain/ticketAids";
 import { todayKey } from "../lib/date";
 import { matchesQuery } from "../domain/ticketView";
@@ -175,8 +184,9 @@ const REP_COLS = [
   "deleted_at",
 ] as const;
 
-/** 售票口④（0016）：與 ticket.rs 的 TK_WISHES_COLS／TK_TEMPLATES_COLS 逐字相同 */
-const WISH_COLS = ["name", "amount_minor", "note", "category_id", "position", "entry_id", "bought_at", "created_at", "updated_at", "deleted_at"] as const;
+/** 售票口④（0016）＋壬 候車室（0019 加 kind_id／target_kind／target_id）：與 ticket.rs 的 TK_WISHES_COLS／TK_TEMPLATES_COLS／WR_KINDS_COLS 逐字相同 */
+const WISH_COLS = ["name", "amount_minor", "note", "category_id", "position", "entry_id", "bought_at", "kind_id", "target_kind", "target_id", "created_at", "updated_at", "deleted_at"] as const;
+const WR_KIND_COLS = ["name", "action", "position", "created_at", "updated_at", "deleted_at"] as const;
 const TPL_COLS = [
   "name",
   "kind",
@@ -193,7 +203,7 @@ const TPL_COLS = [
   "deleted_at",
 ] as const;
 
-type TkTable = "tk_currencies" | "tk_accounts" | "tk_categories" | "tk_entries" | "tk_budgets" | "tk_repeats" | "tk_wishes" | "tk_templates";
+type TkTable = "tk_currencies" | "tk_accounts" | "tk_categories" | "tk_entries" | "tk_budgets" | "tk_repeats" | "tk_wishes" | "tk_templates" | "wr_kinds";
 
 const COLS_OF: Record<TkTable, readonly string[]> = {
   tk_currencies: CUR_COLS,
@@ -204,6 +214,7 @@ const COLS_OF: Record<TkTable, readonly string[]> = {
   tk_repeats: REP_COLS,
   tk_wishes: WISH_COLS,
   tk_templates: TPL_COLS,
+  wr_kinds: WR_KIND_COLS,
 };
 /** 預算的 upsert（③契約 §3.5-2）：重設同一個預算＝同一列、復活墓碑 */
 const BUDGET_UPSERT = "DO UPDATE SET amount_minor = excluded.amount_minor, deleted_at = NULL, updated_at = excluded.updated_at";
@@ -347,13 +358,17 @@ export class SqliteTicketRepository implements TicketRepository {
 
   async ensureStarterRows(): Promise<number> {
     const db = await getDb();
-    // 不加 deleted_at 條件：墓碑也算「在」（0-17；三列本來不能刪，這裡只求冪等）
+    // 不加 deleted_at 條件：墓碑也算「在」（0-17；幣別分類三列本來不能刪，候車室種類可刪＝刪了不回來）
     const curHit = await db.select<{ id: string }[]>(`SELECT id FROM tk_currencies WHERE id = $1`, [STARTER_CURRENCY.id]);
     const catHit = await db.select<{ id: string }[]>(`SELECT id FROM tk_categories WHERE id IN ($1, $2)`, [
       STARTER_CATEGORIES[0].id,
       STARTER_CATEGORIES[1].id,
     ]);
-    const have = new Set<string>([...curHit, ...catHit].map((r) => r.id));
+    const kindHit = await db.select<{ id: string }[]>(
+      `SELECT id FROM wr_kinds WHERE id IN (${WR_KIND_SEEDS.map((_, i) => `$${i + 1}`).join(", ")})`,
+      WR_KIND_SEEDS.map((k) => k.id),
+    );
+    const have = new Set<string>([...curHit, ...catHit, ...kindHit].map((r) => r.id));
     const now = nowUtcIso();
     const stamp = { created_at: now, updated_at: now, deleted_at: null };
     const b = newWriteBatch();
@@ -367,8 +382,34 @@ export class SqliteTicketRepository implements TicketRepository {
       pushInsert(b, "tk_categories", { ...c, archived_at: null, ...stamp });
       n++;
     }
+    for (const k of WR_KIND_SEEDS) {
+      if (have.has(k.id)) continue;
+      pushInsert(b, "wr_kinds", { ...k, ...stamp });
+      n++;
+    }
     await this.commit(db, b);
     return n;
+  }
+
+  async countCustomCategoriesIncludingDeleted(): Promise<number> {
+    const db = await getDb();
+    const rows = await db.select<{ n: number }[]>(`SELECT COUNT(*) AS n FROM tk_categories WHERE id NOT IN ($1, $2)`, [
+      STARTER_CATEGORIES[0].id,
+      STARTER_CATEGORIES[1].id,
+    ]);
+    return rows[0]?.n ?? 0;
+  }
+
+  async ensureDefaultCategories(): Promise<number> {
+    if ((await this.countCustomCategoriesIncludingDeleted()) > 0) return 0;
+    const db = await getDb();
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    for (const c of DEFAULT_CATEGORIES) {
+      pushInsert(b, "tk_categories", { ...c, archived_at: null, created_at: now, updated_at: now, deleted_at: null });
+    }
+    await this.commit(db, b);
+    return DEFAULT_CATEGORIES.length;
   }
 
   /* ───────── 讀 ───────── */
@@ -1263,6 +1304,54 @@ export class SqliteTicketRepository implements TicketRepository {
     await this.commit(db, b);
   }
 
+  async setWishTarget(id: string, target: { kind: WishTargetKind; id: string } | null): Promise<void> {
+    const db = await getDb();
+    const w = await this.wishOrThrow(db, id);
+    if (w.target_id === (target?.id ?? null) && w.target_kind === (target?.kind ?? null)) return;
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    pushUpdate(
+      b,
+      "tk_wishes",
+      id,
+      { target_kind: target?.kind ?? null, target_id: target?.id ?? null, bought_at: target === null ? null : now, updated_at: now },
+      ` AND ${ALIVE}`,
+    );
+    await this.commit(db, b);
+  }
+
+  async getWishTargets(refs: readonly { target_kind: WishTargetKind; target_id: string }[]): Promise<Record<string, WishTargetInfo>> {
+    const db = await getDb();
+    const out: Record<string, WishTargetInfo> = {};
+    const ids = (k: WishTargetKind) => refs.filter((r) => r.target_kind === k).map((r) => r.target_id);
+    const ph = (n: number) => Array.from({ length: n }, (_, i) => `$${i + 1}`).join(", ");
+    const nodeIds = ids("node");
+    if (nodeIds.length) {
+      const rows = await db.select<{ id: string; kind: string; name: string }[]>(
+        `SELECT id, kind, name FROM nodes WHERE deleted_at IS NULL AND id IN (${ph(nodeIds.length)})`,
+        nodeIds,
+      );
+      for (const r of rows) out[r.id] = { kind: r.kind, name: r.name };
+    }
+    const noteIds = ids("note");
+    if (noteIds.length) {
+      const rows = await db.select<{ id: string; entry_date: string | null }[]>(
+        `SELECT id, entry_date FROM notes WHERE deleted_at IS NULL AND id IN (${ph(noteIds.length)})`,
+        noteIds,
+      );
+      for (const r of rows) out[r.id] = { kind: "note", name: r.entry_date ?? "" };
+    }
+    const blockIds = ids("block");
+    if (blockIds.length) {
+      const rows = await db.select<{ id: string; started_at: string }[]>(
+        `SELECT id, started_at FROM time_blocks WHERE deleted_at IS NULL AND id IN (${ph(blockIds.length)})`,
+        blockIds,
+      );
+      for (const r of rows) out[r.id] = { kind: "block", name: r.started_at };
+    }
+    return out;
+  }
+
   async softDeleteWish(id: string): Promise<void> {
     await this.softDeleteIn("tk_wishes", id);
   }
@@ -1274,14 +1363,73 @@ export class SqliteTicketRepository implements TicketRepository {
   async moveWishTo(id: string, index: number): Promise<void> {
     const db = await getDb();
     await this.wishOrThrow(db, id);
-    // 想買那一組＝entry_id 沒指到還在的帳（已買的照那筆的日期排、不參與）
+    // 等候那一組＝entry_id 沒指到還在的帳、target_id 也沒指到還在的記錄（實現了的照實現日排、不參與）
     const want = await db.select<WishRow[]>(
       `SELECT w.* FROM tk_wishes w
        WHERE w.deleted_at IS NULL
          AND NOT EXISTS (SELECT 1 FROM tk_entries e WHERE e.id = w.entry_id AND e.deleted_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM nodes n WHERE w.target_kind = 'node' AND n.id = w.target_id AND n.deleted_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM notes t WHERE w.target_kind = 'note' AND t.id = w.target_id AND t.deleted_at IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM time_blocks tb WHERE w.target_kind = 'block' AND tb.id = w.target_id AND tb.deleted_at IS NULL)
        ORDER BY w.position, w.created_at, w.id`,
     );
     await this.writePositions(db, "tk_wishes", planMoveTo(want, id, index));
+  }
+
+  /* ── 候車室種類（wr_kinds；0019、D-主-519） ── */
+
+  async listWishKinds(): Promise<WishKindRow[]> {
+    const db = await getDb();
+    return db.select<WishKindRow[]>(`SELECT * FROM wr_kinds WHERE ${ALIVE} ORDER BY position, created_at, id`);
+  }
+
+  private async kindOrThrow(db: Database, id: string): Promise<WishKindRow> {
+    const rows = await db.select<WishKindRow[]>(`SELECT * FROM wr_kinds WHERE id = $1 AND ${ALIVE}`, [id]);
+    if (!rows[0]) throw new RangeError(AIDS_TEXT.kindGone);
+    return rows[0];
+  }
+
+  async createWishKind(input: NewWishKindInput): Promise<WishKindRow> {
+    const db = await getDb();
+    // 新的排最後＝下一個番線：現有最大 ＋ 1
+    const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM wr_kinds WHERE ${ALIVE}`);
+    const row = buildWishKindRow(input, { id: uuid(), position: (max[0]?.m ?? -1) + 1, nowIso: nowUtcIso() });
+    const b = newWriteBatch();
+    pushInsert(b, "wr_kinds", row);
+    await this.commit(db, b);
+    return row;
+  }
+
+  async updateWishKind(id: string, patch: WishKindPatch): Promise<WishKindRow> {
+    const db = await getDb();
+    const k = await this.kindOrThrow(db, id);
+    const res = applyWishKindPatch(k, patch, nowUtcIso());
+    if (!Object.keys(res.cols).length) return k;
+    const b = newWriteBatch();
+    pushUpdate(b, "wr_kinds", id, res.cols, ` AND ${ALIVE}`);
+    await this.commit(db, b);
+    return res.row;
+  }
+
+  async softDeleteWishKind(id: string): Promise<void> {
+    const db = await getDb();
+    await this.kindOrThrow(db, id);
+    // 擋刪：還有未刪的願望掛著（含實現過的）就不讓刪——比把願望變孤兒安全
+    const used = await db.select<{ n: number }[]>(`SELECT COUNT(*) AS n FROM tk_wishes WHERE kind_id = $1 AND ${ALIVE}`, [id]);
+    const n = used[0]?.n ?? 0;
+    if (n > 0) throw new RangeError(AIDS_TEXT.kindInUse(n));
+    await this.softDeleteIn("wr_kinds", id);
+  }
+
+  async restoreWishKind(id: string): Promise<void> {
+    await this.restoreIn("wr_kinds", id);
+  }
+
+  async moveWishKindTo(id: string, index: number): Promise<void> {
+    const db = await getDb();
+    await this.kindOrThrow(db, id);
+    const all = await db.select<WishKindRow[]>(`SELECT * FROM wr_kinds WHERE ${ALIVE} ORDER BY position, created_at, id`);
+    await this.writePositions(db, "wr_kinds", planMoveTo(all, id, index));
   }
 
   /* ── 常用票種 ── */
@@ -1343,7 +1491,7 @@ export class SqliteTicketRepository implements TicketRepository {
   }
 
   /** 軟刪（delete op）；已刪或不存在＝不寫 */
-  private async softDeleteIn(tbl: "tk_wishes" | "tk_templates", id: string): Promise<void> {
+  private async softDeleteIn(tbl: "tk_wishes" | "tk_templates" | "wr_kinds", id: string): Promise<void> {
     const db = await getDb();
     const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM ${tbl} WHERE id = $1`, [id]);
     if (!rows[0] || rows[0].deleted_at !== null) return;
@@ -1355,7 +1503,7 @@ export class SqliteTicketRepository implements TicketRepository {
   }
 
   /** 復原（upsert op { deleted_at: null, updated_at }）；沒刪或不存在＝不寫 */
-  private async restoreIn(tbl: "tk_wishes" | "tk_templates", id: string): Promise<void> {
+  private async restoreIn(tbl: "tk_wishes" | "tk_templates" | "wr_kinds", id: string): Promise<void> {
     const db = await getDb();
     const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM ${tbl} WHERE id = $1`, [id]);
     if (!rows[0] || rows[0].deleted_at === null) return;

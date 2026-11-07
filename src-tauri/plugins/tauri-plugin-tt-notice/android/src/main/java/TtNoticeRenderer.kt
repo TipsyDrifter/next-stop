@@ -207,11 +207,20 @@ object TtNoticeRenderer {
   /* ───────── 72501 ───────── */
 
   /**
-   * 依存著的 state 貼或收 72501。沒有 state 或 enabled=false ⇒ 收；沒有通知權限 ⇒ 不貼（last_render="denied@…"）。
+   * 依存著的 state 貼或收 72501，再重畫主畫面小工具。小工具不看 enabled、也不看通知權限，
+   * 所以放在這裡一定走得到（renderNotice 不管從哪個分支出來）：狀態一變都經過這一支，小工具不必另外接。
+   */
+  fun render(ctx: Context) {
+    renderNotice(ctx)
+    NsWidget.refresh(ctx)
+  }
+
+  /**
+   * 沒有 state 或 enabled=false ⇒ 收；沒有通知權限 ⇒ 不貼（last_render="denied@…"）。
    * 每次都從版面重新 inflate RemoteViews，不留上一次的殘值。
    */
   @SuppressLint("MissingPermission")
-  fun render(ctx: Context) {
+  private fun renderNotice(ctx: Context) {
     val app = ctx.applicationContext
     val nm = NotificationManagerCompat.from(app)
     val now = System.currentTimeMillis()

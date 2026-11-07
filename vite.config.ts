@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -16,7 +17,16 @@ export default defineConfig(async ({ command }) => ({
   plugins: [react(), tailwindcss()],
 
   // 產出到 build/：依 file-organization 慣例 dist/ 放軟體產品（安裝包），前端 bundle 不佔用
-  build: { outDir: "build" },
+  // ⑬ 第二個入口 pin.html＝桌面小窗（獨立一包、不載整包 App；只影響 build，dev 本來就照路徑服務）
+  build: {
+    outDir: "build",
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        pin: fileURLToPath(new URL("./pin.html", import.meta.url)),
+      },
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

@@ -20,6 +20,8 @@ mod db_gate;
 // 時刻表 ①a 補充契約（D-時-24／25）：桌機系統匣＋按 ✕ 縮到系統匣。全 App 的殼層行為，時刻表只透過
 // `tray_set_status` 告訴它顯示什麼。手機沒有系統匣，整支不編（`desktop` cfg 由 tauri-build 設，與 `mobile` 互斥）。
 #[cfg(desktop)]
+mod motion_watch;
+#[cfg(desktop)]
 mod tray;
 
 // 旅客筆記線 ⑤（契約 2026-10-16 §3.1／§3.5；接縫 #68 #2／#55）：全域鍵 Ctrl+Alt+N 叫出捕捉小窗、開機自啟、
@@ -35,6 +37,13 @@ mod mcp;
 // ⑨ 截止提醒（契約 2026-11-04 §5）：桌機自己送 toast，點了回 App 直達（外掛 2.3.3 沒有點擊回呼）。手機走 tt-notice 的鬧鐘，不編。
 #[cfg(desktop)]
 mod reminder_toast;
+
+// ⑬ 外部入口（契約 2026-11-06）：`nextstop://` 連結的記憶體佇列與 Windows 登錄（external）、桌面小窗殼層（pin）。
+// 手機走 tt-notice 的 `NsExternalOpenActivity` 與主畫面小工具，不編。
+#[cfg(desktop)]
+mod external;
+#[cfg(desktop)]
+mod pin;
 
 /// `main.rs` 看到 `--mcp-stdio` 就叫這支（Claude 桌面版的 stdio 轉接；D-主-91），回傳行程結束碼。
 #[cfg(desktop)]
@@ -66,9 +75,12 @@ pub fn run() {
     // sql 的 migration 會先在第二個行程裡跑一次。鍵＝bundle identifier（mutex 名 `{identifier}-sim`），所以正式版、
     // 各線 dev（`.dev.timetable` 等）、沙盒（`sandbox.a`／`sandbox.b`）互不干擾。手機沒有這支（Cargo 只在桌機 target 拉）。
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-        // 第二次啟動＝叫出原本的視窗（可能正藏在系統匣），不開第二個
-        tray::show_main_window(app);
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        // 第二次啟動＝叫出原本的視窗（可能正藏在系統匣），不開第二個。
+        // ⑬ argv 帶 `nextstop://` 連結就走連結（由 external 決定要不要叫出視窗：発車／到着不叫）
+        if !external::handle_argv(app, &argv) {
+            tray::show_main_window(app);
+        }
     }));
 
     // 旅客筆記 ⑤（契約 §3.5-②）：全域鍵 plugin 要在 setup 之前掛好，`capture::setup` 裡才能 register。
@@ -84,21 +96,33 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .setup(|app| {
-            // 旅客筆記 ⑤（契約 §3.5-⑤、0-14）：**必須是第一句**——主視窗在 tauri.conf.json 是 visible:false，
+            external::manage(app.handle());
+            pin::manage(app.handle());
+            // 旅客筆記 ⑤（契約 §3.5-⑤、0-14）：**必須是第一個有動作的**——主視窗在 tauri.conf.json 是 visible:false，
             // 「顯示」由它決定（沒帶 --minimized 就顯示）；排在 tray::init 之前，後面任何一步出錯都回不到隱藏。
             // capture::setup 自己永遠回 Ok，這個 Err 分支只是保險。
+            // 上面兩支 manage 無副作用，排在前面是因為 capture 建 webview 會抽訊息，第二行程的連結可能先到。
             if let Err(e) = capture::setup(app.handle()) {
                 eprintln!("[capture] setup：{e}");
             }
             if let Err(e) = tray::init(app.handle()) {
                 eprintln!("[tray] 系統匣建立失敗（按 ✕ 會照舊直接關）：{e}");
             }
+            // ⑬ 外部入口：收冷啟動連結＋寫 scheme 登錄；還原桌面小窗（上次開著就建）。都只 log，不擋啟動。
+            if let Err(e) = external::setup(app.handle()) {
+                eprintln!("[external] setup：{e}");
+            }
+            if let Err(e) = pin::setup(app.handle()) {
+                eprintln!("[pin] setup：{e}");
+            }
+            motion_watch::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
             // 旅客筆記 ⑤（契約 §3.5-④）：只認 capture 的 CloseRequested（攔成 hide）與 main 的 Focused(true)（熱鍵重試）；
             // 下面既有的 main CloseRequested 邏輯逐字不動。
             capture::on_window_event(window, event);
+            pin::on_window_event(window, event); // ⑬ 只認 label pin（貼邊存位置、縮小停 webview、✕ 記成關）
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 use tauri::Manager;
                 if window.label() != tray::MAIN_WINDOW || window.app_handle().tray_by_id(tray::TRAY_ID).is_none() {
@@ -234,6 +258,16 @@ pub fn run() {
             sync::commands::export_write_picked,
             // 失物招領 §3.1 撿回單筆：讀一份雲端快照的內容（兩殼都掛）
             sync::commands::sync_cloud_snapshot_read,
+            // ⑬ 外部入口（桌機限定；手機那份不加——手機走 tt-notice 的 ext_*／widget_*）
+            external::external_take,
+            external::external_ack,
+            external::external_scheme,
+            external::external_show_main,
+            pin::pin_status,
+            pin::pin_set_visible,
+            pin::pin_set_on_top,
+            pin::pin_fit,
+            motion_watch::motion_watch_state,
         ]);
 
     // 手機：同步二十四支（清單與桌機那份逐字相同）＋收官磨光 Q2-a 起的備份六支（重置那支是桌機 DEV 清場用，不掛）

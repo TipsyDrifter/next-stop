@@ -1,6 +1,7 @@
 /**
  * 年鑑（車庫與回顧 D-主-219；原型 `yearTab`／`agoCard`）。
  *   - 最上「那年今日」：往年同月同日有日記或筆記才出現（沒有＝整段不出現）；「打開」＝到旅客筆記打開那天的日記／那則筆記。
+ *   - 願望實現（壬 候車室 D-主-517）：那年今日也認「實現的願望」（日記 › 筆記 › 願望）；按月多一個「實現 N 件」；點了到候車室。
  *   - 下面按月列（新的在上；有済、日記、到站或章的月份才列）：済章數、日記篇數、駅スタンプ數（只寫發生過的量，0 不寫）、
  *     到站的路線（點了開記錄簿）與幹線、當月的章、一句代表筆記。
  * 資料是 `buildYearbook`（domain/depotView.ts）的事，這裡只畫。
@@ -10,6 +11,9 @@ import { useMemo, useState } from "react";
 import { buildYearbook } from "../../domain/depotView";
 import { fmtMD } from "../../domain/depot";
 import { todayKey } from "../../lib/date";
+import { useUiStore } from "../../store/uiStore";
+import type { MobileTabKey } from "../mobile/tabs";
+import type { PageId } from "../shell/pages";
 import { yearKeyOf, type AimPeriod } from "../../domain/weekAims";
 import { useAimLanding } from "../search/aimLanding";
 import { AimsBand } from "../weekAims/AimsBand";
@@ -33,6 +37,13 @@ function agoWhen(day: string, years: number): string {
   return `${ZH_N[years] ?? years}年前・${y}年${m}月${d}日（${wd}）`;
 }
 
+/** 到候車室頁（桌機換頁、手機換 tab）。TODO(壬 整合)：候車室的 PageId／MobileTabKey 進 pages.ts／tabs.ts 之後拿掉 `as string as` */
+function gotoWaitroom(shell: "desktop" | "mobile"): void {
+  const ui = useUiStore.getState();
+  if (shell === "mobile") ui.setMobileTab("waitroom" as string as MobileTabKey);
+  else ui.setPage("waitroom" as string as PageId);
+}
+
 export interface YearbookProps {
   onOpen: (routeId: string) => void;
 }
@@ -52,7 +63,7 @@ export function Yearbook({ onOpen }: YearbookProps) {
   const yb = useMemo(
     () =>
       data
-        ? buildYearbook({ today, stamps, sealDays: data.sealDays, notes: data.notes, routes, lines })
+        ? buildYearbook({ today, stamps, sealDays: data.sealDays, notes: data.notes, wishes: data.wishes, routes, lines })
         : { ago: null, months: [] },
     [today, stamps, data, routes, lines],
   );
@@ -87,14 +98,26 @@ export function Yearbook({ onOpen }: YearbookProps) {
           </div>
           <p className="ns-depot-ago-q">{ago.text}</p>
           <div className="ns-depot-ago-f">
-            <span className="ns-depot-tag">{ago.kind === "diary" ? "日記" : "筆記"}</span>
-            <button
-              type="button"
-              className="ns-btn btn-text"
-              onClick={() => void (ago.kind === "diary" ? jumpDiary(ago.id, ago.day) : jumpNote(ago.id))}
-            >
-              {ago.kind === "diary" ? "打開日記" : "打開筆記"}
-            </button>
+            {ago.kind === "wish" ? (
+              <>
+                <span className="ns-depot-tag">願望{ago.wishKind ? "・" + ago.wishKind : ""}</span>
+                <span className="ns-depot-ago-done">實現了</span>
+                <button type="button" className="ns-btn btn-text" onClick={() => gotoWaitroom(shell)}>
+                  到候車室
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="ns-depot-tag">{ago.kind === "diary" ? "日記" : "筆記"}</span>
+                <button
+                  type="button"
+                  className="ns-btn btn-text"
+                  onClick={() => void (ago.kind === "diary" ? jumpDiary(ago.id, ago.day) : jumpNote(ago.id))}
+                >
+                  {ago.kind === "diary" ? "打開日記" : "打開筆記"}
+                </button>
+              </>
+            )}
           </div>
         </section>
       )}
@@ -108,7 +131,7 @@ export function Yearbook({ onOpen }: YearbookProps) {
                 {M.month === thisMonth ? <span className="now">這個月</span> : <span>{y}</span>}
               </div>
               <div className="ns-depot-yb-c">
-                {(M.seals > 0 || M.diaries > 0 || M.stamps.length > 0) && (
+                {(M.seals > 0 || M.diaries > 0 || M.wishes > 0 || M.stamps.length > 0) && (
                   <p className="ns-depot-yb-facts">
                     {M.seals > 0 && (
                       <span>
@@ -119,6 +142,11 @@ export function Yearbook({ onOpen }: YearbookProps) {
                       <span>
                         日記<b>{M.diaries}</b>篇
                       </span>
+                    )}
+                    {M.wishes > 0 && (
+                      <button type="button" className="ns-depot-yb-wish" onClick={() => gotoWaitroom(shell)}>
+                        實現<b>{M.wishes}</b>件
+                      </button>
                     )}
                     {M.stamps.length > 0 && (
                       <span>

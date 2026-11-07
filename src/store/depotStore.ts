@@ -21,6 +21,8 @@ import { useUiStore } from "./uiStore";
 
 /** 本機鍵（不在同步白名單）：回填過了沒 */
 export const KEY_STAMPS_BACKFILLED = "stamps_backfilled";
+/** 本機鍵（不在同步白名單）：走行圖收起來的幹線（JSON 字串陣列）——兩台螢幕不一樣大，各記各的 */
+export const KEY_MAP_FOLDED = "depot_map_folded";
 const DEBOUNCE_MS = 1500;
 
 export type DepotTab = "ride" | "map" | "year";
@@ -34,6 +36,9 @@ interface DepotState {
   /** 頁內狀態：分頁籤、開著的記錄簿（路線 id；null＝沒開） */
   tab: DepotTab;
   bookId: string | null;
+  /** 走行圖收起來的幹線（幹線 id） */
+  mapFolded: readonly string[];
+  setMapFolded: (ids: readonly string[]) => void;
   setTab: (t: DepotTab) => void;
   openBook: (routeId: string | null) => void;
   /** 載車庫頁的資料＋章 */
@@ -49,6 +54,16 @@ let notifier: Notifier | null = null;
 /** UI 層註冊蓋章 toast 的畫法（StampNotifier 元件） */
 export function setStampNotifier(fn: Notifier | null): void {
   notifier = fn;
+}
+
+/** 讀不懂就當沒收過：收合只是版面偏好，不值得為它報錯 */
+function parseFolded(raw: string | null): string[] {
+  try {
+    const v: unknown = JSON.parse(raw ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 let running: Promise<void> | null = null;
@@ -99,6 +114,12 @@ export const useDepotStore = create<DepotState>((set, get) => ({
   error: null,
   tab: "ride",
   bookId: null,
+  mapFolded: [],
+
+  setMapFolded(ids) {
+    set({ mapFolded: ids });
+    void settingsRepo.set(KEY_MAP_FOLDED, JSON.stringify(ids)).catch(() => undefined);
+  },
 
   setTab(t) {
     set({ tab: t, bookId: null });
@@ -112,8 +133,12 @@ export const useDepotStore = create<DepotState>((set, get) => ({
     set({ loading: get().data === null });
     try {
       const h = useUiStore.getState().dayStartHour;
-      const [data, rows] = await Promise.all([depotRepo.loadDepot(h), depotRepo.listStamps()]);
-      set({ data, stamps: alive(rows), loading: false, error: null });
+      const [data, rows, folded] = await Promise.all([
+        depotRepo.loadDepot(h),
+        depotRepo.listStamps(),
+        settingsRepo.get(KEY_MAP_FOLDED).catch(() => null),
+      ]);
+      set({ data, stamps: alive(rows), mapFolded: parseFolded(folded), loading: false, error: null });
     } catch (e) {
       set({ loading: false, error: e instanceof Error ? e.message : String(e) });
     }

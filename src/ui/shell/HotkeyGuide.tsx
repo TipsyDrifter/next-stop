@@ -18,6 +18,7 @@
  *   hotkeyGuide.css 只放排版，顏色一律 token。
  */
 import { useEffect, useRef } from "react";
+import { useBoardStore } from "../../store/boardStore";
 import { useUiStore } from "../../store/uiStore";
 import { DialogShell } from "../common/DialogShell";
 import { formatChord } from "./hotkeys";
@@ -55,7 +56,11 @@ function HotkeyGuideCard() {
   }, []);
 
   // 行程表切到「串流」排列時，格層表只剩 Esc；實際在用的是 daylist 那張（StreamView 自己查表，主線車次① ☎3）
-  const scope = page === "calendar" && calendarView === "stream" ? "daylist" : pageScope(page);
+  // ⑫：路線圖看的是看板（路線看板、篩選分頁）時同理；分頁鍵 1、2 登記在 outline 那組，這裡接在後面
+  const routeOverview = useUiStore((s) => s.routeOverview);
+  const onBoard = useBoardStore((s) => (routeOverview ? s.overviewTab === "filter" : s.routeLayout === "board"));
+  const boardScope = page === "routemap" && onBoard;
+  const scope = page === "calendar" && calendarView === "stream" ? "daylist" : boardScope ? "board" : pageScope(page);
   const here = sceneOf(scope);
   const global = sceneOf("global");
 
@@ -73,7 +78,7 @@ function HotkeyGuideCard() {
         {scope !== "global" && (
           <section className="ns-hkg-section" aria-label={here.title}>
             <p className="ns-note ns-hkg-scene">{here.note}</p>
-            <HotkeyList rows={rowsFor(scope)} />
+            <HotkeyList rows={boardScope ? [...rowsFor("board"), ...rowsFor("outline").filter((r) => r.ids[0].startsWith("outline.view."))] : rowsFor(scope)} />
           </section>
         )}
 

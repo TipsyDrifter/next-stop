@@ -42,6 +42,7 @@ const FAKE_REPO = `export const ticketRepo = new Proxy({}, { get: (_, k) => (...
 /** 本機設定：Map 放在 globalThis，測試可以看、可以預先塞值；set 可以被要求失敗 */
 const FAKE_DATA = `
 globalThis.__settings = globalThis.__settings ?? new Map();
+export const nodeRepo = { async getNode(id) { return (globalThis.__nodes ?? {})[id] ?? null; } };
 export const settingsRepo = {
   async get(k) {
     const v = globalThis.__settings.has(k) ? globalThis.__settings.get(k) : null;
@@ -112,6 +113,7 @@ describe("domain/ticketPrefs", () => {
   test("讀回來不認得的值一律回預設", () => {
     assert.equal(P.parseTicketView("stats"), "stats");
     assert.equal(P.parseTicketView("garage"), "list");
+    assert.equal(P.parseTicketView("wish"), "list", "壬：願望籤拆除前存下的 wish 回清單");
     assert.equal(P.parseTicketView(null), "list");
     assert.equal(P.parseStatsSpan("year"), "year");
     assert.equal(P.parseStatsSpan("week"), "month");
@@ -223,7 +225,7 @@ describe("ticketStore 己-2：記住上次", async () => {
   settings.set("ticket_stats_span", "year");
   settings.set("ticket_stats_facet", "route");
   settings.set("ticket_stats_kind", "income");
-  settings.set("ticket_view_mobile", "wish");
+  settings.set("ticket_view_mobile", "accounts");
   const { useTicketStore } = await import("../../src/store/ticketStore.ts");
   const st = () => useTicketStore.getState();
   const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -252,7 +254,7 @@ describe("ticketStore 己-2：記住上次", async () => {
     assert.equal(settings.get("ticket_stats_span"), "month");
     assert.equal(settings.get("ticket_stats_facet"), "tag");
     assert.equal(settings.get("ticket_stats_kind"), "expense");
-    assert.equal(settings.get("ticket_view_mobile"), "wish", "手機鍵沒被動到");
+    assert.equal(settings.get("ticket_view_mobile"), "accounts", "手機鍵沒被動到");
   });
 
   test("不經 setView 的換視圖（跳到某天回清單）也記", async () => {

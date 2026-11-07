@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 圓牌右上角的運行中小點（原型 .tile .dot：外圈紙色）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/ns_widget_late" />
+    <stroke android:width="1.5dp" android:color="@color/ns_widget_paper" />
+</shape>

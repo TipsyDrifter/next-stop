@@ -61,6 +61,7 @@
  *      初始高度只露半個「刪除」。附加項仍是別線元件自己畫的 MSheetItem，本檔只包一層列容器；右側小字在格裡換到第二行。
  *   做不到的項目（到頂到底、不能升降層…）＝`MSheetItem off`：淡掉、點了 toast 說為什麼（觸控看不到 title；原型「灰掉的項目點了會說為什麼」）。
  *   新 props（`level`／`add`／`detail`、reorder 的 upWhy／downWhy）一律 optional：今日、行程表呼叫端不改也照常運作。
+ * ⑫ 看板（契約 §4）：`head`、`belowSchedule`＝排程上下各多一段（看板的現況；車站、選取；board/MobileBoardCardSheet）；`flatArrange`＝編排只有「移動到…」時直接一列，不多點一下。
  *   版面樣式在 `routemap/ticket-sheet.css`（本班新檔；mobile-polish.css 不動）。
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -81,6 +82,7 @@ import { MobileTextSheet } from "./MobileTextSheet";
 import "./mobile-polish.css";
 import "./routemap/ticket-sheet.css";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
+import { copyTicketLink } from "../external/externalBridge";
 import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { mdw, sheetDeferItems } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
@@ -133,6 +135,12 @@ export interface MobileTicketSheetProps {
   } | null;
   /** 「詳情…」（開手機詳情頁）；預設出，false＝不出 */
   detail?: boolean;
+  /** 排程之上多一段（⑫ 看板的現況）；子面板開著時不畫 */
+  head?: ReactNode;
+  /** 排程之下多一段（⑫ 看板的車站、選取） */
+  belowSchedule?: ReactNode;
+  /** 編排只有一項時不包群組，直接一列（⑫ 看板只有「移動到…」） */
+  flatArrange?: boolean;
   /** 返回層 id：呼叫端已用同一個 id 登記整個流程（含子面板）那一層；傳給每一張 MSheet，refcount 合併成一層 */
   backId: string;
   onClose(): void;
@@ -154,6 +162,9 @@ export function MobileTicketSheet({
   level,
   add,
   detail = true,
+  head,
+  belowSchedule,
+  flatArrange = false,
   backId,
   onClose,
 }: MobileTicketSheetProps) {
@@ -534,6 +545,29 @@ export function MobileTicketSheet({
     }
   }
 
+  /* ── ⑬ 複製連結（支線是主題，不算票）：跟「詳情…」排一列，不把「刪除」再往折線下擠 ── */
+  const copyLink =
+    card.kind === "branch" ? null : (
+      <MSheetItem
+        onClick={() => {
+          onClose();
+          void copyTicketLink(card.nodeId);
+        }}
+      >
+        複製連結
+      </MSheetItem>
+    );
+  const detailItem = detail ? (
+    <MSheetItem
+      onClick={() => {
+        onClose();
+        useMobileDetailStore.getState().open(card.nodeId);
+      }}
+    >
+      詳情…
+    </MSheetItem>
+  ) : null;
+
   /* ── ⑤ 各線附加項 ── */
   const lineItems = lineTicketSheetItems().map(({ id, Item }) => (
     <Item key={id} nodeId={card.nodeId} name={card.name} close={onClose} />
@@ -541,12 +575,15 @@ export function MobileTicketSheet({
 
   return (
     <MSheet list title={card.name} backId={backId} onClose={onClose}>
+      {head}
       {schedule}
+      {belowSchedule}
       {/* 唯讀的卡（定期券歷史班次）只留上面那一行說明，以下一項都不出（磨光① D-1） */}
       {!card.readOnly && (
         <>
           {textItems.length === 2 ? <div className="m-tks-pair">{textItems}</div> : textItems}
-          {arrange.length > 0 && (
+          {flatArrange && arrange.length === 1 && arrange}
+          {arrange.length > 0 && !(flatArrange && arrange.length === 1) && (
             <>
               {/* 群組開關：要帶 aria-expanded／aria-controls，直接畫同一個 .ns-msheet-item（↑↓ 照樣停得到） */}
               <button
@@ -570,15 +607,13 @@ export function MobileTicketSheet({
             </>
           )}
           {adds}
-          {detail && (
-            <MSheetItem
-              onClick={() => {
-                onClose();
-                useMobileDetailStore.getState().open(card.nodeId);
-              }}
-            >
-              詳情…
-            </MSheetItem>
+          {detailItem && copyLink ? (
+            <div className="m-tks-pair">
+              {detailItem}
+              {copyLink}
+            </div>
+          ) : (
+            (detailItem ?? copyLink)
           )}
           {/* 各線附加項（接縫 #56 後半；旅客筆記：荷札…、時刻表：発車）——別線的元件自己畫 MSheetItem；
               兩項以上排成一列多格（第三輪，D-主-76 補強：路線圖多一列「新增」時，一項一列會把「刪除」擠到折線下） */}

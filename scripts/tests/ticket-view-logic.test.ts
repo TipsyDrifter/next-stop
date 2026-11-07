@@ -1080,6 +1080,8 @@ function makeSqliteDb() {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = OFF");
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0007_ticket_ledger.sql"), "utf8"));
+  // 壬 0019：ensureStarterRows 會種 wr_kinds，schema 要跟上（0016 是它的前置）
+  for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   return {
     async select(sql: string, args?: unknown[]) {

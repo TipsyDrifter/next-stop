@@ -9,7 +9,8 @@
  *   （nodes.mood ＝最近一班），所以這張卡對定期券與一般票走同一條路；一行乘務記錄也照舊掛在節點上。
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { KIND_LABEL, type Mood } from "../../domain";
+import { nodeRepo } from "../../data";
+import { KIND_LABEL, type Mood, type NodeRow } from "../../domain";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 // 心情三燈的字與色：完成卡與側板同一份（UI 丙-3 G1；§4 定案字＝順暢／還行／吃力，存的值不變）
@@ -22,7 +23,23 @@ export function CompleteCard({ className }: { className?: string }) {
 }
 
 function CompleteCardInner({ id, className }: { id: string; className?: string }) {
-  const node = useNodeStore((s) => s.tree.byId[id] ?? s.today.byId[id]); // 今日視圖蓋章時節點不在 tree 裡（M3 ③ WP1 接縫）
+  const sliced = useNodeStore((s) => s.tree.byId[id] ?? s.today.byId[id]); // 今日視圖蓋章時節點不在 tree 裡（M3 ③ WP1 接縫）
+  // 切片都沒有（篩選清單跨路線蓋的）就問 repository，同手機完成卡
+  const [fetched, setFetched] = useState<NodeRow | null>(null);
+  useEffect(() => {
+    if (sliced) return;
+    let alive = true;
+    void nodeRepo
+      .getNode(id)
+      .then((n) => {
+        if (alive) setFetched(n);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [id, sliced]);
+  const node = sliced ?? fetched;
   const updateNode = useNodeStore((s) => s.updateNode);
   const addWorkLog = useNodeStore((s) => s.addWorkLog);
   const setCompleteCardFor = useUiStore((s) => s.setCompleteCardFor);

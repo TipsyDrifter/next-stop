@@ -13,4 +13,16 @@
     <!-- ⑨ 截止提醒：鬧鐘到時 JS 可能沒在跑；票名只在解鎖後看得到（照 D-時-29），鎖屏只顯示這一句 -->
     <string name="ns_channel_reminders">提醒</string>
     <string name="ns_reminder_public">有新的提醒</string>
+    <!-- ⑬ 外部入口：別的 App 分享清單上的名字 -->
+    <string name="ns_share_label">私鐵手帳</string>
+    <!-- ⑬ 碰貼紙：手機留在貼紙上重複讀，8 秒內不再算一次 -->
+    <string name="ns_nfc_repeat">剛剛記過了</string>
+    <!-- ⑬ 主畫面小工具 -->
+    <string name="ns_widget_label">時刻表</string>
+    <string name="ns_widget_description">正在跑的列車、今日還有幾張</string>
+    <string name="ns_widget_depart">発車</string>
+    <string name="ns_widget_today">今日</string>
+    <string name="ns_widget_today_prefix">今日還有</string>
+    <string name="ns_widget_today_suffix">張</string>
+    <string name="ns_widget_no_count">?</string>
 </resources>

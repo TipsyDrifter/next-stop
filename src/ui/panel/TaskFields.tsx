@@ -31,6 +31,7 @@ import {
 } from "./fields";
 import { FareRow, RepeatSection, TeikiStampRow, usePanelRepeat } from "./RepeatRuleEditor";
 import { LengthField, TimeSpanField } from "./TimeField";
+import { StationFieldRow } from "../board/StationField";
 import { Choice } from "./Choice";
 import { DateChip } from "../common/DateChip";
 import { MOODS } from "../complete/moods";
@@ -353,6 +354,9 @@ function TaskPanel({ node }: { node: NodeRow }) {
           />
         </FieldRow>
 
+        {/* ⑫：沒有子項、路線上有車站才出 */}
+        <StationFieldRow node={node} />
+
         <LineRows node={node} />
 
         <FieldRow label="心情">
@@ -582,6 +586,8 @@ function TicketPanel({ node }: { node: NodeRow }) {
             ariaLabel="優先順序"
           />
         </FieldRow>
+        {/* ⑫：路線上有車站才出；臨時車票沒掛路線時不出 */}
+        <StationFieldRow node={node} />
         <LineRows node={node} />
       </div>
 

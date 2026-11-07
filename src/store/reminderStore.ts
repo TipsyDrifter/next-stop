@@ -24,6 +24,8 @@ interface ReminderState {
   load(): Promise<void>;
   update(patch: Partial<ReminderSettings>): Promise<void>;
   setRecent(recent: ReminderRecent[]): void;
+  /** 本機資料被整批換掉：最近的提醒可能清了，重讀 */
+  reloadRecent(): Promise<void>;
   setExactAlarm(v: boolean): void;
 }
 
@@ -65,6 +67,9 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
   },
 
   setRecent: (recent) => set({ recent }),
+  async reloadRecent() {
+    set({ recent: parseRecent(await settingsRepo.get(KEY_REMINDER_RECENT).catch(() => null)) });
+  },
   setExactAlarm: (exactAlarm) => set({ exactAlarm }),
 }));
 

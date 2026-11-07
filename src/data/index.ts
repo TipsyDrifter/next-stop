@@ -162,6 +162,7 @@ export type {
   // M3 ⑤ 日曆契約層
   CalendarData,
   DueEntry,
+  TaskHolderRow,
 } from "./nodeRepository";
 export {
   todayBucketOf,

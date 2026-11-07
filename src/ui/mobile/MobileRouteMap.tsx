@@ -58,6 +58,10 @@
  *   不縮放、展開它的唯讀詳情、捲到那一列並閃一下（D-主-48）。節點不在樹裡（被刪了）⇒ 停在那條路線第二層。
  * 磨光① N9：済列的印改用圓印 `SealDone small`（手機今日票卡同一枚）；運休照舊方角印（規格 §6：圓印＝定案、角印＝運行狀態告示）。
  *
+ * ⑫（契約 docs/research/2026-11-06-⑫看板與篩選-契約.md §1、§4）：本檔只掛分頁，內容在 board/ 新檔。
+ *   第一層頂上 Tabs「路線｜篩選」（board/MobileFilterView）；第二層抬頭下面 Tabs「大綱｜看板」（board/MobileRouteBoard），頁底建票列跟著目前那一欄。
+ *   偏好（分頁、分欄）在 boardStore，`ready` 之前兩層都不畫內容（不然會閃一下上次沒選的那一頁）。第一層的「誤點 N」可點＝篩選預填這條路線＋誤點。
+ *
  * 定期券口徑與大綱同一把尺（M3 ④）：是不是定期券＝`parseRule(repeat_rule) !== null`；
  *   済了沒＝`currentOccurrences[id] ? status === 'done' : node.status === 'done'`；運休＝`status === 'skipped'`。
  */
@@ -75,7 +79,9 @@ import type { CurrentOccurrence } from "../../data";
 import { effectiveTime, isTimeOverridden } from "../../domain/scheduledTime";
 import { flattenSubtrees, isRouteNodeDone, routeHeadStats, routeHeadTicketText } from "../../domain/routeHead";
 import {
+  EMPTY_TREE,
   ancestorsOf,
+  conflictNameOf,
   descendantCount,
   openDescendantCount,
   serialOf,
@@ -139,6 +145,13 @@ import { dropVerdict } from "../../domain/dropRules";
 import { MobileSelectionBar } from "./MobileSelectionBar";
 import { SelectCheck, batchDragIds, pressSelect, tapSelect, usePruneSelection, useScopeSelection } from "./mobileSelect";
 import { moveNodesWithUndo, stepAnchor } from "./mobileMoves";
+import { Tabs } from "../common/Tabs";
+import { useBoardStore, type OverviewTab } from "../../store/boardStore";
+import { landOnBoard } from "../board/boardReveal";
+import { useRouteBoard, type BoardColumnModel } from "../board/useRouteBoard";
+import { MobileBoardAdd, MobileRouteBoard, MobileRouteLayoutTabs, ROUTE_LAYOUT_PANEL } from "./board/MobileRouteBoard";
+import { MobileFilterView, OVERVIEW_PANEL } from "./board/MobileFilterView";
+import { openLateOfRouteMobile, useFilterNavStore } from "./board/filterNav";
 import "./mobile-quickjump.css";
 import "./routemap/routemap.css";
 import "./routemap/route-manage.css";
@@ -310,11 +323,26 @@ function RouteSummaryLines({
         ))}
       {parts.length > 0 && (
         <span className="m2-route-stats">
-          {parts.map((p, i) => (
-            <span key={i} className={p.late ? "is-late" : undefined}>
-              {p.text}
-            </span>
-          ))}
+          {parts.map((p, i) =>
+            p.late ? (
+              // 誤點 N＝篩選清單預填這條路線＋誤點（⑫ 契約 §7）；列本身是可點的（進第二層），事件與鍵盤都在這裡截住
+              <button
+                key={i}
+                type="button"
+                className="m2-route-latebtn"
+                aria-label={`看「${route.name}」誤點的車票`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openLateOfRouteMobile(route.id);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                {p.text}
+              </button>
+            ) : (
+              <span key={i}>{p.text}</span>
+            ),
+          )}
         </span>
       )}
     </span>
@@ -708,7 +736,7 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
             {conflicts.map((l) => (
               <li key={l.id}>
                 <span className="m2-conflict-tm">{fmtLogHm(l.logged_at)}</span>
-                <span>{describeConflict(l.body)}</span>
+                <span>{describeConflict(l.body, conflictNameOf)}</span>
               </li>
             ))}
           </ul>
@@ -743,6 +771,15 @@ export default function MobileRouteMap() {
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [zoomId, setZoomId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /* ── ⑫：看板與篩選的偏好 ── */
+  const boardReady = useBoardStore((s) => s.ready);
+  const overviewTab = useBoardStore((s) => s.overviewTab);
+  const routeLayout = useBoardStore((s) => s.routeLayout);
+  const boardGroup = useBoardStore((s) => s.boardGroup);
+  const [boardColKey, setBoardColKey] = useState<string | null>(null);
+  /** 要看板跳到某一欄（建好車票後）；seq 換＝跳 */
+  const [boardJump, setBoardJump] = useState<{ key: string; seq: number }>({ key: "", seq: 0 });
+  useEffect(() => void useBoardStore.getState().ensureLoaded(), []);
   const [detailId, setDetailId] = useState<string | null>(null);
   /** A7：進了路線、等樹載好才落點的那張票 */
   const [landing, setLanding] = useState<{ routeId: string; nodeId: string } | null>(null);
@@ -813,6 +850,18 @@ export default function MobileRouteMap() {
     [treeReady, tree, rootChildren, collapsed, hideDone, currentOccurrences],
   );
   const rows = built.rows;
+  const showBoard = routeLayout === "board";
+  const board = useRouteBoard({
+    tree,
+    routeId: openedId ?? "",
+    zoom,
+    rootIds: rootChildren,
+    stations: allStations,
+    occurrences: currentOccurrences,
+    group: boardGroup,
+    hideDone,
+  });
+  const boardCol: BoardColumnModel | undefined = board.columns.find((c) => c.key === boardColKey) ?? board.columns[0];
 
   /**
    * 回饋甲 D-主-128：頁底建票列。掛到＝這條路線（建成列車；chip 旁可改「車票」、或改掛某班列車建車票）；
@@ -933,6 +982,17 @@ export default function MobileRouteMap() {
   };
   useBackLayer("core.routemap", openedId !== null, goUp, "page");
 
+  // ⑫：從別處要進篩選（完整搜尋的指路）：退回第一層。只看掛著的時候換的節拍（剛掛上的舊值不算，不然會蓋掉跳到某張票）
+  const filterSeq = useFilterNavStore((s) => s.seq);
+  const seenFilterSeq = useRef(filterSeq);
+  useEffect(() => {
+    if (filterSeq === seenFilterSeq.current) return;
+    seenFilterSeq.current = filterSeq;
+    backToList();
+    // backToList 只碰 setter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterSeq]);
+
   /* ── A7：跳到某張票（請求槽 → 進路線 → 樹載好後展開、捲到、閃一下） ── */
   const req = useRevealStore((s) => s.req);
 
@@ -951,6 +1011,8 @@ export default function MobileRouteMap() {
     const id = landing.nodeId;
     setLanding(null);
     if (!tree.byId[id]) return; // 被刪了／不在這棵樹（例：車站）：停在路線第二層
+    setZoomId(null);
+    if (landOnBoard(id)) return; // ⑫ 記著看板、目標是看得到的卡：看板自己捲過去；其他已切回大綱，照下面展開
     const anc = ancestorsOf(tree, openedId, id);
     setCollapsed((c) => {
       if (!anc.some((a) => c[a])) return c;
@@ -958,7 +1020,6 @@ export default function MobileRouteMap() {
       for (const a of anc) delete next[a];
       return next;
     });
-    setZoomId(null);
     setDetailId(id);
     setScrollId(id);
   }, [landing, treeReady, loading, tree, openedId]);
@@ -1091,11 +1152,32 @@ export default function MobileRouteMap() {
   };
 
   /* ── 第一層 ── */
+  // ⑫：偏好讀回來之前不畫內容（不然會閃一下沒選的那一頁）
+  if (!boardReady) return <div className="m-page m2-page" aria-busy="true" aria-label="路線圖" />;
+
   if (!openedId) {
     return (
-      <div className="m-page m2-page" aria-label="我的路線">
-        <RouteList onOpen={enterRoute} />
-      </div>
+      <>
+        <div className="ns-tabrow m-bd-toptabs">
+          <Tabs<OverviewTab>
+            aria-label="路線或篩選"
+            value={overviewTab}
+            onChange={(v) => useBoardStore.getState().setOverviewTab(v)}
+            getPanelId={(k) => OVERVIEW_PANEL[k]}
+            items={[
+              { key: "routes", label: "路線" },
+              { key: "filter", label: "篩選" },
+            ]}
+          />
+        </div>
+        {overviewTab === "filter" ? (
+          <MobileFilterView />
+        ) : (
+          <div id={OVERVIEW_PANEL.routes} role="tabpanel" className="m-page m2-page" aria-label="我的路線">
+            <RouteList onOpen={enterRoute} />
+          </div>
+        )}
+      </>
     );
   }
 
@@ -1113,7 +1195,7 @@ export default function MobileRouteMap() {
 
   return (
     <>
-    <div ref={pageRef} className="m-page m2-page" aria-label={`路線 ${route?.name ?? ""}`}>
+    <div ref={pageRef} className={"m-page m2-page" + (showBoard ? " is-board" : "")} aria-label={`路線 ${route?.name ?? ""}`}>
       {/* 麵包屑：sticky 釘在內容區頂端——捲到樹深處時仍看得到；Android 返回鍵也走同一條路（上面的 goUp） */}
       <nav className="m2-crumbs" aria-label="路線位置">
         {crumbs.map((c, i) => (
@@ -1160,24 +1242,46 @@ export default function MobileRouteMap() {
         </header>
       )}
 
+      {/* ⑫：大綱｜看板（看板分頁的內容在 board/MobileRouteBoard）。看板版面欄要高度，下一站方針與別線欄位列留在大綱分頁 */}
+      <MobileRouteLayoutTabs />
+
       {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿打開的）頂上一行＋「回到運行」 */}
       {!zoom && route && <DepotBanner route={route} />}
 
       {/* 下一站方針（方針擴充 辛 §3）：有方針才一行、點了開車站小卡；收進車庫的路線沒有下一站 */}
-      {!zoom && nextStation && nextStationAims.length > 0 && (
+      {!showBoard && !zoom && nextStation && nextStationAims.length > 0 && (
         <MobileAimsLine aimKey={stationKeyOf(nextStation.id)} heading="下一站方針" onTap={() => stationCard.open(nextStation.id)} />
       )}
       {stationCard.node}
 
       {/* 別線登記的「路線」欄位列（插槽 `nodeFields`，kinds 含 route；接縫 #62）：路線在手機沒有 RowDetail，放在抬頭之下、樹之上；沒有線填＝什麼都不畫 */}
-      {!zoom &&
+      {!showBoard &&
+        !zoom &&
         route &&
         lineNodeFields("mobile")
           .filter((f) => f.Mobile && f.kinds.includes("route"))
           .map((f) => (f.Mobile ? <f.Mobile key={f.id} node={route} /> : null))}
 
+      {/* 樹還沒載到（剛換路線，EMPTY_TREE）不畫：空的欄會閃一下，也會把「看到哪一欄」的記憶洗掉 */}
+      {showBoard && treeReady && tree !== EMPTY_TREE && (
+        <MobileRouteBoard
+          board={board}
+          group={boardGroup}
+          routeId={openedId}
+          tree={tree}
+          zoom={zoom}
+          parked={parked}
+          today={todayKey(dayStartHour)}
+          jumpTo={boardJump}
+          onColumn={setBoardColKey}
+          openRouteDetail={() => openDetail(openedId)}
+        />
+      )}
+      {showBoard && (!treeReady || tree === EMPTY_TREE) && showLoading && <p className="m2-note">載入中……</p>}
+
       {/* 回饋甲 D-主-131：區段標＋右側「済 N・隱藏／顯示」（桌機大綱「列車 ── M 項 ［済］」同款；聚焦時標題換成那一層的名字） */}
-      {treeReady && (rows.length > 0 || built.doneHidden > 0) && (
+      <div id={ROUTE_LAYOUT_PANEL.outline} role={showBoard ? undefined : "tabpanel"} aria-label={showBoard ? undefined : "大綱"} style={{ display: "contents" }}>
+      {!showBoard && treeReady && (rows.length > 0 || built.doneHidden > 0) && (
         <div className="sec m2-sec">
           <h3>{zoom ? zoom.name : "大綱" /* 丁 D-主-250：混了支線、列車、車票，不再寫「列車」 */}</h3>
           <span className="rule" />
@@ -1191,7 +1295,7 @@ export default function MobileRouteMap() {
         </div>
       )}
 
-      {!treeReady ? (
+      {showBoard ? null : !treeReady ? (
         showLoading ? (
           <p className="m2-note">載入中……</p>
         ) : null
@@ -1386,6 +1490,7 @@ export default function MobileRouteMap() {
           })}
         </ul>
       )}
+      </div>
 
       {/* ⋯ sheet 與空狀態的命名面板（MSheet 自己 portal 到 body；返回層同一個 id） */}
       {renderSheet()}
@@ -1442,7 +1547,18 @@ export default function MobileRouteMap() {
     </div>
     {/* 回饋甲 D-主-128：頁底建票列（殼根節點的直接子節點，同今日頁的 .m-newticket；選取列／完成卡開著時由它們的 css 收起）。
         車庫裡的路線不畫（O-3） */}
-    {!parked && (
+    {!parked && showBoard && (
+      <MobileBoardAdd
+        column={boardCol}
+        routeId={openedId}
+        zoom={zoom}
+        onCreated={() => {
+          // 依狀態新票都在未開始：不在那一欄就跳過去（建好的東西要出現在眼前）
+          if (boardGroup === "status") setBoardJump((n) => ({ key: "todo", seq: n.seq + 1 }));
+        }}
+      />
+    )}
+    {!parked && !showBoard && (
       <MobileQuickAdd
         defaults={qaDefaults}
         here={qaHere}
@@ -1453,7 +1569,7 @@ export default function MobileRouteMap() {
       />
     )}
     {/* 選取列：殼根節點的直接子節點（排在頁面之後、tab bar 之前；mobile-select.css） */}
-    <MobileSelectionBar scope="outline" />
+    {showBoard ? <MobileSelectionBar scope="board" lookup={(id) => useNodeStore.getState().tree.byId[id]} /> : <MobileSelectionBar scope="outline" />}
     </>
   );
 }

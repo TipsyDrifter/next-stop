@@ -14,13 +14,15 @@
  *   - 主題三選與週首換共用 `Segmented`（相連方格、--sel-bg 選中），不再用分開的 `.ns-choice` 小方塊。
  *   - `DialogShell size="L"`（620）、眉標 `{設定, Settings}`；拿掉「關閉」鈕，只留標題列的 ×（即選即存，沒有底部按鈕列）。
  *   - 籤的唯一來源仍是 `uiStore.settingsTab`／`setSettingsTab`（HotkeyGuide、useGlobalHotkeys、同步橫幅會從外面指定籤）。
- * 主題過渡（M3 ② · 決策記錄〈M3 · 發車〉決策 12・r3）：商店主題（旅の手帖・夜行寝台・月白）暫時下架、tokens 存在 styles/theme-library.css，主題商店開張再回歸。
+ * 主題商店（第三梯 ⑩，D-主-435）：主題三選旁的「商店」在本籤內換頁到 `ThemeShop`（四套主題＋手寫字型）；穿著商店主題時三選都不亮、商店鈕亮。
  * 取捨：即選即存（無儲存鈕，store 自己落 settings 表）；日界線的說明放在選單下方一句話；主題的副註只放 title。
  */
-import { useEffect, useId, useLayoutEffect, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useUiStore, type SettingsTab, type ThemePref } from "../../store/uiStore";
 import { useLostFoundStore } from "../../store/lostFoundStore";
 import { DialogShell } from "../common/DialogShell";
+import { ThemeShop } from "./ThemeShop";
+import { skinById } from "../../lib/themeShop";
 import { SnapshotRescue } from "../common/SnapshotRescue";
 import { Tabs, type TabItem } from "../common/Tabs";
 import { Segmented, type SegmentedOption } from "../common/Segmented";
@@ -29,13 +31,15 @@ import { HotkeysTab } from "./HotkeysTab";
 import { SyncTab } from "./SyncTab";
 import { RemindersTab } from "./RemindersTab";
 import { ExternalAssistantTab } from "./ExternalAssistantTab";
+import { ShortcutsBody } from "../external/ShortcutsBody";
 import { LostFoundList } from "./LostFoundList";
 import { AutostartRow } from "../notes/desktop";
+import { MoodSettings } from "../ambience";
 import { lineSettingsLinks } from "../../lines/runtime";
 import "../common/overlay.css";
 import "./settings.css";
 
-/** 主題三選（文案與順序 MobileMore.tsx 逐字沿用；改這裡要跟著改那邊）；副註放 title */
+/** 主題三選（商店主題不在這三個裡：Segmented 收 null＝都不亮）（文案與順序 MobileMore.tsx 逐字沿用；改這裡要跟著改那邊）；副註放 title */
 const THEMES: SegmentedOption<ThemePref>[] = [
   { value: "pastel", label: "粉彩星空", title: "朧月的月台・日間" },
   { value: "galaxy", label: "銀河鐵道", title: "深夜月台・夜間" },
@@ -62,6 +66,7 @@ const TABS: TabItem<SettingsTab>[] = [
   { key: "sync", label: "同步" },
   { key: "assistant", label: "外部助理" },
   { key: "lostfound", label: "最近刪除" },
+  { key: "shortcuts", label: "捷徑與小工具" },
 ];
 
 /** 去「從雲端備份撿回」之前設定捲到哪（回來時還原：備份籤的入口在很下面） */
@@ -121,7 +126,7 @@ function SettingsForm() {
       topClass="pt-[10vh]"
     >
       <div ref={tabsRef} className="ns-set-tabs">
-        <Tabs items={TABS} value={tab} onChange={setTab} size="md" aria-label="設定分頁" getPanelId={panelId} />
+        <Tabs items={TABS} value={tab} onChange={setTab} size="md" scroll aria-label="設定分頁" getPanelId={panelId} />
       </div>
 
       {/* Tabs 不給籤鈕 id，分頁內容改用 aria-label（籤名）命名，不用 aria-labelledby */}
@@ -133,6 +138,7 @@ function SettingsForm() {
         {tab === "sync" && <SyncTab />}
         {tab === "assistant" && <ExternalAssistantTab />}
         {tab === "lostfound" && <LostFoundList />}
+        {tab === "shortcuts" && <ShortcutsBody />}
       </div>
     </DialogShell>
   );
@@ -146,15 +152,26 @@ function GeneralTab() {
   const setDayStartHour = useUiStore((s) => s.setDayStartHour);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
+  const [shop, setShop] = useState(false);
+  const skin = skinById(theme);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const links = lineSettingsLinks("desktop");
+
+  if (shop) return <ThemeShop backLabel="一般" backClassName="ns-shop-back" onBack={() => setShop(false)} />;
 
   return (
     <div className="space-y-6">
       <div>
         <span className="techo-label block mb-2.5">主題</span>
-        <Segmented options={THEMES} value={theme} onChange={(v) => void setTheme(v)} aria-label="主題" />
+        <div className="flex items-center gap-2">
+          <Segmented options={THEMES} value={skin ? null : theme} onChange={(v) => void setTheme(v)} aria-label="主題" />
+          <button type="button" className={"btn-ghost ns-btn ns-shop-open" + (skin ? " is-on" : "")} onClick={() => setShop(true)}>
+            {skin ? `商店・${skin.name}` : "商店"}
+          </button>
+        </div>
       </div>
+
+      <MoodSettings labelClass="techo-label block mb-2.5" />
 
       <div>
         <span className="techo-label block mb-2.5">一天的開始時間</span>

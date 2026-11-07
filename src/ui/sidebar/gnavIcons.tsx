@@ -101,6 +101,17 @@ export function IconDepot(size: number) {
   );
 }
 
+/** 候車室（壬 D-主-512；原型 prototypes/壬-候車室-對照.html 題1 的圖，24 格等比縮到 16：圓角房簷＋兩道椅面＋地線） */
+export function IconWaitroom(size: number) {
+  return (
+    <svg {...svgProps(size)} strokeLinejoin="round">
+      <path d="M3.2 13.4V5.4a2 2 0 0 1 2-2h5.6a2 2 0 0 1 2 2v8" />
+      <path d="M5.4 8h5.2M5.4 10.7h3.4" />
+      <path d="M1.8 13.4h12.4" />
+    </svg>
+  );
+}
+
 export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   today: IconToday,
   routemap: IconRouteMap,
@@ -110,5 +121,6 @@ export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   ticket: IconTicketOffice,
   report: IconReport,
   depot: IconDepot,
+  waitroom: IconWaitroom,
   search: IconFullSearch,
 };

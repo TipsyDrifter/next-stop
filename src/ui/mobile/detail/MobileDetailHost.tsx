@@ -31,7 +31,7 @@ import { currentDest, moveTargetRule } from "../../../domain/moveTo";
 import type { AttachTarget } from "../../../domain/notes";
 import { todayKey } from "../../../lib/date";
 import { lineNodeFields } from "../../../lines/runtime";
-import { isSettling, serialOf, useNodeStore } from "../../../store/nodeStore";
+import { conflictNameOf, isSettling, serialOf, useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { CommitInput, CommitTextarea } from "../../common/fields";
 import { MFullPage } from "../../common/MFullPage";
@@ -57,6 +57,7 @@ import { MobileRepeatSection } from "./MobileRepeatSection";
 import { MobileRouteBody } from "./MobileRouteBody";
 import { useMobileDetailStore } from "./mobileDetailStore";
 import { AmountRows, DoneAt, PriorityRow, Row, StampRows, StatusRows } from "./MobileStateRows";
+import { MobileStationRow } from "./MobileStationRow";
 import "./detail.css";
 
 /** 全螢幕頁那一層的返回層 id */
@@ -421,6 +422,9 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
             onClear={() => void updateNode(node.id, { due_on: null })}
           />
         </Row>
+
+        {/* ⑫：車站（規則同桌機側板 useStationField：沒有子項、路線上有車站才出） */}
+        <MobileStationRow node={node} />
       </div>
 
       {repeatable && (
@@ -772,7 +776,7 @@ function WorkLogs({ node }: { node: NodeRow }) {
             {conflicts.map((l) => (
               <li key={l.id}>
                 <span className="m-dt-tm">{fmtLogStamp(l.logged_at)}</span>
-                {describeConflict(l.body)}
+                {describeConflict(l.body, conflictNameOf)}
               </li>
             ))}
           </ul>

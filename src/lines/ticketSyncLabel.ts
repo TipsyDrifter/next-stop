@@ -8,13 +8,16 @@
  * **純函式**：只准 import 型別（`scripts/tests/sync-engine-labels.test.ts` 以 node 直接載入）；查列、查名字由呼叫端注入。
  */
 import { ruleValueText } from "../domain/repeat.ts";
-import type { RepeatRow, TemplateRow, WishRow } from "../domain/ticket.ts";
+import { WISH_ACTION_LABEL } from "../domain/ticket.ts";
+import type { RepeatRow, TemplateRow, WishAction, WishKindRow, WishRow } from "../domain/ticket.ts";
 import type { SyncRowLabel } from "./types.ts";
 
 /** 呼叫端注入的查名字（查不到回 null） */
 export interface TicketLabelLookup {
   accountName(id: string): string | null;
   categoryName(id: string): string | null;
+  /** 候車室種類名（wr_kinds；壬 0019）。沒注入或查不到＝印「？」 */
+  wishKindName?(id: string): string | null;
 }
 
 /** 定期帳的欄名（白名單全集裡主人看得到、改得到的那些；匯入記帳欄不列＝印原文） */
@@ -108,8 +111,29 @@ export const WISH_COLS: Readonly<Record<string, string>> = {
   category_id: "分類",
   position: "順序",
   entry_id: "買了那筆",
-  bought_at: "買了",
+  bought_at: "實現時刻",
+  kind_id: "種類",
+  target_id: "實現成…",
 };
+
+/** 候車室種類（wr_kinds；壬 0019） */
+export const WISH_KIND_COLS: Readonly<Record<string, string>> = {
+  name: "名稱",
+  action: "實現動作",
+  position: "番線",
+};
+
+/** 種類「買」 */
+export function wishKindSyncLabel(row: Pick<WishKindRow, "name">): SyncRowLabel {
+  return {
+    label: `種類「${row.name.trim() || "沒有名字"}」`,
+    cols: WISH_KIND_COLS,
+    fmt: (col, v) => {
+      if (col === "action") return typeof v === "string" ? (WISH_ACTION_LABEL[v as WishAction] ?? v) : null;
+      return null;
+    },
+  };
+}
 
 export const TEMPLATE_COLS: Readonly<Record<string, string>> = {
   name: "名稱",
@@ -132,7 +156,9 @@ export function wishSyncLabel(row: Pick<WishRow, "name" | "category_id">, look: 
     fmt: (col, v) => {
       if (col === "category_id") return v === null || v === undefined ? "（沒選）" : typeof v === "string" ? (look.categoryName(v) ?? "已刪除的分類") : null;
       if (col === "entry_id") return v === null || v === undefined ? "還沒買" : "已買";
-      if (col === "bought_at") return v === null || v === undefined ? "還沒買" : null;
+      if (col === "bought_at") return v === null || v === undefined ? "還在等" : null;
+      if (col === "kind_id") return typeof v === "string" ? (look.wishKindName?.(v) ?? "？") : null;
+      if (col === "target_id") return v === null || v === undefined ? "還在等" : "已實現";
       return null;
     },
   };

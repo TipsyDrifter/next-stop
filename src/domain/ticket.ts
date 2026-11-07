@@ -168,19 +168,63 @@ export interface RepeatRow extends TkSyncCols {
   import_utime: number | null;
 }
 
+/** 候車室的實現動作（0019，D-主-520）：記一筆／開票／開路線／寫日記／記時間 */
+export type WishAction = "entry" | "ticket" | "route" | "diary" | "time";
+export const WISH_ACTIONS: readonly WishAction[] = ["entry", "ticket", "route", "diary", "time"];
+/** 動作的中文（唯一一份：實現按鈕、種類管理、同步標籤、匯出都用它） */
+export const WISH_ACTION_LABEL: Readonly<Record<WishAction, string>> = {
+  entry: "記一筆",
+  ticket: "開票",
+  route: "開路線",
+  diary: "寫日記",
+  time: "記時間",
+};
+
 /**
- * 售票口④ 的兩張表（0016；與 SQLite 列逐字相同）。純函式在 `ticketAids.ts`，列型別放這裡跟其他表一起（理由同上）。
- * 願望「買了沒」不存狀態：entry_id 指到的帳還在＝已買（`wishBought`）；bought_at 只給顯示。
+ * 候車室的種類（番線）＝ wr_kinds 的一列（0019，D-主-519；與 SQLite 列逐字相同）。
+ * 可增刪改名排序；position 順序＝番線號（顯示 1 起算）；action＝實現時做什麼。
+ */
+export interface WishKindRow extends TkSyncCols {
+  id: string;
+  name: string;
+  action: WishAction;
+  position: number;
+}
+
+/**
+ * 起手五列（每台依固定 id 補種，含墓碑判斷：刪了不會回來；id 與 0019 的 DEFAULT、ticket.rs 的
+ * WR_KINDS_ALIVE 逐字相同）。名稱只是預設，使用者可改——顯示一律讀 wr_kinds 的列，不讀這張表。
+ */
+export const WR_KIND_BUY_ID = "5b1a6c3e-0f44-5a7a-9d2b-8e6f1c0a2b31";
+export const WR_KIND_SEEDS: readonly { id: string; name: string; action: WishAction; position: number }[] = [
+  { id: WR_KIND_BUY_ID, name: "買", action: "entry", position: 0 },
+  { id: "9c2d7e4f-1a55-5b8b-8c3c-7f0a2d1b3c42", name: "做", action: "ticket", position: 1 },
+  { id: "3e4f8a5c-2b66-5c9c-bd4d-6a1b3e2c4d53", name: "去", action: "route", position: 2 },
+  { id: "7a5c9b6d-3c77-5dad-ae5e-5b2c4f3d5e64", name: "讀看", action: "ticket", position: 3 },
+  { id: "1d6e0c7f-4d88-5ebe-9f6f-4c3d5a4e6f75", name: "學", action: "ticket", position: 4 },
+];
+
+/** 實現去向的記錄種類（target_kind）：node＝車票／路線、note＝日記、block＝時間塊；entry 走既有 entry_id */
+export type WishTargetKind = "node" | "note" | "block";
+
+/**
+ * 售票口④ 的兩張表（0016；壬 候車室 0019 加 kind_id／target_kind／target_id；與 SQLite 列逐字相同）。
+ * 純函式在 `ticketAids.ts`，列型別放這裡跟其他表一起（理由同上）。
+ * 「實現了沒」不存狀態：entry_id 指到的帳還在、或 target_id 指到的記錄還在＝實現了（`wishRealized`）；
+ * 記錄被刪＝回到等候。bought_at＝實現時刻，只給顯示。kind_id → wr_kinds（不設外鍵，查不到＝種類欄空）。
  */
 export interface WishRow extends TkSyncCols {
   id: string;
   name: string;
-  amount_minor: number | null; // 主幣別；NULL＝沒估
+  amount_minor: number | null; // 主幣別；NULL＝沒估（動作不是記一筆的種類通常空著）
   note: string;
   category_id: string | null;
   position: number;
   entry_id: string | null;
   bought_at: string | null;
+  kind_id: string;
+  target_kind: WishTargetKind | null;
+  target_id: string | null; // 實現開出的記錄（不設外鍵：被刪＝回到等候）
 }
 /** 常用票種（手動書籤）：除了 name 與 kind，每一欄都可以空著（空＝填表時不動那一欄） */
 export interface TemplateRow extends TkSyncCols {
@@ -212,6 +256,25 @@ export const STARTER_CURRENCY: Readonly<
 export const STARTER_CATEGORIES: readonly Readonly<Pick<CategoryRow, "id" | "kind" | "name" | "parent_id" | "position">>[] = [
   { id: UNCAT_INCOME_ID, kind: "income", name: UNCAT_NAME, parent_id: null, position: UNCAT_POSITION },
   { id: UNCAT_EXPENSE_ID, kind: "expense", name: UNCAT_NAME, parent_id: null, position: UNCAT_POSITION },
+];
+/**
+ * 預設分類（癸 清空一致性，D-主-531）：給一般使用者的常用收支分類，表裡還沒有別的分類才種。
+ * 跟起手三列不同：這些是看得到、能改能刪的分類，程式不依賴它們存在。
+ * id＝ticketId("category:<kind>:<key>") 的字面值；`ticket.rs` 的 TK_CATEGORIES_ALIVE 排掉同一組（`starter-defaults.test.ts` 對帳）。
+ */
+export const DEFAULT_CATEGORIES: readonly Readonly<Pick<CategoryRow, "id" | "kind" | "name" | "parent_id" | "position">>[] = [
+  { id: "3e349438-e3ec-5766-a953-60f3e9df0107", kind: "expense", name: "飲食", parent_id: null, position: 0 },
+  { id: "29b356df-5466-59eb-9c0d-91340dd06db5", kind: "expense", name: "交通", parent_id: null, position: 1 },
+  { id: "2fd75c14-c48d-5525-adc4-944e992f2574", kind: "expense", name: "居住", parent_id: null, position: 2 },
+  { id: "ce0b3643-0bdb-5744-ac4a-0d2c970eccc4", kind: "expense", name: "日用", parent_id: null, position: 3 },
+  { id: "887934a9-c482-5dd8-8eb8-88c2aa9507bd", kind: "expense", name: "購物", parent_id: null, position: 4 },
+  { id: "7fbdd90a-bd98-5115-8167-cdaa5f7c632d", kind: "expense", name: "娛樂", parent_id: null, position: 5 },
+  { id: "22cd6164-03c6-5465-8c92-f99f6c680d8e", kind: "expense", name: "醫療", parent_id: null, position: 6 },
+  { id: "f00b86bb-4614-5159-bdd5-be810e321dbb", kind: "expense", name: "學習", parent_id: null, position: 7 },
+  { id: "a8da037a-662f-5cfa-95c2-c6eeb6986f93", kind: "income", name: "薪資", parent_id: null, position: 0 },
+  { id: "2d6277f0-370b-54db-b0d1-07a20367748b", kind: "income", name: "獎金", parent_id: null, position: 1 },
+  { id: "edc9eebe-57c6-5443-a3ed-04c0a2904464", kind: "income", name: "投資", parent_id: null, position: 2 },
+  { id: "df5dd9d9-df1f-570c-936a-3389c72cc93a", kind: "income", name: "兼職", parent_id: null, position: 3 },
 ];
 
 /* ── 寫入輸入 ── */

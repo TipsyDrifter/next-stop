@@ -3558,6 +3558,33 @@ pub(crate) async fn wipe_local_data(tx: &mut sqlx::Transaction<'_, Sqlite>) -> R
     Ok(())
 }
 
+/// 真的清空（重新開始、別台「一起清空」）時一起清的本機記憶（癸，D-主-531）：都指向已經不在的舊資料。
+/// 主題、快捷鍵、提醒開關這些偏好不在這裡。只換一份資料（改用另一台的、還原）不清：資料可能還是同一批，
+/// 清了提醒帳本會讓今天響過的再響一次。`scripts/tests/starter-defaults.test.ts` 對帳各模組的鍵。
+pub(crate) const RESET_RESIDUE_SETTINGS: &[&str] = &[
+    "notes_tags_recent",
+    "reminder_recent",
+    "reminder_sent",
+    "week_aims_review_seen",
+    "aims_review_seen_month",
+    "aims_review_seen_year",
+    "ticket_transfer_to",
+    "timetable_desktop_reminded",
+    "timetable_notice_pins",
+    "saved_filters",
+];
+
+async fn forget_reset_residue(tx: &mut sqlx::Transaction<'_, Sqlite>) -> Result<(), String> {
+    for key in RESET_RESIDUE_SETTINGS {
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(key)
+            .execute(&mut **tx)
+            .await
+            .map_err(db_err)?;
+    }
+    Ok(())
+}
+
 /// 清空的整串 SQL（並行地基 A-13）：延後外鍵 → Rows 表子先父後 → outbox → 格子。
 /// 核心四張表時產出的六句與順序與搬家前逐字相同。
 pub(crate) fn wipe_statements(reg: &Registry) -> Vec<String> {
@@ -3695,6 +3722,10 @@ pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
         return Err("沒有待換的紀元。".into());
     };
     let old_epoch = meta.get("epoch").cloned().unwrap_or_default();
+    let is_reset = meta
+        .get("pending_epoch_info")
+        .and_then(|s| serde_json::from_str::<EpochInfo>(s).ok())
+        .is_some_and(|info| info.reason == "reset");
 
     // #84 同類洞（D-主-124）：這條也是「先清本機、TS 緊接著才拉」——新紀元裡有這台讀不懂的較新物件，
     // 清完才被閘住就只剩一個缺了最近一段的本機。與 join 的「改用另一台的」同一支探頭、同一個判準，
@@ -3730,6 +3761,9 @@ pub async fn adopt_epoch(app: &AppHandle) -> Result<AdoptReport, String> {
     // ② 清空本機資料與同步進度，換上新紀元（一個交易）。
     let mut tx = pool.begin().await.map_err(db_err)?;
     wipe_local_data(&mut tx).await?;
+    if is_reset {
+        forget_reset_residue(&mut tx).await?;
+    }
     sqlx::query(EPOCH_SCOPED_META)
         .execute(&mut *tx)
         .await
@@ -6347,7 +6381,7 @@ fn start_over_unsettled(meta: &HashMap<String, String>) -> bool {
 }
 
 /// 重新開始的**本機 DB 那一段**（一個交易；`start_over` 的步驟 3／6，拆出來讓單測不必有 AppHandle）。
-///   * 兩個 scope 都 `wipe_local_data`（三表＋outbox／cells；**settings 不動**）。
+///   * 兩個 scope 都 `wipe_local_data`（三表＋outbox／cells）＋`forget_reset_residue`（指向舊資料的本機記憶；偏好不動）。
 ///   * `ThisDevice` 另外 `forget_sync_in_tx`（整張 sync_meta、`enabled='0'`）；手機未加入的匯出路徑記回
 ///     `last_export_path／last_export_at`（sync_meta 剛被清空，所以要在同一個交易裡**之後**才寫）。
 ///   * `AllDevices` 的紀元、joined、enabled、salt、root、device_id **都不動**——重啟後 `finish_restore(Past)` 一次換。
@@ -6359,6 +6393,7 @@ pub(crate) async fn start_over_local(
 ) -> Result<(), String> {
     let mut tx = pool.begin().await.map_err(db_err)?;
     wipe_local_data(&mut tx).await?;
+    forget_reset_residue(&mut tx).await?;
     if scope == StartOverScope::ThisDevice {
         forget_sync_in_tx(&mut tx).await?;
         if let Some(p) = export_path {
@@ -9565,6 +9600,74 @@ mod tests {
 
     /// 「只清這台」的 DB 段：三表＋outbox／cells 清空、settings 一列不少、sync_meta 只剩 `enabled='0'`（＋手機匯出路徑）。
     /// 順便守「所有裝置一起」的 DB 段：資料清掉，但紀元與身分（sync_meta）**一個鍵都不動**（重啟後 finish_restore 才換）。
+    #[test]
+    fn untouched_starter_lines_are_not_local_data() {
+        tauri::async_runtime::block_on(async {
+            let (pool, path) = make_pool("starter-lines").await;
+            let reg = Registry::core_only();
+            sqlx::query(
+                "INSERT INTO nodes (id, kind, name, created_at, updated_at) VALUES \
+                 ('99e220f9-53da-55a7-a521-30f65cff69dd','line','工作','2026-11-06T00:00:00.000Z','2026-11-06T00:00:00.000Z'), \
+                 ('2058e959-b8b3-5511-b4ef-4fc3f582595c','line','學習','2026-11-06T00:00:00.000Z','2026-11-06T00:00:00.000Z')",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_eq!(local_alive_count_with(reg, &pool).await.unwrap(), 0, "沒動過的預設幹線不算資料");
+            sqlx::query("UPDATE nodes SET name = '我的工作', updated_at = '2026-11-06T01:00:00.000Z' WHERE name = '工作'")
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert_eq!(local_alive_count_with(reg, &pool).await.unwrap(), 1, "改過名就是使用者的資料，加入同步不能當空庫");
+            sqlx::query("INSERT INTO nodes (id, kind, name) VALUES ('T1','ticket','掛在預設幹線旁的票')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert_eq!(local_alive_count_with(reg, &pool).await.unwrap(), 2);
+            pool.close().await;
+            let _ = std::fs::remove_file(&path);
+        });
+    }
+
+    #[test]
+    fn start_over_forgets_residue_keeps_preferences() {
+        tauri::async_runtime::block_on(async {
+            for (name, scope) in [("this", StartOverScope::ThisDevice), ("all", StartOverScope::AllDevices)] {
+                let (pool, path) = make_pool(&format!("residue-{name}")).await;
+                for key in RESET_RESIDUE_SETTINGS {
+                    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'old')")
+                        .bind(key)
+                        .execute(&pool)
+                        .await
+                        .unwrap();
+                }
+                for key in ["theme", "reminders", "hotkey_overrides", "day_start_hour", "week_start"] {
+                    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'keep')")
+                        .bind(key)
+                        .execute(&pool)
+                        .await
+                        .unwrap();
+                }
+                start_over_local(&pool, scope, None).await.unwrap();
+                for key in RESET_RESIDUE_SETTINGS {
+                    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key = ?")
+                        .bind(key)
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                    assert_eq!(n, 0, "{key} 指向舊資料，清空要一起清");
+                }
+                assert_eq!(
+                    count(&pool, "SELECT COUNT(*) FROM settings WHERE value = 'keep'").await,
+                    5,
+                    "偏好一個都不能少"
+                );
+                pool.close().await;
+                let _ = std::fs::remove_file(&path);
+            }
+        });
+    }
+
     #[test]
     fn start_over_this_device_wipes_data_keeps_settings() {
         tauri::async_runtime::block_on(async {

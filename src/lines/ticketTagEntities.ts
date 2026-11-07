@@ -4,7 +4,7 @@
  *
  *   ticket:entry   一筆帳。存活＝`tk_entries.deleted_at IS NULL`；列字「11/1 −120 午餐「麥味登」 · 現金」；點了跳到那筆（`jumpToEntry`）
  *   ticket:repeat  定期帳規則（它記出來的每一筆帶規則的荷札）。存活＝沒刪（暫停的算在）；列字「定期帳「每月 5 日 · 房租」」；點了開定期帳管理
- *   ticket:wish    願望（買了那筆帶過去）。存活＝沒刪（已買的也算在）；列字「願望「降噪耳機」」；點了跳到售票口的願望分頁
+ *   ticket:wish    願望（買了那筆帶過去）。存活＝沒刪（已買的也算在）；列字「願望「降噪耳機」」；點了跳到候車室頁
  *   ticket:template 常用票種（填出來的草稿帶過去）。存活＝沒刪；列字「常用票種「午餐」」；點了開管帳的「常用票種」
  *
  * 種類常數定義在 `domain/ticketTags.ts`（store 與純函式也要用），這裡 re-export。
@@ -19,6 +19,8 @@ import { bareName } from "../domain/ticket";
 import { shortDay } from "../domain/ticketView";
 import { useTicketStore } from "../store/ticketStore";
 import { useUiStore } from "../store/uiStore";
+import type { MobileTabKey } from "../ui/mobile/tabs";
+import type { PageId } from "../ui/shell/pages";
 import { entryJumpLabel } from "../ui/ticket/quickJump";
 import { TK_TAG_ENTRY, TK_TAG_REPEAT, TK_TAG_TEMPLATE, TK_TAG_WISH } from "../domain/ticketTags";
 
@@ -30,6 +32,16 @@ const TABLES = ["tk_entries", "tk_repeats", "tk_wishes", "tk_templates"] as cons
 /** 荷札頁在哪個殼（同 tagStore：useShell 把 data-shell 同步到 <html>） */
 function shellNow(): "desktop" | "mobile" {
   return typeof document !== "undefined" && document.documentElement.getAttribute("data-shell") === "mobile" ? "mobile" : "desktop";
+}
+
+/** 先去候車室頁（壬 D-主-513：願望搬到候車室，售票口不再有願望籤；桌機關掉設定面板再換頁；手機換 tab） */
+function gotoWaitroom(): void {
+  const ui = useUiStore.getState();
+  // TODO(壬 整合)：候車室頁進 PageId／MobileTabKey 之後，拿掉這兩個 `as string as`（同 ui/depot/Yearbook.tsx 的做法）
+  if (shellNow() === "desktop") {
+    ui.setSettingsOpen(false);
+    ui.setPage("waitroom" as string as PageId);
+  } else ui.setMobileTab("waitroom" as string as MobileTabKey);
 }
 
 /** 先回售票口頁（桌機關掉設定面板再換頁；手機換 tab） */
@@ -97,8 +109,7 @@ async function describeWishes(ids: readonly string[]): Promise<Record<string, Ta
       ? {
           label: `願望「${w.name}」`,
           open: () => {
-            gotoTicket();
-            void useTicketStore.getState().setView("wish"); // 視圖不持久化、init 不重設它：頁面還沒開過也會停在願望
+            gotoWaitroom();
           },
         }
       : null;

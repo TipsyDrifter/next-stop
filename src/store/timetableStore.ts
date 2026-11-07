@@ -37,6 +37,7 @@ import { timetableRepo } from "../data/timetableRepository";
 import { settingsRepo, nodeRepo, MOCK_MODE } from "../data";
 import { useUiStore } from "./uiStore";
 import { useSyncStore } from "./syncStore";
+import { settleBeforeSeeding, waitForSyncSettle } from "./syncSettle";
 import { indexTree, useNodeStore, type TreeIndex } from "./nodeStore";
 import { addDays, dayWindow, todayKey } from "../lib/date";
 import type { GoalInput, GoalPeriod, GoalDirection, StatsPeriod } from "../domain/timetableStats";
@@ -1086,34 +1087,6 @@ function parsePins(raw: string | null): string[] {
 }
 
 /**
- * 起手分類的閘門（契約 §3.7.1、0-3 的緩解）：已加入同步、開著、在線 ⇒ 先等一趟拉下來（最多 ms），
- * 讓別台已種、已改過名的起手分類先到，這台才不會用預設值蓋掉它。
- */
-function waitForSyncSettle(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const s0 = useSyncStore.getState();
-    const lastAt0 = s0.status?.last_sync_at ?? null;
-    let sawWorking = s0.working;
-    let done = false;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      unsub();
-      resolve();
-    };
-    const timer = setTimeout(finish, ms);
-    const unsub = useSyncStore.subscribe((s) => {
-      // boot 回來了、但這台沒加入或開關關著 ⇒ 不必等
-      if (s.status && !(s.status.joined && s.status.enabled)) finish();
-      if (s.status && (s.status.last_sync_at ?? null) !== lastAt0) finish();
-      if (s.working) sawWorking = true;
-      else if (sawWorking) finish();
-    });
-  });
-}
-
-/**
  * ①c 用（佇列套用前先等同步一趟，①b①c 契約 §3.9）：＝`waitForSyncSettle`，另加三種立即 resolve——
  * mock、離線、boot 已回來但這台沒加入或開關關著（`waitForSyncSettle` 本身只在 store 有變化時才判斷這一條）。
  */
@@ -1179,11 +1152,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       const skipGate = skipSettleGateOnce;
       skipSettleGateOnce = false;
       if ((await timetableRepo.countCategoriesIncludingDeleted()) === 0) {
-        const st = useSyncStore.getState();
-        const online = typeof navigator === "undefined" || navigator.onLine !== false;
-        if (!skipGate && !MOCK_MODE && online && (st.status === null || (st.status.joined && st.status.enabled))) {
-          await waitForSyncSettle(10_000);
-        }
+        // 起手分類的閘門（契約 §3.7.1、0-3 的緩解）：別台已種、已改過名的先到，這台才不會用預設值蓋掉它
+        if (!skipGate) await settleBeforeSeeding();
         await timetableRepo.ensureStarterCategories();
       }
       await serial(() => timetableRepo.reconcile());

@@ -1,0 +1,120 @@
+/**
+ * 桌面小窗的樣式（⑬ 外部入口；prototypes/外部入口.html 第 1 節甲）。
+ *
+ * 不 import `src/index.css`：只抄這張卡用得到的 token（值同 src/styles/theme.css；紙色取實色，視窗後面沒有天空可透）。
+ * 字型用系統黑體，數字用系統襯線，不載 App 的字型檔（字型可能很吃記憶體，量過才決定要不要載，契約 第三節）。
+ * 沒有無限動畫、沒有 transition：這張卡常駐在桌面上，閒置時不該有任何東西在跑。
+ */
+:root {
+  --paper-high: #f1eef8;
+  --ink: #2a2b49;
+  --ink-soft: #474667;
+  --ink-faint: #5f5e84;
+  --late: #985030;
+  --stamp-ink: #474667;
+  --on-ink: #e4e3f3;
+  --accent: #524d9c;
+  --line: rgba(42, 43, 73, .18);
+  --dash: rgba(42, 43, 73, .28);
+  --hover: rgba(42, 43, 73, .06);
+  --tile-fg: #fff;
+  --font-body: "Microsoft JhengHei UI", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: Cambria, "Times New Roman", serif;
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  --paper-high: #212a40;
+  --ink: #e4e8f3;
+  --ink-soft: #aeb6c9;
+  --ink-faint: #8993a8;
+  --late: #d19b72;
+  --stamp-ink: #9aa3b8;
+  --on-ink: #101217;
+  --accent: #cdb783;
+  --line: rgba(222, 230, 250, .14);
+  --dash: rgba(222, 230, 250, .24);
+  --hover: rgba(222, 230, 250, .07);
+  --tile-fg: #101217;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper-high); overflow: hidden; }
+body { color: var(--ink); font-family: var(--font-body); font-size: 12px; line-height: 1.4; user-select: none; -webkit-user-select: none; cursor: default; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus { outline: none; }
+button:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+
+.pin-card {
+  position: relative;
+  width: 100%;
+  min-height: 60px;
+  background: var(--paper-high);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* 滑過才出現；不佔位。貼上緣放：到着鈕從 17px 才開始，這條 15px 高的工具不會壓到它 */
+.pin-tools { position: absolute; top: 1px; right: 2px; z-index: 1; display: flex; gap: 2px; visibility: hidden; }
+.pin-card:hover .pin-tools,
+.pin-card.is-tools .pin-tools { visibility: visible; }
+.pin-tool {
+  display: grid; place-items: center; width: 20px; height: 15px;
+  border-radius: 2px; font-size: 10px; line-height: 1; color: var(--ink-soft);
+  background: var(--paper-high); box-shadow: 0 0 0 1px var(--line);
+}
+.pin-tool:hover { color: var(--ink); box-shadow: 0 0 0 1px var(--dash); }
+.pin-tool.is-on { color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* 上半：左邊整塊可點（也可拖）。min-height 讓運行中與停車中同高，換狀態時視窗不跳 */
+.pin-top { display: flex; align-items: center; min-height: 60px; padding-right: 10px; }
+.pin-left {
+  flex: 1; min-width: 0; align-self: stretch;
+  display: flex; align-items: center; gap: 9px; padding: 10px 9px 9px 11px;
+  text-align: left; border-radius: 1px;
+}
+.pin-left:hover { background: var(--hover); }
+.pin-main { display: block; flex: 1; min-width: 0; }
+.pin-l1 { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pin-l1.is-idle { font-weight: 400; }
+.pin-l1 small { font-weight: 400; color: var(--ink-faint); font-size: 12px; }
+.pin-l2 { display: flex; align-items: baseline; gap: 7px; font-size: 11.5px; color: var(--ink-faint); margin-top: 1px; }
+.pin-l2 b { font: 500 15px var(--font-num); font-variant-numeric: lining-nums tabular-nums; color: var(--ink); }
+
+/* 圓牌：靜態的點，App 裡的呼吸不帶過來 */
+.pin-tile {
+  position: relative; flex: none; display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 50%;
+  color: var(--tile-fg); font-size: 14px; font-weight: 600; line-height: 1;
+}
+.pin-tile.is-sm { width: 26px; height: 26px; font-size: 12px; }
+.pin-dot {
+  position: absolute; top: -1px; right: -1px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--late); box-shadow: 0 0 0 1.5px var(--paper-high);
+}
+
+.pin-btn { flex: none; height: 26px; padding: 0 10px; border-radius: 2px; font-size: 12px; white-space: nowrap; letter-spacing: .06em; }
+.pin-btn.is-primary { background: var(--stamp-ink); color: var(--on-ink); font-weight: 500; }
+.pin-btn.is-primary:hover { filter: brightness(1.12); }
+.pin-btn.is-text { height: 22px; padding: 0 2px; color: var(--ink-soft); }
+.pin-btn.is-text:hover { color: var(--ink); }
+
+/* 下半：撕線之下 */
+.pin-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 34px; padding: 3px 10px 3px 11px;
+  border-top: 1px dashed var(--dash);
+}
+.pin-count { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+.pin-count:hover { color: var(--ink); }
+.pin-count b { font: 500 14px var(--font-num); font-variant-numeric: lining-nums tabular-nums; color: var(--ink); margin: 0 2px; }
+
+/* 展開的常用分類格 */
+.pin-tiles { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px 9px 11px; }
+.pin-tilebtn { display: block; border-radius: 50%; }
+.pin-tilebtn:hover .pin-tile { box-shadow: 0 0 0 2px var(--paper-high), 0 0 0 3px var(--accent); }
+
+/* ?mock=1：假桌面，方便截圖 */
+html.is-pin-mock, html.is-pin-mock body { height: 100%; overflow: auto; background: linear-gradient(135deg, #3b4a68, #7c6f8f); }
+html.is-pin-mock[data-theme="dark"], html.is-pin-mock[data-theme="dark"] body { background: linear-gradient(135deg, #0d1126, #26324f); }
+html.is-pin-mock #root { padding: 16px; }
+html.is-pin-mock .pin-card { width: 272px; box-shadow: inset 0 0 0 1px var(--line), 0 6px 18px rgba(20, 20, 50, .28); }

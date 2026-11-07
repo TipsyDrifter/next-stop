@@ -6,17 +6,11 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <!-- ⑬ 外部入口：碰貼紙與寫貼紙要 NFC，碰了之後震一下要 VIBRATE。required=false：沒有 NFC 的機型照裝，設定頁寫明、只留連結。 -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <application>
-        <!-- 旅客筆記 ⑤（D-筆-59）：收別的 App 分享的文字。merger 依 android:name 把這組 intent-filter 加進 App 的
-             MainActivity（namespace 固定 app.shitetsu.nextstop，沙盒換 applicationId 也不變）；只追加 filter，
-             不宣告 launchMode 等屬性 ⇒ launcher 那組 filter 與 singleTask 照舊。gen/android 一個字都不動。 -->
-        <activity android:name="app.shitetsu.nextstop.MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
-        </activity>
         <!-- 點通知的中繼頁：落點先存好再開 App，自己不畫東西、馬上結束（理由見 NsNoticeOpenActivity.kt） -->
         <activity
             android:name="app.shitetsu.nextstop.ttnotice.NsNoticeOpenActivity"
@@ -25,6 +19,36 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- ⑬ 外部入口：連結、NFC 貼紙、別的 App 分享進來的中繼頁。屬性與手法同上，差在這支外面要叫得到（exported）。
+             分享（旅客筆記 ⑤，D-筆-59）原本掛在 MainActivity，App 被系統收掉重建時可能重收同一段文字；
+             搬過來之後 MainActivity 的 intent 不帶任何東西，重放的洞一起消失。
+             label 是分享清單上的名字，沒有它會顯示 Activity 的類別名或 App 預設值，所以用自己的字串，仍是「私鐵手帳」。
+             手機的 dev 包與正式版同套件，所以 scheme 只有 nextstop（桌機才分，見外部入口契約第一節）。 -->
+        <activity
+            android:name="app.shitetsu.nextstop.ttnotice.NsExternalOpenActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/ns_share_label"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nextstop" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="nextstop" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <receiver android:name="app.shitetsu.nextstop.ttnotice.TtActionReceiver" android:exported="false" />
         <receiver android:name="app.shitetsu.nextstop.ttnotice.TtReminderReceiver" android:exported="false" />
         <!-- exported="false" 收開機廣播的寫法同 notification 2.3.3 的 LocalNotificationRestoreReceiver。
@@ -36,6 +60,18 @@
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
+        </receiver>
+        <!-- ⑬ 外部入口：主畫面小工具。APPWIDGET_UPDATE 是系統送的，exported="false" 收得到（官方範例同寫法）。 -->
+        <receiver
+            android:name="app.shitetsu.nextstop.ttnotice.NsWidget"
+            android:exported="false"
+            android:label="@string/ns_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ns_widget_info" />
         </receiver>
     </application>
 </manifest>

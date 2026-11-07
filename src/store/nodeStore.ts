@@ -87,6 +87,13 @@ let calendarInflight: { key: string; p: Promise<void> } | null = null;
  * 磨光⑦（D-主-67）：補記的收據「已補記到 10/20」＋「復原」。復原＝先收回済、再把執行日與繰越來源放回去
  * （走 updateNode 但不帶 backfill：原執行日可能本來就在過去〔誤點票〕，放回去不能又被當補記）。
  */
+/** 改期前要記下的三欄：復原時連繰越章與今日手排位置一起放回去（F-2） */
+export type ScheduleSnapshot = Pick<NodeRow, "scheduled_on" | "carried_from" | "today_position">;
+
+export function scheduleSnapshot(n: ScheduleSnapshot): ScheduleSnapshot {
+  return { scheduled_on: n.scheduled_on, carried_from: n.carried_from, today_position: n.today_position };
+}
+
 function showBackfillToast(id: string, day: string, before: Pick<NodeRow, "scheduled_on" | "carried_from" | "status">): void {
   const [, m, d] = day.split("-").map(Number);
   useUiStore.getState().showToast({
@@ -121,7 +128,8 @@ export interface TreeIndex {
   roots: string[];
 }
 
-const EMPTY_TREE: TreeIndex = { byId: {}, childrenOf: {}, roots: [] };
+/** 換路線那一刻的樹（新路線還沒載到）：跟「載好了、這條路線真的是空的」是不同物件 */
+export const EMPTY_TREE: TreeIndex = { byId: {}, childrenOf: {}, roots: [] };
 
 export function indexTree(rows: NodeRow[], routeId: string): TreeIndex {
   const byId: Record<string, NodeRow> = {};
@@ -355,6 +363,27 @@ const settling = new Set<string>();
 /** 這個節點的蓋済／運休還在寫（流程開頭先問，免得播章動畫、開完成卡卻什麼都沒寫） */
 export function isSettling(id: string): boolean {
   return settling.has(id);
+}
+
+/**
+ * 競合日誌裡節點 id 的名字（`describeConflict` 的 nameOf；乘務記錄用）：車站的切片是全站的，查不到就是不在了；
+ * 「掛在」的父節點不一定在已載入的樹裡，查不到回 null（只講留下哪一邊）。
+ */
+export function conflictNameOf(col: string, id: string): string | null {
+  const s = useNodeStore.getState();
+  if (col === "station_id") return s.stations.find((x) => x.id === id)?.name ?? "（車站已不在）";
+  return s.tree.byId[id]?.name ?? s.routes.find((r) => r.id === id)?.name ?? null;
+}
+
+/** 一批直接走 repository 的寫入（看板換欄，連 refresh 包在 `fn` 裡）：寫完＋重載完之前，這幾張同樣算「還在寫」 */
+export async function whileSettling<T>(ids: readonly string[], fn: () => Promise<T>): Promise<T> {
+  const mine = ids.filter((id) => !settling.has(id));
+  for (const id of mine) settling.add(id);
+  try {
+    return await fn();
+  } finally {
+    for (const id of mine) settling.delete(id);
+  }
 }
 
 function message(e: unknown): string {

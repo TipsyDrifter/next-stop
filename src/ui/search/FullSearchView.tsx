@@ -20,6 +20,7 @@ import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { jumpToNode } from "../common/QuickJump";
 import { capsOfHotkey } from "../shell/hotkeys";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
+import { openFilterTab } from "../board/openFilter";
 import { goToAim } from "./aimLanding";
 import { AimGroupHead, FullSearchAimRow, FullSearchField, FullSearchFilters, FullSearchRow, FullSearchStats, ListTail, routeFilterText } from "./FullSearchParts";
 import { useFullSearchResults, type FullSearchAimRowModel, type FullSearchRowModel } from "./useFullSearchResults";
@@ -188,6 +189,12 @@ export function FullSearchView() {
           !query.trim() && (
             <p className="ns-fs-hint">
               名稱、概要、乘務記錄、方針都會找，結果不限筆數。點一列在右邊看詳情，Enter 或雙擊跳過去；方針點一下就到那一期。
+              <br />
+              {/* ⑫ 契約 §7：要找字和要看一群票是兩個問題，不併；沒字時指路 */}
+              不是找字、是要看一群票（這條路線、這個荷札、快到締切）？
+              <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={openFilterTab}>
+                到路線圖的篩選
+              </button>
             </p>
           )
         ) : count === 0 ? (

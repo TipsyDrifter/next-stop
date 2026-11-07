@@ -54,6 +54,7 @@ export const useNodeStore = mk({ routes: [] });
 `;
 const FAKE_REPO = `export const ticketRepo = new Proxy({}, { get: (_, k) => (...a) => globalThis.__tkRepo[k](...a) });`;
 const FAKE_DATA = `
+export const nodeRepo = { async getNode(id) { return (globalThis.__nodes ?? {})[id] ?? null; } };
 export const settingsRepo = { async get() { return null; }, async set() {} };
 `;
 /** 荷札 repository 替身：記每一次 setTags、listTagsOf 讀它記下的（key＝小寫名；不驗實體） */
@@ -434,7 +435,7 @@ interface TestDb {
 function makeSqliteDb(): TestDb {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = ON");
-  for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
+  for (const f of ["0007_ticket_ledger", "0010_ticket_plan", "0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${f}.sql`), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
   const db: TestDb = {
     ops: [],

@@ -11,6 +11,9 @@
  * 誤點不再另列頁尾區（B4）：誤點票就在大綱原位蓋延着（OutlineRow），同一張票同一頁只列一次。
  * 鍵盤流掛在容器（tabIndex=0），狀態與流程在 useOutlineController。對應 UI Flow 2.0／2.0a／2.0b／2.0c／2.0d／2.0e。
  * 取捨：列不做虛擬捲動。拖曳（樹：跨層、種類限制、復原）與多選、選取列在回饋乙接上（useOutlineDrag／common/selection）。
+ * ⑫：頁首下多一列分頁「大綱｜看板」（board/RouteViewTabs）；看板分頁的內容換成 board/RouteBoard，頁首、聚焦、車庫列共用。
+ *   寬度跟模組走（D-主-477）：頁首與分頁列畫布寬，大綱內容包在 .ns-rm-read 裡維持 848。
+ *   頁首「＋ 新增 ▾」在看板分頁：車票開第一個能新增的那一欄的建票列；列車、支線是排結構的事，切回大綱再開（列尾的建票列、草稿列都在那裡）。
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
@@ -46,6 +49,10 @@ import { useOutlineController } from "./useOutlineController";
 import { useOutlineKeyboard } from "./useOutlineKeyboard";
 import { useOutlineDrag } from "./useOutlineDrag";
 import { useSelectionStore } from "../../store/selectionStore";
+import { useBoardStore } from "../../store/boardStore";
+import { BoardGroupChip, RouteBoard } from "../board/RouteBoard";
+import { ROUTE_LAYOUT_PANEL, RouteLayoutTabs } from "../board/RouteViewTabs";
+import { useRouteBoard } from "../board/useRouteBoard";
 import { SelectionBar } from "../common/selection/SelectionBar";
 import { DepotBanner } from "../depot/DepotBanner";
 import { PARKED_ADD_WHY } from "../../domain/depot";
@@ -233,9 +240,14 @@ export function Outline() {
   const outlineKeys = useOutlineKeyboard(c.keys);
   /** 頁首（PageHeader）裡的鈕現在可以 Tab 到——在它們身上按的鍵不算大綱的導航鍵（例：聚焦在搜尋鈕上按 Delete 不該刪選中的票）。
    *  清單尾建票列的 chips／発券與它的挑選器（portal 但 React 事件照樣冒上來）同理 */
+  const routeLayout = useBoardStore((s) => s.routeLayout);
+  const boardGroup = useBoardStore((s) => s.boardGroup);
+  const showBoard = routeLayout === "board";
+  const boardKeysRef = useRef<((e: KeyboardEvent<HTMLElement>) => void) | null>(null);
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-pop, .wa")) return;
-    outlineKeys(e);
+    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-compact, .ns-qa-pop, .wa")) return;
+    if (showBoard) boardKeysRef.current?.(e);
+    else outlineKeys(e);
   };
   const toggleHideDone = useUiStore((s) => s.toggleHideDone);
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
@@ -267,12 +279,27 @@ export function Outline() {
   });
   const nextStationId = c.route?.arrived_on ? null : (stations.filter((s) => s.parent_id === c.routeId && !s.arrived_on).sort(compareSiblings)[0]?.id ?? null);
   const nextStationAims = useStationAimLists(nextStationId ? [nextStationId] : [])(nextStationId ?? "");
+  // ⑫ 看板：欄在這裡算（済 N 那顆 chip 在分頁列，欄區在下面）
+  const allStations = useNodeStore((s) => s.stations);
+  const board = useRouteBoard({
+    tree: c.tree,
+    routeId: c.routeId ?? "",
+    zoom: c.zoom,
+    rootIds: c.rootChildren,
+    stations: allStations,
+    occurrences: c.currentOccurrences,
+    group: boardGroup,
+    hideDone: c.hideDone,
+  });
+  const [boardAddSeq, setBoardAddSeq] = useState(0);
 
   if (!c.routeId) {
     return (
       <section className="page ns-outline" aria-label="路線大綱">
         <div className="sheet">
-          <NoRouteEmpty />
+          <div className="ns-rm-read">
+            <NoRouteEmpty />
+          </div>
           <footer className="page-foot">
             <span>私鐵手帳・路線大綱</span>
             <span className="fr">
@@ -300,6 +327,10 @@ export function Outline() {
     setComposer((cur) => ({ dest, routeKind, seq: (cur?.seq ?? 0) + 1 }));
   /** 頁首「新增車票」：掛到選中那班列車或車廂（選中車票＝它所在的那班）；沒選＝目前範圍＋車票 */
   const addTicket = () => {
+    if (showBoard) {
+      setBoardAddSeq((n) => n + 1);
+      return;
+    }
     const sel = c.selectedId ? c.tree.byId[c.selectedId] : undefined;
     const holder = sel && sel.kind === "ticket" && sel.parent_id ? c.tree.byId[sel.parent_id] : sel;
     if (holder && (holder.kind === "train" || holder.kind === "car")) {
@@ -308,7 +339,14 @@ export function Outline() {
       openComposer(topDest, "ticket");
     }
   };
-  const addTrain = () => openComposer(topDest, "train");
+  /** 看板分頁：列車、支線切回大綱再開（檔頭） */
+  const toOutline = () => {
+    if (showBoard) useBoardStore.getState().setRouteLayout("outline");
+  };
+  const addTrain = () => {
+    toOutline();
+    openComposer(topDest, "train");
+  };
   const closeComposer = (byKeyboard: boolean) => {
     setComposer(null);
     if (byKeyboard) containerRef.current?.focus();
@@ -495,7 +533,28 @@ export function Outline() {
             search={{ onOpen: () => setQuickJumpOpen(true), title: `搜尋・跳轉（${hotkeyCaps("global.quickjump")}）` }}
           />
         </div>
-        {nextStation && !c.zoom && nextStationAims.length > 0 && <AimsBand aimKey={stationKeyOf(nextStation.id)} heading="下一站方針" />}
+        <RouteLayoutTabs>
+          {showBoard && (
+            <>
+              <BoardGroupChip />
+              {board.doneCount > 0 && (
+                <DoneToggleChip
+                  count={board.doneCount}
+                  showing={!c.hideDone}
+                  onToggle={() => {
+                    toggleHideDone();
+                    containerRef.current?.focus();
+                  }}
+                />
+              )}
+            </>
+          )}
+        </RouteLayoutTabs>
+        {nextStation && !c.zoom && nextStationAims.length > 0 && (
+          <div className={showBoard ? undefined : "ns-rm-read"}>
+            <AimsBand aimKey={stationKeyOf(nextStation.id)} heading="下一站方針" />
+          </div>
+        )}
         {stationCard.node}
         {crumbSlot &&
           createPortal(
@@ -517,6 +576,7 @@ export function Outline() {
               addTrain,
               addTicket,
               addBranch: () => {
+                toOutline();
                 containerRef.current?.focus();
                 c.keys.addBranch();
               },
@@ -531,8 +591,29 @@ export function Outline() {
         )}
 
         {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿「在路線圖打開」）頂上一行＋「回到運行」 */}
-        {!c.zoom && c.route && <DepotBanner route={c.route} />}
+        {!c.zoom && c.route && (
+          <div className={showBoard ? undefined : "ns-rm-read"}>
+            <DepotBanner route={c.route} />
+          </div>
+        )}
 
+        {showBoard ? (
+          <RouteBoard
+            board={board}
+            group={boardGroup}
+            routeId={routeId}
+            tree={c.tree}
+            zoom={c.zoom}
+            parked={c.parked}
+            today={c.today}
+            keysRef={boardKeysRef}
+            focusContainer={() => containerRef.current?.focus()}
+            escape={c.keys.escape}
+            addSeq={boardAddSeq}
+            openRoutePanel={openTitlePanel}
+          />
+        ) : (
+        <div id={ROUTE_LAYOUT_PANEL.outline} role="tabpanel" aria-label="大綱" className="ns-rm-read">
         {showLoading && c.rows.length === 0 && (
           <div className="sec">
             <span className="rule" />
@@ -623,6 +704,8 @@ export function Outline() {
             </ul>
             )}
           </>
+        )}
+        </div>
         )}
 
         <SelectionBar scope="outline" lookup={(id) => c.tree.byId[id]} />

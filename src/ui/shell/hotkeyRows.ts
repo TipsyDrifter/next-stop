@@ -53,6 +53,11 @@ export const SCENES: readonly Scene[] = [
     note: "在路線圖選取項目（非打字狀態）時。",
   },
   {
+    scope: "board",
+    title: "路線圖（看板）",
+    note: "在路線看板或篩選清單選取車票（非打字狀態）時。",
+  },
+  {
     scope: "calendar",
     title: "行程表（月／週）",
     note: "在行程表（月／週）選取某一天時。",

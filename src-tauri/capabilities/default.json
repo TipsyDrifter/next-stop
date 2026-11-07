@@ -12,6 +12,7 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-theme",
     "opener:default",
     "sql:default",
     "sql:allow-execute",

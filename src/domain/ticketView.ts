@@ -49,8 +49,8 @@ import { isUnder, lastSeg, segsOf } from "./tags";
 
 /* ───────────────────────── §4.1 型別與常數 ───────────────────────── */
 
-/** 售票口④（D-票-69）：「願望」；第二輪（D-票-77）：「帳戶」——頁首五格順序「清單｜月曆｜統計｜帳戶｜願望」 */
-export type TicketView = "list" | "calendar" | "stats" | "accounts" | "wish";
+/** 頁首四格「清單｜月曆｜統計｜帳戶」（壬 D-主-513：願望籤拆除、移到候車室頁；存檔裡舊的 "wish" 由 parseTicketView 落回 list） */
+export type TicketView = "list" | "calendar" | "stats" | "accounts";
 export type StatsSpan = "month" | "year";
 /** 售票口④（D-票-73）：多「依荷札」 */
 export type Facet = "category" | "account" | "route" | "tag";

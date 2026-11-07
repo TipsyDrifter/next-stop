@@ -11,6 +11,16 @@
   margin-bottom: var(--sp-5);
 }
 
+/* 八籤（⑬ 多了「捷徑與小工具」）：照一般籤的內距與字距放不進 L 卡，超出的籤會被卡片切掉、點不到。
+   收緊字距與內距、撐滿整列，八籤一次看得到（不用橫捲：藏起來的籤等於沒有入口）。 */
+.ns-set-tabs .ns-tabs { width: 100%; }
+.ns-set-tabs .ns-tabs > [role="tab"] {
+  flex: 1 1 auto;
+  padding: 0 6px;
+  letter-spacing: .1em;
+  text-indent: .1em;
+}
+
 /* 分頁內容：各籤高度不同，換籤時不讓 dialog 上緣跳動（最小高度＝一般籤的量體） */
 .ns-tabpanel {
   min-height: 172px;

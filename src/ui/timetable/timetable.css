@@ -28,8 +28,8 @@
   /* 實心分類色上的字（＝原型 v-e.css --on-cat）：粉彩的分類色深 ⇒ 白字 */
   --ns-tt-on-cat: #fff; /* 白名單：粉彩實心分類色上要純白，--color-on-ink（#e4e3f3）偏灰會降對比 */
   /* ④ 日程（乙・§L；＝原型 v-h.css --vh-night、shared.css --paper-solid）：24:00 以後的淡夜色、不透明的紙（浮層、sticky 欄頭） */
-  --ns-tt-sched-night: rgba(44, 48, 89, .055); /* 白名單：夜色是偏藍的暗化層，theme.css 沒有對應的語意色 */
-  --ns-tt-sched-solid: #f1eef8; /* 白名單：不透明的紙；--color-paper-high 半透明、--color-paper 太深，都不能蓋住底下的格線 */
+  --ns-tt-sched-night: color-mix(in srgb, var(--color-book) 5.5%, transparent);
+  --ns-tt-sched-solid: var(--skin-tt-solid, #f1eef8); /* 白名單：不透明的紙；--color-paper-high 半透明、--color-paper 太深，都不能蓋住底下的格線 */
   --ns-tt-sched-shadow: rgba(80, 60, 20, .18); /* 白名單：陰影色；theme.css 只有整組 --shadow-card，沒有單獨的陰影色 token */
   --ns-tt-sched-pop-shadow: rgba(10, 10, 40, .32); /* 白名單：同上（浮層用的深一階） */
 }
@@ -37,8 +37,8 @@
   /* 銀河鐵道的分類色是亮粉色 ⇒ 深字（＝原型 :root[data-theme="dark"] --on-cat；值同 --color-on-ink） */
   --ns-tt-on-cat: var(--color-on-ink);
   /* ④ 日程（乙・§L） */
-  --ns-tt-sched-night: rgba(0, 0, 0, .18); /* 白名單：同上；暗色是往黑壓的 */
-  --ns-tt-sched-solid: #1c2438; /* 白名單：同上；比 --color-paper-high（#212a40）深一階，浮層才分得出層次 */
+  --ns-tt-sched-night: rgba(0, 0, 0, .18); /* 白名單：暗色是往黑壓的 */
+  --ns-tt-sched-solid: var(--skin-tt-solid, #1c2438); /* 白名單：同上；比 --color-paper-high（#212a40）深一階，浮層才分得出層次 */
   --ns-tt-sched-shadow: rgba(0, 0, 0, .4); /* 白名單：同上 */
   --ns-tt-sched-pop-shadow: rgba(0, 0, 0, .5); /* 白名單：同上 */
 }
@@ -73,9 +73,19 @@
   box-shadow: 0 0 0 1.5px var(--color-book);
   animation: ns-tt-nb-pop .5s var(--ns-tt-spring) both;
 }
+/* 待確認：靜態的赭圈＋外面一圈呼吸光。
+ * ⑪ 1.26.0-dev 真機實量：原本動 box-shadow 無限循環，120Hz 手機每格整片重畫，約 181%／一顆核心。
+ * 改成偽元素只動 opacity，而且只在剛出現時呼吸三次（約 7 秒）就停：常駐的無限動畫就算只動 opacity，
+ * 合成器也每秒出 60～120 格（D-主-461）。之後靜態的赭圈照樣標著「待確認」。 */
 .ns-tt-navbadge.is-long .ns-tt-badge.is-sm {
+  position: relative;
   box-shadow: 0 0 0 1.5px var(--color-book), 0 0 0 3px var(--color-late);
-  animation: ns-tt-nb-pop .5s var(--ns-tt-spring) both, ns-tt-nb-ring 2.4s ease-in-out .6s infinite;
+}
+.ns-tt-navbadge.is-long .ns-tt-badge.is-sm::after {
+  content: ""; position: absolute; inset: -4.2px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 1.2px color-mix(in srgb, var(--color-late) 55%, transparent);
+  opacity: 0;
+  animation: ns-tt-nb-ring 2.4s ease-in-out .6s 3;
 }
 /* 到着：縮小淡出（＝原型 transition transform／opacity .2s ease）。pop 的 fill-mode both 會一直壓著 scale(1)，
  * transition 蓋不過 ⇒ 改成換一支 animation（從 1 縮到 0），一定從頭播 */
@@ -83,11 +93,10 @@
 .ns-tt-navbadge.is-long.is-out .ns-tt-badge.is-sm { animation: ns-tt-nb-out .2s ease both; }
 @keyframes ns-tt-nb-pop { from { transform: scale(.25); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes ns-tt-nb-out { from { transform: scale(1); opacity: 1; } to { transform: scale(0); opacity: 0; } }
-@keyframes ns-tt-nb-ring {
-  50% { box-shadow: 0 0 0 1.5px var(--color-book), 0 0 0 4.2px color-mix(in srgb, var(--color-late) 55%, transparent); }
-}
+@keyframes ns-tt-nb-ring { 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .ns-tt-navbadge .ns-tt-badge.is-sm, .ns-tt-navbadge.is-long .ns-tt-badge.is-sm { animation: none; }
+  .ns-tt-navbadge .ns-tt-badge.is-sm, .ns-tt-navbadge.is-long .ns-tt-badge.is-sm,
+  .ns-tt-navbadge.is-long .ns-tt-badge.is-sm::after { animation: none; }
   .ns-tt-navbadge.is-out .ns-tt-badge.is-sm, .ns-tt-navbadge.is-long.is-out .ns-tt-badge.is-sm { animation: none; opacity: 0; }
 }
 
@@ -102,9 +111,11 @@
 /* 運行中的脈動點（原型 .live-dot）
  * 磨光⑤（使用者 10-20 裁示「朱只給済」）：現在線、NOW、運行中這一家族＝時刻注意 ⇒ 全部由朱改赭 --color-late；
  * 本檔剩下的 --color-seal 只有済章（連結挑選器的済、日程卡角印、計畫済印）。 */
+/* 呼吸三次就停在亮的那一格（D-主-461）：常駐的無限動畫在手機上是一直耗電的成本；剛出現時的呼吸已經把「活著」說完了 */
 .ns-tt-live-dot {
   width: 7px; height: 7px; border-radius: 50%; background: var(--color-late); flex: none;
-  animation: ns-tt-live-breathe 1.6s ease-in-out infinite;
+  opacity: .85;
+  animation: ns-tt-live-breathe 1.6s ease-in-out 3;
 }
 /* UI 丙-7（使用者 10-24「全部赭框＋呼吸點」）：運行中點改成設定頁〈同步〉狀態點的呼吸——只動透明度、1.6s，
  * 值＝sync.css 的 @keyframes ns-sync-breathe（原本的 2.2s 擴散光圈拿掉；全 App「活著」只剩這一種節奏）。
@@ -436,7 +447,8 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 .ns-dialog:has(.ns-tt-sheet-body[data-kind="longRun"]) .techo-title::before {
   content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--color-late); margin-right: 8px; vertical-align: middle;
-  animation: ns-tt-live-breathe 1.6s ease-in-out infinite;
+  opacity: .85;
+  animation: ns-tt-live-breathe 1.6s ease-in-out 3;
 }
 @media (prefers-reduced-motion: reduce) {
   .ns-dialog:has(.ns-tt-sheet-body[data-kind="longRun"]) .techo-title::before { animation: none; }
@@ -499,7 +511,7 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 [data-shell="mobile"] .ns-tt-sheet-dot {
   display: inline-block; width: 7px; height: 7px; margin-right: var(--sp-2); vertical-align: middle; border-radius: 50%;
   background: var(--color-late);
-  animation: ns-tt-live 2.2s ease-in-out infinite;
+  animation: ns-tt-live 2.2s ease-in-out 3;
 }
 @keyframes ns-tt-live { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {

@@ -4,6 +4,7 @@
  * 將來手機端換儲存、或接同步服務，只換實作不動上層。
  */
 import type { Mood, NodeKind, NodeRow, Occurrence, OccurrenceSeed, OccurrenceStatus, Priority, RepeatRule, WorkLog } from "../domain";
+import type { TaskRow } from "../domain/taskFilter";
 import { currentDue, doneRuns, firstFixedDate, lastFixedDate, parseRule, projectAfter, projectFixed, projectionRule, settledMoveTargets } from "../domain";
 import { addDays, clockInstant, compareClock, dayWindow, isInDay, todayKey } from "../lib/date";
 // 時刻規則住 domain/scheduledTime.ts（結構型別、不 import data/），讓 compareTodayRows／sortByDateThenNode 的時刻鍵能在 node --test 裡測；
@@ -77,8 +78,14 @@ export type NodePatch = Partial<
      * 注意：`time_overrides` **不在這裡**——UI 不准讀改寫那串 JSON，唯一入口是 setRunTime／clearRunTime。
      */
     | "scheduled_time"
+    /** 掛的車站（⑫）；null＝還沒排站 */
+    | "station_id"
     /** 繰越來源日；一般走 reschedule 自動寫，這裡開放給修正／清除 */
     | "carried_from"
+    /**
+     * 今日手排位置；平常的手排走 reorderToday，這裡只給「復原改期」把票放回原位（reschedule 離開今天時會清掉）。
+     */
+    | "today_position"
     /**
      * 臨時車票的路線標籤（a18–a21）。只允許 parent_id IS NULL 的 ticket；
      * 寫入時 line_id 自動跟著標籤路線同步（等同 setRouteTag，兩條路同一段實作）。
@@ -227,6 +234,13 @@ export interface SidebarData {
   stations: NodeRow[];
 }
 
+/** `listTaskHolders` 的一列（⑫） */
+export interface TaskHolderRow {
+  id: string;
+  name: string;
+  parent_id: string | null;
+}
+
 /** `listRouteMembers` 的一列（丁 D-主-241） */
 export interface RouteMemberRow {
   id: string;
@@ -236,6 +250,10 @@ export interface RouteMemberRow {
 }
 
 export interface NodeRepository {
+  /** nodes 總列數（含墓碑）：0 才種預設幹線 */
+  countAllNodes(): Promise<number>;
+  /** nodes 一列都沒有（含墓碑）才種預設幹線＋各一筆完整 upsert op；回 true＝這次種了 */
+  ensureStarterLines(): Promise<boolean>;
   /** 側欄：幹線／路線／車站（依兄弟順序排好：domain/nodeOrder.ts 的 compareSiblings） */
   listSidebar(): Promise<SidebarData>;
   /** 某條路線的整棵大綱（支線／列車／車廂／車票，不含車站），依兄弟順序排好（同上） */
@@ -245,6 +263,13 @@ export interface NodeRepository {
    * 一句查完、不建樹——卡片的車票済數與「時間塊連到哪條路線」都從這份算。
    */
   listRouteMembers(): Promise<RouteMemberRow[]>;
+  /**
+   * 篩選清單與跨路線看板（⑫）：全部活著的車票、列車、車廂；含臨時車票與車庫裡的路線（要不要算由 domain/taskFilter 決定）。
+   * 底下還有活子項的列車、車廂帶 `has_kids`（不是卡，只有「誤點」條件會收）。照兄弟順序，時刻覆寫已帶好。
+   */
+  listTasks(): Promise<TaskRow[]>;
+  /** 裝票的節點（支線、列車、車廂）的名字與父節點：卡上那行「單字 › 第 1 週」從這份接（⑫） */
+  listTaskHolders(): Promise<TaskHolderRow[]>;
   /**
    * 全站票號表（id →「MMDD-NN」）＝當日全域發券序（規則見 buildSerialMap）。
    * 大綱票根與側板票頭吃這張表；今日列的 serial 也由同一張表蓋上去（四處同一把尺）。

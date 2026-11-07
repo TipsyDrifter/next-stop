@@ -28,7 +28,7 @@ import { isTaskKind, parseRule, type NodeRow } from "../../domain";
 import { REPEAT_ONLY_MSG, REPEAT_RESCHEDULE_MSG } from "../../data";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { resetRunTimeFlow } from "../outline/nodeFlows";
-import { isSettling, useNodeStore } from "../../store/nodeStore";
+import { isSettling, scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
 import { canStampRow, dayRowModel, mmdd, type DayRowModel } from "../calendar/DayRow";
@@ -185,7 +185,7 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
         void moveRunFlow(node.id, row.entry.date, next);
         return;
       }
-      const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
+      const prev = scheduleSnapshot(node);
       void ns().reschedule(node.id, next);
       // 票離開這一天＝這一列當場消失 → 補一張可反悔的收據（同推遲小卡）
       if (next !== row.entry.date) showRescheduleToast(node.id, prev, next);
@@ -213,12 +213,12 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
           return;
         case "clear": {
           // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去
-          const prev = node.scheduled_on;
+          const prev = scheduleSnapshot(node);
           void ns().reschedule(node.id, null);
           ui().showToast({
             message: INBOX_TOAST,
             actionLabel: "復原",
-            onAction: () => void ns().reschedule(node.id, prev),
+            onAction: () => void ns().updateNode(node.id, prev),
           });
           return;
         }
@@ -227,7 +227,7 @@ export function makeScheduleActions(shell: "desktop" | "mobile"): ScheduleAction
           void ns().updateNode(node.id, { scheduled_on: plan.day }, { backfill: true });
           return;
         case "reschedule": {
-          const prev = { scheduled_on: node.scheduled_on, carried_from: node.carried_from };
+          const prev = scheduleSnapshot(node);
           void ns().reschedule(node.id, plan.day);
           if (plan.receipt) showRescheduleToast(node.id, prev, plan.day);
           return;

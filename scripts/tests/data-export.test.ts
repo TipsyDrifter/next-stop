@@ -302,18 +302,31 @@ describe("CSV・任務", () => {
     const lines = linesOf(textOf(files, "車票.csv"));
     assert.equal(
       lines[0],
-      "幹線,路線,上層,種類,名稱,概要,優先順序,狀態,執行日,幾點,長度（分）,締切日,完成時刻,重複,荷札,建立時刻",
+      "幹線,路線,上層,車站,種類,名稱,概要,優先順序,狀態,執行日,幾點,長度（分）,締切日,完成時刻,重複,荷札,建立時刻",
     );
     // 列車、車票各一，加臨時車票；已刪的不在
     assert.equal(lines.length, 1 + 3);
-    assert.equal(lines[1], "生活,健身,健身,列車,本週課表,,中,未開始,,,,,,,,2026-11-01 09:00");
+    assert.equal(lines[1], "生活,健身,健身,,列車,本週課表,,中,未開始,,,,,,,,2026-11-01 09:00");
     // 名稱中間的 `=` 不是開頭、不補單引號；概要含逗號包引號；荷札兩個，依名稱排序
     assert.equal(
       lines[2],
-      `生活,健身,本週課表,車票,深蹲 =3組,"5x5, 加重",高,進行中,2026-11-05,07:30,45,2026-11-07,,完成後 3 天,居家、難度/高,2026-11-01 10:05`,
+      `生活,健身,本週課表,,車票,深蹲 =3組,"5x5, 加重",高,進行中,2026-11-05,07:30,45,2026-11-07,,完成後 3 天,居家、難度/高,2026-11-01 10:05`,
     );
     // 臨時車票：沒有上層，路線來自標籤、幹線順路帶出；完成時刻是本地時間
-    assert.equal(lines[3], "生活,健身,,車票,臨時買水,,中,已完成,,,,,2026-11-02 18:30,,,2026-11-01 09:00");
+    assert.equal(lines[3], "生活,健身,,,車票,臨時買水,,中,已完成,,,,,2026-11-02 18:30,,,2026-11-01 09:00");
+  });
+
+  test("車票.csv 的車站：還在而且同一條路線才印站名（同畫面的 effectiveStation）", () => {
+    const station = (id: string, name: string, routeId: string, deleted: string | null = null): Row => ({ ...raw.nodes[0], id, kind: "station", name, parent_id: routeId, route_id: routeId, deleted_at: deleted });
+    const csv = (station_id: string) => {
+      const nodes = [...raw.nodes.map((n) => (n.id === "K1" ? { ...n, station_id } : n)), station("S1", "第一站", "R1"), station("S2", "別線的站", "R9"), station("S3", "刪掉的站", "R1", "2026-11-03T00:00:00.000Z")];
+      const t = D.prepareExportTables("tasks", { ...raw, nodes });
+      const f = D.buildCsvFiles("tasks", t, { dayStartHour: 6, nodes: nodes.filter((r) => r.deleted_at == null) });
+      return linesOf(textOf(f, "車票.csv")).find((l: string) => l.includes("深蹲"))!.split(",")[3];
+    };
+    assert.equal(csv("S1"), "第一站");
+    assert.equal(csv("S2"), "", "搬到別條路線＝當沒掛");
+    assert.equal(csv("S3"), "", "車站被刪＝當沒掛");
   });
 
   test("路線.csv：幹線與路線都列，到站日、代碼、顏色", () => {
@@ -454,7 +467,8 @@ describe("CSV・售票口", () => {
     tk_repeats: [
       { id: "RP1", kind: "expense", account_id: "A2", to_account_id: null, category_id: "CE", amount_minor: 1500000, currency: "TWD", note: "房租", route_id: null, rule: JSON.stringify({ v: 1, mode: "fixed", freq: "monthly", interval: 1, byweekday: null, bymonthday: [5], start: "2026-01-05", until: null, count: null }), hhmm: "09:00", next_on: "2026-12-05", paused_at: null, position: 0, deleted_at: null },
     ],
-    tk_wishes: [{ id: "WS1", name: "降噪耳機", amount_minor: 800000, note: "", category_id: null, position: 0, entry_id: null, bought_at: null, deleted_at: null }],
+    wr_kinds: [{ id: "WK1", name: "買", action: "entry", position: 0, deleted_at: null }],
+    tk_wishes: [{ id: "WS1", name: "降噪耳機", amount_minor: 800000, note: "", category_id: null, position: 0, entry_id: null, bought_at: null, kind_id: "WK1", target_kind: null, target_id: null, deleted_at: null }],
     tk_templates: [{ id: "TP1", name: "午餐", kind: "expense", amount_minor: 15000, currency: null, account_id: "A1", to_account_id: null, category_id: "CE1", note: "", route_id: null, position: 0, deleted_at: null }],
     tags: [{ id: "G1", name: "難度/高", name_key: "難度/高", deleted_at: null }],
     taggings: [{ id: "g8", entity_type: "ticket:entry", entity_id: "E1", tag_id: "G1", deleted_at: null }],
@@ -496,7 +510,7 @@ describe("CSV・售票口", () => {
       "分類預算,🍱 飲食,,2026-11,8000",
       "總預算,,,每月預設,30000",
     ]);
-    assert.deepEqual(linesOf(textOf(files, "願望.csv")), ["名稱,預估金額,分類,備註,買了的時刻", "降噪耳機,8000,,,"]);
+    assert.deepEqual(linesOf(textOf(files, "願望.csv")), ["名稱,種類,預估金額,分類,備註,實現時刻", "降噪耳機,買,8000,,,"]);
     assert.deepEqual(linesOf(textOf(files, "常用票種.csv")), [
       "名稱,類型,金額,幣別,帳戶,轉入帳戶,分類,上層分類,備註,路線",
       "午餐,支出,150,TWD,錢包,,午餐,🍱 飲食,,",
@@ -528,7 +542,7 @@ describe("整份與 zip", () => {
     assert.equal(JSON.parse(new TextDecoder().decode(j.bytes)).scope, "tasks");
 
     const c = D.buildExportPayload("all", "csv", input, META);
-    assert.equal(c.fileCount, 4 + 2 + 4 + 7);
+    assert.equal(c.fileCount, 4 + 2 + 4 + 8); // 售票口多「候車室種類.csv」（壬 0019）
     assert.deepEqual([...c.bytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04], "zip 的開頭");
   });
 

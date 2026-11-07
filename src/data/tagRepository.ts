@@ -100,6 +100,8 @@ export interface TagRepository {
   /* ── 讀 ── */
   /** 樹與計數的來源：存活的 tags 全部＋存活且實體存活的 taggings（契約 0-12；別線 entity_type 不查實體） */
   loadIndexSource(): Promise<TagIndexSource>;
+  /** 改過名的荷札：舊 key → 新 key（`renamed_to`，D-主-121）。存著 key 的地方（⑫ 常用篩選）用它跟著走 */
+  listRenames(): Promise<{ from: string; to: string }[]>;
   /** 某實體掛的荷札（存活）；name_key 升冪 */
   listTagsOf(entityType: TagEntityType, entityId: string): Promise<TagRow[]>;
   /** 點父看子：掛著 key 或它任何子孫的實體（含子孫＝ name_key = key OR LIKE key/%）；entityType 省略＝全部 */

@@ -1,0 +1,141 @@
+/* ─────────────────────────────────────────────────────
+ * mood.css — 今日視圖的動態氛圍層（⑪）＋全 App 的「藏起來就停」
+ * 視覺真相＝prototypes/m3-mood-b-motion.html（節奏、形狀、keyframes 逐字；色值換到現行主題）
+ * 只動 transform／opacity；層本身 pointer-events:none；沒東西飛的時候不佔任何一格畫面。
+ * 由 src/index.css 集中 import，排在 ambience.css 之後（暫停規則要蓋過它的 animation 簡寫）。
+ * ───────────────────────────────────────────────────── */
+
+/* 色值：亮＝紙上淡墨剪影，白天沒有燈；暗＝車體幾乎沒入夜色，只剩一排暖金燈窗 */
+.mood-ground.is-light {
+  --mood-train-body: rgba(42, 43, 73, .27); /* 字面值：天空層美術色（粉彩墨 27%，原型淡檔不透明度） */
+  --mood-train-win: rgba(255, 241, 208, .40); /* 字面值：天空層美術色（白天的車窗，原型逐字） */
+  --mood-train-halo: 0;
+  --mood-horizon: rgba(42, 43, 73, .16); /* 字面值：天空層美術色（粉彩地平線＝墨 16%，沿 C2） */
+  --mood-train-dur: 22s;
+}
+.mood-ground.is-light[data-level="mid"] {
+  --mood-train-body: rgba(42, 43, 73, .40); /* 字面值：天空層美術色（原型中檔不透明度） */
+  --mood-train-win: rgba(255, 241, 208, .45); /* 字面值：天空層美術色（原型中檔車窗） */
+  --mood-train-dur: 15s;
+}
+.mood-ground.is-dark {
+  --mood-train-body: rgba(6, 7, 9, .34); /* 字面值：天空層美術色（原型暗色淡檔車體） */
+  --mood-train-win: rgba(226, 194, 132, .55); /* 字面值：天空層美術色（原型暗色燈窗） */
+  --mood-train-halo: .26;
+  --mood-horizon: rgba(230, 236, 255, .13); /* 字面值：天空層美術色（銀河軌道線，沿 C1） */
+  --mood-train-dur: 22s;
+}
+.mood-ground.is-dark[data-level="mid"] {
+  --mood-train-body: rgba(6, 7, 9, .48); /* 字面值：天空層美術色（原型暗色中檔車體） */
+  --mood-train-win: rgba(226, 194, 132, .8); /* 字面值：天空層美術色（原型暗色中檔燈窗） */
+  --mood-train-dur: 15s;
+}
+
+/* 天空：主欄背景層（紙頁內容之下），從留白與車票縫隙透出來 */
+.mood-layer {
+  position: absolute; inset: 0;
+  z-index: 0; overflow: hidden; pointer-events: none;
+  contain: strict;
+}
+
+/* 晨昏：三片靜態底色，濃度由 MoodStage 每五分鐘算一次，切換時才有一秒多的轉場 */
+.mood-tint { position: absolute; inset: 0; transition: opacity 1.5s linear; }
+.mood-layer.is-light .mood-tint--dawn { background: linear-gradient(0deg, rgba(255, 196, 170, .50), rgba(255, 214, 196, .14) 46%, transparent 72%); } /* 字面值：天空層美術色（粉彩清晨） */
+.mood-layer.is-light .mood-tint--dusk { background: linear-gradient(0deg, rgba(247, 160, 128, .48), rgba(240, 170, 170, .16) 50%, transparent 78%); } /* 字面值：天空層美術色（粉彩傍晚） */
+.mood-layer.is-light .mood-tint--night { background: rgba(72, 72, 132, .20); } /* 字面值：天空層美術色（粉彩入夜） */
+.mood-layer.is-dark .mood-tint--dawn { background: linear-gradient(0deg, rgba(150, 120, 170, .34), rgba(110, 110, 170, .10) 42%, transparent 66%); } /* 字面值：天空層美術色（銀河清晨） */
+.mood-layer.is-dark .mood-tint--dusk { background: linear-gradient(0deg, rgba(196, 120, 96, .34), rgba(130, 90, 120, .12) 40%, transparent 64%); } /* 字面值：天空層美術色（銀河傍晚） */
+.mood-layer.is-dark .mood-tint--night { display: none; } /* 銀河本來就是夜 */
+
+/* 流星：頭在 +x 端、尾向後漸隱；朝左下 152°，世界朝同一個方向流動 */
+.mood-meteor {
+  position: absolute; height: 1.2px; transform-origin: 100% 50%;
+  background: linear-gradient(90deg, transparent 0%, var(--mood-star-tail) 72%, var(--mood-star) 100%);
+  opacity: 0;
+  animation: moodShoot var(--dur) cubic-bezier(.15, .55, .35, 1) forwards;
+}
+.mood-meteor::after {
+  content: ""; position: absolute; right: -1.2px; top: 50%; width: 2.4px; height: 2.4px; border-radius: 50%;
+  background: var(--mood-star-head); transform: translateY(-50%);
+  box-shadow: 0 0 6px 1.5px var(--mood-star-halo);
+}
+/* 淺色天空上 1.2px 看不見：粉彩沿 C2 的 2px＋柔光 */
+.mood-layer.is-light .mood-meteor { height: 2px; box-shadow: 0 0 10px 1px var(--mood-star-halo); }
+.mood-layer.is-light {
+  --mood-star: #fff; /* 字面值：天空層美術色（粉彩流星，沿 C2 白） */
+  --mood-star-tail: rgba(255, 255, 255, .6); /* 字面值：天空層美術色 */
+  --mood-star-head: #fff; /* 字面值：天空層美術色 */
+  --mood-star-halo: rgba(255, 255, 255, .85); /* 字面值：天空層美術色 */
+}
+.mood-layer.is-dark {
+  --mood-star: rgba(230, 236, 255, .95); /* 字面值：天空層美術色（銀河星光，沿 C1） */
+  --mood-star-tail: rgba(230, 236, 255, .4); /* 字面值：天空層美術色 */
+  --mood-star-head: #fff; /* 字面值：天空層美術色 */
+  --mood-star-halo: rgba(230, 236, 255, .65); /* 字面值：天空層美術色 */
+}
+@keyframes moodShoot {
+  0%   { transform: rotate(152deg) translateX(-30px); opacity: 0; }
+  12%  { opacity: 1; }
+  100% { transform: rotate(152deg) translateX(230px); opacity: 0; }
+}
+
+/* 候鳥：橫越＝linear；滑翔弧線＝同時長的 ease-in-out 淺弧（兩軸拆開才不會有折點）；拍翅＝翼的極慢 scaleY 呼吸 */
+.mood-bird, .mood-flock {
+  position: absolute; left: 100%; display: block;
+  animation: moodFlyX var(--fdur) linear var(--fdelay, 0s) both;
+}
+.mood-bob { display: block; animation: moodFlyBob var(--fdur) ease-in-out var(--fdelay, 0s) both; }
+@keyframes moodFlyX { from { transform: translateX(0); } to { transform: translateX(calc(-1 * var(--run))); } }
+@keyframes moodFlyBob { 0% { transform: translateY(0); } 55% { transform: translateY(var(--sag, 8px)); } 100% { transform: translateY(var(--drift, 0px)); } }
+.mood-fbird { position: absolute; animation: moodFbob var(--bdur, 3.2s) ease-in-out var(--bdelay, 0s) infinite; }
+@keyframes moodFbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.5px); } }
+.mood-bird svg, .mood-fbird svg {
+  display: block; transform-origin: 50% 65%;
+  animation: moodFlap var(--wdur, 3s) ease-in-out var(--wdelay, 0s) infinite;
+}
+@keyframes moodFlap { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(.8); } }
+
+/* 地平線帶：不隨內容捲動；列車只在這條帶上跑 */
+.mood-ground {
+  position: relative; z-index: 1; flex: none;
+  height: 54px; overflow: hidden; pointer-events: none;
+}
+.mood-horizon { position: absolute; left: 0; right: 0; bottom: 19px; height: 1px; background: var(--mood-horizon); }
+.mood-train {
+  position: absolute; left: 100%; bottom: 19.2px;
+  animation: moodPass var(--mood-train-dur) linear forwards;
+}
+.mood-train svg { display: block; }
+@keyframes moodPass { from { transform: translateX(0); } to { transform: translateX(calc(-1 * var(--run))); } }
+
+/* 手機：天空從頂帶下緣開始；地平線帶收窄把高度還給清單，螢幕窄所以列車走快一點 */
+[data-shell="mobile"] .mood-layer {
+  position: fixed;
+  top: calc(var(--m-band-h) + var(--m-safe-top));
+}
+[data-shell="mobile"] .mood-ground { height: 32px; }
+[data-shell="mobile"] .mood-horizon { bottom: 4px; }
+[data-shell="mobile"] .mood-train { bottom: 4.2px; --mood-train-dur: 13s; }
+[data-shell="mobile"] .mood-ground[data-level="mid"] .mood-train { --mood-train-dur: 9s; }
+
+/* 設定裡的一區 */
+.ns-mood-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.ns-mood-parts { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 減少動態：MoodStage 不掛（第二道保險） */
+@media (prefers-reduced-motion: reduce) {
+  .mood-meteor, .mood-bird, .mood-flock, .mood-train { display: none; }
+}
+
+/* ════ 藏起來就停（motionSleep.ts；ClaudeUsageMonitor D105／D107 的教訓） ════
+ * ⚠ 必須排在所有 animation 簡寫之後，也要 !important：簡寫會把 play-state 重設回 running。
+ * hidden＝真的看不到，全 App 一律停；idle＝看得到但沒人在看，只停裝飾與常駐呼吸，進場動畫不動。 */
+:root[data-motion-asleep="hidden"] *,
+:root[data-motion-asleep="hidden"] *::before,
+:root[data-motion-asleep="hidden"] *::after,
+:root[data-motion-asleep="idle"] .sky-layer *,
+:root[data-motion-asleep="idle"] .mood-layer *,
+:root[data-motion-asleep="idle"] .mood-ground *,
+:root[data-motion-asleep="idle"] .ns-sync-dot,
+:root[data-motion-asleep="idle"] .ns-tt-live-dot,
+:root[data-motion-asleep="idle"] .ns-tt-navbadge * { animation-play-state: paused !important; }

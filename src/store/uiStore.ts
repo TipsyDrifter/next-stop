@@ -9,13 +9,17 @@
 import { create } from "zustand";
 import type { ReactNode } from "react";
 import { settingsRepo, DEV_FLAGS, MOCK_MODE } from "../data";
+import { isSkinId, skinById, type SkinId } from "../lib/themeShop";
+import { syncWindowTheme } from "../lib/windowTheme";
+import { isCaptureWindow } from "../ui/notes/capture-window/shell";
+import { useHandFontStore } from "./handFontStore";
 // type-only import：不產生執行期依賴，store 不會因此被拉進 ui 層（registry 的真相仍在 tabs.ts）
 import type { MobileTabKey } from "../ui/mobile/tabs";
 // 頁面登記表（並行地基・契約 §6）：純資料模組，不拉 React／DOM
 import { DEFAULT_PAGE, pageById, type PageId } from "../ui/shell/pages";
 import { DEFAULT_DAY_START_HOUR, parseDayStartHour } from "../lib/date";
 
-export type ThemePref = "pastel" | "galaxy" | "system";
+export type ThemePref = "pastel" | "galaxy" | "system" | SkinId;
 
 /**
  * 頁面（gnav 第一欄三頁；決策記錄 r5／Q3、規格書 §3 全域導航）。
@@ -36,7 +40,7 @@ export type CalendarView = "month" | "week" | "time" | "stream";
  * M3 ⑥ 的失敗 toast／啟動橫幅按下去要直接落在「備份與還原」那一籤（不記憶，每次開都吃傳進來的值）。
  */
 // v1.1.1 加第四籤 "sync"（同步；契約席先把型別與籤位立好、SettingsPanel 先 disabled，WP8 通車時打開）
-export type SettingsTab = "general" | "reminders" | "backup" | "hotkeys" | "sync" | "assistant" | "lostfound";
+export type SettingsTab = "general" | "reminders" | "backup" | "hotkeys" | "sync" | "assistant" | "lostfound" | "shortcuts";
 
 export interface ToastState {
   message: string;
@@ -98,15 +102,24 @@ function normalizeWeekStart(raw: string | null): 0 | 1 {
 
 function applyTheme(pref: ThemePref) {
   const root = document.documentElement;
-  const dark =
-    pref === "galaxy" ||
-    (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  // ⑩ 商店主題（D-主-431）：data-theme 仍是亮暗底，data-skin 再蓋 token（styles/theme-library.css）
+  const skin = skinById(pref);
+  const dark = skin
+    ? skin.base === "dark"
+    : pref === "galaxy" || (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   root.setAttribute("data-theme", dark ? "dark" : "light");
+  if (skin) root.setAttribute("data-skin", skin.id);
+  else root.removeAttribute("data-skin");
+  syncWindowTheme(pref === "system" ? null : dark ? "dark" : "light");
   // 磨光⑤ S10：算好的結果留一份，index.html 開頁前同步 script 先套上，銀河主題使用者不再先看到粉彩。
   // ?theme= 覆寫不留（不蓋掉主人自己的偏好）；讀寫失敗（私密視窗、被擋）就算了，下次照舊慢一拍。
-  if (!THEME_OVERRIDE) {
+  // 快取只由主視窗寫：標題列的 setTheme 是整個 WebView profile 共用，主視窗一換亮暗，捕捉小窗的「跟隨系統」監聽也會觸發，
+  // 它手上是叫出時讀的舊設定，寫進來會把商店主題洗掉（沙盒抓到的）
+  if (!THEME_OVERRIDE && !isCaptureWindow()) {
     try {
       localStorage.setItem("ns-theme-resolved", dark ? "dark" : "light");
+      if (skin) localStorage.setItem("ns-skin-resolved", skin.id);
+      else localStorage.removeItem("ns-skin-resolved");
     } catch {
       /* 沒有快取只是開頁慢一拍套主題 */
     }
@@ -115,6 +128,7 @@ function applyTheme(pref: ThemePref) {
 
 /** settings 表的字串 → ThemePref；含 M2 舊值遷移（light＝旅の手帖→粉彩星空、dark＝月白→銀河鐵道） */
 function normalizeTheme(raw: string | null): ThemePref {
+  if (isSkinId(raw)) return raw;
   switch (raw) {
     case "pastel":
     case "galaxy":
@@ -130,7 +144,7 @@ function normalizeTheme(raw: string | null): ThemePref {
 }
 
 /**
- * dev／mock 專用的主題覆寫：`?theme=pastel|galaxy`。
+ * dev／mock 專用的主題覆寫：`?theme=pastel|galaxy|techo|sleeper|moonlight|yumemi`。
  * 給 headless 截圖與比稿對照用——蓋過 settings 讀到的值，但**不寫回** settings，
  * 關掉參數就回到主人自己的設定。正式打包（非 DEV 且非 mock）不生效。
  */
@@ -139,7 +153,7 @@ function detectThemeOverride(): ThemePref | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = new URLSearchParams(window.location.search).get("theme");
-    return raw === "pastel" || raw === "galaxy" ? raw : null;
+    return raw === "pastel" || raw === "galaxy" || isSkinId(raw) ? raw : null;
   } catch {
     return null;
   }
@@ -151,6 +165,7 @@ const THEME_OVERRIDE: ThemePref | null = detectThemeOverride();
 if (THEME_OVERRIDE && typeof document !== "undefined") applyTheme(THEME_OVERRIDE);
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let systemThemeWatched = false;
 
 interface UiStore {
   page: PageId;
@@ -459,9 +474,14 @@ export const useUiStore = create<UiStore>((set, get) => ({
     // 磨光⑤ 真機 D1：index.html 已用快取（或 ?theme= 覆寫）套好主題時不再先套預設——預設是「跟隨系統」，
     // 粉彩主題＋系統深色會先閃銀河 1.5 秒，反過來會先閃粉彩與英文「Today」；讀設定失敗就留著快取那一個。
     if (!document.documentElement.hasAttribute("data-theme")) applyTheme(get().theme);
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-      if (get().theme === "system") applyTheme("system");
-    });
+    // ⑩：捕捉小窗每次叫出都會重跑 loadSettings，監聽只掛一次（以前每次多一顆）
+    if (!systemThemeWatched) {
+      systemThemeWatched = true;
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (get().theme === "system") applyTheme("system");
+      });
+    }
+    void useHandFontStore.getState().init();
     try {
       const [theme, dayStart, lateCollapsed, calendarView, weekStart, todayHideDone, outlineHideDone] = await Promise.all([
         settingsRepo.get(KEY_THEME),

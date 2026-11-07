@@ -28,6 +28,8 @@
  * **回饋乙（D-主-152）**：`dragId`＝li 上的 `data-drag-id`（共用拖曳元件找列用）；`selecting`／`picked`／`onPick`＝多選——
  *   多選中整張卡是一顆勾選框（左邊多一欄勾選圈、⋯ 收起、検印不吃點；樣式在 mobile-select.css），點哪都是 onPick。
  *
+ * **⑫ 篩選清單**：`hideFare`＝不寫票種（看一群票時是雜訊）、`metaExtra`＝路線名後面多幾項（路徑、現況）。荷札不畫：票卡三行太擠（定案）。
+ *
  * **主線②（契約 §4.5-1、D-主-12）**：meta 第一格是預定時刻 `span.tm`——`14:00 発・90 分`（沒填預計＝`14:00 発`）、
  *   跨日加緊湊小字「隔天01:00」、逐班覆寫加靛字「本班」。已過時刻、沒入鋏也沒蓋済（運休也算交代）⇒ `.tm.past` 轉赭
  *   （只換字色；誤點卡照印原時刻、多半就是赭，§0-1 第 19 條）。`now` 由呼叫端的 `useMinuteTick()` 給——一頁一個節拍，
@@ -78,6 +80,10 @@ export interface MobileTicketProps {
   /** 這張被選中 */
   picked?: boolean;
   onPick?(): void;
+  /** 不寫票種那一項（⑫ 篩選清單） */
+  hideFare?: boolean;
+  /** 路線名後面多幾項（⑫ 篩選清單的路徑、現況） */
+  metaExtra?: ReactNode[];
 }
 
 /**
@@ -119,6 +125,8 @@ export function MobileTicket({
   selecting = false,
   picked = false,
   onPick,
+  hideFare = false,
+  metaExtra,
 }: MobileTicketProps) {
   const { done, suspended, paused, late, railDate, readOnly } = card;
   const settled = done || suspended;
@@ -132,7 +140,8 @@ export function MobileTicket({
   if (card.time !== null) meta.push(<TicketTime card={card} today={today} now={now} />);
   meta.push(<span className="m-tk-line">{lineName}</span>);
   if (card.serial !== null) meta.push(<span className="m-tk-serial">No.{card.serial}</span>);
-  meta.push(<span>{card.fare}</span>);
+  if (metaExtra) meta.push(...metaExtra);
+  if (!hideFare) meta.push(<span>{card.fare}</span>);
   if (late === "carry" && railDate) {
     meta.push(<span className="m-tk-chip is-late">原定 {mmdd(railDate)}</span>);
     if (!settled) meta.push(<span className="m-tk-late-note">延誤 {diffDays(today, railDate)} 天</span>);

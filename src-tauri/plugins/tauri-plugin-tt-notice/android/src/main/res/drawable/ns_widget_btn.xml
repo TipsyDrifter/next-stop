@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小工具的主鈕（原型 .btn.p：實心墨、圓角 2）＋水波紋。 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/ns_widget_ripple">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="2dp" />
+            <solid android:color="@color/ns_widget_ink" />
+        </shape>
+    </item>
+</ripple>

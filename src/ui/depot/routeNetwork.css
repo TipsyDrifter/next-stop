@@ -1,0 +1,62 @@
+/* ─────────────────────────────────────────────────────────
+ * routeNetwork.css — 走行圖（第五本第三梯 ③-2；D-主-551～558；視覺真相 prototypes/車庫走行圖.html 路網圖）
+ * 紙材質借 .ns-depot-paper。顏色只吃 theme token；路線色走 inline style；
+ * 圖上的小字（站名、到站日、徽）是地圖專用字級，照原型逐字、行尾註明。
+ * ───────────────────────────────────────────────────────── */
+.ns-rn { padding: 12px 14px 8px; margin-top: var(--sp-5); }
+[data-shell="mobile"] .ns-rn { padding: 10px 8px 6px; margin-top: 12px; }
+.ns-rn-h { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 0 4px 6px; font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-ink-soft); }
+.ns-rn-h .lg { display: inline-flex; align-items: center; gap: 6px; }
+.ns-rn-h i { display: inline-block; width: 22px; height: 0; border-top: 4px solid var(--color-ink-soft); border-radius: 2px; }
+.ns-rn-h i.dash { border-top-style: dashed; }
+.ns-rn-h i.dot { width: 10px; height: 10px; border: 1.8px solid var(--color-ink); border-radius: 50%; background: var(--ns-depot-dot); }
+.ns-rn-h .hint { margin-left: auto; color: var(--color-ink-faint); }
+.ns-rn-wrap { width: 100%; }
+.ns-rn-svg { display: block; overflow: visible; }
+
+/* 本線、幹線 */
+.ns-rn-spine { fill: none; stroke: var(--color-ink-soft); stroke-width: 2.5; stroke-linecap: round; }
+.ns-rn-trunk { fill: none; stroke: var(--color-ink-soft); stroke-width: 7; stroke-linecap: round; }
+.ns-rn-trunk-in { fill: none; stroke: var(--ns-depot-dot); stroke-width: 3; stroke-linecap: round; }
+.ns-rn-trunk.run { stroke-dasharray: 6 6; stroke-linecap: butt; }
+.ns-rn-j { fill: var(--color-ink-soft); }
+.ns-rn-hub { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ui); letter-spacing: .2em; fill: var(--color-ink); }
+.ns-rn-plate { fill: var(--color-book); }
+[data-theme="dark"] .ns-rn-plate { fill: var(--color-paper); stroke: var(--color-dash); }
+.ns-rn-pt { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: .14em; fill: var(--color-book-ink); } /* 地圖專用：名牌寬度照這個字級算 */
+[data-theme="dark"] .ns-rn-pt { fill: var(--color-ink); }
+
+/* 依幹線收合 */
+.ns-rn-fold { cursor: pointer; outline: none; }
+.ns-rn-foldhit { fill: transparent; }
+.ns-rn-caret { fill: none; stroke: var(--color-book-ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+[data-theme="dark"] .ns-rn-caret { stroke: var(--color-ink); }
+.ns-rn-fold:hover .ns-rn-plate { opacity: .86; }
+.ns-rn-fold:focus-visible .ns-rn-plate { stroke: var(--accent); stroke-width: 2; }
+.ns-rn-count { font-size: var(--fs-xs); letter-spacing: .08em; fill: var(--color-ink-soft); }
+.ns-rn-foldall { flex: none; }
+/* 手機一列放不下：圖例＋全部收合一列、提示字換下一列 */
+[data-shell="mobile"] .ns-rn-h { row-gap: 2px; }
+[data-shell="mobile"] .ns-rn-foldall { order: 1; margin-left: auto; min-height: 36px; }
+[data-shell="mobile"] .ns-rn-h .hint { order: 2; flex-basis: 100%; margin-left: 0; }
+
+/* 路線 */
+.ns-rn-r { cursor: pointer; outline: none; }
+.ns-rn-hit { fill: none; stroke: transparent; stroke-width: 34; }
+[data-shell="mobile"] .ns-rn-hit { stroke-width: 44; }
+.ns-rn-fork { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.ns-rn-jr { fill: var(--ns-depot-dot); stroke-width: 1.8; }
+.ns-rn-ln { fill: none; stroke-width: 4.5; stroke-linecap: round; transition: stroke-width var(--dur-fast); }
+.ns-rn-ln.run { stroke-dasharray: 9 7; stroke-linecap: butt; }
+.ns-rn-r:hover .ns-rn-ln,
+.ns-rn-r:focus-visible .ns-rn-ln { stroke-width: 6.5; }
+.ns-rn-r:focus-visible .ns-rn-name { text-decoration: underline; }
+.ns-rn-stn { fill: var(--ns-depot-dot); stroke: var(--color-ink); stroke-width: 1.8; }
+.ns-rn-term { fill: var(--ns-depot-dot); stroke: var(--color-ink); stroke-width: 2.2; }
+.ns-rn-termc { fill: var(--color-ink); }
+.ns-rn-bd { fill: var(--ns-depot-dot); stroke-width: 1.6; }
+.ns-rn-bdt { font-family: var(--font-latin); font-weight: 600; font-size: 10.5px; } /* 地圖專用：徽 */
+.ns-rn-bdt.long { font-size: 8.5px; } /* 地圖專用：三字代碼 */
+.ns-rn-name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-ui); letter-spacing: .08em; fill: var(--color-ink); }
+.ns-rn-sl { font-size: 10.5px; letter-spacing: .04em; fill: var(--color-ink-soft); } /* 地圖專用：站名 */
+.ns-rn-date { font-family: var(--font-latin); font-size: 10.5px; fill: var(--color-ink-soft); } /* 地圖專用：到站日 */

@@ -54,6 +54,7 @@ import {
   MAX_MINOR,
   STARTER_CATEGORIES,
   STARTER_CURRENCY,
+  WR_KIND_SEEDS,
   TICKET_ID_NAMESPACE,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
@@ -662,6 +663,8 @@ function makeSqliteDb(): TestDb {
   const raw = new DatabaseSync(":memory:");
   raw.exec("PRAGMA foreign_keys = ON"); // sqlx 預設開（0-15）
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0007_ticket_ledger.sql"), "utf8"));
+  // 壬 0019：ensureStarterRows 會種 wr_kinds，schema 要跟上（0016 是它的前置）
+  for (const mf of ["0016_ticket_wish", "0019_waitroom_kind"]) raw.exec(readFileSync(path.join(ROOT, `src-tauri/migrations/${mf}.sql`), "utf8"));
   // 第③階段（③契約 0-3）：tk_entries 多 repeat_id、另兩張表——sqlite 實作的 ENT_COLS 已含 repeat_id，真機也一定跑過 0010
   raw.exec(readFileSync(path.join(ROOT, "src-tauri/migrations/0010_ticket_plan.sql"), "utf8"));
   const bind = (args: unknown[] = []) => Object.fromEntries(args.map((v, i) => ["$" + (i + 1), v])) as Record<string, never>;
@@ -745,7 +748,7 @@ describe("E2. repository 層（memory／sqlite）", () => {
   for (const impl of IMPLS) {
     test(`17b. repository 層的錯誤訊息逐字（${impl.name}）`, async () => {
       const { repo } = await impl.make();
-      assert.equal(await repo.ensureStarterRows(), 3);
+      assert.equal(await repo.ensureStarterRows(), 8); // 幣別 1＋未分類 2＋候車室種類 5（壬 0019）
       assert.equal(await repo.ensureStarterRows(), 0); // 冪等（0-17）
 
       await rejectsMsg(repo.createAccount(newAcc("  ", "cash")), "帳戶名稱不能是空的");
@@ -932,10 +935,12 @@ describe("E2. repository 層（memory／sqlite）", () => {
         ["tk_currencies", CURRENCY_TWD_ID],
         ["tk_categories", UNCAT_INCOME_ID],
         ["tk_categories", UNCAT_EXPENSE_ID],
+        ...WR_KIND_SEEDS.map((k) => ["wr_kinds", k.id]),
       ],
     );
     assert.deepEqual(Object.keys(ops[0].cols), rustCols("TK_CURRENCIES_COLS"));
     assert.deepEqual(Object.keys(ops[1].cols), rustCols("TK_CATEGORIES_COLS"));
+    assert.deepEqual(Object.keys(ops[3].cols), rustCols("WR_KINDS_COLS"));
     assert.equal(ops[0].cols.deleted_at, null);
     assert.equal(ops[0].cols.is_main, 1);
 

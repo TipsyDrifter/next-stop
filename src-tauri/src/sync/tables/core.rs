@@ -40,6 +40,8 @@ const NODES_COLS: &[(&str, bool)] = &[
     ("time_overrides", false),
     // 回饋乙（0014）：兄弟順序的排序鍵；舊欄 `position` 留著——舊版物件的整數寫入照套到舊欄（沒人讀來排序）
     ("sort_key", false),
+    // ⑫（0020）：車票掛車站；指到的車站不在了由讀取端當沒掛，引擎不管
+    ("station_id", false),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),
@@ -90,6 +92,12 @@ fn nodes_outbox_row_fix(
     Ok(())
 }
 
+/// 還沒被動過的預設幹線不算「這台有沒有資料」（癸，D-主-531）：每台都會自動種，算進去的話新裝置加入同步都會被當成有資料。
+/// 改過名、排過序（`updated_at` 變了）就算資料，加入同步時才不會被當空庫、無聲蓋掉。
+/// id 與 `src/domain/starterLines.ts` 逐字相同（`scripts/tests/starter-defaults.test.ts` 對帳）。
+const NODES_ALIVE: &str = "deleted_at IS NULL AND NOT (updated_at = created_at AND id IN (\
+'99e220f9-53da-55a7-a521-30f65cff69dd','2058e959-b8b3-5511-b4ef-4fc3f582595c','c05cb7ab-b899-5208-9bee-3e6d6b8c2b7c'))";
+
 pub const TABLES: &[SyncTableSpec] = &[
     SyncTableSpec {
         name: "nodes",
@@ -104,7 +112,7 @@ pub const TABLES: &[SyncTableSpec] = &[
             full_json_order: "created_at",
             fk_checked: true,
             conflict_anchor: ConflictAnchor::SelfId,
-            alive_filter: Some("deleted_at IS NULL"),
+            alive_filter: Some(NODES_ALIVE),
             since: None,
         }),
     },

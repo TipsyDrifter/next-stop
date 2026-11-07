@@ -89,6 +89,7 @@ pub(crate) const GOLDEN_NODES_COLS: &[(&str, bool)] = &[
     ("scheduled_time", false),
     ("time_overrides", false),
     ("sort_key", false),
+    ("station_id", false),
     ("route_id", false),
     ("created_at", false),
     ("updated_at", false),
@@ -156,7 +157,7 @@ pub(crate) const SQL_STAMP_NODES: &str = concat!(
     "SELECT 'repeat_rule' AS col UNION ALL SELECT 'completed_at' AS col UNION ALL SELECT 'expected_on' AS col UNION ALL ",
     "SELECT 'arrived_on' AS col UNION ALL SELECT 'today_position' AS col UNION ALL SELECT 'carried_from' AS col UNION ALL ",
     "SELECT 'scheduled_time' AS col UNION ALL SELECT 'time_overrides' AS col UNION ALL ",
-    "SELECT 'sort_key' AS col UNION ALL ",
+    "SELECT 'sort_key' AS col UNION ALL SELECT 'station_id' AS col UNION ALL ",
     "SELECT 'route_id' AS col UNION ALL SELECT 'created_at' AS col UNION ALL SELECT 'updated_at' AS col UNION ALL ",
     "SELECT 'deleted_at' AS col",
     ") c WHERE NOT (c.col = 'route_id' AND NOT (n.parent_id IS NULL AND n.kind = 'ticket'))"
@@ -248,7 +249,8 @@ pub(crate) const SQL_RESET: &[&str] = &[
 ];
 
 /// `engine.rs:3714` `local_alive_count`
-pub(crate) const SQL_ALIVE_COUNT: &str = "SELECT COUNT(*) AS n FROM nodes WHERE deleted_at IS NULL";
+pub(crate) const SQL_ALIVE_COUNT: &str = "SELECT COUNT(*) AS n FROM nodes WHERE deleted_at IS NULL AND NOT (updated_at = created_at AND id IN (\
+'99e220f9-53da-55a7-a521-30f65cff69dd','2058e959-b8b3-5511-b4ef-4fc3f582595c','c05cb7ab-b899-5208-9bee-3e6d6b8c2b7c'))";
 
 // ─────────────────────────────────────────────────────────────
 // T-甲9：已發行 migration 的 sqlx checksum（SHA-384(lf(sql)) 的 hex）
@@ -363,6 +365,7 @@ pub(crate) async fn golden_pool(tag: &str) -> (Pool<Sqlite>, std::path::PathBuf)
         include_str!("../../migrations/0004_sync.sql"),
         include_str!("../../migrations/0009_ticket_time.sql"),
         include_str!("../../migrations/0014_node_sort_key.sql"),
+        include_str!("../../migrations/0020_node_station.sql"),
     ] {
         sqlx::raw_sql(sql).execute(&pool).await.unwrap();
     }

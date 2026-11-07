@@ -12,6 +12,8 @@
  * 返回層：選取本身登記一層 "page"（返回＝取消多選；比子頁層晚登記＝先退它）；「更多」與它的子面板＝一層 sheet `core.selectionSheet`；
  *   日期面板用同一個 id；移動挑選器自己登記（MobileAttachPicker）。
  *
+ * ⑫ 看板（scope "board"）：`lookup`＝選到的票從哪裡找（篩選清單跨路線，不在那三份切片裡）；「更多」多一項「車站…」——
+ *   都同一條路線、那條路線有車站才出（同桌機選取列；列上放不下第五顆，同全選收在「更多」）。
  * 缺什麼就在這裡包一層（batchActions 不改）：
  *   - 移動到…：batchActions.batchMoveTo 只收 parentId；挑選器的種類規則（moveTargetRule）與「選到的種類不一樣」的停用在這裡判。
  *   - 荷札：只給能掛荷札的種類（TAG_ENTITY_NODE_KINDS：車票、列車、車廂）；掛哪個由這裡的小面板挑（打字＋常用＋已掛的可拿掉）。
@@ -19,6 +21,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeRow, Priority } from "../../domain/node";
 import { moveTargetRule } from "../../domain/moveTo";
+import type { TaskRow } from "../../domain/taskFilter";
+import { stationItems } from "../board/boardMenu";
 import { TAG_ENTITY_NODE_KINDS, keysOfEntity, suggest } from "../../domain/tags";
 import { todayKey } from "../../lib/date";
 import {
@@ -48,7 +52,7 @@ import "../common/moveTo.css";
 
 const SHEET_LAYER = "core.selectionSheet";
 
-type Sheet = "more" | "date" | "move" | "priority" | "tags" | null;
+type Sheet = "more" | "date" | "move" | "priority" | "tags" | "station" | null;
 
 /** 選到的那幾張的節點：路線樹＞今日切片＞行程表切片（三頁各自載的那份） */
 function nodeOf(id: string): NodeRow | undefined {
@@ -88,7 +92,7 @@ function IconDots() {
   );
 }
 
-export function MobileSelectionBar({ scope }: { scope: SelectionScope }) {
+export function MobileSelectionBar({ scope, lookup = nodeOf }: { scope: SelectionScope; lookup?: (id: string) => NodeRow | undefined }) {
   const ids = useScopeSelection(scope);
   const [sheet, setSheet] = useState<Sheet>(null);
   const close = () => setSheet(null);
@@ -105,18 +109,23 @@ export function MobileSelectionBar({ scope }: { scope: SelectionScope }) {
   const move = useMemo(() => {
     if (!active) return null;
     const rules = ids.map((id) => {
-      const n = nodeOf(id);
+      const n = lookup(id);
       return n ? moveTargetRule(n.kind) : null;
     });
     if (rules.some((r) => r === null)) return { why: "選到的項目裡有不能移動的", rule: null };
     if (new Set(rules.map((r) => r!.label)).size > 1) return { why: "選到的種類放不進同一個地方", rule: null };
     return { why: null, rule: rules[0]! };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, ids]);
+
+  const picks = ids.map(lookup).filter((n): n is NodeRow => !!n);
+  const stationRoute = scope === "board" && picks.length && picks.every((n) => n.route_id && n.route_id === picks[0].route_id && !(n as TaskRow).has_kids) ? picks[0].route_id : null;
+  const hasStations = useNodeStore((s) => !!stationRoute && s.stations.some((st) => st.parent_id === stationRoute));
 
   if (!active) return null;
   const today = todayKey(dayStartHour);
   const count = ids.length;
-  const nodes = ids.map(nodeOf).filter((n): n is NodeRow => !!n);
+  const nodes = picks;
   const anyRepeat = nodes.some((n) => !!n.repeat_rule);
   const taggable = nodes.every((n) => TAG_ENTITY_NODE_KINDS.includes(n.kind));
   /** 全部同一天＝日期面板標出那天；不一樣就不標 */
@@ -181,6 +190,7 @@ export function MobileSelectionBar({ scope }: { scope: SelectionScope }) {
               全選這一頁
             </MSheetItem>
           )}
+          {hasStations && <MSheetItem onClick={() => setSheet("station")}>車站…</MSheetItem>}
           <MSheetItem onClick={() => setSheet("priority")}>優先級…</MSheetItem>
           <MSheetItem
             off={!taggable}
@@ -202,6 +212,22 @@ export function MobileSelectionBar({ scope }: { scope: SelectionScope }) {
           {[...PRIORITY_OPTIONS].reverse().map((o) => (
             <MSheetItem key={o.value} onClick={run((cur) => batchSetPriority(cur, o.value as Priority))}>
               {o.label}
+            </MSheetItem>
+          ))}
+        </MSheet>
+      )}
+
+      {sheet === "station" && stationRoute && (
+        <MSheet list title="車站" overline={`已選 ${count} 張`} backId={SHEET_LAYER} onClose={close}>
+          {stationItems(nodes, stationRoute).map((it) => (
+            <MSheetItem
+              key={it.key}
+              onClick={() => {
+                close();
+                it.onSelect?.();
+              }}
+            >
+              {it.label}
             </MSheetItem>
           ))}
         </MSheet>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ⑬ 外部入口：主畫面小工具。4×1 起、可拉高成 4×2（NsWidget 依高度換版面）。
+     updatePeriodMillis 30 分鐘只當保險（換日有自己的鬧鐘、狀態一變會主動重畫）。
+     targetCell*、previewLayout、description 是 API 31+ 的屬性，舊版系統略過；previewLayout 用停車中的預設字當預覽。 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/ns_widget_description"
+    android:initialLayout="@layout/ns_widget_small"
+    android:minHeight="40dp"
+    android:minResizeHeight="40dp"
+    android:minResizeWidth="250dp"
+    android:minWidth="250dp"
+    android:previewLayout="@layout/ns_widget_small"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="1"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen" />

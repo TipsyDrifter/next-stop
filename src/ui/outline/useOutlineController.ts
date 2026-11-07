@@ -39,6 +39,7 @@ import type { OutlineKeyActions } from "./useOutlineKeyboard";
 import { useSelectionStore } from "../../store/selectionStore";
 import { clearIfAny, extendBy, pickClick, selectAll } from "../common/selection/desktopSelection";
 import { armOpenOnClick } from "../common/selection/openOnClick";
+import { copyTicketLink } from "../external/externalBridge";
 
 export type VisibleRow = { type: "node"; id: string; depth: number } | { type: "draft"; depth: number };
 
@@ -799,6 +800,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       arrange(item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected)),
       arrange(item("up", "上移", "outline.reorder.up", g.upWhy, () => keys.reorderSelected(-1))),
       arrange(item("down", "下移", "outline.reorder.down", g.downWhy, () => keys.reorderSelected(1))),
+      // ⑬ 外部入口：這張票的連結。頂層已經 ≤7 滿了，放進「編排 ▾」；支線是主題，不算票（同上面不出排程）
+      ...(n.kind === "branch" ? [] : [arrange({ key: "copy-link", label: "複製連結", onSelect: () => void copyTicketLink(id) })]),
       item("delete", "刪除", "outline.delete", null, keys.deleteSelected, true, true),
     ];
   };

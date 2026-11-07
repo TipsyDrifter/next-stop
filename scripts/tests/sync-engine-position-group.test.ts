@@ -136,7 +136,7 @@ const TICKET_IMPLS: { name: string; make: () => Promise<{ repo: AnyRepo; db: Tes
   {
     name: "sqlite",
     make: async () => {
-      const db = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql"]);
+      const db = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql"]);
       setDb(db);
       const { SqliteTicketRepository } = await import("../../src/data/sqliteTicketRepository.ts");
       return { repo: new SqliteTicketRepository(), db };
@@ -215,8 +215,8 @@ describe("#101 售票口：相鄰互換寫整組", () => {
   }
 
   test("兩台各排同一群組 ⇒ 整組 LWW，收斂成 hlc 較大那台的完整版本（sqlite 兩個庫）", async () => {
-    const devA = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql"]);
-    const devB = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql"]);
+    const devA = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql"]);
+    const devB = makeDb(["0007_ticket_ledger.sql", "0010_ticket_plan.sql", "0016_ticket_wish.sql", "0019_waitroom_kind.sql"]);
     const { SqliteTicketRepository } = await import("../../src/data/sqliteTicketRepository.ts");
     const repo = new SqliteTicketRepository();
 

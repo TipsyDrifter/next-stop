@@ -79,5 +79,5 @@ export const NOTES = {
   scenes: NOTES_SCENES,
   hotkeyFiles: { notes: "ui/notes/useNotesKeyboard.ts", global: "lines/notes.mount.tsx" },
   syncTables: ["notes", "tags", "taggings"],
-  syncSettingsKeys: ["week_start"],
+  syncSettingsKeys: ["week_start", "saved_filters"],
 } as const satisfies LineManifest;

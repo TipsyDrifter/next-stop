@@ -19,6 +19,16 @@ const COMMANDS: &[&str] = &[
     // addPluginListener 走 plugin:tt-notice|register_listener（notification 2.3.3 api-iife.js）
     "register_listener",
     "remove_listener",
+    // ⑬ 外部入口：連結佇列、主畫面小工具、NFC 貼紙
+    "ext_take",
+    "ext_ack",
+    "widget_sync",
+    "widget_status",
+    "widget_pin",
+    "nfc_status",
+    "nfc_write",
+    "nfc_cancel",
+    "nfc_open_settings",
 ];
 
 fn main() {

@@ -27,6 +27,7 @@ import { LINE_MANIFESTS } from "../../lines";
 import type { LineId } from "../../lines/types";
 import { useNodeStore } from "../../store/nodeStore";
 import { useReminderStore } from "../../store/reminderStore";
+import { onAfterWipe } from "../../store/syncStore";
 import { useUiStore } from "../../store/uiStore";
 import { openReminderTarget } from "./openReminderTarget";
 import { nativeSchedules, noteMockItems, onReminderOpen, remSync, showToast } from "./reminderBridge";
@@ -196,6 +197,13 @@ export function startReminders(shell: Shell): void {
     setInterval(() => void refreshReminders(), REFRESH_MS),
   ];
   stops.push(() => timers.forEach(clearInterval));
+  // 別台「一起清空」不重開 App：帳本與最近的提醒重讀，舊的才不會被下一次存檔寫回去
+  stops.push(
+    onAfterWipe(() => {
+      sentLoaded = false;
+      void useReminderStore.getState().reloadRecent();
+    }),
+  );
 
   // 回前景重算；離開前景也算一趟（Android 接下來可能很久不跑 JS）
   const onVisible = () => void refreshReminders({ force: true });

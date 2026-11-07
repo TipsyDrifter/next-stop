@@ -20,7 +20,7 @@ import { MSheet, MSheetItem } from "../common/MSheet";
 import { AimGroupHead, FullSearchAimMobileRow, FullSearchField, FullSearchFilters, FullSearchMobileRow, FullSearchStats, ListTail, routeFilterText } from "./FullSearchParts";
 import { useFullSearchResults } from "./useFullSearchResults";
 
-export function MobileFullSearch({ onBack, onPick, onPickAim }: { onBack(): void; onPick(node: NodeRow): void; onPickAim(hit: AimSearchHit): void }) {
+export function MobileFullSearch({ onBack, onPick, onPickAim, onGoFilter }: { onBack(): void; onPick(node: NodeRow): void; onPickAim(hit: AimSearchHit): void; onGoFilter(): void }) {
   const query = useSearchStore((s) => s.query);
   const hitsTerm = useSearchStore((s) => s.hitsTerm);
   const pending = useSearchStore((s) => s.pending);
@@ -82,7 +82,17 @@ export function MobileFullSearch({ onBack, onPick, onPickAim }: { onBack(): void
         </div>
 
         {!hitsTerm ? (
-          !query.trim() && <p className="ns-fs-hint">名稱、概要、乘務記錄、方針都會找，結果不限筆數。點一列就跳到那裡。</p>
+          !query.trim() && (
+            <p className="ns-fs-hint">
+              名稱、概要、乘務記錄、方針都會找，結果不限筆數。點一列就跳到那裡。
+              <br />
+              {/* ⑫ 契約 §7：要找字和要看一群票是兩個問題，不併；沒字時指路（同桌機 FullSearchView） */}
+              不是找字、是要看一群票（這條路線、這個荷札、快到締切）？
+              <button type="button" className="ns-btn btn-ghost m-fs-tofilter" onClick={onGoFilter}>
+                到路線圖的篩選
+              </button>
+            </p>
+          )
         ) : count === 0 ? (
           !typing && (
             <p className="ns-fs-hint">

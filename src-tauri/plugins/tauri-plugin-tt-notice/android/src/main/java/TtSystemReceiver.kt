@@ -2,6 +2,7 @@
 // - state.enabled ⇒ render（Chronometer 的 base 依新的 elapsedRealtime 重算，秒數才對）。
 // - reminder 存在且未響：fireAt 還沒到 ⇒ arm；已過（重開機期間錯過）⇒ 立刻 fire（fire 自己判「運行中仍是它」）。
 // - ⑨ 截止提醒：NsReminders.onSystemEvent 重排並貼出到期的。
+// - ⑬ 主畫面小工具：重畫（跳秒的 base 同上要重算、今日張數可能換日了；App 更新後畫面也靠這裡）、重排換日鬧鐘。
 // 不收 LOCKED_BOOT_COMPLETED（manifest 沒宣告）：SharedPreferences 在解鎖前讀不到；保險起見這裡也判一次解鎖。
 // 不 goAsync、絕不寫 SQLite。
 
@@ -32,6 +33,7 @@ class TtSystemReceiver : BroadcastReceiver() {
 
     // 要在下面的提前 return 之前：沒有跑太久提醒是常態，放後面就永遠到不了
     NsReminders.onSystemEvent(ctx)
+    NsWidget.refresh(ctx)
 
     val r = TtNoticeStore.readReminder(ctx) ?: return
     if (r.optBoolean("fired", false)) return

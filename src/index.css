@@ -8,6 +8,7 @@
  * 檔內順序（後者勝出，同特異度時）：
  *   1. tailwindcss   utilities（@layer，優先權低於下列 unlayered CSS）
  *   2. theme.css     兩主題 token（粉彩星空／銀河鐵道）＋ Tailwind @theme
+ *   2½. theme-library.css  商店主題 token（只在 <html data-skin> 時命中；⑩）
  *   3. techo.css     共用視覺層（書封材質／紙頁／車票／印章底／側板紙面／覆蓋層）
  *   4. ambience.css  天空氛圍層（.sky-* 具名空間，與上列零撞名）
  *   5. stamps.css    印章家族（.ns-*）＋ 済章朱肉、側板乘務記錄——需蓋過 techo.css 的 .stamp／.seal
@@ -26,6 +27,7 @@
  * ───────────────────────────────────────────────────── */
 @import "tailwindcss";
 @import "./styles/theme.css";
+@import "./styles/theme-library.css";
 @import "./styles/techo.css";
 @import "./styles/ambience.css";
 @import "./styles/stamps.css";
@@ -37,6 +39,7 @@
 @import "./ui/common/attachpicker.css";
 @import "./ui/common/defer.css";
 @import "./styles/mobile.css";
+@import "./ui/ambience/mood.css";
 
 @layer base {
   :root {

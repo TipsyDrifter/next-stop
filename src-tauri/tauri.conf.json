@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "私鐵手帳",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "identifier": "app.shitetsu.nextstop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -39,6 +39,25 @@
         "minimizable": false,
         "maximizable": false,
         "closable": true
+      },
+      {
+        "label": "pin",
+        "create": false,
+        "url": "pin.html",
+        "title": "桌面小窗 · Next Stop",
+        "width": 272,
+        "height": 96,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": false,
+        "focusable": false,
+        "visible": false,
+        "center": false,
+        "shadow": true,
+        "minimizable": false,
+        "maximizable": false
       }
     ],
     "security": {

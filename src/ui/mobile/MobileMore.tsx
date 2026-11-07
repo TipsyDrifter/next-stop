@@ -46,18 +46,23 @@
  * 第五本 ⑨：同步之後多一列「提醒」，點了切子頁（本體 `reminders/ReminderSettingsBody`，與桌機〈提醒〉籤同一份）；深連結 `uiStore.openRemindersPage("mobile")`。
  */
 import { Segmented } from "../common/Segmented";
+import { MoodSettings } from "../ambience";
 import { useEffect, useState } from "react";
 import { MobileGestures } from "./MobileGestures";
 import { useUiStore, type ThemePref } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
+import { useTicketStore } from "../../store/ticketStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
 import MobileBackup from "./MobileBackup";
 import { ReminderSettingsBody, useReminderOnCount } from "../reminders/ReminderSettingsBody";
+import { ShortcutsBody } from "../external/ShortcutsBody";
 import MobileLostFound from "./MobileLostFound";
 import { SnapshotRescue } from "../common/SnapshotRescue";
 import { useBackupStore } from "../../store/backupStore";
 import { useBackLayer } from "./backStack";
+import { ThemeShop } from "../settings/ThemeShop";
+import { skinById } from "../../lib/themeShop";
 import { lineSettingsLinks } from "../../lines/runtime";
 import { GNAV_ICONS } from "../sidebar/gnavIcons";
 // 〈外部助理〉那一段的兩條排版規則跟桌機籤放在同一支 css（MCP 接口班的新檔，不動共用的 mobile.css）
@@ -94,6 +99,7 @@ function fmtBackupStamp(iso: string): string {
 export default function MobileMore() {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
+  const skin = skinById(theme);
   const setMobileTab = useUiStore((s) => s.setMobileTab);
   const weekStart = useUiStore((s) => s.weekStart);
   const setWeekStart = useUiStore((s) => s.setWeekStart);
@@ -109,12 +115,14 @@ export default function MobileMore() {
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
   // 收官磨光 Q2-a：多一個子頁 "backup"（備份與還原）；深連結同 sync 那一套（備份失敗 toast 的「看原因」）
   // 失物招領：多一個子頁 "lostfound"（最近刪除）
-  const [view, setView] = useState<"more" | "sync" | "backup" | "gestures" | "lostfound" | "reminders">(() => moreRequest ?? "more");
+  const [view, setView] = useState<"more" | "sync" | "backup" | "gestures" | "lostfound" | "reminders" | "shortcuts" | "shop">(() => moreRequest ?? "more");
   const reminderOnCount = useReminderOnCount();
   const settingsLinks = lineSettingsLinks("mobile");
   const backupOkAt = useBackupStore((s) => s.lastOkAt);
   const backupFailed = useBackupStore((s) => !!s.lastError);
   const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
+  // 壬 候車室：列尾寫等車幾件（願望資料 App 啟動時 TicketAgent 就暖好了）
+  const waitCount = useTicketStore((s) => s.wish.want.length);
 
   // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
   useEffect(() => {
@@ -137,6 +145,10 @@ export default function MobileMore() {
   useBackLayer("core.more-lostfound", view === "lostfound", () => setView("more"), "page");
   // ⑧：手勢與長按子頁（桌機設定〈快捷鍵〉的手機對應）
   useBackLayer("core.more-gestures", view === "gestures", () => setView("more"), "page");
+  // ⑬：捷徑與小工具子頁（桌機設定同名一籤）
+  useBackLayer("core.more-shortcuts", view === "shortcuts", () => setView("more"), "page");
+  // ⑩ 主題商店（D-主-435）：桌機設定〈一般〉「商店」的手機對應
+  useBackLayer("core.more-shop", view === "shop", () => setView("more"), "page");
 
   // 從雲端備份撿回（全螢幕頁）：最近刪除、備份頁與同步頁的雲端清單都開得到，掛在這裡一份
   if (view !== "more") {
@@ -146,12 +158,25 @@ export default function MobileMore() {
         {view === "backup" && <MobileBackup onBack={() => setView("more")} />}
         {view === "lostfound" && <MobileLostFound onBack={() => setView("more")} />}
         {view === "gestures" && <MobileGestures onBack={() => setView("more")} />}
+        {view === "shop" && (
+          <div className="m-page m2-page" aria-label="商店">
+            <ThemeShop backLabel="更多" backClassName="m2-back" onBack={() => setView("more")} />
+          </div>
+        )}
         {view === "reminders" && (
           <div className="m-page m2-page" aria-label="提醒">
             <button type="button" className="m2-back" onClick={() => setView("more")}>
               ← 更多
             </button>
             <ReminderSettingsBody shell="mobile" />
+          </div>
+        )}
+        {view === "shortcuts" && (
+          <div className="m-page m2-page" aria-label="捷徑與小工具">
+            <button type="button" className="m2-back" onClick={() => setView("more")}>
+              ← 更多
+            </button>
+            <ShortcutsBody />
           </div>
         )}
         <SnapshotRescue mobile />
@@ -161,10 +186,10 @@ export default function MobileMore() {
 
   return (
     <div className="m-page m2-page" aria-label="更多">
-      {/* ② 運行報告（D-主-183）：最上面一段「回顧」＝桌機書封第三排；③ 的車庫接在同一段（D-主-215） */}
+      {/* ② 運行報告（D-主-183）：最上面一段「站內」＝桌機書封第三排；③ 的車庫（D-主-215）、壬 候車室接在同一段（段名由「回顧」改「站內」D-主-512） */}
       <section className="m2-sec" aria-labelledby="m2-sec-review">
         <h2 id="m2-sec-review" className="m2-sec-title">
-          回顧
+          站內
         </h2>
         <button type="button" className="m2-row-link m2-row-first" onClick={() => setMobileTab("report")}>
           <span className="m2-planned-name m2-row-icon">
@@ -179,6 +204,13 @@ export default function MobileMore() {
             車庫
           </span>
           <span className="m2-planned-note">{depotCount > 0 ? `${depotCount} 條路線到站` : "還沒有到站的路線"}</span>
+        </button>
+        <button type="button" className="m2-row-link" onClick={() => setMobileTab("waitroom")}>
+          <span className="m2-planned-name m2-row-icon">
+            {GNAV_ICONS.waitroom(16)}
+            候車室
+          </span>
+          <span className="m2-planned-note">{waitCount > 0 ? `等車 ${waitCount} 件` : "還沒有等車的事"}</span>
         </button>
       </section>
 
@@ -207,7 +239,18 @@ export default function MobileMore() {
               );
             })}
           </div>
+          {/* ⑩：商店不是第四個選項（radiogroup 外），是進子頁的鈕；穿著商店主題時它亮 */}
+          <button
+            type="button"
+            className={"m2-choice ns-shop-entry" + (skin ? " is-on" : "")}
+            onClick={() => setView("shop")}
+          >
+            <span className="m2-choice-label">商店</span>
+            <span className="m2-choice-note">{skin ? `使用中・${skin.name}` : "更多主題・手寫字型"}</span>
+          </button>
         </div>
+
+        <MoodSettings labelClass="m2-block-label" blockClass="m2-block" />
 
         {/* 旅客筆記車次②（D-筆-29）：週首——與桌機設定頁同一列同一份字；形狀沿主題那組 `.m2-choice` */}
         <div className="m2-block">
@@ -277,6 +320,12 @@ export default function MobileMore() {
         {/* ⑧：桌機這裡是〈快捷鍵〉籤；手機沒有鍵盤，寫手勢 */}
         <button type="button" className="m2-row-link" onClick={() => setView("gestures")}>
           <span className="m2-planned-name">手勢與長按</span>
+          <span className="m2-planned-note">›</span>
+        </button>
+
+        {/* ⑬ 外部入口：主畫面小工具、NFC 貼紙、連結 */}
+        <button type="button" className="m2-row-link" onClick={() => setView("shortcuts")}>
+          <span className="m2-planned-name">捷徑與小工具</span>
           <span className="m2-planned-note">›</span>
         </button>
 

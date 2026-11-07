@@ -31,7 +31,7 @@ registerHooks({
 
 const { describeMerge, mergeSetDiff, mergeToastText, setDiffText, TBL_NOUN, countNoun } = await import("../../src/domain/syncMerge.ts");
 const { seedHlc, nextHlc, HLC_MAX_DRIFT_MS } = await import("../../src/data/syncRepository.ts");
-const { repeatSyncLabel, skippedDaysText, repeatLabel } = await import("../../src/lines/ticketSyncLabel.ts");
+const { repeatSyncLabel, wishKindSyncLabel, wishSyncLabel, skippedDaysText, repeatLabel } = await import("../../src/lines/ticketSyncLabel.ts");
 type MergeNotice = import("../../src/data/syncRepository.ts").MergeNotice;
 
 function mk(p: Partial<MergeNotice> = {}): MergeNotice {
@@ -281,5 +281,31 @@ describe("F-4 排序通知：講結果不印原始數字", () => {
   test("toast：混到別欄就退回逐類句", () => {
     const list = [pos("a1"), mk({ tbl: "tk_accounts", row_id: "a2", col: "name", mine: "甲", theirs: "乙" })];
     assert.equal(mergeToastText(list, null), "有 2 個帳戶兩台都改過，留下後改的");
+  });
+});
+
+/* ───────── 壬 候車室：願望加種類與實現去向、種類表自己的標籤 ───────── */
+
+describe("願望：kind_id、target_id 的人話", () => {
+  const look = { accountName: () => null, categoryName: () => null, wishKindName: (id: string) => (id === "k1" ? "去" : null) };
+  test("列名照舊、種類查 wr_kinds 的名、實現成…顯示已實現／還在等", () => {
+    const lab = wishSyncLabel({ name: "京都散步", category_id: null } as never, look);
+    assert.equal(lab.label, "願望「京都散步」");
+    assert.equal(lab.cols?.kind_id, "種類");
+    assert.equal(lab.cols?.target_id, "實現成…");
+    assert.equal(lab.fmt?.("kind_id", "k1"), "去");
+    assert.equal(lab.fmt?.("kind_id", "gone"), "？", "種類被刪＝印？");
+    assert.equal(lab.fmt?.("target_id", null), "還在等");
+    assert.equal(lab.fmt?.("target_id", "n1"), "已實現");
+    assert.equal(lab.fmt?.("entry_id", "e1"), "已買");
+  });
+  test("種類「買」：欄名與動作翻中文", () => {
+    const lab = wishKindSyncLabel({ name: "買" } as never);
+    assert.equal(lab.label, "種類「買」");
+    assert.equal(lab.cols?.action, "實現動作");
+    assert.equal(lab.cols?.position, "番線");
+    assert.equal(lab.fmt?.("action", "entry"), "記一筆");
+    assert.equal(lab.fmt?.("action", "diary"), "寫日記");
+    assert.equal(lab.fmt?.("action", "time"), "記時間");
   });
 });

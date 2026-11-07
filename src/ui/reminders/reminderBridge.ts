@@ -2,7 +2,7 @@
  * reminderBridge——提醒對原生層的橋（⑨ 契約 §4、§5）。平台分流看真實平台（`onAndroid()`），不看排版。
  *
  * - Android：本地 plugin `tt-notice` 的 `rem_sync`／`rem_take_launch`＋事件 `reminder-open`。排程與貼通知都在 Kotlin（App 沒開也響）。
- * - 桌機：`reminder_toast`（Rust 用 `tauri-winrt-notification` 送、接 `on_activated`；外掛 2.3.3 沒有點擊回呼，見查證報告）＋事件 `ns-reminder-open`。
+ * - 桌機：`reminder_toast`（Rust 自己組 toast：點了由系統開 `nextstop://reminder`，走 ⑬ 收連結；`ns-reminder-open` 留著當後備）。
  *   送失敗退回 `notifyOnce`：點不回來，但至少看得到。
  * - `?mock=1`：不碰原生，記進 `window.__reminderMock`（對帳與沙盒用；`open(target)` 模擬點通知）。
  */

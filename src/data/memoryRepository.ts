@@ -51,12 +51,14 @@ import type {
   RescheduleResult,
   RouteProgress,
   RouteMemberRow,
+  TaskHolderRow,
   ScheduleBounds,
   ScheduleEntry,
   SidebarData,
   TodayRow,
 } from "./nodeRepository";
 import type { FullSearchHit } from "../domain/fullSearch";
+import type { TaskRow } from "../domain/taskFilter";
 import { depotRouteIds, inDepot, type ArrivalWrite } from "../domain/depot";
 import {
   compareCreated,
@@ -69,6 +71,7 @@ import {
   type SlotAnchor,
 } from "../domain/nodeOrder";
 import { keysForSlot, planSortKeyBackfill, slotFromAnchor, type KeyWrite } from "../domain/nodeSortKey";
+import { STARTER_LINES } from "../domain/starterLines";
 import {
   attachTimeOverrides,
   backfillAtOf,
@@ -103,7 +106,7 @@ import type { SettingsRepository } from "./settingsRepository";
 const PATCHABLE = new Set<string>([
   "name", "description", "color", "code", "status", "scheduled_on", "due_on", "priority",
   "estimate_min", "progress", "time_spent_min", "mood", "expected_on", "arrived_on",
-  "carried_from", "route_id", "scheduled_time",
+  "carried_from", "route_id", "scheduled_time", "today_position", "station_id",
 ]);
 
 const isAlive = (n: { deleted_at: string | null }): boolean => n.deleted_at === null;
@@ -163,6 +166,22 @@ export class MemoryNodeRepository implements NodeRepository {
       .map((n) => ({ id: n.id, kind: n.kind, status: n.status, route_id: n.route_id }));
   }
 
+  async listTasks(): Promise<TaskRow[]> {
+    this.backfillSortKeys();
+    const alive = this.alive();
+    const parents = new Set(alive.map((n) => n.parent_id));
+    return alive
+      .filter((n) => n.kind === "ticket" || n.kind === "train" || n.kind === "car")
+      .sort(compareSiblings)
+      .map((n): TaskRow => ({ ...clone(n), has_kids: parents.has(n.id) }));
+  }
+
+  async listTaskHolders(): Promise<TaskHolderRow[]> {
+    return this.alive()
+      .filter((n) => n.kind === "branch" || n.kind === "train" || n.kind === "car")
+      .map((n) => ({ id: n.id, name: n.name, parent_id: n.parent_id }));
+  }
+
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
     this.backfillSortKeys();
     return this.alive()
@@ -182,6 +201,16 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   // ───────────── 寫入（async 殼，核心為同步；種子載入直接呼叫同步核心）─────────────
+
+  async countAllNodes(): Promise<number> {
+    return this.nodes.size;
+  }
+
+  async ensureStarterLines(): Promise<boolean> {
+    if (this.nodes.size > 0) return false;
+    for (const l of STARTER_LINES) this.insert({ kind: "line", name: l.name, parentId: null, color: null, code: null }, l.id);
+    return true;
+  }
 
   async create(input: CreateNodeInput): Promise<NodeRow> {
     return clone(this.insert(input));
@@ -1021,7 +1050,7 @@ export class MemoryNodeRepository implements NodeRepository {
     if (bad) throw new Error(`底下還有${KIND_LABEL[bad.kind]}，不能${verb}${KIND_LABEL[kind]}`);
   }
 
-  private insert(input: CreateNodeInput): NodeRow {
+  private insert(input: CreateNodeInput, fixedId?: string): NodeRow {
     const name = input.name.trim();
     if (!name) throw new Error("名稱不能空白");
     // 建票列（回饋甲）：時刻驗格式＋範圍（與 SQLite 版同一句）
@@ -1045,7 +1074,7 @@ export class MemoryNodeRepository implements NodeRepository {
       lineId = tag?.line_id ?? null;
     }
 
-    const id = uuid();
+    const id = fixedId ?? uuid();
     const now = this.now();
     const after = input.afterId ? this.nodes.get(input.afterId) : null;
     if (input.afterId && !after) throw new Error("afterId 不存在");
@@ -1077,6 +1106,7 @@ export class MemoryNodeRepository implements NodeRepository {
       description: input.description ?? null,
       position,
       sort_key: sortKey,
+      station_id: null,
       color: input.color ?? null,
       code: input.code ?? null,
       status: "todo",

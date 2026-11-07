@@ -18,10 +18,7 @@
  * ───────────────────────────────────────────────────── */
 
 .cover {
-  --gnav-hover: var(--color-book-hover, rgba(228, 227, 243, .06)); /* 字面值：token 後備值（同 theme.css）（--color-book-hover 沒接上時的原型粉彩值） */
-}
-[data-theme="dark"] .cover {
-  --gnav-hover: var(--color-book-hover, rgba(230, 236, 255, .045)); /* 字面值：token 後備值（同 theme.css）（--color-book-hover 沒接上時的原型銀河值） */
+  --gnav-hover: var(--color-book-hover);
 }
 
 /* ============ 兩排共用的三欄格線（10-20 磨光②，使用者指示「兩行要對齊」） ============
@@ -118,10 +115,10 @@
   padding: 6px 11px 7px; border-radius: var(--radius-ctl); white-space: nowrap; z-index: 5;
   background-color: var(--color-book); /* 殼：書封上的 tooltip（書封延伸、不出書封，原型 .tip-closed 逐字） */
   background-image: linear-gradient(rgba(255, 255, 255, .05), rgba(255, 255, 255, .05)); /* 字面值：書封 tooltip 白霧疊層（原型逐字） */
-  border: 1px solid rgba(214, 189, 142, .4); /* 字面值：書封燙金框（金 40%，原型逐字） */
+  border: 1px solid color-mix(in srgb, var(--color-gold) 40%, transparent);
   box-shadow: 0 4px 12px rgba(0, 0, 0, .35); /* 字面值：陰影色（§1.1 例外） */
 }
-[data-theme="dark"] .cover .tip-closed { border-color: rgba(205, 183, 131, .38); } /* 字面值：書封燙金框（銀河金 38%，原型逐字） */
+[data-theme="dark"] .cover .tip-closed { border-color: color-mix(in srgb, var(--color-gold) 38%, transparent); }
 .cover .gnav-off:hover .tip-closed, .cover .gnav-off:focus-visible .tip-closed { display: flex; }
 .cover .tip-closed .tn { font-size: var(--fs-micro); letter-spacing: .22em; text-indent: .22em; color: var(--color-book-ink); }
 .cover .tip-closed .ts { font-size: 8.5px; letter-spacing: .24em; text-indent: .24em; color: var(--color-gold); opacity: .9; } /* 字面值：書封小字照原型（字階外）；書封燙金：tooltip「次期開業予定」 */
@@ -130,20 +127,20 @@
 .cover .gnav-search {
   display: flex; align-items: center; gap: 9px;
   width: 100%; margin-top: 10px; padding: 7px 10px;
-  border: 1px solid rgba(228, 227, 243, .2); border-radius: var(--radius-ctl); /* 字面值：書封上的框線色（書封字色 20%，原型逐字） */
+  border: 1px solid color-mix(in srgb, var(--color-book-ink) 20%, transparent); border-radius: var(--radius-ctl);
   background: transparent; cursor: pointer;
   font-family: inherit; font-size: var(--fs-xs); letter-spacing: .22em;
   color: var(--book-muted);
   transition: background .15s, color .15s, border-color .15s;
 }
-[data-theme="dark"] .cover .gnav-search { border-color: rgba(216, 219, 227, .18); } /* 字面值：書封上的框線色（銀河書封字色 18%，原型逐字） */
+[data-theme="dark"] .cover .gnav-search { border-color: color-mix(in srgb, var(--color-book-ink) 18%, transparent); }
 .cover .gnav-search svg { flex: none; opacity: .85; }
 .cover .gnav-search .kbd {
   margin-left: auto; font-family: var(--font-latin); font-size: 8.5px; /* 字面值：書封鍵帽小字照原型（字階外） */
   letter-spacing: .2em; opacity: .75;
 }
-.cover .gnav-search:hover { background: var(--gnav-hover); color: var(--color-book-ink); border-color: rgba(228, 227, 243, .34); } /* 字面值：書封上的框線色 hover（原型逐字） */
-[data-theme="dark"] .cover .gnav-search:hover { border-color: rgba(216, 219, 227, .3); } /* 字面值：書封上的框線色 hover（銀河，原型逐字） */
+.cover .gnav-search:hover { background: var(--gnav-hover); color: var(--color-book-ink); border-color: color-mix(in srgb, var(--color-book-ink) 34%, transparent); }
+[data-theme="dark"] .cover .gnav-search:hover { border-color: color-mix(in srgb, var(--color-book-ink) 30%, transparent); }
 .cover .gnav-search:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 2px; } /* 書封燙金：書封上的聚焦框（書封上靛看不見） */
 /* 完整搜尋頁（D-主-110）：這顆鈕代表「現在在這頁」——同 .gnav-line.active 的書封墨字＋燙金（框代替菱形） */
 .cover .gnav-search.active { color: var(--color-book-ink); border-color: var(--color-gold); } /* 書封燙金：作用中 */

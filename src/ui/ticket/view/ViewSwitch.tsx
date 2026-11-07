@@ -6,7 +6,7 @@
  *   - `viewTabItems()`：給 Tabs 的 items；鍵帽不內嵌，寫進 `hotkeyTitle`（滑過的 title「月曆（2）」，字取自 registry）
  *   - `switchView()`：點籤與鍵盤 1／2／3（useTicketKeyboard）共用
  * 切到月曆／統計時搜尋收起（0-15：搜尋是清單的一種狀態，不是第四個視圖；原型同）。
- * 售票口④（D-票-69、77）：多一格「願望」（鍵 5）；第二輪（D-票-79）再多「帳戶」（鍵 4）——頁首五格「清單｜月曆｜統計｜帳戶｜願望」。
+ * 第二輪（D-票-79）多「帳戶」（鍵 4）——頁首四格「清單｜月曆｜統計｜帳戶」（壬 D-主-513：原第五格「願望」拆除、移到候車室頁）。
  * 切過去一樣收起搜尋。
  */
 import { useTicketStore } from "../../../store/ticketStore";
@@ -32,7 +32,6 @@ export const VIEW_TABS: readonly { view: TicketView; label: string; hotkey: stri
   { view: "calendar", label: "月曆", hotkey: "ticket.view.calendar" },
   { view: "stats", label: "統計", hotkey: "ticket.view.stats" },
   { view: "accounts", label: "帳戶", hotkey: "ticket.view.accounts" },
-  { view: "wish", label: "願望", hotkey: "ticket.view.wish" },
 ];
 
 /** 共用 Tabs 的 items（hotkeyTitle＝「清單（1）」；registry 沒有這個鍵就只寫字） */
