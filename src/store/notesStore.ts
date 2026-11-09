@@ -498,9 +498,17 @@ export const useNotesStore = create<NotesStore>((set, get) => {
   }
 
   const day0 = todayNow();
+  const savedNav = useUiStore.getState().readLastNav?.() ?? {};
+  const initSection: NotesSection =
+    savedNav.notesSection === "inbox" ||
+    savedNav.notesSection === "notes" ||
+    savedNav.notesSection === "diary" ||
+    savedNav.notesSection === "tags"
+      ? savedNav.notesSection
+      : "inbox";
 
   return {
-    section: "inbox",
+    section: initSection,
     diaryDay: day0,
     diaryEntries: [],
     diarySelectedId: null,
@@ -521,7 +529,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     inboxSelected: null,
     notes: [],
     notesQuery: {},
-    selectedNoteId: null,
+    selectedNoteId: savedNav.selectedNoteId ?? null,
     editing: false,
     draftNew: false,
     loading: false,
@@ -542,6 +550,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     },
     setSection(s) {
       set({ section: s });
+      useUiStore.getState().writeLastNav?.({ notesSection: s });
       // 第一次進日記：以「當下」的日界線設定重算今天再載（store 建立時 loadSettings 可能還沒回來）
       if (s === "diary" && !diaryTouched) {
         diaryTouched = true;
@@ -579,7 +588,16 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       try {
         const notes = await noteRepo.listNotes({ ...q, limit, offset: 0 });
         if (get().notesQuery !== q) return; // 途中換了篩選／搜尋：以後到的那一趟為準
-        set({ notes, notesHasMore: notes.length >= limit, loading: false, error: null });
+        const curSel = get().selectedNoteId ?? useUiStore.getState().readLastNav?.().selectedNoteId ?? null;
+        const nextSel = get().draftNew
+          ? null
+          : curSel && notes.some((n) => n.id === curSel)
+            ? curSel
+            : (notes[0]?.id ?? null);
+        if (nextSel !== get().selectedNoteId) {
+          useUiStore.getState().writeLastNav?.({ selectedNoteId: nextSel });
+        }
+        set({ notes, selectedNoteId: nextSel, notesHasMore: notes.length >= limit, loading: false, error: null });
       } catch (e) {
         console.warn("notesStore.loadNotes 失敗", e);
         set({ loading: false, error: message(e) });
@@ -797,6 +815,7 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     selectNote(id) {
       // draftNew 還沒落庫（空筆記不建）：換選取＝丟棄草稿
       set({ selectedNoteId: id, editing: false, draftNew: false });
+      useUiStore.getState().writeLastNav?.({ selectedNoteId: id });
     },
     startNewNote: () => set({ draftNew: true, selectedNoteId: null, editing: true }),
     setEditing: (on) => set({ editing: on }),

@@ -2,7 +2,7 @@
  * batchActions——多選後一次改一批票（回饋乙 D-主-152；契約 §4）。桌機選取列與手機選取列共用這一份。
  *
  * 每個動作：逐張寫（沿用單張的同一支 repository 函式＝同一組守門與規則）→ 全部寫完才 refresh 一次 →
- *   一則 toast「已改 N 張」附「復原」（照原值逐張寫回）。做不到的那幾張（例：定期券不能直接改執行日）跳過、在 toast 第二行說。
+ *   一則 toast「已改 N 張」附「復原」（照原值逐張寫回）。做不到的那幾張（例：定期券不能直接改乘車日）跳過、在 toast 第二行說。
  * 不經 nodeStore 的單張動作：它們每寫一張就整頁 refresh 一次，一批 20 張會閃 20 次。
  */
 import { nodeRepo } from "../data";
@@ -75,13 +75,13 @@ async function rows(ids: readonly string[]): Promise<Map<string, NodeRow>> {
 }
 
 /**
- * 改執行日（null＝清掉）；定期券由 repository 擋下（一句指路），算在「沒改」。
+ * 改乘車日（null＝清掉）；定期券由 repository 擋下（一句指路），算在「沒改」。
  * `single`＝只改一張時 toast 的字（拖到日期：「已改到 11/3（二）」）；多張照舊「已改期 N 張」。
  */
 export async function batchSetDate(ids: readonly string[], date: string | null, single?: string): Promise<void> {
   const before = await rows(ids);
   const o = await eachOf(ids, (id) => nodeRepo.reschedule(id, date, dateKey()).then(() => undefined));
-  await finish(date ? "改期" : "清掉執行日", o, async () => {
+  await finish(date ? "改期" : "清掉乘車日", o, async () => {
     for (const id of o.done) {
       const b = before.get(id);
       if (!b) continue;

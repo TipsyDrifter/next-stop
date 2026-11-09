@@ -10,13 +10,13 @@
  *   <div class="tip on">
  *     <h5>締切・9月14日</h5>
  *     <div class="trow"><span class="rl">J</span><span class="tt">JLPT 12月場・報名</span>
- *       <span class="noexec">未排執行日</span></div>
+ *       <span class="noexec">未排乘車日</span></div>
  *   </div>
  *
  * 三件照原型、只換資料的事：
  *   - 路線碼＝`route.code`，無 code 取名字首字、無路線＝「臨」（同 TodayRow.tsx:180 的慣例）；
  *     顏色吃 `routes[].color`（原型的 `.r-e1／--route-e1` 假 token 不搬，雷區 9）。
- *   - 「未排執行日」＝`nodes[id].scheduled_on === null`——這種票只在締切層浮出，格內清單沒有它，
+ *   - 「未排乘車日」＝`nodes[id].scheduled_on === null`——這種票只在締切層浮出，格內清單沒有它，
  *     不講明就會讓人以為忘了排（決策 11）。
  *   - 定位（:1173-1176）：右緣對齊〆、往下 7px，左右夾在視窗內 8px；寬度上限 252px。
  *     用 `useLayoutEffect` 在 paint 前寫死 left／top，避免先畫在左上角再跳過去。
@@ -76,8 +76,8 @@ export function DueTip({ day, anchor }: DueTipProps) {
               {badge}
             </span>
             <span className="tt">{node?.name ?? ""}</span>
-            {/* 無執行日＝只有締切、還沒排哪天做 */}
-            {node && node.scheduled_on === null && <span className="noexec">未排執行日</span>}
+            {/* 無乘車日＝只有締切、還沒排哪天做 */}
+            {node && node.scheduled_on === null && <span className="noexec">未排乘車日</span>}
           </div>
         );
       })}

@@ -421,7 +421,7 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
         {
           name: "車票.csv",
           rows: [
-            ["幹線", "路線", "上層", "車站", "種類", "名稱", "概要", "優先順序", "狀態", "執行日", "幾點", "長度（分）", "締切日", "完成時刻", "重複", "荷札", "建立時刻"],
+            ["幹線", "路線", "上層", "車站", "種類", "名稱", "概要", "優先順序", "狀態", "乘車日", "幾點", "長度（分）", "締切日", "完成時刻", "重複", "荷札", "建立時刻"],
             ...nodes
               .filter((n) => n.kind !== "line" && n.kind !== "route")
               .map((n): CsvCell[] => {

@@ -298,7 +298,9 @@
 }
 .ns-notes .ns-notes-titlein:focus { border-bottom-color: var(--color-dash); }
 .ns-notes .ns-notes-titlein::placeholder { color: var(--color-ink-faint); opacity: .7; }
-.ns-notes-bodywrap { margin-top: 12px; }
+.ns-notes-bodywrap { position: relative; margin-top: 12px; }
+.ns-notes-bodywrap:has(> .ns-notes-ta)::before { content: ""; position: absolute; left: -16px; top: 3px; bottom: 3px; width: 2px; border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--accent) 48%, transparent); pointer-events: none; }
+.ns-notes-entry.is-sel:has(.ns-notes-ta)::before { display: none; }
 /* 閱讀狀態（車次④起 Markdown 排版）；字級、行高、字距以 notes-md.css 的 .ns-notes-read.ns-notes-md 為準（D-筆-54），這裡不再寫 */
 .ns-notes-read { color: var(--color-ink); cursor: text; border-radius: var(--radius-ctl); outline: none; min-height: 3em; overflow-wrap: anywhere; }
 .ns-notes-read:focus-visible { box-shadow: 0 0 0 1px var(--color-dash); }
@@ -312,7 +314,7 @@
   display: block; width: 100%; resize: none; overflow: hidden;
   background: transparent; border: 0; outline: none;
   font-family: inherit; font-size: 16px; line-height: 1.8; letter-spacing: .03em; color: var(--color-ink); /* 與閱讀態 .ns-notes-md 同字級（車次④ D-筆-54），讀寫切換時版面不跳 */
-  min-height: 9em; padding: 0; box-shadow: -14px 0 0 -12px var(--accent);
+  min-height: 9em; padding: 0;
 }
 .ns-notes .ns-notes-ta::placeholder { color: var(--color-ink-faint); opacity: .8; }
 .ns-notes-actions { display: flex; align-items: center; gap: 6px; margin-top: 36px; padding-top: 12px; border-top: 1px solid var(--color-line); }

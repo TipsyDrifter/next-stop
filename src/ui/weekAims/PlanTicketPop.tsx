@@ -1,7 +1,7 @@
 /**
  * 排成車票（戊 D-主-256；原型場景 a-plan）。桌機＝錨在那句底下的小浮層；手機＝底部面板（MobileWeekAims 用 `PlanTicketForm`）。
  *
- * 票名預填那句（可改）、「放在」預設掛的路線或支線（可換到路線或它底下的支線／列車／車廂）、執行日預設這一期還沒過的第一天（車站＝今天）＋往後那套快選。`weekOn` 收任何期間鍵。
+ * 票名預填那句（可改）、「放在」預設掛的路線或支線（可換到路線或它底下的支線／列車／車廂）、乘車日預設這一期還沒過的第一天（車站＝今天）＋往後那套快選。`weekOn` 收任何期間鍵。
  * 落點規則在純函式 `ticketPlacement`（路線不能直接放票 ⇒ 根層臨時車票＋路線標籤；支線／列車／車廂 ⇒ 建在它底下，D-主-281）。
  * Enter＝発券、Esc＝收起（自己吃掉，不連關外層）。
  */
@@ -187,8 +187,8 @@ export function PlanTicketPop({ aim, weekOn, today, onClose }: { aim: WeekAimRow
         )}
       </div>
       <div className="fld is-top">
-        <span className="techo-label">執行日</span>
-        <DateChip date={f.day} onPick={(d) => d && f.setDay(d)} quick="forward" label="執行日" today={today} />
+        <span className="techo-label">乘車日</span>
+        <DateChip date={f.day} onPick={(d) => d && f.setDay(d)} quick="forward" label="乘車日" today={today} />
       </div>
       <div className="foot">
         <button type="button" className="ns-btn btn-ghost" onClick={onClose}>
@@ -227,8 +227,8 @@ export function PlanTicketForm({ f, today, foot }: { f: PlanFormApi; today: stri
         </span>
       </div>
       <div className="fld">
-        <span className="techo-label">執行日</span>
-        <DateChip date={f.day} onPick={(d) => d && f.setDay(d)} quick="forward" label="執行日" today={today} />
+        <span className="techo-label">乘車日</span>
+        <DateChip date={f.day} onPick={(d) => d && f.setDay(d)} quick="forward" label="乘車日" today={today} />
       </div>
       {foot}
       {picking && (

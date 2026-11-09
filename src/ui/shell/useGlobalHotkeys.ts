@@ -70,6 +70,7 @@ export function useGlobalHotkeys(enabled = true) {
           openFullSearch();
           break;
         case "global.panel.toggle":
+          if (ui.page !== "today" && ui.page !== "routemap" && ui.page !== "calendar") break;
           e.preventDefault();
           ui.setPanelOpen(!ui.panelOpen);
           break;

@@ -26,6 +26,7 @@ import { parseRule, type NodeRow } from "../../domain";
 import type { DateCount, DueEntry, ScheduleEntry } from "../../data";
 import { batchSetDate } from "../../store/batchActions";
 import { useNodeStore } from "../../store/nodeStore";
+import { useSelectionStore } from "../../store/selectionStore";
 import { useUiStore } from "../../store/uiStore";
 import { DayCell } from "../common/DayCell";
 import { useDragReorder } from "../common/dragReorder";
@@ -146,6 +147,15 @@ export function CalendarCell({
     items: shown.map((e) => ({ id: e.node_id })),
     slots: false,
     disabled: !inRange,
+    dragIds: (id) => {
+      const sel = useSelectionStore.getState();
+      if (sel.scope !== "schedule" || !sel.ids.includes(id)) return [id];
+      const batch = sel.ids.filter((x) => {
+        const n = nodes[x];
+        return !!n && !parseRule(n.repeat_rule);
+      });
+      return batch.length > 0 ? batch : [id];
+    },
     canDrag: (id) => {
       const n = nodes[id];
       if (!n) return "這一張不能拖";

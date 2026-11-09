@@ -1,3 +1,4 @@
+import { Select } from "../common/Select";
 /**
  * 候車室頁（桌機；壬 D-主-511～520；視覺＝prototypes/壬-候車室-對照.html 3A、題4A）。
  * 願望清單升級成全 App 核心頁：還沒決定要做、不想忘的事先在這裡等車，實現了就轉成對應模組的記錄。
@@ -19,6 +20,7 @@
  */
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useTicketStore } from "../../store/ticketStore";
+import { readLastNav, writeLastNav } from "../../store/uiStore";
 import { useTagStore } from "../../store/tagStore";
 import { WISH_ACTION_LABEL, moneyText, type WishRow } from "../../domain/ticket";
 import type { WishAction } from "../../domain/ticketAids";
@@ -73,8 +75,12 @@ export function WaitroomView() {
   const wish = useTicketStore((s) => s.wish);
   const draftWishId = useTicketStore((s) => (s.panel.kind === "new" ? (s.draft?.wishId ?? null) : null));
   const dec = useMainDec();
-  const [filter, setFilter] = useState<WaitFilter>("all");
-  const { kindById } = useKinds();
+  const [filter, setFilterState] = useState<WaitFilter>(() => (readLastNav().waitroomFilter as WaitFilter) || "all");
+  const setFilter = (next: WaitFilter) => {
+    setFilterState(next);
+    writeLastNav({ waitroomFilter: next });
+  };
+  const { kinds, kindById } = useKinds();
   const { shown, move } = useShown(filter);
   const [open, setOpen] = useState<Open>(null);
   const [doneOpen, setDoneOpen] = useState(false);
@@ -89,8 +95,8 @@ export function WaitroomView() {
 
   // 篩的那個種類被刪了（管番線、同步）⇒ 回全部
   useEffect(() => {
-    if (filter !== "all" && !kindById[filter]) setFilter("all");
-  }, [filter, kindById]);
+    if (kinds.length > 0 && filter !== "all" && !kindById[filter]) setFilter("all");
+  }, [kinds.length, filter, kindById]);
 
   // 攤開的那一個不在畫面上了（刪了、實現了、改了種類被籤篩掉）⇒ 收起
   useEffect(() => {
@@ -195,7 +201,7 @@ function WaitAdd({ filter }: { filter: WaitFilter }) {
   const [amt, setAmt] = useState("");
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
-  const add = async () => {
+  const add = async (keepFocus = true) => {
     if (busy || !name.trim()) {
       nameRef.current?.focus();
       return;
@@ -206,7 +212,8 @@ function WaitAdd({ filter }: { filter: WaitFilter }) {
       if (row) {
         setName("");
         setAmt("");
-        nameRef.current?.focus();
+        if (keepFocus) nameRef.current?.focus();
+        else (document.activeElement as HTMLElement | null)?.blur();
       }
     } finally {
       setBusy(false);
@@ -214,18 +221,18 @@ function WaitAdd({ filter }: { filter: WaitFilter }) {
   };
   const ime = useImeGuard((e) => {
     e.preventDefault();
-    void add();
+    void add(e.ctrlKey || e.metaKey);
   });
   return (
     <div className={"ns-wr-add" + (entry ? " has-amt" : "")} onCompositionStart={ime.onCompositionStart} onCompositionEnd={ime.onCompositionEnd}>
       <span className="ns-select-wrap kind">
-        <select className="techo-input" aria-label="種類" value={kindId ?? ""} onChange={(e) => setKindId(e.target.value)}>
+        <Select className="techo-input" aria-label="種類" value={kindId ?? ""} onChange={(v) => setKindId(v)}>
           {kinds.map((k) => (
             <option key={k.id} value={k.id}>
               {k.name}
             </option>
           ))}
-        </select>
+        </Select>
       </span>
       <input
         ref={nameRef}
@@ -405,7 +412,7 @@ function WaitEditor({ w, dec, onClose }: { w: WishRow; dec: number; onClose(): v
           <span className="lbl">種類</span>
           <div>
             <span className="ns-select-wrap">
-              <select className="techo-input" aria-label="種類" value={w.kind_id} onChange={(e) => void s().updateWish(w.id, { kindId: e.target.value })}>
+              <Select className="techo-input" aria-label="種類" value={w.kind_id} onChange={(v) => void s().updateWish(w.id, { kindId: v })}>
                 {!kindById[w.kind_id] && (
                   <option value={w.kind_id} disabled>
                     （沒有種類）
@@ -416,7 +423,7 @@ function WaitEditor({ w, dec, onClose }: { w: WishRow; dec: number; onClose(): v
                     {k.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </span>
           </div>
         </div>

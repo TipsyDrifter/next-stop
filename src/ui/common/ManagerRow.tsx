@@ -2,16 +2,17 @@
  * ManagerRow——管理清單的一列（UI 丙-2 U3；視覺規範 §2.5「分類管理列」、§2.3 圖示鈕、§1.8 禁用、§0 法則 05）。
  *
  * 用途：時刻表「分類與設定」、售票口「分類管理／帳戶排序」這類**即時存**的管理清單——一列一個東西，
- *   就地改名、上下排序、其餘動作（封存、刪除…）收進 ⋯。兩線共用一種列（丙-4／丙-5 套用）。
+ *   就地改名、上下排序、常用動作（設定、改名、封存、刪除…）直接浮現在列尾，其餘低頻項收進 ⋯。兩線共用一種列（丙-4／丙-5 套用）。
  * 什麼時候不用：要挑一個（分類選擇器 CategoryGrid／CategoryCombo）；要看全部欄位（詳情側板）；一般資料列（車票、帳本列）。
  * 解剖（樣本 prototypes/ui-brand/index.html「ManagerRow」節 .ns-mgr）：
- *   ［名稱：行內改名的底線輸入］［色票／emoji 22 寬］［⋯ 常駐淡態］；列間 1px 虛線。
+ *   ［名稱：雙擊或點改名鈕行內改名的底線輸入］［色票／emoji 22 寬］［常用動作鈕］［⋯ 常駐淡態］；列間 1px 虛線。
  *   （己-2 A3，D-主-411：原本列尾的 ↑↓ 兩顆收進 ⋯——「上移／下移」帶 Alt+↑／↓ 鍵帽；拖曳與名稱框裡的 Alt+↑↓ 照舊。
  *    排法見 managerRowMenu.ts 的 rowMenu。下面寫「↑↓」的舊段落，指的都是 ⋯ 裡那兩項。）
  *   清單外框用 <ManagerList>（<ul class="ns-mgr">）；色票可用 <SwatchDot color="var(--cat-1)" />。
  * 層級：**自動存、沒有「完成」鈕、關閉只有 ×**（§6 行為改變）——改名失焦或 Enter 就送，排序按一下就送。
  * 狀態：
- *   改名——空白或沒變不送（空白退回原名）；onRename 回 false（或 Promise resolve false／reject）＝沒改成，輸入框退回原名；
+ *   改名——預設不因單擊搶走拖曳，雙擊該列或點列尾「改名」圖示鈕才進入行內改名（Enter 或失焦就存、Esc 取消退回原名）；
+ *     空白或沒變不送（空白退回原名）；onRename 回 false（或 Promise resolve false／reject）＝沒改成，輸入框退回原名；
  *     外部改了名（同步、另一個殼）輸入框跟著換。不給 onRename＝這列不能改名（純文字，例「未分類」）。
  *   ↑↓——只給一邊＝在邊界：⋯ 裡那一項停用，滑過說「已經在最上面／最下面」；兩邊都不給＝不排序，⋯ 裡不出這兩項。
  *   ⋯——常駐淡態 --dim，列 hover／列內有焦點／選單開著時轉實；手機常駐實。沒有任何項目＝不畫 ⋯（留同寬空格對齊）。
@@ -20,13 +21,11 @@
  * ARIA：名稱輸入 aria-label「名稱：X」；
  *   ⋯ aria-label「更多動作：X」、aria-haspopup="menu"、aria-expanded、title＝選單項目串起來（例「封存、刪除」）。
  *   色票 aria-hidden（名稱已經說了是誰）。
- * 鍵盤（名稱輸入框裡）：Enter 送出（焦點留著）；Esc 有改動時退回原名並吃掉這一下（不關對話框），沒改動照常往上冒（關對話框）；
+ * 鍵盤（名稱輸入框裡）：Enter 送出；Esc 有改動時退回原名並吃掉這一下（不關對話框），沒改動照常往上冒（關對話框）；
  *   Alt+↑／Alt+↓ 上移／下移；組字中（IME）的 Enter／Esc 不動作。⋯ 開的 PopMenu：↑↓ 移動、Enter 執行、Esc 收回並把焦點還給 ⋯。
  *
  * ── UI 丙-4 §0（契約 §0 ManagerRow 那列、B2）──
  *   - `detail`：列下的展開區（時刻表分類的預設長度、預設荷札、圓牌字、色、搬到分組……一列放不下的設定）。
- *     開關收在 ⋯ 的第一項「更多設定…」（開著時換成「收起設定」）——不另加列尾 ▸：列尾已經有 ↑↓⋯ 三顆圖示鈕，
- *     再加一顆 28 寬的鈕手機會擠掉名稱；而且 B2 定案的 ⋯ 內容就是「更多設定…、封存」。有 detail 時 menu 空陣列也畫 ⋯。
  *     展開＝`<li>` 換行（flex-wrap），展開區佔滿第二行、跟名稱左緣對齊；沒有 detail 的列 DOM 與樣式跟以前一模一樣。
  *     從選單打開 ⇒ 焦點落展開區第一個可操作的東西；從選單收起 ⇒ 焦點回 ⋯（PopMenu 點項目時不還焦點，這裡補）。
  *     開關預設自己管；要從外面開（例：荷札頁點分類 → 定位並展開）給 `detailOpen`＋`onDetailOpenChange`（受控）。
@@ -44,18 +43,42 @@
  *
  * ── 時刻表⑦（B 席）──
  *   - `lead`：名稱前一格（作息範本的 › 展開鈕：段是這一列的內容本身，不藏進 ⋯）；`note`：名稱後的淡字（`.ns-mgr-note`）。
- *   - `dragId`：`<li data-drag-id>`，接共用拖曳元件。拖得起來的地方＝列上不是按鈕／輸入框的部分（色票、淡字、空白）；
+ *   - `dragId`：`<li data-drag-id>`，接共用拖曳元件。拖得起來的地方＝列上不是按鈕／編輯中輸入框的部分（名稱、色票、淡字、空白）；
  *     ⋯ 裡的上移／下移照留（點得到的入口，拖曳與 Alt+↑↓ 是加速）。都不給＝DOM 跟以前一樣。
  */
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { PopMenu, type PopMenuItem } from "./PopMenu";
 import { MSheet, MSheetItem } from "./MSheet";
 import { useShell } from "../mobile/useShell";
-import { IconDots } from "./icons";
+import { IconDots, IconEdit, IconGear } from "./icons";
 import { rowMenu } from "./managerRowMenu";
 import { useUiStore } from "../../store/uiStore";
 import "./listbits.css";
 import { rowContextMenu } from "./contextMenu";
+
+function IconSliders({ size = 13 }: { size?: number }) {
+  return <IconGear size={size} />;
+}
+
+function IconArchive({ size = 13 }: { size?: number }) {
+  return (
+    <svg className="ns-ico" width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <rect x="2" y="3" width="12" height="3" rx="0.8" />
+      <path d="M3 6v6.2a.8.8 0 0 0 .8.8h8.4a.8.8 0 0 0 .8-.8V6" />
+      <path d="M6.5 9h3" />
+    </svg>
+  );
+}
+
+function IconTrash({ size = 13 }: { size?: number }) {
+  return (
+    <svg className="ns-ico" width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M2.8 4.2h10.4" />
+      <path d="M6.2 4.2V2.8h3.6v1.4" />
+      <path d="M4.2 4.2l.6 8.6a.8.8 0 0 0 .8.7h4.8a.8.8 0 0 0 .8-.7l.6-8.6" />
+    </svg>
+  );
+}
 
 export type { PopMenuItem } from "./PopMenu";
 
@@ -110,6 +133,9 @@ export function SwatchDot({ color }: { color: string }) {
 
 const isComposingKey = (e: KeyboardEvent) => e.nativeEvent.isComposing || e.keyCode === 229;
 
+/** 自動浮現到列尾的高頻動作 key */
+const SURFACED_KEYS = new Set(["edit", "use", "archive", "unarchive", "delete"]);
+
 export function ManagerRow({
   name,
   onRename,
@@ -133,7 +159,9 @@ export function ManagerRow({
   // 已送出、還沒回到 props 的名字：Enter 送出後緊接著失焦，不要再送一次
   const [sent, setSent] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   if (seen !== name) {
     // 外面改了名（同步／另一個殼／自己的改名寫回）⇒ 輸入框跟著換（render 中依 props 調整 state，React 文件的作法）
@@ -141,6 +169,15 @@ export function ManagerRow({
     setText(name);
     setSent(null);
   }
+
+  const startEditing = useCallback(() => {
+    if (!onRename) return;
+    setEditing(true);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }, [onRename]);
 
   const closeMenu = useCallback(() => setMenuAt(null), []);
   const mobile = useShell() === "mobile";
@@ -178,21 +215,30 @@ export function ManagerRow({
     (first ?? box).focus({ preventScroll: true });
   }, [open]);
 
+  const toggleDetail = () => {
+    moveFocus.current = open ? "dots" : "detail";
+    setOpen(!open);
+  };
+
   const items = rowMenu({
     menu,
     detail: hasDetail
       ? {
           key: "ns-mgr-detail",
           label: open ? "收起設定" : "更多設定…",
-          onSelect: () => {
-            moveFocus.current = open ? "dots" : "detail";
-            setOpen(!open);
-          },
+          onSelect: toggleDetail,
         }
       : null,
     onUp: archived ? undefined : onUp,
     onDown: archived ? undefined : onDown,
   });
+
+  // 高頻項目直接浮現在列尾，不用再點開 ⋯
+  const surfacedMenu = menu.filter((it) => SURFACED_KEYS.has(it.key) || it.danger);
+  const extraMenu = menu.filter((it) => !SURFACED_KEYS.has(it.key) && !it.danger);
+  const hasReorderOnly = !archived && (onUp !== undefined || onDown !== undefined);
+  // 桌機有 dragId 且無額外選單項時，常用動作都已在列尾、拖曳與 Alt+↑↓ 可排序，省去多餘的 ⋯
+  const showDots = items.length > 0 && (extraMenu.length > 0 || mobile || (!dragId && hasReorderOnly));
 
   const commit = () => {
     if (!onRename) return;
@@ -227,20 +273,41 @@ export function ManagerRow({
     }
     if (e.key === "Enter") {
       e.preventDefault();
+      if (!editing) {
+        startEditing();
+        return;
+      }
+      setEditing(false);
       commit();
+      e.currentTarget.blur();
       return;
     }
-    if (e.key === "Escape" && text !== name) {
+    if (e.key === "F2" && !editing) {
+      e.preventDefault();
+      startEditing();
+      return;
+    }
+    if (e.key === "Escape" && (editing || text !== name)) {
       // 第一下 Esc＝放棄這次改名（不讓它冒到對話框的 Esc 關窗）；沒改動時照常往上冒
       e.preventDefault();
       e.stopPropagation();
       setText(name);
+      setEditing(false);
+      e.currentTarget.blur();
     }
   };
 
   const toggleMenu = (e: MouseEvent<HTMLButtonElement>) => {
     const btn = e.currentTarget;
     setMenuAt((cur) => (cur ? null : btn));
+  };
+
+  const runItem = (it: PopMenuItem) => {
+    if (it.disabled) {
+      if (it.why) useUiStore.getState().showToast({ message: it.why }, 3600);
+      return;
+    }
+    it.onSelect();
   };
 
   return (
@@ -251,10 +318,17 @@ export function ManagerRow({
         (archived ? " is-archived" : "") +
         (hasDetail ? " has-detail" : "") +
         (open ? " is-open" : "") +
+        (editing ? " is-editing" : "") +
         (className ? " " + className : "")
       }
       data-id={dataId}
       data-drag-id={dragId}
+      onDoubleClick={(e) => {
+        if (!onRename || editing) return;
+        if ((e.target as HTMLElement).closest("button, a, .ns-mgr-detail")) return;
+        e.preventDefault();
+        startEditing();
+      }}
       onContextMenu={
         items.length ? rowContextMenu(() => ({ overline: { zh: name, latin: "Actions" }, label: `${name} 的動作`, items })) : undefined
       }
@@ -262,14 +336,20 @@ export function ManagerRow({
       {lead}
       {onRename ? (
         <input
-          className="techo-input ns-mgr-name"
+          ref={inputRef}
+          className={"techo-input ns-mgr-name" + (editing ? " is-editing" : "")}
           value={text}
+          readOnly={!editing}
           aria-label={`名稱：${name}`}
+          title={editing ? undefined : `${name}（雙擊改名）`}
           autoComplete="off"
           spellCheck={false}
           enterKeyHint="done"
           onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
+          onBlur={() => {
+            setEditing(false);
+            commit();
+          }}
           onKeyDown={onKeyDown}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}
@@ -290,23 +370,101 @@ export function ManagerRow({
 
       {archived && <span className="ns-mgr-tag">已封存</span>}
 
-      {items.length > 0 ? (
-        <button
-          ref={dotsRef}
-          type="button"
-          className="ns-iconbtn is-dim"
-          aria-label={`更多動作：${name}`}
-          title={items.map((it) => it.label).join("、")}
-          aria-haspopup="menu"
-          aria-expanded={menuAt !== null}
-          aria-controls={open ? detailId : undefined}
-          onClick={toggleMenu}
-        >
-          <IconDots />
-        </button>
-      ) : (
-        <span className="ns-mgr-gap" aria-hidden="true" />
-      )}
+      <div className="ns-mgr-acts">
+        {onRename && !editing && !archived && (
+          <button
+            type="button"
+            className="ns-iconbtn is-dim ns-mgr-act"
+            aria-label={`改名：${name}`}
+            title="改名（或雙擊列）"
+            onClick={(e) => {
+              e.stopPropagation();
+              startEditing();
+            }}
+          >
+            <IconEdit size={13} />
+          </button>
+        )}
+
+        {hasDetail && (
+          <button
+            type="button"
+            className={"ns-iconbtn is-dim ns-mgr-act" + (open ? " is-active" : "")}
+            aria-label={`${open ? "收起設定" : "更多設定"}：${name}`}
+            title={open ? "收起設定" : "更多設定…"}
+            aria-expanded={open}
+            aria-controls={open ? detailId : undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleDetail();
+            }}
+          >
+            <IconSliders size={13} />
+          </button>
+        )}
+
+        {surfacedMenu.map((it) => {
+          const isIcon = it.key === "edit" || it.key === "archive" || it.key === "delete" || it.danger;
+          if (!isIcon) {
+            return (
+              <button
+                key={it.key}
+                type="button"
+                className="ns-mgr-act-txt"
+                disabled={it.disabled && !it.why}
+                title={it.disabled ? it.why : it.label}
+                aria-label={`${it.label}：${name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  runItem(it);
+                }}
+              >
+                {it.key === "use" ? "帶入" : it.label}
+              </button>
+            );
+          }
+          return (
+            <button
+              key={it.key}
+              type="button"
+              className={"ns-iconbtn is-dim ns-mgr-act" + (it.danger || it.key === "delete" ? " is-danger" : "")}
+              disabled={it.disabled && !it.why}
+              title={it.disabled ? it.why : it.label}
+              aria-label={`${it.label}：${name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                runItem(it);
+              }}
+            >
+              {it.key === "edit" ? (
+                <IconEdit size={13} />
+              ) : it.key === "archive" ? (
+                <IconArchive size={13} />
+              ) : (
+                <IconTrash size={13} />
+              )}
+            </button>
+          );
+        })}
+
+        {showDots ? (
+          <button
+            ref={dotsRef}
+            type="button"
+            className="ns-iconbtn is-dim"
+            aria-label={`更多動作：${name}`}
+            title={items.map((it) => it.label).join("、")}
+            aria-haspopup="menu"
+            aria-expanded={menuAt !== null}
+            aria-controls={open ? detailId : undefined}
+            onClick={toggleMenu}
+          >
+            <IconDots />
+          </button>
+        ) : items.length === 0 && !onRename && !hasDetail && surfacedMenu.length === 0 ? (
+          <span className="ns-mgr-gap" aria-hidden="true" />
+        ) : null}
+      </div>
 
       {menuAt &&
         (mobile ? (

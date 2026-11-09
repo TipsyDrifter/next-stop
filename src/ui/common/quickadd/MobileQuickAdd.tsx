@@ -2,9 +2,9 @@
  * MobileQuickAdd——手機建票列＝底部輸入列（回饋甲 D-主-127、128；原型 q1-A mobile `.m-newticket.nsq-mnew`）。
  *
  * 長相：沿既有 `.m-newticket`（tab bar 之上那一條）：輸入框（認出的片段反白）＋「発券」；
- *   聚焦後才在輸入框上方出一排 chips（可橫捲、末段露半格）：［掛到］［執行日］［幾點］［締切］［優先］［#荷札］。
- *   舊的「無日期」切換併進「執行日」chip（清除＝無日期，進收件匣）。
- * 挑選器全用既有手機元件：掛到＝MobileAttachPicker、執行日／締切＝MobileDatePicker、幾點＝MSheet＋ClockInput（mobile）＋長度分段鈕、
+ *   聚焦後才在輸入框上方出一排 chips（可橫捲、末段露半格）：［掛到］［乘車日］［幾點］［締切］［優先］［#荷札］。
+ *   舊的「無日期」切換併進「乘車日」chip（清除＝無日期，進收件匣）。
+ * 挑選器全用既有手機元件：掛到＝MobileAttachPicker、乘車日／締切＝MobileDatePicker、幾點＝MSheet＋ClockInput（mobile）＋長度分段鈕、
  *   優先＝MSheet 動作清單、荷札＝旅客筆記的荷札點選器（tagStore.openPicker 插入模式）。
  * 送出、連打、toast 規則同桌機（useQuickAdd）；IME 三重守門同 MobileNewTicket。不在失焦時送出（手機收鍵盤很常見，不是「點去別處」）。
  *
@@ -62,9 +62,14 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
   const dateLayer = "common.quickadd.date." + useId();
   useBackLayer(dateLayer, open === "date" || open === "due", close, "sheet");
 
-  const submit = async () => {
+  const submit = async (cont = false) => {
     if (!api.canSubmit) return;
-    await api.submit(); // 成功清空；不主動 blur：連打是預期用法
+    const row = await api.submit();
+    if (!row) return;
+    if (!cont) {
+      if (onClose) onClose();
+      else inputRef.current?.blur();
+    }
   };
 
   const apiRef = useRef(api);
@@ -135,11 +140,13 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
           }
           if (!api.isSubmitKey(e)) return;
           e.preventDefault();
-          if (onClose && !api.text.trim()) {
-            onClose();
+          const cont = e.ctrlKey || e.metaKey;
+          if (!api.text.trim()) {
+            if (onClose) onClose();
+            else inputRef.current?.blur();
             return;
           }
-          void submit();
+          void submit(cont);
         }}
       />
       <button
@@ -171,19 +178,24 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
       )}
       {(open === "date" || open === "due") && (
         <MobileDatePicker
-          title={open === "date" ? "執行日" : "締切日"}
+          title={open === "date" ? "乘車日" : "締切日"}
           value={open === "date" ? api.values.scheduledOn : api.values.dueOn}
           min={open === "date" ? api.today : undefined}
           today={api.today}
-          quick={dateQuickSet("forward", api.today)}
+          quick={
+            open === "due" && api.values.scheduledOn
+              ? [{ label: "＝同乘車日", day: api.values.scheduledOn }, ...dateQuickSet("forward", api.today)]
+              : dateQuickSet("forward", api.today)
+          }
           backId={dateLayer}
           onPick={(d) => {
             if (open === "date") api.setDate(d);
+            else if (api.values.scheduledOn && d === api.values.scheduledOn) api.setSyncDueWithScheduled(true);
             else api.setDue(d);
             picked();
           }}
           onClear={
-            open === "date" || api.values.dueOn
+            open === "date" || api.values.dueOn || api.syncDueWithScheduled
               ? () => {
                   if (open === "date") api.setDate(null);
                   else api.setDue(null);

@@ -114,6 +114,14 @@ export function NotesView() {
   useEffect(() => {
     focusList(section);
     setPop(null);
+    if (section === "notes") {
+      const st = useNotesStore.getState();
+      if (!st.draftNew && st.notes.length > 0 && (!st.selectedNoteId || !st.notes.some((n) => n.id === st.selectedNoteId))) {
+        const savedId = useUiStore.getState().readLastNav?.().selectedNoteId;
+        const target = (savedId && st.notes.find((n) => n.id === savedId)) ?? st.notes[0];
+        if (target) st.selectNote(target.id);
+      }
+    }
     if (section === "diary") {
       // 每次回到日記都重載一次（別頁完成了票、寫了手記，足跡要跟上；第一次進來 store 自己也會載，重複無妨）
       const st = useNotesStore.getState();

@@ -46,7 +46,7 @@
  *   接縫 #63：第一層每條路線列尾（`.m2-route-name` 之後、`.m2-route-go` 之前）渲染別線登記的 `routeListAside`（小字）；
  *   元件在 `button` 裡面，只能回 span／純文字、不得放可點的東西；沒有任何一線登記＝DOM 照舊。
  *   點列中間不開詳情頁，改在該列下方展開一段**唯讀詳情**
- *   （票種／票號／現況／執行日／締切日／重複／預計／概要，欄位與稱謂沿 panel 的 format）。
+ *   （票種／票號／現況／乘車日／締切日／重複／預計／概要，欄位與稱謂沿 panel 的 format）。
  *
  * 狀態刻意全放本地 useState，不借桌機的 uiStore.zoomId／collapsed（契約 §2.8）：
  *   那兩個是桌機鍵盤流（Esc 退一層、←→ 收合）的狀態，兩殼共用會互相污染；
@@ -648,7 +648,7 @@ function fmtLogHm(iso: string): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** 一列的唯讀詳情（沿 panel 的欄位稱謂：現況／執行日／締切日／預計／概要；定期券的執行日印「由規則排定」） */
+/** 一列的唯讀詳情（沿 panel 的欄位稱謂：現況／乘車日／締切日／預計／概要；定期券的乘車日印「由規則排定」） */
 function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string; occurrence?: CurrentOccurrence }) {
   const rule = parseRule(node.repeat_rule);
   /**
@@ -688,7 +688,7 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
         ]
       : []),
     {
-      label: "執行日",
+      label: "乘車日",
       value: node.scheduled_on ?? "—",
       latin: true,
     },
@@ -727,8 +727,8 @@ function RowDetail({ node, serial, occurrence }: { node: NodeRow; serial: string
       </dl>
       {/* 別線登記的欄位列（插槽 `nodeFields` 的 `Mobile`，接縫 #56；本檔仍零 mutation import，寫入在線的元件裡） */}
       {lineFields.map((f) => (f.Mobile ? <f.Mobile key={f.id} node={node} /> : null))}
-      {/* 定期券的執行日由規則排定（D-④-3）——桌機側板印「由規則排定」，手機沿同一句話 */}
-      {rule && <p className="m2-note">執行日由定期券排定，只動這一班請用 ⋯</p>}
+      {/* 定期券的乘車日由規則排定（D-④-3）——桌機側板印「由規則排定」，手機沿同一句話 */}
+      {rule && <p className="m2-note">乘車日由定期券排定，只動這一班請用 ⋯</p>}
       {conflicts.length > 0 && (
         <div className="m2-detail-conflicts">
           <span className="m2-field-label">競合</span>

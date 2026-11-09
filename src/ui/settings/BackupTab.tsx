@@ -1,3 +1,4 @@
+import { Select } from "../common/Select";
 /**
  * BackupTab——設定頁「備份與還原」分頁（M3 ⑥ WP3）。
  *
@@ -187,12 +188,12 @@ export function BackupTab() {
           保留份數
         </label>
         <span className="ns-select-wrap">
-          <select
+          <Select
             id={keepId}
             value={keep}
             disabled={busy}
             title={`自動與手動合計，超出時刪最舊的；還原前的保險備份另留 ${BACKUP_SAFETY_KEEP} 份。`}
-            onChange={(e) => void setKeep(Number(e.target.value))}
+            onChange={(v) => void setKeep(Number(v))}
             className="techo-input font-latin text-[14px]"
           >
             {BACKUP_KEEP_OPTIONS.map((n) => (
@@ -200,7 +201,7 @@ export function BackupTab() {
                 {n} 份
               </option>
             ))}
-          </select>
+          </Select>
         </span>
         {/* 克制（修正席）：規則講一句就好，長句版改掛 select 的 title */}
         <p className="ns-note mt-2">自動與手動合計；還原前的保險備份另留 {BACKUP_SAFETY_KEEP}份。</p>

@@ -76,6 +76,27 @@
 .ns-qa-go:disabled { opacity: var(--disabled); cursor: not-allowed; }
 .ns-qa-esc { position: absolute; bottom: 7px; left: 0; right: 0; text-align: center; font-size: var(--fs-micro); letter-spacing: .1em; color: var(--color-ink-faint); }
 
+/* ═══ 行內編輯既有車票（雙擊列或點徽章展開） ═══ */
+.ns-qa-inline {
+  display: grid; gap: 6px; width: 100%; box-sizing: border-box;
+  padding: 4px 0 2px;
+}
+.ns-qa-inline-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ns-qa-inline-top .ns-qa-field { flex: 1; min-width: 0; padding-right: 0; }
+.ns-qa-inline-top .ns-qa-field .ns-qa-mirror { right: 0; }
+.ns-qa-inline-acts { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.ns-qa-inline-save,
+.ns-qa-inline-cancel {
+  min-height: var(--ctl-h-sm); padding: 0 8px;
+  font-size: var(--fs-xs); line-height: 1;
+}
+.ns-qa-inline .ns-qa-chips { margin-top: 2px; }
+.ns-qa-inline.is-compact { padding: 4px 6px; }
+.ns-qa-inline.is-compact .ns-qa-field input,
+.ns-qa-inline.is-compact .ns-qa-field .ns-qa-mirror { font-size: var(--fs-body); font-weight: 400; }
+.ns-qa-inline.is-compact .ns-qa-chips { gap: 4px; }
+.ns-qa-inline.is-compact .ns-qa-chip { padding: 0 6px 0 5px; }
+
 /* ═══ 緊湊版（行程表當日浮層；沿 daypop.css .pop-draft 的虛線小票） ═══ */
 .ns-qa-compact {
   margin: 2px 12px 12px; padding: 6px 8px 8px 7px;

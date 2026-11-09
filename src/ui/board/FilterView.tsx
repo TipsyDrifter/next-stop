@@ -33,7 +33,7 @@ import { useUiStore } from "../../store/uiStore";
 import { useOutsideDismiss, placeBelow } from "../common/anchorPop";
 import { rowContextMenu } from "../common/contextMenu";
 import { useDragReorder, type DropPlace } from "../common/dragReorder";
-import { IconChevron, IconClose, IconDots } from "../common/icons";
+import { IconChevron, IconClose, IconDots, IconEdit } from "../common/icons";
 import { OverlineText } from "../common/PageHeader";
 import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { PriorityMark } from "../common/PriorityMark";
@@ -340,6 +340,11 @@ function SavedRow({ onRename }: { onRename(id: string, name: string, anchor: HTM
               className="name"
               aria-pressed={active === s.id}
               onClick={() => store().applySaved(s.id)}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                const chip = e.currentTarget.closest<HTMLElement>(".ns-bd-qchip") ?? e.currentTarget;
+                onRename(s.id, s.name, chip);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -353,9 +358,30 @@ function SavedRow({ onRename }: { onRename(id: string, name: string, anchor: HTM
             <button
               type="button"
               className="more"
+              aria-label={`改名：${s.name}`}
+              title="改名（或雙擊）"
+              onClick={(e) => {
+                const chip = e.currentTarget.closest<HTMLElement>(".ns-bd-qchip") ?? e.currentTarget;
+                onRename(s.id, s.name, chip);
+              }}
+            >
+              <IconEdit size={11} />
+            </button>
+            <button
+              type="button"
+              className="more is-danger"
+              aria-label={`刪除：${s.name}`}
+              title="刪除篩選"
+              onClick={() => void store().removeSaved(s.id)}
+            >
+              <IconClose size={11} />
+            </button>
+            <button
+              type="button"
+              className="more"
               aria-haspopup="menu"
-              aria-label={`「${s.name}」的動作`}
-              title="改名、更新、刪除"
+              aria-label={`「${s.name}」的更多動作`}
+              title="更新、排序"
               onClick={(e) => setMenu({ id: s.id, anchor: e.currentTarget })}
             >
               <IconDots size={12} />

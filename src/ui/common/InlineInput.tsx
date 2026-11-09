@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 
-export type CommitVia = "enter" | "blur";
+export type CommitVia = "enter" | "ctrl-enter" | "blur";
 
 export interface InlineInputProps {
   initial?: string;
@@ -55,7 +55,7 @@ export function InlineInput({
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      onCommit(value, "enter");
+      onCommit(value, e.ctrlKey || e.metaKey ? "ctrl-enter" : "enter");
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();

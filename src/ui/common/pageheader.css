@@ -11,7 +11,7 @@
 /* 骨架：左（眉標＋大標＋補述）・日付印・右側工具列；底線＋下方 4px 一道淡細線（手帳雙線） */
 .ns-pagehead {
   position: relative; display: flex; align-items: flex-start; gap: var(--sp-4);
-  padding-bottom: 20px; border-bottom: 1px solid var(--color-line);
+  min-height: 115px; padding-bottom: 20px; border-bottom: 1px solid var(--color-line);
 }
 .ns-pagehead::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: calc(-1 * var(--sp-1));
@@ -28,7 +28,8 @@
 [data-theme="dark"] .ns-ovl-latin { text-transform: uppercase; }
 
 /* ② 大標＋③ 補述（同一行，基線對齊；放不下時補述換到下一行） */
-.ns-pagehead-titleline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; min-width: 0; }
+.ns-panel-open, body:has(.panel) { --page-pad-top: 50px; }
+.ns-pagehead-titleline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; min-width: 0; min-height: 40px; }
 .ns-pagehead-title {
   margin: 0; min-width: 0;
   font-family: var(--font-display); font-weight: 700; font-size: var(--fs-display);
@@ -47,7 +48,7 @@
 }
 /* 大標下一行的統計 */
 .ns-pagehead-stats {
-  margin: 10px 0 0; max-width: 560px;
+  margin: 10px 0 0; max-width: 560px; min-height: 20px;
   font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft);
 }
 .ns-pagehead-stats b { font-weight: 500; color: var(--color-ink); }

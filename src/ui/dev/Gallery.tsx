@@ -28,6 +28,7 @@ import { DateSeal, SealDone, StationStamp } from "../stamps";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { Tabs, TabsSelect, type TabItem } from "../common/Tabs";
 import { Segmented } from "../common/Segmented";
+import { Select } from "../common/Select";
 import { DateNav } from "../common/DateNav";
 import { DateChip, dateChipText } from "../common/DateChip";
 import { ClockInput, type ClockVariant } from "../common/ClockInput";
@@ -867,11 +868,11 @@ function RouteFields({ color, setColor }: { color: string | null; setColor: (c: 
       <label className="ns-gal-field">
         <span className="techo-label">所屬幹線</span>
         <span className="ns-select-wrap">
-          <select className="techo-input" defaultValue="learn">
+          <Select className="techo-input" defaultValue="learn">
             <option value="learn">學習</option>
             <option value="hobby">興趣</option>
             <option value="work">工作</option>
-          </select>
+          </Select>
         </span>
       </label>
     </>
@@ -910,8 +911,8 @@ function BoxSection({ today, mobile }: { today: string; mobile: boolean }) {
         <input className="techo-input" defaultValue="審 Next Stop 風格原型" />
       </label>
       <div className="ns-gal-field">
-        <span className="techo-label">執行日</span>
-        <DateChip date={due} onPick={setDue} quick="forward" label="執行日" today={today} />
+        <span className="techo-label">乘車日</span>
+        <DateChip date={due} onPick={setDue} quick="forward" label="乘車日" today={today} />
       </div>
       <div className="ns-gal-field">
         <span className="techo-label">預計</span>
@@ -1185,13 +1186,13 @@ function ManagerDetailDemo({ cat, onPatch }: { cat: DemoCat; onPatch: (p: Partia
       <label className="ns-gal-field">
         <span className="techo-label">預設長度</span>
         <span className="ns-select-wrap">
-          <select className="techo-input" value={cat.len ?? 30} onChange={(e) => onPatch({ len: Number(e.target.value) })}>
+          <Select className="techo-input" value={cat.len ?? 30} onChange={(v) => onPatch({ len: Number(v) })}>
             {[15, 30, 60, 90, 120].map((m) => (
               <option key={m} value={m}>
                 {m} 分
               </option>
             ))}
-          </select>
+          </Select>
         </span>
       </label>
     </>
@@ -1317,10 +1318,10 @@ function FormSection({ today }: { today: string }) {
             <label className="ns-gal-field">
               <span className="techo-label">幣別</span>
               <span className="ns-select-wrap">
-                <select className="techo-input" defaultValue="TWD">
+                <Select className="techo-input" defaultValue="TWD">
                   <option value="TWD">新台幣 TWD</option>
                   <option value="JPY">日圓 JPY</option>
-                </select>
+                </Select>
               </span>
             </label>
           </Cell>
@@ -1335,7 +1336,7 @@ function FormSection({ today }: { today: string }) {
         ]}
       >
         <Cell state="有值＋快選（往後）" cls="button.ns-datechip ＋ .ns-datechip-quick > .chip.ns-chip">
-          <DateChipDemo init={today} today={today} quick="forward" label="執行日" />
+          <DateChipDemo init={today} today={today} quick="forward" label="乘車日" />
         </Cell>
         <Cell state="無日期" note="clearable" cls=".ns-datechip.is-empty">
           <DateChipDemo init={null} today={today} clearable label="締切" />
@@ -1348,11 +1349,11 @@ function FormSection({ today }: { today: string }) {
         </Cell>
         <Cell state="focus" note="靜態示範">
           <div className="ns-gal-focus-chip">
-            <DateChipDemo init={today} today={today} label="執行日" />
+            <DateChipDemo init={today} today={today} label="乘車日" />
           </div>
         </Cell>
         <Cell state="disabled" cls=".ns-datechip:disabled">
-          <DateChipDemo init={today} today={today} disabled label="執行日" />
+          <DateChipDemo init={today} today={today} disabled label="乘車日" />
         </Cell>
       </Comp>
 

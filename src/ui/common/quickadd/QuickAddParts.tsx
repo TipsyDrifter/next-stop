@@ -1,7 +1,7 @@
 /**
  * 建票列兩殼共用的小件（回饋甲；原型 prototypes/回饋甲-入口與建票.html 的 .nsq-field／.nsq-chips）：
  *   QuickField   輸入框＋反白鏡像（原生 input 不能局部上色：鏡像在下、輸入框透明字在上；組字中不疊鏡像）
- *   QuickChips   ［掛到］［執行日］［幾點］［締切］［優先］［#荷札］一排（＋掛到路線時「列車｜車票」小分段鈕）
+ *   QuickChips   ［掛到］［乘車日］［幾點］［締切］［＝同乘車日］［優先］［#荷札］一排（＋掛到路線時「列車｜車票」小分段鈕）
  *   destLabel／chipLabels  chip 上的字（兩殼同一份）
  * 樣式在 ./quickadd.css（.ns-qa-*）。
  */
@@ -97,12 +97,19 @@ export function chipTexts(api: QuickAddApi, noDateLabel: boolean): Record<Exclud
   const dateShown = v.scheduledOn ? dateChipText(v.scheduledOn, api.today) : on.has("date") || noDateLabel ? "無日期" : null;
   const time =
     v.scheduledTime && v.estimateMin ? `${v.scheduledTime}・${lengthText(v.estimateMin)}` : v.scheduledTime ?? (v.estimateMin ? lengthText(v.estimateMin) : null);
+  const dueText = api.syncDueWithScheduled
+    ? v.dueOn
+      ? `〆${dayText(v.dueOn)}＝同乘車日`
+      : "〆同乘車日"
+    : v.dueOn
+      ? `〆${dayText(v.dueOn)}`
+      : null;
   return {
-    date: { value: dateShown, label: "執行日", val: dateShown !== null, on: on.has("date") },
-    time: { value: time, label: "幾點", val: false, on: on.has("time") },
-    due: { value: v.dueOn ? `〆${dayText(v.dueOn)}` : null, label: "締切", val: false, on: on.has("due") },
-    priority: { value: v.priority ? `優先 ${PRIORITY_TEXT[v.priority]}` : null, label: "優先", val: false, on: on.has("priority") },
-    tags: { value: v.tags.length ? v.tags.map((t) => `#${t}`).join(" ") : null, label: "荷札", val: false, on: on.has("tags") },
+    date: { value: dateShown, label: "乘車日", val: dateShown !== null, on: on.has("date") },
+    time: { value: time, label: "幾點", val: time !== null, on: on.has("time") },
+    due: { value: dueText, label: "締切", val: dueText !== null, on: on.has("due") || api.syncDueWithScheduled },
+    priority: { value: v.priority ? `優先 ${PRIORITY_TEXT[v.priority]}` : null, label: "優先", val: v.priority !== null, on: on.has("priority") },
+    tags: { value: v.tags.length ? v.tags.map((t) => `#${t}`).join(" ") : null, label: "荷札", val: v.tags.length > 0, on: on.has("tags") },
   };
 }
 
@@ -233,6 +240,16 @@ export function QuickChips({ api, hideDest = false, noDateLabel, open, onOpen, c
       {chip("date", <QIcon.flag />, t.date)}
       {chip("time", <QIcon.clock />, t.time)}
       {chip("due", <QIcon.cal />, t.due, "締切日")}
+      <button
+        type="button"
+        className={["ns-qa-chip", "ns-qa-chip--sync", api.syncDueWithScheduled ? "is-on" : ""].filter(Boolean).join(" ")}
+        aria-pressed={api.syncDueWithScheduled}
+        title="締切日與乘車日同步（同乘車日）"
+        onClick={() => api.setSyncDueWithScheduled(!api.syncDueWithScheduled)}
+        {...keep}
+      >
+        <span className="k">＝同乘車日</span>
+      </button>
       {chip("priority", <QIcon.prio />, t.priority, "優先順序")}
       {chip("tags", <QIcon.tag />, t.tags)}
     </div>

@@ -1,3 +1,4 @@
+import { Select } from "../../common/Select";
 /**
  * NewAccountForm——「新增帳戶」對話框本體（車次①契約 §5.1、§2.5-4；兩殼共用；丙席）。
  * props `{ onDone(): void }`（確認或取消後由 host 關）；自己讀 store。標題由 host 依 `store.dialog.kind` 給。
@@ -63,24 +64,24 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
       </label>
       <label className="ns-tk-dfield">
         <span className="lbl">群組</span>
-        <select className="ns-tk-dselect" value={group} onChange={(e) => setGroup(e.target.value as AccountGroup)}>
+        <Select className="ns-tk-dselect" aria-label="群組" value={group} onChange={(v) => setGroup(v as AccountGroup)}>
           {ACCOUNT_GROUPS.map((g) => (
             <option key={g.key} value={g.key}>
               {g.label}
               {g.liability ? "（負債）" : ""}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="ns-tk-dfield">
         <span className="lbl">幣別</span>
-        <select className="ns-tk-dselect" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+        <Select className="ns-tk-dselect" aria-label="幣別" value={currency} onChange={(v) => setCurrency(v)}>
           {currencies.map((c) => (
             <option key={c.id} value={c.code}>
               {c.code} · {c.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="ns-tk-dfield">
         <span className="lbl">初始餘額</span>

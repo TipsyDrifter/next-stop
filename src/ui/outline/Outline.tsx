@@ -30,6 +30,7 @@ import { AimsBand } from "../weekAims/AimsBand";
 import { useStationAimLists, useStationCard } from "../weekAims/StationCard";
 import { useAimLanding } from "../search/aimLanding";
 import { EmptyState } from "../common/EmptyState";
+import { InlineInput } from "../common/InlineInput";
 import { EmblemMini, PageHeader } from "../common/PageHeader";
 import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
 import { IconPlus } from "../common/icons";
@@ -142,7 +143,7 @@ function newMenuItems(o: {
   ];
 }
 
-/** 路線圖的建票列預設：掛到＝這條路線（或聚焦那一節）、不排日子（列車不一定排日子；執行日 chip 空著） */
+/** 路線圖的建票列預設：掛到＝這條路線（或聚焦那一節）、不排日子（列車不一定排日子；乘車日 chip 空著） */
 const composerDefaultsCache = new WeakMap<QuickDest, QuickDefaults>();
 function composerDefaults(dest: QuickDest): QuickDefaults {
   let d = composerDefaultsCache.get(dest);
@@ -245,7 +246,7 @@ export function Outline() {
   const showBoard = routeLayout === "board";
   const boardKeysRef = useRef<((e: KeyboardEvent<HTMLElement>) => void) | null>(null);
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-compact, .ns-qa-pop, .wa")) return;
+    if (e.target instanceof Element && e.target.closest(".ns-pagehead, .ns-qa-li, .ns-qa-compact, .ns-qa-inline, .ns-qa-pop, .wa")) return;
     if (showBoard) boardKeysRef.current?.(e);
     else outlineKeys(e);
   };
@@ -262,9 +263,13 @@ export function Outline() {
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   /** 清單尾的建票列（回饋甲）：null＝收著（畫「＋ 新增列車…」常駐列） */
   const [composer, setComposer] = useState<ComposerState | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
   // 換路線、換聚焦＝範圍換了，建票列收起（預設掛到跟著範圍走）
   const zoomId = c.zoom?.id ?? null;
-  useEffect(() => setComposer(null), [c.routeId, zoomId, c.parked]);
+  useEffect(() => {
+    setComposer(null);
+    setEditingTitle(false);
+  }, [c.routeId, zoomId, c.parked]);
   // 回饋乙：拖曳（樹）＋多選
   const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
   const picked = useSelectionStore((s) => (s.scope === "outline" ? s.ids : null));
@@ -507,14 +512,40 @@ export function Outline() {
             className="is-crumbed"
             overline={{ zh: c.line?.name ?? "路線圖", latin: code ? `${code} Line` : "Route Map" }}
             title={
-              <button
-                type="button"
-                className="ns-outline-titlebtn"
-                title={`${c.zoom ? `${KIND_LABEL[c.zoom.kind]}詳情` : "路線詳情"}（${hotkeyCaps("global.panel.toggle")}）`}
-                onClick={openTitlePanel}
-              >
-                {title}
-              </button>
+              editingTitle ? (
+                <InlineInput
+                  initial={title}
+                  ariaLabel="修改標題"
+                  onCommit={(next) => {
+                    setEditingTitle(false);
+                    const trimmed = next.trim();
+                    const targetId = c.zoom ? c.zoom.id : c.routeId;
+                    if (trimmed && trimmed !== title && targetId) {
+                      void useNodeStore.getState().updateNode(targetId, { name: trimmed });
+                    }
+                    containerRef.current?.focus();
+                  }}
+                  onCancel={() => {
+                    setEditingTitle(false);
+                    containerRef.current?.focus();
+                  }}
+                  onTab={() => undefined}
+                  className="ns-outline-titlebtn"
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="ns-outline-titlebtn"
+                  title={`單擊開${c.zoom ? `${KIND_LABEL[c.zoom.kind]}詳情` : "路線詳情"}（${hotkeyCaps("global.panel.toggle")}）・雙擊改名`}
+                  onClick={openTitlePanel}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTitle(true);
+                  }}
+                >
+                  {title}
+                </button>
+              )
             }
             aside={<span>{c.zoom ? KIND_LABEL[c.zoom.kind] : "路線"}</span>}
             stats={stats}

@@ -10,6 +10,7 @@
 import type { CompositionEvent, KeyboardEvent, ReactNode } from "react";
 import { DateChip } from "../common/DateChip";
 import { ClockInput } from "../common/ClockInput";
+import { Select } from "../common/Select";
 import { BLOCKED_TEXT, REALIZE_TEXT, type RealizeDraft } from "./waitroomParts";
 
 type Ime = {
@@ -72,9 +73,9 @@ export function RealizeFields({ d, shell, ime }: { d: RealizeDraft; shell: "desk
   );
   const select = (label: string, value: string, onChange: (v: string) => void, children: ReactNode) => (
     <span className="ns-select-wrap">
-      <select className="techo-input" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+      <Select className="techo-input" aria-label={label} value={value} onChange={onChange}>
         {children}
-      </select>
+      </Select>
     </span>
   );
   const clock = (label: string, value: number, onChange: (ms: number) => void, last = false) => (

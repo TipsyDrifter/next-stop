@@ -52,6 +52,7 @@ import { Tabs, type TabItem } from "../../common/Tabs";
 import { ManagerList, ManagerRow, type PopMenuItem } from "../../common/ManagerRow";
 import { ColorPicker } from "../../common/ColorPicker";
 import { IconPlus } from "../../common/icons";
+import { Select } from "../../common/Select";
 import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
 import "./routines-tab.css"; // ⑦ B 席：拖曳時名字下那行跟著淡、目標籤的 ↑↓（樣式都在這支）
 
@@ -173,17 +174,20 @@ function isImeKey(e: KeyboardEvent<HTMLElement>): boolean {
 }
 
 /** 新增分類／分組的一列輸入（UI 丙-4 B2：即時存的面板沒有主鈕——「新增」次鈕在右、「取消」文字鈕在左） */
-function AddRow({ placeholder, onAdd, onCancel }: { placeholder: string; onAdd(name: string): void; onCancel(): void }) {
+function AddRow({ placeholder, onAdd, onCancel }: { placeholder: string; onAdd(name: string, keepOpen?: boolean): void; onCancel(): void }) {
   const [text, setText] = useState("");
-  const submit = (): void => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const submit = (keepOpen = false): void => {
     const t = text.trim();
     if (!t) return;
-    onAdd(t);
+    onAdd(t, keepOpen);
     setText("");
+    if (keepOpen) inputRef.current?.focus();
   };
   return (
     <div className="ns-tt-mgr-add">
       <input
+        ref={inputRef}
         className="ns-tt-input"
         value={text}
         autoFocus
@@ -194,7 +198,7 @@ function AddRow({ placeholder, onAdd, onCancel }: { placeholder: string; onAdd(n
           if (isImeKey(e)) return;
           if (e.key === "Enter") {
             e.preventDefault();
-            submit();
+            submit(e.ctrlKey || e.metaKey);
           } else if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
@@ -208,7 +212,7 @@ function AddRow({ placeholder, onAdd, onCancel }: { placeholder: string; onAdd(n
       <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={onCancel}>
         取消
       </button>
-      <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={!text.trim()} onClick={submit}>
+      <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={!text.trim()} onClick={() => submit(false)}>
         新增
       </button>
     </div>
@@ -304,18 +308,18 @@ function CategoryDetail({
       </Field>
       <Field k="預設長度">
         <span className="ns-select-wrap">
-          <select
+          <Select
             className="techo-input"
             aria-label={`${cat.name} 的預設長度`}
             value={cur === null ? "" : String(cur)}
-            onChange={(e) => void updateCategory(cat.id, { defaultMin: e.target.value === "" ? null : Number(e.target.value) })}
+            onChange={(v) => void updateCategory(cat.id, { defaultMin: v === "" ? null : Number(v) })}
           >
             {opts.map((o) => (
               <option key={o.v === null ? "none" : o.v} value={o.v === null ? "" : String(o.v)}>
                 {o.label}
               </option>
             ))}
-          </select>
+          </Select>
         </span>
       </Field>
       <DefaultTagsRow id={cat.id} name={cat.name} exclude={fromGroup} />
@@ -331,12 +335,12 @@ function CategoryDetail({
       </Field>
       <Field k="搬到">
         <span className="ns-select-wrap">
-          <select
+          <Select
             className="techo-input"
             aria-label={`${cat.name} 搬到哪一組`}
             value={cat.parent_id ?? ""}
-            onChange={(e) => {
-              if (e.target.value && e.target.value !== cat.parent_id) void moveCategoryToGroup(cat.id, e.target.value);
+            onChange={(v) => {
+              if (v && v !== cat.parent_id) void moveCategoryToGroup(cat.id, v);
             }}
           >
             {groups.map((g) => (
@@ -344,7 +348,7 @@ function CategoryDetail({
                 {g.name}
               </option>
             ))}
-          </select>
+          </Select>
         </span>
       </Field>
       <p className="ns-tt-panel-sub ns-tt-mgr-xnote">{TX.catNote}</p>
@@ -440,8 +444,8 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
     },
   });
 
-  const add = (parentId: string | null, name: string): void => {
-    setAdding(null);
+  const add = (parentId: string | null, name: string, keepOpen = false): void => {
+    if (!keepOpen) setAdding(null);
     void createCategory({ parentId, name, colorIdx: 1, defaultMin: null });
   };
   const toggle = (id: string) => (open: boolean) => setMore(open ? id : more === id ? null : more);
@@ -501,7 +505,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
               )}
             </ManagerList>
             {adding?.parentId === group.id ? (
-              <AddRow placeholder="新分類的名稱" onAdd={(name) => add(group.id, name)} onCancel={() => setAdding(null)} />
+              <AddRow placeholder="新分類的名稱" onAdd={(name, keepOpen) => add(group.id, name, keepOpen)} onCancel={() => setAdding(null)} />
             ) : (
               <button type="button" className="ns-btn btn-text ns-btn--sm ns-tt-mgr-addbtn" onClick={() => setAdding({ parentId: group.id })}>
                 <IconPlus />
@@ -512,7 +516,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
         );
       })}
       {adding !== null && adding.parentId === null ? (
-        <AddRow placeholder="新分組的名稱" onAdd={(name) => add(null, name)} onCancel={() => setAdding(null)} />
+        <AddRow placeholder="新分組的名稱" onAdd={(name, keepOpen) => add(null, name, keepOpen)} onCancel={() => setAdding(null)} />
       ) : (
         <button type="button" className="ns-btn btn-text ns-tt-mgr-addbtn ns-tt-mgr-addgroup" onClick={() => setAdding({ parentId: null })}>
           <IconPlus />
@@ -569,13 +573,13 @@ function NoticeTab() {
             忘記停車的提醒上限
           </label>
           <span className="ns-select-wrap">
-            <select id={selectId} className="techo-input" value={String(longRunMaxMin)} onChange={(e) => void setLongRunMax(Number(e.target.value))}>
+            <Select id={selectId} className="techo-input" value={String(longRunMaxMin)} onChange={(v) => void setLongRunMax(Number(v))}>
               {longRunOpts.map((o) => (
                 <option key={o.v} value={String(o.v)}>
                   {o.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </span>
         </div>
         <Sub>沒預估、分類也沒設預設長度時，跑超過這麼久就在回來時問一聲</Sub>

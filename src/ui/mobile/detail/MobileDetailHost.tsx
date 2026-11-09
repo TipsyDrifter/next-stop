@@ -10,16 +10,16 @@
  *
  * 欄位（由上而下＝原型 Q2 A）：票根列（路線徽章・路線名・票號・票種）→ 名稱（襯線大字，blur／Enter 存）→ 概要（多行，blur 存）
  *   → 路線（只有臨時車票；= 桌機「所屬路線」）→ 票種（乘車券⇄定期券；切定期券展開重複規則、切回清掉規則）
- *   → 時段組（回饋甲 D-主-129，同桌機側板）：執行日 → 時段（開始 → 結束兩格，各開時刻 sheet）→ 長度（分段鈕＋自訂）→ 插槽 section "schedule" → 締切日
+ *   → 時段組（回饋甲 D-主-129，同桌機側板）：乘車日 → 時段（開始 → 結束兩格，各開時刻 sheet）→ 長度（分段鈕＋自訂）→ 插槽 section "schedule" → 締切日
  *   → 重複（可收合段）→ 心情三燈（只給列車／車廂；收官磨光 Q1 起車票不畫，規格 §5）→ 各線 nodeFields 的 Mobile 列（荷札…）→ 乘務記錄清單＋記一句 → 競合 → 移動到… → 刪除。
  *   支線＝名稱・概要・各線欄位・移動到…・轉為列車・刪除（同桌機 BranchPanel）；其他種類只給名稱・移動到…・刪除。
  *   反方評審 #3 補齊桌機側板有、清單漏掉的（MobileStateRows）：名稱下「完成於」；重複段之後＝検印（車票済章／定期券本班済・運休・本班日期・本班時刻）；
  *   心情那一組前面加現況・優先順序（列車／車廂；車票＝検印之前一列優先順序，D-主-133）；之後分量（花費・進度）；移動到…之後「轉為支線」（列車）。
  * 寫入一律走既有動作、桌機同一支：
- *   名稱／概要／心情／締切日 → `updateNode`；執行日 → `updateNode(…, { backfill: true })`（D-主-67：改到過去＝補記，同桌機 ScheduledChip）；
+ *   名稱／概要／心情／締切日 → `updateNode`；乘車日 → `updateNode(…, { backfill: true })`（D-主-67：改到過去＝補記，同桌機 ScheduledChip）；
  *   時段開始 → `updateNode`（scheduled_time）並出手機的時刻收據（timeReceipt，同 useMobileToday.setTime）；時段結束／長度 → `updateNode`（estimate_min）；重複／票種 → `setRepeatRule`（MobileRepeatSection）；
  *   路線標籤 → `setRouteTag`；乘務記錄 → `addWorkLog`；移動到… → `moveNodeTo`（toast＋復原）；刪除 → `deleteTicket`（子項 ≥5／不知道就先問、toast＋復原；先關頁再刪）。
- * 定期券（parseRule 才算；退役的也一樣）：執行日唯讀「依重複設定排班」；時段是「每班」（逐班改在検印下的「本班日期」「本班時刻」與票卡 ⋯「本班改時刻…」）。
+ * 定期券（parseRule 才算；退役的也一樣）：乘車日唯讀「依重複設定排班」；時段是「每班」（逐班改在検印下的「本班日期」「本班時刻」與票卡 ⋯「本班改時刻…」）。
  * 第四輪（D-主-85）：路線也從這頁開（路線圖第二層抬頭 ⋯「路線詳情…」）——路線不在 tree／today 切片，改從 nodeStore.routes 找；
  *   內容換畫 ./MobileRouteBody（桌機 RoutePanel＋StationList 的手機版），本檔只分流。
  */
@@ -331,7 +331,7 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
   const repeatable = REPEATABLE_KINDS.includes(node.kind);
   const { draft, push } = useRepeatDraft(node);
   const [repOpen, setRepOpen] = useState(false);
-  /** 定期券（含退役的）：掛著規則就不給直改執行日（repository 的 reschedule 只看 parseRule） */
+  /** 定期券（含退役的）：掛著規則就不給直改乘車日（repository 的 reschedule 只看 parseRule） */
   const ruled = parseRule(node.repeat_rule) !== null;
   const isTemp = node.kind === "ticket" && node.parent_id === null;
   const plainFare = fareClass({ ...node, repeat_rule: null }).label;
@@ -377,7 +377,7 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           </Row>
         )}
 
-        <Row label="執行日">
+        <Row label="乘車日">
           {ruled ? (
             <span className="m-dt-locked">
               {node.scheduled_on ? mdwText(node.scheduled_on) : "—"}
@@ -387,12 +387,17 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
             <DatePick
               value={node.scheduled_on}
               empty="沒排日期"
-              label="執行日"
+              label="乘車日"
               // 選日期 sheet 的快選＝「今天／昨天／前天」（E20 手機補記；票卡 ⋯ 選日期… 同一套）
               onOpen={() =>
-                pickDate("執行日", node.scheduled_on, dateQuickSet("backward", today), (d) =>
-                  void updateNode(node.id, { scheduled_on: d }, { backfill: true }),
-                )
+                pickDate("乘車日", node.scheduled_on, dateQuickSet("backward", today), (d) => {
+                  const syncDue = Boolean(node.scheduled_on && node.due_on === node.scheduled_on);
+                  void updateNode(
+                    node.id,
+                    syncDue ? { scheduled_on: d, due_on: d } : { scheduled_on: d },
+                    { backfill: true },
+                  );
+                })
               }
               // D-主-67：日期欄親手選＝帶 backfill（選到今天以前＝補記；清除時 repository 不當補記）
               onClear={() => void updateNode(node.id, { scheduled_on: null }, { backfill: true })}
@@ -400,7 +405,7 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
           )}
         </Row>
 
-        {/* 時段組（回饋甲 D-主-129；原型 q3-A 手機）：執行日 → 時段 → 長度 → 〔插槽 section "schedule"〕→ 締切日，同桌機側板 */}
+        {/* 時段組（回饋甲 D-主-129；原型 q3-A 手機）：乘車日 → 時段 → 長度 → 〔插槽 section "schedule"〕→ 締切日，同桌機側板 */}
         <Row label="時段">
           <SpanButtons node={node} ruled={ruled} onStart={() => setSub({ kind: "time" })} onEnd={() => setSub({ kind: "end" })} />
         </Row>
@@ -412,15 +417,39 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
         <ScheduleLineRows node={node} />
 
         <Row label="締切日">
-          <DatePick
-            value={node.due_on}
-            empty="未設定"
-            label="締切日"
-            onOpen={() =>
-              pickDate("締切日", node.due_on, dateQuickSet("forward", today), (d) => void updateNode(node.id, { due_on: d }))
-            }
-            onClear={() => void updateNode(node.id, { due_on: null })}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+            <DatePick
+              value={node.due_on}
+              empty="未設定"
+              label="締切日"
+              onOpen={() =>
+                pickDate(
+                  "締切日",
+                  node.due_on,
+                  node.scheduled_on
+                    ? [{ label: "＝同乘車日", day: node.scheduled_on }, ...dateQuickSet("forward", today)]
+                    : dateQuickSet("forward", today),
+                  (d) => void updateNode(node.id, { due_on: d }),
+                )
+              }
+              onClear={() => void updateNode(node.id, { due_on: null })}
+            />
+            {node.scheduled_on && (
+              <button
+                type="button"
+                className={"ns-qa-chip" + (node.due_on === node.scheduled_on ? " is-on" : "")}
+                aria-pressed={node.due_on === node.scheduled_on}
+                title="將締切日設為與乘車日同一天"
+                onClick={() =>
+                  void updateNode(node.id, {
+                    due_on: node.due_on === node.scheduled_on ? null : node.scheduled_on,
+                  })
+                }
+              >
+                <span className="k">＝同乘車日</span>
+              </button>
+            )}
+          </div>
         </Row>
 
         {/* ⑫：車站（規則同桌機側板 useStationField：沒有子項、路線上有車站才出） */}

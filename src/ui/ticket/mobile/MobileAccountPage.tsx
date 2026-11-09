@@ -1,3 +1,4 @@
+import { Select } from "../../common/Select";
 /**
  * MobileAccountPage——手機的帳戶頁（車次①契約 §5.3；桌機詳情板「帳戶版」的手機版，§5.1）。
  * 殼＝共用 MFullPage（UI 丙-5 H5）：書封色頂列左「‹ 售票口」＝先存名稱再收起（store.closePanel）、中「帳戶」、右邊空（即時存的頁沒有主鈕）；
@@ -99,10 +100,11 @@ export function MobileAccountPage({ id }: { id: string }) {
         <div className="ns-tk-macct-fields">
           <label className="ns-tk-mf-field">
             <span className="lbl">群組</span>
-            <select
+            <Select
               className="ns-tk-mselect"
+              aria-label="群組"
               value={ACCOUNT_GROUPS.some((g) => g.key === acc.group_key) ? acc.group_key : "other"}
-              onChange={(e) => void updateAccount(acc.id, { group: e.target.value as AccountGroup })}
+              onChange={(v) => void updateAccount(acc.id, { group: v as AccountGroup })}
             >
               {ACCOUNT_GROUPS.map((g) => (
                 <option key={g.key} value={g.key}>
@@ -110,22 +112,23 @@ export function MobileAccountPage({ id }: { id: string }) {
                   {g.liability ? "（負債）" : ""}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="ns-tk-mf-field">
             <span className="lbl">幣別</span>
-            <select
+            <Select
               className="ns-tk-mselect"
+              aria-label="幣別"
               value={acc.currency}
               disabled={locked}
-              onChange={(e) => void updateAccount(acc.id, { currency: e.target.value })}
+              onChange={(v) => void updateAccount(acc.id, { currency: v })}
             >
               {currencies.map((c) => (
                 <option key={c.id} value={c.code}>
                   {c.code} · {c.name}
                 </option>
               ))}
-            </select>
+            </Select>
             {locked && <small className="ns-tk-macct-note">記過帳就不能改幣別了</small>}
           </label>
         </div>

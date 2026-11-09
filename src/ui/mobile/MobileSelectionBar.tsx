@@ -5,7 +5,7 @@
  * 落點：tab bar 之上的一段（`.m-selbar-dock`，flex:none）——跟完成卡同一種做法：頁面元件回 Fragment，
  *   本元件是殼根節點的直接子節點、排在頁面之後、tab bar 之前；`.m-page` 自己縮，最後一張票捲得到。
  *   開著時今日的建票列收起、toast 與「記一句」浮鈕抬到它之上（mobile-select.css）。
- * 內容：「已選 N 張」＋常用三顆（蓋済、執行日、移動到…）＋「更多」（優先級、荷札、運休、刪除）＋「取消」。
+ * 內容：「已選 N 張」＋常用三顆（蓋済、乘車日、移動到…）＋「更多」（優先級、荷札、運休、刪除）＋「取消」。
  *   每顆圖示鈕下方有兩個字，另補 aria-label＋title（讀屏與長按提示）。
  * 動作全部呼叫 store/batchActions（桌機選取列同一份：逐張寫、一次 refresh、一則「已改 N 張」＋復原）；做完選取照舊留著
  *   （還可以接著改別的），只有刪除會清掉。做不到的動作淡掉、點了說為什麼（觸控看不到 title）。
@@ -152,9 +152,9 @@ export function MobileSelectionBar({ scope, lookup = nodeOf }: { scope: Selectio
             </span>
             蓋済
           </button>
-          <button type="button" className="m-selbar-ib" aria-label="改執行日…" title="改執行日" onClick={() => setSheet("date")}>
+          <button type="button" className="m-selbar-ib" aria-label="改乘車日…" title="改乘車日" onClick={() => setSheet("date")}>
             <IconCal />
-            執行日
+            乘車日
           </button>
           <button
             type="button"
@@ -235,13 +235,13 @@ export function MobileSelectionBar({ scope, lookup = nodeOf }: { scope: Selectio
 
       {sheet === "date" && (
         <MobileDatePicker
-          title={`改執行日・${count} 張`}
+          title={`改乘車日・${count} 張`}
           value={sameDay}
           today={today}
           quick={dateQuickSet("forward", today)}
           onPick={(d) => run((cur) => batchSetDate(cur, d))()}
           onClear={run((cur) => batchSetDate(cur, null))}
-          clearLabel="清除執行日"
+          clearLabel="清除乘車日"
           onClose={close}
           backId={SHEET_LAYER}
         />

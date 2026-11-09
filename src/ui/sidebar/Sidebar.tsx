@@ -518,7 +518,7 @@ export function Sidebar() {
                   </div>
                   {lineRoutes.map((route) => {
                     // 路線圖頁在看路線一覽時沒有「目前這條」（丁 D-主-239）
-                    const current = route.id === routeId && !(page === "routemap" && overview);
+                    const current = page === "routemap" && !overview && route.id === routeId;
                     const note = stationNote[route.id];
                     const open = routeOpenCounts[route.id] ?? 0;
                     const openText = open > 0 ? `・未完成 ${open} 項` : "";

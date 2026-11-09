@@ -683,7 +683,7 @@ interface DaySectionProps {
   onMenu(row: DayRowModel, anchor: HTMLElement | null): PopMenuItem[];
 }
 
-/** 串流草稿列的建票列預設（每天一份、身分穩定）：無路線、執行日＝那一天 */
+/** 串流草稿列的建票列預設（每天一份、身分穩定）：無路線、乘車日＝那一天 */
 const streamDefaults = new Map<string, QuickDefaults>();
 function streamDraftDefaults(day: string): QuickDefaults {
   let d = streamDefaults.get(day);
@@ -842,7 +842,7 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
         </>
       )}
 
-      {/* 草稿列＝建票列（回饋甲 D-主-128：執行日＝那一天；可改掛到、時刻…；建到別天才出收據） */}
+      {/* 草稿列＝建票列（回饋甲 D-主-128：乘車日＝那一天；可改掛到、時刻…；建到別天才出收據） */}
       {p.draftOpen && (
         <ul className="ticket-list ns-sch-draft">
           <QuickAddRow

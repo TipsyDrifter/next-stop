@@ -19,10 +19,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useTicketStore } from "../../store/ticketStore";
+import { readLastNav, writeLastNav } from "../../store/uiStore";
 import { useTagStore } from "../../store/tagStore";
 import { useBackLayer } from "../mobile/backStack";
 import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
 import { IconGear, IconPlus } from "../common/icons";
+import { Select } from "../common/Select";
 import { WISH_ACTION_LABEL, moneyText, type WishRow } from "../../domain/ticket";
 import { useImeGuard } from "../ticket/dialogs/dialogBits";
 import { bootWaitroom, buyFromWaitroom, gotoRealized } from "./waitroomActs";
@@ -59,7 +61,11 @@ export default function MobileWaitroom() {
   const createWish = useTicketStore((s) => s.createWish);
   const dec = useMainDec();
   const { kinds, kindById, actionOf } = useKinds();
-  const [filter, setFilter] = useState<WaitFilter>("all");
+  const [filter, setFilterState] = useState<WaitFilter>(() => (readLastNav().waitroomFilter as WaitFilter) || "all");
+  const setFilter = (next: WaitFilter) => {
+    setFilterState(next);
+    writeLastNav({ waitroomFilter: next });
+  };
   const { shown, move } = useShown(filter);
   const filtered = filter !== "all";
 
@@ -70,8 +76,8 @@ export default function MobileWaitroom() {
   }, []);
   // 篩的那個種類被刪了（管番線、同步）⇒ 回全部
   useEffect(() => {
-    if (filter !== "all" && !kindById[filter]) setFilter("all");
-  }, [filter, kindById]);
+    if (kinds.length > 0 && filter !== "all" && !kindById[filter]) setFilter("all");
+  }, [kinds.length, filter, kindById]);
 
   /* ── 頂端加一列（種類預設跟著籤；全部時＝買） ── */
   const preferred = useDefaultKindId(filter);
@@ -212,13 +218,13 @@ export default function MobileWaitroom() {
         <KindChips value={filter} onChange={setFilter} />
         <div className={"ns-wr-madd" + (entry ? " has-amt" : "")}>
           <span className="ns-select-wrap kind">
-            <select className="techo-input" aria-label="種類" value={kindId ?? ""} onChange={(e) => setKindId(e.target.value)}>
+            <Select className="techo-input" aria-label="種類" value={kindId ?? ""} onChange={(v) => setKindId(v)}>
               {kinds.map((k) => (
                 <option key={k.id} value={k.id}>
                   {k.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </span>
           <input
             ref={nameRef}

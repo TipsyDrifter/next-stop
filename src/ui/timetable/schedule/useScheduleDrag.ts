@@ -94,6 +94,8 @@ export function useScheduleDrag(o: ScheduleDragOpts) {
     (d: Pending) => {
       d.mode = "drag";
       d.el.classList.add("is-lifted");
+      document.documentElement.classList.add("dr-dragging");
+      window.getSelection()?.removeAllRanges();
       if (d.touch && typeof navigator !== "undefined" && "vibrate" in navigator) {
         try {
           navigator.vibrate(12);
@@ -138,6 +140,7 @@ export function useScheduleDrag(o: ScheduleDragOpts) {
       stopAuto();
       if (d.mode !== "drag") return;
       d.el.classList.remove("is-lifted");
+      document.documentElement.classList.remove("dr-dragging");
       noClickUntil.current = Date.now() + 350;
       setView(null);
       if (!drop) return;
@@ -204,6 +207,7 @@ export function useScheduleDrag(o: ScheduleDragOpts) {
       const d = p.current;
       if (d?.timer) clearTimeout(d.timer);
       d?.el.classList.remove("is-lifted");
+      document.documentElement.classList.remove("dr-dragging");
       p.current = null;
       stopAuto();
     };

@@ -18,7 +18,7 @@
  *     頁首寬 <704 時 PageHeader 自己把它退成 stats 列尾的 28px 小章＋「下一站 X N%」（`emblemCompact`）。
  *   - 手寫「還有 N 張」（P5）接在補述右邊，銀河不畫（today.css）；別線的 todayStats 插槽元件仍畫在 stats 列。
  *   - 「＋ 臨時車票」分裂鈕（AddSplit，主鈕＋▾）退役（A3）：頁首工具列第二格一顆「＋ 車票」（＝Enter；回饋甲改名，
- *     建票列可掛路線、不只臨時車票）；收件匣＝建票列「執行日」chip 清成無日期，`Shift+Enter` 照舊（開的就是無日期那種）。
+ *     建票列可掛路線、不只臨時車票）；收件匣＝建票列「乘車日」chip 清成無日期，`Shift+Enter` 照舊（開的就是無日期那種）。
  *   - 空狀態（A4）：沒有任何車票＝EmptyState first（一顆「＋ 臨時車票」次鈕），這時頁首的「＋」隱藏（規範 §2.7、§3.1-5）；
  *     全部交代＝EmptyState done（慶祝，不給鈕；清單還在，頁首「＋」照留）。
  *   - 每列常駐 ⋯（A5）：TodayRow 的 `menu`，項目由 controller 的 `menuFor` 算。
@@ -34,12 +34,12 @@
  */
 import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
-import { capsOfHotkey } from "../shell/hotkeys";
-import type { NodeRow } from "../../domain";
+import { parseRule, type NodeRow } from "../../domain";
 import type { TodayRow as TodayRowData } from "../../data";
 import { TIME_FIXED_ORDER_MSG, manualOrderIds, timeOfRow } from "../../domain/scheduledTime";
 import { dayCountParts, lateCount, lateCountText } from "../../domain/dayCount";
 import { clockText, isClockPast, nowClockMinutes } from "../../lib/date";
+import { batchSetDate } from "../../store/batchActions";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMinuteTick } from "../schedule/useMinuteTick";
@@ -189,14 +189,26 @@ export function TodayView() {
       })();
     },
   });
-  // 誤點區的票拖不動也要回話（「拖不動又不回話」＝啞巴 UI；理由同一句、出自 store）
+  // 誤點區的票可單張或多選批量拖進下方「今天的列車」直接排到今天
   useDragReorder({
     root: lateList,
     items: c.lateRows.map((r) => ({ id: r.id })),
     slots: false,
-    canDrag: () => `誤點區的票不能拖——要排到今天請按 ${capsOfHotkey("today.schedule.today")}`,
+    dragIds: (id) => dragBatch("today", id, c.lateRows.map((r) => r.id), (x) => {
+      const r = c.lateRows.find((row) => row.id === x);
+      return !!r && !parseRule(r.repeat_rule);
+    }),
+    canDrag: (id) => {
+      const r = c.lateRows.find((row) => row.id === id);
+      if (r && parseRule(r.repeat_rule)) return "定期券誤點班次請點票面原定日推遲";
+      return true;
+    },
     onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3500),
-    onDrop: () => undefined,
+    onDrop: (ids, place) => {
+      if (place.kind === "target" && place.type === "today") {
+        void batchSetDate(ids, c.dateKey, "已排到今天");
+      }
+    },
   });
   const stations = useNodeStore((s) => s.stations);
   const routes = useNodeStore((s) => s.routes);
@@ -246,7 +258,7 @@ export function TodayView() {
   const noRows = c.rows.length === 0 && !c.draft;
   const setQuickJumpOpen = useUiStore((s) => s.setQuickJumpOpen);
 
-  // 建票列（回饋甲 D-主-127、128）：預設掛到無路線；Enter 開的＝執行日今天、Shift+Enter 開的＝無日期（進收件匣）
+  // 建票列（回饋甲 D-主-127、128）：預設掛到無路線；Enter 開的＝乘車日今天、Shift+Enter 開的＝無日期（進收件匣）
   const draftKind = c.draft?.kind ?? null;
   const quickDefaults: QuickDefaults | null = useMemo(
     () => (draftKind ? { dest: NO_DEST, scheduledOn: draftKind === "inbox" ? null : c.dateKey, noDateLabel: true } : null),
@@ -462,7 +474,7 @@ export function TodayView() {
           />
         ) : (
           <>
-            <div className="sec">
+            <div className="sec" data-drop-target={c.dateKey} data-drop-type="today">
               <h3>今天的列車</h3>
               <span className="rule" />
               <span className="note">{total} 張</span>
@@ -471,7 +483,7 @@ export function TodayView() {
                 <DoneToggleChip count={doneToday} showing={!todayHideDone} onToggle={toggleTodayHideDone} />
               )}
             </div>
-            <ul ref={setTodayList} role="listbox" aria-label="今天的列車" className="ticket-list">
+            <ul ref={setTodayList} role="listbox" aria-label="今天的列車" className="ticket-list" data-drop-target={c.dateKey} data-drop-type="today">
               {shownToday.map((r, i) => (
                 <Fragment key={r.id}>
                   {/* 現在線與「未定時・照手排」小標（主線② D-主-10）：裝飾列，不是選項、不收落點 */}

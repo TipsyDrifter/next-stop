@@ -38,7 +38,13 @@
   border-bottom-color: transparent;
   transition: border-color var(--dur-fast) var(--ease-soft);
 }
-.techo-input.ns-mgr-name:hover { border-bottom-color: var(--color-line); }
+.techo-input.ns-mgr-name:not(.is-editing) {
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.techo-input.ns-mgr-name.is-editing { border-bottom-color: var(--accent); }
+.ns-mgr-row[data-drag-id]:not(.is-editing) { cursor: grab; }
 .techo-input.ns-mgr-name:focus { border-bottom-color: var(--accent); }
 /* 不能改名的列（例：「未分類」固定在最後）：同字級的純文字，一行省略 */
 .ns-mgr-text {
@@ -57,6 +63,19 @@
 
 /* 己-2 A3：列尾的 ↑↓ 收進 ⋯ 了（上移／下移），原本包它們的 .ns-mgr-why 退役 */
 /* 沒有 ⋯ 的列留同寬的空格，讓整欄對齊 */
+.ns-mgr-acts { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.ns-mgr-act.is-active { opacity: 1; color: var(--accent); }
+.ns-mgr-act.is-danger:hover,
+.ns-mgr-act.is-danger:focus-visible { color: var(--late); }
+.ns-mgr-act-txt {
+  flex: none; padding: 2px var(--sp-2);
+  border: 1px solid var(--color-line); border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-ink-soft);
+  font-family: var(--font-body); font-size: var(--fs-xs); line-height: 18px; letter-spacing: .06em;
+  cursor: pointer; transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-mgr-act-txt:hover,
+.ns-mgr-act-txt:focus-visible { color: var(--color-ink); border-color: var(--color-ink-soft); }
 .ns-mgr-gap { flex: none; width: var(--ctl-icon); }
 
 /* ⋯ 常駐淡態（§0 法則 05、§1.8）：平常 --dim，列被 hover／列內有焦點／選單開著時轉實；手機常駐實 */

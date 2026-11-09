@@ -1,3 +1,4 @@
+import { Select } from "../../common/Select";
 /**
  * CurrencyTable——「幣別與匯率」對話框本體（車次①契約 §5.1、§2.5-4、0-18、0-30；兩殼共用；丙席）。
  * props `{ onDone(): void }`；自己讀 store。標題由 host 依 `store.dialog.kind` 給。
@@ -72,10 +73,10 @@ export function CurrencyTable(_props: { onDone(): void }) {
           onChange={(e) => setName(e.target.value)}
           {...ime}
         />
-        <select className="ns-tk-dselect" value={decimals} aria-label="小數位" onChange={(e) => setDecimals(parseInt(e.target.value, 10))}>
+        <Select className="ns-tk-dselect" value={decimals} aria-label="小數位" onChange={(v) => setDecimals(parseInt(v, 10))}>
           <option value={2}>小數 2 位</option>
           <option value={0}>無小數</option>
-        </select>
+        </Select>
         <label className="ns-tk-drate">
           <span>1 {up || "外幣"} ＝</span>
           <input

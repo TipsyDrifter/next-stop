@@ -87,9 +87,10 @@ export function SchedPopover({ anchor, openId, title, rootRef, scrollRef, childr
         closeSheet();
       }
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [closeSheet]);
+
 
   return createPortal(
     <>

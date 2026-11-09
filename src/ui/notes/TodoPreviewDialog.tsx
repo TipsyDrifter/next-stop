@@ -8,7 +8,7 @@
  * 單行＝只有欄位列；多行＝欄位列＋可勾的清單（標題行預設不勾、淡化並標「標題行」）。
  * 欄位只有兩欄（D-筆-26）：
  *   掛到哪＝AttachPicker depth="node"（第一層路線、往下支線／列車／車廂；只選到路線＝路線標籤）＋清除 ×
- *   執行日＝共用 `DateChip`（quick="forward"：今天／明天／後天／下週一；chip 開共用 DatePicker；min＝今天；可清除）——P5，跟側板日期 chip 同一種。
+ *   乘車日＝共用 `DateChip`（quick="forward"：今天／明天／後天／下週一；chip 開共用 DatePicker；min＝今天；可清除）——P5，跟側板日期 chip 同一種。
  *     **捕捉小窗例外**：DateChip 用 `useShell`（看視窗寬）分兩殼，小窗寬 640＜768 會被當成手機——開的是手機日期 sheet，
  *     而且 useShell 會把 <html data-shell> 改成 mobile、整個小窗換成手機尺寸。common 不歸本班改，小窗先留舊的
  *     「今天／明天／挑日期…／清除」（`CaptureWindowDateChips`，桌機 DatePicker）；DateChip 能指定殼之後刪掉這支（記〈待併入〉）。
@@ -198,7 +198,7 @@ export function TodoPreviewDialog() {
             </dd>
           </div>
           <div className="ns-notes-field">
-            <dt>執行日</dt>
+            <dt>乘車日</dt>
             <dd>
               {IN_CAPTURE_WINDOW ? (
                 <CaptureWindowDateChips value={pv.scheduledOn} today={today} onPick={(d) => st().setPreviewDate(d)} />
@@ -209,7 +209,7 @@ export function TodoPreviewDialog() {
                     if (d === null || d >= today) st().setPreviewDate(d);
                   }}
                   quick="forward"
-                  label="執行日"
+                  label="乘車日"
                   min={today}
                   today={today}
                   clearable
@@ -243,7 +243,7 @@ export function TodoPreviewDialog() {
 }
 
 /**
- * 捕捉小窗專用的執行日（見檔頭「捕捉小窗例外」）：舊的「今天／明天／挑日期…／清除」＋桌機 DatePicker（anchor 模式，portal 到 body；
+ * 捕捉小窗專用的乘車日（見檔頭「捕捉小窗例外」）：舊的「今天／明天／挑日期…／清除」＋桌機 DatePicker（anchor 模式，portal 到 body；
  * 小窗的 FLOATERS 有算它的高度）。日期小卡的 Esc 由 DatePicker 自己 stopPropagation，到不了殼。
  */
 function CaptureWindowDateChips({ value, today, onPick }: { value: string | null; today: string; onPick: (d: string | null) => void }) {
@@ -265,7 +265,7 @@ function CaptureWindowDateChips({ value, today, onPick }: { value: string | null
         className={`ns-notes-chip${custom ? " on" : ""}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={custom && value ? `執行日 ${shortDayKey(value)}，換一天` : "挑日期"}
+        aria-label={custom && value ? `乘車日 ${shortDayKey(value)}，換一天` : "挑日期"}
         onClick={() => setOpen((o) => !o)}
       >
         {custom && value ? shortDayKey(value) : "挑日期…"}
@@ -273,7 +273,7 @@ function CaptureWindowDateChips({ value, today, onPick }: { value: string | null
       {open && (
         <DatePicker
           anchor={btnRef.current}
-          label="執行日"
+          label="乘車日"
           value={value}
           min={today}
           onPick={(d) => {

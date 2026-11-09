@@ -37,6 +37,7 @@ import { requestDeleteRoute } from "../panel/routeFlows";
 import { requestArrive } from "../panel/arrivalFlows";
 import { GNAV_ICONS } from "../sidebar/gnavIcons";
 import { DateSeal } from "../stamps";
+import { todayKey } from "../../lib/date";
 import { OVERVIEW_DAYS, useRouteOverview } from "./useRouteOverview";
 import { StationMark } from "../weekAims/parts";
 import { useRouteNextAims, useStationCard, type RouteNextAims } from "../weekAims/StationCard";
@@ -267,7 +268,10 @@ export function RouteOverview() {
   const nextAims = useRouteNextAims(routes);
   const stationCard = useStationCard();
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
-  const now = new Date();
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const dayKey = todayKey(dayStartHour);
+  const [ty, tm, td] = dayKey.split("-").map(Number);
+  const now = new Date(ty, tm - 1, td);
   const decimals = data?.decimals ?? 2;
 
   const parts = routes.length > 0 ? headParts(routes.length, data?.totalTimeMs ?? 0, data?.totalSpendMinor ?? 0, decimals, OVERVIEW_DAYS) : [];
@@ -290,7 +294,7 @@ export function RouteOverview() {
           overline={{ zh: "路線圖", latin: "Route Map" }}
           title="路線圖"
           stats={stats || undefined}
-          stamp={<DateSeal date={now} size={76} />}
+          stamp={<DateSeal date={now} size={76} title={`日付印 ${dayKey}`} />}
           add={{
             label: "路線",
             haspopup: true,

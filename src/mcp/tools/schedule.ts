@@ -79,7 +79,7 @@ const proposeSchedule: McpTool = {
   async run(args, ctx) {
     const raw = batch(args, "items").map((a, i) => {
       const it = parseRescheduleItem(a, `items[${i}]`, "taskId");
-      if (it.date === null) throw new McpUserError(`items[${i}].date 要是日期（清掉執行日請用 reschedule-tasks）`);
+      if (it.date === null) throw new McpUserError(`items[${i}].date 要是日期（清掉乘車日請用 reschedule-tasks）`);
       return it as RescheduleItem & { date: string };
     });
     const seen = new Set<string>();

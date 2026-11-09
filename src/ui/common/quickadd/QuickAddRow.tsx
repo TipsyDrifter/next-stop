@@ -133,11 +133,19 @@ export function QuickAddRow({
     }
     if (!a.canSubmit) {
       if (via === "blur") close?.(false);
+      else close?.(true);
       return;
     }
     // 點去別處送出：選取留給使用者剛點的那一列（away＝不叫呼叫端選新票）
     const row = await a.submit(via === "blur" ? { away: true } : undefined);
-    if (via === "blur" && row) close?.(false);
+    if (!row) return;
+    if (via === "ctrl-enter") {
+      refocus();
+    } else if (via === "enter") {
+      close?.(true);
+    } else {
+      close?.(false);
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -145,11 +153,12 @@ export function QuickAddRow({
     if (api.isSubmitKey(e)) {
       e.preventDefault();
       e.stopPropagation();
+      const via: CommitVia = e.ctrlKey || e.metaKey ? "ctrl-enter" : "enter";
       if (!positional && !api.values.name.trim() && !api.text.trim()) {
         onClose?.(true); // 空白 Enter＝收掉（同以前的草稿列）
         return;
       }
-      void commit("enter");
+      void commit(via);
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -219,8 +228,8 @@ export function QuickAddRow({
             {look.badge}
           </span>
           {field}
-          <span className="k" aria-hidden>
-            Esc
+          <span className="k" aria-hidden title="Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消">
+            Enter 建立 · Ctrl+Enter 連建 · Esc
           </span>
         </div>
         {chips}
@@ -264,15 +273,15 @@ export function QuickAddRow({
           <button
             type="button"
             className="ns-btn btn-seal ns-qa-go"
-            title="発券（Enter）"
+            title="Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消"
             disabled={!api.canSubmit}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void commit("enter")}
+            onClick={(e) => void commit(e.ctrlKey || e.metaKey ? "ctrl-enter" : "enter")}
           >
             発券
           </button>
-          <span className="ns-qa-esc" aria-hidden>
-            Esc 取消
+          <span className="ns-qa-esc" aria-hidden title="Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消">
+            Enter 建立 · Ctrl+Enter 連續建立 · Esc 取消
           </span>
         </div>
       </article>

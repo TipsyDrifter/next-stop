@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 /**
  * Tabs——分頁籤：同一頁的 2～6 個視圖或子頁（視覺規範 §2.2；UI 丙-2 共用元件庫 #2）。
  *
@@ -308,18 +309,18 @@ export function TabsSelect<K extends string = string>({
 }: TabsSelectProps<K>) {
   return (
     <span className={className ? `ns-select-wrap ${className}` : "ns-select-wrap"}>
-      <select
+      <Select
         className="techo-input ns-tabs-select"
         aria-label={ariaLabel}
         value={value}
-        onChange={(e) => onChange(e.currentTarget.value as K)}
+        onChange={(v) => onChange(v as K)}
       >
         {items.map((it) => (
           <option key={it.key} value={it.key} disabled={it.disabled}>
             {it.label}
           </option>
         ))}
-      </select>
+      </Select>
     </span>
   );
 }

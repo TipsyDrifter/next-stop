@@ -42,6 +42,8 @@ import "../schedule/schedule.css";
 import { rowContextMenu } from "../common/contextMenu";
 import { armOpenOnClick } from "../common/selection/openOnClick";
 import { PriorityMark } from "../common/PriorityMark";
+import { InlineTicketEditor } from "../common/quickadd";
+import type { QuickChipKey } from "../common/quickadd/quickAddModel";
 
 const cx = (...parts: Array<string | false | undefined>) => parts.filter(Boolean).join(" ");
 
@@ -210,6 +212,7 @@ export function TicketTime({
 
 export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu, picked = false, dragId }: DayRowProps) {
   useHotkeyRevision();
+  const [inlineEdit, setInlineEdit] = useState<{ picker: Exclude<QuickChipKey, "dest"> | null } | null>(null);
   const name = row.node?.name ?? "";
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
@@ -268,8 +271,14 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       role="group"
       aria-label={name}
       onMouseDown={(e) => {
+        if (inlineEdit) return;
         onSelect(e);
         armOpenDetail(e, row.node?.id);
+      }}
+      onDoubleClick={(e) => {
+        if (inlineEdit || row.isHistory || !row.node) return;
+        e.stopPropagation();
+        setInlineEdit({ picker: null });
       }}
       onContextMenu={
         menu
@@ -280,20 +289,61 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
       <span className={cx("roundel-s", serif && "serif")} aria-hidden style={disc}>
         {badgeOf(row.route)}
       </span>
-      {time !== null && (
-        <TicketTime
-          time={time}
-          estimateMin={row.node?.estimate_min}
-          overridden={row.node ? isTimeOverridden(row.node, row.entry.date) : false}
-          past={past}
-          outOfAxis={outOfAxis}
-        />
+      {inlineEdit && row.node ? (
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <InlineTicketEditor
+            node={row.node}
+            initialPicker={inlineEdit.picker}
+            compact
+            onClose={() => setInlineEdit(null)}
+          />
+        </div>
+      ) : (
+        <>
+          {time !== null && (
+            <span
+              role={!row.isHistory && row.node ? "button" : undefined}
+              tabIndex={-1}
+              style={!row.isHistory && row.node ? { cursor: "pointer" } : undefined}
+              title={!row.isHistory && row.node ? "點擊修改時刻／預計分鐘" : undefined}
+              onClick={(e) => {
+                if (row.isHistory || !row.node) return;
+                e.stopPropagation();
+                setInlineEdit({ picker: "time" });
+              }}
+            >
+              <TicketTime
+                time={time}
+                estimateMin={row.node?.estimate_min}
+                overridden={row.node ? isTimeOverridden(row.node, row.entry.date) : false}
+                past={past}
+                outOfAxis={outOfAxis}
+              />
+            </span>
+          )}
+          <span
+            className="t"
+            title={!row.isHistory && row.node ? `${name}（雙擊行內編輯）` : name}
+            onDoubleClick={(e) => {
+              if (row.isHistory || !row.node) return;
+              e.stopPropagation();
+              setInlineEdit({ picker: null });
+            }}
+          >
+            {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
+            <span
+              onClick={(e) => {
+                if (row.isHistory || !row.node?.priority) return;
+                e.stopPropagation();
+                setInlineEdit({ picker: "priority" });
+              }}
+            >
+              <PriorityMark priority={row.node?.priority} />
+            </span>
+            {name}
+          </span>
+        </>
       )}
-      <span className="t" title={name}>
-        {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
-        <PriorityMark priority={row.node?.priority} />
-        {name}
-      </span>
       {!menu && <DetailButton nodeId={row.node?.id} />}
 
       {row.isRepeat ? (
@@ -327,7 +377,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           type="button"
           tabIndex={-1}
           className="defer"
-          title={`推遲：執行日延後一天，過期票改到明天（${hotkeyCaps("daylist.schedule.today")} 排今天／${hotkeyCaps("daylist.schedule.tomorrow")} 排明天）`}
+          title={`推遲：乘車日延後一天，過期票改到明天（${hotkeyCaps("daylist.schedule.today")} 排今天／${hotkeyCaps("daylist.schedule.tomorrow")} 排明天）`}
           onClick={(e: MouseEvent<HTMLButtonElement>) => {
             e.stopPropagation();
             onDefer(e.currentTarget);
@@ -477,7 +527,7 @@ export interface DueRowProps {
   onSelect(): void;
 }
 
-/** 締切列（原型 :1088-1094）：〆＋圓牌＋標題＋「詳情」＋「執行 M/D」或「未排執行日」。唯讀，只有 `.`／「詳情」開側板 */
+/** 締切列（原型 :1088-1094）：〆＋圓牌＋標題＋「詳情」＋「執行 M/D」或「未排乘車日」。唯讀，只有 `.`／「詳情」開側板 */
 export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
   const name = node?.name ?? "";
   const exec = node?.scheduled_on ?? null;
@@ -506,8 +556,8 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
       {exec ? (
         <span className="due-tag">執行 {mmdd(exec)}</span>
       ) : (
-        // 無執行日的票只在締切日浮出來，格內清單沒有它——不講明會以為忘了排（決策 11）
-        <span className="noexec">未排執行日</span>
+        // 無乘車日的票只在締切日浮出來，格內清單沒有它——不講明會以為忘了排（決策 11）
+        <span className="noexec">未排乘車日</span>
       )}
     </div>
   );

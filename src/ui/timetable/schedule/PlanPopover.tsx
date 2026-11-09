@@ -88,15 +88,16 @@ export function PlanPopover({ planKey, rootRef, scrollRef }: { planKey: string; 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !e.defaultPrevented) {
         e.preventDefault();
         e.stopPropagation();
         closeSheet();
       }
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [closeSheet]);
+
 
   return createPortal(
     <>

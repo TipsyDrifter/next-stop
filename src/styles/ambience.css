@@ -47,7 +47,7 @@
 
 /* 極淡彩虹光暈：七色帶 + 大 blur，只是霧裡被月光折出的一抹色（靜態） */
 .sky-halo {
-  position: absolute; left: 38%; top: 6%; width: 1180px; height: 150px;
+  position: absolute; left: 38%; top: 14%; width: 1180px; height: 150px;
   transform: rotate(-16deg); transform-origin: 0 50%;
   background: linear-gradient(90deg,
     transparent 0%, rgba(255, 176, 176, .27) 14%, rgba(255, 220, 166, .24) 30%, /* 字面值：天空層美術色（彩虹光暈七色帶） */
@@ -62,7 +62,7 @@
 }
 .sky-b1 { --s: 340px; --c: rgba(255, 255, 255, .30); left: 14%; top: 18%; } /* 字面值：天空層美術色（光斑 bokeh） */
 .sky-b2 { --s: 220px; --c: rgba(255, 214, 228, .34); left: 58%; top: 30%; } /* 字面值：天空層美術色（光斑 bokeh） */
-.sky-b3 { --s: 420px; --c: rgba(207, 224, 255, .30); left: 66%; top: -8%; } /* 字面值：天空層美術色（光斑 bokeh） */
+.sky-b3 { --s: 420px; --c: rgba(207, 224, 255, .30); left: 66%; top: 8%; } /* 字面值：天空層美術色（光斑 bokeh） */
 .sky-b4 { --s: 180px; --c: rgba(255, 240, 214, .30); left: 30%; top: 56%; } /* 字面值：天空層美術色（光斑 bokeh） */
 .sky-b5 { --s: 280px; --c: rgba(255, 222, 236, .26); left: 80%; top: 58%; } /* 字面值：天空層美術色（光斑 bokeh） */
 .sky-b6 { --s: 150px; --c: rgba(255, 255, 255, .34); left: 46%; top: 72%; } /* 字面值：天空層美術色（光斑 bokeh） */

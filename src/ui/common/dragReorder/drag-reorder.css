@@ -14,7 +14,11 @@
   user-select: none;
   -webkit-touch-callout: none;
 }
-html.dr-dragging, html.dr-dragging * { cursor: grabbing !important; }
+html.dr-dragging, html.dr-dragging * {
+  cursor: grabbing !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
 
 /* 觸控按著還沒滿 400ms：微微下沉（告訴手指「有東西在等」） */
 [data-drag-id].dr-pressing { transform: scale(.985); transition: transform var(--dur-fast) var(--ease); }

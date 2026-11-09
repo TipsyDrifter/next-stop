@@ -1,8 +1,8 @@
 /**
  * MobileTodoPreview——手機的「變成車票」全螢幕面板（車次①契約 §5.3；D-筆-18／26；原型 app.js previewHtml 的 mob 分支）。
  *
- * 狀態全在 notesStore.preview（桌機 TodoPreviewDialog 同一份）：勾選、掛到哪、執行日、確定與取消都轉呼叫 store。
- * 版面：頂列「取消／變待辦／建立 N 張車票」→ 捲動區＝來源一行 → 欄位兩欄**直排**（掛到哪、執行日）
+ * 狀態全在 notesStore.preview（桌機 TodoPreviewDialog 同一份）：勾選、掛到哪、乘車日、確定與取消都轉呼叫 store。
+ * 版面：頂列「取消／變待辦／建立 N 張車票」→ 捲動區＝來源一行 → 欄位兩欄**直排**（掛到哪、乘車日）
  *   → 「沒有日期也沒有路線＝留在收件匣」提示 → 清單（single 時不出）。
  * UI 丙-6 S2／P3：殼換共用 `MFullPage`（頂列書封色、左取消、右主鈕「建立 N 張車票」＝兩殼同字；返回層 backId "notes.preview"
  *   ＝殼自己登記 kind "full"，NotesMobileOverlay 那條刪掉）。挑日期面板（S9）給 backId ⇒ MSheet 殼、疊在本頁上＝"dialog"。
@@ -107,7 +107,7 @@ export function MobileTodoPreview() {
           </dd>
         </div>
         <div className="ns-notes-mfield">
-          <dt>執行日</dt>
+          <dt>乘車日</dt>
           <dd className="ns-notes-mchiprow">
             {/* 快選＝往後一套（今天／明天／後天／下週一；規範 §2.5，跟桌機變待辦的 DateChip quick="forward" 同一套；UI 丙-6 回修） */}
             {quick.map((q) => (
@@ -126,7 +126,7 @@ export function MobileTodoPreview() {
               className={"ns-notes-mchip2" + (custom ? " on" : "")}
               aria-pressed={custom}
               aria-haspopup="dialog"
-              aria-label={custom && scheduledOn ? `執行日 ${shortDayKey(scheduledOn)}，換一天` : "挑日期"}
+              aria-label={custom && scheduledOn ? `乘車日 ${shortDayKey(scheduledOn)}，換一天` : "挑日期"}
               onClick={() => setPickingDate(true)}
             >
               {custom && scheduledOn ? shortDayKey(scheduledOn) : "挑日期…"}
@@ -166,7 +166,7 @@ export function MobileTodoPreview() {
 
       {pickingDate && (
         <MobileDatePicker
-          title="執行日"
+          title="乘車日"
           value={scheduledOn}
           min={today}
           quick={[]}

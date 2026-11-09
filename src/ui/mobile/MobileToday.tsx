@@ -17,7 +17,7 @@
  *   .m-page.m-today  統計一行 → 誤點區（**置頂**＝r1 拍板）→「今天的列車」清單／空狀態
  *   .m-newticket  固定在 tab bar 之上的建票輸入列（不在 .m-page 內＝不跟著捲走；只有今日子頁有，D-主-8）
  *                 回饋甲（D-主-127、128）起＝共用的手機建票列 MobileQuickAdd（common/quickadd）：聚焦後輸入框上方冒一排 chips
- *                 ［掛到］［執行日］［幾點］［締切］［優先］［#荷札］＋快速語法；舊的「無日期」切換併進執行日 chip（清除＝無日期，進收件匣＋復原）。
+ *                 ［掛到］［乘車日］［幾點］［締切］［優先］［#荷札］＋快速語法；舊的「無日期」切換併進乘車日 chip（清除＝無日期，進收件匣＋復原）。
  *                 IME 三重守門、連打、收據規則都在共用元件裡；chips 在輸入列裡面，軟鍵盤 inset（useViewportHeight）一起推上來。
  *   回饋甲 D-主-131：「今天的列車」區段標右側「済 N・隱藏／顯示」（uiStore.todayHideDone，跟桌機同一個記住的狀態）；
  *                 隱藏時藏的只是済票（拖曳、多選、指出這張票都只看畫面上有的），頁首「完成 d/t」照舊算全部。
@@ -143,7 +143,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
   const doneToday = c.todayRows.filter(isDoneRow).length;
   const shownToday = todayHideDone ? c.todayRows.filter((r) => !isDoneRow(r)) : c.todayRows;
 
-  /* ───────── 建票列（回饋甲 D-主-127、128）：掛到＝無路線、執行日＝今天；清掉執行日＝無日期進收件匣 ───────── */
+  /* ───────── 建票列（回饋甲 D-主-127、128）：掛到＝無路線、乘車日＝今天；清掉乘車日＝無日期進收件匣 ───────── */
   const qaDefaults = useMemo<QuickDefaults>(() => ({ dest: NO_DEST, scheduledOn: c.dateKey, noDateLabel: true }), [c.dateKey]);
   const qaHere = useMemo<QuickHere>(() => ({ kind: "today", dateKey: c.dateKey }), [c.dateKey]);
 
@@ -420,7 +420,7 @@ function TodaySub({ c }: { c: MobileTodayApi }) {
 
       <MoodStage done={c.stats.done} allDone={allSettled} dateKey={c.dateKey} loaded={c.loaded} />
 
-      {/* 建票列（回饋甲：舊 MobileNewTicket 換共用的手機建票列；chips 聚焦後才出現，「無日期」併進執行日 chip） */}
+      {/* 建票列（回饋甲：舊 MobileNewTicket 換共用的手機建票列；chips 聚焦後才出現，「無日期」併進乘車日 chip） */}
       <MobileQuickAdd defaults={qaDefaults} here={qaHere} />
       <MobileSelectionBar scope="today" />
 

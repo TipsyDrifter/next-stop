@@ -16,7 +16,7 @@
  *   改期（主線車次① P11）  → `defer(id, target)`：reschedule(target) ＋ showRescheduleToast（帶「復原」）；
  *                            UI 丙-3 F5（E20 手機補記）：分流抽成 `pickDay.ts` 的 planPickDay——挑到今天以前＝
  *                            updateNode(…, { backfill: true })（「已補記到 M/D」＋復原由 nodeStore 出），今天以後照舊；
- *                            target=null＝清除執行日：INBOX_TOAST＋「復原」放回原執行日（DeferPopover.tsx 同款）
+ *                            target=null＝清除乘車日：INBOX_TOAST＋「復原」放回原乘車日（DeferPopover.tsx 同款）
  *   本班運休／取消運休     → `skip(id, skip)`：skipOccurrence(id, skip)（不帶 dueOn＝今日頁口徑）
  *   建票                   → 不在這支 hook：手機殼走共用建票列（common/quickadd 的 MobileQuickAdd／useQuickAdd）
  *   v1.1.0 的 `deferTomorrow` 已併進 `defer`（⋯ sheet 從一項補成四項＋運休，P11）。
@@ -62,7 +62,7 @@ export interface MobileTodayApi {
   loaded: boolean;
   /** 今天的列車（bucket==='today'） */
   todayRows: TodayRow[];
-  /** 誤點區（late＝有執行日已過／due＝締切已到但沒排執行日） */
+  /** 誤點區（late＝有乘車日已過／due＝締切已到但沒排乘車日） */
   lateRows: TodayRow[];
   /** 完全沒有任何一列（空狀態判斷） */
   empty: boolean;
@@ -74,7 +74,7 @@ export interface MobileTodayApi {
 
   /** 済／取消済／取消運休——票右側印章區単擊 */
   complete(id: string): void;
-  /** 改期；null＝清除執行日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ 只改這一班，清除或講不出哪一班 ⇒ REPEAT_RESCHEDULE_MSG） */
+  /** 改期；null＝清除乘車日（已交代 ⇒ SETTLED_DEFER_MSG；定期券 ⇒ 只改這一班，清除或講不出哪一班 ⇒ REPEAT_RESCHEDULE_MSG） */
   defer(id: string, target: string | null): void;
   /** 定期券：本班運休（true）／取消運休（false）——今日頁口徑：不帶 dueOn */
   skip(id: string, skip: boolean): void;
@@ -256,7 +256,7 @@ export function useMobileToday(): MobileTodayApi {
         void moveRunFlow(id, plan.from, plan.day);
         return;
       case "clear": {
-        // 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去（DeferPopover.tsx 同款）
+        // 清除乘車日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原乘車日放回去（DeferPopover.tsx 同款）
         const prev = scheduleSnapshot(row);
         void ns().reschedule(id, null);
         ui().showToast({

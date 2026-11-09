@@ -2,10 +2,10 @@
  * SelectionBar——桌機多選的選取列（回饋乙 D-主-152；契約 §4；原型 prototypes/回饋乙-拖曳多選右鍵.html 第 02 段）。
  *
  * 選了 ≥1 張就在內容區（App 的 <main>）底部浮出一條 `.techo-card`：
- *   「已選 N 張」｜［蓋済］［執行日］［移動到…］［更多 ▾］｜［× 取消］
+ *   「已選 N 張」｜［蓋済］［乘車日］［移動到…］［更多 ▾］｜［× 取消］
  *   己-2 A4（D-主-413）：原本八顆攤開，比照手機收成「常用三顆＋更多」；更多＝PopMenu：優先級 ▾（高中低）、荷札…、本班運休、刪除 N 張（赭）。
  * 規範：一個區域一顆主鈕（法則 03）——這一條沒有實心主鈕，全是次鈕／危險鈕／文字鈕；材質＝浮（§1.5）；
- *   小卡＝錨定 popover（§2.4：執行日用共用 DatePicker、更多用 PopMenu、荷札一張小卡、移動到…用 AttachPicker）。
+ *   小卡＝錨定 popover（§2.4：乘車日用共用 DatePicker、更多用 PopMenu、荷札一張小卡、移動到…用 AttachPicker）。
  * 動作一律呼叫 store/batchActions（一批寫完、一則 toast、一次復原）；做不到的停用並說原因（title）。
  * 掛在大綱、今日、行程表串流三頁；`lookup` 交「這一頁的節點表」（運休要看定期券、移動到…要看種類）。
  * 位置：portal 進 <main>（相對定位、不捲）——頁面本身（.page）會捲，放在頁裡就跟著內容跑了。
@@ -154,10 +154,10 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
         aria-expanded={pop === "date"}
         data-pop-toggle
         disabled={datable === 0}
-        title={datable === 0 ? "定期券的執行日照規則排，不能直接改" : "改執行日"}
+        title={datable === 0 ? "定期券的乘車日照規則排，不能直接改" : "改乘車日"}
         onClick={() => toggle("date")}
       >
-        執行日
+        乘車日
       </button>
       <button
         type="button"
@@ -204,7 +204,7 @@ export function SelectionBar({ scope, lookup }: SelectionBarProps) {
 
       {pop === "date" && (
         <DatePicker
-          label={`改 ${datable} 張的執行日`}
+          label={`改 ${datable} 張的乘車日`}
           anchor={btns.current.date ?? null}
           quick={dateQuickSet("forward", today)}
           today={today}

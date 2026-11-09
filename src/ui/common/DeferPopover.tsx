@@ -1,14 +1,14 @@
 /**
  * DeferPopover——推遲小卡（M3 ③ WP3；決策 D-③-6 乙、種子動線 M3-6）。
  *
- * 入口：今日列的執行日 chip（`.chip.chip-btn`）→ useTodayController.openDefer(id, anchor) → TodayView 渲染本元件。
- * 四項（拍板逐字）：**明天／下週一／選日期…／清除執行日**；票的執行日存在且不是今天（誤點，或在未來）時，
+ * 入口：今日列的乘車日 chip（`.chip.chip-btn`）→ useTodayController.openDefer(id, anchor) → TodayView 渲染本元件。
+ * 四項（拍板逐字）：**明天／下週一／選日期…／清除乘車日**；票的乘車日存在且不是今天（誤點，或在未來）時，
  * 最前面多一項**今天**（D-主-45；誤點票一步排回今天、未來的票提前到今天；繰越規則由 reschedule 判）。
  *
  * **資料來源＝props 注入的 `row`（M3 ⑤ WP1 解耦，草案 §4-3）**：本元件不查 `today.byId`——
  * 日曆當日清單浮層的列不在今日切片裡。行為零改動；形狀見 `DeferRow`。
  *
- * **定期券版（M3 ④ D-④-3；⑥ D-主-295）**：同一枚 chip、同一張卡，內容整個換掉——定期券沒有「執行日」可以推或清，
+ * **定期券版（M3 ④ D-④-3；⑥ D-主-295）**：同一枚 chip、同一張卡，內容整個換掉——定期券沒有「乘車日」可以推或清，
  * 四項改期換成講「這一班」的三項：
  *   〔本班運休／取消運休（依 `row.occurrence.status` 二擇一）〕＋〔這一班改到…（開日期挑選，走 `moveRunFlow`；已交代的班停用）〕
  *   ＋〔編輯重複規則…（＝開側板，與 `.` 同一個去處）〕。
@@ -18,13 +18,13 @@
  * 是不是定期券只認 `parseRule(row.repeat_rule)`——欄位裡是 legacy 自由文字的票走一般版。
  *   改期一律走 `nodeStore.reschedule`（唯一入口：寫 carried_from 繰越章、清 today_position）——
  *   本元件不碰 repository、不自己算繰越。
- *   「清除執行日」＝票離開今日流入收件匣資料態（M4 開張），toast 與 Shift+Enter 那條種子動線同一句，
- *   並帶「復原」把原執行日放回去（拍板：清除後 toast 同上、可 undo）。
+ *   「清除乘車日」＝票離開今日流入收件匣資料態（M4 開張），toast 與 Shift+Enter 那條種子動線同一句，
+ *   並帶「復原」把原乘車日放回去（拍板：清除後 toast 同上、可 undo）。
  *
  * 視覺（**沒有原型**——① 比稿與 C1／C2 都沒畫過 popover）：
  *   照移植規格 §0 鐵律，只拼 techo.css 既有語彙、不自創新視覺元素——
  *   .techo-card 紙卡 ＋ .techo-overline 眉標 ＋ .techo-foot 腳註 ＋ --color-dash 虛線撕線 ＋
- *   「清除執行日」用赭（--color-late，與誤點／締切同色階）。位置與間距在 common/defer.css。
+ *   「清除乘車日」用赭（--color-late，與誤點／締切同色階）。位置與間距在 common/defer.css。
  *
  * 鍵盤（本卡開著時整張今日鍵盤表停用，見 useTodayKeyboard 的 disabled 分支）：
  *   ↑↓ 在項目間移動・Enter／Space 由按鈕自己啟動・Tab 在卡內循環・Esc 關閉（自己攔並 stopPropagation，
@@ -33,7 +33,7 @@
  * ── UI 丙-2 搬家（契約 §1 #18；2026-10-22）──
  * 用途：推遲小卡（今日列、行程表串流、日曆當日浮層共用）。
  * 規範：視覺規範 §2.4（錨定 popover＝.techo-card＋眉標）、§2.5（日期：挑一天＝共用 DatePicker）、§2.8（看不見結果的改期出 toast＋復原）。
- * ARIA：根 role=dialog＋aria-label（「推遲／定期券」＋票名）；「選日期…」「這一班改到…」aria-expanded；「清除執行日」沒有執行日、「這一班改到…」已交代時 disabled＋title 寫原因。
+ * ARIA：根 role=dialog＋aria-label（「推遲／定期券」＋票名）；「選日期…」「這一班改到…」aria-expanded；「清除乘車日」沒有乘車日、「這一班改到…」已交代時 disabled＋title 寫原因。
  * 鍵盤：見上（↑↓ 項目間移動、Tab 卡內循環、Esc 自己收不冒泡、? 與 Ctrl+/ 不外漏）。
  * 樣式：common/defer.css（src/index.css 集中 @import；原 today/defer.css 整份搬來，字級改 --fs-*）。
  *   原路徑 today/DeferPopover.tsx 只剩 re-export（呼叫端 import 不動，丙-3～6 再改）。
@@ -180,7 +180,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
   /**
    * 改期：唯一入口 reschedule（繰越章與今日序清空的規則都在那一層），改完就收卡。
    * 票離開今日的那一刻畫面上沒有別的回饋（繰越章要到目標日才看得到）→ 補一張可反悔的收據，
-   * 與「清除執行日」／`Delete` 同款，三項改期不再靜默（should 3）。
+   * 與「清除乘車日」／`Delete` 同款，三項改期不再靜默（should 3）。
    */
   const applyDate = (next: string) => {
     const prev = scheduleSnapshot(row);
@@ -190,7 +190,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
     if (next !== dateKey || showToday) showRescheduleToast(nodeId, prev, next);
   };
 
-  /** 清除執行日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原執行日放回去 */
+  /** 清除乘車日＝流入收件匣資料態；toast 與 Shift+Enter 同一句，「復原」把原乘車日放回去 */
   const clearDate = () => {
     const prev = scheduleSnapshot(row);
     void ns().reschedule(nodeId, null);
@@ -246,15 +246,15 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
   };
 
   /**
-   * 改期兩項的基準日（主線車次① ☎4）：票的執行日在未來（行程表串流／日曆浮層的未來列）時，
-   * 「明天」會把票往前拉——改成「往後推一天」＝執行日＋1，「下週一」也以執行日為基準（與手機 sheet 同一把尺）。
-   * 今日頁的列不會有未來執行日 ⇒ 今日頁行為不變。
+   * 改期兩項的基準日（主線車次① ☎4）：票的乘車日在未來（行程表串流／日曆浮層的未來列）時，
+   * 「明天」會把票往前拉——改成「往後推一天」＝乘車日＋1，「下週一」也以乘車日為基準（與手機 sheet 同一把尺）。
+   * 今日頁的列不會有未來乘車日 ⇒ 今日頁行為不變。
    */
   const future = row.scheduled_on !== null && row.scheduled_on > dateKey;
   const base = future ? (row.scheduled_on as string) : dateKey;
   const tomorrow = addDays(base, 1);
   const monday = nextMonday(base);
-  /** 「今天」項：執行日存在且 ≠ 今天（誤點＝過去；未來＝提前）。沒有執行日的票走「選日期…」就好，不給 */
+  /** 「今天」項：乘車日存在且 ≠ 今天（誤點＝過去；未來＝提前）。沒有乘車日的票走「選日期…」就好，不給 */
   const showToday = row.scheduled_on !== null && row.scheduled_on !== dateKey;
 
   /* ── 定期券版（見檔頭）：規則 parse 得出來就換一套內容 ── */
@@ -378,11 +378,11 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
             type="button"
             data-defer-item
             disabled={!row.scheduled_on}
-            title={row.scheduled_on ? "票會離開今日，流入旅客筆記的收件匣" : "這張車票沒有設定執行日"}
+            title={row.scheduled_on ? "票會離開今日，流入旅客筆記的收件匣" : "這張車票沒有設定乘車日"}
             className="ns-defer-item warn"
             onClick={clearDate}
           >
-            <span>清除執行日</span>
+            <span>清除乘車日</span>
           </button>
         </li>
       </ul>
@@ -394,7 +394,7 @@ export function DeferPopover({ row, anchor, onClose }: DeferPopoverProps) {
               Esc 只收起挑選器（DatePicker 自己 stopPropagation），再按一次才關整張卡。
               min＝今天：挑不到過去（P10／驗收 #13，主線車次① ☎4）；定期券版改的是 railDate 那一班，「改回原日」走收據的復原與検印區 */}
           <DatePicker
-            label={rule ? "這一班改到" : "選執行日"}
+            label={rule ? "這一班改到" : "選乘車日"}
             value={(rule ? railDate : row.scheduled_on) ?? dateKey}
             min={dateKey}
             onPick={(v) => {

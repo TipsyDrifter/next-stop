@@ -272,9 +272,9 @@
 .wa-bk-seal { flex: none; width: 15px; height: 15px; border-radius: 50%; border: 1px solid currentColor; font-size: 9px; line-height: 1; --ns-rot: -9deg; }
 
 /* 月格：日數右邊一枚 ◎（22px 點擊面；墨色，朱只給済） */
-.wa-cal-stns { position: absolute; z-index: 1; top: 6px; left: 30px; display: flex; gap: 0; height: 22px; pointer-events: none; }
-.ns-daycell.is-today .wa-cal-stns { left: 41px; }
-.wa-cal-stn { display: grid; place-items: center; width: 20px; height: 22px; padding: 0; border: 0; background: none; color: var(--color-ink-soft); cursor: pointer; border-radius: 2px; }
+.wa-cal-stns { position: absolute; z-index: 1; top: 6px; left: 24px; display: flex; gap: 0; height: 22px; pointer-events: none; }
+.ns-daycell.is-today .wa-cal-stns { left: 38px; }
+.wa-cal-stn { display: grid; place-items: center; width: 16px; height: 22px; padding: 0; border: 0; background: none; color: var(--color-ink-soft); cursor: pointer; border-radius: 2px; }
 .wa-cal-stn:hover { color: var(--accent); }
 .wa-cal-stn:focus-visible { outline: var(--focus-ring); outline-offset: 0; }
 /* 手機月曆與當日清單 */

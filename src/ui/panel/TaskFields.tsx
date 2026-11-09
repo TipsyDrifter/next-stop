@@ -1,5 +1,5 @@
 /**
- * 節點面板（UI Flow 2.1 · D1）：列車／車廂＝完整任務欄位＋工作日誌＋操作列；車票＝名稱・（臨時車票才有的）路線標籤・執行日・検印蓋章・工作日誌；支線＝名稱・描述・轉為列車。
+ * 節點面板（UI Flow 2.1 · D1）：列車／車廂＝完整任務欄位＋工作日誌＋操作列；車票＝名稱・（臨時車票才有的）路線標籤・乘車日・検印蓋章・工作日誌；支線＝名稱・描述・轉為列車。
  * 列車／車廂／車票的票頭下也有「概要」（D-主-79，同支線那段；手機詳情頁同一個欄位）。
  * M3 ③ WP3 補到車票面板的兩段：**路線標籤選擇器**（a18–a21；只對 parent_id 為 null 的臨時車票顯示，
  * 走 nodeStore.setRouteTag，票根立刻換成該路線的色）與**工作日誌**（D-③-4 甲，直接掛既有 WorkLogList）。
@@ -8,10 +8,10 @@
  * 視覺＝原型語彙 1:1（class 定義在 techo.css 原型逐字移植段、側板版面在 panel.css）：
  * 票頭＝.panel-head（件一 m3-ext-routemap.html：票種＋票根徽章／類型／票號＋襯線標題）、區段＝.sec、狀態／優先級＝.status 小方標（選中 ink 邊）、
  * 心情＝三個 .badge 小圓、子項進度＝.cars 車廂格、手動進度＝純鍵盤數字、車票検印＝.stamp／.seal 蓋「済」（stampIn 動畫）。
- * UI 丙-3 C5：現況／優先順序／所屬路線換新 `Segmented`（放不下就換下拉，`./Choice`）；執行日、締切日換共用 `DateChip`
- *   （執行日一定 allowPast＋flag="backfill"，補記不能壞）；「幾點」換共用 `ClockInput`（`./TimeField` 的 ClockField）；
+ * UI 丙-3 C5：現況／優先順序／所屬路線換新 `Segmented`（放不下就換下拉，`./Choice`）；乘車日、締切日換共用 `DateChip`
+ *   （乘車日一定 allowPast＋flag="backfill"，補記不能壞）；「幾點」換共用 `ClockInput`（`./TimeField` 的 ClockField）；
  *   心情字統一「順暢／還行／吃力」（G1，與完成卡同一份 complete/moods.ts）。
- * 回饋甲（D-主-129、133）：「時刻」段兩種面板同一支 ScheduleSection——票種 → 時段組〔執行日 → 時段（開始 → 結束兩格）→ 長度（分段鈕）
+ * 回饋甲（D-主-129、133）：「時刻」段兩種面板同一支 ScheduleSection——票種 → 時段組〔乘車日 → 時段（開始 → 結束兩格）→ 長度（分段鈕）
  *   → 插槽 section "schedule" → 締切日〕；列車／車廂的「預計」搬上來成「長度」。車票加「状態」段＝優先順序＋別線狀態段欄位。
  * 已知取捨：面板內改 done 不彈完成卡（心情／日誌就在同一面板）；車廂不給「轉為支線」（支線只能掛路線／支線下，setKind 必擋）。
  */
@@ -151,7 +151,7 @@ export function LineRows({ node, section }: { node: NodeRow; section?: FieldSect
 }
 
 /**
- * 定期券的執行日在這裡唯讀（M3 ④ 評審 must）：班次由規則排定，這裡只是**印出來**給人看——值照印、旁邊一句灰注、沒有清除叉；
+ * 定期券的乘車日在這裡唯讀（M3 ④ 評審 must）：班次由規則排定，這裡只是**印出來**給人看——值照印、旁邊一句灰注、沒有清除叉；
  * 要改班次就改規則（上面的「重複」區段）；只動這一班到検印區的本班日期（⑥ D-主-295），跳過按 U。
  * 版位沿用 panel.css 的 `.date`（flex 一列）與 `.latin`／`.empty`，不新增 class。
  */
@@ -167,9 +167,9 @@ function LockedDate({ value }: { value: string | null }) {
 }
 
 /**
- * 執行日＝共用 DateChip（UI 丙-3 C5；視覺規範 §2.5「日期」觸發統一成日期 chip）。列車／車廂與車票面板共用。
+ * 乘車日＝共用 DateChip（UI 丙-3 C5；視覺規範 §2.5「日期」觸發統一成日期 chip）。列車／車廂與車票面板共用。
  * **一定 `allowPast`＋`flag="backfill"`**：DateChip 預設挑不到今天以前，少了 allowPast 桌機補記（磨光⑦ D-主-67：
- * 親手把執行日改到過去＝補記）會靜默壞掉（契約 §7-1）。onPick 照舊帶 `{ backfill: true }`——蓋不蓋済由 repository 判斷
+ * 親手把乘車日改到過去＝補記）會靜默壞掉（契約 §7-1）。onPick 照舊帶 `{ backfill: true }`——蓋不蓋済由 repository 判斷
  * （未済、非定期券、沒有未完成子票才蓋），收據 toast「已補記到 M/D」＋復原在 nodeStore。
  */
 function ScheduledChip({ node }: { node: NodeRow }) {
@@ -177,20 +177,27 @@ function ScheduledChip({ node }: { node: NodeRow }) {
   return (
     <DateChip
       date={node.scheduled_on}
-      onPick={(v) => void updateNode(node.id, { scheduled_on: v }, { backfill: true })}
+      onPick={(v) => {
+        const syncDue = Boolean(node.scheduled_on && node.due_on === node.scheduled_on);
+        void updateNode(
+          node.id,
+          syncDue && v ? { scheduled_on: v, due_on: v } : { scheduled_on: v },
+          { backfill: true },
+        );
+      }}
       allowPast
       flag="backfill"
       clearable
-      label="執行日"
+      label="乘車日"
     />
   );
 }
 
 /**
  * 「時刻」段（回饋甲 D-主-129；原型 q3-A）——列車／車廂與車票面板同一支：
- *   票種 → 〔時段組：執行日 → 時段 → 長度 → 插槽 section "schedule"（時刻表⑦「其他時段」）→ 締切日〕。
+ *   票種 → 〔時段組：乘車日 → 時段 → 長度 → 插槽 section "schedule"（時刻表⑦「其他時段」）→ 締切日〕。
  *   時段組左側一條淡線（.sched-group）把「排時段」這件事的幾格圈成一組；列車／車廂的「預計」從「分量」段搬上來成「長度」。
- * 定期券（lockedDate＝掛著規則，含退役）：執行日唯讀；時段是「每班」時刻（逐班改在検印段「本班」，不動）。
+ * 定期券（lockedDate＝掛著規則，含退役）：乘車日唯讀；時段是「每班」時刻（逐班改在検印段「本班」，不動）。
  * 手機詳情頁同順序（MobileDetailHost TaskFields）。
  */
 function ScheduleSection({
@@ -208,11 +215,11 @@ function ScheduleSection({
     <>
       <SectionRule title="時刻" />
       <div className="fields">
-        {/* 票種（收官磨光 Q1）：留在執行日之前（手機詳情頁同位置） */}
+        {/* 票種（收官磨光 Q1）：留在乘車日之前（手機詳情頁同位置） */}
         <FareRow node={node} repeat={repeat} />
 
         <div className="sched-group">
-          <FieldRow label="執行日">
+          <FieldRow label="乘車日">
             {lockedDate ? <LockedDate value={node.scheduled_on} /> : <ScheduledChip node={node} />}
           </FieldRow>
 
@@ -236,13 +243,30 @@ function ScheduleSection({
           <LineRows node={node} section="schedule" />
 
           <FieldRow label="締切日">
-            <DateChip
-              date={node.due_on}
-              onPick={(v) => void updateNode(node.id, { due_on: v })}
-              allowPast
-              clearable
-              label="締切日"
-            />
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <DateChip
+                date={node.due_on}
+                onPick={(v) => void updateNode(node.id, { due_on: v })}
+                allowPast
+                clearable
+                label="締切日"
+              />
+              {node.scheduled_on && (
+                <button
+                  type="button"
+                  className={"ns-qa-chip" + (node.due_on === node.scheduled_on ? " is-on" : "")}
+                  aria-pressed={node.due_on === node.scheduled_on}
+                  title="將締切日設為與乘車日同一天"
+                  onClick={() =>
+                    void updateNode(node.id, {
+                      due_on: node.due_on === node.scheduled_on ? null : node.scheduled_on,
+                    })
+                  }
+                >
+                  <span className="k">＝同乘車日</span>
+                </button>
+              )}
+            </div>
           </FieldRow>
         </div>
       </div>
@@ -307,7 +331,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
    * 検印區也讀不到班次（listCurrentOccurrences 跳過 done 節點），整個側板變死區（M3 ④ 評審 should-5）。
    */
   const { teiki, retired } = teikiState(node);
-  /** 掛著規則就不給直改執行日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
+  /** 掛著規則就不給直改乘車日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
   const lockedDate = teiki || retired;
   const status = statusChoices(node);
   const auto = autoProgress(tree, node.id);
@@ -506,7 +530,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
    * ＝解除退役重新排班（沿既有反悔路徑），否則検印讀不到班次、按下去是空更新（M3 ④ 評審 should-5）。
    */
   const { teiki, retired } = teikiState(node);
-  /** 掛著規則就不給直改執行日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
+  /** 掛著規則就不給直改乘車日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
   const lockedDate = teiki || retired;
   /** 非定期券（含退役的）的検印＝済章；章旁那句、退役指路句與手機詳情頁同一份（panelRules.stampViewOf） */
   const stampView = stampViewOf(node, undefined);

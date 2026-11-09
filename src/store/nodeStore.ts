@@ -411,14 +411,22 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
   async loadSidebar() {
     try {
       const data = await nodeRepo.listSidebar();
+      const liveRoutes = liveRoutesOf(data.routes);
       set({
         lines: data.lines,
         routes: data.routes,
         stations: data.stations,
         liveLines: liveLinesOf(data.lines, data.routes),
-        liveRoutes: liveRoutesOf(data.routes),
+        liveRoutes,
         error: null,
       });
+      const curRouteId = get().routeId;
+      const savedRouteId = useUiStore.getState().readLastNav?.().routeId ?? null;
+      if (!curRouteId && savedRouteId && liveRoutes.some((r) => r.id === savedRouteId)) {
+        void get().openRoute(savedRouteId, { keepView: true });
+      } else if (curRouteId && !liveRoutes.some((r) => r.id === curRouteId)) {
+        void get().openRoute(liveRoutes[0]?.id ?? null, { keepView: true });
+      }
     } catch (e) {
       set({ error: message(e) });
     }
@@ -436,6 +444,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
 
   async openRoute(routeId, opts) {
     if (routeId && !opts?.keepView) useUiStore.getState().setRouteOverview(false);
+    if (routeId) useUiStore.getState().writeLastNav?.({ routeId });
     set({ routeId, tree: EMPTY_TREE });
     if (routeId) await get().reloadRoute();
   },

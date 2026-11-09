@@ -1,7 +1,7 @@
 /**
  * OutlineRow／DraftRow——大綱的一列＝一張完整車票（結構與 class 1:1 照抄 prototypes/m1-c-techo.html 的 .ticket；CSS 在 styles/techo.css）：
  * .stub（.badge 類型徽章＝點擊聚焦／.line-name 類型／.serial 票號 No.MMDD-NN）＋ .body（.fare-class 票種＝點擊開詳情／.title 標題＝雙擊改名／
- * .meta 狀態・車廂格・預計・執行日／締切 chip）＋（誤點）.late-seal 延着 ＋ .stamp-zone（検印／済章）＋ 右下常駐淡態 ⋯。
+ * .meta 狀態・車廂格・預計・乘車日／締切 chip）＋（誤點）.late-seal 延着 ＋ .stamp-zone（検印／済章）＋ 右下常駐淡態 ⋯。
  * 摺疊＝票根左邊的 ▸／▾ 鈕（磨光⑤ K5）或雙擊票根（鍵盤 ←／→ 另有）。DraftRow＝同款票、虛線邊、輸入在 .title 位置。
  * 對應 UI Flow 2.0／2.0b／2.0d。取捨：列內按鈕 tabIndex=-1 且 mousedown 不搶焦點——焦點永遠留在大綱容器，鍵盤流不中斷；
  * 原型沒有的控件（空日期入口）hover／選中才現身；優先級不在票面（詳情側板看）。
@@ -10,8 +10,8 @@
  *   還沒有結局（済／運休），或結局是**今天**才補上的（＝今日列「補済留原位」那一張）⇒ 票面蓋「延着」、検印欄留空；
  *   結局之後延着退到票面右下小號（techo.css `.ticket.done .late-seal`；運休在 outline.css 補同一組座標）。
  *   早就交代完的舊票（例：上週準時済掉）不算誤點。頁尾的誤點區已拿掉——同一張票同一頁只列一次。
- * **日期 chip（UI 丙-3 B5）**：共用 `common/DateChip`，一律 `allowPast`（執行日選到今天以前＝補記，磨光⑦ D-主-67；
- *   補記本身在 useOutlineController.setDate 帶 `{backfill:true}`）；執行日 `flag="backfill"`（旗子），過期改 `flag="late"`（赭）。
+ * **日期 chip（UI 丙-3 B5）**：共用 `common/DateChip`，一律 `allowPast`（乘車日選到今天以前＝補記，磨光⑦ D-主-67；
+ *   補記本身在 useOutlineController.setDate 帶 `{backfill:true}`）；乘車日 `flag="backfill"`（旗子），過期改 `flag="late"`（赭）。
  *
  * **定期券口徑（M3 ④，全站同一把尺；與 today/TodayRow.tsx 檔頭同一份）**：
  *   是不是定期券 ＝ `parseRule(node.repeat_rule) !== null`（**不看欄位非空**——legacy 自由文字要顯示成乘車券）
@@ -20,7 +20,7 @@
  *   **大綱與今日列的差別**：今日列「留原位講今天」（chip 印班次日）；大綱是計畫視角，
  *     済／運休之後 chip 印的是 `scheduled_on` ＝引擎推出來的**下一班**；只有「過期」那一枚
  *     （原定 M/D ＋誤點註記）講的是這一班（`occurrence?.due_on ?? scheduled_on`）。
- *   定期券的執行日 chip（⑥ D-主-295）：講的就是 chip 印的那一班（目前班次；交代完＝下一班），挑別天＝只改這一班（actions.moveRun → moveRunFlow）；
+ *   定期券的乘車日 chip（⑥ D-主-295）：講的就是 chip 印的那一班（目前班次；交代完＝下一班），挑別天＝只改這一班（actions.moveRun → moveRunFlow）；
  *     不能挑過去、不能清除；退役（status done）沒有下一班，chip 停用。
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type SyntheticEvent } from "react";
@@ -35,7 +35,8 @@ import { DateChip } from "../common/DateChip";
 import { useUiStore } from "../../store/uiStore";
 import { isInDay } from "../../lib/date";
 import { InlineInput } from "../common/InlineInput";
-import { NO_DEST, QuickAddRow, type QuickDefaults, type QuickHere } from "../common/quickadd";
+import { InlineTicketEditor, NO_DEST, QuickAddRow, type QuickDefaults, type QuickHere } from "../common/quickadd";
+import type { QuickChipKey } from "../common/quickadd/quickAddModel";
 import type { EditHandlers, RowActions } from "./useOutlineController";
 import { rowContextMenu } from "../common/contextMenu";
 import { ProgressRing } from "./ProgressRing";
@@ -378,6 +379,8 @@ export function OutlineRow({
   useHotkeyRevision();
   const ref = useRef<HTMLLIElement>(null);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const [inlinePicker, setInlinePicker] = useState<Exclude<QuickChipKey, "dest"> | null>(null);
+  const editingTicket = !!(rename || inlinePicker);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／支線／臨時券 */
   const rule = parseRule(node.repeat_rule);
   /** 済了沒：活著的定期券看班次結局，其餘（含退役定期券）看 nodes.status */
@@ -448,8 +451,22 @@ export function OutlineRow({
       </span>
     ) : null,
     cars && cars.total > 0 && !ring ? <Cars {...cars} /> : null,
-    node.estimate_min ? <span>預計 {node.estimate_min} 分</span> : null,
-    // 執行日：定期券＝只改 chip 印的那一班，其餘可直改
+    node.scheduled_time || node.estimate_min ? (
+      <span
+        role="button"
+        tabIndex={-1}
+        style={{ cursor: "pointer" }}
+        title="點擊修改時間／預計分鐘"
+        onClick={(e) => {
+          e.stopPropagation();
+          setInlinePicker("time");
+          actions.rename(node.id);
+        }}
+      >
+        {node.scheduled_time ? `${node.scheduled_time}${node.estimate_min ? `・${node.estimate_min} 分` : ""}` : `預計 ${node.estimate_min} 分`}
+      </span>
+    ) : null,
+    // 乘車日：定期券＝只改 chip 印的那一班，其餘可直改
     chipDate ? (
       rule ? (
         <RowDate
@@ -471,7 +488,7 @@ export function OutlineRow({
           prefix={lateSeal ? "原定" : "執行"}
           date={chipDate}
           flag={lateSeal ? "late" : "backfill"}
-          label="執行日"
+          label="乘車日"
           today={today}
           onPick={(v) => actions.setDate(node.id, "scheduled_on", v)}
           onFocusBack={actions.focusContainer}
@@ -655,7 +672,14 @@ export function OutlineRow({
         />
 
         {/* 票面 */}
-        <div className="body">
+        <div
+          className="body"
+          onDoubleClick={(e) => {
+            if (editingTicket) return;
+            e.stopPropagation();
+            actions.rename(node.id);
+          }}
+        >
           {/* 票種小字＝詳情側板入口（D1 滑鼠入口；鍵盤「.」） */}
           <button
             type="button"
@@ -671,15 +695,23 @@ export function OutlineRow({
             {fare.label}
           </button>
 
-          {rename ? (
-            <InlineInput
-              initial={node.name}
-              ariaLabel={`改名「${node.name}」`}
-              focusKey={depth}
-              onCommit={rename.commit}
-              onCancel={rename.cancel}
-              onTab={rename.tab}
-              className="title"
+          {editingTicket ? (
+            <InlineTicketEditor
+              node={node}
+              initialPicker={inlinePicker}
+              onClose={() => {
+                setInlinePicker(null);
+                rename?.cancel();
+                actions.focusContainer();
+              }}
+              onCommitNext={
+                rename
+                  ? () => {
+                      setInlinePicker(null);
+                      rename.commit(node.name, "ctrl-enter");
+                    }
+                  : undefined
+              }
             />
           ) : (
             <p
@@ -687,26 +719,36 @@ export function OutlineRow({
                 e.stopPropagation();
                 actions.rename(node.id);
               }}
-              title={`雙擊改名（${hotkeyCaps("outline.rename")}）`}
+              title={`雙擊行內編輯（${hotkeyCaps("outline.rename")}）`}
               className="title"
             >
               {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
-              <PriorityMark priority={node.priority} />
+              <span
+                onClick={(e) => {
+                  if (!node.priority) return;
+                  e.stopPropagation();
+                  setInlinePicker("priority");
+                  actions.rename(node.id);
+                }}
+              >
+                <PriorityMark priority={node.priority} />
+              </span>
               {node.name}
             </p>
           )}
 
+          {!editingTicket && (
           <div className="meta">
             <MetaItems items={metaItems} />
-            {/* 原型沒有的控件：空日期入口 hover／選中才現身（定期券的執行日由規則排定，不給入口） */}
+            {/* 原型沒有的控件：空日期入口 hover／選中才現身（定期券的乘車日由規則排定，不給入口） */}
             {((!chipDate && !rule) || !node.due_on) && (
               <span className="meta-hover">
                 {!chipDate && !rule && (
                   <RowDate
                     date={null}
                     flag="backfill"
-                    label="執行日"
-                    emptyText="＋執行日"
+                    label="乘車日"
+                    emptyText="＋乘車日"
                     today={today}
                     onPick={(v) => actions.setDate(node.id, "scheduled_on", v)}
                     onFocusBack={actions.focusContainer}
@@ -725,6 +767,7 @@ export function OutlineRow({
               </span>
             )}
           </div>
+          )}
         </div>
 
         {/* 誤點票的延着角印（B4；同今日列的位置：票面與検印欄之間，検印欄留空）；有結局後退右下小號（CSS） */}

@@ -28,7 +28,7 @@
  * ── UI 丙-3（契約 §1 D2／D4／D5、§5 P4＝B 底端）──
  *   - 草稿列在清單**底端**（新票出現在輸入框正上方，跟串流日列草稿一致）：格內「＋」與頁首「＋ 車票」開的浮層（`draft`）
  *     直接帶草稿列並聚焦；點格子本身開的浮層底端是一顆「＋ 車票」文字鈕，點了才展開（過去的日子不畫：不能建票，P10）。
- *     草稿列＝共用建票列（`QuickAddRow`，執行日預設這一天）：Enter＝照 chips 一筆建好（成功清空、焦點留著連打）；空白 Enter 收草稿；**Esc 先收草稿、再按一次才關浮層**。
+ *     草稿列＝共用建票列（`QuickAddRow`，乘車日預設這一天）：Enter＝照 chips 一筆建好；Ctrl+Enter＝清空留著連打；空白 Enter 收草稿；**Esc 先收草稿、再按一次才關浮層**。
  *     草稿有字時點別處＝照串流草稿（InlineInput）的做法：先建票再走——點浮層裡別處（失焦）、點浮層外（關浮層前）、
  *     點別的格（換日前）都一樣；切去別的 App（整個視窗失焦）不建、字留著。
  *   - 點外關閉的三個例外換成新 DOM：格（`.ns-daycell`，共用 DayCell）、列 ⋯ 的小選單（`.ns-popmenu`，portal 在 body）、toast。
@@ -199,7 +199,7 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
   function commitDraftText(): void {
     if (!draftOpenRef.current) return;
     draftText.current = "";
-    draftSubmit.current?.(); // 建票列：有名字就照目前的 chips 建（執行日＝這一天，除非改過）
+    draftSubmit.current?.(); // 建票列：有名字就照目前的 chips 建（乘車日＝這一天，除非改過）
   }
 
   const collapseDraft = useCallback(() => {
@@ -444,7 +444,7 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
   const isToday = day === today;
   const pre = isToday ? "今日" : "當日";
   const headline = `${d.getMonth() + 1}月${d.getDate()}日`;
-  /** 今天與未來才能建票（P10；建票列的執行日挑選器也不給過去的日子） */
+  /** 今天與未來才能建票（P10；建票列的乘車日挑選器也不給過去的日子） */
   const canAdd = day >= today;
 
   return (
@@ -497,7 +497,7 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
         {/* ═══ 草稿列（P4＝B 底端：接在班次段之後、新票出現在輸入框正上方）／「＋ 車票」文字鈕 ═══ */}
         {canAdd &&
           (draftOpen ? (
-            // 回饋甲 D-主-128：草稿列換建票列的緊湊版（浮層 332 寬放不下整張票）；執行日＝這一天，空白 Enter／Esc 收草稿
+            // 回饋甲 D-主-128：草稿列換建票列的緊湊版（浮層 332 寬放不下整張票）；乘車日＝這一天，空白 Enter／Esc 收草稿
             <QuickAddRow
               key={`${day}:${seq}`}
               variant="compact"
@@ -561,7 +561,7 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
 }
 
 /**
- * 日浮層底端的草稿列＝建票列緊湊版（回饋甲 D-主-128；原本的 DayDraft 退役）。預設：無路線、執行日＝這一天（每天一份、身分穩定）。
+ * 日浮層底端的草稿列＝建票列緊湊版（回饋甲 D-主-128；原本的 DayDraft 退役）。預設：無路線、乘車日＝這一天（每天一份、身分穩定）。
  * 行為照建票列：Enter 建、成功清空連打；空白 Enter 與 Esc 收起；失焦有字＝建；點外關浮層／點別格前由 commitDraftText 先建。
  */
 const popDefaults = new Map<string, QuickDefaults>();

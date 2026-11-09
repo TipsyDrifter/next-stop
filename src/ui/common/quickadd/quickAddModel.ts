@@ -1,7 +1,7 @@
 /**
  * 建票列的規則（回饋甲 D-主-127、128、135；契約 §一 A）——純函式，桌機票形草稿列與手機底部輸入列共用。
  *
- *   - 值的來源有三層：chip 設的 ＞ 文字認出來的（domain/quickAdd parseQuickAdd）＞ 呼叫端給的預設（掛到、執行日）。
+ *   - 值的來源有三層：chip 設的 ＞ 文字認出來的（domain/quickAdd parseQuickAdd）＞ 呼叫端給的預設（掛到、乘車日）。
  *     chip 改值時文字裡同種片段一起拿掉（useQuickAdd 叫 stripTokens），所以「chip 優先」只是保險。
  *   - 掛到決定建成什麼（resolveQuickTarget）：無路線＝臨時車票；路線／支線＝列車｜車票二選一（車票＝掛路線標籤的臨時車票）；
  *     列車／車廂＝車票。父節點規則照 allowedChildKinds 走、不寫死（巢狀放寬後自動跟上）。
@@ -39,15 +39,22 @@ export interface QuickChips {
   scheduledTime?: string | null;
   estimateMin?: number | null;
   dueOn?: string | null;
+  /** 締切與乘車日同步（當 scheduledOn 改變時，dueOn 自動跟隨） */
+  syncDueWithScheduled?: boolean;
   priority?: Priority | null;
   tags?: readonly string[];
 }
 
-/** 呼叫端給的預設（今日＝無路線＋今天；路線圖＝這條路線＋無日期；串流＝那一天） */
+/** 呼叫端給的預設（今日＝無路線＋今天；路線圖＝這條路線＋無日期；串流＝那一天；行內編輯＝既有欄位值） */
 export interface QuickDefaults {
   dest: QuickDest;
   scheduledOn: string | null;
-  /** 執行日空著時 chip 寫「無日期」（今日 Shift+Enter、手機今日）；false＝空著就是空著（路線圖：列車本來就不一定排日子） */
+  scheduledTime?: string | null;
+  estimateMin?: number | null;
+  dueOn?: string | null;
+  priority?: Priority | null;
+  tags?: readonly string[];
+  /** 乘車日空著時 chip 寫「無日期」（今日 Shift+Enter、手機今日）；false＝空著就是空著（路線圖：列車本來就不一定排日子） */
   noDateLabel?: boolean;
 }
 
@@ -102,10 +109,10 @@ export function mergeQuick(
     name: parse.name,
     dest: pick("dest", chips.dest, typedDest, defaults.dest),
     scheduledOn: pick("date", chips.scheduledOn, parse.scheduledOn, defaults.scheduledOn),
-    scheduledTime: timeOn ? (chips.scheduledTime ?? null) : (typedTime ?? null),
-    estimateMin: timeOn ? (chips.estimateMin ?? null) : (parse.estimateMin ?? null),
-    dueOn: pick("due", chips.dueOn, parse.dueOn, null),
-    priority: pick("priority", chips.priority, parse.priority, null),
+    scheduledTime: timeOn ? (chips.scheduledTime ?? null) : typedTime !== undefined ? typedTime : (defaults.scheduledTime ?? null),
+    estimateMin: timeOn ? (chips.estimateMin ?? null) : parse.estimateMin !== undefined ? parse.estimateMin : (defaults.estimateMin ?? null),
+    dueOn: pick("due", chips.dueOn, parse.dueOn, defaults.dueOn ?? null),
+    priority: pick("priority", chips.priority, parse.priority, defaults.priority ?? null),
     tags: [],
     on,
   };
@@ -116,11 +123,18 @@ export function mergeQuick(
     v.tags = [...chips.tags];
     if (v.tags.length) on.add("tags");
   } else if (parse.tags.length) {
-    v.tags = parse.tags.map((t) => t.name);
+    v.tags = Array.from(new Set([...(defaults.tags ?? []), ...parse.tags.map((t) => t.name)]));
     on.add("tags");
+  } else if (defaults.tags?.length) {
+    v.tags = [...defaults.tags];
   }
   // 清掉的值不算「設過」（chip 清成無日期也還是亮：那是主人的明確選擇，收件匣）
-  if (v.dueOn === null) on.delete("due");
+  if (chips.syncDueWithScheduled && parse.dueOn === undefined) {
+    v.dueOn = v.scheduledOn;
+    on.add("due");
+  } else if (v.dueOn === null) {
+    on.delete("due");
+  }
   if (v.priority === null) on.delete("priority");
   return v;
 }
@@ -206,7 +220,7 @@ export function dayText(key: string): string {
   return `${m}/${d}（${WEEK[new Date(y, m - 1, d).getDay()]}）`;
 }
 
-/** 執行日 chip 的字：今天／明天／後天＋其餘 M/D（週X） */
+/** 乘車日 chip 的字：今天／明天／後天＋其餘 M/D（週X） */
 export function dateChipText(key: string, today: string): string {
   const diff = Math.round((Date.UTC(...ymd(key)) - Date.UTC(...ymd(today))) / 86_400_000);
   if (diff === 0) return "今天";

@@ -44,7 +44,7 @@ export const DUE_LABEL: Record<DueCond, string> = {
   none: "沒有締切",
 };
 export const STATUS_COND_LABEL: Record<TaskStatusCond, string> = { open: "未済", done: "済", all: "全部" };
-export const TASK_SORT_LABEL: Record<TaskSort, string> = { smart: "締切", scheduled: "執行日", priority: "優先", updated: "最近更新" };
+export const TASK_SORT_LABEL: Record<TaskSort, string> = { smart: "締切", scheduled: "乘車日", priority: "優先", updated: "最近更新" };
 
 /** 目前班次（定期券才有）的最小形狀 */
 export interface OccurrenceLike {
@@ -67,16 +67,16 @@ export function isTaskSettled(node: Pick<NodeRow, "status">, occ: OccurrenceLike
   return isTaskDone(node, occ) || occ?.status === "skipped";
 }
 
-/** 誤點＝過了執行日還沒有結局（定期券講「這一班」那天；同 OutlineRow 的 schedLate） */
+/** 誤點＝過了乘車日還沒有結局（定期券講「這一班」那天；同 OutlineRow 的 schedLate） */
 export function isTaskLate(node: Pick<NodeRow, "status" | "scheduled_on">, occ: OccurrenceLike | undefined, today: string): boolean {
   const railDate = occ?.due_on ?? node.scheduled_on;
   return !!railDate && railDate < today && !isTaskSettled(node, occ);
 }
 
 /**
- * 「誤點」條件與排序的口徑：過了執行日沒結局，加上沒排執行日而締切已到或已過——單列判定跟路線一覽與今日頁的誤點數（`dayCount.lateCount`）同一把尺。
+ * 「誤點」條件與排序的口徑：過了乘車日沒結局，加上沒排乘車日而締切已到或已過——單列判定跟路線一覽與今日頁的誤點數（`dayCount.lateCount`）同一把尺。
  * 那個數字也算有子項的列車與車廂，所以「誤點」條件打開時 `matchTask` 把它們一起收，「誤點 N」點進來才對得上數；其他條件照舊只看葉節點。
- * 票面的延着章照舊只看執行日（`isTaskLate`，同大綱）。
+ * 票面的延着章照舊只看乘車日（`isTaskLate`，同大綱）。
  */
 export function isTaskOverdue(node: Pick<NodeRow, "status" | "scheduled_on" | "due_on">, occ: OccurrenceLike | undefined, today: string): boolean {
   if (isTaskLate(node, occ, today)) return true;
@@ -158,7 +158,7 @@ function byDate(a: string | null, b: string | null): number {
 }
 
 /**
- * 排序：smart＝誤點在前→締切近→執行日近；其餘照各自的欄；最後都以 id 定序（兩台順序一致）。
+ * 排序：smart＝誤點在前→締切近→乘車日近；其餘照各自的欄；最後都以 id 定序（兩台順序一致）。
  * 比較用位元組序，不用 localeCompare（日期與 id 都是 ASCII，同 nodeOrder 的規矩）。
  */
 export function sortTasks<N extends TaskNode>(nodes: readonly N[], sort: TaskSort, ctx: Pick<TaskFilterCtx, "today" | "occurrences">): N[] {

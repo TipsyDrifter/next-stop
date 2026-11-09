@@ -41,6 +41,7 @@ import { todayKey } from "../../lib/date";
 import { CommitInput, FieldRow, useDebouncedCommit } from "../common/fields";
 import { SidePanelFrame } from "../common/SidePanelFrame";
 import { Segmented } from "../common/Segmented";
+import { Select } from "../common/Select";
 import { DateChip } from "../common/DateChip";
 import { ClockInput, clockDraftsOkIn } from "../common/ClockInput";
 import { DatePicker } from "../common/DatePicker";
@@ -1787,11 +1788,11 @@ function AcctCard({ acc }: { acc: AccountRow }) {
       />
       <div className="ns-tk-fields is-acct">
         <FieldRow label="群組">
-          <select
+          <Select
             className="ns-tk-select"
             aria-label="群組"
             value={ACCOUNT_GROUPS.some((g) => g.key === acc.group_key) ? acc.group_key : "other"}
-            onChange={(e) => void store().updateAccount(acc.id, { group: e.target.value as AccountGroup })}
+            onChange={(v) => void store().updateAccount(acc.id, { group: v as AccountGroup })}
           >
             {ACCOUNT_GROUPS.map((g) => (
               <option key={g.key} value={g.key}>
@@ -1799,22 +1800,22 @@ function AcctCard({ acc }: { acc: AccountRow }) {
                 {g.liability ? "（負債）" : ""}
               </option>
             ))}
-          </select>
+          </Select>
         </FieldRow>
         <FieldRow label="幣別" top={locked}>
-          <select
+          <Select
             className="ns-tk-select"
             aria-label="幣別"
             value={acc.currency}
             disabled={locked}
-            onChange={(e) => void store().updateAccount(acc.id, { currency: e.target.value })}
+            onChange={(v) => void store().updateAccount(acc.id, { currency: v })}
           >
             {currencies.map((c) => (
               <option key={c.id} value={c.code}>
                 {c.code} {c.name}
               </option>
             ))}
-          </select>
+          </Select>
           {locked && <span className="ns-tk-lock">已有帳，不能改幣別</span>}
         </FieldRow>
       </div>

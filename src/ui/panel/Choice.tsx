@@ -9,6 +9,7 @@
  * 放不下的時候整組換成下拉，不半套（一半方格一半捲出去，使用者看不到後面的選項）。
  */
 import { Segmented } from "../common/Segmented";
+import { Select } from "../common/Select";
 
 export interface ChoiceOption<V extends string> {
   value: V;
@@ -38,12 +39,12 @@ export function Choice<V extends string>({
   }
   return (
     <span className="ns-select-wrap panel-select">
-      <select
+      <Select
         className="techo-input"
         aria-label={ariaLabel}
         value={value ?? ""}
-        onChange={(e) => {
-          const v = e.target.value as V;
+        onChange={(raw) => {
+          const v = raw as V;
           if (v && v !== value) onChange(v);
         }}
       >
@@ -57,7 +58,7 @@ export function Choice<V extends string>({
             {o.label}
           </option>
         ))}
-      </select>
+      </Select>
     </span>
   );
 }

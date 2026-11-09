@@ -89,7 +89,7 @@ export interface RowActions {
     id: string,
     e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; target: EventTarget | null; clientX?: number; clientY?: number; button?: number },
   ): boolean;
-  /** 定期券的執行日 chip：chip 印的那一班改到別天（⑥ D-主-295） */
+  /** 定期券的乘車日 chip：chip 印的那一班改到別天（⑥ D-主-295） */
   moveRun(id: string, from: string, to: string): void;
   focusContainer(): void;
 }
@@ -421,16 +421,20 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     if (editRef.current !== d || busyRef.current) return;
     const name = text.trim();
     if (!name) {
-      cancelEdit(via === "enter");
+      cancelEdit(via !== "blur");
       return;
     }
     busyRef.current = true;
     try {
       const row = await createFromDraft(d, name, extra);
       if (!row) return;
-      if (via === "enter") {
+      if (via === "ctrl-enter") {
         ui().select(row.id);
-        startDraft({ parentId: d.parentId, afterId: row.id, kind: d.kind, anchorId: row.id }); // 連打
+        startDraft({ parentId: d.parentId, afterId: row.id, kind: d.kind, anchorId: row.id }); // Ctrl+Enter 連打
+      } else if (via === "enter") {
+        setEdit(null);
+        ui().select(row.id);
+        focusContainer();
       } else {
         setEdit(null); // blur 提交：使用者已點去別處，選取與焦點都不動
       }
@@ -467,11 +471,11 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       const name = text.trim();
       if (n && name && name !== n.name) await ns().updateNode(r.id, { name });
       const after = ns().tree.byId[r.id];
-      if (via === "enter" && r.chain && after) {
+      if (via === "ctrl-enter" && r.chain && after) {
         startDraft({ parentId: parentKey(after), afterId: after.id, kind: after.kind, anchorId: after.id });
       } else {
         setEdit(null);
-        if (via === "enter") focusContainer();
+        if (via !== "blur") focusContainer();
       }
     } finally {
       busyRef.current = false;
@@ -603,7 +607,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       if (!n) return;
       // 丁 D-主-247：支線沒有日期（T／Shift+T 對支線不作用，說一句理由）
       if (n.kind === "branch") {
-        toast("支線是主題，沒有執行日——裡面的列車和車票各自排");
+        toast("支線是主題，沒有乘車日——裡面的列車和車票各自排");
         return;
       }
       const { today: td } = st.current;
@@ -678,7 +682,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         toast(REPEAT_RESCHEDULE_MSG);
         return;
       }
-      // 磨光⑦（D-主-67）：執行日 chip 親手選到今天以前＝補記
+      // 磨光⑦（D-主-67）：乘車日 chip 親手選到今天以前＝補記
       void ns().updateNode(id, field === "scheduled_on" ? { scheduled_on: value } : { due_on: value }, { backfill: field === "scheduled_on" });
     },
     moveRun: (id, from, to) => void moveRunFlow(id, from, to),

@@ -153,6 +153,48 @@
   transform: translateY(-70%) rotate(45deg); pointer-events: none;
 }
 .ns-select-wrap select option { background: var(--color-paper-high); color: var(--color-ink); }
+.ns-select-btn {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: var(--sp-1);
+  max-width: 100%; box-sizing: border-box; text-align: left; color: var(--color-ink); cursor: pointer;
+}
+.ns-select-btn:focus-visible { border-bottom-color: var(--accent); outline: none; }
+.ns-select-btn:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.ns-select-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel .ns-select-wrap.panel-select .ns-select-btn { width: 100%; font: inherit; color: var(--color-ink); background: transparent; }
+.ns-tt-rtmgr-cat .ns-select-btn.is-overlay {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
+  opacity: 0; cursor: pointer; font: inherit; border: 0;
+}
+.ns-select-btn.ns-tk-dselect,
+[data-shell="mobile"] .ns-select-btn.ns-tk-mselect {
+  position: relative; padding-right: 22px;
+}
+.ns-select-btn.ns-tk-dselect::after,
+[data-shell="mobile"] .ns-select-btn.ns-tk-mselect::after {
+  content: ""; position: absolute; right: 7px; top: 50%; width: 6px; height: 6px;
+  border-right: 1.3px solid var(--color-ink-faint); border-bottom: 1.3px solid var(--color-ink-faint);
+  transform: translateY(-70%) rotate(45deg); pointer-events: none;
+}
+.ns-select-pop {
+  position: fixed; z-index: 90; max-height: 260px; overflow-y: auto;
+  padding: var(--sp-1) 0; color: var(--color-ink); font-size: var(--fs-ui); line-height: 1.5;
+}
+.ns-select-group {
+  padding: var(--sp-1) var(--sp-3) 2px; font-size: var(--fs-micro); letter-spacing: .18em; color: var(--color-ink-faint);
+}
+.ns-select-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  width: 100%; padding: 6px var(--sp-3); border: 0; border-left: 2px solid transparent;
+  background: transparent; color: var(--color-ink); font: inherit; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.ns-select-opt.is-grouped { padding-left: var(--sp-4); }
+.ns-select-opt:hover:not(:disabled),
+.ns-select-opt.is-active:not(:disabled) { background: var(--hover-bg); }
+.ns-select-opt.is-selected {
+  color: var(--sel-fg); background: var(--sel-bg); border-left: var(--sel-line); font-weight: 500;
+}
+.ns-select-opt:disabled { opacity: var(--disabled); cursor: not-allowed; color: var(--color-ink-faint); }
+.ns-select-opt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 路線色 swatch（RouteDialog）：選中＝--accent 2px 外環（＝--sel-line；§2.5 ColorPicker）、聚焦＝同色淡一階 */
 .ns-swatch {

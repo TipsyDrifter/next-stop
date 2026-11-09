@@ -112,7 +112,10 @@ export const useDepotStore = create<DepotState>((set, get) => ({
   data: null,
   loading: false,
   error: null,
-  tab: "ride",
+  tab: (() => {
+    const saved = useUiStore.getState().readLastNav?.().depotTab;
+    return saved === "ride" || saved === "map" || saved === "year" ? saved : "ride";
+  })(),
   bookId: null,
   mapFolded: [],
 
@@ -123,6 +126,7 @@ export const useDepotStore = create<DepotState>((set, get) => ({
 
   setTab(t) {
     set({ tab: t, bookId: null });
+    useUiStore.getState().writeLastNav?.({ depotTab: t });
   },
 
   openBook(routeId) {

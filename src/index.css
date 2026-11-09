@@ -46,7 +46,7 @@
     color-scheme: light;
     font-family: var(--font-body);
     color: var(--color-ink);
-    background-color: var(--color-paper);
+    background-color: var(--color-sky-top, var(--color-paper));
 
     font-synthesis: none;
     text-rendering: optimizeLegibility;
@@ -55,6 +55,7 @@
     font-variant-numeric: tabular-nums;
   }
 
+  [data-shell="desktop"] { background-color: var(--color-sky-top, var(--color-paper)); }
   [data-theme="dark"] {
     color-scheme: dark;
   }

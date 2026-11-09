@@ -1,9 +1,9 @@
 /**
  * 建票列的挑選器（桌機；回饋甲 契約 §一 A「chips 點了開挑選器，全用既有元件」）：
  *   掛到＝AttachPicker（階層：路線／支線／列車／車廂；「清除」＝無路線）
- *   執行日＝DatePicker 快選 今天／明天／後天／下週一（「清除」＝無日期，進收件匣）
+ *   乘車日＝DatePicker 快選 今天／明天／後天／下週一（「清除」＝無日期，進收件匣）
  *   幾點＝ClockInput＋長度分段鈕 15／30／60／90／120＋自訂
- *   締切＝DatePicker 往後快選
+ *   締切＝DatePicker 往後快選（含「＝同乘車日」）
  *   優先＝PopMenu 高／中／低
  *   荷札＝EntityTagField 受控模式（建好之後一起掛）
  * 全部掛到 body、貼著 chip 開（列在清單中間時也不會被下面的票蓋住）；根節點帶 `.ns-qa-pop`——
@@ -75,7 +75,7 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
         <DatePicker
           anchor={anchor}
           className="ns-qa-pop"
-          label="執行日"
+          label="乘車日"
           value={v.scheduledOn}
           markValue
           min={api.today}
@@ -93,7 +93,11 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
           onClose={dismiss}
         />
       );
-    case "due":
+    case "due": {
+      const dueQuick = [
+        ...(v.scheduledOn ? [{ label: "＝同乘車日", day: v.scheduledOn }] : []),
+        ...dateQuickSet("forward", api.today),
+      ];
       return (
         <DatePicker
           anchor={anchor}
@@ -102,13 +106,14 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
           value={v.dueOn}
           markValue
           today={api.today}
-          quick={dateQuickSet("forward", api.today)}
+          quick={dueQuick}
           onPick={(d) => {
-            api.setDue(d);
+            if (v.scheduledOn && d === v.scheduledOn) api.setSyncDueWithScheduled(true);
+            else api.setDue(d);
             done();
           }}
           onClear={
-            v.dueOn
+            v.dueOn || api.syncDueWithScheduled
               ? () => {
                   api.setDue(null);
                   done();
@@ -118,6 +123,7 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
           onClose={dismiss}
         />
       );
+    }
     case "priority":
       // PopMenu 自己 portal（.ns-popmenu）；建票列的失焦判斷也認它
       return (

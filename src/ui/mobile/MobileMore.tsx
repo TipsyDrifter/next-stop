@@ -49,7 +49,7 @@ import { Segmented } from "../common/Segmented";
 import { MoodSettings } from "../ambience";
 import { useEffect, useState } from "react";
 import { MobileGestures } from "./MobileGestures";
-import { useUiStore, type ThemePref } from "../../store/uiStore";
+import { useUiStore, readLastNav, writeLastNav, type MobileMoreView, type ThemePref } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useTicketStore } from "../../store/ticketStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
@@ -115,7 +115,11 @@ export default function MobileMore() {
   const consumeMoreRequest = useUiStore((s) => s.consumeMobileMoreRequest);
   // 收官磨光 Q2-a：多一個子頁 "backup"（備份與還原）；深連結同 sync 那一套（備份失敗 toast 的「看原因」）
   // 失物招領：多一個子頁 "lostfound"（最近刪除）
-  const [view, setView] = useState<"more" | "sync" | "backup" | "gestures" | "lostfound" | "reminders" | "shortcuts" | "shop">(() => moreRequest ?? "more");
+  const [view, setViewState] = useState<MobileMoreView>(() => moreRequest ?? readLastNav().mobileMoreView ?? "more");
+  const setView = (next: MobileMoreView) => {
+    setViewState(next);
+    writeLastNav({ mobileMoreView: next });
+  };
   const reminderOnCount = useReminderOnCount();
   const settingsLinks = lineSettingsLinks("mobile");
   const backupOkAt = useBackupStore((s) => s.lastOkAt);

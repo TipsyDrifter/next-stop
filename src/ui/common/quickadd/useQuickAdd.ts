@@ -5,8 +5,8 @@
  *   - 輸入框的字＋IME 守門（isComposing／keyCode 229／composition 旗標三重；組字中不解析、不送出——同 MobileNewTicket）
  *   - 解析（domain/quickAdd parseQuickAdd；@路線/列車 第二段要的列車清單在這裡懶載）
  *   - chips 的值（quickAddModel：chip ＞ 文字 ＞ 預設）；chip 改值＝stripTokens 把文字裡同種片段拿掉
- *   - 送出（一筆 createNode 寫完執行日／幾點／長度／締切／優先＋建好後掛荷札；票離開眼前才出 toast＋「復原」）
- *   - 連打：送出後清空，chips 裡「掛到」「執行日」保留，其餘清掉
+ *   - 送出（一筆 createNode 寫完乘車日／幾點／長度／締切／優先＋建好後掛荷札；票離開眼前才出 toast＋「復原」）
+ *   - 連打：送出後清空，chips 裡「掛到」「乘車日」保留，其餘清掉
  * 大綱的位置型草稿列（`positional`）建票走大綱 controller（落點、Tab 改層級在那邊）——這裡只出 `extra()` 給它帶進 createNode。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -41,12 +41,15 @@ export interface QuickExtra {
 }
 
 export interface UseQuickAddOptions {
-  /** 掛到與執行日的預設 */
+  /** 掛到與乘車日的預設 */
   defaults: QuickDefaults;
   /** 掛到路線（或支線）時預設建成什麼；省略＝路線圖列車、其他頁車票（契約 §一 A「路線圖預設列車」） */
   routeKind?: RouteKind;
   /** 大綱位置型：建成的種類由位置決定、不認 @、不出掛到 chip；建票走呼叫端（extra()） */
   positional?: { kind: NodeKind };
+  /** 行內編輯既有車票時的初始標題與締切同步狀態 */
+  initialText?: string;
+  initialSyncDue?: boolean;
   /** 在哪一頁（決定建好之後要不要出「已放進收件匣」這類收據） */
   here: QuickHere;
   /** 插在這個兄弟之後（省略＝尾端） */
@@ -80,6 +83,9 @@ export interface QuickAddApi {
   setDate(d: string | null): void;
   setTime(t: string | null, estimateMin: number | null): void;
   setDue(d: string | null): void;
+  /** 締切與乘車日同步開關 */
+  syncDueWithScheduled: boolean;
+  setSyncDueWithScheduled(on: boolean): void;
   setPriority(p: Priority | null): void;
   setTags(names: readonly string[]): void;
   /** 有名字、不在組字中 */
@@ -120,14 +126,14 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   const today = todayKey(dayStartHour);
   const positional = !!opts.positional;
 
-  const [text, setTextState] = useState("");
+  const [text, setTextState] = useState(opts.initialText ?? "");
   /** 解析用的字：組字中凍結在組字前那一版 */
-  const [parsedText, setParsedText] = useState("");
+  const [parsedText, setParsedText] = useState(opts.initialText ?? "");
   const [composing, setComposing] = useState(false);
   const composingRef = useRef(false);
-  const textRef = useRef("");
-  const [chips, setChips] = useState<QuickChips>({});
-  /** 連打留下來的掛到／執行日（上一張用 chip 設的）：當預設用——這一張打的字照樣蓋得過（不然認出來的片段被拿掉、值卻被丟掉） */
+  const textRef = useRef(opts.initialText ?? "");
+  const [chips, setChips] = useState<QuickChips>(() => (opts.initialSyncDue ? { syncDueWithScheduled: true } : {}));
+  /** 連打留下來的掛到／乘車日（上一張用 chip 設的）：當預設用——這一張打的字照樣蓋得過（不然認出來的片段被拿掉、值卻被丟掉） */
   const [carry, setCarry] = useState<Partial<Pick<QuickDefaults, "dest" | "scheduledOn">>>({});
   const chipsRef = useRef(chips);
   chipsRef.current = chips;
@@ -238,13 +244,23 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
     (t: string | null, estimateMin: number | null) => (setChips((c) => ({ ...c, scheduledTime: t, estimateMin })), stripFor("time")),
     [stripFor],
   );
-  const setDue = useCallback((d: string | null) => (setChips((c) => ({ ...c, dueOn: d })), stripFor("due")), [stripFor]);
+  const setDue = useCallback(
+    (d: string | null) => (setChips((c) => ({ ...c, dueOn: d, syncDueWithScheduled: false })), stripFor("due")),
+    [stripFor],
+  );
+  const setSyncDueWithScheduled = useCallback(
+    (on: boolean) => {
+      setChips((c) => ({ ...c, syncDueWithScheduled: on, dueOn: on ? undefined : null }));
+      stripFor("due");
+    },
+    [stripFor],
+  );
   const setPriority = useCallback((p: Priority | null) => (setChips((c) => ({ ...c, priority: p })), stripFor("priority")), [stripFor]);
   const setTags = useCallback((names: readonly string[]) => (setChips((c) => ({ ...c, tags: [...names] })), stripFor("tags")), [stripFor]);
 
   const reset = useCallback(() => {
     setText("");
-    // 連打（Todoist 慣例）：chip 設的掛到與執行日留著（降成預設，見 carry），其餘清掉；文字認出來的不留（那是上一張的）
+    // 連打（Todoist 慣例）：chip 設的掛到與乘車日留著（降成預設，見 carry），其餘清掉；文字認出來的不留（那是上一張的）
     const c = chipsRef.current;
     setCarry((prev) => ({
       ...prev,
@@ -353,6 +369,8 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
     setDate,
     setTime,
     setDue,
+    syncDueWithScheduled: !!chips.syncDueWithScheduled && parse.dueOn === undefined,
+    setSyncDueWithScheduled,
     setPriority,
     setTags,
     canSubmit: !!values.name.trim() && !composing,

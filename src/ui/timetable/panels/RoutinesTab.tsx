@@ -1,3 +1,4 @@
+import { Select } from "../../common/Select";
 /**
  * RoutinesTab——「分類與設定」第四籤「作息」：作息範本編輯器（時刻表⑦ B 席；契約 §3 畫面、D-時-156／160／166／167／168；
  * 原型 `prototypes/時刻表-⑦.html` 題 3、原型回報 3）。長相照原型的 `.ns-tt-rtmgr-*`，樣式在同目錄 `routines-tab.css`。
@@ -639,7 +640,7 @@ function SegRow({
         <CategoryBadge cat={cat} size="sm" />
         <span className="ns-tt-rtmgr-catname">{catName}</span>
         <span className="car" aria-hidden="true" />
-        <select aria-label={`「${name}」的分類`} value={it.cat} onChange={(e) => e.target.value && onPatch({ cat: e.target.value })}>
+        <Select overlay aria-label={`「${name}」的分類`} value={it.cat} onChange={(v) => v && onPatch({ cat: v })}>
           {!live && <option value={it.cat}>{cat ? `${cat.name}（已封存）` : "分類不在了"}</option>}
           {groups.map((g) => (
             <optgroup key={g.group.id} label={g.group.name}>
@@ -650,7 +651,7 @@ function SegRow({
               ))}
             </optgroup>
           ))}
-        </select>
+        </Select>
       </span>
       <SegName value={it.n ?? ""} placeholder={catName} label={`「${catName}」這一段的名字`} onCommit={(n) => onPatch({ n })} />
       <span className="ns-tt-rtmgr-time">

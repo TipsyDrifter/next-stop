@@ -16,18 +16,19 @@ import { indexOfAnchor, useDragReorder } from "../common/dragReorder";
 import { DialogShell } from "../common/DialogShell";
 import { MSheet } from "../common/MSheet";
 import { IconPlus } from "../common/icons";
+import { Select } from "../common/Select";
 import { useImeGuard } from "../ticket/dialogs/dialogBits";
 
 function ActionSelect({ value, onChange, label }: { value: WishAction; onChange(a: WishAction): void; label: string }) {
   return (
     <span className="ns-select-wrap ns-wr-act">
-      <select className="techo-input" aria-label={label} value={value} onChange={(e) => onChange(e.target.value as WishAction)}>
+      <Select className="techo-input" aria-label={label} value={value} onChange={(v) => onChange(v as WishAction)}>
         {WISH_ACTIONS.map((a) => (
           <option key={a} value={a}>
             {WISH_ACTION_LABEL[a]}
           </option>
         ))}
-      </select>
+      </Select>
     </span>
   );
 }
@@ -76,7 +77,7 @@ function KindAdd() {
   const [action, setAction] = useState<WishAction>("ticket");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
-  const add = async () => {
+  const add = async (keepFocus = true) => {
     if (busy || !name.trim()) {
       ref.current?.focus();
       return;
@@ -86,7 +87,8 @@ function KindAdd() {
       const row = await useTicketStore.getState().createWishKind({ name: name.trim(), action });
       if (row) {
         setName("");
-        ref.current?.focus();
+        if (keepFocus) ref.current?.focus();
+        else ref.current?.blur();
       }
     } finally {
       setBusy(false);
@@ -94,7 +96,7 @@ function KindAdd() {
   };
   const ime = useImeGuard((e) => {
     e.preventDefault();
-    void add();
+    void add(e.ctrlKey || e.metaKey);
   });
   return (
     <div className="ns-wr-kindadd">

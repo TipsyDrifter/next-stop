@@ -11,7 +11,7 @@
  *   定期券且非唯讀 ｜「本班運休」或「取消運休」（card.suspended 決定）＋ aside railDate；「本班日期…」＝這一班改到別天（⑥ D-主-295，走 onDefer → moveRunFlow）。不出「編輯規則…」（手機沒有側板）
  *   已交代的非定期券｜一行說明「已蓋済——先取消済章才能推遲」（不可點）
  *   其餘            ｜①推遲到明天／往後推一天／排到明天（sheetDeferItems）②下週一 ③選日期…（共用 MobileDatePicker；丙-3 起可挑過去＝補記）
- *                    ④清除執行日（aside：回到締切 M/D／進收件匣；本來就沒排 ⇒ 不可點的一行）
+ *                    ④清除乘車日（aside：回到締切 M/D／進收件匣；本來就沒排 ⇒ 不可點的一行）
  * DOM：UI 丙-3 起是共用 `MSheet list`（見檔頭末段〈UI 丙-3〉；v1.1.0～丙-2 是自畫的 `.m-sheet-veil > .m-sheet` 小卡）。
  * 「選日期…」不翻成原型那張月曆 sheet，改開共用的 `MobileDatePicker`（旅客筆記車次② 抽出的共用件；接縫 33）。
  *
@@ -51,7 +51,7 @@
  *   ① 排程一列多格（`.m-tks-cells`）：單發票＝明天類／下週一／日期…／幾點…（格裡小字＝M/D、時刻）；
  *      定期券＝本班日期…／本班時刻…／每班時刻…／本班運休（⑥ 多一格後四格同單發票；字收到 5 個字內才放得下 375px，讀屏念全句）。「幾點…」格小字＝「14:00・90 分」（D-主-81）。
  *      上面那段「已蓋済」「過去的班次」說明列照舊（不是格）。
- *      「清除執行日」第二輪收進「日期…」的面板 foot（MobileDatePicker onClear，同桌機 DatePicker 的「清除」；有執行日才給）——
+ *      「清除乘車日」第二輪收進「日期…」的面板 foot（MobileDatePicker onClear，同桌機 DatePicker 的「清除」；有乘車日才給）——
  *      原本排程格下單獨一列，加上別線附加項時初始高又放不下「刪除」（反方評審 parity minor）。
  *   ② 改名…｜記乘務記錄…一列兩格（只給一項就單列）。
  *   ③「編排 ▾」可展開群組：移動到…・上移｜下移・降層｜升層——只出呼叫端有給的；一項都沒有就不出群組。
@@ -97,7 +97,7 @@ function md(key: string): string {
 export interface MobileTicketSheetProps {
   card: TicketCardModel;
   today: string;
-  /** null＝清除執行日 */
+  /** null＝清除乘車日 */
   onDefer(day: string | null): void;
   /** 定期券版：本班運休（true）／取消運休（false） */
   onSkip(skip: boolean): void;
@@ -335,7 +335,7 @@ export function MobileTicketSheet({
   if (picking) {
     return (
       <MobileDatePicker
-        title="選執行日"
+        title="選乘車日"
         value={card.scheduledOn}
         today={today}
         quick={dateQuickSet("backward", today)}
@@ -344,7 +344,7 @@ export function MobileTicketSheet({
           // 挑回現值不動（呼叫端的分流也會擋；這裡先擋，免得行程表那條路多吐一張收據）
           if (d !== card.scheduledOn) onDefer(d);
         }}
-        // 清除執行日（第二輪 #9）：收進日期面板的 foot（同桌機 DatePicker 的「清除」）；本來就沒排就不給
+        // 清除乘車日（第二輪 #9）：收進日期面板的 foot（同桌機 DatePicker 的「清除」）；本來就沒排就不給
         onClear={
           card.scheduledOn !== null
             ? () => {
@@ -353,7 +353,7 @@ export function MobileTicketSheet({
               }
             : undefined
         }
-        clearLabel="清除執行日"
+        clearLabel="清除乘車日"
         onClose={onClose}
         backId={backId}
       />
@@ -419,7 +419,7 @@ export function MobileTicketSheet({
       </div>
     );
   } else if (card.readOnly) {
-    // 最後一道守門：定期券的歷史班次不出單發票那組項目（推遲／幾點…／清除執行日）
+    // 最後一道守門：定期券的歷史班次不出單發票那組項目（推遲／幾點…／清除乘車日）
     schedule = note("過去的班次不能改");
   } else if (settled) {
     schedule = note("已蓋済——先取消済章才能推遲");

@@ -282,7 +282,7 @@ function buildGhost(src: HTMLElement, count: number, grab: { x: number; y: numbe
   if (count > 1) {
     const b = document.createElement("span");
     b.className = "dr-ghost-count";
-    b.textContent = String(count);
+    b.textContent = `×${count}`;
     clone.appendChild(b);
   }
   const host = document.createElement("div");
@@ -701,6 +701,7 @@ export function useDragReorder(opts: DragReorderOpts): void {
       for (const e of carried) e.classList.add("dr-carried");
       root.classList.add("dr-active");
       document.documentElement.classList.add("dr-dragging");
+    window.getSelection()?.removeAllRanges();
       if (o.columns) root.style.scrollSnapType = "none";
       try {
         root.setPointerCapture(p.pointerId);

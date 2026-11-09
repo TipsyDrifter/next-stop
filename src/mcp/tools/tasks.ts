@@ -20,7 +20,7 @@ type Args = Record<string, unknown>;
 const LIST_LIMIT = 100;
 /** 任務工具認得的節點（幹線／路線看 find-routes；車站不是任務） */
 const TASK_KINDS: readonly NodeKind[] = ["branch", "train", "car", "ticket"];
-/** 有執行日的身分（支線沒有執行日） */
+/** 有乘車日的身分（支線沒有乘車日） */
 const DATED_KINDS: readonly NodeKind[] = ["train", "car", "ticket"];
 const PRIORITIES: readonly Priority[] = ["low", "mid", "high"];
 const STATUSES = ["todo", "doing", "done", "paused", "open"] as const;
@@ -46,8 +46,8 @@ export function compact<T extends Record<string, unknown>>(o: T): Partial<T> {
 export async function aliveTask(ctx: McpCtx, id: string, kinds: readonly NodeKind[] = TASK_KINDS): Promise<NodeRow> {
   const n = await ctx.deps.nodeRepo.getNode(id);
   if (!n || n.deleted_at !== null || !TASK_KINDS.includes(n.kind)) throw new McpUserError(`找不到車票 ${id}`);
-  // 支線找得到、只是沒有執行日（說清楚，助理才不會以為 id 錯了）
-  if (!kinds.includes(n.kind)) throw new McpUserError(`「${n.name}」是${KIND_LABEL[n.kind]}，沒有執行日與班次`);
+  // 支線找得到、只是沒有乘車日（說清楚，助理才不會以為 id 錯了）
+  if (!kinds.includes(n.kind)) throw new McpUserError(`「${n.name}」是${KIND_LABEL[n.kind]}，沒有乘車日與班次`);
   return n;
 }
 
@@ -151,7 +151,7 @@ const RETIRED_MSG = (name: string) => `「${name}」這張定期券已經跟著�
 
 export interface RescheduleItem {
   id: string;
-  /** null＝清掉執行日 */
+  /** null＝清掉乘車日 */
   date: string | null;
   /** undefined＝時刻不動；null＝清掉 */
   time?: string | null;
@@ -226,7 +226,7 @@ export async function applyReschedule(ctx: McpCtx, n: NodeRow, it: RescheduleIte
 /** 一筆改期的參數；idKey＝reschedule-tasks 用 id、propose-schedule 用 taskId */
 export function parseRescheduleItem(a: Args, where: string, idKey = "id"): RescheduleItem {
   const id = str(a, idKey, { required: true, where });
-  if (a.date === undefined) throw new McpUserError(`缺少 ${where}.date（要清掉執行日請給 null）`);
+  if (a.date === undefined) throw new McpUserError(`缺少 ${where}.date（要清掉乘車日請給 null）`);
   const d = nullableDate(a, "date", where);
   const time = nullableClock(a, "time", where);
   return { id, date: d ?? null, ...(time !== undefined ? { time } : {}) };
@@ -463,7 +463,7 @@ const addTasks: McpTool = {
   name: "add-tasks",
   title: "建立車票",
   description:
-    "建立車票（最多 50 張）。不給 parentId＝臨時車票，可用 routeId 掛路線標籤；要放進路線大綱用 parentId（路線底下放 train 列車或 branch 支線；支線底下放 branch、train 或 ticket；列車／車廂底下放 ticket 或 car；路線底下的車票＝不給 parentId、用 routeId 掛路線標籤）。scheduledOn＝執行日（不能早於今天）、dueOn＝締切、scheduledTime＝預定時刻 HH:MM（營業日表記：過了午夜、還沒到日界線的凌晨寫成 24 以上，例 25:00＝凌晨 1 點）。",
+    "建立車票（最多 50 張）。不給 parentId＝臨時車票，可用 routeId 掛路線標籤；要放進路線大綱用 parentId（路線底下放 train 列車或 branch 支線；支線底下放 branch、train 或 ticket；列車／車廂底下放 ticket 或 car；路線底下的車票＝不給 parentId、用 routeId 掛路線標籤）。scheduledOn＝乘車日（不能早於今天）、dueOn＝締切、scheduledTime＝預定時刻 HH:MM（營業日表記：過了午夜、還沒到日界線的凌晨寫成 24 以上，例 25:00＝凌晨 1 點）。",
   inputSchema: {
     type: "object",
     properties: {
@@ -478,7 +478,7 @@ const addTasks: McpTool = {
             kind: { type: "string", enum: TASK_KINDS, description: "預設 ticket（車票）" },
             parentId: { type: "string", description: "掛在哪個節點底下" },
             routeId: { type: "string", description: "臨時車票的路線標籤" },
-            scheduledOn: { ...DATE_SCHEMA, description: "執行日" },
+            scheduledOn: { ...DATE_SCHEMA, description: "乘車日" },
             scheduledTime: { ...CLOCK_SCHEMA, description: "預定時刻 HH:MM" },
             dueOn: { ...DATE_SCHEMA, description: "締切" },
             description: { type: "string", description: "說明（Markdown）" },
@@ -506,9 +506,9 @@ const addTasks: McpTool = {
       if (routeId && kind !== "ticket") throw new McpUserError(`${where}：routeId 只給臨時車票；列車要放進路線請用 parentId`);
       if (!parentId && kind !== "ticket") throw new McpUserError(`${where}：${KIND_LABEL[kind]}要給 parentId（只有車票能不掛在任何節點底下）`);
       const scheduledOn = date(a, "scheduledOn", { where }) ?? null;
-      // 同 App 的建票列：建票挑不到過去（執行日挑選器 min＝今天；D-主-67 的補記只走詳情的日期欄）
+      // 同 App 的建票列：建票挑不到過去（乘車日挑選器 min＝今天；D-主-67 的補記只走詳情的日期欄）
       if (scheduledOn && scheduledOn < ctx.today) throw new McpUserError(`${where}.scheduledOn 不能早於今天（${ctx.today}）`);
-      if (scheduledOn && kind === "branch") throw new McpUserError(`${where}：支線沒有執行日`);
+      if (scheduledOn && kind === "branch") throw new McpUserError(`${where}：支線沒有乘車日`);
       const time = nullableClock(a, "scheduledTime", where);
       if (time && kind === "branch") throw new McpUserError(`${where}：支線沒有預定時刻`);
       if (a.dueOn !== undefined && a.dueOn !== null && kind === "branch") throw new McpUserError(`${where}：支線沒有締切`);
@@ -572,7 +572,7 @@ const updateTasks: McpTool = {
   name: "update-tasks",
   title: "修改車票",
   description:
-    "修改車票欄位（最多 50 張）：name、description、priority、estimateMin、dueOn（締切）、scheduledTime（預定時刻 HH:MM）；給 null＝清除。改執行日用 reschedule-tasks、完成用 complete-tasks。定期券的 scheduledTime＝每一班的時刻。",
+    "修改車票欄位（最多 50 張）：name、description、priority、estimateMin、dueOn（締切）、scheduledTime（預定時刻 HH:MM）；給 null＝清除。改乘車日用 reschedule-tasks、完成用 complete-tasks。定期券的 scheduledTime＝每一班的時刻。",
   inputSchema: {
     type: "object",
     properties: {
@@ -735,7 +735,7 @@ const rescheduleTasks: McpTool = {
   name: "reschedule-tasks",
   title: "改期（繰越）",
   description:
-    "改車票的執行日（最多 50 張），等於 App 的推遲／繰越：date＝新執行日（不能早於今天；跟現值相同＝不動日期）、null＝清掉執行日；time＝順便改預定時刻 HH:MM（null 清除）。已済的票要先取消済。定期券動的是目前這一班：帶別天＝這一班改到那天、帶目前班次日＝改這一班的時刻。一次排好幾張建議先 propose-schedule。",
+    "改車票的乘車日（最多 50 張），等於 App 的推遲／繰越：date＝新乘車日（不能早於今天；跟現值相同＝不動日期）、null＝清掉乘車日；time＝順便改預定時刻 HH:MM（null 清除）。已済的票要先取消済。定期券動的是目前這一班：帶別天＝這一班改到那天、帶目前班次日＝改這一班的時刻。一次排好幾張建議先 propose-schedule。",
   inputSchema: {
     type: "object",
     properties: {
@@ -747,7 +747,7 @@ const rescheduleTasks: McpTool = {
           type: "object",
           properties: {
             id: ID_SCHEMA,
-            date: { type: ["string", "null"], pattern: DATE_SCHEMA.pattern, description: "新執行日；null＝清掉" },
+            date: { type: ["string", "null"], pattern: DATE_SCHEMA.pattern, description: "新乘車日；null＝清掉" },
             time: { ...CLOCK_SCHEMA, description: "預定時刻；省略＝不動" },
           },
           required: ["id", "date"],

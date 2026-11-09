@@ -464,7 +464,9 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"] .ns-notes-mtitlein:focus { border-bottom-color: var(--color-dash); }
 [data-shell="mobile"] .ns-notes-mtitlein::placeholder { color: var(--color-ink-faint); opacity: .7; }
 
-[data-shell="mobile"] .ns-notes-mbodywrap { margin-top: 10px; }
+[data-shell="mobile"] .ns-notes-mbodywrap { position: relative; margin-top: 10px; }
+[data-shell="mobile"] .ns-notes-mbodywrap:has(> .ns-notes-mta)::before { content: ""; position: absolute; left: -10px; top: 3px; bottom: 3px; width: 2px; border-radius: var(--radius-ctl); background: color-mix(in srgb, var(--accent) 48%, transparent); pointer-events: none; }
+[data-shell="mobile"] .ns-notes-mentry.is-sel:has(.ns-notes-mta)::before { display: none; }
 /* 讀與寫同一套字級、行高、最小高度：切換時版面不跳（點「變待辦」時打字框失焦回閱讀，按鈕不能跟著移位）
    車次④ D-筆-54：16px／行高 1.8／字距 .03em（與桌機同比例；舊值 15／1.9／.035em）。打字框跟著換——
    不只為了不跳，16px 也是行動瀏覽器聚焦時不自動放大整頁的門檻 */
@@ -486,7 +488,7 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
   display: block; width: 100%; resize: none; overflow: hidden;
   padding: 0; background: transparent; border: 0; outline: none;
   font-family: var(--font-body);
-  box-shadow: -10px 0 0 -8px var(--accent);
+
 }
 [data-shell="mobile"] .ns-notes-mta::placeholder { color: var(--color-ink-faint); opacity: .8; }
 

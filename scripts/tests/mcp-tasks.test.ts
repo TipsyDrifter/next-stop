@@ -252,7 +252,7 @@ test("complete-tasks：定期券済的是這一班、下一班排出；運休中
   await assert.rejects(call("complete-tasks", { tasks: [{ id: run.id, done: true }] }, ctx), isUserError(/運休中/));
 });
 
-test("reschedule-tasks：繰越寫 carried_from、清執行日、改時刻；挑不到過去；定期券不改期", async () => {
+test("reschedule-tasks：繰越寫 carried_from、清乘車日、改時刻；挑不到過去；定期券不改期", async () => {
   const ctx = await makeCtx();
   const s = await seed(ctx);
   const repo = ctx.deps.nodeRepo;
@@ -340,7 +340,7 @@ test("add-work-logs：寫進作業記錄、get-task 讀得回來；空內容回�
   await assert.rejects(call("add-work-logs", { logs: [{ taskId: s.t1.id, body: " " }] }, ctx), isUserError(/body/));
 });
 
-test("reschedule-tasks：已済的票不能推遲；誤點票帶原日期只改時刻；支線說沒有執行日", async () => {
+test("reschedule-tasks：已済的票不能推遲；誤點票帶原日期只改時刻；支線說沒有乘車日", async () => {
   const ctx = await makeCtx();
   const s = await seed(ctx);
   const repo = ctx.deps.nodeRepo;
@@ -359,7 +359,7 @@ test("reschedule-tasks：已済的票不能推遲；誤點票帶原日期只改�
   assert.equal((await repo.getNode(late.id))!.scheduled_on, yesterday);
 
   const branch = await repo.create({ kind: "branch", name: "支線", parentId: s.route.id });
-  await assert.rejects(call("reschedule-tasks", { tasks: [{ id: branch.id, date: tomorrow }] }, ctx), isUserError(/支線.*沒有執行日/));
+  await assert.rejects(call("reschedule-tasks", { tasks: [{ id: branch.id, date: tomorrow }] }, ctx), isUserError(/支線.*沒有乘車日/));
   await assert.rejects(call("update-tasks", { tasks: [{ id: branch.id, scheduledTime: "10:00" }] }, ctx), isUserError(/沒有預定時刻/));
 });
 

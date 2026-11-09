@@ -14,6 +14,7 @@ import { isMobileShell } from "../../lib/shell";
 import { useTimetableStore } from "../../store/timetableStore";
 import { useUiStore } from "../../store/uiStore";
 import { MSheet } from "../common/MSheet";
+import { Select } from "../common/Select";
 import { Toggle } from "../common/Toggle";
 import { CategoryBadge } from "../timetable/CategoryBadge";
 import { onAndroid } from "../timetable/ttNoticeBridge";
@@ -108,13 +109,13 @@ function CategoryPick({ cats, value, onChange }: { cats: readonly TimeCategoryRo
     <span className="ns-sc-pick">
       <CategoryBadge cat={value} size="sm" />
       <span className="ns-select-wrap ns-rm-numwrap">
-        <select className="techo-input ns-rm-num" aria-label="分類" value={value.id} onChange={(e) => onChange(e.target.value)}>
+        <Select className="techo-input ns-rm-num" aria-label="分類" value={value.id} onChange={onChange}>
           {cats.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
           ))}
-        </select>
+        </Select>
       </span>
     </span>
   );

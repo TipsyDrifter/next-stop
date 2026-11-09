@@ -196,6 +196,14 @@
 .ns-bd-qchip:hover { border-color: var(--color-dash); color: var(--color-ink); }
 .ns-bd-qchip:hover .more, .ns-bd-qchip .more:focus-visible { opacity: 1; }
 .ns-bd-qchip .more:hover { color: var(--accent); }
+.ns-bd-qchip .more.is-danger:hover { color: var(--late); }
+.cov-sf-item { display: flex; align-items: center; }
+.cov-sf-item > .cov-sf-row { flex: 1; min-width: 0; }
+.cov-sf-acts { flex: none; display: inline-flex; align-items: center; gap: 2px; padding-right: 4px; }
+.cov-sf-act { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-ink-soft); opacity: var(--dim); cursor: pointer; }
+.cov-sf-item:hover .cov-sf-act, .cov-sf-item:focus-within .cov-sf-act { opacity: 1; }
+.cov-sf-act:hover { color: var(--color-ink); }
+.cov-sf-act.is-danger:hover { color: var(--late); }
 .ns-bd-qchip.is-on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--sel-bg); color: var(--sel-fg); }
 .ns-bd-fres { position: relative; display: flex; align-items: center; gap: var(--sp-3); margin-top: 16px; border-bottom: 1px solid var(--color-line); }
 .ns-bd-fres .cnt { font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink-soft); }

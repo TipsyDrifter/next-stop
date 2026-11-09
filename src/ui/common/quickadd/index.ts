@@ -5,6 +5,7 @@
  *   共用：useQuickAdd（解析、chips、送出）、quickAddModel（規則，純函式）
  */
 export { QuickAddRow, type QuickAddRowProps, type QuickPositional } from "./QuickAddRow";
+export { InlineTicketEditor, type InlineTicketEditorProps } from "./InlineTicketEditor";
 export { MobileQuickAdd, type MobileQuickAddProps } from "./MobileQuickAdd";
 export { QuickAddLauncher, DoneToggleChip, type QuickAddLauncherProps, type DoneToggleChipProps } from "./QuickAddEntry";
 export { useQuickAdd, attachQuickTags, type QuickAddApi, type QuickExtra, type UseQuickAddOptions } from "./useQuickAdd";

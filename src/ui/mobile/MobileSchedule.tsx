@@ -9,9 +9,9 @@
  *
  * 串流長什麼樣由 `useStream`／`streamModel` 決定（唯一真相），這裡只把 sections 畫出來：
  *   day 段   ＝ 日期標題列（今天／未來可點＝在那天底下開草稿，D-主-8；過去不可點，P10）＋ MobileTicket × rows
- *              ＋（有 dues）「締切」小段：沒執行日的票畫完整卡（可蓋済／⋯）、有執行日的畫一行 .m-sch-due（點＝捲到執行日；§0-1 第 14 條）
+ *              ＋（有 dues）「締切」小段：沒乘車日的票畫完整卡（可蓋済／⋯）、有乘車日的畫一行 .m-sch-due（點＝捲到乘車日；§0-1 第 14 條）
  *              ＋（draftDay＝這天）草稿列 ＋（今日且全交代）「今天的班次都到站了」；今日段上方另有「誤點 N 件」一列（P8）
- *              回饋甲（D-主-127、128）：日期標題列右端畫一顆看得見的「＋」（點整列照舊）；草稿列換成共用的手機建票列（DayQuickAdd，執行日＝那一天）
+ *              回饋甲（D-主-127、128）：日期標題列右端畫一顆看得見的「＋」（點整列照舊）；草稿列換成共用的手機建票列（DayQuickAdd，乘車日＝那一天）
  *   gap 段   ＝ 連續空白日一行（點＝攤開逐日／收起，D-主-7）；before／after 邊界行（P5）
  * 列的身分走日曆同一把尺 `dayRowModel`，卡的欄位由 `cardFromDayRow`／`cardFromDue` 摺好；動作走 `makeScheduleActions("mobile")`
  *   （守門與收據全在那裡；本檔不碰 repository、不自己判口徑）。
@@ -418,7 +418,7 @@ export function MobileSchedule() {
   }, [sheet, sheetView]);
 
   /* ───────── 回饋乙：多選、拖到日期、滑動手勢 ───────── */
-  /** 畫面上每張卡的 key → 節點與日期（日期段的班次＋締切段沒執行日的完整卡）；順序＝畫面順序 */
+  /** 畫面上每張卡的 key → 節點與日期（日期段的班次＋締切段沒乘車日的完整卡）；順序＝畫面順序 */
   const keyIndex = useMemo(() => {
     const m = new Map<string, { nodeId: string; date: string; kind: "entry" | "due" }>();
     for (const sec of sections) {
@@ -810,7 +810,7 @@ const DaySection = memo(function DaySection({
       }),
     [rows, nodes, routeOf, currentOccurrences, serials, today],
   );
-  // 締切層：沒執行日的票畫完整卡；有執行日的畫一行（點＝捲到執行日）
+  // 締切層：沒乘車日的票畫完整卡；有乘車日的畫一行（點＝捲到乘車日）
   const dueItems = useMemo(
     () =>
       dues
@@ -972,7 +972,7 @@ const DaySection = memo(function DaySection({
                 key={`dl-${x.node.id}`}
                 type="button"
                 className="m-sch-due"
-                aria-label={`${x.node.name}，締切 ${mmdd(date)}，執行 ${mmdd(x.when)}——捲到執行日`}
+                aria-label={`${x.node.name}，締切 ${mmdd(date)}，執行 ${mmdd(x.when)}——捲到乘車日`}
                 onClick={() => onGoTo(x.when)}
               >
                 <i className="m-sch-shime" aria-hidden>
@@ -1000,7 +1000,7 @@ const DaySection = memo(function DaySection({
 
 /* ═══════════════════════════════════════════════════════
  * 那一天的建票列（D-主-8：點日期標題列在那天底下開；一次一張，點別天就換過去）
- *   回饋甲（D-主-127、128）起＝共用的手機建票列 MobileQuickAdd（行內版）：執行日預設＝這一天、掛到預設無路線，
+ *   回饋甲（D-主-127、128）起＝共用的手機建票列 MobileQuickAdd（行內版）：乘車日預設＝這一天、掛到預設無路線，
  *   chips 與快速語法同今日頁；建到別天／別條路線才出收據（useQuickAdd leaveNote）。
  *   送出成功 ⇒ 清空、建票列留著（連打）；空白 Enter 或 Esc ⇒ 關（MobileQuickAdd onClose）；捲走不關。
  *   IME 三重守門在共用元件裡。外層沿用 `.m-sch-draft`（虛線小卡＋左右滑換子頁的豁免，useSubSwipe 認這個 class）。

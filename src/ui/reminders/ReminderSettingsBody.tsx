@@ -22,6 +22,7 @@ import { useReminderStore } from "../../store/reminderStore";
 import { useTimetableStore } from "../../store/timetableStore";
 import { useUiStore } from "../../store/uiStore";
 import { ClockInput } from "../common/ClockInput";
+import { Select } from "../common/Select";
 import { Toggle } from "../common/Toggle";
 import { noticePermission, type NoticePermission } from "../timetable/notice";
 import { onAndroid } from "../timetable/ttNoticeBridge";
@@ -129,20 +130,20 @@ function NumSelect({
 }) {
   return (
     <span className="ns-select-wrap ns-rm-numwrap">
-      <select
+      <Select
         className="techo-input ns-rm-num"
         aria-label={label}
         value={String(value)}
         disabled={disabled}
         title={disabled ? "開關打開才能改" : undefined}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(v) => onChange(Number(v))}
       >
         {withCurrent(options, value).map((n) => (
           <option key={n} value={String(n)}>
             {format(n)}
           </option>
         ))}
-      </select>
+      </Select>
     </span>
   );
 }

@@ -89,6 +89,19 @@ export function TimePicker({ label, bounds, refDay, anchor, onPick, onClose, onC
     // 只在開的那一下；pos 第一次有值才拿得到焦點（hidden 時 focus 無效）
   }, [takeFocus, pos !== null]);
 
+  useEffect(() => {
+    const onEsc = (e: globalThis.KeyboardEvent): void => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", onEsc, true);
+    return () => window.removeEventListener("keydown", onEsc, true);
+  }, [onCancel]);
+
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // 卡掛在 body，按鍵照 React 樹冒泡會落到開它的面板上：一律擋下；Ctrl／⌘ 組合鍵放行給全域表（同 DatePicker）

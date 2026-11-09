@@ -203,7 +203,7 @@ export function PageHeader<K extends string = string>({
   title,
   aside,
   stats,
-  reserveStats = false,
+  reserveStats = true,
   stamp,
   emblem,
   emblemCompact,

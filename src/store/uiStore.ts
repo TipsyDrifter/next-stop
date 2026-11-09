@@ -161,6 +161,44 @@ function detectThemeOverride(): ThemePref | null {
 
 const THEME_OVERRIDE: ThemePref | null = detectThemeOverride();
 
+const LAST_NAV_KEY = "ns.lastNav.v1";
+
+export type MobileMoreView = "more" | "sync" | "backup" | "gestures" | "lostfound" | "reminders" | "shortcuts" | "shop";
+
+export interface LastNavState {
+  page?: PageId;
+  routeOverview?: boolean;
+  routeId?: string | null;
+  mobileTab?: MobileTabKey;
+  mobileMoreView?: MobileMoreView;
+  notesSection?: "inbox" | "notes" | "diary" | "tags";
+  selectedNoteId?: string | null;
+  depotTab?: "ride" | "map" | "year";
+  waitroomFilter?: string;
+}
+
+export function readLastNav(): LastNavState {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LAST_NAV_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as LastNavState) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeLastNav(patch: Partial<LastNavState>): void {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+  try {
+    const cur = readLastNav();
+    localStorage.setItem(LAST_NAV_KEY, JSON.stringify({ ...cur, ...patch }));
+  } catch {
+    /* localStorage 不可用時略過 */
+  }
+}
+
 // 覆寫存在就搶在第一次繪製前套上，避免 loadSettings 回來之前閃一下預設主題
 if (THEME_OVERRIDE && typeof document !== "undefined") applyTheme(THEME_OVERRIDE);
 
@@ -291,14 +329,22 @@ interface UiStore {
   consumeMobileMoreRequest: () => void;
   /** 日曆格內記號請重查（見 `calendarMarksTick`） */
   bumpCalendarMarks: () => void;
+  readLastNav?: () => LastNavState;
+  writeLastNav?: (patch: Partial<LastNavState>) => void;
 }
 
+const INITIAL_LAST_NAV = readLastNav();
+
 export const useUiStore = create<UiStore>((set, get) => ({
-  // 起始頁＝today（決策 #12）；`?page=` 只在 dev／mock 生效（DEV_FLAGS，見 data/index.ts）
-  page: DEV_FLAGS.page ?? DEFAULT_PAGE,
-  routeOverview: false,
-  // ＝tabs.ts 的 DEFAULT_MOBILE_TAB；這裡寫字面值而不 import 常數，是為了讓 store 只吃 type-only import
-  mobileTab: "today",
+  // 起始頁優先恢復上次瀏覽頁面（若已通車），否則落回 today；`?page=` 只在 dev／mock 生效
+  page:
+    DEV_FLAGS.page ??
+    (INITIAL_LAST_NAV.page && pageById(INITIAL_LAST_NAV.page).status === "open"
+      ? INITIAL_LAST_NAV.page
+      : DEFAULT_PAGE),
+  routeOverview: INITIAL_LAST_NAV.routeOverview ?? false,
+  // ＝tabs.ts 的 DEFAULT_MOBILE_TAB；優先恢復上次手機分頁
+  mobileTab: INITIAL_LAST_NAV.mobileTab ?? "today",
   selectedId: null,
   zoomId: null,
   collapsed: {},
@@ -330,18 +376,22 @@ export const useUiStore = create<UiStore>((set, get) => ({
     if (pageById(page).status !== "open") return;
     if (page !== get().page) get().hideToast();
     set({ page });
+    writeLastNav({ page });
   },
   openRouteMap: () => {
     get().setPage("routemap");
     set({ routeOverview: true, zoomId: null, selectedId: null, panelOpen: false });
+    writeLastNav({ page: "routemap", routeOverview: true });
   },
   setRouteOverview: (on) => {
     if (on !== get().routeOverview) set({ routeOverview: on });
+    writeLastNav({ routeOverview: on });
   },
   // 切頁順手收掉桌機專屬疊層：手機殼本來就不掛它們，這是保險不是功能（藍牙鍵盤按到 ? 或 Ctrl+P 時）；toast 同 setPage
   setMobileTab: (tab) => {
     if (tab !== get().mobileTab) get().hideToast();
     set({ mobileTab: tab, hotkeyGuideOpen: false, quickJumpOpen: false });
+    writeLastNav({ mobileTab: tab });
   },
   select: (id) => set({ selectedId: id }),
   setZoom: (id) => set({ zoomId: id }),
@@ -441,6 +491,8 @@ export const useUiStore = create<UiStore>((set, get) => ({
   },
   consumeMobileMoreRequest: () => set({ mobileMoreRequest: null }),
   bumpCalendarMarks: () => set((s) => ({ calendarMarksTick: s.calendarMarksTick + 1 })),
+  readLastNav,
+  writeLastNav,
 
   async setTheme(pref) {
     applyTheme(pref);

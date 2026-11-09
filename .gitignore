@@ -7,12 +7,13 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# ─── Node ───
+# ─── Node / TypeScript ───
 node_modules
 build
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
 
 # ─── Env files ───
 .env
@@ -65,3 +66,5 @@ files/*.mmbak
 # 由 .mmbak 轉出的分析用 CSV（同樣是個人財務資料）
 output/記帳分析/*.csv
 output/
+.agents/bus/
+.agents/worktrees/

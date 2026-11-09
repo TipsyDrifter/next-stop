@@ -1,3 +1,4 @@
+import { Select } from "../common/Select";
 /**
  * MobileBackup——手機「更多 › 備份與還原」子頁（收官磨光 Q2-a；使用者 10-28：「已經明訂雙端對等了，
  * 不該有電腦有手機卻沒有的功能」）。桌機〈備份與還原〉籤（settings/BackupTab.tsx）的手機版，逐項對齊：
@@ -142,19 +143,19 @@ export default function MobileBackup({ onBack }: { onBack: () => void }) {
             保留份數
           </label>
           <span className="ns-select-wrap m2-select-wrap">
-            <select
+            <Select
               id={keepId}
               className="m2-input m2-select"
               value={s.keep}
               disabled={busy}
-              onChange={(e) => void s.setKeep(Number(e.target.value))}
+              onChange={(v) => void s.setKeep(Number(v))}
             >
               {BACKUP_KEEP_OPTIONS.map((n) => (
                 <option key={n} value={n}>
                   {n} 份
                 </option>
               ))}
-            </select>
+            </Select>
           </span>
           <p className="m2-note m2-bk-keep-note">自動與手動合計；還原前的保險備份另留 {BACKUP_SAFETY_KEEP} 份。</p>
         </div>

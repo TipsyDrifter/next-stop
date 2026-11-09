@@ -107,7 +107,7 @@ function releaseHeadFocus(e: SyntheticEvent<HTMLDivElement>): void {
   if (e.type === "click") {
     const tab = t.closest<HTMLElement>('[role="tab"]');
     if (tab && (e.nativeEvent as globalThis.MouseEvent).detail > 0) tab.blur();
-  } else if (t instanceof HTMLSelectElement) {
+  } else if (t instanceof HTMLSelectElement || t.hasAttribute("data-ns-select")) {
     t.blur();
   }
 }
