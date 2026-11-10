@@ -20,6 +20,8 @@ import { parseGoal, type Goal } from "../../../domain/timetableStats";
 import { TT_TAG_GOAL } from "../../../domain/timetableTags";
 import { timetableRepo } from "../../../data/timetableRepository";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
+import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
+import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
 import { useUiStore } from "../../../store/uiStore";
 import { ManagerList, ManagerRow, SwatchDot, type PopMenuItem } from "../../common/ManagerRow";
@@ -63,6 +65,10 @@ function useGoals(): Goal[] | null {
 export function GoalsTab() {
   const goals = useGoals();
   const catById = useTimetableStore((s) => s.catById);
+  const routes = useNodeStore((s) => s.routes);
+  const treeById = useNodeStore((s) => s.tree.byId);
+  const statRouteNames = useTimetableStatsStore((s) => s.routeNames);
+  const statNodeNames = useTimetableStatsStore((s) => s.goalNodeNames);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const archiveGoal = useTimetableStore((s) => s.archiveGoal);
   const deleteGoal = useTimetableStore((s) => s.deleteGoal);
@@ -102,9 +108,14 @@ export function GoalsTab() {
   if (goals === null) return null;
   const active = goals.filter((g) => !g.archived);
   const archived = goals.filter((g) => g.archived);
+  const routeById = new Map(routes.map((r) => [r.id, r.name] as const));
   // 荷札：index 載好就看 index（timetable:goal），沒載好就是空的（只影響淡字那一行）
   const tagsOf = (g: Goal): string[] => (tagIndex ? useTagStore.getState().keysOf(TT_TAG_GOAL, g.id).map(tagNameOf) : []);
-  const subOf = (g: Goal): string => `${goalPeriodText(g)}・${scopeText(g.categoryIds, catById, tagsOf(g))}`;
+  const extraOf = (g: Goal): string[] => [
+    ...(g.routeIds ?? []).map((rid) => routeById.get(rid) ?? statRouteNames[rid]?.name ?? "路線"),
+    ...(g.nodeIds ?? []).map((nid) => treeById[nid]?.name ?? statNodeNames[nid]?.name ?? "項目"),
+  ];
+  const subOf = (g: Goal): string => `${goalPeriodText(g)}・${scopeText(g.categoryIds, catById, tagsOf(g), extraOf(g))}`;
   const dotOf = (g: Goal): string => {
     const first = g.categoryIds.map((id) => catById[id]).find(Boolean);
     return first ? catColor(first) : "var(--color-ink-faint)";

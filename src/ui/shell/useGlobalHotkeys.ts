@@ -17,6 +17,7 @@
  */
 import { useEffect } from "react";
 import { useUiStore } from "../../store/uiStore";
+import { useNavHistoryStore } from "../../store/navHistoryStore";
 import { isEditableTarget, matchChord, resolveHotkey } from "./hotkeys";
 import { loadHotkeyOverrides } from "./hotkeyOverrides";
 import { pageOfNavHotkey } from "./pages";
@@ -38,6 +39,41 @@ export function useGlobalHotkeys(enabled = true) {
 
   useEffect(() => {
     if (!enabled) return;
+    const onHistoryKeyCapture = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      const hit = resolveHotkey("global", e);
+      if (hit?.id === "global.history.prev") {
+        e.preventDefault();
+        e.stopPropagation();
+        useNavHistoryStore.getState().goBack();
+        return;
+      }
+      if (hit?.id === "global.history.next") {
+        e.preventDefault();
+        e.stopPropagation();
+        useNavHistoryStore.getState().goForward();
+        return;
+      }
+      if (!hit) {
+        if (
+          e.key === "BrowserBack" ||
+          (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === "ArrowLeft" && !isEditableTarget(e.target))
+        ) {
+          if (useNavHistoryStore.getState().goBack()) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        } else if (
+          e.key === "BrowserForward" ||
+          (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === "ArrowRight" && !isEditableTarget(e.target))
+        ) {
+          if (useNavHistoryStore.getState().goForward()) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }
+      }
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || e.keyCode === 229) return;
       const hit = resolveHotkey("global", e);
@@ -78,6 +114,14 @@ export function useGlobalHotkeys(enabled = true) {
           e.preventDefault();
           ui.setSettingsOpen(!ui.settingsOpen);
           break;
+        case "global.history.prev":
+          e.preventDefault();
+          useNavHistoryStore.getState().goBack();
+          break;
+        case "global.history.next":
+          e.preventDefault();
+          useNavHistoryStore.getState().goForward();
+          break;
         case "global.guide": {
           // 第二條是 IME 備援（預設 Ctrl+/，鍵可自訂）；第一條是導航模式那一條（預設 ?）
           if (matchChord(e, hit.chords[1], hit.ignoreMods)) {
@@ -106,7 +150,36 @@ export function useGlobalHotkeys(enabled = true) {
         }
       }
     };
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 3) {
+        // 必須在 window capture 階段攔截並 stopPropagation，否則 PopMenu／DayPopover 的 document capture mousedown
+        // 會先把選單關掉，導致按一次側鍵同時觸發「點外頭關選單」與「返回上一頁」兩件事
+        e.preventDefault();
+        e.stopPropagation();
+        useNavHistoryStore.getState().goBack();
+      } else if (e.button === 4) {
+        e.preventDefault();
+        e.stopPropagation();
+        useNavHistoryStore.getState().goForward();
+      }
+    };
+    const suppressSideButtonDefault = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onHistoryKeyCapture, true);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onMouseDown, true);
+    window.addEventListener("mouseup", suppressSideButtonDefault, true);
+    window.addEventListener("auxclick", suppressSideButtonDefault, true);
+    return () => {
+      window.removeEventListener("keydown", onHistoryKeyCapture, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onMouseDown, true);
+      window.removeEventListener("mouseup", suppressSideButtonDefault, true);
+      window.removeEventListener("auxclick", suppressSideButtonDefault, true);
+    };
   }, [enabled]);
 }

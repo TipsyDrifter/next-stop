@@ -28,11 +28,13 @@ import { SchedPopover } from "./SchedPopover"; // ⑦ C 席
 import { RoutinePicker } from "./RoutinePicker"; // ⑦ C 席
 import { RoutineSegPanel } from "../panels/RoutineSegPanel"; // ⑦ C 席
 import { SlotPanel } from "../panels/SlotPanel"; // ⑦ C 席
+import { AdhocPanel } from "../panels/AdhocPanel"; // 第三梯（討論 6）
+import { ScheduleWeekGrid } from "./ScheduleWeekGrid"; // 第三梯（討論 6）
 import { CategoryBadge } from "../CategoryBadge"; // ⑦ C 席
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
 import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
 import { SCHED_UI } from "./scheduleModel";
-import { routeColorOf, useSchedulePage, type SchedulePage } from "./useSchedulePage";
+import { adhocDisplayOf, routeColorOf, useSchedulePage, type SchedulePage } from "./useSchedulePage";
 import { useScheduleDrag, type DragView } from "./useScheduleDrag";
 
 /** 「差多少」另開一欄的視窗寬（D-時-89） */
@@ -109,6 +111,9 @@ export function ScheduleView() {
   const sheet = useTimetableStore((s) => s.sheet);
   const closeSheet = useTimetableStore((s) => s.closeSheet);
   const slotName = sheet?.kind === "slot" ? (page.nodes[page.slots[sheet.key]?.nodeId ?? ""]?.name ?? "") : "";
+  const adhocName =
+    sheet?.kind === "adhoc" && page.adhocs[sheet.key] ? adhocDisplayOf(page, page.adhocs[sheet.key]).name : "臨時班次";
+  const isWeek = page.scheduleMode === "week";
   const rootRef = useRef<HTMLElement>(null);
   const pcolRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -131,33 +136,44 @@ export function ScheduleView() {
     <section ref={rootRef} className="ns-tt-sched is-desk" aria-label={TT_TEXT.viewSchedule}>
       <div className="ns-tt-sched-top">
         <ScheduleNav page={page} />
-        <ScheduleSummary page={page} />
+        {!isWeek && <ScheduleSummary page={page} />}
         <span className="ns-tt-sched-keys">{SCHED_UI.deskKeys()}</span>
         {/* ⑦（C 席）：「作息：工作日 ▾」在頂列最右（原型回報 2） */}
-        <RoutinePicker page={page} />
+        {!isWeek && <RoutinePicker page={page} />}
       </div>
       {page.error && !page.grid && <p className="ns-tt-sched-err">⚠ {page.error}</p>}
       <div className="ns-tt-sched-main">
-        <UnscheduledTray page={page} mode="side" drag={drag} onDragStart={onPointerDown} swallowClick={swallowClick} />
-        <div className="ns-tt-sched-gwrap">
-          <ScheduleGrid
-            page={page}
-            layout={wide ? "rail" : "inline"}
-            hourPx={HOUR_PX}
-            drag={drag}
-            onDragStart={onPointerDown}
-            swallowClick={swallowClick}
-            pcolRef={pcolRef}
-            scrollRef={scrollRef}
-          />
-        </div>
+        {isWeek ? (
+          <ScheduleWeekGrid page={page} />
+        ) : (
+          <>
+            <UnscheduledTray page={page} mode="side" drag={drag} onDragStart={onPointerDown} swallowClick={swallowClick} />
+            <div className="ns-tt-sched-gwrap">
+              <ScheduleGrid
+                page={page}
+                layout={wide ? "rail" : "inline"}
+                hourPx={HOUR_PX}
+                drag={drag}
+                onDragStart={onPointerDown}
+                swallowClick={swallowClick}
+                pcolRef={pcolRef}
+                scrollRef={scrollRef}
+              />
+            </div>
+          </>
+        )}
       </div>
       <DragFloat page={page} drag={drag} />
       {page.openKey && sheet?.kind === "plan" && <PlanPopover planKey={page.openKey} rootRef={rootRef} scrollRef={scrollRef} />}
-      {/* ⑦（C 席）：車票第二段起、作息段的小面板（同 PlanPopover 的浮層） */}
+      {/* ⑦（C 席）：車票第二段起、臨時班次、作息段的小面板（同 PlanPopover 的浮層） */}
       {sheet?.kind === "slot" && (
         <SchedPopover anchor={`.ns-tt-sched-card[data-key="${CSS.escape(sheet.key)}"]`} openId={sheet.key} title={slotName} rootRef={rootRef} scrollRef={scrollRef}>
           <SlotPanel key={sheet.key} onDone={closeSheet} shell="desktop" />
+        </SchedPopover>
+      )}
+      {sheet?.kind === "adhoc" && (
+        <SchedPopover anchor={`.ns-tt-sched-card[data-key="${CSS.escape(sheet.key)}"]`} openId={sheet.key} title={adhocName} rootRef={rootRef} scrollRef={scrollRef}>
+          <AdhocPanel key={sheet.key} onDone={closeSheet} shell="desktop" />
         </SchedPopover>
       )}
       {sheet?.kind === "routine" && (

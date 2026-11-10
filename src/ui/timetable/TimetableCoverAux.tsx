@@ -22,6 +22,7 @@ import { useUiStore } from "../../store/uiStore";
 import { timetableRepo } from "../../data/timetableRepository";
 import { dayWindow } from "../../lib/date";
 import { CategoryBadge } from "./CategoryBadge";
+import { useCollapsedSet } from "../sidebar/useCollapsedSet";
 import { useNow } from "./useNow";
 import "./coverAux.css";
 
@@ -64,6 +65,7 @@ export function TimetableCoverAux() {
   const filter = useTimetableStatsStore((s) => s.filter);
   const now = useNow(running ? 1000 : 60_000);
   const [goalsOpen, setGoalsOpen] = useState(readGoalsOpen);
+  const [collapsedGroups, toggleGroupFold] = useCollapsedSet("ns.sidebar.collapsed_tt_groups");
   /** 收合時那一行的「N 項」＝沒封存的目標數（只讀列，不算進度；展開才借統計算） */
   const [goalCount, setGoalCount] = useState<number | null>(null);
   useEffect(() => {
@@ -184,25 +186,47 @@ export function TimetableCoverAux() {
 
         <h2 className="sub">分類 CATEGORIES</h2>
         <div className="ns-tt-cover-cats" role="group" aria-label="點分類＝在統計只看它">
-          {groups.map(({ group, children }) => (
-            <div key={group.id}>
-              <p className="trunk">{group.name}</p>
-              {children.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={`line-item ns-tt-cover-cat${pickedCat === c.id ? " active" : ""}`}
-                  aria-pressed={pickedCat === c.id}
-                  title={`在統計只看「${c.name}」`}
-                  onClick={() => showCategoryStats(c.id)}
+          {groups.map(({ group, children }) => {
+            const folded = collapsedGroups.has(group.id);
+            return (
+              <div key={group.id}>
+                <div
+                  className={`trunk trunk-toggle${folded ? " is-folded" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={!folded}
+                  title={folded ? `展開「${group.name}」（${children.length} 項）` : `收合「${group.name}」`}
+                  onClick={() => toggleGroupFold(group.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleGroupFold(group.id);
+                    }
+                  }}
                 >
-                  <CategoryBadge cat={c} size="sm" />
-                  <span className="line-name">{c.name}</span>
-                  {(byCat[c.id] ?? 0) >= MIN && <span className="n">{fmtDur(byCat[c.id])}</span>}
-                </button>
-              ))}
-            </div>
-          ))}
+                  <span>{group.name}</span>
+                  <span className="trunk-caret" aria-hidden="true">
+                    {folded ? `${children.length} ▸` : "▾"}
+                  </span>
+                </div>
+                {!folded &&
+                  children.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`line-item ns-tt-cover-cat${pickedCat === c.id ? " active" : ""}`}
+                      aria-pressed={pickedCat === c.id}
+                      title={`在統計只看「${c.name}」`}
+                      onClick={() => showCategoryStats(c.id)}
+                    >
+                      <CategoryBadge cat={c} size="sm" />
+                      <span className="line-name">{c.name}</span>
+                      {(byCat[c.id] ?? 0) >= MIN && <span className="n">{fmtDur(byCat[c.id])}</span>}
+                    </button>
+                  ))}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

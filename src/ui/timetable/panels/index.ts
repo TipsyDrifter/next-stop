@@ -20,10 +20,11 @@ import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore
 import { TagSheetPanel } from "./TagSheetPanel"; // ⑥ 乙席
 import { RoutineSegPanel } from "./RoutineSegPanel"; // ⑦ C 席
 import { SlotPanel } from "./SlotPanel"; // ⑦ C 席
+import { AdhocPanel } from "./AdhocPanel"; // 第三梯（討論 6）
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore"; // ⑦ C 席
 import { segName } from "../../../domain/timetableRoutine"; // ⑦ C 席
 export type { PanelProps } from "./controls";
-export { BlockPanel, CategoryManagerPanel, DepartPanel, LongRunPanel, SplitPanel, TaskCategoryPanel };
+export { BlockPanel, CategoryManagerPanel, DepartPanel, LongRunPanel, SplitPanel, TaskCategoryPanel, AdhocPanel };
 
 /** ②：linkInfo 選填（host 沒傳就讀 store 現值；taskCategory 的任務名在開面板前已放進 linkInfo） */
 type TitleState = Pick<TimetableStore, "running" | "catById" | "dayBlocks" | "todayBlocks" | "weekBlocks"> &
@@ -73,6 +74,16 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
       const it = st.slots[sheet.key];
       return (it && st.nodes[it.nodeId]?.name) || TT_TEXT.viewSchedule;
     }
+    case "adhoc": {
+      // 第三梯（討論 6）：臨時班次＝主題或路線／分類名
+      const st = useTimetableScheduleStore.getState();
+      const ad = st.adhocs[sheet.key];
+      if (!ad) return "臨時班次";
+      const br = ad.branchNodeId ? st.nodes[ad.branchNodeId] : undefined;
+      const rt = ad.routeId ? st.nodes[ad.routeId] : br?.route_id ? st.nodes[br.route_id] : undefined;
+      const cat = ad.categoryId ? s.catById[ad.categoryId] : undefined;
+      return ad.label || br?.name || rt?.name || cat?.name || "臨時班次";
+    }
     case "routine": {
       // ⑦ C 席：作息段＝段的名字（沒有就分類名）
       const g = useTimetablePlanStore.getState().days[sheet.day]?.segs.find((x) => x.id === sheet.id);
@@ -94,7 +105,7 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
  * 這種面板有沒有黏底按鈕列（UI 丙-4 C1／C3；兩個 host 共用）：有 ⇒ host 給殼一個 foot、面板的 `<Actions>` portal 進去。
  * 沒有的：即時存（分類與設定、算哪一類、荷札、待確認清單——規範 §2.3「即時存的表單沒有主鈕」）與發車（點分類即發車）。
  */
-const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "longRun", "goal", "plan", "routine", "slot"]);
+const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "longRun", "goal", "plan", "routine", "slot", "adhoc"]);
 export function sheetHasFoot(kind: TimetableSheet["kind"]): boolean {
   return FOOT_KINDS.has(kind);
 }
@@ -128,6 +139,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(RoutineSegPanel, { onDone, key: `${sheet.day}-${sheet.id}` });
     case "slot": // ⑦ C 席：同上
       return createElement(SlotPanel, { onDone, key: sheet.key });
+    case "adhoc": // 第三梯（討論 6）：臨時班次
+      return createElement(AdhocPanel, { onDone, key: sheet.key });
     default:
       return createElement(DepartPanel, { onDone });
   }

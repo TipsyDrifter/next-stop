@@ -59,6 +59,7 @@ import { corePages, linePages, openPages, reviewPages } from "../shell/pages";
 import { requestArrive } from "../panel/arrivalFlows";
 import { CoverSavedFilters } from "../board/CoverSavedFilters";
 import { GNAV_ICONS, svgProps } from "./gnavIcons";
+import { useCollapsedSet } from "./useCollapsedSet";
 // 側欄工具插槽（通車的線的 mount `sidebarTool`）與頁務件插槽（`sidebarAux`，接縫 #50）：查 `lines/runtime`、不 import `lines/mounts`——
 // 本元件在 App 的 import 清單裡排在 pageViews 之前，import mounts 會把線的元件樹與 CSS 提早求值（理由見 runtime.ts 檔頭）
 import { lineNavBadge, lineSidebarAux, lineSidebarTools } from "../../lines/runtime";
@@ -322,11 +323,12 @@ export function Sidebar() {
     ];
   };
 
-  /* ───────── 回饋乙：拖曳（tree：幹線 0 層、路線 1 層） ───────── */
+  /* ───────── 回饋乙：拖曳（tree：幹線 0 層、路線 1 層）＋回饋筆記②：點擊幹線標題收合／展開 ───────── */
+  const [collapsedLines, toggleLineFold] = useCollapsedSet("ns.sidebar.collapsed_lines");
   const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
   const dragItems = lines.flatMap((l) => [
     { id: l.id, depth: 0 },
-    ...routes.filter((r) => r.line_id === l.id).map((r) => ({ id: r.id, depth: 1 })),
+    ...(collapsedLines.has(l.id) ? [] : routes.filter((r) => r.line_id === l.id).map((r) => ({ id: r.id, depth: 1 }))),
   ]);
   const kindOf = (id: string) => (lineIds.includes(id) ? "line" : "route");
   useDragReorder({
@@ -506,6 +508,7 @@ export function Sidebar() {
             <h2>我的路線 MY LINES</h2>
             {lines.map((line) => {
               const lineRoutes = routes.filter((r) => r.line_id === line.id);
+              const folded = collapsedLines.has(line.id);
               return (
                 <section key={line.id} aria-label={`幹線 ${line.name}`}>
                   <div
@@ -513,58 +516,79 @@ export function Sidebar() {
                     data-drag-id={line.id}
                     onContextMenu={rowContextMenu(() => ({ overline: LINE_OV, label: `幹線「${line.name}」的動作`, items: lineMenu(line) }))}
                   >
-                    <div className="trunk">幹線・{line.name}</div>
+                    <div
+                      className={`trunk trunk-toggle${folded ? " is-folded" : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={!folded}
+                      title={folded ? `展開幹線「${line.name}」（${lineRoutes.length} 條路線）` : `收合幹線「${line.name}」`}
+                      onClick={() => toggleLineFold(line.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleLineFold(line.id);
+                        }
+                      }}
+                    >
+                      <span>幹線・{line.name}</span>
+                      <span className="trunk-caret" aria-hidden="true">
+                        {folded ? `${lineRoutes.length} ▸` : "▾"}
+                      </span>
+                    </div>
                     <SideMore label={`幹線「${line.name}」的動作`} overline={LINE_OV} items={() => lineMenu(line)} />
                   </div>
-                  {lineRoutes.map((route) => {
-                    // 路線圖頁在看路線一覽時沒有「目前這條」（丁 D-主-239）
-                    const current = page === "routemap" && !overview && route.id === routeId;
-                    const note = stationNote[route.id];
-                    const open = routeOpenCounts[route.id] ?? 0;
-                    const openText = open > 0 ? `・未完成 ${open} 項` : "";
-                    return (
-                      <div key={route.id}>
-                        <div
-                          className="line-row"
-                          data-drag-id={route.id}
-                          data-drop-target={route.id}
-                          data-drop-type="route"
-                          onContextMenu={rowContextMenu(() => ({ overline: ROUTE_OV, label: `路線「${route.name}」的動作`, items: routeMenu(route) }))}
-                        >
+                  {!folded &&
+                    lineRoutes.map((route) => {
+                      // 路線圖頁在看路線一覽時沒有「目前這條」（丁 D-主-239）
+                      const current = page === "routemap" && !overview && route.id === routeId;
+                      const note = stationNote[route.id];
+                      const open = routeOpenCounts[route.id] ?? 0;
+                      const openText = open > 0 ? `・未完成 ${open} 項` : "";
+                      return (
+                        <div key={route.id}>
                           <div
-                            role="button"
-                            tabIndex={0}
-                            className={`line-item${current ? " active" : ""}`}
-                            onClick={() => onOpenRoute(route.id)}
-                            onKeyDown={(e) => onItemKey(e, route.id)}
-                            aria-current={current ? "page" : undefined}
-                            title={(note ? `${route.name}・下一站 ${note}` : route.name) + openText}
-                            aria-label={open > 0 ? `${route.name}，未完成 ${open} 項` : undefined}
+                            className="line-row"
+                            data-drag-id={route.id}
+                            data-drop-target={route.id}
+                            data-drop-type="route"
+                            onContextMenu={rowContextMenu(() => ({ overline: ROUTE_OV, label: `路線「${route.name}」的動作`, items: routeMenu(route) }))}
                           >
-                            <RouteRoundel route={route} />
-                            <span className="line-name">{route.name}</span>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className={`line-item${current ? " active" : ""}`}
+                              onClick={() => onOpenRoute(route.id)}
+                              onKeyDown={(e) => onItemKey(e, route.id)}
+                              aria-current={current ? "page" : undefined}
+                              title={(note ? `${route.name}・下一站 ${note}` : route.name) + openText}
+                              aria-label={open > 0 ? `${route.name}，未完成 ${open} 項` : undefined}
+                            >
+                              <RouteRoundel route={route} />
+                              <span className="line-name">{route.name}</span>
+                            </div>
+                            {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字、不寫字；0 不畫），在 ⋯ 左邊；點穿到路線列 */}
+                            {open > 0 && (
+                              <span className="ns-routecount line-count" aria-hidden="true">
+                                {open}
+                              </span>
+                            )}
+                            {/* ⋯：詳情…（原本的 ✎＝這條路線的詳情側板，UI 丙-3 C1／C6）、上移／下移、移到幹線 ▾ */}
+                            <SideMore label={`路線「${route.name}」的動作`} overline={ROUTE_OV} items={() => routeMenu(route)} />
                           </div>
-                          {/* 回饋甲 D-主-130：未完成的末端項目數（淡色數字、不寫字；0 不畫），在 ⋯ 左邊；點穿到路線列 */}
-                          {open > 0 && (
-                            <span className="ns-routecount line-count" aria-hidden="true">
-                              {open}
-                            </span>
+                          {note && (
+                            <p className="station-note" aria-label={`下一站 ${note}`}>
+                              <IconStationMark />
+                              {note}
+                            </p>
                           )}
-                          {/* ⋯：詳情…（原本的 ✎＝這條路線的詳情側板，UI 丙-3 C1／C6）、上移／下移、移到幹線 ▾ */}
-                          <SideMore label={`路線「${route.name}」的動作`} overline={ROUTE_OV} items={() => routeMenu(route)} />
                         </div>
-                        {note && (
-                          <p className="station-note" aria-label={`下一站 ${note}`}>
-                            <IconStationMark />
-                            {note}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                  <button type="button" className="line-add" onClick={() => openRouteDialog({ lineId: line.id, editId: null })}>
-                    ＋ 路線
-                  </button>
+                      );
+                    })}
+                  {!folded && (
+                    <button type="button" className="line-add" onClick={() => openRouteDialog({ lineId: line.id, editId: null })}>
+                      ＋ 路線
+                    </button>
+                  )}
                 </section>
               );
             })}

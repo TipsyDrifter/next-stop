@@ -7,7 +7,7 @@
  * - 拖曳、點選、面板開關都在這裡收成幾支動作，兩殼只管排版。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { addSegNode, scheduleSpansOf, useTimetableScheduleStore, useScheduleCompare } from "../../../store/timetableScheduleStore";
+import { ADHOC_TEXT, addSegNode, isAddAdhoc, scheduleSpansOf, useTimetableScheduleStore, useScheduleCompare, type AdhocItem } from "../../../store/timetableScheduleStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -33,7 +33,10 @@ export function useSchedulePage(shell: ScheduleShell) {
   const error = useTimetableScheduleStore((s) => s.error);
   // ⑦（C 席）：車票第二段起、預定欄的卡（第一段＋第二段起同一套 lane）、作息
   const slots = useTimetableScheduleStore((s) => s.slots);
+  const adhocs = useTimetableScheduleStore((s) => s.adhocs);
   const blocks = useTimetableScheduleStore((s) => s.blocks);
+  const scheduleMode = useTimetableScheduleStore((s) => s.scheduleMode);
+  const setScheduleMode = useTimetableScheduleStore((s) => s.setScheduleMode);
   const routineDay = useTimetablePlanStore((s) => s.days[date] ?? null);
   const slotsByNode = useTimetablePlanStore((s) => s.slotsByNode);
   const dayBlocks = useTimetableStore((s) => s.dayBlocks);
@@ -58,7 +61,7 @@ export function useSchedulePage(shell: ScheduleShell) {
     return () => {
       off();
       const s = useTimetableStore.getState().sheet;
-      if (s?.kind === "plan" || s?.kind === "slot" || s?.kind === "routine") useTimetableStore.getState().closeSheet();
+      if (s?.kind === "plan" || s?.kind === "slot" || s?.kind === "adhoc" || s?.kind === "routine") useTimetableStore.getState().closeSheet();
     };
   }, []);
 
@@ -81,7 +84,7 @@ export function useSchedulePage(shell: ScheduleShell) {
   useEffect(() => {
     setSel(null);
     const s = useTimetableStore.getState().sheet;
-    if ((s?.kind === "plan" || s?.kind === "slot") && !s.key.startsWith(dayKey + "-")) useTimetableStore.getState().closeSheet();
+    if ((s?.kind === "plan" || s?.kind === "slot" || s?.kind === "adhoc") && !s.key.startsWith(dayKey + "-")) useTimetableStore.getState().closeSheet();
     if (s?.kind === "routine" && s.day !== dayKey) useTimetableStore.getState().closeSheet();
   }, [dayKey]);
   const win = useMemo(() => {
@@ -93,8 +96,8 @@ export function useSchedulePage(shell: ScheduleShell) {
   const isPast = date < todayKey;
   const isFuture = date > todayKey;
   const canEdit = cmp.canEdit && !busy;
-  /** 開著面板的卡：第一段（plan）或第二段起（slot） */
-  const openKey = sheet?.kind === "plan" || sheet?.kind === "slot" ? sheet.key : null;
+  /** 開著面板的卡：第一段（plan）、第二段起（slot）或臨時班次（adhoc） */
+  const openKey = sheet?.kind === "plan" || sheet?.kind === "slot" || sheet?.kind === "adhoc" ? sheet.key : null;
   /** ⑦：開著面板的作息段 id */
   const openRoutineId = sheet?.kind === "routine" && sheet.day === date ? sheet.id : null;
 
@@ -117,23 +120,25 @@ export function useSchedulePage(shell: ScheduleShell) {
 
   /** 作用中的預定項（描金的那一張） */
   const activeKey = useMemo((): string | null => {
-    if (hover?.kind === "plan" && (items[hover.id] || slots[hover.id])) return hover.id;
+    if (hover?.kind === "plan" && (items[hover.id] || slots[hover.id] || adhocs[hover.id])) return hover.id;
     if (hover?.kind === "block") return cmp.planKeyOfBlock.get(hover.id) ?? null;
     return openKey ?? sel;
-  }, [hover, items, slots, cmp.planKeyOfBlock, openKey, sel]);
+  }, [hover, items, slots, adhocs, cmp.planKeyOfBlock, openKey, sel]);
   const activeBlocks = useMemo(() => {
     if (activeKey) return new Set(cmp.cmp.get(activeKey)?.blockIds ?? []);
     // ⑦：作息段的面板開著 ⇒ 描它對到的塊
     return new Set(openRoutineId ? (routineCmp.get(openRoutineId)?.blockIds ?? []) : []);
   }, [activeKey, cmp.cmp, openRoutineId, routineCmp]);
 
-  /** 點位置／拖放：還沒排的票＝排時刻；第二段起＝換位置；「再排一段」＝在這裡加一段（⑦） */
+  /** 點位置／拖放：還沒排的票＝排時刻；第二段起＝換位置；臨時班次＝換位置或新增；「再排一段」＝在這裡加一段（⑦） */
   const place = useCallback((key: string, min: number): void => {
     const t = clockText(min) as ClockText | null;
     if (!t) return;
     const st = useTimetableScheduleStore.getState();
     const add = addSegNode(key);
-    if (add !== null) void st.addSegment(add, t);
+    if (isAddAdhoc(key)) void st.addAdhocAt(t);
+    else if (add !== null) void st.addSegment(add, t);
+    else if (st.adhocs[key]) void st.moveAdhoc(key, t);
     else if (st.slots[key]) void st.moveSlot(key, t);
     else void st.placeAt(key, t);
   }, []);
@@ -141,7 +146,9 @@ export function useSchedulePage(shell: ScheduleShell) {
   const openPlan = useCallback((key: string): void => {
     setSel(null);
     const st = useTimetableScheduleStore.getState();
-    useTimetableStore.getState().openSheet(st.slots[key] ? { kind: "slot", key } : { kind: "plan", key });
+    useTimetableStore.getState().openSheet(
+      st.adhocs[key] ? { kind: "adhoc", key } : st.slots[key] ? { kind: "slot", key } : { kind: "plan", key },
+    );
   }, []);
 
   /** ⑦：點作息段開它的小面板 */
@@ -199,6 +206,8 @@ export function useSchedulePage(shell: ScheduleShell) {
     toToday,
     // ⑦（C 席）
     slots,
+    adhocs,
+    catById,
     blocks,
     slotsByNode,
     routineDay,
@@ -206,6 +215,8 @@ export function useSchedulePage(shell: ScheduleShell) {
     routineSummary,
     openRoutineId,
     openRoutine,
+    scheduleMode,
+    setScheduleMode,
   };
 }
 
@@ -216,4 +227,21 @@ export function routeColorOf(page: Pick<SchedulePage, "nodes" | "routeById">, no
   const n = page.nodes[nodeId];
   const r = n?.route_id ? page.routeById[n.route_id] : undefined;
   return r?.color ?? "var(--ns-tt-cat-8)";
+}
+
+/** 臨時班次的顯示名稱與色票（主題名 → 支線名 → 路線名 → 分類名 → 臨時班次） */
+export function adhocDisplayOf(
+  page: Pick<SchedulePage, "nodes" | "routeById" | "catById">,
+  ad: AdhocItem,
+): { name: string; color: string; sub: string | null } {
+  const br = ad.branchNodeId ? page.nodes[ad.branchNodeId] : undefined;
+  const effRouteId = ad.routeId ?? br?.route_id ?? null;
+  const rt = effRouteId ? page.routeById[effRouteId] : undefined;
+  const cat = ad.categoryId ? page.catById[ad.categoryId] : undefined;
+  const linkLabel = br ? (rt ? `${rt.name} › ${br.name}` : br.name) : rt?.name ?? null;
+  const fallback = linkLabel ?? cat?.name ?? ADHOC_TEXT.fallbackName;
+  const name = ad.label?.trim() || fallback;
+  const sub = ad.label?.trim() ? (linkLabel ?? cat?.name ?? null) : (linkLabel && cat ? cat.name : null);
+  const color = rt?.color ?? (cat ? `var(--ns-tt-cat-${cat.color_idx})` : "var(--ns-tt-cat-8)");
+  return { name, color, sub };
 }

@@ -29,6 +29,7 @@ import { IconX, Roundel } from "./notesBits";
 import { notesFlush } from "./notesFlush";
 import { SideWeeks } from "./SideWeeks";
 import { TagTree } from "./tags/TagTree";
+import { useCollapsedSet } from "../sidebar/useCollapsedSet";
 import "./notes-tags.css";
 import "./notes-md.css";
 
@@ -54,6 +55,7 @@ export function NotesCoverAux() {
   const diaryCount = useNotesStore((s) => Object.values(s.diaryMarks).reduce((a, b) => a + b, 0));
   const routes = useNodeStore((s) => s.routes);
   const tagCount = useTagStore((s) => (s.index ? Object.values(s.index.byKey).filter((x) => x.real).length : null));
+  const [collapsedAux, toggleAuxFold] = useCollapsedSet("ns.sidebar.collapsed_notes_aux");
 
   const notesCount = notesTotal;
 
@@ -113,34 +115,42 @@ export function NotesCoverAux() {
       <div className="ns-notes-auxbody">
         {section === "inbox" && (
           <div className="ns-notes-auxroutes" role="group" aria-label="依種類篩選">
-            <AuxCaption k="篩選" v="種類" />
-            {kindBtn("all", "全部", inboxCount)}
-            {kindBtn("note", "筆記", inboxNoteCount)}
-            {kindBtn("ticket", "車票", inboxTicketCount)}
+            <AuxCaption k="篩選" v="種類" folded={collapsedAux.has("inbox")} onToggle={() => toggleAuxFold("inbox")} />
+            {!collapsedAux.has("inbox") && (
+              <>
+                {kindBtn("all", "全部", inboxCount)}
+                {kindBtn("note", "筆記", inboxNoteCount)}
+                {kindBtn("ticket", "車票", inboxTicketCount)}
+              </>
+            )}
           </div>
         )}
 
         {section === "notes" && (
           <div className="ns-notes-auxroutes" role="group" aria-label="依路線篩選">
-            <AuxCaption k="篩選" v="路線" />
-            {q.underNode && (
-              <div className="line-item ns-notes-auxroute active ns-notes-auxunder" title={`只看掛在「${q.underNode.label}」與它底下的筆記`}>
-                <span aria-hidden className="roundel ns-notes-rdblank" />
-                <span className="line-name">› {q.underNode.label}</span>
-                <button
-                  type="button"
-                  className="x"
-                  aria-label={`清除「${q.underNode.label}」篩選`}
-                  title="清除篩選"
-                  onClick={() => void goFilter(undefined)}
-                >
-                  <IconX size={11} />
-                </button>
-              </div>
+            <AuxCaption k="篩選" v="路線" folded={collapsedAux.has("notes")} onToggle={() => toggleAuxFold("notes")} />
+            {!collapsedAux.has("notes") && (
+              <>
+                {q.underNode && (
+                  <div className="line-item ns-notes-auxroute active ns-notes-auxunder" title={`只看掛在「${q.underNode.label}」與它底下的筆記`}>
+                    <span aria-hidden className="roundel ns-notes-rdblank" />
+                    <span className="line-name">› {q.underNode.label}</span>
+                    <button
+                      type="button"
+                      className="x"
+                      aria-label={`清除「${q.underNode.label}」篩選`}
+                      title="清除篩選"
+                      onClick={() => void goFilter(undefined)}
+                    >
+                      <IconX size={11} />
+                    </button>
+                  </div>
+                )}
+                {filterBtn("$all", undefined, "全部", <span aria-hidden className="roundel ns-notes-rdblank" />)}
+                {filterBtn("$none", "none", "無路線", <Roundel route={null} />)}
+                {routes.map((r) => filterBtn(r.id, r.id, r.name, <Roundel route={r} />))}
+              </>
             )}
-            {filterBtn("$all", undefined, "全部", <span aria-hidden className="roundel ns-notes-rdblank" />)}
-            {filterBtn("$none", "none", "無路線", <Roundel route={null} />)}
-            {routes.map((r) => filterBtn(r.id, r.id, r.name, <Roundel route={r} />))}
           </div>
         )}
 
@@ -148,8 +158,8 @@ export function NotesCoverAux() {
 
         {section === "tags" && (
           <>
-            <AuxCaption k="目錄" v="荷札" />
-            <TagTree />
+            <AuxCaption k="目錄" v="荷札" folded={collapsedAux.has("tags")} onToggle={() => toggleAuxFold("tags")} />
+            {!collapsedAux.has("tags") && <TagTree />}
           </>
         )}
       </div>
@@ -157,11 +167,28 @@ export function NotesCoverAux() {
   );
 }
 
-/** 子畫面切換下面那一行小標：「篩選・種類」——說明下面那塊是篩選、翻日還是目錄（丁 D-主-237） */
-function AuxCaption({ k, v }: { k: string; v: string }) {
+/** 子畫面切換下面那一行小標：「篩選・種類」——說明下面那塊是篩選、翻日還是目錄（丁 D-主-237；第三梯 v1.29 支援點擊收合） */
+function AuxCaption({ k, v, folded, onToggle }: { k: string; v: string; folded: boolean; onToggle: () => void }) {
   return (
-    <h2 className="sub ns-notes-auxcap">
-      <b>{k}</b>・{v}
+    <h2
+      className={`sub ns-notes-auxcap trunk-toggle${folded ? " is-folded" : ""}`}
+      role="button"
+      tabIndex={0}
+      aria-expanded={!folded}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      <span>
+        <b>{k}</b>・{v}
+      </span>
+      <span className="trunk-caret" aria-hidden="true">
+        {folded ? "▸" : "▾"}
+      </span>
     </h2>
   );
 }

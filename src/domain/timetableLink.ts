@@ -10,8 +10,8 @@
  */
 import { msOf, type BlockLink, type TimeBlockRow } from "./timetable.ts";
 
-/** 能連的節點種類（〈開工決定〉✎二-1）；不連支線、路線（路線用 route_id）、車站、幹線 */
-export const LINKABLE_KINDS: readonly string[] = ["ticket", "train", "car"];
+/** 能連的節點種類（〈開工決定〉✎二-1；v1.29 D-時-191 擴充支線 branch）：車票、列車、車廂、支線（路線用 route_id；不連車站、幹線） */
+export const LINKABLE_KINDS: readonly string[] = ["ticket", "train", "car", "branch"];
 
 /** store.linkInfo 的一格（節點與路線共用；② 契約 0-16） */
 export interface LinkInfo {

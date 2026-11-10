@@ -79,6 +79,8 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(19, "0019_waitroom_kind", "waiting room: wr_kinds (user-managed kinds with realize action; seeds via repository) + tk_wishes.kind_id/target_kind/target_id (realized-into record; alive = realized, mirrors entry_id)"),
     // ⑫ 看板與篩選（D-主-471）；正式號 0020（主對話 11-06 發）
     mig!(20, "0020_node_station", "node station: nodes.station_id (leaf tasks attach to a station of their route; orphans resolved at read time)"),
+    // 第六本第三梯（D-時-190）；正式號 0021（主對話 11-10 發）
+    mig!(21, "0021_time_plan_adhoc", "timetable adhoc plans: time_plans.kind ('adhoc') + time_plans.route_id (optional route binding for adhoc/theme reservations)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -221,6 +223,11 @@ mod tests {
             20,
             "0020_node_station",
             "cd7521635d02511afb4a120c5a54a8b7885ed4765c3b47a0e8934d6274a6308fc78f3868ebbdd3cdeb1e049991237507",
+        ),
+        (
+            21,
+            "0021_time_plan_adhoc",
+            "5fd0a431ee70dea312cf3d6aa49e753c0fcd30e5354dd03e43d7c0eade66a6228bfb1f5df53877f4f27374b8ae84eac0",
         ),
     ];
 

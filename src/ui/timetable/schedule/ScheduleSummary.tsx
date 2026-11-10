@@ -11,31 +11,63 @@ import { Fragment } from "react";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { MIN } from "../../../domain/timetable";
 import { DateNav } from "../../common/DateNav";
+import { Segmented } from "../../common/Segmented";
 import { DnTitle } from "../parts/DateNavTitle";
 import { SCHED_UI, mdw, splitNums } from "./scheduleModel";
 import { RT_UI } from "./routineModel"; // ⑦ C 席
 import { RoutinePicker } from "./RoutinePicker"; // ⑦ C 席
+import { threeDaysOf, weekDaysOf } from "./ScheduleWeekGrid";
+import type { ScheduleMode } from "../../../store/timetableScheduleStore";
 import type { SchedulePage } from "./useSchedulePage";
+
+const shortMd = (key: string): string => {
+  const [, m, d] = key.split("-").map(Number);
+  return `${m}/${d}`;
+};
 
 /**
  * UI 丙-4 D9：自畫的 ‹ › 與「回到今天」膠囊換共用 DateNav（兩殼同一顆）。動作＝`page.stepDay`／`page.toToday`
  * （＝鍵盤 ←／→／T 走的同一支 setDayKey）；日程能翻到未來 ⇒ › 不停用；「今天」chip 已在今天就原地不動。
+ * 第三梯（討論 6 方案 A）：右側加上「單日 ｜ 週時段（手機：三日時段）」切換。
  */
 export function ScheduleNav({ page }: { page: SchedulePage }) {
-  const { dayKey, todayKey } = page;
-  const isToday = dayKey === todayKey;
-  const tag = dayKey === page.date ? page.dayTag : isToday ? TT_TEXT.schedToday : null;
+  const { dayKey, todayKey, scheduleMode, setScheduleMode, shell } = page;
+  const desk = shell === "desktop";
+  const isWeek = scheduleMode === "week";
+  const spanDays = isWeek ? (desk ? weekDaysOf(dayKey) : threeDaysOf(dayKey)) : [dayKey];
+  const isToday = isWeek ? spanDays.includes(todayKey) : dayKey === todayKey;
+  const step = isWeek ? (desk ? 7 : 3) : 1;
+  const titleText = isWeek ? `${shortMd(spanDays[0])} – ${shortMd(spanDays[spanDays.length - 1])}` : mdw(dayKey);
+  const tag = isWeek
+    ? isToday
+      ? "本週"
+      : null
+    : dayKey === page.date
+      ? page.dayTag
+      : isToday
+        ? TT_TEXT.schedToday
+        : null;
   return (
     <div className="ns-tt-sched-nav">
       <DateNav
         className="ns-tt-dnav"
-        title={<DnTitle text={mdw(dayKey)} tag={tag} />}
-        onPrev={() => page.stepDay(-1)}
-        onNext={() => page.stepDay(1)}
+        title={<DnTitle text={titleText} tag={tag} />}
+        onPrev={() => page.stepDay(-step)}
+        onNext={() => page.stepDay(step)}
         onToday={() => {
-          if (!isToday) page.toToday();
+          if (!isToday || dayKey !== todayKey) page.toToday();
         }}
-        isToday={isToday}
+        isToday={isToday && dayKey === todayKey}
+      />
+      <Segmented
+        className="ns-tt-sched-modeseg"
+        aria-label="日程時段檢視模式"
+        value={scheduleMode}
+        onChange={(v) => setScheduleMode(v as ScheduleMode)}
+        options={[
+          { value: "day", label: "單日" },
+          { value: "week", label: desk ? "週時段" : "三日時段" },
+        ]}
       />
     </div>
   );

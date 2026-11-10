@@ -201,3 +201,33 @@
 }
 .cover .page-aux .roundel { width: 19px; height: 19px; font-size: 9px; } /* 字面值：頁務件的小圓牌（同 §2.9 圓牌微字） */
 .cover .page-aux .roundel.is-blank { border: 1px dashed color-mix(in srgb, var(--book-muted) 70%, transparent); }
+
+/* ─── 第三梯 v1.29（回饋筆記②）：側邊欄群組標題可點擊收合／展開 ─── */
+.cover .trunk-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius-ctl);
+  transition: color .15s;
+}
+.cover .trunk-toggle:hover {
+  color: var(--color-book-ink);
+}
+.cover .trunk-toggle:focus-visible {
+  outline: 1px solid var(--color-gold);
+  outline-offset: 2px;
+}
+.cover .trunk-toggle .trunk-caret {
+  margin-left: auto;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  letter-spacing: .06em;
+  opacity: .55;
+  transition: opacity .15s;
+}
+.cover .trunk-toggle:hover .trunk-caret,
+.cover .trunk-toggle.is-folded .trunk-caret {
+  opacity: .88;
+}

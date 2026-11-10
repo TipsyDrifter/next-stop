@@ -1295,3 +1295,68 @@ describe("20. 評審 #4：since 起點一年前的目標，不把整段歷史拉
     assert.ok(ms < 300, `${ms.toFixed(1)}ms`);
   });
 });
+
+describe("21. 第三梯・跨層級時間目標（討論 7：分類／路線／支線／車票／列車／車廂／#荷札 自由聯集＋向上匯總）", () => {
+  test("goalScopeJson 與 parseGoal：支援 categories + routes + nodes 跨層級 scope", () => {
+    const raw = goalScopeJson(["c1"], false, { routeIds: ["R1"], nodeIds: ["B1", "T1"] });
+    assert.equal(raw, JSON.stringify({ v: 2, cats: ["c1"], routes: ["R1"], nodes: ["B1", "T1"] }));
+    const g = parseGoal(goalRow({ scope: raw }), 6)!;
+    assert.deepEqual(g.categoryIds, ["c1"]);
+    assert.deepEqual(g.routeIds, ["R1"]);
+    assert.deepEqual(g.nodeIds, ["B1", "T1"]);
+
+    // 只選路線與支線（不選分類）也能通過 normalizeGoalInput
+    const norm = normalizeGoalInput({
+      name: "日文路線每週 5h",
+      categoryIds: [],
+      routeIds: ["R-JP"],
+      nodeIds: ["B-N4"],
+      period: "week",
+      direction: "atLeast",
+      targetMin: 300,
+      startOn: null,
+      endOn: null,
+    });
+    assert.deepEqual(norm.routeIds, ["R-JP"]);
+    assert.deepEqual(norm.nodeIds, ["B-N4"]);
+  });
+
+  test("buildGoals：聯集（OR）匹配分類、路線、節點（含支線／列車向上匯總）與荷札，不重複加總", () => {
+    const now = L(10, 19, 18); // 2026-10-19（週一）18:00
+    const g = parseGoal(
+      goalRow({
+        id: "g-cross",
+        name: "跨層級目標",
+        period: "week",
+        scope: goalScopeJson(["c1"], false, { routeIds: ["R1"], nodeIds: ["B2"] }),
+        target_min: 180,
+      }),
+      6,
+    )!;
+    // span 1: 分類 c1（命中分類）= 60m
+    // span 2: 分類 c2 + 路線 R1（命中路線）= 60m
+    // span 3: 分類 c3 + 節點 t-b2（祖先含支線 B2，命中向上匯總）= 60m
+    // span 4: 分類 c1 + 路線 R1（同時命中分類與路線，聯集只算一次）= 30m
+    // span 5: 分類 c3 + 路線 R9（都不命中）= 90m
+    const spans: StatsSpan[] = [
+      sp("s1", "c1", L(10, 19, 8), L(10, 19, 9)),
+      sp("s2", "c2", L(10, 19, 9), L(10, 19, 10), { routeId: "R1", nodeId: "t-r1" }),
+      sp("s3", "c3", L(10, 19, 10), L(10, 19, 11), { routeId: "R2", nodeId: "t-b2" }),
+      sp("s4", "c1", L(10, 19, 11), L(10, 19, 11, 30), { routeId: "R1", nodeId: "t-r1" }),
+      sp("s5", "c3", L(10, 19, 12), L(10, 19, 13, 30), { routeId: "R9", nodeId: "t-other" }),
+    ];
+    const views = buildGoals([g], spans, CATS, {
+      now,
+      h: 6,
+      weekStart: 1,
+      thresholdMin: () => 240,
+      routeOf: (s) => s.routeId ?? ROUTE_NONE,
+      ancestorsOfNode: (nid) => (nid === "t-b2" ? ["t-b2", "train-1", "B2", "R2"] : [nid]),
+      liveRouteIds: new Set(["R1", "R2"]),
+      liveNodeIds: new Set(["B2", "t-b2", "t-r1"]),
+    });
+    assert.equal(views.length, 1);
+    assert.equal(views[0].emptyScope, false);
+    assert.equal(views[0].cur.ms, (60 + 60 + 60 + 30) * MIN, "s1 + s2 + s3 + s4 = 210 分鐘");
+  });
+});

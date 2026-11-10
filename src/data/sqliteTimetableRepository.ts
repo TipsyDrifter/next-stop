@@ -1090,7 +1090,7 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const position = (max[0]?.m ?? -1) + 1;
     const now = nowUtcIso();
     const id = uuid();
-    const scope = goalScopeJson(v.categoryIds, (tagNames?.length ?? 0) > 0); // ⑥ 0-4：有荷札 ⇒ v2
+    const scope = goalScopeJson(v.categoryIds, (tagNames?.length ?? 0) > 0, { routeIds: v.routeIds, nodeIds: v.nodeIds }); // ⑥ 0-4／D-時-192：有荷札／路線／任務 ⇒ v2
     const b = newWriteBatch();
     b.stmts.push({
       sql: `INSERT INTO time_goals
@@ -1128,7 +1128,10 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const curTags = this.tags ? (await this.tags.listTagsOf(TT_TAG_GOAL, id)).map((t) => t.name) : [];
     const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch, tagNames: patch.tagNames ?? curTags });
     const tagNames = patch.tagNames !== undefined ? checkTagNames(v.tagNames ?? []) : undefined;
-    const scope = goalScopeNext(cur.scope, v.categoryIds, (tagNames ?? curTags).length > 0); // v2 有黏性
+    const scope = goalScopeNext(cur.scope, v.categoryIds, (tagNames ?? curTags).length > 0, {
+      routeIds: v.routeIds,
+      nodeIds: v.nodeIds,
+    }); // v2 有黏性
     const sets: string[] = [];
     const args: unknown[] = [];
     const cols: Record<string, unknown> = {};
@@ -1480,7 +1483,10 @@ export class SqliteTimetableRepository implements TimetableRepository {
 
   async listPlansByNode(nodeId: string): Promise<TimePlanRow[]> {
     const db = await getDb();
-    const rows = await db.select<TimePlanRow[]>(`SELECT * FROM time_plans WHERE ${ALIVE} AND node_id = $1`, [nodeId]);
+    const rows = await db.select<TimePlanRow[]>(
+      `SELECT * FROM time_plans WHERE ${ALIVE} AND node_id = $1 AND (kind IS NULL OR kind != 'adhoc')`,
+      [nodeId],
+    );
     return rows.sort(planOrder);
   }
 
@@ -1528,10 +1534,24 @@ export class SqliteTimetableRepository implements TimetableRepository {
       if (have.has(u.id)) continue;
       have.add(u.id);
       b.stmts.push({
-        sql: `INSERT INTO time_plans (id, day, start_hm, end_hm, category_id, node_id, routine_id, label, created_at, updated_at, deleted_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        sql: `INSERT INTO time_plans (id, day, start_hm, end_hm, category_id, node_id, routine_id, label, kind, route_id, created_at, updated_at, deleted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT(id) DO NOTHING`,
-        args: [u.id, u.day, u.start_hm, u.end_hm, u.category_id, u.node_id, u.routine_id, planLabelOf(u.label), u.created_at ?? now, now, u.deleted ? now : null],
+        args: [
+          u.id,
+          u.day,
+          u.start_hm,
+          u.end_hm,
+          u.category_id,
+          u.node_id,
+          u.routine_id,
+          planLabelOf(u.label),
+          u.kind ?? null,
+          u.route_id ?? null,
+          u.created_at ?? now,
+          now,
+          u.deleted ? now : null,
+        ],
       });
     }
     // 不加 op：runWriteBatch 沒有 op ⇒ 只跑資料語句（同一個交易），不進 outbox、不戳 sync_cells、不叫醒同步
@@ -1550,17 +1570,24 @@ export class SqliteTimetableRepository implements TimetableRepository {
       const createdAt = prev?.created_at ?? now;
       const deletedAt = u.deleted ? now : null;
       const label = planLabelOf(u.label);
+      const kind = u.kind ?? null;
+      const routeId = u.route_id ?? null;
       b.stmts.push({
-        sql: `INSERT INTO time_plans (id, day, start_hm, end_hm, category_id, node_id, routine_id, label, created_at, updated_at, deleted_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        sql: `INSERT INTO time_plans (id, day, start_hm, end_hm, category_id, node_id, routine_id, label, kind, route_id, created_at, updated_at, deleted_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT(id) DO UPDATE SET
            day = excluded.day, start_hm = excluded.start_hm, end_hm = excluded.end_hm, category_id = excluded.category_id,
            node_id = excluded.node_id, routine_id = excluded.routine_id, label = excluded.label,
+           kind = excluded.kind, route_id = excluded.route_id,
            updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
-        args: [u.id, u.day, u.start_hm, u.end_hm, u.category_id, u.node_id, u.routine_id, label, createdAt, now, deletedAt],
+        args: [u.id, u.day, u.start_hm, u.end_hm, u.category_id, u.node_id, u.routine_id, label, kind, routeId, createdAt, now, deletedAt],
       });
       // 收到方沒有這列時必填欄要齊 ⇒ 完整列（「這天不套」的標記也是完整列＋deleted_at：收到方要建得出這個墓碑，落地判定才看得到）
-      addOp(b, "time_plans", u.id, "upsert", { ...planFullCols({ ...u, label, created_at: createdAt }), updated_at: now, deleted_at: deletedAt });
+      addOp(b, "time_plans", u.id, "upsert", {
+        ...planFullCols({ ...u, label, kind, route_id: routeId, created_at: createdAt }),
+        updated_at: now,
+        deleted_at: deletedAt,
+      });
     }
     const gone: TimePlanRow[] = [];
     for (const id of w.deletes) {
@@ -1595,6 +1622,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
     put("start_hm", patch.start_hm, cur.start_hm);
     put("end_hm", patch.end_hm, cur.end_hm);
     put("category_id", patch.category_id, cur.category_id);
+    put("node_id", patch.node_id, cur.node_id);
+    put("route_id", patch.route_id, cur.route_id ?? null);
     if (patch.label !== undefined) put("label", planLabelOf(patch.label), cur.label ?? null);
     if (!sets.length) return;
     const now = nowUtcIso();
@@ -1634,7 +1663,10 @@ export class SqliteTimetableRepository implements TimetableRepository {
  * label 要是存的值（已過 `planLabelOf`）。
  */
 function planFullCols(
-  r: Pick<TimePlanRow, "day" | "start_hm" | "end_hm" | "category_id" | "node_id" | "routine_id" | "label" | "created_at">,
+  r: Pick<TimePlanRow, "day" | "start_hm" | "end_hm" | "category_id" | "node_id" | "routine_id" | "label" | "created_at"> & {
+    kind?: string | null;
+    route_id?: string | null;
+  },
 ): Record<string, unknown> {
   return {
     day: r.day,
@@ -1644,6 +1676,8 @@ function planFullCols(
     node_id: r.node_id,
     routine_id: r.routine_id,
     label: r.label ?? null,
+    kind: r.kind ?? null,
+    route_id: r.route_id ?? null,
     created_at: r.created_at,
   };
 }

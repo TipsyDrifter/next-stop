@@ -34,6 +34,7 @@ import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { capsOfHotkey } from "../shell/hotkeys";
 import { addDays } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
+import { jumpToTimetableSchedule } from "../../store/timetableScheduleStore";
 import { hotkeyCaps } from "../common/PopMenu";
 import { PageHeader } from "../common/PageHeader";
 import { WeekAimsBand } from "../weekAims/WeekAimsBand";
@@ -72,11 +73,10 @@ const MONTH_EN = [
   "December",
 ];
 
-/** 工具列第一格：四種排列（分頁籤，規範 §2.2；舊 `.seg` 四鈕退役） */
+/** 工具列第一格：三種排列（第三梯 v1.29 時段排程大一統：時段已搬至「時刻表 › 日程」） */
 const VIEW_TABS: readonly TabItem<CalendarViewMode>[] = [
   { key: "month", label: "月", hotkeyTitle: "按月看" },
   { key: "week", label: "週", hotkeyTitle: "按週看" },
-  { key: "time", label: "時段", hotkeyTitle: "時段：一週七天照幾點排" },
   { key: "stream", label: "串流", hotkeyTitle: "串流：從今天往上下捲" },
 ];
 
@@ -188,6 +188,20 @@ export function CalendarView() {
                 <span className="ns-pagehead-latin">{week ? week.latin : monthEn}</span>
                 {/* 頁邊手寫（粉彩；銀河 calendar.css 藏）。串流沒有「本區間」⇒ 不畫 */}
                 {!stream && <MonthMarginNote range={c.range} today={c.today} />}
+                <button
+                  type="button"
+                  className="ns-cal-jump-tt"
+                  title="前往時刻表 › 日程排時段"
+                  onClick={() =>
+                    jumpToTimetableSchedule(
+                      stream ? (focusDay ?? c.today) : (c.selectedDay ?? c.today),
+                      "desktop",
+                      c.view === "week" ? "week" : "day",
+                    )
+                  }
+                >
+                  排時段 ›
+                </button>
               </>
             }
             stats={stream ? undefined : <MonthStats />}

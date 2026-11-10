@@ -37,6 +37,10 @@ import {
   planLabelOf,
   serializeRoutineItems,
   slotsOfNode,
+  adhocsOfDay,
+  isAdhocRow,
+  isRoutineRow,
+  isSlotRow,
   toggleWeekday,
   weekdayBitOf,
   weekdayOwners,
@@ -79,6 +83,8 @@ function plan(over: Partial<TimePlanRow>): TimePlanRow {
     node_id: null,
     routine_id: null,
     label: null,
+    kind: null,
+    route_id: null,
     account_id: null,
     device_id: null,
     created_at: "2026-11-01T00:00:00.000Z",
@@ -620,5 +626,59 @@ describe("同步清單：time_routines／time_plans", () => {
     assert.equal(slot.fmt!("routine_id", null), "（手動加的）");
     assert.equal(slot.fmt!("routine_id", "r-1"), "工作日");
     assert.equal(slot.fmt!("day", "2026-11-03"), "11/3");
+  });
+});
+
+describe("臨時班次／主題預留時段（第三梯・討論 6）", () => {
+  test("isAdhocRow／isRoutineRow／isSlotRow／adhocsOfDay：區分臨時班次與車票多時段／作息段", () => {
+    const adhocRow = plan({
+      id: "ah-1",
+      day: "2026-11-02",
+      start_hm: "14:00",
+      end_hm: "16:00",
+      category_id: "c-study",
+      node_id: "b-n4",
+      route_id: "r-jp",
+      label: planLabelOf(" 讀日文／文法 "),
+      kind: "adhoc",
+    });
+    const slotRow = plan({ id: "sl-1", day: "2026-11-02", start_hm: "10:00", end_hm: "11:00", node_id: "b-n4", category_id: null });
+    const routineRow = plan({ id: "rt-1", day: "2026-11-02", start_hm: "09:00", end_hm: "10:00", category_id: "c-create", node_id: null });
+
+    assert.equal(isAdhocRow(adhocRow), true);
+    assert.equal(isRoutineRow(adhocRow), false);
+    assert.equal(isSlotRow(adhocRow), false);
+
+    assert.equal(isSlotRow(slotRow), true);
+    assert.equal(isAdhocRow(slotRow), false);
+
+    assert.equal(isRoutineRow(routineRow), true);
+    assert.equal(isAdhocRow(routineRow), false);
+
+    // 車票多時段不把 adhoc 當成車票段
+    assert.deepEqual(slotsOfNode([adhocRow, slotRow], "b-n4").map((r) => r.id), ["sl-1"]);
+
+    // adhocsOfDay 只取活著的 adhoc 列並依時間排序
+    const adhocEarly = plan({
+      id: "ah-0",
+      day: "2026-11-02",
+      start_hm: "10:30",
+      end_hm: "11:30",
+      kind: "adhoc",
+      route_id: "r-jp",
+      label: "專題推進",
+    });
+    const adhocDeleted = plan({
+      id: "ah-del",
+      day: "2026-11-02",
+      start_hm: "08:00",
+      end_hm: "09:00",
+      kind: "adhoc",
+      deleted_at: "2026-11-02T01:00:00.000Z",
+    });
+    assert.deepEqual(
+      adhocsOfDay([adhocRow, slotRow, routineRow, adhocEarly, adhocDeleted], "2026-11-02").map((r) => r.id),
+      ["ah-0", "ah-1"],
+    );
   });
 });

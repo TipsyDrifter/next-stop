@@ -109,6 +109,114 @@ input.ns-tt-rtp-name::placeholder { color: var(--color-ink-faint); }
 /* 挑位置提示條在作息帶時代的長相不變（UnscheduledTray 的 .ns-tt-sched-pickhint）；這裡只補一個名字的粗體 */
 .ns-tt-sched-pickhint b { font-weight: 600; color: var(--color-ink); }
 
+/* ── 第三梯（討論 6）：臨時班次虛線車廂邊框與小牌、日程單日｜週時段切換、週時段互動畫布 ── */
+.ns-tt-sched-card.is-adhoc,
+.ns-tg-blk.is-adhoc {
+  border: 1.5px dashed color-mix(in srgb, var(--rc, var(--color-dash)) 72%, var(--color-dash));
+  background: color-mix(in srgb, var(--rc, var(--ns-tt-cat-8)) 11%, var(--ns-tt-sched-solid, var(--bg-card)));
+}
+.ns-tt-sched-tag.is-adhoc {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--color-dash));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  letter-spacing: .04em;
+}
+.ns-tt-sched-adhoc-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 24px;
+  padding: 1px 8px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: .04em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.ns-tt-sched-adhoc-btn:hover,
+.ns-tt-sched-adhoc-btn.is-pick {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--sel-fg);
+  background: var(--sel-bg);
+}
+.ns-tt-sched-adhoc-btn.is-compact {
+  margin-left: 0;
+  margin-top: 3px;
+  min-height: 20px;
+  padding: 0 5px;
+  font-size: var(--fs-micro);
+}
+.ns-tt-sched-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+[data-shell="mobile"] .ns-tt-sched-nav {
+  justify-content: space-between;
+  padding: 0 12px;
+}
+.ns-tt-sched-modeseg {
+  flex: none;
+}
+.ns-tt-wksched {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ns-tt-wksched > .ns-tg {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ns-tt-wk-corner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.ns-tt-wk-pickbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  border-bottom: 1px dashed var(--color-dash);
+  background: var(--sel-bg);
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+}
+.ns-tt-wk-pickacts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ns-tg-col.is-picking {
+  cursor: crosshair;
+}
+.ns-tg-dh {
+  cursor: pointer;
+}
+.ns-tt-adhoc-routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ns-tt-rt, .ns-tt-rtpick { transition: none; }
+  .ns-tt-rt, .ns-tt-rtpick, .ns-tt-sched-adhoc-btn { transition: none; }
 }

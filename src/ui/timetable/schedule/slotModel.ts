@@ -19,11 +19,22 @@ export interface SlotItem extends PlanItem {
   end: ClockText;
 }
 
-/** 預定欄的一張卡（第一段＝timeGridModel 的 block、第二段起＝SlotItem）——兩種一起排 lane（契約 §4「同一套 lane」） */
+/** v1.29 D-時-191：臨時班次／主題預留時段（虛線車廂邊框，可綁路線／支線或時間分類） */
+export interface AdhocItem extends PlanItem {
+  planId: string;
+  end: ClockText;
+  label: string | null;
+  categoryId: string | null;
+  routeId: string | null;
+  branchNodeId: string | null;
+  isAdhoc: true;
+}
+
+/** 預定欄的一張卡（第一段＝timeGridModel 的 block、第二段起＝SlotItem、臨時班次＝AdhocItem）——一起排 lane */
 export interface SchedBlock {
   key: string;
   nodeId: string;
-  /** 第二段起＝time_plans 的 id；第一段＝null */
+  /** 第二段起／臨時班次＝time_plans 的 id；第一段＝null */
   slotId: string | null;
   startMin: number;
   endMin: number;
@@ -33,8 +44,9 @@ export interface SchedBlock {
 }
 
 export const slotKeyOf = (date: string, nodeId: string, planId: string): string => `${date}-${nodeId}-seg-${planId}`;
+export const adhocKeyOf = (date: string, planId: string): string => `${date}-adhoc-${planId}`;
 
-/** 那一天的 time_plans 車票段 → SlotItem（票刪了＝nodes 裡沒有 ⇒ 不畫；票蓋済＝段也済） */
+/** 那一天的 time_plans 車票段 → SlotItem（票刪了＝nodes 裡沒有 ⇒ 不畫；票蓋済＝段也済；臨時班次不算車票段） */
 export function slotItemsOf(
   date: string,
   rows: readonly TimePlanRow[],
@@ -43,6 +55,7 @@ export function slotItemsOf(
 ): Record<string, SlotItem> {
   const out: Record<string, SlotItem> = {};
   for (const r of rows) {
+    if (r.kind === "adhoc") continue;
     const nodeId = r.node_id;
     if (nodeId === null || r.deleted_at !== null) continue;
     const n = nodes[nodeId];
@@ -71,11 +84,49 @@ export function slotItemsOf(
   return out;
 }
 
+/** v1.29 D-時-191：那一天的臨時班次列 → AdhocItem */
+export function adhocItemsOf(date: string, rows: readonly TimePlanRow[]): Record<string, AdhocItem> {
+  const out: Record<string, AdhocItem> = {};
+  for (const r of rows) {
+    if (r.kind !== "adhoc" || r.deleted_at !== null) continue;
+    const s = clockMinutes(r.start_hm);
+    const e = clockMinutes(r.end_hm);
+    if (s === null || e === null || e <= s) continue;
+    const key = adhocKeyOf(date, r.id);
+    out[key] = {
+      key,
+      nodeId: r.node_id ?? `adhoc:${r.id}`,
+      date,
+      kind: "single",
+      time: r.start_hm,
+      overridden: false,
+      estimateMin: e - s,
+      done: false,
+      skipped: false,
+      lateFrom: null,
+      carriedFrom: null,
+      planId: r.id,
+      end: r.end_hm,
+      label: r.label,
+      categoryId: r.category_id,
+      routeId: r.route_id ?? null,
+      branchNodeId: r.node_id,
+      isAdhoc: true,
+    };
+  }
+  return out;
+}
+
 /**
- * 預定欄的卡：第一段（timeGridModel 的 blocks）＋第二段起，一起重排 lane（同 timeGridModel.assignLanes 的掃法：
+ * 預定欄的卡：第一段（timeGridModel 的 blocks）＋第二段起＋臨時班次，一起重排 lane（同 timeGridModel.assignLanes 的掃法：
  * 依開始 → lane 尾遞減 → key；cluster 內放第一個空出來的 lane；lane 的長度保底 LANE_MIN_MIN）。軸外的段不畫（側板照列）。
  */
-export function schedBlocksOf(grid: TimeGridDay | null, slots: Readonly<Record<string, SlotItem>>, h: number): SchedBlock[] {
+export function schedBlocksOf(
+  grid: TimeGridDay | null,
+  slots: Readonly<Record<string, SlotItem>>,
+  h: number,
+  adhocs: Readonly<Record<string, AdhocItem>> = {},
+): SchedBlock[] {
   const axisMin = h * 60;
   const axisMax = axisMin + 1440;
   const out: SchedBlock[] = (grid?.blocks ?? []).map((b) => ({
@@ -90,7 +141,7 @@ export function schedBlocksOf(grid: TimeGridDay | null, slots: Readonly<Record<s
   }));
   const laneEnd = new Map<string, number>();
   for (const b of grid?.blocks ?? []) laneEnd.set(b.key, b.startMin + Math.max(b.noEstimate ? NO_ESTIMATE_MIN : b.endMin - b.startMin, LANE_MIN_MIN));
-  for (const it of Object.values(slots)) {
+  for (const it of [...Object.values(slots), ...Object.values(adhocs)]) {
     const s = clockMinutes(it.time as ClockText);
     if (s === null || s < axisMin || s >= axisMax) continue;
     const len = it.estimateMin ?? NO_ESTIMATE_MIN;

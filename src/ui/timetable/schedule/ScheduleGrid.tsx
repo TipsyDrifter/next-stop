@@ -105,12 +105,21 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
     if (page.sel) page.setSel(null);
   };
 
+  const onPcolDoubleClick = (e: ReactMouseEvent): void => {
+    if (!canEdit || picked) return;
+    if ((e.target as HTMLElement | null)?.closest(".ns-tt-sched-card, .ns-tt-rt")) return;
+    const m = minAtY(e.clientY);
+    if (m === null) return;
+    const t = clockText(m);
+    if (t) void page.place("addadhoc", m);
+  };
+
   const cls =
     "ns-tt-sched-grid" +
     (canEdit ? "" : " is-ro") +
     (picked ? " is-picking" : "") +
     (drag ? " is-dragging" : "") +
-    (activeKey && (items[activeKey] || slots[activeKey]) && !drag ? " is-hl" : "") +
+    (activeKey && (items[activeKey] || slots[activeKey] || page.adhocs[activeKey]) && !drag ? " is-hl" : "") +
     (page.openRoutineId && !activeKey && !drag ? " is-hl" : "");
 
   return (
@@ -129,6 +138,7 @@ export function ScheduleGrid({ page, layout, hourPx, drag, onDragStart, swallowC
           className={"ns-tt-sched-pcol is-" + layout + (hasRoutine ? " has-rt" : "")}
           ref={pcolRef}
           onClick={onPcolClick}
+          onDoubleClick={onPcolDoubleClick}
           onPointerMove={(e) => {
             if (picked && e.pointerType === "mouse") setPickHint(minAtY(e.clientY));
           }}

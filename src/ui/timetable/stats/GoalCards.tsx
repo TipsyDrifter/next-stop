@@ -100,13 +100,19 @@ function stampOf(v: GoalView): Stamp | null {
 function GoalCard({ v }: { v: GoalView }) {
   const catById = useCatById();
   const tagNameOf = useTagNameOf();
+  const routeNames = useTimetableStatsStore((s) => s.routeNames);
+  const goalNodeNames = useTimetableStatsStore((s) => s.goalNodeNames);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const archiveGoal = useTimetableStore((s) => s.archiveGoal);
   const T = TT_TEXT.statsUi;
   const g = v.goal;
   const tagNames = (g.tagKeys ?? []).map(tagNameOf);
+  const extraLabels = [
+    ...(g.routeIds ?? []).map((rid) => routeNames[rid]?.name ?? "路線"),
+    ...(g.nodeIds ?? []).map((nid) => goalNodeNames[nid]?.name ?? "項目"),
+  ];
 
-  // ⑥：綁的荷札都不在了（分類本來就沒綁）⇒ 範圍空、不畫條（原型 vt-glost）
+  // ⑥：綁的荷札或項目都不在了（分類本來就沒綁）⇒ 範圍空、不畫條（原型 vt-glost）
   if (v.emptyScope && g.categoryIds.length === 0) {
     return (
       <article className="ns-tt-goal is-dim is-lost" data-goal-id={g.id}>
@@ -178,7 +184,7 @@ function GoalCard({ v }: { v: GoalView }) {
       </div>
       <p className="ns-tt-goal-sub">
         <span className="ns-tt-goal-per">{per}</span>
-        <span>{scopeText(v.liveCategoryIds.length ? v.liveCategoryIds : g.categoryIds, catById, tagNames)}</span>
+        <span>{scopeText(v.liveCategoryIds.length ? v.liveCategoryIds : g.categoryIds, catById, tagNames, extraLabels)}</span>
       </p>
       {v.state !== "upcoming" && (
         <div className="ns-tt-goal-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>

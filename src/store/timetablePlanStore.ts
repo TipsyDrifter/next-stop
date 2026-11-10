@@ -20,7 +20,9 @@ import { uuid } from "../lib/db";
 import { clockMinutes, clockRange, clockText, todayKey, type ClockText } from "../lib/date";
 import { TIME_FORMAT_MSG } from "../domain/scheduledTime";
 import {
+  adhocsOfDay,
   dayRoutineOf,
+  isAdhocRow,
   isMaterialized,
   planApplyRoutine,
   planEnsureMaterialized,
@@ -61,6 +63,28 @@ export interface SlotPatch {
   keepLength?: boolean;
 }
 
+/** v1.29 D-時-191：新增或修改一段臨時班次預留時段 */
+export interface AdhocInput {
+  day: string;
+  s: ClockText;
+  e: ClockText;
+  label?: string | null;
+  categoryId?: string | null;
+  routeId?: string | null;
+  nodeId?: string | null;
+}
+
+export interface AdhocPatch {
+  day?: string;
+  s?: ClockText;
+  e?: ClockText;
+  label?: string | null;
+  categoryId?: string | null;
+  routeId?: string | null;
+  nodeId?: string | null;
+  keepLength?: boolean;
+}
+
 export interface TimetablePlanState {
   /** 範本（未刪除、含封存），position 序 */
   routines: TimeRoutineRow[];
@@ -87,6 +111,8 @@ export interface TimetablePlanState {
   rowsForDay(dayKey: string): DayRoutine | null;
   /** 那一天的車票段（活著的，開始時刻序）；沒載過＝[] */
   slotsForDay(dayKey: string): TimePlanRow[];
+  /** v1.29 D-時-191：那一天的臨時班次列（活著的，開始時刻序）；沒載過＝[] */
+  adhocsForDay(dayKey: string): TimePlanRow[];
 
   /* ── 某一天的作息 ── */
   /** 換成某一套（同一套＝重新套用）；null＝這天不套。`out.undo`：寫成功才有，收回新段、還原舊段（走一般寫入、照常送 op；撤回用） */
@@ -114,6 +140,12 @@ export interface TimetablePlanState {
   editSlot(id: string, patch: SlotPatch, out?: { prev?: { s: ClockText; e: ClockText } }): Promise<boolean>;
   deleteSlot(id: string): Promise<boolean>;
   restoreSlot(id: string): Promise<boolean>;
+
+  /* ── v1.29 D-時-191：臨時班次預留時段 ── */
+  addAdhoc(input: AdhocInput): Promise<TimePlanRow | null>;
+  editAdhoc(id: string, patch: AdhocPatch, out?: { prev?: { s: ClockText; e: ClockText } }): Promise<boolean>;
+  deleteAdhoc(id: string): Promise<boolean>;
+  restoreAdhoc(id: string): Promise<boolean>;
 
   reload(ctx: LineReloadContext): Promise<void>;
 }
@@ -334,8 +366,12 @@ export const useTimetablePlanStore = create<TimetablePlanState>()((set, get) => 
   slotsForDay(dayKey) {
     const rows = get().rowsByDay[dayKey] ?? [];
     return rows
-      .filter((r) => r.node_id !== null && r.deleted_at === null)
+      .filter((r) => r.node_id !== null && !isAdhocRow(r) && r.deleted_at === null)
       .sort((a, b) => (a.start_hm < b.start_hm ? -1 : a.start_hm > b.start_hm ? 1 : 0) || (a.id < b.id ? -1 : 1));
+  },
+
+  adhocsForDay(dayKey) {
+    return adhocsOfDay(get().rowsByDay[dayKey] ?? []);
   },
 
   /* ── 某一天的作息 ── */
@@ -521,6 +557,80 @@ export const useTimetablePlanStore = create<TimetablePlanState>()((set, get) => 
       const cur = await timetableRepo.getPlan(id);
       if (cur && cur.day in get().rowsByDay) await refetchDays([cur.day]);
       if (cur) await refetchNodes([cur.node_id]);
+    });
+  },
+
+  /* ── v1.29 D-時-191：臨時班次預留時段 ── */
+
+  async addAdhoc(input) {
+    let row: TimePlanRow | null = null;
+    const ok = await run(async () => {
+      checkFutureDay(input.day);
+      checkRange(input.s, input.e);
+      const id = uuid();
+      const label = input.label?.trim() || null;
+      await timetableRepo.insertPlans([
+        {
+          id,
+          day: input.day,
+          start_hm: input.s,
+          end_hm: input.e,
+          category_id: input.categoryId ?? null,
+          node_id: input.nodeId ?? null,
+          routine_id: null,
+          label,
+          kind: "adhoc",
+          route_id: input.routeId ?? null,
+        },
+      ]);
+      row = await timetableRepo.getPlan(id);
+      await refetchDays([input.day]);
+    });
+    return ok ? row : null;
+  },
+
+  async editAdhoc(id, patch, out) {
+    return run(async () => {
+      const cur = await timetableRepo.getPlan(id);
+      if (!cur || !isAdhocRow(cur)) throw new RangeError("找不到這段臨時班次");
+      if (patch.day !== undefined) checkFutureDay(patch.day);
+      let e = patch.e;
+      if (patch.keepLength && patch.s !== undefined && e === undefined) {
+        const s0 = clockMinutes(cur.start_hm);
+        const e0 = clockMinutes(cur.end_hm);
+        const sm = clockMinutes(patch.s);
+        if (s0 === null || e0 === null || sm === null) throw new RangeError(TIME_FORMAT_MSG);
+        e = clockText(Math.min(sm + (e0 - s0), clockRange(dayStart()).max + 1)) ?? undefined;
+      }
+      checkRange(patch.s ?? cur.start_hm, e ?? cur.end_hm);
+      const p: PlanPatch = {};
+      if (patch.day !== undefined) p.day = patch.day;
+      if (patch.s !== undefined) p.start_hm = patch.s;
+      if (e !== undefined) p.end_hm = e;
+      if (patch.label !== undefined) p.label = patch.label?.trim() || null;
+      if (patch.categoryId !== undefined) p.category_id = patch.categoryId;
+      if (patch.routeId !== undefined) p.route_id = patch.routeId;
+      if (patch.nodeId !== undefined) p.node_id = patch.nodeId;
+      await timetableRepo.updatePlan(id, p);
+      if (out) out.prev = { s: cur.start_hm, e: cur.end_hm };
+      await refetchDays([cur.day, ...(patch.day ? [patch.day] : [])].filter((d) => d in get().rowsByDay));
+    });
+  },
+
+  async deleteAdhoc(id) {
+    return run(async () => {
+      const cur = await timetableRepo.getPlan(id);
+      if (!cur || !isAdhocRow(cur)) throw new RangeError("找不到這段臨時班次");
+      await timetableRepo.deletePlan(id);
+      if (cur.day in get().rowsByDay) await refetchDays([cur.day]);
+    });
+  },
+
+  async restoreAdhoc(id) {
+    return run(async () => {
+      await timetableRepo.restorePlan(id);
+      const cur = await timetableRepo.getPlan(id);
+      if (cur && cur.day in get().rowsByDay) await refetchDays([cur.day]);
     });
   },
 

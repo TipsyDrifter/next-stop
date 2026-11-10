@@ -11,7 +11,7 @@
  */
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { TT_TEXT } from "../../../store/timetableStore";
-import { SEG_DEFAULT_MIN, addSegNode, useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
+import { ADD_ADHOC_KEY, ADHOC_TEXT, SEG_DEFAULT_MIN, addSegNode, isAddAdhoc, useTimetableScheduleStore } from "../../../store/timetableScheduleStore";
 import { SEG_UI } from "./routineModel"; // ⑦ C 席
 import { useUiStore } from "../../../store/uiStore";
 import { useScheduleUiStore } from "../../schedule/scheduleUiStore";
@@ -88,16 +88,32 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
       {TT_TEXT.schedLateRepeat(lateRepeatCount)} ›
     </button>
   ) : null;
-  // ⑦（C 席）：挑位置的不是還沒排的票，而是「再排一段」或第二段起換位置 ⇒ 提示條寫是哪一張、多長
+  // ⑦（C 席）：挑位置的不是還沒排的票，而是「再排一段」、第二段起／臨時班次換位置或新增臨時班次 ⇒ 提示條寫是哪一張、多長
   const addNode = addSegNode(picked);
   const moving = picked ? page.slots[picked] : undefined;
+  const movingAdhoc = picked ? page.adhocs[picked] : undefined;
   let hintText: string = desk ? SCHED_UI.pickHintDesk : TT_TEXT.schedPickHint;
-  if (addNode !== null) {
+  if (isAddAdhoc(picked)) {
+    hintText = ADHOC_TEXT.pickAdd;
+  } else if (addNode !== null) {
     const est = nodes[addNode]?.estimate_min ?? null;
     hintText = SEG_UI.pickAdd(nodes[addNode]?.name ?? "？", fmtDur((typeof est === "number" && est > 0 ? est : SEG_DEFAULT_MIN) * MIN));
   } else if (moving) {
     hintText = SEG_UI.pickMove(nodes[moving.nodeId]?.name ?? "？", "");
+  } else if (movingAdhoc) {
+    hintText = SEG_UI.pickMove(movingAdhoc.label || ADHOC_TEXT.fallbackName, "");
   }
+  const adhocBtn = !ro ? (
+    <button
+      type="button"
+      className={"ns-tt-sched-adhoc-btn" + (isAddAdhoc(picked) ? " is-pick" : "")}
+      aria-pressed={isAddAdhoc(picked)}
+      onClick={() => onPick(ADD_ADHOC_KEY)}
+      title="在預定欄任意時段新增一班臨時預留班次"
+    >
+      {ADHOC_TEXT.addBtn}
+    </button>
+  ) : null;
   const pickHint = picked ? (
     <p className="ns-tt-sched-pickhint">
       <span>{hintText}</span>
@@ -159,6 +175,7 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
           <b>{TT_TEXT.schedTrayTitle}</b>
           <span className="ns-tt-num">{list.length}</span>
           <small>{ro ? SCHED_UI.trayNoteRo : SCHED_UI.trayNoteEditMobile}</small>
+          {adhocBtn}
         </div>
         {list.length ? <div className="ns-tt-sched-chips">{entries}</div> : empty}
         {pickHint ?? lateLine}
@@ -170,6 +187,7 @@ export function UnscheduledTray({ page, mode, drag, onDragStart, swallowClick }:
       <div className="ns-tt-sched-un-h">
         <b>{TT_TEXT.schedTrayTitle}</b>
         <span className="ns-tt-num">{list.length}</span>
+        {adhocBtn}
       </div>
       <p className="ns-tt-sched-un-note">{ro ? TT_TEXT.schedPast : SCHED_UI.trayNoteEdit}</p>
       {list.length ? <div className="ns-tt-sched-ulist">{entries}</div> : empty}

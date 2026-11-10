@@ -41,21 +41,25 @@ export interface TimeRoutineRow {
   deleted_at: string | null;
 }
 
-/** time_plans 一列（某一天的預定：作息落地的段＝node_id NULL；車票第二段起＝node_id 非 NULL） */
+/** time_plans 一列（某一天的預定：作息落地的段＝kind NULL 且 node_id NULL；車票第二段起＝kind NULL 且 node_id 非 NULL；臨時班次＝kind 'adhoc'） */
 export interface TimePlanRow {
   id: string;
   /** 'YYYY-MM-DD' 日界線日 */
   day: string;
   start_hm: ClockText;
   end_hm: ClockText;
-  /** 作息段：分類；車票段：NULL */
+  /** 作息段／臨時班次：分類；車票段：NULL */
   category_id: string | null;
-  /** 車票段：車票；作息段：NULL */
+  /** 車票段：車票；臨時班次：支線（選填）；作息段：NULL */
   node_id: string | null;
-  /** 從哪套範本落地（手動加的作息段、車票段＝NULL） */
+  /** 從哪套範本落地（手動加的作息段、車票段、臨時班次＝NULL） */
   routine_id: string | null;
-  /** 作息段的名字（D-時-167；早餐／午餐分得開）；NULL＝用分類名。0014 定稿前的測資沒有這欄 ⇒ undefined 當 null */
+  /** 作息段／臨時班次的名字（D-時-167／D-時-190）；NULL＝用分類名或路線名。0014 定稿前的測資沒有這欄 ⇒ undefined 當 null */
   label: string | null;
+  /** NULL＝作息段或車票分段；'adhoc'＝臨時班次／主題預留時段（0021） */
+  kind?: string | null;
+  /** 臨時班次綁定的路線 ID（綁支線時一併填所屬路線；0021） */
+  route_id?: string | null;
   account_id: string | null;
   device_id: string | null;
   created_at: string;
@@ -83,6 +87,10 @@ export interface PlanUpsert {
   routine_id: string | null;
   /** 段的名字（null＝用分類名；車票段一律 null） */
   label: string | null;
+  /** NULL＝作息段／車票段；'adhoc'＝臨時班次 */
+  kind?: string | null;
+  /** 臨時班次綁定路線 ID */
+  route_id?: string | null;
   deleted?: boolean;
   /** 只有本機落地（`materializePlans`）看：補齊的列沿用這天那套已有的列的 created_at（「最新套的是哪一套」不被補齊打亂）；沒給＝現在 */
   created_at?: string;
@@ -94,6 +102,8 @@ export interface PlanPatch {
   start_hm?: ClockText;
   end_hm?: ClockText;
   category_id?: string | null;
+  node_id?: string | null;
+  route_id?: string | null;
   /** null／空白＝清掉（用分類名） */
   label?: string | null;
 }
@@ -121,9 +131,12 @@ export function planLabelOf(raw: string | null | undefined): string | null {
   return t ? t : null;
 }
 
-/** 作息段（node_id NULL）；車票段（node_id 非 NULL）。 */
-export const isRoutineRow = (r: Pick<TimePlanRow, "node_id">): boolean => r.node_id === null;
-export const isSlotRow = (r: Pick<TimePlanRow, "node_id">): boolean => r.node_id !== null;
+/** 作息段（kind 非 adhoc 且 node_id NULL）；車票段（kind 非 adhoc 且 node_id 非 NULL）；臨時班次（kind === 'adhoc'）。 */
+export const isAdhocRow = (r: { kind?: string | null }): boolean => r.kind === "adhoc";
+export const isRoutineRow = (r: Pick<TimePlanRow, "node_id"> & { kind?: string | null }): boolean =>
+  (r.kind ?? null) !== "adhoc" && r.node_id === null;
+export const isSlotRow = (r: Pick<TimePlanRow, "node_id"> & { kind?: string | null }): boolean =>
+  (r.kind ?? null) !== "adhoc" && r.node_id !== null;
 
 /* ───────────────────────── 2. 範本的段 JSON ───────────────────────── */
 
@@ -301,7 +314,7 @@ export function autoRoutineFor(dayKey: string, routines: readonly TimeRoutineRow
 
 /** D 有任何 routine_id 不是 NULL 的作息列（含已刪）＝已落地 */
 export function isMaterialized(rowsOfDay: readonly TimePlanRow[]): boolean {
-  return rowsOfDay.some((r) => r.node_id === null && r.routine_id !== null);
+  return rowsOfDay.some((r) => isRoutineRow(r) && r.routine_id !== null);
 }
 
 /** 一套範本落到某一天的列（依範本的段順序；id 見 `routinePlanId`）。範本讀不懂 ⇒ [] */
@@ -378,7 +391,7 @@ const segOfRow = (r: TimePlanRow): RoutineSeg => ({
 export function dayWinnerRoutine(rowsOfDay: readonly TimePlanRow[]): string | null {
   const newest = new Map<string, string>();
   for (const r of rowsOfDay) {
-    if (r.node_id !== null || r.deleted_at !== null || r.routine_id === null) continue;
+    if (!isRoutineRow(r) || r.deleted_at !== null || r.routine_id === null) continue;
     const cur = newest.get(r.routine_id);
     if (cur === undefined || r.created_at > cur) newest.set(r.routine_id, r.created_at);
   }
@@ -407,7 +420,7 @@ export async function dayRoutineOf(
   routines: readonly TimeRoutineRow[],
   today: string,
 ): Promise<DayRoutine> {
-  const mine = rowsOfDay.filter((r) => r.day === day && r.node_id === null);
+  const mine = rowsOfDay.filter((r) => r.day === day && isRoutineRow(r));
   const alive = mine.filter((r) => r.deleted_at === null);
   if (isMaterialized(mine)) {
     const routineId = dayWinnerRoutine(alive);
@@ -463,7 +476,7 @@ export async function planFillRoutine(
   rowsOfDay: readonly TimePlanRow[],
   routines: readonly TimeRoutineRow[],
 ): Promise<PlanUpsert[]> {
-  const mine = rowsOfDay.filter((r) => r.day === day && r.node_id === null);
+  const mine = rowsOfDay.filter((r) => r.day === day && isRoutineRow(r));
   const have = new Set(mine.map((r) => r.id));
   const byRoutine = new Map<string, TimePlanRow[]>();
   for (const r of mine) {
@@ -504,7 +517,7 @@ export async function planApplyRoutine(
   routine: TimeRoutineRow | null,
   routines: readonly TimeRoutineRow[],
 ): Promise<PlanWrite> {
-  const mine = rowsOfDay.filter((r) => r.day === day && r.node_id === null);
+  const mine = rowsOfDay.filter((r) => r.day === day && isRoutineRow(r));
   let upserts: PlanUpsert[] = [];
   if (routine) {
     if (!routineHasItems(routine)) throw new RangeError(`「${routine.name}」還沒有段`);
@@ -536,6 +549,8 @@ export function planUndoApplyRoutine(rowsOfDay: readonly TimePlanRow[], w: PlanW
     node_id: r.node_id,
     routine_id: r.routine_id,
     label: r.label ?? null,
+    ...(r.kind !== undefined && r.kind !== null ? { kind: r.kind } : {}),
+    ...(r.route_id !== undefined && r.route_id !== null ? { route_id: r.route_id } : {}),
     ...(r.deleted_at !== null ? { deleted: true } : {}),
   });
   const upserts: PlanUpsert[] = [];
@@ -772,11 +787,24 @@ export function assignSpansToSegments(
 /** 一張票的第二段起（活著的），依日子、開始時刻；第 N 段＝index + 2（第一段是主線的時刻） */
 export function slotsOfNode(rows: readonly TimePlanRow[], nodeId: string): TimePlanRow[] {
   return rows
-    .filter((r) => r.node_id === nodeId && r.deleted_at === null)
+    .filter((r) => isSlotRow(r) && r.node_id === nodeId && r.deleted_at === null)
     .sort(
       (a, b) =>
         (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) ||
         (clockMinutes(a.start_hm) ?? 0) - (clockMinutes(b.start_hm) ?? 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+}
+
+/** 某一天的臨時班次／主題預留（活著的），依開始時刻、結束時刻、id */
+export function adhocsOfDay(rows: readonly TimePlanRow[], day?: string): TimePlanRow[] {
+  return rows
+    .filter((r) => isAdhocRow(r) && r.deleted_at === null && (day === undefined || r.day === day))
+    .sort(
+      (a, b) =>
+        (a.day < b.day ? -1 : a.day > b.day ? 1 : 0) ||
+        (clockMinutes(a.start_hm) ?? 0) - (clockMinutes(b.start_hm) ?? 0) ||
+        (clockMinutes(a.end_hm) ?? 0) - (clockMinutes(b.end_hm) ?? 0) ||
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
 }

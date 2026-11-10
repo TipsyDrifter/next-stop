@@ -192,11 +192,17 @@ export function categorySyncLabel(row: TimeCategoryRow, look: SyncLabelLookup, t
 export function scopeNames(v: unknown, look: SyncLabelLookup, text: SyncLabelText): string | null {
   if (typeof v !== "string") return null;
   let ids: unknown;
+  let routeIds: unknown = [];
+  let nodeIds: unknown = [];
   try {
     const o: unknown = JSON.parse(v);
     if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
-    const s = o as { v?: unknown; cats?: unknown; categories?: unknown };
+    const s = o as { v?: unknown; cats?: unknown; categories?: unknown; routes?: unknown; nodes?: unknown };
     ids = "v" in s ? (s.v === 2 ? s.cats : null) : s.categories;
+    if ("v" in s && s.v === 2) {
+      if (Array.isArray(s.routes)) routeIds = s.routes;
+      if (Array.isArray(s.nodes)) nodeIds = s.nodes;
+    }
   } catch {
     return null;
   }
@@ -205,6 +211,16 @@ export function scopeNames(v: unknown, look: SyncLabelLookup, text: SyncLabelTex
   for (const id of ids) {
     if (typeof id !== "string") continue;
     const n = look.categoryName(id);
+    if (n !== null) names.push(n);
+  }
+  for (const id of routeIds as unknown[]) {
+    if (typeof id !== "string") continue;
+    const n = look.routeName(id);
+    if (n !== null) names.push(n);
+  }
+  for (const id of nodeIds as unknown[]) {
+    if (typeof id !== "string") continue;
+    const n = look.nodeName(id);
     if (n !== null) names.push(n);
   }
   return names.length ? names.join("・") : text.syncNoScope;
@@ -270,6 +286,15 @@ export function routineSyncLabel(row: TimeRoutineRow, _look: SyncLabelLookup, te
 export function planLabel(row: TimePlanRow, look: SyncLabelLookup, text: SyncLabelText, ordinal: number | null): string {
   const span = `${row.start_hm}–${row.end_hm}`;
   const date = /^\d{4}-\d{2}-\d{2}$/.test(row.day) ? mdOfKey(row.day) + " " : "";
+  if (row.kind === "adhoc") {
+    const name =
+      row.label ??
+      (row.node_id !== null ? look.nodeName(row.node_id) : null) ??
+      (row.route_id ? look.routeName(row.route_id) : null) ??
+      (row.category_id !== null ? look.categoryName(row.category_id) : null) ??
+      "臨時班次";
+    return `${date}${name} ${span}`;
+  }
   if (row.node_id !== null) {
     const name = look.nodeName(row.node_id) ?? text.syncNodeGone;
     const nth = ordinal !== null && text.syncSlotOrdinal ? ` ${text.syncSlotOrdinal(ordinal)}` : "";
@@ -294,6 +319,12 @@ export function planSyncLabel(row: TimePlanRow, look: SyncLabelLookup, text: Syn
         case "node_id":
           if (v === null || v === undefined) return null;
           return typeof v === "string" ? (look.nodeName(v) ?? text.syncNodeGone) : null;
+        case "route_id":
+          if (v === null || v === undefined) return null;
+          return typeof v === "string" ? (look.routeName(v) ?? text.syncRouteGone) : null;
+        case "kind":
+          if (v === "adhoc") return "臨時班次";
+          return null;
         case "routine_id":
           if (v === null || v === undefined) return text.syncRoutineManual ?? null;
           return typeof v === "string" ? (look.routineName?.(v) ?? text.syncRoutineGone ?? null) : null;

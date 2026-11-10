@@ -40,13 +40,14 @@ import {
   type TimeWrite,
 } from "../domain/timetableSchedule";
 import { TIME_FORMAT_MSG } from "../domain/scheduledTime";
-import { clockMinutes, clockText, isClockInRange, todayKey, type ClockText } from "../lib/date";
+import { clockInstant, clockMinutes, clockText, isClockInRange, todayKey, type ClockText } from "../lib/date";
 import { timeGridModel, type TimeGridDay } from "../ui/schedule/timeGridModel";
-import { schedBlocksOf, segmentSpansOf, slotItemsOf, type SchedBlock, type SlotItem } from "../ui/timetable/schedule/slotModel";
+import { adhocItemsOf, adhocKeyOf, schedBlocksOf, segmentSpansOf, slotItemsOf, type AdhocItem, type SchedBlock, type SlotItem } from "../ui/timetable/schedule/slotModel";
 import { useNodeStore } from "./nodeStore";
 import { TT_TEXT, blockIsLongRun, useTimetableStore } from "./timetableStore";
 import { useTimetablePlanStore, type TimePlanRow } from "./timetablePlanStore";
 import { useUiStore } from "./uiStore";
+import { timetableRepo } from "../data/timetableRepository";
 
 export type { DaySummary, LinkedSpan, PlanCompare, PlanItem, PlanState, TimeWrite } from "../domain/timetableSchedule";
 
@@ -56,12 +57,17 @@ export interface ScheduleHover {
   id: string;
 }
 
-export type { SchedBlock, SlotItem } from "../ui/timetable/schedule/slotModel";
+export type { AdhocItem, SchedBlock, SlotItem } from "../ui/timetable/schedule/slotModel";
+export type ScheduleMode = "day" | "week";
 
 /** ⑦ C 席：「再排一段」挑位置時 `picked` 放的記號（不是預定項的 key） */
 const ADD_SEG = "addseg:";
 export const addSegKey = (nodeId: string): string => ADD_SEG + nodeId;
 export const addSegNode = (key: string | null): string | null => (key && key.startsWith(ADD_SEG) ? key.slice(ADD_SEG.length) : null);
+
+/** 第三梯（討論 6）：「＋ 臨時班次」挑位置時 `picked` 放的記號 */
+export const ADD_ADHOC_KEY = "addadhoc";
+export const isAddAdhoc = (key: string | null): boolean => key === ADD_ADHOC_KEY;
 
 export interface ScheduleState {
   /** 這份資料是哪一天（＝算的時候的 timetableStore.dayKey） */
@@ -80,9 +86,15 @@ export interface ScheduleState {
   lateRepeatCount: number;
   /** ⑦：key → 車票的第二段起（這一天；票刪掉的不在，D-時-162） */
   slots: Record<string, SlotItem>;
-  /** ⑦：預定欄要畫的卡（第一段＋第二段起，同一套 lane），依開始 */
+  /** 第三梯（討論 6）：key → 臨時班次／主題預留時段（這一天） */
+  adhocs: Record<string, AdhocItem>;
+  /** 臨時班次綁定支線時，該支線底下所有節點 id（向上匯總對照實績用） */
+  adhocSubtrees: Record<string, string[]>;
+  /** ⑦：預定欄要畫的卡（第一段＋第二段起＋臨時班次，同一套 lane），依開始 */
   blocks: SchedBlock[];
-  /** 點選排時刻：選中的還沒排項（key）；⑦ 起也可以是第二段起的卡（slots 的 key＝換位置）或 `addSegKey(nodeId)`（再排一段） */
+  /** 第三梯（討論 6）：日程模式（day＝單日預定 vs 實績；week＝週時段／手機三日時段） */
+  scheduleMode: ScheduleMode;
+  /** 點選排時刻：選中的還沒排項（key）；⑦ 起也可以是第二段起的卡（slots 的 key＝換位置）、`addSegKey(nodeId)`（再排一段）或 `ADD_ADHOC_KEY`（＋臨時班次） */
   picked: string | null;
   hover: ScheduleHover | null;
   /** 有一筆排時刻的寫入正在飛（重入鎖；UI 可以據此把拖曳／按鈕暫時停用） */
@@ -92,6 +104,7 @@ export interface ScheduleState {
   load(): Promise<void>;
   /** 日程頁掛上時叫；回傳的函式在離開時叫（停止自動重算、清掉 picked／hover） */
   attach(): () => void;
+  setScheduleMode(mode: ScheduleMode): void;
   pick(key: string | null): void;
   setHover(h: ScheduleHover | null): void;
   /** 排、改、清都走這支（time null＝清除）：守門、收據 toast、撤回。回 true＝寫成功（或時刻沒變、不必寫） */
@@ -100,6 +113,25 @@ export interface ScheduleState {
   moveSlot(key: string, time: ClockText): Promise<boolean>;
   /** ⑦：再排一段（挑位置放下；長度＝預計，沒填 60 分）：收據＋撤回 */
   addSegment(nodeId: string, time: ClockText): Promise<boolean>;
+  /** 第三梯（討論 6）：臨時班次換位置（time＝新的開始；長度不變）：收據＋撤回 */
+  moveAdhoc(key: string, time: ClockText): Promise<boolean>;
+  /** 第三梯（討論 6）：在指定時刻新增一班臨時班次（預設 60 分），並可自動打開編輯面板 */
+  addAdhocAt(
+    time: ClockText,
+    opts?: {
+      date?: string;
+      end?: ClockText;
+      label?: string | null;
+      categoryId?: string | null;
+      routeId?: string | null;
+      nodeId?: string | null;
+      openAfter?: boolean;
+    },
+  ): Promise<AdhocItem | null>;
+  /** 第三梯（討論 6）：將臨時班次一鍵轉為正式車票，並刪除原臨時預留 */
+  convertAdhocToTicket(key: string): Promise<NodeRow | null>;
+  /** 第三梯（討論 6）：從臨時班次一鍵発車（帶入綁定的路線／支線與分類） */
+  departFromAdhoc(key: string): Promise<void>;
   /** 定期券「改回每班時刻」（＝clearRun 這一班的覆寫）：同一把鎖、收據＋撤回、寫完重載。不是覆寫過的定期券 ⇒ false */
   revertRun(key: string): Promise<boolean>;
 }
@@ -158,12 +190,12 @@ function ensureTodaySlice(): Promise<void> | null {
 /** compute 自己在載 time_plans（訂閱看到 rowsByDay 換了不必再排一趟：compute 載完就讀最新的） */
 let selfPlanLoad = 0;
 
-/** 訂閱用：這一天的車票段有沒有變（作息段的寫入不必重抓 listCalendar） */
+/** 訂閱用：這一天的車票段與臨時班次有沒有變（作息段的寫入不必重抓 listCalendar） */
 function slotSig(rows: readonly TimePlanRow[] | undefined): string {
   if (!rows) return "";
   return rows
-    .filter((r) => r.node_id !== null)
-    .map((r) => `${r.id}|${r.updated_at}|${r.deleted_at ?? ""}|${r.start_hm}|${r.end_hm}`)
+    .filter((r) => r.node_id !== null || r.kind === "adhoc")
+    .map((r) => `${r.id}|${r.updated_at}|${r.deleted_at ?? ""}|${r.start_hm}|${r.end_hm}|${r.kind ?? ""}|${r.label ?? ""}|${r.category_id ?? ""}|${r.route_id ?? ""}|${r.node_id ?? ""}`)
     .join(",");
 }
 
@@ -206,29 +238,55 @@ async function compute(): Promise<void> {
       }
     }
     const slotRows = useTimetablePlanStore.getState().slotsForDay(date);
-    for (const id of new Set(slotRows.map((r) => r.node_id as string))) {
+    const adhocRows = useTimetablePlanStore.getState().adhocsForDay(date);
+    const extraNodeIds = new Set<string>();
+    for (const r of slotRows) if (r.node_id) extraNodeIds.add(r.node_id);
+    for (const r of adhocRows) {
+      if (r.node_id) extraNodeIds.add(r.node_id);
+      if (r.route_id) extraNodeIds.add(r.route_id);
+    }
+    for (const id of extraNodeIds) {
       if (nodes[id]) continue;
       const n = await nodeRepo.getNode(id).catch(() => null);
       if (n && n.deleted_at === null) nodes[id] = n;
+    }
+    const adhocSubtrees: Record<string, string[]> = {};
+    for (const r of adhocRows) {
+      if (!r.node_id || adhocSubtrees[r.node_id]) continue;
+      const n = nodes[r.node_id];
+      if (!n) continue;
+      try {
+        const sub = await useTimetableStore.getState().subtreeNodes(n);
+        adhocSubtrees[r.node_id] = sub.map((x) => x.id);
+      } catch {
+        adhocSubtrees[r.node_id] = [r.node_id];
+      }
     }
     if (useTimetableStore.getState().dayKey !== date || dayStart() !== h) {
       dirty = true;
       return;
     }
     const slots = slotItemsOf(date, slotRows, nodes, items);
+    const adhocs = adhocItemsOf(date, adhocRows);
     const cur = useTimetableScheduleStore.getState();
     useTimetableScheduleStore.setState({
       date,
       grid,
       items,
       slots,
-      blocks: schedBlocksOf(grid, slots, h),
+      adhocs,
+      adhocSubtrees,
+      blocks: schedBlocksOf(grid, slots, h, adhocs),
       lateKeys,
       nodes,
       lateRepeatCount: late.repeatCount,
       // 換了天或那一項不在了 ⇒ 選取／滑過清掉
       picked:
-        cur.picked !== null && (items[cur.picked] || slots[cur.picked] || addSegNode(cur.picked) !== null) && cur.date === date ? cur.picked : null,
+        cur.picked !== null &&
+        (items[cur.picked] || slots[cur.picked] || adhocs[cur.picked] || addSegNode(cur.picked) !== null || isAddAdhoc(cur.picked)) &&
+        cur.date === date
+          ? cur.picked
+          : null,
       hover: cur.date === date ? cur.hover : null,
       loading: false,
       error: null,
@@ -327,6 +385,16 @@ export function runScheduleWrite(w: TimeWrite, undo: TimeWrite, msg: string, aft
 
 /* ───────── store ───────── */
 
+const KEY_SCHEDULE_MODE = "ns.timetable.schedule_mode";
+
+function readScheduleMode(): ScheduleMode {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(KEY_SCHEDULE_MODE) === "week" ? "week" : "day";
+  } catch {
+    return "day";
+  }
+}
+
 export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
   date: useTimetableStore.getState().dayKey,
   loading: false,
@@ -337,7 +405,10 @@ export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
   nodes: {},
   lateRepeatCount: 0,
   slots: {},
+  adhocs: {},
+  adhocSubtrees: {},
   blocks: [],
+  scheduleMode: readScheduleMode(),
   picked: null,
   hover: null,
   busy: false,
@@ -372,6 +443,15 @@ export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
       attachCount = Math.max(0, attachCount - 1);
       if (attachCount === 0) set({ picked: null, hover: null });
     };
+  },
+
+  setScheduleMode(mode) {
+    set({ scheduleMode: mode, picked: null, hover: null });
+    try {
+      if (typeof localStorage !== "undefined") localStorage.setItem(KEY_SCHEDULE_MODE, mode);
+    } catch {
+      // ignore
+    }
   },
 
   pick(key) {
@@ -488,6 +568,150 @@ export const useTimetableScheduleStore = create<ScheduleState>((set, get) => ({
       return true;
     });
   },
+
+  moveAdhoc(key, time) {
+    const it = get().adhocs[key];
+    if (!it) return Promise.resolve(false);
+    const h = dayStart();
+    if (!canScheduleDay(it.date, todayKey(h, new Date()))) {
+      toast(TT_TEXT.schedPast);
+      return Promise.resolve(false);
+    }
+    const s = clockMinutes(time);
+    if (s === null || !isClockInRange(time, h)) {
+      toast(TIME_FORMAT_MSG);
+      return Promise.resolve(false);
+    }
+    if (time === it.time) {
+      if (get().picked === key) set({ picked: null });
+      return Promise.resolve(true);
+    }
+    return locked(async () => {
+      const out: { prev?: { s: ClockText; e: ClockText } } = {};
+      const ok = await useTimetablePlanStore.getState().editAdhoc(it.planId, { s: time, keepLength: true }, out);
+      if (!ok) return false;
+      if (get().picked === key) set({ picked: null });
+      const back = out.prev;
+      if (back) toast(TT_TEXT.schedMoved(time), TT_TEXT.undo, () => void useTimetablePlanStore.getState().editAdhoc(it.planId, back));
+      else toast(TT_TEXT.schedMoved(time));
+      return true;
+    });
+  },
+
+  async addAdhocAt(time, opts) {
+    const date = opts?.date ?? get().date;
+    const h = dayStart();
+    if (!canScheduleDay(date, todayKey(h, new Date()))) {
+      toast(TT_TEXT.schedPast);
+      return null;
+    }
+    const s = clockMinutes(time);
+    if (s === null || !isClockInRange(time, h)) {
+      toast(TIME_FORMAT_MSG);
+      return null;
+    }
+    const e = opts?.end ?? clockText(Math.min(s + SEG_DEFAULT_MIN, h * 60 + 1440));
+    if (!e) return null;
+    let created: AdhocItem | null = null;
+    await locked(async () => {
+      const row = await useTimetablePlanStore.getState().addAdhoc({
+        day: date,
+        s: time,
+        e,
+        label: opts?.label ?? null,
+        categoryId: opts?.categoryId ?? null,
+        routeId: opts?.routeId ?? null,
+        nodeId: opts?.nodeId ?? null,
+      });
+      if (!row) return false;
+      if (isAddAdhoc(get().picked)) set({ picked: null });
+      const adKey = adhocKeyOf(date, row.id);
+      const map = adhocItemsOf(date, [row]);
+      created = map[adKey] ?? null;
+      toast(ADHOC_TEXT.added(time, e), TT_TEXT.undo, () => void useTimetablePlanStore.getState().deleteAdhoc(row.id));
+      return true;
+    });
+    if (created && opts?.openAfter !== false) {
+      const k = (created as AdhocItem).key;
+      // 等 compute 把 adhocs 寫入 state 後打開面板
+      await run();
+      useTimetableStore.getState().openSheet({ kind: "adhoc", key: k });
+    }
+    return created;
+  },
+
+  async convertAdhocToTicket(key) {
+    const ad = get().adhocs[key];
+    if (!ad) return null;
+    const nodes = get().nodes;
+    const ns = useNodeStore.getState();
+    const tt = useTimetableStore.getState();
+    const branchNode = ad.branchNodeId ? (nodes[ad.branchNodeId] ?? ns.tree.byId[ad.branchNodeId]) : undefined;
+    const routeNode = ad.routeId
+      ? (nodes[ad.routeId] ?? ns.routes.find((r) => r.id === ad.routeId))
+      : branchNode?.route_id
+        ? (nodes[branchNode.route_id] ?? ns.routes.find((r) => r.id === branchNode.route_id))
+        : undefined;
+    const cat = ad.categoryId ? tt.catById[ad.categoryId] : undefined;
+    const name = (ad.label?.trim() || branchNode?.name || routeNode?.name || cat?.name || ADHOC_TEXT.fallbackName).trim();
+    let createdRow: NodeRow | null = null;
+    await locked(async () => {
+      const row = await ns.createNode({
+        kind: "ticket",
+        name,
+        parentId: ad.branchNodeId ?? null,
+        routeTagId: ad.branchNodeId ? null : (ad.routeId ?? null),
+        scheduledOn: ad.date,
+        scheduledTime: ad.time,
+        estimateMin: ad.estimateMin,
+        dayStartHour: dayStart(),
+      });
+      if (!row) return false;
+      createdRow = row;
+      await useTimetablePlanStore.getState().deleteAdhoc(ad.planId);
+      toast(ADHOC_TEXT.converted(row.name));
+      return true;
+    });
+    return createdRow;
+  },
+
+  async departFromAdhoc(key) {
+    const ad = get().adhocs[key];
+    if (!ad) return;
+    const tt = useTimetableStore.getState();
+    const link = ad.branchNodeId
+      ? { nodeId: ad.branchNodeId, routeId: null }
+      : ad.routeId
+        ? { nodeId: null, routeId: ad.routeId }
+        : { nodeId: null, routeId: null };
+    let categoryId = ad.categoryId && tt.catById[ad.categoryId] ? ad.categoryId : null;
+    if (!categoryId && (ad.branchNodeId || ad.routeId)) {
+      const hit = await tt.lastCategoryFor(ad.branchNodeId, ad.routeId).catch(() => null);
+      if (hit && tt.catById[hit.categoryId]) categoryId = hit.categoryId;
+    }
+    if (!categoryId) {
+      const firstLeaf = tt.categories.find((c) => c.parent_id !== null && c.archived_at === null);
+      categoryId = firstLeaf?.id ?? null;
+    }
+    if (!categoryId) {
+      tt.requestDepart();
+      return;
+    }
+    await tt.departWithLink(categoryId, link, { estimateMin: ad.estimateMin });
+    const running = useTimetableStore.getState().running;
+    if (ad.label?.trim() && running && running.category_id === categoryId) {
+      try {
+        await timetableRepo.editRunning(running.id, {
+          categoryId: running.category_id,
+          startIso: running.started_at,
+          note: ad.label.trim(),
+        });
+        await useTimetableStore.getState().refresh();
+      } catch {
+        // ignore note failure
+      }
+    }
+  },
 }));
 
 /** ⑦：再排一段沒填預計時的長度（契約 §4） */
@@ -498,6 +722,17 @@ export const SEG_TEXT = {
   tag: (n: number) => `第 ${n} 段`,
   added: (s: string, e: string) => `已再排一段 ${s}–${e}`,
   deleted: "已刪除這段",
+} as const;
+
+/** 第三梯（討論 6）：臨時班次／主題預留時段的字 */
+export const ADHOC_TEXT = {
+  tag: "臨時",
+  fallbackName: "臨時班次",
+  addBtn: "＋ 臨時班次",
+  pickAdd: "點一下預定欄放下「臨時班次」（預設 1h）",
+  added: (s: string, e: string) => `已排入臨時班次 ${s}–${e}`,
+  deleted: "已刪除這班臨時班次",
+  converted: (name: string) => `已轉為正式車票「${name}」`,
 } as const;
 
 /* ───────── 給 UI 的 selector／hook ───────── */
@@ -528,9 +763,54 @@ export interface ScheduleCompare {
   planKeyOfBlock: ReadonlyMap<string, string>;
 }
 
+/** 找出與某班臨時班次匹配的實績時間塊（支線含子樹、路線含其下節點、或相同分類且時段相近） */
+function adhocSpansOf(
+  ad: AdhocItem,
+  rows: readonly TimeBlockRow[],
+  spans: readonly LinkedSpan[],
+  tt: Pick<ReturnType<typeof useTimetableStore.getState>, "catById" | "longRunMaxMin" | "linkInfo">,
+  s: Partial<Pick<ScheduleState, "adhocSubtrees" | "nodes">>,
+  claimedIds: ReadonlySet<string>,
+  now: number,
+): LinkedSpan[] {
+  const treeSet = ad.branchNodeId ? new Set(s.adhocSubtrees?.[ad.branchNodeId] ?? [ad.branchNodeId]) : null;
+  const pStart = ad.time ? clockInstant(ad.date, ad.time) : null;
+  const pEnd = clockInstant(ad.date, ad.end);
+  const out: LinkedSpan[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const sp = spans[i];
+    if (!r || !sp) continue;
+    let matched = false;
+    if (treeSet) {
+      if (r.node_id !== null && treeSet.has(r.node_id) && (!claimedIds.has(r.id) || r.node_id === ad.branchNodeId)) {
+        matched = true;
+      }
+    } else if (ad.routeId !== null) {
+      const rRoute = r.route_id ?? (r.node_id ? (tt.linkInfo[r.node_id]?.routeId ?? s.nodes?.[r.node_id]?.route_id ?? null) : null);
+      if (rRoute === ad.routeId && (!claimedIds.has(r.id) || r.route_id === ad.routeId)) {
+        matched = true;
+      }
+    }
+    if (!matched && ad.categoryId !== null && (ad.branchNodeId === null && ad.routeId === null || (r.node_id === null && r.route_id === null))) {
+      const catMatch = r.category_id === ad.categoryId || tt.catById[r.category_id]?.parent_id === ad.categoryId;
+      if (catMatch && !claimedIds.has(r.id)) {
+        if (pStart !== null && pEnd !== null) {
+          const bEnd = sp.end ?? Math.max(now, sp.start);
+          if (sp.start < pEnd + 120 * 60_000 && bEnd > pStart - 60 * 60_000) matched = true;
+        } else {
+          matched = true;
+        }
+      }
+    }
+    if (matched) out.push({ ...sp, nodeId: ad.nodeId });
+  }
+  return out;
+}
+
 /** 純函式版（hook 之外也能用；now 由呼叫端給，UI 用 useNow） */
 export function scheduleCompareOf(
-  s: Pick<ScheduleState, "date" | "items"> & Partial<Pick<ScheduleState, "slots">>,
+  s: Pick<ScheduleState, "date" | "items"> & Partial<Pick<ScheduleState, "slots" | "adhocs" | "adhocSubtrees" | "nodes">>,
   rows: readonly TimeBlockRow[],
   tt: Pick<ReturnType<typeof useTimetableStore.getState>, "catById" | "longRunMaxMin" | "linkInfo">,
   h: number,
@@ -544,24 +824,50 @@ export function scheduleCompareOf(
       (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   );
   const slots = Object.values(s.slots ?? {});
+  const adhocs = Object.values(s.adhocs ?? {});
   const spans = scheduleSpansOf(rows, tt, now);
   const segSpans = segmentSpansOf(items, slots, spans, now);
   const cmp = new Map<string, PlanCompare>();
   const planKeyOfBlock = new Map<string, string>();
+  const claimedIds = new Set<string>();
   // ⑦：第二段起也比（key 不同；總結的「排了 N 件」算張數，契約 §4——只有第二段起的票也算一件，沙盒 F-2）
   for (const it of slots) {
     const c = comparePlan(it, segSpans.get(it.key) ?? spans, h, now);
     cmp.set(it.key, c);
-    for (const id of c.blockIds) planKeyOfBlock.set(id, it.key);
+    for (const id of c.blockIds) {
+      planKeyOfBlock.set(id, it.key);
+      claimedIds.add(id);
+    }
   }
   for (const it of items) {
     const c = comparePlan(it, segSpans.get(it.key) ?? spans, h, now);
     cmp.set(it.key, c);
     // 誤點項沒有預定卡（只在「還沒排」）：連到它的塊不點亮任何卡，免得滑過時整欄淡掉
-    if (!it.lateFrom) for (const id of c.blockIds) planKeyOfBlock.set(id, it.key);
+    if (!it.lateFrom) {
+      for (const id of c.blockIds) {
+        planKeyOfBlock.set(id, it.key);
+        claimedIds.add(id);
+      }
+    }
+  }
+  // 第三梯（討論 6）：臨時班次對照實績（同路線／支線或同分類）
+  for (const ad of adhocs) {
+    const adSpans = adhocSpansOf(ad, rows, spans, tt, s, claimedIds, now);
+    const c = comparePlan(ad, adSpans, h, now);
+    cmp.set(ad.key, c);
+    for (const id of c.blockIds) {
+      if (!planKeyOfBlock.has(id)) planKeyOfBlock.set(id, ad.key);
+    }
   }
   const isFuture = s.date > today;
-  return { items, cmp, summary: daySummary(items, cmp, isFuture, slots), isFuture, canEdit: canScheduleDay(s.date, today), planKeyOfBlock };
+  return {
+    items,
+    cmp,
+    summary: daySummary(items, cmp, isFuture, [...slots, ...adhocs]),
+    isFuture,
+    canEdit: canScheduleDay(s.date, today),
+    planKeyOfBlock,
+  };
 }
 
 /** 日程頁用：每個預定項的差多少＋總結（now 由 UI 給，例如 `useNow(60_000)`） */
@@ -569,14 +875,17 @@ export function useScheduleCompare(now: number): ScheduleCompare {
   const date = useTimetableScheduleStore((s) => s.date);
   const items = useTimetableScheduleStore((s) => s.items);
   const slots = useTimetableScheduleStore((s) => s.slots);
+  const adhocs = useTimetableScheduleStore((s) => s.adhocs);
+  const adhocSubtrees = useTimetableScheduleStore((s) => s.adhocSubtrees);
+  const nodes = useTimetableScheduleStore((s) => s.nodes);
   const rows = useTimetableStore((s) => s.dayBlocks);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
   const h = useUiStore((s) => s.dayStartHour);
   return useMemo(
-    () => scheduleCompareOf({ date, items, slots }, rows, { catById, longRunMaxMin, linkInfo }, h, now),
-    [date, items, slots, rows, catById, longRunMaxMin, linkInfo, h, now],
+    () => scheduleCompareOf({ date, items, slots, adhocs, adhocSubtrees, nodes }, rows, { catById, longRunMaxMin, linkInfo }, h, now),
+    [date, items, slots, adhocs, adhocSubtrees, nodes, rows, catById, longRunMaxMin, linkInfo, h, now],
   );
 }
 
@@ -589,6 +898,25 @@ export function departFromPlan(key: string): void {
   const item = useTimetableScheduleStore.getState().items[key];
   if (!item || !canDepartPlan(item)) return;
   void useTimetableStore.getState().departFromTask(item.nodeId);
+}
+
+/**
+ * 行程表「排時段 ›」一鍵跳轉到「時刻表 › 日程」對應日期與模式（第三梯 v1.29 時段排程大一統）
+ */
+export function jumpToTimetableSchedule(
+  day: string,
+  shell: "desktop" | "mobile",
+  mode: ScheduleMode = "day",
+): void {
+  useTimetableScheduleStore.getState().setScheduleMode(mode);
+  const tt = useTimetableStore.getState();
+  tt.setView("schedule");
+  void tt.setDayKey(day);
+  if (shell === "mobile") {
+    useUiStore.getState().setMobileTab("timetable");
+  } else {
+    useUiStore.getState().setPage("timetable");
+  }
 }
 
 /* ───────── 模組層訂閱：開著的期間，上游變了就重算 ───────── */

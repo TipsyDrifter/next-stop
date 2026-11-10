@@ -142,6 +142,8 @@ export type TimetableSheet =
   | { kind: "routine"; day: string; id: string }
   /** ⑦ C 席：日程上點車票第二段起的卡開的小面板；key＝timetableScheduleStore.slots 的 key（`${date}-${nodeId}-seg-${planId}`） */
   | { kind: "slot"; key: string }
+  /** 第三梯（討論 6）：日程上點臨時班次預留時段開的小面板；key＝timetableScheduleStore.adhocs 的 key（`${date}-adhoc-${planId}`） */
+  | { kind: "adhoc"; key: string }
   /** ⑥：運行中那一班的荷札小面板（D-時-116；桌機放 `EntityTagField`，手機不用它、直接開 `openPicker`） */
   | { kind: "tags"; blockId: string };
 
@@ -375,7 +377,7 @@ export const TT_TEXT = {
     },
     // ⑦：作息範本、預定
     time_routines: { name: "名字", items: "段", weekdays: "週幾", position: "排序", archived_at: "封存" },
-    time_plans: { day: "日期", start_hm: "開始", end_hm: "結束", category_id: "分類", node_id: "車票", routine_id: "範本", label: "名字" },
+    time_plans: { day: "日期", start_hm: "開始", end_hm: "結束", category_id: "分類", node_id: "車票", routine_id: "範本", label: "名字", kind: "種類", route_id: "路線" },
   } as {
     time_blocks: Readonly<Record<string, string>>;
     time_categories: Readonly<Record<string, string>>;

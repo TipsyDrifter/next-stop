@@ -384,6 +384,35 @@
   display: flex; flex-direction: column; overflow: hidden;
 }
 
+/* ─── 第三梯 v1.29：串流日期標頭「排時段 ›」一鍵跳轉鈕 ─── */
+.ns-sch .ns-sch-jump-tt {
+  flex: none;
+  margin-left: 6px;
+  padding: 1px 7px 1px 8px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  letter-spacing: .12em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  opacity: .72;
+  transition: opacity .15s, color .15s, border-color .15s;
+}
+.ns-sch .sec:hover .ns-sch-jump-tt,
+.ns-sch .ns-sch-jump-tt:focus-visible {
+  opacity: 1;
+}
+.ns-sch .ns-sch-jump-tt:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ns-sch .ns-sch-jump-tt:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* ═══ 減量動態：只關動畫與過場，不動版面；程式捲動的 behavior 由 useStream 讀同一個 media query 改 auto ═══ */
 @media (prefers-reduced-motion: reduce) {
   .ns-sch-day.is-unfold, .ns-sch-cheer { animation: none; }

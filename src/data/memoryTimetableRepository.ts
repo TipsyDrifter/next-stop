@@ -1450,7 +1450,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const row: TimeGoalRow = {
       id: uuid(),
       name: v.name,
-      scope: goalScopeJson(v.categoryIds, (tagNames?.length ?? 0) > 0), // ⑥ 0-4：有荷札 ⇒ v2
+      scope: goalScopeJson(v.categoryIds, (tagNames?.length ?? 0) > 0, { routeIds: v.routeIds, nodeIds: v.nodeIds }), // ⑥ 0-4／D-時-192：有荷札／路線／任務 ⇒ v2
       period: v.period,
       target_min: v.targetMin,
       direction: v.direction,
@@ -1479,7 +1479,10 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const curTags = this.tags ? (await this.tags.listTagsOf(TT_TAG_GOAL, id)).map((t) => t.name) : [];
     const v = normalizeGoalInput({ ...goalToInput(parsed), ...patch, tagNames: patch.tagNames ?? curTags });
     const tagNames = patch.tagNames !== undefined ? checkTagNames(v.tagNames ?? []) : undefined;
-    const scope = goalScopeNext(cur.scope, v.categoryIds, (tagNames ?? curTags).length > 0); // v2 有黏性
+    const scope = goalScopeNext(cur.scope, v.categoryIds, (tagNames ?? curTags).length > 0, {
+      routeIds: v.routeIds,
+      nodeIds: v.nodeIds,
+    }); // v2 有黏性
     const same =
       v.name === cur.name &&
       scope === cur.scope &&
@@ -1764,7 +1767,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
 
   async listPlansByNode(nodeId: string): Promise<TimePlanRow[]> {
     return Array.from(this.plans.values())
-      .filter((r) => isAlive(r) && r.node_id === nodeId)
+      .filter((r) => isAlive(r) && (r.kind ?? null) !== "adhoc" && r.node_id === nodeId)
       .sort(planOrder)
       .map(clone);
   }
@@ -1795,6 +1798,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: u.node_id,
         routine_id: u.routine_id,
         label: planLabelOf(u.label),
+        kind: u.kind ?? null,
+        route_id: u.route_id ?? null,
         account_id: null,
         device_id: null,
         created_at: u.created_at ?? now,
@@ -1821,6 +1826,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
         node_id: u.node_id,
         routine_id: u.routine_id,
         label: planLabelOf(u.label),
+        kind: u.kind ?? null,
+        route_id: u.route_id ?? null,
         account_id: null,
         device_id: null,
         created_at: prev?.created_at ?? now,
@@ -1856,6 +1863,14 @@ export class MemoryTimetableRepository implements TimetableRepository {
     }
     if (patch.category_id !== undefined && patch.category_id !== cur.category_id) {
       cur.category_id = patch.category_id;
+      changed = true;
+    }
+    if (patch.node_id !== undefined && patch.node_id !== cur.node_id) {
+      cur.node_id = patch.node_id;
+      changed = true;
+    }
+    if (patch.route_id !== undefined && patch.route_id !== (cur.route_id ?? null)) {
+      cur.route_id = patch.route_id;
       changed = true;
     }
     if (patch.label !== undefined && planLabelOf(patch.label) !== (cur.label ?? null)) {

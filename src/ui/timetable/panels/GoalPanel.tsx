@@ -20,10 +20,13 @@
  *   起日可以挑過去（目標可以從上週算起，同舊行為）；迄日 `min`＝起日。
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { KIND_LABEL, type NodeRow } from "../../../domain/node";
 import type { TimeCategoryRow } from "../../../domain/timetable";
+import { LINKABLE_KINDS } from "../../../domain/timetableLink";
 import { GOAL_NAME_MAX, parseGoal, type Goal, type GoalDirection, type GoalInput, type GoalPeriod } from "../../../domain/timetableStats";
 import { timetableRepo } from "../../../data/timetableRepository";
 import { todayKey } from "../../../lib/date";
+import { useNodeStore } from "../../../store/nodeStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -36,6 +39,7 @@ import { useTagStore } from "../../../store/tagStore";
 import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
 import { useShell } from "../../mobile/useShell";
 import { MobileTagDraft, tagNameOf } from "../parts/TimetableTagChips";
+import { RouteRoundel, useLiveBranches, useRouteById } from "../parts/LinkPicker";
 
 type Kind = "repeat" | "since" | "until" | "range";
 type Rep = "day" | "week" | "month";
@@ -43,6 +47,8 @@ type Rep = "day" | "week" | "month";
 interface Form {
   name: string;
   cats: string[];
+  routes: string[];
+  nodes: string[];
   kind: Kind;
   rep: Rep;
   startOn: string;
@@ -59,7 +65,7 @@ const MINUTE_CHIPS = [0, 15, 30, 45] as const;
 function problemOf(f: Form, tagCount: number): string {
   const T = TT_TEXT.statsUi;
   if (!f.name.trim()) return T.noName;
-  if (!f.cats.length && !tagCount) return TT_TEXT.tags.goalScopeEmpty; // ⑥：分類或荷札至少一個
+  if (!f.cats.length && !f.routes.length && !f.nodes.length && !tagCount) return TT_TEXT.tags.goalScopeEmpty; // ⑥＋v1.29：分類、路線／支線、任務或荷札至少一個
   if (!(f.h * 60 + f.m > 0)) return T.noHours;
   if ((f.kind === "until" || f.kind === "range") && !f.endOn) return f.kind === "until" ? T.noEndUntil : T.noEndRange;
   if (f.kind !== "repeat" && !f.startOn) return T.noStart;
@@ -72,6 +78,8 @@ function inputOf(f: Form, tagNames?: readonly string[]): GoalInput {
     ...(tagNames !== undefined ? { tagNames: tagNames.slice() } : {}),
     name: f.name.trim(),
     categoryIds: f.cats.slice(),
+    ...(f.routes.length > 0 ? { routeIds: f.routes.slice() } : { routeIds: [] }),
+    ...(f.nodes.length > 0 ? { nodeIds: f.nodes.slice() } : { nodeIds: [] }),
     period: f.kind === "repeat" ? f.rep : f.kind,
     targetMin: f.h * 60 + f.m,
     direction: f.dir,
@@ -90,6 +98,12 @@ export function GoalPanel({ onDone }: PanelProps) {
   const deleteGoal = useTimetableStore((s) => s.deleteGoal);
   const goalList = useTimetableStatsStore((s) => s.goalList);
   const archived = useTimetableStatsStore((s) => s.archivedGoals);
+  const statRouteNames = useTimetableStatsStore((s) => s.routeNames);
+  const statNodeNames = useTimetableStatsStore((s) => s.goalNodeNames);
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
+  const treeById = useNodeStore((s) => s.tree.byId);
+  const routeById = useRouteById();
+  const liveBranches = useLiveBranches(liveRoutes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const T = TT_TEXT.statsUi;
 
@@ -120,12 +134,27 @@ export function GoalPanel({ onDone }: PanelProps) {
   const goal = listGoal ?? (fetched !== null && typeof fetched === "object" ? fetched : null);
   const today = todayKey(dayStartHour);
 
-  const blank = (): Form => ({ name: "", cats: [], kind: "repeat", rep: "week", startOn: today, endOn: "", startOpen: false, dir: "atLeast", h: 10, m: 0 });
+  const blank = (): Form => ({
+    name: "",
+    cats: [],
+    routes: [],
+    nodes: [],
+    kind: "repeat",
+    rep: "week",
+    startOn: today,
+    endOn: "",
+    startOpen: false,
+    dir: "atLeast",
+    h: 10,
+    m: 0,
+  });
   const formOf = (g: Goal): Form => {
     const k = kindOf(g.period);
     return {
       name: g.name,
       cats: g.categoryIds.slice(),
+      routes: (g.routeIds ?? []).slice(),
+      nodes: (g.nodeIds ?? []).slice(),
       kind: k,
       rep: k === "repeat" ? (g.period as Rep) : "week",
       startOn: g.startOn ?? today,
@@ -195,6 +224,31 @@ export function GoalPanel({ onDone }: PanelProps) {
     // f.cats 只影響「封存的已勾分類要不要列」：掛上與補填時各算一次就夠（避免勾掉後立刻消失）
   }, [categories, filledFor]);
 
+  const [nodeQuery, setNodeQuery] = useState("");
+  const [nodeResults, setNodeResults] = useState<NodeRow[]>([]);
+  const [pickedNodes, setPickedNodes] = useState<Record<string, { name: string; kind: string; routeId: string | null }>>({});
+  useEffect(() => {
+    const q = nodeQuery.trim();
+    if (!q) {
+      setNodeResults([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      void useNodeStore
+        .getState()
+        .searchNodes(q)
+        .then((ns) => {
+          if (!alive) return;
+          setNodeResults(ns.filter((n) => LINKABLE_KINDS.includes(n.kind) && n.deleted_at === null).slice(0, 12));
+        });
+    }, 150);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [nodeQuery]);
+
   if (goalId && !goal) {
     const loading = fetched === "loading" || fetched === null;
     return (
@@ -215,6 +269,41 @@ export function GoalPanel({ onDone }: PanelProps) {
       return { ...x, cats };
     });
   };
+
+  const toggleRoute = (rid: string): void => {
+    setF((x) => ({
+      ...x,
+      routes: x.routes.includes(rid) ? x.routes.filter((id) => id !== rid) : [...x.routes, rid],
+    }));
+  };
+
+  const toggleNode = (n: { id: string; name?: string; kind?: string; route_id?: string | null }): void => {
+    if (n.name) {
+      setPickedNodes((prev) => ({
+        ...prev,
+        [n.id]: { name: n.name!, kind: n.kind ?? "ticket", routeId: n.route_id ?? null },
+      }));
+    }
+    setF((x) => ({
+      ...x,
+      nodes: x.nodes.includes(n.id) ? x.nodes.filter((id) => id !== n.id) : [...x.nodes, n.id],
+    }));
+  };
+
+  const branchIds = new Set(liveBranches.map((b) => b.id));
+  const resolveNodeLabel = (nid: string): { name: string; kind: string; routeId: string | null } => {
+    const b = liveBranches.find((x) => x.id === nid);
+    if (b) return { name: b.name, kind: b.kind, routeId: b.route_id };
+    if (pickedNodes[nid]) return pickedNodes[nid];
+    if (treeById[nid]) return { name: treeById[nid].name, kind: treeById[nid].kind, routeId: treeById[nid].route_id };
+    if (statNodeNames[nid]) return { name: statNodeNames[nid].name, kind: statNodeNames[nid].kind, routeId: statNodeNames[nid].routeId };
+    return { name: "任務項目", kind: "ticket", routeId: null };
+  };
+  const extraLabels = [
+    ...f.routes.map((rid) => routeById[rid]?.name ?? statRouteNames[rid]?.name ?? "路線"),
+    ...f.nodes.map((nid) => resolveNodeLabel(nid).name),
+  ];
+  const nonBranchNodes = f.nodes.filter((nid) => !branchIds.has(nid));
 
   const bad = problemOf(f, tagNames.length);
   const save = async (): Promise<void> => {
@@ -318,6 +407,108 @@ export function GoalPanel({ onDone }: PanelProps) {
           })}
         </div>
       </Row>
+      {(liveRoutes.length > 0 || f.routes.length > 0 || f.nodes.length > 0) && (
+        <Row k="路線／任務" top>
+          <div className="ns-tt-goal-links">
+            {liveRoutes.length > 0 && (
+              <div className="ns-tt-link-routes">
+                {liveRoutes.map((r) => {
+                  const on = f.routes.includes(r.id);
+                  return (
+                    <button
+                      type="button"
+                      key={r.id}
+                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
+                      aria-pressed={on}
+                      onClick={() => toggleRoute(r.id)}
+                    >
+                      <RouteRoundel route={r} />
+                      <span>{r.name}</span>
+                    </button>
+                  );
+                })}
+                {liveBranches.map((b) => {
+                  const on = f.nodes.includes(b.id);
+                  const r = b.route_id ? (routeById[b.route_id] ?? null) : null;
+                  return (
+                    <button
+                      type="button"
+                      key={b.id}
+                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
+                      aria-pressed={on}
+                      onClick={() => toggleNode(b)}
+                    >
+                      <RouteRoundel route={r} />
+                      <span>{r ? `${r.name} › ${b.name}` : b.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {nonBranchNodes.length > 0 && (
+              <div className="ns-tt-link-routes" style={{ marginTop: 6 }}>
+                {nonBranchNodes.map((nid) => {
+                  const info = resolveNodeLabel(nid);
+                  const r = info.routeId ? (routeById[info.routeId] ?? null) : null;
+                  return (
+                    <button
+                      type="button"
+                      key={nid}
+                      className="ns-tt-link-rk is-on"
+                      aria-pressed={true}
+                      onClick={() => toggleNode({ id: nid })}
+                      title="點擊移除"
+                    >
+                      <RouteRoundel route={r} />
+                      <span>{info.name}</span>
+                      <small style={{ opacity: 0.7, marginLeft: 4 }}>×</small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ marginTop: 6 }}>
+              <input
+                type="search"
+                className="ns-tt-input"
+                value={nodeQuery}
+                placeholder="搜尋列車、車廂、車票加入目標…"
+                aria-label="搜尋任務加入目標"
+                onChange={(e) => setNodeQuery(e.target.value)}
+              />
+              {nodeResults.length > 0 && (
+                <div className="ns-tt-link-list" style={{ marginTop: 4, maxHeight: 160, overflowY: "auto" }}>
+                  {nodeResults.map((n) => {
+                    const on = f.nodes.includes(n.id);
+                    const r = n.route_id ? (routeById[n.route_id] ?? null) : null;
+                    return (
+                      <button
+                        type="button"
+                        key={n.id}
+                        className={"ns-tt-link-pk" + (on ? " is-on" : "")}
+                        onClick={() => {
+                          toggleNode(n);
+                          setNodeQuery("");
+                        }}
+                      >
+                        <RouteRoundel route={r} />
+                        <span className="ns-tt-link-pk-main">
+                          <span className="ns-tt-link-pk-t">{n.name}</span>
+                          <span className="ns-tt-link-pk-s">
+                            {KIND_LABEL[n.kind]}・{r?.name ?? "臨時車票"}
+                          </span>
+                        </span>
+                        {on && <span className="ns-tt-link-pk-on">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <span className="ns-tt-tag-hint">選路線／支線／列車／車廂時，底下所有子項目的時間塊都會自動向上匯總計入。</span>
+          </div>
+        </Row>
+      )}
       <div className="ns-tt-row is-top ns-tt-tagrow ns-tt-goal-tagrow">
         <span className="ns-tt-row-k">{TT_TEXT.tags.goalSection}</span>
         <span className="ns-tt-row-v">
@@ -433,7 +624,7 @@ export function GoalPanel({ onDone }: PanelProps) {
         </Opts>
       </Row>
       <p className="ns-tt-goal-preview">
-        {bad ? <span className="ns-tt-goal-warn">{bad}</span> : `${goalPeriodText(inputOf(f))}・${scopeText(f.cats, catById, tagNames)}`}
+        {bad ? <span className="ns-tt-goal-warn">{bad}</span> : `${goalPeriodText(inputOf(f))}・${scopeText(f.cats, catById, tagNames, extraLabels)}`}
       </p>
       <Actions>
         {goal && (
@@ -465,7 +656,16 @@ export function GoalPanel({ onDone }: PanelProps) {
                 <span>
                   <b>{g.name}</b>
                   <small>
-                    {goalPeriodText(g)}・{scopeText(g.categoryIds, catById, (g.tagKeys ?? []).map(tagNameOf))}
+                    {goalPeriodText(g)}・
+                    {scopeText(
+                      g.categoryIds,
+                      catById,
+                      (g.tagKeys ?? []).map(tagNameOf),
+                      [
+                        ...(g.routeIds ?? []).map((rid) => routeById[rid]?.name ?? statRouteNames[rid]?.name ?? "路線"),
+                        ...(g.nodeIds ?? []).map((nid) => resolveNodeLabel(nid).name),
+                      ],
+                    )}
                   </small>
                 </span>
                 <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={busy} onClick={() => void archiveGoal(g.id, false)}>

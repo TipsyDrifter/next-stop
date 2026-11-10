@@ -184,3 +184,27 @@
 /* body 是 static（右上角記號要貼著格），所以清單自己定位、疊到蓋滿整格的點擊面上面，不然按下去落到點擊面、拖不起來 */
 .ns-calendar .cal-cell .items { position: relative; z-index: 1; pointer-events: auto; cursor: pointer; }
 .ns-calendar .cal-cell .items .it { cursor: grab; }
+
+/* ─── 第三梯 v1.29：行程表頁首「排時段 ›」一鍵跳轉鈕 ─── */
+.ns-calendar .ns-cal-jump-tt {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: .12em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background-color .15s;
+}
+.ns-calendar .ns-cal-jump-tt:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.ns-calendar .ns-cal-jump-tt:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}

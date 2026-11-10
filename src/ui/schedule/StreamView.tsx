@@ -52,6 +52,7 @@ import { HISTORY_MSG, makeScheduleActions, scheduleRowMenu } from "./scheduleAct
 import { moveRunFlow } from "../outline/nodeFlows";
 import { useScheduleUiStore } from "./scheduleUiStore";
 import { useUiStore } from "../../store/uiStore";
+import { jumpToTimetableSchedule } from "../../store/timetableScheduleStore";
 import { useSelectionStore } from "../../store/selectionStore";
 import { batchSetDate } from "../../store/batchActions";
 import { useDragReorder, type DropPlace, type Verdict } from "../common/dragReorder";
@@ -800,6 +801,17 @@ const DaySection = memo(function DaySection(p: DaySectionProps) {
         </h3>
         <span className="rule" />
         <span className="note">{note}</span>
+        <button
+          type="button"
+          className="ns-sch-jump-tt"
+          title="前往時刻表 › 日程排這天的時段"
+          onClick={(e) => {
+            e.stopPropagation();
+            jumpToTimetableSchedule(sec.date, "desktop", "day");
+          }}
+        >
+          排時段 ›
+        </button>
       </div>
 
       {rows.length > 0 && (

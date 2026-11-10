@@ -50,6 +50,7 @@ import { REPEAT_ONLY_MSG } from "../../data";
 import { addDays } from "../../lib/date";
 import { scheduleSnapshot, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
+import { jumpToTimetableSchedule } from "../../store/timetableScheduleStore";
 import { lineCalendarDayAux } from "../../lines/runtime";
 import { isEditableTarget, isGuideKey, resolveHotkey } from "../shell/hotkeys";
 import { DeferPopover, type DeferRow } from "../today/DeferPopover";
@@ -465,6 +466,17 @@ export function DayPopover({ day, anchor, draft = false, seq = 0, onClose }: Day
         <div className="pop-head">
           <span className={isToday ? "pd today" : "pd"}>{headline}</span>
           <span className="pw">週{WEEKDAY_LABEL[d.getDay()]}</span>
+          <button
+            type="button"
+            className="pop-sched-jump"
+            title="前往時刻表 › 日程排這天的時段"
+            onClick={() => {
+              onClose();
+              jumpToTimetableSchedule(day, "desktop", "day");
+            }}
+          >
+            排時段 ›
+          </button>
           <button type="button" className="ns-iconbtn pop-x" title="關閉（Esc）" aria-label="關閉" onClick={onClose}>
             <IconClose />
           </button>

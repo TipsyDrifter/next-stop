@@ -61,7 +61,7 @@ const TIME_ROUTINES_COLS: &[(&str, bool)] = &[
     ("deleted_at", false),
 ];
 
-/// time_plans 的「主人資料」欄（⑦ 契約 §2；label＝原型回報 D-時-167 段的名字）。一段一列、逐欄 LWW。
+/// time_plans 的「主人資料」欄（⑦ 契約 §2；label＝原型回報 D-時-167 段的名字；v1.29 D-時-190 新增 kind／route_id 支援臨時班次）。一段一列、逐欄 LWW。
 const TIME_PLANS_COLS: &[(&str, bool)] = &[
     ("day", false),
     ("start_hm", false),
@@ -70,6 +70,8 @@ const TIME_PLANS_COLS: &[(&str, bool)] = &[
     ("node_id", false),
     ("routine_id", false),
     ("label", false),
+    ("kind", false),
+    ("route_id", false),
     ("created_at", false),
     ("updated_at", false),
     ("deleted_at", false),

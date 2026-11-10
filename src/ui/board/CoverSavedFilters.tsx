@@ -12,6 +12,7 @@ import { onAfterPull } from "../../store/syncStore";
 import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { IconClose, IconEdit } from "../common/icons";
+import { useCollapsedSet } from "../sidebar/useCollapsedSet";
 import { openSavedFilter } from "./openFilter";
 import { useSavedCounts } from "./useSavedCounts";
 
@@ -37,6 +38,8 @@ export function CoverSavedFilters() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [collapsedSet, toggleFold] = useCollapsedSet("ns.sidebar.collapsed_saved_filters");
+  const folded = collapsedSet.has("saved_filters");
 
   useEffect(() => void useBoardStore.getState().ensureLoaded(), []);
   useEffect(() => onAfterPull(() => void useBoardStore.getState().reloadSaved()), []);
@@ -70,8 +73,27 @@ export function CoverSavedFilters() {
   if (!has) return null;
   return (
     <div className="ns-cover-saved">
-      <h2>常用篩選</h2>
-      {saved.map((s) => {
+      <h2
+        className={`trunk-toggle${folded ? " is-folded" : ""}`}
+        role="button"
+        tabIndex={0}
+        aria-expanded={!folded}
+        title={folded ? `展開常用篩選（${saved.length} 項）` : "收合常用篩選"}
+        onClick={() => toggleFold("saved_filters")}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggleFold("saved_filters");
+          }
+        }}
+      >
+        <span>常用篩選</span>
+        <span className="trunk-caret" aria-hidden="true">
+          {folded ? `${saved.length} ▸` : "▾"}
+        </span>
+      </h2>
+      {!folded &&
+        saved.map((s) => {
         const active = onFilterTab && activeId === s.id;
         const isEditing = editingId === s.id;
         return (

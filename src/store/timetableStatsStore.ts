@@ -84,6 +84,14 @@ export interface RouteName {
   deleted: boolean;
 }
 
+/** v1.29 D-時-192：目標綁定的任務節點（支線／列車／車廂／車票）顯示資訊 */
+export interface GoalNodeName {
+  name: string;
+  kind: string;
+  routeId: string | null;
+  deleted: boolean;
+}
+
 export interface StatsState {
   period: StatsPeriod;
   /** 正在看的期的第一天（依目前週起點／日界線對齊過；followCurrent 時每次重算都會跟著今天）。**顯示用**，別拿它當「看哪一期」的依據 */
@@ -109,8 +117,10 @@ export interface StatsState {
   /** 目標面板用：沒封存、讀得懂的目標（原樣，含編輯用欄位）／封存的目標（「已封存的目標」區叫回用） */
   goalList: Goal[];
   archivedGoals: Goal[];
-  /** result.routes 用到的路線 id → 名字 */
+  /** result.routes 與目標用到的路線 id → 名字 */
   routeNames: Record<string, RouteName>;
+  /** 目標綁定的支線／列車／車廂／車票節點 id → 名字與種類 */
+  goalNodeNames: Record<string, GoalNodeName>;
 
   setPeriod(p: StatsPeriod): void;
   /** 翻期：+1 下一期、−1 上一期；不能翻到未來（到本期就停） */
@@ -245,15 +255,20 @@ function thresholdFn(): (s: StatsSpan) => number | null {
     )?.min ?? null;
 }
 
-async function routeNamesOf(result: StatsResult): Promise<Record<string, RouteName>> {
+async function routeNamesOf(result: StatsResult, extraRouteIds: readonly string[] = []): Promise<Record<string, RouteName>> {
   const out: Record<string, RouteName> = {};
   const live = new Map(useNodeStore.getState().routes.filter((r) => r.deleted_at === null).map((r) => [r.id, r.name] as const));
   const missing: string[] = [];
+  const want = new Set<string>();
   for (const r of result.routes) {
     if (r.key === ROUTE_NONE || r.key === ROUTE_GONE || r.key === ROUTE_NOROUTE) continue;
-    const name = live.get(r.key);
-    if (name !== undefined) out[r.key] = { name, deleted: false };
-    else missing.push(r.key);
+    want.add(r.key);
+  }
+  for (const rid of extraRouteIds) if (rid) want.add(rid);
+  for (const rid of want) {
+    const name = live.get(rid);
+    if (name !== undefined) out[rid] = { name, deleted: false };
+    else missing.push(rid);
   }
   if (missing.length) {
     const nodes = await Promise.all(missing.map((id) => nodeRepo.getNode(id).catch(() => null)));
@@ -263,6 +278,97 @@ async function routeNamesOf(result: StatsResult): Promise<Record<string, RouteNa
     });
   }
   return out;
+}
+
+/** v1.29 D-時-192：解析目標綁定的路線與任務節點（含向上匯總祖先鏈） */
+async function resolveGoalLinks(
+  allGoals: readonly Goal[],
+  goalSpans: readonly StatsSpan[],
+): Promise<{
+  goalNodeNames: Record<string, GoalNodeName>;
+  extraRouteIds: string[];
+  ancestorsOfNode: (nodeId: string) => readonly string[];
+  liveRouteIds: ReadonlySet<string>;
+  liveNodeIds: ReadonlySet<string>;
+}> {
+  const extraRouteSet = new Set<string>();
+  const goalNodeSet = new Set<string>();
+  let anyRouteGoal = false;
+  let anyNodeGoal = false;
+  for (const g of allGoals) {
+    for (const rid of g.routeIds ?? []) {
+      extraRouteSet.add(rid);
+      anyRouteGoal = true;
+    }
+    for (const nid of g.nodeIds ?? []) {
+      goalNodeSet.add(nid);
+      anyNodeGoal = true;
+    }
+  }
+  if (anyRouteGoal) {
+    await resolveNodeRoutes(goalSpans);
+  }
+  const byId = useNodeStore.getState().tree.byId;
+  const fetchedNodes = new Map<string, Awaited<ReturnType<typeof nodeRepo.getNode>>>();
+  const ensureNode = async (id: string) => {
+    if (byId[id]) return byId[id];
+    if (fetchedNodes.has(id)) return fetchedNodes.get(id) ?? null;
+    const n = await nodeRepo.getNode(id).catch(() => null);
+    fetchedNodes.set(id, n);
+    return n;
+  };
+  const goalNodeNames: Record<string, GoalNodeName> = {};
+  for (const nid of goalNodeSet) {
+    const n = await ensureNode(nid);
+    if (n) {
+      goalNodeNames[nid] = {
+        name: n.name,
+        kind: n.kind,
+        routeId: n.kind === "route" ? n.id : n.route_id,
+        deleted: n.deleted_at !== null,
+      };
+      if (n.route_id) extraRouteSet.add(n.route_id);
+    } else {
+      goalNodeNames[nid] = { name: "（已刪除的項目）", kind: "ticket", routeId: null, deleted: true };
+    }
+  }
+  const ancestorMap = new Map<string, string[]>();
+  if (anyNodeGoal) {
+    const spanNodeIds = new Set<string>();
+    for (const s of goalSpans) if (s.nodeId !== null) spanNodeIds.add(s.nodeId);
+    for (const startId of spanNodeIds) {
+      const chain: string[] = [];
+      let curId: string | null = startId;
+      let guard = 0;
+      while (curId && guard++ < 16) {
+        chain.push(curId);
+        const node = await ensureNode(curId);
+        if (!node || !node.parent_id) break;
+        curId = node.parent_id;
+      }
+      ancestorMap.set(startId, chain);
+    }
+  }
+  const liveRouteIds = new Set<string>(
+    useNodeStore.getState().routes.filter((r) => r.deleted_at === null).map((r) => r.id),
+  );
+  for (const rid of extraRouteSet) {
+    if (!liveRouteIds.has(rid)) {
+      const n = await ensureNode(rid);
+      if (n && n.deleted_at === null) liveRouteIds.add(rid);
+    }
+  }
+  const liveNodeIds = new Set<string>();
+  for (const [nid, info] of Object.entries(goalNodeNames)) {
+    if (!info.deleted) liveNodeIds.add(nid);
+  }
+  return {
+    goalNodeNames,
+    extraRouteIds: Array.from(extraRouteSet),
+    ancestorsOfNode: (nid: string) => ancestorMap.get(nid) ?? [nid],
+    liveRouteIds,
+    liveNodeIds,
+  };
 }
 
 /* ───────── 計算（一趟一趟排隊，重算請求合併） ───────── */
@@ -408,16 +514,36 @@ async function computeStats(): Promise<void> {
     });
     const goalRaw = await goalSpansFor(goalsFromMs(active, now, h, weekStart), from, spans, now, today, tt.rev);
     const goalSpans = goalRaw === spans ? tagged : withTagKeys(goalRaw, cats, maps);
-    const goals = buildGoals(active, goalSpans, cats, { now, h, weekStart, thresholdMin: th });
-    const routeNames = await routeNamesOf(result);
+    const goalLinks = await resolveGoalLinks(withTags, goalSpans);
+    const goals = buildGoals(active, goalSpans, cats, {
+      now,
+      h,
+      weekStart,
+      thresholdMin: th,
+      routeOf,
+      ancestorsOfNode: goalLinks.ancestorsOfNode,
+      liveRouteIds: goalLinks.liveRouteIds,
+      liveNodeIds: goalLinks.liveNodeIds,
+    });
+    const routeNames = await routeNamesOf(result, goalLinks.extraRouteIds);
     // 算的期間使用者又換了期 ⇒ 這份作廢（下一趟已經排好；沒排下一趟〔例如已 release〕就把 loading 放下）
     const cur = useTimetableStatsStore.getState();
     if (viewChangedSince({ period, follow, key }, { period: cur.period, follow: cur.followCurrent, ref: cur.ref }, today, h, weekStart)) {
       if (!statsDirty) useTimetableStatsStore.setState({ loading: false });
       return;
     }
-    usedRouteKeys = result.routes.map((r) => r.key);
-    useTimetableStatsStore.setState({ key, result, goals, goalList: active, archivedGoals, routeNames, loading: false, error: null });
+    usedRouteKeys = [...result.routes.map((r) => r.key), ...goalLinks.extraRouteIds];
+    useTimetableStatsStore.setState({
+      key,
+      result,
+      goals,
+      goalList: active,
+      archivedGoals,
+      routeNames,
+      goalNodeNames: goalLinks.goalNodeNames,
+      loading: false,
+      error: null,
+    });
   } catch (e) {
     useTimetableStatsStore.setState({ loading: false, error: e instanceof Error ? e.message : String(e) });
   }
@@ -511,6 +637,7 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
   goalList: [],
   archivedGoals: [],
   routeNames: {},
+  goalNodeNames: {},
 
   setPeriod(p) {
     const s = get();

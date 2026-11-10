@@ -272,6 +272,37 @@ export function useLastCategory(link: BlockLink | null): LastCat | null | undefi
 const SEARCH_MAX = 20;
 const SEARCH_DEBOUNCE_MS = 160;
 
+/** v1.29 D-時-192：還在跑的路線底下的活躍支線（不直接碰 repository，經 timetableStore.routeNodes） */
+export function useLiveBranches(routes: readonly NodeRow[]): NodeRow[] {
+  const tree = useNodeStore((s) => s.tree);
+  const routeNodes = useTimetableStore((s) => s.routeNodes);
+  const [branches, setBranches] = useState<NodeRow[]>([]);
+  const routeSig = routes.map((r) => r.id).join(",");
+  useEffect(() => {
+    let alive = true;
+    if (routes.length === 0) {
+      setBranches([]);
+      return;
+    }
+    void Promise.all(routes.map((r) => routeNodes(r.id).catch(() => []))).then((lists) => {
+      if (!alive) return;
+      const out: NodeRow[] = [];
+      for (const ns of lists) {
+        for (const n of ns) {
+          if (n.kind === "branch" && n.deleted_at === null && n.status !== "done" && n.status !== "paused") {
+            out.push(n);
+          }
+        }
+      }
+      setBranches(out);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [routeSig, tree, routeNodes, routes]);
+  return branches;
+}
+
 export interface LinkPickerProps {
   value: BlockLink | null;
   onPick(link: BlockLink | null): void;
@@ -283,6 +314,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
   const rows = useTodayTicketRows(true);
   // 「只連路線」只列還在跑的路線（車庫與回顧 D-主-206 #12：收進車庫的不再新掛）
   const routes = useNodeStore((s) => s.liveRoutes);
+  const branches = useLiveBranches(routes);
   const routeById = useRouteById();
   const catById = useTimetableStore((s) => s.catById);
   const cur = value && (value.nodeId !== null || value.routeId !== null) ? value : null;
@@ -356,7 +388,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
           ref={inputRef}
           type="search"
           value={q}
-          placeholder="搜尋車票、列車、車廂"
+          placeholder="搜尋車票、列車、車廂、支線"
           autoComplete="off"
           aria-label="搜尋全部任務"
           onChange={(e) => setQ(e.target.value)}
@@ -379,7 +411,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
               tone="nores"
               className="ns-tt-link-empty"
               title={`找不到「${query}」`}
-              desc="換個字，可以搜尋車票、列車、車廂。"
+              desc="換個字，可以搜尋車票、列車、車廂、支線。"
               secondary={{
                 label: "清除搜尋",
                 onClick: () => {
@@ -449,7 +481,7 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
             <>
               <div className="ns-tt-link-sec">
                 {TT_TEXT.LINK_ROUTE_ONLY}
-                <span>不指定車票，直接記在這條路線下</span>
+                <span>不指定車票，直接記在這條路線或支線下</span>
               </div>
               <div className="ns-tt-link-routes">
                 {routes.map((r) => {
@@ -464,6 +496,22 @@ export function LinkPicker({ value, onPick, onBack }: LinkPickerProps) {
                     >
                       <RouteRoundel route={r} />
                       <span>{r.name}</span>
+                    </button>
+                  );
+                })}
+                {branches.map((b) => {
+                  const on = cur !== null && cur.nodeId === b.id;
+                  const r = b.route_id ? (routeById[b.route_id] ?? null) : null;
+                  return (
+                    <button
+                      type="button"
+                      key={b.id}
+                      className={"ns-tt-link-rk" + (on ? " is-on" : "")}
+                      aria-pressed={on}
+                      onClick={() => pickNode(b)}
+                    >
+                      <RouteRoundel route={r} />
+                      <span>{r ? `${r.name} › ${b.name}` : b.name}</span>
                     </button>
                   );
                 })}

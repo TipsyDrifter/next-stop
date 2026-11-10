@@ -30,8 +30,8 @@ export function DesktopSheetHost() {
   const { foot, el } = useTtFoot(!!sheet && sheetHasFoot(sheet.kind));
 
   // ④（乙席）：日程的 plan 面板在桌機是貼在卡旁的浮層，由 schedule/ScheduleView 的 PlanPopover 自己畫，這裡不包置中的 DialogShell
-  // ⑦（C 席）：作息段（routine）與車票第二段起（slot）同 plan，浮層由 ScheduleView 自己畫
-  if (!sheet || sheet.kind === "plan" || sheet.kind === "routine" || sheet.kind === "slot") return null;
+  // ⑦（C 席）：作息段（routine）、車票第二段起（slot）與臨時班次（adhoc）同 plan，浮層由 ScheduleView 自己畫
+  if (!sheet || sheet.kind === "plan" || sheet.kind === "routine" || sheet.kind === "slot" || sheet.kind === "adhoc") return null;
   const title = sheetTitle(sheet, { running, catById, dayBlocks, todayBlocks, weekBlocks }, now);
 
   return (

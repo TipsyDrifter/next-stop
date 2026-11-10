@@ -15,12 +15,12 @@
  */
 import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
-import { SEG_TEXT, useTimetableScheduleStore, type SchedBlock } from "../../../store/timetableScheduleStore";
+import { ADHOC_TEXT, SEG_TEXT, useTimetableScheduleStore, type SchedBlock } from "../../../store/timetableScheduleStore";
 import { segNumberOf } from "./routineModel";
 import { clockText, nextDayNote } from "../../../lib/date";
 import { fmtDur, MIN } from "../../../domain/timetable";
 import { SCHED_UI, deltaFull, deltaLines, deltaShort, minFrac, pct, toneOf } from "./scheduleModel";
-import { routeColorOf, type SchedulePage } from "./useSchedulePage";
+import { adhocDisplayOf, routeColorOf, type SchedulePage } from "./useSchedulePage";
 import type { DragSrc, DragView } from "./useScheduleDrag";
 
 export type CardLayout = "rail" | "inline";
@@ -46,10 +46,10 @@ const SHORT_PX = { rail: 38, inline: 30 } as const;
 const RAIL_LINE = 15;
 
 export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowClick, minAtY }: PlanColumnProps) {
-  const { items, slots, nodes, cmp, dayStartHour, isPast, canEdit, activeKey, openKey, sel, picked, shell, slotsByNode } = page;
+  const { items, slots, adhocs, nodes, cmp, dayStartHour, isPast, canEdit, activeKey, openKey, sel, picked, shell, slotsByNode } = page;
   const setHover = useTimetableScheduleStore((s) => s.setHover);
   const running = useTimetableStore((s) => s.running);
-  // ⑦：第一段＋第二段起（同一套 lane；store 排好）
+  // ⑦：第一段＋第二段起＋臨時班次（同一套 lane；store 排好）
   const blocks = page.blocks;
   const dayPx = 24 * hourPx;
   const desk = shell === "desktop";
@@ -67,13 +67,16 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
   };
 
   const cards = blocks.map((b) => {
-    const slot = b.slotId !== null ? slots[b.key] : undefined;
-    const it = slot ?? items[b.key];
+    const adhoc = b.slotId !== null ? adhocs[b.key] : undefined;
+    const slot = b.slotId !== null && !adhoc ? slots[b.key] : undefined;
+    const it = adhoc ?? slot ?? items[b.key];
     if (!it) return null;
     const c = cmp.cmp.get(b.key);
-    const name = nodes[it.nodeId]?.name ?? "？";
+    const adDisp = adhoc ? adhocDisplayOf(page, adhoc) : null;
+    const name = adDisp ? adDisp.name : (nodes[it.nodeId]?.name ?? "？");
+    const rc = adDisp ? adDisp.color : routeColorOf(page, it.nodeId);
     // ⑦：「第 N 段」（照時間先後含第一段一起數；只有一段不印）
-    const segNo = it.kind === "single" ? segNumberOf(nodes[it.nodeId], it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main") : null;
+    const segNo = !adhoc && it.kind === "single" ? segNumberOf(nodes[it.nodeId], it.nodeId, slotsByNode[it.nodeId], slot ? slot.planId : "main") : null;
     const segTag = segNo && segNo.total > 1 ? SEG_TEXT.tag(segNo.n) : null;
     const hpx = ((b.endMin - b.startMin) / 60) * hourPx;
     const short = hpx < SHORT_PX[layout];
@@ -82,8 +85,10 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
     const next = nextDayNote(t);
     const movable = canEdit && !it.skipped;
     // ⑦：同一張票有好幾段時，運行中只亮對到的那一段（不是整張票的每一段都亮）
-    const isLive = c?.state === "running" || (!segTag && running?.node_id === it.nodeId && page.isToday);
-    const tag = it.skipped ? (
+    const isLive = c?.state === "running" || (!adhoc && !segTag && running?.node_id === it.nodeId && page.isToday);
+    const tag = adhoc ? (
+      <em className="ns-tt-sched-tag is-adhoc">{ADHOC_TEXT.tag}</em>
+    ) : it.skipped ? (
       <em className="ns-tt-sched-tag is-cancel">{TT_TEXT.schedSkipped}</em>
     ) : it.overridden ? (
       <em className="ns-tt-sched-tag">{TT_TEXT.schedRun}</em>
@@ -93,15 +98,19 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
     const inlineDelta = layout === "inline" && c && !it.skipped ? deltaShort(it, c, isPast, TT_TEXT.schedSkipped) : null;
     const full = c ? deltaFull(it, c, isPast, TT_TEXT.schedSkipped) : null;
     const title =
-      (slot
-        ? `${t}–${slot.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${name}`
-        : `${TT_TEXT.schedDepart(t)}${next ? `（${next}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate}　${name}`) +
+      (adhoc
+        ? `${t}–${adhoc.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${name}${adDisp?.sub ? `（${adDisp.sub}）` : ""}`
+        : slot
+          ? `${t}–${slot.end}${next ? `（${next}）` : ""}・${fmtDur((it.estimateMin ?? 0) * MIN)}　${name}`
+          : `${TT_TEXT.schedDepart(t)}${next ? `（${next}）` : ""}・${it.estimateMin ? fmtDur(it.estimateMin * MIN) : TT_TEXT.schedNoEstimate}　${name}`) +
+      (adhoc ? `　${ADHOC_TEXT.tag}` : "") +
       (it.overridden ? `　${TT_TEXT.schedRun}` : "") +
       (segTag ? `　${segTag}` : "") +
       (full ? `　${full}` : "");
     const cls =
       "ns-tt-sched-card" +
       ` is-${layout}` +
+      (adhoc ? " is-adhoc" : "") +
       (short ? " is-short" : "") +
       (it.done ? " is-done" : "") +
       (it.skipped ? " is-cancel" : "") +
@@ -114,7 +123,7 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
       (movable ? " is-movable" : "") +
       (drag?.key === b.key ? " is-lifted" : "");
     const style = {
-      "--rc": routeColorOf(page, it.nodeId),
+      "--rc": rc,
       top: pct(minFrac(b.startMin, dayStartHour)),
       height: pct((b.endMin - b.startMin) / 1440),
       left: `calc(${(b.lane / b.lanes) * 100}% + 2px)`,
@@ -211,7 +220,7 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
         {[...blocks]
           .sort((a, b) => a.startMin - b.startMin || a.lane - b.lane)
           .map((b) => {
-            const it = (b.slotId !== null ? slots[b.key] : undefined) ?? items[b.key];
+            const it = (b.slotId !== null ? (adhocs[b.key] ?? slots[b.key]) : undefined) ?? items[b.key];
             const c = cmp.cmp.get(b.key);
             if (!it || !c) return null;
             const lines = deltaLines(it, c, isPast, TT_TEXT.schedSkipped);
@@ -244,7 +253,8 @@ export function PlanColumn({ page, layout, hourPx, drag, onDragStart, swallowCli
 /** 拖曳中的落點卡（虛線金框）：高＝預計（沒預計 45 分），落點分鐘照吸附 */
 function Ghost({ page, drag, hourPx }: { page: SchedulePage; drag: DragView | null; hourPx: number }) {
   if (!drag || drag.min === null) return null;
-  const it = page.items[drag.key] ?? page.slots[drag.key];
+  const adhoc = page.adhocs[drag.key];
+  const it = adhoc ?? page.items[drag.key] ?? page.slots[drag.key];
   if (!it) return null;
   const len = it.estimateMin ?? 45;
   const hpx = (len / 60) * hourPx;
@@ -252,10 +262,11 @@ function Ghost({ page, drag, hourPx }: { page: SchedulePage; drag: DragView | nu
     top: pct(minFrac(drag.min, page.dayStartHour)),
     height: pct(Math.min(len, page.dayStartHour * 60 + 1440 - drag.min) / 1440),
   } as CSSProperties;
+  const ghostName = adhoc ? adhocDisplayOf(page, adhoc).name : (page.nodes[it.nodeId]?.name ?? "？");
   return (
     <div className={"ns-tt-sched-ghost" + (it.estimateMin ? "" : " is-noest") + (hpx < 36 ? " is-short" : "")} style={style} aria-hidden="true">
       <span className="ns-tt-num">{clockText(drag.min)}</span>
-      <b>{page.nodes[it.nodeId]?.name ?? "？"}</b>
+      <b>{ghostName}</b>
     </div>
   );
 }

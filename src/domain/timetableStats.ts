@@ -46,6 +46,10 @@ export interface Goal {
   name: string;
   /** scope.categories（原樣，已刪除的也在；展開與略過在 `expandScope`） */
   categoryIds: string[];
+  /** v1.29 D-時-192：跨層級範圍——路線 ID（向上匯總路線本身＋路線下所有節點） */
+  routeIds?: string[];
+  /** v1.29 D-時-192：跨層級範圍——支線／列車／車廂／車票節點 ID（向上匯總該節點＋其下所有子孫節點） */
+  nodeIds?: string[];
   period: GoalPeriod;
   targetMin: number;
   direction: GoalDirection;
@@ -57,7 +61,7 @@ export interface Goal {
   archived: boolean;
   /**
    * ⑥（0-4）：目標綁的荷札 keys——**由 store 從 taggings（`timetable:goal`）填**，不看 scope 是 v1 還是 v2；
-   * `parseGoal` 一律給 `[]`。範圍＝分類 ∪ 荷札（`goalMember`）。
+   * `parseGoal` 一律給 `[]`。範圍＝分類 ∪ 路線 ∪ 節點（含子樹） ∪ 荷札（`goalMember`）。
    */
   tagKeys: string[];
 }
@@ -183,6 +187,11 @@ export function parseGoal(r: TimeGoalRow, h = 6): Goal | null {
   if (cats === null) return null;
   const categoryIds: string[] = [];
   for (const c of cats) if (typeof c === "string" && !categoryIds.includes(c)) categoryIds.push(c);
+  const { routes, nodes } = scopeLinksOf(scope);
+  const routeIds: string[] = [];
+  for (const x of routes) if (typeof x === "string" && x && !routeIds.includes(x)) routeIds.push(x);
+  const nodeIds: string[] = [];
+  for (const x of nodes) if (typeof x === "string" && x && !nodeIds.includes(x)) nodeIds.push(x);
   if (typeof r.target_min !== "number" || !Number.isInteger(r.target_min) || r.target_min <= 0) return null;
   let startOn: string | null = null;
   let endOn: string | null = null;
@@ -203,7 +212,7 @@ export function parseGoal(r: TimeGoalRow, h = 6): Goal | null {
     if (startOn !== null && r.end_on < startOn) return null; // YYYY-MM-DD 字串比較＝日期比較
     endOn = r.end_on;
   }
-  return {
+  const out: Goal = {
     id: r.id,
     name: r.name,
     categoryIds,
@@ -216,11 +225,14 @@ export function parseGoal(r: TimeGoalRow, h = 6): Goal | null {
     archived: r.archived_at !== null,
     tagKeys: [],
   };
+  if (routeIds.length > 0) out.routeIds = routeIds;
+  if (nodeIds.length > 0) out.nodeIds = nodeIds;
+  return out;
 }
 
 /**
  * scope 物件 → 分類 id 陣列（原樣，還沒去重）；認不得 ⇒ null（0-4）：
- *   v1 `{"categories":[…]}`（多的鍵忽略）；v2 `{"v":2,"cats":[…]}`（有綁荷札的目標；舊版讀成 null）。
+ *   v1 `{"categories":[…]}`（多的鍵忽略）；v2 `{"v":2,"cats":[…]}`（有綁荷札／路線／任務的目標；舊版讀成 null）。
  *   有 `v` 鍵就照 v 判（v≠2 ⇒ null，給更新的版本用）；`{"cats":[…]}` 沒有 v ⇒ null。
  */
 function scopeCategoriesOf(scope: unknown): unknown[] | null {
@@ -228,6 +240,16 @@ function scopeCategoriesOf(scope: unknown): unknown[] | null {
   const o = scope as { v?: unknown; cats?: unknown; categories?: unknown };
   if ("v" in o) return o.v === 2 && Array.isArray(o.cats) ? o.cats : null;
   return Array.isArray(o.categories) ? o.categories : null;
+}
+
+function scopeLinksOf(scope: unknown): { routes: unknown[]; nodes: unknown[] } {
+  if (scope === null || typeof scope !== "object" || Array.isArray(scope)) return { routes: [], nodes: [] };
+  const o = scope as { v?: unknown; routes?: unknown; nodes?: unknown };
+  if (o.v !== 2) return { routes: [], nodes: [] };
+  return {
+    routes: Array.isArray(o.routes) ? o.routes : [],
+    nodes: Array.isArray(o.nodes) ? o.nodes : [],
+  };
 }
 
 /** scope 欄是哪一版：1＝`{"categories":[…]}`、2＝`{"v":2,"cats":[…]}`；解不開或認不得 ⇒ null */
@@ -242,29 +264,53 @@ export function goalScopeVersion(scopeJson: string): 1 | 2 | null {
   return "v" in (scope as object) ? 2 : 1;
 }
 
-/**
- * `scope` 欄的 JSON（0-4）：只綁分類 ⇒ v1 `{"categories":[…]}`（舊版照常讀寫）；
- * `hasTags`（有綁荷札）⇒ v2 `{"v":2,"cats":[…]}`、沒有 `categories` 鍵（舊版 `parseGoal` 讀成 null、不畫也不能改）。
- * 荷札本身不在這欄（在 `timetable:goal` 的 taggings）。寫既有目標請用 `goalScopeNext`（v2 有黏性）。
- */
-export function goalScopeJson(categoryIds: readonly string[], hasTags = false): string {
-  const ids: string[] = [];
-  for (const id of categoryIds) if (!ids.includes(id)) ids.push(id);
-  return hasTags ? JSON.stringify({ v: 2, cats: ids }) : JSON.stringify({ categories: ids });
+export interface GoalScopeExtra {
+  routeIds?: readonly string[];
+  nodeIds?: readonly string[];
 }
 
 /**
- * 寫既有目標時的 scope（0-4「v2 有黏性」）：這次有荷札，**或**目標列現在的 scope 已經是 v2 ⇒ 寫 v2
+ * `scope` 欄的 JSON（0-4、D-時-192）：只綁分類 ⇒ v1 `{"categories":[…]}`（舊版照常讀寫）；
+ * `hasTags`（有綁荷札）或有綁路線／任務節點 ⇒ v2 `{"v":2,"cats":[…], ...}`、沒有 `categories` 鍵（舊版 `parseGoal` 讀成 null、不畫也不能改）。
+ * 荷札本身不在這欄（在 `timetable:goal` 的 taggings）。寫既有目標請用 `goalScopeNext`（v2 有黏性）。
+ */
+export function goalScopeJson(categoryIds: readonly string[], hasTags = false, extra?: GoalScopeExtra): string {
+  const ids: string[] = [];
+  for (const id of categoryIds) if (!ids.includes(id)) ids.push(id);
+  const routes: string[] = [];
+  for (const id of extra?.routeIds ?? []) if (typeof id === "string" && id && !routes.includes(id)) routes.push(id);
+  const nodes: string[] = [];
+  for (const id of extra?.nodeIds ?? []) if (typeof id === "string" && id && !nodes.includes(id)) nodes.push(id);
+  if (hasTags || routes.length > 0 || nodes.length > 0) {
+    const obj: { v: 2; cats: string[]; routes?: string[]; nodes?: string[] } = { v: 2, cats: ids };
+    if (routes.length > 0) obj.routes = routes;
+    if (nodes.length > 0) obj.nodes = nodes;
+    return JSON.stringify(obj);
+  }
+  return JSON.stringify({ categories: ids });
+}
+
+/**
+ * 寫既有目標時的 scope（0-4「v2 有黏性」）：這次有荷札／路線／任務，**或**目標列現在的 scope 已經是 v2 ⇒ 寫 v2
  * （就算這次沒帶 tagNames、就算荷札全被摘了）；否則 v1。`prevScope`＝目標列現在的 scope 欄（新目標傳 null）。
  */
-export function goalScopeNext(prevScope: string | null, categoryIds: readonly string[], hasTags: boolean): string {
-  return goalScopeJson(categoryIds, hasTags || (prevScope !== null && goalScopeVersion(prevScope) === 2));
+export function goalScopeNext(
+  prevScope: string | null,
+  categoryIds: readonly string[],
+  hasTags: boolean,
+  extra?: GoalScopeExtra,
+): string {
+  return goalScopeJson(categoryIds, hasTags || (prevScope !== null && goalScopeVersion(prevScope) === 2), extra);
 }
 
 /** 寫入用的目標欄位（面板送進來的；`normalizeGoalInput` 驗過才落地） */
 export interface GoalInput {
   name: string;
   categoryIds: readonly string[];
+  /** v1.29 D-時-192：跨層級範圍——路線 ID */
+  routeIds?: readonly string[];
+  /** v1.29 D-時-192：跨層級範圍——支線／列車／車廂／車票節點 ID */
+  nodeIds?: readonly string[];
   period: GoalPeriod;
   targetMin: number;
   direction: GoalDirection;
@@ -286,7 +332,7 @@ export const GOAL_SCOPE_EMPTY = "請選至少一個分類或荷札";
 
 /**
  * 驗證並整理（兩個 repository 共用，訊息逐字相同）。不合法 ⇒ `RangeError("<人話>")`（store 接住後 toast 它的 message）。
- * 名字 trim 後 1–24 字；分類（去重）與荷札（trim、去掉開頭的 #、去重）**至少要有一個**（⑥ 0-4；`tagNames` 沒給算 0 個）；
+ * 名字 trim 後 1–24 字；分類／路線／任務／荷札**至少要有一個**（⑥ 0-4、D-時-192；`tagNames` 沒給算 0 個）；
  * 期間、方向要認得；目標時數 > 0 的整數分鐘；
  * since／until／range 要有起點、until／range 要有終點且終點 ≥ 起點；其餘欄存 null。
  * 回傳的 `tagNames`：輸入有給才有（沒給＝repository 不動荷札）。
@@ -297,6 +343,10 @@ export function normalizeGoalInput(input: GoalInput): GoalInput {
   if (Array.from(name).length > GOAL_NAME_MAX) throw new RangeError(`目標名稱最多 ${GOAL_NAME_MAX} 字`);
   const categoryIds: string[] = [];
   for (const id of input.categoryIds) if (typeof id === "string" && id && !categoryIds.includes(id)) categoryIds.push(id);
+  const routeIds: string[] = [];
+  for (const id of input.routeIds ?? []) if (typeof id === "string" && id && !routeIds.includes(id)) routeIds.push(id);
+  const nodeIds: string[] = [];
+  for (const id of input.nodeIds ?? []) if (typeof id === "string" && id && !nodeIds.includes(id)) nodeIds.push(id);
   let tagNames: string[] | undefined;
   if (input.tagNames !== undefined) {
     tagNames = [];
@@ -306,7 +356,9 @@ export function normalizeGoalInput(input: GoalInput): GoalInput {
       if (t && !tagNames.includes(t)) tagNames.push(t);
     }
   }
-  if (!categoryIds.length && !(tagNames && tagNames.length)) throw new RangeError(GOAL_SCOPE_EMPTY);
+  if (!categoryIds.length && !routeIds.length && !nodeIds.length && !(tagNames && tagNames.length)) {
+    throw new RangeError(GOAL_SCOPE_EMPTY);
+  }
   const p = input.period;
   if (p !== "day" && p !== "week" && p !== "month" && p !== "since" && p !== "until" && p !== "range") {
     throw new RangeError("請選擇目標期間");
@@ -325,13 +377,26 @@ export function normalizeGoalInput(input: GoalInput): GoalInput {
     endOn = input.endOn;
   }
   const out: GoalInput = { name, categoryIds, period: p, targetMin: input.targetMin, direction: input.direction, startOn, endOn };
+  if (input.routeIds !== undefined) out.routeIds = routeIds;
+  if (input.nodeIds !== undefined) out.nodeIds = nodeIds;
   if (tagNames !== undefined) out.tagNames = tagNames;
   return out;
 }
 
 /** `Goal` → 可編輯欄位（編輯面板的初值；patch 合併用） */
 export function goalToInput(g: Goal): GoalInput {
-  return { name: g.name, categoryIds: g.categoryIds.slice(), period: g.period, targetMin: g.targetMin, direction: g.direction, startOn: g.startOn, endOn: g.endOn };
+  const out: GoalInput = {
+    name: g.name,
+    categoryIds: g.categoryIds.slice(),
+    period: g.period,
+    targetMin: g.targetMin,
+    direction: g.direction,
+    startOn: g.startOn,
+    endOn: g.endOn,
+  };
+  if (g.routeIds && g.routeIds.length > 0) out.routeIds = g.routeIds.slice();
+  if (g.nodeIds && g.nodeIds.length > 0) out.nodeIds = g.nodeIds.slice();
+  return out;
 }
 
 /**
@@ -371,8 +436,8 @@ function progressOf(g: Goal, ms: number): { ms: number; ratio: number; met: bool
 /**
  * 進度（**只看分類**的舊介面，③ 起）：`ms`＝scope 內各分類時數加總；`ratio`＝ms ÷ 目標（目標 ≤ 0 ⇒ 0）。
  * atLeast：met＝ms ≥ 目標、over 恆 false；atMost：over＝ms > 目標、met＝!over。
- * ⑥ 起目標可以綁荷札（範圍＝分類 ∪ 荷札，一塊只算一次），聯集沒辦法從加總表拼出來 ⇒ 正式計算改用 `goalProgressIn`
- * （逐塊判 `goalMember`；`buildGoals` 用它）。沒綁荷札的目標兩者結果相同。
+ * ⑥ 起目標可以綁荷札／路線／任務（範圍＝分類 ∪ 路線 ∪ 任務 ∪ 荷札，一塊只算一次），聯集沒辦法從加總表拼出來 ⇒ 正式計算改用 `goalProgressIn`
+ * （逐塊判 `goalMember`；`buildGoals` 用它）。沒綁荷札／路線／任務的目標兩者結果相同。
  */
 export function goalProgress(
   g: Goal,
@@ -385,48 +450,101 @@ export function goalProgress(
   return progressOf(g, ms);
 }
 
+export interface GoalLinkContext {
+  routes?: ReadonlySet<string>;
+  nodes?: ReadonlySet<string>;
+  /** 解出時間塊所屬的路線 ID（含透過節點向上匯總到路線） */
+  routeOf?: (s: StatsSpan) => string;
+  /** 節點在任務樹上的祖先 ID 列表（含節點自身，供支線／列車／車廂向上匯總） */
+  ancestorsOfNode?: (nodeId: string) => readonly string[];
+}
+
 /**
- * ⑥ 0-10：一塊在不在目標的範圍裡——分類在 `catSet`（`expandScope` 展開過的）**或**它的荷札（含推導的）有一個落在
- * `tagKeys` 裡某個 key 或它底下（`#高效` 的目標也算 `#高效/深度` 的塊）。
+ * ⑥ 0-10 & v1.29 D-時-192：一塊在不在目標的範圍裡——
+ * 分類在 `catSet`（`expandScope` 展開過的）**或**荷札落在 `tagKeys` **或**路線在 `routes`（含該路線底下任何節點）**或**節點（含其祖先）在 `nodes`。
  */
 export function goalMember(
-  s: { categoryId: string; tagKeys?: readonly string[] },
+  s: { categoryId: string; tagKeys?: readonly string[]; nodeId?: string | null; routeId?: string | null },
   catSet: ReadonlySet<string>,
   tagKeys: readonly string[],
+  linkCtx?: GoalLinkContext,
 ): boolean {
   if (catSet.has(s.categoryId)) return true;
-  if (!tagKeys.length) return false;
-  const ks = s.tagKeys;
-  if (!ks || !ks.length) return false;
-  for (const k of ks) for (const t of tagKeys) if (keyUnder(k, t)) return true;
+  if (tagKeys.length > 0) {
+    const ks = s.tagKeys;
+    if (ks && ks.length > 0) {
+      for (const k of ks) for (const t of tagKeys) if (keyUnder(k, t)) return true;
+    }
+  }
+  if (linkCtx?.routes && linkCtx.routes.size > 0) {
+    if (s.routeId && linkCtx.routes.has(s.routeId)) return true;
+    if (linkCtx.routeOf) {
+      const rKey = linkCtx.routeOf(s as StatsSpan);
+      if (linkCtx.routes.has(rKey)) return true;
+    }
+  }
+  if (linkCtx?.nodes && linkCtx.nodes.size > 0 && s.nodeId) {
+    if (linkCtx.nodes.has(s.nodeId)) return true;
+    if (linkCtx.ancestorsOfNode) {
+      for (const ancId of linkCtx.ancestorsOfNode(s.nodeId)) {
+        if (linkCtx.nodes.has(ancId)) return true;
+      }
+    }
+  }
   return false;
 }
 
-/** 目標實際的範圍（⑥）：展開過的分類集合＋荷札 keys；兩者都空＝`empty`（綁的分類／荷札都不在了） */
-export function goalScopeOf(g: Goal, cats: readonly TimeCategoryRow[]): { cats: Set<string>; tagKeys: readonly string[]; empty: boolean } {
+/** 目標實際的範圍（⑥ + v1.29）：展開過的分類集合＋荷札 keys＋路線集合＋節點集合；全部都空＝`empty` */
+export function goalScopeOf(
+  g: Goal,
+  cats: readonly TimeCategoryRow[],
+  liveFilter?: { liveRouteIds?: ReadonlySet<string>; liveNodeIds?: ReadonlySet<string> },
+): { cats: Set<string>; tagKeys: readonly string[]; routes: Set<string>; nodes: Set<string>; empty: boolean } {
   const set = expandScope(g.categoryIds, cats);
   const tagKeys = g.tagKeys ?? [];
-  return { cats: set, tagKeys, empty: set.size === 0 && tagKeys.length === 0 };
+  const routes = new Set<string>(
+    (g.routeIds ?? []).filter((id) => !liveFilter?.liveRouteIds || liveFilter.liveRouteIds.has(id)),
+  );
+  const nodes = new Set<string>(
+    (g.nodeIds ?? []).filter((id) => !liveFilter?.liveNodeIds || liveFilter.liveNodeIds.has(id)),
+  );
+  return {
+    cats: set,
+    tagKeys,
+    routes,
+    nodes,
+    empty: set.size === 0 && tagKeys.length === 0 && routes.size === 0 && nodes.size === 0,
+  };
 }
 
 /**
  * ⑥ 0-10 目標進度（逐塊判）：窗內每一塊（`t.msById`，碎塊已排除）是範圍成員、而且不是待確認 ⇒ 它切進窗的 ms 加進去；
- * 一塊只算一次（分類＋荷札都中也一樣）。`spanById`＝算 `t` 用的那批 spans。
+ * 一塊只算一次（分類＋路線＋任務＋荷札都中也一樣）。`spanById`＝算 `t` 用的那批 spans。
  */
 export function goalProgressIn(
   g: Goal,
   t: WindowTotals,
   spanById: ReadonlyMap<string, StatsSpan>,
   cats: readonly TimeCategoryRow[],
+  linkCtx?: Omit<GoalLinkContext, "routes" | "nodes"> & {
+    liveRouteIds?: ReadonlySet<string>;
+    liveNodeIds?: ReadonlySet<string>;
+  },
 ): { ms: number; ratio: number; met: boolean; over: boolean } {
-  const sc = goalScopeOf(g, cats);
+  const sc = goalScopeOf(g, cats, linkCtx);
   const pend = new Set(t.pendingIds);
   let ms = 0;
   if (!sc.empty) {
+    const fullCtx: GoalLinkContext = {
+      routes: sc.routes,
+      nodes: sc.nodes,
+      routeOf: linkCtx?.routeOf,
+      ancestorsOfNode: linkCtx?.ancestorsOfNode,
+    };
     for (const id of Object.keys(t.msById)) {
       if (pend.has(id)) continue;
       const s = spanById.get(id);
-      if (s && goalMember(s, sc.cats, sc.tagKeys)) ms += t.msById[id];
+      if (s && goalMember(s, sc.cats, sc.tagKeys, fullCtx)) ms += t.msById[id];
     }
   }
   return progressOf(g, ms);
@@ -785,6 +903,10 @@ export interface GoalView {
   goal: Goal;
   /** goal.categoryIds 裡還活著的（順序同 goal；卡片寫範圍用） */
   liveCategoryIds: string[];
+  /** goal.routeIds 裡還活著的（順序同 goal） */
+  liveRouteIds?: string[];
+  /** goal.nodeIds 裡還活著的（順序同 goal） */
+  liveNodeIds?: string[];
   /** 期間狀態（D-時-60／61）：upcoming＝還沒開始（進度 0、卡灰）、active、ended＝已結束（蓋最後結果的章） */
   state: "upcoming" | "active" | "ended";
   /** 有效窗；end null＝沒有終點（since） */
@@ -798,7 +920,7 @@ export interface GoalView {
   /** 從今天（含）到終點（含）還剩幾天；沒有終點或已結束＝null */
   daysLeft: number | null;
   /**
-   * ⑥：範圍是空的——綁的分類都刪了、綁的荷札也都不在了（`goal.tagKeys` 空）。進度恆 0；
+   * ⑥：範圍是空的——綁的分類／路線／任務都刪了、綁的荷札也都不在了（`goal.tagKeys` 空）。進度恆 0；
    * 卡上不畫條，`goal.categoryIds` 也空時寫「綁的荷札已經不在了」（`TT_TEXT.tags.goalTagsGone`）。
    */
   emptyScope: boolean;
@@ -1013,8 +1135,14 @@ export function buildGoals(
     h: number;
     weekStart: 0 | 1;
     thresholdMin: (s: StatsSpan) => number | null;
-    /** 目標用不到路線；不傳＝一律 ROUTE_NONE（呼叫端不必為了目標去解節點，評審 #4） */
+    /** 目標若有綁路線，用它解時間塊所屬路線；不傳＝一律 ROUTE_NONE */
     routeOf?: (s: StatsSpan) => string;
+    /** v1.29 D-時-192：節點在任務樹上的祖先 ID 列表（含節點自身，供支線／列車／車廂向上匯總） */
+    ancestorsOfNode?: (nodeId: string) => readonly string[];
+    /** v1.29：還活著的路線 ID 集合（不傳＝目標裡的 routeIds 全算活著） */
+    liveRouteIds?: ReadonlySet<string>;
+    /** v1.29：還活著的節點 ID 集合（不傳＝目標裡的 nodeIds 全算活著） */
+    liveNodeIds?: ReadonlySet<string>;
   },
 ): GoalView[] {
   if (!goals.length) return [];
@@ -1025,17 +1153,29 @@ export function buildGoals(
   const spanById = new Map<string, StatsSpan>();
   for (const s of spans) spanById.set(s.id, s);
   const routeOf = opts.routeOf ?? ((): string => ROUTE_NONE);
-  // ⑥ 0-10：進度與「另有 n 班待確認」都逐塊判（範圍＝分類 ∪ 荷札，一塊只算一次）
+  const linkCtxBase = {
+    routeOf,
+    ancestorsOfNode: opts.ancestorsOfNode,
+    liveRouteIds: opts.liveRouteIds,
+    liveNodeIds: opts.liveNodeIds,
+  };
+  // ⑥ 0-10 & v1.29：進度與「另有 n 班待確認」都逐塊判（範圍＝分類 ∪ 路線 ∪ 任務 ∪ 荷札，一塊只算一次）
   const one = (g: Goal, scope: ReturnType<typeof goalScopeOf>, w: { start: number; end: number }): GoalPeriodResult => {
     const t = windowTotals(spans, cls, w, opts.now, routeOf);
-    const p = goalProgressIn(g, t, spanById, cats);
+    const p = goalProgressIn(g, t, spanById, cats, linkCtxBase);
     let pendingCount = 0;
     let pendingMs = 0;
     const pendingItems: PendingItem[] = [];
     if (!scope.empty) {
+      const fullCtx: GoalLinkContext = {
+        routes: scope.routes,
+        nodes: scope.nodes,
+        routeOf,
+        ancestorsOfNode: opts.ancestorsOfNode,
+      };
       for (const id of t.pendingIds) {
         const s = spanById.get(id);
-        if (!s || !goalMember(s, scope.cats, scope.tagKeys)) continue;
+        if (!s || !goalMember(s, scope.cats, scope.tagKeys, fullCtx)) continue;
         pendingCount += 1;
         pendingMs += t.msById[id] ?? 0;
         pendingItems.push({ id: s.id, categoryId: s.categoryId, start: s.start, end: s.end, durMs: durOf(s, opts.now) });
@@ -1045,17 +1185,21 @@ export function buildGoals(
     return { start: w.start, end: w.end, ...p, pendingCount, pendingMs, pendingItems };
   };
   const views = goals.map((g): GoalView => {
-    const scope = goalScopeOf(g, cats);
+    const scope = goalScopeOf(g, cats, linkCtxBase);
     const win = goalWindow(g, today, opts.h, opts.weekStart);
     const prevWin = goalPrevWindow(g, today, opts.h, opts.weekStart);
     const live = g.categoryIds.filter((id) => {
       const c = catById.get(id);
       return !!c && c.deleted_at === null;
     });
+    const liveRoutes = (g.routeIds ?? []).filter((id) => !opts.liveRouteIds || opts.liveRouteIds.has(id));
+    const liveNodes = (g.nodeIds ?? []).filter((id) => !opts.liveNodeIds || opts.liveNodeIds.has(id));
     const cur = one(g, scope, { start: win.start, end: win.end ?? Number.MAX_SAFE_INTEGER });
     return {
       goal: g,
       liveCategoryIds: live,
+      liveRouteIds: liveRoutes,
+      liveNodeIds: liveNodes,
       state: win.state,
       window: { start: win.start, end: win.end },
       cur,

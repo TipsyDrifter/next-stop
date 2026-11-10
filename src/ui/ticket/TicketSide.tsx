@@ -21,6 +21,7 @@ import { useState } from "react";
 import { useTicketStore } from "../../store/ticketStore";
 import { MAIN_CURRENCY, groupAccounts, archivedAccounts, type AccountRow } from "../../domain/ticket";
 import { Money } from "./parts/Money";
+import { useCollapsedSet } from "../sidebar/useCollapsedSet";
 import { TkIcon, acctLabel } from "./TicketLedger";
 import "./ticket.css";
 
@@ -31,6 +32,7 @@ export function TicketSide() {
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const panel = useTicketStore((s) => s.panel);
   const [archOpen, setArchOpen] = useState(false);
+  const [collapsedGroups, toggleGroupFold] = useCollapsedSet("ns.sidebar.collapsed_tk_groups");
 
   // 頁務件比頁面先畫（書封）：warm 已由 TicketAgent 叫；餘額要等 init → refresh。進頁時 TicketView 會 init。
   const groups = groupAccounts(accounts);
@@ -100,15 +102,34 @@ export function TicketSide() {
           全部帳戶
           <span className="cnt">{live.length}</span>
         </button>
-        {groups.map(({ group, accounts: list }) => (
-          <div key={group.key} className="ns-tk-group">
-            <h3>
-              {group.label}
-              {group.liability && <span className="lia">負債</span>}
-            </h3>
-            {list.map(row)}
-          </div>
-        ))}
+        {groups.map(({ group, accounts: list }) => {
+          const folded = collapsedGroups.has(group.key);
+          return (
+            <div key={group.key} className="ns-tk-group">
+              <h3
+                className={`trunk-toggle${folded ? " is-folded" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-expanded={!folded}
+                title={folded ? `展開「${group.label}」（${list.length} 個帳戶）` : `收合「${group.label}」`}
+                onClick={() => toggleGroupFold(group.key)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleGroupFold(group.key);
+                  }
+                }}
+              >
+                <span>{group.label}</span>
+                {group.liability && <span className="lia">負債</span>}
+                <span className="trunk-caret" aria-hidden="true">
+                  {folded ? `${list.length} ▸` : "▾"}
+                </span>
+              </h3>
+              {!folded && list.map(row)}
+            </div>
+          );
+        })}
         {archived.length > 0 && (
           <div className="ns-tk-group is-archived">
             <h3>

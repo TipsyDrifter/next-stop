@@ -94,12 +94,21 @@ export function goalPeriodText(g: Pick<Goal, "period" | "direction" | "targetMin
 /**
  * 範圍字：分類名「・」串；超過 3 個「創作・學習…等 4 類」。
  * ⑥ D-時-122：`tagNames`（荷札顯示名，不含 #）接在分類後面、帶 #：「創作・學習・#高效」；混了荷札超過 3 項「創作・學習…等 4 項」。
+ * v1.29 D-時-192：`extraLabels`（路線名、支線／列車／車廂／車票名）接在分類與荷札之間。
  */
-export function scopeText(ids: readonly string[], catById: Record<string, TimeCategoryRow>, tagNames: readonly string[] = []): string {
-  const names = ids.map((id) => catById[id]?.name ?? T.catGone).concat(tagNames.map((n) => TT_TEXT.tags.chip(n)));
+export function scopeText(
+  ids: readonly string[],
+  catById: Record<string, TimeCategoryRow>,
+  tagNames: readonly string[] = [],
+  extraLabels: readonly string[] = [],
+): string {
+  const names = ids
+    .map((id) => catById[id]?.name ?? T.catGone)
+    .concat(extraLabels)
+    .concat(tagNames.map((n) => TT_TEXT.tags.chip(n)));
   if (names.length <= 3) return names.join("・");
   const head = names.slice(0, 2).join("・");
-  return tagNames.length ? TT_TEXT.tags.scopeMore(head, names.length) : T.scopeMore(head, names.length);
+  return tagNames.length || extraLabels.length ? TT_TEXT.tags.scopeMore(head, names.length) : T.scopeMore(head, names.length);
 }
 
 /**

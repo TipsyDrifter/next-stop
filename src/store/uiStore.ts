@@ -552,8 +552,8 @@ export const useUiStore = create<UiStore>((set, get) => ({
         // 解析搬到 lib/date（SQLite 讀取面的守門日讀同一個設定、同一套解析，收官磨光 A4）
         dayStartHour: parseDayStartHour(dayStart),
         lateCollapsed: lateCollapsed === "1",
-        // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）
-        calendarView: DEV_FLAGS.view ?? (calendarView === "week" || calendarView === "time" || calendarView === "stream" ? calendarView : "month"),
+        // `?view=` 蓋過設定但不寫回（與 THEME_OVERRIDE 同款，關掉參數就回主人自己的偏好）；舊「時段」已搬至時刻表›日程，啟動時自動歸回週視圖
+        calendarView: DEV_FLAGS.view ?? (calendarView === "week" || calendarView === "stream" ? calendarView : calendarView === "time" ? "week" : "month"),
         weekStart: normalizeWeekStart(weekStart),
         // 已完成開關（D-主-131）：沒寫過＝各頁預設（今日顯示、路線圖收起）
         todayHideDone: todayHideDone === "1",

@@ -20,6 +20,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { ScheduleGrid } from "./ScheduleGrid";
 import { ScheduleNav, ScheduleSummary } from "./ScheduleSummary";
 import { UnscheduledTray } from "./UnscheduledTray";
+import { ScheduleWeekGrid } from "./ScheduleWeekGrid";
 import { DragFloat, usePickEscape } from "./ScheduleView";
 import { SCHED_UI } from "./scheduleModel";
 import { useSchedulePage } from "./useSchedulePage";
@@ -46,23 +47,30 @@ export function MobileTtSchedule() {
   });
   usePickEscape();
 
+  const isWeek = page.scheduleMode === "week";
   return (
     <div className="ns-tt-sched is-phone" data-no-fab aria-label={TT_TEXT.viewSchedule}>
       <ScheduleNav page={page} />
-      <ScheduleSummary page={page} />
-      {page.error && !page.grid && <p className="ns-tt-sched-err">⚠ {page.error}</p>}
-      <UnscheduledTray page={page} mode="chips" drag={drag} onDragStart={onPointerDown} swallowClick={swallowClick} />
-      <ScheduleGrid
-        page={page}
-        layout="inline"
-        hourPx={HOUR_PX}
-        drag={drag}
-        onDragStart={onPointerDown}
-        swallowClick={swallowClick}
-        pcolRef={pcolRef}
-        scrollRef={scrollRef}
-      />
-      <DragFloat page={page} drag={drag} />
+      {isWeek ? (
+        <ScheduleWeekGrid page={page} />
+      ) : (
+        <>
+          <ScheduleSummary page={page} />
+          {page.error && !page.grid && <p className="ns-tt-sched-err">⚠ {page.error}</p>}
+          <UnscheduledTray page={page} mode="chips" drag={drag} onDragStart={onPointerDown} swallowClick={swallowClick} />
+          <ScheduleGrid
+            page={page}
+            layout="inline"
+            hourPx={HOUR_PX}
+            drag={drag}
+            onDragStart={onPointerDown}
+            swallowClick={swallowClick}
+            pcolRef={pcolRef}
+            scrollRef={scrollRef}
+          />
+          <DragFloat page={page} drag={drag} />
+        </>
+      )}
     </div>
   );
 }

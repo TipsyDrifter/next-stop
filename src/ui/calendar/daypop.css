@@ -75,7 +75,31 @@
   margin-right: 7px; vertical-align: 2px;
 }
 /* 關閉 ×：共用圖示鈕 .ns-iconbtn（IconClose），在頭列裡縮到 24（原型 ui-c3 .pop-x） */
-.ns-daypop .pop-x { margin-left: auto; align-self: center; width: 24px; height: 24px; }
+.ns-daypop .pop-sched-jump {
+  margin-left: auto;
+  align-self: center;
+  padding: 2px 7px 2px 8px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  letter-spacing: .12em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.ns-daypop .pop-sched-jump:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ns-daypop .pop-sched-jump:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.ns-daypop .pop-x { align-self: center; width: 24px; height: 24px; }
+.ns-daypop .pop-head > .pop-x:first-of-type { margin-left: auto; }
+.ns-daypop .pop-sched-jump + .pop-x { margin-left: 2px; }
 
 /* ═══ 段（班次／締切） ═══ */
 .ns-daypop .pop-sec { padding: 10px 16px 6px; }

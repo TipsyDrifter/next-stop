@@ -167,6 +167,20 @@ export const HOTKEYS: Hotkey[] = [
     ignoreMods: GLOBAL_LOOSE,
   },
   {
+    id: "global.history.prev",
+    scope: "global",
+    chords: [{ key: "[", alt: true }],
+    label: "返回上一個瀏覽分頁",
+    wired: true,
+  },
+  {
+    id: "global.history.next",
+    scope: "global",
+    chords: [{ key: "]", alt: true }],
+    label: "前往下一個瀏覽分頁",
+    wired: true,
+  },
+  {
     id: "global.guide",
     scope: "global",
     // `?` 只在導航模式攔（非輸入框、沒有別的疊層開著）；`Ctrl+/` 是 IME 備援，連輸入框裡都吃。

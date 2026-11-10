@@ -25,6 +25,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { WEEKDAY_LABEL } from "../../domain";
 import { addDays } from "../../lib/date";
+import { jumpToTimetableSchedule } from "../../store/timetableScheduleStore";
 import { DateNav } from "../common/DateNav";
 import { dateOf, weekStart } from "../calendar/useCalendarController";
 
@@ -163,7 +164,7 @@ export function WeekStrip({
   onToday,
   onWeekSettle,
   layout,
-  onLayout,
+  onLayout: _onLayout,
   visibleDays,
 }: WeekStripProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -342,24 +343,14 @@ export function WeekStrip({
           </button>
         )}
         {!calOpen && (
-          <span className="m-sch-wk-mode" role="group" aria-label="行程表排法">
-            <button
-              type="button"
-              className={layout === "stream" ? "on" : undefined}
-              aria-pressed={layout === "stream"}
-              onClick={() => onLayout("stream")}
-            >
-              清單
-            </button>
-            <button
-              type="button"
-              className={layout === "time" ? "on" : undefined}
-              aria-pressed={layout === "time"}
-              onClick={() => onLayout("time")}
-            >
-              時段
-            </button>
-          </span>
+          <button
+            type="button"
+            className="m-sch-wk-jump"
+            title="前往時刻表 › 日程排時段"
+            onClick={() => jumpToTimetableSchedule(focusDay, "mobile", "day")}
+          >
+            排時段 ›
+          </button>
         )}
         {!calOpen && (
           <button
