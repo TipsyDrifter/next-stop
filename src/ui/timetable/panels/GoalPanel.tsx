@@ -471,6 +471,9 @@ export function GoalPanel({ onDone }: PanelProps) {
                 <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={busy} onClick={() => void archiveGoal(g.id, false)}>
                   {T.restore}
                 </button>
+                <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-btn-danger" disabled={busy} onClick={() => void deleteGoal(g.id)}>
+                  {T.remove}
+                </button>
               </div>
             ))}
         </div>

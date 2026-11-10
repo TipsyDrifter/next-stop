@@ -65,9 +65,9 @@ export function rowGuards(
   const prev = index > 0 ? tree.byId[siblings[index - 1]] : undefined;
   const indentWhy = !prev
     ? "上面沒有可以掛靠的節點"
-    : !canHaveChildren(prev.kind)
+    : prev.kind === "station" && !canHaveChildren(prev.kind)
       ? "車票／車站底下不能掛東西"
-      : !deps.adaptKind(n.kind, prev.kind)
+      : !deps.adaptKind(n.kind, prev.kind === "ticket" ? "car" : prev.kind)
         ? "這種節點不能掛在那裡"
         : null;
   const parent = n.parent_id && n.parent_id !== routeId ? tree.byId[n.parent_id] : undefined;
@@ -77,7 +77,7 @@ export function rowGuards(
     ? words.routeTop
     : zoomId && n.parent_id === zoomId
       ? words.zoomTop
-      : !deps.adaptKind(n.kind, gpKind)
+      : !(n.kind === "ticket" && gpKind === "route") && !deps.adaptKind(n.kind, gpKind)
         ? "這種節點不能升到那一層"
         : null;
   // 丁 D-主-245：支線底下可以直接放車票（剩下車站之類才不行）

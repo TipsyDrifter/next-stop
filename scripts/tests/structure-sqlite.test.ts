@@ -168,5 +168,35 @@ for (const [name, make] of makers) {
       assert.deepEqual([...ids].sort(), [train.id, car.id, t1.id, t2.id].sort());
       assert.deepEqual([...(await repo.softDelete(train.id))].sort(), [...ids].sort());
     });
+
+    test("討論 5：自由席演化——車票加子項自動升格為列車／車廂，子項清空自動降格回車票，復原再升回", async () => {
+      const repo = make();
+      const { route } = await base(repo);
+      // 1. 支線底下的自由席車票 → 新增子車票 → 自動升格為列車 (train)
+      const br = await repo.create({ kind: "branch", name: "前期籌備", parentId: route.id });
+      const freeTicket = await repo.create({ kind: "ticket", name: "場地確認", parentId: br.id });
+      assert.equal((await repo.getNode(freeTicket.id)).kind, "ticket");
+
+      const sub1 = await repo.create({ kind: "ticket", name: "聯絡管理員", parentId: freeTicket.id });
+      assert.equal((await repo.getNode(freeTicket.id)).kind, "train", "支線下的車票加子項應升格為 train");
+
+      // 2. 列車底下的車票 → 新增子車票 → 自動升格為車廂 (car)
+      const subSub = await repo.create({ kind: "ticket", name: "準備提問清單", parentId: sub1.id });
+      assert.equal((await repo.getNode(sub1.id)).kind, "car", "列車下的車票加子項應升格為 car");
+
+      // 3. 刪除車廂底下唯一的子車票 → 車廂自動降格回車票 (ticket)
+      await repo.softDelete(subSub.id);
+      assert.equal((await repo.getNode(sub1.id)).kind, "ticket", "子項全刪後 car 應降格回 ticket");
+
+      // 4. 復原剛刪掉的子車票 → 父節點再度升格為車廂 (car)
+      await repo.restore([subSub.id]);
+      assert.equal((await repo.getNode(sub1.id)).kind, "car", "復原子項後應再度升格為 car");
+
+      // 5. 搬移最後一張子車票離開車廂 → 原父節點降格回 ticket；搬入另一張車票底下 → 新父節點升格
+      const siblingTicket = await repo.create({ kind: "ticket", name: "備案場地", parentId: freeTicket.id });
+      await repo.move(subSub.id, siblingTicket.id, 0);
+      assert.equal((await repo.getNode(sub1.id)).kind, "ticket", "最後子項搬走後原車廂應降格為 ticket");
+      assert.equal((await repo.getNode(siblingTicket.id)).kind, "car", "被搬入子項的車票應升格為 car");
+    });
   });
 }

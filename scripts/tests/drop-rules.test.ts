@@ -11,11 +11,14 @@ test("childKinds 與 allowedChildKinds 同表", () => {
   }
 });
 
-test("adaptTo：列車⇄車廂跟著位置換", () => {
+test("adaptTo：列車⇄車廂跟著位置換；車票當落點時視同車廂（自動升格）", () => {
   assert.equal(adaptTo("car", "route"), "train");
   assert.equal(adaptTo("train", "train"), "car");
   assert.equal(adaptTo("ticket", "route"), null);
   assert.equal(adaptTo("branch", "train"), null);
+  assert.equal(adaptTo("ticket", "ticket"), "ticket");
+  assert.equal(adaptTo("train", "ticket"), "car");
+  assert.equal(adaptTo("car", "ticket"), "car");
 });
 
 // 路線 R ├ T1(列車) │ └ k1(車票) ├ B1(支線) │ └ T2(列車)  ＋臨時票 X（parent null）
@@ -38,8 +41,10 @@ test("車票：進列車、進支線、拖上路線最上層都可以（丁 D-�
   assert.deepEqual(dropVerdict(tree, top, ["k1"], "B1"), { ok: true, parentId: "B1" });
 });
 
-test("車票底下放不了東西；支線不能進列車", () => {
-  assert.equal(dropVerdict(tree, top, ["T1"], "k1").ok, false);
+test("討論 5：樹內車票底下可放車票／列車（自動升格為列車或車廂）；無路線臨時車票與支線進車票／列車則擋下", () => {
+  assert.deepEqual(dropVerdict(tree, top, ["T2"], "k1"), { ok: true, parentId: "k1" });
+  assert.equal(dropVerdict(tree, top, ["B1"], "k1").ok, false);
+  assert.equal(dropVerdict(tree, top, ["T2"], "X").ok, false);
   assert.equal(dropVerdict(tree, top, ["B1"], "T1").ok, false);
 });
 

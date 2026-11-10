@@ -102,8 +102,8 @@ export interface LostFoundDeps {
   nodes: Pick<NodeRepository, "restore" | "restoreAsLoose" | "update">;
   notes: Pick<NoteRepository, "restore">;
   tags: Pick<TagRepository, "restoreDeleted" | "writeBodyAndSyncTags">;
-  timetable: Pick<TimetableRepository, "restore" | "restoreGoal" | "restoreRoutine" | "previewCover">;
-  ticket: Pick<TicketRepository, "restoreEntry" | "pickUpRepeat" | "repeatPickUpCols" | "restoreWish" | "restoreTemplate" | "restoreBudget">;
+  timetable: Pick<TimetableRepository, "restore" | "restoreCategory" | "restoreGoal" | "restoreRoutine" | "previewCover">;
+  ticket: Pick<TicketRepository, "restoreEntry" | "pickUpRepeat" | "repeatPickUpCols" | "restoreWish" | "restoreTemplate" | "restoreBudget" | "restoreCategory" | "restoreAccount">;
   aims: Pick<WeekAimRepository, "restoreAim">;
   readSnapshot(key: string): Promise<CloudSnapshot>;
 }
@@ -184,6 +184,9 @@ export class SqliteLostFoundRepository implements LostFoundRepository {
         return {};
       case "time_blocks":
         return { cover: await timetable.restore(item.id) };
+      case "time_categories":
+        await timetable.restoreCategory(item.id);
+        return {};
       case "time_goals":
         await timetable.restoreGoal(item.id);
         return {};
@@ -204,6 +207,12 @@ export class SqliteLostFoundRepository implements LostFoundRepository {
         return {};
       case "tk_budgets":
         await ticket.restoreBudget(item.ids);
+        return {};
+      case "tk_categories":
+        await ticket.restoreCategory(item.id);
+        return {};
+      case "tk_accounts":
+        await ticket.restoreAccount(item.id);
         return {};
       case "week_aims":
         await aims.restoreAim(item.id);

@@ -16,6 +16,8 @@
  *   §4.6 捕捉框一行語法 `parseQuickEntry`（0-7、0-29）
  */
 
+import { commitCalcInput, hasCalcOperator } from "./ticketCalc.ts";
+
 /* ───────────────────────── §4.1 型別與常數 ───────────────────────── */
 
 export const TICKET_ID_NAMESPACE = "cdc61c88-3667-5997-905f-249dff80a6b7";
@@ -495,7 +497,10 @@ export function parseAmount(
   opts: { allowNegative: boolean; allowZero?: boolean },
 ): number {
   if (normalizeInput(text).trim() === "") throw new RangeError("先填金額");
-  const v = minorFromDecimal(text, cur.decimals, "strict", cur.code);
+  const resolved = hasCalcOperator(text)
+    ? commitCalcInput(text, { allowNegative: true, decimals: cur.decimals })
+    : text;
+  const v = minorFromDecimal(resolved, cur.decimals, "strict", cur.code);
   if (v === 0 && !opts.allowZero) throw new RangeError("金額不能是 0");
   if (v < 0 && !opts.allowNegative) throw new RangeError("收入和轉帳金額要大於 0");
   return v;

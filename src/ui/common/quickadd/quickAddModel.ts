@@ -12,8 +12,8 @@ import { allowedChildKinds, KIND_LABEL, type NodeKind, type Priority } from "../
 import type { AttachTarget } from "../../../domain/notes.ts";
 import type { QuickAddParse, QuickTokenKind } from "../../../domain/quickAdd.ts";
 
-/** 掛到哪（＝AttachPicker 的值）；routeId null＝無路線 */
-export type QuickDest = AttachTarget;
+/** 掛到哪（＝AttachPicker 的值，討論 5 擴充支援掛到 ticket）；routeId null＝無路線 */
+export type QuickDest = Omit<AttachTarget, "nodeKind"> & { nodeKind: AttachTarget["nodeKind"] | "ticket" };
 export const NO_DEST: QuickDest = { routeId: null, nodeId: null, nodeKind: null };
 
 /** 掛到路線（或支線）時建成什麼：列車＝路線底下的列車；車票＝掛這條路線標籤的臨時車票 */
@@ -154,6 +154,7 @@ export function resolveQuickTarget(dest: QuickDest, routeKind: RouteKind): Quick
   if (!dest.routeId) return { kind: "ticket", parentId: null, routeTagId: null, canChoose: false };
   const parentId = dest.nodeId ?? dest.routeId;
   const parentKind: NodeKind = dest.nodeId ? (dest.nodeKind && dest.nodeKind !== "route" ? dest.nodeKind : "train") : "route";
+  if (parentKind === "ticket") return { kind: "ticket", parentId, routeTagId: null, canChoose: false };
   const allowed = allowedChildKinds(parentKind);
   // 丁 D-主-245：支線底下列車與車票都能直接放 ⇒ 兩種任選（車票就掛在支線底下，不是路線標籤）
   if (allowed.includes("ticket") && allowed.includes("train")) {

@@ -34,7 +34,7 @@ export function DepotCoverAux() {
   const seals = data ? arrived.reduce((sum, r) => sum + (data.routeSeals[r.id] ?? 0), 0) : null;
   const groups = lines
     .map((l) => ({ line: l, list: arrived.filter((r) => r.line_id === l.id) }))
-    .filter((g) => g.list.length > 0);
+    .filter((g) => g.list.length > 0 || g.line.arrived_on !== null);
 
   return (
     <div className="lines-scroll">

@@ -173,6 +173,20 @@
   font-family: var(--font-latin); font-weight: 500; letter-spacing: .04em; color: var(--color-ink-soft);
   font-size: 10.5px; /* 字面值：票券專用（名牌日期＝圓牌字級），原型定值 */
 }
+.ns-depot-tplate-acts {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 4px;
+}
+.ns-depot-tact {
+  appearance: none; border: 1px dashed var(--color-dash); background: transparent; color: var(--color-ink-soft);
+  font-family: var(--font-body); font-size: var(--fs-micro); letter-spacing: .12em; padding: 1px 6px;
+  border-radius: var(--radius-ctl); cursor: pointer;
+}
+.ns-depot-tact:hover { border-color: var(--color-ink-soft); color: var(--color-ink); }
+.ns-depot-tact.is-danger:hover { border-color: var(--late); color: var(--late); }
+.ns-depot-tempty {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 72px; height: 118px;
+  padding: 0 10px; font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-faint);
+}
 .ns-depot-tbooks { display: flex; align-items: flex-end; gap: 6px; }
 .ns-depot-bookend {
   position: relative; width: 3px; height: 118px; flex: none; background: var(--color-ink-soft); opacity: .75;

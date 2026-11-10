@@ -33,6 +33,54 @@
 .ns-chapter .row-more { position: static; opacity: var(--dim, .55); }
 .ns-chapter:hover .row-more, .ns-chapter.selected .row-more { opacity: 1; }
 .ns-chapter .ns-inline-input { flex: 1; min-width: 0; }
+.ns-chapter-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ns-chapter-progress-track {
+  width: 44px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-dash);
+  overflow: hidden;
+  display: inline-block;
+}
+.ns-chapter-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent, var(--color-ink));
+  transition: width 0.2s ease;
+}
+.ns-chapter-zoom {
+  appearance: none;
+  border: 1px dashed var(--color-dash);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.14s, color 0.14s;
+}
+.ns-chapter-zoom:hover {
+  border-color: var(--accent, var(--color-ink));
+  color: var(--color-ink);
+}
+.ns-branch-quick-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* ── 進度圈（有子項的列車／車廂，検印欄位置）：54 同検印圈 ── */
 .ns-ring { position: relative; display: grid; place-items: center; flex: none; }

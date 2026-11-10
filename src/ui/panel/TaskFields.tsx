@@ -95,9 +95,17 @@ function NameBlock({
   const serial = todaySerial ?? serialOf(serials, node.id);
   // 票種：定期券只認 parseRule 的結果（欄位裡塞著 legacy 自由文字的票＝乘車券，M3 ④ WP3）；
   // 其餘（支線／臨時券／乘車券）仍走大綱那支共用的 fareClass，口徑只留一份。
+  const tree = useNodeStore((s) => s.tree);
+  const routeId = useNodeStore((s) => s.routeId);
+  const parentKind =
+    node.parent_id && node.parent_id !== routeId
+      ? tree.byId[node.parent_id]?.kind
+      : node.parent_id === routeId || (node.parent_id === null && node.route_id != null)
+        ? "route"
+        : undefined;
   const fare = parseRule(node.repeat_rule)
     ? { label: "定期券", teiki: true }
-    : fareClass({ ...node, repeat_rule: null });
+    : fareClass({ ...node, repeat_rule: null }, parentKind);
   const accent = (stub ? stub.color : routeColor) ?? "var(--color-ink-soft)";
 
   return (
@@ -657,8 +665,31 @@ function TicketPanel({ node }: { node: NodeRow }) {
       <WorkLogList nodeId={node.id} />
 
       <ActionsRow
-        // 磨光⑤ B1：臨時車票＝掛進某班列車；樹內車票＝換一班列車或車廂
-        left={move.button}
+        // 磨光⑤ B1：臨時車票＝掛進某班列車；樹內車票＝換一班列車或車廂；討論 5：樹內車票可新增子車票升格為列車／車廂
+        left={
+          <>
+            {move.button}
+            {!isTemp && !tagRoute?.arrived_on && (
+              <ActionButton
+                ariaLabel="新增子車票"
+                title="在此車票底下新增子車票，此車票將自動升格為列車或車廂"
+                onClick={() => {
+                  void (async () => {
+                    useUiStore.getState().setCollapsed(node.id, false);
+                    const child = await useNodeStore.getState().createNode({
+                      kind: "ticket",
+                      name: "新車票",
+                      parentId: node.id,
+                    });
+                    if (child) useUiStore.getState().select(child.id);
+                  })();
+                }}
+              >
+                ＋子車票
+              </ActionButton>
+            )}
+          </>
+        }
         right={
           <ActionButton ariaLabel="刪除車票" tone="danger" onClick={() => remove(node)}>
             刪除

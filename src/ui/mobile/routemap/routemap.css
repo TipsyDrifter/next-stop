@@ -68,3 +68,21 @@
 }
 [data-shell="mobile"] .m2-detail-go:active { color: var(--color-ink); }
 [data-shell="mobile"] .m2-detail-go:focus-visible { outline: var(--focus-ring); outline-offset: -3px; }
+
+/* 討論 1：手機支線列右側「進入 →」專頁入口 */
+[data-shell="mobile"] .m2-chapter-go {
+  appearance: none;
+  border: 1px dashed var(--color-dash);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .m2-chapter-go:active { color: var(--color-ink); border-color: var(--accent); }

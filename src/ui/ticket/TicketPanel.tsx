@@ -101,6 +101,8 @@ import { templateWhat } from "./dialogs/templateText";
 import { CatShortName, CatTreeRow, ancestorIds, useCatOpen, visibleNodes } from "./view/catTree";
 import "./ticket-4.css";
 import { msToWallHHMM, ticketClockBounds, ticketClockValue } from "./ticketClock";
+import { commitCalcInput, hasCalcOperator } from "../../domain/ticketCalc";
+import { CalcIcon, CalcPopover, CalcPreviewBadge } from "./CalcPopover";
 
 /* ───────── 小工具 ───────── */
 
@@ -338,6 +340,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
 
   /* ── 金額 ── */
   const [amtLocal, setAmtLocal] = useState(row ? amountInputText(row.amount_minor, decimals) : "");
+  const [calcOpen, setCalcOpen] = useState(false);
   const rowAmt = row?.amount_minor;
   useEffect(() => {
     if (row && document.activeElement !== amtRef.current) setAmtLocal(amountInputText(row.amount_minor, decimals));
@@ -358,7 +361,14 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     }
   };
   const onAmountBlur = () => {
-    if (isNew || !row || !cur) return;
+    if (isNew) {
+      if (hasCalcOperator(amountText)) {
+        const next = commitCalcInput(amountText, { allowNegative: allowNeg, decimals });
+        if (next !== amountText) store().setDraft({ amountText: next });
+      }
+      return;
+    }
+    if (!row || !cur) return;
     amtCommit.cancel();
     try {
       const v = parseAmount(amtLocal, cur, { allowNegative: allowNeg });
@@ -392,13 +402,14 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const commitConv = (text: string) => {
     setConvEdit(false);
     if (!main) return;
+    const resolved = hasCalcOperator(text) ? commitCalcInput(text, { allowNegative: allowNeg, decimals: main.decimals }) : text;
     if (isNew) {
-      store().setDraft({ mainOverrideText: text.trim() === "" ? null : text });
+      store().setDraft({ mainOverrideText: resolved.trim() === "" ? null : resolved });
       return;
     }
-    if (text.trim() === "") return;
+    if (resolved.trim() === "") return;
     try {
-      patch({ override: { mainMinor: parseAmount(text, main, { allowNegative: allowNeg }) } });
+      patch({ override: { mainMinor: parseAmount(resolved, main, { allowNegative: allowNeg }) } });
     } catch (e) {
       toast(errMsg(e));
     }
@@ -591,14 +602,34 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
           <input
             ref={amtRef}
             className="ns-tk-amtin"
-            inputMode="decimal"
+            inputMode="text"
             autoComplete="off"
             aria-label="金額"
             placeholder="0"
             value={amountText}
             onChange={(e) => onAmount(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "=") {
+                e.preventDefault();
+                e.stopPropagation();
+                onAmount(commitCalcInput(amountText, { allowNegative: allowNeg, decimals }));
+              }
+            }}
             onBlur={onAmountBlur}
           />
+          <button
+            type="button"
+            className={`ns-tk-calcbtn${calcOpen ? " is-on" : ""}`}
+            aria-label="小算盤"
+            aria-expanded={calcOpen}
+            title="小算盤（支援 + - × ÷ 算式）"
+            data-calc-toggle
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setCalcOpen((o) => !o)}
+          >
+            <CalcIcon size={14} />
+          </button>
           <div className="ns-tk-curwrap">
             <button
               type="button"
@@ -636,7 +667,27 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               </Pop>
             )}
           </div>
+          {calcOpen && (
+            <CalcPopover
+              value={amountText}
+              decimals={decimals}
+              allowNegative={allowNeg}
+              onChange={onAmount}
+              onClose={() => setCalcOpen(false)}
+            />
+          )}
         </div>
+        {hasCalcOperator(amountText) && (
+          <div className="ns-tk-bt-calcrow">
+            <CalcPreviewBadge
+              value={amountText}
+              decimals={decimals}
+              allowNegative={allowNeg}
+              currencyPrefix={vm.currency === MAIN_CURRENCY ? MAIN_SYMBOL : vm.currency}
+              onCommit={(v) => onAmount(v)}
+            />
+          </div>
+        )}
         {foreign && cur && (
           <div className="ns-tk-conv">
             ≈ {MAIN_SYMBOL}{" "}
@@ -1301,31 +1352,38 @@ function ConvInput({ initial, onDone, onCancel }: { initial: string; onDone(text
   const [text, setText] = useState(initial);
   const done = useRef(false);
   return (
-    <input
-      className="ns-tk-convin"
-      autoFocus
-      inputMode="decimal"
-      aria-label="折算額"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        if (!done.current) onDone(text);
-      }}
-      onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-        if (e.key === "Enter") {
-          e.preventDefault();
-          e.stopPropagation();
-          done.current = true;
-          onDone(text);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          done.current = true;
-          onCancel();
-        }
-      }}
-    />
+    <>
+      <input
+        className="ns-tk-convin"
+        autoFocus
+        inputMode="text"
+        aria-label="折算額"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          if (!done.current) onDone(commitCalcInput(text, { allowNegative: true, decimals: 2 }));
+        }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "=") {
+            e.preventDefault();
+            e.stopPropagation();
+            setText(commitCalcInput(text, { allowNegative: true, decimals: 2 }));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            done.current = true;
+            onDone(commitCalcInput(text, { allowNegative: true, decimals: 2 }));
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            done.current = true;
+            onCancel();
+          }
+        }}
+      />
+      <CalcPreviewBadge value={text} decimals={2} allowNegative onCommit={(v) => setText(v)} />
+    </>
   );
 }
 
@@ -1339,20 +1397,37 @@ function ToAmountField(props: {
   onCommit(text: string): void;
 }) {
   const [text, setText] = useState(props.value);
+  const curVal = props.isNew ? props.value : text;
+  const setVal = (v: string) => (props.isNew ? props.onDraft(v) : setText(v));
   return (
     <span className="ns-tk-toamt">
       <input
         className="ns-tk-textin"
-        inputMode="decimal"
+        inputMode="text"
         aria-label="轉入金額"
         placeholder={props.placeholder}
-        value={props.isNew ? props.value : text}
-        onChange={(e) => (props.isNew ? props.onDraft(e.target.value) : setText(e.target.value))}
+        value={curVal}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "=") {
+            e.preventDefault();
+            e.stopPropagation();
+            setVal(commitCalcInput(curVal, { allowNegative: false, decimals: 2 }));
+          }
+        }}
         onBlur={() => {
-          if (!props.isNew && text.trim() !== "" && text !== props.value) props.onCommit(text);
+          const next = hasCalcOperator(curVal) ? commitCalcInput(curVal, { allowNegative: false, decimals: 2 }) : curVal;
+          if (props.isNew) {
+            if (next !== curVal) props.onDraft(next);
+          } else {
+            if (next !== text) setText(next);
+            if (next.trim() !== "" && next !== props.value) props.onCommit(next);
+          }
         }}
       />
       <small>{props.currency}</small>
+      <CalcPreviewBadge value={curVal} decimals={2} allowNegative={false} onCommit={setVal} />
     </span>
   );
 }
@@ -1846,13 +1921,20 @@ function AcctCard({ acc }: { acc: AccountRow }) {
                   <input
                     ref={adjRef}
                     className="ns-tk-textin"
-                    inputMode="decimal"
+                    inputMode="text"
                     value={adj}
                     placeholder={amountInputText(bal, dec)}
                     onChange={(e) => setAdj(e.target.value)}
+                    onBlur={() => {
+                      if (hasCalcOperator(adj)) setAdj(commitCalcInput(adj, { allowNegative: true, decimals: dec }));
+                    }}
                     onKeyDown={(e) => {
                       if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                      if (e.key === "Enter") {
+                      if (e.key === "=") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setAdj(commitCalcInput(adj, { allowNegative: true, decimals: dec }));
+                      } else if (e.key === "Enter") {
                         e.preventDefault();
                         e.stopPropagation();
                         void confirmAdj();
@@ -1864,6 +1946,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
                     }}
                   />
                 </label>
+                <CalcPreviewBadge value={adj} decimals={dec} allowNegative onCommit={(v) => setAdj(v)} />
                 <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => setAdj(null)}>
                   取消
                 </button>
@@ -1885,9 +1968,14 @@ function AcctCard({ acc }: { acc: AccountRow }) {
 
       <div className="ns-tk-acctfoot">
         {archived ? (
-          <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => void store().unarchiveAccount(acc.id)}>
-            取消封存
-          </button>
+          <>
+            <button type="button" className="ns-btn btn-ghost ns-tk-btn" onClick={() => void store().unarchiveAccount(acc.id)}>
+              取消封存
+            </button>
+            <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => void store().deleteAccount(acc.id)}>
+              刪除
+            </button>
+          </>
         ) : (
           <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-btn" onClick={() => store().archiveAccount(acc.id)}>
             封存

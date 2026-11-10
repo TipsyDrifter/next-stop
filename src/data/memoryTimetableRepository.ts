@@ -962,6 +962,24 @@ export class MemoryTimetableRepository implements TimetableRepository {
     c.updated_at = now;
   }
 
+  async deleteCategory(id: string): Promise<void> {
+    const c = this.cats.get(id);
+    if (!c || !isAlive(c)) throw new RangeError("找不到這個分類");
+    if (c.parent_id === null) throw new RangeError("分組不能刪除");
+    const now = nowUtcIso();
+    c.deleted_at = now;
+    c.updated_at = now;
+    this.tagWrites = true;
+  }
+
+  async restoreCategory(id: string): Promise<void> {
+    const c = this.cats.get(id);
+    if (!c || isAlive(c)) throw new RangeError("找不到這個分類");
+    c.deleted_at = null;
+    c.updated_at = nowUtcIso();
+    this.tagWrites = true;
+  }
+
   async reorderCategories(parentId: string | null, orderedIds: readonly string[]): Promise<void> {
     // 與 SQLite 版同語義：組＝該層未刪、未封存；清單序在前、沒提到的兄弟接尾端；整組 0..n-1 全寫（#101）
     const live = this.sameLayer(parentId).filter((c) => c.archived_at === null);

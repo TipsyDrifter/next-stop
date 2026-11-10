@@ -50,6 +50,7 @@ import {
   parseTimeOverrides,
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
+import { promotedKindForParent } from "../domain/node";
 import {
   KIND_LABEL,
   allowedChildKinds,
@@ -217,6 +218,7 @@ interface PlannedMove {
   lineId: string | null;
   routeId: string | null;
   group: SiblingGroup;
+  promotedNewParent?: { id: string; kind: "train" | "car"; parentId: string | null } | null;
 }
 
 export class SqliteNodeRepository implements NodeRepository {
@@ -531,11 +533,35 @@ export class SqliteNodeRepository implements NodeRepository {
     const priority = input.priority ?? "mid";
     const estimateMin = input.estimateMin == null ? null : Math.max(0, Math.round(input.estimateMin));
 
-    const parent = input.parentId ? await this.getNode(input.parentId) : null;
+    let parent = input.parentId ? await this.getNode(input.parentId) : null;
     if (input.parentId && !parent) throw new Error("父節點不存在");
+    const id = uuid();
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    // 討論 5：若父節點為路線樹內的車票，加入子節點時自動升格為列車或車廂
+    if (parent && parent.kind === "ticket" && (parent.parent_id !== null || parent.route_id !== null)) {
+      const gp = parent.parent_id ? await this.getNode(parent.parent_id) : null;
+      const promotedKind = promotedKindForParent(gp ? gp.kind : "route");
+      const promotedParentId = parent.parent_id ?? parent.route_id;
+      b.stmts.push({
+        sql: `UPDATE nodes SET kind = $1, parent_id = $2, updated_at = $3 WHERE id = $4`,
+        args: [promotedKind, promotedParentId, now, parent.id],
+      });
+      addOp(b, "nodes", parent.id, "upsert", { kind: promotedKind, parent_id: promotedParentId, updated_at: now });
+      parent = { ...parent, kind: promotedKind, parent_id: promotedParentId, updated_at: now };
+    }
+    let kind = input.kind;
     const allowed = allowedChildKinds(parent ? parent.kind : null);
-    if (!allowed.includes(input.kind)) {
-      throw new Error(`${input.kind} 不能掛在 ${parent?.kind ?? "根層"} 底下`);
+    if (!allowed.includes(kind)) {
+      if (parent?.kind === "route" && kind === "ticket") {
+        // 允許路線下直接建自由席車票
+      } else if (parent && (parent.kind === "train" || parent.kind === "car") && kind === "train") {
+        kind = "car";
+      } else if (parent && (parent.kind === "route" || parent.kind === "branch") && kind === "car") {
+        kind = "train";
+      } else {
+        throw new Error(`${kind} 不能掛在 ${parent?.kind ?? "根層"} 底下`);
+      }
     }
 
     // line_id／route_id 快取
@@ -544,21 +570,18 @@ export class SqliteNodeRepository implements NodeRepository {
     if (parent) {
       lineId = parent.kind === "line" ? parent.id : parent.line_id;
       routeId = parent.kind === "route" ? parent.id : parent.route_id;
-    } else if (input.kind === "ticket" && input.routeTagId) {
+    } else if (kind === "ticket" && input.routeTagId) {
       const tag = await this.getNode(input.routeTagId);
       routeId = tag?.id ?? null;
       lineId = tag?.line_id ?? null;
     }
 
-    const id = uuid();
-    const now = nowUtcIso();
-    const b = newWriteBatch();
     const after = input.afterId ? await this.getNode(input.afterId) : null;
     if (input.afterId && !after) throw new Error("afterId 不存在");
 
     // 排序鍵（回饋乙）：顯示群組裡 afterId 的下一格；沒給 afterId（或它不在這份清單）＝尾端。
     // 平常只寫新的這一列；只有擋路的同鍵／沒鍵鄰居才一起重新給鍵（keysForSlot）——不再位移兄弟。收件匣不排序＝不給鍵
-    const group = groupFor({ parentId: parent?.id ?? null, parentKind: parent?.kind ?? null, kind: input.kind, routeId });
+    const group = groupFor({ parentId: parent?.id ?? null, parentKind: parent?.kind ?? null, kind, routeId });
     let sortKey: string | null = null;
     if (isOrderedGroup(group)) {
       const order = await this.groupOrder(db, group);
@@ -573,7 +596,7 @@ export class SqliteNodeRepository implements NodeRepository {
     }
     // position 只在新建時給 MAX+1（舊的兄弟條件：同父；根層以 kind 分區），往後不再改——票號同毫秒建立時用它分先後
     const sibWhere = parent ? `parent_id = $1` : `parent_id IS NULL AND kind = $1`;
-    const sibArg = parent ? parent.id : input.kind;
+    const sibArg = parent ? parent.id : kind;
     const maxPos = await db.select<{ m: number | null }[]>(
       `SELECT MAX(position) AS m FROM nodes WHERE ${sibWhere} AND ${ALIVE}`,
       [sibArg],
@@ -586,13 +609,13 @@ export class SqliteNodeRepository implements NodeRepository {
           due_on, priority, scheduled_time, estimate_min, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       args: [
-        id, input.kind, parent?.id ?? null, lineId, routeId, name,
+        id, kind, parent?.id ?? null, lineId, routeId, name,
         input.description ?? null, position, sortKey, input.color ?? null, input.code ?? null,
         input.scheduledOn ?? null, input.dueOn ?? null, priority, input.scheduledTime ?? null, estimateMin, now, now,
       ],
     });
     const cols: Record<string, unknown> = {
-      kind: input.kind,
+      kind,
       parent_id: parent?.id ?? null,
       name,
       description: input.description ?? null,
@@ -758,14 +781,31 @@ export class SqliteNodeRepository implements NodeRepository {
   ): Promise<PlannedMove> {
     const node = await this.getNode(id);
     if (!node) throw new Error("節點不存在");
-    const kind = newKind ?? node.kind;
-    const newParent = newParentId ? await this.getNode(newParentId) : null;
+    let newParent = newParentId ? await this.getNode(newParentId) : null;
     if (newParentId && !newParent) throw new Error("目標父節點不存在");
-    if (!allowedChildKinds(newParent ? newParent.kind : null).includes(kind)) {
-      throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${newParent ? KIND_LABEL[newParent.kind] : "根層"} 底下`);
+    let promotedNewParent: { id: string; kind: "train" | "car"; parentId: string | null } | null = null;
+    if (newParent && newParent.kind === "ticket" && (newParent.parent_id !== null || newParent.route_id !== null)) {
+      const gp = newParent.parent_id ? await this.getNode(newParent.parent_id) : null;
+      const promotedKind = promotedKindForParent(gp ? gp.kind : "route");
+      const promotedParentId = newParent.parent_id ?? newParent.route_id;
+      promotedNewParent = { id: newParent.id, kind: promotedKind, parentId: promotedParentId };
+      newParent = { ...newParent, kind: promotedKind, parent_id: promotedParentId };
     }
     const sub = await subtreeIds(db, id);
     if (newParentId && sub.includes(newParentId)) throw new Error("不能搬進自己的子樹");
+    let kind = newKind ?? node.kind;
+    const allowed = allowedChildKinds(newParent ? newParent.kind : null);
+    if (!allowed.includes(kind)) {
+      if (newParent?.kind === "route" && kind === "ticket") {
+        // 允許車票直接掛在路線下（自由席）
+      } else if (newParent && (newParent.kind === "train" || newParent.kind === "car") && kind === "train") {
+        kind = "car";
+      } else if (newParent && (newParent.kind === "route" || newParent.kind === "branch") && kind === "car") {
+        kind = sub.length > 1 ? "train" : (newKind === "train" ? "train" : "ticket");
+      } else {
+        throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${newParent ? KIND_LABEL[newParent.kind] : "根層"} 底下`);
+      }
+    }
     if (kind !== node.kind) {
       const kids = await db.select<{ kind: NodeKind }[]>(
         `SELECT DISTINCT kind FROM nodes WHERE parent_id = $1 AND ${ALIVE}`,
@@ -791,12 +831,24 @@ export class SqliteNodeRepository implements NodeRepository {
       lineId = tag?.line_id ?? null;
     }
     const group = groupFor({ parentId: newParent?.id ?? null, parentKind: newParent?.kind ?? null, kind, routeId });
-    return { node, newParent, kind, sub, lineId, routeId, group };
+    return { node, newParent, kind, sub, lineId, routeId, group, promotedNewParent };
   }
 
   /** 把一次搬移的語句與 op 放進批次（key＝新排序鍵；收件匣＝null） */
-  private stageMove(b: WriteBatch, p: PlannedMove, key: string | null, now: string): void {
-    const { node, newParent, kind, sub, lineId, routeId } = p;
+  private stageMove(b: WriteBatch, p: PlannedMove, key: string | null, now: string, promotedAlready?: Set<string>): void {
+    const { node, newParent, kind, sub, lineId, routeId, promotedNewParent } = p;
+    if (promotedNewParent && !promotedAlready?.has(promotedNewParent.id)) {
+      promotedAlready?.add(promotedNewParent.id);
+      b.stmts.push({
+        sql: `UPDATE nodes SET kind = $1, parent_id = $2, updated_at = $3 WHERE id = $4`,
+        args: [promotedNewParent.kind, promotedNewParent.parentId, now, promotedNewParent.id],
+      });
+      addOp(b, "nodes", promotedNewParent.id, "upsert", {
+        kind: promotedNewParent.kind,
+        parent_id: promotedNewParent.parentId,
+        updated_at: now,
+      });
+    }
     const id = node.id;
     // 子樹的 line_id／route_id 是反正規化快取：SQL 照舊寫，但**不進 oplog**——
     // 對面那台 apply 完會自己整表重算（契約 §7.3），同步它只是把推導物推來推去。
@@ -857,6 +909,9 @@ export class SqliteNodeRepository implements NodeRepository {
       this.stageKeyWrites(b, writes.filter((w) => w.id !== id), now);
     }
     this.stageMove(b, p, key, now);
+    if (p.node.parent_id && p.node.parent_id !== (p.newParent?.id ?? null)) {
+      await this.stageDemoteIfChildless(db, b, p.node.parent_id, [id], now);
+    }
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
@@ -880,15 +935,61 @@ export class SqliteNodeRepository implements NodeRepository {
       for (const w of writes) if (moving.has(w.id)) keyOf.set(w.id, w.key);
       this.stageKeyWrites(b, writes.filter((w) => !moving.has(w.id)), now);
     }
-    for (const p of plans) this.stageMove(b, p, keyOf.get(p.node.id) ?? null, now);
+    const promotedAlready = new Set<string>();
+    const oldParents = new Map<string, string[]>();
+    const newParentIds = new Set<string>();
+    for (const p of plans) {
+      if (p.newParent) newParentIds.add(p.newParent.id);
+      if (p.node.parent_id && p.node.parent_id !== (p.newParent?.id ?? null)) {
+        const list = oldParents.get(p.node.parent_id) ?? [];
+        list.push(p.node.id);
+        oldParents.set(p.node.parent_id, list);
+      }
+      this.stageMove(b, p, keyOf.get(p.node.id) ?? null, now, promotedAlready);
+    }
+    for (const [oldParentId, leavingIds] of oldParents) {
+      if (!newParentIds.has(oldParentId) && !promotedAlready.has(oldParentId)) {
+        await this.stageDemoteIfChildless(db, b, oldParentId, leavingIds, now);
+      }
+    }
     await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  /** 討論 5：若列車／車廂底下的活子項已全數移除（刪除或搬走），自動降階回車票 */
+  private async stageDemoteIfChildless(
+    db: Database,
+    b: WriteBatch,
+    parentId: string,
+    leavingIds: readonly string[],
+    now: string,
+  ): Promise<void> {
+    const parent = await this.getNode(parentId);
+    if (!parent || parent.deleted_at !== null) return;
+    if (parent.kind !== "train" && parent.kind !== "car") return;
+    const kids = await db.select<{ id: string }[]>(
+      `SELECT id FROM nodes WHERE parent_id = $1 AND ${ALIVE}`,
+      [parentId],
+    );
+    const leaving = new Set(leavingIds);
+    const remaining = kids.filter((k) => !leaving.has(k.id));
+    if (remaining.length === 0) {
+      b.stmts.push({
+        sql: `UPDATE nodes SET kind = 'ticket', updated_at = $1 WHERE id = $2`,
+        args: [now, parentId],
+      });
+      addOp(b, "nodes", parentId, "upsert", { kind: "ticket", updated_at: now });
+    }
   }
 
   async softDelete(id: string): Promise<string[]> {
     const db = await getDb();
     // 根已刪（連按刪除）：回 []、不重戳，不然一刀變兩刀——根換了 deleted_at、子孫留舊值，清單兩列、復原只放回根（對抗審查問題 12）
-    const root = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM nodes WHERE id = $1`, [id]);
+    const root = await db.select<{ parent_id: string | null; deleted_at: string | null }[]>(
+      `SELECT parent_id, deleted_at FROM nodes WHERE id = $1`,
+      [id],
+    );
     if (!root[0] || root[0].deleted_at !== null) return [];
+    const oldParentId = root[0].parent_id;
     const ids = await subtreeIds(db, id);
     if (!ids.length) return ids;
     const now = nowUtcIso();
@@ -899,6 +1000,9 @@ export class SqliteNodeRepository implements NodeRepository {
     });
     // delete op 的 payload 一樣是 {col: value}——`deleted_at` 只是一個欄，套用規則與 upsert 同一條（契約 §7.3）
     for (const x of ids) addOp(b, "nodes", x, "delete", { deleted_at: now, updated_at: now });
+    if (oldParentId && !ids.includes(oldParentId)) {
+      await this.stageDemoteIfChildless(db, b, oldParentId, ids, now);
+    }
     await runWriteBatch(db, b.stmts, b.ops);
     return ids;
   }
@@ -917,6 +1021,30 @@ export class SqliteNodeRepository implements NodeRepository {
       args: [now, ...ids],
     });
     for (const x of ids) addOp(b, "nodes", x, "upsert", { deleted_at: null, updated_at: now });
+    // 討論 5：復原子節點時，若父節點先前已退回 ticket，自動重新升格為 train 或 car
+    const restoredRows = await db.select<{ id: string; parent_id: string | null }[]>(
+      `SELECT id, parent_id FROM nodes WHERE id IN (${placeholders(ids.length, 1)})`,
+      ids,
+    );
+    const parentIds = new Set(restoredRows.map((r) => r.parent_id).filter((pid): pid is string => pid !== null));
+    for (const pid of parentIds) {
+      const parent = await this.getNode(pid);
+      if (
+        parent &&
+        (parent.deleted_at === null || ids.includes(parent.id)) &&
+        parent.kind === "ticket" &&
+        (parent.parent_id !== null || parent.route_id !== null)
+      ) {
+        const gp = parent.parent_id ? await this.getNode(parent.parent_id) : null;
+        const promotedKind = promotedKindForParent(gp ? gp.kind : "route");
+        const promotedParentId = parent.parent_id ?? parent.route_id;
+        b.stmts.push({
+          sql: `UPDATE nodes SET kind = $1, parent_id = $2, updated_at = $3 WHERE id = $4`,
+          args: [promotedKind, promotedParentId, now, parent.id],
+        });
+        addOp(b, "nodes", parent.id, "upsert", { kind: promotedKind, parent_id: promotedParentId, updated_at: now });
+      }
+    }
     await runWriteBatch(db, b.stmts, b.ops);
   }
 

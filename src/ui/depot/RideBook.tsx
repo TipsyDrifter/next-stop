@@ -17,6 +17,7 @@ import { EmptyState } from "../common/EmptyState";
 import { PageHeader } from "../common/PageHeader";
 import { jumpDiary, jumpNote } from "../notes/quickJumpNotes";
 import { requestDepart } from "../panel/arrivalFlows";
+import { requestDeleteRoute } from "../panel/routeFlows";
 import { BookStationAims, useStationAimLists } from "../weekAims/StationCard";
 import { StampImpression } from "./StampImpression";
 import { bookJump, loadBookFacts, openRouteOnMap, type BookFacts } from "./bookLinks";
@@ -231,6 +232,13 @@ export function RideBook({ routeId, shell, onBack }: RideBookProps) {
             </button>
             <button type="button" className="ns-btn btn-text" onClick={() => openRouteOnMap(route.id, shell)}>
               在路線圖打開
+            </button>
+            <button
+              type="button"
+              className="ns-btn btn-text is-danger"
+              onClick={() => void requestDeleteRoute(route, { onConfirmed: onBack })}
+            >
+              刪除路線
             </button>
           </>
         )}

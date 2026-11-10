@@ -274,7 +274,7 @@ export function Outline() {
   const [listEl, setListEl] = useState<HTMLUListElement | null>(null);
   const picked = useSelectionStore((s) => (s.scope === "outline" ? s.ids : null));
   const top = c.zoom ? { id: c.zoom.id, kind: c.zoom.kind } : c.routeId ? { id: c.routeId, kind: "route" as const } : null;
-  useOutlineDrag({ root: listEl, rows: c.rows, top, disabled: c.edit !== null });
+  useOutlineDrag({ root: listEl, rows: c.rows, top, disabled: c.edit !== null, parked: c.parked });
   // 下一站方針（方針擴充 辛 §3）：有方針才出現告示、聚焦到節點時不出（那是專心看一段）；紀念章點了開車站小卡
   const stationCard = useStationCard();
   // 完整搜尋點一句車站方針 ⇒ 開那一站的小卡（方針擴充 D-主-382）
@@ -592,6 +592,7 @@ export function Outline() {
             <Breadcrumb
               items={[
                 { id: OVERVIEW_CRUMB, label: "路線圖" },
+                ...(c.line ? [{ id: OVERVIEW_CRUMB, label: c.line.name }] : []),
                 ...(c.crumbs.length ? c.crumbs : [{ id: null, label: c.route?.name ?? "路線" }]),
               ]}
               onJump={(id) => (id === OVERVIEW_CRUMB ? useUiStore.getState().openRouteMap() : c.zoomTo(id))}
@@ -621,8 +622,8 @@ export function Outline() {
           />
         )}
 
-        {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿「在路線圖打開」）頂上一行＋「回到運行」 */}
-        {!c.zoom && c.route && (
+        {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿「在路線圖打開」）頂上一行＋「回到運行」（聚焦進支線／列車時照樣顯示） */}
+        {c.route && (
           <div className={showBoard ? undefined : "ns-rm-read"}>
             <DepotBanner route={c.route} />
           </div>
@@ -656,8 +657,18 @@ export function Outline() {
           <>
             <div className="sec">
               {/* 丁 D-主-250：清單裡混了支線、列車、車票，區段標不再寫「列車」 */}
-              <h3>大綱</h3>
+              <h3>{c.zoom ? c.zoom.name : "大綱"}</h3>
               <span className="rule" />
+              {c.zoom?.kind === "branch" && !c.parked && (
+                <span className="ns-branch-quick-actions">
+                  <button type="button" className="ns-btn btn-ghost" onClick={addTrain}>
+                    ＋ 新列車
+                  </button>
+                  <button type="button" className="ns-btn btn-ghost" onClick={addTicket}>
+                    ＋ 自由席車票
+                  </button>
+                </span>
+              )}
               {/* 回饋甲 G：跟頁首「項 M」同一把尺 */}
               <span className="note">{total} 項</span>
               {/* 回饋甲 D-主-131：已完成開關（取代清單底的摺疊列） */}
@@ -682,11 +693,26 @@ export function Outline() {
                 }
                 const node = c.tree.byId[r.id];
                 if (!node) return null;
+                const parentKind: NodeKind | undefined =
+                  node.parent_id && node.parent_id !== c.routeId
+                    ? c.tree.byId[node.parent_id]?.kind
+                    : node.parent_id === c.routeId || (node.parent_id === null && node.route_id === c.routeId)
+                      ? "route"
+                      : undefined;
+                const branchStats =
+                  node.kind === "branch"
+                    ? (() => {
+                        const st = routeHeadStats(flattenSubtrees(c.tree, [r.id]), c.isDoneNode);
+                        return st.ticketTotal > 0 ? { done: st.ticketDone, total: st.ticketTotal } : null;
+                      })()
+                    : null;
                 const renaming = c.edit?.mode === "rename" && c.edit.id === r.id ? c.renameHandlers : null;
                 return (
                   <OutlineRow
                     key={r.id}
                     node={node}
+                    parentKind={parentKind}
+                    branchStats={branchStats}
                     depth={r.depth}
                     hasChildren={(c.tree.childrenOf[r.id]?.length ?? 0) > 0}
                     collapsed={!!c.collapsed[r.id]}

@@ -792,6 +792,16 @@ export class MemoryTicketRepository implements TicketRepository {
     a.updated_at = now;
   }
 
+  async deleteAccount(id: string): Promise<void> {
+    this.ensureDemo();
+    softDelete(this.acc.get(id));
+  }
+
+  async restoreAccount(id: string): Promise<void> {
+    this.ensureDemo();
+    restore(this.acc.get(id));
+  }
+
   async moveAccount(id: string, delta: 1 | -1): Promise<void> {
     this.ensureDemo();
     this.swapIn(this.accountSibs(id), id, delta, nowUtcIso());
@@ -900,6 +910,17 @@ export class MemoryTicketRepository implements TicketRepository {
         k.updated_at = now;
       }
     }
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    this.ensureDemo();
+    if (isUncat(id)) throw new RangeError("「未分類」不能刪除");
+    softDelete(this.cat.get(id));
+  }
+
+  async restoreCategory(id: string): Promise<void> {
+    this.ensureDemo();
+    restore(this.cat.get(id));
   }
 
   async moveCategory(id: string, delta: 1 | -1): Promise<void> {

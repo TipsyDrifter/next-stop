@@ -334,6 +334,19 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
                   >
                     {RT.restore}
                   </button>
+                  <button
+                    type="button"
+                    className="ns-btn btn-ghost ns-btn--sm ns-btn-danger"
+                    onClick={() =>
+                      void deleteRoutine(r.id).then((ok) => {
+                        if (!ok) return;
+                        if (open === r.id) setOpen(null);
+                        toast(RT.deleted(r.name), RT.undo, () => void restoreRoutine(r.id));
+                      })
+                    }
+                  >
+                    {RT.remove}
+                  </button>
                 </div>
               );
             })}

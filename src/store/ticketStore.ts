@@ -280,6 +280,8 @@ export interface TicketStore {
   updateAccount(id: string, patch: { name?: string; group?: AccountGroup; currency?: string }): Promise<void>;
   archiveAccount(id: string): void; // askConfirm（§5.7 封存確認）→ setAccountArchived(id, true)
   unarchiveAccount(id: string): Promise<void>;
+  deleteAccount(id: string): Promise<void>;
+  restoreAccount(id: string): Promise<void>;
   moveAccount(id: string, delta: 1 | -1): Promise<void>;
   adjustBalance(accountId: string, targetText: string): Promise<boolean>; // 備註「餘額調整」；toast「已精算 ±N」／「餘額沒有變」
 
@@ -288,6 +290,8 @@ export interface TicketStore {
   createCategory(input: { kind: CategoryKind; name: string; parentId: string | null }): Promise<CategoryRow | null>;
   renameCategory(id: string, name: string): Promise<void>;
   setCategoryArchived(id: string, archived: boolean): Promise<void>;
+  deleteCategory(id: string): Promise<void>;
+  restoreCategory(id: string): Promise<void>;
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
   createCurrency(input: { code: string; name: string; decimals: number; rateText: string }): Promise<boolean>;
   updateCurrency(id: string, patch: { name?: string; rateText?: string }): Promise<void>;
@@ -515,6 +519,8 @@ export const TK_TEXT = {
   templateDeleted: "已刪除這個常用票種",
   wishDeleted: "已刪除這個願望",
   kindDeleted: "已刪除這個種類",
+  categoryDeleted: "已刪除這個分類",
+  accountDeleted: "已刪除這個帳戶",
   wishHead: AIDS_TEXT.wishHead,
   boughtHead: AIDS_TEXT.boughtHead,
 } as const;
@@ -1556,6 +1562,25 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       await write(() => ticketRepo.setAccountArchived(id, false));
     },
 
+    async deleteAccount(id) {
+      await write(
+        async () => {
+          await ticketRepo.deleteAccount(id);
+          const s = get();
+          if (s.panel.kind === "account" && s.panel.id === id) set({ panel: { kind: "none" } });
+          if (s.filterAccountId === id) set({ filterAccountId: null });
+        },
+        () =>
+          toast(TK_TEXT.accountDeleted, TK_TEXT.undo, () => {
+            void get().restoreAccount(id);
+          }),
+      );
+    },
+
+    async restoreAccount(id) {
+      await write(() => ticketRepo.restoreAccount(id));
+    },
+
     async moveAccount(id, delta) {
       await write(() => ticketRepo.moveAccount(id, delta));
     },
@@ -1596,6 +1621,20 @@ export const useTicketStore = create<TicketStore>((set, get) => {
 
     async setCategoryArchived(id, archived) {
       await write(() => ticketRepo.setCategoryArchived(id, archived));
+    },
+
+    async deleteCategory(id) {
+      await write(
+        () => ticketRepo.deleteCategory(id),
+        () =>
+          toast(TK_TEXT.categoryDeleted, TK_TEXT.undo, () => {
+            void get().restoreCategory(id);
+          }),
+      );
+    },
+
+    async restoreCategory(id) {
+      await write(() => ticketRepo.restoreCategory(id));
     },
 
     async moveCategory(id, delta) {

@@ -769,4 +769,55 @@
 /* 新增分類 sheet（D3）：名稱欄撐滿、「管理分類…」文字鈕在下 */
 [data-shell="mobile"] .ns-tk-mf-catname { display: block; width: 100%; box-sizing: border-box; }
 [data-shell="mobile"] .ns-tk-mf-catmgr { align-self: flex-start; }  /* sheet 本文是直欄 flex（間距吃本文的 gap），不撐滿 */
+
+/* v1.28 手機版小算盤與算式預覽（功能 3） */
+[data-shell="mobile"] .ns-tk-mcalcbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0; margin-right: 6px; flex: none;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .ns-tk-mcalcbtn.is-on {
+  color: var(--accent); border-color: var(--accent); background: var(--sel-bg);
+}
+[data-shell="mobile"] .ns-tk-mf-calcrow {
+  padding: 0 18px 8px; display: flex; align-items: center;
+}
+[data-shell="mobile"] .ns-tk-mcalc {
+  margin: 4px 18px 12px; padding: 10px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-card, 8px);
+  background: var(--color-paper);
+  display: flex; flex-direction: column; gap: 8px;
+}
+[data-shell="mobile"] .ns-tk-mcalc-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding-bottom: 6px; border-bottom: 1px dashed var(--color-line);
+}
+[data-shell="mobile"] .ns-tk-mcalc-expr {
+  font-family: var(--font-display); font-size: var(--fs-sm); color: var(--color-ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
+}
+[data-shell="mobile"] .ns-tk-mcalc-expr b.is-ok { color: var(--accent); font-weight: 600; }
+[data-shell="mobile"] .ns-tk-mcalc-expr b.is-err { color: var(--color-danger, #b84a39); font-weight: 400; font-size: var(--fs-xs); }
+[data-shell="mobile"] .ns-tk-mcalc-acts { display: flex; align-items: center; gap: 6px; }
+[data-shell="mobile"] .ns-tk-mcalc-act {
+  min-height: 30px; padding: 0 10px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink-soft); font-size: var(--fs-xs);
+}
+[data-shell="mobile"] .ns-tk-mcalc-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+[data-shell="mobile"] .ns-tk-mcalc-key {
+  min-height: 42px; padding: 6px 0;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink);
+  font-family: var(--font-display); font-size: var(--fs-base); font-weight: 600;
+}
+[data-shell="mobile"] .ns-tk-mcalc-key:active { background: var(--sel-bg); }
+[data-shell="mobile"] .ns-tk-mcalc-key.is-fn { color: var(--color-ink-soft); font-size: var(--fs-sm); }
+[data-shell="mobile"] .ns-tk-mcalc-key.is-op { color: var(--accent); font-weight: 700; }
+[data-shell="mobile"] .ns-tk-mcalc-key.is-eq {
+  background: var(--color-ink); color: var(--color-paper); border-color: var(--color-ink);
+}
 /* ==== end T5 ==== */

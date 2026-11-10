@@ -717,6 +717,14 @@ export class SqliteTicketRepository implements TicketRepository {
     await this.commit(db, b);
   }
 
+  async deleteAccount(id: string): Promise<void> {
+    await this.softDeleteIn("tk_accounts", id);
+  }
+
+  async restoreAccount(id: string): Promise<void> {
+    await this.restoreIn("tk_accounts", id);
+  }
+
   /** 同群組、未封存的帳戶（顯示順序）——moveAccount／moveAccountTo 共用 */
   private async accountSibs(db: Database, id: string): Promise<AccountRow[]> {
     const a = await this.accountOrThrow(db, id);
@@ -833,6 +841,15 @@ export class SqliteTicketRepository implements TicketRepository {
       for (const k of kids) if (k.archived_at === was) pushUpdate(b, "tk_categories", k.id, { archived_at: null, updated_at: now });
     }
     await this.commit(db, b);
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    if (isUncat(id)) throw new RangeError("「未分類」不能刪除");
+    await this.softDeleteIn("tk_categories", id);
+  }
+
+  async restoreCategory(id: string): Promise<void> {
+    await this.restoreIn("tk_categories", id);
   }
 
   async moveCategory(id: string, delta: 1 | -1): Promise<void> {
@@ -1491,7 +1508,10 @@ export class SqliteTicketRepository implements TicketRepository {
   }
 
   /** 軟刪（delete op）；已刪或不存在＝不寫 */
-  private async softDeleteIn(tbl: "tk_wishes" | "tk_templates" | "wr_kinds", id: string): Promise<void> {
+  private async softDeleteIn(
+    tbl: "tk_wishes" | "tk_templates" | "wr_kinds" | "tk_categories" | "tk_accounts",
+    id: string,
+  ): Promise<void> {
     const db = await getDb();
     const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM ${tbl} WHERE id = $1`, [id]);
     if (!rows[0] || rows[0].deleted_at !== null) return;
@@ -1503,7 +1523,10 @@ export class SqliteTicketRepository implements TicketRepository {
   }
 
   /** 復原（upsert op { deleted_at: null, updated_at }）；沒刪或不存在＝不寫 */
-  private async restoreIn(tbl: "tk_wishes" | "tk_templates" | "wr_kinds", id: string): Promise<void> {
+  private async restoreIn(
+    tbl: "tk_wishes" | "tk_templates" | "wr_kinds" | "tk_categories" | "tk_accounts",
+    id: string,
+  ): Promise<void> {
     const db = await getDb();
     const rows = await db.select<{ deleted_at: string | null }[]>(`SELECT deleted_at FROM ${tbl} WHERE id = $1`, [id]);
     if (!rows[0] || rows[0].deleted_at === null) return;

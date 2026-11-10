@@ -495,6 +495,31 @@ export class SqliteTimetableRepository implements TimetableRepository {
     await runWriteBatch(db, b.stmts, b.ops);
   }
 
+  async deleteCategory(id: string): Promise<void> {
+    const db = await getDb();
+    const c = await this.getCategory(db, id);
+    if (!c || c.deleted_at !== null) throw new RangeError("找不到這個分類");
+    if (c.parent_id === null) throw new RangeError("分組不能刪除");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_categories SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_categories", id, "delete", { deleted_at: now, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+    this.tagWrites = true;
+  }
+
+  async restoreCategory(id: string): Promise<void> {
+    const db = await getDb();
+    const c = await this.getCategory(db, id);
+    if (!c || c.deleted_at === null) throw new RangeError("找不到這個分類");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_categories SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_categories", id, "upsert", { deleted_at: null, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+    this.tagWrites = true;
+  }
+
   async reorderCategories(parentId: string | null, orderedIds: readonly string[]): Promise<void> {
     const db = await getDb();
     const sibWhere = parentId === null ? `parent_id IS NULL` : `parent_id = $1`;

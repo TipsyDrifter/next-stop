@@ -11,6 +11,7 @@
  */
 import { useCallback } from "react";
 import type { NodeKind } from "../../domain";
+import { PARKED_ADD_WHY } from "../../domain/depot";
 import { dropVerdict } from "../../domain/dropRules";
 import { APPEND, moveWithUndo } from "../../store/batchActions";
 import { useNodeStore } from "../../store/nodeStore";
@@ -44,8 +45,9 @@ export function useOutlineDrag(opts: {
   rows: VisibleRow[];
   top: { id: string; kind: NodeKind } | null;
   disabled: boolean;
+  parked?: boolean;
 }) {
-  const { root, rows, top, disabled } = opts;
+  const { root, rows, top, disabled, parked } = opts;
   const items = rows.flatMap((r) => (r.type === "node" ? [{ id: r.id, depth: r.depth }] : []));
   const order = items.map((r) => r.id);
 
@@ -70,6 +72,8 @@ export function useOutlineDrag(opts: {
     root,
     items,
     disabled: disabled || !top,
+    canDrag: () => (parked ? PARKED_ADD_WHY : true),
+    onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3600),
     dragIds: (id) => {
       const batch = dragBatch("outline", id, order);
       // 祖先也在這一批的子孫不另搬（它跟著祖先走）

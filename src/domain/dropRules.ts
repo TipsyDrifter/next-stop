@@ -35,9 +35,10 @@ export function childKinds(parent: NodeKind): NodeKind[] {
   }
 }
 
-/** 種類跟著位置走（＝nodeStore.adaptKind）：放得下照舊；列車⇄車廂互換；都不行 null */
+/** 種類跟著位置走（＝nodeStore.adaptKind）：放得下照舊；列車⇄車廂互換；放到車票底下視同車廂（自動升格）；都不行 null */
 export function adaptTo(kind: NodeKind, parentKind: NodeKind): NodeKind | null {
-  const ok = childKinds(parentKind);
+  const effectiveParent = parentKind === "ticket" ? "car" : parentKind;
+  const ok = childKinds(effectiveParent);
   if (ok.includes(kind)) return kind;
   if (kind === "car" && ok.includes("train")) return "train";
   if (kind === "train" && ok.includes("car")) return "car";
@@ -75,6 +76,12 @@ export function dropVerdict(
   const parentId = displayParent ?? top.id;
   const parentKind = displayParent ? tree.byId[displayParent]?.kind : top.kind;
   if (!parentKind) return { ok: false, why: "要放進去的地方已經不在了" };
+  if (parentKind === "ticket" && displayParent) {
+    const target = tree.byId[displayParent] as { parent_id: string | null; route_id?: string | null } | undefined;
+    if (target && target.parent_id === null && !target.route_id) {
+      return { ok: false, why: "無路線的臨時車票底下不能放東西" };
+    }
+  }
   for (const id of ids) {
     const n = tree.byId[id];
     if (!n) return { ok: false, why: "要搬的項目已經不在了" };

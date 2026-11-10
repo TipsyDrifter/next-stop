@@ -213,6 +213,8 @@ export const TT_TEXT = {
   archived: (name: string) => `已封存「${name}」`,
   /** B7 還原 */
   unarchived: (name: string) => `已還原「${name}」`,
+  /** v1.28：刪除分類（帶「復原」＝TT_TEXT.undo） */
+  categoryDeleted: (name: string) => `已刪除分類「${name}」`,
   /** B8 搬組 */
   movedToGroup: (name: string, group: string) => `「${name}」搬到「${group}」`,
   /** B9 換圓牌字 */
@@ -860,6 +862,9 @@ export interface TimetableStore {
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
   /** ①b：封存（toast B6 帶「復原」）／還原（B7） */
   archiveCategory(id: string, archived: boolean): Promise<void>;
+  /** v1.28：軟刪除已封存的分類（toast 帶「復原」＝restoreCategory） */
+  deleteCategory(id: string): Promise<void>;
+  restoreCategory(id: string): Promise<void>;
   /** ①b：搬到另一個頂層組；toast B8 */
   moveCategoryToGroup(id: string, parentId: string): Promise<void>;
   /**
@@ -1785,6 +1790,20 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
           else toast(TT_TEXT.unarchived(name));
         },
       );
+    },
+
+    async deleteCategory(id) {
+      const name = catName(id);
+      await write(
+        () => timetableRepo.deleteCategory(id),
+        () => {
+          toast(TT_TEXT.categoryDeleted(name), TT_TEXT.undo, () => void get().restoreCategory(id));
+        },
+      );
+    },
+
+    async restoreCategory(id) {
+      await write(() => timetableRepo.restoreCategory(id));
     },
 
     async moveCategoryToGroup(id, parentId) {

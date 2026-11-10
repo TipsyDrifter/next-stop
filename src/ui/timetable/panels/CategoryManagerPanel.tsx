@@ -363,6 +363,7 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
   const updateCategory = useTimetableStore((s) => s.updateCategory);
   const moveCategory = useTimetableStore((s) => s.moveCategory);
   const archiveCategory = useTimetableStore((s) => s.archiveCategory);
+  const deleteCategory = useTimetableStore((s) => s.deleteCategory);
   const tagMaps: TimetableTagMaps = useTimetableTagMaps(); // ⑥
 
   /** 正在新增：`{ parentId }`（null＝新增分組） */
@@ -546,6 +547,13 @@ function CategoriesTab({ focusId, onFocused }: { focusId?: string; onFocused?: (
                   }}
                 >
                   還原
+                </button>
+                <button
+                  type="button"
+                  className="ns-btn btn-ghost ns-btn--sm ns-btn-danger"
+                  onClick={() => void deleteCategory(c.id)}
+                >
+                  刪除
                 </button>
               </div>
             ))}

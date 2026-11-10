@@ -34,13 +34,16 @@ export type LostKindKey =
   | "diary"
   | "tag"
   | "time_block"
+  | "time_category"
   | "time_goal"
   | "time_routine"
   | "tk_entry"
   | "tk_repeat"
   | "tk_wish"
   | "tk_template"
-  | "tk_budget";
+  | "tk_budget"
+  | "tk_category"
+  | "tk_account";
 
 /** 一列資料（資料庫或快照 JSON 來的；欄位依表而異） */
 export type LostRow = { id: string; deleted_at?: string | null; [col: string]: unknown };
@@ -352,6 +355,17 @@ export const LOST_KINDS: readonly LostKindDef[] = [
     requires: [{ col: "category_id", table: "time_categories" }],
   },
   {
+    key: "time_category",
+    table: "time_categories",
+    category: "timetable",
+    label: "時間分類",
+    title: (r) => text(r.name) ?? "（沒有名字）",
+    detail: (r, names) => (typeof r.parent_id === "string" ? (names.timeCategories[r.parent_id] ?? null) : null),
+    tagTypes: ["timetable:category"],
+    children: [],
+    requires: [{ col: "parent_id", table: "time_categories" }],
+  },
+  {
     key: "time_goal",
     table: "time_goals",
     category: "timetable",
@@ -428,6 +442,28 @@ export const LOST_KINDS: readonly LostKindDef[] = [
     children: [],
     requires: [DEP_TK_CATEGORY],
   },
+  {
+    key: "tk_category",
+    table: "tk_categories",
+    category: "ticket",
+    label: "收支分類",
+    title: (r) => text(r.name) ?? "（沒有名字）",
+    detail: (r) => (r.kind === "income" ? "收入分類" : r.kind === "expense" ? "支出分類" : null),
+    tagTypes: [],
+    children: [],
+    requires: [{ col: "parent_id", table: "tk_categories" }],
+  },
+  {
+    key: "tk_account",
+    table: "tk_accounts",
+    category: "ticket",
+    label: "帳戶",
+    title: (r) => text(r.name) ?? "（沒有名字）",
+    detail: (r) => text(r.currency),
+    tagTypes: [],
+    children: [],
+    requires: [DEP_CURRENCY],
+  },
 ];
 
 /** 清單裡有的表（去重、照登記順序） */
@@ -435,9 +471,6 @@ export const LOST_TABLES: readonly string[] = Array.from(new Set(LOST_KINDS.map(
 
 /** 只會被當依賴帶回來的表（不進清單）自己的依賴 */
 const DEP_ONLY: Record<string, { requires: readonly LostDep[]; tagTypes: readonly string[] }> = {
-  time_categories: { requires: [{ col: "parent_id", table: "time_categories" }], tagTypes: ["timetable:category"] },
-  tk_categories: { requires: [{ col: "parent_id", table: "tk_categories" }], tagTypes: [] },
-  tk_accounts: { requires: [DEP_CURRENCY], tagTypes: [] },
   tk_currencies: { requires: [], tagTypes: [] },
 };
 

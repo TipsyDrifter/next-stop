@@ -32,6 +32,7 @@ export function DepotView() {
   const bookId = useDepotStore((s) => s.bookId);
   const setTab = useDepotStore((s) => s.setTab);
   const openBook = useDepotStore((s) => s.openBook);
+  const lines = useNodeStore((s) => s.lines);
   const routes = useNodeStore((s) => s.routes);
   const stations = useNodeStore((s) => s.stations);
   const onKeyDown = useDepotKeyboard();
@@ -44,7 +45,7 @@ export function DepotView() {
   }, []);
   useEffect(() => {
     void useDepotStore.getState().load();
-  }, [routes, stations]);
+  }, [lines, routes, stations]);
 
   // 開／關記錄簿：捲動與焦點
   useLayoutEffect(() => {

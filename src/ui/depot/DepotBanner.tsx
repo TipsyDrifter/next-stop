@@ -5,6 +5,7 @@
 import type { NodeRow } from "../../domain";
 import { fmtMD } from "../../domain/depot";
 import { requestDepart } from "../panel/arrivalFlows";
+import { requestDeleteRoute } from "../panel/routeFlows";
 import "./depotBanner.css";
 
 export function DepotBanner({ route }: { route: NodeRow }) {
@@ -16,6 +17,13 @@ export function DepotBanner({ route }: { route: NodeRow }) {
       </span>
       <button type="button" className="ns-btn ns-btn--sm btn-ghost" onClick={() => void requestDepart(route.id)}>
         回到運行
+      </button>
+      <button
+        type="button"
+        className="ns-btn ns-btn--sm btn-ghost is-danger"
+        onClick={() => void requestDeleteRoute(route)}
+      >
+        刪除路線
       </button>
     </div>
   );

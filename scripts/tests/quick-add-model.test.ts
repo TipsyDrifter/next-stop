@@ -40,6 +40,10 @@ describe("resolveQuickTarget：掛到決定建成什麼", () => {
   test("列車＝車票（不給選）", () => {
     assert.deepEqual(resolveQuickTarget(TRAIN, "train"), { kind: "ticket", parentId: "t1", routeTagId: null, canChoose: false });
   });
+  test("討論 5：掛到車票＝建子車票（自動升格目標車票）", () => {
+    const TICKET: QuickDest = { routeId: "r1", nodeId: "tk1", nodeKind: "ticket" };
+    assert.deepEqual(resolveQuickTarget(TICKET, "ticket"), { kind: "ticket", parentId: "tk1", routeTagId: null, canChoose: false });
+  });
 });
 
 describe("mergeQuick：chip ＞ 文字 ＞ 預設", () => {

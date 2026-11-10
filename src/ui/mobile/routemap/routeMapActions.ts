@@ -83,9 +83,9 @@ export function siblingPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPl
   return { kind: n.kind, parentId: parentKey(tree, routeId, n), afterId: n.id };
 }
 
-/** 新增車票：列車／車廂／支線＝掛在底下最後一張（丁 D-主-245 支線也行）；車票＝接在自己後面（大綱 keys.addTicket；能不能做由 guards.ticketWhy 先擋） */
+/** 新增車票：列車／車廂／支線／車票＝掛在底下最後一張（丁 D-主-245 支線也行；討論 5 車票加子車票自動升格為列車／車廂；能不能做由 guards.ticketWhy 先擋） */
 export function ticketPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPlan {
-  return isTaskKind(n.kind) || n.kind === "branch"
+  return isTaskKind(n.kind) || n.kind === "branch" || n.kind === "ticket"
     ? { kind: "ticket", parentId: n.id, afterId: null }
     : { kind: "ticket", parentId: parentKey(tree, routeId, n), afterId: n.id };
 }

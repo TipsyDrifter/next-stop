@@ -150,6 +150,9 @@ export interface TicketRepository {
   createAccount(input: NewAccountInput): Promise<AccountRow>;
   updateAccount(id: string, patch: AccountPatch): Promise<void>;
   setAccountArchived(id: string, archived: boolean): Promise<void>;
+  /** v1.28：軟刪已封存的帳戶（進最近刪除 30 天） */
+  deleteAccount(id: string): Promise<void>;
+  restoreAccount(id: string): Promise<void>;
   /** 同群組、未封存的鄰居互換 position；到邊界＝不動 */
   moveAccount(id: string, delta: 1 | -1): Promise<void>;
   /** 目標 − 目前 ≠ 0 ⇒ 一筆 adjust 並回它；＝0 ⇒ 不寫、回 null */
@@ -158,9 +161,12 @@ export interface TicketRepository {
   renameCategory(id: string, name: string): Promise<void>;
   /**
    * 封存 ⇒ 它底下所有子孫（實際的樹，`categorySubtreeIds`）中還沒封存的一起、同一個 archived_at；取消封存 ⇒ 它＋與它同一刻被連帶封存的子孫
-   * 一起回來（先前各自封存的不動）；未分類 ⇒ RangeError。分類沒有刪除（只有封存）；父列被同步刪掉的子孫當頂層（D-票-62）。
+   * 一起回來（先前各自封存的不動）；未分類 ⇒ RangeError。父列被同步刪掉的子孫當頂層（D-票-62）。
    */
   setCategoryArchived(id: string, archived: boolean): Promise<void>;
+  /** v1.28：軟刪已封存的分類（未分類 ⇒ RangeError；進最近刪除 30 天） */
+  deleteCategory(id: string): Promise<void>;
+  restoreCategory(id: string): Promise<void>;
   /** 同 kind、同層、未封存的鄰居互換 position（未分類不參與）；父分類已不在的子分類當主分類那一層（`effectiveParentId`，D-票-62） */
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
   createCurrency(input: NewCurrencyInput): Promise<CurrencyRow>;

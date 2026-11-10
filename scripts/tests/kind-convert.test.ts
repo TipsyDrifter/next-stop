@@ -4,7 +4,9 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { allowedChildKinds, childKindSwaps } from "../../src/domain/node.ts";
+import { allowedChildKinds, childKindSwaps, promotedKindForParent } from "../../src/domain/node.ts";
+import { buildShelf } from "../../src/domain/depot.ts";
+import type { NodeRow } from "../../src/domain/node.ts";
 
 describe("巢狀規則", () => {
   test("支線底下可以直接放車票；路線底下的車票走根層＋路線標籤（不放進 allowedChildKinds('route')）", () => {
@@ -26,5 +28,29 @@ describe("轉種類時直屬子項跟著換", () => {
     const r = childKindSwaps("train", ["branch", "train"]);
     assert.ok("why" in r);
     assert.match(r.why, /支線/);
+  });
+  test("討論 5：車票加子項時依其父節點決定升格為列車或車廂", () => {
+    assert.equal(promotedKindForParent("route"), "train");
+    assert.equal(promotedKindForParent("branch"), "train");
+    assert.equal(promotedKindForParent(null), "train");
+    assert.equal(promotedKindForParent("train"), "car");
+    assert.equal(promotedKindForParent("car"), "car");
+  });
+  test("功能 2：buildShelf 保留底下無已到站路線的已到站幹線", () => {
+    const emptyArrivedLine = {
+      id: "L1",
+      kind: "line",
+      name: "空幹線",
+      arrived_on: "2026-11-01",
+      deleted_at: null,
+      position: 0,
+    } as unknown as NodeRow;
+    const shelf = buildShelf([emptyArrivedLine], []);
+    assert.equal(shelf.length, 1);
+    assert.equal(shelf[0].type, "group");
+    if (shelf[0].type === "group") {
+      assert.equal(shelf[0].line.id, "L1");
+      assert.deepEqual(shelf[0].routes, []);
+    }
   });
 });

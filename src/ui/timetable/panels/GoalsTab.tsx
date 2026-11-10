@@ -183,6 +183,9 @@ export function GoalsTab() {
                 <button type="button" className="ns-btn btn-ghost ns-btn--sm" onClick={() => void archiveGoal(g.id, false)}>
                   {T.restore}
                 </button>
+                <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-btn-danger" onClick={() => void deleteGoal(g.id)}>
+                  {T.remove}
+                </button>
               </div>
             ))}
           </div>

@@ -56,7 +56,7 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
             depth="node"
             float
             label="掛到"
-            value={v.dest}
+            value={{ routeId: v.dest.routeId, nodeId: v.dest.nodeId, nodeKind: v.dest.nodeKind === "ticket" ? "car" : v.dest.nodeKind }}
             onPick={(t) => {
               api.setDest(t);
               done();

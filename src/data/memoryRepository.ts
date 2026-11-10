@@ -16,6 +16,7 @@ import {
   parseTimeOverrides,
   type TimeOverrideRow,
 } from "../domain/scheduledTime";
+import { promotedKindForParent } from "../domain/node";
 import {
   KIND_LABEL,
   allowedChildKinds,
@@ -120,6 +121,7 @@ interface MemPlannedMove {
   lineId: string | null;
   routeId: string | null;
   group: SiblingGroup;
+  promotedNewParent?: { id: string; kind: "train" | "car"; parentId: string | null } | null;
 }
 
 const clone = <T extends object>(o: T): T => ({ ...o });
@@ -256,7 +258,11 @@ export class MemoryNodeRepository implements NodeRepository {
       key = writes.find((w) => w.id === id)?.key ?? null;
       this.applyKeyWrites(writes.filter((w) => w.id !== id), now);
     }
+    const oldParentId = p.node.parent_id;
     this.applyMove(p, key, now);
+    if (oldParentId && oldParentId !== (p.newParent?.id ?? null)) {
+      this.demoteIfChildless(oldParentId, now);
+    }
   }
 
   async moveMany(items: readonly MoveManyItem[], anchor: SlotAnchor): Promise<void> {
@@ -278,7 +284,18 @@ export class MemoryNodeRepository implements NodeRepository {
       for (const w of writes) if (moving.has(w.id)) keyOf.set(w.id, w.key);
       this.applyKeyWrites(writes.filter((w) => !moving.has(w.id)), now);
     }
-    for (const p of plans) this.applyMove(p, keyOf.get(p.node.id) ?? null, now);
+    const oldParentIds = new Set<string>();
+    const promotedIds = new Set<string>();
+    for (const p of plans) {
+      if (p.promotedNewParent) promotedIds.add(p.promotedNewParent.id);
+      if (p.node.parent_id && p.node.parent_id !== (p.newParent?.id ?? null)) {
+        oldParentIds.add(p.node.parent_id);
+      }
+      this.applyMove(p, keyOf.get(p.node.id) ?? null, now);
+    }
+    for (const oldParentId of oldParentIds) {
+      if (!promotedIds.has(oldParentId)) this.demoteIfChildless(oldParentId, now);
+    }
   }
 
   async listSiblingIds(id: string): Promise<string[]> {
@@ -292,14 +309,31 @@ export class MemoryNodeRepository implements NodeRepository {
   private planMove(id: string, newParentId: string | null, newKind?: NodeKind, routeTag?: string | null): MemPlannedMove {
     const node = this.nodes.get(id);
     if (!node) throw new Error("節點不存在");
-    const kind = newKind ?? node.kind;
-    const newParent = newParentId ? (this.nodes.get(newParentId) ?? null) : null;
+    let newParent = newParentId ? (this.nodes.get(newParentId) ?? null) : null;
     if (newParentId && !newParent) throw new Error("目標父節點不存在");
-    if (!allowedChildKinds(newParent ? newParent.kind : null).includes(kind)) {
-      throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${newParent ? KIND_LABEL[newParent.kind] : "根層"} 底下`);
+    let promotedNewParent: { id: string; kind: "train" | "car"; parentId: string | null } | null = null;
+    if (newParent && newParent.kind === "ticket" && (newParent.parent_id !== null || newParent.route_id !== null)) {
+      const gp = newParent.parent_id ? (this.nodes.get(newParent.parent_id) ?? null) : null;
+      const promotedKind = promotedKindForParent(gp ? gp.kind : "route");
+      const promotedParentId = newParent.parent_id ?? newParent.route_id;
+      promotedNewParent = { id: newParent.id, kind: promotedKind, parentId: promotedParentId };
+      newParent = { ...newParent, kind: promotedKind, parent_id: promotedParentId };
     }
     const sub = this.subtreeIds(id);
     if (newParentId && sub.includes(newParentId)) throw new Error("不能搬進自己的子樹");
+    let kind = newKind ?? node.kind;
+    const allowed = allowedChildKinds(newParent ? newParent.kind : null);
+    if (!allowed.includes(kind)) {
+      if (newParent?.kind === "route" && kind === "ticket") {
+        // 允許車票直接掛在路線下（自由席）
+      } else if (newParent && (newParent.kind === "train" || newParent.kind === "car") && kind === "train") {
+        kind = "car";
+      } else if (newParent && (newParent.kind === "route" || newParent.kind === "branch") && kind === "car") {
+        kind = sub.length > 1 ? "train" : (newKind === "train" ? "train" : "ticket");
+      } else {
+        throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${newParent ? KIND_LABEL[newParent.kind] : "根層"} 底下`);
+      }
+    }
     if (kind !== node.kind) this.assertChildrenFit(id, kind, "變成");
     let lineId: string | null;
     let routeId: string | null;
@@ -315,11 +349,19 @@ export class MemoryNodeRepository implements NodeRepository {
       lineId = tag?.line_id ?? null;
     }
     const group = groupFor({ parentId: newParent?.id ?? null, parentKind: newParent?.kind ?? null, kind, routeId });
-    return { node, newParent, kind, sub, lineId, routeId, group };
+    return { node, newParent, kind, sub, lineId, routeId, group, promotedNewParent };
   }
 
   private applyMove(p: MemPlannedMove, key: string | null, now: string): void {
-    const { node, newParent, kind, sub, lineId, routeId } = p;
+    const { node, newParent, kind, sub, lineId, routeId, promotedNewParent } = p;
+    if (promotedNewParent) {
+      this.mutate(promotedNewParent.id, (n) => ({
+        ...n,
+        kind: promotedNewParent.kind,
+        parent_id: promotedNewParent.parentId,
+        updated_at: now,
+      }));
+    }
     const id = node.id;
     if (lineId !== node.line_id) {
       for (const sid of sub) this.mutate(sid, (n) => ({ ...n, line_id: lineId, updated_at: now }));
@@ -365,12 +407,27 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const w of writes) this.mutate(w.id, (n) => (n.sort_key === null ? { ...n, sort_key: w.key } : n));
   }
 
+  /** 討論 5：若列車／車廂底下的活子項已全數移除（刪除或搬走），自動降階回車票 */
+  private demoteIfChildless(parentId: string, now: string): void {
+    const parent = this.nodes.get(parentId);
+    if (!parent || !isAlive(parent)) return;
+    if (parent.kind !== "train" && parent.kind !== "car") return;
+    const hasKids = this.alive().some((n) => n.parent_id === parentId);
+    if (!hasKids) {
+      this.mutate(parentId, (n) => ({ ...n, kind: "ticket", updated_at: now }));
+    }
+  }
+
   async softDelete(id: string): Promise<string[]> {
     const root = this.nodes.get(id);
     if (!root || root.deleted_at !== null) return []; // 同 SQLite 版：根已刪不重戳
+    const oldParentId = root.parent_id;
     const ids = this.subtreeIds(id);
     const now = this.now();
     for (const sid of ids) this.mutate(sid, (n) => ({ ...n, deleted_at: now, updated_at: now }));
+    if (oldParentId && !ids.includes(oldParentId)) {
+      this.demoteIfChildless(oldParentId, now);
+    }
     return ids;
   }
 
@@ -382,6 +439,16 @@ export class MemoryNodeRepository implements NodeRepository {
     if (!ids.length) return;
     const now = this.now();
     for (const sid of ids) this.mutate(sid, (n) => ({ ...n, deleted_at: null, updated_at: now }));
+    for (const sid of ids) {
+      const n = this.nodes.get(sid);
+      const parent = n?.parent_id ? (this.nodes.get(n.parent_id) ?? null) : null;
+      if (parent && isAlive(parent) && parent.kind === "ticket" && (parent.parent_id !== null || parent.route_id !== null)) {
+        const gp = parent.parent_id ? (this.nodes.get(parent.parent_id) ?? null) : null;
+        const promotedKind = promotedKindForParent(gp ? gp.kind : "route");
+        const promotedParentId = parent.parent_id ?? parent.route_id;
+        this.mutate(parent.id, (p) => ({ ...p, kind: promotedKind, parent_id: promotedParentId, updated_at: now }));
+      }
+    }
   }
 
   async restoreAsLoose(id: string, routeTagId: string | null): Promise<void> {
@@ -1056,11 +1123,30 @@ export class MemoryNodeRepository implements NodeRepository {
     // 建票列（回饋甲）：時刻驗格式＋範圍（與 SQLite 版同一句）
     assertClockWritable(input.scheduledTime ?? null, input.dayStartHour);
 
-    const parent = input.parentId ? (this.nodes.get(input.parentId) ?? null) : null;
+    let parent = input.parentId ? (this.nodes.get(input.parentId) ?? null) : null;
     if (input.parentId && !parent) throw new Error("父節點不存在");
+    const id = fixedId ?? uuid();
+    const now = this.now();
+    // 討論 5：若父節點為路線樹內的車票，加入子節點時自動升格為列車或車廂
+    if (parent && parent.kind === "ticket" && (parent.parent_id !== null || parent.route_id !== null)) {
+      const gp = parent.parent_id ? (this.nodes.get(parent.parent_id) ?? null) : null;
+      const promotedKind = promotedKindForParent(gp ? gp.kind : "route");
+      const promotedParentId = parent.parent_id ?? parent.route_id;
+      parent = { ...parent, kind: promotedKind, parent_id: promotedParentId, updated_at: now };
+      this.nodes.set(parent.id, parent);
+    }
+    let kind = input.kind;
     const allowed = allowedChildKinds(parent ? parent.kind : null);
-    if (!allowed.includes(input.kind)) {
-      throw new Error(`${input.kind} 不能掛在 ${parent?.kind ?? "根層"} 底下`);
+    if (!allowed.includes(kind)) {
+      if (parent?.kind === "route" && kind === "ticket") {
+        // 允許路線下直接建自由席車票
+      } else if (parent && (parent.kind === "train" || parent.kind === "car") && kind === "train") {
+        kind = "car";
+      } else if (parent && (parent.kind === "route" || parent.kind === "branch") && kind === "car") {
+        kind = "train";
+      } else {
+        throw new Error(`${kind} 不能掛在 ${parent?.kind ?? "根層"} 底下`);
+      }
     }
 
     let lineId: string | null = null;
@@ -1068,18 +1154,16 @@ export class MemoryNodeRepository implements NodeRepository {
     if (parent) {
       lineId = parent.kind === "line" ? parent.id : parent.line_id;
       routeId = parent.kind === "route" ? parent.id : parent.route_id;
-    } else if (input.kind === "ticket" && input.routeTagId) {
+    } else if (kind === "ticket" && input.routeTagId) {
       const tag = this.nodes.get(input.routeTagId) ?? null;
       routeId = tag?.id ?? null;
       lineId = tag?.line_id ?? null;
     }
 
-    const id = fixedId ?? uuid();
-    const now = this.now();
     const after = input.afterId ? this.nodes.get(input.afterId) : null;
     if (input.afterId && !after) throw new Error("afterId 不存在");
     // 排序鍵（同 SQLite 版）：顯示群組裡 afterId 的下一格；沒給（或不在這份清單）＝尾端；收件匣不給鍵
-    const group = groupFor({ parentId: parent?.id ?? null, parentKind: parent?.kind ?? null, kind: input.kind, routeId });
+    const group = groupFor({ parentId: parent?.id ?? null, parentKind: parent?.kind ?? null, kind, routeId });
     let sortKey: string | null = null;
     if (isOrderedGroup(group)) {
       this.backfillSortKeys();
@@ -1094,11 +1178,11 @@ export class MemoryNodeRepository implements NodeRepository {
       this.applyKeyWrites(writes.filter((w) => w.id !== id), now);
     }
     // position 只在新建時給 MAX+1（舊的兄弟條件），往後不再改
-    const position = this.siblings(parent, input.kind).reduce((m, s) => Math.max(m, s.position), -1) + 1;
+    const position = this.siblings(parent, kind).reduce((m, s) => Math.max(m, s.position), -1) + 1;
 
     const row: NodeRow = {
       id,
-      kind: input.kind,
+      kind,
       parent_id: parent?.id ?? null,
       line_id: lineId,
       route_id: routeId,

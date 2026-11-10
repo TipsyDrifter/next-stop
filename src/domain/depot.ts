@@ -130,12 +130,13 @@ export type ShelfItem =
  * 同一天依原順序（側欄序）。
  */
 export function buildShelf(lines: readonly NodeRow[], routes: readonly NodeRow[]): ShelfItem[] {
-  const arrived = routes.filter((r) => r.arrived_on !== null);
-  const arrivedLines = new Map(lines.filter((l) => l.arrived_on !== null).map((l) => [l.id, l] as const));
+  const arrived = routes.filter((r) => !r.deleted_at && r.arrived_on !== null);
+  const arrivedLines = new Map(lines.filter((l) => !l.deleted_at && l.arrived_on !== null).map((l) => [l.id, l] as const));
   const groups = new Map<string, NodeRow[]>();
+  for (const l of arrivedLines.values()) groups.set(l.id, []);
   const singles: NodeRow[] = [];
   for (const r of arrived) {
-    if (r.line_id && arrivedLines.has(r.line_id)) (groups.get(r.line_id) ?? groups.set(r.line_id, []).get(r.line_id)!).push(r);
+    if (r.line_id && arrivedLines.has(r.line_id)) groups.get(r.line_id)!.push(r);
     else singles.push(r);
   }
   const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);

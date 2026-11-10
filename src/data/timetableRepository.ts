@@ -82,6 +82,10 @@ export interface TimetableRepository {
   /** glyph：子分類＝name 的第一個字元（Array.from(name)[0]）；頂層組＝null。position＝同層最大值 +1 */
   createCategory(input: CreateCategoryInput): Promise<TimeCategoryRow>;
   updateCategory(id: string, patch: CategoryPatch): Promise<void>;
+  /** 軟刪除子分類（設 deleted_at＝now；頂層分組不能刪） */
+  deleteCategory(id: string): Promise<void>;
+  /** 復原已刪除的子分類（deleted_at 設回 null） */
+  restoreCategory(id: string): Promise<void>;
   /** 同一層的新順序：整組 0..n-1 全寫、與該層未刪未封存兄弟對帳（清單沒提到的接尾端）——每列都送 op，兩台競合時整組 LWW 單邊勝（#101，D-主-125） */
   reorderCategories(parentId: string | null, orderedIds: readonly string[]): Promise<void>;
 

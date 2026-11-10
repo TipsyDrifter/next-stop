@@ -25,6 +25,7 @@ export function MobileAccountPage({ id }: { id: string }) {
   const adjustBalance = useTicketStore((s) => s.adjustBalance);
   const archiveAccount = useTicketStore((s) => s.archiveAccount);
   const unarchiveAccount = useTicketStore((s) => s.unarchiveAccount);
+  const deleteAccount = useTicketStore((s) => s.deleteAccount);
   const setFilter = useTicketStore((s) => s.setFilter);
   const openNew = useTicketStore((s) => s.openNew);
 
@@ -191,9 +192,14 @@ export function MobileAccountPage({ id }: { id: string }) {
 
         <div className="ns-tk-macct-foot">
           {archived ? (
-            <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => void unarchiveAccount(acc.id)}>
-              取消封存
-            </button>
+            <>
+              <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => void unarchiveAccount(acc.id)}>
+                取消封存
+              </button>
+              <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={() => void deleteAccount(acc.id)}>
+                刪除帳戶
+              </button>
+            </>
           ) : (
             <button type="button" className="ns-btn btn-ghost ns-btn-danger ns-tk-mbtn" onClick={() => archiveAccount(acc.id)}>
               封存

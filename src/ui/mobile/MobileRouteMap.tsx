@@ -143,6 +143,7 @@ import { useDragReorder, type DropPlace } from "../common/dragReorder";
 import { DoneToggleChip, MobileQuickAdd, type QuickDefaults, type QuickHere } from "../common/quickadd";
 import { dropVerdict } from "../../domain/dropRules";
 import { MobileSelectionBar } from "./MobileSelectionBar";
+import { useSelectable } from "../common/selection/useSelectable";
 import { SelectCheck, batchDragIds, pressSelect, tapSelect, usePruneSelection, useScopeSelection } from "./mobileSelect";
 import { moveNodesWithUndo, stepAnchor } from "./mobileMoves";
 import { Tabs } from "../common/Tabs";
@@ -896,6 +897,7 @@ export default function MobileRouteMap() {
   const picked = useScopeSelection("outline");
   const selecting = picked.length > 0;
   usePruneSelection("outline", rowOrder);
+  useSelectable("outline", () => !showBoard && !parked);
   /** 畫面上看得到的子孫（拖起時一起走） */
   const visibleKids = (ids: readonly string[]): string[] => {
     const out: string[] = [];
@@ -911,6 +913,8 @@ export default function MobileRouteMap() {
     root: treeEl,
     scrollRef: pageRef,
     items: rows,
+    canDrag: () => (parked ? PARKED_ADD_WHY : true),
+    onRefuse: (_id, why) => useUiStore.getState().showToast({ message: why }, 3600),
     tree: {
       indent: INDENT_STEP,
       carried: visibleKids,
@@ -948,7 +952,10 @@ export default function MobileRouteMap() {
         if (ok) revealRow(ids[0]);
       });
     },
-    onPressRelease: (id) => pressSelect("outline", id, rowOrder),
+    onPressRelease: (id) => {
+      if (parked) useUiStore.getState().showToast({ message: PARKED_ADD_WHY }, 3600);
+      else pressSelect("outline", id, rowOrder);
+    },
   });
 
   const enterRoute = (id: string) => {
@@ -1065,8 +1072,12 @@ export default function MobileRouteMap() {
     setScrollId(id);
   };
 
-  /** 検印鈕：済／取消済／取消運休（桌機大綱同一支；列車／車廂蓋下去開完成卡、取消済收起——同今日／行程表） */
-  const stamp = (id: string) =>
+  /** 検印鈕：済／取消済／取消運休（桌機大綱同一支；列車／車廂蓋下去開完成卡、取消済收起——同今日／行程表；車庫唯讀不蓋章） */
+  const stamp = (id: string) => {
+    if (parked) {
+      useUiStore.getState().showToast({ message: PARKED_ADD_WHY }, 3600);
+      return;
+    }
     void completeNodeFlow(
       id,
       (fid) => {
@@ -1076,21 +1087,47 @@ export default function MobileRouteMap() {
       },
       { retractCard: true },
     );
+  };
 
   const create = async (plan: AddPlan, name: string) => {
     const row = await createAt(plan, name);
     if (row) revealRow(row.id);
   };
 
-  /** ⋯ sheet：一列的動作接到 MobileTicketSheet（今日、行程表同一支；新 props＝升降層、新增） */
+  /** ⋯ sheet：一列的動作接到 MobileTicketSheet（今日、行程表同一支；新 props＝升降層、新增；車庫唯讀只留理由＋詳情＋刪除） */
   const renderSheet = () => {
     const n = sheetId && openedId && treeReady ? tree.byId[sheetId] : undefined;
     if (!n || !openedId) return null;
     const rid = openedId;
+    const t = tree;
+    if (parked) {
+      return (
+        <MSheet list title={n.name} backId={ROUTEMAP_SHEET_LAYER} onClose={() => setSheetId(null)}>
+          <p className="m-tks-note">{PARKED_ADD_WHY}</p>
+          <MSheetItem
+            onClick={() => {
+              setSheetId(null);
+              openDetail(n.id);
+            }}
+          >
+            詳情…
+          </MSheetItem>
+          <MSheetItem
+            danger
+            cut
+            onClick={() => {
+              setSheetId(null);
+              deleteRow(t, n.id);
+            }}
+          >
+            刪除
+          </MSheetItem>
+        </MSheet>
+      );
+    }
     const occ = currentOccurrences[n.id];
     const card = cardFromTreeNode(n, occ, serialOf(serials, n.id));
     const g = guardsFor(tree, rid, zoom?.id ?? null, n.id);
-    const t = tree;
     return (
       <MobileTicketSheet
         card={card}
@@ -1132,10 +1169,11 @@ export default function MobileRouteMap() {
             : {
                 siblingKind: n.kind,
                 onSibling: (name) => void create(siblingPlan(t, rid, n), name),
-                // 車票／車站列不出「新增車票…」（跟「同層新增車票…」重複；原型 Q1）；支線出但淡掉、點了說原因
-                ticket: canHaveChildren(n.kind)
-                  ? { why: g?.ticketWhy ?? null, onTicket: (name) => void create(ticketPlan(t, rid, n), name) }
-                  : null,
+                // 討論 5：車票列亦可新增子車票（自動升格為列車／車廂）；支線底下可直接放車票（丁 D-主-245）
+                ticket:
+                  canHaveChildren(n.kind) || n.kind === "ticket"
+                    ? { why: g?.ticketWhy ?? null, onTicket: (name) => void create(ticketPlan(t, rid, n), name) }
+                    : null,
                 // 丁 D-主-249：新增支線（主題）；支線列本身用「同層新增支線」就好
                 branch: {
                   onBranch: (name) => {
@@ -1184,7 +1222,11 @@ export default function MobileRouteMap() {
   /* ── 第二層 ── */
   const crumbs: { key: string; label: string; onClick?: () => void }[] = [
     { key: "__list__", label: "我的路線", onClick: backToList },
-    { key: "__route__", label: route?.name ?? "路線", onClick: zoom ? () => zoomTo(null) : undefined },
+    {
+      key: "__route__",
+      label: line ? `${line.name}・${route?.name ?? "路線"}` : (route?.name ?? "路線"),
+      onClick: zoom ? () => zoomTo(null) : undefined,
+    },
     ...(zoom
       ? ancestorsOf(tree, openedId, zoom.id)
           .reverse()
@@ -1218,7 +1260,29 @@ export default function MobileRouteMap() {
         ))}
       </nav>
 
-      {!zoom && (
+      {zoom ? (
+        <header className="m2-head m2-head-row">
+          <div className="m2-head-text">
+            <h2 className="m2-head-title">{zoom.name}</h2>
+            <p className="m2-head-sub">
+              {KIND_LABEL[zoom.kind]}
+              {(() => {
+                const zst = routeHeadStats(flattenSubtrees(tree, [zoom.id]), (n) => isRouteNodeDone(n, currentOccurrences));
+                return zst.ticketTotal > 0 ? `・${routeHeadTicketText(zst)}` : "";
+              })()}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="m2-more"
+            aria-label={`更多動作——${zoom.name}`}
+            aria-haspopup="dialog"
+            onClick={() => setSheetId(zoom.id)}
+          >
+            <span aria-hidden>⋯</span>
+          </button>
+        </header>
+      ) : (
         <header className="m2-head m2-head-row">
           <div className="m2-head-text">
             <h2 className="m2-head-title">{route?.name ?? "路線"}</h2>
@@ -1245,8 +1309,8 @@ export default function MobileRouteMap() {
       {/* ⑫：大綱｜看板（看板分頁的內容在 board/MobileRouteBoard）。看板版面欄要高度，下一站方針與別線欄位列留在大綱分頁 */}
       <MobileRouteLayoutTabs />
 
-      {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿打開的）頂上一行＋「回到運行」 */}
-      {!zoom && route && <DepotBanner route={route} />}
+      {/* 車庫與回顧 D-主-206 #3：已到站的路線（從記錄簿打開的）頂上一行＋「回到運行」（聚焦進支線／列車時照樣顯示） */}
+      {route && <DepotBanner route={route} />}
 
       {/* 下一站方針（方針擴充 辛 §3）：有方針才一行、點了開車站小卡；收進車庫的路線沒有下一站 */}
       {!showBoard && !zoom && nextStation && nextStationAims.length > 0 && (
@@ -1351,7 +1415,13 @@ export default function MobileRouteMap() {
             const chapterText = isChapter
               ? (() => {
                   const cc = chapterCount(kidNodes, (k) => isRouteNodeDone(k, currentOccurrences));
-                  return `支線・${chapterParts(cc).join("・")}${cc.done ? `・済 ${cc.done}` : ""}`;
+                  const bst = routeHeadStats(flattenSubtrees(tree, [id]), (k) => isRouteNodeDone(k, currentOccurrences));
+                  const prog =
+                    bst.ticketTotal > 0
+                      ? `・${bst.ticketDone}/${bst.ticketTotal} 済 (${Math.round((bst.ticketDone / bst.ticketTotal) * 100)}%)`
+                      : "";
+                  const parts = chapterParts(cc).join("・");
+                  return `支線${parts ? `・${parts}` : ""}${prog || (cc.done ? `・済 ${cc.done}` : "")}`;
                 })()
               : null;
 
@@ -1390,7 +1460,7 @@ export default function MobileRouteMap() {
                    * 觸控目標撐在**外層**那顆 44px 的 .m2-zoom 上，圓圈自己維持 26px——
                    * `.badge` 是 border-radius:50%，把 padding 加在它身上會把圓撐成橢圓。
                    */}
-                  {canHaveChildren(node.kind) && hasKids ? (
+                  {node.kind === "branch" || (canHaveChildren(node.kind) && hasKids) ? (
                     <button
                       type="button"
                       className="m2-zoom"
@@ -1430,7 +1500,12 @@ export default function MobileRouteMap() {
                     <span className="m2-meta">
                       {chapterText ?? (
                         <>
-                          {KIND_LABEL[node.kind]}
+                          {node.kind === "ticket" &&
+                          (node.parent_id === openedId ||
+                            (node.parent_id === null && node.route_id === openedId) ||
+                            (node.parent_id ? tree.byId[node.parent_id]?.kind === "branch" : false))
+                            ? "車票・自由席"
+                            : KIND_LABEL[node.kind]}
                           {total > 0 && !ring ? `・${childDone}/${total}` : ""}
                           {rule ? "・定期券" : ""}
                           {node.scheduled_on ? `・${node.scheduled_on.slice(5)}` : ""}
@@ -1447,8 +1522,14 @@ export default function MobileRouteMap() {
                    * N9：済＝圓印（定案，同手機今日票卡）；運休＝方角印（運行狀態告示）；未交代＝虛線圓「検印」。
                    */}
                   {isChapter ? (
-                    // 支線不蓋済（主題）：留同寬的空位，⋯ 對齊別列
-                    <span className="m2-stamp is-empty" aria-hidden />
+                    <button
+                      type="button"
+                      className="m2-chapter-go"
+                      aria-label={`進入支線——${node.name}`}
+                      onClick={() => zoomTo(id)}
+                    >
+                      進入 →
+                    </button>
                   ) : (
                   <button
                     type="button"
@@ -1504,27 +1585,30 @@ export default function MobileRouteMap() {
           >
             路線詳情…
           </MSheetItem>
-          {/* 丁 D-主-249：新增支線（主題）——不必先選一列；聚焦在支線＝放進那條支線，聚焦在列車／車廂＝放不進 */}
-          <MSheetItem
-            off={!!zoom && zoom.kind !== "branch"}
-            onClick={() => {
-              setHeadMenu(false);
-              if (zoom && zoom.kind !== "branch") {
-                useUiStore.getState().showToast({ message: `${KIND_LABEL[zoom.kind]}裡不能放支線` }, 3600);
-                return;
-              }
-              setFirstAdd({ kind: "branch", parentId: zoom ? zoom.id : openedId, afterId: null });
-            }}
-          >
-            新增支線（主題）…
-          </MSheetItem>
-          {/* 回饋乙：路線在幹線裡的順序（第一層長按拖曳的可點替代；這裡只有一項、不擠） */}
-          {(() => {
-            const sibs = routes.filter((r) => r.line_id === route.line_id).map((r) => r.id);
-            return sibs.length > 1 ? (
-              <StepPair order={sibs} id={route.id} parentId={route.line_id} onDone={() => setHeadMenu(false)} />
-            ) : null;
-          })()}
+          {/* 丁 D-主-249：新增支線（主題）——車庫唯讀不出 */}
+          {!parked && (
+            <MSheetItem
+              off={!!zoom && zoom.kind !== "branch"}
+              onClick={() => {
+                setHeadMenu(false);
+                if (zoom && zoom.kind !== "branch") {
+                  useUiStore.getState().showToast({ message: `${KIND_LABEL[zoom.kind]}裡不能放支線` }, 3600);
+                  return;
+                }
+                setFirstAdd({ kind: "branch", parentId: zoom ? zoom.id : openedId, afterId: null });
+              }}
+            >
+              新增支線（主題）…
+            </MSheetItem>
+          )}
+          {/* 回饋乙：路線在幹線裡的順序（車庫唯讀不出） */}
+          {!parked &&
+            (() => {
+              const sibs = routes.filter((r) => r.line_id === route.line_id).map((r) => r.id);
+              return sibs.length > 1 ? (
+                <StepPair order={sibs} id={route.id} parentId={route.line_id} onDone={() => setHeadMenu(false)} />
+              ) : null;
+            })()}
         </MSheet>
       )}
       {firstAdd && (

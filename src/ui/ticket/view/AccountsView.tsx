@@ -170,9 +170,12 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
         switchView("list");
       },
     },
-    archived
-      ? { key: "unarchive", label: "取消封存", cut: true, onSelect: () => void store().unarchiveAccount(a.id) }
-      : { key: "archive", label: "封存", cut: true, danger: true, onSelect: () => store().archiveAccount(a.id) },
+    ...(archived
+      ? [
+          { key: "unarchive", label: "取消封存", cut: true, onSelect: () => void store().unarchiveAccount(a.id) },
+          { key: "delete", label: "刪除帳戶", danger: true, onSelect: () => void store().deleteAccount(a.id) },
+        ]
+      : [{ key: "archive", label: "封存", cut: true, danger: true, onSelect: () => store().archiveAccount(a.id) }]),
   ];
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

@@ -386,7 +386,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       const prevId = d.afterId ?? sibs[sibs.length - 1];
       const prev = prevId ? t.byId[prevId] : undefined;
       if (!prev) return toast("上面沒有可以放進去的項目");
-      if (!canHaveChildren(prev.kind)) return toast("車票／車站底下不能再放項目");
+      if (!canHaveChildren(prev.kind) && prev.kind !== "ticket") return toast("車票／車站底下不能再放項目");
       if (ui().hideDone && prev.status === "done") return toast("上一層已完成、收起來了——請先點「列車」標題旁的「済・顯示」");
       const kind = adaptKind(d.kind, prev.kind);
       if (!kind) return toast("這個項目不能放在那裡");
@@ -552,8 +552,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
         startDraft({ parentId: target.id, afterId: null, kind: "ticket", anchorId: n?.id ?? null });
         return;
       }
+      // 討論 5：在車票底下新增子車票 → 目標車票自動升格為列車／車廂
       if (target.kind === "ticket" && n) {
-        startDraft({ parentId: parentKey(n), afterId: n.id, kind: "ticket", anchorId: n.id });
+        ui().setCollapsed(n.id, false);
+        startDraft({ parentId: n.id, afterId: null, kind: "ticket", anchorId: n.id });
         return;
       }
       // 丁 D-主-245：支線底下可以直接放車票（加在支線裡的最後）
@@ -587,22 +589,42 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       startDraft({ parentId: root, afterId: null, kind: "branch", anchorId: null });
     },
     indentSelected() {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (n) void indentNode(n.id);
     },
     outdentSelected() {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (n) void outdentNode(n.id);
     },
     completeSelected() {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (n) void completeNode(n.id);
     },
     suspendSelected() {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (n) void suspendNode(n.id);
     },
     scheduleSelected(offset) {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (!n) return;
       // 丁 D-主-247：支線沒有日期（T／Shift+T 對支線不作用，說一句理由）
@@ -628,6 +650,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       if (n) deleteNodeFlow(n.id);
     },
     reorderSelected(delta) {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (!n) return;
       void ns().reorder(n.id, delta).then((r) => {
@@ -640,9 +666,17 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       else ui().setPanelOpen(false);
     },
     selectAll() {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       selectAll("outline", visibleIds());
     },
     extendSelection(delta) {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const next = extendBy("outline", delta, visibleIds(), ui().selectedId);
       if (next) ui().select(next);
     },
@@ -657,6 +691,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       void ns().openRoute(rs[j].id);
     },
     renameSelected() {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       const n = selNode();
       if (n) setEdit({ mode: "rename", id: n.id, chain: false });
     },
@@ -667,8 +705,18 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     select: (id) => ui().select(id),
     toggleCollapse: (id) => ui().toggleCollapsed(id),
     zoomInto,
-    complete: (id) => void completeNode(id),
+    complete: (id) => {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
+      void completeNode(id);
+    },
     rename: (id) => {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       ui().select(id);
       setEdit({ mode: "rename", id, chain: false });
     },
@@ -677,6 +725,10 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       ui().setPanelOpen(true);
     },
     setDate: (id, field, value) => {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
       // 保險：定期券的 chip 走 moveRun（講得出哪一班），這裡講不出，別的入口誤呼就吐指路句
       if (field === "scheduled_on" && parseRule(ns().tree.byId[id]?.repeat_rule ?? null)) {
         toast(REPEAT_RESCHEDULE_MSG);
@@ -685,10 +737,16 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       // 磨光⑦（D-主-67）：乘車日 chip 親手選到今天以前＝補記
       void ns().updateNode(id, field === "scheduled_on" ? { scheduled_on: value } : { due_on: value }, { backfill: field === "scheduled_on" });
     },
-    moveRun: (id, from, to) => void moveRunFlow(id, from, to),
+    moveRun: (id, from, to) => {
+      if (parked) {
+        toast(PARKED_ADD_WHY);
+        return;
+      }
+      void moveRunFlow(id, from, to);
+    },
     focusContainer,
     pick: (id, e) => {
-      if (pickClick("outline", id, visibleIds(), e, ui().selectedId)) return true;
+      if (!parked && pickClick("outline", id, visibleIds(), e, ui().selectedId)) return true;
       // 回饋甲 D-主-132：單擊票面＝選中＋開詳情側板（選中由列接著呼叫 select；放開時還是它才開）
       armOpenOnClick(e, () => {
         if (ui().selectedId === id) ui().setPanelOpen(true);
@@ -747,21 +805,33 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const teiki = parseRule(n.repeat_rule) !== null;
     const occ = ns().currentOccurrences[id];
     // 定期券的「這一班」＝目前班次（scheduled_on）；退役或沒有班次就淡掉
+    const parkedWhy = parked ? PARKED_ADD_WHY : null;
     const runWhy = n.status === "done" || !n.scheduled_on ? "這張定期券沒有下一班" : null;
     return [
-      { ...item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", parked ? PARKED_ADD_WHY : null, keys.addSibling), group: "新增" },
-      { ...item("ticket", "新增車票", "outline.add.ticket", parked ? PARKED_ADD_WHY : ticketWhy, keys.addTicket), group: "新增" },
+      { ...item("sibling", `同層新增${KIND_LABEL[n.kind]}`, "outline.add.sibling", parkedWhy, keys.addSibling), group: "新增" },
+      {
+        ...item(
+          "ticket",
+          n.kind === "ticket" ? "＋子車票（展開為列車／車廂）" : "新增車票",
+          "outline.add.ticket",
+          parkedWhy ?? ticketWhy,
+          keys.addTicket,
+        ),
+        group: "新增",
+      },
       // 丁 D-主-249：新增支線（主題）——列車、車廂裡放不下，會接到它所在的那一層（keys.addBranch 往上找）；車庫裡的路線淡掉（O-3）
       ...(n.kind === "branch"
         ? []
-        : [{ key: "branch", label: "新增支線（主題）", group: "新增", disabled: parked, why: parked ? PARKED_ADD_WHY : undefined, onSelect: run(keys.addBranch) } as PopMenuItem]),
+        : [{ key: "branch", label: "新增支線（主題）", group: "新增", disabled: parked, why: parkedWhy ?? undefined, onSelect: run(keys.addBranch) } as PopMenuItem]),
       // 鏡射「.」：選中＋開側板（單擊票面也會開；這裡是 ⋯ 的可點入口）
       { key: "panel", label: "詳情", hotkeyId: "outline.panel", cut: true, onSelect: () => row.openPanel(id) },
-      item("rename", "改名", "outline.rename", null, keys.renameSelected),
-      // 回饋乙：多選的可點入口（Ctrl／Shift＋點是加速）。已在多選中＝把這張加進去
+      item("rename", "改名", "outline.rename", parkedWhy, keys.renameSelected),
+      // 回饋乙：多選的可點入口（Ctrl／Shift＋點是加速）；車庫裡的路線唯讀（體檢 1）
       {
         key: "pick",
         label: "選取",
+        disabled: parked,
+        why: parkedWhy ?? undefined,
         onSelect: () => {
           const sel = useSelectionStore.getState();
           if (sel.scope === "outline" && sel.ids.length) {
@@ -782,28 +852,37 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
                 "suspend",
                 occ?.status === "skipped" ? "取消運休" : "運休",
                 "outline.suspend",
-                null,
+                parkedWhy,
                 keys.suspendSelected,
                 true,
               ),
               group: "排程",
             },
-            { ...item("sched-today", "這一班改到今天", "outline.schedule.today", runWhy, () => keys.scheduleSelected(0)), group: "排程" },
-            { ...item("sched-tomorrow", "這一班改到明天", "outline.schedule.tomorrow", runWhy, () => keys.scheduleSelected(1)), group: "排程" },
+            { ...item("sched-today", "這一班改到今天", "outline.schedule.today", parkedWhy ?? runWhy, () => keys.scheduleSelected(0)), group: "排程" },
+            { ...item("sched-tomorrow", "這一班改到明天", "outline.schedule.tomorrow", parkedWhy ?? runWhy, () => keys.scheduleSelected(1)), group: "排程" },
           ]
         : [
-            { ...item("sched-today", "排今天", "outline.schedule.today", null, () => keys.scheduleSelected(0), true), group: "排程" },
-            { ...item("sched-tomorrow", "排明天", "outline.schedule.tomorrow", null, () => keys.scheduleSelected(1)), group: "排程" },
+            { ...item("sched-today", "排今天", "outline.schedule.today", parkedWhy, () => keys.scheduleSelected(0), true), group: "排程" },
+            { ...item("sched-tomorrow", "排明天", "outline.schedule.tomorrow", parkedWhy, () => keys.scheduleSelected(1)), group: "排程" },
           ]),
       // 磨光⑤ B1（D-主-55）：跨路線搬遷。沒有快捷鍵（不給 hotkeyId）；挑選器開在側板（requestMoveTo＝選中＋開側板＋請它打開）
       // 種類搬不了（moveTargetRule 回 null）就不出——側板那顆鈕同一條規則，兩個入口不會一個有一個沒有
       ...(moveTargetRule(n.kind)
-        ? [arrange({ key: "move", label: "移動到…", cut: true, onSelect: () => requestMoveTo(id) })]
+        ? [
+            arrange({
+              key: "move",
+              label: "移動到…",
+              cut: true,
+              disabled: parked,
+              why: parkedWhy ?? undefined,
+              onSelect: () => requestMoveTo(id),
+            }),
+          ]
         : []),
-      arrange(item("indent", "降層", "outline.indent", indentWhy, keys.indentSelected, !moveTargetRule(n.kind))),
-      arrange(item("outdent", "升層", "outline.outdent", outdentWhy, keys.outdentSelected)),
-      arrange(item("up", "上移", "outline.reorder.up", g.upWhy, () => keys.reorderSelected(-1))),
-      arrange(item("down", "下移", "outline.reorder.down", g.downWhy, () => keys.reorderSelected(1))),
+      arrange(item("indent", "降層", "outline.indent", parkedWhy ?? indentWhy, keys.indentSelected, !moveTargetRule(n.kind))),
+      arrange(item("outdent", "升層", "outline.outdent", parkedWhy ?? outdentWhy, keys.outdentSelected)),
+      arrange(item("up", "上移", "outline.reorder.up", parkedWhy ?? g.upWhy, () => keys.reorderSelected(-1))),
+      arrange(item("down", "下移", "outline.reorder.down", parkedWhy ?? g.downWhy, () => keys.reorderSelected(1))),
       // ⑬ 外部入口：這張票的連結。頂層已經 ≤7 滿了，放進「編排 ▾」；支線是主題，不算票（同上面不出排程）
       ...(n.kind === "branch" ? [] : [arrange({ key: "copy-link", label: "複製連結", onSelect: () => void copyTicketLink(id) })]),
       item("delete", "刪除", "outline.delete", null, keys.deleteSelected, true, true),

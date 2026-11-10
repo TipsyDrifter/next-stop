@@ -69,12 +69,18 @@ export function badgeClass(kind: NodeKind): string {
  * ⚠ 判定只認 parseRule 的結果（M3 ④ 全站口徑）：欄位裡塞著 legacy 自由文字（種子的「量體重記錄」）
  *   的票**是乘車券**——那是刻意留下的容錯樣本，不能因為欄位非空就發成定期券。
  */
-export function fareClass(node: Pick<NodeRow, "kind" | "repeat_rule"> & { parent_id?: string | null }): {
+export function fareClass(
+  node: Pick<NodeRow, "kind" | "repeat_rule"> & { parent_id?: string | null },
+  parentKind?: NodeKind,
+): {
   label: string;
   teiki: boolean;
 } {
   if (parseRule(node.repeat_rule)) return { label: "定期券", teiki: true };
   if (node.kind === "branch") return { label: "支線", teiki: false };
+  if (node.kind === "ticket" && (parentKind === "route" || parentKind === "branch")) {
+    return { label: "自由席", teiki: false };
+  }
   // 臨時車票（不掛在任何一棵樹上）＝臨時券，與今日列的 fareOf 同一口徑（整合席：WP3 回報 5）。
   // 樹內節點的 parent_id 是路線或上層節點，永遠非 null；沒傳 parent_id 的呼叫端行為不變。
   if (node.parent_id === null) return { label: "臨時券", teiki: false };
@@ -282,6 +288,8 @@ function Stub({
 
 export interface OutlineRowProps {
   node: NodeRow;
+  parentKind?: NodeKind;
+  branchStats?: { done: number; total: number } | null;
   depth: number;
   hasChildren: boolean;
   collapsed: boolean;
@@ -359,6 +367,8 @@ function RowMore({ name, menu, onReturnFocus }: { name: string; menu: () => PopM
 
 export function OutlineRow({
   node,
+  parentKind,
+  branchStats,
   depth,
   hasChildren,
   collapsed,
@@ -418,7 +428,7 @@ export function OutlineRow({
    * 否則「執行 9/12」與旁邊的済章並排會讀成「9/12 已済」。誤點＝「原定」（講這一班）、未交代＝「執行」。
    */
   const railPrefix = schedLate ? "原定" : occurrence ? "下一班" : "執行";
-  const fare = fareClass(node);
+  const fare = fareClass(node, parentKind);
   const status = STATUS_LABEL[node.status];
   /**
    * 丁 D-主-248：有子項的列車／車廂，検印欄位置畫進度圈（直屬子項 d/t，同車廂格算法）；有圈時 meta 的車廂格拿掉。
@@ -639,6 +649,32 @@ export function OutlineRow({
             )}
             {hasChildren && collapsed && <span className="ch-fold">・已收合</span>}
           </span>
+          {branchStats && branchStats.total > 0 && (
+            <span className="ns-chapter-progress" title={`支線進度：${branchStats.done}／${branchStats.total} 済`}>
+              <span className="ns-chapter-progress-num">
+                {branchStats.done}/{branchStats.total} 済 · {Math.round((branchStats.done / branchStats.total) * 100)}%
+              </span>
+              <span className="ns-chapter-progress-track" aria-hidden>
+                <span
+                  className="ns-chapter-progress-fill"
+                  style={{ width: `${Math.round((branchStats.done / branchStats.total) * 100)}%` }}
+                />
+              </span>
+            </span>
+          )}
+          <button
+            type="button"
+            tabIndex={-1}
+            className="ns-chapter-zoom"
+            aria-label={`進入支線「${node.name}」`}
+            title="進入支線專頁"
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.zoomInto(node.id);
+            }}
+          >
+            進入支線 →
+          </button>
           {/* 既有已済的支線（舊版能蓋）照樣標出來，只是不再給按 */}
           {node.status === "done" && <span className="ch-done">済</span>}
           {menu && <RowMore name={node.name} menu={menu} onReturnFocus={actions.focusContainer} />}

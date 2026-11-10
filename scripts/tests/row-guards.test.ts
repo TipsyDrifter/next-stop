@@ -25,7 +25,8 @@ const deps: RowGuardDeps = {
     return { siblings, index: siblings.indexOf(id) };
   },
   adaptKind(kind, newParentKind) {
-    const allowed = allowedChildKinds(newParentKind);
+    const effectiveParent = newParentKind === "ticket" ? "car" : newParentKind;
+    const allowed = allowedChildKinds(effectiveParent);
     if (allowed.includes(kind)) return kind;
     if (kind === "car" && allowed.includes("train")) return "train";
     if (kind === "train" && allowed.includes("car")) return "car";
@@ -67,8 +68,8 @@ describe("降層", () => {
   test("兄弟中第一個：上面沒有可以掛靠的節點", () => {
     assert.equal(g("a")?.indentWhy, "上面沒有可以掛靠的節點");
   });
-  test("上一個是車票：車票／車站底下不能掛東西", () => {
-    assert.equal(g("b")?.indentWhy, "車票／車站底下不能掛東西");
+  test("討論 5：上一個是車票可以降層（自動升格上一個車票為列車／車廂）", () => {
+    assert.equal(g("b")?.indentWhy, null);
   });
   test("車票掛到車廂底下可以（c 的上一個是 C1）", () => {
     assert.equal(g("c")?.indentWhy, null);
@@ -90,9 +91,9 @@ describe("升層", () => {
     assert.equal(g("a", "C1")?.outdentWhy, MOBILE_GUARD_WORDS.zoomTop);
     assert.equal(g("a", "C1", DESKTOP_GUARD_WORDS)?.outdentWhy, "已到聚焦範圍的頂層——先按 Esc 退出聚焦再升層");
   });
-  test("車票從車廂升到列車底下可以；車票升到路線直屬不行", () => {
+  test("討論 5：車票從車廂升到列車底下可以；車票升到路線直屬也可以（自由席）", () => {
     assert.equal(g("a")?.outdentWhy, null);
-    assert.equal(g("c")?.outdentWhy, "這種節點不能升到那一層");
+    assert.equal(g("c")?.outdentWhy, null);
   });
   test("車廂升到路線直屬：會換成列車（adaptKind）＝可以", () => {
     assert.equal(g("C1")?.outdentWhy, null);

@@ -879,6 +879,18 @@ describe("E2. repository 層（memory／sqlite）", () => {
       const tops = (await repo.listCategories()).filter((c: CategoryRow) => c.kind === "expense" && c.parent_id === null);
       assert.deepEqual(tops.map((c: CategoryRow) => c.id), [traffic.id, food.id, UNCAT_EXPENSE_ID]);
 
+      // v1.28：軟刪除與復原分類＆帳戶（未分類不可刪）
+      await rejectsMsg(repo.deleteCategory(UNCAT_EXPENSE_ID), "「未分類」不能刪除");
+      await repo.deleteCategory(dinner.id);
+      assert.equal((await repo.listCategories()).find((c: CategoryRow) => c.id === dinner.id), undefined);
+      await repo.restoreCategory(dinner.id);
+      assert.notEqual((await repo.listCategories()).find((c: CategoryRow) => c.id === dinner.id), undefined);
+
+      await repo.deleteAccount(usdAcc.id);
+      assert.equal((await repo.listAccounts()).find((a: AccountRow) => a.id === usdAcc.id), undefined);
+      await repo.restoreAccount(usdAcc.id);
+      assert.notEqual((await repo.listAccounts()).find((a: AccountRow) => a.id === usdAcc.id), undefined);
+
     });
 
     test(`17f. 「上一筆帳戶」「最近分類」在 created_at 全同（匯入）時有決定性次序（${impl.name}）`, async () => {

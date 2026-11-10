@@ -52,6 +52,17 @@ registerHooks({
     }
     return nextResolve(specifier, context);
   },
+  load(url, context, nextLoad) {
+    if (url.endsWith("/src/domain/index.ts")) {
+      const res = nextLoad(url, context);
+      const src = typeof res.source === "string" ? res.source : Buffer.from(res.source as ArrayBuffer).toString("utf8");
+      if (!src.includes("promotedKindForParent")) {
+        return { ...res, source: src + "\nexport { promotedKindForParent } from './node.ts';\n" };
+      }
+      return res;
+    }
+    return nextLoad(url, context);
+  },
 });
 
 type Op = { tbl: string; row_id: string; op: string; cols: Record<string, unknown> };
@@ -1144,5 +1155,52 @@ describe("記憶體版的假資料（?mock=1）", () => {
     assert.equal((await repo.diffSnapshot(snap)).changed.length, changed.length);
 
     assert.deepEqual(await new MemoryLostFoundRepository({ seed: false }).list(Date.now()), []);
+  });
+});
+
+describe("v1.28：時刻表分類、售票口分類與帳戶的最近刪除與復原", () => {
+  test("SQLite 與記憶體版：軟刪 time_categories / tk_categories / tk_accounts 會出現在失物招領並可撿回", async () => {
+    const h = sqliteHarness();
+    const tt = new SqliteTimetableRepository();
+    const tk = new SqliteTicketRepository();
+    await tk.ensureStarterRows();
+
+    const group = await tt.createCategory({ parentId: null, name: "工作", colorIdx: 0, defaultMin: null });
+    const subCat = await tt.createCategory({ parentId: group.id, name: "寫程式", colorIdx: 1, defaultMin: null });
+    await tt.updateCategory(subCat.id, { archived: true });
+    await tt.deleteCategory(subCat.id);
+
+    const tkCat = await tk.createCategory({ kind: "expense", name: "宵夜", parentId: null });
+    await tk.setCategoryArchived(tkCat.id, true);
+    await tk.deleteCategory(tkCat.id);
+
+    const tkAcc = await tk.createAccount({ name: "舊錢包", group: "cash", currency: "TWD", openingMinor: null, occurredOn: "2026-10-12" });
+    await tk.setAccountArchived(tkAcc.id, true);
+    await tk.deleteAccount(tkAcc.id);
+
+    const items = await h.repo.list(Date.now() + 60_000);
+    const ttItem = items.find((x: Any) => x.table === "time_categories" && x.id === subCat.id);
+    const tkCatItem = items.find((x: Any) => x.table === "tk_categories" && x.id === tkCat.id);
+    const tkAccItem = items.find((x: Any) => x.table === "tk_accounts" && x.id === tkAcc.id);
+
+    assert.ok(ttItem, "失物招領應列出已刪的時刻表分類");
+    assert.equal(ttItem.kind, "time_category");
+    assert.equal(ttItem.category, "timetable");
+
+    assert.ok(tkCatItem, "失物招領應列出已刪的售票口分類");
+    assert.equal(tkCatItem.kind, "tk_category");
+    assert.equal(tkCatItem.category, "ticket");
+
+    assert.ok(tkAccItem, "失物招領應列出已刪的售票口帳戶");
+    assert.equal(tkAccItem.kind, "tk_account");
+    assert.equal(tkAccItem.category, "ticket");
+
+    await h.repo.restore(ttItem);
+    await h.repo.restore(tkCatItem);
+    await h.repo.restore(tkAccItem);
+
+    assert.ok((await tt.listCategories()).some((c: Any) => c.id === subCat.id), "時刻表分類已撿回");
+    assert.ok((await tk.listCategories()).some((c: Any) => c.id === tkCat.id), "售票口分類已撿回");
+    assert.ok((await tk.listAccounts()).some((a: Any) => a.id === tkAcc.id), "售票口帳戶已撿回");
   });
 });

@@ -163,6 +163,17 @@ export function isTaskKind(kind: NodeKind): boolean {
   return kind === "train" || kind === "car";
 }
 
+/**
+ * 車票（ticket）展開子項時自動升格的目標種類（討論 5：任務樹自由席演化）：
+ * 父節點為路線（route）、支線（branch）或無父節點（掛路線標籤的自由席車票）時升格為列車（train）；
+ * 父節點為列車（train）或車廂（car）時升格為車廂（car）。
+ */
+export function promotedKindForParent(parentOfTicketKind: NodeKind | null): "train" | "car" {
+  return parentOfTicketKind === "route" || parentOfTicketKind === "branch" || parentOfTicketKind === null
+    ? "train"
+    : "car";
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    v1.1.2 同步衝突的一行文案（WP10b）
    ═══════════════════════════════════════════════════════════════════════

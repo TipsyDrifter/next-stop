@@ -166,9 +166,10 @@ export function serialOf(serials: Record<string, string>, id: string): string {
   return serials[id] ?? "";
 }
 
-/** 升降層時「類型跟位置走」：掛不上就試 列車⇄車廂 互換，再不行回 null（擋下） */
+/** 升降層時「類型跟位置走」：掛不上就試 列車⇄車廂 互換；掛到車票底下視同車廂（自動升格），再不行回 null（擋下） */
 export function adaptKind(kind: NodeKind, newParentKind: NodeKind): NodeKind | null {
-  const allowed = allowedChildKinds(newParentKind);
+  const effectiveParent = newParentKind === "ticket" ? "car" : newParentKind;
+  const allowed = allowedChildKinds(effectiveParent);
   if (allowed.includes(kind)) return kind;
   if (kind === "car" && allowed.includes("train")) return "train";
   if (kind === "train" && allowed.includes("car")) return "car";
@@ -709,7 +710,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const { siblings, index } = siblingsOf(tree, routeId, id);
     if (index <= 0) return { ok: false, reason: "上面沒有可以放進去的項目" };
     const prev = tree.byId[siblings[index - 1]];
-    if (!canHaveChildren(prev.kind)) return { ok: false, reason: "車票／車站底下不能再放項目" };
+    if (!canHaveChildren(prev.kind) && prev.kind !== "ticket") return { ok: false, reason: "車票／車站底下不能再放項目" };
     const newKind = adaptKind(node.kind, prev.kind);
     if (!newKind) return { ok: false, reason: "這個項目不能放在那裡" };
     // 上一個兄弟的最後一格
@@ -728,7 +729,11 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
     const parent = tree.byId[node.parent_id];
     const gpId = parent.parent_id;
     const gpKind: NodeKind = gpId && gpId !== routeId && tree.byId[gpId] ? tree.byId[gpId].kind : "route";
-    const newKind = adaptKind(node.kind, gpKind);
+    const hasKids = (tree.childrenOf[id]?.length ?? 0) > 0;
+    const newKind =
+      (node.kind === "ticket" || (node.kind === "car" && !hasKids)) && (gpKind === "route" || gpKind === "branch")
+        ? "ticket"
+        : adaptKind(node.kind, gpKind);
     if (!newKind) return { ok: false, reason: "這個項目不能移到那一層" };
     // 祖父層、父節點的下一格（祖父層的顯示清單：路線最上層＝roots，否則祖父的子節點）
     const gpList = gpId && gpId !== routeId && tree.byId[gpId] ? (tree.childrenOf[gpId] ?? []) : tree.roots;

@@ -77,6 +77,8 @@ import {
   tagSummary,
   type RepeatPick,
 } from "./MobileEntryParts";
+import { commitCalcInput, hasCalcOperator } from "../../../domain/ticketCalc";
+import { CalcIcon, CalcPreviewBadge, MobileCalcPad } from "../CalcPopover";
 
 type Mode = "new" | "edit";
 
@@ -383,6 +385,8 @@ function FormShell({
   // 售票口④：定期列的星期幾／幾號／結束日面板（同樣疊在表單上＝"dialog"）
   const [repPick, setRepPick] = useState<RepeatPick | null>(null);
   useBackLayer("ticket.form.rep", repPick !== null, () => setRepPick(null), "dialog");
+  const [calcOpen, setCalcOpen] = useState(false);
+  useBackLayer("ticket.form.calc", calcOpen, () => setCalcOpen(false), "dialog");
   const openDialog = useTicketStore((s) => s.openDialog);
   const createCategory = useTicketStore((s) => s.createCategory);
   // 備註搬到折疊外之後（D-票-67），舊票有掛路線或荷札才預設攤開
@@ -611,7 +615,7 @@ function FormShell({
           <input
             ref={amtRef}
             className="ns-tk-mamtin"
-            inputMode="decimal"
+            inputMode={calcOpen ? "none" : "text"}
             autoComplete="off"
             enterKeyHint="done"
             autoFocus={isNew}
@@ -619,8 +623,34 @@ function FormShell({
             placeholder="0"
             aria-label="金額"
             onChange={(e) => onPatch({ amountText: e.target.value })}
+            onBlur={() => {
+              if (!calcOpen && hasCalcOperator(d.amountText)) {
+                const next = commitCalcInput(d.amountText, {
+                  allowNegative: adjust || kind === "expense",
+                  decimals: cur?.decimals ?? 2,
+                });
+                if (next !== d.amountText) onPatch({ amountText: next });
+              }
+            }}
             {...amtIme}
           />
+          <button
+            type="button"
+            className={`ns-tk-mcalcbtn${calcOpen ? " is-on" : ""}`}
+            aria-label="小算盤鍵盤"
+            aria-expanded={calcOpen}
+            title="切換小算盤鍵盤"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setCalcOpen((o) => {
+                const next = !o;
+                if (next) amtRef?.current?.blur();
+                return next;
+              });
+            }}
+          >
+            <CalcIcon size={16} />
+          </button>
           <button
             type="button"
             className="ns-tk-mcurchip"
@@ -632,6 +662,26 @@ function FormShell({
             {curCode}
           </button>
         </div>
+        {hasCalcOperator(d.amountText) && !calcOpen && (
+          <div className="ns-tk-mf-calcrow">
+            <CalcPreviewBadge
+              value={d.amountText}
+              decimals={cur?.decimals ?? 2}
+              allowNegative={adjust || kind === "expense"}
+              currencyPrefix={curCode === MAIN_CURRENCY ? MAIN_SYMBOL : curCode}
+              onCommit={(v) => onPatch({ amountText: v })}
+            />
+          </div>
+        )}
+        {calcOpen && (
+          <MobileCalcPad
+            value={d.amountText}
+            decimals={cur?.decimals ?? 2}
+            allowNegative={adjust || kind === "expense"}
+            onChange={(next) => onPatch({ amountText: next })}
+            onDone={() => setCalcOpen(false)}
+          />
+        )}
         {cur && main && cur.code !== main.code ? (
           <div className="ns-tk-mf-conv">
             {editConv ? (

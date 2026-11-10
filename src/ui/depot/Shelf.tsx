@@ -8,6 +8,8 @@
 import { useLayoutEffect, useRef } from "react";
 import { fmtMD, fmtZhMD, type ShelfItem } from "../../domain/depot";
 import type { NodeRow } from "../../domain/node";
+import { requestDepart } from "../panel/arrivalFlows";
+import { requestDeleteLine } from "../panel/routeFlows";
 import { MiniSumi, RouteBadge, rcStyle } from "./depotParts";
 import "./depot.css";
 
@@ -62,15 +64,35 @@ export function Shelf({ items, routeSeals, openedOn, onOpen }: ShelfProps) {
               spine(it.route)
             ) : (
               <div key={it.line.id} className="ns-depot-tgroup" role="group" aria-label={`幹線${it.line.name}`}>
-                <p className="ns-depot-tplate" title={`幹線「${it.line.name}」・${fmtZhMD(it.line.arrived_on)} 到站`}>
+                <div className="ns-depot-tplate" title={`幹線「${it.line.name}」・${fmtZhMD(it.line.arrived_on)} 到站`}>
                   <span>
                     <span className="k">幹線</span> {it.line.name}
                   </span>
                   <time dateTime={it.line.arrived_on ?? undefined}>{fmtMD(it.line.arrived_on)} 到站</time>
-                </p>
+                  <span className="ns-depot-tplate-acts">
+                    <button
+                      type="button"
+                      className="ns-depot-tact"
+                      onClick={() => void requestDepart(it.line.id)}
+                    >
+                      回到運行
+                    </button>
+                    <button
+                      type="button"
+                      className="ns-depot-tact is-danger"
+                      onClick={() => void requestDeleteLine(it.line)}
+                    >
+                      刪除幹線
+                    </button>
+                  </span>
+                </div>
                 <div className="ns-depot-tbooks">
                   <span className="ns-depot-bookend" aria-hidden="true" />
-                  {it.routes.map(spine)}
+                  {it.routes.length > 0 ? (
+                    it.routes.map(spine)
+                  ) : (
+                    <span className="ns-depot-tempty">無路線</span>
+                  )}
                   <span className="ns-depot-bookend is-r" aria-hidden="true" />
                 </div>
               </div>

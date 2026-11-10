@@ -163,7 +163,7 @@ export function MobileQuickAdd({ defaults, here, routeKind, placeholder, onCreat
         <MobileAttachPicker
           title="掛到"
           depth="node"
-          value={api.values.dest}
+          value={{ routeId: api.values.dest.routeId, nodeId: api.values.dest.nodeId, nodeKind: api.values.dest.nodeKind === "ticket" ? "car" : api.values.dest.nodeKind }}
           onPick={(t) => {
             api.setDest(t);
             picked();

@@ -116,3 +116,69 @@
 .ns-tk-fpop .opt.is-tag .tg .pa { color: var(--color-ink-faint); }
 .ns-tk-fpop .opt.is-tag .tg .sl { font-style: normal; margin: 0 .28em; color: var(--color-ink-faint); opacity: .7; }
 .ns-tk-fpop .opt.is-tag .r { font-family: var(--font-body); font-size: var(--fs-xs); }
+
+/* ═══ 八、v1.28 算式輸入與小算盤（功能 3） ═══ */
+.ns-tk-bt-amt { position: relative; }
+.ns-tk-calcbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; flex: none;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink-soft); cursor: pointer;
+  transition: color 120ms, border-color 120ms, background-color 120ms;
+}
+.ns-tk-calcbtn:hover, .ns-tk-calcbtn.is-on {
+  color: var(--accent); border-color: var(--accent); background: var(--sel-bg);
+}
+.ns-tk-bt-calcrow {
+  margin: -4px 0 6px; display: flex; align-items: center;
+}
+.ns-tk-calc-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  border: 1px dashed var(--accent);
+  background: var(--sel-bg); color: var(--accent);
+  font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: .03em; white-space: nowrap;
+}
+.ns-tk-calc-badge.is-clickable { cursor: pointer; }
+.ns-tk-calc-badge.is-clickable:hover { border-style: solid; }
+.ns-tk-calc-badge.is-err {
+  border-color: var(--color-danger, #b84a39); color: var(--color-danger, #b84a39);
+  background: transparent; font-family: var(--font-body); font-weight: 400;
+}
+.ns-tk-calc-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+  width: 224px; padding: 10px; box-sizing: border-box;
+  background: var(--color-paper); border: 1px solid var(--color-line-strong, var(--color-line));
+  border-radius: var(--radius-card, 6px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ns-tk-calc-top, .ns-tk-calc-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
+}
+.ns-tk-calc-key {
+  min-height: 32px; padding: 4px 0;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: var(--color-paper); color: var(--color-ink);
+  font-family: var(--font-display); font-size: var(--fs-sm); font-weight: 600;
+  cursor: pointer; user-select: none;
+  transition: background-color 100ms, border-color 100ms;
+}
+.ns-tk-calc-key:hover { background: var(--color-paper-warm, var(--sel-bg)); border-color: var(--color-ink-faint); }
+.ns-tk-calc-key:active { transform: translateY(1px); }
+.ns-tk-calc-key.is-fn { font-size: var(--fs-xs); color: var(--color-ink-soft); background: var(--color-paper-dim, transparent); }
+.ns-tk-calc-key.is-op { color: var(--accent); font-weight: 700; }
+.ns-tk-calc-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 2px; padding-top: 6px; border-top: 1px dashed var(--color-line);
+}
+.ns-tk-calc-preview {
+  font-family: var(--font-display); font-size: var(--fs-xs); color: var(--color-ink-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
+}
+.ns-tk-calc-key.is-eq {
+  padding: 4px 12px; background: var(--color-ink); color: var(--color-paper); border-color: var(--color-ink);
+  font-family: var(--font-body); font-size: var(--fs-xs);
+}
+.ns-tk-calc-key.is-eq:hover { opacity: 0.9; }

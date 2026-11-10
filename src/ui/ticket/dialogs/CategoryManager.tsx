@@ -75,6 +75,7 @@ export function CategoryManager(_props: { onDone(): void }) {
   const moveCategoryTo = useTicketStore((s) => s.moveCategoryTo);
   const moveCategoryUnder = useTicketStore((s) => s.moveCategoryUnder);
   const setCategoryArchived = useTicketStore((s) => s.setCategoryArchived);
+  const deleteCategory = useTicketStore((s) => s.deleteCategory);
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -298,6 +299,9 @@ export function CategoryManager(_props: { onDone(): void }) {
                   </span>
                   <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-tk-dmini" onClick={() => void setCategoryArchived(c.id, false)}>
                     取消封存
+                  </button>
+                  <button type="button" className="ns-btn ns-btn--sm btn-ghost ns-btn-danger ns-tk-dmini" onClick={() => void deleteCategory(c.id)}>
+                    刪除
                   </button>
                 </li>
               ))}
