@@ -73,6 +73,7 @@ import { rowContextMenu } from "../common/contextMenu";
 import { useDragReorder, type DropPlace } from "../common/dragReorder";
 import { APPEND, moveWithUndo } from "../../store/batchActions";
 import { NavCount, todayCountHint, useTodayCount } from "../common/NavCount";
+import { CoverTopBar } from "../shell/TitleBar";
 // gnav 樣式（styles/gnav.css）由 src/index.css 集中 import——見該檔檔頭的注入順序說明
 
 /**
@@ -246,6 +247,7 @@ export function Sidebar() {
   const openRouteDialog = useUiStore((s) => s.openRouteDialog);
   const toggleHotkeyGuide = useUiStore((s) => s.toggleHotkeyGuide);
   const setPanelOpen = useUiStore((s) => s.setPanelOpen);
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   // 回饋甲 D-主-130：數字小標（今日格的未交代張數、路線列尾的未完成數）
   const todayCount = useTodayCount();
   const todayHint = todayCountHint(todayCount);
@@ -367,7 +369,8 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="cover" aria-label="路線清單側欄">
+    <aside className={`cover${sidebarCollapsed ? " is-collapsed" : ""}`} aria-label="路線清單側欄" aria-hidden={sidebarCollapsed || undefined}>
+      <CoverTopBar />
       <div className="brand">
         <h1>私鐵手帳</h1>
         <span className="latin">Next Stop</span>

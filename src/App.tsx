@@ -66,6 +66,7 @@ import { useGlobalHotkeys } from "./ui/shell/useGlobalHotkeys";
 import { SkyLayer } from "./ui/ambience";
 import { ensureStampDefs } from "./ui/stamps";
 import { Sidebar } from "./ui/sidebar/Sidebar";
+import { TitleBar } from "./ui/shell/TitleBar";
 import { RouteDialog } from "./ui/sidebar/RouteDialog";
 import { Outline } from "./ui/outline/Outline";
 import { PAGE_VIEWS } from "./ui/shell/pageViews";
@@ -102,6 +103,7 @@ export default function App() {
   const error = useNodeStore((s) => s.error);
   const loadSettings = useUiStore((s) => s.loadSettings);
   const page = useUiStore((s) => s.page);
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const today = page === "today";
   const View = PAGE_VIEWS[page] ?? Outline;
   // v1.1.0 手機殼：判準是「視窗寬度 <768」不是平台（useShell.ts 檔頭有理由）。
@@ -161,7 +163,11 @@ export default function App() {
   return (
     // data-shell 是手機樣式層的唯一鉤子（mobile.css 每條規則都掛它或 max-width:767px）；
     // 桌機得到 data-shell="desktop"，沒有任何 CSS 選它 → 桌機視覺零改變。
-    <div data-shell={shell} className="flex h-screen bg-paper text-ink overflow-hidden">
+    <div
+      data-shell={shell}
+      data-sidebar-collapsed={!mobile && sidebarCollapsed ? "1" : undefined}
+      className="flex h-screen bg-paper text-ink overflow-hidden"
+    >
       {/* 手機一律 reduced：省電，且銀河帶寬 1180px 的橫溢由根 div 的 overflow hidden 擋掉 */}
       <SkyLayer density={!mobile && today ? "full" : "reduced"} twinkle={!mobile} />
       {mobile ? (
@@ -169,16 +175,21 @@ export default function App() {
       ) : (
         <>
           <Sidebar />
-          <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-            {error && <div className="px-8 pt-3 text-sm text-late">⚠ {error}</div>}
-            <BackupBanner />
-            <SyncBanner shell="desktop" />
-            {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <View />}
-            {/* 完成卡留在桌機樹：它是 `absolute bottom-6`、定位脈絡就是這顆 <main>，
-                搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
-            <CompleteCard />
-          </main>
-          <DetailPanel />
+          <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+            <TitleBar />
+            <div className="relative flex min-h-0 flex-1 overflow-hidden">
+              <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+                {error && <div className="px-8 pt-3 text-sm text-late">⚠ {error}</div>}
+                <BackupBanner />
+                <SyncBanner shell="desktop" />
+                {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <View />}
+                {/* 完成卡留在桌機樹：它是 `absolute bottom-6`、定位脈絡就是這顆 <main>，
+                    搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
+                <CompleteCard />
+              </main>
+              <DetailPanel />
+            </div>
+          </div>
           <QuickJump />
           <ContextMenuHost />
           <SettingsPanel />

@@ -17,13 +17,22 @@
   --dr-accent: var(--color-gold); /* 回饋乙：拖曳落點色（線、外部落點框）——書封深底上靛色看不見，比照書封聚焦框用燙金 */
   width: 236px; flex: none; height: 100vh;
   display: flex; flex-direction: column;
-  padding: 30px 22px 24px;
+  padding: 8px 22px 24px;
   background-color: var(--color-book); /* 殼：書封本體 */
   background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, .016) 0 2px, transparent 2px 5px); /* 字面值：書封絨布紋（§1.1 噪點例外） */
   color: var(--color-book-ink);
   box-shadow: inset -10px 0 18px rgba(0, 0, 0, .22); /* 字面值：書封內緣陰影（§1.1 陰影例外） */
   font-size: var(--fs-body); line-height: 1.6; letter-spacing: .02em;
   user-select: none;
+  transition: width 0.22s var(--ease-soft), padding 0.22s var(--ease-soft), opacity 0.18s var(--ease-soft);
+}
+.cover.is-collapsed {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 .cover .brand h1 {
   font-family: var(--font-display); font-weight: 700;

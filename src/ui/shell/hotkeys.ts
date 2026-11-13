@@ -158,6 +158,14 @@ export const HOTKEYS: Hotkey[] = [
     ignoreMods: GLOBAL_LOOSE,
   },
   {
+    id: "global.sidebar.toggle",
+    scope: "global",
+    chords: [{ key: "\\", ctrl: true }],
+    label: "收合／展開左側書封",
+    wired: true,
+    ignoreMods: GLOBAL_LOOSE,
+  },
+  {
     id: "global.settings",
     scope: "global",
     chords: [{ key: ",", ctrl: true }],

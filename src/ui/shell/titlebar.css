@@ -1,0 +1,286 @@
+/* ─────────────────────────────────────────────────────
+ * titlebar.css — 桌機專屬品牌工具列（方案 A：無縫雙區沉浸式）
+ *
+ * 1. 左側書封頂端（.ns-cover-topbar）：嵌於 Sidebar.tsx 頂部 34px，與深靛書封絨布完全一體成形。
+ * 2. 右側天空工具列（.ns-titlebar）：嵌於主欄頂部 34px，透明融入星空漸層，承載行先表示器、快捷工具與視窗控制。
+ * ───────────────────────────────────────────────────── */
+
+/* ═══ 一、書封頂端控制列（.ns-cover-topbar） ═══ */
+.ns-cover-topbar {
+  height: 34px;
+  flex: none;
+  margin: 0 -10px 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  user-select: none;
+}
+
+/* ═══ 二、右側天空工具列（.ns-titlebar） ═══ */
+.ns-titlebar {
+  position: relative;
+  z-index: 4;
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 12px;
+  background: transparent;
+  user-select: none;
+}
+
+.ns-titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  flex: none;
+}
+
+.ns-titlebar-spacer {
+  flex: 1;
+  min-width: 24px;
+  height: 100%;
+}
+
+.ns-titlebar-right {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 100%;
+  flex: none;
+}
+
+/* ═══ 三、工具列圖示按鈕（.ns-tb-btn） ═══ */
+.ns-tb-btn {
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+
+.ns-tb-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+  color: var(--color-ink);
+}
+
+.ns-tb-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-tb-btn:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.ns-tb-btn.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* 書封上的按鈕（深底米字、聚焦燙金） */
+.ns-tb-btn--cover {
+  color: var(--book-muted);
+}
+
+.ns-tb-btn--cover:hover:not(:disabled) {
+  background: var(--color-book-hover);
+  color: var(--color-book-ink);
+}
+
+.ns-tb-btn--cover:focus-visible {
+  outline: 1px solid var(--color-gold); /* 書封燙金：書封深底上的聚焦框 */
+  outline-offset: 1px;
+}
+
+/* 分隔線與收合態迷你品牌名 */
+.ns-tb-sep {
+  width: 1px;
+  height: 13px;
+  background: var(--color-line);
+  margin: 0 5px;
+  flex: none;
+}
+
+.ns-tb-brand-mini {
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: var(--radius-ctl);
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ns-tb-brand-mini:hover {
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-ink) 7%, transparent);
+}
+
+.ns-tb-brand-mini:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ═══ 四、時刻表・運行中班次 迷你行先表示器（.ns-tb-timer） ═══ */
+.ns-tb-timer {
+  display: inline-flex;
+  align-items: center;
+  height: 23px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-edge);
+  background-color: var(--float-bg);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  font-size: var(--fs-xs);
+  color: var(--color-ink);
+  overflow: hidden;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.ns-tb-timer.is-running {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--color-line));
+}
+
+.ns-tb-timer:hover {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--color-line));
+}
+
+.ns-tb-timer-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0 8px 0 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ns-tb-timer-main:hover {
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+}
+
+.ns-tb-timer-main:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.ns-tb-timer-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.ns-tb-timer-dot.is-idle {
+  background-color: var(--color-ink-faint);
+  box-shadow: none;
+}
+
+.ns-tb-timer-clock {
+  font-family: var(--font-latin);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--color-ink);
+}
+
+.ns-tb-timer-label {
+  max-width: 148px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-soft);
+}
+
+.ns-tb-timer.is-running .ns-tb-timer-label {
+  color: var(--color-ink);
+}
+
+.ns-tb-timer-act {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-left: 1px solid var(--color-line);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ns-tb-timer-act.is-depart {
+  padding: 0 0 0 6px;
+  margin-left: 2px;
+  height: auto;
+}
+
+.ns-tb-timer-act.is-arrive:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.ns-tb-timer-act:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+/* ═══ 五、最右端視窗控制鍵（— □ ✕） ═══ */
+.ns-win-controls {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  margin-left: 4px;
+}
+
+.ns-win-btn {
+  width: 42px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink-soft);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s, color 0.12s;
+}
+
+.ns-win-btn:hover {
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+  color: var(--color-ink);
+}
+
+.ns-win-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.ns-win-btn.is-close:hover {
+  background: var(--color-seal);
+  color: var(--color-on-ink);
+}

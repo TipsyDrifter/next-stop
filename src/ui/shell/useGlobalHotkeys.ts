@@ -110,6 +110,10 @@ export function useGlobalHotkeys(enabled = true) {
           e.preventDefault();
           ui.setPanelOpen(!ui.panelOpen);
           break;
+        case "global.sidebar.toggle":
+          e.preventDefault();
+          ui.toggleSidebarCollapsed();
+          break;
         case "global.settings":
           e.preventDefault();
           ui.setSettingsOpen(!ui.settingsOpen);

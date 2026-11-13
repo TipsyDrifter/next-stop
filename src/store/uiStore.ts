@@ -175,6 +175,7 @@ export interface LastNavState {
   selectedNoteId?: string | null;
   depotTab?: "ride" | "map" | "year";
   waitroomFilter?: string;
+  sidebarCollapsed?: boolean;
 }
 
 export function readLastNav(): LastNavState {
@@ -226,6 +227,10 @@ interface UiStore {
   zoomId: string | null;
   collapsed: Record<string, boolean>;
   panelOpen: boolean;
+  /** 桌機左側書封是否收合（持久化至 ns.lastNav.v1；預設展開 false） */
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleSidebarCollapsed: () => void;
   /** 路線圖：已完成收起（持久化 settings key outline_hide_done；預設收起） */
   hideDone: boolean;
   /** 今日「今天的列車」：已完成收起（持久化 settings key today_hide_done；預設顯示＝済票留原位到日界線；回饋甲 D-主-131） */
@@ -349,6 +354,7 @@ export const useUiStore = create<UiStore>((set, get) => ({
   zoomId: null,
   collapsed: {},
   panelOpen: false,
+  sidebarCollapsed: Boolean(INITIAL_LAST_NAV.sidebarCollapsed),
   hideDone: true, // 大綱的已完成預設收起（回饋甲 D-主-131：開關在區段標「済 N・顯示」）
   todayHideDone: false,
   toast: null,
@@ -406,6 +412,15 @@ export const useUiStore = create<UiStore>((set, get) => ({
       return { collapsed: next };
     }),
   setPanelOpen: (open) => set({ panelOpen: open }),
+  setSidebarCollapsed: (collapsed) => {
+    set({ sidebarCollapsed: collapsed });
+    writeLastNav({ sidebarCollapsed: collapsed });
+  },
+  toggleSidebarCollapsed: () => {
+    const next = !get().sidebarCollapsed;
+    set({ sidebarCollapsed: next });
+    writeLastNav({ sidebarCollapsed: next });
+  },
   toggleHideDone: () => {
     const hideDone = !get().hideDone;
     set({ hideDone });

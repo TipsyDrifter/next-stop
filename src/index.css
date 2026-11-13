@@ -32,6 +32,7 @@
 @import "./styles/ambience.css";
 @import "./styles/stamps.css";
 @import "./styles/gnav.css";
+@import "./ui/shell/titlebar.css";
 @import "./ui/common/pageheader.css";
 @import "./ui/common/tabs.css";
 @import "./ui/common/datefield.css";
@@ -46,7 +47,7 @@
     color-scheme: light;
     font-family: var(--font-body);
     color: var(--color-ink);
-    background-color: var(--color-sky-top, var(--color-paper));
+    background-color: var(--color-paper);
 
     font-synthesis: none;
     text-rendering: optimizeLegibility;
@@ -55,7 +56,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  [data-shell="desktop"] { background-color: var(--color-sky-top, var(--color-paper)); }
   [data-theme="dark"] {
     color-scheme: dark;
   }

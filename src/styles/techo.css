@@ -117,10 +117,14 @@
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
 }
-.page::before { /* 書溝陰影（緊貼書封右緣；left 走靜態位置＝側欄寬度） */
-  content: ""; position: fixed; top: 0; bottom: 0; width: 16px;
+.page::before { /* 書溝陰影（緊貼書封右緣 236px；不可省 left，否則 .page 的 scrollbar-gutter: both-edges 會把靜態位置往右推開 10px 露出亮色縫隙） */
+  content: ""; position: fixed; left: 236px; top: 0; bottom: 0; width: 16px;
   background: linear-gradient(90deg, var(--skin-gutter-shadow, rgba(30, 30, 70, .30)), transparent); /* 字面值：陰影色（§1.1 例外）：書溝 */
   pointer-events: none; z-index: 2;
+  transition: opacity var(--dur) var(--ease-soft);
+}
+[data-sidebar-collapsed="1"] .page::before {
+  opacity: 0;
 }
 [data-theme="dark"] .page::before {
   width: 18px;
