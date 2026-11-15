@@ -194,7 +194,7 @@
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-badge); /* D-1.31-7：標籤徽＝書籤微圓角 */
   background: var(--sel-bg);
   color: var(--sel-fg);
   font-size: var(--fs-xs);
@@ -341,7 +341,7 @@
   height: var(--ctl-h-sm);
   padding: 0 12px;
   border: 1px dashed var(--color-dash);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-ctl); /* v1.31 Bug 6：chip＝控件方角 */
   background: transparent;
   color: var(--color-ink-soft);
   font-family: var(--font-body);
@@ -432,7 +432,7 @@
   top: var(--sp-2);
   left: var(--sp-2);
   padding: 2px 8px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-badge); /* D-1.31-7：相片浮標＝書籤微圓角 */
   background: var(--float-bg);
   border: 1px solid var(--accent);
   color: var(--accent);
@@ -530,7 +530,7 @@
 
 .ns-ideal-era-badge {
   padding: 1px 8px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-badge); /* D-1.31-7：年代籤＝書籤微圓角 */
   background: var(--sel-bg);
   color: var(--sel-fg);
   font-weight: 600;

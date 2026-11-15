@@ -13,6 +13,7 @@ import { MAIN_CURRENCY, bareName, moneyText, type EntryRow } from "../../domain/
 import { VIEW_TEXT, shortDay } from "../../domain/ticketView";
 import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { acctLabel } from "./TicketLedger";
 
 /** 一筆帳在 Ctrl+P 的字（只讀 store 的情境；金額照原幣） */
@@ -43,13 +44,14 @@ function hitOf(e: EntryRow): QuickJumpHit {
     label: entryJumpLabel(e),
     aside: shortDay(e.occurred_on),
     glyph: { text: "帳" },
-    go: async () => {
-      const ui = useUiStore.getState();
-      if (isMobileShell()) ui.setMobileTab("ticket");
-      else ui.setPage("ticket");
-      // 從沒開過售票口也行：jumpToEntry 先等 init，月份不會被 init 蓋回本月
-      await useTicketStore.getState().jumpToEntry(e.id);
-    },
+    go: () =>
+      runAtomicNav(async () => {
+        const ui = useUiStore.getState();
+        if (isMobileShell()) ui.setMobileTab("ticket");
+        else ui.setPage("ticket");
+        // 從沒開過售票口也行：jumpToEntry 先等 init，月份不會被 init 蓋回本月
+        await useTicketStore.getState().jumpToEntry(e.id);
+      }),
   };
 }
 

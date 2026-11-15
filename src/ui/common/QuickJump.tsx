@@ -20,6 +20,7 @@ import { ancestorsOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useDepotStore } from "../../store/depotStore";
 import { useBoardStore } from "../../store/boardStore";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { landOnBoard } from "../board/boardReveal";
 import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
@@ -152,70 +153,72 @@ export function quickJumpContext(node: NodeRow, routes: readonly NodeRow[], line
 
 /** 跳到一個節點（Ctrl+P 選中、別線清單點車票共用；車次①偏差記錄的邊界全在這一支） */
 export async function jumpToNode(node: NodeRow) {
-  const ui = useUiStore.getState();
-  const ns = useNodeStore.getState();
-  ui.setQuickJumpOpen(false);
+  return runAtomicNav(async () => {
+    const ui = useUiStore.getState();
+    const ns = useNodeStore.getState();
+    ui.setQuickJumpOpen(false);
 
-  // 車庫與回顧 D-主-223：收進車庫的路線＝開它的乘車記錄簿（底下的票照舊開路線圖，頂上有「已收進車庫」那一行）
-  if (node.kind === "route" && node.arrived_on) {
-    ui.setPage("depot");
-    useDepotStore.getState().openBook(node.id);
-    return;
-  }
-  // 掛在車庫路線上的臨時票不在今日／收件匣：家是那條路線的大綱（照下面「開所屬路線」那段走）
-  const depotRoute = node.route_id ? ns.routes.some((r) => r.id === node.route_id && r.arrived_on) : false;
-  if (node.kind === "route") {
-    await ns.openRoute(node.id);
-    ui.setPage("routemap"); // 樹裡的東西家在路線圖頁；從今日頁跳過來要跟著換頁（整合席）
-    ui.setZoom(null);
-    ui.select(null);
-    return;
-  }
-  // 臨時車票（parent_id 為 null）不在任何一棵路線樹裡 → 它的家是今日視圖（M3 ③ WP3）。
-  //   有執行日 → 切到今日頁並選中（排在未來的那幾張今天看不到，補一句 toast 說它排在哪天）
-  //   沒有執行日、沒掛路線標籤 → 家是旅客筆記的收件匣：切過去並選中（旅客筆記頁讀 selectedId 接手；車次①契約 0-2 甲）
-  //   沒有執行日、掛了路線標籤 → 不算收件匣（D-筆-17），家在該路線大綱頂層（D-筆-26）：落到下面「開所屬路線」那段
-  //   沒有執行日、沒路線、但已蓋済 → 收件匣濾掉 done，它的家是日後的 Logbook：不導向旅客筆記，走改前原路（調度 10-08 裁示）
-  if (
-    !depotRoute &&
-    node.kind === "ticket" &&
-    !node.parent_id &&
-    !(node.route_id && !node.scheduled_on) &&
-    !(node.status === "done" && !node.scheduled_on)
-  ) {
-    if (!node.scheduled_on) {
-      ui.setPage("notes");
-      ui.select(node.id);
+    // 車庫與回顧 D-主-223：收進車庫的路線＝開它的乘車記錄簿（底下的票照舊開路線圖，頂上有「已收進車庫」那一行）
+    if (node.kind === "route" && node.arrived_on) {
+      ui.setPage("depot");
+      useDepotStore.getState().openBook(node.id);
       return;
     }
-    ui.setPage("today");
-    ui.select(node.id);
-    if (node.scheduled_on > todayKey(ui.dayStartHour)) {
-      const [, m, d] = node.scheduled_on.split("-");
-      // 定期券的 scheduled_on ＝引擎排出來的**下一班**（這一班済／運休之後就推走了），講法要跟著換
-      const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
-      ui.showToast({ message: `「${node.name}」${when}，今天還不會出現在清單裡` });
+    // 掛在車庫路線上的臨時票不在今日／收件匣：家是那條路線的大綱（照下面「開所屬路線」那段走）
+    const depotRoute = node.route_id ? ns.routes.some((r) => r.id === node.route_id && r.arrived_on) : false;
+    if (node.kind === "route") {
+      await ns.openRoute(node.id);
+      ui.setPage("routemap"); // 樹裡的東西家在路線圖頁；從今日頁跳過來要跟著換頁（整合席）
+      ui.setZoom(null);
+      ui.select(null);
+      return;
     }
-    return;
-  }
-  if (!node.route_id) {
-    ui.showToast({ message: `「${node.name}」不屬於任何路線，無法跳轉` });
-    return;
-  }
-  await ns.openRoute(node.route_id);
-  // openRoute 之後才拿最新的樹
-  const { tree, routeId } = useNodeStore.getState();
-  ui.setPage("routemap"); // 同上：跳樹內節點必定回路線圖頁，否則選了卻看不到（整合席）
-  ui.setZoom(null);
-  if (node.kind === "station") {
-    ui.select(null);
-    return;
-  }
-  ui.expand(ancestorsOf(tree, routeId, node.id));
-  ui.select(node.id);
-  // 路線圖記著看板：是看得到的卡就捲過去，其他切回大綱（偏好還沒讀回來時先等，不然讀回來的值會蓋掉）
-  await useBoardStore.getState().ensureLoaded();
-  landOnBoard(node.id);
+    // 臨時車票（parent_id 為 null）不在任何一棵路線樹裡 → 它的家是今日視圖（M3 ③ WP3）。
+    //   有執行日 → 切到今日頁並選中（排在未來的那幾張今天看不到，補一句 toast 說它排在哪天）
+    //   沒有執行日、沒掛路線標籤 → 家是旅客筆記的收件匣：切過去並選中（旅客筆記頁讀 selectedId 接手；車次①契約 0-2 甲）
+    //   沒有執行日、掛了路線標籤 → 不算收件匣（D-筆-17），家在該路線大綱頂層（D-筆-26）：落到下面「開所屬路線」那段
+    //   沒有執行日、沒路線、但已蓋済 → 收件匣濾掉 done，它的家是日後的 Logbook：不導向旅客筆記，走改前原路（調度 10-08 裁示）
+    if (
+      !depotRoute &&
+      node.kind === "ticket" &&
+      !node.parent_id &&
+      !(node.route_id && !node.scheduled_on) &&
+      !(node.status === "done" && !node.scheduled_on)
+    ) {
+      if (!node.scheduled_on) {
+        ui.setPage("notes");
+        ui.select(node.id);
+        return;
+      }
+      ui.setPage("today");
+      ui.select(node.id);
+      if (node.scheduled_on > todayKey(ui.dayStartHour)) {
+        const [, m, d] = node.scheduled_on.split("-");
+        // 定期券的 scheduled_on ＝引擎排出來的**下一班**（這一班済／運休之後就推走了），講法要跟著換
+        const when = parseRule(node.repeat_rule) ? `的下一班是 ${Number(m)}/${Number(d)}` : `排在 ${Number(m)}/${Number(d)}`;
+        ui.showToast({ message: `「${node.name}」${when}，今天還不會出現在清單裡` });
+      }
+      return;
+    }
+    if (!node.route_id) {
+      ui.showToast({ message: `「${node.name}」不屬於任何路線，無法跳轉` });
+      return;
+    }
+    await ns.openRoute(node.route_id);
+    // openRoute 之後才拿最新的樹
+    const { tree, routeId } = useNodeStore.getState();
+    ui.setPage("routemap"); // 同上：跳樹內節點必定回路線圖頁，否則選了卻看不到（整合席）
+    ui.setZoom(null);
+    if (node.kind === "station") {
+      ui.select(null);
+      return;
+    }
+    ui.expand(ancestorsOf(tree, routeId, node.id));
+    ui.select(node.id);
+    // 路線圖記著看板：是看得到的卡就捲過去，其他切回大綱（偏好還沒讀回來時先等，不然讀回來的值會蓋掉）
+    await useBoardStore.getState().ensureLoaded();
+    landOnBoard(node.id);
+  });
 }
 
 /** 結果列左側徽章：路線＝roundel（路線色圓底＋代碼／圓點）；其餘＝類型徽章（臨時車票虛線「臨」）。手機搜尋共用 */
@@ -299,8 +302,10 @@ function QuickJumpPanel() {
       void jumpToNode(r.node);
       return;
     }
-    close(false);
-    void r.hit.go();
+    void runAtomicNav(async () => {
+      close(false);
+      await r.hit.go();
+    });
   };
 
   const contextOf = (node: NodeRow): string => quickJumpContext(node, routes, lines);

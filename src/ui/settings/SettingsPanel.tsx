@@ -16,6 +16,7 @@
  *   - 籤的唯一來源仍是 `uiStore.settingsTab`／`setSettingsTab`（HotkeyGuide、useGlobalHotkeys、同步橫幅會從外面指定籤）。
  * 主題商店（第三梯 ⑩，D-主-435）：主題三選旁的「商店」在本籤內換頁到 `ThemeShop`（四套主題＋手寫字型）；穿著商店主題時三選都不亮、商店鈕亮。
  * 取捨：即選即存（無儲存鈕，store 自己落 settings 表）；日界線的說明放在選單下方一句話；主題的副註只放 title。
+ * v1.31 畫面 1：〈一般〉分三組（外觀／日子怎麼算／開機與其他）；氛圍收成「今日天象與動態氛圍」一張區塊（ambience/MoodSettings，兩殼共用）。
  */
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useUiStore, type SettingsTab, type ThemePref } from "../../store/uiStore";
@@ -159,62 +160,76 @@ function GeneralTab() {
 
   if (shop) return <ThemeShop backLabel="一般" backClassName="ns-shop-back" onBack={() => setShop(false)} />;
 
+  // v1.31 畫面 1：〈一般〉從一長串平鋪的欄位，收成三組（同類放一起、每組一條組名細線，同手機「更多」的 .m2-sec-title 讀法）：
+  //   外觀＝主題＋「今日天象與動態氛圍」（天空長什麼樣、會不會動，都是「看起來」的事）；
+  //   日子怎麼算＝一天的開始時間＋週首（兩個都在改日界與月曆怎麼排）；
+  //   開機與其他＝開機自動啟動＋各線設定的指路（兩者都可能不畫；整組沒內容時 CSS 自己收掉，不留孤零零的組名）。
   return (
-    <div className="space-y-6">
-      <div>
-        <span className="techo-label block mb-2.5">主題</span>
-        <div className="flex items-center gap-2">
-          <Segmented options={THEMES} value={skin ? null : theme} onChange={(v) => void setTheme(v)} aria-label="主題" />
-          <button type="button" className={"btn-ghost ns-btn ns-shop-open" + (skin ? " is-on" : "")} onClick={() => setShop(true)}>
-            {skin ? `商店・${skin.name}` : "商店"}
-          </button>
-        </div>
-      </div>
-
-      <MoodSettings labelClass="techo-label block mb-2.5" />
-
-      <div>
-        <span className="techo-label block mb-2.5">一天的開始時間</span>
-        {/* 庚：原生選單換分段鈕，值只有七個，兩端同一種長相 */}
-        <Segmented
-          options={DAY_START_OPTS}
-          value={String(dayStartHour)}
-          onChange={(v) => void setDayStartHour(Number(v))}
-          aria-label="一天的開始時間"
-        />
-        <p className="ns-note mt-2">熬夜到這個時間前都算前一天——今日視圖與誤點都依此計算。</p>
-      </div>
-
-      <div>
-        <span className="techo-label block mb-2.5">每週從星期幾開始</span>
-        <Segmented
-          options={WEEK_STARTS}
-          value={weekStart === 0 ? "0" : "1"}
-          onChange={(v) => void setWeekStart(v === "0" ? 0 : 1)}
-          aria-label="每週從星期幾開始"
-        />
-        <p className="ns-note mt-2">行程表與旅客筆記的月曆都照這個排。</p>
-      </div>
-      <AutostartRow />
-      {/* 磨光③ 0-2：各線的設定住在自己頁面時在這裡指路；沒有任何線填＝什麼都不畫 */}
-      {links.length > 0 &&
-        links.map((l) => (
-          <div key={l.id}>
-            <span className="techo-label block mb-2.5">{l.label}</span>
-            {/* 這是「去別處」的動作鈕，不是單選：用次鈕，不借選項的 .ns-choice（視覺規範 §2.3） */}
-            <button
-              type="button"
-              className="btn-ghost ns-btn"
-              onClick={() => {
-                setSettingsOpen(false);
-                l.open("desktop");
-              }}
-            >
-              打開
+    <div className="ns-set-general">
+      <section className="ns-set-grp" aria-label="外觀">
+        <h3 className="ns-set-grp-h">外觀</h3>
+        <div>
+          <span className="techo-label block mb-2.5">主題</span>
+          <div className="flex items-center gap-2">
+            <Segmented options={THEMES} value={skin ? null : theme} onChange={(v) => void setTheme(v)} aria-label="主題" />
+            <button type="button" className={"btn-ghost ns-btn ns-shop-open" + (skin ? " is-on" : "")} onClick={() => setShop(true)}>
+              {skin ? `商店・${skin.name}` : "商店"}
             </button>
-            {l.sub && <p className="ns-note mt-2">{l.sub}</p>}
           </div>
-        ))}
+        </div>
+
+        <MoodSettings shell="desktop" />
+      </section>
+
+      <section className="ns-set-grp" aria-label="日子怎麼算">
+        <h3 className="ns-set-grp-h">日子怎麼算</h3>
+        <div>
+          <span className="techo-label block mb-2.5">一天的開始時間</span>
+          {/* 庚：原生選單換分段鈕，值只有七個，兩端同一種長相 */}
+          <Segmented
+            options={DAY_START_OPTS}
+            value={String(dayStartHour)}
+            onChange={(v) => void setDayStartHour(Number(v))}
+            aria-label="一天的開始時間"
+          />
+          <p className="ns-note mt-2">熬夜到這個時間前都算前一天——今日視圖與誤點都依此計算。</p>
+        </div>
+
+        <div>
+          <span className="techo-label block mb-2.5">每週從星期幾開始</span>
+          <Segmented
+            options={WEEK_STARTS}
+            value={weekStart === 0 ? "0" : "1"}
+            onChange={(v) => void setWeekStart(v === "0" ? 0 : 1)}
+            aria-label="每週從星期幾開始"
+          />
+          <p className="ns-note mt-2">行程表與旅客筆記的月曆都照這個排。</p>
+        </div>
+      </section>
+
+      <section className="ns-set-grp" aria-label="開機與其他">
+        <h3 className="ns-set-grp-h">開機與其他</h3>
+        <AutostartRow />
+        {/* 磨光③ 0-2：各線的設定住在自己頁面時在這裡指路；沒有任何線填＝什麼都不畫 */}
+        {links.length > 0 &&
+          links.map((l) => (
+            <div key={l.id}>
+              <span className="techo-label block mb-2.5">{l.label}</span>
+              {/* 這是「去別處」的動作鈕，不是單選：用次鈕，不借選項的 .ns-choice（視覺規範 §2.3） */}
+              <button
+                type="button"
+                className="btn-ghost ns-btn"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  l.open("desktop");
+                }}
+              >
+                打開
+              </button>
+              {l.sub && <p className="ns-note mt-2">{l.sub}</p>}
+            </div>
+          ))}
+      </section>
     </div>
   );
 }

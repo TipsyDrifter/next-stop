@@ -14,6 +14,7 @@ import { useNotesStore } from "../../store/notesStore";
 import { useTicketStore } from "../../store/ticketStore";
 import { useTimetableStore } from "../../store/timetableStore";
 import { useUiStore } from "../../store/uiStore";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { revealOnRouteMap } from "../mobile/routeMapReveal";
 
 export interface BookFacts {
@@ -54,41 +55,45 @@ export type BookJump = "seals" | "time" | "spend" | "notes";
 
 /** 點事實格（兩殼）：跳到該模組看這條路線 */
 export function bookJump(kind: BookJump, routeId: string, shell: "desktop" | "mobile"): void {
-  const ui = useUiStore.getState();
-  switch (kind) {
-    case "seals":
-      openRouteOnMap(routeId, shell);
-      return;
-    case "time":
-      if (shell === "mobile") ui.setMobileTab("timetable");
-      else ui.setPage("timetable");
-      useTimetableStore.getState().setView("stats");
-      return;
-    case "spend":
-      if (shell === "mobile") ui.setMobileTab("ticket");
-      else ui.setPage("ticket");
-      void useTicketStore.getState().drillToList({ routeId, from: null, toExcl: null, kinds: [], accountId: null });
-      return;
-    case "notes": {
-      if (shell === "mobile") ui.setMobileTab("notes");
-      else ui.setPage("notes");
-      const st = useNotesStore.getState();
-      st.setSection("notes");
-      void st.setNotesQuery({ routeId });
-      return;
+  void runAtomicNav(async () => {
+    const ui = useUiStore.getState();
+    switch (kind) {
+      case "seals":
+        await openRouteOnMap(routeId, shell);
+        return;
+      case "time":
+        if (shell === "mobile") ui.setMobileTab("timetable");
+        else ui.setPage("timetable");
+        useTimetableStore.getState().setView("stats");
+        return;
+      case "spend":
+        if (shell === "mobile") ui.setMobileTab("ticket");
+        else ui.setPage("ticket");
+        await useTicketStore.getState().drillToList({ routeId, from: null, toExcl: null, kinds: [], accountId: null });
+        return;
+      case "notes": {
+        if (shell === "mobile") ui.setMobileTab("notes");
+        else ui.setPage("notes");
+        const st = useNotesStore.getState();
+        st.setSection("notes");
+        await st.setNotesQuery({ routeId });
+        return;
+      }
     }
-  }
+  });
 }
 
 /** 在路線圖打開這條路線（已到站的也能看：大綱頂上一行「已收進車庫」） */
-export function openRouteOnMap(routeId: string, shell: "desktop" | "mobile"): void {
-  if (shell === "mobile") {
-    revealOnRouteMap(routeId, null);
-    return;
-  }
-  const ui = useUiStore.getState();
-  ui.setPage("routemap");
-  ui.setZoom(null);
-  ui.select(null);
-  void useNodeStore.getState().openRoute(routeId);
+export async function openRouteOnMap(routeId: string, shell: "desktop" | "mobile"): Promise<void> {
+  return runAtomicNav(async () => {
+    if (shell === "mobile") {
+      revealOnRouteMap(routeId, null);
+      return;
+    }
+    const ui = useUiStore.getState();
+    ui.setPage("routemap");
+    ui.setZoom(null);
+    ui.select(null);
+    await useNodeStore.getState().openRoute(routeId);
+  });
 }

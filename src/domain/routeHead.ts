@@ -31,8 +31,10 @@ export function routeHeadStats<N extends RouteHeadNode>(nodes: readonly N[], isD
   let ticketDone = 0;
   for (const n of nodes) {
     if (n.kind !== "ticket") continue;
+    const done = isDone(n);
+    if (n.status === "paused" && !done) continue;
     ticketTotal++;
-    if (isDone(n)) ticketDone++;
+    if (done) ticketDone++;
   }
   const pct = ticketTotal > 0 ? Math.round((ticketDone / ticketTotal) * 100) : 0;
   return { ticketDone, ticketTotal, pct, items: nodes.length };

@@ -62,9 +62,9 @@ export function isTaskDone(node: Pick<NodeRow, "status">, occ: OccurrenceLike | 
   return occ ? occ.status === "done" : node.status === "done";
 }
 
-/** 有結局＝済或本班運休；有結局就不算誤點、也不算締切已過（同 OutlineRow 的 settled） */
+/** 有結局＝済、途中下車（paused）或本班運休；有結局就不算誤點、也不算締切已過（同 OutlineRow 的 settled） */
 export function isTaskSettled(node: Pick<NodeRow, "status">, occ: OccurrenceLike | undefined): boolean {
-  return isTaskDone(node, occ) || occ?.status === "skipped";
+  return isTaskDone(node, occ) || node.status === "paused" || occ?.status === "skipped";
 }
 
 /** 誤點＝過了乘車日還沒有結局（定期券講「這一班」那天；同 OutlineRow 的 schedLate） */
@@ -140,7 +140,8 @@ export function matchTask(node: TaskNode, f: TaskFilter, ctx: TaskFilterCtx): bo
     const mine = ctx.tagsOf(node.id);
     if (!tags.some((k) => mine.some((m) => isUnder(m, k)))) return false;
   }
-  if (f.status !== "all" && isTaskDone(node, occ) !== (f.status === "done")) return false;
+  if (f.status === "open" && isTaskSettled(node, occ)) return false;
+  if (f.status === "done" && !isTaskDone(node, occ)) return false;
   if (f.due && !matchDue(f.due, node, occ, ctx.today)) return false;
   if (f.late && !isTaskOverdue(node, occ, ctx.today)) return false;
   if (f.high && node.priority !== "high") return false;

@@ -81,6 +81,34 @@
 /* 票根：鋏痕（入鋏）的定位錨——stamps.css 的 .ns-punch 是 position:absolute（left:-1px／top:26px） */
 .ns-today .stub { position: relative; }
 
+/* ═══ 票根改掛入口（v1.31 D-1.31-5）═══
+   圓牌＋路線名包成一顆鈕（開「掛到哪」挑選器，reattach.tsx）；版面照原本的票根直排（gap 5px 同 techo.css .stub），
+   票號與票根空白處不在鈕裡＝照舊是拖曳把手。平時看起來跟原本一模一樣（票是票），滑過才給 hover 底＋作用中色的圓牌框，
+   鍵盤聚焦給 focus 環。字色由票根的 color（路線色）繼承，不另寫。 */
+.ns-today .stub .stub-move {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  margin: -4px -6px; padding: 4px 6px;
+  background: transparent; border: 0; border-radius: var(--radius-ctl);
+  color: inherit; font: inherit; line-height: inherit; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-soft);
+}
+.ns-today .stub .stub-move:hover,
+.ns-today .stub .stub-move[aria-expanded="true"] { background: var(--hover-bg); }
+.ns-today .stub .stub-move:hover .badge,
+.ns-today .stub .stub-move[aria-expanded="true"] .badge { box-shadow: 0 0 0 2px var(--sel-bg); }
+.ns-today .stub .stub-move:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .ns-today .stub .stub-move { transition: none; } }
+
+/* 誤點票的「原定 M/D」＝改期入口（v1.31 D-1.31-5）：長相照原型的赭字（techo.css .late-note），只補按鈕重置與滑過的底線 */
+.ns-today .meta .late-note-btn {
+  padding: 0; background: transparent; border: 0; cursor: pointer;
+  font: inherit; letter-spacing: inherit; line-height: inherit;
+  text-decoration: underline transparent 1px; text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-fast) var(--ease-soft);
+}
+.ns-today .meta .late-note-btn:hover { text-decoration-color: currentColor; }
+.ns-today .meta .late-note-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
 /* 票種小字當按鈕（點擊開詳情側板；沿大綱既有語彙） */
 .ns-today button.fare-class {
   padding: 0; background: transparent; border: 0; cursor: pointer; line-height: inherit;

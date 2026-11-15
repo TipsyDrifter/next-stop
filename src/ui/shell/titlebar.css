@@ -136,43 +136,54 @@
   outline-offset: 1px;
 }
 
-/* ═══ 四、時刻表・運行中班次 迷你行先表示器（.ns-tb-timer） ═══ */
+/* ═══ 四、時刻表・運行中班次 運行列車計時器（.ns-tb-timer） ═══
+ * v1.31 D-1.31-7（拍板採用方案 B 昭和車廂金屬銘板風：--radius-plate: 7px ＋ --radius-ctl: 2px 種別小章）：
+ *   - 外部輪廓：天空層工具列器物採昭和車廂金屬銘板圓角（--radius-plate: 7px），四角溫潤不刺眼、上下左右保留微直邊如老電車琺瑯番號銘牌；
+ *   - 內部骨幹：保留車站方向幕與車票結構——紙底不模糊不投影＋上緣微反光，
+ *     種別微圓小章（--radius-ctl: 2px）｜時刻（拉丁體等寬數字，1px 實線分格）｜行先（分類・任務），
+ *     動作「■ 到着／▶ 発車」像票根一樣用虛線撕開；運行中整塊框線帶淡赭描邊（赭＝運行中，規範 §1.1 四色墨）。 */
 .ns-tb-timer {
   display: inline-flex;
-  align-items: center;
-  height: 23px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--glass-edge);
-  background-color: var(--float-bg);
-  -webkit-backdrop-filter: var(--float-blur);
-  backdrop-filter: var(--float-blur);
+  align-items: stretch;
+  height: 22px;
+  border-radius: var(--radius-plate);
+  border: 1px solid var(--color-line);
+  background-color: var(--color-paper-high);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
   font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
   color: var(--color-ink);
   overflow: hidden;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  transition: border-color 0.18s;
 }
 
 .ns-tb-timer.is-running {
-  border-color: color-mix(in srgb, var(--accent) 32%, var(--color-line));
+  border-color: color-mix(in srgb, var(--late) 46%, var(--color-line));
 }
 
 .ns-tb-timer:hover {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--color-line));
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--color-line));
 }
 
 .ns-tb-timer-main {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   height: 100%;
-  padding: 0 8px 0 9px;
+  padding: 0 8px;
   border: 0;
+  border-radius: var(--radius-plate) 0 0 var(--radius-plate);
   background: transparent;
   color: inherit;
   font-family: inherit;
   font-size: var(--fs-xs);
   cursor: pointer;
   transition: background 0.15s;
+}
+
+.ns-tb-timer.is-idle .ns-tb-timer-main {
+  padding: 0 9px 0 8px;
+  border-radius: var(--radius-plate);
 }
 
 .ns-tb-timer-main:hover {
@@ -184,20 +195,27 @@
   outline-offset: -1px;
 }
 
+/* 種別小章：分類色 6×6 2px 微圓角小章（--radius-ctl，無發光投影，與銘板直線分格平行呼應）；未發車為 1px dashed 空心微圓方章（空車回送） */
 .ns-tb-timer-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  box-sizing: border-box;
+  border-radius: var(--radius-ctl);
   flex: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .ns-tb-timer-dot.is-idle {
-  background-color: var(--color-ink-faint);
-  box-shadow: none;
+  background-color: transparent;
+  border: 1px dashed var(--color-ink-faint);
 }
 
+/* 時刻格：等寬數字，右側 1px 實線把「時刻｜行先」分成兩格 */
 .ns-tb-timer-clock {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding-right: 7px;
+  border-right: 1px solid var(--color-line);
   font-family: var(--font-latin);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -222,22 +240,25 @@
   display: inline-flex;
   align-items: center;
   height: 100%;
-  padding: 0 8px;
+  padding: 0 9px 0 8px;
   border: 0;
-  border-left: 1px solid var(--color-line);
+  border-radius: 0 var(--radius-plate) var(--radius-plate) 0;
+  border-left: 1px dashed var(--color-dash); /* 票根撕線：動作格跟本體撕開 */
   background: transparent;
   font-family: inherit;
   font-size: var(--fs-micro);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   color: var(--accent);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .ns-tb-timer-act.is-depart {
-  padding: 0 0 0 6px;
-  margin-left: 2px;
+  align-self: stretch;
+  padding: 0 0 0 8px;
+  margin-left: 1px;
   height: auto;
+  border-radius: 0;
 }
 
 .ns-tb-timer-act.is-arrive:hover {

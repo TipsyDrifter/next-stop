@@ -15,6 +15,7 @@ import { dayKeyOf } from "../../lib/date";
 import { useLostFoundStore, type LostOpener } from "../../store/lostFoundStore";
 import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { jumpToNode } from "../common/QuickJump";
 import { jumpToNodeMobile } from "../mobile/routeMapReveal";
 import { jumpDiary, jumpNote } from "../notes/quickJumpNotes";
@@ -36,31 +37,33 @@ const OPENABLE: ReadonlySet<LostKindKey> = new Set<LostKindKey>([
 const gone = () => useUiStore.getState().showToast({ message: "找不到這一筆，可能又被刪了" });
 
 async function open(item: Pick<LostItem, "kind" | "table" | "id">, mobile: boolean): Promise<void> {
-  const ui = useUiStore.getState();
-  useLostFoundStore.getState().closeRescue();
-  if (!mobile) ui.setSettingsOpen(false);
-  if (item.table === "nodes") {
-    const node = await nodeRepo.getNode(item.id);
-    if (!node || node.deleted_at !== null) return gone();
-    await (mobile ? jumpToNodeMobile(node) : jumpToNode(node));
-    return;
-  }
-  if (item.kind === "note") return jumpNote(item.id);
-  if (item.kind === "diary") {
-    const note = await noteRepo.getNote(item.id);
-    if (!note) return gone();
-    return jumpDiary(item.id, note.entry_date || dayKeyOf(note.noted_at, ui.dayStartHour));
-  }
-  if (item.kind === "ideal_card" || item.kind === "ideal_reflection") {
-    if (mobile) ui.setMobileTab("ideal");
-    else ui.setPage("ideal");
-    return;
-  }
-  if (item.kind === "tk_entry") {
-    if (mobile) ui.setMobileTab("ticket");
-    else ui.setPage("ticket");
-    await useTicketStore.getState().jumpToEntry(item.id);
-  }
+  return runAtomicNav(async () => {
+    const ui = useUiStore.getState();
+    useLostFoundStore.getState().closeRescue();
+    if (!mobile) ui.setSettingsOpen(false);
+    if (item.table === "nodes") {
+      const node = await nodeRepo.getNode(item.id);
+      if (!node || node.deleted_at !== null) return gone();
+      await (mobile ? jumpToNodeMobile(node) : jumpToNode(node));
+      return;
+    }
+    if (item.kind === "note") return jumpNote(item.id);
+    if (item.kind === "diary") {
+      const note = await noteRepo.getNote(item.id);
+      if (!note) return gone();
+      return jumpDiary(item.id, note.entry_date || dayKeyOf(note.noted_at, ui.dayStartHour));
+    }
+    if (item.kind === "ideal_card" || item.kind === "ideal_reflection") {
+      if (mobile) ui.setMobileTab("ideal");
+      else ui.setPage("ideal");
+      return;
+    }
+    if (item.kind === "tk_entry") {
+      if (mobile) ui.setMobileTab("ticket");
+      else ui.setPage("ticket");
+      await useTicketStore.getState().jumpToEntry(item.id);
+    }
+  });
 }
 
 /** 給 store：這一種跳得到就回動作，跳不到回 null（toast 不帶鈕） */

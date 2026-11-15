@@ -200,9 +200,13 @@ export interface QuickChipsProps {
   className?: string;
   /** 桌機：按下不搶輸入框焦點（挑選器自己接焦點） */
   keepFocus?: boolean;
+  /** 掛到 chip 的滑過說明；省略＝建票的那句（行內編輯列＝「改掛到…」，v1.31 D-1.31-5） */
+  destTitle?: string;
+  /** 行內編輯列只搬位置、不改建成種類：隱藏「列車｜車票」切換段 */
+  hideRouteKind?: boolean;
 }
 
-export function QuickChips({ api, hideDest = false, noDateLabel, open, onOpen, className, keepFocus = false }: QuickChipsProps) {
+export function QuickChips({ api, hideDest = false, hideRouteKind = false, noDateLabel, open, onOpen, className, keepFocus = false, destTitle }: QuickChipsProps) {
   const t = chipTexts(api, noDateLabel);
   const keep = keepFocus ? { onMouseDown: (e: { preventDefault(): void }) => e.preventDefault() } : {};
   const chip = (key: QuickChipKey, icon: ReactNode, c: ChipText, extraTitle?: string) => (
@@ -232,9 +236,9 @@ export function QuickChips({ api, hideDest = false, noDateLabel, open, onOpen, c
             "dest",
             <QRoundel route={dest.route} />,
             { value: dest.text, label: "掛到", val: true, on: api.values.on.has("dest") },
-            "掛到哪裡：無路線＝臨時車票、路線＝列車或車票、列車／車廂＝車票",
+            destTitle ?? "掛到哪裡：無路線＝臨時車票、路線＝列車或車票、列車／車廂＝車票",
           )}
-          {api.target.canChoose && <RouteKindSeg api={api} keepFocus={keepFocus} />}
+          {!hideRouteKind && api.target.canChoose && <RouteKindSeg api={api} keepFocus={keepFocus} />}
         </>
       )}
       {chip("date", <QIcon.flag />, t.date)}

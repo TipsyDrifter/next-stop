@@ -56,7 +56,7 @@ import { fmtLogStamp, splitLogs, timeCardOf } from "./detailModel";
 import { MobileRepeatSection } from "./MobileRepeatSection";
 import { MobileRouteBody } from "./MobileRouteBody";
 import { useMobileDetailStore } from "./mobileDetailStore";
-import { AmountRows, DoneAt, PriorityRow, Row, StampRows, StatusRows } from "./MobileStateRows";
+import { AmountRows, DoneAt, Row, StampRows, StatusRows } from "./MobileStateRows";
 import { MobileStationRow } from "./MobileStationRow";
 import "./detail.css";
 
@@ -468,8 +468,6 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
       )}
 
       <div className="m-dt-group is-after-sec">
-        {/* 車票的優先順序（D-主-133）：車票沒有現況列，獨立一列放在検印之前（列車／車廂的在 StatusRows 裡） */}
-        {node.kind === "ticket" && <PriorityRow node={node} />}
         <StampRows
           node={node}
           onRunTime={() => {
@@ -491,7 +489,7 @@ function TaskFields({ node, today, setSub }: { node: NodeRow; today: string; set
             );
           }}
         />
-        {isTaskKind(node.kind) && <StatusRows node={node} />}
+        {(isTaskKind(node.kind) || node.kind === "ticket") && <StatusRows node={node} />}
         {/* 收官磨光 Q1（規格 §5：心情只在列車／車廂的完成卡選填、跟著済章；車票沒有心情欄）——車票不畫，同桌機車票側板 */}
         {node.kind !== "ticket" && (
           <Row label="心情">

@@ -49,6 +49,8 @@ import { IconDots } from "../common/icons";
 import { InlineTicketEditor } from "../common/quickadd";
 import type { QuickChipKey } from "../common/quickadd/quickAddModel";
 import { rowContextMenu } from "../common/contextMenu";
+import { useReattach } from "../common/quickadd/reattach";
+import { QuickDueChip, QuickPriorityChip } from "../common/quickadd/QuickPriorityChip";
 
 /** MMDD-NN 之外的 M/D 顯示（票面 chip 用） */
 function mmdd(key: string): string {
@@ -229,6 +231,8 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
   useHotkeyRevision();
   const ref = useRef<HTMLLIElement>(null);
   const [inlineEdit, setInlineEdit] = useState<{ picker: Exclude<QuickChipKey, "dest"> | null } | null>(null);
+  /** 票根改掛（v1.31 D-1.31-5）：挑選器收起後焦點還給今日容器（鍵盤流接得下去） */
+  const reattach = useReattach(row, actions.focusContainer);
   /** 定期券的唯一判定（見檔頭「定期券口徑」）；null＝乘車券／臨時券 */
   const rule = parseRule(row.repeat_rule);
   /** 済了沒：活著的定期券看班次結局，非定期券（含退役定期券，occurrence 恆 null）看 nodes.status */
@@ -315,24 +319,70 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
     </>
   );
 
+  /** 締切 chip＝改締切入口（v1.31 D-1.31-5：誤點區尾段那一枚原本是純文字點不動，與一般票的締切 chip 拉齊；一鍵原地開共用 DatePicker） */
+  const dueChip = (lateChip: boolean) => (
+    <QuickDueChip
+      nodeId={row.id}
+      dueOn={row.due_on}
+      scheduledOn={chipDate}
+      today={dateKey}
+      className={"chip chip-btn" + (lateChip ? " late" : "")}
+      title="點擊修改締切日"
+      onDone={actions.focusContainer}
+    >
+      締切 {row.due_on ? mmdd(row.due_on) : "—"}
+    </QuickDueChip>
+  );
+
   const metaItems: ReactNode[] = late
     ? settled
       ? // 補済態（件一 :1192-1208 逐字＝ `.ticket.done.late-done`）：來歷退後——
         // 暖光底（.late-t）與手寫「晚了 N 天」隨結局收掉，只留「已完成 ✓ ・ 赭 chip 原定 M/D」
-        // （運休走同一條：運休也是結局，延着一樣退到右下）
-        [timeItem, statusItem, <span className="chip late">原定 {railDate ? mmdd(railDate) : "—"}</span>]
-      : [
-          // 誤點票（C2 :826-832 逐字）：赭「原定 M/D」＋誤點註記
+        // （運休走同一條：運休也是結局，延着一樣退到右下）；點擊仍給明確回饋（openDefer 會提示先撤章再推遲）
+        [
           timeItem,
-          <span className="late-note">原定 {railDate ? mmdd(railDate) : "—"}</span>,
+          statusItem,
+          <button
+            type="button"
+            tabIndex={-1}
+            className="chip chip-btn late"
+            title="已交代——點擊查看改期說明"
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.openDefer(row.id, e.currentTarget);
+            }}
+          >
+            原定 {railDate ? mmdd(railDate) : "—"}
+          </button>,
+          row.due_on ? dueChip(dueLate) : null,
+        ]
+      : [
+          // 誤點票（C2 :826-832 逐字）：赭「原定 M/D」＋誤點註記。
+          // v1.31 D-1.31-5：「原定 M/D」＝推遲入口（同一般票的乘車日 chip，開同一張推遲小卡），長相照原型留赭字
+          timeItem,
+          <button
+            type="button"
+            tabIndex={-1}
+            className="late-note late-note-btn"
+            aria-label="原定乘車日——點擊改期"
+            title={`改期（${hotkeyCaps("today.schedule.today")} 排今天・${hotkeyCaps("today.schedule.tomorrow")} 明天）`}
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.openDefer(row.id, e.currentTarget);
+            }}
+          >
+            原定 {railDate ? mmdd(railDate) : "—"}
+          </button>,
           railDate ? <LateNote days={diffDays(dateKey, railDate)} /> : null,
+          // 誤點票若也掛著締切，一樣給入口（原本這一格整個沒畫，改締切只能進側板）
+          row.due_on ? dueChip(dueLate) : null,
         ]
     : due
       ? // D-③-7：沒排乘車日、締切已到／已過 → 誤點區尾段，赭 chip「締切 M/D」、不蓋延着。
         // 「＋乘車日」是原型沒有的控件 → 收進下方 .meta-hover（hover／選中才現身），有結局時不畫。
         settled
-        ? [timeItem, statusItem, <span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
-        : [timeItem, <span className="chip late">締切 {row.due_on ? mmdd(row.due_on) : "—"}</span>]
+        ? [timeItem, statusItem, dueChip(true)]
+        : [timeItem, dueChip(true)]
       : [
           timeItem,
           // 丙-7：途中下車已經蓋角印（検印位），meta 不再重寫一次同字的狀態膠囊；拿掉整格才不會留下空的分隔點
@@ -363,20 +413,7 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
           // 乘車日不是「今天」時（例：昨天排、今天補済留原位）常駐顯示，否則收進 hover 群組。
           // 定期券吃 railDate：蓋済／運休留原位的那一列講的是今天，不是引擎推到的下一班。
           chipDate && chipDate !== dateKey ? deferChip(`執行 ${mmdd(chipDate)}`, false) : null,
-          row.due_on ? (
-            <button
-              type="button"
-              tabIndex={-1}
-              className={"chip chip-btn" + (dueLate ? " late" : "")}
-              title="點擊修改締切日"
-              onClick={(e) => {
-                e.stopPropagation();
-                setInlineEdit({ picker: "due" });
-              }}
-            >
-              締切 {mmdd(row.due_on)}
-            </button>
-          ) : null,
+          row.due_on ? dueChip(dueLate) : null,
         ];
 
   return (
@@ -428,14 +465,40 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
           (fresh ? " fresh" : "")
         }
       >
-        {/* 票根：路線代碼／路線名／票號（無路線＝虛線「臨」） */}
+        {/* 票根：路線代碼／路線名／票號（無路線＝虛線「臨」）。
+            v1.31 D-1.31-5：圓牌＋路線名＝改掛入口（點了開「掛到哪」挑選器）；票號與票根空白處照舊是拖曳的把手 */}
         <div className="stub" style={{ color: accent }}>
           {row.status === "doing" && <PunchNick title="入鋏（進行中）" />}
-          <span aria-hidden className={route ? "badge" : "badge dashed"}>
-            {badge}
-          </span>
-          <span className="line-name">{lineName}</span>
+          {reattach.can ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              data-pop-toggle
+              className="stub-move"
+              aria-haspopup="dialog"
+              aria-expanded={reattach.isOpen}
+              aria-label={`改掛路線或列車（目前：${lineName}）`}
+              title={`改掛到別的路線／列車（目前：${lineName}）`}
+              onClick={(e) => {
+                e.stopPropagation();
+                reattach.open(e.currentTarget);
+              }}
+            >
+              <span aria-hidden className={route ? "badge" : "badge dashed"}>
+                {badge}
+              </span>
+              <span className="line-name">{lineName}</span>
+            </button>
+          ) : (
+            <>
+              <span aria-hidden className={route ? "badge" : "badge dashed"}>
+                {badge}
+              </span>
+              <span className="line-name">{lineName}</span>
+            </>
+          )}
           <span className="serial">No.{row.serial}</span>
+          {reattach.picker}
         </div>
 
         {/* 票面 */}
@@ -479,16 +542,17 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
                 setInlineEdit({ picker: null });
               }}
             >
-              {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
-              <span
-                onClick={(e) => {
-                  if (!row.priority) return;
-                  e.stopPropagation();
-                  setInlineEdit({ picker: "priority" });
-                }}
-              >
-                <PriorityMark priority={row.priority} />
-              </span>
+              {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點；v1.31：點擊直接開優先級小選單 */}
+              {row.priority === "high" && (
+                <QuickPriorityChip
+                  nodeId={row.id}
+                  priority={row.priority}
+                  className="ns-prio-btn"
+                  onDone={actions.focusContainer}
+                >
+                  <PriorityMark priority={row.priority} />
+                </QuickPriorityChip>
+              )}
               {row.name}
             </p>
           )}
@@ -496,12 +560,38 @@ export function TodayRow({ row, route, selected, picked = false, fresh, dateKey,
           {!inlineEdit && (
           <div className="meta">
             <MetaItems items={metaItems} />
-            {/* 原型沒有的控件：締切段的「＋乘車日」（T 鍵才是主要入口），hover／選中才現身；done 時不畫 */}
-            {due && !done && <span className="meta-hover">{deferChip("＋乘車日", false)}</span>}
+            {/* 原型沒有的控件：締切段的「＋乘車日」（T 鍵才是主要入口），hover／選中才現身；有結局時不畫 */}
+            {due && !settled && <span className="meta-hover">{deferChip("＋乘車日", false)}</span>}
             {/* 原型沒有的控件：與頁首日期重複的那一枚乘車日 chip，hover／選中才現身 */}
             {!late && !due && (!chipDate || chipDate === dateKey) && (
               <span className="meta-hover">
                 {deferChip(chipDate ? `執行 ${mmdd(chipDate)}` : "＋乘車日", false)}
+              </span>
+            )}
+            {/* v1.31 D-1.31-5：未設締切／未設高優先的車票，滑過才浮出輕量快排小鈕（不常駐 5 顆空白膠囊）；有結局時不畫 */}
+            {!settled && (!row.due_on || row.priority !== "high") && (
+              <span className="meta-hover">
+                {!row.due_on && (
+                  <QuickDueChip
+                    nodeId={row.id}
+                    dueOn={null}
+                    scheduledOn={chipDate}
+                    today={dateKey}
+                    className="chip chip-btn"
+                    title="排締切日"
+                    onDone={actions.focusContainer}
+                  >
+                    ＋締切
+                  </QuickDueChip>
+                )}
+                {row.priority !== "high" && (
+                  <QuickPriorityChip
+                    nodeId={row.id}
+                    priority={row.priority}
+                    className="chip chip-btn"
+                    onDone={actions.focusContainer}
+                  />
+                )}
               </span>
             )}
             {/* 別線的今日列動作／標記（插槽 todayRowActions，接縫 #66）：沒有線填＝不出 DOM */}

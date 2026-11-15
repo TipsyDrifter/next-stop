@@ -267,7 +267,62 @@
 }
 .m-dt-val > .num input:focus { border-bottom-color: var(--accent); }
 
+/* v1.31 D-1.31-4：結案印記（蓋済／途中下車）雙印章鈕＋一鍵復原列（44px 觸控目標、全語意 token） */
+.m-dt-seals-wrap { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
+.m-dt-seals-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.m-dt-seal-btn {
+  min-height: 44px; padding: 4px 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-soft);
+  font-family: var(--font-body); font-size: var(--fs-body); letter-spacing: .08em;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+.m-dt-seal-btn:active:not(:disabled) { background: var(--hover-bg); border-color: var(--accent); }
+.m-dt-seal-btn:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.m-dt-seal-btn:disabled { opacity: var(--disabled); cursor: not-allowed; }
+.m-dt-seal-mark {
+  flex: none; display: inline-grid; place-items: center; box-sizing: border-box;
+  font-family: var(--font-display); font-weight: 700; line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-spring, var(--ease));
+}
+.m-dt-seal-mark.is-sumi {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--seal) 65%, transparent); color: var(--seal); font-size: 12px;
+}
+.m-dt-seal-mark.is-geshya {
+  min-height: 20px; padding: 1px 5px; border-radius: var(--radius-ctl);
+  border: 1.4px solid color-mix(in srgb, var(--stamp-ink) 65%, transparent); color: var(--stamp-ink); font-size: 10px; letter-spacing: .06em;
+}
+.m-dt-seal-btn.is-sumi.is-on {
+  border-style: solid; border-color: color-mix(in srgb, var(--seal) 55%, transparent);
+  background: color-mix(in srgb, var(--seal) 10%, transparent); color: var(--seal); font-weight: 600;
+}
+.m-dt-seal-btn.is-sumi.is-on .m-dt-seal-mark.is-sumi { border-color: var(--seal); transform: rotate(-8deg); }
+.m-dt-seal-btn.is-geshya.is-on {
+  border-style: solid; border-color: color-mix(in srgb, var(--stamp-ink) 55%, transparent);
+  background: var(--hover-bg); color: var(--color-ink); font-weight: 600;
+}
+.m-dt-seal-btn.is-geshya.is-on .m-dt-seal-mark.is-geshya { border-color: var(--stamp-ink); transform: rotate(-5deg); }
+@keyframes mDtSealIn {
+  0% { transform: scale(1.36) rotate(2deg); opacity: .35; }
+  65% { transform: scale(.95) rotate(-8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-6deg); opacity: 1; }
+}
+.m-dt-seal-btn.is-fresh .m-dt-seal-mark { animation: mDtSealIn .28s var(--ease-spring, ease-out); }
+.m-dt-seals-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.m-dt-seal-restore {
+  min-height: 36px; padding: 0 8px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--accent);
+  font-family: var(--font-body); font-size: var(--fs-xs); letter-spacing: .06em;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.m-dt-seal-restore:active { background: var(--hover-bg); }
+.m-dt-seal-restore:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+
 @media (prefers-reduced-motion: reduce) {
-  .m-dt-sec-body { animation: none; }
-  .m-dt-mood span, .m-dt-caret, .m-dt-hmbtn { transition: none; }
+  .m-dt-sec-body, .m-dt-seal-btn.is-fresh .m-dt-seal-mark { animation: none; }
+  .m-dt-mood span, .m-dt-caret, .m-dt-hmbtn, .m-dt-seal-btn, .m-dt-seal-mark { transition: none; }
 }

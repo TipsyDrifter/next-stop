@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   DESKTOP_GUARD_WORDS,
   MOBILE_GUARD_WORDS,
+  leafKindFor,
   rowGuards,
   type GuardTree,
   type RowGuardDeps,
@@ -122,4 +123,22 @@ test("兩殼只差兩句到頂的話", () => {
   const keys = Object.keys(DESKTOP_GUARD_WORDS).sort();
   assert.deepEqual(Object.keys(MOBILE_GUARD_WORDS).sort(), keys);
   for (const k of keys as (keyof typeof DESKTOP_GUARD_WORDS)[]) assert.notEqual(DESKTOP_GUARD_WORDS[k], MOBILE_GUARD_WORDS[k]);
+});
+
+describe("v1.31 Bug 1：leafKindFor 新建葉節點預設為車票", () => {
+  test("路線／支線／列車／車廂底下新建葉節點一律回 ticket（含同層選中列車或車廂時）", () => {
+    assert.equal(leafKindFor("route"), "ticket");
+    assert.equal(leafKindFor("route", "train"), "ticket");
+    assert.equal(leafKindFor("branch"), "ticket");
+    assert.equal(leafKindFor("branch", "train"), "ticket");
+    assert.equal(leafKindFor("train"), "ticket");
+    assert.equal(leafKindFor("train", "car"), "ticket");
+    assert.equal(leafKindFor("car"), "ticket");
+    assert.equal(leafKindFor("car", "ticket"), "ticket");
+  });
+  test("支線列的同層新增維持支線；幹線底下預設為路線", () => {
+    assert.equal(leafKindFor("route", "branch"), "branch");
+    assert.equal(leafKindFor("branch", "branch"), "branch");
+    assert.equal(leafKindFor("line"), "route");
+  });
 });

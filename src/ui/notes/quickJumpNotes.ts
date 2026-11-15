@@ -20,6 +20,7 @@ import { dayKeyOf } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNotesStore } from "../../store/notesStore";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { goDiary, goNote } from "./tags/jump";
 import { notesFlush } from "./notesFlush";
 
@@ -38,22 +39,26 @@ async function openNotesPage(): Promise<void> {
 
 /** 選了一則筆記：切頁 → `goNote`（清篩選、翻頁找到那則、在收件匣就切收件匣） */
 export async function jumpNote(id: string): Promise<void> {
-  if (isMobileShell()) {
-    // 手機搜尋（磨光①）：筆記整頁開不開是 MobileNotes 的本地狀態，走它的請求（同路線圖詳情的筆記列，0-12；
-    // 清篩選、翻頁找、在收件匣就切收件匣都在 MobileNotes 那支 effect 裡）
-    await notesFlush.fn?.();
-    useNotesStore.getState().requestMobileOpenNote(id);
-    useUiStore.getState().setMobileTab("notes");
-    return;
-  }
-  await openNotesPage();
-  await goNote(id);
+  return runAtomicNav(async () => {
+    if (isMobileShell()) {
+      // 手機搜尋（磨光①）：筆記整頁開不開是 MobileNotes 的本地狀態，走它的請求（同路線圖詳情的筆記列，0-12；
+      // 清篩選、翻頁找、在收件匣就切收件匣都在 MobileNotes 那支 effect 裡）
+      await notesFlush.fn?.();
+      useNotesStore.getState().requestMobileOpenNote(id);
+      useUiStore.getState().setMobileTab("notes");
+      return;
+    }
+    await openNotesPage();
+    await goNote(id);
+  });
 }
 
 /** 選了一篇日記：切頁 → `goDiary`（到那天、選中那篇） */
 export async function jumpDiary(id: string, day: string): Promise<void> {
-  await openNotesPage();
-  await goDiary(id, day);
+  return runAtomicNav(async () => {
+    await openNotesPage();
+    await goDiary(id, day);
+  });
 }
 
 function hitOf(n: NoteListItem, glyph: string, go: () => Promise<void>): QuickJumpHit {

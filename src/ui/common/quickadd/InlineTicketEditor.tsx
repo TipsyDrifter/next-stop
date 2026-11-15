@@ -3,19 +3,25 @@
  *
  * 雙擊項目列（或點擊列上的時間／締切／優先級徽章）即可原地展開：
  *   - 上排：QuickField（支援標題修改＋快速語法如「明天 14:00 30分 〆週五 !高 #荷札」）＋儲存／取消提示
- *   - 下排：QuickChips（［乘車日］［幾點］［締切］［＝同乘車日］［優先］［#荷札］）＋QuickPickers 原地挑選器
+ *   - 下排：QuickChips（［掛到］［乘車日］［幾點］［締切］［＝同乘車日］［優先］［#荷札］）＋QuickPickers 原地挑選器
  *   - Enter 儲存並關閉、Ctrl+Enter 儲存並可接續下一筆、Esc 取消、點去別處自動儲存並關閉
  * 不必打開右側詳情抽屜即可完成日常編輯。
+ *
+ * v1.31 D-1.31-5：補上建票列有、這裡獨缺的「掛到」膠囊——初值＝目前所在（路線／支線／列車／車廂；臨時車票＝路線標籤或無路線），
+ *   挑選器是改掛專用的 ReattachPicker（能挑的種類照側板「移動到…」那把尺、藏掉自己與子樹、目前位置不可點；車票多一個「無路線」）。
+ *   跟其他膠囊同一個節奏：挑了先亮在膠囊上，按 Enter／點外面存檔時才真的搬（toast 附「復原」），Esc 取消就不搬。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { tagRepo } from "../../../data/tagRepo";
 import type { NodeRow } from "../../../domain";
+import type { AttachTarget } from "../../../domain/notes";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useTagStore } from "../../../store/tagStore";
 import type { CommitVia } from "../InlineInput";
 import { QuickChips, QuickField } from "./QuickAddParts";
 import { QuickPickers } from "./QuickAddPickers";
-import { NO_DEST, type QuickChipKey } from "./quickAddModel";
+import { NO_DEST, type QuickChipKey, type QuickDest } from "./quickAddModel";
+import { ReattachPicker, canReattach, currentDestOf, guessDestOf, reattachTo, sameDest } from "./reattach";
 import { useQuickAdd } from "./useQuickAdd";
 import "./quickadd.css";
 
@@ -52,9 +58,25 @@ export function InlineTicketEditor({
     };
   }, [node.id]);
 
+  /** 「掛到」的初值＝目前所在（先同步粗估、再問父節點種類換成準的；v1.31 D-1.31-5） */
+  const movable = canReattach(node.kind);
+  const [hereDest, setHereDest] = useState<AttachTarget>(() => guessDestOf(node));
+  useEffect(() => {
+    if (!movable) return;
+    let alive = true;
+    void currentDestOf(node).then((d) => {
+      if (alive) setHereDest(d);
+    });
+    return () => {
+      alive = false;
+    };
+    // 只看這個節點與它的位置
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movable, node.id, node.parent_id, node.route_id]);
+
   const defaults = useMemo(
     () => ({
-      dest: NO_DEST,
+      dest: movable ? (hereDest as QuickDest) : NO_DEST,
       scheduledOn: node.scheduled_on,
       scheduledTime: node.scheduled_time,
       estimateMin: node.estimate_min,
@@ -63,7 +85,7 @@ export function InlineTicketEditor({
       tags: initialTags,
       noDateLabel: false,
     }),
-    [node.scheduled_on, node.scheduled_time, node.estimate_min, node.due_on, node.priority, initialTags],
+    [movable, hereDest, node.scheduled_on, node.scheduled_time, node.estimate_min, node.due_on, node.priority, initialTags],
   );
 
   const api = useQuickAdd({
@@ -100,14 +122,14 @@ export function InlineTicketEditor({
     }
   }, [initialPicker]);
 
-  const live = useRef({ api, node, onClose, onCommitNext });
-  live.current = { api, node, onClose, onCommitNext };
+  const live = useRef({ api, node, onClose, onCommitNext, hereDest, movable });
+  live.current = { api, node, onClose, onCommitNext, hereDest, movable };
 
   const saveAndClose = async (via: CommitVia) => {
     if (savingRef.current) return;
     savingRef.current = true;
     try {
-      const { api: a, node: n, onClose: close, onCommitNext: next } = live.current;
+      const { api: a, node: n, onClose: close, onCommitNext: next, hereDest: here, movable: canMove } = live.current;
       const v = a.values;
       const name = v.name.trim() || n.name;
       await useNodeStore.getState().updateNode(n.id, {
@@ -121,6 +143,10 @@ export function InlineTicketEditor({
       if (v.on.has("tags")) {
         await tagRepo.setTags("node", n.id, v.tags);
         await useTagStore.getState().loadIndex();
+      }
+      // 掛到（v1.31）：膠囊改過、而且真的換了地方才搬（moveNodeTo 自己出 toast＋復原）；routeId null＝摘掉路線變臨時車票
+      if (canMove && v.on.has("dest") && !sameDest(v.dest, here)) {
+        await reattachTo(n, v.dest.routeId ? { routeId: v.dest.routeId, nodeId: v.dest.nodeId } : null);
       }
       close();
       if (via === "ctrl-enter") next?.();
@@ -197,13 +223,40 @@ export function InlineTicketEditor({
       </div>
       <QuickChips
         api={api}
-        hideDest
+        hideDest={!movable}
+        hideRouteKind
+        destTitle="改掛到別的路線、支線或列車（存檔時才搬）"
         noDateLabel={false}
         open={open?.key ?? null}
         keepFocus
         onOpen={(key, anchor) => setOpen((cur) => (cur?.key === key ? null : { key, anchor }))}
       />
-      <QuickPickers api={api} open={open?.key ?? null} anchor={open?.anchor ?? null} onClose={() => setOpen(null)} refocus={refocus} />
+      <QuickPickers
+        api={api}
+        open={open && open.key !== "dest" ? open.key : null}
+        anchor={open?.anchor ?? null}
+        onClose={() => setOpen(null)}
+        refocus={refocus}
+      />
+      {/* 掛到（v1.31）：改掛專用挑選器，只回報挑了什麼——存檔時才搬 */}
+      {open?.key === "dest" && movable && (
+        <ReattachPicker
+          node={node}
+          anchor={open.anchor}
+          onPick={(t: AttachTarget | null) => {
+            api.setDest(t ? (t as QuickDest) : NO_DEST);
+            window.setTimeout(refocus, 0);
+          }}
+          onClose={() => {
+            setOpen(null);
+            // 沒挑就收（Esc、點外面）：焦點掉到 body 才拉回輸入框（同 QuickPickers 的 dismiss）
+            window.setTimeout(() => {
+              const a = document.activeElement;
+              if (!a || a === document.body) refocus();
+            }, 0);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -57,7 +57,7 @@
 .ns-depot-badge.is-sm { width: 22px; height: 22px; border-width: 1.4px; font-size: 9.5px; } /* 字面值：票券專用（小路線徽字），原型定值 */
 .ns-depot-badge > i { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); }
 
-/* 運行中膠囊（§2.9：淡赭底＋赭框＋赭字） */
+/* 運行中狀態燈（§2.9、§2.15：淡赭底＋赭框＋赭字＋--radius-pill 唯讀動態信號燈，D-1.31-7） */
 .ns-depot-pill {
   display: inline-flex; align-items: center; height: 20px; padding: 0 9px; flex: none;
   border-radius: var(--radius-pill); border: 1px solid color-mix(in srgb, var(--late) 55%, transparent);

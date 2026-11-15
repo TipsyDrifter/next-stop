@@ -17,6 +17,7 @@ import { parseFixedRule } from "../domain/ticketPlan";
 import { describeRule } from "../domain/repeat";
 import { bareName } from "../domain/ticket";
 import { shortDay } from "../domain/ticketView";
+import { runAtomicNav } from "../store/navHistoryStore";
 import { useTicketStore } from "../store/ticketStore";
 import { useUiStore } from "../store/uiStore";
 import type { MobileTabKey } from "../ui/mobile/tabs";
@@ -62,10 +63,11 @@ async function describeEntries(ids: readonly string[]): Promise<Record<string, T
     out[id] = e
       ? {
           label: `${shortDay(e.occurred_on)} ${entryJumpLabel(e)}`,
-          open: () => {
-            gotoTicket();
-            void useTicketStore.getState().jumpToEntry(id);
-          },
+          open: () =>
+            void runAtomicNav(async () => {
+              gotoTicket();
+              await useTicketStore.getState().jumpToEntry(id);
+            }),
         }
       : null;
   });
@@ -90,10 +92,11 @@ async function describeRepeats(ids: readonly string[]): Promise<Record<string, T
     out[id] = {
       label: `定期帳「${fixed ? describeRule(fixed) : "規則看不懂"} · ${what}」`,
       sub: r.paused_at ? "暫停中" : undefined,
-      open: () => {
-        gotoTicket();
-        useTicketStore.getState().openDialog({ kind: "repeats" });
-      },
+      open: () =>
+        void runAtomicNav(() => {
+          gotoTicket();
+          useTicketStore.getState().openDialog({ kind: "repeats" });
+        }),
     };
   }
   return out;
@@ -126,10 +129,11 @@ async function describeTemplates(ids: readonly string[]): Promise<Record<string,
     out[id] = t
       ? {
           label: `常用票種「${t.name}」`,
-          open: () => {
-            gotoTicket();
-            useTicketStore.getState().openDialog({ kind: "templates" });
-          },
+          open: () =>
+            void runAtomicNav(() => {
+              gotoTicket();
+              useTicketStore.getState().openDialog({ kind: "templates" });
+            }),
         }
       : null;
   }

@@ -805,7 +805,7 @@ export function buildSchedule(
           node_id: node.id,
           kind: "single",
           occurrence_status: null,
-          is_late: d < todayDateKey && node.status !== "done",
+          is_late: d < todayDateKey && node.status !== "done" && node.status !== "paused",
           is_done: node.status === "done",
           is_assumed: false,
           time: effectiveTime(node, d),
@@ -819,7 +819,7 @@ export function buildSchedule(
     const add = (d: string, assumed: boolean) => {
       if (!dates.has(d) || !assumed) dates.set(d, assumed);
     };
-    if (node.status !== "done") {
+    if (node.status !== "done" && node.status !== "paused") {
       if (rule.mode === "fixed") {
         // 做滿 N 次：只投還會開的班（D-主-292）
         const settled = settledMoveTargets(rule, occs);
@@ -849,8 +849,8 @@ export function buildSchedule(
         node_id: node.id,
         kind: "repeat",
         occurrence_status: o ? o.status : null,
-        // 統計的漏班＝規則日已過、沒有任何結局（lazy 推導，不落庫；草案 §6-7）
-        is_late: d < todayDateKey && !o,
+        // 統計的漏班＝規則日已過、沒有任何結局（lazy 推導，不落庫；草案 §6-7；途中下車不算漏班）
+        is_late: d < todayDateKey && !o && node.status !== "paused",
         is_done: o?.status === "done",
         is_assumed: dates.get(d) === true,
         time: effectiveTime(node, d),
@@ -955,7 +955,7 @@ export function buildCalendar(
     byId[node.id] = node;
     if (node.deleted_at !== null) continue;
     if (node.kind !== "train" && node.kind !== "car" && node.kind !== "ticket") continue;
-    if (node.status === "done") continue;
+    if (node.status === "done" || node.status === "paused") continue;
     const d = node.due_on;
     if (d && d >= from && d <= to) dues.push({ date: d, node_id: node.id });
   }
@@ -995,11 +995,11 @@ export function buildScheduleBounds(
     const rule = parseRule(node.repeat_rule);
     if (!rule) {
       add(node.scheduled_on);
-      if (node.status !== "done") add(node.due_on);
+      if (node.status !== "done" && node.status !== "paused") add(node.due_on);
       continue;
     }
     for (const o of occByNode[node.id] ?? []) add(o.due_on);
-    if (node.status === "done") continue;
+    if (node.status === "done" || node.status === "paused") continue;
     add(node.due_on);
     if (rule.mode === "fixed") {
       add(firstFixedDate(rule, rule.start));
@@ -1081,7 +1081,7 @@ export function buildRouteOpenCounts(
   for (const n of nodes) if (n.deleted_at === null && n.parent_id) hasChild.add(n.parent_id);
   const out: Record<string, number> = {};
   for (const n of nodes) {
-    if (n.deleted_at !== null || !n.route_id || n.status === "done") continue;
+    if (n.deleted_at !== null || !n.route_id || n.status === "done" || n.status === "paused") continue;
     if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") continue;
     if (hasChild.has(n.id)) continue;
     out[n.route_id] = (out[n.route_id] ?? 0) + 1;

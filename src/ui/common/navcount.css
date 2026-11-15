@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────────────
- * navcount.css — 導航格右上的數字小標（回饋甲 D-主-130；原型 q4b-A `.nsq-count`）
- * 長相＝時刻表運行中膠囊同形（timetable.css 丙-4 T4／msheet.css 四），只是沒有前面那顆點：
+ * navcount.css — 導航格右上的數字小標（回饋甲 D-主-130；原型 q4b-A `.nsq-count`；D-1.31-7 迷你角標計數珠）
+ * 長相＝時刻表運行中膠囊徽同形（`--radius-pill`，timetable.css 丙-4 T4／msheet.css 四），只是沒有前面那顆點：
  *   平常墨色（--stamp-ink 框與字、紙底）；有誤點未交代＝`.is-late` 轉赭（淡赭底墊紙色＋赭框＋赭字）。
  *   書封色外圈把膠囊跟圖示隔開（同運行中膠囊的 box-shadow）。
  * 定位框：桌機書封 .gnav-item／.gnav-line、手機 .m-tab（mobile.css 已是 relative）。

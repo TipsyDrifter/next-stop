@@ -143,6 +143,8 @@ export class MemoryNodeRepository implements NodeRepository {
   private ovrBackfilled = false;
   /** 排序鍵存量回填做過了沒（同 ovrBackfilled，記在實例上） */
   private sortKeyBackfilled = false;
+  /** 葉節點車票存量回填做過了沒（同 sortKeyBackfilled，記在實例上） */
+  private leafTicketBackfilled = false;
   /** 種子載入期間用的假時鐘（每筆 +1s，讓 created_at 有序、看起來像上週建的）；null＝用真實時間 */
   private seedClock: number | null = null;
 
@@ -163,12 +165,14 @@ export class MemoryNodeRepository implements NodeRepository {
 
   /** 丁 D-主-241：同 SQLite 版（路線樹裡活著的節點，四欄） */
   async listRouteMembers(): Promise<RouteMemberRow[]> {
+    this.ensureLeafTicketBackfill();
     return this.alive()
       .filter((n) => n.route_id !== null && n.kind !== "station")
       .map((n) => ({ id: n.id, kind: n.kind, status: n.status, route_id: n.route_id }));
   }
 
   async listTasks(): Promise<TaskRow[]> {
+    this.ensureLeafTicketBackfill();
     this.backfillSortKeys();
     const alive = this.alive();
     const parents = new Set(alive.map((n) => n.parent_id));
@@ -179,12 +183,14 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async listTaskHolders(): Promise<TaskHolderRow[]> {
+    this.ensureLeafTicketBackfill();
     return this.alive()
       .filter((n) => n.kind === "branch" || n.kind === "train" || n.kind === "car")
       .map((n) => ({ id: n.id, name: n.name, parent_id: n.parent_id }));
   }
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
+    this.ensureLeafTicketBackfill();
     this.backfillSortKeys();
     return this.alive()
       .filter((n) => n.route_id === routeId && n.kind !== "station")
@@ -193,11 +199,13 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async listSerials(): Promise<Record<string, string>> {
+    this.ensureLeafTicketBackfill();
     // 與 SQLite 版逐條對齊：餵存活全集，發券 kind 的過濾在 buildSerialMap 裡（同一份 SERIAL_KINDS）
     return buildSerialMap(this.alive());
   }
 
   async getNode(id: string): Promise<NodeRow | null> {
+    this.ensureLeafTicketBackfill();
     const n = this.nodes.get(id);
     return n ? clone(n) : null;
   }
@@ -215,6 +223,7 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async create(input: CreateNodeInput): Promise<NodeRow> {
+    this.ensureLeafTicketBackfill();
     return clone(this.insert(input));
   }
 
@@ -230,7 +239,7 @@ export class MemoryNodeRepository implements NodeRepository {
     if (!node) throw new Error("節點不存在");
     if (node.kind === kind) return;
     const parent = node.parent_id ? (this.nodes.get(node.parent_id) ?? null) : null;
-    if (!allowedChildKinds(parent ? parent.kind : null).includes(kind)) {
+    if (!allowedChildKinds(parent ? parent.kind : null).includes(kind) && !(parent?.kind === "route" && kind === "ticket")) {
       throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${parent ? KIND_LABEL[parent.kind] : "根層"} 底下`);
     }
     // 丁 D-主-246：同 SQLite 版——直屬子項跟著換（車廂⇄列車），轉成支線清掉日期、時刻、重複
@@ -286,7 +295,9 @@ export class MemoryNodeRepository implements NodeRepository {
     }
     const oldParentIds = new Set<string>();
     const promotedIds = new Set<string>();
+    const newParentIds = new Set<string>();
     for (const p of plans) {
+      if (p.newParent) newParentIds.add(p.newParent.id);
       if (p.promotedNewParent) promotedIds.add(p.promotedNewParent.id);
       if (p.node.parent_id && p.node.parent_id !== (p.newParent?.id ?? null)) {
         oldParentIds.add(p.node.parent_id);
@@ -294,7 +305,7 @@ export class MemoryNodeRepository implements NodeRepository {
       this.applyMove(p, keyOf.get(p.node.id) ?? null, now);
     }
     for (const oldParentId of oldParentIds) {
-      if (!promotedIds.has(oldParentId)) this.demoteIfChildless(oldParentId, now);
+      if (!newParentIds.has(oldParentId) && !promotedIds.has(oldParentId)) this.demoteIfChildless(oldParentId, now);
     }
   }
 
@@ -322,6 +333,14 @@ export class MemoryNodeRepository implements NodeRepository {
     const sub = this.subtreeIds(id);
     if (newParentId && sub.includes(newParentId)) throw new Error("不能搬進自己的子樹");
     let kind = newKind ?? node.kind;
+    if (
+      sub.length > 1 &&
+      kind === "ticket" &&
+      newParent &&
+      (newParent.kind === "route" || newParent.kind === "branch" || newParent.kind === "train" || newParent.kind === "car")
+    ) {
+      kind = promotedKindForParent(newParent.kind);
+    }
     const allowed = allowedChildKinds(newParent ? newParent.kind : null);
     if (!allowed.includes(kind)) {
       if (newParent?.kind === "route" && kind === "ticket") {
@@ -407,6 +426,29 @@ export class MemoryNodeRepository implements NodeRepository {
     for (const w of writes) this.mutate(w.id, (n) => (n.sort_key === null ? { ...n, sort_key: w.key } : n));
   }
 
+  /** 葉節點車票存量回填（與 SQLite 版 backfillLeafTickets 同語義；不戳 updated_at） */
+  private ensureLeafTicketBackfill(): void {
+    if (this.leafTicketBackfilled) return;
+    this.leafTicketBackfilled = true;
+    this.runLeafTicketBackfill();
+  }
+
+  async backfillLeafTickets(): Promise<void> {
+    this.leafTicketBackfilled = true;
+    this.runLeafTicketBackfill();
+  }
+
+  private runLeafTicketBackfill(): void {
+    const alive = this.alive();
+    const hasChild = new Set<string>();
+    for (const n of alive) if (n.parent_id) hasChild.add(n.parent_id);
+    for (const n of alive) {
+      if ((n.kind === "train" || n.kind === "car") && !hasChild.has(n.id)) {
+        this.nodes.set(n.id, { ...n, kind: "ticket" });
+      }
+    }
+  }
+
   /** 討論 5：若列車／車廂底下的活子項已全數移除（刪除或搬走），自動降階回車票 */
   private demoteIfChildless(parentId: string, now: string): void {
     const parent = this.nodes.get(parentId);
@@ -481,15 +523,16 @@ export class MemoryNodeRepository implements NodeRepository {
 
   /** 語義與 SQLite 版逐條對齊（四條 OR＋分區＋排序＋lazy 指派今日序），見 nodeRepository.listToday */
   async listToday(dateKey: string, dayStartHour = 3): Promise<TodayRow[]> {
+    this.ensureLeafTicketBackfill();
     const { start, end } = dayWindow(dateKey, dayStartHour);
     // 車庫與回顧 D-主-206 #4：收進車庫的路線（與掛它標籤的臨時票）不進今日（同 SQLite 版的 inDepotSql）
     const hit = this.active().filter((n) => {
       if (n.kind !== "train" && n.kind !== "car" && n.kind !== "ticket") return false;
       // 磨光⑦ 沙盒 F1：退役的定期券不走第一條（scheduled_on 是各台推算、退役後凍住的值；與 SQLite 版同）
-      if (n.scheduled_on === dateKey && !(n.repeat_rule !== null && n.status === "done")) return true;
-      if (n.scheduled_on !== null && n.scheduled_on < dateKey && n.status !== "done") return true;
+      if (n.scheduled_on === dateKey && n.status !== "paused" && !(n.repeat_rule !== null && n.status === "done")) return true;
+      if (n.scheduled_on !== null && n.scheduled_on < dateKey && n.status !== "done" && n.status !== "paused") return true;
       if (
-        n.status !== "done" && n.due_on !== null && n.due_on <= dateKey &&
+        n.status !== "done" && n.status !== "paused" && n.due_on !== null && n.due_on <= dateKey &&
         (n.scheduled_on === null || n.scheduled_on > dateKey)
       ) return true;
       // 第四條只認「本來就在今天清單裡的票」（1／2／3 條的資格），否則列車 cascade 蓋章時
@@ -743,6 +786,7 @@ export class MemoryNodeRepository implements NodeRepository {
     to: string,
     opts?: { todayDateKey?: string; dayStartHour?: number },
   ): Promise<CalendarData> {
+    this.ensureLeafTicketBackfill();
     const h = opts?.dayStartHour ?? 3;
     const today = opts?.todayDateKey ?? todayKey(h);
     const byNode: Record<string, Occurrence[]> = {};
@@ -797,6 +841,7 @@ export class MemoryNodeRepository implements NodeRepository {
   }
 
   async routeOpenCounts(): Promise<Record<string, number>> {
+    this.ensureLeafTicketBackfill();
     // 與 SQLite 版的 GROUP BY 同一組條件（回饋甲 D-主-130），語義在 buildRouteOpenCounts
     return buildRouteOpenCounts(this.alive());
   }

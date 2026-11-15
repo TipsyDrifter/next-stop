@@ -241,6 +241,7 @@ export class SqliteNodeRepository implements NodeRepository {
   /** 丁 D-主-241：路線一覽用的最小形狀（同 listRouteTree 的範圍，只是全部路線一次、只帶四欄；不需要逐班覆寫） */
   async listRouteMembers(): Promise<RouteMemberRow[]> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     return db.select<RouteMemberRow[]>(
       `SELECT id, kind, status, route_id FROM nodes WHERE route_id IS NOT NULL AND kind != 'station' AND ${ALIVE}`,
     );
@@ -248,6 +249,7 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async listTasks(): Promise<TaskRow[]> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     const rows = await db.select<(NodeRow & { has_kids: number })[]>(
       `SELECT n.*, EXISTS (SELECT 1 FROM nodes k WHERE k.parent_id = n.id AND k.deleted_at IS NULL) AS has_kids
          FROM nodes n WHERE kind IN ('ticket', 'train', 'car') AND ${ALIVE}
@@ -261,11 +263,13 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async listTaskHolders(): Promise<TaskHolderRow[]> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     return db.select<TaskHolderRow[]>(`SELECT id, name, parent_id FROM nodes WHERE kind IN ('branch', 'train', 'car') AND ${ALIVE}`);
   }
 
   async listRouteTree(routeId: string): Promise<NodeRow[]> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     return this.withOverrides(
       db,
       await db.select<NodeRow[]>(
@@ -278,6 +282,7 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async listSerials(): Promise<Record<string, string>> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     // 排序／分日都交給 buildSerialMap（本地日界要用 JS 的時區，SQL 的 localtime 靠不住），
     // 這裡只負責把「存活的會發券節點」撈出來——跨父節點、跨路線、跨發券 kind 一次算完。
     // kind 條件與記憶體版同源（SERIAL_KINDS_SQL ← SERIAL_KINDS）；buildSerialMap 內還會再濾一次。
@@ -289,6 +294,7 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async getNode(id: string): Promise<NodeRow | null> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     const rows = await db.select<NodeRow[]>(`SELECT * FROM nodes WHERE id = $1`, [id]);
     if (!rows[0]) return null;
     return (await this.withOverrides(db, rows))[0];
@@ -451,6 +457,50 @@ export class SqliteNodeRepository implements NodeRepository {
       for (const w of writes.slice(i, i + BACKFILL_CHUNK)) {
         b.stmts.push({ sql: `UPDATE nodes SET sort_key = $1 WHERE id = $2 AND sort_key IS NULL`, args: [w.key, w.id] });
         addOp(b, "nodes", w.id, "upsert", { sort_key: w.key });
+      }
+      await runWriteBatch(db, b.stmts, b.ops);
+    }
+  }
+
+  // ───────────── 葉節點車票存量回填（v1.31 Bug 1）─────────────
+
+  /** 葉節點車票回填只跑一次（同 sortKeyBackfill：記住 Promise；失敗就放掉，下一次讀取再試） */
+  private leafTicketBackfill: Promise<void> | null = null;
+
+  private ensureLeafTicketBackfill(db: Database): Promise<void> {
+    this.leafTicketBackfill ??= this.backfillLeafTickets(db).catch((e: unknown) => {
+      this.leafTicketBackfill = null;
+      console.warn("[nodes] 葉節點車票回填失敗，下次再試", e);
+    });
+    return this.leafTicketBackfill;
+  }
+
+  /**
+   * 存量無子項列車／車廂轉為車票（v1.31 Bug 1 根因 A）：
+   * 找出所有未刪除且無存活子節點的 train／car，改為 ticket；不戳 updated_at（保留原時間戳與其餘欄位），
+   * 並寫入 { kind: "ticket" } 到 oplog 確保多端同步一致，執行條件與 UPDATE 守門可冪等重入。
+   */
+  async backfillLeafTickets(dbArg?: Database): Promise<void> {
+    const db = dbArg ?? (await getDb());
+    const rows = await db.select<{ id: string }[]>(
+      `SELECT id FROM nodes
+        WHERE ${ALIVE}
+          AND kind IN ('train', 'car')
+          AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id AND c.deleted_at IS NULL)`,
+    );
+    if (!rows.length) return;
+    for (let i = 0; i < rows.length; i += BACKFILL_CHUNK) {
+      const b = newWriteBatch();
+      for (const r of rows.slice(i, i + BACKFILL_CHUNK)) {
+        b.stmts.push({
+          sql: `UPDATE nodes SET kind = 'ticket'
+                 WHERE id = $1
+                   AND ${ALIVE}
+                   AND kind IN ('train', 'car')
+                   AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id AND c.deleted_at IS NULL)`,
+          args: [r.id],
+        });
+        addOp(b, "nodes", r.id, "upsert", { kind: "ticket" });
       }
       await runWriteBatch(db, b.stmts, b.ops);
     }
@@ -737,7 +787,7 @@ export class SqliteNodeRepository implements NodeRepository {
     if (!node) throw new Error("節點不存在");
     if (node.kind === kind) return;
     const parent = node.parent_id ? await this.getNode(node.parent_id) : null;
-    if (!allowedChildKinds(parent ? parent.kind : null).includes(kind)) {
+    if (!allowedChildKinds(parent ? parent.kind : null).includes(kind) && !(parent?.kind === "route" && kind === "ticket")) {
       throw new Error(`${KIND_LABEL[kind]} 不能掛在 ${parent ? KIND_LABEL[parent.kind] : "根層"} 底下`);
     }
     // 丁 D-主-246：直屬子項跟著換（車廂⇄列車）；換不了才擋。轉成支線順手清掉日期、時刻、重複（支線沒有這些欄）。一個交易寫完
@@ -794,6 +844,14 @@ export class SqliteNodeRepository implements NodeRepository {
     const sub = await subtreeIds(db, id);
     if (newParentId && sub.includes(newParentId)) throw new Error("不能搬進自己的子樹");
     let kind = newKind ?? node.kind;
+    if (
+      sub.length > 1 &&
+      kind === "ticket" &&
+      newParent &&
+      (newParent.kind === "route" || newParent.kind === "branch" || newParent.kind === "train" || newParent.kind === "car")
+    ) {
+      kind = promotedKindForParent(newParent.kind);
+    }
     const allowed = allowedChildKinds(newParent ? newParent.kind : null);
     if (!allowed.includes(kind)) {
       if (newParent?.kind === "route" && kind === "ticket") {
@@ -1185,9 +1243,9 @@ export class SqliteNodeRepository implements NodeRepository {
          AND r.kind IN ('train','car','ticket')
          AND NOT ${inDepotSql("r")}
          AND (
-              (r.scheduled_on = $1 AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
-           OR (r.scheduled_on IS NOT NULL AND r.scheduled_on < $1 AND r.status != 'done')
-           OR (r.status != 'done' AND r.due_on IS NOT NULL AND r.due_on <= $1
+              (r.scheduled_on = $1 AND r.status != 'paused' AND NOT (r.repeat_rule IS NOT NULL AND r.status = 'done'))
+           OR (r.scheduled_on IS NOT NULL AND r.scheduled_on < $1 AND r.status NOT IN ('done', 'paused'))
+           OR (r.status NOT IN ('done', 'paused') AND r.due_on IS NOT NULL AND r.due_on <= $1
                AND (r.scheduled_on IS NULL OR r.scheduled_on > $1))
            OR (r.status = 'done' AND r.completed_at IS NOT NULL AND r.completed_at >= $2 AND r.completed_at < $3
                AND (
@@ -1818,6 +1876,7 @@ export class SqliteNodeRepository implements NodeRepository {
     opts?: { todayDateKey?: string; dayStartHour?: number },
   ): Promise<CalendarData> {
     const db = await getDb();
+    await this.ensureLeafTicketBackfill(db);
     const dayStartHour = opts?.dayStartHour ?? 3;
     const today = opts?.todayDateKey ?? todayKey(dayStartHour);
     // 與 listSchedule 同一句、同一趟：締切層與節點表都從這批列裡摺出來，不再多打一次 SQL
@@ -1883,10 +1942,11 @@ export class SqliteNodeRepository implements NodeRepository {
 
   async routeOpenCounts(): Promise<Record<string, number>> {
     const db = await getDb();
-    // 語義＝buildRouteOpenCounts（回饋甲 D-主-130）：末端（沒有活著的子項）、未済的列車／車廂／車票，依 route_id 分組
+    await this.ensureLeafTicketBackfill(db);
+    // 語義＝buildRouteOpenCounts（回饋甲 D-主-130）：末端（沒有活著的子項）、未済且非途中下車的列車／車廂／車票，依 route_id 分組
     const rows = await db.select<{ route_id: string; n: number }[]>(
       `SELECT n.route_id AS route_id, COUNT(*) AS n FROM nodes n
-       WHERE n.deleted_at IS NULL AND n.kind IN ('train','car','ticket') AND n.status != 'done' AND n.route_id IS NOT NULL
+       WHERE n.deleted_at IS NULL AND n.kind IN ('train','car','ticket') AND n.status NOT IN ('done', 'paused') AND n.route_id IS NOT NULL
          AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND c.deleted_at IS NULL)
        GROUP BY n.route_id`,
     );

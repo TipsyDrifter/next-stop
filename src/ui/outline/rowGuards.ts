@@ -9,7 +9,22 @@
  * 兩殼只差兩句話（`words`）：桌機「用下面的『移動到…』」「先按 Esc 退出聚焦」；手機沒有 Esc、⋯ sheet 的「移動到…」
  *   跟升降層同在「編排」裡，句子各寫各的，其餘字一字不差。
  */
-import { canHaveChildren, isTaskKind, type NodeKind, type NodeRow } from "../../domain/node.ts";
+import { canHaveChildren, defaultChildKind, isTaskKind, type NodeKind, type NodeRow } from "../../domain/node.ts";
+
+/**
+ * 新增葉節點的種類（v1.31 配合 Bug 1：新建葉節點預設＝車票，長出子項才由 repository 自動升格列車／車廂）——
+ * 桌機大綱的「同層新增」（Enter／Ctrl+Enter 連打）、沒選取時的第一筆，與手機路線圖 ⋯「同層新增」同一把尺。
+ *   - 支線＝章節，同層新增照舊是支線；車票的同層＝車票（不因父節點是列車就變車廂）。
+ *   - 其餘（列車、車廂、範圍頂層）＝父節點的預設子種類，照 domain `defaultChildKind` 走，不在前端寫死。
+ * `parentKind`＝新節點要放進去的那一層（路線最上層＝"route"）。
+ */
+export function leafKindFor(parentKind: NodeKind, siblingKind?: NodeKind): NodeKind {
+  if (siblingKind === "branch") return "branch";
+  if (parentKind === "route" || parentKind === "branch" || parentKind === "train" || parentKind === "car") {
+    return "ticket";
+  }
+  return defaultChildKind(parentKind) ?? siblingKind ?? "ticket";
+}
 
 /** 樹索引的最小形狀（＝nodeStore.TreeIndex；這裡只讀 byId） */
 export interface GuardTree {

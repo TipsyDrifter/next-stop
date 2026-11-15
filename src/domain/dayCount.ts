@@ -83,7 +83,7 @@ export function lateCount(rows: readonly LateCountRow[], today: string): LateCou
   let earliest: string | null = null;
   for (const r of rows) {
     if (r.bucket === "today") continue;
-    if (r.occurrence !== null || r.status === "done") continue;
+    if (r.occurrence !== null || r.status === "done" || r.status === "paused") continue;
     // 走到這裡 occurrence 一定是 null（有班次記錄＝交代過），班次日 `occurrence?.due_on ?? scheduled_on` 就是 scheduled_on
     const eff = r.bucket === "late" ? r.scheduled_on : r.due_on;
     if (eff === null || eff > today) continue;

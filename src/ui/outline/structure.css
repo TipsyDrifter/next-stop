@@ -46,7 +46,7 @@
 .ns-chapter-progress-track {
   width: 44px;
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-dash);
   overflow: hidden;
   display: inline-block;
@@ -54,7 +54,7 @@
 .ns-chapter-progress-fill {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent, var(--color-ink));
   transition: width 0.2s ease;
 }
@@ -67,7 +67,7 @@
   font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-badge);
   cursor: pointer;
   white-space: nowrap;
   transition: border-color 0.14s, color 0.14s;

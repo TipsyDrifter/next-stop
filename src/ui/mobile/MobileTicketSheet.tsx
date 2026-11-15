@@ -83,6 +83,7 @@ import "./mobile-polish.css";
 import "./routemap/ticket-sheet.css";
 import { useMobileDetailStore } from "./detail/mobileDetailStore";
 import { copyTicketLink } from "../external/externalBridge";
+import { toggleStopoverFlow } from "../outline/nodeFlows";
 import { SETTLED_DEFER_MSG } from "./useMobileToday";
 import { mdw, sheetDeferItems } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
@@ -567,6 +568,19 @@ export function MobileTicketSheet({
       詳情…
     </MSheetItem>
   ) : null;
+  // v1.31 D-1.31-4：途中下車保留在右鍵／⋯ 選單、看板與詳情面板（看板 sheet 已透過 head 提供現況四格，不重複出）
+  const stopoverItem =
+    !head && card.kind !== "branch" && !card.readOnly && !card.done && !card.suspended ? (
+      <MSheetItem
+        onClick={() => {
+          onClose();
+          void toggleStopoverFlow(card.nodeId);
+        }}
+      >
+        {card.paused ? "解除途中下車" : "途中下車"}
+      </MSheetItem>
+    ) : null;
+  const quickMetaRow = [detailItem, stopoverItem, copyLink].filter(Boolean);
 
   /* ── ⑤ 各線附加項 ── */
   const lineItems = lineTicketSheetItems().map(({ id, Item }) => (
@@ -607,14 +621,7 @@ export function MobileTicketSheet({
             </>
           )}
           {adds}
-          {detailItem && copyLink ? (
-            <div className="m-tks-pair">
-              {detailItem}
-              {copyLink}
-            </div>
-          ) : (
-            (detailItem ?? copyLink)
-          )}
+          {quickMetaRow.length > 1 ? <div className="m-tks-lines">{quickMetaRow}</div> : quickMetaRow}
           {/* 各線附加項（接縫 #56 後半；旅客筆記：荷札…、時刻表：発車）——別線的元件自己畫 MSheetItem；
               兩項以上排成一列多格（第三輪，D-主-76 補強：路線圖多一列「新增」時，一項一列會把「刪除」擠到折線下） */}
           {lineItems.length > 1 ? <div className="m-tks-lines">{lineItems}</div> : lineItems}

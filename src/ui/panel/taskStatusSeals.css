@@ -1,0 +1,165 @@
+/* ─────────────────────────────────────────────────────
+ * taskStatusSeals.css — 桌機詳情側板「結案印記（蓋済／途中下車）」共置樣式（v1.31 D-1.31-4）。
+ * 全面使用既有語意層 CSS Tokens（零裸色碼），操作鈕與「途中下車」角印維持 --radius-ctl（2px）切角，
+ * 「済」小印維持正圓検印圈（50%）。
+ * ───────────────────────────────────────────────────── */
+
+.ns-seals-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns-seals-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ns-seal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-seal-btn:hover:not(:disabled) {
+  border-color: var(--color-ink-soft);
+  background: var(--hover-bg);
+  color: var(--color-ink);
+}
+
+.ns-seal-btn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-seal-btn:disabled {
+  opacity: var(--disabled);
+  cursor: not-allowed;
+}
+
+/* 小型印章圖騰：蓋済＝正圓朱印、途中下車＝微切角墨印 */
+.ns-seal-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-spring, var(--ease));
+}
+
+.ns-seal-mark.is-sumi {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--seal) 65%, transparent);
+  color: var(--seal);
+  font-size: 11px;
+}
+
+.ns-seal-mark.is-geshya {
+  min-height: 18px;
+  padding: 1px 4px;
+  border-radius: var(--radius-ctl);
+  border: 1.4px solid color-mix(in srgb, var(--stamp-ink) 65%, transparent);
+  color: var(--stamp-ink);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+/* 已蓋印啟用態 */
+.ns-seal-btn.is-sumi.is-on {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--seal) 55%, transparent);
+  background: color-mix(in srgb, var(--seal) 10%, transparent);
+  color: var(--seal);
+  font-weight: 600;
+}
+.ns-seal-btn.is-sumi.is-on .ns-seal-mark.is-sumi {
+  border-color: var(--seal);
+  transform: rotate(-8deg);
+}
+
+.ns-seal-btn.is-geshya.is-on {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--stamp-ink) 55%, transparent);
+  background: var(--hover-bg);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.ns-seal-btn.is-geshya.is-on .ns-seal-mark.is-geshya {
+  border-color: var(--stamp-ink);
+  transform: rotate(-5deg);
+}
+
+@keyframes nsPanelStampIn {
+  0% { transform: scale(1.38) rotate(2deg); opacity: 0.35; }
+  65% { transform: scale(0.95) rotate(-8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-6deg); opacity: 1; }
+}
+
+.ns-seal-btn.is-fresh .ns-seal-mark {
+  animation: nsPanelStampIn 0.28s var(--ease-spring, ease-out);
+}
+
+/* 結案狀態說明與一鍵復原列 */
+.ns-seals-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--color-ink-faint);
+}
+
+.ns-seals-note-time {
+  font-family: var(--font-latin);
+  letter-spacing: 0.04em;
+  color: var(--color-ink-soft);
+}
+
+.ns-seals-restore {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.ns-seals-restore:hover {
+  color: var(--color-ink);
+}
+
+.ns-seals-restore:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-seal-btn,
+  .ns-seal-mark { transition: none; }
+  .ns-seal-btn.is-fresh .ns-seal-mark { animation: none; }
+}

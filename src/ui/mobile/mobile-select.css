@@ -117,7 +117,7 @@
 [data-shell="mobile"] .m-seltag-chip {
   min-height: 36px; padding: 0 12px; box-sizing: border-box;
   display: inline-flex; align-items: center; gap: 4px;
-  border: 1px solid var(--color-line); border-radius: 18px; background: transparent;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: transparent; /* v1.31 Bug 6：chip＝控件方角 */
   font: 400 var(--fs-ui)/1 var(--font-body); color: var(--color-ink); cursor: pointer;
 }
 [data-shell="mobile"] .m-seltag-chip:active { background: var(--hover-bg); }

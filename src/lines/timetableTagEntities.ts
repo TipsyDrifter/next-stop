@@ -19,6 +19,7 @@ import type { TimeBlockRow, TimeCategoryRow } from "../domain/timetable";
 import { parseGoal } from "../domain/timetableStats";
 import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF, TT_TAG_CATEGORY, TT_TAG_GOAL } from "../domain/timetableTags";
 import { todayKey } from "../lib/date";
+import { runAtomicNav } from "../store/navHistoryStore";
 import { TT_TEXT, useTimetableStore } from "../store/timetableStore";
 import { useTimetableStatsStore } from "../store/timetableStatsStore";
 import { useUiStore } from "../store/uiStore";
@@ -60,21 +61,23 @@ function mdOfStart(iso: string, h: number): string {
  * 運行中那班：荷札頁（預設 `"tags"`）＝桌機開荷札小面板、手機只跳過去；頁首搜尋給 `"edit"`＝兩殼都開「改這一班」（看得到備註）。
  */
 export async function openBlock(row: TimeBlockRow, running: "tags" | "edit" = "tags"): Promise<void> {
-  const shell = shellNow();
-  await gotoTimetable(shell);
-  const tt = useTimetableStore.getState();
-  // 軸只在 axis（兩殼）／split（桌機）畫；其他視圖先切過去
-  const onAxis = tt.view === "axis" || (shell === "desktop" && tt.view === "split");
-  if (!onAxis) tt.setView(shell === "mobile" ? "axis" : "split");
-  await tt.setDayKey(todayKey(useUiStore.getState().dayStartHour, new Date(row.started_at)));
-  const s = useTimetableStore.getState();
-  if (row.ended_at === null) {
-    if (s.running?.id !== row.id) return;
-    if (running === "edit") s.openSheet({ kind: "edit", blockId: row.id });
-    else if (shell === "desktop") s.openSheet({ kind: "tags", blockId: row.id });
-    return;
-  }
-  if (s.dayBlocks.some((b) => b.id === row.id)) s.openSheet({ kind: "edit", blockId: row.id });
+  await runAtomicNav(async () => {
+    const shell = shellNow();
+    await gotoTimetable(shell);
+    const tt = useTimetableStore.getState();
+    // 軸只在 axis（兩殼）／split（桌機）畫；其他視圖先切過去
+    const onAxis = tt.view === "axis" || (shell === "desktop" && tt.view === "split");
+    if (!onAxis) tt.setView(shell === "mobile" ? "axis" : "split");
+    await tt.setDayKey(todayKey(useUiStore.getState().dayStartHour, new Date(row.started_at)));
+    const s = useTimetableStore.getState();
+    if (row.ended_at === null) {
+      if (s.running?.id !== row.id) return;
+      if (running === "edit") s.openSheet({ kind: "edit", blockId: row.id });
+      else if (shell === "desktop") s.openSheet({ kind: "tags", blockId: row.id });
+      return;
+    }
+    if (s.dayBlocks.some((b) => b.id === row.id)) s.openSheet({ kind: "edit", blockId: row.id });
+  });
 }
 
 async function describeBlocks(ids: readonly string[]): Promise<Record<string, TagEntityRow | null>> {
@@ -111,11 +114,11 @@ async function describeCategories(ids: readonly string[]): Promise<Record<string
           label: isGroup ? T.entityGroupDefault(c.name) : T.entityCategory(c.name),
           sub: isGroup ? T.entityGroupDefaultSub : T.entityCategorySub,
           open: () =>
-            void (async () => {
+            void runAtomicNav(async () => {
               await gotoTimetable(shellNow());
               // 磨光③ 2-11：展開那一列、閃一下；UI 丙-4 A3：對話框分頁後 focusId 一律落在「分類」分頁（T3 接）
               useTimetableStore.getState().openSheet({ kind: "categories", focusId: id });
-            })(),
+            }),
         }
       : null;
   }
@@ -123,12 +126,14 @@ async function describeCategories(ids: readonly string[]): Promise<Record<string
 }
 
 async function openGoal(goalId: string): Promise<void> {
-  await gotoTimetable(shellNow());
-  useTimetableStore.getState().setView("stats");
-  const st = useTimetableStatsStore.getState();
-  st.toCurrent();
-  focusGoalCard(goalId); // 卡區掛上、目標算好之後才真的捲（GoalCards 等它）
-  await st.load();
+  await runAtomicNav(async () => {
+    await gotoTimetable(shellNow());
+    useTimetableStore.getState().setView("stats");
+    const st = useTimetableStatsStore.getState();
+    st.toCurrent();
+    focusGoalCard(goalId); // 卡區掛上、目標算好之後才真的捲（GoalCards 等它）
+    await st.load();
+  });
 }
 
 async function describeGoals(ids: readonly string[]): Promise<Record<string, TagEntityRow | null>> {

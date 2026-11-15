@@ -47,6 +47,7 @@ import { Breadcrumb } from "./Breadcrumb";
 import { chapterCount } from "../../domain/chapterCount";
 import { DraftRow, OutlineRow, type CarStats } from "./OutlineRow";
 import { useOutlineController } from "./useOutlineController";
+import { leafKindFor } from "./rowGuards";
 import { useOutlineKeyboard } from "./useOutlineKeyboard";
 import { useOutlineDrag } from "./useOutlineDrag";
 import { useSelectionStore } from "../../store/selectionStore";
@@ -352,6 +353,16 @@ export function Outline() {
     toOutline();
     openComposer(topDest, "train");
   };
+  /**
+   * v1.31（Bug 1）：新建葉節點預設＝車票（長出子項才自動升格列車／車廂）——清單尾常駐列與空狀態跟著 domain 的預設子種類走；
+   * 建票列裡照樣有「列車｜車票」可切。domain 還說列車（舊規則）就維持「新增列車…」。
+   */
+  const leafIsTicket = leafKindFor(c.zoom?.kind ?? "route") === "ticket";
+  const addLeaf = () => {
+    toOutline();
+    openComposer(topDest, leafIsTicket || !topMakesTrain ? "ticket" : "train");
+  };
+  const leafWord = leafIsTicket || !topMakesTrain ? "車票" : "列車";
   const closeComposer = (byKeyboard: boolean) => {
     setComposer(null);
     if (byKeyboard) containerRef.current?.focus();
@@ -422,7 +433,15 @@ export function Outline() {
         />
       );
     } else if (!hasAnyNode) {
-      empty = (
+      empty = leafIsTicket ? (
+        <EmptyState
+          tone="first"
+          stamp={EMPTY_STAMP}
+          title="這條路線還沒有車票"
+          desc={`按 ${capsOfHotkey("outline.add.sibling")} 新增第一張車票；底下再長出車票時，它會自動變成列車。`}
+          action={{ label: "新增車票", icon: <IconPlus />, onClick: c.startFirstDraft }}
+        />
+      ) : (
         <EmptyState
           tone="first"
           stamp={EMPTY_STAMP}
@@ -438,14 +457,8 @@ export function Outline() {
           stamp={<SealDone />}
           title="已完成的班次都收起來了"
           desc="打開就能看到它們。"
-          // 回饋甲 D-主-128：這裡也要能直接開下一班（同頁首「新增列車」／清單尾常駐列）
-          action={
-            c.parked
-              ? undefined
-              : topMakesTrain
-                ? { label: "新增列車", icon: <IconPlus />, onClick: addTrain }
-                : { label: "新增車票", icon: <IconPlus />, onClick: addTicket }
-          }
+          // 回饋甲 D-主-128：這裡也要能直接開下一班（同頁首「新增列車」／清單尾常駐列）；v1.31 跟著預設葉節點種類
+          action={c.parked ? undefined : { label: `新增${leafWord}`, icon: <IconPlus />, onClick: addLeaf }}
           secondary={{ label: "顯示已完成", onClick: toggleHideDone }}
         />
       );
@@ -756,7 +769,7 @@ export function Outline() {
                   }}
                 />
               ) : (
-                <QuickAddLauncher label={topMakesTrain ? "新增列車…" : "新增車票…"} onOpen={addTrain} />
+                <QuickAddLauncher label={`新增${leafWord}…`} onOpen={addLeaf} />
               )}
             </ul>
             )}

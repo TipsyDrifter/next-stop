@@ -11,12 +11,12 @@
  *   移動到 ＝ common/moveTo.moveNodeTo
  * 本檔不 import React；狀態（收合、閃一下）由 MobileRouteMap 給回呼。
  */
-import { KIND_LABEL, defaultChildKind, describeRule, isTaskKind, parseRule, type NodeKind, type NodeRow } from "../../../domain";
+import { KIND_LABEL, describeRule, isTaskKind, parseRule, type NodeKind, type NodeRow } from "../../../domain";
 import type { CurrentOccurrence } from "../../../data";
 import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
 import { adaptKind, siblingsOf, useNodeStore, type TreeIndex } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
-import { MOBILE_GUARD_WORDS, rowGuards, type RowGuards } from "../../outline/rowGuards";
+import { MOBILE_GUARD_WORDS, leafKindFor, rowGuards, type RowGuards } from "../../outline/rowGuards";
 import type { TicketCardModel } from "../../schedule/ticketCard";
 import { confirmAndDeleteNode } from "../../common/deleteNodeFlow";
 
@@ -78,9 +78,14 @@ export interface AddPlan {
   afterId: string | null;
 }
 
-/** 同層新增：同種類、接在自己後面（大綱 keys.addSibling） */
+/**
+ * 同層新增：接在自己後面（大綱 keys.addSibling）。種類＝v1.31（Bug 1）同一把尺 `leafKindFor`：
+ * 支線／車票照舊同種類；列車、車廂的同層＝父節點的預設子種類（domain 說車票就是車票，長出子項再自動升格）。
+ */
 export function siblingPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPlan {
-  return { kind: n.kind, parentId: parentKey(tree, routeId, n), afterId: n.id };
+  const pid = parentKey(tree, routeId, n);
+  const parentKind: NodeKind = pid === routeId ? "route" : (tree.byId[pid]?.kind ?? "route");
+  return { kind: leafKindFor(parentKind, n.kind), parentId: pid, afterId: n.id };
 }
 
 /** 新增車票：列車／車廂／支線／車票＝掛在底下最後一張（丁 D-主-245 支線也行；討論 5 車票加子車票自動升格為列車／車廂；能不能做由 guards.ticketWhy 先擋） */
@@ -104,11 +109,9 @@ export function branchPlan(tree: TreeIndex, routeId: string, n: NodeRow): AddPla
   return cur ? { kind: "branch", parentId: parentKey(tree, routeId, cur), afterId: cur.id } : null;
 }
 
-/** 空路線／空縮放層的「新增第一班」：路線頂層＝列車；縮放進去＝那一層的預設子種類（大綱沒有選取時的 addSibling） */
+/** 空路線／空縮放層的「新增第一筆」：那一層的預設子種類（大綱沒有選取時的 addSibling；v1.31 起不再寫死「路線頂層＝列車」） */
 export function firstPlan(routeId: string, zoom: NodeRow | null): AddPlan {
-  return zoom
-    ? { kind: defaultChildKind(zoom.kind) ?? "car", parentId: zoom.id, afterId: null }
-    : { kind: "train", parentId: routeId, afterId: null };
+  return { kind: leafKindFor(zoom ? zoom.kind : "route"), parentId: zoom ? zoom.id : routeId, afterId: null };
 }
 
 /** 照 plan 建一個節點；失敗吐大綱同一句。回傳新列（呼叫端展開父節點、捲過去閃一下） */

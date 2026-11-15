@@ -62,7 +62,7 @@ async function lateDays(today: string, h: number): Promise<{ day: string }[]> {
   const rows = await nodeRepo.listToday(today, h);
   const out: { day: string }[] = [];
   for (const r of rows) {
-    if (r.bucket === "today" || r.occurrence !== null || r.status === "done") continue;
+    if (r.bucket === "today" || r.occurrence !== null || r.status === "done" || r.status === "paused") continue;
     const day = r.bucket === "late" ? r.scheduled_on : r.due_on;
     if (day && day <= today) out.push({ day });
   }
@@ -75,7 +75,7 @@ async function dueSoon(today: string, h: number): Promise<ReportDue[]> {
   const out: ReportDue[] = [];
   for (const d of cal.dues) {
     const n = cal.nodes[d.node_id];
-    if (!n || d.date < today || d.date > to) continue;
+    if (!n || n.status === "done" || n.status === "paused" || d.date < today || d.date > to) continue;
     out.push({ day: d.date, nodeId: n.id, name: n.name, routeId: n.route_id, temp: n.parent_id === null });
   }
   return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.name.localeCompare(b.name)));

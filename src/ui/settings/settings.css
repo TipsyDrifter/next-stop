@@ -26,6 +26,23 @@
   min-height: 172px;
 }
 
+/* 〈一般〉的三組（v1.31 畫面 1）：組名＝眉標語彙（--fs-micro、字距 .28em、極淡墨）＋下緣一條 --color-line，
+ * 同手機「更多」的 .m2-sec-title；組與組之間 --sp-6，組內欄位之間 --sp-5。 */
+.ns-set-general { display: flex; flex-direction: column; gap: var(--sp-6); }
+.ns-set-grp { display: flex; flex-direction: column; gap: var(--sp-5); }
+.ns-set-grp-h {
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-line);
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  letter-spacing: .28em;
+  text-indent: .28em;
+  color: var(--color-ink-faint);
+}
+/* 開機自動啟動（非 Tauri 不畫）與各線指路（沒人填不畫）都可能是空的：整組只剩組名時收掉，不留孤零零一條線 */
+.ns-set-grp:not(:has(> :not(.ns-set-grp-h))) { display: none; }
+
 /* ═══════════════════════════════════════════════════════
  * 備份與還原分頁（M3 ⑥ WP3）——**只放排版**，顏色一律 token。
  * 無原型（c13）：形狀全借既有語彙——小字標籤＝techo.css 的 `.status`（來源 chip）、

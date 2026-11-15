@@ -266,3 +266,37 @@ test("⑥ repeatAside 帶結束條件；給已做次數才寫還剩", () => {
   const u = { ...d, endMode: "until" as const, until: "2026-12-31", count: null };
   assert.equal(P.repeatAside(u, null), "每週一・三 · 到 12/31");
 });
+
+test("v1.31 D-1.31-4：PROGRESS_OPTIONS 與 settlementViewOf 推進狀態／結案印記分區", () => {
+  assert.deepEqual(P.PROGRESS_OPTIONS.map((o) => o.label), ["未開始", "進行中"]);
+
+  // 一般推進態：progressValue 有值、settled 為 null、可蓋済
+  const doing = P.settlementViewOf({ repeat_rule: null, status: "doing", completed_at: null });
+  assert.deepEqual([doing.progressValue, doing.settled, doing.canStampDone, doing.sealNote], ["doing", null, true, null]);
+
+  // 途中下車（paused）：progressValue 熄滅為 null，settled 為 paused，不混入運休
+  const paused = P.settlementViewOf({ repeat_rule: null, status: "paused", completed_at: null });
+  assert.equal(paused.progressValue, null);
+  assert.equal(paused.settled, "paused");
+  assert.equal(paused.canStampDone, true);
+  assert.match(paused.sealNote ?? "", /途中下車/);
+
+  // 蓋済結案（done）：progressValue 為 null，settled 為 done
+  const done = P.settlementViewOf({ repeat_rule: null, status: "done", completed_at: "2026-10-25T08:00:00.000Z" });
+  assert.deepEqual([done.progressValue, done.settled, done.noSeal, done.sealNote], [null, "done", false, "已蓋済結案"]);
+
+  // 活著的定期券：單班完成在「検印」欄，結案印記不開放直接蓋済，但可蓋途中下車暫停推進
+  const liveTeiki = P.settlementViewOf({ repeat_rule: weekly, status: "todo", completed_at: null });
+  assert.equal(liveTeiki.progressValue, "todo");
+  assert.equal(liveTeiki.canStampDone, false);
+  assert.match(liveTeiki.doneDisabledWhy ?? "", /検印/);
+
+  const pausedTeiki = P.settlementViewOf({ repeat_rule: weekly, status: "paused", completed_at: null });
+  assert.equal(pausedTeiki.settled, "paused");
+  assert.equal(pausedTeiki.canStampDone, false);
+
+  // 退役定期券（最後一班運休收尾 completed_at=null vs 有蓋過済）：皆可解除結案並附 retiredNote
+  const retiredNoSeal = P.settlementViewOf({ repeat_rule: weekly, status: "done", completed_at: null });
+  assert.deepEqual([retiredNoSeal.settled, retiredNoSeal.noSeal, retiredNoSeal.canStampDone], ["done", true, true]);
+  assert.match(retiredNoSeal.retiredNote ?? "", /重新排班/);
+});

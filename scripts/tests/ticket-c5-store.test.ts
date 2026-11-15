@@ -79,6 +79,7 @@ registerHooks({
         // quickJump 只拿 TicketLedger 的 acctLabel（那支是 .tsx，node 讀不了）；uiStore 跟 store 用同一份替身
         if (specifier === "./TicketLedger") return { url: dataUrl(FAKE_LEDGER), shortCircuit: true };
         if (specifier === "../../store/uiStore") return { url: dataUrl(FAKE_UI), shortCircuit: true };
+        if (specifier === "../../store/navHistoryStore") return { url: dataUrl("export async function runAtomicNav(fn) { return fn(); }"), shortCircuit: true };
       }
       if (parent.includes("/src/store/ticketStore")) {
         if (specifier === "../data/ticketRepository") return { url: dataUrl(FAKE_REPO), shortCircuit: true };

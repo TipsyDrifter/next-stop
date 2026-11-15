@@ -85,6 +85,34 @@ export function captureNavSnapshot(): NavSnapshot {
 
 let isRestoring = false;
 let pendingFlush = false;
+let atomicDepth = 0;
+let atomicDirty = false;
+
+/**
+ * 原子化多步跨頁跳轉（v1.31 Bug 5b）：
+ * 在 `fn` 執行與非同步 `await` 期間暫停推入中間態歷史快照，
+ * 支援巢狀呼叫；待最外層結束（`finally`）時一次性寫入最終狀態快照。
+ */
+export async function runAtomicNav<T>(fn: () => T | Promise<T>): Promise<T> {
+  if (atomicDepth === 0 && pendingFlush) {
+    pendingFlush = false;
+    atomicDirty = true;
+  }
+  atomicDepth++;
+  try {
+    return await fn();
+  } finally {
+    atomicDepth--;
+    if (atomicDepth === 0) {
+      pendingFlush = false;
+      const dirty = atomicDirty;
+      atomicDirty = false;
+      if (dirty && !isRestoring) {
+        useNavHistoryStore.getState().pushSnapshot();
+      }
+    }
+  }
+}
 
 /**
  * 優先收起不在歷史堆疊裡的臨時浮層（確認框、PopMenu、右鍵選單、日曆小卡、推遲選單、計算機、完成卡、靈感捕捉／預覽）。
@@ -440,6 +468,10 @@ export const useNavHistoryStore = create<NavHistoryState>((set, get) => {
 
     pushSnapshot: (snap = captureNavSnapshot()) => {
       if (isRestoring) return;
+      if (atomicDepth > 0) {
+        atomicDirty = true;
+        return;
+      }
       const { entries, index } = get();
       set(reducePushSnapshot(entries, index, snap, MAX_NAV_HISTORY));
     },
@@ -476,13 +508,21 @@ export const useNavHistoryStore = create<NavHistoryState>((set, get) => {
 });
 
 function scheduleFlush(): void {
-  if (isRestoring || pendingFlush) return;
+  if (isRestoring) return;
+  if (atomicDepth > 0) {
+    atomicDirty = true;
+    return;
+  }
+  if (pendingFlush) return;
   pendingFlush = true;
   queueMicrotask(() => {
     pendingFlush = false;
-    if (!isRestoring) {
-      useNavHistoryStore.getState().pushSnapshot();
+    if (isRestoring) return;
+    if (atomicDepth > 0) {
+      atomicDirty = true;
+      return;
     }
+    useNavHistoryStore.getState().pushSnapshot();
   });
 }
 

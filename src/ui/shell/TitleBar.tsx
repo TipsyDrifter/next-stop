@@ -8,7 +8,7 @@
  *   - 當左側書封收合時，左端自動浮現 `[◧ 展開書封] [←] [→] ｜ 私鐵手帳` 迷你刊名膠囊。
  *   - 中央為純淨的天空拖曳區（`data-tauri-drag-region`，搜尋留在側欄）。
  *   - 右端常駐專屬功能：
- *     1. 「時刻表・運行中班次」迷你行先表示器（計時中顯示即時秒數、分類／任務名與一鍵 `■ 到着`；未發車時可點開常用分類快速 `▶ 発車`）
+ *     1. 「時刻表・運行中班次」運行列車計時器（v1.31 D-1.31-7：昭和銘板圓角外框（`--radius-plate: 7px`）＋內部分格與票根虛線撕線；計時中顯示即時秒數、分類／任務名與一鍵 `■ 到着`；未發車時可點開常用分類快速 `▶ 発車`）
  *     2. `[✎ 記一句]` 快速靈感捕捉（`notesStore.openCapture()`）
  *     3. `[📌 桌面置頂小窗]` 開關（`pinSetVisible`／`pinStatus`）
  *     4. `[🌙/☀ 主題秒切]` 粉彩星空／銀河鐵道一鍵切換
@@ -172,11 +172,11 @@ export function CoverTopBar() {
   );
 }
 
-/* ───────── 時刻表・運行中班次 迷你行先表示器 ───────── */
+/* ───────── 時刻表・運行中班次 迷你行先表示器（行先方向幕：種別章｜時刻｜行先┊動作） ───────── */
 
 const DEPART_OVERLINE = { zh: "快速発車", latin: "Quick Depart" };
 
-function TitleBarTimerPill() {
+function TitleBarDestSign() {
   const ready = useTimetableStore((s) => s.ready);
   const running = useTimetableStore((s) => s.running);
   const catById = useTimetableStore((s) => s.catById);
@@ -470,7 +470,7 @@ export function TitleBar() {
 
       {/* 右側：時刻表行先表示器 ＋ 專屬快捷工具三件套 ＋ 視窗控制鍵 */}
       <div className="ns-titlebar-right">
-        <TitleBarTimerPill />
+        <TitleBarDestSign />
 
         <span className="ns-tb-sep" aria-hidden="true" />
 

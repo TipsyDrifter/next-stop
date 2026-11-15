@@ -40,6 +40,7 @@ import { TodayFocus } from "../ui/timetable/task/TodayFocus";
 import { RouteTimeAside } from "../ui/timetable/task/RouteTimeAside";
 import { TT_TEXT } from "../store/timetableStore";
 import { useTimetableStatsStore } from "../store/timetableStatsStore";
+import { runAtomicNav } from "../store/navHistoryStore";
 import { useNodeStore } from "../store/nodeStore";
 import { useUiStore } from "../store/uiStore";
 import { timetableRepo } from "../data/timetableRepository";
@@ -108,7 +109,7 @@ export const TIMETABLE_MOUNT: LineMount = {
       label: "時刻表的通知",
       sub: "運行中顯示、分類格",
       open: (shell) =>
-        void (async () => {
+        void runAtomicNav(async () => {
           // 載入失敗（錯誤已寫進 store.error）就停在時刻表頁，不開面板、不留沒人接的 rejection
           try {
             await gotoTimetable(shell);
@@ -118,7 +119,7 @@ export const TIMETABLE_MOUNT: LineMount = {
           }
           // UI 丙-4 A3：對話框有分頁之後 focus:"notice"＝直接開「通知」分頁（T3 保留這個舊鍵的相容，不必捲到底）
           useTimetableStore.getState().openSheet({ kind: "categories", focus: "notice" });
-        })(),
+        }),
     },
   ],
   // ② 運行報告：卡片小元件與表格某一天點下去的去處（D-主-188；跳法在 timetableReport.ts）
@@ -172,15 +173,16 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
     const gone = row.deleted_at !== null;
     return {
       ...blockSyncLabel(row, look, TT_TEXT),
-      open: async () => {
-        await gotoTimetable(shell);
-        const tt = useTimetableStore.getState();
-        if (tt.view === "week" || tt.view === "stats") tt.setView(shell === "mobile" ? "axis" : "split");
-        await tt.setDayKey(todayKey(useUiStore.getState().dayStartHour, new Date(row.started_at)));
-        if (gone) return; // 已刪除：只跳到那一天
-        const s = useTimetableStore.getState();
-        if (s.dayBlocks.some((b) => b.id === rowId)) s.openSheet({ kind: "edit", blockId: rowId });
-      },
+      open: () =>
+        runAtomicNav(async () => {
+          await gotoTimetable(shell);
+          const tt = useTimetableStore.getState();
+          if (tt.view === "week" || tt.view === "stats") tt.setView(shell === "mobile" ? "axis" : "split");
+          await tt.setDayKey(todayKey(useUiStore.getState().dayStartHour, new Date(row.started_at)));
+          if (gone) return; // 已刪除：只跳到那一天
+          const s = useTimetableStore.getState();
+          if (s.dayBlocks.some((b) => b.id === rowId)) s.openSheet({ kind: "edit", blockId: rowId });
+        }),
     };
   }
   if (tbl === "time_categories") {
@@ -191,11 +193,12 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
     const look = await lookupFor([]);
     return {
       ...categorySyncLabel(row, look, TT_TEXT),
-      open: async () => {
-        await gotoTimetable(shell);
-        // UI 丙-4 A3：同荷札頁——帶 focusId 開「分類」分頁、定位並閃那一列（原本只開面板、不定位）
-        useTimetableStore.getState().openSheet({ kind: "categories", focusId: rowId });
-      },
+      open: () =>
+        runAtomicNav(async () => {
+          await gotoTimetable(shell);
+          // UI 丙-4 A3：同荷札頁——帶 focusId 開「分類」分頁、定位並閃那一列（原本只開面板、不定位）
+          useTimetableStore.getState().openSheet({ kind: "categories", focusId: rowId });
+        }),
     };
   }
   if (tbl === "time_goals") {
@@ -205,16 +208,17 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
     const gone = row.deleted_at !== null;
     return {
       ...goalSyncLabel(row, look, TT_TEXT),
-      open: async () => {
-        await gotoTimetable(shell);
-        const tt = useTimetableStore.getState();
-        tt.setView("stats");
-        const st = useTimetableStatsStore.getState();
-        st.toCurrent();
-        // 目標面板的初值讀統計 store 的 goalList：等這一輪算完再開（統計頁剛掛上時還是空的）
-        await st.load();
-        if (!gone) useTimetableStore.getState().openSheet({ kind: "goal", goalId: rowId });
-      },
+      open: () =>
+        runAtomicNav(async () => {
+          await gotoTimetable(shell);
+          const tt = useTimetableStore.getState();
+          tt.setView("stats");
+          const st = useTimetableStatsStore.getState();
+          st.toCurrent();
+          // 目標面板的初值讀統計 store 的 goalList：等這一輪算完再開（統計頁剛掛上時還是空的）
+          await st.load();
+          if (!gone) useTimetableStore.getState().openSheet({ kind: "goal", goalId: rowId });
+        }),
     };
   }
   if (tbl === "time_routines") {
@@ -225,10 +229,11 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
     const gone = row.deleted_at !== null;
     return {
       ...routineSyncLabel(row, look, TT_TEXT),
-      open: async () => {
-        await gotoTimetable(shell);
-        useTimetableStore.getState().openSheet({ kind: "categories", focus: "routine", ...(gone ? {} : { focusId: rowId }) });
-      },
+      open: () =>
+        runAtomicNav(async () => {
+          await gotoTimetable(shell);
+          useTimetableStore.getState().openSheet({ kind: "categories", focus: "routine", ...(gone ? {} : { focusId: rowId }) });
+        }),
     };
   }
   if (tbl === "time_plans") {
@@ -245,12 +250,13 @@ async function timetableSyncRowLabel(tbl: string, rowId: string, shell: "desktop
     return {
       ...out,
       ...(row.deleted_at !== null ? { note: TT_TEXT.syncPlanGone } : {}),
-      open: async () => {
-        await gotoTimetable(shell);
-        const tt = useTimetableStore.getState();
-        tt.setView("schedule");
-        await tt.setDayKey(row.day);
-      },
+      open: () =>
+        runAtomicNav(async () => {
+          await gotoTimetable(shell);
+          const tt = useTimetableStore.getState();
+          tt.setView("schedule");
+          await tt.setDayKey(row.day);
+        }),
     };
   }
   return null;

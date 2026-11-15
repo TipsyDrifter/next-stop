@@ -138,17 +138,16 @@ export function childKindSwaps(target: NodeKind, kids: readonly NodeKind[]): { s
 /** 轉成支線時清掉的欄（支線是主題，沒有日期、時刻、重複；丁 D-主-246） */
 export const BRANCH_CLEARED_FIELDS = ["scheduled_on", "due_on", "scheduled_time", "repeat_rule"] as const;
 
-/** Tab 降層時的類型推導（D 定案：路線／支線下→列車；列車／車廂下→車廂）。 */
+/** 新增無子項任務節點時的預設葉節點型別（v1.31 Bug 1：路線／支線／列車／車廂下預設皆為車票）。 */
 export function defaultChildKind(parent: NodeKind): NodeKind | null {
   switch (parent) {
     case "line":
       return "route";
     case "route":
     case "branch":
-      return "train";
     case "train":
     case "car":
-      return "car";
+      return "ticket";
     default:
       return null;
   }

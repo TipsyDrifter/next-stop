@@ -269,7 +269,22 @@ export default function MobileMore() {
           </button>
         </div>
 
-        <MoodSettings labelClass="m2-block-label" blockClass="m2-block" />
+        {/* v1.31 畫面 1：氛圍收成「今日天象與動態氛圍」一張區塊（同桌機〈一般〉同一支 MoodSettings） */}
+        <MoodSettings shell="mobile" />
+
+        {/* 磨光① N10（D-主-53）：一天的開始時間——跟桌機設定同一支 setDayStartHour、同一個設定鍵（本來就同步）；說明照桌機的意思、精簡一句。
+            庚：原生選單換分段鈕（值只有七個；手機一格放不下「06:00」，只寫時）。
+            v1.31 畫面 1：順序對齊桌機〈一般〉的「日子怎麼算」一組——一天的開始時間在前、週首在後（法則 06：同一件事同一個位置）。 */}
+        <div className="m2-block">
+          <span className="m2-block-label">一天的開始時間</span>
+          <Segmented
+            options={DAY_START_OPTS}
+            value={String(dayStartHour)}
+            onChange={(v) => void setDayStartHour(Number(v))}
+            aria-label="一天的開始時間"
+          />
+          <p className="m2-note m2-day-start-note">熬夜到這個時間前都算前一天。</p>
+        </div>
 
         {/* 旅客筆記車次②（D-筆-29）：週首——與桌機設定頁同一列同一份字；形狀沿主題那組 `.m2-choice` */}
         <div className="m2-block">
@@ -292,20 +307,6 @@ export default function MobileMore() {
               );
             })}
           </div>
-        </div>
-
-        {/* 磨光① N10（D-主-53）：一天的開始時間——放週起點下面（兩個都是「日子怎麼算」）。
-            跟桌機設定同一支 setDayStartHour、同一個設定鍵（本來就同步）；說明照桌機的意思、精簡一句。
-            庚：原生選單換分段鈕（值只有七個；手機一格放不下「06:00」，只寫時）。 */}
-        <div className="m2-block">
-          <span className="m2-block-label">一天的開始時間</span>
-          <Segmented
-            options={DAY_START_OPTS}
-            value={String(dayStartHour)}
-            onChange={(v) => void setDayStartHour(Number(v))}
-            aria-label="一天的開始時間"
-          />
-          <p className="m2-note m2-day-start-note">熬夜到這個時間前都算前一天。</p>
         </div>
 
         {/* v1.1.1（WP8）：同步一列——右側直接寫現在的狀態（觸控沒有 hover，狀態得攤在字面上）。

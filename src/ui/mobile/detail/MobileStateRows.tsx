@@ -12,7 +12,7 @@
  *   AmountRows  列車／車廂：花費（別線登記了分量段欄位就讓位，同桌機）・進度（有子項＝自動彙總、沒有＝手動 %）
  *   DoneAt      列車／車廂已完成＝名稱下「完成於 MM/DD HH:mm」（桌機票頭同一個值；車票的在検印章旁）
  */
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { isTaskKind, parseRule, runOrigin, type NodeRow } from "../../../domain";
 import { effectiveTime, isTimeOverridden } from "../../../domain/scheduledTime";
 import { lineNodeFields } from "../../../lines/runtime";
@@ -24,7 +24,15 @@ import { changeStatusFlow, moveRunFlow, openKidsOf, panelStampFlow, panelSuspend
 import { fmtDateTime } from "../../panel/format";
 import { SealDone } from "../../stamps";
 import { lenText } from "../MobileTimeSheet";
-import { PRIORITY_OPTIONS, mdwText, stampViewOf, statusChoices } from "../../panel/panelRules";
+import {
+  PRIORITY_OPTIONS,
+  PROGRESS_OPTIONS,
+  mdwText,
+  settlementViewOf,
+  stampViewOf,
+  type ProgressStatus,
+  type SettledSeal,
+} from "../../panel/panelRules";
 import "../routemap/routemap.css";
 
 /**
@@ -62,29 +70,120 @@ export function PriorityRow({ node }: { node: NodeRow }) {
 }
 
 export function StatusRows({ node }: { node: NodeRow }) {
-  const { options, note } = statusChoices(node);
+  const sv = settlementViewOf(node);
+  const lastProgressRef = useRef<{ id: string; status: ProgressStatus }>({
+    id: node.id,
+    status: node.status === "doing" ? "doing" : "todo",
+  });
+  if (lastProgressRef.current.id !== node.id) {
+    lastProgressRef.current = { id: node.id, status: node.status === "doing" ? "doing" : "todo" };
+  } else if (sv.progressValue) {
+    lastProgressRef.current.status = sv.progressValue;
+  }
+
+  const [freshSeal, setFreshSeal] = useState<SettledSeal | null>(null);
+  const restoreTarget = lastProgressRef.current.status;
+  const restoreLabel = restoreTarget === "doing" ? "退回進行中" : "退回未開始";
+
+  const applyStatus = (next: NodeRow["status"], seal?: SettledSeal) => {
+    if (isSettling(node.id)) return;
+    if (seal) setFreshSeal(seal);
+    else setFreshSeal(null);
+    changeStatusFlow(node, next, openKidsOf(node), RETRACT);
+  };
+
+  const toggleSeal = (seal: SettledSeal) => {
+    if (seal === "done" && !sv.canStampDone) return;
+    if (sv.settled === seal) {
+      applyStatus(restoreTarget);
+    } else {
+      applyStatus(seal, seal);
+    }
+  };
+
   return (
     <>
-      <Row label="現況">
-        <div className="m-dt-stack">
-          <Segmented
-            compact
-            options={options}
-            value={node.status}
-            onChange={(v) => {
-              if (!isSettling(node.id)) changeStatusFlow(node, v, openKidsOf(node), RETRACT);
-            }}
-            aria-label="現況"
-          />
-          {note && <span className="m-dt-sub">{note}</span>}
+      <Row label="推進狀態">
+        <Segmented
+          compact
+          options={PROGRESS_OPTIONS}
+          value={sv.progressValue}
+          onChange={(v) => applyStatus(v)}
+          aria-label="推進狀態"
+        />
+      </Row>
+
+      <Row label="結案印記" tall>
+        <div className="m-dt-seals-wrap">
+          <div role="group" aria-label="結案印記" className="m-dt-seals-row">
+            <button
+              type="button"
+              className={
+                "m-dt-seal-btn is-sumi" +
+                (sv.settled === "done" && !sv.noSeal ? " is-on" : "") +
+                (freshSeal === "done" && sv.settled === "done" ? " is-fresh" : "")
+              }
+              aria-pressed={sv.settled === "done" && !sv.noSeal}
+              disabled={!sv.canStampDone}
+              title={sv.doneDisabledWhy ?? undefined}
+              onClick={() => toggleSeal("done")}
+              onAnimationEnd={() => setFreshSeal(null)}
+            >
+              <span className="m-dt-seal-mark is-sumi" aria-hidden>
+                済
+              </span>
+              <span>蓋済</span>
+            </button>
+
+            <button
+              type="button"
+              className={
+                "m-dt-seal-btn is-geshya" +
+                (sv.settled === "paused" ? " is-on" : "") +
+                (freshSeal === "paused" && sv.settled === "paused" ? " is-fresh" : "")
+              }
+              aria-pressed={sv.settled === "paused"}
+              onClick={() => toggleSeal("paused")}
+              onAnimationEnd={() => setFreshSeal(null)}
+            >
+              <span className="m-dt-seal-mark is-geshya" aria-hidden>
+                下車
+              </span>
+              <span>途中下車</span>
+            </button>
+          </div>
+
+          {(sv.sealNote || sv.settled !== null || sv.retiredNote) && (
+            <div className="m-dt-seals-foot">
+              {sv.sealNote && (
+                <span className="m-dt-sub">
+                  {sv.sealNote}
+                  {sv.settled === "done" && !sv.noSeal && node.completed_at && (
+                    <span className="m-dt-latin"> · {fmtDateTime(node.completed_at)}</span>
+                  )}
+                </span>
+              )}
+              {sv.settled !== null && (
+                <button
+                  type="button"
+                  className="m-dt-seal-restore"
+                  onClick={() => applyStatus(restoreTarget)}
+                >
+                  {restoreLabel}
+                </button>
+              )}
+              {sv.retiredNote && <span className="m-dt-sub">{sv.retiredNote}</span>}
+            </div>
+          )}
         </div>
       </Row>
+
       <PriorityRow node={node} />
     </>
   );
 }
 
-/* ───────────── 検印 ───────────── */
+/* ───────────── 検印（定期券本班專用） ───────────── */
 
 export function StampRows({ node, onRunTime, onRunDate }: { node: NodeRow; onRunTime: () => void; onRunDate: (railDate: string) => void }) {
   const occ = useNodeStore((s) => s.currentOccurrences[node.id]);
@@ -92,13 +191,8 @@ export function StampRows({ node, onRunTime, onRunDate }: { node: NodeRow; onRun
   // 只有「剛蓋」才播蓋章動畫（同桌機 .fresh）；取消時不播
   const [fresh, setFresh] = useState(false);
 
-  if (v.mode === "none") {
-    return v.retiredNote ? (
-      <Row label="検印">
-        <span className="m-dt-sub">{v.retiredNote}</span>
-      </Row>
-    ) : null;
-  }
+  // v1.31 D-1.31-4：單發車票與退役定期券的蓋済／途中下車統一由 StatusRows「結案印記」負責；這裡只畫活著的定期券本班検印與運休
+  if (v.mode !== "teiki") return null;
 
   const stamp = () => {
     if (isSettling(node.id)) return;
@@ -122,30 +216,22 @@ export function StampRows({ node, onRunTime, onRunDate }: { node: NodeRow; onRun
             </span>
           )}
         </button>
-        <span className="m-dt-stamp-meta">
-          {v.meta}
-          {v.mode === "plain" && v.done && node.completed_at && (
-            <span className="m-dt-sub m-dt-latin"> {fmtDateTime(node.completed_at)}</span>
-          )}
-        </span>
-        {v.mode === "teiki" && (
-          <button
-            type="button"
-            className={"m-dt-susp" + (v.suspended ? " is-on" : "")}
-            aria-pressed={v.suspended}
-            title={v.suspended ? "這一班改回照常開" : "這一班不開（不影響下一班）"}
-            onClick={() => {
-              if (!isSettling(node.id)) panelSuspendFlow(node.id, !v.suspended);
-            }}
-          >
-            {v.suspended ? "取消運休" : "運休"}
-          </button>
-        )}
+        <span className="m-dt-stamp-meta">{v.meta}</span>
+        <button
+          type="button"
+          className={"m-dt-susp" + (v.suspended ? " is-on" : "")}
+          aria-pressed={v.suspended}
+          title={v.suspended ? "這一班改回照常開" : "這一班不開（不影響下一班）"}
+          onClick={() => {
+            if (!isSettling(node.id)) panelSuspendFlow(node.id, !v.suspended);
+          }}
+        >
+          {v.suspended ? "取消運休" : "運休"}
+        </button>
       </Row>
-      {v.retiredNote && <p className="m-dt-hint">{v.retiredNote}</p>}
       {/* 本班日期（同桌機 RunDateRow）＋本班時刻（同桌機 RunTimeRow）：班次日拿不到就不畫 */}
-      {v.mode === "teiki" && v.railDate && <RunDateRow node={node} railDate={v.railDate} locked={v.done || v.suspended} onOpen={onRunDate} />}
-      {v.mode === "teiki" && v.railDate && <RunTimeRow node={node} railDate={v.railDate} onOpen={onRunTime} />}
+      {v.railDate && <RunDateRow node={node} railDate={v.railDate} locked={v.done || v.suspended} onOpen={onRunDate} />}
+      {v.railDate && <RunTimeRow node={node} railDate={v.railDate} onOpen={onRunTime} />}
     </>
   );
 }
@@ -279,8 +365,8 @@ export function AmountRows({ node }: { node: NodeRow }) {
 /* ───────────── 完成於 ───────────── */
 
 export function DoneAt({ node }: { node: NodeRow }) {
-  // 同桌機：列車／車廂印在票頭（TaskPanel NameBlock sub）；車票印在検印章旁（StampRows），這裡不重複
-  if (!isTaskKind(node.kind) || node.status !== "done" || !node.completed_at) return null;
+  // 同桌機票頭 NameBlock sub：列車／車廂／車票結案時都在標題下方印「完成於 …」
+  if ((!isTaskKind(node.kind) && node.kind !== "ticket") || node.status !== "done" || !node.completed_at) return null;
   return (
     <p className="m-dt-doneat">
       完成於 <b className="m-dt-latin">{fmtDateTime(node.completed_at)}</b>

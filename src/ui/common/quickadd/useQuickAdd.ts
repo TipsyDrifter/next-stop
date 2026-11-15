@@ -137,7 +137,8 @@ export function useQuickAdd(opts: UseQuickAddOptions): QuickAddApi {
   const [carry, setCarry] = useState<Partial<Pick<QuickDefaults, "dest" | "scheduledOn">>>({});
   const chipsRef = useRef(chips);
   chipsRef.current = chips;
-  const [routeKind, setRouteKind] = useState<RouteKind>(opts.routeKind ?? (opts.here.kind === "route" ? "train" : "ticket"));
+  // v1.31 Bug 1：新建葉節點預設統一為 ticket；顯式指定 routeKind="train"（如「新增列車」）時照舊
+  const [routeKind, setRouteKind] = useState<RouteKind>(opts.routeKind ?? "ticket");
   const [tasks, setTasks] = useState<ReadonlyMap<string, readonly TaskLite[]>>(new Map());
   const tasksFresh = useRef(false);
   const busy = useRef(false);

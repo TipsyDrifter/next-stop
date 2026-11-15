@@ -1617,7 +1617,7 @@ function StampSection() {
     <Sec id="gal-stamp" title="運行中徽" note="§2.9・§2.0 MobileTabBar · 赭膠囊＋字">
       <Comp
         spec={[
-          ["規格", <>時刻表運行中的小牌落在 tab 圖示右上：淡赭底 <code>--danger-bg</code>（底下墊紙色）＋赭框＋赭字＋<code>--radius-pill</code>，前面一顆赭點——不再跟圓印同形。資料與彈出／淡出動畫仍是時刻表的 NavBadge。</>],
+          ["規格", <>時刻表運行中的小牌落在 tab 圖示右上：淡赭底 <code>--danger-bg</code>（底下墊紙色）＋赭框＋赭字＋<code>--radius-pill</code>（D-1.31-7 迷你角標圓框），前面一顆 4px 赭點——不再跟圓印同形。資料與彈出／淡出動畫仍是時刻表的 NavBadge。</>],
           ["樣本", <>靜態 DOM（<code>span.m-tab-live &gt; .ns-tt-navbadge.is-mobile &gt; .ns-tt-badge.is-sm</code>），底借 <code>.ns-mfull-bar</code> 的書封色；真的要看手機殼底部 tab bar（時刻表運行中時）。</>],
         ]}
       >

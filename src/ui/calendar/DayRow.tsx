@@ -31,10 +31,11 @@ import type { NodeRow } from "../../domain";
 import { parseRule } from "../../domain";
 import type { DueEntry, ScheduleEntry } from "../../data";
 import { isTimeOverridden } from "../../domain/scheduledTime";
-import { clockMinutes, isClockPast, nextDayNote } from "../../lib/date";
+import { clockMinutes, isClockPast, nextDayNote, todayKey } from "../../lib/date";
 import { useUiStore } from "../../store/uiStore";
 import { roundelStyle } from "../common/roundel";
-import { PopMenu, hotkeyCaps, type PopMenuItem } from "../common/PopMenu";
+import { PopMenu, hotkeyCaps, rowsOf, type PopMenuItem } from "../common/PopMenu";
+import { toggleStopoverFlow } from "../outline/nodeFlows";
 import { IconDots } from "../common/icons";
 import { SealSuspended } from "../stamps";
 // 時刻字（.tm）的樣式在 schedule.css（串流 .ns-sch 與當日清單浮層 .ns-daypop 兩個前綴都寫在那裡）
@@ -44,6 +45,8 @@ import { armOpenOnClick } from "../common/selection/openOnClick";
 import { PriorityMark } from "../common/PriorityMark";
 import { InlineTicketEditor } from "../common/quickadd";
 import type { QuickChipKey } from "../common/quickadd/quickAddModel";
+import { useReattach } from "../common/quickadd/reattach";
+import { QuickExecChip, QuickPriorityChip } from "../common/quickadd/QuickPriorityChip";
 
 const cx = (...parts: Array<string | false | undefined>) => parts.filter(Boolean).join(" ");
 
@@ -213,6 +216,9 @@ export function TicketTime({
 export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, onDefer, now, menu, picked = false, dragId }: DayRowProps) {
   useHotkeyRevision();
   const [inlineEdit, setInlineEdit] = useState<{ picker: Exclude<QuickChipKey, "dest"> | null } | null>(null);
+  /** 圓牌改掛（v1.31 D-1.31-5）：收起後焦點回這一列（浮層／串流鍵盤流的落點） */
+  const rowRef = useRef<HTMLDivElement>(null);
+  const reattach = useReattach(row.node, () => rowRef.current?.focus({ preventScroll: true }));
   const name = row.node?.name ?? "";
   const disc = roundelStyle(row.route?.color);
   const serif = !row.route;
@@ -241,6 +247,36 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
           ? `這班要到 ${mmdd(row.entry.date)} 才能蓋——済只蓋目前班次`
           : "過去的班次不能改——只能處理目前的班次";
 
+  const effectiveMenu = menu
+    ? (anchor: HTMLElement | null): PopMenuItem[] => {
+        const base = menu(anchor);
+        const node = row.node;
+        if (
+          !node ||
+          node.kind === "branch" ||
+          row.isHistory ||
+          row.done ||
+          row.skipped ||
+          (row.isRepeat && !row.isCurrent) ||
+          base.some((it) => it.key === "stopover" || it.key === "status:paused")
+        ) {
+          return base;
+        }
+        const stopItem: PopMenuItem = {
+          key: "stopover",
+          label: node.status === "paused" ? "解除途中下車" : "途中下車",
+          onSelect: () => void toggleStopoverFlow(node.id),
+        };
+        const delIdx = base.findIndex((it) => it.danger);
+        const next = delIdx >= 0 ? [...base.slice(0, delIdx), stopItem, ...base.slice(delIdx)] : [...base, stopItem];
+        if (rowsOf(next).length > 7) {
+          const deferGroup = next.find((it) => it.group === "改期" || it.group === "排程")?.group ?? "編排";
+          stopItem.group = deferGroup;
+        }
+        return next;
+      }
+    : undefined;
+
   const stampInner = (
     <>
       <span className="seal-s" aria-hidden onAnimationEnd={fresh ? onFreshEnd : undefined}>
@@ -256,6 +292,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
 
   return (
     <div
+      ref={rowRef}
       className={cx(
         "prow",
         row.done && "done",
@@ -281,14 +318,36 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         setInlineEdit({ picker: null });
       }}
       onContextMenu={
-        menu
-          ? rowContextMenu(() => ({ overline: { zh: "這張車票", latin: "Ticket" }, label: `${name} 的動作`, items: menu(null) }))
+        effectiveMenu
+          ? rowContextMenu(() => ({ overline: { zh: "這張車票", latin: "Ticket" }, label: `${name} 的動作`, items: effectiveMenu(null) }))
           : undefined
       }
     >
-      <span className={cx("roundel-s", serif && "serif")} aria-hidden style={disc}>
-        {badgeOf(row.route)}
-      </span>
+      {/* v1.31 D-1.31-5：圓牌＝改掛入口（同今日列票根；歷史班次唯讀不給） */}
+      {reattach.can && !row.isHistory ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          data-pop-toggle
+          className={cx("roundel-s", serif && "serif", "ns-reattach-btn")}
+          style={disc}
+          aria-haspopup="dialog"
+          aria-expanded={reattach.isOpen}
+          aria-label={`改掛路線或列車（目前：${row.route?.name ?? "無路線"}）`}
+          title={`改掛到別的路線／列車（目前：${row.route?.name ?? "無路線"}）`}
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation();
+            reattach.open(e.currentTarget);
+          }}
+        >
+          {badgeOf(row.route)}
+        </button>
+      ) : (
+        <span className={cx("roundel-s", serif && "serif")} aria-hidden style={disc}>
+          {badgeOf(row.route)}
+        </span>
+      )}
+      {reattach.picker}
       {inlineEdit && row.node ? (
         <div style={{ flex: 1, minWidth: 0 }}>
           <InlineTicketEditor
@@ -330,16 +389,14 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
               setInlineEdit({ picker: null });
             }}
           >
-            {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
-            <span
-              onClick={(e) => {
-                if (row.isHistory || !row.node?.priority) return;
-                e.stopPropagation();
-                setInlineEdit({ picker: "priority" });
-              }}
-            >
+            {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點；v1.31：點擊直接開優先級小選單 */}
+            {row.node?.priority === "high" && !row.isHistory ? (
+              <QuickPriorityChip nodeId={row.node.id} priority={row.node.priority} className="ns-prio-btn">
+                <PriorityMark priority={row.node.priority} />
+              </QuickPriorityChip>
+            ) : (
               <PriorityMark priority={row.node?.priority} />
-            </span>
+            )}
             {name}
           </span>
         </>
@@ -387,7 +444,7 @@ export function DayRow({ row, selected, fresh, onFreshEnd, onSelect, onStamp, on
         </button>
       )}
 
-      {menu && <RowMore name={name} menu={menu} />}
+      {effectiveMenu && <RowMore name={name} menu={effectiveMenu} />}
 
       {canStamp ? (
         <button
@@ -527,10 +584,15 @@ export interface DueRowProps {
   onSelect(): void;
 }
 
-/** 締切列（原型 :1088-1094）：〆＋圓牌＋標題＋「詳情」＋「執行 M/D」或「未排乘車日」。唯讀，只有 `.`／「詳情」開側板 */
+/** 締切列（原型 :1088-1094）：〆＋圓牌（v1.31 點擊改掛路線／列車）＋標題＋「詳情」＋「執行 M/D」或「未排乘車日」（單發票點擊直排乘車日） */
 export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
   const name = node?.name ?? "";
   const exec = node?.scheduled_on ?? null;
+  const lineName = route?.name ?? "無路線";
+  const reattach = useReattach(node);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const today = todayKey(dayStartHour);
+  const isRepeat = node ? parseRule(node.repeat_rule) !== null : false;
   return (
     <div
       className="prow"
@@ -539,6 +601,7 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
       role="group"
       aria-label={`締切：${name}`}
       onMouseDown={(e) => {
+        if ((e.target as HTMLElement).closest("button")) e.preventDefault();
         onSelect();
         armOpenDetail(e, node?.id);
       }}
@@ -546,17 +609,47 @@ export function DueRow({ due, node, route, selected, onSelect }: DueRowProps) {
       <span className="sime-g" aria-hidden>
         〆
       </span>
-      <span className={cx("roundel-s", !route && "serif")} aria-hidden style={roundelStyle(route?.color)}>
-        {badgeOf(route)}
-      </span>
+      {reattach.can ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          data-pop-toggle
+          className={cx("roundel-s", "ns-reattach-btn", !route && "serif")}
+          style={roundelStyle(route?.color)}
+          aria-haspopup="dialog"
+          aria-expanded={reattach.isOpen}
+          aria-label={`改掛路線或列車（目前：${lineName}）`}
+          title={`改掛到別的路線／列車（目前：${lineName}）`}
+          onClick={(e: MouseEvent<HTMLButtonElement>) => {
+            e.stopPropagation();
+            reattach.open(e.currentTarget);
+          }}
+        >
+          {badgeOf(route)}
+        </button>
+      ) : (
+        <span className={cx("roundel-s", !route && "serif")} aria-hidden style={roundelStyle(route?.color)}>
+          {badgeOf(route)}
+        </span>
+      )}
+      {reattach.picker}
       <span className="t" title={name}>
         {name}
       </span>
       <DetailButton nodeId={node?.id} />
-      {exec ? (
+      {node && !isRepeat ? (
+        <QuickExecChip
+          nodeId={node.id}
+          scheduledOn={exec}
+          today={today}
+          className={cx(exec ? "due-tag" : "noexec", "ns-due-exec-btn")}
+          title={exec ? "點擊修改乘車日" : "點擊排定乘車日"}
+        >
+          {exec ? `執行 ${mmdd(exec)}` : "＋排乘車日"}
+        </QuickExecChip>
+      ) : exec ? (
         <span className="due-tag">執行 {mmdd(exec)}</span>
       ) : (
-        // 無乘車日的票只在締切日浮出來，格內清單沒有它——不講明會以為忘了排（決策 11）
         <span className="noexec">未排乘車日</span>
       )}
     </div>

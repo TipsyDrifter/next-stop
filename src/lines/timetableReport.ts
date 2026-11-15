@@ -4,26 +4,29 @@
  */
 import type { ReportJumpTarget } from "./types";
 import { gotoTimetable } from "./timetableTagEntities";
+import { runAtomicNav } from "../store/navHistoryStore";
 import { useTimetableStore } from "../store/timetableStore";
 import { useTimetableStatsStore } from "../store/timetableStatsStore";
 
 export async function timetableReportJump(target: ReportJumpTarget, shell: "desktop" | "mobile"): Promise<void> {
   if (typeof target === "object" && !("day" in target)) return;
-  try {
-    await gotoTimetable(shell);
-  } catch (e) {
-    console.warn("運行報告：打開時刻表失敗", e); // 錯誤已寫進 store.error，停在時刻表頁
-    return;
-  }
-  if (typeof target === "object") {
-    const tt = useTimetableStore.getState();
-    tt.setView("schedule");
-    await tt.setDayKey(target.day);
-    return;
-  }
-  if (target !== "stats") return;
-  useTimetableStore.getState().setView("stats");
-  const st = useTimetableStatsStore.getState();
-  st.setPeriod("day");
-  st.toCurrent();
+  await runAtomicNav(async () => {
+    try {
+      await gotoTimetable(shell);
+    } catch (e) {
+      console.warn("運行報告：打開時刻表失敗", e); // 錯誤已寫進 store.error，停在時刻表頁
+      return;
+    }
+    if (typeof target === "object") {
+      const tt = useTimetableStore.getState();
+      tt.setView("schedule");
+      await tt.setDayKey(target.day);
+      return;
+    }
+    if (target !== "stats") return;
+    useTimetableStore.getState().setView("stats");
+    const st = useTimetableStatsStore.getState();
+    st.setPeriod("day");
+    st.toCurrent();
+  });
 }

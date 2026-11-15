@@ -40,7 +40,7 @@ import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
 import { addDays, todayKey } from "../../lib/date";
 import { lineTodayHotkey } from "../../lines/runtime";
 import { requestMoveTo } from "../common/moveTo";
-import { moveRunFlow } from "../outline/nodeFlows";
+import { moveRunFlow, toggleStopoverFlow } from "../outline/nodeFlows";
 import { rowsOf, type PopMenuItem } from "../common/PopMenu";
 import type { TodayKeyActions } from "./useTodayKeyboard";
 import type { TodayRowActions } from "./TodayRow";
@@ -583,6 +583,14 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
         onSelect: run(() => suspendRow(r)),
       });
     }
+    // v1.31 D-1.31-4：途中下車為第二種結案印記，不上日常票面膠囊列，保留在右鍵／⋯ 選單、看板與詳情面板
+    if (!isDoneRow(r) && r.occurrence?.status !== "skipped") {
+      items.push({
+        key: "stopover",
+        label: r.status === "paused" ? "解除途中下車" : "途中下車",
+        onSelect: run(() => void toggleStopoverFlow(r.id)),
+      });
+    }
     // 回饋甲 D-主-134：補「上移／下移」（鏡射 Alt+↑↓；手機票卡 sheet 有，拖曳是加速）——
     // 跟「移動到…」收成「編排 ▾」（手機 sheet 同一組）；做不到時淡掉、滑過看理由（同 reorderWhy）
     const upWhy = reorderWhy(r, -1);
@@ -628,7 +636,7 @@ export function useTodayController(containerRef: RefObject<HTMLDivElement | null
     // 算的是頂層列數（群組算一列）。定期券多一項運休：有発車時收完還超過，就跟著收進去（它緊接在改期兩項後面，群組連得起來）
     if (rowsOf(items).length > 7) {
       for (const it of items) if (it.key === "tomorrow" || it.key === "today" || it.key === "pick-date") it.group = "改期";
-      if (rowsOf(items).length > 7) for (const it of items) if (it.key === "suspend") it.group = "改期";
+      if (rowsOf(items).length > 7) for (const it of items) if (it.key === "suspend" || it.key === "stopover") it.group = "改期";
     }
     return items;
   };

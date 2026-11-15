@@ -54,7 +54,7 @@
 .ns-selbar-pop.is-tag .techo-input { width: 100%; }
 .ns-selbar-pop.is-tag .hint { font-size: var(--fs-xs); color: var(--color-ink-faint); margin-top: 8px; letter-spacing: .04em; }
 .ns-selbar-tag {
-  height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--radius-pill);
+  height: var(--ctl-h-sm); padding: 0 10px; border-radius: var(--radius-ctl); /* v1.31 Bug 6：chip＝控件方角 */
   border: 1px solid var(--color-dash); background: transparent; cursor: pointer;
   font-size: var(--fs-ui); color: var(--color-ink-soft);
 }

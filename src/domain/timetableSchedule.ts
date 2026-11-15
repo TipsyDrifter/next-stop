@@ -109,7 +109,7 @@ export function lateItemsOf(
   const items: PlanItem[] = [];
   let repeatCount = 0;
   for (const r of rows) {
-    if (r.bucket !== "late" || r.status === "done") continue;
+    if (r.bucket !== "late" || r.status === "done" || r.status === "paused") continue;
     if (r.repeat_rule && r.repeat_rule.trim()) {
       if (r.occurrence === null) repeatCount++;
       continue;

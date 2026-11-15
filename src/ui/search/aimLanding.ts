@@ -14,6 +14,7 @@ import { periodOfKey, type AimPeriod } from "../../domain/weekAims";
 import { todayKey } from "../../lib/date";
 import { useDepotStore } from "../../store/depotStore";
 import { useUiStore } from "../../store/uiStore";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { jumpToNode } from "../common/QuickJump";
 import { jumpToNodeMobile } from "../mobile/routeMapReveal";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
@@ -47,36 +48,38 @@ export function useAimLanding(periods: readonly AimPeriod[], onLand: (key: strin
 }
 
 export async function goToAim(hit: Pick<AimSearchHit, "aim" | "station">, shell: "desktop" | "mobile"): Promise<void> {
-  const ui = useUiStore.getState();
-  const key = hit.aim.week_on;
-  const period = periodOfKey(key);
-  if (period === "station") {
-    if (!hit.station) return;
+  return runAtomicNav(async () => {
+    const ui = useUiStore.getState();
+    const key = hit.aim.week_on;
+    const period = periodOfKey(key);
+    if (period === "station") {
+      if (!hit.station) return;
+      useAimLandingStore.getState().request(key);
+      await (shell === "desktop" ? jumpToNode(hit.station) : jumpToNodeMobile(hit.station));
+      return;
+    }
+    if (period === "year") {
+      useAimLandingStore.getState().request(key);
+      useDepotStore.getState().setTab("year");
+      if (shell === "desktop") ui.setPage("depot");
+      else ui.setMobileTab("depot");
+      return;
+    }
+    const day = aimLandingDay(key, todayKey(ui.dayStartHour), ui.weekStart);
+    if (shell === "desktop") {
+      // 行程表的游標是一天（週、月都由它推），所以請求放那一天：`useAimLanding(["week"], setAnchor)` 收得到（日期的 periodOfKey＝week）
+      useAimLandingStore.getState().request(day);
+      await ui.setCalendarView(period);
+      ui.setPage("calendar");
+      return;
+    }
+    // 手機行程表那一行平常看週，月方針要打開月曆翻到那個月才看得到；開月曆是行程表的本地狀態，走請求槽（MobileSchedule 收，週方針收了關月曆）
     useAimLandingStore.getState().request(key);
-    await (shell === "desktop" ? jumpToNode(hit.station) : jumpToNodeMobile(hit.station));
-    return;
-  }
-  if (period === "year") {
-    useAimLandingStore.getState().request(key);
-    useDepotStore.getState().setTab("year");
-    if (shell === "desktop") ui.setPage("depot");
-    else ui.setMobileTab("depot");
-    return;
-  }
-  const day = aimLandingDay(key, todayKey(ui.dayStartHour), ui.weekStart);
-  if (shell === "desktop") {
-    // 行程表的游標是一天（週、月都由它推），所以請求放那一天：`useAimLanding(["week"], setAnchor)` 收得到（日期的 periodOfKey＝week）
-    useAimLandingStore.getState().request(day);
-    await ui.setCalendarView(period);
-    ui.setPage("calendar");
-    return;
-  }
-  // 手機行程表那一行平常看週，月方針要打開月曆翻到那個月才看得到；開月曆是行程表的本地狀態，走請求槽（MobileSchedule 收，週方針收了關月曆）
-  useAimLandingStore.getState().request(key);
-  // 週那一行跟著捲到的那一天；串流掛上才收得到捲動請求（掛載前的請求它當舊的不跑），所以等這一輪畫完才發
-  const schedule = useScheduleUiStore.getState();
-  schedule.setMobileSub("schedule");
-  schedule.setMobileLayout("stream");
-  ui.setMobileTab("today");
-  setTimeout(() => useScheduleUiStore.getState().requestScroll(day, false), 0);
+    // 週那一行跟著捲到的那一天；串流掛上才收得到捲動請求（掛載前的請求它當舊的不跑），所以等這一輪畫完才發
+    const schedule = useScheduleUiStore.getState();
+    schedule.setMobileSub("schedule");
+    schedule.setMobileLayout("stream");
+    ui.setMobileTab("today");
+    setTimeout(() => useScheduleUiStore.getState().requestScroll(day, false), 0);
+  });
 }

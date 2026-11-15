@@ -40,7 +40,7 @@ html.dr-dragging, html.dr-dragging * {
   position: absolute; top: -8px; right: -8px;
   min-width: 22px; height: 22px; padding: 0 6px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 11px;
+  border-radius: var(--radius-pill); /* D-1.31-7：多選拖曳張數徽＝迷你計數珠 */
   background: var(--dr-accent, var(--accent)); color: var(--color-paper-high);
   font: 600 12px/1 var(--font-body);
 }

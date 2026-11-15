@@ -71,7 +71,7 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
     if (cal) {
       for (const d of cal.dues) {
         const n = cal.nodes[d.node_id];
-        if (n) dues.push({ nodeId: n.id, name: n.name, day: d.date, routeName: nameOfRoute(n) });
+        if (n && n.status !== "paused") dues.push({ nodeId: n.id, name: n.name, day: d.date, routeName: nameOfRoute(n) });
       }
     }
     // 車站預定到站日併進締切（同語義）。收進車庫的路線不提醒，還沒到站的才算
@@ -89,7 +89,7 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
     for (const e of cal.entries) {
       if (!e.time || e.is_done || e.is_assumed || e.occurrence_status !== null) continue;
       const n = cal.nodes[e.node_id];
-      if (n) timed.push({ nodeId: n.id, name: n.name, day: e.date, time: e.time, routeName: nameOfRoute(n), planId: null });
+      if (n && n.status !== "paused") timed.push({ nodeId: n.id, name: n.name, day: e.date, time: e.time, routeName: nameOfRoute(n), planId: null });
     }
   }
 
@@ -97,7 +97,7 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
   const plans = needPlans ? await part("時段", () => timetableRepo.listPlans(today, to)) : [];
 
   if (s.timed && o.open.timetable) {
-    // 車票第二段起（第一段是上面的 scheduled_time）；票已済或刪了就不響
+    // 車票第二段起（第一段是上面的 scheduled_time）；票已済、途中下車或刪了就不響
     const slots = plans.filter((p) => p.node_id !== null && p.deleted_at === null);
     const nodes = new Map<string, NodeRow | null>();
     for (const p of slots) {
@@ -107,7 +107,7 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
     }
     for (const p of slots) {
       const n = nodes.get(p.node_id as string);
-      if (!n || n.deleted_at !== null || n.status === "done") continue;
+      if (!n || n.deleted_at !== null || n.status === "done" || n.status === "paused") continue;
       timed.push({ nodeId: n.id, name: n.name, day: p.day, time: p.start_hm, routeName: nameOfRoute(n), planId: p.id });
     }
   }
@@ -118,7 +118,7 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
         const rows = await nodeRepo.listToday(today, h);
         const out: LateFact[] = [];
         for (const r of rows) {
-          if (r.bucket === "today" || r.occurrence !== null || r.status === "done") continue;
+          if (r.bucket === "today" || r.occurrence !== null || r.status === "done" || r.status === "paused") continue;
           const anchor = r.bucket === "late" ? r.scheduled_on : r.due_on;
           if (anchor && anchor <= today) out.push({ nodeId: r.id, name: r.name, anchor });
         }

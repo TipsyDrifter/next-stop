@@ -3,7 +3,7 @@
  *   一、MSheet 底部 sheet（視覺規範 §2.4「手機底部 sheet」；活樣本 ui-brand §2.4 `.ns-msheet*`）
  *   二、MFullPage 全螢幕頁（§2.4「手機全螢幕頁」、§2.3 主鈕・書封上；樣本 `.ns-mfull-bar`）
  *   三、MobileTopBand 插槽列的補件（§2.0、§2.1；籤列本體 .ns-tabrow 在 common/tabs.css，U1 席）
- *   四、MobileTabBar 運行中徽＝赭膠囊（§2.0、§2.9、§1.4 --radius-pill；樣本 `.ns-live`）
+ *   四、MobileTabBar 運行中徽＝赭膠囊（§2.0、§2.9、§1.4 --radius-pill；樣本 `.ns-live`，D-1.31-7）
  *
  * 規則：只引用 theme.css 語意層與 mobile.css 的殼件尺寸（--m-gutter／--m-band-h／--m-safe-*／--m-vvh）——
  *   零色碼、零字級／圓角字面值；手機值靠 [data-shell="mobile"] 的 token 整組換（--row-menu 36→52、--ctl-h 32→44、
@@ -190,7 +190,7 @@
   border-bottom: 1px solid var(--color-line);
 }
 
-/* ═══ 四、MobileTabBar 運行中徽＝赭膠囊 ═══
+/* ═══ 四、MobileTabBar 運行中徽＝赭膠囊（D-1.31-7） ═══
  * 原本：時刻表 NavBadge 的分類小圓牌（實心分類色＋一字；timetable.css `.ns-tt-navbadge .ns-tt-badge.is-sm`，0-3-0）。
  * 改成：淡赭底 --danger-bg＋赭框＋赭字＋--radius-pill，前面一顆赭點（同 ui-brand `.ns-live`）——不跟圓印同形（§2.9）。
  *   膠囊是紙面語彙、這裡壓在書封（深面）上：--danger-bg 只有 8% 赭、疊在書封上幾乎看不見，所以底下墊一層 --color-paper，

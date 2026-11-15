@@ -1,0 +1,52 @@
+/* ─────────────────────────────────────────────────────
+ * reattach.css — 票根改掛與行內快改小鈕（v1.31 D-1.31-5；reattach.tsx / QuickPriorityChip.tsx）的共置樣式。
+ * 挑選器本體是共用 AttachPicker / DatePicker / PopMenu，浮層殼是建票列的 AnchoredLayer（quickadd.css .ns-qa-layer）；
+ * 這裡只補：吞事件那層的 display:contents（不進版面）、行程表列圓牌／締切列乘車日標籤／優先赭點變成按鈕時的重置與回饋。
+ * 顏色一律語意 token，不寫色碼。
+ * ───────────────────────────────────────────────────── */
+
+/* 吞掉 portal 事件的那一層：只是 React 樹上的一個節點，不佔版面 */
+.ns-reattach-host { display: contents; }
+
+/* 行程表串流／當日浮層的列圓牌（.roundel-s；底色是行內 roundelStyle）改成按鈕：只重置按鈕預設、保留圓牌原形 */
+button.roundel-s.ns-reattach-btn {
+  padding: 0; border: 0; cursor: pointer;
+  line-height: 1; letter-spacing: 0;
+  transition: box-shadow var(--dur-fast) var(--ease-soft);
+}
+button.roundel-s.ns-reattach-btn:hover,
+button.roundel-s.ns-reattach-btn[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--sel-bg), 0 0 0 3px var(--accent); }
+button.roundel-s.ns-reattach-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* 票名前的高優先赭點包裹成按鈕：透明無框、滑過微亮環 */
+button.ns-prio-btn {
+  display: inline-flex; align-items: center;
+  padding: 0; margin: 0; border: 0; background: none;
+  font: inherit; color: inherit; cursor: pointer;
+  border-radius: var(--radius-ctl);
+}
+button.ns-prio-btn:hover .ns-prio,
+button.ns-prio-btn[aria-expanded="true"] .ns-prio { box-shadow: 0 0 0 3px var(--hover-bg); }
+button.ns-prio-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* 行程表締切列的「執行 M/D」／「未排乘車日」轉成可點改期按鈕：保留原外觀，滑過加底色與邊框回饋 */
+button.ns-due-exec-btn {
+  font: inherit; cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  padding: 1px 6px;
+  transition: background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
+}
+button.ns-due-exec-btn:hover,
+button.ns-due-exec-btn[aria-expanded="true"] {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+  color: var(--color-ink);
+}
+button.ns-due-exec-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  button.roundel-s.ns-reattach-btn,
+  button.ns-due-exec-btn { transition: none; }
+}

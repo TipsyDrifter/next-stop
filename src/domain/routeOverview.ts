@@ -107,8 +107,10 @@ export function buildRouteOverview(input: OverviewInput): OverviewResult {
     routeOf.set(m.id, m.route_id);
     const s = byRoute[m.route_id];
     if (!s || m.kind !== "ticket") continue;
+    const done = input.isDone(m);
+    if (m.status === "paused" && !done) continue;
     s.ticketTotal++;
-    if (input.isDone(m)) s.ticketDone++;
+    if (done) s.ticketDone++;
   }
 
   // 時間：各路線自己的區間聯集

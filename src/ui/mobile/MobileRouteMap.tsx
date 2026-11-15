@@ -110,6 +110,7 @@ import { headParts, mdw, summaryParts } from "../outline/routeSummaryText";
 // 票根徽章與票種的算法沿大綱（只讀 import，顯示端不手抄一份規則；OutlineRow 的這三支是純函式／常數）
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
 import { completeNodeFlow, suspendNodeFlow } from "../outline/nodeFlows";
+import { leafKindFor } from "../outline/rowGuards";
 import { makeScheduleActions } from "../schedule/scheduleActions";
 import { moveNodeTo } from "../common/moveTo";
 import { useUiStore } from "../../store/uiStore";
@@ -1374,13 +1375,13 @@ export default function MobileRouteMap() {
       ) : rows.length === 0 ? (
         <div className="m2-empty">
           <p className="m2-empty-title">{zoom ? "這裡底下還沒有東西" : "這條路線還沒有車票"}</p>
-          {/* D-主-72：空狀態的新增鈕（路線頂層＝第一班列車；縮放進去＝那一層的預設子種類）。
+          {/* D-主-72：空狀態的新增鈕（種類＝那一層的預設子種類；v1.31 Bug 1 起路線頂層跟 domain 走，不再寫死「第一班列車」）。
               車庫裡的路線不發券（O-3）：改說一句，回到運行的鈕在頂上那一行 */}
           {parked ? (
             <p className="m2-note">{PARKED_ADD_WHY}。</p>
           ) : (
             <button type="button" className="ns-btn btn-ghost m2-empty-add" onClick={() => setFirstAdd(firstPlan(openedId, zoom))}>
-              {zoom ? `新增${KIND_LABEL[firstPlan(openedId, zoom).kind]}…` : "新增第一班…"}
+              {`新增${KIND_LABEL[firstPlan(openedId, zoom).kind]}…`}
             </button>
           )}
         </div>
@@ -1646,7 +1647,7 @@ export default function MobileRouteMap() {
       <MobileQuickAdd
         defaults={qaDefaults}
         here={qaHere}
-        routeKind="train"
+        routeKind={leafKindFor(zoom?.kind ?? "route") === "ticket" ? "ticket" : "train"}
         onCreated={(row, stays) => {
           if (stays) revealRow(row.id);
         }}

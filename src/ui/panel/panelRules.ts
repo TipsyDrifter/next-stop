@@ -217,6 +217,62 @@ export const STATUS_OPTIONS: readonly { value: NodeStatus; label: string }[] = [
   { value: "paused", label: "途中下車" },
 ];
 
+/** v1.31 D-1.31-4：推進狀態（未開始｜進行中）與結案印記（蓋済｜途中下車）語義分區 */
+export type ProgressStatus = "todo" | "doing";
+export type SettledSeal = "done" | "paused";
+
+export const PROGRESS_OPTIONS: readonly { value: ProgressStatus; label: string }[] = [
+  { value: "todo", label: "未開始" },
+  { value: "doing", label: "進行中" },
+];
+
+export interface SettlementView {
+  /** 推進狀態分段鈕目前值：結案中（done／paused）時為 null（兩段皆不亮，點任一段可直接復原為該推進狀態） */
+  progressValue: ProgressStatus | null;
+  /** 目前蓋上的結案印記：done＝蓋済、paused＝途中下車、null＝未結案 */
+  settled: SettledSeal | null;
+  /** 能否在「結案印記」蓋済：活著的定期券單班完成蓋在「検印」欄，不從結案印記退役 */
+  canStampDone: boolean;
+  /** 無法在「結案印記」蓋済時的提示句 */
+  doneDisabledWhy: string | null;
+  /** 定期券跑完但一枚済都沒有（最後一班運休收尾）：status='done' 且 completed_at 為 null */
+  noSeal: boolean;
+  /** 結案印記下方的現況說明句 */
+  sealNote: string | null;
+  /** 退役定期券的指路句 */
+  retiredNote: string | null;
+}
+
+export function settlementViewOf(
+  node: Pick<NodeRow, "repeat_rule" | "status" | "completed_at">,
+): SettlementView {
+  const { teiki, retired } = teikiState(node);
+  const progressValue: ProgressStatus | null =
+    node.status === "todo" || node.status === "doing" ? node.status : null;
+  const settled: SettledSeal | null =
+    node.status === "done" ? "done" : node.status === "paused" ? "paused" : null;
+  const noSeal = retired && node.completed_at === null;
+  const doneDisabledWhy = teiki ? "定期券：單班完成請在下方「検印」欄蓋済" : null;
+  const sealNote =
+    settled === "paused"
+      ? "已蓋途中下車印記・暫停推進（不計入誤點與待辦）"
+      : settled === "done"
+        ? noSeal
+          ? "已跑完（最後一班運休）"
+          : "已蓋済結案"
+        : doneDisabledWhy;
+  const retiredNote = retired ? "定期券跑完或已停用——解除結案並放寬結束條件就會重新排班" : null;
+  return {
+    progressValue,
+    settled,
+    canStampDone: !teiki,
+    doneDisabledWhy,
+    noSeal,
+    sealNote,
+    retiredNote,
+  };
+}
+
 export const PRIORITY_OPTIONS: readonly { value: Priority; label: string }[] = [
   { value: "low", label: "低" },
   { value: "mid", label: "中" },

@@ -15,9 +15,9 @@
  *   → 插槽 section "schedule" → 締切日〕；列車／車廂的「預計」搬上來成「長度」。車票加「状態」段＝優先順序＋別線狀態段欄位。
  * 已知取捨：面板內改 done 不彈完成卡（心情／日誌就在同一面板）；車廂不給「轉為支線」（支線只能掛路線／支線下，setKind 必擋）。
  */
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KIND_LABEL, isTaskKind, parseRule, type Mood, type NodeRow } from "../../domain";
-import { autoProgress, descendantCount, openDescendantCount, serialOf, useNodeStore } from "../../store/nodeStore";
+import { autoProgress, descendantCount, isSettling, openDescendantCount, serialOf, useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { KIND_GLYPH, badgeClass, fareClass } from "../outline/OutlineRow";
 import {
@@ -42,8 +42,17 @@ import { useMoveTo } from "./MoveTo";
 import { lineNodeFields } from "../../lines/runtime";
 import type { NodeFieldSpec } from "../../lines/types";
 import { confirmAndDeleteNode } from "../common/deleteNodeFlow";
-import { changeStatusFlow, convertKindFlow, openKidsOf, panelStampFlow } from "../outline/nodeFlows";
-import { PRIORITY_OPTIONS, mdwText, stampViewOf, statusChoices, teikiState } from "./panelRules";
+import { changeStatusFlow, convertKindFlow, openKidsOf } from "../outline/nodeFlows";
+import {
+  PRIORITY_OPTIONS,
+  PROGRESS_OPTIONS,
+  mdwText,
+  settlementViewOf,
+  teikiState,
+  type ProgressStatus,
+  type SettledSeal,
+} from "./panelRules";
+import "./taskStatusSeals.css";
 
 /* 現況／優先順序的選項、定期券三態、検印怎麼畫：手機詳情頁同一份（./panelRules）；寫入流程在 outline/nodeFlows（D-主-82） */
 
@@ -319,6 +328,131 @@ function useNodeActions() {
   return { updateNode, remove, convert: convertKindFlow };
 }
 
+/**
+ * v1.31 D-1.31-4：「推進狀態（未開始｜進行中）」與「結案印記（蓋済｜途中下車）」語義分區——
+ * 列車／車廂（`TaskPanel`）與車票（`TicketPanel`）共用同一組，消除原本 4 態擠同一排分段鈕的語義混淆，
+ * 同時讓新建葉節點（`ticket`）在側板也能操作推進狀態與途中下車封存印記。
+ * 記住進入結案前的推進狀態（預設 `todo`），結案態下可清楚辨識目前印記並一鍵復原。
+ */
+function StatusAndSealFields({ node }: { node: NodeRow }) {
+  const sv = settlementViewOf(node);
+  const lastProgressRef = useRef<{ id: string; status: ProgressStatus }>({
+    id: node.id,
+    status: node.status === "doing" ? "doing" : "todo",
+  });
+  if (lastProgressRef.current.id !== node.id) {
+    lastProgressRef.current = { id: node.id, status: node.status === "doing" ? "doing" : "todo" };
+  } else if (sv.progressValue) {
+    lastProgressRef.current.status = sv.progressValue;
+  }
+
+  const [freshSeal, setFreshSeal] = useState<SettledSeal | null>(null);
+  const restoreTarget = lastProgressRef.current.status;
+  const restoreLabel = restoreTarget === "doing" ? "退回進行中" : "退回未開始";
+
+  const applyStatus = (next: NodeRow["status"], seal?: SettledSeal) => {
+    if (isSettling(node.id)) return;
+    if (seal) setFreshSeal(seal);
+    else setFreshSeal(null);
+    changeStatusFlow(node, next, openKidsOf(node));
+  };
+
+  const toggleSeal = (seal: SettledSeal) => {
+    if (seal === "done" && !sv.canStampDone) return;
+    if (sv.settled === seal) {
+      applyStatus(restoreTarget);
+    } else {
+      applyStatus(seal, seal);
+    }
+  };
+
+  return (
+    <>
+      <FieldRow label="推進狀態">
+        <Choice
+          value={sv.progressValue}
+          options={PROGRESS_OPTIONS}
+          onChange={(next) => applyStatus(next)}
+          ariaLabel="推進狀態"
+        />
+      </FieldRow>
+
+      <FieldRow label="結案印記" top>
+        <div className="ns-seals-wrap">
+          <div role="group" aria-label="結案印記" className="ns-seals-row">
+            <button
+              type="button"
+              className={
+                "ns-seal-btn is-sumi" +
+                (sv.settled === "done" && !sv.noSeal ? " is-on" : "") +
+                (freshSeal === "done" && sv.settled === "done" ? " is-fresh" : "")
+              }
+              aria-pressed={sv.settled === "done" && !sv.noSeal}
+              disabled={!sv.canStampDone}
+              title={
+                sv.doneDisabledWhy ??
+                (sv.settled === "done" ? `取消蓋済（${restoreLabel}）` : "蓋済結案（完成）")
+              }
+              onClick={() => toggleSeal("done")}
+              onAnimationEnd={() => setFreshSeal(null)}
+            >
+              <span className="ns-seal-mark is-sumi" aria-hidden>
+                済
+              </span>
+              <span>蓋済</span>
+            </button>
+
+            <button
+              type="button"
+              className={
+                "ns-seal-btn is-geshya" +
+                (sv.settled === "paused" ? " is-on" : "") +
+                (freshSeal === "paused" && sv.settled === "paused" ? " is-fresh" : "")
+              }
+              aria-pressed={sv.settled === "paused"}
+              title={
+                sv.settled === "paused"
+                  ? `解除途中下車（${restoreLabel}）`
+                  : "蓋途中下車印記（暫時封存，退出誤點與待辦）"
+              }
+              onClick={() => toggleSeal("paused")}
+              onAnimationEnd={() => setFreshSeal(null)}
+            >
+              <span className="ns-seal-mark is-geshya" aria-hidden>
+                下車
+              </span>
+              <span>途中下車</span>
+            </button>
+          </div>
+
+          {(sv.sealNote || sv.settled !== null || sv.retiredNote) && (
+            <div className="ns-seals-foot">
+              {sv.sealNote && (
+                <span>
+                  {sv.sealNote}
+                  {sv.settled === "done" && !sv.noSeal && node.completed_at && (
+                    <span className="ns-seals-note-time"> · {fmtDateTime(node.completed_at)}</span>
+                  )}
+                </span>
+              )}
+              {sv.settled !== null && (
+                <button
+                  type="button"
+                  className="ns-seals-restore"
+                  onClick={() => applyStatus(restoreTarget)}
+                >
+                  {restoreLabel}
+                </button>
+              )}
+              {sv.retiredNote && <span>{sv.retiredNote}</span>}
+            </div>
+          )}
+        </div>
+      </FieldRow>
+    </>
+  );
+}
+
 /* ───────────── 列車／車廂 ───────────── */
 
 function TaskPanel({ node }: { node: NodeRow }) {
@@ -333,25 +467,15 @@ function TaskPanel({ node }: { node: NodeRow }) {
   const repeat = usePanelRepeat(node);
 
   const done = node.status === "done";
-  /**
-   * 定期券的唯一判定（M3 ④）：済蓋在班次上，「現況」就不給「已完成」那一格。
-   * **退役的定期券（status='done'）不算**——它已經不發車了，再藏起「已完成」那一格會讓 Segmented 一格都不亮、
-   * 検印區也讀不到班次（listCurrentOccurrences 跳過 done 節點），整個側板變死區（M3 ④ 評審 should-5）。
-   */
   const { teiki, retired } = teikiState(node);
   /** 掛著規則就不給直改乘車日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
   const lockedDate = teiki || retired;
-  const status = statusChoices(node);
   const auto = autoProgress(tree, node.id);
   const total = descendantCount(tree, node.id);
   const doneCount = total - openDescendantCount(tree, node.id);
   // 子項全是車票 → 原型 .cars 的「車票 2/3」；夾雜車廂 → 「子項」
   const carsWord =
     total && (tree.childrenOf[node.id] ?? []).every((id) => tree.byId[id]?.kind === "ticket") ? "車票" : "子項";
-
-  // 現況改值（nodeFlows.changeStatusFlow，手機詳情頁同一支）：未完成子孫數也同一支 openKidsOf——不在目前路線樹裡
-  // （從今日點開、路線圖開著別條線）數不清就先問（D-主-83；原本數樹、數到 0 就不問直接完成）
-  const changeStatus = (next: NodeRow["status"]) => changeStatusFlow(node, next, openKidsOf(node));
 
   return (
     <div>
@@ -371,11 +495,7 @@ function TaskPanel({ node }: { node: NodeRow }) {
 
       <SectionRule title="状態" />
       <div className="fields">
-        <FieldRow label="現況">
-          {/* 定期券：「已完成」＝退役（v1 不從這裡做），済要蓋在下面検印欄的那一班上 */}
-          <Choice value={node.status} options={status.options} onChange={changeStatus} ariaLabel="狀態" />
-          {status.note && <p className="empty">{status.note}</p>}
-        </FieldRow>
+        <StatusAndSealFields node={node} />
 
         <FieldRow label="優先順序">
           <Choice
@@ -403,12 +523,6 @@ function TaskPanel({ node }: { node: NodeRow }) {
       <RepeatSection node={node} repeat={repeat} />
 
       {teiki && <TeikiStampRow node={node} />}
-      {retired && (
-        <>
-          <SectionRule title="検印" />
-          <p className="empty">{stampViewOf(node, undefined).retiredNote}</p>
-        </>
-      )}
 
       {/* 分量段：「預計」已搬上時刻段的時段組成「長度」（D-主-129） */}
       <SectionRule title="分量" />
@@ -540,15 +654,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
   const { teiki, retired } = teikiState(node);
   /** 掛著規則就不給直改乘車日——退役的也一樣（repository 的 reschedule 只看 parseRule，改了照樣被擋） */
   const lockedDate = teiki || retired;
-  /** 非定期券（含退役的）的検印＝済章；章旁那句、退役指路句與手機詳情頁同一份（panelRules.stampViewOf） */
-  const stampView = stampViewOf(node, undefined);
-  const done = stampView.done;
-  // 只有「剛蓋」才播蓋章動畫（原型 .fresh）；取消完成時不播
-  const [fresh, setFresh] = useState(false);
-  const stamp = () => {
-    const r = panelStampFlow(node, undefined);
-    if (r !== null) setFresh(r);
-  };
+  const done = node.status === "done";
 
   /**
    * 臨時車票＝parent_id 為 null 的車票（a18–a21）。只有它能掛路線標籤（repository 會擋掉其他情形），
@@ -567,6 +673,13 @@ function TicketPanel({ node }: { node: NodeRow }) {
       <NameBlock
         node={node}
         onRename={(name) => void updateNode(node.id, { name })}
+        sub={
+          done && node.completed_at ? (
+            <>
+              完成於 <b>{fmtDateTime(node.completed_at)}</b>
+            </>
+          ) : undefined
+        }
         // 臨時車票的票根跟著自己的路線標籤走（無標籤＝虛線「臨」／「無路線」，與今日列同一套語彙）
         stub={
           isTemp
@@ -606,10 +719,10 @@ function TicketPanel({ node }: { node: NodeRow }) {
         </>
       )}
 
-      {/* 状態段（D-主-133：車票加「優先順序」，翻案規格 §5）——車票沒有現況（検印就是它的狀態），這一段＝優先順序＋別線的狀態段欄位
-          （荷札、時間…；原本樹內車票在票頭下自成一塊、臨時車票掛在路線段，一併收進來，同列車／車廂面板的状態段）。 */}
+      {/* 状態段（v1.31 D-1.31-4：車票同列車／車廂統一提供「推進狀態」與「結案印記（蓋済／途中下車）」，再接優先順序與車站／別線欄位） */}
       <SectionRule title="状態" />
       <div className="fields">
+        <StatusAndSealFields node={node} />
         <FieldRow label="優先順序">
           <Choice
             value={node.priority}
@@ -629,34 +742,7 @@ function TicketPanel({ node }: { node: NodeRow }) {
       {/* 重複＝獨立區段（M3 ④ WP3）；掛上規則票頭立刻變「定期券」，検印欄改蓋班次 */}
       <RepeatSection node={node} repeat={repeat} />
 
-      {teiki ? (
-        <TeikiStampRow node={node} />
-      ) : (
-        <>
-          <SectionRule title="検印" />
-          {/* 車票＝純蓋章零打斷（D4）：再按一次＝取消完成；検印欄與「済」印＝原型 .stamp／.seal（.stamped／.fresh 對應 .ticket.done／.fresh） */}
-          <div className={`stamp-row ${done ? "stamped" : ""} ${fresh ? "fresh" : ""}`}>
-            <button
-              type="button"
-              aria-label={stampView.action}
-              aria-pressed={done}
-              title={done ? "再按一次取消完成" : "蓋章：完成／取消"}
-              onClick={stamp}
-              className="stamp"
-            >
-              <span className="hint">検印</span>
-              <span className="seal">済</span>
-            </button>
-            <span className="meta">
-              {stampView.meta}
-              {done && node.completed_at && <span className="latin" style={{ display: "block" }}>{fmtDateTime(node.completed_at)}</span>}
-            </span>
-          </div>
-          {/* 退役的定期券：済章就在上面，取消它＝解除退役、引擎重新排班（M3 ④ 評審 should-5）。
-              車票面板沒有狀態 Segmented，指路就指到這裡唯一那個動作上。 */}
-          {stampView.retiredNote && <p className="empty">{stampView.retiredNote}</p>}
-        </>
-      )}
+      {teiki && <TeikiStampRow node={node} />}
 
       {/* 工作日誌（D-③-4 甲：`L` 全列可用，車票面板補這一段）——直接掛既有 WorkLogList，
           時刻戳＋手寫內文的樣式（＝「乘務記錄」那套版式）在 stamps.css，今日視圖按 `L` 記的那一句就落在這裡。

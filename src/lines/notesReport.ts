@@ -4,16 +4,19 @@
  * 換頁前先把編輯中的內容存掉（同行程表浮層「寫這天的日記」的 notesFlush）。
  */
 import type { ReportJumpTarget } from "./types";
+import { runAtomicNav } from "../store/navHistoryStore";
 import { useUiStore } from "../store/uiStore";
 import { useNotesStore } from "../store/notesStore";
 import { notesFlush } from "../ui/notes/notesFlush";
 
 export async function notesReportJump(target: ReportJumpTarget, shell: "desktop" | "mobile"): Promise<void> {
-  await notesFlush.fn?.();
-  const ui = useUiStore.getState();
-  if (shell === "desktop") ui.setPage("notes");
-  else ui.setMobileTab("notes");
-  const st = useNotesStore.getState();
-  if (typeof target === "object" && "diary" in target) st.openDiaryAt(target.diary);
-  else st.setSection("notes");
+  await runAtomicNav(async () => {
+    await notesFlush.fn?.();
+    const ui = useUiStore.getState();
+    if (shell === "desktop") ui.setPage("notes");
+    else ui.setMobileTab("notes");
+    const st = useNotesStore.getState();
+    if (typeof target === "object" && "diary" in target) st.openDiaryAt(target.diary);
+    else st.setSection("notes");
+  });
 }

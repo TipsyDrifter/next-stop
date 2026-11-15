@@ -6,11 +6,9 @@
  *       草稿尚無文字時的 Tab／Shift+Tab 是純本地改目標（鏡射 store 的 adaptKind 規則），有文字才提交後真的升降層。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { capsOfHotkey } from "../shell/hotkeys";
 import {
   KIND_LABEL,
   canHaveChildren,
-  defaultChildKind,
   isTaskKind,
   parseRule,
   type NodeKind,
@@ -24,8 +22,8 @@ import {
   useNodeStore,
   type TreeIndex,
 } from "../../store/nodeStore";
-import { completeNodeFlow, moveRunFlow, suspendNodeFlow } from "./nodeFlows";
-import { DESKTOP_GUARD_WORDS, rowGuards } from "./rowGuards";
+import { completeNodeFlow, moveRunFlow, suspendNodeFlow, toggleStopoverFlow } from "./nodeFlows";
+import { DESKTOP_GUARD_WORDS, leafKindFor, rowGuards } from "./rowGuards";
 import type { PopMenuItem } from "../common/PopMenu";
 import { requestMoveTo } from "../common/moveTo";
 import { moveTargetRule } from "../../domain/moveTo";
@@ -260,6 +258,8 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
     const t = ns().tree;
     return n.parent_id && n.parent_id !== rid && t.byId[n.parent_id] ? n.parent_id : (rid ?? "");
   };
+  /** 父鍵的種類：路線 id＝"route"，其餘查樹（新增葉節點的預設種類用；v1.31 Bug 1） */
+  const parentKindOf = (pid: string): NodeKind => (pid === st.current.routeId ? "route" : (ns().tree.byId[pid]?.kind ?? "route"));
 
   /* ───────── zoom ───────── */
   const zoomTo = (id: string | null) => {
@@ -400,7 +400,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       if (!parent || !rid) return;
       const gpId = parent.parent_id && parent.parent_id !== rid && t.byId[parent.parent_id] ? parent.parent_id : rid;
       const gpKind: NodeKind = gpId === rid ? "route" : t.byId[gpId].kind;
-      const kind = adaptKind(d.kind, gpKind);
+      const kind: NodeKind | null = d.kind === "ticket" && gpKind === "route" ? "ticket" : adaptKind(d.kind, gpKind);
       if (!kind) return toast("這個項目不能移到那一層");
       setEdit({ ...d, parentId: gpId, afterId: parent.id, kind });
     }
@@ -472,7 +472,7 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       if (n && name && name !== n.name) await ns().updateNode(r.id, { name });
       const after = ns().tree.byId[r.id];
       if (via === "ctrl-enter" && r.chain && after) {
-        startDraft({ parentId: parentKey(after), afterId: after.id, kind: after.kind, anchorId: after.id });
+        startDraft({ parentId: parentKey(after), afterId: after.id, kind: leafKindFor(parentKindOf(parentKey(after)), after.kind), anchorId: after.id });
       } else {
         setEdit(null);
         if (via !== "blur") focusContainer();
@@ -533,18 +533,20 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
       if (!root) return;
       const n = selNode();
       if (!n) {
-        const kind: NodeKind = z ? (defaultChildKind(z.kind) ?? "car") : "train";
+        // v1.31（Bug 1）：新建葉節點的種類跟 domain 的預設子種類走（不再寫死「路線頂層＝列車」）
+        const kind: NodeKind = leafKindFor(z ? z.kind : "route");
         startDraft({ parentId: root, afterId: null, kind, anchorId: null });
         return;
       }
-      startDraft({ parentId: parentKey(n), afterId: n.id, kind: n.kind, anchorId: n.id });
+      startDraft({ parentId: parentKey(n), afterId: n.id, kind: leafKindFor(parentKindOf(parentKey(n)), n.kind), anchorId: n.id });
     },
     addTicket() {
-      const { zoom: z } = st.current;
+      const { rootId: root, zoom: z } = st.current;
       const n = selNode();
       const target = n ?? z;
       if (!target) {
-        toast(`先選一班列車或車廂，再按 ${capsOfHotkey("outline.add.ticket")} 新增車票`);
+        if (!root) return;
+        startDraft({ parentId: root, afterId: null, kind: "ticket", anchorId: null });
         return;
       }
       if (isTaskKind(target.kind)) {
@@ -860,10 +862,26 @@ export function useOutlineController(containerRef: RefObject<HTMLDivElement | nu
             },
             { ...item("sched-today", "這一班改到今天", "outline.schedule.today", parkedWhy ?? runWhy, () => keys.scheduleSelected(0)), group: "排程" },
             { ...item("sched-tomorrow", "這一班改到明天", "outline.schedule.tomorrow", parkedWhy ?? runWhy, () => keys.scheduleSelected(1)), group: "排程" },
+            {
+              key: "stopover",
+              label: n.status === "paused" ? "解除途中下車" : "途中下車",
+              group: "排程",
+              disabled: parked,
+              why: parkedWhy ?? undefined,
+              onSelect: run(() => void toggleStopoverFlow(id)),
+            },
           ]
         : [
             { ...item("sched-today", "排今天", "outline.schedule.today", parkedWhy, () => keys.scheduleSelected(0), true), group: "排程" },
             { ...item("sched-tomorrow", "排明天", "outline.schedule.tomorrow", parkedWhy, () => keys.scheduleSelected(1)), group: "排程" },
+            {
+              key: "stopover",
+              label: n.status === "paused" ? "解除途中下車" : "途中下車",
+              group: "排程",
+              disabled: parked,
+              why: parkedWhy ?? undefined,
+              onSelect: run(() => void toggleStopoverFlow(id)),
+            },
           ]),
       // 磨光⑤ B1（D-主-55）：跨路線搬遷。沒有快捷鍵（不給 hotkeyId）；挑選器開在側板（requestMoveTo＝選中＋開側板＋請它打開）
       // 種類搬不了（moveTargetRule 回 null）就不出——側板那顆鈕同一條規則，兩個入口不會一個有一個沒有

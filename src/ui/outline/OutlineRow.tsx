@@ -43,6 +43,7 @@ import { ProgressRing } from "./ProgressRing";
 import { chapterParts, type ChapterCount } from "../../domain/chapterCount";
 import "./structure.css";
 import { PriorityMark } from "../common/PriorityMark";
+import { QuickPriorityChip } from "../common/quickadd/QuickPriorityChip";
 
 /** 層級縮排（票的 margin-left）：每層 28px */
 export function indentPx(depth: number): number {
@@ -758,17 +759,17 @@ export function OutlineRow({
               title={`雙擊行內編輯（${hotkeyCaps("outline.rename")}）`}
               className="title"
             >
-              {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點 */}
-              <span
-                onClick={(e) => {
-                  if (!node.priority) return;
-                  e.stopPropagation();
-                  setInlinePicker("priority");
-                  actions.rename(node.id);
-                }}
-              >
-                <PriorityMark priority={node.priority} />
-              </span>
+              {/* 回饋甲 D-主-133：優先「高」＝票名前赭色小點；v1.31：點擊直接開優先級小選單 */}
+              {node.priority === "high" && (
+                <QuickPriorityChip
+                  nodeId={node.id}
+                  priority={node.priority}
+                  className="ns-prio-btn"
+                  onDone={actions.focusContainer}
+                >
+                  <PriorityMark priority={node.priority} />
+                </QuickPriorityChip>
+              )}
               {node.name}
             </p>
           )}
@@ -776,8 +777,8 @@ export function OutlineRow({
           {!editingTicket && (
           <div className="meta">
             <MetaItems items={metaItems} />
-            {/* 原型沒有的控件：空日期入口 hover／選中才現身（定期券的乘車日由規則排定，不給入口） */}
-            {((!chipDate && !rule) || !node.due_on) && (
+            {/* 原型沒有的控件：空日期／優先級輕量快改入口 hover／選中才現身（定期券的乘車日由規則排定，不給入口） */}
+            {!settled && ((!chipDate && !rule) || !node.due_on || node.priority !== "high") && (
               <span className="meta-hover">
                 {!chipDate && !rule && (
                   <RowDate
@@ -798,6 +799,14 @@ export function OutlineRow({
                     today={today}
                     onPick={(v) => actions.setDate(node.id, "due_on", v)}
                     onFocusBack={actions.focusContainer}
+                  />
+                )}
+                {node.priority !== "high" && (
+                  <QuickPriorityChip
+                    nodeId={node.id}
+                    priority={node.priority}
+                    className="ns-datechip is-empty"
+                    onDone={actions.focusContainer}
                   />
                 )}
               </span>

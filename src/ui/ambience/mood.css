@@ -149,9 +149,77 @@
 [data-shell="mobile"] .mood-train { bottom: 4.2px; --mood-train-dur: 13s; }
 [data-shell="mobile"] .mood-ground[data-level="mid"] .mood-train { --mood-train-dur: 9s; }
 
-/* 設定裡的一區 */
-.ns-mood-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
-.ns-mood-parts { display: flex; flex-wrap: wrap; gap: 6px; }
+/* ── 設定裡的一區：「今日天象與動態氛圍」（MoodSettings；v1.31 畫面 1）──
+ * 一張有標題的區塊：框＝1px --color-line、--radius-card、**不鋪底**（設定卡本身已是紙，不疊第二層紙；手機直接在天上）。
+ * 上層＝主開關「天象節律」；下層＝細項三列（天色流轉／經過的景物／濃淡），虛線隔開、標籤左欄齊。
+ * 列的字階與分隔照設定〈提醒〉籤（.ns-rm-row：標題 --fs-body、說明 --fs-xs 注記墨、列間 1px 虛線），整個設定頁同一種讀法。 */
+.ns-sky-set {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  padding: var(--sp-3) var(--sp-4) var(--sp-1);
+}
+.ns-sky-set-h {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-sky-set-t {
+  margin: 0;
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3);
+  letter-spacing: .16em; color: var(--color-ink);
+}
+.ns-sky-set-latin {
+  font-family: var(--font-latin); font-style: italic; font-size: var(--fs-micro);
+  letter-spacing: .08em; color: var(--color-ink-faint);
+}
+/* 列：左欄標籤（眉標語彙 .techo-label）＋右欄控件；主開關與細項同一條左欄線 */
+.ns-sky-master,
+.ns-sky-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  column-gap: var(--sp-3);
+  align-items: start;
+}
+.ns-sky-master { padding: var(--sp-3) 0; }
+.ns-sky-row { min-height: 46px; padding: 7px 0; align-items: center; }
+.ns-sky-row + .ns-sky-row { border-top: 1px dashed var(--color-line); }
+.ns-sky-k {
+  font-size: var(--fs-micro); letter-spacing: .28em; line-height: 32px;
+  color: var(--color-ink-mid, var(--color-ink-soft));
+  white-space: nowrap;
+}
+.ns-sky-master .ns-sky-k { color: var(--color-ink); font-weight: 600; }
+.ns-sky-row .ns-sky-k { line-height: 1.4; }
+.ns-sky-v { min-width: 0; }
+.ns-sky-v-inline { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.ns-sky-note {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs); line-height: 1.55; letter-spacing: .04em; color: var(--color-ink-soft);
+}
+.ns-sky-desc {
+  min-width: 0;
+  font-size: var(--fs-xs); line-height: 1.45; letter-spacing: .04em; color: var(--color-ink-soft);
+}
+.ns-sky-parts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ns-sky-set .ns-toggle { flex: none; color: var(--color-ink-soft); }
+.ns-sky-set .ns-toggle.is-on { color: var(--color-ink); }
+/* 細項層：主開關之下、虛線隔開；「關閉」時整層淡出不可點（控件自己 disabled，這裡只負責整層的視覺） */
+.ns-sky-detail { border-top: 1px dashed var(--color-dash); transition: opacity var(--dur); }
+.ns-sky-detail.is-off { opacity: .55; }
+.ns-sky-detail.is-off .ns-sky-desc { color: var(--color-ink-faint); }
+
+/* 手機：直接壓在天上；標籤回到控件上方、控件撐滿、觸控目標 44 */
+[data-shell="mobile"] .ns-sky-set { margin: 14px 0 4px; padding: var(--sp-3) var(--sp-2) var(--sp-1); }
+[data-shell="mobile"] .ns-sky-master,
+[data-shell="mobile"] .ns-sky-row { grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
+[data-shell="mobile"] .ns-sky-row { min-height: 56px; padding: 10px 0; }
+[data-shell="mobile"] .ns-sky-k { line-height: 1.6; }
+[data-shell="mobile"] .ns-sky-master .ns-seg { width: 100%; }
+[data-shell="mobile"] .ns-sky-set .ns-toggle { min-height: 44px; padding: 0 0 0 var(--sp-2); }
+[data-shell="mobile"] .ns-sky-parts .chip { min-height: 36px; padding: 0 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .ns-sky-detail { transition: none; }
+}
 
 /* 減少動態：MoodStage 不掛（第二道保險） */
 @media (prefers-reduced-motion: reduce) {

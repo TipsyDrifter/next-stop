@@ -245,3 +245,38 @@ export async function convertKindFlow(node: NodeRow, kind: NodeKind): Promise<vo
   const r = await ns().setKind(node.id, kind);
   if (!r.ok) ui().showToast({ message: r.reason ?? `無法轉為${KIND_LABEL[kind]}` }, 4000);
 }
+
+/**
+ * v1.31 D-1.31-4：右鍵／⋯ 選單的「途中下車 ⇄ 解除途中下車」結案印記切換（附一鍵復原收據）。
+ * 途中下車不上日常票面膠囊列，保留在右鍵／⋯ 選單、看板欄與詳情面板。
+ */
+export async function toggleStopoverFlow(id: string): Promise<void> {
+  if (isSettling(id)) return;
+  const s = ns();
+  const node = s.tree.byId[id] ?? s.today.byId[id] ?? (await nodeRepo.getNode(id).catch(() => null));
+  if (!node || node.kind === "branch") return;
+  if (node.status === "paused") {
+    const r = await ns().updateNode(id, { status: "todo" });
+    if (r.ok) {
+      ui().showToast({
+        message: "已解除途中下車",
+        actionLabel: "復原",
+        onAction: () => void ns().updateNode(id, { status: "paused" }),
+      });
+    }
+    return;
+  }
+  const prev = node.status;
+  if (prev === "done") await ns().setCompleted(id, false);
+  const r = await ns().updateNode(id, { status: "paused" });
+  if (r.ok) {
+    ui().showToast({
+      message: "已蓋途中下車印記",
+      actionLabel: "復原",
+      onAction: () => {
+        if (prev === "done") void ns().setCompleted(id, true);
+        else void ns().updateNode(id, { status: prev });
+      },
+    });
+  }
+}

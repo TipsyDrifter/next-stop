@@ -737,7 +737,7 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 .ns-tt-seg-row { display: flex; align-items: center; gap: 10px; min-height: 52px; }
 .ns-tt-seg-cat {
   flex: none; display: inline-flex; align-items: center; gap: 2px; padding: 4px 5px 4px 3px;
-  background: transparent; border: 1px solid transparent; border-radius: var(--radius-pill); cursor: pointer; font-family: inherit;
+  background: transparent; border: 1px solid transparent; border-radius: var(--radius-ctl); cursor: pointer; font-family: inherit; /* v1.31 Bug 6：控件方角（規範 §0 法則 04），不用膠囊 */
   transition: border-color .15s, background .15s;
 }
 .ns-tt-seg-cat i { font-style: normal; font-size: 9px; color: var(--color-ink-faint); transition: transform .3s var(--ns-tt-ease); } /* 字面值：票券／圓牌專用微字 9px */
@@ -795,7 +795,7 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 
 /* ── ①b 發車：預估（DepartPanel；＝原型 情境 5）── */
 .ns-tt-row.is-fold { min-height: 44px; }
-.ns-tt-est-open { border-radius: var(--radius-pill); padding: 2px 12px; letter-spacing: .1em; }
+.ns-tt-est-open { border-radius: var(--radius-ctl); padding: 2px 12px; letter-spacing: .1em; } /* v1.31 Bug 6：控件方角 */
 .ns-tt-est-hint { font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint); }
 .ns-tt-est-eta { font-family: var(--font-body); font-size: var(--fs-xs); color: var(--color-ink-soft); }
 /* 己（D-時-174）：預估「自訂…」就地換成分鐘框；D-時-170：改這一班裡的待確認鈕 */
@@ -857,7 +857,7 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 .ns-tt-pin {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px;
   min-width: 0; padding: 8px 2px 6px;
-  border: 1px dashed var(--color-dash); border-radius: 6px; background: transparent; /* 圓角字面值：6px 方格卡，介於 ctl／card 之間 */
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-card); background: transparent; /* v1.31 Bug 6：6px 字面值收回票卡圓角，不往軟圓角飄 */
   font-family: inherit; font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-soft);
   transition: transform .3s var(--ns-tt-spring), border-color .2s, background .2s;
 }
@@ -880,7 +880,7 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 .ns-tt-pin-cat {
   display: inline-flex; align-items: center; gap: 5px;
   min-height: 30px; padding: 2px 9px 2px 4px;
-  border: 1px solid var(--color-line); border-radius: var(--radius-pill); background: transparent;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: transparent; /* v1.31 Bug 6：釘選 chip＝控件方角 */
   font-family: inherit; font-size: var(--fs-sm); letter-spacing: .06em; color: var(--color-ink-soft);
   cursor: pointer;
   transition: border-color .15s, background .15s, opacity .15s, transform .2s var(--ns-tt-ease);
@@ -1208,8 +1208,9 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 .ns-tt-todaydep:not(:has(.ns-tt-kbd)) { padding-right: 8px; }
 /* 「正在跑」標記（兩殼；常駐，不靠 hover）＝原型 .vf-runmk */
 .ns-tt-todaydep-run {
-  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px 0 7px;
-  /* UI 丙-4 D3：運行中膠囊（規範 §2.9、規範書 .ns-live）＝淡赭底 --danger-bg＋赭框＋--radius-pill，跟書封／tab bar 的徽同一家 */
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 8px;
+  /* UI 丙-4 D3＋D-1.31-7：運行中動態信號燈（規範 §2.9、規範書 .ns-live）＝淡赭底 --danger-bg＋赭框＋--radius-pill 圓潤膠囊，
+   * 跟書封／tab bar 的徽同一家；內部保留清楚的時刻分隔線（1px 赭實線分隔）。 */
   background: var(--danger-bg);
   border: 1px solid var(--late); border-radius: var(--radius-pill);
   font-family: inherit; font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-late); white-space: nowrap; cursor: pointer;
@@ -1217,10 +1218,14 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 }
 .ns-tt-todaydep-run:hover { background: color-mix(in srgb, var(--color-late) 14%, transparent); }
 .ns-tt-todaydep-run:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
-.ns-tt-todaydep-run b { font-size: var(--fs-sm); font-weight: 500; color: var(--color-ink); letter-spacing: .02em; }
+.ns-tt-todaydep-run b {
+  align-self: stretch; display: inline-flex; align-items: center; padding-left: 7px;
+  border-left: 1px solid color-mix(in srgb, var(--late) 45%, transparent);
+  font-size: var(--fs-sm); font-weight: 500; color: var(--color-ink); letter-spacing: .02em; font-variant-numeric: tabular-nums;
+}
 .ns-tt-todaydep-run .ns-tt-live-dot { width: 6px; height: 6px; }
 .ns-tt-todaydep-run .ns-tt-badge.is-sm { width: 16px; height: 16px; font-size: 8.5px; border-width: 1px; } /* 字面值：票券／圓牌專用微字 8.5px */
-.ns-tt-todaydep-run.is-m { height: 20px; margin: 3px 0 1px; padding: 0 7px 0 6px; font-size: var(--fs-micro); }
+.ns-tt-todaydep-run.is-m { height: 20px; margin: 3px 0 1px; padding: 0 8px 0 7px; font-size: var(--fs-micro); }
 .ns-tt-todaydep-run.is-m b { font-size: var(--fs-xs); }
 /* 手機票卡 ⋯ 面板的「発車」一項（UI 丙-7 T5 起是共用 MSheetItem：.ns-msheet-item 本來就 flex，右側小字靠右）。
  * 不可點的兩種（正在跑／已蓋済）照換殼前的長相：整列淡字、不套殼的 disabled 透明度——右側「● 正在跑」的赭點要看得清楚 */
@@ -1380,7 +1385,7 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
 /* ── 趨勢 ── */
 .ns-tt-stats-fchip {
   margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: var(--radius-ctl); /* v1.31 Bug 6：篩選 chip＝控件方角 */
   background: var(--sel-bg);
   font-family: inherit; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink); animation: ns-tt-st-in .3s var(--ns-tt-ease) both;
 }
@@ -1450,7 +1455,7 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
 /* UI 丙-4 D6：⋯ 改掛 .ns-iconbtn（尺寸、色、hover 由它給，手機 44）；這裡只留往右上貼齊卡緣的負邊距 */
 .ns-tt-goal-more { margin: -4px -6px -4px 0; }
 .ns-tt-goal-hide {
-  flex: none; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-dash); border-radius: var(--radius-pill); background: transparent; cursor: pointer;
+  flex: none; min-height: 24px; padding: 0 9px; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: transparent; cursor: pointer; /* v1.31 Bug 6：次鈕方角 */
   font-family: inherit; font-size: var(--fs-xs); letter-spacing: .12em; color: var(--color-ink-soft); transition: border-color .15s, color .15s;
 }
 .ns-tt-goal-hide:hover { border-color: var(--accent); color: var(--color-ink); }
@@ -1877,7 +1882,7 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
   --rc: var(--ns-tt-cat-8);
   flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px 0 10px;
   font-family: inherit; font-size: var(--fs-ui); letter-spacing: .06em; color: var(--color-ink);
-  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-pill); box-shadow: var(--shadow-card);
+  background: var(--color-paper-high); border: 1px solid var(--color-line); border-radius: var(--radius-card); box-shadow: var(--shadow-card); /* v1.31 Bug 6：待排的班＝小票，用票的圓角，不是膠囊 */
   touch-action: pan-x; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   transition: box-shadow .18s, transform .25s var(--ns-tt-ease), background .15s, opacity .2s;
 }
@@ -2046,7 +2051,7 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
 .ns-tt-sched-cd.is-done, .ns-tt-sched-cd.is-cancel { color: var(--color-ink-faint); }
 .ns-tt-sched-ct .ns-tt-sched-cd { flex: 0 1 auto; margin-left: 2px; }
 .ns-tt-sched-open {
-  position: absolute; right: 3px; bottom: 2px; z-index: 2; padding: 0 6px; border-radius: var(--radius-pill);
+  position: absolute; right: 3px; bottom: 2px; z-index: 2; padding: 0 6px; border-radius: var(--radius-pill); /* D-1.31-7：日程格狀態燈＝圓角膠囊 */
   background: var(--sel-fg); color: var(--color-on-ink); font-size: var(--fs-micro); letter-spacing: .06em; line-height: 16px;
   animation: ns-tt-week-in .22s var(--ns-tt-ease) both;
 }
@@ -2141,12 +2146,12 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
   position: fixed; z-index: 80; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px;
   transform: translate(-30%, -140%) rotate(-2deg);
   /* UI 丙-4 D4：材質（玻璃底、模糊、邊、抬起一階的影）交給元件掛的 .techo-card，這裡不再手抄；
-   * 形狀留膠囊（手上拿著的是一顆清單 chip），雙 class 蓋過 .techo-card 的卡片圓角；落點上＝作用中描邊（.is-over） */
+   * 形狀＝小票（v1.31 起不再是膠囊；同 .ns-tt-sched-chip 的票圓角），雙 class 蓋過 .techo-card；落點上＝作用中描邊（.is-over） */
   color: var(--color-ink);
   font-size: var(--fs-ui); letter-spacing: .06em; white-space: nowrap; pointer-events: none;
   transition: border-color .15s, transform .2s var(--ns-tt-ease);
 }
-.ns-tt-sched-float.techo-card { border-radius: var(--radius-pill); }
+.ns-tt-sched-float.techo-card { border-radius: var(--radius-card); } /* v1.31 Bug 6：手上拿著的是一張小票（同 .ns-tt-sched-chip），不是膠囊 */
 .ns-tt-sched-float.is-over { border-color: var(--accent); transform: translate(-30%, -140%) scale(.96); }
 
 /* ── 小面板：桌機＝貼在卡旁的浮層（PlanPopover）；手機＝MobileSheetHost 的 sheet；本體 PlanPanel 共用 ── */
@@ -2448,7 +2453,7 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
   padding: 4px var(--m-gutter) 10px; gap: 6px;
   background: color-mix(in srgb, var(--ns-tt-grid-card) 92%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(1.3); backdrop-filter: blur(20px) saturate(1.3);
-  border-radius: 14px 14px 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); /* 圓角字面值：14px 手機底欄上緣（比 --radius-sheet 大 2px） */
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; border-top: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   box-shadow: 0 -10px 34px var(--ns-tt-sched-pop-shadow);
 }
 [data-shell="mobile"] .ns-tt-grid-grip { display: block; width: 34px; height: 4px; border-radius: var(--radius-ctl); background: var(--color-dash); margin: 2px auto 0; }
@@ -2640,7 +2645,7 @@ button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%,
 
 /* ═══ 丙-4 T4 視覺 ═══
  * D3：桌機書封的運行中徽＝赭膠囊（照 common/msheet.css 手機 tab bar 那顆：淡赭底 --danger-bg 墊一層紙色＋赭框＋赭字＋--radius-pill，
- *   前面一顆赭點；規範 §2.9「運行中小牌改赭色膠囊、不跟圓印同形」）。只換形、色、字級——位置框、彈出／到着淡出、
+ *   前面一顆 4px 赭點；規範 §2.9「運行中小牌改赭色膠囊、不跟圓印同形」，D-1.31-7）。只換形、色、字級——位置框、彈出／到着淡出、
  *   書封色外圈與待確認赭圈（§B 的 box-shadow／animation）都照舊。特異度 0-4-0（.cover 前綴）＞ §B 的 0-3-0，跟順序無關。
  *   膠囊比原本 15px 小圓寬一倍：定位框往右上挪一點，讓時刻表的鐘面露出來（原位 §B top 3／left 50%+2）。
  * D7：沒有分類時 CategoryGrid 畫的那一行（EmptyState inline）留一點上下距，不貼著發車台標題或面板欄位。 */
