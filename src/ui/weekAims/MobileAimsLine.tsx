@@ -36,10 +36,12 @@ import {
   type WeekAimRow,
 } from "../../domain/weekAims";
 import { compareSiblings } from "../../domain/nodeOrder";
+import { resolveCurrentWindowPrompt, useIdealStore } from "../../store/idealStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useWeekAimStore } from "../../store/weekAimStore";
 import { MSheet } from "../common/MSheet";
 import { IconBack, IconChevron } from "../common/icons";
+import { IdealPeekDrawer, TodayMottoBar } from "./IdealPeek";
 import { useAimToday, useAimView, usePendingReviews } from "./useWeekAims";
 import { AimStamp, PlanLine, RouteMark, RouteTag, StationMark } from "./parts";
 import { PlanTicketForm, usePlanForm } from "./PlanTicketPop";
@@ -47,6 +49,7 @@ import { ReviewList } from "./WeekAimsReview";
 import { WeekAimsEditorHost } from "./WeekAimsEditor";
 import "./weekAims.css";
 
+const IDEAL_TAB = "ideal";
 const NEXT_TAB = "next";
 const EMPTY: WeekAimRow[] = [];
 
@@ -128,6 +131,7 @@ export function MobileAimsLine({ aimKey, upper = false, autoReview = false, navi
     <>
       <section className="wa" aria-label={title}>
         <div className="wa-board">
+          {upper && <TodayMottoBar shell="mobile" />}
           <button type="button" className="wa-mline" aria-haspopup="dialog" onClick={tap}>
             <span className={"wa-ttl" + (heading ? " wa-ttl-stn" : "")}>
               {heading && <StationMark />}
@@ -148,6 +152,7 @@ export function MobileAimsLine({ aimKey, upper = false, autoReview = false, navi
               </button>
             );
           })}
+          {upper && <MobileIdealRibbon today={v.today} onOpen={() => setPane({ kind: "list", tab: IDEAL_TAB })} />}
         </div>
       </section>
 
@@ -196,7 +201,23 @@ function ReviewSub({ aimKey }: { aimKey: string }) {
   return <p className="wa-ms-sub">{v.rangeText}</p>;
 }
 
-/** 底部面板：期間分頁＋那一期的清單（或下一站）。換分頁不換殼，面板不會重新滑一次 */
+function MobileIdealRibbon({ today, onOpen }: { today: string; onOpen(): void }) {
+  const shuffleDay = useIdealStore((s) => s.shuffleDay);
+  const shuffleOffset = useIdealStore((s) => s.shuffleOffset);
+  const promptOverride = useIdealStore((s) => s.promptOverride);
+  const prompt = useMemo(
+    () => resolveCurrentWindowPrompt(today, shuffleDay, shuffleOffset, promptOverride),
+    [today, shuffleDay, shuffleOffset, promptOverride],
+  );
+  return (
+    <button type="button" className="wa-mrib is-ideal" aria-haspopup="dialog" onClick={onOpen}>
+      <span className="k">✦ 理想手札</span>
+      <span className="v">🪟 {prompt.question.trim() || "終點站的風景・車窓の問い"}</span>
+    </button>
+  );
+}
+
+/** 底部面板：期間分頁＋那一期的清單（或理想手札／下一站）。換分頁不換殼，面板不會重新滑一次 */
 function AimsSheet({
   lineKey,
   tab,
@@ -219,13 +240,18 @@ function AimsSheet({
   onOpenStation?: (stationId: string) => void;
 }) {
   const { today, weekStart } = useAimToday();
+  const isIdeal = tab === IDEAL_TAB;
   const isNext = tab === NEXT_TAB;
-  const title = isNext ? "下一站方針" : periodTitle(tab, today, weekStart).title;
+  const title = isIdeal ? "車窓・理想手札" : isNext ? "下一站方針" : periodTitle(tab, today, weekStart).title;
 
   // 分頁的三格看這一行那一期（行程表翻到下週＝那一格寫下週）；面板裡翻年時那一格跟著換
   const tabs = periodTabs(lineKey, today, weekStart).map((t) =>
-    !isNext && periodOfKey(t.key) === periodOfKey(tab) ? { key: tab, label: periodShortLabel(tab, today, weekStart) } : t,
+    !isNext && !isIdeal && periodOfKey(t.key) === periodOfKey(tab)
+      ? { key: tab, label: periodShortLabel(tab, today, weekStart) }
+      : t,
   );
+  // 對齊桌機「✦ 理想手札 ｜ 今年 ｜ 本月 ｜ 本週」順序（年→月→週）
+  const orderedTabs = [...tabs].reverse();
   // 一打開就把另外幾格載好，換分頁時面板高度不會空一下
   useEffect(() => {
     const st = useWeekAimStore.getState();
@@ -237,8 +263,17 @@ function AimsSheet({
   return (
     <MSheet title={title} className="wa-ms" onClose={onClose} height="auto" ariaLabel={title}>
       {tabs.length > 0 && (
-        <div className="wa-mtabs" role="tablist" aria-label="方針的期間">
-          {tabs.map((t) => (
+        <div className="wa-mtabs" role="tablist" aria-label="方針與理想手札">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isIdeal}
+            className={isIdeal ? "on" : ""}
+            onClick={() => onTab(IDEAL_TAB)}
+          >
+            ✦ 理想
+          </button>
+          {orderedTabs.map((t) => (
             <button key={t.key} type="button" role="tab" aria-selected={t.key === tab} className={t.key === tab ? "on" : ""} onClick={() => onTab(t.key)}>
               {t.label}
             </button>
@@ -248,7 +283,9 @@ function AimsSheet({
           </button>
         </div>
       )}
-      {isNext ? (
+      {isIdeal ? (
+        <IdealPeekDrawer today={today} shell="mobile" onAfterNavigate={onClose} />
+      ) : isNext ? (
         <NextStationsPane onClose={onClose} onOpenStation={onOpenStation} />
       ) : (
         <PeriodPane aimKey={tab} navigable={navigable} onBackToCurrent={onBackToCurrent} onTab={onTab} onClose={onClose} onPlan={onPlan} onReview={onReview} />

@@ -1,0 +1,1070 @@
+/**
+ * 車窓・理想手札與今日方針整合樣式（第六本第四梯 v1.30；D-主-560～564）。
+ *
+ * 嚴格遵守《視覺規範》v2.2：
+ *   1. 零裸色碼（#hex／rgb），全部走語意層與原色層 CSS Tokens。
+ *   2. 零 `--color-book` 背景（書封為唯一深面）與零 `--seal`（朱色僅蓋済章）。
+ *   3. 同一區不疊兩層 `.techo-card` 紙面（卡內分區一律用虛線撕線或極淡墨色底）。
+ *   4. 所有字級一律引用 `--fs-*` Token。
+ */
+
+/* ═══════════════════ 一、桌機書封扉頁書籤入口（Sidebar） ═══════════════════ */
+
+.ns-cover-frontispiece {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 34px;
+  margin: 0 0 var(--sp-3);
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--color-gold) 38%, transparent);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-gold) 7%, transparent);
+  color: var(--color-gold-soft);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-cover-frontispiece:hover {
+  background: color-mix(in srgb, var(--color-gold) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-gold) 62%, transparent);
+  color: var(--color-book-ink);
+}
+
+.ns-cover-frontispiece:focus-visible {
+  outline: 1px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+.ns-cover-frontispiece.is-active {
+  background: color-mix(in srgb, var(--color-gold) 18%, transparent);
+  border-style: solid;
+  border-color: var(--color-gold);
+  color: var(--color-book-ink);
+}
+
+.ns-cover-frontispiece-star {
+  flex: none;
+  color: var(--color-gold);
+  font-size: var(--fs-sm);
+  line-height: 1;
+}
+
+.ns-cover-frontispiece-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-cover-frontispiece-caps {
+  flex: none;
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--color-book-ink);
+  opacity: 0.52;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 書封收合為窄軌時：僅留星芒圖示並置中 */
+.cover.is-collapsed .ns-cover-frontispiece {
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.cover.is-collapsed .ns-cover-frontispiece-label,
+.cover.is-collapsed .ns-cover-frontispiece-caps {
+  display: none;
+}
+
+/* ═══════════════════ 二、扉頁視圖外框（桌機＋手機） ═══════════════════ */
+
+.ns-ideal-page .ns-ideal-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+.ns-ideal-m {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-4) var(--m-gutter) calc(var(--sp-7) + env(safe-area-inset-bottom, 0px));
+}
+
+.ns-ideal-m-toprow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-m-sub {
+  font-size: var(--fs-sm);
+  color: var(--color-ink-soft);
+  letter-spacing: 0.04em;
+}
+
+/* ── 扉頁置頂「心之所向」橫幅 ── */
+
+.ns-ideal-motto-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.ns-ideal-motto-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ns-ideal-motto-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  letter-spacing: 0.16em;
+  font-weight: 600;
+}
+
+.ns-ideal-motto-quote {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--color-ink);
+  line-height: 1.5;
+}
+
+.ns-ideal-motto-source {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+}
+
+/* ═══════════════════ 三、車窓の問い（每日車窗問答盒） ═══════════════════ */
+
+.ns-ideal-window {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+[data-shell="mobile"] .ns-ideal-window {
+  padding: var(--sp-4);
+}
+
+.ns-ideal-window-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-window-badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-window-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.ns-ideal-window-cat {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: 0.12em;
+}
+
+.ns-ideal-window-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-question {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  color: var(--color-ink);
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+}
+
+.ns-ideal-past-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  font-size: var(--fs-xs);
+  color: var(--accent);
+}
+
+.ns-ideal-answer-box {
+  width: 100%;
+  min-height: 84px;
+  padding: var(--sp-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.ns-ideal-answer-box:focus-visible,
+.ns-ideal-input:focus-visible,
+.ns-ideal-textarea:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.ns-ideal-window-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px dashed var(--color-dash);
+}
+
+.ns-ideal-diary-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  min-height: var(--ctl-h-sm);
+}
+
+.ns-ideal-diary-check input[type="checkbox"],
+.ns-ideal-check-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* ═══════════════════ 四、終點站的風景（主題篩選＋風景卡格線） ═══════════════════ */
+
+.ns-ideal-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.ns-ideal-sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.ns-ideal-sec-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--color-ink);
+}
+
+.ns-ideal-sec-note {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.ns-ideal-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ctl-h-sm);
+  padding: 0 12px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft);
+}
+
+[data-shell="mobile"] .ns-ideal-chip {
+  min-height: 38px;
+}
+
+.ns-ideal-chip:hover {
+  background: var(--hover-bg);
+  color: var(--color-ink);
+}
+
+.ns-ideal-chip.is-on {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-weight: 600;
+}
+
+.ns-ideal-chip-count {
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-ideal-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+[data-shell="mobile"] .ns-ideal-card-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ns-ideal-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow var(--dur-fast) var(--ease-soft);
+}
+
+.ns-ideal-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.ns-ideal-card.is-pinned {
+  border-color: var(--accent);
+}
+
+.ns-ideal-card-visual {
+  position: relative;
+  height: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-bottom: 1px dashed var(--color-dash);
+  color: var(--color-ink-soft);
+  overflow: hidden;
+}
+
+.ns-ideal-art-svg {
+  width: 100%;
+  height: 100%;
+  max-width: 280px;
+}
+
+.ns-ideal-card-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ns-ideal-pin-pill {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--float-bg);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.ns-ideal-card-body {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1;
+}
+
+.ns-ideal-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-card-theme {
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+.ns-ideal-card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  color: var(--color-ink);
+  line-height: 1.4;
+}
+
+.ns-ideal-card-prose {
+  margin: 0;
+  font-size: var(--fs-body);
+  color: var(--color-ink-soft);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.ns-ideal-card-motto {
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  border-top: 1px dashed var(--color-dash);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  opacity: 0.88;
+}
+
+/* ═══════════════════ 五、車窗問答拾光 · 跨時空並排回顧 ═══════════════════ */
+
+.ns-ideal-timelapse-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.ns-ideal-prompt-group {
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.ns-ideal-prompt-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.ns-ideal-prompt-titlewrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ns-ideal-prompt-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+}
+
+.ns-ideal-era-badge {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-weight: 600;
+}
+
+.ns-ideal-prompt-q {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-ticket);
+  font-weight: 700;
+  color: var(--color-ink);
+  line-height: 1.5;
+}
+
+.ns-ideal-eras-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
+}
+
+.ns-ideal-eras-grid.is-multi {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+[data-shell="mobile"] .ns-ideal-eras-grid.is-multi {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ns-ideal-era-entry {
+  padding: var(--sp-3);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-era-entry.is-pinned {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.ns-ideal-era-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-era-date {
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.ns-ideal-era-diary-mark {
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+}
+
+.ns-ideal-era-answer {
+  margin: 0;
+  font-size: var(--fs-body);
+  color: var(--color-ink);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.ns-ideal-era-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+/* ═══════════════════ 六、對話框表單與插畫挑選格 ═══════════════════ */
+
+.ns-ideal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.ns-ideal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns-ideal-field-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--color-ink);
+  letter-spacing: 0.06em;
+}
+
+.ns-ideal-field-hint {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+}
+
+.ns-ideal-input {
+  width: 100%;
+  height: var(--ctl-input);
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-ui);
+}
+
+.ns-ideal-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.ns-ideal-art-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-art-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-file-hidden {
+  display: none;
+}
+
+.ns-ideal-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+[data-shell="mobile"] .ns-ideal-preset-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ns-ideal-preset-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-soft),
+    background var(--dur-fast) var(--ease-soft);
+}
+
+.ns-ideal-preset-cell:hover {
+  background: var(--hover-bg);
+}
+
+.ns-ideal-preset-cell.is-on {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+}
+
+.ns-ideal-preset-thumb {
+  width: 100%;
+  height: 40px;
+}
+
+.ns-ideal-preset-name {
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.ns-ideal-photo-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns-ideal-photo-preview {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+}
+
+.ns-ideal-check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  cursor: pointer;
+  min-height: var(--ctl-h);
+}
+
+/* ═══════════════════ 七、今日頁頂部方針收攏（心之所向＋理想手札抽屜） ═══════════════════ */
+
+.wa-motto-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px 12px;
+  margin-bottom: var(--sp-2);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-soft);
+}
+
+.wa-motto-bar:hover {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+.wa-motto-bar-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.wa-motto-tag {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+}
+
+.wa-motto-text {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-motto-go {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+}
+
+/* 今日頁展開「✦ 理想手札」頁籤時的雙欄抽屜預覽 */
+.wa-ideal-peek {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+
+[data-shell="mobile"] .wa-ideal-peek {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wa-ideal-col {
+  padding: var(--sp-3);
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.wa-ideal-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.wa-ideal-col-kicker {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+}
+
+.wa-ideal-prompt-q {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-body);
+  color: var(--color-ink);
+  line-height: 1.55;
+}
+
+.wa-ideal-mini-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wa-ideal-mini-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  min-width: 0;
+}
+
+.wa-ideal-mini-theme {
+  flex: none;
+  font-size: var(--fs-micro);
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+.wa-ideal-mini-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-ideal-col-foot {
+  margin-top: auto;
+  padding-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+/* ═══════════════════ 七、行路對照（今年 · 本月 · 本週 三欄橫向並排） ═══════════════════ */
+
+.ns-ideal-aims-headbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-aims-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-aims-foldbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ns-ideal-aims-chev {
+  display: inline-flex;
+  transition: transform var(--dur-fast) var(--ease-soft);
+}
+
+.ns-ideal-aims-chev.is-open {
+  transform: rotate(180deg);
+}
+
+.ns-ideal-aims-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+  align-items: stretch;
+}
+
+[data-shell="mobile"] .ns-ideal-aims-grid {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  -webkit-overflow-scrolling: touch;
+}
+
+.ns-ideal-aim-col {
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+[data-shell="mobile"] .ns-ideal-aim-col {
+  flex: 0 0 82%;
+  max-width: 310px;
+  scroll-snap-align: start;
+}
+
+.ns-ideal-aim-col-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px dashed var(--color-dash);
+}
+
+.ns-ideal-aim-col-titlewrap {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.ns-ideal-aim-col-scale {
+  font-family: var(--font-display);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  color: var(--color-ink);
+  letter-spacing: 0.04em;
+}
+
+.ns-ideal-aim-col-range {
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ns-ideal-aim-col-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+.ns-ideal-aim-col-count {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-ideal-aim-col-edit {
+  appearance: none;
+  border: 1px solid var(--color-dash);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 1px 7px;
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-ideal-aim-col-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+
+.ns-ideal-aim-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+  font-size: var(--fs-sm);
+  color: var(--color-ink-faint);
+}
+
+.ns-ideal-aim-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.ns-ideal-aim-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: 2px 0;
+}
+
+.ns-ideal-aim-num {
+  flex: none;
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+  padding-top: 2px;
+}
+
+.ns-ideal-aim-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--sp-2);
+}
+
+.ns-ideal-aim-text {
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.ns-ideal-aim-row.is-done .ns-ideal-aim-text {
+  color: var(--color-ink-faint);
+}

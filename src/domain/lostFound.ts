@@ -18,6 +18,7 @@
 import { KIND_LABEL, allowedChildKinds, type NodeKind } from "./node.ts";
 import { moneyText } from "./ticket.ts";
 import { periodLabel, stationIdOfKey } from "./weekAims.ts";
+import { IDEAL_THEME_LABEL, isIdealTheme } from "./idealTecho.ts";
 
 /** 「最近刪除」顯示幾天內的東西。窗口只是顯示範圍，不刪任何東西（tombstone 同步要用，品味 3） */
 export const LOST_FOUND_DAYS = 30;
@@ -30,6 +31,8 @@ export const LOST_CATEGORY_LABEL: Record<LostCategory, string> = { tasks: "任�
 export type LostKindKey =
   | NodeKind
   | "week_aim"
+  | "ideal_card"
+  | "ideal_reflection"
   | "note"
   | "diary"
   | "tag"
@@ -303,6 +306,28 @@ export const LOST_KINDS: readonly LostKindDef[] = [
     label: "方針",
     title: (r) => text(r.text) ?? "（空白方針）",
     detail: (r, names) => aimPeriodText(r.week_on, names),
+    tagTypes: [],
+    children: [],
+    requires: [],
+  },
+  {
+    key: "ideal_card",
+    table: "ideal_cards",
+    category: "tasks",
+    label: "理想手札",
+    title: (r) => text(r.title) ?? "（未命名風景卡）",
+    detail: (r) => (isIdealTheme(r.theme) ? IDEAL_THEME_LABEL[r.theme] : null),
+    tagTypes: [],
+    children: [],
+    requires: [],
+  },
+  {
+    key: "ideal_reflection",
+    table: "ideal_reflections",
+    category: "tasks",
+    label: "車窓問答",
+    title: (r) => text(r.question) ?? "（車窓の問い）",
+    detail: (r) => ymdShort(r.answered_on),
     tagTypes: [],
     children: [],
     requires: [],

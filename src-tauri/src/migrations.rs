@@ -81,6 +81,8 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(20, "0020_node_station", "node station: nodes.station_id (leaf tasks attach to a station of their route; orphans resolved at read time)"),
     // 第六本第三梯（D-時-190）；正式號 0021（主對話 11-10 發）
     mig!(21, "0021_time_plan_adhoc", "timetable adhoc plans: time_plans.kind ('adhoc') + time_plans.route_id (optional route binding for adhoc/theme reservations)"),
+    // 第六本第四梯（v1.30；D-主-560～564）：車窓・理想手札與車窓の問い
+    mig!(22, "0022_ideal_techo", "ideal techo: ideal_cards (frontispiece cards with window illustrations & compressed photos, pinned motto) + ideal_reflections (daily window Q&A, diary note link, cross-time review)"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -228,6 +230,11 @@ mod tests {
             21,
             "0021_time_plan_adhoc",
             "5fd0a431ee70dea312cf3d6aa49e753c0fcd30e5354dd03e43d7c0eade66a6228bfb1f5df53877f4f27374b8ae84eac0",
+        ),
+        (
+            22,
+            "0022_ideal_techo",
+            "e182f2ac672110fe80dd081fb3fc189ec13244ee6d2f40c7170c154562625fa8b49ec4cea251405b257201748f4fe48f",
         ),
     ];
 

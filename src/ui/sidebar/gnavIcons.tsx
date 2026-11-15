@@ -112,6 +112,17 @@ export function IconWaitroom(size: number) {
   );
 }
 
+/** 車窓・理想手札（第六本第四梯 v1.30：車窗拱框＋四芒星） */
+export function IconIdeal(size: number) {
+  return (
+    <svg {...svgProps(size)} strokeLinejoin="round">
+      <rect x="2.6" y="2.2" width="10.8" height="11.6" rx="2.2" />
+      <path d="M2.6 10.4h10.8" />
+      <path d="M8 4.4 8.7 6l1.6.7-1.6.7L8 9l-.7-1.6L5.7 6.7 7.3 6Z" />
+    </svg>
+  );
+}
+
 export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   today: IconToday,
   routemap: IconRouteMap,
@@ -123,4 +134,5 @@ export const GNAV_ICONS: Record<PageId, (size: number) => ReactElement> = {
   depot: IconDepot,
   waitroom: IconWaitroom,
   search: IconFullSearch,
+  ideal: IconIdeal,
 };

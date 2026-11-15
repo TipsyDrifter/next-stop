@@ -52,6 +52,7 @@ import { MobileGestures } from "./MobileGestures";
 import { useUiStore, readLastNav, writeLastNav, type MobileMoreView, type ThemePref } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useTicketStore } from "../../store/ticketStore";
+import { useIdealStore } from "../../store/idealStore";
 import { useSyncStore, SYNC_PHASE_LABEL, START_OVER_TEXT, startOverThisNote } from "../../store/syncStore";
 import MobileSync from "./MobileSync";
 import MobileBackup from "./MobileBackup";
@@ -127,6 +128,11 @@ export default function MobileMore() {
   const depotCount = useNodeStore((s) => s.routes.length - s.liveRoutes.length);
   // 壬 候車室：列尾寫等車幾件（願望資料 App 啟動時 TicketAgent 就暖好了）
   const waitCount = useTicketStore((s) => s.wish.want.length);
+  const idealCardCount = useIdealStore((s) => s.cards.filter((c) => c.deleted_at === null).length);
+
+  useEffect(() => {
+    void useIdealStore.getState().ensureLoaded();
+  }, []);
 
   // v1.1.5：橫幅「前往同步」的深連結——看到就切子頁並消費（本頁已經開著時也走這裡）
   useEffect(() => {
@@ -195,7 +201,16 @@ export default function MobileMore() {
         <h2 id="m2-sec-review" className="m2-sec-title">
           站內
         </h2>
-        <button type="button" className="m2-row-link m2-row-first" onClick={() => setMobileTab("report")}>
+        <button type="button" className="m2-row-link m2-row-first" onClick={() => setMobileTab("ideal")}>
+          <span className="m2-planned-name m2-row-icon">
+            <span aria-hidden="true">✦</span>
+            車窓・理想手札
+          </span>
+          <span className="m2-planned-note">
+            {idealCardCount > 0 ? `終點站的風景 ${idealCardCount} 幅` : "終點站的風景・車窓の問い"}
+          </span>
+        </button>
+        <button type="button" className="m2-row-link" onClick={() => setMobileTab("report")}>
           <span className="m2-planned-name m2-row-icon">
             {GNAV_ICONS.report(16)}
             運行報告

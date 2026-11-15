@@ -18,8 +18,8 @@ import { LINE_MANIFESTS, type LineHotkeyScope, type LineId } from "../../lines/i
 
 /** 核心頁：gnav 上排三頁＋第三排「站內」（② 運行報告 D-主-182；③ 車庫 D-主-215；壬 候車室 D-主-511、群組名 D-主-512） */
 export type CorePageId = "today" | "routemap" | "calendar" | "report" | "depot" | "waitroom";
-/** 不進 gnav 的頁（完整搜尋班 D-主-110）：由入口叫出、側欄沒有它的頁籤，不配 Ctrl+數字 */
-export type AuxPageId = "search";
+/** 不進 gnav 的頁（完整搜尋班 D-主-110；第六本第四梯 v1.30 扉頁「車窓・理想手札」）：由入口叫出、不進九宮格 */
+export type AuxPageId = "search" | "ideal";
 export type PageId = CorePageId | LineId | AuxPageId;
 
 export interface PageDef {
@@ -126,6 +126,15 @@ export const AUX_PAGES: readonly PageDef[] = [
     navHotkeyId: "global.fullsearch",
     hotkeyScope: "search",
     guideTitle: "完整搜尋的快捷鍵",
+  },
+  {
+    id: "ideal",
+    label: "理想手札",
+    status: "open",
+    navDigit: "",
+    navHotkeyId: "global.ideal",
+    hotkeyScope: "global",
+    guideTitle: "車窓・理想手札的快捷鍵",
   },
 ];
 

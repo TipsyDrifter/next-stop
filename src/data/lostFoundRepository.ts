@@ -52,6 +52,7 @@ import type { TagRepository } from "./tagRepository";
 import type { TicketRepository } from "./ticketRepository";
 import type { TimetableRepository } from "./timetableRepository";
 import type { WeekAimRepository } from "./weekAimRepository";
+import type { IdealRepository } from "./idealRepository";
 
 export interface LostRestoreResult {
   /** 車票的上層不在：放到臨時車票了（toast 講） */
@@ -105,6 +106,7 @@ export interface LostFoundDeps {
   timetable: Pick<TimetableRepository, "restore" | "restoreCategory" | "restoreGoal" | "restoreRoutine" | "previewCover">;
   ticket: Pick<TicketRepository, "restoreEntry" | "pickUpRepeat" | "repeatPickUpCols" | "restoreWish" | "restoreTemplate" | "restoreBudget" | "restoreCategory" | "restoreAccount">;
   aims: Pick<WeekAimRepository, "restoreAim">;
+  ideal?: Pick<IdealRepository, "restoreCard" | "restoreReflection">;
   readSnapshot(key: string): Promise<CloudSnapshot>;
 }
 
@@ -216,6 +218,12 @@ export class SqliteLostFoundRepository implements LostFoundRepository {
         return {};
       case "week_aims":
         await aims.restoreAim(item.id);
+        return {};
+      case "ideal_cards":
+        if (this.deps.ideal) await this.deps.ideal.restoreCard(item.id);
+        return {};
+      case "ideal_reflections":
+        if (this.deps.ideal) await this.deps.ideal.restoreReflection(item.id);
         return {};
       default:
         throw new RangeError("不認得這種東西");

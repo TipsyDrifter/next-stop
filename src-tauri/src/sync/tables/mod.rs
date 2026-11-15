@@ -110,7 +110,7 @@ impl Registry {
         }
     }
 
-    fn production_groups() -> [(&'static [SyncTableSpec], &'static [&'static str]); 7] {
+    fn production_groups() -> [(&'static [SyncTableSpec], &'static [&'static str]); 8] {
         [
             (core::TABLES, core::SETTINGS_KEYS),
             // 逐班時刻覆寫（0012）另立一組：core::TABLES 是 G0 金樣鎖住的核心四張，
@@ -120,6 +120,8 @@ impl Registry {
             (core::STAMP_TABLES, &[]),
             // 週方針（戊，D-主-263）：同上理由另立一組，接在駅スタンプ之後（core.rs 裡的出現順序也是這樣）
             (core::WEEK_AIM_TABLES, &[]),
+            // 車窓・理想手札與車窓の問い（第六本第四梯 v1.30）：接在週方針之後
+            (core::IDEAL_TABLES, &[]),
             (notes::TABLES, notes::SETTINGS_KEYS),
             (timetable::TABLES, timetable::SETTINGS_KEYS),
             (ticket::TABLES, ticket::SETTINGS_KEYS),

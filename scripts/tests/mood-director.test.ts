@@ -118,7 +118,7 @@ describe("藏起來就停", () => {
 });
 
 describe("儀式觸發", () => {
-  test("蓋一枚來一班短車；環境循環模式蓋章沒反應", () => {
+  test("蓋一枚來一班短車；環境循環模式蓋章沒反應；循環＋儀式（both）同時有排程也回應蓋章", () => {
     const a = setup({ mode: "ritual" });
     assert.equal(a.pending(), 0, "儀式模式平常不排");
     a.d.stamped(false);
@@ -126,6 +126,12 @@ describe("儀式觸發", () => {
     const b = setup();
     b.d.stamped(false);
     assert.equal(b.events.length, 0);
+    const c = setup({ mode: "both" });
+    assert.equal(c.pending(), 2, "循環＋儀式平常照排列車與天象");
+    c.d.stamped(true);
+    assert.deepEqual(c.events, [{ kind: "train", long: true }]);
+    c.advance(420);
+    assert.deepEqual(c.events[1], { kind: "flock" });
   });
 
   test("全済：長列車出發 420ms 後才放雁行（亮）", () => {

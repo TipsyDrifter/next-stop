@@ -8,11 +8,14 @@
  * 技術鐵則照舊：只動 transform／opacity、pointer-events:none、減少動態全關；天上沒東西時沒有 DOM。
  */
 import { useEffect, useRef, useState, type AnimationEvent, type CSSProperties } from "react";
-import { MoodDirector, duskTintAt, type DuskTint, type MoodEvent, type SkyKind } from "./moodDirector";
+import { MoodDirector, type MoodEvent, type SkyKind } from "./moodDirector";
 import { useMotionSleep } from "./motionSleep";
 import { useMoodStore } from "./moodStore";
 import { usePrefersReducedMotion } from "./useAmbience";
 import type { CssVars } from "./starfield";
+import { useNodeStore } from "../../store/nodeStore";
+import { useUiStore } from "../../store/uiStore";
+import { todayKey } from "../../lib/date";
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
@@ -42,31 +45,6 @@ function useScene() {
     return () => ob.disconnect();
   }, []);
   return scene;
-}
-
-function minuteNow(): number {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
-}
-
-const NO_TINT: DuskTint = { dawn: 0, dusk: 0, night: 0 };
-/** 一步很小，看不出在變；不用 CSS 長轉場，平常就不佔任何一格畫面 */
-const TINT_TICK_MS = 5 * 60_000;
-
-function useDuskTint(enabled: boolean, asleep: boolean): DuskTint {
-  const [tint, setTint] = useState(() => (enabled ? duskTintAt(minuteNow()) : NO_TINT));
-  useEffect(() => {
-    if (!enabled) {
-      setTint(NO_TINT);
-      return;
-    }
-    if (asleep) return; // 睡著不算；醒來當場補到現在的時間
-    const tick = () => setTint(duskTintAt(minuteNow()));
-    tick();
-    const t = window.setInterval(tick, TINT_TICK_MS);
-    return () => window.clearInterval(t);
-  }, [enabled, asleep]);
-  return tint;
 }
 
 /** 候鳥剪影：滑翔中的雁——細長後掠的翼、小小的身軀、向前伸的頸與頭（頭朝左＝飛行方向）；路徑逐字取自原型 */
@@ -151,22 +129,39 @@ function makeMeteor(id: number, baseDur: number): SkyThing {
 }
 
 export interface MoodStageProps {
-  /** 今天蓋了幾枚（儀式模式用；變多才算蓋章，第一次拿到值不算） */
-  done: number;
-  allDone: boolean;
+  /** 今天蓋了幾枚（儀式模式用；未傳時自動從 nodeStore.today 計算） */
+  done?: number;
+  allDone?: boolean;
   /** 換日時重新起算，新的一天第一次載入不算蓋章 */
-  dateKey: string;
-  loaded: boolean;
+  dateKey?: string;
+  loaded?: boolean;
+  /** 非今日頁時為 true：底部軌道與列車改掛於背景層（z-index: 0），不佔版面高度 */
+  background?: boolean;
 }
 
-export function MoodStage({ done, allDone, dateKey, loaded }: MoodStageProps) {
+export function MoodStage({ done, allDone, dateKey, loaded, background = false }: MoodStageProps) {
   const mode = useMoodStore((s) => s.mode);
   const level = useMoodStore((s) => s.level);
   const parts = useMoodStore((s) => s.parts);
+  const stampSeq = useMoodStore((s) => s.stampSeq);
   const reduced = usePrefersReducedMotion();
   const asleep = useMotionSleep() !== null;
   const scene = useScene();
   const on = mode !== "off" && !reduced;
+
+  const todaySlice = useNodeStore((s) => s.today);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const computedDateKey = dateKey ?? todaySlice.dateKey ?? todayKey(dayStartHour);
+  const computedLoaded = loaded ?? todaySlice.dateKey !== null;
+  const computedDone =
+    done ??
+    todaySlice.rows.filter(
+      (r) => r.bucket === "today" && (r.occurrence ? r.occurrence.status === "done" : r.status === "done"),
+    ).length;
+  const computedAllDone =
+    allDone ??
+    (todaySlice.rows.length > 0 &&
+      todaySlice.rows.every((r) => r.occurrence !== null || r.status === "done"));
 
   const layerRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<HTMLDivElement>(null);
@@ -214,20 +209,22 @@ export function MoodStage({ done, allDone, dateKey, loaded }: MoodStageProps) {
     if (!on) setSky([]);
   }, [on]);
 
-  // 儀式：済變多才算蓋章（第一次載入、換日、復原都不算）
-  const lastDone = useRef<{ day: string; done: number } | null>(null);
+  // 儀式：今日済數變多（或跨分頁蓋下任一張済章）時觸發慶祝（第一次載入、換日、復原都不算）
+  const lastDone = useRef<{ day: string; done: number; seq: number } | null>(null);
   useEffect(() => {
-    if (!loaded) return;
+    if (!computedLoaded) return;
     const prev = lastDone.current;
-    lastDone.current = { day: dateKey, done };
-    if (prev && prev.day === dateKey && done > prev.done) director.stamped(allDone);
-  }, [director, loaded, dateKey, done, allDone]);
+    lastDone.current = { day: computedDateKey, done: computedDone, seq: stampSeq };
+    if (!prev) return;
+    if (prev.day === computedDateKey && computedDone > prev.done) {
+      director.stamped(computedAllDone);
+    } else if (stampSeq > prev.seq) {
+      director.stamped(false);
+    }
+  }, [director, computedLoaded, computedDateKey, computedDone, computedAllDone, stampSeq]);
 
   // 開發時給量測腳本與預覽用（scripts/verify/measure-motion.mjs）
   if (import.meta.env.DEV) Object.assign(window, { __mood: director, __moodStore: useMoodStore });
-
-  const tint = useDuskTint(on && mode === "ambient" && parts.dusk, asleep);
-  const tintScale = level === "mid" ? 1 : 0.7;
 
   const gone = (id: number) => (e: AnimationEvent<HTMLElement>) => {
     if (e.target === e.currentTarget) setSky((s) => s.filter((t) => t.id !== id));
@@ -244,9 +241,6 @@ export function MoodStage({ done, allDone, dateKey, loaded }: MoodStageProps) {
   return (
     <>
       <div ref={layerRef} className={`mood-layer ${sceneClass}`} data-level={level} aria-hidden="true">
-        {tint.dawn > 0 && <i className="mood-tint mood-tint--dawn" style={{ opacity: tint.dawn * tintScale }} />}
-        {tint.dusk > 0 && <i className="mood-tint mood-tint--dusk" style={{ opacity: tint.dusk * tintScale }} />}
-        {tint.night > 0 && <i className="mood-tint mood-tint--night" style={{ opacity: tint.night * tintScale }} />}
         {sky.map((t) =>
           t.kind === "meteor" ? (
             <i key={t.id} className="mood-meteor" style={t.style} onAnimationEnd={gone(t.id)} />
@@ -270,7 +264,12 @@ export function MoodStage({ done, allDone, dateKey, loaded }: MoodStageProps) {
         )}
       </div>
       {parts.train && (
-        <div ref={groundRef} className={`mood-ground ${sceneClass}`} data-level={level} aria-hidden="true">
+        <div
+          ref={groundRef}
+          className={`mood-ground ${sceneClass}${background ? " is-bg" : ""}`}
+          data-level={level}
+          aria-hidden="true"
+        >
           <i className="mood-horizon" />
           {train && (
             <div

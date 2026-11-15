@@ -9,8 +9,9 @@ import type { MoodMode, MoodParts } from "./moodDirector";
 import { useMoodStore, type MoodLevel } from "./moodStore";
 
 const MODES: SegmentedOption<MoodMode>[] = [
-  { value: "ambient", label: "一直有", title: "列車、候鳥、流星偶爾經過，天色跟著時間變" },
-  { value: "ritual", label: "蓋章時", title: "蓋一枚済來一班列車，全部済放雁行或流星群" },
+  { value: "both", label: "循環＋儀式", title: "平時有列車與飛鳥偶爾經過，蓋下済章與全部完成時也有慶祝儀式" },
+  { value: "ambient", label: "環境循環", title: "列車、候鳥、流星偶爾經過，天色隨時間流轉" },
+  { value: "ritual", label: "完成儀式", title: "平時安靜，蓋一枚済開出一班列車，全部完成時放雁行或流星雨" },
   { value: "off", label: "關閉", title: "天空完全不動，星星也定住" },
 ];
 
@@ -23,7 +24,7 @@ const PARTS: { key: keyof MoodParts; label: string }[] = [
   { key: "train", label: "列車" },
   { key: "birds", label: "候鳥" },
   { key: "meteor", label: "流星" },
-  { key: "dusk", label: "晨昏" },
+  { key: "dusk", label: "晨昏／入夜染光" },
 ];
 
 export function MoodSettings({ labelClass, blockClass }: { labelClass: string; blockClass?: string }) {
@@ -41,7 +42,6 @@ export function MoodSettings({ labelClass, blockClass }: { labelClass: string; b
   const unavailable = (k: keyof MoodParts): string | null => {
     if (k === "birds" && dark) return "候鳥只在亮色主題出現";
     if (k === "meteor" && !dark && skin) return "這個主題的天空沒有星";
-    if (k === "dusk" && mode !== "ambient") return "選「一直有」時才有晨昏";
     return null;
   };
 

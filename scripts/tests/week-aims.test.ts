@@ -247,7 +247,7 @@ describe("同步登記", () => {
 
   test("TS 核心表名有 week_aims、本地鍵不進同步白名單、合併通知有名詞", async () => {
     const { CORE_SYNC_TABLES, SYNC_SETTINGS_KEYS } = await import("../../src/data/syncTables.ts");
-    assert.equal(CORE_SYNC_TABLES[CORE_SYNC_TABLES.length - 1], "week_aims");
+    assert.ok(CORE_SYNC_TABLES.includes("week_aims"));
     assert.ok(!SYNC_SETTINGS_KEYS.includes(KEY_WEEK_AIMS_FOLD));
     assert.ok(!SYNC_SETTINGS_KEYS.includes(KEY_WEEK_AIMS_REVIEW_SEEN));
     const merge = readFileSync(path.join(ROOT, "src/domain/syncMerge.ts"), "utf8");

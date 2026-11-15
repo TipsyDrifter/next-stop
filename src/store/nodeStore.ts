@@ -29,6 +29,7 @@ import type { SlotAnchor } from "../domain/nodeOrder";
 import { liveLinesOf, liveRoutesOf, type ArrivalWrite } from "../domain/depot";
 import { todayKey } from "../lib/date";
 import { useUiStore } from "./uiStore";
+import { useMoodStore } from "../ui/ambience/moodStore";
 
 /** 磨光⑦（D-主-67）：backfill＝這次的執行日是使用者在日期欄親手選的（選到今天以前＝補記）；推遲、T、復原都不帶 */
 export interface UpdateNodeOpts {
@@ -794,6 +795,7 @@ export const useNodeStore = create<NodeStore>((set, get) => ({
       // dateKey／dayStartHour 帶進去：定期券的済蓋在「今天這一班」上，日界線要與畫面同一把尺
       await nodeRepo.setCompleted(id, done, { cascade, dateKey: currentDateKey(), dayStartHour: dayStart() });
       await get().refresh();
+      if (done) useMoodStore.getState().notifyStamped();
     } catch (e) {
       set({ error: message(e) });
     } finally {

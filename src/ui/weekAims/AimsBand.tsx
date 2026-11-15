@@ -24,11 +24,13 @@ import {
   periodStepText,
   type ReviewPeriod,
 } from "../../domain/weekAims";
-import { useWeekAimStore } from "../../store/weekAimStore";
+import { useUiStore } from "../../store/uiStore";
+import { useWeekAimStore, type TodayAimTab } from "../../store/weekAimStore";
 import { IconBack, IconChevron } from "../common/icons";
 import { useAimView, usePendingReviews } from "./useWeekAims";
 import { AimStamp, PlanLine, RouteTag, StationMark, aimPlacePath } from "./parts";
 import { AimsRibbon } from "./AimsRibbon";
+import { IdealPeekDrawer, TodayMottoBar } from "./IdealPeek";
 import { PlanTicketPop } from "./PlanTicketPop";
 import { ReviewBoard } from "./WeekAimsReview";
 import { WeekAimsEditorHost } from "./WeekAimsEditor";
@@ -39,8 +41,10 @@ export interface AimsBandProps {
   aimKey: string;
   /** 行程表橫排 */
   wide?: boolean;
-  /** 今日那張：最下面一行露出另外兩層（§7 AimsRibbon），切到別期時頭上多「回本週」 */
+  /** 舊介面相容：最下面一行露出另外兩層（§7 AimsRibbon） */
   ribbon?: boolean;
+  /** 今日頂端收攏模式（v1.30 D-主-561）：`✦ 理想手札 ｜ 今年 ｜ 本月 ｜ 本週` 四籤切換＋心之所向常駐題詞 */
+  todayTab?: TodayAimTab;
   /** 今日那張：新的一期自動排隊出回顧（D-主-373） */
   autoReview?: boolean;
   /** 頭上 ‹ › 翻期，只換這張告示（年鑑 D-主-378）；車站沒有 */
@@ -51,7 +55,16 @@ export interface AimsBandProps {
   heading?: string;
 }
 
-export function AimsBand({ aimKey, wide = false, ribbon = false, autoReview = false, navigable = false, pinFolded = false, heading }: AimsBandProps) {
+export function AimsBand({
+  aimKey,
+  wide = false,
+  ribbon = false,
+  todayTab,
+  autoReview = false,
+  navigable = false,
+  pinFolded = false,
+  heading,
+}: AimsBandProps) {
   // 翻期只活在這張告示；外面換了 aimKey（換頁、跨年）就回外面給的那一期
   const [nav, setNav] = useState<{ base: string; key: string } | null>(null);
   const wanted = nav && nav.base === aimKey ? nav.key : aimKey;
@@ -69,8 +82,19 @@ export function AimsBand({ aimKey, wide = false, ribbon = false, autoReview = fa
   const review = useWeekAimStore((s) => s.review);
   const [planFor, setPlanFor] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
+  const [idealFolded, setIdealFolded] = useState(false);
   const pending = usePendingReviews(autoReview);
   const nextReview = pending[0] ?? null;
+
+  // 今日頂端四籤模式：預先載齊本週／本月／今年三層，切換零等待不跳動
+  useEffect(() => {
+    if (!todayTab) return;
+    const st = useWeekAimStore.getState();
+    for (const p of ["week", "month", "year"] as const) {
+      const k = currentKeyOf(p, v.today, v.weekStart);
+      if (st.weeks[k] === undefined) void st.loadWeek(k);
+    }
+  }, [todayTab, v.today, v.weekStart]);
 
   // 新的一期第一次打開：排隊的回顧一次一張（只今日那張；關掉＝看過，store 記本地鍵，下一張接著出）
   // 當下有別張回顧開著（使用者自己開的、車站小卡裡的）就等它關掉再補
@@ -115,6 +139,202 @@ export function AimsBand({ aimKey, wide = false, ribbon = false, autoReview = fa
     // 點了就是要看：切過去的那一期一律攤開
     void st.setFolded(currentKeyOf(p, v.today, v.weekStart), false);
   };
+  const pickIdealTab = () => {
+    useWeekAimStore.getState().setTodayPick("ideal");
+    setIdealFolded(false);
+  };
+
+  const { done, total } = v.count;
+  // 回顧：這一期最後一天（D-主-260）；翻到過去的那一期也能回頭看；車站隨時能看（D-主-374）
+  const canReview = lastDay || isPastPeriod(key, v.today, v.weekStart) || period === "station";
+  // 浮層標題：週維持「這週」的舊字，其他期間照關係寫
+  const planWhen = period === "week" ? "這週" : rel;
+
+  const aimListEl = (
+    <ol className="wa-list">
+      {v.aims.map((a, i) => {
+        const place = v.placeOf(a.node_id);
+        const count = v.countOf(a);
+        const planBtn =
+          a.done_at === null ? (
+            <button
+              type="button"
+              className={"ns-btn btn-text ns-btn--sm wa-plan" + (planFor === a.id ? " is-open" : "")}
+              aria-haspopup="dialog"
+              aria-expanded={planFor === a.id}
+              title={place ? `在「${aimPlacePath(place)}」建一張${planWhen}的車票` : `建一張${planWhen}的臨時車票`}
+              onClick={() => setPlanFor(planFor === a.id ? null : a.id)}
+            >
+              排成車票
+            </button>
+          ) : (
+            <span />
+          );
+        return (
+          <li key={a.id} className={"wa-row" + (a.done_at ? " is-done" : "")}>
+            <span className="wa-num" aria-hidden>
+              {aimNumeral(i)}
+            </span>
+            {wide ? (
+              <>
+                <p className="wa-text">
+                  <span className="t">{a.text}</span>
+                  {place && <RouteTag place={place} shell="desktop" />}
+                </p>
+                <PlanLine aim={a} count={count} emptyText={a.done_at === null ? "還沒排票" : undefined} />
+                {a.done_at === null && planBtn}
+              </>
+            ) : (
+              <>
+                <div className="wa-main">
+                  <p className="wa-text">
+                    <span className="t" title={a.text}>
+                      {a.text}
+                    </span>
+                    {place && <RouteTag place={place} shell="desktop" />}
+                  </p>
+                  <PlanLine aim={a} count={count} />
+                </div>
+                {planBtn}
+              </>
+            )}
+            <AimStamp aim={a} />
+            {planFor === a.id && <PlanTicketPop aim={a} weekOn={key} today={v.today} onClose={() => setPlanFor(null)} />}
+          </li>
+        );
+      })}
+    </ol>
+  );
+
+  // 今日頁頂端收攏模式（v1.30 D-主-561）：心之所向常駐題詞＋「✦ 理想手札 ｜ 今年 ｜ 本月 ｜ 本週」四籤切換
+  if (todayTab !== undefined) {
+    const isIdeal = todayTab === "ideal";
+    const effectiveFolded = isIdeal ? idealFolded : empty || folded;
+    const toggleTodayFold = () => {
+      if (isIdeal) setIdealFolded((f) => !f);
+      else toggle();
+    };
+    return (
+      <>
+        <section
+          className={"wa" + (effectiveFolded ? " is-folded" : "")}
+          aria-label={isIdeal ? "車窓・理想手札" : title}
+        >
+          <div className="wa-board">
+            <TodayMottoBar shell="desktop" />
+            <div
+              className={"wa-head" + (effectiveFolded && (!empty || isIdeal) ? " is-click" : "")}
+              onClick={(e) => {
+                if (effectiveFolded && (!empty || isIdeal) && !(e.target as Element).closest("button")) {
+                  toggleTodayFold();
+                }
+              }}
+            >
+              <div className="wa-tabs" role="tablist" aria-label="今日方針與理想手札">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isIdeal}
+                  className={"wa-tab is-ideal" + (isIdeal ? " on" : "")}
+                  onClick={pickIdealTab}
+                >
+                  <span className="spark" aria-hidden="true">
+                    ✦
+                  </span>
+                  理想手札
+                </button>
+                {(
+                  [
+                    ["year", "今年"],
+                    ["month", "本月"],
+                    ["week", "本週"],
+                  ] as const
+                ).map(([p, lbl]) => (
+                  <button
+                    key={p}
+                    type="button"
+                    role="tab"
+                    aria-selected={todayTab === p}
+                    className={"wa-tab" + (todayTab === p ? " on" : "")}
+                    onClick={() => pickToday(p)}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {isIdeal ? (
+                <>
+                  <span className="wa-dt">終點站的風景 · 無期限</span>
+                  <span className="wa-rule" />
+                  <button
+                    type="button"
+                    className="ns-btn btn-text ns-btn--sm"
+                    onClick={() => useUiStore.getState().setPage("ideal")}
+                  >
+                    翻開扉頁 ›
+                  </button>
+                  <button
+                    type="button"
+                    className="ns-iconbtn wa-caret"
+                    aria-expanded={!idealFolded}
+                    aria-label={idealFolded ? "展開理想手札預覽" : "收起理想手札預覽"}
+                    title={idealFolded ? "展開" : "收起"}
+                    onClick={toggleTodayFold}
+                  >
+                    <IconChevron />
+                  </button>
+                </>
+              ) : empty ? (
+                <>
+                  <span className="wa-dt">{v.rangeText}</span>
+                  <span className="wa-rule" />
+                  <span className="wa-empty-note">還沒寫{rel}的方針</span>
+                  <button type="button" className="ns-btn btn-text ns-btn--sm" aria-haspopup="dialog" onClick={openEditor}>
+                    寫方針
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="wa-dt">{v.rangeText}</span>
+                  <span className="wa-rule" />
+                  <span className="wa-count" title={`済 ${done} 句，共 ${total} 句`}>
+                    済 <b>{done}</b>/{total}
+                  </span>
+                  {!folded && (
+                    <button type="button" className="ns-btn btn-text ns-btn--sm" aria-haspopup="dialog" onClick={openEditor}>
+                      改方針
+                    </button>
+                  )}
+                  {!folded && canReview && (
+                    <button
+                      type="button"
+                      className="ns-btn btn-text ns-btn--sm"
+                      onClick={() => void useWeekAimStore.getState().openReview(key)}
+                    >
+                      {lastDay ? `回顧${rel} ›` : "回顧 ›"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="ns-iconbtn wa-caret"
+                    aria-expanded={!folded}
+                    aria-label={`${folded ? "展開" : "收起"}${title}`}
+                    title={folded ? "展開" : "收起"}
+                    onClick={toggle}
+                  >
+                    <IconChevron />
+                  </button>
+                </>
+              )}
+            </div>
+            {isIdeal && !idealFolded && <IdealPeekDrawer today={v.today} shell="desktop" />}
+            {!isIdeal && !empty && !folded && aimListEl}
+          </div>
+        </section>
+        {host}
+      </>
+    );
+  }
 
   const canNav = navigable && period !== "station";
   const curOfPeriod = period === "station" ? key : currentKeyOf(period, v.today, v.weekStart);
@@ -189,11 +409,6 @@ export function AimsBand({ aimKey, wide = false, ribbon = false, autoReview = fa
     );
   }
 
-  const { done, total } = v.count;
-  // 回顧：這一期最後一天（D-主-260）；翻到過去的那一期也能回頭看；車站隨時能看（D-主-374）
-  const canReview = lastDay || isPastPeriod(key, v.today, v.weekStart) || period === "station";
-  // 浮層標題：週維持「這週」的舊字，其他期間照關係寫
-  const planWhen = period === "week" ? "這週" : rel;
   return (
     <>
       <section
@@ -238,61 +453,7 @@ export function AimsBand({ aimKey, wide = false, ribbon = false, autoReview = fa
               <IconChevron />
             </button>
           </div>
-          {!folded && (
-            <ol className="wa-list">
-              {v.aims.map((a, i) => {
-                const place = v.placeOf(a.node_id);
-                const count = v.countOf(a);
-                const planBtn =
-                  a.done_at === null ? (
-                    <button
-                      type="button"
-                      className={"ns-btn btn-text ns-btn--sm wa-plan" + (planFor === a.id ? " is-open" : "")}
-                      aria-haspopup="dialog"
-                      aria-expanded={planFor === a.id}
-                      title={place ? `在「${aimPlacePath(place)}」建一張${planWhen}的車票` : `建一張${planWhen}的臨時車票`}
-                      onClick={() => setPlanFor(planFor === a.id ? null : a.id)}
-                    >
-                      排成車票
-                    </button>
-                  ) : (
-                    <span />
-                  );
-                return (
-                  <li key={a.id} className={"wa-row" + (a.done_at ? " is-done" : "")}>
-                    <span className="wa-num" aria-hidden>
-                      {aimNumeral(i)}
-                    </span>
-                    {wide ? (
-                      <>
-                        <p className="wa-text">
-                          <span className="t">{a.text}</span>
-                          {place && <RouteTag place={place} shell="desktop" />}
-                        </p>
-                        <PlanLine aim={a} count={count} emptyText={a.done_at === null ? "還沒排票" : undefined} />
-                        {a.done_at === null && planBtn}
-                      </>
-                    ) : (
-                      <>
-                        <div className="wa-main">
-                          <p className="wa-text">
-                            <span className="t" title={a.text}>
-                              {a.text}
-                            </span>
-                            {place && <RouteTag place={place} shell="desktop" />}
-                          </p>
-                          <PlanLine aim={a} count={count} />
-                        </div>
-                        {planBtn}
-                      </>
-                    )}
-                    <AimStamp aim={a} />
-                    {planFor === a.id && <PlanTicketPop aim={a} weekOn={key} today={v.today} onClose={() => setPlanFor(null)} />}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
+          {!folded && aimListEl}
           {ribbonEl}
         </div>
       </section>

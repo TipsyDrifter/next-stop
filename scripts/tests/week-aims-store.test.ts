@@ -115,11 +115,15 @@ describe("掛的支線與今日切換", () => {
     assert.equal(reads, 0);
   });
 
-  test("todayPick（D-主-377）：預設本週、切了留在記憶體、不寫設定", () => {
+  test("todayPick（D-主-377、D-主-561）：預設本週，支援切到月／年／理想手札且留在記憶體、不寫設定", () => {
     const st = useWeekAimStore.getState();
     assert.equal(st.todayPick, "week");
     st.setTodayPick("month");
     assert.equal(useWeekAimStore.getState().todayPick, "month");
+    st.setTodayPick("year");
+    assert.equal(useWeekAimStore.getState().todayPick, "year");
+    st.setTodayPick("ideal");
+    assert.equal(useWeekAimStore.getState().todayPick, "ideal");
     assert.equal(kv().size, 0);
   });
 });

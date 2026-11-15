@@ -25,13 +25,39 @@
  *     必須自帶 position:relative 與 z-index ≥ 1，否則會被天空蓋住（原型 .cover z-index:2／
  *     .page,.sheet z-index:1 就是為此）。詳見 styles/ambience.css 檔頭。
  */
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { buildStarfield, twinkleAt } from "./starfield";
 import type { SkyDensity, SkyDot, SkyVariant } from "./starfield";
 import { usePrefersReducedMotion, useSkyVariant } from "./useAmbience";
 import { useMotionSleep } from "./motionSleep";
 import { useMoodStore } from "./moodStore";
+import { duskTintAt, type DuskTint } from "./moodDirector";
 // 樣式（styles/ambience.css）由 src/index.css 集中 import——見該檔檔頭的注入順序說明
+
+function minuteNow(): number {
+  const d = new Date();
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+const NO_TINT: DuskTint = { dawn: 0, dusk: 0, night: 0 };
+/** 一步很小，看不出在變；不用 CSS 長轉場，平常就不佔任何一格畫面 */
+const TINT_TICK_MS = 5 * 60_000;
+
+function useDuskTint(enabled: boolean, asleep: boolean): DuskTint {
+  const [tint, setTint] = useState(() => (enabled ? duskTintAt(minuteNow()) : NO_TINT));
+  useEffect(() => {
+    if (!enabled) {
+      setTint(NO_TINT);
+      return;
+    }
+    if (asleep) return; // 睡著不算；醒來當場補到現在的時間
+    const tick = () => setTint(duskTintAt(minuteNow()));
+    tick();
+    const t = window.setInterval(tick, TINT_TICK_MS);
+    return () => window.clearInterval(t);
+  }, [enabled, asleep]);
+  return tint;
+}
 
 /** 粉彩場景的七顆光斑（遠處燈火在霧裡失焦）——位置與大小在 ambience.css，逐字取自原型 */
 const BOKEH = ["b1", "b2", "b3", "b4", "b5", "b6", "b7"] as const;
@@ -106,6 +132,8 @@ export function SkyLayer({ density = "reduced", variant = "auto", className, twi
   const asleep = useMotionSleep() !== null;
   const reduced = usePrefersReducedMotion();
   const off = useMoodStore((s) => s.mode) === "off";
+  const level = useMoodStore((s) => s.level);
+  const duskOn = useMoodStore((s) => s.parts.dusk);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // 星圖只在場景／密度變動時重算；seeded＝每次算出來都是同一片天
@@ -113,6 +141,10 @@ export function SkyLayer({ density = "reduced", variant = "auto", className, twi
 
   // 睡著、手機＝定在一格（keepFrame）；關閉、減少動態＝回靜態亮度
   useStarTwinkle(rootRef, field.stars, twinkle && !asleep && !off && !reduced, !off && !reduced);
+
+  // 晨昏／入夜染光跟隨全站常駐的 SkyLayer（各分頁共享同一片天色，切頁不閃回正午亮色）
+  const tint = useDuskTint(!off && !reduced && duskOn, asleep);
+  const tintScale = level === "mid" ? 1 : 0.7;
 
   const skyClass = ["sky-layer", `sky--${scene}`, className ?? ""]
     .filter(Boolean)
@@ -139,6 +171,9 @@ export function SkyLayer({ density = "reduced", variant = "auto", className, twi
         {field.stars.map((s) => (
           <i key={s.id} className={s.className} style={s.style} />
         ))}
+        {tint.dawn > 0 && <i className="mood-tint mood-tint--dawn" style={{ opacity: tint.dawn * tintScale }} />}
+        {tint.dusk > 0 && <i className="mood-tint mood-tint--dusk" style={{ opacity: tint.dusk * tintScale }} />}
+        {tint.night > 0 && <i className="mood-tint mood-tint--night" style={{ opacity: tint.night * tintScale }} />}
     </div>
   );
 }

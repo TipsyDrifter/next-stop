@@ -96,6 +96,10 @@ export function useGlobalHotkeys(enabled = true) {
         return;
       }
       switch (hit.id) {
+        case "global.ideal":
+          e.preventDefault();
+          ui.setPage("ideal");
+          break;
         case "global.quickjump":
           e.preventDefault();
           ui.setQuickJumpOpen(!ui.quickJumpOpen);

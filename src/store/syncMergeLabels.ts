@@ -10,6 +10,7 @@
 import { nodeRepo, syncRepo } from "../data";
 import { tagRepo } from "../data/tagRepo";
 import { weekAimRepo } from "../data/weekAimRepository";
+import { idealRepo } from "../data/idealRepository";
 import { followRename } from "../data/tagRepository";
 import { MOCK_FIRST_TICKET, type MergeCellNow, type MergeNotice } from "../data/syncRepository";
 import { CONFLICT_COL_LABEL, KIND_LABEL, ruleValueText, type NodeRow } from "../domain";
@@ -152,6 +153,22 @@ export async function resolveMergeLabel(
       const aim = await weekAimRepo.getAim(n.row_id, { withDeleted: true });
       if (!aim) return null;
       return { label: clipLabel(`方針「${aim.text}」`, 20), cols: WEEK_AIM_COL_LABEL };
+    }
+    if (n.tbl === "ideal_cards") {
+      const card = await idealRepo.getCard(n.row_id, { withDeleted: true });
+      if (!card) return null;
+      return {
+        label: clipLabel(`手札「${card.title}」`, 20),
+        cols: { title: "標題", body: "內容", motto: "心之所向", theme: "主題", art_preset: "插畫", photo_data: "相片", pinned: "釘選" },
+      };
+    }
+    if (n.tbl === "ideal_reflections") {
+      const ref = await idealRepo.getReflection(n.row_id, { withDeleted: true });
+      if (!ref) return null;
+      return {
+        label: clipLabel(`車窓問答「${ref.question}」`, 20),
+        cols: { question: "題目", answer: "回答", answered_on: "日期", pinned: "釘選" },
+      };
     }
     if (n.tbl === "settings") {
       const known = Object.prototype.hasOwnProperty.call(SETTINGS_LABEL, n.row_id);

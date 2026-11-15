@@ -9,7 +9,7 @@
  * 睡著時手上沒有任何計時器（對應原型 pauseTimers／resumeTimers）。
  */
 
-export type MoodMode = "ambient" | "ritual" | "off";
+export type MoodMode = "both" | "ambient" | "ritual" | "off";
 export type SkyKind = "birds" | "meteor";
 
 export interface MoodParts {
@@ -103,10 +103,10 @@ export class MoodDirector {
     }
   }
 
-  /** 蓋了一枚済：儀式模式才回應（環境循環照自己的節奏走，原型同款） */
+  /** 蓋了一枚済：完成儀式與循環＋儀式皆會回應 */
   stamped(all: boolean): void {
     const cfg = this.cfg;
-    if (!cfg || cfg.mode !== "ritual" || cfg.reduced || !this.awake) return;
+    if (!cfg || (cfg.mode !== "ritual" && cfg.mode !== "both") || cfg.reduced || !this.awake) return;
     this.requestTrain(all);
     // 列車關著時高潮仍要放
     if (all && !cfg.parts.train) this.later("shower-start", 420, () => this.shower());
@@ -181,7 +181,7 @@ export class MoodDirector {
 
   private scheduleTrain(): void {
     const cfg = this.cfg;
-    if (!cfg || cfg.mode !== "ambient" || cfg.reduced || !cfg.parts.train) return;
+    if (!cfg || (cfg.mode !== "ambient" && cfg.mode !== "both") || cfg.reduced || !cfg.parts.train) return;
     this.later("train", this.span(60_000, 120_000), () => {
       this.requestTrain(false);
       this.scheduleTrain();
@@ -191,7 +191,7 @@ export class MoodDirector {
   /** 間隔在排程當下依主題取；切主題不重排倒數，下一輪自然換成新主題的節奏 */
   private scheduleSky(): void {
     const cfg = this.cfg;
-    if (!cfg || cfg.mode !== "ambient" || cfg.reduced) return;
+    if (!cfg || (cfg.mode !== "ambient" && cfg.mode !== "both") || cfg.reduced) return;
     if (!cfg.parts.birds && !cfg.parts.meteor) return;
     const ms = cfg.skyKinds.includes("birds") ? this.span(40_000, 80_000) : this.span(30_000, 60_000);
     this.later("sky", ms, () => {

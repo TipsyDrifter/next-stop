@@ -141,6 +141,21 @@ describe("groupDeleted：一刀一列", () => {
     assert.equal(items[3].detail, "11/1・180");
   });
 
+  test("理想手札風景卡與車窓問答：刪除後顯示標題與主題／日期", () => {
+    const items = groupDeleted(
+      {
+        ideal_cards: [{ id: "ic", theme: "scenery", title: "山手線午後", deleted_at: T1 }],
+        ideal_reflections: [{ id: "ir", question: "三年後的午後？", answered_on: "2026-11-03", deleted_at: T2 }],
+      },
+      NOW,
+      namesFromTables({}),
+    );
+    assert.deepEqual(items.map((i) => [i.id, i.kind, i.category, i.title, i.detail]), [
+      ["ic", "ideal_card", "tasks", "山手線午後", "理想的生活風景"],
+      ["ir", "ideal_reflection", "tasks", "三年後的午後？", "11/3"],
+    ]);
+  });
+
   test("補充：路線名＋子項數；根層臨時票", () => {
     const names = namesFromTables({ nodes: [{ id: "r", name: "日文", kind: "route" }] });
     const [a] = groupDeleted({ nodes: [node("t", "train", "r", T1, { route_id: "r" }), node("k", "ticket", "t", T1, { route_id: "r" })] }, NOW, names);
@@ -152,7 +167,11 @@ describe("groupDeleted：一刀一列", () => {
   test("登記表涵蓋 §2.1 全部種類", () => {
     assert.deepEqual(
       LOST_KINDS.map((k) => k.key).sort(),
-      ["branch", "car", "diary", "line", "note", "route", "station", "tag", "ticket", "tk_budget", "tk_entry", "tk_repeat", "tk_template", "tk_wish", "time_block", "time_goal", "time_routine", "train", "week_aim"].sort(),
+      [
+        "branch", "car", "diary", "ideal_card", "ideal_reflection", "line", "note", "route", "station",
+        "tag", "ticket", "tk_account", "tk_budget", "tk_category", "tk_entry", "tk_repeat", "tk_template", "tk_wish",
+        "time_block", "time_category", "time_goal", "time_routine", "train", "week_aim",
+      ].sort(),
     );
   });
 });

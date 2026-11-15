@@ -9,8 +9,18 @@
  */
 import { LINE_MANIFESTS, type LineSyncTable } from "../lines/index.ts";
 
-/** 核心四張表（順序與 Rust `tables/core.rs` 相同） */
-export const CORE_SYNC_TABLES = ["nodes", "work_logs", "occurrences", "settings", "node_time_overrides", "stamps", "week_aims"] as const;
+/** 核心四張表＋核心延伸同步表（順序與 Rust `tables/core.rs` 相同） */
+export const CORE_SYNC_TABLES = [
+  "nodes",
+  "work_logs",
+  "occurrences",
+  "settings",
+  "node_time_overrides",
+  "stamps",
+  "week_aims",
+  "ideal_cards",
+  "ideal_reflections",
+] as const;
 
 /** 會進 oplog 的表（settings 只有白名單 key） */
 export type SyncTable = (typeof CORE_SYNC_TABLES)[number] | LineSyncTable;

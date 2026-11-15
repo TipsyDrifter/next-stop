@@ -16,7 +16,7 @@ const KEY_PARTS = "mood_parts";
 export const DEFAULT_PARTS: MoodParts = { train: true, birds: true, meteor: true, dusk: true };
 
 function parseMode(raw: string | null): MoodMode {
-  return raw === "ritual" || raw === "off" ? raw : "ambient";
+  return raw === "both" || raw === "ambient" || raw === "ritual" || raw === "off" ? raw : "both";
 }
 
 function parseParts(raw: string | null): MoodParts {
@@ -38,9 +38,11 @@ interface MoodState {
   mode: MoodMode;
   level: MoodLevel;
   parts: MoodParts;
+  stampSeq: number;
   setMode(mode: MoodMode): void;
   setLevel(level: MoodLevel): void;
   setPart(part: keyof MoodParts, on: boolean): void;
+  notifyStamped(): void;
 }
 
 function save(key: string, value: string): void {
@@ -48,9 +50,10 @@ function save(key: string, value: string): void {
 }
 
 export const useMoodStore = create<MoodState>((set, get) => ({
-  mode: "ambient",
+  mode: "both",
   level: "lite",
   parts: DEFAULT_PARTS,
+  stampSeq: 0,
   setMode(mode) {
     set({ mode });
     save(KEY_MODE, mode);
@@ -63,6 +66,9 @@ export const useMoodStore = create<MoodState>((set, get) => ({
     const parts = { ...get().parts, [part]: on };
     set({ parts });
     save(KEY_PARTS, JSON.stringify(parts));
+  },
+  notifyStamped() {
+    set((s) => ({ stampSeq: s.stampSeq + 1 }));
   },
 }));
 

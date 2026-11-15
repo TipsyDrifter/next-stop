@@ -19,6 +19,7 @@ import { ReportView } from "../report/ReportView";
 import { DepotView } from "../depot/DepotView";
 import { DepotCoverAux } from "../depot/DepotCoverAux";
 import { WaitroomView } from "../waitroom/WaitroomView";
+import { IdealTechoView } from "../ideal/IdealTechoView";
 
 export const PAGE_VIEWS: Record<PageId, ComponentType | null> = {
   today: TodayView,
@@ -32,8 +33,9 @@ export const PAGE_VIEWS: Record<PageId, ComponentType | null> = {
   report: ReportView,
   depot: DepotView,
   waitroom: WaitroomView,
-  // 不進 gnav 的頁（pages.ts AUX_PAGES；完整搜尋班 D-主-110）
+  // 不進 gnav 的頁（pages.ts AUX_PAGES；完整搜尋班 D-主-110、第六本第四梯扉頁「車窓・理想手札」）
   search: FullSearchView,
+  ideal: IdealTechoView,
 };
 
 /**

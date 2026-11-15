@@ -10,11 +10,12 @@ import { useWeekAimStore } from "../../store/weekAimStore";
 import { AimsBand } from "./AimsBand";
 import { useAimToday } from "./useWeekAims";
 
-/** 今日那張：切換只活在這次打開，換頁再回來還在、關 App 回本週（存在 store 的記憶體） */
+/** 今日那張：頂部「✦ 理想手札 ｜ 今年 ｜ 本月 ｜ 本週」四籤切換＋心之所向常駐題詞（D-主-377、D-主-561） */
 function TodayAimsBand() {
   const { today, weekStart } = useAimToday();
   const pick = useWeekAimStore((s) => s.todayPick);
-  return <AimsBand aimKey={currentKeyOf(pick, today, weekStart)} ribbon autoReview />;
+  const activePeriod = pick === "ideal" ? "week" : pick;
+  return <AimsBand aimKey={currentKeyOf(activePeriod, today, weekStart)} todayTab={pick} autoReview />;
 }
 
 export function WeekAimsBand({ day, wide = false, pinFolded = false }: { day?: string | null; wide?: boolean; pinFolded?: boolean }) {

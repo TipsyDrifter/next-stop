@@ -69,6 +69,7 @@ import { useBackupStore } from "./backupStore";
 import { useNodeStore } from "./nodeStore";
 import { useUiStore } from "./uiStore";
 import { useWeekAimStore } from "./weekAimStore";
+import { useIdealStore } from "./idealStore";
 // 並行地基（契約 §5.3 T-4／T-5）：三條功能線的同步後重載掛點與同步表名。
 // 重載掛點查 `lines/runtime`、**不 import `lines/mounts`**——後者會把各線的元件樹拉進 store 層、
 // 提早到核心元件之前求值（修正席，評審發現 2；理由見 runtime.ts 檔頭）。
@@ -1067,6 +1068,13 @@ export async function refreshAfterPull(
   }
   // 週方針（戊 D-主-263）：拉到 week_aims、或本機資料被整批換掉 ⇒ 載過的週重載（reloadAll 自己接錯）
   if (wiped || report.changed_tables.includes("week_aims")) await useWeekAimStore.getState().reloadAll();
+  // 理想手札（第六本第四梯 v1.30）：拉到 ideal_cards／ideal_reflections 或整批換掉 ⇒ 重載
+  if (
+    (useIdealStore.getState().loaded || wiped) &&
+    (wiped || report.changed_tables.includes("ideal_cards") || report.changed_tables.includes("ideal_reflections"))
+  ) {
+    await useIdealStore.getState().reload();
+  }
   for (const { id, reload } of lineReloads()) {
     try {
       await reload({ changed: report.changed_tables, wiped, shell });

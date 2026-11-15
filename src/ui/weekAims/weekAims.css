@@ -285,3 +285,99 @@
 .wa-m-daystn .rt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: var(--fs-xs); letter-spacing: .08em; color: var(--color-ink-faint); }
 .wa-m-daystn .ns-ico { flex: none; color: var(--color-ink-faint); }
 .wa-m-daystn:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+/* ═══ 第六本第四梯 v1.30：今日頂端「✦ 理想手札 ｜ 今年 ｜ 本月 ｜ 本週」四籤與單窗跨尺度編輯（D-主-561） ═══ */
+.wa-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--color-paper-used) 55%, transparent);
+}
+.wa-tab {
+  border: 0;
+  background: transparent;
+  color: var(--color-ink-soft);
+  font: inherit;
+  font-size: var(--fs-ui);
+  letter-spacing: .08em;
+  padding: 3px 10px;
+  min-height: var(--ctl-h-sm);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    background var(--dur-fast) var(--ease-soft);
+}
+.wa-tab:hover:not(:disabled) {
+  color: var(--color-ink);
+  background: var(--hover-bg);
+}
+.wa-tab:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.wa-tab.on {
+  background: var(--sel-bg);
+  color: var(--sel-fg);
+  font-weight: 700;
+  box-shadow: inset 0 -1.5px 0 var(--accent);
+}
+.wa-tab.is-ideal {
+  font-family: var(--font-display);
+}
+.wa-tab.is-ideal .spark {
+  color: var(--color-gold-ink);
+  margin-right: 3px;
+}
+
+/* 寫方針單窗跨尺度頂列（今年｜本月｜本週 ＋ ‹ 日期 › 並排） */
+.wa-ed-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: -2px 0 10px;
+}
+.wa-ed-top .wa-ed-week {
+  margin: 0 0 0 -6px;
+}
+[data-shell="mobile"] .wa-ed-top .wa-tab {
+  min-height: var(--ctl-h-sm);
+  padding: 4px 12px;
+}
+
+/* 手機今日頂端：心之所向常駐題詞列與理想手札預覽列（44px 觸控目標） */
+.wa-mmotto {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--ctl-h);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed var(--color-dash);
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.wa-mmotto .ns-ico {
+  flex: none;
+  color: var(--color-ink-faint);
+}
+.wa-mmotto:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.wa-mrib + .wa-mrib {
+  border-top: 1px dashed var(--color-line);
+}
+.wa-mrib.is-ideal .k {
+  color: var(--accent);
+}

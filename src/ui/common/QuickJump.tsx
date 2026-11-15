@@ -25,6 +25,8 @@ import { todayKey } from "../../lib/date";
 import { roundelStyle } from "./roundel";
 import { lineQuickJumpProviders } from "../../lines/runtime";
 import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
+import { idealRepo } from "../../data/idealRepository";
+import { IDEAL_THEME_LABEL } from "../../domain/idealTecho";
 import { capsOfHotkey, formatChord } from "../shell/hotkeys";
 import { openFullSearch } from "../search/openFullSearch";
 import "./overlay.css";
@@ -71,6 +73,44 @@ function hitRows(p: QuickJumpProviderSpec, hits: QuickJumpHit[], withGroup: bool
   return hits.map((hit, i) => ({ type: "hit", key: `${p.id}:${hit.id}`, hit, group: withGroup && i === 0 ? p.group : undefined }));
 }
 
+async function searchIdealHits(term: string, limit: number): Promise<QuickJumpHit[]> {
+  try {
+    const res = await idealRepo.search(term);
+    const goIdeal = () => {
+      const ui = useUiStore.getState();
+      const isMobile =
+        typeof document !== "undefined" &&
+        document.documentElement.getAttribute("data-shell") === "mobile";
+      if (isMobile) ui.setMobileTab("ideal");
+      else ui.setPage("ideal");
+    };
+    const hits: QuickJumpHit[] = [];
+    for (const c of res.cards) {
+      if (hits.length >= limit) break;
+      hits.push({
+        id: `card:${c.id}`,
+        label: c.title,
+        aside: IDEAL_THEME_LABEL[c.theme],
+        glyph: { text: "扉", dashed: true },
+        go: goIdeal,
+      });
+    }
+    for (const r of res.reflections) {
+      if (hits.length >= limit) break;
+      hits.push({
+        id: `ref:${r.id}`,
+        label: r.question,
+        aside: r.answered_on.replace(/-/g, "."),
+        glyph: { text: "窓", dashed: true },
+        go: goIdeal,
+      });
+    }
+    return hits;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * 一次搜尋（`term` 已 trim、非空）：以某個提供者的 `prefix` 開頭 ⇒ 只問它、節點不查；否則節點結果＋每個提供者各一組。
  * 桌機與手機搜尋共用這一支（磨光①：手機搜尋重用同一套搜尋與結果模型；`providers` 由呼叫端依殼取）。
@@ -82,9 +122,16 @@ export function searchQuickJump(term: string, providers: readonly QuickJumpProvi
       askProvider(only, term.slice(only.prefix!.length).trim(), PREFIX_LIMIT).then((hits) => hitRows(only, hits, false))
     : Promise.all([
         useNodeStore.getState().searchNodes(term),
+        searchIdealHits(term, EXTRA_LIMIT),
         ...providers.map((p) => askProvider(p, term, EXTRA_LIMIT)),
-      ]).then(([nodes, ...groups]) => [
+      ]).then(([nodes, idealHits, ...groups]) => [
         ...(nodes as NodeRow[]).map((node): Row => ({ type: "node", key: node.id, node })),
+        ...idealHits.map((hit, i): Row => ({
+          type: "hit",
+          key: `ideal:${hit.id}`,
+          hit,
+          group: i === 0 ? "車窓・理想手札" : undefined,
+        })),
         ...groups.flatMap((hits, i) => hitRows(providers[i], hits as QuickJumpHit[], true)),
       ]);
 }

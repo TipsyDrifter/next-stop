@@ -31,8 +31,18 @@ import { lineById } from "../../lines/index.ts";
 // UI 丙-2（視覺規範 §1.7）：圖示形狀集中在 common/icons-data.ts（純資料、零 import；icons.tsx 也讀它）——probe 照樣能載入
 import { TAB_ICONS, type IconShapes } from "../common/icons-data.ts";
 
-/** "more"／"report"／"depot"／"waitroom" 不在 tab bar 上（MORE_PAGE／REPORT_PAGE／DEPOT_PAGE／WAITROOM_PAGE），但仍是合法的頁 key */
-export type MobileTabKey = "today" | "routemap" | "notes" | "timetable" | "ticket" | "more" | "report" | "depot" | "waitroom";
+/** "more"／"report"／"depot"／"waitroom"／"ideal" 不在 tab bar 上，但仍是合法的頁 key */
+export type MobileTabKey =
+  | "today"
+  | "routemap"
+  | "notes"
+  | "timetable"
+  | "ticket"
+  | "more"
+  | "report"
+  | "depot"
+  | "waitroom"
+  | "ideal";
 
 export type MobileTabStatus = "open" | "planned";
 
@@ -115,6 +125,21 @@ export const WAITROOM_PAGE: MobileTab = {
   ],
 };
 
+/**
+ * 車窓・理想手札（第六本第四梯 v1.30）：扉頁不在底部五格 tab bar 上，由今日頁頂部方針區與「更多 → 站內」進入；
+ * 頂帶左邊「‹」與 Android 返回鍵回進入前那一格。
+ */
+export const IDEAL_PAGE: MobileTab = {
+  key: "ideal",
+  label: "理想手札",
+  latin: "FRONTISPIECE",
+  status: "open",
+  icon: [
+    { tag: "rect", attrs: { x: 2.5, y: 2.5, width: 11, height: 11, rx: 2 } },
+    { tag: "path", attrs: { d: "M8 5.2l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" } },
+  ],
+};
+
 /** 未通車格點了顯示的那一行（與桌機 gnav 第二欄 tooltip 同一句；決策 :197 語感一致） */
 export const COMING_SOON_TEXT = "次期開業予定";
 
@@ -127,6 +152,7 @@ export function mobileTabByKey(key: MobileTabKey): MobileTab {
   if (key === REPORT_PAGE.key) return REPORT_PAGE;
   if (key === DEPOT_PAGE.key) return DEPOT_PAGE;
   if (key === WAITROOM_PAGE.key) return WAITROOM_PAGE;
+  if (key === IDEAL_PAGE.key) return IDEAL_PAGE;
   return MOBILE_TABS.find((t) => t.key === key)!;
 }
 

@@ -132,6 +132,14 @@ export const HOTKEYS: Hotkey[] = [
   /* ── 全域（useGlobalHotkeys；App 層 window listener，輸入框裡也吃） ── */
   ...navHotkeys(),
   {
+    id: "global.ideal",
+    scope: "global",
+    chords: [{ key: "0", ctrl: true }],
+    label: "車窓・理想手札",
+    wired: true,
+    ignoreMods: GLOBAL_LOOSE,
+  },
+  {
     id: "global.quickjump",
     scope: "global",
     chords: [{ key: "p", ctrl: true }],

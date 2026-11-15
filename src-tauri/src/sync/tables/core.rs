@@ -290,3 +290,74 @@ pub const WEEK_AIM_TABLES: &[SyncTableSpec] = &[SyncTableSpec {
         since: Some("week_aims"),
     }),
 }];
+
+/// ideal_cards 的「主人資料」欄（第六本第四梯 v1.30；migration `ideal_techo`）。
+const IDEAL_CARDS_COLS: &[(&str, bool)] = &[
+    ("theme", false),
+    ("title", false),
+    ("body", false),
+    ("motto", false),
+    ("art_preset", false),
+    ("photo_data", false),
+    ("pinned", true),
+    ("position", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// ideal_reflections 的「主人資料」欄（第六本第四梯 v1.30；migration `ideal_techo`）。
+const IDEAL_REFLECTIONS_COLS: &[(&str, bool)] = &[
+    ("prompt_key", false),
+    ("category", false),
+    ("question", false),
+    ("answer", false),
+    ("answered_on", false),
+    ("diary_note_id", false),
+    ("pinned", true),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// 車窓・理想手札與車窓の問い（v1.30）：接在週方針之後、notes 之前（`tables/mod.rs` 的 `production_groups`；probe 照 `name:` 出現順序對帳）。
+pub const IDEAL_TABLES: &[SyncTableSpec] = &[
+    SyncTableSpec {
+        name: "ideal_cards",
+        pk: "id",
+        columns: IDEAL_CARDS_COLS,
+        required: &["title"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "theme, position, created_at",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "created_at",
+            fk_checked: false,
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("ideal_techo"),
+        }),
+    },
+    SyncTableSpec {
+        name: "ideal_reflections",
+        pk: "id",
+        columns: IDEAL_REFLECTIONS_COLS,
+        required: &["prompt_key", "question", "answer", "answered_on"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "answered_on, created_at",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "answered_on",
+            fk_checked: false,
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("ideal_techo"),
+        }),
+    },
+];

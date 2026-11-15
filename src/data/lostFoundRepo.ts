@@ -11,6 +11,7 @@ import { tagRepo } from "./tagRepo";
 import { ticketRepo } from "./ticketRepository";
 import { timetableRepo } from "./timetableRepository";
 import { weekAimRepo } from "./weekAimRepository";
+import { idealRepo } from "./idealRepository";
 
 export const lostFoundRepo: LostFoundRepository = MOCK_MODE
   ? new MemoryLostFoundRepository({ seed: !WIPED_MODE })
@@ -21,5 +22,6 @@ export const lostFoundRepo: LostFoundRepository = MOCK_MODE
       timetable: timetableRepo,
       ticket: ticketRepo,
       aims: weekAimRepo,
+      ideal: idealRepo,
       readSnapshot: (key) => syncRepo.cloudSnapshotRead(key),
     });

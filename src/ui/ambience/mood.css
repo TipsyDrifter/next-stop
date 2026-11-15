@@ -31,20 +31,31 @@
   --mood-train-dur: 15s;
 }
 
-/* 天空：主欄背景層（紙頁內容之下），從留白與車票縫隙透出來 */
+/* 天空：主欄背景層（紙頁內容之下），從留白與車票縫隙透出來。
+   用 position:fixed 貼齊視窗頂端（y=0），讓桌機頂部透明工具列（.ns-titlebar）與今日紙頁共享同一片晨昏／入夜染光，不產生 34px 水平色差接縫。 */
 .mood-layer {
-  position: absolute; inset: 0;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 236px;
   z-index: 0; overflow: hidden; pointer-events: none;
   contain: strict;
+  transition: left var(--dur) var(--ease-soft);
+}
+[data-sidebar-collapsed="1"] .mood-layer {
+  left: 0;
 }
 
-/* 晨昏：三片靜態底色，濃度由 MoodStage 每五分鐘算一次，切換時才有一秒多的轉場 */
-.mood-tint { position: absolute; inset: 0; transition: opacity 1.5s linear; }
+/* 晨昏／入夜染光：三片靜態底色掛於全站常駐的 SkyLayer，濃度每五分鐘算一次，切換時才有一秒多的轉場 */
+.mood-tint { position: absolute; inset: 0; transition: opacity 1.5s linear; pointer-events: none; }
+.sky--pastel .mood-tint--dawn,
 .mood-layer.is-light .mood-tint--dawn { background: linear-gradient(0deg, rgba(255, 196, 170, .50), rgba(255, 214, 196, .14) 46%, transparent 72%); } /* 字面值：天空層美術色（粉彩清晨） */
+.sky--pastel .mood-tint--dusk,
 .mood-layer.is-light .mood-tint--dusk { background: linear-gradient(0deg, rgba(247, 160, 128, .48), rgba(240, 170, 170, .16) 50%, transparent 78%); } /* 字面值：天空層美術色（粉彩傍晚） */
+.sky--pastel .mood-tint--night,
 .mood-layer.is-light .mood-tint--night { background: rgba(72, 72, 132, .20); } /* 字面值：天空層美術色（粉彩入夜） */
+.sky--galaxy .mood-tint--dawn,
 .mood-layer.is-dark .mood-tint--dawn { background: linear-gradient(0deg, rgba(150, 120, 170, .34), rgba(110, 110, 170, .10) 42%, transparent 66%); } /* 字面值：天空層美術色（銀河清晨） */
+.sky--galaxy .mood-tint--dusk,
 .mood-layer.is-dark .mood-tint--dusk { background: linear-gradient(0deg, rgba(196, 120, 96, .34), rgba(130, 90, 120, .12) 40%, transparent 64%); } /* 字面值：天空層美術色（銀河傍晚） */
+.sky--galaxy .mood-tint--night,
 .mood-layer.is-dark .mood-tint--night { display: none; } /* 銀河本來就是夜 */
 
 /* 流星：頭在 +x 端、尾向後漸隱；朝左下 152°，世界朝同一個方向流動 */
@@ -100,6 +111,16 @@
   position: relative; z-index: 1; flex: none;
   height: 54px; overflow: hidden; pointer-events: none;
 }
+/* 非今日頁（方案 C）：全站掛載不斷線，底部列車帶退至背景層（z-index: 0），不佔版面高度 */
+.mood-ground.is-bg {
+  position: fixed;
+  left: 236px; right: 0; bottom: 0;
+  z-index: 0;
+  transition: left var(--dur) var(--ease-soft);
+}
+[data-sidebar-collapsed="1"] .mood-ground.is-bg {
+  left: 0;
+}
 .mood-horizon { position: absolute; left: 0; right: 0; bottom: 19px; height: 1px; background: var(--mood-horizon); }
 .mood-train {
   position: absolute; left: 100%; bottom: 19.2px;
@@ -112,8 +133,18 @@
 [data-shell="mobile"] .mood-layer {
   position: fixed;
   top: calc(var(--m-band-h) + var(--m-safe-top));
+  left: 0;
 }
 [data-shell="mobile"] .mood-ground { height: 32px; }
+[data-shell="mobile"] .mood-ground.is-bg {
+  left: 0;
+  bottom: calc(var(--m-tab-h, 56px) + var(--m-safe-bottom, 0px));
+}
+[data-shell="mobile"] .m-newticket,
+[data-shell="mobile"] .m-selbar,
+[data-shell="mobile"] .m-tabbar {
+  order: 1;
+}
 [data-shell="mobile"] .mood-horizon { bottom: 4px; }
 [data-shell="mobile"] .mood-train { bottom: 4.2px; --mood-train-dur: 13s; }
 [data-shell="mobile"] .mood-ground[data-level="mid"] .mood-train { --mood-train-dur: 9s; }

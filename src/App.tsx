@@ -63,7 +63,7 @@ import { StampNotifier } from "./ui/depot/StampNotifier";
 import { DEV_FLAGS, MOCK_MODE } from "./data";
 import { dbUsable } from "./lib/db";
 import { useGlobalHotkeys } from "./ui/shell/useGlobalHotkeys";
-import { SkyLayer } from "./ui/ambience";
+import { SkyLayer, MoodStage } from "./ui/ambience";
 import { ensureStampDefs } from "./ui/stamps";
 import { Sidebar } from "./ui/sidebar/Sidebar";
 import { TitleBar } from "./ui/shell/TitleBar";
@@ -183,6 +183,7 @@ export default function App() {
                 <BackupBanner />
                 <SyncBanner shell="desktop" />
                 {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <View />}
+                <MoodStage background={!today} />
                 {/* 完成卡留在桌機樹：它是 `absolute bottom-6`、定位脈絡就是這顆 <main>，
                     搬到根層會改到桌機位置（鐵則 1 不允許）。手機 v1.1.0 不開完成卡（契約 §2.7）。 */}
                 <CompleteCard />

@@ -74,6 +74,7 @@ import { useDragReorder, type DropPlace } from "../common/dragReorder";
 import { APPEND, moveWithUndo } from "../../store/batchActions";
 import { NavCount, todayCountHint, useTodayCount } from "../common/NavCount";
 import { CoverTopBar } from "../shell/TitleBar";
+import "../ideal/ideal.css";
 // gnav 樣式（styles/gnav.css）由 src/index.css 集中 import——見該檔檔頭的注入順序說明
 
 /**
@@ -376,6 +377,18 @@ export function Sidebar() {
         <span className="latin">Next Stop</span>
         <div className="foil-rule" />
       </div>
+
+      <button
+        type="button"
+        className={`ns-cover-frontispiece${page === "ideal" ? " is-active" : ""}`}
+        aria-current={page === "ideal" ? "page" : undefined}
+        title={`車窓・理想手札（${capsOf("global.ideal")}）`}
+        onClick={() => setPage("ideal")}
+      >
+        <span className="ns-cover-frontispiece-star" aria-hidden="true">✦</span>
+        <span className="ns-cover-frontispiece-label">車窓・理想手札</span>
+        <span className="ns-cover-frontispiece-caps" aria-hidden="true">{capsOf("global.ideal")}</span>
+      </button>
 
       <nav className="gnav" aria-label="主選單">
         {/* 第一欄：核心三頁（今日／路線圖／日曆）。⑤ 起三枚都真的換頁（active＋aria-current 同一套） */}

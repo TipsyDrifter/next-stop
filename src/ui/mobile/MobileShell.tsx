@@ -50,8 +50,12 @@ import MobileReport from "../report/MobileReport";
 import MobileDepot from "../depot/MobileDepot";
 // 壬 候車室（D-主-511）：同上
 import MobileWaitroom from "../waitroom/MobileWaitroom";
+// 第六本第四梯 車窓・理想手札（扉頁）：同上
+import MobileIdealTecho from "../ideal/MobileIdealTecho";
 import { SyncBanner } from "../common/SyncBanner";
 import { LINE_MOUNTS, lineOverlays } from "../../lines/mounts";
+import { MoodStage } from "../ambience";
+import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 import { MobileDetailHost } from "./detail/MobileDetailHost";
 import { MobileCompleteCard } from "./complete/MobileCompleteCard";
 // UI 丙-2：`?mock=1&gallery=1` 頁面改畫共用元件樣本頁（DEV_FLAGS.gallery；lazy＝沒帶參數不載入）
@@ -67,14 +71,17 @@ const MOBILE_VIEWS: Record<MobileTabKey, ComponentType | null> = {
   depot: MobileDepot,
   // 壬 D-主-512：「更多」頁「站內」一組進來（同車庫）
   waitroom: MobileWaitroom,
+  // 第六本第四梯 車窓・理想手札（從今日頂端方針區或「更多 → 站內」進入）
+  ideal: MobileIdealTecho,
   notes: LINE_MOUNTS.notes.mobileView,
   timetable: LINE_MOUNTS.timetable.mobileView,
   ticket: LINE_MOUNTS.ticket.mobileView,
 };
 
-/** 不在 tab bar 上、返回＝回進來前那一格的頁（更多、② 運行報告、③ 車庫、壬 候車室） */
-type PageTab = "more" | "report" | "depot" | "waitroom";
-const isPageTab = (k: MobileTabKey): k is PageTab => k === "more" || k === "report" || k === "depot" || k === "waitroom";
+/** 不在 tab bar 上、返回＝回進來前那一格的頁（更多、② 運行報告、③ 車庫、壬 候車室、理想手札） */
+type PageTab = "more" | "report" | "depot" | "waitroom" | "ideal";
+const isPageTab = (k: MobileTabKey): k is PageTab =>
+  k === "more" || k === "report" || k === "depot" || k === "waitroom" || k === "ideal";
 
 function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
   const tab = mobileTabByKey(tabKey);
@@ -86,6 +93,7 @@ function MobilePage({ tabKey }: { tabKey: MobileTabKey }) {
 
 export default function MobileShell() {
   const tabKey = useUiStore((s) => s.mobileTab);
+  const mobileSub = useScheduleUiStore((s) => s.mobileSub);
   const tab = mobileTabByKey(tabKey);
   const error = useNodeStore((s) => s.error);
 
@@ -95,7 +103,13 @@ export default function MobileShell() {
   //   ② 運行報告：「運行報告」頁同「更多」——返回回進來前那一格（從更多頁進來＝回更多頁）；頂帶左邊的「‹」同一件事。
   const lastTabRef = useRef<MobileTabKey>(tabKey);
   // ③ 車庫同運行報告：返回回進來前那一格、頂帶左邊「‹」同一件事
-  const beforeRef = useRef<Record<PageTab, MobileTabKey>>({ more: "today", report: "today", depot: "today", waitroom: "today" });
+  const beforeRef = useRef<Record<PageTab, MobileTabKey>>({
+    more: "today",
+    report: "today",
+    depot: "today",
+    waitroom: "today",
+    ideal: "today",
+  });
   if (lastTabRef.current !== tabKey) {
     const from = lastTabRef.current;
     // 從另一頁「退回來」（例：更多 → 運行報告 → ‹ 回更多）不算往前走：不覆蓋，否則返回會在兩頁之間來回（AVD 實測）
@@ -121,7 +135,14 @@ export default function MobileShell() {
 
   return (
     <>
-      <MobileTopBand tab={tab} onBack={tabKey === "report" || tabKey === "depot" || tabKey === "waitroom" ? backFromPage : undefined} />
+      <MobileTopBand
+        tab={tab}
+        onBack={
+          tabKey === "report" || tabKey === "depot" || tabKey === "waitroom" || tabKey === "ideal"
+            ? backFromPage
+            : undefined
+        }
+      />
       <SyncBanner shell="mobile" />
       {/* 磨光① A2（契約 §2.2）：同桌機那列，同一個來源與文案；下一次成功載入自己清掉 */}
       {error && (
@@ -130,6 +151,7 @@ export default function MobileShell() {
         </div>
       )}
       {DEV_FLAGS.gallery ? <Suspense fallback={null}><Gallery /></Suspense> : <MobilePage tabKey={tabKey} />}
+      <MoodStage background={!(tabKey === "today" && mobileSub === "today")} />
       <MobileTabBar />
       {/* 手機殼班：完成卡浮在 tab bar 上方（D-主-73）；詳情全螢幕子頁蓋在整個殼上（D-主-75） */}
       <MobileCompleteCard />

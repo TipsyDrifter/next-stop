@@ -16,6 +16,7 @@ import {
   aimLimitMessage,
   aimNumeral,
   carryCandidates,
+  currentKeyOf,
   normalizeAimText,
   periodNavText,
   periodOfKey,
@@ -27,6 +28,7 @@ import {
   stationIdOfKey,
   upperKeyOf,
   type AimDraft,
+  type ReviewPeriod,
   type WeekAimRow,
 } from "../../domain/weekAims";
 import { useNodeStore } from "../../store/nodeStore";
@@ -201,6 +203,7 @@ function WeekAimsEditor({
     if (ok) close();
   };
   const step = periodStepText(aimKey);
+  const curScale = periodOfKey(aimKey);
   const shiftPeriod = (dir: -1 | 1) => {
     if (dirty) {
       useUiStore.getState().showToast({ message: `先存檔或取消，再換${step.unit}` });
@@ -209,6 +212,23 @@ function WeekAimsEditor({
     setDrafts(null);
     setPicking(null);
     setAimKey(adjacentKey(aimKey, dir));
+  };
+  /** 單窗跨尺度切換（今年｜本月｜本週）：有未存改動時先自動寫入那一層，切到下層即可直接看見並「帶進來」 */
+  const switchScale = async (scale: ReviewPeriod) => {
+    if (saving) return;
+    const nextKey = currentKeyOf(scale, today, weekStart);
+    if (nextKey === aimKey) return;
+    if (dirty && drafts !== null) {
+      setSaving(true);
+      const ok = await useWeekAimStore.getState().saveWeek(aimKey, drafts, base);
+      setSaving(false);
+      if (!ok) return;
+    }
+    setDrafts(null);
+    setPicking(null);
+    setAimKey(nextKey);
+    const st = useWeekAimStore.getState();
+    if (st.todayPick !== "ideal") st.setTodayPick(scale);
   };
   const patch = (i: number, p: Partial<AimDraft>) =>
     setDrafts((cur) => {
@@ -248,20 +268,45 @@ function WeekAimsEditor({
 
   const body = (
     <>
-      <div className="wa-ed-week">
-        {isStation ? (
-          <span className="t is-station">{stationHeadText(station)}</span>
-        ) : (
-          <>
-            <button type="button" className="ns-iconbtn" aria-label={step.prev} title={step.prev} onClick={() => shiftPeriod(-1)}>
-              <IconBack />
-            </button>
-            <span className="t">{periodNavText(aimKey)}</span>
-            <button type="button" className="ns-iconbtn" aria-label={step.next} title={step.next} onClick={() => shiftPeriod(1)}>
-              <IconChevron />
-            </button>
-          </>
+      <div className="wa-ed-top">
+        {!isStation && (
+          <div className="wa-tabs" role="tablist" aria-label="方針尺度">
+            {(
+              [
+                ["year", "今年"],
+                ["month", "本月"],
+                ["week", "本週"],
+              ] as const
+            ).map(([scale, lbl]) => (
+              <button
+                key={scale}
+                type="button"
+                role="tab"
+                aria-selected={curScale === scale}
+                className={"wa-tab" + (curScale === scale ? " on" : "")}
+                disabled={saving}
+                onClick={() => void switchScale(scale)}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
         )}
+        <div className="wa-ed-week">
+          {isStation ? (
+            <span className="t is-station">{stationHeadText(station)}</span>
+          ) : (
+            <>
+              <button type="button" className="ns-iconbtn" aria-label={step.prev} title={step.prev} onClick={() => shiftPeriod(-1)}>
+                <IconBack />
+              </button>
+              <span className="t">{periodNavText(aimKey)}</span>
+              <button type="button" className="ns-iconbtn" aria-label={step.next} title={step.next} onClick={() => shiftPeriod(1)}>
+                <IconChevron />
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {drafts === null ? (
         <p className="wa-ed-cap">載入中…</p>

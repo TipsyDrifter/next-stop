@@ -273,7 +273,7 @@ describe("JSON", () => {
     assert.equal(doc.schema, 18);
     assert.equal(doc.exported_at, META.exportedAt);
     assert.equal(doc.scope, "tasks");
-    assert.deepEqual(Object.keys(doc.tables), ["nodes", "work_logs", "occurrences", "node_time_overrides", "week_aims", "stamps", "tags", "taggings"]);
+    assert.deepEqual(Object.keys(doc.tables), ["nodes", "work_logs", "occurrences", "node_time_overrides", "week_aims", "stamps", "ideal_cards", "ideal_reflections", "tags", "taggings"]);
     assert.equal(doc.tables.nodes.find((r: Row) => r.id === "K1").name, "深蹲 =3組"); // JSON 不做公式防護，原文照給
     assert.equal(doc.tables.work_logs.length, 2);
     assert.ok(!JSON.stringify(doc).includes("已刪的票"));
@@ -294,8 +294,8 @@ describe("CSV・任務", () => {
   const tables = D.prepareExportTables("tasks", raw);
   const files = D.buildCsvFiles("tasks", tables, { dayStartHour: 6, nodes: raw.nodes.filter((r) => r.deleted_at == null) });
 
-  test("單一範圍：檔放根目錄；四張表都有", () => {
-    assert.deepEqual(files.map((f) => f.path), ["車票.csv", "路線.csv", "乘務記錄.csv", "方針.csv"]);
+  test("單一範圍：檔放根目錄；六張表都有", () => {
+    assert.deepEqual(files.map((f) => f.path), ["車票.csv", "路線.csv", "乘務記錄.csv", "方針.csv", "理想手札.csv", "車窗問答.csv"]);
   });
 
   test("車票.csv：欄名中文、id 換名稱（幹線、路線、上層）、荷札、狀態、重複", () => {
@@ -343,6 +343,27 @@ describe("CSV・任務", () => {
 
   test("方針.csv：路線換名稱、済是「是／否」", () => {
     assert.deepEqual(linesOf(textOf(files, "方針.csv")), ["期間,內容,路線,済", "2026-11-02,把深蹲加到 60kg,健身,否"]);
+  });
+
+  test("理想手札.csv 與車窗問答.csv：主題與分類換中文、釘選是「是／否」", () => {
+    const t2 = D.prepareExportTables("tasks", {
+      ...raw,
+      ideal_cards: [
+        { id: "IC1", theme: "person", title: "沉靜而有韌性的人", body: "不被焦慮追著跑", motto: "把日子過成喜歡的風景", art_preset: "sea-station", photo_data: null, pinned: 1, position: 0, created_at: local(2026, 11, 1, 9, 0), updated_at: local(2026, 11, 1, 9, 0), deleted_at: null },
+      ],
+      ideal_reflections: [
+        { id: "IR1", prompt_key: "daily-01", category: "daily", question: "理想的早晨長什麼樣？", answer: "手沖咖啡配陽光", answered_on: "2026-11-03", diary_note_id: null, pinned: 0, created_at: local(2026, 11, 3, 8, 30), updated_at: local(2026, 11, 3, 8, 30), deleted_at: null },
+      ],
+    });
+    const f2 = D.buildCsvFiles("tasks", t2, { dayStartHour: 6, nodes: raw.nodes.filter((r) => r.deleted_at == null) });
+    assert.deepEqual(linesOf(textOf(f2, "理想手札.csv")), [
+      "主題,標題,心之所向,內容,釘選,建立時刻",
+      "我想成為的人,沉靜而有韌性的人,把日子過成喜歡的風景,不被焦慮追著跑,是,2026-11-01 09:00",
+    ]);
+    assert.deepEqual(linesOf(textOf(f2, "車窗問答.csv")), [
+      "日期,分類,題目,回答,釘選",
+      "2026-11-03,理想日常,理想的早晨長什麼樣？,手沖咖啡配陽光,否",
+    ]);
   });
 });
 
@@ -542,7 +563,7 @@ describe("整份與 zip", () => {
     assert.equal(JSON.parse(new TextDecoder().decode(j.bytes)).scope, "tasks");
 
     const c = D.buildExportPayload("all", "csv", input, META);
-    assert.equal(c.fileCount, 4 + 2 + 4 + 8); // 售票口多「候車室種類.csv」（壬 0019）
+    assert.equal(c.fileCount, 6 + 2 + 4 + 8); // 任務含理想手札＋車窗問答（0022）；售票口含候車室種類（0019）
     assert.deepEqual([...c.bytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04], "zip 的開頭");
   });
 

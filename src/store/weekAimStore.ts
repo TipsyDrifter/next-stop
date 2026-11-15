@@ -120,6 +120,8 @@ export interface PlanTicketInput {
   day: string;
 }
 
+export type TodayAimTab = "ideal" | ReviewPeriod;
+
 interface WeekAimStore {
   weeks: Record<string, WeekAimRow[]>;
   planned: Record<string, Record<string, PlanCount>>;
@@ -132,9 +134,9 @@ interface WeekAimStore {
   editor: EditorState | null;
   /** 方針掛的非路線節點（支線）：id → 節點列；路線本身看 nodeStore.routes（D-主-281） */
   aimNodes: Record<string, NodeRow>;
-  /** 今日告示切到哪一期（D-主-377）：換頁再回來還在、關 App 回本週，所以放記憶體、不寫設定 */
-  todayPick: ReviewPeriod;
-  setTodayPick(period: ReviewPeriod): void;
+  /** 今日告示切到哪一籤（D-主-377、D-主-561）：`ideal | year | month | week`，換頁再回來還在、關 App 回本週 */
+  todayPick: TodayAimTab;
+  setTodayPick(tab: TodayAimTab): void;
 
   loadSettings(): Promise<void>;
   /** 記下掛的支線（載週時、寫方針框挑到時）；畫面靠它顯示支線名 */

@@ -19,6 +19,7 @@ import { ACCOUNT_GROUPS, WISH_ACTION_LABEL } from "./ticket.ts";
 import type { WishAction } from "./ticket.ts";
 import { describeRule, parseRule } from "./repeat.ts";
 import { periodLabel, periodOfKey, stationIdOfKey } from "./weekAims.ts";
+import { IDEAL_THEME_LABEL, WINDOW_CATEGORY_LABEL, isIdealTheme, isWindowCategory } from "./idealTecho.ts";
 import { dayKeyOf } from "../lib/date.ts";
 
 /* ═══════════════════════ 範圍與表 ═══════════════════════ */
@@ -30,7 +31,7 @@ export type ExportTables = Record<string, ExportRow[]>;
 
 /** 荷札兩張表跟著每個範圍走（各範圍的 CSV 有「荷札」欄、JSON 也要能對回名稱）；掛在哪些東西上則依範圍過濾 */
 const TAG_TABLES = ["tags", "taggings"] as const;
-const TASK_TABLES = ["nodes", "work_logs", "occurrences", "node_time_overrides", "week_aims", "stamps"] as const;
+const TASK_TABLES = ["nodes", "work_logs", "occurrences", "node_time_overrides", "week_aims", "stamps", "ideal_cards", "ideal_reflections"] as const;
 const NOTE_TABLES = ["notes"] as const;
 const TIMETABLE_TABLES = ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans"] as const;
 const TICKET_TABLES = [
@@ -488,6 +489,37 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
                 // 週留日期（好排序、好對照）；月、年、站寫人看得懂的字，不露期間鍵
                 return [periodOfKey(key) === "week" ? key : periodLabel(key, sid ? nodeName(sid) : null), str(w.text), nodeName(w.node_id), yesNo(w.done_at)];
               }),
+          ],
+        },
+        {
+          name: "理想手札.csv",
+          rows: [
+            ["主題", "標題", "心之所向", "內容", "釘選", "建立時刻"],
+            ...[...tb("ideal_cards")]
+              .sort((a, b) => cmpStr(str(a.theme), str(b.theme)) || cmpPos(a, b))
+              .map((c): CsvCell[] => [
+                isIdealTheme(c.theme) ? IDEAL_THEME_LABEL[c.theme] : str(c.theme),
+                str(c.title),
+                str(c.motto),
+                str(c.body),
+                c.pinned ? "是" : "否",
+                localStamp(c.created_at),
+              ]),
+          ],
+        },
+        {
+          name: "車窗問答.csv",
+          rows: [
+            ["日期", "分類", "題目", "回答", "釘選"],
+            ...[...tb("ideal_reflections")]
+              .sort((a, b) => cmpStr(str(a.answered_on), str(b.answered_on)) || cmpStr(str(a.created_at), str(b.created_at)))
+              .map((r): CsvCell[] => [
+                str(r.answered_on),
+                isWindowCategory(r.category) ? WINDOW_CATEGORY_LABEL[r.category] : str(r.category),
+                str(r.question),
+                str(r.answer),
+                r.pinned ? "是" : "否",
+              ]),
           ],
         },
       ];
