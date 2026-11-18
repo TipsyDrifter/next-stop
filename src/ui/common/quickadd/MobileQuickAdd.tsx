@@ -17,13 +17,13 @@ import { useTagStore } from "../../../store/tagStore";
 import { useBackLayer } from "../../mobile/backStack";
 import { ClockInput } from "../ClockInput";
 import { dateQuickSet } from "../DateChip";
+import { DurationPicker } from "../DurationPicker";
 import { MSheet, MSheetItem } from "../MSheet";
 import { MobileAttachPicker } from "../MobileAttachPicker";
 import { MobileDatePicker } from "../MobileDatePicker";
-import { Segmented } from "../Segmented";
 import { clockBounds, clockSeed, clockToMs, msToClock } from "../../panel/clockValue";
 import { QuickChips, QuickField } from "./QuickAddParts";
-import { LENGTH_PRESETS, NO_DEST, PRIORITY_TEXT, lengthText, type QuickChipKey, type QuickDefaults, type QuickHere, type RouteKind } from "./quickAddModel";
+import { NO_DEST, PRIORITY_TEXT, type QuickChipKey, type QuickDefaults, type QuickHere, type RouteKind } from "./quickAddModel";
 import { useQuickAdd, type QuickAddApi } from "./useQuickAdd";
 import "./quickadd.css";
 
@@ -280,9 +280,7 @@ function openTagPicker(api: QuickAddApi, refocus: () => void): void {
   });
 }
 
-type LenValue = `${number}` | "custom";
-
-/** 幾點＋長度（MSheet；ClockInput 手機變體＝±15＋常用時刻） */
+/** 幾點＋長度（MSheet；ClockInput 手機變體＝±15＋常用時刻，長度＝DurationPicker） */
 function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone(): void; onClose(): void }) {
   const v = api.values;
   const refDay = v.scheduledOn ?? api.today;
@@ -290,8 +288,6 @@ function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone():
   const [seed] = useState(() => clockSeed(refDay, api.today, api.dayStartHour));
   const [ms, setMs] = useState(() => (v.scheduledTime ? clockToMs(v.scheduledTime, refDay) : null) ?? seed);
   const [len, setLen] = useState<number | null>(v.estimateMin);
-  const [custom, setCustom] = useState(v.estimateMin !== null && !LENGTH_PRESETS.includes(v.estimateMin));
-  const lenValue: LenValue | null = custom ? "custom" : len !== null ? (`${len}` as LenValue) : null;
 
   const save = () => {
     api.setTime(msToClock(ms, refDay), len);
@@ -323,40 +319,7 @@ function MobileTimeSheet({ api, onDone, onClose }: { api: QuickAddApi; onDone():
       <div className="ns-qa-msheet">
         <ClockInput variant="mobile" picker="inline" quick={[]} value={ms} lo={lo} hi={hi} refDay={refDay} label="開始時刻" onChange={setMs} onEnter={save} />
         <div className="ns-qa-cardlabel">長度</div>
-        <div className="ns-qa-len">
-          <Segmented<LenValue>
-            compact
-            aria-label="長度"
-            value={lenValue}
-            options={[
-              ...LENGTH_PRESETS.map((m) => ({ value: `${m}` as LenValue, label: String(m), title: lengthText(m) })),
-              { value: "custom" as const, label: "自訂…" },
-            ]}
-            onChange={(x) => {
-              if (x === "custom") {
-                setCustom(true);
-                return;
-              }
-              setCustom(false);
-              setLen(Number(x));
-            }}
-          />
-          {custom && (
-            <label className="ns-qa-lencustom">
-              <input
-                className="techo-input"
-                inputMode="numeric"
-                aria-label="長度（分）"
-                defaultValue={len ?? ""}
-                onChange={(e) => {
-                  const n = Number(e.target.value.replace(/[^\d]/g, ""));
-                  setLen(Number.isFinite(n) && n > 0 ? Math.min(n, 24 * 60) : null);
-                }}
-              />
-              分
-            </label>
-          )}
-        </div>
+        <DurationPicker liveCommit value={len} onChange={setLen} onEnter={save} ariaLabel="長度" />
       </div>
     </MSheet>
   );

@@ -68,7 +68,6 @@ import {
 } from "react";
 import { MIN, fmtClock } from "../../domain/timetable";
 import {
-  CLOCK_STEPS,
   HOLD_DELAY_MS,
   clockDateLabel,
   clockInputErrText,
@@ -96,7 +95,7 @@ export interface ClockInputHandle {
   fails(): number;
 }
 
-/** 新變體：full＝±1h ±15 ±5 ±1；compact＝只留 ±15；mobile＝±15＋上方常用時刻 chip（§2.5） */
+/** 新變體（v1.32 2A-1 精簡）：full／compact＝−15｜時刻框｜+15（搭配 relative／quick 語意快捷）；mobile＝±15＋上方常用時刻 chip */
 export type ClockVariant = "full" | "compact" | "mobile";
 
 /** 手機變體沒給 `quick` 時的常用時刻（§2.5「09:00／13:00／…」；補滾輪「一撥就好」的手感） */
@@ -109,9 +108,9 @@ export const CLOCK_RELATIVE: readonly { label: string; ago: number }[] = [
   { label: "10 分前", ago: 10 },
 ];
 
-/** 各變體的微調鈕（分） */
+/** 各變體的微調鈕（分）：v1.32 2A-1 收斂為輕量 ±15m 微調，消除 8 顆算數鈕造成的認知雜訊 */
 export const CLOCK_VARIANT_STEPS: Readonly<Record<ClockVariant, readonly number[]>> = {
-  full: CLOCK_STEPS,
+  full: [-15, 15],
   compact: [-15, 15],
   mobile: [-15, 15],
 };

@@ -287,20 +287,8 @@
 .panel .span-field .clockf-row.is-closed .tf-show .pre { padding-top: 0; }
 .panel .span-field .tf-show.is-off { cursor: default; opacity: var(--disabled); }
 .panel .span-field .tf-show.is-off:hover { border-bottom-color: var(--color-dash); }
-/* 長度：分段鈕（每段不撐滿、字距收）＋「自訂…」虛線小鈕；自訂中換成數字框＋「分」 */
-.panel .len-field { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.panel .len-field .ns-seg.panel-seg { width: auto; flex: none; }
-.panel .len-field .ns-seg.panel-seg > [role="radio"] { flex: none; min-width: 30px; padding: 0 5px; letter-spacing: .02em; }
-.panel .len-custom {
-  height: var(--ctl-h-sm); padding: 0 8px; border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl); background: transparent;
-  font-family: var(--font-body); font-size: var(--fs-sm); color: var(--color-ink-faint); cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-soft), color var(--dur-fast) var(--ease-soft);
-}
-.panel .len-custom:hover { border-color: var(--accent); color: var(--color-ink); }
-.panel .len-custom:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
-.panel .len-custom[aria-pressed="true"] { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--sel-bg); color: var(--sel-fg); font-family: var(--font-latin); font-weight: 500; }
-.panel .len-custom-in { display: inline-flex; align-items: baseline; gap: 4px; }
-.panel .len-custom-in .techo-input { width: 4em; height: var(--ctl-h-sm); padding: 0 2px; font-family: var(--font-latin); }
+/* 長度（v1.32 2A-2：改由 DurationPicker 統一渲染） */
+.panel .len-field { width: 100%; min-width: 0; }
 
 /* 定期券検印段的「本班」列：左小標（.lbl）＋右內容，欄寬同 .field */
 .panel .occ { margin-top: 12px; display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: start; }

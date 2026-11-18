@@ -24,7 +24,22 @@ export interface ConfirmText {
   confirmLabel: string;
 }
 
-/* ── 新增路線表單 ── */
+/* ── 新增／編輯路線表單單一來源常數與純規則 ── */
+
+/** 幹線名稱輸入框 placeholder */
+export const LINE_NAME_PLACEHOLDER = "例：工作、學習、健康";
+/** 路線名稱輸入框 placeholder */
+export const ROUTE_NAME_PLACEHOLDER = "例：日文檢定、年度旅遊";
+/** 路線代碼字數上限 */
+export const ROUTE_CODE_MAX = 4;
+/** 路線代碼輸入框 placeholder（新增對話框與詳情側板／手機詳情頁共用） */
+export const ROUTE_CODE_PLACEHOLDER = "如 E1";
+/** 路線代碼選填說明 */
+export const ROUTE_CODE_HINT = `（選填・最多 ${ROUTE_CODE_MAX} 個大寫字母）`;
+/** 路線描述輸入框 placeholder（新增對話框與詳情側板／手機詳情頁共用） */
+export const ROUTE_DESC_PLACEHOLDER = "這條路線通往哪裡……";
+/** 舊資料或未挑色路線的預設顯示色索引（第 4 格利休鼠） */
+export const NULL_ROUTE_COLOR_INDEX = 4;
 
 /** 新增路線的預設色是第幾格（給 ColorPicker 的 routePresetColor）：前三格輪流（第 4 格利休鼠＝灰，不當預設） */
 export function defaultRouteColorIndex(routeCount: number): number {
@@ -33,12 +48,17 @@ export function defaultRouteColorIndex(routeCount: number): number {
 
 /** 代碼輸入框：打字當下就轉大寫、最多 4 個字（新增表單與詳情編輯同一條規矩，兩殼皆同） */
 export function codeInput(raw: string): string {
-  return raw.toUpperCase().slice(0, 4);
+  return raw.toUpperCase().slice(0, ROUTE_CODE_MAX);
 }
 
 /** 送出時的代碼：去頭尾空白、大寫；空字串＝不設（null） */
 export function codeValue(raw: string): string | null {
   return raw.trim().toUpperCase() || null;
+}
+
+/** 送出／提交時的路線描述：去頭尾空白；空字串＝不設（null） */
+export function descriptionValue(raw: string): string | null {
+  return raw.trim() || null;
 }
 
 /** 代碼已被別條路線用掉（只淡提示、不擋） */

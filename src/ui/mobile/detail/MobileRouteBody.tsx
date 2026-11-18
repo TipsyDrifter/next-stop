@@ -35,7 +35,17 @@ import { fmtDateKey } from "../../panel/format";
 import { moveRouteToLine } from "../../panel/moveRouteToLine";
 import { addStation, removeStation, requestDeleteRoute, toggleStationArrived } from "../../panel/routeFlows";
 import { requestArrive, requestDepart } from "../../panel/arrivalFlows";
-import { codeInput, codeTakenByOther, codeTakenNote, codeValue } from "../../panel/routeFlowRules";
+import {
+  NULL_ROUTE_COLOR_INDEX,
+  ROUTE_CODE_MAX,
+  ROUTE_CODE_PLACEHOLDER,
+  ROUTE_DESC_PLACEHOLDER,
+  codeInput,
+  codeTakenByOther,
+  codeTakenNote,
+  codeValue,
+  descriptionValue,
+} from "../../panel/routeFlowRules";
 import { StationAimButton, useStationAimLists, useStationCard } from "../../weekAims/StationCard";
 import { revealOnRouteMap } from "../routeMapReveal";
 import { Row } from "./MobileStateRows";
@@ -43,7 +53,7 @@ import "../mobile-polish.css";
 import "../routemap/route-manage.css";
 
 /** null 色＝第 4 色（利休鼠）——書封 roundel、桌機票頭與側板挑色盤都這樣畫（同 RoutePanel） */
-const NULL_ROUTE_COLOR = routePresetColor(4);
+const NULL_ROUTE_COLOR = routePresetColor(NULL_ROUTE_COLOR_INDEX);
 
 export function MobileRouteBody({ route, onClose }: { route: NodeRow; onClose: () => void }) {
   const updateNode = useNodeStore((s) => s.updateNode);
@@ -85,9 +95,9 @@ export function MobileRouteBody({ route, onClose }: { route: NodeRow; onClose: (
       <div className="m-dt-note">
         <CommitTextarea
           value={route.description ?? ""}
-          onCommit={(v) => void updateNode(route.id, { description: v || null })}
+          onCommit={(v) => void updateNode(route.id, { description: descriptionValue(v) })}
           ariaLabel="路線說明"
-          placeholder="這條路線通往哪裡……"
+          placeholder={ROUTE_DESC_PLACEHOLDER}
         />
       </div>
 
@@ -99,9 +109,9 @@ export function MobileRouteBody({ route, onClose }: { route: NodeRow; onClose: (
               onCommit={(v) => void updateNode(route.id, { code: codeValue(v) })}
               transform={codeInput}
               onDraftChange={setCodeDraft}
-              attrs={{ maxLength: 4, spellCheck: false, autoCapitalize: "characters", enterKeyHint: "done" }}
+              attrs={{ maxLength: ROUTE_CODE_MAX, spellCheck: false, autoCapitalize: "characters", enterKeyHint: "done" }}
               ariaLabel="路線代碼"
-              placeholder="如 E1"
+              placeholder={ROUTE_CODE_PLACEHOLDER}
               className="m-rt-code"
             />
             {codeTaken && <span className="m-rf-note m-rt-code-note">{codeTakenNote(codeDraft)}</span>}

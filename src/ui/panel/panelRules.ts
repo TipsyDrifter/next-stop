@@ -13,6 +13,7 @@
 import type { NodeKind, NodeRow, NodeStatus, Priority, RepeatFreq, RepeatRule } from "../../domain";
 import type { CurrentOccurrence } from "../../data/nodeRepository";
 import { canHaveChildren } from "../../domain/node.ts";
+import { parseDurationInput } from "../../domain/duration.ts";
 import { REPEAT_INTERVAL_MAX, WEEKDAY_LABEL, addDaysKey, afterRule, describeEnd, describeRule, fixedRule, parseRule } from "../../domain/repeat.ts";
 
 /* ───────────── 一、重複規則草稿 ───────────── */
@@ -294,13 +295,9 @@ export function lenText(min: number): string {
   return m ? `${h}h${m < 10 ? `0${m}` : m}` : `${h}h`;
 }
 
-/** 「自訂…」框打的字 → 長度：空白＝清掉（null）；看不懂或 ≤0＝undefined（不送、還原）；超過上限夾回 */
-export function parseLenInput(raw: string): number | null | undefined {
-  const s = raw.trim();
-  if (s === "") return null;
-  const v = Number.parseInt(s, 10);
-  if (!Number.isFinite(v) || v <= 0) return undefined;
-  return Math.min(v, LEN_MAX);
+/** 「自訂…」／智慧時長輸入 → 分鐘數：支援純分、2.5h、1h10、1:30、全形字；空白＝清掉（null）；看不懂或 ≤0＝undefined；超過上限夾回 */
+export function parseLenInput(raw: string, maxMin = LEN_MAX): number | null | undefined {
+  return parseDurationInput(raw, { maxMin });
 }
 
 /**

@@ -19,12 +19,13 @@
  * 丁 D-主-237：段頂那一行右邊三顆選項 chip「全部／筆記／車票」＝桌機書封「篩選・種類」的手機版（同一份 `notesStore.inboxKind`）；
  *   兩種都有、或正在篩的時候才出現（只有一種時篩了也一樣）。
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore, type InboxKind, type InboxRef } from "../../../store/notesStore";
 import { useTagStore } from "../../../store/tagStore";
 import { addDays, dayKeyOf, todayKey } from "../../../lib/date";
 import { lineCount } from "../../../domain/notes";
+import { buildInboxItems } from "../../../domain/notesFilter";
 import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { UketsukeSeal } from "../UketsukeSeal";
@@ -32,8 +33,11 @@ import { EmptyState } from "../../common/EmptyState";
 import { MobileAttachPicker } from "../../common/MobileAttachPicker";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
+import { NotesFilterBar } from "../NotesFilterBar";
 import { nextMonday, shortDay } from "./dayKeys";
 import { useBackLayer } from "../../mobile/backStack";
+
+const INBOX_ENTITY_TYPES = ["note", "node"] as const;
 
 type Item = { kind: "note"; id: string; at: string; note: NoteListItem } | { kind: "ticket"; id: string; at: string; ticket: NodeRow };
 
@@ -50,21 +54,37 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
   const inboxKind = useNotesStore((s) => s.inboxKind);
+  const inboxSort = useNotesStore((s) => s.inboxSort);
+  const inboxTagKeys = useNotesStore((s) => s.inboxTagKeys);
   const setInboxKind = useNotesStore((s) => s.setInboxKind);
   const selected = useNotesStore((s) => s.inboxSelected);
   const selectInbox = useNotesStore((s) => s.selectInbox);
   const openCapture = useNotesStore((s) => s.openCapture);
+  const tagIndex = useTagStore((s) => s.index);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const [pop, setPop] = useState<Pop>(null);
   // 磨光① 返回層：「排某天」面板＝同「取消」；兩個掛到哪的挑選器自己登記（MobileAttachPicker）
   //   UI 丙-6 S9：日期面板傳同一個 id（backId）＋同一個 kind（"sheet"）⇒ MSheet 殼合併成這一層
   useBackLayer("notes.inbox.someday", pop?.kind === "someday", () => setPop(null), "sheet");
 
-  const items: Item[] = [
-    ...(inboxKind === "ticket" ? [] : inboxNotes).map((n): Item => ({ kind: "note", id: n.id, at: n.noted_at, note: n })),
-    ...(inboxKind === "note" ? [] : inboxTickets).map((t): Item => ({ kind: "ticket", id: t.id, at: t.created_at, ticket: t })),
-  ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const items: Item[] = useMemo(
+    () =>
+      buildInboxItems({
+        notes: inboxNotes,
+        tickets: inboxTickets,
+        kind: inboxKind,
+        sort: inboxSort,
+        tagKeys: inboxTagKeys,
+        tagEnts: tagIndex?.ents ?? [],
+      }),
+    [inboxNotes, inboxTickets, inboxKind, inboxSort, inboxTagKeys, tagIndex],
+  );
+  const allowedIds = useMemo(
+    () => new Set([...inboxNotes.map((x) => x.id), ...inboxTickets.map((x) => x.id)]),
+    [inboxNotes, inboxTickets],
+  );
   const total = inboxNotes.length + inboxTickets.length;
+  const hasFilter = inboxKind !== "all" || inboxTagKeys.length > 0;
   const showKinds = inboxKind !== "all" || (inboxNotes.length > 0 && inboxTickets.length > 0);
   const kindChip = (k: InboxKind, label: string) => (
     <button key={k} type="button" className="chip ns-chip" aria-pressed={inboxKind === k} onClick={() => setInboxKind(k)}>
@@ -78,6 +98,22 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
       {kindChip("ticket", "車票")}
     </span>
   );
+  const filterBar = (total > 0 || hasFilter) && (
+    <NotesFilterBar
+      shell="mobile"
+      sort={inboxSort}
+      onSortChange={(s) => useNotesStore.getState().setInboxSort(s)}
+      sortLabel="收件匣排序"
+      selectedTagKeys={inboxTagKeys}
+      onToggleTagKey={(k) => useNotesStore.getState().toggleInboxTagKey(k)}
+      onClearTagKeys={() => useNotesStore.getState().setInboxTagKeys([])}
+      hasExtraFilter={inboxKind !== "all"}
+      onClearAll={() => useNotesStore.getState().clearInboxFilters()}
+      entityTypes={INBOX_ENTITY_TYPES}
+      allowedIds={allowedIds}
+      backId="notes.inbox.tags"
+    />
+  );
 
   const isSel = (it: Item) => !!selected && selected.kind === it.kind && selected.id === it.id;
   const toggle = (it: Item) => {
@@ -88,13 +124,19 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
 
   return (
     <>
-      {items.length === 0 && total > 0 ? (
-        // 篩選把這一種都藏起來了（不是整理完了）
+      {items.length === 0 && (total > 0 || hasFilter) ? (
+        // 篩選（種類或 #荷札）把項目藏起來了（不是整理完了）
         <>
           <p className="ns-notes-mlede">
             待整理 <b>{total}</b> 則{kinds}
           </p>
-          <EmptyState tone="nores" stamp={null} title="這一種沒有待整理的" secondary={{ label: "看全部", onClick: () => setInboxKind("all") }} />
+          {filterBar}
+          <EmptyState
+            tone="nores"
+            stamp={null}
+            title={inboxTagKeys.length > 0 ? "沒有符合篩選的待整理項目" : "這一種沒有待整理的"}
+            secondary={{ label: "清除篩選", onClick: () => useNotesStore.getState().clearInboxFilters() }}
+          />
         </>
       ) : items.length === 0 ? (
         ready && (
@@ -111,13 +153,17 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
           <p className="ns-notes-mlede">
             待整理 <b>{total}</b> 則{kinds}
           </p>
+          {filterBar}
           <ul className="ns-notes-milist">
             {items.map((it) =>
               it.kind === "note" ? (
                 <NoteCard
                   key={it.id}
                   n={it.note}
+                  at={it.at}
                   day={dayKeyOf(it.at, dayStartHour)}
+                  stampDay={dayKeyOf(it.note.noted_at, dayStartHour)}
+                  inboxSort={inboxSort}
                   sel={isSel(it)}
                   onToggle={() => toggle(it)}
                 />
@@ -126,6 +172,8 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
                   key={it.id}
                   t={it.ticket}
                   day={dayKeyOf(it.at, dayStartHour)}
+                  stampDay={dayKeyOf(it.ticket.created_at, dayStartHour)}
+                  inboxSort={inboxSort}
                   sel={isSel(it)}
                   onToggle={() => toggle(it)}
                   onPop={(kind) => setPop({ id: it.id, kind })}
@@ -144,7 +192,23 @@ export function MobileNoteInbox({ ready }: { ready: boolean }) {
 
 /* ───────── 筆記紙片 ───────── */
 
-function NoteCard({ n, day, sel, onToggle }: { n: NoteListItem; day: string; sel: boolean; onToggle(): void }) {
+function NoteCard({
+  n,
+  at,
+  day,
+  stampDay,
+  inboxSort,
+  sel,
+  onToggle,
+}: {
+  n: NoteListItem;
+  at: string;
+  day: string;
+  stampDay: string;
+  inboxSort: "updated" | "created";
+  sel: boolean;
+  onToggle(): void;
+}) {
   const keepNote = useNotesStore((s) => s.keepNote);
   const deleteNote = useNotesStore((s) => s.deleteNote);
   const openPreviewFromNote = useNotesStore((s) => s.openPreviewFromNote);
@@ -155,13 +219,14 @@ function NoteCard({ n, day, sel, onToggle }: { n: NoteListItem; day: string; sel
     <li className={"ns-notes-mitem" + (sel ? " is-sel" : "")}>
       <div className="ns-notes-mslip">
         <button type="button" className="ns-notes-mslip-body" aria-expanded={sel} onClick={onToggle}>
-          <UketsukeSeal day={day} size={42} />
+          <UketsukeSeal day={stampDay} size={42} />
           <span className="ns-notes-mslip-text">{text}</span>
           <span className="ns-notes-mmeta">
             <span className="ns-notes-mkind">未整理的筆記</span>
             <span className="sep">・</span>
             <span>
-              {shortDay(day)} {hhmm(n.noted_at)}
+              {shortDay(day)} {hhmm(at)}
+              {inboxSort === "updated" && n.updated_at !== n.noted_at ? " 修改" : ""}
             </span>
             {lines > 1 && (
               <>
@@ -197,6 +262,8 @@ function NoteCard({ n, day, sel, onToggle }: { n: NoteListItem; day: string; sel
 function TicketCard({
   t,
   day,
+  stampDay,
+  inboxSort,
   sel,
   onToggle,
   onPop,
@@ -205,6 +272,8 @@ function TicketCard({
 }: {
   t: NodeRow;
   day: string;
+  stampDay: string;
+  inboxSort: "updated" | "created";
   sel: boolean;
   onToggle(): void;
   onPop(kind: PopKind): void;
@@ -230,12 +299,13 @@ function TicketCard({
             <span className="ns-notes-mmeta">
               <span>沒有日期</span>
               <span className="sep">・</span>
-              {/* 收官磨光 A3（體檢 N4）：同桌機——不黏字、不寫「變」（直接建的票沒變過，資料分不出來，一律照實寫建立） */}
-              <span>{shortDay(day)} 建立</span>
+              <span>
+                {shortDay(day)} {inboxSort === "updated" && t.updated_at !== t.created_at ? "修改" : "建立"}
+              </span>
             </span>
           </span>
           <span className="ns-notes-mtk-stamp">
-            <UketsukeSeal day={day} size={42} />
+            <UketsukeSeal day={stampDay} size={42} />
           </span>
         </button>
         {sel && (

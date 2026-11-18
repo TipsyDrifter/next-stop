@@ -32,19 +32,23 @@ import {
   fmtDur,
   msOf,
   noteOf,
-  segmentsOfDay,
-  toSpan,
   type AxisItem,
   type TimeBlockRow,
 } from "../../../domain/timetable";
+import { filterTimetableDay } from "../../../domain/timetableFilter";
 import { linkLabelOf, linkOfRow } from "../../../domain/timetableLink";
+import { useNodeStore } from "../../../store/nodeStore";
+import { useTagStore } from "../../../store/tagStore";
 import { TT_TEXT, blockMarker, useTimetableStore } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { addDays, dayWindow } from "../../../lib/date";
 import { DateNav } from "../../common/DateNav";
+import { EmptyState } from "../../common/EmptyState";
 import { CategoryBadge } from "../CategoryBadge";
 import { useMergeMarks } from "../panels/controls";
+import { AxisFilterBar } from "./AxisFilterBar";
 import { DaySummary } from "./DaySummary";
+import { TtTag, tagNameOf, useTimetableTagMaps } from "./TimetableTagChips";
 import { useNow } from "../useNow";
 import "../blockNote.css";
 
@@ -79,12 +83,19 @@ export function Axis({ scroller }: AxisProps) {
   const dayKey = useTimetableStore((s) => s.dayKey);
   const todayKey = useTimetableStore((s) => s.todayKey);
   const dayBlocks = useTimetableStore((s) => s.dayBlocks);
+  const categories = useTimetableStore((s) => s.categories);
   const catById = useTimetableStore((s) => s.catById);
   const longRunMaxMin = useTimetableStore((s) => s.longRunMaxMin);
   const linkInfo = useTimetableStore((s) => s.linkInfo);
+  const axisFilter = useTimetableStore((s) => s.axisFilter);
+  const axisBranchNodeIds = useTimetableStore((s) => s.axisBranchNodeIds);
+  const clearAxisFilter = useTimetableStore((s) => s.clearAxisFilter);
   const setDayKey = useTimetableStore((s) => s.setDayKey);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const routes = useNodeStore((s) => s.routes);
+  const tagIndex = useTagStore((s) => s.index);
+  const tagMaps = useTimetableTagMaps();
   const now = useNow(1000);
   const mergeMarks = useMergeMarks();
 
@@ -98,7 +109,35 @@ export function Axis({ scroller }: AxisProps) {
     for (const r of dayBlocks) m[r.id] = r;
     return m;
   }, [dayBlocks]);
-  const items = useMemo(() => segmentsOfDay(dayBlocks.map(toSpan), w, now), [dayBlocks, w, now]);
+  const routeNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const r of routes) m[r.id] = r.name;
+    return m;
+  }, [routes]);
+  const tagNames = useMemo(() => {
+    const m: Record<string, string> = {};
+    if (tagIndex) {
+      for (const [k, node] of Object.entries(tagIndex.byKey)) m[k] = node.name;
+    }
+    return m;
+  }, [tagIndex]);
+  const filterResult = useMemo(
+    () =>
+      filterTimetableDay({
+        dayBlocks,
+        window: w,
+        now,
+        filter: axisFilter,
+        categories,
+        links: linkInfo,
+        tagMaps,
+        tagNames,
+        routeNames,
+        branchNodeIds: axisBranchNodeIds,
+      }),
+    [dayBlocks, w, now, axisFilter, categories, linkInfo, tagMaps, tagNames, routeNames, axisBranchNodeIds],
+  );
+  const items = filterResult.axisItems;
   /** 過去某天、整天一個 gap ⇒「這一天沒有紀錄」 */
   const emptyPastDay = !isToday && items.length === 1 && items[0].kind === "gap" && dayBlocks.length === 0;
 
@@ -124,7 +163,7 @@ export function Axis({ scroller }: AxisProps) {
   }, [dayKey, isToday]);
   useLayoutEffect(() => {
     const el = scrollerRef.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
+    if (el && stick.current && !filterResult.active) el.scrollTop = el.scrollHeight;
   });
 
   /* ── 點擊 ── */
@@ -164,112 +203,222 @@ export function Axis({ scroller }: AxisProps) {
         <span className="ns-tt-sec-note">{pad2(dayStartHour)}:00 起算</span>
       </div>
 
-      {items.map((it, i) => {
-        const dur = Math.max(0, it.to - it.from);
-        if (it.kind === "gap") {
-          const h = Math.max(52, axisRowHeight(dur) - 10);
-          return (
-            <div className="ns-tt-seg is-gap" key={"g" + i} style={{ minHeight: h }}>
-              <div className="ns-tt-seg-time ns-tt-num">{fmtClock(it.from)}</div>
-              <div className="ns-tt-seg-rail" />
-              <div className="ns-tt-seg-body">
-                <button type="button" className="ns-tt-hole" onClick={() => openSheet({ kind: "fill", start: it.from, end: it.to })}>
-                  {emptyPastDay ? (
-                    <span>這天沒有紀錄</span>
-                  ) : (
-                    <span>
-                      未記錄 <span className="ns-tt-num">{fmtDur(dur)}</span>
-                    </span>
-                  )}
-                  <span className="ns-tt-hole-go">補記 ›</span>
-                </button>
-              </div>
-            </div>
-          );
-        }
-        const row = rowsById[it.span.id];
-        const cat = catById[it.span.categoryId] ?? null;
-        const m = row ? blockMarker(row, catById, longRunMaxMin, now, linkInfo) : ({ kind: "none" } as const);
-        const long = m.kind !== "none" && m.pending;
-        const est = it.running && row ? row.estimate_min : null;
-        const label = row ? linkLabelOf(row, linkInfo) : null;
-        const lk = row ? linkOfRow(row) : null;
-        const lkInfo = lk ? linkInfo[lk.nodeId ?? lk.routeId ?? ""] : undefined;
-        const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
-        const note = noteOf(row);
-        // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估）——沒有就不畫空的那行，備註直接頂上
-        const hasChip =
-          it.running || it.contFromPrev || it.contToNext || it.zero || m.kind === "late" || m.kind === "long" || est !== null;
-        const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`, minHeight: axisRowHeight(dur) } as CSSProperties;
-        const cls =
-          "ns-tt-blk" +
-          (it.running ? " is-live" : "") +
-          (long ? " is-long" : "") +
-          (it.zero ? " is-zero" : "") +
-          (mergeMarks.includes(it.span.id) ? " is-mhl" : "");
-        return (
-          <div className="ns-tt-seg" key={it.span.id + ":" + it.from} style={style}>
-            <div className="ns-tt-seg-time ns-tt-num">{fmtClock(it.from)}</div>
-            <div className="ns-tt-seg-rail" />
-            <div className="ns-tt-seg-body">
-              <button type="button" className={cls} onClick={() => onBlock(it)}>
-                <CategoryBadge cat={cat} size="sm" live={it.running} />
-                <span className="ns-tt-blk-main">
-                  <span className={"ns-tt-blk-name" + (label !== null ? " ns-tt-link-has" : "")}>
-                    {label === null ? (
-                      (cat?.name ?? "？")
-                    ) : (
-                      <>
-                        <span className="ns-tt-link-bn-cat">{cat?.name ?? "？"}</span>
-                        <span className={"ns-tt-link-bn" + (gone ? " is-gone" : "")}>・{label}</span>
-                      </>
-                    )}
-                  </span>
-                  {(hasChip || note === null) && (
-                    <span className="ns-tt-blk-sub">
-                      {/* UI 丙-7：呼吸點移到圓徽右上肩（CategoryBadge live），這裡只留字 */}
-                      {it.running && <span>運行中</span>}
-                      {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
-                      {/* 跨日界線往後一天延伸（沙盒回報 D2，調度裁定兩天都標「續」）：已結束的寫真實到着時刻；
-                          運行中的沒有結束時刻，只標「續 ›」 */}
-                      {it.contToNext && (
-                        <span className="ns-tt-chip">{it.span.end === null ? "續 ›" : `續・${fmtClock(it.span.end)} 着`}</span>
-                      )}
-                      {it.zero ? (
-                        <span className="ns-tt-chip is-late">時刻待確認</span>
-                      ) : m.kind === "late" ? (
-                        <span className="ns-tt-chip is-late">{m.pending ? TT_TEXT.latePending(m.overMs) : TT_TEXT.late(m.overMs)}</span>
-                      ) : m.kind === "long" ? (
-                        <span className={"ns-tt-chip" + (m.pending ? " is-late" : "")}>{m.pending ? "長時間運行・待確認" : "長時間運行"}</span>
-                      ) : est !== null ? (
-                        <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
-                      ) : null}
-                    </span>
-                  )}
-                  {/* ⑦（原型題 5）：沒有小牌＝備註就在名稱下那一行；有小牌另起一行（接在小牌後面窄欄會被擠成「…」） */}
-                  {note !== null && (
-                    <span className="ns-tt-blk-sub">
-                      <span className="ns-tt-blk-note" title={note}>
-                        {note}
-                      </span>
-                    </span>
-                  )}
-                </span>
-                <span className="ns-tt-blk-dur ns-tt-num">{fmtDur(dur)}</span>
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      <AxisFilterBar />
 
-      {isToday && (
-        <div className="ns-tt-nowline" aria-hidden="true">
-          <span className="ns-tt-nowline-t ns-tt-num">{fmtClock(now)}</span>
-          <span className="ns-tt-nowline-d" />
-          <span className="ns-tt-nowline-r">
-            <span>NOW</span>
-          </span>
-        </div>
+      {filterResult.active ? (
+        <>
+          <div className="ns-tt-fsum" role="status">
+            <span className="ns-tt-fsum-txt">
+              共 <span className="ns-tt-num">{filterResult.count}</span> 塊 · 合計{" "}
+              <span className="ns-tt-num">{fmtDur(filterResult.totalMs)}</span>
+            </span>
+            <button
+              type="button"
+              className="ns-btn btn-text ns-btn--sm"
+              onClick={clearAxisFilter}
+            >
+              清除
+            </button>
+          </div>
+          {filterResult.blocks.length === 0 ? (
+            <EmptyState
+              tone="nores"
+              title="沒有符合篩選的時間塊"
+              desc={filterResult.hasCriteria ? "試試放寬分類、路線或荷札條件" : "這天還沒有時間塊紀錄"}
+              secondary={{
+                label: filterResult.hasCriteria ? "清除篩選" : "恢復預設排序",
+                onClick: clearAxisFilter,
+              }}
+            />
+          ) : (
+            <div className="ns-tt-ledger">
+              {filterResult.blocks.map(({ item: it, row, durMs, tagKeys }) => {
+                const cat = catById[it.span.categoryId] ?? null;
+                const m = blockMarker(row, catById, longRunMaxMin, now, linkInfo);
+                const long = m.kind !== "none" && m.pending;
+                const est = it.running ? row.estimate_min : null;
+                const label = linkLabelOf(row, linkInfo);
+                const lk = linkOfRow(row);
+                const lkInfo = linkInfo[lk.nodeId ?? lk.routeId ?? ""];
+                const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
+                const note = noteOf(row);
+                const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})` } as CSSProperties;
+                const cls =
+                  "ns-tt-blk ns-tt-ledger-row" +
+                  (it.running ? " is-live" : "") +
+                  (long ? " is-long" : "") +
+                  (it.zero ? " is-zero" : "") +
+                  (mergeMarks.includes(it.span.id) ? " is-mhl" : "");
+                return (
+                  <button
+                    key={it.span.id + ":" + it.from}
+                    type="button"
+                    className={cls}
+                    style={style}
+                    onClick={() => onBlock(it)}
+                  >
+                    <CategoryBadge cat={cat} size="sm" live={it.running} />
+                    <span className="ns-tt-blk-main">
+                      <span className={"ns-tt-blk-name" + (label !== null ? " ns-tt-link-has" : "")}>
+                        {label === null ? (
+                          (cat?.name ?? "？")
+                        ) : (
+                          <>
+                            <span className="ns-tt-link-bn-cat">{cat?.name ?? "？"}</span>
+                            <span className={"ns-tt-link-bn" + (gone ? " is-gone" : "")}>・{label}</span>
+                          </>
+                        )}
+                      </span>
+                      <span className="ns-tt-blk-sub">
+                        <span className="ns-tt-ledger-time ns-tt-num">
+                          {fmtClock(it.from)}–{it.running ? "運行中" : fmtClock(it.to)}
+                        </span>
+                        {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
+                        {it.contToNext && (
+                          <span className="ns-tt-chip">{it.span.end === null ? "續 ›" : `續・${fmtClock(it.span.end)} 着`}</span>
+                        )}
+                        {it.zero ? (
+                          <span className="ns-tt-chip is-late">時刻待確認</span>
+                        ) : m.kind === "late" ? (
+                          <span className="ns-tt-chip is-late">{m.pending ? TT_TEXT.latePending(m.overMs) : TT_TEXT.late(m.overMs)}</span>
+                        ) : m.kind === "long" ? (
+                          <span className={"ns-tt-chip" + (m.pending ? " is-late" : "")}>{m.pending ? "長時間運行・待確認" : "長時間運行"}</span>
+                        ) : est !== null ? (
+                          <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
+                        ) : null}
+                      </span>
+                      {tagKeys.length > 0 && (
+                        <span className="ns-tt-blk-sub ns-tt-ledger-tags">
+                          {tagKeys.map((k) => (
+                            <TtTag key={k} name={tagNameOf(k)} sm />
+                          ))}
+                        </span>
+                      )}
+                      {note !== null && (
+                        <span className="ns-tt-blk-sub">
+                          <span className="ns-tt-blk-note" title={note}>
+                            {note}
+                          </span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="ns-tt-blk-dur ns-tt-num">{fmtDur(durMs)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {items.map((it, i) => {
+            const dur = Math.max(0, it.to - it.from);
+            if (it.kind === "gap") {
+              const h = Math.max(52, axisRowHeight(dur) - 10);
+              return (
+                <div className="ns-tt-seg is-gap" key={"g" + i} style={{ minHeight: h }}>
+                  <div className="ns-tt-seg-time ns-tt-num">{fmtClock(it.from)}</div>
+                  <div className="ns-tt-seg-rail" />
+                  <div className="ns-tt-seg-body">
+                    <button type="button" className="ns-tt-hole" onClick={() => openSheet({ kind: "fill", start: it.from, end: it.to })}>
+                      {emptyPastDay ? (
+                        <span>這天沒有紀錄</span>
+                      ) : (
+                        <span>
+                          未記錄 <span className="ns-tt-num">{fmtDur(dur)}</span>
+                        </span>
+                      )}
+                      <span className="ns-tt-hole-go">補記 ›</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+            const row = rowsById[it.span.id];
+            const cat = catById[it.span.categoryId] ?? null;
+            const m = row ? blockMarker(row, catById, longRunMaxMin, now, linkInfo) : ({ kind: "none" } as const);
+            const long = m.kind !== "none" && m.pending;
+            const est = it.running && row ? row.estimate_min : null;
+            const label = row ? linkLabelOf(row, linkInfo) : null;
+            const lk = row ? linkOfRow(row) : null;
+            const lkInfo = lk ? linkInfo[lk.nodeId ?? lk.routeId ?? ""] : undefined;
+            const gone = !!lkInfo && (lkInfo.deleted || lkInfo.missing);
+            const note = noteOf(row);
+            // 名稱下那一行有沒有小牌（運行中、續、時刻待確認、誤點、長時間運行、預估）——沒有就不畫空的那行，備註直接頂上
+            const hasChip =
+              it.running || it.contFromPrev || it.contToNext || it.zero || m.kind === "late" || m.kind === "long" || est !== null;
+            const style = { "--c": `var(--ns-tt-cat-${colorSlot(cat?.color_idx ?? 8)})`, minHeight: axisRowHeight(dur) } as CSSProperties;
+            const cls =
+              "ns-tt-blk" +
+              (it.running ? " is-live" : "") +
+              (long ? " is-long" : "") +
+              (it.zero ? " is-zero" : "") +
+              (mergeMarks.includes(it.span.id) ? " is-mhl" : "");
+            return (
+              <div className="ns-tt-seg" key={it.span.id + ":" + it.from} style={style}>
+                <div className="ns-tt-seg-time ns-tt-num">{fmtClock(it.from)}</div>
+                <div className="ns-tt-seg-rail" />
+                <div className="ns-tt-seg-body">
+                  <button type="button" className={cls} onClick={() => onBlock(it)}>
+                    <CategoryBadge cat={cat} size="sm" live={it.running} />
+                    <span className="ns-tt-blk-main">
+                      <span className={"ns-tt-blk-name" + (label !== null ? " ns-tt-link-has" : "")}>
+                        {label === null ? (
+                          (cat?.name ?? "？")
+                        ) : (
+                          <>
+                            <span className="ns-tt-link-bn-cat">{cat?.name ?? "？"}</span>
+                            <span className={"ns-tt-link-bn" + (gone ? " is-gone" : "")}>・{label}</span>
+                          </>
+                        )}
+                      </span>
+                      {(hasChip || note === null) && (
+                        <span className="ns-tt-blk-sub">
+                          {/* UI 丙-7：呼吸點移到圓徽右上肩（CategoryBadge live），這裡只留字 */}
+                          {it.running && <span>運行中</span>}
+                          {it.contFromPrev && <span className="ns-tt-chip">續・{fmtClock(it.span.start)} 発</span>}
+                          {/* 跨日界線往後一天延伸（沙盒回報 D2，調度裁定兩天都標「續」）：已結束的寫真實到着時刻；
+                              運行中的沒有結束時刻，只標「續 ›」 */}
+                          {it.contToNext && (
+                            <span className="ns-tt-chip">{it.span.end === null ? "續 ›" : `續・${fmtClock(it.span.end)} 着`}</span>
+                          )}
+                          {it.zero ? (
+                            <span className="ns-tt-chip is-late">時刻待確認</span>
+                          ) : m.kind === "late" ? (
+                            <span className="ns-tt-chip is-late">{m.pending ? TT_TEXT.latePending(m.overMs) : TT_TEXT.late(m.overMs)}</span>
+                          ) : m.kind === "long" ? (
+                            <span className={"ns-tt-chip" + (m.pending ? " is-late" : "")}>{m.pending ? "長時間運行・待確認" : "長時間運行"}</span>
+                          ) : est !== null ? (
+                            <span className="ns-tt-chip is-solid">{TT_TEXT.estimateChip(est)}</span>
+                          ) : null}
+                        </span>
+                      )}
+                      {/* ⑦（原型題 5）：沒有小牌＝備註就在名稱下那一行；有小牌另起一行（接在小牌後面窄欄會被擠成「…」） */}
+                      {note !== null && (
+                        <span className="ns-tt-blk-sub">
+                          <span className="ns-tt-blk-note" title={note}>
+                            {note}
+                          </span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="ns-tt-blk-dur ns-tt-num">{fmtDur(dur)}</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {isToday && (
+            <div className="ns-tt-nowline" aria-hidden="true">
+              <span className="ns-tt-nowline-t ns-tt-num">{fmtClock(now)}</span>
+              <span className="ns-tt-nowline-d" />
+              <span className="ns-tt-nowline-r">
+                <span>NOW</span>
+              </span>
+            </div>
+          )}
+        </>
       )}
     </section>
   );

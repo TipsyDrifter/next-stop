@@ -897,13 +897,14 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 /* A3：搜尋開著時頁首放大鏡亮著（aria-expanded） */
 .ns-tk-pagehead .ns-toolbar .ns-iconbtn[aria-expanded="true"] { background: var(--sel-bg); color: var(--sel-fg); }
 
-/* A4（P3 A 案）：頁首下一列——左＝帳戶篩選 chip／搜尋框＋條件 chip，右＝排序；清單視圖常駐 */
-.ns-tk-subbar { display: flex; align-items: center; gap: var(--sp-2) 10px; min-height: 32px; margin-bottom: var(--sp-3); }
-.ns-tk-subbar > .l { flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px var(--sp-2); }
-.ns-tk-subbar > .r { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px; align-self: flex-start; }
-.ns-tk-subbar .ns-tk-search { width: 230px; min-width: 150px; }
+/* A4（P3 A 案＋v1.32 2B-2 常駐當月直篩）：頁首下一列——左＝常駐篩選膠囊列（搜尋時多一截關鍵字框），右＝常駐排序鈕 */
+.ns-tk-subbar { display: flex; align-items: flex-start; gap: var(--sp-2) 10px; min-height: 28px; margin-bottom: var(--sp-3); }
+.ns-tk-subbar > .l { flex: 1; min-width: 0; min-height: 28px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px var(--sp-2); }
+.ns-tk-subbar > .r { flex: none; min-height: 28px; margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.ns-tk-subbar .ns-tk-search { width: 220px; min-width: 140px; }
 .ns-tk-subbar .ns-tk-filters { margin-top: 0; min-width: 0; }
 .ns-tk-subbar .ns-tk-found { margin-left: 0; white-space: normal; }
+.ns-tk-subbar .ns-tk-fclear { padding-inline: 6px; }
 /* 帳戶篩選 chip（書封點帳戶；× 清掉） */
 .ns-tk-acctchip { gap: var(--sp-1); padding-right: 3px; cursor: default; }
 .ns-tk-acctchip button {
@@ -992,6 +993,13 @@ textarea.ns-tk-textin, .ns-tk-notewrap textarea { resize: none; line-height: 1.6
 /* E2 定期帳清單：「關閉」拿掉後，新增是清單尾一顆文字鈕（靠左） */
 .ns-tk-rm-add { display: flex; margin-top: var(--sp-3); }
 .ns-tk-rm-empty + .ns-tk-rm-add { justify-content: center; margin-top: 0; padding-bottom: var(--sp-3); } /* 空清單：跟說明句同一條中軸 */
+
+/* v1.32 2B-1a 統合管理對話框「管帳」（結構對齊時刻表 CategoryManagerPanel .ns-tt-mgr-tabs） */
+.ns-tk-mgr-tabs { display: flex; border-bottom: 1px solid var(--color-line); margin-bottom: var(--sp-3); }
+.ns-tk-mgr-tabpanel { min-height: 220px; }
+.ns-tk-mgr-tabpanel .ns-tk-rm > .ns-tk-rm-h:first-child { margin-top: 0; }
+.ns-tk-dorder-foot { display: flex; margin-top: var(--sp-3); }
+.ns-tk-dorder-add { display: inline-flex; align-items: center; gap: var(--sp-1); }
 /* ==== end T3 ==== */
 
 /* ==== 丙-5 T6 小件 ==== */

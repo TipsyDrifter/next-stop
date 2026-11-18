@@ -40,6 +40,7 @@ import { useHotkeyRevision } from "../shell/useHotkeyRevision";
 import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
+import { useTagStore } from "../../store/tagStore";
 import { todayKey } from "../../lib/date";
 import { formatChord, hotkeyById } from "../shell/hotkeys";
 import { roundelStyle } from "../common/roundel";
@@ -52,6 +53,7 @@ import {
   addMonths,
   categoryLabel,
   categoryPath,
+  groupByDay,
   monthOf,
   monthTitle,
   moneyText,
@@ -62,12 +64,24 @@ import {
   type EntryRow,
 } from "../../domain/ticket";
 import type { NodeRow } from "../../domain/node";
-import { RESULT_PAGE, VIEW_TEXT, flatDayText, isAmountSort, isFilterActive, pageResults, resultSummary } from "../../domain/ticketView";
+import {
+  RESULT_PAGE,
+  VIEW_TEXT,
+  filterMonthEntries,
+  flatDayText,
+  inMonthSummary,
+  isAmountSort,
+  isFilterActive,
+  isInMonthFilterActive,
+  pageResults,
+  resultSummary,
+  routeCtx,
+} from "../../domain/ticketView";
+import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../domain/ticketTags";
 import { PageHeader } from "../common/PageHeader";
 import { DateNav } from "../common/DateNav";
-import { PopMenu, type PopMenuItem } from "../common/PopMenu";
 import { EmptyState } from "../common/EmptyState";
-import { IconBack, IconClose, IconPlus } from "../common/icons";
+import { IconBack, IconPlus } from "../common/icons";
 // 第②階段（②契約 §5.1）：頁首視圖切換／搜尋列／篩選 chips、月曆與統計視圖
 import { switchView, viewTabItems } from "./view/ViewSwitch";
 import { SearchBar, focusTicketSearch } from "./view/SearchBar";
@@ -265,9 +279,13 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const results = useTicketStore((s) => s.results);
   const resultDays = useTicketStore((s) => s.resultDays);
   const resultSort = useTicketStore((s) => s.resultSort);
+  const listFilter = useTicketStore((s) => s.listFilter);
+  const listSort = useTicketStore((s) => s.listSort);
+  const entriesVersion = useTicketStore((s) => s.entriesVersion);
   const pendingDay = useTicketStore((s) => s.pendingDay);
   const dayNotice = useTicketStore((s) => s.dayNotice);
   const totals = useTicketStore((s) => s.totals);
+  const tagIndex = useTagStore((s) => s.index);
 
   const today = todayKey(dayStartHour);
   const thisMonth = monthOf(today);
@@ -318,34 +336,48 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const filterAcc = filterAccountId ? accById[filterAccountId] : undefined;
   const panelOpen = panel.kind === "entry";
   const searching = view === "list" && searchOpen && isFilterActive(filter); // 0-15：清單畫搜尋結果
+  const inMonthActive = view === "list" && !searching && isInMonthFilterActive(listFilter, listSort, filterAccountId);
+  const monthFilteredRows = useMemo(() => {
+    void entriesVersion;
+    if (!inMonthActive) return [];
+    const ctx = {
+      accById,
+      catById,
+      curByCode,
+      ...routeCtx(routes),
+      entryTags: entityTagMap(tagIndex, TK_TAG_ENTRY),
+      tagName: tagNameOf(tagIndex),
+    };
+    return filterMonthEntries(
+      entries,
+      month,
+      { ...listFilter, accountId: listFilter.accountId ?? filterAccountId },
+      listSort,
+      ctx,
+    );
+  }, [inMonthActive, entries, month, listFilter, listSort, filterAccountId, accById, catById, curByCode, routes, tagIndex, entriesVersion]);
+  const monthSummaryText = useMemo(
+    () => (inMonthActive ? inMonthSummary(monthFilteredRows, mainDec) : null),
+    [inMonthActive, monthFilteredRows, mainDec],
+  );
   const yearMode = view === "stats" && span === "year";
   const acctMode = view === "accounts"; // 第二輪（D-票-79）：帳戶分頁——大標「帳戶」、頁首那行帳戶數與資產負債、「＋ 帳戶」
   const liveAccounts = accounts.filter((a) => a.deleted_at === null && a.archived_at === null).length;
   const emptyBook = view === "list" && ready && !hasAny && !searching; // A5：EmptyState 出現時頁首不給「＋ 記一筆」
   const tabItems = useMemo(() => viewTabItems(), []);
 
-  /* B1：頁首「⚙ 管帳」開共用 PopMenu（anchor＝那顆鈕；再點一次＝收） */
-  const [menuAt, setMenuAt] = useState<HTMLElement | null>(null);
-  const manageItems: PopMenuItem[] = [
-    { key: "categories", label: "分類管理", onSelect: () => store().openDialog({ kind: "categories" }) },
-    // 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序；第③階段（③契約 0-14）：預算…、定期帳…
-    // 售票口④ 第二輪：帳戶頁的拖曳是加速；看得到的非拖曳入口照舊是這個對話框（↑↓ 鈕；手機同一項）
-    { key: "accountOrder", label: "帳戶順序", onSelect: () => store().openDialog({ kind: "accountOrder" }) },
-    { key: "budgets", label: "預算…", onSelect: () => store().openDialog({ kind: "budgets" }) },
-    { key: "repeats", label: "定期帳…", onSelect: () => store().openDialog({ kind: "repeats" }) },
-    // 售票口④（D-票-68）：常用票種的改名、刪除、排序
-    { key: "templates", label: "常用票種…", onSelect: () => store().openDialog({ kind: "templates" }) },
-    { key: "currencies", label: "幣別與匯率", onSelect: () => store().openDialog({ kind: "currencies" }) },
-  ];
-
-  /* A3：頁首放大鏡——沒開 ⇒ 開搜尋並聚焦框；開著但沒條件 ⇒ 收起；開著有條件 ⇒ 聚焦框（不丟掉條件） */
+  /* A3：頁首放大鏡——沒開 ⇒ 開搜尋並聚焦框（若已有當月直篩條件則無縫升格為跨月搜尋）；開著但沒條件 ⇒ 收起；開著有條件 ⇒ 聚焦框 */
   const onSearchBtn = () => {
     const s = store();
     if (s.searchOpen && !isFilterActive(s.filter)) {
       s.closeSearch();
       return;
     }
-    s.openSearch();
+    if (!s.searchOpen && isInMonthFilterActive(s.listFilter, s.listSort, s.filterAccountId)) {
+      void s.promoteListFilterToSearch();
+    } else {
+      s.openSearch();
+    }
     focusTicketSearch();
   };
 
@@ -367,9 +399,9 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     const i = results.findIndex((e) => e.id === selectedId);
     if (i >= page * RESULT_PAGE) setPage(Math.floor(i / RESULT_PAGE) + 1);
   }, [results, selectedId, page]);
-  const flat = searching && isAmountSort(resultSort);
+  const flat = searching ? isAmountSort(resultSort) : inMonthActive && isAmountSort(listSort);
   // 平面清單跨年 ⇒ 日期欄要印年（「2025/10/21（三）」），欄寬跟著放寬
-  const flatSpanYears = flat && !!results && new Set(results.map((e) => e.occurred_on.slice(0, 4))).size > 1;
+  const flatSpanYears = searching && flat && !!results && new Set(results.map((e) => e.occurred_on.slice(0, 4))).size > 1;
 
   /* 切視圖／搜尋收起時焦點若掉到 body（清單、chip、「回 N 月」鈕卸載了）⇒ 還給清單／頁根，鍵盤表才接得到。
      一支 effect 收全部入口（1／2／3、點分頁、Esc、點「回 N 月」、篩選鈕），不在每條路各自補 focus */
@@ -544,30 +576,45 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     }
   }
 
-  /* 清單：月份分隔＋日分組＋帳簿行 */
+  /* 清單：當月直篩（2B-2）或月份分隔＋日分組＋帳簿行 */
   const items: ReactNode[] = [];
-  const headHasRows = monthsWithRows.has(months[0]);
-  if (ready && hasAny && !headHasRows) {
-    items.push(
-      <li key="empty-head" className="ns-tk-empty is-month">
-        這個月還沒有紀錄
-        {filterAcc && <small>篩選：{acctLabel(filterAcc, accounts)}</small>}
-      </li>,
-    );
-  }
-  let curMonth = months[0];
-  days.forEach((g: DayGroup) => {
-    const m = monthOf(g.dayKey);
-    if (m !== curMonth) {
-      curMonth = m;
+  if (inMonthActive) {
+    if (ready && monthFilteredRows.length === 0) {
       items.push(
-        <li key={`m-${m}`} className="ns-tk-monthrule" role="presentation">
-          {monthTitle(m)}
+        <li key="empty-filter" className="ns-tk-empty" role="presentation">
+          {VIEW_TEXT.emptyResults}
+          <small>這個月沒有符合條件的帳，可翻月或清除篩選</small>
+        </li>,
+      );
+    } else if (isAmountSort(listSort)) {
+      for (const e of monthFilteredRows) items.push(rowOf(e, flatDayText(e.occurred_on, false)));
+    } else {
+      for (const g of groupByDay(monthFilteredRows, filterAccountId)) pushDay(items, g, false);
+    }
+  } else {
+    const headHasRows = monthsWithRows.has(months[0]);
+    if (ready && hasAny && !headHasRows) {
+      items.push(
+        <li key="empty-head" className="ns-tk-empty is-month">
+          這個月還沒有紀錄
+          {filterAcc && <small>篩選：{acctLabel(filterAcc, accounts)}</small>}
         </li>,
       );
     }
-    pushDay(items, g, false);
-  });
+    let curMonth = months[0];
+    days.forEach((g: DayGroup) => {
+      const m = monthOf(g.dayKey);
+      if (m !== curMonth) {
+        curMonth = m;
+        items.push(
+          <li key={`m-${m}`} className="ns-tk-monthrule" role="presentation">
+            {monthTitle(m)}
+          </li>,
+        );
+      }
+      pushDay(items, g, false);
+    });
+  }
 
   return (
     <main ref={mainRef} className="ns-tk-ledger techo-scroll is-compact" aria-label="帳簿" data-view={view}>
@@ -659,42 +706,19 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         search={{ onOpen: onSearchBtn, title: `搜尋（${capsOf("ticket.search")}）`, expanded: searchOpen }}
         manage={{
           label: "管帳",
-          title: "管帳：分類、帳戶順序、預算、定期帳、常用票種、幣別與匯率",
-          haspopup: "menu",
-          expanded: menuAt !== null,
-          onClick: (e) => setMenuAt(menuAt ? null : e.currentTarget),
+          title: "管帳：分類、帳戶、預算、定期、常用票種、幣別",
+          onClick: () => store().openDialog({ kind: "manage", tab: "categories" }),
         }}
       />
-      {menuAt && (
-        <PopMenu
-          anchor={menuAt}
-          overline={{ zh: "管帳", latin: "Manage" }}
-          label="管帳"
-          items={manageItems}
-          onClose={() => setMenuAt(null)}
-        />
-      )}
 
-      {/* A4／P3 A 案：頁首下一列（清單視圖常駐；月曆／統計不畫）。左＝帳戶篩選 chip／搜尋框＋條件 chip，右＝排序 */}
-      {view === "list" && !(error && !ready) && !(emptyBook && !filterAcc && !searchOpen) && (
+      {/* v1.32 2B-2：頁首下一列在清單視圖常駐篩選膠囊列與排序切換（免先點搜尋即可當月直篩） */}
+      {view === "list" && !(error && !ready) && !(emptyBook && !inMonthActive && !searchOpen) && (
         <div className="ns-tk-subbar">
           <div className="l">
-            {filterAcc && (
-              <span className="chip ns-chip is-on ns-tk-acctchip">
-                帳戶：{acctLabel(filterAcc, accounts)}
-                <button type="button" aria-label="清除帳戶篩選" title="清除帳戶篩選" onClick={() => void store().setFilter(null)}>
-                  <IconClose size={11} />
-                </button>
-              </span>
-            )}
-            {searchOpen && (
-              <>
-                <SearchBar />
-                <FilterChips />
-              </>
-            )}
+            {searchOpen && <SearchBar />}
+            <FilterChips inMonthSummary={monthSummaryText} />
           </div>
-          {hasAny && (
+          {(hasAny || inMonthActive || searching) && (
             <div className="r">
               <SortButton />
             </div>
@@ -740,7 +764,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
             aria-activedescendant={selectedId ? `tk-row-${selectedId}` : undefined}
           >
             {searching ? resultItems : items}
-            {ready && hasAny && !searching && (
+            {ready && hasAny && !searching && !inMonthActive && (
               <li ref={sentinelRef} className="ns-tk-loadmore" role="presentation">
                 <button
                   type="button"

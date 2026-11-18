@@ -211,7 +211,9 @@ function stepUpHierarchyFallback(): boolean {
     const tk = useTicketStore.getState();
     if (tk.dialog) {
       if (tk.dialog.kind === "repeat") {
-        tk.openDialog({ kind: "repeats" });
+        tk.openDialog({ kind: "manage", tab: "repeats" });
+      } else if (tk.dialog.kind === "newAccount") {
+        tk.closeAccountDialog();
       } else {
         tk.closeDialog();
       }
@@ -379,7 +381,13 @@ function applyNavSnapshot(snap: NavSnapshot): void {
             if (tk.statsRoot !== snap.ticketStatsRoot) tk.setStatsRoot(snap.ticketStatsRoot);
           }
           if (snap.ticketDialog) {
-            tk.openDialog(snap.ticketDialog);
+            if (snap.ticketDialog.kind === "repeat") {
+              if (tk.dialog?.kind !== "repeat" || tk.dialog.id !== snap.ticketDialog.id) {
+                tk.openRepeatEditor(snap.ticketDialog.id, snap.ticketDialog.seed);
+              }
+            } else {
+              tk.openDialog(snap.ticketDialog);
+            }
           } else if (tk.dialog !== null) {
             tk.closeDialog();
           }

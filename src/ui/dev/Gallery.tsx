@@ -32,6 +32,8 @@ import { Select } from "../common/Select";
 import { DateNav } from "../common/DateNav";
 import { DateChip, dateChipText } from "../common/DateChip";
 import { ClockInput, type ClockVariant } from "../common/ClockInput";
+import { DurationPicker } from "../common/DurationPicker";
+import type { GoalPeriod } from "../../domain/timetableStats";
 import { ColorPicker } from "../common/ColorPicker";
 import { DayCell } from "../common/DayCell";
 import { ManagerList, ManagerRow, SwatchDot, type PopMenuItem } from "../common/ManagerRow";
@@ -1270,8 +1272,10 @@ function FormSection({ today }: { today: string }) {
       const t = new Date(y, m - 1 + n, 1);
       return { y: t.getFullYear(), m: t.getMonth() + 1 };
     });
-  const [len, setLen] = useState<Len | null>("90");
-  const [custom, setCustom] = useState(false);
+  const [durMatrix, setDurMatrix] = useState<number | null>(70);
+  const [durCompact, setDurCompact] = useState<number | null>(150);
+  const [durGoal, setDurGoal] = useState<number>(600);
+  const [goalPeriod, setGoalPeriod] = useState<GoalPeriod>("week");
   const week = Array.from({ length: 7 }, (_, i) => addDays(today, i - 3));
   const marks = [0, 1, 2, 1, 3, 0, 1];
   const [picked, setPicked] = useState(addDays(today, -1));
@@ -1282,7 +1286,7 @@ function FormSection({ today }: { today: string }) {
   const hi = at(today, 6, 0, 1);
 
   return (
-    <Sec id="gal-form" title="表單控件" note="§2.5 DateNav・DateChip・ClockInput・ColorPicker・DayCell・ManagerRow">
+    <Sec id="gal-form" title="表單控件" note="§2.5 DateNav・DateChip・ClockInput・DurationPicker・ColorPicker・DayCell・ManagerRow">
       <Comp
         spec={[
           ["輸入框", <><code>.techo-input</code> 底線式、聚焦底線 <code>--accent</code>（不是金）、placeholder <code>--color-ink-faint</code>；小標 <code>.techo-label</code> 在上；行內錯誤一行 <code>--fs-sm</code> 赭字；大號＝<code>.ns-qj-input</code>（{QJ_CAPS}、標題欄，16px）。（基底沒有高度 token，樣本欄補 <code>--ctl-input</code>。）</>],
@@ -1398,14 +1402,12 @@ function FormSection({ today }: { today: string }) {
 
       <Comp
         spec={[
-          ["ClockInput", <>可打字（2330／23:30／25:00）、±1h ±15 ±5 ±1、下方寫這個值的日期（跨天赭字）；<code>variant</code>：full＝四組微調、compact 與 mobile＝只留 ±15；<code>relative</code>＝現在／5 分前／10 分前；mobile 上方常用時刻 chip（09:00／13:00／18:00／21:00）。打錯：還原、抖一下、說明行寫錯在哪。</>],
-          ["鍵盤", <>Enter 確定、Esc 有草稿先還原、↑↓ ±1 分；微調鈕 <code>role=group</code>、長按加速；chip 是 <code>aria-pressed</code>。</>],
+          ["ClockInput", <>可打字（2330／23:30／25:00）、精簡 <code>±15</code> 微調、下方寫這個值的日期（跨天赭字）；點框彈出站鐘圓盤 <code>TimeDial</code>，頂部互動標頭 <code>[HH] : [MM]</code> 可點選切換撥時／撥分或直接敲鍵盤輸入；<code>relative</code>＝現在／5 分前／10 分前；mobile 上方常用時刻 chip（09:00／13:00／18:00／21:00）。打錯：還原、抖一下、說明行寫錯在哪。</>],
+          ["鍵盤", <>Enter 確定、Esc 有草稿先還原（不誤關外層彈窗）、↑↓ ±1 分；圓盤標頭支援 0–9 直接敲時刻；微調鈕 <code>role=group</code>、長按加速；chip 是 <code>aria-pressed</code>。</>],
         ]}
       >
-        <Cell state="full＋relative" note="桌機用；手機寬放不下四組微調（橫捲）" cls="span.ns-clock.is-full">
-          <div className="ns-gal-scrollx">
-            <ClockDemo variant="full" init={at(today, 23, 30)} lo={lo} hi={hi} refDay={today} relative label="開始" />
-          </div>
+        <Cell state="full＋relative" note="桌機用：精簡 ±15 微調＋語意快選 chip" cls="span.ns-clock.is-full">
+          <ClockDemo variant="full" init={at(today, 23, 30)} lo={lo} hi={hi} refDay={today} relative label="開始" />
         </Cell>
         <Cell state="compact" note="跨到隔天＝赭字「＝隔天 10/23（五）」" cls=".ns-clock.is-compact .ns-clock-date.is-other">
           <ClockDemo variant="compact" init={at(today, 1, 0, 1)} lo={lo} hi={hi} refDay={today} label="結束" />
@@ -1413,21 +1415,44 @@ function FormSection({ today }: { today: string }) {
         <Cell state="mobile" note="只這一格掛 data-shell=mobile" cls=".ns-clock.is-mobile" shell="mobile">
           <ClockDemo variant="mobile" init={at(today, 13, 0)} lo={lo} hi={hi} refDay={today} label="幾點" />
         </Cell>
-        <Cell state="長度" note="分段鈕＋「自訂…」chip；單位「分」，≥60 顯示 1h30" cls=".ns-seg--sm">
-          <div className="ns-gal-row">
-            <Segmented
+      </Comp>
+
+      <Comp
+        spec={[
+          ["DurationPicker", <>全站統一「時 × 分雙排時長挑選器」：第一排小時（<code>0h · 1h · 2h · 3h · 4h+</code>，展開 <code>4h–8h</code>）＋第二排分鐘（<code>00 · 10 · 15 · 20 · 30 · 40 · 45 · 50m</code>），點兩下秒組時長（如 <code>1h + 10m = 70m</code>、<code>2h + 30m = 150m</code>）；附智慧輸入框可直接打 <code>70</code>、<code>1h10</code>、<code>2.5h</code>、<code>1:30</code>。<code>mode="goal"</code> 依目標期間自動切換高頻大尺度時數快選＋分鐘微調。</>],
+          ["鍵盤", <>IME 三道組字守門；Enter 確定、Esc 還原草稿並攔截冒泡；<code>0h + 00m</code> 或「× 不設」清除為 <code>null</code>。</>],
+        ]}
+      >
+        <Cell state="雙排矩陣（預設）" note="時刻表預估、手機詳情頁／時刻面板" cls="div.ns-dur.is-matrix">
+          <DurationPicker value={durMatrix} onChange={setDurMatrix} liveCommit />
+        </Cell>
+        <Cell state="compact（220px 側板欄）" note="桌機詳情側板、建票列浮層" cls=".ns-dur.is-matrix.is-compact">
+          <div style={{ width: 220 }}>
+            <DurationPicker compact value={durCompact} onChange={setDurCompact} />
+          </div>
+        </Cell>
+        <Cell state="目標時數（mode=goal）" note="依每日／每週／每月與區間切換大尺度快選" cls=".ns-dur.is-goal" wide>
+          <div style={{ display: "grid", gap: 8, maxWidth: 360 }}>
+            <Segmented<GoalPeriod>
               compact
-              options={LEN_OPTS}
-              value={custom ? null : len}
-              onChange={(v) => {
-                setLen(v);
-                setCustom(false);
-              }}
-              aria-label="長度"
+              aria-label="樣本目標期間"
+              value={goalPeriod}
+              options={[
+                { value: "day", label: "每日" },
+                { value: "week", label: "每週" },
+                { value: "month", label: "每月／區間" },
+              ]}
+              onChange={setGoalPeriod}
             />
-            <button type="button" className="chip ns-chip" aria-pressed={custom} onClick={() => setCustom((x) => !x)}>
-              自訂…
-            </button>
+            <DurationPicker
+              mode="goal"
+              goalPeriod={goalPeriod}
+              value={durGoal}
+              onChange={(m) => {
+                if (m !== null) setDurGoal(m);
+              }}
+              liveCommit
+            />
           </div>
         </Cell>
       </Comp>

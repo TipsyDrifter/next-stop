@@ -139,8 +139,10 @@ export function MobileNotes() {
       const ns = useNotesStore.getState();
       const q = ns.notesQuery;
       // 沒篩選也重載一次：剛掛上的那則可能還不在手上的列表裡（進頁那一趟載入還在路上）
-      if (q.routeId || q.underNode || (q.query ?? "").trim()) await ns.setNotesQuery({});
-      else await ns.loadNotes();
+      if (ns.notesTagKeys.length > 0 || q.routeId || q.underNode || (q.query ?? "").trim()) {
+        useNotesStore.setState({ notesTagKeys: [] });
+        await ns.setNotesQuery({});
+      } else await ns.loadNotes();
       for (let i = 0; i < 20; i++) {
         const s = useNotesStore.getState();
         if (s.notes.some((n) => n.id === id) || !s.notesHasMore) break;
@@ -178,6 +180,7 @@ export function MobileNotes() {
       setPageOpen(false);
       st.setSection("inbox");
       if (!id || !st.inboxTickets.some((t) => t.id === id)) return;
+      if (st.inboxKind === "note" || st.inboxTagKeys.length > 0) st.clearInboxFilters();
       st.selectInbox({ kind: "ticket", id });
       requestAnimationFrame(() => {
         const li = pageRef.current?.querySelector<HTMLElement>(".ns-notes-mitem.is-sel");

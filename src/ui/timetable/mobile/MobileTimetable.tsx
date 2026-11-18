@@ -82,6 +82,14 @@ export function MobileTimetable(_props: { onBack?: () => void }) {
             <button
               type="button"
               className="ns-btn btn-text ns-btn--sm"
+              title={TT_TEXT.fillBtnTitle}
+              onClick={() => useTimetableStore.getState().requestFillLatestGap()}
+            >
+              ＋ {TT_TEXT.fillBtn}
+            </button>
+            <button
+              type="button"
+              className="ns-btn btn-text ns-btn--sm"
               // 可讀名＝看得到的「管理」（讀屏與語音控制都對得上）；開的是什麼放 title
               title={TT_TEXT.settingsBtn}
               onClick={() => openSheet({ kind: "categories" })}

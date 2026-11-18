@@ -32,14 +32,10 @@
 /* ─────────── 一行輸入子面板（改名…／記乘務記錄…；UI 丙-3 F6 殼換 MSheet，按鈕列黏底） ─────────── */
 [data-shell="mobile"] .m-txs-input { width: 100%; box-sizing: border-box; }
 
-/* ─────────── 時刻子面板（幾點…；UI 丙-3 F4：ClockInput＋預計分段鈕） ─────────── */
+/* ─────────── 時刻子面板（幾點…；UI 丙-3 F4：ClockInput＋DurationPicker） ─────────── */
 [data-shell="mobile"] .m-tms-note { margin: 0; font-size: var(--fs-sm); line-height: 1.6; color: var(--color-ink-soft); }
 [data-shell="mobile"] .m-tms-note.is-wrap { color: var(--accent); }
 [data-shell="mobile"] .m-tms-grp { display: grid; gap: var(--sp-2); }
-[data-shell="mobile"] .m-tms-est { display: flex; align-items: center; gap: var(--sp-2); }
-[data-shell="mobile"] .m-tms-est > .ns-seg { flex: 1 1 auto; min-width: 0; }
-[data-shell="mobile"] .m-tms-est > .chip.ns-chip { flex: none; }
-[data-shell="mobile"] .m-tms-custom { flex: none; width: 5.5em; text-align: center; font-family: var(--font-latin); }
 [data-shell="mobile"] .m-tms-sum {
   margin: 0; padding: var(--sp-2) var(--sp-3);
   border: 1px dashed var(--color-dash); border-radius: var(--radius-ctl);

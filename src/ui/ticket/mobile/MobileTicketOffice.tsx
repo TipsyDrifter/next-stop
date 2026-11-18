@@ -38,10 +38,10 @@
  *
  * UI 只讀 store、只叫 store 的動作；金額顯示走 domain 的純函式（moneyText／rowAmount…），不經浮點。
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type RefObject } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
+import { isTicketManageTab, useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
-import { tagNameOf } from "../../../domain/ticketTags";
+import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
@@ -53,9 +53,9 @@ import {
   UNCAT_INCOME_ID,
   addMonths,
   archivedAccounts,
-  categoryForest,
   categoryPath,
   groupAccounts,
+  groupByDay,
   isLiability,
   monthOf,
   monthTitle,
@@ -69,9 +69,9 @@ import { useBackLayer } from "../../mobile/backStack";
 import { MobileEntryForm } from "./MobileEntryForm";
 import { MobileAccountPage } from "./MobileAccountPage";
 import { MobileSheetHost } from "./MobileSheetHost";
-import { IconFilter, IconPlus, IconRight, splitDayLabel } from "./mobileBits";
-// 第②階段（②契約 §5.3）：視圖列＋月曆／統計視圖＋篩選 sheet（丙-5：入口是篩選列的「篩選」chip）
+import { IconPlus, IconRight, splitDayLabel } from "./mobileBits";
 import { MobileViewBar, useViewSwipe } from "./MobileViewBar";
+import { MobileFilterBar } from "./MobileFilterBar";
 import { MobileTicketCalendar } from "./MobileTicketCalendar";
 import { MobileTicketStats } from "./MobileTicketStats";
 import { MobileSearchSheet } from "./MobileSearchSheet";
@@ -79,25 +79,21 @@ import { MobileAccountsView } from "./MobileAccountsView";
 import { MSheet, MSheetItem } from "../../common/MSheet";
 import { DateNav } from "../../common/DateNav";
 import { EmptyState } from "../../common/EmptyState";
-import { IconChevron } from "../../common/icons";
 import {
-  DEFAULT_ENTRY_SORT,
-  ENTRY_SORTS,
-  ENTRY_SORT_TEXT,
   RESULT_PAGE,
   VIEW_TEXT,
-  filterChips,
+  filterMonthEntries,
   flatDayText,
+  inMonthSummary,
   isAmountSort,
   isFilterActive,
+  isInMonthFilterActive,
   pageResults,
   periodTitle,
   resultSummary,
   routeCtx,
   type EntrySort,
 } from "../../../domain/ticketView";
-import { budgetScopes, effectiveBudget } from "../../../domain/ticketPlan";
-import { chooseSort } from "../view/sortChoice";
 import "../ticket.css";
 import "../ticket-mobile.css";
 import "../ticket-4-mobile.css";
@@ -146,38 +142,39 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
 function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const totals = useTicketStore((s) => s.totals);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const accById = useTicketStore((s) => s.accById);
+  const catById = useTicketStore((s) => s.catById);
   const accounts = useTicketStore((s) => s.accounts);
   const balances = useTicketStore((s) => s.balances);
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const month = useTicketStore((s) => s.month);
   const monthSum = useTicketStore((s) => s.monthSum);
   const hasAny = useTicketStore((s) => s.hasAny);
+  const entries = useTicketStore((s) => s.entries);
   const days = useTicketStore((s) => s.days);
-  const categories = useTicketStore((s) => s.categories);
-  const currencies = useTicketStore((s) => s.currencies);
   const setFilter = useTicketStore((s) => s.setFilter);
   const stepMonth = useTicketStore((s) => s.stepMonth);
   const openNew = useTicketStore((s) => s.openNew);
   const openAccount = useTicketStore((s) => s.openAccount);
   const openDialog = useTicketStore((s) => s.openDialog);
+  const dialog = useTicketStore((s) => s.dialog);
   const view = useTicketStore((s) => s.view);
   const span = useTicketStore((s) => s.span);
   const period = useTicketStore((s) => s.period);
   const searchOpen = useTicketStore((s) => s.searchOpen);
   const filter = useTicketStore((s) => s.filter);
+  const results = useTicketStore((s) => s.results);
+  const listFilter = useTicketStore((s) => s.listFilter);
+  const listSort = useTicketStore((s) => s.listSort);
+  const entriesVersion = useTicketStore((s) => s.entriesVersion);
   const dayNotice = useTicketStore((s) => s.dayNotice);
-  const budgets = useTicketStore((s) => s.budgets);
-  const repeats = useTicketStore((s) => s.repeats);
-  const templates = useTicketStore((s) => s.templates);
   const setMonth = useTicketStore((s) => s.setMonth);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const routes = useNodeStore((s) => s.routes);
+  const tagIndex = useTagStore((s) => s.index);
 
-  const [sheet, setSheet] = useState<"manage" | "archived" | "sort" | null>(null);
-  const resultSort = useTicketStore((s) => s.resultSort);
+  const [sheet, setSheet] = useState<"archived" | null>(null);
   const [searchSheet, setSearchSheet] = useState(false);
-  // 磨光①（主線手機殼契約 §1.5）：管理／封存 sheet 的返回鍵＝「取消」。搜尋 sheet 自己登記（MobileSearchSheet）；
-  // 記帳表單、帳戶頁、對話框各在自己的元件登記——都只在售票口 tab 畫，切走時那層跟著放掉（store 的 panel 留著，切回來再登記）。
-  // 丙-5：三張 sheet 換共用 MSheet，backId 給同一個 id ⇒ 跟這行合併成一層（返回鍵按一次就關）
   useBackLayer("ticket.office.sheet", sheet !== null, () => setSheet(null));
 
   // 0-16：月曆點到沒帳的日 ⇒ 淡字 3 秒
@@ -196,10 +193,33 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const yearMode = view === "stats" && span === "year";
   const filterOn = isFilterActive(filter);
   const searching = view === "list" && searchOpen && filterOn;
+  const inMonthActive = view === "list" && !searching && isInMonthFilterActive(listFilter, listSort, filterAccountId);
+  const monthRows = useMemo(() => {
+    void entriesVersion;
+    if (!inMonthActive) return [];
+    const ctx = {
+      accById,
+      catById,
+      curByCode,
+      ...routeCtx(routes),
+      entryTags: entityTagMap(tagIndex, TK_TAG_ENTRY),
+      tagName: tagNameOf(tagIndex),
+    };
+    return filterMonthEntries(
+      entries,
+      month,
+      { ...listFilter, accountId: listFilter.accountId ?? filterAccountId },
+      listSort,
+      ctx,
+    );
+  }, [inMonthActive, entries, month, listFilter, listSort, filterAccountId, accById, catById, curByCode, routes, tagIndex, entriesVersion]);
+  const monthSummaryText = useMemo(
+    () => (inMonthActive ? inMonthSummary(monthRows, mainDec) : null),
+    [inMonthActive, monthRows, mainDec],
+  );
   // 空帳本（清單視圖、不在搜尋）＝EmptyState 接手「＋ 記一筆」，月份列就不給第二顆（A5／H6）
   const emptyBook = view === "list" && !searching && !hasAny;
   const closeSheet = () => setSheet(null);
-  /** 管帳 sheet 一列：先收 sheet 再開對話框（兩個返回層不同時在） */
   const thenOpen = (fn: () => void) => () => {
     setSheet(null);
     fn();
@@ -208,36 +228,23 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   /** 「＋ 記一筆」：一律走 openNew（兩殼同一條路，磨光③ 2-16）——一個帳戶都沒有時它先開新增帳戶、建完接著打開記一筆 */
   const add = () => openNew();
 
-  // 進入搜尋模式（統計下鑽 drillToList、搜尋 sheet 帶條件關上）⇒ 捲回頂端，讓 chips 列與「清除 ×」露出來
-  // （原型 drill() 也是 mpage.scrollTop = 0）。不然 .m-page 會留著統計／帳簿原本捲到的位置，條件列在畫面外。
-  // layout effect：在換成結果清單的那一幀畫出來之前就歸零，不會先閃一下舊位置。
   const wasSearching = useRef(searching);
   useLayoutEffect(() => {
     if (searching && !wasSearching.current && page.current) page.current.scrollTop = 0;
     wasSearching.current = searching;
   }, [searching, page]);
 
-  const catCount = (kind: "income" | "expense") =>
-    categoryForest(categories, kind, { includeArchived: false }).filter((n) => n.cat.id !== UNCAT_INCOME_ID && n.cat.id !== UNCAT_EXPENSE_ID).length;
-
-  // 第③階段：管理 sheet 兩列的小字（0-14）——「總預算 15,000 · 分類 2」／「進行中 3 · 已暫停 1」；都沒有 ⇒「還沒有」
-  const budgetScopeList = budgetScopes(budgets);
-  const totalEff = effectiveBudget(budgets, { kind: "total" }, thisMonth);
-  const catBudgets = budgetScopeList.filter((x) => x.kind === "category").length;
-  const budgetSummary =
-    budgetScopeList.length === 0
-      ? "還沒有"
-      : [totalEff ? `總預算 ${moneyText(totalEff.row.amount_minor, mainDec, { whole: true })}` : null, catBudgets ? `分類 ${catBudgets}` : null]
-          .filter((x): x is string => x !== null)
-          .join(" · ") || "還沒有";
-  const pausedN = repeats.filter((r) => r.paused_at !== null).length;
-  const repeatSummary = repeats.length === 0 ? "還沒有" : `進行中 ${repeats.length - pausedN} · 已暫停 ${pausedN}`;
+  const isManageOpen = dialog !== null && (dialog.kind === "manage" || isTicketManageTab(dialog.kind));
 
   return (
     <>
-      <MobileViewBar manageOpen={sheet === "manage"} onManage={() => setSheet("manage")} />
-      {view === "list" && (hasAny || searching) && (
-        <FilterRow searching={searching} sheetOpen={searchSheet} sortOpen={sheet === "sort"} onEdit={() => setSearchSheet(true)} onSort={() => setSheet("sort")} />
+      <MobileViewBar manageOpen={isManageOpen} onManage={() => openDialog({ kind: "manage", tab: "categories" })} />
+      {view === "list" && (hasAny || searching || inMonthActive) && (
+        <MobileFilterBar
+          searching={searching}
+          summaryText={searching ? (results === null ? "正在找…" : resultSummary(results, mainDec)) : monthSummaryText}
+          onOpenSearchSheet={() => setSearchSheet(true)}
+        />
       )}
 
       {/* 合計帶：只留三格數字（丙-5 B2：放大鏡與滑桿鈕拿掉——搜尋在頂帶、篩選在篩選列、管帳在分頁籤列末端） */}
@@ -346,7 +353,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       ) : searching ? (
         <Results />
       ) : hasAny ? (
-        <Ledger days={days} />
+        <Ledger days={days} inMonthActive={inMonthActive} monthRows={monthRows} listSort={listSort} filterAccountId={filterAccountId} />
       ) : (
         <EmptyState
           tone="first"
@@ -357,58 +364,6 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       )}
 
       {searchSheet && <MobileSearchSheet onClose={() => setSearchSheet(false)} />}
-
-      {sheet === "manage" && (
-        // 管帳（B2）：共用 MSheet 動作清單型；每列下一行淡字摘要（<small>）
-        <MSheet list title="管帳" backId="ticket.office.sheet" onClose={closeSheet}>
-          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "categories" }))}>
-            分類管理<small>支出 {catCount("expense")} · 收入 {catCount("income")}</small>
-          </MSheetItem>
-          {/* 磨光⑥ 契約 §2-1（D-票-61）：帳戶順序 */}
-          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "accountOrder" }))}>
-            帳戶順序<small>{liveCount} 個帳戶</small>
-          </MSheetItem>
-          {/* 第③階段（③契約 0-14、§5.5）：預算、定期帳 */}
-          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "budgets" }))}>
-            預算<small>{budgetSummary}</small>
-          </MSheetItem>
-          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "repeats" }))}>
-            定期帳<small>{repeatSummary}</small>
-          </MSheetItem>
-          {/* 售票口④ D-票-68：常用票種（記一筆最上面那排小卡；從帳目「存成常用…」來） */}
-          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "templates" }))}>
-            常用票種<small>{templates.length ? `${templates.length} 個` : "還沒有"}</small>
-          </MSheetItem>
-          <MSheetItem onClick={thenOpen(() => openDialog({ kind: "currencies" }))}>
-            幣別與匯率<small>{currencies.map((c) => c.code).join(" · ")}</small>
-          </MSheetItem>
-        </MSheet>
-      )}
-
-      {sheet === "sort" && (
-        // 清單本身永遠是日期・新到舊；搜尋中才是 store.resultSort。選中那列＝--sel-bg／--sel-fg（MSheetItem 沒有選中態，
-        // 這裡直接畫同一個 .ns-msheet-item，list 型的 ↑↓ 照樣走得到）
-        <MSheet list title="排序" backId="ticket.office.sheet" onClose={closeSheet} className="ns-tk-msh">
-          {ENTRY_SORTS.map((k) => {
-            const on = (searching ? resultSort : DEFAULT_ENTRY_SORT) === k;
-            return (
-              <button
-                key={k}
-                type="button"
-                className={"ns-msheet-item" + (on ? " is-on" : "")}
-                aria-pressed={on}
-                onClick={() => {
-                  setSheet(null);
-                  if (!on) chooseSort(k);
-                }}
-              >
-                {ENTRY_SORT_TEXT[k]}
-                {!searching && k !== DEFAULT_ENTRY_SORT && <small>{monthTitle(month)}</small>}
-              </button>
-            );
-          })}
-        </MSheet>
-      )}
 
       {sheet === "archived" && (
         <MSheet list title="封存的帳戶" backId="ticket.office.sheet" onClose={closeSheet}>
@@ -499,7 +454,19 @@ function AccountCard({
 
 /* ═══════════ 帳簿 ═══════════ */
 
-function Ledger({ days }: { days: DayGroup[] }) {
+function Ledger({
+  days,
+  inMonthActive,
+  monthRows,
+  listSort,
+  filterAccountId,
+}: {
+  days: DayGroup[];
+  inMonthActive: boolean;
+  monthRows: readonly EntryRow[];
+  listSort: EntrySort;
+  filterAccountId: string | null;
+}) {
   const month = useTicketStore((s) => s.month);
   const loadedMonths = useTicketStore((s) => s.loadedMonths);
   const loadOlderMonth = useTicketStore((s) => s.loadOlderMonth);
@@ -510,11 +477,11 @@ function Ledger({ days }: { days: DayGroup[] }) {
   const last = loadedMonths.length ? loadedMonths[loadedMonths.length - 1] : month;
   const olderTitle = monthTitle(addMonths(last, -1));
 
-  // 捲到底自動接前一個月（同 MobileNoteList 的哨兵作法）。observer 只建一次、只在「進入視野」那一刻觸發：
-  // 接上來的月份是空的、哨兵仍在視野內時不會連環觸發（一路載到很久以前），要再往前就點那一行。
+  // 捲到底自動接前一個月（同 MobileNoteList 的哨兵作法）
   const sentinel = useRef<HTMLLIElement | null>(null);
   const busy = useRef(false);
   useEffect(() => {
+    if (inMonthActive) return;
     const el = sentinel.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
     const io = new IntersectionObserver((ents) => {
@@ -529,24 +496,40 @@ function Ledger({ days }: { days: DayGroup[] }) {
     });
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [inMonthActive]);
 
   const book = useRef<HTMLDivElement | null>(null);
   useViewSwipe(book);
   const flash = usePendingDayScroll(book);
 
-  const items = dayItems(days, month, today, mainDec, flash);
+  const flat = inMonthActive && isAmountSort(listSort);
+  const items = inMonthActive
+    ? flat
+      ? monthRows.map((e) => <Row key={e.id} e={e} day={flatDayText(e.occurred_on, false)} />)
+      : dayItems(groupByDay(monthRows, filterAccountId), month, today, mainDec, flash)
+    : dayItems(days, month, today, mainDec, flash);
 
   return (
     <div className="ns-tk-mbook" ref={book}>
-      <ul className="ns-tk-mlist" aria-label="帳簿">
-        {days.length === 0 && <li className="ns-tk-mnone">這個月還沒有紀錄</li>}
+      <ul className={"ns-tk-mlist" + (flat ? " is-flat" : "")} aria-label="帳簿">
+        {inMonthActive ? (
+          monthRows.length === 0 && (
+            <li className="ns-tk-mnone">
+              {VIEW_TEXT.emptyResults}
+              <small>這個月沒有符合條件的帳，可翻月或清除篩選</small>
+            </li>
+          )
+        ) : (
+          days.length === 0 && <li className="ns-tk-mnone">這個月還沒有紀錄</li>
+        )}
         {items}
-        <li ref={sentinel} className="ns-tk-mloadmore">
-          <button type="button" onClick={() => void loadOlderMonth()}>
-            接著看 {olderTitle}
-          </button>
-        </li>
+        {!inMonthActive && (
+          <li ref={sentinel} className="ns-tk-mloadmore">
+            <button type="button" onClick={() => void loadOlderMonth()}>
+              接著看 {olderTitle}
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
@@ -633,80 +616,6 @@ function FoundText() {
   const results = useTicketStore((s) => s.results);
   const mainDec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
   return <>{results === null ? "正在找…" : resultSummary(results, mainDec)}</>;
-}
-
-/**
- * 分頁籤列下一列（清單視圖）：左「篩選」chip——沒條件時淡淡一顆；有條件（搜尋模式）時「篩選 · N」亮起、後面淡字摘要
- * （「便當」、現金、食物…）與「清除」；右「排序」（搜尋中且不是預設排序時直接寫排序名）。點 chip＝開篩選 sheet 改條件。
- */
-function FilterRow({
-  searching,
-  sheetOpen,
-  sortOpen,
-  onEdit,
-  onSort,
-}: {
-  searching: boolean;
-  sheetOpen: boolean;
-  sortOpen: boolean;
-  onEdit(): void;
-  onSort(): void;
-}) {
-  const filter = useTicketStore((s) => s.filter);
-  const accById = useTicketStore((s) => s.accById);
-  const catById = useTicketStore((s) => s.catById);
-  const curByCode = useTicketStore((s) => s.curByCode);
-  const closeSearch = useTicketStore((s) => s.closeSearch);
-  const resultSort = useTicketStore((s) => s.resultSort);
-  const routes = useNodeStore((s) => s.routes);
-  const tagIndex = useTagStore((s) => s.index); // 售票口④：荷札條件的字（「荷札 #京都」）要 index 的名稱
-  const text = filter.text.trim();
-  const labels = searching
-    ? [
-        ...(text !== "" ? [`「${text}」`] : []),
-        ...filterChips(filter, { accById, catById, curByCode, ...routeCtx(routes), tagName: tagNameOf(tagIndex) }).map((c) => c.label),
-      ]
-    : [];
-  const sort: EntrySort = searching ? resultSort : DEFAULT_ENTRY_SORT;
-  const sortOn = sort !== DEFAULT_ENTRY_SORT;
-
-  return (
-    <div className="ns-tk-mfrow" role="group" aria-label="篩選與排序">
-      <button
-        type="button"
-        className={"chip ns-chip ns-tk-mfbtn" + (labels.length ? " is-on" : "")}
-        aria-haspopup="dialog"
-        aria-expanded={sheetOpen}
-        // 摘要只是看的（aria-hidden）；讀屏從這顆鈕聽到全部條件
-        aria-label={labels.length ? `篩選 · ${labels.length}：${labels.join("、")}` : undefined}
-        onClick={onEdit}
-      >
-        <IconFilter />
-        {labels.length ? `篩選 · ${labels.length}` : "篩選"}
-      </button>
-      {labels.length > 0 && (
-        <>
-          <span className="ns-tk-mfsum" aria-hidden>
-            {labels.join("、")}
-          </span>
-          <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={closeSearch}>
-            清除
-          </button>
-        </>
-      )}
-      <button
-        type="button"
-        className={"ns-btn btn-ghost ns-btn--sm ns-tk-mfsort" + (sortOn ? " is-on" : "")}
-        aria-haspopup="dialog"
-        aria-expanded={sortOpen}
-        title={`排序：${ENTRY_SORT_TEXT[sort]}`}
-        onClick={onSort}
-      >
-        {sortOn ? ENTRY_SORT_TEXT[sort] : "排序"}
-        <IconChevron open />
-      </button>
-    </div>
-  );
 }
 
 function Results() {

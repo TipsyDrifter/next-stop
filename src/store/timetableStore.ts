@@ -58,6 +58,11 @@ import { parseRoutineItems, weekdaysSummary } from "../domain/timetableRoutine";
 import { paintCoverOf, paintKindOf, paintUndoable } from "../domain/timetableGrid";
 import type { FillPiece } from "../domain/timetableFillCont";
 import { TT_TAG_BLOCK, TT_TAG_BLOCK_OFF } from "../domain/timetableTags";
+import {
+  DEFAULT_TIMETABLE_FILTER,
+  NO_ROUTE_FILTER,
+  type TimetableFilter,
+} from "../domain/timetableFilter";
 import { tagRepo } from "../data/tagRepo";
 import { applyBlockTagEdit, blockTagEditOf, checkTagNames, receiptWrote, type BlockTagEdit } from "../data/timetableTagCarry";
 import { useTagStore } from "./tagStore";
@@ -747,6 +752,10 @@ export interface TimetableStore {
   linkInfo: Record<string, LinkInfo>;
   /** ②：每次 refresh 成功 +1（側板「時間」據此重查） */
   rev: number;
+  /** v1.32 2B-2：時間軸與台帳明細的篩選與排序條件（換日時保留） */
+  axisFilter: TimetableFilter;
+  /** v1.32 2B-2：選中支線篩選時的子孫節點 id 集合（branchId → [branchId, ...descendants]） */
+  axisBranchNodeIds: Record<string, string[]>;
 
   /* 載入 */
   /** 冪等；第一次：讀設定 → 起手分類（§3.7.1）→ reconcile 一次 → refresh */
@@ -773,6 +782,12 @@ export interface TimetableStore {
   setNoticeTilesEnabled(on: boolean): Promise<void>;
   /** 去重、只留存在的子分類、截前 NOTICE_PINS_MAX；寫 KEY_NOTICE_PINS */
   setNoticePins(ids: readonly string[]): Promise<void>;
+  /** v1.32 2B-2：更新時間軸篩選／排序條件 */
+  setAxisFilter(patch: Partial<TimetableFilter>): void;
+  toggleAxisCategory(categoryId: string): void;
+  toggleAxisTagKey(tagKey: string): void;
+  setAxisRouteFilter(routeOrBranchId: string | null, isBranch?: boolean): Promise<void>;
+  clearAxisFilter(): void;
 
   /* 流程（UI 只叫這些） */
   /** N／換車／発車：運行中那班長時間運行 ⇒ sheet=longRun(then:"depart")；否則 sheet=depart */
@@ -1234,6 +1249,8 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
     recentCategoryIds: [],
     linkInfo: {},
     rev: 0,
+    axisFilter: DEFAULT_TIMETABLE_FILTER,
+    axisBranchNodeIds: {},
 
     /* ───────── 載入 ───────── */
 
@@ -1286,6 +1303,17 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
           const keep = get().linkInfo[sh.nodeId];
           if (keep) linkInfo[sh.nodeId] = keep;
         }
+        // v1.32 2B-2：若正在依支線篩選，確保支線節點資訊與子孫清單在換日／重整後仍齊全
+        let nextBranchIds = get().axisBranchNodeIds;
+        const activeRouteFilter = get().axisFilter.routeId;
+        if (activeRouteFilter && activeRouteFilter !== NO_ROUTE_FILTER && activeRouteFilter in nextBranchIds) {
+          const bNode = await nodeRepo.getNode(activeRouteFilter).catch(() => null);
+          if (bNode && bNode.deleted_at === null) {
+            linkInfo[activeRouteFilter] = linkInfoOf(bNode);
+            const sub = await get().subtreeNodes(bNode).catch(() => [bNode]);
+            nextBranchIds = { ...nextBranchIds, [activeRouteFilter]: sub.map((n) => n.id) };
+          }
+        }
         // ⑥（⑤ 交接 O1）：荷札小面板跟著運行中那一班——在運行中那班中間塗一段會換 id（後段是新塊）、到站了就不是運行中
         // ⇒ 有新的運行中那班就換過去，沒有就關掉；不讓面板對著舊塊（或已刪的塊）寫荷札
         const follow = tagSheetFollow(sh, runningRow?.id ?? null);
@@ -1304,6 +1332,7 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
           sheetBlock: follow !== undefined ? null : sheetBlockIdOf(get().sheet) === sheetId ? sheetBlock : get().sheetBlock,
           recentCategoryIds,
           linkInfo,
+          axisBranchNodeIds: nextBranchIds,
           rev: get().rev + 1,
           error: null,
         });
@@ -1319,7 +1348,17 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
 
     async reload(ctx) {
       notePulled(ctx.changed); // ②：蓋済偵測分辨「同步拉下來的」（② 契約 §3.8、0-8）
-      if (ctx.wiped) set({ sheet: null, sheetBlock: null, dismissedLongRunId: null, pendingAsk: false, ready: false });
+      if (ctx.wiped) {
+        set({
+          sheet: null,
+          sheetBlock: null,
+          dismissedLongRunId: null,
+          pendingAsk: false,
+          ready: false,
+          axisFilter: DEFAULT_TIMETABLE_FILTER,
+          axisBranchNodeIds: {},
+        });
+      }
       const touched =
         ctx.wiped || ctx.changed.includes("time_blocks") || ctx.changed.includes("time_categories") || ctx.changed.includes("time_goals"); // ③：目標變了也要 refresh（rev 變 ⇒ 統計重載）
       if (ctx.changed.includes("settings")) {
@@ -1413,6 +1452,45 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
       } catch (e) {
         failToast(e);
       }
+    },
+
+    setAxisFilter(patch) {
+      set({ axisFilter: { ...get().axisFilter, ...patch } });
+    },
+
+    toggleAxisCategory(categoryId) {
+      const cur = get().axisFilter.categoryIds;
+      const next = cur.includes(categoryId) ? cur.filter((id) => id !== categoryId) : [...cur, categoryId];
+      set({ axisFilter: { ...get().axisFilter, categoryIds: next } });
+    },
+
+    toggleAxisTagKey(tagKey) {
+      const cur = get().axisFilter.tagKeys;
+      const next = cur.includes(tagKey) ? cur.filter((k) => k !== tagKey) : [...cur, tagKey];
+      set({ axisFilter: { ...get().axisFilter, tagKeys: next } });
+    },
+
+    async setAxisRouteFilter(routeOrBranchId, isBranch = false) {
+      if (!routeOrBranchId || routeOrBranchId === NO_ROUTE_FILTER || !isBranch) {
+        set({ axisFilter: { ...get().axisFilter, routeId: routeOrBranchId } });
+        return;
+      }
+      set({ axisFilter: { ...get().axisFilter, routeId: routeOrBranchId } });
+      try {
+        const bNode = await nodeRepo.getNode(routeOrBranchId);
+        if (!bNode || bNode.deleted_at !== null) return;
+        const sub = await get().subtreeNodes(bNode);
+        set({
+          axisBranchNodeIds: { ...get().axisBranchNodeIds, [routeOrBranchId]: sub.map((n) => n.id) },
+          linkInfo: { ...get().linkInfo, [routeOrBranchId]: linkInfoOf(bNode) },
+        });
+      } catch {
+        // 讀不到支線子樹時仍以節點本身比對
+      }
+    },
+
+    clearAxisFilter() {
+      set({ axisFilter: DEFAULT_TIMETABLE_FILTER });
     },
 
     /* ───────── 流程 ───────── */

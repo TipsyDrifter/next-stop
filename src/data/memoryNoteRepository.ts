@@ -41,6 +41,11 @@ function byNotedDesc(a: NoteRow, b: NoteRow): number {
   return b.noted_at.localeCompare(a.noted_at) || b.created_at.localeCompare(a.created_at);
 }
 
+/** ORDER BY updated_at DESC, created_at DESC */
+function byUpdatedDesc(a: NoteRow, b: NoteRow): number {
+  return b.updated_at.localeCompare(a.updated_at) || b.created_at.localeCompare(a.created_at);
+}
+
 function normTitle(t: string | null | undefined): string | null {
   return t && t.trim() ? t : null;
 }
@@ -171,10 +176,14 @@ export class MemoryNoteRepository implements NoteRepository {
 
   async listNotes(q: NotesQuery = {}): Promise<NoteListItem[]> {
     await this.ensureSeed();
+    if (q.noteIds !== undefined && q.noteIds.length === 0) return [];
+    const allowedIds = q.noteIds !== undefined ? new Set(q.noteIds) : null;
+    const cmp = q.sort === "updated" ? byUpdatedDesc : byNotedDesc;
     const rows = this.alive()
       .filter((n) => n.kind === "note" && n.inbox === 0)
+      .filter((n) => !allowedIds || allowedIds.has(n.id))
       .filter((n) => matchesQuery(n, q.query ?? ""))
-      .sort(byNotedDesc);
+      .sort(cmp);
     let items = await this.toItems(rows);
     if (q.underNode) {
       // 車次④ P5：掛在這個節點與它底下的（與 routeId 互斥，underNode 優先）

@@ -62,6 +62,10 @@ export interface NotesQuery {
   underNode?: { id: string; ids: string[]; label: string };
   /** 比對 title 與 body（LIKE，大小寫依 SQLite 預設：ASCII 不分、中文逐字）；空白＝不篩 */
   query?: string;
+  /** v1.32 2B-2：排序依據——"created"（預設：noted_at DESC, created_at DESC）｜"updated"（updated_at DESC, created_at DESC） */
+  sort?: "updated" | "created";
+  /** v1.32 2B-2：指定允許的筆記 id 清單（供 #荷札 組合篩選與分頁一致疊加；空陣列回 []；undefined＝不限） */
+  noteIds?: readonly string[];
   /** 預設 200 */
   limit?: number;
   /** 預設 0 */

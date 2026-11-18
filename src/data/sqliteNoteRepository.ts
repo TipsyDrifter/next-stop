@@ -56,6 +56,7 @@ FROM notes n
 LEFT JOIN nodes x ON x.id = n.node_id`;
 
 const ORDER = `ORDER BY n.noted_at DESC, n.created_at DESC`;
+const ORDER_UPDATED = `ORDER BY n.updated_at DESC, n.created_at DESC`;
 
 /** SQLite 回來的一列（node_missing 是 0/1） */
 type RawItem = Omit<NoteListItem, "node_missing"> & { node_missing: number };
@@ -107,9 +108,16 @@ export class SqliteNoteRepository implements NoteRepository {
   }
 
   async listNotes(q: NotesQuery = {}): Promise<NoteListItem[]> {
+    if (q.noteIds !== undefined && q.noteIds.length === 0) return [];
     const db = await getDb();
     const where: string[] = [ALIVE, `n.kind = 'note'`, `n.inbox = 0`];
     const args: unknown[] = [];
+    if (q.noteIds !== undefined) {
+      const ids = Array.from(new Set(q.noteIds));
+      if (ids.length === 0) return [];
+      where.push(`n.id IN (${placeholders(ids.length, args.length + 1)})`);
+      args.push(...ids);
+    }
     if (q.underNode) {
       // 車次④ P5：掛在這個節點與它底下的（與 routeId 互斥，underNode 優先）
       const ids = Array.from(new Set([q.underNode.id, ...q.underNode.ids]));
@@ -126,11 +134,12 @@ export class SqliteNoteRepository implements NoteRepository {
       args.push(`%${escapeLike(query)}%`);
       where.push(`(n.title LIKE $${args.length} ESCAPE '\\' OR n.body LIKE $${args.length} ESCAPE '\\')`);
     }
+    const orderSql = q.sort === "updated" ? ORDER_UPDATED : ORDER;
     args.push(q.limit ?? 200, q.offset ?? 0);
     const rows = await db.select<RawItem[]>(
       `${SELECT_ITEM}
        WHERE ${where.join(" AND ")}
-       ${ORDER}
+       ${orderSql}
        LIMIT $${args.length - 1} OFFSET $${args.length}`,
       args,
     );

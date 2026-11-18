@@ -12,7 +12,19 @@ import { useNodeStore } from "../../../store/nodeStore";
 import { ColorPicker, routePresetColor } from "../../common/ColorPicker";
 import { MSheet } from "../../common/MSheet";
 import { createRoute } from "../../panel/routeFlows";
-import { codeInput, codeTaken, codeTakenNote, codeValue, defaultRouteColorIndex } from "../../panel/routeFlowRules";
+import {
+  ROUTE_CODE_HINT,
+  ROUTE_CODE_MAX,
+  ROUTE_CODE_PLACEHOLDER,
+  ROUTE_DESC_PLACEHOLDER,
+  ROUTE_NAME_PLACEHOLDER,
+  codeInput,
+  codeTaken,
+  codeTakenNote,
+  codeValue,
+  defaultRouteColorIndex,
+  descriptionValue,
+} from "../../panel/routeFlowRules";
 import "../mobile-polish.css";
 import "./route-manage.css";
 
@@ -30,6 +42,7 @@ export function MobileRouteForm({ lineId, lineName, backId, onCreated, onClose }
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(() => routePresetColor(defaultRouteColorIndex(useNodeStore.getState().routes.length)));
   const [code, setCode] = useState("");
+  const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const composing = useRef(false);
   const trimmed = name.trim();
@@ -39,7 +52,13 @@ export function MobileRouteForm({ lineId, lineName, backId, onCreated, onClose }
     if (!trimmed || saving) return;
     setSaving(true);
     try {
-      const row = await createRoute({ lineId, name: trimmed, color, code: codeValue(code) });
+      const row = await createRoute({
+        lineId,
+        name: trimmed,
+        color,
+        code: codeValue(code),
+        description: descriptionValue(description),
+      });
       if (row) onCreated(row.id);
     } finally {
       setSaving(false);
@@ -49,6 +68,13 @@ export function MobileRouteForm({ lineId, lineName, backId, onCreated, onClose }
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
     if (e.key === "Enter") {
+      e.preventDefault();
+      void submit();
+    }
+  };
+  const onDescKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       void submit();
     }
@@ -87,7 +113,7 @@ export function MobileRouteForm({ lineId, lineName, backId, onCreated, onClose }
             onKeyDown={onKeyDown}
             {...ime}
             autoFocus
-            placeholder="例：日文檢定、年度旅遊"
+            placeholder={ROUTE_NAME_PLACEHOLDER}
             enterKeyHint="done"
             spellCheck={false}
             autoComplete="off"
@@ -102,15 +128,15 @@ export function MobileRouteForm({ lineId, lineName, backId, onCreated, onClose }
         </div>
         <label className="m-rf-field">
           <span className="m-rf-label">
-            代碼<span className="m-rf-hint">（選填・最多 4 個大寫字母）</span>
+            代碼<span className="m-rf-hint">{ROUTE_CODE_HINT}</span>
           </span>
           <input
             value={code}
             onChange={(e) => setCode(codeInput(e.target.value))}
             onKeyDown={onKeyDown}
             {...ime}
-            placeholder="E1"
-            maxLength={4}
+            placeholder={ROUTE_CODE_PLACEHOLDER}
+            maxLength={ROUTE_CODE_MAX}
             enterKeyHint="done"
             spellCheck={false}
             autoComplete="off"
@@ -118,6 +144,20 @@ export function MobileRouteForm({ lineId, lineName, backId, onCreated, onClose }
             className="m-nt-input m-rf-code"
           />
           {taken && <span className="m-rf-note">{codeTakenNote(code)}</span>}
+        </label>
+        <label className="m-rf-field">
+          <span className="m-rf-label">
+            描述<span className="m-rf-hint">（選填）</span>
+          </span>
+          <textarea
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={onDescKeyDown}
+            {...ime}
+            placeholder={ROUTE_DESC_PLACEHOLDER}
+            className="m-nt-input m-txs-input"
+          />
         </label>
       </div>
     </MSheet>

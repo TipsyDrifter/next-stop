@@ -607,7 +607,7 @@
 [data-shell="mobile"] .ns-tk-mre-freq > .ns-tk-mre-every { margin-top: 2px; border-top: 0; }
 [data-shell="mobile"] .ns-tk-mre-every .ns-tk-re-every { margin-top: 0; font-size: var(--fs-ui); }
 [data-shell="mobile"] .ns-tk-re-num .meta { font-size: var(--fs-ui); }
-[data-shell="mobile"] .ns-tk-re-num input { min-height: 40px; font-size: 16px; }
+[data-shell="mobile"] .ns-tk-re-num input { min-height: 40px; font-size: var(--fs-h3); } /* 16px 防行動瀏覽器聚焦放大（借 --fs-h3 同值） */
 [data-shell="mobile"] .ns-tk-mre-end { grid-column: 2 / -1; min-width: 0; }
 [data-shell="mobile"] .ns-tk-mre-last { font-size: 11.5px; letter-spacing: .03em; color: var(--color-ink-faint); white-space: nowrap; } /* 字面值：同 .ns-tk-mre-hint */
 [data-shell="mobile"] .ns-tk-mre-wk, [data-shell="mobile"] .ns-tk-mre-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
@@ -688,8 +688,9 @@
   background-image: linear-gradient(var(--float-bg), var(--float-bg));
   background-color: var(--color-paper);
 }
+[data-shell="mobile"] .ns-tk-mtop > .mgr { border-left: 1px solid var(--color-line); }
 
-/* H2／H3 篩選列（清單視圖；P4 A 案）：左「篩選」chip（有條件＝亮＋「· N」＋淡字摘要＋「清除」）、右「排序」 */
+/* H2／H3 篩選列（清單視圖；v1.32 2B-2 常駐橫捲膠囊列＋右端排序＋下方篩選摘要） */
 [data-shell="mobile"] .ns-tk-mfrow { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; margin: 0 0 var(--sp-3); }
 [data-shell="mobile"] .ns-tk-mfbtn { flex: none; gap: var(--sp-1); }
 [data-shell="mobile"] .ns-tk-mfsum {
@@ -699,6 +700,40 @@
 [data-shell="mobile"] .ns-tk-mfrow > .btn-text { flex: none; }
 [data-shell="mobile"] .ns-tk-mfsort { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-left: auto; white-space: nowrap; }
 [data-shell="mobile"] .ns-tk-mfsort.is-on { color: var(--sel-fg); }
+
+[data-shell="mobile"] .ns-tk-m-fbar {
+  display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
+  margin: 0 0 var(--sp-2);
+}
+[data-shell="mobile"] .ns-tk-m-fbar:not(:has(+ .ns-tk-m-fsum)) { margin-bottom: var(--sp-3); }
+[data-shell="mobile"] .ns-tk-m-fbar-scroll {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  overscroll-behavior-x: contain; touch-action: pan-x;
+}
+[data-shell="mobile"] .ns-tk-m-fbar-scroll::-webkit-scrollbar { display: none; }
+[data-shell="mobile"] .chip.ns-chip.ns-tk-mfchip { flex: none; }
+[data-shell="mobile"] .chip.ns-chip.ns-tk-mfchip.is-on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+[data-shell="mobile"] .ns-tk-mfchip b {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  max-width: 9em; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 600; letter-spacing: .04em; color: var(--color-ink);
+}
+[data-shell="mobile"] :is(.ns-tk-mfchip, .ns-tk-mf-ritem) .roundel {
+  width: 17px; height: 17px; flex: none; font-size: 7.5px; /* 字面值：小圓牌字照原型（票券家族） */
+}
+[data-shell="mobile"] .ns-tk-mf-ritem { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+[data-shell="mobile"] .ns-tk-m-fsum {
+  display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
+  margin: 0 0 var(--sp-3);
+}
+[data-shell="mobile"] .ns-tk-m-fsum > .txt {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-xs); letter-spacing: .04em; color: var(--color-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-m-fsum > .btn-text { flex: none; }
 
 /* H3 月份列：DateNav（‹ 10月 › 今天）＋右側「＋ 記一筆」，343 寬一行放得下——
  * DateNav 不換行；標題保底寬收成「2025年10月」的寬（量過 16px 襯線＝95px；datefield.css 手機 7em 是給「10/22（四）」的，
@@ -728,8 +763,18 @@
  * 底部：殼的手勢列內距與內容區下內距歸零，由各本體自己讓（黏底按鈕列、或最後一段補 safe-area），按鈕列才貼得到底 */
 [data-shell="mobile"] .ns-tk-msh.is-dialog { padding-bottom: 0; }
 [data-shell="mobile"] .ns-tk-msh.is-dialog > .ns-msheet-body { padding-bottom: 0; }
+[data-shell="mobile"] .ns-tk-msh.is-manage > .ns-msheet-body { padding-top: 0; gap: 0; }
+[data-shell="mobile"] .ns-tk-msh.is-manage .ns-tk-mgr-tabs {
+  position: sticky; top: 0; z-index: 2;
+  margin: 0 calc(var(--m-gutter) * -1) var(--sp-3);
+  border-bottom: 0;
+}
+[data-shell="mobile"] .ns-tk-msh.is-manage .ns-tk-mgr-tabs > .ns-tabs {
+  background-image: linear-gradient(var(--float-bg), var(--float-bg));
+  background-color: var(--color-paper);
+}
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dialog { padding-bottom: var(--sp-1); }
-[data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-dcats, .ns-tk-dorder, .ns-tk-dcur, .ns-tk-mbe) { padding-bottom: calc(var(--m-safe-bottom, 0px) + var(--sp-4)); }
+[data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-dcats, .ns-tk-dorder, .ns-tk-dcur, .ns-tk-mbe, .ns-tk-dtpl) { padding-bottom: calc(var(--m-safe-bottom, 0px) + var(--sp-4)); }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfield { min-height: 48px; }
 [data-shell="mobile"] .ns-tk-msh.is-dialog :is(.ns-tk-din, .ns-tk-dname, .ns-tk-dselect) { min-height: var(--ctl-input); font-size: var(--fs-h3); }
 [data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dfoot {
@@ -785,7 +830,7 @@
 }
 [data-shell="mobile"] .ns-tk-mcalc {
   margin: 4px 18px 12px; padding: 10px;
-  border: 1px solid var(--color-line); border-radius: var(--radius-card, 8px);
+  border: 1px solid var(--color-line); border-radius: var(--radius-card);
   background: var(--color-paper);
   display: flex; flex-direction: column; gap: 8px;
 }
@@ -798,7 +843,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
 }
 [data-shell="mobile"] .ns-tk-mcalc-expr b.is-ok { color: var(--accent); font-weight: 600; }
-[data-shell="mobile"] .ns-tk-mcalc-expr b.is-err { color: var(--color-danger, #b84a39); font-weight: 400; font-size: var(--fs-xs); }
+[data-shell="mobile"] .ns-tk-mcalc-expr b.is-err { color: var(--danger); font-weight: 400; font-size: var(--fs-xs); }
 [data-shell="mobile"] .ns-tk-mcalc-acts { display: flex; align-items: center; gap: 6px; }
 [data-shell="mobile"] .ns-tk-mcalc-act {
   min-height: 30px; padding: 0 10px;

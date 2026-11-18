@@ -60,7 +60,7 @@
 /* 新票最上面一排小卡：可橫捲、右緣淡出；右邊讓出側板的 × */
 .ns-tk-marks {
   display: flex; gap: 6px; margin: 0 22px 0 -26px; padding: 2px 0 8px 26px; overflow-x: auto; scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  -webkit-mask-image: linear-gradient(to right, var(--color-ink) calc(100% - 40px), transparent); mask-image: linear-gradient(to right, var(--color-ink) calc(100% - 40px), transparent);
 }
 .ns-tk-marks::-webkit-scrollbar { display: none; }
 .ns-tk-mark {
@@ -73,7 +73,7 @@
 .ns-tk-mark .n { font-size: var(--fs-sm); letter-spacing: .08em; line-height: 1.4; color: var(--color-ink-soft); white-space: nowrap; }
 .ns-tk-mark .v { font-family: var(--font-display); font-weight: 600; font-size: 13.5px; line-height: 1.3; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; } /* 字面值：帳本金額襯線照原型 */
 .ns-tk-mark[data-kind="income"] .v { color: var(--color-gold-ink); } /* 收入金額（同帳簿 .pos） */
-[data-theme="dark"] .ns-tk-mark[data-kind="income"] .v { color: var(--color-gold); }
+[data-theme="dark"] .ns-tk-mark[data-kind="income"] .v { color: var(--color-gold); } /* 金＝銀河規則：收入金額（同帳簿 .pos） */
 .ns-tk-mark.on { outline: var(--sel-line); outline-offset: -1px; background: var(--sel-bg); }
 /* 「存成常用…」小浮層（大票底部往上浮） */
 .ns-tk-bt-foot:has(.ns-tk-savemark) { position: relative; }
@@ -143,15 +143,15 @@
 .ns-tk-calc-badge.is-clickable { cursor: pointer; }
 .ns-tk-calc-badge.is-clickable:hover { border-style: solid; }
 .ns-tk-calc-badge.is-err {
-  border-color: var(--color-danger, #b84a39); color: var(--color-danger, #b84a39);
+  border-color: var(--danger); color: var(--danger);
   background: transparent; font-family: var(--font-body); font-weight: 400;
 }
 .ns-tk-calc-pop {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
   width: 224px; padding: 10px; box-sizing: border-box;
-  background: var(--color-paper); border: 1px solid var(--color-line-strong, var(--color-line));
-  border-radius: var(--radius-card, 6px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  background: var(--float-bg); border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card-hover);
   display: flex; flex-direction: column; gap: 6px;
 }
 .ns-tk-calc-top, .ns-tk-calc-grid {

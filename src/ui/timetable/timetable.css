@@ -2800,4 +2800,107 @@ button.ns-tt-dock-cat:active { background: color-mix(in srgb, var(--accent) 16%,
 /* ═══ 丙-4 主席收尾 ═══
  * 手機籤列可橫捲：捲到一半時半格的籤字（例「日程」只露「日」）會貼著「管理」讀成「日管理」（T8 代驗 §3-6）——
  *   「管理」左邊補一條髮絲線當分隔。 */
-[data-shell="mobile"] .ns-tt-mtop > .mgr { border-left: 1px solid var(--color-line); }
+[data-shell="mobile"] .ns-tt-mtop > .mgr { border-left: 1px solid var(--color-line); gap: var(--sp-1); }
+
+/* ═══ v1.32 2B-2：時間軸篩選排序列（AxisFilterBar）＆台帳明細 ═══ */
+.ns-tt-fbar {
+  display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3);
+}
+.ns-tt-fbar-filters {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap;
+}
+[data-shell="mobile"] .ns-tt-fbar-filters {
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+[data-shell="mobile"] .ns-tt-fbar-filters::-webkit-scrollbar { display: none; }
+
+.ns-tt-fbtn {
+  display: inline-flex; align-items: center; gap: var(--sp-1); flex: none;
+  max-width: 11em; padding: 0 var(--sp-2); min-height: var(--ctl-h-sm);
+  font-size: var(--fs-xs); letter-spacing: .06em;
+}
+.ns-tt-fbtn.is-sort { margin-left: auto; }
+.ns-tt-fbtn-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ns-tt-fsearch {
+  display: inline-flex; align-items: center; gap: var(--sp-1); flex: 1 1 112px; max-width: 196px;
+  min-height: var(--ctl-h-sm); padding: 0 var(--sp-2);
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-faint);
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+[data-shell="mobile"] .ns-tt-fsearch { flex: 0 0 128px; }
+.ns-tt-fsearch:focus-within { border-color: var(--accent); color: var(--color-ink); background: var(--color-paper-high); }
+.ns-tt-fsearch.is-on { border-color: var(--sel-fg); background: var(--sel-bg); color: var(--sel-fg); }
+.ns-tt-fsearch > input {
+  flex: 1; min-width: 0; width: 0; border: 0; background: transparent; padding: 0;
+  font-family: inherit; font-size: var(--fs-xs); color: var(--color-ink); outline: none;
+}
+.ns-tt-fsearch > input::placeholder { color: var(--color-ink-faint); }
+.ns-tt-fsearch > input::-webkit-search-cancel-button { display: none; }
+.ns-tt-fsearch-clear {
+  flex: none; display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-ink-faint); cursor: pointer;
+}
+.ns-tt-fsearch-clear:hover { color: var(--color-ink); background: var(--hover-bg); }
+
+/* 篩選浮層（桌機 .techo-card；手機共用內文於 MSheet） */
+.ns-tt-fpop {
+  position: fixed; z-index: 40; width: 256px; max-width: calc(100vw - 24px);
+  padding: var(--sp-2);
+}
+.ns-tt-fpop-body { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.ns-tt-fpop-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+}
+.ns-tt-fpop-search {
+  display: flex; align-items: center; gap: var(--sp-1);
+  margin: 0 var(--sp-1) var(--sp-1); padding: 0 var(--sp-2); min-height: var(--ctl-h-sm);
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); color: var(--color-ink-faint);
+}
+.ns-tt-fpop-search > input {
+  flex: 1; min-width: 0; border: 0; background: transparent; padding: 0;
+  font-family: inherit; font-size: var(--fs-sm); color: var(--color-ink); outline: none;
+}
+.ns-tt-fpop-search > input::-webkit-search-cancel-button { display: none; }
+.ns-tt-fpop-scroll {
+  max-height: 280px; overflow-y: auto; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 2px;
+}
+[data-shell="mobile"] .ns-tt-fpop-scroll { max-height: none; }
+.ns-tt-fcat-grp + .ns-tt-fcat-grp {
+  margin-top: var(--sp-1); padding-top: var(--sp-1); border-top: 1px dashed var(--color-dash);
+}
+.ns-tt-fopt {
+  width: 100%; min-height: var(--row-menu, 32px); padding: var(--sp-1) var(--sp-2);
+  display: flex; align-items: center; gap: var(--sp-2);
+  border: 0; border-radius: var(--radius-ctl); background: transparent;
+  font-family: inherit; font-size: var(--fs-ui); color: var(--color-ink); text-align: left; cursor: pointer;
+}
+.ns-tt-fopt:hover { background: var(--hover-bg); }
+.ns-tt-fopt:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.ns-tt-fopt.is-on { background: var(--sel-bg); color: var(--sel-fg); }
+.ns-tt-fopt.is-group { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .12em; }
+.ns-tt-fopt.is-child { padding-left: var(--sp-4); }
+.ns-tt-fopt.is-branch { padding-left: var(--sp-5); font-size: var(--fs-sm); color: var(--color-ink-soft); }
+.ns-tt-fopt.is-branch.is-on { color: var(--sel-fg); }
+.ns-tt-fopt-check { flex: none; width: 14px; text-align: center; font-size: var(--fs-xs); color: var(--sel-fg); }
+.ns-tt-fopt-branchmark { flex: none; color: var(--color-ink-faint); }
+.ns-tt-fopt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-tt-fopt-hint { flex: none; font-size: var(--fs-micro); color: var(--color-ink-faint); letter-spacing: .08em; }
+.ns-tt-fpop-empty { margin: 0; padding: var(--sp-3) var(--sp-2); font-size: var(--fs-xs); color: var(--color-ink-faint); }
+
+/* 實績小計列與台帳明細 */
+.ns-tt-fsum {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  margin: 0 0 var(--sp-2); padding: var(--sp-1) var(--sp-3);
+  border: 1px dashed var(--color-dash); border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-ink) 2.5%, transparent);
+  font-size: var(--fs-xs); color: var(--color-ink-soft); letter-spacing: .08em;
+}
+.ns-tt-fsum-txt .ns-tt-num { color: var(--color-ink); font-weight: 500; }
+.ns-tt-ledger { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ns-tt-ledger-row { height: auto; }
+.ns-tt-ledger-time { color: var(--color-ink-soft); letter-spacing: .04em; }
+.ns-tt-ledger-tags { gap: var(--sp-1); margin-top: var(--sp-1); }

@@ -78,7 +78,7 @@
 .ns-pagehead-title .ns-datenav > :not(.t) { align-self: center; }
 .ns-pagehead-title .ns-datenav .t { min-width: 2.6em; font: inherit; letter-spacing: inherit; font-variant-numeric: tabular-nums; } /* 保底寬＝兩位數月份，翻頁時右側的 › 與「今天」不跳 */
 
-/* ═══ ClockInput 新變體：（快選列）／ −1h −15 −5 −1 ｜時刻框｜ +1 +5 +15 +1h ／說明行（日期，跨天赭字） ═══ */
+/* ═══ ClockInput 新變體（v1.32 2A-1 精簡）：（語意快選列）／ −15 ｜時刻框｜ +15 ／說明行（日期，跨天赭字） ═══ */
 .ns-clock { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; }
 .ns-clock-quick { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .chip.ns-chip.ns-clock-tmx { font-family: var(--font-latin); letter-spacing: .04em; font-variant-numeric: tabular-nums; }

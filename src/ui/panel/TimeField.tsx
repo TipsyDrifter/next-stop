@@ -27,12 +27,11 @@ import { nextDayNote, todayKey } from "../../lib/date";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { ClockInput } from "../common/ClockInput";
+import { DurationPicker } from "../common/DurationPicker";
 import { useDebouncedCommit } from "../common/fields";
 import { resetRunTimeFlow } from "../outline/nodeFlows";
 import { IconClose } from "../common/icons";
-import { Segmented } from "../common/Segmented";
 import { clockBounds, clockSeed, clockToMs, msToClock, spanEnd, spanEndBounds, spanEndSeed, spanLen } from "./clockValue";
-import { LEN_MAX, LEN_PRESETS, lenText, parseLenInput } from "./panelRules";
 
 export interface ClockFieldProps {
   value: string | null;
@@ -352,10 +351,9 @@ export function TimeSpanField({
 }
 
 /**
- * 長度（D-主-129；原型 q3-A）：分段鈕 15／30／60／90／120（分）＋「自訂…」。值不在分段裡＝分段都不亮、自訂鈕寫「1h30」並亮著。
- * 自訂＝就地換成數字框（分）：Enter／離開就存、Esc 收回不存；空白＝清掉長度；看不懂或 ≤0 不存。上限 panelRules.LEN_MAX。
- * 分段鈕再點選中的那一段不會清掉（Segmented 慣例）；清長度走「自訂…」清空。
- * 手機詳情頁也用這一支（雙端同一份；`compact={false}`，版面在 detail.css）。
+ * 長度（v1.32 2A-2）：統一改用全站共用的「時 × 分雙排時長挑選器」`DurationPicker`。
+ * 支援點兩下秒組時長（如 1h + 10m = 70m、2h + 30m = 150m）與智慧輸入（70 / 1h10 / 2.5h）；
+ * 桌機側板傳 `compact={true}` 適配 220px 控制欄，手機詳情頁傳 `compact={false}` 提供觸控友善高度。
  */
 export function LengthField({
   value,
@@ -364,99 +362,15 @@ export function LengthField({
 }: {
   value: number | null;
   onCommit(v: number | null): void;
-  /** 緊湊分段鈕（側板）；手機詳情頁傳 false＝44 高、撐滿一列（樣式在 mobile/detail/detail.css 的 .m-dt .len-field） */
   compact?: boolean;
 }) {
-  const [custom, setCustom] = useState<string | null>(null);
-  const composing = useRef(false);
-  /** Esc 收回時框會被拆掉、可能再吹一次 blur：這一次不存 */
-  const dropped = useRef(false);
   const est = value !== null && value > 0 ? value : null;
-  const seg = est !== null && LEN_PRESETS.includes(est) ? String(est) : null;
-  const customOn = est !== null && seg === null;
-
-  const done = (raw: string | null) => {
-    setCustom(null);
-    if (raw === null) return;
-    const v = parseLenInput(raw);
-    if (v === undefined || v === est) return;
-    onCommit(v);
-  };
-
   return (
     <div className="len-field">
-      <Segmented
-        compact={compact}
-        className={compact ? "panel-seg len-seg" : "len-seg"}
-        options={LEN_OPTS}
-        value={custom === null ? seg : null}
-        onChange={(v) => {
-          setCustom(null);
-          if (Number(v) !== est) onCommit(Number(v));
-        }}
-        aria-label="長度"
-      />
-      {custom !== null ? (
-        <span className="len-custom-in">
-          <input
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={LEN_MAX}
-            autoFocus
-            className="techo-input"
-            value={custom}
-            placeholder="45"
-            aria-label="自訂長度（分）"
-            onChange={(e) => setCustom(e.target.value)}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-            onFocus={() => {
-              dropped.current = false;
-            }}
-            onBlur={(e) => {
-              if (dropped.current) {
-                dropped.current = false;
-                return;
-              }
-              done(e.currentTarget.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.blur();
-              } else if (e.key === "Escape") {
-                // 收回不存（不讓側板跟著關）
-                e.preventDefault();
-                e.stopPropagation();
-                dropped.current = true;
-                setCustom(null);
-              }
-            }}
-          />
-          <span className="meta">分</span>
-        </span>
-      ) : (
-        <button
-          type="button"
-          className="len-custom"
-          aria-pressed={customOn}
-          title={customOn ? "改自訂長度（清空＝不設長度）" : "自訂長度（分）"}
-          onClick={() => setCustom(est !== null ? String(est) : "")}
-        >
-          {customOn && est !== null ? lenText(est) : "自訂…"}
-        </button>
-      )}
+      <DurationPicker value={est} onChange={onCommit} compact={compact} ariaLabel="長度" />
     </div>
   );
 }
-
-const LEN_OPTS = LEN_PRESETS.map((n) => ({ value: String(n), label: String(n), title: lenText(n) }));
 
 /**
  * 定期券検印段的「本班」列（契約 §4.2 TeikiStampRow；原型 `:1038-1043`）。

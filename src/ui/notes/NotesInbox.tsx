@@ -12,10 +12,10 @@
  *
  * 狀態與動作都由 NotesView 給（選取、離場動畫、小浮層開關都要跟鍵盤表共用）。
  */
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { NodeRow } from "../../domain";
 import type { NoteListItem } from "../../data/noteRepository";
-import type { InboxRef } from "../../store/notesStore";
+import type { InboxKind, InboxRef } from "../../store/notesStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNotesStore } from "../../store/notesStore";
 import { serialOf, useNodeStore } from "../../store/nodeStore";
@@ -29,6 +29,9 @@ import { IconDots, IconEdit } from "../common/icons";
 import { PageHeader } from "../common/PageHeader";
 import { PopMenu } from "../common/PopMenu";
 import { Kbd, capsOf, dayOf, fmtShort, fmtTime, nextMonday } from "./notesBits";
+import { NotesFilterBar } from "./NotesFilterBar";
+
+const INBOX_ENTITY_TYPES = ["note", "node"] as const;
 
 export type InboxItem =
   | { kind: "note"; id: string; at: string; note: NoteListItem }
@@ -67,10 +70,21 @@ export interface NotesInboxProps {
 
 export function NotesInbox(p: NotesInboxProps) {
   const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const inboxNotes = useNotesStore((s) => s.inboxNotes);
+  const inboxTickets = useNotesStore((s) => s.inboxTickets);
+  const inboxKind = useNotesStore((s) => s.inboxKind);
+  const inboxSort = useNotesStore((s) => s.inboxSort);
+  const inboxTagKeys = useNotesStore((s) => s.inboxTagKeys);
   const today = todayKey(dayStartHour);
   const n = p.items.length;
   const hidden = p.hidden ?? 0;
-  const showAll = () => useNotesStore.getState().setInboxKind("all");
+  const total = n + hidden;
+  const clearFilters = () => useNotesStore.getState().clearInboxFilters();
+
+  const allowedIds = useMemo(
+    () => new Set([...inboxNotes.map((x) => x.id), ...inboxTickets.map((x) => x.id)]),
+    [inboxNotes, inboxTickets],
+  );
 
   // 選取換了就把那一則捲進視野（鍵盤 ↑↓、從 Ctrl+P 跳來）
   useEffect(() => {
@@ -80,6 +94,27 @@ export function NotesInbox(p: NotesInboxProps) {
   }, [p.selectedId, p.listRef]);
 
   const capture = () => useNotesStore.getState().openCapture();
+  const showFilterBar = total > 0 || inboxKind !== "all" || inboxTagKeys.length > 0;
+
+  const kindChip = (k: InboxKind, label: string) => (
+    <button
+      key={k}
+      type="button"
+      className="chip ns-chip"
+      aria-pressed={inboxKind === k}
+      onClick={() => useNotesStore.getState().setInboxKind(k)}
+    >
+      {label}
+    </button>
+  );
+
+  const kindLeading = (
+    <span className="ns-notes-ikinds" role="group" aria-label="篩選種類">
+      {kindChip("all", "全部")}
+      {kindChip("note", "筆記")}
+      {kindChip("ticket", "臨時車票")}
+    </span>
+  );
 
   return (
     <>
@@ -87,12 +122,30 @@ export function NotesInbox(p: NotesInboxProps) {
         variant="name"
         overline={{ zh: "收件匣", latin: "Inbox" }}
         title="收件匣"
-        stats={n + hidden > 0 ? <>待整理 <b>{n + hidden}</b> 則{hidden > 0 && <>・篩選中顯示 {n} 則</>}</> : undefined}
-        add={n + hidden > 0 ? { label: "記一句", onClick: capture, title: `記一句（${capsOf("notes.capture")}）` } : undefined}
+        stats={total > 0 ? <>待整理 <b>{total}</b> 則{hidden > 0 && <>・篩選中顯示 {n} 則</>}</> : undefined}
+        add={total > 0 ? { label: "記一句", onClick: capture, title: `記一句（${capsOf("notes.capture")}）` } : undefined}
       />
       <div className="ns-notes-body">
         <section className="ns-notes-inbox ns-notes-col techo-scroll" aria-label="收件匣">
           <div className="ns-notes-sheet">
+            {showFilterBar && (
+              <NotesFilterBar
+                shell="desktop"
+                className="is-inbox"
+                leading={kindLeading}
+                sort={inboxSort}
+                onSortChange={(s) => useNotesStore.getState().setInboxSort(s)}
+                sortLabel="收件匣排序"
+                selectedTagKeys={inboxTagKeys}
+                onToggleTagKey={(k) => useNotesStore.getState().toggleInboxTagKey(k)}
+                onClearTagKeys={() => useNotesStore.getState().setInboxTagKeys([])}
+                hasExtraFilter={inboxKind !== "all"}
+                onClearAll={clearFilters}
+                entityTypes={INBOX_ENTITY_TYPES}
+                allowedIds={allowedIds}
+                backId="notes.inbox.tags"
+              />
+            )}
             {n > 0 ? (
               <>
                 <ul
@@ -104,20 +157,20 @@ export function NotesInbox(p: NotesInboxProps) {
                   aria-activedescendant={p.selectedId ? `ns-notes-i-${p.selectedId}` : undefined}
                 >
                   {p.items.map((it) => (
-                    <InboxRow key={it.id} it={it} today={today} dayStartHour={dayStartHour} {...p} />
+                    <InboxRow key={it.id} it={it} today={today} dayStartHour={dayStartHour} inboxSort={inboxSort} {...p} />
                   ))}
                 </ul>
                 <p className="ns-notes-foothint">
                   {capsOf("notes.move.up")}{capsOf("notes.move.down")}點選或按快捷鍵就能整理</p>
               </>
-            ) : p.ready && hidden > 0 ? (
-              // 丁 D-主-237：不是整理完了，是篩選把這一種都藏起來了
+            ) : p.ready && (hidden > 0 || inboxKind !== "all" || inboxTagKeys.length > 0) ? (
+              // 篩選（種類或 #荷札）無結果：保留上方篩選條並提供一鍵清除
               <EmptyState
                 tone="nores"
                 stamp={null}
-                title="這一種沒有待整理的"
-                desc={`另一種還有 ${hidden} 則`}
-                secondary={{ label: "看全部", onClick: showAll }}
+                title={inboxTagKeys.length > 0 ? "沒有符合篩選的待整理項目" : "這一種沒有待整理的"}
+                desc={hidden > 0 ? `收件匣還有 ${hidden} 則待整理` : undefined}
+                secondary={{ label: "清除篩選", onClick: clearFilters }}
               />
             ) : p.ready ? (
               // 完成語氣＋受付章（丙-6 §5 P6）；這時頁首「＋ 記一句」藏起來，入口只留這一顆（規範 §2.7）
@@ -141,6 +194,7 @@ function InboxRow({
   it,
   today,
   dayStartHour,
+  inboxSort,
   selectedId,
   leavingId,
   pop,
@@ -150,7 +204,7 @@ function InboxRow({
   onPickDay,
   onPickNode,
   onPickRoute,
-}: NotesInboxProps & { it: InboxItem; today: string; dayStartHour: number }) {
+}: NotesInboxProps & { it: InboxItem; today: string; dayStartHour: number; inboxSort: "updated" | "created" }) {
   const sel = selectedId === it.id;
   const fresh = useNotesStore((s) => s.freshNoteId === it.id); // 剛從捕捉框存進來的那一則：受付章蓋下去的動畫
   const serials = useNodeStore((s) => s.serials); // 收官磨光 A3：臨時券的票號（全站一把尺）
@@ -270,6 +324,7 @@ function InboxRow({
 
   if (it.kind === "note") {
     const lines = lineCount(it.note.body);
+    const stampDay = dayOf(it.note.noted_at, dayStartHour);
     return (
       <li
         id={`ns-notes-i-${it.id}`}
@@ -281,13 +336,14 @@ function InboxRow({
         <div className="ns-notes-slip">
           <div className="ns-notes-slip-in">
             <div className="ns-notes-slip-body" onClick={() => onSelect(it)}>
-              <UketsukeSeal day={day} fresh={fresh} />
+              <UketsukeSeal day={stampDay} fresh={fresh} />
               <p className="ns-notes-slip-text">{it.note.body.trim() || it.note.title || "（空白）"}</p>
               <div className="meta">
                 <span className="ns-notes-kindlabel">未整理的筆記</span>
                 <span className="sep">・</span>
                 <span>
                   {fmtShort(day)} {fmtTime(it.at)}
+                  {inboxSort === "updated" && it.note.updated_at !== it.note.noted_at ? " 修改" : ""}
                 </span>
                 {lines > 1 && (
                   <>
@@ -305,6 +361,7 @@ function InboxRow({
   }
 
   const t = it.ticket;
+  const stampDay = dayOf(t.created_at, dayStartHour);
   // 收官磨光 A3（體檢 N1）：票號讀全站票號表（formatSerial：No.MMDD-當日發券序），同側板／大綱／今日列一把尺；
   // 原本自拼 `MMDD-<id 前兩碼>`，同一張票同框兩個號。表還沒載到＝先留白（同側板 NameBlock），不編假號
   const serial = serialOf(serials, t.id);
@@ -335,13 +392,13 @@ function InboxRow({
               <span className="sep">・</span>
               <span>沒有日期</span>
               <span className="sep">・</span>
-              {/* 收官磨光 A3（體檢 N4）：原「10/27變車票」黏字，而且直接建的票（Shift+Enter／完整搜尋／外部助理）從來沒「變」過——
-                  資料裡分不出是哪一種，一律寫照實的「建立」（變待辦的票也是那天建立的） */}
-              <span>{fmtShort(day)} 建立</span>
+              <span>
+                {fmtShort(day)} {inboxSort === "updated" && t.updated_at !== t.created_at ? "修改" : "建立"}
+              </span>
             </div>
           </div>
           <div className="stamp-zone">
-            <UketsukeSeal day={day} />
+            <UketsukeSeal day={stampDay} />
           </div>
         </div>
         {dest}

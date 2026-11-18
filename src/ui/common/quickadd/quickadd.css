@@ -60,11 +60,11 @@
 /* 設過（從文字認出來或點過）＝選中 */
 .ns-qa-chip.is-on { border-style: solid; border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--sel-fg); background: var(--sel-bg); }
 .ns-qa-chip.is-open { border-style: solid; border-color: var(--accent); color: var(--sel-fg); }
-.ns-qa-bang { font-family: var(--font-latin); font-weight: 600; font-size: 11px; letter-spacing: -.04em; }
+.ns-qa-bang { font-family: var(--font-latin); font-weight: 600; font-size: var(--fs-xs); letter-spacing: -.04em; }
 .ns-qa-rd {
   width: 14px; height: 14px; border-radius: 50%; flex: none;
   display: inline-grid; place-items: center;
-  font-family: var(--font-latin); font-size: 8px; font-weight: 600; color: var(--on-roundel);
+  font-family: var(--font-latin); font-size: 8px; font-weight: 600; color: var(--on-roundel); /* 票券專用（14px 迷你路線圓牌），同 §2.9 */
 }
 /* 掛到路線時的「列車｜車票」小分段鈕 */
 .ns-qa-kind { display: inline-flex; }
@@ -124,13 +124,8 @@
 .ns-qa-layer { position: fixed; z-index: 61; }
 .ns-qa-layer > .ns-notes-pop.float { position: relative; top: auto; left: auto; }
 .ns-datepick.anchored.ns-qa-pop { z-index: 61; }
-.ns-qa-card { width: 280px; box-sizing: border-box; padding: 12px 14px 10px; display: grid; gap: 8px; }
+.ns-qa-card { width: 288px; box-sizing: border-box; padding: 12px 14px 10px; display: grid; gap: 8px; }
 .ns-qa-cardlabel { font-size: var(--fs-micro); letter-spacing: .28em; color: var(--color-ink-soft); }
-.ns-qa-len { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.ns-qa-len .ns-seg { width: auto; flex: none; }
-.ns-qa-len .ns-seg > [role="radio"] { flex: none; min-width: 30px; padding: 0 5px; letter-spacing: .02em; }
-.ns-qa-lencustom { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--color-ink-soft); }
-.ns-qa-lencustom input { width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
 .ns-qa-cardfoot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 2px; }
 
 /* ═══ 清單尾常駐列「＋ 新增車票…」：一列淡色、點了變成建票列 ═══ */

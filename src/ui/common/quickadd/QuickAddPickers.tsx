@@ -15,12 +15,12 @@ import { AttachPicker } from "../AttachPicker";
 import { ClockInput } from "../ClockInput";
 import { DatePicker } from "../DatePicker";
 import { dateQuickSet } from "../DateChip";
+import { DurationPicker } from "../DurationPicker";
 import { EntityTagField } from "../EntityTagField";
 import { PopMenu } from "../PopMenu";
-import { Segmented } from "../Segmented";
 import { clockBounds, clockSeed, clockToMs, msToClock } from "../../panel/clockValue";
 import type { QuickAddApi } from "./useQuickAdd";
-import { LENGTH_PRESETS, NO_DEST, PRIORITY_TEXT, lengthText, type QuickChipKey } from "./quickAddModel";
+import { NO_DEST, PRIORITY_TEXT, type QuickChipKey } from "./quickAddModel";
 import "../../notes/notes.css";
 
 export interface QuickPickersProps {
@@ -172,17 +172,12 @@ export function QuickPickers({ api, open, anchor, onClose, refocus }: QuickPicke
 
 /* ───────── 幾點＋長度 ───────── */
 
-type LenValue = `${number}` | "custom";
-
 function TimeCard({ api, onDone }: { api: QuickAddApi; onDone(): void }) {
   const v = api.values;
   const refDay = v.scheduledOn ?? api.today;
   const { lo, hi } = useMemo(() => clockBounds(refDay, api.dayStartHour), [refDay, api.dayStartHour]);
   const [seed] = useState(() => clockSeed(refDay, api.today, api.dayStartHour));
   const shown = (v.scheduledTime ? clockToMs(v.scheduledTime, refDay) : null) ?? seed;
-  const preset = v.estimateMin !== null && LENGTH_PRESETS.includes(v.estimateMin);
-  const [custom, setCustom] = useState(v.estimateMin !== null && !preset);
-  const lenValue: LenValue | null = custom ? "custom" : v.estimateMin !== null ? (`${v.estimateMin}` as LenValue) : null;
 
   /** 這張卡裡動過開始時刻沒（沒動過又按 Enter／好＝就用起點；動過就照動過的，不拿舊 closure 的值蓋回去） */
   const touched = useRef(false);
@@ -217,49 +212,17 @@ function TimeCard({ api, onDone }: { api: QuickAddApi; onDone(): void }) {
         }}
       />
       <div className="ns-qa-cardlabel">長度</div>
-      <div className="ns-qa-len">
-        <Segmented<LenValue>
-          compact
-          aria-label="長度"
-          value={lenValue}
-          options={[
-            ...LENGTH_PRESETS.map((m) => ({ value: `${m}` as LenValue, label: String(m), title: lengthText(m) })),
-            { value: "custom" as const, label: "自訂…" },
-          ]}
-          onChange={(x) => {
-            if (x === "custom") {
-              setCustom(true);
-              return;
-            }
-            setCustom(false);
-            setLen(Number(x));
-          }}
-        />
-        {custom && (
-          <label className="ns-qa-lencustom">
-            <input
-              className="techo-input"
-              inputMode="numeric"
-              aria-label="長度（分）"
-              defaultValue={v.estimateMin ?? ""}
-              autoFocus
-              onChange={(e) => {
-                const n = Number(e.target.value.replace(/[^\d]/g, ""));
-                setLen(Number.isFinite(n) && n > 0 ? Math.min(n, 24 * 60) : null);
-              }}
-              onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onDone();
-                }
-              }}
-            />
-            分
-          </label>
-        )}
-      </div>
+      <DurationPicker
+        compact
+        liveCommit
+        value={v.estimateMin}
+        onChange={setLen}
+        onEnter={() => {
+          applySeed();
+          onDone();
+        }}
+        ariaLabel="長度"
+      />
       <div className="ns-qa-cardfoot">
         <button
           type="button"

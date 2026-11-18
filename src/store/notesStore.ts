@@ -57,6 +57,12 @@ import {
   type TodoLine,
 } from "../domain/notes";
 import type { NoteListItem, NotePatch, NotesQuery } from "../data/noteRepository";
+import {
+  matchingEntityIdsByTags,
+  normalizeTagFilterKeys,
+  sortNoteItems,
+  type NoteSort,
+} from "../domain/notesFilter";
 import { isMobileShell } from "../lib/shell";
 
 export type InboxRef = { kind: "note"; id: string } | { kind: "ticket"; id: string };
@@ -110,9 +116,17 @@ export interface NotesStore {
   inboxSelected: InboxRef | null;
   /** 收件匣只看哪一種（丁 D-主-237） */
   inboxKind: InboxKind;
+  /** v1.32 2B-2：收件匣排序（"created"＝建立時間｜"updated"＝最近修改） */
+  inboxSort: NoteSort;
+  /** v1.32 2B-2：收件匣 #荷札 組合篩選 keys（AND 交集，父含子） */
+  inboxTagKeys: string[];
   notes: NoteListItem[];
   /** { routeId?: string|"none"; query?: string } */
   notesQuery: NotesQuery;
+  /** v1.32 2B-2：筆記列表排序（"created"＝建立時間｜"updated"＝最近修改） */
+  notesSort: NoteSort;
+  /** v1.32 2B-2：筆記列表 #荷札 組合篩選 keys（AND 交集，父含子） */
+  notesTagKeys: string[];
   selectedNoteId: string | null;
   /** 寫與讀分兩態（D-筆-24）：true＝內文是打字框 */
   editing: boolean;
@@ -174,6 +188,11 @@ export interface NotesStore {
   setSection(s: NotesSection): void;
   /** 收件匣的種類篩選；選中的那一則被篩掉就放掉選取 */
   setInboxKind(k: InboxKind): void;
+  /** v1.32 2B-2：收件匣排序切換與 #荷札 組合篩選 */
+  setInboxSort(sort: NoteSort): void;
+  toggleInboxTagKey(key: string): void;
+  setInboxTagKeys(keys: readonly string[]): void;
+  clearInboxFilters(): void;
   /** Promise.all([noteRepo.listInbox(), noteRepo.listInboxTickets()]) */
   loadInbox(): Promise<void>;
   /** noteRepo.listNotes(notesQuery) */
@@ -183,6 +202,12 @@ export interface NotesStore {
    * 階段④ P5：`routeId` 與 `underNode` 互斥——兩個同時有值時，與目前篩選不同的那個（剛設的）勝出、另一個清掉
    */
   setNotesQuery(q: NotesQuery): Promise<void>;
+  /** v1.32 2B-2：筆記列表排序切換與 #荷札 組合篩選（設完立即重載，分頁與列表完全一致） */
+  setNotesSort(sort: NoteSort): Promise<void>;
+  toggleNotesTagKey(key: string): Promise<void>;
+  setNotesTagKeys(keys: readonly string[]): Promise<void>;
+  /** 清除路線／支線節點篩選與 #荷札 組合篩選（保留搜尋字） */
+  clearNotesFilters(): Promise<void>;
   /** 捲到底：同一個 notesQuery 再載下一頁（offset＝目前筆數），接在尾端 */
   loadMoreNotes(): Promise<void>;
   /** mount 檔的 reload 指到這裡（契約 §3.7） */
@@ -497,6 +522,16 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     return "saved";
   }
 
+  async function resolveNotesFilterIds(tagKeys: readonly string[]): Promise<string[] | undefined> {
+    const norm = normalizeTagFilterKeys(tagKeys);
+    if (norm.length === 0) return undefined;
+    if (!useTagStore.getState().index) {
+      await useTagStore.getState().loadIndex();
+    }
+    const ents = useTagStore.getState().index?.ents ?? [];
+    return [...matchingEntityIdsByTags(ents, ["note"], norm, { excludeKinds: ["diary"] })];
+  }
+
   const day0 = todayNow();
   const savedNav = useUiStore.getState().readLastNav?.() ?? {};
   const initSection: NotesSection =
@@ -526,9 +561,13 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     inboxNotes: [],
     inboxTickets: [],
     inboxKind: "all",
+    inboxSort: "created",
+    inboxTagKeys: [],
     inboxSelected: null,
     notes: [],
     notesQuery: {},
+    notesSort: "created",
+    notesTagKeys: [],
     selectedNoteId: savedNav.selectedNoteId ?? null,
     editing: false,
     draftNew: false,
@@ -547,6 +586,22 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     setInboxKind(k) {
       const sel = get().inboxSelected;
       set({ inboxKind: k, ...(sel && k !== "all" && sel.kind !== k ? { inboxSelected: null } : {}) });
+    },
+    setInboxSort(sort) {
+      set({ inboxSort: sort });
+    },
+    toggleInboxTagKey(key) {
+      const norm = normalizeTagFilterKeys([key])[0];
+      if (!norm) return;
+      const cur = get().inboxTagKeys;
+      const next = cur.includes(norm) ? cur.filter((x) => x !== norm) : [...cur, norm];
+      set({ inboxTagKeys: next });
+    },
+    setInboxTagKeys(keys) {
+      set({ inboxTagKeys: normalizeTagFilterKeys(keys) });
+    },
+    clearInboxFilters() {
+      set({ inboxKind: "all", inboxTagKeys: [] });
     },
     setSection(s) {
       set({ section: s });
@@ -583,11 +638,14 @@ export const useNotesStore = create<NotesStore>((set, get) => {
     },
     async loadNotes() {
       const q = get().notesQuery;
+      const sort = get().notesSort;
+      const tagKeys = get().notesTagKeys;
       const limit = q.limit ?? NOTES_PAGE;
       set({ loading: true });
       try {
-        const notes = await noteRepo.listNotes({ ...q, limit, offset: 0 });
-        if (get().notesQuery !== q) return; // 途中換了篩選／搜尋：以後到的那一趟為準
+        const noteIds = await resolveNotesFilterIds(tagKeys);
+        const notes = await noteRepo.listNotes({ ...q, sort, noteIds, limit, offset: 0 });
+        if (get().notesQuery !== q || get().notesSort !== sort || get().notesTagKeys !== tagKeys) return; // 途中換了篩選／搜尋／排序：以後到的那一趟為準
         const curSel = get().selectedNoteId ?? useUiStore.getState().readLastNav?.().selectedNoteId ?? null;
         const nextSel = get().draftNew
           ? null
@@ -611,13 +669,39 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       set({ notesQuery: q });
       await get().loadNotes();
     },
+    async setNotesSort(sort) {
+      if (get().notesSort === sort) return;
+      set({ notesSort: sort });
+      await get().loadNotes();
+    },
+    async toggleNotesTagKey(key) {
+      const norm = normalizeTagFilterKeys([key])[0];
+      if (!norm) return;
+      const cur = get().notesTagKeys;
+      const next = cur.includes(norm) ? cur.filter((x) => x !== norm) : [...cur, norm];
+      set({ notesTagKeys: next });
+      await get().loadNotes();
+    },
+    async setNotesTagKeys(keys) {
+      set({ notesTagKeys: normalizeTagFilterKeys(keys) });
+      await get().loadNotes();
+    },
+    async clearNotesFilters() {
+      const q = get().notesQuery;
+      set({
+        notesTagKeys: [],
+        notesQuery: { ...q, routeId: undefined, underNode: undefined },
+      });
+      await get().loadNotes();
+    },
     async loadMoreNotes() {
-      const { notesQuery: q, notes, notesHasMore } = get();
+      const { notesQuery: q, notesSort: sort, notesTagKeys: tagKeys, notes, notesHasMore } = get();
       if (!notesHasMore) return;
       const limit = q.limit ?? NOTES_PAGE;
       try {
-        const more = await noteRepo.listNotes({ ...q, limit, offset: notes.length });
-        if (get().notesQuery !== q) return; // 載的途中換了篩選／搜尋：丟掉這一頁
+        const noteIds = await resolveNotesFilterIds(tagKeys);
+        const more = await noteRepo.listNotes({ ...q, sort, noteIds, limit, offset: notes.length });
+        if (get().notesQuery !== q || get().notesSort !== sort || get().notesTagKeys !== tagKeys) return; // 載的途中換了篩選／搜尋／排序：丟掉這一頁
         const cur = get().notes;
         const seen = new Set(cur.map((n) => n.id));
         set({ notes: [...cur, ...more.filter((n) => !seen.has(n.id))], notesHasMore: more.length >= limit });
@@ -632,7 +716,12 @@ export const useNotesStore = create<NotesStore>((set, get) => {
         const today = todayNow();
         nodeNotesGen++;
         set({
+          inboxKind: "all",
+          inboxSort: "created",
+          inboxTagKeys: [],
           inboxSelected: null,
+          notesSort: "created",
+          notesTagKeys: [],
           selectedNoteId: null,
           editing: false,
           draftNew: false,
@@ -653,8 +742,10 @@ export const useNotesStore = create<NotesStore>((set, get) => {
           marksMonth: monthKey(today),
         });
       }
+      // 車次③（契約 §3.6）：先更新荷札 index，確保後面 notesTagKeys 篩選讀到最新荷札連結
+      await useTagStore.getState().reload(ctx);
       // 車票區與 JOIN 都依賴 nodes；足跡另看 work_logs／occurrences（車次② §3.6）與時間塊
-      const lists = has("notes") || has("nodes");
+      const lists = has("notes") || has("nodes") || (get().notesTagKeys.length > 0 && (has("tags") || has("tag_links")));
       const diary = diaryTouched && has("notes");
       const fp =
         diaryTouched &&
@@ -673,8 +764,6 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       }
       // 階段④ 0-14：同步拉到別台的筆記／日記 ⇒ 日曆格內的日記記號請它重查一次（`calendarMarksTick`）
       if (has("notes") && !diary) useUiStore.getState().bumpCalendarMarks();
-      // 車次③（契約 §3.6）：荷札的 index 與頁面狀態
-      await useTagStore.getState().reload(ctx);
     },
 
     async loadNodeNotes(nodeId, descendantIds) {
@@ -817,7 +906,16 @@ export const useNotesStore = create<NotesStore>((set, get) => {
       set({ selectedNoteId: id, editing: false, draftNew: false });
       useUiStore.getState().writeLastNav?.({ selectedNoteId: id });
     },
-    startNewNote: () => set({ draftNew: true, selectedNoteId: null, editing: true }),
+    startNewNote() {
+      const hadTagFilter = get().notesTagKeys.length > 0;
+      set({
+        draftNew: true,
+        selectedNoteId: null,
+        editing: true,
+        ...(hadTagFilter ? { notesTagKeys: [] } : {}),
+      });
+      if (hadTagFilter) void get().loadNotes();
+    },
     setEditing: (on) => set({ editing: on }),
     async saveNote(patch) {
       const s = get();
@@ -867,7 +965,11 @@ export const useNotesStore = create<NotesStore>((set, get) => {
                 ...(patch.title !== undefined ? { title: patch.title && patch.title.trim() ? patch.title : null } : {}),
                 updated_at: now,
               };
-        set({ notes: get().notes.map(merge), inboxNotes: get().inboxNotes.map(merge) });
+        const merged = get().notes.map(merge);
+        set({
+          notes: get().notesSort === "updated" ? sortNoteItems(merged, "updated") : merged,
+          inboxNotes: get().inboxNotes.map(merge),
+        });
         return true;
       } catch (e) {
         failToast(e);

@@ -79,6 +79,7 @@ import {
   DEFAULT_ENTRY_SORT,
   EMPTY_FILTER,
   GONE_KEY,
+  TICKET_MANAGE_TABS,
   UNSPLIT_KEY,
   VIEW_TEXT,
   accountCards,
@@ -86,9 +87,13 @@ import {
   breakdown,
   calendarCells,
   facetAllowed,
+  filterMonthEntries,
   filterToQuery,
+  hasInMonthFacets,
   isAmountSort,
   isFilterActive,
+  isInMonthFilterActive,
+  isTicketManageTab,
   keywordTokens,
   matchesKeyword,
   monthlyTrend,
@@ -111,9 +116,11 @@ import {
   type Period,
   type StatsData,
   type StatsSpan,
+  type TicketManageTab,
   type TicketView,
   type ViewCtx,
 } from "../domain/ticketView";
+export { TICKET_MANAGE_TABS, hasInMonthFacets, isInMonthFilterActive, isTicketManageTab, type TicketManageTab };
 import {
   amountInputText,
   budgetLines,
@@ -196,6 +203,8 @@ export interface TicketDraft extends EntryDraft {
 /** 詳情板（桌機右側）／全螢幕面板（手機）現在畫什麼；兩殼共用 */
 export type TicketPanel = { kind: "none" } | { kind: "new" } | { kind: "entry"; id: string } | { kind: "account"; id: string };
 export type TicketDialog =
+  /* v1.32 2B-1a：售票口「管帳」統合管理對話框（分類｜帳戶｜預算｜定期｜常用票種｜幣別） */
+  | { kind: "manage"; tab?: TicketManageTab }
   /* then（磨光③ 2-16、D-票-60）：建好之後接著做什麼——意圖放在 dialog 本身，被別的對話框蓋掉或取消就跟著消失。
      new＝openNew 因為沒帳戶才開這裡 ⇒ 建完直接打開記一筆、帳戶選好（seed＝原本 openNew 帶的，例如某一天）；
      pick＝從帳戶選單開的 ⇒ 建完選上它（填回草稿） */
@@ -211,6 +220,13 @@ export type TicketDialog =
   /* 售票口④（D-票-68）：管帳「常用票種…」（改名、刪除、排序）；帳目詳情「存成常用…」取名（entryId＝來源那筆） */
   | { kind: "templates" }
   | { kind: "saveTemplate"; entryId: string };
+
+/** 向下相容既有六種管理對話框呼叫端：統一正規化為統合「管帳」對話框並定位至對應分籤 */
+export function normalizeTicketDialog(d: TicketDialog): TicketDialog {
+  if (isTicketManageTab(d.kind)) return { kind: "manage", tab: d.kind };
+  if (d.kind === "manage") return { kind: "manage", tab: d.tab ?? "categories" };
+  return d;
+}
 
 export interface TicketStore {
   ready: boolean; // init 完成
@@ -299,6 +315,8 @@ export interface TicketStore {
   /* 對話框 */
   openDialog(d: TicketDialog): void;
   closeDialog(): void;
+  /** 新增帳戶彈窗完成或取消：從「管帳 › 帳戶」開的退回該分籤，其餘直接關窗 */
+  closeAccountDialog(): void;
 
   /* 捕捉目的地（§3.10） */
   addQuickEntry(input: CaptureSaveInput): Promise<CaptureSaveResult>;
@@ -348,6 +366,13 @@ export interface TicketStore {
   closeSearch(): void; // filter 回 EMPTY_FILTER、results null
   setFilterText(text: string): Promise<void>; // 去抖由 UI 做（150ms），store 直接查
   patchFilter(p: Partial<EntryFilter>): Promise<void>; // 開著搜尋
+  /** v1.32 2B-2：清單視圖當月就地篩選與排序（不進跨月搜尋模式；DateNav 翻月時自然沿用） */
+  listFilter: EntryFilter;
+  listSort: EntrySort;
+  patchListFilter(p: Partial<EntryFilter>): Promise<void>;
+  setListSort(sort: EntrySort): void;
+  clearListFilter(): void;
+  promoteListFilterToSearch(extra?: Partial<EntryFilter>): Promise<void>;
   drillToList(p: Partial<EntryFilter>): Promise<void>; // 統計下鑽：切清單 → filter＝{ 期間＝period、帳戶＝側欄篩選、…p } → 查
   jumpToEntry(id: string): Promise<void>; // quickJump：關搜尋 → 切清單 → 那筆的月 → 選中並攤開
   /* 路線花費（0-11、0-12） */
@@ -563,8 +588,10 @@ let routeSpendGen = 0;
 /** routeSpend 目前算的是哪個月的「本月」（跨月時 loadRouteSpend 把整批作廢重查） */
 let routeSpendMonth = "";
 const routeSpendInflight = new Set<string>();
-/** 第③階段：規則編輯器從哪裡開的（「取消」回去的地方；管理頁＝repeats、大票＝null） */
+/** 第③階段：規則編輯器從哪裡開的（「取消」回去的地方；管理頁＝manage:repeats、大票＝null） */
 let repeatBack: TicketDialog | null = null;
+/** v1.32 2B-1a：新增帳戶彈窗從哪裡開的（「管帳 › 帳戶」開的退回該分籤，其餘＝null） */
+let accountBack: TicketDialog | null = null;
 /** 規則編輯器荷札的讀取世代：每次打開 +1，讀回來時世代不同（已關、又開了別條）就丟掉 */
 let repeatTagGen = 0;
 
@@ -1060,6 +1087,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     results: null,
     resultDays: [],
     resultSort: DEFAULT_ENTRY_SORT,
+    listFilter: EMPTY_FILTER,
+    listSort: DEFAULT_ENTRY_SORT,
     routeSpend: {},
     budgets: [],
     budgetLines: null,
@@ -1197,11 +1226,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         // 第②階段：視圖回清單、搜尋清空、統計與路線花費作廢（②契約 §3.4）
         routeSpendGen++;
         set({
-          view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT, drill: null, statsRoot: null, accountCards: null,
+          view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT,
+          listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT, drill: null, statsRoot: null, accountCards: null,
           statsEntries: [], stats: null, pendingDay: null, dayNotice: null, routeSpend: {},
         });
         // 第③階段：草稿與預算／規則作廢（實體化不在 reload 裡，在 afterPull，③契約 §3.8）
         repeatBack = null;
+        accountBack = null;
         repeatTagGen++;
         set({ repeatDraft: null, repeatTags: null, budgets: [], budgetLines: null, overDay: null, repeats: [], repeatBlocked: {} });
         // 售票口④：願望、常用票種、備註記憶作廢
@@ -1267,10 +1298,22 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     moveSelection(delta) {
+      const s = get();
       const flat: EntryRow[] = [];
-      for (const g of get().days) for (const e of g.entries) flat.push(e);
+      if (!s.searchOpen && isInMonthFilterActive(s.listFilter, s.listSort, s.filterAccountId)) {
+        const rows = filterMonthEntries(
+          s.entries,
+          s.month,
+          { ...s.listFilter, accountId: s.listFilter.accountId ?? s.filterAccountId },
+          s.listSort,
+          viewCtx(),
+        );
+        for (const e of rows) flat.push(e);
+      } else {
+        for (const g of s.days) for (const e of g.entries) flat.push(e);
+      }
       if (!flat.length) return;
-      const cur = get().selectedId;
+      const cur = s.selectedId;
       const i = cur === null ? -1 : flat.findIndex((e) => e.id === cur);
       if (i < 0) {
         get().select(flat[0].id);
@@ -1670,10 +1713,25 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     /* ───────── 對話框 ───────── */
 
     openDialog(d) {
-      set({ dialog: d });
+      const next = normalizeTicketDialog(d);
+      const cur = get().dialog;
+      if (next.kind === "newAccount") {
+        const fromManageAcct = !next.then && cur !== null && cur.kind === "manage" && (cur.tab ?? "categories") === "accountOrder";
+        accountBack = fromManageAcct ? { kind: "manage", tab: "accountOrder" } : null;
+      } else {
+        accountBack = null;
+      }
+      if (cur?.kind === "repeat" && next.kind !== "repeat") {
+        repeatBack = null;
+        repeatTagGen++;
+        set({ dialog: next, repeatDraft: null, repeatTags: null });
+        return;
+      }
+      set({ dialog: next });
     },
 
     closeDialog() {
+      accountBack = null;
       if (get().dialog?.kind === "repeat") {
         repeatBack = null;
         repeatTagGen++;
@@ -1681,6 +1739,12 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         return;
       }
       set({ dialog: null });
+    },
+
+    closeAccountDialog() {
+      const back = accountBack;
+      accountBack = null;
+      set({ dialog: back });
     },
 
     /* ───────── 捕捉目的地（§3.10） ───────── */
@@ -1807,7 +1871,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     async jumpToDay(dayKey) {
       const s0 = get();
       if (s0.searchOpen) get().closeSearch();
-      set({ view: "list", dayNotice: null });
+      set({ view: "list", dayNotice: null, listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT });
       const m = monthOf(dayKey);
       if (get().loadedMonths.indexOf(m) < 0) await get().setMonth(m);
       const g = get().days.find((x) => x.dayKey === dayKey);
@@ -1881,6 +1945,50 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       }
     },
 
+    async patchListFilter(p) {
+      const next: EntryFilter = { ...get().listFilter, ...p, text: "", from: null, toExcl: null };
+      set({ listFilter: next });
+      if ((next.tagKeys ?? []).length > 0) {
+        await ensureTagIndex().catch(() => undefined);
+        // 荷札 index 剛載完：觸發一次 entriesVersion 讓訂閱當月直篩的畫面重算
+        set({ entriesVersion: get().entriesVersion + 1 });
+      }
+    },
+
+    setListSort(sort) {
+      if (sort !== get().listSort) set({ listSort: sort });
+    },
+
+    clearListFilter() {
+      const s = get();
+      set({ listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT });
+      if (s.filterAccountId !== null) void get().setFilter(null);
+    },
+
+    async promoteListFilterToSearch(extra) {
+      const s = get();
+      if (s.view !== "list") await get().setView("list");
+      const sort = s.listSort !== DEFAULT_ENTRY_SORT ? s.listSort : s.resultSort;
+      if (sort !== s.resultSort) get().setResultSort(sort);
+      const nextFilter: EntryFilter = {
+        ...EMPTY_FILTER,
+        ...s.listFilter,
+        accountId: s.listFilter.accountId ?? s.filterAccountId,
+        ...extra,
+      };
+      set({
+        listFilter: EMPTY_FILTER,
+        listSort: DEFAULT_ENTRY_SORT,
+        filter: nextFilter,
+        searchOpen: true,
+      });
+      try {
+        await serial(runQuery);
+      } catch (e) {
+        failToast(e);
+      }
+    },
+
     async drillToList(p) {
       // 「未細分」「（…已不在）」沒有對應的篩選條件（categoryIds 傳主分類 id 會展開成含全部子分類）⇒ 不下鑽；UI 應把這幾列畫成不可點
       if (p.categoryIds?.some(isUnfilterableKey) || isUnfilterableKey(p.accountId) || isUnfilterableKey(p.routeId) || p.tagKeys?.some(isUnfilterableKey)) return;
@@ -1889,6 +1997,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (s.view !== "list") await get().setView("list");
       set({
         searchOpen: true,
+        listFilter: EMPTY_FILTER,
+        listSort: DEFAULT_ENTRY_SORT,
         filter: { ...EMPTY_FILTER, from: r.from, toExcl: r.toExcl, accountId: s.filterAccountId, ...p },
       });
       try {
@@ -1908,6 +2018,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         return; // 初始化失敗：頁面自己會顯示錯誤
       }
       get().closeSearch();
+      set({ listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT });
       if (get().view !== "list") await get().setView("list");
       const e = await ticketRepo.getEntry(id);
       if (!e) return;
@@ -2022,7 +2133,10 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         };
       }
       const cur = s.dialog;
-      repeatBack = cur && cur.kind === "repeats" ? cur : null;
+      repeatBack =
+        cur && (cur.kind === "repeats" || (cur.kind === "manage" && (cur.tab ?? "categories") === "repeats"))
+          ? { kind: "manage", tab: "repeats" }
+          : null;
       // 荷札：改既有規則＝它現在掛的；從帳來的＝那筆帳的；全新＝空（G1）。直接問 repository（index 可能沒載或還沒重載）
       const gen = ++repeatTagGen;
       const src: { type: TicketTagType; id: string } | null =

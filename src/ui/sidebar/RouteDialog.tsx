@@ -21,12 +21,19 @@ import { useUiStore, type RouteDialogState } from "../../store/uiStore";
 import { ColorPicker, routePresetColor } from "../common/ColorPicker";
 import { createLine, createRoute, renameLine, requestDeleteLine } from "../panel/routeFlows";
 import {
+  LINE_NAME_PLACEHOLDER,
+  ROUTE_CODE_HINT,
+  ROUTE_CODE_MAX,
+  ROUTE_CODE_PLACEHOLDER,
+  ROUTE_DESC_PLACEHOLDER,
+  ROUTE_NAME_PLACEHOLDER,
   childRouteCount as countChildRoutes,
   codeInput,
   codeTaken as isCodeTaken,
   codeTakenNote,
   codeValue,
   defaultRouteColorIndex,
+  descriptionValue,
   lineDeleteNote,
 } from "../panel/routeFlowRules";
 import { DialogShell } from "../common/DialogShell";
@@ -64,6 +71,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
   // 新增路線的預設色：前三格輪流（routeFlowRules.defaultRouteColorIndex）
   const [color, setColor] = useState<string>(() => routePresetColor(defaultRouteColorIndex(routes.length)));
   const [code, setCode] = useState("");
+  const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
 
   const trimmedName = name.trim();
@@ -83,8 +91,14 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
       if (editing) {
         await renameLine(editing.id, trimmedName);
       } else if (kind === "route" && lineId) {
-        // 建好直接切到該路線（routeFlows.createRoute）
-        await createRoute({ lineId, name: trimmedName, color, code: codeValue(code) });
+        // 建好直接切到該路線（routeFlows.createRoute），選填描述一併寫入
+        await createRoute({
+          lineId,
+          name: trimmedName,
+          color,
+          code: codeValue(code),
+          description: descriptionValue(description),
+        });
       } else {
         await createLine(trimmedName);
       }
@@ -103,6 +117,14 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
+      e.preventDefault();
+      void submit();
+    }
+  };
+
+  const onDescKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       void submit();
     }
@@ -138,7 +160,7 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={kind === "line" ? "例：工作、學習、健康" : "例：日文檢定、年度旅遊"}
+            placeholder={kind === "line" ? LINE_NAME_PLACEHOLDER : ROUTE_NAME_PLACEHOLDER}
             className="techo-input w-full font-display text-[16px] tracking-[0.04em]"
           />
         </div>
@@ -152,19 +174,34 @@ function RouteDialogForm({ lineId, editId }: RouteDialogState) {
 
             <div>
               <label className="techo-label block mb-1" htmlFor="route-dialog-code">
-                代碼 <span className="tracking-normal">（選填・最多 4 個大寫字母）</span>
+                代碼 <span className="tracking-normal">{ROUTE_CODE_HINT}</span>
               </label>
               <input
                 id="route-dialog-code"
                 value={code}
                 onChange={(e) => setCode(codeInput(e.target.value))}
                 onKeyDown={onKeyDown}
-                placeholder="E1"
-                maxLength={4}
+                placeholder={ROUTE_CODE_PLACEHOLDER}
+                maxLength={ROUTE_CODE_MAX}
                 spellCheck={false}
                 className="techo-input w-24 font-latin uppercase text-[14px] tracking-[0.16em]"
               />
               {codeTaken && <p className="ns-note mt-1.5">{codeTakenNote(code)}</p>}
+            </div>
+
+            <div>
+              <label className="techo-label block mb-1" htmlFor="route-dialog-desc">
+                描述 <span className="tracking-normal">（選填）</span>
+              </label>
+              <textarea
+                id="route-dialog-desc"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={onDescKeyDown}
+                placeholder={ROUTE_DESC_PLACEHOLDER}
+                className="techo-input w-full resize-y text-[14px] leading-relaxed"
+              />
             </div>
           </>
         )}

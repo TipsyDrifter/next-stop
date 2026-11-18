@@ -17,7 +17,7 @@ import { useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { todayKey } from "../../lib/date";
 import { monthOf, type EntryRow } from "../../domain/ticket";
-import { dayStep, isFilterActive, statsCrumbs } from "../../domain/ticketView";
+import { dayStep, isFilterActive, isInMonthFilterActive, statsCrumbs } from "../../domain/ticketView";
 import { defaultFocusDay, useCalFocus } from "./view/TicketCalendar";
 import { switchView } from "./view/ViewSwitch";
 import { focusTicketSearch } from "./view/SearchBar";
@@ -90,7 +90,11 @@ export function useTicketKeyboard(ref: RefObject<HTMLElement | null>): void {
           break;
         /* ── 第②階段（②契約 §5.4） ── */
         case "ticket.search": {
-          s.openSearch(); // 月曆／統計 ⇒ 先切清單
+          if (!s.searchOpen && isInMonthFilterActive(s.listFilter, s.listSort, s.filterAccountId)) {
+            void s.promoteListFilterToSearch();
+          } else {
+            s.openSearch(); // 月曆／統計 ⇒ 先切清單
+          }
           focusTicketSearch(el); // 框在頁首下一列（UI 丙-5 A3）；搜尋剛打開那一輪還沒畫出來，setTimeout 等 commit
           break;
         }
@@ -189,7 +193,14 @@ export function useTicketKeyboard(ref: RefObject<HTMLElement | null>): void {
             void s.setView("list");
             break;
           }
-          if (s.panel.kind === "none" && s.selectedId === null) return;
+          if (s.panel.kind === "none" && s.selectedId === null) {
+            if (isInMonthFilterActive(s.listFilter, s.listSort, s.filterAccountId)) {
+              s.clearListFilter();
+              list?.focus({ preventScroll: true });
+              break;
+            }
+            return;
+          }
           s.requestEscape();
           list?.focus({ preventScroll: true });
           break;

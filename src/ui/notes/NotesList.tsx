@@ -18,9 +18,15 @@ import { useNotesStore } from "../../store/notesStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { excerpt, fmtMonthHeader, monthKey, noteTitle } from "../../domain/notes";
+import { noteTimestampOf } from "../../domain/notesFilter";
 import { EmptyState } from "../common/EmptyState";
 import { IconPlus } from "../common/icons";
 import { IconSearch, Roundel, dayOf, fmtShort, highlight } from "./notesBits";
+import { notesFlush } from "./notesFlush";
+import { NotesFilterBar } from "./NotesFilterBar";
+
+const NOTE_ENTITY_TYPES = ["note"] as const;
+const DIARY_EXCLUDE_KINDS = ["diary"] as const;
 
 export interface NotesListProps {
   listRef: RefObject<HTMLUListElement | null>;
@@ -37,6 +43,8 @@ export interface NotesListProps {
 export function NotesList({ listRef, searchRef, ready, onSelect, onNew, onClearFilter }: NotesListProps) {
   const notes = useNotesStore((s) => s.notes);
   const q = useNotesStore((s) => s.notesQuery);
+  const notesSort = useNotesStore((s) => s.notesSort);
+  const notesTagKeys = useNotesStore((s) => s.notesTagKeys);
   const selectedId = useNotesStore((s) => s.selectedNoteId);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -81,7 +89,7 @@ export function NotesList({ listRef, searchRef, ready, onSelect, onNew, onClearF
   const rows: ReactNode[] = [];
   let lastMonth = "";
   for (const n of notes) {
-    const day = dayOf(n.noted_at, dayStartHour);
+    const day = dayOf(noteTimestampOf(n, notesSort), dayStartHour);
     const mk = monthKey(day);
     if (mk !== lastMonth) {
       rows.push(
@@ -113,12 +121,12 @@ export function NotesList({ listRef, searchRef, ready, onSelect, onNew, onClearF
   if (!notes.length && ready) {
     if (query)
       empty = <EmptyState tone="nores" title={`找不到「${query}」`} secondary={{ label: "清除搜尋", onClick: clearSearch }} />;
-    else if (q.underNode || q.routeId)
+    else if (notesTagKeys.length > 0 || q.underNode || q.routeId)
       empty = (
         <EmptyState
           tone="nores"
           stamp={null}
-          title={q.underNode ? "這裡還沒有筆記" : "這條路線還沒有筆記"}
+          title={notesTagKeys.length > 0 ? "沒有符合篩選的筆記" : q.underNode ? "這裡還沒有筆記" : "這條路線還沒有筆記"}
           secondary={{ label: "清除篩選", onClick: onClearFilter }}
         />
       );
@@ -155,6 +163,34 @@ export function NotesList({ listRef, searchRef, ready, onSelect, onNew, onClearF
             }}
           />
         </label>
+        <NotesFilterBar
+          shell="desktop"
+          sort={notesSort}
+          onSortChange={(s) =>
+            void (async () => {
+              await notesFlush.fn?.();
+              await useNotesStore.getState().setNotesSort(s);
+            })()
+          }
+          sortLabel="筆記排序"
+          selectedTagKeys={notesTagKeys}
+          onToggleTagKey={(k) =>
+            void (async () => {
+              await notesFlush.fn?.();
+              await useNotesStore.getState().toggleNotesTagKey(k);
+            })()
+          }
+          onClearTagKeys={() =>
+            void (async () => {
+              await notesFlush.fn?.();
+              await useNotesStore.getState().setNotesTagKeys([]);
+            })()
+          }
+          entityTypes={NOTE_ENTITY_TYPES}
+          excludeKinds={DIARY_EXCLUDE_KINDS}
+          backId="notes.list.tags"
+          syncNotesOnTagChange
+        />
       </div>
       <div className="ns-notes-listscroll techo-scroll" onScroll={onScroll}>
         {empty ? (

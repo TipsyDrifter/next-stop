@@ -31,9 +31,10 @@ import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { catColor, goalPeriodText, md, scopeText } from "../stats/format";
-import { Actions, Opt, Opts, Row, Sub, type PanelProps } from "./controls";
+import { Actions, Row, Sub, type PanelProps } from "./controls";
 import { Segmented } from "../../common/Segmented";
 import { DateChip } from "../../common/DateChip";
+import { DurationPicker } from "../../common/DurationPicker";
 import { TT_TAG_GOAL } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
 import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
@@ -60,7 +61,6 @@ interface Form {
 }
 
 const kindOf = (p: GoalPeriod): Kind => (p === "day" || p === "week" || p === "month" ? "repeat" : p);
-const MINUTE_CHIPS = [0, 15, 30, 45] as const;
 
 function problemOf(f: Form, tagCount: number): string {
   const T = TT_TEXT.statsUi;
@@ -346,8 +346,6 @@ export function GoalPanel({ onDone }: PanelProps) {
       />
     );
   };
-  const minuteChips = MINUTE_CHIPS.includes(f.m as (typeof MINUTE_CHIPS)[number]) ? MINUTE_CHIPS : [...MINUTE_CHIPS, f.m].sort((a, b) => a - b);
-
   return (
     <div className="ns-tt-panel ns-tt-goal-form">
       <Row k={T.fName}>
@@ -598,30 +596,17 @@ export function GoalPanel({ onDone }: PanelProps) {
           onChange={(dir) => set({ dir })}
         />
       </Row>
-      <Row k={T.fHours}>
-        <span className="ns-tt-stepper" role="group" aria-label={T.fHours}>
-          {[-10, -1].map((d) => (
-            <button type="button" key={d} className="ns-tt-step" disabled={f.h + d < 0} aria-label={T.hoursDown(-d)} onClick={() => setF((x) => ({ ...x, h: Math.max(0, x.h + d) }))}>
-              −{-d}
-            </button>
-          ))}
-          <span className="ns-tt-val ns-tt-goal-hval" aria-live="polite">
-            {f.h}
-            <small>{T.hourUnit}</small>
-          </span>
-          {[1, 10].map((d) => (
-            <button type="button" key={d} className="ns-tt-step" disabled={f.h + d > 999} aria-label={T.hoursUp(d)} onClick={() => setF((x) => ({ ...x, h: Math.min(999, x.h + d) }))}>
-              +{d}
-            </button>
-          ))}
-        </span>
-        <Opts>
-          {minuteChips.map((m) => (
-            <Opt key={m} on={f.m === m} onClick={() => set({ m })}>
-              {T.minutes(m)}
-            </Opt>
-          ))}
-        </Opts>
+      <Row k={T.fHours} top>
+        <DurationPicker
+          mode="goal"
+          goalPeriod={f.kind === "repeat" ? f.rep : f.kind}
+          value={f.h * 60 + f.m}
+          onChange={(min) => {
+            if (min !== null) set({ h: Math.floor(min / 60), m: min % 60 });
+          }}
+          liveCommit
+          ariaLabel={T.fHours}
+        />
       </Row>
       <p className="ns-tt-goal-preview">
         {bad ? <span className="ns-tt-goal-warn">{bad}</span> : `${goalPeriodText(inputOf(f))}・${scopeText(f.cats, catById, tagNames, extraLabels)}`}

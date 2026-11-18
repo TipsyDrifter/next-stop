@@ -28,32 +28,26 @@
  * 收據 toast 在呼叫端的動作（scheduleActions／useMobileToday），本元件不碰 store。
  * IME：自訂預計的數字框照三道護欄（isComposing／229／composition 旗標）；Enter＝收起鍵盤，不送出整張 sheet。
  */
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState } from "react";
 import { arrivalClock, clockMinutes, clockRange, clockText, isClockPast, nowClockMinutes } from "../../lib/date";
 import { mdw } from "../schedule/streamModel";
 import type { TicketCardModel } from "../schedule/ticketCard";
 import { ClockInput, type ClockInputHandle } from "../common/ClockInput";
+import { DurationPicker } from "../common/DurationPicker";
 import { MSheet } from "../common/MSheet";
-import { Segmented } from "../common/Segmented";
 import { msToClock } from "../panel/clockValue";
-import { LEN_MAX, LEN_PRESETS, lenText } from "../panel/panelRules";
+import { lenText } from "../panel/panelRules";
 import "./mobile-polish.css";
 
-/* 長度字與分段（回饋甲起與側板、詳情頁同一份：panel/panelRules）；lenText 照舊從這裡也拿得到 */
+/* 長度字（回饋甲起與側板、詳情頁同一份：panel/panelRules）；lenText 照舊從這裡也拿得到 */
 export { lenText };
 
-/** 預計多久的分段（分；§2.5 長度選擇一套） */
-const EST_SEGS = LEN_PRESETS.map(String);
-type EstSeg = string;
-const EST_MAX = LEN_MAX;
 /** 現在不在那一天時的預帶值 09:00 */
 const NINE = 9 * 60;
 /** end 模式：還沒有長度時，結束從開始後多久起（同側板時段的結束格） */
 const END_SEED_MIN = 60;
 
 const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-
-const EST_OPTS = EST_SEGS.map((v) => ({ value: v, label: lenText(Number(v)) }));
 
 /**
  * 時刻動作的收據（契約 §3.10；行程表的 scheduleActions 與今日子頁的 useMobileToday 同一組字，放在這裡兩邊都 import 得到、不成環）：
@@ -145,13 +139,6 @@ export function MobileTimeSheet({
 
   const [min, setMin] = useState(initial);
   const [est, setEst] = useState<number | null>(card.estimateMin !== null && card.estimateMin > 0 ? card.estimateMin : null);
-  const [customOpen, setCustomOpen] = useState(false);
-  const [customRaw, setCustomRaw] = useState(() =>
-    card.estimateMin !== null && card.estimateMin > 0 && !EST_SEGS.some((v) => Number(v) === card.estimateMin)
-      ? String(card.estimateMin)
-      : "",
-  );
-  const composing = useRef(false);
   const clock = useRef<ClockInputHandle>(null);
 
   /** ClockInput 的毫秒 → 營業日分鐘（夾在 [lo, hi] 裡，一定換得回來；萬一換不回來就留原值） */
@@ -172,8 +159,6 @@ export function MobileTimeSheet({
   const arrive = sumEst !== null ? arrivalClock(time, sumEst) : null;
 
   const ruleTime = card.ruleTime;
-  const estSeg = est !== null && !customOpen ? (EST_SEGS.find((v) => Number(v) === est) ?? null) : null;
-  const customOn = est !== null && estSeg === null;
 
   const commit = () => {
     // 框裡有沒打完的字：先套用（打錯＝還原＋抖一下，不送）
@@ -216,19 +201,6 @@ export function MobileTimeSheet({
       return;
     }
     onCommit(t);
-  };
-
-  const onCustomKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      e.currentTarget.blur();
-    }
-  };
-  const onCustomChange = (raw: string) => {
-    setCustomRaw(raw);
-    const v = Number.parseInt(raw, 10);
-    setEst(Number.isFinite(v) && v > 0 ? Math.min(v, EST_MAX) : null);
   };
 
   const title = mode === "rule" ? "幾點発車" : isEnd ? "結束時刻" : "本班改時刻";
@@ -289,53 +261,7 @@ export function MobileTimeSheet({
       {mode === "rule" && withLen && (
         <div className="m-tms-grp">
           <span className="techo-label">預計多久</span>
-          <div className="m-tms-est">
-            <Segmented
-              compact
-              options={EST_OPTS}
-              value={estSeg}
-              onChange={(v: EstSeg) => {
-                setCustomOpen(false);
-                // 再點選中的那段＝清掉（回「時間未定」；舊 chip 的手感）
-                setEst((cur) => (cur === Number(v) ? null : Number(v)));
-              }}
-              aria-label="預計多久"
-            />
-            {customOpen ? (
-              <input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={EST_MAX}
-                autoFocus
-                value={customRaw}
-                placeholder="45"
-                aria-label="自訂預計（分）"
-                onChange={(e) => onCustomChange(e.target.value)}
-                onKeyDown={onCustomKey}
-                onCompositionStart={() => {
-                  composing.current = true;
-                }}
-                onCompositionEnd={() => {
-                  composing.current = false;
-                }}
-                onBlur={() => setCustomOpen(false)}
-                className="techo-input m-tms-custom"
-              />
-            ) : (
-              <button
-                type="button"
-                className="chip ns-chip"
-                aria-pressed={customOn}
-                onClick={() => {
-                  setCustomRaw(customOn && est !== null ? String(est) : "");
-                  setCustomOpen(true);
-                }}
-              >
-                {customOn && est !== null ? lenText(est) : "自訂…"}
-              </button>
-            )}
-          </div>
+          <DurationPicker value={est} onChange={setEst} liveCommit ariaLabel="預計多久" />
         </div>
       )}
 

@@ -1,0 +1,326 @@
+/* ─────────────────────────────────────────────────────
+ * durationpicker.css — 時 × 分雙排時長挑選器 & 目標時數挑選器（v1.32 2A-2）
+ *   全面採用 theme.css 語意層 CSS Tokens（零裸色碼、零字面字級／圓角／高度）。
+ *   同時支援桌機預設、緊湊側板／浮層（.is-compact，220px 控制欄）與手機觸控殼（[data-shell="mobile"]）。
+ * ───────────────────────────────────────────────────── */
+
+.ns-dur {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ns-dur.is-compact {
+  gap: 4px;
+}
+
+[data-shell="mobile"] .ns-dur {
+  gap: 6px;
+}
+
+/* ── 第一排（小時／期間快選）與延伸排（4h · 5h · 6h · 8h） ── */
+.ns-dur-hours {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.ns-dur.is-compact .ns-dur-hours {
+  gap: 3px;
+}
+
+[data-shell="mobile"] .ns-dur-hours {
+  gap: 5px;
+}
+
+.ns-dur-ext {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-used);
+}
+
+.ns-dur.is-compact .ns-dur-ext {
+  gap: 3px;
+  padding: 2px;
+}
+
+/* ── 第二排（分鐘：00 · 10 · 15 · 20 · 30 · 40 · 45 · 50m） ── */
+.ns-dur-mins {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) minmax(28px, 1.25fr);
+  gap: 3px;
+  width: 100%;
+}
+
+.ns-dur.is-goal .ns-dur-mins {
+  display: inline-grid;
+  grid-template-columns: repeat(4, minmax(44px, auto));
+  gap: 4px;
+  width: auto;
+  align-self: flex-start;
+}
+
+/* 手機殼：8 格分鐘折為 4×2 觸控友善方格，目標 4 格維持單排撐滿 */
+[data-shell="mobile"] .ns-dur-mins {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+[data-shell="mobile"] .ns-dur.is-goal .ns-dur-mins {
+  display: grid;
+  width: 100%;
+}
+
+/* ── 矩陣單格按鈕 ── */
+.ns-dur-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: var(--ctl-h-sm);
+  margin: 0;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-latin);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--dur-fast) var(--ease-soft),
+    border-color var(--dur-fast) var(--ease-soft),
+    background-color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-dur-mins > .ns-dur-cell {
+  font-size: var(--fs-xs);
+  padding: 0 2px;
+}
+
+.ns-dur.is-compact .ns-dur-cell {
+  font-size: var(--fs-xs);
+  padding: 0 2px;
+}
+
+[data-shell="mobile"] .ns-dur-cell,
+[data-shell="mobile"] .ns-dur-mins > .ns-dur-cell {
+  height: var(--ctl-h-sm);
+  font-size: var(--fs-sm);
+  padding: 0 4px;
+}
+
+.ns-dur-cell:hover:not(:disabled) {
+  color: var(--color-ink);
+  border-color: var(--accent);
+  background: var(--hover-bg);
+}
+
+.ns-dur-cell.is-armed {
+  border-style: dashed;
+  border-color: var(--accent);
+  color: var(--sel-fg);
+}
+
+.ns-dur-cell.is-on {
+  color: var(--sel-fg);
+  background: var(--sel-bg);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  font-weight: 600;
+}
+
+.ns-dur-cell.is-open:not(.is-on) {
+  border-color: var(--accent);
+  color: var(--color-ink);
+}
+
+.ns-dur-cell:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-dur-cell:disabled {
+  opacity: var(--disabled);
+  cursor: not-allowed;
+}
+
+.ns-dur-caret {
+  margin-left: 1px;
+  font-size: var(--fs-micro);
+  opacity: 0.78;
+}
+
+/* ── 底部列：智慧時長輸入框 ＋ 清除／不設 ＋ 呼叫端附加鈕 ── */
+.ns-dur-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ns-dur-inwrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 96px;
+  min-width: 0;
+  max-width: 176px;
+}
+
+.ns-dur.is-compact .ns-dur-inwrap {
+  max-width: 152px;
+}
+
+.ns-dur.is-goal .ns-dur-inwrap {
+  max-width: 196px;
+}
+
+/* 提高特異度蓋過 panel.css 的 `.panel input { width: 100%; display: block }` */
+.ns-dur input.techo-input.ns-dur-in {
+  display: inline-block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: var(--ctl-h-sm);
+  margin: 0;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid var(--color-dash);
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-latin);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+
+.ns-dur.is-compact input.techo-input.ns-dur-in {
+  font-size: var(--fs-xs);
+}
+
+[data-shell="mobile"] .ns-dur input.techo-input.ns-dur-in {
+  height: var(--ctl-h-sm);
+  font-size: var(--fs-body);
+}
+
+.ns-dur input.techo-input.ns-dur-in::placeholder {
+  font-family: var(--font-latin);
+  font-weight: 400;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-faint);
+}
+
+.ns-dur input.techo-input.ns-dur-in:focus {
+  border-bottom-color: var(--accent);
+}
+
+.ns-dur input.techo-input.ns-dur-in.is-custom:not(:focus) {
+  color: var(--sel-fg);
+  border-bottom-style: solid;
+  border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.ns-dur input.techo-input.ns-dur-in[aria-invalid="true"] {
+  border-bottom-color: var(--color-late);
+  background: var(--danger-bg);
+}
+
+@keyframes nsDurShake {
+  20%, 60% { transform: translateX(-3px); }
+  40%, 80% { transform: translateX(3px); }
+}
+
+.ns-dur input.techo-input.ns-dur-in.is-shake {
+  animation: nsDurShake 220ms var(--ease);
+}
+
+.ns-dur-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  height: var(--ctl-h-sm);
+  margin: 0;
+  padding: 0 7px;
+  border: 1px dashed var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  color: var(--color-ink-faint);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft);
+}
+
+[data-shell="mobile"] .ns-dur-clear {
+  padding: 0 10px;
+  font-size: var(--fs-sm);
+}
+
+.ns-dur-clear:hover {
+  color: var(--color-ink);
+  border-color: var(--accent);
+  background: var(--hover-bg);
+}
+
+.ns-dur-clear:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.ns-dur-err {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--color-late);
+}
+
+/* 時刻表面板與手機詳情頁內嵌輔助：讓預估／目標／長度列撐滿右欄不擠壓 */
+.len-field > .ns-dur {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.ns-tt-row-v > .ns-dur {
+  max-width: 360px;
+}
+
+[data-shell="mobile"] .ns-tt-row-v > .ns-dur {
+  max-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-dur-cell,
+  .ns-dur input.techo-input.ns-dur-in,
+  .ns-dur-clear {
+    transition: none;
+  }
+  .ns-dur input.techo-input.ns-dur-in.is-shake {
+    animation: none;
+  }
+}

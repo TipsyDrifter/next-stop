@@ -1679,6 +1679,42 @@ html[data-shell="mobile"][data-m-layer] .ns-notes-fab,
 [data-shell="mobile"] .ns-notes-mchipnode .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 [data-shell="mobile"] .ns-notes-mchipnode svg { flex: none; color: var(--color-ink-faint); }
 
+/* ── v1.32 2B-2：手機筆記列表＆收件匣「排序切換 ＋ #荷札 組合篩選條」 ── */
+[data-shell="mobile"] .ns-notes-mfbar-wrap {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0 0 10px;
+}
+[data-shell="mobile"] .ns-notes-mfbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
+}
+[data-shell="mobile"] .ns-notes-mfbar .ns-seg { display: inline-flex; flex: none; }
+[data-shell="mobile"] .ns-notes-mfbar .ns-seg > [role="radio"] { flex: none; padding: 0 10px; }
+[data-shell="mobile"] .ns-notes-mfbar .ns-notes-fbtn {
+  position: relative;
+  height: var(--ctl-h-sm); padding: 0 11px;
+  font-size: var(--fs-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+[data-shell="mobile"] .ns-notes-mfbar .ns-notes-fbtn::after {
+  content: ""; position: absolute; inset: -4px 0;
+}
+[data-shell="mobile"] .ns-notes-mfbar-tags {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+[data-shell="mobile"] .ns-notes-mfbar-tags .ns-notes-ftag {
+  height: 28px; padding: 0 4px 0 10px; font-size: var(--fs-xs);
+}
+[data-shell="mobile"] .ns-notes-mfbar-tags .ns-notes-ftag .rm {
+  width: 24px; height: 24px;
+}
+[data-shell="mobile"] .ns-notes-mfbar-tags .ns-notes-fclear,
+[data-shell="mobile"] .ns-notes-mfbar .ns-notes-fclear {
+  min-height: 32px; padding: 0 8px; font-size: var(--fs-xs);
+}
+[data-shell="mobile"] .ns-notes-tagpop-list { max-height: 46vh; }
+[data-shell="mobile"] .ns-notes-tagpop-item { min-height: 44px; font-size: var(--fs-ui); }
+[data-shell="mobile"] .ns-notes-tagpop-q .techo-input { min-height: 40px; font-size: var(--fs-ui); }
+
 @media (prefers-reduced-motion: reduce) {
   [data-shell="mobile"] .ns-notes-mroutenotes .hd .car { transition: none; }
 }

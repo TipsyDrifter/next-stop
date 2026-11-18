@@ -22,11 +22,16 @@ import { useUiStore } from "../../../store/uiStore";
 import { useNotesStore } from "../../../store/notesStore";
 import { dayKeyOf } from "../../../lib/date";
 import { excerpt, fmtMonthHeader, monthKey, noteTitle } from "../../../domain/notes";
+import { noteTimestampOf } from "../../../domain/notesFilter";
 import type { NodeRow } from "../../../domain";
 import type { NoteListItem } from "../../../data/noteRepository";
 import { RouteRoundel } from "../../common/MobileAttachPicker";
 import { EmptyState } from "../../common/EmptyState";
+import { NotesFilterBar } from "../NotesFilterBar";
 import { shortDay } from "./dayKeys";
+
+const NOTE_ENTITY_TYPES = ["note"] as const;
+const DIARY_EXCLUDE_KINDS = ["diary"] as const;
 
 /** 把 text 裡的 q（不分大小寫）包成 <mark> */
 function highlight(text: string, q: string): ReactNode {
@@ -57,6 +62,8 @@ export interface MobileNoteListProps {
 export function MobileNoteList({ ready, onOpen, onNew }: MobileNoteListProps) {
   const notes = useNotesStore((s) => s.notes);
   const notesQuery = useNotesStore((s) => s.notesQuery);
+  const notesSort = useNotesStore((s) => s.notesSort);
+  const notesTagKeys = useNotesStore((s) => s.notesTagKeys);
   const setNotesQuery = useNotesStore((s) => s.setNotesQuery);
   const routes = useNodeStore((s) => s.routes);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -109,11 +116,11 @@ export function MobileNoteList({ ready, onOpen, onNew }: MobileNoteListProps) {
   const activeQ = (notesQuery.query ?? "").trim();
   const routeById = (id: string | null) => (id ? (routes.find((r) => r.id === id) ?? null) : null);
 
-  /* 列表：月份分隔＋列 */
+  /* 列表：月份分隔＋列（跟著目前排序依據的時間戳分組） */
   const rows: ReactNode[] = [];
   let lastMonth = "";
   for (const n of notes) {
-    const day = dayKeyOf(n.noted_at, dayStartHour);
+    const day = dayKeyOf(noteTimestampOf(n, notesSort), dayStartHour);
     const mk = monthKey(day);
     if (mk !== lastMonth) {
       rows.push(
@@ -138,20 +145,20 @@ export function MobileNoteList({ ready, onOpen, onNew }: MobileNoteListProps) {
   );
 
   /** 一則都沒有、也沒在搜尋或篩選＝第一次空：空狀態給「＋ 新筆記」，上方那顆藏起來 */
-  const firstEmpty = ready && notes.length === 0 && !activeQ && !underNode && !filter;
+  const firstEmpty = ready && notes.length === 0 && !activeQ && !underNode && !filter && notesTagKeys.length === 0;
   let empty: ReactNode = null;
   if (ready && notes.length === 0) {
     if (activeQ)
       empty = (
         <EmptyState tone="nores" title={`找不到「${activeQ}」`} secondary={{ label: "清除搜尋", onClick: clearSearch }} />
       );
-    else if (underNode || filter)
+    else if (notesTagKeys.length > 0 || underNode || filter)
       empty = (
         <EmptyState
           tone="nores"
           stamp={null}
-          title={underNode ? "這裡還沒有筆記" : "這條路線還沒有筆記"}
-          secondary={{ label: "清除篩選", onClick: () => setFilter(undefined) }}
+          title={notesTagKeys.length > 0 ? "沒有符合篩選的筆記" : underNode ? "這裡還沒有筆記" : "這條路線還沒有筆記"}
+          secondary={{ label: "清除篩選", onClick: () => void useNotesStore.getState().clearNotesFilters() }}
         />
       );
     else
@@ -245,6 +252,20 @@ export function MobileNoteList({ ready, onOpen, onNew }: MobileNoteListProps) {
           </button>
         ))}
       </div>
+
+      <NotesFilterBar
+        shell="mobile"
+        sort={notesSort}
+        onSortChange={(s) => void useNotesStore.getState().setNotesSort(s)}
+        sortLabel="筆記排序"
+        selectedTagKeys={notesTagKeys}
+        onToggleTagKey={(k) => void useNotesStore.getState().toggleNotesTagKey(k)}
+        onClearTagKeys={() => void useNotesStore.getState().setNotesTagKeys([])}
+        entityTypes={NOTE_ENTITY_TYPES}
+        excludeKinds={DIARY_EXCLUDE_KINDS}
+        backId="notes.list.tags"
+        syncNotesOnTagChange
+      />
 
       {empty ?? (
         <>

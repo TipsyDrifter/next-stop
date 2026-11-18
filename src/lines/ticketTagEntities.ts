@@ -95,7 +95,7 @@ async function describeRepeats(ids: readonly string[]): Promise<Record<string, T
       open: () =>
         void runAtomicNav(() => {
           gotoTicket();
-          useTicketStore.getState().openDialog({ kind: "repeats" });
+          useTicketStore.getState().openDialog({ kind: "manage", tab: "repeats" });
         }),
     };
   }
@@ -132,7 +132,7 @@ async function describeTemplates(ids: readonly string[]): Promise<Record<string,
           open: () =>
             void runAtomicNav(() => {
               gotoTicket();
-              useTicketStore.getState().openDialog({ kind: "templates" });
+              useTicketStore.getState().openDialog({ kind: "manage", tab: "templates" });
             }),
         }
       : null;

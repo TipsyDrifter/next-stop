@@ -1,26 +1,15 @@
 /**
- * FilterChips——搜尋開著時的篩選 chips（②契約 §5.1 `.ns-tk-filters`、0-14；乙席）。長相照原型 filterRow()／popHtml()：
+ * FilterChips——清單視圖常駐篩選膠囊列與排序鈕（②契約 §5.1 `.ns-tk-filters`；v1.32 2B-2 常駐當月直篩＋跨月搜尋雙模）。
  *
- * UI 丙-5 A4（只搬位置）：整列從頁首裡面搬到頁首下一列 `.ns-tk-subbar` 的左邊（接在搜尋框後面）；
- *   排序 chip 搬到同一列的右端（`SortButton`，清單平常與搜尋中是同一顆）；「找到 N 筆 · 支出 X」摘要搬進頁首的 stats 行
- *   （TicketLedger 讀 `resultSummary`），這裡只留「清除」與沒條件時的淡字提示。
+ * 兩種運作語義（同一套膠囊與浮層）：
+ *   1. **當月直篩模式（`!searchOpen`）**：
+ *      在 `.ns-tk-subbar` 常駐顯示 `分類 ｜ 路線 ｜ 帳戶 ｜ #荷札 ｜ 類型 ｜ 期間`，點選前五項直接更新 `listFilter`／`filterAccountId`，
+ *      就地篩選當前瀏覽月份（DateNav 翻上／下個月自然沿用），列旁即時顯示篩選筆數／收支小計與「清除」鈕；
+ *      若點 `期間` 並選為「全部／今年／自訂」，才將既有條件無縫升格為跨月搜尋模式（`promoteListFilterToSearch`）。
+ *   2. **跨月搜尋模式（`searchOpen`）**：
+ *      讀寫 `store.filter`，支援關鍵字＋跨月區間查詢。
  *
- *   div.ns-tk-filters
- *   ├─ span.ns-tk-chipwrap × 5   button.ns-tk-fchip[.is-on]「期間 <b>10/1–10/31</b> ▾」→ 點開 div.ns-tk-pop.ns-tk-fpop 小浮層
- *   │     期間：快選「全部／本月／今年／自訂」＋自訂時兩顆日期 chip（DatePicker）
- *   │     帳戶：全部帳戶＋未封存帳戶（orderAccounts）＋「封存」分區
- *   │     分類：支出／收入兩棵可展開的樹（售票口④ 第二輪：不限層數）；勾一個＝含它底下所有分類（只存那一個 id）；底下的可單勾
- *   │     類型：支出／收入／轉帳／校正（多選）
- *   │     路線：任一條／未掛路線／各路線（roundel＋名）
- *   │     荷札（售票口④ D-票-74；原型 4-desktop-篩選）：有帳掛過的荷札攤平成一排（全路徑、父段淡字）＋「N 筆」；可多選＝掛了任一個就算；
- *   │       選父含子（store／domain 的 matchesTagFilter 判）。荷札 index 沒載就先載
- *   └─ 有條件 ⇒「清除」；沒有條件 ⇒ 淡字提示
- *
- * chip 上的值字取自 domain `filterChips`（與手機同一份字）。浮層鍵盤：↑↓ 移、Enter 選、Esc 收（自理，不漏給頁面鍵盤表）。
- *
- * 另 export `SortButton`：頁首下一列右端的「排序」（磨光⑥ 契約 §2-4；D-票-64）。日期・新到舊（預設，不亮）／日期・舊到新／
- *   金額・大到小／金額・小到大。一般清單選非預設 ⇒ 開搜尋、期間＝現在看的月份、套上那個排序（store.searchMonthSorted）；
- *   搜尋中 ⇒ 只換排序（chooseSort 兩條路都管）。
+ * 另 export `SortButton`：右端常駐「排序」（當月直篩寫 `listSort`，跨月搜尋寫 `resultSort`）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
@@ -37,6 +26,7 @@ import {
   categorySubtreeIds,
   monthOf,
   monthRange,
+  monthTitle,
   orderAccounts,
   type CategoryNode,
   type CategoryRow,
@@ -44,10 +34,12 @@ import {
 } from "../../../domain/ticket";
 import {
   DEFAULT_ENTRY_SORT,
+  EMPTY_FILTER,
   ENTRY_SORTS,
   ENTRY_SORT_TEXT,
   dayStep,
   filterChips,
+  hasInMonthFacets,
   isFilterActive,
   routeCtx,
   type EntryFilter,
@@ -58,21 +50,22 @@ import type { NodeRow } from "../../../domain/node";
 import type { TagIndex } from "../../../domain/tags";
 import { TK_TAG_ENTRY, tagNameOf } from "../../../domain/ticketTags";
 import { TkIcon, TkRoundel, acctLabel } from "../TicketLedger";
+import { focusTicketSearch } from "./SearchBar";
 import { chooseSort } from "./sortChoice";
 import { CatTreeRow, ancestorIds, findNode, useCatOpen, visibleNodes } from "./catTree";
 
-type ChipKey = "period" | "acct" | "cat" | "kind" | "route" | "tag";
+type ChipKey = "cat" | "route" | "acct" | "tag" | "kind" | "period";
 
 const CHIPS: readonly { key: ChipKey; label: string; field: keyof EntryFilter }[] = [
-  { key: "period", label: "期間", field: "from" },
-  { key: "acct", label: "帳戶", field: "accountId" },
   { key: "cat", label: "分類", field: "categoryIds" },
-  { key: "kind", label: "類型", field: "kinds" },
   { key: "route", label: "路線", field: "routeId" },
-  { key: "tag", label: "荷札", field: "tagKeys" },
+  { key: "acct", label: "帳戶", field: "accountId" },
+  { key: "tag", label: "#荷札", field: "tagKeys" },
+  { key: "kind", label: "類型", field: "kinds" },
+  { key: "period", label: "期間", field: "from" },
 ];
 
-const KINDS: readonly { k: EntryKind; label: string }[] = [
+export const FILTER_KINDS: readonly { k: EntryKind; label: string }[] = [
   { k: "expense", label: "支出" },
   { k: "income", label: "收入" },
   { k: "transfer", label: "轉帳" },
@@ -95,7 +88,7 @@ function useOutside(ref: RefObject<HTMLElement | null>, onClose: () => void): vo
   }, [ref, onClose]);
 }
 
-/** 小浮層（TicketPanel 的 Pop 同一套鍵：焦點落在選中項、↑↓ 移、Esc 收；多選的浮層 Enter 不收） */
+/** 小浮層（焦點落在選中項、↑↓ 移、Esc 收；多選的浮層 Enter 不收） */
 function FPop({ label, onClose, tall, children }: { label: string; onClose(): void; tall?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose);
@@ -120,7 +113,7 @@ function FPop({ label, onClose, tall, children }: { label: string; onClose(): vo
     } else if (e.key !== "Tab" && e.key !== "Enter") {
       return;
     }
-    e.stopPropagation(); // ↑↓／Enter／Esc／Tab 不漏給 useTicketKeyboard
+    e.stopPropagation();
   };
   return (
     <div ref={ref} className={"ns-tk-pop ns-tk-fpop" + (tall ? " is-tall" : "")} role="dialog" aria-label={label} onKeyDown={onKeyDown}>
@@ -141,16 +134,18 @@ function Opt({ on, onPick, children, className }: { on: boolean; onPick(): void;
 
 type PeriodMode = "all" | "month" | "year" | "custom";
 
-function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
+function PeriodPop({ f, searchOpen, onClose }: { f: EntryFilter; searchOpen: boolean; onClose(): void }) {
+  const month = useTicketStore((s) => s.month);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
-  const m = monthRange(monthOf(today));
+  const curMonthRange = monthRange(searchOpen ? monthOf(today) : month);
   const y = today.slice(0, 4);
   const yr = { from: `${y}-01-01`, toExcl: `${Number(y) + 1}-01-01` };
-  const auto: PeriodMode =
-    f.from === null && f.toExcl === null
+  const auto: PeriodMode = !searchOpen
+    ? "month"
+    : f.from === null && f.toExcl === null
       ? "all"
-      : f.from === m.from && f.toExcl === m.toExcl
+      : f.from === curMonthRange.from && f.toExcl === curMonthRange.toExcl
         ? "month"
         : f.from === yr.from && f.toExcl === yr.toExcl
           ? "year"
@@ -158,14 +153,29 @@ function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
   const [custom, setCustom] = useState(auto === "custom");
   const mode: PeriodMode = custom ? "custom" : auto;
   const [pick, setPick] = useState<"from" | "to" | null>(null);
-  const patch = (p: Partial<EntryFilter>) => void useTicketStore.getState().patchFilter(p);
-  const from = f.from ?? m.from;
+  const applyCrossMonth = (p: Partial<EntryFilter>) => {
+    const st = useTicketStore.getState();
+    if (st.searchOpen) {
+      void st.patchFilter(p);
+      return;
+    }
+    // 當月直篩若選「全部」但尚未設任何分類／路線／帳戶／荷札條件，開搜尋框讓使用者打字找全部期間
+    const hasAnyFacet = hasInMonthFacets(st.listFilter) || st.filterAccountId !== null;
+    if (p.from === null && p.toExcl === null && !hasAnyFacet) {
+      st.openSearch();
+      focusTicketSearch();
+      onClose();
+      return;
+    }
+    void st.promoteListFilterToSearch(p);
+  };
+  const from = f.from ?? curMonthRange.from;
   const toIncl = f.toExcl !== null ? dayStep(f.toExcl, -1) : today;
 
   const quick: readonly [PeriodMode, string][] = [
-    ["all", "全部"],
-    ["month", "本月"],
+    ["month", searchOpen ? "本月" : `當月（${Number(month.slice(5, 7))}月）`],
     ["year", "今年"],
+    ["all", "全部"],
     ["custom", "自訂"],
   ];
   return (
@@ -180,10 +190,14 @@ function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
             onClick={() => {
               setCustom(k === "custom");
               setPick(null);
-              if (k === "all") patch({ from: null, toExcl: null });
-              else if (k === "month") patch(m);
-              else if (k === "year") patch(yr);
-              else if (f.from === null && f.toExcl === null) patch({ from: m.from, toExcl: dayStep(today, 1) });
+              if (k === "month") {
+                if (searchOpen) void useTicketStore.getState().patchFilter(curMonthRange);
+                else onClose();
+              } else if (k === "all") applyCrossMonth({ from: null, toExcl: null });
+              else if (k === "year") applyCrossMonth(yr);
+              else if (!searchOpen || (f.from === null && f.toExcl === null)) {
+                applyCrossMonth({ from: curMonthRange.from, toExcl: dayStep(today, 1) });
+              }
             }}
           >
             {label}
@@ -206,7 +220,7 @@ function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
                 max={toIncl}
                 onPick={(d) => {
                   setPick(null);
-                  patch({ from: d, toExcl: f.toExcl ?? dayStep(toIncl, 1) });
+                  applyCrossMonth({ from: d, toExcl: f.toExcl ?? dayStep(toIncl, 1) });
                 }}
                 onClose={() => setPick(null)}
               />
@@ -227,7 +241,7 @@ function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
                 min={from}
                 onPick={(d) => {
                   setPick(null);
-                  patch({ from, toExcl: dayStep(d, 1) });
+                  applyCrossMonth({ from, toExcl: dayStep(d, 1) });
                 }}
                 onClose={() => setPick(null)}
               />
@@ -235,17 +249,21 @@ function PeriodPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
           </span>
         </div>
       )}
-      <p className="ns-tk-pop-note">預設搜尋全部月份</p>
+      <p className="ns-tk-pop-note">
+        {searchOpen ? "預設搜尋全部月份" : `目前就地篩選 ${monthTitle(month)}；選今年／全部／自訂展開跨月查詢`}
+      </p>
     </FPop>
   );
 }
 
-function AcctPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
+function AcctPop({ f, searchOpen, onClose }: { f: EntryFilter; searchOpen: boolean; onClose(): void }) {
   const accounts = useTicketStore((s) => s.accounts);
   const live = orderAccounts(accounts.filter((a) => a.deleted_at === null && a.archived_at === null));
   const archived = orderAccounts(accounts.filter((a) => a.deleted_at === null && a.archived_at !== null));
   const pick = (id: string | null) => {
-    void useTicketStore.getState().patchFilter({ accountId: id });
+    const st = useTicketStore.getState();
+    if (searchOpen) void st.patchFilter({ accountId: id });
+    else void st.setFilter(id);
     onClose();
   };
   return (
@@ -275,17 +293,46 @@ function AcctPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
 }
 
 /**
- * 分類浮層（售票口④ 第二輪 D-票-78：不限層數）：支出／收入兩棵可展開的樹（catTree；› 展開、→／← 鍵盤）。
- * 勾一個分類＝含它底下所有分類（只存那一個 id；勾下去時把它底下已勾的拿掉，免得重複）；底下的列跟著亮。
- * 祖先勾著時點底下某一列＝「除了它都要」：拿掉祖先，改勾從祖先到它這一路上每一層的其他兄弟（推廣自兩層時的「拆成其他子分類各自勾」）。
- * 打開時展開到看得見每個已勾的分類。
+ * 分類樹多選邏輯（桌機浮層與手機抽屜共用）：
+ * 勾一個分類＝含它底下所有分類（只存那一個 id）；祖先勾著時點底下某一列＝拆成其他兄弟各自勾。
  */
-function CatPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
+export function toggleCategoryPick(
+  sel: readonly string[],
+  n: CategoryNode,
+  categories: readonly CategoryRow[],
+  catById: Readonly<Record<string, CategoryRow>>,
+  forests: { expense: CategoryNode[]; income: CategoryNode[] },
+): string[] {
+  const up = ancestorIds(n.cat, catById);
+  let above: string | null = null;
+  for (let i = up.length - 1; i >= 0; i--) {
+    if (sel.indexOf(up[i]) >= 0) {
+      above = up[i];
+      break;
+    }
+  }
+  const id = n.cat.id;
+  if (above) {
+    const forest = forests[n.cat.kind];
+    const path = categoryPath(n.cat, catById).map((c) => c.id);
+    const adds: string[] = [];
+    for (let k = path.indexOf(above); k >= 0 && k < path.length - 1; k++) {
+      const kids = findNode(forest, path[k])?.children ?? [];
+      for (const kid of kids) if (kid.cat.id !== path[k + 1]) adds.push(kid.cat.id);
+    }
+    return [...sel.filter((x) => x !== above), ...adds];
+  }
+  if (sel.indexOf(id) >= 0) return sel.filter((x) => x !== id);
+  const under = new Set(categorySubtreeIds(id, categories));
+  return [...sel.filter((x) => !under.has(x)), id];
+}
+
+function CatPop({ f, onPatch, onClose }: { f: EntryFilter; onPatch(p: Partial<EntryFilter>): void; onClose(): void }) {
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
   const sel = f.categoryIds;
   const [open, toggle] = useCatOpen(() => sel.flatMap((id) => ancestorIds(catById[id], catById)));
-  const set = (ids: string[]) => void useTicketStore.getState().patchFilter({ categoryIds: ids });
+  const set = (ids: string[]) => onPatch({ categoryIds: ids });
   const forests = useMemo(
     () => ({
       expense: categoryForest(categories, "expense", { includeArchived: false }),
@@ -293,40 +340,17 @@ function CatPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
     }),
     [categories],
   );
-  /** 勾著的祖先（最靠近的那一個；沒有＝null） */
   const pickedAbove = (c: CategoryRow): string | null => {
     const up = ancestorIds(c, catById);
     for (let i = up.length - 1; i >= 0; i--) if (sel.indexOf(up[i]) >= 0) return up[i];
     return null;
-  };
-  const togglePick = (n: CategoryNode) => {
-    const id = n.cat.id;
-    const above = pickedAbove(n.cat);
-    if (above) {
-      // 祖先勾著（＝這一列也算在內）⇒ 拆開：祖先拿掉，從祖先到它這一路上每一層的其他兄弟各自勾
-      const forest = forests[n.cat.kind];
-      const path = categoryPath(n.cat, catById).map((c) => c.id);
-      const adds: string[] = [];
-      for (let k = path.indexOf(above); k >= 0 && k < path.length - 1; k++) {
-        const kids = findNode(forest, path[k])?.children ?? [];
-        for (const kid of kids) if (kid.cat.id !== path[k + 1]) adds.push(kid.cat.id);
-      }
-      set([...sel.filter((x) => x !== above), ...adds]);
-      return;
-    }
-    if (sel.indexOf(id) >= 0) {
-      set(sel.filter((x) => x !== id));
-      return;
-    }
-    const under = new Set(categorySubtreeIds(id, categories));
-    set([...sel.filter((x) => !under.has(x)), id]);
   };
   const tree = (kind: "expense" | "income") =>
     visibleNodes(forests[kind], open).map((n) => {
       const on = sel.indexOf(n.cat.id) >= 0 || pickedAbove(n.cat) !== null;
       return (
         <CatTreeRow key={n.cat.id} node={n} open={open.has(n.cat.id)} onToggle={toggle}>
-          <Opt on={on} onPick={() => togglePick(n)}>
+          <Opt on={on} onPick={() => set(toggleCategoryPick(sel, n, categories, catById, forests))}>
             {isUncat(n.cat.id) ? <span className="unc">未分類</span> : <span className="t">{n.cat.name}</span>}
             {n.children.length > 0 && <span className="r">{n.children.length} 個子分類</span>}
           </Opt>
@@ -342,21 +366,22 @@ function CatPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
       <p className="ns-tk-pop-note">勾一個分類會包含它底下所有分類{sel.length > 0 && " · "}</p>
       {sel.length > 0 && (
         <Opt on={false} onPick={() => set([])} className="is-quiet">
-          清除分類</Opt>
+          清除分類
+        </Opt>
       )}
     </FPop>
   );
 }
 
-function KindPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
+function KindPop({ f, onPatch, onClose }: { f: EntryFilter; onPatch(p: Partial<EntryFilter>): void; onClose(): void }) {
   const toggle = (k: EntryKind) => {
     const has = f.kinds.indexOf(k) >= 0;
-    void useTicketStore.getState().patchFilter({ kinds: has ? f.kinds.filter((x) => x !== k) : [...f.kinds, k] });
+    onPatch({ kinds: has ? f.kinds.filter((x) => x !== k) : [...f.kinds, k] });
   };
   return (
     <FPop label="類型" onClose={onClose}>
       <p className="hd">類型（可多選）</p>
-      {KINDS.map(({ k, label }) => (
+      {FILTER_KINDS.map(({ k, label }) => (
         <Opt key={k} on={f.kinds.indexOf(k) >= 0} onPick={() => toggle(k)}>
           {label}
         </Opt>
@@ -365,9 +390,19 @@ function KindPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
   );
 }
 
-function RoutePop({ f, onClose, routes }: { f: EntryFilter; onClose(): void; routes: readonly NodeRow[] }) {
+function RoutePop({
+  f,
+  onPatch,
+  onClose,
+  routes,
+}: {
+  f: EntryFilter;
+  onPatch(p: Partial<EntryFilter>): void;
+  onClose(): void;
+  routes: readonly NodeRow[];
+}) {
   const pick = (id: string | null | "none") => {
-    void useTicketStore.getState().patchFilter({ routeId: id });
+    onPatch({ routeId: id });
     onClose();
   };
   const live = routes.filter((r) => r.deleted_at === null);
@@ -375,7 +410,8 @@ function RoutePop({ f, onClose, routes }: { f: EntryFilter; onClose(): void; rou
     <FPop label="路線" onClose={onClose}>
       <p className="hd">路線</p>
       <Opt on={f.routeId === null} onPick={() => pick(null)}>
-        全部路線</Opt>
+        全部路線
+      </Opt>
       <Opt on={f.routeId === "none"} onPick={() => pick("none")}>
         <TkRoundel route={null} />
         未選路線
@@ -392,7 +428,7 @@ function RoutePop({ f, onClose, routes }: { f: EntryFilter; onClose(): void; rou
 }
 
 /** 荷札篩選的選項：樹的先序（父在子前），只列有帳掛過（含子孫）或已勾的；n＝掛了它（含子孫）的帳數（同一筆只算一次） */
-function tagOptions(idx: TagIndex, sel: readonly string[]): { key: string; name: string; n: number }[] {
+export function tagFilterOptions(idx: TagIndex, sel: readonly string[]): { key: string; name: string; n: number }[] {
   const count: Record<string, number> = {};
   for (const e of idx.ents) {
     if (e.type !== TK_TAG_ENTRY) continue;
@@ -407,22 +443,22 @@ function tagOptions(idx: TagIndex, sel: readonly string[]): { key: string; name:
     const node = idx.byKey[key];
     if (!node) return;
     const n = count[key] ?? 0;
-    if (n > 0 || sel.indexOf(key) >= 0) out.push({ key, name: node.name, n }); // 虛資料夾（只在路徑中段）也列：勾它＝底下全部
+    if (n > 0 || sel.indexOf(key) >= 0) out.push({ key, name: node.name, n });
     node.children.forEach(walk);
   };
   idx.roots.forEach(walk);
   return out;
 }
 
-function TagPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
+function TagPop({ f, onPatch, onClose }: { f: EntryFilter; onPatch(p: Partial<EntryFilter>): void; onClose(): void }) {
   const index = useTagStore((s) => s.index);
   useEffect(() => {
     const st = useTagStore.getState();
     if (!st.index && !st.loading) void st.loadIndex();
   }, []);
   const sel = f.tagKeys ?? [];
-  const set = (keys: string[]) => void useTicketStore.getState().patchFilter({ tagKeys: keys });
-  const opts = useMemo(() => (index ? tagOptions(index, sel) : []), [index, sel]);
+  const set = (keys: string[]) => onPatch({ tagKeys: keys });
+  const opts = useMemo(() => (index ? tagFilterOptions(index, sel) : []), [index, sel]);
   return (
     <FPop label="荷札" onClose={onClose} tall>
       <p className="hd">荷札（可多選）</p>
@@ -460,7 +496,7 @@ function TagPop({ f, onClose }: { f: EntryFilter; onClose(): void }) {
   );
 }
 
-/* ───────── 排序（磨光⑥ 契約 §2-4；D-票-64） ───────── */
+/* ───────── 排序（磨光⑥ 契約 §2-4；v1.32 2B-2 當月就地排序） ───────── */
 
 function SortPop({ current, onClose }: { current: EntrySort; onClose(): void }) {
   return (
@@ -482,15 +518,15 @@ function SortPop({ current, onClose }: { current: EntrySort; onClose(): void }) 
   );
 }
 
-/** 頁首下一列右端的「排序」：一般清單永遠是日期・新到舊（選別的 ⇒ 開這個月的搜尋）；搜尋中＝結果的排序 */
+/** 頁首下一列右端的「排序」：當月直篩讀 `listSort`、跨月搜尋讀 `resultSort` */
 export function SortButton() {
   const searchOpen = useTicketStore((s) => s.searchOpen);
   const resultSort = useTicketStore((s) => s.resultSort);
-  const current = searchOpen ? resultSort : DEFAULT_ENTRY_SORT;
+  const listSort = useTicketStore((s) => s.listSort);
+  const current = searchOpen ? resultSort : listSort;
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const btn = useRef<HTMLButtonElement>(null);
-  // Esc 收起時焦點若掉到 body ⇒ 還給鈕（同 chips）；選了排序會換成搜尋畫面、鈕卸載，交給 TicketLedger 的焦點補位
   const wasOpen = useRef(false);
   useEffect(() => {
     const prev = wasOpen.current;
@@ -525,24 +561,30 @@ export function SortButton() {
 
 /* ───────── chips 列 ───────── */
 
-export function FilterChips() {
+export function FilterChips({ inMonthSummary }: { inMonthSummary?: string | null }) {
   const searchOpen = useTicketStore((s) => s.searchOpen);
   const filter = useTicketStore((s) => s.filter);
+  const listFilter = useTicketStore((s) => s.listFilter);
+  const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
   const routes = useNodeStore((s) => s.routes);
   const tagIndex = useTagStore((s) => s.index);
+
+  const effectiveFilter: EntryFilter = useMemo(
+    () => (searchOpen ? filter : { ...listFilter, accountId: listFilter.accountId ?? filterAccountId }),
+    [searchOpen, filter, listFilter, filterAccountId],
+  );
+
   const ctx: ViewCtx = useMemo(
     () => ({ accById, catById, curByCode, ...routeCtx(routes), tagName: tagNameOf(tagIndex) }),
     [accById, catById, curByCode, routes, tagIndex],
   );
   const [pop, setPop] = useState<ChipKey | null>(null);
   const close = useCallback(() => setPop(null), []);
-  useEffect(() => {
-    if (!searchOpen) setPop(null);
-  }, [searchOpen]);
-  // 浮層收起（Esc、單選挑完）時焦點若掉到 body ⇒ 還給那顆 chip（鍵盤接得下去；點外面收起時焦點已在別處，不搶）
+
+  // 浮層收起時焦點若掉到 body ⇒ 還給那顆 chip
   const lastPop = useRef<ChipKey | null>(null);
   useEffect(() => {
     const prev = lastPop.current;
@@ -555,13 +597,25 @@ export function FilterChips() {
     });
     return () => clearTimeout(t);
   }, [pop]);
-  if (!searchOpen) return null;
 
-  // chip 上的值：domain filterChips 的字去掉欄名前綴（「未掛路線」本身就是值）
+  const onPatch = useCallback(
+    (p: Partial<EntryFilter>) => {
+      const st = useTicketStore.getState();
+      if (st.searchOpen) void st.patchFilter(p);
+      else void st.patchListFilter(p);
+    },
+    [],
+  );
+
   const vals: Partial<Record<keyof EntryFilter, string>> = {};
-  for (const c of filterChips(filter, ctx)) vals[c.key] = c.label.replace(/^(期間|帳戶|分類|類型|路線|荷札) #?/, "");
-  const routeVal = filter.routeId !== null && filter.routeId !== "none" ? routes.find((r) => r.id === filter.routeId) : undefined;
-  const active = isFilterActive(filter);
+  for (const c of filterChips(effectiveFilter, ctx)) {
+    vals[c.key] = c.label.replace(/^(期間|帳戶|分類|類型|路線|荷札) #?/, "");
+  }
+  const routeVal =
+    effectiveFilter.routeId !== null && effectiveFilter.routeId !== "none"
+      ? routes.find((r) => r.id === effectiveFilter.routeId)
+      : undefined;
+  const searchActive = searchOpen && isFilterActive(filter);
 
   return (
     <div className="ns-tk-filters" role="group" aria-label="篩選">
@@ -592,27 +646,43 @@ export function FilterChips() {
               )}
               <TkIcon name="caret" size={10} />
             </button>
-            {pop === "period" && c.key === "period" && <PeriodPop f={filter} onClose={close} />}
-            {pop === "acct" && c.key === "acct" && <AcctPop f={filter} onClose={close} />}
-            {pop === "cat" && c.key === "cat" && <CatPop f={filter} onClose={close} />}
-            {pop === "kind" && c.key === "kind" && <KindPop f={filter} onClose={close} />}
-            {pop === "route" && c.key === "route" && <RoutePop f={filter} onClose={close} routes={routes} />}
-            {pop === "tag" && c.key === "tag" && <TagPop f={filter} onClose={close} />}
+            {pop === "period" && c.key === "period" && <PeriodPop f={effectiveFilter} searchOpen={searchOpen} onClose={close} />}
+            {pop === "acct" && c.key === "acct" && <AcctPop f={effectiveFilter} searchOpen={searchOpen} onClose={close} />}
+            {pop === "cat" && c.key === "cat" && <CatPop f={effectiveFilter} onPatch={onPatch} onClose={close} />}
+            {pop === "kind" && c.key === "kind" && <KindPop f={effectiveFilter} onPatch={onPatch} onClose={close} />}
+            {pop === "route" && c.key === "route" && <RoutePop f={effectiveFilter} onPatch={onPatch} onClose={close} routes={routes} />}
+            {pop === "tag" && c.key === "tag" && <TagPop f={effectiveFilter} onPatch={onPatch} onClose={close} />}
           </span>
         );
       })}
-      {active ? (
-        <button
-          type="button"
-          className="ns-btn ns-btn--sm btn-text ns-tk-btn ns-tk-fclear"
-          title="清除全部條件"
-          onClick={() => void useTicketStore.getState().patchFilter({ text: "", from: null, toExcl: null, accountId: null, categoryIds: [], kinds: [], routeId: null, tagKeys: [] })}
-        >
-          清除
-        </button>
-      ) : (
-        <span className="ns-tk-found is-hint">打字或選條件就會開始找（預設找全部期間）</span>
-      )}
+      {searchOpen ? (
+        searchActive ? (
+          <button
+            type="button"
+            className="ns-btn ns-btn--sm btn-text ns-tk-btn ns-tk-fclear"
+            title="清除全部條件"
+            onClick={() => void useTicketStore.getState().patchFilter(EMPTY_FILTER)}
+          >
+            清除
+          </button>
+        ) : (
+          <span className="ns-tk-found is-hint">打字或選條件就會開始找（預設找全部期間）</span>
+        )
+      ) : inMonthSummary ? (
+        <>
+          <span className="ns-tk-found" role="status">
+            {inMonthSummary}
+          </span>
+          <button
+            type="button"
+            className="ns-btn ns-btn--sm btn-text ns-tk-btn ns-tk-fclear"
+            title="清除當月篩選與排序"
+            onClick={() => useTicketStore.getState().clearListFilter()}
+          >
+            清除
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }

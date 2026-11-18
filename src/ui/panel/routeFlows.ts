@@ -107,6 +107,8 @@ export interface NewRouteInput {
   color: string;
   /** 已正規化（routeFlowRules.codeValue）；null＝不設 */
   code: string | null;
+  /** 選填描述（routeFlowRules.descriptionValue）；省略或 null＝不設 */
+  description?: string | null;
 }
 
 /** 新增路線並直接切過去（接著就能鋪軌）；失敗回 null */
@@ -117,6 +119,7 @@ export async function createRoute(input: NewRouteInput): Promise<NodeRow | null>
     parentId: input.lineId,
     color: input.color,
     code: input.code,
+    description: input.description ?? null,
   });
   if (row) switchRouteNow(row.id);
   return row;

@@ -27,12 +27,22 @@ import { Choice } from "./Choice";
 import { moveRouteToLine } from "./moveRouteToLine";
 import { requestDeleteRoute } from "./routeFlows";
 import { requestArrive, requestDepart } from "./arrivalFlows";
-import { codeInput, codeTakenByOther, codeTakenNote, codeValue } from "./routeFlowRules";
+import {
+  NULL_ROUTE_COLOR_INDEX,
+  ROUTE_CODE_MAX,
+  ROUTE_CODE_PLACEHOLDER,
+  ROUTE_DESC_PLACEHOLDER,
+  codeInput,
+  codeTakenByOther,
+  codeTakenNote,
+  codeValue,
+  descriptionValue,
+} from "./routeFlowRules";
 import { StationList } from "./StationList";
 import { LineRows } from "./TaskFields";
 
 /** null 色＝第 4 色（利休鼠）——書封 roundel 與票頭都這樣畫 */
-const NULL_ROUTE_COLOR = routePresetColor(4);
+const NULL_ROUTE_COLOR = routePresetColor(NULL_ROUTE_COLOR_INDEX);
 
 export function RoutePanel({ route }: { route: NodeRow }) {
   const updateNode = useNodeStore((s) => s.updateNode);
@@ -93,9 +103,9 @@ export function RoutePanel({ route }: { route: NodeRow }) {
               onCommit={(v) => void updateNode(route.id, { code: codeValue(v) })}
               transform={codeInput}
               onDraftChange={setCodeDraft}
-              attrs={{ maxLength: 4, spellCheck: false, autoCapitalize: "characters" }}
+              attrs={{ maxLength: ROUTE_CODE_MAX, spellCheck: false, autoCapitalize: "characters" }}
               ariaLabel="路線代碼"
-              placeholder="如 E1"
+              placeholder={ROUTE_CODE_PLACEHOLDER}
               className="code"
             />
             {codeTaken && <p className="ns-note mt-1.5">{codeTakenNote(codeDraft)}</p>}
@@ -129,9 +139,9 @@ export function RoutePanel({ route }: { route: NodeRow }) {
         <FieldRow label="描述" top>
           <CommitTextarea
             value={route.description ?? ""}
-            onCommit={(v) => void updateNode(route.id, { description: v || null })}
+            onCommit={(v) => void updateNode(route.id, { description: descriptionValue(v) })}
             ariaLabel="路線說明"
-            placeholder="這條路線通往哪裡……"
+            placeholder={ROUTE_DESC_PLACEHOLDER}
           />
         </FieldRow>
 

@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import { groupAccounts, type AccountRow } from "../../../domain/ticket";
+import { IconPlus } from "../../common/icons";
 import { ManagerList, ManagerRow } from "../../common/ManagerRow";
 import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
 import { acctLabel } from "../TicketLedger";
@@ -20,6 +21,7 @@ import { acctLabel } from "../TicketLedger";
 // onDone 仍是兩個宿主共用的 props 介面，本體不再呼叫。
 export function AccountOrder(_props: { onDone(): void }) {
   const accounts = useTicketStore((s) => s.accounts);
+  const openDialog = useTicketStore((s) => s.openDialog);
   const groups = groupAccounts(accounts);
 
   return (
@@ -34,6 +36,16 @@ export function AccountOrder(_props: { onDone(): void }) {
           </section>
         ))
       )}
+      <div className="ns-tk-dorder-foot">
+        <button
+          type="button"
+          className="ns-btn btn-text ns-btn--sm ns-tk-dorder-add"
+          onClick={() => openDialog({ kind: "newAccount" })}
+        >
+          <IconPlus size={13} />
+          新增帳戶
+        </button>
+      </div>
     </div>
   );
 }

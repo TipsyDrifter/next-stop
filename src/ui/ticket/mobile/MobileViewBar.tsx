@@ -76,7 +76,7 @@ export function useViewSwipe(ref: RefObject<HTMLElement | null>): void {
     const down = (e: PointerEvent) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest("input, textarea, [contenteditable], .ns-tk-mst-trend")) return;
+      if (t?.closest("input, textarea, [contenteditable], .ns-tk-mst-trend, .ns-tk-m-fbar")) return;
       const w = window.innerWidth;
       if (e.clientX < EDGE_PX || e.clientX > w - EDGE_PX) return;
       sx = e.clientX;

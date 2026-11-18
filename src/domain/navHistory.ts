@@ -106,6 +106,15 @@ export function timetableSheetKey(sheet: TimetableSheet): string {
 
 export function ticketDialogKey(dialog: TicketDialog): string {
   switch (dialog.kind) {
+    case "manage":
+      return `tkDialog:manage:${dialog.tab ?? "categories"}`;
+    case "categories":
+    case "accountOrder":
+    case "budgets":
+    case "repeats":
+    case "templates":
+    case "currencies":
+      return `tkDialog:manage:${dialog.kind}`;
     case "repeat":
       return `tkDialog:repeat:${dialog.id ?? "new"}`;
     case "saveTemplate":

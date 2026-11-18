@@ -18,10 +18,8 @@
   border-color: var(--color-line);
   box-shadow: var(--shadow-card-hover), inset 0 1px 0 rgba(var(--starlight), .09); /* 字面值：月光上緣高光（同 .ns-datepick.float） */
 }
-.ns-timepick-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.ns-timepick-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
 .ns-timepick-label { font-size: 10px; letter-spacing: .28em; color: var(--ink-mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } /* 字面值：小標 10px（同 .ns-datepick-label） */
-.ns-timepick-read { flex: none; font-family: var(--font-latin); font-weight: 600; font-size: 18px; letter-spacing: .04em; font-variant-numeric: tabular-nums; color: var(--color-ink); line-height: 1; } /* 字面值：讀數 18px；挑選器裡的唯一大字，不入字階 */
-.ns-timepick-read small { margin-left: 6px; font-family: var(--font-body); font-weight: 500; font-size: 10.5px; letter-spacing: .06em; color: var(--late); } /* 字面值：同時刻框說明行跨天赭字 */
 .ns-timepick-now { margin-left: auto; flex: none; }
 .ns-timepick-foot { display: flex; justify-content: flex-end; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--color-dash); }
 .ns-timepick-done {
@@ -31,10 +29,53 @@
 .ns-timepick-done:hover { color: var(--color-ink); background: var(--hover-bg); }
 .ns-timepick-done:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
-/* ═══ 錶盤 ═══ */
+/* ═══ 錶盤頂部互動數位標頭 [HH] : [MM]（v1.32 2A-1） ═══ */
 .ns-dial-wrap { display: grid; justify-items: center; gap: var(--sp-2); }
 .ns-dial-wrap.is-desk { --dial: 220px; }
 .ns-dial-wrap.is-mobile { --dial: 280px; gap: var(--sp-3); }
+.ns-dial-head {
+  display: inline-flex; align-items: baseline; justify-content: center; gap: var(--sp-1);
+  min-height: var(--ctl-h);
+}
+.ns-dial-head.is-shake { animation: ns-dial-shake calc(var(--dur) + var(--dur-slow)) var(--ease) both; }
+@keyframes ns-dial-shake {
+  0% { transform: translateX(0); } 16% { transform: translateX(-5px); } 34% { transform: translateX(4px); }
+  52% { transform: translateX(-3px); } 70% { transform: translateX(2px); } 100% { transform: translateX(0); }
+}
+.ns-dial-seg {
+  appearance: none; padding: 2px 8px; border: 0; border-bottom: 2px solid transparent; border-radius: var(--radius-ctl);
+  background: transparent; color: var(--color-ink-soft); cursor: pointer;
+  font-family: var(--font-latin); font-size: var(--fs-title); font-weight: 600; font-variant-numeric: tabular-nums;
+  letter-spacing: .04em; line-height: 1.2;
+  transition: color var(--dur-fast) var(--ease-soft), background-color var(--dur-fast) var(--ease-soft), border-color var(--dur-fast) var(--ease-soft);
+}
+.ns-dial-seg:hover { color: var(--color-ink); background: var(--hover-bg); }
+.ns-dial-seg.is-on { color: var(--sel-fg); background: var(--sel-bg); border-bottom-color: var(--accent); }
+.ns-dial-seg:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-dial-sep {
+  font-family: var(--font-latin); font-size: var(--fs-h3); font-weight: 600; color: var(--color-ink-faint);
+  user-select: none;
+}
+.ns-dial-daytag {
+  margin-left: var(--sp-1); padding: 1px 6px; border-radius: var(--radius-ctl);
+  background: var(--danger-bg); color: var(--late); align-self: center;
+  font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 500; letter-spacing: .06em; line-height: 1.4;
+}
+.techo-input.ns-dial-in {
+  box-sizing: border-box; width: 100px; min-height: var(--ctl-h); padding: 2px 6px;
+  text-align: center; caret-color: var(--accent);
+  font-family: var(--font-latin); font-size: var(--fs-title); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .04em;
+  background: var(--sel-bg); border-bottom-color: var(--accent); border-radius: var(--radius-ctl) var(--radius-ctl) 0 0;
+}
+.ns-dial-head.is-bad .techo-input.ns-dial-in { color: var(--late); border-bottom-color: var(--late); background: var(--danger-bg); }
+.ns-dial-err {
+  font-size: var(--fs-xs); color: var(--late); letter-spacing: .04em; line-height: 1.3; text-align: center;
+}
+.ns-dial-wrap.is-mobile .ns-dial-seg,
+.ns-dial-wrap.is-mobile .techo-input.ns-dial-in { min-height: var(--ctl-h-sm); font-size: var(--fs-display); }
+.ns-dial-wrap.is-mobile .techo-input.ns-dial-in { width: 116px; }
+
+/* ═══ 錶盤圓面 ═══ */
 .ns-dial {
   position: relative; box-sizing: border-box; width: min(var(--dial), 100%); aspect-ratio: 1; border-radius: 50%; cursor: pointer;
   touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; outline: none;
@@ -58,9 +99,11 @@
 .ns-dial-n.is-off { opacity: var(--disabled); cursor: not-allowed; }
 .ns-dial-wrap.is-mobile .ns-dial-n { font-size: var(--fs-ui); }
 .ns-dial-wrap.is-mobile .ns-dial-n.is-inner { font-size: var(--fs-sm); }
-.ns-dial-mode { display: flex; justify-content: center; }
-.ns-dial-wrap.is-mobile .ns-dial-mode { width: min(var(--dial), 100%); }
-.ns-dial-wrap.is-mobile .ns-dial-mode > * { flex: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ns-dial-head.is-shake { animation: none; }
+  .ns-dial-seg { transition: none; }
+}
 
 /* ═══ 手機：sheet 內容（殼＝common MSheet）═══
  * 同手機選日期：整張就是這個錶盤，不該捲，初始高放寬到 90%（§2.4 例外；仍跟內容走） */

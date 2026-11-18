@@ -25,9 +25,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNotesStore, type NotesSection } from "../../store/notesStore";
 import { useUiStore } from "../../store/uiStore";
 import { addDays, todayKey } from "../../lib/date";
+import { buildInboxItems } from "../../domain/notesFilter";
 import {
   NotesInbox,
-  inboxItemsOf,
   refOf,
   type InboxItem,
   type InboxOp,
@@ -53,11 +53,15 @@ export function NotesView() {
   const inboxNotes = useNotesStore((s) => s.inboxNotes);
   const inboxTickets = useNotesStore((s) => s.inboxTickets);
   const inboxKind = useNotesStore((s) => s.inboxKind);
+  const inboxSort = useNotesStore((s) => s.inboxSort);
+  const inboxTagKeys = useNotesStore((s) => s.inboxTagKeys);
   const inboxSelected = useNotesStore((s) => s.inboxSelected);
   const uiSelectedId = useUiStore((s) => s.selectedId);
   const notesCount = useNotesStore((s) => s.notes.length);
   const notesTotal = useNotesStore((s) => s.notesTotal);
   const notesQuery = useNotesStore((s) => s.notesQuery);
+  const notesTagKeys = useNotesStore((s) => s.notesTagKeys);
+  const tagIndex = useTagStore((s) => s.index);
 
   const [pop, setPop] = useState<Pop | null>(null);
   /** 進頁那一趟載入回來了沒（store 沒有「已載入」旗標）：沒回來前清單空著也不畫空狀態，免得開頁先閃一下（規範 §1.8） */
@@ -73,10 +77,18 @@ export function NotesView() {
   const flushRef = useRef<(() => Promise<void>) | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // 丁 D-主-237：書封「篩選・種類」只看筆記／只看車票（鍵盤 ↑↓ 也只走篩過的那一份）
-  const items = useMemo(
-    () => inboxItemsOf(inboxKind === "ticket" ? [] : inboxNotes, inboxKind === "note" ? [] : inboxTickets),
-    [inboxNotes, inboxTickets, inboxKind],
+  // 丁 D-主-237 ＋ v1.32 2B-2：種類篩選 × #荷札 組合篩選 × 最近修改／建立時間排序（鍵盤 ↑↓ 也走同一份）
+  const items: InboxItem[] = useMemo(
+    () =>
+      buildInboxItems({
+        notes: inboxNotes,
+        tickets: inboxTickets,
+        kind: inboxKind,
+        sort: inboxSort,
+        tagKeys: inboxTagKeys,
+        tagEnts: tagIndex?.ents ?? [],
+      }),
+    [inboxNotes, inboxTickets, inboxKind, inboxSort, inboxTagKeys, tagIndex],
   );
   const inboxHidden = inboxNotes.length + inboxTickets.length - items.length;
 
@@ -261,15 +273,20 @@ export function NotesView() {
     });
   };
 
-  /** 列表「清除篩選」（路線／節點篩選後沒有結果）：先存正在打的字，清掉篩選，焦點回清單 */
+  /** 列表「清除篩選」（路線／節點／荷札篩選後沒有結果）：先存正在打的字，清掉篩選，焦點回清單 */
   const clearNotesFilter = () =>
     void flushThen(() => {
       const st = useNotesStore.getState();
-      void st.setNotesQuery({ ...st.notesQuery, routeId: undefined, underNode: undefined }).then(() => focusList("notes"));
+      void st.clearNotesFilters().then(() => focusList("notes"));
     });
 
   /** 篩選與搜尋都沒有、清單還是空的＝「還沒有筆記」：頁首「＋ 新筆記」藏起來，入口只留空狀態那一顆（規範 §2.7） */
-  const notesFirstEmpty = notesCount === 0 && !notesQuery.query && !notesQuery.routeId && !notesQuery.underNode;
+  const notesFirstEmpty =
+    notesCount === 0 &&
+    !notesQuery.query &&
+    !notesQuery.routeId &&
+    !notesQuery.underNode &&
+    notesTagKeys.length === 0;
 
   /* ═══ 日記動作 ═══ */
   const inDiary = section === "diary";

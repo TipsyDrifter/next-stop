@@ -252,7 +252,7 @@ function ScheduleSection({
             />
           </FieldRow>
 
-          <FieldRow label="長度">
+          <FieldRow label="長度" top>
             <LengthField value={node.estimate_min} onCommit={(v) => void updateNode(node.id, { estimate_min: v })} />
           </FieldRow>
 

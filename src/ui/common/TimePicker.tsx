@@ -12,7 +12,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { createPortal } from "react-dom";
 import { MIN } from "../../domain/timetable";
 import type { ClockInputBounds } from "../../domain/timetableClockInput";
-import { clockInputErrText, clockInputPreview } from "../../domain/timetableClockInput";
+import { clockInputErrText } from "../../domain/timetableClockInput";
 import { placeBelow, tabStops, useOutsideDismiss } from "./anchorPop";
 import { MSheet } from "./MSheet";
 import { TimeDial } from "./TimeDial";
@@ -92,6 +92,7 @@ export function TimePicker({ label, bounds, refDay, anchor, onPick, onClose, onC
   useEffect(() => {
     const onEsc = (e: globalThis.KeyboardEvent): void => {
       if (e.isComposing || e.keyCode === 229) return;
+      if (e.target instanceof Element && e.target.classList.contains("ns-dial-in")) return;
       if (e.key === "Escape" && !e.defaultPrevented) {
         e.preventDefault();
         e.stopPropagation();
@@ -123,7 +124,6 @@ export function TimePicker({ label, bounds, refDay, anchor, onPick, onClose, onC
     }
   };
 
-  const [pre, hm] = clockInputPreview(bounds.value, refDay);
   const card = (
     <div
       ref={rootRef}
@@ -135,13 +135,17 @@ export function TimePicker({ label, bounds, refDay, anchor, onPick, onClose, onC
     >
       <div className="ns-timepick-head">
         <span className="ns-timepick-label">{label}</span>
-        <span className="ns-timepick-read">
-          {hm}
-          {pre !== "→ " && <small>{pre.trim()}</small>}
-        </span>
         <NowChip bounds={bounds} onPick={onPick} />
       </div>
-      <TimeDial bounds={bounds} refDay={refDay} now={Date.now()} onPick={onPick} variant="desk" label={label} />
+      <TimeDial
+        bounds={bounds}
+        refDay={refDay}
+        now={Date.now()}
+        onPick={onPick}
+        variant="desk"
+        label={label}
+        onCommitClose={onClose}
+      />
       <div className="ns-timepick-foot">
         <button type="button" className="ns-timepick-done" onMouseDown={(e) => e.preventDefault()} onClick={onClose}>
           完成

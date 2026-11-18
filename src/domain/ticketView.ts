@@ -51,6 +51,19 @@ import { isUnder, lastSeg, segsOf } from "./tags";
 
 /** 頁首四格「清單｜月曆｜統計｜帳戶」（壬 D-主-513：願望籤拆除、移到候車室頁；存檔裡舊的 "wish" 由 parseTicketView 落回 list） */
 export type TicketView = "list" | "calendar" | "stats" | "accounts";
+/** v1.32 2B-1a：售票口「管帳」統合管理對話框的六個分頁籤（桌機 DialogShell size="L"／手機 MSheet height="full" 共用） */
+export type TicketManageTab = "categories" | "accountOrder" | "budgets" | "repeats" | "templates" | "currencies";
+export const TICKET_MANAGE_TABS: readonly { key: TicketManageTab; label: string }[] = [
+  { key: "categories", label: "分類" },
+  { key: "accountOrder", label: "帳戶" },
+  { key: "budgets", label: "預算" },
+  { key: "repeats", label: "定期" },
+  { key: "templates", label: "常用票種" },
+  { key: "currencies", label: "幣別" },
+];
+export function isTicketManageTab(x: string): x is TicketManageTab {
+  return TICKET_MANAGE_TABS.some((t) => t.key === x);
+}
 export type StatsSpan = "month" | "year";
 /** 售票口④（D-票-73）：多「依荷札」 */
 export type Facet = "category" | "account" | "route" | "tag";
@@ -167,6 +180,7 @@ export const EMPTY_FILTER: EntryFilter = {
 /** 看帳的文案（契約 §3.4 TK_TEXT 新鍵、§5.5）；store 的 TK_TEXT 引用這一份，顯示端不手抄 */
 export const VIEW_TEXT = {
   found: (n: number, exp: string, inc: string) => `找到 ${n} 筆 · 支出 ${exp} · 收入 ${inc}`,
+  monthFiltered: (n: number, exp: string, inc: string) => `${n} 筆 · 支出 ${exp} · 收入 ${inc}`,
   noDay: (d: string) => `${d} 沒有紀錄`,
   spend: (m: string, t: string) => `本月 ${m}／累計 ${t}`,
   /** 路線列尾（手機）：跟時刻表的「本月 3h」並排，帶「花」才分得出是錢（磨光③ 2-6、D-票-59） */
@@ -881,6 +895,59 @@ export function resultSummary(results: readonly EntryRow[], decimals: number): s
     else if (e.kind === "income") inc += e.main_minor;
   }
   return VIEW_TEXT.found(results.length, moneyText(exp, decimals), moneyText(inc, decimals));
+}
+
+/** v1.32 2B-2：當月直篩是否選了任一結構／荷札條件（不含跨月關鍵字 text 與期間 from/toExcl） */
+export function hasInMonthFacets(f: EntryFilter): boolean {
+  return (
+    f.accountId !== null ||
+    f.categoryIds.length > 0 ||
+    f.kinds.length > 0 ||
+    f.routeId !== null ||
+    (f.tagKeys ?? []).length > 0
+  );
+}
+
+/** v1.32 2B-2：清單視圖的當月直篩／排序是否作用中（任一結構／荷札條件、帳戶篩選、或非預設排序） */
+export function isInMonthFilterActive(
+  f: EntryFilter,
+  sort: EntrySort,
+  filterAccountId: string | null = null,
+): boolean {
+  return hasInMonthFacets(f) || sort !== DEFAULT_ENTRY_SORT || filterAccountId !== null;
+}
+
+/**
+ * v1.32 2B-2：當月就地篩選與排序（純函式）。
+ * 只取 `month`（YYYY-MM）當月未刪的帳，套用結構條件（帳戶、分類含子孫、類型、路線）與荷札（選父含子），再依 `sort` 排好。
+ */
+export function filterMonthEntries(
+  entries: readonly EntryRow[],
+  month: string,
+  f: EntryFilter,
+  sort: EntrySort,
+  ctx: ViewCtx,
+): EntryRow[] {
+  const r = monthRange(month);
+  const q = filterToQuery(
+    { ...f, text: "", from: r.from, toExcl: r.toExcl },
+    Object.keys(ctx.catById).map((k) => ctx.catById[k]),
+  );
+  const wantTags = f.tagKeys ?? [];
+  const matched = entries.filter((e) => matchesQuery(e, q) && matchesTagFilter(e, wantTags, ctx));
+  return sortEntries(matched, sort);
+}
+
+/** v1.32 2B-2：當月直篩列旁的筆數與收支小計（「N 筆 · 支出 X · 收入 Y」，口徑同 0-7） */
+export function inMonthSummary(entries: readonly EntryRow[], decimals: number): string {
+  let exp = 0;
+  let inc = 0;
+  for (const e of entries) {
+    if (e.deleted_at !== null) continue;
+    if (e.kind === "expense") exp += e.main_minor;
+    else if (e.kind === "income") inc += e.main_minor;
+  }
+  return VIEW_TEXT.monthFiltered(entries.length, moneyText(exp, decimals), moneyText(inc, decimals));
 }
 
 /** chips 列的字（期間／帳戶／分類／類型／路線；空的欄不出） */
