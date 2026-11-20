@@ -35,11 +35,13 @@ import {
   ROUTE_NONE,
   ROUTE_NOROUTE,
   buildGoals,
+  buildStatTopics,
   buildStats,
   buildWeek,
   dayRolledOver,
   goalsFromMs,
   parseGoal,
+  parseStatTopic,
   periodWindow,
   resolveViewKey,
   routeKeyOf,
@@ -48,12 +50,18 @@ import {
   statsFromMs,
   stepView,
   toStatsSpan,
+  topicsEndMs,
+  topicsFromMs,
   viewChangedSince,
   type Goal,
   type GoalView,
   type NodeRoute,
+  type RouteTreeNodeInput,
+  type StatTopic,
+  type StatTopicView,
   type StatsPeriod,
   type StatsResult,
+  type StatsSortBy,
   type StatsSpan,
   type WeekResult,
 } from "../domain/timetableStats";
@@ -64,11 +72,23 @@ import { timetableShell, useTimetableStore } from "./timetableStore";
 import { useTagStore } from "./tagStore";
 import { useUiStore } from "./uiStore";
 
-export type { Goal, GoalView, StatsResult, StatsTagRow, WeekResult } from "../domain/timetableStats";
+export type {
+  Goal,
+  GoalView,
+  RouteTreeNode,
+  StatTopic,
+  StatTopicView,
+  StatsResult,
+  StatsSortBy,
+  StatsTagRow,
+  WeekResult,
+} from "../domain/timetableStats";
 
 export const KEY_STATS_PERIOD = "timetable_stats_period"; // 本地；手機加 `_mobile`
 /** ⑥ D-時-118：占比卡「分類｜荷札」記住上次（本地；手機加 `_mobile`，兩殼各記）；沒有列＝分類 */
 export const KEY_STATS_SHARE_BY = "timetable_stats_share_by";
+/** v1.33 功能 1：統計排序「依時數｜依次數」記住上次（本地；手機加 `_mobile`） */
+export const KEY_STATS_SORT_BY = "timetable_stats_sort_by";
 
 /** ⑥：占比卡看哪一面 */
 export type StatsShareBy = "cat" | "tag";
@@ -108,6 +128,8 @@ export interface StatsState {
   filter: StatsFilter | null;
   /** ⑥ D-時-118：占比卡看「分類」還是「荷札」那一面（本機記住，兩殼各記） */
   shareBy: StatsShareBy;
+  /** v1.33 功能 1：統計列表排序依據（"ms" 依時數 ｜ "count" 依次數） */
+  sortBy: StatsSortBy;
   loading: boolean;
   error: string | null;
   result: StatsResult | null;
@@ -117,6 +139,10 @@ export interface StatsState {
   /** 目標面板用：沒封存、讀得懂的目標（原樣，含編輯用欄位）／封存的目標（「已封存的目標」區叫回用） */
   goalList: Goal[];
   archivedGoals: Goal[];
+  /** v1.33 功能 2＋G1：釘選自訂統計專題卡（隨當期與專題專屬切日線計算） */
+  topics: StatTopicView[];
+  topicList: StatTopic[];
+  archivedTopics: StatTopic[];
   /** result.routes 與目標用到的路線 id → 名字 */
   routeNames: Record<string, RouteName>;
   /** 目標綁定的支線／列車／車廂／車票節點 id → 名字與種類 */
@@ -130,6 +156,8 @@ export interface StatsState {
   setFilter(f: StatsFilter | string | null): void;
   /** ⑥ D-時-118／130：切占比卡的面；切面時清掉另一種過濾（切回分類就清荷札過濾，反之亦然）；記到本機鍵 */
   setShareBy(v: StatsShareBy): void;
+  /** v1.33 功能 1：切換統計排序依據（依時數｜依次數） */
+  setSortBy(v: StatsSortBy): void;
   weekStep(delta: number): void;
   weekToCurrent(): void;
   /** 統計頁掛上／需要重算時叫；叫了就算「開著」。回傳的 promise 在這一輪（含合併進來的重算）算完時 resolve */
@@ -174,6 +202,10 @@ function shareByKey(): string {
   return timetableShell() === "mobile" ? `${KEY_STATS_SHARE_BY}_mobile` : KEY_STATS_SHARE_BY;
 }
 
+function sortByKey(): string {
+  return timetableShell() === "mobile" ? `${KEY_STATS_SORT_BY}_mobile` : KEY_STATS_SORT_BY;
+}
+
 /** 過濾正規化：字串＝分類（③ 的舊格式）；空 id＝null */
 function toFilter(f: StatsFilter | string | null): StatsFilter | null {
   if (f === null) return null;
@@ -189,6 +221,8 @@ function filterPatch(f: StatsFilter | null): { filter: StatsFilter | null } {
 let shareByRestored = false;
 /** 使用者已經自己切過面（本機鍵還沒讀回來也一樣）⇒ 讀回來的舊值不蓋掉 */
 let shareByTouched = false;
+let sortByRestored = false;
+let sortByTouched = false;
 
 /** ⑥：占比卡的面讀本機鍵（只讀一次；使用者在讀到之前就切了面 ⇒ 不蓋掉） */
 async function restoreShareByOnce(): Promise<void> {
@@ -205,8 +239,23 @@ async function restoreShareByOnce(): Promise<void> {
   }
 }
 
+async function restoreSortByOnce(): Promise<void> {
+  if (sortByRestored) return;
+  sortByRestored = true;
+  try {
+    const raw = await settingsRepo.get(sortByKey());
+    if (sortByTouched) return;
+    if ((raw === "ms" || raw === "count") && raw !== useTimetableStatsStore.getState().sortBy) {
+      useTimetableStatsStore.setState({ sortBy: raw });
+    }
+  } catch {
+    /* 讀不到就用預設（依時數） */
+  }
+}
+
 async function restorePeriodOnce(): Promise<void> {
   void restoreShareByOnce();
+  void restoreSortByOnce();
   if (periodRestored) return;
   periodRestored = true;
   try {
@@ -280,10 +329,10 @@ async function routeNamesOf(result: StatsResult, extraRouteIds: readonly string[
   return out;
 }
 
-/** v1.29 D-時-192：解析目標綁定的路線與任務節點（含向上匯總祖先鏈） */
+/** v1.29 D-時-192 ＋ v1.33：解析目標與統計專題綁定的路線與任務節點（含向上匯總祖先鏈） */
 async function resolveGoalLinks(
-  allGoals: readonly Goal[],
-  goalSpans: readonly StatsSpan[],
+  allScopes: readonly { routeIds?: readonly string[]; nodeIds?: readonly string[] }[],
+  allSpans: readonly StatsSpan[],
 ): Promise<{
   goalNodeNames: Record<string, GoalNodeName>;
   extraRouteIds: string[];
@@ -295,7 +344,7 @@ async function resolveGoalLinks(
   const goalNodeSet = new Set<string>();
   let anyRouteGoal = false;
   let anyNodeGoal = false;
-  for (const g of allGoals) {
+  for (const g of allScopes) {
     for (const rid of g.routeIds ?? []) {
       extraRouteSet.add(rid);
       anyRouteGoal = true;
@@ -306,7 +355,7 @@ async function resolveGoalLinks(
     }
   }
   if (anyRouteGoal) {
-    await resolveNodeRoutes(goalSpans);
+    await resolveNodeRoutes(allSpans);
   }
   const byId = useNodeStore.getState().tree.byId;
   const fetchedNodes = new Map<string, Awaited<ReturnType<typeof nodeRepo.getNode>>>();
@@ -335,7 +384,7 @@ async function resolveGoalLinks(
   const ancestorMap = new Map<string, string[]>();
   if (anyNodeGoal) {
     const spanNodeIds = new Set<string>();
-    for (const s of goalSpans) if (s.nodeId !== null) spanNodeIds.add(s.nodeId);
+    for (const s of allSpans) if (s.nodeId !== null) spanNodeIds.add(s.nodeId);
     for (const startId of spanNodeIds) {
       const chain: string[] = [];
       let curId: string | null = startId;
@@ -466,25 +515,40 @@ async function computeStats(): Promise<void> {
   const key = resolveViewKey(period, follow, ref, today, h, weekStart);
   useTimetableStatsStore.setState({ loading: true });
   try {
-    const goalRows = await timetableRepo.listGoals();
+    const [goalRows, topicRows] = await Promise.all([
+      timetableRepo.listGoals(),
+      timetableRepo.listStatTopics(),
+    ]);
     const all: Goal[] = [];
     for (const r of goalRows) {
       const g = parseGoal(r, h);
       if (g) all.push(g);
     }
-    const from = statsFromMs(period, key, h, weekStart);
+    const allTopics: StatTopic[] = [];
+    for (const r of topicRows) {
+      const t = parseStatTopic(r);
+      if (t) allTopics.push(t);
+    }
+    const activeTopics = allTopics.filter((t) => !t.archived);
+    const archivedTopics = allTopics.filter((t) => t.archived);
+
+    const baseFrom = statsFromMs(period, key, h, weekStart);
+    const topicFrom = topicsFromMs(activeTopics, period, follow, ref, now, h, weekStart);
+    const from = topicFrom !== null ? Math.min(baseFrom, topicFrom) : baseFrom;
     const win = periodWindow(period, key, h, weekStart);
+    const topicEnd = topicsEndMs(activeTopics, period, follow, ref, now, h, weekStart);
+    const queryEnd = Math.max(now, win.end, topicEnd ?? 0);
     const fromIso = isoOf(from);
     const c = statsBlocksCache;
-    const reuse = !blocksStale && c !== null && c.rev === tt.rev && c.fromIso === fromIso && c.winEnd === win.end;
+    const reuse = !blocksStale && c !== null && c.rev === tt.rev && c.fromIso === fromIso && c.winEnd === queryEnd;
     blocksStale = false;
     let spans: StatsSpan[];
     if (reuse) {
       spans = c.spans;
     } else {
-      const rows = await timetableRepo.listBlocksSlim(fromIso, isoOf(Math.max(now, win.end)));
+      const rows = await timetableRepo.listBlocksSlim(fromIso, isoOf(queryEnd));
       spans = rows.map(toStatsSpan);
-      statsBlocksCache = { rev: tt.rev, fromIso, winEnd: win.end, spans };
+      statsBlocksCache = { rev: tt.rev, fromIso, winEnd: queryEnd, spans };
     }
     // ⑥ 0-9：讀完塊（mock 的示範荷札在第一次讀時種）再確保荷札 index，然後填 tagKeys
     await ensureTagIndex();
@@ -496,6 +560,24 @@ async function computeStats(): Promise<void> {
     // 節點只解趨勢窗內的塊（目標另算、不查節點）
     await resolveNodeRoutes(spans);
     windowNodeIds = new Set(spans.flatMap((s) => (s.nodeId === null ? [] : [s.nodeId])));
+
+    // v1.33 操作 2：載入窗內實際用到的路線之節點樹，以供「依路線」原地手風琴階層展開
+    const usedRealRoutes = new Set<string>();
+    for (const s of spans) {
+      const rk = routeOf(s);
+      if (rk !== ROUTE_NONE && rk !== ROUTE_GONE && rk !== ROUTE_NOROUTE) usedRealRoutes.add(rk);
+    }
+    const nodesByRoute: Record<string, readonly RouteTreeNodeInput[]> = {};
+    if (usedRealRoutes.size > 0) {
+      const rids = Array.from(usedRealRoutes);
+      const routeNodeLists = await Promise.all(
+        rids.map((rid) => useTimetableStore.getState().routeNodes(rid).catch(() => [])),
+      );
+      rids.forEach((rid, idx) => {
+        nodesByRoute[rid] = routeNodeLists[idx];
+      });
+    }
+
     const th = thresholdFn();
     const cats = useTimetableStore.getState().categories;
     const tagged = withTagKeys(spans, cats, maps);
@@ -511,11 +593,32 @@ async function computeStats(): Promise<void> {
       thresholdMin: th,
       routeOf,
       tagRows: (cur, prev) => tagShareRows(cur, prev, (k) => tagIndex?.byKey[k]),
+      nodesByRoute,
     });
     const goalRaw = await goalSpansFor(goalsFromMs(active, now, h, weekStart), from, spans, now, today, tt.rev);
     const goalSpans = goalRaw === spans ? tagged : withTagKeys(goalRaw, cats, maps);
-    const goalLinks = await resolveGoalLinks(withTags, goalSpans);
+    const combinedSpansForLinks =
+      goalSpans === tagged
+        ? tagged
+        : (() => {
+            const seen = new Set(goalSpans.map((s) => s.id));
+            return [...goalSpans, ...tagged.filter((s) => !seen.has(s.id))];
+          })();
+    const goalLinks = await resolveGoalLinks([...withTags, ...allTopics], combinedSpansForLinks);
     const goals = buildGoals(active, goalSpans, cats, {
+      now,
+      h,
+      weekStart,
+      thresholdMin: th,
+      routeOf,
+      ancestorsOfNode: goalLinks.ancestorsOfNode,
+      liveRouteIds: goalLinks.liveRouteIds,
+      liveNodeIds: goalLinks.liveNodeIds,
+    });
+    const topics = buildStatTopics(activeTopics, tagged, cats, {
+      period,
+      followCurrent: follow,
+      ref,
       now,
       h,
       weekStart,
@@ -539,6 +642,9 @@ async function computeStats(): Promise<void> {
       goals,
       goalList: active,
       archivedGoals,
+      topics,
+      topicList: activeTopics,
+      archivedTopics,
       routeNames,
       goalNodeNames: goalLinks.goalNodeNames,
       loading: false,
@@ -629,6 +735,7 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
   weekFollow: true,
   filter: null,
   shareBy: "cat",
+  sortBy: "ms",
   loading: false,
   error: null,
   result: null,
@@ -636,6 +743,9 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
   goals: [],
   goalList: [],
   archivedGoals: [],
+  topics: [],
+  topicList: [],
+  archivedTopics: [],
   routeNames: {},
   goalNodeNames: {},
 
@@ -683,6 +793,14 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
     void settingsRepo.set(shareByKey(), v).catch(() => undefined);
   },
 
+  setSortBy(v) {
+    if (v !== "ms" && v !== "count") return;
+    sortByTouched = true;
+    if (v === get().sortBy) return;
+    set({ sortBy: v });
+    void settingsRepo.set(sortByKey(), v).catch(() => undefined);
+  },
+
   weekStep(delta) {
     const s = get();
     const { dayStartHour: h, weekStart } = uiNow();
@@ -715,10 +833,16 @@ export const useTimetableStatsStore = create<StatsState>((set, get) => ({
 
   checkDay() {
     const { dayStartHour: h } = uiNow();
-    const nowKey = todayKey(h, new Date());
+    const nowDate = new Date();
+    const nowKey = todayKey(h, nowDate);
     if (attached.stats) {
       const r = get().result;
-      if (r && dayRolledOver(r.todayKey, nowKey)) void runStats();
+      const topicRolled =
+        r !== null &&
+        get().topics.some(
+          (tv) => todayKey(tv.effectiveDayStartHour, nowDate) !== todayKey(tv.effectiveDayStartHour, new Date(r.now)),
+        );
+      if (r && (dayRolledOver(r.todayKey, nowKey) || topicRolled)) void runStats();
     }
     if (attached.week) {
       const w = get().week;

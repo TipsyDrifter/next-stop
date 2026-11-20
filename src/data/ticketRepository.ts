@@ -171,6 +171,8 @@ export interface TicketRepository {
   moveCategory(id: string, delta: 1 | -1): Promise<void>;
   createCurrency(input: NewCurrencyInput): Promise<CurrencyRow>;
   updateCurrency(id: string, patch: CurrencyPatch): Promise<void>;
+  /** v1.33（G4）：原子切換主幣別——更新 tk_currencies（is_main 與反算 rate_to_main）並重算歷史 tk_entries.main_minor、tk_budgets／tk_wishes 主幣別金額 */
+  setMainCurrency(currencyCode: string): Promise<void>;
 
   /* ── 讀・第③階段「管帳」（③契約 §3.4） ── */
   /** 未刪的預算（含預設與所有月的覆寫）；position、month */

@@ -8,7 +8,7 @@
  *   猜的時候：照轉出帳戶查 → 查不到用最近一次 → 都要是還在、沒封存、而且不是轉出帳戶本身，否則不猜（留空讓人挑）。
  */
 import type { AccountRow } from "./ticket";
-import type { Facet, StatsSpan, TicketView } from "./ticketView";
+import type { BreakdownSort, Facet, StatsSpan, TicketView } from "./ticketView";
 
 const VIEWS: readonly TicketView[] = ["list", "calendar", "stats", "accounts"];
 const SPANS: readonly StatsSpan[] = ["month", "year"];
@@ -18,6 +18,7 @@ export const parseTicketView = (raw: string | null): TicketView => (VIEWS as rea
 export const parseStatsSpan = (raw: string | null): StatsSpan => (SPANS as readonly string[]).includes(raw ?? "") ? (raw as StatsSpan) : "month";
 export const parseFacet = (raw: string | null): Facet => (FACETS as readonly string[]).includes(raw ?? "") ? (raw as Facet) : "category";
 export const parseFacetKind = (raw: string | null): "expense" | "income" => (raw === "income" ? "income" : "expense");
+export const parseBreakdownSort = (raw: string | null | undefined): BreakdownSort => (raw === "count" ? "count" : "amount");
 
 /** 轉入帳戶的記憶：轉出帳戶 id → 上次轉入的帳戶 id；`LAST` 那一格＝不分轉出、最近一次 */
 export type TransferMemo = Readonly<Record<string, string>>;

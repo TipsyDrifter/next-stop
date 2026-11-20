@@ -49,6 +49,7 @@ import {
   planAdjust,
   planMoveTo,
   planMoveUnder,
+  planSetMainCurrency,
   ticketId,
   type AccountRow,
   type CategoryKind,
@@ -1009,6 +1010,44 @@ export class MemoryTicketRepository implements TicketRepository {
       changed = true;
     }
     if (changed) c.updated_at = nowUtcIso();
+  }
+
+  async setMainCurrency(codeInput: string): Promise<void> {
+    this.ensureDemo();
+    const nowIso = nowUtcIso();
+    const plan = planSetMainCurrency({
+      targetCode: codeInput,
+      currencies: Array.from(this.cur.values()),
+      entries: Array.from(this.ent.values()),
+      budgets: Array.from(this.bud.values()),
+      wishes: Array.from(this.wis.values()),
+      nowIso,
+    });
+    for (const u of plan.currencies) {
+      const c = this.cur.get(u.id);
+      if (!c) continue;
+      if (u.cols.is_main !== undefined) c.is_main = u.cols.is_main;
+      if (u.cols.rate_to_main !== undefined) c.rate_to_main = u.cols.rate_to_main;
+      c.updated_at = u.cols.updated_at;
+    }
+    for (const u of plan.entries) {
+      const e = this.ent.get(u.id);
+      if (!e) continue;
+      e.main_minor = u.main_minor;
+      e.updated_at = u.updated_at;
+    }
+    for (const u of plan.budgets) {
+      const bd = this.bud.get(u.id);
+      if (!bd) continue;
+      bd.amount_minor = u.amount_minor;
+      bd.updated_at = u.updated_at;
+    }
+    for (const u of plan.wishes) {
+      const w = this.wis.get(u.id);
+      if (!w) continue;
+      w.amount_minor = u.amount_minor;
+      w.updated_at = u.updated_at;
+    }
   }
 
   /* ───────── 第③階段：預算（③契約 §3.4） ───────── */

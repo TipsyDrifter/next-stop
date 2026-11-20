@@ -53,14 +53,14 @@ function moveInResults(delta: 1 | -1): void {
   if (j >= 0 && j < flat.length) s.select(flat[j].id);
 }
 
-/** 月曆焦點格移 n 天（跨月 ⇒ 切月；不超過今天所在的月） */
+/** 月曆焦點格移 n 天（跨月 ⇒ 切月；不超過今天所在的帳務月） */
 function moveCalFocus(n: number): void {
   const s = useTicketStore.getState();
   const today = todayKey(useUiStore.getState().dayStartHour);
-  const cur = useCalFocus.getState().day ?? defaultFocusDay(s.month, today);
+  const cur = useCalFocus.getState().day ?? defaultFocusDay(s.month, today, s.monthStartDay);
   const next = dayStep(cur, n);
-  const m = monthOf(next);
-  if (m > monthOf(today)) return;
+  const m = monthOf(next, s.monthStartDay);
+  if (m > monthOf(today, s.monthStartDay)) return;
   useCalFocus.getState().setDay(next);
   if (m !== s.month) void s.setMonth(m);
 }
@@ -73,7 +73,7 @@ export function useTicketKeyboard(ref: RefObject<HTMLElement | null>): void {
       if (e.isComposing || e.keyCode === 229) return;
       if (isEditableTarget(e.target)) return;
       const s = useTicketStore.getState();
-      if (s.dialog !== null || useUiStore.getState().confirm !== null) return; // 對話框自己吃鍵（DialogShell／ConfirmDialog）
+      if ((s.hasLockPin && !s.lockUnlocked) || s.unmaskPromptOpen || s.dialog !== null || useUiStore.getState().confirm !== null) return; // 鎖定畫面／對話框自己吃鍵
       const hit = resolveHotkey("ticket", e);
       if (!hit) return;
       const target = e.target instanceof HTMLElement ? e.target : null;

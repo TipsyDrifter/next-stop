@@ -12,7 +12,7 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { groupedCategories } from "../../../domain/timetable";
-import { routineHasItems } from "../../../domain/timetableRoutine";
+import { isRoutineExpired, routineHasItems } from "../../../domain/timetableRoutine";
 import { clockRange, clockText, nowClockMinutes, type ClockText } from "../../../lib/date";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { useTimetablePlanStore } from "../../../store/timetablePlanStore";
@@ -109,7 +109,7 @@ export function RoutinePicker({ page }: { page: SchedulePage }) {
       .then((ok) => ok && toast(RT_UI.added(slot.s, slot.e)));
   };
 
-  const others = active.filter((r) => r.id !== curId);
+  const others = active.filter((r) => r.id !== curId && !isRoutineExpired(r, date));
   const switchLabel = (name: string): string => (cur ? RT_UI.switchTo(name) : RT_UI.applyTo(name));
   type Item = { key: string; label: string; cut?: boolean; onSelect: () => void; keep?: boolean; disabled?: boolean };
   // 還沒有段的那套（0 段、讀不懂）套上去那天什麼都不會出現 ⇒ 停用、字面直接寫原因（手機沒有滑過提示；反方評審 #4）

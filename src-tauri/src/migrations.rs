@@ -83,6 +83,8 @@ pub const MIGRATIONS: &[MigrationDef] = &[
     mig!(21, "0021_time_plan_adhoc", "timetable adhoc plans: time_plans.kind ('adhoc') + time_plans.route_id (optional route binding for adhoc/theme reservations)"),
     // 第六本第四梯（v1.30；D-主-560～564）：車窓・理想手札與車窓の問い
     mig!(22, "0022_ideal_techo", "ideal techo: ideal_cards (frontispiece cards with window illustrations & compressed photos, pinned motto) + ideal_reflections (daily window Q&A, diary note link, cross-time review)"),
+    // 第七本第三梯（v1.33；G1 / 功能 2 / G2）：統計專題表與作息範本生效區間
+    mig!(23, "0023_v133_stats_and_prefs", "v1.33 stats & prefs: time_stat_topics (pinned custom stats topics with optional day_start_hour) + time_routines.start_day/end_day"),
 ];
 
 /// migration SQL 進 sqlx 之前一律換成 LF。
@@ -235,6 +237,11 @@ mod tests {
             22,
             "0022_ideal_techo",
             "e182f2ac672110fe80dd081fb3fc189ec13244ee6d2f40c7170c154562625fa8b49ec4cea251405b257201748f4fe48f",
+        ),
+        (
+            23,
+            "0023_v133_stats_and_prefs",
+            "3dc406382da33dc6b24f01ac024e51be3df57349c736f7893bf1b221c18d86d82a20c0fa839a100135102d94dc8fbb0b",
         ),
     ];
 

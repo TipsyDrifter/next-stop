@@ -11,13 +11,17 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LATE_DAYS_OPTIONS,
   TIMED_BEFORE_OPTIONS,
+  activeGentleReviews,
   clockForDay,
+  type GentleReviewPrompt,
   type ReminderRecent,
   type ReminderSettings,
+  type StationSoonFact,
 } from "../../domain/reminders";
 import { MIN, fmtClock } from "../../domain/timetable";
 import { addDays, clockInstant, dayKeyOf, dayWindow, parseClockInput, todayKey } from "../../lib/date";
 import { askNotificationPermissionOnce } from "../../lib/notify";
+import { useNodeStore } from "../../store/nodeStore";
 import { useReminderStore } from "../../store/reminderStore";
 import { useTimetableStore } from "../../store/timetableStore";
 import { useUiStore } from "../../store/uiStore";
@@ -37,8 +41,60 @@ type BoolKey = { [K in keyof ReminderSettings]: ReminderSettings[K] extends bool
 export function useReminderOnCount(): number {
   const s = useReminderStore((st) => st.settings);
   const longRun = useTimetableStore((st) => st.noticeLongRunEnabled);
-  const keys: BoolKey[] = ["dueEve", "dueDay", "late", "timed", "review", "routine", "repeat", "sync", "backup"];
+  const keys: BoolKey[] = [
+    "dueEve",
+    "dueDay",
+    "late",
+    "timed",
+    "review",
+    "reviewMonth",
+    "reviewYear",
+    "stationSoon",
+    "routine",
+    "repeat",
+    "sync",
+    "backup",
+  ];
   return keys.filter((k) => s[k]).length + (longRun ? 1 : 0);
+}
+
+/** G6：訂閱當日尚未「本期已知悉」的月底／年底／車站預計到站溫柔回顧提示 */
+export function useActiveGentleReviews(): GentleReviewPrompt[] {
+  const loaded = useReminderStore((s) => s.loaded);
+  const load = useReminderStore((s) => s.load);
+  const settings = useReminderStore((s) => s.settings);
+  const sent = useReminderStore((s) => s.sent);
+  const dayStartHour = useUiStore((s) => s.dayStartHour);
+  const todayNodeDay = useNodeStore((s) => s.today.dateKey);
+  const liveRoutes = useNodeStore((s) => s.liveRoutes);
+  const stations = useNodeStore((s) => s.stations);
+
+  useEffect(() => {
+    if (!loaded) void load();
+  }, [loaded, load]);
+
+  return useMemo(() => {
+    if (!loaded) return [];
+    const today = todayNodeDay || todayKey(dayStartHour);
+    const soonLimit = addDays(today, 3);
+    const routeById = new Map(liveRoutes.map((r) => [r.id, r] as const));
+    const stationSoon: StationSoonFact[] = [];
+    for (const st of stations) {
+      if (st.deleted_at !== null || st.arrived_on || st.status === "paused") continue;
+      const expected = st.expected_on ?? st.due_on;
+      if (!expected || expected < today || expected > soonLimit) continue;
+      const route = st.parent_id ? routeById.get(st.parent_id) : undefined;
+      if (!route) continue;
+      stationSoon.push({
+        stationId: st.id,
+        name: st.name,
+        expectedOn: expected,
+        routeId: route.id,
+        routeName: route.name,
+      });
+    }
+    return activeGentleReviews({ today, stationSoon }, settings, sent);
+  }, [loaded, todayNodeDay, dayStartHour, liveRoutes, stations, settings, sent]);
 }
 
 /** 存的值不在選項裡（舊版或手改）也要看得到，不偷偷跳成別的值（同 NoticeTab 的保險上限） */
@@ -269,6 +325,8 @@ export function ReminderSettingsBody({ shell }: { shell: Shell }) {
   const settings = useReminderStore((s) => s.settings);
   const update = useReminderStore((s) => s.update);
   const exactAlarm = useReminderStore((s) => s.exactAlarm);
+  const acknowledge = useReminderStore((s) => s.acknowledgePrompt);
+  const gentlePrompts = useActiveGentleReviews();
   const longRun = useTimetableStore((s) => s.noticeLongRunEnabled);
   const setLongRun = useTimetableStore((s) => s.setNoticeLongRunEnabled);
 
@@ -290,6 +348,38 @@ export function ReminderSettingsBody({ shell }: { shell: Shell }) {
         )}
       </p>
       {android && <PermissionRow />}
+
+      {gentlePrompts.length > 0 && (
+        <section className="ns-rm-gentle" aria-label="當期回顧提醒">
+          <span className="techo-label ns-rm-gentle-k">當期回顧提醒</span>
+          <div className="ns-rm-gentle-list">
+            {gentlePrompts.map((p) => (
+              <div key={p.key} className="ns-rm-gentle-card">
+                <div className="ns-rm-gentle-tx">
+                  <b className="ns-rm-gentle-t">{p.title}</b>
+                  <span className="ns-rm-gentle-b">{p.body}</span>
+                </div>
+                <div className="ns-rm-gentle-acts">
+                  <button
+                    type="button"
+                    className="ns-btn btn-text ns-btn--sm"
+                    onClick={() => void acknowledge(p.key)}
+                  >
+                    本期已知悉
+                  </button>
+                  <button
+                    type="button"
+                    className="ns-btn btn-ghost ns-btn--sm"
+                    onClick={() => void openReminderTarget(p.target, shell)}
+                  >
+                    前往回顧 ›
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="ns-rm-grp ns-rm-clock" role="group" aria-label="提醒時刻">
         <span className="techo-label ns-rm-grp-k" aria-hidden="true">
@@ -344,8 +434,11 @@ export function ReminderSettingsBody({ shell }: { shell: Shell }) {
         {settings.timed && lateHint}
       </Group>
 
-      <Group name="方針">
+      <Group name="方針與回顧">
         <Sw k="review" title="週末回顧" when="這週最後一天晚上" />
+        <Sw k="reviewMonth" title="月底回顧" when="每月最後 2 天至次月 1 日" />
+        <Sw k="reviewYear" title="年底回顧" when="12/28 ～ 1/2" />
+        <Sw k="stationSoon" title="車站預計到站前提醒" when="預計到站前 3 天內至當日" />
       </Group>
 
       <Group name="時刻表">

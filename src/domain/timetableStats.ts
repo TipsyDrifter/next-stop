@@ -717,9 +717,15 @@ export function classifySpans(spans: readonly StatsSpan[], now: number, th: (s: 
 export interface WindowTotals {
   /** 分類 id → ms（已記錄；不含待確認、碎塊） */
   byCategory: Record<string, number>;
+  /** 分類 id → 執行次數（已記錄且切片 > 0 ms 的不同時間塊數） */
+  countByCategory: Record<string, number>;
   /** 路線鍵 → ms（已記錄；路線鍵＝路線 id 或 ROUTE_NOROUTE／ROUTE_GONE／ROUTE_NONE） */
   byRoute: Record<string, number>;
+  /** 路線鍵 → 執行次數（已記錄且切片 > 0 ms 的不同時間塊數） */
+  countByRoute: Record<string, number>;
   recordedMs: number;
+  /** 已記錄且切片 > 0 ms 的總執行次數 */
+  recordedCount: number;
   pendingMs: number;
   /** 切進這個窗的待確認塊（班數＝length） */
   pendingIds: string[];
@@ -734,8 +740,12 @@ export interface WindowTotals {
    * key 含虛資料夾父層（每個前綴都累加），同一塊同一個前綴只算一次（`高效/深度`＋`高效` 都掛，`高效` 那列不重複算）。
    */
   byTag: Record<string, number>;
+  /** 依荷札：key → 執行次數（同一塊同一前綴只算 1 次） */
+  countByTag: Record<string, number>;
   /** ⑥：沒掛荷札（`tagKeys` 空）的已記錄 ms */
   untaggedMs: number;
+  /** 沒掛荷札的已記錄執行次數 */
+  untaggedCount: number;
   /** ⑥：每塊切進這個窗的 ms（含待確認、不含碎塊；0 ms 的不列）——目標逐塊判（`goalProgressIn`）用 */
   msById: Record<string, number>;
 }
@@ -756,15 +766,20 @@ export function windowTotals(
   const effectiveMs = Math.max(0, effEnd - w.start);
   const out: WindowTotals = {
     byCategory: {},
+    countByCategory: {},
     byRoute: {},
+    countByRoute: {},
     recordedMs: 0,
+    recordedCount: 0,
     pendingMs: 0,
     pendingIds: [],
     pendingByCategory: {},
     unrecordedMs: 0,
     effectiveMs,
     byTag: {},
+    countByTag: {},
     untaggedMs: 0,
+    untaggedCount: 0,
     msById: {},
   };
   if (effectiveMs <= 0) return out;
@@ -795,6 +810,7 @@ export function windowTotals(
       out.pendingByCategory[categoryId] = { count: 1, ms };
     }
   };
+  const seenRecorded = new Set<string>();
   for (const sl of sliceSpans(eligible, w, now)) {
     out.msById[sl.id] = (out.msById[sl.id] ?? 0) + sl.ms;
     if (cls.pending.has(sl.id)) {
@@ -807,12 +823,23 @@ export function windowTotals(
     const s = byId.get(sl.id)!;
     const r = routeOf(s);
     out.byRoute[r] = (out.byRoute[r] ?? 0) + sl.ms;
+    const firstSlice = sl.ms > 0 && !seenRecorded.has(sl.id);
+    if (firstSlice) {
+      seenRecorded.add(sl.id);
+      out.recordedCount += 1;
+      out.countByCategory[sl.categoryId] = (out.countByCategory[sl.categoryId] ?? 0) + 1;
+      out.countByRoute[r] = (out.countByRoute[r] ?? 0) + 1;
+    }
     // ⑥ 依荷札（舊呼叫端的 span 沒有 tagKeys ⇒ 當沒掛）
     const tk = s.tagKeys;
     if (!tk || !tk.length) {
       out.untaggedMs += sl.ms;
+      if (firstSlice) out.untaggedCount += 1;
     } else {
-      for (const k of prefixesOf(tk)) out.byTag[k] = (out.byTag[k] ?? 0) + sl.ms;
+      for (const k of prefixesOf(tk)) {
+        out.byTag[k] = (out.byTag[k] ?? 0) + sl.ms;
+        if (firstSlice) out.countByTag[k] = (out.countByTag[k] ?? 0) + 1;
+      }
     }
   }
   for (const s of eligible) if (cls.pending.has(s.id) && !seenPending.has(s.id)) addPending(s.id, s.categoryId, 0);
@@ -828,6 +855,12 @@ export function fmtDelta(ms: number): string {
   return (ms > 0 ? "▲" : "▼") + fmtDur(Math.abs(ms));
 }
 
+/** 執行次數環比差：「▲3次」「▼2次」；0＝「持平」 */
+export function fmtCountDelta(diff: number): string {
+  if (!Number.isFinite(diff) || diff === 0) return "持平";
+  return (diff > 0 ? "▲" : "▼") + `${Math.abs(Math.round(diff))}次`;
+}
+
 /** 百分比：「27%」「<1%」；part ≤ 0 ⇒ 「0%」；whole ≤ 0 ⇒ 「—」 */
 export function fmtPct(part: number, whole: number): string {
   if (!(whole > 0)) return "—";
@@ -839,16 +872,23 @@ export function fmtPct(part: number, whole: number): string {
 
 /* ───────────────────────── 6. 整頁的計算 ───────────────────────── */
 
+/** v1.33 功能 1：統計列表排序依據——依累積時數或依執行次數 */
+export type StatsSortBy = "ms" | "count";
+
 export interface ShareChild {
   id: string;
   ms: number;
   prevMs: number;
+  count: number;
+  prevCount: number;
 }
 /** 占比清單的一列：頂層（孤兒分類保留自己的 key 當頂層）；children 是它底下有數字的子分類 */
 export interface ShareGroup {
   id: string;
   ms: number;
   prevMs: number;
+  count: number;
+  prevCount: number;
   children: ShareChild[];
 }
 
@@ -863,6 +903,7 @@ export interface TrendBar {
   /** ⑥：依荷札（同 `WindowTotals.byTag`；趨勢過濾到某個荷札時用它，單色墨） */
   byTag: Record<string, number>;
   recordedMs: number;
+  recordedCount: number;
   /** 最後一根（＝正在看的這一期） */
   isCurrent: boolean;
   /** `now` 落在這一期內（上緣畫虛線） */
@@ -874,6 +915,42 @@ export interface RouteShare {
   key: string;
   ms: number;
   prevMs: number;
+  count: number;
+  prevCount: number;
+}
+
+/** v1.33 操作 2：依路線原地手風琴樹狀節點種類（路線 › 支線 › 列車 › 車廂 › 車票 ＋ 直屬與已刪歸戶） */
+export type RouteTreeNodeKind = "branch" | "train" | "car" | "ticket" | "direct" | "gone";
+
+/** 傳入路線樹計算的節點最小結構（NodeRow 的子集；保持 timetableStats 零外部依賴） */
+export interface RouteTreeNodeInput {
+  id: string;
+  route_id: string | null;
+  parent_id: string | null;
+  kind: string;
+  name: string;
+  position: number;
+  status?: string | null;
+  deleted_at: string | null;
+}
+
+export interface RouteTreeNode {
+  /** 唯一列 key（一般節點＝nodeId；直屬列＝`${ownerId}:__direct__`；已刪項目列＝`${routeId}:__gone__`） */
+  id: string;
+  /** 對應的真實節點 ID（跳轉路線圖定位用；路線直屬列／已刪列為 null ⇒ 跳路線本身） */
+  nodeId: string | null;
+  routeId: string;
+  kind: RouteTreeNodeKind;
+  name: string;
+  /** parent_id === null 的活車票＝掛在路線上的臨時車票 */
+  isTempTicket: boolean;
+  done: boolean;
+  position: number;
+  ms: number;
+  prevMs: number;
+  count: number;
+  prevCount: number;
+  children: RouteTreeNode[];
 }
 
 export interface PendingItem {
@@ -928,7 +1005,7 @@ export interface GoalView {
 
 /**
  * ⑥ 占比卡「荷札」面的一列（結構同 `timetableTags.ts` 的 `TagShareRow`；這支檔不准 import 它，所以各寫一份、結構相容）。
- * 由 `StatsInput.tagRows`（store 傳 `tagShareRows` 進來）產生。
+ * 由 `StatsInput.tagRows`（store 傳 `tagShareRows` 進來）產生，`buildStats` 自動補上 `count`／`prevCount`。
  */
 export interface StatsTagRow {
   key: string;
@@ -940,7 +1017,15 @@ export interface StatsTagRow {
   real: boolean;
   ms: number;
   prevMs: number;
+  count: number;
+  prevCount: number;
 }
+
+/** `StatsInput.tagRows` 回傳相容型別（允許舊版 `tagShareRows` 不帶 count／prevCount） */
+export type StatsTagRowInput = Omit<StatsTagRow, "count" | "prevCount"> & {
+  count?: number;
+  prevCount?: number;
+};
 
 export interface StatsResult {
   period: StatsPeriod;
@@ -963,6 +1048,8 @@ export interface StatsResult {
   groups: ShareGroup[];
   trend: TrendBar[];
   routes: RouteShare[];
+  /** v1.33 操作 2：各路線的原地展開樹（routeId → 子節點樹；各層加總嚴格等於父層） */
+  routeTrees: Record<string, RouteTreeNode[]>;
   /** 待確認的塊（切進這一期的），由新到舊 */
   pending: PendingItem[];
   /** 這一期完全沒有紀錄（已記錄與待確認都是 0） */
@@ -972,7 +1059,7 @@ export interface StatsResult {
    * 數字來源＝`cur.byTag`／`prev.byTag`；名字與排序由 `StatsInput.tagRows` 給（沒給＝空陣列）。
    */
   tags: StatsTagRow[];
-  /** ⑥ 最後一列「沒掛荷札」（0 也列）：本期／上期 ms（＝`cur.untaggedMs`／`prev.untaggedMs`） */
+  /** ⑥ 最後一列「沒掛荷札」（0 也列）：本期／上期 ms（＝`cur.untaggedMs`／`prev.untaggedMs`；次數見 `cur.untaggedCount`／`prev.untaggedCount`） */
   untagged: { ms: number; prevMs: number };
 }
 
@@ -995,7 +1082,9 @@ export interface StatsInput {
    * ⑥：本期／上期的 byTag → 「荷札」面的列。store 傳 `(c, p) => tagShareRows(c, p, (k) => tagStore.index?.byKey[k])`
    * （`timetableTags.ts`）；不傳＝`tags` 空陣列。
    */
-  tagRows?: (cur: Readonly<Record<string, number>>, prev: Readonly<Record<string, number>>) => StatsTagRow[];
+  tagRows?: (cur: Readonly<Record<string, number>>, prev: Readonly<Record<string, number>>) => StatsTagRowInput[];
+  /** v1.33 操作 2：routeId → 該路線底下的節點清單（提供時一併算出 `routeTrees`） */
+  nodesByRoute?: Readonly<Record<string, readonly RouteTreeNodeInput[]>>;
 }
 
 /**
@@ -1020,7 +1109,348 @@ export function goalsFromMs(goals: readonly Goal[], now: number, h: number, week
   return from;
 }
 
-function groupRows(cats: readonly TimeCategoryRow[], cur: Record<string, number>, prev: Record<string, number>): ShareGroup[] {
+const ascStr = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** 依時數或依次數重排分類占比（不變動傳入陣列） */
+export function sortShareGroups(
+  groups: readonly ShareGroup[],
+  sortBy: StatsSortBy,
+  cats: readonly TimeCategoryRow[] = [],
+): ShareGroup[] {
+  const byId = new Map<string, TimeCategoryRow>();
+  for (const c of cats) byId.set(c.id, c);
+  const pos = (id: string): number => byId.get(id)?.position ?? 0;
+  const cmp =
+    sortBy === "count"
+      ? (a: { id: string; ms: number; prevMs: number; count: number; prevCount: number }, b: { id: string; ms: number; prevMs: number; count: number; prevCount: number }): number =>
+          b.count - a.count ||
+          b.ms - a.ms ||
+          b.prevCount - a.prevCount ||
+          b.prevMs - a.prevMs ||
+          pos(a.id) - pos(b.id) ||
+          ascStr(a.id, b.id)
+      : (a: { id: string; ms: number; prevMs: number; count: number; prevCount: number }, b: { id: string; ms: number; prevMs: number; count: number; prevCount: number }): number =>
+          b.ms - a.ms ||
+          b.prevMs - a.prevMs ||
+          pos(a.id) - pos(b.id) ||
+          ascStr(a.id, b.id);
+  return groups
+    .map((g) => ({ ...g, children: g.children.slice().sort(cmp) }))
+    .sort(cmp);
+}
+
+/** 依時數或依次數重排路線列表（保留特殊桶「沒有路線的任務／已刪除的任務／沒連任務」在底部） */
+export function sortRouteShares(routes: readonly RouteShare[], sortBy: StatsSortBy): RouteShare[] {
+  const rank = (k: string): number => (k === ROUTE_NONE ? 3 : k === ROUTE_GONE ? 2 : k === ROUTE_NOROUTE ? 1 : 0);
+  const cmp =
+    sortBy === "count"
+      ? (a: RouteShare, b: RouteShare): number =>
+          rank(a.key) - rank(b.key) ||
+          b.count - a.count ||
+          b.ms - a.ms ||
+          b.prevCount - a.prevCount ||
+          b.prevMs - a.prevMs ||
+          ascStr(a.key, b.key)
+      : (a: RouteShare, b: RouteShare): number =>
+          rank(a.key) - rank(b.key) ||
+          b.ms - a.ms ||
+          b.prevMs - a.prevMs ||
+          ascStr(a.key, b.key);
+  return routes.slice().sort(cmp);
+}
+
+/** 依時數或依次數重排荷札樹狀列（同層兄弟依時數／次數排，嚴格維持父在子前的樹狀縮排結構） */
+export function sortTagShareRows(rows: readonly StatsTagRow[], sortBy: StatsSortBy): StatsTagRow[] {
+  if (rows.length <= 1) return rows.slice();
+  const byKey = new Map<string, StatsTagRow>();
+  const kids = new Map<string | null, StatsTagRow[]>();
+  for (const r of rows) {
+    byKey.set(r.key, r);
+  }
+  for (const r of rows) {
+    const p = r.parent !== null && byKey.has(r.parent) ? r.parent : null;
+    const arr = kids.get(p);
+    if (arr) arr.push(r);
+    else kids.set(p, [r]);
+  }
+  const cmp =
+    sortBy === "count"
+      ? (a: StatsTagRow, b: StatsTagRow): number =>
+          b.count - a.count ||
+          b.ms - a.ms ||
+          b.prevCount - a.prevCount ||
+          b.prevMs - a.prevMs ||
+          ascStr(a.name, b.name) ||
+          ascStr(a.key, b.key)
+      : (a: StatsTagRow, b: StatsTagRow): number =>
+          b.ms - a.ms ||
+          b.count - a.count ||
+          b.prevMs - a.prevMs ||
+          b.prevCount - a.prevCount ||
+          ascStr(a.name, b.name) ||
+          ascStr(a.key, b.key);
+  const out: StatsTagRow[] = [];
+  const walk = (parent: string | null): void => {
+    const list = kids.get(parent);
+    if (!list) return;
+    const sorted = list.slice().sort(cmp);
+    for (const r of sorted) {
+      out.push(r);
+      walk(r.key);
+    }
+  };
+  walk(null);
+  return out;
+}
+
+/** 依時數或依次數遞迴重排路線手風琴樹（真實節點在前 → 直屬紀錄 → 已刪除項目） */
+export function sortRouteTreeNodes(nodes: readonly RouteTreeNode[], sortBy: StatsSortBy): RouteTreeNode[] {
+  const kindRank = (k: RouteTreeNodeKind): number => (k === "gone" ? 2 : k === "direct" ? 1 : 0);
+  const cmp =
+    sortBy === "count"
+      ? (a: RouteTreeNode, b: RouteTreeNode): number =>
+          kindRank(a.kind) - kindRank(b.kind) ||
+          b.count - a.count ||
+          b.ms - a.ms ||
+          b.prevCount - a.prevCount ||
+          b.prevMs - a.prevMs ||
+          a.position - b.position ||
+          ascStr(a.id, b.id)
+      : (a: RouteTreeNode, b: RouteTreeNode): number =>
+          kindRank(a.kind) - kindRank(b.kind) ||
+          b.ms - a.ms ||
+          b.count - a.count ||
+          b.prevMs - a.prevMs ||
+          b.prevCount - a.prevCount ||
+          a.position - b.position ||
+          ascStr(a.id, b.id);
+  return nodes
+    .map((n) => ({
+      ...n,
+      children: n.children.length > 0 ? sortRouteTreeNodes(n.children, sortBy) : [],
+    }))
+    .sort(cmp);
+}
+
+interface BucketAcc {
+  ms: number;
+  prevMs: number;
+  count: number;
+  prevCount: number;
+}
+
+function emptyAcc(): BucketAcc {
+  return { ms: 0, prevMs: 0, count: 0, prevCount: 0 };
+}
+
+function buildRouteTreesFromTotals(
+  spans: readonly StatsSpan[],
+  cls: Classified,
+  cur: WindowTotals,
+  prev: WindowTotals,
+  routeOf: (s: StatsSpan) => string,
+  nodesByRoute?: Readonly<Record<string, readonly RouteTreeNodeInput[]>>,
+  sortBy: StatsSortBy = "ms",
+): Record<string, RouteTreeNode[]> {
+  if (!nodesByRoute) return {};
+  const byRouteSpans = new Map<string, { s: StatsSpan; cMs: number; pMs: number }[]>();
+  for (const s of spans) {
+    if (cls.tiny.has(s.id) || cls.pending.has(s.id)) continue;
+    const cMs = cur.msById[s.id] ?? 0;
+    const pMs = prev.msById[s.id] ?? 0;
+    if (cMs <= 0 && pMs <= 0) continue;
+    const rKey = routeOf(s);
+    if (rKey === ROUTE_NONE || rKey === ROUTE_GONE || rKey === ROUTE_NOROUTE) continue;
+    const list = byRouteSpans.get(rKey);
+    const item = { s, cMs, pMs };
+    if (list) list.push(item);
+    else byRouteSpans.set(rKey, [item]);
+  }
+  const out: Record<string, RouteTreeNode[]> = {};
+  const validKinds = new Set<string>(["branch", "train", "car", "ticket"]);
+  for (const [routeId, items] of byRouteSpans) {
+    const rawNodes = nodesByRoute[routeId] ?? [];
+    const liveNodes = new Map<string, RouteTreeNodeInput>();
+    for (const n of rawNodes) {
+      if (n.deleted_at === null && n.id !== routeId && validKinds.has(n.kind)) {
+        liveNodes.set(n.id, n);
+      }
+    }
+    const selfAcc = new Map<string, BucketAcc>();
+    const directAcc = emptyAcc();
+    const goneAcc = emptyAcc();
+    const addTo = (acc: BucketAcc, cMs: number, pMs: number): void => {
+      if (cMs > 0) {
+        acc.ms += cMs;
+        acc.count += 1;
+      }
+      if (pMs > 0) {
+        acc.prevMs += pMs;
+        acc.prevCount += 1;
+      }
+    };
+    for (const { s, cMs, pMs } of items) {
+      if (s.nodeId === null || s.nodeId === routeId) {
+        addTo(directAcc, cMs, pMs);
+      } else if (liveNodes.has(s.nodeId)) {
+        let acc = selfAcc.get(s.nodeId);
+        if (!acc) {
+          acc = emptyAcc();
+          selfAcc.set(s.nodeId, acc);
+        }
+        addTo(acc, cMs, pMs);
+      } else {
+        addTo(goneAcc, cMs, pMs);
+      }
+    }
+
+    // 組裝父子表（含環路保護：若有異常環路則掛回路線頂層）
+    const childrenIds = new Map<string | null, string[]>();
+    const hasCycle = (startId: string): boolean => {
+      const seen = new Set<string>([startId]);
+      let curId = liveNodes.get(startId)?.parent_id ?? null;
+      while (curId && curId !== routeId && liveNodes.has(curId)) {
+        if (seen.has(curId)) return true;
+        seen.add(curId);
+        curId = liveNodes.get(curId)?.parent_id ?? null;
+      }
+      return false;
+    };
+    for (const n of liveNodes.values()) {
+      const parentKey =
+        n.parent_id && n.parent_id !== routeId && liveNodes.has(n.parent_id) && !hasCycle(n.id)
+          ? n.parent_id
+          : null;
+      const arr = childrenIds.get(parentKey);
+      if (arr) arr.push(n.id);
+      else childrenIds.set(parentKey, [n.id]);
+    }
+
+    const buildSubtree = (nid: string): RouteTreeNode | null => {
+      const n = liveNodes.get(nid)!;
+      const kids: RouteTreeNode[] = [];
+      for (const cid of childrenIds.get(nid) ?? []) {
+        const built = buildSubtree(cid);
+        if (built) kids.push(built);
+      }
+      const own = selfAcc.get(nid) ?? emptyAcc();
+      let ms = own.ms;
+      let prevMs = own.prevMs;
+      let count = own.count;
+      let prevCount = own.prevCount;
+      for (const k of kids) {
+        ms += k.ms;
+        prevMs += k.prevMs;
+        count += k.count;
+        prevCount += k.prevCount;
+      }
+      if (ms <= 0 && prevMs <= 0) return null;
+      if (kids.length > 0 && (own.ms > 0 || own.prevMs > 0)) {
+        kids.push({
+          id: `${nid}:__direct__`,
+          nodeId: nid,
+          routeId,
+          kind: "direct",
+          name: "直屬紀錄（未指定子項）",
+          isTempTicket: false,
+          done: false,
+          position: Number.MAX_SAFE_INTEGER,
+          ms: own.ms,
+          prevMs: own.prevMs,
+          count: own.count,
+          prevCount: own.prevCount,
+          children: [],
+        });
+      }
+      return {
+        id: n.id,
+        nodeId: n.id,
+        routeId,
+        kind: n.kind as RouteTreeNodeKind,
+        name: n.name,
+        isTempTicket: n.kind === "ticket" && n.parent_id === null,
+        done: n.status === "done",
+        position: n.position,
+        ms,
+        prevMs,
+        count,
+        prevCount,
+        children: kids,
+      };
+    };
+
+    const top: RouteTreeNode[] = [];
+    for (const cid of childrenIds.get(null) ?? []) {
+      const built = buildSubtree(cid);
+      if (built) top.push(built);
+    }
+    if (directAcc.ms > 0 || directAcc.prevMs > 0) {
+      top.push({
+        id: `${routeId}:__direct__`,
+        nodeId: null,
+        routeId,
+        kind: "direct",
+        name: "路線直屬（臨時班次／未指定車票）",
+        isTempTicket: false,
+        done: false,
+        position: Number.MAX_SAFE_INTEGER - 1,
+        ms: directAcc.ms,
+        prevMs: directAcc.prevMs,
+        count: directAcc.count,
+        prevCount: directAcc.prevCount,
+        children: [],
+      });
+    }
+    if (goneAcc.ms > 0 || goneAcc.prevMs > 0) {
+      top.push({
+        id: `${routeId}:__gone__`,
+        nodeId: null,
+        routeId,
+        kind: "gone",
+        name: "（已刪除的路線項目）",
+        isTempTicket: false,
+        done: false,
+        position: Number.MAX_SAFE_INTEGER,
+        ms: goneAcc.ms,
+        prevMs: goneAcc.prevMs,
+        count: goneAcc.count,
+        prevCount: goneAcc.prevCount,
+        children: [],
+      });
+    }
+    out[routeId] = sortRouteTreeNodes(top, sortBy);
+  }
+  return out;
+}
+
+/** 獨立計算依路線手風琴樹（單元測試與按需呼叫共用） */
+export function buildRouteTrees(input: {
+  spans: readonly StatsSpan[];
+  period: StatsPeriod;
+  key: string;
+  now: number;
+  h: number;
+  weekStart: 0 | 1;
+  thresholdMin: (s: StatsSpan) => number | null;
+  routeOf: (s: StatsSpan) => string;
+  nodesByRoute: Readonly<Record<string, readonly RouteTreeNodeInput[]>>;
+  sortBy?: StatsSortBy;
+}): Record<string, RouteTreeNode[]> {
+  const cls = classifySpans(input.spans, input.now, input.thresholdMin);
+  const curWin = periodWindow(input.period, input.key, input.h, input.weekStart);
+  const cmp = compareWindow(input.period, curWin, input.now, input.h, input.weekStart);
+  const cur = windowTotals(input.spans, cls, curWin, input.now, input.routeOf);
+  const prev = windowTotals(input.spans, cls, cmp.prev, input.now, input.routeOf);
+  return buildRouteTreesFromTotals(input.spans, cls, cur, prev, input.routeOf, input.nodesByRoute, input.sortBy);
+}
+
+function groupRows(
+  cats: readonly TimeCategoryRow[],
+  cur: Record<string, number>,
+  prev: Record<string, number>,
+  curCount: Record<string, number>,
+  prevCount: Record<string, number>,
+): ShareGroup[] {
   const byId = new Map<string, TimeCategoryRow>();
   for (const c of cats) byId.set(c.id, c);
   const ids = new Set<string>([...Object.keys(cur), ...Object.keys(prev)]);
@@ -1033,39 +1463,39 @@ function groupRows(cats: readonly TimeCategoryRow[], cur: Record<string, number>
     const ms = cur[id] ?? 0;
     const prevMs = prev[id] ?? 0;
     if (ms <= 0 && prevMs <= 0) continue;
+    const count = curCount[id] ?? 0;
+    const pCount = prevCount[id] ?? 0;
     const top = topOf(id);
     let g = groups.get(top);
     if (!g) {
-      g = { id: top, ms: 0, prevMs: 0, children: [] };
+      g = { id: top, ms: 0, prevMs: 0, count: 0, prevCount: 0, children: [] };
       groups.set(top, g);
     }
     g.ms += ms;
     g.prevMs += prevMs;
+    g.count += count;
+    g.prevCount += pCount;
     // 頂層自己直接有塊（沒分到子分類）不出子列；子分類才出
-    if (top !== id) g.children.push({ id, ms, prevMs });
+    if (top !== id) g.children.push({ id, ms, prevMs, count, prevCount: pCount });
   }
-  const pos = (id: string): number => byId.get(id)?.position ?? 0;
-  const cmp = (a: { id: string; ms: number; prevMs: number }, b: { id: string; ms: number; prevMs: number }): number =>
-    b.ms - a.ms || b.prevMs - a.prevMs || pos(a.id) - pos(b.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const out = Array.from(groups.values());
-  for (const g of out) g.children.sort(cmp);
-  out.sort(cmp);
-  return out;
+  return sortShareGroups(Array.from(groups.values()), "ms", cats);
 }
 
-function routeRows(cur: Record<string, number>, prev: Record<string, number>): RouteShare[] {
+function routeRows(
+  cur: Record<string, number>,
+  prev: Record<string, number>,
+  curCount: Record<string, number>,
+  prevCount: Record<string, number>,
+): RouteShare[] {
   const keys = new Set<string>([...Object.keys(cur), ...Object.keys(prev)]);
   const rows: RouteShare[] = [];
   for (const key of keys) {
     const ms = cur[key] ?? 0;
     const prevMs = prev[key] ?? 0;
     if (ms <= 0 && prevMs <= 0) continue;
-    rows.push({ key, ms, prevMs });
+    rows.push({ key, ms, prevMs, count: curCount[key] ?? 0, prevCount: prevCount[key] ?? 0 });
   }
-  // 一般路線 → 沒有路線的任務 → 已刪除的任務 → 沒連任務（還在的任務排在已刪的前面）
-  const rank = (k: string): number => (k === ROUTE_NONE ? 3 : k === ROUTE_GONE ? 2 : k === ROUTE_NOROUTE ? 1 : 0);
-  rows.sort((a, b) => rank(a.key) - rank(b.key) || b.ms - a.ms || b.prevMs - a.prevMs || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return rows;
+  return sortRouteShares(rows, "ms");
 }
 
 /** 一整頁統計的計算（純函式；效能量測的對象就是它裡面的 `windowTotals`） */
@@ -1090,6 +1520,7 @@ export function buildStats(input: StatsInput): StatsResult {
       byGroup: totalsByGroup(t.byCategory, cats),
       byTag: t.byTag,
       recordedMs: t.recordedMs,
+      recordedCount: t.recordedCount,
       isCurrent: i === keys.length - 1,
       inProgress: now >= w.start && now < w.end,
     };
@@ -1101,6 +1532,13 @@ export function buildStats(input: StatsInput): StatsResult {
     .filter((s) => inWindow.has(s.id))
     .map((s) => ({ id: s.id, categoryId: s.categoryId, start: s.start, end: s.end, durMs: durOf(s, now) }))
     .sort((a, b) => b.start - a.start || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+
+  const rawTags = input.tagRows ? input.tagRows(cur.byTag, prev.byTag) : [];
+  const tags: StatsTagRow[] = rawTags.map((r) => ({
+    ...r,
+    count: r.count ?? cur.countByTag[r.key] ?? 0,
+    prevCount: r.prevCount ?? prev.countByTag[r.key] ?? 0,
+  }));
 
   return {
     period,
@@ -1115,13 +1553,17 @@ export function buildStats(input: StatsInput): StatsResult {
     prev,
     prevWindow: cmp.prev,
     compare: cmp.compare,
-    groups: groupRows(cats, cur.byCategory, prev.byCategory),
+    groups: groupRows(cats, cur.byCategory, prev.byCategory, cur.countByCategory, prev.countByCategory),
     trend,
-    routes: routeRows(cur.byRoute, prev.byRoute),
+    routes: routeRows(cur.byRoute, prev.byRoute, cur.countByRoute, prev.countByRoute),
+    routeTrees: buildRouteTreesFromTotals(spans, cls, cur, prev, input.routeOf, input.nodesByRoute),
     pending,
     empty: cur.recordedMs <= 0 && cur.pendingMs <= 0,
-    tags: input.tagRows ? input.tagRows(cur.byTag, prev.byTag) : [],
-    untagged: { ms: cur.untaggedMs, prevMs: prev.untaggedMs },
+    tags,
+    untagged: {
+      ms: cur.untaggedMs,
+      prevMs: prev.untaggedMs,
+    },
   };
 }
 
@@ -1212,6 +1654,448 @@ export function buildGoals(
   // 排序（5.2-5）：進行中 → 未開始 → 已結束，同類照 position（Array.sort 在 ES2019+ 穩定，原順序＝store 給的 position 序）
   const rank = { active: 0, upcoming: 1, ended: 2 } as const;
   return views.sort((a, b) => rank[a.state] - rank[b.state] || a.goal.position - b.goal.position);
+}
+
+/* ───────────────────────── 6b. 釘選自訂統計專題 ＆ 專題獨立切日線（v1.33 功能 2 ＋ G1） ───────────────────────── */
+
+/** `time_stat_topics` 資料列結構相容介面（維持 timetableStats 僅依賴 timetable.ts 與 lib/date.ts） */
+export interface StatTopicRowLike {
+  id: string;
+  name: string;
+  scope: string;
+  day_start_hour: number | null;
+  position: number;
+  archived_at: string | null;
+  deleted_at?: string | null;
+}
+
+export interface StatTopic {
+  id: string;
+  name: string;
+  categoryIds: string[];
+  routeIds: string[];
+  nodeIds: string[];
+  /** 荷札 name_key 陣列（NFKC＋英文小寫、不含 `#`） */
+  tagKeys: string[];
+  /** 荷札顯示名陣列（保留大小寫、不含 `#`） */
+  tagNames: string[];
+  /** null＝跟隨手帳全域日界線；0..23＝專題獨立切日整點（如 18 代表 18:00 切日的睡眠觀察） */
+  dayStartHour: number | null;
+  position: number;
+  archived: boolean;
+}
+
+export interface StatTopicInput {
+  name: string;
+  categoryIds: readonly string[];
+  routeIds?: readonly string[];
+  nodeIds?: readonly string[];
+  tagNames?: readonly string[];
+  /** null＝跟隨全域；0..23＝專題獨立切日整點 */
+  dayStartHour: number | null;
+}
+
+export interface StatTopicDayRow {
+  dateKey: string;
+  start: number;
+  end: number;
+  ms: number;
+  count: number;
+  inProgress: boolean;
+  isToday: boolean;
+  future: boolean;
+}
+
+export interface StatTopicView {
+  topic: StatTopic;
+  /** 實際採用的切日整點（`topic.dayStartHour ?? globalH`） */
+  effectiveDayStartHour: number;
+  period: StatsPeriod;
+  /** 依專題切日線對齊後的本期第一天 */
+  key: string;
+  window: PeriodWindow;
+  prevWindow: { start: number; end: number };
+  compare: "sameSpan" | "whole";
+  totalMs: number;
+  count: number;
+  prevMs: number;
+  prevCount: number;
+  /** 當期已經過的有效營業日數（用於日均分母） */
+  elapsedDays: number;
+  /** 當期日均時數（totalMs / elapsedDays） */
+  avgDayMs: number;
+  /** 迷你趨勢窗的日均時數（period="day" 時為近 7 日均；week／month 同 avgDayMs） */
+  trendAvgDayMs: number;
+  /** 迷你趨勢條與展開明細共用的逐日資料（week=7 天、month=整月各天、day=近 7 天） */
+  days: StatTopicDayRow[];
+  liveCategoryIds: string[];
+  liveRouteIds: string[];
+  liveNodeIds: string[];
+  emptyScope: boolean;
+}
+
+export const TOPIC_NAME_MAX = 24;
+export const TOPIC_SCOPE_EMPTY = "請選至少一個分類、路線、任務或荷札";
+export const TOPIC_SCOPE_VERSION = 1;
+
+/** 將輸入的荷札字串轉為與 `tags.ts` 對齊的 `{ name, key }`；空白或無效回 null */
+export function topicTagNameAndKey(raw: unknown): { name: string; key: string } | null {
+  if (typeof raw !== "string") return null;
+  let s = raw.normalize("NFKC").trim();
+  if (s.startsWith("#")) s = s.slice(1).trim();
+  if (!s) return null;
+  const segs = s.split("/").map((x) => x.trim());
+  if (segs.some((seg) => !seg)) return null;
+  const name = segs.join("/");
+  if (/\s/.test(name) || name.includes("#")) return null;
+  const key = name.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  return { name, key };
+}
+
+export function isValidDayStartHour(h: unknown): h is number {
+  return typeof h === "number" && Number.isInteger(h) && h >= 0 && h <= 23;
+}
+
+/** 序列化專題 scope JSON（`{"v":1,...}`，固定鍵序，確保跨裝置輸出一致） */
+export function serializeTopicScope(input: {
+  categoryIds: readonly string[];
+  routeIds?: readonly string[];
+  nodeIds?: readonly string[];
+  tagNames?: readonly string[];
+}): string {
+  const cats: string[] = [];
+  for (const id of input.categoryIds) if (typeof id === "string" && id && !cats.includes(id)) cats.push(id);
+  const routes: string[] = [];
+  for (const id of input.routeIds ?? []) if (typeof id === "string" && id && !routes.includes(id)) routes.push(id);
+  const nodes: string[] = [];
+  for (const id of input.nodeIds ?? []) if (typeof id === "string" && id && !nodes.includes(id)) nodes.push(id);
+  const tags: string[] = [];
+  const seenKeys = new Set<string>();
+  for (const raw of input.tagNames ?? []) {
+    const parsed = topicTagNameAndKey(raw);
+    if (parsed && !seenKeys.has(parsed.key)) {
+      seenKeys.add(parsed.key);
+      tags.push(parsed.name);
+    }
+  }
+  const obj: { v: 1; cats?: string[]; routes?: string[]; nodes?: string[]; tags?: string[] } = { v: TOPIC_SCOPE_VERSION };
+  if (cats.length > 0) obj.cats = cats;
+  if (routes.length > 0) obj.routes = routes;
+  if (nodes.length > 0) obj.nodes = nodes;
+  if (tags.length > 0) obj.tags = tags;
+  return JSON.stringify(obj);
+}
+
+/** 驗證並正規化專題輸入；不合法 ⇒ RangeError（人話） */
+export function normalizeStatTopicInput(input: StatTopicInput): {
+  name: string;
+  categoryIds: string[];
+  routeIds: string[];
+  nodeIds: string[];
+  tagNames: string[];
+  dayStartHour: number | null;
+  scope: string;
+} {
+  const name = input.name.trim();
+  if (!name) throw new RangeError("請輸入專題名稱");
+  if (Array.from(name).length > TOPIC_NAME_MAX) {
+    throw new RangeError(`專題名稱最多 ${TOPIC_NAME_MAX} 字`);
+  }
+  if (input.dayStartHour !== null && !isValidDayStartHour(input.dayStartHour)) {
+    throw new RangeError("切日時間請選整點（00:00～23:00）");
+  }
+  const categoryIds: string[] = [];
+  for (const id of input.categoryIds) if (typeof id === "string" && id && !categoryIds.includes(id)) categoryIds.push(id);
+  const routeIds: string[] = [];
+  for (const id of input.routeIds ?? []) if (typeof id === "string" && id && !routeIds.includes(id)) routeIds.push(id);
+  const nodeIds: string[] = [];
+  for (const id of input.nodeIds ?? []) if (typeof id === "string" && id && !nodeIds.includes(id)) nodeIds.push(id);
+  const tagNames: string[] = [];
+  const seenTagKeys = new Set<string>();
+  for (const raw of input.tagNames ?? []) {
+    const parsed = topicTagNameAndKey(raw);
+    if (parsed && !seenTagKeys.has(parsed.key)) {
+      seenTagKeys.add(parsed.key);
+      tagNames.push(parsed.name);
+    }
+  }
+  if (!categoryIds.length && !routeIds.length && !nodeIds.length && !tagNames.length) {
+    throw new RangeError(TOPIC_SCOPE_EMPTY);
+  }
+  const scope = serializeTopicScope({ categoryIds, routeIds, nodeIds, tagNames });
+  return {
+    name,
+    categoryIds,
+    routeIds,
+    nodeIds,
+    tagNames,
+    dayStartHour: input.dayStartHour,
+    scope,
+  };
+}
+
+/** 解析 `time_stat_topics` 一列；前向相容：不認得的版本或損壞欄位回傳 null */
+export function parseStatTopic(row: StatTopicRowLike): StatTopic | null {
+  if ((row.deleted_at ?? null) !== null) return null;
+  if (typeof row.name !== "string" || !row.name.trim()) return null;
+  if (row.day_start_hour !== null && !isValidDayStartHour(row.day_start_hour)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.scope);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const o = parsed as { v?: unknown; cats?: unknown; categories?: unknown; routes?: unknown; nodes?: unknown; tags?: unknown };
+  if ("v" in o && o.v !== TOPIC_SCOPE_VERSION) return null;
+  const rawCats = Array.isArray(o.cats) ? o.cats : Array.isArray(o.categories) ? o.categories : [];
+  const rawRoutes = Array.isArray(o.routes) ? o.routes : [];
+  const rawNodes = Array.isArray(o.nodes) ? o.nodes : [];
+  const rawTags = Array.isArray(o.tags) ? o.tags : [];
+
+  const categoryIds: string[] = [];
+  for (const x of rawCats) if (typeof x === "string" && x && !categoryIds.includes(x)) categoryIds.push(x);
+  const routeIds: string[] = [];
+  for (const x of rawRoutes) if (typeof x === "string" && x && !routeIds.includes(x)) routeIds.push(x);
+  const nodeIds: string[] = [];
+  for (const x of rawNodes) if (typeof x === "string" && x && !nodeIds.includes(x)) nodeIds.push(x);
+  const tagNames: string[] = [];
+  const tagKeys: string[] = [];
+  for (const x of rawTags) {
+    const tk = topicTagNameAndKey(x);
+    if (tk && !tagKeys.includes(tk.key)) {
+      tagKeys.push(tk.key);
+      tagNames.push(tk.name);
+    }
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    categoryIds,
+    routeIds,
+    nodeIds,
+    tagKeys,
+    tagNames,
+    dayStartHour: row.day_start_hour,
+    position: row.position,
+    archived: row.archived_at !== null,
+  };
+}
+
+export function statTopicToInput(t: StatTopic): StatTopicInput {
+  return {
+    name: t.name,
+    categoryIds: t.categoryIds.slice(),
+    routeIds: t.routeIds.slice(),
+    nodeIds: t.nodeIds.slice(),
+    tagNames: t.tagNames.slice(),
+    dayStartHour: t.dayStartHour,
+  };
+}
+
+function topicDayKeysFor(period: StatsPeriod, alignedFirstKey: string): string[] {
+  if (period === "day") {
+    const keys: string[] = [];
+    for (let i = 6; i >= 0; i--) keys.push(addDays(alignedFirstKey, -i));
+    return keys;
+  }
+  if (period === "week") {
+    const keys: string[] = [];
+    for (let i = 0; i < 7; i++) keys.push(addDays(alignedFirstKey, i));
+    return keys;
+  }
+  const endKey = nextPeriodFirstKey("month", alignedFirstKey);
+  const keys: string[] = [];
+  let cur = alignedFirstKey;
+  let guard = 0;
+  while (cur < endKey && guard++ < 35) {
+    keys.push(cur);
+    cur = addDays(cur, 1);
+  }
+  return keys;
+}
+
+/** 計算所有啟用中專題所需的最早查詢時間戳（涵蓋獨立切日線的上期與近 7 日趨勢）；無專題回 null */
+export function topicsFromMs(
+  topics: readonly StatTopic[],
+  period: StatsPeriod,
+  followCurrent: boolean,
+  ref: string,
+  now: number,
+  globalH: number,
+  weekStart: 0 | 1,
+): number | null {
+  if (!topics.length) return null;
+  let earliest: number | null = null;
+  for (const t of topics) {
+    const th = t.dayStartHour ?? globalH;
+    const topicToday = todayKey(th, new Date(now));
+    const topicKey = resolveViewKey(period, followCurrent, ref, topicToday, th, weekStart);
+    const curWin = periodWindow(period, topicKey, th, weekStart);
+    const cmp = compareWindow(period, curWin, now, th, weekStart);
+    const dayKeys = topicDayKeysFor(period, curWin.key);
+    const firstTrendStart = dayKeys.length > 0 ? startMsOfKey(dayKeys[0], th) : curWin.start;
+    const minStart = Math.min(curWin.start, cmp.prev.start, firstTrendStart);
+    earliest = earliest === null ? minStart : Math.min(earliest, minStart);
+  }
+  return earliest;
+}
+
+/** 計算所有啟用中專題所需的最晚查詢時間戳；無專題回 null */
+export function topicsEndMs(
+  topics: readonly StatTopic[],
+  period: StatsPeriod,
+  followCurrent: boolean,
+  ref: string,
+  now: number,
+  globalH: number,
+  weekStart: 0 | 1,
+): number | null {
+  if (!topics.length) return null;
+  let latest: number | null = null;
+  for (const t of topics) {
+    const th = t.dayStartHour ?? globalH;
+    const topicToday = todayKey(th, new Date(now));
+    const topicKey = resolveViewKey(period, followCurrent, ref, topicToday, th, weekStart);
+    const curWin = periodWindow(period, topicKey, th, weekStart);
+    latest = latest === null ? curWin.end : Math.max(latest, curWin.end);
+  }
+  return latest;
+}
+
+/**
+ * 計算釘選自訂統計專題卡片（支援專題專屬切日線 `dayStartHour`，如 18:00 睡眠觀察）：
+ * - 以 `th = topic.dayStartHour ?? opts.h` 決定專題自己的營業日邊界 `[D th:00, D+1 th:00)`；
+ * - 昨晚 23:30 到今早 07:30（或凌晨 01:30 到 08:30）的睡眠塊，在 `18:00` 切日下完整落在同一睡眠日，不因 00:00 或全域 06:00 切斷；
+ * - 範圍匹配複用 `goalMember`（分類 ∪ 路線 ∪ 任務子樹 ∪ `#荷札`，單塊不重複計入）。
+ */
+export function buildStatTopics(
+  topics: readonly StatTopic[],
+  spans: readonly StatsSpan[],
+  cats: readonly TimeCategoryRow[],
+  opts: {
+    period: StatsPeriod;
+    followCurrent: boolean;
+    ref: string;
+    now: number;
+    h: number;
+    weekStart: 0 | 1;
+    thresholdMin: (s: StatsSpan) => number | null;
+    routeOf?: (s: StatsSpan) => string;
+    ancestorsOfNode?: (nodeId: string) => readonly string[];
+    liveRouteIds?: ReadonlySet<string>;
+    liveNodeIds?: ReadonlySet<string>;
+  },
+): StatTopicView[] {
+  if (!topics.length) return [];
+  const cls = classifySpans(spans, opts.now, opts.thresholdMin);
+  const catById = new Map<string, TimeCategoryRow>();
+  for (const c of cats) catById.set(c.id, c);
+  const spanById = new Map<string, StatsSpan>();
+  for (const s of spans) spanById.set(s.id, s);
+  const routeOf = opts.routeOf ?? ((): string => ROUTE_NONE);
+
+  const ordered = topics.slice().sort((a, b) => a.position - b.position || ascStr(a.id, b.id));
+
+  return ordered.map((topic): StatTopicView => {
+    const th = topic.dayStartHour ?? opts.h;
+    const topicToday = todayKey(th, new Date(opts.now));
+    const topicKey = resolveViewKey(opts.period, opts.followCurrent, opts.ref, topicToday, th, opts.weekStart);
+    const curWin = periodWindow(opts.period, topicKey, th, opts.weekStart);
+    const cmp = compareWindow(opts.period, curWin, opts.now, th, opts.weekStart);
+
+    const catSet = expandScope(topic.categoryIds, cats);
+    const liveRoutes = topic.routeIds.filter((id) => !opts.liveRouteIds || opts.liveRouteIds.has(id));
+    const liveNodes = topic.nodeIds.filter((id) => !opts.liveNodeIds || opts.liveNodeIds.has(id));
+    const liveCats = topic.categoryIds.filter((id) => {
+      const c = catById.get(id);
+      return !!c && c.deleted_at === null;
+    });
+    const routesSet = new Set<string>(liveRoutes);
+    const nodesSet = new Set<string>(liveNodes);
+    const emptyScope =
+      catSet.size === 0 && topic.tagKeys.length === 0 && routesSet.size === 0 && nodesSet.size === 0;
+
+    const fullCtx: GoalLinkContext = {
+      routes: routesSet,
+      nodes: nodesSet,
+      routeOf,
+      ancestorsOfNode: opts.ancestorsOfNode,
+    };
+
+    const measure = (w: { start: number; end: number }): { ms: number; count: number } => {
+      if (emptyScope) return { ms: 0, count: 0 };
+      const wt = windowTotals(spans, cls, w, opts.now, routeOf);
+      const pend = new Set(wt.pendingIds);
+      let ms = 0;
+      let count = 0;
+      for (const id of Object.keys(wt.msById)) {
+        if (pend.has(id)) continue;
+        const partMs = wt.msById[id] ?? 0;
+        if (partMs <= 0) continue;
+        const s = spanById.get(id);
+        if (s && goalMember(s, catSet, topic.tagKeys, fullCtx)) {
+          ms += partMs;
+          count += 1;
+        }
+      }
+      return { ms, count };
+    };
+
+    const cur = measure(curWin);
+    const prev = measure(cmp.prev);
+    const dayKeys = topicDayKeysFor(opts.period, curWin.key);
+    const days: StatTopicDayRow[] = dayKeys.map((dk) => {
+      const dw = periodWindow("day", dk, th, opts.weekStart);
+      const m = measure(dw);
+      return {
+        dateKey: dk,
+        start: dw.start,
+        end: dw.end,
+        ms: m.ms,
+        count: m.count,
+        inProgress: opts.now >= dw.start && opts.now < dw.end,
+        isToday: dk === topicToday,
+        future: opts.now <= dw.start,
+      };
+    });
+
+    let elapsedDays: number;
+    if (opts.period === "day") {
+      elapsedDays = opts.now > curWin.start ? 1 : cur.ms > 0 ? 1 : 0;
+    } else {
+      const started = days.filter((d) => !d.future).length;
+      elapsedDays = started > 0 ? started : cur.ms > 0 ? 1 : 0;
+    }
+    const avgDayMs = elapsedDays > 0 ? Math.round(cur.ms / elapsedDays) : 0;
+
+    const trendStarted = days.filter((d) => !d.future).length;
+    const trendSumMs = days.reduce((acc, d) => acc + d.ms, 0);
+    const trendDenom = trendStarted > 0 ? trendStarted : trendSumMs > 0 ? 1 : 0;
+    const trendAvgDayMs = trendDenom > 0 ? Math.round(trendSumMs / trendDenom) : 0;
+
+    return {
+      topic,
+      effectiveDayStartHour: th,
+      period: opts.period,
+      key: curWin.key,
+      window: curWin,
+      prevWindow: cmp.prev,
+      compare: cmp.compare,
+      totalMs: cur.ms,
+      count: cur.count,
+      prevMs: prev.ms,
+      prevCount: prev.count,
+      elapsedDays,
+      avgDayMs,
+      trendAvgDayMs,
+      days,
+      liveCategoryIds: liveCats,
+      liveRouteIds: liveRoutes,
+      liveNodeIds: liveNodes,
+      emptyScope,
+    };
+  });
 }
 
 /* ───────────────────────── 7. 週視圖 ───────────────────────── */

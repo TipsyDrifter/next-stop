@@ -27,6 +27,7 @@ import {
   WEEKDAYS_WORK,
   parseRoutineItems,
   routineFromDay,
+  routineRangeStatus,
   serializeRoutineItems,
   toggleWeekday,
   weekdayOwners,
@@ -146,9 +147,9 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
     if (!useTimetablePlanStore.getState().routinesLoaded) void useTimetablePlanStore.getState().load();
   }, []);
 
+  const today = useTimetableStore((s) => s.todayKey);
   const active = useMemo(() => routines.filter((r) => r.archived_at === null && r.deleted_at === null), [routines]);
   const archived = useMemo(() => routines.filter((r) => r.archived_at !== null && r.deleted_at === null), [routines]);
-  const owners = useMemo(() => weekdayOwners(routines), [routines]);
 
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -208,9 +209,9 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
     void reorderRoutines(next);
   };
 
-  const onCreate = async (name: string): Promise<void> => {
+  const onCreate = async (name: string, startDay: string | null, endDay: string | null): Promise<void> => {
     setAdding(false);
-    const row = await createRoutine({ name, items: [], weekdays: 0 });
+    const row = await createRoutine({ name, items: [], weekdays: 0, startDay, endDay });
     if (row) {
       setOpen(row.id);
       setFlash(row.id);
@@ -229,8 +230,10 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
             {active.map((r, i) => {
               const items = parseRoutineItems(r.items);
               const isOpen = open === r.id;
-              const taken = takenDays(r, owners);
-              const allTaken = r.weekdays !== 0 && taken.length > 0 && taken.length === countBits(r.weekdays);
+              const rangeSt = routineRangeStatus(r, today);
+              const rowOwners = weekdayOwners(routines, { today, forRoutine: r });
+              const taken = takenDays(r, rowOwners);
+              const allTaken = !rangeSt.expired && r.weekdays !== 0 && taken.length > 0 && taken.length === countBits(r.weekdays);
               const note = `${weekdaysSummary(r.weekdays)}${allTaken ? "（都已給別套）" : ""}・${items ? `${items.length} 段` : "新版本"}`;
               const detailId = `rt-detail-${r.id}`;
               const menu: PopMenuItem[] = [
@@ -281,12 +284,37 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
                   menu={menu}
                   dataId={r.id}
                   dragId={r.id}
-                  className={"ns-tt-rtmgr-row" + (isOpen ? " is-xopen" : "") + (flash === r.id ? " is-flash" : "")}
+                  className={
+                    "ns-tt-rtmgr-row" +
+                    (isOpen ? " is-xopen" : "") +
+                    (rangeSt.expired ? " is-expired" : "") +
+                    (flash === r.id ? " is-flash" : "")
+                  }
                 />,
+                !isOpen && (rangeSt.badge || rangeSt.label) && (
+                  <li key={r.id + "-range"} className="ns-tt-mgr-subli ns-tt-rtmgr-rangeli" data-id={r.id}>
+                    {rangeSt.badge && (
+                      <span
+                        className={
+                          "ns-tt-rtmgr-badge" +
+                          (rangeSt.expired ? " is-expired" : rangeSt.upcoming ? " is-upcoming" : "")
+                        }
+                      >
+                        {rangeSt.badge}
+                      </span>
+                    )}
+                    {rangeSt.label && !rangeSt.badge && (
+                      <span className="ns-tt-rtmgr-rangenote">生效區間：{rangeSt.label}</span>
+                    )}
+                    {rangeSt.expired && r.start_day && (
+                      <span className="ns-tt-rtmgr-rangenote">{r.start_day} 起</span>
+                    )}
+                  </li>
+                ),
                 isOpen && (
                   <li key={r.id + "-detail"} id={detailId} className="ns-tt-rtmgr-detailli">
                     <div role="group" aria-label={`「${r.name}」的內容`}>
-                      <RoutineDetail row={r} items={items} routines={routines} owners={owners} />
+                      <RoutineDetail row={r} items={items} routines={routines} owners={rowOwners} today={today} />
                     </div>
                   </li>
                 ),
@@ -297,7 +325,11 @@ export function RoutinesTab({ focusId, onFocused }: { focusId?: string; onFocuse
       )}
 
       {adding ? (
-        <AddRoutineRow onAdd={(name) => void onCreate(name)} onCancel={() => setAdding(false)} />
+        <AddRoutineRow
+          today={today}
+          onAdd={(name, s, e) => void onCreate(name, s, e)}
+          onCancel={() => setAdding(false)}
+        />
       ) : (
         active.length > 0 && (
           <button type="button" className="ns-btn btn-text ns-btn--sm ns-tt-mgr-addbtn ns-tt-rtmgr-new" onClick={() => setAdding(true)}>
@@ -370,43 +402,81 @@ function takenDays(r: TimeRoutineRow, owners: readonly (string | null)[]): numbe
   return out;
 }
 
-/** 新增一套的輸入列（同分類籤的 AddRow：「新增」次鈕、「取消」文字鈕） */
-function AddRoutineRow({ onAdd, onCancel }: { onAdd(name: string): void; onCancel(): void }) {
+/** 新增一套的輸入列（同分類籤的 AddRow：「新增」次鈕、「取消」文字鈕；v1.33 G2 支援選填生效起日／結束日） */
+function AddRoutineRow({
+  today,
+  onAdd,
+  onCancel,
+}: {
+  today: string;
+  onAdd(name: string, startDay: string | null, endDay: string | null): void;
+  onCancel(): void;
+}) {
   const [text, setText] = useState("");
+  const [startDay, setStartDay] = useState<string | null>(null);
+  const [endDay, setEndDay] = useState<string | null>(null);
   const submit = (): void => {
     const t = text.trim();
-    if (t) onAdd(t);
+    if (t) onAdd(t, startDay, endDay);
   };
   return (
-    <div className="ns-tt-mgr-add ns-tt-rtmgr-add">
-      <input
-        className="ns-tt-input"
-        value={text}
-        autoFocus
-        placeholder={RT.addPh}
-        aria-label={RT.addPh}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (isIme(e)) return;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            onCancel();
-          }
-        }}
-        enterKeyHint="done"
-        spellCheck={false}
-        autoComplete="off"
-      />
-      <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={onCancel}>
-        取消
-      </button>
-      <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={!text.trim()} onClick={submit}>
-        新增
-      </button>
+    <div className="ns-tt-rtmgr-addbox">
+      <div className="ns-tt-mgr-add ns-tt-rtmgr-add">
+        <input
+          className="ns-tt-input"
+          value={text}
+          autoFocus
+          placeholder={RT.addPh}
+          aria-label={RT.addPh}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (isIme(e)) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              onCancel();
+            }
+          }}
+          enterKeyHint="done"
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="ns-btn btn-ghost ns-btn--sm" disabled={!text.trim()} onClick={submit}>
+          新增
+        </button>
+      </div>
+      <div className="ns-tt-rtmgr-dates is-add">
+        <span className="ns-tt-rtmgr-rangenote">生效區間（選填）：</span>
+        <DateChip
+          date={startDay}
+          label="生效起日"
+          emptyText="不限起日"
+          allowPast
+          clearable
+          max={endDay ?? undefined}
+          today={today}
+          onPick={setStartDay}
+        />
+        <span className="ns-tt-rtmgr-dash" aria-hidden="true">
+          ～
+        </span>
+        <DateChip
+          date={endDay}
+          label="生效結束日"
+          emptyText="長期有效"
+          allowPast
+          clearable
+          min={startDay ?? undefined}
+          today={today}
+          onPick={setEndDay}
+        />
+      </div>
     </div>
   );
 }
@@ -418,12 +488,14 @@ function RoutineDetail({
   items,
   routines,
   owners,
+  today,
 }: {
   row: TimeRoutineRow;
   /** null＝讀不懂（新版寫的） */
   items: RoutineItem[] | null;
   routines: readonly TimeRoutineRow[];
   owners: readonly (string | null)[];
+  today: string;
 }) {
   const updateRoutine = useTimetablePlanStore((s) => s.updateRoutine);
   const categories = useTimetableStore((s) => s.categories);
@@ -470,6 +542,15 @@ function RoutineDetail({
     if (await updateRoutine(row.id, { weekdays: mask })) nudgeToday();
   };
 
+  const writeDates = async (startDay: string | null, endDay: string | null): Promise<void> => {
+    const curStart = row.start_day ?? null;
+    const curEnd = row.end_day ?? null;
+    if (startDay === curStart && endDay === curEnd) return;
+    if (await updateRoutine(row.id, { startDay, endDay })) nudgeToday();
+  };
+
+  const rangeSt = routineRangeStatus(row, today);
+
   const patchSeg = (k: number, patch: Partial<RoutineItem>): void => {
     const next = draft.map((d) => {
       if (d.k !== k) return d;
@@ -514,6 +595,63 @@ function RoutineDetail({
 
   return (
     <div className="ns-tt-rtmgr-detail">
+      <div className="ns-tt-rtmgr-f">
+        <span className="ns-tt-rtmgr-k">生效區間</span>
+        <div className="ns-tt-rtmgr-v">
+          <div className="ns-tt-rtmgr-dates" role="group" aria-label="作息範本生效區間">
+            <DateChip
+              date={row.start_day ?? null}
+              label="生效起日"
+              emptyText="不限起日"
+              allowPast
+              clearable
+              max={row.end_day ?? undefined}
+              today={today}
+              onPick={(d) => void writeDates(d, row.end_day ?? null)}
+            />
+            <span className="ns-tt-rtmgr-dash" aria-hidden="true">
+              ～
+            </span>
+            <DateChip
+              date={row.end_day ?? null}
+              label="生效結束日"
+              emptyText="長期有效"
+              allowPast
+              clearable
+              min={row.start_day ?? undefined}
+              today={today}
+              onPick={(d) => void writeDates(row.start_day ?? null, d)}
+            />
+            {(row.start_day || row.end_day) && (
+              <button
+                type="button"
+                className="ns-btn btn-text ns-btn--sm"
+                onClick={() => void writeDates(null, null)}
+              >
+                清除區間
+              </button>
+            )}
+            {rangeSt.badge && (
+              <span
+                className={
+                  "ns-tt-rtmgr-badge" +
+                  (rangeSt.expired ? " is-expired" : rangeSt.upcoming ? " is-upcoming" : "")
+                }
+              >
+                {rangeSt.badge}
+              </span>
+            )}
+          </div>
+          <span className="ns-tt-rtmgr-taken">
+            {rangeSt.expired
+              ? `此範本已於 ${row.end_day} 到期，不再自動排入新日程；過去已落地的歷史日程完整保留。`
+              : row.start_day || row.end_day
+                ? "僅在區間內的營業日自動排入日程，到期後自動停止、不必手動封存。"
+                : "未設定起訖日＝長期有效。"}
+          </span>
+        </div>
+      </div>
+
       <div className="ns-tt-rtmgr-f">
         <span className="ns-tt-rtmgr-k">{RT.days}</span>
         <div className="ns-tt-rtmgr-v">

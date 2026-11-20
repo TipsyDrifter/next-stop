@@ -33,7 +33,7 @@
  *   - 舊票底部「存成常用…」：大票底部浮起小卡（dialogs/SaveTemplate），取名、列出會帶入什麼
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
-import { useTicketStore } from "../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useTagStore } from "../../store/tagStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
@@ -51,7 +51,6 @@ import { rowContextMenu } from "../common/contextMenu";
 import {
   ACCOUNT_GROUPS,
   MAIN_CURRENCY,
-  MAIN_SYMBOL,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   atOf,
@@ -59,8 +58,11 @@ import {
   categoryForest,
   categoryLabel,
   convertMinor,
+  currencySymbol,
   groupAccounts,
   localTime,
+  mainCurrencyOf,
+  maskedMoneyText,
   matchCategories,
   moneyText,
   parseAmount,
@@ -280,6 +282,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
   const balances = useTicketStore((s) => s.balances);
+  const masked = useTicketStore(isTicketAmountMasked);
   const entries = useTicketStore((s) => s.entries);
   const savedAt = useTicketStore((s) => s.savedAt);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -300,6 +303,9 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
     if (!st.index && !st.loading) void st.loadIndex();
   }, []);
 
+  const main = mainCurrency(curByCode);
+  const mainCode = main?.code ?? mainCurrencyOf(currencies);
+  const mainSym = currencySymbol(mainCode);
   const vm: Vm = row
     ? {
         kind: row.kind,
@@ -314,7 +320,7 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
       }
     : {
         kind: draft?.kind ?? "expense",
-        currency: draft?.currency ?? MAIN_CURRENCY,
+        currency: draft?.currency ?? mainCode,
         accountId: draft?.accountId ?? null,
         toAccountId: draft?.toAccountId ?? null,
         categoryId: draft?.categoryId ?? null,
@@ -325,9 +331,8 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
       };
   const cur = curByCode[vm.currency];
   const decimals = cur?.decimals ?? 2;
-  const main = mainCurrency(curByCode);
   const mainDec = main?.decimals ?? 2;
-  const foreign = vm.currency !== (main?.code ?? MAIN_CURRENCY);
+  const foreign = vm.currency !== mainCode;
   const acc = vm.accountId ? accById[vm.accountId] : undefined;
   const toAcc = vm.toAccountId ? accById[vm.toAccountId] : undefined;
   const route = vm.routeId ? routes.find((r) => r.id === vm.routeId) : undefined;
@@ -561,7 +566,8 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
   }, [savedAt, savedFlash]);
 
   const serial = row ? serialOf(row, entries.filter((x) => x.occurred_on === row.occurred_on)) : "NEW";
-  const balText = (a: AccountRow) => moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2);
+  const balText = (a: AccountRow) =>
+    masked ? maskedMoneyText(a.currency) : moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2);
 
   return (
     <article
@@ -683,14 +689,14 @@ function BigTicket({ row, fresh, onBackToList }: { row: EntryRow | null; fresh: 
               value={amountText}
               decimals={decimals}
               allowNegative={allowNeg}
-              currencyPrefix={vm.currency === MAIN_CURRENCY ? MAIN_SYMBOL : vm.currency}
+              currencyPrefix={vm.currency === mainCode ? mainSym : vm.currency}
               onCommit={(v) => onAmount(v)}
             />
           </div>
         )}
         {foreign && cur && (
           <div className="ns-tk-conv">
-            ≈ {MAIN_SYMBOL}{" "}
+            ≈ {mainSym}{" "}
             {convEdit ? (
               <ConvInput
                 initial={convMinor !== null ? moneyText(Math.abs(convMinor), mainDec) : ""}
@@ -961,6 +967,9 @@ export function AcctPick(props: {
 }) {
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
+  const currencies = useTicketStore((s) => s.currencies);
+  const masked = useTicketStore(isTicketAmountMasked);
+  const mainCode = mainCurrencyOf(currencies);
   const frequentIds = useTicketStore((s) => s.frequent.accounts);
   const groups = groupAccounts(accounts);
   const frequent = frequentIds
@@ -978,7 +987,7 @@ export function AcctPick(props: {
       {acctLabel(a, accounts)}
       <span className="r">
         {props.balText(a)}
-        {a.currency !== MAIN_CURRENCY && <small> {a.currency}</small>}
+        {!masked && a.currency !== mainCode && <small> {a.currency}</small>}
       </span>
     </button>
   );
@@ -1450,7 +1459,9 @@ function TemplateMarks({ activeId }: { activeId: string | null }) {
   const accounts = useTicketStore((s) => s.accounts);
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
+  const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const mainCode = mainCurrencyOf(currencies);
   const routes = useNodeStore((s) => s.routes);
   const index = useTagStore((s) => s.index);
   if (!templates.length) return null; // 還沒存過：入口在帳目詳情的「存成常用…」
@@ -1460,7 +1471,7 @@ function TemplateMarks({ activeId }: { activeId: string | null }) {
     <div className="ns-tk-marks" role="group" aria-label="常用票種">
       {templates.map((t) => {
         const acc = t.account_id ? accById[t.account_id] : undefined;
-        const dec = curByCode[t.currency ?? acc?.currency ?? MAIN_CURRENCY]?.decimals ?? 2;
+        const dec = curByCode[t.currency ?? acc?.currency ?? mainCode]?.decimals ?? 2;
         return (
           <button
             key={t.id}
@@ -1811,6 +1822,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
   const currencies = useTicketStore((s) => s.currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
   const balances = useTicketStore((s) => s.balances);
+  const masked = useTicketStore(isTicketAmountMasked);
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const store = useTicketStore.getState;
   const [adj, setAdj] = useState<string | null>(null);
@@ -1899,7 +1911,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
         <span className="lbl">目前餘額</span>
         <div className="v">
           <Money minor={bal} currency={acc.currency} />
-          <small>{acc.currency}</small>
+          {!masked && <small>{acc.currency}</small>}
         </div>
         <div className="ns-tk-adj">
           {adj === null ? (
@@ -1923,7 +1935,7 @@ function AcctCard({ acc }: { acc: AccountRow }) {
                     className="ns-tk-textin"
                     inputMode="text"
                     value={adj}
-                    placeholder={amountInputText(bal, dec)}
+                    placeholder={masked ? "" : amountInputText(bal, dec)}
                     onChange={(e) => setAdj(e.target.value)}
                     onBlur={() => {
                       if (hasCalcOperator(adj)) setAdj(commitCalcInput(adj, { allowNegative: true, decimals: dec }));

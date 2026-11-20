@@ -13,18 +13,20 @@
  * UI 只讀 store、只叫 store 的動作（①§2.5-2）。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Select } from "../../../common/Select";
 import { useTicketStore } from "../../../../store/ticketStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { todayKey } from "../../../../lib/date";
 import {
-  MAIN_CURRENCY,
   UNCAT_EXPENSE_ID,
   addMonths,
   bareName,
   categoryArchivedUp,
   categoryLabel,
   categoryPath,
+  mainCurrencyOf,
   monthOf,
+  monthRangeLabel,
   monthTitle,
   moneyText,
   type CategoryRow,
@@ -35,16 +37,21 @@ import { MSheet } from "../../../common/MSheet";
 import { IconLeft, IconPlus, IconRight, useImeGuard } from "../mobileBits";
 import { MobileCatDrill } from "../MobileCatDrill";
 
+const START_DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
+
 // onDone：宿主的介面照留（兩殼本體同一種 props）；丙-5 拿掉「完成」後本體不再自己關
 export function MobileBudgetSheet(_props: { onDone(): void }) {
   const budgets = useTicketStore((s) => s.budgets);
   const catById = useTicketStore((s) => s.catById);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const dec = useTicketStore((s) => mainCurrencyOf(s.curByCode).decimals);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const setMonthStartDay = useTicketStore((s) => s.setMonthStartDay);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
-  const [month, setMonth] = useState(() => monthOf(todayKey(dayStartHour)));
+  const [month, setMonth] = useState(() => monthOf(todayKey(dayStartHour), useTicketStore.getState().monthStartDay));
   const [pending, setPending] = useState<string[]>([]); // 加了、還沒填預設的分類
   const [focusCat, setFocusCat] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const rangeLabel = monthRangeLabel(month, monthStartDay);
   // 磨光①（主線手機殼契約 §1.5）：「加分類預算」疊在預算 sheet（ticket.dialog）上，返回鍵＝它的「取消」。
   // 丙-5：kind "dialog" 跟 CategoryPick 的 MSheet backKind 一樣（同 id 合併；預算 sheet 本身可能已是 dialog，要壓得過它）
   useBackLayer("ticket.budget.pick", picking, () => setPicking(false), "dialog");
@@ -68,10 +75,27 @@ export function MobileBudgetSheet(_props: { onDone(): void }) {
         <button type="button" className="ns-tk-mnav" aria-label="上一個月" onClick={() => setMonth(addMonths(month, -1))}>
           <IconLeft />
         </button>
-        <b aria-live="polite">{monthTitle(month)}</b>
+        <b aria-live="polite">
+          {monthTitle(month)}
+          {rangeLabel && <span className="ns-tk-mbe-range">（{rangeLabel}）</span>}
+        </b>
         <button type="button" className="ns-tk-mnav" aria-label="下一個月" onClick={() => setMonth(addMonths(month, 1))}>
           <IconRight />
         </button>
+      </div>
+      <div className="ns-tk-mbe-start">
+        <span>帳務月起算日</span>
+        <Select
+          value={monthStartDay}
+          aria-label="帳務月起算日"
+          onChange={(v) => void setMonthStartDay(parseInt(v, 10))}
+        >
+          {START_DAYS.map((d) => (
+            <option key={d} value={d}>
+              每月 {d} 日
+            </option>
+          ))}
+        </Select>
       </div>
       <p className="ns-tk-mbe-hint">沒單獨設定的月份都照預設</p>
 

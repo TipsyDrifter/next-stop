@@ -18,6 +18,7 @@ import { useEffect, type RefObject } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
 import type { TicketView } from "../../../domain/ticketView";
 import { Tabs, type TabItem } from "../../common/Tabs";
+import { IconEyeMasked, IconEyeOpen, IconPadlock } from "../parts/TicketLockGate";
 
 const TABS: readonly TabItem<TicketView>[] = [
   { key: "list", label: "清單" },
@@ -40,10 +41,35 @@ function stepView(cur: TicketView, d: 1 | -1): TicketView | null {
 export function MobileViewBar({ manageOpen, onManage }: { manageOpen: boolean; onManage(): void }) {
   const view = useTicketStore((s) => s.view);
   const setView = useTicketStore((s) => s.setView);
+  const privacyMasked = useTicketStore((s) => s.privacyMasked);
+  const hasLockPin = useTicketStore((s) => s.hasLockPin);
+  const togglePrivacyMask = useTicketStore((s) => s.togglePrivacyMask);
+  const lockLedger = useTicketStore((s) => s.lockLedger);
   return (
     <div className="ns-tk-mtop ns-tabrow">
       <Tabs items={TABS} value={view} onChange={(v) => void setView(v)} scroll aria-label="售票口檢視" />
       <span className="mgr">
+        <button
+          type="button"
+          className={"ns-tk-mprivbtn" + (privacyMasked ? " is-on" : "")}
+          aria-pressed={privacyMasked}
+          aria-label={privacyMasked ? "解除金額隱私遮罩" : "開啟金額隱私遮罩"}
+          title={privacyMasked ? "顯示真實金額" : "隱藏金額（****）"}
+          onClick={togglePrivacyMask}
+        >
+          {privacyMasked ? <IconEyeMasked size={15} /> : <IconEyeOpen size={15} />}
+        </button>
+        {hasLockPin && (
+          <button
+            type="button"
+            className="ns-tk-mprivbtn"
+            aria-label="鎖定帳本"
+            title="立即鎖定帳本"
+            onClick={lockLedger}
+          >
+            <IconPadlock size={15} />
+          </button>
+        )}
         <button
           type="button"
           className="ns-btn btn-text ns-btn--sm"

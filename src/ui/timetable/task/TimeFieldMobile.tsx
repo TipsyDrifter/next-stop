@@ -12,6 +12,7 @@
 import { useId, useState } from "react";
 import type { NodeRow } from "../../../domain/node";
 import { TT_TEXT } from "../../../store/timetableStore";
+import { jumpFromRouteToTimetableStats } from "../stats/statsJumps";
 import { fmtTaskDur } from "./taskState";
 import { TimeDetail } from "./TimeField";
 import { useLinkedTime } from "./useLinkedTime";
@@ -29,30 +30,45 @@ function TimeFieldMobileRow({ node }: { node: NodeRow }) {
   const total = !t.ready
     ? "…"
     : isRoute
-      ? TT_TEXT.ROUTE_TIME(fmtTaskDur(t.monthMs ?? 0), fmtTaskDur(t.totalMs))
-      : fmtTaskDur(t.totalMs);
+      ? TT_TEXT.ROUTE_TIME_COUNT(fmtTaskDur(t.monthMs ?? 0), fmtTaskDur(t.totalMs), t.totalCount)
+      : t.totalCount > 0
+        ? `${fmtTaskDur(t.totalMs)} · ${t.totalCount} 次`
+        : fmtTaskDur(t.totalMs);
   return (
     <dl className={"ns-tt-time-m" + (isRoute ? " is-route" : "")}>
       <dt>{TT_TEXT.TIME_LABEL}</dt>
       <dd>
-        <button
-          type="button"
-          className={"ns-tt-time-val" + (open ? " is-open" : "")}
-          aria-expanded={open}
-          aria-controls={`${uid}-det`}
-          aria-label={`${TT_TEXT.TIME_LABEL} ${total}；${TT_TEXT.TIME_HOVER(fmtTaskDur(t.selfMs), fmtTaskDur(t.belowMs))}`}
-          onClick={() => setOpen((o) => !o)}
-        >
-          {isRoute ? (
-            <span className="ns-tt-time-route ns-tt-num">{total}</span>
-          ) : (
-            <b className="ns-tt-time-total ns-tt-num">{total}</b>
+        <div className="ns-tt-time-head">
+          <button
+            type="button"
+            className={"ns-tt-time-val" + (open ? " is-open" : "")}
+            aria-expanded={open}
+            aria-controls={`${uid}-det`}
+            aria-label={`${TT_TEXT.TIME_LABEL} ${total}；${TT_TEXT.TIME_HOVER(fmtTaskDur(t.selfMs), fmtTaskDur(t.belowMs))}`}
+            onClick={() => setOpen((o) => !o)}
+          >
+            {isRoute ? (
+              <span className="ns-tt-time-route ns-tt-num">{total}</span>
+            ) : (
+              <b className="ns-tt-time-total ns-tt-num">{total}</b>
+            )}
+            {t.running && <span className="ns-tt-live-dot" aria-hidden="true" />}
+            <span className="ns-tt-time-caret" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+          {isRoute && (
+            <button
+              type="button"
+              className="ns-iconbtn ns-tt-time-jump"
+              aria-label="前往時刻表統計查看路線投入"
+              title="前往時刻表統計"
+              onClick={() => void jumpFromRouteToTimetableStats(node.id, "mobile")}
+            >
+              <span aria-hidden="true">↗</span>
+            </button>
           )}
-          {t.running && <span className="ns-tt-live-dot" aria-hidden="true" />}
-          <span className="ns-tt-time-caret" aria-hidden="true">
-            ▾
-          </span>
-        </button>
+        </div>
         <div className={"ns-tt-time-det" + (open ? " is-open" : "")} id={`${uid}-det`} inert={!open}>
           <div>
             <TimeDetail node={node} t={t} />

@@ -17,14 +17,15 @@
  * 樣式在 ticket-4b-mobile.css（`.ns-tk-mac*`）。
  */
 import { useRef, useState } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useDragReorder, indexOfAnchor } from "../../common/dragReorder";
 import { EmptyState } from "../../common/EmptyState";
 import {
-  MAIN_CURRENCY,
   accountTotals,
   archivedAccounts,
   groupAccounts,
+  mainCurrencyOf,
+  maskedMoneyText,
   moneyText,
   type AccountRow,
 } from "../../../domain/ticket";
@@ -37,6 +38,8 @@ export function MobileAccountsView() {
   const cards = useTicketStore((s) => s.accountCards);
   const balances = useTicketStore((s) => s.balances);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const currencies = useTicketStore((s) => s.currencies);
+  const masked = useTicketStore(isTicketAmountMasked);
   const openDialog = useTicketStore((s) => s.openDialog);
   const [archOpen, setArchOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -45,12 +48,14 @@ export function MobileAccountsView() {
   const groups = groupAccounts(accounts);
   const archived = archivedAccounts(accounts);
   const liveCount = groups.reduce((n, g) => n + g.accounts.length, 0);
-  const main = curByCode[MAIN_CURRENCY];
+  const mainCode = mainCurrencyOf(currencies);
+  const main = curByCode[mainCode];
   const mainDec = main?.decimals ?? 2;
   const add = () => openDialog({ kind: "newAccount" });
 
   /** 群組合計（主幣別；外幣照目前匯率換＝合計帶 accountTotals，同桌機） */
-  const groupSum = (list: readonly AccountRow[]) => moneyText(accountTotals(list, balances, curByCode).net, mainDec);
+  const groupSum = (list: readonly AccountRow[]) =>
+    masked ? maskedMoneyText(mainCode) : moneyText(accountTotals(list, balances, curByCode).net, mainDec);
 
   if (liveCount === 0 && archived.length === 0) {
     return (
@@ -136,7 +141,10 @@ function GroupCards({ groupKey, list, cards }: { groupKey: string; list: Account
 function Card({ account: a, card, archived = false }: { account: AccountRow; card: AccountCard | null; archived?: boolean }) {
   const openAccount = useTicketStore((s) => s.openAccount);
   const balances = useTicketStore((s) => s.balances);
+  const currencies = useTicketStore((s) => s.currencies);
   const dec = useTicketStore((s) => s.curByCode[a.currency]?.decimals ?? 2);
+  const masked = useTicketStore(isTicketAmountMasked);
+  const mainCode = mainCurrencyOf(currencies);
   const bal = balances[a.id] ?? card?.balance ?? 0; // balances 每次 refresh 都是新的；card 是上次算卡時的快照
   const open = () => openAccount(a.id);
   return (
@@ -145,7 +153,11 @@ function Card({ account: a, card, archived = false }: { account: AccountRow; car
       className={"ns-tk-mac-card" + (archived ? " is-arch" : "")}
       role="button"
       tabIndex={0}
-      aria-label={`${a.name}，餘額 ${moneyText(bal, dec)}${a.currency !== MAIN_CURRENCY ? " " + a.currency : ""}：帳戶頁`}
+      aria-label={
+        masked
+          ? `${a.name}，餘額已遮罩：帳戶頁`
+          : `${a.name}，餘額 ${moneyText(bal, dec)}${a.currency !== mainCode ? " " + a.currency : ""}：帳戶頁`
+      }
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -155,12 +167,18 @@ function Card({ account: a, card, archived = false }: { account: AccountRow; car
       }}
     >
       <span className="n">{a.name}</span>
-      <span className={"b" + (bal === 0 ? " is-zero" : "")}>
-        {moneyText(bal, dec)}
-        {a.currency !== MAIN_CURRENCY && <small>{a.currency}</small>}
+      <span className={"b" + (bal === 0 && !masked ? " is-zero" : "")}>
+        {masked ? (
+          maskedMoneyText(a.currency)
+        ) : (
+          <>
+            {moneyText(bal, dec)}
+            {a.currency !== mainCode && <small>{a.currency}</small>}
+          </>
+        )}
       </span>
       {card && <Spark trend={card.trend.map((t) => t.balance)} />}
-      <span className="io">{card ? <FlowText flow={card.month.own} dec={dec} /> : null}</span>
+      <span className="io">{card ? <FlowText flow={card.month.own} dec={dec} currency={a.currency} masked={masked} /> : null}</span>
       <span className="go" aria-hidden>
         <IconRight size={13} />
       </span>
@@ -169,7 +187,7 @@ function Card({ account: a, card, archived = false }: { account: AccountRow; car
 }
 
 /** 「本月 收 ＋X　支 Y　轉入 Z　轉出 W　調整 V」（accountFlowParts，同桌機）：沒有的那項不寫；收入＋金字（售票口收入的例外色） */
-function FlowText({ flow, dec }: { flow: AccountFlow; dec: number }) {
+function FlowText({ flow, dec, currency, masked }: { flow: AccountFlow; dec: number; currency: string; masked: boolean }) {
   const parts = accountFlowParts(flow);
   if (parts.length === 0) return <>本月沒有進出</>;
   return (
@@ -180,7 +198,10 @@ function FlowText({ flow, dec }: { flow: AccountFlow; dec: number }) {
         const plus = (p.key === "income" || p.key === "adjust") && p.minor > 0;
         return (
           <span key={p.key} className="it">
-            {p.label} <b className={plus && p.key === "income" ? "pos" : undefined}>{moneyText(p.minor, dec, plus ? { prefix: "＋" } : undefined)}</b>
+            {p.label}{" "}
+            <b className={!masked && plus && p.key === "income" ? "pos" : undefined}>
+              {masked ? maskedMoneyText(currency, { withSymbol: false }) : moneyText(p.minor, dec, plus ? { prefix: "＋" } : undefined)}
+            </b>
           </span>
         );
       })}

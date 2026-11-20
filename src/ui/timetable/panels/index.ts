@@ -14,6 +14,7 @@ import { LongRunPanel } from "./LongRunPanel";
 import { SplitPanel } from "./SplitPanel";
 import { TaskCategoryPanel } from "./TaskCategoryPanel";
 import { GoalPanel } from "./GoalPanel"; // ③ 乙席
+import { TopicPanel } from "./TopicPanel"; // v1.33 功能 2＋G1
 import { PendingListPanel, pendingListTitle } from "./PendingListPanel"; // ③ 乙席
 import { PlanPanel } from "./PlanPanel"; // ④ 乙席
 import { useTimetableScheduleStore } from "../../../store/timetableScheduleStore"; // ④ 乙席
@@ -60,6 +61,8 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
     }
     case "goal": // ③ 乙席
       return sheet.goalId ? TT_TEXT.statsUi.goalEditTitle : TT_TEXT.statsUi.goalNewTitle;
+    case "topic": // v1.33 功能 2＋G1
+      return sheet.topicId ? TT_TEXT.statsUi.topicEditTitle : TT_TEXT.statsUi.topicNewTitle;
     case "pendingList": // ③ 乙席
       return pendingListTitle(sheet.goalId);
     case "plan": {
@@ -105,7 +108,7 @@ export function sheetTitle(sheet: TimetableSheet, s: TitleState, now: number): s
  * 這種面板有沒有黏底按鈕列（UI 丙-4 C1／C3；兩個 host 共用）：有 ⇒ host 給殼一個 foot、面板的 `<Actions>` portal 進去。
  * 沒有的：即時存（分類與設定、算哪一類、荷札、待確認清單——規範 §2.3「即時存的表單沒有主鈕」）與發車（點分類即發車）。
  */
-const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "longRun", "goal", "plan", "routine", "slot", "adhoc"]);
+const FOOT_KINDS: ReadonlySet<TimetableSheet["kind"]> = new Set(["fill", "edit", "split", "longRun", "goal", "topic", "plan", "routine", "slot", "adhoc"]);
 export function sheetHasFoot(kind: TimetableSheet["kind"]): boolean {
   return FOOT_KINDS.has(kind);
 }
@@ -129,6 +132,8 @@ export function SheetPanel({ sheet, onDone }: { sheet: TimetableSheet; onDone():
       return createElement(TaskCategoryPanel, { onDone });
     case "goal": // ③ 乙席
       return createElement(GoalPanel, { onDone, key: sheet.goalId ?? "new" });
+    case "topic": // v1.33 功能 2＋G1
+      return createElement(TopicPanel, { onDone, key: sheet.topicId ?? "new-topic" });
     case "pendingList": // ③ 乙席
       return createElement(PendingListPanel, { onDone });
     case "plan": // ④ 乙席：手機的 sheet（桌機是 schedule/PlanPopover 自己畫的浮層，DesktopSheetHost 不畫這一種）

@@ -10,15 +10,18 @@
  */
 import { useEffect } from "react";
 import type { NodeRow } from "../../../domain/node";
-import { useTicketStore } from "../../../store/ticketStore";
-import { MAIN_CURRENCY } from "../../../domain/ticket";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
+import { mainCurrencyOf } from "../../../domain/ticket";
 import { asideText } from "../../../domain/ticketView";
 import { useRouteSpendFresh } from "../resume";
 import "../ticket-mobile.css";
 
 export function RouteSpendAside({ route }: { route: NodeRow }) {
   const spend = useTicketStore((s) => s.routeSpend[route.id]);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const currencies = useTicketStore((s) => s.currencies);
+  const masked = useTicketStore(isTicketAmountMasked);
+  const mainCode = mainCurrencyOf(currencies);
+  const dec = useTicketStore((s) => s.curByCode[mainCode]?.decimals ?? 2);
   const loadRouteSpend = useTicketStore((s) => s.loadRouteSpend);
   const missing = spend === undefined;
 
@@ -28,6 +31,6 @@ export function RouteSpendAside({ route }: { route: NodeRow }) {
   useRouteSpendFresh(route.id); // 頁面一直開著跨月：回前景時補叫（store 偵測跨月、整批作廢 ⇒ 上面的 effect 重載）
 
   if (!spend) return null;
-  const text = asideText(spend.month, dec);
+  const text = asideText(spend.month, dec, { masked, currency: mainCode });
   return text === null ? null : <span className="ns-tk-maside">{text}</span>;
 }

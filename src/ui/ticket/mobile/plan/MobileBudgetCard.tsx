@@ -12,19 +12,23 @@
  *   按日進度線落在 pace × 預算 ÷ 尺度（超支時尺度＝已用）；pace 0 或 1（未來／過去的月）不畫。
  * 資料全來自 store.budgetLines（純函式 budgetLines，與三數卡同一支口徑）；年模式整張不畫（宿主也只在月模式掛）。
  */
-import { useTicketStore, TK_TEXT } from "../../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore, TK_TEXT } from "../../../../store/ticketStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { todayKey } from "../../../../lib/date";
-import { MAIN_CURRENCY, monthOf } from "../../../../domain/ticket";
+import { mainCurrencyOf, maskedMoneyText } from "../../../../domain/ticket";
 import { compactMoney } from "../../../../domain/ticketView";
-import type { BudgetLine } from "../../../../domain/ticketPlan";
+import { budgetMonthSub, type BudgetLine } from "../../../../domain/ticketPlan";
 
 export function MobileBudgetCard() {
   const lines = useTicketStore((s) => s.budgetLines);
   const span = useTicketStore((s) => s.span);
   const period = useTicketStore((s) => s.period);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
   const filtered = useTicketStore((s) => s.filterAccountId !== null);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const mainCur = useTicketStore((s) => mainCurrencyOf(s.curByCode));
+  const masked = useTicketStore(isTicketAmountMasked);
+  const dec = mainCur.decimals;
+  const mainCode = mainCur.code;
   const openDialog = useTicketStore((s) => s.openDialog);
   const drillToList = useTicketStore((s) => s.drillToList);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
@@ -37,7 +41,7 @@ export function MobileBudgetCard() {
   const head = (
     <div className="ns-tk-mbud-h">
       <h2>預算</h2>
-      {!filtered && lines && lines.length > 0 && <small>{subText(month, today)}</small>}
+      {!filtered && lines && lines.length > 0 && <small>{budgetMonthSub(month, today, monthStartDay)}</small>}
       <button type="button" className="ns-tk-mbud-set" onClick={open} aria-haspopup="dialog">
         設定
       </button>
@@ -77,20 +81,20 @@ export function MobileBudgetCard() {
             (l.over ? " is-over" : "") +
             (l.archived ? " is-archived" : "") +
             (l.gone ? " is-gone" : "");
-          const inner = <RowInner l={l} dec={dec} />;
+          const inner = <RowInner l={l} dec={dec} mainCode={mainCode} masked={masked} />;
           const scope = l.scope;
           return (
             <li key={l.key} className={cls}>
               {scope.kind === "category" && !l.gone ? (
                 <button
                   type="button"
-                  aria-label={ariaOf(l, dec) + "；到清單看這個月的支出"}
+                  aria-label={ariaOf(l, dec, mainCode, masked) + "；到清單看這個月的支出"}
                   onClick={() => void drillToList({ categoryIds: [scope.categoryId], kinds: ["expense"] })}
                 >
                   {inner}
                 </button>
               ) : (
-                <div role="group" aria-label={ariaOf(l, dec)}>
+                <div role="group" aria-label={ariaOf(l, dec, mainCode, masked)}>
                   {inner}
                 </div>
               )}
@@ -102,28 +106,18 @@ export function MobileBudgetCard() {
   );
 }
 
-function daysIn(month: string): number {
-  return new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
-}
-
-/** 「10 月 · 已過 19/31 天」／過去的月「10 月 · 已結束」／未來「還沒開始」 */
-function subText(month: string, today: string): string {
-  const m = `${Number(month.slice(5, 7))} 月`;
-  const tm = monthOf(today);
-  if (tm === month) return `${m} · 已過 ${Number(today.slice(8, 10))}/${daysIn(month)} 天`;
-  return `${m} · ${tm > month ? "已結束" : "還沒開始"}`;
-}
-
-function ariaOf(l: BudgetLine, dec: number): string {
-  const used = compactMoney(l.used, dec);
-  const budget = compactMoney(l.budget, dec);
-  const rest = l.over ? `超支 ${compactMoney(-l.remaining, dec)}` : `剩 ${compactMoney(l.remaining, dec)}`;
+function ariaOf(l: BudgetLine, dec: number, mainCode: string, masked: boolean): string {
+  const m = maskedMoneyText(mainCode);
+  const used = masked ? m : compactMoney(l.used, dec);
+  const budget = masked ? m : compactMoney(l.budget, dec);
+  const rest = l.over ? `超支 ${masked ? m : compactMoney(-l.remaining, dec)}` : `剩 ${masked ? m : compactMoney(l.remaining, dec)}`;
   return `${l.label}${l.override ? "（本月覆寫）" : ""}：已用 ${used}，預算 ${budget}，${rest}`;
 }
 
-function RowInner({ l, dec }: { l: BudgetLine; dec: number }) {
+function RowInner({ l, dec, mainCode, masked }: { l: BudgetLine; dec: number; mainCode: string; masked: boolean }) {
   // 子分類「🍜 食物 › 點心」：› 淡字（同清單列）
   const parts = l.label.split(" › ");
+  const m = maskedMoneyText(mainCode);
   return (
     <>
       <span className="n" aria-hidden>
@@ -141,13 +135,13 @@ function RowInner({ l, dec }: { l: BudgetLine; dec: number }) {
         {l.override && <small className="ovr">僅改本月</small>}
       </span>
       <span className="v" aria-hidden>
-        {compactMoney(l.used, dec)}
+        {masked ? m : compactMoney(l.used, dec)}
         <span className="sl">／</span>
-        {compactMoney(l.budget, dec)}
+        {masked ? m : compactMoney(l.budget, dec)}
       </span>
       <Bar l={l} />
       <span className="r" aria-hidden>
-        {l.over ? <b>超支 {compactMoney(-l.remaining, dec)}</b> : `剩 ${compactMoney(l.remaining, dec)}`}
+        {l.over ? <b>超支 {masked ? m : compactMoney(-l.remaining, dec)}</b> : `剩 ${masked ? m : compactMoney(l.remaining, dec)}`}
       </span>
     </>
   );

@@ -1,23 +1,40 @@
 /**
- * 運行報告的內容（② 運行報告；契約 §3、§4）——桌機 ReportView 與手機 MobileReport 共用，`shell` 只換去處與少數排法。
- * 視覺真相＝prototypes/design-stats-review-運行報告.html?v=AC（桌機）／&device=mob（手機）。
+ * 運行報告的內容（② 運行報告 ＋ v1.33 3A「運行報告完全體」＋ G6 回顧閉環）——桌機 ReportView 與手機 MobileReport 共用。
  *
- * 結構：一年前的今天（有內容才出現）→ 五張卡（只答今天）→ 區段「每日運行實績」＋近 7／30 天 → 表格 → 圖例。
- * 守則：比較用中性 ▲▼（不用紅綠）；圖表墨色；朱只給済；赭只給誤點與締切；不寫「未記錄」、不寫連續天數、日記只標寫了的日子。
- * 互動：卡片右上「X ›」與卡內小元件各跳各的（§5）；表格整列＝那天的日記足跡；合計列不可點。
- * 每張卡是 <article>：滑鼠點卡的空白處＝跟右上連結同一個去處；鍵盤走裡面的按鈕（不做巢狀的互動元素）。
+ * 結構：
+ *   1. 溫柔回顧提示橫幅（月底／年底／車站預計到站前提醒，有啟用且未確認才出現）
+ *   2. 跨模組篩選列（幹線／路線 ＋ `#荷札` 多選 AND）
+ *   3. 一年前的今天（有內容才出現）
+ *   4. 五張總覽卡（答今天）
+ *   5. 區段「每日運行實績」＋彈性期間控制列（今日｜近 7 天｜近 30 天｜按月｜自訂區間）
+ *   6. 每日運行實績表格（點擊任一日期原地手風琴展開單日全貌明細卡：蓋済車票／時間投入／收支明細／日記分流）
+ *   7. 路線實績排行卡（蓋済車票數 · 投入時數 · 相關支出）
+ *   8. 已完成車票歷史明細流（依營業日倒序分組，支援即時關鍵字過濾）
+ *
+ * 守則：比較用中性 ▲▼（不用紅綠）；圖表墨色；朱只給済；赭只給誤點與締切；日記只標寫了的日子。
  */
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import type { NodeRow } from "../../domain";
-import { deltaText, type OperationReport, type ReportDayRow, type ReportRow, type ReportSumRow } from "../../domain/report";
+import {
+  deltaText,
+  formatReportMoney,
+  formatReportMoneyDelta,
+  type OperationReport,
+  type ReportDayRow,
+  type ReportPeriodSpec,
+  type ReportRow,
+  type ReportSumRow,
+} from "../../domain/report";
 import { fmtDur } from "../../domain/timetable";
 import { fmtDelta } from "../../domain/timetableStats";
-import { moneyText } from "../../domain/ticket";
-import { DateSeal, SealDone } from "../stamps";
+import { useReportStore, type ReportDays } from "../../store/reportStore";
+import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
+import { IconChevron } from "../common/icons";
 import { GNAV_ICONS } from "../sidebar/gnavIcons";
-import { Tabs } from "../common/Tabs";
-import { goCalendar, goNode, goRoute, goToday, lineJump, type ReportShellKind } from "./reportJumps";
-import type { ReportDays } from "../../store/reportStore";
+import { DateSeal, SealDone } from "../stamps";
+import { ReportFilterBar, ReportPeriodControls } from "./ReportFilterBar";
+import { CompletedHistorySection, GentleReviewBanner, RouteRankSection } from "./ReportHistorySections";
+import { goCalendar, goNode, goRoute, goToday, isLineOpen, lineJump, type ReportShellKind } from "./reportJumps";
 
 const WEEK_ZH = "日一二三四五六";
 
@@ -31,11 +48,16 @@ const md = (key: string) => {
 };
 const wd = (key: string) => WEEK_ZH[dateOf(key).getDay()];
 
-const money = (minor: number, dec: number) => moneyText(minor, dec, { whole: true });
 const timeDelta = (ms: number) => fmtDelta(ms);
 
 /** 路線小圓牌（票根語彙：路線色框＋代碼；臨時車票＝虛線「臨」） */
-export function RouteBadge({ route, temp }: { route: { code: string | null; color: string | null; name: string } | null; temp?: boolean }) {
+export function RouteBadge({
+  route,
+  temp,
+}: {
+  route: { code: string | null; color: string | null; name: string } | null;
+  temp?: boolean;
+}) {
   if (!route || temp) {
     return (
       <span className="ns-rp-badge is-temp" aria-hidden="true">
@@ -150,7 +172,13 @@ function RideCard({ r, shell, routes }: { r: OperationReport; shell: ReportShell
               </>
             );
             return route ? (
-              <button key={x.routeId} type="button" className="ns-rp-top" onClick={() => void goRoute(route.id, shell)} aria-label={`${name} 済 ${x.n} 張`}>
+              <button
+                key={x.routeId}
+                type="button"
+                className="ns-rp-top"
+                onClick={() => void goRoute(route.id, shell)}
+                aria-label={`${name} 済 ${x.n} 張`}
+              >
                 {inner}
               </button>
             ) : (
@@ -198,23 +226,37 @@ function TimeCard({ r, shell }: { r: OperationReport; shell: ReportShellKind }) 
   );
 }
 
-function MoneyCard({ r, shell }: { r: OperationReport; shell: ReportShellKind }) {
+function MoneyCard({
+  r,
+  shell,
+  masked,
+}: {
+  r: OperationReport;
+  shell: ReportShellKind;
+  masked: boolean;
+}) {
   const c = r.money!;
   const stats = lineJump("ticket", "stats", shell);
   const b = c.budget;
   const monthN = b ? Number(b.month.slice(5, 7)) : 0;
+  const meterPct =
+    !masked && b && b.budget > 0 ? Math.max(0, Math.min(100, (b.used / b.budget) * 100)) : 0;
   return (
     <Card icon={GNAV_ICONS.ticket(15)} name="售票口" go={stats} goLabel="看帳">
       <div className="ns-rp-big">
-        <b className="amt">{money(c.spent, c.decimals)}</b>
+        <b className="amt">{formatReportMoney(c.spent, c.decimals, masked)}</b>
         <span className="u">今天花了</span>
       </div>
       {c.topCats.length > 0 && (
         <div className="ns-rp-kl">
           {c.topCats.map((x, i) => (
             <span key={x.name} className="ns-rp-cat">
-              {i > 0 && <span className="sep" aria-hidden="true">・</span>}
-              {x.name} <b className="amt">{money(x.minor, c.decimals)}</b>
+              {i > 0 && (
+                <span className="sep" aria-hidden="true">
+                  ・
+                </span>
+              )}
+              {x.name} <b className="amt">{formatReportMoney(x.minor, c.decimals, masked)}</b>
             </span>
           ))}
         </div>
@@ -223,18 +265,19 @@ function MoneyCard({ r, shell }: { r: OperationReport; shell: ReportShellKind })
         <button type="button" className="ns-rp-bud" onClick={stats ?? undefined} disabled={!stats}>
           <span className="bl">
             <span>
-              {monthN}月預算{b.remaining >= 0 ? "剩" : "超出"}
+              {masked ? `${monthN}月預算` : `${monthN}月預算${b.remaining >= 0 ? "剩" : "超出"}`}
             </span>
             <span>
-              <b className="amt">{money(Math.abs(b.remaining), c.decimals)}</b> / {money(b.budget, c.decimals)}
+              <b className="amt">{formatReportMoney(Math.abs(b.remaining), c.decimals, masked)}</b> /{" "}
+              {formatReportMoney(b.budget, c.decimals, masked)}
             </span>
           </span>
           <span className="meter" aria-hidden="true">
-            <i style={{ width: `${Math.max(0, Math.min(100, b.budget > 0 ? (b.used / b.budget) * 100 : 0)).toFixed(1)}%` }} />
+            <i style={{ width: `${meterPct.toFixed(1)}%` }} />
           </span>
         </button>
       )}
-      <Cmp label={`比上週${wd(r.today)}`} text={deltaText(c.cmp, (n) => money(n, c.decimals))} />
+      <Cmp label={`比上週${wd(r.today)}`} text={formatReportMoneyDelta(c.cmp, c.decimals, masked)} />
     </Card>
   );
 }
@@ -271,7 +314,12 @@ function DueCard({ r, shell, routes }: { r: OperationReport; shell: ReportShellK
       {c.items.length > 0 && (
         <div className="ns-rp-due">
           {c.items.map((x, i) => (
-            <button key={x.nodeId} type="button" className={`ns-rp-duer${i === 0 ? " is-first" : ""}`} onClick={() => void goNode(x.nodeId, shell)}>
+            <button
+              key={x.nodeId}
+              type="button"
+              className={`ns-rp-duer${i === 0 ? " is-first" : ""}`}
+              onClick={() => void goNode(x.nodeId, shell)}
+            >
               <span className="dd">
                 {md(x.day)}
                 <small>（{wd(x.day)}）</small>
@@ -286,12 +334,7 @@ function DueCard({ r, shell, routes }: { r: OperationReport; shell: ReportShellK
   );
 }
 
-/* ═══════════ 每日運行實績 ═══════════ */
-
-const DAY_TABS = [
-  { key: "7", label: "近 7 天" },
-  { key: "30", label: "近 30 天" },
-] as const;
+/* ═══════════ 每日運行實績（點擊日期進入「一日運行專頁（手帳跨頁）」） ═══════════ */
 
 function Bar({ v, max }: { v: number; max: number }) {
   if (max <= 0) return null;
@@ -302,16 +345,33 @@ function Bar({ v, max }: { v: number; max: number }) {
   );
 }
 
-function DayRowView({ row, r, shell }: { row: ReportDayRow; r: OperationReport; shell: ReportShellKind }) {
-  const go = lineJump("notes", { diary: row.day }, shell);
+function DayRowView({
+  row,
+  r,
+  visited,
+  masked,
+  onOpen,
+}: {
+  row: ReportDayRow;
+  r: OperationReport;
+  visited: boolean;
+  masked: boolean;
+  onOpen: () => void;
+}) {
   const dec = r.money?.decimals ?? 0;
-  const label = `${md(row.day)}（${wd(row.day)}）的日記足跡`;
+  const label = `開啟 ${md(row.day)}（${wd(row.day)}）一日運行專頁`;
   return (
-    <button type="button" className={`ns-rp-row${row.isToday ? " is-today" : ""}`} onClick={go ?? undefined} disabled={!go} aria-label={go ? label : undefined}>
+    <button
+      type="button"
+      className={`ns-rp-row${row.isToday ? " is-today" : ""}${visited ? " is-visited" : ""}`}
+      onClick={onOpen}
+      aria-label={label}
+    >
       <span className="rc-d">
         <span className="num">{md(row.day)}</span>
         <span className="wd">{wd(row.day)}</span>
         {row.isToday && <span className="today">今天</span>}
+        <IconChevron size={11} className="ns-rp-row-go" />
       </span>
       <span className="rc-c">
         <span className="l1">
@@ -331,9 +391,9 @@ function DayRowView({ row, r, shell }: { row: ReportDayRow; r: OperationReport; 
       {row.spent !== null && (
         <span className="rc-c">
           <span className="l1">
-            <span className="amt">{money(row.spent, dec)}</span>
+            <span className="amt">{formatReportMoney(row.spent, dec, masked)}</span>
           </span>
-          <Bar v={row.spent} max={r.max.spent} />
+          <Bar v={row.spent} max={masked ? 0 : r.max.spent} />
         </span>
       )}
       {row.notes !== null && (
@@ -360,12 +420,24 @@ function DayRowView({ row, r, shell }: { row: ReportDayRow; r: OperationReport; 
   );
 }
 
-function SumRowView({ row, r }: { row: ReportSumRow; r: OperationReport }) {
+function SumRowView({ row, r, masked }: { row: ReportSumRow; r: OperationReport; masked: boolean }) {
   const dec = r.money?.decimals ?? 0;
-  const label = row.which === "this" ? "本週" : row.which === "last" ? "上週" : `${md(row.weekOf)}`;
+  const label =
+    row.which === "this"
+      ? "本週"
+      : row.which === "last"
+        ? "上週"
+        : row.which === "period"
+          ? "區間"
+          : `${md(row.weekOf)}`;
   const sub = row.which === "week" ? " 那週" : "合計";
   const cmp = row.cmp;
-  const c = (text: string | null) => (text !== null && cmp ? <span className="cmpx" title={row.cmpLabel ?? undefined}>{text}</span> : null);
+  const c = (text: string | null) =>
+    text !== null && cmp ? (
+      <span className="cmpx" title={row.cmpLabel ?? undefined}>
+        {text}
+      </span>
+    ) : null;
   return (
     <div className={`ns-rp-row is-sum${row.reference ? " is-ref" : ""}`}>
       <span className="rc-d">
@@ -389,8 +461,8 @@ function SumRowView({ row, r }: { row: ReportSumRow; r: OperationReport }) {
       {row.spent !== null && (
         <span className="rc-c">
           <span className="l1">
-            <span className="amt">{money(row.spent, dec)}</span>
-            {c(cmp && cmp.spent !== null ? deltaText(cmp.spent, (n) => money(n, dec)) : null)}
+            <span className="amt">{formatReportMoney(row.spent, dec, masked)}</span>
+            {c(cmp && cmp.spent !== null ? formatReportMoneyDelta(cmp.spent, dec, masked) : null)}
           </span>
         </span>
       )}
@@ -412,14 +484,26 @@ function SumRowView({ row, r }: { row: ReportSumRow; r: OperationReport }) {
   );
 }
 
-function ReportTable({ r, shell }: { r: OperationReport; shell: ReportShellKind }) {
-  // 欄：日期｜乘車｜（時刻表）｜（售票口）｜（筆記）｜締切｜（記事）。桌機締切窄欄 64、記事寬欄；手機日期 46、其餘均分、記事改成跨整列一行
+function ReportTable({
+  r,
+  shell,
+  masked,
+  onOpenDay,
+}: {
+  r: OperationReport;
+  shell: ReportShellKind;
+  masked: boolean;
+  onOpenDay: (day: string) => void;
+}) {
+  const lastVisitedDay = useReportStore((s) => s.lastVisitedDay);
+
   const mid = 1 + (r.time ? 1 : 0) + (r.money ? 1 : 0) + (r.notes ? 1 : 0);
   const grid =
     shell === "desktop"
-      ? `96px repeat(${mid}, minmax(0, 1fr)) 64px${r.hasDayNotes ? " minmax(0, 1.5fr)" : ""}`
-      : `46px repeat(${mid + 1}, minmax(0, 1fr))`;
+      ? `114px repeat(${mid}, minmax(0, 1fr)) 64px${r.hasDayNotes ? " minmax(0, 1.5fr)" : ""}`
+      : `58px repeat(${mid + 1}, minmax(0, 1fr))`;
   const evCol = r.hasDayNotes && shell === "desktop";
+
   return (
     <>
       <div className="ns-rp-table" style={{ "--rp-grid": grid } as CSSProperties} role="group" aria-label="每日運行實績">
@@ -448,15 +532,31 @@ function ReportTable({ r, shell }: { r: OperationReport; shell: ReportShellKind 
           </span>
           {evCol && <span>記事</span>}
         </div>
-        {r.rows.map((row: ReportRow) =>
-          row.kind === "day" ? (
-            <DayRowView key={row.day} row={row} r={r} shell={shell} />
-          ) : (
-            <SumRowView key={`sum-${row.weekOf}${row.reference ? "-ref" : ""}`} row={row} r={r} />
-          ),
-        )}
+        {r.rows.map((row: ReportRow) => {
+          if (row.kind === "day") {
+            return (
+              <DayRowView
+                key={row.day}
+                row={row}
+                r={r}
+                visited={lastVisitedDay === row.day}
+                masked={masked}
+                onOpen={() => onOpenDay(row.day)}
+              />
+            );
+          }
+          return (
+            <SumRowView
+              key={`sum-${row.which}-${row.weekOf}${row.reference ? "-ref" : ""}`}
+              row={row}
+              r={r}
+              masked={masked}
+            />
+          );
+        })}
       </div>
       <p className="ns-rp-legend">
+        <span>點選任一日期進入「一日運行專頁（手帳跨頁）」，一頁飽覽車票、時間塊、收支與當日日記全文</span>
         {r.notes && (
           <span>
             <span className="dia" aria-hidden="true" />
@@ -477,41 +577,70 @@ function ReportTable({ r, shell }: { r: OperationReport; shell: ReportShellKind 
 export function ReportBody({
   r,
   shell,
-  days,
-  onDays,
+  days: _days,
+  onDays: _onDays,
+  lines = [],
   routes,
+  onOpenDay,
 }: {
   r: OperationReport;
   shell: ReportShellKind;
-  days: ReportDays;
-  onDays: (d: ReportDays) => void;
+  days?: ReportDays;
+  onDays?: (d: ReportDays) => void;
+  lines?: readonly NodeRow[];
   routes: readonly NodeRow[];
+  onOpenDay?: (day: string) => void;
 }) {
+  const period = useReportStore((s) => s.period);
+  const setPeriod = useReportStore((s) => s.setPeriod);
+  const openDaySpread = useReportStore((s) => s.openDaySpread);
+  const amountMasked = useTicketStore(isTicketAmountMasked);
+
   const byId: Record<string, NodeRow> = {};
   for (const x of routes) byId[x.id] = x;
+
+  const onPeriodChange = (spec: ReportPeriodSpec) => {
+    setPeriod(spec, shell);
+  };
+
+  const handleOpenDay = (day: string) => {
+    if (onOpenDay) onOpenDay(day);
+    else openDaySpread(day, shell);
+  };
+
   return (
     <>
+      <GentleReviewBanner shell={shell} />
+      <ReportFilterBar
+        shell={shell}
+        lines={lines}
+        routes={routes}
+        notesOpen={isLineOpen("notes", shell)}
+      />
       <YearAgo r={r} shell={shell} />
       <div className="ns-rp-grid">
         <RideCard r={r} shell={shell} routes={byId} />
         {r.time && <TimeCard r={r} shell={shell} />}
-        {r.money && <MoneyCard r={r} shell={shell} />}
+        {r.money && <MoneyCard r={r} shell={shell} masked={amountMasked} />}
         {r.notes && <NotesCard r={r} shell={shell} />}
         <DueCard r={r} shell={shell} routes={byId} />
       </div>
-      <div className="sec ns-rp-sec">
+
+      <div className="sec ns-rp-sec ns-rp-sec-daily">
         <h3>每日運行實績</h3>
         <span className="rule" />
-        <Tabs
-          items={DAY_TABS}
-          value={String(days) as "7" | "30"}
-          onChange={(k) => onDays(k === "30" ? 30 : 7)}
-          size="md"
-          aria-label="天數"
-          className="ns-rp-days"
-        />
       </div>
-      <ReportTable r={r} shell={shell} />
+      <ReportPeriodControls
+        shell={shell}
+        today={r.today}
+        period={period}
+        range={r.range}
+        onChange={onPeriodChange}
+      />
+      <ReportTable r={r} shell={shell} masked={amountMasked} onOpenDay={handleOpenDay} />
+
+      <RouteRankSection r={r} shell={shell} masked={amountMasked} />
+      <CompletedHistorySection r={r} shell={shell} routes={byId} onOpenDay={handleOpenDay} />
     </>
   );
 }

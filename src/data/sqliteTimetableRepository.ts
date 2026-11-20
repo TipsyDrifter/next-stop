@@ -38,8 +38,10 @@ import { ensureSyncTables, newWriteBatch, runWriteBatch, type SyncTable, type Wr
 import type { TimetableRepository, CreateCategoryInput, CategoryPatch, DepartOptions, MergePreview, BlockNoteTally } from "./timetableRepository";
 import {
   WEEKDAYS_EVERY,
+  assertRoutineDayRange,
   checkPlanTimes,
   checkRoutineItems,
+  normalizeRoutineDay,
   parseRoutineItems,
   planLabelOf,
   serializeRoutineItems,
@@ -63,6 +65,9 @@ import {
   groupedCategories,
   isoOf,
   msOf,
+  normalizeStatTopicDayStartHour,
+  normalizeStatTopicName,
+  normalizeStatTopicScope,
   planArrive,
   planArriveBefore,
   planCover,
@@ -92,10 +97,14 @@ import {
   type LongRunChoice,
   type MergeInfo,
   type Span,
+  type StatTopicInput,
+  type StatTopicPatch,
   type TimeBlockRow,
   type TimeBlockSlim,
   type TimeCategoryRow,
   type TimeGoalRow,
+  type TimeStatTopicRow,
+  type UpsertStatTopicInput,
   type WritePlan,
 } from "../domain/timetable";
 import { goalScopeJson, goalScopeNext, goalToInput, normalizeGoalInput, parseGoal, type GoalInput } from "../domain/timetableStats";
@@ -1361,6 +1370,9 @@ export class SqliteTimetableRepository implements TimetableRepository {
     if (!name) throw new RangeError("範本名稱不能是空的");
     const items = serializeRoutineItems(checkRoutineItems(input.items));
     const weekdays = input.weekdays & WEEKDAYS_EVERY;
+    const startDay = normalizeRoutineDay(input.startDay);
+    const endDay = normalizeRoutineDay(input.endDay);
+    assertRoutineDayRange(startDay, endDay);
     const db = await getDb();
     const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM time_routines WHERE ${ALIVE}`);
     const position = (max[0]?.m ?? -1) + 1;
@@ -1368,8 +1380,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const id = uuid();
     const b = newWriteBatch();
     b.stmts.push({
-      sql: `INSERT INTO time_routines (id, name, items, weekdays, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`,
-      args: [id, name, items, weekdays, position, now],
+      sql: `INSERT INTO time_routines (id, name, items, weekdays, start_day, end_day, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      args: [id, name, items, weekdays, startDay, endDay, position, now],
     });
     addOp(b, "time_routines", id, "upsert", {
       name,
@@ -1377,6 +1389,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
       weekdays,
       position,
       archived_at: null,
+      start_day: startDay,
+      end_day: endDay,
       created_at: now,
       updated_at: now,
       deleted_at: null,
@@ -1397,6 +1411,12 @@ export class SqliteTimetableRepository implements TimetableRepository {
       if (parseRoutineItems(cur.items) === null) throw new RangeError("這套範本是新版本寫的，這一版改不了");
       items = serializeRoutineItems(checkRoutineItems(patch.items));
     }
+    const startDay = patch.startDay !== undefined ? normalizeRoutineDay(patch.startDay) : undefined;
+    const endDay = patch.endDay !== undefined ? normalizeRoutineDay(patch.endDay) : undefined;
+    assertRoutineDayRange(
+      startDay !== undefined ? startDay : (cur.start_day ?? null),
+      endDay !== undefined ? endDay : (cur.end_day ?? null),
+    );
     const sets: string[] = [];
     const args: unknown[] = [];
     const cols: Record<string, unknown> = {};
@@ -1410,6 +1430,8 @@ export class SqliteTimetableRepository implements TimetableRepository {
     put("name", name, cur.name);
     put("items", items, cur.items);
     put("weekdays", patch.weekdays !== undefined ? patch.weekdays & WEEKDAYS_EVERY : undefined, cur.weekdays);
+    put("start_day", startDay, cur.start_day ?? null);
+    put("end_day", endDay, cur.end_day ?? null);
     if (!sets.length) return;
     const now = nowUtcIso();
     args.push(now);
@@ -1655,6 +1677,215 @@ export class SqliteTimetableRepository implements TimetableRepository {
     const cols = synced.has(id) ? { deleted_at: null, updated_at: now } : { ...planFullCols(cur), deleted_at: null, updated_at: now };
     addOp(b, "time_plans", id, "upsert", cols);
     await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  /* ───────── v1.33（功能 2 / G1）：釘選自訂統計專題 time_stat_topics ───────── */
+
+  private async getStatTopicRow(db: Database, id: string): Promise<TimeStatTopicRow | null> {
+    const rows = await db.select<TimeStatTopicRow[]>(`SELECT * FROM time_stat_topics WHERE id = $1`, [id]);
+    return rows[0] ?? null;
+  }
+
+  private async aliveStatTopicOrThrow(db: Database, id: string): Promise<TimeStatTopicRow> {
+    const r = await this.getStatTopicRow(db, id);
+    if (!r || r.deleted_at !== null) throw new RangeError("找不到這個統計專題");
+    return r;
+  }
+
+  async listStatTopics(): Promise<TimeStatTopicRow[]> {
+    const db = await getDb();
+    return db.select<TimeStatTopicRow[]>(
+      `SELECT * FROM time_stat_topics WHERE ${ALIVE} ORDER BY position ASC, created_at ASC, id ASC`,
+    );
+  }
+
+  async getStatTopic(id: string, opts?: { withDeleted?: boolean }): Promise<TimeStatTopicRow | null> {
+    const db = await getDb();
+    const r = await this.getStatTopicRow(db, id);
+    if (!r) return null;
+    return r.deleted_at !== null && !opts?.withDeleted ? null : r;
+  }
+
+  async createStatTopic(input: StatTopicInput): Promise<TimeStatTopicRow> {
+    const name = normalizeStatTopicName(input.name);
+    const scope = normalizeStatTopicScope(input.scope);
+    const dayStartHour = normalizeStatTopicDayStartHour(input.dayStartHour);
+    const db = await getDb();
+    const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM time_stat_topics WHERE ${ALIVE}`);
+    const position = (max[0]?.m ?? -1) + 1;
+    const now = nowUtcIso();
+    const id = uuid();
+    const b = newWriteBatch();
+    b.stmts.push({
+      sql: `INSERT INTO time_stat_topics (id, name, scope, day_start_hour, position, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`,
+      args: [id, name, scope, dayStartHour, position, now],
+    });
+    addOp(b, "time_stat_topics", id, "upsert", {
+      name,
+      scope,
+      day_start_hour: dayStartHour,
+      position,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    });
+    await runWriteBatch(db, b.stmts, b.ops);
+    const row = await this.getStatTopicRow(db, id);
+    if (!row) throw new Error("建立統計專題失敗");
+    return row;
+  }
+
+  async updateStatTopic(id: string, patch: StatTopicPatch): Promise<void> {
+    const db = await getDb();
+    const cur = await this.aliveStatTopicOrThrow(db, id);
+    const name = patch.name !== undefined ? normalizeStatTopicName(patch.name) : undefined;
+    const scope = patch.scope !== undefined ? normalizeStatTopicScope(patch.scope) : undefined;
+    const dayStartHour = patch.dayStartHour !== undefined ? normalizeStatTopicDayStartHour(patch.dayStartHour) : undefined;
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const cols: Record<string, unknown> = {};
+    const put = (col: string, val: unknown, old: unknown): void => {
+      if (val === undefined || val === old) return;
+      args.push(val);
+      sets.push(`${col} = $${args.length}`);
+      cols[col] = val;
+    };
+    put("name", name, cur.name);
+    put("scope", scope, cur.scope);
+    put("day_start_hour", dayStartHour, cur.day_start_hour);
+    const now = nowUtcIso();
+    if (patch.archived !== undefined && patch.archived !== (cur.archived_at !== null)) {
+      put("archived_at", patch.archived ? now : null, cur.archived_at);
+    }
+    if (!sets.length) return;
+    args.push(now);
+    sets.push(`updated_at = $${args.length}`);
+    cols.updated_at = now;
+    args.push(id);
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_stat_topics SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+    addOp(b, "time_stat_topics", id, "upsert", cols);
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async upsertStatTopic(input: UpsertStatTopicInput): Promise<TimeStatTopicRow> {
+    const name = normalizeStatTopicName(input.name);
+    const scope = normalizeStatTopicScope(input.scope);
+    const dayStartHour = normalizeStatTopicDayStartHour(input.dayStartHour);
+    const db = await getDb();
+    const id = input.id ?? uuid();
+    const prev = input.id ? await this.getStatTopicRow(db, id) : null;
+    if (!prev) {
+      const max = await db.select<{ m: number | null }[]>(`SELECT MAX(position) AS m FROM time_stat_topics WHERE ${ALIVE}`);
+      const position = input.position ?? (max[0]?.m ?? -1) + 1;
+      const archivedAt = input.archivedAt ?? null;
+      const now = nowUtcIso();
+      const b = newWriteBatch();
+      b.stmts.push({
+        sql: `INSERT INTO time_stat_topics (id, name, scope, day_start_hour, position, archived_at, created_at, updated_at)
+              VALUES ($1,$2,$3,$4,$5,$6,$7,$7)`,
+        args: [id, name, scope, dayStartHour, position, archivedAt, now],
+      });
+      addOp(b, "time_stat_topics", id, "upsert", {
+        name,
+        scope,
+        day_start_hour: dayStartHour,
+        position,
+        archived_at: archivedAt,
+        created_at: now,
+        updated_at: now,
+        deleted_at: null,
+      });
+      await runWriteBatch(db, b.stmts, b.ops);
+      const row = await this.getStatTopicRow(db, id);
+      if (!row) throw new Error("寫入統計專題失敗");
+      return row;
+    }
+    const nextScope = input.scope !== undefined ? scope : prev.scope;
+    const nextDayStartHour = input.dayStartHour !== undefined ? dayStartHour : prev.day_start_hour;
+    const nextPosition = input.position !== undefined ? input.position : prev.position;
+    const nextArchivedAt = input.archivedAt !== undefined ? input.archivedAt : prev.archived_at;
+    const now = nowUtcIso();
+    const wasDeleted = prev.deleted_at !== null;
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    const cols: Record<string, unknown> = {};
+    const put = (col: string, val: unknown, old: unknown): void => {
+      if (!wasDeleted && val === old) return;
+      args.push(val);
+      sets.push(`${col} = $${args.length}`);
+      cols[col] = val;
+    };
+    put("name", name, prev.name);
+    put("scope", nextScope, prev.scope);
+    put("day_start_hour", nextDayStartHour, prev.day_start_hour);
+    put("position", nextPosition, prev.position);
+    put("archived_at", nextArchivedAt, prev.archived_at);
+    if (wasDeleted) {
+      put("deleted_at", null, prev.deleted_at);
+      cols.created_at = prev.created_at;
+    }
+    if (!sets.length) return prev;
+    args.push(now);
+    sets.push(`updated_at = $${args.length}`);
+    cols.updated_at = now;
+    args.push(id);
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_stat_topics SET ${sets.join(", ")} WHERE id = $${args.length}`, args });
+    addOp(b, "time_stat_topics", id, "upsert", cols);
+    await runWriteBatch(db, b.stmts, b.ops);
+    const row = await this.getStatTopicRow(db, id);
+    if (!row) throw new Error("更新統計專題失敗");
+    return row;
+  }
+
+  async archiveStatTopic(id: string, on: boolean): Promise<void> {
+    const db = await getDb();
+    const cur = await this.aliveStatTopicOrThrow(db, id);
+    if (on === (cur.archived_at !== null)) return;
+    const now = nowUtcIso();
+    const at = on ? now : null;
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_stat_topics SET archived_at = $1, updated_at = $2 WHERE id = $3`, args: [at, now, id] });
+    addOp(b, "time_stat_topics", id, "upsert", { archived_at: at, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async deleteStatTopic(id: string): Promise<void> {
+    const db = await getDb();
+    await this.aliveStatTopicOrThrow(db, id);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_stat_topics SET deleted_at = $1, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_stat_topics", id, "delete", { deleted_at: now, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async restoreStatTopic(id: string): Promise<void> {
+    const db = await getDb();
+    const cur = await this.getStatTopicRow(db, id);
+    if (!cur || cur.deleted_at === null) throw new RangeError("找不到這個統計專題");
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    b.stmts.push({ sql: `UPDATE time_stat_topics SET deleted_at = NULL, updated_at = $1 WHERE id = $2`, args: [now, id] });
+    addOp(b, "time_stat_topics", id, "upsert", { deleted_at: null, updated_at: now });
+    await runWriteBatch(db, b.stmts, b.ops);
+  }
+
+  async reorderStatTopics(orderedIds: readonly string[]): Promise<void> {
+    const db = await getDb();
+    const rows = await db.select<{ id: string; position: number; created_at: string }[]>(
+      `SELECT id, position, created_at FROM time_stat_topics WHERE archived_at IS NULL AND ${ALIVE}`,
+    );
+    const order = reorderIds(rows, orderedIds);
+    const now = nowUtcIso();
+    const b = newWriteBatch();
+    order.forEach((id, i) => {
+      b.stmts.push({ sql: `UPDATE time_stat_topics SET position = $1, updated_at = $2 WHERE id = $3`, args: [i, now, id] });
+      addOp(b, "time_stat_topics", id, "upsert", { position: i, updated_at: now });
+    });
+    await this.commit(db, b);
   }
 }
 

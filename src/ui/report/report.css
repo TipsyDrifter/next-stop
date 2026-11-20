@@ -90,7 +90,7 @@ button.ns-rp-top:hover { background: var(--hover-bg); }
 button.ns-rp-top:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .ns-rp-top .nm { flex: 1; min-width: 0; font-size: var(--fs-sm); letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ns-rp-top .num { font-size: var(--fs-sm); color: var(--color-ink); }
-.ns-rp-top .tb, .ns-rp-row .tb { display: block; height: 3px; overflow: hidden; border-radius: 1px; }
+.ns-rp-top .tb, .ns-rp-row .tb { display: block; height: 3px; overflow: hidden; border-radius: var(--radius-ctl); }
 .ns-rp-top .tb { width: 46px; flex: none; background: var(--color-line); }
 .ns-rp-top .tb i, .ns-rp-row .tb i { display: block; height: 100%; width: calc(var(--w) * 100%); background: var(--stamp-ink); }
 
@@ -100,21 +100,21 @@ button.ns-rp-top:focus-visible { outline: var(--focus-ring); outline-offset: -1p
   display: inline-grid; place-items: center; color: var(--rc, var(--route-preset-4));
   font-family: var(--font-latin); font-weight: 600; font-size: 9.5px; letter-spacing: 0; line-height: 1; /* 字面值：圓牌字照原型（票券語彙，字階外） */
 }
-.ns-rp-badge.is-temp { border-style: dashed; border-color: var(--color-ink-faint); color: var(--color-ink-soft); font-family: var(--font-display); font-size: 10px; }
+.ns-rp-badge.is-temp { border-style: dashed; border-color: var(--color-ink-faint); color: var(--color-ink-soft); font-family: var(--font-display); font-size: 10px; } /* 字面值：圓牌「臨」字照原型 */
 
 /* 時刻表：分類占比（墨色四階）＋圖例 */
-.ns-rp-stack { display: flex; gap: 2px; height: 10px; margin-top: 12px; border-radius: 1px; overflow: hidden; }
+.ns-rp-stack { display: flex; gap: 2px; height: 10px; margin-top: 12px; border-radius: var(--radius-ctl); overflow: hidden; }
 .ns-rp-stack i { display: block; height: 100%; min-width: 3px; flex-basis: 0; }
-.ns-rp-card .s1 { background: var(--stamp-ink); }
-.ns-rp-card .s2 { background: color-mix(in srgb, var(--stamp-ink) 66%, transparent); }
-.ns-rp-card .s3 { background: color-mix(in srgb, var(--stamp-ink) 44%, transparent); }
-.ns-rp-card .s4 { background: color-mix(in srgb, var(--stamp-ink) 26%, transparent); }
+.ns-rp-card .s1, .ns-rp-spread .s1 { background: var(--stamp-ink); }
+.ns-rp-card .s2, .ns-rp-spread .s2 { background: color-mix(in srgb, var(--stamp-ink) 66%, transparent); }
+.ns-rp-card .s3, .ns-rp-spread .s3 { background: color-mix(in srgb, var(--stamp-ink) 44%, transparent); }
+.ns-rp-card .s4, .ns-rp-spread .s4 { background: color-mix(in srgb, var(--stamp-ink) 26%, transparent); }
 .ns-rp-lg {
   list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px;
   font-size: var(--fs-xs); color: var(--color-ink-soft);
 }
 .ns-rp-lg li { display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
-.ns-rp-lg li i { width: 8px; height: 8px; flex: none; border-radius: 1px; }
+.ns-rp-lg li i { width: 8px; height: 8px; flex: none; border-radius: var(--radius-ctl); }
 .ns-rp-lg .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ns-rp-lg .num { margin-left: auto; color: var(--color-ink); font-size: var(--fs-xs); }
 
@@ -127,8 +127,8 @@ button.ns-rp-top:focus-visible { outline: var(--focus-ring); outline-offset: -1p
 .ns-rp-bud:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .ns-rp-bud .bl { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-xs); color: var(--color-ink-soft); letter-spacing: .06em; white-space: nowrap; }
 .ns-rp-bud .bl .amt { font-size: var(--fs-sm); color: var(--color-ink); }
-.ns-rp-bud .meter { display: block; height: 4px; margin-top: 6px; background: var(--color-line); border-radius: 2px; overflow: hidden; }
-.ns-rp-bud .meter i { display: block; height: 100%; background: var(--stamp-ink); border-radius: 2px; }
+.ns-rp-bud .meter { display: block; height: 4px; margin-top: 6px; background: var(--color-line); border-radius: var(--radius-ctl); overflow: hidden; }
+.ns-rp-bud .meter i { display: block; height: 100%; background: var(--stamp-ink); border-radius: var(--radius-ctl); }
 
 /* 締切：最近三筆 */
 .ns-rp-due { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
@@ -237,7 +237,7 @@ button.ns-rp-row:disabled { cursor: default; }
 }
 [data-shell="mobile"] .ns-report .ns-rp-top .tb { display: none; }
 [data-shell="mobile"] .ns-report .ns-rp-top .nm { font-size: 12px; letter-spacing: 0; } /* 字面值：三格並排的路線名照原型 */
-[data-shell="mobile"] .ns-report .ns-rp-top .ns-rp-badge { width: 20px; height: 20px; font-size: 9px; }
+[data-shell="mobile"] .ns-report .ns-rp-top .ns-rp-badge { width: 20px; height: 20px; font-size: 9px; } /* 字面值：手機 20px 小圓牌字照原型 */
 [data-shell="mobile"] .ns-report .ns-rp-late { height: 32px; padding: 0 12px; }
 [data-shell="mobile"] .ns-report .ns-rp-duer,
 [data-shell="mobile"] .ns-report .ns-rp-bud,
@@ -256,7 +256,7 @@ button.ns-rp-row:disabled { cursor: default; }
 [data-shell="mobile"] .ns-report .ns-rp-row .rc-d .today { display: none; }
 [data-shell="mobile"] .ns-report .ns-rp-row .rc-d .dk { display: none; }
 [data-shell="mobile"] .ns-report .ns-rp-row .l1 { gap: 3px; }
-[data-shell="mobile"] .ns-report .ns-rp-row .l1 .late { font-size: 0; }
+[data-shell="mobile"] .ns-report .ns-rp-row .l1 .late { font-size: 0; } /* 字面值：隱藏文字改畫圓點 */
 [data-shell="mobile"] .ns-report .ns-rp-row .l1 .late::after {
   content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--late); vertical-align: 1px;
 }
@@ -284,3 +284,874 @@ button.ns-rp-row:disabled { cursor: default; }
 /* 更多頁「回顧」列的小圖示 */
 [data-shell="mobile"] .m2-row-icon { display: inline-flex; align-items: center; gap: 8px; }
 [data-shell="mobile"] .m2-row-icon svg { flex: none; color: var(--color-ink-soft); }
+
+
+/* ═════════════════════════════════════════════════════
+ * v1.33 3A：運行報告完全體 ＋ G6 溫柔回顧閉環
+ * ═════════════════════════════════════════════════════ */
+
+/* ── 溫柔回顧提醒橫幅（G6） ── */
+.ns-rp-reviews { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+.ns-rp-review-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; background-color: var(--color-paper-high);
+  border: 1px solid var(--glass-edge); border-left: 3px solid var(--stamp-ink);
+  border-radius: var(--radius-card); box-shadow: var(--glass-hi), var(--shadow-card);
+}
+.ns-rp-review-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ns-rp-review-title { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-sm); letter-spacing: .08em; color: var(--color-ink); }
+.ns-rp-review-sub { font-size: var(--fs-xs); color: var(--color-ink-soft); }
+.ns-rp-review-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* ── 頂部跨模組篩選列（幹線／路線 ＋ #荷札 多選 AND） ── */
+.ns-rp-fbar { margin: 10px 0 14px; }
+.ns-rp-fbar-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ns-rp-fbar-k { font-size: var(--fs-xs); letter-spacing: .16em; color: var(--color-ink-soft); margin-right: 2px; white-space: nowrap; }
+.ns-rp-fbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 10px; font-size: var(--fs-xs); }
+.ns-rp-fbtn .ns-rp-badge { width: 16px; height: 16px; font-size: var(--fs-micro); }
+.ns-rp-fbtn .ns-rp-hash { font-family: var(--font-latin); opacity: .75; }
+.ns-rp-fcount {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: var(--radius-ctl); background: var(--stamp-ink); color: var(--color-on-ink);
+  font-family: var(--font-latin); font-size: var(--fs-micro); line-height: 1;
+}
+.ns-rp-chev { transition: transform var(--dur-fast); opacity: .7; }
+.ns-rp-chev.is-open { transform: rotate(90deg); }
+
+.ns-rp-tag-pill {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 8px;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: var(--sel-bg); color: var(--sel-fg);
+  font: inherit; font-size: var(--fs-xs); cursor: pointer;
+}
+.ns-rp-tag-pill .h { font-family: var(--font-latin); opacity: .7; }
+.ns-rp-tag-pill:hover { border-color: var(--color-ink-soft); }
+.ns-rp-tag-pill:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+.ns-rp-clear-btn,
+.ns-rp-inline-btn {
+  padding: 2px 6px; border: 0; background: transparent; color: var(--color-ink-soft);
+  font: inherit; font-size: var(--fs-xs); letter-spacing: .08em; cursor: pointer; border-radius: var(--radius-ctl);
+}
+.ns-rp-clear-btn:hover, .ns-rp-inline-btn:hover { color: var(--accent); background: var(--hover-bg); }
+.ns-rp-clear-btn:focus-visible, .ns-rp-inline-btn:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+/* 桌機錨定篩選浮層（共用 techo-card 基底） */
+.ns-rp-pop {
+  position: fixed; z-index: 40; width: 280px; max-width: calc(100vw - 24px); padding: 8px;
+  border-radius: var(--radius-card);
+}
+.ns-rp-pop-body { display: flex; flex-direction: column; gap: 6px; }
+.ns-rp-pop-search {
+  display: flex; align-items: center; gap: 6px; padding: 0 8px; min-height: 30px;
+  border: 1px solid var(--color-line); border-radius: var(--radius-ctl); background: var(--color-paper);
+}
+.ns-rp-pop-search .techo-input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 0; font-size: var(--fs-sm); }
+.ns-rp-pop-hint { margin: 0; padding: 0 4px; font-size: var(--fs-micro); color: var(--color-ink-soft); }
+.ns-rp-pop-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.ns-rp-pop-group { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; border-top: 1px dashed var(--color-line); }
+.ns-rp-pop-group:first-child { border-top: 0; padding-top: 0; }
+.ns-rp-pop-group-hd { padding: 4px 8px 2px; font-size: var(--fs-micro); letter-spacing: .14em; color: var(--color-ink-faint); }
+.ns-rp-pop-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-ink);
+  font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; box-sizing: border-box;
+}
+.ns-rp-pop-opt:hover { background: var(--hover-bg); }
+.ns-rp-pop-opt.is-on { background: var(--sel-bg); color: var(--sel-fg); font-weight: 500; }
+.ns-rp-pop-opt.is-line { font-family: var(--font-display); font-weight: 700; }
+.ns-rp-pop-opt.is-indent { padding-inline-start: 22px; }
+.ns-rp-pop-opt .ns-rp-badge { width: 18px; height: 18px; font-size: var(--fs-micro); }
+.ns-rp-pop-check { width: 14px; flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--accent); text-align: center; }
+.ns-rp-pop-hash { font-family: var(--font-latin); color: var(--color-ink-faint); }
+.ns-rp-pop-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-rp-pop-sub { margin-left: auto; font-size: var(--fs-micro); color: var(--color-ink-faint); white-space: nowrap; }
+.ns-rp-pop-empty { margin: 12px 0; text-align: center; font-size: var(--fs-xs); color: var(--color-ink-soft); }
+.ns-rp-pop-foot {
+  display: flex; align-items: center; justify-content: space-between; padding-top: 6px;
+  border-top: 1px dashed var(--color-line);
+}
+
+/* ── 彈性期間切換列 ── */
+.ns-rp-sec-daily { margin-bottom: 4px; }
+.ns-rp-period { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; }
+.ns-rp-period-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 2px 0; }
+.ns-rp-period-span { font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-soft); }
+.ns-rp-period-lbl { font-size: var(--fs-xs); letter-spacing: .14em; color: var(--color-ink-soft); }
+.ns-rp-datebtn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-latin); font-size: var(--fs-xs); }
+.ns-rp-period-tilde { color: var(--color-ink-faint); font-size: var(--fs-sm); }
+.ns-rp-period-presets { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+
+/* ── 每日運行實績：返回原位微標記（lastVisitedDay）與單日專頁進入動線 ── */
+.ns-rp-row-go { margin-left: auto; flex: none; opacity: .38; transition: opacity var(--dur-fast), transform var(--dur-fast); }
+button.ns-rp-row:hover .ns-rp-row-go { opacity: .88; color: var(--accent); transform: translateX(1px); }
+.ns-rp-row.is-visited {
+  background: var(--sel-bg);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.ns-rp-row.is-visited .rc-d .num { font-weight: 600; color: var(--sel-fg); }
+
+/* ═══════════ 一日運行專頁（手帳跨頁 Daily Spread；v1.33 第三梯亮點一） ═══════════ */
+.ns-rp-spread {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 0 24px;
+}
+
+.ns-rp-spread-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.ns-rp-spread-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-high);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.ns-rp-spread-back:hover { border-color: var(--accent); color: var(--accent); background: var(--hover-bg); }
+.ns-rp-spread-back:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.ns-rp-spread-back .arr { font-family: var(--font-latin); }
+
+.ns-rp-spread-daynav {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ns-rp-spread-step,
+.ns-rp-spread-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-high);
+  color: var(--color-ink-soft);
+  font: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.ns-rp-spread-step:hover:not(:disabled),
+.ns-rp-spread-today:hover {
+  border-color: var(--color-dash);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-rp-spread-step:disabled {
+  opacity: var(--disabled);
+  cursor: not-allowed;
+}
+.ns-rp-spread-step:focus-visible,
+.ns-rp-spread-today:focus-visible,
+.ns-rp-spread-datebtn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-rp-spread-datebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: var(--color-paper-high);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast);
+}
+.ns-rp-spread-datebtn:hover,
+.ns-rp-spread-datebtn.is-open {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ns-rp-spread-datebtn .today-tag {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: var(--fs-micro);
+  letter-spacing: .12em;
+  padding: 0 5px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  color: var(--color-ink-soft);
+}
+
+/* 左右雙頁手帳跨頁紙本（Hobonichi / Jibun Daily Spread） */
+.ns-rp-spread-book {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  color: var(--color-ink);
+}
+
+.ns-rp-spread-page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 22px 26px 28px;
+}
+.ns-rp-spread-left {
+  border-right: 1px dashed var(--color-dash);
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--color-ink) 2.2%, transparent) 0,
+    transparent 18px
+  );
+}
+.ns-rp-spread-right {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--color-ink) 1.8%, transparent) 0,
+    transparent 18px
+  );
+}
+
+@media (max-width: 960px) {
+  .ns-rp-spread-book {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ns-rp-spread-left {
+    border-right: 0;
+    border-bottom: 1px dashed var(--color-dash);
+    background: transparent;
+  }
+  .ns-rp-spread-right {
+    background: transparent;
+  }
+}
+
+.ns-rp-spread-phead {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-line);
+}
+.ns-rp-spread-ptitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ns-rp-spread-ptitle .ns-date-seal {
+  flex: none;
+  color: var(--stamp-ink);
+}
+.ns-rp-spread-pmeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ns-rp-spread-pmeta .eyebrow {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  letter-spacing: .16em;
+  color: var(--color-ink-faint);
+}
+.ns-rp-spread-pmeta .h {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-body);
+  letter-spacing: .12em;
+  color: var(--color-ink);
+}
+
+/* 當日小結條 ＋ 車站／路線到站記事章 */
+.ns-rp-spread-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--color-line);
+}
+.ns-rp-spread-metrics {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: var(--fs-sm);
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-metrics .m-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.ns-rp-spread-metrics .v {
+  font-family: var(--font-latin);
+  font-weight: 600;
+  font-size: var(--fs-body);
+  color: var(--color-ink);
+}
+.ns-rp-spread-metrics .v.is-amt {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+.ns-rp-spread-metrics .sep {
+  color: var(--color-ink-faint);
+}
+.ns-rp-spread-seal {
+  align-self: center;
+  margin-left: 2px;
+}
+
+.ns-rp-spread-stamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ns-rp-spread-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--stamp-ink) 38%, transparent);
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--stamp-ink) 6%, transparent);
+  color: var(--stamp-ink);
+  font-size: var(--fs-xs);
+  letter-spacing: .06em;
+}
+
+/* 跨頁內分節（同一區不疊兩層紙：僅用細格線分隔） */
+.ns-rp-spread-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 0;
+  border-bottom: 1px dashed var(--color-line);
+}
+.ns-rp-spread-sec:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ns-rp-spread-shd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ns-rp-spread-shd .t {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  letter-spacing: .12em;
+  color: var(--color-ink);
+}
+.ns-rp-spread-shd .t svg {
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-shd .sum {
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-shd .sum b {
+  font-family: var(--font-latin);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.ns-rp-spread-shd .sum b.is-amt {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-rp-spread-go {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-soft);
+  font: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: .08em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-fast), background var(--dur-fast);
+}
+.ns-rp-spread-go:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-rp-spread-go:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ns-rp-spread-loading,
+.ns-rp-spread-empty {
+  margin: 4px 0;
+  font-size: var(--fs-sm);
+  color: var(--color-ink-faint);
+}
+
+/* ① 當日蓋済車票（自然換行不截斷） */
+.ns-rp-spread-tickets,
+.ns-rp-spread-ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ns-rp-spread-tickets > li,
+.ns-rp-spread-ledger > li {
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-line) 72%, transparent);
+}
+.ns-rp-spread-tickets > li:last-child,
+.ns-rp-spread-ledger > li:last-child {
+  border-bottom: 0;
+}
+
+.ns-rp-spread-ticket {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 6px 7px 2px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ns-rp-spread-ticket:hover { background: var(--hover-bg); }
+.ns-rp-spread-ticket:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-rp-spread-ticket .ns-rp-badge { margin-top: 1px; }
+.ns-rp-spread-ticket .nm {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ns-rp-spread-ticket .tag-occ {
+  flex: none;
+  margin-top: 2px;
+  padding: 0 5px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  font-size: var(--fs-micro);
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-ticket .clk {
+  flex: none;
+  margin-top: 2px;
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+}
+
+/* ② 當日時間投入台帳 */
+.ns-rp-dtime-cats .ns-rp-stack { margin-top: 2px; height: 8px; }
+
+.ns-rp-spread-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 2px;
+  font-size: var(--fs-sm);
+}
+.ns-rp-spread-block .span-clk {
+  flex: none;
+  min-width: 84px;
+  padding-top: 2px;
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+}
+.ns-rp-spread-block .blk-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ns-rp-spread-block .blk-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ns-rp-spread-block .blk-head .ns-rp-badge { width: 18px; height: 18px; font-size: var(--fs-micro); }
+.ns-rp-spread-block .cat-nm { font-weight: 500; color: var(--color-ink); }
+.ns-rp-spread-block .blk-sub {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--color-ink-soft);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ns-rp-spread-block .dur {
+  flex: none;
+  margin-left: auto;
+  padding-top: 1px;
+  font-family: var(--font-latin);
+  font-size: var(--fs-xs);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+/* ③ 當日收支明細台帳 */
+.ns-rp-spread-expense {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 2px;
+  font-size: var(--fs-sm);
+}
+.ns-rp-spread-expense .exp-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ns-rp-spread-expense .exp-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ns-rp-spread-expense .exp-head .ns-rp-badge { width: 18px; height: 18px; font-size: var(--fs-micro); }
+.ns-rp-spread-expense .cat-nm { font-weight: 500; color: var(--color-ink); }
+.ns-rp-spread-expense .exp-clk {
+  font-family: var(--font-latin);
+  font-size: var(--fs-micro);
+  color: var(--color-ink-faint);
+}
+.ns-rp-spread-expense .exp-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--color-ink-soft);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ns-rp-spread-expense .amt {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+/* 右頁 ① 當日日記全文 */
+.ns-rp-spread-diary-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ns-rp-spread-entry.is-next {
+  padding-top: 16px;
+  border-top: 1px dashed var(--color-line);
+}
+.ns-rp-spread-entry .entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: var(--fs-xs);
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-entry .dia-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stamp-ink);
+  flex: none;
+}
+.ns-rp-spread-entry .entry-edit {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink-faint);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.ns-rp-spread-entry .entry-edit:hover { color: var(--accent); }
+.ns-rp-spread-entry .entry-title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-h3);
+  line-height: 1.45;
+  letter-spacing: .06em;
+  color: var(--color-ink);
+}
+.ns-rp-spread-md {
+  font-size: var(--fs-body);
+  line-height: 1.82;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.ns-rp-spread-md p {
+  margin: 0 0 10px;
+}
+.ns-rp-spread-md p:last-child {
+  margin-bottom: 0;
+}
+
+.ns-rp-spread-diary-blank {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px 0 8px;
+}
+.ns-rp-spread-diary-blank .blank-lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-body);
+  letter-spacing: .08em;
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-diary-blank .blank-sub {
+  margin: 0;
+  max-width: 38ch;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--color-ink-faint);
+}
+.ns-rp-spread-writebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: .1em;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.ns-rp-spread-writebtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.ns-rp-spread-writebtn:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* 右頁 ② 車窓の問い問答手札 */
+.ns-rp-spread-reflections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ns-rp-spread-refl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 0 2px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--stamp-ink) 35%, transparent);
+}
+.ns-rp-spread-refl .refl-cat {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl);
+  font-size: var(--fs-micro);
+  letter-spacing: .1em;
+  color: var(--color-ink-soft);
+}
+.ns-rp-spread-refl .refl-q {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--color-ink);
+}
+.ns-rp-spread-refl .refl-a {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.8;
+  color: var(--color-ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── 路線實績排行卡 ＆ 已完成車票歷史明細流（3A-2） ── */
+.ns-rp-block { margin-top: 24px; }
+.ns-rp-sec-sub { font-size: var(--fs-xs); color: var(--color-ink-soft); letter-spacing: .06em; white-space: nowrap; }
+.ns-rp-sec-sub b { color: var(--color-ink); font-family: var(--font-latin); }
+
+.ns-rp-ranks,
+.ns-rp-hist {
+  background-color: var(--color-paper-high);
+  -webkit-backdrop-filter: var(--float-blur);
+  backdrop-filter: var(--float-blur);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-card);
+  box-shadow: var(--glass-hi), var(--shadow-card);
+  color: var(--color-ink);
+  padding: 8px 14px;
+}
+
+.ns-rp-empty { margin: 14px 4px; font-size: var(--fs-sm); color: var(--color-ink-soft); text-align: center; }
+
+.ns-rp-rank-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ns-rp-rank-list > li { border-bottom: 1px dashed var(--color-line); }
+.ns-rp-rank-list > li:last-child { border-bottom: 0; }
+.ns-rp-rank-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 6px;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: inherit;
+  font: inherit; text-align: left; box-sizing: border-box;
+}
+.ns-rp-rank-row.is-link { cursor: pointer; }
+.ns-rp-rank-row.is-link:hover { background: var(--hover-bg); }
+.ns-rp-rank-row.is-link:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-rp-rank-row .rk-idx { width: 18px; flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); text-align: right; }
+.ns-rp-rank-row .rk-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ns-rp-rank-row .rk-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ns-rp-rank-row .rk-nm { font-size: var(--fs-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-rp-rank-row .rk-depot {
+  flex: none; padding: 0 5px; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: var(--fs-micro); color: var(--color-ink-soft);
+}
+.ns-rp-rank-row .rk-bar { display: block; width: 100%; max-width: 320px; height: 4px; background: var(--color-line); border-radius: var(--radius-ctl); overflow: hidden; }
+.ns-rp-rank-row .rk-bar i { display: block; height: 100%; width: calc(var(--w) * 100%); background: var(--rk-c, var(--stamp-ink)); }
+.ns-rp-rank-row .rk-metrics { display: flex; align-items: baseline; gap: 14px; flex: none; white-space: nowrap; }
+.ns-rp-rank-row .rk-m { font-size: var(--fs-xs); color: var(--color-ink-soft); }
+.ns-rp-rank-row .rk-m b { font-weight: 500; color: var(--color-ink-soft); }
+.ns-rp-rank-row .rk-m small { margin-left: 2px; font-size: var(--fs-micro); }
+.ns-rp-rank-row .rk-m.is-active b { font-weight: 700; color: var(--color-ink); font-size: var(--fs-sm); }
+
+/* 已完成車票歷史明細流 */
+.ns-rp-hist-sec { flex-wrap: wrap; gap: 8px 12px; }
+.ns-rp-hist-search {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; width: 220px; padding: 0 8px;
+  border: 1px solid var(--color-dash); border-radius: var(--radius-ctl); background: var(--color-paper-high);
+}
+.ns-rp-hist-search .techo-input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 0; font-size: var(--fs-xs); }
+.ns-rp-hist-clear {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0;
+  border: 0; background: transparent; color: var(--color-ink-soft); cursor: pointer; border-radius: var(--radius-ctl);
+}
+.ns-rp-hist-clear:hover { color: var(--color-ink); }
+
+.ns-rp-hist-day { padding: 8px 0; border-bottom: 1px solid var(--color-line); }
+.ns-rp-hist-day:last-child { border-bottom: 0; }
+.ns-rp-hist-dhead { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 6px 6px; box-sizing: border-box; }
+button.ns-rp-hist-dhead {
+  border: 0; border-radius: var(--radius-ctl); background: transparent; font: inherit; text-align: left; cursor: pointer;
+}
+button.ns-rp-hist-dhead:hover { background: var(--hover-bg); }
+button.ns-rp-hist-dhead:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-rp-hist-dhead .d { font-family: var(--font-latin); font-size: var(--fs-sm); color: var(--color-ink); }
+.ns-rp-hist-dhead .d small { font-family: var(--font-body); font-size: var(--fs-xs); color: var(--color-ink-soft); margin-left: 2px; }
+.ns-rp-hist-dhead .today {
+  font-size: var(--fs-micro); letter-spacing: .12em; padding: 0 5px; border: 1px solid var(--color-dash);
+  border-radius: var(--radius-ctl); color: var(--color-ink-soft);
+}
+.ns-rp-hist-dhead .cnt { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--color-ink-soft); }
+.ns-rp-hist-go { opacity: .45; transition: opacity var(--dur-fast), transform var(--dur-fast); }
+button.ns-rp-hist-dhead:hover .ns-rp-hist-go { opacity: .9; color: var(--accent); transform: translateX(1px); }
+.ns-rp-hist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ns-rp-hist-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 4px 6px;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-ink);
+  font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; box-sizing: border-box;
+}
+.ns-rp-hist-item:hover { background: var(--hover-bg); }
+.ns-rp-hist-item:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+.ns-rp-hist-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-rp-hist-item .occ {
+  flex: none; padding: 0 5px; border: 1px solid var(--color-dash); border-radius: var(--radius-ctl);
+  font-size: var(--fs-micro); color: var(--color-ink-soft); white-space: nowrap;
+}
+.ns-rp-hist-item .tags { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.ns-rp-hist-item .tag { font-size: var(--fs-micro); color: var(--color-ink-soft); white-space: nowrap; }
+.ns-rp-hist-item .clk { flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); white-space: nowrap; }
+.ns-rp-hist-more { display: flex; justify-content: center; padding: 10px 0 4px; }
+
+/* ── 手機版適配（≥44px 觸控目標、滿版單欄子頁） ── */
+[data-shell="mobile"] .ns-report .ns-rp-fbtn,
+[data-shell="mobile"] .ns-report .ns-rp-tag-pill,
+[data-shell="mobile"] .ns-report .ns-rp-clear-btn,
+[data-shell="mobile"] .ns-report .ns-rp-review-acts .ns-btn,
+[data-shell="mobile"] .ns-report .ns-rp-hist-dhead,
+[data-shell="mobile"] .ns-report .ns-rp-hist-item,
+[data-shell="mobile"] .ns-rp-pop-opt,
+[data-shell="mobile"] .ns-rp-spread-step,
+[data-shell="mobile"] .ns-rp-spread-today,
+[data-shell="mobile"] .ns-rp-spread-datebtn,
+[data-shell="mobile"] .ns-rp-spread-go,
+[data-shell="mobile"] .ns-rp-spread-ticket,
+[data-shell="mobile"] .ns-rp-spread-writebtn { min-height: 44px; }
+
+[data-shell="mobile"] .ns-report .ns-rp-row .rc-d { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
+[data-shell="mobile"] .ns-report .ns-rp-row-go { display: none; }
+[data-shell="mobile"] .ns-report .ns-rp-rank-row { flex-wrap: wrap; padding: 10px 4px; }
+[data-shell="mobile"] .ns-report .ns-rp-rank-row .rk-metrics { width: 100%; padding-left: 48px; gap: 12px; }
+[data-shell="mobile"] .ns-report .ns-rp-hist-search { width: 100%; min-height: 40px; }
+[data-shell="mobile"] .ns-report .ns-rp-hist-item .tags { display: none; }
+
+[data-shell="mobile"] .ns-rp-mspread-host { padding: 12px 12px 24px; }
+[data-shell="mobile"] .ns-rp-spread-daynav { width: 100%; justify-content: space-between; margin-left: 0; }
+[data-shell="mobile"] .ns-rp-spread-step .lbl { display: none; }
+[data-shell="mobile"] .ns-rp-spread-datebtn { flex: 1; justify-content: center; padding: 0 10px; }
+[data-shell="mobile"] .ns-rp-spread-book { grid-template-columns: minmax(0, 1fr); }
+[data-shell="mobile"] .ns-rp-spread-page { padding: 16px 14px 20px; }
+[data-shell="mobile"] .ns-rp-spread-left {
+  border-right: 0;
+  border-bottom: 1px dashed var(--color-dash);
+  background: transparent;
+}
+[data-shell="mobile"] .ns-rp-spread-right { background: transparent; }

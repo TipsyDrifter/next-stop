@@ -15,17 +15,19 @@
  * 剛加、還沒填金額的分類只活在本元件（pending），關掉對話框就不見——不寫空的預算列。
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Select } from "../../common/Select";
 import { useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import {
-  MAIN_CURRENCY,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   addMonths,
   categoryLabel,
   categoryForest,
   categoryPath,
+  mainCurrencyOf,
   moneyText,
+  monthRangeLabel,
   type CategoryRow,
 } from "../../../domain/ticket";
 import { budgetScopes, scopeKey, type BudgetRow, type BudgetScope } from "../../../domain/ticketPlan";
@@ -35,6 +37,7 @@ import { useOutside } from "../TicketPanel";
 import { CatTreeRow, useCatOpen, visibleNodes } from "../view/catTree";
 
 const TOTAL: BudgetScope = { kind: "total" };
+const START_DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
 const isUncat = (id: string): boolean => id === UNCAT_EXPENSE_ID || id === UNCAT_INCOME_ID;
 const monthTitle = (m: string): string => `${m.slice(0, 4)} 年 ${parseInt(m.slice(5, 7), 10)} 月`;
 
@@ -51,6 +54,9 @@ export function BudgetEditor(_props: { onDone(): void }) {
   const budgets = useTicketStore((s) => s.budgets);
   const categories = useTicketStore((s) => s.categories);
   const catById = useTicketStore((s) => s.catById);
+  const mainCode = useTicketStore((s) => mainCurrencyOf(s.curByCode).code);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const setMonthStartDay = useTicketStore((s) => s.setMonthStartDay);
   const [month, setMonth] = useState(() => {
     const s = useTicketStore.getState();
     return s.span === "month" && s.period.key.length === 7 ? s.period.key : s.month;
@@ -58,6 +64,7 @@ export function BudgetEditor(_props: { onDone(): void }) {
   const [pending, setPending] = useState<string[]>([]); // 剛加、還沒填的分類 id
   const [picking, setPicking] = useState(false);
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  const rangeLabel = monthRangeLabel(month, monthStartDay);
 
   const saved = budgetScopes(budgets).filter((s) => s.kind === "category");
   const savedKeys = new Set(saved.map(scopeKey));
@@ -79,11 +86,26 @@ export function BudgetEditor(_props: { onDone(): void }) {
         </button>
         <b className="m" aria-live="polite">
           {monthTitle(month)}
+          {rangeLabel && <span className="ns-tk-be-range">（{rangeLabel}）</span>}
         </b>
         <button type="button" className="ns-tk-mnav" aria-label="下個月" onClick={() => setMonth(addMonths(month, 1))}>
           <TkIcon name="right" size={13} />
         </button>
-        <small>沒單獨設定的月份都照預設</small>
+        <label className="ns-tk-be-start">
+          <span>起算日</span>
+          <Select
+            className="ns-tk-dselect"
+            value={monthStartDay}
+            aria-label="帳務月起算日"
+            onChange={(v) => void setMonthStartDay(parseInt(v, 10))}
+          >
+            {START_DAYS.map((d) => (
+              <option key={d} value={d}>
+                每月 {d} 日
+              </option>
+            ))}
+          </Select>
+        </label>
       </div>
       <table className="ns-tk-be-table">
         <colgroup>
@@ -128,7 +150,7 @@ export function BudgetEditor(_props: { onDone(): void }) {
         </tbody>
       </table>
       {picking && <CatPicker categories={categories} used={used} onPick={add} onClose={() => setPicking(false)} />}
-      <p className="ns-tk-dhint">以主幣別（{MAIN_CURRENCY}）計。清空「預設」會移除整個預算；單月留空則照預設金額。</p>
+      <p className="ns-tk-dhint">以主幣別（{mainCode}）計。沒單獨設定的月份都照預設；清空「預設」會移除整個預算。</p>
     </div>
   );
 }
@@ -144,7 +166,7 @@ function BudgetLineRow(props: {
   onDropPending: (() => void) | null;
 }) {
   const { scope, month, def, ovr, label } = props;
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const dec = useTicketStore((s) => mainCurrencyOf(s.curByCode).decimals);
   const store = useTicketStore.getState;
   const isTotal = scope.kind === "total";
   const confirmRemove = () =>

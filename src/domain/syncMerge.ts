@@ -35,6 +35,7 @@ export const TBL_NOUN: Readonly<Record<string, { noun: string; unit: string }>> 
   time_goals: { noun: "時數目標", unit: "個" },
   time_routines: { noun: "作息範本", unit: "套" }, // ⑦
   time_plans: { noun: "一段預定", unit: "段" }, // ⑦：作息落地的段、車票第二段起
+  time_stat_topics: { noun: "統計專題", unit: "個" }, // v1.33 G1 / 功能 2
   tk_currencies: { noun: "幣別", unit: "個" },
   tk_accounts: { noun: "帳戶", unit: "個" },
   tk_categories: { noun: "帳目分類", unit: "個" },

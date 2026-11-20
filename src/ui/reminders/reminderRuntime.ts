@@ -75,6 +75,7 @@ async function record(fired: readonly { recent: ReminderRecent; memberKeys: read
   const st = useReminderStore.getState();
   const recent = pushRecent(st.recent, fired.map((f) => f.recent));
   st.setRecent(recent);
+  st.setSent({ ...sent });
   await saveSent();
   try {
     await settingsRepo.set(KEY_REMINDER_RECENT, JSON.stringify(recent));
@@ -103,6 +104,13 @@ async function refreshOnce(): Promise<void> {
   if (!sentLoaded) {
     sent = parseSent(await settingsRepo.get(KEY_REMINDER_SENT).catch(() => null));
     sentLoaded = true;
+    useReminderStore.getState().setSent({ ...sent });
+  } else {
+    // 合併畫面點選「本期已知悉」寫入的新鍵
+    const storeSent = useReminderStore.getState().sent;
+    for (const [k, at] of Object.entries(storeSent)) {
+      if (sent[k] === undefined || at > sent[k]) sent[k] = at;
+    }
   }
   const native = nativeSchedules();
   if (native) await record((await remSync(null)).fired);
@@ -218,7 +226,7 @@ export function startReminders(shell: Shell): void {
   );
   stops.push(
     useReminderStore.subscribe((s, p) => {
-      if (s.settings !== p.settings && s.loaded) refreshSoon();
+      if ((s.settings !== p.settings || s.sent !== p.sent) && s.loaded) refreshSoon();
     }),
   );
   stops.push(

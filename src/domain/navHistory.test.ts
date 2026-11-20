@@ -42,6 +42,7 @@ function makeTicketSnap(overrides: Partial<NavSnapshot> = {}): NavSnapshot {
     ticketSearchOpen: false,
     depotTab: "ride",
     depotBookId: null,
+    reportDay: null,
     settingsOpen: false,
     settingsTab: "general",
     quickJumpOpen: false,
@@ -129,4 +130,33 @@ test("2B-1a — 從「管帳 › 定期／帳戶」點進子彈窗（新增定�
   state = reducePushSnapshot(state.entries, state.index, base);
   assert.equal(state.index, 0);
   assert.ok(state.entries.length >= 3);
+});
+
+test("v1.33 — 運行報告「一日運行專頁（reportDay）」納入 baseKeyOf：進入專頁、前後翻日、跨模組跳轉與返回／前進", () => {
+  const overview = makeTicketSnap({ page: "report", reportDay: null });
+  assert.equal(baseKeyOf(overview), "report");
+
+  let state = { entries: [overview], index: 0 };
+
+  // 1. 點擊 11/18 進入一日運行專頁
+  const day18 = makeTicketSnap({ page: "report", reportDay: "2026-11-18" });
+  assert.equal(baseKeyOf(day18), "report:day:2026-11-18");
+  state = reducePushSnapshot(state.entries, state.index, day18);
+  assert.equal(state.index, 1);
+
+  // 2. 翻至前一天 11/17
+  const day17 = makeTicketSnap({ page: "report", reportDay: "2026-11-17" });
+  assert.equal(baseKeyOf(day17), "report:day:2026-11-17");
+  state = reducePushSnapshot(state.entries, state.index, day17);
+  assert.equal(state.index, 2);
+
+  // 3. 點「編輯當日日記 ›」原子跳轉至旅客筆記 11/17 日記
+  const notes17 = makeTicketSnap({ page: "notes", notesSection: "diary", diaryDay: "2026-11-17" });
+  state = reducePushSnapshot(state.entries, state.index, notes17);
+  assert.equal(state.index, 3);
+
+  // 模擬按滑鼠側鍵返回（Alt+[）：3(日記) -> 2(11/17 專頁) -> 1(11/18 專頁) -> 0(運行報告總表)
+  assert.equal(baseKeyOf(state.entries[2]!), "report:day:2026-11-17");
+  assert.equal(baseKeyOf(state.entries[1]!), "report:day:2026-11-18");
+  assert.equal(baseKeyOf(state.entries[0]!), "report");
 });

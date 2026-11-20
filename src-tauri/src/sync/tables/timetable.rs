@@ -49,11 +49,25 @@ const TIME_GOALS_COLS: &[(&str, bool)] = &[
     ("deleted_at", false),
 ];
 
-/// time_routines 的「主人資料」欄（⑦ 契約 §2）。items 是整份 JSON（兩台同時改同一套＝整份一邊贏）。
+/// time_routines 的「主人資料」欄（⑦ 契約 §2；v1.33 G2 新增 start_day／end_day 生效區間）。items 是整份 JSON（兩台同時改同一套＝整份一邊贏）。
 const TIME_ROUTINES_COLS: &[(&str, bool)] = &[
     ("name", false),
     ("items", false),
     ("weekdays", true),
+    ("position", true),
+    ("archived_at", false),
+    ("start_day", false),
+    ("end_day", false),
+    ("created_at", false),
+    ("updated_at", false),
+    ("deleted_at", false),
+];
+
+/// time_stat_topics 的「主人資料」欄（v1.33 G1 / 功能 2：釘選自訂統計專題與獨立切日時間）。
+const TIME_STAT_TOPICS_COLS: &[(&str, bool)] = &[
+    ("name", false),
+    ("scope", false),
+    ("day_start_hour", true),
     ("position", true),
     ("archived_at", false),
     ("created_at", false),
@@ -192,6 +206,26 @@ pub const TABLES: &[SyncTableSpec] = &[
             conflict_anchor: ConflictAnchor::None,
             alive_filter: Some("deleted_at IS NULL"),
             since: Some("timetable_plans"),
+        }),
+    },
+    SyncTableSpec {
+        name: "time_stat_topics",
+        pk: "id",
+        columns: TIME_STAT_TOPICS_COLS,
+        // NOT NULL 且沒有 DEFAULT：name（scope／position 有 DEFAULT）
+        required: &["name"],
+        kind: Kind::Rows(RowsSpec {
+            stamp_filter: "",
+            outbox: OutboxQuery::Plain {
+                order_by: "position",
+                filter: "",
+            },
+            outbox_row_fix: None,
+            full_json_order: "position",
+            fk_checked: false, // 沒有外鍵（scope 條件在 JSON 裡）
+            conflict_anchor: ConflictAnchor::None,
+            alive_filter: Some("deleted_at IS NULL"),
+            since: Some("v133_stats_and_prefs"),
         }),
     },
 ];

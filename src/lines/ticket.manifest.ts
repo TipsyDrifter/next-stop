@@ -60,5 +60,5 @@ export const TICKET = {
   hotkeyFiles: { ticket: "ui/ticket/useTicketKeyboard.ts" },
   // 壬（0019）：加 wr_kinds（候車室種類，排在 tk_wishes 前＝父先子後；順序與 ticket.rs 一致）
   syncTables: ["tk_currencies", "tk_accounts", "tk_categories", "tk_entries", "tk_budgets", "tk_repeats", "wr_kinds", "tk_wishes", "tk_templates"],
-  syncSettingsKeys: [],
+  syncSettingsKeys: ["ticket_month_start_day"],
 } as const satisfies LineManifest;

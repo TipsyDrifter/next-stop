@@ -12,7 +12,7 @@
  *   列底一行 .sub（D-票-82）：左「已跳過 11/1 復原」（還沒到的提前跳過才出）、右文字鈕「跳過下一班」（已暫停、已結束、記不了不給）；兩個都沒有就不出。
  */
 import { type ReactNode } from "react";
-import { useTicketStore } from "../../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../../store/ticketStore";
 import { useUiStore } from "../../../../store/uiStore";
 import { todayKey } from "../../../../lib/date";
 import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, UNCAT_NAME, categoryPath, type AccountRow, type CategoryRow } from "../../../../domain/ticket";
@@ -93,6 +93,7 @@ function Row({
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const masked = useTicketStore(isTicketAmountMasked);
   const pauseRepeat = useTicketStore((s) => s.pauseRepeat);
   const resumeRepeat = useTicketStore((s) => s.resumeRepeat);
   const skipNextRepeat = useTicketStore((s) => s.skipNextRepeat);
@@ -103,7 +104,7 @@ function Row({
   const why = repeatWarn(r, { accById, catById }, blocked);
   const isBlocked = !paused && why !== null;
 
-  const { text: amt, code } = repeatAmount(r, curByCode);
+  const { text: amt, code } = repeatAmount(r, curByCode, masked);
   const foreign = code !== null;
   const nx = paused ? "已暫停" : isBlocked ? "記不了" : nextOnText(r);
   const desc = rule ? repeatRuleText(rule) : "重複規則有誤";

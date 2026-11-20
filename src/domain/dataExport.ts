@@ -33,7 +33,7 @@ export type ExportTables = Record<string, ExportRow[]>;
 const TAG_TABLES = ["tags", "taggings"] as const;
 const TASK_TABLES = ["nodes", "work_logs", "occurrences", "node_time_overrides", "week_aims", "stamps", "ideal_cards", "ideal_reflections"] as const;
 const NOTE_TABLES = ["notes"] as const;
-const TIMETABLE_TABLES = ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans"] as const;
+const TIMETABLE_TABLES = ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans", "time_stat_topics"] as const;
 const TICKET_TABLES = [
   "tk_currencies",
   "tk_accounts",
@@ -621,6 +621,18 @@ function sheetsOf(section: Exclude<ExportScope, "all">, tables: ExportTables, ct
               weekdaysText(r.weekdays),
               routineText(r.items, catName),
               yesNo(r.archived_at),
+            ]),
+          ],
+        },
+        {
+          name: "統計專題.csv",
+          rows: [
+            ["名稱", "篩選條件", "獨立切日時間", "已封存"],
+            ...[...tb("time_stat_topics")].sort(cmpPos).map((t): CsvCell[] => [
+              str(t.name),
+              str(t.scope),
+              num(t.day_start_hour),
+              yesNo(t.archived_at),
             ]),
           ],
         },

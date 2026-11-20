@@ -9,38 +9,65 @@
  */
 import { lineReportJump } from "../../lines/runtime";
 import type { ReminderTarget } from "../../domain/reminders";
+import { periodOfKey, stationKeyOf } from "../../domain/weekAims";
+import { runAtomicNav } from "../../store/navHistoryStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useUiStore } from "../../store/uiStore";
 import { useWeekAimStore } from "../../store/weekAimStore";
 import { useMobileDetailStore } from "../mobile/detail/mobileDetailStore";
-import { goCalendar, goNode, goToday } from "../report/reportJumps";
+import { goCalendar, goNode, goRoute, goToday } from "../report/reportJumps";
 import { useScheduleUiStore } from "../schedule/scheduleUiStore";
 
 export async function openReminderTarget(t: ReminderTarget, shell: "desktop" | "mobile"): Promise<void> {
-  const ui = useUiStore.getState();
-  ui.setSettingsOpen(false);
-  if (useNodeStore.getState().routes.length === 0) await useNodeStore.getState().loadSidebar();
-  switch (t.kind) {
-    case "node":
-      await goNode(t.id, shell);
-      if (shell === "mobile") useMobileDetailStore.getState().open(t.id);
-      return;
-    case "day":
-      goCalendar(shell);
-      useScheduleUiStore.getState().requestDay(t.day);
-      return;
-    case "today":
-      goToday(shell);
-      return;
-    case "review":
-      goToday(shell);
-      useWeekAimStore.getState().requestReview(t.weekOn);
-      return;
-    case "ticketDay":
-      lineReportJump("ticket", { day: t.day }, shell)?.();
-      return;
-    case "routine":
-      lineReportJump("timetable", { day: t.day }, shell)?.();
-      return;
-  }
+  await runAtomicNav(async () => {
+    const ui = useUiStore.getState();
+    ui.setSettingsOpen(false);
+    if (useNodeStore.getState().routes.length === 0) await useNodeStore.getState().loadSidebar();
+    switch (t.kind) {
+      case "node":
+        await goNode(t.id, shell);
+        if (shell === "mobile") useMobileDetailStore.getState().open(t.id);
+        return;
+      case "day":
+        goCalendar(shell);
+        useScheduleUiStore.getState().requestDay(t.day);
+        return;
+      case "today":
+        goToday(shell);
+        return;
+      case "review": {
+        const p = periodOfKey(t.weekOn);
+        if (p === "month" || p === "year" || p === "week") {
+          useWeekAimStore.getState().setTodayPick(p);
+        }
+        goToday(shell);
+        useWeekAimStore.getState().requestReview(t.weekOn);
+        return;
+      }
+      case "station": {
+        const stKey = stationKeyOf(t.stationId);
+        if (shell === "mobile") {
+          goToday("mobile");
+          useWeekAimStore.getState().requestReview(stKey);
+          return;
+        }
+        if (t.routeId) {
+          await goRoute(t.routeId, "desktop");
+          ui.select(t.routeId);
+          ui.setPanelOpen(true);
+          useWeekAimStore.getState().requestReview(stKey);
+          return;
+        }
+        goToday("desktop");
+        useWeekAimStore.getState().requestReview(stKey);
+        return;
+      }
+      case "ticketDay":
+        lineReportJump("ticket", { day: t.day }, shell)?.();
+        return;
+      case "routine":
+        lineReportJump("timetable", { day: t.day }, shell)?.();
+        return;
+    }
+  });
 }

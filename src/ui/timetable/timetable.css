@@ -1130,6 +1130,11 @@ button.ns-tt-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1p
 
 /* ── 側板「時間」列（TimeField 桌機、TimeFieldMobile 手機共用）── */
 .ns-tt-time { min-width: 0; }
+.ns-tt-time-head { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; flex-wrap: wrap; }
+.ns-tt-time-jump {
+  flex: none; font-size: var(--fs-sm); color: var(--color-ink-soft);
+}
+.ns-tt-time-jump:hover { color: var(--color-ink); }
 .ns-tt-time-val {
   position: relative; display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%;
   padding: 2px 0 3px; background: transparent; border: 0; border-bottom: 1px solid var(--color-dash);
@@ -1606,6 +1611,149 @@ button.ns-tt-stats-rname:focus-visible { outline: var(--focus-ring); outline-off
 [data-shell="mobile"] .ns-tt-goal-startlink { padding-left: 0; }
 [data-shell="mobile"] .ns-tt-goal-ck { min-height: 36px; }
 [data-shell="mobile"] .ns-tt-goal-form .ns-tt-step { width: 38px; }
+
+/* ── v1.33 深度統計進化：執行次數（N 次）、路線原地手風琴樹、釘選自訂專題卡（功能 1、操作 2、功能 2＋G1）── */
+.ns-tt-stats-cmain { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.ns-tt-stats-csub { font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .06em; white-space: nowrap; }
+.ns-tt-stats-cmp-cnt { font-size: var(--fs-sm); color: var(--color-ink-faint); }
+.ns-tt-stats-rc {
+  font-style: normal; margin-left: 5px; font-size: var(--fs-xs); color: var(--color-ink-faint); letter-spacing: .04em; white-space: nowrap;
+}
+.ns-tt-stats-sortseg { flex: none; }
+
+/* 依路線原地手風琴樹狀列（› 圓牌／種類徽章 名稱 時數·次數 % 環比 ↗） */
+.ns-tt-stats-row.is-route.is-tree-head {
+  grid-template-columns: 26px minmax(0, 1fr) auto 42px 76px 28px;
+}
+.ns-tt-stats-row.is-rtrow, .ns-tt-stats-rtrow {
+  grid-template-columns: 26px minmax(0, 1fr) auto 42px 76px 28px;
+}
+.ns-tt-stats-rhead-btn { gap: 9px; padding-left: 2px; }
+.ns-tt-stats-row.is-route .ns-tt-stats-rhead-btn > span:last-child {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-body); letter-spacing: .12em;
+}
+.ns-tt-stats-rtrow .ns-tt-stats-rtname {
+  padding-left: calc(var(--d, 1) * 14px);
+  gap: 7px;
+}
+.ns-tt-stats-rtrow.is-aux .ns-tt-stats-rtname > span:last-child {
+  font-style: normal; color: var(--color-ink-faint); font-size: var(--fs-ui);
+}
+.ns-tt-stats-rjump {
+  width: 26px; height: 26px; min-width: 26px; min-height: 26px; padding: 0;
+  font-size: var(--fs-sm); color: var(--color-ink-faint);
+}
+.ns-tt-stats-rjump:hover { color: var(--color-ink); }
+.ns-tt-stats-rjump-sp { width: 26px; height: 26px; display: inline-block; }
+.ns-tt-stats-rflash {
+  animation: ns-tt-flash 1.4s ease both;
+  border-radius: var(--radius-ctl);
+}
+
+/* 釘選自訂統計專題卡（TopicCards） */
+.ns-tt-topics { margin-bottom: 18px; }
+.ns-tt-topics-empty { padding: 4px 12px; }
+.ns-tt-topics-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start;
+}
+.ns-tt-topics-grid.is-one, .ns-tt-stats-cols.is-one ~ .ns-tt-topics .ns-tt-topics-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 820px) {
+  .ns-tt-topics-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.ns-tt-topic-cut {
+  flex: none; display: inline-flex; align-items: center; padding: 1px 7px;
+  font-size: var(--fs-micro); letter-spacing: .08em; line-height: 1.5;
+  border-radius: var(--radius-badge); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--sel-bg); color: var(--sel-fg); white-space: nowrap;
+}
+.ns-tt-topic-sub { margin-bottom: 6px; }
+.ns-tt-topic-main {
+  width: 100%; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  padding: 6px 6px 5px; margin: 0 -6px; border: 0; border-radius: var(--radius-ctl);
+  background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer;
+  transition: background .15s;
+}
+.ns-tt-topic-main:hover { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+.ns-tt-topic-main:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.ns-tt-topic-metrics { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ns-tt-topic-primary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; }
+.ns-tt-topic-total { font-size: var(--fs-h3); font-weight: 500; color: var(--color-ink); line-height: 1.15; }
+.ns-tt-topic-cnt { font-size: var(--fs-sm); color: var(--color-ink-soft); letter-spacing: .04em; }
+.ns-tt-topic-secondary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+.ns-tt-topic-spark-wrap { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.ns-tt-topic-spark {
+  display: inline-flex; align-items: flex-end; gap: 2px; height: 28px; min-width: 56px; max-width: 128px;
+  padding: 2px 0 1px; border-bottom: 1px solid var(--color-dash);
+}
+.ns-tt-topic-bar {
+  flex: 1 1 3px; min-width: 2px; max-width: 8px; height: 100%; display: flex; align-items: flex-end;
+}
+.ns-tt-topic-bar i {
+  display: block; width: 100%; min-height: 1px; border-radius: var(--radius-ctl) var(--radius-ctl) 0 0;
+  background: color-mix(in srgb, var(--stamp-ink) 62%, transparent);
+}
+.ns-tt-topic-bar.is-today i { background: var(--accent); }
+.ns-tt-topic-bar.is-future { opacity: .3; }
+.ns-tt-topic-bar:not(.has-val) i { height: 1px; background: transparent; }
+.ns-tt-topic-expcaret { font-size: var(--fs-xs); color: var(--color-ink-faint); }
+
+.ns-tt-topic-days {
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--color-line);
+  animation: ns-tt-st-in .24s var(--ns-tt-ease) both;
+}
+.ns-tt-topic-cutnote {
+  margin: 0 0 6px; font-size: var(--fs-micro); letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.ns-tt-topic-dlist { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+.ns-tt-topic-drow {
+  display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  font-size: var(--fs-xs); min-height: 24px;
+}
+.ns-tt-topic-ddate { color: var(--color-ink-soft); white-space: nowrap; }
+.ns-tt-topic-drow.is-today .ns-tt-topic-ddate { color: var(--late); font-weight: 500; }
+.ns-tt-topic-drow.is-future { opacity: .45; }
+.ns-tt-topic-dtrack {
+  height: 6px; border-radius: var(--radius-ctl); overflow: hidden;
+  background: color-mix(in srgb, var(--color-dash) 38%, transparent);
+}
+.ns-tt-topic-dtrack i {
+  display: block; height: 100%; border-radius: var(--radius-ctl); background: var(--stamp-ink);
+}
+.ns-tt-topic-drow.is-today .ns-tt-topic-dtrack i { background: var(--accent); }
+.ns-tt-topic-dval { text-align: right; color: var(--color-ink); white-space: nowrap; }
+.ns-tt-topics-arch { margin-top: 10px; }
+
+/* 專題面板（TopicPanel）細節 */
+.ns-tt-topic-namewrap { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.ns-tt-topic-namerow { display: flex; align-items: center; gap: 8px; width: 100%; }
+.ns-tt-topic-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.ns-tt-topic-cutcfg { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.ns-tt-topic-cutrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ns-tt-topic-cutchips { display: inline-flex; gap: 5px; }
+.ns-tt-topic-picked { margin-top: 6px; }
+.ns-tt-topic-rm { opacity: .7; margin-left: 4px; }
+.ns-tt-topic-search { margin-top: 6px; }
+.ns-tt-topic-results { margin-top: 4px; max-height: 160px; overflow-y: auto; }
+
+[data-shell="mobile"] .ns-tt-stats-body > .ns-tt-topics { margin-bottom: 14px; }
+[data-shell="mobile"] .ns-tt-topics-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+[data-shell="mobile"] .ns-tt-stats-row.is-route.is-tree-head,
+[data-shell="mobile"] .ns-tt-stats-rtrow {
+  grid-template-columns: 22px minmax(0, 1fr) auto 32px 58px 32px;
+  column-gap: 4px;
+}
+[data-shell="mobile"] .ns-tt-stats-rtrow .ns-tt-stats-rtname {
+  padding-left: calc(var(--d, 1) * 9px);
+  gap: 5px;
+}
+[data-shell="mobile"] .ns-tt-stats-rjump {
+  width: 32px; height: 36px; min-width: 32px; min-height: 36px;
+}
+[data-shell="mobile"] .ns-tt-stats-rjump-sp { width: 32px; height: 36px; }
+[data-shell="mobile"] .ns-tt-stats-rc { margin-left: 3px; font-size: var(--fs-micro); }
+[data-shell="mobile"] .ns-tt-stats-sortseg { flex: 1 1 auto; }
 
 /* ── 動效 ── */
 @keyframes ns-tt-st-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }

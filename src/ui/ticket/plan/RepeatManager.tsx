@@ -16,7 +16,7 @@
  * ⚠ 的判定看資料本身（帳戶／轉入帳戶／分類已刪、規則看不懂），再補上次實體化被擋的原因（store.repeatBlocked）——
  * 不用等下一次實體化跑過才出現。排序＝repeatOrder（進行中依下一班、已暫停依建立時間）。
  */
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, categoryLabel, type AccountRow, type CategoryRow, type CurrencyRow } from "../../../domain/ticket";
@@ -65,11 +65,12 @@ function What({ r, ctx }: { r: RepeatRow; ctx: Ctx }) {
 }
 
 function RmRow({ r, ctx, warn, today }: { r: RepeatRow; ctx: Ctx; warn: string | null; today: string }) {
+  const masked = useTicketStore(isTicketAmountMasked);
   const store = useTicketStore.getState;
   const rule = parseFixedRule(r.rule);
   const paused = r.paused_at !== null;
   const ended = !paused && r.next_on === null;
-  const amt = repeatAmount(r, ctx.curByCode);
+  const amt = repeatAmount(r, ctx.curByCode, masked);
   const acc = ctx.accById[r.account_id];
   const cls = "ns-tk-rm-row" + (paused ? " is-paused" : "") + (warn ? " is-blocked" : "") + (ended ? " is-ended" : "");
   const note = repeatNoteShown(r, ctx.catById);

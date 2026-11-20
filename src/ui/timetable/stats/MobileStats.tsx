@@ -12,6 +12,7 @@ import { RouteList } from "./RouteList";
 import { ShareList } from "./ShareList";
 import { StatsEmpty, useStatsResult } from "./StatsView";
 import { SummaryStrip } from "./SummaryStrip";
+import { TopicCards } from "./TopicCards";
 import { TrendChart } from "./TrendChart";
 import { useStatsPage } from "./useStatsPage";
 
@@ -29,6 +30,7 @@ export function MobileStats() {
           <p className="ns-tt-stats-loading">{error ? TT_TEXT.statsUi.loadFailed(error) : TT_TEXT.statsUi.loading}</p>
         ) : empty ? (
           <>
+            <TopicCards desktop={false} ws={ws} />
             <StatsEmpty />
             <TrendChart r={r} desktop={false} />
             <GoalCards />
@@ -36,6 +38,7 @@ export function MobileStats() {
         ) : (
           <>
             <SummaryStrip r={r} ws={ws} desktop={false} />
+            <TopicCards desktop={false} ws={ws} />
             <GoalCards />
             <ShareList r={r} desktop={false} />
             <TrendChart r={r} desktop={false} />

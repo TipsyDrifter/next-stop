@@ -67,6 +67,6 @@ export const TIMETABLE = {
   hotkeys: TIMETABLE_HOTKEYS,
   scenes: TIMETABLE_SCENES,
   hotkeyFiles: { timetable: "ui/timetable/useTimetableKeyboard.ts", today: "lines/timetable.mount.tsx" },
-  syncTables: ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans"],
+  syncTables: ["time_categories", "time_blocks", "time_goals", "time_routines", "time_plans", "time_stat_topics"],
   syncSettingsKeys: ["timetable_long_run_max_min", "timetable_notice_pins"],
 } as const satisfies LineManifest;

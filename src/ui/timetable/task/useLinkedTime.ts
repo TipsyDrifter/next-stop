@@ -34,6 +34,14 @@ export interface LinkedTime {
   manualMin: number | null;
   /** 只有路線有（本月，只算時間塊） */
   monthMs: number | null;
+  /** v1.33：有效時間塊（≥60 秒）的累積執行次數 */
+  totalCount: number;
+  /** v1.33：本身時間塊次數 */
+  selfCount: number;
+  /** v1.33：子項目時間塊次數 */
+  belowCount: number;
+  /** v1.33：路線本月時間塊次數 */
+  monthCount: number | null;
   /** 有運行中那班在這個範圍裡 */
   running: boolean;
 }
@@ -46,7 +54,19 @@ interface Loaded {
   belowManualMin: number;
 }
 
-const EMPTY: LinkedTime = { ready: false, totalMs: 0, selfMs: 0, belowMs: 0, manualMin: null, monthMs: null, running: false };
+const EMPTY: LinkedTime = {
+  ready: false,
+  totalMs: 0,
+  selfMs: 0,
+  belowMs: 0,
+  manualMin: null,
+  monthMs: null,
+  totalCount: 0,
+  selfCount: 0,
+  belowCount: 0,
+  monthCount: null,
+  running: false,
+};
 
 export function useLinkedTime(node: NodeRow): LinkedTime {
   const tree = useNodeStore((s) => s.tree);
@@ -97,10 +117,29 @@ export function useLinkedTime(node: NodeRow): LinkedTime {
     const t = linkedTotals(data.spans, { self: isRoute ? { routeId: node.id } : { nodeId: node.id }, now });
     const selfManual = (manual ?? 0) * MIN;
     const belowManual = data.belowManualMin * MIN;
+    let totalCount = 0;
+    let selfCount = 0;
+    let belowCount = 0;
+    for (const s of data.spans) {
+      const dur = (s.end ?? now) - s.start;
+      if (dur < 60_000) continue; // 排除 <60 秒碎塊，與統計頁口徑一致
+      totalCount += 1;
+      const isSelf = isRoute ? s.nodeId === null && s.routeId === node.id : s.nodeId === node.id;
+      if (isSelf) selfCount += 1;
+      else belowCount += 1;
+    }
     let monthMs: number | null = null;
+    let monthCount: number | null = null;
     if (isRoute) {
       const start = msOf(dayWindow(monthStartKey(todayKey(dayStartHour)), dayStartHour).start);
       monthMs = unionMs(data.spans, now, { start, end: now });
+      let mc = 0;
+      for (const s of data.spans) {
+        const end = s.end ?? now;
+        if (end - s.start < 60_000) continue;
+        if (Math.min(end, now) > Math.max(s.start, start)) mc += 1;
+      }
+      monthCount = mc;
     }
     return {
       ready: true,
@@ -109,6 +148,10 @@ export function useLinkedTime(node: NodeRow): LinkedTime {
       belowMs: t.belowMs + belowManual,
       manualMin: manual,
       monthMs,
+      totalCount,
+      selfCount,
+      belowCount,
+      monthCount,
       running,
     };
     // now 只在有運行中那班時才需要跟著變；沒有時 useNow 照跳，重算的結果相同（便宜）

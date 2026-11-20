@@ -12,7 +12,7 @@
  */
 import { useMemo, useState, type CSSProperties } from "react";
 import { fmtDur } from "../../../domain/timetable";
-import { fmtPct, type StatsResult, type StatsTagRow } from "../../../domain/timetableStats";
+import { fmtPct, sortTagShareRows, type StatsResult, type StatsTagRow } from "../../../domain/timetableStats";
 import { TT_TAG_BLOCK, TT_TAG_CATEGORY } from "../../../domain/timetableTags";
 import { useTagStore } from "../../../store/tagStore";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
@@ -64,6 +64,7 @@ function visibleRows(rows: readonly StatsTagRow[], open: Record<string, boolean>
 export function TagShareRows({ r, desktop }: { r: StatsResult; desktop: boolean }) {
   const filter = useTimetableStatsStore((s) => s.filter);
   const setFilter = useTimetableStatsStore((s) => s.setFilter);
+  const sortBy = useTimetableStatsStore((s) => s.sortBy);
   const openSheet = useTimetableStore((s) => s.openSheet);
   const hasTags = useHasTimetableTags();
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -72,6 +73,7 @@ export function TagShareRows({ r, desktop }: { r: StatsResult; desktop: boolean 
   const S = TT_TEXT.statsUi;
   const rec = r.cur.recordedMs;
   const sel = filter && filter.kind === "tag" ? filter.id : null;
+  const sortedTags = useMemo(() => sortTagShareRows(r.tags, sortBy), [r.tags, sortBy]);
 
   if (hasTags === false && r.tags.length === 0) {
     return (
@@ -86,7 +88,7 @@ export function TagShareRows({ r, desktop }: { r: StatsResult; desktop: boolean 
     );
   }
 
-  const rows = visibleRows(r.tags, open);
+  const rows = visibleRows(sortedTags, open);
   const toggle = (key: string): void => setFilter(sel === key ? null : { kind: "tag", id: key });
 
   return (
@@ -136,7 +138,10 @@ export function TagShareRows({ r, desktop }: { r: StatsResult; desktop: boolean 
                 <StatsTagChip name={row.name} virtual={!row.real} />
                 {!row.real && <em className="ns-tt-stats-vf">{T.virtual}</em>}
               </button>
-              <span className="ns-tt-stats-rv ns-tt-num">{fmtDur(row.ms)}</span>
+              <span className="ns-tt-stats-rv ns-tt-num">
+                {fmtDur(row.ms)}
+                <em className="ns-tt-stats-rc">· {S.countTimes(row.count)}</em>
+              </span>
               <span className="ns-tt-stats-rp ns-tt-num">{fmtPct(row.ms, rec)}</span>
               <span className="ns-tt-stats-rd ns-tt-num">
                 <Delta ms={row.ms - row.prevMs} prevMs={row.prevMs} showTitle={desktop} />
@@ -149,7 +154,10 @@ export function TagShareRows({ r, desktop }: { r: StatsResult; desktop: boolean 
           <span className="ns-tt-stats-rname is-static">
             <span>{T.untagged}</span>
           </span>
-          <span className="ns-tt-stats-rv ns-tt-num">{fmtDur(r.untagged.ms)}</span>
+          <span className="ns-tt-stats-rv ns-tt-num">
+            {fmtDur(r.untagged.ms)}
+            <em className="ns-tt-stats-rc">· {S.countTimes(r.cur.untaggedCount)}</em>
+          </span>
           <span className="ns-tt-stats-rp ns-tt-num">{fmtPct(r.untagged.ms, rec)}</span>
           <span className="ns-tt-stats-rd ns-tt-num">
             <Delta ms={r.untagged.ms - r.untagged.prevMs} prevMs={r.untagged.prevMs} showTitle={desktop} />

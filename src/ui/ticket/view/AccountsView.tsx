@@ -23,8 +23,8 @@
  * 樣式在 ticket-4b.css「帳戶頁」區。
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
-import { ACCOUNT_GROUPS, MAIN_CURRENCY, accountTotals, archivedAccounts, groupAccounts, moneyText, type AccountRow } from "../../../domain/ticket";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
+import { ACCOUNT_GROUPS, accountTotals, archivedAccounts, groupAccounts, mainCurrencyOf, maskedMoneyText, moneyText, type AccountRow } from "../../../domain/ticket";
 import { accountFlowParts, type AccountCard } from "../../../domain/ticketView";
 import { indexOfAnchor, useDragReorder } from "../../common/dragReorder";
 import { EmptyState } from "../../common/EmptyState";
@@ -96,6 +96,8 @@ export function AccountsView() {
 function GroupHead({ label, liability, list }: { label: string; liability: boolean; list: AccountRow[] }) {
   const balances = useTicketStore((s) => s.balances);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const currencies = useTicketStore((s) => s.currencies);
+  const mainCode = mainCurrencyOf(currencies);
   // 兩個以上才印合計：主幣別、外幣照目前匯率換（accountTotals，同頁首與手機的口徑）
   const sum = list.length > 1 ? accountTotals(list, balances, curByCode).net : null;
   return (
@@ -107,7 +109,7 @@ function GroupHead({ label, liability, list }: { label: string; liability: boole
       <span className="rule" aria-hidden />
       {sum !== null && (
         <span className="sum">
-          合計 <Money minor={sum} currency={MAIN_CURRENCY} />
+          合計 <Money minor={sum} currency={mainCode} />
         </span>
       )}
     </div>
@@ -149,6 +151,7 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
   const card = useTicketStore((s) => s.accountCards?.[a.id] ?? null);
   const panel = useTicketStore((s) => s.panel);
   const dec = useTicketStore((s) => s.curByCode[a.currency]?.decimals ?? 2);
+  const masked = useTicketStore(isTicketAmountMasked);
   const store = useTicketStore.getState;
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -210,10 +213,10 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
     <>
       <div
         ref={cardRef}
-        className={"ns-tk-ac-card" + (on ? " is-on" : "") + (archived ? " is-archived" : "") + (bal === 0 ? " is-zero" : "")}
+        className={"ns-tk-ac-card" + (on ? " is-on" : "") + (archived ? " is-archived" : "") + (bal === 0 && !masked ? " is-zero" : "")}
         role="button"
         tabIndex={0}
-        aria-label={`${label}：餘額 ${moneyText(bal, dec)} ${a.currency}`}
+        aria-label={masked ? `${label}：餘額已遮罩` : `${label}：餘額 ${moneyText(bal, dec)} ${a.currency}`}
         aria-current={on ? "true" : undefined}
         title={archived ? undefined : "點一下看帳戶詳情・拖曳或 Alt+↑↓ 排順序"}
         onClick={() => store().openAccount(a.id)}
@@ -229,12 +232,18 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
               {label !== a.name && <span className="g">{label.slice(a.name.length)}</span>}
             </span>
           )}
-          <Flow card={card} dec={dec} />
+          <Flow card={card} dec={dec} currency={a.currency} masked={masked} />
         </div>
-        <Spark card={card} liability={isLiability(a.group_key)} dec={dec} />
+        <Spark card={card} liability={isLiability(a.group_key)} dec={dec} masked={masked} />
         <div className="bal">
-          {moneyText(bal, dec)}
-          <small>{a.currency}</small>
+          {masked ? (
+            maskedMoneyText(a.currency)
+          ) : (
+            <>
+              {moneyText(bal, dec)}
+              <small>{a.currency}</small>
+            </>
+          )}
         </div>
         <button
           type="button"
@@ -261,7 +270,7 @@ function Card({ account: a, first, last }: { account: AccountRow; first?: boolea
 }
 
 /** 「本月 收 ＋5,350　支 3,120　轉入 5,000」（accountFlowParts，同手機）；全沒有＝「本月沒有進出」；還沒算好＝空 */
-function Flow({ card, dec }: { card: AccountCard | null; dec: number }) {
+function Flow({ card, dec, currency, masked }: { card: AccountCard | null; dec: number; currency: string; masked: boolean }) {
   if (!card) return <span className="io" />;
   const parts = accountFlowParts(card.month.own);
   return (
@@ -275,7 +284,10 @@ function Flow({ card, dec }: { card: AccountCard | null; dec: number }) {
           const plus = (p.key === "income" || p.key === "adjust") && p.minor > 0;
           return (
             <span key={p.key}>
-              {p.label} <b className={plus && p.key === "income" ? "pos" : undefined}>{moneyText(p.minor, dec, plus ? { prefix: "＋" } : undefined)}</b>
+              {p.label}{" "}
+              <b className={!masked && plus && p.key === "income" ? "pos" : undefined}>
+                {masked ? maskedMoneyText(currency, { withSymbol: false }) : moneyText(p.minor, dec, plus ? { prefix: "＋" } : undefined)}
+              </b>
             </span>
           );
         })
@@ -285,7 +297,7 @@ function Flow({ card, dec }: { card: AccountCard | null; dec: number }) {
 }
 
 /** 近六個月月底餘額的小走勢（折線；六點都一樣＝一條虛線）；下面小字「6–11月」 */
-function Spark({ card, liability, dec }: { card: AccountCard | null; liability: boolean; dec: number }) {
+function Spark({ card, liability, dec, masked }: { card: AccountCard | null; liability: boolean; dec: number; masked: boolean }) {
   if (!card || !card.trend.length) return <span className="spark" aria-hidden />;
   const pts = card.trend.map((t) => t.balance);
   const lo = Math.min(...pts);
@@ -298,9 +310,12 @@ function Spark({ card, liability, dec }: { card: AccountCard | null; liability: 
   const m0 = Number(card.trend[0].month.slice(5, 7));
   const m1 = Number(card.trend[card.trend.length - 1].month.slice(5, 7));
   // 負債帳戶說「欠款」就把正負翻過來（餘額是負數，不寫成「欠款 −3,120」；溢繳時才是負的）
-  const title =
-    (liability ? "近六個月月底欠款：" : "近六個月月底餘額：") +
-    card.trend.map((t) => `${Number(t.month.slice(5, 7))}月 ${moneyText(liability ? -t.balance : t.balance, dec)}`).join("、");
+  const title = masked
+    ? liability
+      ? "近六個月月底欠款走勢"
+      : "近六個月月底餘額走勢"
+    : (liability ? "近六個月月底欠款：" : "近六個月月底餘額：") +
+      card.trend.map((t) => `${Number(t.month.slice(5, 7))}月 ${moneyText(liability ? -t.balance : t.balance, dec)}`).join("、");
   return (
     <span className="spark" title={title}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-label={title} role="img">

@@ -13,24 +13,11 @@
  * 左緣實線＝預算到這裡；進度線位置＝pace × 預算 ÷ 尺度（超支時尺度＝已用），pace 為 0 或 1 時不畫。
  * 只讀 store、只叫 store 的動作（§1-4）。
  */
-import { useTicketStore, TK_TEXT } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore, TK_TEXT } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
-import { MAIN_CURRENCY, monthOf } from "../../../domain/ticket";
-import { budgetText, type BudgetLine } from "../../../domain/ticketPlan";
-
-function daysIn(month: string): number {
-  return new Date(parseInt(month.slice(0, 4), 10), parseInt(month.slice(5, 7), 10), 0).getDate();
-}
-
-/** 「10 月 · 已過 19/31 天」 */
-function monthSub(month: string, today: string): string {
-  const name = `${parseInt(month.slice(5, 7), 10)} 月`;
-  const tm = monthOf(today);
-  if (tm > month) return `${name} · 已結束`;
-  if (tm < month) return `${name} · 還沒開始`;
-  return `${name} · 已過 ${parseInt(today.slice(8, 10), 10)}/${daysIn(month)} 天`;
-}
+import { mainCurrencyOf } from "../../../domain/ticket";
+import { budgetMonthSub, budgetText, type BudgetLine } from "../../../domain/ticketPlan";
 
 /** 「食物 › 點心」⇒ 主分類淡色箭頭 */
 function LabelText({ label }: { label: string }) {
@@ -64,8 +51,12 @@ export function BudgetCard() {
   const lines = useTicketStore((s) => s.budgetLines);
   const span = useTicketStore((s) => s.span);
   const month = useTicketStore((s) => s.period.key);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
   const filtered = useTicketStore((s) => s.filterAccountId !== null);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const mainCur = useTicketStore((s) => mainCurrencyOf(s.curByCode));
+  const masked = useTicketStore(isTicketAmountMasked);
+  const dec = mainCur.decimals;
+  const mainCode = mainCur.code;
   const openDialog = useTicketStore((s) => s.openDialog);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   if (span !== "month") return null;
@@ -76,7 +67,7 @@ export function BudgetCard() {
     <section className="ns-tk-st-card ns-tk-bud" aria-label="預算">
       <div className="ns-tk-st-h">
         <h2>預算</h2>
-        {has && <small>{monthSub(month, today)}</small>}
+        {has && <small>{budgetMonthSub(month, today, monthStartDay)}</small>}
         <button type="button" className="ns-tk-bud-set" onClick={open}>
           設定…
         </button>
@@ -93,7 +84,7 @@ export function BudgetCard() {
       ) : (
         <ul className="ns-tk-bud-rows">
           {(lines ?? []).map((l) => {
-            const t = budgetText(l, dec);
+            const t = budgetText(l, dec, { masked, currency: mainCode });
             const cls =
               "ns-tk-bud-row" +
               (l.scope.kind === "total" ? " is-total" : "") +

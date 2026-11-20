@@ -13,16 +13,19 @@
  */
 import { useEffect } from "react";
 import type { NodeRow } from "../../../domain/node";
-import { MAIN_CURRENCY } from "../../../domain/ticket";
+import { mainCurrencyOf } from "../../../domain/ticket";
 import { VIEW_TEXT, spendText } from "../../../domain/ticketView";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useRouteSpendFresh } from "../resume";
 import "../ticket.css";
 
 export function RouteSpendField({ node }: { node: NodeRow }) {
   const v = useTicketStore((s) => s.routeSpend[node.id]);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const currencies = useTicketStore((s) => s.currencies);
+  const masked = useTicketStore(isTicketAmountMasked);
+  const mainCode = mainCurrencyOf(currencies);
+  const dec = useTicketStore((s) => s.curByCode[mainCode]?.decimals ?? 2);
   const have = v !== undefined;
 
   useEffect(() => {
@@ -42,7 +45,7 @@ export function RouteSpendField({ node }: { node: NodeRow }) {
   return (
     <span className="ns-tk-spend">
       <b className="ns-tk-spend-v" aria-live="polite">
-        {v ? spendText(v.month, v.total, dec) : "…"}
+        {v ? spendText(v.month, v.total, dec, { masked, currency: mainCode }) : "…"}
       </b>
       <button
         type="button"

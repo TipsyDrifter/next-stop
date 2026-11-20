@@ -378,7 +378,7 @@
 [data-shell="mobile"] .ns-tk-mst-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--color-line); }
 [data-shell="mobile"] .ns-tk-mst-rows > li { list-style: none; }
 [data-shell="mobile"] .ns-tk-mst-rows .row > button {
-  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 38px; grid-template-areas: "c n v p" ". bar bar bar";
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto 38px; grid-template-areas: "c n cnt v p" ". bar bar bar bar";
   align-items: center; row-gap: 3px; column-gap: 8px; width: 100%; min-height: 46px; box-sizing: border-box; padding: 7px 2px 8px 0;
   text-align: left; font-family: inherit; color: inherit; background: transparent; border: 0; border-bottom: 1px dashed var(--color-line);
   -webkit-tap-highlight-color: transparent; transition: background .12s;
@@ -866,3 +866,63 @@
   background: var(--color-ink); color: var(--color-paper); border-color: var(--color-ink);
 }
 /* ==== end T5 ==== */
+
+/* ==== v1.33 3B 手機：統計筆數・路線展開・月起算日・主幣別・隱私遮罩＆帳本鎖 ==== */
+[data-shell="mobile"] .ns-tk-mtop > .mgr { gap: 2px; padding-left: var(--sp-1); }
+[data-shell="mobile"] .ns-tk-mprivbtn {
+  width: 38px; height: var(--ctl-h); display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: var(--radius-ctl); background: transparent; color: var(--color-ink-soft);
+}
+[data-shell="mobile"] .ns-tk-mprivbtn:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mprivbtn.is-on { color: var(--accent); }
+[data-shell="mobile"] .ns-tk-mmonth { flex-wrap: wrap; row-gap: 4px; }
+[data-shell="mobile"] .ns-tk-mrange {
+  font-family: var(--font-latin); font-size: var(--fs-xs); letter-spacing: .04em;
+  color: var(--color-ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; padding-left: 2px;
+}
+[data-shell="mobile"] .ns-tk-mst-rows .cnt {
+  grid-area: cnt; text-align: right; font-size: var(--fs-xs);
+  color: var(--color-ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+[data-shell="mobile"] .ns-tk-mst-rows .row.has-jump { position: relative; }
+[data-shell="mobile"] .ns-tk-mst-rows .row.has-jump > button:first-child { padding-right: 40px; }
+[data-shell="mobile"] .ns-tk-mst-rows .row.has-jump > button.ns-tk-mst-jump {
+  position: absolute; top: 1px; right: -4px; width: 40px; height: 44px; min-height: 44px; padding: 0;
+  display: grid; place-items: center; border: 0; border-radius: var(--radius-ctl);
+  background: transparent; color: var(--accent); font-family: var(--font-latin); font-size: var(--fs-ui);
+}
+[data-shell="mobile"] .ns-tk-mst-rows .row.has-jump > button.ns-tk-mst-jump:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mst-rtdetail {
+  list-style: none;
+  padding: var(--sp-1) var(--sp-2) var(--sp-2) 18px;
+  border-bottom: 1px dashed var(--color-line);
+  background: color-mix(in srgb, var(--color-paper-used) 45%, transparent);
+}
+[data-shell="mobile"] .ns-tk-mst-rtlist { list-style: none; margin: 0; padding: 0; }
+[data-shell="mobile"] .ns-tk-mst-rtitem {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+  width: 100%; min-height: 44px; padding: 6px 2px; border: 0; border-bottom: 1px dashed var(--color-line);
+  background: transparent; text-align: left; font-size: var(--fs-sm); color: var(--color-ink);
+}
+[data-shell="mobile"] .ns-tk-mst-rtlist > li:last-child .ns-tk-mst-rtitem { border-bottom: 0; }
+[data-shell="mobile"] .ns-tk-mst-rtitem:active { background: var(--ns-tk-hover); }
+[data-shell="mobile"] .ns-tk-mst-rtitem .top { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; }
+[data-shell="mobile"] .ns-tk-mst-rtitem .dt { flex: none; font-family: var(--font-latin); font-size: var(--fs-xs); color: var(--color-ink-faint); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mst-rtitem .cat { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-soft); }
+[data-shell="mobile"] .ns-tk-mst-rtitem .amt { flex: none; margin-left: auto; text-align: right; font-family: var(--font-display); white-space: nowrap; font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mst-rtitem .amt b { font-weight: 600; }
+[data-shell="mobile"] .ns-tk-mst-rtitem .amt small.cur { margin-left: 3px; font-family: var(--font-latin); font-size: var(--fs-micro); font-weight: 400; color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-rtitem .nt { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--color-ink-faint); }
+[data-shell="mobile"] .ns-tk-mst-rtfoot { display: flex; justify-content: flex-end; padding-top: 4px; }
+[data-shell="mobile"] .ns-tk-mbe-range { font-family: var(--font-latin); font-size: var(--fs-xs); font-weight: 400; color: var(--color-ink-faint); font-variant-numeric: tabular-nums; }
+[data-shell="mobile"] .ns-tk-mbe-start {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  min-height: 44px; padding: 2px 0 8px;
+}
+[data-shell="mobile"] .ns-tk-mbe-start .lbl { font-size: var(--fs-xs); letter-spacing: .18em; color: var(--color-ink-faint); white-space: nowrap; }
+[data-shell="mobile"] .ns-tk-mbe-start .ns-tk-dselect { width: auto; min-width: 128px; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dcur-right { grid-column: 2 / -1; flex-wrap: wrap; }
+[data-shell="mobile"] .ns-tk-msh.is-dialog .ns-tk-dpinfoot .ns-btn { min-height: var(--ctl-h); }
+[data-shell="mobile"] .ns-tk-lockgate { min-height: 68vh; padding: var(--sp-4) var(--sp-2); }
+[data-shell="mobile"] .ns-tk-pin-key { min-height: 48px; }
+/* ==== end v1.33 3B ==== */

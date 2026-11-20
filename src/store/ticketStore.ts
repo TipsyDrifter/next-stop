@@ -27,6 +27,7 @@ import { useNodeStore } from "./nodeStore";
 import { addDays, todayKey } from "../lib/date";
 import {
   guessTransferTo,
+  parseBreakdownSort,
   parseFacet,
   parseFacetKind,
   parseStatsSpan,
@@ -35,9 +36,19 @@ import {
   rememberTransfer,
   type TransferMemo,
 } from "../domain/ticketPrefs";
+import {
+  KEY_LOCK_PIN_HASH,
+  KEY_MONTH_START_DAY,
+  KEY_PRIVACY_MASKED,
+  createPinHashRecord,
+  hasPinRecord,
+  parsePrivacyMasked,
+  serializePrivacyMasked,
+  verifyPin,
+} from "../domain/ticketLock";
 import type { LineReloadContext, CaptureSaveInput, CaptureSaveResult, CaptureRouteRef } from "../lines/types";
 import {
-  MAIN_CURRENCY,
+  DEFAULT_MONTH_START_DAY,
   USAGE_DAYS,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
@@ -46,18 +57,21 @@ import {
   addMonths,
   bareName,
   categoryArchivedUp,
+  clampMonthStartDay,
   defaultAccountId,
   draftToInput,
   frequentAccountIds,
   frequentCategoryIds,
   groupByDay,
   localTime,
+  mainCurrencyOf,
   moneyText,
   monthOf,
   monthRange,
   monthSum,
   orderAccounts,
   parseAmount,
+  parseMonthStartDay,
   parseQuickEntry,
   parseRate,
   quickAmountText,
@@ -76,6 +90,7 @@ import {
   type QuickCtx,
 } from "../domain/ticket";
 import {
+  DEFAULT_BREAKDOWN_SORT,
   DEFAULT_ENTRY_SORT,
   EMPTY_FILTER,
   GONE_KEY,
@@ -109,6 +124,7 @@ import {
   trendMonths,
   trendRange,
   type AccountCard,
+  type BreakdownSort,
   type CalendarCell,
   type EntryFilter,
   type EntrySort,
@@ -486,6 +502,39 @@ export interface TicketStore {
   moveCategoryUnder(id: string, parentId: string | null, index?: number): Promise<boolean>;
   /** 帳戶頁（D-票-79）每個帳戶（含封存）的卡片數字；`setView("accounts")` 時載，之後每次 refresh 重算；沒載過＝null */
   accountCards: Record<string, AccountCard> | null;
+
+  /* ═══ v1.33 3B：統計排序、自訂月起算日、主幣別切換、隱私遮罩與帳本密碼鎖 ═══ */
+  /** 統計各切面排序（依金額 ｜ 依筆數；存本機） */
+  statsSort: BreakdownSort;
+  setStatsSort(sort: BreakdownSort): void;
+  /** 帳務月起算日（1～28 號；預設 1 號，存同步設定 `ticket_month_start_day`） */
+  monthStartDay: number;
+  setMonthStartDay(day: number): Promise<void>;
+  /** 切換主幣別（原子換算所有幣別匯率、歷史折合額、預算與願望） */
+  setMainCurrency(code: string): Promise<boolean>;
+  /** 本機金額隱私遮罩（`****`）是否開啟 */
+  privacyMasked: boolean;
+  /** 本機是否已設定 4 碼帳本密碼鎖 */
+  hasLockPin: boolean;
+  /** 本次執行期帳本是否已解鎖（未設密碼鎖時恆 true；有設密碼鎖時冷啟動初值 false） */
+  lockUnlocked: boolean;
+  /** 嘗試解除隱私遮罩時彈出的 4 碼驗證對話框狀態 */
+  unmaskPromptOpen: boolean;
+  togglePrivacyMask(): void;
+  setPrivacyMasked(masked: boolean): void;
+  closeUnmaskPrompt(): void;
+  verifyLockPin(pin: string): boolean;
+  unlockWithPin(pin: string): boolean;
+  setLockPin(newPin: string, currentPin?: string): Promise<boolean>;
+  clearLockPin(currentPin: string): Promise<boolean>;
+  lockLedger(): void;
+}
+
+/** 售票口各處金額是否應顯示為隱私遮罩（開啟遮罩或帳本處於鎖定狀態） */
+export function isTicketAmountMasked(
+  s: Pick<TicketStore, "privacyMasked" | "hasLockPin" | "lockUnlocked">,
+): boolean {
+  return s.privacyMasked || (s.hasLockPin && !s.lockUnlocked);
 }
 
 export const TK_TEXT = {
@@ -548,6 +597,14 @@ export const TK_TEXT = {
   accountDeleted: "已刪除這個帳戶",
   wishHead: AIDS_TEXT.wishHead,
   boughtHead: AIDS_TEXT.boughtHead,
+  /* v1.33 3B */
+  monthStartSaved: (d: number) => `已將帳務月起算日設為每月 ${d} 日`,
+  mainCurrencySet: (code: string) => `已將主幣別切換為 ${code}`,
+  pinEnabled: "已啟用帳本密碼鎖",
+  pinUpdated: "已更新帳本密碼鎖",
+  pinCleared: "已關閉帳本密碼鎖",
+  pinWrong: "密碼不正確，請再試一次",
+  ledgerLocked: "帳本已鎖定",
 } as const;
 
 /* ───────── §3.8.3 常數與模組層狀態 ───────── */
@@ -563,6 +620,7 @@ export const KEY_TICKET_VIEW = "ticket_view"; // B5：清單／月曆／統計�
 export const KEY_STATS_SPAN = "ticket_stats_span"; // B1：統計的期間 月／年
 export const KEY_STATS_FACET = "ticket_stats_facet"; // B1：切面 分類／帳戶／路線／荷札（讀回過 facetAllowed）
 export const KEY_STATS_KIND = "ticket_stats_kind"; // B1：收支 支出／收入
+export const KEY_STATS_SORT = "ticket_stats_sort"; // v1.33 3B：統計排序 依金額／依筆數
 /** B2：轉帳的轉入帳戶記憶（JSON，domain/ticketPrefs 的 TransferMemo）；一台一份、不分殼——帳戶是同一批 */
 export const KEY_TRANSFER_TO = "ticket_transfer_to";
 export const DEFAULT_KIND = "expense" as const;
@@ -579,6 +637,9 @@ let initPromise: Promise<void> | null = null;
 let lastShell: TicketShell = "desktop";
 /** 己-2：「記住上次」已經讀回來套過了沒（只套一次）；套完之後視圖一變就寫（見檔尾的訂閱） */
 let prefsApplied = false;
+/** v1.33 3B G5：帳本密碼鎖雜湊記錄（僅留模組私有閉包，不直接暴露至畫面）與冷啟動解鎖旗標 */
+let lockPinRecord: string | null = null;
+let securityLoaded = false;
 /** 己-2 B2：轉入帳戶記憶（warm 時讀一次，存轉帳時更新並寫回） */
 let transferMemo: TransferMemo = {};
 const prefKey = (k: string, shell: TicketShell): string => (shell === "mobile" ? `${k}_mobile` : k);
@@ -687,9 +748,9 @@ function draftHasContent(d: TicketDraft | null): boolean {
 }
 
 export const useTicketStore = create<TicketStore>((set, get) => {
-  /** 帳戶／分類／幣別＋上一筆帳戶＋最近分類（warm 與 refresh 共用） */
+  /** 帳戶／分類／幣別＋上一筆帳戶＋最近分類＋帳務月起算日（warm 與 refresh 共用） */
   async function loadMeta(): Promise<void> {
-    const [currencies, accounts, categories, lastAccountId, rin, rex, usage] = await Promise.all([
+    const [currencies, accounts, categories, lastAccountId, rin, rex, usage, rawMonthStart] = await Promise.all([
       ticketRepo.listCurrencies(),
       ticketRepo.listAccounts(),
       ticketRepo.listCategories(),
@@ -697,7 +758,14 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       ticketRepo.recentCategoryIds("income", RECENT_LIMIT),
       ticketRepo.recentCategoryIds("expense", RECENT_LIMIT),
       ticketRepo.usageSince(addDays(today(), 1 - USAGE_DAYS)), // 含今天共 30 天（日界線日）
+      settingsRepo.get(KEY_MONTH_START_DAY).catch(() => null),
     ]);
+    const nextStartDay = parseMonthStartDay(rawMonthStart);
+    const prevStartDay = get().monthStartDay;
+    if (nextStartDay !== prevStartDay) {
+      routeSpendGen++;
+      routeSpendMonth = "";
+    }
     const kindOf = byId(categories);
     // 任何一層上層封存了的分類在完整分類樹裡看不到（categoryForest 連整棵藏起來）⇒「常用」也不列，免得列得到卻找不到（D-票-63、78）
     const hiddenUnderArchived = (id: string): boolean => {
@@ -714,6 +782,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       categories,
       catById: byId(categories),
       lastAccountId,
+      monthStartDay: nextStartDay,
       recent: { income: rin, expense: rex },
       frequent: {
         income: frequentCategoryIds(usedBy("income"), recentOf(rin)),
@@ -724,6 +793,32 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     // 統計的根已不在（同步刪掉）⇒ 回全部分類
     const root = get().statsRoot;
     if (root !== null && !kindOf[root]) set({ statsRoot: null, drill: null });
+  }
+
+  /** 本機隱私遮罩與帳本密碼鎖設定（warm 載入；密碼鎖冷啟動第一次必鎖定，同一執行期解鎖後維持解鎖） */
+  async function loadSecurityPrefs(): Promise<void> {
+    const [rawMask, rawHash] = await Promise.all([
+      settingsRepo.get(KEY_PRIVACY_MASKED).catch(() => null),
+      settingsRepo.get(KEY_LOCK_PIN_HASH).catch(() => null),
+    ]);
+    const masked = parsePrivacyMasked(rawMask);
+    const hasPin = hasPinRecord(rawHash);
+    lockPinRecord = hasPin ? rawHash : null;
+    if (!securityLoaded) {
+      securityLoaded = true;
+      set({
+        privacyMasked: masked,
+        hasLockPin: hasPin,
+        lockUnlocked: !hasPin,
+        unmaskPromptOpen: false,
+      });
+    } else {
+      set({
+        privacyMasked: masked,
+        hasLockPin: hasPin,
+        lockUnlocked: hasPin ? get().lockUnlocked : true,
+      });
+    }
   }
 
   /** domain 要的情境（含封存；store 的列都是未刪的） */
@@ -773,37 +868,42 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   /** 從 statsEntries 重算 stats（純函式；不讀 repo） */
   function computeStats(): StatsData {
     const s = get();
-    const r = periodRange(s.period);
+    const r = periodRange(s.period, s.monthStartDay);
     return {
       period: s.period,
       overview: statsOverview(s.statsEntries, r),
-      trend: monthlyTrend(s.statsEntries, trendMonths(s.period)),
-      breakdown: breakdown(s.statsEntries, r, facetAllowed(s.facet, s.filterAccountId), s.facetKind, viewCtx(), { catRoot: s.statsRoot }),
+      trend: monthlyTrend(s.statsEntries, trendMonths(s.period), s.monthStartDay),
+      breakdown: breakdown(s.statsEntries, r, facetAllowed(s.facet, s.filterAccountId), s.facetKind, viewCtx(), {
+        catRoot: s.statsRoot,
+        sort: s.statsSort,
+      }),
     };
   }
 
   /** 帳戶頁：讀走勢第一個月起到最後的帳（全部帳戶、一次），配現在的餘額算每張卡。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
   async function loadAccountCards(): Promise<void> {
-    const month = monthOf(today());
-    const r = accountsRange(month);
+    const sd = get().monthStartDay;
+    const month = monthOf(today(), sd);
+    const r = accountsRange(month, sd);
     const entries = await ticketRepo.listEntries(r.from, r.toExcl, null);
     const s = get();
-    set({ accountCards: accountCards(s.accounts, s.balances, entries, month) });
+    set({ accountCards: accountCards(s.accounts, s.balances, entries, month, sd) });
   }
 
-  /** 讀 trendRange(period) 的帳＋重算 stats。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
+  /** 讀 trendRange(period, monthStartDay) 的帳＋重算 stats。不排隊：呼叫端在 serial 裡（refresh 內）或包 serial */
   async function loadStats(): Promise<void> {
     const s = get();
-    const r = trendRange(s.period);
+    const r = trendRange(s.period, s.monthStartDay);
     const statsEntries = await ticketRepo.listEntries(r.from, r.toExcl, s.filterAccountId);
     set({ statsEntries });
     set({ stats: computeStats(), budgetLines: computeBudgetLines() });
   }
 
-  /** 月曆格（只用 month 那個月的帳；本月外的格空著） */
+  /** 月曆格（只用 month 那個帳務月的帳；本月外的格空著） */
   function computeCalendar(entries: readonly EntryRow[], month: string): CalendarCell[][] {
-    const own = entries.filter((e) => monthOf(e.occurred_on) === month);
-    return calendarCells(own, month, useUiStore.getState().weekStart, today());
+    const sd = get().monthStartDay;
+    const own = entries.filter((e) => monthOf(e.occurred_on, sd) === month);
+    return calendarCells(own, month, useUiStore.getState().weekStart, today(), sd);
   }
 
   /** 依 filter 查 results（不排隊：呼叫端在 serial 裡）；filter 不作用 ⇒ 清掉 */
@@ -854,10 +954,24 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   }
 
   /** 己-2 B1／B5：讀這個殼上次的視圖與統計設定（讀不到＝全用預設，跟沒記過一樣） */
-  async function readPrefs(shell: TicketShell): Promise<{ view: TicketView; span: StatsSpan; facet: Facet; facetKind: "expense" | "income" }> {
+  async function readPrefs(
+    shell: TicketShell,
+  ): Promise<{ view: TicketView; span: StatsSpan; facet: Facet; facetKind: "expense" | "income"; statsSort: BreakdownSort }> {
     const get1 = (k: string) => settingsRepo.get(prefKey(k, shell)).catch(() => null);
-    const [view, span, facet, kind] = await Promise.all([get1(KEY_TICKET_VIEW), get1(KEY_STATS_SPAN), get1(KEY_STATS_FACET), get1(KEY_STATS_KIND)]);
-    return { view: parseTicketView(view), span: parseStatsSpan(span), facet: parseFacet(facet), facetKind: parseFacetKind(kind) };
+    const [view, span, facet, kind, sort] = await Promise.all([
+      get1(KEY_TICKET_VIEW),
+      get1(KEY_STATS_SPAN),
+      get1(KEY_STATS_FACET),
+      get1(KEY_STATS_KIND),
+      get1(KEY_STATS_SORT),
+    ]);
+    return {
+      view: parseTicketView(view),
+      span: parseStatsSpan(span),
+      facet: parseFacet(facet),
+      facetKind: parseFacetKind(kind),
+      statsSort: parseBreakdownSort(sort),
+    };
   }
 
   /** 己-2 B2：新轉帳的轉入帳戶——草稿是轉帳、還沒挑轉入時，照記憶猜一個 */
@@ -886,7 +1000,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
   function computeBudgetLines(): BudgetLine[] | null {
     const s = get();
     if (s.span !== "month" || s.filterAccountId !== null) return null;
-    return budgetLines(s.budgets, s.statsEntries, s.period.key, s.categories, today(), entryCtx());
+    return budgetLines(s.budgets, s.statsEntries, s.period.key, s.categories, today(), entryCtx(), s.monthStartDay);
   }
 
   /** 月曆「超」格（✎-6）：本月總預算被超過的那一天；已篩帳戶 ⇒ null（預算看全部帳戶） */
@@ -894,14 +1008,13 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     const s = get();
     if (s.filterAccountId !== null) return null;
     const eff = effectiveBudget(s.budgets, { kind: "total" }, month);
-    return overBudgetDay(entries, month, eff ? eff.row.amount_minor : null);
+    return overBudgetDay(entries, month, eff ? eff.row.amount_minor : null, s.monthStartDay);
   }
 
   /** 主幣別（預算一律主幣別，§1-6） */
   function mainCur(): { code: string; decimals: number } {
-    const s = get();
-    for (const c of s.currencies) if (c.is_main === 1) return { code: c.code, decimals: c.decimals };
-    return { code: MAIN_CURRENCY, decimals: s.curByCode[MAIN_CURRENCY]?.decimals ?? 2 };
+    const m = mainCurrencyOf(get().curByCode);
+    return { code: m.code, decimals: m.decimals };
   }
 
   function scopeLabel(scope: BudgetScope): string {
@@ -1104,6 +1217,12 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     wishKinds: [],
     wish: EMPTY_WISH_VIEW,
     accountCards: null,
+    statsSort: DEFAULT_BREAKDOWN_SORT,
+    monthStartDay: DEFAULT_MONTH_START_DAY,
+    privacyMasked: false,
+    hasLockPin: false,
+    lockUnlocked: true,
+    unmaskPromptOpen: false,
 
     /* ───────── 載入 ───────── */
 
@@ -1115,6 +1234,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
             loadMeta(),
             loadPlan(),
             loadAids(),
+            loadSecurityPrefs(),
             // 己-2 B2：轉入帳戶記憶（讀不到＝沒記過）
             settingsRepo.get(KEY_TRANSFER_TO).then(
               (raw) => void (transferMemo = parseTransferMemo(raw)),
@@ -1139,8 +1259,15 @@ export const useTicketStore = create<TicketStore>((set, get) => {
             await get().warm();
             // 己-2 B1／B5：冷啟動第一次讀回上次的統計設定與視圖（之後的 init——換殼、整批換資料——不再套）
             const prefs = prefsApplied ? null : await readPrefs(shell);
-            if (prefs) set({ span: prefs.span, facet: facetAllowed(prefs.facet, get().filterAccountId), facetKind: prefs.facetKind });
-            const m = monthOf(today());
+            if (prefs) {
+              set({
+                span: prefs.span,
+                facet: facetAllowed(prefs.facet, get().filterAccountId),
+                facetKind: prefs.facetKind,
+                statsSort: prefs.statsSort,
+              });
+            }
+            const m = monthOf(today(), get().monthStartDay);
             set({ month: m, loadedMonths: [m], period: periodOf(m, get().span) });
             await serial(() => get().refresh());
             // 上次停在別的視圖 ⇒ 照 setView 走一遍（統計、帳戶頁要載自己的資料）；ready 之前切好，進頁不先閃清單
@@ -1164,6 +1291,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     async refresh() {
       try {
         await syncTagIndex().catch(() => undefined); // 售票口④：本機寫過荷札 ⇒ index 重載（篩選／統計／搜尋用的是它）
+        const rawStartDay = await settingsRepo.get(KEY_MONTH_START_DAY).catch(() => null);
+        const sd = parseMonthStartDay(rawStartDay);
         const s0 = get();
         const months = s0.loadedMonths.length ? s0.loadedMonths : [s0.month];
         const filter = s0.filterAccountId;
@@ -1174,7 +1303,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           ticketRepo.balances(),
           ticketRepo.hasAnyEntry(),
           ...months.map((m) => {
-            const r = monthRange(m);
+            const r = monthRange(m, sd);
             return ticketRepo.listEntries(r.from, r.toExcl, filter);
           }),
         ]);
@@ -1197,7 +1326,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           hasAny: hasAny as boolean,
           entries,
           days: groupByDay(entries, filter),
-          monthSum: filter === null ? monthSum(entries, s.month) : null,
+          monthSum: filter === null ? monthSum(entries, s.month, s.monthStartDay) : null,
           selectedId: keepSel ? s.selectedId : null,
           panel: panelGone ? { kind: "none" } : s.panel,
           error: null,
@@ -1219,16 +1348,18 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     async reload(ctx) {
-      const touched = ctx.wiped || ctx.changed.some((t) => t.startsWith("tk_"));
+      const touched = ctx.wiped || ctx.changed.some((t) => t.startsWith("tk_") || t === "settings");
       if (!touched) return;
       if (ctx.wiped) {
         set({ panel: { kind: "none" }, draft: null, selectedId: null, dialog: null, filterAccountId: null, ready: false });
         // 第②階段：視圖回清單、搜尋清空、統計與路線花費作廢（②契約 §3.4）
         routeSpendGen++;
+        routeSpendMonth = "";
         set({
           view: "list", searchOpen: false, filter: EMPTY_FILTER, results: null, resultDays: [], resultSort: DEFAULT_ENTRY_SORT,
           listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT, drill: null, statsRoot: null, accountCards: null,
           statsEntries: [], stats: null, pendingDay: null, dayNotice: null, routeSpend: {},
+          monthStartDay: DEFAULT_MONTH_START_DAY,
         });
         // 第③階段：草稿與預算／規則作廢（實體化不在 reload 裡，在 afterPull，③契約 §3.8）
         repeatBack = null;
@@ -1256,16 +1387,17 @@ export const useTicketStore = create<TicketStore>((set, get) => {
     },
 
     async stepMonth(delta) {
-      // 第②階段（0-10）：統計「年」模式的 [ ] ＝切年、month 不動；不超過今年
+      const curAccMonth = monthOf(today(), get().monthStartDay);
+      // 第②階段（0-10）：統計「年」模式的 [ ] ＝切年、month 不動；不超過當前帳務年
       if (get().view === "stats" && get().span === "year") {
         const p = stepPeriod(get().period, delta);
-        if (p.key > today().slice(0, 4)) return;
+        if (p.key > curAccMonth.slice(0, 4)) return;
         set({ period: p, drill: null });
         await serial(loadStats);
         return;
       }
       const next = addMonths(get().month, delta);
-      if (next > monthOf(today())) return;
+      if (next > curAccMonth) return;
       await get().setMonth(next);
     },
 
@@ -1307,6 +1439,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
           { ...s.listFilter, accountId: s.listFilter.accountId ?? s.filterAccountId },
           s.listSort,
           viewCtx(),
+          s.monthStartDay,
         );
         for (const e of rows) flat.push(e);
       } else {
@@ -1352,7 +1485,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         set({ dialog: { kind: "newAccount", then: { new: seed ?? {} } } });
         return;
       }
-      const currency = (accountId && s.accById[accountId]?.currency) || MAIN_CURRENCY;
+      const currency = (accountId && s.accById[accountId]?.currency) || mainCur().code;
       const dayKey = seed?.dayKey ?? today();
       const draft: TicketDraft = {
         kind: DEFAULT_KIND,
@@ -1481,7 +1614,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
             },
           });
         } else {
-          const m = monthOf(row.occurred_on);
+          const m = monthOf(row.occurred_on, get().monthStartDay);
           if (get().loadedMonths.indexOf(m) < 0) set({ month: m, loadedMonths: [m], period: periodOf(m, get().span) }); // 換月一律連 period 一起換（同 setMonth）
           set({ draft: null, selectedId: row.id, panel: { kind: "entry", id: row.id }, savedAt: null });
         }
@@ -1710,6 +1843,155 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       }
     },
 
+    async setMainCurrency(code) {
+      try {
+        const cur = get().curByCode[code];
+        if (!cur) throw new RangeError(`沒有這個幣別：${code}`);
+        parseRate(cur.rate_to_main);
+        if (cur.is_main === 1) return true;
+        await serial(() => ticketRepo.setMainCurrency(code));
+        routeSpendGen++;
+        routeSpendMonth = "";
+        await serial(() => get().refresh());
+        toast(TK_TEXT.mainCurrencySet(code));
+        return true;
+      } catch (e) {
+        failToast(e);
+        return false;
+      }
+    },
+
+    async setMonthStartDay(day) {
+      const next = clampMonthStartDay(day);
+      const prev = get().monthStartDay;
+      if (next === prev) return;
+      try {
+        await serial(() => settingsRepo.set(KEY_MONTH_START_DAY, String(next)));
+        const t = today();
+        const prevTodayMonth = monthOf(t, prev);
+        const nextTodayMonth = monthOf(t, next);
+        const s = get();
+        const nextMonth = s.month === prevTodayMonth ? nextTodayMonth : s.month;
+        routeSpendGen++;
+        routeSpendMonth = "";
+        set({
+          monthStartDay: next,
+          month: nextMonth,
+          loadedMonths: [nextMonth],
+          period: s.span === "month" ? periodOf(nextMonth, "month") : s.period,
+        });
+        await serial(() => get().refresh());
+        toast(TK_TEXT.monthStartSaved(next));
+      } catch (e) {
+        failToast(e);
+      }
+    },
+
+    setStatsSort(sort) {
+      if (sort === get().statsSort) return;
+      set({ statsSort: sort });
+      savePref(KEY_STATS_SORT, sort);
+      if (get().stats) set({ stats: computeStats() });
+    },
+
+    togglePrivacyMask() {
+      const s = get();
+      if (!s.privacyMasked) {
+        set({ privacyMasked: true, unmaskPromptOpen: false });
+        void settingsRepo.set(KEY_PRIVACY_MASKED, serializePrivacyMasked(true)).catch(() => undefined);
+        return;
+      }
+      if (s.hasLockPin) {
+        set({ unmaskPromptOpen: true });
+        return;
+      }
+      set({ privacyMasked: false });
+      void settingsRepo.set(KEY_PRIVACY_MASKED, serializePrivacyMasked(false)).catch(() => undefined);
+    },
+
+    setPrivacyMasked(masked) {
+      if (!masked && get().hasLockPin && get().privacyMasked) {
+        set({ unmaskPromptOpen: true });
+        return;
+      }
+      set({ privacyMasked: masked, unmaskPromptOpen: false });
+      void settingsRepo.set(KEY_PRIVACY_MASKED, serializePrivacyMasked(masked)).catch(() => undefined);
+    },
+
+    closeUnmaskPrompt() {
+      if (get().unmaskPromptOpen) set({ unmaskPromptOpen: false });
+    },
+
+    verifyLockPin(pin) {
+      return verifyPin(pin, lockPinRecord);
+    },
+
+    unlockWithPin(pin) {
+      if (!verifyPin(pin, lockPinRecord)) return false;
+      if (get().unmaskPromptOpen) {
+        set({ lockUnlocked: true, unmaskPromptOpen: false, privacyMasked: false });
+        void settingsRepo.set(KEY_PRIVACY_MASKED, serializePrivacyMasked(false)).catch(() => undefined);
+      } else {
+        set({ lockUnlocked: true });
+      }
+      return true;
+    },
+
+    async setLockPin(newPin, currentPin) {
+      try {
+        const hadPin = get().hasLockPin;
+        if (hadPin && !verifyPin(currentPin ?? "", lockPinRecord)) {
+          toast(TK_TEXT.pinWrong);
+          return false;
+        }
+        const record = createPinHashRecord(newPin);
+        await settingsRepo.set(KEY_LOCK_PIN_HASH, record);
+        lockPinRecord = record;
+        securityLoaded = true;
+        set({ hasLockPin: true, lockUnlocked: true, unmaskPromptOpen: false });
+        toast(hadPin ? TK_TEXT.pinUpdated : TK_TEXT.pinEnabled);
+        return true;
+      } catch (e) {
+        failToast(e);
+        return false;
+      }
+    },
+
+    async clearLockPin(currentPin) {
+      try {
+        if (get().hasLockPin && !verifyPin(currentPin, lockPinRecord)) {
+          toast(TK_TEXT.pinWrong);
+          return false;
+        }
+        await settingsRepo.set(KEY_LOCK_PIN_HASH, "");
+        lockPinRecord = null;
+        set({ hasLockPin: false, lockUnlocked: true, unmaskPromptOpen: false });
+        toast(TK_TEXT.pinCleared);
+        return true;
+      } catch (e) {
+        failToast(e);
+        return false;
+      }
+    },
+
+    lockLedger() {
+      if (!get().hasLockPin) return;
+      accountBack = null;
+      repeatBack = null;
+      repeatTagGen++;
+      set({
+        lockUnlocked: false,
+        unmaskPromptOpen: false,
+        panel: { kind: "none" },
+        draft: null,
+        dialog: null,
+        repeatDraft: null,
+        repeatTags: null,
+        selectedId: null,
+      });
+      toast(TK_TEXT.ledgerLocked);
+    },
+
     /* ───────── 對話框 ───────── */
 
     openDialog(d) {
@@ -1872,7 +2154,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       const s0 = get();
       if (s0.searchOpen) get().closeSearch();
       set({ view: "list", dayNotice: null, listFilter: EMPTY_FILTER, listSort: DEFAULT_ENTRY_SORT });
-      const m = monthOf(dayKey);
+      const m = monthOf(dayKey, get().monthStartDay);
       if (get().loadedMonths.indexOf(m) < 0) await get().setMonth(m);
       const g = get().days.find((x) => x.dayKey === dayKey);
       if (g && g.entries.length) {
@@ -1923,7 +2205,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       get().setResultSort(sort);
       const s = get();
       if (isFilterActive(s.filter)) return; // 已經在搜尋：只是換排序（setResultSort 已重排）
-      const r = monthRange(s.month);
+      const r = monthRange(s.month, s.monthStartDay);
       await get().patchFilter({ from: r.from, toExcl: r.toExcl });
     },
 
@@ -1993,7 +2275,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       // 「未細分」「（…已不在）」沒有對應的篩選條件（categoryIds 傳主分類 id 會展開成含全部子分類）⇒ 不下鑽；UI 應把這幾列畫成不可點
       if (p.categoryIds?.some(isUnfilterableKey) || isUnfilterableKey(p.accountId) || isUnfilterableKey(p.routeId) || p.tagKeys?.some(isUnfilterableKey)) return;
       const s = get();
-      const r = periodRange(s.period);
+      const r = periodRange(s.period, s.monthStartDay);
       if (s.view !== "list") await get().setView("list");
       set({
         searchOpen: true,
@@ -2024,17 +2306,19 @@ export const useTicketStore = create<TicketStore>((set, get) => {
       if (!e) return;
       const f = get().filterAccountId;
       if (f !== null && e.account_id !== f && e.to_account_id !== f) set({ filterAccountId: null, facet: facetAllowed(get().facet, null) });
-      const m = monthOf(e.occurred_on);
+      const m = monthOf(e.occurred_on, get().monthStartDay);
       if (get().loadedMonths.indexOf(m) < 0 || f !== get().filterAccountId) await get().setMonth(m);
       get().openEntry(id);
       set({ pendingDay: e.occurred_on });
     },
 
     async loadRouteSpend(routeId) {
-      // 跨月了（沒有任何寫入也會發生）：快取的「本月」是上個月的 ⇒ 整批作廢，UI 看到 key 消失會再叫
-      const curMonth = monthOf(today());
-      if (routeSpendMonth !== curMonth) {
-        routeSpendMonth = curMonth;
+      // 跨月或改了月起算日：快取的「本月」是舊區間的 ⇒ 整批作廢，UI 看到 key 消失會再叫
+      const sd = get().monthStartDay;
+      const curMonth = monthOf(today(), sd);
+      const curKey = `${curMonth}@${sd}`;
+      if (routeSpendMonth !== curKey) {
+        routeSpendMonth = curKey;
         routeSpendGen++;
         if (Object.keys(get().routeSpend).length) set({ routeSpend: {} });
       }
@@ -2045,7 +2329,8 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         // 不能只丟：RouteSpendField 只在 key「消失」時重叫，key 從沒出現過就會一直卡在「…」
         for (let attempt = 0; attempt < 3; attempt++) {
           const gen = routeSpendGen;
-          const r = monthRange(monthOf(today()));
+          const nowSd = get().monthStartDay;
+          const r = monthRange(monthOf(today(), nowSd), nowSd);
           const v = await ticketRepo.routeSpend(routeId, r.from, r.toExcl);
           if (gen !== routeSpendGen) continue;
           set({ routeSpend: { ...get().routeSpend, [routeId]: { month: v.inRange, total: v.allTime } } });
@@ -2114,7 +2399,7 @@ export const useTicketStore = create<TicketStore>((set, get) => {
         draft = {
           kind: DEFAULT_KIND,
           amountText: "",
-          currency: (accountId && s.accById[accountId]?.currency) || MAIN_CURRENCY,
+          currency: (accountId && s.accById[accountId]?.currency) || mainCur().code,
           accountId,
           toAccountId: null,
           categoryId: null,
@@ -2595,18 +2880,24 @@ useUiStore.subscribe((s, prev) => {
   if (s.weekStart === prev.weekStart && s.dayStartHour === prev.dayStartHour) return;
   const t = useTicketStore.getState();
   if (t.calendar !== null) {
-    const own = t.entries.filter((e) => monthOf(e.occurred_on) === t.month);
-    useTicketStore.setState({ calendar: calendarCells(own, t.month, s.weekStart, todayKey(s.dayStartHour)) });
+    const own = t.entries.filter((e) => monthOf(e.occurred_on, t.monthStartDay) === t.month);
+    useTicketStore.setState({ calendar: calendarCells(own, t.month, s.weekStart, todayKey(s.dayStartHour), t.monthStartDay) });
   }
 });
 useNodeStore.subscribe((s, prev) => {
   if (s.routes === prev.routes) return;
   const t = useTicketStore.getState();
   if (!t.stats) return;
-  const r = periodRange(t.period);
+  const r = periodRange(t.period, t.monthStartDay);
   const ctx: ViewCtx = { accById: t.accById, catById: t.catById, curByCode: t.curByCode, ...routeCtx(s.routes), ...tagCtx() };
   useTicketStore.setState({
-    stats: { ...t.stats, breakdown: breakdown(t.statsEntries, r, facetAllowed(t.facet, t.filterAccountId), t.facetKind, ctx) },
+    stats: {
+      ...t.stats,
+      breakdown: breakdown(t.statsEntries, r, facetAllowed(t.facet, t.filterAccountId), t.facetKind, ctx, {
+        catRoot: t.statsRoot,
+        sort: t.statsSort,
+      }),
+    },
   });
 });
 /* 售票口④：荷札 index 換了（荷札頁改名／刪除、同步拉到 taggings、本機掛了荷札）⇒ 依荷札統計就地重算、篩荷札或打了字的搜尋重查 */
@@ -2614,9 +2905,11 @@ useTagStore.subscribe((s, prev) => {
   if (s.index === prev.index) return;
   const t = useTicketStore.getState();
   if (t.stats && t.facet === "tag") {
-    const r = periodRange(t.period);
+    const r = periodRange(t.period, t.monthStartDay);
     const ctx: ViewCtx = { accById: t.accById, catById: t.catById, curByCode: t.curByCode, ...routeCtx(useNodeStore.getState().routes), ...tagCtx() };
-    useTicketStore.setState({ stats: { ...t.stats, breakdown: breakdown(t.statsEntries, r, "tag", t.facetKind, ctx) } });
+    useTicketStore.setState({
+      stats: { ...t.stats, breakdown: breakdown(t.statsEntries, r, "tag", t.facetKind, ctx, { sort: t.statsSort }) },
+    });
   }
   if (t.results !== null && ((t.filter.tagKeys ?? []).length > 0 || keywordTokens(t.filter.text).length > 0)) void t.patchFilter({});
 });

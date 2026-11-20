@@ -14,12 +14,17 @@ import type {
   TimeBlockSlim,
   TimeCategoryRow,
   TimeGoalRow,
+  TimeStatTopicRow,
+  StatTopicInput,
+  StatTopicPatch,
+  UpsertStatTopicInput,
   CoverSummary,
   LongRunChoice,
   DayBlockSegment,
   MergePreview,
   BlockLink,
 } from "../domain/timetable";
+export type { TimeStatTopicRow, StatTopicInput, StatTopicPatch, UpsertStatTopicInput } from "../domain/timetable";
 import type { GoalInput } from "../domain/timetableStats";
 import type { PlanPatch, PlanUpsert, PlanWrite, RoutineInput, TimePlanRow, TimeRoutineRow } from "../domain/timetableRoutine";
 import type { PaintUndo } from "../domain/timetableGrid";
@@ -267,6 +272,20 @@ export interface TimetableRepository {
   deletePlan(id: string): Promise<void>;
   /** op：同步過的列只送 deleted_at、updated_at；還沒同步過的送完整列 */
   restorePlan(id: string): Promise<void>;
+
+  /* ── v1.33（功能 2 / G1）：釘選自訂統計專題 time_stat_topics ── */
+  /** 未刪除（含封存），position → created_at → id */
+  listStatTopics(): Promise<TimeStatTopicRow[]>;
+  /** 取一個統計專題；預設不含已刪除，`withDeleted` 同 `getGoal` */
+  getStatTopic(id: string, opts?: { withDeleted?: boolean }): Promise<TimeStatTopicRow | null>;
+  createStatTopic(input: StatTopicInput): Promise<TimeStatTopicRow>;
+  updateStatTopic(id: string, patch: StatTopicPatch): Promise<void>;
+  /** 依 id 新增／更新／復活統計專題（未給 id 則新建）；含 sync outbox */
+  upsertStatTopic(input: UpsertStatTopicInput): Promise<TimeStatTopicRow>;
+  archiveStatTopic(id: string, on: boolean): Promise<void>;
+  deleteStatTopic(id: string): Promise<void>;
+  restoreStatTopic(id: string): Promise<void>;
+  reorderStatTopics(orderedIds: readonly string[]): Promise<void>;
   /*
    * 目標的荷札（0-4、0-11）：`createGoal`／`updateGoal` 收 `GoalInput.tagNames`——先寫目標列、再
    * `tagRepo.setTags('timetable:goal', id, tagNames)`（兩個交易；`tagNames` 沒給＝不動荷札）。scope：有荷札或原本就是 v2 ⇒ v2（v2 有黏性）。

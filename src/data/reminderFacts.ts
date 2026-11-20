@@ -21,6 +21,7 @@ import {
   type ReminderSettings,
   type RepeatFact,
   type RoutineFact,
+  type StationSoonFact,
   type TimedFact,
 } from "../domain/reminders";
 import { projectFixed } from "../domain/repeat";
@@ -174,5 +175,24 @@ export async function loadReminderFacts(o: LoadReminderOpts): Promise<ReminderFa
           return out;
         });
 
-  return { today, dayStartHour: h, dues, lates, timed, aimWeeks, repeats, routines };
+  const stationSoon: StationSoonFact[] = [];
+  if (s.stationSoon) {
+    const soonLimit = addDays(today, 3);
+    for (const st of sidebar.stations) {
+      if (st.deleted_at !== null || st.arrived_on || st.status === "paused") continue;
+      const expected = st.expected_on ?? st.due_on;
+      if (!expected || expected < today || expected > soonLimit) continue;
+      const route = sidebar.routes.find((r) => r.id === st.parent_id);
+      if (route?.arrived_on || route?.deleted_at !== null && route !== undefined) continue;
+      stationSoon.push({
+        stationId: st.id,
+        name: st.name,
+        expectedOn: expected,
+        routeId: route?.id ?? st.parent_id,
+        routeName: route?.name ?? null,
+      });
+    }
+  }
+
+  return { today, dayStartHour: h, dues, lates, timed, aimWeeks, repeats, routines, stationSoon };
 }

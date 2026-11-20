@@ -48,7 +48,7 @@ export type AccountGroup =
   | "loan"
   | "insurance"
   | "other";
-export type Prefix = "" | "＋" | "⇄" | "±";
+export type Prefix = "" | "＋" | "−" | "⇄" | "±";
 
 /** 0-19：帳戶群組（排序依此） */
 export const ACCOUNT_GROUPS: readonly { key: AccountGroup; label: string; liability: boolean }[] = [
@@ -77,6 +77,32 @@ export const CURRENCY_NAMES: Readonly<Record<string, string>> = {
   KRW: "韓元",
   GBP: "英鎊",
 };
+
+/** 幣別符號（隱私遮罩 `NT$ ****`／標題列小計顯示用；查不到回幣別代碼本身） */
+export const CURRENCY_SYMBOLS: Readonly<Record<string, string>> = {
+  TWD: "NT$",
+  USD: "US$",
+  CNY: "CN¥",
+  JPY: "¥",
+  EUR: "€",
+  HKD: "HK$",
+  KRW: "₩",
+  GBP: "£",
+  AUD: "A$",
+  CAD: "CA$",
+  SGD: "S$",
+  CHF: "CHF",
+  THB: "฿",
+};
+
+export const MASK_STARS = "****";
+export const DEFAULT_MONTH_START_DAY = 1;
+export const MIN_MONTH_START_DAY = 1;
+export const MAX_MONTH_START_DAY = 28;
+
+export function currencySymbol(code: string): string {
+  return CURRENCY_SYMBOLS[code] ?? code;
+}
 
 /* ── 列型別（＝ SQLite 列；沒有同步預備的 account_id，0-13） ── */
 export interface TkSyncCols {
@@ -567,11 +593,24 @@ export function currencyCode(text: string): string {
 
 const FALLBACK_MAIN: CurLike = { code: MAIN_CURRENCY, decimals: 2, rate_to_main: "1", is_main: 1 };
 
-/** 主幣別（is_main＝1 的那個；沒有就找 TWD；再沒有用預設） */
-function mainOf(curByCode: Readonly<Record<string, CurLike>>): CurLike {
+/** 主幣別（傳 curByCode 回傳 CurLike 列；傳 currencies 陣列回傳幣別代碼字串；找不到時退回 TWD） */
+export function mainCurrencyOf(curByCode: Readonly<Record<string, CurLike>>): CurLike;
+export function mainCurrencyOf(currencies: readonly { code: string; is_main?: number }[]): string;
+export function mainCurrencyOf(
+  src: Readonly<Record<string, CurLike>> | readonly { code: string; is_main?: number }[],
+): CurLike | string {
+  if (Array.isArray(src)) {
+    for (let i = 0; i < src.length; i++) {
+      if (src[i].is_main === 1) return src[i].code;
+    }
+    return MAIN_CURRENCY;
+  }
+  const curByCode = src as Readonly<Record<string, CurLike>>;
   for (const k of Object.keys(curByCode)) if (curByCode[k].is_main === 1) return curByCode[k];
   return curByCode[MAIN_CURRENCY] ?? FALLBACK_MAIN;
 }
+
+const mainOf = mainCurrencyOf;
 
 function curOrThrow(curByCode: Readonly<Record<string, CurLike>>, code: string): CurLike {
   const c = curByCode[code];
@@ -912,6 +951,109 @@ export function planAdjust(currentMinor: number, targetMinor: number): number | 
   return d === 0 ? null : d;
 }
 
+const RATE_SCALE = pow10(10);
+
+/** 兩組正匯率相除（numRate / denRate），回傳符合 `parseRate` 的正規化字串（最多 10 位小數，不為 0） */
+export function divideRate(numRate: string, denRate: string): string {
+  const [nn, nd] = rateFrac(numRate);
+  const [dn, dd] = rateFrac(denRate);
+  const scaled = roundDiv(nn * dd * RATE_SCALE, nd * dn);
+  if (scaled <= ZERO) return "0.0000000001";
+  const s = scaled.toString();
+  const raw = s.length <= 10 ? "0." + s.padStart(10, "0") : s.slice(0, s.length - 10) + "." + s.slice(s.length - 10);
+  return parseRate(raw);
+}
+
+export interface MainCurrencyPlan {
+  currencies: { id: string; cols: { is_main?: number; rate_to_main?: string; updated_at: string } }[];
+  entries: { id: string; main_minor: number; updated_at: string }[];
+  budgets: { id: string; amount_minor: number; updated_at: string }[];
+  wishes: { id: string; amount_minor: number; updated_at: string }[];
+}
+
+/** 切換主幣別（v1.33 G4）：反算各幣別 rate_to_main，並重算歷史帳目 main_minor 與主幣別計價之預算／願望金額 */
+export function planSetMainCurrency(input: {
+  targetCode: string;
+  currencies: readonly CurrencyRow[];
+  entries: readonly EntryRow[];
+  budgets: readonly BudgetRow[];
+  wishes: readonly WishRow[];
+  nowIso: string;
+}): MainCurrencyPlan {
+  const code = currencyCode(input.targetCode);
+  const aliveCurs = input.currencies.filter((c) => c.deleted_at === null);
+  const curByCode: Record<string, CurrencyRow> = {};
+  for (const c of aliveCurs) curByCode[c.code] = c;
+  const target = curByCode[code];
+  if (!target) throw new RangeError(`沒有這個幣別：${code}`);
+  const oldMain = aliveCurs.find((c) => c.is_main === 1) ?? curByCode[MAIN_CURRENCY] ?? target;
+
+  const mainCount = aliveCurs.filter((c) => c.is_main === 1).length;
+  if (target.is_main === 1 && target.rate_to_main === "1" && mainCount === 1) {
+    return { currencies: [], entries: [], budgets: [], wishes: [] };
+  }
+
+  const curUpdates: MainCurrencyPlan["currencies"] = [];
+  for (const c of aliveCurs) {
+    const nextIsMain = c.id === target.id ? 1 : 0;
+    const nextRate = c.id === target.id ? "1" : divideRate(c.rate_to_main, target.rate_to_main);
+    const cols: { is_main?: number; rate_to_main?: string; updated_at: string } = { updated_at: input.nowIso };
+    let dirty = false;
+    if (nextIsMain !== c.is_main) {
+      cols.is_main = nextIsMain;
+      dirty = true;
+    }
+    if (nextRate !== c.rate_to_main) {
+      cols.rate_to_main = nextRate;
+      dirty = true;
+    }
+    if (dirty) curUpdates.push({ id: c.id, cols });
+  }
+
+  const entryUpdates: MainCurrencyPlan["entries"] = [];
+  const budgetUpdates: MainCurrencyPlan["budgets"] = [];
+  const wishUpdates: MainCurrencyPlan["wishes"] = [];
+  if (oldMain.id !== target.id) {
+    for (const e of input.entries) {
+      if (e.deleted_at !== null) continue;
+      let nextMain: number;
+      if (e.currency === target.code) {
+        nextMain = e.amount_minor;
+      } else {
+        const srcCur = curByCode[e.currency];
+        nextMain = srcCur ? convertMinor(e.amount_minor, srcCur, target) : convertMinor(e.main_minor, oldMain, target);
+      }
+      if (nextMain !== e.main_minor) {
+        entryUpdates.push({ id: e.id, main_minor: nextMain, updated_at: input.nowIso });
+      }
+    }
+
+    for (const bd of input.budgets) {
+      if (bd.deleted_at !== null) continue;
+      const raw = convertMinor(bd.amount_minor, oldMain, target);
+      const nextAmt = bd.amount_minor > 0 ? Math.max(1, raw) : raw;
+      if (nextAmt !== bd.amount_minor) {
+        budgetUpdates.push({ id: bd.id, amount_minor: nextAmt, updated_at: input.nowIso });
+      }
+    }
+
+    for (const w of input.wishes) {
+      if (w.deleted_at !== null || w.amount_minor === null) continue;
+      const nextAmt = convertMinor(w.amount_minor, oldMain, target);
+      if (nextAmt !== w.amount_minor) {
+        wishUpdates.push({ id: w.id, amount_minor: nextAmt, updated_at: input.nowIso });
+      }
+    }
+  }
+
+  return {
+    currencies: curUpdates,
+    entries: entryUpdates,
+    budgets: budgetUpdates,
+    wishes: wishUpdates,
+  };
+}
+
 /* ───────────────────────── §4.4 顯示與彙總 ───────────────────────── */
 
 const MINUS = "−";
@@ -937,6 +1079,23 @@ export function moneyText(minor: number, decimals: number, opts?: { prefix?: Pre
   return `${opts?.prefix ?? ""}${neg && !zero ? MINUS : ""}${body}`;
 }
 
+/** 隱私遮罩下的金額文字：預設帶幣別符號（如 `NT$ ****`、`＋NT$ ****`、`¥ ****`）；`withSymbol: false` 時僅出 `****` */
+export function maskedMoneyText(currency?: string, opts?: { prefix?: Prefix; withSymbol?: boolean }): string {
+  const pre = opts?.prefix ?? "";
+  if (!currency || opts?.withSymbol === false) return `${pre}${MASK_STARS}`;
+  return `${pre}${currencySymbol(currency)} ${MASK_STARS}`;
+}
+
+/** 統一格式化入口：遮罩開啟時輸出 `NT$ ****`（或 `****`），關閉時走 `moneyText` */
+export function formatDisplayMoney(
+  minor: number,
+  decimals: number,
+  opts?: { prefix?: Prefix; whole?: boolean; masked?: boolean; currency?: string; withSymbol?: boolean },
+): string {
+  if (opts?.masked) return maskedMoneyText(opts.currency, { prefix: opts.prefix, withSymbol: opts.withSymbol });
+  return moneyText(minor, decimals, { prefix: opts?.prefix, whole: opts?.whole });
+}
+
 /** 正 `＋`、負 `−`（toast 用） */
 export function signedText(minor: number, decimals: number): string {
   return minor > 0 ? `＋${moneyText(minor, decimals)}` : moneyText(minor, decimals);
@@ -947,8 +1106,13 @@ export function quickAmountText(kind: EntryKind, minor: number, decimals: number
   return signedText(kind === "expense" ? -minor : minor, decimals);
 }
 
-export function rowAmount(e: EntryRow, filterAccountId: string | null, accById: Readonly<Record<string, AccountRow>>): RowAmount {
-  const conv = (currency: string, mainMinor: number): number | null => (currency !== MAIN_CURRENCY ? mainMinor : null);
+export function rowAmount(
+  e: EntryRow,
+  filterAccountId: string | null,
+  accById: Readonly<Record<string, AccountRow>>,
+  mainCode: string = MAIN_CURRENCY,
+): RowAmount {
+  const conv = (currency: string, mainMinor: number): number | null => (currency !== mainCode ? mainMinor : null);
   switch (e.kind) {
     case "income":
       return { prefix: "＋", minor: e.amount_minor, currency: e.currency, convMain: conv(e.currency, e.main_minor) };
@@ -1028,19 +1192,31 @@ export function groupByDay(entries: readonly EntryRow[], filterAccountId: string
 }
 
 /** 只有支出 ⇒ "1,230"；有收入 ⇒ "1,230 ＋2,000"；只有收入 ⇒ "＋2,000"；都 0 ⇒ "" */
-export function daySubtotalText(g: DayGroup, decimals: number): string {
+export function daySubtotalText(
+  g: DayGroup,
+  decimals: number,
+  opts?: { masked?: boolean; currency?: string },
+): string {
   const parts: string[] = [];
-  if (g.expense !== 0) parts.push(moneyText(g.expense, decimals));
-  if (g.income !== 0) parts.push(moneyText(g.income, decimals, { prefix: "＋" }));
+  if (g.expense !== 0) {
+    parts.push(formatDisplayMoney(g.expense, decimals, { masked: opts?.masked, currency: opts?.currency }));
+  }
+  if (g.income !== 0) {
+    parts.push(formatDisplayMoney(g.income, decimals, { prefix: "＋", masked: opts?.masked, currency: opts?.currency }));
+  }
   return parts.join(" ");
 }
 
-/** 只取 occurred_on 在該月的；口徑同 groupByDay */
-export function monthSum(entries: readonly EntryRow[], month: string): { income: number; expense: number } {
+/** 只取 occurred_on 在該帳務月的；口徑同 groupByDay（預設 startDay=1 相容既有呼叫） */
+export function monthSum(
+  entries: readonly EntryRow[],
+  month: string,
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): { income: number; expense: number } {
   let income = 0;
   let expense = 0;
   for (const e of entries) {
-    if (e.deleted_at !== null || monthOf(e.occurred_on) !== month) continue;
+    if (e.deleted_at !== null || monthOf(e.occurred_on, startDay) !== month) continue;
     if (e.kind === "income") income += e.main_minor;
     else if (e.kind === "expense") expense += e.main_minor;
   }
@@ -1066,8 +1242,36 @@ export function monthTitle(month: string): string {
   return `${y} 年 ${m} 月`;
 }
 
-export function monthOf(dayKey: string): string {
-  return dayKey.slice(0, 7);
+/** 夾在合法月起算日 1～28 號；非法輸入回預設 1 號 */
+export function clampMonthStartDay(day: number): number {
+  if (!Number.isFinite(day)) return DEFAULT_MONTH_START_DAY;
+  const n = Math.floor(day);
+  if (n < MIN_MONTH_START_DAY) return MIN_MONTH_START_DAY;
+  if (n > MAX_MONTH_START_DAY) return MAX_MONTH_START_DAY;
+  return n;
+}
+
+/** 解析設定字串中的月起算日（"1"～"28"）；空字串或越界字串回預設 1 號 */
+export function parseMonthStartDay(raw: string | null | undefined): number {
+  if (!raw) return DEFAULT_MONTH_START_DAY;
+  const s = raw.trim();
+  if (!/^\d+$/.test(s)) return DEFAULT_MONTH_START_DAY;
+  const n = parseInt(s, 10);
+  if (n < MIN_MONTH_START_DAY || n > MAX_MONTH_START_DAY) return DEFAULT_MONTH_START_DAY;
+  return n;
+}
+
+/**
+ * 日期所屬的帳務月（YYYY-MM）：
+ * `startDay === 1` 時等於日曆月 `dayKey.slice(0, 7)`；
+ * `startDay > 1`（如 5 號）時，當月 1～4 號歸入上一個帳務月，5 號起歸入當月。
+ */
+export function monthOf(dayKey: string, startDay: number = DEFAULT_MONTH_START_DAY): string {
+  const s = clampMonthStartDay(startDay);
+  const ym = dayKey.slice(0, 7);
+  if (s <= 1) return ym;
+  const d = parseInt(dayKey.slice(8, 10), 10);
+  return d >= s ? ym : addMonths(ym, -1);
 }
 
 export function addMonths(month: string, n: number): string {
@@ -1078,8 +1282,27 @@ export function addMonths(month: string, n: number): string {
   return `${String(ny).padStart(4, "0")}-${String(nm).padStart(2, "0")}`;
 }
 
-export function monthRange(month: string): { from: string; toExcl: string } {
-  return { from: `${month}-01`, toExcl: `${addMonths(month, 1)}-01` };
+/**
+ * 帳務月的左閉右開區間 `[from, toExcl)`：
+ * 例：`monthRange("2026-11", 5)` ⇒ `{ from: "2026-11-05", toExcl: "2026-12-05" }`（含首尾為 11/05～12/04）。
+ */
+export function monthRange(month: string, startDay: number = DEFAULT_MONTH_START_DAY): { from: string; toExcl: string } {
+  const d = pad2(clampMonthStartDay(startDay));
+  return { from: `${month}-${d}`, toExcl: `${addMonths(month, 1)}-${d}` };
+}
+
+/**
+ * 自訂月起算日時的頁首溫和提示（如 `"11/05–12/04"`）；`startDay === 1` 時回傳 `null`。
+ */
+export function monthRangeLabel(month: string, startDay: number = DEFAULT_MONTH_START_DAY): string | null {
+  const s = clampMonthStartDay(startDay);
+  if (s <= 1) return null;
+  const r = monthRange(month, s);
+  const [ty, tm, td] = splitDay(r.toExcl);
+  const endDate = new Date(ty, tm - 1, td - 1);
+  const fromMmDd = `${r.from.slice(5, 7)}/${r.from.slice(8, 10)}`;
+  const toMmDd = `${pad2(endDate.getMonth() + 1)}/${pad2(endDate.getDate())}`;
+  return `${fromMmDd}–${toMmDd}`;
 }
 
 /** "No.MMDD-nn"：同日依 (occurred_at, created_at, id) 遞增排，取 1 起的序號 */

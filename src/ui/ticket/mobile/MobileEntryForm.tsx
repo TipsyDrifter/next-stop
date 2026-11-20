@@ -45,13 +45,13 @@ import { ClockInput, clockDraftsOkIn } from "../../common/ClockInput";
 import { useBackLayer } from "../../mobile/backStack";
 import { shortDayKey } from "../../common/DatePicker";
 import {
-  MAIN_CURRENCY,
-  MAIN_SYMBOL,
   atOf,
   bareName,
   categoryPath,
   convertMinor,
+  currencySymbol,
   localTime,
+  mainCurrencyOf,
   moneyText,
   orderAccounts,
   parseAmount,
@@ -273,7 +273,7 @@ function buildPatch(
   row: EntryRow,
   d: EntryDraft,
   adjust: boolean,
-  ctx: { accById: Record<string, AccountRow>; curByCode: Record<string, { code: string; decimals: number }> },
+  ctx: { accById: Record<string, AccountRow>; curByCode: Record<string, { code: string; decimals: number; is_main?: number }> },
   dayStartHour: number,
 ): EntryPatch {
   const p: EntryPatch = {};
@@ -299,7 +299,8 @@ function buildPatch(
     p.occurredOn = d.dayKey;
     p.occurredAt = atOf(d.dayKey, d.time, dayStartHour);
   }
-  const main = ctx.curByCode[MAIN_CURRENCY];
+  const mainCode = mainCurrencyOf(Object.values(ctx.curByCode));
+  const main = ctx.curByCode[mainCode];
   if (d.mainOverrideText !== null && d.mainOverrideText.trim() !== "" && main) {
     p.override = { ...p.override, mainMinor: parseAmount(d.mainOverrideText, main, { allowNegative: adjust || kind === "expense" }) };
   }
@@ -432,7 +433,9 @@ function FormShell({
   const toAcc = d.toAccountId ? accById[d.toAccountId] : undefined;
   const curCode = transfer || adjust ? (acc?.currency ?? d.currency) : d.currency;
   const cur = curByCode[curCode];
-  const main = curByCode[MAIN_CURRENCY];
+  const mainCode = mainCurrencyOf(currencies);
+  const mainSym = currencySymbol(mainCode);
+  const main = curByCode[mainCode];
   const mainDec = main?.decimals ?? 2;
   let amountMinor: number | null = null;
   try {
@@ -668,7 +671,7 @@ function FormShell({
               value={d.amountText}
               decimals={cur?.decimals ?? 2}
               allowNegative={adjust || kind === "expense"}
-              currencyPrefix={curCode === MAIN_CURRENCY ? MAIN_SYMBOL : curCode}
+              currencyPrefix={curCode === mainCode ? mainSym : curCode}
               onCommit={(v) => onPatch({ amountText: v })}
             />
           </div>
@@ -686,7 +689,7 @@ function FormShell({
           <div className="ns-tk-mf-conv">
             {editConv ? (
               <label>
-                ≈ {MAIN_SYMBOL}
+                ≈ {mainSym}
                 <input
                   className="ns-tk-mf-convin"
                   inputMode="decimal"
@@ -700,7 +703,7 @@ function FormShell({
               </label>
             ) : (
               <button type="button" onClick={() => setEditConv(true)} aria-label="改折算額">
-                ≈ {MAIN_SYMBOL} <b>{d.mainOverrideText?.trim() ? d.mainOverrideText : autoMain !== null ? moneyText(autoMain, mainDec) : "—"}</b>
+                ≈ {mainSym} <b>{d.mainOverrideText?.trim() ? d.mainOverrideText : autoMain !== null ? moneyText(autoMain, mainDec) : "—"}</b>
               </button>
             )}
             <span> · 匯率 {cur?.rate_to_main}</span>
@@ -942,7 +945,7 @@ function FormShell({
               {c.code}
               <small>
                 {c.name}
-                {c.is_main === 1 ? " · 主幣別" : ` · 1 ${c.code} ＝ ${c.rate_to_main} ${MAIN_CURRENCY}`}
+                {c.is_main === 1 ? " · 主幣別" : ` · 1 ${c.code} ＝ ${c.rate_to_main} ${mainCode}`}
               </small>
             </button>
           ))}

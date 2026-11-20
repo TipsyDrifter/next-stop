@@ -97,6 +97,74 @@ export interface TimeGoalRow {
   deleted_at: string | null;
 }
 
+/** v1.33（功能 2 / G1）：釘選自訂統計專題（`time_stat_topics` 一列） */
+export interface TimeStatTopicRow {
+  id: string;
+  name: string;
+  /** JSON：存分類／路線／節點／荷札等篩選條件，預設 `'{"v":1}'` */
+  scope: string;
+  /** NULL＝跟隨全域日界線；0–23＝專題獨立切日小時（例 18 代表 18:00 切日） */
+  day_start_hour: number | null;
+  position: number;
+  archived_at: string | null;
+  account_id: string | null;
+  device_id: string | null;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface StatTopicInput {
+  name: string;
+  /** JSON 字串（預設 `'{"v":1}'`）；須為合法 JSON 物件 */
+  scope?: string;
+  /** null／undefined＝跟隨全域日界線；0–23 整數＝專題獨立切日小時 */
+  dayStartHour?: number | null;
+}
+
+export interface StatTopicPatch {
+  name?: string;
+  scope?: string;
+  dayStartHour?: number | null;
+  archived?: boolean;
+}
+
+export interface UpsertStatTopicInput extends StatTopicInput {
+  id?: string;
+  position?: number;
+  archivedAt?: string | null;
+}
+
+export function normalizeStatTopicName(raw: string): string {
+  const s = raw.trim();
+  if (!s) throw new RangeError("專題名稱不能是空的");
+  return s;
+}
+
+export function normalizeStatTopicScope(raw: string | undefined): string {
+  if (raw === undefined) return '{"v":1}';
+  const s = raw.trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(s);
+  } catch {
+    throw new RangeError("專題篩選格式不對");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new RangeError("專題篩選格式不對");
+  }
+  return s;
+}
+
+export function normalizeStatTopicDayStartHour(raw: number | null | undefined): number | null {
+  if (raw === undefined || raw === null) return null;
+  if (!Number.isInteger(raw) || raw < 0 || raw > 23) {
+    throw new RangeError("切日時間要在 0 到 23 點之間");
+  }
+  return raw;
+}
+
 /** 純函式用的時間塊 */
 export interface Span {
   id: string;

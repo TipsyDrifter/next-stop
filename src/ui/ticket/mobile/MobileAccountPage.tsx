@@ -10,8 +10,8 @@ import { Select } from "../../common/Select";
  *   「這個帳戶已經有帳，幣別不能改」（錯誤表），不會改壞資料。
  */
 import { useEffect, useRef, useState } from "react";
-import { TK_TEXT, useTicketStore } from "../../../store/ticketStore";
-import { ACCOUNT_GROUPS, MAIN_CURRENCY, moneyText, type AccountGroup } from "../../../domain/ticket";
+import { isTicketAmountMasked, TK_TEXT, useTicketStore } from "../../../store/ticketStore";
+import { ACCOUNT_GROUPS, mainCurrencyOf, maskedMoneyText, moneyText, type AccountGroup } from "../../../domain/ticket";
 import { MFullPage } from "../../common/MFullPage";
 import { useImeGuard } from "./mobileBits";
 
@@ -20,6 +20,7 @@ export function MobileAccountPage({ id }: { id: string }) {
   const balance = useTicketStore((s) => s.balances[id] ?? 0);
   const curByCode = useTicketStore((s) => s.curByCode);
   const currencies = useTicketStore((s) => s.currencies);
+  const masked = useTicketStore(isTicketAmountMasked);
   const closePanel = useTicketStore((s) => s.closePanel);
   const updateAccount = useTicketStore((s) => s.updateAccount);
   const adjustBalance = useTicketStore((s) => s.adjustBalance);
@@ -78,6 +79,7 @@ export function MobileAccountPage({ id }: { id: string }) {
   }
 
   if (!acc) return null;
+  const mainCode = mainCurrencyOf(currencies);
   const dec = curByCode[acc.currency]?.decimals ?? 2;
   const locked = balance !== 0;
   const archived = acc.archived_at !== null;
@@ -137,8 +139,14 @@ export function MobileAccountPage({ id }: { id: string }) {
         <div className="ns-tk-macct-balance">
           <span className="lbl">目前餘額</span>
           <b>
-            {moneyText(balance, dec)}
-            {acc.currency !== MAIN_CURRENCY && <small>{acc.currency}</small>}
+            {masked ? (
+              maskedMoneyText(acc.currency)
+            ) : (
+              <>
+                {moneyText(balance, dec)}
+                {acc.currency !== mainCode && <small>{acc.currency}</small>}
+              </>
+            )}
           </b>
           {adj === null ? (
             <button type="button" className="ns-btn btn-ghost ns-tk-mbtn" onClick={() => setAdj("")}>
@@ -154,7 +162,7 @@ export function MobileAccountPage({ id }: { id: string }) {
                   autoFocus
                   enterKeyHint="done"
                   value={adj}
-                  placeholder={moneyText(balance, dec).replace(/,/g, "")}
+                  placeholder={masked ? "" : moneyText(balance, dec).replace(/,/g, "")}
                   onChange={(e) => setAdj(e.target.value)}
                   {...adjIme}
                 />

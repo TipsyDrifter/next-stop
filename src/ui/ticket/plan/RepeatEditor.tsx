@@ -27,14 +27,14 @@
  * （.ns-dialog-body 內捲，浮層會被裁）。荷札欄空著、沒選列時的 Enter 它不攔 ⇒ 照舊＝存規則（同大票）。
  */
 import { useRef, useState, type ReactNode } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { todayKey } from "../../../lib/date";
 import { DatePicker } from "../../common/DatePicker";
 import { RecallInput } from "../../common/RecallInput";
 import { EntityTagField } from "../../common/EntityTagField";
-import { moneyText, parseAmount, type AccountRow } from "../../../domain/ticket";
+import { maskedMoneyText, moneyText, parseAmount, type AccountRow } from "../../../domain/ticket";
 import { shortDay } from "../../../domain/ticketView";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER, firstFixedDate, serializeRule } from "../../../domain/repeat";
 import {
@@ -107,6 +107,7 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const curByCode = useTicketStore((s) => s.curByCode);
   const currencies = useTicketStore((s) => s.currencies);
   const balances = useTicketStore((s) => s.balances);
+  const masked = useTicketStore(isTicketAmountMasked);
   const entries = useTicketStore((s) => s.entries);
   const noteRecall = useTicketStore((s) => s.noteRecall);
   const routes = useNodeStore((s) => s.routes);
@@ -133,7 +134,8 @@ export function RepeatEditor({ onDone }: { onDone(): void }) {
   const acc = d.accountId ? accById[d.accountId] : undefined;
   const toAcc = d.toAccountId ? accById[d.toAccountId] : undefined;
   const route = d.routeId ? routes.find((r) => r.id === d.routeId) : undefined;
-  const balText = (a: AccountRow) => moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2);
+  const balText = (a: AccountRow) =>
+    masked ? maskedMoneyText(a.currency) : moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2);
   const fromEntry = d.fromEntryId ? entries.find((e) => e.id === d.fromEntryId) : undefined;
   const isNew = editingId === null;
   const validDay = /^\d{4}-\d{2}-\d{2}$/.test(d.start);

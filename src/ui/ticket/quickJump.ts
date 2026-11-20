@@ -9,9 +9,9 @@
  * - go：分殼切到售票口（手機切 tab、桌機切頁）→ jumpToEntry（切清單、到那筆的月、選中並攤開大票／手機開這一筆、捲到那一天）。
  */
 import type { QuickJumpHit, QuickJumpProviderSpec } from "../../lines/types";
-import { MAIN_CURRENCY, bareName, moneyText, type EntryRow } from "../../domain/ticket";
+import { bareName, mainCurrencyOf, maskedMoneyText, moneyText, type EntryRow } from "../../domain/ticket";
 import { VIEW_TEXT, shortDay } from "../../domain/ticketView";
-import { useTicketStore } from "../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { runAtomicNav } from "../../store/navHistoryStore";
 import { acctLabel } from "./TicketLedger";
@@ -19,13 +19,18 @@ import { acctLabel } from "./TicketLedger";
 /** 一筆帳在 Ctrl+P 的字（只讀 store 的情境；金額照原幣） */
 export function entryJumpLabel(e: EntryRow): string {
   const s = useTicketStore.getState();
+  const mainCode = mainCurrencyOf(s.currencies);
+  const masked = isTicketAmountMasked(s);
   const acc = (id: string | null) => acctLabel(id ? s.accById[id] : undefined, s.accounts);
-  const dec = s.curByCode[e.currency]?.decimals ?? s.curByCode[MAIN_CURRENCY]?.decimals ?? 2;
-  const abs = moneyText(Math.abs(e.amount_minor), dec);
-  const cur = e.currency !== MAIN_CURRENCY ? ` ${e.currency}` : "";
+  const dec = s.curByCode[e.currency]?.decimals ?? s.curByCode[mainCode]?.decimals ?? 2;
+  const abs = masked ? maskedMoneyText(e.currency, { withSymbol: false }) : moneyText(Math.abs(e.amount_minor), dec);
+  const cur = e.currency !== mainCode ? ` ${e.currency}` : "";
   const note = e.note ? `「${e.note}」` : "";
   if (e.kind === "transfer") return `${abs}${cur} ${acc(e.account_id)} → ${acc(e.to_account_id)}${note}`;
-  if (e.kind === "adjust") return `${moneyText(e.amount_minor, dec, { prefix: e.amount_minor > 0 ? "±" : undefined })}${cur} 精算${note} · ${acc(e.account_id)}`;
+  if (e.kind === "adjust") {
+    const adjAmt = masked ? `±${abs}` : moneyText(e.amount_minor, dec, { prefix: e.amount_minor > 0 ? "±" : undefined });
+    return `${adjAmt}${cur} 精算${note} · ${acc(e.account_id)}`;
+  }
   // 支出 −（退款＝負的支出 ⇒ ＋）、收入 ＋
   const plus = e.kind === "income" ? e.amount_minor >= 0 : e.amount_minor < 0;
   const cat = e.category_id ? s.catById[e.category_id] : undefined;

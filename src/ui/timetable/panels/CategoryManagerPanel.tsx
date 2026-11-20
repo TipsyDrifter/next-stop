@@ -43,6 +43,7 @@ import { CategoryBadge } from "../CategoryBadge";
 import { Sub, type PanelProps } from "./controls";
 import { NoticeSettings } from "./NoticeSettings";
 import { GoalsTab } from "./GoalsTab";
+import { TopicsTab } from "./TopicsTab";
 import { RoutinesTab } from "./RoutinesTab";
 import { TT_TAG_CATEGORY, catDefaults, type TimetableTagMaps } from "../../../domain/timetableTags";
 import { EntityTagField } from "../../common/EntityTagField"; // 不經 ui/notes/desktop.ts（barrel 跟 lines/mounts 成圈；偏差記錄 10-20）
@@ -65,11 +66,12 @@ const CAT_DRAG = {
   catInGroup: "分類要放進某一組",
 } as const;
 
-type MgrTab = "cats" | "notice" | "goals" | "routines";
+type MgrTab = "cats" | "notice" | "goals" | "topics" | "routines";
 const TABS: readonly TabItem<MgrTab>[] = [
   { key: "cats", label: "分類" },
   { key: "notice", label: "通知" },
   { key: "goals", label: "目標" },
+  { key: "topics", label: "專題" },
   { key: "routines", label: "作息" }, // ⑦ B 席：作息範本編輯器（RoutinesTab）
 ];
 
@@ -639,6 +641,7 @@ export function CategoryManagerPanel(_props: PanelProps) {
         )}
         {tab === "notice" && <NoticeTab />}
         {tab === "goals" && <GoalsTab />}
+        {tab === "topics" && <TopicsTab />}
         {tab === "routines" && (
           <RoutinesTab
             focusId={routineFocusDone.current ? undefined : routineFocusId}

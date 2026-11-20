@@ -37,6 +37,7 @@ function makeBaseSnap(overrides: Partial<NavSnapshot> = {}): NavSnapshot {
     ticketSearchOpen: false,
     depotTab: "ride",
     depotBookId: null,
+    reportDay: null,
     settingsOpen: false,
     settingsTab: "general",
     quickJumpOpen: false,

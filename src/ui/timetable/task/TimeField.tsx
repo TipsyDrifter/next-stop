@@ -22,6 +22,7 @@ import { useNodeStore } from "../../../store/nodeStore";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useUiStore } from "../../../store/uiStore";
 import { NumberField } from "../../panel/fields";
+import { jumpFromRouteToTimetableStats } from "../stats/statsJumps";
 import { fmtTaskDur } from "./taskState";
 import { useLinkedTime, type LinkedTime } from "./useLinkedTime";
 import "../timetable.css";
@@ -47,6 +48,7 @@ export function TimeDetail({ node, t }: { node: NodeRow; t: LinkedTime }) {
         <b className="ns-tt-num">{fmtTaskDur(t.selfMs)}</b>
         <span className="ns-tt-time-f">
           {TT_TEXT.TIME_BLOCKS(fmtTaskDur(blocksMs))}
+          {t.selfCount > 0 && `（${t.selfCount} 次）`}
           {editable ? (
             <>
               ＋{TT_TEXT.TIME_MANUAL}
@@ -68,7 +70,10 @@ export function TimeDetail({ node, t }: { node: NodeRow; t: LinkedTime }) {
       </div>
       <div className="ns-tt-time-row">
         <span className="ns-tt-time-k">底下</span>
-        <b className="ns-tt-num">{fmtTaskDur(t.belowMs)}</b>
+        <b className="ns-tt-num">
+          {fmtTaskDur(t.belowMs)}
+          {t.belowCount > 0 ? ` · ${t.belowCount} 次` : ""}
+        </b>
       </div>
     </div>
   );
@@ -81,34 +86,49 @@ export function TimeField({ node }: { node: NodeRow }) {
   const isRoute = node.kind === "route";
   const hover = TT_TEXT.TIME_HOVER(fmtTaskDur(t.selfMs), fmtTaskDur(t.belowMs));
   const value = isRoute
-    ? TT_TEXT.ROUTE_TIME(fmtTaskDur(t.monthMs ?? 0), fmtTaskDur(t.totalMs))
-    : fmtTaskDur(t.totalMs);
+    ? TT_TEXT.ROUTE_TIME_COUNT(fmtTaskDur(t.monthMs ?? 0), fmtTaskDur(t.totalMs), t.totalCount)
+    : t.totalCount > 0
+      ? `${fmtTaskDur(t.totalMs)} · ${t.totalCount} 次`
+      : fmtTaskDur(t.totalMs);
 
   return (
     <div className="ns-tt-time">
-      <button
-        type="button"
-        className={"ns-tt-time-val" + (open ? " is-open" : "")}
-        aria-expanded={open}
-        aria-controls={`${uid}-det`}
-        aria-label={`${TT_TEXT.TIME_LABEL} ${t.ready ? value : "…"}；${hover}`}
-        onClick={() => setOpen((o) => !o)}
-      >
-        {isRoute ? (
-          <span className="ns-tt-time-route ns-tt-num">{t.ready ? value : "…"}</span>
-        ) : (
-          <b className="ns-tt-time-total ns-tt-num">{t.ready ? value : "…"}</b>
-        )}
-        {t.running && <span className="ns-tt-live-dot" aria-hidden="true" />}
-        <span className="ns-tt-time-caret" aria-hidden="true">
-          ▾
-        </span>
-        {t.ready && (
-          <span className="ns-tt-time-tip techo-card" aria-hidden="true">
-            {hover}
+      <div className="ns-tt-time-head">
+        <button
+          type="button"
+          className={"ns-tt-time-val" + (open ? " is-open" : "")}
+          aria-expanded={open}
+          aria-controls={`${uid}-det`}
+          aria-label={`${TT_TEXT.TIME_LABEL} ${t.ready ? value : "…"}；${hover}`}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {isRoute ? (
+            <span className="ns-tt-time-route ns-tt-num">{t.ready ? value : "…"}</span>
+          ) : (
+            <b className="ns-tt-time-total ns-tt-num">{t.ready ? value : "…"}</b>
+          )}
+          {t.running && <span className="ns-tt-live-dot" aria-hidden="true" />}
+          <span className="ns-tt-time-caret" aria-hidden="true">
+            ▾
           </span>
+          {t.ready && (
+            <span className="ns-tt-time-tip techo-card" aria-hidden="true">
+              {hover}
+            </span>
+          )}
+        </button>
+        {isRoute && (
+          <button
+            type="button"
+            className="ns-iconbtn ns-tt-time-jump"
+            aria-label="前往時刻表統計查看路線投入"
+            title="前往時刻表統計"
+            onClick={() => void jumpFromRouteToTimetableStats(node.id, "desktop")}
+          >
+            <span aria-hidden="true">↗</span>
+          </button>
         )}
-      </button>
+      </div>
       {/* 收起時照樣掛著（grid-rows 才有得轉）；CSS 收起時 visibility:hidden ⇒ 手填輸入框不進 Tab 順序 */}
       <div className={"ns-tt-time-det" + (open ? " is-open" : "")} id={`${uid}-det`} inert={!open}>
         <div>

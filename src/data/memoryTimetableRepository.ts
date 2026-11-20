@@ -36,6 +36,9 @@ import {
   insertLinkOf,
   insertNoteOf,
   noteOf,
+  normalizeStatTopicDayStartHour,
+  normalizeStatTopicName,
+  normalizeStatTopicScope,
   groupedCategories,
   inReconcileWindow,
   isoOf,
@@ -69,16 +72,22 @@ import {
   type LongRunChoice,
   type MergeInfo,
   type Span,
+  type StatTopicInput,
+  type StatTopicPatch,
   type TimeBlockRow,
   type TimeBlockSlim,
   type TimeCategoryRow,
   type TimeGoalRow,
+  type TimeStatTopicRow,
+  type UpsertStatTopicInput,
   type WritePlan,
 } from "../domain/timetable";
 import {
   WEEKDAYS_EVERY,
+  assertRoutineDayRange,
   checkPlanTimes,
   checkRoutineItems,
+  normalizeRoutineDay,
   parseRoutineItems,
   planLabelOf,
   serializeRoutineItems,
@@ -149,6 +158,7 @@ export class MemoryTimetableRepository implements TimetableRepository {
   /** ⑦：作息範本、預定（含已刪的墓碑——落地判定要看） */
   private readonly routines = new Map<string, TimeRoutineRow>();
   private readonly plans = new Map<string, TimePlanRow>();
+  private readonly statTopics = new Map<string, TimeStatTopicRow>();
   private readonly settings: Pick<SettingsRepository, "get"> | null;
   /** id → started_at 最後被寫的時刻（ISO）；＝真機 sync_cells 裡 `started_at` 那一格的 hlc 的替身（整理寫入鍵用，D-時-26） */
   private readonly startStamp = new Map<string, string>();
@@ -1680,6 +1690,9 @@ export class MemoryTimetableRepository implements TimetableRepository {
     const name = input.name.trim();
     if (!name) throw new RangeError("範本名稱不能是空的");
     const items = serializeRoutineItems(checkRoutineItems(input.items));
+    const startDay = normalizeRoutineDay(input.startDay);
+    const endDay = normalizeRoutineDay(input.endDay);
+    assertRoutineDayRange(startDay, endDay);
     const now = nowUtcIso();
     const position = Array.from(this.routines.values()).filter(isAlive).reduce((m, r) => Math.max(m, r.position), -1) + 1;
     const row: TimeRoutineRow = {
@@ -1689,6 +1702,8 @@ export class MemoryTimetableRepository implements TimetableRepository {
       weekdays: input.weekdays & WEEKDAYS_EVERY,
       position,
       archived_at: null,
+      start_day: startDay,
+      end_day: endDay,
       account_id: null,
       device_id: null,
       created_at: now,
@@ -1709,6 +1724,12 @@ export class MemoryTimetableRepository implements TimetableRepository {
       if (parseRoutineItems(cur.items) === null) throw new RangeError("這套範本是新版本寫的，這一版改不了");
       items = serializeRoutineItems(checkRoutineItems(patch.items));
     }
+    const startDay = patch.startDay !== undefined ? normalizeRoutineDay(patch.startDay) : undefined;
+    const endDay = patch.endDay !== undefined ? normalizeRoutineDay(patch.endDay) : undefined;
+    assertRoutineDayRange(
+      startDay !== undefined ? startDay : (cur.start_day ?? null),
+      endDay !== undefined ? endDay : (cur.end_day ?? null),
+    );
     const weekdays = patch.weekdays !== undefined ? patch.weekdays & WEEKDAYS_EVERY : undefined;
     let changed = false;
     if (name !== undefined && name !== cur.name) {
@@ -1721,6 +1742,14 @@ export class MemoryTimetableRepository implements TimetableRepository {
     }
     if (weekdays !== undefined && weekdays !== cur.weekdays) {
       cur.weekdays = weekdays;
+      changed = true;
+    }
+    if (startDay !== undefined && startDay !== (cur.start_day ?? null)) {
+      cur.start_day = startDay;
+      changed = true;
+    }
+    if (endDay !== undefined && endDay !== (cur.end_day ?? null)) {
+      cur.end_day = endDay;
       changed = true;
     }
     if (changed) cur.updated_at = nowUtcIso();
@@ -1889,5 +1918,166 @@ export class MemoryTimetableRepository implements TimetableRepository {
     if (!cur || isAlive(cur)) throw new RangeError("找不到這一段");
     cur.deleted_at = null;
     cur.updated_at = nowUtcIso();
+  }
+
+  /* ───────── v1.33（功能 2 / G1）：釘選自訂統計專題 time_stat_topics ───────── */
+
+  private aliveStatTopicOrThrow(id: string): TimeStatTopicRow {
+    const r = this.statTopics.get(id);
+    if (!r || !isAlive(r)) throw new RangeError("找不到這個統計專題");
+    return r;
+  }
+
+  async listStatTopics(): Promise<TimeStatTopicRow[]> {
+    await this.ready();
+    return Array.from(this.statTopics.values())
+      .filter(isAlive)
+      .sort((a, b) => a.position - b.position || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0) || (a.id < b.id ? -1 : 1))
+      .map(clone);
+  }
+
+  async getStatTopic(id: string, opts?: { withDeleted?: boolean }): Promise<TimeStatTopicRow | null> {
+    await this.ready();
+    const r = this.statTopics.get(id);
+    if (!r) return null;
+    return !isAlive(r) && !opts?.withDeleted ? null : clone(r);
+  }
+
+  async createStatTopic(input: StatTopicInput): Promise<TimeStatTopicRow> {
+    await this.ready();
+    const name = normalizeStatTopicName(input.name);
+    const scope = normalizeStatTopicScope(input.scope);
+    const dayStartHour = normalizeStatTopicDayStartHour(input.dayStartHour);
+    const now = nowUtcIso();
+    const position = Array.from(this.statTopics.values()).filter(isAlive).reduce((m, r) => Math.max(m, r.position), -1) + 1;
+    const row: TimeStatTopicRow = {
+      id: uuid(),
+      name,
+      scope,
+      day_start_hour: dayStartHour,
+      position,
+      archived_at: null,
+      account_id: null,
+      device_id: null,
+      created_at: now,
+      updated_at: now,
+      synced_at: null,
+      deleted_at: null,
+    };
+    this.statTopics.set(row.id, row);
+    return clone(row);
+  }
+
+  async updateStatTopic(id: string, patch: StatTopicPatch): Promise<void> {
+    await this.ready();
+    const cur = this.aliveStatTopicOrThrow(id);
+    const name = patch.name !== undefined ? normalizeStatTopicName(patch.name) : undefined;
+    const scope = patch.scope !== undefined ? normalizeStatTopicScope(patch.scope) : undefined;
+    const dayStartHour = patch.dayStartHour !== undefined ? normalizeStatTopicDayStartHour(patch.dayStartHour) : undefined;
+    let changed = false;
+    if (name !== undefined && name !== cur.name) {
+      cur.name = name;
+      changed = true;
+    }
+    if (scope !== undefined && scope !== cur.scope) {
+      cur.scope = scope;
+      changed = true;
+    }
+    if (dayStartHour !== undefined && dayStartHour !== cur.day_start_hour) {
+      cur.day_start_hour = dayStartHour;
+      changed = true;
+    }
+    const now = nowUtcIso();
+    if (patch.archived !== undefined && patch.archived !== (cur.archived_at !== null)) {
+      cur.archived_at = patch.archived ? now : null;
+      changed = true;
+    }
+    if (changed) cur.updated_at = now;
+  }
+
+  async upsertStatTopic(input: UpsertStatTopicInput): Promise<TimeStatTopicRow> {
+    await this.ready();
+    const name = normalizeStatTopicName(input.name);
+    const scope = normalizeStatTopicScope(input.scope);
+    const dayStartHour = normalizeStatTopicDayStartHour(input.dayStartHour);
+    const id = input.id ?? uuid();
+    const prev = input.id ? this.statTopics.get(id) : undefined;
+    if (!prev) {
+      const now = nowUtcIso();
+      const position = input.position ?? Array.from(this.statTopics.values()).filter(isAlive).reduce((m, r) => Math.max(m, r.position), -1) + 1;
+      const row: TimeStatTopicRow = {
+        id,
+        name,
+        scope,
+        day_start_hour: dayStartHour,
+        position,
+        archived_at: input.archivedAt ?? null,
+        account_id: null,
+        device_id: null,
+        created_at: now,
+        updated_at: now,
+        synced_at: null,
+        deleted_at: null,
+      };
+      this.statTopics.set(row.id, row);
+      return clone(row);
+    }
+    const nextScope = input.scope !== undefined ? scope : prev.scope;
+    const nextDayStartHour = input.dayStartHour !== undefined ? dayStartHour : prev.day_start_hour;
+    const nextPosition = input.position !== undefined ? input.position : prev.position;
+    const nextArchivedAt = input.archivedAt !== undefined ? input.archivedAt : prev.archived_at;
+    const wasDeleted = !isAlive(prev);
+    const changed =
+      wasDeleted ||
+      name !== prev.name ||
+      nextScope !== prev.scope ||
+      nextDayStartHour !== prev.day_start_hour ||
+      nextPosition !== prev.position ||
+      nextArchivedAt !== prev.archived_at;
+    if (!changed) return clone(prev);
+    prev.name = name;
+    prev.scope = nextScope;
+    prev.day_start_hour = nextDayStartHour;
+    prev.position = nextPosition;
+    prev.archived_at = nextArchivedAt;
+    prev.deleted_at = null;
+    prev.updated_at = nowUtcIso();
+    return clone(prev);
+  }
+
+  async archiveStatTopic(id: string, on: boolean): Promise<void> {
+    await this.ready();
+    const cur = this.aliveStatTopicOrThrow(id);
+    if (on === (cur.archived_at !== null)) return;
+    const now = nowUtcIso();
+    cur.archived_at = on ? now : null;
+    cur.updated_at = now;
+  }
+
+  async deleteStatTopic(id: string): Promise<void> {
+    await this.ready();
+    const cur = this.aliveStatTopicOrThrow(id);
+    const now = nowUtcIso();
+    cur.deleted_at = now;
+    cur.updated_at = now;
+  }
+
+  async restoreStatTopic(id: string): Promise<void> {
+    await this.ready();
+    const cur = this.statTopics.get(id);
+    if (!cur || isAlive(cur)) throw new RangeError("找不到這個統計專題");
+    cur.deleted_at = null;
+    cur.updated_at = nowUtcIso();
+  }
+
+  async reorderStatTopics(orderedIds: readonly string[]): Promise<void> {
+    await this.ready();
+    const live = Array.from(this.statTopics.values()).filter((r) => isAlive(r) && r.archived_at === null);
+    const now = nowUtcIso();
+    reorderIds(live, orderedIds).forEach((id, i) => {
+      const r = this.statTopics.get(id)!;
+      r.position = i;
+      r.updated_at = now;
+    });
   }
 }

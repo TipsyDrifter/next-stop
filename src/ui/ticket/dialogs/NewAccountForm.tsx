@@ -12,7 +12,7 @@ import { Select } from "../../common/Select";
  */
 import { useId, useState } from "react";
 import { useTicketStore } from "../../../store/ticketStore";
-import { ACCOUNT_GROUPS, MAIN_CURRENCY, type AccountGroup } from "../../../domain/ticket";
+import { ACCOUNT_GROUPS, mainCurrencyOf, type AccountGroup } from "../../../domain/ticket";
 import { useImeGuard } from "./dialogBits";
 import { DialogFoot } from "./DialogFoot";
 
@@ -21,7 +21,7 @@ export function NewAccountForm({ onDone }: { onDone(): void }) {
   const createAccount = useTicketStore((s) => s.createAccount);
   const [name, setName] = useState("");
   const [group, setGroup] = useState<AccountGroup>("cash");
-  const [currency, setCurrency] = useState(MAIN_CURRENCY);
+  const [currency, setCurrency] = useState(() => mainCurrencyOf(currencies));
   const [opening, setOpening] = useState("");
   const [busy, setBusy] = useState(false);
   const formId = useId();

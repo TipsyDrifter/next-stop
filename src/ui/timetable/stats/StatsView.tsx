@@ -21,6 +21,7 @@ import { PeriodBar } from "./PeriodBar";
 import { RouteList } from "./RouteList";
 import { ShareList } from "./ShareList";
 import { SummaryStrip } from "./SummaryStrip";
+import { TopicCards } from "./TopicCards";
 import { TrendChart } from "./TrendChart";
 import { useStatsPage } from "./useStatsPage";
 
@@ -86,6 +87,7 @@ export function StatsView() {
   ) : (
     <>
       {!empty && <SummaryStrip r={r} ws={ws} desktop />}
+      <TopicCards desktop ws={ws} />
       <div className={"ns-tt-stats-cols" + (oneCol ? " is-one" : "")}>
         <div className="ns-tt-stats-col">
           {empty ? <StatsEmpty /> : <ShareList r={r} desktop />}

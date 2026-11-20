@@ -42,6 +42,7 @@ import {
   planAdjust,
   planMoveTo,
   planMoveUnder,
+  planSetMainCurrency,
   ticketId,
   type AccountRow,
   type CategoryKind,
@@ -959,6 +960,31 @@ export class SqliteTicketRepository implements TicketRepository {
     cols.updated_at = nowUtcIso();
     const b = newWriteBatch();
     pushUpdate(b, "tk_currencies", id, cols);
+    await this.commit(db, b);
+  }
+
+  async setMainCurrency(codeInput: string): Promise<void> {
+    const db = await getDb();
+    const [currencies, entries, budgets, wishes] = await Promise.all([
+      db.select<CurrencyRow[]>(`SELECT * FROM tk_currencies WHERE ${ALIVE}`),
+      db.select<EntryRow[]>(`SELECT * FROM tk_entries WHERE ${ALIVE}`),
+      db.select<BudgetRow[]>(`SELECT * FROM tk_budgets WHERE ${ALIVE}`),
+      db.select<WishRow[]>(`SELECT * FROM tk_wishes WHERE ${ALIVE} AND amount_minor IS NOT NULL`),
+    ]);
+    const nowIso = nowUtcIso();
+    const plan = planSetMainCurrency({
+      targetCode: codeInput,
+      currencies,
+      entries,
+      budgets,
+      wishes,
+      nowIso,
+    });
+    const b = newWriteBatch();
+    for (const c of plan.currencies) pushUpdate(b, "tk_currencies", c.id, c.cols);
+    for (const e of plan.entries) pushUpdate(b, "tk_entries", e.id, { main_minor: e.main_minor, updated_at: e.updated_at });
+    for (const bd of plan.budgets) pushUpdate(b, "tk_budgets", bd.id, { amount_minor: bd.amount_minor, updated_at: bd.updated_at });
+    for (const w of plan.wishes) pushUpdate(b, "tk_wishes", w.id, { amount_minor: w.amount_minor, updated_at: w.updated_at });
     await this.commit(db, b);
   }
 

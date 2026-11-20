@@ -365,5 +365,5 @@ pub const TABLES: &[SyncTableSpec] = &[
     },
 ];
 
-/// 售票口線要同步的 settings 鍵（車次①沒有）。
-pub const SETTINGS_KEYS: &[&str] = &[];
+/// 售票口線要同步的 settings 鍵（v1.33 G4：月起算日 "ticket_month_start_day"；隱私遮罩與本機密碼鎖保留裝置本地）。
+pub const SETTINGS_KEYS: &[&str] = &["ticket_month_start_day"];

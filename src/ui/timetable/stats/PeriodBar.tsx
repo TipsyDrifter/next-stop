@@ -8,18 +8,23 @@
  * 動作＝鍵盤 ←／→／T 的同一支 `step`／`toCurrent`（TimetableView 的 KEY_ACTIONS 也是叫這兩支）；已在本期 › 停用、chip 原地不動。
  * 分段鈕與鍵位提示留在 DateNav 兩旁。
  */
-import { periodWindow, type StatsPeriod } from "../../../domain/timetableStats";
+import { periodWindow, type StatsPeriod, type StatsSortBy } from "../../../domain/timetableStats";
 import { useHotkeyRevision } from "../../shell/useHotkeyRevision";
 import { formatChord, hotkeyById } from "../../shell/hotkeys";
 import { TT_TEXT } from "../../../store/timetableStore";
 import { useTimetableStatsStore } from "../../../store/timetableStatsStore";
 import { DateNav } from "../../common/DateNav";
+import { Segmented, type SegmentedOption } from "../../common/Segmented";
 import { DnTitle } from "../parts/DateNavTitle";
 import { periodName } from "./format";
 import { Kbd } from "./parts";
 
 const PERIODS: readonly StatsPeriod[] = ["day", "week", "month"];
 const KEY_ID: Record<StatsPeriod, string> = { day: "timetable.stats.day", week: "timetable.stats.week", month: "timetable.stats.month" };
+const SORT_OPTIONS: readonly SegmentedOption<StatsSortBy>[] = [
+  { value: "ms", label: TT_TEXT.statsUi.sortByMs },
+  { value: "count", label: TT_TEXT.statsUi.sortByCount },
+];
 
 /** 鍵帽字：manifest 有登記就照它；沒有就不畫 */
 function capOf(id: string): string | null {
@@ -33,6 +38,8 @@ export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number;
   const key = useTimetableStatsStore((s) => s.key);
   const follow = useTimetableStatsStore((s) => s.followCurrent);
   const setPeriod = useTimetableStatsStore((s) => s.setPeriod);
+  const sortBy = useTimetableStatsStore((s) => s.sortBy);
+  const setSortBy = useTimetableStatsStore((s) => s.setSortBy);
   const step = useTimetableStatsStore((s) => s.step);
   const toCurrent = useTimetableStatsStore((s) => s.toCurrent);
   const T = TT_TEXT.statsUi;
@@ -68,6 +75,14 @@ export function PeriodBar({ today, h, ws, desktop }: { today: string; h: number;
           if (!isCur) toCurrent();
         }}
         isToday={isCur}
+      />
+      <Segmented
+        compact
+        aria-label={T.sortGroup}
+        options={SORT_OPTIONS}
+        value={sortBy}
+        onChange={setSortBy}
+        className="ns-tt-stats-sortseg"
       />
       {desktop && <span className="ns-tt-stats-keys">{T.keysHint()}</span>}
     </div>

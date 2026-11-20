@@ -34,7 +34,7 @@ import { ClockInput, clockDraftsOkIn } from "../../../common/ClockInput";
 import { useBackLayer } from "../../../mobile/backStack";
 import { shortDayKey } from "../../../common/DatePicker";
 import {
-  MAIN_CURRENCY,
+  mainCurrencyOf,
   orderAccounts,
   parseAmount,
   type AccountRow,
@@ -111,6 +111,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
   const accById = useTicketStore((s) => s.accById);
   const catById = useTicketStore((s) => s.catById);
   const currencies = useTicketStore((s) => s.currencies);
+  const mainCode = mainCurrencyOf(currencies);
   const curByCode = useTicketStore((s) => s.curByCode);
   const repeats = useTicketStore((s) => s.repeats);
   const repeatTags = useTicketStore((s) => s.repeatTags);
@@ -541,7 +542,7 @@ function RepeatForm({ d, editId, onDone }: { d: RepeatDraft; editId: string | nu
               {c.code}
               <small>
                 {c.name}
-                {c.is_main === 1 ? " · 主幣別" : ` · 1 ${c.code} ＝ ${c.rate_to_main} ${MAIN_CURRENCY}`}
+                {c.is_main === 1 ? " · 主幣別" : ` · 1 ${c.code} ＝ ${c.rate_to_main} ${mainCode}`}
               </small>
             </button>
           ))}

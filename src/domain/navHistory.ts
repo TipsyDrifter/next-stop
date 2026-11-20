@@ -2,7 +2,7 @@
  * navHistory.ts——瀏覽歷史（上一頁／下一頁）與疊層返回純函式狀態機（第三梯 v1.29；回饋筆記①）。
  *
  * 將瀏覽狀態拆分為兩層：
- *   1. `baseKeyOf(s)`：底層頁面＋子分頁＋頁內下鑽（支線 zoomId、常用篩選、筆記選取／路線篩選／日記日期／荷札、時刻表單日｜週時段與統計週期、售票口帳戶篩選／搜尋／統計分類下鑽、車庫記錄簿）
+ *   1. `baseKeyOf(s)`：底層頁面＋子分頁＋頁內下鑽（支線 zoomId、常用篩選、筆記選取／路線篩選／日記日期／荷札、時刻表單日｜週時段與統計週期、售票口帳戶篩選／搜尋／統計分類下鑽、運行報告一日專頁 reportDay、車庫記錄簿）
  *   2. `overlayKeyOf(s)`：彈出對話框與詳情面板（設定視窗與其分頁籤、快速跳轉、快捷鍵指引、路線對話框、時刻表面板與四籤、售票口對話框與詳情面板）
  *
  * 支援：
@@ -48,6 +48,7 @@ export interface NavSnapshot {
   ticketSearchOpen: boolean;
   depotTab: DepotTab;
   depotBookId: string | null;
+  reportDay: string | null;
 
   /* ── 對話框／疊層／面板狀態 ── */
   settingsOpen: boolean;
@@ -77,6 +78,8 @@ export function timetableSheetKey(sheet: TimetableSheet): string {
     }
     case "goal":
       return `ttSheet:goal:${sheet.goalId ?? "new"}:${sheet.back ?? ""}`;
+    case "topic":
+      return `ttSheet:topic:${sheet.topicId ?? "new"}:${sheet.back ?? ""}`;
     case "pendingList":
       return `ttSheet:pendingList:${sheet.goalId ?? ""}`;
     case "plan":
@@ -172,6 +175,8 @@ export function baseKeyOf(s: NavSnapshot): string {
         return `ticket:stats:${s.ticketFilterAccountId ?? ""}:${s.ticketStatsSpan}:${s.ticketStatsFacet}:${s.ticketStatsKind}:${s.ticketStatsRoot ?? ""}`;
       }
       return `ticket:${s.ticketView}:${s.ticketFilterAccountId ?? ""}`;
+    case "report":
+      return s.reportDay ? `report:day:${s.reportDay}` : "report";
     case "depot":
       return `depot:${s.depotTab}:${s.depotBookId ?? ""}`;
     default:

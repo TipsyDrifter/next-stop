@@ -39,7 +39,7 @@
  * UI 只讀 store、只叫 store 的動作；金額顯示走 domain 的純函式（moneyText／rowAmount…），不經浮點。
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
-import { isTicketManageTab, useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, isTicketManageTab, useTicketStore } from "../../../store/ticketStore";
 import { useTagStore } from "../../../store/tagStore";
 import { TK_TAG_ENTRY, entityTagMap, tagNameOf } from "../../../domain/ticketTags";
 import { useNodeStore } from "../../../store/nodeStore";
@@ -47,17 +47,20 @@ import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
 import {
-  MAIN_CURRENCY,
-  MAIN_SYMBOL,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   addMonths,
   archivedAccounts,
   categoryPath,
+  currencySymbol,
+  formatDisplayMoney,
   groupAccounts,
   groupByDay,
   isLiability,
+  mainCurrencyOf,
+  maskedMoneyText,
   monthOf,
+  monthRangeLabel,
   monthTitle,
   moneyText,
   rowAmount,
@@ -69,6 +72,7 @@ import { useBackLayer } from "../../mobile/backStack";
 import { MobileEntryForm } from "./MobileEntryForm";
 import { MobileAccountPage } from "./MobileAccountPage";
 import { MobileSheetHost } from "./MobileSheetHost";
+import { TicketLockGate, TicketUnmaskPrompt } from "../parts/TicketLockGate";
 import { IconPlus, IconRight, splitDayLabel } from "./mobileBits";
 import { MobileViewBar, useViewSwipe } from "./MobileViewBar";
 import { MobileFilterBar } from "./MobileFilterBar";
@@ -106,6 +110,9 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
   const error = useTicketStore((s) => s.error);
   const init = useTicketStore((s) => s.init);
   const panel = useTicketStore((s) => s.panel);
+  const hasLockPin = useTicketStore((s) => s.hasLockPin);
+  const lockUnlocked = useTicketStore((s) => s.lockUnlocked);
+  const locked = hasLockPin && !lockUnlocked;
   const page = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -116,7 +123,11 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
   return (
     <div className="m-page ns-tk-m" ref={page}>
       {ready ? (
-        <OfficeBody page={page} />
+        locked ? (
+          <TicketLockGate />
+        ) : (
+          <OfficeBody page={page} />
+        )
       ) : error ? (
         <div className="ns-tk-mstate" role="alert">
           <p>帳本打不開</p>
@@ -130,9 +141,10 @@ export function MobileTicketOffice(_props: { onBack?: () => void }) {
           <p>正在翻帳本…</p>
         </div>
       )}
-      {(panel.kind === "new" || panel.kind === "entry") && <MobileEntryForm key={panel.kind === "entry" ? panel.id : "new"} />}
-      {panel.kind === "account" && <MobileAccountPage key={panel.id} id={panel.id} />}
-      <MobileSheetHost />
+      {!locked && (panel.kind === "new" || panel.kind === "entry") && <MobileEntryForm key={panel.kind === "entry" ? panel.id : "new"} />}
+      {!locked && panel.kind === "account" && <MobileAccountPage key={panel.id} id={panel.id} />}
+      {!locked && <MobileSheetHost />}
+      <TicketUnmaskPrompt shell="mobile" />
     </div>
   );
 }
@@ -169,6 +181,8 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
   const entriesVersion = useTicketStore((s) => s.entriesVersion);
   const dayNotice = useTicketStore((s) => s.dayNotice);
   const setMonth = useTicketStore((s) => s.setMonth);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const masked = useTicketStore(isTicketAmountMasked);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const routes = useNodeStore((s) => s.routes);
   const tagIndex = useTagStore((s) => s.index);
@@ -184,12 +198,15 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
     return () => clearTimeout(t);
   }, [dayNotice]);
 
-  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
+  const mainDec = mainCur.decimals;
   const live = groupAccounts(accounts);
   const liveCount = live.reduce((n, g) => n + g.accounts.length, 0);
   const archived = archivedAccounts(accounts);
-  const thisMonth = monthOf(todayKey(dayStartHour));
+  const thisMonth = monthOf(todayKey(dayStartHour), monthStartDay);
   const thisYear = thisMonth.slice(0, 4);
+  const rangeLabel = monthRangeLabel(month, monthStartDay);
   const yearMode = view === "stats" && span === "year";
   const filterOn = isFilterActive(filter);
   const searching = view === "list" && searchOpen && filterOn;
@@ -211,11 +228,12 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       { ...listFilter, accountId: listFilter.accountId ?? filterAccountId },
       listSort,
       ctx,
+      monthStartDay,
     );
-  }, [inMonthActive, entries, month, listFilter, listSort, filterAccountId, accById, catById, curByCode, routes, tagIndex, entriesVersion]);
+  }, [inMonthActive, entries, month, listFilter, listSort, filterAccountId, accById, catById, curByCode, routes, tagIndex, entriesVersion, monthStartDay]);
   const monthSummaryText = useMemo(
-    () => (inMonthActive ? inMonthSummary(monthRows, mainDec) : null),
-    [inMonthActive, monthRows, mainDec],
+    () => (inMonthActive ? inMonthSummary(monthRows, mainDec, { masked, currency: mainCode }) : null),
+    [inMonthActive, monthRows, mainDec, masked, mainCode],
   );
   // 空帳本（清單視圖、不在搜尋）＝EmptyState 接手「＋ 記一筆」，月份列就不給第二顆（A5／H6）
   const emptyBook = view === "list" && !searching && !hasAny;
@@ -242,7 +260,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       {view === "list" && (hasAny || searching || inMonthActive) && (
         <MobileFilterBar
           searching={searching}
-          summaryText={searching ? (results === null ? "正在找…" : resultSummary(results, mainDec)) : monthSummaryText}
+          summaryText={searching ? (results === null ? "正在找…" : resultSummary(results, mainDec, { masked, currency: mainCode })) : monthSummaryText}
           onOpenSearchSheet={() => setSearchSheet(true)}
         />
       )}
@@ -251,15 +269,15 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       <div className="ns-tk-mtotal">
         <div className="ns-tk-mstat">
           <span>資產</span>
-          <b>{moneyText(totals.asset, mainDec)}</b>
+          <b>{formatDisplayMoney(totals.asset, mainDec, { masked, currency: mainCode })}</b>
         </div>
         <div className="ns-tk-mstat">
           <span>負債</span>
-          <b>{moneyText(totals.liability, mainDec)}</b>
+          <b>{formatDisplayMoney(totals.liability, mainDec, { masked, currency: mainCode })}</b>
         </div>
         <div className="ns-tk-mstat sum">
           <span>合計</span>
-          <b>{moneyText(totals.net, mainDec)}</b>
+          <b>{formatDisplayMoney(totals.net, mainDec, { masked, currency: mainCode })}</b>
         </div>
       </div>
 
@@ -278,8 +296,11 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
                 key={a.id}
                 account={a}
                 groupLabel={group.label + (group.liability ? " · 負債" : "")}
-                balanceText={moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2)}
-                code={a.currency !== MAIN_CURRENCY ? a.currency : null}
+                balanceText={formatDisplayMoney(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2, {
+                  masked,
+                  currency: a.currency,
+                })}
+                code={!masked && a.currency !== mainCode ? a.currency : null}
                 zero={(balances[a.id] ?? 0) === 0}
                 on={filterAccountId === a.id}
                 onPick={() => void setFilter(filterAccountId === a.id ? null : a.id)}
@@ -325,6 +346,7 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
               if (yearMode ? period.key !== thisYear : month !== thisMonth) void setMonth(thisMonth);
             }}
           />
+          {!yearMode && rangeLabel && <span className="ns-tk-mrange">{rangeLabel}</span>}
           {!emptyBook && (
             <button type="button" className="ns-btn btn-ghost ns-btn--sm ns-tk-madd" onClick={add}>
               <IconPlus />
@@ -335,7 +357,8 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
       )}
       {view === "list" && !searching && monthSum && (monthSum.income !== 0 || monthSum.expense !== 0) && (
         <p className="ns-tk-mmsum">
-          收入 <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b> · 支出 <b>{moneyText(monthSum.expense, mainDec)}</b>
+          收入 <b className="pos">{formatDisplayMoney(monthSum.income, mainDec, { prefix: "＋", masked, currency: mainCode })}</b> · 支出{" "}
+          <b>{formatDisplayMoney(monthSum.expense, mainDec, { masked, currency: mainCode })}</b>
         </p>
       )}
       {view === "list" && dayNotice && (
@@ -371,8 +394,11 @@ function OfficeBody({ page }: { page: RefObject<HTMLDivElement | null> }) {
             <MSheetItem key={a.id} onClick={thenOpen(() => openAccount(a.id))}>
               {a.name}
               <small>
-                {moneyText(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2)}
-                {a.currency !== MAIN_CURRENCY ? ` ${a.currency}` : ""}
+                {formatDisplayMoney(balances[a.id] ?? 0, curByCode[a.currency]?.decimals ?? 2, {
+                  masked,
+                  currency: a.currency,
+                })}
+                {!masked && a.currency !== mainCode ? ` ${a.currency}` : ""}
               </small>
             </MSheetItem>
           ))}
@@ -471,9 +497,13 @@ function Ledger({
   const loadedMonths = useTicketStore((s) => s.loadedMonths);
   const loadOlderMonth = useTicketStore((s) => s.loadOlderMonth);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const masked = useTicketStore(isTicketAmountMasked);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
-  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
+  const mainDec = mainCur.decimals;
   const last = loadedMonths.length ? loadedMonths[loadedMonths.length - 1] : month;
   const olderTitle = monthTitle(addMonths(last, -1));
 
@@ -506,8 +536,8 @@ function Ledger({
   const items = inMonthActive
     ? flat
       ? monthRows.map((e) => <Row key={e.id} e={e} day={flatDayText(e.occurred_on, false)} />)
-      : dayItems(groupByDay(monthRows, filterAccountId), month, today, mainDec, flash)
-    : dayItems(days, month, today, mainDec, flash);
+      : dayItems(groupByDay(monthRows, filterAccountId), month, today, mainDec, mainCode, masked, monthStartDay, flash)
+    : dayItems(days, month, today, mainDec, mainCode, masked, monthStartDay, flash);
 
   return (
     <div className="ns-tk-mbook" ref={book}>
@@ -539,13 +569,23 @@ function Ledger({
  * 日分組 → li 列表（月份分隔＋日分組頭＋各筆）。`firstMonth`＝第一組之前「已經印在頁首」的月——
  * 清單＝頁首那個月（不重印）；搜尋結果傳 null ⇒ 跨月時每個月都印分隔（0-14：日分組頭多印年月）。
  */
-function dayItems(days: readonly DayGroup[], firstMonth: string | null, today: string, mainDec: number, flash: string | null, limit = Infinity): ReactElement[] {
+function dayItems(
+  days: readonly DayGroup[],
+  firstMonth: string | null,
+  today: string,
+  mainDec: number,
+  mainCode: string,
+  masked: boolean,
+  monthStartDay: number,
+  flash: string | null,
+  limit = Infinity,
+): ReactElement[] {
   const items: ReactElement[] = [];
   let prevMonth = firstMonth;
   let left = limit;
   for (const g of days) {
     if (left <= 0) break;
-    const m = monthOf(g.dayKey);
+    const m = monthOf(g.dayKey, monthStartDay);
     if (m !== prevMonth) {
       items.push(
         <li key={"m-" + m} className="ns-tk-mmonthrule">
@@ -561,9 +601,9 @@ function dayItems(days: readonly DayGroup[], firstMonth: string | null, today: s
         <span className="w">{w}</span>
         {g.dayKey === today && <span className="today">今天</span>}
         <span className="s">
-          {g.expense !== 0 && moneyText(g.expense, mainDec)}
+          {g.expense !== 0 && formatDisplayMoney(g.expense, mainDec, { masked, currency: mainCode })}
           {g.expense !== 0 && g.income !== 0 && " · "}
-          {g.income !== 0 && <span className="pos">{moneyText(g.income, mainDec, { prefix: "＋" })}</span>}
+          {g.income !== 0 && <span className="pos">{formatDisplayMoney(g.income, mainDec, { prefix: "＋", masked, currency: mainCode })}</span>}
         </span>
       </li>,
     );
@@ -614,8 +654,9 @@ function navMonthTitle(month: string, thisYear: string): string {
 /** 搜尋模式的「找到 N 筆 · 支出 X · 收入 Y」（月份列的替身） */
 function FoundText() {
   const results = useTicketStore((s) => s.results);
-  const mainDec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
-  return <>{results === null ? "正在找…" : resultSummary(results, mainDec)}</>;
+  const mainCur = useTicketStore((s) => mainCurrencyOf(s.curByCode));
+  const masked = useTicketStore(isTicketAmountMasked);
+  return <>{results === null ? "正在找…" : resultSummary(results, mainCur.decimals, { masked, currency: mainCur.code })}</>;
 }
 
 function Results() {
@@ -623,9 +664,13 @@ function Results() {
   const resultDays = useTicketStore((s) => s.resultDays);
   const resultSort = useTicketStore((s) => s.resultSort);
   const curByCode = useTicketStore((s) => s.curByCode);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const masked = useTicketStore(isTicketAmountMasked);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
-  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
+  const mainDec = mainCur.decimals;
   const [page, setPage] = useState(1);
   // 條件一變（results 換一份）就回第一頁
   useEffect(() => setPage(1), [results]);
@@ -637,13 +682,13 @@ function Results() {
   const all = results ?? [];
   const shownRows = pageResults(all, page);
   const shown = shownRows.length;
-  const months = new Set(all.map((e) => monthOf(e.occurred_on)));
+  const months = new Set(all.map((e) => monthOf(e.occurred_on, monthStartDay)));
   // 日期排序：只有一個月 ⇒ 那個月印一次在最上面；跨月 ⇒ 每個月一條分隔（firstMonth＝null）。
   // 金額排序：平面清單，每列帶日期（跨年才印年）
   const spanYears = new Set(all.map((e) => e.occurred_on.slice(0, 4))).size > 1;
   const items = isAmountSort(resultSort)
     ? shownRows.map((e) => <Row key={e.id} e={e} day={flatDayText(e.occurred_on, spanYears)} />)
-    : dayItems(resultDays, null, today, mainDec, flash, shown);
+    : dayItems(resultDays, null, today, mainDec, mainCode, masked, monthStartDay, flash, shown);
 
   return (
     <div className="ns-tk-mbook is-results" ref={book}>
@@ -677,11 +722,15 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const selectedId = useTicketStore((s) => s.selectedId);
   const openEntry = useTicketStore((s) => s.openEntry);
+  const masked = useTicketStore(isTicketAmountMasked);
   const route = useNodeStore((s) => (e.route_id ? (s.routes.find((r) => r.id === e.route_id) ?? null) : null));
 
-  const amt = rowAmount(e, filterAccountId, accById);
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
+  const mainDec = mainCur.decimals;
+  const mainSym = currencySymbol(mainCode);
+  const amt = rowAmount(e, filterAccountId, accById, mainCode);
   const dec = curByCode[amt.currency]?.decimals ?? 2;
-  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
   const accName = (id: string | null) => (id ? (accById[id]?.name ?? "（帳戶已刪除）") : "—");
 
   let cat: ReactElement;
@@ -747,11 +796,11 @@ function Row({ e, day }: { e: EntryRow; day?: string }) {
           )}
         </span>
         <span className="a">
-          <b>{moneyText(amt.minor, dec)}</b>
-          {amt.currency !== MAIN_CURRENCY && <span className="cur">{amt.currency}</span>}
-          {amt.convMain !== null && (
+          <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, dec)}</b>
+          {!masked && amt.currency !== mainCode && <span className="cur">{amt.currency}</span>}
+          {!masked && amt.convMain !== null && (
             <span className="conv">
-              ≈ {MAIN_SYMBOL} {moneyText(amt.convMain, mainDec, { whole: true })}
+              ≈ {mainSym} {moneyText(amt.convMain, mainDec, { whole: true })}
             </span>
           )}
         </span>

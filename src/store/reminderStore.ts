@@ -9,8 +9,10 @@ import {
   DEFAULT_REMINDER_SETTINGS,
   KEY_REMINDERS,
   KEY_REMINDER_RECENT,
+  KEY_REMINDER_SENT,
   parseRecent,
   parseReminderSettings,
+  parseSent,
   type ReminderRecent,
   type ReminderSettings,
 } from "../domain/reminders";
@@ -19,11 +21,16 @@ interface ReminderState {
   loaded: boolean;
   settings: ReminderSettings;
   recent: ReminderRecent[];
+  /** 已響過或使用者點選「本期已知悉」的鍵 → 時間戳 */
+  sent: Record<string, number>;
   /** 精準鬧鐘（Android）；false＝提醒可能晚幾分鐘。桌機恆 true */
   exactAlarm: boolean;
   load(): Promise<void>;
   update(patch: Partial<ReminderSettings>): Promise<void>;
   setRecent(recent: ReminderRecent[]): void;
+  setSent(sent: Record<string, number>): void;
+  /** G6：標記某則回顧／到站提醒「本期已知悉（不重複打擾）」 */
+  acknowledgePrompt(key: string): Promise<void>;
   /** 本機資料被整批換掉：最近的提醒可能清了，重讀 */
   reloadRecent(): Promise<void>;
   setExactAlarm(v: boolean): void;
@@ -35,6 +42,7 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
   loaded: false,
   settings: { ...DEFAULT_REMINDER_SETTINGS },
   recent: [],
+  sent: {},
   exactAlarm: true,
 
   load() {
@@ -42,8 +50,17 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
     if (!loading) {
       loading = (async () => {
         try {
-          const [raw, recentRaw] = await Promise.all([settingsRepo.get(KEY_REMINDERS), settingsRepo.get(KEY_REMINDER_RECENT)]);
-          set({ settings: parseReminderSettings(raw), recent: parseRecent(recentRaw), loaded: true });
+          const [raw, recentRaw, sentRaw] = await Promise.all([
+            settingsRepo.get(KEY_REMINDERS),
+            settingsRepo.get(KEY_REMINDER_RECENT),
+            settingsRepo.get(KEY_REMINDER_SENT),
+          ]);
+          set({
+            settings: parseReminderSettings(raw),
+            recent: parseRecent(recentRaw),
+            sent: parseSent(sentRaw),
+            loaded: true,
+          });
         } catch (e) {
           // 讀不到就照預設跑，下一次開 App 再讀；寫入時才會蓋掉
           console.warn("[reminders] 讀設定失敗：", e instanceof Error ? e.message : String(e));
@@ -67,8 +84,23 @@ export const useReminderStore = create<ReminderState>((set, get) => ({
   },
 
   setRecent: (recent) => set({ recent }),
+  setSent: (sent) => set({ sent }),
+  async acknowledgePrompt(key) {
+    if (!get().loaded) await get().load();
+    const next = { ...get().sent, [key]: Date.now() };
+    set({ sent: next });
+    try {
+      await settingsRepo.set(KEY_REMINDER_SENT, JSON.stringify(next));
+    } catch (e) {
+      console.warn("[reminders] 寫已知悉狀態失敗：", e instanceof Error ? e.message : String(e));
+    }
+  },
   async reloadRecent() {
-    set({ recent: parseRecent(await settingsRepo.get(KEY_REMINDER_RECENT).catch(() => null)) });
+    const [recentRaw, sentRaw] = await Promise.all([
+      settingsRepo.get(KEY_REMINDER_RECENT).catch(() => null),
+      settingsRepo.get(KEY_REMINDER_SENT).catch(() => null),
+    ]);
+    set({ recent: parseRecent(recentRaw), sent: parseSent(sentRaw) });
   },
   setExactAlarm: (exactAlarm) => set({ exactAlarm }),
 }));

@@ -1,32 +1,27 @@
 /**
- * MobileTicketStats——售票口手機的統計視圖（②契約 §5.3【統計】、0-1／D-票-27、0-6～0-9、0-22；丙席擁有）。
- *
- * 單欄由上而下：
- *   三數卡（收入／支出／淨額橫排三格＋「N 筆收支」；compactMoney）
- *   →「月｜年」分頁籤（UI 丙-5 J2：共用 Tabs 行內形制 size="md"，靠右；切面、支出｜收入仍是分段鈕）
- *   →（第③階段，月模式）預算卡 MobileBudgetCard
- *   → 趨勢 12 根（卡頭「月對月」＋圖例）（inline SVG、寬度＝容器實際像素；支出墨、收入金、選中月 accent；條頂 compact 小字——
- *      12 個月 × 兩個數放不下，收入數字只印選中月，同原型）；點一根 ⇒ 切到那個月（年模式先切回月）
- *   → 切面「分類｜帳戶｜路線」（側欄已篩帳戶時「帳戶」不出，0-8）＋「支出｜收入」
- *   → 占比列（名稱｜金額｜%，條在下一行全寬；觸控高 ≥ 44）：主分類點＝展開／收起子分類（store.drill，一次一個）；
- *      其他列點＝drillToList（切清單＋帶篩選）
- *   → 淨退回區
- * 售票口④（D-票-73；雜項席）：切面多「荷札」（四格時每格收窄，375 寬仍跟「支出｜收入」同一列）。有子荷札的主列點了展開，
- *   最細一層 ⇒ drillToList({ tagKeys })（「未細分」近似帶上層荷札，同分類）；「沒掛荷札」不可點；卡內頂端一行淡字 VIEW_TEXT.tagNote。
- * 售票口④ 第二輪（D-票-78；手機席；原型 design-structure-分類多層 a-stats）：分類不限層數——主列點了照舊原地展開一層；
- *   展開的子列底下還有更深的帳（`row.deeper`）⇒ 列尾「進入 ›」，點整列＝以它為根（`setStatsRoot`）。手機一列只放得下一個點擊目標，
- *   所以這種列不再直接下鑽清單；以某分類為根時卡頂一列麵包屑「‹ 全部分類 › 食物 › 外食」（點哪一段回到那一層）＋「看明細」
- *   （＝drillToList 那整棵）補回「看這些帳」。返回鍵在裡面時＝回上一層（"ticket.stats.root"，page）。
- * 每個數字的出處：overview＝statsOverview、trend＝monthlyTrend、列＝breakdown（store.stats，純函式算好）。
+ * MobileTicketStats——售票口手機的統計視圖（②契約 §5.3【統計】；v1.33 3B 增列各切面「筆數」＆「依金額｜依筆數」排序＆「依路線」原地手風琴展開明細與 ↗ 跳路線圖）。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useBackLayer } from "../../mobile/backStack";
-import { useTicketStore } from "../../../store/ticketStore";
+import { revealOnRouteMap } from "../../mobile/routeMapReveal";
+import { runAtomicNav } from "../../../store/navHistoryStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useNodeStore } from "../../../store/nodeStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
 import { roundelStyle } from "../../common/roundel";
-import { MAIN_CURRENCY, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, monthOf, moneyText } from "../../../domain/ticket";
+import {
+  MASK_STARS,
+  UNCAT_EXPENSE_ID,
+  UNCAT_INCOME_ID,
+  categoryLabel,
+  formatDisplayMoney,
+  mainCurrencyOf,
+  maskedMoneyText,
+  monthOf,
+  moneyText,
+  rowAmount,
+} from "../../../domain/ticket";
 import {
   GONE_KEY,
   NO_ROUTE_KEY,
@@ -34,9 +29,14 @@ import {
   UNSPLIT_KEY,
   VIEW_TEXT,
   compactMoney,
+  periodRange,
+  routeBreakdownEntries,
+  routeCtx,
   shareText,
+  shortDay,
   statsCrumbs,
   type BreakdownRow,
+  type BreakdownSort,
   type EntryFilter,
   type Facet,
   type StatsData,
@@ -47,7 +47,6 @@ import { MobileBudgetCard } from "./plan/MobileBudgetCard";
 import { Tabs, type TabItem } from "../../common/Tabs";
 import "../ticket-4-extras.css";
 
-/** 統計期間（月｜年）：分頁籤的兩段（同桌機 TicketStats；不跨殼 import 桌機視圖檔） */
 const SPAN_TABS: readonly TabItem<"month" | "year">[] = [
   { key: "month", label: "月" },
   { key: "year", label: "年" },
@@ -55,7 +54,10 @@ const SPAN_TABS: readonly TabItem<"month" | "year">[] = [
 
 export function MobileTicketStats() {
   const stats = useTicketStore((s) => s.stats);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const mainCur = useTicketStore((s) => mainCurrencyOf(s.curByCode));
+  const masked = useTicketStore(isTicketAmountMasked);
+  const dec = mainCur.decimals;
+  const mainCode = mainCur.code;
   const span = useTicketStore((s) => s.span);
   const setSpan = useTicketStore((s) => s.setSpan);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -69,14 +71,12 @@ export function MobileTicketStats() {
         </p>
       ) : (
         <>
-          <Overview stats={stats} dec={dec} />
+          <Overview stats={stats} dec={dec} mainCode={mainCode} masked={masked} />
           <div className="ns-tk-mst-span">
             <Tabs items={SPAN_TABS} value={span} onChange={(k) => void setSpan(k)} size="md" aria-label="統計期間" />
           </div>
-          {/* 第③階段（③契約 §5.5；原型題一）：預算卡放在「月｜年」下面——放最上面的話切「年」卡片消失、這列會跳位 */}
           {span === "month" && <MobileBudgetCard />}
           <section className="ns-tk-mst-card">
-            {/* 圖例搬進趨勢卡自己的標題列：留在「月｜年」那一列會像在標預算卡 */}
             <div className="ns-tk-mst-cardh">
               <b>各月比較</b>
               <span className="ns-tk-mst-legend" aria-hidden>
@@ -86,11 +86,11 @@ export function MobileTicketStats() {
                 收入
               </span>
             </div>
-            <Trend stats={stats} dec={dec} />
+            <Trend stats={stats} dec={dec} mainCode={mainCode} masked={masked} />
           </section>
           <Facets />
           <section className="ns-tk-mst-card">
-            <Breakdown stats={stats} dec={dec} />
+            <Breakdown stats={stats} dec={dec} mainCode={mainCode} masked={masked} />
           </section>
         </>
       )}
@@ -100,23 +100,31 @@ export function MobileTicketStats() {
 
 /* ───────── 三數卡 ───────── */
 
-function Overview({ stats, dec }: { stats: StatsData; dec: number }) {
+function Overview({ stats, dec, mainCode, masked }: { stats: StatsData; dec: number; mainCode: string; masked: boolean }) {
   const o = stats.overview;
+  const incText = masked ? maskedMoneyText(mainCode, { prefix: "＋" }) : `＋${compactMoney(o.income, dec)}`;
+  const expText = masked ? maskedMoneyText(mainCode) : compactMoney(o.expense, dec);
   const netAbs = compactMoney(Math.abs(o.net), dec);
+  const netText = masked
+    ? maskedMoneyText(mainCode, { prefix: o.net > 0 ? "＋" : undefined })
+    : o.net < 0
+      ? "−" + netAbs
+      : o.net > 0
+        ? "＋" + netAbs
+        : netAbs;
   return (
     <div className="ns-tk-mst-over">
       <div className="num inc">
         <span>收入</span>
-        <b>＋{compactMoney(o.income, dec)}</b>
+        <b>{incText}</b>
       </div>
       <div className="num">
         <span>支出</span>
-        <b>{compactMoney(o.expense, dec)}</b>
+        <b>{expText}</b>
       </div>
       <div className="num net">
         <span>淨額</span>
-        {/* 0-1：淨額為負顯示 − 前綴、不變色 */}
-        <b>{o.net < 0 ? "−" + netAbs : o.net > 0 ? "＋" + netAbs : netAbs}</b>
+        <b>{netText}</b>
       </div>
       <small className="cnt">{o.count} 筆收支</small>
     </div>
@@ -125,18 +133,17 @@ function Overview({ stats, dec }: { stats: StatsData; dec: number }) {
 
 /* ───────── 趨勢 12 根 ───────── */
 
-/** 圖高；底下兩行字：月份（H−17）與跨年那根的年份小字（H−4）——375 寬每根只有 ~26px，「'25 11」擠一行會跟隔壁疊字 */
 const TREND_H = 160;
 
-function Trend({ stats, dec }: { stats: StatsData; dec: number }) {
+function Trend({ stats, dec, mainCode, masked }: { stats: StatsData; dec: number; mainCode: string; masked: boolean }) {
   const month = useTicketStore((s) => s.month);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
   const span = useTicketStore((s) => s.span);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
-  const thisMonth = monthOf(todayKey(dayStartHour));
+  const thisMonth = monthOf(todayKey(dayStartHour), monthStartDay);
   const box = useRef<HTMLDivElement | null>(null);
   const [W, setW] = useState(320);
 
-  // SVG 寬度＝容器實際像素（不縮放，字級才是真的 8.5px）
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -193,12 +200,16 @@ function Trend({ stats, dec }: { stats: StatsData; dec: number }) {
           const hi = hOf(p.income);
           let ye = base - he - 4;
           let yi = base - hi - 4;
-          const showI = isCur && p.income !== 0;
+          const showI = !masked && isCur && p.income !== 0;
           if (showI && Math.abs(ye - yi) < fs + 2) {
             if (yi <= ye) yi = ye - (fs + 2);
             else ye = yi - (fs + 2);
           }
-          const aria = `${y} 年 ${m} 月：支出 ${moneyText(p.expense, dec, { whole: true })}、收入 ${moneyText(p.income, dec, { whole: true })}`;
+          const aria = `${y} 年 ${m} 月：支出 ${formatDisplayMoney(p.expense, dec, { whole: true, masked, currency: mainCode })}、收入 ${formatDisplayMoney(
+            p.income,
+            dec,
+            { whole: true, masked, currency: mainCode },
+          )}`;
           return (
             <g
               key={p.month}
@@ -226,9 +237,9 @@ function Trend({ stats, dec }: { stats: StatsData; dec: number }) {
               )}
               <rect className="exp" x={xe} y={base - he} width={bw} height={he} rx={1} />
               <rect className="inc" x={xi} y={base - hi} width={bw} height={hi} rx={1} />
-              {!future && p.expense !== 0 && (
+              {!future && p.expense !== 0 && (!masked || isCur) && (
                 <text className="v" x={xe + bw / 2} y={ye} textAnchor="middle">
-                  {compactMoney(p.expense, dec)}
+                  {masked ? MASK_STARS : compactMoney(p.expense, dec)}
                 </text>
               )}
               {!future && showI && (
@@ -244,21 +255,28 @@ function Trend({ stats, dec }: { stats: StatsData; dec: number }) {
   );
 }
 
-/* ───────── 切面 ───────── */
+/* ───────── 切面與排序 ───────── */
 
 const FACETS: readonly { key: Facet; label: string }[] = [
   { key: "category", label: "分類" },
   { key: "account", label: "帳戶" },
   { key: "route", label: "路線" },
-  { key: "tag", label: "荷札" }, // 售票口④ D-票-73
+  { key: "tag", label: "荷札" },
+];
+
+const SORTS: readonly { key: BreakdownSort; label: string }[] = [
+  { key: "amount", label: "依金額" },
+  { key: "count", label: "依筆數" },
 ];
 
 function Facets() {
   const facet = useTicketStore((s) => s.facet);
   const facetKind = useTicketStore((s) => s.facetKind);
+  const statsSort = useTicketStore((s) => s.statsSort);
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const setFacet = useTicketStore((s) => s.setFacet);
   const setFacetKind = useTicketStore((s) => s.setFacetKind);
+  const setStatsSort = useTicketStore((s) => s.setStatsSort);
   const shown = FACETS.filter((f) => !(f.key === "account" && filterAccountId !== null));
   return (
     <div className="ns-tk-mst-facets">
@@ -276,15 +294,104 @@ function Facets() {
           </button>
         ))}
       </span>
+      <span className="ns-tk-mseg ns-tk-mst-sortseg" role="group" aria-label="統計排序">
+        {SORTS.map((s) => (
+          <button key={s.key} type="button" aria-pressed={statsSort === s.key} onClick={() => setStatsSort(s.key)}>
+            {s.label}
+          </button>
+        ))}
+      </span>
     </div>
+  );
+}
+
+/* ───────── 依路線原地手風琴明細 ───────── */
+
+function MobileRouteEntriesAccordion({
+  routeKey,
+  routeLabel,
+  kind,
+  target,
+  mainCode,
+  masked,
+}: {
+  routeKey: string;
+  routeLabel: string;
+  kind: "expense" | "income";
+  target: Partial<EntryFilter> | null;
+  mainCode: string;
+  masked: boolean;
+}) {
+  const statsEntries = useTicketStore((s) => s.statsEntries);
+  const period = useTicketStore((s) => s.period);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const catById = useTicketStore((s) => s.catById);
+  const accById = useTicketStore((s) => s.accById);
+  const curByCode = useTicketStore((s) => s.curByCode);
+  const filterAccountId = useTicketStore((s) => s.filterAccountId);
+  const jumpToEntry = useTicketStore((s) => s.jumpToEntry);
+  const drillToList = useTicketStore((s) => s.drillToList);
+  const routes = useNodeStore((s) => s.routes);
+
+  const list = useMemo(() => {
+    const r = periodRange(period, monthStartDay);
+    return routeBreakdownEntries(statsEntries, r, routeKey, kind, routeCtx(routes));
+  }, [statsEntries, period, monthStartDay, routeKey, kind, routes]);
+
+  const withYear = period.span === "year" || new Set(list.map((e) => e.occurred_on.slice(0, 4))).size > 1;
+
+  return (
+    <li className="ns-tk-mst-rtdetail">
+      <ul className="ns-tk-mst-rtlist" aria-label={`「${routeLabel}」的帳目明細`}>
+        {list.map((e) => {
+          const amt = rowAmount(e, filterAccountId, accById, mainCode);
+          const curDec = curByCode[amt.currency]?.decimals ?? 2;
+          const foreign = amt.currency !== mainCode;
+          const catText = categoryLabel(e.category_id ? (catById[e.category_id] ?? null) : null, catById, { short: true });
+          const dateStr = withYear ? `${e.occurred_on.slice(0, 4)}/${shortDay(e.occurred_on)}` : shortDay(e.occurred_on);
+          return (
+            <li key={e.id}>
+              <button
+                type="button"
+                className="ns-tk-mst-rtitem"
+                onClick={() => {
+                  runAtomicNav(() => {
+                    void jumpToEntry(e.id);
+                  });
+                }}
+              >
+                <span className="top">
+                  <span className="dt">{dateStr}</span>
+                  <span className="cat">{catText}</span>
+                  <span className="amt">
+                    {amt.prefix}
+                    <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, curDec)}</b>
+                    {!masked && foreign && <small className="cur">{amt.currency}</small>}
+                  </span>
+                </span>
+                {e.note && <span className="nt">{e.note}</span>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {target && list.length > 0 && (
+        <div className="ns-tk-mst-rtfoot">
+          <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={() => void drillToList(target)}>
+            在帳簿篩選全部（{list.length} 筆）›
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 
 /* ───────── 占比列 ───────── */
 
-function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
+function Breakdown({ stats, dec, mainCode, masked }: { stats: StatsData; dec: number; mainCode: string; masked: boolean }) {
   const facet = useTicketStore((s) => s.facet);
   const facetKind = useTicketStore((s) => s.facetKind);
+  const statsSort = useTicketStore((s) => s.statsSort);
   const drill = useTicketStore((s) => s.drill);
   const setDrill = useTicketStore((s) => s.setDrill);
   const drillToList = useTicketStore((s) => s.drillToList);
@@ -294,7 +401,6 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
   const routes = useNodeStore((s) => s.routes);
   const bd = stats.breakdown;
 
-  /* 以某分類為根（D-票-78）：麵包屑＋返回鍵回上一層 */
   const root = facet === "category" ? statsRoot : null;
   const crumbs = root !== null ? statsCrumbs(root, catById) : [];
   const upId = crumbs.length > 1 ? crumbs[crumbs.length - 2].id : null;
@@ -329,7 +435,7 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
           )}
         </nav>
         <span className="sum">
-          合計 {compactMoney(bd.total, dec)}
+          合計 {masked ? maskedMoneyText(mainCode) : compactMoney(bd.total, dec)}
           <button type="button" className="ns-btn btn-text ns-btn--sm" onClick={() => void drillToList({ categoryIds: [root], kinds: [facetKind] })}>
             看明細
           </button>
@@ -345,20 +451,17 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
       </>
     );
 
-  const max = Math.max(0.0001, ...bd.rows.map((r) => r.share));
+  const maxShare = Math.max(0.0001, ...bd.rows.map((r) => r.share));
+  const maxCount = Math.max(1, ...bd.rows.map((r) => r.count));
 
-  /** 下鑽到底的篩選（0-15）；null＝這一列沒得篩（分類／帳戶／路線已不在） */
   const drillOf = (r: BreakdownRow, parentKey: string | null): Partial<EntryFilter> | null => {
     if (r.key === GONE_KEY) return null;
     const kinds = [facetKind] as const;
     if (facet === "category") {
-      // 「未細分」＝直接記在主分類本身；EntryFilter 沒有「只要主分類本身」這一格，帶主分類（含子分類）——近似，記在回報。
-      // 以某分類為根時主列的「未細分」＝直接記在根本身 ⇒ 同理帶根
       const id = r.key === UNSPLIT_KEY ? (parentKey ?? root) : r.key;
       return id ? { categoryIds: [id], kinds } : null;
     }
     if (facet === "tag") {
-      // 「沒掛荷札」篩不出來；「未細分」＝直接掛在上層荷札本身，同分類近似帶上層（含子荷札）
       if (r.key === NO_TAG_KEY) return null;
       const key = r.key === UNSPLIT_KEY ? parentKey : r.key;
       return key ? { tagKeys: [key], kinds } : null;
@@ -371,7 +474,7 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
     const faint =
       r.key === UNSPLIT_KEY || r.key === GONE_KEY || r.key === NO_ROUTE_KEY || r.key === NO_TAG_KEY || r.key === UNCAT_EXPENSE_ID || r.key === UNCAT_INCOME_ID;
     if (facet === "route" && !child) {
-      const rt = routes.find((x) => x.id === r.key);
+      const rt = routes.find((x) => x.id === r.key && x.deleted_at === null);
       return (
         <>
           {rt ? (
@@ -389,22 +492,42 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
   };
 
   const row = (r: BreakdownRow, child: boolean, parentKey: string | null) => {
-    const isParent = !child && !!r.children && r.children.length > 0;
+    const isRouteAccordion = facet === "route" && !child;
+    const isParent = (!child && !!r.children && r.children.length > 0) || isRouteAccordion;
     const open = isParent && drill === r.key;
-    // 子列底下還有更深的帳 ⇒ 點整列＝「進入 ›」以它為根（檔頭：一列一個點擊目標）
     const enter = facet === "category" && child && !!r.deeper && r.key !== UNSPLIT_KEY && r.key !== GONE_KEY;
     const target = isParent || enter ? null : drillOf(r, parentKey);
-    const w = (r.share / max) * 100;
+    const liveRoute =
+      isRouteAccordion && r.key !== NO_ROUTE_KEY && r.key !== GONE_KEY ? routes.find((x) => x.id === r.key && x.deleted_at === null) : undefined;
+    const w = statsSort === "count" ? (r.count / maxCount) * 100 : (r.share / maxShare) * 100;
     return (
       <li
         key={(child ? parentKey + "/" : "") + r.key}
-        className={"row" + (isParent ? " is-parent" : "") + (open ? " is-open" : "") + (child ? " is-child" : "") + (enter ? " is-deeper" : "")}
+        className={
+          "row" +
+          (isParent ? " is-parent" : "") +
+          (open ? " is-open" : "") +
+          (child ? " is-child" : "") +
+          (enter ? " is-deeper" : "") +
+          (liveRoute ? " has-jump" : "")
+        }
       >
         <button
           type="button"
+          className="hit"
           aria-expanded={isParent ? open : undefined}
           disabled={!isParent && !enter && target === null}
-          title={isParent ? `${open ? "收起" : "展開"}子${facet === "tag" ? "荷札" : "分類"}` : enter ? "進入這一層" : target ? "到清單看這些帳" : undefined}
+          title={
+            isRouteAccordion
+              ? `${open ? "收起" : "展開"}「${r.label}」的帳目明細`
+              : isParent
+                ? `${open ? "收起" : "展開"}子${facet === "tag" ? "荷札" : "分類"}`
+                : enter
+                  ? "進入這一層"
+                  : target
+                    ? "到清單看這些帳"
+                    : undefined
+          }
           onClick={() => {
             if (isParent) setDrill(open ? null : r.key);
             else if (enter) setStatsRoot(r.key);
@@ -423,30 +546,56 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
               </span>
             )}
           </span>
-          <span className="v">{compactMoney(r.minor, dec)}</span>
+          <span className="cnt">{r.count} 筆</span>
+          <span className="v">{masked ? maskedMoneyText(mainCode) : compactMoney(r.minor, dec)}</span>
           <span className="p">{shareText(r.share)}</span>
           <span className="bar" aria-hidden>
-            <i style={{ width: `${w.toFixed(1)}%` }} />
+            <i style={{ width: `${Math.min(100, w).toFixed(1)}%` }} />
           </span>
         </button>
+        {liveRoute && (
+          <button
+            type="button"
+            className="ns-tk-mst-jump"
+            aria-label={`前往路線圖查看「${r.label}」`}
+            title={`前往路線圖「${r.label}」`}
+            onClick={() => {
+              runAtomicNav(() => {
+                revealOnRouteMap(r.key, null);
+              });
+            }}
+          >
+            ↗
+          </button>
+        )}
       </li>
     );
   };
 
-  const items: ReturnType<typeof row>[] = [];
+  const items: ReactNode[] = [];
   for (const r of bd.rows) {
     items.push(row(r, false, null));
-    if (r.children && r.children.length && drill === r.key) for (const k of r.children) items.push(row(k, true, r.key));
+    if (facet === "route" && drill === r.key) {
+      items.push(
+        <MobileRouteEntriesAccordion
+          key={`rt-det-${r.key}`}
+          routeKey={r.key}
+          routeLabel={r.label}
+          kind={facetKind}
+          target={drillOf(r, null)}
+          mainCode={mainCode}
+          masked={masked}
+        />,
+      );
+    } else if (r.children && r.children.length && drill === r.key) {
+      for (const k of r.children) items.push(row(k, true, r.key));
+    }
   }
 
   return (
     <>
       {crumbBar}
-      {facet === "tag" && bd.rows.length > 0 && (
-        <p className="ns-tk-mst-tagnote">
-          {VIEW_TEXT.tagNote(facetKind)}
-        </p>
-      )}
+      {facet === "tag" && bd.rows.length > 0 && <p className="ns-tk-mst-tagnote">{VIEW_TEXT.tagNote(facetKind)}</p>}
       {bd.rows.length > 0 ? (
         <ul className={"ns-tk-mst-rows is-" + facetKind} aria-label="占比">
           {items}
@@ -459,7 +608,7 @@ function Breakdown({ stats, dec }: { stats: StatsData; dec: number }) {
           <span className="hd">{VIEW_TEXT.refunds}</span>
           {bd.refunds.map((r) => (
             <span key={r.key} className="it">
-              {r.label} <b>{moneyText(r.minor, dec, { whole: true })}</b>
+              {r.label}（{r.count} 筆） <b>{formatDisplayMoney(r.minor, dec, { whole: true, masked, currency: mainCode })}</b>
             </span>
           ))}
         </div>

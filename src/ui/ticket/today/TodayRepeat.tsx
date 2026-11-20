@@ -19,11 +19,11 @@
  * 手機 MobileToday 把插槽畫在統計列尾端（「下一班」後面），本元件改不了順序——見施工回報。
  */
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
-import { MAIN_CURRENCY, categoryLabel, moneyText, type EntryRow } from "../../../domain/ticket";
+import { categoryLabel, mainCurrencyOf, maskedMoneyText, moneyText, type EntryRow } from "../../../domain/ticket";
 import { describeRule } from "../../../domain/repeat";
 import { parseFixedRule, quickOfRule, quickRepeatLabel, repeatDaySum } from "../../../domain/ticketPlan";
 import { shortDay } from "../../../domain/ticketView";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import "../ticket-4-extras.css";
 
@@ -41,24 +41,29 @@ function signed(minor: number, dec: number): string {
 /** 浮層一列的字：名稱（分類／轉帳兩端）、金額（原幣）、小字（規則・帳戶） */
 function lineOf(e: EntryRow): { name: string; amount: string; sub: string } {
   const s = useTicketStore.getState();
+  const mainCode = mainCurrencyOf(s.currencies);
+  const masked = isTicketAmountMasked(s);
   const cur = s.curByCode[e.currency];
-  const dec = cur?.decimals ?? s.curByCode[MAIN_CURRENCY]?.decimals ?? 0;
-  const code = e.currency !== MAIN_CURRENCY ? ` ${e.currency}` : "";
+  const dec = cur?.decimals ?? s.curByCode[mainCode]?.decimals ?? 0;
+  const code = e.currency !== mainCode ? ` ${e.currency}` : "";
   const acc = (id: string | null) => (id ? s.accById[id]?.name : undefined) ?? "（帳戶已刪除）";
   const rep = e.repeat_id ? s.repeats.find((r) => r.id === e.repeat_id) : undefined;
   const rule = rep ? parseFixedRule(rep.rule) : null;
   const q = rule ? quickOfRule(rule) : null;
   const ruleText = rule ? (q ? quickRepeatLabel(q) : describeRule(rule)) : "";
   if (e.kind === "transfer") {
-    return { name: `${acc(e.account_id)} → ${acc(e.to_account_id)}`, amount: moneyText(Math.abs(e.amount_minor), dec) + code, sub: ruleText };
+    const amt = masked ? maskedMoneyText(e.currency, { withSymbol: false }) : moneyText(Math.abs(e.amount_minor), dec);
+    return { name: `${acc(e.account_id)} → ${acc(e.to_account_id)}`, amount: amt + code, sub: ruleText };
   }
   if (e.kind === "adjust") {
-    return { name: "精算", amount: signed(e.amount_minor, dec) + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
+    const amt = masked ? maskedMoneyText(e.currency, { prefix: e.amount_minor > 0 ? "＋" : undefined, withSymbol: false }) : signed(e.amount_minor, dec);
+    return { name: "精算", amount: amt + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
   }
   // 支出 −（退款＝負的支出 ⇒ ＋）、收入 ＋
   const v = e.kind === "income" ? e.amount_minor : -e.amount_minor;
   const name = e.category_id === null ? "未分類" : categoryLabel(s.catById[e.category_id] ?? null, s.catById);
-  return { name, amount: signed(v, dec) + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
+  const amt = masked ? maskedMoneyText(e.currency, { prefix: v > 0 ? "＋" : "−", withSymbol: false }) : signed(v, dec);
+  return { name, amount: amt + code, sub: [ruleText, acc(e.account_id)].filter(Boolean).join(" · ") };
 }
 
 /** 點了：分殼切到售票口 → 等 init → 跳到那天第一筆定期帳 */
@@ -87,7 +92,10 @@ export function TodayRepeat({
   wrap: boolean;
 }) {
   const version = useTicketStore((s) => s.entriesVersion);
-  const mainDec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 0);
+  const currencies = useTicketStore((s) => s.currencies);
+  const masked = useTicketStore(isTicketAmountMasked);
+  const mainCode = mainCurrencyOf(currencies);
+  const mainDec = useTicketStore((s) => s.curByCode[mainCode]?.decimals ?? 0);
   // 浮層的分類、帳戶、規則字要跟著改名重畫
   useTicketStore((s) => s.catById);
   useTicketStore((s) => s.accById);
@@ -118,7 +126,11 @@ export function TodayRepeat({
 
   const sum = repeatDaySum(list);
   const hasMoney = list.some((e) => e.deleted_at === null && (e.kind === "income" || e.kind === "expense"));
-  const amount = hasMoney ? signed(sum.net, mainDec) : null;
+  const amount = hasMoney
+    ? masked
+      ? maskedMoneyText(mainCode, { prefix: sum.net > 0 ? "＋" : sum.net < 0 ? "−" : undefined })
+      : signed(sum.net, mainDec)
+    : null;
   const lines = list.map((e) => ({ id: e.id, ...lineOf(e) }));
   const go = () => void goDay(shell, dateKey);
 

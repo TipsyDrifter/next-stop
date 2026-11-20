@@ -40,7 +40,14 @@ import { useSyncStore } from "./syncStore";
 import { settleBeforeSeeding, waitForSyncSettle } from "./syncSettle";
 import { indexTree, useNodeStore, type TreeIndex } from "./nodeStore";
 import { addDays, dayWindow, todayKey } from "../lib/date";
-import type { GoalInput, GoalPeriod, GoalDirection, StatsPeriod } from "../domain/timetableStats";
+import {
+  normalizeStatTopicInput,
+  type GoalInput,
+  type GoalPeriod,
+  type GoalDirection,
+  type StatTopicInput as StatTopicFormInput,
+  type StatsPeriod,
+} from "../domain/timetableStats";
 import type { LineReloadContext } from "../lines/types";
 import { KIND_LABEL, type NodeRow } from "../domain/node";
 import { notePulled } from "../ui/timetable/taskWatch";
@@ -131,7 +138,7 @@ export type TimetableSheet =
    * focus "notice"＝tab "notice"、focusId＝tab "cats"（呼叫端不用改）；tab 跟它們打架時以 focus／focusId 為準（定位要找得到列）。
    * ⑦（B 席）：第四籤「作息」＝tab "routines"；focus "routine"＝開作息籤，再帶 focusId（範本 id）＝展開那一套、捲進畫面。
    */
-  | { kind: "categories"; focusId?: string; focus?: "notice" | "routine"; tab?: "cats" | "notice" | "goals" | "routines" }
+  | { kind: "categories"; focusId?: string; focus?: "notice" | "routine"; tab?: "cats" | "notice" | "goals" | "routines" | "topics" }
   /** ②：從任務發車、第一次碰到的路線（☎一-1） */
   | { kind: "taskCategory"; nodeId: string }
   /**
@@ -139,6 +146,8 @@ export type TimetableSheet =
    * 儲存／取消／封存／刪除後回到那一籤（不是整個關掉），面板底的「已封存的目標」也不畫（目標籤已經有一份）
    */
   | { kind: "goal"; goalId: string | null; back?: "goals" }
+  /** v1.33 功能 2＋G1：釘選自訂統計專題面板；topicId null＝新增；back "topics"＝從「分類與設定」專題籤點進來 */
+  | { kind: "topic"; topicId: string | null; back?: "topics" }
   /** ③：待確認清單（from／to＝正在看的那一期的窗，毫秒；清單內容讀 timetableStatsStore） */
   | { kind: "pendingList"; from: number; to: number; /** 乙：有值＝只列這個目標範圍的待確認（目標卡「看看 ›」，〈原型定案〉1） */ goalId?: string | null }
   /** ④：日程上點已排的卡開的小面板；key＝預定項（`${date}-${nodeId}`，timetableScheduleStore.items 的 key） */
@@ -260,6 +269,7 @@ export const TT_TEXT = {
   TIME_LABEL: "時間",
   TIME_HOVER: (self: string, below: string) => `本身 ${self}／子項目 ${below}`,
   ROUTE_TIME: (month: string, total: string) => `本月 ${month}・累計 ${total}`,
+  ROUTE_TIME_COUNT: (month: string, total: string, count: number) => `本月 ${month}・累計 ${total} · ${count} 次`,
   /** 手機路線圖列尾（RouteTimeAside）：帶「本月」，跟售票口「本月花 …」並排也看得懂（D-時-140） */
   ROUTE_ASIDE: (month: string) => `本月 ${month}`,
   TIME_MANUAL: "手填",
@@ -303,6 +313,10 @@ export const TT_TEXT = {
   goalDeleted: "已刪除這個目標",
   goalArchived: (name: string) => `「${name}」收起來了`,
   goalUnarchived: (name: string) => `「${name}」取回來了`,
+  topicSaved: (name: string) => `專題「${name}」存好了`,
+  topicDeleted: "已刪除這個專題",
+  topicArchived: (name: string) => `「${name}」收起來了`,
+  topicUnarchived: (name: string) => `「${name}」取回來了`,
   pendingAllDone: "都確認好了",
   syncBlockGone: "這筆紀錄已被合併或刪除",
   /** ③ 週視圖、視圖切換的畫面字（丙席；契約 §5.1、§5.5、D-時-54、66；顯示端不手抄） */
@@ -380,15 +394,17 @@ export const TT_TEXT = {
       archived_at: "封存",
       position: "排序", // ④ #73 R5
     },
-    // ⑦：作息範本、預定
-    time_routines: { name: "名字", items: "段", weekdays: "週幾", position: "排序", archived_at: "封存" },
+    // ⑦：作息範本、預定、釘選統計專題
+    time_routines: { name: "名字", items: "段", weekdays: "週幾", position: "排序", archived_at: "封存", start_day: "生效起日", end_day: "生效結束日" },
     time_plans: { day: "日期", start_hm: "開始", end_hm: "結束", category_id: "分類", node_id: "車票", routine_id: "範本", label: "名字", kind: "種類", route_id: "路線" },
+    time_stat_topics: { name: "名字", scope: "範圍", day_start_hour: "切日時間", position: "排序", archived_at: "封存" },
   } as {
     time_blocks: Readonly<Record<string, string>>;
     time_categories: Readonly<Record<string, string>>;
     time_goals: Readonly<Record<string, string>>;
     time_routines: Readonly<Record<string, string>>;
     time_plans: Readonly<Record<string, string>>;
+    time_stat_topics: Readonly<Record<string, string>>;
   },
   /** 期間字、方向字（目標卡與目標面板共用） */
   goalPeriodWord: { day: "每日", week: "每週", month: "每月", since: "從某天起", until: "到某天為止", range: "單一區間" } as Readonly<Record<GoalPeriod, string>>,
@@ -500,8 +516,18 @@ export const TT_TEXT = {
     archive: "封存",
     remove: "刪除",
     archivedList: (n: number) => `已封存的目標（${n}）`,
+    archivedTopicList: (n: number) => `已封存的專題（${n}）`,
     restore: "還原", // UI 丙-4 修：同分類、目標籤的「還原」（規範法則 06 同一件事同一個名字）
     goalGone: "找不到這個目標，可能已刪除",
+    sortGroup: "排序依據",
+    sortByMs: "依時數",
+    sortByCount: "依次數",
+    countTimes: (n: number) => `${n} 次`,
+    topicsTitle: "釘選統計專題",
+    topicAdd: "專題",
+    topicNewTitle: "新增統計專題",
+    topicEditTitle: "編輯統計專題",
+    topicGone: "找不到這個專題，可能已刪除",
     // UI 丙-4 修：close「關閉」拿掉（C4 後沒人用；規範 §4 不放「關閉」字鈕，×／返回就是關）
   },
 
@@ -902,6 +928,14 @@ export interface TimetableStore {
   restoreGoal(id: string): Promise<boolean>;
   /** ⑦（B 席，D-時-166）：目標的新順序（沒封存的整組 0..n-1 全寫，同 reorderCategories） */
   reorderGoals(orderedIds: readonly string[]): Promise<void>;
+
+  /* v1.33 功能 2＋G1：釘選自訂統計專題（time_stat_topics） */
+  createStatTopic(input: StatTopicFormInput): Promise<boolean>;
+  updateStatTopic(id: string, input: StatTopicFormInput): Promise<boolean>;
+  archiveStatTopic(id: string, on: boolean): Promise<boolean>;
+  deleteStatTopic(id: string): Promise<boolean>;
+  restoreStatTopic(id: string): Promise<boolean>;
+  reorderStatTopics(orderedIds: readonly string[]): Promise<void>;
 
   /* ②（② 契約 §3.7） */
   /** 從任務發車（§5.2 的流程）：面板開著就不動；找不到／已刪／不能連 ⇒ TASK_MISSING；正在跑 ⇒ ALREADY_RUNNING_TASK；
@@ -1360,7 +1394,11 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         });
       }
       const touched =
-        ctx.wiped || ctx.changed.includes("time_blocks") || ctx.changed.includes("time_categories") || ctx.changed.includes("time_goals"); // ③：目標變了也要 refresh（rev 變 ⇒ 統計重載）
+        ctx.wiped ||
+        ctx.changed.includes("time_blocks") ||
+        ctx.changed.includes("time_categories") ||
+        ctx.changed.includes("time_goals") ||
+        ctx.changed.includes("time_stat_topics"); // ③＋v1.33：目標／專題變了也要 refresh（rev 變 ⇒ 統計重載）
       if (ctx.changed.includes("settings")) {
         await readLongRunMax(); // 全域保險上限可能被別台改了
         await readNoticePins(); // 磨光② A15：釘選分類也同步了
@@ -1989,6 +2027,90 @@ export const useTimetableStore = create<TimetableStore>((set, get) => {
         },
       );
       return ok;
+    },
+
+    /* ───────── v1.33 功能 2＋G1：釘選自訂統計專題 ───────── */
+
+    async createStatTopic(input) {
+      let ok = false;
+      await write(
+        async () => {
+          const norm = normalizeStatTopicInput(input);
+          return timetableRepo.createStatTopic({
+            name: norm.name,
+            scope: norm.scope,
+            dayStartHour: norm.dayStartHour,
+          });
+        },
+        (row) => {
+          ok = true;
+          toast(TT_TEXT.topicSaved(row.name));
+        },
+      );
+      return ok;
+    },
+
+    async updateStatTopic(id, input) {
+      let ok = false;
+      await write(
+        async () => {
+          const norm = normalizeStatTopicInput(input);
+          await timetableRepo.updateStatTopic(id, {
+            name: norm.name,
+            scope: norm.scope,
+            dayStartHour: norm.dayStartHour,
+          });
+          return norm.name;
+        },
+        (name) => {
+          ok = true;
+          toast(TT_TEXT.topicSaved(name));
+        },
+      );
+      return ok;
+    },
+
+    async archiveStatTopic(id, on) {
+      let ok = false;
+      await write(
+        async () => {
+          await timetableRepo.archiveStatTopic(id, on);
+          return (await timetableRepo.getStatTopic(id))?.name ?? "";
+        },
+        (name) => {
+          ok = true;
+          if (on) toast(TT_TEXT.topicArchived(name), TT_TEXT.undo, () => void get().archiveStatTopic(id, false));
+          else toast(TT_TEXT.topicUnarchived(name));
+        },
+      );
+      return ok;
+    },
+
+    async deleteStatTopic(id) {
+      let ok = false;
+      await write(
+        () => timetableRepo.deleteStatTopic(id),
+        () => {
+          ok = true;
+          toast(TT_TEXT.topicDeleted, TT_TEXT.undo, () => void get().restoreStatTopic(id));
+        },
+      );
+      return ok;
+    },
+
+    async restoreStatTopic(id) {
+      let ok = false;
+      await write(
+        () => timetableRepo.restoreStatTopic(id),
+        () => {
+          ok = true;
+        },
+      );
+      return ok;
+    },
+
+    async reorderStatTopics(orderedIds) {
+      await write(() => timetableRepo.reorderStatTopics(orderedIds));
     },
 
     /* ───────── ②（② 契約 §3.7） ───────── */

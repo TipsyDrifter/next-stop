@@ -19,10 +19,10 @@
  */
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
-import { MAIN_CURRENCY, moneyText, monthOf } from "../../../domain/ticket";
+import { DEFAULT_MONTH_START_DAY, formatDisplayMoney, mainCurrencyOf, monthOf, monthRange } from "../../../domain/ticket";
 import { cellText, shortDay, weekdayHeads, type CalendarCell } from "../../../domain/ticketView";
 import { useCalendarTodayFresh } from "../resume";
 import { DayCell } from "../../common/DayCell";
@@ -33,22 +33,25 @@ export const useCalFocus = create<{ day: string | null; setDay(d: string | null)
   setDay: (day) => set({ day }),
 }));
 
-/** 某個月的預設焦點日：今天在這個月 ⇒ 今天；否則 1 號 */
-export function defaultFocusDay(month: string, today: string): string {
-  return monthOf(today) === month ? today : `${month}-01`;
+/** 某個帳務月的預設焦點日：今天在這個帳務月 ⇒ 今天；否則該帳務月起日 */
+export function defaultFocusDay(month: string, today: string, startDay: number = DEFAULT_MONTH_START_DAY): string {
+  return monthOf(today, startDay) === month ? today : monthRange(month, startDay).from;
 }
 
-function cellLabel(c: CalendarCell, dec: number): string {
+function cellLabel(c: CalendarCell, dec: number, mainCode: string, masked: boolean): string {
   if (c.count === 0) return `${shortDay(c.dayKey)}：沒有紀錄`;
-  const parts = [`支出 ${moneyText(c.expense, dec)}`];
-  if (c.income !== 0) parts.push(`收入 ${moneyText(c.income, dec)}`);
+  const parts = [`支出 ${formatDisplayMoney(c.expense, dec, { masked, currency: mainCode })}`];
+  if (c.income !== 0) parts.push(`收入 ${formatDisplayMoney(c.income, dec, { masked, currency: mainCode })}`);
   return `${shortDay(c.dayKey)}：${parts.join("、")}`;
 }
 
 export function TicketCalendar() {
   const calendar = useTicketStore((s) => s.calendar);
   const month = useTicketStore((s) => s.month);
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const mainCur = useTicketStore((s) => mainCurrencyOf(s.curByCode));
+  const masked = useTicketStore(isTicketAmountMasked);
+  const dec = mainCur.decimals;
   const weekStart = useUiStore((s) => s.weekStart);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const focus = useCalFocus((s) => s.day);
@@ -56,11 +59,13 @@ export function TicketCalendar() {
   const today = todayKey(dayStartHour);
   useCalendarTodayFresh(); // 頁面一直開著跨午夜：回前景時今日格跟上
 
-  // 換月（[ ]、‹ ›）⇒ 焦點不在這個月就重設
+  // 換月（[ ]、‹ ›）或改月起算日 ⇒ 焦點不在這個帳務月就重設
   useEffect(() => {
     const d = useCalFocus.getState().day;
-    if (d === null || monthOf(d) !== month) useCalFocus.getState().setDay(defaultFocusDay(month, today));
-  }, [month, today]);
+    if (d === null || monthOf(d, monthStartDay) !== month) {
+      useCalFocus.getState().setDay(defaultFocusDay(month, today, monthStartDay));
+    }
+  }, [month, today, monthStartDay]);
 
   // 游標換格時，DOM 焦點若在格線裡就跟著搬（鍵盤從格上按方向鍵）；焦點不在格線裡（頁根）就不動，不搶焦點
   const gridRef = useRef<HTMLDivElement>(null);
@@ -87,7 +92,7 @@ export function TicketCalendar() {
       >
         {(calendar ?? []).map((week) =>
           week.map((c) => {
-            const t = cellText(c, dec, false);
+            const t = cellText(c, dec, false, masked);
             const over = c.inMonth && overDay === c.dayKey;
             const cls = "ns-tk-calday" + (c.dayKey > today ? " is-future" : "") + (over ? " is-over" : "");
             return (
@@ -97,7 +102,7 @@ export function TicketCalendar() {
                 today={c.isToday}
                 out={!c.inMonth}
                 selected={focus === c.dayKey}
-                ariaLabel={cellLabel(c, dec) + (c.isToday ? "（今天）" : "") + (over ? "；這天超出當月總預算" : "")}
+                ariaLabel={cellLabel(c, dec, mainCur.code, masked) + (c.isToday ? "（今天）" : "") + (over ? "；這天超出當月總預算" : "")}
                 tabIndex={focus === c.dayKey ? 0 : -1}
                 className={cls}
                 onClick={(day) => {

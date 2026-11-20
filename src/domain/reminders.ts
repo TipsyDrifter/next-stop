@@ -30,6 +30,12 @@ export interface ReminderSettings {
   /** 開始前幾分鐘 */
   timedBefore: number;
   review: boolean;
+  /** G6：月底回顧（每月最後 2 天至次月 1 日） */
+  reviewMonth: boolean;
+  /** G6：年底回顧（12/28 ～ 1/2） */
+  reviewYear: boolean;
+  /** G6：車站預計到站前提醒（預計到站前 3 天內至當日） */
+  stationSoon: boolean;
   routine: boolean;
   repeat: boolean;
   sync: boolean;
@@ -51,6 +57,9 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   timed: true,
   timedBefore: 10,
   review: true,
+  reviewMonth: true,
+  reviewYear: true,
+  stationSoon: true,
   routine: false,
   repeat: false,
   sync: true,
@@ -91,6 +100,9 @@ export function parseReminderSettings(raw: string | null | undefined): ReminderS
     timed: bool("timed", d.timed),
     timedBefore: int("timedBefore", 0, 240),
     review: bool("review", d.review),
+    reviewMonth: bool("reviewMonth", d.reviewMonth),
+    reviewYear: bool("reviewYear", d.reviewYear),
+    stationSoon: bool("stationSoon", d.stationSoon),
     routine: bool("routine", d.routine),
     repeat: bool("repeat", d.repeat),
     sync: bool("sync", d.sync),
@@ -154,6 +166,15 @@ export interface RoutineFact {
   end: ClockText;
 }
 
+/** G6：路線下未到站之車站設有預計到站日 */
+export interface StationSoonFact {
+  stationId: string;
+  name: string;
+  expectedOn: string;
+  routeId: string | null;
+  routeName: string | null;
+}
+
 export interface ReminderFacts {
   today: string;
   dayStartHour: number;
@@ -163,11 +184,23 @@ export interface ReminderFacts {
   aimWeeks: readonly AimWeekFact[];
   repeats: readonly RepeatFact[];
   routines: readonly RoutineFact[];
+  /** G6：未到站且設有預計日期之車站（省略＝[]） */
+  stationSoon?: readonly StationSoonFact[];
 }
 
 /* ───────── 通知 ───────── */
 
-export type ReminderKind = "due-eve" | "due-day" | "late" | "timed" | "review" | "repeat" | "routine";
+export type ReminderKind =
+  | "due-eve"
+  | "due-day"
+  | "late"
+  | "timed"
+  | "review"
+  | "review-month"
+  | "review-year"
+  | "station-soon"
+  | "repeat"
+  | "routine";
 
 /** 點開去哪（兩端同一份；原生層只當字串帶著走） */
 export type ReminderTarget =
@@ -176,8 +209,10 @@ export type ReminderTarget =
   | { kind: "day"; day: string }
   /** 今日頁（誤點區） */
   | { kind: "today" }
-  /** 打開那週的方針回顧 */
+  /** 打開那一期的方針回顧（週首／MYYYY-MM／YYYYY） */
   | { kind: "review"; weekOn: string }
+  /** G6：車站預計到站回顧（打開車站回顧或所屬路線） */
+  | { kind: "station"; stationId: string; routeId: string | null }
   /** 售票口那一天 */
   | { kind: "ticketDay"; day: string }
   /** 時刻表日程那一天 */
@@ -408,6 +443,68 @@ export function buildReminderPlan(
     }
   }
 
+  if (settings.reviewMonth) {
+    const mw = monthEndReviewWindow(today);
+    if (mw) {
+      const key = `review-month:${mw.aimKey}`;
+      const fireAt = at(mw.startDay, evening);
+      if (fireAt !== null && sent[key] === undefined) {
+        push({
+          key,
+          kind: "review-month",
+          memberKeys: [key],
+          fireAt,
+          expireAt: dayStartAt(addDays(mw.endDay, 1), h),
+          title: `${mw.label}回顧時間到了`,
+          body: "回頭看看這個月的運行實績與方針吧",
+          target: { kind: "review", weekOn: mw.aimKey },
+        });
+      }
+    }
+  }
+
+  if (settings.reviewYear) {
+    const yw = yearEndReviewWindow(today);
+    if (yw) {
+      const key = `review-year:${yw.aimKey}`;
+      const fireAt = at(yw.startDay, evening);
+      if (fireAt !== null && sent[key] === undefined) {
+        push({
+          key,
+          kind: "review-year",
+          memberKeys: [key],
+          fireAt,
+          expireAt: dayStartAt(addDays(yw.endDay, 1), h),
+          title: `${yw.label}年度回顧`,
+          body: "一年將盡，翻開手帳整理這趟長途旅程吧",
+          target: { kind: "review", weekOn: yw.aimKey },
+        });
+      }
+    }
+  }
+
+  if (settings.stationSoon && facts.stationSoon) {
+    for (const st of facts.stationSoon) {
+      const diff = daysBetween(st.expectedOn, today);
+      if (diff < 0 || diff > 3) continue;
+      const key = `station-soon:${st.stationId}:${st.expectedOn}`;
+      if (sent[key] !== undefined) continue;
+      const fireAt = at(today, morning);
+      if (fireAt === null) continue;
+      const whenWord = diff === 0 ? "今天預計到站" : `預計 ${diff} 天後到站`;
+      push({
+        key,
+        kind: "station-soon",
+        memberKeys: [key],
+        fireAt,
+        expireAt: dayStartAt(addDays(st.expectedOn, 1), h),
+        title: `${whenWord}：${clip(st.name)}`,
+        body: st.routeName ? `${reminderDayText(st.expectedOn)}・${st.routeName}` : reminderDayText(st.expectedOn),
+        target: { kind: "station", stationId: st.stationId, routeId: st.routeId },
+      });
+    }
+  }
+
   if (settings.repeat) {
     for (const [day, rows] of groupBy(facts.repeats, (r) => r.day)) {
       const fresh = rows.filter((r) => sent[`repeat:${r.repeatId}:${day}`] === undefined);
@@ -541,6 +638,8 @@ export function parseTarget(raw: string | null | undefined): ReminderTarget | nu
         return typeof t.day === "string" ? t : null;
       case "review":
         return typeof t.weekOn === "string" ? t : null;
+      case "station":
+        return typeof t.stationId === "string" && (t.routeId === null || typeof t.routeId === "string") ? t : null;
       case "today":
         return t;
       default:
@@ -549,4 +648,153 @@ export function parseTarget(raw: string | null | undefined): ReminderTarget | nu
   } catch {
     return null;
   }
+}
+
+/* ───────── G6：月底／年底／車站預計到站溫柔回顧視窗與提示 ───────── */
+
+export interface PeriodReviewWindow {
+  /** 方針期間鍵：MYYYY-MM 或 YYYYY */
+  aimKey: string;
+  /** 顯示名稱：如「11月」或「2026 年」 */
+  label: string;
+  /** 提醒視窗起日 YYYY-MM-DD（含） */
+  startDay: string;
+  /** 提醒視窗迄日 YYYY-MM-DD（含） */
+  endDay: string;
+}
+
+function monthLastDayNum(y: number, m: number): number {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/**
+ * G6 ① 月底回顧視窗：每月最後 2 天至次月 1 日。
+ * 例如 11 月有 30 天 ⇒ 11/29、11/30、12/01 皆對應回顧 `M2026-11`。不在視窗內回 `null`。
+ */
+export function monthEndReviewWindow(today: string): PeriodReviewWindow | null {
+  const [y, m, d] = today.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  if (d === 1) {
+    const prevLast = addDays(today, -1);
+    const [py, pm] = prevLast.split("-").map(Number);
+    const ym = prevLast.slice(0, 7);
+    return {
+      aimKey: `M${ym}`,
+      label: py === y ? `${pm}月` : `${py}年${pm}月`,
+      startDay: addDays(prevLast, -1),
+      endDay: today,
+    };
+  }
+  const last = monthLastDayNum(y, m);
+  if (d >= last - 1) {
+    const ym = today.slice(0, 7);
+    const endOfMonth = `${ym}-${String(last).padStart(2, "0")}`;
+    return {
+      aimKey: `M${ym}`,
+      label: `${m}月`,
+      startDay: `${ym}-${String(last - 1).padStart(2, "0")}`,
+      endDay: addDays(endOfMonth, 1),
+    };
+  }
+  return null;
+}
+
+/**
+ * G6 ② 年底回顧視窗：12/28 ～ 次年 1/2。
+ * 12/28–12/31 對應當年 `YYYYY`；1/1–1/2 對應前一年 `Y(YYYY-1)`。不在視窗內回 `null`。
+ */
+export function yearEndReviewWindow(today: string): PeriodReviewWindow | null {
+  const [y, m, d] = today.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  if (m === 12 && d >= 28) {
+    return {
+      aimKey: `Y${y}`,
+      label: `${y} 年`,
+      startDay: `${y}-12-28`,
+      endDay: `${y + 1}-01-02`,
+    };
+  }
+  if (m === 1 && d <= 2) {
+    const py = y - 1;
+    return {
+      aimKey: `Y${py}`,
+      label: `${py} 年`,
+      startDay: `${py}-12-28`,
+      endDay: `${y}-01-02`,
+    };
+  }
+  return null;
+}
+
+/** 頁內溫柔回顧提示卡（支援「前往回顧 ›」與「本期已知悉（不重複打擾）」） */
+export interface GentleReviewPrompt {
+  /** 與 `KEY_REMINDER_SENT` 共用的去重／已知悉鍵 */
+  key: string;
+  kind: "review-month" | "review-year" | "station-soon";
+  title: string;
+  body: string;
+  target: ReminderTarget;
+}
+
+/**
+ * 計算當日應顯示、且尚未標記「本期已知悉」的溫柔回顧提示清單。
+ */
+export function activeGentleReviews(
+  input: { today: string; stationSoon?: readonly StationSoonFact[] },
+  settings: ReminderSettings,
+  sent: Readonly<Record<string, number>>,
+): GentleReviewPrompt[] {
+  const { today, stationSoon = [] } = input;
+  const out: GentleReviewPrompt[] = [];
+
+  if (settings.reviewYear) {
+    const yw = yearEndReviewWindow(today);
+    if (yw) {
+      const key = `review-year:${yw.aimKey}`;
+      if (sent[key] === undefined) {
+        out.push({
+          key,
+          kind: "review-year",
+          title: `${yw.label}年底回顧`,
+          body: "一年來到尾聲，回頭看看今年的運行軌跡與方針，寫進日記留念吧。",
+          target: { kind: "review", weekOn: yw.aimKey },
+        });
+      }
+    }
+  }
+
+  if (settings.reviewMonth) {
+    const mw = monthEndReviewWindow(today);
+    if (mw) {
+      const key = `review-month:${mw.aimKey}`;
+      if (sent[key] === undefined) {
+        out.push({
+          key,
+          kind: "review-month",
+          title: `${mw.label}月底回顧`,
+          body: "月底將至，翻閱這個月的完成實績與方針，整理成一篇日記吧。",
+          target: { kind: "review", weekOn: mw.aimKey },
+        });
+      }
+    }
+  }
+
+  if (settings.stationSoon) {
+    for (const st of stationSoon) {
+      const diff = daysBetween(st.expectedOn, today);
+      if (diff < 0 || diff > 3) continue;
+      const key = `station-soon:${st.stationId}:${st.expectedOn}`;
+      if (sent[key] !== undefined) continue;
+      const countdown = diff === 0 ? "就是今天" : `還有 ${diff} 天`;
+      out.push({
+        key,
+        kind: "station-soon",
+        title: `車站即將到站：${clip(st.name)}`,
+        body: `${st.routeName ? `${st.routeName}・` : ""}預計 ${reminderDayText(st.expectedOn)}（${countdown}）`,
+        target: { kind: "station", stationId: st.stationId, routeId: st.routeId },
+      });
+    }
+  }
+
+  return out;
 }

@@ -170,6 +170,35 @@
 /* 影子卡：管理列本身沒有底色，浮起來只剩字和一圈影子——墊紙色，看起來才是「拿起來的那一列」 */
 .dr-ghost.ns-mgr-row { background: var(--color-paper-high); border-radius: var(--radius-card); border-bottom-color: transparent; }
 
+/* ── v1.33 G2：作息範本生效區間（起日～結束日）與溫和到期小籤 ── */
+.ns-tt-rtmgr-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ns-tt-rtmgr-dates.is-add { padding: 6px 2px 2px; }
+.ns-tt-rtmgr-addbox { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+.ns-tt-rtmgr-addbox .ns-tt-rtmgr-add { margin-top: 0; }
+.ns-tt-rtmgr-rangeli {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 0 0 8px 28px;
+}
+[data-shell="mobile"] .ns-tt-rtmgr-rangeli { padding-left: 26px; }
+.ns-tt-rtmgr-rangenote { font-size: var(--fs-xs); letter-spacing: .06em; color: var(--color-ink-faint); }
+.ns-tt-rtmgr-badge {
+  display: inline-flex; align-items: center; padding: 1px 7px;
+  font-size: var(--fs-micro); letter-spacing: .08em; line-height: 1.6;
+  border-radius: var(--radius-badge); border: 1px solid var(--color-dash);
+  color: var(--color-ink-soft); background: color-mix(in srgb, var(--color-ink) 4%, transparent);
+}
+.ns-tt-rtmgr-badge.is-expired {
+  color: var(--color-ink-faint);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--color-ink) 3%, transparent);
+}
+.ns-tt-rtmgr-badge.is-upcoming {
+  color: var(--sel-fg);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--sel-bg);
+}
+.ns-tt-rtmgr-row.is-expired .ns-mgr-name { color: var(--color-ink-soft); }
+
 @media (prefers-reduced-motion: reduce) {
   .ns-tt-rtmgr-detailli, .ns-tt-rtmgr-import { animation: none; }
   .ns-tt-rtmgr .ns-mgr-row.is-flash { animation: none; }

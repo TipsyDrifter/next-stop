@@ -18,8 +18,8 @@
  * 提前跳過下一班（`planSkipNext`／`planUnskip`）。**規則列存原樣**（parseFixedRule 不換算，編輯器來回不丟）；算班次的地方一律吃換算後的。
  */
 import {
+  DEFAULT_MONTH_START_DAY,
   IMPORT_SOURCE_MM,
-  MAIN_CURRENCY,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   UNCAT_NAME,
@@ -27,9 +27,12 @@ import {
   buildEntryRow,
   categoryArchivedUp,
   categoryLabel,
+  mainCurrencyOf,
+  maskedMoneyText,
   moneyText,
   monthOf,
   monthRange,
+  monthRangeLabel,
   parseAmount,
   quickAmountText,
   ticketId,
@@ -41,7 +44,7 @@ import {
   type NewEntryInput,
   type RepeatRow,
 } from "./ticket";
-import { categoryIdsIncluding, dayStep, shortDay } from "./ticketView";
+import { categoryIdsIncluding, dayDiff, dayStep, shortDay } from "./ticketView";
 import {
   REPEAT_INTERVAL_MAX,
   describeEnd,
@@ -201,9 +204,15 @@ export function effectiveBudget(
   return def ? { row: def, override: false } : null;
 }
 
-/** 該月支出淨額（0-7 口徑）；category ⇒ 含它底下所有子孫（D-票-42、78） */
-export function budgetUsed(entries: readonly EntryRow[], scope: BudgetScope, month: string, cats: readonly CategoryRow[]): number {
-  const r = monthRange(month);
+/** 該月支出淨額（0-7 口徑）；category ⇒ 含它底下所有子孫（D-票-42、78）；支援自訂帳務月起算日 */
+export function budgetUsed(
+  entries: readonly EntryRow[],
+  scope: BudgetScope,
+  month: string,
+  cats: readonly CategoryRow[],
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): number {
+  const r = monthRange(month, startDay);
   const ids = scope.kind === "category" ? new Set(categoryIdsIncluding([scope.categoryId], cats)) : null;
   let sum = 0;
   for (const e of entries) {
@@ -214,18 +223,35 @@ export function budgetUsed(entries: readonly EntryRow[], scope: BudgetScope, mon
   return sum;
 }
 
-function daysInMonth(month: string): number {
-  const y = parseInt(month.slice(0, 4), 10);
-  const m = parseInt(month.slice(5, 7), 10);
-  return new Date(y, m, 0).getDate();
-}
-
-/** 按日進度：過去的月 1、未來的月 0、同月＝日號 ÷ 當月天數 */
-export function monthPace(month: string, today: string): number {
-  const tm = monthOf(today);
+/** 按日進度：過去的帳務月 1、未來的帳務月 0、當期＝已過天數 ÷ 該期總天數（startDay=1 時與日號 ÷ 當月天數完全同義） */
+export function monthPace(
+  month: string,
+  today: string,
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): number {
+  const tm = monthOf(today, startDay);
   if (tm > month) return 1;
   if (tm < month) return 0;
-  return parseInt(today.slice(8, 10), 10) / daysInMonth(month);
+  const r = monthRange(month, startDay);
+  const total = dayDiff(r.from, r.toExcl);
+  if (total <= 0) return 0;
+  return (dayDiff(r.from, today) + 1) / total;
+}
+
+/** 預算卡副標：「10 月 · 已過 19/31 天」；自訂月起算日時附加「（11/05–12/04）」 */
+export function budgetMonthSub(
+  month: string,
+  today: string,
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): string {
+  const mLabel = `${parseInt(month.slice(5, 7), 10)} 月`;
+  const rangeLabel = monthRangeLabel(month, startDay);
+  const name = rangeLabel ? `${mLabel}（${rangeLabel}）` : mLabel;
+  const tm = monthOf(today, startDay);
+  if (tm > month) return `${name} · 已結束`;
+  if (tm < month) return `${name} · 還沒開始`;
+  const r = monthRange(month, startDay);
+  return `${name} · 已過 ${dayDiff(r.from, today) + 1}/${dayDiff(r.from, r.toExcl)} 天`;
 }
 
 /** 統計頁預算卡的列（0-11）：對每個有 effectiveBudget 的對象一列；總預算第一、其餘照 position */
@@ -236,14 +262,15 @@ export function budgetLines(
   cats: readonly CategoryRow[],
   today: string,
   ctx: Pick<EntryCtx, "catById">,
+  startDay: number = DEFAULT_MONTH_START_DAY,
 ): BudgetLine[] {
-  const pace = monthPace(month, today);
+  const pace = monthPace(month, today, startDay);
   const out: BudgetLine[] = [];
   for (const scope of budgetScopes(budgets)) {
     const eff = effectiveBudget(budgets, scope, month);
     if (!eff) continue;
     const budget = eff.row.amount_minor;
-    const used = budgetUsed(entries, scope, month, cats);
+    const used = budgetUsed(entries, scope, month, cats, startDay);
     let label: string = PLAN_TEXT.total;
     let archived = false;
     let gone = false;
@@ -278,12 +305,17 @@ export function budgetLines(
  * 標在**最後一次**從 ≤ total 越到 > total 的那一天（之後累計一直在 total 之上）：該月支出依日升冪累加（同日合計後再比）。
  * 退款把月總額拉回 ≤ total ⇒ null；拉回後又超 ⇒ 標後面那次越過的日子。total null／≤0 ⇒ null。
  */
-export function overBudgetDay(entries: readonly EntryRow[], month: string, totalMinor: number | null): string | null {
+export function overBudgetDay(
+  entries: readonly EntryRow[],
+  month: string,
+  totalMinor: number | null,
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): string | null {
   if (totalMinor === null || totalMinor <= 0) return null;
-  if (!(budgetUsed(entries, { kind: "total" }, month, []) > totalMinor)) return null;
+  if (!(budgetUsed(entries, { kind: "total" }, month, [], startDay) > totalMinor)) return null;
   const byDay: Record<string, number> = {};
   for (const e of entries) {
-    if (e.deleted_at !== null || e.kind !== "expense" || monthOf(e.occurred_on) !== month) continue;
+    if (e.deleted_at !== null || e.kind !== "expense" || monthOf(e.occurred_on, startDay) !== month) continue;
     byDay[e.occurred_on] = (byDay[e.occurred_on] ?? 0) + e.main_minor;
   }
   let cum = 0;
@@ -303,7 +335,19 @@ function overWhole(overMinor: number, decimals: number): number {
 }
 
 /** 卡上的三段字（整數主單位）；rest＝「剩 Z」或「超支 W」（W 無條件進位、至少 1） */
-export function budgetText(line: BudgetLine, decimals: number): { used: string; budget: string; rest: string } {
+export function budgetText(
+  line: BudgetLine,
+  decimals: number,
+  opts?: { masked?: boolean; currency?: string },
+): { used: string; budget: string; rest: string } {
+  if (opts?.masked) {
+    const m = maskedMoneyText(opts.currency);
+    return {
+      used: m,
+      budget: m,
+      rest: line.over ? `超支 ${m}` : `剩 ${m}`,
+    };
+  }
   const w = (n: number) => moneyText(n, decimals, { whole: true });
   return {
     used: w(line.used),
@@ -909,16 +953,23 @@ export function repeatRuleText(rule: FixedRepeatRule): string {
  * 管理頁一列的一句話（✎-12）：收支＝「每月 1 日 · 房租 · −12,000 · 現金」（外幣在金額後加代碼）；
  * 轉帳＝「每月 5 日 · 帳戶 → 悠遊卡 · ⇄1,000」（帳戶已在去向段，不再重複）；有結束條件接在規則後面（repeatRuleText）
  */
-export function repeatLabel(r: RepeatRow, ctx: EntryCtx): string {
+export function repeatLabel(r: RepeatRow, ctx: EntryCtx, opts?: { masked?: boolean }): string {
   const rule = parseFixedRule(r.rule);
   const desc = rule ? repeatRuleText(rule) : PLAN_TEXT.ruleBad;
   const cur = ctx.curByCode[r.currency];
   const dec = cur ? cur.decimals : 2;
-  const foreign = r.currency !== MAIN_CURRENCY && !(cur && cur.is_main === 1) ? ` ${r.currency}` : "";
+  const mainCode = mainCurrencyOf(ctx.curByCode).code;
+  const foreign = r.currency !== mainCode && !(cur && cur.is_main === 1) ? ` ${r.currency}` : "";
   if (r.kind === "transfer") {
-    return `${desc} · ${accName(r.account_id, ctx.accById)} → ${accName(r.to_account_id, ctx.accById)} · ${moneyText(r.amount_minor, dec, { prefix: "⇄" })}${foreign}`;
+    const amtText = opts?.masked
+      ? maskedMoneyText(r.currency, { prefix: "⇄" })
+      : `${moneyText(r.amount_minor, dec, { prefix: "⇄" })}${foreign}`;
+    return `${desc} · ${accName(r.account_id, ctx.accById)} → ${accName(r.to_account_id, ctx.accById)} · ${amtText}`;
   }
-  return `${desc} · ${catText(r.category_id, r.kind, ctx.catById)} · ${quickAmountText(r.kind, r.amount_minor, dec)}${foreign} · ${accName(r.account_id, ctx.accById)}`;
+  const amtText = opts?.masked
+    ? maskedMoneyText(r.currency)
+    : `${quickAmountText(r.kind, r.amount_minor, dec)}${foreign}`;
+  return `${desc} · ${catText(r.category_id, r.kind, ctx.catById)} · ${amtText} · ${accName(r.account_id, ctx.accById)}`;
 }
 
 /** 管理頁的分區：暫停優先；上次實體化被擋 ⇒ blocked；沒有下一班 ⇒ ended */

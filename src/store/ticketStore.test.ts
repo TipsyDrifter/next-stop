@@ -89,6 +89,7 @@ const SYNC = { device_id: "dev1", created_at: NOW, updated_at: NOW, synced_at: n
 
 const CURRENCIES: CurrencyRow[] = [
   { id: ticketId("currency:TWD"), code: "TWD", name: "TWD", decimals: 2, rate_to_main: "1", is_main: 1, position: 0, ...SYNC },
+  { id: ticketId("currency:USD"), code: "USD", name: "USD", decimals: 2, rate_to_main: "32", is_main: 0, position: 1, ...SYNC },
 ];
 const ACCOUNTS: AccountRow[] = [
   { id: "a1", name: "現金", group_key: "cash", currency: "TWD", position: 0, archived_at: null, ...SYNC },
@@ -155,6 +156,17 @@ const repo = {
   async listTemplates() { return []; },
   async getEntries() { return []; },
   async getWishTargets() { return {}; },
+  async setMainCurrency(code: string) {
+    for (const c of CURRENCIES) {
+      if (c.code === code) {
+        c.is_main = 1;
+        c.rate_to_main = "1";
+      } else {
+        c.is_main = 0;
+        c.rate_to_main = "0.03125";
+      }
+    }
+  },
 };
 (globalThis as unknown as { __tkMgmtTestRepo: unknown }).__tkMgmtTestRepo = repo;
 
@@ -225,5 +237,75 @@ describe("ticketStore v1.32（2B-1a & 2B-2）", async () => {
 
     st().closeSearch();
     await st().setFilter(null);
+  });
+
+  test("3B-G4：setMonthStartDay 寫入同步鍵 ticket_month_start_day 並以新帳期重載當月帳目；setMainCurrency 切換主幣別並刷新", async () => {
+    const settingsMap = (globalThis as unknown as { __tkMgmtSettings: Map<string, string> }).__tkMgmtSettings;
+    await st().setMonth("2026-10");
+    // startDay=1 時，2026-10 只有 oct_a1_old (10/25)
+    assert.deepEqual(st().entries.map((e) => e.id), ["oct_a1_old"]);
+
+    // 改為每月 12 日起算：2026-10 帳期變成 2026-10-12 ～ 2026-11-11，應自動涵蓋 oct_a1_old (10/25)、nov_a1_1 (11/10)、nov_a2_1 (11/11)！
+    await st().setMonthStartDay(12);
+    assert.equal(st().monthStartDay, 12);
+    assert.equal(settingsMap.get("ticket_month_start_day"), "12");
+    assert.deepEqual(st().entries.map((e) => e.id), ["nov_a2_1", "nov_a1_1", "oct_a1_old"]);
+
+    // 主幣別切換為 USD
+    const ok = await st().setMainCurrency("USD");
+    assert.equal(ok, true);
+    assert.equal(st().curByCode.USD?.is_main, 1);
+    assert.equal(st().curByCode.TWD?.is_main, 0);
+
+    // 還原預設以保測試獨立
+    await st().setMainCurrency("TWD");
+    await st().setMonthStartDay(1);
+  });
+
+  test("3B-G5：隱私遮罩一鍵切換與 4 碼帳本密碼鎖（設鎖、鎖定、錯誤攔截、解除遮罩需驗 PIN、關閉密碼鎖）", async () => {
+    const { isTicketAmountMasked } = await import("./ticketStore.ts");
+    const settingsMap = (globalThis as unknown as { __tkMgmtSettings: Map<string, string> }).__tkMgmtSettings;
+
+    // 1) 未設密碼鎖時，隱私遮罩可自由一鍵開關
+    assert.equal(st().privacyMasked, false);
+    st().togglePrivacyMask();
+    assert.equal(st().privacyMasked, true);
+    assert.equal(settingsMap.get("ticket_privacy_masked"), "1");
+    st().togglePrivacyMask();
+    assert.equal(st().privacyMasked, false);
+
+    // 2) 設定 4 碼 PIN（本機存雜湊而非明文）
+    const pinOk = await st().setLockPin("2468");
+    assert.equal(pinOk, true);
+    assert.equal(st().hasLockPin, true);
+    assert.equal(st().lockUnlocked, true);
+    const savedHash = settingsMap.get("ticket_lock_pin_hash") ?? "";
+    assert.equal(savedHash.startsWith("v1:"), true);
+    assert.equal(savedHash.includes("2468"), false);
+
+    // 3) 手動鎖定帳本 -> 進入鎖定態且 isTicketAmountMasked 為 true
+    st().lockLedger();
+    assert.equal(st().lockUnlocked, false);
+    assert.equal(isTicketAmountMasked(st()), true);
+    assert.equal(st().unlockWithPin("0000"), false);
+    assert.equal(st().lockUnlocked, false);
+    assert.equal(st().unlockWithPin("2468"), true);
+    assert.equal(st().lockUnlocked, true);
+
+    // 4) 有密碼鎖時：開啟遮罩一鍵生效，嘗試解除遮罩會要求驗 PIN
+    st().togglePrivacyMask();
+    assert.equal(st().privacyMasked, true);
+    st().togglePrivacyMask();
+    assert.equal(st().privacyMasked, true);
+    assert.equal(st().unmaskPromptOpen, true);
+    assert.equal(st().unlockWithPin("2468"), true);
+    assert.equal(st().unmaskPromptOpen, false);
+    assert.equal(st().privacyMasked, false);
+
+    // 5) 關閉密碼鎖需驗舊 PIN
+    assert.equal(await st().clearLockPin("9999"), false);
+    assert.equal(st().hasLockPin, true);
+    assert.equal(await st().clearLockPin("2468"), true);
+    assert.equal(st().hasLockPin, false);
   });
 });

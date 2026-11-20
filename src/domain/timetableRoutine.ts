@@ -23,7 +23,7 @@ import { uuidv5 } from "../lib/uuidv5.ts";
 
 /* ───────────────────────── 1. 型別 ───────────────────────── */
 
-/** time_routines 一列（作息範本；欄位語義見 ⑦ 契約 §2） */
+/** time_routines 一列（作息範本；欄位語義見 ⑦ 契約 §2；v1.33 G2 新增 start_day／end_day） */
 export interface TimeRoutineRow {
   id: string;
   name: string;
@@ -33,6 +33,10 @@ export interface TimeRoutineRow {
   weekdays: number;
   position: number;
   archived_at: string | null;
+  /** 'YYYY-MM-DD' 或 NULL（v1.33 G2：生效開始日，含當天） */
+  start_day?: string | null;
+  /** 'YYYY-MM-DD' 或 NULL（v1.33 G2：生效結束日，含當天） */
+  end_day?: string | null;
   account_id: string | null;
   device_id: string | null;
   created_at: string;
@@ -108,11 +112,39 @@ export interface PlanPatch {
   label?: string | null;
 }
 
-/** 新建／改範本（repository 收這個；`items` 照 `checkRoutineItems` 驗） */
+/** 新建／改範本（repository 收這個；`items` 照 `checkRoutineItems` 驗；`startDay`／`endDay` 照 `normalizeRoutineDay`＋`assertRoutineDayRange` 驗） */
 export interface RoutineInput {
   name: string;
   items: readonly RoutineItem[];
   weekdays: number;
+  startDay?: string | null;
+  endDay?: string | null;
+}
+
+const ROUTINE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** 'YYYY-MM-DD' 而且是真實存在的日期；null／undefined／空字串 ⇒ null */
+export function normalizeRoutineDay(raw: string | null | undefined): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") throw new RangeError("日期格式要像 2026-09-01");
+  const s = raw.trim();
+  if (!s) return null;
+  const m = ROUTINE_DATE_RE.exec(s);
+  if (!m) throw new RangeError("日期格式要像 2026-09-01");
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) {
+    throw new RangeError("日期格式要像 2026-09-01（這一天不存在）");
+  }
+  return s;
+}
+
+export function assertRoutineDayRange(startDay: string | null, endDay: string | null): void {
+  if (startDay !== null && endDay !== null && endDay < startDay) {
+    throw new RangeError("結束日期不能早於開始日期");
+  }
 }
 
 /** 寫入前驗一列預定的日子與起訖（repository 用；不驗日界線範圍）。不對 ⇒ RangeError（人話） */
@@ -267,18 +299,132 @@ export function weekdaysSummary(mask: number): string {
 const byPosition = (a: TimeRoutineRow, b: TimeRoutineRow): number =>
   a.position - b.position || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** 真實存在的 YYYY-MM-DD 日期（排除 2026-02-31 等無效日曆日） */
+export function isRealRoutineDate(k: unknown): k is string {
+  if (typeof k !== "string") return false;
+  const m = DATE_KEY_RE.exec(k);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
+/** 生效日期欄位正規化：空／null／undefined ⇒ null；不合法 ⇒ RangeError */
+export function normalizeRoutineDate(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "string") throw new RangeError("日期格式要像 2026-09-01 這樣");
+  const t = raw.trim();
+  if (!t) return null;
+  if (!isRealRoutineDate(t)) throw new RangeError("日期格式要像 2026-09-01 這樣");
+  return t;
+}
+
+/** 驗證作息範本的生效區間（起日 start_day ～ 結束日 end_day）：皆選填；都填時結束日須 ≥ 起日 */
+export function checkRoutineDates(
+  startDay?: string | null,
+  endDay?: string | null,
+): { start_day: string | null; end_day: string | null } {
+  const s = normalizeRoutineDate(startDay);
+  const e = normalizeRoutineDate(endDay);
+  if (s !== null && e !== null && e < s) {
+    throw new RangeError("結束日期不能早於開始日期");
+  }
+  return { start_day: s, end_day: e };
+}
+
+/** 營業日 dayKey 是否落在範本的生效區間 [start_day, end_day]（含邊界日；null＝無上限／無下限） */
+export function isRoutineInDateRange(
+  r: { start_day?: string | null; end_day?: string | null },
+  dayKey: string,
+): boolean {
+  const s = r.start_day ?? null;
+  const e = r.end_day ?? null;
+  if (s !== null && s !== "" && dayKey < s) return false;
+  if (e !== null && e !== "" && dayKey > e) return false;
+  return true;
+}
+
+/** 範本在指定營業日是否有效（若帶 archived_at／deleted_at 亦一併過濾，且在生效區間 [start_day, end_day] 內） */
+export function isRoutineActiveOn(
+  r: { archived_at?: string | null; deleted_at?: string | null; start_day?: string | null; end_day?: string | null },
+  dayKey: string,
+): boolean {
+  if ((r.deleted_at ?? null) !== null || (r.archived_at ?? null) !== null) return false;
+  return isRoutineInDateRange(r, dayKey);
+}
+
+/** 範本是否已到期（end_day 有填且 today > end_day；未刪除） */
+export function isRoutineExpired(
+  r: { deleted_at?: string | null; end_day?: string | null },
+  todayKeyStr: string,
+): boolean {
+  if ((r.deleted_at ?? null) !== null) return false;
+  const e = r.end_day ?? null;
+  return e !== null && e !== "" && todayKeyStr > e;
+}
+
+/** 兩套範本的生效區間是否有重疊（供編輯器判斷週幾是否真的撞期） */
+export function routinesOverlapDates(
+  a: { start_day?: string | null; end_day?: string | null },
+  b: { start_day?: string | null; end_day?: string | null },
+): boolean {
+  const aStart = a.start_day && a.start_day !== "" ? a.start_day : "0000-01-01";
+  const aEnd = a.end_day && a.end_day !== "" ? a.end_day : "9999-12-31";
+  const bStart = b.start_day && b.start_day !== "" ? b.start_day : "0000-01-01";
+  const bEnd = b.end_day && b.end_day !== "" ? b.end_day : "9999-12-31";
+  return aEnd >= bStart && bEnd >= aStart;
+}
+
+/** 範本管理清單上的生效區間與到期小籤文案（無區間 ⇒ label: null） */
+export function routineRangeStatus(
+  r: { start_day?: string | null; end_day?: string | null; deleted_at?: string | null },
+  todayKeyStr?: string,
+): { expired: boolean; upcoming: boolean; label: string | null; badge: string | null } {
+  const s = r.start_day && r.start_day !== "" ? r.start_day : null;
+  const e = r.end_day && r.end_day !== "" ? r.end_day : null;
+  if (!s && !e) return { expired: false, upcoming: false, label: null, badge: null };
+  if (todayKeyStr && e && todayKeyStr > e) {
+    const badge = `已到期（${e} 止）`;
+    const label = s ? `${s}～${e}` : `${e} 止`;
+    return { expired: true, upcoming: false, label, badge };
+  }
+  if (todayKeyStr && s && todayKeyStr < s) {
+    const badge = `${s} 起生效`;
+    const label = e ? `${s}～${e}` : `${s} 起`;
+    return { expired: false, upcoming: true, label, badge };
+  }
+  const label = s && e ? `${s}～${e}` : s ? `${s} 起` : `${e} 止`;
+  return { expired: false, upcoming: false, label, badge: null };
+}
+
 /** 自動帶得到的範本（未刪、未封存），依 position → created_at → id */
 function activeRoutines(routines: readonly TimeRoutineRow[]): TimeRoutineRow[] {
   return routines.filter((r) => r.deleted_at === null && r.archived_at === null).sort(byPosition);
 }
 
+export interface WeekdayOwnerContext {
+  today?: string;
+  forRoutine?: { id?: string; start_day?: string | null; end_day?: string | null };
+}
+
 /**
  * 每個週幾給了哪一套（index 0＝週一）；沒有＝null。編輯器在後面那套的週一旁寫「週一已給『工作日』」用：
  * `owners[b] !== null && owners[b] !== 自己` ⇒ 那一天被前面那套拿走了。
+ * G2：若傳入 `ctx`（例如今天日期或正在編輯的範本區間），已到期的舊範本或區間完全不重疊的範本不會卡住新學期範本的週幾。
  */
-export function weekdayOwners(routines: readonly TimeRoutineRow[]): (string | null)[] {
+export function weekdayOwners(
+  routines: readonly TimeRoutineRow[],
+  ctx?: string | WeekdayOwnerContext,
+): (string | null)[] {
   const out: (string | null)[] = [null, null, null, null, null, null, null];
+  const today = typeof ctx === "string" ? ctx : ctx?.today;
+  const target = typeof ctx === "object" && ctx !== null ? ctx.forRoutine : undefined;
+  const targetExpired = !!(today && target && isRoutineExpired(target, today));
   for (const r of activeRoutines(routines)) {
+    if (today && !targetExpired && isRoutineExpired(r, today) && r.id !== target?.id) continue;
+    if (target && r.id !== target.id && !routinesOverlapDates(r, target)) continue;
     for (let b = 0; b < 7; b++) if (out[b] === null && r.weekdays & (1 << b)) out[b] = r.id;
   }
   return out;
@@ -306,9 +452,11 @@ export function routineHasItems(routine: TimeRoutineRow): boolean {
   return (parseRoutineItems(routine.items)?.length ?? 0) > 0;
 }
 
-/** 某天 D 的自動範本：沒封存、`weekdays` 含 D 的週幾、`position` 最前的那一套；沒有＝null */
+/** 某天 D 的自動範本：沒封存、在生效區間 [start_day, end_day] 內、`weekdays` 含 D 的週幾、`position` 最前的那一套；沒有＝null */
 export function autoRoutineFor(dayKey: string, routines: readonly TimeRoutineRow[]): TimeRoutineRow | null {
-  for (const r of activeRoutines(routines)) if (hasWeekday(r.weekdays, dayKey)) return r;
+  for (const r of activeRoutines(routines)) {
+    if (hasWeekday(r.weekdays, dayKey) && isRoutineActiveOn(r, dayKey)) return r;
+  }
   return null;
 }
 

@@ -20,7 +20,9 @@
  *   荷札資料不在帳列上：呼叫端把 tagStore.index 換成 `ViewCtx.entryTags`（帳 id → 荷札 keys）與 `tagName` 傳進來（`ticketTags.ts` 的 `entryTagMap`）。
  */
 import {
+  DEFAULT_MONTH_START_DAY,
   MAIN_CURRENCY,
+  MASK_STARS,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   addMonths,
@@ -31,6 +33,7 @@ import {
   categoryPath,
   categorySubtreeIds,
   flattenForest,
+  formatDisplayMoney,
   monthOf,
   monthRange,
   monthTitle,
@@ -67,6 +70,9 @@ export function isTicketManageTab(x: string): x is TicketManageTab {
 export type StatsSpan = "month" | "year";
 /** 售票口④（D-票-73）：多「依荷札」 */
 export type Facet = "category" | "account" | "route" | "tag";
+/** v1.33 3B：統計各切面排序（依金額 ｜ 依筆數） */
+export type BreakdownSort = "amount" | "count";
+export const DEFAULT_BREAKDOWN_SORT: BreakdownSort = "amount";
 /** key：月＝"2026-10"、年＝"2026" */
 export interface Period {
   span: StatsSpan;
@@ -241,10 +247,12 @@ function yearKey(y: number): string {
   return String(y).padStart(4, "0");
 }
 
-export function periodRange(p: Period): { from: string; toExcl: string } {
-  if (p.span === "month") return monthRange(p.key);
-  const y = parseInt(p.key, 10);
-  return { from: `${p.key}-01-01`, toExcl: `${yearKey(y + 1)}-01-01` };
+export function periodRange(p: Period, startDay: number = DEFAULT_MONTH_START_DAY): { from: string; toExcl: string } {
+  if (p.span === "month") return monthRange(p.key, startDay);
+  return {
+    from: monthRange(`${p.key}-01`, startDay).from,
+    toExcl: monthRange(`${p.key}-12`, startDay).toExcl,
+  };
 }
 
 /** "2026 年 10 月"／"2026 年" */
@@ -268,9 +276,9 @@ export function trendMonths(p: Period): string[] {
 }
 
 /** trendMonths 第一個月的 from 到最後一個月的 toExcl（一定涵蓋 periodRange） */
-export function trendRange(p: Period): { from: string; toExcl: string } {
+export function trendRange(p: Period, startDay: number = DEFAULT_MONTH_START_DAY): { from: string; toExcl: string } {
   const ms = trendMonths(p);
-  return { from: monthRange(ms[0]).from, toExcl: monthRange(ms[ms.length - 1]).toExcl };
+  return { from: monthRange(ms[0], startDay).from, toExcl: monthRange(ms[ms.length - 1], startDay).toExcl };
 }
 
 export function inRange(dayKey: string, r: { from: string; toExcl: string }): boolean {
@@ -279,7 +287,7 @@ export function inRange(dayKey: string, r: { from: string; toExcl: string }): bo
 
 /* ───────────────────────── §4.3 統計（0-7～0-9） ───────────────────────── */
 
-/** 期間內的收入／支出／淨額／收支筆數；與 `monthSum(entries, month)` 同義 */
+/** 期間內的收入／支出／淨額／收支筆數；與 `monthSum(entries, month, startDay)` 同義 */
 export function statsOverview(entries: readonly EntryRow[], r: { from: string; toExcl: string }): Overview {
   let income = 0;
   let expense = 0;
@@ -298,12 +306,16 @@ export function statsOverview(entries: readonly EntryRow[], r: { from: string; t
 }
 
 /** 每月一點，口徑同 statsOverview；沒帳的月 0／0；順序＝months 的順序 */
-export function monthlyTrend(entries: readonly EntryRow[], months: readonly string[]): TrendPoint[] {
+export function monthlyTrend(
+  entries: readonly EntryRow[],
+  months: readonly string[],
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): TrendPoint[] {
   const byMonth: Record<string, TrendPoint> = {};
   const out: TrendPoint[] = months.map((m) => (byMonth[m] = { month: m, income: 0, expense: 0 }));
   for (const e of entries) {
     if (e.deleted_at !== null) continue;
-    const p = byMonth[monthOf(e.occurred_on)];
+    const p = byMonth[monthOf(e.occurred_on, startDay)];
     if (!p) continue;
     if (e.kind === "income") p.income += e.main_minor;
     else if (e.kind === "expense") p.expense += e.main_minor;
@@ -338,6 +350,8 @@ function bump(map: Record<string, Acc>, key: string, init: () => Omit<Acc, "mino
 }
 
 const byAmount = (a: Acc, b: Acc): number => a.tail - b.tail || b.minor - a.minor || a.order - b.order || cmpStr(a.key, b.key);
+const byCount = (a: Acc, b: Acc): number =>
+  a.tail - b.tail || b.count - a.count || b.minor - a.minor || a.order - b.order || cmpStr(a.key, b.key);
 
 function toRow(a: Acc, total: number, positiveParent: boolean): BreakdownRow {
   const row: BreakdownRow = {
@@ -359,7 +373,7 @@ function toRow(a: Acc, total: number, positiveParent: boolean): BreakdownRow {
  * （更深的併進那一層；直接記在主列本身的另出「未細分」，只有它一種就不出）；某列底下還有更深的帳 ⇒ `deeper`（UI 畫「進入 ›」）。
  * `opts.catRoot`（「進入 ›」以那層為根）：只算那個分類整棵的帳，主列＝它的直屬下一層，直接記在它本身的帳是最後一列「未細分」
  * （排在一般列之後）；沒給或 null＝全部分類：主列＝頂層，未分類固定在一般列之後、GONE 在未分類之後。
- * 其他切面金額大到小、同額照自然順序。
+ * `opts.sort === "count"` ⇒ 依筆數多到少排序（同筆數再依金額、自然順序）；預設依金額大到小。
  * total＝所有 minor > 0 的主列合計（以某分類為根時＝那一層的合計）；minor ≤ 0 的主列（連同 children）移到 refunds、share 0。
  */
 export function breakdown(
@@ -368,9 +382,10 @@ export function breakdown(
   facet: Facet,
   kind: "expense" | "income",
   ctx: ViewCtx,
-  opts?: { catRoot?: string | null },
+  opts?: { catRoot?: string | null; sort?: BreakdownSort },
 ): Breakdown {
-  if (facet === "tag") return tagBreakdown(entries, r, kind, ctx);
+  const sort: BreakdownSort = opts?.sort === "count" ? "count" : "amount";
+  if (facet === "tag") return tagBreakdown(entries, r, kind, ctx, { sort });
   const map: Record<string, Acc> = {};
   const big = Number.MAX_SAFE_INTEGER;
 
@@ -453,26 +468,27 @@ export function breakdown(
   const mains = Object.keys(map).map((k) => map[k]);
   let total = 0;
   for (const a of mains) if (a.minor > 0) total += a.minor;
-  return finishBreakdown(mains, total);
+  return finishBreakdown(mains, total, sort);
 }
 
 /** 主列 → 排序、分 rows／refunds、帶 children（breakdown 與 tagBreakdown 共用） */
-function finishBreakdown(mains: Acc[], total: number): Breakdown {
+function finishBreakdown(mains: Acc[], total: number, sort: BreakdownSort = "amount"): Breakdown {
+  const cmp = sort === "count" ? byCount : byAmount;
   const rows: BreakdownRow[] = [];
   const refunds: BreakdownRow[] = [];
-  for (const a of mains.slice().sort(byAmount)) {
+  for (const a of mains.slice().sort(cmp)) {
     const positive = a.minor > 0;
     const row = toRow(a, total, positive);
     if (a.kids) {
       const kids = Object.keys(a.kids).map((k) => (a.kids as Record<string, Acc>)[k]);
       // 只有「直接掛主分類」一種 ⇒ 主分類本身就是那一列，不出「未細分」
       if (!(kids.length === 1 && kids[0].key === UNSPLIT_KEY)) {
-        row.children = kids.sort(byAmount).map((k) => toRow(k, total, positive));
+        row.children = kids.sort(cmp).map((k) => toRow(k, total, positive));
       }
     }
     (positive ? rows : refunds).push(row);
   }
-  refunds.sort((a, b) => a.minor - b.minor || cmpStr(a.key, b.key));
+  refunds.sort((a, b) => (sort === "count" ? b.count - a.count : 0) || a.minor - b.minor || cmpStr(a.key, b.key));
   return { rows, total, refunds };
 }
 
@@ -482,7 +498,13 @@ function finishBreakdown(mains: Acc[], total: number): Breakdown {
  * 主列（或同一個子列）裡一筆只算一次。沒掛荷札的帳一列「沒掛荷札」排在最後。
  * total＝期間內這種 kind 的帳的淨額（每筆只算一次）；share＝列淨額 ÷ total（夾到 1），所以各列加總可能超過 100%（頁上寫 tagNote）。
  */
-export function tagBreakdown(entries: readonly EntryRow[], r: { from: string; toExcl: string }, kind: "expense" | "income", ctx: ViewCtx): Breakdown {
+export function tagBreakdown(
+  entries: readonly EntryRow[],
+  r: { from: string; toExcl: string },
+  kind: "expense" | "income",
+  ctx: ViewCtx,
+  opts?: { sort?: BreakdownSort },
+): Breakdown {
   const map: Record<string, Acc> = {};
   const big = Number.MAX_SAFE_INTEGER;
   const tagsOf = ctx.entryTags ?? {};
@@ -516,7 +538,33 @@ export function tagBreakdown(entries: readonly EntryRow[], r: { from: string; to
   return finishBreakdown(
     Object.keys(map).map((k) => map[k]),
     total > 0 ? total : 0,
+    opts?.sort ?? "amount",
   );
+}
+
+/**
+ * v1.33 3B：統計切面「依路線」原地手風琴展開某路線列的帳目明細（新到舊）。
+ * 涵蓋一般路線 id、`NO_ROUTE_KEY`（無路線）與 `GONE_KEY`（路線已刪除）；回傳筆數與淨額恆與該 BreakdownRow 完全一致。
+ */
+export function routeBreakdownEntries(
+  entries: readonly EntryRow[],
+  r: { from: string; toExcl: string },
+  routeKey: string,
+  kind: "expense" | "income",
+  ctx: Pick<ViewCtx, "routeById">,
+): EntryRow[] {
+  const out: EntryRow[] = [];
+  for (const e of entries) {
+    if (e.deleted_at !== null || e.kind !== kind || !inRange(e.occurred_on, r)) continue;
+    if (routeKey === NO_ROUTE_KEY) {
+      if (e.route_id === null) out.push(e);
+    } else if (routeKey === GONE_KEY) {
+      if (e.route_id !== null && !ctx.routeById[e.route_id]) out.push(e);
+    } else if (e.route_id === routeKey) {
+      out.push(e);
+    }
+  }
+  return out.sort(newestFirst);
 }
 
 /** 四捨五入到整數；0 < share < 0.5% ⇒ "<1%"；0 ⇒ "0%" */
@@ -581,19 +629,20 @@ function weekdayOf(dayKey: string): number {
 }
 
 /** 兩個日 key 相差幾天（b − a；用 UTC 日數避開夏令時間） */
-function dayDiff(a: string, b: string): number {
+export function dayDiff(a: string, b: string): number {
   const [ya, ma, da] = splitDay(a);
   const [yb, mb, db] = splitDay(b);
   return Math.round((Date.UTC(yb, mb - 1, db) - Date.UTC(ya, ma - 1, da)) / 86_400_000);
 }
 
 /**
- * 4～6 列 × 7 個日 key：從 1 號所在週的 weekStart 那天起，補到月底所在週的最後一天（原型 monthGrid 同法）。
+ * 4～6 列 × 7 個日 key：從帳務月起日所在週的 weekStart 那天起，補到帳務月底所在週的最後一天（預設 startDay=1 等於 1 號到月底）。
  * 2 月剛好整齊排滿（平年、1 號正好是 weekStart）時只有 4 列——契約 §4.4 寫「5 或 6 列」是概略說法，演算法本身為準；UI 一週一列、不假設列數。
  */
-export function monthGrid(month: string, weekStart: 0 | 1): string[][] {
-  const first = `${month}-01`;
-  const last = dayStep(`${addMonths(month, 1)}-01`, -1);
+export function monthGrid(month: string, weekStart: 0 | 1, startDay: number = DEFAULT_MONTH_START_DAY): string[][] {
+  const r = monthRange(month, startDay);
+  const first = r.from;
+  const last = dayStep(r.toExcl, -1);
   const start = dayStep(first, -((weekdayOf(first) - weekStart + 7) % 7));
   const end = dayStep(last, (weekStart + 6 - weekdayOf(last) + 7) % 7);
   const rows: string[][] = [];
@@ -610,7 +659,13 @@ export function monthGrid(month: string, weekStart: 0 | 1): string[][] {
 }
 
 /** monthGrid 每格套 groupByDay 口徑（income／expense＝main_minor 合計、count＝收支筆數；轉帳校正不入） */
-export function calendarCells(entries: readonly EntryRow[], month: string, weekStart: 0 | 1, today: string): CalendarCell[][] {
+export function calendarCells(
+  entries: readonly EntryRow[],
+  month: string,
+  weekStart: 0 | 1,
+  today: string,
+  startDay: number = DEFAULT_MONTH_START_DAY,
+): CalendarCell[][] {
   const sums: Record<string, { income: number; expense: number; count: number }> = {};
   for (const e of entries) {
     if (e.deleted_at !== null || (e.kind !== "income" && e.kind !== "expense")) continue;
@@ -619,12 +674,12 @@ export function calendarCells(entries: readonly EntryRow[], month: string, weekS
     else s.expense += e.main_minor;
     s.count++;
   }
-  return monthGrid(month, weekStart).map((row) =>
+  return monthGrid(month, weekStart, startDay).map((row) =>
     row.map((dayKey) => {
       const s = sums[dayKey];
       return {
         dayKey,
-        inMonth: monthOf(dayKey) === month,
+        inMonth: monthOf(dayKey, startDay) === month,
         isToday: dayKey === today,
         income: s ? s.income : 0,
         expense: s ? s.expense : 0,
@@ -637,9 +692,21 @@ export function calendarCells(entries: readonly EntryRow[], month: string, weekS
 /**
  * 0-2 (a)：格內支出一個數＋有收入才多一行「＋N」（手機也是 ＋N，D-票-28）。
  * count 0 ⇒ 兩個都空；只有收入的天支出那格不印 0（同原型）；當日淨退 ⇒ "−350"。
+ * `masked: true` 時以精簡 `****` 顯示，不撐破窄月曆格。
  */
-export function cellText(c: CalendarCell, decimals: number, compact: boolean): { expense: string; income: string | null } {
+export function cellText(
+  c: CalendarCell,
+  decimals: number,
+  compact: boolean,
+  masked = false,
+): { expense: string; income: string | null } {
   if (c.count === 0) return { expense: "", income: null };
+  if (masked) {
+    return {
+      expense: c.expense !== 0 || c.income === 0 ? MASK_STARS : "",
+      income: c.income !== 0 ? "＋" + MASK_STARS : null,
+    };
+  }
   const money = (v: number): string => (compact ? compactMoney(v, decimals) : moneyText(v, decimals, { whole: true }));
   return {
     expense: c.expense !== 0 || c.income === 0 ? money(c.expense) : "",
@@ -886,7 +953,11 @@ export function filterEntries(entries: readonly EntryRow[], f: EntryFilter, ctx:
 }
 
 /** 「找到 N 筆 · 支出 X · 收入 Y」：N＝全部筆數（含轉帳校正）、支出／收入照 0-7 */
-export function resultSummary(results: readonly EntryRow[], decimals: number): string {
+export function resultSummary(
+  results: readonly EntryRow[],
+  decimals: number,
+  opts?: { masked?: boolean; currency?: string },
+): string {
   let exp = 0;
   let inc = 0;
   for (const e of results) {
@@ -894,7 +965,11 @@ export function resultSummary(results: readonly EntryRow[], decimals: number): s
     if (e.kind === "expense") exp += e.main_minor;
     else if (e.kind === "income") inc += e.main_minor;
   }
-  return VIEW_TEXT.found(results.length, moneyText(exp, decimals), moneyText(inc, decimals));
+  return VIEW_TEXT.found(
+    results.length,
+    formatDisplayMoney(exp, decimals, { masked: opts?.masked, currency: opts?.currency }),
+    formatDisplayMoney(inc, decimals, { masked: opts?.masked, currency: opts?.currency }),
+  );
 }
 
 /** v1.32 2B-2：當月直篩是否選了任一結構／荷札條件（不含跨月關鍵字 text 與期間 from/toExcl） */
@@ -919,7 +994,7 @@ export function isInMonthFilterActive(
 
 /**
  * v1.32 2B-2：當月就地篩選與排序（純函式）。
- * 只取 `month`（YYYY-MM）當月未刪的帳，套用結構條件（帳戶、分類含子孫、類型、路線）與荷札（選父含子），再依 `sort` 排好。
+ * 只取 `month`（YYYY-MM，依 `startDay` 帳務月區間）未刪的帳，套用結構條件（帳戶、分類含子孫、類型、路線）與荷札（選父含子），再依 `sort` 排好。
  */
 export function filterMonthEntries(
   entries: readonly EntryRow[],
@@ -927,8 +1002,9 @@ export function filterMonthEntries(
   f: EntryFilter,
   sort: EntrySort,
   ctx: ViewCtx,
+  startDay: number = DEFAULT_MONTH_START_DAY,
 ): EntryRow[] {
-  const r = monthRange(month);
+  const r = monthRange(month, startDay);
   const q = filterToQuery(
     { ...f, text: "", from: r.from, toExcl: r.toExcl },
     Object.keys(ctx.catById).map((k) => ctx.catById[k]),
@@ -939,7 +1015,11 @@ export function filterMonthEntries(
 }
 
 /** v1.32 2B-2：當月直篩列旁的筆數與收支小計（「N 筆 · 支出 X · 收入 Y」，口徑同 0-7） */
-export function inMonthSummary(entries: readonly EntryRow[], decimals: number): string {
+export function inMonthSummary(
+  entries: readonly EntryRow[],
+  decimals: number,
+  opts?: { masked?: boolean; currency?: string },
+): string {
   let exp = 0;
   let inc = 0;
   for (const e of entries) {
@@ -947,7 +1027,11 @@ export function inMonthSummary(entries: readonly EntryRow[], decimals: number): 
     if (e.kind === "expense") exp += e.main_minor;
     else if (e.kind === "income") inc += e.main_minor;
   }
-  return VIEW_TEXT.monthFiltered(entries.length, moneyText(exp, decimals), moneyText(inc, decimals));
+  return VIEW_TEXT.monthFiltered(
+    entries.length,
+    formatDisplayMoney(exp, decimals, { masked: opts?.masked, currency: opts?.currency }),
+    formatDisplayMoney(inc, decimals, { masked: opts?.masked, currency: opts?.currency }),
+  );
 }
 
 /** chips 列的字（期間／帳戶／分類／類型／路線；空的欄不出） */
@@ -1009,13 +1093,27 @@ export function routeSpendOf(entries: readonly EntryRow[], routeId: string, r: {
 }
 
 /** 路線側板：「本月 1,230／累計 18,420」（moneyText 口徑：整數不顯示小數、有小數照印；負數 `−`；兩個都 0 仍出；§4.6） */
-export function spendText(inRangeMinor: number, allTimeMinor: number, decimals: number): string {
-  return VIEW_TEXT.spend(moneyText(inRangeMinor, decimals), moneyText(allTimeMinor, decimals));
+export function spendText(
+  inRangeMinor: number,
+  allTimeMinor: number,
+  decimals: number,
+  opts?: { masked?: boolean; currency?: string },
+): string {
+  return VIEW_TEXT.spend(
+    formatDisplayMoney(inRangeMinor, decimals, { masked: opts?.masked, currency: opts?.currency }),
+    formatDisplayMoney(allTimeMinor, decimals, { masked: opts?.masked, currency: opts?.currency }),
+  );
 }
 
 /** 手機路線列尾：0 ⇒ null；否則「本月花 1,230」 */
-export function asideText(inRangeMinor: number, decimals: number): string | null {
-  return inRangeMinor === 0 ? null : VIEW_TEXT.aside(moneyText(inRangeMinor, decimals));
+export function asideText(
+  inRangeMinor: number,
+  decimals: number,
+  opts?: { masked?: boolean; currency?: string },
+): string | null {
+  return inRangeMinor === 0
+    ? null
+    : VIEW_TEXT.aside(formatDisplayMoney(inRangeMinor, decimals, { masked: opts?.masked, currency: opts?.currency }));
 }
 
 /* ───────────────────────── §4.7 帳戶頁（售票口④ 第二輪 D-票-77、79） ───────────────────────── */
@@ -1069,8 +1167,8 @@ export function accountFlowParts(flow: AccountFlow): { key: keyof AccountFlow; l
 }
 
 /** 帳戶頁要讀的帳：走勢第一個月的月初到最後（含未來日；月底餘額＝現在的餘額扣回之後的帳） */
-export function accountsRange(month: string): { from: string; toExcl: string } {
-  return { from: monthRange(addMonths(month, 1 - ACCOUNT_TREND_MONTHS)).from, toExcl: FAR_DAY };
+export function accountsRange(month: string, startDay: number = DEFAULT_MONTH_START_DAY): { from: string; toExcl: string } {
+  return { from: monthRange(addMonths(month, 1 - ACCOUNT_TREND_MONTHS), startDay).from, toExcl: FAR_DAY };
 }
 
 /** 一筆帳對某帳戶餘額的影響（帳戶幣別；＝balancesOf 的公式） */
@@ -1082,7 +1180,7 @@ function balanceDelta(e: EntryRow, accountId: string): number {
 }
 
 /**
- * 帳戶頁每張卡的數字（一次算完所有帳戶，不逐帳戶查）：`entries`＝`accountsRange(month)` 讀出來的帳（全部帳戶），
+ * 帳戶頁每張卡的數字（一次算完所有帳戶，不逐帳戶查）：`entries`＝`accountsRange(month, startDay)` 讀出來的帳（全部帳戶），
  * `balances`＝現在的餘額（repository.balances）。走勢選**月底餘額**而不是每月淨額：卡片的主角就是餘額，
  * 小圖說的是「這個數字怎麼走到現在」；負債帳戶（信用卡）也直接看得出欠款升降；淨額每月跳上跳下，小圖讀不出東西。
  * 月底餘額＝現在的餘額 − 那個月之後的帳的影響（所以要讀到最後、含未來日）。含封存帳戶（分組由 UI 用 groupAccounts／archivedAccounts）。
@@ -1092,11 +1190,12 @@ export function accountCards(
   balances: Readonly<Record<string, number>>,
   entries: readonly EntryRow[],
   month: string,
+  startDay: number = DEFAULT_MONTH_START_DAY,
 ): Record<string, AccountCard> {
   const months: string[] = [];
   for (let i = ACCOUNT_TREND_MONTHS - 1; i >= 0; i--) months.push(addMonths(month, -i));
-  const ends = months.map((m) => monthRange(m).toExcl);
-  const cur = monthRange(month);
+  const ends = months.map((m) => monthRange(m, startDay).toExcl);
+  const cur = monthRange(month, startDay);
   const out: Record<string, AccountCard> = {};
   // after[id][i]＝occurred_on ≥ ends[i] 的帳對它的影響合計
   const after: Record<string, number[]> = {};

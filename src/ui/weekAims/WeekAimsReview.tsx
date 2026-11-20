@@ -1,11 +1,13 @@
 /**
- * 方針的回顧（戊 D-主-258、260；方針擴充 辛 §7；原型場景 a-review）。吃任何期間鍵。
+ * 方針的回顧（戊 D-主-258、260；方針擴充 辛 §7；v1.33 G6「寫成日記 ›」回顧閉環）。吃任何期間鍵。
  * 每句済了沒（還能補蓋）＋這段期間在掛的地方：蓋了幾枚章、時刻表記了多久、售票口花了多少（沒有就是 —）。沒有分數、連續天數、進度條。
  * 車站沒掛的句子數字看這條路線（§2）。
- * 頁腳「帶到下週／下個月／明年／下一站（N 句）」＝開下一期的寫方針、沒済的 N 句已經帶進草稿（D-主-261）；車站後面沒有還沒到的站＝鈕灰掉並說明。
+ * 頁腳：
+ *   - 「寫成日記 ›」（G6）：將當期方針清單（含達成印記 `[済]` / `[ ]` 與綁定路線名）格式化為手帳 Markdown，溫柔附加至今日日記文末（或建立今日日記），並以 `runAtomicNav` 跳轉至旅客筆記供接著書寫心情。
+ *   - 「帶到下週／下個月／明年／下一站（N 句）」：開下一期的寫方針、沒済的 N 句帶進草稿（D-主-261）。
  * 桌機＝告示換成表格（`ReviewBoard`）；手機＝底部面板裡的清單（`ReviewList`）。
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { moneyText } from "../../domain/ticket";
 import {
   adjacentKey,
@@ -25,9 +27,11 @@ import {
 import { compareSiblings } from "../../domain/nodeOrder";
 import type { ReviewResult } from "../../data/weekAimRepository";
 import { useNodeStore } from "../../store/nodeStore";
+import { useReportStore } from "../../store/reportStore";
 import { uncarried, useWeekAimStore } from "../../store/weekAimStore";
 import { IconClose } from "../common/icons";
-import { AimStamp, PlanLine, RouteTag, type AimPlace } from "./parts";
+import { isLineOpen } from "../report/reportJumps";
+import { AimStamp, PlanLine, RouteTag, aimPlacePath, type AimPlace } from "./parts";
 
 const EMPTY: WeekAimRow[] = [];
 
@@ -35,6 +39,7 @@ const EMPTY: WeekAimRow[] = [];
 export function useReviewData(aimKey: string) {
   const stationId = stationIdOfKey(aimKey);
   const stations = useNodeStore((s) => s.stations);
+  const routes = useNodeStore((s) => s.routes);
   const station = stationId ? (stations.find((x) => x.id === stationId) ?? null) : null;
   let next: string | null;
   if (periodOfKey(aimKey) !== "station") next = adjacentKey(aimKey, 1);
@@ -52,7 +57,9 @@ export function useReviewData(aimKey: string) {
     if (next) void useWeekAimStore.getState().loadWeek(next);
   }, [next]);
   const toCarry = uncarried(aims, next ? aimsOfKey(nextAims, next) : EMPTY);
-  return { aims, next, planned, result, toCarry, station, stationRouteId: station?.parent_id ?? null };
+  const stationRouteId = station?.parent_id ?? null;
+  const stationRouteName = stationRouteId ? (routes.find((r) => r.id === stationRouteId)?.name ?? null) : null;
+  return { aims, next, planned, result, toCarry, station, stationRouteId, stationRouteName };
 }
 
 /** 帶過去的那一期怎麼稱呼：下週／這週／下個月／明年…；車站一律「下一站」 */
@@ -81,6 +88,22 @@ export function reviewCells(result: ReviewResult | null, nodeId: string | null) 
   return { stamps, time, money, loading: result === null };
 }
 
+function buildAimDiaryItems(
+  aims: readonly WeekAimRow[],
+  placeOf: (id: string | null) => AimPlace | null,
+  stationRouteName: string | null,
+) {
+  return aims.map((a) => {
+    const place = placeOf(a.node_id);
+    const routeLabel = place ? aimPlacePath(place) : stationRouteName;
+    return {
+      text: a.text,
+      done: a.done_at !== null,
+      routeLabel,
+    };
+  });
+}
+
 /** 桌機：告示換成回顧表 */
 export function ReviewBoard({
   aimKey,
@@ -94,11 +117,31 @@ export function ReviewBoard({
   placeOf(id: string | null): AimPlace | null;
 }) {
   const d = useReviewData(aimKey);
+  const [writingDiary, setWritingDiary] = useState(false);
   const head = periodTitle(aimKey, today, weekStart);
   const title = reviewTitle(aimKey, today, weekStart);
   const close = () => void useWeekAimStore.getState().closeReview();
   const closeTitle = periodOfKey(aimKey) === "week" ? "收起回顧（回到本週方針）" : "收起回顧";
   const rangeText = periodOfKey(aimKey) === "station" ? stationHeadText(d.station) : head.range;
+  const canWriteDiary = d.aims.length > 0 && isLineOpen("notes", "desktop");
+
+  const onWriteDiary = async () => {
+    if (writingDiary) return;
+    setWritingDiary(true);
+    try {
+      await useReportStore.getState().writeAimsReviewToDiary({
+        day: today,
+        title,
+        rangeText,
+        aims: buildAimDiaryItems(d.aims, placeOf, d.stationRouteName),
+        shell: "desktop",
+        onBeforeJump: close,
+      });
+    } finally {
+      setWritingDiary(false);
+    }
+  };
+
   return (
     <section className="wa is-review" aria-label={title}>
       <div className="wa-board">
@@ -175,21 +218,33 @@ export function ReviewBoard({
             </tbody>
           </table>
         )}
-        {d.toCarry.length > 0 && (
+        {(canWriteDiary || d.toCarry.length > 0) && (
           <div className="wa-rv-foot">
-            {d.next === null && <span className="hint">{NO_NEXT_HINT}</span>}
+            {d.toCarry.length > 0 && d.next === null && <span className="hint">{NO_NEXT_HINT}</span>}
             <span className="sp" />
-            <button
-              type="button"
-              className="ns-btn btn-ghost"
-              aria-haspopup="dialog"
-              disabled={d.next === null}
-              onClick={() => {
-                if (d.next) useWeekAimStore.getState().openEditor(d.next, d.toCarry);
-              }}
-            >
-              帶到{nextRelOf(aimKey, d.next, today, weekStart)}（{d.toCarry.length} 句）
-            </button>
+            {canWriteDiary && (
+              <button
+                type="button"
+                className="ns-btn btn-ghost"
+                disabled={writingDiary}
+                onClick={() => void onWriteDiary()}
+              >
+                寫成日記 ›
+              </button>
+            )}
+            {d.toCarry.length > 0 && (
+              <button
+                type="button"
+                className="ns-btn btn-ghost"
+                aria-haspopup="dialog"
+                disabled={d.next === null}
+                onClick={() => {
+                  if (d.next) useWeekAimStore.getState().openEditor(d.next, d.toCarry);
+                }}
+              >
+                帶到{nextRelOf(aimKey, d.next, today, weekStart)}（{d.toCarry.length} 句）
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -214,13 +269,39 @@ export function ReviewList({
   onCarry(next: string, toCarry: readonly WeekAimRow[]): void;
   /** 車站小卡桌機也用這份清單（路線標跳的地方隨殼） */
   shell?: "desktop" | "mobile";
-  /** 點路線標之前（小卡收起來） */
+  /** 點路線標或寫成日記之前（小卡收起來） */
   onGo?: () => void;
 }) {
   const d = useReviewData(aimKey);
+  const [writingDiary, setWritingDiary] = useState(false);
+  const head = periodTitle(aimKey, today, weekStart);
+  const title = reviewTitle(aimKey, today, weekStart);
+  const rangeText = periodOfKey(aimKey) === "station" ? stationHeadText(d.station) : head.range;
+  const canWriteDiary = d.aims.length > 0 && isLineOpen("notes", shell);
+
+  const onWriteDiary = async () => {
+    if (writingDiary) return;
+    setWritingDiary(true);
+    try {
+      await useReportStore.getState().writeAimsReviewToDiary({
+        day: today,
+        title,
+        rangeText,
+        aims: buildAimDiaryItems(d.aims, placeOf, d.stationRouteName),
+        shell,
+        onBeforeJump: () => {
+          void useWeekAimStore.getState().closeReview();
+          onGo?.();
+        },
+      });
+    } finally {
+      setWritingDiary(false);
+    }
+  };
+
   return (
     <>
-      {d.aims.length === 0 && <p className="wa-ms-empty">{periodTitle(aimKey, today, weekStart).rel}沒有寫方針。</p>}
+      {d.aims.length === 0 && <p className="wa-ms-empty">{head.rel}沒有寫方針。</p>}
       {d.aims.map((a, i) => {
         const place = placeOf(a.node_id);
         const viaRoute = a.node_id === null && d.stationRouteId !== null;
@@ -246,19 +327,33 @@ export function ReviewList({
           </div>
         );
       })}
-      {d.toCarry.length > 0 && (
+      {(canWriteDiary || d.toCarry.length > 0) && (
         <div className="wa-ms-links">
-          <button
-            type="button"
-            className="ns-btn btn-ghost ns-btn--sm"
-            disabled={d.next === null}
-            onClick={() => {
-              if (d.next) onCarry(d.next, d.toCarry);
-            }}
-          >
-            帶到{nextRelOf(aimKey, d.next, today, weekStart)}（{d.toCarry.length} 句）
-          </button>
-          {d.next === null && <span className="wa-sub">{NO_NEXT_HINT}</span>}
+          {canWriteDiary && (
+            <button
+              type="button"
+              className="ns-btn btn-ghost ns-btn--sm"
+              disabled={writingDiary}
+              onClick={() => void onWriteDiary()}
+            >
+              寫成日記 ›
+            </button>
+          )}
+          {d.toCarry.length > 0 && (
+            <>
+              <button
+                type="button"
+                className="ns-btn btn-ghost ns-btn--sm"
+                disabled={d.next === null}
+                onClick={() => {
+                  if (d.next) onCarry(d.next, d.toCarry);
+                }}
+              >
+                帶到{nextRelOf(aimKey, d.next, today, weekStart)}（{d.toCarry.length} 句）
+              </button>
+              {d.next === null && <span className="wa-sub">{NO_NEXT_HINT}</span>}
+            </>
+          )}
         </div>
       )}
     </>

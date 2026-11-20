@@ -5,7 +5,7 @@
  * 三格加起來＝這一期到現在的有效長度（契約 7.1-3；domain 保證 recorded＋pending＋unrecorded＝effective）。
  */
 import { fmtDur } from "../../../domain/timetable";
-import { shiftPeriod, type StatsResult } from "../../../domain/timetableStats";
+import { fmtCountDelta, shiftPeriod, type StatsResult } from "../../../domain/timetableStats";
 import { TT_TEXT, useTimetableStore } from "../../../store/timetableStore";
 import { compareSpanText } from "./format";
 import { Delta } from "./parts";
@@ -17,12 +17,16 @@ export function SummaryStrip({ r, ws, desktop }: { r: StatsResult; ws: 0 | 1; de
   const n = c.pendingIds.length;
   const same = r.compare === "sameSpan";
   const prevKey = shiftPeriod(r.period, r.key, -1, ws);
+  const countDiff = c.recordedCount - r.prev.recordedCount;
   return (
     <>
       <div className="ns-tt-stats-sum">
         <div className="ns-tt-stats-cell">
           <span className="k">{TT_TEXT.statsRecorded}</span>
-          <b className="ns-tt-num">{fmtDur(c.recordedMs)}</b>
+          <span className="ns-tt-stats-cmain">
+            <b className="ns-tt-num">{fmtDur(c.recordedMs)}</b>
+            <span className="ns-tt-stats-csub ns-tt-num">{T.countTimes(c.recordedCount)}</span>
+          </span>
         </div>
         <div className="ns-tt-stats-cell">
           <span className="k">{TT_TEXT.statsUnrecorded}</span>
@@ -46,7 +50,9 @@ export function SummaryStrip({ r, ws, desktop }: { r: StatsResult; ws: 0 | 1; de
       </div>
       <div className="ns-tt-stats-cmp">
         <p>
-          {TT_TEXT.statsCompare(r.period, same)}：{T.cmpRecorded} <Delta ms={c.recordedMs - r.prev.recordedMs} prevMs={r.prev.recordedMs} showTitle={desktop} />
+          {TT_TEXT.statsCompare(r.period, same)}：{T.cmpRecorded}{" "}
+          <Delta ms={c.recordedMs - r.prev.recordedMs} prevMs={r.prev.recordedMs} showTitle={desktop} />
+          <span className="ns-tt-stats-cmp-cnt ns-tt-num"> · {fmtCountDelta(countDiff)}</span>
         </p>
         <p className="ns-tt-stats-cmp-span ns-tt-num">{compareSpanText(r.period, r.prevWindow, same, prevKey)}</p>
       </div>

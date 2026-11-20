@@ -22,6 +22,7 @@ import { useTimetableScheduleStore } from "./timetableScheduleStore";
 import { useTimetableStatsStore } from "./timetableStatsStore";
 import { useTicketStore } from "./ticketStore";
 import { useDepotStore } from "./depotStore";
+import { useReportStore } from "./reportStore";
 import {
   MAX_NAV_HISTORY,
   baseKeyOf,
@@ -44,6 +45,7 @@ export function captureNavSnapshot(): NavSnapshot {
   const ttStats = useTimetableStatsStore.getState();
   const tk = useTicketStore.getState();
   const depot = useDepotStore.getState();
+  const report = useReportStore.getState();
   return {
     page: ui.page,
     routeOverview: ui.routeOverview,
@@ -72,6 +74,7 @@ export function captureNavSnapshot(): NavSnapshot {
     ticketSearchOpen: tk.searchOpen,
     depotTab: depot.tab,
     depotBookId: depot.bookId,
+    reportDay: report.focusedDay,
     settingsOpen: ui.settingsOpen,
     settingsTab: ui.settingsTab,
     quickJumpOpen: ui.quickJumpOpen,
@@ -200,6 +203,8 @@ function stepUpHierarchyFallback(): boolean {
     if (tt.sheet) {
       if (tt.sheet.kind === "goal" && tt.sheet.back === "goals") {
         tt.openSheet({ kind: "categories", tab: "goals" });
+      } else if (tt.sheet.kind === "topic" && tt.sheet.back === "topics") {
+        tt.openSheet({ kind: "categories", tab: "topics" });
       } else {
         tt.closeSheet();
       }
@@ -267,6 +272,14 @@ function stepUpHierarchyFallback(): boolean {
     const depot = useDepotStore.getState();
     if (depot.bookId !== null) {
       depot.openBook(null);
+      return true;
+    }
+  }
+
+  if (ui.page === "report") {
+    const rep = useReportStore.getState();
+    if (rep.focusedDay !== null) {
+      rep.closeDaySpread();
       return true;
     }
   }
@@ -413,6 +426,13 @@ function applyNavSnapshot(snap: NavSnapshot): void {
           }
           if (depot.bookId !== snap.depotBookId) {
             depot.openBook(snap.depotBookId);
+          }
+          break;
+        }
+        case "report": {
+          const rep = useReportStore.getState();
+          if (rep.focusedDay !== snap.reportDay) {
+            rep.setFocusedDay(snap.reportDay, "desktop");
           }
           break;
         }
@@ -602,4 +622,7 @@ useTicketStore.subscribe((s, p) => {
 });
 useDepotStore.subscribe((s, p) => {
   if (s.tab !== p.tab || s.bookId !== p.bookId) scheduleFlush();
+});
+useReportStore.subscribe((s, p) => {
+  if (s.focusedDay !== p.focusedDay) scheduleFlush();
 });

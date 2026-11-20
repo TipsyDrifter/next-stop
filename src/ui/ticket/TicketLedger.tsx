@@ -37,7 +37,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useHotkeyRevision } from "../shell/useHotkeyRevision";
-import { useTicketStore } from "../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { useUiStore } from "../../store/uiStore";
 import { useNodeStore } from "../../store/nodeStore";
 import { useTagStore } from "../../store/tagStore";
@@ -46,15 +46,18 @@ import { formatChord, hotkeyById } from "../shell/hotkeys";
 import { roundelStyle } from "../common/roundel";
 import {
   ACCOUNT_GROUPS,
-  MAIN_CURRENCY,
-  MAIN_SYMBOL,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   addMonths,
   categoryLabel,
   categoryPath,
+  currencySymbol,
+  formatDisplayMoney,
   groupByDay,
+  mainCurrencyOf,
+  maskedMoneyText,
   monthOf,
+  monthRangeLabel,
   monthTitle,
   moneyText,
   rowAmount,
@@ -90,6 +93,7 @@ import { TicketCalendar } from "./view/TicketCalendar";
 import { TicketStats } from "./view/TicketStats";
 // 第二輪（D-票-79）：帳戶分頁
 import { AccountsView } from "./view/AccountsView";
+import { IconEyeMasked, IconEyeOpen, IconPadlock } from "./parts/TicketLockGate";
 
 /* ───────── 共用小件（桌機三個元件共用） ───────── */
 
@@ -285,13 +289,21 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   const pendingDay = useTicketStore((s) => s.pendingDay);
   const dayNotice = useTicketStore((s) => s.dayNotice);
   const totals = useTicketStore((s) => s.totals);
+  const monthStartDay = useTicketStore((s) => s.monthStartDay);
+  const privacyMasked = useTicketStore((s) => s.privacyMasked);
+  const hasLockPin = useTicketStore((s) => s.hasLockPin);
+  const masked = useTicketStore(isTicketAmountMasked);
   const tagIndex = useTagStore((s) => s.index);
 
   const today = todayKey(dayStartHour);
-  const thisMonth = monthOf(today);
+  const thisMonth = monthOf(today, monthStartDay);
   // 頁首 stats 的月份字：看的是當月寫「本月」，翻到別的月份寫「9月」（跟大標的「9月」同寫法；年份大標旁邊已經有了）
   const monthWord = month === thisMonth ? "本月" : `${Number(month.slice(5, 7))}月`;
-  const mainDec = curByCode[MAIN_CURRENCY]?.decimals ?? 2;
+  const mainCur = mainCurrencyOf(curByCode);
+  const mainCode = mainCur.code;
+  const mainDec = mainCur.decimals;
+  const mainSym = currencySymbol(mainCode);
+  const rangeLabel = monthRangeLabel(month, monthStartDay);
   const routeById = useMemo(() => {
     const m: Record<string, NodeRow> = {};
     for (const r of routes) m[r.id] = r;
@@ -299,7 +311,10 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   }, [routes]);
 
   // 有帳的月（判斷往前接的停點、月份分隔）
-  const monthsWithRows = useMemo(() => new Set(entries.map((e) => monthOf(e.occurred_on))), [entries]);
+  const monthsWithRows = useMemo(
+    () => new Set(entries.map((e) => monthOf(e.occurred_on, monthStartDay))),
+    [entries, monthStartDay],
+  );
   const months = loadedMonths.length ? loadedMonths : [month];
   let trailingEmpty = 0;
   for (let i = months.length - 1; i >= 1; i--) {
@@ -354,11 +369,12 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
       { ...listFilter, accountId: listFilter.accountId ?? filterAccountId },
       listSort,
       ctx,
+      monthStartDay,
     );
-  }, [inMonthActive, entries, month, listFilter, listSort, filterAccountId, accById, catById, curByCode, routes, tagIndex, entriesVersion]);
+  }, [inMonthActive, entries, month, listFilter, listSort, filterAccountId, accById, catById, curByCode, routes, tagIndex, entriesVersion, monthStartDay]);
   const monthSummaryText = useMemo(
-    () => (inMonthActive ? inMonthSummary(monthFilteredRows, mainDec) : null),
-    [inMonthActive, monthFilteredRows, mainDec],
+    () => (inMonthActive ? inMonthSummary(monthFilteredRows, mainDec, { masked, currency: mainCode }) : null),
+    [inMonthActive, monthFilteredRows, mainDec, masked, mainCode],
   );
   const yearMode = view === "stats" && span === "year";
   const acctMode = view === "accounts"; // 第二輪（D-票-79）：帳戶分頁——大標「帳戶」、頁首那行帳戶數與資產負債、「＋ 帳戶」
@@ -460,9 +476,9 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
   /* 一筆帳簿行（月份清單與搜尋結果共用）；day＝平面清單（金額排序）每列前面的日期字 */
   const rowOf = (e: EntryRow, day?: string): ReactNode => {
     const active = panelOpen && selectedId === e.id;
-    const amt = rowAmount(e, filterAccountId, accById);
+    const amt = rowAmount(e, filterAccountId, accById, mainCode);
     const cur = curByCode[amt.currency];
-    const foreign = amt.currency !== MAIN_CURRENCY;
+    const foreign = amt.currency !== mainCode;
     const route = e.route_id ? routeById[e.route_id] : undefined;
     return (
       <li
@@ -505,10 +521,10 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         </span>
         <span
           className="ns-tk-amt"
-          title={foreign && amt.convMain !== null ? `≈ ${MAIN_SYMBOL} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
+          title={!masked && foreign && amt.convMain !== null ? `≈ ${mainSym} ${moneyText(amt.convMain, mainDec, { whole: true })}` : undefined}
         >
-          <b>{moneyText(amt.minor, cur?.decimals ?? 2)}</b>
-          {foreign && <span className="cur">{amt.currency}</span>}
+          <b>{masked ? maskedMoneyText(amt.currency) : moneyText(amt.minor, cur?.decimals ?? 2)}</b>
+          {!masked && foreign && <span className="cur">{amt.currency}</span>}
         </span>
         <i className="rule" aria-hidden />
       </li>
@@ -524,9 +540,9 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
         <span className="w">{w}</span>
         {g.dayKey === today && <span className="today">今天</span>}
         <span className="s">
-          {g.expense !== 0 && moneyText(g.expense, mainDec)}
+          {g.expense !== 0 && formatDisplayMoney(g.expense, mainDec, { masked, currency: mainCode })}
           {g.expense !== 0 && g.income !== 0 && " · "}
-          {g.income !== 0 && <span className="pos">{moneyText(g.income, mainDec, { prefix: "＋" })}</span>}
+          {g.income !== 0 && <span className="pos">{formatDisplayMoney(g.income, mainDec, { prefix: "＋", masked, currency: mainCode })}</span>}
         </span>
       </li>,
     );
@@ -552,7 +568,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     } else {
       const shown = pageResults(results, page);
       const shownIds = new Set(shown.map((e) => e.id));
-      const spanMonths = new Set(results.map((e) => monthOf(e.occurred_on))).size > 1;
+      const spanMonths = new Set(results.map((e) => monthOf(e.occurred_on, monthStartDay))).size > 1;
       if (flat) {
         // 金額排序：平面清單，每列帶日期（跨年才印年）
         for (const e of shown) resultItems.push(rowOf(e, flatDayText(e.occurred_on, flatSpanYears)));
@@ -603,7 +619,7 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
     }
     let curMonth = months[0];
     days.forEach((g: DayGroup) => {
-      const m = monthOf(g.dayKey);
+      const m = monthOf(g.dayKey, monthStartDay);
       if (m !== curMonth) {
         curMonth = m;
         items.push(
@@ -670,28 +686,63 @@ export function TicketLedger({ listRef, onOpen }: TicketLedgerProps) {
               <span className="ns-tk-backlbl">回 {backLabel}</span>
             </button>
           ) : yearMode || acctMode ? undefined : (
-            <span className="ns-tk-headyear">{month.slice(0, 4)}年</span>
+            <>
+              <span className="ns-tk-headyear">{month.slice(0, 4)}年</span>
+              {rangeLabel && (
+                <span className="ns-tk-headrange" title={`自訂帳務月區間（每月 ${monthStartDay} 日起算）`}>
+                  {rangeLabel}
+                </span>
+              )}
+            </>
           )
+        }
+        stamp={
+          <span className="ns-tk-headpriv" role="group" aria-label="帳本隱私">
+            <button
+              type="button"
+              className={"ns-iconbtn ns-tk-maskbtn" + (privacyMasked ? " is-on" : "")}
+              aria-pressed={privacyMasked}
+              aria-label={privacyMasked ? "解除金額隱私遮罩" : "開啟金額隱私遮罩"}
+              title={privacyMasked ? "顯示真實金額" : "隱藏金額（****）"}
+              onClick={() => store().togglePrivacyMask()}
+            >
+              {privacyMasked ? <IconEyeMasked size={15} /> : <IconEyeOpen size={15} />}
+            </button>
+            {hasLockPin && (
+              <button
+                type="button"
+                className="ns-iconbtn ns-tk-lockbtn"
+                aria-label="鎖定帳本"
+                title="立即鎖定帳本"
+                onClick={() => store().lockLedger()}
+              >
+                <IconPadlock size={15} />
+              </button>
+            )}
+          </span>
         }
         stats={
           searching ? (
-            results ? resultSummary(results, mainDec) : "正在找…"
+            results ? resultSummary(results, mainDec, { masked, currency: mainCode }) : "正在找…"
           ) : acctMode ? (
             liveAccounts > 0 ? (
               <>
-                <b>{liveAccounts}</b> 個帳戶 ・ 資產 <b>{moneyText(totals.asset, mainDec)}</b> ・ 負債 <b>{moneyText(totals.liability, mainDec)}</b>
+                <b>{liveAccounts}</b> 個帳戶 ・ 資產{" "}
+                <b>{formatDisplayMoney(totals.asset, mainDec, { masked, currency: mainCode })}</b> ・ 負債{" "}
+                <b>{formatDisplayMoney(totals.liability, mainDec, { masked, currency: mainCode })}</b>
               </>
             ) : undefined
           ) : view !== "stats" && monthSum && filterAccountId === null && (monthSum.income !== 0 || monthSum.expense !== 0) ? (
             <>
               {/* 「本月／9月」在頁首窄（1280 開大票）時收起，讓收入那段不被省略掉（ticket.css T1 區 container query） */}
-              <span className="ns-tk-statlbl">{monthWord}</span>支出 <b>{moneyText(monthSum.expense, mainDec)}</b> ・ 收入{" "}
-              <b className="pos">{moneyText(monthSum.income, mainDec, { prefix: "＋" })}</b>
+              <span className="ns-tk-statlbl">{monthWord}</span>支出{" "}
+              <b>{formatDisplayMoney(monthSum.expense, mainDec, { masked, currency: mainCode })}</b> ・ 收入{" "}
+              <b className="pos">{formatDisplayMoney(monthSum.income, mainDec, { prefix: "＋", masked, currency: mainCode })}</b>
             </>
           ) : view !== "stats" && filterAcc ? (
             // 篩帳戶時 store 不算本月收支（轉帳兩頭算不清）：改寫筆數，stats 行不消失、頁首高度不跳
             <>
-              {monthWord} <b>{entries.filter((e) => monthOf(e.occurred_on) === month).length}</b> 筆
+              {monthWord} <b>{entries.filter((e) => monthOf(e.occurred_on, monthStartDay) === month).length}</b> 筆
             </>
           ) : undefined
         }

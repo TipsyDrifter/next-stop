@@ -2,7 +2,7 @@
  * repeatText——定期帳列的字，兩殼共用（修正-UI：桌機 RepeatManager 與手機 MobileRepeatSheet 原本各寫一套，
  * 被擋原因、同名帳戶、備註去重三處對不上）。只管「印什麼字」，排版各殼自己決定。
  */
-import { MAIN_CURRENCY, UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, bareName, moneyText, quickAmountText, type AccountRow, type CategoryRow, type CurrencyRow } from "../../../domain/ticket";
+import { UNCAT_EXPENSE_ID, UNCAT_INCOME_ID, bareName, mainCurrencyOf, maskedMoneyText, moneyText, quickAmountText, type AccountRow, type CategoryRow, type CurrencyRow } from "../../../domain/ticket";
 import { parseFixedRule, type RepeatRow } from "../../../domain/ticketPlan";
 
 const alive = <T extends { deleted_at: string | null }>(x: T | undefined): x is T => !!x && x.deleted_at === null;
@@ -26,11 +26,19 @@ export function repeatWarn(
 }
 
 /** 金額段：「−12,000」「＋5,000」「⇄1,000」；外幣另回代碼 */
-export function repeatAmount(r: RepeatRow, curByCode: Readonly<Record<string, CurrencyRow>>): { text: string; code: string | null } {
+export function repeatAmount(r: RepeatRow, curByCode: Readonly<Record<string, CurrencyRow>>, masked = false): { text: string; code: string | null } {
+  const mainCode = mainCurrencyOf(Object.values(curByCode));
   const cur = curByCode[r.currency];
   const dec = cur ? cur.decimals : 2;
-  const text = r.kind === "transfer" ? moneyText(r.amount_minor, dec, { prefix: "⇄" }) : quickAmountText(r.kind, r.amount_minor, dec);
-  const foreign = r.currency !== MAIN_CURRENCY && !(cur && cur.is_main === 1);
+  const text = masked
+    ? maskedMoneyText(r.currency, {
+        prefix: r.kind === "transfer" ? "⇄" : r.kind === "income" ? "＋" : "−",
+        withSymbol: false,
+      })
+    : r.kind === "transfer"
+      ? moneyText(r.amount_minor, dec, { prefix: "⇄" })
+      : quickAmountText(r.kind, r.amount_minor, dec);
+  const foreign = r.currency !== mainCode && !(cur && cur.is_main === 1);
   return { text, code: foreign ? r.currency : null };
 }
 

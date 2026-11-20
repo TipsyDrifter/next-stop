@@ -19,7 +19,7 @@
  */
 import { useState } from "react";
 import { useTicketStore } from "../../store/ticketStore";
-import { MAIN_CURRENCY, groupAccounts, archivedAccounts, type AccountRow } from "../../domain/ticket";
+import { archivedAccounts, groupAccounts, mainCurrencyOf, type AccountRow } from "../../domain/ticket";
 import { Money } from "./parts/Money";
 import { useCollapsedSet } from "../sidebar/useCollapsedSet";
 import { TkIcon, acctLabel } from "./TicketLedger";
@@ -29,6 +29,7 @@ export function TicketSide() {
   const accounts = useTicketStore((s) => s.accounts);
   const balances = useTicketStore((s) => s.balances);
   const totals = useTicketStore((s) => s.totals);
+  const mainCode = useTicketStore((s) => mainCurrencyOf(s.curByCode).code);
   const filterAccountId = useTicketStore((s) => s.filterAccountId);
   const panel = useTicketStore((s) => s.panel);
   const [archOpen, setArchOpen] = useState(false);
@@ -81,15 +82,15 @@ export function TicketSide() {
       <div className="ns-tk-total" aria-label="合計">
         <span>資產</span>
         <b>
-          <Money minor={totals.asset} currency={MAIN_CURRENCY} />
+          <Money minor={totals.asset} currency={mainCode} />
         </b>
         <span>負債</span>
         <b>
-          <Money minor={totals.liability} currency={MAIN_CURRENCY} />
+          <Money minor={totals.liability} currency={mainCode} />
         </b>
         <span className="sum">合計</span>
         <b className="sum">
-          <Money minor={totals.net} currency={MAIN_CURRENCY} />
+          <Money minor={totals.net} currency={mainCode} />
         </b>
       </div>
         <button

@@ -563,7 +563,7 @@ describe("整份與 zip", () => {
     assert.equal(JSON.parse(new TextDecoder().decode(j.bytes)).scope, "tasks");
 
     const c = D.buildExportPayload("all", "csv", input, META);
-    assert.equal(c.fileCount, 6 + 2 + 4 + 8); // 任務含理想手札＋車窗問答（0022）；售票口含候車室種類（0019）
+    assert.equal(c.fileCount, 6 + 2 + 5 + 8); // 任務含理想手札＋車窗問答（0022）；時刻表含統計專題（0023）；售票口含候車室種類（0019）
     assert.deepEqual([...c.bytes.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04], "zip 的開頭");
   });
 

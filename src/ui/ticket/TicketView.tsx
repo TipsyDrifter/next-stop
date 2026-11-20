@@ -17,6 +17,7 @@ import { useTicketStore } from "../../store/ticketStore";
 import { TicketLedger } from "./TicketLedger";
 import { TicketPanel } from "./TicketPanel";
 import { DesktopDialogHost } from "./DesktopDialogHost";
+import { TicketLockGate, TicketUnmaskPrompt } from "./parts/TicketLockGate";
 import { focusPanelAmount, useTicketKeyboard } from "./useTicketKeyboard";
 import "./ticket.css";
 
@@ -27,6 +28,9 @@ export function TicketView() {
   const dialog = useTicketStore((s) => s.dialog);
   const ready = useTicketStore((s) => s.ready);
   const entries = useTicketStore((s) => s.entries);
+  const hasLockPin = useTicketStore((s) => s.hasLockPin);
+  const lockUnlocked = useTicketStore((s) => s.lockUnlocked);
+  const locked = hasLockPin && !lockUnlocked;
 
   useEffect(() => {
     void useTicketStore
@@ -63,10 +67,17 @@ export function TicketView() {
   }, []);
 
   return (
-    <div ref={rootRef} className="page ns-tk" tabIndex={-1} aria-label="售票口" data-panel={panel.kind}>
-      <TicketLedger listRef={listRef} onOpen={open} />
-      <TicketPanel freshId={freshId} onBackToList={backToList} />
-      <DesktopDialogHost />
+    <div ref={rootRef} className="page ns-tk" tabIndex={-1} aria-label="售票口" data-panel={locked ? "none" : panel.kind}>
+      {ready && locked ? (
+        <TicketLockGate />
+      ) : (
+        <>
+          <TicketLedger listRef={listRef} onOpen={open} />
+          <TicketPanel freshId={freshId} onBackToList={backToList} />
+          <DesktopDialogHost />
+        </>
+      )}
+      <TicketUnmaskPrompt shell="desktop" />
     </div>
   );
 }

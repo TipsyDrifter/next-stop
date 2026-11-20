@@ -5,10 +5,11 @@
  * `short`＝只要類型金額與帳戶（對話框每列後面的淡字，太長會擠掉名字）。
  */
 import {
-  MAIN_CURRENCY,
   UNCAT_EXPENSE_ID,
   UNCAT_INCOME_ID,
   categoryLabel,
+  mainCurrencyOf,
+  maskedMoneyText,
   moneyText,
   type AccountRow,
   type CategoryRow,
@@ -41,14 +42,21 @@ interface WhatSrc {
 const KIND_WORD: Record<WhatSrc["kind"], string> = { expense: "支出", income: "收入", transfer: "轉帳" };
 const isUncat = (id: string | null): boolean => id === UNCAT_INCOME_ID || id === UNCAT_EXPENSE_ID;
 
-function whatText(src: WhatSrc, ctx: WhatCtx, tags: readonly string[], short: boolean): string {
+function whatText(src: WhatSrc, ctx: WhatCtx, tags: readonly string[], short: boolean, masked = false): string {
   const parts: string[] = [];
+  const mainCode = mainCurrencyOf(Object.values(ctx.curByCode));
   const acc = src.accountId ? ctx.accById[src.accountId] : undefined;
-  const cur = src.currency ?? acc?.currency ?? MAIN_CURRENCY;
+  const cur = src.currency ?? acc?.currency ?? mainCode;
   const dec = ctx.curByCode[cur]?.decimals ?? 2;
+  const amtStr =
+    src.amountMinor === null
+      ? null
+      : masked
+        ? maskedMoneyText(cur, { withSymbol: false })
+        : moneyText(Math.abs(src.amountMinor), dec);
   parts.push(
-    src.amountMinor !== null
-      ? `${KIND_WORD[src.kind]} ${moneyText(Math.abs(src.amountMinor), dec)}${cur !== MAIN_CURRENCY ? ` ${cur}` : ""}`
+    amtStr !== null
+      ? `${KIND_WORD[src.kind]} ${amtStr}${cur !== mainCode ? ` ${cur}` : ""}`
       : KIND_WORD[src.kind],
   );
   if (acc && acc.deleted_at === null) {

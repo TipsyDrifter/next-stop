@@ -7,20 +7,23 @@
  * 口徑同運行報告的卡片：済＝domain/seals.ts；記錄＝時刻表統計「日」的已記錄；花了＝售票口今天的支出。
  * 今天清單變動、回到前景、每分鐘（時間塊在跑、別頁記的帳）重讀；第一次還沒讀到就不畫（不留空殼）。
  */
+import { formatReportMoney } from "../../domain/report";
 import { fmtDur } from "../../domain/timetable";
-import { moneyText } from "../../domain/ticket";
 import { useReportStore } from "../../store/reportStore";
+import { isTicketAmountMasked, useTicketStore } from "../../store/ticketStore";
 import { openReport, type ReportShellKind } from "./reportJumps";
 import { useReload } from "./useReportReload";
 import "./report.css";
 
 export function TodayBrief({ shell }: { shell: ReportShellKind }) {
   const brief = useReportStore((s) => s.brief);
+  const amountMasked = useTicketStore(isTicketAmountMasked);
   useReload(() => void useReportStore.getState().loadBrief(shell), 60_000);
   if (!brief) return null;
+  const spentText = brief.spent !== null ? formatReportMoney(brief.spent, brief.decimals, amountMasked) : null;
   const parts = [`済 ${brief.seals}`];
   if (brief.recordedMs !== null) parts.push(`記錄 ${fmtDur(brief.recordedMs)}`);
-  if (brief.spent !== null) parts.push(`花了 ${moneyText(brief.spent, brief.decimals, { whole: true })}`);
+  if (spentText !== null) parts.push(`花了 ${spentText}`);
   return (
     <button
       type="button"
@@ -37,9 +40,9 @@ export function TodayBrief({ shell }: { shell: ReportShellKind }) {
             記錄 <b className="num">{fmtDur(brief.recordedMs)}</b>
           </span>
         )}
-        {brief.spent !== null && (
+        {spentText !== null && (
           <span>
-            花了 <b className="amt">{moneyText(brief.spent, brief.decimals, { whole: true })}</b>
+            花了 <b className="amt">{spentText}</b>
           </span>
         )}
       </span>

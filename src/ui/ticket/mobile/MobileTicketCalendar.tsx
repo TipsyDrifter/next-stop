@@ -12,10 +12,10 @@
  *   手機那是全螢幕表單、會把剛捲到的清單蓋掉，所以跳完若開了 entry 面板就收起（選取留著）。
  */
 import { useRef } from "react";
-import { useTicketStore } from "../../../store/ticketStore";
+import { isTicketAmountMasked, useTicketStore } from "../../../store/ticketStore";
 import { useUiStore } from "../../../store/uiStore";
 import { todayKey } from "../../../lib/date";
-import { MAIN_CURRENCY, moneyText } from "../../../domain/ticket";
+import { formatDisplayMoney, mainCurrencyOf } from "../../../domain/ticket";
 import { cellText, shortDay, weekdayHeads, type CalendarCell } from "../../../domain/ticketView";
 import { useViewSwipe } from "./MobileViewBar";
 import { useCalendarTodayFresh } from "../resume";
@@ -25,7 +25,9 @@ export function MobileTicketCalendar() {
   const calendar = useTicketStore((s) => s.calendar);
   const month = useTicketStore((s) => s.month);
   const overDay = useTicketStore((s) => s.overDay); // 第③階段（✎-6）：本月總預算被超過的那一天
-  const dec = useTicketStore((s) => s.curByCode[MAIN_CURRENCY]?.decimals ?? 2);
+  const mainCur = useTicketStore((s) => mainCurrencyOf(s.curByCode));
+  const masked = useTicketStore(isTicketAmountMasked);
+  const dec = mainCur.decimals;
   const weekStart = useUiStore((s) => s.weekStart);
   const dayStartHour = useUiStore((s) => s.dayStartHour);
   const today = todayKey(dayStartHour);
@@ -60,7 +62,16 @@ export function MobileTicketCalendar() {
           <div className="ns-tk-mcal-grid ns-daycells" role="group" aria-label={`${Number(month.slice(5, 7))}月每天的收支`}>
             {calendar.flatMap((week) =>
               week.map((c) => (
-                <Cell key={c.dayKey} c={c} dec={dec} future={c.dayKey > today} over={c.inMonth && c.dayKey === overDay} onPick={pick} />
+                <Cell
+                  key={c.dayKey}
+                  c={c}
+                  dec={dec}
+                  mainCode={mainCur.code}
+                  masked={masked}
+                  future={c.dayKey > today}
+                  over={c.inMonth && c.dayKey === overDay}
+                  onPick={pick}
+                />
               )),
             )}
           </div>
@@ -71,13 +82,31 @@ export function MobileTicketCalendar() {
   );
 }
 
-function Cell({ c, dec, future, over, onPick }: { c: CalendarCell; dec: number; future: boolean; over: boolean; onPick(day: string): void }) {
-  const t = c.inMonth ? cellText(c, dec, true) : { expense: "", income: null };
+function Cell({
+  c,
+  dec,
+  mainCode,
+  masked,
+  future,
+  over,
+  onPick,
+}: {
+  c: CalendarCell;
+  dec: number;
+  mainCode: string;
+  masked: boolean;
+  future: boolean;
+  over: boolean;
+  onPick(day: string): void;
+}) {
+  const t = c.inMonth ? cellText(c, dec, true, masked) : { expense: "", income: null };
   const label =
     shortDay(c.dayKey) +
     (c.count === 0
       ? "：沒有紀錄"
-      : `：支出 ${moneyText(c.expense, dec, { whole: true })}${c.income !== 0 ? `、收入 ${moneyText(c.income, dec, { whole: true })}` : ""}`) +
+      : `：支出 ${formatDisplayMoney(c.expense, dec, { whole: true, masked, currency: mainCode })}${
+          c.income !== 0 ? `、收入 ${formatDisplayMoney(c.income, dec, { whole: true, masked, currency: mainCode })}` : ""
+        }`) +
     (c.isToday ? "（今天）" : "") +
     (over ? "；這天超出當月總預算" : "");
   const cls = "ns-tk-mcalday" + (future ? " is-future" : "") + (over ? " is-over" : "");

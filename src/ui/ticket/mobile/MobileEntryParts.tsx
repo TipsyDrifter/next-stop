@@ -23,7 +23,7 @@ import { Segmented } from "../../common/Segmented";
 import { RecallInput } from "../../common/RecallInput";
 import { MobileDatePicker } from "../../common/MobileDatePicker";
 import { keyOf } from "../../../domain/tags";
-import { MAIN_CURRENCY, moneyText, type AccountRow, type CurrencyRow, type TemplateRow } from "../../../domain/ticket";
+import { mainCurrencyOf, moneyText, type AccountRow, type CurrencyRow, type TemplateRow } from "../../../domain/ticket";
 import { REPEAT_QUICK_FREQS, REPEAT_QUICK_TEXT, quickFirstRun, type RepeatQuick, type RepeatQuickFreq } from "../../../domain/ticketPlan";
 import { WEEKDAY_LABEL, WEEKDAY_ORDER } from "../../../domain/repeat";
 import { dayStep, shortDay } from "../../../domain/ticketView";
@@ -38,11 +38,12 @@ export function templateAmountText(
   curByCode: Readonly<Record<string, CurrencyRow>>,
 ): string {
   if (t.amount_minor === null) return "—";
-  const code = t.currency ?? (t.account_id ? accById[t.account_id]?.currency : undefined) ?? MAIN_CURRENCY;
+  const mainCode = mainCurrencyOf(Object.values(curByCode));
+  const code = t.currency ?? (t.account_id ? accById[t.account_id]?.currency : undefined) ?? mainCode;
   const dec = curByCode[code]?.decimals ?? 2;
   const abs = Math.abs(t.amount_minor);
   const body = t.kind === "expense" ? moneyText(-abs, dec) : moneyText(abs, dec, { prefix: t.kind === "income" ? "＋" : "⇄" });
-  return code === MAIN_CURRENCY ? body : `${body} ${code}`;
+  return code === mainCode ? body : `${body} ${code}`;
 }
 
 export function TemplateCards({ activeId }: { activeId: string | null }) {
